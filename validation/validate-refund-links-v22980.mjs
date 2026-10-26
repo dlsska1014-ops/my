@@ -36,10 +36,10 @@ const FLAG_OFF_GOLDEN = {
   "backupFull": "200 045b7cca80de34947914aa09",
   "backupMonth": "200 7b3d34659fee8cf6451badab",
   "candidate": "200 a6b1bff39f137b2ee926b0f6",
-  "legacyErr": "200 32afcc96ee33616a38e78182",
+  "legacyErr": "200 788f11350d64690095b52119", // V22.9.81 U-19: 옛 관리자 화면 오류 칸이 record_update_failed 를 코드 글자 대신 안내 문장으로 보인다(의도한 변경)
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
   "apiBatch": "200 {\"ok\":true,\"updatedCount\":1}",
-  "adminBulk": "303 /?legacy=1&month=2026-10&household_id=house-home&tab=transactions&msg=1%EA%B1%B4+%EC%9D%BC%EA%B4%84+%EC%88%98%EC%A0%95+%EC%99%84%EB%A3%8C",
+  "adminBulk": "303 /?legacy=1&month=2026-10&household_id=house-home&tab=transactions&msg=bulk_updated", // V22.9.81 U-18: 일괄 수정 성공은 코드로 보낸다(의도한 변경)
   "kakaoDelete": "59d0ab376fbb9feece99ac94",
   "kakaoUndoItem": "4b4cef4eedf1c84f21621d08",
   "kakaoRestore": "6e0dda7e90c6a0802b704a2d",

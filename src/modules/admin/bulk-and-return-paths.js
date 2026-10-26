@@ -39,7 +39,9 @@ async function handleAdminBulkUpdate(request, env) {
 
     if (String(form.get("bulk_delete") || "") === "1") {
       await bulkTransactionsAtomic(env, ids, householdId, {}, { actorKind: "admin_bulk", delete: true });
-      return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg: "bulk_deleted" }), { msg: `${ids.length}건 삭제 완료` }));
+      // V22.9.81 U-18: 성공 안내는 코드로 보낸다. 예전에는 ‘N건 삭제 완료’ 자유 문장이 코드를 덮어써, 화면의 formatMessage 가 모르는 값으로 읽고
+      // ‘요청을 처리하지 못했습니다’(실패 문장)를 초록 성공 칸에 보였다.
+      return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg: "bulk_deleted" }), { msg: "bulk_deleted" }));
     }
 
     const patch = {};
@@ -75,7 +77,8 @@ async function handleAdminBulkUpdate(request, env) {
       const note = `선택한 ${ids.length}건 중 ${outcome.updatedIds.length}건을 수정했습니다. 환불과 연결돼 바꿀 수 없는 ${outcome.skipped.length}건은 그대로 두었습니다. 연결은 정산 화면의 ‘환불·환급’에서 풀 수 있습니다.`;
       return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: note }), { err: note }));
     }
-    return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg: "bulk_updated" }), { msg: `${ids.length}건 일괄 수정 완료` }));
+    // V22.9.81 U-18: 일괄 수정 성공도 코드(bulk_updated)로 보낸다(자유 문장 ‘N건 일괄 수정 완료’는 화면에서 실패 문장으로 보였다).
+    return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg: "bulk_updated" }), { msg: "bulk_updated" }));
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_bulk_update_failed", severity: "warn", path: "/admin/transactions/bulk", method: "POST", detail: safeError(err) });
     // V22.9.80 T-12: 트리거가 막았는데 막힌 기록을 가려내지 못했거나 모두 막혔으면 아무것도 바뀌지 않았다. 이유를 그대로 알린다.

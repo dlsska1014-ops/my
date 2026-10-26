@@ -3,13 +3,15 @@
 //         → V22.9.80 T-35 와 같이 엄격한 조회: 실패는 ‘권한을 확인하지 못해 아무것도 바꾸지 않았어요’로 알리고 아무것도 바꾸지 않는다.
 //         흐름·수정 세션은 그대로 두어 같은 답을 다시 보내면 이어진다. 조회는 예전처럼 한 번이다(카카오 4초 예산).
 // 서버가 그린 화면·리다이렉트·카카오 답장은 app.fetch 로 보고, 지운 함수·느슨한 조회는 소스 모듈을 직접 읽어 확인한다.
-// 사용: node validation/validate-roles-v22981.mjs [kakao|source]
+//   U-18  옛 관리자 화면(/?legacy=1)의 일괄 수정·삭제 성공이 ‘N건 … 완료’ 자유 문장으로 와서 초록 칸에 ‘요청을 처리하지 못했습니다’로 보였다 → 코드(bulk_updated·bulk_deleted).
+//   U-19  같은 화면의 오류 칸이 환불 연결 코드가 아닌 코드(record_update_failed·edit_busy 등)를 코드 글자 그대로 보였다 → 코드 모양이면 formatMessage(모르는 코드는 일반 안내).
+// 사용: node validation/validate-roles-v22981.mjs [kakao|admin|source]
 // V22981_SOFT=1 이면 실패해도 멈추지 않고 모아서 끝에 보여 준다(고치기 전 코드에서 몇 개가 실패하는지 세기 위해). V22981_LIST=1 을 함께 주면 통과한 검사도 모두 적는다.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { counter, failure, fixture, intercept, putSetting, settingValue, skill, withClock } from "./lib-audit-v22934.mjs";
-import { kakaoGroupLinkItemSettingsKey } from "../src/index.js";
+import { BASE, app, counter, ctx, failure, fixture, intercept, page, post, putSetting, settingValue, skill, withClock } from "./lib-audit-v22934.mjs";
+import { formatMessage, kakaoGroupLinkItemSettingsKey } from "../src/index.js";
 
 const SOFT = process.env.V22981_SOFT === "1";
 const only = process.argv[2] || "";
@@ -184,6 +186,78 @@ await section("kakao", async () => {
     t.ok((await say("이 이름으로 만들기", { groupKey: room })).includes("바꿀까요"), "U-4 조회가 되면 예전처럼 연결을 바꿀지 묻는다");
   });
 });
+
+// ── U-18·U-19 옛 관리자 화면(/?legacy=1): 일괄 처리 성공 안내와 오류 코드 ─────────────────────────────────────
+const GENERIC = formatMessage("not_a_known_code_v22981");
+const LEGACY = "/?legacy=1&month=2026-07&household_id=house-home&tab=transactions";
+const txId = (n) => `0e000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const okBox = (html) => (String(html || "").match(/<div class="ok">([^<]*)<\/div>/) || [, null])[1];
+const errorBox = (html) => (String(html || "").match(/<div class="error">([^<]*)<\/div>/) || [, null])[1];
+const paramOf = (location, name) => new URL(location || "/", BASE).searchParams.get(name);
+let adminSeq = 0;
+async function adminLogin(fx) {
+  adminSeq += 1;
+  const response = await app.fetch(new Request(`${BASE}/login`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded", origin: BASE, "sec-fetch-site": "same-origin", accept: "text/html", "cf-connecting-ip": `198.51.100.${120 + adminSeq}` },
+    body: new URLSearchParams({ password: "qa-admin-pass", return_to: "/?legacy=1" }).toString(),
+  }), fx.env, ctx);
+  return ((response.headers.get("set-cookie") || "").match(/ab_admin=[^;]+/) || [""])[0];
+}
+// 일괄 처리 RPC(accountbook_bulk_transactions_v227)는 픽스처에 없어 메모리로 흉내 낸다(한 문장 — 다 바꾸거나 하나도 안 바꾼다).
+async function adminFixture(task) {
+  return withClock("2026-07-15", () => fixture(async (fx) => {
+    fx.env.ADMIN_SESSION_SECRET = "qa-admin-session-secret";
+    fx.env.ADMIN_PASSWORD = "qa-admin-pass";
+    for (const [n, memo] of [[1, "장보기"], [2, "택시"], [3, "약국"]]) {
+      fx.db.transactions.push({ id: txId(n), household_id: "house-home", user_id: "user-bin", transaction_date: "2026-07-10", type: "expense", amount: 1000 * n, category: "식비", memo, payment_method: "카드", created_at: `2026-07-10T0${n}:00:00.000Z` });
+    }
+    const restore = intercept(({ url, init }) => {
+      if (url.pathname !== "/rest/v1/rpc/accountbook_bulk_transactions_v227") return null;
+      const body = JSON.parse(String(init.body || "{}"));
+      const ids = (body.p_transaction_ids || []).map(String);
+      const rows = ids.map((id) => fx.db.transactions.find((row) => String(row.id) === id && row.household_id === body.p_household_id));
+      if (rows.some((row) => !row)) return new Response(JSON.stringify({ code: "P0001", message: "bulk_transaction_not_found" }), { status: 400, headers: { "content-type": "application/json" } });
+      if (body.p_delete) fx.db.transactions = fx.db.transactions.filter((row) => !ids.includes(String(row.id)));
+      else for (const row of rows) Object.assign(row, body.p_patch || {});
+      return new Response(JSON.stringify([{ affected: ids.length }]), { status: 200, headers: { "content-type": "application/json" } });
+    });
+    try { return await task(fx, await adminLogin(fx)); } finally { restore(); }
+  }));
+}
+
+await section("admin", () => adminFixture(async (fx, admin) => {
+  t.ok(!!admin, "U-18 관리자 로그인 쿠키를 얻는다");
+  const updated = await post(fx, "/admin/bulk", new URLSearchParams([["ids", txId(1)], ["ids", txId(2)], ["household_id", "house-home"], ["month", "2026-07"], ["bulk_payment_method", "현금"]]), { cookie: admin });
+  t.eq(updated.status, 303, "U-18 일괄 수정은 예전처럼 화면으로 돌려보낸다");
+  t.eq(paramOf(updated.location, "msg"), "bulk_updated", `U-18 일괄 수정 성공은 코드 bulk_updated 로 보낸다 (${decodeURIComponent(updated.location).slice(0, 120)})`);
+  t.ok(fx.db.transactions.filter((row) => [txId(1), txId(2)].includes(row.id)).every((row) => row.payment_method === "현금"), "U-18 일괄 수정은 예전처럼 저장된다");
+  const updatedPage = await page(fx, updated.location, { cookie: admin });
+  t.eq(okBox(updatedPage.html), formatMessage("bulk_updated"), "U-18 화면의 성공 칸은 ‘선택 항목을 일괄 수정했습니다.’다");
+  t.ok(!String(okBox(updatedPage.html) || "").includes("처리하지 못했습니다"), "U-18 일괄 수정 성공을 실패 문장으로 보이지 않는다");
+  const returned = await post(fx, "/admin/bulk", new URLSearchParams([["ids", txId(1)], ["household_id", "house-home"], ["month", "2026-07"], ["bulk_category", "생활"], ["return_to", `${LEGACY}&page=2`]]), { cookie: admin });
+  t.ok(paramOf(returned.location, "msg") === "bulk_updated" && paramOf(returned.location, "page") === "2", "U-18 돌아갈 주소(return_to)가 있어도 코드를 보내고 그 주소를 지킨다");
+  const removed = await post(fx, "/admin/bulk", new URLSearchParams([["ids", txId(3)], ["household_id", "house-home"], ["month", "2026-07"], ["bulk_delete", "1"]]), { cookie: admin });
+  t.eq(paramOf(removed.location, "msg"), "bulk_deleted", "U-18 일괄 삭제 성공은 코드 bulk_deleted 로 보낸다");
+  t.ok(!fx.db.transactions.some((row) => row.id === txId(3)), "U-18 일괄 삭제는 예전처럼 지운다");
+  const removedPage = await page(fx, removed.location, { cookie: admin });
+  t.eq(okBox(removedPage.html), formatMessage("bulk_deleted"), "U-18 화면의 성공 칸은 ‘선택 항목을 삭제했습니다.’다");
+  const empty = await post(fx, "/admin/bulk", new URLSearchParams([["household_id", "house-home"], ["month", "2026-07"], ["bulk_payment_method", "현금"]]), { cookie: admin });
+  t.eq(errorBox((await page(fx, empty.location, { cookie: admin })).html), "선택된 거래가 없습니다.", "U-19 예전 자유 문장 오류는 그대로 보인다");
+
+  // 오류 칸: 기록 처리 경로가 보내는 코드는 안내 문장으로, 모르는 코드는 일반 안내로(코드 글자는 보이지 않는다).
+  for (const code of ["record_update_failed", "edit_busy", "edit_unknown", "record_not_found", "ambiguous_field", "amount_required", "amount_unit_required", "invalid_date", "db_write_unknown", "request_conflict", "write_denied_viewer", "write_denied_not_member", "not_my_record", "household_role_check_failed", "member_record_only", "member_policy_unavailable"]) {
+    const shown = errorBox((await page(fx, `${LEGACY}&err=${code}`, { cookie: admin })).html);
+    t.ok(!!shown && shown === formatMessage(code) && shown !== GENERIC && !shown.includes(code), `U-19 오류 코드 ${code} 는 안내 문장으로 보인다 (${String(shown).slice(0, 50)})`);
+  }
+  const unknown = errorBox((await page(fx, `${LEGACY}&err=zz_unknown_v22981`, { cookie: admin })).html);
+  t.ok(unknown === GENERIC && !String(unknown).includes("zz_unknown_v22981"), "U-19 모르는 코드는 코드 글자 대신 일반 안내로 보인다");
+  t.eq(errorBox((await page(fx, `${LEGACY}&err=refund_link_locked_category`, { cookie: admin })).html), formatMessage("refund_link_locked_category"), "U-19 환불 연결 코드는 예전처럼 안내 문장이다");
+  const note = "선택한 2건 중 1건을 수정했습니다. 환불과 연결돼 바꿀 수 없는 1건은 그대로 두었습니다.";
+  t.eq(errorBox((await page(fx, `${LEGACY}&err=${encodeURIComponent(note)}`, { cookie: admin })).html), note, "U-19 일괄 수정 건너뛰기 안내(문장)는 예전처럼 그대로 보인다");
+  const tagged = (await page(fx, `${LEGACY}&err=${encodeURIComponent("<b>x</b>")}`, { cookie: admin })).html;
+  t.ok(tagged.includes('<div class="error">&lt;b&gt;x&lt;/b&gt;</div>') && !tagged.includes("<b>x</b>"), "U-19 문장 오류는 예전처럼 이스케이프한다");
+}));
 
 // ── 소스: 고친 카카오 흐름이 실패를 빈 역할로 바꾸는 느슨한 조회를 더는 쓰지 않는다 ──────────────────────────
 await section("source", async () => {
