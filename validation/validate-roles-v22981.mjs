@@ -7,13 +7,16 @@
 //   U-19  같은 화면의 오류 칸이 환불 연결 코드가 아닌 코드(record_update_failed·edit_busy 등)를 코드 글자 그대로 보였다 → 코드 모양이면 formatMessage(모르는 코드는 일반 안내).
 //   U-1   시작가이드(/start-guide)가 고른 가계부가 아니라 첫 가계부의 역할·주소로 링크를 그렸다 → 고른 가계부 기준.
 //   U-2   자산·결제수단 화면(/payment-methods)이 주소의 err 를 그대로 그렸다(아무 문장이나 이 사이트 오류처럼 보였다) → 처리기는 코드를 보내고 화면은 formatMessage.
-// 사용: node validation/validate-roles-v22981.mjs [kakao|admin|guide|payments|source]
+//   U-3   정기 수입·지출 화면의 고정항목 저장·삭제·반영 거절·실패가 err 에 자유 문장으로 실려 일반 안내로 보였다 → 코드(recurring_amount_invalid·amount_too_large·
+//         recurring_save_failed·recurring_not_found·recurring_delete_failed·recurring_spender_required·recurring_apply_failed).
+// 사용: node validation/validate-roles-v22981.mjs [kakao|admin|guide|payments|recurring|source]
 // V22981_SOFT=1 이면 실패해도 멈추지 않고 모아서 끝에 보여 준다(고치기 전 코드에서 몇 개가 실패하는지 세기 위해). V22981_LIST=1 을 함께 주면 통과한 검사도 모두 적는다.
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { BASE, app, counter, ctx, failure, fixture, intercept, page, post, putSetting, settingValue, skill, withClock } from "./lib-audit-v22934.mjs";
 import { formatMessage, kakaoGroupLinkItemSettingsKey } from "../src/index.js";
+import { budgetPlanMessage } from "../src/modules/domain/budgets.js";
 
 const SOFT = process.env.V22981_SOFT === "1";
 const only = process.argv[2] || "";
@@ -343,6 +346,57 @@ await section("payments", () => withClock("2026-07-15", () => fixture(async (fx)
   t.eq(errOf(res), "payment_asset_save_failed", "U-2 저장이 실패하면 payment_asset_save_failed 다");
   t.ok(errs.every((value) => value && formatMessage(value) !== GENERIC), `U-2 처리기가 보낸 오류는 모두 안내 문장이 있는 코드다 (${[...new Set(errs)].join(", ")})`);
   t.ok((await create({ name: "비상금", kind: "cash", balance: "30000" })).location.includes("msg=payment_asset_saved"), "U-2 정상 추가는 예전처럼 성공 코드다");
+})));
+
+// ── U-3 정기 수입·지출(고정항목) 처리기: 거절·실패는 코드로 돌아오고 화면이 안내 문장을 보인다 ─────────────────────────────
+const planText = (code) => budgetPlanMessage(code) || formatMessage(code);
+await section("recurring", () => withClock("2026-07-15", () => fixture(async (fx) => {
+  const scope = { household_id: "house-home", month: "2026-07" };
+  const RP = "/reserve-plans?household_id=house-home&month=2026-07";
+  const rule = { ...scope, type: "expense", amount: "50000", category: "통신", memo: "인터넷", payment_method: "카드", day_of_month: "10", user_id: "user-bin" };
+  const errs = [];
+  const errOf = (res) => { const value = paramOf(res.location, "err"); errs.push(value); return value; };
+  const shownOn = async (code) => { const html = (await page(fx, `${RP}&err=${encodeURIComponent(code)}`)).html; return { html, ok: html.includes(planText(code)) && !html.includes(GENERIC) }; };
+  const failing = async (match, task, status = 400) => {
+    const restore = intercept(({ url, method }) => (match(url, method) ? failure(status, "write rejected") : null));
+    try { return await task(); } finally { restore(); }
+  };
+  const recurringRows = () => JSON.stringify(fx.db.accountbook_recurring);
+  const before = recurringRows();
+  let res = await post(fx, "/admin/recurring/save", { ...rule, amount: "" });
+  t.eq(errOf(res), "recurring_amount_invalid", "U-3 금액을 비운 고정항목 저장은 recurring_amount_invalid 로 돌아온다(예전 ‘고정항목 금액을 입력하세요.’ 문장)");
+  t.ok((await shownOn("recurring_amount_invalid")).ok, "U-3 정기 화면은 금액 안내 문장을 보인다(일반 안내가 아니다)");
+  res = await post(fx, "/admin/recurring/save", { ...rule, amount: "3000000000" });
+  t.eq(errOf(res), "amount_too_large", "U-3 20억 원을 넘는 금액은 amount_too_large 다");
+  t.ok((await shownOn("amount_too_large")).ok, "U-3 정기 화면은 ‘20억 원 이하’ 안내를 보인다");
+  res = await failing((url, method) => url.pathname === "/rest/v1/accountbook_recurring" && method === "POST", () => post(fx, "/admin/recurring/save", rule));
+  t.eq(errOf(res), "recurring_save_failed", "U-3 저장이 실패하면 recurring_save_failed 다");
+  t.ok((await shownOn("recurring_save_failed")).ok, "U-3 정기 화면은 저장 실패 안내를 보인다");
+  t.eq(recurringRows(), before, "U-3 거절·실패한 저장은 고정항목을 바꾸지 않는다");
+  res = await post(fx, "/admin/recurring/delete", { ...scope, id: "recurring-nope" });
+  t.eq(errOf(res), "recurring_not_found", "U-3 없는 고정항목 삭제는 recurring_not_found 다(예전 ‘삭제할 고정항목이 없습니다.’ 문장)");
+  t.ok((await shownOn("recurring_not_found")).ok, "U-3 정기 화면은 찾지 못했다는 안내를 보인다");
+  res = await failing((url, method) => url.pathname === "/rest/v1/accountbook_recurring" && method === "DELETE", () => post(fx, "/admin/recurring/delete", { ...scope, id: "recurring-rent" }));
+  t.eq(errOf(res), "recurring_delete_failed", "U-3 삭제가 실패하면 recurring_delete_failed 다");
+  t.ok((await shownOn("recurring_delete_failed")).ok, "U-3 정기 화면은 삭제 실패 안내를 보인다");
+  const gone = intercept(({ url, method }) => (url.pathname === "/rest/v1/accountbook_recurring" && method === "DELETE" ? new Response("[]", { status: 200, headers: { "content-type": "application/json" } }) : null));
+  try { res = await post(fx, "/admin/recurring/delete", { ...scope, id: "recurring-rent" }); } finally { gone(); }
+  t.eq(errOf(res), "recurring_not_found", "U-3 그사이 지워져 지울 줄이 없었으면 ‘삭제하지 못했다’가 아니라 recurring_not_found 다");
+  t.eq(recurringRows(), before, "U-3 실패한 삭제는 고정항목을 바꾸지 않는다");
+  const txBefore = fx.db.transactions.length;
+  res = await failing((url, method) => url.pathname === "/rest/v1/accountbook_recurring" && method === "GET", () => post(fx, "/admin/recurring/apply", { ...scope, confirmed: "yes" }));
+  t.eq(errOf(res), "recurring_apply_failed", "U-3 쓰기 전에 실패한 반영은 recurring_apply_failed 다");
+  t.ok((await shownOn("recurring_apply_failed")).ok && (await shownOn("recurring_apply_failed")).html.includes("기존 기록은 변경하지 않았습니다"), "U-3 정기 화면은 ‘기존 기록은 변경하지 않았습니다’를 보인다");
+  res = await failing((url, method) => url.pathname === "/rest/v1/rpc/accountbook_apply_recurring_v227" && method === "POST", () => post(fx, "/admin/recurring/apply", { ...scope, confirmed: "yes" }));
+  t.eq(errOf(res), "recurring_apply_failed", "U-3 반영 RPC 가 거절해도(지출자 문제가 아니면) recurring_apply_failed 다");
+  // 픽스처의 RPC 오류 본문(message)에 recurring_spender_required 를 싣는다.
+  const spenderMissing = intercept(({ url, method }) => (url.pathname === "/rest/v1/rpc/accountbook_apply_recurring_v227" && method === "POST" ? failure(400, "recurring_spender_required") : null));
+  try { res = await post(fx, "/admin/recurring/apply", { ...scope, confirmed: "yes" }); } finally { spenderMissing(); }
+  t.eq(errOf(res), "recurring_spender_required", "U-3 지출자 없는 규칙으로 막힌 반영은 recurring_spender_required 다");
+  t.ok((await shownOn("recurring_spender_required")).ok, "U-3 정기 화면은 지출자를 먼저 지정하라고 안내한다");
+  t.eq(fx.db.transactions.length, txBefore, "U-3 실패한 반영은 기록을 넣지 않는다");
+  t.ok(errs.every((value) => value && planText(value) !== GENERIC && planText(value) !== ""), `U-3 처리기가 보낸 오류는 모두 안내 문장이 있는 코드다 (${[...new Set(errs)].join(", ")})`);
+  t.eq(paramOf((await post(fx, "/admin/recurring/save", rule)).location, "msg"), "recurring_saved", "U-3 정상 저장은 예전처럼 recurring_saved 다");
 })));
 
 // ── 소스: 고친 카카오 흐름이 실패를 빈 역할로 바꾸는 느슨한 조회를 더는 쓰지 않는다 ──────────────────────────

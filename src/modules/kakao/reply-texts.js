@@ -105,6 +105,9 @@ function formatMessage(msg) {
     payment_asset_save_failed: "자산 저장을 완료하지 못했습니다. 기존 자산은 변경되지 않았습니다.",
     payment_asset_update_failed: "자산 수정을 완료하지 못했습니다. 기존 값은 유지됩니다.",
     payment_asset_delete_failed: "자산 삭제를 완료하지 못했습니다. 기존 항목은 유지됩니다.",
+    // V22.9.81 U-3: 정기 수입·지출 화면의 고정항목 반영 실패 코드(예전에는 err 에 문장으로 실어 일반 안내로 보였다).
+    recurring_spender_required: "지출자가 정해지지 않은 고정항목이 있어 반영하지 않았습니다. 고정항목의 지출자를 먼저 지정해 주세요.",
+    recurring_apply_failed: "고정항목 반영을 완료하지 못했습니다. 기존 기록은 변경하지 않았습니다.",
   };
   // V22.9.76 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 Object 의 함수 본문을 보였다).
   if (Object.hasOwn(friendly, String(msg)) && friendly[msg]) return escapeHtml(friendly[msg]);

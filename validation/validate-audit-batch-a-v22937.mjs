@@ -180,7 +180,9 @@ await fixture(async (fx) => {
   try { result = await post(fx, "/admin/recurring/apply", { household_id: HOME, month: "2026-07", confirmed: "yes" }); } // V22.9.76 D-11: 지난달 반영은 확인한 요청으로 보낸다
   finally { restore(); }
   eq(fx.db.transactions.length, before, "쓰기 전 조회 실패는 거래를 바꾸지 않는다");
-  ok(locParam(result, "err").includes("기존 기록은 변경하지 않았습니다"), "쓰기 전 실패만 미변경으로 안내한다");
+  // V22.9.81 U-3: 반영 실패는 이제 문장이 아니라 코드(recurring_apply_failed)로 돌아오고 정기 화면이 formatMessage 로 문장을 보인다.
+  eq(locParam(result, "err"), "recurring_apply_failed", "쓰기 전 실패만 미변경으로 안내한다");
+  ok((await page(fx, `/reserve-plans?household_id=${HOME}&month=2026-07&err=recurring_apply_failed`)).html.includes("기존 기록은 변경하지 않았습니다"), "쓰기 전 실패의 미변경 안내가 실제 화면에 보인다");
 });
 
 // ── SIM-8 지난 달 반영 / T7 문제 규칙만 건너뛰기 ─────────────

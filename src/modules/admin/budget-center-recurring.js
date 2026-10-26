@@ -234,7 +234,10 @@ async function handleRecurringSave(request, env) {
   };
   const formProblem = recurringFormProblem(form);
   if (formProblem) return redirectResponse(addQueryToUrl(returnTo, { err: formProblem }));
-  if (!row.amount || !Number.isFinite(row.amount) || row.amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(addQueryToUrl(returnTo, { err: "고정항목 금액을 입력하세요." }));
+  // V22.9.81 U-3: 거절·실패는 자유 문장 대신 코드로 보낸다. 정기 화면(/reserve-plans)은 budgetPlanMessage·formatMessage 표에 있는 코드만 안내로 바꾸고
+  // 문장은 일반 안내(‘요청을 처리하지 못했습니다 …’)로 닫았다 — 금액을 비운 사람도, 저장이 실패한 사람도 같은 일반 안내를 봤다.
+  if (!row.amount || !Number.isFinite(row.amount)) return redirectResponse(addQueryToUrl(returnTo, { err: "recurring_amount_invalid" }));
+  if (row.amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(addQueryToUrl(returnTo, { err: "amount_too_large" }));
   // V22.9.37 감사 SIM-5·T7: 자동 반영과 같은 자격(소유자·관리자·구성원)만 받는다. 조회 전용·대기·차단·나간 지출자의 규칙은
   // 어디서도 반영되지 않으므로 저장 단계에서 막는다.
   if (!spenderId || !recurringSpenderEligible(members, spenderId)) return redirectResponse(addQueryToUrl(returnTo, { err: "recurring_spender_ineligible" }));
@@ -255,7 +258,7 @@ async function handleRecurringSave(request, env) {
     return redirectResponse(addQueryToUrl(returnTo, { msg: "recurring_saved" }));
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_save_failed", severity: "warn", path: "/admin/recurring/save", method: "POST", detail: safeError(err) });
-    return redirectResponse(addQueryToUrl(returnTo, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : /settings_rmw_busy/.test(safeError(err)) ? "recurring_busy" : "고정항목을 저장하지 못했습니다. 기존 항목은 유지되므로 잠시 후 다시 시도해 주세요." }));
+    return redirectResponse(addQueryToUrl(returnTo, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : /settings_rmw_busy/.test(safeError(err)) ? "recurring_busy" : "recurring_save_failed" }));
   }
 }
 
@@ -267,7 +270,7 @@ async function handleRecurringDelete(request, env) {
   const existingRule = id ? await fetchRecurringRuleByIdStrict(env, id) : null;
   const householdId = String(existingRule?.household_id || "").trim();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId || requestedHouseholdId)}#fixed`);
-  if (!id || !existingRule || !householdId) return redirectResponse(addQueryToUrl(returnTo, { err: "삭제할 고정항목이 없습니다." }));
+  if (!id || !existingRule || !householdId) return redirectResponse(addQueryToUrl(returnTo, { err: "recurring_not_found" }));
   const access = await resolveTransactionAccess(request, env, householdId, { manageOnly: true });
   if (!access.ok) {
     if (!access.admin && access.userId) return redirectResponse(addQueryToUrl(returnTo, { err: access.lookupCode || "manage_required" }));
@@ -282,7 +285,8 @@ async function handleRecurringDelete(request, env) {
     return redirectResponse(addQueryToUrl(returnTo, { msg: "recurring_deleted" }));
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_delete_failed", severity: "warn", path: "/recurring/delete", method: "POST", detail: safeError(err) });
-    return redirectResponse(addQueryToUrl(returnTo, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "고정항목을 삭제하지 못했습니다. 기존 항목은 유지됩니다." }));
+    // V22.9.81 U-3: 지울 줄이 없었으면(이미 지워짐) ‘삭제하지 못했다’가 아니라 찾지 못했다고 알린다(/my/recurring/delete 와 같다).
+    return redirectResponse(addQueryToUrl(returnTo, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : String(err?.message || "") === "recurring_not_found" ? "recurring_not_found" : "recurring_delete_failed" }));
   }
 }
 
@@ -389,7 +393,7 @@ async function handleRecurringApply(request, env) {
     rememberOpsEvent({ kind: "recurring_atomic_apply_failed", severity: "warn", path: "/recurring/apply", method: "POST", detail: safeError(err) });
     // 기록은 들어갔는데 끝을 맺지 못했으면(반영 표식 되살리기 실패 등) 스냅숏은 다시 만들기 대기에만 보태 다음 예약 실행이 잇는다.
     if (settled.length) await refreshRecurringReports(env, householdId, settled, month, { queueOnly: true, path: "/recurring/apply" });
-    const message = isUncertainStorageWrite(err) ? "db_write_unknown" : mutationConfirmed || err?.recurringTransactionOutcome ? "recurring_apply_incomplete" : /recurring_spender_required/.test(safeError(err)) ? "고정항목의 지출자를 먼저 지정하세요." : "고정항목 반영을 완료하지 못했습니다. 기존 기록은 변경하지 않았습니다.";
+    const message = isUncertainStorageWrite(err) ? "db_write_unknown" : mutationConfirmed || err?.recurringTransactionOutcome ? "recurring_apply_incomplete" : /recurring_spender_required/.test(safeError(err)) ? "recurring_spender_required" : "recurring_apply_failed";
     return redirectResponse(addQueryToUrl(returnTo, { err: message }));
   }
 }
