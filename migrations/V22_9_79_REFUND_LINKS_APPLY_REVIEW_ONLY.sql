@@ -308,6 +308,27 @@ CREATE TRIGGER refund_link_guard_v22979
 BEFORE UPDATE OF household_id, type, amount, category, transaction_date ON public.transactions
 FOR EACH ROW EXECUTE FUNCTION public.accountbook_refund_link_guard_v22979();
 
+-- 5) V22.9.80 T-11: 가계부를 지우면 환불 ‘수입으로 두기’ 목록(accountbook_settings 'refund_review_kept:<가계부 id>')도 지운다.
+--    가계부 삭제 함수(accountbook_purge_household_v227, docs/db-review/v22961/10_APPLY_LIFECYCLE_REVIEW_ONLY.sql, 2026-10-18 적용)의
+--    키 목록은 고치지 않는다(적용 이력과 V22.9.61 확인 지문을 그대로 둔다). 대신 households 행이 지워질 때 같은 트랜잭션에서
+--    이 한 줄을 지운다. 연결 표의 행은 외래키 ON DELETE CASCADE 로 이미 함께 지워진다. 잠금 순서는 삭제 함수와 같다
+--    (가계부 행 → 설정 행). 이 절만 따로 적용할 때(1~4절을 V22.9.80 전에 이미 적용한 DB)는 BEGIN·가드·이 절·COMMIT 만 새 쿼리 탭에 둔다.
+CREATE FUNCTION public.accountbook_refund_review_kept_cleanup_v22980()
+RETURNS trigger
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = pg_catalog, pg_temp
+AS $body$
+BEGIN
+  DELETE FROM public.accountbook_settings WHERE key = 'refund_review_kept:' || OLD.id::text;
+  RETURN OLD;
+END
+$body$;
+CREATE TRIGGER refund_review_kept_cleanup_v22980
+AFTER DELETE ON public.households
+FOR EACH ROW EXECUTE FUNCTION public.accountbook_refund_review_kept_cleanup_v22980();
+REVOKE ALL ON FUNCTION public.accountbook_refund_review_kept_cleanup_v22980() FROM PUBLIC, anon, authenticated;
+
 REVOKE ALL ON FUNCTION public.accountbook_link_refund_v22979(uuid, uuid, uuid, uuid, bigint, jsonb) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.accountbook_unlink_refund_v22979(uuid, uuid, uuid, bigint) FROM PUBLIC, anon, authenticated;
 REVOKE ALL ON FUNCTION public.accountbook_refund_link_guard_v22979() FROM PUBLIC, anon, authenticated;
@@ -322,7 +343,7 @@ COMMIT;
 -- SELECT p.proname, pg_get_function_identity_arguments(p.oid) AS args, p.prosecdef AS security_definer
 --   FROM pg_proc p JOIN pg_namespace n ON n.oid = p.pronamespace
 --  WHERE n.nspname = 'public' AND p.proname IN ('accountbook_link_refund_v22979', 'accountbook_unlink_refund_v22979', 'accountbook_refund_link_guard_v22979');
--- SELECT tgname, tgenabled FROM pg_trigger WHERE tgname = 'refund_link_guard_v22979';
+-- SELECT tgname, tgenabled FROM pg_trigger WHERE tgname IN ('refund_link_guard_v22979', 'refund_review_kept_cleanup_v22980');
 -- SELECT grantee, privilege_type FROM information_schema.role_table_grants WHERE table_schema = 'public' AND table_name = 'accountbook_refund_links';
 -- SELECT grantee, routine_name FROM information_schema.role_routine_grants WHERE routine_schema = 'public' AND routine_name LIKE 'accountbook_%refund_v22979';
 -- SELECT count(*) AS links FROM public.accountbook_refund_links;
