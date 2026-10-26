@@ -251,8 +251,8 @@ function roleBlockedMessage(role, householdName = "") {
 }
 // @build:exports-start
 export {
-  KAKAO_ROLE_CHECK_FAILED_TEXT, ROLE_CHECK_FAILED_TEXT, cancelPendingHouseholdJoin,
-  ensurePrimaryHousehold, ensureUser, getHouseholdMemberRole, getHouseholdMemberRoleStrict,
-  isHouseholdRoleCheckFailure, joinHouseholdByCode, readHouseholdRoleOrFailure, roleBlockedMessage,
+  KAKAO_ROLE_CHECK_FAILED_TEXT, cancelPendingHouseholdJoin, ensurePrimaryHousehold, ensureUser,
+  getHouseholdMemberRole, getHouseholdMemberRoleStrict, isHouseholdRoleCheckFailure,
+  joinHouseholdByCode, readHouseholdRoleOrFailure, roleBlockedMessage,
 };
 // @build:exports-end
