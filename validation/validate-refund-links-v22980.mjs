@@ -4,8 +4,9 @@
 //         일괄 수정은 막힌 기록만 빼고 나머지를 고친 뒤 몇 건을 뺐는지 알린다.
 //   T-13  전체 기간 JSON 백업은 연결(거래 id 쌍)을 담고, 복구 후보 화면·CSV 백업 화면·카카오 삭제/복구 답장은 연결을 되살리지 않는다고 알린다.
 //   M-7   연결한 환불을 홈·예산·예산 알림·리포트·소비 분석·카카오 요약·남은예산에서 뺀다(환급 날짜의 달, 원지출 분류). 홈 조회는 9회 그대로다.
-// 플래그가 꺼져 있으면 화면·답장·파일이 V22.9.79(29ee7cc)와 바이트 단위로 같아야 한다. FLAG_OFF_GOLDEN 은 V22.9.79 트리에서 이 파일을
-// `--print-golden` 으로 돌려 얻은 값이다(시계 2026-10-15 KST 고정. 실제 시계가 들어가는 칸 — 백업 exported_at·복구 버퍼 expires_at — 은 빼고
+// 플래그가 꺼져 있으면 화면·답장·파일이 이 묶음을 넣기 전 트리와 바이트 단위로 같아야 한다. FLAG_OFF_GOLDEN 은 V22.9.80 통합 때 이 묶음 바로 전
+// 트리(86a43b9 — V22.9.79 위에 다크·입력 해석·역할 표시·데이터 묶음과 자산 주소·판 이름)에서 이 파일을 `--print-golden` 으로 돌려 얻은 값이다
+// (묶음을 만들 때는 V22.9.79(29ee7cc) 트리 값이었다. 시계 2026-10-15 KST 고정. 실제 시계가 들어가는 칸 — 백업 exported_at·복구 버퍼 expires_at — 은 빼고
 // 비교한다). 연결 표의 내장 조회·트리거·일괄 수정 RPC·기록 삭제의 CASCADE 는 메모리 흉내다(운영 DB 에는 아직 없다, 실행 금지 SQL).
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
@@ -16,25 +17,25 @@ import { BASE, app, ctx, fixture, intercept, page, post, skill, withClock } from
 const PRINT_GOLDEN = process.argv.includes("--print-golden");
 const SOFT = process.env.V22980_SOFT === "1";
 const FLAG_OFF_GOLDEN = {
-  "home": "200 d2fe9fe506022ebbc6483528",
-  "homeTrend": "200 c2a31086b54624cfd519b3e8",
-  "homePrev": "200 45888c13f4201499f5fdb8d6",
-  "budgets": "200 05428b7afe8d9aff6eb696cb",
-  "budgetAlerts": "200 f65e210c38575d34e01e63b7",
+  "home": "200 642c60c72da5abcc046b8cd3",
+  "homeTrend": "200 19058ee05339e6cb77bd9e1a",
+  "homePrev": "200 2de35c548e14c046573c523a",
+  "budgets": "200 b4098bb0972fcf644afbc3ee",
+  "budgetAlerts": "200 082ee7b204dcf049292307c6",
   "notifications": "200 df9761ab7204d02ba148aa42",
-  "reports": "200 c97413f03ab672227d8bc452",
-  "reportsWeek": "200 44be38f4093c39b764c497df",
-  "analysis": "200 e3ad1e86ab62e478e3996b53",
-  "backupPage": "200 ac08a74435392b2a4b26fe22",
+  "reports": "200 aa5f26cb6ef20cc7280cdf92",
+  "reportsWeek": "200 438e9727242f652be6b12118",
+  "analysis": "200 26718485a40decb7e92d6d40",
+  "backupPage": "200 fe75214e287a757f00aaff4a",
   "kakao:이번달": "200 98fb6fc3811a3c54849be3cc",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 6687e6f5c01fdef6cb8b18bf",
-  "backupMonth": "200 488ae2e5db4dd074b0833406",
-  "candidate": "200 3f65e1018b288d426b31637b",
-  "legacyErr": "200 2e1abbfc913bd234812827f5",
+  "backupFull": "200 045b7cca80de34947914aa09",
+  "backupMonth": "200 7b3d34659fee8cf6451badab",
+  "candidate": "200 a6b1bff39f137b2ee926b0f6",
+  "legacyErr": "200 32afcc96ee33616a38e78182",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
   "apiBatch": "200 {\"ok\":true,\"updatedCount\":1}",
   "adminBulk": "303 /?legacy=1&month=2026-10&household_id=house-home&tab=transactions&msg=1%EA%B1%B4+%EC%9D%BC%EA%B4%84+%EC%88%98%EC%A0%95+%EC%99%84%EB%A3%8C",
