@@ -93,8 +93,9 @@ const AB_TYPE_HINTS = Object.freeze({
 });
 
 // 1년 캐시되는 불변 자산. 홈 HTML 안에 규칙을 인라인으로 싣던 2,248 B 가 여기로
-// 옮겨오고, 규칙이 자라도 홈 HTML 은 더 이상 무거워지지 않는다.
-const AB_CATEGORY_RULES_ASSET_PATH = "/assets/ab-category-rules-v22976.js";
+// 옮겨오고, 규칙이 자라도 홈 HTML 은 더 이상 무거워지지 않는다. 규칙을 바꾸면 주소를 올린다(V22.9.80 T-16: v22976 → v22980,
+// 옛 주소는 AB_HISTORICAL_RUNTIME_ASSETS 의 옛 바이트).
+const AB_CATEGORY_RULES_ASSET_PATH = "/assets/ab-category-rules-v22980.js";
 const AB_CATEGORY_RULES_SCRIPT_TAG = `<script src="${AB_CATEGORY_RULES_ASSET_PATH}"></script>`;
 function abCategoryRulesJsAsset() {
   return `window.AB_CATEGORY_RULES=${JSON.stringify(CATEGORY_RULES)};window.AB_TYPE_HINTS=${JSON.stringify(AB_TYPE_HINTS)};`;
