@@ -1601,19 +1601,38 @@ function abMonitorOutcome(env, outcome, pending = null) {
   if (pending && typeof pending.then === "function") record.pending = pending;
 }
 
+// V22.9.81 T-43: 사용자 요청 표본과 관제 왕복 확인 표본이 같은 전송(OPS_MONITOR /internal/telemetry·같은 토큰·2초 시한)을 쓴다.
+// 결과는 "sent" 또는 실패 코드(http_NNN·timeout·transport)다. 사용자 표본 쪽은 예전처럼 결과를 쓰지 않는다.
+async function abMonitorPost(env, event) {
+  try {
+    const result = await env.OPS_MONITOR.fetch("https://monitor.internal/internal/telemetry", { method: "POST", headers: { authorization: `Bearer ${env.OPS_MONITOR_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(event), signal: AbortSignal.timeout(2000) });
+    if (result.body) await result.body.cancel();
+    if (!result.ok) { abMonitorSendFailed(new Error(`http_${result.status}`)); return `http_${result.status}`; }
+    return "sent";
+  } catch (error) {
+    abMonitorSendFailed(error); /* Monitoring failure never changes the user's response or retries a write. */
+    return error?.name === "TimeoutError" || error?.name === "AbortError" ? "timeout" : "transport";
+  }
+}
+
 function abMonitorSend(env, event) {
   const minute = Math.floor(Date.now() / 60000);
   if (AB_MONITOR_SEND_BUDGET.minute !== minute) { AB_MONITOR_SEND_BUDGET.minute = minute; AB_MONITOR_SEND_BUDGET.count = 0; }
   if (AB_MONITOR_SEND_BUDGET.count >= 100) return null;
   AB_MONITOR_SEND_BUDGET.count += 1;
   // No original URL, IDs, headers, utterances, database paths, or payloads cross this boundary.
-  return (async () => {
-    try {
-      const result = await env.OPS_MONITOR.fetch("https://monitor.internal/internal/telemetry", { method: "POST", headers: { authorization: `Bearer ${env.OPS_MONITOR_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify(event), signal: AbortSignal.timeout(2000) });
-      if (result.body) await result.body.cancel();
-      if (!result.ok) abMonitorSendFailed(new Error(`http_${result.status}`));
-    } catch (error) { abMonitorSendFailed(error); /* Monitoring failure never changes the user's response or retries a write. */ }
-  })();
+  return abMonitorPost(env, event);
+}
+
+// V22.9.81 T-43: 관제 1.3.0 은 5분 DB 수집 요청에 왕복 확인 id 를 x-ab-monitor-roundtrip 머리로 싣는다. 앱은 사용자 표본과 같은 전송으로
+// 확인 표본(sample_kind "roundtrip", 발화·사용자·주소 없음) 하나를 보내고 결과를 답의 roundtrip 에 붙인다. 관제가 그 표본을 받았는지 보고
+// '표본 0건'이 요청이 적은 것인지 전송 고장인지 가른다. 머리가 없으면(관제 1.2.1) 아무것도 보내지 않고 예전과 같은 바이트로 답한다.
+// OPS_MONITOR 연결이 없으면 사용자 표본도 못 보내므로 not_connected 로 답한다. 분당 전송 예산(사용자 표본 보호)은 쓰지 않는다.
+const AB_MONITOR_ROUNDTRIP_ID = /^[a-zA-Z0-9-]{8,64}$/;
+async function abMonitorRoundtrip(env, id) {
+  if (!env.OPS_MONITOR || !env.OPS_MONITOR_TOKEN) return { id, result: "not_connected" };
+  const result = await abMonitorPost(env, { id, at: Date.now(), route: "api", method: "GET", status: 200, duration_ms: 0, db_count: 0, db_ms: 0, db_failures: 0, db_retries: 0, outcome: "ok", sample_kind: "roundtrip" });
+  return { id, result };
 }
 
 async function abMonitorDeferredResult(env, record, first) {
@@ -1687,18 +1706,26 @@ function abMonitorParseDatabaseMetrics(text) {
   return metrics;
 }
 
-async function abMonitorDatabaseProbe(request, env) {
-  if (!env.OPS_MONITOR_TOKEN || !constantTimeTextEqual(request.headers.get("authorization") || "", `Bearer ${env.OPS_MONITOR_TOKEN}`)) return jsonResponse({ ok: false, error_code: "unauthorized" }, 401);
-  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return jsonResponse({ ok: false, error_code: "not_connected" }, 503);
+async function abMonitorDatabaseMetrics(env) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return { body: { ok: false, error_code: "not_connected" }, status: 503 };
   try {
     const base = new URL(env.SUPABASE_URL);
-    if (base.protocol !== "https:" || !base.hostname.endsWith(".supabase.co")) return jsonResponse({ ok: false, error_code: "invalid_origin" }, 503);
+    if (base.protocol !== "https:" || !base.hostname.endsWith(".supabase.co")) return { body: { ok: false, error_code: "invalid_origin" }, status: 503 };
     const response = await fetch(`${base.origin}/customer/v1/privileged/metrics`, { headers: { authorization: `Basic ${btoa(`service_role:${env.SUPABASE_SERVICE_ROLE_KEY}`)}` }, signal: AbortSignal.timeout(8000) });
-    if (!response.ok) { if (response.body) await response.body.cancel(); return jsonResponse({ ok: false, error_code: `http_${response.status}` }, 503); }
+    if (!response.ok) { if (response.body) await response.body.cancel(); return { body: { ok: false, error_code: `http_${response.status}` }, status: 503 }; }
     const metrics = abMonitorParseDatabaseMetrics(await abMonitorReadBounded(response));
-    if (metrics.database_bytes === undefined && metrics.cpu_counter === null) return jsonResponse({ ok: false, error_code: "unsupported_metrics" }, 503);
-    return jsonResponse({ ok: true, metrics });
-  } catch (_) { return jsonResponse({ ok: false, error_code: "metrics_unavailable" }, 503); }
+    if (metrics.database_bytes === undefined && metrics.cpu_counter === null) return { body: { ok: false, error_code: "unsupported_metrics" }, status: 503 };
+    return { body: { ok: true, metrics }, status: 200 };
+  } catch (_) { return { body: { ok: false, error_code: "metrics_unavailable" }, status: 503 }; }
+}
+
+async function abMonitorDatabaseProbe(request, env) {
+  if (!env.OPS_MONITOR_TOKEN || !constantTimeTextEqual(request.headers.get("authorization") || "", `Bearer ${env.OPS_MONITOR_TOKEN}`)) return jsonResponse({ ok: false, error_code: "unauthorized" }, 401);
+  const roundtripId = request.headers.get("x-ab-monitor-roundtrip") || "";
+  if (!AB_MONITOR_ROUNDTRIP_ID.test(roundtripId)) { const answer = await abMonitorDatabaseMetrics(env); return jsonResponse(answer.body, answer.status); }
+  // V22.9.81 T-43: 확인 표본은 DB 지표 조회와 함께 보낸다(답이 늦어지지 않게). DB 지표가 실패해도 roundtrip 은 붙인다.
+  const [answer, roundtrip] = await Promise.all([abMonitorDatabaseMetrics(env), abMonitorRoundtrip(env, roundtripId).catch(() => ({ id: roundtripId, result: "transport" }))]);
+  return jsonResponse({ ...answer.body, roundtrip }, answer.status);
 }
 
 async function handleComprehensiveMonitor(request, env, url) {
