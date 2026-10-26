@@ -34592,6 +34592,8 @@ body.abV22812Shell .abTransactionSummary>span{font-size:13px;color:var(--sub)}
 body.abV22812Shell .abTransactionSummary>b{display:block;margin:8px 0;font-size:32px;font-weight:700}
 body.abV22812Shell .abTransactionSummary dl>div{display:flex;justify-content:space-between;gap:12px;margin:12px 0}
 body.abV22812Shell .abTransactionSummary dd{margin:0;font-weight:650;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+/* V22.9.81 U-30: 수입 합계가 모바일 홈 CSS 의 .income(#059669)을 받아 흰 바탕 3.77:1 이었다. 수입 토큰 --pos(라이트 #087a55 5.35:1, 다크 #6ee7b7)로 맞춘다. */
+body.abV22812Shell .abTransactionSummary dd.income{color:var(--pos)}
 body.abV22812Shell .abTransactionConditions h3,body.abV22812Shell .abTransactionTools h3{font-size:14px;margin:0 0 12px;font-weight:650}
 body.abV22812Shell .abTransactionConditions p{white-space:pre-line;overflow-wrap:anywhere;font-size:14px;line-height:1.7;color:var(--sub);margin:0}
 body.abV22812Shell .abTransactionTools nav{display:grid;gap:8px;grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -35791,7 +35793,9 @@ body.abV22812Shell .dailyDrill{display:inline-flex;align-items:center;min-height
 body.abV22812Shell .reportChallenge :is(label,label>span,summary){color:#d7dbee!important}
 body.abV22812Shell .reportChallenge summary{color:#fff!important}
 /* 일자별 셀: 빈 날 표시와 금액 요약이 4.5:1을 넘기지 못했다. */
-body.abV22812Shell .dailyCell.noValue{opacity:.78!important}
+/* V22.9.81 U-15: 빈 날을 투명도(.78)로 흐리면 날짜·'·' 이 4.00·3.31:1 로 깎였다. 투명도는 풀고 글자색(--sub)으로 흐린다. */
+body.abV22812Shell .dailyCell.noValue{opacity:1!important}
+body.abV22812Shell .readableTrendGrid .dailyCell.noValue :is(.dailyTop b,.dailyAmt){color:var(--sub)!important}
 body.abV22812Shell .dailyCell :is(span,small){color:var(--sub)!important}
 body.abV22812Shell .dailyCell.hasValue span{color:var(--accent)!important}
 /* 증감 배지는 밝은 카드 위에서 4.5:1을 넘기지 못했다. 대비가 확보된 토큰으로 맞춘다. */

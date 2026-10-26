@@ -1108,7 +1108,9 @@ body.abV22812Shell .dailyDrill{display:inline-flex;align-items:center;min-height
 body.abV22812Shell .reportChallenge :is(label,label>span,summary){color:#d7dbee!important}
 body.abV22812Shell .reportChallenge summary{color:#fff!important}
 /* 일자별 셀: 빈 날 표시와 금액 요약이 4.5:1을 넘기지 못했다. */
-body.abV22812Shell .dailyCell.noValue{opacity:.78!important}
+/* V22.9.81 U-15: 빈 날을 투명도(.78)로 흐리면 날짜·'·' 이 4.00·3.31:1 로 깎였다. 투명도는 풀고 글자색(--sub)으로 흐린다. */
+body.abV22812Shell .dailyCell.noValue{opacity:1!important}
+body.abV22812Shell .readableTrendGrid .dailyCell.noValue :is(.dailyTop b,.dailyAmt){color:var(--sub)!important}
 body.abV22812Shell .dailyCell :is(span,small){color:var(--sub)!important}
 body.abV22812Shell .dailyCell.hasValue span{color:var(--accent)!important}
 /* 증감 배지는 밝은 카드 위에서 4.5:1을 넘기지 못했다. 대비가 확보된 토큰으로 맞춘다. */
