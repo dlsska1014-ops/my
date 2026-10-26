@@ -9,7 +9,8 @@
 //   U-2   자산·결제수단 화면(/payment-methods)이 주소의 err 를 그대로 그렸다(아무 문장이나 이 사이트 오류처럼 보였다) → 처리기는 코드를 보내고 화면은 formatMessage.
 //   U-3   정기 수입·지출 화면의 고정항목 저장·삭제·반영 거절·실패가 err 에 자유 문장으로 실려 일반 안내로 보였다 → 코드(recurring_amount_invalid·amount_too_large·
 //         recurring_save_failed·recurring_not_found·recurring_delete_failed·recurring_spender_required·recurring_apply_failed).
-// 사용: node validation/validate-roles-v22981.mjs [kakao|admin|guide|payments|recurring|source]
+//   U-20  /my 가 /app 으로 넘기면서 msg·err 를 버려 /my/update 등의 결과 안내가 사라졌다 → 둘 다 넘긴다.
+// 사용: node validation/validate-roles-v22981.mjs [kakao|admin|guide|payments|recurring|my|source]
 // V22981_SOFT=1 이면 실패해도 멈추지 않고 모아서 끝에 보여 준다(고치기 전 코드에서 몇 개가 실패하는지 세기 위해). V22981_LIST=1 을 함께 주면 통과한 검사도 모두 적는다.
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -397,6 +398,33 @@ await section("recurring", () => withClock("2026-07-15", () => fixture(async (fx
   t.eq(fx.db.transactions.length, txBefore, "U-3 실패한 반영은 기록을 넣지 않는다");
   t.ok(errs.every((value) => value && planText(value) !== GENERIC && planText(value) !== ""), `U-3 처리기가 보낸 오류는 모두 안내 문장이 있는 코드다 (${[...new Set(errs)].join(", ")})`);
   t.eq(paramOf((await post(fx, "/admin/recurring/save", rule)).location, "msg"), "recurring_saved", "U-3 정상 저장은 예전처럼 recurring_saved 다");
+})));
+
+// ── U-20 /my → /app 넘김이 결과 안내(msg·err)를 버리지 않는다 ─────────────────────────────────────────
+await section("my", () => withClock("2026-07-15", () => fixture(async (fx) => {
+  const plain = await page(fx, "/my?month=2026-07&household_id=house-home");
+  t.eq(`${plain.status} ${plain.location}`, "303 /app?month=2026-07&household_id=house-home", "U-20 안내가 없으면 /app 주소는 예전과 같다");
+  const saved = await page(fx, "/my?month=2026-07&household_id=house-home&msg=updated");
+  t.eq(saved.location, "/app?month=2026-07&household_id=house-home&msg=updated", "U-20 /my 의 msg 를 /app 으로 넘긴다");
+  t.ok((await page(fx, saved.location)).html.includes(formatMessage("updated")), "U-20 /app 이 ‘거래내역을 수정했습니다.’를 보인다");
+  const refused = await page(fx, "/my?month=2026-07&household_id=house-home&err=refund_link_locked_amount");
+  t.eq(paramOf(refused.location, "err"), "refund_link_locked_amount", "U-20 /my 의 err(막힌 이유 포함)를 /app 으로 넘긴다");
+  t.ok((await page(fx, refused.location)).html.includes(formatMessage("refund_link_locked_amount")), "U-20 /app 이 막힌 이유를 보인다");
+  const both = await page(fx, "/my?month=2026-07&household_id=house-home&msg=updated&err=record_update_failed");
+  t.ok(paramOf(both.location, "msg") === "updated" && paramOf(both.location, "err") === "record_update_failed", "U-20 msg 와 err 를 함께 넘긴다");
+  const injected = "<b>지금 02-000-0000 으로 전화</b>";
+  const odd = await page(fx, `/my?month=2026-07&household_id=house-home&err=${encodeURIComponent(injected)}`);
+  t.eq(paramOf(odd.location, "err"), injected, "U-20 넘긴 값은 인코딩돼 주소를 깨지 않는다");
+  const oddHtml = (await page(fx, odd.location)).html;
+  t.ok(!oddHtml.includes("<b>지금") && !oddHtml.includes("02-000-0000") && oddHtml.includes(GENERIC), "U-20 /app 은 넘겨받은 문장을 그대로 보이지 않고 일반 안내로 닫는다");
+  // 실제 흐름: /my/update 결과(myReturnLocation → /my?…#records)가 /app 까지 이어진다.
+  const update = await post(fx, "/my/update", { id: "tx-expense-2", household_id: "house-home", month: "2026-07", type: "expense", amount: "73000", transaction_date: "2026-07-07", memo: "주유", category: "교통", payment_method: "카드" });
+  t.ok(update.location.startsWith("/my?") && paramOf(update.location, "msg") === "updated", `U-20 /my/update 는 예전처럼 /my 로 결과를 보낸다 (${update.location.slice(0, 80)})`);
+  const followed = await page(fx, update.location.replace(/#.*$/, ""));
+  t.eq(paramOf(followed.location, "msg"), "updated", "U-20 그 결과가 /app 넘김에서 사라지지 않는다");
+  fx.db.users.push({ id: "user-solo-v22981", kakao_user_key: "kakao_login:22981", nickname: "혼자", created_at: "2026-07-01T00:00:00.000Z" });
+  const outsider = await page(fx, "/my?month=2026-07&msg=updated", { cookie: await fx.cookieFor("user-solo-v22981") });
+  t.eq(outsider.location, "/my/households?msg=updated#create", "U-20 가계부가 없는 사람의 /my 는 예전처럼 안내를 들고 가계부 만들기로 간다");
 })));
 
 // ── 소스: 고친 카카오 흐름이 실패를 빈 역할로 바꾸는 느슨한 조회를 더는 쓰지 않는다 ──────────────────────────

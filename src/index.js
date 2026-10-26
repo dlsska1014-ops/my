@@ -31514,7 +31514,12 @@ async function handleMyPage(request, env, url) {
   }
   const selectedHousehold = access.selected;
   if (selectedHousehold) {
-    return redirectResponse(`/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selectedHousehold.id)}`);
+    // V22.9.81 U-20: 결과 안내(msg·err)를 버리지 않고 /app 으로 넘긴다. /my/update·/my/delete(myReturnLocation)·카카오 연결·가계부 확인 실패가
+    // /my?msg=…·/my?err=… 로 돌아오는데, 예전에는 이 넘김에서 둘 다 빠져 저장·거절·막힌 이유(V22.9.80 T-12)가 화면에 보이지 않았다.
+    // /app 은 formatMessage 표의 코드만 안내로 바꾼다(모르는 값은 일반 안내). 둘 다 없으면 주소는 예전과 같다.
+    const notices = ["msg", "err"].map((key) => [key, url.searchParams.get(key) || ""]).filter(([, value]) => value)
+      .map(([key, value]) => `&${key}=${encodeURIComponent(value)}`).join("");
+    return redirectResponse(`/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selectedHousehold.id)}${notices}`);
   }
   const user = await fetchUserById(env, userId);
   if (!user) return handleMyLogout();
