@@ -38,6 +38,7 @@ import {
   KAKAO_ROLE_CHECK_FAILED_TEXT, readHouseholdRoleOrFailure,
 } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
+import { parseMultipleTransactions } from "../nlu/transaction-parser.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { extractDate, formatDate, nowKstDate } from "../nlu/date-payment.js";
 import { CATEGORY_RULES, LEGACY_CATEGORY_SPLITS } from "../nlu/category-rules.js";
@@ -82,11 +83,16 @@ function kakaoEditCategoryKnownForTypeV4(name = "", type = "expense", config = {
 // V22.9.77 감사 K-4: 구분을 바꾸면 분류도 새 구분의 분류여야 요약·예산이 맞는다. 새 기록과 같은 분류기(사용자 분류·키워드 →
 // 기본 규칙)로 메모와 원문을 다시 읽는다. 기본값(기타수입·기타지출)밖에 못 찾았을 때, 지금 분류가 새 구분에도 있는 이름이면
 // (사용자 분류 포함) 그대로 두고, 아니면 그 구분의 기본 분류다. 분류기를 읽지 못해도 기본 분류로 바꾼다(다른 구분의 분류를 남기지 않는다).
+// V22.9.81 U-10: 원문에서 저절로 채운 메모(원문을 다시 읽은 메모와 같다)는 근거에 다시 넣지 않는다(T-18 의 저장 때 분류와 같다 — manual_memo: false).
+// 예전에는 ‘용돈 9000 농협체크’를 지출로 바꾸면 메모 ‘용돈 농협’의 ‘농협’이 장보기를 정했다(같은 문장의 새 지출은 기타지출). 직접 고친 메모와
+// 원문이 없는 기록의 메모는 예전처럼 넣는다.
 async function kakaoEditTypeChangeCategoryV4(env, householdId = "", row = {}, toType = "expense", config = {}) {
   const fallback = toType === "income" ? "기타수입" : "기타지출";
   let found = "";
   try {
-    const classified = await resolveManualInputClassification(env, householdId, toType, { raw_text: row.raw_text || "", memo: row.memo || "" });
+    const rawText = String(row.raw_text || ""), memo = String(row.memo || "");
+    const autoMemo = rawText.trim() !== "" && parseMultipleTransactions(rawText, {}).some((parsed) => String(parsed?.memo || "").slice(0, 160) === memo);
+    const classified = await resolveManualInputClassification(env, householdId, toType, { raw_text: rawText, memo, ...(autoMemo ? { manual_memo: false } : {}) });
     found = String(classified?.category || "").trim();
   } catch (_) {}
   if (found && found !== fallback) return found.slice(0, 80);

@@ -21,7 +21,7 @@ import { app, BASE, ctx, counter, fixture, page, post, putSetting, withClock } f
 import { parseMultipleTransactions, parseTransaction } from "../src/index.js";
 import { extractLeadingDateHint, hasDateHint } from "../src/modules/nlu/transaction-parser.js";
 import { joinSpacedKoreanAmount, normalizeInputText } from "../src/modules/client/shared-input-nlu.js";
-import { applyUserSettingsToParsedTransactions } from "../src/modules/settings/payment-assets.js";
+import { applyUserSettingsToParsedTransactions, resolveManualInputClassification } from "../src/modules/settings/payment-assets.js";
 import { parseKakaoSummaryRange } from "../src/modules/kakao/household-budget-commands.js";
 // 새 함수는 이름공간으로 받는다(고치기 전 번들에서 SOFT 모드로 셀 때 없는 이름 때문에 파일 전체가 멈추지 않게).
 import * as dashboardFragments from "../src/modules/admin/dashboard-fragments.js";
@@ -507,6 +507,59 @@ await scene("U-8", async () => {
     // 이름과 글을 모두 소문자로 견준다(예전에는 이름이 대문자면 맞지 않았다). 영문으로 끝나는 이름 뒤에 영문·숫자가 붙으면 맞지 않는다.
     t.eq(web("ott 13500"), "OTT", "U-8 영문 대문자 분류 이름 ‘OTT’도 소문자 글에서 맞는다");
     t.ok(web("ottx 13500") !== "OTT", "U-8 영문 이름 뒤에 영문이 이어지면(‘ottx’) 맞지 않는다");
+  }));
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// U-10. 카카오 기록 수정에서 구분을 바꿀 때, 원문에서 저절로 채운 메모는 분류 근거에 다시 넣지 않는다(T-18 저장 때 분류와 같다)
+// ════════════════════════════════════════════════════════════════════════════════════
+async function typeChange(fx, text, edits = []) {
+  putSetting(fx, "kakao_selected_household_v2251:user-bin", HH);
+  const before = fx.db.transactions.length;
+  await say(fx, text);
+  const row = fx.db.transactions.slice(before)[0];
+  const saved = { type: row?.type, category: row?.category, memo: row?.memo, raw_text: row?.raw_text };
+  for (const line of edits) await say(fx, line);
+  const list = await say(fx, "오늘 기록");
+  const seq = (list.match(new RegExp(`(\\d{2})번[^\\n]*?${numberWithCommasLocal(row?.amount || 0)}원`)) || [])[1] || "01";
+  const toType = saved.type === "income" ? "expense" : "income";
+  const reply = await say(fx, `수정 ${seq}번 구분 ${toType === "income" ? "수입" : "지출"}`);
+  const after = fx.db.transactions.find((item) => item.id === row?.id) || {};
+  return { saved, after, toType, reply, rowsAdded: fx.db.transactions.length - before };
+}
+const numberWithCommasLocal = (value) => String(value).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+await scene("U-10", async () => {
+  // 수입으로 저장된 문장을 지출로 바꾼다 — 메모 ‘○○ 농협’의 ‘농협’(결제수단 ‘농협체크’에서 남은 말)이 장보기를 정하지 않는다
+  for (const text of ["용돈 9000 농협체크", "환급 9000 농협체크", "월급 9000 농협체크", "캐시백 3000 농협체크"]) {
+    await withClock(DAY, () => fixture(async (fx) => {
+      const { saved, after, toType, reply, rowsAdded } = await typeChange(fx, text);
+      const expected = (await resolveManualInputClassification(fx.env, HH, toType, { raw_text: saved.raw_text, memo: saved.memo, manual_memo: false })).category;
+      t.ok(saved.type === "income" && after.type === "expense" && after.category === expected && expected !== "장보기" && reply.includes(`→ ${expected}`) && rowsAdded === 1,
+        `U-10 "${text}"(수입, 메모 ‘${saved.memo}’)를 지출로 바꾸면 원문만으로 정한 ${expected} (받음 ${after.type}/${after.category} · ${reply.slice(0, 50).replace(/\n/g, " / ")})`);
+    }));
+  }
+  // 직접 고친 메모는 예전처럼 근거에 넣는다
+  await withClock(DAY, () => fixture(async (fx) => {
+    const { after } = await typeChange(fx, "용돈 9000 농협체크", ["수정 01번 내용 동네 마트 장보기"]);
+    t.ok(after.type === "expense" && after.category === "장보기" && after.memo === "동네 마트 장보기", `U-10 직접 고친 메모(‘동네 마트 장보기’)는 예전처럼 분류를 정한다 (받음 ${after.type}/${after.category})`);
+  }));
+  // 지출 → 수입, 여러 건으로 저장한 기록(원문이 그 조각), 원문 없는 기록도 예전과 같다
+  await withClock(DAY, () => fixture(async (fx) => {
+    const { after } = await typeChange(fx, "점심 9000 농협체크");
+    t.ok(after.type === "income" && after.category === "기타수입", `U-10 지출 → 수입은 예전처럼 기타수입 (받음 ${after.type}/${after.category})`);
+  }));
+  await withClock(DAY, () => fixture(async (fx) => {
+    const { saved, after } = await typeChange(fx, "월급 2500000 농협체크, 커피 4500");
+    t.ok(saved.raw_text === "월급 2500000 농협체크" && after.type === "expense" && after.category !== "장보기", `U-10 여러 건으로 저장한 기록(원문 = 그 조각)도 저절로 채운 메모를 넣지 않는다 (받음 ${after.type}/${after.category})`);
+  }));
+  await withClock(DAY, () => fixture(async (fx) => {
+    putSetting(fx, "kakao_selected_household_v2251:user-bin", HH);
+    fx.db.transactions.push({ id: "tx-v81-noraw", household_id: HH, user_id: "user-bin", transaction_date: DAY, type: "income", amount: 7000, category: "기타수입", memo: "동네 마트", payment_method: "", source: "web", raw_text: "", created_at: `${DAY}T03:00:00.000Z` });
+    const list = await say(fx, "오늘 기록");
+    const seq = (list.match(/(\d{2})번[^\n]*?7,000원/) || [])[1] || "01";
+    await say(fx, `수정 ${seq}번 구분 지출`);
+    const after = fx.db.transactions.find((item) => item.id === "tx-v81-noraw") || {};
+    t.ok(after.type === "expense" && after.category === "장보기", `U-10 원문 없는 기록은 예전처럼 메모(‘동네 마트’)로 분류한다 (받음 ${after.type}/${after.category})`);
   }));
 });
 
