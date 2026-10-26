@@ -81,6 +81,7 @@ const validationScripts = [
   ["V22.9.79 시각 결함(날짜 칩 KST·다크 챗봇 명령어 대비·관리자 백업 화면·긴 이름 넘침·역할 조회 실패 안내)", "validation/validate-visual-v22979.mjs"],
   ["V22.9.80 역할·권한 표시(구성원 내비 ‘관리자 전용’·안내 화면 403 링크·거절 안내 코드·역할 조회 실패)", "validation/validate-roles-v22980.mjs"],
   ["V22.9.80 입력 해석(웹·카카오 같은 해석: 등록 결제수단 낱말 끝·낱말 속 분류·띄어 쓴 금액·저장 때 분류·KST 시각·얼마나 썼어)", "validation/validate-nlu-v22980.mjs"],
+  ["V22.9.80 데이터 묶음(백업 합계 행·키 줄/머리글 없는 표 분류 근거·번호/주소 머리글·미리 보기 후처리·표식 되살리기 묶음·카카오 날짜 목록 한도·홈 쓰는 속도 1~6일)", "validation/validate-data-import-v22980.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
