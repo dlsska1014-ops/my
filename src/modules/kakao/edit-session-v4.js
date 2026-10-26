@@ -207,15 +207,20 @@ function isKakaoRowOwnedByRequesterV2254(row = {}, userId = "", kakaoUserKey = "
   return String(row?.user_id || "") === String(userId || "");
 }
 
+// V22.9.80 T-10: 그날 가계부 기록을 오래된 순으로 500건까지만 읽는다(내 기록은 읽은 뒤 거른다). 정확히 500건이 돌아오면 그날 뒤쪽 기록이 목록에
+// 없을 수 있으므로, 돌려주는 배열의 dailyLimit 에 그 한도(500)를 달아 답장이 한 줄로 말하게 한다 — 더 읽는 요청은 하지 않는다(답장 4초 안).
+const KAKAO_DAILY_ROW_LIMIT_V22980 = 500;
 async function getDailyKakaoRows(env, householdId, userId, kakaoUserKey, date) {
   const params = new URLSearchParams();
   params.set("select", KAKAO_TX_SELECT_V4);
   params.set("household_id", `eq.${householdId}`);
   params.set("transaction_date", `eq.${date}`);
   params.set("order", "created_at.asc,id.asc");
-  params.set("limit", "500");
+  params.set("limit", String(KAKAO_DAILY_ROW_LIMIT_V22980));
   const rows = (await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" })) || [];
-  return rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey));
+  const own = rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey));
+  own.dailyLimit = rows.length >= KAKAO_DAILY_ROW_LIMIT_V22980 ? KAKAO_DAILY_ROW_LIMIT_V22980 : 0;
+  return own;
 }
 
 async function getKakaoRowById(env, householdId, userId, kakaoUserKey, id) {

@@ -404,7 +404,7 @@ async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey 
     return { row, seq };
   }
   const found = await findDailyKakaoRowBySeq(env, household.id, user.id, kakaoUserKey, target.date, target.seq);
-  return { row: found.row, seq: Number(target.seq || 0) };
+  return { row: found.row, seq: Number(target.seq || 0), dailyLimit: Number(found.rows?.dailyLimit || 0) };
 }
 
 // V22.9.79 감사 B-8: 복구가 끝나지 않았을 때의 안내. 예전에는 어느 경우든 "다시 ‘복구’를 입력"하라고 했다.
@@ -429,10 +429,15 @@ function kakaoRestoreDelayedTextV4(restoreTarget = {}, outcome = {}) {
   ].filter(Boolean).join("\n");
 }
 
-function kakaoEditRowNotFoundTextV4(target = {}) {
+// V22.9.80 T-10: 그날 기록을 읽은 범위가 500건 한도에 닿았을 때(getDailyKakaoRows 가 돌려준 배열의 dailyLimit) 답장에 붙이는 한 줄.
+function kakaoDailyLimitLineV22980(limit = 0) {
+  return limit > 0 ? `※ 이 날 가계부 기록이 ${limit}건에 닿아 앞의 ${limit}건까지만 읽었어요. 뒤쪽 기록은 목록에 없을 수 있어요.` : "";
+}
+
+function kakaoEditRowNotFoundTextV4(target = {}, dailyLimit = 0) {
   const date = target.date || formatDate(nowKstDate());
   const seqText = target.seq ? ` ${twoDigitSeq(target.seq)}번` : "";
-  return `${date}${seqText} 기록을 찾지 못했어요.\n"${date} 기록"이라고 입력해 번호를 다시 확인해 주세요.`;
+  return [`${date}${seqText} 기록을 찾지 못했어요.`, `"${date} 기록"이라고 입력해 번호를 다시 확인해 주세요.`, kakaoDailyLimitLineV22980(dailyLimit)].filter(Boolean).join("\n");
 }
 
 // V22.9.77 감사 A-14: ‘오늘기록’ 목록은 앞의 20건(가장 오래된 기록)에서 끊겼고, 950자를 넘으면 줄 중간이 잘렸다. 다 들어가면
@@ -440,8 +445,8 @@ function kakaoEditRowNotFoundTextV4(target = {}) {
 // 답장 안전 길이 950자보다 짧게). 뺀 건수(외 N건)와 전체를 볼 곳(웹 가계부의 그 달 기록)을 적는다. 번호는 저장 순서 그대로다.
 const KAKAO_DAILY_LIST_MAX_ROWS_V22977 = 20;
 const KAKAO_DAILY_LIST_MAX_CHARS_V22977 = 900;
-function kakaoDailyListTextV4({ date = "", householdName = "", ownOnlyLine = "", rows = [], dayPrefix = "", webLink = "" } = {}) {
-  const head = [`🧾 ${date} 기록`, `가계부: ${householdName || "가계부"}`, ownOnlyLine];
+function kakaoDailyListTextV4({ date = "", householdName = "", ownOnlyLine = "", limitLine = "", rows = [], dayPrefix = "", webLink = "" } = {}) {
+  const head = [`🧾 ${date} 기록`, `가계부: ${householdName || "가계부"}`, ownOnlyLine, ...(limitLine ? [limitLine] : [])];
   const guide = (seq) => ["", `수정: "${dayPrefix}수정 ${seq}번" 또는 "${dayPrefix}수정 ${seq}번 금액 13000"`, `삭제: "${dayPrefix}삭제 ${seq}번"`];
   const lines = safeArray(rows).map((r, i) => kakaoRowLabel(r, i + 1).replace(/\s*\n+\s*/g, " "));
   const all = [...head, "", ...lines, ...guide("01")].join("\n");
@@ -528,12 +533,15 @@ async function handleKakaoEditCommandV4(env, ctx) {
     const rows = await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, date);
     // V22.9.72: 빈 날은 짧게 알리고 맨 아래 ‘기록하기’ 버튼으로 잇는다(2026-10-20 디자이너 피드백).
     // V22.9.76 카카오 감사 7: 이 목록은 내가 남긴 기록만 번호를 붙여 보인다(번호 체계는 그대로). 가계부 전체는 요약으로 안내한다.
+    // V22.9.80 T-10: 그날 기록은 500건까지만 읽는다. 그 한도에 닿았으면 뒤쪽 기록이 목록에 없을 수 있다고 한 줄로 말하고(추가 조회 없음),
+    // 내 기록이 하나도 없어도 한도에 닿았으면 ‘아직 기록이 없어요’라고 단정하지 않는다.
+    const limitLine = kakaoDailyLimitLineV22980(rows.dailyLimit);
     const ownOnlyLine = `내 기록만 보여요 · 가계부 전체는 ‘${(kakaoEditDayPrefixV4(date) || "오늘 ").trim()} 요약’`;
-    if (!rows.length) return kakaoNextStepReply([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, ownOnlyLine, "", "아직 기록이 없어요.", "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
+    if (!rows.length) return kakaoNextStepReply([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, ownOnlyLine, "", ...(limitLine ? ["읽은 범위에는 내 기록이 없어요.", limitLine] : ["아직 기록이 없어요."]), "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
     // T2: 오늘이 아닌 날의 목록은 안내에도 그 날짜를 붙인다. 날짜 없는 "삭제 01번"은 오늘의 01번이다.
     const dayPrefix = kakaoEditDayPrefixV4(date);
     const webLink = origin ? `${origin}${myReturnLocation(date.slice(0, 7), household.id)}` : "";
-    return kakaoText(kakaoDailyListTextV4({ date, householdName: household.name, ownOnlyLine, rows, dayPrefix, webLink }));
+    return kakaoText(kakaoDailyListTextV4({ date, householdName: household.name, ownOnlyLine, limitLine, rows, dayPrefix, webLink }));
   }
 
   const restoreTarget = parseKakaoRestoreCommandV4(raw);
@@ -614,8 +622,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
     const rejected = kakaoEditTargetRejectTextV4(deleteTarget);
     if (rejected) return kakaoText(rejected);
     { const refused = await refuseRecordChange(); if (refused) return refused; }
-    const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
-    if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(deleteTarget));
+    const { row, seq, dailyLimit } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
+    if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit));
     try {
       await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id }, row, seq);
     } catch (err) {
@@ -633,8 +641,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
     const rejected = kakaoEditTargetRejectTextV4(editTarget);
     if (rejected) return kakaoText(rejected);
     { const refused = await refuseRecordChange(); if (refused) return refused; }
-    const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
-    if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(editTarget));
+    const { row, seq, dailyLimit } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
+    if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(editTarget, dailyLimit));
     return startKakaoEditFlowV4(env, ctx, { row, seq, rest: editTarget.rest });
   }
 
