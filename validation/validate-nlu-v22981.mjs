@@ -231,6 +231,9 @@ await scene("U-24 해석", async () => {
         for (const text of [`${head} 커피 4500원 택시 8000원`, `${head} 커피 4500원, 택시 8000원`, `${head} 커피 4500원\n택시 8000원`, `${head} 커피 4500원 그리고 택시 8000원`]) {
           const rows = rowsOf(parseMultipleTransactions(text, {}));
           if (!(rows.length === 2 && rows.every((row) => row.date === want) && rows[0].amount === 4500 && rows[1].amount === 8000)) problems.push(`${JSON.stringify(text)} → ${show(parseMultipleTransactions(text, {}))}`);
+          // 메모도 한 건 입력과 같다: 첫 거래는 그 말 그대로, 뒤 거래는 머리 날짜를 받은 한 건(머리 날짜가 두 번 붙지 않는다)
+          const memos = [parseTransaction(`${head} 커피 4500원`, {}).memo, parseTransaction(`${HINT_OF[head] || head} 택시 8000원`, {}).memo];
+          if (rows.length === 2 && (rows[0].memo !== memos[0] || rows[1].memo !== memos[1])) problems.push(`메모 ${JSON.stringify(rows.map((row) => row.memo))} ≠ ${JSON.stringify(memos)}`);
         }
         t.ok(!problems.length, `U-24 (${day} ${dow}) ‘${head}’ 머리 날짜를 여러 건의 두 거래가 한 건과 같은 ${want} 로 받는다 ${problems.join(" · ")}`);
       }

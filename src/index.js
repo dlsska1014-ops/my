@@ -49839,7 +49839,8 @@ function splitTransactionClauses(text) {
   for (const part of firstPass) {
     const pieces = splitByAmountEnds(part);
     for (let piece of pieces) {
-      if (datePrefix && !hasDateHint(piece)) piece = `${datePrefix} ${piece}`;
+      // V22.9.81 U-24: 머리 날짜로 시작하는 조각(첫 조각)에는 다시 붙이지 않는다. 달 없는 ‘25일’은 조각 날짜 판정에 없어 두 번 붙으면 메모에 ‘25일’이 남는다.
+      if (datePrefix && !hasDateHint(piece) && !`${piece} `.startsWith(`${datePrefix} `)) piece = `${datePrefix} ${piece}`;
       if (piece.trim()) clauses.push(piece.trim());
     }
   }
