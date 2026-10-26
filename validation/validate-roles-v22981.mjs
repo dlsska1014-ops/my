@@ -6,7 +6,8 @@
 //   U-18  옛 관리자 화면(/?legacy=1)의 일괄 수정·삭제 성공이 ‘N건 … 완료’ 자유 문장으로 와서 초록 칸에 ‘요청을 처리하지 못했습니다’로 보였다 → 코드(bulk_updated·bulk_deleted).
 //   U-19  같은 화면의 오류 칸이 환불 연결 코드가 아닌 코드(record_update_failed·edit_busy 등)를 코드 글자 그대로 보였다 → 코드 모양이면 formatMessage(모르는 코드는 일반 안내).
 //   U-1   시작가이드(/start-guide)가 고른 가계부가 아니라 첫 가계부의 역할·주소로 링크를 그렸다 → 고른 가계부 기준.
-// 사용: node validation/validate-roles-v22981.mjs [kakao|admin|guide|source]
+//   U-2   자산·결제수단 화면(/payment-methods)이 주소의 err 를 그대로 그렸다(아무 문장이나 이 사이트 오류처럼 보였다) → 처리기는 코드를 보내고 화면은 formatMessage.
+// 사용: node validation/validate-roles-v22981.mjs [kakao|admin|guide|payments|source]
 // V22981_SOFT=1 이면 실패해도 멈추지 않고 모아서 끝에 보여 준다(고치기 전 코드에서 몇 개가 실패하는지 세기 위해). V22981_LIST=1 을 함께 주면 통과한 검사도 모두 적는다.
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -283,6 +284,67 @@ await section("guide", () => withClock("2026-07-15", () => fixture(async (fx) =>
   t.ok(plain.html.includes('data-start-household="house-trip"') && plain.html.includes(amp('href="/my/settings?household_id=house-trip&month=2026-07"')), "U-1 가계부를 고르지 않으면 예전처럼 첫 가계부 기준이다");
 })));
 
+// ── U-2 자산·결제수단 화면: err 는 formatMessage 표의 코드만 안내로 보인다 ─────────────────────────────────────
+const PAYMENT_CODES = ["payment_asset_manage_required", "payment_asset_balance_invalid", "payment_asset_balance_required", "payment_asset_negative_balance", "payment_asset_name_required", "payment_asset_sensitive_number", "payment_asset_name_invalid", "payment_asset_name_duplicate", "payment_asset_not_found", "payment_asset_busy", "payment_asset_save_failed", "payment_asset_update_failed", "payment_asset_delete_failed", "household_required", "household_role_check_failed"];
+const alertBox = (html) => (String(html || "").match(/<div class="error" role="alert">([^<]*)<\/div>/) || [, null])[1];
+await section("payments", () => withClock("2026-07-15", () => fixture(async (fx) => {
+  const scope = { household_id: "house-home", month: "2026-07" };
+  const PM = "/payment-methods?month=2026-07&household_id=house-home";
+  const shown = async (location, cookie = fx.cookie) => alertBox((await page(fx, location.startsWith("/") ? location : PM, { cookie })).html);
+  const errs = [];
+  const errOf = (res) => { const value = paramOf(res.location, "err"); errs.push(value); return value; };
+  // 주소에 넣은 문장·태그·모르는 코드는 이 사이트의 오류처럼 보이지 않는다.
+  const phishing = "계정이 정지되었습니다. 02-000-0000 으로 전화해 주세요";
+  t.eq(await shown(`${PM}&err=${encodeURIComponent(phishing)}`), GENERIC, "U-2 주소에 넣은 문장은 그대로 보이지 않고 일반 안내로 닫힌다");
+  t.eq(await shown(`${PM}&err=${encodeURIComponent("<img src=x onerror=alert(1)>")}`), GENERIC, "U-2 주소에 넣은 태그도 일반 안내다");
+  t.eq(await shown(`${PM}&err=zz_unknown_v22981`), GENERIC, "U-2 모르는 코드는 코드 글자 대신 일반 안내다");
+  t.eq(await shown(`${PM}&err=constructor`), GENERIC, "U-2 객체 속성 이름(constructor)도 일반 안내다");
+  for (const code of PAYMENT_CODES) {
+    const text = await shown(`${PM}&err=${code}`);
+    t.ok(!!text && text === formatMessage(code) && text !== GENERIC && !text.includes(code), `U-2 오류 코드 ${code} 는 안내 문장으로 보인다 (${String(text).slice(0, 40)})`);
+  }
+  // 실제 처리기가 보내는 값은 모두 표에 있는 코드다.
+  const update = (values) => post(fx, "/admin/payment-asset/update", { ...scope, ...values });
+  const create = (values) => post(fx, "/admin/payment-asset/create", { ...scope, ...values });
+  let res = await update({ id: "asset-2", mode: "balance", balance: "abc" });
+  t.eq(errOf(res), "payment_asset_balance_invalid", "U-2 해석할 수 없는 잔액은 payment_asset_balance_invalid 로 돌아온다");
+  t.ok(String(await shown(res.location)).includes("잔액을 숫자로 입력해 주세요"), "U-2 돌아간 화면은 잔액을 숫자로 입력하라고 안내한다");
+  res = await update({ id: "asset-2", mode: "balance", balance: "-5000" });
+  t.eq(errOf(res), "payment_asset_negative_balance", "U-2 통장의 음수 잔액은 payment_asset_negative_balance 다");
+  t.ok(String(await shown(res.location)).includes("음수 잔액은 대출·부채와 신용카드에서만"), "U-2 돌아간 화면은 음수 잔액 안내를 보인다");
+  res = await update({ id: "asset-2", mode: "balance", balance: "" });
+  t.eq(errOf(res), "payment_asset_balance_required", "U-2 잔액 저장의 빈 칸은 payment_asset_balance_required 다");
+  res = await create({ name: "", kind: "cash", balance: "1000" });
+  t.eq(errOf(res), "payment_asset_name_required", "U-2 이름 없는 추가는 payment_asset_name_required 다");
+  res = await create({ name: "카드 1234-5678-9012-3456", kind: "credit_card", balance: "" });
+  t.eq(errOf(res), "payment_asset_sensitive_number", "U-2 카드번호 전체가 든 이름은 payment_asset_sensitive_number 다");
+  res = await create({ name: "국민카드", kind: "credit_card", balance: "" });
+  t.eq(errOf(res), "payment_asset_name_duplicate", "U-2 같은 이름의 추가는 payment_asset_name_duplicate 다");
+  res = await update({ id: "asset-2", mode: "edit", name: "국민카드", kind: "bank_account", issuer: "", memo: "", balance: "" });
+  t.eq(errOf(res), "payment_asset_name_duplicate", "U-2 다른 항목과 같은 이름으로 수정해도 payment_asset_name_duplicate 다");
+  res = await update({ id: "asset-2", mode: "edit", name: "", kind: "bank_account", issuer: "", memo: "", balance: "" });
+  t.eq(errOf(res), "payment_asset_name_invalid", "U-2 이름을 비운 수정은 payment_asset_name_invalid 다");
+  res = await update({ id: "asset-nope", mode: "balance", balance: "1000" });
+  t.eq(errOf(res), "payment_asset_not_found", "U-2 없는 항목 수정은 payment_asset_not_found 다");
+  res = await post(fx, "/admin/payment-asset/delete", { ...scope, id: "asset-nope" });
+  t.eq(errOf(res), "payment_asset_not_found", "U-2 없는 항목 삭제도 payment_asset_not_found 다");
+  res = await post(fx, "/admin/payment-asset/create", { month: "2026-07", name: "새통장", kind: "bank_account", balance: "1000" });
+  t.eq(errOf(res), "household_required", "U-2 가계부를 고르지 않으면 household_required 다");
+  const wifi = await fx.cookieFor("user-wifi");
+  res = await post(fx, "/admin/payment-asset/create", { ...scope, name: "새통장", kind: "bank_account", balance: "1000" }, { cookie: wifi });
+  t.eq(errOf(res), "payment_asset_manage_required", "U-2 구성원의 추가는 payment_asset_manage_required 로 거절한다");
+  t.eq(await shown(res.location, wifi), "자산·결제수단 관리는 가계부 소유자와 관리자만 할 수 있습니다.", "U-2 구성원이 보는 화면의 거절 문장은 예전과 같다");
+  const roleOut = intercept(({ url, method }) => (method === "GET" && url.pathname.endsWith("/household_members") ? failure(503, "role down") : null));
+  try { res = await create({ name: "새통장", kind: "bank_account", balance: "1000" }); } finally { roleOut(); }
+  t.eq(errOf(res), "household_role_check_failed", "U-2 역할 조회가 실패하면 household_role_check_failed 다");
+  t.eq(await shown(res.location), formatMessage("household_role_check_failed"), "U-2 그 화면은 ‘권한을 확인하지 못해 아무것도 바꾸지 않았습니다’를 보인다(예전 문장 그대로)");
+  const writeOut = intercept(({ url, method }) => (method === "POST" && /\/rpc\/accountbook_mutate_payment_assets_v22(80|71)$/.test(url.pathname) ? failure(503, "asset write down") : null));
+  try { res = await create({ name: "새통장", kind: "bank_account", balance: "1000" }); } finally { writeOut(); }
+  t.eq(errOf(res), "payment_asset_save_failed", "U-2 저장이 실패하면 payment_asset_save_failed 다");
+  t.ok(errs.every((value) => value && formatMessage(value) !== GENERIC), `U-2 처리기가 보낸 오류는 모두 안내 문장이 있는 코드다 (${[...new Set(errs)].join(", ")})`);
+  t.ok((await create({ name: "비상금", kind: "cash", balance: "30000" })).location.includes("msg=payment_asset_saved"), "U-2 정상 추가는 예전처럼 성공 코드다");
+})));
+
 // ── 소스: 고친 카카오 흐름이 실패를 빈 역할로 바꾸는 느슨한 조회를 더는 쓰지 않는다 ──────────────────────────
 await section("source", async () => {
   for (const file of ["kakao/guided-flows.js", "kakao/edit-flow-v4.js"]) {
@@ -293,6 +355,9 @@ await section("source", async () => {
   const infoBody = groupLinks.slice(groupLinks.indexOf("async function kakaoGroupInfoText"));
   t.ok(bindBody.length > 0 && !/\bgetHouseholdMemberRole\(/.test(bindBody), "U-4 단톡방 연결(bindKakaoGroupByInviteCode)은 느슨한 조회를 쓰지 않는다");
   t.ok(infoBody.length > 0 && !/\bgetHouseholdMemberRole\(/.test(infoBody.slice(0, infoBody.indexOf("\n}\n") + 1)), "U-4 방 정보(kakaoGroupInfoText)는 느슨한 조회를 쓰지 않는다");
+  const assets = read("src/modules/settings/payment-assets.js");
+  t.ok(!/\b(?:err|error):\s*(?:result\.error\s*\|\|\s*)?"[^"]*[가-힣]/.test(assets), "U-2 자산·결제수단 처리기는 err·error 에 한국어 문장을 싣지 않는다(코드만)");
+  t.ok(!/escapeHtml\(err\)/.test(read("src/modules/features/payment-methods-page.js")), "U-2 자산·결제수단 화면은 err 를 그대로(escapeHtml) 그리지 않는다");
 });
 
 if (SOFT) {

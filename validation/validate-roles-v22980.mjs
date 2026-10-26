@@ -274,8 +274,9 @@ await section("lookup", () => withClock("2026-07-15", () => fixture(async (fx) =
     ["정기 항목 추가", "/admin/reserve-plan/create", reserveValues, "code"],
     ["정기 항목 수정", "/admin/reserve-plan/update", { ...reserveValues, id: "reserve-1", name: "자동차보험" }, "code"],
     ["정기 항목 삭제", "/admin/reserve-plan/delete", { ...scope, id: "reserve-1" }, "code"],
-    ["자산·결제수단 추가", "/admin/payment-asset/create", { ...scope, name: "새통장", kind: "bank_account", balance: "1000" }, "text"],
-    ["자산·결제수단 삭제", "/admin/payment-asset/delete", { ...scope, id: "asset-1" }, "text"],
+    // V22.9.81 U-2: 자산·결제수단 화면도 err 를 코드로 받는다(예전에는 문장 — "text").
+    ["자산·결제수단 추가", "/admin/payment-asset/create", { ...scope, name: "새통장", kind: "bank_account", balance: "1000" }, "code"],
+    ["자산·결제수단 삭제", "/admin/payment-asset/delete", { ...scope, id: "asset-1" }, "code"],
     ["홈 구성 저장", "/home-layout/save", scope, "code"],
     ["표시 설정 저장", "/cursor-preference/save", scope, "code"],
   ];
@@ -299,7 +300,7 @@ await section("lookup", () => withClock("2026-07-15", () => fixture(async (fx) =
   }
 
   // 진짜 거절은 그대로 거절이다(구성원 = 관리 권한 없음, 참여자 아님 = 가계부 범위 밖).
-  const manageDenied = { "예산 저장": "manage_required", "예산 삭제": "manage_required", "정기 항목 추가": "manage_required", "정기 항목 수정": "manage_required", "정기 항목 삭제": "manage_required" };
+  const manageDenied = { "예산 저장": "manage_required", "예산 삭제": "manage_required", "정기 항목 추가": "manage_required", "정기 항목 수정": "manage_required", "정기 항목 삭제": "manage_required", "자산·결제수단 추가": "payment_asset_manage_required", "자산·결제수단 삭제": "payment_asset_manage_required" };
   for (const [label, route, values, kind] of CASES) {
     if (Object.hasOwn(manageDenied, label)) {
       const denied = await post(fx, route, values, { cookie: wifi });

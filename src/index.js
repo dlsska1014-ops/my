@@ -12804,8 +12804,10 @@ function paymentAssetBalanceForKind(value = 0, kind = "") {
   return amount < 0 && !allowsNegativePaymentAssetBalance(kind) ? 0 : amount;
 }
 
+// V22.9.81 U-2: 자산·결제수단 화면의 오류는 코드로 보내고 화면이 formatMessage 표로 안내한다(문장은 reply-texts.js 의 payment_asset_* 코드).
+// 예전에는 이 문장들을 err 에 그대로 실어 화면이 err 를 그대로 그렸다 — 주소에 아무 문장이나 넣어도 이 사이트의 오류처럼 보였다.
 function paymentAssetNegativeBalanceError() {
-  return "음수 잔액은 대출·부채와 신용카드에서만 입력할 수 있습니다. 자산 잔액은 0 이상으로 입력해 주세요. 입력 내용은 저장되지 않았습니다.";
+  return "payment_asset_negative_balance";
 }
 
 // 잔액 입력 해석. 해석에 실패하면 0 으로 저장하지 않고 거절한다. 음수(-, −, 괄호)는 부호를 뒤집지 않고 그대로 읽는다.
@@ -12820,7 +12822,7 @@ function parsePaymentAssetBalanceInput(value) {
     const parsed = parseAmountValue(body);
     if (Number.isSafeInteger(parsed) && parsed > 0 && parsed <= 9_000_000_000_000) magnitude = parsed;
   }
-  if (magnitude === null) return { ok: false, error: "잔액을 숫자로 입력해 주세요(예: 500000, 1,500,000, 150만원). 입력 내용은 저장되지 않았습니다." };
+  if (magnitude === null) return { ok: false, error: "payment_asset_balance_invalid" };
   return { ok: true, balance: negative ? -magnitude : magnitude };
 }
 
@@ -13046,15 +13048,15 @@ async function withPaymentAssetWriteLease(env, householdId = "", task) {
 
 async function addPaymentAsset(env, householdId = "", data = {}) {
   const name = String(data.name || "").trim().slice(0, 80);
-  if (!name) return { ok: false, error: "이름을 입력해주세요." };
-  if (containsSensitiveFinancialNumber(name) || containsSensitiveFinancialNumber(data.issuer) || containsSensitiveFinancialNumber(data.memo)) return { ok: false, error: "계좌번호·카드번호 전체는 저장할 수 없습니다. 알아볼 수 있는 별칭만 입력해주세요." };
+  if (!name) return { ok: false, error: "payment_asset_name_required" };
+  if (containsSensitiveFinancialNumber(name) || containsSensitiveFinancialNumber(data.issuer) || containsSensitiveFinancialNumber(data.memo)) return { ok: false, error: "payment_asset_sensitive_number" };
   const kind = isValidPaymentAssetKind(data.kind) ? data.kind : "bank_account";
   // V22.9.37 감사 N7: 음수 잔액은 대출·부채·신용카드에서만. 그 밖의 종류는 부호를 떼지 않고 거절한다.
   if (normalizePaymentAssetAmount(data.balance) < 0 && !allowsNegativePaymentAssetBalance(kind)) return { ok: false, error: paymentAssetNegativeBalanceError() };
   return withPaymentAssetWriteLease(env, householdId, async () => {
     const now = new Date().toISOString();
     const current = await fetchPaymentAssets(env, householdId, { strict: true });
-    if (current.some((x) => paymentAssetNameKey(x.name) === paymentAssetNameKey(name))) return { ok: false, error: "같은 이름의 자산·결제수단이 이미 있습니다. 기존 항목을 수정해주세요." };
+    if (current.some((x) => paymentAssetNameKey(x.name) === paymentAssetNameKey(name))) return { ok: false, error: "payment_asset_name_duplicate" };
     const next = current.slice();
     const item = {
       id: randomEntityId("asset"),
@@ -13081,10 +13083,10 @@ async function updatePaymentAsset(env, householdId = "", id = "", patch = {}) {
   return withPaymentAssetWriteLease(env, householdId, async () => {
     const current = await fetchPaymentAssets(env, householdId, { strict: true });
     const target = current.find((item) => String(item.id) === String(id));
-    if (!target) return { ok: false, error: "수정할 항목을 찾지 못했습니다." };
+    if (!target) return { ok: false, error: "payment_asset_not_found" };
     const requestedName = patch.name === undefined ? target.name : String(patch.name || "").trim().slice(0, 80);
     if (current.some((item) => String(item.id) !== String(id) && paymentAssetNameKey(item.name) === paymentAssetNameKey(requestedName))) {
-      return { ok: false, error: "같은 이름의 자산·결제수단이 이미 있습니다. 다른 이름을 사용해주세요." };
+      return { ok: false, error: "payment_asset_name_duplicate" };
     }
     // V22.9.37 감사 N7: 바뀐 종류 기준으로 음수 잔액 허용 여부를 본다. 종류를 자산으로 바꾸면서 음수 잔액이 남으면
     // 0 으로 눌러 저장하지 않고 거절한다.
@@ -13117,7 +13119,7 @@ async function updatePaymentAsset(env, householdId = "", id = "", patch = {}) {
 async function deletePaymentAsset(env, householdId = "", id = "") {
   return withPaymentAssetWriteLease(env, householdId, async () => {
     const current = await fetchPaymentAssets(env, householdId, { strict: true });
-    if (!current.some((item) => String(item.id) === String(id))) return { ok: false, error: "삭제할 항목을 찾지 못했습니다." };
+    if (!current.some((item) => String(item.id) === String(id))) return { ok: false, error: "payment_asset_not_found" };
     const atomic = await mutatePaymentAssetsAtomically(env, householdId, "delete", {}, id);
     const saved = atomic.supported ? atomic.assets : await savePaymentAssets(env, householdId, current.filter((x) => String(x.id) !== String(id)));
     const snapshotOk = atomic.historyRecorded || await recordAssetSnapshotBestEffort(env, householdId, saved);
@@ -13211,16 +13213,16 @@ function paymentMethodsLocation(month = "", householdId = "", extra = {}) {
 }
 
 async function resolvePaymentAssetManage(request, env, householdId = "", month = "") {
-  if (!householdId) return { ok: false, redirect: paymentMethodsLocation(month, "", { err: "가계부를 먼저 선택해주세요." }) };
+  if (!householdId) return { ok: false, redirect: paymentMethodsLocation(month, "", { err: "household_required" }) };
   if (await verifyAdminSession(request, env)) return { ok: true, role: "admin" };
   const userId = await verifyUserSession(request, env);
   if (!userId) return { ok: false, redirect: "/my" };
   // V22.9.80 T-35: 역할 조회가 실패하면 ‘관리는 소유자와 관리자만’이라 거절하지 않고 ‘권한을 확인하지 못함’으로 알린다(아무것도 바꾸지 않는다).
-  // 이 화면은 err 를 문장 그대로 그리므로 코드가 아니라 문장을 싣는다.
+  // V22.9.81 U-2: 이 화면도 이제 err 를 formatMessage 로 읽으므로 다른 화면처럼 코드(household_role_check_failed)를 싣는다.
   const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/payment-asset" });
-  if (failed) return { ok: false, redirect: paymentMethodsLocation(month, householdId, { err: ROLE_CHECK_FAILED_TEXT }) };
+  if (failed) return { ok: false, redirect: paymentMethodsLocation(month, householdId, { err: "household_role_check_failed" }) };
   if (["owner", "admin"].includes(role)) return { ok: true, role, userId };
-  return { ok: false, redirect: paymentMethodsLocation(month, householdId, { err: "자산·결제수단 관리는 가계부 소유자와 관리자만 할 수 있습니다." }) };
+  return { ok: false, redirect: paymentMethodsLocation(month, householdId, { err: "payment_asset_manage_required" }) };
 }
 
 async function handlePaymentAssetCreate(request, env) {
@@ -13241,11 +13243,11 @@ async function handlePaymentAssetCreate(request, env) {
       include_in_asset: form.getAll("include_in_asset").includes("on"),
       memo: form.get("memo"),
     });
-    if (!result.ok) return redirectResponse(paymentMethodsLocation(month, householdId, { err: result.error || "자산을 저장하지 못했습니다." }));
+    if (!result.ok) return redirectResponse(paymentMethodsLocation(month, householdId, { err: result.error || "payment_asset_save_failed" }));
     return redirectResponse(paymentMethodsLocation(month, householdId, { msg: result.snapshotOk ? "payment_asset_saved" : "payment_asset_saved_snapshot_deferred" }));
   } catch (err) {
     const detail = String(err?.message || "");
-    const message = /asset_name_duplicate/i.test(detail) ? "같은 이름의 자산·결제수단이 이미 있습니다." : /asset_write_busy/i.test(detail) ? "다른 자산 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요." : "자산 저장을 완료하지 못했습니다. 기존 자산은 변경되지 않았습니다.";
+    const message = /asset_name_duplicate/i.test(detail) ? "payment_asset_name_duplicate" : /asset_write_busy/i.test(detail) ? "payment_asset_busy" : "payment_asset_save_failed";
     rememberOpsEvent({ kind: "payment_asset_create_failed", severity: "warn", path: "/admin/payment-asset/create", method: "POST", detail });
     return redirectResponse(paymentMethodsLocation(month, householdId, { err: message }));
   }
@@ -13265,7 +13267,7 @@ async function handlePaymentAssetUpdate(request, env) {
   const balanceRaw = form.get("balance");
   if (balanceRaw !== null) {
     const balanceInput = parsePaymentAssetBalanceInput(balanceRaw);
-    if (!balanceInput.ok || (balanceInput.empty && mode === "balance")) return redirectResponse(paymentMethodsLocation(month, householdId, { err: balanceInput.error || "잔액을 입력해 주세요. 입력 내용은 저장되지 않았습니다." }));
+    if (!balanceInput.ok || (balanceInput.empty && mode === "balance")) return redirectResponse(paymentMethodsLocation(month, householdId, { err: balanceInput.error || "payment_asset_balance_required" }));
     if (!balanceInput.empty) patch.balance = balanceInput.balance;
   }
   if (mode !== "balance") {
@@ -13277,12 +13279,12 @@ async function handlePaymentAssetUpdate(request, env) {
   }
   try {
     const result = await updatePaymentAsset(env, householdId, id, patch);
-    if (!result.ok) return redirectResponse(paymentMethodsLocation(month, householdId, { err: result.error || "자산을 수정하지 못했습니다." }));
+    if (!result.ok) return redirectResponse(paymentMethodsLocation(month, householdId, { err: result.error || "payment_asset_update_failed" }));
     const successMessage = mode === "balance" ? "payment_asset_balance_updated" : "payment_asset_updated";
     return redirectResponse(paymentMethodsLocation(month, householdId, { msg: result.snapshotOk ? successMessage : `${successMessage}_snapshot_deferred` }));
   } catch (err) {
     const detail = String(err?.message || "");
-    const message = /asset_sensitive_or_invalid/i.test(detail) ? "계좌번호·카드번호 전체 대신 별칭을 입력해주세요." : /asset_name_duplicate/i.test(detail) ? "같은 이름의 자산·결제수단이 이미 있습니다." : /asset_not_found/i.test(detail) ? "수정할 항목을 찾지 못했습니다. 화면을 새로고침해 주세요." : /asset_write_busy/i.test(detail) ? "다른 자산 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요." : "자산 수정을 완료하지 못했습니다. 기존 값은 유지됩니다.";
+    const message = /asset_sensitive_or_invalid/i.test(detail) ? "payment_asset_name_invalid" : /asset_name_duplicate/i.test(detail) ? "payment_asset_name_duplicate" : /asset_not_found/i.test(detail) ? "payment_asset_not_found" : /asset_write_busy/i.test(detail) ? "payment_asset_busy" : "payment_asset_update_failed";
     rememberOpsEvent({ kind: "payment_asset_update_failed", severity: "warn", path: "/admin/payment-asset/update", method: "POST", detail });
     return redirectResponse(paymentMethodsLocation(month, householdId, { err: message }));
   }
@@ -13297,11 +13299,11 @@ async function handlePaymentAssetDelete(request, env) {
   if (!access.ok) return redirectResponse(access.redirect);
   try {
     const result = await deletePaymentAsset(env, householdId, id);
-    if (!result.ok) return redirectResponse(paymentMethodsLocation(month, householdId, { err: result.error || "자산을 삭제하지 못했습니다." }));
+    if (!result.ok) return redirectResponse(paymentMethodsLocation(month, householdId, { err: result.error || "payment_asset_delete_failed" }));
     return redirectResponse(paymentMethodsLocation(month, householdId, { msg: result.snapshotOk ? "payment_asset_deleted" : "payment_asset_deleted_snapshot_deferred" }));
   } catch (err) {
     const detail = String(err?.message || "");
-    const message = /asset_not_found/i.test(detail) ? "삭제할 항목을 찾지 못했습니다. 화면을 새로고침해 주세요." : /asset_write_busy/i.test(detail) ? "다른 자산 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요." : "자산 삭제를 완료하지 못했습니다. 기존 항목은 유지됩니다.";
+    const message = /asset_not_found/i.test(detail) ? "payment_asset_not_found" : /asset_write_busy/i.test(detail) ? "payment_asset_busy" : "payment_asset_delete_failed";
     rememberOpsEvent({ kind: "payment_asset_delete_failed", severity: "warn", path: "/admin/payment-asset/delete", method: "POST", detail });
     return redirectResponse(paymentMethodsLocation(month, householdId, { err: message }));
   }
@@ -18429,6 +18431,7 @@ async function handlePaymentMethodsPage(request, env, url) {
   if (!selected) return redirectResponse("/my?err=no_household");
   const householdId = selected?.id || "";
   const msg = url.searchParams.get("msg") || "";
+  // V22.9.81 U-2: err 도 msg 처럼 formatMessage 표의 코드만 안내로 바꾼다(모르는 값·주소에 넣은 문장은 일반 안내). 예전에는 err 를 그대로 그렸다.
   const err = url.searchParams.get("err") || "";
   const canManage = scoped.scope === "admin" || scoped.adminOk || ["owner", "admin"].includes(String(selected?.role || "").toLowerCase());
   const prefill = {
@@ -18497,7 +18500,7 @@ async function handlePaymentMethodsPage(request, env, url) {
   const summarySections = assets.length
     ? `${donutHtml ? `<section class="card"><h2>자산 구성</h2>${donutHtml}</section>` : ""}<section class="card"><h2>순자산 추이</h2>${trendSvg ? `<div class="trendWrap">${trendSvg}</div>` : `<p class="note">아직 지난달 기록이 없습니다. 잔액을 저장할 때마다 이번 달 순자산이 자동 기록되고, 다음 달부터 막대 그래프로 추이를 보여드립니다.</p>`}</section>${groupsHtml}`
     : `<section class="card assetEmptyState"><div class="assetEmptyMain"><span class="assetEmptyMark" aria-hidden="true">＋</span><div><h2>아직 등록된 자산이 없어요</h2><p class="note">통장이나 카드 하나만 등록해도 순자산과 월별 변화를 확인할 수 있습니다.</p></div>${canManage ? `<a class="emptyCta" href="#add">첫 자산 등록하기</a>` : ""}</div>${canManage ? `<div class="presetRow compactPresets"><span>예시로 시작</span>${renderAssetQuickPresets(month, householdId, 3)}</div>` : `<p class="note">자산 등록은 가계부 소유자/관리자만 할 수 있습니다.</p>`}</section>`;
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>자산·결제수단</title><style>${PAYMENT_METHODS_PAGE_STYLE}</style></head><body>${renderUnifiedNav("payment-methods", { month, householdId, householdName: (households.find((h) => h.id === householdId) || {}).name, role: String(selected?.role || "") })}<main class="wrap"><section class="hero"><p class="heroLabel">현재 순자산</p><div class="heroNet">${numberWithCommas(totals.netWorth)}원</div>${deltaHtml}<div class="heroChips"><span>자산 ${numberWithCommas(totals.assetTotal)}원</span><span>부채 ${numberWithCommas(totals.liabilityTotal)}원</span><span>${escapeHtml(monthLabel)} 카드 결제 ${numberWithCommas(cardUsageTotal)}원</span>${creditCardUsageTotal > 0 ? `<span class="dim">미결제 신용카드 반영 시 약 ${numberWithCommas(totals.netWorth - creditCardUsageTotal)}원</span>` : ""}</div><form class="filters" method="get" action="/payment-methods"><label class="srOnly" for="assetHousehold">가계부</label><select id="assetHousehold" name="household_id">${householdOptions}</select><label class="srOnly" for="assetMonth">조회 월</label><input id="assetMonth" type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section>${msg ? `<div class="ok" role="status">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error" role="alert">${escapeHtml(err)}</div>` : ""}${summarySections}${renderAssetAddSection(ctx)}<section class="card"><h2>${escapeHtml(monthLabel)} 결제수단별 흐름</h2>${unregChips ? `<div class="unregBox"><b>미등록 결제수단 ${numberWithCommas(unregistered.length)}개</b><p>거래에 나온 결제수단을 자산으로 등록하면 카드 사용액 계산과 자산 요약이 더 정확해집니다.</p><div class="presetRow">${unregChips}</div></div>` : ""}<div class="tableWrap" tabindex="0" aria-label="결제수단별 흐름 표"><table><thead><tr><th>결제수단</th><th>지출 건수</th><th>지출</th><th>수입</th><th>상태</th></tr></thead><tbody>${methodRows}</tbody></table></div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>자산·결제수단</title><style>${PAYMENT_METHODS_PAGE_STYLE}</style></head><body>${renderUnifiedNav("payment-methods", { month, householdId, householdName: (households.find((h) => h.id === householdId) || {}).name, role: String(selected?.role || "") })}<main class="wrap"><section class="hero"><p class="heroLabel">현재 순자산</p><div class="heroNet">${numberWithCommas(totals.netWorth)}원</div>${deltaHtml}<div class="heroChips"><span>자산 ${numberWithCommas(totals.assetTotal)}원</span><span>부채 ${numberWithCommas(totals.liabilityTotal)}원</span><span>${escapeHtml(monthLabel)} 카드 결제 ${numberWithCommas(cardUsageTotal)}원</span>${creditCardUsageTotal > 0 ? `<span class="dim">미결제 신용카드 반영 시 약 ${numberWithCommas(totals.netWorth - creditCardUsageTotal)}원</span>` : ""}</div><form class="filters" method="get" action="/payment-methods"><label class="srOnly" for="assetHousehold">가계부</label><select id="assetHousehold" name="household_id">${householdOptions}</select><label class="srOnly" for="assetMonth">조회 월</label><input id="assetMonth" type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section>${msg ? `<div class="ok" role="status">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error" role="alert">${formatMessage(err)}</div>` : ""}${summarySections}${renderAssetAddSection(ctx)}<section class="card"><h2>${escapeHtml(monthLabel)} 결제수단별 흐름</h2>${unregChips ? `<div class="unregBox"><b>미등록 결제수단 ${numberWithCommas(unregistered.length)}개</b><p>거래에 나온 결제수단을 자산으로 등록하면 카드 사용액 계산과 자산 요약이 더 정확해집니다.</p><div class="presetRow">${unregChips}</div></div>` : ""}<div class="tableWrap" tabindex="0" aria-label="결제수단별 흐름 표"><table><thead><tr><th>결제수단</th><th>지출 건수</th><th>지출</th><th>수입</th><th>상태</th></tr></thead><tbody>${methodRows}</tbody></table></div></section></main></body></html>`);
 }
 
 async function buildProductionOpsAudit(env) {
@@ -40884,6 +40887,20 @@ function formatMessage(msg) {
     payment_asset_updated_snapshot_deferred: "자산 정보는 수정했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_balance_updated_snapshot_deferred: "현재 잔액은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_deleted_snapshot_deferred: "자산·결제수단은 삭제했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
+    // V22.9.81 U-2: 자산·결제수단 화면(/payment-methods)의 오류 코드. 예전에 err 에 그대로 싣던 문장이다.
+    payment_asset_manage_required: "자산·결제수단 관리는 가계부 소유자와 관리자만 할 수 있습니다.",
+    payment_asset_balance_invalid: "잔액을 숫자로 입력해 주세요(예: 500000, 1,500,000, 150만원). 입력 내용은 저장되지 않았습니다.",
+    payment_asset_balance_required: "잔액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.",
+    payment_asset_negative_balance: "음수 잔액은 대출·부채와 신용카드에서만 입력할 수 있습니다. 자산 잔액은 0 이상으로 입력해 주세요. 입력 내용은 저장되지 않았습니다.",
+    payment_asset_name_required: "이름을 입력해 주세요. 입력 내용은 저장되지 않았습니다.",
+    payment_asset_sensitive_number: "계좌번호·카드번호 전체는 저장할 수 없습니다. 알아볼 수 있는 별칭만 입력해 주세요.",
+    payment_asset_name_invalid: "이름이 비어 있거나 계좌번호·카드번호 전체가 들어 있어 저장하지 않았습니다. 알아볼 수 있는 별칭을 입력해 주세요.",
+    payment_asset_name_duplicate: "같은 이름의 자산·결제수단이 이미 있습니다. 다른 이름을 쓰거나 기존 항목을 수정해 주세요.",
+    payment_asset_not_found: "자산·결제수단 항목을 찾지 못했습니다. 이미 지워졌을 수 있으니 화면을 새로고침해 주세요.",
+    payment_asset_busy: "다른 자산 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요.",
+    payment_asset_save_failed: "자산 저장을 완료하지 못했습니다. 기존 자산은 변경되지 않았습니다.",
+    payment_asset_update_failed: "자산 수정을 완료하지 못했습니다. 기존 값은 유지됩니다.",
+    payment_asset_delete_failed: "자산 삭제를 완료하지 못했습니다. 기존 항목은 유지됩니다.",
   };
   // V22.9.76 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 Object 의 함수 본문을 보였다).
   if (Object.hasOwn(friendly, String(msg)) && friendly[msg]) return escapeHtml(friendly[msg]);
