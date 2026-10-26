@@ -16,9 +16,12 @@
 // 요일 말은 수요일(2026-08-05)·금요일·토요일·일요일·월요일 기준일에서 모두 본다(‘지난 금요일’과 ‘지난주 금요일’은 주말에 다르다).
 // V22981_SOFT=1 이면 실패해도 멈추지 않고 모아서 끝에 보여 준다(고치기 전 번들에서 어느 검사가 떨어지는지 세는 용도).
 import vm from "node:vm";
+import { readFileSync } from "node:fs";
 import { app, BASE, ctx, counter, fixture, page, post, putSetting, withClock } from "./lib-audit-v22934.mjs";
 import { parseMultipleTransactions, parseTransaction } from "../src/index.js";
 import { extractLeadingDateHint, hasDateHint } from "../src/modules/nlu/transaction-parser.js";
+import { joinSpacedKoreanAmount, normalizeInputText } from "../src/modules/client/shared-input-nlu.js";
+import { applyUserSettingsToParsedTransactions } from "../src/modules/settings/payment-assets.js";
 
 const SOFT = process.env.V22981_SOFT === "1";
 const base = counter("V22.9.81 입력 해석(U-24 여러 건 머리 날짜·U-9 띄어 쓴 금액·U-25 없는 날짜 요약·U-6 지지난달·U-7 자동이체·U-8 분류 이름 낱말·U-10 구분 바꿀 때 분류) 웹·카카오 같은 해석 검사");
@@ -61,6 +64,132 @@ async function say(fx, utterance, user = BIN) {
 }
 const rowsOf = (list) => (Array.isArray(list) ? list : []).map((row) => ({ memo: row.memo, amount: row.amount, date: row.transaction_date, payment: row.payment_method || "", category: row.category }));
 const show = (list) => JSON.stringify(rowsOf(list).map((row) => `${row.memo}:${row.amount}:${row.date}`));
+const root = new URL("../", import.meta.url);
+const read = (path) => readFileSync(new URL(path, root), "utf8");
+const slice = (text, from, to) => {
+  const start = text.indexOf(from);
+  if (start < 0) throw new Error(`조각을 못 찾음: ${from.slice(0, 50)}`);
+  const end = text.indexOf(to, start);
+  if (end < 0) throw new Error(`조각 끝을 못 찾음: ${to.slice(0, 50)}`);
+  return text.slice(start, end);
+};
+// 카카오 쪽 해석(서버): 여러 건 해석 + 등록 결제수단·사용자 분류 판정(저장 직전과 같은 순서)
+function kakaoRows(text, assets = []) {
+  return applyUserSettingsToParsedTransactions(parseMultipleTransactions(text, {}), [], assets)
+    .map((row) => ({ amount: row.amount, memo: row.memo, payment: row.payment_method || "", category: row.category }));
+}
+
+// ── 웹 쪽 해석: 홈이 받는 자산을 가짜 DOM 에서 돌린다(validate-nlu-v22980 의 makeWebFactory 와 같은 방식).
+// 목록(datalist)의 option 은 실제 DOM 처럼 속성(getAttribute)을 가진다. 서버 분류 API(fetch)는 넣지 않는다 — 홈은 그때 화면 안의
+// 대체 추정(inferQuickCategory)으로 분류 칸을 채운다(U-8 이 고친 길).
+const optionNode = ({ value, attrs = {} }) => ({ value, getAttribute(key) { return Object.prototype.hasOwnProperty.call(attrs, key) ? attrs[key] : null; } });
+function makeWebFactory(script, { paymentOptions = [], categoryOptions = [] } = {}) {
+  const end = script.indexOf("\n(function mobileShellUiClientMain");
+  if (end < 0) throw new Error("홈 자산에서 빠른 입력 끝 경계를 못 찾음");
+  const body = script.slice(0, end);
+  return function createState() {
+    const form = {
+      handlers: {}, hidden: [],
+      appendChild(node) { this.hidden.push(node); },
+      querySelector(selector) { return selector === 'input[name="month"]' ? { value: DAY.slice(0, 7) } : null; },
+      addEventListener(kind, fn) { (this.handlers[kind] ||= []).push(fn); },
+    };
+    const node = (value = "", attrs = {}) => ({
+      value, textContent: "", attrs, handlers: {}, focus() {},
+      getAttribute(key) { return this.attrs[key] ?? null; }, setAttribute(key, v) { this.attrs[key] = String(v); },
+      setCustomValidity(v) { this.validity = v; }, addEventListener(kind, fn) { (this.handlers[kind] ||= []).push(fn); }, closest() { return form; },
+    });
+    const fields = { smartInput: node(), amountInput: node(), memoInput: node(), payInput: node(), catInput: node(), txDate: node(DAY), rawTextInput: node(), quickAfter: node("", {}), type: "expense" };
+    const radios = { expense: node(), income: node() };
+    for (const [kind, radio] of Object.entries(radios)) Object.defineProperty(radio, "checked", { get() { return fields.type === kind; }, set(v) { if (v) fields.type = kind; } });
+    const document = {
+      getElementById(id) { return fields[id] || null; },
+      createElement() { return node(); },
+      addEventListener() {},
+      querySelectorAll(selector) {
+        if (selector === "#categoryList option") return categoryOptions.map(optionNode);
+        if (selector === "#paymentList option") return paymentOptions.map(optionNode);
+        if (selector === "input[name=type]") return Object.values(radios);
+        return [];
+      },
+      querySelector(selector) {
+        if (selector === "#add form.form") return form;
+        if (selector === "input[name=type][value=income]:checked") return fields.type === "income" ? radios.income : null;
+        const match = selector.match(/input\[name=type\]\[value="?(income|expense)"?\]/);
+        return match ? radios[match[1]] : null;
+      },
+    };
+    vm.runInContext(body, vm.createContext({ document, window: { addEventListener() {} }, location: { hash: "" }, navigator: {}, Intl, Date, setTimeout, clearTimeout, URLSearchParams }));
+    const fire = (field, kind) => { for (const fn of field.handlers[kind] || []) fn.call(field, { target: field }); };
+    return {
+      fill(text) { fields.smartInput.value = text; fire(fields.smartInput, "input"); return this; },
+      submit() { const event = { defaultPrevented: false, preventDefault() { this.defaultPrevented = true; } }; for (const fn of form.handlers.submit || []) fn.call(form, event); return !event.defaultPrevented; },
+      values() {
+        return {
+          household_id: HH, month: DAY.slice(0, 7), type: fields.type, transaction_date: fields.txDate.value, amount: fields.amountInput.value, memo: fields.memoInput.value,
+          category: fields.catInput.value, payment_method: fields.payInput.value, raw_text: fields.rawTextInput.value, user_id: "user-bin", return_to: `/app?month=${DAY.slice(0, 7)}&household_id=${HH}`,
+          ...Object.fromEntries(form.hidden.map((hidden) => [hidden.name, hidden.value])),
+        };
+      },
+      view() { return { amount: Number(String(fields.amountInput.value).replace(/,/g, "")) || 0, memo: fields.memoInput.value, payment: fields.payInput.value, category: fields.catInput.value }; },
+    };
+  };
+}
+
+// ── 옛 화면 인라인 런타임(mobileUiUxClientMain): 번들의 본문과 홈 자산의 공유 함수를 이어 Enter 로 돌린다(validate-nlu-v22980 과 같은 방식).
+function makeLegacyRunner(pageScript, rules) {
+  return function runLegacy(text, { paymentOptions = [] } = {}) {
+    const node = (value = "") => ({ value, textContent: "", focus() {}, setAttribute() {}, addEventListener() {}, getAttribute() { return null; } });
+    const fields = { smartInput: node(), amountInput: node(), memoInput: node(), payInput: node(), catInput: node(), txDate: node(DAY), rawTextInput: node(), type: "expense" };
+    const handlers = {};
+    fields.smartInput.addEventListener = (kind, fn) => { (handlers[kind] ||= []).push(fn); };
+    const radios = { expense: {}, income: {} };
+    for (const [kind, radio] of Object.entries(radios)) Object.defineProperty(radio, "checked", { get() { return fields.type === kind; }, set(v) { if (v) fields.type = kind; } });
+    const document = {
+      getElementById(id) { return fields[id] || null; },
+      querySelectorAll(selector) { return selector === "#paymentList option" ? paymentOptions.map(optionNode) : []; },
+      querySelector(selector) {
+        if (selector === ".smartHint") return node();
+        const match = selector.match(/input\[name="type"\]\[value="(income|expense)"\]/);
+        return match ? radios[match[1]] : null;
+      },
+    };
+    vm.runInContext(pageScript, vm.createContext({ document, window: { AB_CATEGORY_RULES: rules, addEventListener() {} }, location: { pathname: "/", search: "", hash: "" }, history: { replaceState() {} }, navigator: {}, Intl, Date, URLSearchParams }));
+    fields.smartInput.value = text;
+    for (const fn of handlers.keydown || []) fn.call(fields.smartInput, { key: "Enter", preventDefault() {}, stopImmediatePropagation() {} });
+    return { amount: Number(String(fields.amountInput.value).replace(/,/g, "")) || 0, memo: fields.memoInput.value, payment: fields.payInput.value, category: fields.catInput.value };
+  };
+}
+// 홈 HTML 의 datalist option(값과 속성)
+const unescapeAttr = (value) => value.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+const datalistOptions = (html, id) => [...((html.match(new RegExp(`<datalist id="${id}">([\\s\\S]*?)</datalist>`)) || [])[1] || "").matchAll(/<option ([^>]*)>/g)].map((m) => {
+  const attrs = Object.create(null);
+  for (const [, key, value] of m[1].matchAll(/([\w-]+)="([^"]*)"/g)) attrs[key] = unescapeAttr(value);
+  return { value: attrs.value || "", attrs };
+});
+// 홈을 열어 빠른 입력 자산·목록을 받아 웹·옛 화면 해석기를 만든다
+async function webHarness(fx, assets = null) {
+  putSetting(fx, "kakao_selected_household_v2251:user-bin", HH);
+  if (assets) putSetting(fx, `payment_assets:${HH}`, JSON.stringify(assets));
+  const home = await page(fx, `/app?month=${DAY.slice(0, 7)}&household_id=${HH}`);
+  const runtimeSrc = (home.html.match(/<script id="mobileAppInlineRuntime" src="(\/assets\/mobile-home-shell-v\d+\.js)"/) || [])[1] || "";
+  if (!runtimeSrc) throw new Error("홈이 빠른 입력 런타임 자산을 부르지 않음");
+  const script = await (await app.fetch(new Request(`${BASE}${runtimeSrc}`), fx.env, ctx)).text();
+  const rules = JSON.parse((script.match(/^window\.AB_CATEGORY_RULES=(\[.*?\]);window\.AB_TYPE_HINTS=/s) || [])[1] || "[]");
+  const paymentOptions = datalistOptions(home.html, "paymentList"), categoryOptions = datalistOptions(home.html, "categoryList");
+  const createState = makeWebFactory(script, { paymentOptions, categoryOptions });
+  const legacySource = slice(read("src/index.js"), "function mobileUiUxClientMain() {", "\nfunction mobileShellUiClientMain");
+  const runLegacy = makeLegacyRunner(`${slice(script, "function moneyTokenSpans(", "(function(){var q=")}\n(${legacySource})();`, rules);
+  const client = vm.createContext({});
+  vm.runInContext(slice(script, "function moneyTokenSpans(", "(function(){var q="), client);
+  return {
+    home, script, paymentOptions, categoryOptions, createState,
+    web: (text) => createState().fill(text).view(),
+    legacy: (text) => runLegacy(text, { paymentOptions }),
+    inBrowser: (call) => { try { return vm.runInContext(call, client); } catch (error) { return `ERR ${error.message}`; } },
+  };
+}
+
 
 // ════════════════════════════════════════════════════════════════════════════════════
 // U-24. 여러 건 입력의 머리 날짜는 한 건 입력이 그 말을 읽는 날짜를 모든 거래에 준다
@@ -156,6 +285,59 @@ await scene("U-24 카카오 저장", async () => {
       const before = fx.db.transactions.length;
       const reply = await say(fx, text);
       t.ok(fx.db.transactions.length === before && !reply.includes("저장했어요"), `U-24 날짜를 붙인 수정 말 "${text}"는 새 기록이 아니다 (${reply.slice(0, 50).replace(/\n/g, " / ")})`);
+    }
+  }));
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// U-9. 띄어 쓴 금액: 앞이 십·백·천만 가진 수이고 뒤가 ‘만·억’으로 끝나며 그 머리가 앞의 가장 작은 단위보다 작으면 한 금액
+// ════════════════════════════════════════════════════════════════════════════════════
+// 오탐 검토 목록(운영자 검토용으로 여기 남긴다). 서버(카카오)·웹 빠른 입력·옛 화면이 같은 공유 함수(joinSpacedKoreanAmount)를 쓴다.
+// 잇는 말: [문장, 금액]
+const SPACED_JOIN = [
+  ["월세 오십 오만원", 550000], ["월세 오십 오만", 550000], ["오십 오만 현금", 550000], ["오십 오만원 월세", 550000],
+  ["구십 구만원", 990000], ["이십 삼만원", 230000], ["십 오만원", 150000], ["삼백 오만원", 3050000], ["삼백오십 오만원", 3550000],
+  ["백오십 오만원", 1550000], ["오십 5만원", 550000], ["삼백 50만원", 3500000], ["이천 500만원", 25000000],
+  ["삼억 오십 오만원", 300550000], ["이백 오십 오만원", 2550000], ["십 오억", 1500000000],
+  // 예전부터 잇던 말(앞이 천·백으로 끝나는 꼴, V22.9.80 T-17) — 그대로
+  ["삼백 오십만원", 3500000], ["이천 오백만원", 25000000], ["천 오백만원", 15000000], ["천오백 오십만원", 15500000],
+  // 받아들인 위험: 지명 ‘이천’ 바로 뒤의 금액도 이어 읽는다. 예전부터 ‘이천 오백만원’을 이어 읽었고, 잇지 않아도 ‘이천’을 2,000원으로 읽어 두 건이었다.
+  ["이천 오만원", 20050000],
+];
+// 잇지 않는 말: [문장, 띄운 채 남아야 하는 두 낱말]
+const SPACED_KEEP = [
+  ["월세 오십 오십만원", "오십 오십만"], ["오십 15만원", "오십 15만"], // 머리가 앞의 가장 작은 단위보다 크거나 같다
+  ["커피 오십 오천", "오십 오천"], ["오십 오만 오천원", "오십 오만"], // 뒤가 ‘만·억’으로 끝나지 않는다
+  ["명품 백 오만원", "백 오만"], ["커튼 천 오만원", "천 오만"], // 단위 한 글자 ‘백’(가방)·‘천’(옷감)은 앞 수로 보지 않는다
+  ["오십 오만 월세", "오십 오만"], ["오십 오만 현금영수증", "오십 오만"], // 뒤따르는 말이 ‘원’·문장 끝·결제수단이 아니다(V80 규칙과 같다)
+  ["만 오천만원", "만 오천만"], // 앞이 만이고 뒤도 만(V80 T-17 그대로)
+];
+await scene("U-9", async () => {
+  await withClock(DAY, () => fixture(async (fx) => {
+    const { web, legacy, inBrowser } = await webHarness(fx);
+    for (const [text, amount] of SPACED_JOIN) {
+      const rows = kakaoRows(text), w = web(text), l = legacy(text);
+      t.ok(rows.length === 1 && rows[0].amount === amount && w.amount === amount && l.amount === amount,
+        `U-9 "${text}" → 한 건 ${amount}원 (카카오 ${JSON.stringify(rows.map((row) => row.amount))} · 웹 ${w.amount} · 옛 화면 ${l.amount})`);
+    }
+    for (const [text, pair] of SPACED_KEEP) {
+      const server = normalizeInputText(text), browser = inBrowser(`normalizeInputText(${JSON.stringify(text)})`);
+      t.ok(server.includes(pair) && browser === server && kakaoRows(text).length !== 1, `U-9 음성 "${text}"의 ‘${pair}’는 잇지 않는다 (서버 ${JSON.stringify(server)} · 화면 ${JSON.stringify(browser)})`);
+    }
+    // 서버와 화면 자산이 같은 함수 본문을 쓴다(한쪽만 고치지 않았다)
+    t.eq(inBrowser(`joinSpacedKoreanAmount.toString()`), joinSpacedKoreanAmount.toString(), "U-9 홈 자산의 joinSpacedKoreanAmount 가 서버 함수와 같은 본문이다");
+    // 카카오 저장·웹 폼 저장이 같은 한 건
+    const { createState } = await webHarness(fx);
+    for (const [text, amount, memo] of [["월세 오십 오만원", 550000, "월세"], ["관리비 십 오만원 현금", 150000, "관리비"]]) {
+      const before = fx.db.transactions.length;
+      await say(fx, text);
+      const saved = fx.db.transactions.slice(before);
+      t.ok(saved.length === 1 && saved[0].amount === amount && saved[0].memo === memo, `U-9 카카오 저장 "${text}" → 한 건 ${amount}원 (받음 ${JSON.stringify(saved.map((row) => `${row.memo}:${row.amount}`))})`);
+      const state = createState().fill(text);
+      const webBefore = fx.db.transactions.length;
+      await post(fx, "/admin/transactions", { ...state.values(), transaction_date: "2026-08-04" });
+      const webSaved = fx.db.transactions.slice(webBefore);
+      t.ok(state.submit() && webSaved.length === 1 && webSaved[0].amount === amount && webSaved[0].category === saved[0]?.category, `U-9 웹 저장도 한 건 ${amount}원·같은 분류 (받음 ${JSON.stringify(webSaved.map((row) => `${row.memo}:${row.amount}:${row.category}`))})`);
     }
   }));
 });

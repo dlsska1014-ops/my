@@ -8891,9 +8891,34 @@ function foldInputWidth(text = "") {
 // 1만 + 5천)으로 나뉘어 두 건으로 저장됐다. 뒤가 ‘만’으로 끝나면 앞이 억이거나 앞의 끝 단위(천·백)가 뒤의 첫 단위보다 클 때만 붙인다
 // (“만 오천만원”·“천 오천만원”은 예전처럼 둘). 뒤따르는 결제수단은 결제수단 판정(inputPaymentPatterns)이 그 자리에서 읽는 말만 본다
 // (‘현금영수증’·‘카드 지갑’·‘토스트’ 앞에서는 붙이지 않는다). 정규식은 처음 부를 때 한 번만 만든다.
+// V22.9.81 U-9: 앞이 십·백·천만 가진 수(“오십”·“삼백”·“천오백”, 단위 한 글자 “백”(가방)·“천”(옷감)은 빼고 “십”은 넣는다)이고 뒤가
+// ‘만·억’으로 끝나며 그 머리가 앞의 가장 작은 단위보다 작으면 한 금액이다(“오십 오만원” = 55만, “삼백 오만원” = 305만, “오십 5만원” = 55만).
+// 예전에는 앞이 만·억·천·백으로 끝날 때만 보아 “월세 오십 오만원”이 두 건(50원 + 50,000원)으로 저장됐다. 머리가 앞의 단위보다 크거나
+// 같으면(“오십 오십만원”) 잇지 않고, 뒤가 ‘만·억’으로 끝나지 않으면(“커피 오십 오천”) 예전 그대로다. 이 묶음을 먼저 이어야
+// “삼억 오십 오만원”이 아래 규칙으로 한 금액(3억55만)이 된다. 뒤따르는 말 조건(‘원’·문장 끝·결제수단)은 아래 규칙과 같다.
 function joinSpacedKoreanAmount(text = "") {
-  const pattern = joinSpacedKoreanAmount.pattern || (joinSpacedKoreanAmount.pattern = new RegExp("(^|\\s)([일이삼사오육칠팔구십백천]*[만억천백])\\s+((?:[일이삼사오육칠팔구]|\\d{1,3}|\\d{4}(?=만))?([천백십만])[일이삼사오육칠팔구십백]*만?)(?=\\s*원|\\s*$|\\s+(?:" + inputPaymentPatterns().methods.map((method) => method[0].source).join("|") + "))", "gi"));
-  return String(text || "").replace(pattern,
+  if (!joinSpacedKoreanAmount.pattern) {
+    const after = "(?=\\s*원|\\s*$|\\s+(?:" + inputPaymentPatterns().methods.map((method) => method[0].source).join("|") + "))";
+    joinSpacedKoreanAmount.smallHead = new RegExp("(^|\\s)(십|[일이삼사오육칠팔구십백천]+[십백천])\\s+([일이삼사오육칠팔구십백천]+|\\d{1,4})([만억])" + after, "gi");
+    joinSpacedKoreanAmount.pattern = new RegExp("(^|\\s)([일이삼사오육칠팔구십백천]*[만억천백])\\s+((?:[일이삼사오육칠팔구]|\\d{1,3}|\\d{4}(?=만))?([천백십만])[일이삼사오육칠팔구십백]*만?)" + after, "gi");
+  }
+  const digit = { 일: 1, 이: 2, 삼: 3, 사: 4, 오: 5, 육: 6, 칠: 7, 팔: 8, 구: 9 };
+  const simple = (part) => { let out = 0; for (const ch of part) if (digit[ch] !== undefined) out = out * 10 + digit[ch]; return out; };
+  const below = (part) => {
+    let total = 0, rest = part;
+    for (const [name, value] of [["천", 1000], ["백", 100], ["십", 10]]) {
+      const at = rest.indexOf(name);
+      if (at >= 0) { total += (rest.slice(0, at) ? simple(rest.slice(0, at)) || 1 : 1) * value; rest = rest.slice(at + 1); }
+    }
+    return rest ? total + simple(rest) : total;
+  };
+  const joined = String(text || "").replace(joinSpacedKoreanAmount.smallHead,
+    (all, lead, head, next, big) => {
+      const nextValue = /^\d/.test(next) ? Number(next) : below(next);
+      if (!(nextValue > 0 && nextValue < { 십: 10, 백: 100, 천: 1000 }[head.slice(-1)])) return all;
+      return /^\d/.test(next) ? `${lead}${below(head) + nextValue}${big}` : `${lead}${head}${next}${big}`;
+    });
+  return joined.replace(joinSpacedKoreanAmount.pattern,
     (all, lead, head, tail, unit) => {
       const unitValue = { 억: 100000000, 만: 10000, 천: 1000, 백: 100 }[head.slice(-1)];
       const tailValue = { 만: 10000, 천: 1000, 백: 100, 십: 10 }[unit];
@@ -8902,16 +8927,6 @@ function joinSpacedKoreanAmount(text = "") {
         : unitValue > tailValue;
       if (!joinable) return all;
       if (!/^\d/.test(tail)) return `${lead}${head}${tail}`;
-      const digit = { 일: 1, 이: 2, 삼: 3, 사: 4, 오: 5, 육: 6, 칠: 7, 팔: 8, 구: 9 };
-      const simple = (part) => { let out = 0; for (const ch of part) if (digit[ch] !== undefined) out = out * 10 + digit[ch]; return out; };
-      const below = (part) => {
-        let total = 0, rest = part;
-        for (const [name, value] of [["천", 1000], ["백", 100], ["십", 10]]) {
-          const at = rest.indexOf(name);
-          if (at >= 0) { total += (rest.slice(0, at) ? simple(rest.slice(0, at)) || 1 : 1) * value; rest = rest.slice(at + 1); }
-        }
-        return rest ? total + simple(rest) : total;
-      };
       let headValue = 0, rest = head;
       const eok = rest.split("억");
       if (eok.length > 1) { headValue += (eok[0] ? below(eok[0]) : 1) * 100000000; rest = eok.slice(1).join("억"); }
