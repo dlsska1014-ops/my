@@ -16152,6 +16152,23 @@ body.desktopLedger .bulkQuickPanel button[name="bulk_quick_type"]{
   color:#fff!important;
   border-color:#059669!important;
 }
+/* V22.9.81 U-17: 넘침. 달력 칸이 360px 36px·1101px 이상 2단 46~63px 라 금액·범례가 칸 밖으로 나갔고, 1181~1308px 는 필터 줄 끝 칸이
+   0~117px 로 줄어 조회·초기화가(가져오기 탭은 150px 칸이라 1440px 에서도 선택 적용·가계부·참여자가) 잘렸다.
+   금액은 칸 안에서 줄을 바꾸고 범례는 제 폭을 지킨다. 단추는 글자 폭을 지키고 모자라면 다음 줄로 내린다.
+   단추 줄을 따로 두는 경계 1180px 은 내비 폭을 빼지 않은 값이라 다섯 칸이 실제로 들어가는 1321px 로 옮긴다. */
+.dayAmt{overflow-wrap:anywhere}
+.day{padding-left:6px;padding-right:6px}
+.calendarLegend{flex:none}
+@media(max-width:600px){.calendar{gap:4px}.day{padding:6px 4px}}
+@media(min-width:901px){
+  body.desktopLedger .filterActions{flex-wrap:wrap!important}
+  body.desktopLedger .filterActions>:is(button,.btn){flex:none}
+}
+@media(max-width:1320px) and (min-width:901px){
+  body.desktopLedger .filterTop{grid-template-columns:1fr 150px 130px 1fr!important}
+  body.desktopLedger .filterActions{grid-column:1/-1!important}
+}
+@media(min-width:1321px){body.desktopLedger .filterTop>.filterActions:nth-child(2){grid-column:2/-1!important}}
 `;
 
 // V22.9.81 U-19: 옛 관리자 화면(/?legacy=1)의 오류 칸. 기록 추가·수정·삭제·일괄 처리는 코드(record_update_failed·edit_busy·write_denied_viewer 등)와
