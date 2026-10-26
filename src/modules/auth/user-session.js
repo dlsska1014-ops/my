@@ -115,7 +115,8 @@ function parseIdentityMergeRedirectValue(value, expectedSecondaryId = "", strict
 // 표시 이름에서는 떼어 내, 통합 해석 경로가 입력만으로 켜지지 않게 한다.
 function stripMergedMarkerSuffix(value = "") {
   let out = String(value || "");
-  for (let i = 0; i < 3; i += 1) out = out.replace(/\s*\(\s*통합됨\s*\)\s*$/u, "");
+  // V22.9.81 U-23: 표식이 몇 개 겹쳐도 끝까지 뗀다. 세 번까지만 떼면 네 번째 표식이 남아 그 이름을 저장한 계정의 로그인이 막혔다.
+  for (let previous = ""; previous !== out;) { previous = out; out = out.replace(/\s*\(\s*통합됨\s*\)\s*$/u, ""); }
   return out.trim();
 }
 

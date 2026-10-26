@@ -206,6 +206,70 @@ await attempt("U-22 관리자 복구 적용", () => fixture(async (fx) => {
   ok(/<span>성공<\/span><b>2<\/b>/.test(applied.text), "U-22 관리자 복구 적용: 다시 읽어 확인한 두 건이 ‘성공’이다");
 }));
 
+// ── U-23 카카오 프로필 이름 끝의 ‘(통합됨)’ ─────────────────────────────────────────
+// 웹 카카오 로그인(/auth/kakao/start → /auth/kakao/callback)을 그대로 밟는다. 카카오 서버 두 곳만 가짜 응답으로 바꾸고, 콜백이 준
+// 세션 쿠키로 /my/profile 을 열어 로그인이 실제로 통하는지(세션 확인이 거절하면 /my 로 돌려보낸다) 본다.
+function setCookiePairs(headers) {
+  const all = typeof headers.getSetCookie === "function" ? headers.getSetCookie() : [headers.get("set-cookie") || ""];
+  return all.map((item) => String(item).split(";")[0].trim()).filter((pair) => pair && !pair.endsWith("="));
+}
+async function kakaoWebLogin(fx, kakaoId, nickname) {
+  Object.assign(fx.env, { KAKAO_LOGIN_ENABLED: "1", KAKAO_REST_API_KEY: "qa-rest-api-key", KAKAO_REDIRECT_URI: `${BASE}/auth/kakao/callback` });
+  const json = (body) => new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } });
+  const restore = intercept(async ({ url, method, init }) => {
+    if (url.href === "https://kauth.kakao.com/oauth/token") return json({ access_token: "qa-access-token", token_type: "bearer" });
+    if (url.href === "https://kapi.kakao.com/v2/user/me") return json({ id: Number(kakaoId), properties: { nickname } });
+    // 픽스처에 없는 카카오 식별 연결 RPC(V22.7)를 운영처럼 받아 준다(새 사용자를 만들 때 쓴다).
+    if (method === "POST" && url.pathname === "/rest/v1/rpc/accountbook_link_kakao_identity_v227") {
+      const body = JSON.parse(String(init.body || "{}"));
+      fx.db.accountbook_user_identities.push({ provider: "kakao", provider_subject: String(body.p_kakao_id), user_id: String(body.p_user_id), login_name: body.p_nickname, created_at: "2026-07-21T00:00:00Z" });
+      return json(true);
+    }
+    return null;
+  });
+  try {
+    const start = await app.fetch(new Request(`${BASE}/auth/kakao/start`), fx.env, ctx);
+    const state = new URL(start.headers.get("location") || `${BASE}/`).searchParams.get("state") || "";
+    const callback = await app.fetch(new Request(`${BASE}/auth/kakao/callback?code=qa-code&state=${encodeURIComponent(state)}`, { headers: { cookie: setCookiePairs(start.headers).join("; ") } }), fx.env, ctx);
+    const cookie = setCookiePairs(callback.headers).find((pair) => pair.startsWith("ab_user=")) || "";
+    const profile = cookie ? await app.fetch(new Request(`${BASE}/my/profile`, { headers: { cookie, accept: "text/html" } }), fx.env, ctx) : null;
+    return { userId: cookie ? decodeURIComponent(cookie.slice("ab_user=".length)).split("|")[0] : "", signedIn: profile?.status === 200 };
+  } finally {
+    restore();
+  }
+}
+const storedName = (fx, where) => fx.db.users.find(where)?.nickname;
+await attempt("U-23 카카오 로그인", () => fixture(async (fx) => {
+  const placeholder = (id, kakaoId) => fx.db.users.push({ id, kakao_user_key: `kakao_login:${kakaoId}`, nickname: "카카오사용자", created_at: "2026-07-01T00:00:00Z" });
+  // 1) 자리표시 이름으로 저장된 계정 + 프로필 이름 ‘길동 (통합됨)’
+  placeholder("user-u23-a", "7001");
+  const first = await kakaoWebLogin(fx, "7001", "길동 (통합됨)");
+  eq(first.userId, "user-u23-a", "U-23 자리표시 이름 계정: 로그인 콜백이 그 계정으로 세션을 준다");
+  eq(storedName(fx, (user) => user.id === "user-u23-a"), "길동", "U-23 자리표시 이름 계정: 프로필 이름을 표식을 떼고 저장한다");
+  ok(first.signedIn, "U-23 자리표시 이름 계정: 그 세션으로 내 화면이 열린다(통합된 계정으로 거절하지 않는다)");
+  ok((await kakaoWebLogin(fx, "7001", "길동 (통합됨)")).signedIn, "U-23 자리표시 이름 계정: 다음 로그인도 통한다");
+  // 2) 처음 로그인하는 사용자 + 프로필 이름 ‘카카오사용자(통합됨)’(표식을 떼면 자리표시 이름)
+  const fresh = await kakaoWebLogin(fx, "7002", "카카오사용자(통합됨)");
+  eq(storedName(fx, (user) => user.kakao_user_key === "kakao_login:7002"), "카카오사용자", "U-23 새 사용자: ‘카카오사용자(통합됨)’은 표식 없이 자리표시 이름으로 남는다");
+  ok(fresh.signedIn, "U-23 새 사용자: 그 세션으로 내 화면이 열린다");
+  // 3) 표식이 네 번 겹친 이름
+  placeholder("user-u23-c", "7003");
+  const many = await kakaoWebLogin(fx, "7003", "길동 (통합됨) (통합됨) (통합됨) (통합됨)");
+  eq(storedName(fx, (user) => user.id === "user-u23-c"), "길동", "U-23 표식이 네 번 겹쳐도 모두 떼고 저장한다");
+  ok(many.signedIn, "U-23 표식이 네 번 겹친 이름: 로그인이 통한다");
+  // 4) 보통 이름은 예전 그대로다.
+  placeholder("user-u23-d", "7004");
+  const plain = await kakaoWebLogin(fx, "7004", "민지");
+  eq(storedName(fx, (user) => user.id === "user-u23-d"), "민지", "U-23 보통 프로필 이름은 예전처럼 그대로 저장한다");
+  ok(plain.signedIn, "U-23 보통 프로필 이름: 로그인이 통한다");
+  // 5) 결정: 이미 표식 이름으로 저장된 계정은 스스로 풀지 않는다. 옛 통합(V22.7 이전)이 이름에만 표식을 남겼을 수 있어
+  //    통합된 계정과 구별할 수 없다(운영 확인 뒤 운영자가 정한다). 세션 확인은 예전 그대로 거절한다.
+  fx.db.users.push({ id: "user-u23-e", kakao_user_key: "kakao_login:7005", nickname: "길동 (통합됨)", created_at: "2026-07-01T00:00:00Z" });
+  const locked = await kakaoWebLogin(fx, "7005", "길동");
+  eq(storedName(fx, (user) => user.id === "user-u23-e"), "길동 (통합됨)", "U-23 이미 표식 이름인 계정은 로그인이 이름을 바꾸지 않는다(통합 여부를 증명할 수 없음)");
+  ok(!locked.signedIn, "U-23 이미 표식 이름인 계정은 세션 확인이 예전처럼 거절한다");
+}));
+
 if (SOFT && failures.length) {
   console.log(`V22981_SOFT: ${failures.length}개 검사 실패 (전체 ${checks}개)`);
   for (const failure of failures) console.log(` - ${failure}`);
