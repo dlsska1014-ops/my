@@ -24,7 +24,8 @@ ok(source.includes("body.abV22812Shell.abPageAssets .heroChips span{background:v
 // 4. 어두운 챌린지 카드 위의 폼 라벨.
 ok(source.includes("body.abV22812Shell .reportChallenge :is(label,label>span,summary){color:#d7dbee!important}"), "challenge form labels stay light on the dark card");
 // 5. 일자별 셀과 증감 배지.
-ok(source.includes("body.abV22812Shell .dailyCell.noValue{opacity:.78!important}"), "empty day cells are no longer dimmed below the threshold");
+// V22.9.81 U-15: .78 투명도도 날짜·'·' 을 4.00·3.31:1 로 깎아, 투명도를 풀고 글자색(--sub)으로 흐린다(대비는 validate-screens-v22981 이 잰다).
+ok(source.includes("body.abV22812Shell .dailyCell.noValue{opacity:1!important}"), "empty day cells are no longer dimmed below the threshold");
 ok(source.includes("body.abV22812Shell .dailyCell.hasValue span{color:var(--accent)!important}"), "day cell amounts use an accessible accent");
 ok(source.includes("body.abV22812Shell :is(.deltaDown,.deltaUp){color:var(--pos)!important}"), "positive delta badges use the accessible token");
 ok(source.includes("body.abV22812Shell .deltaUp{color:var(--neg)!important}"), "negative delta badges use the accessible token");
@@ -77,7 +78,7 @@ try {
   const shell = await request(fixture, "/assets/accountbook-shell-v22979.css");
   eq(shell.response.status, 200, "new shell asset is served");
   eq(shell.response.headers.get("etag"), '"accountbook-shell-v22979-css"', "new shell ETag is correct");
-  for (const rule of [".yearNav :is(a,span)", ".deductBox{background:var(--card-2)", ".reportChallenge :is(label,label>span,summary)", ".dailyCell.noValue{opacity:.78", ".heroChips span"]) {
+  for (const rule of [".yearNav :is(a,span)", ".deductBox{background:var(--card-2)", ".reportChallenge :is(label,label>span,summary)", ".dailyCell.noValue{opacity:1!important}", ".readableTrendGrid .dailyCell.noValue :is(.dailyTop b,.dailyAmt){color:var(--sub)!important}", ".heroChips span"]) {
     ok(shell.text.includes(rule), `deployed shell ships ${rule}`);
   }
   ok(shell.text.includes("--action:var(--ab12-action)"), "V22.8.61 token aliases are preserved");
