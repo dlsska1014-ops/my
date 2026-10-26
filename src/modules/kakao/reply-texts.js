@@ -82,6 +82,11 @@ function formatMessage(msg) {
     spender_not_member: "지출자는 현재 가계부 참여자 중에서 선택해 주세요.",
     // V22.9.79 D-5: 환불 연결 트리거가 막은 수정(연결된 기록의 종류·금액·환급 분류·날짜 변경).
     refund_link_locked: "환불과 연결된 기록이라 이 변경은 저장하지 않았습니다. 정산 화면의 ‘환불·환급’에서 연결을 먼저 풀어 주세요.",
+    // V22.9.80 T-12: 트리거가 알려 준 이유별 문구(refund_link_locked_<이유>). 웹 수정·관리자 수정이 이 코드로 돌아온다.
+    refund_link_locked_kind: "환불과 연결된 기록이라 수입·지출 구분이나 가계부를 바꾸지 않았습니다. 정산 화면의 ‘환불·환급’에서 연결을 먼저 풀어 주세요.",
+    refund_link_locked_amount: "환불과 연결된 기록이라 금액을 연결한 금액보다 작게 바꾸지 않았습니다. 정산 화면의 ‘환불·환급’에서 연결을 먼저 풀어 주세요.",
+    refund_link_locked_category: "환불과 연결된 환급 기록이라 분류를 바꾸지 않았습니다. 정산 화면의 ‘환불·환급’에서 연결을 먼저 풀어 주세요.",
+    refund_link_locked_date: "환불과 연결된 기록이라 날짜를 바꾸지 않았습니다. 원래 지출은 환급보다 늦을 수 없고 둘 사이는 365일 안이어야 합니다. 정산 화면의 ‘환불·환급’에서 연결을 먼저 풀어 주세요.",
     payment_asset_saved_snapshot_deferred: "자산·결제수단은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_updated_snapshot_deferred: "자산 정보는 수정했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_balance_updated_snapshot_deferred: "현재 잔액은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",

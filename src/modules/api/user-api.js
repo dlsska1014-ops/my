@@ -17,6 +17,8 @@ import {
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
 import { buildBudgetAlertPolishModel } from "../features/budget-alerts-annual-goals.js";
+import { refundDeductionNote } from "../domain/refund-links.js";
+import { loadRefundDeductions } from "../features/settlement-refund-links.js";
 import { parseJsonArraySettingStrict, saveSettingValue } from "../my/reports-premium.js";
 import {
   canChangeMyHouseholdRecordsForView, canManageMyHousehold, canManageMyRecord, canWriteMyHousehold,
@@ -288,8 +290,13 @@ async function handleUserNotifications(request, env, url) {
   const budgets = await fetchBudgets(env, household.id, month, { strict: true });
   const recurring = await fetchRecurringStrict(env, household.id).catch(() => null);
   // V22.9.79 V76 W-7: 월말 예상에 남은 정기지출 납부가 들어가므로 못 읽은 정기지출 항목을 0건으로 바꾸지 않는다(null → 그 몫을 빼고 계산).
-  const plans = await fetchReservePlans(env, household.id, { strict: true }).catch(() => null);
-  const model = buildBudgetAlertPolishModel({ month, selectedHousehold: household, rows, budgets, recurring, plans });
+  // V22.9.80 V76 M-7: 연결한 환불 차감은 정기지출 항목과 같은 단계에서 읽는다(플래그가 꺼져 있으면 요청 없음).
+  const [plans, refund] = await Promise.all([
+    fetchReservePlans(env, household.id, { strict: true }).catch(() => null),
+    loadRefundDeductions(env, { householdId: household.id, start: `${month}-01`, end: nextMonthStart(month) }),
+  ]);
+  const model = buildBudgetAlertPolishModel({ month, selectedHousehold: household, rows, budgets, recurring, plans, refundDeductions: refund.entries || [] });
+  const refundTail = model.budget.refund?.applied ? ` · ${refundDeductionNote(model.budget.refund)}` : refund.failed ? " · 환불 차감 확인 불가" : "";
   const hh = `&household_id=${encodeURIComponent(household.id)}`;
   const mq = encodeURIComponent(month);
   // V22.9.37 감사 U5: 알림 키에 월(납부 알림은 기한)을 붙인다. 달이 없는 키는 한 번 닫으면 다음 달에 같은 알림이 생겨도 숨었다.
@@ -299,12 +306,12 @@ async function handleUserNotifications(request, env, url) {
   if (model.totalBudget) {
     if (model.status === "over") {
       notifs.push({ key: `budget-over:${month}`, level: "danger", banner: true, title: "선택 월 전체 등록액이 예산을 초과했어요",
-        body: `미래 날짜 기록 포함 월 전체 등록액 ${numberWithCommas(model.spent)}원 / 예산 ${numberWithCommas(model.totalBudget)}원 (${numberWithCommas(model.rate)}%)`,
+        body: `미래 날짜 기록 포함 월 전체 등록액 ${numberWithCommas(model.spent)}원 / 예산 ${numberWithCommas(model.totalBudget)}원 (${numberWithCommas(model.rate)}%)${refundTail}`,
         href: `/budget-alerts?month=${mq}${hh}` });
     } else if (model.status === "forecast" || model.status === "warning") {
       notifs.push({ key: `budget-warn:${month}`, level: "warn", banner: true,
         title: model.status === "forecast" ? "이대로면 월말 예산 초과 예상" : "월 전체 등록액이 예산의 85% 이상이에요",
-        body: model.status === "forecast" ? `남은 고정지출까지 더한 월말 예상 ${numberWithCommas(model.forecastExpense)}원 / 예산 ${numberWithCommas(model.totalBudget)}원` : `미래 날짜 기록 포함 월 전체 등록액 ${numberWithCommas(model.spent)}원 / 예산 ${numberWithCommas(model.totalBudget)}원`,
+        body: model.status === "forecast" ? `남은 고정지출까지 더한 월말 예상 ${numberWithCommas(model.forecastExpense)}원 / 예산 ${numberWithCommas(model.totalBudget)}원${refundTail}` : `미래 날짜 기록 포함 월 전체 등록액 ${numberWithCommas(model.spent)}원 / 예산 ${numberWithCommas(model.totalBudget)}원${refundTail}`,
         href: `/budget-alerts?month=${mq}${hh}` });
     }
   }

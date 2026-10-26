@@ -13,6 +13,8 @@ import {
 } from "../data/households-members-rows.js";
 import { safeArray } from "./backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
+import { refundDeductionNote } from "../domain/refund-links.js";
+import { loadRefundDeductions } from "../features/settlement-refund-links.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { fetchRawHouseholdMembers, fetchUserById } from "../data/users-household-create.js";
 import {
@@ -45,7 +47,7 @@ import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
-import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+import { escapeHtml, nextMonthStart, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
 
 async function handleBudgetCenterPage(request, env, url, budgetDraft = null) {
@@ -75,18 +77,21 @@ async function handleBudgetCenterPage(request, env, url, budgetDraft = null) {
   }
   if (!selected) return redirectResponse(userId ? "/my/households?err=no_household" : "/?legacy=1");
   const canManage = adminOk || ["owner", "admin"].includes(String(selected.role || "").toLowerCase());
-  const [members, rawRows, budgetRead, customCategories] = await Promise.all([
+  const [members, rawRows, budgetRead, customCategories, refund] = await Promise.all([
     fetchHouseholdMembers(env, householdId),
     fetchAdminRows(env, { month, householdId, type: "all" }),
     // V22.9.34 감사 S3: 계획 폼은 엄격하게 읽는다. 못 읽으면 빈 폼을 그리지 않는다.
     fetchBudgets(env, householdId, month, { strict: true }).then(async (list) => ({ ok: true, rows: list, fingerprint: await budgetPlanFingerprint(list) })).catch((error) => ({ ok: false, rows: [], error })),
     fetchCustomCategories(env, householdId),
+    // V22.9.80 V76 M-7: 연결한 환불 차감(플래그가 꺼져 있으면 요청 없음). 같은 단계라 직렬 깊이는 그대로다.
+    loadRefundDeductions(env, { householdId, start: `${month}-01`, end: nextMonthStart(month) }),
   ]);
   if (!budgetRead.ok) rememberOpsEvent({ kind: "budget_plan_read_failed", severity: "warn", path: "/budgets", method: "GET", detail: safeError(budgetRead.error) });
   const budgets = budgetRead.rows;
   const planFingerprint = budgetRead.ok ? budgetRead.fingerprint : "";
   const rows = attachSpenderNames(rawRows, members);
-  const center = budgetCenterSummary(rows, budgets);
+  const center = budgetCenterSummary(rows, budgets, { refundDeductions: refund.entries || [] });
+  const budgetRefundNote = refundDeductionNote(center.budget.refund, { failed: refund.failed });
   const incomePlans = incomeBudgetRows(budgets).filter((row) => Number(row.amount || 0) > 0);
   const editIncomes = budgetDraft ? budgetDraftRows(budgetDraft, "income") : incomeBudgetRows(budgets).filter(row => row.stored);
   while (!budgetDraft && editIncomes.length < 2) editIncomes.push({ name: defaultIncomeBudgetNames()[editIncomes.length] || "기타수입", amount: 0 });
@@ -134,7 +139,7 @@ async function handleBudgetCenterPage(request, env, url, budgetDraft = null) {
   // V22.9.37 감사 D11: 초과 판정은 반올림 사용률이 아니라 실제 금액이다(V22.9.30 기준).
   const budgetP0State = Number(center.budget.budgetedExpense || 0) > Number(center.totalBudget || 0) ? " isOver" : Number(center.budget.rate || 0) >= 85 ? " isWarn" : "";
   const budgetP0Html = center.totalBudget
-    ? `<section class="budgetP0${budgetP0State}" aria-labelledby="budgetP0Title"><span id="budgetP0Title">이번 달 남은 예산</span><b>${numberWithCommas(budgetP0Remaining)}<small>원</small></b><div class="budgetP0Gauge"><i style="width:${budgetP0Rate}%"></i></div><p>전체 예산 ${numberWithCommas(center.totalBudget)}원 · 사용 ${numberWithCommas(center.budget.budgetedExpense)}원 (${numberWithCommas(center.budget.rate || 0)}%)</p>${budgetP0Uncovered ? `<p class="budgetP0Aside">예산 밖 지출 ${numberWithCommas(budgetP0Uncovered)}원 별도 — 예산을 잡은 분류만 사용률에 들어갑니다.</p>` : ""}</section>`
+    ? `<section class="budgetP0${budgetP0State}" aria-labelledby="budgetP0Title"><span id="budgetP0Title">이번 달 남은 예산</span><b>${numberWithCommas(budgetP0Remaining)}<small>원</small></b><div class="budgetP0Gauge"><i style="width:${budgetP0Rate}%"></i></div><p>전체 예산 ${numberWithCommas(center.totalBudget)}원 · 사용 ${numberWithCommas(center.budget.budgetedExpense)}원 (${numberWithCommas(center.budget.rate || 0)}%)</p>${budgetP0Uncovered ? `<p class="budgetP0Aside">예산 밖 지출 ${numberWithCommas(budgetP0Uncovered)}원 별도 — 예산을 잡은 분류만 사용률에 들어갑니다.</p>` : ""}${budgetRefundNote ? `<p class="budgetP0Aside">${escapeHtml(budgetRefundNote)}</p>` : ""}</section>`
     : `<section class="budgetP0 isEmpty" aria-labelledby="budgetP0Title"><span id="budgetP0Title">이번 달 남은 예산</span><b>아직 없음</b><p>아래에서 지출 분류별 한도를 저장하면 남은 예산이 이 자리에 생깁니다.</p></section>`;
   // V22.9.80 T-23: 아래 ‘계산 기준’ 카드는 html-postprocess.js 가 접이식(details.calculationHelp)으로 통째로 바꿔 그린다. 그 카드 끝의 바닥 링크(홈으로 돌아가기·/my/settings)는
   // 화면에 나온 적이 없는 죽은 마크업이라 지웠다(설정으로 가는 길은 위 탭이 맡고, 구성원에게는 403 이 나는 링크였다). 바꿔 그리는 자리(제목·본문)만 남긴다.

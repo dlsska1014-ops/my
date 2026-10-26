@@ -12,6 +12,8 @@ import {
   fetchPostgrestRows, isRowLimitExceededError,
 } from "../data/households-members-rows.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
+import { refundLinksEnabled } from "../domain/refund-links.js";
+import { fetchRefundLinksForBackup } from "../features/settlement-refund-links.js";
 import { fetchBudgets, fetchRecurringStrict } from "../domain/budgets.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
@@ -70,6 +72,8 @@ async function buildBackupPayload(env, { month, householdId, range = "month", ye
   const recurringByHousehold = Object.create(null);
   const categoriesByHousehold = Object.create(null);
   const reservePlansByHousehold = Object.create(null);
+  // V22.9.80 T-13: 플래그가 켜져 있으면 전체 기간 백업에 환불 연결(원지출·환급 거래 id 쌍)을 담는다. 플래그가 꺼져 있으면 파일이 예전과 같다.
+  const refundLinksByHousehold = allMonths && refundLinksEnabled(env) ? Object.create(null) : null;
   // V22.9.34 감사 S10: 백업은 읽기 실패를 빈 값으로 넣지 않는다. 일부가 빈 백업 파일은 정상처럼 보여
   // 나중에 복원 기준이 되므로, 못 읽은 자료가 있으면 파일을 만들지 않는다.
   // V22.9.77 N-15: 분류·키워드와 구성원 별명도 엄격 조회로 읽는다(예전에는 실패하면 빈 목록이 들어간 파일이 정상으로 나갔다).
@@ -79,6 +83,12 @@ async function buildBackupPayload(env, { month, householdId, range = "month", ye
     recurringByHousehold[h.id] = await fetchRecurringStrict(env, h.id);
     categoriesByHousehold[h.id] = await fetchCustomCategories(env, h.id, { strict: true });
     reservePlansByHousehold[h.id] = await fetchReservePlans(env, h.id, { strict: true });
+    if (refundLinksByHousehold) refundLinksByHousehold[h.id] = await fetchRefundLinksForBackup(env, h.id);
+  }
+  // 연도별 백업은 그해 거래와 이어진 연결만 담는다(한쪽이 다른 해에 있으면 그 id 도 그대로 적는다).
+  if (refundLinksByHousehold) {
+    const txIds = new Set(transactions.map((row) => String(row?.id || "")));
+    for (const hid of Object.keys(refundLinksByHousehold)) refundLinksByHousehold[hid] = refundLinksByHousehold[hid].filter((link) => txIds.has(String(link?.expense_id || "")) || txIds.has(String(link?.refund_id || "")));
   }
   // V22.9.79 E-16: 첫·마지막 날짜는 거래 수만큼 정렬하지 않고 한 번 훑어 구한다(1만 5천 건 정렬이 요청 CPU 를 불필요하게 썼다). 값은 같다.
   let firstDate = "", lastDate = "";
@@ -105,6 +115,7 @@ async function buildBackupPayload(env, { month, householdId, range = "month", ye
       recurring: Object.values(recurringByHousehold).reduce((a, v) => a + v.length, 0),
       categories: Object.values(categoriesByHousehold).reduce((a, v) => a + v.length, 0),
       reserve_plans: Object.values(reservePlansByHousehold).reduce((a, v) => a + v.length, 0),
+      ...(refundLinksByHousehold ? { refund_links: Object.values(refundLinksByHousehold).reduce((a, v) => a + v.length, 0) } : {}),
     },
     households: selectedHouseholds,
     household_members: membersByHousehold,
@@ -113,6 +124,7 @@ async function buildBackupPayload(env, { month, householdId, range = "month", ye
     recurring: recurringByHousehold,
     categories: categoriesByHousehold,
     reserve_plans: reservePlansByHousehold,
+    ...(refundLinksByHousehold ? { refund_links: refundLinksByHousehold } : {}),
     notes: [
       "이 파일은 백업용 JSON입니다.",
       "민감한 가계부 데이터가 포함될 수 있으므로 외부 공유를 피하세요.",
@@ -122,6 +134,8 @@ async function buildBackupPayload(env, { month, householdId, range = "month", ye
         : allMonths
         ? "선택한 가계부의 모든 달 거래와 예산을 담은 전체 기간 백업입니다. 백업센터의 복구 단계는 한 달씩 진행합니다(비교·후보 화면에서 달을 고르세요)."
         : `선택한 달(${month})의 거래와 예산만 담은 백업입니다.`,
+      ...(refundLinksByHousehold ? ["환불 연결(refund_links)은 원지출·환급 거래 id 쌍입니다. 백업센터의 복구 단계는 기록을 새로 만들기 때문에 연결을 되살리지 않습니다. 복구한 뒤 정산 화면의 ‘환불·환급’에서 다시 연결해 주세요."]
+        : !allMonths && refundLinksEnabled(env) ? ["달별 백업에는 환불 연결을 담지 않습니다. 연결 목록까지 보관하려면 가계부를 골라 전체 기간 백업을 받으세요."] : []),
     ],
   };
 }

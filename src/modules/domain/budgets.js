@@ -7,6 +7,10 @@ import {
   normalizeMemberAliasMap,
 } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
+import {
+  refundAdjustedStats, refundDeductionApplied, refundDeductionNote,
+} from "./refund-links.js";
+import { loadRefundDeductions } from "../features/settlement-refund-links.js";
 import { isIncomeBudgetCategory } from "../my/groups-budget-bulk.js";
 import { reportChallengeSettingsKey } from "../my/report-challenge.js";
 import { parseJsonSetting } from "../my/reports-premium.js";
@@ -103,6 +107,9 @@ async function fetchMobileHomeSettings(env, householdId = "", month = currentMon
   if (options.includePayment) keys.push(paymentAssetsKey(householdId));
   // V22.9.43: 구성원 세션이면 구성원 권한(기록만/기록·수정)도 같은 질의로 읽는다(추가 조회 없음). 화면 단추에만 쓴다.
   if (options.includeMemberPolicy) keys.push(memberPolicySettingsKey(householdId));
+  // V22.9.80 V76 M-7: 플래그가 켜진 홈은 홈 구성 줄도 이 한 번의 조회로 읽는다(환불 차감 읽기 하나를 더해도 홈 조회 9회 그대로).
+  const extraKeys = safeArray(options.extraKeys).map((key) => String(key || "")).filter(Boolean);
+  keys.push(...extraKeys);
   const params = new URLSearchParams();
   params.set("key", `in.(${[...new Set(keys)].join(",")})`);
   params.set("select", "key,value");
@@ -125,6 +132,8 @@ async function fetchMobileHomeSettings(env, householdId = "", month = currentMon
     paymentAssets: options.includePayment ? normalizePaymentAssetList(values.get(paymentAssetsKey(householdId)) || [], householdId) : [],
     challengeValue: parseJsonSetting(values.get(reportChallengeSettingsKey(householdId)) || {}, {}),
     memberPolicy: options.includeMemberPolicy ? homeMemberPolicyValue(values.get(memberPolicySettingsKey(householdId))) : "",
+    // 따로 읽던 getSettingValue 와 같은 값: 없거나 읽지 못하면 "".
+    ...(extraKeys.length ? { extra: new Map(extraKeys.map((key) => [key, values.get(key) || ""])) } : {}),
   };
 }
 
@@ -225,9 +234,9 @@ function budgetCategoryScope(budgets = []) {
   };
 }
 
-function budgetSummary(rows = [], budgets = []) {
+function budgetSummary(rows = [], budgets = [], { refundDeductions = [] } = {}) {
   const expenseRows = rows.filter((r) => r.type !== "income");
-  const expense = expenseRows.reduce((a, r) => a + Number(r.amount || 0), 0);
+  const grossExpense = expenseRows.reduce((a, r) => a + Number(r.amount || 0), 0);
   const scope = budgetCategoryScope(budgets);
   const { categoryBudgetTotal, explicitTotalBudget, totalBudget, covered, basis } = scope;
   const byCategory = Object.create(null);
@@ -235,6 +244,17 @@ function budgetSummary(rows = [], budgets = []) {
     const c = normalizeText(r.category || "기타");
     byCategory[c] = (byCategory[c] || 0) + Number(r.amount || 0);
   }
+  // V22.9.80 V76 M-7: 연결한 환불(refundDeductions, 플래그가 켜진 화면만 넘긴다)을 원지출 분류의 사용액에서 뺀다.
+  // 분류 사용액은 0 아래로 내리지 않고, 지출 합계는 refundDeductionApplied 규칙(지출보다 큰 환불은 남는 몫을 수입으로)이다.
+  // 차감이 없으면 아래 값은 모두 예전과 같다(refundDeduction 칸도 붙지 않는다).
+  const deductions = safeArray(refundDeductions).filter((entry) => entry && Number(entry.amount) > 0);
+  const refund = deductions.length ? refundDeductionApplied(grossExpense, deductions) : null;
+  const grossCovered = basis === "category" ? [...covered].reduce((sum, category) => sum + Number(byCategory[category] || 0), 0) : grossExpense;
+  for (const entry of deductions) {
+    const c = normalizeText(entry.category || "기타");
+    if (byCategory[c]) byCategory[c] = Math.max(0, byCategory[c] - Number(entry.amount));
+  }
+  const expense = refund ? grossExpense - refund.applied : grossExpense;
   const categoryBudgets = scope.groups.map((group) => group.budget);
   const categoryAlerts = scope.groups.map(({ budget: b, categories }) => {
     const spent = categories.reduce((sum, category) => sum + Number(byCategory[category] || 0), 0);
@@ -255,12 +275,15 @@ function budgetSummary(rows = [], budgets = []) {
     diff: budgetedExpense - totalBudget,
     rate: totalBudget ? Math.round(budgetedExpense / totalBudget * 100) : 0,
     categoryAlerts,
+    // refund.applied 는 예산과 견주는 사용액(budgetedExpense)에서 실제로 빠진 금액이다(분류별 예산이면 예산 분류 몫만).
+    ...(refund ? { refundDeduction: grossCovered - budgetedExpense, refund: { ...refund, applied: grossCovered - budgetedExpense, total: refund.applied } } : {}),
   };
 }
 
-function budgetCenterSummary(rows = [], budgets = []) {
-  const stats = calculateStats(rows);
-  const budget = budgetSummary(rows, budgets);
+function budgetCenterSummary(rows = [], budgets = [], { refundDeductions = [] } = {}) {
+  // V22.9.80 V76 M-7: 차감을 넘긴 화면만 바뀐다(refundAdjustedStats 는 차감이 없으면 같은 객체를 돌려준다).
+  const stats = refundAdjustedStats(calculateStats(rows), refundDeductions);
+  const budget = budgetSummary(rows, budgets, { refundDeductions });
   // V22.9.37 감사 SIM-9: 종류별 예상 수입(__income:이름)이 하나라도 있으면 옛 버전의 __income 합계 행은 기준에서 뺀다.
   // 둘이 함께 남은 달에는 예상 수입이 두 번 더해졌고, 폼에 보이지 않는 옛 값이 기준을 바꿨다. 종류별 행이 없을 때만
   // 호환용으로 쓴다 — 분류별 예산 합계가 있으면 __total 을 쓰지 않는 규칙과 같다. 쓰지 않은 옛 값은 화면이 알리도록 따로 돌려준다.
@@ -277,6 +300,8 @@ function budgetCenterSummary(rows = [], budgets = []) {
     actualIncomeMap[category].amount += Number(row.amount || 0);
     actualIncomeMap[category].count += 1;
   }
+  // V22.9.80 V76 M-7: 연결한 환급은 반영한 몫만큼 ‘환급’ 수입에서 뺀다(stats.totals.income 과 같은 값).
+  if (stats.refund?.applied && actualIncomeMap["환급"]) actualIncomeMap["환급"].amount = Math.max(0, actualIncomeMap["환급"].amount - stats.refund.applied);
   const actualIncomeCategories = Object.values(actualIncomeMap).sort((a, b) => b.amount - a.amount);
   const actualIncome = actualIncomeCategories.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const incomeBase = incomeBudget || actualIncome;
@@ -434,9 +459,16 @@ async function kakaoBudgetStatusText(env, householdId, month, origin = "", house
 async function kakaoBudgetStatusParts(env, householdId, month, origin = "", householdName = "", { canManage = true } = {}) {
   try {
     const budgets = await fetchBudgets(env, householdId, month);
-    const rows = await fetchAdminRows(env, { month, householdId, type: "all" });
-    const stats = calculateStats(rows);
-    const budget = budgetSummary(rows, budgets);
+    // V22.9.80 V76 M-7: 연결한 환불 차감을 기록과 함께 읽는다(플래그가 꺼져 있으면 요청 없음). 사용 금액 줄에 반영을 적는다.
+    const [rows, refund] = await Promise.all([
+      fetchAdminRows(env, { month, householdId, type: "all" }),
+      loadRefundDeductions(env, { householdId, start: `${month}-01`, end: nextMonthStart(month) }),
+    ]);
+    const refundDeductions = safeArray(refund.entries);
+    const stats = refundAdjustedStats(calculateStats(rows), refundDeductions);
+    const budget = budgetSummary(rows, budgets, { refundDeductions });
+    const refundNote = refundDeductionNote(budget.refund, { failed: !!refund.failed });
+    const refundSuffix = refundNote ? ` (${refundNote})` : "";
     const totalBudget = Number(budget.totalBudget || 0);
     const expense = Number(budget.budgetedExpense ?? budget.expense ?? stats.totals.expense ?? 0);
     const remain = totalBudget ? totalBudget - expense : 0;
@@ -448,7 +480,7 @@ async function kakaoBudgetStatusParts(env, householdId, month, origin = "", hous
         `💰 ${month} 예산 현황`, householdName ? `가계부: ${householdName}` : "", "",
         incomeOnly ? "아직 지출 예산이 설정되지 않았어요. 예상 수입만 저장되어 있어요." : "아직 예산이 없어요.",
         canManage ? "예산을 정하고 지출을 기록하면 남은 예산을 바로 볼 수 있어요." : "가계부 주인·관리자가 ‘예산설정’으로 예산을 정하면 남은 예산을 볼 수 있어요.",
-        `이번 달 지출: ${numberWithCommas(expense)}원`,
+        `이번 달 지출: ${numberWithCommas(expense)}원${refundSuffix}`,
       ].filter(Boolean).join("\n") };
     }
     // 분류별 예산이 있는 달에는 직접 설정한 전체 예산(__total)을 쓰지 않는다(V22.6.5 규칙). "예산 50만원"으로 저장한 값이
@@ -466,7 +498,7 @@ async function kakaoBudgetStatusParts(env, householdId, month, origin = "", hous
       `💰 ${month} 예산 현황`, householdName ? `가계부: ${householdName}` : "", "",
       `전체 예산: ${numberWithCommas(totalBudget)}원${budget.basis === "category" ? " (분류별 예산 합계)" : ""}`,
       ...(ignoredTotal ? [ignoredTotal] : []),
-      `사용 금액: ${numberWithCommas(expense)}원`,
+      `사용 금액: ${numberWithCommas(expense)}원${refundSuffix}`,
       // V22.9.79 감사 V44 D-4: 분류별 예산이면 예산을 잡지 않은 분류의 지출(예: 장보기)은 사용률에 들지 않는다. 조용히 빠지지 않게 적는다.
       ...(budget.basis === "category" && Number(budget.uncoveredExpense || 0) > 0 ? [`예산 밖 지출: ${numberWithCommas(budget.uncoveredExpense)}원 (예산을 잡지 않은 분류라 사용률에 넣지 않아요)`] : []),
       `남은 예산: ${remain >= 0 ? numberWithCommas(remain) + "원" : numberWithCommas(Math.abs(remain)) + "원 초과"}`,

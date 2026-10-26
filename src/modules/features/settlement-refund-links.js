@@ -3,9 +3,10 @@ import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { safeError, withHouseholdSettingsRmw } from "../runtime/leases.js";
 import { htmlResponse, redirectResponse } from "../runtime/http.js";
 import { sha256Hex } from "../auth/crypto-admin-session.js";
+import { isValidTransactionDateString } from "../admin/transactions-households.js";
 import {
   fetchAdminRows, fetchAdminRowsRange, fetchFormerSpenderMembers, fetchHouseholdMembers,
-  fetchRowsByPlainIds, memberNameMap,
+  fetchPostgrestRows, fetchRowsByPlainIds, memberNameMap,
 } from "../data/households-members-rows.js";
 import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
@@ -15,16 +16,19 @@ import {
 } from "./settlement-ops-pages.js";
 import {
   applyRefundLinkNetting, buildRefundReviewItems, isRefundIncomeRow, isRefundLinksAbsentError,
-  normalizeRefundLinkRows, rankRefundCandidates, refundLinkDateAllowed, refundLinkErrorCode,
-  refundLinkMessage, refundLinkPositiveAmount, refundLinkWindowStart, refundLinksEnabled,
-  refundRecipientEligible, refundSettlementNetting,
+  normalizeRefundLinkRows, rankRefundCandidates, refundDeductionEntries, refundLinkDateAllowed,
+  refundLinkErrorCode, refundLinkLockedIdsForPatch, refundLinkLockedReason, refundLinkMessage,
+  refundLinkPositiveAmount, refundLinkWindowStart, refundLinksEnabled, refundRecipientEligible,
+  refundSettlementNetting,
 } from "../domain/refund-links.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { parseJsonArraySettingStrict, saveSettingValue } from "../my/reports-premium.js";
 import { canManageMyHousehold, getMySelectedHousehold } from "../my/access-control.js";
 import { supabase } from "../data/supabase-client.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
-import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
+import {
+  bulkTransactionsAtomic, escapeHtml, numberWithCommas,
+} from "../domain/transactions-core.js";
 // @build:imports-end
 // V22.9.79 V44 D-5·V76 M-7: 환불 연결의 읽기·쓰기와 화면. 기능 플래그 REFUND_LINKS_ENABLED 가 켜졌을 때만 부른다
 // (라우터·정산 화면·카카오 정산·/ready). 표와 RPC 는 운영자가 검토용 SQL(migrations/V22_9_79_REFUND_LINKS_APPLY_REVIEW_ONLY.sql)을
@@ -132,6 +136,51 @@ async function refundNettedMonthRows(env, { householdId = "", monthRows = [] } =
   const state = await loadRefundLinkMonthState(env, { householdId, monthRows, withExpenses: true });
   if (!state.available || !state.links.length) return { enabled: true, available: state.available, rows: monthRows, deductions: [], total: 0, links: [] };
   return { enabled: true, available: true, links: state.links, ...applyRefundLinkNetting(monthRows, state.links) };
+}
+
+// V22.9.80 V76 M-7: 홈·예산·리포트·분석·카카오 요약의 환불 차감. 기간 [start, end)에 들어온 환급의 연결을 한 번에 읽는다
+// (환급 행과 원지출 행을 함께 받는다 — 원지출이 지난달이어도 분류·지출자를 안다). 그 기간 기록을 먼저 읽을 필요가 없어
+// 화면의 다른 읽기와 같은 단계에서 보낸다(직렬 깊이 그대로). 플래그가 꺼져 있으면 요청 없이 enabled:false 다.
+// 표가 없으면 available:false(차감도 안내도 없음). 다른 읽기 실패는 failed:true·entries:null — 화면은 기록 그대로 보이고
+// ‘환불 차감 확인 불가’라고 적는다(빈 목록으로 바꾸지 않는다). 한 번에 다 받지 못한 경우(상한)도 확인 불가다.
+const REFUND_DEDUCTION_SELECT = "id,household_id,expense_id,refund_id,amount,created_at,"
+  + "refund:transactions!accountbook_refund_links_refund_fkey!inner(id,household_id,user_id,type,amount,category,transaction_date),"
+  + "expense:transactions!accountbook_refund_links_expense_fkey(id,household_id,user_id,type,amount,category,memo,raw_text,transaction_date)";
+const REFUND_DEDUCTION_LIMIT = 2000;
+const REFUND_DEDUCTIONS_OFF = Object.freeze({ enabled: false, available: false, failed: false, entries: Object.freeze([]), links: Object.freeze([]) });
+
+function refundDeductionPath(householdId = "", start = "", end = "", limit = REFUND_DEDUCTION_LIMIT) {
+  const params = new URLSearchParams();
+  params.set("select", REFUND_DEDUCTION_SELECT);
+  params.set("household_id", `eq.${householdId}`);
+  params.append("refund.transaction_date", `gte.${start}`);
+  params.append("refund.transaction_date", `lt.${end}`);
+  params.set("order", "created_at.asc,id.asc");
+  params.set("limit", String(limit));
+  return `/rest/v1/accountbook_refund_links?${params.toString()}`;
+}
+
+async function loadRefundDeductions(env, { householdId = "", start = "", end = "" } = {}) {
+  if (!refundLinksEnabled(env)) return REFUND_DEDUCTIONS_OFF;
+  if (!householdId || !isValidTransactionDateString(start) || !isValidTransactionDateString(end) || start >= end) return { enabled: true, available: true, failed: false, entries: [], links: [] };
+  try {
+    const raw = await supabase(env, refundDeductionPath(householdId, start, end), { method: "GET" });
+    if (!Array.isArray(raw)) throw new Error("refund_deduction_read_invalid");
+    if (raw.length >= REFUND_DEDUCTION_LIMIT) throw new Error("refund_deduction_read_limit");
+    const refundRowsById = new Map();
+    const expenseRowsById = new Map();
+    for (const row of raw) {
+      if (row?.refund?.id && String(row.refund.household_id || "") === String(householdId)) refundRowsById.set(String(row.refund.id), row.refund);
+      if (row?.expense?.id) expenseRowsById.set(String(row.expense.id), row.expense);
+    }
+    const links = normalizeRefundLinkRows(raw, { householdId, refundRowsById, expenseRowsById })
+      .filter((link) => link.refund_date >= start && link.refund_date < end);
+    return { enabled: true, available: true, failed: false, entries: refundDeductionEntries(links), links };
+  } catch (error) {
+    if (isRefundLinksAbsentError(error)) return { enabled: true, available: false, failed: false, entries: [], links: [] };
+    rememberOpsEvent({ kind: "refund_deduction_read_failed", severity: "warn", path: "/refund-deductions", method: "GET", detail: safeError(error) });
+    return { enabled: true, available: true, failed: true, entries: null, links: null };
+  }
 }
 
 // 나간 사람 이름 읽기(fetchFormerSpenderMembers)에 넘길 행: 지출 행 + 연결한 환급 행(받은 사람도 정산 참여자가 된다).
@@ -578,9 +627,86 @@ async function refundRpcAvailable(env, name, body) {
   }
 }
 
+// V22.9.80 T-13: 카카오 삭제 직전에 이 기록에 걸린 환불 연결 수를 센다. 기록을 지우면 연결은 FK(CASCADE)로 함께 지워지고,
+// 같은 id 로 복구해도 되살아나지 않는다 — 삭제·복구 답장이 그 사실을 말한다. 플래그가 꺼져 있거나 연결될 수 없는 기록(환급이 아닌 수입)이면
+// undefined(버퍼에 칸을 붙이지 않는다), 연결 표가 없으면 0, 읽지 못하면 null(확인 불가 — 0 으로 바꾸지 않는다).
+async function refundLinkCountForRow(env, householdId = "", row = {}) {
+  if (!refundLinksEnabled(env)) return undefined;
+  const id = String(row?.id || "").trim();
+  const refundSide = isRefundIncomeRow(row);
+  if (!householdId || !refundLinkIdValid(id) || (row?.type === "income" && !refundSide)) return undefined;
+  try {
+    const links = await fetchRefundLinkRows(env, householdId, refundSide ? { refundIds: [id] } : { expenseIds: [id] });
+    return links.length;
+  } catch (error) {
+    if (isRefundLinksAbsentError(error)) return 0;
+    rememberOpsEvent({ kind: "refund_link_count_read_failed", severity: "warn", path: "kakao:delete", method: "GET", detail: safeError(error) });
+    return null;
+  }
+}
+
+// V22.9.80 T-13: 전체 기간 JSON 백업에 담을 이 가계부의 환불 연결(거래 id 쌍). 연결 표가 없으면 빈 목록이고, 다른 읽기 실패는 던진다
+// (V22.9.34 S10: 백업은 못 읽은 자료를 빈 값으로 넣지 않는다).
+async function fetchRefundLinksForBackup(env, householdId = "") {
+  const params = new URLSearchParams();
+  params.set("select", REFUND_LINK_TABLE_SELECT);
+  params.set("household_id", `eq.${householdId}`);
+  params.set("order", "created_at.asc,id.asc");
+  try {
+    const rows = await fetchPostgrestRows(env, `/rest/v1/accountbook_refund_links?${params.toString()}`, { maxRows: 20000 });
+    return safeArray(rows).filter((row) => String(row?.household_id || "") === String(householdId));
+  } catch (error) {
+    if (isRefundLinksAbsentError(error)) return [];
+    throw error;
+  }
+}
+
+// V22.9.80 T-12: 일괄 수정(관리자 화면·API)에서 환불과 연결된 기록 하나 때문에 전체가 실패하지 않게 한다. 먼저 예전처럼 한 번 보낸다
+// (연결된 기록이 없으면 요청·결과가 예전과 같다). 트리거가 막았을 때만 연결과 행을 읽어 막힐 행을 고르고, 나머지로 한 번 더 보낸다.
+// 일괄 RPC 는 한 트랜잭션이라 막힌 첫 요청은 아무것도 바꾸지 않았다. 고르지 못했거나(읽기 실패·예상 밖 규칙) 다시 막히면
+// 그 잠금 오류를 그대로 던진다 — 호출부는 ‘환불과 연결된 기록이 있어 아무것도 바꾸지 않았다’고 알린다.
+async function bulkUpdateSkippingRefundLocks(env, ids = [], householdId = "", patch = {}, options = {}) {
+  try {
+    const result = await bulkTransactionsAtomic(env, ids, householdId, patch, options);
+    return { result, updatedIds: [...ids], skipped: [] };
+  } catch (error) {
+    if (!refundLinkLockedReason(error)) throw error;
+    let locked = null;
+    try {
+      locked = await refundLockedIdsForBulkPatch(env, { ids, householdId, patch });
+    } catch (readError) {
+      rememberOpsEvent({ kind: "refund_link_bulk_lock_read_failed", severity: "warn", path: "/admin/bulk", method: "POST", detail: safeError(readError) });
+      throw error;
+    }
+    if (!locked.size) throw error;
+    const skipped = ids.filter((id) => locked.has(String(id))).map((id) => ({ id: String(id), reason: locked.get(String(id)) }));
+    const rest = ids.filter((id) => !locked.has(String(id)));
+    // 모두 막혔으면 트리거가 알려 준 오류(이유 포함)를 그대로 올리고, 어떤 기록이 왜 막혔는지만 붙인다.
+    if (!rest.length) throw Object.assign(error, { refundLinkSkipped: skipped });
+    const result = await bulkTransactionsAtomic(env, rest, householdId, patch, options);
+    return { result, updatedIds: rest, skipped };
+  }
+}
+
+async function refundLockedIdsForBulkPatch(env, { ids = [], householdId = "", patch = {} } = {}) {
+  const [asExpense, asRefund] = await Promise.all([
+    fetchRefundLinkRows(env, householdId, { expenseIds: ids }),
+    fetchRefundLinkRows(env, householdId, { refundIds: ids }),
+  ]);
+  // 고른 행에 지출 쪽과 환급 쪽이 함께 있으면 같은 연결이 두 번 온다. 연결 id 로 한 번만 센다.
+  const links = [...new Map([...safeArray(asExpense), ...safeArray(asRefund)].map((link) => [String(link?.id || ""), link])).values()];
+  if (!links.length) return new Map();
+  const wanted = [...new Set([...ids.map(String), ...links.flatMap((link) => [String(link.expense_id || ""), String(link.refund_id || "")])].filter(Boolean))];
+  const rows = await fetchRowsByPlainIds(env, "transactions", wanted, "id,household_id,type,amount,category,transaction_date");
+  const rowsById = new Map(safeArray(rows).filter((row) => String(row?.household_id || "") === String(householdId)).map((row) => [String(row.id), row]));
+  return refundLinkLockedIdsForPatch({ ids, patch, links, rowsById });
+}
+
 async function refundLinksReadiness(env) {
+  // V22.9.80 M-7: 표 점검은 홈·리포트가 쓰는 차감 읽기(환급·원지출 행을 함께 받는 외래키 이름)와 같은 모양으로 한다.
+  // 외래키 이름이 SQL 과 달라 그 읽기가 실패하면 표가 있어도 "error" 다(플래그를 켜기 전에 운영자가 본다).
   const [table, link, unlink] = await Promise.all([
-    supabase(env, "/rest/v1/accountbook_refund_links?select=id&limit=1", { method: "GET" }).then(() => "ok", (error) => (isRefundLinksAbsentError(error) ? "missing" : "error")),
+    supabase(env, `/rest/v1/accountbook_refund_links?${new URLSearchParams({ select: REFUND_DEDUCTION_SELECT, limit: "1" }).toString()}`, { method: "GET" }).then(() => "ok", (error) => (isRefundLinksAbsentError(error) ? "missing" : "error")),
     refundRpcAvailable(env, "accountbook_link_refund_v22979", { p_household_id: "", p_actor_user_id: "", p_expense_id: "", p_refund_id: "", p_amount: 0, p_expected: {} }),
     refundRpcAvailable(env, "accountbook_unlink_refund_v22979", { p_household_id: "", p_actor_user_id: "", p_link_id: "", p_expected_amount: 0 }),
   ]);
@@ -589,9 +715,11 @@ async function refundLinksReadiness(env) {
 }
 // @build:exports-start
 export {
-  handleRefundKeepPost, handleRefundLinkPicker, handleRefundLinkPost, handleRefundUnlinkPost,
+  bulkUpdateSkippingRefundLocks, fetchRefundLinksForBackup, handleRefundKeepPost,
+  handleRefundLinkPicker, handleRefundLinkPost, handleRefundUnlinkPost,
   handleSettlementHistorySaveV22979, kakaoRefundSettlementLines, kakaoRefundSurplusLine,
-  loadRefundLinkMonthState, refundLinksReadiness, refundNettedMonthRows,
-  refundSettlementSpenderRows, settlementRefundDigest, settlementRefundPageParts,
+  loadRefundDeductions, loadRefundLinkMonthState, refundLinkCountForRow, refundLinksReadiness,
+  refundNettedMonthRows, refundSettlementSpenderRows, settlementRefundDigest,
+  settlementRefundPageParts,
 };
 // @build:exports-end

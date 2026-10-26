@@ -7,12 +7,14 @@ import {
   isValidTransactionDateString,
 } from "../admin/transactions-households.js";
 import { fetchHouseholdMembers } from "../data/households-members-rows.js";
+import { refundLinkLockedReason } from "../domain/refund-links.js";
+import { bulkUpdateSkippingRefundLocks } from "../features/settlement-refund-links.js";
 import { activeSpenderExists } from "../my/transactions.js";
 import { supabase } from "../data/supabase-client.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import {
-  bulkTransactionsAtomic, createManualTransaction, deleteTransactionWithAudit, getCalendar,
-  getStats, listTransactions, numberWithCommas, updateTransaction,
+  createManualTransaction, deleteTransactionWithAudit, getCalendar, getStats, listTransactions,
+  numberWithCommas, updateTransaction,
 } from "../domain/transactions-core.js";
 import { parseStrictAmount } from "../domain/strict-input.js";
 // @build:imports-end
@@ -68,7 +70,18 @@ async function handleApi(request, env, url) {
       const members = await fetchHouseholdMembers(env, householdIds[0]);
       if (!activeSpenderExists(members, patch.user_id)) return jsonResponse({ ok: false, error: "spender_not_household_member", reason: "spender_not_household_member", message: "선택한 지출자가 이 가계부의 활성 참여자가 아닙니다." }, 400);
     }
-    await bulkTransactionsAtomic(env, ids, householdIds[0], patch, { actorKind: "admin_api_bulk" });
+    // V22.9.80 T-12: 환불과 연결돼 트리거가 막는 기록은 빼고 나머지만 고친다(빠진 기록은 skipped 로 알린다).
+    let outcome;
+    try {
+      outcome = await bulkUpdateSkippingRefundLocks(env, ids, householdIds[0], patch, { actorKind: "admin_api_bulk" });
+    } catch (err) {
+      const reason = refundLinkLockedReason(err);
+      if (!reason) throw err;
+      return jsonResponse({ ok: false, error: "refund_link_locked", reason, message: "환불과 연결된 기록이 있어 아무것도 바꾸지 않았습니다. 연결은 정산 화면의 ‘환불·환급’에서 먼저 풀어 주세요.", ...(err.refundLinkSkipped ? { skipped: err.refundLinkSkipped } : {}) }, 409);
+    }
+    if (outcome.skipped.length) {
+      return jsonResponse({ ok: true, updatedCount: outcome.updatedIds.length, skippedCount: outcome.skipped.length, skipped: outcome.skipped, message: `환불과 연결돼 바꿀 수 없는 ${outcome.skipped.length}건은 그대로 두고 ${outcome.updatedIds.length}건을 수정했습니다.` });
+    }
     return jsonResponse({ ok: true, updatedCount: ids.length });
   }
 
@@ -86,7 +99,15 @@ async function handleApi(request, env, url) {
       const members = await fetchHouseholdMembers(env, target.household_id);
       if (!activeSpenderExists(members, body.user_id)) return jsonResponse({ ok: false, error: "spender_not_household_member", reason: "spender_not_household_member", message: "선택한 지출자가 이 가계부의 활성 참여자가 아닙니다." }, 400);
     }
-    const updated = await updateTransaction(env, txMatch[1], body, { householdId: target.household_id, actorKind: "admin_api" });
+    let updated;
+    try {
+      updated = await updateTransaction(env, txMatch[1], body, { householdId: target.household_id, actorKind: "admin_api" });
+    } catch (err) {
+      // V22.9.80 T-12: 환불 연결 보호 트리거가 막은 수정은 일반 오류(500)가 아니라 이유와 함께 409 로 답한다.
+      const reason = refundLinkLockedReason(err);
+      if (!reason) throw err;
+      return jsonResponse({ ok: false, error: "refund_link_locked", reason, message: "환불과 연결된 기록이라 이 변경은 저장하지 않았습니다. 정산 화면의 ‘환불·환급’에서 연결을 먼저 풀어 주세요." }, 409);
+    }
     return jsonResponse({ ok: true, item: updated });
   }
 

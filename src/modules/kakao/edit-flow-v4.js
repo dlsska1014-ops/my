@@ -11,6 +11,7 @@ import {
 } from "../import/flexible-import-parser.js";
 import { fetchHouseholdMembers, memberNameMap } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
+import { refundLinkLockedKakaoText, refundLinkLockedReason } from "../domain/refund-links.js";
 import { myImportStoredValue, reconcileImportedTransactionIds } from "../my/backup-import.js";
 import {
   canChangeMyHouseholdRecords, canManageMyHousehold, canWriteMyHousehold,
@@ -23,10 +24,11 @@ import {
   isKakaoDailyListCommand, isKakaoEditCancelCommand, isKakaoEditGuideCommand,
   isKakaoSessionSeqReplyV4, isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers,
   kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText,
-  kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditTargetRejectTextV4, kakaoRestoreRowV4,
-  kakaoRowLabel, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
-  parseKakaoSpenderChoiceValue, readKakaoEditUndoItemsV4, resolveKakaoEditDateV4,
-  saveKakaoEditSessionV4, twoDigitSeq, withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
+  kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditTargetRejectTextV4,
+  kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4, kakaoRowLabel, parseKakaoDeleteCommandV4,
+  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue,
+  readKakaoEditUndoItemsV4, resolveKakaoEditDateV4, saveKakaoEditSessionV4, twoDigitSeq,
+  withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
 } from "./edit-session-v4.js";
 import {
   KAKAO_EDIT_DEFAULT_CATEGORIES, MAX_FAILS, compact, handleEditMessage, isExactKakaoEditFieldStart,
@@ -307,6 +309,9 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     if (isUncertainStorageWrite(err)) {
       return { reply: `수정 결과를 확인하지 못했어요.\n같은 명령을 다시 보내기 전에 ‘${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기’로 바뀌었는지 먼저 확인해 주세요.`, nextSession: null };
     }
+    // V22.9.80 T-12: 환불과 연결된 기록은 연결 보호 트리거가 막는다. 다시 보내도 같으므로 이유와 풀 곳을 알린다.
+    const lockedReason = refundLinkLockedReason(err);
+    if (lockedReason) return { reply: refundLinkLockedKakaoText(session.entryNo, lockedReason), nextSession: null };
     return { reply: `${session.entryNo}번 기록을 바꾸지 못했어요. 기록은 그대로예요.\n잠시 후 다시 보내 주세요.`, nextSession: null };
   }
   return { reply: `${reply}\n${kakaoEditRecordLineV4({ ...row, ...patch })}`, nextSession: null };
@@ -347,12 +352,14 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
       return sendKakaoEditReplyV4(env, ctx, session, `삭제하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘기록’로 번호를 다시 확인해 주세요.`, null);
     }
     const seq = Number(session.entryNo) || 0;
+    let deleted = null;
     try {
-      await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: session.householdId, householdName: session.householdName || "", userId: session.userId }, row, seq);
+      deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: session.householdId, householdName: session.householdName || "", userId: session.userId }, row, seq);
     } catch (err) {
       return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeleteFailedTextV4(err, row, seq), null);
     }
-    return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeletedTextV4(row, seq), null);
+    // V22.9.80 T-13: 환불 연결이 함께 풀렸으면(플래그가 켜진 경우만 버퍼에 칸이 있다) 그 사실을 답장에 붙인다.
+    return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeletedTextV4(row, seq, deleted?.refund_links), null);
   }
   // ask_value / confirm / reprompt / cancel — 모듈의 reply와 nextSession을 그대로 따른다.
   return sendKakaoEditReplyV4(env, ctx, session, result?.reply || "", result?.nextSession || null);
@@ -614,7 +621,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
     }
     const restored = outcome.restored;
     const seq = (await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, restored)) || Number(outcome.undo.seq || 0) || 1;
-    return kakaoText(`↩️ ${kakaoEditDayPrefixV4(restored.transaction_date)}기록을 복구했어요.\n${kakaoRowLabel(restored, seq)}`);
+    // V22.9.80 T-13: 지울 때 버퍼에 적은 환불 연결은 복구로 되살아나지 않는다(연결은 삭제와 함께 지워졌다). 답장이 그 사실을 말한다.
+    return kakaoText(`↩️ ${kakaoEditDayPrefixV4(restored.transaction_date)}기록을 복구했어요.\n${kakaoRowLabel(restored, seq)}${kakaoRefundLinkUndoNoteV4(outcome.undo?.refund_links, "restore")}`);
   }
 
   const deleteTarget = parseKakaoDeleteCommandV4(raw);
@@ -624,14 +632,15 @@ async function handleKakaoEditCommandV4(env, ctx) {
     { const refused = await refuseRecordChange(); if (refused) return refused; }
     const { row, seq, dailyLimit } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
     if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit));
+    let deleted = null;
     try {
-      await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id }, row, seq);
+      deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id }, row, seq);
     } catch (err) {
       return kakaoText(kakaoEditDeleteFailedTextV4(err, row, seq));
     }
     // 삭제는 끝났다. 남은 세션 정리가 실패해도 "다시 보내 주세요"로 바뀌면 안 된다(다시 보내면 다음 번호가 지워진다).
     try { await saveKakaoEditSessionV4(env, kakaoUserKey, payload, null); } catch (_) {}
-    return kakaoText(kakaoEditDeletedTextV4(row, seq));
+    return kakaoText(kakaoEditDeletedTextV4(row, seq, deleted?.refund_links));
   }
 
   const editTarget = parseKakaoEditCommandV4(raw);

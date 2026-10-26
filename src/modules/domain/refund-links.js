@@ -6,6 +6,7 @@ import {
 } from "../admin/transactions-households.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
+import { numberWithCommas } from "./transactions-core.js";
 // @build:imports-end
 // V22.9.79 V44 D-5·V76 M-7: 환불 연결 계산(요청 없음). 연결은 accountbook_refund_links 표(검토용 SQL
 // migrations/V22_9_79_REFUND_LINKS_APPLY_REVIEW_ONLY.sql)에 있고, 읽기·쓰기는 features/settlement-refund-links.js 가 한다.
@@ -255,11 +256,149 @@ function refundLinkErrorCode(error) {
   const code = raw.match(/\brefund_link_[a-z_]+/)?.[0] || "";
   return refundLinkMessage(code) ? code : "refund_link_failed";
 }
+
+// V22.9.80 T-12: 연결 보호 트리거(refund_link_guard_v22979)가 막은 수정. 트리거 오류 문구는 refund_link_locked_<이유>
+// (kind·amount·category·date)다. 표가 있으면 트리거도 있으므로 플래그와 상관없이 알아본다. 모르는 이유는 "locked".
+const REFUND_LINK_LOCK_REASONS = Object.freeze(["kind", "amount", "category", "date"]);
+const REFUND_LINK_LOCK_TEXTS = Object.freeze({
+  kind: "환불과 연결된 기록은 수입·지출 구분이나 가계부를 바꿀 수 없어요.",
+  amount: "금액은 연결한 환불 금액보다 작게 바꿀 수 없어요.",
+  category: "연결된 환급 기록은 분류를 바꿀 수 없어요.",
+  date: "이 날짜로 옮기면 원래 지출이 환급보다 늦어지거나 둘 사이가 365일을 넘어요.",
+});
+
+function refundLinkLockedReason(error) {
+  const match = safeError(error).match(/\brefund_link_locked(?:_([a-z]+))?/);
+  if (!match) return "";
+  return REFUND_LINK_LOCK_REASONS.includes(match[1] || "") ? match[1] : "locked";
+}
+
+// 웹 화면 주소의 err 코드(formatMessage 표에 있다). 잠금이 아니면 "".
+function refundLinkLockedCode(error) {
+  const reason = refundLinkLockedReason(error);
+  return !reason ? "" : reason === "locked" ? "refund_link_locked" : `refund_link_locked_${reason}`;
+}
+
+function refundLinkLockedText(reason = "") {
+  return Object.prototype.hasOwnProperty.call(REFUND_LINK_LOCK_TEXTS, reason) ? REFUND_LINK_LOCK_TEXTS[reason] : "";
+}
+
+// 카카오 ‘수정 NN번’ 답장. 예전에는 ‘잠시 후 다시 보내 주세요’였다 — 다시 보내도 같은 이유로 막힌다.
+function refundLinkLockedKakaoText(entryNo = "", reason = "") {
+  const why = refundLinkLockedText(reason);
+  return `${entryNo}번 기록은 환불과 연결돼 있어 바꾸지 않았어요. 기록은 그대로예요.${why ? `\n${why}` : ""}\n연결은 소유자·관리자가 웹 정산 화면의 ‘환불·환급’에서 풀 수 있어요.`;
+}
+
+// V22.9.80 T-12: 일괄 수정에서 트리거가 막을 행을 고른다(트리거와 같은 규칙). links 는 표 행 [{ expense_id, refund_id, amount }],
+// rowsById 는 고른 행과 연결 상대 행(household_id·type·amount·category·transaction_date). 연결 상대도 같은 일괄 수정에
+// 들어 있으면 상대가 먼저 바뀔지 나중에 바뀔지 모르므로(트리거는 행마다 본다) 상대의 지금 날짜와 새 날짜를 모두 견준다.
+// 행을 읽지 못한 연결 행은 막힌 것으로 본다. 돌려주는 값은 id → 이유(Map).
+function refundLinkLockedIdsForPatch({ ids = [], patch = {}, links = [], rowsById = new Map() } = {}) {
+  const selected = new Set(safeArray(ids).map((id) => String(id || "")));
+  const has = (key) => Object.prototype.hasOwnProperty.call(patch || {}, key) && patch[key] !== undefined;
+  const locked = new Map();
+  const datesOf = (otherId, next) => {
+    const other = rowsById.get(otherId);
+    const dates = other ? [String(other.transaction_date || "").slice(0, 10)] : [];
+    if (selected.has(otherId)) dates.push(next);
+    return dates;
+  };
+  for (const id of selected) {
+    const asExpense = safeArray(links).filter((link) => String(link?.expense_id || "") === id);
+    const asRefund = safeArray(links).filter((link) => String(link?.refund_id || "") === id);
+    if (!asExpense.length && !asRefund.length) continue;
+    const row = rowsById.get(id);
+    if (!row) { locked.set(id, "locked"); continue; }
+    const linkedAsExpense = asExpense.reduce((sum, link) => sum + Number(link.amount || 0), 0);
+    const linkedAsRefund = asRefund.reduce((sum, link) => sum + Number(link.amount || 0), 0);
+    if ((has("household_id") && String(patch.household_id) !== String(row.household_id || "")) || (has("type") && String(patch.type) !== String(row.type || ""))) { locked.set(id, "kind"); continue; }
+    if (has("amount") && !(Number(patch.amount) >= Math.max(linkedAsExpense, linkedAsRefund))) { locked.set(id, "amount"); continue; }
+    if (linkedAsRefund > 0 && has("category") && String(patch.category ?? "") !== String(row.category ?? "")) { locked.set(id, "category"); continue; }
+    if (has("transaction_date") && String(patch.transaction_date) !== String(row.transaction_date || "").slice(0, 10)) {
+      const next = String(patch.transaction_date).slice(0, 10);
+      const badExpense = asExpense.some((link) => { const dates = datesOf(String(link.refund_id || ""), next); return !dates.length || dates.some((refundDate) => !refundLinkDateAllowed(next, refundDate)); });
+      const badRefund = asRefund.some((link) => { const dates = datesOf(String(link.expense_id || ""), next); return !dates.length || dates.some((expenseDate) => !refundLinkDateAllowed(expenseDate, next)); });
+      if (badExpense || badRefund) locked.set(id, "date");
+    }
+  }
+  return locked;
+}
+
+// V22.9.80 V76 M-7: 화면 합계에 넣는 환불 차감 항목. W-7 월말 예상(monthSpendingOutlook)의 refundDeductions 와 같은 모양에
+// 원지출 지출자를 더했다: { transaction_date: 환급 날짜, amount(양수), category: 원지출 분류, user_id: 원지출 지출자, link_id }.
+function refundDeductionEntries(links = []) {
+  return safeArray(links).map((link) => ({
+    transaction_date: String(link?.refund_date || "").slice(0, 10),
+    amount: refundLinkPositiveAmount(link?.amount),
+    category: String(link?.expense_category || ""),
+    user_id: String(link?.expense_user_id || ""),
+    link_id: String(link?.id || ""),
+  })).filter((entry) => entry.amount && isValidTransactionDateString(entry.transaction_date));
+}
+
+// [start, endInclusive] 안의 차감 항목.
+function refundDeductionsInRange(entries = [], start = "", endInclusive = "") {
+  return safeArray(entries).filter((entry) => entry && entry.transaction_date >= start && entry.transaction_date <= endInclusive && Number(entry.amount) > 0);
+}
+
+// 합계에 반영할 차감액. 지출 합계는 0 아래로 내리지 않는다 — 지출보다 큰 환불은 남는 몫(surplus)을 수입으로 둔다.
+// 그래서 지출·수입이 같은 금액(applied)만큼 줄고 잔액은 그대로다(변경안 ‘계산’: 지출 −L, 수입 −L, 잔액 그대로).
+function refundDeductionApplied(grossExpense = 0, entries = []) {
+  const requested = safeArray(entries).reduce((sum, entry) => sum + Math.max(0, Number(entry?.amount || 0)), 0);
+  const applied = Math.max(0, Math.min(requested, Math.max(0, Number(grossExpense || 0))));
+  return { requested, applied, surplus: requested - applied, count: safeArray(entries).length };
+}
+
+// calculateStats 결과에 차감을 반영한다. 차감이 없으면 같은 객체를 그대로 돌려준다(플래그 꺼짐과 같은 화면).
+// 분류는 원지출 분류에서 빼되 0 아래로 내리지 않고(건수는 그대로), ‘환급’ 수입 분류는 반영한 몫만큼 줄인다.
+// 날짜별(daily) 값은 기록 그대로다. 반영 내역은 refund 로 붙인다.
+function refundAdjustedStats(stats, entries = []) {
+  const list = safeArray(entries).filter((entry) => entry && Number(entry.amount) > 0);
+  if (!stats || !stats.totals || !list.length) return stats;
+  const grossExpense = Number(stats.totals.expense || 0);
+  const refund = refundDeductionApplied(grossExpense, list);
+  const cut = Object.create(null);
+  for (const entry of list) {
+    const key = entry.category || "기타지출";
+    cut[key] = (cut[key] || 0) + Number(entry.amount);
+  }
+  let incomeLeft = refund.applied;
+  const categories = safeArray(stats.categories).map((row) => {
+    let next = row;
+    const minus = cut[row.category] || 0;
+    if (minus && Number(row.expense || 0) > 0) {
+      const expense = Math.max(0, Number(row.expense) - minus);
+      next = { ...row, expense, total: Number(row.income || 0) + expense, refundDeduction: Number(row.expense) - expense };
+    }
+    if (row.category === REFUND_LINK_CATEGORY && Number(row.income || 0) > 0 && incomeLeft > 0) {
+      const income = Math.max(0, Number(row.income) - incomeLeft);
+      incomeLeft -= Number(row.income) - income;
+      next = { ...next, income, total: income + Number(next.expense || 0) };
+    }
+    return next;
+  }).sort((a, b) => b.expense - a.expense || b.income - a.income);
+  return {
+    ...stats,
+    totals: { ...stats.totals, income: Number(stats.totals.income || 0) - refund.applied, expense: grossExpense - refund.applied, balance: Number(stats.totals.balance || 0) },
+    categories,
+    refund,
+  };
+}
+
+// 화면에 붙이는 짧은 문구. 반영한 차감이 없고 읽기도 실패하지 않았으면 "".
+function refundDeductionNote(refund = null, { failed = false } = {}) {
+  if (failed) return "환불 차감 확인 불가";
+  if (!refund || !(Number(refund.applied) > 0)) return "";
+  return `환불 차감 ${numberWithCommas(refund.applied)}원 반영`;
+}
 // @build:exports-start
 export {
   applyRefundLinkNetting, buildRefundReviewItems, isRefundIncomeRow, isRefundLinksAbsentError,
-  normalizeRefundLinkRows, rankRefundCandidates, refundDeductionsByMonth, refundLinkDateAllowed,
-  refundLinkDeductionRows, refundLinkErrorCode, refundLinkMessage, refundLinkPositiveAmount,
-  refundLinkWindowStart, refundLinksEnabled, refundRecipientEligible, refundSettlementNetting,
+  normalizeRefundLinkRows, rankRefundCandidates, refundAdjustedStats, refundDeductionApplied,
+  refundDeductionEntries, refundDeductionNote, refundDeductionsByMonth, refundDeductionsInRange,
+  refundLinkDateAllowed, refundLinkDeductionRows, refundLinkErrorCode, refundLinkLockedCode,
+  refundLinkLockedIdsForPatch, refundLinkLockedKakaoText, refundLinkLockedReason, refundLinkMessage,
+  refundLinkPositiveAmount, refundLinkWindowStart, refundLinksEnabled, refundRecipientEligible,
+  refundSettlementNetting,
 };
 // @build:exports-end

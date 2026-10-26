@@ -410,7 +410,8 @@ function formatSummary(summary, month) {
   return [
     `📊 ${month} 요약`,
     `수입: ${numberWithCommas(summary.totals.income)}원`,
-    `지출: ${numberWithCommas(summary.totals.expense)}원`,
+    // V22.9.80 V76 M-7: 연결한 환불을 뺀 요약(refundAdjustedStats)이면 지출 줄에 반영한 금액을 적는다.
+    `지출: ${numberWithCommas(summary.totals.expense)}원${Number(summary.refund?.applied || 0) > 0 ? ` (환불 차감 ${numberWithCommas(summary.refund.applied)}원 반영)` : ""}`,
     `잔액: ${numberWithCommas(summary.totals.balance)}원`,
     topExpenses ? "\n상위 지출:" : "",
     topExpenses,

@@ -11,6 +11,9 @@ import {
   isRowLimitExceededError,
 } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
+import {
+  refundAdjustedStats, refundDeductionApplied, refundDeductionNote,
+} from "../domain/refund-links.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { handleMyLogout } from "../auth/kakao-oauth.js";
 import { fetchUserById } from "../data/users-household-create.js";
@@ -267,9 +270,11 @@ function renderReportMonthNavigator({ path = "/my/analysis", month = currentMont
 }
 
 // V22.9.79 V76 W-7: ‘월말 예상 지출’은 monthSpendingOutlook(전체 분류)이다. 규칙·정기 항목을 읽은 화면은 outlook 을 넘긴다.
-function buildReportDashboardSummary(rows = [], budget = {}, month = currentMonthKst(), { outlook = null } = {}) {
+// V22.9.80 V76 M-7: refundDeductions(연결한 환불, 플래그가 켜진 화면만 넘긴다)는 지출·수입·예산 속도에 반영한다.
+// budget·outlook 은 호출부가 같은 차감으로 만든 값을 넘긴다. 차감이 없으면 예전 값과 같다.
+function buildReportDashboardSummary(rows = [], budget = {}, month = currentMonthKst(), { outlook = null, refundDeductions = [], refundFailed = false } = {}) {
   const safeMonth = validMonth(month) || currentMonthKst();
-  const stats = calculateStats(rows);
+  const stats = refundAdjustedStats(calculateStats(rows), refundDeductions);
   const daysInMonth = new Date(Number(safeMonth.slice(0, 4)), Number(safeMonth.slice(5, 7)), 0).getDate() || 30;
   const today = formatDate(nowKstDate());
   const todayMonth = today.slice(0, 7);
@@ -287,7 +292,10 @@ function buildReportDashboardSummary(rows = [], budget = {}, month = currentMont
   const spendingOutlook = outlook || monthSpendingOutlook({ month: safeMonth, rows, recurring: null, plans: null });
   const forecast = observation.basisDays && spendingOutlook.expected ? spendingOutlook.expected.total : null;
   const coveredRows = budget.basis === "category" && Array.isArray(budget.coveredCategories) ? rows.filter((row) => budget.coveredCategories.includes(row.category)) : rows;
-  const observedBudgetedExpense = monthlyObservedSpending(coveredRows, safeMonth).observedExpense;
+  const observedGross = monthlyObservedSpending(coveredRows, safeMonth).observedExpense;
+  const observedRefund = observation.basisEnd ? safeArray(refundDeductions).filter((entry) => entry && entry.transaction_date >= `${safeMonth}-01` && entry.transaction_date <= observation.basisEnd
+    && (budget.basis !== "category" || !Array.isArray(budget.coveredCategories) || budget.coveredCategories.includes(entry.category))) : [];
+  const observedBudgetedExpense = observedGross - refundDeductionApplied(observedGross, observedRefund).applied;
   const paceGap = elapsedDays ? (totalBudget ? Math.round(observedBudgetedExpense / totalBudget * 100) - elapsedRate : 0) : null;
   const categoryAlerts = safeArray(budget.categoryAlerts).filter((item) => Number(item.budget || 0) > 0).sort((a, b) => Number(b.rate || 0) - Number(a.rate || 0)).slice(0, 4);
   let insight = "예산을 설정하면 현재 소비 속도와 남은 하루 한도를 함께 안내합니다.";
@@ -296,17 +304,20 @@ function buildReportDashboardSummary(rows = [], budget = {}, month = currentMont
   else if (totalBudget && paceGap < -8) insight = `달력 진행률보다 예산 사용이 ${Math.abs(paceGap)}%p 여유로워요. 지금의 소비 흐름을 유지해 보세요.`;
   else if (totalBudget) insight = "달력 진행률과 예산 사용 속도가 비슷해요. 큰 지출 예정이 있다면 남은 예산을 먼저 확인하세요.";
   // observation 의 burnForecast(예전 식)가 남지 않도록 같은 월말 예상으로 덮는다.
-  return { ...observation, burnForecast: forecast, month: safeMonth, expense, income, balance: income - expense, totalBudget, budgetRate, elapsedRate, remainingBudget, forecast, spendingOutlook, paceGap, categoryAlerts, insight };
+  return { ...observation, burnForecast: forecast, month: safeMonth, expense, income, balance: income - expense, totalBudget, budgetRate, elapsedRate, remainingBudget, forecast, spendingOutlook, paceGap, categoryAlerts, insight,
+    ...(stats.refund || refundFailed ? { refund: stats.refund || null, refundFailed: !!refundFailed } : {}) };
 }
 
 function renderReportDashboard(summary = {}) {
   const rate = Math.max(0, Math.min(100, Number(summary.budgetRate || 0)));
+  // V22.9.80 V76 M-7: 지출 칸에 환불 차감 반영(또는 확인 불가)을 붙인다. 차감이 없으면 빈 문자열이다.
+  const refundNote = refundDeductionNote(summary.refund, { failed: !!summary.refundFailed });
   const householdQuery = summary.householdId ? `&household_id=${encodeURIComponent(summary.householdId)}` : "";
   const categories = safeArray(summary.categoryAlerts).map((item) => {
     const itemRate = Math.max(0, Math.min(100, Number(item.rate || 0)));
     return `<li><div><b>${escapeHtml(item.category || "미분류")}</b><span>${numberWithCommas(item.spent || 0)}원 / ${numberWithCommas(item.budget || 0)}원</span></div><strong>${numberWithCommas(item.rate || 0)}%</strong><i><em style="width:${itemRate}%"></em></i></li>`;
   }).join("");
-  return `<section class="reportCockpit" aria-labelledby="reportCockpitTitle"><div class="reportCockpitHead"><div><span>MONTHLY DASHBOARD</span><h2 id="reportCockpitTitle">${escapeHtml(summary.month || "")} 한눈에 보기</h2></div><a href="/app?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}&view=calendar#calendar">거래 캘린더 보기</a></div><div class="reportCockpitGrid"><div class="reportPace"><div class="reportGauge" style="--report-rate:${rate}%"><div><b>${summary.totalBudget ? `${numberWithCommas(summary.budgetRate || 0)}%` : "—"}</b><span>예산 사용</span></div></div><p>${summary.totalBudget ? `월 ${numberWithCommas(summary.totalBudget)}원 기준` : "월 예산 미설정"}</p></div><div class="reportKpis"><div><span>이번 달 지출</span><b>${numberWithCommas(summary.expense || 0)}원</b></div><div><span>이번 달 수입</span><b>${numberWithCommas(summary.income || 0)}원</b></div><div><span>남은 예산</span><b>${summary.totalBudget ? `${numberWithCommas(summary.remainingBudget || 0)}원` : "설정 전"}</b></div><div><span>월말 예상 지출</span><b>${renderObservedMoney(summary, summary.forecast)}</b></div></div></div><div class="reportInsight"><span aria-hidden="true">✦</span><p>${escapeHtml(summary.insight || "")}</p></div>${categories ? `<div class="reportCategoryBudget"><div class="reportSectionTitle"><b>분류별 예산 속도</b><a href="/budgets?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}">전체 예산 보기</a></div><ul>${categories}</ul></div>` : ""}</section>`;
+  return `<section class="reportCockpit" aria-labelledby="reportCockpitTitle"><div class="reportCockpitHead"><div><span>MONTHLY DASHBOARD</span><h2 id="reportCockpitTitle">${escapeHtml(summary.month || "")} 한눈에 보기</h2></div><a href="/app?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}&view=calendar#calendar">거래 캘린더 보기</a></div><div class="reportCockpitGrid"><div class="reportPace"><div class="reportGauge" style="--report-rate:${rate}%"><div><b>${summary.totalBudget ? `${numberWithCommas(summary.budgetRate || 0)}%` : "—"}</b><span>예산 사용</span></div></div><p>${summary.totalBudget ? `월 ${numberWithCommas(summary.totalBudget)}원 기준` : "월 예산 미설정"}</p></div><div class="reportKpis"><div><span>이번 달 지출${refundNote ? ` · ${escapeHtml(refundNote)}` : ""}</span><b>${numberWithCommas(summary.expense || 0)}원</b></div><div><span>이번 달 수입</span><b>${numberWithCommas(summary.income || 0)}원</b></div><div><span>남은 예산</span><b>${summary.totalBudget ? `${numberWithCommas(summary.remainingBudget || 0)}원` : "설정 전"}</b></div><div><span>월말 예상 지출</span><b>${renderObservedMoney(summary, summary.forecast)}</b></div></div></div><div class="reportInsight"><span aria-hidden="true">✦</span><p>${escapeHtml(summary.insight || "")}</p></div>${categories ? `<div class="reportCategoryBudget"><div class="reportSectionTitle"><b>분류별 예산 속도</b><a href="/budgets?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}">전체 예산 보기</a></div><ul>${categories}</ul></div>` : ""}</section>`;
 }
 
 function renderChallengeProgress(challenge = {}, { hydrate = false } = {}) {

@@ -22,6 +22,7 @@ import {
 import { renderServerDashboardHtml, renderServerLoginHtml } from "./dashboard-page.js";
 import { safeArray } from "./backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
+import { refundLinkLockedCode } from "../domain/refund-links.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import {
   fetchRawHouseholdMembers, withKakaoUserLifecycleLease,
@@ -544,7 +545,8 @@ async function handleAdminUpdateTransaction(request, env) {
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg: "updated" }), { msg: "updated" }));
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_update_failed", severity: "warn", path: "/admin/transactions/update", method: "POST", detail: safeError(err) });
-    const message = isUncertainStorageWrite(err) ? "edit_unknown" : "record_update_failed";
+    // V22.9.80 T-12: 환불 연결 보호 트리거가 막은 수정은 ‘수정하지 못했다’가 아니라 이유별 코드로 돌려보낸다(formatMessage 표).
+    const message = isUncertainStorageWrite(err) ? "edit_unknown" : refundLinkLockedCode(err) || "record_update_failed";
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: message }), { err: message }));
   } finally {
     if (lease) await releaseOperationLease(env, lease);

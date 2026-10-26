@@ -23,10 +23,11 @@ import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // monthSpendingOutlook(예산 분류 범위)이고, 예전의 ‘관측 속도 예상’과 ‘대기 목록을 더한 가정값’을 하나로 합쳤다.
 // ‘월말 초과 예상’ 판정에도 반영 대기 고정지출·남은 정기지출 납부가 들어간다(2026-10-25 운영자 결정 Q3).
 // plans(정기지출 항목)를 못 읽었으면 null — 그 몫을 빼고 계산했다고 내역 줄에 적는다.
-function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [], budgets = [], recurring = [], recurringState = "complete", plans = [], receipt = null }) {
+// V22.9.80 V76 M-7: refundDeductions(연결한 환불, 플래그가 켜진 화면만 넘긴다)는 사용액·월말 예상의 기록에서 뺀다. 기본은 빈 목록이다.
+function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [], budgets = [], recurring = [], recurringState = "complete", plans = [], receipt = null, refundDeductions = [] }) {
   if (!Array.isArray(rows) || !Array.isArray(budgets)) throw new Error("budget_observation_read_invalid");
-  const budget = budgetSummary(rows, budgets);
-  const center = budgetCenterSummary(rows, budgets);
+  const budget = budgetSummary(rows, budgets, { refundDeductions });
+  const center = budgetCenterSummary(rows, budgets, { refundDeductions });
   const observation = monthObservation(month, rows, { receipt });
   const { today: todayStr, sameMonth, pastMonth, daysInMonth, days: currentDay } = observation;
   const remainingDays = sameMonth ? Math.max(1, daysInMonth - currentDay + 1) : 0;
@@ -34,7 +35,7 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   const totalBudget = Number(budget.totalBudget || 0);
   const remainingBudget = totalBudget ? Math.max(0, totalBudget - spent) : 0;
   const recurringAvailable = recurringState === "complete" && Array.isArray(recurring) && recurring.every(r => r && r.amount != null && Number.isFinite(Number(r.amount)));
-  const outlook = monthSpendingOutlook({ month, rows, today: todayStr, receipt, recurring: recurringAvailable ? recurring : null, plans, budgets, scope: "budgeted" });
+  const outlook = monthSpendingOutlook({ month, rows, today: todayStr, receipt, recurring: recurringAvailable ? recurring : null, plans, budgets, scope: "budgeted", refundDeductions });
   // V22.9.79 감사 V44 D-18: 하루 사용 가능은 홈과 같이 내림이다(예전에는 반올림이라 홈보다 1원 많을 수 있었다).
   const dailyAllowance = observation.status === "complete" && totalBudget && remainingDays ? Math.floor(remainingBudget / remainingDays) : null;
   const observedSpent = observation.status === "complete" ? outlook.recorded.toDate : null;
