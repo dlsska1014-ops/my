@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_79.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_80.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -314,6 +314,7 @@ function run(command, args, label) {
 // V22.9.77 2026-10-24: main(V76 기록 PR #93) 병합 뒤 관제 토큰 확인 N-14(+8)·다시 만들기 대기 N-17(+14)·백업 엄격 조회 N-15(15)·추적표 V77 N-14~N-18. 두 모드 실측: 일반 26,933 · 분류 표 부재 26,930.
 // V22.9.78: 새 동작 검사 6개(정기 반영 124·홈 앞으로 나갈 돈 52·요일 20·관제 19·백업 안내 16·함수 사본 15)와 추적표 V78 출처. 두 모드 실측: 일반 27,250 · 분류 표 부재 27,247.
 // V22.9.79: 새 동작 검사 9개(카카오 답장 234·환불 연결 251·예약 실행 135·정기 목록 90·월말 예상 98·입력 해석 1,645·웹 화면 153·백업 163·시각 120)와 추적표 V79 출처. 두 모드 실측: 일반 30,629 · 분류 표 부재 30,626(2026-10-26 통합 검토 수정 뒤).
+// V22.9.80: 새 동작 검사 5개(역할 표시 269·입력 해석 291·데이터 229·다크 화면 500·환불 연결 후속 268)와 추적표 V80 출처. 두 모드 실측: 일반 0 · 분류 표 부재 0(V22.9.80 통합).
 const EXPECTED_MINIMUM_CHECKS = 30626;
 
 function runValidation(script, label) {
