@@ -38929,6 +38929,9 @@ async function renderRecurringApplyConfirmPage(env, householdId, month, returnTo
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>고정항목 기록 확인</title><style>:root{color-scheme:light dark}body{font-family:system-ui,-apple-system,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;max-width:560px;margin:32px auto;padding:0 16px;line-height:1.6;background:#fff;color:#1f2937}ul{padding-left:20px}button{font:inherit;padding:10px 16px;border:0;border-radius:10px;background:#2563eb;color:#fff;cursor:pointer}a{color:#1d4ed8}@media (prefers-color-scheme:dark){body{background:#111827;color:#e5e7eb}a{color:#93c5fd}}</style></head><body><main><h1>${label} 날짜로 고정항목을 기록할까요?</h1><p>지금은 ${recurringMonthLabelKo(currentMonthKst())}입니다. 이 단추는 보고 있는 달(${label})에 아직 반영되지 않은 고정 수입·지출을 ${label}의 지정일 날짜로 기록합니다. 이미 반영된 항목은 다시 넣지 않습니다.</p>${listHtml}${action}<p><a href="${escapeHtml(returnTo)}">기록하지 않고 돌아가기</a></p></main></body></html>`);
 }
 
+// V22.9.80 T-14: 반영 표식을 되살릴 때 한 요청에 묶는 규칙 수(주소 길이와 요청 한도 50 을 함께 본 값).
+const RECURRING_MARKER_RESTORE_BATCH_V22980 = 80;
+
 async function handleRecurringApply(request, env) {
   const form = await request.formData();
   const _hh = String(form.get("household_id") || "").trim();
@@ -38971,9 +38974,20 @@ async function handleRecurringApply(request, env) {
         mutationConfirmed = true;
         settled.push(...pending);
         // SIM-8: 지난 달을 반영해도 더 나중 달의 반영 표식은 되돌리지 않는다. RPC 는 요청한 달로 표식을 덮어쓰므로 되살린다.
+        // V22.9.80 T-14: 규칙마다 PATCH 를 보내면 표식이 더 나중인 규칙이 40개쯤 넘을 때 요청 한도(50)에 닿아 recurring_apply_incomplete 로 끝나고
+        // 다시 만들기 대기 저장도 실패했다. 되살릴 표식 값이 같은 규칙끼리 id=in.(…) 한 번으로 묶는다(값이 다르면 값마다 한 번, 한 번에 80개까지).
+        const restore = new Map();
         for (const r of pending) {
           const previous = String(r.last_applied_month || "");
-          if (previous > month) await supabase(env, `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(r.id)}&household_id=eq.${encodeURIComponent(householdId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: previous }) });
+          if (previous <= month) continue;
+          if (!restore.has(previous)) restore.set(previous, []);
+          restore.get(previous).push(String(r.id));
+        }
+        for (const [previous, ids] of restore) {
+          for (let at = 0; at < ids.length; at += RECURRING_MARKER_RESTORE_BATCH_V22980) {
+            const list = `in.(${ids.slice(at, at + RECURRING_MARKER_RESTORE_BATCH_V22980).map((id) => `"${id}"`).join(",")})`;
+            await supabase(env, `/rest/v1/accountbook_recurring?id=${encodeURIComponent(list)}&household_id=eq.${encodeURIComponent(householdId)}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: previous }) });
+          }
         }
       } else {
         for (const r of pending) {
