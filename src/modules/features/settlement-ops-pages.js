@@ -420,10 +420,18 @@ function renderSettlementConfig({ mode = "equal", members = [], rows = [], weigh
   return `<form method="get" action="/settlement-summary">${hidden}<p class="note">각 지출을 함께 부담할 참여자를 선택하세요. 선택이 없는 항목은 전체 참여자에게 동일 분배됩니다.</p><div class="itemGrid">${items}</div>${rows.length > 40 ? `<p class="note">화면 성능을 위해 최근 표시 40건까지만 품목별 지정합니다. 나머지는 전체 참여자에게 동일 분배됩니다.</p>` : ""}<button type="submit">품목별 참여자로 다시 계산</button></form>`;
 }
 
+// V22.9.80(T-40): completed_at 은 new Date().toISOString() 으로 찍은 UTC 시각이라 앞 10글자를 그대로 보이면 한국 시각 00~09시에 끝낸 정산이
+// 전날로 보였다. 시간대가 적힌 값만 한국 날짜로 바꿔 보인다(저장 값은 그대로, 시간대가 없는 옛 값은 예전처럼 앞 10글자).
+function settlementCompletedDayKst(value) {
+  const text = String(value || "");
+  const ms = /(?:[zZ]|[+-][0-9]{2}:?[0-9]{2})$/.test(text) ? Date.parse(text) : NaN;
+  return Number.isFinite(ms) ? new Date(ms + 32400000).toISOString().slice(0, 10) : text.slice(0, 10);
+}
+
 function renderSettlementHistory(history = []) {
   const rows = safeArray(history).slice().reverse().slice(0, 8);
   if (!rows.length) return `<p class="muted">완료 처리한 정산이 아직 없습니다.</p>`;
-  return `<div class="tableWrap"><table><thead><tr><th>완료일</th><th>대상 월</th><th>방식</th><th>총 지출</th><th>부담액</th><th>메모</th></tr></thead><tbody>${rows.map((item) => `<tr><td>${escapeHtml(String(item.completed_at || "").slice(0, 10))}</td><td>${escapeHtml(item.month || "")}</td><td>${escapeHtml({ equal: "동일", ratio: "비율", headcount: "인원수", item: "품목별" }[item.mode] || item.mode || "동일")}</td><td>${numberWithCommas(item.total_expense)}원${Number(item.refund_total) > 0 ? ` (환불 ${numberWithCommas(item.refund_total)}원 뺌)` : ""}</td><td>${Array.isArray(item.shares) && item.shares.length ? item.shares.map((share) => `${escapeHtml(share.name || "구성원")} ${numberWithCommas(share.share)}원`).join(" · ") : "-"}</td><td>${escapeHtml(item.note || "-")}</td></tr>`).join("")}</tbody></table></div>`;
+  return `<div class="tableWrap"><table><thead><tr><th>완료일</th><th>대상 월</th><th>방식</th><th>총 지출</th><th>부담액</th><th>메모</th></tr></thead><tbody>${rows.map((item) => `<tr><td>${escapeHtml(settlementCompletedDayKst(item.completed_at))}</td><td>${escapeHtml(item.month || "")}</td><td>${escapeHtml({ equal: "동일", ratio: "비율", headcount: "인원수", item: "품목별" }[item.mode] || item.mode || "동일")}</td><td>${numberWithCommas(item.total_expense)}원${Number(item.refund_total) > 0 ? ` (환불 ${numberWithCommas(item.refund_total)}원 뺌)` : ""}</td><td>${Array.isArray(item.shares) && item.shares.length ? item.shares.map((share) => `${escapeHtml(share.name || "구성원")} ${numberWithCommas(share.share)}원`).join(" · ") : "-"}</td><td>${escapeHtml(item.note || "-")}</td></tr>`).join("")}</tbody></table></div>`;
 }
 
 async function handleSettlementSummaryPage(request, env, url) {

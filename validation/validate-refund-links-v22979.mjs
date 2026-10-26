@@ -138,10 +138,11 @@ function refundDb(fx, { table = true, rpcs = true } = {}) {
 }
 
 const mainOf = (html = "") => { const start = html.indexOf("<main"); const end = html.indexOf("</main>"); return start >= 0 && end > start ? html.slice(start, end + 7) : ""; };
-// 완료 이력의 ‘완료일’ 칸은 앱이 실제 시계(new Date())로 찍은 completed_at 의 앞 10글자다. 고정값이 검사한 날짜에 묶이지 않게
+// 완료 이력의 ‘완료일’ 칸은 앱이 실제 시계(new Date())로 찍은 completed_at 의 한국 날짜다(V22.9.80 T-40 전에는 UTC 앞 10글자). 고정값이 검사한 날짜에 묶이지 않게
 // 그 칸만 자리표시로 바꿔 비교한다(2026-10-26: 10-25 에 만든 afterMain 고정값이 날짜가 바뀌자 어긋났다).
 const completedMainOf = (html = "", completedAt = "") => {
-  const day = String(completedAt || "").slice(0, 10);
+  const ms = Date.parse(String(completedAt || ""));
+  const day = Number.isFinite(ms) ? new Date(ms + 32400000).toISOString().slice(0, 10) : "";
   return day ? mainOf(html).split(`<td>${day}</td>`).join("<td>완료일</td>") : mainOf(html);
 };
 const sha = (text) => createHash("sha256").update(String(text)).digest("hex").slice(0, 24);

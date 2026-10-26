@@ -3,6 +3,7 @@
 //   T-12  연결 보호 트리거(refund_link_guard_v22979)에 막힌 수정: 카카오·웹·관리자·API 가 이유(종류·금액·환급 분류·날짜)를 알리고,
 //         일괄 수정은 막힌 기록만 빼고 나머지를 고친 뒤 몇 건을 뺐는지 알린다.
 //   T-13  전체 기간 JSON 백업은 연결(거래 id 쌍)을 담고, 복구 후보 화면·CSV 백업 화면·카카오 삭제/복구 답장은 연결을 되살리지 않는다고 알린다.
+//   T-40  정산 완료 이력의 ‘완료일’을 UTC 앞 10글자가 아니라 한국 날짜로 보인다(통합 때 더함).
 //   M-7   연결한 환불을 홈·예산·예산 알림·리포트·소비 분석·카카오 요약·남은예산에서 뺀다(환급 날짜의 달, 원지출 분류). 홈 조회는 9회 그대로다.
 // 플래그가 꺼져 있으면 화면·답장·파일이 이 묶음을 넣기 전 트리와 바이트 단위로 같아야 한다. FLAG_OFF_GOLDEN 은 V22.9.80 통합 때 이 묶음 바로 전
 // 트리(86a43b9 — V22.9.79 위에 다크·입력 해석·역할 표시·데이터 묶음과 자산 주소·판 이름)에서 이 파일을 `--print-golden` 으로 돌려 얻은 값이다
@@ -700,6 +701,20 @@ await scenario("/ready 외래키 이름 다름", async (fx) => {
   t.eq(createHash("sha256").update(applied).digest("hex"), "e1ed86ea4e191e46c880e4d33012e7d1451e022b34e7f285c6dcc0e2f75005a1", "T-11: 적용된 V22.9.61 수명 SQL(삭제 키 목록)은 그대로다");
 }
 
+// ── T-40: 정산 완료 이력의 ‘완료일’은 한국 날짜다(저장 값은 UTC 시각 그대로) ──────────────────────────────
+await scenario("T-40 완료 이력", async (fx) => {
+  seed(fx, { flag: undefined });
+  const done = [["2026-05", "2026-10-14T23:30:00+09:00"], ["2026-06", "2026-06-30"], ["2026-07", "2026-10-31T15:00:00.000Z"], ["2026-08", "2026-10-14T14:59:59.999Z"], ["2026-09", "2026-10-14T15:30:00.000Z"]];
+  fx.db.accountbook_settings.push({ id: "hist-v22980-t40", key: `settlement_history:${HH}`, value: JSON.stringify(done.map(([month, completedAt], i) => ({ id: `settle-t40-${i}`, month, mode: "equal", total_expense: 1000, participant_count: 2, completed_at: completedAt }))), created_at: "2026-10-14T15:30:00Z" });
+  const summary = await page(fx, `/settlement-summary?month=${MONTH}&household_id=${HH}`);
+  t.has(summary.html, "<td>2026-10-15</td><td>2026-09</td>", "T-40: 한국 시각 10-15 00:30(UTC 10-14 15:30) 에 끝낸 정산은 완료일 2026-10-15");
+  t.lacks(summary.html, "<td>2026-10-14</td><td>2026-09</td>", "T-40: 완료일이 UTC 날짜(전날)로 보이지 않는다");
+  t.has(summary.html, "<td>2026-10-14</td><td>2026-08</td>", "T-40: 한국 시각 23:59 완료는 그날");
+  t.has(summary.html, "<td>2026-11-01</td><td>2026-07</td>", "T-40: 한국 시각 11-01 00:00 완료는 다음 달 1일");
+  t.has(summary.html, "<td>2026-06-30</td><td>2026-06</td>", "T-40: 시간대가 없는 옛 값은 앞 10글자 그대로");
+  t.has(summary.html, "<td>2026-10-14</td><td>2026-05</td>", "T-40: +09:00 이 적힌 값은 그 날짜 그대로");
+});
+
 if (PRINT_GOLDEN) {
   console.log(JSON.stringify(golden, null, 2));
   process.exit(0);
@@ -714,4 +729,4 @@ if (failures.length) {
   for (const line of failures) console.error(` - ${line}`);
   process.exit(1);
 }
-console.log(`V22.9.80 환불 연결 후속(T-11·T-12·T-13·M-7) 검사 통과 (${checks} checks)`);
+console.log(`V22.9.80 환불 연결 후속(T-11·T-12·T-13·T-40·M-7) 검사 통과 (${checks} checks)`);
