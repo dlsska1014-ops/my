@@ -12,7 +12,7 @@
 import assert from "node:assert/strict";
 import app from "../src/index.js";
 import { supabase } from "../src/modules/data/supabase-client.js";
-import { BASE, ctx, counter, fixture, intercept, post, putSetting, skill } from "./lib-audit-v22934.mjs";
+import { BASE, ctx, counter, fixture, intercept, post, putSetting, skill, withClock } from "./lib-audit-v22934.mjs";
 
 const SOFT = process.env.V22981_SOFT === "1";
 const t = counter("V22.9.81 데이터 묶음 검사 통과(본문을 잃은 저장의 결과 불확실·카카오 닉네임 통합 표식·날짜 목록 밖 번호·정기 기록하기 묶음·가져오기 메모·카드 자리 머리글)");
@@ -269,6 +269,62 @@ await attempt("U-23 카카오 로그인", () => fixture(async (fx) => {
   eq(storedName(fx, (user) => user.id === "user-u23-e"), "길동 (통합됨)", "U-23 이미 표식 이름인 계정은 로그인이 이름을 바꾸지 않는다(통합 여부를 증명할 수 없음)");
   ok(!locked.signedIn, "U-23 이미 표식 이름인 계정은 세션 확인이 예전처럼 거절한다");
 }));
+
+// ── U-13 카카오 날짜 목록 밖 기록의 번호 ─────────────────────────────────────────
+// 그날 가계부 기록이 500건을 넘으면 날짜 목록은 앞의 500건만 읽는다(T-10). 그 밖에 있는 ‘방금’ 기록은 번호를 모른다.
+// 예전에는 `dailySeqForKakaoRow(...) || 1` 이 ‘01번’으로 적어, 같은 날 내 첫 기록(진짜 01번)을 가리키는 안내가 나갔다.
+const U13_DAY = "2026-08-05";
+const KAKAO_USER = "kakao_login:2265";
+async function say(fx, utterance, user = KAKAO_USER) {
+  globalThis.__AB_KAKAO_INFLIGHT?.clear?.();
+  globalThis.__AB_KAKAO_REPEAT_GUARD?.clear?.();
+  const jobs = [];
+  const payload = { bot: { id: "bot1", name: "말해가계부" }, intent: { id: "i1", name: "폴백 블록" }, userRequest: { timezone: "Asia/Seoul", params: {}, block: { id: "b1", name: "폴백 블록" }, utterance, lang: "ko", user: { id: user, type: "botUserKey", properties: { botUserKey: user } } }, action: { id: "a1", name: "스킬", params: {}, detailParams: {}, clientExtra: {} }, contexts: [] };
+  const response = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) }), fx.env, { waitUntil(job) { jobs.push(job); }, passThroughOnException() {} });
+  const raw = await response.text();
+  await Promise.allSettled(jobs);
+  let json = null;
+  try { json = JSON.parse(raw); } catch (_) { /* 본문이 JSON 이 아니면 그대로 */ }
+  return (json?.template?.outputs || []).map((o) => o?.simpleText?.text || [o?.textCard?.title, o?.textCard?.description].filter(Boolean).join("\n")).join("\n") || raw;
+}
+const u13Row = (id, i, mine, memo) => ({ id, household_id: HH, user_id: mine ? "user-bin" : "user-wifi", source: "kakao_skill", source_user_key: mine ? KAKAO_USER : "", transaction_date: U13_DAY, type: "expense", amount: 1000 + i, category: "외식", memo, payment_method: "", raw_text: "", created_at: `2026-08-05T00:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}.000Z` });
+// 내 첫 기록(아침, 진짜 01번) + 다른 구성원 기록 519건 + 그 뒤의 내 최신 기록(저녁, 목록 밖)
+function seedBusyDay(fx) {
+  fx.db.transactions = fx.db.transactions.filter((item) => !String(item.id).startsWith("u13-"));
+  fx.db.transactions.push(u13Row("u13-first", 0, true, "아침"));
+  for (let i = 1; i < 520; i++) fx.db.transactions.push(u13Row(`u13-${String(i).padStart(4, "0")}`, i, false, `남의기록${i}`));
+  fx.db.transactions.push(u13Row("u13-latest", 600, true, "저녁"));
+}
+const numberedLine = /\d{2}번/;
+await attempt("U-13", () => withClock(U13_DAY, () => fixture(async (fx) => {
+  putSetting(fx, "kakao_selected_household_v2251:user-bin", HH);
+  seedBusyDay(fx);
+  // 1) ‘방금 삭제’: 맞는 기록(저녁)을 지우고, 번호 없이 적고 번호 없는 ‘복구’로 안내한다.
+  const removed = await say(fx, "방금 삭제");
+  ok(!fx.db.transactions.some((item) => item.id === "u13-latest") && fx.db.transactions.some((item) => item.id === "u13-first"), "U-13 방금 삭제: 목록 밖의 최신 기록(저녁)을 지우고 01번(아침)은 그대로다");
+  ok(/기록을 삭제했어요/.test(removed) && removed.includes("저녁 / 1,600원"), `U-13 방금 삭제: 지운 기록을 적는다 (실제 ${JSON.stringify(removed.slice(0, 160))})`);
+  ok(!numberedLine.test(removed), `U-13 방금 삭제: 번호를 모르면 ‘01번’ 같은 번호를 적지 않는다 (실제 ${JSON.stringify(removed.slice(0, 160))})`);
+  ok(/되돌리려면: 복구(?:\n|$)/.test(removed), "U-13 방금 삭제: 되돌리기 안내는 번호 없는 ‘복구’다");
+  // 2) ‘복구’: 지운 기록이 돌아오고, 답장 줄에 지어낸 번호가 없다.
+  const restored = await say(fx, "복구");
+  ok(fx.db.transactions.some((item) => item.id === "u13-latest"), "U-13 복구: 지운 기록(저녁)이 돌아온다");
+  ok(/기록을 복구했어요/.test(restored) && restored.includes("저녁 / 1,600원") && !numberedLine.test(restored), `U-13 복구: 번호 없이 적는다 (실제 ${JSON.stringify(restored.slice(0, 160))})`);
+  // 3) ‘방금 금액 5000’: 번호로 이어지는 수정 세션을 열지 않고 아무것도 바꾸지 않는다.
+  const edited = await say(fx, "방금 금액 5000");
+  eq(fx.db.transactions.find((item) => item.id === "u13-latest")?.amount, 1600, "U-13 방금 수정: 번호를 모르는 기록은 바꾸지 않는다");
+  eq(fx.db.transactions.find((item) => item.id === "u13-first")?.amount, 1000, "U-13 방금 수정: 01번(아침)도 그대로다");
+  ok(/번호를 정하지 못해 아무것도 바꾸지 않았어요/.test(edited) && !numberedLine.test(edited) && /500건에 닿아/.test(edited), `U-13 방금 수정: 번호를 정하지 못했다고 한도와 함께 말한다 (실제 ${JSON.stringify(edited.slice(0, 200))})`);
+  // 4) ‘지출자 변경’(방금 기록): 같은 안내, 세션 없음.
+  const spender = await say(fx, "지출자 변경");
+  ok(/번호를 정하지 못해 아무것도 바꾸지 않았어요/.test(spender) && !numberedLine.test(spender), `U-13 지출자 변경: 번호를 지어내 수정 세션을 열지 않는다 (실제 ${JSON.stringify(spender.slice(0, 160))})`);
+  ok(!fx.db.accountbook_settings.some((row) => /^kakao_edit_v4:/.test(String(row.key)) && String(row.value || "").includes("u13-latest")), "U-13 지출자 변경: 그 기록의 수정 세션이 저장되지 않았다");
+  // 5) 목록 안의 ‘방금’ 기록은 예전처럼 번호로 적는다.
+  fx.db.transactions = fx.db.transactions.filter((item) => !String(item.id).startsWith("u13-") || ["u13-first", "u13-latest"].includes(item.id));
+  const small = await say(fx, "방금 삭제");
+  ok(small.includes("02번 기록을 삭제했어요") && small.includes("02번 - 저녁") && /되돌리려면: 복구 02번/.test(small), `U-13 목록 안의 기록은 예전처럼 번호(02번)로 적는다 (실제 ${JSON.stringify(small.slice(0, 160))})`);
+  const back = await say(fx, "복구 02번");
+  ok(back.includes("02번 - 저녁"), "U-13 목록 안의 기록 복구도 예전처럼 번호로 적는다");
+})));
 
 if (SOFT && failures.length) {
   console.log(`V22981_SOFT: ${failures.length}개 검사 실패 (전체 ${checks}개)`);

@@ -165,7 +165,9 @@ function kakaoEditTargetRejectTextV4(target = {}) {
 
 // T2: 무엇을 지웠는지 답장에 적는다. 번호는 지운 뒤 밀리므로 이름이 있어야 확인할 수 있다.
 function kakaoEditDeletedTextV4(row = {}, seq = 0, refundLinks = undefined) {
-  return `🗑️ ${kakaoEditDayPrefixV4(row.transaction_date)}${twoDigitSeq(seq)}번 기록을 삭제했어요.\n${kakaoRowLabel(row, seq)}\n되돌리려면: 복구 ${twoDigitSeq(seq)}번${kakaoRefundLinkUndoNoteV4(refundLinks, "delete")}`;
+  // V22.9.81 U-13: 번호를 모르는 기록(그날 목록 밖의 ‘방금 삭제’)은 번호 없이 적고 번호 없는 ‘복구’(가장 최근 삭제)로 안내한다.
+  const numbered = Number(seq) >= 1;
+  return `🗑️ ${kakaoEditDayPrefixV4(row.transaction_date)}${numbered ? `${twoDigitSeq(seq)}번 ` : ""}기록을 삭제했어요.\n${kakaoRowLabel(row, seq)}\n되돌리려면: ${numbered ? `복구 ${twoDigitSeq(seq)}번` : "복구"}${kakaoRefundLinkUndoNoteV4(refundLinks, "delete")}`;
 }
 
 // V22.9.80 T-13: 버퍼에 적은 환불 연결 수(refund_links)로 삭제·복구 답장에 붙일 한 줄. 칸이 없거나 0 이면 "".
@@ -187,7 +189,7 @@ function kakaoRefundLinkUndoNoteV4(refundLinks = undefined, phase = "delete") {
 function kakaoEditDeleteFailedTextV4(err, row = {}, seq = 0) {
   const listCommand = `${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기`;
   if (err?.kakaoDeletePhase && isUncertainStorageWrite(err)) {
-    return `삭제 결과를 확인하지 못했어요.\n${kakaoRowLabel(row, seq)}\n같은 명령을 다시 보내면 다른 기록이 지워질 수 있어요. ‘${listCommand}’로 먼저 확인해 주세요.\n지워져 있으면 ‘복구 ${twoDigitSeq(seq)}번’으로 되돌릴 수 있어요.`;
+    return `삭제 결과를 확인하지 못했어요.\n${kakaoRowLabel(row, seq)}\n같은 명령을 다시 보내면 다른 기록이 지워질 수 있어요. ‘${listCommand}’로 먼저 확인해 주세요.\n지워져 있으면 ‘${Number(seq) >= 1 ? `복구 ${twoDigitSeq(seq)}번` : "복구"}’로 되돌릴 수 있어요.`;
   }
   // NEW-4: 감사 RPC 가 분명히 거절(4xx)했으면 지워진 것이 없다. 버퍼 준비 실패와 구분해 말한다.
   if (err?.kakaoDeletePhase) {
@@ -219,7 +221,8 @@ function kakaoRowLabel(row = {}, seq = 0) {
   const memo = row.memo || row.raw_text || row.category || "기록";
   const pay = row.payment_method || "-";
   const cat = row.category || (row.type === "income" ? "수입" : "지출");
-  return `${twoDigitSeq(seq)}번 - ${memo} / ${kakaoIncomeMarkV4(row)}${numberWithCommas(row.amount)}원 / ${pay} / ${cat}`;
+  // V22.9.81 U-13: 번호를 모르면(0) ‘00번’을 붙이지 않고 번호 없이 적는다.
+  return `${Number(seq) >= 1 ? `${twoDigitSeq(seq)}번 - ` : ""}${memo} / ${kakaoIncomeMarkV4(row)}${numberWithCommas(row.amount)}원 / ${pay} / ${cat}`;
 }
 
 function isKakaoRowOwnedByRequesterV2254(row = {}, userId = "", kakaoUserKey = "") {

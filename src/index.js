@@ -42216,7 +42216,9 @@ function kakaoEditTargetRejectTextV4(target = {}) {
 
 // T2: 무엇을 지웠는지 답장에 적는다. 번호는 지운 뒤 밀리므로 이름이 있어야 확인할 수 있다.
 function kakaoEditDeletedTextV4(row = {}, seq = 0, refundLinks = undefined) {
-  return `🗑️ ${kakaoEditDayPrefixV4(row.transaction_date)}${twoDigitSeq(seq)}번 기록을 삭제했어요.\n${kakaoRowLabel(row, seq)}\n되돌리려면: 복구 ${twoDigitSeq(seq)}번${kakaoRefundLinkUndoNoteV4(refundLinks, "delete")}`;
+  // V22.9.81 U-13: 번호를 모르는 기록(그날 목록 밖의 ‘방금 삭제’)은 번호 없이 적고 번호 없는 ‘복구’(가장 최근 삭제)로 안내한다.
+  const numbered = Number(seq) >= 1;
+  return `🗑️ ${kakaoEditDayPrefixV4(row.transaction_date)}${numbered ? `${twoDigitSeq(seq)}번 ` : ""}기록을 삭제했어요.\n${kakaoRowLabel(row, seq)}\n되돌리려면: ${numbered ? `복구 ${twoDigitSeq(seq)}번` : "복구"}${kakaoRefundLinkUndoNoteV4(refundLinks, "delete")}`;
 }
 
 // V22.9.80 T-13: 버퍼에 적은 환불 연결 수(refund_links)로 삭제·복구 답장에 붙일 한 줄. 칸이 없거나 0 이면 "".
@@ -42238,7 +42240,7 @@ function kakaoRefundLinkUndoNoteV4(refundLinks = undefined, phase = "delete") {
 function kakaoEditDeleteFailedTextV4(err, row = {}, seq = 0) {
   const listCommand = `${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기`;
   if (err?.kakaoDeletePhase && isUncertainStorageWrite(err)) {
-    return `삭제 결과를 확인하지 못했어요.\n${kakaoRowLabel(row, seq)}\n같은 명령을 다시 보내면 다른 기록이 지워질 수 있어요. ‘${listCommand}’로 먼저 확인해 주세요.\n지워져 있으면 ‘복구 ${twoDigitSeq(seq)}번’으로 되돌릴 수 있어요.`;
+    return `삭제 결과를 확인하지 못했어요.\n${kakaoRowLabel(row, seq)}\n같은 명령을 다시 보내면 다른 기록이 지워질 수 있어요. ‘${listCommand}’로 먼저 확인해 주세요.\n지워져 있으면 ‘${Number(seq) >= 1 ? `복구 ${twoDigitSeq(seq)}번` : "복구"}’로 되돌릴 수 있어요.`;
   }
   // NEW-4: 감사 RPC 가 분명히 거절(4xx)했으면 지워진 것이 없다. 버퍼 준비 실패와 구분해 말한다.
   if (err?.kakaoDeletePhase) {
@@ -42270,7 +42272,8 @@ function kakaoRowLabel(row = {}, seq = 0) {
   const memo = row.memo || row.raw_text || row.category || "기록";
   const pay = row.payment_method || "-";
   const cat = row.category || (row.type === "income" ? "수입" : "지출");
-  return `${twoDigitSeq(seq)}번 - ${memo} / ${kakaoIncomeMarkV4(row)}${numberWithCommas(row.amount)}원 / ${pay} / ${cat}`;
+  // V22.9.81 U-13: 번호를 모르면(0) ‘00번’을 붙이지 않고 번호 없이 적는다.
+  return `${Number(seq) >= 1 ? `${twoDigitSeq(seq)}번 - ` : ""}${memo} / ${kakaoIncomeMarkV4(row)}${numberWithCommas(row.amount)}원 / ${pay} / ${cat}`;
 }
 
 function isKakaoRowOwnedByRequesterV2254(row = {}, userId = "", kakaoUserKey = "") {
@@ -43567,8 +43570,9 @@ async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey 
     const recent = await getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1);
     const row = recent[0] || null;
     if (!row) return { row: null, seq: 0 };
-    const seq = (await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, row)) || 1;
-    return { row, seq };
+    // V22.9.81 U-13: 그날 목록(가계부 기록 앞의 500건)에 없으면 번호를 모른다(0). 예전에는 ‘01번’으로 적어 그날 01번(다른 기록)을 가리켰다.
+    const rows = await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, row.transaction_date || formatDate(nowKstDate()));
+    return { row, seq: rows.findIndex((item) => String(item.id) === String(row.id)) + 1, dailyLimit: Number(rows.dailyLimit || 0) };
   }
   const found = await findDailyKakaoRowBySeq(env, household.id, user.id, kakaoUserKey, target.date, target.seq);
   return { row: found.row, seq: Number(target.seq || 0), dailyLimit: Number(found.rows?.dailyLimit || 0) };
@@ -43636,8 +43640,11 @@ function kakaoDailyListTextV4({ date = "", householdName = "", ownOnlyLine = "",
 
 // 3장 1단계: "수정 NN번 [나머지]" — 나머지가 없으면 메뉴, 있으면 모듈 파서로.
 // 즉시 반영(apply)되면 세션은 저장되지 않는다.
-async function startKakaoEditFlowV4(env, ctx, { row, seq, rest }) {
+async function startKakaoEditFlowV4(env, ctx, { row, seq, rest, dailyLimit = 0 }) {
   const { kakaoUserKey, payload, household, user, origin } = ctx;
+  // V22.9.81 U-13: 번호를 모르는 기록(‘방금’ 기록이 그날 목록 밖)은 번호로 이어지는 수정 세션을 열지 않는다. 세션 답장·안내가 모두
+  // ‘수정 NN번 …’ 꼴이라, 번호를 지어내면 그 번호의 다른 기록을 고치게 된다.
+  if (!(Number(seq) >= 1)) return kakaoText(["방금 기록의 번호를 정하지 못해 아무것도 바꾸지 않았어요.", kakaoRowLabel(row, 0), kakaoDailyLimitLineV22980(dailyLimit), `웹 가계부의 ${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록에서 고쳐 주세요.`].filter(Boolean).join("\n"));
   const prior = await getKakaoEditSessionV4(env, kakaoUserKey, payload);
   const session = {
     entryNo: twoDigitSeq(seq),
@@ -43772,7 +43779,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
     if (outcome.kind === "other_household") {
       // V22.9.79 감사 B-9: 지금 가계부에서 지운 기록이 따로 있으면 그 번호를 알려 준다(다른 가계부 기록을 건드리지 않고 이 가계부 기록만 안내).
       const ownHint = outcome.ownSeq ? `\n지금 가계부에서 지운 기록은 ‘복구 ${twoDigitSeq(outcome.ownSeq)}번’으로 되살릴 수 있어요.` : "";
-      return kakaoText(`이 기록은 ‘${outcome.undo.household_name || "다른 가계부"}’에서 지웠어요. 지금 가계부(‘${household.name || "가계부"}’)에는 되살리지 않았어요.\n그 가계부에서 다시 ‘복구 ${twoDigitSeq(Number(outcome.undo.seq || 0))}번’을 보내 주세요.${ownHint}`);
+      // V22.9.81 U-13: 번호 없이 지운 기록(번호를 몰랐던 ‘방금 삭제’)은 ‘복구 00번’이 아니라 ‘복구’로 안내한다.
+      return kakaoText(`이 기록은 ‘${outcome.undo.household_name || "다른 가계부"}’에서 지웠어요. 지금 가계부(‘${household.name || "가계부"}’)에는 되살리지 않았어요.\n그 가계부에서 다시 ‘${Number(outcome.undo.seq || 0) >= 1 ? `복구 ${twoDigitSeq(Number(outcome.undo.seq))}번` : "복구"}’을 보내 주세요.${ownHint}`);
     }
     if (outcome.kind !== "restored") {
       const lastError = outcome.error;
@@ -43780,7 +43788,9 @@ async function handleKakaoEditCommandV4(env, ctx) {
       return kakaoText(kakaoRestoreDelayedTextV4(restoreTarget, outcome));
     }
     const restored = outcome.restored;
-    const seq = (await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, restored)) || Number(outcome.undo.seq || 0) || 1;
+    // V22.9.81 U-13: 번호를 모르면 지어낸 ‘01번’ 없이 적는다. 되살린 뒤의 번호 조회가 실패해도 복구는 끝났으므로 답장을 실패로 바꾸지 않는다
+    // (실패 답장을 보고 ‘복구’를 다시 보내면 그다음 삭제 기록까지 되살아난다).
+    const seq = (await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, restored).catch(() => 0)) || Number(outcome.undo.seq || 0);
     // V22.9.80 T-13: 지울 때 버퍼에 적은 환불 연결은 복구로 되살아나지 않는다(연결은 삭제와 함께 지워졌다). 답장이 그 사실을 말한다.
     return kakaoText(`↩️ ${kakaoEditDayPrefixV4(restored.transaction_date)}기록을 복구했어요.\n${kakaoRowLabel(restored, seq)}${kakaoRefundLinkUndoNoteV4(outcome.undo?.refund_links, "restore")}`);
   }
@@ -43812,7 +43822,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
     { const refused = await refuseRecordChange(); if (refused) return refused; }
     const { row, seq, dailyLimit } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
     if (!row) return kakaoText(kakaoEditRowNotFoundTextV4(editTarget, dailyLimit));
-    return startKakaoEditFlowV4(env, ctx, { row, seq, rest: editTarget.rest });
+    return startKakaoEditFlowV4(env, ctx, { row, seq, rest: editTarget.rest, dailyLimit });
   }
 
   // 번호 없는 "지출자 변경"/"지출자 엄마" — 방금 저장한 기록에 대해 같은 V4 경로로 처리
@@ -43820,11 +43830,11 @@ async function handleKakaoEditCommandV4(env, ctx) {
     // V22.9.76 감사 B-4: 바꿀 수 없는 사람에게도 선택지 세션을 열어, 그 세션이 다음 명령(예산 등)을 ‘목록의 번호로
     // 골라주세요’로 삼켰다. 기록 수정 권한과 지출자 변경 권한(소유자·관리자)을 먼저 본다.
     { const refused = await refuseRecordChange(); if (refused) return refused; }
-    const { row, seq } = await resolveKakaoEditTargetRowV4(env, ctx, { latest: true });
+    const { row, seq, dailyLimit } = await resolveKakaoEditTargetRowV4(env, ctx, { latest: true });
     if (!row) return kakaoText("변경할 최근 기록이 없어요. 먼저 ‘오늘기록’에서 번호를 확인해 주세요.");
     if (!canManageMyHousehold(ctx.role)) return kakaoText(`${row.type === "income" ? "수입자" : "지출자"}는 가계부 소유자·관리자만 바꿀 수 있어요. 기록은 그대로예요.\n금액·분류·결제수단·내용·날짜는 바꿀 수 있어요.`);
     const value = parseKakaoSpenderChoiceValue(raw);
-    return startKakaoEditFlowV4(env, ctx, { row, seq, rest: value ? `지출자 ${value}` : "지출자" });
+    return startKakaoEditFlowV4(env, ctx, { row, seq, rest: value ? `지출자 ${value}` : "지출자", dailyLimit });
   }
 
   return null;
