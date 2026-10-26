@@ -466,7 +466,7 @@ function attachUiUxRuntime(html = "") {
     // 실행되므로 이 한 줄이면 충분하다(defer·async 를 붙이면 순서가 깨진다).
     const rulesTag = needsSmartRuntime ? AB_CATEGORY_RULES_SCRIPT_TAG : "";
     const script = rulesTag + '<script id="v2262UiUxRuntime">' + runtime + '</script>';
-    source = source.replace("</body>", script + "</body>");
+    source = source.replace("</body>", () => script + "</body>");
   }
   const needsGuidedRuntime = /class=["'][^"']*\b(?:abPageReserve|abPageBudgets|abPageGuide)\b/i.test(source)
     || source.includes("homeOnboarding")
@@ -474,7 +474,7 @@ function attachUiUxRuntime(html = "") {
     || /<form\b[^>]*action=["'][^"']+["'][^>]*method=["']post["']/i.test(source);
   if (!optimizedMobileHome && needsGuidedRuntime && !source.includes('id="v2281GuidedUiUxRuntime"') && source.includes("</body>")) {
     const script = '<script id="v2281GuidedUiUxRuntime">(' + guidedUiUxClientMain.toString() + ')();</script>';
-    source = source.replace("</body>", script + "</body>");
+    source = source.replace("</body>", () => script + "</body>");
   }
   // V22.8.18 (B) 제출 위치 인라인 결과: POST 폼 또는 상단 결과 배너가 있는
   // 모든 사용자 화면에 부착한다. 모바일 홈(optimizedMobileHome)도 빠른 입력의
@@ -493,7 +493,7 @@ function attachUiUxRuntime(html = "") {
       }
     }
     const script = '<script id="v22818InlineResult">(' + inlineActionResultClientMain.toString() + ')();</script>';
-    source = source.replace("</body>", script + "</body>");
+    source = source.replace("</body>", () => script + "</body>");
   }
   const needsMutationGuard = /<form[^>]+method=["']post["'][^>]+action=["']\/my\/(?:create|join)["']/i.test(source)
     || /<form[^>]+action=["']\/my\/(?:create|join)["'][^>]+method=["']post["']/i.test(source);

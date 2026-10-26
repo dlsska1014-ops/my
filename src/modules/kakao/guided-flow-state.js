@@ -225,17 +225,21 @@ function isKakaoFlowLocalReplyV2254(state = null, text = "") {
 }
 
 // V22.9.79: 이름 입력 단계에서 ‘오늘 뭐 썼어’·‘이번 달 뭐 썼어’·‘최근 기록 보여줘’ 같은 조회 질문을 이름으로 저장하지 않고 흐름을 끊어 답한다.
-// 모든 명령으로 끊으면 ‘정산담당’ 같은 이름이 막히므로 조회 질문 꼴만 좁게 본다.
+// 모든 명령으로 끊으면 ‘정산담당’ 같은 이름이 막히므로 조회 질문 꼴만 좁게 본다. normalizeText 가 물음표를 지우므로 끝 물음표는
+// 원문에서 보고, ‘쓴 거’ 꼴은 뒤 경계를 둬 ‘부산거북이’·‘등산거사’ 같은 이름을 막지 않는다.
 function isKakaoReadQuestionV22979(text = "") {
-  const t = normalizeText(text).trim();
+  const raw = String(text || "").trim();
+  const t = normalizeText(raw).trim();
   if (!t) return false;
-  return /(?:뭐|뭘|얼마)\s*(?:썼|샀|나갔|벌었|들어왔)/.test(t) || /(?:쓴|산|나간)\s*(?:거|것|내역)/.test(t) ||
+  return /(?:뭐|뭘|얼마나?)\s*(?:썼|샀|나갔|벌었|들어왔)/.test(t) ||
+    /(?:쓴|산|나간)\s*(?:거|것|내역)(?:은|는|이|가|을|를|도|만|좀|요|야)?(?=\s|$)/.test(t) ||
     /기록\s*(?:보여|보기|봐|확인|알려)/.test(t) ||
-    /^(?:최근|오늘|어제|그제|이번\s*주|이번\s*달|지난\s*주|저번\s*주|지난\s*달|저번\s*달)\s*(?:기록|내역|지출|수입)/.test(t) || /[?？]\s*$/.test(t);
+    /^(?:최근|오늘|어제|그제|이번\s*주|이번\s*달|지난\s*주|저번\s*주|지난\s*달|저번\s*달)\s*(?:기록|내역|지출|수입)/.test(t) || /[?？]\s*$/.test(raw);
 }
 
-function shouldInterruptKakaoFlowV2254(state = null, text = "") {
-  if (state?.flow === "member_alias" && isKakaoReadQuestionV22979(text)) return true;
+// rawText 는 앞 ‘기록 ’·‘/’를 떼기 전(멘션만 뗀) 원문이다. ‘기록 보여줘’는 떼고 나면 ‘보여줘’만 남아 조회 질문으로 못 본다.
+function shouldInterruptKakaoFlowV2254(state = null, text = "", rawText = text) {
+  if (state?.flow === "member_alias" && (isKakaoReadQuestionV22979(text) || isKakaoReadQuestionV22979(rawText))) return true;
   return !!state?.flow && isExplicitKakaoTopLevelCommandV2254(text) && !isKakaoFlowLocalReplyV2254(state, text);
 }
 

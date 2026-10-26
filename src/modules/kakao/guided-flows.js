@@ -10,6 +10,7 @@ import {
 import { canManageMyHousehold } from "../my/access-control.js";
 import { isHouseholdSwitchCommand } from "./intent-nlu.js";
 import { dedupeQuickReplies, kakaoQr } from "./response-builders.js";
+import { stripKakaoBotMention } from "./request-guards.js";
 import {
   clearKakaoFlowState, completeKakaoFlowState, getKakaoFlowState,
   isExplicitKakaoFlowCancelCommandV2254, isKakaoGuidedCommand, isUnsafeKakaoNameInputV2254,
@@ -359,7 +360,7 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
     await clearKakaoFlowState(env, user.id, payload);
     return { text: "진행 중인 설정을 취소했어요.", quickReplies: kakaoStartQuickReplies(true) };
   }
-  if (shouldInterruptKakaoFlowV2254(state, utterance)) {
+  if (shouldInterruptKakaoFlowV2254(state, utterance, stripKakaoBotMention(payload?.userRequest?.utterance || payload?.utterance || utterance))) {
     await clearKakaoFlowState(env, user.id, payload);
     return null;
   }

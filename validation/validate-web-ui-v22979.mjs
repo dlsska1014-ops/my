@@ -9,7 +9,8 @@
 // 서버가 그린 마크업·데이터 계약은 app.fetch 로 보고, 클라이언트 스크립트는 실제로 내려가는 자산/함수 원문을 vm 안의 가짜 DOM 에서 돌린다.
 // 레이아웃·스크롤 느낌·실제 입력 목록 표시는 실제 브라우저에서만 확인된다(보고서의 ‘실제 확인 필요’ 참고).
 // 모든 검사를 끝까지 돌려 실패 목록을 한꺼번에 낸다(고치기 전 코드에서 몇 개가 실패하는지 세기 위해).
-// 사용: node validation/validate-web-ui-v22979.mjs [pace|weekly|edit|member|search|signup]
+//   T-41 화면 끝 런타임 주입이 문자열 치환이라 런타임 원문의 "$&" 가 펼쳐져 스크립트가 깨졌다(통합 검토, 지금 받는 화면 없음).
+// 사용: node validation/validate-web-ui-v22979.mjs [pace|weekly|edit|member|search|signup|postprocess]
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { BASE, app, ctx, fixture, intercept, failure, page, post, withClock } from "./lib-audit-v22934.mjs";
@@ -493,6 +494,22 @@ if (run("signup")) await scenario("signup", () => fixture(async (fx) => {
   vm.runInContext(script.replace(/\)\(\[[^\]]*\]\);?\s*$/, ')(["a","b"]);'), vm.createContext({ document: { getElementById: (id) => allFilled.get(id) || null } }));
   ok(allFilled.get("a").calls.some(([name]) => name === "focus"), "모두 채워져 있으면 첫 칸으로 간다");
 }));
+
+// ─────────────────────────────────────────────────────────────────────────────
+// T-41 화면 끝 런타임 주입(통합 검토): 문자열 치환이라 런타임 원문의 "$&"(입력 분류 정규식 이스케이프)가 </body> 로 바뀌었고,
+// 다음 런타임이 그 가짜 </body> 자리(앞 스크립트의 문자열 안)에 들어가 스크립트가 깨졌다. 지금 경로 중 이 런타임을 받는 화면은 없다.
+// ─────────────────────────────────────────────────────────────────────────────
+if (run("postprocess")) await scenario("postprocess", async () => {
+  const { htmlResponse } = await import("../src/index.js");
+  const html = await htmlResponse('<!doctype html><html lang="ko"><head><meta charset="utf-8"/><title>t</title></head><body><main><form method="post" action="/my/x"><input id="smartInput" name="text"/></form></main></body></html>').text();
+  eq(html.split("</body>").length - 1, 1, "런타임을 넣은 뒤에도 </body> 는 하나다");
+  const smart = (html.match(/<script id="v2262UiUxRuntime">([\s\S]*?)<\/script>/) || [, ""])[1];
+  ok(smart.includes('String(word).replace(/[.*+?^${}()|[\\]\\\\]/g, "\\\\$&")'), "입력 분류 런타임의 정규식 이스케이프($&)가 그대로 내려간다");
+  ok(!smart.includes("<script"), "다음 런타임이 앞 스크립트 안에 끼어들지 않는다");
+  let parsed = true;
+  try { new vm.Script(smart); } catch (_) { parsed = false; }
+  ok(parsed, "빠른 입력 런타임이 문법 오류 없이 읽힌다");
+});
 
 if (failed.length) {
   console.error(`FAIL: V22.9.79 웹 화면 결함 검사 — ${failed.length} 항목 실패 (확인 ${checks}개 중)`);
