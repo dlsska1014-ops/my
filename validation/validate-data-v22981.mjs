@@ -26,6 +26,9 @@ const ok = (value, message) => {
   return undefined;
 };
 const eq = (actual, expected, message) => ok(actual === expected, `${message} (실제 ${JSON.stringify(actual)}, 기대 ${JSON.stringify(expected)})`);
+const deepEq = (actual, expected, message) => ok(JSON.stringify(actual) === JSON.stringify(expected), `${message} (실제 ${JSON.stringify(actual)?.slice(0, 300)}, 기대 ${JSON.stringify(expected)?.slice(0, 300)})`);
+// 돌려보낸 주소의 안내 문구를 사람이 읽는 글자로 바꾼다(+ 는 띄어쓰기).
+const locationText = (location = "") => { try { return decodeURIComponent(String(location).replace(/\+/g, " ")); } catch (_) { return String(location); } };
 // 옛 코드에서 함수·값이 없어 예외가 나도 검사 하나의 실패로 모은다(SOFT).
 const attempt = async (label, task) => {
   try { return await task(); } catch (error) {
@@ -324,6 +327,79 @@ await attempt("U-13", () => withClock(U13_DAY, () => fixture(async (fx) => {
   ok(small.includes("02번 기록을 삭제했어요") && small.includes("02번 - 저녁") && /되돌리려면: 복구 02번/.test(small), `U-13 목록 안의 기록은 예전처럼 번호(02번)로 적는다 (실제 ${JSON.stringify(small.slice(0, 160))})`);
   const back = await say(fx, "복구 02번");
   ok(back.includes("02번 - 저녁"), "U-13 목록 안의 기록 복구도 예전처럼 번호로 적는다");
+})));
+
+// ── U-14 수동 ‘기록하기’: 지출자 자격 없는 규칙이 섞인 경우 ─────────────────────────────
+// 규칙 하나라도 지출자가 활성 참여자가 아니면 RPC 대신 규칙마다 기록 확인·저장·표식(3회)을 보내, 남은 규칙이 16개쯤이면 요청 한도(50)에
+// 닿아 recurring_apply_incomplete 로 끝났다. 예약 자동 반영처럼 40개씩 묶는다. 픽스처도 요청 한도(50)를 그대로 건다(router 의 __AB_DB_BUDGET).
+async function applyRecurringMixed(fx, rules, { month = "2026-10", onRequest = null } = {}) {
+  fx.db.accountbook_recurring.length = 0;
+  fx.db.accountbook_recurring.push(...rules);
+  let calls = 0;
+  const patches = [];
+  const stop = intercept(async (request) => {
+    const { url, method, init } = request;
+    if (url.hostname !== "mock.supabase.co") return null;
+    calls += 1;
+    if (method === "PATCH" && url.pathname.endsWith("/accountbook_recurring")) patches.push({ filter: decodeURIComponent(url.search), body: JSON.parse(String(init?.body || "{}")) });
+    return onRequest ? onRequest(request) : null;
+  });
+  let response;
+  try { response = await post(fx, "/admin/recurring/apply", { household_id: HH, month, confirmed: "yes" }); } finally { stop(); }
+  return { response, calls, patches, rules: fx.db.accountbook_recurring };
+}
+const u14Rule = (i, extra = {}) => ({ id: `u14-${String(i).padStart(3, "0")}`, household_id: HH, type: "expense", amount: 2000 + i, category: "구독", memo: `정기${i}`, payment_method: "", user_id: "user-bin", is_active: true, last_applied_month: null, created_at: "2026-09-01T10:00:00+09:00", day_of_month: (i % 28) + 1, ...extra });
+// 59개(지출자 자격 있음) + 나간 사람의 규칙 1개. 표식: 3개마다 하나는 대상 달 뒤(2026-12, 그대로 남아야 함), 하나는 지난달(2026-09), 하나는 없음.
+// 금액 0 규칙 하나(건너뜀, 표식 그대로)와 이미 기록이 있는 규칙 하나(기록하지 않고 표식만 대상 달로)를 섞는다.
+function u14Rules() {
+  const rules = [];
+  for (let i = 0; i < 59; i++) rules.push(u14Rule(i, { last_applied_month: i % 3 === 0 ? "2026-12" : i % 3 === 1 ? "2026-09" : null, ...(i === 5 ? { amount: 0 } : {}) }));
+  rules.push(u14Rule(59, { user_id: "user-gone", memo: "나간 사람 정기" }));
+  return rules;
+}
+await attempt("U-14", () => withClock("2026-11-03", () => fixture(async (fx) => {
+  const rules = u14Rules();
+  // 규칙 7번(표식 2026-09)은 대상 달 기록이 이미 있다.
+  fx.db.transactions.push({ id: "u14-existing", household_id: HH, user_id: "user-bin", source: "recurring_auto", type: "expense", amount: 2007, category: "구독", memo: "정기7", payment_method: "", transaction_date: "2026-10-08", raw_text: "recurring:u14-007:2026-10", created_at: "2026-10-08T00:00:00Z" });
+  const run = await applyRecurringMixed(fx, rules);
+  const decoded = locationText(run.response.location);
+  ok(/msg=/.test(run.response.location) && !/err=/.test(run.response.location), `U-14 지출자 자격 없는 규칙이 섞인 규칙 60개 기록하기가 끝난다 — recurring_apply_incomplete 가 아니다 (${decoded.slice(0, 140)})`);
+  ok(decoded.includes("고정항목 57건 기록") && decoded.includes("1건은 지출자가 활성 참여자가 아니어서 건너뜀"), `U-14 안내: 57건 기록(금액 0·이미 있는 기록 제외) · 1건 건너뜀 (${decoded.slice(0, 140)})`);
+  ok(run.calls <= 25, `U-14 저장소 호출이 한도 50의 절반 안이다(${run.calls}번 — 규칙 40개마다 기록 확인·저장·표식 한 번씩)`);
+  const made = fx.db.transactions.filter((row) => row.source === "recurring_auto" && String(row.raw_text).startsWith("recurring:u14-") && row.raw_text.endsWith(":2026-10"));
+  eq(made.length, 58, "U-14 대상 달 기록: 새로 넣은 57건 + 이미 있던 1건(두 번 넣지 않는다)");
+  ok(!made.some((row) => row.raw_text === "recurring:u14-005:2026-10") && !made.some((row) => row.raw_text === "recurring:u14-059:2026-10"), "U-14 금액 0 규칙과 나간 사람의 규칙은 기록하지 않는다");
+  const sample = made.find((row) => row.raw_text === "recurring:u14-030:2026-10");
+  deepEq(sample && [sample.transaction_date, sample.amount, sample.memo, sample.category, sample.type, sample.user_id], ["2026-10-03", 2030, "정기30", "구독", "expense", "user-bin"], "U-14 넣은 기록은 자동 반영과 같은 날짜·금액·내용·분류·지출자다");
+  const markers = Object.fromEntries(run.rules.map((rule) => [rule.id, rule.last_applied_month]));
+  const wrong = rules.filter((rule, i) => {
+    // 금액 0 규칙(5번)의 처음 표식은 없음(5 % 3 = 2)이다.
+    const expected = i === 59 || i === 5 ? null : i % 3 === 0 ? "2026-12" : "2026-10";
+    return markers[rule.id] !== expected;
+  });
+  deepEq(wrong.map((rule) => `${rule.id}=${markers[rule.id]}`), [], "U-14 표식: 넣거나 확인한 규칙은 대상 달, 더 나중 달 표식·금액 0·나간 사람의 규칙은 그대로");
+  ok(run.patches.length <= 2 && run.patches.every((patch) => /id=in\.\(/.test(patch.filter) && patch.filter.includes(`household_id=eq.${HH}`) && patch.filter.includes("last_applied_month.lt.2026-10")), `U-14 표식 PATCH 는 40개 묶음마다 한 번(id=in.(…)·가계부 조건·더 나중 달 표식 제외 조건) (${run.patches.length}번)`);
+})));
+// 묶음 저장 응답을 잃으면(U-22) 결과 확인 필요로 알리고 그 규칙들의 표식을 바꾸지 않는다.
+await attempt("U-14 결과 불확실", () => withClock("2026-11-03", () => fixture(async (fx) => {
+  const rules = [u14Rule(0), u14Rule(1), u14Rule(2), u14Rule(3, { user_id: "user-gone" })];
+  let lost = 0;
+  const run = await applyRecurringMixed(fx, rules, {
+    onRequest: async ({ url, method, forward }) => {
+      if (lost || method !== "POST" || url.pathname !== "/rest/v1/transactions") return null;
+      lost += 1;
+      await (await forward()).text();
+      return lostBody(201);
+    },
+  });
+  eq(lost, 1, "U-14 결과 불확실: 묶음 저장 응답 본문을 한 번 잃었다");
+  ok(/err=db_write_unknown/.test(run.response.location), `U-14 결과 불확실: ‘결과 확인 필요’(db_write_unknown)로 돌아온다 — ‘기존 기록은 변경하지 않았습니다’가 아니다 (${locationText(run.response.location).slice(0, 120)})`);
+  ok(run.rules.filter((rule) => rule.user_id === "user-bin").every((rule) => rule.last_applied_month === null), "U-14 결과 불확실: 결과를 모르는 규칙의 표식은 그대로다(다음 기록하기의 기록 확인이 가린다)");
+  eq(fx.db.transactions.filter((row) => String(row.raw_text).startsWith("recurring:u14-")).length, 3, "U-14 결과 불확실: 저장소에는 세 건이 들어가 있다");
+  const again = await applyRecurringMixed(fx, rules);
+  ok(/msg=/.test(again.response.location) && locationText(again.response.location).includes("고정항목 0건 기록"), `U-14 다시 누르면 이미 있는 기록을 확인만 하고 더 넣지 않는다 (${locationText(again.response.location).slice(0, 120)})`);
+  eq(fx.db.transactions.filter((row) => String(row.raw_text).startsWith("recurring:u14-")).length, 3, "U-14 다시 눌러도 세 건 그대로다");
+  ok(again.rules.filter((rule) => rule.user_id === "user-bin").every((rule) => rule.last_applied_month === "2026-10"), "U-14 다시 누르면 확인한 규칙의 표식이 대상 달이 된다");
 })));
 
 if (SOFT && failures.length) {

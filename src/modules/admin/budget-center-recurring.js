@@ -17,7 +17,7 @@ import { loadRefundDeductions } from "../features/settlement-refund-links.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { fetchRawHouseholdMembers, fetchUserById } from "../data/users-household-create.js";
 import {
-  applyRecurringRuleForMonth, eligibleRecurringSpenders, recurringDateForMonth,
+  applyRecurringRulesForMonthBatched, eligibleRecurringSpenders, recurringDateForMonth,
   recurringSpenderEligible, refreshRecurringReports, settleRecurringBeforeEdit,
 } from "../cron/recurring-auto-apply.js";
 import {
@@ -329,12 +329,9 @@ async function handleRecurringApply(request, env) {
           }
         }
       } else {
-        for (const r of pending) {
-          if (blocked.includes(r)) continue;
-          const outcome = await applyRecurringRuleForMonth(env, householdId, r, month);
-          if (outcome !== "skipped") { mutationConfirmed = true; settled.push(r); }
-          if (outcome === "applied") count += 1;
-        }
+        // V22.9.81 U-14: 규칙마다 기록 확인·저장·표식(3회)을 보내면 남은 규칙이 16개쯤에서 요청 한도(50)에 닿았다. 예약 자동 반영처럼 40개씩 묶는다.
+        count = await applyRecurringRulesForMonthBatched(env, householdId, pending.filter((r) => !blocked.includes(r)), month, settled);
+        if (settled.length) mutationConfirmed = true;
       }
       // V22.9.79: 지난 달이나 이미 끝난 주에 넣은 기록은 그 기간의 월간·주간 스냅숏에 빠져 있고, 표식이 이 달로 바뀌어 예약
       // 실행도 이 가계부·달을 다시 보지 않는다. 예약 실행(N-9)·규칙 수정과 같은 길로 있는 스냅숏을 다시 만들고, 못 만든 것은
