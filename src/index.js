@@ -20062,8 +20062,8 @@ function accountbookSidebarDashboardClientMain() {
     String(root.getAttribute("data-active-days") || "").split(",").forEach(function (v) { var d = Number(v); if (d) active[d] = true; });
     var firstDow = new Date(Date.UTC(year, mon - 1, 1)).getUTCDay();
     var days = new Date(Date.UTC(year, mon, 0)).getUTCDate();
-    var today = new Date();
-    var todayKey = today.getFullYear() + "-" + String(today.getMonth() + 1).padStart(2, "0") + "-" + String(today.getDate()).padStart(2, "0");
+    // V22.9.80 T-33: 오늘은 기기 시간대가 아니라 KST 날짜(F-8 날짜 칩과 같은 식)
+    var todayKey = new Date(Date.now() + 32400000).toISOString().slice(0, 10);
     var html = '<div class="abNavCalHead"><a href="' + qs(addMonth(month, -1), householdId) + '" aria-label="이전 달">‹</a><b>' + year + '년 ' + mon + '월</b><a href="' + qs(addMonth(month, 1), householdId) + '" aria-label="다음 달">›</a></div>';
     html += '<div class="abNavCalDows" aria-hidden="true"><span>일</span><span>월</span><span>화</span><span>수</span><span>목</span><span>금</span><span>토</span></div><div class="abNavCalGrid" role="grid" aria-label="' + year + '년 ' + mon + '월 달력">';
     for (var b = 0; b < firstDow; b++) html += '<span class="abNavCalBlank" role="presentation"></span>';
