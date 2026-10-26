@@ -5,7 +5,8 @@
 // 서버가 그린 화면·리다이렉트·카카오 답장은 app.fetch 로 보고, 지운 함수·느슨한 조회는 소스 모듈을 직접 읽어 확인한다.
 //   U-18  옛 관리자 화면(/?legacy=1)의 일괄 수정·삭제 성공이 ‘N건 … 완료’ 자유 문장으로 와서 초록 칸에 ‘요청을 처리하지 못했습니다’로 보였다 → 코드(bulk_updated·bulk_deleted).
 //   U-19  같은 화면의 오류 칸이 환불 연결 코드가 아닌 코드(record_update_failed·edit_busy 등)를 코드 글자 그대로 보였다 → 코드 모양이면 formatMessage(모르는 코드는 일반 안내).
-// 사용: node validation/validate-roles-v22981.mjs [kakao|admin|source]
+//   U-1   시작가이드(/start-guide)가 고른 가계부가 아니라 첫 가계부의 역할·주소로 링크를 그렸다 → 고른 가계부 기준.
+// 사용: node validation/validate-roles-v22981.mjs [kakao|admin|guide|source]
 // V22981_SOFT=1 이면 실패해도 멈추지 않고 모아서 끝에 보여 준다(고치기 전 코드에서 몇 개가 실패하는지 세기 위해). V22981_LIST=1 을 함께 주면 통과한 검사도 모두 적는다.
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -258,6 +259,29 @@ await section("admin", () => adminFixture(async (fx, admin) => {
   const tagged = (await page(fx, `${LEGACY}&err=${encodeURIComponent("<b>x</b>")}`, { cookie: admin })).html;
   t.ok(tagged.includes('<div class="error">&lt;b&gt;x&lt;/b&gt;</div>') && !tagged.includes("<b>x</b>"), "U-19 문장 오류는 예전처럼 이스케이프한다");
 }));
+
+// ── U-1 시작가이드: 고른 가계부(?household_id) 기준의 링크·역할 ─────────────────────────────────────────
+const amp = (href) => href.replace(/&/g, "&amp;");
+await section("guide", () => withClock("2026-07-15", () => fixture(async (fx) => {
+  // WIFI: 우리집 생활비(구성원, 7-02) + 7월 제주여행(소유자, 7-10 — 가장 최근이라 목록 첫 가계부) + WIFI 개인(소유자, 6-01).
+  fx.db.household_members.push({ household_id: "house-trip", user_id: "user-wifi", role: "owner", created_at: "2026-07-10T00:00:00.000Z" });
+  fx.db.households.push({ id: "house-wifi", name: "WIFI 개인", invite_code: "WIFI2265", created_at: "2026-06-01T00:00:00.000Z" });
+  fx.db.household_members.push({ household_id: "house-wifi", user_id: "user-wifi", role: "owner", created_at: "2026-06-01T00:00:00.000Z" });
+  const wifi = await fx.cookieFor("user-wifi");
+  const member = await page(fx, "/start-guide?household_id=house-home&month=2026-07", { cookie: wifi });
+  t.eq(member.status, 200, "U-1 시작가이드가 열린다");
+  t.ok(member.html.includes('data-start-household="house-home"') && member.html.includes("우리집 생활비 선택됨"), "U-1 고른 가계부(우리집 생활비)를 선택된 가계부로 적는다");
+  t.ok(member.html.includes(amp('href="/my?household_id=house-home&month=2026-07"')), "U-1 ‘홈·입력’ 링크가 고른 가계부로 간다");
+  t.ok(!member.html.includes("household_id=house-trip"), "U-1 첫 가계부(7월 제주여행)로 가는 링크가 하나도 없다");
+  t.ok(member.html.includes(amp('href="/budgets?household_id=house-home&month=2026-07"')) && member.html.includes('href="/kakao-commands"') && member.html.includes('href="/my/profile"'), "U-1 고른 가계부에서 구성원이면 구성원용 링크(예산 보기·카카오 명령·내 정보)를 보인다");
+  t.ok(!/href="\/my\/settings\?household_id=/.test(member.html), "U-1 첫 가계부의 소유자 역할로 관리자 전용 링크(/my/settings)를 보이지 않는다");
+  const owner = await page(fx, "/start-guide?household_id=house-wifi&month=2026-07", { cookie: wifi });
+  t.ok(owner.html.includes('data-start-household="house-wifi"') && owner.html.includes("WIFI 개인 선택됨"), "U-1 소유자인 다른 가계부를 고르면 그 가계부가 선택된다");
+  t.ok(owner.html.includes(amp('href="/my/settings?household_id=house-wifi&month=2026-07"')) && owner.html.includes(amp('href="/my/members?household_id=house-wifi&month=2026-07"')), "U-1 고른 가계부의 소유자에게는 관리 링크를 그 가계부로 보인다");
+  t.ok(!owner.html.includes("household_id=house-trip") && !owner.html.includes("household_id=house-home"), "U-1 다른 가계부로 가는 링크가 섞이지 않는다");
+  const plain = await page(fx, "/start-guide?month=2026-07", { cookie: wifi });
+  t.ok(plain.html.includes('data-start-household="house-trip"') && plain.html.includes(amp('href="/my/settings?household_id=house-trip&month=2026-07"')), "U-1 가계부를 고르지 않으면 예전처럼 첫 가계부 기준이다");
+})));
 
 // ── 소스: 고친 카카오 흐름이 실패를 빈 역할로 바꾸는 느슨한 조회를 더는 쓰지 않는다 ──────────────────────────
 await section("source", async () => {
