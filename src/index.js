@@ -14427,6 +14427,14 @@ const IMPORT_NUMBER_ADDRESS_HEADER = /번호|주소|number|address|^no$/;
 // V22.9.81 U-12: 카드 끝자리 머리글(‘카드 끝 4자리’·‘카드뒷자리’·‘Card Last 4’)도 결제수단이 아니다. ‘카드’ 별칭이 들어 있어 결제수단으로 읽혀
 // 끝 네 자리(‘1234’)가 결제수단 이름으로 저장됐다. 자리·끝자리 낱말이 든 머리글은 번호 머리글처럼 제외 열로 둔다(정확히 같은 별칭은 그대로).
 const IMPORT_DIGIT_POSITION_HEADER = /자리|last\d|digits?$/;
+// V22.9.81: 별칭이 더 긴 머리글 속에 든 쪽(앞 방향)에서 머리글이 다른 것을 뜻하는 경우(canonicalImportField 참고).
+// 따로 쓴 낱말 ‘ID’(Record ID·user_id·UserId) — 낱말 속 글자(‘paid’·‘valid’)는 아니다.
+const IMPORT_ID_WORD = /(?:^|[^A-Za-z])[Ii][Dd](?:$|[^A-Za-z])|[a-z]I[Dd](?:$|[^a-z])/;
+const IMPORT_MONEY_FIELDS = new Set(["income", "expense", "amount"]);
+// 금액 별칭 바로 뒤의 사람·곳 끝말(‘입금자명’·‘입금인’·‘지출처’·‘Depositor’) — 남은 꼬리 전체가 이 꼴일 때만 본다(‘입금자동이체금액’은 아니다).
+const IMPORT_PERSON_PLACE_TAIL = /^(?:(?:자|인)(?:명|이름|성명)?|처(?:명)?|(?:or|er)s?(?:name)?)$/;
+// 카드의 종류·구분 머리글(신용·체크·본인·가족이 적힌다). 머리글 전체가 이 꼴일 때만 본다(‘카드승인구분’처럼 다른 말이 든 머리글은 예전 그대로).
+const IMPORT_CARD_KIND_HEADER = /^(?:이용|결제|사용)?(?:카드|card)(?:구분|종류|유형|type)$/;
 
 function canonicalImportField(value = "") {
   const key = normalizeImportHeader(value);
@@ -14437,8 +14445,26 @@ function canonicalImportField(value = "") {
   // ‘pay’→결제수단). 예전에는 아무 자리든 맞춰 ‘결제’·‘사용’·‘이용’이 날짜(결제일자·사용일자·이용일자), ‘거래’가 통화(거래통화), ‘합계’가 금액,
   // ‘분’이 구분(수입지출구분), ‘in’이 원문(original)으로 읽혔다. 영문 ‘No’ 는 그렇게 맞춘 뒤 T-29 가 제외 열로 돌렸으므로 그대로 제외 열이다.
   if (key === "no") return "ignore";
-  const fuzzy = IMPORT_ALIAS_INDEX.fuzzy.find((item) => key.includes(item.key) || (key.length >= 3 && item.key.startsWith(key)))?.field || "";
-  return fuzzy && (IMPORT_NUMBER_ADDRESS_HEADER.test(key) || IMPORT_DIGIT_POSITION_HEADER.test(key)) ? "ignore" : fuzzy;
+  // V22.9.81: 별칭이 더 긴 머리글 속에 든 쪽(앞 방향)도 머리글이 다른 것을 뜻하면 그 별칭으로 맞추지 않는다. 열 연결 화면에서 직접 고를 수 있다.
+  //  · 카드종류·카드구분·Card Type 은 수입·지출 구분이 아니라 카드 종류다(‘구분’·‘type’ 별칭). 예전에는 행마다 ‘구분 ‘신용’을 직접
+  //    해석하지 못해’ 경고가 붙고, 영문 ‘Credit’(신용카드)은 수입으로 저장됐다. 제외 열로 둔다.
+  if ((key.includes("카드") || key.includes("card")) && IMPORT_CARD_KIND_HEADER.test(normalizeImportHeader(String(value).replace(/\([^)]*\)|\[[^\]]*\]/g, "")))) return "ignore";
+  let fuzzy = "";
+  for (const item of IMPORT_ALIAS_INDEX.fuzzy) {
+    if (key.includes(item.key)) {
+      //  · 영문 ‘id’ 는 따로 쓴 낱말일 때만 기록ID(제외 열)다. ‘Paid’ 속 글자로 제외 열이 되지 않게 다음 별칭을 본다.
+      if (item.key === "id" && !IMPORT_ID_WORD.test(String(value))) continue;
+      //  · 금액 별칭 뒤에 사람·곳 끝말이 붙은 머리글(‘입금자명’·‘출금인’·‘지출처’)은 금액이 아니다. 예전에는 이름이 수입·지출 금액으로 읽혀
+      //    그 행이 ‘금액 형식을 해석하지 못함’으로 빠졌다. 제외 열로 둔다.
+      if (IMPORT_MONEY_FIELDS.has(item.field) && IMPORT_PERSON_PLACE_TAIL.test(key.slice(key.lastIndexOf(item.key) + item.key.length))) return "ignore";
+      fuzzy = item.field;
+      break;
+    }
+    if (key.length >= 3 && item.key.startsWith(key)) { fuzzy = item.field; break; }
+  }
+  // V22.9.81: 따로 쓴 낱말 ‘ID’가 든 머리글(‘user_id’·‘Card ID’·‘Category ID’)도 번호 머리글처럼 식별값이다. 예전에는 ‘user’·‘card’ 별칭으로
+  // 지출자·결제수단이 되어 ‘u_123’ 같은 값이 지출자·결제수단으로 읽혔다.
+  return fuzzy && (IMPORT_NUMBER_ADDRESS_HEADER.test(key) || IMPORT_DIGIT_POSITION_HEADER.test(key) || IMPORT_ID_WORD.test(String(value))) ? "ignore" : fuzzy;
 }
 
 function canonicalImportHeaderField(value = "") {
