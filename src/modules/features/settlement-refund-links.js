@@ -74,6 +74,11 @@ function refundDayAfter(ymd = "") {
 }
 
 // 연결 행을 환급 id 나 원지출 id 로 읽는다(100개씩). 표가 없으면 오류를 그대로 던지고 호출부가 isRefundLinksAbsentError 로 가른다.
+// V22.9.81 U-26: 묶음마다 limit=1000 한 번만 읽어 1,000건이 넘는 연결(한 환급이 많은 원지출로 나뉠 수 있다)을 말없이 버렸고,
+// 배열이 아닌 응답도 빈 목록이 됐다. 이제 1,000건 쪽(PostgREST 기본 최대 행 이하, fetchPostgrestRows)으로 짧은 쪽이 나올 때까지 읽는다.
+// 묶음마다 REFUND_LINK_READ_MAX 를 넘으면 row_limit_exceeded 를 던진다 — 호출부는 읽기 실패로 다룬다(일부만 읽은 연결로 정산하지 않는다).
+const REFUND_LINK_READ_MAX = 2000;
+
 async function fetchRefundLinkRows(env, householdId, { refundIds = [], expenseIds = [] } = {}) {
   const column = refundIds.length ? "refund_id" : "expense_id";
   const ids = [...new Set(safeArray(refundIds.length ? refundIds : expenseIds).map((id) => String(id || "").trim()).filter(refundLinkIdValid))];
@@ -84,8 +89,7 @@ async function fetchRefundLinkRows(env, householdId, { refundIds = [], expenseId
     params.set(column, `in.(${ids.slice(offset, offset + 100).join(",")})`);
     params.set("select", REFUND_LINK_TABLE_SELECT);
     params.set("order", "created_at.asc,id.asc");
-    params.set("limit", "1000");
-    rows.push(...safeArray(await supabase(env, `/rest/v1/accountbook_refund_links?${params.toString()}`, { method: "GET" })));
+    rows.push(...await fetchPostgrestRows(env, `/rest/v1/accountbook_refund_links?${params.toString()}`, { maxRows: REFUND_LINK_READ_MAX }));
   }
   return rows.filter((row) => String(row?.household_id || householdId) === String(householdId));
 }
@@ -144,20 +148,21 @@ async function refundNettedMonthRows(env, { householdId = "", monthRows = [] } =
 // 화면의 다른 읽기와 같은 단계에서 보낸다(직렬 깊이 그대로). 플래그가 꺼져 있으면 요청 없이 enabled:false 다.
 // 표가 없으면 available:false(차감도 안내도 없음). 다른 읽기 실패는 failed:true·entries:null — 화면은 기록 그대로 보이고
 // ‘환불 차감 확인 불가’라고 적는다(빈 목록으로 바꾸지 않는다). 한 번에 다 받지 못한 경우(상한)도 확인 불가다.
+// V22.9.81 U-26: 예전에는 limit=2000 한 번에 읽고 2,000건 이상일 때만 잘렸다고 봤다. PostgREST 최대 행(기본 1,000)이 그보다 작으면
+// 1,000건에서 말없이 잘렸다. 이제 1,000건 쪽으로 끝까지 읽고(fetchPostgrestRows), REFUND_DEDUCTION_LIMIT 를 넘으면 확인 불가다.
 const REFUND_DEDUCTION_SELECT = "id,household_id,expense_id,refund_id,amount,created_at,"
   + "refund:transactions!accountbook_refund_links_refund_fkey!inner(id,household_id,user_id,type,amount,category,transaction_date),"
   + "expense:transactions!accountbook_refund_links_expense_fkey(id,household_id,user_id,type,amount,category,memo,raw_text,transaction_date)";
 const REFUND_DEDUCTION_LIMIT = 2000;
 const REFUND_DEDUCTIONS_OFF = Object.freeze({ enabled: false, available: false, failed: false, entries: Object.freeze([]), links: Object.freeze([]) });
 
-function refundDeductionPath(householdId = "", start = "", end = "", limit = REFUND_DEDUCTION_LIMIT) {
+function refundDeductionPath(householdId = "", start = "", end = "") {
   const params = new URLSearchParams();
   params.set("select", REFUND_DEDUCTION_SELECT);
   params.set("household_id", `eq.${householdId}`);
   params.append("refund.transaction_date", `gte.${start}`);
   params.append("refund.transaction_date", `lt.${end}`);
   params.set("order", "created_at.asc,id.asc");
-  params.set("limit", String(limit));
   return `/rest/v1/accountbook_refund_links?${params.toString()}`;
 }
 
@@ -165,9 +170,8 @@ async function loadRefundDeductions(env, { householdId = "", start = "", end = "
   if (!refundLinksEnabled(env)) return REFUND_DEDUCTIONS_OFF;
   if (!householdId || !isValidTransactionDateString(start) || !isValidTransactionDateString(end) || start >= end) return { enabled: true, available: true, failed: false, entries: [], links: [] };
   try {
-    const raw = await supabase(env, refundDeductionPath(householdId, start, end), { method: "GET" });
-    if (!Array.isArray(raw)) throw new Error("refund_deduction_read_invalid");
-    if (raw.length >= REFUND_DEDUCTION_LIMIT) throw new Error("refund_deduction_read_limit");
+    // 쪽이 배열이 아니면 fetchPostgrestRows 가 던지고, 상한을 넘으면 row_limit_exceeded 를 던진다(둘 다 아래 catch 에서 확인 불가).
+    const raw = await fetchPostgrestRows(env, refundDeductionPath(householdId, start, end), { maxRows: REFUND_DEDUCTION_LIMIT });
     const refundRowsById = new Map();
     const expenseRowsById = new Map();
     for (const row of raw) {
