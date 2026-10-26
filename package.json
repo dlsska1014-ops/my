@@ -55,6 +55,7 @@
     "validate:web-ui-v22979": "node validation/validate-web-ui-v22979.mjs",
     "validate:backup-import-v22979": "node validation/validate-backup-import-v22979.mjs",
     "validate:visual-v22979": "node validation/validate-visual-v22979.mjs",
+    "validate:roles-v22980": "node validation/validate-roles-v22980.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "test": "node .codex/scripts/verify-repository.mjs",
     "validate:categories-absent": "node .codex/scripts/verify-repository.mjs --categories-absent",

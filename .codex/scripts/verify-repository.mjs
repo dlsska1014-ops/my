@@ -79,6 +79,7 @@ const validationScripts = [
   ["V22.9.79 웹 화면 결함(지난 달 쓰는 속도·주별 탭·수정 폼 제안 목록·구성원 403 링크·검색 결과 이동·가입 오류 폼)", "validation/validate-web-ui-v22979.mjs"],
   ["V22.9.79 백업 CSV 왕복·백업센터 전체 기간·가져오기 해석 비용", "validation/validate-backup-import-v22979.mjs"],
   ["V22.9.79 시각 결함(날짜 칩 KST·다크 챗봇 명령어 대비·관리자 백업 화면·긴 이름 넘침·역할 조회 실패 안내)", "validation/validate-visual-v22979.mjs"],
+  ["V22.9.80 역할·권한 표시(구성원 내비 ‘관리자 전용’·안내 화면 403 링크·거절 안내 코드·역할 조회 실패)", "validation/validate-roles-v22980.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
