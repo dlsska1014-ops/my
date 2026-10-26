@@ -59,6 +59,7 @@
     "validate:nlu-v22980": "node validation/validate-nlu-v22980.mjs",
     "validate:data-import-v22980": "node validation/validate-data-import-v22980.mjs",
     "validate:dark-screens-v22980": "node validation/validate-dark-screens-v22980.mjs",
+    "validate:refund-links-v22980": "node validation/validate-refund-links-v22980.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "test": "node .codex/scripts/verify-repository.mjs",
     "validate:categories-absent": "node .codex/scripts/verify-repository.mjs --categories-absent",
