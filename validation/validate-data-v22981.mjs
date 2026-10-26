@@ -274,6 +274,57 @@ await attempt("U-23 카카오 로그인", () => fixture(async (fx) => {
   ok(!locked.signedIn, "U-23 이미 표식 이름인 계정은 세션 확인이 예전처럼 거절한다");
 }));
 
+// ── U-23 이름을 자른 끝의 표식(이름을 저장하는 모든 곳) ────────────────────────────────
+// 표식을 뗀 뒤 길이 한도(80·40)로 자르면, 한도 바로 앞에 ‘(통합됨)’이 든 이름(‘가…가(통합됨)뒤’)이 표식으로 끝난 채 저장됐다. 세션 확인이
+// 그 계정을 통합된 계정으로 보고 웹 로그인을 영영 거절했다(U-23 과 같은 잠김). 가입 이름은 NFKC 가 전각 ‘（통합됨）’을 표식으로 바꿨다.
+// 웹 카카오 로그인(자리표시 계정·새 계정과 그 식별 연결)·카카오 챗봇 새 사용자·내 정보·가입·새 가계부 이름표를 모두 본다.
+const CUT80 = `${"가".repeat(75)}(통합됨)뒤`; // 81자: 80자에서 자르면 ‘가×75(통합됨)’
+const CUT40 = `${"나".repeat(35)}(통합됨)뒤`; // 41자: 40자에서 자르면 ‘나×35(통합됨)’
+const markerEnd = (value) => /\(통합됨\)\s*$/.test(String(value ?? ""));
+await attempt("U-23 자른 끝 카카오", () => fixture(async (fx) => {
+  fx.db.users.push({ id: "user-u23-f", kakao_user_key: "kakao_login:7006", nickname: "카카오사용자", created_at: "2026-07-01T00:00:00Z" });
+  const placeholder = await kakaoWebLogin(fx, "7006", CUT80);
+  eq(storedName(fx, (user) => user.id === "user-u23-f"), "가".repeat(75), "U-23 자른 끝: 자리표시 계정의 로그인 콜백이 80자에서 자른 끝의 표식도 떼고 저장한다");
+  ok(placeholder.signedIn, "U-23 자른 끝: 그 계정의 세션으로 내 화면이 열린다");
+  const fresh = await kakaoWebLogin(fx, "7007", CUT80);
+  eq(storedName(fx, (user) => user.kakao_user_key === "kakao_login:7007"), "가".repeat(75), "U-23 자른 끝: 새 카카오 로그인 사용자를 만들 때 자른 끝의 표식이 남지 않는다");
+  ok(fresh.signedIn, "U-23 자른 끝: 새 사용자의 세션으로 내 화면이 열린다");
+  ok(!markerEnd(fx.db.accountbook_user_identities.find((row) => row.provider === "kakao" && row.provider_subject === "7007")?.login_name), "U-23 자른 끝: 카카오 식별 연결(p_nickname)에도 표식으로 끝나는 이름을 보내지 않는다");
+  fx.env.KAKAO_SKILL_SECRET = "synthetic-v81-skill-secret";
+  const botKey = "u23cutbotkey0001";
+  const payload = { intent: { id: "i1", name: "블록" }, userRequest: { timezone: "Asia/Seoul", params: {}, block: { id: "b1", name: "블록" }, utterance: "도움말", lang: "kr", user: { id: botKey, type: "botUserKey", properties: { botUserKey: botKey, nickname: CUT80 } } }, bot: { id: "bot1", name: "말해가계부" }, action: { name: "a", clientExtra: null, params: {}, id: "a1", detailParams: {} } };
+  const reply = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers: { "content-type": "application/json", "x-kakao-skill-secret": fx.env.KAKAO_SKILL_SECRET }, body: JSON.stringify(payload) }), fx.env, ctx);
+  eq(reply.status, 200, "U-23 자른 끝: 카카오 챗봇 첫 요청이 답한다");
+  const botUsers = fx.db.users.filter((user) => String(user.kakao_user_key || "").includes(botKey));
+  ok(botUsers.length === 1 && botUsers.every((user) => !markerEnd(user.nickname)), `U-23 자른 끝: 카카오 챗봇 새 사용자의 이름이 표식으로 끝나지 않는다 (${JSON.stringify(botUsers.map((user) => user.nickname.slice(-8)))})`);
+}));
+await attempt("U-23 자른 끝 웹", () => fixture(async (fx) => {
+  const profileOk = async (cookie) => (await app.fetch(new Request(`${BASE}/my/profile`, { headers: { cookie, accept: "text/html" } }), fx.env, ctx)).status === 200;
+  const saved = await post(fx, "/my/profile", { nickname: CUT80 });
+  ok(/msg=updated/.test(saved.location), "U-23 자른 끝: 내 정보 이름 바꾸기가 저장된다");
+  eq(storedName(fx, (user) => user.id === "user-bin"), "가".repeat(75), "U-23 자른 끝: 내 정보에서 80자로 자른 끝의 표식을 떼고 저장한다");
+  ok(await profileOk(fx.cookie), "U-23 자른 끝: 이름을 바꾼 뒤에도 그 세션으로 내 화면이 열린다(스스로 잠기지 않는다)");
+  await post(fx, "/my/profile", { nickname: "민지 (팀장)" });
+  eq(storedName(fx, (user) => user.id === "user-bin"), "민지 (팀장)", "U-23 자른 끝: 보통 이름(괄호 포함)은 예전 그대로 저장한다");
+  const signup = async (loginName, displayName) => {
+    const response = await post(fx, "/my/local-signup", { login_name: loginName, display_name: displayName, access_code: "u23-pass-1234", access_code_confirm: "u23-pass-1234" }, { cookie: "" });
+    const identity = fx.db.accountbook_user_identities.find((row) => row.provider === "local" && row.provider_subject === loginName);
+    const cookie = setCookiePairs(new Headers(response.setCookie ? { "set-cookie": response.setCookie } : {})).find((pair) => pair.startsWith("ab_user=")) || "";
+    return { nickname: identity ? storedName(fx, (user) => user.id === identity.user_id) : undefined, cookie };
+  };
+  const cutSignup = await signup("u23cut-a", CUT80);
+  eq(cutSignup.nickname, "가".repeat(75), "U-23 자른 끝: 가입 이름도 80자로 자른 끝의 표식을 떼고 저장한다");
+  ok(!!cutSignup.cookie && await profileOk(cutSignup.cookie), "U-23 자른 끝: 그 가입 세션으로 내 화면이 열린다");
+  const wide = await signup("u23cut-b", "홍길동（통합됨）");
+  eq(wide.nickname, "홍길동", "U-23 자른 끝: 가입 이름의 전각 ‘（통합됨）’이 NFKC 로 표식이 되어 저장되지 않는다");
+  ok(!!wide.cookie && await profileOk(wide.cookie), "U-23 자른 끝: 전각 표식 이름으로 가입한 세션도 내 화면이 열린다");
+  eq((await signup("u23cut-c", "홍길동")).nickname, "홍길동", "U-23 자른 끝: 보통 가입 이름은 예전 그대로다");
+  const created = await post(fx, "/my/create", { household_name: "U23 자른 끝 가계부", display_name: CUT40, month: "2026-07" });
+  const householdId = new URL(`${BASE}${created.location.replace(BASE, "")}`).searchParams.get("household_id") || "";
+  const aliases = JSON.parse(fx.db.accountbook_settings.find((row) => row.key === `member_aliases:${householdId}`)?.value || "{}");
+  eq(aliases["user-bin"], "나".repeat(35), `U-23 자른 끝: 새 가계부 이름표도 40자로 자른 끝의 표식을 떼고 저장한다 (가계부 ${householdId ? "만듦" : "못 만듦"})`);
+}));
+
 // ── U-13 카카오 날짜 목록 밖 기록의 번호 ─────────────────────────────────────────
 // 그날 가계부 기록이 500건을 넘으면 날짜 목록은 앞의 500건만 읽는다(T-10). 그 밖에 있는 ‘방금’ 기록은 번호를 모른다.
 // 예전에는 `dailySeqForKakaoRow(...) || 1` 이 ‘01번’으로 적어, 같은 날 내 첫 기록(진짜 01번)을 가리키는 안내가 나갔다.

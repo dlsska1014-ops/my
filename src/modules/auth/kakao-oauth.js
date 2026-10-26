@@ -9,8 +9,8 @@ import {
 import { recordAuthAttempt } from "./crypto-admin-session.js";
 import { safeUserReturnPath } from "../admin/bulk-and-return-paths.js";
 import {
-  getKakaoRedirectUri, inspectKakaoLoginConfig, makeUserSession, randomState,
-  stripMergedMarkerSuffix, verifyUserSession,
+  getKakaoRedirectUri, inspectKakaoLoginConfig, makeUserSession, mergedMarkerFreeName, randomState,
+  verifyUserSession,
 } from "./user-session.js";
 import {
   ensureKakaoLoginUser, hasKakaoLoginIdentity, householdDeleteReauthCookieName,
@@ -237,7 +237,7 @@ async function handleKakaoLoginCallback(request, env, url) {
     if (!user?.id) throw kakaoStageError("account", "Kakao user provisioning failed");
     // V22.9.81 U-23: 프로필 이름 끝의 ‘(통합됨)’은 계정 통합 표식이라 떼고 쓴다(사용자를 만들 때와 같다). 그대로 쓰면 세션 확인이
     // 통합된 계정으로 보고 로그인을 거절했고, 다음 로그인에는 저장된 이름이 자리표시가 아니라서 풀리지 않았다.
-    const profileName = stripMergedMarkerSuffix(stripMergedMarkerSuffix(profile.nickname).slice(0, 80));
+    const profileName = mergedMarkerFreeName(profile.nickname, 80);
     if (user?.id && profileName && isPlaceholderUserNickname(user.nickname) && !isPlaceholderUserNickname(profileName)) {
       await supabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(user.id)}`, {
         method: "PATCH",

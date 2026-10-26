@@ -21,7 +21,7 @@ import { safeObject } from "../admin/backup-compare.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import { settlementHistoryKey } from "../features/settlement-ops-pages.js";
-import { stripMergedMarkerSuffix, verifyUserSession } from "../auth/user-session.js";
+import { mergedMarkerFreeName, verifyUserSession } from "../auth/user-session.js";
 import {
   clearHouseholdDeleteReauthCookie, hasBackupLoginIdentity, hasKakaoLoginIdentity,
   verifyHouseholdDeleteReauth, verifyPasswordReauth,
@@ -260,7 +260,7 @@ async function handleMyCreate(request, env) {
   const form = await request.formData();
   const attemptedName = String(form.get("household_name") || "").trim().slice(0,80);
   const name = sanitizeWebHouseholdNameInput(attemptedName);
-  const displayName = stripMergedMarkerSuffix(String(form.get("display_name") || user.nickname || "")).slice(0, 40);
+  const displayName = mergedMarkerFreeName(String(form.get("display_name") || user.nickname || ""), 40);
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   if (!name) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=household_name_invalid&household_name=${encodeURIComponent(attemptedName)}#create`);
   if (!displayName) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=display_name_required#create`);

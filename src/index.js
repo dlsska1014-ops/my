@@ -14064,7 +14064,7 @@ async function handleMyProfileUpdate(request, env) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
   const form = await request.formData();
-  const nickname = stripMergedMarkerSuffix(String(form.get("nickname") || "")).slice(0, 80);
+  const nickname = mergedMarkerFreeName(String(form.get("nickname") || ""), 80);
   if (!nickname) return redirectResponse("/my/profile?err=nickname_missing");
   await supabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(userId)}`, {
     method: "PATCH",
@@ -23645,6 +23645,13 @@ function stripMergedMarkerSuffix(value = "") {
   return out.trim();
 }
 
+// V22.9.81 U-23: 저장할 이름은 떼고 → 길이 한도로 자르고 → 다시 뗀다. 자르기 전에만 떼면 ‘…(통합됨)…’을 한도에서 자른 이름이 표식으로
+// 끝나 그 계정의 로그인이 막혔다(세션 확인이 통합된 계정으로 본다). 이름을 저장하는 모든 곳(웹 로그인 콜백·카카오 연결·사용자 만들기·
+// 내 정보·가입·가계부 이름표)이 이 함수를 쓴다.
+function mergedMarkerFreeName(value = "", max = 80) {
+  return stripMergedMarkerSuffix(stripMergedMarkerSuffix(value).slice(0, max));
+}
+
 function cacheEffectiveUserId(sourceUserId = "", effectiveUserId = "") {
   const source = String(sourceUserId || "").trim();
   const effective = String(effectiveUserId || "").trim();
@@ -23949,7 +23956,7 @@ async function linkKakaoLoginToUser(env, kakaoId = "", userId = "", profile = {}
   await supabase(env, "/rest/v1/rpc/accountbook_link_kakao_identity_v227", {
     method: "POST",
     headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ p_user_id: uid, p_kakao_id: kid, p_nickname: stripMergedMarkerSuffix(profile.nickname).slice(0, 80) }),
+    body: JSON.stringify({ p_user_id: uid, p_kakao_id: kid, p_nickname: mergedMarkerFreeName(profile.nickname, 80) }),
   });
   return true;
 }
@@ -24206,7 +24213,7 @@ async function ensureKakaoLoginUser(env, kakaoId, nickname) {
   const created = await supabase(env, "/rest/v1/users", {
     method: "POST",
     headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ kakao_user_key: key, nickname: (stripMergedMarkerSuffix(nickname) || "카카오사용자").slice(0, 80) }),
+    body: JSON.stringify({ kakao_user_key: key, nickname: mergedMarkerFreeName(nickname, 80) || "카카오사용자" }),
   });
   const user = Array.isArray(created) ? created[0] : created;
   if (user?.id) {
@@ -24438,7 +24445,7 @@ async function handleKakaoLoginCallback(request, env, url) {
     if (!user?.id) throw kakaoStageError("account", "Kakao user provisioning failed");
     // V22.9.81 U-23: 프로필 이름 끝의 ‘(통합됨)’은 계정 통합 표식이라 떼고 쓴다(사용자를 만들 때와 같다). 그대로 쓰면 세션 확인이
     // 통합된 계정으로 보고 로그인을 거절했고, 다음 로그인에는 저장된 이름이 자리표시가 아니라서 풀리지 않았다.
-    const profileName = stripMergedMarkerSuffix(stripMergedMarkerSuffix(profile.nickname).slice(0, 80));
+    const profileName = mergedMarkerFreeName(profile.nickname, 80);
     if (user?.id && profileName && isPlaceholderUserNickname(user.nickname) && !isPlaceholderUserNickname(profileName)) {
       await supabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(user.id)}`, {
         method: "PATCH",
@@ -31269,7 +31276,7 @@ async function handleMyCreate(request, env) {
   const form = await request.formData();
   const attemptedName = String(form.get("household_name") || "").trim().slice(0,80);
   const name = sanitizeWebHouseholdNameInput(attemptedName);
-  const displayName = stripMergedMarkerSuffix(String(form.get("display_name") || user.nickname || "")).slice(0, 40);
+  const displayName = mergedMarkerFreeName(String(form.get("display_name") || user.nickname || ""), 40);
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   if (!name) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=household_name_invalid&household_name=${encodeURIComponent(attemptedName)}#create`);
   if (!displayName) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=display_name_required#create`);
@@ -39648,7 +39655,8 @@ async function ensureLocalLoginUser(env, nickname = "", accessCode = "") {
 
 async function createLocalLoginUser(env, loginName = "", displayName = "", accessCode = "") {
   const cleanLoginName = String(loginName || "").normalize("NFKC").trim().replace(/\s+/g, " ").slice(0, 80);
-  const cleanDisplayName = String(displayName || cleanLoginName).normalize("NFKC").trim().replace(/\s+/g, " ").slice(0, 80);
+  // V22.9.81 U-23: NFKC 로 전각 괄호 ‘（통합됨）’이 표식 ‘(통합됨)’이 되므로 바꾼 뒤에 표식을 뗀다(자른 끝도 함께).
+  const cleanDisplayName = mergedMarkerFreeName(String(displayName || cleanLoginName).normalize("NFKC").trim().replace(/\s+/g, " "), 80);
   const cleanCode = String(accessCode || "").trim();
   if (normalizeLocalLoginName(cleanLoginName).length < 2) throw new Error("invalid_login_name");
   if (cleanCode.length < 8) throw new Error("password_too_short");
@@ -39745,7 +39753,7 @@ async function handleMyLocalLogin(request, env) {
 async function handleMyLocalSignup(request, env) {
   const form = await request.formData();
   const loginName = String(form.get("login_name") || "").trim().slice(0, 80);
-  const displayName = stripMergedMarkerSuffix(String(form.get("display_name") || loginName)).slice(0, 80);
+  const displayName = mergedMarkerFreeName(String(form.get("display_name") || loginName), 80);
   const accessCode = String(form.get("access_code") || "").trim();
   const confirm = String(form.get("access_code_confirm") || "").trim();
   const inviteCode = String(form.get("invite_code") || "").trim().toUpperCase();
@@ -49121,7 +49129,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
     const created = await supabase(env, "/rest/v1/users?on_conflict=kakao_user_key", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-      body: JSON.stringify({ kakao_user_key: rawKey, nickname: (stripMergedMarkerSuffix(nickname) || "카카오사용자").slice(0, 80) }),
+      body: JSON.stringify({ kakao_user_key: rawKey, nickname: mergedMarkerFreeName(nickname, 80) || "카카오사용자" }),
     });
     user = Array.isArray(created) ? created[0] : created;
   } catch (err) {
@@ -49138,7 +49146,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
       const created = await supabase(env, "/rest/v1/users", {
         method: "POST",
         headers: { Prefer: "return=representation" },
-        body: JSON.stringify({ kakao_user_key: rawKey, nickname: (stripMergedMarkerSuffix(nickname) || "카카오사용자").slice(0, 80) }),
+        body: JSON.stringify({ kakao_user_key: rawKey, nickname: mergedMarkerFreeName(nickname, 80) || "카카오사용자" }),
       });
       user = Array.isArray(created) ? created[0] : created;
     }

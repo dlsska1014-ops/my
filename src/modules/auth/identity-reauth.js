@@ -10,7 +10,7 @@ import {
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeObject } from "../admin/backup-compare.js";
 import {
-  getUserSessionVersion, kakaoLoginUserKey, stripMergedMarkerSuffix, userSessionSecret,
+  getUserSessionVersion, kakaoLoginUserKey, mergedMarkerFreeName, userSessionSecret,
   verifyUserSession,
 } from "./user-session.js";
 import { fetchUserById } from "../data/users-household-create.js";
@@ -76,7 +76,7 @@ async function linkKakaoLoginToUser(env, kakaoId = "", userId = "", profile = {}
   await supabase(env, "/rest/v1/rpc/accountbook_link_kakao_identity_v227", {
     method: "POST",
     headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ p_user_id: uid, p_kakao_id: kid, p_nickname: stripMergedMarkerSuffix(profile.nickname).slice(0, 80) }),
+    body: JSON.stringify({ p_user_id: uid, p_kakao_id: kid, p_nickname: mergedMarkerFreeName(profile.nickname, 80) }),
   });
   return true;
 }
@@ -333,7 +333,7 @@ async function ensureKakaoLoginUser(env, kakaoId, nickname) {
   const created = await supabase(env, "/rest/v1/users", {
     method: "POST",
     headers: { Prefer: "return=representation" },
-    body: JSON.stringify({ kakao_user_key: key, nickname: (stripMergedMarkerSuffix(nickname) || "카카오사용자").slice(0, 80) }),
+    body: JSON.stringify({ kakao_user_key: key, nickname: mergedMarkerFreeName(nickname, 80) || "카카오사용자" }),
   });
   const user = Array.isArray(created) ? created[0] : created;
   if (user?.id) {

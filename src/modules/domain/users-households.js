@@ -3,7 +3,7 @@ import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { safeError, withHouseholdDatabaseLease } from "../runtime/leases.js";
 import { bestRoleFromRows } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
-import { resolveEffectiveUserId, stripMergedMarkerSuffix } from "../auth/user-session.js";
+import { mergedMarkerFreeName, resolveEffectiveUserId } from "../auth/user-session.js";
 import { fetchUserById, withKakaoUserLifecycleLease } from "../data/users-household-create.js";
 import { optionalSupabase } from "./budgets.js";
 import { isDefiniteStorageFailure, isUncertainStorageWrite } from "../kakao/response-builders.js";
@@ -60,7 +60,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
     const created = await supabase(env, "/rest/v1/users?on_conflict=kakao_user_key", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-      body: JSON.stringify({ kakao_user_key: rawKey, nickname: (stripMergedMarkerSuffix(nickname) || "카카오사용자").slice(0, 80) }),
+      body: JSON.stringify({ kakao_user_key: rawKey, nickname: mergedMarkerFreeName(nickname, 80) || "카카오사용자" }),
     });
     user = Array.isArray(created) ? created[0] : created;
   } catch (err) {
@@ -77,7 +77,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
       const created = await supabase(env, "/rest/v1/users", {
         method: "POST",
         headers: { Prefer: "return=representation" },
-        body: JSON.stringify({ kakao_user_key: rawKey, nickname: (stripMergedMarkerSuffix(nickname) || "카카오사용자").slice(0, 80) }),
+        body: JSON.stringify({ kakao_user_key: rawKey, nickname: mergedMarkerFreeName(nickname, 80) || "카카오사용자" }),
       });
       user = Array.isArray(created) ? created[0] : created;
     }

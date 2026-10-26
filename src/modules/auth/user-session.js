@@ -120,6 +120,13 @@ function stripMergedMarkerSuffix(value = "") {
   return out.trim();
 }
 
+// V22.9.81 U-23: 저장할 이름은 떼고 → 길이 한도로 자르고 → 다시 뗀다. 자르기 전에만 떼면 ‘…(통합됨)…’을 한도에서 자른 이름이 표식으로
+// 끝나 그 계정의 로그인이 막혔다(세션 확인이 통합된 계정으로 본다). 이름을 저장하는 모든 곳(웹 로그인 콜백·카카오 연결·사용자 만들기·
+// 내 정보·가입·가계부 이름표)이 이 함수를 쓴다.
+function mergedMarkerFreeName(value = "", max = 80) {
+  return stripMergedMarkerSuffix(stripMergedMarkerSuffix(value).slice(0, max));
+}
+
 function cacheEffectiveUserId(sourceUserId = "", effectiveUserId = "") {
   const source = String(sourceUserId || "").trim();
   const effective = String(effectiveUserId || "").trim();
@@ -370,8 +377,8 @@ function kakaoLoginUserKey(kakaoId = "") {
 // @build:exports-start
 export {
   getKakaoRedirectUri, getUserSessionVersion, identityMergeRedirectSettingsKey,
-  inspectKakaoLoginConfig, kakaoLoginUserKey, makeUserSession, mergedUserSessionRecoveryResponse,
-  parseIdentityMergeRedirectValue, randomState, resolveEffectiveUserId, rewireEffectiveUserCache,
-  stripMergedMarkerSuffix, userSessionSecret, verifyUserSession,
+  inspectKakaoLoginConfig, kakaoLoginUserKey, makeUserSession, mergedMarkerFreeName,
+  mergedUserSessionRecoveryResponse, parseIdentityMergeRedirectValue, randomState,
+  resolveEffectiveUserId, rewireEffectiveUserCache, userSessionSecret, verifyUserSession,
 };
 // @build:exports-end
