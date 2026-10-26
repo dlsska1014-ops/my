@@ -32,6 +32,8 @@ const protection=JSON.parse(readFileSync(new URL("./d3-refund-protection-v22958.
 for(const [rel,names] of Object.entries(protection)){
  const source=readFileSync(new URL("../"+rel,import.meta.url),"utf8");const ast=parseModule(source);
 // V22.9.76 감사 D-20: 조회 전용·나간 사람 정산 결함을 고치려 buildSettlementModel·handleSettlementHistorySave 를 의도적으로 바꿔 두 지문을 새로 적었다.
+// V22.9.81 U-27: 완료 이력을 30건으로 자를 때 잘려 나가는 달을 완료 달 표식으로 남기려 handleSettlementHistorySave 의 저장 줄
+// (history.slice(-30) → settlementHistoryForSave(history))을 의도적으로 바꿔 그 지문을 새로 적었다. 30건 이하이면 저장 값은 예전과 같다.
  for(const [name,hash]of Object.entries(names)){const node=ast.body.find(n=>n.id?.name===name);ok(!!node,"protected function exists "+name);eq(sha(source.slice(node.start,node.end)),hash,"V57 unchanged contract "+name);}
 }
 const renderer=readFileSync(new URL("../src/modules/my/analysis-page.js",import.meta.url),"utf8");
