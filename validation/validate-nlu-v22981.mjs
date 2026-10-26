@@ -212,6 +212,8 @@ const DATE_HEADS = [
 // 머리 날짜가 아닌 말: 낱말 속 하루 말·한 건 파서도 그 뜻으로 읽지 않는 주 말·날짜가 아닌 ‘일’
 // 때 말이 붙은 하루 말은 하루 말만 머리 날짜로 넘긴다(예전 그대로 — 때 말까지 넘기면 뒤 거래 메모에 ‘저녁’이 붙는다).
 const HINT_OF = Object.freeze({ "어제저녁": "어제", "오늘아침": "오늘" });
+// 달 없이 쓴 ‘N일’은 머리 날짜로만 본다(뒤 조각의 ‘숙박 2일’은 기간이기도 해서 조각의 제 날짜로 보지 않는다 — 예전 그대로 머리 날짜를 받는다).
+const DAY_ONLY_HEADS = new Set(["25일", "3일", "31일"]);
 const NOT_DATE_HEADS = ["오늘의집 쿠션", "내일배움카드", "아모레 크림", "모레아 소품", "15일치 약값", "지난 주말", "다음 금요일", "지지난주 금요일", "저저번주 금요일"];
 const CLOCKS = [["2026-08-05", "수"], ["2026-08-07", "금"], ["2026-08-08", "토"], ["2026-08-09", "일"], ["2026-08-03", "월"]];
 
@@ -225,7 +227,7 @@ await scene("U-24 해석", async () => {
         if (!/^20\d{2}-\d{2}-\d{2}$/.test(want || "") || parseTransaction(`${head} 택시 8000원`, {}).transaction_date !== want) problems.push(`한 건 파서 ${want}`);
         const hint = extractLeadingDateHint(`${head} 커피 4500원 택시 8000원`);
         if (hint !== (HINT_OF[head] || head)) problems.push(`머리 날짜 ${JSON.stringify(hint)}`);
-        if (!hasDateHint(`${head} 택시 8000원`)) problems.push("조각 날짜 판정 거짓");
+        if (hasDateHint(`${head} 택시 8000원`) !== !DAY_ONLY_HEADS.has(head)) problems.push(`조각 날짜 판정 ${hasDateHint(`${head} 택시 8000원`)}`);
         for (const text of [`${head} 커피 4500원 택시 8000원`, `${head} 커피 4500원, 택시 8000원`, `${head} 커피 4500원\n택시 8000원`, `${head} 커피 4500원 그리고 택시 8000원`]) {
           const rows = rowsOf(parseMultipleTransactions(text, {}));
           if (!(rows.length === 2 && rows.every((row) => row.date === want) && rows[0].amount === 4500 && rows[1].amount === 8000)) problems.push(`${JSON.stringify(text)} → ${show(parseMultipleTransactions(text, {}))}`);
@@ -235,7 +237,7 @@ await scene("U-24 해석", async () => {
       // 조각이 제 날짜를 가지면 그 날짜다(머리 날짜가 덮지 않는다)
       const today = parseTransaction("커피 4500원", {}).transaction_date;
       for (const [text, wantFirst, wantSecond] of [
-        ["어제 커피 4500원 25일 택시 8000원", "어제 커피 4500원", "25일 택시 8000원"],
+        ["어제 커피 4500원 20260731 택시 8000원", "어제 커피 4500원", "20260731 택시 8000원"],
         ["어제 커피 4500원 모레 택시 8000원", "어제 커피 4500원", "모레 택시 8000원"],
         ["지난 금요일 커피 4500원 어제 택시 8000원", "지난 금요일 커피 4500원", "어제 택시 8000원"],
         ["25일 월세 800000원 지난주 금요일 택시 8000원", "25일 월세 800000원", "지난주 금요일 택시 8000원"],
@@ -244,6 +246,11 @@ await scene("U-24 해석", async () => {
         const rows = rowsOf(parseMultipleTransactions(text, {}));
         const first = parseTransaction(wantFirst, {}).transaction_date, last = parseTransaction(wantSecond, {}).transaction_date;
         t.ok(rows.length === 2 && rows[0].date === first && rows[1].date === last, `U-24 (${day}) 제 날짜를 가진 조각은 그 날짜: ${JSON.stringify(text)} → ${first}·${last} (받음 ${show(parseMultipleTransactions(text, {}))})`);
+      }
+      // 뒤 조각의 달 없는 ‘N일’(‘숙박 2일’ — 기간이기도 하다)과 날짜 꼴이 아닌 8자리 수(주문번호)는 조각의 날짜로 보지 않아 머리 날짜를 받는다(예전 그대로)
+      for (const text of ["어제 커피 4500원 숙박 2일 120000원", "어제 커피 4500원 주차 3일 15000원", "어제 커피 4500원 주문번호 20123456 택배 3000원"]) {
+        const rows = rowsOf(parseMultipleTransactions(text, {})), want = parseTransaction("어제 커피 4500원", {}).transaction_date;
+        t.ok(rows.length === 2 && rows.every((row) => row.date === want), `U-24 (${day}) ${JSON.stringify(text)} → 두 건 모두 머리 날짜 ${want} (받음 ${show(parseMultipleTransactions(text, {}))})`);
       }
       // 날짜가 아닌 머리 말은 뒤 거래에 넘기지 않는다(예전 그대로)
       const taken = NOT_DATE_HEADS.filter((head) => extractLeadingDateHint(`${head} 20000원 택시 8000원`) !== "");
