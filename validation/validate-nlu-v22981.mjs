@@ -485,6 +485,31 @@ await scene("U-7", async () => {
   t.ok(dashboardSource.includes('<datalist id="paymentList">${paymentListOptionsHtml(paymentOptions, paymentAssetRows.map((p) => p.name))}</datalist>'), "U-7 옛 관리자 화면의 결제수단 목록도 같은 함수로 만든다");
 });
 
+// ════════════════════════════════════════════════════════════════════════════════════
+// U-8. 홈 빠른 입력의 분류 이름 맞춤(서버 분류를 부를 수 없을 때의 화면 안 추정)은 낱말 끝에서만 맞는다
+// ════════════════════════════════════════════════════════════════════════════════════
+await scene("U-8", async () => {
+  await withClock(DAY, () => fixture(async (fx) => {
+    const { script, paymentOptions, categoryOptions } = await webHarness(fx);
+    // 지난 기록의 분류 이름(사용자가 만든 이름)도 목록에 든다 — 한글 이름·영문 대문자 이름
+    const createState = makeWebFactory(script, { paymentOptions, categoryOptions: [...categoryOptions, { value: "반찬가게", attrs: {} }, { value: "OTT", attrs: {} }] });
+    const web = (text) => createState().fill(text).view().category;
+    // 낱말 속 분류 이름은 맞지 않는다 — 웹도 카카오(공유 규칙)와 같은 분류다. 앞의 셋은 예전에 낱말 속 이름이 맞아 카카오와 달랐고(급여·기타·반찬가게),
+    // 뒤의 셋은 공유 규칙도 같은 분류로 읽는 말이라 예전부터 같았다(바뀌지 않음을 본다).
+    for (const [text, inside] of [["점심 9000 급여통장", "급여"], ["기타줄 15000", "기타"], ["반찬가게아저씨 선물 12000", "반찬가게"], ["운동화 59000", "운동"], ["도서관 복사 3000", "도서"], ["교통카드 충전 20000", "교통"]]) {
+      const kakao = kakaoRows(text)[0]?.category, w = web(text);
+      t.ok(w === kakao, `U-8 "${text}"의 낱말 속 ‘${inside}’는 분류 이름으로 맞지 않는다 — 카카오와 같은 ${kakao} (웹 ${w})`);
+    }
+    // 낱말 끝의 분류 이름은 예전처럼 맞는다(조사·꼬리·합성어 끝)
+    for (const [text, category] of [["식비 9000", "식비"], ["식비로 9000", "식비"], ["대중교통 1250", "교통"], ["외식했어 30000", "외식"], ["반찬가게 12000", "반찬가게"], ["반찬가게에서 12000", "반찬가게"], ["동네 반찬가게, 12000", "반찬가게"]]) {
+      t.eq(web(text), category, `U-8 낱말 끝의 분류 이름 "${text}" → ${category}`);
+    }
+    // 이름과 글을 모두 소문자로 견준다(예전에는 이름이 대문자면 맞지 않았다). 영문으로 끝나는 이름 뒤에 영문·숫자가 붙으면 맞지 않는다.
+    t.eq(web("ott 13500"), "OTT", "U-8 영문 대문자 분류 이름 ‘OTT’도 소문자 글에서 맞는다");
+    t.ok(web("ottx 13500") !== "OTT", "U-8 영문 이름 뒤에 영문이 이어지면(‘ottx’) 맞지 않는다");
+  }));
+});
+
 if (SOFT) {
   console.log(`V22981_SOFT: 통과 ${softChecks - failures.length} · 실패 ${failures.length} (검사 ${softChecks}개)`);
   for (const message of failures) console.log(`  실패: ${message}`);
