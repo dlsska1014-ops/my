@@ -66,88 +66,9 @@ function parseAmountValue(value) {
 
 function extractAmount(text) { const found = moneyTokenSpans(normalizeText(text))[0]; return found ? { amount: found.amount, raw: found.raw } : null; }
 
-function collectCombinedNumericUnitCandidates(text, candidates) {
-  let m;
-  // 1억2천, 1억 2500만, 1만5천원, 3만 5천, 10만5000원, 2.5만원
-  const re = /((?:\d+(?:\.\d+)?\s*(?:억|만|천|백|십)\s*)+(?:\d{3,4})?)\s*원?/g;
-  while ((m = re.exec(text))) {
-    const raw = m[0].trim();
-    const body = m[1].trim();
-    if (!raw || !body) continue;
-    if (!/[억만천백십]/.test(body)) continue;
-    const amount = parseMixedNumericAmount(body);
-    if (amount > 0) candidates.push({ raw, amount, index: m.index });
-  }
-}
-
-function parseMixedNumericAmount(body) { return moneyTokenSpans(body)[0]?.amount || 0; }
-
-function collectSimpleUnitCandidates(text, candidates) {
-  let m;
-  const re = /(\d+(?:\.\d+)?)\s*(억원|억|만원|만|천원|천|백원|백|십원|십|원)/g;
-  while ((m = re.exec(text))) {
-    const n = Number(m[1]);
-    if (!Number.isFinite(n)) continue;
-    let amount = n;
-    const unit = m[2];
-    if (unit === "억원" || unit === "억") amount *= 100000000;
-    else if (unit === "만원" || unit === "만") amount *= 10000;
-    else if (unit === "천원" || unit === "천") amount *= 1000;
-    else if (unit === "백원" || unit === "백") amount *= 100;
-    else if (unit === "십원" || unit === "십") amount *= 10;
-    candidates.push({ raw: m[0], amount, index: m.index });
-  }
-}
-
-function collectStandardNumberCandidates(text, candidates) {
-  let m;
-  const re = /([0-9]+(?:,[0-9]{3})+|[0-9]{4,})(?:\s*원)?/g;
-  while ((m = re.exec(text))) {
-    const raw = m[0];
-    const numeric = Number(String(m[1]).replace(/,/g, ""));
-    if (!Number.isFinite(numeric)) continue;
-    candidates.push({ raw, amount: numeric, index: m.index });
-  }
-}
-
-function collectKoreanNumberCandidates(text, candidates) {
-  let m;
-  const koreanDigits = "일이삼사오육칠팔구십백천만억영공한두세네다섯여섯일곱여덟아홉하나둘셋넷";
-  const reWithWon = new RegExp("([" + koreanDigits + "]+)\\s*원", "g");
-  while ((m = reWithWon.exec(text))) {
-    const amount = parseKoreanAmount(m[1]);
-    if (amount > 0) candidates.push({ raw: m[0], amount, index: m.index });
-  }
-  const reNoWon = new RegExp("([" + koreanDigits + "]{2,}(?:억|만|천|백|십)[" + koreanDigits + "]*)", "g");
-  while ((m = reNoWon.exec(text))) {
-    const amount = parseKoreanAmount(m[1]);
-    if (amount > 0) candidates.push({ raw: m[0], amount, index: m.index });
-  }
-}
-
-function isLikelyDateAround(text, index, raw) {
-  const before = text.slice(Math.max(0, index - 8), index);
-  const after = text.slice(index + raw.length, index + raw.length + 8);
-  const r = String(raw || "").trim();
-  if (!r) return true;
-  if (/년|월|일/.test(r) && !/원|만|천|백|십|억/.test(r)) return true;
-  if (/[\-/.]$/.test(before) || /^[\-/.]/.test(after)) return true;
-  if (/(지난달|저번달|이번달|이달|다음달|\d월\s*)$/.test(before) && /^일?/.test(after)) return true;
-  if (/월\s*$/.test(before) || /^\s*일/.test(after)) return true;
-  if (/^\d{1,2}$/.test(r.replace(/,/g, "")) && /일/.test(after)) return true;
-  return false;
-}
-
-function isLikelyYearOrTime(text, index, raw) {
-  const before = text.slice(Math.max(0, index - 4), index);
-  const after = text.slice(index + raw.length, index + raw.length + 4);
-  const n = Number(String(raw).replace(/[^0-9]/g, ""));
-  if (/^20\d{2}$/.test(String(n)) && /년/.test(after)) return true;
-  if (/시|분/.test(after) && !/원|만|천/.test(raw)) return true;
-  if (/오전|오후/.test(before) && /시/.test(after)) return true;
-  return false;
-}
-
+// V22.9.80 T-19: 부르는 곳이 없던 옛 금액 후보 함수(collectCombinedNumericUnitCandidates·parseMixedNumericAmount·collectSimpleUnitCandidates·
+// collectStandardNumberCandidates·collectKoreanNumberCandidates)와 날짜·시각 판정(isLikelyDateAround·isLikelyYearOrTime)을 지웠다. 금액은
+// moneyTokenSpans(client/shared-input-parsers.js) 하나가 읽는다. parseKoreanAmount 와 그 도우미는 남겨 둔다.
 function parseKoreanAmount(input) {
   let s = normalizeKoreanNumerals(String(input || "").replace(/\s+/g, ""));
   if (!s) return 0;

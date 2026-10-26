@@ -8859,11 +8859,21 @@ function foldInputWidth(text = "") {
 // V22.9.79 A-07(웹): 이 규칙은 서버 normalizeText 안에만 있어 웹 빠른 입력 미리 보기는 아직 두 금액("만" 10,000원 + "오천원")으로
 // 읽었다. 서버와 화면이 이 한 함수를 함께 쓴다. 뒤가 숫자("만 2천원")면 앞도 숫자 단위("1만")로 바꿔야 한 금액("1만2천원")으로
 // 읽히며, 앞의 수(koreanHeadValue)는 예전 서버 parseKoreanAmount 와 같은 방식으로 읽는다(“사십십만” 같은 엉터리 앞말도 예전과 같은 값).
+// V22.9.80 T-17: 뒤가 ‘만’으로 끝나는 꼴(“삼억 오천만원” = 3억5천만, “삼천 오백만원” = 3천5백만, “삼억 5000만원”)과 ‘원’ 없이 결제수단이
+// 뒤따르는 꼴(“택시 만 오천 현금”)도 한 금액이다. 예전에는 뒤를 천·백·십까지만 보고 ‘원’이나 문장 끝만 기다려 두 금액(3억 + 5천만원,
+// 1만 + 5천)으로 나뉘어 두 건으로 저장됐다. 뒤가 ‘만’으로 끝나면 앞이 억이거나 앞의 끝 단위(천·백)가 뒤의 첫 단위보다 클 때만 붙인다
+// (“만 오천만원”·“천 오천만원”은 예전처럼 둘). 뒤따르는 결제수단은 결제수단 판정(inputPaymentPatterns)이 그 자리에서 읽는 말만 본다
+// (‘현금영수증’·‘카드 지갑’·‘토스트’ 앞에서는 붙이지 않는다). 정규식은 처음 부를 때 한 번만 만든다.
 function joinSpacedKoreanAmount(text = "") {
-  return String(text || "").replace(/(^|\s)([일이삼사오육칠팔구십백천]*[만억천백])\s+((?:[일이삼사오육칠팔구]|\d{1,3})?([천백십])[일이삼사오육칠팔구십백]*)(?=\s*원|\s*$)/g,
+  const pattern = joinSpacedKoreanAmount.pattern || (joinSpacedKoreanAmount.pattern = new RegExp("(^|\\s)([일이삼사오육칠팔구십백천]*[만억천백])\\s+((?:[일이삼사오육칠팔구]|\\d{1,3}|\\d{4}(?=만))?([천백십만])[일이삼사오육칠팔구십백]*만?)(?=\\s*원|\\s*$|\\s+(?:" + inputPaymentPatterns().methods.map((method) => method[0].source).join("|") + "))", "gi"));
+  return String(text || "").replace(pattern,
     (all, lead, head, tail, unit) => {
       const unitValue = { 억: 100000000, 만: 10000, 천: 1000, 백: 100 }[head.slice(-1)];
-      if (!(unitValue > { 천: 1000, 백: 100, 십: 10 }[unit])) return all;
+      const tailValue = { 만: 10000, 천: 1000, 백: 100, 십: 10 }[unit];
+      const joinable = unit === "만" ? unitValue === 100000000 && tail.indexOf("만") === tail.length - 1
+        : /만$/.test(tail) ? unitValue === 100000000 || (unitValue < 10000 && unitValue > tailValue)
+        : unitValue > tailValue;
+      if (!joinable) return all;
       if (!/^\d/.test(tail)) return `${lead}${head}${tail}`;
       const digit = { 일: 1, 이: 2, 삼: 3, 사: 4, 오: 5, 육: 6, 칠: 7, 팔: 8, 구: 9 };
       const simple = (part) => { let out = 0; for (const ch of part) if (digit[ch] !== undefined) out = out * 10 + digit[ch]; return out; };
@@ -8971,6 +8981,7 @@ function inputPaymentPatterns() {
       new RegExp("현금" + end + "(?=" + cashBody + ")", "g"),
     ],
     brand: /(?:신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오|토스)\s*$/i,
+    after: new RegExp("^" + end),
   };
   return inputPaymentPatterns.cache;
 }
@@ -8979,6 +8990,35 @@ function inputPaymentPatterns() {
 function detectInputPayment(raw) {
   for (const [pattern, method] of inputPaymentPatterns().methods) if (pattern.test(raw)) return method;
   return "";
+}
+
+// V22.9.80 T-15: 가계부에 등록한 결제수단 이름(웹 빠른 입력은 결제수단 목록의 이름)이 정규화한 문장 raw 에 낱말로 있는지 본다. 예전에는
+// 이름을 낱말 속에서도 찾아, 결제수단 ‘토스’를 등록하면 "토스트 3000"이 카카오·웹 모두 결제수단 토스로 저장됐다(웹은 목록에 늘 드는 기본
+// 결제수단 이름 때문에 등록하지 않아도 그랬다 — ‘현금영수증’은 현금, ‘교통카드 충전’·‘카드 지갑’은 카드). 한글로 끝나는 이름 뒤에는 기본
+// 결제수단 말의 V77 N-1 낱말 끝 규칙(inputPaymentPatterns().end)을 그대로 쓰고, 이름 바로 뒤에 붙은 카드·체크·통장·계좌·페이·뱅크
+// (‘생활비통장’·‘신한카드’)는 그 결제수단을 가리키므로 예전처럼 맞는다. 영문·숫자로 끝나는 이름은 뒤에 영문·숫자만 이어지지 않으면 된다
+// ("KB"는 "KBS"에 없고 "KB국민카드"에는 있다). N-13 의 결제수단이 아닌 말(‘카드 지갑’·‘교통카드 충전’·‘신용 회복’·‘현금 영수증’)이 이름의
+// 끝이나 바로 뒤에 붙은 카드·체크이면 맞지 않는다. 기본 판정이 그 이름 그대로 읽는 말(카드·현금·토스·신한카드 …)은 기본 판정
+// (detectInputPayment)에 맡긴다 — 웹 목록에서 먼저 찾으면 "라면 1500 현대 카드"가 카카오(현대카드)와 달리 ‘카드’였다. issuer 를 참으로
+// 주면 등록 결제수단의 발급사 말(‘토스’ 발급 카드)로 보고 기본 판정이 읽는 말이어도 찾는다(낱말 끝 규칙은 같다).
+function inputPaymentNameIn(raw, name, issuer) {
+  const text = String(raw || ""), word = normalizeInputText(name);
+  if (!word || (!issuer && detectInputPayment(word) === word)) return false;
+  const pay = inputPaymentPatterns(), latin = /[A-Za-z0-9]$/.test(word);
+  let guarded = null;
+  for (let at = text.indexOf(word), seen = 0; at >= 0 && seen < 16; at = text.indexOf(word, at + 1), seen += 1) {
+    const tail = at + word.length, rest = text.slice(tail), joined = /^(?:카드|체크|통장|계좌|페이|뱅크)/.test(rest);
+    if (latin ? /^[A-Za-z0-9]/.test(rest) : !(joined || pay.after.test(rest))) continue;
+    if (/(?:카드|신용|체크|현금)$/.test(word) || /^(?:카드|체크)/.test(rest)) {
+      if (!guarded) {
+        guarded = [];
+        for (const pattern of pay.protect) text.replace(pattern, (all, ...args) => { guarded.push("s" + args[args.length - 2], "e" + (args[args.length - 2] + all.length)); return all; });
+      }
+      if (guarded.includes("e" + tail) || guarded.includes("s" + tail)) continue;
+    }
+    return true;
+  }
+  return false;
 }
 
 // 낱말 속 글자가 분류를 정하지 않게 한다(정규화·소문자로 바꾼 문장 raw, 규칙 목록 rules).
@@ -9151,13 +9191,14 @@ function mobileUiUxClientMain() {
   // V22.9.79 (V77 N-11·V44 A-10): 결제수단·분류·메모는 서버와 같은 공유 함수(foldInputWidth·normalizeInputText·detectInputPayment·
   // inferInputCategory·cleanInputMemo, client/shared-input-nlu.js)로 판정한다. 예전에는 이 안에 서버 사본이 있어 서버만 고친 결함
   // (V22.9.77 N-1 '토스트'→결제수단 토스, V22.9.76 A-10 낱말 속 글자 분류)가 미리 보기에 그대로 남았다.
+  // V22.9.80 T-15: 결제수단 목록의 이름도 낱말 끝에서만 맞는다(공유 판정 inputPaymentNameIn, 카카오 저장의 등록 결제수단 판정과 같다).
   function detectPayment(text) {
     const options = Array.from(document.querySelectorAll("#paymentList option"))
       .map(function(option) { return String(option.value || "").trim(); })
       .filter(Boolean)
       .sort(function(a, b) { return b.length - a.length; });
     for (let i = 0; i < options.length; i += 1) {
-      if (text.indexOf(options[i]) >= 0) return options[i];
+      if (inputPaymentNameIn(text, options[i])) return options[i];
     }
     return detectInputPayment(normalizeInputText(text));
   }
@@ -10702,7 +10743,7 @@ function attachUiUxRuntime(html = "") {
   if (!optimizedMobileHome && needsRuntime && !source.includes('id="v2262UiUxRuntime"') && source.includes("</body>")) {
     const needsSmartRuntime = source.includes('id="smartInput"') && !source.includes('id="mobileAppInlineRuntime"');
     const runtime = needsSmartRuntime
-      ? quickAmountFieldState.toString() + "\n" + moneyTokenSpans.toString() + "\n" + transactionTypeFromText.toString() + "\n" + quickInputDate.toString() + "\n" + explicitDateIntent.toString() + "\n" + parseMobileAmountText.toString() + "\n" + foldInputWidth.toString() + "\n" + joinSpacedKoreanAmount.toString() + "\n" + normalizeInputText.toString() + "\n" + inputPaymentPatterns.toString() + "\n" + detectInputPayment.toString() + "\n" + inferInputCategory.toString() + "\n" + cleanInputMemo.toString() + "\n(" + mobileUiUxClientMain.toString() + ")();"
+      ? quickAmountFieldState.toString() + "\n" + moneyTokenSpans.toString() + "\n" + transactionTypeFromText.toString() + "\n" + quickInputDate.toString() + "\n" + explicitDateIntent.toString() + "\n" + parseMobileAmountText.toString() + "\n" + foldInputWidth.toString() + "\n" + joinSpacedKoreanAmount.toString() + "\n" + normalizeInputText.toString() + "\n" + inputPaymentPatterns.toString() + "\n" + detectInputPayment.toString() + "\n" + inputPaymentNameIn.toString() + "\n" + inferInputCategory.toString() + "\n" + cleanInputMemo.toString() + "\n(" + mobileUiUxClientMain.toString() + ")();"
       : "(" + mobileShellUiClientMain.toString() + ")();";
     // 분류 규칙은 이 런타임보다 먼저 있어야 한다. 평범한 <script src> 는 순서대로
     // 실행되므로 이 한 줄이면 충분하다(defer·async 를 붙이면 순서가 깨진다).
@@ -11715,6 +11756,8 @@ async function handleAdminAddTransaction(request, env) {
       payment_method: String(form.get("payment_method") || "").trim(),
       manual_category: form.get("quick_manual_category") === "1",
       manual_payment: form.get("quick_manual_payment") === "1",
+      // V22.9.80 T-18: 빠른 입력이 문장에서 채운 메모("0")는 분류 판정에 다시 넣지 않는다(표식이 없으면 예전처럼 넣는다).
+      manual_memo: form.get("quick_manual_memo") === null ? undefined : form.get("quick_manual_memo") === "1",
     });
     const savedTransaction = await createManualTransaction(env, {
       household_id: householdId,
@@ -11727,7 +11770,7 @@ async function handleAdminAddTransaction(request, env) {
       user_id: isManager ? (requestedUserId || access.userId) : access.userId,
       source: access.admin ? "web_admin" : "web_user",
       raw_text: rawText,
-    }, { requestId, preserveEmptyCategory: form.get("quick_manual_category") === "1" && manualClass.category === "" });
+    }, { requestId, preserveEmptyCategory: form.get("quick_manual_category") === "1" && manualClass.category === "", autoMemo: form.get("quick_manual_memo") === "0" && rawText !== "" });
     if (savedTransaction?.__idempotent_replay && !savedTransaction.__replay_same) throw Object.assign(new Error("transaction_request_conflict"), { code: "transaction_request_conflict" });
     const msg = savedTransaction?.__idempotent_replay ? "already_saved" : savedTransaction?.__duplicate_skipped ? "duplicate_skipped" : "added";
     let balert = "";
@@ -13056,15 +13099,16 @@ async function deletePaymentAsset(env, householdId = "", id = "") {
   });
 }
 
+// V22.9.80 T-15: 등록한 이름과 발급사 말은 낱말 끝(또는 바로 뒤의 카드·통장 같은 말)에서만 맞는다(웹 빠른 입력과 같은 공유 판정
+// inputPaymentNameIn). 예전에는 낱말 속에서도 찾아 결제수단 ‘토스’를 등록하면 "토스트 3000"이 결제수단 토스로, 발급사 ‘토스’인 카드가 있으면
+// "토스트 3000 카드"가 그 카드로 저장됐다. 기본 판정이 그 이름 그대로 읽는 이름(현금·카드·국민카드 …)은 기본 판정에 맡긴다(같은 이름이 나온다).
 function inferPaymentAssetFromText(text = "", assets = []) {
   const raw = normalizeText(text);
   if (!raw) return "";
   const sorted = safeArray(assets).filter((a) => a.name).sort((a, b) => b.name.length - a.name.length);
   for (const asset of sorted) {
-    const name = normalizeText(asset.name);
-    if (name && raw.includes(name)) return asset.name;
-    const issuer = normalizeText(asset.issuer || "");
-    if (issuer && raw.includes(issuer) && /(카드|체크|통장|계좌|페이|현금)/.test(raw)) return asset.name;
+    if (inputPaymentNameIn(raw, asset.name)) return asset.name;
+    if (asset.issuer && inputPaymentNameIn(raw, String(asset.issuer), true) && /(카드|체크|통장|계좌|페이|현금)/.test(raw)) return asset.name;
   }
   return "";
 }
@@ -13087,11 +13131,12 @@ function inferCustomCategoryFromText(text = "", type = "expense", categories = [
   return best ? best.name : "";
 }
 
+// V22.9.80 T-18: 사용자 분류는 결제수단 칸을 뺀 글(원문·메모·분류)로, 등록 결제수단은 분류 이름을 뺀 글(원문·메모·결제수단)로 찾는다.
+// 예전에는 넷을 이어 붙여 결제수단 칸의 이름(‘농협’)이 분류 키워드를, 분류 이름(‘주유/충전’)이 등록 결제수단 이름(‘주유’)을 맞혔다.
 function applyUserSettingsToParsedTransactions(parsedList = [], categories = [], paymentAssets = []) {
   return safeArray(parsedList).map((p) => {
-    const baseText = `${p.raw_text || ""} ${p.memo || ""} ${p.category || ""} ${p.payment_method || ""}`;
-    const customCategory = inferCustomCategoryFromText(baseText, p.type, categories);
-    const customPayment = inferPaymentAssetFromText(baseText, paymentAssets);
+    const customCategory = inferCustomCategoryFromText(`${p.raw_text || ""} ${p.memo || ""} ${p.category || ""}`, p.type, categories);
+    const customPayment = inferPaymentAssetFromText(`${p.raw_text || ""} ${p.memo || ""} ${p.payment_method || ""}`, paymentAssets);
     return {
       ...p,
       category: customCategory || p.category,
@@ -13100,21 +13145,26 @@ function applyUserSettingsToParsedTransactions(parsedList = [], categories = [],
   });
 }
 
+// V22.9.80 T-18: 칸이 비었을 때의 분류·결제수단 판정은 원문과 메모만 본다. 예전에는 칸에 적은 분류·결제수단까지 이어 붙여, 분류가 비면
+// 결제수단 칸의 ‘농협’이 장보기를 정했다(카카오는 문장만 보아 기타지출). 빠른 입력이 문장에서 저절로 채운 메모(manual_memo === false)는
+// 웹 빠른 입력의 A-10 고침처럼 빼고 원문만 본다 — 메모는 결제수단 말을 지운 문장의 일부라 ‘농협체크’에서 남은 ‘농협’이 막아 둔 낱말을
+// 되살려 "점심 9000 농협체크"가 장보기가 됐다. 직접 고친 메모와, 표식이 없는 폼(빠른 입력이 아닌 곳)의 메모는 예전처럼 넣는다.
 async function resolveManualInputClassification(env, householdId = "", type = "expense", fields = {}) {
   const cleanType = type === "income" ? "income" : "expense";
-  const rawText = normalizeText([fields.raw_text, fields.memo, fields.category, fields.payment_method].filter(Boolean).join(" "));
+  const autoMemo = fields.manual_memo === false && String(fields.raw_text || "").trim() !== "";
+  const rawText = normalizeText([fields.raw_text, autoMemo ? "" : fields.memo].filter(Boolean).join(" "));
   const explicitCategory = String(fields.category || "").trim();
   const explicitPayment = String(fields.payment_method || "").trim();
   const clearedCategory = fields.manual_category === true && !explicitCategory;
   const clearedPayment = fields.manual_payment === true && !explicitPayment;
-  const baseCategory = clearedCategory ? "" : explicitCategory || inferCategory(rawText || fields.memo || "", cleanType) || "";
-  const basePayment = clearedPayment ? "" : explicitPayment || detectPaymentMethod(rawText || fields.memo || "") || "";
+  const baseCategory = clearedCategory ? "" : explicitCategory || inferCategory(rawText, cleanType) || "";
+  const basePayment = clearedPayment ? "" : explicitPayment || detectPaymentMethod(rawText) || "";
   try {
     const [customCategoryRows, paymentAssetRows] = await Promise.all([
       fetchCustomCategories(env, householdId, { includeKeywordCards: true }),
       fetchPaymentAssets(env, householdId),
     ]);
-    const refined = applyUserSettingsToParsedTransactions([{ type: cleanType, raw_text: rawText, memo: fields.memo || "", category: baseCategory, payment_method: basePayment }], customCategoryRows, paymentAssetRows)[0] || {};
+    const refined = applyUserSettingsToParsedTransactions([{ type: cleanType, raw_text: rawText, memo: "", category: baseCategory, payment_method: basePayment }], customCategoryRows, paymentAssetRows)[0] || {};
     return {
       category: clearedCategory ? "" : String(explicitCategory || refined.category || baseCategory || "").trim(),
       payment_method: clearedPayment ? "" : String(explicitPayment || refined.payment_method || basePayment || "").trim(),
@@ -30306,6 +30356,8 @@ async function handleMyAddTransaction(request, env) {
     payment_method: String(form.get("payment_method") || "").trim(),
     manual_category: form.get("quick_manual_category") === "1",
     manual_payment: form.get("quick_manual_payment") === "1",
+    // V22.9.80 T-18: 빠른 입력이 문장에서 채운 메모("0")는 분류 판정에 다시 넣지 않는다(표식이 없으면 예전처럼 넣는다).
+    manual_memo: form.get("quick_manual_memo") === null ? undefined : form.get("quick_manual_memo") === "1",
   });
   const body = {
     household_id: selected.id,
@@ -30320,7 +30372,7 @@ async function handleMyAddTransaction(request, env) {
     raw_text: rawText,
   };
   try {
-    const created = await createManualTransaction(env, body, { requestId: String(form.get("request_id") || ""), preserveEmptyCategory: form.get("quick_manual_category") === "1" && manualClass.category === "" });
+    const created = await createManualTransaction(env, body, { requestId: String(form.get("request_id") || ""), preserveEmptyCategory: form.get("quick_manual_category") === "1" && manualClass.category === "", autoMemo: form.get("quick_manual_memo") === "0" && rawText !== "" });
     if (created?.__duplicate_skipped) {
       return redirectResponse(duplicateSkippedReturnLocation(String(transactionDate).slice(0, 7) || month, selected.id));
     }
@@ -35687,7 +35739,7 @@ function mobileHomeJsAsset() {
     AB_MOBILE_HOME_JS_CACHE = [
       quickAmountFieldState.toString(), moneyTokenSpans.toString(), transactionTypeFromText.toString(), quickInputDate.toString(), explicitDateIntent.toString(), parseMobileAmountText.toString(),
       // V22.9.79: 서버(nlu/*)와 같은 해석 함수 — 전각·띄어 쓴 금액 정리, 결제수단·분류·메모 판정(client/shared-input-nlu.js).
-      foldInputWidth.toString(), joinSpacedKoreanAmount.toString(), normalizeInputText.toString(), inputPaymentPatterns.toString(), detectInputPayment.toString(), inferInputCategory.toString(), cleanInputMemo.toString(),
+      foldInputWidth.toString(), joinSpacedKoreanAmount.toString(), normalizeInputText.toString(), inputPaymentPatterns.toString(), detectInputPayment.toString(), inputPaymentNameIn.toString(), inferInputCategory.toString(), cleanInputMemo.toString(),
       rawMobileHomeInlineRuntime(),
       `(${mobileShellUiClientMain.toString()})();`,
       `(${guidedUiUxClientMain.toString()})();`,
@@ -37813,10 +37865,13 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const saveFeedbackHtml = feedbackKind
     ? `<div class="abSaveFeedback ${feedbackKind === "error" ? "isError" : feedbackKind === "warning" ? "isWarning" : "isSuccess"}" data-ab-save-feedback data-ab-feedback-kind="${feedbackKind}" role="${feedbackKind === "error" ? "alert" : "status"}" aria-live="${feedbackKind === "error" ? "assertive" : "polite"}"><span class="abSaveFeedbackMark" aria-hidden="true">${feedbackKind === "error" ? "!" : feedbackKind === "warning" ? "△" : "✓"}</span><div class="abSaveFeedbackCopy"><b>${escapeHtml(feedbackTitle)}</b><span>${feedbackMessage}</span></div><button type="button" class="abSaveFeedbackClose" data-ab-feedback-close aria-label="알림 닫기">×</button></div>`
     : "";
+  // V22.9.80 T-15: 빠른 입력의 결제수단 목록(기본 결제수단·등록 결제수단·지난 기록의 이름)은 낱말 끝에서만 맞는다(공유 판정 inputPaymentNameIn,
+  // 카카오 저장의 등록 결제수단 판정과 같다). 예전에는 목록의 ‘토스’·‘현금’·‘카드’를 낱말 속에서도 찾아 "토스트 3000"이 결제수단 토스,
+  // "현금영수증"이 현금, "교통카드 충전"·"라면 1500 현대 카드"가 카드였다(카카오는 없음·없음·현대카드).
   // V22.9.79 F-8: 날짜 칩(.dateChip) "오늘·어제"는 기기 시간대가 아니라 KST 날짜다. 예전에는 기기 시계의 로컬 getFullYear/getDate 를 써서
   // 미국·유럽에 있는 기기는 서버·한 줄 입력·카카오와 다른 날을 골랐다(LA 오전 10시 = KST 다음 날 02시). Date.now()+9h 의 UTC 날짜가 KST 날짜다
   // (한 줄 입력의 todayNow·insight-main 이 쓰는 방식과 같다). 이 스크립트는 홈 자산(mobile-home·mobile-home-shell)에 그대로 실린다.
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>전체 예산 ${numberWithCommas(budgetTotal)}원</span><span>지출 ${numberWithCommas(budgetUsed)}원${budgetUncovered ? ` · 예산 밖 ${numberWithCommas(budgetUncovered)}원` : ""}</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈</span><b class="${todayOk ? "income" : "expense"}">${numberWithCommas(todaySpend)}원</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, upcoming: homeUpcoming, reserveHref: homeReserveHref, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">+${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">-${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section class="homeNotice"><b>SMART NOTICE</b><p>${escapeHtml(mainNotice)}</p></section><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date(Date.now()+32400000+Number(this.getAttribute('data-day')||0)*86400000);var v=d.toISOString().slice(0,10);var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var raw=abNorm(text);var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(raw.indexOf(payOpts[i])>=0)return payOpts[i];}return detectInputPayment(normalizeInputText(text));}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase();var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;return inferInputCategory(normalizeInputText(text).toLowerCase(),type,quickRules);}function stripQuickMemo(text,amountText,payment,category,type){return cleanInputMemo(text,amountText,type,payment,category);}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>전체 예산 ${numberWithCommas(budgetTotal)}원</span><span>지출 ${numberWithCommas(budgetUsed)}원${budgetUncovered ? ` · 예산 밖 ${numberWithCommas(budgetUncovered)}원` : ""}</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈</span><b class="${todayOk ? "income" : "expense"}">${numberWithCommas(todaySpend)}원</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, upcoming: homeUpcoming, reserveHref: homeReserveHref, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">+${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">-${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section class="homeNotice"><b>SMART NOTICE</b><p>${escapeHtml(mainNotice)}</p></section><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date(Date.now()+32400000+Number(this.getAttribute('data-day')||0)*86400000);var v=d.toISOString().slice(0,10);var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}document.querySelectorAll('.dateChip').forEach(function(x){x.classList.remove('on');});this.classList.add('on');});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value)payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(inputPaymentNameIn(text,payOpts[i]))return payOpts[i];}return detectInputPayment(normalizeInputText(text));}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase();var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value);if(v&&raw.indexOf(v)>=0&&!optionHit)optionHit=o.value;});if(optionHit)return optionHit;return inferInputCategory(normalizeInputText(text).toLowerCase(),type,quickRules);}function stripQuickMemo(text,amountText,payment,category,type){return cleanInputMemo(text,amountText,type,payment,category);}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}
 
 function abQuickTypeLabels(){var inc=!!document.querySelector('#add input[name=type][value=income]:checked');var who=document.querySelector('#add select[name=user_id]');var o=who&&who.options[0];if(o&&!o.value)o.text=inc?'수입자 선택':'지출자 선택';var pay=document.getElementById('payInput');if(pay)pay.placeholder=inc?'입금 계좌·수단':'결제수단';}function abQuickSyncMore(){abQuickTypeLabels();var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var d=document.getElementById('txDate');var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var today=new Date();var todayKey=today.getFullYear()+'-'+String(today.getMonth()+1).padStart(2,'0')+'-'+String(today.getDate()).padStart(2,'0');var parts=[];var dv=d&&d.value?d.value:'';parts.push(dv===todayKey?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'&&!abImeComposing&&!e.isComposing){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type'){abQuickTypeLabels();abQuickSyncAfter();}});abQuickSyncMore();abQuickSyncAfter();var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`.replace(/(<(?:input|meta|link|br|hr)\b[^>]*?)\/>/g,"$1>");
 }
@@ -44148,6 +44203,20 @@ function parseKakaoSummaryRange(text = "") {
   // 기간 없는 ‘최근 기록’은 그대로 최근 5건이다.
   const periodAsk = natural ? null : t.match(/^(이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)(?:에)?\s*(?:뭐\s*썼(?:어|지|나|니|는지)?요?|쓴\s*(?:거|것))(?:\s*(?:알려줘|보여줘|확인해줘|확인))?$/);
   if (periodAsk) t = `${periodAsk[1]} 요약`;
+  // V22.9.80 T-39: 기간 말 뒤에 ‘얼마(나) 썼/나갔’이 오는 물음(‘지난달 얼마나 썼지’·‘이번 달에 얼마 나갔어’·‘9월 카드값 얼마나 썼어’)은 그 기간 말의
+  // 요약으로 읽는다. 예전에는 ‘얼마 썼어/썼지/썼나’만 읽어 ‘얼마나’·‘나갔’ 꼴은 "무슨 뜻인지 이해하지 못했어요"였고, 읽지 못하는 기간의
+  // ‘저저번달 얼마 썼어’는 요약 명령(isSummaryCommand)이 이번 달로 답했다. 기간 말은 아래가 읽으며, 읽지 못하는 기간(저저번달·작년·13월)은
+  // A-13 처럼 이번 달로 바꾸지 않는다(‘지지난달’은 아래의 ‘지난달’ 찾기에 걸리므로 바로 읽지 못한 기간으로 돌린다). 기간 말이 없는 물음(‘얼마나
+  // 썼어’·‘커피 얼마 나갔어’)은 여기서 읽지 않고 요약 명령이 ‘얼마 썼어’처럼 이번 달로 답한다. 금액이 있는 말은 기록이다.
+  const spentAsk = natural || periodAsk ? null : t.match(/^(.+?)\s*(?:에는|에)?\s*(?:돈\s*)?얼마(?:나)?\s*(?:썼|나갔)(?:어|지|죠|나|니|냐|는지|더라)?요?(?:\s*(?:알려줘|보여줘))?$/);
+  const spentPeriod = spentAsk && !moneyTokenSpans(spentAsk[1]).length
+    ? spentAsk[1].match(/(?:^|\s)((?:이번|지난|저번|저저번|지지난|다음|담|오는|돌아오는)\s*(?:주|달|해)|오늘|어제|그제|그저께|그끄제|그끄저께|엊그제|엊그저께|이달|전달|전월|금월|작년|재작년|올해|금년|내년|주말|상반기|하반기|[월화수목금토일]요일|(?:20\d{2}\s*년\s*)?\d{1,2}\s*월(?:\s*\d{1,2}\s*일)?|\d{1,4}\s*(?:년|일|분기|개월))(?:에는|에|은|는|엔|동안)?(?=\s|$)/)
+    : null;
+  if (spentPeriod) {
+    const period = spentPeriod[1].replace(/^(?:저번\s*달|전달|전월)$/, "지난달").replace(/^저번\s*주$/, "지난주");
+    if (/지지난/.test(period)) return { unreadable: true, text: period };
+    t = `${period} 요약`;
+  }
   if (!/(요약|현황|통계)$/.test(t) && !/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)$/.test(t)) return null;
   const now = nowKstDate();
   let start = null, end = null, label = "";
@@ -48637,8 +48706,16 @@ async function kakaoSettlementParts(env, household = {}) {
   ].join("\n") };
 }
 
+// V22.9.80 T-39: ‘얼마나 썼어’·‘얼마 나갔어’·‘돈 얼마나 나갔지’도 ‘얼마 썼어’와 같은 이번 달 요약 물음이다. 예전에는 요약 낱말(‘얼마 썼’)만 보아
+// 이런 말이 "무슨 뜻인지 이해하지 못했어요"로 답했다. 문장 전체가 이 물음 꼴이고 금액이 없을 때만 읽는다(‘얼마나 썼는지 몰라 커피 4500’은 기록이다).
+// 기간 말이 앞에 있는 물음(‘지난달 얼마나 썼지’·‘저저번달 얼마나 썼어’)은 parseKakaoSummaryRange 가 먼저 그 기간(읽지 못한 기간은 그 안내)으로 답한다.
+function isKakaoSpentQuestion(text = "") {
+  const t = normalizeText(text);
+  return /^(?:\S.*?\s)?(?:돈\s*)?얼마(?:나)?\s*(?:썼|나갔)(?:어|지|죠|나|니|냐|는지|더라)?요?(?:\s*(?:알려줘|보여줘))?$/.test(t) && !extractAmount(t);
+}
+
 function isSummaryCommand(text) {
-  return detectKakaoNaturalIntent(text).intent === "SUMMARY" || /^(요약|이번달|이번 달|월요약|월 요약|합계|현황|통계|분류별지출|분류별 지출|이번달요약|이번 달 요약)$/i.test(normalizeText(text));
+  return detectKakaoNaturalIntent(text).intent === "SUMMARY" || /^(요약|이번달|이번 달|월요약|월 요약|합계|현황|통계|분류별지출|분류별 지출|이번달요약|이번 달 요약)$/i.test(normalizeText(text)) || isKakaoSpentQuestion(text);
 }
 
 function isBudgetCommand(text) {
@@ -48935,88 +49012,9 @@ function parseAmountValue(value) {
 
 function extractAmount(text) { const found = moneyTokenSpans(normalizeText(text))[0]; return found ? { amount: found.amount, raw: found.raw } : null; }
 
-function collectCombinedNumericUnitCandidates(text, candidates) {
-  let m;
-  // 1억2천, 1억 2500만, 1만5천원, 3만 5천, 10만5000원, 2.5만원
-  const re = /((?:\d+(?:\.\d+)?\s*(?:억|만|천|백|십)\s*)+(?:\d{3,4})?)\s*원?/g;
-  while ((m = re.exec(text))) {
-    const raw = m[0].trim();
-    const body = m[1].trim();
-    if (!raw || !body) continue;
-    if (!/[억만천백십]/.test(body)) continue;
-    const amount = parseMixedNumericAmount(body);
-    if (amount > 0) candidates.push({ raw, amount, index: m.index });
-  }
-}
-
-function parseMixedNumericAmount(body) { return moneyTokenSpans(body)[0]?.amount || 0; }
-
-function collectSimpleUnitCandidates(text, candidates) {
-  let m;
-  const re = /(\d+(?:\.\d+)?)\s*(억원|억|만원|만|천원|천|백원|백|십원|십|원)/g;
-  while ((m = re.exec(text))) {
-    const n = Number(m[1]);
-    if (!Number.isFinite(n)) continue;
-    let amount = n;
-    const unit = m[2];
-    if (unit === "억원" || unit === "억") amount *= 100000000;
-    else if (unit === "만원" || unit === "만") amount *= 10000;
-    else if (unit === "천원" || unit === "천") amount *= 1000;
-    else if (unit === "백원" || unit === "백") amount *= 100;
-    else if (unit === "십원" || unit === "십") amount *= 10;
-    candidates.push({ raw: m[0], amount, index: m.index });
-  }
-}
-
-function collectStandardNumberCandidates(text, candidates) {
-  let m;
-  const re = /([0-9]+(?:,[0-9]{3})+|[0-9]{4,})(?:\s*원)?/g;
-  while ((m = re.exec(text))) {
-    const raw = m[0];
-    const numeric = Number(String(m[1]).replace(/,/g, ""));
-    if (!Number.isFinite(numeric)) continue;
-    candidates.push({ raw, amount: numeric, index: m.index });
-  }
-}
-
-function collectKoreanNumberCandidates(text, candidates) {
-  let m;
-  const koreanDigits = "일이삼사오육칠팔구십백천만억영공한두세네다섯여섯일곱여덟아홉하나둘셋넷";
-  const reWithWon = new RegExp("([" + koreanDigits + "]+)\\s*원", "g");
-  while ((m = reWithWon.exec(text))) {
-    const amount = parseKoreanAmount(m[1]);
-    if (amount > 0) candidates.push({ raw: m[0], amount, index: m.index });
-  }
-  const reNoWon = new RegExp("([" + koreanDigits + "]{2,}(?:억|만|천|백|십)[" + koreanDigits + "]*)", "g");
-  while ((m = reNoWon.exec(text))) {
-    const amount = parseKoreanAmount(m[1]);
-    if (amount > 0) candidates.push({ raw: m[0], amount, index: m.index });
-  }
-}
-
-function isLikelyDateAround(text, index, raw) {
-  const before = text.slice(Math.max(0, index - 8), index);
-  const after = text.slice(index + raw.length, index + raw.length + 8);
-  const r = String(raw || "").trim();
-  if (!r) return true;
-  if (/년|월|일/.test(r) && !/원|만|천|백|십|억/.test(r)) return true;
-  if (/[\-/.]$/.test(before) || /^[\-/.]/.test(after)) return true;
-  if (/(지난달|저번달|이번달|이달|다음달|\d월\s*)$/.test(before) && /^일?/.test(after)) return true;
-  if (/월\s*$/.test(before) || /^\s*일/.test(after)) return true;
-  if (/^\d{1,2}$/.test(r.replace(/,/g, "")) && /일/.test(after)) return true;
-  return false;
-}
-
-function isLikelyYearOrTime(text, index, raw) {
-  const before = text.slice(Math.max(0, index - 4), index);
-  const after = text.slice(index + raw.length, index + raw.length + 4);
-  const n = Number(String(raw).replace(/[^0-9]/g, ""));
-  if (/^20\d{2}$/.test(String(n)) && /년/.test(after)) return true;
-  if (/시|분/.test(after) && !/원|만|천/.test(raw)) return true;
-  if (/오전|오후/.test(before) && /시/.test(after)) return true;
-  return false;
-}
-
+// V22.9.80 T-19: 부르는 곳이 없던 옛 금액 후보 함수(collectCombinedNumericUnitCandidates·parseMixedNumericAmount·collectSimpleUnitCandidates·
+// collectStandardNumberCandidates·collectKoreanNumberCandidates)와 날짜·시각 판정(isLikelyDateAround·isLikelyYearOrTime)을 지웠다. 금액은
+// moneyTokenSpans(client/shared-input-parsers.js) 하나가 읽는다. parseKoreanAmount 와 그 도우미는 남겨 둔다.
 function parseKoreanAmount(input) {
   let s = normalizeKoreanNumerals(String(input || "").replace(/\s+/g, ""));
   if (!s) return 0;
@@ -49197,52 +49195,18 @@ function qaFixedNowMs() {
   return Number.isFinite(fixed) && fixed > 0 ? Number(fixed) : Date.now();
 }
 
-// V22.9.77 감사 E-1: 가져오기 해석 한 번(withKstNowScope) 안에서는 KST 형식기를 하나만 만들어 다시 쓰고, 같은 1초 안에서는
-// 읽은 시각을 다시 쓴다(결과는 초 단위라 같다). 예전에는 부를 때마다 Intl.DateTimeFormat 을 새로 만들어 자연어 가져오기가 행마다
-// 하나씩(1,000행이면 1,000개) 만들었다. 범위는 동기 해석 한 번 동안만 있고 요청 사이에 남지 않는다. 범위 밖(카카오 문장 한 줄
-// 등)은 예전과 같다. 돌려주는 Date 는 예전처럼 부를 때마다 새로 만든다(받은 쪽이 바꿔도 다음 호출에 번지지 않는다).
-let KST_NOW_SCOPE = null;
+// V22.9.77 감사 E-1: 가져오기 해석 한 번(withKstNowScope) 안에서는 KST 형식기를 하나만 만들어 다시 썼다(예전에는 행마다 하나씩).
+// V22.9.80 T-27: KST 는 1988년 뒤로 서머타임이 없어 늘 UTC+9 다. 지금 시각에 9시간을 더한 UTC 날짜·시각이 곧 KST 벽시계라 Intl 형식기
+// 없이 같은 값을 만든다(예전에는 범위 밖에서 부를 때마다 Intl.DateTimeFormat 을 새로 만들었다 — 빈 isolate 첫 호출 약 5ms). 형식기를
+// 만들지 않으므로 범위는 할 일이 없어 그대로 부르기만 한다(가져오기 해석이 부르는 이름이라 남긴다). 돌려주는 Date 는 예전처럼 초까지만
+// 담고(밀리초 0) 부를 때마다 새로 만든다(받은 쪽이 바꿔도 다음 호출에 번지지 않는다). 시각을 로컬 Date 의 필드로 담는 방식도 예전과 같다.
 function withKstNowScope(task) {
-  if (KST_NOW_SCOPE) return task();
-  KST_NOW_SCOPE = { format: null, second: NaN, parts: null };
-  try { return task(); } finally { KST_NOW_SCOPE = null; }
-}
-
-function kstNowFormat() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-}
-
-function kstNowParts(ms, format) {
-  const parts = format.formatToParts(new Date(ms));
-  const get = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
-  return [get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second")];
+  return task();
 }
 
 function nowKstDate() {
-  const ms = qaFixedNowMs();
-  const scope = KST_NOW_SCOPE;
-  let parts;
-  if (!scope) parts = kstNowParts(ms, kstNowFormat());
-  else {
-    const second = Math.floor(ms / 1000);
-    if (second !== scope.second) {
-      if (!scope.format) scope.format = kstNowFormat();
-      scope.parts = kstNowParts(ms, scope.format);
-      scope.second = second;
-    }
-    parts = scope.parts;
-  }
-  const [year, month, day, hour, minute, second] = parts;
-  return new Date(year, month, day, hour, minute, second);
+  const kst = new Date(qaFixedNowMs() + 32400000);
+  return new Date(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate(), kst.getUTCHours(), kst.getUTCMinutes(), kst.getUTCSeconds());
 }
 
 function addDays(date, days) {
@@ -49328,26 +49292,32 @@ const CATEGORY_RULES = [
   //
   // V22.9.76 감사 A-10: except 는 그 규칙의 낱말을 덮으면 무효로 만드는 말이다(스마트폰의 "마트", 농협카드의 "농협").
   // 다른 규칙의 더 긴 낱말이 덮는 경우(수술의 "술")는 inferCategory 가 따로 거른다 — except 에 적지 않는다.
+  // V22.9.80 T-16: 낱말 속 분류 낱말이 남아 가스레인지·전기밥솥이 공과금, 주식회사가 저축/투자, 시장조사가 장보기, 아이유가 육아/자녀,
+  // 카페인이 카페/간식이었다. 물건·회사·사람 이름인 말을 except 에 더했다(같은 무리의 수도권·수도꼭지·부탄가스·아이언·카페트 등도 함께).
+  // 전기밥솥은 공과금을 막고 나면 ‘밥’으로 외식이 되므로 밥솥도 막는다. 결제수단 말 ‘카페이’(카카오페이)도 카페/간식을 정하지 않는다
+  // ("점심 9000 카페이"는 외식).
+  // 진짜 낱말(가스비·전기요금·전기세·도시가스·주식·시장·전통시장·아이 장난감·카페)은 except 에 들지 않아 예전처럼 분류한다. 전기자동차는
+  // 전기차와 같이 주유/충전의 낱말이다(더 긴 낱말이라 공과금의 ‘전기’를 덮는다).
   { name: "주거/월세", type: "expense", weight: 100, words: ["월세","전세","전월세","임대료","집세","주택","원룸","부동산"] },
   { name: "관리비", type: "expense", weight: 99, words: ["관리비","아파트관리"] },
   { name: "대출/이자", type: "expense", weight: 98, words: ["대출","대출이자","원리금","상환","할부이자"] },
-  { name: "저축/투자", type: "expense", weight: 97, words: ["저축","적금","예금","투자","주식","펀드","연금","청약"] },
-  { name: "공과금", type: "expense", weight: 96, words: ["공과금","전기","전기세","가스","가스비","수도","수도세","도시가스"] },
+  { name: "저축/투자", type: "expense", weight: 97, words: ["저축","적금","예금","투자","주식","펀드","연금","청약"], except: ["주식회사"] },
+  { name: "공과금", type: "expense", weight: 96, words: ["공과금","전기","전기세","가스","가스비","수도","수도세","도시가스"], except: ["가스레인지","가스렌지","가스버너","가스라이터","부탄가스","전기밥솥","전기장판","전기포트","전기레인지","전기매트","전기히터","전기난로","전기면도기","전기자전거","전기주전자","전기담요","전기그릴","전기오븐","전기톱","전기드릴","전기용품","전기제품","수도권","수도꼭지"] },
   { name: "통신비", type: "expense", weight: 95, words: ["통신","통신비","핸드폰","휴대폰","휴대전화","인터넷","와이파이","알뜰폰","유플러스","lg유플러스"], exact: ["kt","skt"] },
   { name: "보험", type: "expense", weight: 94, words: ["보험","보험료","실비","암보험","화재보험","자동차보험"] },
   { name: "약국", type: "expense", weight: 92, words: ["약국","약값","의약품","처방","영양제"] },
   { name: "의료/병원", type: "expense", weight: 90, words: ["병원","의원","치과","안과","내과","피부과","한의원","소아과","진료","검진","의료","렌즈","콘택트","수술"] },
   { name: "차량관리", type: "expense", weight: 89, words: ["세차","정비","엔진오일","타이어","주차","주차비","하이패스","톨비","카센터","대리운전"] },
-  { name: "주유/충전", type: "expense", weight: 88, words: ["주유","휘발유","경유","기름","충전소","전기차충전","전기차"], exact: ["ev"] },
+  { name: "주유/충전", type: "expense", weight: 88, words: ["주유","휘발유","경유","기름","충전소","전기차충전","전기차","전기자동차"], exact: ["ev"] },
   { name: "택시", type: "expense", weight: 87, words: ["택시","카카오t","타다"] },
   { name: "교통", type: "expense", weight: 86, words: ["교통","버스","지하철","기차","ktx","srt","티머니","캐시비"] },
   { name: "구독", type: "expense", weight: 85, words: ["구독","넷플릭스","유튜브","유튜브고급","멤버십","멜론","디즈니","쿠팡와우","스포티파이","왓챠","티빙","웨이브","애플뮤직","클라우드"] },
   { name: "배달", type: "expense", weight: 84, words: ["배달","배민","요기요","쿠팡이츠"] },
   { name: "편의점", type: "expense", weight: 83, words: ["편의점","gs25","세븐일레븐","이마트24"], exact: ["cu"] },
-  { name: "장보기", type: "expense", weight: 82, words: ["마트","이마트","홈플러스","롯데마트","코스트코","트레이더스","시장","농협","장보기","슈퍼","마켓","식료품","식자재","식재료","쌀","시리얼","반찬","김자반"], except: ["스마트","농협카드","농협체크","농협은행","농협계좌","농협통장","농협페이"] },
-  { name: "카페/간식", type: "expense", weight: 80, words: ["커피","카페","스타벅스","스벅","이디야","투썸","메가커피","컴포즈","빽다방","간식","빵","디저트","베이커리","과자","아이스크림","마시멜로우","초콜릿","젤리","아메리카노","라떼"] },
-  { name: "외식", type: "expense", weight: 78, words: ["외식","식당","점심","저녁","아침","밥","식사","김밥","라면","치킨","피자","햄버거","버거","맥도날드","국밥","분식","고기","회식","음식","술","맥주","소주","와인","쌀국수"], except: ["기술","예술","마술","무술","학술","술래"] },
-  { name: "육아/자녀", type: "expense", weight: 76, words: ["육아","어린이집","유치원","기저귀","분유","장난감","아이","키즈","학습지","어린이","아동","유아","아기","이유식"], except: ["아이패드","아이폰","아이맥","아이템","아이디","아이돌","아이스","아이섀도","아이라이너","아이크림","아이브로우","아이코스","아이허브"] },
+  { name: "장보기", type: "expense", weight: 82, words: ["마트","이마트","홈플러스","롯데마트","코스트코","트레이더스","시장","농협","장보기","슈퍼","마켓","식료품","식자재","식재료","쌀","시리얼","반찬","김자반"], except: ["스마트","농협카드","농협체크","농협은행","농협계좌","농협통장","농협페이","시장조사"] },
+  { name: "카페/간식", type: "expense", weight: 80, words: ["커피","카페","스타벅스","스벅","이디야","투썸","메가커피","컴포즈","빽다방","간식","빵","디저트","베이커리","과자","아이스크림","마시멜로우","초콜릿","젤리","아메리카노","라떼"], except: ["카페인","카페트","카페이"] },
+  { name: "외식", type: "expense", weight: 78, words: ["외식","식당","점심","저녁","아침","밥","식사","김밥","라면","치킨","피자","햄버거","버거","맥도날드","국밥","분식","고기","회식","음식","술","맥주","소주","와인","쌀국수"], except: ["기술","예술","마술","무술","학술","술래","밥솥"] },
+  { name: "육아/자녀", type: "expense", weight: 76, words: ["육아","어린이집","유치원","기저귀","분유","장난감","아이","키즈","학습지","어린이","아동","유아","아기","이유식"], except: ["아이패드","아이폰","아이맥","아이템","아이디","아이돌","아이스","아이섀도","아이라이너","아이크림","아이브로우","아이코스","아이허브","아이유","아이언","아이마스크","아이라인"] },
   { name: "교육/학습", type: "expense", weight: 75, words: ["교육","학원","수업","수강","강의","교재","학교","인강","문제집","자격증","등록금","공부"] },
   { name: "도서", type: "expense", weight: 74, words: ["책","도서","서점","교보","알라딘","예스24","서적"], except: ["책상"] },
   { name: "생활용품", type: "expense", weight: 72, words: ["생활용품","다이소","문구","세제","휴지","샴푸","풋샴푸","린스","비누","치약","칫솔","청소","주방","소모품","건전지","수납","온열안대","안대","식기"], except: ["청소년"] },
@@ -49700,7 +49670,10 @@ function sanitizeTransactionBody(body, partial = false, options = {}) {
   if (!partial || own("category") !== undefined) out.category = String(own("category") || "").slice(0, 80);
   if (!partial || own("memo") !== undefined) out.memo = String(own("memo") || "").slice(0, 160);
   const preserveEmptyCategory = options.preserveEmptyCategory === true && out.category === "";
-  if (!partial && !preserveEmptyCategory && (!out.category || isMissingCategory(out.category))) out.category = recommendCategory(`${out.memo || ""} ${own("raw_text") || ""} ${own("payment_method") || ""}`, out.type);
+  // V22.9.80 T-18: 비었거나 ‘기타’인 분류를 다시 정할 때 결제수단 칸은 넣지 않는다(고른 결제수단 ‘농협’이 장보기를 정했다 — 카카오는 문장만
+  // 본다). 빠른 입력이 문장에서 저절로 채운 메모(options.autoMemo)도 넣지 않는다 — ‘모임 9000 농협체크’의 메모 ‘모임 농협’에 남은 ‘농협’이
+  // 막아 둔 낱말을 되살렸다(웹 빠른 입력 A-10 고침과 같은 기준). 직접 적은 메모와 원문은 예전처럼 본다.
+  if (!partial && !preserveEmptyCategory && (!out.category || isMissingCategory(out.category))) out.category = recommendCategory(`${options.autoMemo === true ? "" : out.memo || ""} ${own("raw_text") || ""}`, out.type);
   if (!partial && !preserveEmptyCategory && (!out.category || isMissingCategory(out.category))) out.category = out.type === "income" ? "기타수입" : "기타지출";
   if (!partial || own("payment_method") !== undefined) out.payment_method = String(own("payment_method") || "").slice(0, 40);
   if (!partial || own("transaction_date") !== undefined) {

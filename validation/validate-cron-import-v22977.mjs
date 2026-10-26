@@ -346,7 +346,8 @@ function e1() {
     return ["2026-10-31T23:59:59.900+09:00", "2026-11-01T00:00:00.200+09:00", "2026-11-01T00:00:00.700+09:00"].map((iso) => stamp(at(iso)));
   }), { formatter: true });
   deepEq(scoped.result, ["2026-10-31 23:59:59.0", "2026-11-01 00:00:00.0", "2026-11-01 00:00:00.0"], "E-1 해석 범위 안 KST 현재 시각: 돌려준 Date 를 바꿔도 같은 초의 다음 값은 그대로이고(밀리초는 예전처럼 0), 초가 바뀌면 바로 새로 읽는다(자정 넘김)");
-  eq(scoped.formatter, 1, "E-1 해석 범위 안에서는 KST 형식기를 하나만 만든다");
+  // V22.9.80 T-27: KST 현재 시각을 고정 UTC+9 계산으로 만들어 형식기를 아예 만들지 않는다(예전 고정값 1 → 1개 이하).
+  ok(scoped.formatter <= 1, `E-1 해석 범위 안에서는 KST 형식기를 하나 넘게 만들지 않는다(${scoped.formatter}개)`);
   const yesterdayAt = (iso) => { globalThis.__AB_QA_FIXED_NOW_MS = Date.parse(iso); return parseTransaction("어제 점심 12000원", {}).transaction_date; };
   deepEq([yesterdayAt("2026-10-31T23:59:59.500+09:00"), yesterdayAt("2026-11-01T00:00:00.500+09:00"), yesterdayAt("2027-01-01T09:00:00+09:00")], ["2026-10-30", "2026-10-31", "2026-12-31"], "E-1 카카오 문장 '어제'가 시계를 따라간다(자정·연도 넘김)");
   const importYesterdayAt = (iso) => { globalThis.__AB_QA_FIXED_NOW_MS = Date.parse(iso); return parseFlexibleImportRecords("어제 점심 12000원", "house-home", "user-bin", {}).accepted[0]?.row.transaction_date; };

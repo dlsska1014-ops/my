@@ -152,6 +152,8 @@ async function handleMyAddTransaction(request, env) {
     payment_method: String(form.get("payment_method") || "").trim(),
     manual_category: form.get("quick_manual_category") === "1",
     manual_payment: form.get("quick_manual_payment") === "1",
+    // V22.9.80 T-18: 빠른 입력이 문장에서 채운 메모("0")는 분류 판정에 다시 넣지 않는다(표식이 없으면 예전처럼 넣는다).
+    manual_memo: form.get("quick_manual_memo") === null ? undefined : form.get("quick_manual_memo") === "1",
   });
   const body = {
     household_id: selected.id,
@@ -166,7 +168,7 @@ async function handleMyAddTransaction(request, env) {
     raw_text: rawText,
   };
   try {
-    const created = await createManualTransaction(env, body, { requestId: String(form.get("request_id") || ""), preserveEmptyCategory: form.get("quick_manual_category") === "1" && manualClass.category === "" });
+    const created = await createManualTransaction(env, body, { requestId: String(form.get("request_id") || ""), preserveEmptyCategory: form.get("quick_manual_category") === "1" && manualClass.category === "", autoMemo: form.get("quick_manual_memo") === "0" && rawText !== "" });
     if (created?.__duplicate_skipped) {
       return redirectResponse(duplicateSkippedReturnLocation(String(transactionDate).slice(0, 7) || month, selected.id));
     }

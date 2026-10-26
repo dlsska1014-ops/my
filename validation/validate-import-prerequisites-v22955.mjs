@@ -407,7 +407,8 @@ try {
     operationCounts.push([fixed, formats]);
   }
   eq(operationCounts.map(count => count[0]), [30, 30, 30, 30], "fixed aliases are not recalculated per transaction");
-  eq(operationCounts.map(count => count[1]), [1, 1, 1, 1], "request date Intl construction does not scale with rows");
+  // V22.9.80 T-27: the KST "today" is now computed without Intl (0 per parse); the property kept here is "does not scale with rows, at most 1".
+  ok(operationCounts.every(count => count[1] === operationCounts[0][1] && count[1] <= 1), "request date Intl construction does not scale with rows");
   const header = "날짜,금액,내용\n2026-07-01,5000,";
   // V59: the 5 MiB parser limit stays intact; oversized memo rows are explicitly rejected before signing/storage.
   const maximumCell = parse(header + "x".repeat(5 * 1024 * 1024 - Buffer.byteLength(header)));

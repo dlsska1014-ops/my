@@ -125,52 +125,18 @@ function qaFixedNowMs() {
   return Number.isFinite(fixed) && fixed > 0 ? Number(fixed) : Date.now();
 }
 
-// V22.9.77 감사 E-1: 가져오기 해석 한 번(withKstNowScope) 안에서는 KST 형식기를 하나만 만들어 다시 쓰고, 같은 1초 안에서는
-// 읽은 시각을 다시 쓴다(결과는 초 단위라 같다). 예전에는 부를 때마다 Intl.DateTimeFormat 을 새로 만들어 자연어 가져오기가 행마다
-// 하나씩(1,000행이면 1,000개) 만들었다. 범위는 동기 해석 한 번 동안만 있고 요청 사이에 남지 않는다. 범위 밖(카카오 문장 한 줄
-// 등)은 예전과 같다. 돌려주는 Date 는 예전처럼 부를 때마다 새로 만든다(받은 쪽이 바꿔도 다음 호출에 번지지 않는다).
-let KST_NOW_SCOPE = null;
+// V22.9.77 감사 E-1: 가져오기 해석 한 번(withKstNowScope) 안에서는 KST 형식기를 하나만 만들어 다시 썼다(예전에는 행마다 하나씩).
+// V22.9.80 T-27: KST 는 1988년 뒤로 서머타임이 없어 늘 UTC+9 다. 지금 시각에 9시간을 더한 UTC 날짜·시각이 곧 KST 벽시계라 Intl 형식기
+// 없이 같은 값을 만든다(예전에는 범위 밖에서 부를 때마다 Intl.DateTimeFormat 을 새로 만들었다 — 빈 isolate 첫 호출 약 5ms). 형식기를
+// 만들지 않으므로 범위는 할 일이 없어 그대로 부르기만 한다(가져오기 해석이 부르는 이름이라 남긴다). 돌려주는 Date 는 예전처럼 초까지만
+// 담고(밀리초 0) 부를 때마다 새로 만든다(받은 쪽이 바꿔도 다음 호출에 번지지 않는다). 시각을 로컬 Date 의 필드로 담는 방식도 예전과 같다.
 function withKstNowScope(task) {
-  if (KST_NOW_SCOPE) return task();
-  KST_NOW_SCOPE = { format: null, second: NaN, parts: null };
-  try { return task(); } finally { KST_NOW_SCOPE = null; }
-}
-
-function kstNowFormat() {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Seoul",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
-  });
-}
-
-function kstNowParts(ms, format) {
-  const parts = format.formatToParts(new Date(ms));
-  const get = (type) => Number(parts.find((p) => p.type === type)?.value || 0);
-  return [get("year"), get("month") - 1, get("day"), get("hour"), get("minute"), get("second")];
+  return task();
 }
 
 function nowKstDate() {
-  const ms = qaFixedNowMs();
-  const scope = KST_NOW_SCOPE;
-  let parts;
-  if (!scope) parts = kstNowParts(ms, kstNowFormat());
-  else {
-    const second = Math.floor(ms / 1000);
-    if (second !== scope.second) {
-      if (!scope.format) scope.format = kstNowFormat();
-      scope.parts = kstNowParts(ms, scope.format);
-      scope.second = second;
-    }
-    parts = scope.parts;
-  }
-  const [year, month, day, hour, minute, second] = parts;
-  return new Date(year, month, day, hour, minute, second);
+  const kst = new Date(qaFixedNowMs() + 32400000);
+  return new Date(kst.getUTCFullYear(), kst.getUTCMonth(), kst.getUTCDate(), kst.getUTCHours(), kst.getUTCMinutes(), kst.getUTCSeconds());
 }
 
 function addDays(date, days) {

@@ -115,8 +115,16 @@ async function kakaoSettlementParts(env, household = {}) {
   ].join("\n") };
 }
 
+// V22.9.80 T-39: ‘얼마나 썼어’·‘얼마 나갔어’·‘돈 얼마나 나갔지’도 ‘얼마 썼어’와 같은 이번 달 요약 물음이다. 예전에는 요약 낱말(‘얼마 썼’)만 보아
+// 이런 말이 "무슨 뜻인지 이해하지 못했어요"로 답했다. 문장 전체가 이 물음 꼴이고 금액이 없을 때만 읽는다(‘얼마나 썼는지 몰라 커피 4500’은 기록이다).
+// 기간 말이 앞에 있는 물음(‘지난달 얼마나 썼지’·‘저저번달 얼마나 썼어’)은 parseKakaoSummaryRange 가 먼저 그 기간(읽지 못한 기간은 그 안내)으로 답한다.
+function isKakaoSpentQuestion(text = "") {
+  const t = normalizeText(text);
+  return /^(?:\S.*?\s)?(?:돈\s*)?얼마(?:나)?\s*(?:썼|나갔)(?:어|지|죠|나|니|냐|는지|더라)?요?(?:\s*(?:알려줘|보여줘))?$/.test(t) && !extractAmount(t);
+}
+
 function isSummaryCommand(text) {
-  return detectKakaoNaturalIntent(text).intent === "SUMMARY" || /^(요약|이번달|이번 달|월요약|월 요약|합계|현황|통계|분류별지출|분류별 지출|이번달요약|이번 달 요약)$/i.test(normalizeText(text));
+  return detectKakaoNaturalIntent(text).intent === "SUMMARY" || /^(요약|이번달|이번 달|월요약|월 요약|합계|현황|통계|분류별지출|분류별 지출|이번달요약|이번 달 요약)$/i.test(normalizeText(text)) || isKakaoSpentQuestion(text);
 }
 
 function isBudgetCommand(text) {

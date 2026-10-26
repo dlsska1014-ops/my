@@ -246,7 +246,9 @@ await withClock(DAY, () => fixture(async (fx) => {
   t.eq(inBrowser('joinSpacedKoreanAmount("택시 만 오천원")'), "택시 만오천원", "A-07 ‘만 오천원’을 한 금액으로 붙인다");
   t.eq(inBrowser('joinSpacedKoreanAmount("마트 만 2천원")'), "마트 1만2천원", "A-07 뒤가 숫자면 앞도 숫자 단위로 바꿔 붙인다");
   t.eq(inBrowser('joinSpacedKoreanAmount("점심 삼만 오천")'), "점심 삼만오천", "A-07 문장이 끝나면 ‘원’이 없어도 붙인다");
-  for (const same of ["택시 만 오천 현금", "점심 3만 5천원", "택시 천 오천원", "점심 만원 커피 오천원", "점심 오천 원"]) {
+  // V22.9.80 T-17: 뒤따르는 말이 결제수단이면(‘택시 만 오천 현금’) 한 금액으로 붙인다(예전 음성 → 양성). 결제수단이 아닌 말 앞은 그대로다.
+  t.eq(inBrowser('joinSpacedKoreanAmount("택시 만 오천 현금")'), "택시 만오천 현금", "A-07(V22.9.80 T-17) 결제수단이 뒤따르면 ‘원’이 없어도 붙인다");
+  for (const same of ["택시 만 오천 현금영수증", "점심 3만 5천원", "택시 천 오천원", "점심 만원 커피 오천원", "점심 오천 원"]) {
     t.eq(inBrowser(`joinSpacedKoreanAmount(${JSON.stringify(same)})`), same, `A-07 음성 붙이지 않는다: "${same}"`);
   }
   for (const [text, expected] of [

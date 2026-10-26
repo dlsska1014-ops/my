@@ -309,6 +309,8 @@ async function handleAdminAddTransaction(request, env) {
       payment_method: String(form.get("payment_method") || "").trim(),
       manual_category: form.get("quick_manual_category") === "1",
       manual_payment: form.get("quick_manual_payment") === "1",
+      // V22.9.80 T-18: 빠른 입력이 문장에서 채운 메모("0")는 분류 판정에 다시 넣지 않는다(표식이 없으면 예전처럼 넣는다).
+      manual_memo: form.get("quick_manual_memo") === null ? undefined : form.get("quick_manual_memo") === "1",
     });
     const savedTransaction = await createManualTransaction(env, {
       household_id: householdId,
@@ -321,7 +323,7 @@ async function handleAdminAddTransaction(request, env) {
       user_id: isManager ? (requestedUserId || access.userId) : access.userId,
       source: access.admin ? "web_admin" : "web_user",
       raw_text: rawText,
-    }, { requestId, preserveEmptyCategory: form.get("quick_manual_category") === "1" && manualClass.category === "" });
+    }, { requestId, preserveEmptyCategory: form.get("quick_manual_category") === "1" && manualClass.category === "", autoMemo: form.get("quick_manual_memo") === "0" && rawText !== "" });
     if (savedTransaction?.__idempotent_replay && !savedTransaction.__replay_same) throw Object.assign(new Error("transaction_request_conflict"), { code: "transaction_request_conflict" });
     const msg = savedTransaction?.__idempotent_replay ? "already_saved" : savedTransaction?.__duplicate_skipped ? "duplicate_skipped" : "added";
     let balert = "";

@@ -301,7 +301,10 @@ function sanitizeTransactionBody(body, partial = false, options = {}) {
   if (!partial || own("category") !== undefined) out.category = String(own("category") || "").slice(0, 80);
   if (!partial || own("memo") !== undefined) out.memo = String(own("memo") || "").slice(0, 160);
   const preserveEmptyCategory = options.preserveEmptyCategory === true && out.category === "";
-  if (!partial && !preserveEmptyCategory && (!out.category || isMissingCategory(out.category))) out.category = recommendCategory(`${out.memo || ""} ${own("raw_text") || ""} ${own("payment_method") || ""}`, out.type);
+  // V22.9.80 T-18: 비었거나 ‘기타’인 분류를 다시 정할 때 결제수단 칸은 넣지 않는다(고른 결제수단 ‘농협’이 장보기를 정했다 — 카카오는 문장만
+  // 본다). 빠른 입력이 문장에서 저절로 채운 메모(options.autoMemo)도 넣지 않는다 — ‘모임 9000 농협체크’의 메모 ‘모임 농협’에 남은 ‘농협’이
+  // 막아 둔 낱말을 되살렸다(웹 빠른 입력 A-10 고침과 같은 기준). 직접 적은 메모와 원문은 예전처럼 본다.
+  if (!partial && !preserveEmptyCategory && (!out.category || isMissingCategory(out.category))) out.category = recommendCategory(`${options.autoMemo === true ? "" : out.memo || ""} ${own("raw_text") || ""}`, out.type);
   if (!partial && !preserveEmptyCategory && (!out.category || isMissingCategory(out.category))) out.category = out.type === "income" ? "기타수입" : "기타지출";
   if (!partial || own("payment_method") !== undefined) out.payment_method = String(own("payment_method") || "").slice(0, 40);
   if (!partial || own("transaction_date") !== undefined) {
