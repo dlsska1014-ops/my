@@ -2,13 +2,13 @@
 
 앱 Worker 코드 변경(다크 대비·화면, 입력 해석, 역할 표시·조회, 가져오기·예약·홈, 플래그 뒤 환불 연결 후속, 정산 완료일)과 1년 캐시 자산 새 주소 4개(v22980). 관제 Worker·운영 SQL·스키마·Secret 변경 없음(검토용 환불 연결 SQL 에 5절을 더함, 실행 금지). 번들 7.48 MiB(gzip 1.93 MiB, V22.9.79 는 7.11·1.82).
 
-- 전제: V22.9.79(PR #97)가 먼저 병합된다. 이 판은 그 위에 쌓았다(PR 바탕 `claude/v22979-followup`). V22.9.79 를 따로 배포하지 않고 이 판을 바로 배포해도 된다 — 그때는 V22.9.79 절의 확인도 함께 한다.
+- 전제: V22.9.79(PR #97) 병합(2026-10-26 13:35, main `61c9266`)과 운영 반영(13:47:40, `d8f9d22f-6e57-4c98-b1d2-4b537820b891`) — 충족. 이 판은 그 위에 쌓았다(PR #98 바탕을 main 으로 바꿈). V22.9.79 다음 날 확인(2026-10-27 09:10 예약 실행 뒤)을 먼저 끝내면 V22.9.79 의 예약 반영 결과를 이 판과 섞지 않고 볼 수 있다.
 - 순서: 앱 Worker 하나. 환불 연결 플래그 `REFUND_LINKS_ENABLED` 는 설정하지 않는다(꺼짐). 환불 연결 DB 적용(검토용 SQL 1~5절)은 별도 승인 뒤 다른 날.
 - 날짜: 매월 1일·2일과 말일은 피한다(2026-10-31·11-01·11-02 제외). 10-30 까지 못 하면 11-03 이후.
-- 배포 직후: /health version `V22.9.80-FINDINGS-SWEEP`, /ready 필수 표 13개·실패 0. 새 주소 4개(ab-category-rules-v22980.js·accountbook-v5-v22980.js·mobile-home-shell-v22980.js·mobile-home-v22980.js)가 200 이고, 옛 주소 4개(ab-category-rules-v22976.js·accountbook-v5-v22979.js·mobile-home-shell-v22979.js·mobile-home-v22979.js)도 200(옛 바이트, validate-immutable-asset-addresses-v2299 의 옛 해시와 같음). V22.9.79 를 건너뛰었으면 V22.9.79 절의 옛 주소 일곱 개도 본다. 공개 화면 검사.
+- 배포 직후: /health version `V22.9.80-FINDINGS-SWEEP`, /ready 필수 표 13개·실패 0. 새 주소 4개(ab-category-rules-v22980.js·accountbook-v5-v22980.js·mobile-home-shell-v22980.js·mobile-home-v22980.js)가 200 이고, 옛 주소 4개(ab-category-rules-v22976.js·accountbook-v5-v22979.js·mobile-home-shell-v22979.js·mobile-home-v22979.js)도 200(옛 바이트, validate-immutable-asset-addresses-v2299 의 옛 해시와 같음). 공개 화면 검사.
 - 배포 뒤 운영 이벤트(읽기만): `household_role_check_failed`(T-35 로 화면이 늘었다), 수동 ‘기록하기’ 뒤 `recurring_apply_incomplete`(T-14 의 묶음 PATCH 를 운영 PostgREST 가 받는지).
 - 운영 수동 확인: RELEASE-CHECKLIST V22.9.80 절.
-- 되돌릴 때: 직전 운영 판의 version id(V22.9.79 를 배포했으면 그 id, 아니면 V22.9.78 `53da778a-cb7a-4a84-98f3-9e7f4834ae26`). V22.9.78 로 되돌리면 V22.9.79 절의 되돌림 영향(T-44 가 다시 열림)도 함께 생긴다. 플래그를 켜지 않았으면 환불 연결 데이터는 없다. 이 판이 새로 쓰는 상태 키·DB 칸은 없다(플래그 꺼짐).
+- 되돌릴 때: V22.9.79(`d8f9d22f-6e57-4c98-b1d2-4b537820b891`). 그보다 앞(V22.9.78)으로 되돌리면 V22.9.79 절의 되돌림 영향(T-44 가 다시 열림)도 함께 생긴다. 플래그를 켜지 않았으면 환불 연결 데이터는 없다. 이 판이 새로 쓰는 상태 키·DB 칸은 없다(플래그 꺼짐).
 
 ## V22.9.79 배포 판단
 
