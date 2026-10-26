@@ -22,6 +22,7 @@ import { parseMultipleTransactions, parseTransaction } from "../src/index.js";
 import { extractLeadingDateHint, hasDateHint } from "../src/modules/nlu/transaction-parser.js";
 import { joinSpacedKoreanAmount, normalizeInputText } from "../src/modules/client/shared-input-nlu.js";
 import { applyUserSettingsToParsedTransactions } from "../src/modules/settings/payment-assets.js";
+import { parseKakaoSummaryRange } from "../src/modules/kakao/household-budget-commands.js";
 
 const SOFT = process.env.V22981_SOFT === "1";
 const base = counter("V22.9.81 입력 해석(U-24 여러 건 머리 날짜·U-9 띄어 쓴 금액·U-25 없는 날짜 요약·U-6 지지난달·U-7 자동이체·U-8 분류 이름 낱말·U-10 구분 바꿀 때 분류) 웹·카카오 같은 해석 검사");
@@ -339,6 +340,94 @@ await scene("U-9", async () => {
       const webSaved = fx.db.transactions.slice(webBefore);
       t.ok(state.submit() && webSaved.length === 1 && webSaved[0].amount === amount && webSaved[0].category === saved[0]?.category, `U-9 웹 저장도 한 건 ${amount}원·같은 분류 (받음 ${JSON.stringify(webSaved.map((row) => `${row.memo}:${row.amount}:${row.category}`))})`);
     }
+  }));
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// U-25. 달력에 없는 날의 요약은 다른 날로 넘기지 않고 ‘없는 날짜’로 안내한다(제목·분석 링크 없음)
+// ════════════════════════════════════════════════════════════════════════════════════
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+// 요약을 볼 기록: 기준일 2026-08-05 앞의 몇 주·몇 달(지지난주 = 7월 20~26일, 지지난달 = 6월)
+const SUMMARY_ROWS = [["2026-06-10", "유월점심", 10000], ["2026-07-10", "칠월점심", 10000], ["2026-07-22", "지지난주점심", 22000], ["2026-07-29", "지난주점심", 29000], ["2026-03-02", "삼월이틀점심", 32000], ["2026-07-01", "칠월하루점심", 31000]];
+const addSummaryRows = (fx) => {
+  for (const [date, memo, amount] of SUMMARY_ROWS) fx.db.transactions.push({ id: `tx-v81-${date}`, household_id: HH, user_id: "user-bin", transaction_date: date, type: "expense", amount, category: "식비", memo, payment_method: "현금", source: "kakao", raw_text: memo, created_at: `${date}T03:00:00.000Z` });
+};
+await scene("U-25", async () => {
+  await withClock(DAY, async () => {
+    for (const [text, shown] of [
+      ["2월 30일 요약", "2월 30일"], ["13월 5일 요약", "13월 5일"], ["0월 5일 요약", "0월 5일"], ["2월 0일 요약", "2월 0일"], ["2월 29일 요약", "2월 29일"],
+      ["2026년 2월 29일 요약", "2026년 2월 29일"], ["6월 31일 요약", "6월 31일"], ["4월 31일 현황", "4월 31일"], ["2026년 13월 1일 요약", "2026년 13월 1일"],
+      ["2월 30일 얼마나 썼어", "2월 30일"], ["13월 5일 얼마 썼어", "13월 5일"],
+    ]) {
+      const range = parseKakaoSummaryRange(text);
+      t.ok(range?.invalidDate === true && range.text === shown && !range.start, `U-25 ‘${text}’는 없는 날짜(${shown})로 읽는다 (받음 ${JSON.stringify(range)})`);
+    }
+    // 있는 날은 예전 그대로(연도 없이 오늘보다 뒤면 작년 — D-7)
+    for (const [text, start, label] of [["6월 10일 요약", "2026-06-10", "6월 10일"], ["7월 31일 요약", "2026-07-31", "7월 31일"], ["12월 25일 요약", "2025-12-25", "2025년 12월 25일"], ["2028년 2월 29일 요약", "2028-02-29", "2028년 2월 29일"], ["3월 2일 요약", "2026-03-02", "3월 2일"]]) {
+      const range = parseKakaoSummaryRange(text);
+      t.ok(range && !range.invalidDate && range.start === start && range.label === label, `U-25 있는 날 ‘${text}’는 예전처럼 ${start} (받음 ${JSON.stringify(range)})`);
+    }
+  });
+  await withClock("2028-03-10", async () => {
+    const range = parseKakaoSummaryRange("2월 29일 요약");
+    t.ok(range && !range.invalidDate && range.start === "2028-02-29", `U-25 윤년(2028-03-10 기준) ‘2월 29일 요약’은 2028-02-29 (받음 ${JSON.stringify(range)})`);
+  });
+  await withClock(DAY, () => fixture(async (fx) => {
+    putSetting(fx, "kakao_selected_household_v2251:user-bin", HH);
+    addSummaryRows(fx);
+    for (const text of ["2월 30일 요약", "13월 5일 요약", "6월 31일 요약", "2월 30일 얼마나 썼어"]) {
+      const reply = await say(fx, text);
+      t.ok(reply.includes("달력에 없는 날짜라서 요약하지 않았어요") && !reply.includes("📊") && !reply.includes("/my/analysis") && !/32,000원|31,000원/.test(reply), `U-25 카카오 ‘${text}’는 없는 날짜 안내만(제목·금액·분석 링크 없음) (${reply.slice(0, 60).replace(/\n/g, " / ")})`);
+    }
+    const valid = await say(fx, "3월 2일 요약");
+    t.ok(valid.includes("📊 3월 2일 요약") && valid.includes("32,000원"), `U-25 있는 날 ‘3월 2일 요약’은 예전처럼 그날 금액 (${valid.slice(0, 60).replace(/\n/g, " / ")})`);
+  }));
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// U-6. ‘지지난달’·‘지지난주’는 두 단계 전 기간(T-39 의 ‘얼마나 썼어’ 꼴도 같은 판정)
+// ════════════════════════════════════════════════════════════════════════════════════
+const weekRange = (day, back) => {
+  const [y, m, d] = day.split("-").map(Number), now = new Date(y, m - 1, d), monday = new Date(y, m - 1, d - (now.getDay() + 6) % 7);
+  return { start: ymd(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 7 * back)), end: ymd(new Date(monday.getFullYear(), monday.getMonth(), monday.getDate() - 7 * (back - 1))) };
+};
+const monthRange = (day, back) => {
+  const [y, m] = day.split("-").map(Number), start = new Date(y, m - 1 - back, 1);
+  return { start: ymd(start), end: ymd(new Date(start.getFullYear(), start.getMonth() + 1, 1)), label: `${start.getFullYear() === y ? "" : `${start.getFullYear()}년 `}${start.getMonth() + 1}월`, month: ymd(start).slice(0, 7) };
+};
+await scene("U-6", async () => {
+  // 수요일·일요일·월요일(주 첫날)·1월(해 넘김)·2월(해 넘김) 기준일
+  for (const day of [DAY, "2026-08-09", "2026-01-05", "2026-01-15", "2026-02-10"]) {
+    await withClock(day, async () => {
+      const twoWeeks = weekRange(day, 2), oneWeek = weekRange(day, 1), twoMonths = monthRange(day, 2), oneMonth = monthRange(day, 1);
+      for (const text of ["지지난주 요약", "지지난 주 요약", "지지난주", "지지난주 얼마 나갔어", "지지난주 얼마나 썼어", "지지난주 얼마 썼어", "지지난주 뭐 썼어", "지지난주 수입"]) {
+        const range = parseKakaoSummaryRange(text);
+        t.ok(range && range.start === twoWeeks.start && range.end === twoWeeks.end && range.label === "지지난 주", `U-6 (${day}) ‘${text}’ → 지지난 주 ${twoWeeks.start}~${twoWeeks.end} (받음 ${JSON.stringify(range)})`);
+      }
+      for (const text of ["지지난달 요약", "지지난 달 요약", "지지난달", "지지난달 얼마나 썼어", "지지난달 얼마 썼어", "지지난달 뭐 썼어", "지지난달 쓴 거", "지지난달 수입", "지지난달 수입 얼마"]) {
+        const range = parseKakaoSummaryRange(text);
+        t.ok(range && range.start === twoMonths.start && range.end === twoMonths.end && range.label === twoMonths.label && range.month === twoMonths.month, `U-6 (${day}) ‘${text}’ → ${twoMonths.label} ${twoMonths.start}~${twoMonths.end} (받음 ${JSON.stringify(range)})`);
+      }
+      t.eq(parseKakaoSummaryRange("지지난달 수입")?.focus, "income", `U-6 (${day}) ‘지지난달 수입’은 수입 줄을 함께 보인다`);
+      // 예전 그대로: 지난주·지난달은 한 단계 전, 읽지 못하는 두 단계 전 말(저저번·지지난해)은 이번 달로 바꾸지 않는다
+      const lastWeek = parseKakaoSummaryRange("지난주 요약"), lastMonth = parseKakaoSummaryRange("지난달 요약");
+      t.ok(lastWeek?.start === oneWeek.start && lastWeek?.end === oneWeek.end && lastMonth?.start === oneMonth.start && lastMonth?.end === oneMonth.end, `U-6 (${day}) 지난주·지난달은 예전처럼 한 단계 전`);
+      const unread = ["저저번달 요약", "저저번주 요약", "저저번달 얼마나 썼어", "지지난해 얼마나 썼어"].filter((text) => !parseKakaoSummaryRange(text)?.unreadable);
+      t.ok(!unread.length, `U-6 (${day}) 저저번달·저저번주·지지난해는 예전처럼 읽지 못한 기간 ${JSON.stringify(unread)}`);
+    });
+  }
+  await withClock(DAY, () => fixture(async (fx) => {
+    putSetting(fx, "kakao_selected_household_v2251:user-bin", HH);
+    addSummaryRows(fx);
+    const before = fx.db.transactions.length;
+    // 분석 링크는 하루 한 번만 붙으므로(maybeKakaoCta) 첫 답장에서 본다
+    const linked = await say(fx, "지지난달 요약");
+    t.ok(linked.includes("month=2026-06") && !linked.includes("month=2026-07"), "U-6 카카오 ‘지지난달 요약’의 분석 링크는 6월");
+    for (const [text, header, money] of [["지지난달 요약", "📊 6월 요약", "10,000원"], ["지지난달 얼마나 썼어", "📊 6월 요약", "10,000원"], ["지지난주 요약", "📊 지지난 주 요약", "22,000원"], ["지지난주 얼마 나갔어", "📊 지지난 주 요약", "22,000원"]]) {
+      const reply = await say(fx, text);
+      t.ok(reply.includes(header) && reply.includes(`지출: ${money}`), `U-6 카카오 ‘${text}’ → ${header} ${money} (${reply.slice(0, 50).replace(/\n/g, " / ")})`);
+    }
+    t.eq(fx.db.transactions.length, before, "U-6 요약 물음은 기록을 만들지 않는다");
   }));
 });
 

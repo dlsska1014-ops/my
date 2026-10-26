@@ -498,20 +498,21 @@ function parseKakaoSummaryRange(text = "") {
   // V22.9.76 카카오 감사 9: "이번달 수입"·"지난달 수입 얼마"·"수입 내역"·"월급 얼마 들어왔어"도 요약으로 답하고 수입 줄을
   // 함께 보인다. 예전에는 요약으로 알아듣지 못해 다른 안내가 나갔다. 금액이 있는 말은 기록이므로 여기 오지 않는다.
   let focus = "";
-  const incomeAsk = t.match(/^(?:(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*)?(?:수입|월급|급여)(?:\s*(?:은|는|이))?\s*(?:내역|현황|합계|요약|얼마|얼마야|얼마지|얼마\s*들어왔어|얼마\s*들어왔지|얼마\s*들어왔나|들어왔어|들어왔나|알려줘)$/)
-    || t.match(/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*수입$/);
+  // V22.9.81 U-6: 두 단계 전 기간(‘지지난주’·‘지지난달’)도 기간 말이다. 예전에는 ‘지지난달 요약’을 아래 ‘지난달’ 찾기가 지난달로 읽었다.
+  const incomeAsk = t.match(/^(?:(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|지지난주|지지난 주|이번달|이번 달|지난달|지난 달|지지난달|지지난 달)\s*)?(?:수입|월급|급여)(?:\s*(?:은|는|이))?\s*(?:내역|현황|합계|요약|얼마|얼마야|얼마지|얼마\s*들어왔어|얼마\s*들어왔지|얼마\s*들어왔나|들어왔어|들어왔나|알려줘)$/)
+    || t.match(/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|지지난주|지지난 주|이번달|이번 달|지난달|지난 달|지지난달|지지난 달)\s*수입$/);
   if (incomeAsk) { focus = "income"; t = `${incomeAsk[1] || "이번 달"} 요약`; }
-  const natural = t.match(/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)\s*(?:얼마\s*썼어|얼마\s*썼지|얼마\s*썼나|지출\s*알려줘|쓴\s*돈|사용\s*금액|지출\s*현황)$/);
+  const natural = t.match(/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|지지난주|지지난 주|이번달|이번 달|지난달|지난 달|지지난달|지지난 달)\s*(?:얼마\s*썼어|얼마\s*썼지|얼마\s*썼나|지출\s*알려줘|쓴\s*돈|사용\s*금액|지출\s*현황)$/);
   if (natural) t = `${natural[1]} 요약`;
   // V22.9.79: ‘이번 주 뭐 썼어’·‘이번 달 쓴 거’는 날짜와 상관없이 방금 입력한 5건을 보였다(헤더만 ‘최근 입력 내역’). 기간을 가리킨 이 말은
   // 그 기간의 요약으로 답한다. 하루를 가리킨 ‘오늘·어제 뭐 썼어’는 그날의 기록 목록(skill-handler 의 kakaoRecentDayListUtterance)이고,
   // 기간 없는 ‘최근 기록’은 그대로 최근 5건이다.
-  const periodAsk = natural ? null : t.match(/^(이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)(?:에)?\s*(?:뭐\s*썼(?:어|지|나|니|는지)?요?|쓴\s*(?:거|것))(?:\s*(?:알려줘|보여줘|확인해줘|확인))?$/);
+  const periodAsk = natural ? null : t.match(/^(이번주|이번 주|지난주|지난 주|지지난주|지지난 주|이번달|이번 달|지난달|지난 달|지지난달|지지난 달)(?:에)?\s*(?:뭐\s*썼(?:어|지|나|니|는지)?요?|쓴\s*(?:거|것))(?:\s*(?:알려줘|보여줘|확인해줘|확인))?$/);
   if (periodAsk) t = `${periodAsk[1]} 요약`;
   // V22.9.80 T-39: 기간 말 뒤에 ‘얼마(나) 썼/나갔’이 오는 물음(‘지난달 얼마나 썼지’·‘이번 달에 얼마 나갔어’·‘9월 카드값 얼마나 썼어’)은 그 기간 말의
   // 요약으로 읽는다. 예전에는 ‘얼마 썼어/썼지/썼나’만 읽어 ‘얼마나’·‘나갔’ 꼴은 "무슨 뜻인지 이해하지 못했어요"였고, 읽지 못하는 기간의
   // ‘저저번달 얼마 썼어’는 요약 명령(isSummaryCommand)이 이번 달로 답했다. 기간 말은 아래가 읽으며, 읽지 못하는 기간(저저번달·작년·13월)은
-  // A-13 처럼 이번 달로 바꾸지 않는다(‘지지난달’은 아래의 ‘지난달’ 찾기에 걸리므로 바로 읽지 못한 기간으로 돌린다). 기간 말이 없는 물음(‘얼마나
+  // A-13 처럼 이번 달로 바꾸지 않는다(V22.9.81 U-6: ‘지지난주·지지난달’은 아래가 두 단계 전 기간으로 읽는다 — 예전에는 바로 읽지 못한 기간으로 돌렸다). 기간 말이 없는 물음(‘얼마나
   // 썼어’·‘커피 얼마 나갔어’)은 여기서 읽지 않고 요약 명령이 ‘얼마 썼어’처럼 이번 달로 답한다. 금액이 있는 말은 기록이다.
   const spentAsk = natural || periodAsk ? null : t.match(/^(.+?)\s*(?:에는|에)?\s*(?:돈\s*)?얼마(?:나)?\s*(?:썼|나갔)(?:어|지|죠|나|니|냐|는지|더라)?요?(?:\s*(?:알려줘|보여줘))?$/);
   const spentPeriod = spentAsk && !moneyTokenSpans(spentAsk[1]).length
@@ -519,10 +520,9 @@ function parseKakaoSummaryRange(text = "") {
     : null;
   if (spentPeriod) {
     const period = spentPeriod[1].replace(/^(?:저번\s*달|전달|전월)$/, "지난달").replace(/^저번\s*주$/, "지난주");
-    if (/지지난/.test(period)) return { unreadable: true, text: period };
     t = `${period} 요약`;
   }
-  if (!/(요약|현황|통계)$/.test(t) && !/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)$/.test(t)) return null;
+  if (!/(요약|현황|통계)$/.test(t) && !/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|지지난주|지지난 주|이번달|이번 달|지난달|지난 달|지지난달|지지난 달)$/.test(t)) return null;
   const now = nowKstDate();
   let start = null, end = null, label = "";
   if (/오늘/.test(t)) {
@@ -531,19 +531,28 @@ function parseKakaoSummaryRange(text = "") {
     end = addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), -1); start = addDays(end, -1); label = "그제";
   } else if (/어제/.test(t)) {
     end = new Date(now.getFullYear(), now.getMonth(), now.getDate()); start = addDays(end, -1); label = "어제";
+  } else if (/지지난\s*주/.test(t)) {
+    const dow = (now.getDay() + 6) % 7; const thisMonday = addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), -dow);
+    end = addDays(thisMonday, -7); start = addDays(thisMonday, -14); label = "지지난 주";
   } else if (/지난\s*주/.test(t)) {
     const dow = (now.getDay() + 6) % 7; const thisMonday = addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), -dow);
     end = thisMonday; start = addDays(thisMonday, -7); label = "지난 주";
   } else if (/이번\s*주/.test(t)) {
     const dow = (now.getDay() + 6) % 7; start = addDays(new Date(now.getFullYear(), now.getMonth(), now.getDate()), -dow); end = addDays(start, 7); label = "이번 주";
+  } else if (/지지난\s*달/.test(t)) {
+    const month = shiftMonthString(currentMonthKst(), -2); start = new Date(Number(month.slice(0,4)), Number(month.slice(5,7))-1, 1); end = new Date(start.getFullYear(), start.getMonth()+1, 1); label = `${start.getFullYear() === now.getFullYear() ? "" : `${start.getFullYear()}년 `}${start.getMonth()+1}월`;
   } else if (/지난\s*달/.test(t)) {
     const month = shiftMonthString(currentMonthKst(), -1); start = new Date(Number(month.slice(0,4)), Number(month.slice(5,7))-1, 1); end = new Date(start.getFullYear(), start.getMonth()+1, 1); label = `${start.getFullYear() === now.getFullYear() ? "" : `${start.getFullYear()}년 `}${start.getMonth()+1}월`;
   } else {
     const dateMatch = t.match(/(?:(20\d{2})년\s*)?(\d{1,2})월\s*(\d{1,2})일/);
     if (dateMatch) {
       // V22.9.76 감사 D-7: 연도 없이 쓴 날이 오늘보다 뒤면 작년으로 본다(1월에 보내는 "12월 25일 요약"). 올해가 아니면 제목에 연도를 붙인다.
+      // V22.9.81 U-25: 달력에 없는 날(‘2월 30일’·‘13월 5일’·2026년 ‘2월 29일’)은 다른 날로 넘기지 않고 없는 날짜로 돌린다. 예전에는 Date 가 넘겨
+      // 3월 2일 금액을 ‘2월 30일’ 제목·3월 분석 링크로 답했고 ‘13월 5일’은 ‘2025년 13월 5일’이었다. 연도를 정한 뒤(D-7) 그해 달력으로 본다.
       let y = Number(dateMatch[1] || now.getFullYear()); const m = Number(dateMatch[2]), d = Number(dateMatch[3]);
-      if (!dateMatch[1] && new Date(y, m - 1, d) > now) y -= 1;
+      const realDay = (year) => { const day = new Date(year, m - 1, d); return m >= 1 && m <= 12 && d >= 1 && day.getMonth() === m - 1 && day.getDate() === d; };
+      if (!dateMatch[1] && realDay(y) && new Date(y, m - 1, d) > now) y -= 1;
+      if (!realDay(y)) return { invalidDate: true, text: `${dateMatch[1] ? `${y}년 ` : ""}${m}월 ${d}일` };
       start = new Date(y, m - 1, d); end = addDays(start, 1); label = `${y === now.getFullYear() ? "" : `${y}년 `}${m}월 ${d}일`;
     } else {
       // V22.9.76 감사 A-13: "9월 지출 현황"·"9월 수입 요약"도 그 달로 읽는다. 감사 D-7: 연도 없이 이번 달보다 뒤의 달이면 작년이다
