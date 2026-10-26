@@ -34,7 +34,9 @@ import {
   KAKAO_EDIT_DEFAULT_CATEGORIES, MAX_FAILS, compact, handleEditMessage, isExactKakaoEditFieldStart,
   isSessionExpired, josa, kakaoEditTypeValue, startsWithKakaoEditField,
 } from "./edit-state-machine.js";
-import { getHouseholdMemberRole } from "../domain/users-households.js";
+import {
+  KAKAO_ROLE_CHECK_FAILED_TEXT, readHouseholdRoleOrFailure,
+} from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { extractDate, formatDate, nowKstDate } from "../nlu/date-payment.js";
@@ -331,7 +333,11 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
   }
   let currentRole = "";
   if (["apply", "delete"].includes(String(result?.action || ""))) {
-    currentRole = String(await getHouseholdMemberRole(env, session.userId, session.householdId) || "").toLowerCase();
+    // V22.9.81 U-4: 역할 조회가 실패하면 ‘현재 권한으로는 수정·삭제할 수 없어요’라고 하지 않는다(권한이 있는 사람에게 없다고 말하고 세션을 닫았다).
+    // 확인하지 못했다고 알리고 기록은 바꾸지 않는다. 열려 있던 세션은 그대로 두어 같은 답을 다시 보내면 이어지고, 한 줄 명령은 세션을 새로 열지 않는다.
+    const lookup = await readHouseholdRoleOrFailure(env, session.userId, session.householdId, { path: "/skill" });
+    if (lookup.failed) return sendKakaoEditReplyV4(env, ctx, session, KAKAO_ROLE_CHECK_FAILED_TEXT, ctx.sessionStored ? { ...session, updatedAt: Date.now() } : null);
+    currentRole = lookup.role;
     if (!canWriteMyHousehold(currentRole)) {
       return sendKakaoEditReplyV4(env, ctx, session, "현재 가계부 권한으로는 기록을 수정하거나 삭제할 수 없어요. 가계부 관리자에게 권한을 확인한 뒤 ‘오늘기록’부터 다시 시작해 주세요.", null);
     }
@@ -388,7 +394,8 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
   const text = isKakaoEditCancelCommand(utterance) ? "취소" : utterance;
   const config = await buildKakaoEditConfigV4(env, session.householdId, session.rowType);
   const result = handleEditMessage(session, text, { ...config, now: Date.now() });
-  return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
+  // V22.9.81 U-4: sessionStored — 저장된 세션에 온 답이다(역할 조회가 실패하면 이 세션을 그대로 둔다).
+  return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin, sessionStored: true }, session, result, config);
 }
 
 // V22.9.76 감사 B-3: 끝난 세션에 수정 값이 왔을 때의 안내. 아무것도 바꾸지 않았다고 말하고, 그 기록을 고치는 한 줄 명령을

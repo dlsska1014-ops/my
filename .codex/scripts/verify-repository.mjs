@@ -84,6 +84,7 @@ const validationScripts = [
   ["V22.9.80 데이터 묶음(백업 합계 행·키 줄/머리글 없는 표 분류 근거·번호/주소 머리글·미리 보기 후처리·표식 되살리기 묶음·카카오 날짜 목록 한도·홈 쓰는 속도 1~6일)", "validation/validate-data-import-v22980.mjs"],
   ["V22.9.80 다크 모드·화면 결함(예산 센터 카드·서식 카드·오류 요약 대비·사이드바 달력 KST 오늘·옛 관리자 화면·예산 표 줄바꿈·예시 줄바꿈·주 기준 표시)", "validation/validate-dark-screens-v22980.mjs"],
   ["V22.9.80 환불 연결 후속(막힌 수정 안내·일괄 수정 건너뛰기·백업·카카오 복구·화면별 환불 차감)", "validation/validate-refund-links-v22980.mjs"],
+  ["V22.9.81 역할·안내 문구·정리(카카오 역할 조회 실패·옛 관리자 일괄 처리 안내·시작가이드 선택 가계부·결제수단 오류 코드·고정항목 코드·/my 안내 전달·죽은 함수)", "validation/validate-roles-v22981.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],

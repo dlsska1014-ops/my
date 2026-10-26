@@ -43392,7 +43392,11 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
   }
   let currentRole = "";
   if (["apply", "delete"].includes(String(result?.action || ""))) {
-    currentRole = String(await getHouseholdMemberRole(env, session.userId, session.householdId) || "").toLowerCase();
+    // V22.9.81 U-4: 역할 조회가 실패하면 ‘현재 권한으로는 수정·삭제할 수 없어요’라고 하지 않는다(권한이 있는 사람에게 없다고 말하고 세션을 닫았다).
+    // 확인하지 못했다고 알리고 기록은 바꾸지 않는다. 열려 있던 세션은 그대로 두어 같은 답을 다시 보내면 이어지고, 한 줄 명령은 세션을 새로 열지 않는다.
+    const lookup = await readHouseholdRoleOrFailure(env, session.userId, session.householdId, { path: "/skill" });
+    if (lookup.failed) return sendKakaoEditReplyV4(env, ctx, session, KAKAO_ROLE_CHECK_FAILED_TEXT, ctx.sessionStored ? { ...session, updatedAt: Date.now() } : null);
+    currentRole = lookup.role;
     if (!canWriteMyHousehold(currentRole)) {
       return sendKakaoEditReplyV4(env, ctx, session, "현재 가계부 권한으로는 기록을 수정하거나 삭제할 수 없어요. 가계부 관리자에게 권한을 확인한 뒤 ‘오늘기록’부터 다시 시작해 주세요.", null);
     }
@@ -43449,7 +43453,8 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
   const text = isKakaoEditCancelCommand(utterance) ? "취소" : utterance;
   const config = await buildKakaoEditConfigV4(env, session.householdId, session.rowType);
   const result = handleEditMessage(session, text, { ...config, now: Date.now() });
-  return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
+  // V22.9.81 U-4: sessionStored — 저장된 세션에 온 답이다(역할 조회가 실패하면 이 세션을 그대로 둔다).
+  return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin, sessionStored: true }, session, result, config);
 }
 
 // V22.9.76 감사 B-3: 끝난 세션에 수정 값이 왔을 때의 안내. 아무것도 바꾸지 않았다고 말하고, 그 기록을 고치는 한 줄 명령을
@@ -45007,8 +45012,19 @@ async function offerKakaoRoomRebindAfterCreate(env, { user, payload, groupKey = 
   if (!groupKey || !household?.id) return null;
   if (linked?.id) {
     if (String(linked.id) === String(household.id)) return null;
-    const currentRole = await getHouseholdMemberRole(env, user.id, linked.id);
-    if (!["owner", "admin"].includes(String(currentRole || ""))) return null;
+    // V22.9.81 U-4: 지금 연결 가계부의 역할을 읽지 못하면 ‘그 가계부의 소유자·관리자가 바꿔야 해요’(권한 없음 안내)로 넘어가지 않는다.
+    // 확인하지 못해 묻지 않았다고 알리고, 질문 상태는 만들지 않는다(연결은 그대로).
+    const current = await readHouseholdRoleOrFailure(env, user.id, linked.id, { path: "/skill" });
+    if (current.failed) {
+      return {
+        lines: [
+          `이 단톡방의 기록은 아직 ‘${linked.name}’ 가계부에 저장돼요.`,
+          `연결을 바꿀 권한을 확인하지 못해 바꿀지 묻지 않았어요. ‘${household.name}’ 가계부로 바꾸려면 잠시 뒤 ‘가계부전환’을 입력해 주세요.`,
+        ],
+        quickReplies: [["가계부전환", "가계부전환"]],
+      };
+    }
+    if (!["owner", "admin"].includes(current.role)) return null;
   }
   await saveKakaoFlowState(env, user.id, payload, {
     flow: "household_choice",
@@ -45096,6 +45112,8 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
         const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
         return { text: (await kakaoRoomBindDoneText(env, target)) + cleanupNotice, quickReplies: [["기록방법", "기록방법"], ["이번달요약", "이번달요약"]] };
       }
+      // V22.9.81 U-4: 역할 조회가 실패했으면 ‘소유자·관리자 계정에서 진행해 주세요’(권한 없음)가 아니다. 연결은 그대로이고 질문 상태도 그대로 두어 ‘연결하기’를 다시 보내면 이어진다.
+      if (result.error === "household_role_check_failed") return { text: KAKAO_ROLE_CHECK_FAILED_TEXT, quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] };
       await clearKakaoFlowState(env, user.id, payload);
       return { text: "단톡방 연결 권한을 확인하지 못했어요. 가계부 소유자 또는 관리자로 등록된 카카오 계정에서 진행해 주세요.", quickReplies: [["단톡방연결", "단톡방연결"]] };
     }
@@ -45319,7 +45337,10 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
   }
   if (state.flow === "member_alias") {
     const alias = normalizeText(utterance).replace(/^(내 이름|이름)\s*/, "").trim().slice(0, 20);
-    const aliasRole = await getHouseholdMemberRole(env, user.id, household.id);
+    // V22.9.81 U-4: 역할 조회가 실패하면 ‘활성 구성원이 아니어서’라고 하지 않는다. 확인하지 못했다고 알리고 이름도 흐름 상태도 바꾸지 않는다(같은 이름을 다시 보내면 이어진다).
+    const aliasLookup = await readHouseholdRoleOrFailure(env, user.id, household.id, { path: "/skill" });
+    if (aliasLookup.failed) return { text: KAKAO_ROLE_CHECK_FAILED_TEXT, quickReplies: [["취소", "취소"]] };
+    const aliasRole = aliasLookup.role;
     if (!aliasRole || ["pending", "blocked"].includes(aliasRole)) {
       await clearKakaoFlowState(env, user.id, payload);
       return { text: "이 가계부의 활성 구성원이 아니어서 이름을 변경할 수 없어요. ‘시작’을 입력해 현재 가계부를 다시 확인해 주세요.", quickReplies: [["시작", "시작"]] };
@@ -45336,7 +45357,10 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
     return { text: `✅ 이 가계부에서 내 이름을 ‘${alias}’로 설정했어요.\n\n앞으로 내가 기록한 수입·지출은 ‘${alias}’ 이름으로 집계됩니다.` + cleanupNotice, quickReplies: [["기록방법", "기록방법"], ["이번달요약", "이번달요약"]] };
   }
   if (state.flow === "budget_setup") {
-    const role = await getHouseholdMemberRole(env, user.id, household.id);
+    // V22.9.81 U-4: 역할 조회가 실패하면 ‘예산은 주인·관리자만’이라 거절하고 흐름을 닫지 않는다(권한이 있는 사람에게 없다고 말했다). V22.9.80 T-35(웹)와 같다:
+    // 확인하지 못했다고 알리고 예산도 흐름 상태도 바꾸지 않아, 같은 답을 다시 보내면 그 단계에서 이어진다. 조회는 예전처럼 한 번이다.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, user.id, household.id, { path: "/skill" });
+    if (failed) return { text: KAKAO_ROLE_CHECK_FAILED_TEXT, quickReplies: [["취소", "취소"]] };
     if (!["owner","admin"].includes(role)) {
       await clearKakaoFlowState(env, user.id, payload);
       return { text: "예산은 가계부 주인·관리자만 정할 수 있어요.", quickReplies: [["남은예산", "남은예산"]] };
@@ -48173,12 +48197,18 @@ async function bindKakaoGroupByInviteCode(env, user = {}, groupKey = "", code = 
   const householdRows = await supabase(env, `/rest/v1/households?invite_code=eq.${encodeURIComponent(normalized)}&select=id,name,invite_code,created_at&limit=1`, { method: "GET" });
   const household = householdRows?.[0];
   if (!household) return { ok: false, error: "not_found", code: normalized };
-  const role = await getHouseholdMemberRole(env, user.id, household.id);
+  // V22.9.81 U-4: 역할 조회가 실패하면 ‘소유자·관리자만’(not_allowed·not_allowed_current)으로 거절하지 않고 household_role_check_failed 로 돌려준다.
+  // 연결은 바꾸지 않는다. 부르는 쪽은 ‘확인하지 못함’으로 안내한다(조회 횟수는 예전과 같다).
+  const target = await readHouseholdRoleOrFailure(env, user.id, household.id, { path: "/skill" });
+  if (target.failed) return { ok: false, error: "household_role_check_failed", household };
+  const role = target.role;
   if (!["owner", "admin"].includes(role)) return { ok: false, error: "not_allowed", role: role || "none", household };
   const current = await getLinkedKakaoGroupHousehold(env, groupKey, options);
   if (current?.id && String(current.id) === String(household.id)) return { ok: true, already_linked: true, role, household: current, linked: null };
   if (current?.id && String(current.id) !== String(household.id)) {
-    const currentRole = await getHouseholdMemberRole(env, user.id, current.id);
+    const currentLookup = await readHouseholdRoleOrFailure(env, user.id, current.id, { path: "/skill" });
+    if (currentLookup.failed) return { ok: false, error: "household_role_check_failed", role, current, household };
+    const currentRole = currentLookup.role;
     if (!["owner", "admin"].includes(currentRole)) {
       return { ok: false, error: "not_allowed_current", role, current_role: currentRole || "none", current, household };
     }
@@ -48233,10 +48263,13 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
       "초대코드는 가계부 관리자에게 확인해주세요.",
     ].join("\n");
   }
-  const role = user?.id ? await getHouseholdMemberRole(env, user.id, household.id) : "";
+  // V22.9.81 U-4: 역할을 읽지 못하면 ‘아직 참여 전’이라고 하지 않는다(참여자에게 참여 전이라고 말했다). 확인하지 못했다고 적고 나간 이력도 읽지 않는다.
+  const lookup = user?.id ? await readHouseholdRoleOrFailure(env, user.id, household.id, { path: "/skill" }) : { role: "", failed: false };
+  const role = lookup.role;
   // V22.9.79 감사 B-10: 참여 전·승인 대기인 사람에게는 이 방에서 기록하면 어떻게 되는지를 실제대로 말한다(나간 이력이 있으면 자동 참여하지 않는다).
-  const departed = user?.id && (!role || role === "pending") ? await kakaoRoomDepartedFromHousehold(env, groupKey, user.id, household.id) : false;
-  const roleLine = !role
+  const departed = !lookup.failed && user?.id && (!role || role === "pending") ? await kakaoRoomDepartedFromHousehold(env, groupKey, user.id, household.id) : false;
+  const roleLine = lookup.failed ? "내 권한: 확인하지 못했어요 · 잠시 후 다시 확인해 주세요"
+    : !role
     ? (departed ? "내 권한: 아직 참여 전 · 나간 이력이 있어 이 방에서 기록해도 자동으로 참여하지 않아요. 개인 대화에서 초대코드로 참여해 주세요"
       : "내 권한: 아직 참여 전 · 이 방에서 거래를 한 번 보내면 자동으로 참여해요")
     : role === "pending"
@@ -49047,6 +49080,8 @@ function isHouseholdRoleCheckFailure(err) {
 // 따로 돌려준다: 부르는 쪽은 거절이 아니라 ‘권한을 확인하지 못했다’(household_role_check_failed)로 알리고 아무것도 바꾸지 않는다. 참여자가 아님·역할 부족은
 // 예전처럼 role 로 판정한다. 읽기는 getHouseholdMemberRole 과 같은 한 번이고, 로그인·가계부가 없으면 읽지 않는다(role "").
 const ROLE_CHECK_FAILED_TEXT = "권한을 확인하지 못해 아무것도 바꾸지 않았습니다. 잠시 후 다시 시도해 주세요.";
+// V22.9.81 U-4: 카카오 답장(‘~어요’ 말투)에서 같은 뜻으로 쓰는 문장. 예산 설정·내 이름·기록 수정·단톡방 연결 흐름이 역할 조회 실패를 ‘권한 없음’으로 읽지 않고 이렇게 알린다.
+const KAKAO_ROLE_CHECK_FAILED_TEXT = "권한을 확인하지 못해 아무것도 바꾸지 않았어요. 잠시 후 다시 보내 주세요.";
 async function readHouseholdRoleOrFailure(env, userId, householdId, { path = "", method = "POST" } = {}) {
   try {
     return { role: String(await getHouseholdMemberRoleStrict(env, userId, householdId) || "").toLowerCase(), failed: false };

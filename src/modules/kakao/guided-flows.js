@@ -34,7 +34,7 @@ import {
   kakaoRoomBindConfirmLine, kakaoRoomBindDoneText,
 } from "./group-links-first-record.js";
 import {
-  getHouseholdMemberRole, joinHouseholdByCode, roleBlockedMessage,
+  KAKAO_ROLE_CHECK_FAILED_TEXT, joinHouseholdByCode, readHouseholdRoleOrFailure, roleBlockedMessage,
 } from "../domain/users-households.js";
 import { isInviteCommand, parseJoinCode } from "./simple-commands.js";
 import { normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
@@ -62,8 +62,19 @@ async function offerKakaoRoomRebindAfterCreate(env, { user, payload, groupKey = 
   if (!groupKey || !household?.id) return null;
   if (linked?.id) {
     if (String(linked.id) === String(household.id)) return null;
-    const currentRole = await getHouseholdMemberRole(env, user.id, linked.id);
-    if (!["owner", "admin"].includes(String(currentRole || ""))) return null;
+    // V22.9.81 U-4: 지금 연결 가계부의 역할을 읽지 못하면 ‘그 가계부의 소유자·관리자가 바꿔야 해요’(권한 없음 안내)로 넘어가지 않는다.
+    // 확인하지 못해 묻지 않았다고 알리고, 질문 상태는 만들지 않는다(연결은 그대로).
+    const current = await readHouseholdRoleOrFailure(env, user.id, linked.id, { path: "/skill" });
+    if (current.failed) {
+      return {
+        lines: [
+          `이 단톡방의 기록은 아직 ‘${linked.name}’ 가계부에 저장돼요.`,
+          `연결을 바꿀 권한을 확인하지 못해 바꿀지 묻지 않았어요. ‘${household.name}’ 가계부로 바꾸려면 잠시 뒤 ‘가계부전환’을 입력해 주세요.`,
+        ],
+        quickReplies: [["가계부전환", "가계부전환"]],
+      };
+    }
+    if (!["owner", "admin"].includes(current.role)) return null;
   }
   await saveKakaoFlowState(env, user.id, payload, {
     flow: "household_choice",
@@ -151,6 +162,8 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
         const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
         return { text: (await kakaoRoomBindDoneText(env, target)) + cleanupNotice, quickReplies: [["기록방법", "기록방법"], ["이번달요약", "이번달요약"]] };
       }
+      // V22.9.81 U-4: 역할 조회가 실패했으면 ‘소유자·관리자 계정에서 진행해 주세요’(권한 없음)가 아니다. 연결은 그대로이고 질문 상태도 그대로 두어 ‘연결하기’를 다시 보내면 이어진다.
+      if (result.error === "household_role_check_failed") return { text: KAKAO_ROLE_CHECK_FAILED_TEXT, quickReplies: [["연결하기", "연결하기"], ["취소", "취소"]] };
       await clearKakaoFlowState(env, user.id, payload);
       return { text: "단톡방 연결 권한을 확인하지 못했어요. 가계부 소유자 또는 관리자로 등록된 카카오 계정에서 진행해 주세요.", quickReplies: [["단톡방연결", "단톡방연결"]] };
     }
@@ -374,7 +387,10 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
   }
   if (state.flow === "member_alias") {
     const alias = normalizeText(utterance).replace(/^(내 이름|이름)\s*/, "").trim().slice(0, 20);
-    const aliasRole = await getHouseholdMemberRole(env, user.id, household.id);
+    // V22.9.81 U-4: 역할 조회가 실패하면 ‘활성 구성원이 아니어서’라고 하지 않는다. 확인하지 못했다고 알리고 이름도 흐름 상태도 바꾸지 않는다(같은 이름을 다시 보내면 이어진다).
+    const aliasLookup = await readHouseholdRoleOrFailure(env, user.id, household.id, { path: "/skill" });
+    if (aliasLookup.failed) return { text: KAKAO_ROLE_CHECK_FAILED_TEXT, quickReplies: [["취소", "취소"]] };
+    const aliasRole = aliasLookup.role;
     if (!aliasRole || ["pending", "blocked"].includes(aliasRole)) {
       await clearKakaoFlowState(env, user.id, payload);
       return { text: "이 가계부의 활성 구성원이 아니어서 이름을 변경할 수 없어요. ‘시작’을 입력해 현재 가계부를 다시 확인해 주세요.", quickReplies: [["시작", "시작"]] };
@@ -391,7 +407,10 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
     return { text: `✅ 이 가계부에서 내 이름을 ‘${alias}’로 설정했어요.\n\n앞으로 내가 기록한 수입·지출은 ‘${alias}’ 이름으로 집계됩니다.` + cleanupNotice, quickReplies: [["기록방법", "기록방법"], ["이번달요약", "이번달요약"]] };
   }
   if (state.flow === "budget_setup") {
-    const role = await getHouseholdMemberRole(env, user.id, household.id);
+    // V22.9.81 U-4: 역할 조회가 실패하면 ‘예산은 주인·관리자만’이라 거절하고 흐름을 닫지 않는다(권한이 있는 사람에게 없다고 말했다). V22.9.80 T-35(웹)와 같다:
+    // 확인하지 못했다고 알리고 예산도 흐름 상태도 바꾸지 않아, 같은 답을 다시 보내면 그 단계에서 이어진다. 조회는 예전처럼 한 번이다.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, user.id, household.id, { path: "/skill" });
+    if (failed) return { text: KAKAO_ROLE_CHECK_FAILED_TEXT, quickReplies: [["취소", "취소"]] };
     if (!["owner","admin"].includes(role)) {
       await clearKakaoFlowState(env, user.id, payload);
       return { text: "예산은 가계부 주인·관리자만 정할 수 있어요.", quickReplies: [["남은예산", "남은예산"]] };
