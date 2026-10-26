@@ -6,11 +6,12 @@
 //   U-22 저장 요청이 2xx 머리를 받은 뒤 본문 받기가 끊기거나(연결 끊김) 쓰기 시한에 걸리면 ‘결과 불확실’로 보지 않았다. 저장소는 이미 반영했는데
 //        웹 입력은 ‘저장하지 못했습니다’, 카카오는 ‘저장하지 못했어요… 다시 보내 주세요’, 백업 적용은 ‘저장하지 못함(기존 데이터 유지)’로 안내해
 //        다시 보내면 두 번 저장됐다. 이제 그 쓰기도 결과 불확실이고, 부르는 곳마다 있던 다시 읽기·확인 필요 처리를 탄다.
+//   U-23·U-13·U-14·U-12·U-11 은 각 절 머리 주석에 무엇이 깨졌는지 적었다.
 //
 // 옛 코드(V22.9.80)에서 무엇이 깨지는지 보려면 V22981_SOFT=1 로 돌린다(실패한 검사를 모두 적고 끝낸다).
 // 사용: node validation/validate-data-v22981.mjs
 import assert from "node:assert/strict";
-import app from "../src/index.js";
+import app, { canonicalImportField, parseFlexibleImportRecords } from "../src/index.js";
 import { supabase } from "../src/modules/data/supabase-client.js";
 import { BASE, ctx, counter, fixture, intercept, post, putSetting, skill, withClock } from "./lib-audit-v22934.mjs";
 
@@ -401,6 +402,96 @@ await attempt("U-14 결과 불확실", () => withClock("2026-11-03", () => fixtu
   eq(fx.db.transactions.filter((row) => String(row.raw_text).startsWith("recurring:u14-")).length, 3, "U-14 다시 눌러도 세 건 그대로다");
   ok(again.rules.filter((rule) => rule.user_id === "user-bin").every((rule) => rule.last_applied_month === "2026-10"), "U-14 다시 누르면 확인한 규칙의 표식이 대상 달이 된다");
 })));
+
+// ── 가져오기 해석(U-12·U-11) 공용 ─────────────────────────────────────────────────
+const parseImport = (text, extra = {}) => parseFlexibleImportRecords(text, HH, BIN, { source: "my_import", maxRows: 5000, importYear: 2026, ...extra });
+const firstRow = (text, extra) => parseImport(text, extra).rows[0] || null;
+const importPreview = async (fx, text) => {
+  const preview = await post(fx, "/my/import", { import_action: "preview", household_id: HH, month: "2026-07", csv_text: text, skip_duplicates: "1" });
+  const token = preview.text.match(/name="import_token" value="([^"]+)"/)?.[1] || "";
+  const payload = token ? JSON.parse(Buffer.from(token.split(".")[0], "base64url").toString("utf8")) : null;
+  return { status: preview.status, html: preview.text, ready: payload?.ready || [] };
+};
+
+// ── U-12 카드 끝자리 머리글·짧은 머리글 ──────────────────────────────────────────────
+// ‘카드 끝 4자리’·‘카드뒷자리’ 열이 ‘카드’ 별칭 때문에 결제수단으로 읽혀 끝 네 자리(‘1234’)가 결제수단 이름으로 저장됐다. 별칭보다 짧은 머리글은
+// 별칭 속 아무 자리와도 맞춰 ‘결제’·‘사용’·‘이용’이 날짜, ‘거래’가 통화, ‘분’이 구분, ‘in’이 원문으로 읽혔다(‘결제’ 열이 날짜 열 앞이면 모든 행이 날짜 오류).
+await attempt("U-12 머리글", async () => {
+  for (const header of ["카드 끝 4자리", "카드뒷자리", "카드 뒷4자리", "카드끝자리", "Card Last 4"]) eq(canonicalImportField(header), "ignore", `U-12 ‘${header}’ 머리글은 제외 열이다(결제수단이 아니다)`);
+  for (const header of ["결제", "사용", "이용", "작성", "거래", "분", "메", "in"]) eq(canonicalImportField(header), "", `U-12 짧은 머리글 ‘${header}’ 는 긴 별칭 속 글자로 맞추지 않는다(읽지 않는 열)`);
+  // 예전과 같아야 하는 판정: 정확한 별칭·별칭이 든 긴 머리글·별칭 앞부분 줄임말·T-29 제외 열.
+  const kept = { 카드: "payment", 카드명: "payment", 이용카드: "payment", 카드사: "payment", 결제카드: "payment", "금 액": "amount", "적 요": "memo", 승인일시: "date", 가맹점명: "memo", 이용가맹점: "memo", desc: "memo", cat: "category", pay: "payment", 카드번호: "ignore", "카드번호뒤4자리": "ignore", No: "ignore", "No.": "ignore", 주소: "" };
+  for (const [header, field] of Object.entries(kept)) eq(canonicalImportField(header), field, `U-12 ‘${header}’ 의 판정은 예전과 같다(${field || "읽지 않음"})`);
+});
+await attempt("U-12 표·키 줄", async () => {
+  const table = parseImport("날짜,금액,카드 끝 4자리,내용\n2026-07-15,4500,1234,점심", { mappingMetadata: true });
+  eq(table.rows[0]?.payment_method, "", "U-12 표: ‘카드 끝 4자리’ 열의 끝 네 자리가 결제수단으로 저장되지 않는다");
+  eq(table.rows[0]?.memo, "점심", "U-12 표: 내용 열은 그대로 메모다");
+  eq(table.mappings?.find((item) => item.source === "카드 끝 4자리")?.field, "ignore", "U-12 표: 열 연결에는 ‘제외 열’로 보인다(열 연결 화면에서 바꿀 수 있다)");
+  const card = firstRow("이용일자,이용가맹점,이용금액,카드뒷자리\n2026.07.15,스타벅스 강남,4500,1234");
+  deepEq(card && [card.transaction_date, card.amount, card.memo, card.payment_method], ["2026-07-15", 4500, "스타벅스 강남", ""], "U-12 카드 명세서: ‘카드뒷자리’ 열은 읽지 않고 나머지는 그대로 읽는다");
+  const kv = firstRow("날짜: 2026-07-15 | 금액: 4500 | 카드뒷자리: 1234 | 내용: 점심");
+  ok(kv && !/1234/.test(kv.payment_method), `U-12 키 줄: ‘카드뒷자리: 1234’ 가 결제수단이 되지 않는다 (실제 ${JSON.stringify(kv?.payment_method)})`);
+  const payFirst = parseImport("결제: 신한카드 | 날짜: 2026-07-15 | 금액: 4500 | 내용: 점심");
+  deepEq(payFirst.rows.map((row) => [row.transaction_date, row.amount, row.memo, row.payment_method]), [["2026-07-15", 4500, "점심", "신한카드"]], "U-12 키 줄: 앞에 온 ‘결제: 신한카드’ 가 날짜로 읽혀 날짜 오류가 되지 않는다");
+  const payColumn = parseImport("결제,날짜,금액,내용\n신한카드,2026-07-15,4500,점심", { mappingMetadata: true });
+  deepEq(payColumn.rows.map((row) => [row.transaction_date, row.amount, row.memo]), [["2026-07-15", 4500, "점심"]], `U-12 표: 날짜 열 앞의 ‘결제’ 열 때문에 모든 행이 날짜 오류가 되지 않는다 (제외 ${JSON.stringify(payColumn.rejected.map((item) => item.reason_code))})`);
+  ok(!payColumn.mappings?.some((item) => item.source === "결제"), "U-12 표: ‘결제’ 열은 아무 항목에도 연결하지 않는다(열 연결 화면에서 고른다)");
+});
+await attempt("U-12 미리 보기", () => fixture(async (fx) => {
+  await uuidFixture(fx);
+  const preview = await importPreview(fx, "날짜,금액,카드 끝 4자리,내용\n2026-07-15,4500,1234,U12 점심");
+  eq(preview.status, 200, "U-12 미리 보기: 화면이 열린다");
+  eq(preview.ready.length, 1, "U-12 미리 보기: 한 행이 저장 후보다");
+  eq(preview.ready[0]?.row?.payment_method, "", "U-12 미리 보기: 저장 후보의 결제수단이 ‘1234’ 가 아니다");
+  ok(preview.html.includes("카드 끝 4자리 → <b>제외 열</b>"), "U-12 미리 보기: 인식 기준에 ‘카드 끝 4자리 → 제외 열’로 보인다");
+}));
+
+// ── U-11 제목 없는 줄의 메모 ───────────────────────────────────────────────────────
+// 메모 키 없는 ‘키: 값’ 줄과 머리글 없는 표는 줄 전체를 다듬어 메모를 만들어 키 이름(‘날짜 금액 지점 인터넷’)과 구분자(‘, ,스타벅스,인터넷’)가 메모가 됐다.
+// 이제 읽는 키의 값과 남은 글(분류 근거와 같은 글, V80 T-28)만 메모로 쓰고, 남는 글이 없으면 예전처럼 분류 이름을 쓴다.
+await attempt("U-11 메모", async () => {
+  const memoOf = (text) => firstRow(text)?.memo;
+  const cases = [
+    ["날짜: 2026-07-15 | 금액: 4500 | 지점: 인터넷", "기타지출", "키 줄: 메모 키가 없고 남는 글도 없으면 분류 이름(키 이름·알 수 없는 키의 값이 아니다)"],
+    ["스타벅스 | 날짜: 2026-07-15 | 금액: 4500 | 지점: 인터넷", "스타벅스", "키 줄: 키 없는 글이 메모다"],
+    ["날짜: 2026-07-15 | 금액: 4500 | 결제수단: 현금 | 점심", "점심", "키 줄: 결제수단 키 이름·값이 메모에 남지 않는다"],
+    ["날짜: 2026-07-15 | 금액: 4500 | 원문: 스타벅스 커피 4500원", "스타벅스 커피", "키 줄: 원문 키의 값에서 금액을 뺀 글이 메모다"],
+    ["날짜=2026-07-15; 금액=4500; 거래점=인터넷", "기타지출", "키 줄(=·;): 키 이름이 메모가 되지 않는다"],
+    ["2026-07-15,4500,스타벅스,인터넷", "스타벅스 인터넷", "머리글 없는 표: 날짜·금액 칸을 뺀 글이 쉼표 없이 메모다"],
+    ["2026-07-15,4500,스타벅스,신한카드", "스타벅스", "머리글 없는 표: 결제수단 칸이 쉼표로 남지 않는다"],
+    ["2026-07-25,3000000,월급,계좌이체", "월급", "머리글 없는 표(수입): 메모가 ‘, ,월급,’ 이 아니다"],
+    ["2026-07-15,4500,카페이", "기타지출", "머리글 없는 표: 결제수단만 남으면 분류 이름(‘, ,’ 이 아니다)"],
+    ["2026-07-15,4500", "기타지출", "머리글 없는 표: 날짜·금액뿐이면 분류 이름(‘,’ 이 아니다)"],
+  ];
+  for (const [text, memo, label] of cases) eq(memoOf(text), memo, `U-11 ${label}`);
+  // 예전과 같아야 하는 메모: 메모 키가 있는 줄·제목 있는 표·칸이 하나인 자연어 줄·쌍반점/세로줄 표.
+  const same = [
+    ["날짜: 2026-07-15 | 금액: 4500 | 메모: 점심 | 지점: 인터넷", "점심"], ["날짜: 2026-07-15 | 지출: 4500 | 가맹점: 스타벅스", "스타벅스"],
+    ["날짜,금액,내용\n2026-07-15,4500,스타벅스", "스타벅스"], ["2026-07-15 스타벅스 4500원 신한카드", "스타벅스"], ["어제 점심 12000원 카드", "점심"],
+    ["2026-07-15;4500;스타벅스;인터넷", "스타벅스 인터넷"], ["2026-07-15\t4500\t구매", "쇼핑"],
+  ];
+  for (const [text, memo] of same) eq(memoOf(text), memo, `U-11 예전과 같은 메모 ${JSON.stringify(text.split("\n").pop())} → ${memo}`);
+  // 메모만 바뀐다: 분류·결제수단·구분·금액·원문은 예전 판정 그대로다.
+  const row = firstRow("2026-07-15,4500,스타벅스,인터넷");
+  deepEq(row && [row.category, row.payment_method, row.type, row.amount, row.raw_text], ["통신비", "", "expense", 4500, "2026-07-15,4500,스타벅스,인터넷"], "U-11 머리글 없는 표: 분류(T-28 그대로)·결제수단·구분·금액·원문은 그대로다");
+  const kv = firstRow("날짜: 2026-07-15 | 금액: 4500 | 지점: 인터넷 | 결제수단: 신한카드");
+  deepEq(kv && [kv.category, kv.payment_method, kv.raw_text], ["기타지출", "신한카드", "날짜: 2026-07-15|금액: 4500|지점: 인터넷|결제수단: 신한카드"], "U-11 키 줄: 분류·결제수단·원문(줄 전체, 칸을 ‘|’로 이은 예전 꼴)은 그대로다");
+  // 120행 표본 전체에 구분자로 시작·끝나는 메모나 키 이름 메모가 없다.
+  const pad = (n) => String(n).padStart(2, "0");
+  const headerless = parseImport(Array.from({ length: 120 }, (_, i) => `2026-07-${pad((i % 28) + 1)},${3000 + i * 137},가게${i},신한카드`).join("\n"));
+  const kvLines = parseImport(Array.from({ length: 120 }, (_, i) => `날짜: 2026-07-${pad((i % 28) + 1)} | 금액: ${3000 + i * 137} | 지점: 인터넷 ${i} | 결제수단: 신한카드`).join("\n"));
+  eq(headerless.rows.length + kvLines.rows.length, 240, "U-11 120행 표본 두 개가 모두 읽힌다");
+  eq(headerless.rows.filter((item) => /^[\s,;|]|[\s,;|]$/.test(item.memo)).length, 0, "U-11 머리글 없는 120행: 구분자로 시작하거나 끝나는 메모가 없다");
+  eq(kvLines.rows.filter((item) => /날짜|금액|지점|결제수단/.test(item.memo)).length, 0, "U-11 키 줄 120행: 키 이름이 든 메모가 없다");
+});
+await attempt("U-11 미리 보기", () => fixture(async (fx) => {
+  await uuidFixture(fx);
+  const preview = await importPreview(fx, "날짜: 2026-07-15 | 금액: 4500 | 지점: 인터넷 | U11 스타벅스");
+  eq(preview.ready.length, 1, "U-11 미리 보기: 키 줄 한 행이 저장 후보다");
+  eq(preview.ready[0]?.row?.memo, "U11 스타벅스", "U-11 미리 보기: 저장 후보의 메모는 키 없는 글이다(키 이름이 아니다)");
+  eq(preview.ready[0]?.row?.raw_text, "날짜: 2026-07-15|금액: 4500|지점: 인터넷|U11 스타벅스", "U-11 미리 보기: 원문은 줄 전체 그대로다(칸을 ‘|’로 이은 예전 꼴)");
+}));
 
 if (SOFT && failures.length) {
   console.log(`V22981_SOFT: ${failures.length}개 검사 실패 (전체 ${checks}개)`);

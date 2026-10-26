@@ -219,14 +219,21 @@ const IMPORT_ALIAS_INDEX = (() => {
 // 이런 머리글은 제외 열(ignore)로 둔다 — 열 연결 화면에는 ‘제외 열’로 보이고 사용자가 직접 바꿀 수 있다. 정확히 같은 별칭(‘승인번호’·‘번호’ …)은
 // 그대로이고, 예전에 아무 열로도 읽지 않던 머리글(‘주소’)도 그대로다.
 const IMPORT_NUMBER_ADDRESS_HEADER = /번호|주소|number|address|^no$/;
+// V22.9.81 U-12: 카드 끝자리 머리글(‘카드 끝 4자리’·‘카드뒷자리’·‘Card Last 4’)도 결제수단이 아니다. ‘카드’ 별칭이 들어 있어 결제수단으로 읽혀
+// 끝 네 자리(‘1234’)가 결제수단 이름으로 저장됐다. 자리·끝자리 낱말이 든 머리글은 번호 머리글처럼 제외 열로 둔다(정확히 같은 별칭은 그대로).
+const IMPORT_DIGIT_POSITION_HEADER = /자리|last\d|digits?$/;
 
 function canonicalImportField(value = "") {
   const key = normalizeImportHeader(value);
   if (!key) return "";
   const exact = IMPORT_ALIAS_INDEX.exact.get(key)?.field;
   if (exact) return exact;
-  const fuzzy = IMPORT_ALIAS_INDEX.fuzzy.find((item) => key.includes(item.key) || item.key.includes(key))?.field || "";
-  return fuzzy && IMPORT_NUMBER_ADDRESS_HEADER.test(key) ? "ignore" : fuzzy;
+  // V22.9.81 U-12: 머리글이 별칭보다 짧은 쪽(별칭 속에 머리글이 든 경우)은 세 글자 이상이고 별칭의 앞부분일 때만 맞춘다(‘desc’→내용, ‘cat’→분류,
+  // ‘pay’→결제수단). 예전에는 아무 자리든 맞춰 ‘결제’·‘사용’·‘이용’이 날짜(결제일자·사용일자·이용일자), ‘거래’가 통화(거래통화), ‘합계’가 금액,
+  // ‘분’이 구분(수입지출구분), ‘in’이 원문(original)으로 읽혔다. 영문 ‘No’ 는 그렇게 맞춘 뒤 T-29 가 제외 열로 돌렸으므로 그대로 제외 열이다.
+  if (key === "no") return "ignore";
+  const fuzzy = IMPORT_ALIAS_INDEX.fuzzy.find((item) => key.includes(item.key) || (key.length >= 3 && item.key.startsWith(key)))?.field || "";
+  return fuzzy && (IMPORT_NUMBER_ADDRESS_HEADER.test(key) || IMPORT_DIGIT_POSITION_HEADER.test(key)) ? "ignore" : fuzzy;
 }
 
 function canonicalImportHeaderField(value = "") {
@@ -949,8 +956,14 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   // V22.9.79 감사 E-15: 이 앱이 내보낸 백업 CSV 는 빈 결제수단·분류·내용 칸이 "값이 없음"이다. 내용 글에서 결제수단·분류를 추측하거나 빈 내용을
   // 분류 이름으로 채우지 않고 파일에 적힌 그대로 되살린다(분류가 비면 구분별 기본 분류).
   const payment = paymentVal ? String(paymentVal).trim() : backup ? "" : (naturalParsed?.payment_method || detectPaymentMethod(contextText));
-  const category = refundFlipped ? "환급" : incomeReversed ? "기타지출" : (categoryVal || (backup ? (type === "income" ? "기타수입" : "기타지출") : naturalParsed?.category || inferCategory(obj.__mapped === true ? contextText : `${importCategoryEvidence(obj, contextText, cells, payment, options)} ${memoVal}`, type)));
-  const memo = backup ? memoVal : (memoVal || naturalParsed?.memo || cleanMemo(contextText, chosen.raw || String(chosen.amount), type, payment, category) || category);
+  // 분류 근거 글(T-28)은 분류와 메모(U-11)가 함께 쓰므로 한 번만 만든다.
+  let evidenceText = null;
+  const evidence = () => (evidenceText ??= importCategoryEvidence(obj, contextText, cells, payment, options));
+  const category = refundFlipped ? "환급" : incomeReversed ? "기타지출" : (categoryVal || (backup ? (type === "income" ? "기타수입" : "기타지출") : naturalParsed?.category || inferCategory(obj.__mapped === true ? contextText : `${evidence()} ${memoVal}`, type)));
+  // V22.9.81 U-11: 제목 없는 줄(‘키: 값’ 줄·칸이 여럿인 머리글 없는 표)의 메모는 읽는 키의 값과 남은 글(분류 근거와 같은 글)로만 만든다. 예전에는
+  // 줄 전체를 다듬어 키 이름(‘날짜 금액 지점 인터넷’)과 구분자(‘, ,스타벅스,인터넷’)가 메모가 됐다. 제목 있는 표·칸이 하나인 자연어 줄은 예전 그대로다.
+  const memoSource = obj.__mapped !== true && (Array.isArray(obj.__evidence) || safeArray(cells).length > 1) ? evidence() : contextText;
+  const memo = backup ? memoVal : (memoVal || naturalParsed?.memo || cleanMemo(memoSource, chosen.raw || String(chosen.amount), type, payment, category) || category);
   const textIssue = importStorageTextIssue({ memo, payment_method: payment });
   if (textIssue) return { row: null, rejection: importRejection(textIssue, options.rowNumber, rawText), warnings };
   const spender = canonicalImportValue(obj, "spender");

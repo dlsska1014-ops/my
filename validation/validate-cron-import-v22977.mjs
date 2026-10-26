@@ -295,7 +295,8 @@ const GOLDEN = {
   "negative-variants": "6ec7961b102d5d7fb32c0d729150f9f4",
   "signed-file": "0fdf343fa79ce9bc1fee90b97d66833a",
   "natural": "a1755eb53273940d6fed6e71367aa758",
-  "headerless": "7f33e583d349a321d2e6e40646bd0ecf",
+  // V22.9.81 U-11: 머리글 없는 표의 메모에 쉼표가 남지 않는다(‘,이마트 성수점,’ → ‘이마트 성수점’). 바뀐 것은 메모 20건뿐이다(예전 7f33e583d349a321d2e6e40646bd0ecf).
+  "headerless": "8549f24613cf03983401b5e4c26ddfc8",
   "json": "930d43511b9c83957c868335fe6fa054",
   "sections": "3e53ba9424eba5e7e27bfe9292f8ae2b",
   "two-digit-year": "e6919ba6af7303ccc6da02471cb69089",
