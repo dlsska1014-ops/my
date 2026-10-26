@@ -1,5 +1,6 @@
 // @build:imports-start
 import { explicitDateIntent, quickInputDate } from "../client/shared-input-parsers.js";
+import { detectInputPayment } from "../client/shared-input-nlu.js";
 import { hasDateHint } from "./transaction-parser.js";
 import { normalizeText } from "./amount-parser.js";
 // @build:imports-end
@@ -230,50 +231,16 @@ function normalizePaymentMethod(value) {
   return detectPaymentMethod(t);
 }
 
-// V22.9.77: 짧거나 다른 낱말 속에 흔한 결제수단 말(토스·현금·체크·신용·카드·삼페·카페이·네페)은 그 낱말에서 끝날 때만
-// 결제수단이다. 예전에는 낱말 속에서도 읽어 "토스트 3000"이 결제수단 ‘토스’·메모 ‘트’로 저장됐다(현금영수증→현금,
-// 체크인→체크카드, 신용점수→신용카드, 카드지갑→카드, 카페이용→카카오페이도 같은 결함). 뒤에 조사(로·으로·에 …)나
-// 결제·결재·승인·했·줬·보냄 같은 말이 붙은 것("토스로", "카드결재", "현금줬어")은 예전처럼 읽는다. 카드사 이름이 붙은
-// 카드(현대카드·KB국민카드)와 온전한 간편결제 이름(카카오페이·네이버페이·토스페이·토스뱅크 …)은 헷갈릴 낱말이 없어 예전처럼
-// 어디에 있든 읽는다("현대카드제로", "카카오페이머니로"). 메모에서 결제수단을 지울 때(category-rules.js cleanMemo)도 같은 기준이다.
-const AB_PAYMENT_WORD_END = "(?=$|[^가-힣]|(?:으로|로|에|이|가|을|를|은|는|도|만|와|과|의|랑|하고|결제|결재|계산|지불|지출|지급|구매|구입|납부|환불|사용|썼|씀|긁|찍|냄|냈|했|함|해|줌|줬|줘|드림|드렸|보냄|보냈|승인|취소|할부|일시불|송금|입금|출금))";
-
-// V22.9.77 감사 E-1(남은 것): 결제수단 정규식은 처음 부를 때 한 번만 만든다(예전에는 부를 때마다 카드사 수만큼 14개를 새로
-// 만들었다). 찾는 순서와 낱말은 위 결제수단 판정 그대로다. 정규식에 g 깃발이 없어 test 가 이전 호출의 상태를 남기지 않는다.
-let AB_PAYMENT_PATTERNS = null;
-function paymentMethodPatterns() {
-  if (AB_PAYMENT_PATTERNS) return AB_PAYMENT_PATTERNS;
-  const end = AB_PAYMENT_WORD_END;
-  // 앞: 어디에 있든 읽는 온전한 이름, 뒤: 낱말 끝에서만 읽는 짧은 말.
-  const pick = (anywhere, short) => new RegExp([anywhere, short && `(?:${short})${end}`].filter(Boolean).join("|"));
-  const cardBrands = ["신한", "현대", "삼성", "국민", "KB", "우리", "롯데", "하나", "농협", "NH", "BC", "비씨", "카카오", "토스"];
-  AB_PAYMENT_PATTERNS = [
-    ...cardBrands.map((brand) => [new RegExp(brand + "\\s*카드", "i"), ["KB", "NH", "BC"].includes(brand.toUpperCase()) ? `${brand.toUpperCase()}카드` : `${brand}카드`]),
-    [pick("삼성\\s*페이", "삼페"), "삼성페이"],
-    [pick("카카오\\s*페이", "카페이"), "카카오페이"],
-    [pick("네이버\\s*페이", "네페"), "네이버페이"],
-    [pick("애플\\s*페이"), "애플페이"],
-    [pick("페이코"), "페이코"],
-    [pick("제로\\s*페이"), "제로페이"],
-    [pick("토스\\s*(?:페이|뱅크)", "토스"), "토스"],
-    [pick("", "신용(?:\\s*카드)?"), "신용카드"],
-    [pick("", "체크(?:\\s*카드)?"), "체크카드"],
-    [pick("", "카드"), "카드"],
-    [pick("", "현금"), "현금"],
-    [/(계좌|이체|송금|자동이체|무통장)/, "계좌이체"],
-  ];
-  return AB_PAYMENT_PATTERNS;
-}
-
+// V22.9.79: 결제수단 판정의 본문(낱말 끝 조건·N-13 띄어 쓴 이름 제외)은 화면 빠른 입력과 함께 쓰는 공유 함수
+// (client/shared-input-nlu.js detectInputPayment·inputPaymentPatterns)로 옮겼다. 홈 인라인 스크립트의 옛 사본이 V22.9.77 N-1 수정 뒤에도
+// "토스트"를 결제수단 ‘토스’로 읽던 것(V77 N-11)을 없애려고 서버와 화면이 한 함수를 쓴다.
 function detectPaymentMethod(text) {
-  const raw = normalizeText(text);
-  for (const [pattern, method] of paymentMethodPatterns()) if (pattern.test(raw)) return method;
-  return "";
+  return detectInputPayment(normalizeText(text));
 }
 // @build:exports-start
 export {
-  AB_PAYMENT_WORD_END, addDays, currentMonthKst, detectPaymentMethod, extractDate, formatDate,
-  normalizeDateValue, normalizePaymentMethod, nowKstDate, parseDateStrict, qaFixedNowMs,
-  resolveWeekdayPhrase, safeYmd, validMonth, weekdayIndexOfYmd, withKstNowScope,
+  addDays, currentMonthKst, detectPaymentMethod, extractDate, formatDate, normalizeDateValue,
+  normalizePaymentMethod, nowKstDate, parseDateStrict, qaFixedNowMs, resolveWeekdayPhrase, safeYmd,
+  validMonth, weekdayIndexOfYmd, withKstNowScope,
 };
 // @build:exports-end

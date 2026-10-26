@@ -104,7 +104,8 @@ const paceCard = cards[1];
 eq((paceCard.match(/<i\b/g) || []).length, 4, "막대는 네 개다");
 ok(source.includes("if (startKey < monthStart) return { covered: false, amount: 0 };"), "달 시작보다 앞선 주는 자료 없음으로 표시한다");
 ok(source.includes('class="isBlank"'), "자료 없는 주는 0원 막대가 아니라 빈 자리다");
-ok(source.includes("const end = addDays(todayDate, -7 * back);"), "이번 달 주차가 아니라 오늘 기준 지난 4주를 센다");
+// V22.9.79 V78 S-3: 오늘이 속한 달은 오늘로, 지난·과거 달은 그 달 말일로 끝나는 지난 4주를 센다(창의 기준 날짜가 paceAnchor 다).
+ok(source.includes("const end = addDays(paceAnchor, -7 * back);"), "이번 달 주차가 아니라 기준 날짜로 끝나는 지난 4주를 센다");
 // 8월 12일 기준으로는 4주가 이 달에 담기지 않으므로 비교 문구가 유보되어야 한다.
 const paceRead = (paceCard.match(/<small>([^<]*)<\/small>/) || [])[1] || "";
 ok(paceRead.length > 0, `쓰는 속도에 해석이 있다 (${paceRead})`);
@@ -113,7 +114,7 @@ ok(paceRead.length > 0, `쓰는 속도에 해석이 있다 (${paceRead})`);
 eq((home.html.match(/class="homeBudgetAmount"/g) || []).length, 1, "34px 대표 숫자는 여전히 화면에 하나다");
 const shellFixture = await createV2265QaFixture();
 try {
-  const shell = await app.fetch(new Request("https://malhaebook.com/assets/accountbook-shell-v22947.css"), shellFixture.env, {});
+  const shell = await app.fetch(new Request("https://malhaebook.com/assets/accountbook-shell-v22979.css"), shellFixture.env, {});
   const css = await shell.text();
   ok(css.includes("body.abV22812Shell .homeReport>b{font-size:var(--ab12-fs-num-lg,22px)"), "리포트 숫자는 num-lg 를 쓴다");
   ok(css.includes("body.abV22812Shell .homeReportGrid{display:grid;grid-template-columns:1fr 1fr"), "데스크톱은 2×2 로 놓는다");

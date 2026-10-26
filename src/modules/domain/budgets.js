@@ -13,7 +13,7 @@ import { parseJsonSetting } from "../my/reports-premium.js";
 import { homeMemberPolicyValue, memberPolicySettingsKey } from "../my/access-control.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
-import { currentMonthKst } from "../nlu/date-payment.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { LEGACY_CATEGORY_SPLITS } from "../nlu/category-rules.js";
 import {
   calculateStats, escapeHtml, nextMonthStart, numberWithCommas,
@@ -107,24 +107,25 @@ async function fetchMobileHomeSettings(env, householdId = "", month = currentMon
   params.set("key", `in.(${[...new Set(keys)].join(",")})`);
   params.set("select", "key,value");
   params.set("limit", String(keys.length));
-  const rows = await optionalSupabase(env, `/rest/v1/accountbook_settings?${params.toString()}`, { method: "GET" }, []) || [];
+  // V22.9.79 V78 S-2: 정기지출 항목은 홈 월말 예상·‘앞으로 나갈 돈’에 들어간다. 같은 한 번의 조회를 엄격하게 읽고, 실패하면
+  // reservePlans 만 null 로 돌려준다(‘항목 없음’과 구분 — 화면은 확인 불가·그 몫을 빼고 계산). 나머지 설정은 예전처럼 기본값이다.
+  let rows = [];
+  let settingsUnavailable = false;
+  try {
+    const read = await supabase(env, `/rest/v1/accountbook_settings?${params.toString()}`, { method: "GET" });
+    if (!Array.isArray(read)) throw new Error("home_settings_read_invalid");
+    rows = read;
+  } catch (error) {
+    settingsUnavailable = true;
+  }
   const values = new Map(safeArray(rows).map((row) => [String(row.key || ""), row.value]));
   return {
     aliases: normalizeMemberAliasMap(values.get(memberAliasSettingsKey(householdId)) || {}),
-    reservePlans: options.includeReserve ? normalizeReservePlanList(values.get(reservePlansKey(householdId)) || [], householdId) : [],
+    reservePlans: options.includeReserve ? (settingsUnavailable ? null : normalizeReservePlanList(values.get(reservePlansKey(householdId)) || [], householdId)) : [],
     paymentAssets: options.includePayment ? normalizePaymentAssetList(values.get(paymentAssetsKey(householdId)) || [], householdId) : [],
     challengeValue: parseJsonSetting(values.get(reportChallengeSettingsKey(householdId)) || {}, {}),
     memberPolicy: options.includeMemberPolicy ? homeMemberPolicyValue(values.get(memberPolicySettingsKey(householdId))) : "",
   };
-}
-
-async function fetchRecurring(env, householdId) {
-  if (!householdId) return [];
-  const params = new URLSearchParams();
-  params.set("select", "id,household_id,type,amount,category,memo,payment_method,day_of_month,user_id,is_active,last_applied_month,created_at");
-  params.set("household_id", `eq.${householdId}`);
-  params.set("order", "day_of_month.asc,created_at.asc");
-  return await optionalSupabase(env, `/rest/v1/accountbook_recurring?${params.toString()}`, { method: "GET" }, []);
 }
 
 async function fetchRecurringStrict(env, householdId) {
@@ -146,6 +147,22 @@ async function fetchObservationMonthRows(env, householdId, month) {
   return result.rows;
 }
 
+// V22.9.79 V78 S-2: 그 달 고정지출 반영 표식(raw_text recurring:<규칙 id>:<달>)이 달린 기록만 좁게 읽는다. 홈·예산 알림과 같은
+// ‘반영됨’ 판정(그 달 표식 또는 그 달 기록)을 그 달 기록 전체 없이 하려는 화면(/reserve-plans)이 쓴다. 실패하면 던진다.
+async function fetchRecurringMarkerRows(env, householdId = "", month = "") {
+  if (!householdId || !validMonth(month)) return [];
+  const params = new URLSearchParams();
+  params.set("select", "raw_text");
+  params.set("household_id", `eq.${householdId}`);
+  params.set("transaction_date", `gte.${month}-01`);
+  params.append("transaction_date", `lt.${nextMonthStart(month)}`);
+  params.set("raw_text", `like.recurring:*:${month}`);
+  params.set("limit", "1000");
+  const rows = await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" });
+  if (!Array.isArray(rows)) throw new Error("recurring_marker_read_invalid");
+  return rows;
+}
+
 async function fetchRecurringRuleByIdStrict(env, id = "") {
   const rid = String(id || "").trim();
   if (!rid) return null;
@@ -159,7 +176,12 @@ async function fetchRecurringRuleByIdStrict(env, id = "") {
 // 따로 분류되므로 권하는 대로 예산을 잡으면 교통비 대부분이 예산 밖으로 빠졌다(교통 예산 30만 원에 사용 10,900원).
 // ‘교통’ 예산은 옛 ‘교통/차량’과 같은 갈래(교통·택시·주유/충전·차량관리, 옛 기록의 ‘교통/차량’)를 센다. 웹·홈·카카오가 모두
 // budgetSummary 를 쓰므로 한곳에서 맞춘다.
-const BUDGET_CATEGORY_PARENT_ALIASES = Object.freeze({ "교통": "교통/차량" });
+// V22.9.79 감사 V44 D-4(남은 몫): 시작 분류 ‘외식’도 같은 문제였다. 자동분류는 배달·편의점을 따로 나누므로 권하는 대로
+// ‘외식’ 예산만 잡으면 배달 음식·편의점 지출이 예산 밖으로 조용히 빠졌다. ‘외식’ 한 줄은 옛 ‘식비’ 갈래(외식·배달·편의점,
+// 옛 기록의 ‘식비’)를 센다. 형제 분류(예: 배달)에 따로 예산 행이 있으면 그 행에서만, 진짜 상위 행(식비)이 있으면 하위 행으로
+// 남는 규칙은 ‘교통’과 같다. 장보기·카페/간식은 식비 갈래가 아니라 넣지 않는다(V22.9.52: 식비는 장보기·카페를 추정하지 않음).
+// 그런 예산 밖 지출은 홈·카카오 남은예산·예산 화면이 ‘예산 밖 지출’로 따로 적어 조용히 빠지지 않게 한다.
+const BUDGET_CATEGORY_PARENT_ALIASES = Object.freeze({ "교통": "교통/차량", "외식": "식비" });
 
 function budgetCategoryNames(category = "", explicit = null) {
   const key = normalizeText(category);
@@ -181,31 +203,44 @@ function budgetCategoryMatches(category = "", transactionCategory = "") {
   return budgetCategoryNames(category).includes(normalizeText(transactionCategory || "기타"));
 }
 
-function budgetSummary(rows = [], budgets = []) {
-  const expenseRows = rows.filter((r) => r.type !== "income");
-  const expense = expenseRows.reduce((a, r) => a + Number(r.amount || 0), 0);
-  const categoryBudgets = budgets.filter((b) => {
-    const c = String(b.category || "");
+// V22.9.79 V76 W-7: 예산과 견주는 지출의 범위(어느 분류가 예산 안인가)를 한 함수로 정한다. budgetSummary(예산 화면·홈·카카오)와
+// 월말 예상(monthSpendingOutlook 의 scope "budgeted")·예산 알림의 반영 대기 고정지출이 모두 이 판정을 쓴다.
+// 분류별 예산이 있으면 그 분류(상위·하위 펼침 포함)만, 없으면 전체 지출이 범위다.
+function budgetCategoryScope(budgets = []) {
+  const list = safeArray(budgets);
+  const categoryBudgets = list.filter((b) => {
+    const c = String(b?.category || "");
     return c && c !== "__total" && c !== "__income" && !isIncomeBudgetCategory(c) && Number(b.amount || 0) > 0;
   });
   const categoryBudgetTotal = categoryBudgets.reduce((a, b) => a + Number(b.amount || 0), 0);
-  const explicitTotalBudget = Number((budgets.find((b) => String(b.category || "") === "__total") || {}).amount || 0);
-  const totalBudget = categoryBudgetTotal || explicitTotalBudget;
+  const explicitTotalBudget = Number((list.find((b) => String(b?.category || "") === "__total") || {}).amount || 0);
+  const explicitCategories = new Set(categoryBudgets.map((b) => normalizeText(b.category)));
+  const groups = categoryBudgets.map((b) => ({ budget: b, categories: budgetCategoryNames(b.category, explicitCategories) }));
+  const covered = new Set(groups.flatMap((group) => group.categories));
+  const basis = categoryBudgetTotal ? "category" : "total";
+  return {
+    basis, covered, groups, categoryBudgetTotal, explicitTotalBudget,
+    totalBudget: categoryBudgetTotal || explicitTotalBudget,
+    includes: (category) => basis !== "category" || covered.has(normalizeText(category || "기타")),
+  };
+}
+
+function budgetSummary(rows = [], budgets = []) {
+  const expenseRows = rows.filter((r) => r.type !== "income");
+  const expense = expenseRows.reduce((a, r) => a + Number(r.amount || 0), 0);
+  const scope = budgetCategoryScope(budgets);
+  const { categoryBudgetTotal, explicitTotalBudget, totalBudget, covered, basis } = scope;
   const byCategory = Object.create(null);
   for (const r of expenseRows) {
     const c = normalizeText(r.category || "기타");
     byCategory[c] = (byCategory[c] || 0) + Number(r.amount || 0);
   }
-  const covered = new Set();
-  const explicitCategories = new Set(categoryBudgets.map((b) => normalizeText(b.category)));
-  const categoryAlerts = categoryBudgets.map((b) => {
-    const categories = budgetCategoryNames(b.category, explicitCategories);
-    categories.forEach(category => covered.add(category));
+  const categoryBudgets = scope.groups.map((group) => group.budget);
+  const categoryAlerts = scope.groups.map(({ budget: b, categories }) => {
     const spent = categories.reduce((sum, category) => sum + Number(byCategory[category] || 0), 0);
     const amount = Number(b.amount || 0);
     return { category: b.category, budget: amount, spent, diff: spent - amount, rate: amount ? Math.round(spent / amount * 100) : 0, categories };
   }).sort((a, b) => b.rate - a.rate);
-  const basis = categoryBudgetTotal ? "category" : "total";
   // A transaction contributes once to the union even when parent/child rows overlap.
   // Allocations retain their original sum; row-level usage may overlap.
   const budgetedExpense = basis === "category"
@@ -432,6 +467,8 @@ async function kakaoBudgetStatusParts(env, householdId, month, origin = "", hous
       `전체 예산: ${numberWithCommas(totalBudget)}원${budget.basis === "category" ? " (분류별 예산 합계)" : ""}`,
       ...(ignoredTotal ? [ignoredTotal] : []),
       `사용 금액: ${numberWithCommas(expense)}원`,
+      // V22.9.79 감사 V44 D-4: 분류별 예산이면 예산을 잡지 않은 분류의 지출(예: 장보기)은 사용률에 들지 않는다. 조용히 빠지지 않게 적는다.
+      ...(budget.basis === "category" && Number(budget.uncoveredExpense || 0) > 0 ? [`예산 밖 지출: ${numberWithCommas(budget.uncoveredExpense)}원 (예산을 잡지 않은 분류라 사용률에 넣지 않아요)`] : []),
       `남은 예산: ${remain >= 0 ? numberWithCommas(remain) + "원" : numberWithCommas(Math.abs(remain)) + "원 초과"}`,
       `사용률: ${rate}% (${status})`,
       ...(categoryLines.length ? ["", "카테고리별", ...categoryLines, "상위·하위 행의 사용액은 겹칠 수 있어요. 전체 사용액은 거래마다 한 번만 셉니다."] : []),
@@ -475,10 +512,10 @@ function budgetPlanMessage(code = "") {
 }
 // @build:exports-start
 export {
-  budgetAlertText, budgetCenterSummary, budgetFeedbackLine, budgetPlanFingerprint,
-  budgetPlanMessage, budgetStageInfo, budgetStatusLabel, budgetSummary, fetchBudgets,
-  fetchMobileHomeSettings, fetchObservationMonthRows, fetchRecurring, fetchRecurringRuleByIdStrict,
-  fetchRecurringStrict, kakaoBudgetStatusParts, optionalSupabase, renderBudgetBasisRows,
-  renderBudgetConsistencyAlert, renderBudgetRows,
+  budgetAlertText, budgetCategoryScope, budgetCenterSummary, budgetFeedbackLine,
+  budgetPlanFingerprint, budgetPlanMessage, budgetStageInfo, budgetStatusLabel, budgetSummary,
+  fetchBudgets, fetchMobileHomeSettings, fetchObservationMonthRows, fetchRecurringMarkerRows,
+  fetchRecurringRuleByIdStrict, fetchRecurringStrict, kakaoBudgetStatusParts, optionalSupabase,
+  renderBudgetBasisRows, renderBudgetConsistencyAlert, renderBudgetRows,
 };
 // @build:exports-end

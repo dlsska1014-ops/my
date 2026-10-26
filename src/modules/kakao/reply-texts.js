@@ -28,6 +28,7 @@ function formatMessage(msg) {
     delete_confirm_required: "삭제 전 확인 문구를 정확히 입력해 주세요.",
     display_name_required: "이 가계부에서 사용할 내 이름을 입력해 주세요.",
     household_deleted: "가계부와 연결된 기록을 안전하게 삭제했습니다.",
+    household_role_check_failed: "권한을 확인하지 못해 아무것도 바꾸지 않았습니다. 잠시 후 다시 시도해 주세요.",
     household_left: "가계부에서 나왔습니다. 기존 기록의 지출자 이름은 유지됩니다.",
     household_required: "먼저 사용할 가계부를 선택해 주세요.",
     household_updated: "가계부 이름을 변경했습니다.",
@@ -72,6 +73,8 @@ function formatMessage(msg) {
     amount_unit_required: "금액이 단위 없는 한 자리 숫자로만 읽혀 저장하지 않았습니다. 정말 그 금액이면 \"7원\"처럼 원을 붙이거나 금액 칸을 직접 고쳐 주세요.",
     backup_too_large: "기록이 많아 이 범위를 한 파일로 내려받을 수 없습니다. 일부만 담긴 파일을 내려보내지 않았습니다. 월별 CSV로 나눠 내려받아 주세요.",
     spender_not_member: "지출자는 현재 가계부 참여자 중에서 선택해 주세요.",
+    // V22.9.79 D-5: 환불 연결 트리거가 막은 수정(연결된 기록의 종류·금액·환급 분류·날짜 변경).
+    refund_link_locked: "환불과 연결된 기록이라 이 변경은 저장하지 않았습니다. 정산 화면의 ‘환불·환급’에서 연결을 먼저 풀어 주세요.",
     payment_asset_saved_snapshot_deferred: "자산·결제수단은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_updated_snapshot_deferred: "자산 정보는 수정했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_balance_updated_snapshot_deferred: "현재 잔액은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",

@@ -205,9 +205,21 @@ function loginEntryAnchorClientMain() {
     link.addEventListener("click",function() { const panel=document.getElementById("signup-start"); if (panel) panel.open=true; });
   });
 }
+
+// V22.9.79 감사 V44 F-9: 오류로 다시 그린 로그인·가입 화면은 폼이 소개·미리보기 아래 멀리 있어 오류만 보이고 입력할 곳은 화면 밖이었다.
+// 오류가 있을 때만 이 스크립트가 들어간다. ids 는 입력 순서대로의 칸 id 이고, 이미 채워진 칸(되돌려 준 이름)은 건너뛰어 첫 빈 칸으로
+// 스크롤하고 초점을 준다. 접힌 패널은 연다. 스크립트가 막혀도 맨 위의 오류 요약 링크가 같은 칸으로 데려간다.
+function authErrorJumpClientMain(ids) {
+  var fields = (ids || []).map(function(id) { return document.getElementById(id); }).filter(Boolean);
+  if (!fields.length) return;
+  var target = fields.filter(function(field) { return !String(field.value || "").trim(); })[0] || fields[0];
+  for (var node = target.parentElement; node; node = node.parentElement) if (node.tagName === "DETAILS") node.open = true;
+  try { target.scrollIntoView({ block: "center" }); } catch (error) {}
+  try { target.focus({ preventScroll: true }); } catch (error) { try { target.focus(); } catch (ignored) {} }
+}
 // @build:exports-start
 export {
-  handleMyKakaoClaim, kakaoClaimUserUnmerged, kakaoPrivateWebLinkReply, loginEntryAnchorClientMain,
-  renderKakaoClaimForm,
+  authErrorJumpClientMain, handleMyKakaoClaim, kakaoClaimUserUnmerged, kakaoPrivateWebLinkReply,
+  loginEntryAnchorClientMain, renderKakaoClaimForm,
 };
 // @build:exports-end

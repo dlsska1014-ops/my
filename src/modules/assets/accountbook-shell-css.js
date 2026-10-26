@@ -1323,6 +1323,29 @@ body.abV22812Shell .abV5ControlBar button{padding-inline:16px!important}
   body.abV22812Shell .abV5PageHeader{padding:13px 14px!important}
   body.abV22812Shell .abV5PageHeader h1{font-size:20px!important}
 }
+/* V22.9.79 F-10: 관리자 백업 화면(백업센터·미리보기·비교·후보·최종 확인·실제 적용·이력·되돌리기)의 표시 결함.
+   (1) 다크에서 미리보기 요약 칸(.summaryGrid>div)이 밝은 바탕(#f8fafc)에 밝은 글자로 남았다(1.10:1). 경고·위험 상자(.warnBox·.dangerBox)는 아래에 같은 다크 값(토큰 --ab12-warn-*, #3f1d2a/#fecaca)으로 따로 규칙을 둔다(기존 규칙 목록의 글자는 다른 검사가 지킨다).
+   (2) /backup/apply 의 5칸 격자(1fr+155+155+165+170px)가 사이드바가 있는 데스크톱 폭에서 카드 오른쪽으로 삐져나왔다 → 칸 수를 폭에 맞춰 줄이고 파일 칸은 한 줄을 쓴다.
+   (3) 입력 격자의 입력칸이 줄어들 수 있게 min-width:0(긴 가계부 이름이 든 select 가 한 열을 넓히지 않는다).
+   (4) 카드 안에 표가 바로 든 화면(비교·후보·최종 확인)은 폭이 좁으면 표가 카드 밖으로 잘렸고(1024px 에서 765px 표, 390px 에서 760px 표) 좁은 열이 글자 하나씩 줄바꿈됐다 → 카드 안에서 밀어 보게 하고 한글 낱말은 쪼개지 않는다.
+   (5) 백업센터·가져오기 이력·되돌리기 후보의 조회 줄(.filters, flex 줄바꿈)은 긴 가계부 이름이 든 select 가 줄 폭(R=637 @360px)보다 넓어졌다 → 줄 폭 안으로 줄어든다. */
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .warnBox{background:var(--ab12-warn-bg)!important;color:var(--ab12-warn-text)!important;border-color:var(--ab12-warn-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .dangerBox{background:#3f1d2a!important;color:#fecaca!important;border-color:#7f3545!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.warnBox,.dangerBox) :is(b,strong,p,span,small,label){color:inherit!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .summaryGrid>div{background:var(--ab12-surface-raised)!important;border-color:var(--ab12-line)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .summaryGrid span{color:var(--ab12-muted)!important}
+body.abV22812Shell form.upload :is(input,select,button){min-width:0}
+body.abV22812Shell .card:has(>table){overflow-x:auto}
+body.abV22812Shell .card:has(>table) :is(th,td){word-break:keep-all}
+body.abV22812Shell .filters select{min-width:0;max-width:100%}
+@media(max-width:980px){body.abV22812Shell form.upload{grid-template-columns:minmax(0,1fr)}}
+@media(min-width:981px){body.abV22812Shell form.upload[action="/backup/apply"]{grid-template-columns:repeat(auto-fit,minmax(min(100%,150px),1fr))}body.abV22812Shell form.upload[action="/backup/apply"] input[type=file]{grid-column:1/-1}}
+/* V22.9.79 F-4: 머리말 제목에 표시 이름이 든 화면('…님 시작가이드')은 줄바꿈 없는 긴 영문 닉네임이 360px 밖(글자 끝 R=616)으로 나갔다. 제목만 어디서든 꺾는다. */
+body.abV22812Shell .abV5PageHeader h1{overflow-wrap:anywhere}
+/* V22.9.79 F-4: 홈 빠른 입력 '자세히' 줄은 긴 지출자 이름이 들어오면 라벨이 글자 하나씩(자/세/히) 줄바꿈됐다 → 라벨은 줄지 않고 요약(em)만 말줄임된다. */
+body.abV22812Shell .quickMore>summary>span{flex:none;white-space:nowrap}
+/* V22.9.79 F-4: 머리말 조회 줄(.abV5ControlBar)의 3열 규칙(1fr 1fr auto)은 컨트롤이 가계부·월·조회 셋일 때 맞춘 것이다. 정산 화면은 select 가 둘이라 월 입력이 88px 로 줄어 "2026년 07월"이 "2026"만 보였다(390px, 정상 데이터도 같다) → select 가 둘인 줄은 모바일에서 두 열로 쌓는다. */
+@media(max-width:560px){body.abV22812Shell .abV5ControlBar:has(select~select){grid-template-columns:repeat(2,minmax(0,1fr))!important}}
 /* ── V22.9.40 (C) 점진적 최신 규칙 ──
    모르는 브라우저는 모르는 속성·@supports 블록을 통째로 건너뛰므로 아무것도 바뀌지 않는다.
    · 제목 줄바꿈은 text-wrap-style(긴 이름)만 쓴다. 줄임 이름 text-wrap 은 text-wrap-mode 까지 wrap 으로 되돌려

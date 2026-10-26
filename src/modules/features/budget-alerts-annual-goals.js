@@ -9,6 +9,9 @@ import { safeArray } from "../admin/backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import { canWriteMyHousehold, memberRecordChangeError } from "../my/access-control.js";
 import { budgetCenterSummary, budgetStatusLabel, budgetSummary } from "../domain/budgets.js";
+import {
+  isOutgoingRecurringRule, monthSpendingOutlook, pendingRecurringRules,
+} from "../domain/spending-outlook.js";
 import { ACCOUNTBOOK_GOALS_JS_ASSET_PATH } from "../assets/asset-registry.js";
 import { monthObservation } from "../domain/analytics.js";
 import { normalizeText } from "../nlu/amount-parser.js";
@@ -16,7 +19,11 @@ import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
 
-function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [], budgets = [], recurring = [], recurringState = "complete", receipt = null }) {
+// V22.9.79 V76 W-7: 예산 알림·알림센터·카카오 안내가 쓰는 한 모델. 월말 예상(forecastExpense)은 홈·분석과 같은
+// monthSpendingOutlook(예산 분류 범위)이고, 예전의 ‘관측 속도 예상’과 ‘대기 목록을 더한 가정값’을 하나로 합쳤다.
+// ‘월말 초과 예상’ 판정에도 반영 대기 고정지출·남은 정기지출 납부가 들어간다(2026-10-25 운영자 결정 Q3).
+// plans(정기지출 항목)를 못 읽었으면 null — 그 몫을 빼고 계산했다고 내역 줄에 적는다.
+function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [], budgets = [], recurring = [], recurringState = "complete", plans = [], receipt = null }) {
   if (!Array.isArray(rows) || !Array.isArray(budgets)) throw new Error("budget_observation_read_invalid");
   const budget = budgetSummary(rows, budgets);
   const center = budgetCenterSummary(rows, budgets);
@@ -26,36 +33,40 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   const spent = Number(budget.budgetedExpense ?? budget.expense ?? 0);
   const totalBudget = Number(budget.totalBudget || 0);
   const remainingBudget = totalBudget ? Math.max(0, totalBudget - spent) : 0;
-  const dailyAllowance = observation.status === "complete" && totalBudget && remainingDays ? Math.round(remainingBudget / remainingDays) : null;
-  const observedSpent = observation.status === "complete" ? budgetSummary(observation.rows, budgets).budgetedExpense : null;
+  const recurringAvailable = recurringState === "complete" && Array.isArray(recurring) && recurring.every(r => r && r.amount != null && Number.isFinite(Number(r.amount)));
+  const outlook = monthSpendingOutlook({ month, rows, today: todayStr, receipt, recurring: recurringAvailable ? recurring : null, plans, budgets, scope: "budgeted" });
+  // V22.9.79 감사 V44 D-18: 하루 사용 가능은 홈과 같이 내림이다(예전에는 반올림이라 홈보다 1원 많을 수 있었다).
+  const dailyAllowance = observation.status === "complete" && totalBudget && remainingDays ? Math.floor(remainingBudget / remainingDays) : null;
+  const observedSpent = observation.status === "complete" ? outlook.recorded.toDate : null;
   const avgDaily = observedSpent == null ? null : Math.round(observedSpent / currentDay);
-  const forecastExpense = observedSpent == null ? null : sameMonth ? Math.round(observedSpent / currentDay * daysInMonth) : observedSpent;
+  const forecastExpense = observation.status === "complete" && outlook.expected ? outlook.expected.total : null;
   const forecastDiff = totalBudget && forecastExpense != null ? forecastExpense - totalBudget : null;
   const rate = totalBudget ? Math.round((spent / totalBudget) * 100) : 0;
   const projectedRate = totalBudget && forecastExpense != null ? Math.round(forecastExpense / totalBudget * 100) : null;
-  const recurringAvailable = recurringState === "complete" && Array.isArray(recurring) && recurring.every(r => r && r.amount != null && Number.isFinite(Number(r.amount)));
   const pendingState = !recurringAvailable ? "unavailable" : !sameMonth ? "deferred" : "complete";
-  const activeRecurring = recurringAvailable ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && (budget.basis !== "category" || budget.categoryAlerts.some(b => safeArray(b.categories).includes(normalizeText(r.category || "기타"))))) : null;
-  const pendingRecurring = pendingState === "complete" ? activeRecurring.filter((r) => String(r.last_applied_month || "") !== month) : null;
+  const inBudget = (category) => budget.basis !== "category" || budget.categoryAlerts.some(b => safeArray(b.categories).includes(normalizeText(category || "기타")));
+  const activeRecurring = recurringAvailable ? recurring.filter((r) => isOutgoingRecurringRule(r) && inBudget(r.category)) : null;
+  // V22.9.79 V78 S-2: 반영 대기는 홈 ‘앞으로 나갈 돈’과 같은 판정(pendingRecurringRules: 그 달 표식 또는 그 달 기록이 있으면 반영됨)이다.
+  // 예전에는 표식(last_applied_month)만 봐서, 표식 저장이 늦은 달에는 이미 기록된 고정지출을 한 건 더 셌다.
+  const pendingAll = pendingState === "complete" ? safeArray(pendingRecurringRules(recurring, month, rows)) : null;
+  const pendingRecurring = pendingAll ? pendingAll.filter((r) => inBudget(r.category)) : null;
   const recurringTotal = activeRecurring ? activeRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
   const pendingRecurringTotal = pendingRecurring ? pendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
-  // V22.9.76 감사 P1-1: 지정일 전에 '반영'을 누르면 정기 기록이 앞으로 올 날짜로 들어간다. 그 기록은 오늘까지의 관측에도,
-  // 반영 대기 목록에도 없어서 가정값에서 사라졌다(반영 전 1,425,000원 → 반영 후 775,000원). 이번 달의 오늘 뒤 날짜 정기 기록은
-  // 대기 항목과 같은 자리에 더한다. 관측 속도(forecastExpense)는 그대로 오늘까지만 본다.
-  // 대기 목록에 남은 규칙의 기록(표식 저장이 늦은 경우)은 두 번 더하지 않는다.
-  const pendingKeys = new Set(safeArray(pendingRecurring).map((r) => `recurring:${r.id}:${month}`));
-  const scheduledRecurring = pendingState === "complete" && observation.status === "complete"
-    ? safeArray(rows).filter((r) => r && r.type !== "income" && ["recurring", "recurring_auto"].includes(String(r.source || "")) && String(r.transaction_date || "").slice(0, 7) === month && String(r.transaction_date || "") > observation.end && !pendingKeys.has(String(r.raw_text || "")))
-    : [];
-  const scheduledRecurringTotal = scheduledRecurring.length ? Number(budgetSummary(scheduledRecurring, budgets).budgetedExpense || 0) : 0;
-  const afterPendingForecast = forecastExpense != null && pendingRecurringTotal != null ? forecastExpense + pendingRecurringTotal + scheduledRecurringTotal : null;
-  // V22.9.76 감사 P2-1: 분류별 예산을 쓰면 예산 밖 분류의 정기지출은 대기 목록에서 빠진다. 그때 "대기 중인 정기지출이 없다"고
-  // 단정하지 않도록 예산 밖 대기 건수·금액을 따로 돌려준다.
-  const outsidePendingRecurring = pendingState === "complete" && budget.basis === "category"
-    ? recurring.filter((r) => r.type !== "income" && r.is_active !== false && Number(r.amount || 0) > 0 && String(r.last_applied_month || "") !== month && !budget.categoryAlerts.some(b => safeArray(b.categories).includes(normalizeText(r.category || "기타"))))
-    : [];
-  const outsidePendingTotal = outsidePendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  // V22.9.76 감사 P1-1: 지정일 전에 반영해 오늘 뒤 날짜로 들어간 정기 기록도 월말 예상에 남는다(속도에는 넣지 않는다).
+  const scheduledRecurring = pendingState === "complete" && outlook.recorded ? outlook.recorded.scheduledFixedRows : [];
+  const scheduledRecurringTotal = scheduledRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  const reserveState = !sameMonth ? "deferred" : Array.isArray(plans) ? "complete" : "unavailable";
+  const reserveDue = reserveState === "complete" && outlook.notYetRecorded ? outlook.notYetRecorded.reservePlans : [];
+  const reserveDueTotal = reserveDue.reduce((sum, entry) => sum + Number(entry.plan.amount || 0), 0);
+  // 예전 after_pending_assumption(관측 속도 + 대기 목록)은 이제 월말 예상 자체다. 한 판 동안 같은 값으로 남긴다(대기를 모르면 null).
+  const afterPendingForecast = pendingState === "complete" && forecastExpense != null ? forecastExpense : null;
   const afterPendingDiff = totalBudget && afterPendingForecast != null ? afterPendingForecast - totalBudget : null;
+  // V22.9.76 감사 P2-1: 분류별 예산을 쓰면 예산 밖 분류의 대기 고정지출·정기지출은 예산과 견주는 예상에서 빠진다. 그때
+  // "대기 중인 고정지출이 없다"고 단정하지 않도록 예산 밖 건수·금액을 따로 돌려준다.
+  const outsidePendingRecurring = pendingAll && budget.basis === "category" ? pendingAll.filter((r) => !inBudget(r.category)) : [];
+  const outsidePendingTotal = outsidePendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
+  const outsideReserveDue = reserveState === "complete" && outlook.notYetRecorded && budget.basis === "category" ? outlook.notYetRecorded.outsideReservePlans : [];
+  const outsideReserveTotal = outsideReserveDue.reduce((sum, entry) => sum + Number(entry.plan.amount || 0), 0);
   const status = observation.status === "unavailable" ? "unavailable" : !totalBudget ? "setup" : spent > totalBudget ? "over" : rate >= 85 ? "warning" : !sameMonth ? (pastMonth ? "closed" : "before") : forecastExpense > totalBudget ? "forecast" : "ok";
   const statusText = {
     setup: "예산 설정 필요",
@@ -69,18 +80,18 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   }[status] || "확인 필요";
   const statusMessage = {
     setup: "월 전체 예산이나 분류별 예산을 먼저 설정하면 오늘 사용 가능 금액과 월말 예상이 계산됩니다.",
-    over: "미래 날짜 기록을 포함한 선택 월 전체 등록액이 예산을 넘었습니다. 관측 속도와 구분하여 확인해 주세요.",
-    forecast: "현재 속도라면 월말에 예산을 넘을 수 있습니다. 이번 주 소비 속도를 낮추는 것이 좋습니다.",
-    warning: "미래 날짜 기록을 포함한 선택 월 전체 등록액이 예산의 85% 이상입니다. 관측 속도와 구분하여 확인해 주세요.",
-    ok: "현재 소비 속도는 예산 안에서 관리되고 있습니다. 오늘 사용 가능 금액 기준으로 기록하면 됩니다.",
+    over: "미래 날짜 기록을 포함한 선택 월 전체 등록액이 예산을 넘었습니다. 월말 예상과 구분하여 확인해 주세요.",
+    forecast: "남은 고정지출과 지금 속도를 더하면 월말에 예산을 넘을 수 있어요.",
+    warning: "미래 날짜 기록을 포함한 선택 월 전체 등록액이 예산의 85% 이상입니다. 월말 예상과 구분하여 확인해 주세요.",
+    ok: "남은 고정지출과 지금 속도를 더해도 월말 예상이 예산 안이에요. 오늘 사용 가능 금액 기준으로 기록하면 됩니다.",
     closed: "종료된 달의 월 전체 실적입니다. 평균은 해당 월 전체 일수를 기준으로 계산하며 앞으로의 지출 예상이 아닙니다.",
-    before: "아직 오지 않은 달이므로 평균과 속도 예측을 계산하지 않습니다. 등록액과 남은 예산은 월 전체 기록을 기준으로 표시합니다.",
-    unavailable: "관측 자료를 확인하지 못해 평균과 속도 예측을 보류합니다. 자료를 다시 조회해 주세요.",
+    before: "아직 오지 않은 달이므로 평균과 월말 예상을 계산하지 않습니다. 등록액과 남은 예산은 월 전체 기록을 기준으로 표시합니다.",
+    unavailable: "관측 자료를 확인하지 못해 평균과 월말 예상을 보류합니다. 자료를 다시 조회해 주세요.",
   }[status] || "예산 상태를 확인하세요.";
   const sortedAlerts = safeArray(budget.categoryAlerts).filter((x) => Number(x.budget || 0) > 0).sort((a, b) => Number(b.rate || 0) - Number(a.rate || 0));
   const dangerCategories = sortedAlerts.filter((x) => Number(x.spent || 0) > Number(x.budget || 0));
   const warningCategories = sortedAlerts.filter((x) => Number(x.rate || 0) >= 85 && Number(x.spent || 0) <= Number(x.budget || 0));
-  return { selectedHousehold, month, budget, center, todayStr, sameMonth, pastMonth, observation, observedSpent, pendingState, daysInMonth, currentDay, remainingDays, spent, totalBudget, remainingBudget, dailyAllowance, avgDaily, forecastExpense, forecastDiff, rate, projectedRate, recurringTotal, pendingRecurringTotal, scheduledRecurring, scheduledRecurringTotal, outsidePendingRecurring, outsidePendingTotal, afterPendingForecast, afterPendingDiff, activeRecurring, pendingRecurring, sortedAlerts, dangerCategories, warningCategories, status, statusText, statusMessage };
+  return { selectedHousehold, month, budget, center, todayStr, sameMonth, pastMonth, observation, outlook, observedSpent, pendingState, daysInMonth, currentDay, remainingDays, spent, totalBudget, remainingBudget, dailyAllowance, avgDaily, forecastExpense, forecastDiff, rate, projectedRate, recurringTotal, pendingRecurringTotal, scheduledRecurring, scheduledRecurringTotal, reserveState, reserveDue, reserveDueTotal, outsidePendingRecurring, outsidePendingTotal, outsideReserveDue, outsideReserveTotal, afterPendingForecast, afterPendingDiff, activeRecurring, pendingRecurring, sortedAlerts, dangerCategories, warningCategories, status, statusText, statusMessage };
 }
 
 function renderBudgetAlertStatusPill(status = "ok") {
@@ -101,18 +112,23 @@ function renderBudgetAlertRows(model) {
 }
 
 function renderPendingRecurringList(model) {
-  if (model.pendingState !== "complete") return `<p class="muted">${model.pendingState === "unavailable" ? "정기 항목을 조회하지 못해 대기 금액과 추가 가정값을 보류합니다. 다시 조회해 주세요." : "과거·미래 월의 정기 반영 여부는 현재 규칙만으로 확인할 수 없어 대기 금액·건수·목록과 추가 가정값을 보류합니다."}</p>`;
+  if (model.pendingState !== "complete") return `<p class="muted">${model.pendingState === "unavailable" ? "정기 항목을 조회하지 못해 반영 대기 고정지출을 보류하고, 월말 예상은 그 몫을 빼고 계산했습니다. 다시 조회해 주세요." : "과거·미래 월의 정기 반영 여부는 현재 규칙만으로 확인할 수 없어 대기 금액·건수·목록을 보류합니다."}</p>`;
   const list = safeArray(model.pendingRecurring).slice(0, 8);
-  // V22.9.76 감사 P2-1·P1-1: 목록 범위를 함께 말한다. 분류별 예산이면 예산 밖 분류의 대기 항목은 이 목록과 가정값에 넣지 않고,
-  // 지정일 전에 미리 반영한 정기지출은 목록에서 빠져도 가정값에는 남는다.
-  const outside = safeArray(model.outsidePendingRecurring);
+  const plans = safeArray(model.reserveDue).slice(0, 8);
+  // V22.9.76 감사 P2-1·P1-1 → V22.9.79 W-7: 목록 범위를 함께 말한다. 분류별 예산이면 예산 밖 분류의 대기 항목은 이 목록과
+  // 예산과 견주는 월말 예상에 넣지 않고, 지정일 전에 미리 반영한 고정지출은 목록에서 빠져도 월말 예상에는 남는다.
+  const outsideCount = safeArray(model.outsidePendingRecurring).length + safeArray(model.outsideReserveDue).length;
+  const outsideTotal = Number(model.outsidePendingTotal || 0) + Number(model.outsideReserveTotal || 0);
   const scheduled = safeArray(model.scheduledRecurring);
   const notes = [];
-  if (outside.length) notes.push(`예산 밖 분류의 반영 대기 정기지출 ${numberWithCommas(outside.length)}건(${numberWithCommas(model.outsidePendingTotal || 0)}원)은 이 목록과 추가 가정값에 넣지 않았습니다.`);
-  if (scheduled.length) notes.push(`날짜가 아직 오지 않은 반영된 정기지출 ${numberWithCommas(scheduled.length)}건(${numberWithCommas(model.scheduledRecurringTotal || 0)}원)은 추가 가정값에 넣었습니다.`);
+  if (outsideCount) notes.push(`예산 밖 분류의 반영 대기 고정지출·정기지출 ${numberWithCommas(outsideCount)}건(${numberWithCommas(outsideTotal)}원)은 이 목록과 예산과 견주는 월말 예상에 넣지 않았습니다.`);
+  if (scheduled.length) notes.push(`날짜가 아직 오지 않은 반영된 고정지출 ${numberWithCommas(scheduled.length)}건(${numberWithCommas(model.scheduledRecurringTotal || 0)}원)은 월말 예상에 넣었습니다.`);
+  if (model.reserveState === "unavailable") notes.push("정기지출 항목을 읽지 못해 남은 납부액은 월말 예상에서 빼고 계산했습니다.");
   const noteHtml = notes.map((note) => `<p class="muted">${escapeHtml(note)}</p>`).join("");
-  if (!list.length) return `<p class="muted">${outside.length ? "예산을 정한 분류에는 반영을 기다리는 정기지출이 0건입니다." : "이번 달에 아직 반영 대기 중인 정기지출이 없습니다."}</p>${noteHtml}`;
-  return `<ul class="recList">${list.map((r) => `<li><b>${escapeHtml(r.memo || r.category || "정기지출")}</b><span>${escapeHtml(r.category || "미분류")} · 매월 ${numberWithCommas(r.day_of_month || 1)}일 예정</span><strong>${numberWithCommas(r.amount || 0)}원</strong></li>`).join("")}</ul>${noteHtml}`;
+  if (!list.length && !plans.length) return `<p class="muted">${outsideCount ? "예산을 정한 분류에는 반영을 기다리는 고정지출이 0건입니다." : "이번 달에 아직 반영 대기 중인 고정지출이 없습니다."}</p>${noteHtml}`;
+  const ruleItems = list.map((r) => `<li><b>${escapeHtml(r.memo || r.category || "고정지출")}</b><span>${escapeHtml(r.category || "미분류")} · 매월 ${numberWithCommas(r.day_of_month || 1)}일 예정</span><strong>${numberWithCommas(r.amount || 0)}원</strong></li>`).join("");
+  const planItems = plans.map((entry) => `<li><b>${escapeHtml(entry.plan.name || "정기지출")}</b><span>정기지출 · ${escapeHtml(entry.plan.category || "미분류")} · ${numberWithCommas(Number(entry.date.slice(8, 10)))}일 납부 예정</span><strong>${numberWithCommas(entry.plan.amount || 0)}원</strong></li>`).join("");
+  return `<ul class="recList">${ruleItems}${planItems}</ul>${noteHtml}`;
 }
 
 function budgetAlertKakaoHint(model) {
@@ -120,7 +136,7 @@ function budgetAlertKakaoHint(model) {
   if (!model.totalBudget) return "예산을 먼저 설정하면 카카오톡에서 ‘남은 예산’·‘예산 현황’으로 바로 확인할 수 있어요.";
   if (model.status === "over" || model.status === "warning") return model.statusMessage;
   if (!model.sameMonth || model.observation.status !== "complete") return model.statusMessage;
-  if (model.status === "forecast") return `현재 속도라면 월말 예상 지출은 ${numberWithCommas(model.forecastExpense)}원으로 예산보다 ${numberWithCommas(Math.max(0, model.forecastDiff))}원 많을 수 있어요.`;
+  if (model.status === "forecast") return `남은 고정지출과 지금 속도를 더하면 월말 예상 지출은 ${numberWithCommas(model.forecastExpense)}원으로 예산보다 ${numberWithCommas(Math.max(0, model.forecastDiff))}원 많을 수 있어요.`;
   return `오늘은 약 ${numberWithCommas(model.dailyAllowance)}원까지 쓰면 이번 달 예산 흐름을 유지할 수 있어요.`;
 }
 

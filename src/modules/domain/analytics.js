@@ -1,8 +1,9 @@
 // @build:imports-start
 import { isValidTransactionDateString } from "../admin/transactions-households.js";
+import { monthSpendingOutlook } from "./spending-outlook.js";
 import { chooseMemeCard } from "../features/meme-engine-premium.js";
 import { isMissingCategory, isMissingPayment } from "../kakao/reply-texts.js";
-import { currentMonthKst, formatDate, nowKstDate } from "../nlu/date-payment.js";
+import { formatDate, nowKstDate } from "../nlu/date-payment.js";
 import { calculateStats, escapeHtml, numberWithCommas } from "./transactions-core.js";
 // @build:imports-end
 
@@ -81,6 +82,15 @@ function formatChangeRate(current, previous, emptyLabel = "새로 생김") {
   const cur = Number(current || 0);
   if (!prev) return cur ? emptyLabel : "0%";
   return formatSignedPercent(percentChange(cur, prev));
+}
+
+// V22.9.79 감사 V44 D-13(남은 몫): 관리자 PC 분석·대시보드·주간 리포트도 이전 값이 0원이면 증감률(+100%)을 지어내지 않고
+// 이전 값이 0원이었다고 말한다. 사용자 화면(formatChangeRate)과 같은 규칙이다.
+function formatChangeAgainst(label, current, previous) {
+  const prev = Number(previous || 0);
+  const cur = Number(current || 0);
+  if (!prev) return cur ? `${label} 비교 기록 없음` : `${label} 대비 0%`;
+  return `${label} 대비 ${formatSignedPercent(percentChange(cur, prev))}`;
 }
 
 function deltaClass(v) {
@@ -183,18 +193,24 @@ function monthlyObservedSpending(rows, month) {
   };
 }
 
+// V22.9.79 W-7: 월말 예상을 낼 수 없으면(기록 날짜·금액 오류, 영수증 불완전) 0원이 아니라 확인 불가로 적는다.
 function renderObservedMoney(analysis, amount) {
-  return analysis.basisDays === 0 ? "관측 전" : `${numberWithCommas(amount || 0)}원`;
+  return analysis.basisDays === 0 ? "관측 전" : amount == null ? "확인 불가" : `${numberWithCommas(amount || 0)}원`;
 }
 
-function calculateDashboardAnalysis(allRows, filteredRows, calendar, month) {
+// V22.9.79 V76 W-7: 월말 예상(burnForecast)은 monthSpendingOutlook(전체 분류)이다. 고정지출 규칙·정기지출 항목을 읽은 화면
+// (/my/analysis?view=report·/smart-tools)은 그 결과(outlook)를 넘기고, 넘기지 않으면 기록만으로 계산한다(규칙·항목은 못 읽은 것으로
+// 보아 partial — 그래도 이미 적힌 고정지출은 속도에서 빠진다). 밈·위험 점수도 이 값을 쓴다.
+function calculateDashboardAnalysis(allRows, filteredRows, calendar, month, { outlook = null } = {}) {
   const stats = calculateStats(allRows);
   const expense = stats.totals.expense;
   const income = stats.totals.income;
   // V22.9.34 2차 점검 U01: 하루 평균·무지출일은 이번 달이면 오늘까지, 지난 달이면 그 달 전체, 앞으로 올 달이면
   // 0일을 기준으로 센다. 예전에는 이번 달도 아직 오지 않은 날까지 세어 무지출일이 부풀고 하루 평균이 낮아졌다.
   const observation = monthlyObservedSpending(allRows, month);
-  const { basisDays, basisEnd, avgExpense, noSpendDays, expenseDays, burnForecast } = observation;
+  const { basisDays, basisEnd, avgExpense, noSpendDays, expenseDays } = observation;
+  const spendingOutlook = outlook || monthSpendingOutlook({ month, rows: allRows, recurring: null, plans: null });
+  const burnForecast = basisDays && spendingOutlook.expected ? spendingOutlook.expected.total : null;
   const topCategory = stats.categories.find((c) => c.expense > 0) || { category: "없음", expense: 0 };
   const maxDay = calendar.reduce((a, d) => Number(d.expense || 0) > Number(a.expense || 0) ? d : a, { date: "", expense: 0 });
   const missingCategory = allRows.filter((r) => isMissingCategory(r.category)).length;
@@ -240,23 +256,16 @@ function calculateDashboardAnalysis(allRows, filteredRows, calendar, month) {
   const foodAmount = sumAmount(foodRows);
   const taxAmount = sumAmount(taxRows);
   const riskScore = basisDays ? Math.min(100, Math.round((fixedRate * 0.24) + (concentration * 0.22) + (maxDayRate * 0.18) + (weekendRate * 0.14) + (missingAny * 2.2) + (income > 0 && burnForecast > income ? 20 : 0))) : null;
-  const analysisBase = { ...observation, stats, income, expense, avgExpense, noSpendDays, expenseDays, basisDays, basisEnd, topCategory, maxDay, missingCategory, missingPayment, missingAny, fixedExpense, fixedRate, concentration, maxDayRate, weekendExpense, weekendRate, cafeCount, cafeAmount, deliveryCount, deliveryAmount, shoppingCount, shoppingAmount, subscriptionCount, subscriptionAmount, vehicleAmount, groceryAmount, medicalAmount, childAmount, petAmount, beautyAmount, cultureAmount, foodAmount, taxAmount, burnForecast, riskScore };
+  const analysisBase = { ...observation, stats, income, expense, avgExpense, noSpendDays, expenseDays, basisDays, basisEnd, topCategory, maxDay, missingCategory, missingPayment, missingAny, fixedExpense, fixedRate, concentration, maxDayRate, weekendExpense, weekendRate, cafeCount, cafeAmount, deliveryCount, deliveryAmount, shoppingCount, shoppingAmount, subscriptionCount, subscriptionAmount, vehicleAmount, groceryAmount, medicalAmount, childAmount, petAmount, beautyAmount, cultureAmount, foodAmount, taxAmount, burnForecast, spendingOutlook, riskScore };
   return { ...analysisBase, meme: chooseMemeCard(analysisBase) };
 }
 
-function forecastMonthlyExpense(currentExpense, month) {
-  const today = nowKstDate();
-  const currentMonth = currentMonthKst();
-  if (month > currentMonth) return null;
-  const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
-  const elapsed = month === currentMonth ? Math.max(1, today.getDate()) : daysInMonth;
-  return Math.round(currentExpense / elapsed * daysInMonth);
-}
+// V22.9.79 W-7: 부르는 곳이 없던 forecastMonthlyExpense(하루 평균 × 그 달 일수)를 지웠다. 월말 예상은 monthSpendingOutlook 하나다.
 // @build:exports-start
 export {
   addMonthsYm, calculateDashboardAnalysis, calculateExtendedAnalytics, categoryExpenseMap,
-  deltaClass, formatSignedPercent, monthObservation, monthlyObservedSpending, percentChange,
-  renderCategoryCompareTable, renderCategoryTrendTable, renderMonthlyTrendMini,
+  deltaClass, formatChangeAgainst, formatSignedPercent, monthObservation, monthlyObservedSpending,
+  percentChange, renderCategoryCompareTable, renderCategoryTrendTable, renderMonthlyTrendMini,
   renderMonthlyTrendTable, renderObservedMoney, renderStrategyCards, renderWeekdayStats,
   renderYearlyMonthSummary,
 };

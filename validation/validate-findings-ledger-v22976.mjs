@@ -17,6 +17,7 @@ const SOURCES = [
   // V22.9.77: 고치는 중에 새로 찾은 항목도 문서에 적고 추적표로 옮긴다.
   { key: "V77", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_77.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(N-[0-9]+)(?=[ *]|$)/gm, expected: null },
   { key: "V78", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_78.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(S-[0-9]+)(?=[ *]|$)/gm, expected: null },
+  { key: "V79", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_79.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(T-[0-9]+)(?=[ *]|$)/gm, expected: null },
 ];
 // '결함 아님'은 다시 확인해 보니 규격·의도대로인 항목이다. 메모에 근거(규격 문서 줄 등)를 적는다.
 const STATUSES = new Set(["고침", "일부 고침", "남음", "결정 필요", "확인 불가", "결함 아님"]);
@@ -27,7 +28,7 @@ const ledger = read("docs/codex/FINDINGS_LEDGER.md");
 const harness = read(".codex/scripts/verify-repository.mjs");
 const rows = [];
 for (const line of ledger.split("\n")) {
-  const match = /^[|] *((V44|V76|V77|V78):[A-Z]-[0-9]+) *[|]/.exec(line);
+  const match = /^[|] *((V44|V76|V77|V78|V79):[A-Z]-[0-9]+) *[|]/.exec(line);
   if (!match) continue;
   const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
   const [id, severity, title, status, fixedIn, check, note] = cells;

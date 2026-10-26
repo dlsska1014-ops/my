@@ -1,7 +1,11 @@
 // @build:imports-start
 import {
-  parseMobileAmountText, quickAmountFieldState, quickInputDate, transactionTypeFromText,
+  moneyTokenSpans, parseMobileAmountText, quickAmountFieldState, quickInputDate,
+  transactionTypeFromText,
 } from "./shared-input-parsers.js";
+import {
+  cleanInputMemo, detectInputPayment, foldInputWidth, inferInputCategory, normalizeInputText,
+} from "./shared-input-nlu.js";
 import { importMappingClientMain } from "./lucian-d-import.js";
 import { importPreviewClientMain } from "../my/backup-import.js";
 import { escapeHtml } from "../domain/transactions-core.js";
@@ -10,16 +14,11 @@ import { escapeHtml } from "../domain/transactions-core.js";
 function mobileUiUxClientMain() {
   "use strict";
 
-  function normalizeText(value) {
-    return String(value || "")
-      .replace(/[~!@#$%^&*_=+\x60|\\{}\[\]:;"'<>?]/g, " ")
-      .replace(/[()]/g, " ")
-      .replace(/\s+/g, " ")
-      .trim();
-  }
-
   function detectType(text) { return transactionTypeFromText(text, window.AB_CATEGORY_RULES || []); }
 
+  // V22.9.79 (V77 N-11·V44 A-10): 결제수단·분류·메모는 서버와 같은 공유 함수(foldInputWidth·normalizeInputText·detectInputPayment·
+  // inferInputCategory·cleanInputMemo, client/shared-input-nlu.js)로 판정한다. 예전에는 이 안에 서버 사본이 있어 서버만 고친 결함
+  // (V22.9.77 N-1 '토스트'→결제수단 토스, V22.9.76 A-10 낱말 속 글자 분류)가 미리 보기에 그대로 남았다.
   function detectPayment(text) {
     const options = Array.from(document.querySelectorAll("#paymentList option"))
       .map(function(option) { return String(option.value || "").trim(); })
@@ -28,61 +27,17 @@ function mobileUiUxClientMain() {
     for (let i = 0; i < options.length; i += 1) {
       if (text.indexOf(options[i]) >= 0) return options[i];
     }
-    const brands = ["신한", "현대", "삼성", "국민", "KB", "우리", "롯데", "하나", "농협", "NH", "BC", "비씨", "카카오", "토스"];
-    for (let i = 0; i < brands.length; i += 1) {
-      if (new RegExp(brands[i] + "\\s*카드", "i").test(text)) {
-        const upper = brands[i].toUpperCase();
-        return ["KB", "NH", "BC"].includes(upper) ? upper + "카드" : brands[i] + "카드";
-      }
-    }
-    if (/삼성\s*페이|삼페/.test(text)) return "삼성페이";
-    if (/카카오\s*페이|카페이/.test(text)) return "카카오페이";
-    if (/네이버\s*페이|네페/.test(text)) return "네이버페이";
-    if (/애플\s*페이|애플페이/.test(text)) return "애플페이";
-    if (/현금/.test(text)) return "현금";
-    if (/계좌|이체|송금|자동이체|무통장/.test(text)) return "계좌이체";
-    if (/체크/.test(text)) return "체크카드";
-    if (/신용/.test(text)) return "신용카드";
-    if (/카드/.test(text)) return "카드";
-    return "";
+    return detectInputPayment(normalizeInputText(text));
   }
 
   function detectCategory(text, type) {
-    // 규칙은 서버 정본(AB_CATEGORY_RULES)에서 온다. 여기 목록을 다시 적으면
-    // 예전처럼 같은 문장에 다른 분류가 나온다.
-    var rules = window.AB_CATEGORY_RULES || [];
-    text = String(text || "").toLowerCase();
-    var toks = text.split(/[^a-z0-9가-힣]+/).filter(Boolean);
-    var best = null;
-    for (var i = 0; i < rules.length; i += 1) {
-      var rule = rules[i];
-      if (rule.type !== type) continue;
-      var score = 0;
-      for (var j = 0; j < rule.words.length; j += 1) {
-        var word = rule.words[j];
-        if (word && text.indexOf(word) >= 0) score += rule.weight + Math.min(word.length, 8);
-      }
-      var exact = rule.exact || [];
-      for (var k = 0; k < exact.length; k += 1) {
-        if (toks.indexOf(exact[k]) >= 0) score += rule.weight + Math.min(exact[k].length, 8);
-      }
-      if (score > 0 && (!best || score > best.score)) best = { name: rule.name, score: score };
-    }
-    if (best) return best.name;
-    return type === "income" ? "기타수입" : "";
+    // 규칙은 서버 정본(AB_CATEGORY_RULES)에서 온다. 여기 목록을 다시 적으면 예전처럼 같은 문장에 다른 분류가 나온다.
+    const found = inferInputCategory(normalizeInputText(text).toLowerCase(), type, window.AB_CATEGORY_RULES || []);
+    return found === "기타지출" ? "" : found;
   }
 
-  function cleanMemo(text, payment) {
-    let value = normalizeText(text)
-      .replace(/(?:오늘|어제|그저께|그제|금일|방금)/g, " ")
-      .replace(/(?:20\d{2}[.\-/년\s]+)?\d{1,2}[.\-/월\s]+\d{1,2}\s*일?/g, " ")
-      .replace(/\d+(?:[.,]\d+)?\s*(?:억|만|천|백)?\s*원?/g, " ")
-      .replace(/(?:수입|입금|지출|출금)\b/g, " ");
-    if (payment) value = value.split(payment).join(" ");
-    value = value
-      .replace(/(?:신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오|토스)\s*카드/gi, " ")
-      .replace(/현금|계좌이체|체크카드|신용카드|카드/g, " ");
-    return normalizeText(value).slice(0, 80);
+  function cleanMemo(text, payment, type, category) {
+    return cleanInputMemo(text, (moneyTokenSpans(normalizeInputText(text))[0] || {}).raw || "", type, payment, category);
   }
 
   function formatAmount(value) {
@@ -101,15 +56,18 @@ function mobileUiUxClientMain() {
     const payment = document.getElementById("payInput");
     const category = document.getElementById("catInput");
     if (!smart || !amount || !memo) return;
-    const raw = normalizeText(smart.value);
-    const parsedAmount = parseMobileAmountText(raw);
+    const typed = String(smart.value || "").trim();
+    // 서버(parseTransaction)와 같이 입구에서 한 번(raw), 금액·날짜·구분 판정에서 한 번 더(scan) 다듬는다. 결제수단·분류·메모 판정은 스스로 한 번 더 다듬는다.
+    const raw = normalizeInputText(foldInputWidth(typed));
+    const scan = normalizeInputText(raw);
+    const parsedAmount = parseMobileAmountText(scan);
     const dateInput = document.getElementById("txDate");
-    const parsedDate = quickInputDate(raw);
+    const parsedDate = quickInputDate(scan);
     if (dateInput && parsedDate) dateInput.value = parsedDate;
-    const type = detectType(raw);
+    const type = detectType(scan);
     const parsedPayment = detectPayment(raw);
     const parsedCategory = detectCategory(raw, type);
-    const parsedMemo = cleanMemo(raw, parsedPayment);
+    const parsedMemo = cleanMemo(raw, parsedPayment, type, parsedCategory);
     const radio = document.querySelector('input[name="type"][value="' + type + '"]');
     if (radio) radio.checked = true;
     amount.value = formatAmount(parsedAmount);
@@ -117,7 +75,7 @@ function mobileUiUxClientMain() {
     if (payment && parsedPayment) payment.value = parsedPayment;
     if (category && parsedCategory) category.value = parsedCategory;
     const rawInput = document.getElementById("rawTextInput");
-    if (rawInput) rawInput.value = raw;
+    if (rawInput) rawInput.value = typed;
     const status = document.querySelector(".smartHint");
     if (status) {
       status.setAttribute("aria-live", "polite");

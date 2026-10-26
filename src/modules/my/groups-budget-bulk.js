@@ -56,7 +56,7 @@ async function handleMyGroupsPage(request, env, url) {
   if (restricted) return myAccessStatusResponse({ env, user, household: restricted, role: restricted.role, month });
   if (invalidRequested && households.length && !householdIdWasRemembered(request)) return householdNotFoundResponse({ env, user, requestedId: invalidRequested });
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
-  if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true });
+  if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true, screen: "groups" });
   const map = await fetchKakaoGroupLinkMap(env);
   const linked = Object.entries(map).filter(([k, v]) => String(v.household_id || "") === String(selected.id));
   const rows = linked.length ? linked.map(([groupKey, item]) => `<tr><td>${escapeHtml(maskKey(groupKey))}</td><td>${escapeHtml(item.household_name || selected.name)}</td><td>${escapeHtml(String(item.linked_at || "").slice(0, 19).replace("T", " "))}</td><td>${escapeHtml(maskKey(item.linked_by || ""))}</td></tr>`).join("") : `<tr><td colspan="4">아직 연결된 단톡방이 없습니다.</td></tr>`;

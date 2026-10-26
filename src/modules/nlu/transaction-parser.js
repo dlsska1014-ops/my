@@ -1,5 +1,6 @@
 // @build:imports-start
 import { moneyTokenSpans } from "../client/shared-input-parsers.js";
+import { foldInputWidth } from "../client/shared-input-nlu.js";
 import {
   detectTypeDetail, extractAmount, normalizeText, normalizeType, parseAmountValue,
 } from "./amount-parser.js";
@@ -13,12 +14,15 @@ import { cleanMemo, inferCategory, normalizeCategoryName } from "./category-rule
 const KAKAO_LIST_MARKER_PREFIX = /^(?:\d{1,2}[.)]|[-•*])\s+/;
 
 function parseMultipleTransactions(text, payload) {
+  // V22.9.79 A-16: 전각 숫자(“커피 ４５００”)는 입구에서 반각으로 바꿔 날짜·금액·메모가 모두 같은 글자를 읽게 한다. 저장하는 원문은 받은 그대로다.
+  const original = text;
+  text = foldInputWidth(text);
   const clauses = splitTransactionClauses(text);
   if (clauses.length <= 1) {
     // V22.9.63: 한 줄짜리 번호 목록("1. 점심 12000원")도 표식을 뗀 본문으로 읽는다. 예전에는 "1"이 금액으로 읽혔다.
     const one = parseTransaction(clauses.length === 1 && KAKAO_LIST_MARKER_PREFIX.test(String(text || "").trim()) ? clauses[0] : text, payload);
     if (one.ok && one.type_confirmation) return blockedTransactionParse(mixedTypeConfirmation(one));
-    return one.ok ? [{ ...one, raw_text: text }] : blockedTransactionParse(one);
+    return one.ok ? [{ ...one, raw_text: original }] : blockedTransactionParse(one);
   }
   const out = [];
   for (const clause of clauses) {
@@ -109,7 +113,7 @@ function splitByAmountEnds(text) {
 function findAmountTokenSpans(text) { return moneyTokenSpans(normalizeText(text)); }
 
 function parseTransaction(text, payload) {
-  const raw = normalizeText(text);
+  const raw = normalizeText(foldInputWidth(text));
   const params = extractKakaoParams(payload);
   const entityType = normalizeType(params.type || params.transaction_type || params.거래구분 || params.구분);
   const typeDetail = entityType ? null : detectTypeDetail(raw);

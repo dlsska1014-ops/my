@@ -1,6 +1,7 @@
 // @build:imports-start
 import { APP_VERSION, appName } from "../public/site-config.js";
 import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { fetchReservePlans } from "../settings/reserve-plans.js";
 import {
   attachSpenderNames, fetchAdminRowsRange, fetchHouseholdMembers,
 } from "../data/households-members-rows.js";
@@ -25,8 +26,9 @@ import {
   myAccessStatusResponse,
 } from "./access-control.js";
 import {
-  budgetSummary, fetchBudgets, fetchObservationMonthRows, fetchRecurring,
+  budgetSummary, fetchBudgets, fetchObservationMonthRows, fetchRecurringStrict,
 } from "../domain/budgets.js";
+import { monthSpendingOutlook } from "../domain/spending-outlook.js";
 import {
   buildWeeklyReport, detectRecurringCandidates, findAnomalousExpenses,
 } from "../admin/pc-analysis-calendar.js";
@@ -46,14 +48,16 @@ function analysisFlashCode(value) {
 }
 
 async function handleMyAnalysisPage(request, env, url) {
-  const ctx = await getMyPageContext(request, env, url, { observedComparison: true });
+  // V22.9.79 V76 W-7: 고정지출 규칙은 월말 예상과 함께 ctx 에서 읽는다(반복 후보도 같은 값). 이 화면의 추가 요청은 정기지출 항목 하나다.
+  const ctx = await getMyPageContext(request, env, url, { observedComparison: true, outlook: true });
   if (ctx.redirect) return ctx.redirect;
   const householdId = ctx.selected?.id || "";
   const month = ctx.month;
-  const [prevRows, historyRaw, registeredRecurring, challengeValue] = await Promise.all([
+  // V22.9.79: 못 읽은 목록(null)을 빈 목록으로 바꾸지 않는다 — 아래에서 반복 후보를 고르지 않고 '확인 불가'로 보인다.
+  const registeredRecurring = ctx.recurring;
+  const [prevRows, historyRaw, challengeValue] = await Promise.all([
     householdId ? fetchObservationMonthRows(env, householdId, addMonthsYm(month, -1)) : [],
     householdId ? fetchAdminRowsRange(env, { householdId, start: `${addMonthsYm(month, -11)}-01`, end: nextMonthStart(month), limit: 9001, complete: false }) : [],
-    householdId ? fetchRecurring(env, householdId) : [],
     householdId ? getSettingValue(env, reportChallengeSettingsKey(householdId)) : "",
   ]);
   const truncated = historyRaw.length > 9000;
@@ -62,7 +66,8 @@ async function handleMyAnalysisPage(request, env, url) {
   const yearRows = historyRows.filter((row) => String(row.transaction_date || "").startsWith(yearPrefix));
   const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows, rowsBase: ctx.rows });
   extended.fairMoM = computeFairMoM(month, ctx.rows, prevRows);
-  const recurringCandidates = detectRecurringCandidates(historyRows, month, registeredRecurring);
+  // V22.9.79: 정기 항목 목록을 못 읽으면 이미 등록한 항목까지 반복 후보로 보이므로 후보를 고르지 않는다(null: '확인 불가').
+  const recurringCandidates = registeredRecurring ? detectRecurringCandidates(historyRows, month, registeredRecurring) : null;
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);
   const weeklyReport = buildWeeklyReport(historyRows, month);
   const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows: ctx.rows, value: challengeValue });
@@ -89,11 +94,14 @@ async function handleMyInsightPage(request, env, url) {
   const dataEnd = nextMonthStart(month);
   // Reuse the existing paged transaction GETs, including their exact-count
   // metadata. Members, budget and settings still use the existing parallel read.
-  const [members, budgets, history, challengeValue] = await Promise.all([
+  // V22.9.79 V76 W-7: ‘월말 예상 지출’에 남은 고정지출·정기지출을 넣으려고 규칙·정기 항목을 같은 단계에서 읽는다(+2, 직렬 깊이 그대로).
+  const [members, budgets, history, challengeValue, recurring, reservePlans] = await Promise.all([
     fetchHouseholdMembers(env, selected.id),
     fetchBudgets(env, selected.id, month),
     fetchAdminRowsRange(env, { householdId: selected.id, start: dataStart, end: dataEnd, limit: 9001, complete: false, analysisReceipt: true }),
     getSettingValue(env, reportChallengeSettingsKey(selected.id)),
+    fetchRecurringStrict(env, selected.id).catch(() => null),
+    fetchReservePlans(env, selected.id, { strict: true }).catch(() => null),
   ]);
   const rawRows = history.rows;
   const truncated = rawRows.length > 9000;
@@ -104,7 +112,8 @@ async function handleMyInsightPage(request, env, url) {
   const currentRows = rows.filter((r) => String(r.transaction_date || "").slice(0, 10) >= currentStart && String(r.transaction_date || "").slice(0, 10) < currentEnd);
   const budget = budgetSummary(currentRows, budgets);
   const challenge = await buildReportChallengeForHousehold(env, { householdId: selected.id, month, rows: currentRows, value: challengeValue });
-  const dashboard = { ...buildReportDashboardSummary(currentRows, budget, month), householdId: selected.id };
+  const outlook = monthSpendingOutlook({ month, rows: currentRows, receipt, recurring, plans: reservePlans });
+  const dashboard = { ...buildReportDashboardSummary(currentRows, budget, month, { outlook }), householdId: selected.id };
   return htmlResponse(renderMyInsightHtml({ env, month, selected, rows, currentRows, budget, dashboard, challenge, dataStart, truncated, receipt }));
 }
 
@@ -145,6 +154,7 @@ function renderMyInsightHtml({ env, month, selected, rows, currentRows = [], bud
     receipt,
   };
   const dataJson = JSON.stringify(payload).replace(/</g, "\\u003c");
+  // V22.9.79 V44 F-6: 머리말의 ‘예산 설정’(/my/settings)은 소유자·관리자 전용이라 구성원·조회 전용이 누르면 403 이었다. 그들에게는 볼 수 있는 /budgets 로 잇는다.
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 분석</title><style>
 *,*:before,*:after{box-sizing:border-box}
 [hidden]{display:none!important}
@@ -216,13 +226,13 @@ body{margin:0;background:#F7F8FA;color:#191F28;font-family:-apple-system,BlinkMa
 .dRow b{font-size:13px;color:#191F28;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .dRow .pct{color:#8B95A1;font-size:12px;font-weight:800}
 .dRow .amt{font-size:13px;font-weight:900;color:#333D4B;font-variant-numeric:tabular-nums;white-space:nowrap}
-.hRows{display:grid;gap:4px}
-.hRow{display:grid;gap:5px;border:0;background:transparent;padding:8px;border-radius:12px;font:inherit;text-align:left;cursor:pointer}
+.hRows{display:grid;grid-template-columns:minmax(0,1fr);gap:4px}
+.hRow{display:grid;grid-template-columns:minmax(0,1fr);gap:5px;border:0;background:transparent;padding:8px;border-radius:12px;font:inherit;text-align:left;cursor:pointer}
 .hRow:hover{background:#F5F7F9}
 .hRow.dim{opacity:.45}
 .hRow.sel{background:#EFF6FF}
 .hTop{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
-.hTop b{font-size:13px;color:#191F28;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.hTop b{min-width:0;font-size:13px;color:#191F28;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .hTop span{font-size:13px;font-weight:900;color:#333D4B;font-variant-numeric:tabular-nums;white-space:nowrap}
 .hTop span small{color:#8B95A1;font-weight:700;margin-left:4px}
 .hTrack{height:8px;background:#EFF3F8;border-radius:999px;overflow:hidden}
@@ -282,7 +292,7 @@ svg text{font-family:inherit}
 @media(max-width:520px){.donutWrap{grid-template-columns:1fr;justify-items:center}.dLegend{width:100%}}
 ${reportUxCss()}
 </style></head><body>${renderUnifiedNav("stats", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, role: String(selected.role || ""), sidebarRows: currentRows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap reportPageWrap"><div class="pageMain">
-<section class="hero abV5PageHeader"><div class="heroTop abV5PageHeaderTop"><div class="abV5PageTitle"><h1>소비 분석</h1><p>${escapeHtml(selected.name)} · 빠르게 보는 요약 화면입니다. <b>소비 분석은 필터로 좁혀 보는 화면</b>이고, <b>종합 리포트는 이번 달 전체를 고정해 보는 화면</b>입니다. 여기서는 최근 12개월 기록을 기간·분류·결제수단·구성원·금액·검색어로 조합해 봅니다.</p></div><div class="heroBtns abV5HeaderActions"><a class="primary" href="/my/analysis?view=report&${qs}">깊게 보기(종합 리포트)</a><a href="/settlement-summary?${qs}">정산</a><a href="/my/settings?${qs}">예산 설정</a></div></div></section>
+<section class="hero abV5PageHeader"><div class="heroTop abV5PageHeaderTop"><div class="abV5PageTitle"><h1>소비 분석</h1><p>${escapeHtml(selected.name)} · 빠르게 보는 요약 화면입니다. <b>소비 분석은 필터로 좁혀 보는 화면</b>이고, <b>종합 리포트는 이번 달 전체를 고정해 보는 화면</b>입니다. 여기서는 최근 12개월 기록을 기간·분류·결제수단·구성원·금액·검색어로 조합해 봅니다.</p></div><div class="heroBtns abV5HeaderActions"><a class="primary" href="/my/analysis?view=report&${qs}">깊게 보기(종합 리포트)</a><a href="/settlement-summary?${qs}">정산</a>${canManageMyHousehold(selected.role) ? `<a href="/my/settings?${qs}">예산 설정</a>` : `<a href="/budgets?${qs}">예산 보기</a>`}</div></div></section>
 ${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id })}
 ${receipt.status === "complete" && !truncated ? renderReportDashboard(dashboard) : '<section class="card" data-insight-incomplete><b>자료를 모두 확인하지 못했습니다.</b><p class="dataNote">아래 합계·구성·목록은 현재 수신한 자료만 표시합니다. 관측 평균·소비 속도·챌린지 달성은 확인을 보류합니다. 새로고침한 뒤 다시 확인해 주세요.</p></section>'}
 ${receipt.status === "complete" && !truncated ? renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(selected.role) }) : ""}

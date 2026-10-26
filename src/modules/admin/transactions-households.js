@@ -32,12 +32,12 @@ import {
 import { activeSpenderExists, getTransactionForUserEdit } from "../my/transactions.js";
 import { purgeHouseholdData } from "../my/households-lifecycle.js";
 import { budgetAlertText, fetchBudgets } from "../domain/budgets.js";
-import { renderV8TxEditForm } from "../my/home-sections.js";
+import { renderTxEditSuggestionLists, renderV8TxEditForm } from "../my/home-sections.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { markKakaoGroupDeparture } from "../kakao/group-links-first-record.js";
 import { markKakaoChatFirstHistory } from "../kakao/identity-chat-first.js";
 import {
-  getHouseholdMemberRole, getHouseholdMemberRoleStrict, isHouseholdRoleCheckFailure,
+  getHouseholdMemberRoleStrict, isHouseholdRoleCheckFailure,
 } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 import {
@@ -182,11 +182,24 @@ function transactionReturnFallback(month, householdId, extra = {}) {
   return dashboardQuery(month, householdId, { tab: "transactions", ...extra });
 }
 
+// V22.9.79 D-27: 역할 조회(household_members)가 503·시간 초과로 실패하면 예전에는 getHouseholdMemberRole 이 빈 역할을 돌려줘
+// "기록 입력 권한이 없습니다"·"이 기록을 수정할 권한이 없습니다"·"고정지출 저장 권한이 없습니다"로 안내했다. 권한이 있는 사람에게 권한이 없다고 말한 것이다.
+// V22.9.76 이 가계부 이름 바꾸기·나가기·참여자 권한에 적용한 엄격 조회를 여기에도 쓴다. 조회가 실패하면 ok=false 에 lookupFailed·lookupMessage 를
+// 실어 돌려준다. 호출한 화면은 거절 문구 대신 안내를 보여 준다(아무것도 바꾸지 않았다는 말과 다시 시도하라는 말). 쿼리로 돌아가는 화면은 lookupCode(formatMessage 가
+// 아는 코드 — 자유 문장은 일반 안내로 닫힌다), JSON·조각 응답은 lookupMessage 문장을 쓴다.
+const TRANSACTION_ROLE_CHECK_FAILED_MESSAGE = "권한을 확인하지 못해 아무것도 바꾸지 않았습니다. 잠시 후 다시 시도해 주세요.";
 async function resolveTransactionAccess(request, env, householdId, { manageOnly = false } = {}) {
   if (await verifyAdminSession(request, env)) return { ok: true, admin: true, userId: "", role: "admin" };
   const userId = await verifyUserSession(request, env);
   if (!userId || !householdId) return { ok: false, admin: false, userId: userId || "", role: "" };
-  const role = String(await getHouseholdMemberRole(env, userId, householdId) || "").toLowerCase();
+  let role = "";
+  try {
+    role = String(await getHouseholdMemberRoleStrict(env, userId, householdId) || "").toLowerCase();
+  } catch (err) {
+    if (!isHouseholdRoleCheckFailure(err)) throw err;
+    rememberOpsEvent({ kind: "household_role_check_failed", severity: "warn", path: new URL(request.url).pathname, method: request.method, detail: safeError(err) });
+    return { ok: false, admin: false, userId, role: "", lookupFailed: true, lookupCode: "household_role_check_failed", lookupMessage: TRANSACTION_ROLE_CHECK_FAILED_MESSAGE };
+  }
   const ok = manageOnly ? ["owner", "admin"].includes(role) : canWriteMyHousehold(role) && !!role;
   return { ok, admin: false, userId, role };
 }
@@ -226,7 +239,7 @@ async function handleAdminAddTransaction(request, env) {
   const householdId = String(form.get("household_id") || "").trim();
   const access = await resolveTransactionAccess(request, env, householdId);
   if (!access.ok) {
-    if (!access.admin && access.userId) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "기록 입력 권한이 없습니다." }), transactionAddRedirectExtras(form, { err: "기록 입력 권한이 없습니다." }, "error")));
+    if (!access.admin && access.userId) { const denied = access.lookupCode || "기록 입력 권한이 없습니다."; return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), transactionAddRedirectExtras(form, { err: denied }, "error"))); }
     return redirectResponse(signedOutWriteRedirect(form));
   }
   const txType = normalizeTransactionType(form.get("type"));
@@ -330,12 +343,13 @@ async function handleAdminDeleteTransaction(request, env) {
   const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
   if (wantsJson) {
     if (!access.admin && !access.userId) return jsonResponse({ ok: false, error: "unauthorized", message: "로그인이 만료되었습니다. 다시 로그인해 주세요." }, 401);
+    if (access.lookupFailed) return jsonResponse({ ok: false, error: "role_check_failed", message: access.lookupMessage }, 503);
     if (!access.ok) return jsonResponse({ ok: false, error: "forbidden", message: "이 기록을 삭제할 권한이 없습니다." }, 403);
     if (!targetRow || rowHousehold !== householdId) return jsonResponse({ ok: false, error: "record_not_found", message: "이 가계부에서 기록을 찾지 못했습니다." }, 404);
     if (!isManager && !ownRow) return jsonResponse({ ok: false, error: "forbidden", message: "이 기록을 삭제할 권한이 없습니다." }, 403);
   }
   if (!access.ok || !targetRow || (!isManager && !ownRow)) {
-    if (!access.admin && access.userId) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "이 기록을 삭제할 권한이 없습니다." }), { err: "이 기록을 삭제할 권한이 없습니다." }));
+    if (!access.admin && access.userId) { const denied = access.lookupCode || "이 기록을 삭제할 권한이 없습니다."; return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), { err: denied })); }
     return redirectResponse(signedOutWriteRedirect(form));
   }
   // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 지우지 못한다(소유자·관리자는 그대로).
@@ -385,17 +399,17 @@ async function handleTransactionEditPage(request, env, url) {
   const backTo = safeUserReturnPath(url.searchParams.get("return_to") || "", fallbackPath);
 
   if (!access.ok || !targetRow || (!isManager && !ownRow)) {
-    const denied = "이 기록을 수정할 권한이 없습니다.";
+    const denied = access.lookupMessage || "이 기록을 수정할 권한이 없습니다.";
     if (wantsFragment) {
       // 조각 요청에는 리다이렉트가 쓸모없다. 슬롯에 그대로 넣을 수 있는 문장을 준다.
       return new Response(`<p class="v8-editError">${escapeHtml(denied)}</p>`, {
-        status: 403,
+        status: access.lookupFailed ? 503 : 403,
         headers: { ...HTML_HEADERS },
       });
     }
     if (!access.admin && access.userId) {
       const target = new URL(backTo, "https://accountbook.local");
-      target.searchParams.set("err", denied);
+      target.searchParams.set("err", access.lookupCode || denied);
       return redirectResponse(`${target.pathname}${target.search}`);
     }
     return redirectResponse(`/my?return_to=${encodeURIComponent(backTo)}`);
@@ -436,7 +450,9 @@ async function handleTransactionEditPage(request, env, url) {
   // V22.9.34 감사 T1b: 제목 아래 설명도 권한 판정용 좁은 행이 아니라 전체 행으로 쓴다(예전에는 늘 "기록").
   const memo = editRow.memo || editRow.raw_text || "기록";
   const title = escapeHtml(appName(env));
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>기록 수정 · ${title}</title><style>.wrap{max-width:640px;margin:0 auto;padding:16px}.txEditHead{margin:0 0 12px}.txEditHead h1{font-size:20px;margin:0 0 4px}.txEditBack{display:inline-flex;min-height:44px;align-items:center}</style></head><body>${renderUnifiedNav("transactions")}<main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><p class="muted">${escapeHtml(String(targetRow.transaction_date || ""))} · ${escapeHtml(memo)}</p></section><section class="card">${formHtml}</section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`);
+  // V22.9.79 V44 F-3: 온전한 수정 화면은 폼의 분류·결제수단 칸이 가리키는 제안 목록(datalist)을 폼 뒤에 함께 싣는다(조각에는 싣지 않는다).
+  // V22.9.79 F-4: 이 화면은 홈 스타일시트(.v8-edit 격자)를 받지 않아 긴 표시 이름이 든 지출자 select 가 폼 밖(R=620 @360px)으로 나갔다. 폼·라벨을 한 열 격자(minmax(0,1fr))로 두고 입력칸이 줄어들게 한다.
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>기록 수정 · ${title}</title><style>.wrap{max-width:640px;margin:0 auto;padding:16px}.txEditHead{margin:0 0 12px}.txEditHead h1{font-size:20px;margin:0 0 4px}.txEditBack{display:inline-flex;min-height:44px;align-items:center}.v8-edit,.v8-edit-field{display:grid;gap:8px;grid-template-columns:minmax(0,1fr)}.v8-edit-field>span{font-size:12px;font-weight:800}.v8-edit select,.v8-edit input{min-width:0;max-width:100%;width:100%}</style></head><body>${renderUnifiedNav("transactions")}<main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><p class="muted">${escapeHtml(String(targetRow.transaction_date || ""))} · ${escapeHtml(memo)}</p></section><section class="card">${formHtml}${renderTxEditSuggestionLists(editRow)}</section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`);
 }
 
 async function handleAdminUpdateTransaction(request, env) {
@@ -450,7 +466,7 @@ async function handleAdminUpdateTransaction(request, env) {
   const isManager = access.admin || ["owner", "admin"].includes(access.role);
   const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
   if (!access.ok || !targetRow || (!isManager && !ownRow)) {
-    if (!access.admin && access.userId) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "이 기록을 수정할 권한이 없습니다." }), { err: "이 기록을 수정할 권한이 없습니다." }));
+    if (!access.admin && access.userId) { const denied = access.lookupCode || "이 기록을 수정할 권한이 없습니다."; return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), { err: denied })); }
     return redirectResponse(signedOutWriteRedirect(form));
   }
   // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치지 못한다(소유자·관리자는 그대로).
@@ -549,7 +565,8 @@ function renderTransactionEditConflictHtml(env, current, conflicts, backTo, memb
   const shown = (c) => c.field === "amount" ? `${numberWithCommas(c.now)}원` : c.field === "type" ? (c.now === "income" ? "수입" : "지출") : (c.now || "(비어 있음)");
   const typed = (c) => c.field === "amount" ? `${numberWithCommas(c.next)}원` : c.field === "type" ? (c.next === "income" ? "수입" : "지출") : (c.next || "(비어 있음)");
   const rows = conflicts.map((c) => `<li><b>${escapeHtml(c.label)}</b> 지금 값 ${escapeHtml(shown(c))} · 내가 입력한 값 ${escapeHtml(typed(c))}</li>`).join("");
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>기록 수정 · ${escapeHtml(appName(env))}</title></head><body><main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><div class="error" role="alert"><b>다른 곳에서 이 기록이 먼저 바뀌었어요.</b> 저장하지 않았어요. 지금 값을 확인하고 다시 저장해 주세요.<ul>${rows}</ul></div></section><section class="card">${renderV8TxEditForm(current, backTo, members, isManager)}</section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`;
+  // V22.9.79 V44 F-3: 충돌 안내의 수정 폼도 같은 제안 목록을 가진다.
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>기록 수정 · ${escapeHtml(appName(env))}</title></head><body><main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><div class="error" role="alert"><b>다른 곳에서 이 기록이 먼저 바뀌었어요.</b> 저장하지 않았어요. 지금 값을 확인하고 다시 저장해 주세요.<ul>${rows}</ul></div></section><section class="card">${renderV8TxEditForm(current, backTo, members, isManager)}${renderTxEditSuggestionLists(current)}</section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`;
 }
 
 async function handleAdminHouseholdCreate(request, env) {

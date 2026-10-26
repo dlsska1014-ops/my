@@ -2,7 +2,8 @@
 // 예전 카드는 정기 지출 항목(준비 항목)의 건수와 월 준비액만 적었고, 알림센터·예산 알림이 세는 ‘반영 대기’ 고정지출은
 // 세지 않았다. 이제 카드의 합계는 이번 달에 아직 기록되지 않은 지출이다: 반영 대기 고정지출 + 납부일이 오늘~말일인 정기지출.
 //   - 고정지출은 이번 달 표식(last_applied_month)이나 그 규칙의 이번 달 기록(raw_text recurring:<규칙 id>:<달>)이 있으면 뺀다.
-//   - 같은 이름의 고정지출 규칙이 있는 정기지출은 규칙 쪽으로만 센다. 수입은 더하지 않는다.
+//   - 같은 지출로 짝지은 고정지출 규칙이 있는 정기지출은 규칙 쪽으로만 센다. 수입은 더하지 않는다.
+//     V22.9.79 V78 S-1: 짝은 이름만이 아니라 금액이 같고 이름이나 납부일이 같은 것이다(validate-spending-outlook-v22979 가 자세히 본다).
 // 기준 함수(homeUpcomingOut)를 직접 부르고, 메모리 픽스처(validation/qa-fixture.mjs)로 홈(/app·/m)과 알림센터를 그려 본다.
 // 네트워크는 쓰지 않는다. 픽스처의 월세 규칙(650,000원, 5일, 마지막 반영 2026-06)은 10월에 반영 대기다.
 // 사용: node validation/validate-home-upcoming-v22978.mjs [unit|pending|applied|overlap|income|empty|agree]
@@ -34,7 +35,8 @@ async function home(fx, { path = HOME, ua = DESKTOP } = {}) {
 // ── 1. 기준 함수 ─────────────────────────────────────────────────────────────────
 if (run("unit")) {
   // 고치기 전 코드에는 이 함수가 없다. 정적 import 로 받으면 아래 화면 검사까지 못 돌므로 동적으로 읽는다.
-  const { homeUpcomingOut } = await import("../src/modules/my/home-sections.js");
+  // V22.9.79 W-7: 월말 예상과 같은 계산이라 domain/spending-outlook.js 로 옮겼다.
+  const { homeUpcomingOut } = await import("../src/modules/domain/spending-outlook.js");
   ok(typeof homeUpcomingOut === "function", "카드 기준 함수 homeUpcomingOut 이 있다");
   const RULE = { id: "r1", type: "expense", amount: 650000, memo: "월세", category: "주거/관리", day_of_month: 5, is_active: true, last_applied_month: "2026-09" };
   const of = (input) => homeUpcomingOut({ month: MONTH, today: TODAY, rows: [], plans: [], recurring: [], ...input });
@@ -45,12 +47,13 @@ if (run("unit")) {
   deepEq(sum(of({ recurring: [RULE], rows: [{ ...RENT_RECORD, raw_text: "recurring:r1:2026-09" }] })), [650000, 1, 0], "지난달 기록은 이번 달 반영으로 보지 않는다");
   deepEq(sum(of({ recurring: [{ ...RULE, last_applied_month: "2026-11" }] })), [650000, 1, 0], "다음 달 표식만 있고 이번 달 기록이 없으면 아직 대기다(자동 반영도 이번 달 몫을 넣는다)");
   deepEq(sum(of({ recurring: [{ ...RULE, is_active: false }, { ...RULE, id: "r0", amount: 0 }] })), [0, 0, 0], "꺼 둔 규칙과 금액 0 규칙은 세지 않는다(자동 반영도 건너뛴다)");
-  // 같은 항목을 두 곳에 등록한 경우: 이름(공백·대소문자 무시)이 같은 정기지출은 규칙 쪽으로만 센다.
-  const RENT_PLAN = monthly(" 월 세", 600000, 25);
+  // 같은 항목을 두 곳에 등록한 경우: 금액이 같고 이름(공백·대소문자 무시)이 같은 정기지출은 규칙 쪽으로만 센다.
+  // V22.9.79 V78 S-1: 예전에는 이름만 봐서 금액이 다른 항목(600,000원)도 짝이 됐다. 같은 지출이면 금액도 같으므로 650,000원으로 둔다.
+  const RENT_PLAN = monthly(" 월 세", 650000, 25);
   deepEq(sum(of({ recurring: [RULE], plans: [RENT_PLAN] })), [650000, 1, 0], "같은 월세가 고정지출·정기지출에 모두 있으면 규칙 금액으로 한 번 센다");
   deepEq(sum(of({ recurring: [{ ...RULE, last_applied_month: MONTH }], plans: [RENT_PLAN] })), [0, 0, 0], "규칙이 이번 달에 이미 기록됐으면 같은 이름의 정기지출도 세지 않는다");
-  deepEq(sum(of({ recurring: [{ ...RULE, is_active: false }], plans: [RENT_PLAN] })), [600000, 0, 1], "규칙을 꺼 두면 기록을 만들지 않으므로 정기지출 쪽을 센다");
-  deepEq(sum(of({ recurring: [{ ...RULE, memo: "Netflix", category: "구독" }], plans: [monthly("netflix", 17000, 25)] })), [650000, 1, 0], "영문 대소문자만 다른 이름도 같은 항목이다");
+  deepEq(sum(of({ recurring: [{ ...RULE, is_active: false }], plans: [RENT_PLAN] })), [650000, 0, 1], "규칙을 꺼 두면 기록을 만들지 않으므로 정기지출 쪽을 센다");
+  deepEq(sum(of({ recurring: [{ ...RULE, memo: "Netflix", category: "구독", amount: 17000 }], plans: [monthly("netflix", 17000, 25)] })), [17000, 1, 0], "영문 대소문자만 다른 이름도 같은 항목이다");
   // 정기지출의 날짜: 오늘부터 말일까지만.
   const plansByDate = [monthly("통신비", 55000, 21), monthly("도시가스", 40000, 10), { id: "w5-tax", name: "자동차세", amount: 240000, type: "expense", recurrence: "semiannual", due_months: [6, 12], due_day: 16 }];
   deepEq(sum(of({ plans: plansByDate })), [55000, 0, 1], "납부일이 오늘인 정기지출은 세고, 이번 달에 이미 지난 납부일과 다른 달 납부는 세지 않는다");
@@ -71,7 +74,8 @@ if (run("pending")) await withClock(TODAY, () => fixture(async (fx) => {
   eq(card.note, "이번 달 남은 고정지출 1건", `아래 한 줄은 합계에 든 건수를 적는다 (${card.note})`);
   const notices = (await api(fx, `/u/api/notifications?household_id=${HH}&month=${MONTH}`)).data || {};
   const pending = (notices.notifications || []).find((n) => n.key === `recurring-pending:${MONTH}`);
-  ok(pending && pending.title === "이번 달 반영 대기 정기지출 1건" && pending.body.includes("650,000원"), `알림센터의 반영 대기와 같은 건수·금액이다 (${pending?.title} / ${pending?.body})`);
+  // V22.9.79 V78 S-2: 알림도 홈과 같은 이름(고정지출)으로 부른다.
+  ok(pending && pending.title === "이번 달 반영 대기 고정지출 1건" && pending.body.includes("650,000원"), `알림센터의 반영 대기와 같은 건수·금액이다 (${pending?.title} / ${pending?.body})`);
   eq(notices.budget_observation?.pending_total, 650000, "예산 알림의 반영 대기 합계와 카드의 고정지출 몫이 같다");
   setPlans(fx, [PHONE]);
   const both = await home(fx);

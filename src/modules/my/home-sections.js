@@ -1,9 +1,11 @@
 // @build:imports-start
 import { abEditOriginalFields } from "../admin/transactions-households.js";
-import { isIncomeReservePlan, reserveDueDateInMonth } from "../settings/reserve-plans.js";
 import { memberNameMap, renderSpenderOptions } from "../data/households-members-rows.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { homeUpcomingOut } from "../domain/spending-outlook.js";
 import { memeCollectionFor } from "../features/meme-cards.js";
+import { DEFAULT_CATEGORIES, DEFAULT_PAYMENTS } from "../admin/dashboard-fragments.js";
+import { mergedOptions } from "../kakao/reply-texts.js";
 import { addDays, currentMonthKst, formatDate, nowKstDate } from "../nlu/date-payment.js";
 import { calculateStats, escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -86,6 +88,14 @@ function txEditPath(id = "", returnTo = "") {
   return `/transactions/edit?${params.toString()}`;
 }
 
+// V22.9.79 V44 F-3: 수정 폼의 분류·결제수단 칸은 홈 빠른 입력과 같은 제안 목록(#categoryList·#paymentList)을 가리킨다.
+// 홈 안에서 열리는 폼 조각은 홈이 이미 그려 둔 목록을 쓴다(홈에 같은 id 가 겹치지 않도록 조각에는 목록을 싣지 않는다).
+// 홈 밖의 온전한 수정 화면(전체 화면·충돌 안내)은 이 도우미로 목록을 직접 붙인다. 새 조회 없이 기본 목록과 그 기록의 현재 값만 쓴다.
+function renderTxEditSuggestionLists(t = {}) {
+  const options = (list) => list.map((value) => `<option value="${escapeHtml(value)}"></option>`).join("");
+  return `<datalist id="categoryList">${options(mergedOptions(DEFAULT_CATEGORIES, [t.category]))}</datalist><datalist id="paymentList">${options(mergedOptions(DEFAULT_PAYMENTS, [t.payment_method]))}</datalist>`;
+}
+
 function renderV8TxEditForm(t = {}, currentPath = "", members = [], canEditSpender = false) {
   const memo = t.memo || t.raw_text || "-";
   const spenderLabel = t.type === "income" ? "수입자" : "지출자";
@@ -94,7 +104,7 @@ function renderV8TxEditForm(t = {}, currentPath = "", members = [], canEditSpend
   const spenderEditor = canEditSpender
     ? `<label class="v8-edit-field"><span>${spenderLabel}</span><select name="user_id" required>${renderSpenderOptions(members, String(t.user_id || ""), `${spenderLabel} 선택`)}</select></label>`
     : `<div class="v8-spender-readonly"><span>${spenderLabel}</span><b>${escapeHtml(spenderName)}</b></div>`;
-  return `<form class="v8-edit" method="post" action="/admin/update"><input type="hidden" name="id" value="${escapeHtml(t.id)}"/>${abEditOriginalFields(t)}<input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><input type="hidden" name="month" value="${escapeHtml(String(t.transaction_date || "").slice(0, 7) || currentMonthKst())}"/><input type="hidden" name="household_id" value="${escapeHtml(t.household_id || "")}"/><select name="type" aria-label="기록 구분"><option value="expense"${t.type !== "income" ? " selected" : ""}>지출</option><option value="income"${t.type === "income" ? " selected" : ""}>수입</option></select><input type="date" name="transaction_date" value="${escapeHtml(t.transaction_date || "")}" aria-label="거래 날짜"/><input type="number" name="amount" value="${escapeHtml(t.amount || 0)}" required min="1" aria-label="금액"/><input name="memo" value="${escapeHtml(t.memo || "")}" placeholder="${escapeHtml(t.raw_text || "내용")}" aria-label="내용"/><input name="category" value="${escapeHtml(t.category || "")}" placeholder="분류" aria-label="분류"/><input name="payment_method" value="${escapeHtml(t.payment_method || "")}" placeholder="결제수단" aria-label="결제수단"/>${spenderEditor}<button type="submit">수정 저장</button><button class="danger" type="submit" formaction="/admin/delete" formnovalidate onclick="return confirm('삭제할까요?')">삭제</button></form>`;
+  return `<form class="v8-edit" method="post" action="/admin/update"><input type="hidden" name="id" value="${escapeHtml(t.id)}"/>${abEditOriginalFields(t)}<input type="hidden" name="return_to" value="${escapeHtml(currentPath)}"/><input type="hidden" name="month" value="${escapeHtml(String(t.transaction_date || "").slice(0, 7) || currentMonthKst())}"/><input type="hidden" name="household_id" value="${escapeHtml(t.household_id || "")}"/><select name="type" aria-label="기록 구분"><option value="expense"${t.type !== "income" ? " selected" : ""}>지출</option><option value="income"${t.type === "income" ? " selected" : ""}>수입</option></select><input type="date" name="transaction_date" value="${escapeHtml(t.transaction_date || "")}" aria-label="거래 날짜"/><input type="number" name="amount" value="${escapeHtml(t.amount || 0)}" required min="1" aria-label="금액"/><input name="memo" value="${escapeHtml(t.memo || "")}" placeholder="${escapeHtml(t.raw_text || "내용")}" aria-label="내용"/><input name="category" list="categoryList" value="${escapeHtml(t.category || "")}" placeholder="분류" aria-label="분류"/><input name="payment_method" list="paymentList" value="${escapeHtml(t.payment_method || "")}" placeholder="결제수단" aria-label="결제수단"/>${spenderEditor}<button type="submit">수정 저장</button><button class="danger" type="submit" formaction="/admin/delete" formnovalidate onclick="return confirm('삭제할까요?')">삭제</button></form>`;
 }
 
 // V22.8.91 통합 작업지시서 4.3 — "이번 달 리포트" 4장.
@@ -166,40 +176,7 @@ function applyHomeLayoutSection(section, parts) {
     .join("");
 }
 
-// V22.9.78 감사 V76 W-5: ‘앞으로 나갈 돈’ 카드의 기준 — 이번 달에 아직 기록되지 않은 지출만 더한다.
-// 예전 카드는 정기 지출 항목의 건수·월 준비액만 적어, 알림센터·예산 알림이 세는 ‘반영 대기’ 고정지출이 빠져 있었다.
-//   - 고정지출(매월 자동 기록 규칙): 켜져 있고 금액이 있는 지출 규칙 중 이번 달 몫이 아직 없는 것. 이번 달 표식
-//     (last_applied_month)이 있거나 그 규칙이 만든 이번 달 기록(raw_text "recurring:<규칙 id>:<달>")이 있으면 이미 기록됐다.
-//   - 정기지출(준비 항목): 납부일이 오늘부터 말일 사이인 지출 항목. 지난 납부일·다른 달 납부는 세지 않는다.
-//   - 같은 이름(공백·대소문자 무시)의 고정지출 규칙이 있는 정기지출은 규칙 쪽으로만 센다. 기록을 만드는 쪽이 규칙이라
-//     규칙이 대기면 규칙 금액으로 한 번, 이미 기록됐으면 둘 다 세지 않는다.
-//   - 수입(규칙·항목)은 더하지 않고 "수입만 등록" 안내에만 센다.
-// recurring 이 배열이 아니면(읽기 실패) 합계를 내지 않는다(available: false).
-function homeUpcomingOut({ month = "", today = formatDate(nowKstDate()), rows = [], plans = [], recurring = [] } = {}) {
-  const available = Array.isArray(recurring);
-  const rules = available ? recurring.filter(Boolean) : [];
-  const nameKey = (text) => String(text || "").normalize("NFKC").replace(/\s+/g, "").toLowerCase();
-  const isIncomeRule = (r) => String(r.type || "expense") === "income";
-  const usable = (r) => !(r.is_active === false || String(r.is_active) === "false") && Number(r.amount || 0) > 0;
-  const recorded = new Set(safeArray(rows).map((row) => String(row?.raw_text || "")).filter((text) => text.startsWith("recurring:")));
-  const outRules = rules.filter((r) => !isIncomeRule(r) && usable(r));
-  const fixed = outRules.filter((r) => String(r.last_applied_month || "") !== month && !recorded.has(`recurring:${r.id}:${month}`));
-  const ruleNames = new Set(outRules.map((r) => nameKey(r.memo || r.category)).filter(Boolean));
-  const allPlans = safeArray(plans).filter(Boolean);
-  const outPlans = allPlans.filter((p) => !isIncomeReservePlan(p));
-  const due = outPlans.filter((p) => {
-    const date = reserveDueDateInMonth(p, month);
-    return Number(p.amount || 0) > 0 && !!date && date >= today && !ruleNames.has(nameKey(p.name));
-  });
-  const fixedTotal = fixed.reduce((sum, r) => sum + Number(r.amount || 0), 0);
-  const planTotal = due.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-  return {
-    available, total: fixedTotal + planTotal,
-    fixedCount: fixed.length, fixedTotal, planCount: due.length, planTotal,
-    expenseItems: rules.filter((r) => !isIncomeRule(r)).length + outPlans.length,
-    incomeItems: rules.filter(isIncomeRule).length + allPlans.length - outPlans.length,
-  };
-}
+// V22.9.79 W-7: ‘앞으로 나갈 돈’ 기준(homeUpcomingOut)은 월말 예상과 같은 계산이라 domain/spending-outlook.js 로 옮겼다.
 
 function renderHomeReportCards(options = {}) {
   const {
@@ -226,10 +203,18 @@ function renderHomeReportCards(options = {}) {
   // 2. 쓰는 속도 — 지난 4주. 이번 달 주차로 그리면 1주차가 부분 주간이라 비교가 틀린다.
   //    다만 이 화면이 받아 둔 기록은 보고 있는 달뿐이라, 그 달 시작보다 앞선 주는
   //    자료가 없다. 그런 주를 0원으로 그리면 "안 썼다"는 거짓말이 되므로 비워 둔다.
+  // V22.9.79 V78 S-3: 오늘로 끝나는 7일 창은 오늘이 속한 달에만 맞다. 지난·과거 달은 그 달 말일로 끝나는 마지막 4주를 쓴다
+  //   (예전에는 창 넷이 모두 그 달 밖이라 지출이 있어도 ‘0원 · 직전 7일과 같은 속도입니다’였다). 아직 오지 않은 달은 지난 4주가 없어
+  //   창 넷을 비우고 ‘관측 전’이라 적는다. 이번 달의 계산과 문구는 그대로다.
   const monthStart = `${month}-01`;
   const todayDate = nowKstDate();
+  const monthShaped = /^\d{4}-(0[1-9]|1[0-2])$/.test(month);
+  const paceFuture = monthShaped && month > formatDate(todayDate).slice(0, 7);
+  const pacePast = monthShaped && month < formatDate(todayDate).slice(0, 7);
+  const paceAnchor = pacePast ? new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0) : todayDate;
   const weeks = [3, 2, 1, 0].map((back) => {
-    const end = addDays(todayDate, -7 * back);
+    if (paceFuture) return { covered: false, amount: 0 };
+    const end = addDays(paceAnchor, -7 * back);
     const start = addDays(end, -6);
     const startKey = formatDate(start);
     const endKey = formatDate(end);
@@ -250,14 +235,19 @@ function renderHomeReportCards(options = {}) {
   // V22.9.37 감사 D13: 이 카드의 "주"는 월요일 시작 주가 아니라 오늘로 끝나는 7일 묶음이다(분석 화면의 주간 리포트는 월~오늘).
   // 뜻이 다른 두 "주"를 같은 말로 부르지 않도록 "지난주" 대신 "직전 7일"이라고 말한다. 홈 HTML 바이트 예산(35KiB)이
   // 꽉 차 있어 문구는 짧게 둔다.
-  const paceRead = paceDelta === null
-    ? `이 달에 쌓인 주만 보여드려요. 4주가 모이면 견줄 수 있어요`
-    : paceDelta > 0
-      ? `직전 7일보다 ▲ ${numberWithCommas(paceDelta)}원 더 쓰는 속도입니다`
-      : paceDelta < 0
-        ? `직전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 덜 쓰는 속도입니다`
-        : `직전 7일과 같은 속도입니다`;
-  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원</b><div class="homeReportPace" role="img" aria-label="최근 4주 지출">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
+  // V22.9.79: 지난·과거 달은 ‘속도’가 아니라 그 달의 마지막 7일과 그 앞 7일을 견준 실적이라 과거형으로 말한다.
+  const paceRead = paceFuture
+    ? `아직 시작하지 않은 달이에요`
+    : paceDelta === null
+      ? `이 달에 쌓인 주만 보여드려요. 4주가 모이면 견줄 수 있어요`
+      : pacePast && !thisWeek.amount && !lastWeek.amount
+        ? `마지막 2주에는 기록된 지출이 없어요`
+        : paceDelta > 0
+          ? (pacePast ? `마지막 7일이 직전 7일보다 ▲ ${numberWithCommas(paceDelta)}원 많았어요` : `직전 7일보다 ▲ ${numberWithCommas(paceDelta)}원 더 쓰는 속도입니다`)
+          : paceDelta < 0
+            ? (pacePast ? `마지막 7일이 직전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 적었어요` : `직전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 덜 쓰는 속도입니다`)
+            : (pacePast ? `마지막 7일과 직전 7일이 같았어요` : `직전 7일과 같은 속도입니다`);
+  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${paceFuture ? "관측 전" : `${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원`}</b><div class="homeReportPace" role="img" aria-label="${paceFuture ? "관측 전" : pacePast ? "마지막 4주 지출" : "최근 4주 지출"}">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
 
   // 3. 예산 항목 — 넘겼거나 곧 넘길 분류가 있는지.
   const alerts = safeArray(budgetAlerts);
@@ -280,11 +270,11 @@ function renderHomeReportCards(options = {}) {
   // 4. 앞으로 나갈 돈 — 이번 달에 아직 기록되지 않은 고정지출·정기지출(homeUpcomingOut).
   // V22.9.76: 수입만 등록한 집에 "등록 없음", 불러오지 않은 달에 "등록 없음"이라고 하지 않는다.
   // V22.9.78 W-5: 대표 숫자는 그 합계이고, 아래 한 줄은 합계에 든 건수를 출처별로 적는다(금액은 되풀이하지 않는다).
-  // 고정지출을 못 읽었으면 일부만 더한 합계를 내지 않는다.
+  // 고정지출을 못 읽었으면 일부만 더한 합계를 내지 않는다(V22.9.79 S-2: 정기지출 항목을 못 읽었을 때도 같다).
   const up = upcoming || homeUpcomingOut();
   const upParts = [up.fixedCount ? `고정지출 ${numberWithCommas(up.fixedCount)}건` : "", up.planCount ? `정기지출 ${numberWithCommas(up.planCount)}건` : ""].filter(Boolean).join(" · ");
   const reserveValue = !reserveLoaded ? "이번 달 기준" : !up.available ? "확인 불가" : up.total ? `${numberWithCommas(up.total)}원` : up.expenseItems ? "0원" : up.incomeItems ? "나갈 항목 없음" : "등록 없음";
-  const reserveNote = !reserveLoaded ? "정기 항목은 이번 달 화면에서 확인해요" : !up.available ? "고정지출을 불러오지 못했어요" : up.total ? `이번 달 남은 ${upParts}` : up.expenseItems ? "이번 달 남은 고정·정기지출이 없어요" : up.incomeItems ? `정기 수입 ${numberWithCommas(up.incomeItems)}건만 등록돼 있어요` : "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다";
+  const reserveNote = !reserveLoaded ? "정기 항목은 이번 달 화면에서 확인해요" : !up.available ? `${up.rulesKnown === false ? (up.plansKnown === false ? "고정·정기지출" : "고정지출") : "정기지출"}을 불러오지 못했어요` : up.total ? `이번 달 남은 ${upParts}` : up.expenseItems ? "이번 달 남은 고정·정기지출이 없어요" : up.incomeItems ? `정기 수입 ${numberWithCommas(up.incomeItems)}건만 등록돼 있어요` : "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다";
   const reserveCard = `<article class="homeReport"><div class="homeReportTop"><span>앞으로 나갈 돈</span><a href="${escapeHtml(reserveHref)}">정기지출</a></div><b>${escapeHtml(reserveValue)}</b><div class="homeReportBars"></div><small>${escapeHtml(reserveNote)}</small></article>`;
 
   const heading = isCurrentMonth ? "이번 달 리포트" : `${Number(String(month).slice(5, 7))}월 리포트`;
@@ -410,8 +400,9 @@ function todayExpense(rows = []) {
 // @build:exports-start
 export {
   HOME_LAYOUT_REPORTS, HOME_LAYOUT_SHORTCUTS, applyHomeLayoutSection, homeLayoutKey,
-  homeUpcomingOut, lastNDaysExpense, longestNoSpendStreak, makeMemeCard, memeAmountByRegex,
-  memeCardFor, memeCountByRegex, normalizeHomeLayout, renderHomeReportCards, renderHomeWeekStrip,
-  renderV8TxCards, renderV8TxDayGroups, renderV8TxEditForm, todayExpense,
+  lastNDaysExpense, longestNoSpendStreak, makeMemeCard, memeAmountByRegex, memeCardFor,
+  memeCountByRegex, normalizeHomeLayout, renderHomeReportCards, renderHomeWeekStrip,
+  renderTxEditSuggestionLists, renderV8TxCards, renderV8TxDayGroups, renderV8TxEditForm,
+  todayExpense,
 };
 // @build:exports-end

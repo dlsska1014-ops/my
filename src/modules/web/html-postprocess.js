@@ -5,6 +5,10 @@ import {
   transactionTypeFromText,
 } from "../client/shared-input-parsers.js";
 import {
+  cleanInputMemo, detectInputPayment, foldInputWidth, inferInputCategory, inputPaymentPatterns,
+  joinSpacedKoreanAmount, normalizeInputText,
+} from "../client/shared-input-nlu.js";
+import {
   V22818_INLINE_RESULT_STYLE, V2281_GUIDED_NAV_STYLE, approximateWonLabel,
   attachAccessibleControlNames, deferHeavyBrowserTools, guidedUiUxClientMain,
   inlineActionResultClientMain, mobileShellUiClientMain, mobileUiUxClientMain, v2285NavStyleFor,
@@ -96,7 +100,7 @@ function normalizeUserFacingUi(html = "") {
     source = source.replace(/<p class="notice"><b>운영 원칙<\/b><br\/>밈카드와 카드 실적 기능은[\s\S]*?<\/p>/, "");
     const today = nowKstDate();
     const basis = (today.getMonth() + 1) + "/" + today.getDate();
-    source = source.replace('</section><section class="card"><h2>현재 동작하는 무료 스마트 도구</h2>', '</section><p class="metricBasis">' + basis + ' 기준 · 월말 예상은 현재 월의 단순 일평균을 사용하며 실제 지출에 따라 달라질 수 있습니다.</p><section class="card"><h2>현재 동작하는 스마트 분석</h2>');
+    source = source.replace('</section><section class="card"><h2>현재 동작하는 무료 스마트 도구</h2>', '</section><p class="metricBasis">' + basis + ' 기준 · 월말 예상은 오늘까지 기록에 남은 고정지출·정기지출과 남은 날 예상(변동 지출의 하루 평균)을 더한 값이며 실제 지출에 따라 달라질 수 있습니다.</p><section class="card"><h2>현재 동작하는 스마트 분석</h2>');
   }
 
   source = source.replace("일반 사용자가 매일 쓰는 메뉴만 모았습니다. 운영/점검/배포/진단 메뉴는 이 화면에 노출하지 않고 운영센터에서만 관리합니다.", "기록, 정산, 가계부 관리와 개인 설정을 한곳에서 찾을 수 있습니다.");
@@ -456,13 +460,13 @@ function attachUiUxRuntime(html = "") {
   if (!optimizedMobileHome && needsRuntime && !source.includes('id="v2262UiUxRuntime"') && source.includes("</body>")) {
     const needsSmartRuntime = source.includes('id="smartInput"') && !source.includes('id="mobileAppInlineRuntime"');
     const runtime = needsSmartRuntime
-      ? quickAmountFieldState.toString() + "\n" + moneyTokenSpans.toString() + "\n" + transactionTypeFromText.toString() + "\n" + quickInputDate.toString() + "\n" + explicitDateIntent.toString() + "\n" + parseMobileAmountText.toString() + "\n(" + mobileUiUxClientMain.toString() + ")();"
+      ? quickAmountFieldState.toString() + "\n" + moneyTokenSpans.toString() + "\n" + transactionTypeFromText.toString() + "\n" + quickInputDate.toString() + "\n" + explicitDateIntent.toString() + "\n" + parseMobileAmountText.toString() + "\n" + foldInputWidth.toString() + "\n" + joinSpacedKoreanAmount.toString() + "\n" + normalizeInputText.toString() + "\n" + inputPaymentPatterns.toString() + "\n" + detectInputPayment.toString() + "\n" + inferInputCategory.toString() + "\n" + cleanInputMemo.toString() + "\n(" + mobileUiUxClientMain.toString() + ")();"
       : "(" + mobileShellUiClientMain.toString() + ")();";
     // 분류 규칙은 이 런타임보다 먼저 있어야 한다. 평범한 <script src> 는 순서대로
     // 실행되므로 이 한 줄이면 충분하다(defer·async 를 붙이면 순서가 깨진다).
     const rulesTag = needsSmartRuntime ? AB_CATEGORY_RULES_SCRIPT_TAG : "";
     const script = rulesTag + '<script id="v2262UiUxRuntime">' + runtime + '</script>';
-    source = source.replace("</body>", script + "</body>");
+    source = source.replace("</body>", () => script + "</body>");
   }
   const needsGuidedRuntime = /class=["'][^"']*\b(?:abPageReserve|abPageBudgets|abPageGuide)\b/i.test(source)
     || source.includes("homeOnboarding")
@@ -470,7 +474,7 @@ function attachUiUxRuntime(html = "") {
     || /<form\b[^>]*action=["'][^"']+["'][^>]*method=["']post["']/i.test(source);
   if (!optimizedMobileHome && needsGuidedRuntime && !source.includes('id="v2281GuidedUiUxRuntime"') && source.includes("</body>")) {
     const script = '<script id="v2281GuidedUiUxRuntime">(' + guidedUiUxClientMain.toString() + ')();</script>';
-    source = source.replace("</body>", script + "</body>");
+    source = source.replace("</body>", () => script + "</body>");
   }
   // V22.8.18 (B) 제출 위치 인라인 결과: POST 폼 또는 상단 결과 배너가 있는
   // 모든 사용자 화면에 부착한다. 모바일 홈(optimizedMobileHome)도 빠른 입력의
@@ -489,7 +493,7 @@ function attachUiUxRuntime(html = "") {
       }
     }
     const script = '<script id="v22818InlineResult">(' + inlineActionResultClientMain.toString() + ')();</script>';
-    source = source.replace("</body>", script + "</body>");
+    source = source.replace("</body>", () => script + "</body>");
   }
   const needsMutationGuard = /<form[^>]+method=["']post["'][^>]+action=["']\/my\/(?:create|join)["']/i.test(source)
     || /<form[^>]+action=["']\/my\/(?:create|join)["'][^>]+method=["']post["']/i.test(source);

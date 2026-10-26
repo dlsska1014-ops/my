@@ -15,6 +15,7 @@ public/guide-content.js
 public/living-cost-articles-v22974.js
 public/content-pages.js
 client/shared-input-parsers.js
+client/shared-input-nlu.js
 client/legacy-ui-runtime.js
 web/html-postprocess.js
 runtime/leases.js
@@ -44,6 +45,8 @@ features/budget-alerts-annual-goals.js
 client/v5-bundle-mains.js
 features/settlement-ops-pages.js
 features/settlement-refund-preview.js
+domain/refund-links.js
+features/settlement-refund-links.js
 admin/nlu-openbuilder-ops.js
 web/menu-and-guides.js
 auth/user-session.js
@@ -69,6 +72,7 @@ my/households-lifecycle.js
 domain/budget-plan-contract.js
 client/lucian-d-budget.js
 domain/budgets.js
+domain/spending-outlook.js
 my/home-sections.js
 features/meme-cards.js
 web/quick-chip-icons.js

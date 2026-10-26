@@ -5,6 +5,7 @@ import { htmlResponse, jsonResponse, redirectResponse } from "../runtime/http.js
 import {
   MAX_TRANSACTION_AMOUNT, isValidTransactionDateString,
 } from "../admin/transactions-households.js";
+import { fetchReservePlans } from "../settings/reserve-plans.js";
 import {
   attachSpenderNames, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
   isRowLimitExceededError,
@@ -19,7 +20,10 @@ import {
   canManageMyHousehold, getMySelectedHousehold, householdIdWasRemembered, householdNotFoundResponse,
   myAccessStatusResponse,
 } from "./access-control.js";
-import { budgetSummary, fetchBudgets, fetchObservationMonthRows } from "../domain/budgets.js";
+import {
+  budgetSummary, fetchBudgets, fetchObservationMonthRows, fetchRecurringStrict,
+} from "../domain/budgets.js";
+import { monthSpendingOutlook } from "../domain/spending-outlook.js";
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
 import {
   calculateDashboardAnalysis, monthlyObservedSpending, renderObservedMoney,
@@ -30,7 +34,7 @@ import {
 } from "../domain/transactions-core.js";
 // @build:imports-end
 
-async function getMyPageContext(request, env, url, { observedComparison = false } = {}) {
+async function getMyPageContext(request, env, url, { observedComparison = false, outlook = false } = {}) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return { redirect: redirectResponse("/my") };
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
@@ -45,17 +49,21 @@ async function getMyPageContext(request, env, url, { observedComparison = false 
   if (!selected) return { redirect: htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" })) };
   // V22.9.16: 달력은 같은 달 거래를 한 번 더 읽어 만들고 있었다(같은 질의 2회). 이미 받은
   // 행으로 만든다 — 값은 같고 왕복 하나가 준다.
-  const [members, rawRows, budgets] = await Promise.all([
+  // V22.9.79 V76 W-7: 월말 예상을 보이는 화면(?view=report·/smart-tools)은 고정지출 규칙·정기지출 항목을 같은 단계에서 함께 읽는다
+  // (직렬 깊이 그대로). 못 읽으면 null — 월말 예상은 그 몫을 빼고 계산했다고 부제에 적는다.
+  const [members, rawRows, budgets, recurring, reservePlans] = await Promise.all([
     fetchHouseholdMembers(env, selected.id),
     observedComparison ? fetchObservationMonthRows(env, selected.id, month) : fetchAdminRows(env, { month, householdId: selected.id, type: "all" }),
     fetchBudgets(env, selected.id, month),
+    outlook ? fetchRecurringStrict(env, selected.id).catch(() => null) : null,
+    outlook ? fetchReservePlans(env, selected.id, { strict: true }).catch(() => null) : null,
   ]);
   const rows = attachSpenderNames(rawRows, members);
   const calendar = calendarDaysFromRows(rows, month);
   const stats = calculateStats(rows);
   const budget = budgetSummary(rows, budgets);
-  const analysis = calculateDashboardAnalysis(rows, rows, calendar, month);
-  return { userId, user, month, households, selected, members, rows, calendar, stats, budgets, budget, analysis };
+  const analysis = calculateDashboardAnalysis(rows, rows, calendar, month, outlook ? { outlook: monthSpendingOutlook({ month, rows, recurring, plans: reservePlans }) } : {});
+  return { userId, user, month, households, selected, members, rows, calendar, stats, budgets, budget, analysis, recurring, reservePlans };
 }
 
 function reportChallengeSettingsKey(householdId = "") {
@@ -258,7 +266,8 @@ function renderReportMonthNavigator({ path = "/my/analysis", month = currentMont
   return `<nav class="reportMonthNav" aria-label="리포트 기준 월 이동"><a class="reportMonthArrow" href="${escapeHtml(reportMonthHref(path, prev, householdId, view, extra))}" aria-label="이전 달 ${escapeHtml(prev)}로 이동">‹ <span>이전 달</span></a><form method="get" action="${escapeHtml(path)}"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/>${view ? `<input type="hidden" name="view" value="${escapeHtml(view)}"/>` : ""}${extraInputs}<label><span>기준 월</span><input type="month" name="month" value="${escapeHtml(safeMonth)}" aria-label="리포트 기준 월"/></label><button type="submit">이동</button></form><a class="reportMonthArrow" href="${escapeHtml(reportMonthHref(path, next, householdId, view, extra))}" aria-label="다음 달 ${escapeHtml(next)}로 이동"><span>다음 달</span> ›</a>${safeMonth === current ? `<span class="reportMonthCurrent" aria-current="date">이번 달</span>` : `<a class="reportMonthCurrent" href="${escapeHtml(reportMonthHref(path, current, householdId, view, extra))}">이번 달</a>`}</nav><script>(${reportMonthPickerClientMain.toString()})();</script>`;
 }
 
-function buildReportDashboardSummary(rows = [], budget = {}, month = currentMonthKst()) {
+// V22.9.79 V76 W-7: ‘월말 예상 지출’은 monthSpendingOutlook(전체 분류)이다. 규칙·정기 항목을 읽은 화면은 outlook 을 넘긴다.
+function buildReportDashboardSummary(rows = [], budget = {}, month = currentMonthKst(), { outlook = null } = {}) {
   const safeMonth = validMonth(month) || currentMonthKst();
   const stats = calculateStats(rows);
   const daysInMonth = new Date(Number(safeMonth.slice(0, 4)), Number(safeMonth.slice(5, 7)), 0).getDate() || 30;
@@ -275,7 +284,8 @@ function buildReportDashboardSummary(rows = [], budget = {}, month = currentMont
   const elapsedRate = Math.round(elapsedDays / daysInMonth * 100);
   const remainingBudget = Math.max(0, totalBudget - budgetedExpense);
   const observation = monthlyObservedSpending(rows, safeMonth);
-  const forecast = observation.burnForecast;
+  const spendingOutlook = outlook || monthSpendingOutlook({ month: safeMonth, rows, recurring: null, plans: null });
+  const forecast = observation.basisDays && spendingOutlook.expected ? spendingOutlook.expected.total : null;
   const coveredRows = budget.basis === "category" && Array.isArray(budget.coveredCategories) ? rows.filter((row) => budget.coveredCategories.includes(row.category)) : rows;
   const observedBudgetedExpense = monthlyObservedSpending(coveredRows, safeMonth).observedExpense;
   const paceGap = elapsedDays ? (totalBudget ? Math.round(observedBudgetedExpense / totalBudget * 100) - elapsedRate : 0) : null;
@@ -285,7 +295,8 @@ function buildReportDashboardSummary(rows = [], budget = {}, month = currentMont
   else if (totalBudget && paceGap > 8) insight = `달력 진행률보다 예산을 ${Math.abs(paceGap)}%p 빠르게 사용하고 있어요. 사용률이 높은 분류부터 확인해 보세요.`;
   else if (totalBudget && paceGap < -8) insight = `달력 진행률보다 예산 사용이 ${Math.abs(paceGap)}%p 여유로워요. 지금의 소비 흐름을 유지해 보세요.`;
   else if (totalBudget) insight = "달력 진행률과 예산 사용 속도가 비슷해요. 큰 지출 예정이 있다면 남은 예산을 먼저 확인하세요.";
-  return { ...observation, month: safeMonth, expense, income, balance: income - expense, totalBudget, budgetRate, elapsedRate, remainingBudget, forecast, paceGap, categoryAlerts, insight };
+  // observation 의 burnForecast(예전 식)가 남지 않도록 같은 월말 예상으로 덮는다.
+  return { ...observation, burnForecast: forecast, month: safeMonth, expense, income, balance: income - expense, totalBudget, budgetRate, elapsedRate, remainingBudget, forecast, spendingOutlook, paceGap, categoryAlerts, insight };
 }
 
 function renderReportDashboard(summary = {}) {

@@ -29,7 +29,8 @@ import {
   MEMBER_POLICY_RECORD_ONLY, canManageMyHousehold, canWriteMyHousehold, getMySelectedHousehold,
   memberPolicySettingsKey, memberRecordChangeError, parseMemberPolicyValue,
 } from "./access-control.js";
-import { fetchRecurring, fetchRecurringStrict } from "../domain/budgets.js";
+import { fetchRecurringStrict } from "../domain/budgets.js";
+import { recurringMarkerSet, recurringRuleAppliedInMonth } from "../domain/spending-outlook.js";
 import {
   buildWeeklyReport, detectRecurringCandidates, findAnomalousExpenses, renderAnomalyList,
 } from "../admin/pc-analysis-calendar.js";
@@ -261,9 +262,12 @@ async function runAutomaticReports(env, opts = {}) {
 // 1회 더)·저장 1회. 한 번에 limit 개까지만 만들고, 못 한 항목은 remaining 으로 돌려줘 호출부가 다음 실행에 넘긴다.
 const REPORT_REBUILD_LOOKUP = 40;
 
+// V22.9.79 N-9: 주간 항목({ household_id, week_end: 그 주 일요일 })도 같은 길로 다시 만든다. 기간·주 번호는 일요일 실행이
+// 만드는 것과 같다(그 일요일 앞 6일부터 그 일요일까지, isoWeekPeriod). 월간 항목은 예전 그대로다.
 async function rebuildMonthlyReportSnapshots(env, entries = [], { limit = 2, canSpend = () => true, path = "/cron/recurring/apply", method = "SCHEDULED" } = {}) {
-  const list = safeArray(entries).filter((entry) => entry && String(entry.household_id || "") && validMonth(entry.month));
-  const keyOf = (entry) => freeReportSnapshotKey(entry.household_id, "monthly", entry.month);
+  const list = safeArray(entries).filter((entry) => entry && String(entry.household_id || "") && (entry.week_end ? isValidTransactionDateString(entry.week_end) && weekdayIndexOfYmd(entry.week_end) === 0 : validMonth(entry.month)));
+  const weekPeriodOf = (entry) => isoWeekPeriod(new Date(`${entry.week_end}T12:00:00`));
+  const keyOf = (entry) => entry.week_end ? freeReportSnapshotKey(entry.household_id, "weekly", weekPeriodOf(entry)) : freeReportSnapshotKey(entry.household_id, "monthly", entry.month);
   const result = { rebuilt: 0, dropped: 0, failed: 0, remaining: list };
   if (!list.length || !canSpend(1)) return result;
   const lookup = list.slice(0, REPORT_REBUILD_LOOKUP);
@@ -283,20 +287,23 @@ async function rebuildMonthlyReportSnapshots(env, entries = [], { limit = 2, can
   for (const entry of rebuild.slice(0, Math.max(0, limit))) {
     if (!canSpend(2)) break;
     const key = keyOf(entry);
+    const job = entry.week_end
+      ? { kind: "weekly", period: weekPeriodOf(entry), start: ymdShift(entry.week_end, -6), end: ymdShift(entry.week_end, 1) }
+      : { kind: "monthly", period: entry.month, start: `${entry.month}-01`, end: nextMonthStart(entry.month) };
     try {
-      const rows = await fetchAdminRowsRange(env, { householdId: entry.household_id, start: `${entry.month}-01`, end: nextMonthStart(entry.month), limit: 9001 });
+      const rows = await fetchAdminRowsRange(env, { householdId: entry.household_id, start: job.start, end: job.end, limit: 9001 });
       const previous = parseJsonSetting(values.get(key), {});
-      await saveSettingValue(env, key, buildFreeReportSnapshot(rows, { householdId: entry.household_id, householdName: previous.household_name || "가계부", kind: "monthly", period: entry.month }));
+      await saveSettingValue(env, key, buildFreeReportSnapshot(rows, { householdId: entry.household_id, householdName: previous.household_name || "가계부", kind: job.kind, period: job.period }));
       done.add(key); result.rebuilt++;
     } catch (err) {
       result.failed++;
       if (isRowLimitExceededError(err)) {
         // 월말 생성과 같이, 기록이 한도를 넘으면 일부만으로 덮지 않고 예전 스냅숏을 둔다.
         done.add(key);
-        rememberOpsEvent({ kind: "free_report_row_limit", severity: "warn", path, method, detail: `${entry.household_id}:monthly:${entry.month}` });
+        rememberOpsEvent({ kind: "free_report_row_limit", severity: "warn", path, method, detail: `${entry.household_id}:${job.kind}:${job.period}` });
         continue;
       }
-      rememberOpsEvent({ kind: "free_report_rebuild_failed", severity: "warn", path, method, detail: `${entry.household_id}:${entry.month}:${safeError(err)}` });
+      rememberOpsEvent({ kind: "free_report_rebuild_failed", severity: "warn", path, method, detail: `${entry.household_id}:${entry.week_end || entry.month}:${safeError(err)}` });
       break;
     }
   }
@@ -490,8 +497,10 @@ function buildLivingReport({ month = currentMonthKst(), range = "month", week = 
   const biggestIncrease = comparisonAvailable ? buckets.filter((b) => b.delta > 0).sort((a, b) => b.delta - a.delta)[0] || null : null;
   const rules = safeArray(recurring).filter((r) => r.is_active !== false && String(r.type || "expense") !== "income");
   const monthRows = expenseRows.filter((r) => inWindow(r, `${month}-01`, monthLastYmd(month)));
+  // V22.9.79 V78 S-2: 홈·예산 알림과 같은 판정(그 달 표식 또는 그 달 기록)이다. 반영된 기록을 지워도 표식이 그 달이면 반영됨이다.
+  const monthMarkers = recurringMarkerSet(monthRows);
   const ruleItems = rules.map((rule) => {
-    const applied = monthRows.some((r) => String(r.raw_text || "") === `recurring:${rule.id}:${month}`);
+    const applied = recurringRuleAppliedInMonth(rule, month, monthMarkers);
     return { id: String(rule.id || ""), memo: String(rule.memo || rule.category || "정기지출"), amount: Number(rule.amount || 0), day: Number(rule.day_of_month || 1), category: String(rule.category || ""), applied };
   });
   const fixedTotal = ruleItems.reduce((s, r) => s + r.amount, 0);
@@ -700,19 +709,22 @@ function renderMiniCategoryRows(stats = {}) {
 }
 
 async function handleMyPremiumPage(request, env, url) {
-  const ctx = await getMyPageContext(request, env, url);
+  // V22.9.79 V76 W-7: 고정지출 규칙은 월말 예상과 함께 ctx 에서 읽는다(반복 후보도 같은 값). 추가 요청은 정기지출 항목 하나다.
+  const ctx = await getMyPageContext(request, env, url, { outlook: true });
   if (ctx.redirect) return ctx.redirect;
   const householdId = ctx.selected?.id || "";
   const month = ctx.month;
   const historyStart = `${addMonthsYm(month, -2)}-01`;
   const historyEnd = nextMonthStart(month);
-  const [prevRows, historyRows, registeredRecurring] = await Promise.all([
+  // V22.9.79: 못 읽은 목록(null)을 빈 목록으로 바꾸지 않는다 — 아래에서 반복 후보를 고르지 않고 '확인 불가'로 보인다.
+  const registeredRecurring = ctx.recurring;
+  const [prevRows, historyRows] = await Promise.all([
     householdId ? fetchAdminRows(env, { month: addMonthsYm(month, -1), householdId, type: "all" }) : [],
     householdId ? fetchAdminRowsRange(env, { householdId, start: historyStart, end: historyEnd }) : [],
-    householdId ? fetchRecurring(env, householdId) : [],
   ]);
   const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows: historyRows, rowsBase: ctx.rows });
-  const recurringCandidates = detectRecurringCandidates(historyRows, month, registeredRecurring);
+  // V22.9.79: 정기 항목 목록을 못 읽으면 이미 등록한 항목까지 새 후보(등록 단추)로 보이므로 후보를 고르지 않는다(null: '확인 불가').
+  const recurringCandidates = registeredRecurring ? detectRecurringCandidates(historyRows, month, registeredRecurring) : null;
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);
   const weeklyReport = buildWeeklyReport(historyRows, month);
   const premium = buildPremiumState({ env, month, allRows: ctx.rows, analysis: ctx.analysis, extended });
@@ -722,6 +734,7 @@ async function handleMyPremiumPage(request, env, url) {
 }
 
 function renderRecurringCandidateCards(candidates = [], selected = {}, month = currentMonthKst()) {
+  if (candidates === null) return `<p class="muted" role="status">정기 항목 목록을 불러오지 못해 반복 지출 후보를 고르지 않았어요. 이미 등록한 항목이 있을 수 있으니 새로고침해 다시 확인해 주세요.</p>`;
   if (!candidates.length) return `<p class="muted">최근 3개월에서 같은 이름·금액으로 반복된 새 후보가 없습니다. 메모를 같은 이름으로 기록하면 더 정확하게 찾아드립니다.</p>`;
   const canManage = canManageMyHousehold(selected?.role || "");
   return `<div class="candidateGrid">${candidates.map((c) => {
@@ -735,13 +748,14 @@ function renderMyPremiumHtml({ env, month, selected, rows = [], budget = {}, ana
   const role = selected?.role || "";
   const qs = `month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected?.id || "")}`;
   const recurringTotal = safeArray(recurringCandidates).reduce((sum, x) => sum + Number(x.amount || 0), 0);
+  const recurringMetric = recurringCandidates === null ? "<b>확인 불가</b><small>정기 항목 목록을 불러오지 못했어요</small>" : `<b>${recurringCandidates.length}건</b><small>월 약 ${numberWithCommas(recurringTotal)}원</small>`;
   const anomalyTotal = safeArray(anomalies).reduce((sum, x) => sum + Number(x.amount || 0), 0);
   const budgetRemain = Math.max(0, Number(budget.totalBudget || 0) - Number(budget.budgetedExpense ?? budget.expense ?? 0));
   const weeklyText = weeklyReport ? `${numberWithCommas(weeklyReport.thisWeek || 0)}원` : "집계 대기";
   const title = escapeHtml(appName(env));
   const message = msg === "recurring_registered" ? `<div class="ok">반복지출 후보를 확정했습니다. 지정일이 되면 같은 달 중복 없이 자동 기록됩니다.</div>` : msg === "recurring_exists" ? `<div class="ok">이미 같은 이름·금액의 반복지출이 등록되어 있습니다.</div>` : "";
   const error = err ? `<div class="error">처리하지 못했습니다. 입력값과 가계부 관리 권한을 확인해 주세요.</div>` : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 무료 스마트 도구</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:12px 0}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:10px 0 6px;font-size:30px}.hero p{line-height:1.65;color:#ccfbf1}.badge{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:7px 11px;font-size:12px;font-weight:1000}.grid,.features,.candidateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:25px;margin-top:7px}.feature,.candidate{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#f8fafc}.feature b,.candidate b{display:block;font-size:16px;color:#166534}.feature span,.candidate span,.candidate small{display:block;color:#64748b;line-height:1.55;margin-top:5px}.candidate{display:grid;gap:9px}.candidate strong{font-size:20px}.candidate form{display:grid;gap:8px}.candidate label{font-size:12px;color:#475569}.candidate button{border:0;border-radius:13px;min-height:42px;background:#111827;color:#fff;font-weight:1000}.muted{color:#64748b;line-height:1.6}.insightList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.insightList li{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc}.insightList span{color:#64748b;font-size:13px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#ecfdf5;color:#065f46!important}.ok,.error{border-radius:16px;padding:13px;line-height:1.6;margin:12px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:16px;padding:13px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid .metric{padding:14px}.metricGrid .metric b{font-size:20px}.insightList li{grid-template-columns:1fr}.btn{width:100%;margin:4px 0}}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("smart-tools",{ month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap">${message}${error}<section class="hero"><span class="badge">초기 서비스 · 모두 무료</span><h1>스마트 생활 도구</h1><p>${escapeHtml(selected?.name || "가계부")}의 예측·자동화·정산·리포트를 한 곳에서 사용합니다. 현재 공개된 기능은 결제나 구독 등급 없이 모두 무료입니다.</p><p><a class="btn" href="/reports?${qs}">생활비 리포트</a><a class="btn light" href="/settlement-summary?${qs}">고급 정산</a></p></section><section class="grid metricGrid"><div class="card metric"><span>월말 예상 지출</span><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b></div><div class="card metric"><span>예산 잔여</span><b>${numberWithCommas(budgetRemain)}원</b></div><div class="card metric"><span>반복지출 후보</span><b>${recurringCandidates.length}건</b><small>월 약 ${numberWithCommas(recurringTotal)}원</small></div><div class="card metric"><span>이상지출 후보</span><b>${anomalies.length}건</b><small>${numberWithCommas(anomalyTotal)}원</small></div><div class="card metric"><span>이번 주 지출</span><b>${weeklyText}</b></div><div class="card metric"><span>절약 후보</span><b>${premium.hasObservation === false ? "관측 전" : `${numberWithCommas(premium.savingPotential)}원`}</b></div></section><section class="card"><h2>무료로 사용할 수 있는 기능</h2><div class="features"><div class="feature"><b>반복 거래 자동화</b><span>후보를 가계부 소유자·관리자가 명시적으로 확정하면 지정일에 월 1회만 자동 반영합니다.</span></div><div class="feature"><b>고급 정산</b><span>동일·비율·인원수·품목별 분배와 최소 송금 제안을 제공합니다.</span></div><div class="feature"><b>주간·월간 리포트</b><span>자동 생성 설정, 복사·공유, 인쇄/PDF 저장을 제공합니다.</span></div><div class="feature"><b>스마트 예산·미션</b><span>현재 지출에서 추천 예산과 현실적인 절약 후보를 계산합니다.</span></div><div class="feature"><b>가족별 비교 분석</b><span>참여자와 분류별 기록을 기존 분석 화면에서 비교합니다.</span></div></div><p><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><a class="btn light" href="/payment-methods?${qs}">자산·결제수단</a></p></section><section class="card"><h2>반복지출 후보 확정</h2><p class="muted">자동 등록 전 반드시 동의해야 하며, 같은 이름·금액은 중복 등록하지 않습니다. 금액이 바뀌면 새 후보로 다시 확인합니다.</p>${renderRecurringCandidateCards(recurringCandidates, selected, month)}</section><section class="card"><h2>큰 지출 점검</h2>${renderAnomalyList(anomalies)}</section>${adSlotMarkup(env, adKey)}<p class="notice"><b>무료 제공 원칙</b><br/>초기 서비스에서는 별도 유료 등급, 결제, 사용량 제한을 두지 않습니다. 가계부 역할 권한(owner/admin/member/viewer)과 데이터 격리는 그대로 유지합니다. 준비가 끝나지 않은 기능은 메뉴와 직접 경로에서 숨깁니다.</p></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 무료 스마트 도구</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:12px 0}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:10px 0 6px;font-size:30px}.hero p{line-height:1.65;color:#ccfbf1}.badge{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:7px 11px;font-size:12px;font-weight:1000}.grid,.features,.candidateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:25px;margin-top:7px}.feature,.candidate{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#f8fafc}.feature b,.candidate b{display:block;font-size:16px;color:#166534}.feature span,.candidate span,.candidate small{display:block;color:#64748b;line-height:1.55;margin-top:5px}.candidate{display:grid;gap:9px}.candidate strong{font-size:20px}.candidate form{display:grid;gap:8px}.candidate label{font-size:12px;color:#475569}.candidate button{border:0;border-radius:13px;min-height:42px;background:#111827;color:#fff;font-weight:1000}.muted{color:#64748b;line-height:1.6}.insightList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.insightList li{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc}.insightList span{color:#64748b;font-size:13px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#ecfdf5;color:#065f46!important}.ok,.error{border-radius:16px;padding:13px;line-height:1.6;margin:12px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:16px;padding:13px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid .metric{padding:14px}.metricGrid .metric b{font-size:20px}.insightList li{grid-template-columns:1fr}.btn{width:100%;margin:4px 0}}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("smart-tools",{ month, householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap">${message}${error}<section class="hero"><span class="badge">초기 서비스 · 모두 무료</span><h1>스마트 생활 도구</h1><p>${escapeHtml(selected?.name || "가계부")}의 예측·자동화·정산·리포트를 한 곳에서 사용합니다. 현재 공개된 기능은 결제나 구독 등급 없이 모두 무료입니다.</p><p><a class="btn" href="/reports?${qs}">생활비 리포트</a><a class="btn light" href="/settlement-summary?${qs}">고급 정산</a></p></section><section class="grid metricGrid"><div class="card metric"><span>월말 예상 지출</span><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b></div><div class="card metric"><span>예산 잔여</span><b>${numberWithCommas(budgetRemain)}원</b></div><div class="card metric"><span>반복지출 후보</span>${recurringMetric}</div><div class="card metric"><span>이상지출 후보</span><b>${anomalies.length}건</b><small>${numberWithCommas(anomalyTotal)}원</small></div><div class="card metric"><span>이번 주 지출</span><b>${weeklyText}</b></div><div class="card metric"><span>절약 후보</span><b>${premium.hasObservation === false ? "관측 전" : `${numberWithCommas(premium.savingPotential)}원`}</b></div></section><section class="card"><h2>무료로 사용할 수 있는 기능</h2><div class="features"><div class="feature"><b>반복 거래 자동화</b><span>후보를 가계부 소유자·관리자가 명시적으로 확정하면 지정일에 월 1회만 자동 반영합니다.</span></div><div class="feature"><b>고급 정산</b><span>동일·비율·인원수·품목별 분배와 최소 송금 제안을 제공합니다.</span></div><div class="feature"><b>주간·월간 리포트</b><span>자동 생성 설정, 복사·공유, 인쇄/PDF 저장을 제공합니다.</span></div><div class="feature"><b>스마트 예산·미션</b><span>현재 지출에서 추천 예산과 현실적인 절약 후보를 계산합니다.</span></div><div class="feature"><b>가족별 비교 분석</b><span>참여자와 분류별 기록을 기존 분석 화면에서 비교합니다.</span></div></div><p><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><a class="btn light" href="/payment-methods?${qs}">자산·결제수단</a></p></section><section class="card"><h2>반복지출 후보 확정</h2><p class="muted">자동 등록 전 반드시 동의해야 하며, 같은 이름·금액은 중복 등록하지 않습니다. 금액이 바뀌면 새 후보로 다시 확인합니다.</p>${renderRecurringCandidateCards(recurringCandidates, selected, month)}</section><section class="card"><h2>큰 지출 점검</h2>${renderAnomalyList(anomalies)}</section>${adSlotMarkup(env, adKey)}<p class="notice"><b>무료 제공 원칙</b><br/>초기 서비스에서는 별도 유료 등급, 결제, 사용량 제한을 두지 않습니다. 가계부 역할 권한(owner/admin/member/viewer)과 데이터 격리는 그대로 유지합니다. 준비가 끝나지 않은 기능은 메뉴와 직접 경로에서 숨깁니다.</p></main></body></html>`;
 }
 // @build:exports-start
 export {

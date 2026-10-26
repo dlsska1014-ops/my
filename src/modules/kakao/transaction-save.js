@@ -17,7 +17,7 @@ import {
   applyUserSettingsToParsedTransactions, normalizePaymentAssetList, paymentAssetsKey,
 } from "../settings/payment-assets.js";
 import {
-  memberAliasSettingsKey, normalizeMemberAliasMap,
+  fetchHouseholdMembers, memberAliasSettingsKey, memberNameMap, normalizeMemberAliasMap,
 } from "../data/households-members-rows.js";
 import { maskKey } from "../admin/ops-diagnostics-pages.js";
 import {
@@ -32,6 +32,7 @@ import {
   dailySeqForKakaoRow, kakaoEditDayPrefixV4, kakaoRowLabel, twoDigitSeq,
 } from "./edit-session-v4.js";
 import { kakaoRecordCheckReply, optionalWithin } from "./request-guards.js";
+import { kakaoHouseholdReplyName } from "./household-budget-commands.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { formatDate, nowKstDate } from "../nlu/date-payment.js";
@@ -40,10 +41,19 @@ import {
 } from "../domain/transactions-core.js";
 // @build:imports-end
 
+// V22.9.79 감사 N-4: 이름 없이 만들어진 사람의 기본 이름(채팅 사용자 ‘카카오사용자’, 이름 칸이 빈 구성원·관리자). 이 이름은 여러 사람이 같이 쓴다.
+const KAKAO_DEFAULT_PERSON_NAMES_V22979 = new Set(["", "카카오사용자", "구성원", "관리자"]);
+
 async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const { household, user, kakaoUserKey, nickname, origin, parsedList, handlerStartedAt, canDeferSave = false, firstNotice = "", utterance = "", assertFresh, onSaved } = context;
   // V22.9.77 감사 D-6: 같은 이름의 가계부가 또 있으면 호출부가 역할·만든 날을 붙인 이름을 넘긴다(없으면 이름 그대로).
-  const householdLine = String(context.householdLabel || household.name || "가계부");
+  // V22.9.79 감사 N-5: 단톡방 기록은 이 이름표를 만들 길이 없었다(방 첫 기록 경로가 내 가계부 목록을 넘기지 않았다). 호출부가 이미 던져 둔
+  // 내 가계부 목록(householdRowsPromise)을 답장을 만들 때 받아 같은 이름 가계부가 있으면 역할·만든 날(·시각)을 붙인다. 늦거나 읽지 못하면 이름만.
+  const resolveHouseholdLine = async () => {
+    if (context.householdLabel) return String(context.householdLabel);
+    const rows = context.householdRowsPromise ? await optionalWithin(context.householdRowsPromise, 250, null) : null;
+    return Array.isArray(rows) ? kakaoHouseholdReplyName(household, rows) : String(household.name || "가계부");
+  };
   if (!parsedList.length) { const guide = kakaoNoMatchGuide(utterance, origin); return kakaoText(guide.text, guide.quickReplies); }
   const requestedLimit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
   if (parsedList.length > requestedLimit) return kakaoText(`한 번에 ${requestedLimit}건까지 입력할 수 있어요. ${parsedList.length}건 모두 저장하지 않았어요. 내용을 나눠 다시 보내 주세요.`);
@@ -68,6 +78,16 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   if (!messageLease.acquired) return kakaoText("같은 내용을 처리 중이에요. 이 요청으로 새 기록을 저장하지 않았어요. 먼저 기록 목록을 확인해 주세요.");
   const {customCategoryRows, paymentAssetRows, aliases: inputAliases, memberPolicy, pendingWrite, pendingWriteExists, pendingWriteEmptyValue} = settled[0].value;
   const aliasesPromise = Promise.resolve(inputAliases);
+  // V22.9.79 감사 N-4: 한 건 저장 답장의 ‘지출자:’는 웹 지출자 목록·요약·정산과 같은 이름 규칙(memberNameMap — 같은 이름이면 참여 순서 번호)으로 쓴다.
+  // 번호를 매기려면 구성원 명단이 필요한데 저장 경로는 그것을 읽지 않았다(내 가계부 목록·내 사용자 행·별명 설정뿐). 응답 경로에 조회를 늘리지
+  // 않으려고 ① 이름이 겹칠 수 있는 사람(별명도 저장된 이름도 없어 기본 이름 ‘카카오사용자’ 등인 사람 — 단톡방 구성원 대부분)만, ② 지출자 줄이 있는
+  // 한 건 저장에서만(방 가계부를 막 만든 첫 입력자는 구성원이 혼자라 읽지 않는다 — 방 첫 기록은 이미 요청이 가장 많다), ③ 저장을 기다리지 않고 설정 조회·잠금이 끝난 바로 뒤에 던져 저장(여러 번의 순차 왕복)과 나란히 돌린다(순차 단계는
+  // 그대로). 늦거나 실패하면 예전처럼 별명 → 이름으로 쓴다. 별명을 직접 정했거나 저장된 이름이 있는 사람은 읽지 않는다(이름이 겹칠 일이 드물다).
+  const payerBaseName = String(inputAliases?.[user.id] || user.nickname || nickname || "").trim();
+  const payerMembersPromise = parsedList.length === 1 && context.soleMember !== true && KAKAO_DEFAULT_PERSON_NAMES_V22979.has(payerBaseName)
+    ? fetchHouseholdMembers(env, household.id, { aliases: inputAliases })
+    : null;
+  payerMembersPromise?.catch(() => {});
   const finalParsedList = applyUserSettingsToParsedTransactions(parsedList, customCategoryRows, paymentAssetRows);
 
   const kakaoBulkLimit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
@@ -116,6 +136,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     : `\n서로 다른 구매라면 ‘별도 구매 추가 ${duplicateExample}’라고 원래 기록 문장을 보내 후보를 확인해 주세요.`;
   const resultLine = `새로 저장 ${newCount}건 · 중복 저장 안 함 ${duplicateCount}건 · ${totalText}` + duplicateNotice;
 
+  const householdLine = await resolveHouseholdLine();
   let finalizeNotice = "";
   if (onSaved) {
     try { await onSaved(); }
@@ -141,11 +162,12 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const icon = parsed.type === "income" ? "💰" : "💸";
   const typeText = parsed.type === "income" ? "수입" : "지출";
   const enrichBudgetMs = Math.max(150, Math.min(700, 3900 - (Date.now() - handlerStartedAt)));
-  const [seq, aliases] = await Promise.all([
+  const [seq, aliases, payerMembers] = await Promise.all([
     optionalWithin(dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, saved), enrichBudgetMs, 0),
     optionalWithin(aliasesPromise, enrichBudgetMs, {}),
+    payerMembersPromise ? optionalWithin(payerMembersPromise, enrichBudgetMs, null) : null,
   ]);
-  const payerName = aliases?.[user.id] || nickname || "나";
+  const payerName = (payerMembers && memberNameMap(payerMembers)[user.id]) || aliases?.[user.id] || user.nickname || nickname || "나";
   const numberedLine = seq ? kakaoRowLabel(saved, seq) : `${saved.memo || saved.raw_text || saved.category || "기록"} / ${numberWithCommas(saved.amount)}원 / ${saved.payment_method || "-"} / ${saved.category || typeText}`;
   // T2: 오늘이 아닌 날짜로 저장한 기록은 안내에도 그 날짜를 붙인다. 날짜 없는 "수정 01번"은 오늘의 01번이다.
   const dayPrefix = kakaoEditDayPrefixV4(saved.transaction_date);

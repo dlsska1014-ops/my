@@ -1,6 +1,6 @@
 // @build:imports-start
 import { scheduleNluOpsPersistence } from "../runtime/ops-telemetry.js";
-import { isUniqueConstraintError } from "../runtime/leases.js";
+import { isUniqueConstraintError, safeError } from "../runtime/leases.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { fetchCustomCategories } from "../settings/categories-keywords.js";
 import {
@@ -9,7 +9,7 @@ import {
 import {
   commitImportedTransactionRows, importStorageTextIssue,
 } from "../import/flexible-import-parser.js";
-import { fetchHouseholdMembers } from "../data/households-members-rows.js";
+import { fetchHouseholdMembers, memberNameMap } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { myImportStoredValue, reconcileImportedTransactionIds } from "../my/backup-import.js";
 import {
@@ -99,13 +99,14 @@ async function buildKakaoEditConfigV4(env, householdId = "", rowType = "expense"
     fetchPaymentAssets(env, householdId).catch(() => []),
     fetchCustomCategories(env, householdId).catch(() => []),
   ]);
-  const labelCounts = new Map();
-  const memberOptions = kakaoActiveSpenderMembers(members).slice(0, 20).map((m) => {
-    const base = String(m.nickname || "구성원").trim().slice(0, 20) || "구성원";
-    const count = (labelCounts.get(base) || 0) + 1;
-    labelCounts.set(base, count);
-    return { label: count > 1 ? `${base}·${count}` : base, user_id: m.user_id };
-  });
+  // V22.9.79 감사 N-4: 지출자 고르기의 이름도 저장 답장·웹 지출자 목록·요약·정산과 같은 규칙(memberNameMap — 같은 이름이면 참여 순서
+  // 번호 ‘이름 1’·‘이름 2’)이다. 예전에는 같은 이름의 둘째부터 ‘이름·2’를 붙여, 저장 답장의 ‘카카오사용자 2’와 다른 이름으로 보였다.
+  // 번호는 명단 전체(조회 전용·승인 대기 포함)로 매기고 고르는 목록에는 지출자가 될 수 있는 사람만 둔다(웹 renderSpenderOptions 와 같다).
+  const personNames = memberNameMap(members);
+  const memberOptions = kakaoActiveSpenderMembers(members).slice(0, 20).map((m) => ({
+    label: String(personNames[m.user_id] || m.nickname || "구성원").trim().slice(0, 30) || "구성원",
+    user_id: m.user_id,
+  }));
   const methods = [];
   for (const asset of safeArray(paymentAssets)) {
     const name = String(asset?.name || "").trim().slice(0, 20);
@@ -406,6 +407,28 @@ async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey 
   return { row: found.row, seq: Number(target.seq || 0) };
 }
 
+// V22.9.79 감사 B-8: 복구가 끝나지 않았을 때의 안내. 예전에는 어느 경우든 "다시 ‘복구’를 입력"하라고 했다.
+//  - 잠금 충돌(busy): 다른 요청이 같은 복구 버퍼를 쥐고 있었다. 그 요청이 이 요청이 되살리려던 기록을 이미 되살렸을 수 있어서, 번호 없는
+//    "복구"를 그대로 다시 보내면 그다음(더 오래된) 삭제 기록까지 되살아났다. 확인부터 하라고 하고 바로 다시 보내라고 하지 않는다.
+//  - 그 밖의 실패: 버퍼는 그대로라 같은 말을 다시 보내면 같은 기록을 한 번만 되살린다(되살릴 때 원래 id 로 이미 있는지 먼저 본다).
+//    번호를 붙인 복구는 번호까지 그대로 다시 보내라고 한다 — 번호를 떼고 "복구"만 보내면 가장 최근 삭제가 되살아난다.
+function kakaoRestoreDelayedTextV4(restoreTarget = {}, outcome = {}) {
+  const again = restoreTarget.seq ? `복구 ${twoDigitSeq(restoreTarget.seq)}번` : "복구";
+  if (outcome.busy) {
+    return [
+      "복구 요청이 겹쳐서 이번 요청은 처리하지 않았어요.",
+      "앞서 보낸 복구가 이미 끝났을 수 있어요. ‘오늘기록’(다른 날 기록은 ‘어제 기록 보기’처럼)으로 되살아났는지 먼저 확인해 주세요.",
+      `아직 그대로일 때만 ‘${again}’${josa(again, "을를")} 다시 보내 주세요. 확인 없이 바로 다시 보내면 다른 삭제 기록까지 되살아날 수 있어요.`,
+    ].join("\n");
+  }
+  return [
+    "복구가 잠시 지연되고 있어요.",
+    outcome.undo ? `복구하려던 기록: ${kakaoRowLabel(outcome.undo.row, outcome.undo.seq)}` : "",
+    `잠시 후 같은 ‘${again}’${josa(again, "을를")} 다시 보내 주세요.`,
+    "같은 기록이 두 번 생기지 않게 확인한 뒤 되살려요.",
+  ].filter(Boolean).join("\n");
+}
+
 function kakaoEditRowNotFoundTextV4(target = {}) {
   const date = target.date || formatDate(nowKstDate());
   const seqText = target.seq ? ` ${twoDigitSeq(target.seq)}번` : "";
@@ -523,11 +546,17 @@ async function handleKakaoEditCommandV4(env, ctx) {
       outcome = await withKakaoEditUndoLeaseV4(env, kakaoUserKey, payload, async ({ assertFresh }) => {
         const items = await readKakaoEditUndoItemsV4(env, kakaoUserKey, payload);
         // 번호가 겹치면 가장 최근에 지운 것부터 되돌린다. 지운 순서의 역순이 사용자가 기대하는 순서다.
-        const undo = restoreTarget.seq ? items.find((item) => Number(item.seq || 0) === restoreTarget.seq) : items[0];
+        // V22.9.79 감사 B-9: 복구 버퍼는 가계부와 상관없이 한 사람·한 대화에 하나라, 다른 가계부에서 같은 번호를 더 나중에 지웠으면
+        // "복구 01번"이 그쪽 기록을 먼저 잡아 지금 가계부의 01번을 영영 되살릴 수 없었다. 번호를 붙인 복구는 지금 가계부에서 지운 것 중에서
+        // 먼저 고르고, 그 번호가 지금 가계부에는 없을 때만 다른 가계부의 기록(아래 안내만 하고 되살리지 않는다)을 잡는다.
+        // 번호 없는 "복구"는 가장 최근에 지운 것 그대로다 — 다른 가계부 것이면 어느 쪽을 뜻하는지 모르므로 되살리지 않고 안내한다.
+        const ownHousehold = (item) => String(item?.row?.household_id || household.id) === String(household.id);
+        const numbered = restoreTarget.seq ? items.filter((item) => Number(item.seq || 0) === restoreTarget.seq) : [];
+        const undo = restoreTarget.seq ? (numbered.find(ownHousehold) || numbered[0]) : items[0];
         if (!undo) return { kind: "empty" };
         // T12: 지운 가계부와 지금 가계부가 같을 때만 되살린다. 지금 가계부의 쓰기 권한은 위 라우터가 이미 확인했다.
         const targetHouseholdId = String(undo.row.household_id || household.id);
-        if (targetHouseholdId !== String(household.id)) return { kind: "other_household", undo };
+        if (targetHouseholdId !== String(household.id)) return { kind: "other_household", undo, ownSeq: Number(items.find(ownHousehold)?.seq || 0) };
         const body = kakaoRestoreRowV4(undo.row, household.id);
         // 직전 시도가 응답 단계에서만 실패해 이미 복구됐을 수 있으므로 먼저 존재를 확인한다.
         let restored = body.id ? await getKakaoRowById(env, targetHouseholdId, user.id, kakaoUserKey, body.id) : null;
@@ -560,16 +589,20 @@ async function handleKakaoEditCommandV4(env, ctx) {
         return { kind: "restored", undo, restored };
       });
     } catch (err) {
-      outcome = { kind: "failed", undo: null, error: err };
+      // V22.9.79 감사 B-8: 잠금을 못 잡은 요청(settings_rmw_busy)은 아무것도 읽지도 쓰지도 않았다. 다른 요청이 같은 버퍼를 쥐고 있었다는 뜻이라
+      // 그 요청이 방금 기록을 되살렸을 수 있다 — 아래 답장이 구분해서 말한다.
+      outcome = { kind: "failed", undo: null, error: err, busy: /settings_rmw_busy/.test(safeError(err)) };
     }
     if (outcome.kind === "empty") return kakaoText("복구할 삭제 기록이 없어요.\n삭제 직후 안내된 번호로만 복구할 수 있어요. ‘오늘기록’로 현재 기록을 확인해 주세요.");
     if (outcome.kind === "other_household") {
-      return kakaoText(`이 기록은 ‘${outcome.undo.household_name || "다른 가계부"}’에서 지웠어요. 지금 가계부(‘${household.name || "가계부"}’)에는 되살리지 않았어요.\n그 가계부에서 다시 ‘복구 ${twoDigitSeq(Number(outcome.undo.seq || 0))}번’을 보내 주세요.`);
+      // V22.9.79 감사 B-9: 지금 가계부에서 지운 기록이 따로 있으면 그 번호를 알려 준다(다른 가계부 기록을 건드리지 않고 이 가계부 기록만 안내).
+      const ownHint = outcome.ownSeq ? `\n지금 가계부에서 지운 기록은 ‘복구 ${twoDigitSeq(outcome.ownSeq)}번’으로 되살릴 수 있어요.` : "";
+      return kakaoText(`이 기록은 ‘${outcome.undo.household_name || "다른 가계부"}’에서 지웠어요. 지금 가계부(‘${household.name || "가계부"}’)에는 되살리지 않았어요.\n그 가계부에서 다시 ‘복구 ${twoDigitSeq(Number(outcome.undo.seq || 0))}번’을 보내 주세요.${ownHint}`);
     }
     if (outcome.kind !== "restored") {
       const lastError = outcome.error;
       await logKakaoEditTelemetryV4(env, payload, { userKey: kakaoUserKey, entryNo: twoDigitSeq(Number(outcome.undo?.seq || restoreTarget.seq || 0)), input: String((lastError && lastError.message) || lastError || "").slice(0, 280), type: "restore_error" });
-      return kakaoText("복구가 잠시 지연되고 있어요. 잠시 후 다시 ‘복구’를 입력해 주세요.\n같은 기록이 두 번 생기지 않게 확인한 뒤 되살려요.");
+      return kakaoText(kakaoRestoreDelayedTextV4(restoreTarget, outcome));
     }
     const restored = outcome.restored;
     const seq = (await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, restored)) || Number(outcome.undo.seq || 0) || 1;

@@ -1,3 +1,6 @@
+// @build:imports-start
+import { foldInputWidth, normalizeInputText } from "./shared-input-nlu.js";
+// @build:imports-end
 
 export function parseMobileAmountText(text = "") {
   const amount = moneyTokenSpans(text)[0]?.amount || 0; return amount <= 2000000000 ? amount : 0;
@@ -7,10 +10,13 @@ export function parseMobileAmountText(text = "") {
 // V22.9.34 감사 D1·N2: 날짜(10/3, 10.3, 7-15)는 뒤에 숫자가 와도 날짜로 뺀다. 예전에는 "10/3 52000 마트"가
 // 10원·3원·52,000원 세 건이 됐다. 시각(19:40), 괄호 속 카드 끝자리((1234)), 가린 카드번호(1234-****),
 // "끝자리 1234", 카드 문자의 누적·잔액·한도 금액도 금액 후보에서 뺀다.
+// V22.9.79 A-16: 전각 숫자·부호(“４５００”, “１２，０００원”)를 반각으로 읽는다(글자 수가 같아 위치는 그대로다). “1+1 우유 3000”의 1+1
+// (덤 행사 표기)은 부호가 붙은 금액이 아니라 수량이라 후보에서 빼고(예전에는 문장 전체를 금액 없음으로 거절), “생수 2 박스”·
+// “쌀 10 kg”처럼 숫자 뒤에 띄어 쓴 수량 단위가 오면 그 숫자는 금액이 아니다.
 function moneyTokenSpans(text = "") {
-  const source = String(text || "").replace(/[₩￦]/g, "원");
+  const source = String(text || "").replace(/[０-９，．：／－＋％（）]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)).replace(/[₩￦]/g, "원");
   if (/\d+,\d{1,2}(?!\d)/.test(source)) return [];
-  const excluded = [...source.matchAll(/\b01[016789][ -]?\d{3,4}[ -]?\d{4}\b|\b20\d{6}\b|\b20\d{2}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}[./-]\d{1,2}\b(?!\s*[억만천백십원])|\b\d{1,2}:\d{2}(?::\d{2})?\b|\(\s*\d{2,4}\s*\)|\d{2,4}(?:[-\s]?[*＊xX]{2,})+(?:[-\s]?\d{2,4})?|[*＊xX]{2,}[-\s]?\d{2,4}|(?:끝자리|끝번호|뒷자리|뒷번호)\s*\d{2,4}|(?:누적|잔액|잔고|남은\s*한도|한도)\s*:?\s*[\d,]+\s*원?|\d+(?:\.\d+)?\s*(?:%|퍼센트|명|시|분|일|월|년|번)/g)].map(m => [m.index, m.index + m[0].length]);
+  const excluded = [...source.matchAll(/\b01[016789][ -]?\d{3,4}[ -]?\d{4}\b|\b20\d{6}\b|\b20\d{2}[./-]\d{1,2}[./-]\d{1,2}\b|\b\d{1,2}[./-]\d{1,2}\b(?!\s*[억만천백십원])|\b\d{1,2}:\d{2}(?::\d{2})?\b|\(\s*\d{2,4}\s*\)|\d{2,4}(?:[-\s]?[*＊xX]{2,})+(?:[-\s]?\d{2,4})?|[*＊xX]{2,}[-\s]?\d{2,4}|(?:끝자리|끝번호|뒷자리|뒷번호)\s*\d{2,4}|(?:누적|잔액|잔고|남은\s*한도|한도)\s*:?\s*[\d,]+\s*원?|\d+(?:\.\d+)?\s*(?:%|퍼센트|명|시|분|일|월|년|번)|\b\d\s?\+\s?\d\b/g)].map(m => [m.index, m.index + m[0].length]);
   const pattern = /(?:\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?|[일이삼사오육칠팔구영공한두세네다섯여섯일곱여덟아홉하나둘셋넷십백천만억]+)(?:\s*[십백천만억]\s*(?:\d+(?:\.\d+)?|[일이삼사오육칠팔구영공십백천만억]+)?)*\s*원?/g;
   const result = [];
   for (const match of source.matchAll(pattern)) {
@@ -23,7 +29,7 @@ function moneyTokenSpans(text = "") {
     if (!/\d/.test(raw) && !/원$|[십백천만억]$/.test(raw)) continue;
     if (!/\d/.test(raw) && /[가-힣]/.test(source[end] || "") && !/^(?:짜리|어치|씩|랑|하고|으로|에|을|를|은|는|이|가|만|도)(?=\s|$)/.test(source.slice(end))) continue;
     // Unitless quantities and product model numbers must not create extra transactions.
-    if (/^\d+$/.test(raw) && (/^\s*(?:구|개|알|정|봉|봉지|묶음|대|벌|컵|매|팩|세트|마리|병|권|장|켤레|인분|인치|기가|케이스)(?=\s|$)/.test(source.slice(end)) || /(?:아이폰|갤럭시|모델)\s*$/.test(source.slice(0, start)))) continue;
+    if (/^\d+$/.test(raw) && (/^\s*(?:구|개|알|정|봉|봉지|묶음|대|벌|컵|매|팩|세트|마리|병|권|장|켤레|인분|인치|기가|케이스|박스|상자|캔|잔|판|줄|포|통|근|포기|송이|쌍|다발|봉투|포대|롤|조각|접시|그릇|개입|리터|킬로|그램|밀리|kg|g|ml)(?=\s|$)/i.test(source.slice(end)) || /(?:아이폰|갤럭시|모델)\s*$/.test(source.slice(0, start)))) continue;
     if (/[가-힣]/.test(source[start-1] || "") && /^[일이삼사오육칠팔구영공한두세네십백천만억]/.test(raw)) {
       const stem = source.slice(0,start).trim().split(/\s+/).pop() || "";
       const amountStem = /^(?:수입|지출|입금|결제|급여|월급|판매|용돈|세뱃돈|수당|이자|캐시백|월세수입)$/;
@@ -273,20 +279,25 @@ function quickSmartInputController(config) {
     if (typeof Event === "function") document.dispatchEvent?.(new Event("ab:quick-update"));
   }
   function apply(clearInput) {
-    const text=smart?.value.trim(); if (!text) return;
-    const value=config.amount(text), parsedDate=config.date(text,todayNow());
-    const type=config.type(text), payment=config.payment(text), category=config.category(text,type);
+    // V22.9.79: 입력은 카카오와 같은 순서로 읽는다 — 전각 숫자를 반각으로 바꾸고(A-16) 서버와 같은 정본 normalizeInputText 로 다듬은 문장에서
+    // 금액·날짜·구분·결제수단·분류·메모를 찾는다("만 오천원"(A-07)은 이 단계에서 한 금액이 된다). 저장하는 원문(rawTextInput)은 친 그대로다.
+    // 서버(parseTransaction)는 입구에서 한 번 다듬고 금액·날짜·구분 판정에서 한 번 더 다듬는다("(1234)삼만 오천원"은 첫 번째로 괄호가 지워진
+    // 뒤에야 띄어 쓴 금액이 붙는다). 결제수단·분류·메모 판정 함수는 스스로 한 번 더 다듬으므로 그대로 text 를 주고, 금액·날짜·구분은 scan 을 준다.
+    const typed=smart?.value.trim(); if (!typed) return;
+    const text=normalizeInputText(foldInputWidth(typed)), scan=normalizeInputText(text);
+    const value=config.amount(scan), parsedDate=config.date(scan,todayNow());
+    const type=config.type(scan), payment=config.payment(text), category=config.category(text,type);
     confirmType=/(?:결제|승인)\s*취소/.test(text) && !/(?:^|\s)(?:수입|지출)(?=\s|$)/.test(text);
-    const token=moneyTokenSpans(text)[0]?.raw || "";
+    const token=moneyTokenSpans(scan)[0]?.raw || "";
     if (!manual.amount) { amount.value=value ? new Intl.NumberFormat("ko-KR").format(value) : ""; invalidAmount=!value; }
     else invalidAmount=!validAmount();
-    if (!manual.date) { date.value=parsedDate || (explicitDateIntent(text)?"":defaultDate()); invalidDate=explicitDateIntent(text) && !parsedDate; }
+    if (!manual.date) { date.value=parsedDate || (explicitDateIntent(scan)?"":defaultDate()); invalidDate=explicitDateIntent(scan) && !parsedDate; }
     else invalidDate=!validDate();
     const radio=document.querySelector('input[name=type][value="'+type+'"]'); if (radio&&!manual.type) radio.checked=true;
-    if (!manual.memo&&byId("memoInput")) byId("memoInput").value=config.memo(text,token,payment,category);
+    if (!manual.memo&&byId("memoInput")) byId("memoInput").value=config.memo(text,token,payment,category,type);
     if (!manual.payment&&byId("payInput")) byId("payInput").value=payment;
     if (!manual.category&&byId("catInput")) byId("catInput").value=category;
-    if (byId("rawTextInput")) byId("rawTextInput").value=text;
+    if (byId("rawTextInput")) byId("rawTextInput").value=typed;
     setValidity(amount,invalidAmount,"유효한 금액을 입력하세요."); setValidity(date,invalidDate,"유효한 날짜를 선택하세요.");
     if (clearInput) smart.value="";
     resolveCategory(); complete();
@@ -298,16 +309,19 @@ function quickSmartInputController(config) {
     if (manual.category) return;
     const memo=byId("memoInput")?.value || "", raw=byId("rawTextInput")?.value || "";
     if (!memo && !raw) return;
+    // V22.9.79 A-10: 문장에서 저절로 채운 메모는 분류에 다시 넣지 않는다. 메모는 결제수단 말을 지운 문장의 일부라 ‘농협체크’에서 남은 ‘농협’이
+    // 서버가 막아 둔(except) 낱말을 되살려 "점심 9000 농협체크"를 장보기로 분류했다(카카오는 문장만 보아 외식). 직접 고친 메모는 넣는다.
+    const hint=manual.memo || !raw ? memo : "";
     const income=!!document.querySelector("input[name=type][value=income]:checked");
     const household=form?.querySelector('input[name="household_id"]')?.value || "";
-    if (!household || typeof fetch!=="function") { if(byId("catInput"))byId("catInput").value=config.category([raw,memo].filter(Boolean).join(" "),income?"income":"expense"); return; }
+    if (!household || typeof fetch!=="function") { if(byId("catInput"))byId("catInput").value=config.category([normalizeInputText(foldInputWidth(raw)),hint].filter(Boolean).join(" "),income?"income":"expense"); return; }
     if(byId("catInput"))byId("catInput").value="";
     classificationPending=true;
     classificationTimer=setTimeout(async()=>{
       const controller=typeof AbortController==="function" ? new AbortController() : null;
       const timeout=controller?setTimeout(()=>controller.abort(),8000):0;
       try {
-        const response=await fetch("/u/api/input-classification",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify({household_id:household,type:income?"income":"expense",raw_text:raw,memo}),signal:controller?.signal});
+        const response=await fetch("/u/api/input-classification",{method:"POST",credentials:"same-origin",headers:{"content-type":"application/json",accept:"application/json"},body:JSON.stringify({household_id:household,type:income?"income":"expense",raw_text:raw,memo:hint}),signal:controller?.signal});
         if(!response.ok)throw new Error("classification_unavailable");
         const data=await response.json();
         if(!data.ok || data.household_id!==household || typeof data.category!=="string")throw new Error("classification_invalid");

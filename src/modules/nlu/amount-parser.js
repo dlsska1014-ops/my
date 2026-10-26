@@ -1,54 +1,33 @@
 // @build:imports-start
 import { moneyTokenSpans, transactionTypeFromText } from "../client/shared-input-parsers.js";
+import { normalizeInputText } from "../client/shared-input-nlu.js";
 import { CATEGORY_RULES } from "./category-rules.js";
 // @build:imports-end
 
+// V22.9.79: 거래 문장 다듬기의 본문은 화면 빠른 입력과 함께 쓰는 공유 함수(client/shared-input-nlu.js normalizeInputText)로 옮겼다.
+// 이 이름은 이름·로그인 값 등 거래 문장이 아닌 곳에서도 쓰이므로 전각 숫자 변환은 하지 않는다(거래 문장 입구에서 따로 한다).
+// V22.9.79 감사 E-1: 가져오기 해석 한 번 동안만 같은 글의 정규화 결과를 기억한다. 한 행의 분류·구분·결제수단 판정이 같은 글을
+// 각자 다시 정규화한다(카드 표 행당 2번 중 1번, 자연어 행당 11번 중 4번이 직전과 같은 글). 범위 밖에서는 예전 그대로 매번 계산한다.
+let normalizeTextScope = null;
+function withNormalizeTextScope(task) {
+  const outer = normalizeTextScope;
+  normalizeTextScope = new Map();
+  try { return task(); } finally { normalizeTextScope = outer; }
+}
+
 function normalizeText(text) {
-  function normalizeTextSymbols(value) {
-    const chunks = [];
-    for (let i = 0; i < value.length; i += 16384) {
-      let part = value.slice(i, i + 16384).replace(/[~!@#$^&*_=\`|\\{}\[\]:;"'<>?()]+/g, " ").replace(/\s+/g, " ");
-      if (chunks.length && chunks[chunks.length - 1].endsWith(" ") && part.startsWith(" ")) part = part.slice(1);
-      if (part) chunks.push(part);
-    }
-    return chunks.join("").trim();
+  const scope = normalizeTextScope;
+  if (scope === null || typeof text !== "string" || text.length > 600) return normalizeTextUncached(text);
+  let out = scope.get(text);
+  if (out === undefined) {
+    out = normalizeTextUncached(text);
+    if (scope.size < 4096) scope.set(text, out);
   }
-  return normalizeTextSymbols(String(text || "")
-    .replace(/^@[\w가-힣_-]+\s*/, "")
-    .replace(/^\/+/, "")
-    .replace(/[，]/g, ",")
-    .replace(/[₩￦]/g, "원")
-    // V22.9.77 감사 A-15: ‘원정’(금 오만원정)은 금액 바로 뒤에서만 ‘원’이다. 예전에는 낱말 속까지 바꿔 "원정 경기"가 "원 경기"가 됐다.
-    // 금액 뒤에 말이 붙어 있으면("만원정도"·"만원정산") ‘원’ 뒤를 띄어 그 말의 ‘정’을 살린다(예전: "만원도"·"만원산").
-    .replace(/([\d일이삼사오육칠팔구십백천만억])(\s*)원정(?![가-힣])/g, "$1$2원")
-    .replace(/([\d일이삼사오육칠팔구십백천만억])(\s*)원정(?=[가-힣])/g, "$1$2원 정")
-    .replace(/만 원/g, "만원")
-    .replace(/천 원/g, "천원")
-    .replace(/처넌/g, "천원")
-    .replace(/처눤/g, "천원")
-    .replace(/백 원/g, "백원")
-    .replace(/십 원/g, "십원")
-    // V22.9.76 감사 A-07: 수 단위 뒤의 띄어쓰기("만 오천원", "삼만 오천원", "만 2천원", "사천 오백원")는 한 금액이다. 띄운 채 두면
-    // 앞뒤가 두 금액으로 읽혀 두 건(10,000원 + 기타지출 5,000원)으로 저장되거나 뒤의 금액이 사라졌다. 앞이 만·억·천·백으로
-    // 끝나고, 뒤가 그보다 작은 단위(천·백·십)의 수이며 ‘원’이 붙거나 문장이 끝날 때만 붙인다. 앞이 숫자 단위("3만 5천원")면
-    // 예전부터 한 금액으로 읽으므로 건드리지 않는다.
-    .replace(/(^|\s)([일이삼사오육칠팔구십백천]*[만억천백])\s+((?:[일이삼사오육칠팔구]|\d{1,3})?([천백십])[일이삼사오육칠팔구십백]*)(?=\s*원|\s*$)/g,
-      (all, lead, head, tail, unit) => {
-        const unitValue = { 억: 100000000, 만: 10000, 천: 1000, 백: 100 }[head.slice(-1)];
-        if (!(unitValue > { 천: 1000, 백: 100, 십: 10 }[unit])) return all;
-        if (!/^\d/.test(tail)) return `${lead}${head}${tail}`;
-        // 뒤가 숫자("만 2천원")면 앞도 숫자 단위("1만")로 바꿔야 한 금액("1만2천원")으로 읽힌다.
-        const coefficient = parseKoreanAmount(head) / unitValue;
-        return Number.isInteger(coefficient) && coefficient > 0 ? `${lead}${coefficient}${head.slice(-1)}${tail}` : all;
-      })
-    // V22.9.34 감사 D1·N2: 시각(19:40)·괄호 속 카드 끝자리((1234))·가린 카드번호·카드 문자의 누적·잔액·한도
-    // 금액은 기호를 지우기 전에 뺀다. 지우고 나면 "19 40", " 1234 " 가 되어 금액으로 읽혔다.
-    .replace(/\b\d{1,2}:\d{2}(?::\d{2})?\b/g, " ")
-    .replace(/\(\s*\d{2,4}\s*\)/g, " ")
-    .replace(/\d{2,4}(?:[-\s]?[*＊xX]{2,})+(?:[-\s]?\d{2,4})?/g, " ")
-    .replace(/[*＊xX]{2,}[-\s]?\d{2,4}/g, " ")
-    .replace(/(?:누적|잔액|잔고|남은\s*한도|한도)\s*:?\s*[\d,]+\s*원?/g, " ")
-  );
+  return out;
+}
+
+function normalizeTextUncached(text) {
+  return normalizeInputText(text);
 }
 
 function normalizeType(value) {
@@ -231,5 +210,6 @@ function koreanSimpleNumber(s, digit) {
 // @build:exports-start
 export {
   detectType, detectTypeDetail, extractAmount, normalizeText, normalizeType, parseAmountValue,
+  withNormalizeTextScope,
 };
 // @build:exports-end

@@ -40,8 +40,39 @@ function householdAccessTitle(role = "") {
   return "이 화면은 관리자 전용";
 }
 
-function renderMyAccessStatusHtml({ env, user = null, household = null, role = "", month = currentMonthKst(), manageOnly = false }) {
+// V22.9.79 감사 V44 F-6: 소유자·관리자 전용 화면의 안내는 화면마다 다르게 말한다. 예전에는 ‘참여자·초대 및 단톡방 연결’ 이야기 하나로
+// 수입·예산 화면까지 안내해, 예산 설정 링크를 누른 구성원이 다른 화면 이야기를 읽었다. screen 은 부르는 쪽이 정한 고정 이름이다.
+// extra 는 지금 권한으로 열 수 있는 가까운 화면으로 가는 단추다.
+function manageOnlyGuide(screen = "", { month = currentMonthKst(), householdId = "" } = {}) {
+  const hh = householdId ? `&household_id=${encodeURIComponent(householdId)}` : "";
+  if (screen === "settings") {
+    return {
+      guide: "수입 계획·분류별 예산·정기지출·분류 키워드를 바꾸는 화면은 소유자 또는 관리자만 열 수 있습니다. 지금 권한으로는 예산 현황을 볼 수 있어요.",
+      steps: ["예산 현황 보기에서 예산과 사용 상태 확인", "예산이나 정기지출을 바꾸고 싶다면 소유자 또는 관리자에게 요청", "자주 바꿔야 한다면 소유자에게 관리자 권한 요청"],
+      extra: { href: `/budgets?month=${encodeURIComponent(month)}${hh}`, label: "예산 현황 보기" },
+    };
+  }
+  if (screen === "members") {
+    return {
+      guide: "참여자 목록과 초대코드는 소유자 또는 관리자만 볼 수 있습니다. 지금 권한으로 열 수 있는 화면(홈·기록·예산·분석)은 계속 사용할 수 있어요.",
+      steps: ["내 가계부로 돌아가기", "참여자를 초대하거나 권한을 바꾸려면 소유자 또는 관리자에게 요청", "관리 작업을 직접 해야 한다면 소유자에게 관리자 권한 요청"],
+    };
+  }
+  if (screen === "groups") {
+    return {
+      guide: "카카오 단톡방 연결은 소유자 또는 관리자만 할 수 있습니다. 지금 권한으로 열 수 있는 화면(홈·기록·예산·분석)은 계속 사용할 수 있어요.",
+      steps: ["내 가계부로 돌아가기", "단톡방을 연결하거나 바꾸려면 소유자 또는 관리자에게 요청", "관리 작업을 직접 해야 한다면 소유자에게 관리자 권한 요청"],
+    };
+  }
+  return {
+    guide: "이 화면은 소유자 또는 관리자만 열 수 있습니다. 지금 권한으로 열 수 있는 화면은 계속 사용할 수 있어요.",
+    steps: ["내 가계부로 돌아가기", "바꿀 내용이 있으면 소유자 또는 관리자에게 요청", "계속 필요하다면 소유자에게 관리자 권한 요청"],
+  };
+}
+
+function renderMyAccessStatusHtml({ env, user = null, household = null, role = "", month = currentMonthKst(), manageOnly = false, screen = "" }) {
   const normalizedRole = String(role || household?.role || "").toLowerCase();
+  const manageGuide = manageOnly ? manageOnlyGuide(screen, { month, householdId: household?.id || "" }) : null;
   const title = manageOnly && canReadMyHousehold(normalizedRole) ? "관리자 권한이 필요한 화면" : householdAccessTitle(normalizedRole);
   let guide = "가계부 목록에서 이용 가능한 가계부를 선택하거나 새 가계부를 만들어 주세요.";
   let steps = ["가계부 전환·추가 화면으로 이동", "이용 가능한 가계부 선택", "문제가 계속되면 가계부 관리자에게 권한 확인 요청"];
@@ -52,12 +83,12 @@ function renderMyAccessStatusHtml({ env, user = null, household = null, role = "
     guide = "초대코드를 다시 입력해도 제한은 해제되지 않습니다. 가계부 관리자만 권한을 변경할 수 있습니다.";
     steps = ["가계부 관리자에게 제한 사유와 권한 확인 요청", "다른 이용 가능한 가계부로 전환", "필요하면 별도의 새 가계부 생성"];
   } else if (manageOnly) {
-    guide = "참여자·초대 및 단톡방 연결 정보는 소유자 또는 관리자만 볼 수 있습니다. 현재 권한으로는 기록 조회 화면을 계속 사용할 수 있습니다.";
-    steps = ["내 가계부로 돌아가기", "관리 작업이 필요하면 소유자에게 관리자 권한 요청", "조회 전용 사용자는 기록을 변경하지 않고 조회만 이용"];
+    guide = manageGuide.guide;
+    steps = manageGuide.steps;
   }
   const householdName = household?.name || "선택한 가계부";
   const list = steps.map((step, index) => `<li><b>${index + 1}</b><span>${escapeHtml(step)}</span></li>`).join("");
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · ${escapeHtml(title)}</title><style>${MY_ACCESS_STATUS_CSS}</style></head><body><main class="wrap"><section class="card"><span class="badge">${escapeHtml(userHouseholdRoleLabel(normalizedRole || "member"))}</span><h1>${escapeHtml(title)}</h1><p class="sub"><b>${escapeHtml(householdName)}</b><br/>${escapeHtml(user?.nickname || "사용자")}님의 현재 권한을 기준으로 안전하게 접근을 제한했습니다.</p><div class="guide">${escapeHtml(guide)}</div><ol>${list}</ol><div class="actions"><a class="btn" href="/my/households">가계부 전환·추가</a>${canReadMyHousehold(normalizedRole) ? `<a class="btn soft" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(household?.id || "")}">내 가계부</a>` : `<a class="btn soft" href="/my">처음 화면</a>`}</div></section></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · ${escapeHtml(title)}</title><style>${MY_ACCESS_STATUS_CSS}</style></head><body><main class="wrap"><section class="card"><span class="badge">${escapeHtml(userHouseholdRoleLabel(normalizedRole || "member"))}</span><h1>${escapeHtml(title)}</h1><p class="sub"><b>${escapeHtml(householdName)}</b><br/>${escapeHtml(user?.nickname || "사용자")}님의 현재 권한을 기준으로 안전하게 접근을 제한했습니다.</p><div class="guide">${escapeHtml(guide)}</div><ol>${list}</ol><div class="actions">${manageGuide?.extra && canReadMyHousehold(normalizedRole) ? `<a class="btn" href="${escapeHtml(manageGuide.extra.href)}">${escapeHtml(manageGuide.extra.label)}</a>` : ""}<a class="${manageGuide?.extra && canReadMyHousehold(normalizedRole) ? "btn soft" : "btn"}" href="/my/households">가계부 전환·추가</a>${canReadMyHousehold(normalizedRole) ? `<a class="btn soft" href="/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(household?.id || "")}">내 가계부</a>` : `<a class="btn soft" href="/my">처음 화면</a>`}</div></section></main></body></html>`;
 }
 
 const MY_ACCESS_STATUS_CSS = `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff7ed,#f8fafc 50%);color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:0 auto;padding:18px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:28px;padding:24px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.08)}.badge{display:inline-flex;border-radius:999px;background:#fff7ed;color:#9a3412;border:1px solid #fed7aa;padding:6px 10px;font-size:12px;font-weight:1000}h1{font-size:28px;margin:14px 0 8px}.sub{color:#64748b;line-height:1.65}.guide{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.65}ol{list-style:none;padding:0;margin:18px 0;display:grid;gap:10px}li{display:grid;grid-template-columns:34px 1fr;gap:10px;align-items:center;border:1px solid #e5e7eb;border-radius:16px;padding:11px}li b{display:grid;place-items:center;width:30px;height:30px;border-radius:50%;background:#111827;color:#fff}.actions{display:flex;gap:8px;flex-wrap:wrap}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border-radius:14px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 14px}.soft{background:#eef2f7;color:#111827}@media(max-width:620px){.wrap{padding:12px}.card{padding:19px;border-radius:22px}h1{font-size:24px}.actions,.btn{width:100%}}`;

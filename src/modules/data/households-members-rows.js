@@ -463,10 +463,6 @@ function renderSpenderOptions(members = [], selected = "", blankLabel = "지출�
   return opts.join("");
 }
 
-function renderSpenderDatalist(members = []) {
-  return `<datalist id="spenderNameList">${members.map((m) => `<option value="${escapeHtml(m.nickname || "")}"></option>`).join("")}</datalist>`;
-}
-
 async function fetchAdminRows(env, { month, householdId, type = "all", date = "", q = "", quality = "all", category = "", payment_method = "" }) {
   const start = `${month}-01`;
   const end = nextMonthStart(month);
@@ -519,8 +515,7 @@ export {
   fetchAnalysisRowsRange, fetchFormerSpenderMembers, fetchHouseholdMemberCounts,
   fetchHouseholdMembers, fetchMemberAliasMap, fetchPostgrestRows, fetchRowsByPlainIds,
   getScopedHouseholdsForPage, householdPersonLabels, isRowLimitExceededError,
-  memberAliasSettingsKey, memberNameMap, normalizeMemberAliasMap, renderSpenderDatalist,
-  renderSpenderOptions, roleRank, saveMemberAlias, selectRequestedScopedHousehold,
-  supabaseExactCount,
+  memberAliasSettingsKey, memberNameMap, normalizeMemberAliasMap, renderSpenderOptions, roleRank,
+  saveMemberAlias, selectRequestedScopedHousehold, supabaseExactCount,
 };
 // @build:exports-end

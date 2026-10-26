@@ -7,6 +7,7 @@ import {computeFairMoM, renderMyAnalysisHtml} from "../src/modules/my/analysis-p
 import {buildBudgetAlertPolishModel, renderPendingRecurringList} from "../src/modules/features/budget-alerts-annual-goals.js";
 import {fetchBudgets, fetchRecurringStrict} from "../src/modules/domain/budgets.js";
 import {buildSettlementModel} from "../src/modules/features/settlement-ops-pages.js";
+// V22.9.79 D-5: 환불 연결(refundNetting)을 받으려 buildSettlementModel 을 의도적으로 바꿔 d3-refund-protection-v22958.json 의 지문을 새로 적었다. 플래그가 꺼지면 계산은 예전과 같다.
 import {kakaoSettlementParts} from "../src/modules/kakao/simple-commands.js";
 // V22.9.72: 카카오 정산 문구는 parts(빈 결과 표식) 로 바뀌었다. 문구만 쓴다.
 const kakaoSettlementText=async (...args)=>(await kakaoSettlementParts(...args)).text;
@@ -43,7 +44,8 @@ for(const changed of [renderBlock.replace('  const comparisonDisplay = fairMoMDi
 await withClock("2026-10-15",async()=>{
  const current=[tx("2026-10-10",300000),tx("2026-10-25",150000)],previous=[tx("2026-09-10",300000)];
  const fair=computeFairMoM("2026-10",current,previous),m=model(current);
- deepEq([fair.expense,m.spent,m.observedSpent,m.avgDaily,m.forecastExpense,m.remainingBudget,m.dailyAllowance,m.status],[0,450000,300000,20000,620000,250000,14706,"ok"],"correct baseline independent expected values");
+ // V22.9.79 감사 V44 D-18: 하루 사용 가능은 홈과 같이 내림이다(250,000 ÷ 17일 = 14,705.9 → 14,705, 예전 반올림 14,706).
+ deepEq([fair.expense,m.spent,m.observedSpent,m.avgDaily,m.forecastExpense,m.remainingBudget,m.dailyAllowance,m.status],[0,450000,300000,20000,620000,250000,14705,"ok"],"correct baseline independent expected values");
  for(const [a,b,kind,rate,difference]of [[0,0,"unchanged",null,0],[500,0,"difference",null,500],[0,500,"percent",-100,-500],[500,500,"percent",0,0]])for(const type of ["expense","income"]){
   const result=computeFairMoM("2026-10",a?[tx("2026-10-01",a,{type})]:[],b?[tx("2026-09-01",b,{type})]:[])[type+"Comparison"];
   deepEq([result.kind,result.rate,result.difference],[kind,rate,difference],type+" zero denominator contract "+a+"/"+b);
@@ -75,7 +77,7 @@ await withClock("2026-10-15",async()=>{
   seed(fx,[...current,...previous]);const requests=capture();
   const p=await page(fx,"/my/analysis?view=report"+qs.replace("?","&"));eq(p.status,200,"actual mobile report");ok(p.html.includes("지난달 같은 기간 대비 0%"),"actual report comparison is zero");ok(p.html.includes("620,000원")&&p.html.includes("20,000원")&&p.html.includes("450,000원"),"report preserves existing forecast and monthly total");
   const before=requests.length;
-  for(const path of paths){const result=await page(fx,path+qs);eq(result.status,200,path+" actual HTTP");for(const value of ["450,000원","250,000원","14,706원","20,000원","620,000원"])ok(result.html.includes(value),path+" correct value "+value);ok(!result.html.includes("930,000원"),path+" future excluded only from pace");}
+  for(const path of paths){const result=await page(fx,path+qs);eq(result.status,200,path+" actual HTTP");for(const value of ["450,000원","250,000원","14,705원","20,000원","620,000원"])ok(result.html.includes(value),path+" correct value "+value);ok(!result.html.includes("930,000원"),path+" future excluded only from pace");}
   eq(requests.slice(before).filter(r=>r.path.endsWith("transactions")).length,4,"one existing transaction GET per budget route");
   ok(!requests.some(r=>r.method==="HEAD"),"no extra HEAD/count request");
   const notifications=await api(fx,"/u/api/notifications"+qs);eq(notifications.status,200,"actual notification HTTP");ok(!notifications.data.notifications.some(n=>n.key.startsWith("budget-warn:")),"no false pace alert");deepEq([notifications.data.budget_observation.observed_spent,notifications.data.budget_observation.average,notifications.data.budget_observation.forecast],[300000,20000,620000],"same actual API observation model");
@@ -93,12 +95,14 @@ await withClock("2026-10-15",async()=>{
   // There is no transaction/rule link, so it must remain in the assumption.
   for(const path of paths){
    const result=await page(fx,path+qs);eq(result.status,200,path+" current nonempty pending HTTP");
-   ok(result.html.includes('<span>정기지출 대기</span><b>50,000원</b>'),path+" recurring union counted once");
-   ok(result.html.includes("관측 속도 예상에 대기 목록을 모두 더한 가정값 670,000원"),path+" explicit additional assumption amount");
+   // V22.9.79 V76 W-7: 대기 고정지출은 따로 더한 가정값 줄이 아니라 월말 예상 자체에 들어가고, 그 내역을 한 줄로 보인다(운영자 결정 Q3).
+   ok(result.html.includes('<span>고정지출 대기</span><b>50,000원</b>'),path+" recurring union counted once");
+   ok(result.html.includes("기록 300,000원 + 남은 고정·정기 50,000원 + 남은 16일 예상 320,000원")&&result.html.includes("670,000원"),path+" pending fixed expenses are inside the one month-end outlook");
    const list=result.html.match(/<ul class="recList">([\s\S]*?)<\/ul>/)?.[1]||"";eq((list.match(/<li>/g)||[]).length,2,path+" does not deduplicate a similar recorded expense");
   }
   const n=await api(fx,"/u/api/notifications"+qs);eq(n.status,200,"current nonempty pending notification HTTP");
-  deepEq([n.data.budget_observation.forecast,n.data.budget_observation.pending_total,n.data.budget_observation.after_pending_assumption],[620000,50000,670000],"API observation and additional assumption remain distinct");
+  // V22.9.79 V76 W-7: forecast 가 대기 고정지출을 포함한 월말 예상이 됐다. after_pending_assumption 은 한 판 동안 같은 값으로 남는다.
+  deepEq([n.data.budget_observation.forecast,n.data.budget_observation.pending_total,n.data.budget_observation.after_pending_assumption],[670000,50000,670000],"API forecast includes pending fixed expenses and keeps the old key equal for one release");
   const pending=n.data.notifications.filter(item=>item.key==="recurring-pending:2026-10");eq(pending.length,1,"current pending retains monthly notification key");ok(pending[0].body.includes("50,000원"),"actual pending notification amount");ok(!n.data.notifications.some(item=>item.key==="budget-warn:2026-10"),"additional pending assumption does not become a pace warning");
  });
  await fixture(async fx=>{

@@ -22,6 +22,14 @@ import { buildSettlementModel } from "../features/settlement-ops-pages.js";
 import {
   buildSettlementRefundPreview, settlementRefundPreviewDigest,
 } from "../features/settlement-refund-preview.js";
+import {
+  applyRefundLinkNetting, normalizeRefundLinkRows, rankRefundCandidates, refundDeductionsByMonth,
+  refundLinkDateAllowed, refundLinkDeductionRows, refundLinkErrorCode, refundLinkMessage,
+  refundSettlementNetting,
+} from "../domain/refund-links.js";
+import {
+  loadRefundLinkMonthState, refundNettedMonthRows, settlementRefundDigest,
+} from "../features/settlement-refund-links.js";
 import { resolveEffectiveUserId } from "../auth/user-session.js";
 import {
   boundedFormRequest, ensureKakaoLoginUser, fetchUserIdentityLinks, makeCredentialProof,
@@ -168,5 +176,7 @@ export { budgetExpenseRows };
 export { explicitDateIntent };
 
 export { buildSettlementRefundPreview, settlementRefundPreviewDigest };
+// V22.9.79 D-5·M-7: 환불 연결 계산과 W-7·M-7 연결점(검사용).
+export { refundDeductionsByMonth, applyRefundLinkNetting, refundLinkDeductionRows, normalizeRefundLinkRows, refundSettlementNetting, rankRefundCandidates, refundLinkDateAllowed, refundNettedMonthRows, loadRefundLinkMonthState, settlementRefundDigest, refundLinkErrorCode, refundLinkMessage };
 
 export { kakaoGroupFirstKeys, kakaoGroupLinkItemSettingsKey, getExplicitKakaoBotGroupKey, readKakaoGroupFirstSnapshot, removeKakaoGroupLink, bindKakaoGroupByInviteCode };

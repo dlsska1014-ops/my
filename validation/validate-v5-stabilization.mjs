@@ -50,9 +50,9 @@ try {
   eq(fixture.db.accountbook_settings.length, settingsBefore, "invalid favorite request creates no setting");
 
   for (const [path, mime] of [
-    ["/assets/accountbook-shell-v22947.css", "text/css"],
+    ["/assets/accountbook-shell-v22979.css", "text/css"],
     ["/assets/accountbook-nav-v22937.js", "javascript"],
-    ["/assets/accountbook-v5-v22951.js", "javascript"],
+    ["/assets/accountbook-v5-v22979.js", "javascript"],
     ["/assets/accountbook-goals-v22946.js", "javascript"],
   ]) {
     const asset = await request(fixture, path);
@@ -63,7 +63,7 @@ try {
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "V5 home renders");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "V5 home keeps the HTML shell below 35 KiB");
-  ok(home.text.includes("accountbook-v5-v22951.js"), "V5 home loads the shared bundle");
+  ok(home.text.includes("accountbook-v5-v22979.js"), "V5 home loads the shared bundle");
   ok(home.text.includes("accountbook-nav-v22937.js"), "V5 home loads the shared navigation runtime");
 
   const annual = await request(fixture, "/annual?month=2026-07&household_id=house-home");

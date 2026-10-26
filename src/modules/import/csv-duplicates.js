@@ -11,11 +11,14 @@ import { normalizeText } from "../nlu/amount-parser.js";
 // 실행한다. 가계부는 여러 사람이 함께 쓰므로 한 참여자가 넣은 메모가 다른
 // 참여자의 PC에서 실행되지 않도록 내보내기 시점에 무력화한다. 따옴표로 감싸는
 // 것은 CSV 구분자 이스케이프일 뿐 수식 실행을 막지 못한다.
+// V22.9.79 감사 E-15: 이 작은따옴표는 가져올 때 되돌릴 수 있어야 한다(flexible-import-parser.js unguardImportText: 작은따옴표가
+// 하나 이상 이어진 뒤 수식 기호가 오면 하나를 뺀다). 그래서 원래 값이 이미 작은따옴표로 시작하고 그 뒤에 수식 기호가 오는 경우('=x)에도
+// 하나를 더 붙여 되돌아온 값이 원래 값과 같게 한다. 작은따옴표로만 시작하는 값('점심)은 그대로 둔다.
 function csvSafeText(value) {
   const text = String(value ?? "");
   if (!text) return text;
   if (/^-?\d+(?:\.\d+)?$/.test(text)) return text;
-  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  return /^'*[=+\-@\t\r]/.test(text) ? `'${text}` : text;
 }
 
 function readableCsvCell(value = "") {

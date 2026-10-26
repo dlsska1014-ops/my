@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_78.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_79.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -70,6 +70,15 @@ const validationScripts = [
   ["V22.9.78 운영 함수 정의 사본·코드 호출 인자 대조(G-13)", "validation/validate-rpc-definitions-v22978.mjs"],
   ["V22.9.78 홈 '앞으로 나갈 돈'(반영 대기 고정지출을 중복 없이 포함)", "validation/validate-home-upcoming-v22978.mjs"],
   ["V22.9.78 정기 반영 다음 쪽·이어 읽기·예약 실행 기록", "validation/validate-cron-v22978.mjs"],
+  ["V22.9.79 카카오 명령 답장(오늘 뭐 썼어·복구 안내·단톡방 안내·지출자 이름·같은 이름 가계부)", "validation/validate-kakao-replies-v22979.mjs"],
+  ["V22.9.79 환불 연결(플래그 꺼짐 기본)·카카오 정산 외 N명", "validation/validate-refund-links-v22979.mjs"],
+  ["V22.9.79 예약 실행 말일 바퀴·주간 스냅숏·수정 경로 다시 만들기", "validation/validate-cron-v22979.mjs"],
+  ["V22.9.79 정기 항목 목록 실패 표시·정기 수입 기본 분류", "validation/validate-recurring-web-v22979.mjs"],
+  ["V22.9.79 월말 예상 하나(분석·예산 알림·알림센터·홈 같은 숫자)·하루 사용 가능 내림·외식 갈래·증감률", "validation/validate-spending-outlook-v22979.mjs"],
+  ["V22.9.79 금액·분류·결제수단 해석(웹·카카오 같은 해석: A-07·A-10·A-16·N-11·N-13)", "validation/validate-nlu-v22979.mjs"],
+  ["V22.9.79 웹 화면 결함(지난 달 쓰는 속도·주별 탭·수정 폼 제안 목록·구성원 403 링크·검색 결과 이동·가입 오류 폼)", "validation/validate-web-ui-v22979.mjs"],
+  ["V22.9.79 백업 CSV 왕복·백업센터 전체 기간·가져오기 해석 비용", "validation/validate-backup-import-v22979.mjs"],
+  ["V22.9.79 시각 결함(날짜 칩 KST·다크 챗봇 명령어 대비·관리자 백업 화면·긴 이름 넘침·역할 조회 실패 안내)", "validation/validate-visual-v22979.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
@@ -299,7 +308,8 @@ function run(command, args, label) {
 // V22.9.77: 감사 후속 검사 4개(카카오 수정 89·신원 66·관제 61·예약·가져오기 55)와 추적표 V77 출처. 두 모드 실측: 일반 26,850 · 분류 표 부재 26,847.
 // V22.9.77 2026-10-24: main(V76 기록 PR #93) 병합 뒤 관제 토큰 확인 N-14(+8)·다시 만들기 대기 N-17(+14)·백업 엄격 조회 N-15(15)·추적표 V77 N-14~N-18. 두 모드 실측: 일반 26,933 · 분류 표 부재 26,930.
 // V22.9.78: 새 동작 검사 6개(정기 반영 124·홈 앞으로 나갈 돈 52·요일 20·관제 19·백업 안내 16·함수 사본 15)와 추적표 V78 출처. 두 모드 실측: 일반 27,250 · 분류 표 부재 27,247.
-const EXPECTED_MINIMUM_CHECKS = 27247;
+// V22.9.79: 새 동작 검사 9개(카카오 답장 234·환불 연결 251·예약 실행 135·정기 목록 90·월말 예상 98·입력 해석 1,645·웹 화면 153·백업 163·시각 120)와 추적표 V79 출처. 두 모드 실측: 일반 30,629 · 분류 표 부재 30,626(2026-10-26 통합 검토 수정 뒤).
+const EXPECTED_MINIMUM_CHECKS = 30626;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

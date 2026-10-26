@@ -27,6 +27,15 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
+  // V22.9.79: 홈 스타일시트·홈 스크립트·홈 셸·셸 CSS·검색·V5 번들·예산 미리 보기의 바이트가 바뀌어(F-4·F-8·F-10, 입력 해석 공유, 웹 화면) 일곱 주소를 v22979 로 올렸다.
+  // 옛 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 옛 해시로 계속 내려간다.
+  "/assets/mobile-home-v22979.css": "2fcbe755ae1b608875b4a2eedb38e379459a5bd97f390f9577d61a92cdf50562",
+  "/assets/mobile-home-v22979.js": "3731de55ba6311782e720f318ebefb6210d72f03125a7087a1ab18ee6ad8773f",
+  "/assets/mobile-home-shell-v22979.js": "387695c142c30077a67fe9fb453a2b47e52aec63718a32438ada521905acdc5f",
+  "/assets/accountbook-shell-v22979.css": "8aa69b634c36d83354938e9115a8ac59787922b6433dfb1fda714271759f8923",
+  "/assets/accountbook-search-v22979.js": "23294f6783eab195046b6e17e49c48ea2fd43e017ad227c45bc1846d60409a48",
+  "/assets/accountbook-v5-v22979.js": "5105846f10fb25f84ece1a3bdbf341f9b03062d1ca32e050468ccfaca3d29787",
+  "/assets/accountbook-budget-preview-v22979.js": "8aee568492093d03d361cf49adf33a0b3dfd28c5f2c7913a98c6ff957e3b9bae",
   // V22.9.78(V77 N-12): 홈 스크립트·홈 셸에 실리는 quickInputDate 가 주 없이 쓴 ‘지난·저번 요일’을 오늘을 뺀 앞 요일로 읽게 바뀌어 두 주소를 올렸다.
   // 옛 주소(mobile-home-shell-v22976·mobile-home-v22976)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 V22.9.76 해시로 계속 내려간다.
   "/assets/mobile-home-shell-v22978.js": "9f3eaf3caa755fd89b257998bd4ee3830f5c7df34724ab16d206b4643bafbca1",

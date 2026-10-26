@@ -16,7 +16,7 @@ import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { readJson } from "../api/admin-api.js";
 import { supabase } from "../data/supabase-client.js";
 import { parseTransaction } from "../nlu/transaction-parser.js";
-import { detectType, normalizeText } from "../nlu/amount-parser.js";
+import { detectType, normalizeText, withNormalizeTextScope } from "../nlu/amount-parser.js";
 import {
   currentMonthKst, detectPaymentMethod, formatDate, nowKstDate, parseDateStrict, safeYmd,
   validMonth, withKstNowScope,
@@ -242,6 +242,29 @@ function importColumnMetadata(headers = []) {
 }
 
 const IMPORT_EDITABLE_FIELDS = Object.freeze(["date", "amount", "type", "income", "expense", "memo", "category", "payment", "spender", "ignore"]);
+
+// V22.9.79 감사 E-15: 백업 CSV 내보내기(csvSafeText)는 =, +, -, @, 탭, 캐리지리턴으로 시작하는 글 앞에 엑셀 수식 방지용 작은따옴표를 붙인다.
+// 다시 가져올 때 그 작은따옴표를 뺀다. 작은따옴표가 하나 이상 이어진 뒤에 수식 기호가 올 때만 하나를 빼므로, 진짜로 작은따옴표로
+// 시작하는 글('점심')은 그대로 남고, 작은따옴표 뒤에 수식 기호가 오는 글('=x)은 내보낼 때 이미 하나가 더 붙어 있어 되돌아온다.
+const IMPORT_GUARDED_FIELDS = new Set(["memo", "category", "payment", "spender", "raw_text"]);
+function unguardImportText(value) {
+  return typeof value === "string" && value.charCodeAt(0) === 39 && /^'+[=+\-@\t\r]/.test(value) ? value.slice(1) : value;
+}
+
+// V22.9.79 감사 E-15: 이 앱이 내보낸 백업 CSV(열 9개가 모두 있는 표)인지. 내보낸 파일의 빈 칸은 "값이 없음"이므로 가져올 때 글에서 추측해
+// 채우지 않는다. 열 이름은 import/csv-duplicates.js READABLE_CSV_COLUMNS 와 같아야 한다(검사기가 맞춰 본다).
+const BACKUP_EXPORT_HEADER_KEYS = ["날짜", "구분", "금액", "분류", "내용", "결제수단", "지출자", "출처", "기록ID"].map(normalizeImportHeader);
+function isBackupExportColumns(columns = []) {
+  const keys = new Set(safeArray(columns).map((column) => column?.key));
+  return BACKUP_EXPORT_HEADER_KEYS.every((key) => keys.has(key));
+}
+
+// V22.9.79 감사 E-11: 카드 명세서의 ‘결제방법’ 열에는 결제수단이 아니라 일시불·할부 같은 결제 방식이 적힌다. 이 값을 결제수단 이름으로 쓰면
+// 결제수단별 통계에 ‘일시불’이 한 갈래로 생긴다. 이런 말만 적힌 칸은 결제수단으로 읽지 않는다(‘이용카드’ 열이 있으면 그 값을 쓴다).
+const IMPORT_INSTALLMENT_LABEL = /^(?:일시불(?:\s*\([^)]*\))?|할부|무이자(?:\s*할부)?|\d{1,2}\s*개월(?:\s*(?:무이자\s*)?할부)?|할부\s*\d{1,2}\s*개월?|\d{1,2}\s*회\s*할부)$/;
+function isInstallmentLabel(value) {
+  return IMPORT_INSTALLMENT_LABEL.test(String(value ?? "").trim());
+}
 
 function isImportSheetMarker(cells = []) {
   return /^(?:#\s*)?(?:시트|sheet)\s*[:：]/i.test(String(cells[0] || "").trim());
@@ -485,7 +508,27 @@ function isTwoDigitYearImportDate(value = "") {
   return /^\d{1,2}\s*[.\/-]\s*\d{1,2}\s*[.\/-]\s*\d{2}(?:\s|$)/.test(String(value ?? "").trim());
 }
 
+// V22.9.79 감사 E-1: 한 번의 해석 동안만 쓰는 기억 칸. 같은 날짜 칸을 제목 행 판정·합계 행 판정·부호 규칙·연도 찾기·본 해석에서
+// 행마다 네다섯 번 읽는데, 값과 날짜 기준(dateContext)이 같으면 결과도 같다. 사용자 칸 값은 전역에 남기지 않고 해석이 끝나면 버린다.
+let importParseScope = null;
+const IMPORT_SCOPE_DATE_LIMIT = 8192;
+const IMPORT_SCOPE_TYPE_LIMIT = 4096;
+
 function parseImportDateCell(value, options = {}) {
+  const scope = importParseScope, context = options.dateContext;
+  if (!scope || !context) return readImportDateCell(value, options);
+  let known = scope.dates.get(context);
+  if (!known) scope.dates.set(context, known = new Map());
+  const key = (options.allowSerial === true ? "s|" : "-|") + String(value ?? "");
+  let date = known.get(key);
+  if (date === undefined) {
+    date = readImportDateCell(value, options);
+    if (known.size < IMPORT_SCOPE_DATE_LIMIT) known.set(key, date);
+  }
+  return date;
+}
+
+function readImportDateCell(value, options = {}) {
   const text = String(value ?? "").replace(/\ufeff/g, "").trim().replace(/^["']|["']$/g, "").trim();
   if (!text) return "";
   if (/^\d{5}(?:\.\d+)?$/.test(text)) return options.allowSerial === true ? importDateYearAllowed(parseDateStrict(text), options) : "";
@@ -612,7 +655,22 @@ function parseImportAmountCell(value = "") {
   return { amount: Number.isFinite(amount) ? amount : 0, present: true, valid: Number.isSafeInteger(amount) && amount >= 0, negative, raw };
 }
 
+// V22.9.79 감사 E-1: 구분 칸은 "지출"·"수입"처럼 같은 값이 거의 모든 행에서 반복된다. 빈 칸은 바로 돌려주고, 같은 값은 해석 한 번 안에서 다시 계산하지 않는다.
 function normalizeImportTypeValue(value = "") {
+  if (value === "" || value === null || value === undefined) return "";
+  const scope = importParseScope;
+  if (scope && typeof value === "string") {
+    let type = scope.types.get(value);
+    if (type === undefined) {
+      type = readImportTypeValue(value);
+      if (scope.types.size < IMPORT_SCOPE_TYPE_LIMIT) scope.types.set(value, type);
+    }
+    return type;
+  }
+  return readImportTypeValue(value);
+}
+
+function readImportTypeValue(value = "") {
   const text = normalizeText(value).toLowerCase();
   if (!text) return "";
   if (/(수입|입금|받음|급여|매출|대변|credit|income|deposit|money\s*in|\bin\b)/i.test(text)) return "income";
@@ -625,21 +683,22 @@ function importRejection(code = "unsupported_row", rowNumber = 0, raw = "") {
   return { row_number: rowNumber, reason_code: code, reason, suggestion, raw: String(raw || "").replace(/\s+/g, " ").trim().slice(0, 240) };
 }
 
-function importObjectFromHeaders(headers = [], cells = [], columns = importColumnMetadata(headers)) {
-  const obj = Object.assign(Object.create(null), { __canonical: Object.create(null), __mapped: true, __has_date: columns.some((column) => column.field === "date"), __context: [], __headers: headers, __cells: cells });
+function importObjectFromHeaders(headers = [], cells = [], columns = importColumnMetadata(headers), backup = false) {
+  const obj = Object.assign(Object.create(null), { __canonical: Object.create(null), __mapped: true, __backup: backup === true, __has_date: columns.some((column) => column.field === "date"), __context: [], __headers: headers, __cells: cells });
   const localMoney = new Set();
   headers.forEach((header, index) => {
     const column = columns[index];
     const key = column.key || `col${index + 1}`;
-    const value = cells[index] ?? "";
     const field = column.field;
+    const cell = cells[index] ?? "";
+    const value = IMPORT_GUARDED_FIELDS.has(field) ? unguardImportText(cell) : cell;
     const moneyField = ["amount", "income", "expense"].includes(field);
     const foreign = column.foreign;
     if (foreign && (moneyField || column.original_money || /금액|amount|통화|currency/i.test(String(header)))) { obj.__foreign_money = true; return; }
     obj[key] = value;
     const local = moneyField && column.local;
     if (["date", "amount", "income", "expense", "memo", "type", "category", "payment"].includes(field)) obj.__context.push(value);
-    if (field && !["ignore", "time"].includes(field) && String(value).trim()) {
+    if (field && !["ignore", "time"].includes(field) && String(value).trim() && !(field === "payment" && isInstallmentLabel(value))) {
       if (local || !obj.__canonical[field]) obj.__canonical[field] = String(value).trim();
       else if (field === "memo" || field === "category") obj.__canonical[field] = `${obj.__canonical[field]} / ${String(value).trim()}`;
       if (local) localMoney.add(field);
@@ -739,6 +798,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const contextText = obj.__mapped === true ? contextCells.join(" ") : rawText;
   const warnings = [];
   const natural = !!options.natural;
+  const backup = obj.__backup === true;
   const currency = canonicalImportValue(obj,"currency");
   if (currency && !/^(?:KRW|WON|원|원화|₩|￦)$/i.test(String(currency).trim()) && !obj.__local_money) return {row:null,rejection:importRejection("ambiguous_amount",options.rowNumber,rawText),warnings:["원화 통화와 금액을 확인해 주세요. 외화는 자동 환산하지 않습니다."]};
   if (obj.__foreign_money && !obj.__local_money) return {row:null, rejection:importRejection("ambiguous_amount",options.rowNumber,rawText), warnings:["원화 금액 열을 확인해 주세요. 외화는 자동 환산하지 않습니다."]};
@@ -822,7 +882,9 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   // V22.9.26: 구분 열이 지출인데 금액이 음수면 카드사 명세서의 취소·환불 표기다. 양수 지출로
   // 더하면 원거래와 취소가 둘 다 지출로 집계된다. 환급(수입)으로 돌리고 확인 표시를 남긴다.
   let refundFlipped = false;
-  const cancellation = /취소|승인취소|결제취소|cancel(?:led|lation)?|refund/i.test(contextText) && !/취소\s*수수료/.test(contextText);
+  // V22.9.79 감사 E-15: 이 앱이 내보낸 백업 CSV 는 구분(수입·지출)이 이미 정해져 있고 취소·환불 표기를 풀어 읽을 파일이 아니므로 메모의 ‘취소’
+  // 같은 말로 확인 필요 표시를 하지 않는다(예전에는 그런 행이 기본 선택에서 빠져 복원 때 조용히 빠졌다).
+  const cancellation = !backup && /취소|승인취소|결제취소|cancel(?:led|lation)?|refund/i.test(contextText) && !/취소\s*수수료/.test(contextText);
   if (cancellation && !chosen.negative) warnings.push("취소 거래입니다. 원거래·취소 금액과 구분을 확인한 뒤 직접 선택하세요.");
   const genericNegative = chosen.negative && !String(typeVal || "").trim() && !forcedType;
   if (!signedFile && chosen.negative && (normalizedType === "expense" || forcedType === "expense" || genericNegative)) {
@@ -845,9 +907,11 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const memoVal = canonicalImportValue(obj, "memo");
   const rawField = canonicalImportValue(obj, "raw_text");
   if (categoryVal.length > 80 || [paymentVal, categoryVal].some((value) => /[\u0000-\u001f\u007f]/.test(value))) return { row: null, rejection: importRejection("invalid_field", options.rowNumber, rawText), warnings };
-  const payment = paymentVal ? String(paymentVal).trim() : (naturalParsed?.payment_method || detectPaymentMethod(contextText));
-  const category = refundFlipped ? "환급" : incomeReversed ? "기타지출" : (categoryVal || naturalParsed?.category || inferCategory(obj.__mapped === true ? contextText : `${contextText} ${memoVal}`, type));
-  const memo = memoVal || naturalParsed?.memo || cleanMemo(contextText, chosen.raw || String(chosen.amount), type, payment, category) || category;
+  // V22.9.79 감사 E-15: 이 앱이 내보낸 백업 CSV 는 빈 결제수단·분류·내용 칸이 "값이 없음"이다. 내용 글에서 결제수단·분류를 추측하거나 빈 내용을
+  // 분류 이름으로 채우지 않고 파일에 적힌 그대로 되살린다(분류가 비면 구분별 기본 분류).
+  const payment = paymentVal ? String(paymentVal).trim() : backup ? "" : (naturalParsed?.payment_method || detectPaymentMethod(contextText));
+  const category = refundFlipped ? "환급" : incomeReversed ? "기타지출" : (categoryVal || (backup ? (type === "income" ? "기타수입" : "기타지출") : naturalParsed?.category || inferCategory(obj.__mapped === true ? contextText : `${contextText} ${memoVal}`, type)));
+  const memo = backup ? memoVal : (memoVal || naturalParsed?.memo || cleanMemo(contextText, chosen.raw || String(chosen.amount), type, payment, category) || category);
   const textIssue = importStorageTextIssue({ memo, payment_method: payment });
   if (textIssue) return { row: null, rejection: importRejection(textIssue, options.rowNumber, rawText), warnings };
   const spender = canonicalImportValue(obj, "spender");
@@ -861,7 +925,9 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     payment_method: String(payment || ""),
     transaction_date: transactionDate,
     source: options.source || "import_smart",
-    raw_text: String(rawField || rawText).slice(0, 500),
+    // 백업 CSV 에는 원문(raw_text) 열이 없고 내보낼 때 내용 칸에 메모(메모가 비면 원문)를 적는다. 열 전체를 이은 글(기록ID·출처까지 든 줄)을
+    // 원문으로 남기지 않고 내용 칸 값을 원문으로 둔다 — 메모가 비어 있던 기록은 원문이 그대로 돌아온다.
+    raw_text: String(rawField || (backup ? memoVal : rawText)).slice(0, 500),
     _import_spender: String(spender || "").slice(0, 80),
     _import_warnings: warnings.slice(),
     _import_needs_confirmation: refundFlipped || incomeReversed || cancellation || yearBasisReview,
@@ -869,9 +935,18 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   return { row, rejection: null, warnings, twoDigitYear: isTwoDigitYearImportDate(dateVal) };
 }
 
-// V22.9.77 \uac10\uc0ac E-1: \ud574\uc11d \ud55c \ubc88 \ub3d9\uc548 KST \ud604\uc7ac \uc2dc\uac01 \ud615\uc2dd\uae30\ub97c \ud558\ub098\ub9cc \uc4f4\ub2e4(\uc790\uc5f0\uc5b4 \ud589\ub9c8\ub2e4 \uc0c8\ub85c \ub9cc\ub4e4\ub358 \uac83). \uacb0\uacfc\ub294 \uadf8\ub300\ub85c\ub2e4.
+// V22.9.77 감사 E-1: 해석 한 번 동안 KST 현재 시각 형식기를 하나만 쓴다(자연어 행마다 새로 만들던 것). 결과는 그대로다.
+// V22.9.79 감사 E-1: 같은 범위에서 날짜 칸·구분 칸의 해석 결과와 같은 글의 정규화 결과도 기억한다(importParseScope, withNormalizeTextScope).
+// 해석이 끝나면(예외로 끝나도) 버린다. 검사용: options.scopeMemo === false 면 기억 없이 예전처럼 매번 계산한다(결과는 같다).
 function parseFlexibleImportRecords(rawText, householdId, defaultUserId = "", options = {}) {
-  return withKstNowScope(() => parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId, options));
+  if (options?.scopeMemo === false) return withKstNowScope(() => parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId, options));
+  const outer = importParseScope;
+  importParseScope = { dates: new WeakMap(), types: new Map() };
+  try {
+    return withNormalizeTextScope(() => withKstNowScope(() => parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId, options)));
+  } finally {
+    importParseScope = outer;
+  }
 }
 
 function parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId = "", options = {}) {
@@ -912,6 +987,7 @@ function parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId =
   let sectionId = 1;
   let currentHeaders = headerIndex >= 0 ? table[headerIndex] : [];
   let columns = effectiveImportColumns(currentHeaders, sectionId, options);
+  let backupExport = isBackupExportColumns(columns);
   // An unambiguous explicit year in a dated table is stronger evidence than a
   // missing year. No request-global clock or module-load year is used.
   if (headerIndex >= 0 && !options.dateContext.file_year) {
@@ -993,6 +1069,7 @@ function parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId =
       sectionId++;
       currentHeaders = cells;
       columns = effectiveImportColumns(currentHeaders, sectionId, options);
+      backupExport = isBackupExportColumns(columns);
       registerMappings(currentHeaders);
       addRejected(importRejection("repeated_header", rowNumber, raw));
       continue;
@@ -1007,7 +1084,7 @@ function parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId =
       if (!aligned.matched) { addRejected(importRejection("column_mismatch", rowNumber, raw)); continue; }
       effectiveCells = aligned.cells;
       alignmentWarnings = aligned.warnings;
-      obj = importObjectFromHeaders(currentHeaders, effectiveCells, columns);
+      obj = importObjectFromHeaders(currentHeaders, effectiveCells, columns, backupExport);
     } else obj = importKeyValueObject(raw) || { __canonical: {}, __cells: cells.slice() };
     const summaryCells = obj.__mapped === true ? obj.__context : cells;
     if (isImportSummaryRow(summaryCells, summaryCells.join(" "), options)) { addRejected(importRejection("summary_row", rowNumber, raw)); continue; }

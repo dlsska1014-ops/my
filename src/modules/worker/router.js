@@ -95,6 +95,11 @@ import {
   handleSettlementHistorySave, handleSettlementSummaryPage, handleTrafficOpsPage,
 } from "../features/settlement-ops-pages.js";
 import { handleSettlementRefundPreview } from "../features/settlement-refund-preview.js";
+import { refundLinksEnabled } from "../domain/refund-links.js";
+import {
+  handleRefundKeepPost, handleRefundLinkPicker, handleRefundLinkPost, handleRefundUnlinkPost,
+  handleSettlementHistorySaveV22979, refundLinksReadiness,
+} from "../features/settlement-refund-links.js";
 import {
   handleKakaoStabilityGuidePage, handleNluFailuresCsv, handleNluOpsJson, handleNluOpsPage,
   handleOpenBuilderGuidePage, handleOpenBuilderReportPage, handleSkillOpsPage,
@@ -711,11 +716,13 @@ const ACCOUNTBOOK_WORKER = {
         const missing = missingRuntimeConfiguration(env);
         // V22.9.40 (B): ads_mode 는 운영자가 광고 게이트 상태("review"|"live")를 확인하는 값이다. /health 의 모양은 바꾸지 않는다.
         if (missing.length) return jsonResponse({ ok: false, ready: false, error: "missing_required_configuration", reason: "missing_required_configuration", message: "필수 설정이 비어 있어 요청을 처리할 수 없습니다.", missing_count: missing.length, ads_mode: adsMode(env) }, 503);
-        const [checks, optionalChecks, rpcResults, alternativeRpcResults] = await Promise.all([
+        // V22.9.79 D-5: 환불 연결은 플래그가 켜졌을 때만 따로 알린다(ready 판정·필수 표 13개에는 넣지 않는다).
+        const [checks, optionalChecks, rpcResults, alternativeRpcResults, refundLinksReady] = await Promise.all([
           Promise.all(READINESS_REQUIRED_TABLES.map((name) => checkTableAvailable(env, name))),
           Promise.all(READINESS_OPTIONAL_TABLES.map((name) => checkTableAvailable(env, name))),
           Promise.all(READINESS_CORE_RPCS.map((name) => checkRpcAvailable(env, name))),
           Promise.all(READINESS_ALTERNATIVE_RPC_GROUPS.map(async (group) => Promise.all(group.map((name) => checkRpcAvailable(env, name))))),
+          refundLinksEnabled(env) ? refundLinksReadiness(env) : null,
         ]);
         const failed = READINESS_REQUIRED_TABLES.filter((_name, index) => !checks[index].ok);
         const unavailableOptionalTables = READINESS_OPTIONAL_TABLES.filter((_name, index) => !optionalChecks[index].ok);
@@ -724,7 +731,7 @@ const ACCOUNTBOOK_WORKER = {
         const allMissingRpcs = [...missingRpcs, ...missingAlternativeRpcs];
         const ready = failed.length === 0 && allMissingRpcs.length === 0;
         const checkedRpcCount = READINESS_CORE_RPCS.length + READINESS_ALTERNATIVE_RPC_GROUPS.reduce((sum, group) => sum + group.length, 0);
-        return jsonResponse({ ok: ready, ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, unavailable_optional_tables: unavailableOptionalTables, missing_rpcs: allMissingRpcs, ads_mode: adsMode(env), time: new Date().toISOString() }, ready ? 200 : 503);
+        return jsonResponse({ ok: ready, ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, unavailable_optional_tables: unavailableOptionalTables, missing_rpcs: allMissingRpcs, ads_mode: adsMode(env), ...(refundLinksReady ? { refund_links: refundLinksReady } : {}), time: new Date().toISOString() }, ready ? 200 : 503);
       }
 
       if ((url.pathname === "/nlu-intents.json" || url.pathname === "/nlu-runtime.json") && request.method === "GET") {
@@ -1171,7 +1178,22 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if (url.pathname === "/my/settlement/save" && request.method === "POST") {
+        // V22.9.79 D-5: 환불 연결 플래그가 켜지면 연결한 환불을 뺀 정산을 완료 이력에 남긴다(꺼지면 예전 처리 그대로).
+        if (refundLinksEnabled(env)) return await handleSettlementHistorySaveV22979(request, env);
         return await handleSettlementHistorySave(request, env);
+      }
+      // V22.9.79 D-5·M-7: 환불 연결 고르기·걸기·풀기·수입으로 두기. 플래그가 꺼져 있으면 예전처럼 없는 주소다.
+      if (url.pathname === "/my/settlement/refund-link" && request.method === "GET" && refundLinksEnabled(env)) {
+        return safeHtmlRoute(request, url, async () => handleRefundLinkPicker(request, env, url), "환불 연결");
+      }
+      if (url.pathname === "/my/settlement/refund-link" && request.method === "POST" && refundLinksEnabled(env)) {
+        return await handleRefundLinkPost(request, env);
+      }
+      if (url.pathname === "/my/settlement/refund-unlink" && request.method === "POST" && refundLinksEnabled(env)) {
+        return await handleRefundUnlinkPost(request, env);
+      }
+      if (url.pathname === "/my/settlement/refund-keep" && request.method === "POST" && refundLinksEnabled(env)) {
+        return await handleRefundKeepPost(request, env);
       }
 
       if ((url.pathname === "/meeting-archive" || url.pathname === "/household-archive-guide") && request.method === "GET") {

@@ -7,7 +7,7 @@ import {
 } from "./intent-nlu.js";
 import { dedupeQuickReplies } from "./response-builders.js";
 import {
-  isKakaoEditGuideCommand, isKakaoTransactionSpenderChangeCommand,
+  isKakaoDailyListCommand, isKakaoEditGuideCommand, isKakaoTransactionSpenderChangeCommand,
 } from "./edit-session-v4.js";
 import {
   isKakaoCreateConfirmNo, isKakaoCreateConfirmYes, isKakaoCreateKindOptionsRequest,
@@ -178,7 +178,7 @@ function isKakaoTopLevelCommandV2254(text = "") {
     !!parseKakaoSummaryRange(t) || isRecentCommand(t) || isSettlementCommand(t) ||
     isInviteCommand(t) || isGroupLinkInfoCommand(t) || !!parseGroupBindCommand(t) ||
     isInputExampleCommand(t) || isKakaoMemberAliasCommand(t) || isKakaoEditGuideCommand(t) ||
-    isKakaoTransactionSpenderChangeCommand(t) || isUndoCommand(t) || isLinkCommand(t);
+    isKakaoTransactionSpenderChangeCommand(t) || isUndoCommand(t) || isLinkCommand(t) || isKakaoDailyListCommand(t);
 }
 
 function isExplicitKakaoTopLevelCommandV2254(text = "") {
@@ -189,6 +189,9 @@ function isExplicitKakaoTopLevelCommandV2254(text = "") {
   if (KAKAO_REPRESENTATIVE_COMMANDS.some((item) => normalizeText(item.messageText || item.command).replace(/\s+/g, "") === compact)) return true;
   if (/^(?:\/?)(시작하기|처음사용|온보딩|메뉴|전체메뉴|명령어|도움말|새가계부만들기|가계부만들기|초대코드로참여|가계부참여|단톡방연결|단톡방연결상태|기록방법|입력예시|오늘기록보기|오늘기록|최근기록|예산설정|남은예산|이번달요약|요약|정산|가계부전환|초대코드|내이름설정|닉네임설정|수정가이드)$/.test(compact)) return true;
   if (/^(?:단톡방\s*연결|가계부\s*참여)\s+[A-Z0-9]{5,12}$/i.test(t)) return true;
+  // V22.9.79: ‘어제 기록 보기’·‘7월 3일 기록 보기’도 ‘오늘기록’처럼 열려 있던 단계 흐름을 끊고 목록으로 답한다. 조회 전용도 이 목록을 볼 수 있게
+  // 되면서(skill-handler), 남아 있던 이름 입력 흐름이 이 말을 입력값으로 삼키지 않도록 하는 쪽이다.
+  if (isKakaoDailyListCommand(t)) return true;
   if (/^(?:\d{1,2}\s*번|방금|최근|마지막).*(?:수정|변경|삭제|지출자|결제자|수입자)/.test(t)) return true;
   if (/^(?:수정|삭제|복구)\s*\d{1,2}\s*번/.test(t)) return true;
   if (/^(?:취소|수정취소|선택취소|방금삭제|입력취소|삭제확인|삭제 확인)$/.test(t)) return true;
@@ -221,7 +224,23 @@ function isKakaoFlowLocalReplyV2254(state = null, text = "") {
   return false;
 }
 
-function shouldInterruptKakaoFlowV2254(state = null, text = "") {
+// V22.9.79: 이름 입력 단계에서 ‘오늘 뭐 썼어’·‘이번 달 뭐 썼어’·‘최근 기록 보여줘’ 같은 조회 질문을 이름으로 저장하지 않고 흐름을 끊어 답한다.
+// 모든 명령으로 끊으면 ‘정산담당’ 같은 이름이 막히므로 조회 질문 꼴만 좁게 본다. normalizeText 가 물음표를 지우므로 끝 물음표는
+// 원문에서 보고, ‘쓴 거’ 꼴은 뒤 경계를 둬 ‘부산거북이’·‘등산거사’ 같은 이름을 막지 않는다.
+// 기간 낱말로 시작하는 요약·정산(‘지난달 요약’·‘이번 달 정산’·‘8월 요약’)도 조회다(T-45: 전에는 이름으로 저장됐다). 맨 앞에 붙을 때만 본다.
+function isKakaoReadQuestionV22979(text = "") {
+  const raw = String(text || "").trim();
+  const t = normalizeText(raw).trim();
+  if (!t) return false;
+  return /(?:뭐|뭘|얼마나?)\s*(?:썼|샀|나갔|벌었|들어왔)/.test(t) ||
+    /(?:쓴|산|나간)\s*(?:거|것|내역)(?:은|는|이|가|을|를|도|만|좀|요|야)?(?=\s|$)/.test(t) ||
+    /기록\s*(?:보여|보기|봐|확인|알려)/.test(t) ||
+    /^(?:최근|오늘|어제|그제|이번\s*주|이번\s*달|지난\s*주|저번\s*주|지난\s*달|저번\s*달|\d{1,2}\s*월(?:\s*\d{1,2}\s*일)?)\s*(?:기록|내역|지출|수입|요약|정산)/.test(t) || /[?？]\s*$/.test(raw);
+}
+
+// rawText 는 앞 ‘기록 ’·‘/’를 떼기 전(멘션만 뗀) 원문이다. ‘기록 보여줘’는 떼고 나면 ‘보여줘’만 남아 조회 질문으로 못 본다.
+function shouldInterruptKakaoFlowV2254(state = null, text = "", rawText = text) {
+  if (state?.flow === "member_alias" && (isKakaoReadQuestionV22979(text) || isKakaoReadQuestionV22979(rawText))) return true;
   return !!state?.flow && isExplicitKakaoTopLevelCommandV2254(text) && !isKakaoFlowLocalReplyV2254(state, text);
 }
 
