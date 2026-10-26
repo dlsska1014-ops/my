@@ -10,7 +10,7 @@ import { fetchCustomCategories, normalizeCategoryKeywords } from "./categories-k
 import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
 import { verifyUserSession } from "../auth/user-session.js";
-import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { ROLE_CHECK_FAILED_TEXT, readHouseholdRoleOrFailure } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
 import { currentMonthKst, detectPaymentMethod, validMonth } from "../nlu/date-payment.js";
@@ -486,7 +486,10 @@ async function resolvePaymentAssetManage(request, env, householdId = "", month =
   if (await verifyAdminSession(request, env)) return { ok: true, role: "admin" };
   const userId = await verifyUserSession(request, env);
   if (!userId) return { ok: false, redirect: "/my" };
-  const role = await getHouseholdMemberRole(env, userId, householdId);
+  // V22.9.80 T-35: 역할 조회가 실패하면 ‘관리는 소유자와 관리자만’이라 거절하지 않고 ‘권한을 확인하지 못함’으로 알린다(아무것도 바꾸지 않는다).
+  // 이 화면은 err 를 문장 그대로 그리므로 코드가 아니라 문장을 싣는다.
+  const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/payment-asset" });
+  if (failed) return { ok: false, redirect: paymentMethodsLocation(month, householdId, { err: ROLE_CHECK_FAILED_TEXT }) };
   if (["owner", "admin"].includes(role)) return { ok: true, role, userId };
   return { ok: false, redirect: paymentMethodsLocation(month, householdId, { err: "자산·결제수단 관리는 가계부 소유자와 관리자만 할 수 있습니다." }) };
 }

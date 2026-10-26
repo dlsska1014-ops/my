@@ -11610,6 +11610,25 @@ async function resolveTransactionAccess(request, env, householdId, { manageOnly 
   return { ok, admin: false, userId, role };
 }
 
+// V22.9.80 T-34: 기록 입력·수정·삭제를 거절한 이유를 formatMessage 가 아는 코드로 돌려준다. 예전에는 "기록 입력 권한이 없습니다." 같은 자유 문장을 주소의 err 에 실어,
+// 코드만 안내로 바꾸는 홈·정기 화면이 ‘입력값을 확인한 뒤 다시 시도해 주세요’로 닫았다 — 조회 전용·이용 제한이 입력 오류처럼 보였다.
+//   - 역할 조회 실패(lookupCode)는 그대로 돌려준다.
+//   - 새 기록 입력(row 를 넘기지 않음): 조회 전용·승인 대기·이용 제한·참여자 아님을 역할별 코드로 말한다.
+//   - 기존 기록을 가리키는 요청(수정·삭제): 그 기록이 요청이 말한 가계부(householdId)의 것일 때만 역할별로 말하고, 기록이 없거나 다른 가계부의 것이거나 남의 기록이면
+//     모두 같은 not_my_record 다. 기록 id 가 어느 가계부에 있는지(또는 없는지)가 거절 문구 차이로 새지 않게 한다 — 예전 문장도 모든 경우에 같았다.
+function transactionDenialCode(access = {}, { row, householdId = "" } = {}) {
+  if (access.lookupCode) return access.lookupCode;
+  const role = String(access.role || "").toLowerCase();
+  const rowScoped = row === undefined || (!!row && String(row.household_id || "") === String(householdId || ""));
+  if (rowScoped) {
+    if (role === "viewer") return "write_denied_viewer";
+    if (role === "pending") return "write_denied_pending";
+    if (role === "blocked") return "write_denied_blocked";
+    if (!role && row === undefined) return "write_denied_not_member";
+  }
+  return "not_my_record";
+}
+
 async function fetchTransactionRowById(env, id) {
   if (!id) return null;
   const rows = await supabase(env, `/rest/v1/transactions?id=eq.${encodeURIComponent(id)}&select=id,household_id,user_id&limit=1`, { method: "GET" }) || [];
@@ -11645,7 +11664,7 @@ async function handleAdminAddTransaction(request, env) {
   const householdId = String(form.get("household_id") || "").trim();
   const access = await resolveTransactionAccess(request, env, householdId);
   if (!access.ok) {
-    if (!access.admin && access.userId) { const denied = access.lookupCode || "기록 입력 권한이 없습니다."; return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), transactionAddRedirectExtras(form, { err: denied }, "error"))); }
+    if (!access.admin && access.userId) { const denied = transactionDenialCode(access); return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), transactionAddRedirectExtras(form, { err: denied }, "error"))); }
     return redirectResponse(signedOutWriteRedirect(form));
   }
   const txType = normalizeTransactionType(form.get("type"));
@@ -11755,7 +11774,7 @@ async function handleAdminDeleteTransaction(request, env) {
     if (!isManager && !ownRow) return jsonResponse({ ok: false, error: "forbidden", message: "이 기록을 삭제할 권한이 없습니다." }, 403);
   }
   if (!access.ok || !targetRow || (!isManager && !ownRow)) {
-    if (!access.admin && access.userId) { const denied = access.lookupCode || "이 기록을 삭제할 권한이 없습니다."; return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), { err: denied })); }
+    if (!access.admin && access.userId) { const denied = transactionDenialCode(access, { row: targetRow, householdId }); return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), { err: denied })); }
     return redirectResponse(signedOutWriteRedirect(form));
   }
   // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 지우지 못한다(소유자·관리자는 그대로).
@@ -11815,7 +11834,8 @@ async function handleTransactionEditPage(request, env, url) {
     }
     if (!access.admin && access.userId) {
       const target = new URL(backTo, "https://accountbook.local");
-      target.searchParams.set("err", access.lookupCode || denied);
+      // V22.9.80 T-34: 돌아가는 화면(홈)은 코드만 안내로 바꾼다 — 조각용 문장(denied)을 주소에 싣지 않는다. 이 화면의 권한은 기록이 속한 가계부(rowHousehold)로 판정했으므로 그 가계부를 범위로 쓴다.
+      target.searchParams.set("err", transactionDenialCode(access, { row: targetRow, householdId: rowHousehold }));
       return redirectResponse(`${target.pathname}${target.search}`);
     }
     return redirectResponse(`/my?return_to=${encodeURIComponent(backTo)}`);
@@ -11872,7 +11892,7 @@ async function handleAdminUpdateTransaction(request, env) {
   const isManager = access.admin || ["owner", "admin"].includes(access.role);
   const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
   if (!access.ok || !targetRow || (!isManager && !ownRow)) {
-    if (!access.admin && access.userId) { const denied = access.lookupCode || "이 기록을 수정할 권한이 없습니다."; return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), { err: denied })); }
+    if (!access.admin && access.userId) { const denied = transactionDenialCode(access, { row: targetRow, householdId }); return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), { err: denied })); }
     return redirectResponse(signedOutWriteRedirect(form));
   }
   // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치지 못한다(소유자·관리자는 그대로).
@@ -13119,7 +13139,10 @@ async function resolvePaymentAssetManage(request, env, householdId = "", month =
   if (await verifyAdminSession(request, env)) return { ok: true, role: "admin" };
   const userId = await verifyUserSession(request, env);
   if (!userId) return { ok: false, redirect: "/my" };
-  const role = await getHouseholdMemberRole(env, userId, householdId);
+  // V22.9.80 T-35: 역할 조회가 실패하면 ‘관리는 소유자와 관리자만’이라 거절하지 않고 ‘권한을 확인하지 못함’으로 알린다(아무것도 바꾸지 않는다).
+  // 이 화면은 err 를 문장 그대로 그리므로 코드가 아니라 문장을 싣는다.
+  const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/payment-asset" });
+  if (failed) return { ok: false, redirect: paymentMethodsLocation(month, householdId, { err: ROLE_CHECK_FAILED_TEXT }) };
   if (["owner", "admin"].includes(role)) return { ok: true, role, userId };
   return { ok: false, redirect: paymentMethodsLocation(month, householdId, { err: "자산·결제수단 관리는 가계부 소유자와 관리자만 할 수 있습니다." }) };
 }
@@ -13645,8 +13668,11 @@ async function handleReservePlanCreate(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("정기 항목 저장 권한이 없습니다.")}`);
+    // V22.9.80 T-35: 역할 조회 실패는 ‘권한 없음’이 아니라 ‘확인하지 못함’(household_role_check_failed)이다. 진짜 거절은 코드(manage_required, T-34)로 보낸다 —
+    // 이 화면의 formatMessage 는 코드만 안내로 바꾸고 자유 문장은 ‘입력값을 확인한 뒤 다시 시도해 주세요’로 닫았다.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/reserve-plan/create" });
+    if (failed) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&err=household_role_check_failed`);
+    if (!["owner", "admin"].includes(role)) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&err=manage_required`);
   }
   const recurrence = String(form.get("recurrence") || "monthly");
   // V22.9.37 감사 N10: 선택값을 숫자로 바꾸지 않고 그대로 넘겨 저장 함수가 1~12 를 검증한다(틀린 값을 조용히 버리지 않는다).
@@ -13683,8 +13709,10 @@ async function handleReservePlanUpdate(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(`${back}&err=${encodeURIComponent("정기 항목 수정 권한이 없습니다.")}`);
+    // V22.9.80 T-35·T-34: 생성과 같다.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/reserve-plan/update" });
+    if (failed) return redirectResponse(`${back}&err=household_role_check_failed`);
+    if (!["owner", "admin"].includes(role)) return redirectResponse(`${back}&err=manage_required`);
   }
   const id = String(form.get("id") || "").trim();
   if (!id) return redirectResponse(`${back}&err=${encodeURIComponent("수정할 항목을 찾지 못했습니다.")}`);
@@ -13717,8 +13745,10 @@ async function handleReservePlanDelete(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("정기 항목 삭제 권한이 없습니다.")}`);
+    // V22.9.80 T-35·T-34: 생성과 같다.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/reserve-plan/delete" });
+    if (failed) return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=household_role_check_failed`);
+    if (!["owner", "admin"].includes(role)) return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=manage_required`);
   }
   const id = String(form.get("id") || "").trim();
   if (!id) return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("삭제할 정기 항목을 찾지 못했습니다.")}`);
@@ -37968,8 +37998,10 @@ async function handleBudgetSave(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "예산 저장 권한이 없습니다." }));
+    // V22.9.80 T-35: 역할 조회가 실패하면 ‘권한 없음’이 아니라 ‘확인하지 못함’으로 알리고 저장하지 않는다(진짜 거절은 그대로 거절). 거절 이유는 코드로 보낸다(T-34).
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/budget/save" });
+    if (failed) return redirectResponse(addQueryToUrl(returnTo, { err: "household_role_check_failed" }));
+    if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "manage_required" }));
   }
   // V22.9.37 감사 N8: 틀린 월(2026-13, 빈 값)은 이번 달 예산으로 떨어뜨리지 않고 거절한다.
   if (!validMonth(monthInput)) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_month_invalid" }));
@@ -38005,8 +38037,10 @@ async function handleBudgetDelete(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "예산 삭제 권한이 없습니다." }));
+    // V22.9.80 T-35: 저장과 같다 — 조회 실패는 ‘확인하지 못함’, 진짜 거절은 manage_required.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/budget/delete" });
+    if (failed) return redirectResponse(addQueryToUrl(returnTo, { err: "household_role_check_failed" }));
+    if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "manage_required" }));
   }
   // V22.9.37 감사 N8: 틀린 월은 이번 달 예산을 지우지 않고 거절한다.
   if (!validMonth(monthInput)) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_month_invalid" }));
@@ -38418,8 +38452,10 @@ async function handleCursorPreferenceSave(request, env) {
   const back = `/menu?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}`;
   if (!userId && !adminOk) return redirectResponse("/my");
   if (userId && householdId) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!role || ["pending", "blocked"].includes(String(role).toLowerCase())) return redirectResponse("/app?err=household_scope");
+    // V22.9.80 T-35: 역할 조회 실패를 ‘참여자가 아님’으로 읽지 않는다 — 확인하지 못했다고 알리고 저장하지 않는다. 진짜 거절(household_scope)은 그대로다.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/cursor-preference/save" });
+    if (failed) return redirectResponse("/app?err=household_role_check_failed");
+    if (!role || ["pending", "blocked"].includes(role)) return redirectResponse("/app?err=household_scope");
   }
   const on = String(form.get("cursor") || "") === "on";
   await saveSettingValue(env, cursorPrefKey(userId || "shared"), on ? "on" : "off");
@@ -38489,8 +38525,10 @@ async function handleHomeLayoutSave(request, env) {
   // 홈 구성은 내 화면 설정이라 가계부를 볼 수 있으면 바꿀 수 있다. 다만 볼 수 없는
   // 가계부의 키에 쓰지 못하게 소속은 확인한다.
   if (userId) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!role || ["pending", "blocked"].includes(String(role).toLowerCase())) {
+    // V22.9.80 T-35: 표시 설정 저장과 같다.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/home-layout/save" });
+    if (failed) return redirectResponse(`/app?err=household_role_check_failed`);
+    if (!role || ["pending", "blocked"].includes(role)) {
       return redirectResponse(`/app?err=household_scope`);
     }
   }
@@ -38669,7 +38707,8 @@ async function handleRecurringSave(request, env) {
   const _month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const _access = await resolveTransactionAccess(request, env, _hh, { manageOnly: true });
   if (!_access.ok) {
-    if (!_access.admin && _access.userId) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent(_access.lookupCode || "고정지출 저장 권한이 없습니다.")}#fixed`);
+    // V22.9.80 T-34: 거절 이유는 자유 문장이 아니라 코드(manage_required)로 보낸다 — 정기 화면의 formatMessage 가 아는 글만 안내로 바뀐다.
+    if (!_access.admin && _access.userId) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent(_access.lookupCode || "manage_required")}#fixed`);
     return redirectResponse("/?legacy=1");
   }
   const householdId = String(form.get("household_id") || "").trim();
@@ -38728,7 +38767,7 @@ async function handleRecurringDelete(request, env) {
   if (!id || !existingRule || !householdId) return redirectResponse(addQueryToUrl(returnTo, { err: "삭제할 고정항목이 없습니다." }));
   const access = await resolveTransactionAccess(request, env, householdId, { manageOnly: true });
   if (!access.ok) {
-    if (!access.admin && access.userId) return redirectResponse(addQueryToUrl(returnTo, { err: access.lookupCode || "고정지출 삭제 권한이 없습니다." }));
+    if (!access.admin && access.userId) return redirectResponse(addQueryToUrl(returnTo, { err: access.lookupCode || "manage_required" }));
     return redirectResponse("/?legacy=1");
   }
   try {
@@ -38774,7 +38813,7 @@ async function handleRecurringApply(request, env) {
   const _month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   const _access = await resolveTransactionAccess(request, env, _hh, { manageOnly: true });
   if (!_access.ok) {
-    if (!_access.admin && _access.userId) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent(_access.lookupCode || "고정지출 반영 권한이 없습니다.")}#fixed`);
+    if (!_access.admin && _access.userId) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(_hh)}&err=${encodeURIComponent(_access.lookupCode || "manage_required")}#fixed`);
     return redirectResponse("/?legacy=1");
   }
   const householdId = String(form.get("household_id") || "");
@@ -40205,6 +40244,13 @@ function formatMessage(msg) {
     display_name_required: "이 가계부에서 사용할 내 이름을 입력해 주세요.",
     household_deleted: "가계부와 연결된 기록을 안전하게 삭제했습니다.",
     household_role_check_failed: "권한을 확인하지 못해 아무것도 바꾸지 않았습니다. 잠시 후 다시 시도해 주세요.",
+    // V22.9.80 T-34: 기록 입력·수정·삭제 거절의 이유(역할별)와 홈 구성·표시 설정의 가계부 범위 거절. 예전에는 자유 문장을 주소에 실어 보내
+    // 이 표가 모르는 글이라 ‘입력값을 확인한 뒤 다시 시도해 주세요’로 닫혔다(조회 전용·이용 제한이 입력 오류처럼 보였다).
+    write_denied_viewer: "조회 전용 권한이라 기록을 추가·수정·삭제할 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.",
+    write_denied_pending: "참여 승인을 기다리는 중이라 기록을 바꿀 수 없습니다. 관리자가 승인하면 사용할 수 있어요.",
+    write_denied_blocked: "이 가계부의 이용이 제한되어 기록을 바꿀 수 없습니다. 소유자에게 확인해 주세요.",
+    write_denied_not_member: "이 가계부의 참여자가 아니어서 기록을 바꿀 수 없습니다. 가계부 전환에서 참여 중인 가계부를 골라 주세요.",
+    household_scope: "이 가계부의 참여자가 아니거나 승인 대기·이용 제한 상태여서 설정을 저장하지 않았습니다. 가계부 전환에서 확인해 주세요.",
     household_left: "가계부에서 나왔습니다. 기존 기록의 지출자 이름은 유지됩니다.",
     household_required: "먼저 사용할 가계부를 선택해 주세요.",
     household_updated: "가계부 이름을 변경했습니다.",
@@ -48321,6 +48367,21 @@ async function getHouseholdMemberRoleStrict(env, userId, householdId) {
 
 function isHouseholdRoleCheckFailure(err) {
   return err?.code === "household_role_check_failed" || /household_role_check_failed/.test(String(err?.message || ""));
+}
+
+// V22.9.80 T-35: 웹 저장 화면(예산·정기 항목·자산·홈 구성·표시 설정)의 권한 확인용 엄격 조회. getHouseholdMemberRole 은 조회가 실패(503·시간 초과)하면
+// 빈 역할("")을 돌려줘 ‘권한 없음’으로 읽혔다(V22.9.79 D-27 과 같은 꼴 — 권한이 있는 사람에게 권한이 없다고 말했다). 이 함수는 실패를 failed=true 로
+// 따로 돌려준다: 부르는 쪽은 거절이 아니라 ‘권한을 확인하지 못했다’(household_role_check_failed)로 알리고 아무것도 바꾸지 않는다. 참여자가 아님·역할 부족은
+// 예전처럼 role 로 판정한다. 읽기는 getHouseholdMemberRole 과 같은 한 번이고, 로그인·가계부가 없으면 읽지 않는다(role "").
+const ROLE_CHECK_FAILED_TEXT = "권한을 확인하지 못해 아무것도 바꾸지 않았습니다. 잠시 후 다시 시도해 주세요.";
+async function readHouseholdRoleOrFailure(env, userId, householdId, { path = "", method = "POST" } = {}) {
+  try {
+    return { role: String(await getHouseholdMemberRoleStrict(env, userId, householdId) || "").toLowerCase(), failed: false };
+  } catch (err) {
+    if (!isHouseholdRoleCheckFailure(err)) throw err;
+    rememberOpsEvent({ kind: "household_role_check_failed", severity: "warn", path: String(path || ""), method: String(method || "POST"), detail: safeError(err) });
+    return { role: "", failed: true };
+  }
 }
 
 function roleBlockedMessage(role, householdName = "") {

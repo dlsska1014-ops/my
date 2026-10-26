@@ -29,7 +29,8 @@ for (const route of ["/admin/reserve-plan/create", "/admin/reserve-plan/delete"]
 }
 // V22.9.76: 정기 항목에는 수입도 있어 "정기지출 항목"이 아니라 "정기 항목"이라고 묻는다. 뒤 문장(거래는 지우지 않음)은 그대로다.
 ok(source.includes("이 정기 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다."), "the delete confirmation copy keeps its meaning and covers income items");
-ok(source.includes('if (!["owner", "admin"].includes(role)) return redirectResponse(`${back}&err=${encodeURIComponent("정기 항목 수정 권한이 없습니다.")}`);'), "the update handler keeps the owner/admin gate");
+// V22.9.80 T-34·T-35: 거절 이유는 자유 문장이 아니라 코드(manage_required)로 보내고, 역할 조회가 실패하면 거절 대신 household_role_check_failed 로 알린다. 관리 권한 문(owner/admin)은 그대로다.
+ok(source.includes('if (!["owner", "admin"].includes(role)) return redirectResponse(`${back}&err=manage_required`);') && source.includes('if (failed) return redirectResponse(`${back}&err=household_role_check_failed`);'), "the update handler keeps the owner/admin gate");
 
 // 4. 데이터 모델은 파생 추가만 한다(하위호환).
 ok(source.includes('const type = String(item.type || "") === "income" ? "income" : "expense";'), "type defaults to expense for legacy items");

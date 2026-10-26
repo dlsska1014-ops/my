@@ -25,7 +25,7 @@ import {
   formatChangeAgainst, percentChange, renderCategoryCompareTable, renderMonthlyTrendTable,
   renderObservedMoney, renderStrategyCards,
 } from "../domain/analytics.js";
-import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { readHouseholdRoleOrFailure } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 import {
   addDays, currentMonthKst, formatDate, nowKstDate, validMonth, weekdayIndexOfYmd,
@@ -44,8 +44,10 @@ async function handleBudgetSave(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "예산 저장 권한이 없습니다." }));
+    // V22.9.80 T-35: 역할 조회가 실패하면 ‘권한 없음’이 아니라 ‘확인하지 못함’으로 알리고 저장하지 않는다(진짜 거절은 그대로 거절). 거절 이유는 코드로 보낸다(T-34).
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/budget/save" });
+    if (failed) return redirectResponse(addQueryToUrl(returnTo, { err: "household_role_check_failed" }));
+    if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "manage_required" }));
   }
   // V22.9.37 감사 N8: 틀린 월(2026-13, 빈 값)은 이번 달 예산으로 떨어뜨리지 않고 거절한다.
   if (!validMonth(monthInput)) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_month_invalid" }));
@@ -81,8 +83,10 @@ async function handleBudgetDelete(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "예산 삭제 권한이 없습니다." }));
+    // V22.9.80 T-35: 저장과 같다 — 조회 실패는 ‘확인하지 못함’, 진짜 거절은 manage_required.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/budget/delete" });
+    if (failed) return redirectResponse(addQueryToUrl(returnTo, { err: "household_role_check_failed" }));
+    if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "manage_required" }));
   }
   // V22.9.37 감사 N8: 틀린 월은 이번 달 예산을 지우지 않고 거절한다.
   if (!validMonth(monthInput)) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_month_invalid" }));

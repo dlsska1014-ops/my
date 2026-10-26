@@ -226,6 +226,21 @@ function isHouseholdRoleCheckFailure(err) {
   return err?.code === "household_role_check_failed" || /household_role_check_failed/.test(String(err?.message || ""));
 }
 
+// V22.9.80 T-35: 웹 저장 화면(예산·정기 항목·자산·홈 구성·표시 설정)의 권한 확인용 엄격 조회. getHouseholdMemberRole 은 조회가 실패(503·시간 초과)하면
+// 빈 역할("")을 돌려줘 ‘권한 없음’으로 읽혔다(V22.9.79 D-27 과 같은 꼴 — 권한이 있는 사람에게 권한이 없다고 말했다). 이 함수는 실패를 failed=true 로
+// 따로 돌려준다: 부르는 쪽은 거절이 아니라 ‘권한을 확인하지 못했다’(household_role_check_failed)로 알리고 아무것도 바꾸지 않는다. 참여자가 아님·역할 부족은
+// 예전처럼 role 로 판정한다. 읽기는 getHouseholdMemberRole 과 같은 한 번이고, 로그인·가계부가 없으면 읽지 않는다(role "").
+const ROLE_CHECK_FAILED_TEXT = "권한을 확인하지 못해 아무것도 바꾸지 않았습니다. 잠시 후 다시 시도해 주세요.";
+async function readHouseholdRoleOrFailure(env, userId, householdId, { path = "", method = "POST" } = {}) {
+  try {
+    return { role: String(await getHouseholdMemberRoleStrict(env, userId, householdId) || "").toLowerCase(), failed: false };
+  } catch (err) {
+    if (!isHouseholdRoleCheckFailure(err)) throw err;
+    rememberOpsEvent({ kind: "household_role_check_failed", severity: "warn", path: String(path || ""), method: String(method || "POST"), detail: safeError(err) });
+    return { role: "", failed: true };
+  }
+}
+
 function roleBlockedMessage(role, householdName = "") {
   if (role === "blocked") return `⛔ 이 가계부에서 사용이 제한되어 있습니다.\n가계부: ${householdName || "-"}\n\n관리자에게 /households 화면에서 권한을 확인해달라고 요청하세요.`;
   if (role === "viewer") return `👀 조회 전용 권한입니다.\n가계부: ${householdName || "-"}\n\n요약/최근 조회는 가능하지만 새 지출 입력은 관리자 승인이 필요합니다.`;
@@ -234,8 +249,8 @@ function roleBlockedMessage(role, householdName = "") {
 }
 // @build:exports-start
 export {
-  cancelPendingHouseholdJoin, ensurePrimaryHousehold, ensureUser, getHouseholdMemberRole,
-  getHouseholdMemberRoleStrict, isHouseholdRoleCheckFailure, joinHouseholdByCode,
-  roleBlockedMessage,
+  ROLE_CHECK_FAILED_TEXT, cancelPendingHouseholdJoin, ensurePrimaryHousehold, ensureUser,
+  getHouseholdMemberRole, getHouseholdMemberRoleStrict, isHouseholdRoleCheckFailure,
+  joinHouseholdByCode, readHouseholdRoleOrFailure, roleBlockedMessage,
 };
 // @build:exports-end

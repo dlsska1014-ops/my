@@ -314,7 +314,8 @@ await section("D-27", () => withClock("2026-07-15", () => fixture(async (fx) => 
   // (6) 진짜 거절은 그대로: 조회는 되지만 권한이 없는 경우(조회 전용)
   fx.db.household_members.find((m) => m.household_id === HH && m.user_id === "user-wifi").role = "viewer";
   r = await post(fx, "/admin/transactions", { ...quick, memo: "viewer" }, { cookie: wifi });
-  ok(/[?&]err=기록[+ ]입력[+ ]권한이[+ ]없습니다\./.test(r.decoded), `조회가 되고 조회 전용이면 예전 거절 문구 그대로다 (${r.decoded.replace(/^.*[?&]err=/, "err=").slice(0, 60)})`);
+  // V22.9.80 T-34: 진짜 거절(조회 전용)은 여전히 거절이다. 다만 자유 문장 대신 코드(write_denied_viewer)로 보내 홈이 안내한다(예전 문장은 홈에서 일반 오류 문구로 닫혔다).
+  ok(/[?&]err=write_denied_viewer(?:&|$)/.test(r.decoded), `조회가 되고 조회 전용이면 거절 코드(write_denied_viewer)로 간다 (${r.decoded.replace(/^.*[?&]err=/, "err=").slice(0, 60)})`);
   const denyJson = await del(wifi, "application/json");
   eq(denyJson.status, 403, "삭제(JSON): 조회 전용의 거절은 그대로 403");
   fx.db.household_members.find((m) => m.household_id === HH && m.user_id === "user-wifi").role = "member";
