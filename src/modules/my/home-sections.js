@@ -218,11 +218,15 @@ function renderHomeReportCards(options = {}) {
     const start = addDays(end, -6);
     const startKey = formatDate(start);
     const endKey = formatDate(end);
-    if (startKey < monthStart) return { covered: false, amount: 0 };
-    const amount = safeArray(rows)
-      .filter((r) => r.type !== "income" && String(r.transaction_date || "") >= startKey && String(r.transaction_date || "") <= endKey)
+    const spent = (from) => safeArray(rows)
+      .filter((r) => r.type !== "income" && String(r.transaction_date || "") >= from && String(r.transaction_date || "") <= endKey)
       .reduce((sum, r) => sum + Number(r.amount || 0), 0);
-    return { covered: true, amount };
+    // V22.9.80 T-20: 이번 달 1~6일에는 오늘로 끝나는 7일 창이 달 앞에서 시작해 지출이 있어도 큰 숫자가 0원이었다. 오늘로 끝나는 창(back 0)만
+    //   이 달 1일부터로 줄여 센다(partial) — 새 조회 없이 이미 읽은 이 달 기록으로 된다. 직전 7일 창은 여전히 비우고(견주지 않는다), 지난·과거 달은
+    //   말일로 끝나는 창이라 줄어들 일이 없다(V22.9.79 S-3 그대로).
+    if (back === 0 && startKey < monthStart) return { covered: true, amount: spent(monthStart), partial: true };
+    if (startKey < monthStart) return { covered: false, amount: 0 };
+    return { covered: true, amount: spent(startKey) };
   });
   const coveredWeeks = weeks.filter((w) => w.covered);
   const peak = Math.max(1, ...coveredWeeks.map((w) => w.amount));
@@ -239,7 +243,7 @@ function renderHomeReportCards(options = {}) {
   const paceRead = paceFuture
     ? `아직 시작하지 않은 달이에요`
     : paceDelta === null
-      ? `이 달에 쌓인 주만 보여드려요. 4주가 모이면 견줄 수 있어요`
+      ? (thisWeek.partial ? `1일부터 오늘까지 쓴 돈이에요. 7일이 쌓이면 최근 7일로 보여드려요` : `이 달에 쌓인 주만 보여드려요. 4주가 모이면 견줄 수 있어요`)
       : pacePast && !thisWeek.amount && !lastWeek.amount
         ? `마지막 2주에는 기록된 지출이 없어요`
         : paceDelta > 0
