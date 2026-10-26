@@ -15,6 +15,8 @@
 //        조회 전용(viewer)은 ‘오늘 기록 보기’만 되고 ‘어제 기록 보기’는 막혔다. 아무도 쓰지 않는 지출자 이름 datalist(원래 별명 그대로)가 관리자 화면에 있었다.
 //        ‘이번 주·이번 달 뭐 썼어’가 그 기간이 아니라 방금 입력한 5건을 보였다.
 //   N-5  이름·역할·만든 날이 같은 가계부는 고르는 목록과 저장 답장에서 구분되지 않았고, 단톡방 기록의 저장 답장은 같은 이름 표시를 아예 하지 않았다.
+//   T-44 (통합 검토, P2) 조회 전용이 ‘요약 커피 4500’·‘정산 커피 4500’·‘내 이름 설정 요약’처럼 조회 낱말을 섞으면 새 기록·이름을 저장했다(V22.9.78 운영에도 있음).
+//   T-45 (통합 검토) 이름 입력 단계가 ‘지난달 요약’·‘이번 달 정산’·‘8월 요약’을 이름으로 저장했다.
 //
 // ── 어떻게 잡는가 ──
 //   메모리 픽스처(DB·서버 없음)에서 실제 카카오 스킬 경로(/skill)로 발화를 차례로 보내고, 저장된 행·답장 문구·요청 순서를 함께 확인한다.
@@ -651,11 +653,28 @@ await scenario("조회 전용의 날짜 목록", async (fx) => {
     fx.db.accountbook_settings.filter((row) => /^(member_aliases|household_member_policy_v22943|budgets|reserve_plans|payment_assets|kakao_edit_undo_v4|kakao_edit_v4)/.test(String(row.key)))]);
   const before = snapshot();
   for (const text of ["커피 4500", "어제 점심 9000", "수정 01번 금액 100", "어제 수정 01번 금액 100", "삭제 01번", "어제 삭제 01번", "복구", "복구 01번", "방금 삭제", "방금 금액 7000", "지출자 변경",
-    "예산 설정", "식비 예산 30만원", "내 이름 설정", "구성원 권한 기록만", "별도 구매 추가 커피 4500"]) {
+    "예산 설정", "식비 예산 30만원", "내 이름 설정", "구성원 권한 기록만", "별도 구매 추가 커피 4500",
+    // T-44: 조회 낱말이 섞인 쓰는 말. 전에는 조회 판정(요약·정산·가계부 바꾸기·얼마 썼)을 지나 새 기록·이름으로 저장됐다(V22.9.78 운영에도 있음).
+    "요약 커피 4500", "이번 달 요약 커피 4500", "얼마 썼는지 몰라 커피 4500", "정산 커피 4500", "8월 요약 커피 4500", "가계부 바꾸기 커피 4500",
+    "요약 별도 구매 추가 커피 4500", "요약 커피 4500 점심 9000", "내 이름 설정 요약"]) {
     const reply = (await say(fx, text, { user: WIFI })).text;
     ok(reply.includes("조회 전용 권한입니다"), `조회 전용 ‘${text}’는 막힌다 (${reply.slice(0, 80)})`);
   }
   eq(snapshot(), before, "조회 전용이 보낸 쓰는 말들 뒤에도 기록·구성원·예산·정기·별명·권한·복구 버퍼가 그대로다");
+  // T-44: 이름 입력 흐름이 열린 채 조회 전용이 됐다. 조회 낱말이 든 말도 이름으로 저장되지 않고, 흐름은 닫히며 그 말은 조회로 답한다.
+  const aliasStale = settingValue(fx, `member_aliases:${HH}`);
+  for (const text of ["정산담당", "요약 민지", "민지 요약"]) {
+    wifiMember.role = "member";
+    await say(fx, "내 이름 설정", { user: WIFI });
+    wifiMember.role = "viewer";
+    const reply = (await say(fx, text, { user: WIFI })).text;
+    ok(!reply.includes("내 이름을") && reply.includes("📊"), `조회 전용의 ‘${text}’는 열린 이름 흐름에 이름으로 저장되지 않고 조회로 답한다 (${reply.slice(0, 80)})`);
+    eq(settingValue(fx, `member_aliases:${HH}`), aliasStale, `조회 전용의 ‘${text}’ 뒤에도 이름은 그대로`);
+  }
+  wifiMember.role = "member";
+  const afterClose = (await say(fx, "민지민지", { user: WIFI })).text;
+  ok(!afterClose.includes("내 이름을") && settingValue(fx, `member_aliases:${HH}`) === aliasStale, `닫힌 이름 흐름은 권한이 돌아온 뒤 다음 말을 이름으로 삼키지 않는다 (${afterClose.slice(0, 80)})`);
+  wifiMember.role = "viewer";
 });
 
 // ── 지출자 이름 목록 속 쓰이지 않는 datalist 는 지웠다(웹 날짜 시트·수정 폼의 지출자 고르기는 memberNameMap 이름을 쓴다) ─────────────────────
@@ -708,7 +727,9 @@ await scenario("기간 질문", async (fx) => {
 await scenario("이름 입력 단계의 조회 질문", async (fx) => {
   // 뒤 네 개는 통합 검토 P3: 끝 물음표(normalizeText 가 지움)·앞 ‘기록 ’(stripLeadingCommand 가 뗌)·‘얼마나’ 꼴.
   for (const [ask, expect] of [["오늘 뭐 썼어", `🧾 ${DAY} 기록`], ["이번 달 뭐 썼어", "📊 이번 달 요약"], ["어제 뭐 썼어", ""], ["최근 기록 보여줘", ""], ["이번 주 쓴 거", "📊 이번 주 요약"],
-    ["지난달 얼마나 썼지?", ""], ["얼마나 썼어", ""], ["기록 보여줘", ""], ["쓴 내역은?", ""]]) {
+    ["지난달 얼마나 썼지?", ""], ["얼마나 썼어", ""], ["기록 보여줘", ""], ["쓴 내역은?", ""],
+    // T-45: 기간 낱말로 시작하는 요약·정산도 이름이 아니다(‘이번 달 요약’은 전에도 끊겼고 이 넷은 이름으로 저장됐다).
+    ["지난달 요약", "📊"], ["이번 달 정산", "정산"], ["8월 요약", "📊"], ["어제 요약", "📊"]]) {
     await say(fx, "내 이름 설정");
     const aliasBefore = settingValue(fx, `member_aliases:${HH}`);
     const reply = (await say(fx, ask)).text;

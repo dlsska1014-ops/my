@@ -714,7 +714,10 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
       || isSettlementCommand(utterance)
       || !!parseKakaoSummaryRange(utterance)
       || isHouseholdSwitchCommand(utterance);
-    if (!viewerReadCommand) return kakaoText(roleBlockedMessage(accessRole, household.name));
+    // V22.9.79 통합 검토(T-44): 아래 길은 쓰는 말(새 기록·별도 구매·내 이름)을 조회 말보다 먼저 본다. 그래서 ‘요약 커피 4500’·‘정산 커피 4500’·
+    // ‘8월 요약 커피 4500’·‘내 이름 설정 요약’이 위 조회 판정을 지나 저장됐다(V22.9.78 운영에도 있음). 쓰는 말로 읽히면 조회 낱말이 있어도 막는다.
+    const viewerWriteInput = strongTransactionInput || !!separatePurchaseCommand || !!parseDirectMemberAliasCommand(utterance) || isKakaoMemberAliasCommand(utterance);
+    if (!viewerReadCommand || viewerWriteInput) return kakaoText(roleBlockedMessage(accessRole, household.name));
   }
 
   // V22.9.43: 구성원 권한(기록만/기록·수정) 보기·바꾸기. 바꾸기는 소유자만 한다(kakaoMemberPolicyReply).
@@ -829,6 +832,8 @@ ${formatRecentTransactions(rows)}`);
   }
   // D3: 날짜를 읽지 못한 수정·삭제 명령("지난주 금요일 01번 금액 5000")이 여기까지 오면 새 기록으로 저장하지 않는다.
   if (looksLikeKakaoEditCommandV4(utterance)) return kakaoText("수정·삭제 명령으로 보여서 새 기록으로 저장하지 않았어요.\n날짜는 이렇게 붙여 주세요.\n어제 수정 01번 금액 13000\n7월 10일 삭제 01번");
+  // T-44: 조회 전용은 위 판정에서 막는다. 조회 판정이 넓어져도 새 기록 저장에는 닿지 않게 저장 바로 앞에서 한 번 더 본다.
+  if (accessRole === "viewer") return kakaoText(roleBlockedMessage(accessRole, household.name));
   // V22.9.43: 단톡방 연결 가계부에는 역할이 실려 있지 않다. 저장 안내가 구성원 권한(기록만)을 알 수 있게 실제 역할을 붙인다.
   // V22.9.77 감사 D-6: 같은 이름의 가계부가 내 목록에 또 있으면 답장의 ‘가계부:’ 줄에 역할·만든 날을 붙인다(이미 읽은 목록이라 조회는 늘지 않는다).
   const savedHousehold = household.role ? household : { ...household, role: accessRole };

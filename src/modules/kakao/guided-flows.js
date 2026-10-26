@@ -379,6 +379,12 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       await clearKakaoFlowState(env, user.id, payload);
       return { text: "이 가계부의 활성 구성원이 아니어서 이름을 변경할 수 없어요. ‘시작’을 입력해 현재 가계부를 다시 확인해 주세요.", quickReplies: [["시작", "시작"]] };
     }
+    // V22.9.79 통합 검토(T-44): 조회 전용은 이름을 바꾸지 못한다. 이름 입력 중에 조회 전용이 됐으면 흐름만 닫고 이 말은 조회로 넘긴다
+    // (조회 말이 아니면 skill-handler 의 조회 전용 판정이 이미 막았다). 전에는 ‘정산담당’·‘요약 민지’가 그 판정을 지나 이름으로 저장됐다.
+    if (aliasRole === "viewer") {
+      await clearKakaoFlowState(env, user.id, payload);
+      return null;
+    }
     if (!alias || alias.length < 2 || isKakaoGuidedCommand(alias) || isUnsafeKakaoNameInputV2254(alias)) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "이름을 2~20자로 입력해 주세요.\n예: 민지, 엄마, 아빠", quickReplies: nickname ? [[nickname.slice(0,14), nickname], ["취소", "취소"]] : [["취소", "취소"]] }, { text: "이름 설정을 멈췄어요. 다시 하려면 ‘이름설정’을 눌러 주세요.", quickReplies: [["이름설정", "이름설정"]] });
     await saveMemberAlias(env, household.id, user.id, alias);
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);

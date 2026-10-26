@@ -43508,6 +43508,7 @@ function isKakaoFlowLocalReplyV2254(state = null, text = "") {
 // V22.9.79: 이름 입력 단계에서 ‘오늘 뭐 썼어’·‘이번 달 뭐 썼어’·‘최근 기록 보여줘’ 같은 조회 질문을 이름으로 저장하지 않고 흐름을 끊어 답한다.
 // 모든 명령으로 끊으면 ‘정산담당’ 같은 이름이 막히므로 조회 질문 꼴만 좁게 본다. normalizeText 가 물음표를 지우므로 끝 물음표는
 // 원문에서 보고, ‘쓴 거’ 꼴은 뒤 경계를 둬 ‘부산거북이’·‘등산거사’ 같은 이름을 막지 않는다.
+// 기간 낱말로 시작하는 요약·정산(‘지난달 요약’·‘이번 달 정산’·‘8월 요약’)도 조회다(T-45: 전에는 이름으로 저장됐다). 맨 앞에 붙을 때만 본다.
 function isKakaoReadQuestionV22979(text = "") {
   const raw = String(text || "").trim();
   const t = normalizeText(raw).trim();
@@ -43515,7 +43516,7 @@ function isKakaoReadQuestionV22979(text = "") {
   return /(?:뭐|뭘|얼마나?)\s*(?:썼|샀|나갔|벌었|들어왔)/.test(t) ||
     /(?:쓴|산|나간)\s*(?:거|것|내역)(?:은|는|이|가|을|를|도|만|좀|요|야)?(?=\s|$)/.test(t) ||
     /기록\s*(?:보여|보기|봐|확인|알려)/.test(t) ||
-    /^(?:최근|오늘|어제|그제|이번\s*주|이번\s*달|지난\s*주|저번\s*주|지난\s*달|저번\s*달)\s*(?:기록|내역|지출|수입)/.test(t) || /[?？]\s*$/.test(raw);
+    /^(?:최근|오늘|어제|그제|이번\s*주|이번\s*달|지난\s*주|저번\s*주|지난\s*달|저번\s*달|\d{1,2}\s*월(?:\s*\d{1,2}\s*일)?)\s*(?:기록|내역|지출|수입|요약|정산)/.test(t) || /[?？]\s*$/.test(raw);
 }
 
 // rawText 는 앞 ‘기록 ’·‘/’를 떼기 전(멘션만 뗀) 원문이다. ‘기록 보여줘’는 떼고 나면 ‘보여줘’만 남아 조회 질문으로 못 본다.
@@ -44612,6 +44613,12 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       await clearKakaoFlowState(env, user.id, payload);
       return { text: "이 가계부의 활성 구성원이 아니어서 이름을 변경할 수 없어요. ‘시작’을 입력해 현재 가계부를 다시 확인해 주세요.", quickReplies: [["시작", "시작"]] };
     }
+    // V22.9.79 통합 검토(T-44): 조회 전용은 이름을 바꾸지 못한다. 이름 입력 중에 조회 전용이 됐으면 흐름만 닫고 이 말은 조회로 넘긴다
+    // (조회 말이 아니면 skill-handler 의 조회 전용 판정이 이미 막았다). 전에는 ‘정산담당’·‘요약 민지’가 그 판정을 지나 이름으로 저장됐다.
+    if (aliasRole === "viewer") {
+      await clearKakaoFlowState(env, user.id, payload);
+      return null;
+    }
     if (!alias || alias.length < 2 || isKakaoGuidedCommand(alias) || isUnsafeKakaoNameInputV2254(alias)) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "이름을 2~20자로 입력해 주세요.\n예: 민지, 엄마, 아빠", quickReplies: nickname ? [[nickname.slice(0,14), nickname], ["취소", "취소"]] : [["취소", "취소"]] }, { text: "이름 설정을 멈췄어요. 다시 하려면 ‘이름설정’을 눌러 주세요.", quickReplies: [["이름설정", "이름설정"]] });
     await saveMemberAlias(env, household.id, user.id, alias);
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
@@ -45358,7 +45365,10 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
       || isSettlementCommand(utterance)
       || !!parseKakaoSummaryRange(utterance)
       || isHouseholdSwitchCommand(utterance);
-    if (!viewerReadCommand) return kakaoText(roleBlockedMessage(accessRole, household.name));
+    // V22.9.79 통합 검토(T-44): 아래 길은 쓰는 말(새 기록·별도 구매·내 이름)을 조회 말보다 먼저 본다. 그래서 ‘요약 커피 4500’·‘정산 커피 4500’·
+    // ‘8월 요약 커피 4500’·‘내 이름 설정 요약’이 위 조회 판정을 지나 저장됐다(V22.9.78 운영에도 있음). 쓰는 말로 읽히면 조회 낱말이 있어도 막는다.
+    const viewerWriteInput = strongTransactionInput || !!separatePurchaseCommand || !!parseDirectMemberAliasCommand(utterance) || isKakaoMemberAliasCommand(utterance);
+    if (!viewerReadCommand || viewerWriteInput) return kakaoText(roleBlockedMessage(accessRole, household.name));
   }
 
   // V22.9.43: 구성원 권한(기록만/기록·수정) 보기·바꾸기. 바꾸기는 소유자만 한다(kakaoMemberPolicyReply).
@@ -45473,6 +45483,8 @@ ${formatRecentTransactions(rows)}`);
   }
   // D3: 날짜를 읽지 못한 수정·삭제 명령("지난주 금요일 01번 금액 5000")이 여기까지 오면 새 기록으로 저장하지 않는다.
   if (looksLikeKakaoEditCommandV4(utterance)) return kakaoText("수정·삭제 명령으로 보여서 새 기록으로 저장하지 않았어요.\n날짜는 이렇게 붙여 주세요.\n어제 수정 01번 금액 13000\n7월 10일 삭제 01번");
+  // T-44: 조회 전용은 위 판정에서 막는다. 조회 판정이 넓어져도 새 기록 저장에는 닿지 않게 저장 바로 앞에서 한 번 더 본다.
+  if (accessRole === "viewer") return kakaoText(roleBlockedMessage(accessRole, household.name));
   // V22.9.43: 단톡방 연결 가계부에는 역할이 실려 있지 않다. 저장 안내가 구성원 권한(기록만)을 알 수 있게 실제 역할을 붙인다.
   // V22.9.77 감사 D-6: 같은 이름의 가계부가 내 목록에 또 있으면 답장의 ‘가계부:’ 줄에 역할·만든 날을 붙인다(이미 읽은 목록이라 조회는 늘지 않는다).
   const savedHousehold = household.role ? household : { ...household, role: accessRole };
