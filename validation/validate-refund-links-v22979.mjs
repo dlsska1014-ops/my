@@ -14,7 +14,7 @@ const FLAG_OFF_GOLDEN = {
   equalMain: "f9a56cee0b01a6ac1bfdbbf4",
   itemMain: "4903cc82a76e15dc7db1ecfd",
   memberMain: "f209c8f58c13a25522fb11ac",
-  afterMain: "f5379a00ee7dbec1f7923b95",
+  afterMain: "f8fd0c41747d1ae8d51da825",
   kakao: "📊 2026-10 정산\n환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.\n총 지출: 130,000원\n참여자: 2명\n1인 기준: 65,000원\n\n• Bin: 35,000원 받기\n• WIFI♥: 35,000원 보내기\n\n송금 제안\n• WIFI♥ → Bin: 35,000원",
   entry: "{\"schema_version\":2,\"month\":\"2026-10\",\"mode\":\"equal\",\"conditions\":{\"weights\":{},\"itemParticipants\":{}},\"total_expense\":130000,\"participant_count\":2,\"shares\":[{\"user_id\":\"user-bin\",\"name\":\"Bin\",\"paid\":100000,\"share\":65000,\"balance\":35000},{\"user_id\":\"user-wifi\",\"name\":\"WIFI♥\",\"paid\":30000,\"share\":65000,\"balance\":-35000}],\"transfers\":[{\"from\":\"WIFI♥\",\"to\":\"Bin\",\"amount\":35000}],\"rows_digest\":\"08cb42034599e093a5c0ab7bcc975449\",\"note\":\"합성 정산\",\"completed_by\":\"user-bin\",\"status\":\"completed\"}",
   routes: "GET /my/settlement/refund-link 404\nPOST /my/settlement/refund-link 404 \nPOST /my/settlement/refund-unlink 404 \nPOST /my/settlement/refund-keep 404 ",
@@ -138,6 +138,12 @@ function refundDb(fx, { table = true, rpcs = true } = {}) {
 }
 
 const mainOf = (html = "") => { const start = html.indexOf("<main"); const end = html.indexOf("</main>"); return start >= 0 && end > start ? html.slice(start, end + 7) : ""; };
+// 완료 이력의 ‘완료일’ 칸은 앱이 실제 시계(new Date())로 찍은 completed_at 의 앞 10글자다. 고정값이 검사한 날짜에 묶이지 않게
+// 그 칸만 자리표시로 바꿔 비교한다(2026-10-26: 10-25 에 만든 afterMain 고정값이 날짜가 바뀌자 어긋났다).
+const completedMainOf = (html = "", completedAt = "") => {
+  const day = String(completedAt || "").slice(0, 10);
+  return day ? mainOf(html).split(`<td>${day}</td>`).join("<td>완료일</td>") : mainOf(html);
+};
 const sha = (text) => createHash("sha256").update(String(text)).digest("hex").slice(0, 24);
 const decode = (text = "") => String(text).replace(/&quot;/g, "\"").replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 const copyText = (html = "") => decode((html.match(/id="settlementCopy">([\s\S]*?)<\/div>/)?.[1] || "").replace(/<br\s*\/?>/g, "\n").replace(/<[^>]+>/g, ""));
@@ -280,7 +286,7 @@ for (const flag of [undefined, "0", "false", "", "off", "no", "disabled"]) {
     }
     const readiness = await ready(fx);
     const values = {
-      equalMain: sha(mainOf(owner.html)), itemMain: sha(mainOf(item.html)), memberMain: sha(mainOf(member.html)), afterMain: sha(mainOf(after.html)),
+      equalMain: sha(mainOf(owner.html)), itemMain: sha(mainOf(item.html)), memberMain: sha(mainOf(member.html)), afterMain: sha(completedMainOf(after.html, history.at(-1)?.completed_at)),
       kakao, entry: JSON.stringify(entry), routes: routes.join("\n"), readyKeys: Object.keys(readiness.data).join(","),
     };
     if (flag === undefined) {
