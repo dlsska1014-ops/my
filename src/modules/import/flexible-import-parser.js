@@ -673,6 +673,35 @@ function parseImportAmountCell(value = "") {
   return { amount: Number.isFinite(amount) ? amount : 0, present: true, valid: Number.isSafeInteger(amount) && amount >= 0, negative, raw };
 }
 
+// V22.9.81: 머리글 없는 쉼표 표에 따옴표 없이 쓴 천 단위 쉼표(‘2026-07-15,5,000원,커피’)는 칸이 ‘5’·‘000원’으로 나뉘어, 0원인 ‘000원’이
+// 후보에서 빠지고 ‘5’ 하나가 금액(5원)이 됐다(메모 ‘000원 커피’, 기본 선택). 0으로 시작하는 3자리 칸(‘000’·‘050’, 끝에 ‘원’ 가능)은 홀로 쓴
+// 수가 아니므로 바로 앞의 1~3자리 칸(또는 이미 이은 금액)에 이어 한 금액으로 읽는다(‘1,000,000원’도 같다, ‘원’이 붙은 칸에서 끝).
+// 0으로 시작하지 않는 3자리 칸(‘3,500’·‘2,500원’·‘1,000,500’의 500)은 따로 쓴 수량·횟수·금액일 수 있어 잇지 않는다 — 예전처럼 금액 후보가
+// 여럿이면 확인 필요로 뺀다.
+const IMPORT_SPLIT_LEAD = /^[-−]?[₩￦]?[1-9]\d{0,2}$/;
+const IMPORT_SPLIT_GROUP = /^(0\d{2})(\s*원)?$/;
+function joinImportSplitThousandCells(cells = []) {
+  let out = null;
+  for (let i = 0; i < cells.length; i++) {
+    const lead = String(cells[i] ?? "").normalize("NFKC").trim();
+    let group = IMPORT_SPLIT_LEAD.test(lead) && i + 1 < cells.length ? String(cells[i + 1] ?? "").normalize("NFKC").trim().match(IMPORT_SPLIT_GROUP) : null;
+    if (!group) { if (out) out.push(cells[i]); continue; }
+    const parts = [lead];
+    let j = i + 1;
+    while (group) {
+      parts.push(group[0]);
+      j += 1;
+      group = !group[2] && j < cells.length ? String(cells[j] ?? "").normalize("NFKC").trim().match(IMPORT_SPLIT_GROUP) : null;
+    }
+    out = out || cells.slice(0, i);
+    out.push(parts.join(","));
+    i = j - 1;
+  }
+  if (!out) return cells;
+  if (cells.source_location) out.source_location = cells.source_location;
+  return out;
+}
+
 // V22.9.79 감사 E-1: 구분 칸은 "지출"·"수입"처럼 같은 값이 거의 모든 행에서 반복된다. 빈 칸은 바로 돌려주고, 같은 값은 해석 한 번 안에서 다시 계산하지 않는다.
 function normalizeImportTypeValue(value = "") {
   if (value === "" || value === null || value === undefined) return "";
@@ -1146,6 +1175,7 @@ function parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId =
     if (!backupRecord && isImportSummaryRow(summaryCells, summaryCells.join(" "), options)) { addRejected(importRejection("summary_row", rowNumber, raw)); continue; }
     if (obj && Object.keys(safeObject(obj.__canonical)).length) natural = false;
     if (!currentHeaders.length && delimiter === "," && /\d{1,3},\d{3}(?:,\d{3})*(?:원)?(?:\s|$)/.test(raw) && !findImportDateInValues(cells, options)) effectiveCells = [raw];
+    else if (!currentHeaders.length && delimiter === ",") effectiveCells = joinImportSplitThousandCells(cells);
     const detailed = normalizeImportedRecordDetailed(obj, householdId, raw, effectiveCells, defaultUserId, { ...options, natural, rowNumber, source: options.source || "import_smart", signConvention: signConvention.mode });
     if (!detailed.row) { addRejected(detailed.rejection || importRejection("unsupported_row", rowNumber, raw)); continue; }
     if (detailed.twoDigitYear) twoDigitYearRows += 1;
