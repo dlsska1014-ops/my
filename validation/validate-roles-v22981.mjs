@@ -10,7 +10,8 @@
 //   U-3   정기 수입·지출 화면의 고정항목 저장·삭제·반영 거절·실패가 err 에 자유 문장으로 실려 일반 안내로 보였다 → 코드(recurring_amount_invalid·amount_too_large·
 //         recurring_save_failed·recurring_not_found·recurring_delete_failed·recurring_spender_required·recurring_apply_failed).
 //   U-20  /my 가 /app 으로 넘기면서 msg·err 를 버려 /my/update 등의 결과 안내가 사라졌다 → 둘 다 넘긴다.
-// 사용: node validation/validate-roles-v22981.mjs [kakao|admin|guide|payments|recurring|my|source]
+//   U-5·U-21 부르는 곳이 없던 handleBudgetCenterPageLegacyV2264·kakaoBudgetStatusText 를 지웠다(생성 번들·검사·도구 어디서도 부르지 않음을 확인).
+// 사용: node validation/validate-roles-v22981.mjs [kakao|admin|guide|payments|recurring|my|dead|source]
 // V22981_SOFT=1 이면 실패해도 멈추지 않고 모아서 끝에 보여 준다(고치기 전 코드에서 몇 개가 실패하는지 세기 위해). V22981_LIST=1 을 함께 주면 통과한 검사도 모두 적는다.
 import { readFileSync } from "node:fs";
 import path from "node:path";
@@ -426,6 +427,23 @@ await section("my", () => withClock("2026-07-15", () => fixture(async (fx) => {
   const outsider = await page(fx, "/my?month=2026-07&msg=updated", { cookie: await fx.cookieFor("user-solo-v22981") });
   t.eq(outsider.location, "/my/households?msg=updated#create", "U-20 가계부가 없는 사람의 /my 는 예전처럼 안내를 들고 가계부 만들기로 간다");
 })));
+
+// ── U-5·U-21 부르는 곳이 없던 함수를 지웠다(동작은 그대로) ─────────────────────────────────────────
+await section("dead", async () => {
+  const bundle = read("src/index.js");
+  for (const [id, name, file] of [["U-5", "handleBudgetCenterPageLegacyV2264", "admin/budget-center-recurring.js"], ["U-21", "kakaoBudgetStatusText", "domain/budgets.js"]]) {
+    t.ok(!new RegExp(`\\b${name}\\b`).test(read(`src/modules/${file}`)), `${id} ${file} 에 ${name} 가 없다`);
+    t.ok(!new RegExp(`\\b${name}\\b`).test(bundle), `${id} 생성 번들(src/index.js)에도 ${name} 가 없다`);
+  }
+  t.ok(/\basync function kakaoBudgetStatusParts\(/.test(read("src/modules/domain/budgets.js")), "U-21 남은예산 답장이 쓰는 kakaoBudgetStatusParts 는 남아 있다");
+  await withClock("2026-07-15", () => fixture(async (fx) => {
+    const center = await page(fx, "/budgets?household_id=house-home&month=2026-07");
+    t.ok(center.status === 200 && center.html.includes("수입·예산"), "U-5 예산 센터(/budgets, handleBudgetCenterPage)는 예전처럼 열린다");
+    putSetting(fx, "kakao_selected_household_v2251:user-bin", "house-home");
+    const remain = await skill(fx, "남은예산");
+    t.ok(/예산/.test(remain) && !/처리하지 못했|오류/.test(remain), `U-21 카카오 ‘남은예산’ 답장은 예전처럼 나온다 (${first(remain)})`);
+  }));
+});
 
 // ── 소스: 고친 카카오 흐름이 실패를 빈 역할로 바꾸는 느슨한 조회를 더는 쓰지 않는다 ──────────────────────────
 await section("source", async () => {
