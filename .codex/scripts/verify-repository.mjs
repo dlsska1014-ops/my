@@ -87,6 +87,7 @@ const validationScripts = [
   ["V22.9.81 역할·안내 문구·정리(카카오 역할 조회 실패·옛 관리자 일괄 처리 안내·시작가이드 선택 가계부·결제수단 오류 코드·고정항목 코드·/my 안내 전달·죽은 함수)", "validation/validate-roles-v22981.mjs"],
   ["V22.9.81 환불 연결 후속(30건을 넘은 정산 이력의 완료 달 잠금·연결/차감 읽기를 끝까지 또는 확인 불가)", "validation/validate-refund-links-v22981.mjs"],
   ["V22.9.81 관제 앱 표본 왕복 확인(관제 1.3.0: 5분 DB 수집 요청에 확인 표본·옛 관제/옛 앱 배포 순서·실패 판정·화면)", "validation/validate-monitor-v22981.mjs"],
+  ["V22.9.81 화면 대비·넘침(다크 알림 배지·작은 달력 오늘 칸·목표 납입 단추·거래 요약 수입·일별 그래프 빈 날·오픈빌더 여러 줄 예시·옛 관리자 화면 넘침)", "validation/validate-screens-v22981.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],

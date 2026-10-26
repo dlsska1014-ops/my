@@ -63,6 +63,7 @@
     "validate:roles-v22981": "node validation/validate-roles-v22981.mjs",
     "validate:refund-links-v22981": "node validation/validate-refund-links-v22981.mjs",
     "validate:monitor-v22981": "node validation/validate-monitor-v22981.mjs",
+    "validate:screens-v22981": "node validation/validate-screens-v22981.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "test": "node .codex/scripts/verify-repository.mjs",
     "validate:categories-absent": "node .codex/scripts/verify-repository.mjs --categories-absent",
