@@ -343,12 +343,13 @@ try {
   eq(liveCss - inlineCssBytes(reportReview), Buffer.byteLength((reportLive.html.match(/<style>(\.adSlot\{[\s\S]*?)<\/style>/) || ["", ""])[1]), "/reports 에 더해진 인라인 CSS 는 광고 자리 CSS 뿐이다");
   ok(reportLive.headers.get("cache-control") === "no-store" && reportLive.headers.get("x-robots-tag") === "noindex, nofollow", "/reports live 도 no-store·noindex 다");
   ok(reportLive.headers.get("x-frame-options") === "DENY" && reportLive.headers.get("referrer-policy") === "no-referrer" && reportLive.headers.get("x-content-type-options") === "nosniff" && reportLive.headers.get("strict-transport-security") === "max-age=31536000; includeSubDomains" && reportLive.headers.get("permissions-policy") === "camera=(self), microphone=(), geolocation=(), payment=()", "/reports live 의 기존 보안 헤더가 그대로다");
-  // 머리 그라데이션 핀: 렌더된 /reports 에는 1번(review 실측), 소스 전체에는 65번(validate-tone-aware-heroes-v22883).
+  // 머리 그라데이션 핀: 렌더된 /reports 에는 1번(review 실측), 소스 전체에는 64번(validate-tone-aware-heroes-v22883).
+  // V22.9.81 U-5 가 죽은 함수 handleBudgetCenterPageLegacyV2264 와 함께 그 안의 1곳을 지워 65 → 64 가 됐다.
   // 광고 CSS 는 그라데이션을 더하지 않으므로 두 수 모두 그대로여야 한다.
   const gradient = "linear-gradient(135deg,#111827,var(--ab12-action";
   eq(countOf(reportReview, gradient), 1, "/reports review 의 머리 그라데이션은 1번이다(실측)");
   eq(countOf(reportLive.html, gradient), countOf(reportReview, gradient), "/reports live 도 머리 그라데이션 수가 review 와 같다");
-  eq((source.match(/linear-gradient\(135deg,#111827,var\(--ab12-action,#[0-9a-fA-F]{6}\)\)/g) || []).length, 65, "소스의 톤 토큰 머리 그라데이션은 65개 그대로다");
+  eq((source.match(/linear-gradient\(135deg,#111827,var\(--ab12-action,#[0-9a-fA-F]{6}\)\)/g) || []).length, 64, "소스의 톤 토큰 머리 그라데이션은 64개 그대로다");
   eq(h2s(reportLive.html).map((h) => h.text).join("|"), "기간 요약|고정비와 구독|날짜별 지출|지출 상위 분류|생활 패턴|카드별 사용액과 실적 목표|자동 생성 설정|카카오톡에 공유할 문구", "/reports live 의 절 제목과 순서가 그대로다");
   eq(countOf(reportLive.html, "transition-duration"), countOf(reportReview, "transition-duration"), "광고 CSS 는 transition-duration 리터럴을 더하지 않는다");
   const viewerReview = await render(`/reports?${C}`, { cookie: viewerCookie });

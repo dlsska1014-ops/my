@@ -21,7 +21,9 @@ eq((source.match(heroLiteral) || []).length, 0, "no hero gradient pins its accen
 
 const heroToken = /linear-gradient\(135deg,#111827,var\(--ab12-action,(#[0-9a-fA-F]{6})\)\)/g;
 const heroFallbacks = [...source.matchAll(heroToken)].map((m) => m[1]);
-eq(heroFallbacks.length, 65, "every hero gradient reads the tone token (62 swept + 3 from V22.8.82)");
+// V22.9.81 U-5: 부르는 곳이 없던 handleBudgetCenterPageLegacyV2264 를 지우면서 그 안의 보라(#7c3aed) 히어로 1곳이 함께 빠졌다(65 → 64).
+// 보라 폴백은 다른 8곳에 남고 원래 색 19가지도 그대로다(아래 검사).
+eq(heroFallbacks.length, 64, "every hero gradient reads the tone token (62 swept + 3 from V22.8.82, minus 1 in the dead budget page removed in V22.9.81)");
 
 // 폴백은 원래 색이어야 한다. 셸 밖(--ab12-* 미정의)에서는 예전과 똑같이 보인다.
 ok(heroFallbacks.includes("#0f766e"), "the teal heroes keep teal as their fallback");
