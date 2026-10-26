@@ -283,6 +283,8 @@ function inferInputCategory(raw, type, rules) {
 // 간편결제·해외송금)이라 떼면 "공동구매"가 "공동"이 됐다. 금액을 뺀 뒤 홀로 남은 단위 ‘원’("점심 ₩12000"의 ₩)과 어림말 ‘정도’도 지운다.
 // V22.9.79: 카드사 이름·요일 앞말의 “앞이 글자가 아닐 때만” 조건은 뒤돌아보기 대신 앞 한 글자(글자 아님)를 함께 잡았다가 바꿀 때 돌려준다
 // (지우는 범위가 같아 결과가 같다).
+// V22.9.81: ‘지지난달·저저번달 25일/말일’은 통째로 지운다(예전에는 안의 ‘지난달 25일’만 지워 메모가 ‘지 커피’였다). 요일 앞의
+// ‘지지난번’·‘다가오는’도 함께 지운다.
 function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
   const patterns = cleanInputMemo.cache || (cleanInputMemo.cache = (() => {
     const escape = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -300,7 +302,7 @@ function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
       fixed: fixedWords.map((item) => new RegExp(commandWords.includes(item) ? "(^|\\s)" + escape(item) + "(?=\\s|\\d|$)" : escape(item), "g")),
       cardName: withNames("(?:신용카드|체크카드|카드)" + pay.end, "gi"),
       paymentWord: new RegExp("(?:현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스페이|토스뱅크|토스|계좌이체|자동이체|무통장|체크|신용)" + pay.end, "g"),
-      weekday: new RegExp("(?:(^|[^가-힣])(?:(?:지지난|저저번|지난|저번|이번|다음|오는|돌아오는)\\s*주|전주|금주|내주|지지난|저저번|지난번|지난|저번|이번|다음|오는|돌아오는)\\s*[월화수목금토일]요일|[월화수목금토일]요일)", "g"),
+      weekday: new RegExp("(?:(^|[^가-힣])(?:(?:지지난|저저번|지난|저번|이번|다음|오는|돌아오는|다가오는)\\s*주|전주|금주|내주|지지난번|지지난|저저번|지난번|지난|저번|이번|다음|오는|돌아오는|다가오는)\\s*[월화수목금토일]요일|[월화수목금토일]요일)", "g"),
       anywhere: /^(?:(?:신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오|토스)카드|삼성페이|카카오페이|네이버페이|애플페이|페이코|제로페이)$/i,
     };
   })());
@@ -338,12 +340,12 @@ function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
   memo = memo
     .replace(/20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?/g, " ")
     .replace(patterns.weekday, keep)
-    .replace(/(?:지난|저번)\s*달\s*\d{1,2}일?/g, " ")
+    .replace(/(?:지지난|저저번|지난|저번)\s*달\s*\d{1,2}일?/g, " ")
     .replace(/(?:이번\s*달|이달)\s*\d{1,2}일?/g, " ")
     .replace(/(?:다음\s*달|담달)\s*\d{1,2}일?/g, " ")
     .replace(/(?:^|\s)(?:\d{1,2}|한|두|세|네|일|이|삼|사)\s*(?:일|주일|주|달|개월)\s*[전후](?=\s|$)/g, " ")
     .replace(/(?:^|\s)(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\s*[전후](?=\s|$)/g, " ")
-    .replace(/(?:(?:지난|저번|이번|다음)\s*달|이달|담달)?\s*말일/g, " ")
+    .replace(/(?:(?:지지난|저저번|지난|저번|이번|다음)\s*달|이달|담달)?\s*말일/g, " ")
     .replace(/(?:재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*(?=\d{1,2}\s*(?:월|[./]))/g, " ")
     .replace(/\d{1,2}\s*월\s*\d{1,2}일?/g, " ")
     .replace(/\d{1,2}[.\/]\d{1,2}/g, " ")

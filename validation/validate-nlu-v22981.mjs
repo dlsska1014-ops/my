@@ -9,6 +9,8 @@
 //   U-7  같은 ‘통신비 50000 자동이체’가 웹은 자동이체, 카카오는 계좌이체로 저장됐다.
 //   U-8  홈 빠른 입력의 분류 이름 맞춤(서버 분류를 못 부를 때)이 낱말 속 이름을 찾았다(‘점심 9000 급여통장’ → 급여).
 //   U-10 카카오 기록 수정에서 구분을 바꿀 때 다시 분류하는 근거에 저절로 채운 메모가 들어갔다(‘용돈 9000 농협체크’를 지출로 → 장보기).
+//   V81-a 한 건 입력·웹이 ‘지지난주·저저번주 금요일’을 지난주 금요일로, ‘지지난달 25일·말일’을 지난달로 읽었다(메모 ‘지 커피’).
+//   V81-c ‘다음·오는·이번·지난번 금요일’을 가장 가까운 지난 금요일로 읽었다.
 //
 // ── 어떻게 잡는가 ──
 // 같은 문장을 ① 카카오 해석(parseMultipleTransactions)과 POST /skill 저장, ② 홈이 실제로 받는 자산을 가짜 DOM 에서 돌린 웹 빠른 입력,
@@ -23,6 +25,7 @@ import { extractLeadingDateHint, hasDateHint } from "../src/modules/nlu/transact
 import { joinSpacedKoreanAmount, normalizeInputText } from "../src/modules/client/shared-input-nlu.js";
 import { applyUserSettingsToParsedTransactions, resolveManualInputClassification } from "../src/modules/settings/payment-assets.js";
 import { parseKakaoSummaryRange } from "../src/modules/kakao/household-budget-commands.js";
+import { normalizeDateValue, nowKstDate, resolveWeekdayPhrase } from "../src/modules/nlu/date-payment.js";
 // 새 함수는 이름공간으로 받는다(고치기 전 번들에서 SOFT 모드로 셀 때 없는 이름 때문에 파일 전체가 멈추지 않게).
 import * as dashboardFragments from "../src/modules/admin/dashboard-fragments.js";
 const paymentListOptionsHtml = dashboardFragments.paymentListOptionsHtml || (() => "");
@@ -162,7 +165,7 @@ function makeLegacyRunner(pageScript, rules) {
     vm.runInContext(pageScript, vm.createContext({ document, window: { AB_CATEGORY_RULES: rules, addEventListener() {} }, location: { pathname: "/", search: "", hash: "" }, history: { replaceState() {} }, navigator: {}, Intl, Date, URLSearchParams }));
     fields.smartInput.value = text;
     for (const fn of handlers.keydown || []) fn.call(fields.smartInput, { key: "Enter", preventDefault() {}, stopImmediatePropagation() {} });
-    return { amount: Number(String(fields.amountInput.value).replace(/,/g, "")) || 0, memo: fields.memoInput.value, payment: fields.payInput.value, category: fields.catInput.value };
+    return { amount: Number(String(fields.amountInput.value).replace(/,/g, "")) || 0, memo: fields.memoInput.value, payment: fields.payInput.value, category: fields.catInput.value, date: fields.txDate.value };
   };
 }
 // 홈 HTML 의 datalist option(값과 속성)
@@ -204,6 +207,8 @@ const DATE_HEADS = [
   "지난 금요일", "지난금요일", "저번 금요일", "저번금요일", "지난 월요일", "저번 일요일", // U-24 본 결함(V22.9.78 N-12 의 주 없는 꼴)
   "모레", "20260731", "25일", "3일", "31일", // 머리 날짜에서 빠져 있던 다른 꼴
   "지난주 금요일", "저번주 금요일", "전주 화요일", "이번주 월요일", "금주 수요일", "다음주 월요일", "내주 화요일", "금요일", "일요일",
+  "지지난주 금요일", "저저번주 금요일", "지지난 금요일", "지난번 금요일", "이번 금요일", "다음 금요일", "오는 금요일", "돌아오는 금요일", // V81-a·c
+  "지지난달 25일", "지지난달 말일", "저저번달 5일", // V81-a
   "오늘", "어제", "그제", "그저께", "엊그제", "그끄저께", "어젯밤", "전날", "내일", "어제저녁", "오늘아침",
   "하루 전", "이틀 전", "사흘 전", "보름 전", "3일 전", "2주 전", "일주일 전", "한 달 전", "두 달 전",
   "지난달 말일", "이번 달 말일", "말일", "지난달 25일", "저번 달 5일", "이번달 3일", "이달 1일",
@@ -214,7 +219,7 @@ const DATE_HEADS = [
 const HINT_OF = Object.freeze({ "어제저녁": "어제", "오늘아침": "오늘" });
 // 달 없이 쓴 ‘N일’은 머리 날짜로만 본다(뒤 조각의 ‘숙박 2일’은 기간이기도 해서 조각의 제 날짜로 보지 않는다 — 예전 그대로 머리 날짜를 받는다).
 const DAY_ONLY_HEADS = new Set(["25일", "3일", "31일"]);
-const NOT_DATE_HEADS = ["오늘의집 쿠션", "내일배움카드", "아모레 크림", "모레아 소품", "15일치 약값", "지난 주말", "다음 금요일", "지지난주 금요일", "저저번주 금요일"];
+const NOT_DATE_HEADS = ["오늘의집 쿠션", "내일배움카드", "아모레 크림", "모레아 소품", "15일치 약값", "지난 주말"];
 const CLOCKS = [["2026-08-05", "수"], ["2026-08-07", "금"], ["2026-08-08", "토"], ["2026-08-09", "일"], ["2026-08-03", "월"]];
 
 await scene("U-24 해석", async () => {
@@ -570,6 +575,90 @@ await scene("U-10", async () => {
     await say(fx, `수정 ${seq}번 구분 지출`);
     const after = fx.db.transactions.find((item) => item.id === "tx-v81-noraw") || {};
     t.ok(after.type === "expense" && after.category === "장보기", `U-10 원문 없는 기록은 예전처럼 메모(‘동네 마트’)로 분류한다 (받음 ${after.type}/${after.category})`);
+  }));
+});
+
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// V81-a·c. 두 번 앞(지지난주·저저번주·지지난·지지난달·저저번달)과 다가올 요일(다음·오는·이번·지난번 + 요일)은 한 건 입력에서도 그 뜻이다.
+//   서버(parseTransaction·resolveWeekdayPhrase)·웹 홈 자산·옛 화면 인라인이 같은 날을 읽고, 메모에 날짜 말이 남지 않는다.
+//   예전에는 ‘지지난주 금요일’이 지난주 금요일, ‘지지난달 25일’이 지난달 25일(메모 ‘지 커피’), ‘다음·오는·이번 금요일’이 가장 가까운 지난 금요일이었다.
+// ═══════════════════════════════════════════════════════════════════════════════════════
+// 기대 날짜는 파서의 식을 빌리지 않고 따로 센다. 주는 월요일에 시작한다(V22.9.26 규칙).
+const isoAdd = (iso, days) => new Date(Date.parse(`${iso}T00:00:00Z`) + days * 86400000).toISOString().slice(0, 10);
+const monIndex = (iso) => (new Date(`${iso}T00:00:00Z`).getUTCDay() + 6) % 7; // 월요일 0 … 일요일 6
+function expectWeekday(base, scope, dow) {
+  const monday = isoAdd(base, -monIndex(base));
+  const step = (dir) => { for (let k = 1; k <= 7; k += 1) { const d = isoAdd(base, dir * k); if (monIndex(d) === dow) return d; } return ""; };
+  return { week0: isoAdd(monday, dow), week1: isoAdd(monday, dow + 7), "week-1": isoAdd(monday, dow - 7), "week-2": isoAdd(monday, dow - 14),
+    prev: step(-1), prev2: isoAdd(step(-1), -7), next: step(1), bare: monIndex(base) === dow ? base : step(-1) }[scope];
+}
+const monthDay = (base, shift, day) => {
+  const [y, m] = base.split("-").map(Number);
+  const first = new Date(Date.UTC(y, m - 1 + shift, 1));
+  const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  return `${first.getUTCFullYear()}-${String(first.getUTCMonth() + 1).padStart(2, "0")}-${String(day === "말일" ? last : day).padStart(2, "0")}`;
+};
+// [말, 기대(요일 범위 또는 [달 이동, 날])]. 끝의 ‘예전 그대로’ 줄은 이번에 바뀌지 않아야 하는 대조다.
+const V81_WEEKDAY = [
+  ["지지난주 금요일", "week-2", 4], ["저저번주 금요일", "week-2", 4], ["지지난 주 금요일", "week-2", 4], ["저저번 주 월요일", "week-2", 0], ["지지난주 일요일", "week-2", 6],
+  ["지지난 금요일", "prev2", 4], ["저저번 금요일", "prev2", 4], ["지지난번 화요일", "prev2", 1],
+  ["지난번 금요일", "prev", 4], ["지난번 일요일", "prev", 6],
+  ["이번 금요일", "week0", 4], ["이번 월요일", "week0", 0], ["이번 일요일", "week0", 6],
+  ["다음 금요일", "next", 4], ["오는 금요일", "next", 4], ["돌아오는 금요일", "next", 4], ["다가오는 수요일", "next", 2], ["다음 월요일", "next", 0],
+  ["지난 금요일", "prev", 4], ["지난주 금요일", "week-1", 4], ["이번주 금요일", "week0", 4], ["다음주 금요일", "week1", 4], ["금요일", "bare", 4], // 예전 그대로
+];
+const V81_MONTH = [
+  ["지지난달 25일", -2, 25], ["저저번달 25일", -2, 25], ["지지난 달 5일", -2, 5], ["저저번 달 1일", -2, 1], ["지지난달 말일", -2, "말일"], ["저저번달 말일", -2, "말일"],
+  ["지난달 25일", -1, 25], ["지난달 말일", -1, "말일"], ["다음달 3일", 1, 3], // 예전 그대로
+];
+const V81_CONTROL = new Set(["지난 금요일", "지난주 금요일", "이번주 금요일", "다음주 금요일", "금요일", "지난달 25일", "지난달 말일", "다음달 3일"]);
+const V81_CLOCKS = ["2026-08-05", "2026-08-07", "2026-08-08", "2026-08-09", "2026-08-03", "2026-01-02", "2026-02-10"];
+await scene("V81-a·c 한 건 해석", async () => {
+  for (const day of V81_CLOCKS) {
+    await withClock(day, () => fixture(async (fx) => {
+      const { createState, legacy, inBrowser } = await webHarness(fx);
+      const cases = [
+        ...V81_WEEKDAY.map(([head, scope, dow]) => [head, expectWeekday(day, scope, dow), true]),
+        ...V81_MONTH.map(([head, shift, date]) => [head, monthDay(day, shift, date), false]),
+      ];
+      for (const [head, want, weekday] of cases) {
+        const text = `${head} 커피 4500원`;
+        const problems = [];
+        const server = parseTransaction(text, {});
+        if (server.transaction_date !== want || server.memo !== "커피") problems.push(`서버 ${server.transaction_date}/${server.memo}`);
+        if (weekday && resolveWeekdayPhrase(head, nowKstDate()) !== want) problems.push(`resolveWeekdayPhrase ${resolveWeekdayPhrase(head, nowKstDate())}`);
+        if (normalizeDateValue(head) !== want) problems.push(`카카오 날짜 칸 ${normalizeDateValue(head)}`);
+        // 웹 홈 자산·옛 화면 인라인은 같은 자산 함수(quickInputDate)로 날짜를 읽는다. 메모는 각 화면 흐름 그대로 본다.
+        const webDate = inBrowser(`quickInputDate(${JSON.stringify(text)}, ${JSON.stringify(day)})`);
+        if (webDate !== want) problems.push(`웹 자산 날짜 ${webDate}`);
+        const webMemo = createState().fill(text).view().memo, oldMemo = legacy(text).memo;
+        if (webMemo !== "커피" || oldMemo !== "커피") problems.push(`메모 웹 ${webMemo} · 옛 화면 ${oldMemo}`);
+        const tag = /지지난|저저번/.test(head) ? "V81-a" : V81_CONTROL.has(head) ? "V81-대조" : "V81-c";
+        t.ok(!problems.length, `${tag} (${day}) ‘${head}’ → ${want} 메모 ‘커피’ (서버·요일 풀이·카카오 날짜 칸·웹 자산·웹/옛 화면 메모) ${problems.join(" · ")}`);
+      }
+    }));
+  }
+});
+// 앞날 정책(바꾸지 않고 따른다): 날짜 말이 앞날을 가리키면 그날 그대로 저장한다(미리 적는 기록 — ‘내일’·‘다음주 금요일’·연도 없이 쓴 반년 안의
+// ‘10월 30일’·‘25일 월세’). 막거나 작년으로 돌리지 않는다. 연도 없는 ‘월 일’만 반년(183일) 넘게 뒤면 작년이다(V22.9.34 D4). 카카오 날짜 칸(‘모레’)도 같다.
+await scene("V81-c 앞날", async () => {
+  await withClock("2026-10-27", () => fixture(async (fx) => {
+    const { inBrowser } = await webHarness(fx);
+    for (const [text, want] of [
+      ["10월 30일 커피 4500원", "2026-10-30"], ["다음 금요일 커피 4500원", "2026-10-30"], ["이번 금요일 커피 4500원", "2026-10-30"], ["오는 일요일 커피 4500원", "2026-11-01"],
+      ["모레 커피 4500원", "2026-10-29"], ["다음주 금요일 커피 4500원", "2026-11-06"],
+    ]) {
+      const server = parseTransaction(text, {}).transaction_date, web = inBrowser(`quickInputDate(${JSON.stringify(text)}, "2026-10-27")`);
+      t.ok(server === want && web === want, `V81-c 앞날 정책: "${text}" (2026-10-27 화) → ${want} 서버·웹 같음 (서버 ${server} · 웹 ${web})`);
+    }
+    for (const [value, want] of [["모레", "2026-10-29"], ["다음 금요일", "2026-10-30"], ["10월 30일", "2026-10-30"], ["오는 금요일", "2026-10-30"]]) {
+      t.ok(normalizeDateValue(value) === want, `V81-c 카카오 날짜 칸 ‘${value}’ → ${want} (글로 쓴 것과 같은 앞날 정책, 받음 ${normalizeDateValue(value)})`);
+    }
+    putSetting(fx, "kakao_selected_household_v2251:user-bin", HH);
+    const before = fx.db.transactions.length;
+    await say(fx, "다음 금요일 회식 52000원 택시 8000원");
+    const saved = fx.db.transactions.slice(before).map((row) => row.transaction_date);
+    t.ok(saved.length === 2 && saved.every((date) => date === "2026-10-30"), `V81-c 카카오 저장 "다음 금요일 회식 52000원 택시 8000원" → 두 건 모두 2026-10-30 (받음 ${JSON.stringify(saved)})`);
   }));
 });
 

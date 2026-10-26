@@ -8613,6 +8613,10 @@ function transactionTypeFromText(text = "", rules = [], options = {}) {
 // V22.9.76 감사 A-12: 달 없이 일만 쓴 날("31일 송년회")이 오늘보다 뒤면, 이번 달의 그날과 그날이 있었던 가장 가까운 지난달의
 // 그날 중 오늘에 더 가까운 날로 본다(같으면 지난달). 2027-01-01 의 "31일"은 2026-12-31(예전에는 2027-01-31 앞날),
 // 10월 2일의 "30일"은 9월 30일, 10월 20일의 "25일 월세"는 미리 적는 10월 25일이다. 오늘까지의 날은 예전처럼 이번 달이다.
+// V22.9.81: ‘지지난달·저저번달 25일/말일’은 두 달 전이다(예전에는 안의 ‘지난달’을 읽어 지난달, 메모는 ‘지 커피’). 요일 앞의
+// ‘지지난주·저저번주’는 월요일에 시작하는 두 주 전의 그 요일, 주 없이 쓴 ‘지지난·저저번’은 ‘지난 금요일’(오늘을 뺀 바로 앞) 한 주 더 앞,
+// ‘지난번’은 ‘지난’, ‘이번 금요일’은 ‘이번주 금요일’, ‘다음·오는(돌아오는·다가오는) 금요일’은 오늘을 뺀 바로 다음 그 요일이다
+// (예전에는 넷 다 ‘금요일’로 보아 가장 가까운 지난 금요일). 앞날이 되면 ‘내일’·‘다음주 금요일’처럼 그 날 그대로다(미리 적는 기록).
 function quickInputDate(text = "", today = "") {
   const parts = (today || new Date(Date.now() + 32400000).toISOString().slice(0, 10)).split("-").map(Number);
   const now = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
@@ -8632,10 +8636,10 @@ function quickInputDate(text = "", today = "") {
     now.setUTCDate(now.getUTCDate() + count * (m[2] === "일" ? 1 : 7) * sign);
     return valid(now.getUTCFullYear(),now.getUTCMonth()+1,now.getUTCDate());
   }
-  m = raw.match(/(?:(지난\s*달|저번\s*달|이번\s*달|다음\s*달|이달|담달)\s*)?말일/);
-  if (m) { const dt = monthStart(/지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, lastDay(dt)); }
-  m = raw.match(/(?:지난\s*달|저번\s*달|이번\s*달|다음\s*달|이달|담달)\s*(\d{1,2})\s*일?/);
-  if (m) { const dt = monthStart(/지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, Number(m[1])); }
+  m = raw.match(/(?:(지지난\s*달|저저번\s*달|지난\s*달|저번\s*달|이번\s*달|다음\s*달|이달|담달)\s*)?말일/);
+  if (m) { const dt = monthStart(/지지난|저저번/.test(m[0]) ? -2 : /지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, lastDay(dt)); }
+  m = raw.match(/(?:지지난\s*달|저저번\s*달|지난\s*달|저번\s*달|이번\s*달|다음\s*달|이달|담달)\s*(\d{1,2})\s*일?/);
+  if (m) { const dt = monthStart(/지지난|저저번/.test(m[0]) ? -2 : /지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, Number(m[1])); }
   m = raw.match(/(?:^|\s)(20\d{2})(\d{2})(\d{2})(?=\s|$)/);
   if (m) return valid(Number(m[1]),Number(m[2]),Number(m[3]));
   m = raw.match(/(?:^|\s)(20\d{2})[.\-/년]\s*(\d{1,2})[.\-/월]\s*(\d{1,2})/);
@@ -8661,16 +8665,21 @@ function quickInputDate(text = "", today = "") {
     if (!current || !past) return current || past;
     return Date.parse(todayIso) - Date.parse(past) <= Date.parse(current) - Date.parse(todayIso) ? past : current;
   }
-  m = raw.match(/(?:(지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주|지난|저번)\s*)?([월화수목금토일])요일/);
+  m = raw.match(/(?:(지지난\s*주|저저번\s*주|지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주|지지난번|지지난|저저번|지난번|지난|저번|이번|다음|(?:돌아|다가)?오는)\s*)?([월화수목금토일])요일/);
   if (!m) return "";
   const monday = (index) => (index + 6) % 7;
   const target = monday("일월화수목금토".indexOf(m[2])), current = monday(now.getUTCDay());
-  const scope = String(m[1] || "").replace(/\s+/g, "");
-  const offset = scope === "이번주" || scope === "금주" ? target - current
+  const word = String(m[1] || "").replace(/\s+/g, "");
+  const scope = word === "지난번" ? "지난" : word === "지지난번" ? "지지난" : /오는$/.test(word) ? "오는" : word;
+  const back = (current - target + 7) % 7 || 7;
+  const offset = scope === "이번주" || scope === "금주" || scope === "이번" ? target - current
     : scope === "다음주" || scope === "내주" ? target - current + 7
-      : scope === "지난" || scope === "저번" ? -((current - target + 7) % 7 || 7)
-        : scope ? target - current - 7
-          : -((current - target + 7) % 7);
+      : scope === "다음" || scope === "오는" ? (target - current + 7) % 7 || 7
+        : scope === "지난" || scope === "저번" ? -back
+          : scope === "지지난" || scope === "저저번" ? -back - 7
+            : scope === "지지난주" || scope === "저저번주" ? target - current - 14
+              : scope ? target - current - 7
+                : -((current - target + 7) % 7);
   now.setUTCDate(now.getUTCDate() + offset);
   return valid(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate());
 }
@@ -9146,6 +9155,8 @@ function inferInputCategory(raw, type, rules) {
 // 간편결제·해외송금)이라 떼면 "공동구매"가 "공동"이 됐다. 금액을 뺀 뒤 홀로 남은 단위 ‘원’("점심 ₩12000"의 ₩)과 어림말 ‘정도’도 지운다.
 // V22.9.79: 카드사 이름·요일 앞말의 “앞이 글자가 아닐 때만” 조건은 뒤돌아보기 대신 앞 한 글자(글자 아님)를 함께 잡았다가 바꿀 때 돌려준다
 // (지우는 범위가 같아 결과가 같다).
+// V22.9.81: ‘지지난달·저저번달 25일/말일’은 통째로 지운다(예전에는 안의 ‘지난달 25일’만 지워 메모가 ‘지 커피’였다). 요일 앞의
+// ‘지지난번’·‘다가오는’도 함께 지운다.
 function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
   const patterns = cleanInputMemo.cache || (cleanInputMemo.cache = (() => {
     const escape = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -9163,7 +9174,7 @@ function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
       fixed: fixedWords.map((item) => new RegExp(commandWords.includes(item) ? "(^|\\s)" + escape(item) + "(?=\\s|\\d|$)" : escape(item), "g")),
       cardName: withNames("(?:신용카드|체크카드|카드)" + pay.end, "gi"),
       paymentWord: new RegExp("(?:현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스페이|토스뱅크|토스|계좌이체|자동이체|무통장|체크|신용)" + pay.end, "g"),
-      weekday: new RegExp("(?:(^|[^가-힣])(?:(?:지지난|저저번|지난|저번|이번|다음|오는|돌아오는)\\s*주|전주|금주|내주|지지난|저저번|지난번|지난|저번|이번|다음|오는|돌아오는)\\s*[월화수목금토일]요일|[월화수목금토일]요일)", "g"),
+      weekday: new RegExp("(?:(^|[^가-힣])(?:(?:지지난|저저번|지난|저번|이번|다음|오는|돌아오는|다가오는)\\s*주|전주|금주|내주|지지난번|지지난|저저번|지난번|지난|저번|이번|다음|오는|돌아오는|다가오는)\\s*[월화수목금토일]요일|[월화수목금토일]요일)", "g"),
       anywhere: /^(?:(?:신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오|토스)카드|삼성페이|카카오페이|네이버페이|애플페이|페이코|제로페이)$/i,
     };
   })());
@@ -9201,12 +9212,12 @@ function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
   memo = memo
     .replace(/20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?/g, " ")
     .replace(patterns.weekday, keep)
-    .replace(/(?:지난|저번)\s*달\s*\d{1,2}일?/g, " ")
+    .replace(/(?:지지난|저저번|지난|저번)\s*달\s*\d{1,2}일?/g, " ")
     .replace(/(?:이번\s*달|이달)\s*\d{1,2}일?/g, " ")
     .replace(/(?:다음\s*달|담달)\s*\d{1,2}일?/g, " ")
     .replace(/(?:^|\s)(?:\d{1,2}|한|두|세|네|일|이|삼|사)\s*(?:일|주일|주|달|개월)\s*[전후](?=\s|$)/g, " ")
     .replace(/(?:^|\s)(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\s*[전후](?=\s|$)/g, " ")
-    .replace(/(?:(?:지난|저번|이번|다음)\s*달|이달|담달)?\s*말일/g, " ")
+    .replace(/(?:(?:지지난|저저번|지난|저번|이번|다음)\s*달|이달|담달)?\s*말일/g, " ")
     .replace(/(?:재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*(?=\d{1,2}\s*(?:월|[./]))/g, " ")
     .replace(/\d{1,2}\s*월\s*\d{1,2}일?/g, " ")
     .replace(/\d{1,2}[.\/]\d{1,2}/g, " ")
@@ -49775,11 +49786,11 @@ function blockedTransactionParse(parsed = {}) {
 // (extractLeadingDateHint)와 조각에 제 날짜가 있는지(hasDateHint)를 이 한 표에서 만든다. 예전에는 머리 날짜 정규식을 따로 적어 두어
 // ‘지난·저번 금요일’(V22.9.78 N-12 의 주 없는 꼴)·‘모레’·‘20260731’·달 없이 쓴 ‘25일’이 빠졌고, "지난 금요일 커피 4500원 택시 8000원"의
 // 택시가 오늘로 저장됐다(커피만 7월 31일). 표의 꼴은 quickInputDate 의 규칙을 그대로 옮겼다 — 그 함수는 브라우저 자산에 본문 그대로
-// 실려 이 표를 부를 수 없으므로, 표의 말마다 한 건 파서와 같은 날을 읽는지는 validate-nlu-v22981 이 맞춰 본다. 표에 없는 주 말
-// (‘다음 금요일’·‘지지난주 금요일’)은 한 건 파서도 그 뜻으로 읽지 않으므로 머리 날짜로 넘기지 않는다.
+// 실려 이 표를 부를 수 없으므로, 표의 말마다 한 건 파서와 같은 날을 읽는지는 validate-nlu-v22981 이 맞춰 본다. 두 번 앞(지지난주·
+// 지지난달·저저번달)과 다가올 요일(다음·오는·이번·지난번 금요일)도 한 건 파서가 V22.9.81 부터 그 뜻으로 읽으므로 표에 둔다.
 const AB_DATE_DAY_WORDS = "그끄저께|그끄제|엊그저께|엊그제|그저께|그제|어젯밤|엊저녁|어제|전날|오늘|금일|지금|방금|내일|모레";
 const AB_DATE_DAY_PARTS = "아침|점심|저녁|밤|새벽|오전|오후";
-const AB_DATE_MONTH_WORDS = "지난\\s*달|저번\\s*달|이번\\s*달|이달|다음\\s*달|담달";
+const AB_DATE_MONTH_WORDS = "지지난\\s*달|저저번\\s*달|지난\\s*달|저번\\s*달|이번\\s*달|이달|다음\\s*달|담달";
 const AB_DATE_YEAR_WORDS = "재작년|작년|지난\\s*해|올해|금년|내년|다음\\s*해";
 const AB_DATE_PHRASES = [
   "(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\\s*[전후](?=\\s|$)",
@@ -49790,7 +49801,7 @@ const AB_DATE_PHRASES = [
   "20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?",
   `(?:(?:${AB_DATE_YEAR_WORDS})\\s*)?\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?`,
   `(?:(?:${AB_DATE_YEAR_WORDS})\\s*)?\\d{1,2}[.\\/-]\\d{1,2}`,
-  "(?:지난\\s*주|저번\\s*주|전주|이번\\s*주|금주|다음\\s*주|내주|지난|저번)?\\s*[월화수목금토일]요일",
+  "(?:지지난\\s*주|저저번\\s*주|지난\\s*주|저번\\s*주|전주|이번\\s*주|금주|다음\\s*주|내주|지지난번|지지난|저저번|지난번|지난|저번|이번|다음|(?:돌아|다가)?오는)?\\s*[월화수목금토일]요일",
 ];
 // 달 없이 쓴 ‘25일’은 머리 날짜로만 본다. 뒤 조각의 ‘숙박 2일’·‘주차 3일’은 기간이기도 해서 조각의 제 날짜로 보면 머리 날짜를 잃는다(예전 그대로 머리 날짜).
 const AB_DATE_DAY_ONLY = "\\d{1,2}일(?=\\s|$)";
@@ -50235,20 +50246,28 @@ function weekdayIndexOfYmd(date = "") {
 // V22.9.26: "지난주 금요일", "이번주 월요일", "다음주 일요일", "금요일" 을 날짜로 푼다.
 // 주 단위 말이 없으면 오늘을 포함해 가장 가까운 지난 그 요일이다.
 // V22.9.78(V77 N-12): 주 없이 ‘지난·저번 금요일’로 쓰면 오늘을 뺀 바로 앞의 그 요일이다(금요일에 쓰면 7일 전).
-const AB_WEEKDAY_PHRASE = /(?:(지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주|지난|저번)\s*)?([월화수목금토일])요일/;
+// V22.9.81: ‘지지난주·저저번주’(두 주 전)·‘지지난·저저번’(지난 금요일보다 한 주 앞)·‘지난번’(= 지난)·‘이번’(= 이번주)·
+// ‘다음·오는 금요일’(오늘을 뺀 바로 다음 그 요일)도 quickInputDate 와 같게 푼다.
+const AB_WEEKDAY_PHRASE = /(?:(지지난\s*주|저저번\s*주|지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주|지지난번|지지난|저저번|지난번|지난|저번|이번|다음|(?:돌아|다가)?오는)\s*)?([월화수목금토일])요일/;
 function resolveWeekdayPhrase(raw = "", now = nowKstDate()) {
   const m = String(raw || "").match(AB_WEEKDAY_PHRASE);
   if (!m) return "";
   const target = "일월화수목금토".indexOf(m[2]);
   if (target < 0) return "";
   const mondayBased = (idx) => (idx + 6) % 7;
-  const scope = String(m[1] || "").replace(/\s+/g, "");
+  const word = String(m[1] || "").replace(/\s+/g, "");
+  const scope = word === "지난번" ? "지난" : word === "지지난번" ? "지지난" : /오는$/.test(word) ? "오는" : word;
+  const diff = mondayBased(target) - mondayBased(now.getDay());
+  const back = (7 - diff) % 7 || 7;
   let offset;
-  if (scope === "이번주" || scope === "금주") offset = mondayBased(target) - mondayBased(now.getDay());
-  else if (scope === "다음주" || scope === "내주") offset = mondayBased(target) - mondayBased(now.getDay()) + 7;
-  else if (scope === "지난" || scope === "저번") offset = -((mondayBased(now.getDay()) - mondayBased(target) + 7) % 7 || 7);
-  else if (scope) offset = mondayBased(target) - mondayBased(now.getDay()) - 7;
-  else offset = -((mondayBased(now.getDay()) - mondayBased(target) + 7) % 7);
+  if (scope === "이번주" || scope === "금주" || scope === "이번") offset = diff;
+  else if (scope === "다음주" || scope === "내주") offset = diff + 7;
+  else if (scope === "다음" || scope === "오는") offset = (diff + 7) % 7 || 7;
+  else if (scope === "지난" || scope === "저번") offset = -back;
+  else if (scope === "지지난" || scope === "저저번") offset = -back - 7;
+  else if (scope === "지지난주" || scope === "저저번주") offset = diff - 14;
+  else if (scope) offset = diff - 7;
+  else offset = -((7 - diff) % 7);
   return formatDate(addDays(now, offset));
 }
 
