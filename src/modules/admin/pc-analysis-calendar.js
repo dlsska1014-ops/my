@@ -277,6 +277,9 @@ function buildWeeklyReport(historyRows = [], month = currentMonthKst()) {
   return {
     thisWeekStart,
     todayStr,
+    lastWeekStart,
+    lastWeekSamePoint,
+    lastWeekEnd,
     thisWeek,
     lastWeekToPoint,
     lastWeekTotal,
@@ -285,14 +288,27 @@ function buildWeeklyReport(historyRows = [], month = currentMonthKst()) {
   };
 }
 
+// V22.9.80 T-24: ‘주’가 화면마다 다른 뜻이었다 — 이 주간 리포트(PC 분석·종합 리포트)는 월요일 시작, 홈 ‘주별’ 탭(V22.9.79 D-16)은 홈 캘린더처럼 일요일 시작.
+// 어느 쪽 계산도 바꾸지 않고(운영자 결정: 보수적 안), 이 리포트가 실제로 더한 날짜 범위를 요일과 함께 적어 어느 주인지 모호하지 않게 한다.
+function weekRangeText(from, to) {
+  const part = (ymd) => {
+    const [y, m, d] = String(ymd).split("-").map(Number);
+    return `${m}/${d}(${"일월화수목금토"[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
+  };
+  return `${part(from)}~${part(to)}`;
+}
+
 function renderWeeklyReportCard(weekly) {
   if (!weekly) return "";
+  const basis = weekly.thisWeekStart && weekly.lastWeekStart
+    ? `이번 주(월요일부터: ${weekRangeText(weekly.thisWeekStart, weekly.todayStr)}) 지출을 지난주 같은 시점(${weekRangeText(weekly.lastWeekStart, weekly.lastWeekSamePoint)})까지의 지출과 비교합니다. 홈의 ‘주별’ 탭은 일요일부터 한 주를 세므로 합계가 다를 수 있어요.`
+    : "이번 주(월요일~오늘) 지출을 지난주 같은 시점까지의 지출과 비교합니다.";
   // V22.9.79 감사 V44 D-13: 지난주 같은 시점이 0원이면 +100% 를 지어내지 않는다(비교 기록 없음, 빠르다·아낀다 판단도 하지 않음).
   const compared = Number(weekly.lastWeekToPoint || 0) > 0;
   const cls = !compared ? "deltaFlat" : weekly.rate > 10 ? "deltaUp" : weekly.rate < -10 ? "deltaDown" : "deltaFlat";
   const message = !compared ? (Number(weekly.thisWeek || 0) ? "지난주 같은 시점까지 지출 기록이 없어 속도를 비교하지 않아요." : "지난주와 비슷한 속도로 쓰고 있어요.") : weekly.rate > 10 ? "지난주보다 소비 속도가 빨라요. 남은 요일을 조금 아껴보세요." : weekly.rate < -10 ? "지난주보다 잘 아끼고 있어요. 이 흐름을 유지해보세요." : "지난주와 비슷한 속도로 쓰고 있어요.";
   const max = Math.max(1, weekly.thisWeek, weekly.lastWeekTotal);
-  return `<section class="card"><h2>주간 리포트</h2><p class="muted">이번 주(월요일~오늘) 지출을 지난주 같은 시점까지의 지출과 비교합니다.</p><div class="weeklyHead"><b>${numberWithCommas(weekly.thisWeek)}원</b><span class="${cls}">${formatChangeAgainst("지난주 같은 시점", weekly.thisWeek, weekly.lastWeekToPoint)}</span></div><div class="trendBars"><div class="trendLine"><div class="trendLabel">이번 주</div><div class="bar"><span style="width:${Math.round(weekly.thisWeek / max * 100)}%"></span></div><div class="trendValue">${numberWithCommas(weekly.thisWeek)}원</div></div><div class="trendLine"><div class="trendLabel">지난주 전체</div><div class="bar"><span style="width:${Math.round(weekly.lastWeekTotal / max * 100)}%"></span></div><div class="trendValue">${numberWithCommas(weekly.lastWeekTotal)}원</div></div></div><p class="muted">${escapeHtml(message)}${weekly.topCategory ? ` 이번 주는 <b>${escapeHtml(weekly.topCategory.name)}</b>에 ${numberWithCommas(weekly.topCategory.amount)}원을 가장 많이 썼어요.` : ""}</p></section>`;
+  return `<section class="card"><h2>주간 리포트</h2><p class="muted">${escapeHtml(basis)}</p><div class="weeklyHead"><b>${numberWithCommas(weekly.thisWeek)}원</b><span class="${cls}">${formatChangeAgainst("지난주 같은 시점", weekly.thisWeek, weekly.lastWeekToPoint)}</span></div><div class="trendBars"><div class="trendLine"><div class="trendLabel">이번 주</div><div class="bar"><span style="width:${Math.round(weekly.thisWeek / max * 100)}%"></span></div><div class="trendValue">${numberWithCommas(weekly.thisWeek)}원</div></div><div class="trendLine"><div class="trendLabel">지난주 전체</div><div class="bar"><span style="width:${Math.round(weekly.lastWeekTotal / max * 100)}%"></span></div><div class="trendValue">${numberWithCommas(weekly.lastWeekTotal)}원</div></div></div><p class="muted">${escapeHtml(message)}${weekly.topCategory ? ` 이번 주는 <b>${escapeHtml(weekly.topCategory.name)}</b>에 ${numberWithCommas(weekly.topCategory.amount)}원을 가장 많이 썼어요.` : ""}</p></section>`;
 }
 
 function renderPcAnalysisHtml({ month, households, selectedHousehold, rows, stats, budgets, budget, calendar, extended = null, recurringCandidates = [], anomalies = [], weeklyReport = null }) {
