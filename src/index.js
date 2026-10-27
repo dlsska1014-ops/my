@@ -44079,8 +44079,10 @@ function stripKakaoBotMention(text = "") {
 function stripLeadingCommand(text = "") {
   const t = stripKakaoBotMention(text);
   // "기록 점심 12000원" / "/기록 점심 12000원" → "점심 12000원"
+  // V22.9.81 X-29: 대표 명령어 ‘기록하기’를 누르고 이어 쓴 "기록하기 점심 12000원"·"기록하기: 커피 4500원"·"입력하기 …"도 뗀다.
+  // 명령어만 보낸 "기록하기"는 그대로 두어 기록 방법 안내로 간다.
   // "수정 01번 금액 13000원" → "01번 금액 13000원"
-  const m = t.match(/^\/?(기록|입력)\s+(.+)$/i);
+  const m = t.match(/^\/?(기록하기|입력하기|기록|입력)(?:\s*[:：]\s*|\s+)(.+)$/i);
   if (m) return m[2].trim();
   const e = t.match(/^\/?수정\s+(\d{1,3}\s*번.+)$/i);
   if (e) return e[1].trim();

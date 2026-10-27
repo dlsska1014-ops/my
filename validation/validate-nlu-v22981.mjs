@@ -15,6 +15,7 @@
 //   V81-g 세 낱말 사슬 ‘오십 오만 오천원’이 두 건(50원·55,000원)으로 나뉘었다(서버·웹 같음).
 //   V81-h 윤년의 2월 29일 전에 보낸 ‘2월 29일 요약’이 지난해(그날이 없는 해)로 옮겨져 ‘없는 날짜’ 답을 받았다.
 //   V81-d 메모에 날짜 말 ‘모레·지금·방금’과 8자리 날짜가 남았다(‘모레 커피’·‘20260731 커피’).
+//   X-29 카카오 대표 명령어 ‘기록하기’를 누르고 이어 쓴 ‘기록하기 점심 12000원’이 메모 ‘기록하기 점심’으로 저장됐다(앞머리는 ‘기록 ’·‘입력 ’만 뗐다).
 //
 // ── 어떻게 잡는가 ──
 // 같은 문장을 ① 카카오 해석(parseMultipleTransactions)과 POST /skill 저장, ② 홈이 실제로 받는 자산을 가짜 DOM 에서 돌린 웹 빠른 입력,
@@ -35,7 +36,7 @@ import * as dashboardFragments from "../src/modules/admin/dashboard-fragments.js
 const paymentListOptionsHtml = dashboardFragments.paymentListOptionsHtml || (() => "");
 
 const SOFT = process.env.V22981_SOFT === "1";
-const base = counter("V22.9.81 입력 해석(U-24 여러 건 머리 날짜·U-9 띄어 쓴 금액·U-25 없는 날짜 요약·U-6 지지난달·U-7 자동이체·U-8 분류 이름 낱말·U-10 구분 바꿀 때 분류·V81 지지난주와 다가올 요일·예산 달·세 낱말 금액·윤년 2월 29일·메모 날짜 말) 웹·카카오 같은 해석 검사");
+const base = counter("V22.9.81 입력 해석(U-24 여러 건 머리 날짜·U-9 띄어 쓴 금액·U-25 없는 날짜 요약·U-6 지지난달·U-7 자동이체·U-8 분류 이름 낱말·U-10 구분 바꿀 때 분류·V81 지지난주와 다가올 요일·예산 달·세 낱말 금액·윤년 2월 29일·메모 날짜 말·기록하기 앞머리) 웹·카카오 같은 해석 검사");
 const failures = [];
 let softChecks = 0;
 const t = {
@@ -814,6 +815,47 @@ await scene("V81-d 메모", async () => {
     await post(fx, "/admin/transactions", state.values());
     const webSaved = fx.db.transactions.slice(webBefore).map((row) => `${row.memo}:${row.transaction_date}`);
     t.ok(state.submit() && JSON.stringify(webSaved) === JSON.stringify(["커피:2026-07-31"]), `V81-d 웹 저장 "20260731 커피 4500원" → 메모 ‘커피’ 2026-07-31 (받음 ${JSON.stringify(webSaved)})`);
+  }));
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// X-29. 대표 명령어 ‘기록하기’ 뒤에 이어 쓴 거래: 앞머리 ‘기록하기·입력하기’(쌍점 포함)도 ‘기록·입력’처럼 떼고 저장한다
+// ════════════════════════════════════════════════════════════════════════════════════
+// 카카오 그룹 챗봇은 대표 명령어를 누르면 입력창에 명령어를 넣고, 사용자는 그 뒤에 이어 쓴다(카카오 안내 슬라이드 25·46).
+// 2026-10-27 앱 승인 담당자가 대표 명령어에 ‘기록하기’를 더해 달라고 했다. 예전에는 ‘기록하기 점심 12000원’이 메모 ‘기록하기 점심’으로 저장됐다.
+// 거래마다 새 픽스처를 써서 같은 내용 중복 막기가 끼어들지 않게 한다.
+const RECORD_COMMAND_HEADS = [
+  ["기록하기 점심 12000원", ["점심:12000:2026-08-05"]],
+  ["/기록하기 김밥 3500원", ["김밥:3500:2026-08-05"]],
+  ["@말해가계부 기록하기 저녁 15000원", ["저녁:15000:2026-08-05"]],
+  ["기록하기: 커피 4500원", ["커피:4500:2026-08-05"]],
+  ["기록하기 : 라떼 5200원", ["라떼:5200:2026-08-05"]],
+  ["기록하기:빵 3000원", ["빵:3000:2026-08-05"]],
+  ["기록하기 어제 택시 8000원", ["택시:8000:2026-08-04"]],
+  ["기록하기 지난 금요일 우유 2500원 버스 1500원", ["우유:2500:2026-07-31", "버스:1500:2026-07-31"]],
+  ["입력하기 약국 6000원", ["약국:6000:2026-08-05"]],
+  ["입력하기: 주차 2000원", ["주차:2000:2026-08-05"]],
+  // 바뀌면 안 되는 것: 예전부터 떼던 ‘기록 ’·‘입력 ’.
+  ["기록 점심 12000원", ["점심:12000:2026-08-05"]],
+  ["입력 커피 4500원", ["커피:4500:2026-08-05"]],
+];
+await scene("X-29", async () => {
+  for (const [text, expected] of RECORD_COMMAND_HEADS) {
+    await withClock(DAY, () => fixture(async (fx) => {
+      putSetting(fx, "kakao_selected_household_v2251:user-bin", HH);
+      const before = fx.db.transactions.length;
+      const reply = await say(fx, text);
+      t.eq(show(fx.db.transactions.slice(before)), JSON.stringify(expected), `X-29 카카오 "${text}" 저장 메모에 명령어가 남지 않는다 (${reply.slice(0, 40).replace(/\n/g, " / ")})`);
+    }));
+  }
+  // 명령어만 보내면 예전처럼 기록 방법 안내만 하고 저장하지 않는다(OpenBuilder 01_도움말_전체안내 패턴·KAKAO_MANUAL_TRIGGERS.record).
+  await withClock(DAY, () => fixture(async (fx) => {
+    putSetting(fx, "kakao_selected_household_v2251:user-bin", HH);
+    for (const text of ["기록하기", "/기록하기", "@말해가계부 기록하기", "입력하기", "기록하기 "]) {
+      const before = fx.db.transactions.length;
+      const reply = await say(fx, text);
+      t.ok(fx.db.transactions.length === before && reply.includes("처럼 보내면 바로 기록돼요"), `X-29 명령어만 보낸 "${text}"는 기록 방법 안내 (${reply.slice(0, 40).replace(/\n/g, " / ")})`);
+    }
   }));
 });
 
