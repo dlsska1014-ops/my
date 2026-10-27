@@ -14436,6 +14436,9 @@ const IMPORT_PERSON_PLACE_TAIL = /^(?:(?:자|인)(?:명|이름|성명)?|처(?:�
 // 영문 금액 별칭 credit·debit 바로 뒤가 ‘card’ 하나뿐인 머리글(‘Credit Card’·‘Debit Card’ = 신용·체크카드)은 금액이 아니라 카드다.
 // 한글 금액 별칭 뒤의 ‘카드’(‘지출(카드)’·‘결제금액(카드)’ = 카드로 낸 금액)와 ‘Credit Card Amount’는 예전 그대로 금액이다.
 const IMPORT_CARD_TAIL = /^cards?$/;
+// 금액 별칭 바로 뒤가 날짜 끝말(한글 네 자 이하 + ‘일’: ‘일’·‘처리일’·‘예정일’)인 머리글(‘지출일’·‘입금일’·‘입금처리일’)은 금액이 아니라 날짜다.
+// ‘…요일’(요일 이름)은 날짜 칸이 아니라 빼고, ‘지출일자’·‘입금일시’는 예전처럼 날짜 별칭(일자·일시)으로 읽는다.
+const IMPORT_DATE_TAIL = /^[가-힣]{0,4}일$/;
 // 카드의 종류·구분 머리글(신용·체크·본인·가족이 적힌다). 머리글 전체가 이 꼴일 때만 본다(‘카드승인구분’처럼 다른 말이 든 머리글은 예전 그대로).
 const IMPORT_CARD_KIND_HEADER = /^(?:이용|결제|사용)?(?:카드|card)(?:구분|종류|유형|type)$/;
 
@@ -14462,6 +14465,14 @@ function canonicalImportField(value = "") {
       if (IMPORT_MONEY_FIELDS.has(item.field)) {
         const tail = key.slice(key.lastIndexOf(item.key) + item.key.length);
         if (IMPORT_PERSON_PLACE_TAIL.test(tail)) return "ignore";
+        //  · 금액 별칭 뒤에 날짜 끝말이 붙은 머리글(‘지출일’·‘입금일’·‘입금처리일’)은 날짜다. 예전에는 날짜(‘2026-07-15’)가 수입·지출 금액으로 읽혀
+        //    그 표의 모든 행이 ‘금액 형식을 해석하지 못함’으로 빠졌다(‘지출일,내용,금액’ 표 전체). 날짜 열로 둔다. 괄호 속 ‘(일)’(단위·주기)은
+        //    날짜 끝말이 아니다(‘금액(일)’은 예전처럼 금액).
+        if (tail.endsWith("일") && !tail.endsWith("요일")) {
+          const bare = /[\[(]/.test(String(value)) ? normalizeImportHeader(String(value).replace(/\([^)]*\)|\[[^\]]*\]/g, "")) : key;
+          const at = bare.lastIndexOf(item.key);
+          if (at >= 0 && IMPORT_DATE_TAIL.test(bare.slice(at + item.key.length))) return "date";
+        }
         //  · ‘Credit Card’·‘Debit Card’ 는 수입·지출 금액(credit·debit 별칭)이 아니라 신용·체크카드다. 예전에는 카드 이름(‘Visa 1234’)이 금액으로
         //    읽혀 행이 금액 오류로 빠졌다. 다음 별칭(‘card’ → 결제수단)을 본다 — ‘신용카드’·‘체크카드’ 머리글과 같다.
         if ((item.key === "credit" || item.key === "debit") && IMPORT_CARD_TAIL.test(tail)) continue;

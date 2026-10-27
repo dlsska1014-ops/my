@@ -680,6 +680,47 @@ await attempt("Credit Card 머리글", async () => {
   deepEq(view("Transaction Date,Description,Debit,Credit\n2026-07-15,Coffee,4500,\n2026-07-16,Salary,,3000000"), { rows: [["expense", 4500, "Coffee", ""], ["income", 3000000, "Salary", ""]], rejected: [] }, "Credit Card 머리글 오탐 검토: 통장 표의 Debit·Credit 금액 열은 예전처럼 지출·수입이다");
 });
 
+// ── 새 발견: 금액 별칭 + 날짜 끝말 머리글(‘지출일’·‘입금일’) ─────────────────────────────
+// 금액 별칭(‘지출’·‘입금’·‘지급’) 뒤에 ‘일’이 붙은 날짜 머리글(‘지출일’·‘입금일’·‘수입일’·‘출금일’·‘지급일’·‘입금처리일’)이 수입·지출 금액 열이 되어
+// 날짜(‘2026-07-15’)가 금액으로 읽혔다. ‘지출일,내용,금액’·‘입금일,입금자명,입금액,메모’ 표는 모든 행이 ‘금액 형식을 해석하지 못함’으로 빠졌다.
+// 이제 금액 별칭 바로 뒤가 한글 네 자 이하 + ‘일’(‘일’·‘처리일’·‘예정일’)이면 날짜 열이다. ‘…요일’과 괄호 속 ‘(일)’(단위·주기)은 아니고,
+// ‘지출일자’·‘입금일시’는 예전처럼 날짜 별칭(일자·일시)으로 읽는다.
+await attempt("날짜 끝말 머리글 표", async () => {
+  const changed = ["지출일", "수입일", "입금일", "출금일", "지급일", "입금처리일", "출금처리일", "입금예정일", "출금예정일", "지급예정일", "지출예정일", "지출결의일", "입금확인일", "입금완료일", "자동이체출금일", "지출 일", "입금 처리일"];
+  for (const header of changed) eq(canonicalImportField(header), "date", `날짜 끝말 머리글: ‘${header}’ 는 금액이 아니라 날짜다`);
+  // 오탐 검토(바뀌면 안 되는 머리글): 날짜 별칭이 든 머리글, 금액 머리글, ‘일’로 끝나지 않는 꼬리, 괄호 속 ‘(일)’ 단위, 금액 별칭이 없는 ‘…일’ 머리글.
+  const kept = {
+    지출일자: "date", 입금일자: "date", 입금일시: "date", 출금일시: "date", 수입일자: "date", 지급일자: "date", 거래일: "date", 거래일자: "date", 결제일: "date", 이용일: "date", 승인일: "date", 사용일: "date", 작성일: "date",
+    지출: "expense", 수입: "income", 입금: "income", 출금: "expense", 지급: "expense", 입금액: "income", 출금액: "expense", 지급액: "expense", 지출금액: "expense", 금액: "amount", 이용금액: "amount",
+    "입금(원)": "income", 수입원: "income", 입금자동이체금액: "income", "금액(일)": "amount", "지출(일)": "expense", "이용금액(일)": "amount", 입금일련번호: "ignore", 결제예정일: "", 요일: "",
+  };
+  for (const [header, field] of Object.entries(kept)) eq(canonicalImportField(header), field, `날짜 끝말 머리글 오탐 검토: ‘${header}’ 의 판정은 예전과 같다(${field || "읽지 않음"})`);
+});
+await attempt("날짜 끝말 머리글 행", async () => {
+  const view = (text) => { const result = parseImport(text); return { rows: result.rows.map((row) => [row.transaction_date, row.type, row.amount, row.memo]), rejected: result.rejected.map((item) => item.reason_code) }; };
+  const tables = [
+    ["지출일,내용,금액\n2026-07-15,커피,4500\n2026-07-16,점심,9000", [["2026-07-15", "expense", 4500, "커피"], ["2026-07-16", "expense", 9000, "점심"]], "‘지출일,내용,금액’ 표"],
+    ["입금일,입금자명,입금액,메모\n2026-07-15,홍길동,50000,회비\n2026-07-16,김철수,30000,회비", [["2026-07-15", "income", 50000, "회비"], ["2026-07-16", "income", 30000, "회비"]], "‘입금일,입금자명,입금액,메모’ 표"],
+    ["입금처리일,적요,입금액\n2026.07.15,이자,1200", [["2026-07-15", "income", 1200, "이자"]], "‘입금처리일’ 표(점 날짜)"],
+    ["지출일,내용,금액\n7월 15일,커피,4500\n2026.07.16,점심,9000", [["2026-07-15", "expense", 4500, "커피"], ["2026-07-16", "expense", 9000, "점심"]], "‘지출일’ 표(‘7월 15일’·점 날짜)"],
+    ["거래일자,출금예정일,출금액,내용\n2026-07-15,2026-07-25,4500,커피", [["2026-07-15", "expense", 4500, "커피"]], "날짜 열이 둘인 표(예전처럼 앞 열 ‘거래일자’가 날짜)"],
+    ["지출일: 2026-07-15 | 금액: 4500 | 내용: 커피", [["2026-07-15", "expense", 4500, "커피"]], "키 줄 ‘지출일: 2026-07-15’"],
+    ["입금일: 2026-07-15 | 입금자명: 홍길동 | 입금액: 50000 | 메모: 회비", [["2026-07-15", "income", 50000, "회비"]], "키 줄 ‘입금일: … | 입금자명: …’"],
+  ];
+  for (const [text, rows, label] of tables) deepEq(view(text), { rows, rejected: [] }, `날짜 끝말 머리글 행: ${label} 은 금액 오류 0건이고 날짜를 바르게 읽는다`);
+  const mapped = parseImport("지출일,내용,금액\n2026-07-15,커피,4500", { mappingMetadata: true });
+  deepEq(mapped.mappings?.map((item) => `${item.source}→${item.field}`), ["지출일→date", "내용→memo", "금액→amount"], "날짜 끝말 머리글 행: 열 연결에 ‘지출일’ 은 ‘날짜’로 보인다(열 연결 화면에서 바꿀 수 있다)");
+  deepEq(view("날짜,금액(일),내용\n2026-07-15,4500,커피"), { rows: [["2026-07-15", "expense", 4500, "커피"]], rejected: [] }, "날짜 끝말 머리글 오탐 검토: 괄호 속 ‘(일)’ 단위가 붙은 ‘금액(일)’ 열은 예전처럼 금액이다");
+});
+await attempt("날짜 끝말 머리글 미리 보기", () => fixture(async (fx) => {
+  await uuidFixture(fx);
+  const preview = await importPreview(fx, "지출일,내용,금액\n2026-07-15,날짜끝말 커피,4500\n2026-07-16,날짜끝말 점심,9000");
+  eq(preview.status, 200, "날짜 끝말 머리글 미리 보기: 화면이 열린다");
+  deepEq(preview.ready.map((entry) => [entry.row?.transaction_date, entry.row?.amount, entry.row?.memo]), [["2026-07-15", 4500, "날짜끝말 커피"], ["2026-07-16", 9000, "날짜끝말 점심"]], "날짜 끝말 머리글 미리 보기: 두 행이 모두 저장 후보이고 날짜를 ‘지출일’ 열에서 읽는다");
+  ok(preview.html.includes("지출일 → <b>날짜</b>"), "날짜 끝말 머리글 미리 보기: 인식 기준에 ‘지출일 → 날짜’로 보인다");
+  ok(!/금액 형식을 해석하지 못함/.test(preview.html), "날짜 끝말 머리글 미리 보기: ‘금액 형식을 해석하지 못함’ 으로 빠진 행이 없다");
+}));
+
 if (SOFT && failures.length) {
   console.log(`V22981_SOFT: ${failures.length}개 검사 실패 (전체 ${checks}개)`);
   for (const failure of failures) console.log(` - ${failure}`);
