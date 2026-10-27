@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_81.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_82.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -91,6 +91,7 @@ const validationScripts = [
   ["V22.9.81 데이터 묶음(본문을 잃은 저장의 결과 불확실·카카오 닉네임 통합 표식·날짜 목록 밖 번호·정기 기록하기 묶음·가져오기 메모·카드 자리 머리글)", "validation/validate-data-v22981.mjs"],
   ["V22.9.81 입력 해석(여러 건 머리 날짜·띄어 쓴 금액 잇기·없는 날짜 요약·지지난달/지지난주·자동이체 저장 이름·분류 이름 낱말 경계·구분 바꿀 때 분류)", "validation/validate-nlu-v22981.mjs"],
   ["V22.9.82 이용 현황(앱: 관제용 /internal/ops-usage·읽기 전용 집계 함수 부름·인증·오류 구분·계약 밖 값 걸러내기·SQL 모양)", "validation/validate-usage-metrics-v22982.mjs"],
+  ["V22.9.82 관제 이용 현황(관제 1.4.0: 55분마다 수집·달 행 24개월·걸러내기·경고/전체 상태 영향 없음·화면 상태·실제 앱과 왕복)", "validation/validate-monitor-v22982.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
@@ -323,6 +324,7 @@ function run(command, args, label) {
 // V22.9.79: 새 동작 검사 9개(카카오 답장 234·환불 연결 251·예약 실행 135·정기 목록 90·월말 예상 98·입력 해석 1,645·웹 화면 153·백업 163·시각 120)와 추적표 V79 출처. 두 모드 실측: 일반 30,629 · 분류 표 부재 30,626(2026-10-26 통합 검토 수정 뒤).
 // V22.9.80: 새 동작 검사 5개(역할 표시 269·입력 해석 291·데이터 229·다크 화면 500·환불 연결 후속 268)와 추적표 V80 출처. 두 모드 실측: 일반 32,436 · 분류 표 부재 32,433(V22.9.80 통합).
 // V22.9.81: 새 동작 검사 6개(역할 173·입력 해석 1,004·데이터 397·화면 209·환불 연결 83·관제 130)와 추적표 V81 출처. 두 모드 실측: 일반 34,835 · 분류 표 부재 34,832(V22.9.81 통합).
+// V22.9.82: 새 동작 검사 2개(앱 이용 현황 85·관제 이용 현황 182, 옛 관제 검사 4개는 판 고정값만). 두 모드 실측: 일반 0 · 분류 표 부재 0(V22.9.82 통합).
 const EXPECTED_MINIMUM_CHECKS = 34832;
 
 function runValidation(script, label) {

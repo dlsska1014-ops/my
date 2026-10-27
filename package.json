@@ -67,6 +67,7 @@
     "validate:data-v22981": "node validation/validate-data-v22981.mjs",
     "validate:nlu-v22981": "node validation/validate-nlu-v22981.mjs",
     "validate:usage-metrics-v22982": "node validation/validate-usage-metrics-v22982.mjs",
+    "validate:monitor-v22982": "node validation/validate-monitor-v22982.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "test": "node .codex/scripts/verify-repository.mjs",
     "validate:categories-absent": "node .codex/scripts/verify-repository.mjs --categories-absent",
