@@ -26,3 +26,18 @@ V22.9.80(V22.9.79 후속 발견 T-10~T-39 를 다크·입력 해석·역할 표�
 - **U-19** (P3, 옛 관리자 화면) 같은 자리에서 환불 연결 코드 밖의 `err` 코드(record_update_failed·edit_unknown 등)는 코드 글자 그대로 보인다(이스케이프는 됨).
 - **U-20** (P3, 웹) `/my` 는 `/app` 으로 넘기면서 `msg`·`err` 를 버린다(`my/households-lifecycle.js:705` handleMyPage). `/my/update` 의 결과(T-12 의 막힌 이유 포함)가 모두 사라진다. 지금 이 주소로 보내는 화면은 없다(홈 수정은 `/admin/update`).
 - **U-21** (P3, 정리) 부르는 곳이 없는 `kakaoBudgetStatusText`(`domain/budgets.js:453`).
+
+## PR #98 뒤 확인으로 더한 것 (2026-10-26)
+- 출처:
+  - U-22~U-27 은 Codex Astra 의 76ea594 읽기 전용 검토다. Claude 가 소스와 오프라인 번들로 사실임을 확인했다(저장소 밖 `review-artifacts/v80-improvements-2026-10-25/codex-astra-review-2026-10-26/VERIFY.md`, 재현 `repro-3-4.mjs`).
+  - U-28~U-30 은 2026-10-26 V79 운영 화면 확인(Aside)에서 나왔다.
+- U-22~U-25 는 V22.9.79 운영에도 있고 V22.9.80 이 바꾸지 않았다. U-26·U-27 은 꺼진 환불 연결 플래그 뒤에 있다.
+- **U-22** (P3, 데이터) DB 가 2xx 머리를 보낸 뒤 본문 받기가 끊기면(`data/supabase-client.js:73` 근처 `await res.text()` 가 던지거나 쓰기 시한이 본문을 받는 중에 끝남) 결과 불확실로 분류하지 않는다. catch 조건 `!status || status >= 500 || status === 408` 에 걸리지 않아, 실제로 저장됐을 수 있는 쓰기를 ‘저장하지 못함’으로 안내한다. 다시 시도하면 기록이 두 번 생길 수 있고, `backup-apply.js` 는 다음 행을 계속 적용한다.
+- **U-23** (P3, 인증) 카카오 프로필 이름이 ‘…(통합됨)’으로 끝나면 로그인이 막히고 다음 로그인에도 풀리지 않는다. `ensureKakaoLoginUser`(`auth/identity-reauth.js:329`)는 표식을 떼지만, 로그인 콜백은 저장된 이름이 자리표시(`isPlaceholderUserNickname`, `:122`)이면 프로필 이름을 그대로 다시 쓰고, 세션 검사(`auth/user-session.js:190`·`236`, `auth/kakao-web-claim.js:60`, `domain/users-households.js:30`)는 그 이름을 통합된 계정으로 보고 거절한다.
+- **U-24** (P2 후보, 입력 해석) 여러 건 입력에서 ‘지난/저번 + 요일’이 뒤 거래로 이어지지 않는다. 기준일 2026-08-05(수) ‘지난 금요일 커피 4500원 택시 8000원’ → 커피 07-31, 택시 08-05(오늘). 카카오 저장도 같다. `nlu/transaction-parser.js:57` extractLeadingDateHint 의 정규식에 ‘지난주 + 요일’은 있지만 ‘지난/저번 + 요일’은 없다.
+- **U-25** (P3, 입력 해석) 없는 날짜의 카카오 요약이 다른 날 금액을 보인다. ‘2월 30일 요약’은 제목이 2월 30일인데 3월 2일 기록의 금액과 month=2026-03 분석 링크를 보이고, ‘13월 5일 요약’은 ‘2025년 13월 5일’이 된다(`kakao/household-budget-commands.js` 의 검사 없는 `new Date(y, m - 1, d)`). 데이터는 바뀌지 않는다.
+- **U-26** (P3, 환불 연결 — 플래그 꺼짐) 환불 연결이 많으면 정산이 일부 환불을 빠뜨린다. `fetchRefundLinkRows`(`features/settlement-refund-links.js:76`)는 묶음(100 id)마다 `limit=1000` 으로 읽고 넘침을 보지 않는다. `loadRefundDeductions` 는 `>= 2000` 일 때만 잘림으로 보는데, Supabase API 최대 행이 그보다 작으면 이 검사는 걸리지 않는다. 플래그를 켜기 전에 고친다.
+- **U-27** (켜면 P2, 환불 연결 — 플래그 꺼짐·SQL 미적용) 정산 완료 이력의 30건 상한(`history.slice(-30)`, `features/settlement-refund-links.js:607`·`features/settlement-ops-pages.js:347`) 때문에 완료한 달의 잠금이 풀린다. 실행 금지 SQL 의 `refund_link_month_completed`(`migrations/V22_9_79_REFUND_LINKS_APPLY_REVIEW_ONLY.sql:180`·`250`)와 앱 판정이 이 배열만 본다. 완료 월 상태를 표시용 이력과 따로 두고 SQL 도 바꿔야 한다. 플래그를 켜기 전에 반드시 고친다.
+- **U-28** (P3, 화면 대비 — 다크) 알림 배지 1.90:1. `body.abV22812Shell .abV5NotifBadge{…background:var(--neg)…color:#fff}`(`assets/accountbook-shell-css.js:721`)이고 다크의 `--neg` 는 #fca5a5 다. 알림이 있는 모든 사용자 화면에 보인다.
+- **U-29** (P3, 화면 대비 — 다크) 사이드바 작은 달력 오늘 칸 1.80:1. `body.abV22812Shell .abNavCalDay.isToday{background:var(--accent)!important;color:#fff!important}`(`assets/accountbook-shell-css.js:775`). U-28 과 같은 꼴로, 흰 글자를 고정한 채 바탕 토큰만 다크에서 옅어진다.
+- **U-30** (P3, 화면 대비 — 라이트) 거래 목록 요약 수입 3.77:1. `.abTransactionSummary dd.income`(`client/v5-bundle-mains.js` 의 `+N원`)이 흰 바탕 위 #059669 다. #047857(5.48:1) 같은 값이 필요하다.
