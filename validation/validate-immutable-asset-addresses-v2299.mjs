@@ -27,6 +27,11 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
+  // V22.9.81: 셸 CSS(U-28·U-29 다크 대비·U-30 수입 색·U-15 빈 날·U-17 넘침)·홈 스크립트·홈 셸(U-7·U-8·U-9·V81 입력 해석)의 바이트가 바뀌어 세 주소를 v22981 로 올렸다.
+  // 옛 주소(accountbook-shell-v22979.css·mobile-home(-shell)-v22980.js)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 옛 해시로 계속 내려간다.
+  "/assets/accountbook-shell-v22981.css": "79935f106b9aa217a67f12626d2eb604a2717e29d58d17dd7df55167356528e2",
+  "/assets/mobile-home-shell-v22981.js": "464100c6530a9f9151963d763b79229814f6582b5f6d071f22fedfb8d8a8862e",
+  "/assets/mobile-home-v22981.js": "27f61d38dbd9b7d004351650acb00dc507ae405608300c1871940316833e4e35",
   // V22.9.80: 분류 규칙(T-16)·홈 스크립트·홈 셸(T-15·T-17·T-18 입력 해석)·V5 번들(T-33 달력 KST)의 바이트가 바뀌어 네 주소를 v22980 으로 올렸다.
   // 옛 주소(ab-category-rules-v22976·mobile-home(-shell)-v22979·accountbook-v5-v22979)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 옛 해시로 계속 내려간다.
   "/assets/ab-category-rules-v22980.js": "93026acd3bce2bf8bbc916f95b7f0dd99bb798b16260dbb74c7c3637a2d3f787",

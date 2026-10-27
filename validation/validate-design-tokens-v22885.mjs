@@ -26,17 +26,17 @@ function eq(actual, expected, label) {
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 // 1. 셸 자산 주소와 ETag 가 함께 올라갔는지. 둘 중 하나만 올리면 캐시가 어긋난다.
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22979.css"'), "shell stylesheet moved to a new immutable address");
-ok(source.includes('\'"accountbook-shell-v22979-css"\''), "shell stylesheet ETag matches its new path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22981.css"'), "shell stylesheet moved to a new immutable address");
+ok(source.includes('\'"accountbook-shell-v22981-css"\''), "shell stylesheet ETag matches its new path");
 
 // 2. 실제로 배달되는 셸 CSS 를 받아서 확인한다. 소스 문자열만 보면 조립 과정에서
 //    빠진 경우를 놓친다(작업지시서 1장: 실제 렌더로 확인).
 const fixture = await createV2265QaFixture();
 let shellCss = "";
 try {
-  const response = await app.fetch(new Request("https://malhaebook.com/assets/accountbook-shell-v22979.css"), fixture.env, {});
+  const response = await app.fetch(new Request("https://malhaebook.com/assets/accountbook-shell-v22981.css"), fixture.env, {});
   eq(response.status, 200, "the bumped shell stylesheet is served");
-  eq(response.headers.get("etag"), '"accountbook-shell-v22979-css"', "the served ETag matches the path");
+  eq(response.headers.get("etag"), '"accountbook-shell-v22981-css"', "the served ETag matches the path");
   shellCss = await response.text();
 } finally {
   fixture.restore();

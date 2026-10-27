@@ -23,7 +23,7 @@ const { ok, eq, done } = process.env.AB_AUDIT_SOFT === "1" ? softCounter(LABEL) 
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 // 이번 릴리스의 자산 주소. 바뀐 자산은 주소를 올렸고(불변 캐시), 옛 JS 주소는 AB_HISTORICAL_RUNTIME_ASSETS 로 그대로 내려간다.
-const SHELL_CSS = "/assets/accountbook-shell-v22979.css";
+const SHELL_CSS = "/assets/accountbook-shell-v22981.css";
 const NAV_JS = "/assets/accountbook-nav-v22937.js";
 const V5_JS = "/assets/accountbook-v5-v22980.js";
 const GOALS_JS = "/assets/accountbook-goals-v22946.js";
