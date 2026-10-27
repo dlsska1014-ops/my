@@ -13,6 +13,7 @@
 //   V81-c ‘다음·오는·이번·지난번 금요일’을 가장 가까운 지난 금요일로 읽었다.
 //   V81-b 카카오 예산 명령이 ‘지지난달·저저번달’을 지난달로 읽고 분류 이름에 남겨(‘지지난달 식비’) ‘등록된 카테고리를 찾지 못했어요’로 끝났다.
 //   V81-g 세 낱말 사슬 ‘오십 오만 오천원’이 두 건(50원·55,000원)으로 나뉘었다(서버·웹 같음).
+//   V81-h 윤년의 2월 29일 전에 보낸 ‘2월 29일 요약’이 지난해(그날이 없는 해)로 옮겨져 ‘없는 날짜’ 답을 받았다.
 //
 // ── 어떻게 잡는가 ──
 // 같은 문장을 ① 카카오 해석(parseMultipleTransactions)과 POST /skill 저장, ② 홈이 실제로 받는 자산을 가짜 DOM 에서 돌린 웹 빠른 입력,
@@ -445,6 +446,37 @@ await scene("U-25", async () => {
     }
     const valid = await say(fx, "3월 2일 요약");
     t.ok(valid.includes("📊 3월 2일 요약") && valid.includes("32,000원"), `U-25 있는 날 ‘3월 2일 요약’은 예전처럼 그날 금액 (${valid.slice(0, 60).replace(/\n/g, " / ")})`);
+  }));
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// V81-h. 윤년의 2월 29일 전에 보낸 ‘2월 29일 요약’은 올해 그날이다. 예전에는 D-7 이 지난해(그날이 없는 해)로 옮겨 ‘없는 날짜’로 답했다.
+//   지난해로 옮기는 것은 지난해 달력에 그날이 있을 때만이다. 다른 날(D-7)·없는 날(U-25)은 예전 그대로다.
+// ════════════════════════════════════════════════════════════════════════════════════
+await scene("V81-h", async () => {
+  for (const day of ["2028-01-01", "2028-01-15", "2028-02-28"]) {
+    await withClock(day, async () => {
+      for (const text of ["2월 29일 요약", "2월 29일 얼마나 썼어", "2월 29일 현황"]) {
+        const range = parseKakaoSummaryRange(text);
+        t.ok(range && !range.invalidDate && range.start === "2028-02-29" && range.end === "2028-03-01" && range.label === "2월 29일", `V81-h (${day}) ‘${text}’ → 2028-02-29(올해 그날) (받음 ${JSON.stringify(range)})`);
+      }
+      // 대조(예전 그대로): 다른 날은 D-7(오늘보다 뒤면 지난해), 없는 날은 U-25, 연도를 쓴 날은 그해
+      const back = day < "2028-02-28" ? ["2027-02-28", "2027년 2월 28일"] : ["2028-02-28", "2월 28일"];
+      for (const [text, start, label] of [["2월 28일 요약", ...back], ["3월 1일 요약", "2027-03-01", "2027년 3월 1일"], ["12월 25일 요약", "2027-12-25", "2027년 12월 25일"], ["2028년 2월 29일 요약", "2028-02-29", "2월 29일"]]) {
+        const range = parseKakaoSummaryRange(text);
+        t.ok(range && !range.invalidDate && range.start === start && range.label === label, `V81-h 대조 (${day}) ‘${text}’ → ${start} (받음 ${JSON.stringify(range)})`);
+      }
+      for (const text of ["2월 30일 요약", "2027년 2월 29일 요약"]) t.ok(parseKakaoSummaryRange(text)?.invalidDate === true, `V81-h 대조 (${day}) ‘${text}’는 없는 날짜`);
+    });
+  }
+  // 윤년이 아닌 해(지난해도 아님)의 ‘2월 29일 요약’은 U-25 그대로 없는 날짜
+  await withClock("2027-01-15", async () => t.ok(parseKakaoSummaryRange("2월 29일 요약")?.invalidDate === true, "V81-h 대조 (2027-01-15) ‘2월 29일 요약’은 없는 날짜(2027·2026 모두 2월 29일이 없다)"));
+  // 카카오 끝까지: 미리 적은 2028-02-29 기록의 금액을 그날 제목으로 답한다
+  await withClock("2028-01-15", () => fixture(async (fx) => {
+    putSetting(fx, "kakao_selected_household_v2251:user-bin", HH);
+    fx.db.transactions.push({ id: "tx-v81-leap", household_id: HH, user_id: "user-bin", transaction_date: "2028-02-29", type: "expense", amount: 29000, category: "식비", memo: "윤일점심", payment_method: "현금", source: "kakao", raw_text: "윤일점심", created_at: "2028-01-10T03:00:00.000Z" });
+    const reply = await say(fx, "2월 29일 요약");
+    t.ok(reply.includes("📊 2월 29일 요약") && reply.includes("29,000원") && !reply.includes("달력에 없는 날짜"), `V81-h 카카오 (2028-01-15) ‘2월 29일 요약’ → 2028-02-29 그날 금액 (${reply.slice(0, 60).replace(/\n/g, " / ")})`);
   }));
 });
 

@@ -45132,7 +45132,9 @@ function parseKakaoSummaryRange(text = "") {
       // 3월 2일 금액을 ‘2월 30일’ 제목·3월 분석 링크로 답했고 ‘13월 5일’은 ‘2025년 13월 5일’이었다. 연도를 정한 뒤(D-7) 그해 달력으로 본다.
       let y = Number(dateMatch[1] || now.getFullYear()); const m = Number(dateMatch[2]), d = Number(dateMatch[3]);
       const realDay = (year) => { const day = new Date(year, m - 1, d); return m >= 1 && m <= 12 && d >= 1 && day.getMonth() === m - 1 && day.getDate() === d; };
-      if (!dateMatch[1] && realDay(y) && new Date(y, m - 1, d) > now) y -= 1;
+      // V22.9.81 (h): 지난해로 옮기는 것(D-7)은 지난해 달력에 그날이 있을 때만이다. 윤년의 2월 29일 전(처음은 2028-01-01~02-28)에 보낸
+      // ‘2월 29일 요약’은 2027 로 옮겨 ‘없는 날짜’로 답했다. 그때는 올해 그날(앞날 — 미리 적은 기록이 있으면 그 금액)로 본다.
+      if (!dateMatch[1] && realDay(y) && new Date(y, m - 1, d) > now && realDay(y - 1)) y -= 1;
       if (!realDay(y)) return { invalidDate: true, text: `${dateMatch[1] ? `${y}년 ` : ""}${m}월 ${d}일` };
       start = new Date(y, m - 1, d); end = addDays(start, 1); label = `${y === now.getFullYear() ? "" : `${y}년 `}${m}월 ${d}일`;
     } else {
