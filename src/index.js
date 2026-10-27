@@ -9162,6 +9162,10 @@ function inferInputCategory(raw, type, rules) {
 // (지우는 범위가 같아 결과가 같다).
 // V22.9.81: ‘지지난달·저저번달 25일/말일’은 통째로 지운다(예전에는 안의 ‘지난달 25일’만 지워 메모가 ‘지 커피’였다). 요일 앞의
 // ‘지지난번’·‘다가오는’도 함께 지운다.
+// V22.9.81 (d): 날짜 파서(quickInputDate)가 읽는 하루 말 ‘모레·지금·방금’과 맞는 8자리 날짜(‘20260731’)도 지운다. 예전에는 메모가
+// ‘모레 커피’·‘20260731 커피’였다. 날짜 파서와 같은 낱말 경계(앞이 문장 처음·띄어쓰기, 뒤가 띄어쓰기·끝, 사이에 때 말 ‘아침·저녁…’만)에서만
+// 지워 ‘아모레’·‘모레아’·‘지금껏’·‘방금전’은 그대로이고, 때 말은 ‘어제저녁’처럼 남긴다(‘모레아침 커피’ → ‘아침 커피’). 8자리 수는 달·날이
+// 맞을 때만 날짜다(‘주문번호 20123456’은 그대로). ‘2026-08-01’처럼 다른 날짜 말이 있어도 날짜 꼴이면 지운다(예전 규칙과 같다).
 function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
   const patterns = cleanInputMemo.cache || (cleanInputMemo.cache = (() => {
     const escape = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -9216,6 +9220,8 @@ function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
 
   memo = memo
     .replace(/20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?/g, " ")
+    .replace(/(^|\s)20(\d{2})(\d{2})(\d{2})(?=\s|$)/g, (all, before, y, m, d) => { const dt = new Date(Date.UTC(2000 + Number(y), Number(m) - 1, Number(d))); return dt.getUTCMonth() === Number(m) - 1 && dt.getUTCDate() === Number(d) ? keep(all, before) : all; })
+    .replace(/(^|\s)(?:지금|방금|모레)(?=(?:아침|점심|저녁|밤|새벽|오전|오후)?(?:\s|$))/g, keep)
     .replace(patterns.weekday, keep)
     .replace(/(?:지지난|저저번|지난|저번)\s*달\s*\d{1,2}일?/g, " ")
     .replace(/(?:이번\s*달|이달)\s*\d{1,2}일?/g, " ")

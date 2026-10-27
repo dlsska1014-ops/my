@@ -14,6 +14,7 @@
 //   V81-b 카카오 예산 명령이 ‘지지난달·저저번달’을 지난달로 읽고 분류 이름에 남겨(‘지지난달 식비’) ‘등록된 카테고리를 찾지 못했어요’로 끝났다.
 //   V81-g 세 낱말 사슬 ‘오십 오만 오천원’이 두 건(50원·55,000원)으로 나뉘었다(서버·웹 같음).
 //   V81-h 윤년의 2월 29일 전에 보낸 ‘2월 29일 요약’이 지난해(그날이 없는 해)로 옮겨져 ‘없는 날짜’ 답을 받았다.
+//   V81-d 메모에 날짜 말 ‘모레·지금·방금’과 8자리 날짜가 남았다(‘모레 커피’·‘20260731 커피’).
 //
 // ── 어떻게 잡는가 ──
 // 같은 문장을 ① 카카오 해석(parseMultipleTransactions)과 POST /skill 저장, ② 홈이 실제로 받는 자산을 가짜 DOM 에서 돌린 웹 빠른 입력,
@@ -777,6 +778,43 @@ await scene("V81-b 예산 달", async () => {
         `V81-b 카카오 (${day}) "${text}" → ${month} ${label} 예산 저장·답장, 지난달(${last})은 그대로 (행 ${JSON.stringify(rows.map((row) => row.month))} · 답 ${reply.split("\n")[0]})`);
     }));
   }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// V81-d. 날짜 파서가 읽는 하루 말 ‘모레·지금·방금’과 맞는 8자리 날짜는 메모에 남지 않는다(날짜 파서와 같은 낱말 경계).
+//   예전에는 ‘모레 커피 4500원’의 메모가 ‘모레 커피’, ‘20260731 커피 4500원’이 ‘20260731 커피’였다. 서버·웹 홈 자산·옛 화면이 같은 공유 함수(cleanInputMemo)를 쓴다.
+// ════════════════════════════════════════════════════════════════════════════════════
+const MEMO_DROP = [
+  ["모레 커피 4500원", "커피"], ["커피 모레 4500원", "커피"], ["지금 커피 4500원", "커피"], ["방금 택시 8000원", "택시"], ["택시 8000원 지금", "택시"],
+  ["20260731 커피 4500원", "커피"], ["커피 4500원 20260731", "커피"], ["모레아침 커피 4500원", "아침 커피"], ["모레 아모레 크림 30000원", "아모레 크림"],
+  ["아모레퍼시픽 모레 30000원", "아모레퍼시픽"],
+];
+// 그대로 남아야 하는 말: 낱말 속 ‘모레’·‘지금’·‘방금’, 날짜 파서도 날짜로 읽지 않는 꼴, 달·날이 맞지 않는 8자리 수(주문번호)
+const MEMO_KEEP = [
+  ["아모레 크림 30000원", "아모레 크림"], ["모레아 소품 30000원", "모레아 소품"], ["지금껏 최고 커피 4500원", "지금껏 최고 커피"], ["방금전 택시 8000원", "방금전 택시"],
+  ["모레까지 커피 4500원", "모레까지 커피"], ["어제 커피 4500원 주문번호 20123456", "커피 주문번호 20123456"],
+];
+await scene("V81-d 메모", async () => {
+  await withClock(DAY, () => fixture(async (fx) => {
+    const { createState, legacy } = await webHarness(fx);
+    for (const [list, tag] of [[MEMO_DROP, "V81-d"], [MEMO_KEEP, "V81-d 대조"]]) {
+      for (const [text, want] of list) {
+        const server = parseTransaction(text, {}).memo, webMemo = createState().fill(text).view().memo, oldMemo = legacy(text).memo;
+        t.ok(server === want && webMemo === want && oldMemo === want, `${tag} "${text}" 메모 ‘${want}’ (서버 ${server} · 웹 ${webMemo} · 옛 화면 ${oldMemo})`);
+      }
+    }
+    const memos = rowsOf(parseMultipleTransactions("모레 커피 4500원 택시 8000원", {})).map((row) => `${row.memo}:${row.date}`);
+    t.ok(JSON.stringify(memos) === JSON.stringify(["커피:2026-08-07", "택시:2026-08-07"]), `V81-d 여러 건 "모레 커피 4500원 택시 8000원" → 메모 커피·택시, 두 건 모두 2026-08-07 (받음 ${JSON.stringify(memos)})`);
+    const before = fx.db.transactions.length;
+    await say(fx, "모레 커피 4500원");
+    const saved = fx.db.transactions.slice(before).map((row) => `${row.memo}:${row.transaction_date}`);
+    t.ok(JSON.stringify(saved) === JSON.stringify(["커피:2026-08-07"]), `V81-d 카카오 저장 "모레 커피 4500원" → 메모 ‘커피’ 2026-08-07 (받음 ${JSON.stringify(saved)})`);
+    const state = createState().fill("20260731 커피 4500원");
+    const webBefore = fx.db.transactions.length;
+    await post(fx, "/admin/transactions", state.values());
+    const webSaved = fx.db.transactions.slice(webBefore).map((row) => `${row.memo}:${row.transaction_date}`);
+    t.ok(state.submit() && JSON.stringify(webSaved) === JSON.stringify(["커피:2026-07-31"]), `V81-d 웹 저장 "20260731 커피 4500원" → 메모 ‘커피’ 2026-07-31 (받음 ${JSON.stringify(webSaved)})`);
+  }));
 });
 
 if (SOFT) {
