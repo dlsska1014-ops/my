@@ -91,8 +91,15 @@ async function worldFetch(input) {
 }
 
 // 관제 → 앱(ACCOUNTBOOK)과 앱 → 관제(OPS_MONITOR)를 실제 두 Worker 의 fetch 로 잇는다. accountbook 을 주면 앱 쪽을 그것으로 바꾼다(옛 앱 흉내).
+// 1.4.0(V22.9.82): 관제는 55분마다 한 번 /internal/ops-usage 로 이용 현황을 묻는다. 이 검사의 앱 흉내(V22.9.81 까지)에는 그 경로가 없으므로
+// 404 로 답하고(관제는 app_not_ready 로 적는다) calls.usage 로 따로 센다. calls.accountbook 은 왕복 확인을 싣는 DB 수집 요청만 센다.
+const usageCall = (input, calls) => {
+  if (new URL(typeof input === "string" ? input : input.url).pathname !== "/internal/ops-usage") return null;
+  calls.usage += 1;
+  return new Response("", { status: 404 });
+};
 function wire({ db, appOverrides = {}, accountbook, mails } = {}) {
-  const calls = { accountbook: 0, telemetry: 0, headers: [] };
+  const calls = { accountbook: 0, telemetry: 0, usage: 0, headers: [] };
   const monitorEnv = { MONITOR_DB: db, OPS_MONITOR_TOKEN: TOKEN, APP_ORIGIN: "https://app.example" };
   if (mails) Object.assign(monitorEnv, { ALERT_EMAIL: { async send(message) { mails.push(message); } }, ALERT_TO: "ops@example.com", ALERT_FROM: "monitor@app.example" });
   const appEnv = {
@@ -102,6 +109,8 @@ function wire({ db, appOverrides = {}, accountbook, mails } = {}) {
   };
   monitorEnv.ACCOUNTBOOK = accountbook ? accountbook(appEnv, calls) : {
     async fetch(input, init) {
+      const usage = usageCall(input, calls);
+      if (usage) return usage;
       calls.accountbook += 1;
       const request = new Request(input, init);
       calls.headers.push(request.headers.get("x-ab-monitor-roundtrip"));
@@ -113,6 +122,8 @@ function wire({ db, appOverrides = {}, accountbook, mails } = {}) {
 // 옛 앱(V22.9.80 이전) 흉내 1: 실제 번들에 왕복 확인 머리를 떼고 보낸다. 머리가 없을 때의 답이 V22.9.80 과 같은 바이트라는 것은 2절이 확인한다.
 const strippedApp = (appEnv, calls) => ({
   async fetch(input, init) {
+    const usage = usageCall(input, calls);
+    if (usage) return usage;
     calls.accountbook += 1;
     const request = new Request(input, init);
     const headers = new Headers(request.headers);
@@ -121,7 +132,7 @@ const strippedApp = (appEnv, calls) => ({
   },
 });
 // 옛 앱 흉내 2: V22.9.80 의 답 모양을 그대로 낸다(머리를 보지 않는다).
-const v80App = (_appEnv, calls) => ({ async fetch() { calls.accountbook += 1; return new Response(JSON.stringify({ ok: true, metrics: { database_bytes: 30 * 1024 ** 2, connections: 5, max_connections: 60, memory_total_bytes: 1e9, memory_available_bytes: 6e8, cpu_counter: { total: 1000, idle: 800 } } }), { headers: { "content-type": "application/json; charset=utf-8" } }); } });
+const v80App = (_appEnv, calls) => ({ async fetch(input) { const usage = usageCall(input, calls); if (usage) return usage; calls.accountbook += 1; return new Response(JSON.stringify({ ok: true, metrics: { database_bytes: 30 * 1024 ** 2, connections: 5, max_connections: 60, memory_total_bytes: 1e9, memory_available_bytes: 6e8, cpu_counter: { total: 1000, idle: 800 } } }), { headers: { "content-type": "application/json; charset=utf-8" } }); } });
 
 async function cron(env, at) {
   const pending = [];
@@ -188,8 +199,8 @@ globalThis.fetch = worldFetch;
 try {
   // ── 0. 관제 판 ─────────────────────────────────────────────────────────────
   await section("0 관제 판", async () => {
-    eq(model.MONITOR_VERSION, "1.3.0", "관제 판은 1.3.0 이다(1.2.1 → 1.3.0, V79:T-43 앱 표본 왕복 확인)");
-    eq((await (await monitor.fetch(new Request("https://monitor.example/health"), {}, {})).json()).version, "1.3.0", "/health 가 1.3.0 을 알린다");
+    eq(model.MONITOR_VERSION, "1.4.0", "관제 판은 1.4.0 이다(1.3.0 → 1.4.0, V22.9.82 이용 현황. 1.3.0 은 V79:T-43 앱 표본 왕복 확인)");
+    eq((await (await monitor.fetch(new Request("https://monitor.example/health"), {}, {})).json()).version, "1.4.0", "/health 가 1.4.0 을 알린다");
   });
 
   // ── 1. 관제 모델: 왕복 확인 표본의 종류와 기록 ─────────────────────────────────
@@ -310,7 +321,7 @@ try {
     const t0 = Date.parse("2026-10-27T03:10:00.000Z");
     fx.log.length = 0;
     await cron(monitorEnv, t0);
-    eq(calls.accountbook, 1, "5분 수집 한 번에 앱을 한 번만 부른다(왕복 확인을 위한 요청을 더하지 않는다)");
+    eq(calls.accountbook, 1, "5분 수집 한 번에 DB 수집 요청은 한 번이다(왕복 확인을 위한 요청을 더하지 않는다. 1.4.0 이용 현황 요청은 calls.usage 로 따로 센다)");
     ok(ID.test(calls.headers[0] || ""), `DB 수집 요청에 왕복 확인 id 를 싣는다: ${calls.headers[0]}`);
     eq(calls.telemetry, 1, "앱이 확인 표본 하나를 관제 /internal/telemetry 로 보낸다");
     const r = roundtripOf(fx.sqlite);
@@ -327,10 +338,10 @@ try {
     ok(full.notes.some((note) => note.startsWith("최근 24시간 앱 요청 표본 없음(왕복 확인 정상")), "왕복 확인이 정상이면 표본 0건을 '요청이 적음' 참고 사항으로 보인다");
     ok(!full.alerts.some((a) => a.title === ALERT_TITLE), "정상 왕복에는 전송 실패 경고가 없다");
     await cron(monitorEnv, t0 + 5 * MIN);
-    ok(calls.accountbook === 2 && calls.telemetry === 2 && telemetryRows(fx.sqlite).length === 0 && roundtripOf(fx.sqlite)?.last_ok_at === iso(t0 + 5 * MIN), "다음 수집도 앱 한 번·확인 표본 한 번이고 표에 남는 행이 없다");
+    ok(calls.accountbook === 2 && calls.telemetry === 2 && telemetryRows(fx.sqlite).length === 0 && roundtripOf(fx.sqlite)?.last_ok_at === iso(t0 + 5 * MIN), "다음 수집도 DB 수집 요청 한 번·확인 표본 한 번이고 표에 남는 행이 없다");
     const names = fx.sqlite.prepare("SELECT name FROM collector_state ORDER BY name").all().map((row) => row.name);
     ok(names.every((name) => ["alerts", "cloudflare", "d1", "database", "supabase_plan", "token", "uptime"].includes(name)), `수집 상태 표에 새 행이 없다(1.2.1 로 되돌려도 모르는 수집기가 '확인 불가'로 남지 않는다): ${names.join(",")}`);
-    ok(fx.sqlite.prepare("SELECT key FROM settings WHERE key NOT LIKE 'alert:%' AND key NOT LIKE 'ticket:%'").all().map((row) => row.key).join(",") === "roundtrip", "왕복 확인 기록은 settings 의 'roundtrip' 한 행뿐이다(1.2.1 은 이 행을 읽지 않는다)");
+    ok(fx.sqlite.prepare("SELECT key FROM settings WHERE key NOT LIKE 'alert:%' AND key NOT LIKE 'ticket:%'").all().map((row) => row.key).sort().join(",") === "roundtrip,usage", "왕복 확인 기록은 settings 의 'roundtrip' 한 행뿐이고 그 밖에는 1.4.0 이용 현황 수집 상태 'usage' 한 행뿐이다(1.2.1 은 두 행을, 1.3.0 은 'usage' 를 읽지 않는다)");
   });
 
   // ── 6. 새 관제 + 옛 앱: 확인 불가로 보이고 경고는 없다 ──────────────────────────────
@@ -343,7 +354,7 @@ try {
       const codes = new Set();
       for (let i = 0; i < 36; i += 1) { await cron(monitorEnv, t0 + i * 5 * MIN); codes.add(`${roundtripOf(fx.sqlite)?.status}/${roundtripOf(fx.sqlite)?.error_code}/${roundtripOf(fx.sqlite)?.failures}`); }
       eq([...codes].join(","), "unknown/unsupported/0", `${label}: 3시간 내내 왕복 확인은 확인 불가(unsupported)·연속 실패 0 이다`);
-      ok(calls.accountbook === 36 && calls.telemetry === 0 && telemetryRows(fx.sqlite).length === 0, `${label}: 옛 앱은 확인 표본을 보내지 않고 관제도 요청을 더하지 않는다`);
+      ok(calls.accountbook === 36 && calls.telemetry === 0 && telemetryRows(fx.sqlite).length === 0, `${label}: 옛 앱은 확인 표본을 보내지 않고 관제도 DB 수집 요청을 더하지 않는다`);
       ok(!mails.some((message) => bodyOf(message).includes(ALERT_TITLE)) && alertRecord(fx.sqlite, ALERT_TITLE) === null, `${label}: 전송 실패 경고를 보내지도 기억하지도 않는다`);
       const now = t0 + 35 * 5 * MIN + MIN;
       const result = await summary(monitorEnv, now);

@@ -1,4 +1,4 @@
-import { MONITOR_VERSION, PRICING_VERIFIED_AT, DAY, numberOrNull, quotaStatus, monthlyForecast, daysToLimit, growthDaysToLimit, freshState, cpuPercent, percentile, percentileIndex, sanitizeTelemetry, ROUNDTRIP_ALERT_FAILURES, roundtripRecord, roundtripView } from "./model.mjs";
+import { MONITOR_VERSION, PRICING_VERIFIED_AT, DAY, numberOrNull, quotaStatus, monthlyForecast, daysToLimit, growthDaysToLimit, freshState, cpuPercent, percentile, percentileIndex, sanitizeTelemetry, ROUNDTRIP_ALERT_FAILURES, roundtripRecord, roundtripView, USAGE_KEEP_MONTHS, kstMonth, monthShift, usageDue, sanitizeUsage, usageView } from "./model.mjs";
 import { dashboardHtml } from "./dashboard.mjs";
 
 const HEADERS = { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "x-frame-options": "DENY" };
@@ -227,6 +227,52 @@ async function collectSupabasePlan(env) {
   return {plan:data.plan,scope:"organization"};
 }
 
+// ── 1.4.0(V22.9.82) 이용 현황 수집 ─────────────────────────────────────────────
+// 직전 시도 뒤 55분이 지난 5분 예약 실행에서만 앱(ACCOUNTBOOK → /internal/ops-usage)에 묻는다. 예약 실행의 다른 수집과 알림 발송이 끝난 뒤
+// 돌아 그 시간·순서를 바꾸지 않는다. D1 문장은 실행마다 1개(settings 'usage' 읽기), 묻는 실행에서 2개(달 행·상태 쓰기, 실패면 상태 1개)가 더해진다.
+// 상태는 collector_state 가 아니라 settings 의 'usage' 한 행이다: 관제를 1.3.0·1.2.1 로 되돌려도 수집 상태 표·확인되지 않은 항목에
+// 모르는 수집기가 남지 않는다(1.3.0 왕복 확인 'roundtrip' 과 같은 방식). 값은 samples(source 'usage', bucket = 한국 시간 달)에 덮어써
+// 지난달 행은 그 달 마지막 값을 지닌다. 경고·전체 상태·용량 카드의 확인 불가와 무관하다.
+const USAGE_ERROR=/^[a-z0-9_]{1,40}$/;
+// 이 수집기가 스스로 정한 코드만 usage_code 로 달아 그대로 남긴다. 나머지(시한·연결 끊김·크기 초과)는 failureCode 가 정한다.
+const usageFail=code=>Object.assign(new Error(code),{usage_code:code});
+async function fetchUsage(env) {
+  if(!env.ACCOUNTBOOK||!env.OPS_MONITOR_TOKEN) throw usageFail("not_connected");
+  const response=await env.ACCOUNTBOOK.fetch("https://accountbook.internal/internal/ops-usage",{headers:{authorization:`Bearer ${env.OPS_MONITOR_TOKEN}`},signal:AbortSignal.timeout(10000)});
+  // V22.9.81 이하의 앱은 이 경로가 없다(404 → app_not_ready). 401 은 토큰 불일치다. 둘 다 본문을 읽지 않고 닫는다.
+  if(response.status===404||response.status===401) { await response.body?.cancel().catch(()=>{}); throw usageFail(response.status===404?"app_not_ready":"unauthorized"); }
+  const text=await readBounded(response,32768);
+  let body=null; try { body=JSON.parse(text); } catch(_) { body=null; }
+  // 앱의 503 본문 error_code(not_connected·rpc_missing·usage_unavailable·invalid_reply)는 글자이고 형식이 맞을 때만 그대로 쓴다.
+  const sent=typeof body?.error_code==="string"&&USAGE_ERROR.test(body.error_code)?body.error_code:null;
+  if(!response.ok) throw usageFail(response.status===503&&sent?sent:`http_${response.status}`);
+  if(body?.ok!==true) throw usageFail(sent||"invalid_reply");
+  try { return sanitizeUsage(body.usage); } catch(_) { throw usageFail("invalid_reply"); }
+}
+export async function collectUsage(env,now=new Date()) {
+  try {
+    const row=await env.MONITOR_DB.prepare("SELECT value FROM settings WHERE key='usage'").first();
+    let previous=null; try { previous=row?.value?JSON.parse(row.value):null; } catch(_) { previous=null; }
+    if(!usageDue(previous,now.getTime())) return {skipped:true};
+    const at=now.toISOString();
+    const save=record=>env.MONITOR_DB.prepare("INSERT INTO settings(key,value) VALUES('usage',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify(record));
+    try {
+      const usage=await fetchUsage(env);
+      await env.MONITOR_DB.batch([
+        env.MONITOR_DB.prepare("INSERT INTO samples(source,bucket,collected_at,payload) VALUES('usage',?,?,?) ON CONFLICT(source,bucket) DO UPDATE SET collected_at=excluded.collected_at,payload=excluded.payload").bind(usage.month,at,JSON.stringify(usage)),
+        save({status:"ok",error_code:null,last_attempt_at:at,last_success_at:at,month:usage.month})
+      ]);
+      return {status:"ok",month:usage.month};
+    } catch(error) {
+      // 이 수집기가 정한 코드(app_not_ready·unauthorized·rpc_missing·http_503·invalid_reply 등)는 그대로, 시한·연결 끊김·크기 초과는 다른 수집기와 같은 failureCode 로 남긴다.
+      const code=typeof error?.usage_code==="string"?error.usage_code:failureCode(error);
+      console.error(`monitor collector usage failed: ${code}`);
+      await save({status:code==="not_connected"?"not_connected":"error",error_code:code,last_attempt_at:at,last_success_at:typeof previous?.last_success_at==="string"?previous.last_success_at:null,month:typeof previous?.month==="string"?previous.month:null}).run();
+      return {status:"error",error_code:code};
+    }
+  } catch(error) { console.error(`monitor usage record failed: ${failureCode(error)}`); return {status:"error",error_code:failureCode(error)}; }
+}
+
 export async function collect(env,now=new Date()) {
   if(!env.MONITOR_DB) throw new Error("storage_not_connected");
   // 1.3.0(V79:T-43): 왕복 확인은 DB 수집 요청에 얹고, 그 요청이 끝난 뒤 판정해 settings 'roundtrip' 에 적는다(요청을 더하지 않는다).
@@ -244,7 +290,8 @@ export async function collect(env,now=new Date()) {
     env.MONITOR_DB.prepare("DELETE FROM telemetry WHERE id IN (SELECT id FROM telemetry WHERE at < ? ORDER BY at LIMIT 1000)").bind(now.getTime()-7*DAY),
     env.MONITOR_DB.prepare("DELETE FROM settings WHERE key LIKE 'ticket:%' AND CAST(value AS INTEGER) < ?").bind(now.getTime())
   ]);
-  if(now.getUTCHours()===0&&now.getUTCMinutes()<5) await env.MONITOR_DB.prepare("DELETE FROM samples WHERE (source,bucket) IN (SELECT source,bucket FROM samples WHERE bucket < ? LIMIT 2000)").bind(new Date(now.getTime()-30*DAY).toISOString()).run();
+  // 1.4.0(V22.9.82): 이용 현황 달 행(source 'usage', bucket 'YYYY-MM')은 30일 정리에서 빼고 이번 달 앞 24개월까지 남긴다(같은 문장 하나).
+  if(now.getUTCHours()===0&&now.getUTCMinutes()<5) await env.MONITOR_DB.prepare("DELETE FROM samples WHERE (source,bucket) IN (SELECT source,bucket FROM samples WHERE (source<>'usage' AND bucket < ?1) OR (source='usage' AND bucket < ?2) LIMIT 2000)").bind(new Date(now.getTime()-30*DAY).toISOString(),monthShift(kstMonth(now.getTime()),-USAGE_KEEP_MONTHS)).run();
 }
 
 // ── 1.2.0(V44:G-6) 5분 cron 의 CPU ─────────────────────────────────────────────
@@ -282,10 +329,23 @@ async function alertTelemetry(env,now,stuckBefore) {
     skill_p95:p95?numberOrNull(p95.duration_ms):null,web_p95:null,incidents:Number(row?.incidents)||0,failures:Number(row?.failures)||0,recent:[]};
 }
 
+// 1.4.0(V22.9.82): 이용 현황 칸. 추이는 달 행에서 숫자 칸만 D1 이 꺼내 주고(json_extract, 최대 13행), 화면 자료는 가장 늦은 달 한 행만 해석한다.
+// 읽을 수 없는 행은 json_valid 로 건너뛴다(json_extract 는 깨진 JSON 에서 문장 전체를 실패시킨다).
+const USAGE_TREND="SELECT bucket,collected_at,json_extract(payload,'$.current.recorders') AS recorders,json_extract(payload,'$.current.records') AS records,json_extract(payload,'$.through_day') AS through_day,json_extract(payload,'$.previous_full.from') AS previous_from,json_extract(payload,'$.previous_full.recorders') AS previous_recorders,json_extract(payload,'$.previous_full.records') AS previous_records FROM samples WHERE source='usage' AND json_valid(payload) ORDER BY bucket DESC LIMIT 13";
+async function usageSummary(env,now,row) {
+  let record=null; try { record=row?.value?JSON.parse(row.value):null; } catch(_) { record=null; }
+  // 이용 현황은 참고 칸이다: 달 행을 읽다 실패해도 요약 전체·화면을 막지 않고 수집 상태만 보인다.
+  try {
+    const months=(await env.MONITOR_DB.prepare(USAGE_TREND).all()).results;
+    const latest=months.length?await env.MONITOR_DB.prepare("SELECT collected_at,payload FROM samples WHERE source='usage' AND bucket=?").bind(months[0].bucket).first():null;
+    return usageView(record,latest,months,now);
+  } catch(error) { console.error(`monitor usage summary failed: ${failureCode(error)}`); return usageView(record,null,[],now); }
+}
+
 export async function summary(env,now=Date.now(),{alerting=false}={}) {
   const rows=(await env.MONITOR_DB.prepare("SELECT * FROM collector_state").all()).results;
-  // 1.3.0(V79:T-43): 같은 읽기로 왕복 확인 기록(settings 'roundtrip')도 받는다.
-  const settings=(await env.MONITOR_DB.prepare("SELECT * FROM settings WHERE key IN ('plans','roundtrip')").all()).results;
+  // 1.3.0(V79:T-43): 같은 읽기로 왕복 확인 기록(settings 'roundtrip')도 받는다. 1.4.0(V22.9.82): 이용 현황 수집 상태('usage')도 같이 받는다.
+  const settings=(await env.MONITOR_DB.prepare("SELECT * FROM settings WHERE key IN ('plans','roundtrip','usage')").all()).results;
   const planRow=settings.find(row=>row.key==="plans");
   const plans=planRow?JSON.parse(planRow.value):{cloudflare:env.CF_PLAN||"unknown",supabase:env.SUPABASE_PLAN||"unknown",verified_at:env.PLAN_VERIFIED_AT||null};
   const roundtripRow=settings.find(row=>row.key==="roundtrip");
@@ -374,14 +434,17 @@ export async function summary(env,now=Date.now(),{alerting=false}={}) {
   else if(tokenDaysLeft!==null&&tokenDaysLeft<=30) alerts.push({status:tokenDaysLeft<=7?"critical":"warning",title:"Cloudflare 분석 토큰 만료 임박",message:`${String(tokenData.expires_on).slice(0,10)} 만료(D-${Math.max(0,tokenDaysLeft)})입니다. 새 토큰을 만들어 CF_ANALYTICS_TOKEN 을 교체하세요.`});
   const stateLabels={cloudflare:"Cloudflare 수집",database:"DB 수집",uptime:"접속 검사",supabase_plan:"요금제 자동 확인",d1:"관제 저장소 사용량 수집",token:"분석 토큰 만료 확인",alerts:"알림 발송"};
   for(const [name,state] of Object.entries(states)) if(!state.fresh&&!(name==="supabase_plan"&&sbPlan!=="unknown")&&!(name==="token"&&state.status==="stale"&&tokenData)) unknown.push(name==="alerts"&&state.error_code==="not_connected"?"알림 발송 채널 미연결(ALERT_TO 또는 ALERT_WEBHOOK_URL)":`${stateLabels[name]||name}${state.error_code?`(${state.error_code})`:""}`);
+  // 1.4.0(V22.9.82): 이용 현황은 화면 범위에서만 읽는다(알림 판정 범위는 null). 위에서 상태·경고·확인되지 않은 항목을 다 정한 뒤 붙이므로 그 판정을 바꾸지 않는다.
+  const usage=alerting?null:await usageSummary(env,now,settings.find(row=>row.key==="usage"));
   return {version:MONITOR_VERSION,scope:alerting?"alerts":"full",generated_at:new Date(now).toISOString(),status:alerts.some(a=>a.status==="critical")?"critical":alerts.some(a=>a.status==="upgrade")?"upgrade":alerts.length?"warning":unknown.length?"unknown":"normal",plans:{cloudflare:cfPlan,supabase:sbPlan,verified_at:plans.verified_at,stale:planStale},states,quotas,alerts,unknown,notes,
     delivery:{...delivery,channels:[env.ALERT_EMAIL&&env.ALERT_TO?"email":null,env.ALERT_WEBHOOK_URL?"webhook":null].filter(Boolean)},
     token:{status:tokenData?.status||null,expires_on:tokenData?.expires_on||null,days_left:tokenDaysLeft,checked_at:states.token?.last_success_at||null},
     database:{cpu_percent:cpu,connections:db.fresh?numberOrNull(db.data?.connections):null,max_connections:db.fresh?numberOrNull(db.data?.max_connections):null,memory_used_percent:db.fresh&&numberOrNull(db.data?.memory_available_bytes)!==null&&db.data?.memory_total_bytes?100*(1-db.data.memory_available_bytes/db.data.memory_total_bytes):null},
     application:{telemetry_status:telemetryStatus,last_observed_at:lastObserved===null?null:new Date(lastObserved).toISOString(),random_samples:tele.random,skill_random_samples:tele.skill_random,skill_p95_ms:skillP95,web_p95_ms:tele.web_p95,incident_count:tele.incidents,recent:tele.recent,truncated:tele.count===1000,sample_rate:0.02,sample_bucket_max_per_kind:10,provider_requests:cfFresh?cf.data.app.requests:null,provider_runtime_errors:cfFresh?cf.data.app.errors:null,roundtrip},
+    usage,
     database_history:history.filter((_,i)=>i%Math.max(1,Math.ceil(history.length/48))===0).map(r=>({at:r.at,value:r.value})),
     pricing:{verified_at:PRICING_VERIFIED_AT,workers_base_usd:5,supabase_pro_base_usd:25,currency:"USD",estimate_complete:false,note:"사용량 기반 추가 요금, CPU 합계, 추가 프로젝트·컴퓨트, 세금과 환율을 포함한 실제 청구액은 공식 Billing에서 확인해야 합니다."},
-    limitations:["Cloudflare 관제와 앱은 같은 계정의 요청 한도 및 플랫폼 장애를 공유합니다.","GraphQL 집계는 샘플링·반영 지연이 있을 수 있으며 청구서 수치와 차이가 날 수 있습니다.","앱 요청은 2% 무작위 표본과 별도 오류 표본을 수집합니다. 저장은 계정 전체에서 5분마다 유형별 최대 10건으로 제한되며 누락이 발생할 수 있습니다.","관제는 5분마다 DB 수집 요청에 왕복 확인을 실어 앱이 같은 전송으로 확인 표본 하나를 보내게 합니다. 이 표본은 요청 표본 수·p95·실패 수에 넣지 않으며, 왕복 확인을 지원하지 않는 앱(V22.9.80 까지)에서는 확인 불가로 보입니다.","앱 지연은 무작위 표본에서 산출합니다. 표본 30건 미만이면 p95를 산출하지 않습니다.","DB 성장 예측은 최소 3개 표본과 2일 이상의 기록이 쌓인 뒤 표시합니다.","수동 청구 사용량은 24시간 뒤 확인 불가로 전환합니다. 원문 발화·사용자·가계부·거래 값은 관제에 저장하지 않습니다."]};
+    limitations:["Cloudflare 관제와 앱은 같은 계정의 요청 한도 및 플랫폼 장애를 공유합니다.","GraphQL 집계는 샘플링·반영 지연이 있을 수 있으며 청구서 수치와 차이가 날 수 있습니다.","앱 요청은 2% 무작위 표본과 별도 오류 표본을 수집합니다. 저장은 계정 전체에서 5분마다 유형별 최대 10건으로 제한되며 누락이 발생할 수 있습니다.","관제는 5분마다 DB 수집 요청에 왕복 확인을 실어 앱이 같은 전송으로 확인 표본 하나를 보내게 합니다. 이 표본은 요청 표본 수·p95·실패 수에 넣지 않으며, 왕복 확인을 지원하지 않는 앱(V22.9.80 까지)에서는 확인 불가로 보입니다.","앱 지연은 무작위 표본에서 산출합니다. 표본 30건 미만이면 p95를 산출하지 않습니다.","DB 성장 예측은 최소 3개 표본과 2일 이상의 기록이 쌓인 뒤 표시합니다.","수동 청구 사용량은 24시간 뒤 확인 불가로 전환합니다. 원문 발화·사용자·가계부·거래 값은 관제에 저장하지 않습니다.","이용 현황은 앱이 DB 에서 센 합계 숫자만 한 시간에 한 번 받아 달마다 마지막 값을 24개월 보관합니다. 전체 상태·경고·확인되지 않은 항목에는 넣지 않습니다."]};
 }
 
 async function manualUsage(request,env) {
@@ -523,7 +586,8 @@ export async function deliverAlerts(env,now=new Date()) {
 export default {
   async scheduled(controller,env,ctx) {
     const now=new Date(Number.isFinite(Number(controller?.scheduledTime))?Number(controller.scheduledTime):Date.now());
-    ctx.waitUntil((async()=>{ await collect(env,now); await writeCollector(env,"alerts",()=>deliverAlerts(env,now),now); })());
+    // 1.4.0(V22.9.82): 이용 현황은 다른 수집과 알림 발송이 끝난 뒤 묻는다(55분마다 한 번). 그 앞의 수집·발송 시간을 늦추지 않는다.
+    ctx.waitUntil((async()=>{ await collect(env,now); await writeCollector(env,"alerts",()=>deliverAlerts(env,now),now); await collectUsage(env,now); })());
   },
   async fetch(request,env,ctx) {
     const url=new URL(request.url);
