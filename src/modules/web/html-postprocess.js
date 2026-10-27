@@ -5,8 +5,8 @@ import {
   transactionTypeFromText,
 } from "../client/shared-input-parsers.js";
 import {
-  cleanInputMemo, detectInputPayment, foldInputWidth, inferInputCategory, inputPaymentPatterns,
-  joinSpacedKoreanAmount, normalizeInputText,
+  cleanInputMemo, detectInputPayment, foldInputWidth, inferInputCategory, inputPaymentNameIn,
+  inputPaymentPatterns, joinSpacedKoreanAmount, normalizeInputText,
 } from "../client/shared-input-nlu.js";
 import {
   V22818_INLINE_RESULT_STYLE, V2281_GUIDED_NAV_STYLE, approximateWonLabel,
@@ -320,7 +320,9 @@ function promoteLegacyUserLayoutToV5(html = "") {
   // V22.9.37 감사 U14: 옛 사이드바(renderMySideNav)는 관리자가 아니면 "참여자·초대" 대신 "내 프로필"을 그린다. 이 승격
   // 경로는 역할을 직접 받지 않으므로 그 흔적으로 일반 참여자를 알아보고 공통 내비에 "관리자 전용" 표시를 넘긴다.
   const legacyMenu = source.slice(layoutStart, pageStart);
-  const role = legacyMenu.includes('href="/my/profile"') && !legacyMenu.includes("/my/members?") ? "member" : "";
+  // V22.9.80 T-21: 내비는 역할을 넘기지 않으면(undefined) 모르는 화면으로 보고 표시를 붙이고, 빈 문자열("")은 운영자 세션 화면으로 봐 표시를 붙이지 않는다.
+  // 옛 사이드바에 참여자·초대(/my/members?) 링크가 있으면 관리 권한이 있는 사람(admin), 내 프로필만 있으면 일반 참여자(member)다. 어느 쪽 흔적도 없으면 모르는 것(undefined)이다.
+  const role = legacyMenu.includes("/my/members?") ? "admin" : legacyMenu.includes('href="/my/profile"') ? "member" : undefined;
   const nav = renderUnifiedNav(active, { month, householdId, householdName, role });
   source = source.slice(0, layoutStart) + pageMarker + source.slice(pageStart + pageMarker.length);
   const legacyClosing = source.lastIndexOf("</div></div></main>");
@@ -382,8 +384,33 @@ function shellResponseHints(html = "", status = 200) {
   return hints;
 }
 
-function attachUiUxRuntime(html = "") {
-  let source = attachAccessibleControlNames(normalizeUserFacingUi(html));
+// V22.9.80 T-26: 가져오기 미리 보기(120행 ≈ 235KB)의 약 절반은 서명 토큰(숨은 입력의 value ≈ 110KB)이다. 아래 후처리 규칙 수십 개는 응답 전체를
+// 매번 훑지만 이 토큰은 규칙이 읽을 내용도 바꿀 내용도 아니다(영문자·숫자·`_.-` 뿐인 서명 글이라 규칙이 찾는 태그·속성 모양이 없다). 큰 응답에서 그런
+// 긴 값만 짧은 자리표시로 바꿔 훑고 끝에 그대로 되돌린다 — 실제 미리 보기의 출력 바이트는 같다(검사기가 options.opaqueValues === false 로 바꾸지
+// 않은 길과 맞춰 본다). 작은 응답(홈 등)은 건드리지 않아 비용이 없고, 응답에 자리표시 낱말이 이미 있으면 바꾸지 않는다.
+const OPAQUE_VALUE_MIN_PAGE_V22980 = 65536;
+const OPAQUE_VALUE_MARK_V22980 = "ab-opaque-value-";
+function maskOpaqueValuesV22980(html = "") {
+  const source = String(html || "");
+  const none = { html: source, restore: (text) => text };
+  if (source.length < OPAQUE_VALUE_MIN_PAGE_V22980 || source.includes(OPAQUE_VALUE_MARK_V22980)) return none;
+  const pattern = /value="([A-Za-z0-9_.\-]{2048,})"/g;
+  const held = [];
+  let masked = "", last = 0, match;
+  while ((match = pattern.exec(source))) {
+    const start = match.index + 7, end = start + match[1].length;
+    masked += source.slice(last, start) + OPAQUE_VALUE_MARK_V22980 + held.length + "-end";
+    held.push(match[1]);
+    last = end;
+  }
+  if (!held.length) return none;
+  masked += source.slice(last);
+  return { html: masked, restore: (text) => held.reduce((out, value, index) => out.replaceAll(OPAQUE_VALUE_MARK_V22980 + index + "-end", () => value), text) };
+}
+
+function attachUiUxRuntime(html = "", options = {}) {
+  const opaque = options.opaqueValues === false ? { html: String(html || ""), restore: (text) => text } : maskOpaqueValuesV22980(html);
+  let source = attachAccessibleControlNames(normalizeUserFacingUi(opaque.html));
   const optimizedMobileHome = isOptimizedMobileHomeHtml(source);
   // 여기가 홈을 뺀 열네 화면이 매 요청마다 20~30 KB 의 CSS 를 인라인으로 실어 보내던
   // 자리다. 홈만 캐시되는 스타일시트를 링크해서 인라인 CSS 가 1% 였고, 나머지 화면은
@@ -460,7 +487,7 @@ function attachUiUxRuntime(html = "") {
   if (!optimizedMobileHome && needsRuntime && !source.includes('id="v2262UiUxRuntime"') && source.includes("</body>")) {
     const needsSmartRuntime = source.includes('id="smartInput"') && !source.includes('id="mobileAppInlineRuntime"');
     const runtime = needsSmartRuntime
-      ? quickAmountFieldState.toString() + "\n" + moneyTokenSpans.toString() + "\n" + transactionTypeFromText.toString() + "\n" + quickInputDate.toString() + "\n" + explicitDateIntent.toString() + "\n" + parseMobileAmountText.toString() + "\n" + foldInputWidth.toString() + "\n" + joinSpacedKoreanAmount.toString() + "\n" + normalizeInputText.toString() + "\n" + inputPaymentPatterns.toString() + "\n" + detectInputPayment.toString() + "\n" + inferInputCategory.toString() + "\n" + cleanInputMemo.toString() + "\n(" + mobileUiUxClientMain.toString() + ")();"
+      ? quickAmountFieldState.toString() + "\n" + moneyTokenSpans.toString() + "\n" + transactionTypeFromText.toString() + "\n" + quickInputDate.toString() + "\n" + explicitDateIntent.toString() + "\n" + parseMobileAmountText.toString() + "\n" + foldInputWidth.toString() + "\n" + joinSpacedKoreanAmount.toString() + "\n" + normalizeInputText.toString() + "\n" + inputPaymentPatterns.toString() + "\n" + detectInputPayment.toString() + "\n" + inputPaymentNameIn.toString() + "\n" + inferInputCategory.toString() + "\n" + cleanInputMemo.toString() + "\n(" + mobileUiUxClientMain.toString() + ")();"
       : "(" + mobileShellUiClientMain.toString() + ")();";
     // 분류 규칙은 이 런타임보다 먼저 있어야 한다. 평범한 <script src> 는 순서대로
     // 실행되므로 이 한 줄이면 충분하다(defer·async 를 붙이면 순서가 깨진다).
@@ -509,7 +536,7 @@ function attachUiUxRuntime(html = "") {
     const stage4Nav = `<script id="v22818Stage4NavRuntime" src="${ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH}" defer></script>`;
     source = source.replace("</body>", stage4Nav + "</body>");
   }
-  return source;
+  return opaque.restore(source);
 }
 
 function attachBusinessInfoFooter(html = "") {

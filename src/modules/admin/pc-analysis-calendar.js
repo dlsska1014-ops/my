@@ -25,7 +25,7 @@ import {
   formatChangeAgainst, percentChange, renderCategoryCompareTable, renderMonthlyTrendTable,
   renderObservedMoney, renderStrategyCards,
 } from "../domain/analytics.js";
-import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { readHouseholdRoleOrFailure } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 import {
   addDays, currentMonthKst, formatDate, nowKstDate, validMonth, weekdayIndexOfYmd,
@@ -44,8 +44,10 @@ async function handleBudgetSave(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "예산 저장 권한이 없습니다." }));
+    // V22.9.80 T-35: 역할 조회가 실패하면 ‘권한 없음’이 아니라 ‘확인하지 못함’으로 알리고 저장하지 않는다(진짜 거절은 그대로 거절). 거절 이유는 코드로 보낸다(T-34).
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/budget/save" });
+    if (failed) return redirectResponse(addQueryToUrl(returnTo, { err: "household_role_check_failed" }));
+    if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "manage_required" }));
   }
   // V22.9.37 감사 N8: 틀린 월(2026-13, 빈 값)은 이번 달 예산으로 떨어뜨리지 않고 거절한다.
   if (!validMonth(monthInput)) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_month_invalid" }));
@@ -81,8 +83,10 @@ async function handleBudgetDelete(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "예산 삭제 권한이 없습니다." }));
+    // V22.9.80 T-35: 저장과 같다 — 조회 실패는 ‘확인하지 못함’, 진짜 거절은 manage_required.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/budget/delete" });
+    if (failed) return redirectResponse(addQueryToUrl(returnTo, { err: "household_role_check_failed" }));
+    if (!["owner", "admin"].includes(role)) return redirectResponse(addQueryToUrl(returnTo, { err: "manage_required" }));
   }
   // V22.9.37 감사 N8: 틀린 월은 이번 달 예산을 지우지 않고 거절한다.
   if (!validMonth(monthInput)) return redirectResponse(addQueryToUrl(returnTo, { err: "budget_month_invalid" }));
@@ -273,6 +277,9 @@ function buildWeeklyReport(historyRows = [], month = currentMonthKst()) {
   return {
     thisWeekStart,
     todayStr,
+    lastWeekStart,
+    lastWeekSamePoint,
+    lastWeekEnd,
     thisWeek,
     lastWeekToPoint,
     lastWeekTotal,
@@ -281,14 +288,27 @@ function buildWeeklyReport(historyRows = [], month = currentMonthKst()) {
   };
 }
 
+// V22.9.80 T-24: ‘주’가 화면마다 다른 뜻이었다 — 이 주간 리포트(PC 분석·종합 리포트)는 월요일 시작, 홈 ‘주별’ 탭(V22.9.79 D-16)은 홈 캘린더처럼 일요일 시작.
+// 어느 쪽 계산도 바꾸지 않고(운영자 결정: 보수적 안), 이 리포트가 실제로 더한 날짜 범위를 요일과 함께 적어 어느 주인지 모호하지 않게 한다.
+function weekRangeText(from, to) {
+  const part = (ymd) => {
+    const [y, m, d] = String(ymd).split("-").map(Number);
+    return `${m}/${d}(${"일월화수목금토"[new Date(Date.UTC(y, m - 1, d)).getUTCDay()]})`;
+  };
+  return `${part(from)}~${part(to)}`;
+}
+
 function renderWeeklyReportCard(weekly) {
   if (!weekly) return "";
+  const basis = weekly.thisWeekStart && weekly.lastWeekStart
+    ? `이번 주(월요일부터: ${weekRangeText(weekly.thisWeekStart, weekly.todayStr)}) 지출을 지난주 같은 시점(${weekRangeText(weekly.lastWeekStart, weekly.lastWeekSamePoint)})까지의 지출과 비교합니다. 홈의 ‘주별’ 탭은 일요일부터 한 주를 세므로 합계가 다를 수 있어요.`
+    : "이번 주(월요일~오늘) 지출을 지난주 같은 시점까지의 지출과 비교합니다.";
   // V22.9.79 감사 V44 D-13: 지난주 같은 시점이 0원이면 +100% 를 지어내지 않는다(비교 기록 없음, 빠르다·아낀다 판단도 하지 않음).
   const compared = Number(weekly.lastWeekToPoint || 0) > 0;
   const cls = !compared ? "deltaFlat" : weekly.rate > 10 ? "deltaUp" : weekly.rate < -10 ? "deltaDown" : "deltaFlat";
   const message = !compared ? (Number(weekly.thisWeek || 0) ? "지난주 같은 시점까지 지출 기록이 없어 속도를 비교하지 않아요." : "지난주와 비슷한 속도로 쓰고 있어요.") : weekly.rate > 10 ? "지난주보다 소비 속도가 빨라요. 남은 요일을 조금 아껴보세요." : weekly.rate < -10 ? "지난주보다 잘 아끼고 있어요. 이 흐름을 유지해보세요." : "지난주와 비슷한 속도로 쓰고 있어요.";
   const max = Math.max(1, weekly.thisWeek, weekly.lastWeekTotal);
-  return `<section class="card"><h2>주간 리포트</h2><p class="muted">이번 주(월요일~오늘) 지출을 지난주 같은 시점까지의 지출과 비교합니다.</p><div class="weeklyHead"><b>${numberWithCommas(weekly.thisWeek)}원</b><span class="${cls}">${formatChangeAgainst("지난주 같은 시점", weekly.thisWeek, weekly.lastWeekToPoint)}</span></div><div class="trendBars"><div class="trendLine"><div class="trendLabel">이번 주</div><div class="bar"><span style="width:${Math.round(weekly.thisWeek / max * 100)}%"></span></div><div class="trendValue">${numberWithCommas(weekly.thisWeek)}원</div></div><div class="trendLine"><div class="trendLabel">지난주 전체</div><div class="bar"><span style="width:${Math.round(weekly.lastWeekTotal / max * 100)}%"></span></div><div class="trendValue">${numberWithCommas(weekly.lastWeekTotal)}원</div></div></div><p class="muted">${escapeHtml(message)}${weekly.topCategory ? ` 이번 주는 <b>${escapeHtml(weekly.topCategory.name)}</b>에 ${numberWithCommas(weekly.topCategory.amount)}원을 가장 많이 썼어요.` : ""}</p></section>`;
+  return `<section class="card"><h2>주간 리포트</h2><p class="muted">${escapeHtml(basis)}</p><div class="weeklyHead"><b>${numberWithCommas(weekly.thisWeek)}원</b><span class="${cls}">${formatChangeAgainst("지난주 같은 시점", weekly.thisWeek, weekly.lastWeekToPoint)}</span></div><div class="trendBars"><div class="trendLine"><div class="trendLabel">이번 주</div><div class="bar"><span style="width:${Math.round(weekly.thisWeek / max * 100)}%"></span></div><div class="trendValue">${numberWithCommas(weekly.thisWeek)}원</div></div><div class="trendLine"><div class="trendLabel">지난주 전체</div><div class="bar"><span style="width:${Math.round(weekly.lastWeekTotal / max * 100)}%"></span></div><div class="trendValue">${numberWithCommas(weekly.lastWeekTotal)}원</div></div></div><p class="muted">${escapeHtml(message)}${weekly.topCategory ? ` 이번 주는 <b>${escapeHtml(weekly.topCategory.name)}</b>에 ${numberWithCommas(weekly.topCategory.amount)}원을 가장 많이 썼어요.` : ""}</p></section>`;
 }
 
 function renderPcAnalysisHtml({ month, households, selectedHousehold, rows, stats, budgets, budget, calendar, extended = null, recurringCandidates = [], anomalies = [], weeklyReport = null }) {

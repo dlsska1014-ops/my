@@ -4,6 +4,7 @@ import { quickInputDate } from "../client/shared-input-parsers.js";
 import { parseStrictSettingsObject, safeError, withSettingsRmwLease } from "../runtime/leases.js";
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
+import { refundLinkCountForRow } from "../features/settlement-refund-links.js";
 import { isDefiniteStorageFailure, isUncertainStorageWrite } from "./response-builders.js";
 import { SESSION_TTL_MS, isSessionExpired } from "./edit-state-machine.js";
 import { getKakaoBotGroupKey } from "./group-links-first-record.js";
@@ -120,8 +121,13 @@ async function writeKakaoEditUndoItemsV4(env, kakaoUserKey = "", payload = {}, i
 // DELETE 단계의 오류에는 kakaoDeletePhase 를 달아 "결과 모름"과 "지우지 않음"을 호출부가 구분하게 한다.
 async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, householdId = "", householdName = "", userId = "" } = {}, row = {}, seq = 0) {
   return withKakaoEditUndoLeaseV4(env, kakaoUserKey, payload, async ({ assertFresh }) => {
-    const previous = await readKakaoEditUndoItemsV4(env, kakaoUserKey, payload);
-    const entry = { row: { ...row, household_id: row.household_id || householdId }, seq: Number(seq || 0), household_name: String(householdName || "").slice(0, 60), expires_at: Date.now() + KAKAO_EDIT_UNDO_TTL_MS };
+    // V22.9.80 T-13: 환불 연결이 켜져 있으면 지우기 전에 이 기록의 연결 수를 함께 읽어 버퍼에 적는다(같은 단계라 왕복이 늘지 않는다).
+    // 지우면 연결은 함께 지워지고 복구해도 되살아나지 않으므로 삭제·복구 답장이 그 사실을 말한다. 플래그가 꺼져 있으면 칸이 없다.
+    const [previous, refundLinks] = await Promise.all([
+      readKakaoEditUndoItemsV4(env, kakaoUserKey, payload),
+      refundLinkCountForRow(env, String(row.household_id || householdId), row),
+    ]);
+    const entry = { row: { ...row, household_id: row.household_id || householdId }, seq: Number(seq || 0), household_name: String(householdName || "").slice(0, 60), expires_at: Date.now() + KAKAO_EDIT_UNDO_TTL_MS, ...(refundLinks === undefined ? {} : { refund_links: refundLinks }) };
     // 같은 기록을 두 번 담지 않는다. 나머지는 최근 삭제가 앞에 오도록 쌓는다.
     const items = [entry, ...previous.filter((item) => String(item?.row?.id || "") !== String(row.id || ""))].slice(0, KAKAO_EDIT_UNDO_MAX);
     assertFresh();
@@ -158,8 +164,23 @@ function kakaoEditTargetRejectTextV4(target = {}) {
 }
 
 // T2: 무엇을 지웠는지 답장에 적는다. 번호는 지운 뒤 밀리므로 이름이 있어야 확인할 수 있다.
-function kakaoEditDeletedTextV4(row = {}, seq = 0) {
-  return `🗑️ ${kakaoEditDayPrefixV4(row.transaction_date)}${twoDigitSeq(seq)}번 기록을 삭제했어요.\n${kakaoRowLabel(row, seq)}\n되돌리려면: 복구 ${twoDigitSeq(seq)}번`;
+function kakaoEditDeletedTextV4(row = {}, seq = 0, refundLinks = undefined) {
+  return `🗑️ ${kakaoEditDayPrefixV4(row.transaction_date)}${twoDigitSeq(seq)}번 기록을 삭제했어요.\n${kakaoRowLabel(row, seq)}\n되돌리려면: 복구 ${twoDigitSeq(seq)}번${kakaoRefundLinkUndoNoteV4(refundLinks, "delete")}`;
+}
+
+// V22.9.80 T-13: 버퍼에 적은 환불 연결 수(refund_links)로 삭제·복구 답장에 붙일 한 줄. 칸이 없거나 0 이면 "".
+function kakaoRefundLinkUndoNoteV4(refundLinks = undefined, phase = "delete") {
+  if (refundLinks === undefined || refundLinks === 0) return "";
+  if (refundLinks === null) {
+    return phase === "delete"
+      ? "\n환불 연결이 있었는지 확인하지 못했어요. 연결이 있었다면 함께 풀렸어요."
+      : "\n환불 연결은 확인 불가예요. 연결이 있었다면 웹 정산 화면의 ‘환불·환급’에서 다시 연결해 주세요.";
+  }
+  const count = Math.max(0, Number(refundLinks) || 0);
+  if (!count) return "";
+  return phase === "delete"
+    ? `\n이 기록에 있던 환불 연결 ${count}건도 함께 풀렸어요. 복구해도 연결은 되살아나지 않아요.`
+    : `\n이 기록에 있던 환불 연결 ${count}건은 되살리지 않았어요. 웹 정산 화면의 ‘환불·환급’에서 다시 연결해 주세요.`;
 }
 
 // T2·S1: DELETE 결과를 모르면 다시 보내라고 하지 않는다. 다시 보내면 밀린 다음 번호가 지워진다.
@@ -207,15 +228,20 @@ function isKakaoRowOwnedByRequesterV2254(row = {}, userId = "", kakaoUserKey = "
   return String(row?.user_id || "") === String(userId || "");
 }
 
+// V22.9.80 T-10: 그날 가계부 기록을 오래된 순으로 500건까지만 읽는다(내 기록은 읽은 뒤 거른다). 정확히 500건이 돌아오면 그날 뒤쪽 기록이 목록에
+// 없을 수 있으므로, 돌려주는 배열의 dailyLimit 에 그 한도(500)를 달아 답장이 한 줄로 말하게 한다 — 더 읽는 요청은 하지 않는다(답장 4초 안).
+const KAKAO_DAILY_ROW_LIMIT_V22980 = 500;
 async function getDailyKakaoRows(env, householdId, userId, kakaoUserKey, date) {
   const params = new URLSearchParams();
   params.set("select", KAKAO_TX_SELECT_V4);
   params.set("household_id", `eq.${householdId}`);
   params.set("transaction_date", `eq.${date}`);
   params.set("order", "created_at.asc,id.asc");
-  params.set("limit", "500");
+  params.set("limit", String(KAKAO_DAILY_ROW_LIMIT_V22980));
   const rows = (await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" })) || [];
-  return rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey));
+  const own = rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey));
+  own.dailyLimit = rows.length >= KAKAO_DAILY_ROW_LIMIT_V22980 ? KAKAO_DAILY_ROW_LIMIT_V22980 : 0;
+  return own;
 }
 
 async function getKakaoRowById(env, householdId, userId, kakaoUserKey, id) {
@@ -459,8 +485,8 @@ export {
   isKakaoEditGuideCommand, isKakaoSessionSeqReplyV4, isKakaoTransactionSpenderChangeCommand,
   kakaoActiveSpenderMembers, kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4,
   kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditMenuTextV4, kakaoEditRecordLineV4,
-  kakaoEditSessionKeyV4, kakaoEditTargetRejectTextV4, kakaoRestoreRowV4, kakaoRowLabel,
-  parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
+  kakaoEditSessionKeyV4, kakaoEditTargetRejectTextV4, kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4,
+  kakaoRowLabel, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
   parseKakaoSpenderChoiceValue, readKakaoEditUndoItemsV4, resolveKakaoEditDateV4,
   saveKakaoEditSessionV4, stripKakaoEditDatePrefixV4, twoDigitSeq, withKakaoEditUndoLeaseV4,
   writeKakaoEditUndoItemsV4,

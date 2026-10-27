@@ -144,7 +144,8 @@ async function handleBetaStartPage(request, env, url) {
     ["3. 단톡방 연결(선택)", "단톡방에서 쓸 때만 소유자·관리자 한 명이 사용할 가계부를 연결합니다.", userId && canManageMyHousehold(selected?.role) ? `/my/groups?month=${encodeURIComponent(month)}${hh}` : "/kakao-commands", "연결 방법"],
     ["4. 기록 방법 확인", "‘점심 12000원 국민카드’처럼 저장될 값이 분명한 예시부터 확인합니다.", "/kakao-commands", "기록 예시"],
     ["5. 첫 기록과 결과 확인", "첫 기록을 남긴 뒤 오늘 기록에서 가계부·금액·내용이 맞는지 확인합니다.", userId ? `/app?month=${encodeURIComponent(month)}${hh}#add` : "/my", "첫 기록"],
-    ["6. 필요할 때 설정", "예산·분류·결제수단·정기지출은 첫 기록 이후 필요한 항목만 추가합니다.", userId ? `/my/settings?month=${encodeURIComponent(month)}${hh}` : "/start-guide", "선택 설정"],
+    // V22.9.80 T-22: /my/settings 는 소유자·관리자 전용이다(구성원·조회 전용은 403). 2·3단계처럼 역할에 맞춰, 구성원은 볼 수 있는 예산 화면으로 잇는다.
+    ["6. 필요할 때 설정", "예산·분류·결제수단·정기지출은 첫 기록 이후 필요한 항목만 추가합니다.", userId && canManageMyHousehold(selected?.role) ? `/my/settings?month=${encodeURIComponent(month)}${hh}` : userId ? `/budgets?month=${encodeURIComponent(month)}${hh}` : "/start-guide", userId && !canManageMyHousehold(selected?.role) ? "예산 보기" : "선택 설정"],
   ];
   const cards = steps.map(([a,b,c,d]) => betaInfoCard(a,b,c,d)).join("");
   const pct = publicMode ? 0 : Math.round((progress / 5) * 100);
@@ -223,7 +224,7 @@ async function handleKakaoGroupLinksPage(request, env, url) {
   const map = await fetchKakaoGroupLinkMap(env);
   const entries = Object.entries(map || {}).sort((a, b) => String(b[1]?.linked_at || "").localeCompare(String(a[1]?.linked_at || "")));
   const rows = entries.map(([key, item]) => `<tr><td><code>${escapeHtml(maskKakaoGroupKey(key))}</code></td><td><b>${escapeHtml(item.household_name || item.household_id || "가계부")}</b><br/><span class="muted">${escapeHtml(item.household_id || "")}</span></td><td>${escapeHtml(item.invite_code || "")}</td><td>${escapeHtml(item.linked_by || "")}</td><td>${escapeHtml(item.linked_at || "")}</td></tr>`).join("") || `<tr><td colspan="5">저장된 그룹방 연결이 아직 없습니다.</td></tr>`;
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>단톡방 연결 점검</title><style>${kakaoGroupFlowBaseStyle()}</style></head><body>${renderUnifiedNav("group-household-links")}<main class="wrap"><section class="hero"><h1>단톡방-가계부 연결 점검</h1><p>관리자 전용 화면입니다. 그룹방 식별키는 일부 마스킹해서 표시합니다.</p><p><a class="btn" href="/kakao-group-flow">단톡방 연결 흐름</a><a class="btn light" href="/operation-center">운영센터</a></p></section><section class="card"><h2>연결 목록</h2><div class="tableWrap"><table><thead><tr><th>그룹키</th><th>가계부</th><th>초대코드</th><th>연결자</th><th>연결시각</th></tr></thead><tbody>${rows}</tbody></table></div><p class="muted">이 정보는 Supabase의 방별 연결 설정을 기준으로 조회하며, 기존 kakao_group_links 값은 호환용 미러로만 유지합니다.</p></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>단톡방 연결 점검</title><style>${kakaoGroupFlowBaseStyle()}</style></head><body>${renderUnifiedNav("group-household-links", { role: "admin" })}<main class="wrap"><section class="hero"><h1>단톡방-가계부 연결 점검</h1><p>관리자 전용 화면입니다. 그룹방 식별키는 일부 마스킹해서 표시합니다.</p><p><a class="btn" href="/kakao-group-flow">단톡방 연결 흐름</a><a class="btn light" href="/operation-center">운영센터</a></p></section><section class="card"><h2>연결 목록</h2><div class="tableWrap"><table><thead><tr><th>그룹키</th><th>가계부</th><th>초대코드</th><th>연결자</th><th>연결시각</th></tr></thead><tbody>${rows}</tbody></table></div><p class="muted">이 정보는 Supabase의 방별 연결 설정을 기준으로 조회하며, 기존 kakao_group_links 값은 호환용 미러로만 유지합니다.</p></section></main></body></html>`);
 }
 
 async function handleKakaoLoginRecoveryGuidePage(request, env, url) {

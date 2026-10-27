@@ -1,5 +1,6 @@
 // @build:imports-start
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { inputPaymentNameIn } from "../client/shared-input-nlu.js";
 import {
   claimOperationLease, operationLeaseOwner, parseStrictSettingsArray, parseStrictSettingsObject,
   releaseOperationLease, safeError,
@@ -10,7 +11,7 @@ import { fetchCustomCategories, normalizeCategoryKeywords } from "./categories-k
 import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
 import { verifyUserSession } from "../auth/user-session.js";
-import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { ROLE_CHECK_FAILED_TEXT, readHouseholdRoleOrFailure } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
 import { currentMonthKst, detectPaymentMethod, validMonth } from "../nlu/date-payment.js";
@@ -403,15 +404,16 @@ async function deletePaymentAsset(env, householdId = "", id = "") {
   });
 }
 
+// V22.9.80 T-15: 등록한 이름과 발급사 말은 낱말 끝(또는 바로 뒤의 카드·통장 같은 말)에서만 맞는다(웹 빠른 입력과 같은 공유 판정
+// inputPaymentNameIn). 예전에는 낱말 속에서도 찾아 결제수단 ‘토스’를 등록하면 "토스트 3000"이 결제수단 토스로, 발급사 ‘토스’인 카드가 있으면
+// "토스트 3000 카드"가 그 카드로 저장됐다. 기본 판정이 그 이름 그대로 읽는 이름(현금·카드·국민카드 …)은 기본 판정에 맡긴다(같은 이름이 나온다).
 function inferPaymentAssetFromText(text = "", assets = []) {
   const raw = normalizeText(text);
   if (!raw) return "";
   const sorted = safeArray(assets).filter((a) => a.name).sort((a, b) => b.name.length - a.name.length);
   for (const asset of sorted) {
-    const name = normalizeText(asset.name);
-    if (name && raw.includes(name)) return asset.name;
-    const issuer = normalizeText(asset.issuer || "");
-    if (issuer && raw.includes(issuer) && /(카드|체크|통장|계좌|페이|현금)/.test(raw)) return asset.name;
+    if (inputPaymentNameIn(raw, asset.name)) return asset.name;
+    if (asset.issuer && inputPaymentNameIn(raw, String(asset.issuer), true) && /(카드|체크|통장|계좌|페이|현금)/.test(raw)) return asset.name;
   }
   return "";
 }
@@ -434,11 +436,12 @@ function inferCustomCategoryFromText(text = "", type = "expense", categories = [
   return best ? best.name : "";
 }
 
+// V22.9.80 T-18: 사용자 분류는 결제수단 칸을 뺀 글(원문·메모·분류)로, 등록 결제수단은 분류 이름을 뺀 글(원문·메모·결제수단)로 찾는다.
+// 예전에는 넷을 이어 붙여 결제수단 칸의 이름(‘농협’)이 분류 키워드를, 분류 이름(‘주유/충전’)이 등록 결제수단 이름(‘주유’)을 맞혔다.
 function applyUserSettingsToParsedTransactions(parsedList = [], categories = [], paymentAssets = []) {
   return safeArray(parsedList).map((p) => {
-    const baseText = `${p.raw_text || ""} ${p.memo || ""} ${p.category || ""} ${p.payment_method || ""}`;
-    const customCategory = inferCustomCategoryFromText(baseText, p.type, categories);
-    const customPayment = inferPaymentAssetFromText(baseText, paymentAssets);
+    const customCategory = inferCustomCategoryFromText(`${p.raw_text || ""} ${p.memo || ""} ${p.category || ""}`, p.type, categories);
+    const customPayment = inferPaymentAssetFromText(`${p.raw_text || ""} ${p.memo || ""} ${p.payment_method || ""}`, paymentAssets);
     return {
       ...p,
       category: customCategory || p.category,
@@ -447,21 +450,26 @@ function applyUserSettingsToParsedTransactions(parsedList = [], categories = [],
   });
 }
 
+// V22.9.80 T-18: 칸이 비었을 때의 분류·결제수단 판정은 원문과 메모만 본다. 예전에는 칸에 적은 분류·결제수단까지 이어 붙여, 분류가 비면
+// 결제수단 칸의 ‘농협’이 장보기를 정했다(카카오는 문장만 보아 기타지출). 빠른 입력이 문장에서 저절로 채운 메모(manual_memo === false)는
+// 웹 빠른 입력의 A-10 고침처럼 빼고 원문만 본다 — 메모는 결제수단 말을 지운 문장의 일부라 ‘농협체크’에서 남은 ‘농협’이 막아 둔 낱말을
+// 되살려 "점심 9000 농협체크"가 장보기가 됐다. 직접 고친 메모와, 표식이 없는 폼(빠른 입력이 아닌 곳)의 메모는 예전처럼 넣는다.
 async function resolveManualInputClassification(env, householdId = "", type = "expense", fields = {}) {
   const cleanType = type === "income" ? "income" : "expense";
-  const rawText = normalizeText([fields.raw_text, fields.memo, fields.category, fields.payment_method].filter(Boolean).join(" "));
+  const autoMemo = fields.manual_memo === false && String(fields.raw_text || "").trim() !== "";
+  const rawText = normalizeText([fields.raw_text, autoMemo ? "" : fields.memo].filter(Boolean).join(" "));
   const explicitCategory = String(fields.category || "").trim();
   const explicitPayment = String(fields.payment_method || "").trim();
   const clearedCategory = fields.manual_category === true && !explicitCategory;
   const clearedPayment = fields.manual_payment === true && !explicitPayment;
-  const baseCategory = clearedCategory ? "" : explicitCategory || inferCategory(rawText || fields.memo || "", cleanType) || "";
-  const basePayment = clearedPayment ? "" : explicitPayment || detectPaymentMethod(rawText || fields.memo || "") || "";
+  const baseCategory = clearedCategory ? "" : explicitCategory || inferCategory(rawText, cleanType) || "";
+  const basePayment = clearedPayment ? "" : explicitPayment || detectPaymentMethod(rawText) || "";
   try {
     const [customCategoryRows, paymentAssetRows] = await Promise.all([
       fetchCustomCategories(env, householdId, { includeKeywordCards: true }),
       fetchPaymentAssets(env, householdId),
     ]);
-    const refined = applyUserSettingsToParsedTransactions([{ type: cleanType, raw_text: rawText, memo: fields.memo || "", category: baseCategory, payment_method: basePayment }], customCategoryRows, paymentAssetRows)[0] || {};
+    const refined = applyUserSettingsToParsedTransactions([{ type: cleanType, raw_text: rawText, memo: "", category: baseCategory, payment_method: basePayment }], customCategoryRows, paymentAssetRows)[0] || {};
     return {
       category: clearedCategory ? "" : String(explicitCategory || refined.category || baseCategory || "").trim(),
       payment_method: clearedPayment ? "" : String(explicitPayment || refined.payment_method || basePayment || "").trim(),
@@ -486,7 +494,10 @@ async function resolvePaymentAssetManage(request, env, householdId = "", month =
   if (await verifyAdminSession(request, env)) return { ok: true, role: "admin" };
   const userId = await verifyUserSession(request, env);
   if (!userId) return { ok: false, redirect: "/my" };
-  const role = await getHouseholdMemberRole(env, userId, householdId);
+  // V22.9.80 T-35: 역할 조회가 실패하면 ‘관리는 소유자와 관리자만’이라 거절하지 않고 ‘권한을 확인하지 못함’으로 알린다(아무것도 바꾸지 않는다).
+  // 이 화면은 err 를 문장 그대로 그리므로 코드가 아니라 문장을 싣는다.
+  const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/payment-asset" });
+  if (failed) return { ok: false, redirect: paymentMethodsLocation(month, householdId, { err: ROLE_CHECK_FAILED_TEXT }) };
   if (["owner", "admin"].includes(role)) return { ok: true, role, userId };
   return { ok: false, redirect: paymentMethodsLocation(month, householdId, { err: "자산·결제수단 관리는 가계부 소유자와 관리자만 할 수 있습니다." }) };
 }

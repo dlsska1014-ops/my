@@ -1,3 +1,7 @@
+## V22.9.80 운영 DB 변경 없음(환불 연결 검토용 SQL 에 5절)
+
+운영 스키마·RPC·RLS·권한 변경 없음. 아직 적용 전인 검토용 SQL `migrations/V22_9_79_REFUND_LINKS_APPLY_REVIEW_ONLY.sql` 에 5) 절을 더했다(실행 금지, 맨 앞 `RAISE EXCEPTION` 가드 그대로): 가계부를 지우면 `accountbook_settings` 의 `refund_review_kept:<가계부 id>` 줄을 지우는 트리거 `refund_review_kept_cleanup_v22980`(`households` AFTER DELETE, 함수 `accountbook_refund_review_kept_cleanup_v22980`, SECURITY DEFINER·고정 search_path·실행 권한 없음, T-11). 되돌리기 파일이 트리거와 함수를 지운다. 적용된 V22.9.61 수명 SQL 은 그대로다(해시 e1ed86ea… 를 검사가 확인). 1~4 절을 이미 적용했다면 5) 절만 따로 검토·적용한다. 플래그를 켠 화면의 차감 읽기는 외래키 이름 `accountbook_refund_links_refund_fkey`·`accountbook_refund_links_expense_fkey` 로 거래를 붙여 읽으므로 운영 외래키 이름이 SQL 과 같아야 한다(`/ready` 가 같은 조회로 확인).
+
 ## V22.9.79 운영 DB 변경 없음(환불 연결 SQL 은 검토용)
 
 운영 스키마·RPC·RLS·권한 변경 없음. 환불 연결용 검토 SQL 두 개를 더했다(실행 금지, 맨 앞 `RAISE EXCEPTION` 가드): `migrations/V22_9_79_REFUND_LINKS_APPLY_REVIEW_ONLY.sql`(표 `accountbook_refund_links`, RPC `accountbook_link_refund_v22979`·`accountbook_unlink_refund_v22979`, 트리거 `refund_link_guard_v22979`)과 `migrations/V22_9_79_REFUND_LINKS_ROLLBACK_REVIEW_ONLY.sql`(연결이 남아 있으면 멈춤). 적용은 그때 운영자 승인 뒤, 플래그 `REFUND_LINKS_ENABLED` 를 켜기 전에만. 예약 상태 키 `cron_recurring_state_v22976` 에 선택 칸 `scan_after[].started` 와 주간 다시 만들기 항목이 생길 수 있다(같은 accountbook_settings 행).

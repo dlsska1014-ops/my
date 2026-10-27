@@ -26,7 +26,7 @@ import { moneyPlanTabsCss, renderMoneyPlanTabs } from "../my/money-plan-home-lay
 import { renderRecurringEditForm } from "../admin/budget-center-recurring.js";
 import { DEFAULT_CATEGORIES, DEFAULT_PAYMENTS } from "../admin/dashboard-fragments.js";
 import { formatMessage, mergedOptions } from "../kakao/reply-texts.js";
-import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { readHouseholdRoleOrFailure } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
@@ -470,8 +470,11 @@ async function handleReservePlanCreate(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("정기 항목 저장 권한이 없습니다.")}`);
+    // V22.9.80 T-35: 역할 조회 실패는 ‘권한 없음’이 아니라 ‘확인하지 못함’(household_role_check_failed)이다. 진짜 거절은 코드(manage_required, T-34)로 보낸다 —
+    // 이 화면의 formatMessage 는 코드만 안내로 바꾸고 자유 문장은 ‘입력값을 확인한 뒤 다시 시도해 주세요’로 닫았다.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/reserve-plan/create" });
+    if (failed) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&err=household_role_check_failed`);
+    if (!["owner", "admin"].includes(role)) return redirectResponse(`/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}&err=manage_required`);
   }
   const recurrence = String(form.get("recurrence") || "monthly");
   // V22.9.37 감사 N10: 선택값을 숫자로 바꾸지 않고 그대로 넘겨 저장 함수가 1~12 를 검증한다(틀린 값을 조용히 버리지 않는다).
@@ -508,8 +511,10 @@ async function handleReservePlanUpdate(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(`${back}&err=${encodeURIComponent("정기 항목 수정 권한이 없습니다.")}`);
+    // V22.9.80 T-35·T-34: 생성과 같다.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/reserve-plan/update" });
+    if (failed) return redirectResponse(`${back}&err=household_role_check_failed`);
+    if (!["owner", "admin"].includes(role)) return redirectResponse(`${back}&err=manage_required`);
   }
   const id = String(form.get("id") || "").trim();
   if (!id) return redirectResponse(`${back}&err=${encodeURIComponent("수정할 항목을 찾지 못했습니다.")}`);
@@ -542,8 +547,10 @@ async function handleReservePlanDelete(request, env) {
   const adminOk = await verifyAdminSession(request, env);
   const userId = adminOk ? "" : await verifyUserSession(request, env);
   if (!adminOk) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!["owner", "admin"].includes(role)) return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("정기 항목 삭제 권한이 없습니다.")}`);
+    // V22.9.80 T-35·T-34: 생성과 같다.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/admin/reserve-plan/delete" });
+    if (failed) return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=household_role_check_failed`);
+    if (!["owner", "admin"].includes(role)) return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=manage_required`);
   }
   const id = String(form.get("id") || "").trim();
   if (!id) return redirectResponse(`/reserve-plans?household_id=${encodeURIComponent(householdId)}&err=${encodeURIComponent("삭제할 정기 항목을 찾지 못했습니다.")}`);

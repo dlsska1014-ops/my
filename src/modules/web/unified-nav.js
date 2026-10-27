@@ -66,9 +66,17 @@ function renderUnifiedNav(active = "home", opts = {}) {
   const activeGroup = groups.find((g) => g.items.some((x) => x[0] === activeKey))?.key || "record";
   // V22.9.37 감사 U14: 참여자·초대와 단톡방 연결은 소유자·관리자만 열 수 있다. 일반 참여자(member·viewer)에게는
   // 숨기지 않고 "관리자 전용"을 붙인다 — 목적지 20개는 그대로 두되 눌러서 403 을 만나기 전에 알린다.
-  // 역할을 넘기지 않은 화면(관리자 범위 등)은 예전과 같다.
-  const navRole = String(opts.role || "").trim().toLowerCase();
-  const adminOnlyKeys = ["member", "viewer"].includes(navRole) ? new Set(["members", "groups"]) : new Set();
+  // (V22.9.37 에는 역할을 넘기지 않은 화면을 표시 없이 그렸다 — 아래 V22.9.80 이 바꾼 부분.)
+  // V22.9.80 T-21: 호출 88곳 가운데 17곳만 역할을 넘겨서, 나머지 사용자 화면(/reports·/payment-methods·/budget-alerts·안내문 …)에서는 구성원이
+  // 꼬리표 없는 관리자 전용 링크(누르면 403)를 봤다. 이제 사용자 범위(navScope user) 화면은 다음 순서로 판정한다.
+  //   - 소유자·관리자(owner·admin)로 넘겼다 → 표시 없음.
+  //   - 빈 문자열("")로 넘겼다 → 가계부 역할이 없는 관리자(운영자) 세션 화면이다(선택한 가계부가 관리자 목록에서 와 role 이 없다). 예전처럼 표시 없음.
+  //   - 그 밖의 역할(member·viewer …)로 넘겼다 → 표시.
+  //   - 역할을 아예 넘기지 않았다(undefined) → 모르는 화면(가계부가 없는 안내문·계정 화면)이다. 보수적으로 표시를 붙인다 — 소유자·관리자에게도 맞는 말이고, 구성원이 403 을 만나기 전에 알린다.
+  // 운영(ops)·관리자(admin) 범위는 가계부 역할이 없는 운영자 화면이라 예전처럼 표시를 붙이지 않는다.
+  const navRoleGiven = opts.role !== undefined && opts.role !== null;
+  const navRole = String(opts.role ?? "").trim().toLowerCase();
+  const adminOnlyKeys = navScope === "user" && (!navRoleGiven || !["owner", "admin", ""].includes(navRole)) ? new Set(["members", "groups"]) : new Set();
   const groupHtml = groups.map((g) => {
     const open = g.key === activeGroup;
     const links = g.items.map(([key, label, href, itemIcon = "home"]) => {
@@ -107,6 +115,8 @@ function renderUnifiedNav(active = "home", opts = {}) {
     const cls = [isQuick ? "abNavQuick" : "", on ? "active" : ""].filter(Boolean).join(" ");
     return `<a data-key="${escapeHtml(key)}"${isQuick ? ' data-ab-quick-open aria-label="빠른 입력"' : ""} class="${cls}"${on ? ' aria-current="page"' : ""} href="${escapeHtml(href)}"><i data-ab-nav-icon="${escapeHtml(icon)}"></i><span>${escapeHtml(label)}</span></a>`;
   }).join("");
+  // V22.9.80 T-36: 셸을 받지 않는 화면(옛 관리자 /admin-view 등)의 모바일 하단 탭 라벨은 이 인라인 규칙이 색을 정한다. #8b95a1 은 흰 바탕에서 3.04:1 이라
+  // 셸의 --ab12-muted 와 같은 #5f6b7a(5.43:1)로 바꿨다. 같은 길이의 값이라 HTML 바이트는 그대로다.
   // V22.9.37 감사 H1·U3: 실제로 그린 가계부·월을 표식에 싣는다. 쿠키로 채운 진입(설치 앱 /app, 예산 바로가기)은 주소에
   // household_id 가 없어서 검색·알림·즐겨찾기·목표·활동 레일이 첫 가계부로 갔다. 클라이언트는 이 표식을 먼저 읽는다.
   return `<div class="abNavScope" data-nav-scope="${navScope}" data-ab-hh="${escapeHtml(householdId)}" hidden></div>${navScope === "user" ? "" : `<style id="unifiedNavStyle">
@@ -130,7 +140,7 @@ function renderUnifiedNav(active = "home", opts = {}) {
   .abNavMobileDrawer{position:fixed;left:0;right:0;top:calc(48px + var(--abSafeTop));z-index:2199;background:#fff;border-bottom:1px solid #e5e7eb;box-shadow:0 18px 36px rgba(15,23,42,.16);padding:10px;max-height:calc(80vh - var(--abSafeTop));overflow:auto;-webkit-overflow-scrolling:touch;display:none}
   body.abMobileNavOpen .abNavMobileDrawer{display:block!important}
   .abNavBottom{position:fixed;left:0;right:0;bottom:0;z-index:2200;height:calc(72px + var(--abSafeBottom));padding-bottom:var(--abSafeBottom);background:rgba(255,255,255,.97);backdrop-filter:blur(18px);border-top:1px solid #eef0f3;display:grid;grid-template-columns:repeat(5,minmax(0,1fr));font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}
-  .abNavBottom a{display:flex;align-items:center;justify-content:center;color:#8b95a1;text-decoration:none;font-size:12px;font-weight:800;min-width:0;min-height:48px;text-align:center;padding:0 2px;line-height:1.2}
+  .abNavBottom a{display:flex;align-items:center;justify-content:center;color:#5f6b7a;text-decoration:none;font-size:12px;font-weight:800;min-width:0;min-height:48px;text-align:center;padding:0 2px;line-height:1.2}
 }
 .abNavTop{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:13px 12px;border-bottom:1px solid #f1f5f9}
 .abNavBrand{display:flex;align-items:center;gap:9px;min-width:0;text-decoration:none;color:#111827!important;font-weight:1000}

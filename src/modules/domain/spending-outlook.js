@@ -225,6 +225,8 @@ function spendingOutlookBreakdown(outlook) {
   const notes = [
     ...(e.partialReasons.includes("recurring") ? ["고정지출을 읽지 못해 빼고 계산"] : []),
     ...(e.partialReasons.includes("plans") ? ["정기지출 항목을 읽지 못해 빼고 계산"] : []),
+    // V22.9.80 V76 M-7: 기록에서 뺀 환불 차감(연결한 환급). 차감이 없으면 예전 문구 그대로다.
+    ...(Number(outlook.recorded?.refundDeduction || 0) > 0 ? [`환불 차감 ${numberWithCommas(outlook.recorded.refundDeduction)}원 반영`] : []),
   ];
   return `기록 ${numberWithCommas(e.recorded)}원 + 남은 고정·정기 ${numberWithCommas(e.fixedRemaining)}원 + 남은 ${numberWithCommas(outlook.remainingDays)}일 예상 ${numberWithCommas(e.pace)}원${notes.length ? ` (${notes.join(" · ")})` : ""}`;
 }

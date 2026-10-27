@@ -7,6 +7,8 @@ import {
   fetchTransactionRowsByIds, isValidTransactionDateString, transactionReturnFallback,
 } from "./transactions-households.js";
 import { fetchHouseholdMembers } from "../data/households-members-rows.js";
+import { refundLinkLockedReason } from "../domain/refund-links.js";
+import { bulkUpdateSkippingRefundLocks } from "../features/settlement-refund-links.js";
 import { activeSpenderExists } from "../my/transactions.js";
 import { supabase } from "../data/supabase-client.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
@@ -67,11 +69,19 @@ async function handleAdminBulkUpdate(request, env) {
       return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "변경할 값이 없습니다." }), { err: "변경할 값이 없습니다." }));
     }
 
-    await bulkTransactionsAtomic(env, ids, householdId, patch, { actorKind: "admin_bulk" });
+    // V22.9.80 T-12: 환불과 연결돼 트리거가 막는 기록은 빼고 나머지만 고친다. 연결된 기록이 없으면 예전과 같은 한 번의 요청이다.
+    const outcome = await bulkUpdateSkippingRefundLocks(env, ids, householdId, patch, { actorKind: "admin_bulk" });
+    if (outcome.skipped.length) {
+      const note = `선택한 ${ids.length}건 중 ${outcome.updatedIds.length}건을 수정했습니다. 환불과 연결돼 바꿀 수 없는 ${outcome.skipped.length}건은 그대로 두었습니다. 연결은 정산 화면의 ‘환불·환급’에서 풀 수 있습니다.`;
+      return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: note }), { err: note }));
+    }
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg: "bulk_updated" }), { msg: `${ids.length}건 일괄 수정 완료` }));
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_bulk_update_failed", severity: "warn", path: "/admin/transactions/bulk", method: "POST", detail: safeError(err) });
-    const message = "선택한 거래내역을 수정하지 못했습니다. 기존 기록은 유지됩니다.";
+    // V22.9.80 T-12: 트리거가 막았는데 막힌 기록을 가려내지 못했거나 모두 막혔으면 아무것도 바뀌지 않았다. 이유를 그대로 알린다.
+    const message = refundLinkLockedReason(err)
+      ? "환불과 연결된 기록이 있어 아무것도 바꾸지 않았습니다. 연결은 정산 화면의 ‘환불·환급’에서 먼저 풀어 주세요."
+      : "선택한 거래내역을 수정하지 못했습니다. 기존 기록은 유지됩니다.";
     const fallback = transactionReturnFallback(month, householdId, { err: message });
     return redirectResponse(form ? returnLocation(form, fallback, { err: message }) : fallback);
   }

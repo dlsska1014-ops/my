@@ -8,6 +8,7 @@ import {
 import { getSettingValue } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
+import { loadRefundDeductions } from "../features/settlement-refund-links.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { handleMyLogout } from "../auth/kakao-oauth.js";
 import { fetchUserById } from "../data/users-household-create.js";
@@ -95,14 +96,17 @@ async function handleMyInsightPage(request, env, url) {
   // Reuse the existing paged transaction GETs, including their exact-count
   // metadata. Members, budget and settings still use the existing parallel read.
   // V22.9.79 V76 W-7: ‘월말 예상 지출’에 남은 고정지출·정기지출을 넣으려고 규칙·정기 항목을 같은 단계에서 읽는다(+2, 직렬 깊이 그대로).
-  const [members, budgets, history, challengeValue, recurring, reservePlans] = await Promise.all([
+  // V22.9.80 V76 M-7: 이번 달 환불 차감(위 요약·예산 속도·월말 예상에만 반영, 아래 분석 그래프는 기록 그대로)도 같은 단계에서 읽는다.
+  const [members, budgets, history, challengeValue, recurring, reservePlans, refund] = await Promise.all([
     fetchHouseholdMembers(env, selected.id),
     fetchBudgets(env, selected.id, month),
     fetchAdminRowsRange(env, { householdId: selected.id, start: dataStart, end: dataEnd, limit: 9001, complete: false, analysisReceipt: true }),
     getSettingValue(env, reportChallengeSettingsKey(selected.id)),
     fetchRecurringStrict(env, selected.id).catch(() => null),
     fetchReservePlans(env, selected.id, { strict: true }).catch(() => null),
+    loadRefundDeductions(env, { householdId: selected.id, start: `${month}-01`, end: nextMonthStart(month) }),
   ]);
+  const refundDeductions = refund.entries || [];
   const rawRows = history.rows;
   const truncated = rawRows.length > 9000;
   const receipt = { ...history.receipt, ...(truncated ? { status: "limit" } : {}) };
@@ -110,10 +114,10 @@ async function handleMyInsightPage(request, env, url) {
   const currentStart = `${month}-01`;
   const currentEnd = nextMonthStart(month);
   const currentRows = rows.filter((r) => String(r.transaction_date || "").slice(0, 10) >= currentStart && String(r.transaction_date || "").slice(0, 10) < currentEnd);
-  const budget = budgetSummary(currentRows, budgets);
+  const budget = budgetSummary(currentRows, budgets, { refundDeductions });
   const challenge = await buildReportChallengeForHousehold(env, { householdId: selected.id, month, rows: currentRows, value: challengeValue });
-  const outlook = monthSpendingOutlook({ month, rows: currentRows, receipt, recurring, plans: reservePlans });
-  const dashboard = { ...buildReportDashboardSummary(currentRows, budget, month, { outlook }), householdId: selected.id };
+  const outlook = monthSpendingOutlook({ month, rows: currentRows, receipt, recurring, plans: reservePlans, refundDeductions });
+  const dashboard = { ...buildReportDashboardSummary(currentRows, budget, month, { outlook, refundDeductions, refundFailed: !!refund.failed }), householdId: selected.id };
   return htmlResponse(renderMyInsightHtml({ env, month, selected, rows, currentRows, budget, dashboard, challenge, dataStart, truncated, receipt }));
 }
 
@@ -294,7 +298,7 @@ ${reportUxCss()}
 </style></head><body>${renderUnifiedNav("stats", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, role: String(selected.role || ""), sidebarRows: currentRows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap reportPageWrap"><div class="pageMain">
 <section class="hero abV5PageHeader"><div class="heroTop abV5PageHeaderTop"><div class="abV5PageTitle"><h1>소비 분석</h1><p>${escapeHtml(selected.name)} · 빠르게 보는 요약 화면입니다. <b>소비 분석은 필터로 좁혀 보는 화면</b>이고, <b>종합 리포트는 이번 달 전체를 고정해 보는 화면</b>입니다. 여기서는 최근 12개월 기록을 기간·분류·결제수단·구성원·금액·검색어로 조합해 봅니다.</p></div><div class="heroBtns abV5HeaderActions"><a class="primary" href="/my/analysis?view=report&${qs}">깊게 보기(종합 리포트)</a><a href="/settlement-summary?${qs}">정산</a>${canManageMyHousehold(selected.role) ? `<a href="/my/settings?${qs}">예산 설정</a>` : `<a href="/budgets?${qs}">예산 보기</a>`}</div></div></section>
 ${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id })}
-${receipt.status === "complete" && !truncated ? renderReportDashboard(dashboard) : '<section class="card" data-insight-incomplete><b>자료를 모두 확인하지 못했습니다.</b><p class="dataNote">아래 합계·구성·목록은 현재 수신한 자료만 표시합니다. 관측 평균·소비 속도·챌린지 달성은 확인을 보류합니다. 새로고침한 뒤 다시 확인해 주세요.</p></section>'}
+${receipt.status === "complete" && !truncated ? renderReportDashboard(dashboard) + (dashboard.refund?.applied ? '<p class="dataNote" data-refund-deduction-note>위 요약·예산 속도·월말 예상은 연결한 환불을 뺀 금액이에요. 아래 분석 그래프와 목록은 기록 그대로예요.</p>' : "") : '<section class="card" data-insight-incomplete><b>자료를 모두 확인하지 못했습니다.</b><p class="dataNote">아래 합계·구성·목록은 현재 수신한 자료만 표시합니다. 관측 평균·소비 속도·챌린지 달성은 확인을 보류합니다. 새로고침한 뒤 다시 확인해 주세요.</p></section>'}
 ${receipt.status === "complete" && !truncated ? renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(selected.role) }) : ""}
 <section class="filterBar abV5FilterBar" id="filterBar">
   <div class="chipScroll" id="periodChips"></div>

@@ -14,6 +14,7 @@ import { resolveManualInputClassification } from "../settings/payment-assets.js"
 import { fetchHouseholdMembers, memberNameMap } from "../data/households-members-rows.js";
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
+import { refundLinkLockedCode } from "../domain/refund-links.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import {
   canManageMyRecord, canWriteMyHousehold, getMySelectedHousehold, memberRecordChangeError,
@@ -152,6 +153,8 @@ async function handleMyAddTransaction(request, env) {
     payment_method: String(form.get("payment_method") || "").trim(),
     manual_category: form.get("quick_manual_category") === "1",
     manual_payment: form.get("quick_manual_payment") === "1",
+    // V22.9.80 T-18: 빠른 입력이 문장에서 채운 메모("0")는 분류 판정에 다시 넣지 않는다(표식이 없으면 예전처럼 넣는다).
+    manual_memo: form.get("quick_manual_memo") === null ? undefined : form.get("quick_manual_memo") === "1",
   });
   const body = {
     household_id: selected.id,
@@ -166,7 +169,7 @@ async function handleMyAddTransaction(request, env) {
     raw_text: rawText,
   };
   try {
-    const created = await createManualTransaction(env, body, { requestId: String(form.get("request_id") || ""), preserveEmptyCategory: form.get("quick_manual_category") === "1" && manualClass.category === "" });
+    const created = await createManualTransaction(env, body, { requestId: String(form.get("request_id") || ""), preserveEmptyCategory: form.get("quick_manual_category") === "1" && manualClass.category === "", autoMemo: form.get("quick_manual_memo") === "0" && rawText !== "" });
     if (created?.__duplicate_skipped) {
       return redirectResponse(duplicateSkippedReturnLocation(String(transactionDate).slice(0, 7) || month, selected.id));
     }
@@ -224,8 +227,9 @@ async function handleMyUpdateTransaction(request, env) {
   } catch (err) {
     rememberOpsEvent({ kind: "my_record_update_failed", severity: "warn", path: "/my/update", method: "POST", detail: safeError(err) });
     // V22.9.79 D-5: 환불과 연결된 기록의 종류·금액·환급 분류·날짜를 바꾸면 DB 트리거(refund_link_guard_v22979)가 막는다.
-    const refundLocked = /refund_link_locked/.test(safeError(err));
-    return redirectResponse(myReturnLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : refundLocked ? "refund_link_locked" : "record_update_failed" }));
+    // V22.9.80 T-12: 트리거가 알려 준 이유(종류·금액·환급 분류·날짜)별 코드로 돌려보낸다. 이유를 모르면 refund_link_locked.
+    const refundLocked = refundLinkLockedCode(err);
+    return redirectResponse(myReturnLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : refundLocked || "record_update_failed" }));
   }
 }
 

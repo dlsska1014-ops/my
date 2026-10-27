@@ -8,10 +8,29 @@ export { app };
 export const BASE = "https://malhaebook.com";
 export const ctx = { waitUntil() {}, passThroughOnException() {} };
 
+// V22.9.80 T-37 changes renderMyAnalysisHtml in exactly three places so the budget-usage table keeps readable
+// category names at 360px: a comment block, class="budgetTable" on that table, and one CSS rule pair right
+// before ${reportUxCss()}. Reversing them keeps the whole-renderer hashes guarding every other byte.
+export function beforeDarkBudgetTable(block) {
+  const comment = /  \/\/ V22\.9\.80 T-37:[^\n]*\n(?:  \/\/ [^\n]*\n)*/g;
+  assert.equal((block.match(comment) || []).length, 1, "T-37 renderer comment must occur exactly once");
+  block = block.replace(comment, () => "");
+  const reversals = [
+    ['<div class="scroll"><table class="budgetTable"><thead>', '<div class="scroll"><table><thead>'],
+    [".budgetTable th:first-child,.budgetTable td:first-child{min-width:7.5em;word-break:keep-all;overflow-wrap:break-word}.budgetTable td:not(:first-child){white-space:nowrap}${reportUxCss()}", "${reportUxCss()}"],
+  ];
+  for (const [current, previous] of reversals) {
+    assert.equal(block.split(current).length - 1, 1, "T-37 renderer exception must occur exactly once: " + current);
+    block = block.replace(current, () => previous);
+  }
+  return block;
+}
+
 // V22.9.54 changes only these two money expressions in renderMyAnalysisHtml.
 // Reversing them lets existing whole-renderer hashes keep guarding all other
 // bytes. Actual future-month output is covered by validate-bot-observation.
 export function beforeBotObservationRenderer(block) {
+  block = beforeDarkBudgetTable(block);
   // V22.9.58 authorizes exactly two comparison spans and one local declaration.
   const reversals = [
     [
@@ -25,6 +44,11 @@ export function beforeBotObservationRenderer(block) {
     [
         "<span class=\"${comparisonDisplay.income.cls}\">${escapeHtml(comparisonDisplay.income.text)}</span>",
         "<span class=\"${fair.income > 0 ? \"deltaDown\" : fair.income < 0 ? \"deltaUp\" : \"deltaFlat\"}\">${escapeHtml(fair.label)} ${formatSignedPercent(fair.income)}</span>"
+    ],
+    // V22.9.80 T-21: 분석 보고서(?view=report) 내비가 구성원에게 ‘관리자 전용’ 표시를 붙이도록 역할(role)을 넘기는 한 조각. 렌더러의 나머지 바이트는 그대로다.
+    [
+        "showSidebarDashboard: true, role: String(selected.role || \"\"), sidebarRows: rows,",
+        "showSidebarDashboard: true, sidebarRows: rows,"
     ]
 ];
   for (const [current, previous] of reversals) {

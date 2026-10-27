@@ -19,7 +19,7 @@ import {
 import {
   HOME_LAYOUT_REPORTS, HOME_LAYOUT_SHORTCUTS, homeLayoutKey, normalizeHomeLayout,
 } from "./home-sections.js";
-import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { readHouseholdRoleOrFailure } from "../domain/users-households.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -89,8 +89,10 @@ async function handleCursorPreferenceSave(request, env) {
   const back = `/menu?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(householdId)}`;
   if (!userId && !adminOk) return redirectResponse("/my");
   if (userId && householdId) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!role || ["pending", "blocked"].includes(String(role).toLowerCase())) return redirectResponse("/app?err=household_scope");
+    // V22.9.80 T-35: 역할 조회 실패를 ‘참여자가 아님’으로 읽지 않는다 — 확인하지 못했다고 알리고 저장하지 않는다. 진짜 거절(household_scope)은 그대로다.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/cursor-preference/save" });
+    if (failed) return redirectResponse("/app?err=household_role_check_failed");
+    if (!role || ["pending", "blocked"].includes(role)) return redirectResponse("/app?err=household_scope");
   }
   const on = String(form.get("cursor") || "") === "on";
   await saveSettingValue(env, cursorPrefKey(userId || "shared"), on ? "on" : "off");
@@ -160,8 +162,10 @@ async function handleHomeLayoutSave(request, env) {
   // 홈 구성은 내 화면 설정이라 가계부를 볼 수 있으면 바꿀 수 있다. 다만 볼 수 없는
   // 가계부의 키에 쓰지 못하게 소속은 확인한다.
   if (userId) {
-    const role = await getHouseholdMemberRole(env, userId, householdId);
-    if (!role || ["pending", "blocked"].includes(String(role).toLowerCase())) {
+    // V22.9.80 T-35: 표시 설정 저장과 같다.
+    const { role, failed } = await readHouseholdRoleOrFailure(env, userId, householdId, { path: "/home-layout/save" });
+    if (failed) return redirectResponse(`/app?err=household_role_check_failed`);
+    if (!role || ["pending", "blocked"].includes(role)) {
       return redirectResponse(`/app?err=household_scope`);
     }
   }

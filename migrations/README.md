@@ -68,3 +68,11 @@ V22.9.44 감사 G-13 이 짚은 3개(`accountbook_mutate_payment_assets_v2280`·
 Worker 는 기능 플래그 `REFUND_LINKS_ENABLED`(기본 꺼짐)가 켜졌을 때만 이 표를 읽는다. 이 표는 `/ready` 필수 표 13개에 넣지 않았다
 (플래그가 켜지면 `/ready` 의 `refund_links` 항목이 표·함수가 있는지 따로 알린다). 순서: 플래그를 끈 채 배포 → SQL 검토·적용 →
 읽기 전용 확인 → 플래그 켜기.
+
+V22.9.80 에서 같은 적용 파일에 5) 절을 더했다(아직 적용 전인 파일이라 그 자리에서 고쳤다. 적용된 V22.9.61 수명 SQL 은 그대로다).
+- T-11: 가계부를 지우면 `accountbook_settings` 의 `refund_review_kept:<가계부 id>` 줄도 지우는 트리거 `refund_review_kept_cleanup_v22980`
+  (`households` AFTER DELETE, 함수 `accountbook_refund_review_kept_cleanup_v22980`). 되돌리기 파일이 함께 지운다. 1~4 를 이미 적용했다면
+  5) 절만 따로 검토·적용한다. 트리거가 생기기 전에 지운 가계부의 줄은 남아 있을 수 있다(읽기 전용 확인으로 찾는다).
+- V76 M-7: 플래그가 켜진 화면(홈·예산·예산 알림·리포트·소비 분석·카카오 요약·남은예산)은 연결을 환급 날짜로 한 번 읽는다. 이 읽기는
+  FK 이름 `accountbook_refund_links_refund_fkey`·`accountbook_refund_links_expense_fkey` 로 거래를 붙여 읽으므로(PostgREST 내장 조회),
+  운영 FK 이름이 이 SQL 과 같아야 한다. `/ready` 의 `refund_links.table` 확인도 같은 조회를 쓴다(이름이 다르면 `error`).

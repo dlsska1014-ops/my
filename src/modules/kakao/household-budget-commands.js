@@ -10,6 +10,8 @@ import {
 import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
+import { refundDeductionApplied, refundDeductionNote } from "../domain/refund-links.js";
+import { loadRefundDeductions } from "../features/settlement-refund-links.js";
 import { fetchUserHouseholds } from "../data/users-household-create.js";
 import { upsertMyBudgetRow, withBudgetPlanLease } from "../my/groups-budget-bulk.js";
 import { shiftMonthString } from "../my/analysis-page.js";
@@ -506,6 +508,20 @@ function parseKakaoSummaryRange(text = "") {
   // 기간 없는 ‘최근 기록’은 그대로 최근 5건이다.
   const periodAsk = natural ? null : t.match(/^(이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)(?:에)?\s*(?:뭐\s*썼(?:어|지|나|니|는지)?요?|쓴\s*(?:거|것))(?:\s*(?:알려줘|보여줘|확인해줘|확인))?$/);
   if (periodAsk) t = `${periodAsk[1]} 요약`;
+  // V22.9.80 T-39: 기간 말 뒤에 ‘얼마(나) 썼/나갔’이 오는 물음(‘지난달 얼마나 썼지’·‘이번 달에 얼마 나갔어’·‘9월 카드값 얼마나 썼어’)은 그 기간 말의
+  // 요약으로 읽는다. 예전에는 ‘얼마 썼어/썼지/썼나’만 읽어 ‘얼마나’·‘나갔’ 꼴은 "무슨 뜻인지 이해하지 못했어요"였고, 읽지 못하는 기간의
+  // ‘저저번달 얼마 썼어’는 요약 명령(isSummaryCommand)이 이번 달로 답했다. 기간 말은 아래가 읽으며, 읽지 못하는 기간(저저번달·작년·13월)은
+  // A-13 처럼 이번 달로 바꾸지 않는다(‘지지난달’은 아래의 ‘지난달’ 찾기에 걸리므로 바로 읽지 못한 기간으로 돌린다). 기간 말이 없는 물음(‘얼마나
+  // 썼어’·‘커피 얼마 나갔어’)은 여기서 읽지 않고 요약 명령이 ‘얼마 썼어’처럼 이번 달로 답한다. 금액이 있는 말은 기록이다.
+  const spentAsk = natural || periodAsk ? null : t.match(/^(.+?)\s*(?:에는|에)?\s*(?:돈\s*)?얼마(?:나)?\s*(?:썼|나갔)(?:어|지|죠|나|니|냐|는지|더라)?요?(?:\s*(?:알려줘|보여줘))?$/);
+  const spentPeriod = spentAsk && !moneyTokenSpans(spentAsk[1]).length
+    ? spentAsk[1].match(/(?:^|\s)((?:이번|지난|저번|저저번|지지난|다음|담|오는|돌아오는)\s*(?:주|달|해)|오늘|어제|그제|그저께|그끄제|그끄저께|엊그제|엊그저께|이달|전달|전월|금월|작년|재작년|올해|금년|내년|주말|상반기|하반기|[월화수목금토일]요일|(?:20\d{2}\s*년\s*)?\d{1,2}\s*월(?:\s*\d{1,2}\s*일)?|\d{1,4}\s*(?:년|일|분기|개월))(?:에는|에|은|는|엔|동안)?(?=\s|$)/)
+    : null;
+  if (spentPeriod) {
+    const period = spentPeriod[1].replace(/^(?:저번\s*달|전달|전월)$/, "지난달").replace(/^저번\s*주$/, "지난주");
+    if (/지지난/.test(period)) return { unreadable: true, text: period };
+    t = `${period} 요약`;
+  }
   if (!/(요약|현황|통계)$/.test(t) && !/^(오늘|어제|그제|그저께|이번주|이번 주|지난주|지난 주|이번달|이번 달|지난달|지난 달)$/.test(t)) return null;
   const now = nowKstDate();
   let start = null, end = null, label = "";
@@ -620,19 +636,27 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
   // V22.9.76: 이번 달 요약에는 다가오는 정기 수입·지출(최대 3건)을 붙인다. 요약 요청은 이 함수가 먼저 받아서
   //   skill-handler 의 정기 알림 줄(kakaoReserveAlert)에 닿지 못했다 — 카카오에서는 정기 알림이 한 번도 나가지 않았다.
   //   알림을 못 읽어도 kakaoReserveAlert 가 빈 문자열을 돌려주므로 요약은 그대로 나간다.
-  const [members, reserveLine] = await Promise.all([
+  // V22.9.80 V76 M-7: 연결한 환불 차감은 구성원·정기 알림과 같은 단계에서 읽는다(플래그가 꺼져 있으면 요청 없음).
+  const [members, reserveLine, refund] = await Promise.all([
     fetchHouseholdMembers(env, household.id),
     range.label === "이번 달" ? kakaoReserveAlert(env, household.id) : "",
+    loadRefundDeductions(env, { householdId: household.id, start: range.start, end: range.end }),
   ]);
+  const refundEntries = safeArray(refund.entries);
   const incomes = rows.filter((r) => r.type === "income");
-  const income = incomes.reduce((a, r) => a + Number(r.amount || 0), 0);
+  const grossIncome = incomes.reduce((a, r) => a + Number(r.amount || 0), 0);
+  const expenses = rows.filter((r) => r.type !== "income");
+  const grossExpense = expenses.reduce((a, r) => a + Number(r.amount || 0), 0);
+  // 차감은 지출·수입을 같은 금액만큼 줄인다(지출은 0 아래로 내리지 않고, 지출보다 큰 환불은 남는 몫을 수입으로 둔다).
+  const refundApplied = refundDeductionApplied(grossExpense, refundEntries);
+  const income = grossIncome - refundApplied.applied;
+  const expense = grossExpense - refundApplied.applied;
   // V22.9.76 카카오 감사 9: 수입을 물었으면 수입 건수와 수입 분류를 함께 보인다.
   const incomeFocus = range.focus === "income";
   const byIncomeCategory = Object.create(null);
   for (const row of incomes) { const c = row.category || "기타수입"; byIncomeCategory[c] = (byIncomeCategory[c] || 0) + Number(row.amount || 0); }
-  const incomeCategories = incomeFocus ? Object.entries(byIncomeCategory).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`• ${k}: ${numberWithCommas(v)}원`) : [];
-  const expenses = rows.filter((r) => r.type !== "income");
-  const expense = expenses.reduce((a, r) => a + Number(r.amount || 0), 0);
+  if (refundApplied.applied && byIncomeCategory["환급"]) byIncomeCategory["환급"] = Math.max(0, byIncomeCategory["환급"] - refundApplied.applied);
+  const incomeCategories = incomeFocus ? Object.entries(byIncomeCategory).filter(([, v]) => !refundEntries.length || v > 0).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`• ${k}: ${numberWithCommas(v)}원`) : [];
   const byCategory = Object.create(null);
   // V22.9.77 감사 B-5: 지출자별 합계는 사용자 id 로 모은다. 이름으로 모으면 이름이 같은 구성원(단톡방의 ‘카카오사용자’ 셋)이
   // "카카오사용자: 36,000원" 한 줄이 됐고, 나간 사람은 지출자 없는 기록과 함께 ‘미지정’으로 묶였다. 이름은 정산과 같은 규칙이다.
@@ -642,17 +666,28 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
     const uid = String(row.user_id ?? "").trim();
     byUser.set(uid, (byUser.get(uid) || 0) + Number(row.amount || 0));
   }
+  // V22.9.80 V76 M-7: 차감은 원지출의 분류·지출자에서 뺀다(0 아래로 내리지 않는다).
+  for (const entry of refundEntries) {
+    const c = entry.category || "기타";
+    if (byCategory[c]) byCategory[c] = Math.max(0, byCategory[c] - Number(entry.amount));
+    const uid = String(entry.user_id || "").trim();
+    if (byUser.has(uid)) byUser.set(uid, Math.max(0, byUser.get(uid) - Number(entry.amount)));
+  }
   const formerMembers = await fetchFormerSpenderMembers(env, expenses, members);
   const spenderLabels = householdPersonLabels(members, formerMembers, [...byUser.keys()]);
-  const categories = Object.entries(byCategory).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`• ${k}: ${numberWithCommas(v)}원`);
-  const users = [...byUser].sort((a,b)=>b[1]-a[1]).slice(0,5).map(([uid,v])=>`• ${uid ? spenderLabels.get(uid) || "이전 구성원" : "미지정"}: ${numberWithCommas(v)}원`);
+  const categories = Object.entries(byCategory).filter(([, v]) => !refundEntries.length || v > 0).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([k,v])=>`• ${k}: ${numberWithCommas(v)}원`);
+  const users = [...byUser].filter(([, v]) => !refundEntries.length || v > 0).sort((a,b)=>b[1]-a[1]).slice(0,5).map(([uid,v])=>`• ${uid ? spenderLabels.get(uid) || "이전 구성원" : "미지정"}: ${numberWithCommas(v)}원`);
+  const refundNote = refundDeductionNote(refundApplied, { failed: !!refund.failed });
+  const refundLines = refund.failed ? ["환불 차감은 확인하지 못해 기록 그대로예요."]
+    : refundApplied.surplus > 0 ? [`연결한 환불 ${numberWithCommas(refundApplied.surplus)}원은 이 기간 지출보다 많아 수입으로 남겼어요.`] : [];
   const cta = await maybeKakaoCta(env, user.id, household.id, origin, "analysis", `${origin}/my/analysis?household_id=${encodeURIComponent(household.id)}&month=${encodeURIComponent(range.month)}`);
   return { empty: false, text: [
     `📊 ${range.label} 요약`,
     `가계부: ${household.name || "가계부"}`,
     "",
-    `지출: ${numberWithCommas(expense)}원 · ${expenses.length}건`,
+    `지출: ${numberWithCommas(expense)}원 · ${expenses.length}건${refundNote && !refund.failed ? ` (${refundNote})` : ""}`,
     `수입: ${numberWithCommas(income)}원${incomeFocus ? ` · ${incomes.length}건` : ""}`,
+    ...refundLines,
     incomeCategories.length ? "수입 분류" : "", ...incomeCategories,
     incomeFocus && !incomes.length ? `아직 ${range.label} 수입 기록이 없어요.` : "",
     "",

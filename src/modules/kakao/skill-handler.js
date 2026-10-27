@@ -14,6 +14,8 @@ import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { kakaoReserveAlert } from "../settings/reserve-plans.js";
 import { saveMemberAlias } from "../data/households-members-rows.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
+import { refundAdjustedStats } from "../domain/refund-links.js";
+import { loadRefundDeductions } from "../features/settlement-refund-links.js";
 import { fetchUserHouseholds } from "../data/users-household-create.js";
 import { canManageMyHousehold } from "../my/access-control.js";
 import { kakaoBudgetStatusParts } from "../domain/budgets.js";
@@ -92,7 +94,8 @@ import { parseMultipleTransactions, parseTransaction } from "../nlu/transaction-
 import { normalizeText } from "../nlu/amount-parser.js";
 import { currentMonthKst } from "../nlu/date-payment.js";
 import {
-  formatRecentTransactions, formatSummary, getMonthSummary, linkText, numberWithCommas,
+  formatRecentTransactions, formatSummary, getMonthSummary, linkText, nextMonthStart,
+  numberWithCommas,
 } from "../domain/transactions-core.js";
 // @build:imports-end
 
@@ -805,12 +808,18 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   }
 
   if (!strongTransactionInput && isSummaryCommand(utterance)) {
-    const summary = await getMonthSummary(env, household.id, currentMonthKst());
-    if (!Number(summary?.totals?.income || 0) && !Number(summary?.totals?.expense || 0)) {
+    // V22.9.80 V76 M-7: 연결한 환불 차감을 기록과 같은 단계에서 읽어 지출·수입·상위 분류에 반영한다(플래그가 꺼져 있으면 요청 없음).
+    const summaryMonth = currentMonthKst();
+    const [rawSummary, refund] = await Promise.all([
+      getMonthSummary(env, household.id, summaryMonth),
+      loadRefundDeductions(env, { householdId: household.id, start: `${summaryMonth}-01`, end: nextMonthStart(summaryMonth) }),
+    ]);
+    const summary = refundAdjustedStats(rawSummary, refund.entries || []);
+    if (!Number(rawSummary?.totals?.income || 0) && !Number(rawSummary?.totals?.expense || 0)) {
       return kakaoNextStepReply([`📊 ${currentMonthKst()} 요약`, `가계부: ${household.name}`, "", "아직 이번 달 기록이 없어요.", "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
     }
     const reserveLine = await kakaoReserveAlert(env, household.id);
-    return kakaoText(`${formatSummary(summary, currentMonthKst())}
+    return kakaoText(`${formatSummary(summary, currentMonthKst())}${refund.failed ? "\n환불 차감은 확인하지 못해 기록 그대로예요." : ""}
 가계부: ${household.name}${reserveLine}`);
   }
 

@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_79.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_80.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -79,6 +79,11 @@ const validationScripts = [
   ["V22.9.79 웹 화면 결함(지난 달 쓰는 속도·주별 탭·수정 폼 제안 목록·구성원 403 링크·검색 결과 이동·가입 오류 폼)", "validation/validate-web-ui-v22979.mjs"],
   ["V22.9.79 백업 CSV 왕복·백업센터 전체 기간·가져오기 해석 비용", "validation/validate-backup-import-v22979.mjs"],
   ["V22.9.79 시각 결함(날짜 칩 KST·다크 챗봇 명령어 대비·관리자 백업 화면·긴 이름 넘침·역할 조회 실패 안내)", "validation/validate-visual-v22979.mjs"],
+  ["V22.9.80 역할·권한 표시(구성원 내비 ‘관리자 전용’·안내 화면 403 링크·거절 안내 코드·역할 조회 실패)", "validation/validate-roles-v22980.mjs"],
+  ["V22.9.80 입력 해석(웹·카카오 같은 해석: 등록 결제수단 낱말 끝·낱말 속 분류·띄어 쓴 금액·저장 때 분류·KST 시각·얼마나 썼어)", "validation/validate-nlu-v22980.mjs"],
+  ["V22.9.80 데이터 묶음(백업 합계 행·키 줄/머리글 없는 표 분류 근거·번호/주소 머리글·미리 보기 후처리·표식 되살리기 묶음·카카오 날짜 목록 한도·홈 쓰는 속도 1~6일)", "validation/validate-data-import-v22980.mjs"],
+  ["V22.9.80 다크 모드·화면 결함(예산 센터 카드·서식 카드·오류 요약 대비·사이드바 달력 KST 오늘·옛 관리자 화면·예산 표 줄바꿈·예시 줄바꿈·주 기준 표시)", "validation/validate-dark-screens-v22980.mjs"],
+  ["V22.9.80 환불 연결 후속(막힌 수정 안내·일괄 수정 건너뛰기·백업·카카오 복구·화면별 환불 차감)", "validation/validate-refund-links-v22980.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
@@ -309,7 +314,8 @@ function run(command, args, label) {
 // V22.9.77 2026-10-24: main(V76 기록 PR #93) 병합 뒤 관제 토큰 확인 N-14(+8)·다시 만들기 대기 N-17(+14)·백업 엄격 조회 N-15(15)·추적표 V77 N-14~N-18. 두 모드 실측: 일반 26,933 · 분류 표 부재 26,930.
 // V22.9.78: 새 동작 검사 6개(정기 반영 124·홈 앞으로 나갈 돈 52·요일 20·관제 19·백업 안내 16·함수 사본 15)와 추적표 V78 출처. 두 모드 실측: 일반 27,250 · 분류 표 부재 27,247.
 // V22.9.79: 새 동작 검사 9개(카카오 답장 234·환불 연결 251·예약 실행 135·정기 목록 90·월말 예상 98·입력 해석 1,645·웹 화면 153·백업 163·시각 120)와 추적표 V79 출처. 두 모드 실측: 일반 30,629 · 분류 표 부재 30,626(2026-10-26 통합 검토 수정 뒤).
-const EXPECTED_MINIMUM_CHECKS = 30626;
+// V22.9.80: 새 동작 검사 5개(역할 표시 269·입력 해석 291·데이터 229·다크 화면 500·환불 연결 후속 268)와 추적표 V80 출처. 두 모드 실측: 일반 32,436 · 분류 표 부재 32,433(V22.9.80 통합).
+const EXPECTED_MINIMUM_CHECKS = 32433;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

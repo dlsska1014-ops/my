@@ -87,7 +87,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
     etag: path === ACCOUNTBOOK_QUICK_INPUT_JS_ASSET_PATH
       ? '"accountbook-quick-input-v22951-js"'
       : path === AB_CATEGORY_RULES_ASSET_PATH
-      ? '"ab-category-rules-v22976-js"'
+      ? '"ab-category-rules-v22980-js"'
       : path === AB_CURSOR_ASSET_PATH
       ? '"ab-cursor-v22895-mjs"'
       : path === NUMBER_FLOW_ASSET_PATH
@@ -103,7 +103,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22946-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
-          ? '"mobile-home-shell-v22979-js"'
+          ? '"mobile-home-shell-v22980-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
           ? '"accountbook-nav-v22937-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
@@ -115,8 +115,8 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22937-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22979-js"'
-          : '"mobile-home-v22979-js"',
+          ? '"accountbook-v5-v22980-js"'
+          : '"mobile-home-v22980-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
 }

@@ -54,7 +54,8 @@ ok(source.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.
 ok(source.includes('<a class="budgetTableSet" href="/budgets?${qs}">예산 설정 →</a>'), "the report budget table links to /budgets");
 ok(source.includes("${renderBudgetGaugeRows(budget)}"), "the read-only gauge table stays");
 ok(source.includes("function renderBudgetGaugeRows(budget = {}) {"), "renderBudgetGaugeRows is untouched");
-ok(source.includes("function budgetCenterSummary(rows = [], budgets = []) {"), "budgetCenterSummary is untouched");
+// V22.9.80 V76 M-7: 연결한 환불 차감을 받는 선택 인자가 붙었다(기본 빈 목록 — 예전 두 인자 호출의 결과는 같다).
+ok(source.includes("function budgetCenterSummary(rows = [], budgets = [], { refundDeductions = [] } = {}) {"), "budgetCenterSummary keeps its two leading arguments");
 
 // 8. 사이드·하단 내비의 예산 진입은 /budgets 하나로 모인다.
 // V22.8.81 부터 사이드바 항목 이름은 "예산·정기"다(예산·정기·설정을 한 묶음으로 합쳤다).

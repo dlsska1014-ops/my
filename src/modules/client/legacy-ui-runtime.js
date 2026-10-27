@@ -4,7 +4,8 @@ import {
   transactionTypeFromText,
 } from "./shared-input-parsers.js";
 import {
-  cleanInputMemo, detectInputPayment, foldInputWidth, inferInputCategory, normalizeInputText,
+  cleanInputMemo, detectInputPayment, foldInputWidth, inferInputCategory, inputPaymentNameIn,
+  normalizeInputText,
 } from "./shared-input-nlu.js";
 import { importMappingClientMain } from "./lucian-d-import.js";
 import { importPreviewClientMain } from "../my/backup-import.js";
@@ -19,13 +20,14 @@ function mobileUiUxClientMain() {
   // V22.9.79 (V77 N-11·V44 A-10): 결제수단·분류·메모는 서버와 같은 공유 함수(foldInputWidth·normalizeInputText·detectInputPayment·
   // inferInputCategory·cleanInputMemo, client/shared-input-nlu.js)로 판정한다. 예전에는 이 안에 서버 사본이 있어 서버만 고친 결함
   // (V22.9.77 N-1 '토스트'→결제수단 토스, V22.9.76 A-10 낱말 속 글자 분류)가 미리 보기에 그대로 남았다.
+  // V22.9.80 T-15: 결제수단 목록의 이름도 낱말 끝에서만 맞는다(공유 판정 inputPaymentNameIn, 카카오 저장의 등록 결제수단 판정과 같다).
   function detectPayment(text) {
     const options = Array.from(document.querySelectorAll("#paymentList option"))
       .map(function(option) { return String(option.value || "").trim(); })
       .filter(Boolean)
       .sort(function(a, b) { return b.length - a.length; });
     for (let i = 0; i < options.length; i += 1) {
-      if (text.indexOf(options[i]) >= 0) return options[i];
+      if (inputPaymentNameIn(text, options[i])) return options[i];
     }
     return detectInputPayment(normalizeInputText(text));
   }

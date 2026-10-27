@@ -23,11 +23,21 @@ function foldInputWidth(text = "") {
 // V22.9.79 A-07(웹): 이 규칙은 서버 normalizeText 안에만 있어 웹 빠른 입력 미리 보기는 아직 두 금액("만" 10,000원 + "오천원")으로
 // 읽었다. 서버와 화면이 이 한 함수를 함께 쓴다. 뒤가 숫자("만 2천원")면 앞도 숫자 단위("1만")로 바꿔야 한 금액("1만2천원")으로
 // 읽히며, 앞의 수(koreanHeadValue)는 예전 서버 parseKoreanAmount 와 같은 방식으로 읽는다(“사십십만” 같은 엉터리 앞말도 예전과 같은 값).
+// V22.9.80 T-17: 뒤가 ‘만’으로 끝나는 꼴(“삼억 오천만원” = 3억5천만, “삼천 오백만원” = 3천5백만, “삼억 5000만원”)과 ‘원’ 없이 결제수단이
+// 뒤따르는 꼴(“택시 만 오천 현금”)도 한 금액이다. 예전에는 뒤를 천·백·십까지만 보고 ‘원’이나 문장 끝만 기다려 두 금액(3억 + 5천만원,
+// 1만 + 5천)으로 나뉘어 두 건으로 저장됐다. 뒤가 ‘만’으로 끝나면 앞이 억이거나 앞의 끝 단위(천·백)가 뒤의 첫 단위보다 클 때만 붙인다
+// (“만 오천만원”·“천 오천만원”은 예전처럼 둘). 뒤따르는 결제수단은 결제수단 판정(inputPaymentPatterns)이 그 자리에서 읽는 말만 본다
+// (‘현금영수증’·‘카드 지갑’·‘토스트’ 앞에서는 붙이지 않는다). 정규식은 처음 부를 때 한 번만 만든다.
 function joinSpacedKoreanAmount(text = "") {
-  return String(text || "").replace(/(^|\s)([일이삼사오육칠팔구십백천]*[만억천백])\s+((?:[일이삼사오육칠팔구]|\d{1,3})?([천백십])[일이삼사오육칠팔구십백]*)(?=\s*원|\s*$)/g,
+  const pattern = joinSpacedKoreanAmount.pattern || (joinSpacedKoreanAmount.pattern = new RegExp("(^|\\s)([일이삼사오육칠팔구십백천]*[만억천백])\\s+((?:[일이삼사오육칠팔구]|\\d{1,3}|\\d{4}(?=만))?([천백십만])[일이삼사오육칠팔구십백]*만?)(?=\\s*원|\\s*$|\\s+(?:" + inputPaymentPatterns().methods.map((method) => method[0].source).join("|") + "))", "gi"));
+  return String(text || "").replace(pattern,
     (all, lead, head, tail, unit) => {
       const unitValue = { 억: 100000000, 만: 10000, 천: 1000, 백: 100 }[head.slice(-1)];
-      if (!(unitValue > { 천: 1000, 백: 100, 십: 10 }[unit])) return all;
+      const tailValue = { 만: 10000, 천: 1000, 백: 100, 십: 10 }[unit];
+      const joinable = unit === "만" ? unitValue === 100000000 && tail.indexOf("만") === tail.length - 1
+        : /만$/.test(tail) ? unitValue === 100000000 || (unitValue < 10000 && unitValue > tailValue)
+        : unitValue > tailValue;
+      if (!joinable) return all;
       if (!/^\d/.test(tail)) return `${lead}${head}${tail}`;
       const digit = { 일: 1, 이: 2, 삼: 3, 사: 4, 오: 5, 육: 6, 칠: 7, 팔: 8, 구: 9 };
       const simple = (part) => { let out = 0; for (const ch of part) if (digit[ch] !== undefined) out = out * 10 + digit[ch]; return out; };
@@ -135,6 +145,7 @@ function inputPaymentPatterns() {
       new RegExp("현금" + end + "(?=" + cashBody + ")", "g"),
     ],
     brand: /(?:신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오|토스)\s*$/i,
+    after: new RegExp("^" + end),
   };
   return inputPaymentPatterns.cache;
 }
@@ -143,6 +154,35 @@ function inputPaymentPatterns() {
 function detectInputPayment(raw) {
   for (const [pattern, method] of inputPaymentPatterns().methods) if (pattern.test(raw)) return method;
   return "";
+}
+
+// V22.9.80 T-15: 가계부에 등록한 결제수단 이름(웹 빠른 입력은 결제수단 목록의 이름)이 정규화한 문장 raw 에 낱말로 있는지 본다. 예전에는
+// 이름을 낱말 속에서도 찾아, 결제수단 ‘토스’를 등록하면 "토스트 3000"이 카카오·웹 모두 결제수단 토스로 저장됐다(웹은 목록에 늘 드는 기본
+// 결제수단 이름 때문에 등록하지 않아도 그랬다 — ‘현금영수증’은 현금, ‘교통카드 충전’·‘카드 지갑’은 카드). 한글로 끝나는 이름 뒤에는 기본
+// 결제수단 말의 V77 N-1 낱말 끝 규칙(inputPaymentPatterns().end)을 그대로 쓰고, 이름 바로 뒤에 붙은 카드·체크·통장·계좌·페이·뱅크
+// (‘생활비통장’·‘신한카드’)는 그 결제수단을 가리키므로 예전처럼 맞는다. 영문·숫자로 끝나는 이름은 뒤에 영문·숫자만 이어지지 않으면 된다
+// ("KB"는 "KBS"에 없고 "KB국민카드"에는 있다). N-13 의 결제수단이 아닌 말(‘카드 지갑’·‘교통카드 충전’·‘신용 회복’·‘현금 영수증’)이 이름의
+// 끝이나 바로 뒤에 붙은 카드·체크이면 맞지 않는다. 기본 판정이 그 이름 그대로 읽는 말(카드·현금·토스·신한카드 …)은 기본 판정
+// (detectInputPayment)에 맡긴다 — 웹 목록에서 먼저 찾으면 "라면 1500 현대 카드"가 카카오(현대카드)와 달리 ‘카드’였다. issuer 를 참으로
+// 주면 등록 결제수단의 발급사 말(‘토스’ 발급 카드)로 보고 기본 판정이 읽는 말이어도 찾는다(낱말 끝 규칙은 같다).
+function inputPaymentNameIn(raw, name, issuer) {
+  const text = String(raw || ""), word = normalizeInputText(name);
+  if (!word || (!issuer && detectInputPayment(word) === word)) return false;
+  const pay = inputPaymentPatterns(), latin = /[A-Za-z0-9]$/.test(word);
+  let guarded = null;
+  for (let at = text.indexOf(word), seen = 0; at >= 0 && seen < 16; at = text.indexOf(word, at + 1), seen += 1) {
+    const tail = at + word.length, rest = text.slice(tail), joined = /^(?:카드|체크|통장|계좌|페이|뱅크)/.test(rest);
+    if (latin ? /^[A-Za-z0-9]/.test(rest) : !(joined || pay.after.test(rest))) continue;
+    if (/(?:카드|신용|체크|현금)$/.test(word) || /^(?:카드|체크)/.test(rest)) {
+      if (!guarded) {
+        guarded = [];
+        for (const pattern of pay.protect) text.replace(pattern, (all, ...args) => { guarded.push("s" + args[args.length - 2], "e" + (args[args.length - 2] + all.length)); return all; });
+      }
+      if (guarded.includes("e" + tail) || guarded.includes("s" + tail)) continue;
+    }
+    return true;
+  }
+  return false;
 }
 
 // 낱말 속 글자가 분류를 정하지 않게 한다(정규화·소문자로 바꾼 문장 raw, 규칙 목록 rules).
@@ -308,7 +348,7 @@ function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
 }
 // @build:exports-start
 export {
-  cleanInputMemo, detectInputPayment, foldInputWidth, inferInputCategory, inputPaymentPatterns,
-  joinSpacedKoreanAmount, normalizeInputText,
+  cleanInputMemo, detectInputPayment, foldInputWidth, inferInputCategory, inputPaymentNameIn,
+  inputPaymentPatterns, joinSpacedKoreanAmount, normalizeInputText,
 };
 // @build:exports-end
