@@ -586,6 +586,79 @@ await attempt("천 단위 쉼표 미리 보기", () => fixture(async (fx) => {
   ok(/금액 후보가 여러 개라 확정하지 못함/.test(preview.html), "천 단위 쉼표 미리 보기: 잇지 않은 ‘3,500’ 행은 예전처럼 제외 이유와 함께 보인다");
 }));
 
+// ── 새 발견: 긴 머리글 속 별칭 ─────────────────────────────────────────────────────
+// 별칭이 더 긴 머리글 속에 들어 있기만 하면 그 별칭으로 읽어, 머리글이 다른 것을 뜻해도 금액·구분·지출자 열이 됐다.
+//  · 금액 별칭 + 사람·곳 끝말(‘입금자명’·‘출금인’·‘지출처’·‘지급처’·‘Depositor’)이 수입·지출 금액 열이 되어 이름(‘홍길동’)이 금액으로 읽혀
+//    그 행이 ‘금액 형식을 해석하지 못함’으로 빠졌다(입금 목록은 모든 행, 통장 표는 입금자 열이 입금액 열 앞이면 입금 행).
+//  · 카드 종류 머리글(‘카드구분’·‘카드종류’·‘Card Type’)이 수입·지출 구분 열이 되어 행마다 ‘구분 ‘신용’을 직접 해석하지 못해’ 경고가 붙고
+//    영문 ‘Credit’(신용카드)은 수입으로 저장됐다.
+//  · 따로 쓴 ‘ID’가 든 머리글(‘user_id’·‘Card ID’·‘Category ID’)이 지출자·결제수단·분류 열이 되어 식별값(‘c_3’)이 분류로 저장됐고, 낱말 속 글자
+//    ‘id’(‘Paid’·‘Valid’)로는 기록ID(제외 열)가 됐다.
+// 이제 앞의 셋은 제외 열(열 연결 화면에서 바꿀 수 있다)이고 낱말 속 ‘id’ 는 기록ID 로 읽지 않는다(읽지 않는 열). 그 밖의 머리글은 예전 그대로다.
+await attempt("머리글 속 별칭 표", async () => {
+  // 1) 바뀐 머리글
+  const cardKind = ["카드종류", "카드 종류", "카드구분", "카드 구분", "카드유형", "카드종류(신용/체크)", "카드 구분[본인/가족]", "이용카드구분", "결제카드종류", "사용카드유형", "Card Type", "CARD TYPE", "card_type"];
+  for (const header of cardKind) eq(canonicalImportField(header), "ignore", `머리글 속 별칭: 카드 종류 머리글 ‘${header}’ 는 수입·지출 구분이 아니라 제외 열이다`);
+  const personPlace = ["입금자", "입금자명", "입금자 이름", "입금자성명", "입금인", "입금인명", "출금자", "출금인", "출금인명", "지급자", "지급인", "지급처", "지출처", "지출처명", "입금처", "출금처", "수입처", "Depositor", "Depositor Name", "Depositors", "Creditor", "Debitor", "Withdrawer"];
+  for (const header of personPlace) eq(canonicalImportField(header), "ignore", `머리글 속 별칭: 사람·곳 머리글 ‘${header}’ 는 금액이 아니라 제외 열이다`);
+  const idWord = ["user_id", "UserId", "userID", "User ID", "Member ID", "Card ID", "Category ID", "Payee ID", "사용자ID"];
+  for (const header of idWord) eq(canonicalImportField(header), "ignore", `머리글 속 별칭: 따로 쓴 ‘ID’ 머리글 ‘${header}’ 는 식별값이라 제외 열이다(지출자·결제수단·분류·내용이 아니다)`);
+  for (const header of ["Paid", "Unpaid", "Prepaid", "Paid By", "Paid At", "Valid", "Invalid"]) eq(canonicalImportField(header), "", `머리글 속 별칭: 낱말 속 글자 ‘id’ 로 ‘${header}’ 를 기록ID(제외 열)로 읽지 않는다(읽지 않는 열)`);
+  // 2) 오탐 검토(바뀌면 안 되는 머리글): 금액 별칭 뒤가 사람·곳 끝말이 아닌 머리글(‘입금자동이체금액’, 괄호를 떼면 ‘수입원’이 되는 ‘수입(원)’),
+  //    카드 종류 말이 아닌 말이 든 구분 머리글(‘카드승인구분’은 승인·취소가 적혀 취소 문맥을 잃으면 안 된다), 이미 내용·지출자로 읽던 사람·곳 머리글,
+  //    카드·결제수단 머리글, 낱말로 쓴 ‘ID’·다른 별칭이 든 ‘Paid’ 머리글은 예전 판정 그대로다.
+  const kept = {
+    입금자동이체금액: "income", 수입원: "income", "수입(원)": "income", "입금(원)": "income", "지출(원)": "expense", "출금(원)": "expense", 입금액: "income", "입금금액(원)": "income",
+    "출금금액(원)": "expense", 지급액: "expense", "지급(원)": "expense", Credit: "income", Debit: "expense", "Credit Amount": "income", "Deposit Amount": "income", "Money In": "income", "Money Out": "expense",
+    사용처: "memo", 거래처: "memo", 수취인: "memo", 받는분: "memo", "보낸분/받는분": "memo", "의뢰인/수취인": "memo", Payee: "memo", "Payee Name": "memo", "Payer Name": "spender", 결제자: "spender", 사용자: "spender",
+    카드승인구분: "type", 결제구분: "type", 이용구분: "type", 승인구분: "type", 매출구분: "type", 구분: "type", Type: "type", "Transaction Type": "type",
+    카드: "payment", 이용카드: "payment", 카드명: "payment", 카드사: "payment", 결제카드: "payment", 신용카드: "payment", 체크카드: "payment", Card: "payment", "Card Name": "payment", "Card Brand": "payment",
+    카드결제금액: "expense", 카드이용금액: "amount", "Card Amount": "amount", 카드번호: "ignore",
+    "Transaction ID": "ignore", "Record ID": "ignore", recordId: "ignore", "Order ID": "ignore", "Tx ID": "ignore", id: "ignore", ID: "ignore", 기록ID: "ignore", 거래ID: "ignore", 승인번호: "ignore",
+    "Paid Amount": "amount", "Amount Paid": "amount", "Paid Date": "date",
+  };
+  for (const [header, field] of Object.entries(kept)) eq(canonicalImportField(header), field, `머리글 속 별칭 오탐 검토: ‘${header}’ 의 판정은 예전과 같다(${field})`);
+});
+await attempt("머리글 속 별칭 행", async () => {
+  // 1) 사람·곳 열이 있는 표·키 줄: 금액 오류 0건으로 모든 행을 읽는다.
+  const view = (text) => { const result = parseImport(text); return { rows: result.rows.map((row) => [row.type, row.amount, row.memo]), rejected: result.rejected.map((item) => item.reason_code) }; };
+  const people = [
+    ["입금일시,입금자명,입금액,메모\n2026-07-15 10:00,홍길동,50000,회비\n2026-07-16 11:00,김철수,30000,회비", [["income", 50000, "회비"], ["income", 30000, "회비"]], "입금 목록(입금자명)"],
+    ["거래일시,적요,입금자,출금액,입금액,잔액\n2026-07-15 10:00,이체,홍길동,,50000,150000\n2026-07-16 11:00,카드대금,,30000,,120000", [["income", 50000, "이체"], ["expense", 30000, "카드대금"]], "통장 표(입금자 열이 입금액 열 앞)"],
+    ["거래일자,출금인,출금액,내용\n2026.07.15,홍길동,4500,커피", [["expense", 4500, "커피"]], "통장 표(출금인)"],
+    ["날짜,지출처,금액,메모\n2026-07-15,스타벅스,5000,라떼", [["expense", 5000, "라떼"]], "지출처 열"],
+    ["날짜,지급처,지급액,적요\n2026-07-15,관리사무소,230000,관리비", [["expense", 230000, "관리비"]], "지급처 열"],
+    ["Date,Depositor,Credit,Debit,Description\n2026-07-15,John,50000,,Allowance\n2026-07-16,,,4500,Coffee", [["income", 50000, "Allowance"], ["expense", 4500, "Coffee"]], "영문 Depositor 열"],
+    ["날짜: 2026-07-15 | 입금자명: 홍길동 | 입금: 50000 | 내용: 용돈", [["income", 50000, "용돈"]], "키 줄 ‘입금자명: 홍길동’"],
+  ];
+  for (const [text, rows, label] of people) deepEq(view(text), { rows, rejected: [] }, `머리글 속 별칭 행: ${label} 은 금액 오류 0건으로 모든 행을 읽는다`);
+  const mapped = parseImport("입금일시,입금자명,입금액,메모\n2026-07-15 10:00,홍길동,50000,회비", { mappingMetadata: true });
+  deepEq(mapped.mappings?.map((item) => `${item.source}→${item.field}`), ["입금일시→date", "입금자명→ignore", "입금액→income", "메모→memo"], "머리글 속 별칭 행: 열 연결에 ‘입금자명’ 은 ‘제외 열’로 보인다(열 연결 화면에서 바꿀 수 있다)");
+  // 2) 카드 종류 열: 영문 ‘Credit’(신용카드)이 수입이 되지 않고, 카드 종류 값(신용·체크·본인·가족)으로 행마다 경고가 붙지 않는다.
+  const cardType = parseImport("Date,Amount,Description,Card Type\n2026-07-15,5000,Coffee,Credit\n2026-07-16,4500,Tea,Debit");
+  deepEq(cardType.rows.map((row) => [row.type, row.amount]), [["expense", 5000], ["expense", 4500]], "머리글 속 별칭 행: ‘Card Type’ 이 ‘Credit’ 인 행은 지출이다(신용카드 결제가 수입으로 저장되지 않는다)");
+  const kinds = [
+    ["날짜,금액,내용,카드구분\n2026-07-15,5000,커피,신용\n2026-07-16,4500,차,체크", 2, "‘카드구분’(신용·체크)"],
+    ["승인일자,가맹점명,금액,카드구분\n2026.07.15,스타벅스,4500,본인\n2026.07.16,이마트,32000,가족", 2, "카드 명세서 ‘카드구분’(본인·가족)"],
+    ["이용일자,카드종류(신용/체크),이용가맹점,이용금액\n2026.07.15,신용,스타벅스,4500", 1, "‘카드종류(신용/체크)’"],
+  ];
+  for (const [text, count, label] of kinds) {
+    const result = parseImport(text);
+    deepEq(result.rows.map((row) => [row.type, row._import_warnings]), Array.from({ length: count }, () => ["expense", []]), `머리글 속 별칭 행: ${label} 열이 있는 표는 지출이고 행마다 ‘구분을 직접 해석하지 못해’ 경고가 붙지 않는다`);
+  }
+  // 3) 따로 쓴 ‘ID’ 열: 식별값이 분류·결제수단으로 저장되지 않는다.
+  const ids = parseImport("Date,Amount,Description,Category ID,Card ID\n2026-07-15,5000,Coffee,c_3,card_9");
+  deepEq(ids.rows.map((row) => [row.amount, row.category, row.payment_method]), [[5000, "기타지출", ""]], "머리글 속 별칭 행: ‘Category ID’·‘Card ID’ 의 식별값(c_3·card_9)이 분류·결제수단으로 저장되지 않는다");
+});
+await attempt("머리글 속 별칭 미리 보기", () => fixture(async (fx) => {
+  await uuidFixture(fx);
+  const preview = await importPreview(fx, "입금일시,입금자명,입금액,메모\n2026-07-15 10:00,홍길동,50000,별칭 회비\n2026-07-16 11:00,김철수,30000,별칭 회비");
+  eq(preview.status, 200, "머리글 속 별칭 미리 보기: 화면이 열린다");
+  deepEq(preview.ready.map((entry) => [entry.row?.type, entry.row?.amount, entry.row?.memo]), [["income", 50000, "별칭 회비"], ["income", 30000, "별칭 회비"]], "머리글 속 별칭 미리 보기: 두 입금 행이 모두 저장 후보다(입금자 이름이 금액으로 읽혀 빠지지 않는다)");
+  ok(preview.html.includes("입금자명 → <b>제외 열</b>"), "머리글 속 별칭 미리 보기: 인식 기준에 ‘입금자명 → 제외 열’로 보인다");
+  ok(!/금액 형식을 해석하지 못함/.test(preview.html), "머리글 속 별칭 미리 보기: ‘금액 형식을 해석하지 못함’ 으로 빠진 행이 없다");
+}));
+
 if (SOFT && failures.length) {
   console.log(`V22981_SOFT: ${failures.length}개 검사 실패 (전체 ${checks}개)`);
   for (const failure of failures) console.log(` - ${failure}`);
