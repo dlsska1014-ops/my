@@ -33,10 +33,15 @@ function foldInputWidth(text = "") {
 // 예전에는 앞이 만·억·천·백으로 끝날 때만 보아 “월세 오십 오만원”이 두 건(50원 + 50,000원)으로 저장됐다. 머리가 앞의 단위보다 크거나
 // 같으면(“오십 오십만원”) 잇지 않고, 뒤가 ‘만·억’으로 끝나지 않으면(“커피 오십 오천”) 예전 그대로다. 이 묶음을 먼저 이어야
 // “삼억 오십 오만원”이 아래 규칙으로 한 금액(3억55만)이 된다. 뒤따르는 말 조건(‘원’·문장 끝·결제수단)은 아래 규칙과 같다.
+// V22.9.81 (g): 세 낱말 사슬(“오십 오만 오천원” = 55만5천, “십 오만 삼천원” = 15만3천)도 한 금액이다. 뒤의 만·억 아래 수(‘오천’·‘5천’·‘오천오백’)는
+// 아래 규칙이 앞 낱말에 늘 잇는 꼴이라, 그 낱말이 뒤따르고 그 뒤가 ‘원’·문장 끝·결제수단이면 이 묶음도 잇는다. 예전에는 뒤따르는 말 조건에
+// 걸려 50원 + 55,000원 두 건이었다. 뒤 낱말이 ‘만’으로 끝나면(“오십 오만 오천만원”) 예전 그대로다.
 function joinSpacedKoreanAmount(text = "") {
   if (!joinSpacedKoreanAmount.pattern) {
-    const after = "(?=\\s*원|\\s*$|\\s+(?:" + inputPaymentPatterns().methods.map((method) => method[0].source).join("|") + "))";
-    joinSpacedKoreanAmount.smallHead = new RegExp("(^|\\s)(십|[일이삼사오육칠팔구십백천]+[십백천])\\s+([일이삼사오육칠팔구십백천]+|\\d{1,4})([만억])" + after, "gi");
+    const end = "(?:\\s*원|\\s*$|\\s+(?:" + inputPaymentPatterns().methods.map((method) => method[0].source).join("|") + "))";
+    const after = "(?=" + end + ")";
+    const chain = "(?=" + end + "|\\s+(?:[일이삼사오육칠팔구]|\\d{1,3})?[천백십][일이삼사오육칠팔구십백]*" + end + ")";
+    joinSpacedKoreanAmount.smallHead = new RegExp("(^|\\s)(십|[일이삼사오육칠팔구십백천]+[십백천])\\s+([일이삼사오육칠팔구십백천]+|\\d{1,4})([만억])" + chain, "gi");
     joinSpacedKoreanAmount.pattern = new RegExp("(^|\\s)([일이삼사오육칠팔구십백천]*[만억천백])\\s+((?:[일이삼사오육칠팔구]|\\d{1,3}|\\d{4}(?=만))?([천백십만])[일이삼사오육칠팔구십백]*만?)" + after, "gi");
   }
   const digit = { 일: 1, 이: 2, 삼: 3, 사: 4, 오: 5, 육: 6, 칠: 7, 팔: 8, 구: 9 };

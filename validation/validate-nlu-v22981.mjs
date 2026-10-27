@@ -12,6 +12,7 @@
 //   V81-a 한 건 입력·웹이 ‘지지난주·저저번주 금요일’을 지난주 금요일로, ‘지지난달 25일·말일’을 지난달로 읽었다(메모 ‘지 커피’).
 //   V81-c ‘다음·오는·이번·지난번 금요일’을 가장 가까운 지난 금요일로 읽었다.
 //   V81-b 카카오 예산 명령이 ‘지지난달·저저번달’을 지난달로 읽고 분류 이름에 남겨(‘지지난달 식비’) ‘등록된 카테고리를 찾지 못했어요’로 끝났다.
+//   V81-g 세 낱말 사슬 ‘오십 오만 오천원’이 두 건(50원·55,000원)으로 나뉘었다(서버·웹 같음).
 //
 // ── 어떻게 잡는가 ──
 // 같은 문장을 ① 카카오 해석(parseMultipleTransactions)과 POST /skill 저장, ② 홈이 실제로 받는 자산을 가짜 DOM 에서 돌린 웹 빠른 입력,
@@ -328,7 +329,7 @@ const SPACED_JOIN = [
 // 잇지 않는 말: [문장, 띄운 채 남아야 하는 두 낱말]
 const SPACED_KEEP = [
   ["월세 오십 오십만원", "오십 오십만"], ["오십 15만원", "오십 15만"], // 머리가 앞의 가장 작은 단위보다 크거나 같다
-  ["커피 오십 오천", "오십 오천"], ["오십 오만 오천원", "오십 오만"], // 뒤가 ‘만·억’으로 끝나지 않는다
+  ["커피 오십 오천", "오십 오천"], // 뒤가 ‘만·억’으로 끝나지 않는다(세 낱말 사슬 ‘오십 오만 오천원’은 V81-g 가 한 금액으로 읽는다)
   ["명품 백 오만원", "백 오만"], ["커튼 천 오만원", "천 오만"], // 단위 한 글자 ‘백’(가방)·‘천’(옷감)은 앞 수로 보지 않는다
   ["오십 오만 월세", "오십 오만"], ["오십 오만 현금영수증", "오십 오만"], // 뒤따르는 말이 ‘원’·문장 끝·결제수단이 아니다(V80 규칙과 같다)
   ["만 오천만원", "만 오천만"], // 앞이 만이고 뒤도 만(V80 T-17 그대로)
@@ -360,6 +361,49 @@ await scene("U-9", async () => {
       const webSaved = fx.db.transactions.slice(webBefore);
       t.ok(state.submit() && webSaved.length === 1 && webSaved[0].amount === amount && webSaved[0].category === saved[0]?.category, `U-9 웹 저장도 한 건 ${amount}원·같은 분류 (받음 ${JSON.stringify(webSaved.map((row) => `${row.memo}:${row.amount}:${row.category}`))})`);
     }
+  }));
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// V81-g. 세 낱말 사슬(십·백·천 수 + 만·억 낱말 + 그 아래 수)도 한 금액이다. 예전에는 ‘오십 오만 오천원’이 50원 + 55,000원 두 건이었다.
+//   같은 공유 함수(joinSpacedKoreanAmount)를 서버(카카오)·웹 홈 자산·옛 화면이 쓴다.
+// ════════════════════════════════════════════════════════════════════════════════════
+const SPACED_CHAIN = [
+  ["오십 오만 오천원", 555000], ["월세 오십 오만 오천원", 555000], ["십 오만 삼천원", 153000], ["이십 삼만 오천원 현금", 235000], ["관리비 오십 오만 오천", 555000],
+  ["오십 오만 오천오백원", 555500], ["오십 오만 5천원", 555000], ["오십 5만 오천원", 555000], ["삼백 오만 오천원", 3055000], ["천오백 오만 오천원", 15055000],
+  ["구십 구만 구천원", 999000],
+];
+// 잇지 않는 말: [문장, 띄운 채 남아야 하는 두 낱말]
+const SPACED_CHAIN_KEEP = [
+  ["오십 오만 오천만원", "오십 오만"], // 뒤 낱말이 ‘만’으로 끝난다(예전 그대로)
+  ["오십 오만 오천 현금영수증", "오십 오만"], // 뒤따르는 말이 ‘원’·문장 끝·결제수단이 아니다(U-9·V80 규칙과 같다)
+  ["백 오만 오천원", "백 오만"], // 단위 한 글자 ‘백’(가방)은 앞 수로 보지 않는다
+  ["오십 오십만 오천원", "오십 오십만"], // 머리가 앞의 가장 작은 단위보다 크거나 같다
+];
+await scene("V81-g", async () => {
+  await withClock(DAY, () => fixture(async (fx) => {
+    const { web, legacy, inBrowser, createState } = await webHarness(fx);
+    for (const [text, amount] of SPACED_CHAIN) {
+      const rows = kakaoRows(text), w = web(text), l = legacy(text);
+      t.ok(rows.length === 1 && rows[0].amount === amount && w.amount === amount && l.amount === amount,
+        `V81-g "${text}" → 한 건 ${amount}원 (카카오 ${JSON.stringify(rows.map((row) => row.amount))} · 웹 ${w.amount} · 옛 화면 ${l.amount})`);
+    }
+    for (const [text, pair] of SPACED_CHAIN_KEEP) {
+      const server = normalizeInputText(text), browser = inBrowser(`normalizeInputText(${JSON.stringify(text)})`);
+      t.ok(server.includes(pair) && browser === server && kakaoRows(text).length !== 1, `V81-g 음성 "${text}"의 ‘${pair}’는 잇지 않는다 (서버 ${JSON.stringify(server)} · 화면 ${JSON.stringify(browser)})`);
+    }
+    const multi = kakaoRows("오십 오만 오천원 택시 8000원").map((row) => row.amount);
+    t.ok(JSON.stringify(multi) === "[555000,8000]", `V81-g 여러 건 "오십 오만 오천원 택시 8000원" → 555,000원 + 8,000원 (받음 ${JSON.stringify(multi)})`);
+    // 카카오 저장·웹 폼 저장이 같은 한 건
+    const before = fx.db.transactions.length;
+    await say(fx, "월세 오십 오만 오천원");
+    const saved = fx.db.transactions.slice(before);
+    t.ok(saved.length === 1 && saved[0].amount === 555000 && saved[0].memo === "월세", `V81-g 카카오 저장 "월세 오십 오만 오천원" → 한 건 555,000원 (받음 ${JSON.stringify(saved.map((row) => `${row.memo}:${row.amount}`))})`);
+    const state = createState().fill("월세 오십 오만 오천원");
+    const webBefore = fx.db.transactions.length;
+    await post(fx, "/admin/transactions", { ...state.values(), transaction_date: "2026-08-04" });
+    const webSaved = fx.db.transactions.slice(webBefore);
+    t.ok(state.submit() && webSaved.length === 1 && webSaved[0].amount === 555000 && webSaved[0].category === saved[0]?.category, `V81-g 웹 저장도 한 건 555,000원·같은 분류 (받음 ${JSON.stringify(webSaved.map((row) => `${row.memo}:${row.amount}:${row.category}`))})`);
   }));
 });
 
