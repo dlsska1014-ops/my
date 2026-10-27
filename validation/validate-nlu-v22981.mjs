@@ -35,7 +35,7 @@ import * as dashboardFragments from "../src/modules/admin/dashboard-fragments.js
 const paymentListOptionsHtml = dashboardFragments.paymentListOptionsHtml || (() => "");
 
 const SOFT = process.env.V22981_SOFT === "1";
-const base = counter("V22.9.81 입력 해석(U-24 여러 건 머리 날짜·U-9 띄어 쓴 금액·U-25 없는 날짜 요약·U-6 지지난달·U-7 자동이체·U-8 분류 이름 낱말·U-10 구분 바꿀 때 분류) 웹·카카오 같은 해석 검사");
+const base = counter("V22.9.81 입력 해석(U-24 여러 건 머리 날짜·U-9 띄어 쓴 금액·U-25 없는 날짜 요약·U-6 지지난달·U-7 자동이체·U-8 분류 이름 낱말·U-10 구분 바꿀 때 분류·V81 지지난주와 다가올 요일·예산 달·세 낱말 금액·윤년 2월 29일·메모 날짜 말) 웹·카카오 같은 해석 검사");
 const failures = [];
 let softChecks = 0;
 const t = {
