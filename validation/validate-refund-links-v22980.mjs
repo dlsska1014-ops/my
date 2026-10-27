@@ -10,7 +10,7 @@
 // (묶음을 만들 때는 V22.9.79(29ee7cc) 트리 값이었다. 시계 2026-10-15 KST 고정. 실제 시계가 들어가는 칸 — 백업 exported_at·복구 버퍼 expires_at — 은 빼고
 // 비교한다). 연결 표의 내장 조회·트리거·일괄 수정 RPC·기록 삭제의 CASCADE 는 메모리 흉내다(운영 DB 에는 아직 없다, 실행 금지 SQL).
 // V22.9.81 통합(2026-10-27)에서 통합 트리로 다시 얻었다. 그 전에 76ea594(V22.9.80) 트리의 같은 화면과 글자 단위로 비교했고, 다른 것은 다른 묶음의
-// 변경뿐이었다: 자산 주소 v22981, U-7 의 ` data-ab-pick="1"`, U-17 옛 관리자 CSS(669바이트), U-19 옛 관리자 오류 문장, U-18 일괄 수정 msg 코드.
+// 변경뿐이었다: 자산 주소 v22981, U-7 의 ` data-ab-pick="1"`, U-17 옛 관리자 CSS(669바이트), U-19 옛 관리자 오류 문장, U-18 일괄 수정 msg 코드. 판 이름(V22.9.81-REVIEW-FOLLOWUP)이 analysis·backupFull·backupMonth 에 들어간다.
 // V22.9.81 환불 묶음(U-26·U-27)은 꺼짐 화면을 바꾸지 않는다.
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
@@ -29,15 +29,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 457e15e9b40028ed1b0629c5",
   "reportsWeek": "200 2134379e9a3f079f9dd6110c",
-  "analysis": "200 9bca7d23ea57f069616c3024",
+  "analysis": "200 a0f8ec06f535a5f22f6fae3d",
   "backupPage": "200 9f6a7be65b1799bc73f6093f",
   "kakao:이번달": "200 98fb6fc3811a3c54849be3cc",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 045b7cca80de34947914aa09",
-  "backupMonth": "200 7b3d34659fee8cf6451badab",
+  "backupFull": "200 77ce792e8e1424d88693b2e9",
+  "backupMonth": "200 573064eb21ad015453215bc5",
   "candidate": "200 2f9b946a78f12d62817a951c",
   "legacyErr": "200 e7f0864a0e549a458db7b7e3", // V22.9.81 U-19: 옛 관리자 화면 오류 칸이 record_update_failed 를 코드 글자 대신 안내 문장으로 보인다(의도한 변경)
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
