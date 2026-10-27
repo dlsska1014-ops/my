@@ -1,3 +1,10 @@
+## V22.9.81 운영 DB 변경 없음(환불 연결 검토용 SQL 에 주석·읽기 전용 조회)
+
+운영 스키마·RPC·RLS·권한 변경 없음. 관제 D1 스키마 변경 없음(왕복 상태는 기존 settings 표의 'roundtrip' 한 줄).
+- 아직 적용 전인 검토용 SQL `migrations/V22_9_79_REFUND_LINKS_APPLY_REVIEW_ONLY.sql` 에는 설명 주석과, COMMIT 뒤에 주석으로 둔 읽기 전용 조회(정산 이력이 30건 이상인 가계부 목록)만 더했다. 되돌리기 SQL·`migrations/README.md` 는 주석만 바꿨다.
+- 잠금 판정 논리는 그대로다. U-27 의 ‘완료 달 표식’은 앱이 같은 settlement_history 배열 맨 앞에 쓰고, 두 RPC 는 이미 그 배열에서 month 가 맞는 항목을 잠금으로 본다.
+- 적용 때 되살리기(backfill)는 없다. V22.9.81 전에 잘려 나간 달은 되찾지 못한다.
+
 ## V22.9.80 운영 DB 변경 없음(환불 연결 검토용 SQL 에 5절)
 
 운영 스키마·RPC·RLS·권한 변경 없음. 아직 적용 전인 검토용 SQL `migrations/V22_9_79_REFUND_LINKS_APPLY_REVIEW_ONLY.sql` 에 5) 절을 더했다(실행 금지, 맨 앞 `RAISE EXCEPTION` 가드 그대로): 가계부를 지우면 `accountbook_settings` 의 `refund_review_kept:<가계부 id>` 줄을 지우는 트리거 `refund_review_kept_cleanup_v22980`(`households` AFTER DELETE, 함수 `accountbook_refund_review_kept_cleanup_v22980`, SECURITY DEFINER·고정 search_path·실행 권한 없음, T-11). 되돌리기 파일이 트리거와 함수를 지운다. 적용된 V22.9.61 수명 SQL 은 그대로다(해시 e1ed86ea… 를 검사가 확인). 1~4 절을 이미 적용했다면 5) 절만 따로 검토·적용한다. 플래그를 켠 화면의 차감 읽기는 외래키 이름 `accountbook_refund_links_refund_fkey`·`accountbook_refund_links_expense_fkey` 로 거래를 붙여 읽으므로 운영 외래키 이름이 SQL 과 같아야 한다(`/ready` 가 같은 조회로 확인).
