@@ -1728,6 +1728,75 @@ async function abMonitorDatabaseProbe(request, env) {
   return jsonResponse({ ...answer.body, roundtrip }, answer.status);
 }
 
+// V22.9.82: 관제 1.4.0 이 한 시간에 한 번 /internal/ops-usage 로 이용 현황(수익화 판단용 합계 숫자)을 받아 간다. 앱은 Supabase 읽기 전용
+// 함수 accountbook_usage_summary_v22982 를 GET 으로 부르고, 계약(review-artifacts/v82-usage-metrics-2026-10-27/CONTRACT.md) 밖의 값은
+// 버린다. 함수가 아직 없으면(운영자 승인 전 SQL) rpc_missing 으로 답한다. 사용자·가계부 id·이름·금액·메모는 이 경계를 넘지 않는다.
+const AB_USAGE_HEAVY_THRESHOLD = 30;
+const AB_USAGE_PERIOD_COUNTS = ["recorders", "records", "heavy_recorders", "retained_recorders", "prior_month_recorders", "active_households", "shared_active_households", "new_users", "new_households", "kakao_requests"];
+const AB_USAGE_SOURCES = ["kakao", "web", "import", "auto", "other"];
+const AB_USAGE_DAILY_COUNTS = ["recorders", "records", "kakao_requests", "new_users"];
+
+function abUsageCount(value) {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? Math.floor(value) : null;
+}
+
+function abUsageDay(value) {
+  return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? value : null;
+}
+
+function abUsagePeriod(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const from = abUsageDay(raw.from), to = abUsageDay(raw.to);
+  const median = abUsageCount(raw.median_records_per_recorder) === null ? null : Math.round(raw.median_records_per_recorder * 10) / 10;
+  const bySource = raw.records_by_source && typeof raw.records_by_source === "object" ? raw.records_by_source : {};
+  if (!from || !to || median === null) return null;
+  const out = { from, to };
+  for (const key of AB_USAGE_PERIOD_COUNTS) { const n = abUsageCount(raw[key]); if (n === null) return null; out[key] = n; }
+  out.median_records_per_recorder = median;
+  out.records_by_source = {};
+  for (const key of AB_USAGE_SOURCES) { const n = abUsageCount(bySource[key]); if (n === null) return null; out.records_by_source[key] = n; }
+  out.kakao_by_intent = (Array.isArray(raw.kakao_by_intent) ? raw.kakao_by_intent : [])
+    .filter(row => row && typeof row.intent === "string" && /^[A-Z_]{1,40}$/.test(row.intent) && abUsageCount(row.requests) !== null)
+    .slice(0, 12).map(row => ({ intent: row.intent, requests: abUsageCount(row.requests) }));
+  return out;
+}
+
+function abSanitizeUsage(raw) {
+  if (!raw || typeof raw !== "object" || raw.schema !== 1) return null;
+  const month = typeof raw.month === "string" && /^\d{4}-\d{2}$/.test(raw.month) ? raw.month : null;
+  const generatedAt = typeof raw.generated_at === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(raw.generated_at) ? raw.generated_at : null;
+  const throughDay = abUsageCount(raw.through_day), heavy = abUsageCount(raw.heavy_threshold);
+  const current = abUsagePeriod(raw.current), previousSame = abUsagePeriod(raw.previous_same), previousFull = abUsagePeriod(raw.previous_full);
+  const totalsRaw = raw.totals && typeof raw.totals === "object" ? raw.totals : {};
+  const totals = { users: abUsageCount(totalsRaw.users), households: abUsageCount(totalsRaw.households), shared_households: abUsageCount(totalsRaw.shared_households) };
+  if (!month || !generatedAt || !throughDay || throughDay > 31 || !heavy || !current || !previousSame || !previousFull || Object.values(totals).includes(null)) return null;
+  const daily = (Array.isArray(raw.daily) ? raw.daily : []).slice(-62).flatMap(row => {
+    const day = abUsageDay(row?.day);
+    const values = AB_USAGE_DAILY_COUNTS.map(key => abUsageCount(row?.[key]));
+    return day && !values.includes(null) ? [{ day, recorders: values[0], records: values[1], kakao_requests: values[2], new_users: values[3] }] : [];
+  });
+  return { schema: 1, generated_at: generatedAt, month, through_day: throughDay, heavy_threshold: heavy, current, previous_same: previousSame, previous_full: previousFull, daily, totals };
+}
+
+async function abMonitorUsageSummary(env) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return { body: { ok: false, error_code: "not_connected" }, status: 503 };
+  try {
+    const raw = await supabase(env, `/rest/v1/rpc/accountbook_usage_summary_v22982?p_heavy_threshold=${AB_USAGE_HEAVY_THRESHOLD}`, { method: "GET", timeoutMs: 8000 });
+    const usage = abSanitizeUsage(raw);
+    return usage ? { body: { ok: true, usage }, status: 200 } : { body: { ok: false, error_code: "invalid_reply" }, status: 503 };
+  } catch (error) {
+    // PostgREST 는 함수가 없으면 404(PGRST202)로 답한다. 그 밖(권한·시한·전송)은 원인을 밖으로 내지 않고 usage_unavailable 로 묶는다.
+    const message = String(error?.message || "");
+    return { body: { ok: false, error_code: /^Supabase 404\b/.test(message) || message.includes("PGRST202") ? "rpc_missing" : "usage_unavailable" }, status: 503 };
+  }
+}
+
+async function abMonitorUsageProbe(request, env) {
+  if (!env.OPS_MONITOR_TOKEN || !constantTimeTextEqual(request.headers.get("authorization") || "", `Bearer ${env.OPS_MONITOR_TOKEN}`)) return jsonResponse({ ok: false, error_code: "unauthorized" }, 401);
+  const answer = await abMonitorUsageSummary(env);
+  return jsonResponse(answer.body, answer.status);
+}
+
 async function handleComprehensiveMonitor(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return url.pathname === "/ops-monitor" || url.pathname === "/ops-monitor/open" ? redirectResponse(adminLoginLocation(url)) : jsonResponse({ ok: false, error: "admin_required" }, 401);
   if (!env.OPS_MONITOR || !env.OPS_MONITOR_TOKEN) return htmlResponse('<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>종합 관제 연결 준비</title><h1>종합 관제 연결이 필요합니다.</h1><p>별도 관제 Worker와 저장소를 연결하면 사용량과 오류 이력을 확인할 수 있습니다.</p><a href="/ops-dashboard">기존 운영 화면 열기</a></html>', 503);
@@ -1788,6 +1857,11 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/internal/ops-metrics" && request.method === "GET") {
         return await abMonitorDatabaseProbe(request, env);
+      }
+
+      // V22.9.82: 관제 1.4.0 의 이용 현황 수집(한 시간에 한 번, 같은 토큰). 합계 숫자만 답한다.
+      if (url.pathname === "/internal/ops-usage" && request.method === "GET") {
+        return await abMonitorUsageProbe(request, env);
       }
 
       if (request.method === "OPTIONS") {
@@ -2994,7 +3068,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.81-REVIEW-FOLLOWUP";
+const APP_VERSION = "V22.9.82-USAGE-METRICS";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([

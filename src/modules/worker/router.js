@@ -9,7 +9,8 @@ import {
   withRememberedHouseholdCookie,
 } from "../runtime/config-readiness.js";
 import {
-  abMonitorCompleted, abMonitorDatabaseProbe, abMonitorRequestContext, handleComprehensiveMonitor,
+  abMonitorCompleted, abMonitorDatabaseProbe, abMonitorRequestContext, abMonitorUsageProbe,
+  handleComprehensiveMonitor,
 } from "../runtime/ops-monitor.js";
 import {
   APP_MODE, APP_VERSION, KAKAO_SECONDARY_COMMANDS, adsMode, appName, canonicalRedirectResponse,
@@ -229,6 +230,11 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/internal/ops-metrics" && request.method === "GET") {
         return await abMonitorDatabaseProbe(request, env);
+      }
+
+      // V22.9.82: 관제 1.4.0 의 이용 현황 수집(한 시간에 한 번, 같은 토큰). 합계 숫자만 답한다.
+      if (url.pathname === "/internal/ops-usage" && request.method === "GET") {
+        return await abMonitorUsageProbe(request, env);
       }
 
       if (request.method === "OPTIONS") {

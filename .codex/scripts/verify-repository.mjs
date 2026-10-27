@@ -90,6 +90,7 @@ const validationScripts = [
   ["V22.9.81 화면 대비·넘침(다크 알림 배지·작은 달력 오늘 칸·목표 납입 단추·거래 요약 수입·일별 그래프 빈 날·오픈빌더 여러 줄 예시·옛 관리자 화면 넘침)", "validation/validate-screens-v22981.mjs"],
   ["V22.9.81 데이터 묶음(본문을 잃은 저장의 결과 불확실·카카오 닉네임 통합 표식·날짜 목록 밖 번호·정기 기록하기 묶음·가져오기 메모·카드 자리 머리글)", "validation/validate-data-v22981.mjs"],
   ["V22.9.81 입력 해석(여러 건 머리 날짜·띄어 쓴 금액 잇기·없는 날짜 요약·지지난달/지지난주·자동이체 저장 이름·분류 이름 낱말 경계·구분 바꿀 때 분류)", "validation/validate-nlu-v22981.mjs"],
+  ["V22.9.82 이용 현황(앱: 관제용 /internal/ops-usage·읽기 전용 집계 함수 부름·인증·오류 구분·계약 밖 값 걸러내기·SQL 모양)", "validation/validate-usage-metrics-v22982.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
