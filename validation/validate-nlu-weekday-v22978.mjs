@@ -59,6 +59,7 @@ await withClock("2026-10-25", async () => {
   eq(parseTransaction("지난 금요일 회식 50000", {}).transaction_date, "2026-10-23", "일요일에 보낸 ‘지난 금요일’은 이틀 전(예전과 같음)");
 });
 
-ok(quickInputDate.toString().includes("|지난|저번)"), "브라우저에 실리는 quickInputDate 본문에 새 규칙이 들어 있다");
+// V22.9.81 V81-a·c: 요일 앞말 묶음이 ‘…|지난번|지난|저번|이번|다음|…’으로 늘어 묶음 끝 괄호를 보지 않는다(주 없는 ‘지난·저번’은 그대로 있다).
+ok(/\|지난\|저번[|)]/.test(quickInputDate.toString()), "브라우저에 실리는 quickInputDate 본문에 새 규칙이 들어 있다");
 
 done();
