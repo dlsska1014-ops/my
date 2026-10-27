@@ -228,6 +228,9 @@ const IMPORT_ID_WORD = /(?:^|[^A-Za-z])[Ii][Dd](?:$|[^A-Za-z])|[a-z]I[Dd](?:$|[^
 const IMPORT_MONEY_FIELDS = new Set(["income", "expense", "amount"]);
 // 금액 별칭 바로 뒤의 사람·곳 끝말(‘입금자명’·‘입금인’·‘지출처’·‘Depositor’) — 남은 꼬리 전체가 이 꼴일 때만 본다(‘입금자동이체금액’은 아니다).
 const IMPORT_PERSON_PLACE_TAIL = /^(?:(?:자|인)(?:명|이름|성명)?|처(?:명)?|(?:or|er)s?(?:name)?)$/;
+// 영문 금액 별칭 credit·debit 바로 뒤가 ‘card’ 하나뿐인 머리글(‘Credit Card’·‘Debit Card’ = 신용·체크카드)은 금액이 아니라 카드다.
+// 한글 금액 별칭 뒤의 ‘카드’(‘지출(카드)’·‘결제금액(카드)’ = 카드로 낸 금액)와 ‘Credit Card Amount’는 예전 그대로 금액이다.
+const IMPORT_CARD_TAIL = /^cards?$/;
 // 카드의 종류·구분 머리글(신용·체크·본인·가족이 적힌다). 머리글 전체가 이 꼴일 때만 본다(‘카드승인구분’처럼 다른 말이 든 머리글은 예전 그대로).
 const IMPORT_CARD_KIND_HEADER = /^(?:이용|결제|사용)?(?:카드|card)(?:구분|종류|유형|type)$/;
 
@@ -251,7 +254,13 @@ function canonicalImportField(value = "") {
       if (item.key === "id" && !IMPORT_ID_WORD.test(String(value))) continue;
       //  · 금액 별칭 뒤에 사람·곳 끝말이 붙은 머리글(‘입금자명’·‘출금인’·‘지출처’)은 금액이 아니다. 예전에는 이름이 수입·지출 금액으로 읽혀
       //    그 행이 ‘금액 형식을 해석하지 못함’으로 빠졌다. 제외 열로 둔다.
-      if (IMPORT_MONEY_FIELDS.has(item.field) && IMPORT_PERSON_PLACE_TAIL.test(key.slice(key.lastIndexOf(item.key) + item.key.length))) return "ignore";
+      if (IMPORT_MONEY_FIELDS.has(item.field)) {
+        const tail = key.slice(key.lastIndexOf(item.key) + item.key.length);
+        if (IMPORT_PERSON_PLACE_TAIL.test(tail)) return "ignore";
+        //  · ‘Credit Card’·‘Debit Card’ 는 수입·지출 금액(credit·debit 별칭)이 아니라 신용·체크카드다. 예전에는 카드 이름(‘Visa 1234’)이 금액으로
+        //    읽혀 행이 금액 오류로 빠졌다. 다음 별칭(‘card’ → 결제수단)을 본다 — ‘신용카드’·‘체크카드’ 머리글과 같다.
+        if ((item.key === "credit" || item.key === "debit") && IMPORT_CARD_TAIL.test(tail)) continue;
+      }
       fuzzy = item.field;
       break;
     }

@@ -659,6 +659,25 @@ await attempt("머리글 속 별칭 미리 보기", () => fixture(async (fx) => 
   ok(!/금액 형식을 해석하지 못함/.test(preview.html), "머리글 속 별칭 미리 보기: ‘금액 형식을 해석하지 못함’ 으로 빠진 행이 없다");
 }));
 
+// ── 새 발견: 영문 ‘Credit Card’·‘Debit Card’ 머리글 ─────────────────────────────────────
+// 수입·지출 금액 별칭 ‘credit’·‘debit’ 이 든 ‘Credit Card’·‘Debit Card’ 가 수입·지출 금액 열이 되어 카드 이름(‘Visa 1234’)이 금액으로 읽혀 모든 행이
+// ‘금액 형식을 해석하지 못함’으로 빠졌다(카드로 낸 금액이 적힌 표라면 ‘Credit Card’ 금액은 수입으로 읽혔다). 이제 ‘신용카드’·‘체크카드’ 머리글처럼
+// 결제수단이다. credit·debit 바로 뒤가 ‘card’ 하나뿐일 때만이고, 한글 금액 별칭 뒤의 ‘카드’(‘지출(카드)’ = 카드로 낸 금액)는 예전 그대로 금액이다.
+await attempt("Credit Card 머리글", async () => {
+  for (const header of ["Credit Card", "Debit Card", "credit card", "CREDIT CARD", "Credit Cards", "Debit_Card"]) eq(canonicalImportField(header), "payment", `Credit Card 머리글: ‘${header}’ 는 금액이 아니라 결제수단이다(‘신용카드’·‘체크카드’ 머리글과 같다)`);
+  // 오탐 검토(바뀌면 안 되는 머리글): 통장 표의 Credit·Debit 금액 열, credit·debit 뒤에 다른 말이 든 머리글, 한글 금액 별칭 뒤의 ‘카드’.
+  const kept = {
+    Credit: "income", Debit: "expense", "Credit Amount": "income", "Debit/Credit": "type", "Credit Card Number": "ignore", "Credit Card Payment": "payment",
+    신용카드: "payment", 체크카드: "payment", "지출(카드)": "expense", "결제금액(카드)": "expense", "금액(카드)": "amount", "이용금액(카드)": "amount",
+  };
+  for (const [header, field] of Object.entries(kept)) eq(canonicalImportField(header), field, `Credit Card 머리글 오탐 검토: ‘${header}’ 의 판정은 예전과 같다(${field})`);
+  const view = (text) => { const result = parseImport(text); return { rows: result.rows.map((row) => [row.type, row.amount, row.memo, row.payment_method]), rejected: result.rejected.map((item) => item.reason_code) }; };
+  deepEq(view("Date,Amount,Description,Credit Card\n2026-07-15,5000,Coffee,Visa 1234"), { rows: [["expense", 5000, "Coffee", "Visa 1234"]], rejected: [] }, "Credit Card 머리글: ‘Credit Card’ 열이 있는 표가 금액 오류 없이 읽히고 카드 이름이 결제수단이다");
+  deepEq(view("Date,Amount,Description,Debit Card\n2026-07-15,4500,Tea,Shinhan Check"), { rows: [["expense", 4500, "Tea", "Shinhan Check"]], rejected: [] }, "Credit Card 머리글: ‘Debit Card’ 열이 있는 표가 금액 오류 없이 읽히고 카드 이름이 결제수단이다");
+  deepEq(view("날짜: 2026-07-15 | 금액: 5000 | 내용: 커피 | Credit Card: Visa 1234"), { rows: [["expense", 5000, "커피", "Visa 1234"]], rejected: [] }, "Credit Card 머리글: 키 줄 ‘Credit Card: Visa 1234’ 도 결제수단이다(금액 오류가 아니다)");
+  deepEq(view("Transaction Date,Description,Debit,Credit\n2026-07-15,Coffee,4500,\n2026-07-16,Salary,,3000000"), { rows: [["expense", 4500, "Coffee", ""], ["income", 3000000, "Salary", ""]], rejected: [] }, "Credit Card 머리글 오탐 검토: 통장 표의 Debit·Credit 금액 열은 예전처럼 지출·수입이다");
+});
+
 if (SOFT && failures.length) {
   console.log(`V22981_SOFT: ${failures.length}개 검사 실패 (전체 ${checks}개)`);
   for (const failure of failures) console.log(` - ${failure}`);
