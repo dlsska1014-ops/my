@@ -134,7 +134,7 @@ try {
 
     // 셸을 쓰는 화면은 새 스타일시트를 정확히 한 번 참조한다.
     if (page.text.includes("abV22812Shell")) {
-      eq((page.text.match(/href="\/assets\/accountbook-shell-v22979\.css"/g) || []).length, 1, `${name}: 새 셸 스타일시트를 한 번만 부른다`);
+      eq((page.text.match(/href="\/assets\/accountbook-shell-v22981\.css"/g) || []).length, 1, `${name}: 새 셸 스타일시트를 한 번만 부른다`);
     }
   }
 

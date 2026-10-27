@@ -127,7 +127,7 @@ try {
   const home = await app.fetch(new Request("https://malhaebook.com/app?month=2026-07&household_id=house-home", { headers: { cookie: homeFixture.cookie, "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" } }), homeFixture.env, {});
   const html = await home.text();
   eq(home.status, 200, "home still renders");
-  eq((html.match(/href="\/assets\/accountbook-shell-v22979\.css"/g) || []).length, 1, "home loads the bumped shell exactly once");
+  eq((html.match(/href="\/assets\/accountbook-shell-v22981\.css"/g) || []).length, 1, "home loads the bumped shell exactly once");
   eq(html.includes("--ab12-sp-"), false, "no design token leaks into the home HTML payload");
 } finally {
   homeFixture.restore();

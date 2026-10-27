@@ -60,7 +60,7 @@ const navOf = (html) => { const start = html.indexOf('class="abLayoutNav'); retu
 
 // ── 자산 주소: 바뀐 자산은 새 주소·새 ETag, 옛 JS 주소는 바이트 그대로 ───────────────
 {
-  for (const [path, version] of [[SHELL_CSS, "v22979"], [NAV_JS, "v22937"], [V5_JS, "v22980"], [GOALS_JS, "v22946"], ["/assets/accountbook-favrows-v22937.js", "v22937"], ["/assets/accountbook-search-v22979.js", "v22979"], ["/assets/accountbook-notif-v22937.js", "v22937"]]) {
+  for (const [path, version] of [[SHELL_CSS, "v22981"], [NAV_JS, "v22937"], [V5_JS, "v22980"], [GOALS_JS, "v22946"], ["/assets/accountbook-favrows-v22937.js", "v22937"], ["/assets/accountbook-search-v22979.js", "v22979"], ["/assets/accountbook-notif-v22937.js", "v22937"]]) {
     const served = await asset(path);
     ok(served.status === 200 && served.etag.includes(version), `${path} 가 ${version} ETag 로 내려온다 (${served.etag || served.status})`);
   }

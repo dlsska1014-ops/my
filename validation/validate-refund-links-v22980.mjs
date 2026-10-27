@@ -10,7 +10,7 @@
 // (묶음을 만들 때는 V22.9.79(29ee7cc) 트리 값이었다. 시계 2026-10-15 KST 고정. 실제 시계가 들어가는 칸 — 백업 exported_at·복구 버퍼 expires_at — 은 빼고
 // 비교한다). 연결 표의 내장 조회·트리거·일괄 수정 RPC·기록 삭제의 CASCADE 는 메모리 흉내다(운영 DB 에는 아직 없다, 실행 금지 SQL).
 // V22.9.81 통합(2026-10-27)에서 통합 트리로 다시 얻었다. 그 전에 76ea594(V22.9.80) 트리의 같은 화면과 글자 단위로 비교했고, 다른 것은 다른 묶음의
-// 변경뿐이었다: 자산 주소 v22981, U-7 의 ` data-ab-pick="1"`, U-17 옛 관리자 CSS(669바이트), U-19 옛 관리자 오류 문장, U-18 일괄 수정 msg 코드. 판 이름(V22.9.81-REVIEW-FOLLOWUP)이 analysis·backupFull·backupMonth 에 들어간다.
+// 변경뿐이었다: 자산 주소 v22981, U-7 의 ` data-ab-pick="1"`, U-17 옛 관리자 CSS(669바이트), U-19 옛 관리자 오류 문장, U-18 일괄 수정 msg 코드. 판 이름(APP_VERSION 값)이 analysis·backupFull·backupMonth 에 들어간다.
 // V22.9.81 환불 묶음(U-26·U-27)은 꺼짐 화면을 바꾸지 않는다.
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
