@@ -400,6 +400,9 @@ function normalizeBudgetCategoryInput(value = "") {
 function parseBudgetMonthHint(text = "") {
   const t = normalizeText(text);
   if (/다음달|다음 달/.test(t)) return shiftMonthString(currentMonthKst(), 1);
+  // V22.9.81: ‘지지난달·저저번달’은 두 달 전이다. 예전에는 안의 ‘지난달’을 읽어 지난달로 보았고, 분류 이름에도 달 말이 남아
+  // "지지난달 식비 예산 30만원"이 ‘등록된 카테고리를 찾지 못했어요’로 끝났다(아래 앞말 떼기·monthHint 도 같이 고침).
+  if (/지지난\s*달|저저번\s*달/.test(t)) return shiftMonthString(currentMonthKst(), -2);
   if (/지난달|지난 달|저번달|저번 달/.test(t)) return shiftMonthString(currentMonthKst(), -1);
   const m = t.match(/(?:20(\d{2})년\s*)?(\d{1,2})월/);
   if (m) {
@@ -417,10 +420,11 @@ function parseDirectBudgetSetCommand(text = "") {
   const t = normalizeText(text);
   const span = moneyTokenSpans(t)[0];
   if (span && /(?:^|\s)예산(?=\s|$)/.test(t)) {
-    const withoutAmount = (t.slice(0,span.start) + " " + t.slice(span.end)).replace(/^(?:이번\s*달|다음\s*달|지난\s*달|저번\s*달|(?:20\d{2}년\s*)?\d{1,2}월)\s*/, "").replace(/(?:^|\s)(?:예산|설정|저장|등록|변경|수정)(?=\s|$)/g," ").replace(/\s+/g," ").trim();
+    const withoutAmount = (t.slice(0,span.start) + " " + t.slice(span.end)).replace(/^(?:이번\s*달|다음\s*달|지지난\s*달|저저번\s*달|지난\s*달|저번\s*달|(?:20\d{2}년\s*)?\d{1,2}월)\s*/, "").replace(/(?:^|\s)(?:예산|설정|저장|등록|변경|수정)(?=\s|$)/g," ").replace(/\s+/g," ").trim();
     return {month:parseBudgetMonthHint(t), category:withoutAmount ? normalizeBudgetCategoryInput(withoutAmount) : "__total", amount:span.amount};
   }
-  const monthHint = "(이번달|이번 달|다음달|다음 달|지난달|지난 달|저번달|저번 달|(?:20\\d{2}년\\s*)?\\d{1,2}월)";
+  // V22.9.81: 앞의 ‘지지난달·저저번달’도 달 말로 떼어 낸다(예전에는 분류 이름이 ‘지지난달’·‘지지난달 식비’가 됐다).
+  const monthHint = "(이번달|이번 달|다음달|다음 달|지지난달|지지난 달|저저번달|저저번 달|지난달|지난 달|저번달|저번 달|(?:20\\d{2}년\\s*)?\\d{1,2}월)";
   // V22.9.26: "예산 50만원", "예산 설정 50만원", "월 예산 50만원", "이번달 예산 50만원" 처럼
   // 분류 없이 말하면 전체 월 예산이다. 예전에는 거래 파서로 떨어져 50만원짜리 지출이 저장됐다.
   const bareTotal = t.match(new RegExp(`^(?:${monthHint}\\s*)?(?:월\\s*|전체\\s*|총\\s*)?예산\\s*(?:설정|저장|등록|변경|수정)?\\s*(?:은|을|를)?\\s+(.+)$`, "i"));

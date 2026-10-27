@@ -11,6 +11,7 @@
 //   U-10 카카오 기록 수정에서 구분을 바꿀 때 다시 분류하는 근거에 저절로 채운 메모가 들어갔다(‘용돈 9000 농협체크’를 지출로 → 장보기).
 //   V81-a 한 건 입력·웹이 ‘지지난주·저저번주 금요일’을 지난주 금요일로, ‘지지난달 25일·말일’을 지난달로 읽었다(메모 ‘지 커피’).
 //   V81-c ‘다음·오는·이번·지난번 금요일’을 가장 가까운 지난 금요일로 읽었다.
+//   V81-b 카카오 예산 명령이 ‘지지난달·저저번달’을 지난달로 읽고 분류 이름에 남겨(‘지지난달 식비’) ‘등록된 카테고리를 찾지 못했어요’로 끝났다.
 //
 // ── 어떻게 잡는가 ──
 // 같은 문장을 ① 카카오 해석(parseMultipleTransactions)과 POST /skill 저장, ② 홈이 실제로 받는 자산을 가짜 DOM 에서 돌린 웹 빠른 입력,
@@ -24,7 +25,7 @@ import { parseMultipleTransactions, parseTransaction } from "../src/index.js";
 import { extractLeadingDateHint, hasDateHint } from "../src/modules/nlu/transaction-parser.js";
 import { joinSpacedKoreanAmount, normalizeInputText } from "../src/modules/client/shared-input-nlu.js";
 import { applyUserSettingsToParsedTransactions, resolveManualInputClassification } from "../src/modules/settings/payment-assets.js";
-import { parseKakaoSummaryRange } from "../src/modules/kakao/household-budget-commands.js";
+import { parseDirectBudgetSetCommand, parseKakaoSummaryRange } from "../src/modules/kakao/household-budget-commands.js";
 import { normalizeDateValue, nowKstDate, resolveWeekdayPhrase } from "../src/modules/nlu/date-payment.js";
 // 새 함수는 이름공간으로 받는다(고치기 전 번들에서 SOFT 모드로 셀 때 없는 이름 때문에 파일 전체가 멈추지 않게).
 import * as dashboardFragments from "../src/modules/admin/dashboard-fragments.js";
@@ -660,6 +661,46 @@ await scene("V81-c 앞날", async () => {
     const saved = fx.db.transactions.slice(before).map((row) => row.transaction_date);
     t.ok(saved.length === 2 && saved.every((date) => date === "2026-10-30"), `V81-c 카카오 저장 "다음 금요일 회식 52000원 택시 8000원" → 두 건 모두 2026-10-30 (받음 ${JSON.stringify(saved)})`);
   }));
+});
+
+// ════════════════════════════════════════════════════════════════════════════════════
+// V81-b. 카카오 예산 명령의 ‘지지난달·저저번달’은 두 달 전이고, 달 말은 분류 이름에 남지 않는다(요약의 U-6 ‘지지난달’과 같은 두 달 전).
+//   예전에는 안의 ‘지난달’을 읽어 지난달로 보았고 분류 이름이 ‘지지난달 식비’가 되어 ‘등록된 카테고리를 찾지 못했어요’로 끝났다.
+// ════════════════════════════════════════════════════════════════════════════════════
+const monthOf = (day, shift) => monthDay(day, shift, 1).slice(0, 7);
+// [문장, 달 이동, 분류, 금액]. 앞의 네 꼴(첫 갈래 ‘… 예산 금액’·띄어 쓴 달·‘예산설정’ 갈래·‘전체’)을 다 둔다. 끝의 ‘예전 그대로’ 줄은 대조다.
+const V81_BUDGET = [
+  ["지지난달 식비 예산 30만원", -2, "식비", 300000], ["저저번달 식비 예산 30만원", -2, "식비", 300000], ["지지난 달 식비 예산 30만원", -2, "식비", 300000],
+  ["저저번 달 교통 예산 10만원", -2, "교통", 100000], ["지지난달 예산 300만원", -2, "__total", 3000000], ["지지난달 식비 예산설정 30만원", -2, "식비", 300000],
+  ["저저번달 예산설정 300만원", -2, "__total", 3000000], ["지지난달 전체 예산 300만원", -2, "__total", 3000000], ["지지난달 식비 예산 저장 30만원", -2, "식비", 300000],
+  ["지난달 식비 예산 30만원", -1, "식비", 300000], ["저번 달 식비 예산 30만원", -1, "식비", 300000], ["식비 예산 30만원", 0, "식비", 300000], // 예전 그대로
+  ["다음달 식비 예산 30만원", 1, "식비", 300000], ["지난달 예산설정 300만원", -1, "__total", 3000000], ["이번달 예산 80만원", 0, "__total", 800000], // 예전 그대로
+];
+await scene("V81-b 예산 달", async () => {
+  for (const day of ["2026-08-05", "2026-01-02", "2026-02-10", "2026-12-20"]) {
+    await withClock(day, async () => {
+      for (const [text, shift, category, amount] of V81_BUDGET) {
+        const got = parseDirectBudgetSetCommand(text);
+        const want = { month: monthOf(day, shift), category, amount };
+        const tag = shift === -2 ? "V81-b" : "V81-b 대조";
+        t.ok(JSON.stringify(got) === JSON.stringify(want), `${tag} (${day}) "${text}" → ${want.month} ${category} ${amount} (받음 ${JSON.stringify(got)})`);
+      }
+    });
+  }
+  // 카카오 끝까지: 저장되는 행·답장. 해가 바뀌는 때(1월)도 본다. 지난달 예산은 건드리지 않는다.
+  for (const [day, text, category, amount, label] of [
+    ["2026-08-05", "지지난달 식비 예산 30만원", "식비", 300000, "식비"], ["2026-08-05", "저저번달 예산 300만원", "__total", 3000000, "전체 월"],
+    ["2026-01-02", "지지난달 교통 예산 10만원", "교통", 100000, "교통"],
+  ]) {
+    await withClock(day, () => fixture(async (fx) => {
+      putSetting(fx, "kakao_selected_household_v2251:user-bin", HH);
+      const month = monthOf(day, -2), last = monthOf(day, -1);
+      const reply = await say(fx, text);
+      const rows = (fx.db.accountbook_budgets || []).filter((row) => row.household_id === HH && row.category === category && Number(row.amount) === amount);
+      t.ok(rows.length === 1 && rows[0].month === month && reply.includes(`✅ ${month} ${label} 예산을 설정했어요`) && !reply.includes("찾지 못했어요"),
+        `V81-b 카카오 (${day}) "${text}" → ${month} ${label} 예산 저장·답장, 지난달(${last})은 그대로 (행 ${JSON.stringify(rows.map((row) => row.month))} · 답 ${reply.split("\n")[0]})`);
+    }));
+  }
 });
 
 if (SOFT) {
