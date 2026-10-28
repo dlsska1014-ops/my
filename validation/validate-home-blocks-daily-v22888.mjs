@@ -108,7 +108,9 @@ ok(/href="\/budgets\?/.test(noBudgetPlan.block), "그 줄에서 예산 설정으
 
 const slow = await renderHome((fixture) => { addTotalBudget(fixture, 3000000); addExpense(fixture, 200000); });
 const slowPlan = planOf(slow.html);
-ok(/남은 \d+일 동안/.test(slowPlan.text), `남은 일수를 말한다 (${slowPlan.text})`);
+// V22.9.86 T-12(디자인 작업 지시서 §3-6 속도 문장): 하루 계획 줄이 ‘남은 N일 동안 · 하루 N원’ 두 칸에서 한 문장이 됐다.
+// 느린 속도(사용률 ≤ 경과율)는 경과율과 사용률을 견주어 말하고, 남은 일수는 빠른 속도(주의) 문장이 말한다(아래).
+ok(/이번 달의 \d+%가 지났고 예산은 \d+%만 썼어요/.test(slowPlan.text), `느린 속도는 지난 날과 쓴 예산을 견주어 말한다 (${slowPlan.text})`);
 // V22.8.93(9.3): 금액이 <span data-ab-num> 로 감싸져 태그를 걷어내면 숫자와 단위
 // 사이에 공백이 생긴다. 화면에 보이는 글자는 그대로다 — 지키려는 것은 "하루 기준
 // 금액을 말한다"이므로 태그 경계의 공백은 허용한다.
@@ -126,10 +128,13 @@ ok(slowPlan.text.includes("월말 예상대로면") && slowPlan.text.includes("�
 const fast = await renderHome((fixture) => { noFixedItems(fixture); addTotalBudget(fixture, 1000000); addExpense(fixture, 800000); });
 const fastPlan = planOf(fast.html);
 ok(/예상대로면 예산이 \d+일 먼저 끝나요/.test(fastPlan.text), `빠른 속도에서는 며칠 먼저 끝나는지 말한다 (${fastPlan.text})`);
+// V22.9.86 T-12: 빠른 속도(경과율 < 사용률 < 100) 문장이 남은 일수와 하루 금액을 함께 말한다.
+ok(/예산은 \d+%를 썼어요\. 남은 \d+일은 하루 [\d,]+\s*원 안에서 써 보세요/.test(fastPlan.text), `빠른 속도에서는 남은 일수와 하루 금액을 말한다 (${fastPlan.text})`);
 const lastDay = new Date(Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth() + 1, 0)).getUTCDate();
 globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), lastDay, 3, 0, 0);
 const lastDayPlan = planOf((await renderHome((fixture) => { noFixedItems(fixture); addTotalBudget(fixture, 1000000); addExpense(fixture, 800000); })).html);
-ok(/남은 1일 동안/.test(lastDayPlan.text), `마지막 날에는 남은 하루를 말한다 (${lastDayPlan.text})`);
+// V22.9.86 T-12: 마지막 날은 경과율 100%(사용 80% → 느린 속도 문장)다. 남은 하루로 나누므로 하루 금액이 남은 예산 20만원 전부다.
+ok(/이번 달의 100%가 지났고/.test(lastDayPlan.text) && /하루 200,000\s*원씩/.test(lastDayPlan.text), `마지막 날에는 남은 하루로 나눈다 (${lastDayPlan.text})`);
 ok(!/먼저 끝나요/.test(lastDayPlan.text), "마지막 날에는 '먼저 끝난다'를 말하지 않는다(달 끝보다 이른 날이 없다)");
 // 월초에는 같은 금액도 빠른 속도로 판단하고, 월말에는 느린 속도로 판단한다.
 globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), 1, 3, 0, 0);
@@ -141,14 +146,16 @@ ok(!/먼저 끝나요/.test(firstDayFuturePlan.text), `1일에 다음 날짜로 
 ok(/예상대로면 예산이 \d+일 먼저 끝나요/.test(firstDayPlan.text), `1일에는 빠른 속도 안내를 표시한다 (${firstDayPlan.text})`);
 globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), lastDay, 3, 0, 0);
 const slowLastDayPlan = planOf((await renderHome((fixture) => { addTotalBudget(fixture, 3000000); addExpense(fixture, 200000); })).html);
-ok(/남은 1일 동안/.test(slowLastDayPlan.text), "느린 속도도 마지막 날에는 남은 하루를 표시한다");
+// V22.9.86 T-12: 한 문장이 된 뒤에도 마지막 날은 남은 하루로 나눈다(300만 − 20만 = 하루 280만원).
+ok(/이번 달의 100%가 지났고/.test(slowLastDayPlan.text) && /하루 2,800,000\s*원씩/.test(slowLastDayPlan.text), `느린 속도도 마지막 날에는 남은 하루로 나눈다 (${slowLastDayPlan.text})`);
 ok(slowLastDayPlan.text.includes("남아요"), "마지막 날에는 남을 금액을 표시한다");
 globalThis.__AB_QA_FIXED_NOW_MS = pinnedNow;
 
 const over = await renderHome((fixture) => { addTotalBudget(fixture, 500000); addExpense(fixture, 900000); });
 const overPlan = planOf(over.html);
 ok(overPlan.block.includes("homeDailyPlanOver"), "초과는 따로 표시된다");
-ok(/이번 달 예산을 [\d,]+원 넘겼어요/.test(overPlan.text), `초과 금액을 말한다 (${overPlan.text})`);
+// V22.9.86 T-12: 초과 문장은 §3-6 ‘예산을 N원 넘었어요. …’다(예전 ‘이번 달 예산을 N원 넘겼어요’).
+ok(/예산을 [\d,]+원 넘었어요\. 예산을 늘리거나 남은 기간 지출을 줄여 보세요\./.test(overPlan.text), `초과 금액을 말한다 (${overPlan.text})`);
 eq(/하루 [\d,]+원/.test(overPlan.text), false, "초과 상태에서 하루 기준 숫자를 함께 보여 주지 않는다");
 
 for (const [name, plan] of [["예산 없음", noBudgetPlan], ["느린 속도", slowPlan], ["빠른 속도", fastPlan], ["초과", overPlan]]) {
@@ -160,7 +167,11 @@ for (const [name, plan] of [["예산 없음", noBudgetPlan], ["느린 속도", s
 const previousMonth = new Date(Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth() - 1, 1)).toISOString().slice(0, 7);
 const pastMonth = await renderHome((fixture) => { addTotalBudget(fixture, 1000000); }, previousMonth);
 eq(pastMonth.status, 200, "지난달 화면이 열린다");
-eq(pastMonth.html.includes('<div class="homeDailyPlan">'), false, "지난달에는 하루 환산을 보여 주지 않는다");
+// V22.9.86 T-12: 하루 계획 줄의 클래스가 ‘homeDailyPlan homePace’가 되어 예전 정확한 태그 비교는 늘 거짓이 된다. 클래스 앞머리로 본다
+// (지난달은 초과여도 줄이 없다 — 지시서 §3-6 ‘지난달 보는 중’ 흐름). 이 픽스처의 지난달에는 예산이 없어 예전처럼
+// ‘예산을 설정하면 하루 기준이 생겨요’ 링크(homeDailyPlanEmpty)만 있다.
+eq(/class="homeDailyPlan(?! homeDailyPlanEmpty")/.test(pastMonth.html), false, "지난달에는 하루 환산을 보여 주지 않는다");
+eq(pastMonth.html.includes("--ab-today"), false, "지난달 게이지에는 오늘 표시가 없다");
 eq(pastMonth.html.includes('class="homeBudgetToday"'), false, "지난달에는 오늘 쓴 돈 줄도 접는다");
 
 // ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 ## V22.9.86 디자인 보강 3단계 검사
 
-- 두 모드 하네스와 CI. 두 모드 실측: 일반 36,135 · 분류 표 부재 36,132(체크섬 693개).
+- 두 모드 하네스와 CI. 두 모드 실측: 일반 36,169 · 분류 표 부재 36,166(체크섬 693개, T-12 커밋 뒤).
 - 새 검사: `validation/validate-design-uplift-v22986.mjs`(`npm run validate:design-uplift`).
 - 지시서가 티켓마다 정한 검사는 모두 통과했다: `review-artifacts/design-uplift-2026-10-28/v86/ticket-checks-c1.txt`.
   - validate:performance·home-rail-challenge·income-reserve·v5·lucian-a·input-prerequisites·core-write·ux-principles·household-security·lifecycle.
@@ -11,6 +11,8 @@
   - 고정 요소 가림(참고): 390px 홈 17.4 → 12.1%, 내역 11 → 8.4%.
   - 결과 `v86/screen-audit-v86`·`v86/screen-audit-v85`, 차이 `v86/screen-audit-diff-v85-v86.txt`.
   - 감사 도구를 고치기 전(V86:V-7) 결과는 `v86/screen-audit-tool-v85/` 다.
+- T-12: 속도 문장 세 갈래·다 씀·예산 없음·지난달을 픽스처로 본다(`validate-design-uplift-v22986.mjs`).
+  - 환불 꺼짐 화면 원문 대조는 `v86/t12-refund-compare.txt`(T-12 세 자리 밖 차이 0).
 - 아이콘: 원본과 2% 넘게 다른 아이콘이 V22.9.85 6개 → V22.9.86 0개다(`v86/icon-compare-v85-v86.txt`).
 - 환불 연결 꺼짐 고정값: 이번 변경만 되돌려 옛 값을 확인하는 스크립트는 `v86/tools/refund-back-v86.mjs`.
 - 홈 HTML 바이트(티켓별): `v86/bytes-per-ticket.tsv`.

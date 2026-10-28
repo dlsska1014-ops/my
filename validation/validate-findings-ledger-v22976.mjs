@@ -23,7 +23,7 @@ const SOURCES = [
   // V22.9.85: V22.9.83·84 코드 검토·디자인 적합성 점검·화면 감사에서 찾은 항목.
   { key: "V85", path: "docs/codex/DESIGN_FINDINGS_V22_9_85.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(R-[0-9]+)(?=[ *]|$)/gm, expected: 17 },
   // V22.9.86: 디자인 보강 3단계를 만들며 새로 찾은 항목.
-  { key: "V86", path: "docs/codex/DESIGN_FINDINGS_V22_9_86.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(V-[0-9]+)(?=[ *]|$)/gm, expected: 7 },
+  { key: "V86", path: "docs/codex/DESIGN_FINDINGS_V22_9_86.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(V-[0-9]+)(?=[ *]|$)/gm, expected: 9 },
 ];
 // '결함 아님'은 다시 확인해 보니 규격·의도대로인 항목이다. 메모에 근거(규격 문서 줄 등)를 적는다.
 const STATUSES = new Set(["고침", "일부 고침", "남음", "결정 필요", "확인 불가", "결함 아님"]);

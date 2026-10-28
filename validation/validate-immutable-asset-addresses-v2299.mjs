@@ -32,7 +32,7 @@ const PINNED = {
   // 홈 스크립트·홈 셸의 바이트가 바뀌어 다섯 주소를 v22986 으로 올렸다. 옛 주소(accountbook-shell-v22985.css·accountbook-v5-v22985.js·
   // accountbook-nav-v22985.js·mobile-home-v22984.js·mobile-home-shell-v22984.js)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아
   // 아래 옛 해시로 계속 내려간다(아직 배포 전인 V22.9.84·85 가 쓰는 주소라 보관 규칙에 든다). 홈 스타일시트(mobile-home-v22985.css)는 그대로다.
-  "/assets/accountbook-shell-v22986.css": "6d534324ee33786184a27ed63f598c070e18a37212bb112dc45a150732fd10c1",
+  "/assets/accountbook-shell-v22986.css": "fabc2973bc245f78e468dbae42cb3c4462ea5ede00bccf858dc7bd9b73d74916",
   "/assets/accountbook-v5-v22986.js": "5d9c48e23fb9d35c3995875299df8147483167d729885a2be008df99eff9283a",
   "/assets/accountbook-nav-v22986.js": "29d58d4199fe0b53d4e76983c6d822960bf7ef9bad0ee175f702d9cec020ccda",
   "/assets/mobile-home-v22986.js": "53b9a3d0e9c2ace514ef299c0c460afa913030a14756a1b89b571c32f8f8c48b",

@@ -310,6 +310,42 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   t.ok(fresh.includes("data-ab-empty-folder") && !fresh.includes('class="abEmptyState"'), "T-18 기록이 하나도 없는 새 가계부는 온보딩(빈 폴더) 그대로다");
 }));
 
+// ── T-12 예산 카드: 오늘 표시 + 속도 문장 + SMART NOTICE 통합(지시서대로 단독 커밋) ──
+// 픽스처 7월(KST 15일, 31일 달 → 경과 48%): 예산 1,230,000 · 지출 248,600(사용 20%) · 남은 981,400 ÷ 오늘 포함 17일 = 하루 57,729.
+// 분류 예산 세 개(식비·교통·카페/간식)의 금액만 바꿔 주의·초과·다 씀을 만든다. 지출은 그대로다.
+await withClock("2026-07-15", () => fixture(async (fx) => {
+  const shell = await asset(SHELL);
+  t.ok(shell.includes('body.abV22812Shell .homeProgress[style*="--ab-today"]:after{content:"";position:absolute;top:50%;left:var(--ab-today);width:2px;height:22px;'), "T-12 오늘 표시는 게이지 위 2×22px 막대(--ab-today 경과율)");
+  t.ok(shell.includes('@media(forced-colors:active){body.abV22812Shell .homeProgress[style*="--ab-today"]:after{background:CanvasText}}'), "T-12 강제 색상 모드에서도 오늘 표시가 보인다");
+  t.ok(/\.homeDailyPlan\.homePace\{[^}]*border-radius:14px;background:var\(--ab12-accent-soft\)\}/.test(shell), "T-12 §3-6 속도 문장은 accent-soft 면");
+  t.eq(maskPath(shell, "body.abV22812Shell.abMobileAppSurface .homePace:before{"), AB_UI_ICON_PATHS.clock, "T-12 속도 문장 앞 시계 아이콘(CSS 마스크)");
+  t.ok(shell.includes("body.abV22812Shell.abMobileAppSurface .homePace.homeDailyPlanOver>p{color:var(--ab12-warn-text)}"), "T-12 넘었거나 다 쓴 달은 경고 글자");
+  const cats = fx.db.accountbook_budgets.filter((b) => b.household_id === HH && b.month === "2026-07" && !b.category.startsWith("__"));
+  t.eq(cats.map((b) => b.amount).join(","), "800000,250000,180000", "T-12 픽스처 분류 예산 세 개");
+  const setBudgets = (amounts) => cats.forEach((b, i) => { b.amount = amounts[i]; });
+  const plan = (html) => { const at = html.indexOf('<div class="homeDailyPlan'); return at < 0 ? "" : html.slice(at, html.indexOf("</div>", at) + 6); };
+  const num = (n) => `<span data-ab-num="${n}" data-ab-num-unit="원">${n.toLocaleString("en-US")}</span>원`;
+  const base = await home(fx);
+  t.ok(!base.includes("homeNotice") && !base.includes("SMART NOTICE"), "T-12 홈에 SMART NOTICE 띠가 없다(예산 말은 속도 문장 하나)");
+  t.eq(plan(base), `<div class="homeDailyPlan homePace"><p>이번 달의 48%가 지났고 예산은 20%만 썼어요. 하루 ${num(57729)}씩 쓰면 돼요.</p><small>월말 예상대로면 716,227원이 남아요</small></div>`, "T-12 §3-6 여유(사용률 ≤ 경과율)");
+  t.ok(base.includes('<div class="homeProgress" style="--ab-today:48%"><i style="width:20%"'), "T-12 이번 달 게이지에 오늘 표시(경과율 48%)");
+  t.ok(Buffer.byteLength(base) <= 35768, `T-12 통합으로 홈 HTML 이 줄거나 같다(35,768 → ${Buffer.byteLength(base)} B)`);
+  setBudgets([100000, 100000, 100000]);
+  t.eq(plan(await home(fx)), `<div class="homeDailyPlan homePace"><p>이번 달의 48%가 지났는데 예산은 83%를 썼어요. 남은 17일은 하루 ${num(3023)} 안에서 써 보세요.</p><small>예상대로면 예산이 13일 먼저 끝나요</small></div>`, "T-12 §3-6 주의(경과율 < 사용률 < 100)");
+  setBudgets([50000, 50000, 50000]);
+  t.eq(plan(await home(fx)), `<div class="homeDailyPlan homePace homeDailyPlanOver"><p>예산을 98,600원 넘었어요. 예산을 늘리거나 남은 기간 지출을 줄여 보세요.</p></div>`, "T-12 §3-6 초과(사용률 ≥ 100)");
+  setBudgets([148600, 50000, 50000]);
+  t.eq(plan(await home(fx)), `<div class="homeDailyPlan homePace homeDailyPlanOver"><p>예산을 모두 썼어요. 예산을 늘리거나 남은 기간 지출을 줄여 보세요.</p></div>`, "T-12 남은 예산이 딱 0원이면 ‘0원 넘었어요’·‘하루 0원’ 대신 ‘모두 썼어요’");
+  setBudgets([800000, 250000, 180000]);
+  fx.db.accountbook_budgets.push(...cats.map((b) => ({ ...b, id: `${b.id}-06`, month: "2026-06" })));
+  const prev = await home(fx, `/app?month=2026-06&household_id=${HH}`);
+  t.ok(prev.includes("지난달 보는 중") && !prev.includes("homeDailyPlan") && !prev.includes("--ab-today") && !prev.includes("homeNotice"), "T-12 지난달 보기는 문장·오늘 표시 없이 ‘지난달 보는 중’ 흐름을 따른다");
+  fx.db.accountbook_budgets = fx.db.accountbook_budgets.filter((b) => !(b.household_id === HH && b.month === "2026-07" && !b.category.startsWith("__income")));
+  const none = await home(fx);
+  t.eq(plan(none), '<div class="homeDailyPlan homeDailyPlanEmpty"><a href="/budgets?month=2026-07&amp;household_id=house-home">예산을 설정하면 하루 기준이 생겨요</a></div>', "T-12 예산이 없는 달의 안내는 카드 안 링크 한 줄");
+  t.ok(!none.includes("--ab-today") && !none.includes("homeNotice"), "T-12 예산이 없으면 오늘 표시도 띠도 없다");
+}));
+
 // ── V86:V-7 화면 감사 도구(사람이 돌린다, 하네스 밖): 아이콘 칸에 그린 선택 표시와 안쪽 윤곽선도 잰다 ──
 const auditTool = readFileSync(new URL("../tools/screen-audit.mjs", import.meta.url), "utf8");
 t.ok(auditTool.includes('const SLOTS = ["top", "right", "bottom", "left", "::before", "::after", "ring"];') && auditTool.includes("/\\binset\\b/.test(part)"), "V86:V-7 감사 도구가 안쪽 윤곽선(box-shadow inset)을 한 변으로 잰다");

@@ -24,6 +24,9 @@
 // 해시 입력에서 그 셋을 V22.9.84 값으로 되돌려 돌리면 옛 값 그대로 268개가 모두 통과함을 먼저 확인했고, 그 뒤 --print-golden 으로 12개(home·homeTrend·homePrev·budgets·budgetAlerts·reports·reportsWeek·analysis·backupPage·backupFull·backupMonth·candidate)를 다시 얻었다.
 // V22.9.86(2026-10-28): 디자인 보강 3단계는 홈 HTML 의 입력 바(T-14)·미리보기 줄 data-income·기록 없는 달의 빈 상태(T-18)·저장 알림 표식과 버튼(T-15)·홈 리포트 카드 ‘%’ 뒤 단어 잇개(V85:R-15)·빈 달 금액의 부호(V86:V-5), 자산 주소 다섯 개(v22986)·판 이름만 바꾼다.
 // 해시 입력에서 그것들을 V22.9.85 모양으로 되돌려 돌리면 옛 값 그대로 268개가 모두 통과함을 먼저 확인했고, 그 뒤 --print-golden 으로 12개(home·homeTrend·homePrev·budgets·budgetAlerts·reports·reportsWeek·analysis·backupPage·backupFull·backupMonth·candidate)를 다시 얻었다.
+// V22.9.86 T-12(2026-10-29, 단독 커밋): 홈 예산 카드의 세 자리(게이지 --ab-today·하루 계획 줄·SMART NOTICE 띠)만 바뀐다. 해시하는 화면 원문 96개를
+// T-12 전후로 떠서 그 세 자리를 지우면 모두 같음을 확인한 뒤(review-artifacts/design-uplift-2026-10-28/v86/t12-refund-compare.txt, 바뀐 17개·그 밖 차이 0)
+// --print-golden 으로 다시 얻었고, 바뀐 값은 home·homeTrend·homePrev 셋이다.
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -33,9 +36,9 @@ import { BASE, app, ctx, fixture, intercept, page, post, skill, withClock } from
 const PRINT_GOLDEN = process.argv.includes("--print-golden");
 const SOFT = process.env.V22980_SOFT === "1";
 const FLAG_OFF_GOLDEN = {
-  "home": "200 ef94da388fc7b8e9d078b8aa",
-  "homeTrend": "200 dd179d3debd4e5c9b50d145a",
-  "homePrev": "200 d0de9fe8416d4605def6b530",
+  "home": "200 aa7f1425b42f1641d0815359",
+  "homeTrend": "200 fc30e011adc311f43bdcfd89",
+  "homePrev": "200 33c744a9d2941385c0f43d4c",
   "budgets": "200 4ed093f97c5ad145eccd0302",
   "budgetAlerts": "200 4387aec1a8791ce90cab13aa",
   "notifications": "200 df9761ab7204d02ba148aa42",

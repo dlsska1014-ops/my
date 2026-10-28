@@ -200,8 +200,28 @@ function emptyStateCss() {
   ].join("\n");
 }
 
+// T-12 예산 카드(§3-6 속도 문장): 게이지 아래 accent-soft 면에 시계 아이콘(CSS 마스크)과 문장 한 줄. 예산을 넘었거나 다 쓴 달
+// (.homeDailyPlanOver)은 경고 면·경고 글자다. 오늘 표시는 서버가 이번 달·예산이 있을 때만 게이지에 다는 --ab-today(경과율)로 그린다.
+// 지시서의 <i class="homeBudgetToday"> 는 쓰지 않는다 — 그 이름은 카드의 ‘오늘 쓴 돈’ 줄이 이미 쓰고, 게이지 채움 규칙(.homeProgress i,
+// 옛 런타임·mobile-v81 CSS)이 그 안의 모든 i 를 채움 막대로 그린다. 표시는 장식이고 같은 내용은 문장이 말한다.
+function budgetPaceCss() {
+  return [
+    `body.abV22812Shell .homeProgress[style*="--ab-today"]{overflow:visible}`,
+    `body.abV22812Shell .homeProgress[style*="--ab-today"]:after{content:"";position:absolute;top:50%;left:var(--ab-today);width:2px;height:22px;border-radius:1px;background:var(--ab12-text);transform:translate(-50%,-50%);pointer-events:none}`,
+    `@media(forced-colors:active){body.abV22812Shell .homeProgress[style*="--ab-today"]:after{background:CanvasText}}`,
+    `body.abV22812Shell.abMobileAppSurface .homeDailyPlan.homePace{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px 10px;margin-top:var(--ab12-sp-3,12px);padding:12px 14px;border:0;border-radius:14px;background:var(--ab12-accent-soft)}`,
+    `body.abV22812Shell.abMobileAppSurface .homePace:before{content:"";flex:none;width:20px;height:20px;margin-top:1px;background:var(--ab12-accent);--ab-ico:${iconMaskUrl(AB_UI_ICON_PATHS.clock)};${AB_ICON_MASK}}`,
+    `body.abV22812Shell.abMobileAppSurface .homePace>p{flex:1 1 0;min-width:0;margin:0;color:var(--ab12-text);font-size:14px;font-weight:700;line-height:1.5;word-break:keep-all;overflow-wrap:break-word}`,
+    `body.abV22812Shell.abMobileAppSurface .homePace>p [data-ab-num]{font-weight:800;font-variant-numeric:tabular-nums}`,
+    `body.abV22812Shell.abMobileAppSurface .homePace>small{flex-basis:100%;margin:0 0 0 30px}`,
+    `body.abV22812Shell.abMobileAppSurface .homePace.homeDailyPlanOver{background:var(--ab12-warn-bg)}`,
+    `body.abV22812Shell.abMobileAppSurface .homePace.homeDailyPlanOver:before{background:var(--ab12-warn-text)}`,
+    `body.abV22812Shell.abMobileAppSurface .homePace.homeDailyPlanOver>p{color:var(--ab12-warn-text)}`,
+  ].join("\n");
+}
+
 function designUplift3Css() {
-  return [homeHeaderCss(), bottomSheetCss(), categoryCircleCss(), navIconStrokeCss(), bottomTabCss(), quickEntryCss(), saveFeedbackCss(), emptyStateCss(), homeCardFollowupCss()].join("\n");
+  return [homeHeaderCss(), bottomSheetCss(), categoryCircleCss(), navIconStrokeCss(), bottomTabCss(), quickEntryCss(), saveFeedbackCss(), emptyStateCss(), homeCardFollowupCss(), budgetPaceCss()].join("\n");
 }
 // @build:exports-start
 export { designUplift3Css };

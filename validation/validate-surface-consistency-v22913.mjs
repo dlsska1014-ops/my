@@ -61,7 +61,9 @@ try {
 
   const home = await (await app.fetch(new Request(`${ORIGIN}/app?month=2026-07&household_id=house-home`,
     { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0 (iPhone)" } }), fixture.env, {})).text();
-  ok(home.includes('class="reportChallenge"') && home.includes('class="homeNotice"'), "홈에 어두운 블록이 둘 다 있다");
+  // V22.9.86 T-12: 홈의 SMART NOTICE 띠(homeNotice)를 예산 카드 속도 문장으로 합쳐 홈의 어두운 블록은 챌린지 하나다.
+  // 아래 3) 의 공용 규칙(:is(.reportChallenge,.homeNotice))은 셸 CSS 에 그대로 있다(옛 바이트를 받는 화면이 같은 얼굴을 쓴다).
+  ok(home.includes('class="reportChallenge"') && !home.includes('class="homeNotice"'), "홈의 어두운 블록은 챌린지 하나다(SMART NOTICE 띠는 속도 문장으로 합침)");
 } finally {
   fixture.restore();
 }
