@@ -1,3 +1,23 @@
+## V22.9.86 디자인 보강 3단계 검사
+
+- 두 모드 하네스와 CI. 두 모드 실측: 일반 36,135 · 분류 표 부재 36,132(체크섬 693개).
+- 새 검사: `validation/validate-design-uplift-v22986.mjs`(`npm run validate:design-uplift`).
+- 지시서가 티켓마다 정한 검사는 모두 통과했다: `review-artifacts/design-uplift-2026-10-28/v86/ticket-checks-c1.txt`.
+  - validate:performance·home-rail-challenge·income-reserve·v5·lucian-a·input-prerequisites·core-write·ux-principles·household-security·lifecycle.
+- 화면 감사(화면 14 × 390·1280 × 네 톤 × 라이트·다크 = 224번):
+  - 넘침·대비 미달은 0이다.
+  - 선택 상태 구분 실패 124번은 V22.9.85 와 같고(목록 차이 0), 모두 이전부터 있던 것이다(R-9 사이드바·R-10 분석 기간 탭·R-11 `a.on`·세그먼트).
+  - 하단 탭은 모든 화면·톤에서 통과한다. 감사 도구가 아이콘 칸 표시를 재도록 고친 뒤다(V86:V-7).
+  - 고정 요소 가림(참고): 390px 홈 17.4 → 12.1%, 내역 11 → 8.4%.
+  - 결과 `v86/screen-audit-v86`·`v86/screen-audit-v85`, 차이 `v86/screen-audit-diff-v85-v86.txt`.
+  - 감사 도구를 고치기 전(V86:V-7) 결과는 `v86/screen-audit-tool-v85/` 다.
+- 아이콘: 원본과 2% 넘게 다른 아이콘이 V22.9.85 6개 → V22.9.86 0개다(`v86/icon-compare-v85-v86.txt`).
+- 환불 연결 꺼짐 고정값: 이번 변경만 되돌려 옛 값을 확인하는 스크립트는 `v86/tools/refund-back-v86.mjs`.
+- 홈 HTML 바이트(티켓별): `v86/bytes-per-ticket.tsv`.
+- 수동(사용자):
+  - 실제 휴대폰 3종: 머리말 가계부 고르기 시트, 입력 바와 ＋, 저장 알림·새 행 강조·다시 시도, 빈 달의 ‘첫 기록 남기기’.
+  - 다크·고대비·움직임 줄이기, 화면 읽기.
+
 ## V22.9.85 디자인 보강 2단계 검사
 
 - 두 모드 하네스와 CI. 두 모드 실측: 일반 35,764 · 분류 표 부재 35,761(체크섬 689개).

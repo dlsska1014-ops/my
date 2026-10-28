@@ -1,6 +1,7 @@
 // @build:imports-start
 import { quickChipIconCss } from "../web/quick-chip-icons.js";
 import { designUpliftIconCss } from "./icon-mask-css.js";
+import { designUplift3Css } from "./design-uplift-3-css.js";
 import { ACCOUNTBOOK_SHELL_V22811_CSS } from "./asset-registry.js";
 // @build:imports-end
 
@@ -1413,6 +1414,8 @@ body.abV22812Shell .quickMore>summary>span{flex:none;white-space:nowrap}
   // V22.9.85 T-09·T-10: 카테고리 팔레트 토큰(§3-2)·카테고리 동그라미 마스크·웹 화면 이모지를 대신하는 아이콘. 만드는 곳은 icon-mask-css.js.
   // 아래 V22.9.40 (C) 블록은 셸 CSS 맨 끝에 치환 없이 있어야 해서(validate-ui-perf-v22940) 그 앞에 끼운다.
   + `\n${designUpliftIconCss()}\n`
+  // V22.9.86 (지시서 3단계): 모바일 홈 머리말·바텀시트·예산 속도 문장·입력 바·알림·탭 바·빈 상태. 만드는 곳은 design-uplift-3-css.js.
+  + `${designUplift3Css()}\n`
   + `/* ── V22.9.40 (C) 점진적 최신 규칙 ──
    모르는 브라우저는 모르는 속성·@supports 블록을 통째로 건너뛰므로 아무것도 바뀌지 않는다.
    · 제목 줄바꿈은 text-wrap-style(긴 이름)만 쓴다. 줄임 이름 text-wrap 은 text-wrap-mode 까지 wrap 으로 되돌려

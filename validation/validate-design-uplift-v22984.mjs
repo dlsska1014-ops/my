@@ -32,19 +32,26 @@ const asset = async (path) => {
 const homeHtml = async (fx) => (await app.fetch(new Request(`${BASE}${HOME}`, { headers: { cookie: fx.cookie, "user-agent": UA } }), fx.env, ctx)).text();
 
 // 이 판의 실측(2026-10-28). 홈 HTML 은 V22.9.83 과 같은 바이트여야 한다.
-const HOME_BASE_MAX = 35626;
-const HOME_200_MAX = 40290;
+// V22.9.86: 3단계 T-14 의 "한 줄로 기록하기" 입력 바(링크 하나)와 미리보기 줄의 data-income(+148 B), V85:R-15 의 단어 잇개(U+2060, +3 B)로
+// 기준 35,768 B·200행 40,432 B 가 됐다.
+// 지시서 §1 의 35 KiB(35,840 B) 기준 안이다. 3단계의 다른 티켓(T-11·T-13·T-15·T-17·T-18)은 홈 HTML 에 더하지 않는다(JS·CSS·빈 달에서만).
+const HOME_BASE_MAX = 35768;
+const HOME_200_MAX = 40432;
 // V22.9.85: 2단계(T-09 카테고리 토큰·마스크 15개, T-10 화면 아이콘 마스크 3개)와 R-1·R-3·R-6·R-7·의료 제외 낱말로 셸이 239,647 B(gzip 49,917)가 됐다.
-const SHELL_CSS_MAX_BYTES = 239647;
+// V22.9.86: 3단계(T-11 머리말·가계부 고르기 시트, T-13 동그라미, T-14 입력 바·시트, T-15 알림·새 행 강조, T-17 탭 바, T-18 빈 상태)가
+// design-uplift-3-css.js 로 붙고, V85 검토 후속 R-8(다크 탭 글자)·R-12(날짜 칩)·R-13(빠른 입력 초점)·R-16(챌린지 카드 초점)과 메뉴 아이콘 선(V86:V-6)·탭 아이콘 크기가 더해져
+// 셸이 257,952 B 가 됐다(하단 탭 알약 윤곽선 46 B 포함).
+const SHELL_CSS_MAX_BYTES = 257952;
 // V22.9.85: R-3·R-6·R-7 의 다크·초점 규칙이 이미 !important 인 규칙(모든 링크 강조색·다크 표면 목록·옛 2px 초점 링)을 이겨야 해서 12회 늘었다.
-const SHELL_IMPORTANT_MAX = 1518;
+// V22.9.86: 81회 늘었다. 모두 이미 !important 인 옛 규칙(머리말 단추 40px·탭 바 높이·칩 패딩·빠른 입력 시트·알림 면 색·옛 칩 무리·outline:0)을 이겨야 하는 자리다.
+const SHELL_IMPORTANT_MAX = 1599;
 const HOME_CSS_IMPORTANT_MAX = 368;
 
-const SHELL = "/assets/accountbook-shell-v22985.css";
+const SHELL = "/assets/accountbook-shell-v22986.css";
 const HOME_CSS = "/assets/mobile-home-v22985.css";
-const V5 = "/assets/accountbook-v5-v22985.js";
-const HOME_JS = "/assets/mobile-home-v22984.js";
-const HOME_SHELL_JS = "/assets/mobile-home-shell-v22984.js";
+const V5 = "/assets/accountbook-v5-v22986.js";
+const HOME_JS = "/assets/mobile-home-v22986.js";
+const HOME_SHELL_JS = "/assets/mobile-home-shell-v22986.js";
 
 await withClock("2026-07-15", () => fixture(async (fx) => {
   const home = await homeHtml(fx);

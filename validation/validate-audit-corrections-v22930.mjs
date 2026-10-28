@@ -126,7 +126,7 @@ for(let i=0;i<40;i++) {
   const textContent=node=>[node.textContent||"",...(node.children||[]).map(textContent)].join(" ");const gauge=textContent(nodes.budgetBox);
   ok(gauge.includes("800,000"),"actual analysis renderer retains matching budget remainder");ok(gauge.includes("200,000")&&!gauge.includes("170%"),"actual analysis renderer does not count uncovered expense");eq(paceRows.length,1,"actual analysis pace curve follows configured-category scope");
   const r=await app.fetch(new Request(BASE+"/skill",{method:"POST",headers:{"content-type":"application/json","user-agent":"audit-budget-unique"},body:JSON.stringify({userRequest:{utterance:"남은 예산",user:{id:"kakao_login:2265",properties:{}}}})}),f.env,{waitUntil(){}});const text=(await r.json()).template.outputs.map(o=>o.simpleText?.text||"").join("\n");ok(text.includes("800,000원"),"actual Kakao remaining budget matches web: "+text);ok(text.includes("200,000원"),"actual Kakao budgeted usage matches web");
-  const asset=await(await app.fetch(new Request(BASE+"/assets/mobile-home-shell-v22984.js"),{},{})).text();const start=asset.indexOf("function moneyTokenSpans(");const end=asset.indexOf("(function(){var q=");const parsed=vm.createContext({});vm.runInContext(asset.slice(start,end),parsed);eq(vm.runInContext('parseMobileAmountText("전세 1억 5천만원")',parsed),150000000,"actual immutable asset ships the combined-unit scanner");eq(vm.runInContext('quickInputDate("7/4", "2026-10-07")',parsed),"2026-07-04","actual immutable asset ships the date helper");
+  const asset=await(await app.fetch(new Request(BASE+"/assets/mobile-home-shell-v22986.js"),{},{})).text();const start=asset.indexOf("function moneyTokenSpans(");const end=asset.indexOf("(function(){var q=");const parsed=vm.createContext({});vm.runInContext(asset.slice(start,end),parsed);eq(vm.runInContext('parseMobileAmountText("전세 1억 5천만원")',parsed),150000000,"actual immutable asset ships the combined-unit scanner");eq(vm.runInContext('quickInputDate("7/4", "2026-10-07")',parsed),"2026-07-04","actual immutable asset ships the date helper");
  }finally{globalThis.__AB_QA_FIXED_NOW_MS=oldNow;f.restore();}
 }
 {
@@ -148,7 +148,7 @@ for(let i=0;i<40;i++) {
  try {
   f.db.transactions=[];f.db.accountbook_budgets=[{id:"food-only",household_id:"house-home",month:"2026-07",category:"식비",amount:100000}];
   const html=await(await call(f,"GET","/app?month=2026-07&household_id=house-home")).text();
-  const script=await(await app.fetch(new Request(BASE+"/assets/mobile-home-shell-v22984.js"),{},{})).text();
+  const script=await(await app.fetch(new Request(BASE+"/assets/mobile-home-shell-v22986.js"),{},{})).text();
   const end=script.indexOf("\n(function mobileShellUiClientMain");ok(end>0,"actual shipped quick-input IIFE boundary exists");
   const afterTag=html.match(/<p[^>]*id="quickAfter"[^>]*>/)[0];
   const afterAttrs=Object.fromEntries([...afterTag.matchAll(/([a-z-]+)="([^"]*)"/g)].map(match=>[match[1],decode(match[2])]));
@@ -170,7 +170,8 @@ for(let i=0;i<40;i++) {
   const covered=createState();covered.fill("식비 20000원");covered.manual("catInput","식비");ok(covered.fields.quickAfter.textContent.includes("80,000원"),"covered category preview matches budgetSummary");
   const uncovered=createState();uncovered.fill("쇼핑 20000원");uncovered.manual("catInput","쇼핑");ok(uncovered.fields.quickAfter.textContent.includes("차감하지"),"uncovered category preview never subtracts covered allowance");eq(budgetSummary([{type:"expense",category:"쇼핑",amount:20000}],f.db.accountbook_budgets).remaining,100000,"uncovered stored allowance matches preview meaning");
   const otherMonth=createState();otherMonth.fill("식비 20000원");otherMonth.manual("txDate","2026-06-04");ok(otherMonth.fields.quickAfter.textContent.includes("해당 월"),"other-month input defers current-month numeric forecast");ok(!otherMonth.fields.quickAfter.textContent.includes("80,000원"),"other-month forecast does not reduce current allowance");
-  const income=createState();income.fill("용돈 30000원");ok(income.fields.quickAfter.textContent.includes("지출 예산을 차감하지"),"income preview preserves expense budget");
+  // V22.9.86 T-14(지시서 §3-6): 같은 달 수입 미리보기는 이번 달 수입 합계(미리보기 줄 data-income)에 더한 값을 말한다. 지출 예산은 여전히 건드리지 않는다.
+  const income=createState();income.fill("용돈 30000원");ok(/^저장하면 이번 달 수입이 [0-9,]+원이 돼요$/.test(income.fields.quickAfter.textContent)&&!income.fields.quickAfter.textContent.includes("예산"),"income preview adds to this month income and never touches the expense budget");
   const deliberate=createState();deliberate.fill("식비 4500원");deliberate.manual("amountInput","8500");deliberate.manual("catInput","쇼핑");deliberate.fill("식비 12000원");eq(deliberate.fields.amountInput.value,"8,500","deliberate manual amount survives new AUTO suggestion");eq(deliberate.fields.catInput.value,"쇼핑","deliberate category survives keyword suggestion");
   f.db.accountbook_settings.push({key:"kakao_selected_household_v2251:user-bin",value:"house-home"});
   for(const [text,date]of [["점심 12000 7/4","2026-07-04"],["내일배움카드 5000","2026-07-15"],["3일 전 커피 4500","2026-07-12"],["3일 후 점심 7000","2026-07-18"],["2주 전 택시 8000","2026-07-01"],["2주 후 식비 9000","2026-07-29"]]) {

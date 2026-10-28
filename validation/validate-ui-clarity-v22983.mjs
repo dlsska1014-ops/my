@@ -76,7 +76,7 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   t.ok(/<a data-key="budgets" class="active" aria-current="page"/.test(reserve), "4 정기 수입·지출 화면은 하단 예산 탭을 켠다");
   t.deepEq(activeSidebar(reserve), ["정기 수입·지출"], "2 정기 수입·지출은 사이드바에서 제 항목을 켠다(예산 탭 아래 숨지 않는다)");
   const navPath = (home.match(/\/assets\/accountbook-nav-v\d+\.js/) || [])[0];
-  t.ok(navPath === "/assets/accountbook-nav-v22985.js", `4 홈이 바뀐 메뉴 스크립트 주소를 쓴다 (${navPath})`);
+  t.ok(navPath === "/assets/accountbook-nav-v22986.js", `4 홈이 바뀐 메뉴 스크립트 주소를 쓴다 (${navPath})`);
   const navJs = await asset(navPath);
   const clientTabs = [...navJs.matchAll(/\{ key: "([a-z]+)", icon: "[a-z]+", label: "([^"]+)", href:/g)].map(([, key, label]) => `${key}:${label}`);
   t.deepEq(clientTabs, BOTTOM, "4 브라우저가 다시 그리는 하단 탭도 같은 다섯 칸·같은 이름이다(화면이 뜨는 순간 이름이 바뀌지 않는다)");
@@ -121,7 +121,7 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   t.ok(text.includes("이번 달분 지금 기록하기"), "7 이번 달분을 지금 넣는 단추 이름");
   // 이 화면은 브라우저 안내 배치(guidedUiUxClientMain)를 인라인으로 받고, 모바일 홈은 같은 함수를 홈 스크립트 자산으로 받는다.
   t.ok(reserve.includes('heading.textContent = "납부·입금 일정 추가"') && !reserve.includes("정기 항목 저장"), "7 이 화면의 인라인 안내 배치가 붙이는 제목도 같다");
-  const homeJs = await asset("/assets/mobile-home-v22984.js");
+  const homeJs = await asset("/assets/mobile-home-v22986.js");
   t.ok(homeJs.includes('heading.textContent = "납부·입금 일정 추가"') && homeJs.includes('submitButton.textContent = "일정 저장"') && !homeJs.includes("정기 항목 저장"), "7 브라우저 안내 배치가 붙이는 제목·단추 이름도 같다");
   t.ok(homeJs.includes('document.querySelector(".reserveSmartForm")'), "7 브라우저 안내 배치는 .reserveSmartForm(이제 추가 양식 하나)을 잡는다");
 
