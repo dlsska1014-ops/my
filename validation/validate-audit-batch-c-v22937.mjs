@@ -28,12 +28,7 @@ const NAV_JS = "/assets/accountbook-nav-v22983.js";
 const V5_JS = "/assets/accountbook-v5-v22984.js";
 const GOALS_JS = "/assets/accountbook-goals-v22946.js";
 const PREVIOUS_ASSETS = {
-  "/assets/accountbook-nav-v22930.js": ["accountbook-nav-v22930-js", "b76bebe25f3f0138e918129c7f34e4fa973f1dc53fec0ea905afc4a04bb9de60"],
-  "/assets/accountbook-v5-v22934.js": ["accountbook-v5-v22934-js", "0c85fadaee93b78357fd32e9c9b595b66edd5d33601e51fc30ee6a746ad4463d"],
-  "/assets/accountbook-goals-v22929.js": ["accountbook-goals-v22929-js", "1f52fca714cf0683555a75c8a2768f2b007273130ac05081757577aaedc38fe5"],
-  "/assets/accountbook-favrows-v22836.js": ["accountbook-favrows-v22836-js", "04b2c5df73273baffbaf09b00a0f1e69871febafc24dae81d1f7238a9e3e9aa7"],
-  "/assets/accountbook-search-v22929.js": ["accountbook-search-v22929-js", "965589e96d188674d7a1dc151446201ec2197da3e0d4eada885c0f4bef8695ae"],
-  "/assets/accountbook-notif-v22836.js": ["accountbook-notif-v22836-js", "7a6ef7fe4ca223901e2dc29550add0fe23f3f61803b884ecfb4d6edba33cfc07"],
+  "/assets/accountbook-nav-v22937.js": ["accountbook-nav-v22937-js", "c6c30dcbf5ea883ca539becccba221d6c7e616c39859441afc7c4e1fd6ba3ed8"],
 };
 const assetCache = new Map();
 async function asset(path) {

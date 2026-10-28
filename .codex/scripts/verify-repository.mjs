@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_84.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_85.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -330,7 +330,8 @@ function run(command, args, label) {
 // V22.9.82: 새 동작 검사 2개(앱 이용 현황 85·관제 이용 현황 182, 옛 관제 검사 4개는 판 고정값만). 두 모드 실측: 일반 35,102 · 분류 표 부재 35,099(V22.9.82 통합).
 // V22.9.83: 새 검사 2개(화면 정리 54·테스트 서버 109)와 옛 이름·구조를 고정하던 화면 검사 갱신. 두 모드 실측: 일반 35,237 · 분류 표 부재 35,234(V22.9.83 화면 정리).
 // V22.9.84: 새 검사 1개(디자인 보강 1단계 65)·불변 자산 고정 5개(+15)와 옛 검사 6개 갱신(홈 스타일시트 해시·환불 꺼짐 화면 해시·ETag 판·정규식 셸 주소·고른 칩 색). 두 모드 실측: 일반 35,318 · 분류 표 부재 35,315(V22.9.84 디자인 보강 1단계).
-const EXPECTED_MINIMUM_CHECKS = 35315;
+// V22.9.85 옛 자산 정리: 보관 주소 64 → 16(불변 고정 해시 45개 −135 · 정리한 주소 404 확인 +96 · 옛 보관본 검사 −16). 두 모드 실측: 일반 35,263 · 분류 표 부재 35,260(V22.9.85 옛 자산 정리).
+const EXPECTED_MINIMUM_CHECKS = 35260;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

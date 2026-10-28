@@ -144,16 +144,14 @@ await fixture(async (fx) => {
   ok(contrast("#edeff3", "#f8fafc") < 1.5, "A3 고치기 전 다크 읽기 전용 칸은 밝은 배경 위 밝은 글자였다(1.1:1, 헤드리스 Chrome 실측 재현)");
   const head = await asset("/assets/mobile-home-v22984.css", "HEAD");
   ok(head.status === 200 && head.bytes.length === 0 && head.etag === css.etag, "A3 새 주소의 HEAD 는 본문 없이 같은 ETag 다");
-  // 옛 주소는 1년 캐시 약속대로 옛 바이트를 그대로 낸다(AB_HISTORICAL_RUNTIME_ASSETS, CSS 형식).
-  const old = await asset("/assets/mobile-home-v22919.css");
-  eq(old.status, 200, "A3 옛 주소(v22919)도 계속 내려간다");
-  ok(old.type.startsWith("text/css") && old.cache.includes("immutable") && old.etag === '"mobile-home-v22919-css"', `A3 옛 주소는 CSS 형식·불변 캐시·옛 ETag 그대로다 (${old.type})`);
-  eq(sha256(old.bytes), "0695bbde13382d71c11769607dabd7b70e91e1b7b83c8a4df4a8b92794d047f7", "A3 옛 주소의 바이트는 V22.9.19 고정 해시 그대로다");
-  ok(old.text.includes(".v8-edit-field>span,.v8-spender-readonly>span{font-size:11px;color:#687385;font-weight:1000}"), "A3 옛 바이트에는 옛 색이 그대로 있다(바이트를 고치지 않았다)");
-  const oldHead = await asset("/assets/mobile-home-v22919.css", "HEAD");
+  // V22.9.85: v22919 보관본은 옛 주소 정리로 뺐다. CSS 형식 보관은 남은 보관본(운영 V22.9.80 의 홈 스타일시트)으로 본다.
+  const old = await asset("/assets/mobile-home-v22979.css");
+  eq(old.status, 200, "A3 보관된 옛 주소(v22979)가 계속 내려간다");
+  ok(old.type.startsWith("text/css") && old.cache.includes("immutable") && old.etag === '"mobile-home-v22979-css"', `A3 옛 주소는 CSS 형식·불변 캐시·옛 ETag 그대로다 (${old.type})`);
+  eq(sha256(old.bytes), "2fcbe755ae1b608875b4a2eedb38e379459a5bd97f390f9577d61a92cdf50562", "A3 옛 주소의 바이트는 고정 해시 그대로다");
+  const oldHead = await asset("/assets/mobile-home-v22979.css", "HEAD");
   ok(oldHead.status === 200 && oldHead.bytes.length === 0 && oldHead.type.startsWith("text/css"), "A3 옛 주소의 HEAD 도 CSS 형식이고 본문이 없다");
-  const nav = await asset("/assets/accountbook-v5-v22934.js");
-  ok(nav.status === 200 && nav.type.startsWith("text/javascript"), "A3 형식을 적지 않은 옛 JS 보관본은 예전처럼 JS 로 내려간다");
+  eq((await asset("/assets/mobile-home-v22919.css")).status, 404, "A3 정리한 옛 주소(v22919)는 더 내려가지 않는다");
 }
 await fixture(async (fx) => {
   const home = await page(fx, HOME);

@@ -40,7 +40,8 @@
 - ‘오늘’ 날짜는 KST 다(Date.now()+9h 의 UTC 날짜). 화면 스크립트도 기기 시간대 날짜를 쓰지 않는다.
 - 역할 조회가 실패하면 ‘권한 없음’(403)으로 답하지 않는다(503 `role_check_failed`, 되돌아가는 화면은 `household_role_check_failed`). 실제 거절은 그대로다.
 - 예약 상태 키의 새 칸(`scan_after[].started`, 주간 다시 만들기 항목)은 V22.9.78·77 번들이 읽어도 버리고 돌아야 한다(되돌려도 안전).
-- 1년 캐시 자산의 바이트를 바꾸면 주소를 올리고 옛 주소의 바이트를 AB_HISTORICAL_RUNTIME_ASSETS 에 남긴다(사라진 주소 0).
+- 1년 캐시 자산의 바이트를 바꾸면 주소를 올리고 옛 주소의 바이트를 AB_HISTORICAL_RUNTIME_ASSETS 에 남긴다. V22.9.85 부터는 운영에 나간 마지막 두 판과
+  아직 배포 전인 판이 부르는 주소만 남기고 나머지는 지운다(개인 HTML no-store·서비스 워커 없음, 지운 주소는 404 — validate-immutable-asset-addresses-v2299 RETIRED).
 
 ## V22.9.78 운영자 결정 구현 보호 기준
 

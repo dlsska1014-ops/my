@@ -319,16 +319,17 @@ try {
     }
   }
 
-  const legacyJs = await request("/assets/mobile-home-v22915.js");
+  // V22.9.85: v22915 보관본은 옛 주소 정리로 뺐다. 보관본 응답 검사는 남은 보관본(운영 V22.9.80 홈 런타임)으로 한다.
+  const legacyJs = await request("/assets/mobile-home-v22980.js");
   const legacyBytes = Buffer.from(await legacyJs.arrayBuffer());
   const legacyJsGetDatabaseCalls = calls.length;
-  const legacyHead = await request("/assets/mobile-home-v22915.js", { method: "HEAD" });
+  const legacyHead = await request("/assets/mobile-home-v22980.js", { method: "HEAD" });
   const legacyJsHeadDatabaseCalls = calls.length;
   // V22.9.8: 공유로 들어온 값을 스스로 한 번 파싱하는 줄이 이 런타임에 붙었다. 바이트
 // V22.9.15: 분류 표가 30개 체계로 바뀌면서 이 런타임이 싣는 규칙도 바뀌었다.
 // 고정 자산이므로 주소를 올린다(v2298 → v22915). 고정 해시도 함께 옮긴다.
-eq(createHash("sha256").update(legacyBytes).digest("hex"), "38b828923a12319cd8b6055b3c7cf8c6bec9c7bcfaf0f77759ca14712d7ae290", "legacy home runtime bytes remain pinned");
-  eq(legacyJs.headers.get("etag"), '"mobile-home-v22915-js"', "legacy home runtime ETag remains pinned");
+eq(createHash("sha256").update(legacyBytes).digest("hex"), "d6ad5e2e7599274b472b022649bf4b83a535e163a8a4d947ed7708ced1c59383", "legacy home runtime bytes remain pinned");
+  eq(legacyJs.headers.get("etag"), '"mobile-home-v22980-js"', "legacy home runtime ETag remains pinned");
   ok(legacyHead.status === 200 && legacyHead.headers.get("etag") === legacyJs.headers.get("etag"), "legacy runtime HEAD preserves its ETag");
   eq(legacyJsGetDatabaseCalls, 0, "legacy runtime GET requires no database access");
   eq(legacyJsHeadDatabaseCalls, 0, "legacy runtime HEAD requires no database access");

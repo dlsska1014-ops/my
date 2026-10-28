@@ -1,9 +1,9 @@
 // V22.9.40 A3(감사 U9): 홈 스타일시트(MOBILE_V81_CSS)의 수정 폼 라벨 색·다크 읽기 전용 칸이 바뀌어 주소를 v22919 → v22940 으로
-// 올렸다. 옛 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 CSS 형식(contentType)으로 남아 그대로 내려간다.
+// 올렸다. 옛 주소(v22919)는 V22.9.85 옛 주소 정리로 뺐다(validate-immutable-asset-addresses-v2299 RETIRED).
 // V22.9.79: 일곱 자산의 바이트가 바뀌어 주소를 모두 v22979 로 올렸다 — 홈 스타일시트·셸 CSS(F-4 좁은 화면 넘침, F-10 관리자 백업 다크 대비),
 // 홈 스크립트·홈 셸(F-8 날짜 칩 KST, 웹·카카오 같은 입력 해석), 검색·V5 번들(웹 화면 결함), 예산 미리 보기(분류 낱말 첫 글자 거름).
 // 옛 주소(mobile-home-v22940.css·mobile-home(-shell)-v22978.js·accountbook-shell-v22947.css·accountbook-search-v22937.js·
-// accountbook-v5-v22951.js·accountbook-budget-preview-v22953.js)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 그대로 내려간다.
+// accountbook-v5-v22951.js·accountbook-budget-preview-v22953.js)는 V22.9.85 옛 주소 정리로 뺐다(운영 V22.9.78 까지만 쓰였다).
 // V22.9.80: 네 자산의 바이트가 바뀌어 주소를 v22980 으로 올렸다 — 분류 규칙(T-16 낱말 속 분류 낱말), 홈 스크립트·홈 셸(T-15 등록 결제수단
 // 낱말 끝·T-17 띄어 쓴 금액·T-18 저장 때 분류), V5 번들(T-33 사이드바 달력 KST). 옛 주소(ab-category-rules-v22976.js·
 // mobile-home(-shell)-v22979.js·accountbook-v5-v22979.js)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 그대로 내려간다.

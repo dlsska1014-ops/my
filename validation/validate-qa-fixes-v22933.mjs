@@ -169,15 +169,7 @@ await withClock("2026-10-09", () => fixture(async (fx) => {
   ok(manual.status === 303 && fx.db.transactions.some((row) => row.transaction_date === "2026-10-05" && Number(row.amount) === 12000), "B04 날짜를 직접 고친 경우는 폼 날짜를 따른다");
 }));
 await fixture(async (fx) => {
-  const assets = {};
-  for (const path of ["/assets/mobile-home-v22930.js", "/assets/mobile-home-shell-v22930.js", "/assets/mobile-home-v22933.js", "/assets/mobile-home-shell-v22933.js"]) {
-    const response = await app.fetch(new Request(`${BASE}${path}`), {}, ctx);
-    assets[path] = { status: response.status, etag: response.headers.get("etag"), cache: response.headers.get("cache-control") || "", body: Buffer.from(await response.arrayBuffer()) };
-  }
-  eq(sha256(assets["/assets/mobile-home-v22930.js"].body), "ff513d9d5936fe1393489b98170ca7f7681ed8500d6edfe3f0eb4c9d10e1c416", "B04 이전 홈 자산 v22930 바이트를 그대로 보존한다");
-  eq(sha256(assets["/assets/mobile-home-shell-v22930.js"].body), "ba1c9fc28e05a228fe47a8fa052c843d34964aa03be53e38b7cf068518bd4239", "B04 이전 홈 셸 자산 v22930 바이트를 그대로 보존한다");
-  ok(Object.values(assets).every((asset) => asset.status === 200 && asset.cache.includes("immutable")), "B04 이전·새 주소 모두 불변 자산으로 내려간다");
-  ok(["/assets/mobile-home-v22933.js", "/assets/mobile-home-shell-v22933.js"].every((path) => assets[path].body.toString("utf8").includes("([월화수목금토일])요일") && assets[path].etag.includes("v22933")), "B04 새 자산이 요일 해석을 싣고 새 판의 ETag 를 단다");
+  // V22.9.85: v22930·v22933 보관본은 옛 주소 정리로 뺐다(validate-immutable-asset-addresses-v2299 RETIRED).
   const home = await page(fx, "/app?month=2026-07&household_id=house-home");
   ok(!/mobile-home(?:-shell)?-v22930\.js/.test(home.html), "B04 새 화면은 v22930 자산을 부르지 않는다");
 });
