@@ -260,6 +260,15 @@ function reportMonthPickerClientMain() {
   sync();
 }
 
+// V22.9.83: 소비 분석(/my/analysis)의 두 보기 — 한눈에 보기(필터로 좁혀 보기)와 종합 리포트(view=report, 한 달을 모아 보기) — 를
+// 오가는 탭. 예전에는 두 화면 머리말이 서로의 역할을 긴 문장으로 설명하고 "깊게 보기(종합 리포트)"·"← 한눈에 보기(소비 분석)"
+// 단추로 건너갔다. 사이드바에도 둘이 따로(통계·분석) 있어서 같은 주소의 두 보기가 서로 다른 메뉴처럼 보였다.
+// qs 는 호출부가 만든 month·household_id 질의(이미 encodeURIComponent 됨)다.
+function renderAnalysisViewTabs(view = "summary", qs = "") {
+  const tab = (key, label, href) => `<a href="${escapeHtml(href)}"${view === key ? ' aria-current="true"' : ""}>${label}</a>`;
+  return `<div class="lrSeg abAnalysisViews" role="group" aria-label="소비 분석 보기">${tab("summary", "한눈에 보기", `/my/analysis?${qs}`)}${tab("report", "종합 리포트", `/my/analysis?view=report&${qs}`)}</div>`;
+}
+
 function renderReportMonthNavigator({ path = "/my/analysis", month = currentMonthKst(), householdId = "", view = "", extra = {} } = {}) {
   const safeMonth = validMonth(month) || currentMonthKst();
   const prev = shiftMonthString(safeMonth, -1);
@@ -317,7 +326,7 @@ function renderReportDashboard(summary = {}) {
     const itemRate = Math.max(0, Math.min(100, Number(item.rate || 0)));
     return `<li><div><b>${escapeHtml(item.category || "미분류")}</b><span>${numberWithCommas(item.spent || 0)}원 / ${numberWithCommas(item.budget || 0)}원</span></div><strong>${numberWithCommas(item.rate || 0)}%</strong><i><em style="width:${itemRate}%"></em></i></li>`;
   }).join("");
-  return `<section class="reportCockpit" aria-labelledby="reportCockpitTitle"><div class="reportCockpitHead"><div><span>MONTHLY DASHBOARD</span><h2 id="reportCockpitTitle">${escapeHtml(summary.month || "")} 한눈에 보기</h2></div><a href="/app?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}&view=calendar#calendar">거래 캘린더 보기</a></div><div class="reportCockpitGrid"><div class="reportPace"><div class="reportGauge" style="--report-rate:${rate}%"><div><b>${summary.totalBudget ? `${numberWithCommas(summary.budgetRate || 0)}%` : "—"}</b><span>예산 사용</span></div></div><p>${summary.totalBudget ? `월 ${numberWithCommas(summary.totalBudget)}원 기준` : "월 예산 미설정"}</p></div><div class="reportKpis"><div><span>이번 달 지출${refundNote ? ` · ${escapeHtml(refundNote)}` : ""}</span><b>${numberWithCommas(summary.expense || 0)}원</b></div><div><span>이번 달 수입</span><b>${numberWithCommas(summary.income || 0)}원</b></div><div><span>남은 예산</span><b>${summary.totalBudget ? `${numberWithCommas(summary.remainingBudget || 0)}원` : "설정 전"}</b></div><div><span>월말 예상 지출</span><b>${renderObservedMoney(summary, summary.forecast)}</b></div></div></div><div class="reportInsight"><span aria-hidden="true">✦</span><p>${escapeHtml(summary.insight || "")}</p></div>${categories ? `<div class="reportCategoryBudget"><div class="reportSectionTitle"><b>분류별 예산 속도</b><a href="/budgets?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}">전체 예산 보기</a></div><ul>${categories}</ul></div>` : ""}</section>`;
+  return `<section class="reportCockpit" aria-labelledby="reportCockpitTitle"><div class="reportCockpitHead"><div><span>월간 요약</span><h2 id="reportCockpitTitle">${escapeHtml(summary.month || "")} 한눈에 보기</h2></div><a href="/app?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}&view=calendar#calendar">거래 캘린더 보기</a></div><div class="reportCockpitGrid"><div class="reportPace"><div class="reportGauge" style="--report-rate:${rate}%"><div><b>${summary.totalBudget ? `${numberWithCommas(summary.budgetRate || 0)}%` : "—"}</b><span>예산 사용</span></div></div><p>${summary.totalBudget ? `월 ${numberWithCommas(summary.totalBudget)}원 기준` : "월 예산 미설정"}</p></div><div class="reportKpis"><div><span>이번 달 지출${refundNote ? ` · ${escapeHtml(refundNote)}` : ""}</span><b>${numberWithCommas(summary.expense || 0)}원</b></div><div><span>이번 달 수입</span><b>${numberWithCommas(summary.income || 0)}원</b></div><div><span>남은 예산</span><b>${summary.totalBudget ? `${numberWithCommas(summary.remainingBudget || 0)}원` : "설정 전"}</b></div><div><span>월말 예상 지출</span><b>${renderObservedMoney(summary, summary.forecast)}</b></div></div></div><div class="reportInsight"><span aria-hidden="true">✦</span><p>${escapeHtml(summary.insight || "")}</p></div>${categories ? `<div class="reportCategoryBudget"><div class="reportSectionTitle"><b>분류별 예산 속도</b><a href="/budgets?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}">전체 예산 보기</a></div><ul>${categories}</ul></div>` : ""}</section>`;
 }
 
 function renderChallengeProgress(challenge = {}, { hydrate = false } = {}) {
@@ -447,7 +456,7 @@ async function handleReportChallengeSave(request, env) {
 export {
   buildReportChallenge, buildReportChallengeForHousehold, buildReportDashboardSummary,
   challengePeriodDays, getMyPageContext, handleReportChallengeSave, normalizeReportChallenge,
-  renderReportChallenge, renderReportDashboard, renderReportMonthNavigator,
+  renderAnalysisViewTabs, renderReportChallenge, renderReportDashboard, renderReportMonthNavigator,
   reportChallengeSettingsKey, reportMonthHref, reportUxCss, shiftChallengeDate,
 };
 // @build:exports-end

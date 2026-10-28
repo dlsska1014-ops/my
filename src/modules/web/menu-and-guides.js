@@ -221,33 +221,43 @@ async function handleUnifiedMenuPage(request, env, url) {
   const householdOptions = households.length
     ? households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")
     : `<option value="">가계부 없음</option>`;
+  // V22.9.83 (화면 정리 1차): 전체 메뉴도 사이드바와 같은 묶음(기록·분석·예산·자산·함께·설정)으로 나눈다.
+  // 위 네 칸은 하단 탭(내역·입력·분석·예산)과 같은 이름을 쓴다.
   const featured = [
     ["기록 입력", `/app?${monthQs}#add`, "금액과 내용만 빠르게", "plus"],
-    ["최근 기록", `/app?${monthQs}&tab=transactions`, "확인·수정·삭제", "records"],
-    ["정산", `/settlement-summary?${monthQs}`, "모임·여행 비용 정리", "settlement"],
-    ["분석", `/my/analysis?${monthQs}`, "이번 달 소비 흐름", "stats"],
+    ["거래 내역", `/app?${monthQs}&tab=transactions`, "확인·수정·삭제", "records"],
+    ["소비 분석", `/my/analysis?${monthQs}`, "이번 달 소비 흐름", "stats"],
+    ["예산", `/budgets?${monthQs}`, "이번 달 수입과 분류별 한도", "budget"],
   ];
   const sections = [
-    ["계획과 자산", "돈의 계획과 보유 현황", [
-      ["예산", `/budgets?${monthQs}`, "이번 달 수입과 분류별 한도", "budget"],
-      ["자산·결제수단", `/payment-methods?${monthQs}`, "통장·현금·카드·대출", "wallet"],
-      ["정기 수입·지출", `/reserve-plans?${monthQs}`, "보험료·세금·반복 지출", "recurring"],
+    ["기록", "날짜별 보기와 한꺼번에 넣기", [
       ["캘린더", `/app?${monthQs}&view=calendar#calendar`, "날짜별 기록과 지출", "calendar"],
+      ["가져오기", `/my/backup?${monthQs}&mode=import#myImportForm`, "엑셀·CSV 기록 한꺼번에 넣기", "import"],
     ]],
-    ["가계부 관리", "사람과 분류, 데이터 관리", [
-      ["가계부 전환·추가", `/my/households?${monthQs}`, "새 가계부와 초대코드 참여", "switch"],
-      ["참여자·초대", `/my/members?${monthQs}`, `${adminOnlyNote}구성원과 권한 관리`, "users"],
-      ["분류·키워드", `/keyword-guide?${monthQs}`, "자동분류 기준 관리", "tag"],
-      ["백업·복구", `/my/backup?${monthQs}`, "CSV·JSON으로 보관", "backup"],
+    ["분석", "소비 흐름과 리포트", [
+      ["생활비 리포트", `/reports?${monthQs}`, "주간·월간 소비 요약", "file"],
+      ["연간 리포트", `/annual?year=${encodeURIComponent(month.slice(0, 4))}${hh}`, "한 해 수입·지출 흐름", "report"],
+      ["스마트 도구", `/smart-tools?${monthQs}`, "예측·반복·이상 지출", "sparkle"],
     ]],
-    ["분석과 자동화", "필요할 때 쓰는 보조 도구", [
-      ["생활비 리포트", `/reports?${monthQs}`, "주간·월간 소비 요약", "report"],
-      ["스마트 분석", `/smart-tools?${monthQs}`, "예측·반복·이상 지출", "sparkle"],
+    ["예산·자산", "정기 항목과 목표, 보유 현황", [
+      ["정기 수입·지출", `/reserve-plans?${monthQs}`, "매달 자동 기록·납부 일정", "recurring"],
       ["예산 알림", `/budget-alerts?${monthQs}`, "오늘 사용 가능 금액", "bell"],
+      ["저축·목표", `/goals?${monthQs}`, "모으는 돈과 목표", "sparkle"],
+      ["자산·결제수단", `/payment-methods?${monthQs}`, "통장·현금·카드·대출", "wallet"],
+    ]],
+    ["함께", "단톡방과 참여자, 정산", [
+      ["단톡방 연결", `/my/groups?${monthQs}`, "카카오톡 단톡방에서 기록", "chat"],
+      ["참여자·초대", `/my/members?${monthQs}`, `${adminOnlyNote}구성원과 권한 관리`, "users"],
+      ["정산", `/settlement-summary?${monthQs}`, "모임·여행 비용 정리", "settlement"],
+    ]],
+    ["설정", "가계부와 분류, 계정", [
+      ["가계부 전환·추가", `/my/households?${monthQs}`, "새 가계부와 초대코드 참여", "switch"],
+      ["분류·키워드", `/keyword-guide?${monthQs}`, "자동분류 기준 관리", "tag"],
+      ["백업·복구", `/my/backup?${monthQs}&mode=backup`, "CSV·JSON으로 보관", "backup"],
+      ["내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?${monthQs}`)}`, "계정 로그인·복구", "shield"],
     ]],
   ];
   const more = [
-    ["내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?${monthQs}`)}`, "계정 로그인·복구", "shield"],
     ["처음 시작", `/start-guide?${monthQs}`, "초보자 체크리스트", "check"],
     ["스마트 입력 도움말", "/quick-input-help", "한 줄·여러 줄 입력 예시", "chat"],
     ["카카오 명령어", "/kakao-commands", "챗봇 대표 발화", "chat"],
@@ -257,7 +267,7 @@ async function handleUnifiedMenuPage(request, env, url) {
   const row = ([label, href, desc, icon]) => `<a class="menuRow" href="${escapeHtml(href)}"><span class="menuRowIcon" aria-hidden="true" data-ab-nav-icon="${escapeHtml(icon)}"></span><span class="menuRowTitle">${escapeHtml(label)}</span><span class="menuRowDesc">${escapeHtml(desc)}</span><span class="menuArrow" aria-hidden="true">›</span></a>`;
   const sectionHtml = sections.map(([title, subtitle, links]) => `<section class="menuSection"><div class="menuSectionHead"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(subtitle)}</span></div><div class="menuList">${links.map(row).join("")}</div></section>`).join("");
   const featuredHtml = featured.map(([label, href, desc, icon]) => `<a class="featuredCard" href="${escapeHtml(href)}"><span class="featuredIcon" aria-hidden="true" data-ab-nav-icon="${escapeHtml(icon)}"></span><span class="featuredCopy"><b>${escapeHtml(label)}</b><span>${escapeHtml(desc)}</span></span><span class="menuArrow" aria-hidden="true">›</span></a>`).join("");
-  const moreHtml = `<details class="advancedGroup"><summary><b>개인 설정과 도움말</b><span>필요할 때 열기</span></summary><div class="menuList">${more.map(row).join("")}</div></details>`;
+  const moreHtml = `<details class="advancedGroup"><summary><b>도움말과 안내</b><span>필요할 때 열기</span></summary><div class="menuList">${more.map(row).join("")}</div></details>`;
   // V22.8.95 (10.1): 마우스 따라오는 표시 스위치. 테마·톤과 달리 이 값은 기기가
   // 아니라 계정에 붙으므로(지시서) 폼 하나로 서버에 저장한다. 데스크톱에서만 뜻이
   // 있어서 모바일에서는 아무것도 하지 않는다는 사실을 문구로 말한다.
@@ -266,8 +276,8 @@ async function handleUnifiedMenuPage(request, env, url) {
   const appearanceHtml = `<section class="abAppearancePanel" aria-labelledby="abAppearanceTitle"><div class="abAppearanceHead"><div><h2 id="abAppearanceTitle">화면 설정</h2><p>이 브라우저에서 사용할 화면 모드와 포인트 컬러를 선택하세요.</p></div><span class="abAppearanceDevice">기기별 저장</span></div><div class="abAppearanceRows"><div><b>화면 모드</b><div class="abAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div><b>컬러톤</b><div class="abAppearanceChoices abToneChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false"><i class="abToneDot abToneBlue" aria-hidden="true"></i>블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false"><i class="abToneDot abToneEmerald" aria-hidden="true"></i>그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false"><i class="abToneDot abToneViolet" aria-hidden="true"></i>바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false"><i class="abToneDot abToneAmber" aria-hidden="true"></i>앰버</button></div></div></div><p id="abAppearanceStatus" class="abAppearanceStatus" aria-live="polite">화면 설정을 불러오는 중입니다.</p>${cursorSwitchHtml}</section>`;
   // V22.9.34 감사 U1: 일반 사용자 화면에 로그아웃이 없어 공용 PC 에서 14일 세션이 남았다.
   // 관리자 세션은 운영 화면의 로그아웃을 쓴다.
-  const logoutHtml = userId ? `<form class="menuLogout" method="post" action="/my/logout"><button type="submit">로그아웃</button><p>이 기기에서 로그인을 끝냅니다. 여러 사람이 쓰는 PC 라면 사용 뒤 꼭 로그아웃하세요.</p></form>` : "";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>.menuLogout{margin:22px 0 6px;display:grid;justify-items:center;gap:8px;text-align:center}.menuLogout button{appearance:none;width:100%;max-width:340px;min-height:46px;border:1px solid currentColor;border-radius:14px;background:transparent;color:inherit;font:inherit;font-weight:800;cursor:pointer}.menuLogout p{margin:0;font-size:12.5px;line-height:1.5;opacity:.75}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:var(--ab12-action,#2457d6);color:#fff;border-color:var(--ab12-action,#2457d6);font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "", role: userId ? String(selectedHousehold?.role || "") : "" })}<main class="wrap menuPage"><header class="menuHeader"><div><h1>전체 메뉴</h1></div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header>${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${appearanceHtml}${logoutHtml}</main></body></html>`);
+  const logoutHtml = userId ? `<form class="menuLogout" method="post" action="/my/logout"><button class="secondary" type="submit">로그아웃</button><p>이 기기에서 로그인을 끝냅니다. 여러 사람이 쓰는 PC 라면 사용 뒤 꼭 로그아웃하세요.</p></form>` : "";
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>.menuLogout{margin:22px 0 6px;display:grid;justify-items:center;gap:8px;text-align:center}.menuLogout button{appearance:none;width:100%;max-width:340px;min-height:46px;border:1px solid currentColor;border-radius:14px;background:transparent;color:inherit;font:inherit;font-weight:800;cursor:pointer}.menuLogout p{margin:0;font-size:12.5px;line-height:1.5;opacity:.75}.menuPage .menuLogout button{width:auto!important;min-width:150px;max-width:240px;min-height:40px!important;padding:0 18px!important;border:1px solid currentColor!important;border-radius:12px!important;background:transparent!important;color:inherit!important;opacity:.78;box-shadow:none!important;font-weight:700!important}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:var(--ab12-action,#2457d6);color:#fff;border-color:var(--ab12-action,#2457d6);font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "", role: userId ? String(selectedHousehold?.role || "") : "" })}<main class="wrap menuPage"><header class="menuHeader"><div><h1>전체 메뉴</h1></div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header>${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${appearanceHtml}${logoutHtml}</main></body></html>`);
 }
 
 function renderPcSidebar(active, month, householdId, householdName = "") {

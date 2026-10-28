@@ -139,9 +139,9 @@ await withClock("2026-10-21", () => fixture(async (fx) => {
   );
   const html = (await page(fx, `/reserve-plans?${Q}`)).html;
   const text = strip(html);
-  t.ok(text.includes("매월 자동 반영되는 고정 수입·지출"), "4 구역 제목이 수입도 포함한다");
+  t.ok(text.includes("매달 자동 기록"), "4 구역 제목이 수입·지출을 가리지 않는다(V22.9.83 '매달 자동 기록', 예전 '매월 자동 반영되는 고정 수입·지출')");
   t.ok(!text.includes("버튼 한 번으로 이번 달 기록에 넣는"), "4 '자동 반영'과 어긋나는 '버튼 한 번으로 넣는 항목' 설명이 없다");
-  t.ok(text.includes("매달 지정일이 되면 그달 기록에 자동으로 한 번 들어가고") && text.includes("지정일 전이라도 지금 넣습니다"), "4 설명은 자동 반영(지정일)과 버튼(지금)을 한 문장으로 말한다");
+  t.ok(text.includes("지정일이 되면 그달 기록에 한 번 자동으로 들어가고") && text.includes("지정일 전에 넣으려면 아래 기록하기 단추를 누르세요"), "4 설명은 자동 반영(지정일)과 버튼(지금)을 한 문장으로 말한다");
   const card = (memo) => { const i = html.indexOf(`<b>${memo}</b>`); return i < 0 ? "" : html.slice(i, html.indexOf("</form></div>", html.indexOf("/admin/recurring/delete", i)) + 13); };
   const allowance = card("수당");
   t.ok(/<label>수입자<select name="user_id">/.test(allowance) && allowance.includes(">수입자 선택</option>"), "4 수입 행의 수정 폼은 '수입자'라고 한다");
@@ -149,7 +149,7 @@ await withClock("2026-10-21", () => fixture(async (fx) => {
   const rent = card("월세");
   t.ok(/<label>지출자<select name="user_id">/.test(rent) && rent.includes("이 고정지출 항목을 삭제할까요?"), "4 지출 행은 예전처럼 '지출자'·'고정지출'이다");
   t.ok(card("용돈").includes("수입자 확인 필요 · 수입자가 활성 참여자"), "4 수입 행의 참여자 확인 안내도 '수입자'라고 한다");
-  t.ok(text.includes("고정 수입·지출 추가") && text.includes("이번 달 고정 수입·지출 기록하기"), "4 추가·반영 버튼이 수입도 포함한다");
+  t.ok(text.includes("자동 기록 항목 추가") && text.includes("이번 달분 지금 기록하기"), "4 추가·반영 버튼이 수입·지출을 가리지 않는다(V22.9.83 이름)");
   t.ok(/<select name="type" onchange="[^"]*수입자[^"]*"/.test(html) && html.includes("<span data-recurring-person>지출자</span>"), "4 추가 폼은 구분을 수입으로 바꾸면 사람 칸을 '수입자'로 바꾼다");
 }));
 

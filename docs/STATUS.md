@@ -1,6 +1,6 @@
 # 현재 상태 (작업 시작 때 이 파일만 읽는다)
 
-마지막 갱신: 2026-10-27 (V22.9.80-FINDINGS-SWEEP 운영 반영 10-27 14:53 — V22.9.79 다음 날 확인 통과 뒤 PR #98 병합 14:34, 앱 Worker 만, 환불 연결 플래그 꺼짐. V22.9.81-REVIEW-FOLLOWUP 은 PR #100, 그 위의 V22.9.82-USAGE-METRICS(관제 이용 현황)는 별도 PR 로 올렸고 병합·배포·SQL 적용은 사용자 승인을 기다린다). 판을 올리거나 운영에 반영하면 이 파일의 표를 먼저 고친다.
+마지막 갱신: 2026-10-28 (V22.9.83-UI-CLARITY 화면 정리 1차를 `claude/v22983-uiux` 에서 만듦, 커밋·배포 전. 아래 운영 값은 2026-10-27 그대로) — 이전: 2026-10-27 (V22.9.80-FINDINGS-SWEEP 운영 반영 10-27 14:53 — V22.9.79 다음 날 확인 통과 뒤 PR #98 병합 14:34, 앱 Worker 만, 환불 연결 플래그 꺼짐. V22.9.81-REVIEW-FOLLOWUP 은 PR #100, 그 위의 V22.9.82-USAGE-METRICS(관제 이용 현황)는 별도 PR 로 올렸고 병합·배포·SQL 적용은 사용자 승인을 기다린다). 판을 올리거나 운영에 반영하면 이 파일의 표를 먼저 고친다.
 
 ## 운영
 
@@ -19,7 +19,7 @@
 | 항목 | 값 |
 |---|---|
 | GitHub main | `b25e979` = V22.9.80 운영 소스 + 운영 반영 기록(PR #99 병합 2026-10-27 17:10, 그 앞 PR #98 = `956ea05`). `src/` 는 운영과 같다 |
-| 진행 중 | `claude/v22981-followup` = V22.9.81-REVIEW-FOLLOWUP(PR #100, U-1~U-30·T-43·X-1~X-11·X-29, 앱 + 관제 1.3.0). 그 위 `claude/v22982-usage-metrics` = V22.9.82-USAGE-METRICS(관제 이용 현황, 앱 + 관제 1.4.0 + 검토용 집계 함수 SQL). V22.9.80 운영 반영 기록(`claude/v22980-deployment-records`)은 PR #99 로 병합됨(2026-10-27). 병합·배포는 사용자 승인 뒤. 배포는 말일·1일·2일(2026-10-31~11-02)을 피한다 |
+| 진행 중 | `claude/v22981-followup` = V22.9.81-REVIEW-FOLLOWUP(PR #100, U-1~U-30·T-43·X-1~X-11·X-29, 앱 + 관제 1.3.0). 그 위 `claude/v22982-usage-metrics` = V22.9.82-USAGE-METRICS(관제 이용 현황, 앱 + 관제 1.4.0 + 검토용 집계 함수 SQL). V22.9.80 운영 반영 기록(`claude/v22980-deployment-records`)은 PR #99 로 병합됨(2026-10-27). 병합·배포는 사용자 승인 뒤. 배포는 말일·1일·2일(2026-10-31~11-02)을 피한다 그 위 `claude/v22983-uiux` = V22.9.83-UI-CLARITY(화면 정리 1차: 메뉴 이름·묶음·하단 탭·전체 메뉴·소비 분석 보기 탭·정기 수입·지출 버그와 이름, 테스트 서버 `npm run preview:app`. 커밋 전 — 사용자가 테스트 서버에서 보고 정한 뒤 커밋·PR. 검토 문서 `docs/codex/UIUX_REVIEW_V22_9_83.md`) |
 | 배포 절차 | `node tools/deploy-worker-version.mjs`(업로드·대조, 배포 아님) → 출력의 `--promote <id>` 명령(승인 뒤). 토큰은 환경변수로만. 답장에 실행 가능한 되돌리기 예시를 적지 않는다(2026-10-19 사고) |
 | 검증 | `node tools/build-worker.mjs --check` → `node .codex/scripts/verify-repository.mjs` → `npm run validate:categories-absent`. 하한·manifest 는 하네스 머리의 상수와 `BUNDLE_FILE_CHECKSUMS_<판>.sha256`. 운영 /ready 에 `accountbook_categories` 가 없으므로 분류 표 부재 모드가 실제 운영 모드다 |
 | 운영 설정 | 필요한 Secret·환경변수·cron·관제 한 장: `docs/OPERATIONS_CONFIG.md` |

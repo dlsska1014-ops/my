@@ -73,7 +73,7 @@ await fixture(async (fx) => {
     ok(!res.html.includes("월 마감"), `A1 ${name} 화면 어디에도 "월 마감"이 없다`);
   }
   const reports = await page(fx, `/reports?${Q}`);
-  ok(/<title>[^<]* · 무료 리포트<\/title>/.test(reports.html), "A1 /reports 문서 제목은 '무료 리포트'를 그대로 둔다(기존 검사가 고정)");
+  ok(/<title>[^<]* · 생활비 리포트<\/title>/.test(reports.html), "A1 /reports 문서 제목은 화면 이름 '생활비 리포트'다(V22.9.83, 예전 '무료 리포트')");
   ok(reports.html.includes("<h1>생활비 리포트</h1>"), "A1 /reports 제목(h1)은 생활비 리포트다");
   ok(reports.html.includes("<h2>자동 생성 설정</h2>") && reports.html.includes("<h2>지출 상위 분류</h2>"), "A1 /reports 의 자동 생성 설정·지출 상위 분류 절 제목은 그대로다");
   const smart = await page(fx, `/smart-tools?${Q}`);
@@ -134,7 +134,7 @@ await fixture(async (fx) => {
   ok(contrast("#475467", "#f8fafc") >= 7, `A3 라벨이 읽기 전용 칸(#f8fafc) 위 7:1 이상이다 (${contrast("#475467", "#f8fafc").toFixed(2)}:1)`);
   ok(contrast("#475467", "#f2f4f6") >= 4.5, `A3 감사가 잰 회색 표면(#f2f4f6) 위에서도 4.5:1 이상이다 (${contrast("#475467", "#f2f4f6").toFixed(2)}:1)`);
   ok(contrast("#687385", "#f2f4f6") < 4.5, `A3 고치기 전 색은 감사가 잰 표면 위 4.5:1 미만이었다 (${contrast("#687385", "#f2f4f6").toFixed(2)}:1, 감사 U9 4.35:1 재현)`);
-  const shell = await asset("/assets/accountbook-shell-v22981.css");
+  const shell = await asset("/assets/accountbook-shell-v22983.css");
   const darkTokens = (shell.text.match(/html\[data-ab-resolved-theme="dark"\] body\.abV22812Shell\{([^}]*--ab12-surface-raised:[^}]*)\}/) || [])[1] || "";
   const token = (name) => (darkTokens.match(new RegExp(`--${name}:(#[0-9a-fA-F]{6})`)) || [])[1] || "";
   const [muted, raised, text, line] = ["ab12-muted", "ab12-surface-raised", "ab12-text", "ab12-line"].map(token);

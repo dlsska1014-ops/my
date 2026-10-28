@@ -37,7 +37,9 @@ const ORIGIN = "https://malhaebook.com";
 const DESTINATIONS_BEFORE_REGROUPING = [
   "app", "records", "calendar", "import",
   "payment-methods", "goals",
-  "stats", "analysis", "reports", "annual", "budgets", "budget-alerts", "smart-tools",
+  // V22.9.83: 같은 주소(/my/analysis)의 두 보기였던 "analysis"(종합 리포트)는 소비 분석 화면 위 보기 탭으로 옮겼고
+  // (validate-ui-clarity-v22983 이 탭을 확인한다), 예산 탭 아래 숨어 있던 정기 수입·지출(reserve-plans)이 제 항목을 얻었다.
+  "stats", "reports", "annual", "budgets", "reserve-plans", "budget-alerts", "smart-tools",
   "members", "groups", "settlement",
   "my-households", "categories", "backup", "backup-login",
 ];
@@ -85,17 +87,17 @@ try {
   // -------------------------------------------------------------------------
   // 3) 한 번에 보이는 조작 요소가 훑을 수 있는 수 안에 있다
   // -------------------------------------------------------------------------
-  const groups = [...nav.matchAll(/<details class="abNavGroup[^"]*"( open)?>[\s\S]*?<b>([^<]+)<\/b>/g)];
+  // V22.9.83: 묶음을 접지 않는다. 한 묶음만 열리던 아코디언이 나머지 메뉴를 숨겨 "메뉴가 어설프다"는 지적을 받았다.
+  // 대신 묶음마다 이름표를 달고(7개 이하·3개 이상), 화면 높이가 모자라면 사이드바 안에서 스크롤한다.
+  const groups = [...nav.matchAll(/<div class="abNavGroup abNavSection" role="group" aria-label="([^"]+)">([\s\S]*?)<\/div><\/div>/g)];
   ok(groups.length >= 3 && groups.length <= 5, `그룹 수가 훑을 수 있는 범위다 (${groups.length}개)`);
-  eq(groups.filter((g) => g[1]).length, 1, "한 번에 한 그룹만 열린다");
+  ok(!/<details class="abNavGroup/.test(nav), "사용자 사이드바는 묶음을 접지 않는다(모든 항목이 보인다)");
 
-  // 접힌 그룹의 링크는 보이지 않는다. 보이는 것 = 그룹 머리글 + 열린 그룹의 링크.
-  const openBlock = (nav.match(/<details class="abNavGroup[^"]*" open>([\s\S]*?)<\/details>/) || [])[1] || "";
-  const visible = groups.length + (openBlock.match(/<a data-key=/g) || []).length;
-  ok(visible <= 16, `한 화면에서 보이는 내비 조작 요소가 16개 이하다 (${visible}개)`);
+  const visible = (nav.match(/<a data-key=/g) || []).length;
+  ok(visible <= 22, `사이드바 항목이 22개 이하다 (${visible}개)`);
 
   // 어느 그룹도 혼자 절반을 넘게 갖고 있지 않다 — 그러면 묶은 의미가 없다.
-  const sizes = [...nav.matchAll(/<details class="abNavGroup[\s\S]*?<\/details>/g)].map((m) => (m[0].match(/<a data-key=/g) || []).length);
+  const sizes = groups.map((m) => (m[2].match(/<a data-key=/g) || []).length);
   ok(Math.max(...sizes) <= 7, `가장 큰 그룹이 7개 이하다 (${Math.max(...sizes)}개)`);
   ok(Math.min(...sizes) >= 3, `가장 작은 그룹도 3개 이상이다 (${Math.min(...sizes)}개) — 그룹 하나에 항목 하나면 묶은 게 아니다`);
 
@@ -108,9 +110,8 @@ try {
     const html = await get(path);
     const start = html.indexOf('class="abLayoutNav');
     const scoped = html.slice(start, html.indexOf("</nav>", start));
-    const opened = (scoped.match(/<details class="abNavGroup[^"]*" open>[\s\S]*?<\/details>/) || [])[0] || "";
-    ok(opened.includes(`<a data-key="${key}"`), `${path} 에서 열리는 그룹이 그 화면을 담고 있다`);
-    eq((scoped.match(/<details class="abNavGroup[^"]*" open>/g) || []).length, 1, `${path} 에서도 열린 그룹은 하나다`);
+    const current = (scoped.match(/<a data-key="([^"]+)"[^>]*aria-current="page"/) || [])[1] || "";
+    eq(current, key, `${path} 의 현재 위치 표시가 그 화면 항목에 있다`);
     eq((scoped.match(/aria-current="page"/g) || []).length, 1, `${path} 의 현재 위치 표시는 하나다`);
   }
 
@@ -118,9 +119,11 @@ try {
   // 5) 그룹 이름이 사용자가 하는 일이다
   // -------------------------------------------------------------------------
   // 문자열 자체보다, 옛 기준(시스템이 데이터를 나눈 방식)으로 되돌아가지 않았는지를 본다.
-  ok(source.includes('key: "record", label: "적는다"'), "적는 일 그룹이 있다");
-  ok(source.includes('key: "review", label: "본다"'), "보는 일 그룹이 있다");
-  ok(source.includes('key: "plan", label: "계획한다"'), "계획하는 일 그룹이 있다");
+  // V22.9.83: 동사(적는다·본다·계획한다) 대신 명사 이름표. 가계부 메뉴는 이름표라 명사가 읽힌다(사용자 지적 2026-10-28).
+  ok(source.includes('key: "record", label: "기록"'), "기록 묶음이 있다");
+  ok(source.includes('key: "review", label: "분석"'), "분석 묶음이 있다");
+  ok(source.includes('key: "plan", label: "예산·자산"'), "예산·자산 묶음이 있다");
+  ok(source.includes('key: "together", label: "함께"'), "함께 묶음이 있다");
   ok(source.includes('key: "settings", label: "설정"'), "나머지는 설정으로 내려간다");
 
   // 주소는 하나도 바뀌지 않았다 — 되돌릴 수 있는 변경이라는 근거다.

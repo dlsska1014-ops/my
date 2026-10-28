@@ -30,7 +30,7 @@ const failBudgetReads = (month = "") => intercept(({ url, method }) => (
 // ── U1 로그아웃 ─────────────────────────────────────────────
 await fixture(async (fx) => {
   const menu = await page(fx, "/menu?month=2026-07&household_id=house-home");
-  ok(menu.status === 200 && /<form class="menuLogout" method="post" action="\/my\/logout"><button type="submit">로그아웃<\/button>/.test(menu.html), "U1 전체 메뉴에 로그아웃 버튼(POST)이 있다");
+  ok(menu.status === 200 && /<form class="menuLogout" method="post" action="\/my\/logout"><button class="secondary" type="submit">로그아웃<\/button>/.test(menu.html), "U1 전체 메뉴에 로그아웃 버튼(POST)이 있다");
   const account = await page(fx, "/my/backup-login?return_to=%2Fmenu");
   ok(account.status === 200 && /<form method="post" action="\/my\/logout"><button type="submit" class="secondary">로그아웃<\/button><\/form>/.test(account.html), "U1 내 계정·보안 화면에 로그아웃 버튼(POST)이 있다");
   const out = await post(fx, "/my/logout", {});

@@ -527,7 +527,7 @@ await section("T-33", () => fixture(async (fx) => {
   const analysis = await page(fx, `/my/analysis?month=2026-07&household_id=${HH}`, { headers: { "user-agent": DESKTOP } });
   const bundlePath = assetPath(analysis.html, /src="(\/assets\/accountbook-v5-[^"]+\.js)"/);
   ok(!!bundlePath, `종합 분석 화면이 V5 번들을 받는다 (${bundlePath})`);
-  ok(/data-ab-nav-calendar/.test(analysis.html), "사이드바 작은 달력 자리(data-ab-nav-calendar)가 화면에 있다");
+  ok(!/data-ab-nav-calendar/.test(analysis.html), "V22.9.83: 사이드바 작은 달력 자리는 걷어냈다(V5 번들에 남은 달력 스크립트의 KST 계산은 아래에서 계속 본다)");
   const js = (await asset(fx, bundlePath)).text;
   const main = sidebarMainOf(js);
   ok(main.length > 1000 && main.includes("renderCalendar"), "V5 번들에 사이드바 달력 스크립트가 있다");

@@ -26,11 +26,32 @@ export function beforeDarkBudgetTable(block) {
   return block;
 }
 
+// V22.9.83 (화면 정리 1차) changes renderMyAnalysisHtml in exactly two places: the hero sentence that explained
+// the two views is replaced by one line plus the view tabs (renderAnalysisViewTabs), and the "← 한눈에 보기(소비 분석)"
+// button leaves the pcBox. Reversing them keeps the whole-renderer hashes guarding every other byte.
+export function beforeUiClarityV22983(block) {
+  const reversals = [
+    [
+      " · 예산, 소비 추이, 고정비, 반복지출, 분류별 지출을 한 달 단위로 모아 봅니다.</p>${renderAnalysisViewTabs(\"report\", qs)}<p class=\"muted\">",
+      " · 깊게 보는 분석 화면입니다. <b>종합 리포트는 이번 달 전체를 고정해 보는 화면</b>이고, <b>소비 분석은 필터로 좁혀 보는 화면</b>입니다. 여기서는 예산, 소비 추이, 고정비, 반복지출, 분류별 지출을 한 화면에서 봅니다.</p><p class=\"muted\">",
+    ],
+    [
+      "<div class=\"pcBox\"><a class=\"btn secondary\" href=\"/budgets?${qs}\">예산 설정</a>",
+      "<div class=\"pcBox\"><a class=\"btn\" href=\"/my/analysis?${qs}#reportCockpitTitle\">← 한눈에 보기(소비 분석)</a><a class=\"btn secondary\" href=\"/budgets?${qs}\">예산 설정</a>",
+    ],
+  ];
+  for (const [current, previous] of reversals) {
+    assert.equal(block.split(current).length - 1, 1, "V22.9.83 renderer exception must occur exactly once: " + current);
+    block = block.replace(current, () => previous);
+  }
+  return block;
+}
+
 // V22.9.54 changes only these two money expressions in renderMyAnalysisHtml.
 // Reversing them lets existing whole-renderer hashes keep guarding all other
 // bytes. Actual future-month output is covered by validate-bot-observation.
 export function beforeBotObservationRenderer(block) {
-  block = beforeDarkBudgetTable(block);
+  block = beforeDarkBudgetTable(beforeUiClarityV22983(block));
   // V22.9.58 authorizes exactly two comparison spans and one local declaration.
   const reversals = [
     [

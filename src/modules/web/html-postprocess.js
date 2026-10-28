@@ -125,7 +125,7 @@ function normalizeUserFacingUi(html = "") {
 
   if (source.includes("<title>정기 수입·지출</title>")) {
     source = source.replace("재산세, 자동차세, 자동차보험처럼 반기·연단위로 나가는 큰돈을 미리 준비합니다. 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.", "보험료·세금처럼 가끔 크게 나가는 돈을 등록하면 매달 준비할 금액을 계산해 드려요.");
-    source = source.replace('<section class="card"><h2>정기 수입·지출 추가</h2>', '<section class="card" id="reserveAdd"><h2>정기 수입·지출 추가</h2>');
+    source = source.replace('<section class="card"><h2>납부·입금 일정 추가</h2>', '<section class="card" id="reserveAdd"><h2>납부·입금 일정 추가</h2>');
   }
 
   if (source.includes(" · 고급 정산</title>")) {
@@ -536,7 +536,26 @@ function attachUiUxRuntime(html = "", options = {}) {
     const stage4Nav = `<script id="v22818Stage4NavRuntime" src="${ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH}" defer></script>`;
     source = source.replace("</body>", stage4Nav + "</body>");
   }
-  return opaque.restore(source);
+  return opaque.restore(renameLegacyDocumentTitleV22983(source));
+}
+
+// V22.9.83: 브라우저 탭 제목에 남은 옛 이름을 화면 이름으로 바꾼다 — 홈이 PC 에서도 "모바일", 생활비 리포트가 "무료 리포트",
+// 스마트 도구가 "무료 스마트 도구", 정산이 "고급 정산"으로 떴다. 위 후처리 규칙 여럿이 이 제목 글자를 화면 표식으로 읽으므로
+// (" · 무료 리포트</title>" 등) 모든 규칙이 끝난 맨 마지막에, 문서의 첫 </title> 바로 앞 글자만 바꾼다.
+const LEGACY_DOCUMENT_TITLES_V22983 = [
+  [" · 모바일</title>", " · 홈</title>"],
+  [" · 무료 리포트</title>", " · 생활비 리포트</title>"],
+  [" · 무료 스마트 도구</title>", " · 스마트 도구</title>"],
+  [" · 고급 정산</title>", " · 정산</title>"],
+];
+function renameLegacyDocumentTitleV22983(source = "") {
+  const end = source.indexOf("</title>");
+  if (end < 0) return source;
+  for (const [from, to] of LEGACY_DOCUMENT_TITLES_V22983) {
+    const at = end + "</title>".length - from.length;
+    if (at >= 0 && source.startsWith(from, at)) return source.slice(0, at) + to + source.slice(end + "</title>".length);
+  }
+  return source;
 }
 
 function attachBusinessInfoFooter(html = "") {

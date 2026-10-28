@@ -36,10 +36,11 @@ function headings(html) {
 ok(source.includes('receipt.status === "complete" && !truncated ? renderReportDashboard(dashboard)'), "complete summary still renders the shared cockpit through the explicit receipt guard");
 eq(source.split("renderReportDashboard(dashboard)").length - 1, 1, "the cockpit is rendered from exactly one screen");
 ok(!/renderMyAnalysisHtml\(\{[^}]*dashboard/.test(source), "deep report no longer receives the summary model it does not draw");
-ok(source.includes("빠르게 보는 요약 화면입니다"), "summary screen states its role in the hero");
-ok(source.includes("깊게 보는 분석 화면입니다"), "deep report states its role in the hero");
-ok(source.includes('href="/my/analysis?view=report&${qs}">깊게 보기(종합 리포트)'), "summary links onward to the deep report");
-ok(source.includes('href="/my/analysis?${qs}#reportCockpitTitle">← 한눈에 보기(소비 분석)'), "deep report links back to the summary cockpit");
+// V22.9.83: 두 화면 머리말이 서로의 역할을 문장으로 설명하던 것을 한 묶음의 보기 탭(한눈에 보기·종합 리포트)으로 바꿨다.
+ok(source.includes('<div class="lrSeg abAnalysisViews" role="group" aria-label="소비 분석 보기">'), "both screens name their roles in one view-tab group");
+ok(!source.includes("빠르게 보는 요약 화면입니다") && !source.includes("깊게 보는 분석 화면입니다"), "the hero sentences that explained each other are gone");
+ok(source.includes('${renderAnalysisViewTabs("summary", qs)}'), "summary links onward to the deep report through the view tabs");
+ok(source.includes('${renderAnalysisViewTabs("report", qs)}'), "deep report links back to the summary through the view tabs");
 ok(source.includes('id="reportCockpitTitle"'), "the cockpit anchor the deep report links to exists");
 
 // 통계 화면 안에서도 예산 사용률이 두 번 그려지지 않는다.
@@ -81,7 +82,8 @@ try {
   ok(summaryHtml.includes('class="reportCockpit"'), "summary owns the cockpit");
   ok(!reportHtml.includes('class="reportCockpit"'), "deep report does not repeat the cockpit");
   ok(summaryHtml.includes('id="reportCockpitTitle"'), "the anchor target the deep report links to is reachable");
-  ok(reportHtml.includes("#reportCockpitTitle"), "deep report offers a way back to the summary");
+  // V22.9.83: 돌아가는 길은 "← 한눈에 보기(소비 분석)" 단추 대신 보기 탭의 한눈에 보기다.
+  ok(/<div class="lrSeg abAnalysisViews"[^>]*><a href="\/my\/analysis\?[^"]*">한눈에 보기<\/a>/.test(reportHtml), "deep report offers a way back to the summary");
   ok(summaryHtml.includes("view=report"), "summary offers a way into the deep report");
 
   // 코크핏이 대신하던 내용은 종합 리포트에 더 깊은 형태로 그대로 남아 있다.
@@ -108,10 +110,10 @@ try {
   eq(new Set(summaryTitles).size, summaryTitles.length, "no card title repeats inside the summary screen");
   eq(new Set(reportTitles).size, reportTitles.length, "no card title repeats inside the deep report");
 
-  // 역할을 나눴으니 "돌아가는 길"이 주요 버튼으로 읽혀야 한다. 같은 히어로의
-  // 보조 버튼까지 파란 주요 버튼으로 칠해지면 어디로 가야 할지 구분되지 않는다.
+  // 역할을 나눴으니 "돌아가는 길"이 먼저 읽혀야 한다. 같은 히어로의 보조 버튼까지 파란 주요 버튼으로 칠해지면
+  // 어디로 가야 할지 구분되지 않는다. V22.9.83: 돌아가는 길은 보기 탭(한눈에 보기)이 맡고, 히어로 단추는 모두 보조다.
   const heroButtons = [...reportHtml.matchAll(/<a class="btn( secondary)?" href="([^"]+)"/g)].map((m) => ({ secondary: !!m[1] }));
-  ok(heroButtons.some((item) => !item.secondary), "deep report hero keeps one primary action");
+  ok(heroButtons.length > 0 && heroButtons.every((item) => item.secondary), "deep report hero buttons stay secondary next to the view tabs");
   ok(heroButtons.some((item) => item.secondary), "deep report hero keeps secondary actions");
   ok(source.includes(".abV2281 .btn:not(.light):not(.soft):not(.danger):not(.secondary)"), "the primary blue fill no longer swallows secondary buttons");
   ok(!source.includes(".abV2281 .btn:not(.light):not(.soft):not(.danger){"), "no primary rule remains that outranks .btn.secondary");

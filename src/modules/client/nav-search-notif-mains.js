@@ -121,21 +121,24 @@ function accountbookStage4NavClientMain() {
     var household = scopeHousehold() || params.get("household_id") || "";
     return "month=" + encodeURIComponent(month) + (household ? "&household_id=" + encodeURIComponent(household) : "");
   }
+  // V22.9.83: 서버 하단 탭(unified-nav.js bottomDefs)과 같은 다섯 칸·같은 이름이다. 예전에는 여기만 홈·기록·입력·예산·전체여서
+  // 서버가 그린 탭(홈·거래·입력·통계·예산)이 화면이 뜨는 순간 다른 이름으로 바뀌었다. 전체 메뉴는 위쪽 막대 단추가 연다.
   function items() {
     var query = contextQuery();
     return [
       { key: "home", icon: "home", label: "홈", href: "/app?" + query },
-      { key: "records", icon: "records", label: "기록", href: "/app?" + query + "&tab=transactions" },
+      { key: "records", icon: "records", label: "내역", href: "/app?" + query + "&tab=transactions" },
       { key: "quick", icon: "plus", label: "입력", href: "/app?" + query + "&quick=1#quick", quick: true },
+      { key: "stats", icon: "stats", label: "분석", href: "/my/analysis?" + query },
       { key: "budgets", icon: "budget", label: "예산", href: "/budgets?" + query },
-      { key: "menu", icon: "more", label: "전체", href: "/menu?" + query },
     ];
   }
   function activeKey() {
     var path = String(location.pathname || "");
     var params = new URLSearchParams(location.search);
     if (path.indexOf("settlement") >= 0) return "settlement";
-    if (path === "/my/analysis") return params.get("view") === "report" ? "analysis" : "stats";
+    // V22.9.83: 종합 리포트 보기(view=report)도 사이드바의 소비 분석 한 항목이 켠다(따로 있던 "분석" 항목을 뺐다).
+    if (path === "/my/analysis") return "stats";
     if (path.indexOf("budgets") >= 0) return "budgets";
     if (path === "/menu") return "menu";
     if (path === "/my/households") return "my-households";
@@ -185,7 +188,7 @@ function accountbookStage4NavClientMain() {
     });
     Array.from(document.querySelectorAll(".abNavBottom a[data-key]")).forEach(function(link) {
       var key = link.getAttribute("data-key") || "";
-      var on = key === active || (key === "home" && active === "app") || (key === "records" && active === "calendar") || (key === "stats" && active === "analysis");
+      var on = key === active || (key === "home" && active === "app") || (key === "records" && active === "calendar") || (key === "budgets" && active === "reserve-plans");
       link.classList.toggle("active", on);
       if (on) link.setAttribute("aria-current", "page");
       else link.removeAttribute("aria-current");

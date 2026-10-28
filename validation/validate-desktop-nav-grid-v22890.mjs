@@ -70,7 +70,7 @@ try {
   ok(home.text.includes('class="homeProgress"'), "사용률 게이지도 그대로다");
 
   // 5. 사이드바 달력 자체는 남는다. 지시서는 "달력은 남깁니다"라고 명시한다.
-  ok(home.text.includes('class="abNavCalendar"'), "사이드바 달력은 그대로 남는다");
+  ok(!home.text.includes('class="abNavCalendar"'), "V22.9.83: 사이드바 달력은 걷어냈다(묶음을 모두 펼치며 아래 묶음이 첫 화면 밖으로 밀리던 것)");
   ok(source.includes("function renderNavMiniCalendar("), "달력 렌더러가 남아 있다");
   // 숫자를 42칸에 넣지 않는다 — 날짜와 기록 유무 표시만.
   ok(runtime.text.includes("><span>' + day + '</span>'"), "칸에는 날짜만 쓴다");

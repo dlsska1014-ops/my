@@ -27,6 +27,12 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
+  // V22.9.83: 셸 CSS(사이드바 묶음 이름표·달력 제거)·메뉴 스크립트(하단 탭 이름)·홈 스크립트와 홈 셸(납부·입금 일정 추가 양식 안내)·소비 분석 보기 탭의 바이트가 바뀌어 네 주소를 v22983 으로 올렸다.
+  // 옛 주소(accountbook-shell-v22981.css·accountbook-nav-v22937.js·mobile-home(-shell)-v22981.js)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 옛 해시로 계속 내려간다.
+  "/assets/accountbook-shell-v22983.css": "bdaa586f7ad42d4d480aa3277e0cf7726dc3993b17b7d30b765ffbc32c89e536",
+  "/assets/mobile-home-shell-v22983.js": "e3221b1f8a008e5cdfc27490434f4fd3d0f76a55583ab1fd3e29be7cbb521e07",
+  "/assets/mobile-home-v22983.js": "f58ba4226efc21458da08fab4b09380bebb99e193c2c155fb199dd6dc0713021",
+  "/assets/accountbook-nav-v22983.js": "25b251e0b25c65cbfc4b405a1c643f10ba5545074ff6bcca443b14c796d6b888",
   // V22.9.81: 셸 CSS(U-28·U-29 다크 대비·U-30 수입 색·U-15 빈 날·U-17 넘침)·홈 스크립트·홈 셸(U-7·U-8·U-9·V81 입력 해석)의 바이트가 바뀌어 세 주소를 v22981 로 올렸다.
   // 옛 주소(accountbook-shell-v22979.css·mobile-home(-shell)-v22980.js)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 옛 해시로 계속 내려간다.
   "/assets/accountbook-shell-v22981.css": "79935f106b9aa217a67f12626d2eb604a2717e29d58d17dd7df55167356528e2",
