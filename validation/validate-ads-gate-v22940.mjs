@@ -333,7 +333,7 @@ try {
       if (directive !== "img-src") ok(!cspAllows(REVIEW_CSP, directive, address, directive === "frame-src" ? ["child-src"] : []), `review CSP ${directive} 는 ${new URL(address).hostname} 를 막는다(지금 그대로)`);
     }
   }
-  ok(cspAllows(liveCsp, "script-src", `${ORIGIN}/assets/accountbook-nav-v22983.js`) && cspAllows(liveCsp, "connect-src", "https://kapi.kakao.com/v2/user/me"), "live CSP 도 기존 자산·카카오 출처를 허용한다");
+  ok(cspAllows(liveCsp, "script-src", `${ORIGIN}/assets/accountbook-nav-v22985.js`) && cspAllows(liveCsp, "connect-src", "https://kapi.kakao.com/v2/user/me"), "live CSP 도 기존 자산·카카오 출처를 허용한다");
 
   // ── 5. /reports ───────────────────────────────────────────────────────────
   const reportReview = review.get(`/reports?${C}`).html;

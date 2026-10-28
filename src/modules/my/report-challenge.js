@@ -355,6 +355,7 @@ function renderChallengeProgress(challenge = {}, { hydrate = false } = {}) {
 function renderReportChallenge(challenge = {}, { householdId = "", canManage = false, home = false } = {}) {
   const safe = challenge && typeof challenge === "object" ? challenge : buildReportChallenge([], currentMonthKst(), {});
   const qs = `month=${encodeURIComponent(safe.month || currentMonthKst())}&household_id=${encodeURIComponent(householdId)}`;
+  // V22.9.85 T-10: 홈 배지의 불꽃은 빈 <i> 에 셸 CSS 가 Lucide flame 마스크로 그린다(icon-mask-css.js). 분석·리포트 화면은 보호 화면이라 이모지 그대로다.
   const dayPosition = safe.phase === "scheduled" ? "시작 전" : `${safe.currentDay}/${safe.periodDays}일차`;
   const status = !safe.enabled
     ? "챌린지가 꺼져 있습니다."
@@ -374,7 +375,7 @@ function renderReportChallenge(challenge = {}, { householdId = "", canManage = f
   const progressSummary = safe.type === "no_spend_days" ? `무지출 ${safe.progress}/${safe.targetDays}일` : `${escapeHtml(safe.goalLabel || safe.typeLabel || "챌린지")} · ${safe.progress}/${safe.targetDays}일 성공`;
   const celebration = safe.enabled && (safe.schemaVersion >= 2 || safe.revision > 0) && safe.hasMonthlyRecords === true && safe.targetDays > 0 && safe.progress >= safe.targetDays
     ? ` data-ab-celebrate="challenge" data-ab-celebrate-key="${escapeHtml([householdId, safe.startDate, safe.targetDate, safe.type, safe.targetDays, safe.targetAmount || 0, safe.category || "", safe.revision || 0].join(":"))}" data-ab-celebrate-count="${Number(safe.progress) || 0}"` : "";
-  return `<section class="reportChallenge" id="reportChallenge"${celebration}><div class="reportChallengeMain"><span class="reportChallengeBadge"><i aria-hidden="true">🔥</i> ${escapeHtml(safe.typeLabel || "생활 챌린지")}</span><h2>${escapeHtml(safe.title || "무지출 데이")} ${safe.targetDays}일</h2>${description}${renderChallengeProgress(safe, { hydrate: home })}<strong>${safe.enabled ? `${progressSummary} · 기간 ${dayPosition}` : "사용 안 함"}</strong></div>${action}</section>`;
+  return `<section class="reportChallenge" id="reportChallenge"${celebration}><div class="reportChallengeMain"><span class="reportChallengeBadge"><i aria-hidden="true">${home ? "" : "🔥"}</i> ${escapeHtml(safe.typeLabel || "생활 챌린지")}</span><h2>${escapeHtml(safe.title || "무지출 데이")} ${safe.targetDays}일</h2>${description}${renderChallengeProgress(safe, { hydrate: home })}<strong>${safe.enabled ? `${progressSummary} · 기간 ${dayPosition}` : "사용 안 함"}</strong></div>${action}</section>`;
 }
 
 function reportUxCss() {

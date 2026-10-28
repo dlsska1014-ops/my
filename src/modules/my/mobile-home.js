@@ -8,7 +8,7 @@ import { isValidTransactionDateString } from "../admin/transactions-households.j
 import { reserveDashboard } from "../settings/reserve-plans.js";
 import {
   attachSpenderNames, fetchAdminHouseholds, fetchAdminRows, fetchFormerSpenderMembers,
-  fetchHouseholdMembers, fetchPostgrestRows, memberNameMap, renderSpenderOptions,
+  fetchHouseholdMembers, fetchPostgrestRows, renderSpenderOptions,
 } from "../data/households-members-rows.js";
 import { getSettingValue } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
@@ -38,7 +38,6 @@ import {
   applyHomeLayoutSection, homeLayoutKey, lastNDaysExpense, normalizeHomeLayout,
   renderHomeReportCards, renderHomeWeekStrip, renderV8TxCards, renderV8TxDayGroups, todayExpense,
 } from "./home-sections.js";
-import { categoryInitial } from "../web/quick-chip-icons.js";
 import { MOBILE_HOME_CSS_ASSET_PATH } from "../assets/asset-registry.js";
 import { renderMonthlySeriesChart } from "../admin/pc-analysis-calendar.js";
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
@@ -389,7 +388,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const calendarBaseQs = householdId ? `household_id=${encodeURIComponent(householdId)}` : "";
   const homeCalendarHtml = homeView === "calendar"
     ? renderHomeCalendarSection(calendarRows || rows, month, calendarBaseQs, filterDate)
-    : `<div class="homeCalendarToggle"><a href="${escapeHtml(`/app?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}&view=calendar`)}#calendar">📅 캘린더</a></div>`;
+    : `<div class="homeCalendarToggle"><a href="${escapeHtml(`/app?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}&view=calendar`)}#calendar">캘린더</a></div>`;
   const totalBudgetRow = budgets.find((b) => b.category === "__total");
   const activeSpenders = safeArray(members).filter(memberCanBeSpender);
   const defaultSpenderId = sessionUserId && activeSpenderExists(activeSpenders, sessionUserId) ? sessionUserId : (activeSpenders.length === 1 ? String(activeSpenders[0]?.user_id || "") : "");
@@ -482,16 +481,8 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const topCatsForHome = stats.categories.filter((c) => c.expense > 0).slice(0, 4);
   // V22.9.80 V76 M-7: 환불 차감을 반영한 달은 분류가 0 에서 멈추므로 비율의 분모를 분류 합계로 둔다(막대 합이 100% 를 넘지 않게).
   const topCatTotal = (stats.refund ? safeArray(stats.categories).reduce((sum, c) => sum + Math.max(0, Number(c.expense || 0)), 0) : Number(stats.totals.expense || 0)) || 1;
-  const mobileMemberNames = memberNameMap(spenderMembers);
-  const homeTimeline = rows.slice(0, 6).map((r) => {
-    const isIncome = r.type === "income";
-    const icon = categoryInitial(r.category, r.type);
-    const dateText = r.transaction_date === today ? "오늘" : String(r.transaction_date || "").slice(5).replace("-", "월 ") + (r.transaction_date ? "일" : "");
-    const spenderName = r.user_id ? (mobileMemberNames[String(r.user_id)] || "이전 참여자") : "미지정";
-    const content = `<div class="homeTxLeft"><div class="homeIcon">${icon}</div><div><b>${escapeHtml(r.memo || r.raw_text || r.category || "기록")}</b><span>${escapeHtml(dateText)} · ${escapeHtml(r.category || (isIncome ? "수입" : "지출"))} · ${isIncome ? "수입자" : "지출자"} ${escapeHtml(spenderName)}</span></div></div><div class="homeTxAmt ${isIncome ? "income" : "expense"}">${isIncome ? "+" : "-"}${numberWithCommas(r.amount)}원<small>${escapeHtml(r.payment_method || "")}</small></div>`;
-    if (!appCanEditRow(r)) return `<div class="homeTx">${content}</div>`;
-    return `<button class="homeTx" type="button" onclick="openEdit('${escapeHtml(r.id)}')" aria-label="${escapeHtml(r.memo || r.raw_text || r.category || "기록")} 수정하기">${content}</button>`;
-  }).join("") || `<p class="homeEmpty">아직 이번 달 기록이 없습니다. 아래 빠른 입력으로 첫 기록을 남겨보세요.</p>`;
+  // V22.9.85 T-09: 이 자리에 있던 homeTimeline(옛 categoryInitial() 의 유일한 호출처)은 계산만 하고 어디에도 쓰지 않는 죽은 코드였다
+  // (홈 거래 행은 renderAccountbookFeedRows 의 v8-tx 피드가 그린다). 판정을 categoryKey 로 합치면서 categoryInitial 과 함께 지웠다.
   const homeBars = topCatsForHome.map((c, idx) => {
     const pct = Math.round((Number(c.expense || 0) / topCatTotal) * 100);
     return `<div class="homeBarRow"><div><b>${escapeHtml(c.category)}</b><span>${pct}% · ${numberWithCommas(c.expense)}원</span></div><div class="homeBar"><i class="bar${idx % 4}" style="width:${Math.max(4, pct)}%"></i></div></div>`;
@@ -585,7 +576,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
     : "";
   const feedbackMessage = err ? formatMessage(err) : [msg ? formatMessage(msg) : "", balert ? escapeHtml(balert) : "", feedbackResultLine ? escapeHtml(feedbackResultLine) : ""].filter(Boolean).join("<br/>");
   const saveFeedbackHtml = feedbackKind
-    ? `<div class="abSaveFeedback ${feedbackKind === "error" ? "isError" : feedbackKind === "warning" ? "isWarning" : "isSuccess"}" data-ab-save-feedback data-ab-feedback-kind="${feedbackKind}" role="${feedbackKind === "error" ? "alert" : "status"}" aria-live="${feedbackKind === "error" ? "assertive" : "polite"}"><span class="abSaveFeedbackMark" aria-hidden="true">${feedbackKind === "error" ? "!" : feedbackKind === "warning" ? "△" : "✓"}</span><div class="abSaveFeedbackCopy"><b>${escapeHtml(feedbackTitle)}</b><span>${feedbackMessage}</span></div><button type="button" class="abSaveFeedbackClose" data-ab-feedback-close aria-label="알림 닫기">×</button></div>`
+    ? `<div class="abSaveFeedback ${feedbackKind === "error" ? "isError" : feedbackKind === "warning" ? "isWarning" : "isSuccess"}" data-ab-save-feedback data-ab-feedback-kind="${feedbackKind}" role="${feedbackKind === "error" ? "alert" : "status"}" aria-live="${feedbackKind === "error" ? "assertive" : "polite"}"><span class="abSaveFeedbackMark" aria-hidden="true">${feedbackKind === "error" ? "!" : feedbackKind === "warning" ? "" : "✓"}</span><div class="abSaveFeedbackCopy"><b>${escapeHtml(feedbackTitle)}</b><span>${feedbackMessage}</span></div><button type="button" class="abSaveFeedbackClose" data-ab-feedback-close aria-label="알림 닫기">×</button></div>`
     : "";
   // V22.9.80 T-15: 빠른 입력의 결제수단 목록(기본 결제수단·등록 결제수단·지난 기록의 이름)은 낱말 끝에서만 맞는다(공유 판정 inputPaymentNameIn,
   // 카카오 저장의 등록 결제수단 판정과 같다). 예전에는 목록의 ‘토스’·‘현금’·‘카드’를 낱말 속에서도 찾아 "토스트 3000"이 결제수단 토스,

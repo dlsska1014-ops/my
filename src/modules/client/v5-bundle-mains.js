@@ -6,6 +6,7 @@ import {
 import {
   accountbookTransactionDeleteClientMain, accountbookTransactionFilterClientMain,
 } from "./lucian-b-mains.js";
+import { categoryKey, categoryKeyRules } from "../web/quick-chip-icons.js";
 import {
   AB_ACCOUNTBOOK_FAVROWS_JS_CACHE, AB_ACCOUNTBOOK_GOALS_JS_CACHE, AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE,
   ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML, ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML,
@@ -1404,7 +1405,9 @@ function accountbookDetailExperienceClientMain() {
 function accountbookV5BundleJsAsset() {
   if (!AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE) {
     const ensureOverlays = `(function(){try{if(!document.getElementById("abV5Search"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML)});if(!document.getElementById("abV5Notif"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML)});}catch(e){}})();`;
-    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `${ensureOverlays}(${accountbookCelebrationClientMain.toString()})();(${accountbookAmountPrivacyClientMain.toString()})();(${accountbookEmptyFolderClientMain.toString()})();(${accountbookTransactionDeleteClientMain.toString()})();(${accountbookTransactionFilterClientMain.toString()})();(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();(${accountbookSidebarDashboardClientMain.toString()})();(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();(${accountbookActivityRailClientMain.toString()})();(${accountbookSaveFeedbackClientMain.toString()})();(${accountbookChallengeClientMain.toString()})();(${accountbookDetailExperienceClientMain.toString()})();(${accountbookTourClientMain.toString()})();`;
+    // V22.9.85 (디자인 작업 지시서 T-09): 브라우저도 서버와 같은 카테고리 판정을 쓴다(web/quick-chip-icons.js 정본을 .toString() 으로 싣는다).
+    // 거래 목록 행의 분류 동그라미(3단계 T-13)가 window.abCategoryKey(분류, 종류, 메모) 로 키를 얻는다.
+    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `window.abCategoryKey=(function(){${categoryKeyRules.toString()}${categoryKey.toString()}return categoryKey})();${ensureOverlays}(${accountbookCelebrationClientMain.toString()})();(${accountbookAmountPrivacyClientMain.toString()})();(${accountbookEmptyFolderClientMain.toString()})();(${accountbookTransactionDeleteClientMain.toString()})();(${accountbookTransactionFilterClientMain.toString()})();(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();(${accountbookSidebarDashboardClientMain.toString()})();(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();(${accountbookActivityRailClientMain.toString()})();(${accountbookSaveFeedbackClientMain.toString()})();(${accountbookChallengeClientMain.toString()})();(${accountbookDetailExperienceClientMain.toString()})();(${accountbookTourClientMain.toString()})();`;
   }
   return AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE;
 }

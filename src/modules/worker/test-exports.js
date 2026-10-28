@@ -58,7 +58,10 @@ import {
   budgetAlertText, budgetFeedbackLine, budgetStageInfo, budgetSummary,
 } from "../domain/budgets.js";
 import {
-  quickChipIconCss, resolveQuickChipIcon, resolveQuickPaymentIcon,
+  AB_CATEGORY_ICON_PATHS, AB_NAV_ICON_PATHS, AB_UI_ICON_PATHS,
+} from "../assets/icon-paths.js";
+import {
+  categoryKey, categoryKeyRules, quickChipIconCss, resolveQuickChipIcon, resolveQuickPaymentIcon,
 } from "../web/quick-chip-icons.js";
 import { normalizeRecurringDay } from "../admin/budget-center-recurring.js";
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
@@ -165,6 +168,11 @@ export {
   resolveQuickChipIcon,
   resolveQuickPaymentIcon,
   quickChipIconCss,
+  categoryKey,
+  categoryKeyRules,
+  AB_NAV_ICON_PATHS,
+  AB_CATEGORY_ICON_PATHS,
+  AB_UI_ICON_PATHS,
 };
 
 export { moneyTokenSpans, transactionTypeFromText, quickInputDate, signedPurposeToken, readPurposeToken, makeCredentialProof, verifyCredentialProof, boundedFormRequest, parseMultipleTransactions, parseTransaction, budgetSummary };

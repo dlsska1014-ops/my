@@ -76,7 +76,7 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   t.ok(/<a data-key="budgets" class="active" aria-current="page"/.test(reserve), "4 정기 수입·지출 화면은 하단 예산 탭을 켠다");
   t.deepEq(activeSidebar(reserve), ["정기 수입·지출"], "2 정기 수입·지출은 사이드바에서 제 항목을 켠다(예산 탭 아래 숨지 않는다)");
   const navPath = (home.match(/\/assets\/accountbook-nav-v\d+\.js/) || [])[0];
-  t.ok(navPath === "/assets/accountbook-nav-v22983.js", `4 홈이 바뀐 메뉴 스크립트 주소를 쓴다 (${navPath})`);
+  t.ok(navPath === "/assets/accountbook-nav-v22985.js", `4 홈이 바뀐 메뉴 스크립트 주소를 쓴다 (${navPath})`);
   const navJs = await asset(navPath);
   const clientTabs = [...navJs.matchAll(/\{ key: "([a-z]+)", icon: "[a-z]+", label: "([^"]+)", href:/g)].map(([, key, label]) => `${key}:${label}`);
   t.deepEq(clientTabs, BOTTOM, "4 브라우저가 다시 그리는 하단 탭도 같은 다섯 칸·같은 이름이다(화면이 뜨는 순간 이름이 바뀌지 않는다)");

@@ -1,3 +1,14 @@
+## V22.9.85 디자인 보강 2단계 검사
+
+- 두 모드 하네스와 CI. 두 모드 실측: 일반 35,764 · 분류 표 부재 35,761(체크섬 689개).
+- 새 검사: `validation/validate-design-uplift-v22985.mjs`(`npm run validate:design-uplift`).
+- 고친 R-1~R-7 판정을 V22.9.84 클론에 돌리면 모두 실패한다: `review-artifacts/design-uplift-2026-10-28/v85/r-checks-before-after.txt`.
+- T-08 화면 감사 결과: `review-artifacts/design-uplift-2026-10-28/t08/`.
+  - 빠른 입력 화면(quick): V22.9.83 은 실패, V22.9.84·85 는 통과.
+  - 전체 실행의 선택 상태 실패는 이전부터 있던 것이다(R-8~R-12).
+- 아이콘 생성 재현: `tools/build-icons.mjs` 머리의 받는 법대로 두 번 돌려 같은 SHA-256 이 나오는지 본다.
+- 수동(사용자): 카카오 인앱·iOS 사파리·안드로이드 크롬, 다크·고대비·움직임 줄이기, 화면 읽기.
+
 ## V22.9.84 디자인 보강 1단계 검사
 
 - 두 모드 하네스와 CI. 두 모드 실측: 일반 35,318 · 분류 표 부재 35,315(체크섬 683개).

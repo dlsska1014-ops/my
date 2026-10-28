@@ -279,6 +279,8 @@ function normalizeUserFacingUi(html = "") {
 
 function legacyUiV5ActiveKey(source = "") {
   const title = String(source || "").match(/<title>([\s\S]*?)<\/title>/i)?.[1] || "";
+  // V22.9.85 R-4: 백업 화면의 가져오기 모드(?mode=import)는 HTML 이 같아 제목으로 못 가른다. 화면이 남긴 표식을 보고 브라우저(activeKey)처럼 가져오기를 켠다.
+  if (String(source || "").includes('<meta name="ab-nav-active" content="import"')) return "import";
   if (/가계부 전환·관리/.test(title)) return "my-households";
   if (/참여자[·/]초대|가계부·참여자/.test(title)) return "members";
   if (/백업\/가져오기|가져오기 (?:미리보기|결과)/.test(title)) return "backup";

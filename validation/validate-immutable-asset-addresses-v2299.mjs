@@ -27,6 +27,14 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
+  // V22.9.85: 디자인 보강 2단계(T-09 카테고리 판정 공용화·§3-2 팔레트·T-10 아이콘 파이프라인)와 V22.9.83·84 검토 후속(R-1~R-7)으로
+  // 셸 CSS·홈 스타일시트·V5 번들·메뉴 스크립트의 바이트가 바뀌어 네 주소를 v22985 로 올렸다.
+  // 옛 주소(accountbook-shell-v22984.css·mobile-home-v22984.css·accountbook-v5-v22984.js·accountbook-nav-v22983.js)의 바이트는
+  // AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 옛 해시로 계속 내려간다(아직 배포 전인 판이 쓰는 주소라 보관 규칙에 든다).
+  "/assets/accountbook-shell-v22985.css": "31f5c4f3de168045e1afdd33b77444fceb897ddc262e0b9d93415f81ecac5149",
+  "/assets/mobile-home-v22985.css": "9c9d665d22a30c37cd6d456fb2ed1032f77229c6cfab9ac4e31496fcb3e682a2",
+  "/assets/accountbook-v5-v22985.js": "de4458256ae9cdd938fe9785d8c58cb6621e5d47bab8dd12c269be30dd940bf2",
+  "/assets/accountbook-nav-v22985.js": "787257d3170387ac0d674fc7484953b62c8e93ab5b38eed1f95b7c27441ba529",
   // V22.9.84: 디자인 보강 1단계(T-01 칩·T-02 세그먼트·T-03 거래 행 읽기 이름·T-04 입력 카드 테두리·T-05 금액 색·T-06 줄바꿈·T-07 누름 반응)로
   // 셸 CSS·홈 스타일시트·V5 번들·홈 스크립트·홈 셸의 바이트가 바뀌어 다섯 주소를 v22984 로 올렸다.
   // 옛 주소(accountbook-shell-v22983.css·mobile-home-v22979.css·accountbook-v5-v22980.js·mobile-home(-shell)-v22983.js)의 바이트는

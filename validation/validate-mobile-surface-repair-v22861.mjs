@@ -9,10 +9,10 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime exposes the mobile surface repair release");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22984.css"'), "changed shell uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22983.js"'), "changed navigation uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22984.js"'), "changed quick input runtime uses a new immutable path");
-ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22984.css"'), "byte-pinned legacy home stylesheet keeps its path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22985.css"'), "changed shell uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22985.js"'), "changed navigation uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22985.js"'), "changed quick input runtime uses a new immutable path");
+ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22985.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
 // 1. 정의되지 않은 CSS 변수가 남으면 하단 "입력" 버튼처럼 배경이 사라지는 회귀가 다시 생긴다.
 // V22.8.93: 담아 온 number-flow 번들(9.4)은 이 검사의 대상이 아니다. 그 안의
@@ -61,7 +61,8 @@ ok(source.includes("body.abV22812Shell .abQuickInputBody{overscroll-behavior:con
 ok(source.includes("body.abV22812Shell .abQuickInputContent .chipRow{max-height:none;overflow:visible}"), "nested chip scroller is removed so the sheet has one scroll surface");
 
 // 5. 빠른 입력 칩과 결제수단 칩은 아이콘으로 구분한다.
-ok(source.includes("const QUICK_CHIP_ICON_RULES = [") && source.includes("const QUICK_PAYMENT_ICON_RULES = ["), "quick input chips have one shared icon table");
+// V22.9.85 T-09: 분류 칩의 판정 단어는 categoryKeyRules() 하나(카테고리 판정의 정본)로 옮겼다. 칩 이모지는 키마다 QUICK_CHIP_KEY_EMOJI 에 있고, 옛 QUICK_CHIP_ICON_RULES 는 없다.
+ok(source.includes("function categoryKeyRules() {") && source.includes("const QUICK_CHIP_KEY_EMOJI = {") && !source.includes("const QUICK_CHIP_ICON_RULES = [") && source.includes("const QUICK_PAYMENT_ICON_RULES = ["), "quick input chips have one shared icon table");
 eq(resolveQuickChipIcon("커피", "카페/간식"), "☕", "cafe chip resolves the cafe icon");
 eq(resolveQuickChipIcon("점심", "외식"), "🍚", "meal chip resolves the meal icon");
 eq(resolveQuickChipIcon("마트", "장보기"), "🛒", "grocery chip resolves the grocery icon");
@@ -110,9 +111,9 @@ const fixture = await createV2265QaFixture();
 try {
   const beforeTransactions = fixture.db.transactions.length;
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22984.css", { cookie: "" });
+  const shell = await request(fixture, "/assets/accountbook-shell-v22985.css", { cookie: "" });
   eq(shell.response.status, 200, "new shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22984-css"', "new shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22985-css"', "new shell ETag is correct");
   ok(shell.text.includes("--action:var(--ab12-action)"), "deployed shell defines the action token");
   ok(shell.text.includes(".abNavDrawerActions"), "deployed shell styles the drawer action group that replaced the top-bar dock");
   ok(!shell.text.includes(".abNavMobileTopActions"), "deployed shell carries no styling for the retired top-bar dock");
@@ -122,22 +123,22 @@ try {
   // 지금은 그리지 않는 쪽으로 다루므로 display:none 이 그 자리다.
   ok(shell.text.includes(".chipRow button:before{display:none}"), "deployed shell keeps quick input chip decoration in CSS, not markup");
 
-  const nav = await request(fixture, "/assets/accountbook-nav-v22983.js", { cookie: "" });
+  const nav = await request(fixture, "/assets/accountbook-nav-v22985.js", { cookie: "" });
   eq(nav.response.status, 200, "new navigation asset is served");
-  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22983-js"', "new navigation ETag is correct");
+  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22985-js"', "new navigation ETag is correct");
   ok(nav.text.includes("syncGlobalActionPlacement"), "deployed navigation runtime places the global actions by viewport");
   ok(!nav.text.includes("dockMobileAction"), "deployed navigation runtime no longer docks a mobile action button");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22984.js", { cookie: "" });
+  const v5 = await request(fixture, "/assets/accountbook-v5-v22985.js", { cookie: "" });
   eq(v5.response.status, 200, "new V5 runtime asset is served");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22984-js"', "new V5 runtime ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22985-js"', "new V5 runtime ETag is correct");
   ok(v5.text.includes("function lockScroll()") && v5.text.includes("window.scrollTo(0, lockedScrollY)"), "deployed quick input runtime carries the scroll lock");
 
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "personal home still renders");
-  ok(home.text.includes("/assets/accountbook-shell-v22984.css"), "home loads the refreshed shell");
-  ok(home.text.includes("/assets/accountbook-nav-v22983.js"), "home loads the refreshed navigation runtime");
-  ok(home.text.includes("/assets/accountbook-v5-v22984.js"), "home loads the refreshed V5 runtime");
+  ok(home.text.includes("/assets/accountbook-shell-v22985.css"), "home loads the refreshed shell");
+  ok(home.text.includes("/assets/accountbook-nav-v22985.js"), "home loads the refreshed navigation runtime");
+  ok(home.text.includes("/assets/accountbook-v5-v22985.js"), "home loads the refreshed V5 runtime");
   ok(home.text.includes('class="abNavMobileTop"') && home.text.includes('id="abMobileMenuButton"'), "home keeps the mobile top bar and menu button the action docks beside");
   ok(home.text.includes('data-memo="점심"') && home.text.includes('data-pay-only='), "home quick input chips keep the attributes the icon CSS targets");
   ok(!home.text.includes('class="bottom"'), "home keeps the single unified bottom navigation");

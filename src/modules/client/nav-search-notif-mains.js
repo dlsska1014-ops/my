@@ -1,4 +1,5 @@
 // @build:imports-start
+import { AB_NAV_ICON_PATHS } from "../assets/icon-paths.js";
 import {
   AB_ACCOUNTBOOK_NOTIF_JS_CACHE, AB_ACCOUNTBOOK_SEARCH_JS_CACHE, AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE,
   AB_MOBILE_HOME_SHELL_JS_CACHE,
@@ -73,41 +74,13 @@ function mobileHomeShellJsAsset() {
   return AB_MOBILE_HOME_SHELL_JS_CACHE;
 }
 
-function accountbookStage4NavClientMain() {
+// V22.9.85 (디자인 작업 지시서 T-10): 메뉴 아이콘 26개는 손으로 쓴 path 표 대신 생성 파일(assets/icon-paths.js, Lucide)의 AB_NAV_ICON_PATHS 를
+// 인자로 받는다. 이름(home·records·…)은 그대로이고, 모르는 이름은 예전처럼 집 모양으로 돌아간다. 선 굵기·크기는 .abNavIconSvg CSS 가 정한다.
+function accountbookStage4NavClientMain(iconPaths) {
   "use strict";
   function iconSvg(name) {
-    var paths = {
-      home: '<path d="M3 10.5 12 3l9 7.5"/><path d="M5.5 9.5V21h13V9.5M9 21v-7h6v7"/>',
-      records: '<path d="M6 3h12a2 2 0 0 1 2 2v16H4V5a2 2 0 0 1 2-2Z"/><path d="M8 8h8M8 12h8M8 16h5"/>',
-      calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 10h18M8 14h.01M12 14h.01M16 14h.01M8 18h.01M12 18h.01"/>',
-      recurring: '<path d="M20 7h-6V1"/><path d="M20 7a9 9 0 1 0 1 8"/>',
-      receipt: '<path d="M6 3h12v18l-3-2-3 2-3-2-3 2V3Z"/><path d="M9 8h6M9 12h6M9 16h3"/>',
-      import: '<path d="M12 3v12M7 10l5 5 5-5"/><path d="M4 19h16"/>',
-      settlement: '<path d="M7 7h13M16 3l4 4-4 4M17 17H4M8 13l-4 4 4 4"/>',
-      // V22.8.87: 없던 키였다. iconSvg 는 모르는 이름을 home 으로 되돌려 주므로
-      // "빠른 입력" 버튼이 집 모양을 달고 있었다. M1 의 가운데 ＋ 도 이 키를 쓴다.
-      plus: '<path d="M12 5v14M5 12h14"/>',
-      report: '<path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/>',
-      stats: '<path d="M4 20V12M10 20V7M16 20V3M22 20H2"/>',
-      budget: '<rect x="3" y="6" width="18" height="14" rx="3"/><path d="M16 11h5M7 6V4h10v2"/>',
-      file: '<path d="M6 2h8l4 4v16H6V2Z"/><path d="M14 2v5h5M9 12h6M9 16h6"/>',
-      sparkle: '<path d="m12 3 1.3 3.7L17 8l-3.7 1.3L12 13l-1.3-3.7L7 8l3.7-1.3L12 3ZM5 14l.8 2.2L8 17l-2.2.8L5 20l-.8-2.2L2 17l2.2-.8L5 14ZM19 13l.7 1.8 1.8.7-1.8.7L19 18l-.7-1.8-1.8-.7 1.8-.7L19 13Z"/>',
-      bell: '<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9ZM10 21h4"/>',
-      users: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8ZM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/>',
-      chat: '<path d="M21 15a4 4 0 0 1-4 4H8l-5 3v-7a7 7 0 0 1-1-4 8 8 0 0 1 8-8h3a8 8 0 0 1 8 8v4Z"/><path d="M7 10h.01M12 10h.01M17 10h.01"/>',
-      switch: '<path d="M17 3l4 4-4 4M3 7h18M7 21l-4-4 4-4M21 17H3"/>',
-      wallet: '<path d="M4 5h14a2 2 0 0 1 2 2v13H4a2 2 0 0 1-2-2V5a3 3 0 0 1 3-3h12"/><path d="M15 11h7v5h-7a2.5 2.5 0 0 1 0-5Z"/>',
-      tag: '<path d="M20 13 13 20l-9-9V4h7l9 9Z"/><path d="M8.5 8.5h.01"/>',
-      backup: '<ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/>',
-      shield: '<path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/>',
-      tools: '<path d="M14.7 6.3a4 4 0 0 0-5-5L7 4l3 3 2.7-2.7a4 4 0 0 0 2 2ZM5 13l6 6-2 2-6-6 2-2ZM14 14l7 7"/>',
-      search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-4-4"/>',
-      plus: '<path d="M12 5v14M5 12h14"/>',
-      palette: '<path d="M12 3a9 9 0 0 0 0 18h1.5a2.5 2.5 0 0 0 0-5H12a1.5 1.5 0 0 1 0-3h3a6 6 0 0 0 0-12h-3Z"/><path d="M7.5 9h.01M9 6h.01M13 6h.01"/>',
-      more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
-      check: '<path d="M20 6 9 17l-5-5"/>',
-    };
-    return '<svg class="abNavIconSvg" viewBox="0 0 24 24" aria-hidden="true" focusable="false">' + (paths[name] || paths.home) + "</svg>";
+    var d = iconPaths[name] || iconPaths.home;
+    return '<svg class="abNavIconSvg" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="' + d + '"/></svg>';
   }
   // V22.9.37 감사 H1·U3: 쿠키로 채운 진입(설치 앱 /app)은 주소에 household_id 가 없다. 서버가 실제로 그린 가계부를 내비 범위
   // 표식(data-ab-hh)에 싣고, 여기서 먼저 읽어 하단 탭·빠른 입력 링크가 그 가계부를 물고 가게 한다.
@@ -139,7 +112,8 @@ function accountbookStage4NavClientMain() {
     if (path.indexOf("settlement") >= 0) return "settlement";
     // V22.9.83: 종합 리포트 보기(view=report)도 사이드바의 소비 분석 한 항목이 켠다(따로 있던 "분석" 항목을 뺐다).
     if (path === "/my/analysis") return "stats";
-    if (path.indexOf("budgets") >= 0) return "budgets";
+    // V22.9.85 R-4: 설정(전체 요약) 화면은 서버(unified-nav activeAliases settings → budgets)처럼 예산을 켠다. 예전에는 ""를 돌려 서버가 켠 표시까지 지웠다.
+    if (path.indexOf("budgets") >= 0 || path === "/my/settings") return "budgets";
     if (path === "/menu") return "menu";
     if (path === "/my/households") return "my-households";
     if (path === "/my/members") return "members";
@@ -581,7 +555,7 @@ function accountbookStage4NavClientMain() {
 
 function accountbookStage4NavJsAsset() {
   if (!AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE) {
-    AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE = `(${accountbookStage4NavClientMain.toString()})();`;
+    AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE = `/*! Lucide icons (lucide-static 1.56.0) ISC · Feather-derived icons MIT · https://lucide.dev/license */(${accountbookStage4NavClientMain.toString()})(${JSON.stringify(AB_NAV_ICON_PATHS)});`;
   }
   return AB_ACCOUNTBOOK_STAGE4_NAV_JS_CACHE;
 }

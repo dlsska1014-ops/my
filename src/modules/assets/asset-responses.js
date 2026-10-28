@@ -96,17 +96,17 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === AB_UIUX_CSS_ASSET_PATH
       ? '"ab-uiux-v22919-css"'
       : path === MOBILE_HOME_CSS_ASSET_PATH
-      ? '"mobile-home-v22984-css"'
+      ? '"mobile-home-v22985-css"'
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22984-css"'
+        ? '"accountbook-shell-v22985-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22946-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22984-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
-          ? '"accountbook-nav-v22983-js"'
+          ? '"accountbook-nav-v22985-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
           ? '"accountbook-search-v22979-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
@@ -116,7 +116,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22937-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22984-js"'
+          ? '"accountbook-v5-v22985-js"'
           : '"mobile-home-v22984-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
