@@ -269,7 +269,7 @@ a2ce72d35b4b20020bafd57631bf931b63b22e19ab0ed60b85482a6098d97280  ./monitoring/m
 4e6e4bb5e1f61408fe9c4a4acbf4f23e6103900e2e055e861714f20ee6dadab0  ./monitoring/worker.mjs
 a70ac192ae4ec8466fffac75ae7811deb9a8cd8a53ec74c08b85147a005e045e  ./monitoring/wrangler.jsonc
 e75d341893f1d30f4499b8e2e03810fc82a566c2df5e216e71bde34bc89ea6b0  ./package.json
-738b841d9c9f112b71a24df16f97225b5bd9fe1412df7f1f9af642fce7e60cf2  ./src/index.js
+0ed31e1eb327c00604cc50717f34e02bbb49fa9647fa4776f4439904e0a375b7  ./src/index.js
 fb674aec534286b2cb79c97e5e689baa4685627a921d46d286dd76f38859f9df  ./src/modules/MANIFEST.txt
 58e7e49567d1d7f04d7266087de78b6ce581f29c3e187795a3d42c0c2ae27946  ./src/modules/admin/backup-apply.js
 48be2b7c9182e47a7969fb4534bd5af39ac94b4427570a689a934b163737b5e1  ./src/modules/admin/backup-compare.js
@@ -374,8 +374,8 @@ ec2584daf6b9b67d294bb6aa0657c1b2890f2425bcbbf8807b9f4a6efa7f13c6  ./src/modules/
 0fa829caef269e8961a5cf9eea88de2922b0dce7b2422a0c7638dc7be7367cf7  ./src/modules/nlu/category-rules.js
 7159f55eb959e11f8aa5dd1cd74940e29162448330b91351e810972a368425d5  ./src/modules/nlu/date-payment.js
 73b42cc9be8f4d659e39c648cf7b2a26f1081a53cc41b5b4196c9b62b0324a31  ./src/modules/nlu/transaction-parser.js
-e168c5c60e2a94c537800b2ee727e0c935325736764790cd980631c0a40e35fa  ./src/modules/public/content-pages.js
-7cbb7bc2d405768228cbbc055d553db9d91e71b8de2c3109980cf3bbc7b3921a  ./src/modules/public/guide-content.js
+f5f178cd12edb68ac14603e7e536a9cc55750b81165601053f9ef4636a3f8850  ./src/modules/public/content-pages.js
+9d080432c54608510582c7e7e466e1156aff8280aa9bfa5020656604de6c5cc5  ./src/modules/public/guide-content.js
 c10d5446c36516e2158225cc5a3776d2ffc16921493b555d923477615c90beac  ./src/modules/public/site-config.js
 c44ab6bdcecfee5a108e3decc873de23cbff83926b9631a0e0253050c1049c0f  ./src/modules/runtime/config-readiness.js
 55549525da4cf845ef2ac01ca600dfa45a410a0a660ec3e3ea145acf8668abcd  ./src/modules/runtime/global-state.js
@@ -587,7 +587,7 @@ a416c1e311aeb447062f49dea266757e668787def5c97265966cfb754c877f25  ./validation/v
 8900c814e1fb73e82cfc10815d832b2c2b23d6f8c4e5b17543b41e1e37ae7ad3  ./validation/validate-write-integrity-v22934.mjs
 f50c9c1aede3c48681fdaaa26e628a75351af3d84de9792063b4e99f84720ac3  ./validation/validate-www-canonical-v22940.mjs
 7d56ac4f50f0f5aff688e4b02941d0bc8a65d296f627eeaab8756668469c5bf4  ./validation/validate-public-articles-v22974.mjs
-5d322ef3682d3b8620a74bc4cb71fe4b5eaecca74e65a6c9ca152c79523bbbf1  ./src/modules/public/living-cost-articles-v22974.js
+12837538aadb1cbbddd27f2269e6469bc4d4f889b8801d3de85b47870add590a  ./src/modules/public/living-cost-articles-v22974.js
 61e3308c5d23756cce880d93c382175e6f38a537af9cb307f353238dd56f88ad  ./docs/ADSENSE_REMEDIATION_V22_9_74.md
 61247d6ee792f886b71d35f9b101f2bb77a43af1412c017632b4887b1dbe5c7a  ./BUNDLE_FILE_CHECKSUMS_V22_9_73.sha256
 ef942edbbb365ed60f76e08461eaf4e0eab6b4ca97e40c0bd17f7c2fa20d463d  ./BUNDLE_FILE_CHECKSUMS_V22_9_74.sha256
