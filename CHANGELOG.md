@@ -1,3 +1,29 @@
+## V22.9.84-DESIGN-UPLIFT-1 · 2026-10-28 · 디자인 보강 1단계(칩·세그먼트·거래 행 읽기 이름·입력 카드 테두리·금액 색·줄바꿈·누름 반응)
+
+Claude Design 작업 지시서 `docs/ux/MALHAEBOOK_UX_WORK_ORDER.md`(티켓 29개·5단계)의 1단계 T-01~T-07. 지시서의 판 번호(1단계 = V22.9.81 …)는
+V22.9.81~83 이 이미 있어 셋씩 밀린다(1단계 = V22.9.84). 홈 HTML 은 늘지 않는다(규칙·코드는 1년 캐시 자산에만 넣었다).
+
+- T-01 빠른 입력 칩: 바탕 규칙과 셸 템플릿의 `.form button:not(.danger)`(폼 안 모든 단추를 주 단추로 칠함)를 제출 단추(`[type="submit"]`)로 좁혔다.
+  칩은 면·선·본문색 600, 높이 44px, 둥근 999px. 고른 칩은 aria-pressed=true 와 accent-soft 면·accent 선·글자 800.
+  고른 상태는 내용 칸(결제수단 칩은 결제수단 칸) 값이 칩 값과 같은 동안만이다. 손으로 고치거나 저장 뒤 비우면 풀리고, 초안 복원·한 줄 입력 뒤에도 맞춘다.
+  날짜 칩·금액 단추(+1천 등)는 주 단추 칠을 받지 않는다(금액 단추 모서리는 공용 14px 대신 자기 규칙 11px).
+- T-02 지출·수입 세그먼트: 트랙 surface-raised, 고른 칸 surface 면·accent 선·글자 800, 안 고른 칸 투명 면·nav-inactive 글자.
+  바탕 규칙의 고른 칸 리터럴(#1b64da·#b7d8ff)을 토큰으로 바꾸고, 다크 면 목록에서 `.seg span` 을 뺐다.
+- T-03 거래 행 읽기 이름: "가족 카페, 2026-07-09 · 카페/간식 · 카카오페이, 지출자 Bin, -28,600원, 수정·삭제 상세 보기"처럼 쉼표로 나눠 읽는다(예전에는 글자가 붙어 읽혔다).
+- T-04 입력 카드 테두리: 리터럴(#dbe7f4·#e8edf4) → `--ab12-line`(바로 아래 피드 카드와 같음).
+- T-05 금액 색: 홈 요약 숫자와 거래 행에서 수입 `--pos`, 지출 본문색(빨강은 초과·오류만 — 시안 승인). 분석 화면은 바꾸지 않았다(규칙이 닿는 요소가 없음).
+- T-06 줄바꿈: 셸 body 에 `word-break:keep-all; overflow-wrap:anywhere`(홈·사이드바 화면·/my 로그인. 공개 랜딩은 원래 keep-all).
+- T-07 누름 반응: 단추·칩·하단 탭·거래 행이 누르는 동안 .97 로 줄어든다(120ms). 면·선·글자 전환은 180ms. 하단 가운데 입력 탭은 솟은 자리(−8px)를 지킨 채 줄어든다.
+  움직임 줄이기에서는 모두 끈다. 초점 링(accent 3px)은 그대로다.
+- 자산 주소 v22984: accountbook-shell CSS·mobile-home CSS·accountbook-v5 JS·mobile-home JS·mobile-home-shell JS. 옛 주소 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남겼다.
+  옛 V22811 셸 자산(`/assets/accountbook-shell-v22811.css`)이 그대로 내보내는 바탕 상수는 고치지 않고, 셸을 만드는 치환 사슬에서만 바꿨다.
+- 검사: 새 `npm run validate:design-uplift`(validation/validate-design-uplift-v22984.mjs 65개 — 칩 상태 함수를 가짜 DOM 에서 실제로 돌림, 홈 HTML·셸 CSS 바이트와 !important 상한).
+  옛 검사 여섯 개를 이 판에 맞췄다(모두 사유 주석): 홈 스타일시트 고정 해시(validate-performance-v22811), 환불 연결 꺼짐 화면 해시 12개
+  (validate-refund-links-v22980 — 해시 입력의 자산 주소·판 이름을 V22.9.83 값으로 바꾸면 옛 값 그대로 268개가 통과함을 먼저 확인), 셸·V5 ETag 판(validate-audit-batch-c-v22937),
+  정규식으로 적혀 주소 올리기 도구가 못 바꾼 셸 주소(validate-tap-target-a11y-v22868·validate-design-tokens-v22885), 고른 칩 글자색 action → accent(validate-quick-sheet-two-tier-v22889, 지시서 T-01 수용 기준).
+  두 모드 실측: 일반 35,318 · 분류 표 부재 35,315(체크섬 683개).
+- 운영 DB·Secret·CSP·관제·카카오 답장은 바꾸지 않는다.
+
 ## V22.9.83-UI-CLARITY · 2026-10-28 · 화면 정리 1차(메뉴 이름·묶음·하단 탭·전체 메뉴·소비 분석 보기 탭·정기 수입·지출)·테스트 서버
 
 사용자 지적(2026-10-28): 좌측 메뉴 이름(적는다·본다·계획한다)이 어설프고, 통계·리포트류와 정기 수입·지출을 비롯한 탭들에 UI·UX 문제가 많다.

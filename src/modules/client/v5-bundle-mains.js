@@ -1337,7 +1337,15 @@ function accountbookDetailExperienceClientMain() {
     if (typeof HTMLDialogElement === "undefined" || typeof HTMLDialogElement.prototype.showModal !== "function") return;
     main.tabIndex = 0;
     main.setAttribute("role", "button");
-    main.setAttribute("aria-label", main.textContent.trim().replace(/\s+/g, " ") + " 상세 보기");
+    // V22.9.84 T-03: 행 글자를 그대로 이으면 "가족 카페2026-07-09 · 카페/간식 · 카카오페이지출자 Bin-28,600원수정·삭제"처럼
+    // 붙어 읽혔다. 제목·날짜 줄·지출자·금액을 쉼표로 나눠 읽고 끝에 "수정·삭제 상세 보기"를 한 번만 붙인다.
+    var parts = [];
+    ["b", "span:not(.v8-spender)", "span.v8-spender", "strong"].forEach(function(selector) {
+      var node = main.querySelector(selector);
+      var text = node ? node.textContent.trim().replace(/\s+/g, " ") : "";
+      if (text) parts.push(text);
+    });
+    main.setAttribute("aria-label", parts.length ? parts.join(", ") + ", 수정·삭제 상세 보기" : main.textContent.trim().replace(/\s+/g, " ") + " 상세 보기");
     main.addEventListener("keydown", function(event) { if (event.key === "Enter" || event.key === " ") { if (showRow(main)) event.preventDefault(); } });
   });
 

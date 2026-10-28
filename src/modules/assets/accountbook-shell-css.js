@@ -6,6 +6,11 @@ import { ACCOUNTBOOK_SHELL_V22811_CSS } from "./asset-registry.js";
 const ACCOUNTBOOK_SHELL_CSS = ACCOUNTBOOK_SHELL_V22811_CSS
   .replaceAll("abV22811Shell", "abV22812Shell")
   .replaceAll("--ab11", "--ab12")
+  // V22.9.84 T-02: 바탕 규칙의 세그먼트·피드 선택 글자·테두리 리터럴(#1b64da·#b7d8ff)을 토큰으로 바꾼다. 옛 주소
+  // /assets/accountbook-shell-v22811.css 는 이 상수를 그대로 내려보내므로 상수는 두고 이 판의 셸에서만 바꾼다.
+  .replace("{background:var(--ab12-accent-soft)!important;color:#1b64da!important;border:1px solid #b7d8ff!important}", "{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border:1px solid var(--ab12-accent)!important}")
+  // V22.9.84 T-01: 바탕 규칙에도 폼 안 모든 버튼을 주 버튼으로 칠하는 줄이 있다(아래 셸 51·160행과 같은 목록). 제출 버튼으로 좁힌다.
+  .replaceAll(".form button:not(.danger),", '.form button[type="submit"]:not(.danger),')
   + `
 html{background:#f2f4f6;color-scheme:light}
 html[data-ab-resolved-theme="dark"]{background:#141519;color-scheme:dark}
@@ -48,7 +53,7 @@ body.abV22812Shell :is(.tchip small,.kpi small:not(.up):not(.down),.cardHead .su
 body.abV22812Shell [style*="color:#8B95A1"],body.abV22812Shell [style*="color:#8b95a1"]{color:var(--ab12-muted)!important}
 body.abV22812Shell :is(.muted,.note,.smartHint,.homeEmpty,.homeBudgetTop span,.homeMetric span,.homeTx span,.homeBarRow span){color:var(--ab12-muted)!important}
 body.abV22812Shell a{color:var(--ab12-accent)}
-body.abV22812Shell :is(.smartLine button,.form button:not(.danger),.loginCard button[type="submit"],.signupCard button[type="submit"],form[action="/my/backup-login"] button[type="submit"],.menuContext button){background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
+body.abV22812Shell :is(.smartLine button,.form button[type="submit"]:not(.danger),.loginCard button[type="submit"],.signupCard button[type="submit"],form[action="/my/backup-login"] button[type="submit"],.menuContext button){background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
 .abAppearancePanel{margin:0 0 28px;padding:18px;border:1px solid var(--ab12-line);border-radius:18px;background:var(--ab12-surface);box-shadow:var(--ab12-shadow)}.abCursorPref{margin-top:14px;padding-top:14px;border-top:1px solid var(--ab12-line);display:grid;gap:10px}.abCursorPick{display:flex;align-items:flex-start;gap:10px;min-height:44px;cursor:pointer}.abCursorPick input{width:22px;height:22px;margin-top:2px;flex:none}.abCursorPick b{display:block;font-size:14px}.abCursorPick small{display:block;color:var(--ab12-muted);font-size:12px;line-height:1.6;margin-top:3px}.abCursorPref button{min-height:44px;border:1px solid var(--ab12-line);border-radius:var(--ab12-r-sm,8px);background:var(--ab12-surface);color:var(--ab12-text);font-weight:1000;cursor:pointer;justify-self:start;padding:0 14px}
 .abAppearanceHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.abAppearanceHead h2{margin:0;color:var(--ab12-text);font-size:18px}.abAppearanceHead p{margin:5px 0 0;color:var(--ab12-muted);font-size:13px;line-height:1.5}.abAppearanceDevice{display:inline-flex;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);padding:6px 9px;font-size:11px;font-weight:750;white-space:nowrap}
 .abAppearanceRows{display:grid;grid-template-columns:1fr 1.35fr;gap:18px;margin-top:16px}.abAppearanceRows>div>b{display:block;margin-bottom:8px;color:var(--ab12-text);font-size:13px}.abAppearanceChoices{display:flex;flex-wrap:wrap;gap:7px}.menuPage .abAppearanceChoices button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:0 13px!important;border:1px solid var(--ab12-line)!important;border-radius:12px!important;background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;font-size:13px;font-weight:750}.menuPage .abAppearanceChoices button[aria-pressed="true"]{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--ab12-accent) 16%,transparent)}
@@ -76,7 +81,7 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell .appMonthAwayGo{backgroun
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .hero:has(.heroTop){background:var(--ab12-surface)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.menuPage,.wrap,.pageMain,.menuSecondary,.menuSection,.featuredSection){background:transparent!important;color:var(--ab12-text)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(h1,h2,h3,h4,strong,label,.menuRowTitle,.featuredCopy b,.journeyCopy b,.homeQuick b,.homeTx b,.metric b,.summaryBox b,.appMenu summary){color:var(--ab12-text)!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeIcon,.homeProgress,.homeBar,.homeOnboardingStep,.hTrack,.meterBig,.miniBar,.progress,.summaryBox,.keywordFilter,.assetOptional,.memberUse,.basisGrid>div,.basisGrid li,.menuLink,.homeCalendarToggle a,.filterQuick a,.feedControls a,.filterAdvanced,.seg span,.seg button,.appMenuBody .navGroup a,.heroBtns a,.pchip,.fBtn,.fPanel,.csvBtn,.optionGrid a,.hhActions a:not(.primary),.stageActions a,.accountSecurity>a,.reauthButton,.box,.gaugeCard,.dailyCell,.weekdayCell,.trendChart,.seriesChart,.insight,.insightList li,.feature,.candidate,.criteria,.identity,.emptyTree){background:var(--ab12-surface-raised)!important;border-color:var(--ab12-line)!important;color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.homeIcon,.homeProgress,.homeBar,.homeOnboardingStep,.hTrack,.meterBig,.miniBar,.progress,.summaryBox,.keywordFilter,.assetOptional,.memberUse,.basisGrid>div,.basisGrid li,.menuLink,.homeCalendarToggle a,.filterQuick a,.feedControls a,.filterAdvanced,.seg button,.appMenuBody .navGroup a,.heroBtns a,.pchip,.fBtn,.fPanel,.csvBtn,.optionGrid a,.hhActions a:not(.primary),.stageActions a,.accountSecurity>a,.reauthButton,.box,.gaugeCard,.dailyCell,.weekdayCell,.trendChart,.seriesChart,.insight,.insightList li,.feature,.candidate,.criteria,.identity,.emptyTree){background:var(--ab12-surface-raised)!important;border-color:var(--ab12-line)!important;color:var(--ab12-text)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.abNavLogo,.abNavToggle,.abNavItemIcon,.abNavGuide,.journeyNum,.featuredIcon,.menuRowIcon){background:var(--ab12-surface-raised)!important;border-color:var(--ab12-line)!important;color:var(--ab12-muted)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(th,.tableWrap:before){background:var(--ab12-surface-raised)!important;color:var(--ab12-muted)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(td,tr,.menuList,.menuRow,.txRow,.bRow,.txDate){border-color:var(--ab12-line)!important}
@@ -157,7 +162,7 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.income,.up,.positive
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.expense,.down,.negative,.minus,.homeTxAmt:not(.income)){color:#fca5a5!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .homeToday b[style*="#059669"]{color:#6ee7b7!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.danger,.delBtn,.dangerZone button[type="submit"]){background:#3f1d2a!important;color:#fecaca!important;border-color:#7f3545!important}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.smartLine button,.form button:not(.danger),.loginCard button[type="submit"],.signupCard button[type="submit"],form[action="/my/backup-login"] button[type="submit"],.menuContext button,.bottom a.tabAdd i,.bottom a.abPrimary i,.abNavBottom a.abPrimary i,.abUxBottom a.abPrimary i,.homeDesktopBrand i){color:#fff!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.smartLine button,.form button[type="submit"]:not(.danger),.loginCard button[type="submit"],.signupCard button[type="submit"],form[action="/my/backup-login"] button[type="submit"],.menuContext button,.bottom a.tabAdd i,.bottom a.abPrimary i,.abNavBottom a.abPrimary i,.abUxBottom a.abPrimary i,.homeDesktopBrand i){color:#fff!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abMobileAppSurface .bottom :is(a.tabAdd,a.abPrimary) i{background:var(--ab12-action)!important;color:#fff!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .homeNotice b{color:var(--ab12-notice-title)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .homeNotice p{color:var(--ab12-notice-text)!important}
@@ -240,8 +245,23 @@ body.abV22812Shell{--ab-blue:var(--ab12-action);--ab-blue-soft:var(--ab12-accent
    44px 면 충분하고, 굵기 1000 은 강조가 아니라 소음이다. 토큰 값으로 되돌린다. */
 body.abV22812Shell .quickSubmit>button[type="submit"]{min-height:48px;border-radius:var(--ab12-r-md,12px);font-weight:var(--ab12-fw-title,700)}
 /* 결제수단 칩이 전부 파란 채움이라 무엇을 골랐는지 읽을 수 없었다. 선택만 채운다. */
-body.abV22812Shell #add .chipRow button{min-height:44px;border-radius:var(--ab12-r-sm,8px);background:var(--ab12-surface);border:1px solid var(--ab12-line);color:var(--ab12-text)}
-body.abV22812Shell #add .chipRow button[aria-pressed="true"],body.abV22812Shell #add .chipRow button.isOn{background:var(--ab12-accent-soft);border-color:var(--ab12-action);color:var(--ab12-action)}
+/* V22.9.84 T-01: 빠른 입력 칩은 주 버튼이 아니다(폼 안 모든 버튼이 --ab12-action 채움을 받아 칩 5개가 기록 저장과 같았다).
+   기본은 surface 면 + line 테두리 + text 600, 고른 칩(aria-pressed·.isOn)은 accent-soft 면 + accent 테두리·글자 800.
+   지시서 §3-4 의 왼쪽 6px 패딩은 칩 앞 분류 동그라미(T-13)를 위한 값이라, 동그라미가 들어오기 전인 지금은 양쪽 14px 로 둔다. */
+/* 홈 CSS 의 옛 칩 규칙(.abMobileAppSurface .chipRow button: 흰 면·#d7dee8 테두리·38px·transform:none, 모두 !important)을 이기려고 !important 를 쓴다. */
+body.abV22812Shell #add .chipRow button{min-height:44px!important;padding:0 14px!important;gap:6px;border-radius:999px!important;background:var(--ab12-surface)!important;border:1px solid var(--ab12-line)!important;color:var(--ab12-text)!important;font-weight:600!important}
+body.abV22812Shell #add .chipRow button[aria-pressed="true"],body.abV22812Shell #add .chipRow button.isOn{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;font-weight:800!important}
+body.abV22812Shell #add :is(.chipRow button,.dateChip):active:not(:disabled){transform:scale(.97)!important}
+@media(prefers-reduced-motion:reduce){body.abV22812Shell #add :is(.chipRow button,.dateChip):active:not(:disabled){transform:none!important}}
+/* V22.9.84 T-02: 지출/수입 세그먼트는 트랙형이다. 다크에서 고른 칸과 안 고른 칸의 면·테두리가 같아(#282b33/#3b475a) 글자색만 달랐다.
+   라이트·다크 같은 규칙: 트랙 surface-raised, 고른 칸 surface 면 + accent 테두리·글자 + 그림자, 안 고른 칸 투명 면 + nav-inactive. */
+body.abV22812Shell #add .seg{background:var(--ab12-surface-raised);padding:4px;border-radius:14px;gap:4px}
+body.abV22812Shell #add .seg span{height:44px;border-radius:11px;background:transparent!important;border:1px solid transparent!important;color:var(--ab12-nav-inactive)!important;font-weight:700}
+body.abV22812Shell #add .seg input:checked+span{background:var(--ab12-surface)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;font-weight:800;box-shadow:var(--shadow)}
+/* V22.9.84 T-05: 금액 색 — 수입 --pos, 지출 본문색(8테마 같음). 빨강(--neg·--ab12-gauge-over)은 초과·오류에만 쓴다.
+   홈 KPI(들어온 돈·나간 돈)와 거래 행 금액만 바꾼다(분석 화면은 바꾸지 않는다). html[data-ab-resolved-theme] 는 다크 증감 색 규칙보다 앞서려고 붙였다. */
+html[data-ab-resolved-theme] body.abV22812Shell :is(.homeMetric>b.income,.v8-tx strong.income,.homeTxAmt.income){color:var(--pos)!important}
+html[data-ab-resolved-theme] body.abV22812Shell :is(.homeMetric>b.expense,.v8-tx strong.expense,.homeTxAmt:not(.income)){color:var(--ab12-text)!important}
 body.abV22812Shell.abMobileAppSurface .homeBudgetToday{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:var(--ab12-sp-3,12px);color:var(--ab12-muted);font-size:var(--ab12-fs-cap,12px);font-weight:850}
 body.abV22812Shell.abMobileAppSurface .homeBudgetToday b{font-size:15px;font-variant-numeric:tabular-nums}
 /* 구분선은 지시서 M3 의 "P0 하단 구분선 아래"를 그대로 옮긴 것이다. 하루 환산은
@@ -348,6 +368,8 @@ body.abV22812Shell{
   --space-1:8px;--space-2:16px;--space-3:24px;--space-4:32px;
   --shadow:0 0 0 1px rgba(25,31,40,.06),0 1px 2px rgba(25,31,40,.03);--shadow-2:0 6px 22px rgba(25,31,40,.08);
   background:var(--bg)!important;color:var(--text)!important;
+  /* V22.9.84 T-06: 한국어 낱말 중간 줄바꿈(카카/오페이·바로 이/어서)을 막고, 띄어쓰기 없는 긴 글은 넘치기 전에 끊는다. */
+  word-break:keep-all;overflow-wrap:anywhere;
   font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;
   font-feature-settings:"tnum";letter-spacing:-.01em
 }
@@ -422,7 +444,13 @@ body.abV22812Shell .appTop{view-transition-name:abTopBar}
 }
 
 body.abV22812Shell :is(.muted,.note,.subtitle,.dataNote){color:var(--sub)!important;line-height:1.55}
-body.abV22812Shell :is(button,.btn){transition:filter var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),background var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),border-color var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1));box-shadow:none}
+/* V22.9.84 T-07: 누름 반응 — 버튼·칩·하단 탭·거래 행은 누르는 즉시 .97 로 줄었다가(120ms) 돌아오고, 면·테두리·글자는 180ms 로 함께 바뀐다.
+   움직임 줄이기에서는 모두 끈다. 하단 가운데 입력 탭은 위로 8px 솟은 자리를 지킨 채 줄인다. 초점 링(accent 3px)은 바탕 규칙 그대로다. */
+body.abV22812Shell :is(button,.btn,.chip,.abNavBottom a,.v8-tx-main){transition:transform var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),filter var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),background-color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),border-color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}
+body.abV22812Shell :is(button,.btn){box-shadow:none}
+body.abV22812Shell :is(button,.btn,.chip,.abNavBottom a,.v8-tx-main):active:not(:disabled){transform:scale(.97)}
+body.abV22812Shell .abNavBottom a.abNavQuickInput:active{transform:translateY(-8px) scale(.97)}
+@media(prefers-reduced-motion:reduce){body.abV22812Shell :is(button,.btn,.chip,.abNavBottom a,.v8-tx-main){transition:none!important}body.abV22812Shell :is(button,.btn,.chip,.abNavBottom a,.v8-tx-main):active{transform:none!important}body.abV22812Shell .abNavBottom a.abNavQuickInput:active{transform:none!important}}
 body.abV22812Shell :is(.ghost,.secondary,.soft,.light,.btn.ghost){background:var(--card)!important;color:var(--text)!important;border-color:var(--line)!important}
 body.abV22812Shell :is(.ghost,.secondary,.soft,.light,.btn.ghost):hover{background:var(--card-2)!important;color:var(--text)!important}
 body.abV22812Shell :is(input,select,textarea){background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:var(--radius-xs)!important}
