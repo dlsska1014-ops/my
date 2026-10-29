@@ -30,8 +30,10 @@ const PINNED = {
   // V22.9.87: 디자인 보강 4단계(T-19 데스크톱 독 → 사이드바 검색 줄·머리말 아이콘 단추·빠른 입력 단추 하나, V85:R-9 사이드바 현재 메뉴,
   // T-16 저장 알림 실행 취소)로 셸 CSS·V5 번들·메뉴 스크립트의 바이트가 바뀌어 세 주소를 v22987 로 올렸다. 옛 주소(아래 v22986 세 줄)의 바이트는
   // AB_HISTORICAL_RUNTIME_ASSETS 에 남아 옛 해시로 계속 내려간다(아직 배포 전인 V22.9.86 이 쓰는 주소라 보관 규칙에 든다). 홈 스크립트·홈 셸(v22986)은 그대로다.
-  "/assets/accountbook-shell-v22987.css": "d88248047e9e3918f433c1cef204aaf6cd23cb69fdb5cb3cbefd906b7eb32f13",
-  "/assets/accountbook-v5-v22987.js": "ec70d193d5901a18ddad4db2208869d920497ee81d0f4db3384033cbbc8976c7",
+  // 사용자 결정(2026-10-29, T-23 글꼴·경고 알림 실행 취소·W-4·R-10)으로 셸과 V5(주석 한 줄)의 v22987 바이트가 다시 바뀌어 해시만 고쳤다.
+  // v22987 은 아직 어느 브라우저도 받아 간 적 없는 배포 전 주소라 주소를 올리지 않는다.
+  "/assets/accountbook-shell-v22987.css": "8e3d1293487096c95c109f6f0990930acd8e847ee5d22a115f7ca24af22f9ffd",
+  "/assets/accountbook-v5-v22987.js": "3375485a211c7caed1c65fc79a4ac052942bfe461c666e5dc440a065d7dabb0b",
   "/assets/accountbook-nav-v22987.js": "de61e7d8dbc8ac10bf3a2f3c60c5b5960e97ff3a786528042eb580073f42be6d",
   // V22.9.87 T-22: 공유 미리보기 이미지(1200×630 PNG, assets/og-image.js 생성 파일)도 1년 캐시 주소다. 그림을 다시 만들면 주소의 판 번호를 올린다.
   "/assets/og-malhaebook-v22987.png": "83b5aa2fd6d5d0a39c6bd293e3544a82b8f28f482af38e8fd5d72f9235791376",

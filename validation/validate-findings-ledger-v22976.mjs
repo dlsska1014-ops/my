@@ -24,8 +24,8 @@ const SOURCES = [
   { key: "V85", path: "docs/codex/DESIGN_FINDINGS_V22_9_85.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(R-[0-9]+)(?=[ *]|$)/gm, expected: 17 },
   // V22.9.86: 디자인 보강 3단계를 만들며 새로 찾은 항목.
   { key: "V86", path: "docs/codex/DESIGN_FINDINGS_V22_9_86.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(V-[0-9]+)(?=[ *]|$)/gm, expected: 9 },
-  // V22.9.87: 디자인 보강 4단계를 만들며 새로 찾은 항목.
-  { key: "V87", path: "docs/codex/DESIGN_FINDINGS_V22_9_87.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(W-[0-9]+)(?=[ *]|$)/gm, expected: 3 },
+  // V22.9.87: 디자인 보강 4단계를 만들며 새로 찾은 항목. W-4 는 PR 뒤 사용자 결정 2(경고 알림 실행 취소)를 만들며 찾았다.
+  { key: "V87", path: "docs/codex/DESIGN_FINDINGS_V22_9_87.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(W-[0-9]+)(?=[ *]|$)/gm, expected: 4 },
 ];
 // '결함 아님'은 다시 확인해 보니 규격·의도대로인 항목이다. 메모에 근거(규격 문서 줄 등)를 적는다.
 const STATUSES = new Set(["고침", "일부 고침", "남음", "결정 필요", "확인 불가", "결함 아님"]);

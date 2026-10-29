@@ -385,7 +385,7 @@ body.abV22812Shell{
      V22.9.85 R-1: anywhere 는 최소 폭 계산에서도 모든 글자를 끊을 곳으로 쳐서, 표 칸·가로 배치가 숫자 폭 아래로 줄며 "119,03/2원"·"72,000/원"·
      날짜 눈금 "1/6"처럼 금액과 숫자를 쪼갰다. break-word 는 넘칠 때만 끊고 최소 폭은 그대로라 표는 예전처럼 가로로 넘겨 본다. */
   word-break:keep-all;overflow-wrap:break-word;
-  font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;
   font-feature-settings:"tnum";letter-spacing:-.01em
 }
 html[data-ab-resolved-theme="dark"] body.abV22812Shell{

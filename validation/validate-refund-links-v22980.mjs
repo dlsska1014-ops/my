@@ -29,6 +29,8 @@
 // --print-golden 으로 다시 얻었고, 바뀐 값은 home·homeTrend·homePrev 셋이다.
 // V22.9.87(2026-10-29): 디자인 보강 4단계는 꺼짐 화면에서 지난달 예산 카드 머리(V86:V-8)·자산 주소 세 개(v22987)·판 이름만 바꾼다. T-19·R-9 는 CSS·JS 이고, T-16 실행 취소 단추는 저장 직후 알림에만 있고, V-9 한 건 줄은 이 픽스처의 정기 항목이 알림 창 밖이라(‘다가오는 납부 없음’) 글자가 같다.
 // 해시하는 화면 원문 96개를 V22.9.86(2766b5b)과 견주어 그 셋을 가리면 모두 같음을 확인한 뒤(review-artifacts/design-uplift-2026-10-28/v87/refund-compare.txt, 바뀐 54개·그 밖 차이 0) --print-golden 으로 12개(home·homeTrend·homePrev·budgets·budgetAlerts·reports·reportsWeek·analysis·backupPage·backupFull·backupMonth·candidate)를 다시 얻었다.
+// 같은 판의 T-23(사용자 결정 D-1 = B, 2026-10-29)은 리포트 인라인 CSS 의 글꼴 목록에서 Pretendard 두 이름을 뺀다. 96개를 f0856b5 와 견주어 그 목록만 가리면 모두 같음을 확인한 뒤
+// (review-artifacts/design-uplift-2026-10-28/v87/refund-compare-font.txt, 바뀐 10개·그 밖 차이 0) reports·reportsWeek 둘을 다시 얻었다.
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -44,8 +46,8 @@ const FLAG_OFF_GOLDEN = {
   "budgets": "200 76b008ca0356f5dd7e358085",
   "budgetAlerts": "200 6fc3543c522d72c8860c0694",
   "notifications": "200 df9761ab7204d02ba148aa42",
-  "reports": "200 2c80711cc0d07359d8375883",
-  "reportsWeek": "200 87f9a102ca8bccc31ab9fc73",
+  "reports": "200 7f9263c56f9c0d9477c59a50",
+  "reportsWeek": "200 b58080ec5107f1131cd0aa83",
   "analysis": "200 0c1aec5bf4613ce6760cfb50",
   "backupPage": "200 f9df266b7de8ad78b1aa0428",
   "kakao:이번달": "200 98fb6fc3811a3c54849be3cc",

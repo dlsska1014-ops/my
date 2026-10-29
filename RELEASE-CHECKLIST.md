@@ -1,9 +1,9 @@
 ## V22.9.87 디자인 보강 4단계 검사
 
-- 두 모드 하네스와 CI. 두 모드 실측: 일반 36,578 · 분류 표 부재 36,575(체크섬 700개).
+- 두 모드 하네스와 CI. 두 모드 실측: 일반 36,641 · 분류 표 부재 36,638(체크섬 700개, 사용자 결정 2 포함).
 - 새 검사:
-  - `validation/validate-design-uplift-v22987.mjs`(138개, `npm run validate:design-uplift`)
-  - `validation/validate-public-brand-v22987.mjs`(217개, `npm run validate:public-brand`)
+  - `validation/validate-design-uplift-v22987.mjs`(177개, `npm run validate:design-uplift`)
+  - `validation/validate-public-brand-v22987.mjs`(226개, `npm run validate:public-brand`)
 - 지시서가 티켓마다 정한 검사는 모두 통과했다: `review-artifacts/design-uplift-2026-10-28/v87/ticket-checks.txt`.
   - T-16: validate:household-security·core-write·lifecycle
   - T-19: validate:v5·ux-principles
@@ -24,9 +24,17 @@
 - R-9: 사이드바 선택 구분 실패 0(예산·리포트·전체 메뉴 × 900·1280 × 8테마 = 48회), `v87/r9/`.
 - 공개·로그인(T-20~T-22) 측정과 캡처는 `v87/public/`(전 `before/`, 후 `t20/`·`t21/`·`t22/`)에 있다.
 - 환불 연결 꺼짐 고정값: V22.9.86 ↔ 87 화면 원문 96개 비교 `v87/refund-compare.txt`(가린 뒤 차이 0).
+- 사용자 결정 2(2026-10-29, T-23 글꼴·경고 알림 실행 취소·AdSense 검토·R-10·R-17):
+  - 화면 감사 도구에 `.on`·`aria-selected` 를 더했다(R-17). PR 머리(f0856b5)를 옛·새 도구로 224번씩 돌려 실패 실행 88·선택 실패 110 이 같음을 확인했다(`v87/screen-audit-r17-before`).
+  - 이 판(새 도구, 224번): 실패 실행 88 → 46, 선택 실패 110 → 62. 리포트 기간 탭(R-10) 실패 48 → 0, 통과하다 실패로 바뀐 것 0(`v87/screen-audit-r17-after`).
+  - 남은 62 는 소비 분석 24(보호 화면)·R-11 38 이다.
+  - 경고 알림 실행 취소·W-4 단추 색: 픽스처에서 900,000원 저장 → 경고 알림·두 단추 줄 → `POST /my/undo` 를 검사가 돈다. 라이트·다크 캡처 `v87/decision2/toast/`.
+  - T-23 뒤 환불 꺼짐 화면 원문 96개: 글꼴 목록만 가리면 모두 같다(`v87/refund-compare-font.txt`, 바뀐 10개).
+  - `/demo` 미리보기(아래 계산 예제와 같은 숫자) 캡처 `v87/decision2/demo/`. `/` 는 PR 머리와 바이트까지 같다.
 - 수동(사용자):
   - 데스크톱 실제 브라우저: 사이드바 검색·‘/’, 머리말 아이콘 단추, 빠른 입력 단추 줄기·펼치기, 사이드바 현재 메뉴.
-  - 실제 휴대폰: 저장 뒤 ‘실행 취소’, 60초 뒤·다시 누름 안내.
+  - 실제 휴대폰: 저장 뒤 ‘실행 취소’(예산 경고 알림 포함), 60초 뒤·다시 누름 안내.
+  - 운영체제별 글꼴(윈도·맥·안드로이드·아이폰), 생활비 리포트 기간 탭.
   - 카카오톡 인앱 `/my`: 첫 화면 카카오 로그인, 로그인 이름 칸 열기·오류·비밀번호 보기.
   - 공개 랜딩·`/demo` 첫 화면, 배포 뒤 카카오톡 공유 미리보기 이미지.
   - 다크·고대비·움직임 줄이기, 화면 읽기.

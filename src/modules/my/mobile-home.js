@@ -613,15 +613,20 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // role·aria-live 는 그대로다.
   // V22.9.87 T-16(사용자 결정 2026-10-29): 새 기록 저장 성공 알림에 "실행 취소". 서명한 표(handleMobileV8Page 의 quickUndo.ticket)가 있으면
   // POST /my/undo 폼 단추(JS 없이도 된다), 없으면 그 기록의 "수정·삭제 화면 열기" 링크다. 기록을 바꿀 수 없는 사람(조회 전용·‘기록만’ 구성원)에게는
-  // 둘 다 두지 않는다. 경고(예산 보기)·오류(다시 시도) 알림은 그대로다.
-  const undoAllowed = feedbackKind === "success" && !!quickUndo && appCanWrite && (appIsManager || memberCanChangeRecords);
+  // 둘 다 두지 않는다. 오류(다시 시도) 알림은 그대로다.
+  // 사용자 결정(2026-10-29 "예산 실행취소를 둬"): 저장했지만 예산을 확인해야 하는 경고 알림에도 같은 실행 취소를 "예산 보기" 뒤에 둔다.
+  // 단추가 둘이면 문구 아래 한 줄(.abSaveFeedbackActions)로 내리고 알림에 hasActionRow 를 붙인다(표시 원·닫기를 위로 맞춘다).
+  const undoAllowed = (feedbackKind === "success" || feedbackKind === "warning") && !!quickUndo && appCanWrite && (appIsManager || memberCanChangeRecords);
+  const undoActionHtml = !undoAllowed ? ""
+    : quickUndo.ticket ? `<form class="abSaveFeedbackUndo" method="post" action="/my/undo"><input type="hidden" name="ticket" value="${escapeHtml(quickUndo.ticket)}"><input type="hidden" name="month" value="${escapeHtml(month)}"><input type="hidden" name="return_to" value="${escapeHtml(quickUndo.returnTo)}"><button type="submit" class="abSaveFeedbackAction" data-ab-undo>실행 취소</button></form>`
+    : `<a class="abSaveFeedbackAction" data-ab-undo-edit href="${escapeHtml(txEditPath(quickUndo.rid, quickUndo.returnTo))}">수정·삭제 화면 열기</a>`;
   const feedbackActionHtml = feedbackKind === "warning"
-    ? `<a class="abSaveFeedbackAction" href="${escapeHtml(`/budget-alerts?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`)}">예산 보기</a>`
+    ? `<a class="abSaveFeedbackAction" href="${escapeHtml(`/budget-alerts?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`)}">예산 보기</a>${undoActionHtml}`
     : feedbackKind === "error" && quickRetry && appCanWrite ? `<a class="abSaveFeedbackAction" data-ab-feedback-retry href="#add">다시 시도</a>`
-    : undoAllowed && quickUndo.ticket ? `<form class="abSaveFeedbackUndo" method="post" action="/my/undo"><input type="hidden" name="ticket" value="${escapeHtml(quickUndo.ticket)}"><input type="hidden" name="month" value="${escapeHtml(month)}"><input type="hidden" name="return_to" value="${escapeHtml(quickUndo.returnTo)}"><button type="submit" class="abSaveFeedbackAction" data-ab-undo>실행 취소</button></form>`
-    : undoAllowed ? `<a class="abSaveFeedbackAction" data-ab-undo-edit href="${escapeHtml(txEditPath(quickUndo.rid, quickUndo.returnTo))}">수정·삭제 화면 열기</a>` : "";
+    : undoActionHtml;
+  const feedbackActionRow = feedbackKind === "warning" && !!undoActionHtml;
   const saveFeedbackHtml = feedbackKind
-    ? `<div class="abSaveFeedback ${feedbackKind === "error" ? "isError" : feedbackKind === "warning" ? "isWarning" : "isSuccess"}" data-ab-save-feedback data-ab-feedback-kind="${feedbackKind}" role="${feedbackKind === "error" ? "alert" : "status"}" aria-live="${feedbackKind === "error" ? "assertive" : "polite"}"><span class="abSaveFeedbackMark" aria-hidden="true"></span><div class="abSaveFeedbackCopy"><b>${escapeHtml(feedbackTitle)}</b><span>${feedbackMessage}</span></div>${feedbackActionHtml}<button type="button" class="abSaveFeedbackClose" data-ab-feedback-close aria-label="알림 닫기"></button></div>`
+    ? `<div class="abSaveFeedback ${feedbackKind === "error" ? "isError" : feedbackKind === "warning" ? "isWarning" : "isSuccess"}${feedbackActionRow ? " hasActionRow" : ""}" data-ab-save-feedback data-ab-feedback-kind="${feedbackKind}" role="${feedbackKind === "error" ? "alert" : "status"}" aria-live="${feedbackKind === "error" ? "assertive" : "polite"}"><span class="abSaveFeedbackMark" aria-hidden="true"></span><div class="abSaveFeedbackCopy"><b>${escapeHtml(feedbackTitle)}</b><span>${feedbackMessage}</span>${feedbackActionRow ? `<div class="abSaveFeedbackActions">${feedbackActionHtml}</div>` : ""}</div>${feedbackActionRow ? "" : feedbackActionHtml}<button type="button" class="abSaveFeedbackClose" data-ab-feedback-close aria-label="알림 닫기"></button></div>`
     : "";
   // V22.9.80 T-15: 빠른 입력의 결제수단 목록(기본 결제수단·등록 결제수단·지난 기록의 이름)은 낱말 끝에서만 맞는다(공유 판정 inputPaymentNameIn,
   // 카카오 저장의 등록 결제수단 판정과 같다). 예전에는 목록의 ‘토스’·‘현금’·‘카드’를 낱말 속에서도 찾아 "토스트 3000"이 결제수단 토스,

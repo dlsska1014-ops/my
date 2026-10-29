@@ -267,12 +267,36 @@ await fixture(async (fx) => {
     t.ok(pair[1] && homeCss.includes(`.pubPreview .abCat[data-ck="${key}"]{--ab-ck-bg:${pair[1]};--ab-ck-ink:${pair[2]};--ab-ck-ico:${shellIcon}}`), `${key}: 동그라미 바탕·잉크·아이콘이 셸 CSS 라이트 값과 같다(${pair[1]}/${pair[2]})`);
   }
 
-  // ── T-21 /demo 위쪽의 같은 미리보기(읽기 전용) ──
+  // ── T-21 /demo 위쪽의 미리보기(읽기 전용) — 사용자 결정(2026-10-29, AdSense 검토): 바로 아래 예산 계산 예제와 같은 가상 기록·숫자다 ──
   const demo = pages.get("/demo").html;
   const demoPreview = between(demo, '<figure class="pubPreview">', "</figure>");
-  t.ok(demoPreview.includes(budget) && rows.every((row) => demoPreview.includes(row[0])), "/demo 미리보기는 홈과 같은 예산 카드·거래 3행이다");
+  const demoBudget = between(demoPreview, '<section class="homeBudget">', "</section>");
+  t.deepEq(classes(demoBudget), appClasses, "/demo 미리보기 예산 카드도 앱 홈(T-12)과 같은 클래스 순서다");
+  t.ok(sentence(demoBudget) === sentence(appBudget), `/demo 속도 문장 틀이 앱과 같다 (${sentence(demoBudget)})`);
+  const metric = (key) => num((demo.match(new RegExp(`<dd id="demo-${key}">([\\d,]+)원</dd>`)) || [])[1]);
+  const won = (amount) => amount.toLocaleString("en-US");
+  const demoRemaining = num((demoBudget.match(/<div class="homeBudgetAmount"><b>([\d,]+)<\/b>/) || [])[1]);
+  const demoRate = num((demo.match(/<strong id="demo-rate">(\d+)%<\/strong>/) || [])[1]);
+  t.ok(demoRemaining === metric("remaining") && metric("remaining") === metric("budget") - metric("covered") && demoBudget.includes(`<span>전체 예산 ${won(metric("budget"))}원</span><span>지출 ${won(metric("covered"))}원 · 예산 밖 ${won(metric("uncovered"))}원</span>`),
+    `/demo 미리보기 금액이 아래 계산 예제와 같다(남은 ${won(demoRemaining)} = 예산 ${won(metric("budget"))} − 적용 ${won(metric("covered"))}, 예산 밖 ${won(metric("uncovered"))})`);
+  t.ok(demoRate === Math.round((metric("covered") / metric("budget")) * 100) && demoBudget.includes(`<em>예산 사용률 <span>${demoRate}%</span></em>`) && demoBudget.includes(`<i style="width:${demoRate}%"></i>`) && demoBudget.includes(`예산은 ${demoRate}%만 썼어요`), `/demo 사용률 ${demoRate}% 가 계산 예제·머리·게이지·문장에서 같다`);
+  const demoDay = 17, demoDays = 30, demoElapsed = Math.round((demoDay / demoDays) * 100), demoDaily = Math.floor(demoRemaining / (demoDays - demoDay + 1));
+  t.ok(demoRate <= demoElapsed && demoBudget.includes(`style="--ab-today:${demoElapsed}%"`) && demoBudget.includes(`이번 달의 ${demoElapsed}%가 지났고`), `/demo 경과율은 9월 17일 = 30일 중 ${demoElapsed}% 이고 사용률 이상이라 앱의 ‘만 썼어요’ 갈래다`);
+  t.ok(demoBudget.includes(`<span data-ab-num="${demoDaily}">${won(demoDaily)}</span>원씩`), `/demo 하루 금액 = 남은 돈 ÷ 오늘 포함 남은 14일 = ${won(demoDaily)}원(앱 규칙, 원 미만 버림)`);
+  t.ok(readFileSync(new URL("../src/modules/my/mobile-home.js", import.meta.url), "utf8").includes("` · 예산 밖 ${numberWithCommas(budgetUncovered)}원`"), "‘지출 … · 예산 밖 …원’은 앱 홈 예산 카드(분류별 예산)의 표기와 같다");
+  const tableRows = [...between(demo, '<table class="pubTable">', "</table>").matchAll(/<tr><th scope="row">([\d-]+)<\/th><td>([^<]+)<\/td><td>([^<]+)<\/td><td>([\d,]+)원<\/td><\/tr>/g)].map(([, date, category, memo, amount]) => ({ date, category, memo, amount }));
+  const latest = [...tableRows].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
+  const demoRows = [...demoPreview.matchAll(/<article class="v8-tx" data-type="expense"><div class="v8-tx-main"><span class="abCat" data-ck="(\w+)" aria-hidden="true"><i class="abCatIcon"><\/i><\/span><div><b>([^<]+)<\/b><span>([^<]+) · (\d+)월 (\d+)일<\/span><\/div><strong class="expense">-([\d,]+)원<\/strong><\/div><\/article>/g)];
+  t.ok(tableRows.length === 4 && demoRows.length === 3 && demoRows.every(([, ck, memo, category, m, d, amount], i) => memo === latest[i].memo && category === latest[i].category && Number(m) === Number(latest[i].date.slice(5, 7)) && Number(d) === Number(latest[i].date.slice(8, 10)) && amount === latest[i].amount && ck === categoryKey(category, "expense", memo)),
+    `/demo 거래 3행은 아래 가상 거래 목록의 최근 세 기록이고 동그라미 키는 앱 판정과 같다(${demoRows.map((row) => `${row[2]}:${row[1]}`).join(", ")})`);
+  const demoCss = (demo.match(/<style>([\s\S]*?)<\/style>/) || [, ""])[1];
+  for (const key of ["transport", "medical"]) {
+    const pair = lightTokens.match(new RegExp(`--ab12-cat-${key}-bg:(#[0-9a-f]+);--ab12-cat-${key}-ink:(#[0-9a-f]+)`)) || [];
+    const shellIcon = (shell.match(new RegExp(`\\.abCat\\[data-ck="${key}"\\]\\{[^}]*--ab-ck-ico:(url\\("[^"]+"\\))`)) || [, ""])[1];
+    t.ok(pair[1] && demoCss.includes(`.pubPreview .abCat[data-ck="${key}"]{--ab-ck-bg:${pair[1]};--ab-ck-ink:${pair[2]};--ab-ck-ico:${shellIcon}}`) && !homeCss.includes(`[data-ck="${key}"]`), `/demo ${key}: 동그라미 바탕·잉크·아이콘이 셸 CSS 라이트 값과 같고, 이 규칙은 /demo 에만 있다(${pair[1]}/${pair[2]})`);
+  }
   t.ok(demo.indexOf('<figure class="pubPreview">') > demo.indexOf("<h1>") && demo.indexOf('<figure class="pubPreview">') < demo.indexOf('<p class="pubMeta">') && demo.indexOf('<figure class="pubPreview">') < demo.indexOf('<section class="pubDemo"'), "/demo 미리보기는 머리 영역 소개 바로 아래(계산 예제보다 위)에 있다");
-  t.ok(demoPreview.includes('<p class="pubPreviewLabel">웹 가계부 홈 화면 예시 · 가상 데이터</p>') && demoPreview.includes("아래 예산 계산 예제와는 다른 숫자이고"), "/demo 미리보기는 홈 화면 예시·가상 데이터이고 계산 예제와 다른 숫자라고 적는다");
+  t.ok(demoPreview.includes('<p class="pubPreviewLabel">아래 예제를 웹 가계부 홈 화면으로 본 모습 · 2026년 9월 17일 기준</p>') && demoPreview.includes("아래 예산 계산 예제와 같은 가상 기록으로 그린 웹 가계부 홈 화면이에요.") && !demoPreview.includes("다른 숫자"), "/demo 미리보기 이름표·설명은 아래 예제와 같은 가상 기록이라고 적는다(예전 ‘다른 숫자’ 안내 없음)");
   t.eq(pages.get("/demo").setCookie, "", "/demo 는 쿠키를 만들지 않는다");
   t.ok(!/fetch\(|localStorage|sessionStorage|document\.cookie/.test(demo), "/demo 는 요청·저장소를 쓰지 않는다");
 });

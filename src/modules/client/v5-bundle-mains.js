@@ -932,7 +932,7 @@ function accountbookSaveFeedbackClientMain() {
     });
     window.openAbQuickInput("", back);
   });
-  // V22.9.87 T-16: 실행 취소 단추가 있는 성공 알림은 12초 보인다(지시서: 10초 이상). 마우스나 키보드 초점이 알림 안에 있는 동안은
+  // V22.9.87 T-16: 실행 취소 단추가 있는 알림(성공·예산 경고)은 12초 보인다(지시서: 10초 이상). 마우스나 키보드 초점이 알림 안에 있는 동안은
   // 모든 알림이 멈추고, 둘 다 나가면 남은 시간(실행 취소 6초·성공 2.4초·경고 4.2초) 뒤 닫는다. 실행 취소 표는 60초라 알림이 먼저 닫힌다.
   var undoable = !!feedback.querySelector("[data-ab-undo]");
   var holdMs = undoable ? 12000 : kind === "success" ? 5200 : kind === "warning" ? 9000 : 0;

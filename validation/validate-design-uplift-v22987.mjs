@@ -9,6 +9,11 @@
 //   T-16 V22.9.86 은 저장 알림의 실행 취소를 만들지 않았다 — 삭제 길(/my/delete)이 ‘이 세션이 방금 만든 기록’을 보지 않아, 주소의 saved_rid 만으로
 //        단추를 그리면 꾸민 주소로 남의 기록을 지우게 할 수 있었다. V22.9.87 은 저장 응답에 서버가 서명한 60초 표(로그인 사용자·가계부·기록 번호·
 //        내용 지문)를 싣고, 새 경로 POST /my/undo 는 그 표만 받는다(사용자 결정 2026-10-29).
+//   그 뒤 사용자 결정(2026-10-29 "예산 실행취소를 둬"·"글꼴은 추천으로"·R-10/R-17 "추천으로"):
+//   - 저장했지만 예산을 확인해야 하는 경고 알림에도 같은 실행 취소를 ‘예산 보기’ 뒤에 둔다(두 단추는 문구 아래 한 줄).
+//   - V87:W-4 그 캡처에서 실행 취소 단추가 파랗게 채운 단추로 보였다 — 홈 자산의 제출 단추 규칙(특이도 0,5,1, !important)이 이겼다.
+//   - T-23 글꼴 목록에서 Pretendard 를 뺀다(지시서 B). 옛 UI 런타임 규칙은 1년 캐시 자산 두 개에 구워져 있어 셸에서 덮는다.
+//   - V85:R-10 생활비 리포트 기간 탭(월간·주간)의 고른 칸이 면 대비 1.08:1(다크 1.15:1)이었다. V85:R-17 화면 감사가 .on 을 보지 않았다.
 //
 // ── 어떻게 잡는가 ──
 // 화면 문구는 픽스처 홈 HTML 에서 본다. T-19 는 1년 캐시 자산 바이트(셸 CSS·nav JS)를 보고, 빠른 입력 단추 줄이기(bindQuickCompact)는 vm 가짜 창에서 돌린다.
@@ -17,7 +22,7 @@
 // 실제 화면(900·1024·1280 겹침·가림, 390 모바일, 톤 8개)은 review-artifacts/design-uplift-2026-10-28/v87/ 의 브라우저 측정이 맡는다.
 import vm from "node:vm";
 import { createHmac } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync, statSync } from "node:fs";
 import { parse } from "../tools/vendor/acorn.mjs";
 import { app, BASE, ctx, counter, fixture, withClock, page, post, putSetting } from "./lib-audit-v22934.mjs";
 import { quickUndoFingerprint, readQuickUndoTicket, signedPurposeToken } from "../src/modules/auth/identity-reauth.js";
@@ -107,7 +112,9 @@ t.ok(fabBlock.includes("left:auto!important;right:28px;bottom:24px") && fabBlock
   "T-19 독 규칙은 모두 900px 이상 안에 있다(모바일 하단 탭·입력 바는 그대로)");
 t.eq(count(uplift4, "transition:"), 1, "T-19 전환은 한 곳뿐이다");
 t.ok(uplift4.includes("@media(min-width:900px) and (prefers-reduced-motion:no-preference){body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick{transition:max-width var(--ab12-dur,180ms) "), "T-19 줄어드는 전환은 움직임 줄이기가 아닐 때만, 눈금 --ab12-dur");
-t.ok(!/#[0-9a-f]{3,8}\b/i.test(uplift4), "T-19·T-16 색은 모두 토큰(--ab12-*)이다 — 톤 8개·다크에서 같은 규칙");
+const W4_LIGHT = 'html body.abV22812Shell .abSaveFeedback button.abSaveFeedbackAction[data-ab-undo][type="submit"]{background:transparent!important;color:#93c5fd!important}';
+const W4_DARK = 'html[data-ab-resolved-theme="dark"] body.abV22812Shell .abSaveFeedback button.abSaveFeedbackAction[data-ab-undo][type="submit"]{color:#1d4ed8!important}';
+t.ok(!/#[0-9a-f]{3,8}\b/i.test(uplift4.replace(W4_LIGHT, "").replace(W4_DARK, "")), "T-19·T-16·R-10 색은 모두 토큰(--ab12-*)이다 — 톤 8개·다크에서 같은 규칙(V87:W-4 두 줄은 아래에서 알림 단추 색과 견준다)");
 t.ok(uplift4.includes("body.abV22812Shell .abSaveFeedbackUndo{display:contents}") && uplift4.includes("body.abV22812Shell button.abSaveFeedbackAction{margin:0;border:0;background:transparent;font:inherit;font-size:14px;font-weight:800;cursor:pointer}"),
   "T-16 실행 취소 폼은 상자를 만들지 않고 단추는 옆 링크(.abSaveFeedbackAction)와 같은 모양");
 for (const [needle, label] of [
@@ -116,8 +123,62 @@ for (const [needle, label] of [
   ["html[data-ab-resolved-theme=\"dark\"] body.abV22812Shell .abLayoutNav .abNavLinks a:not(.active){color:var(--ab12-muted)!important}", "다크의 다른 메뉴 글자는 보조색(모두 강조색이던 것)"],
 ]) t.ok(uplift4.includes(needle), `V85:R-9 ${label}`);
 t.ok(!/#1b64da/i.test(uplift4), "V85:R-9 새 규칙에는 고정 색이 없다");
-t.ok(!quickUndoBlock(uplift4).includes("!important") && shell.includes("@media(forced-colors:active){\n  body.abV22812Shell :is(a,button,input,select,textarea,summary){border:1px solid ButtonText!important}"),
-  "T-16 실행 취소 단추 규칙은 !important 없이 — 고대비 모드의 단추 테두리(ButtonText)가 그대로 걸린다");
+t.ok(!/(border|margin|font)[^;{}]*!important/.test(quickUndoBlock(uplift4)) && shell.includes("@media(forced-colors:active){\n  body.abV22812Shell :is(a,button,input,select,textarea,summary){border:1px solid ButtonText!important}"),
+  "T-16 실행 취소 단추의 테두리·모양 규칙은 !important 없이 — 고대비 모드의 단추 테두리(ButtonText)가 그대로 걸린다(!important 는 W-4 의 바탕·글자색뿐)");
+
+// ── V87:W-4(경고 알림 캡처에서 찾음): 홈 자산의 제출 단추 규칙이 실행 취소 단추를 파랗게 채운 단추로 칠했다 ──
+const mobileCss = await asset("/assets/mobile-home-v22985.css");
+const BLUE_SUBMIT = '.abV2281 button[type="submit"]:not(.danger):not(.delBtn):not(.secondary)';
+t.ok(new RegExp(`${BLUE_SUBMIT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")},[^{]*\\{background:var\\(--ab-blue\\)!important;color:#fff!important`).test(mobileCss), "W-4 원인: 홈 자산(mobile-home-v22985.css)의 제출 단추 규칙이 바탕·글자색을 !important 로 칠한다");
+t.ok(uplift4.includes(W4_LIGHT) && uplift4.includes(W4_DARK) && shell.includes(W4_LIGHT) && shell.includes(W4_DARK), "W-4 실행 취소 단추는 바탕 투명·글자 알림 단추색으로 덮는다(셸 자산에 실렸다)");
+const uplift3 = designUplift3Css();
+t.ok(uplift3.includes("body.abV22812Shell .abSaveFeedbackAction{flex:none;display:inline-flex;align-items:center;min-height:44px;padding:0 8px;border-radius:10px;color:#93c5fd!important;")
+  && uplift3.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell .abSaveFeedbackAction{color:#1d4ed8!important}'), "W-4 덮는 글자색은 옆 ‘예산 보기’ 링크 규칙(.abSaveFeedbackAction, 라이트 #93c5fd·다크 #1d4ed8)과 같은 값이다");
+const specificity = (selector) => {
+  const s = selector.replace(/:not\(([^)]*)\)/g, " $1");
+  return [(s.match(/#[\w-]+/g) || []).length, (s.match(/\.[\w-]+|\[[^\]]+\]|:(?!:)[\w-]+/g) || []).length, (s.match(/(?:^|[\s>+~])[a-z][\w-]*/gi) || []).length];
+};
+const beats = (a, b) => (a[0] !== b[0] ? a[0] > b[0] : a[1] !== b[1] ? a[1] > b[1] : a[2] > b[2]);
+const selectorOf = (rule) => rule.slice(0, rule.indexOf("{"));
+t.deepEq(specificity(BLUE_SUBMIT), [0, 5, 1], "W-4 홈 자산 규칙의 특이도는 0,5,1 이다");
+t.ok(beats(specificity(selectorOf(W4_LIGHT)), specificity(BLUE_SUBMIT)) && beats(specificity(selectorOf(W4_DARK)), specificity(selectorOf(W4_LIGHT))),
+  `W-4 덮어쓰기 특이도(${specificity(selectorOf(W4_LIGHT))} · 다크 ${specificity(selectorOf(W4_DARK))})가 홈 자산 규칙보다 높고 다크 줄이 라이트 줄보다 높다`);
+
+// ── 사용자 결정(2026-10-29 "예산 실행취소를 둬"): 경고 알림 두 단추는 문구 아래 한 줄 ──
+for (const [needle, label] of [
+  ["body.abV22812Shell .abSaveFeedback.hasActionRow{align-items:flex-start}", "단추 줄이 있으면 표시 원·닫기를 위로 맞춘다"],
+  ["body.abV22812Shell .abSaveFeedbackActions{display:flex;flex-wrap:wrap;gap:4px;margin:2px 0 -10px -8px}", "단추 줄은 첫 글자를 문구 세로줄에 맞추고 44px 누름 칸의 아래는 알림 여백으로 들어간다"],
+]) t.ok(uplift4.includes(needle) && shell.includes(needle), `경고 알림 ${label}`);
+
+// ── V85:R-10 생활비 리포트 기간 탭(사용자 결정 2026-10-29 추천안) ──
+const R10_REST = "body.abV22812Shell .lrSeg:not(.abAnalysisViews) a{border:1px solid transparent;color:var(--ab12-muted)!important}";
+const R10_CURRENT = 'body.abV22812Shell .lrSeg:not(.abAnalysisViews) a[aria-current="true"]{border-color:var(--ab12-accent);background:var(--ab12-accent-soft);color:var(--ab12-accent)!important;box-shadow:none}';
+t.ok(uplift4.includes(R10_REST) && shell.includes(R10_REST), "V85:R-10 안 고른 기간 탭은 보조색 글자·투명 1px 테두리(고를 때 글자가 밀리지 않는다)");
+t.ok(uplift4.includes(R10_CURRENT) && shell.includes(R10_CURRENT), "V85:R-10 고른 기간 탭은 강조색 테두리·옅은 면·톤 글자(R-9 와 같은 모양)");
+t.ok(beats(specificity(selectorOf(R10_REST)), specificity('html[data-ab-resolved-theme="dark"] body.abV22812Shell a')) && shell.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell a{color:var(--ab12-accent)!important'),
+  "V85:R-10 안 고른 탭 글자 규칙이 다크의 ‘모든 링크 강조색’ 규칙(R-3)보다 높아 두 탭 글자가 갈린다");
+t.ok(shell.includes('.lrSeg.abAnalysisViews a[aria-current="true"]{background:var(--ab12-surface,#fff);color:var(--ab12-text,#191f28);box-shadow:var(--ab12-elev-card,0 2px 8px rgba(15,23,42,.08))}'),
+  "V85:R-10 소비 분석의 두 보기 탭(.abAnalysisViews)은 그대로다(지시서 §1-7 분석 화면은 바꾸지 않는다)");
+
+// ── V85:R-17 화면 감사 도구(사람이 돌린다, 하네스 밖)의 선택 구분 검사 범위 ──
+const auditTool = readFileSync(new URL("../tools/screen-audit.mjs", import.meta.url), "utf8");
+t.ok(auditTool.includes(`["selected", '[aria-selected="true"]'], ["on", ".on"]];`) && auditTool.includes('selected: (p) => p.getAttribute("aria-selected") === "false",')
+  && auditTool.includes('on: (p) => !p.classList.contains("on"),') && auditTool.includes('const classesOf = (el) => [...el.classList].filter((c) => c !== "active" && c !== "on");'),
+  "V85:R-17 선택 구분 검사가 .on·[aria-selected=true] 도 본다(무리를 가를 때 on 클래스는 뺀다)");
+
+// ── T-23 글꼴(결정 D-1 = 지시서 B 스택 정리) ──
+const FONT_STACK = '-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif';
+const FONT_OVERRIDE = `body.abV22812Shell.abV2281{font-family:${FONT_STACK}!important}`;
+t.ok(uplift4.includes(FONT_OVERRIDE) && shell.includes(FONT_OVERRIDE) && shell.includes(`font-family:${FONT_STACK};`), "T-23 셸 본문 글꼴과 옛 규칙 덮어쓰기는 Pretendard 없는 앱 공통 목록이다");
+t.ok(!/Pretendard/i.test(shell.replace(/\/\*[^]*?\*\//g, "")), "T-23 셸 CSS 규칙에 Pretendard 가 없다");
+const oldUiux = await asset("/assets/ab-uiux-v22919.css");
+const OLD_FONT = 'body.abV2281{background:var(--ab-bg)!important;color:var(--ab-text)!important;font-family:Pretendard,';
+t.ok(oldUiux.includes(OLD_FONT) && mobileCss.includes(OLD_FONT), "T-23 옛 UI 런타임 규칙은 1년 캐시 자산 두 개(ab-uiux-v22919·mobile-home-v22985)에 그대로 있다(주소를 올리지 않았다)");
+t.ok(beats(specificity("body.abV22812Shell.abV2281"), specificity("body.abV2281")), "T-23 덮어쓰기(0,2,1)가 옛 규칙(0,1,1)보다 높다(둘 다 !important)");
+const walkJs = (dir) => readdirSync(dir).flatMap((name) => { const path = `${dir}/${name}`; return statSync(path).isDirectory() ? walkJs(path) : path.endsWith(".js") ? [path] : []; });
+const modulesRoot = new URL("../src/modules", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+t.deepEq(walkJs(modulesRoot).filter((path) => !path.endsWith("historical-runtime-assets.js") && !path.endsWith("legacy-ui-runtime.js") && /Pretendard/.test(readFileSync(path, "utf8").replace(/^\s*\/\/.*$/gm, ""))).map((path) => path.slice(modulesRoot.length + 1)), [],
+  "T-23 지금 화면 소스(옛 자산 보관·옛 UI 런타임 상수 밖)에 Pretendard 가 없다");
 
 // ── T-19 데스크톱: nav JS ──
 const nav = await asset(NAV);
@@ -294,6 +355,35 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   t.ok(adminBox.includes(`<a class="abSaveFeedbackAction" data-ab-undo-edit href="/transactions/edit?id=${adminSaved.rid}&amp;return_to=`) && !adminBox.includes("/my/undo"), "T-16 관리자 세션 알림은 수정·삭제 화면 링크");
 }));
 
+// ── 사용자 결정(2026-10-29 "예산 실행취소를 둬"): 저장했지만 예산을 확인해야 하는 경고 알림에도 실행 취소 ──
+await withClock("2026-07-15", () => fixture(async (fx) => {
+  const big = await save(fx, { memo: "장보기", amount: "900000" });
+  t.ok(big.status === 303 && !!big.ticket && params(big.location).has("balert"), "경고 알림: 예산을 넘기는 지출을 저장하면 예산 경고(balert)와 실행 취소 표가 함께 붙는다");
+  const box = toast(await home(fx, big.location));
+  t.ok(box.startsWith('<div class="abSaveFeedback isWarning hasActionRow" data-ab-save-feedback data-ab-feedback-kind="warning" role="status" aria-live="polite">'), "경고 알림은 isWarning 에 단추 줄(hasActionRow)이 붙고 role·aria-live 는 그대로다");
+  const row = (box.match(/<div class="abSaveFeedbackCopy"><b>[^<]*<\/b><span>[^]*?<\/span><div class="abSaveFeedbackActions">([^]*?)<\/div><\/div><button type="button" class="abSaveFeedbackClose"/) || [])[1] || "";
+  t.ok(row.startsWith(`<a class="abSaveFeedbackAction" href="/budget-alerts?month=2026-07&amp;household_id=${HH}">예산 보기</a><form class="abSaveFeedbackUndo" method="post" action="/my/undo"><input type="hidden" name="ticket" value="${big.ticket}">`)
+    && row.endsWith('<button type="submit" class="abSaveFeedbackAction" data-ab-undo>실행 취소</button></form>'), "경고 알림 단추 줄: 문구 아래에 ‘예산 보기’ 다음 ‘실행 취소’(성공 알림과 같은 표·폼)");
+  t.eq(count(box, 'class="abSaveFeedbackAction"'), 2, "경고 알림 단추는 둘이고 닫기 앞 칸에는 따로 없다");
+  t.eq(msgOf(await undo(fx, big.ticket)), "undone", "경고 알림의 실행 취소도 같은 POST /my/undo 로 지운다");
+  t.ok(!has(fx, big.rid), "경고 알림에서 취소한 지출이 지워졌다");
+
+  const wifi = await fx.cookieFor("user-wifi");
+  putSetting(fx, `household_member_policy_v22943:${HH}`, JSON.stringify({ version: 1, mode: "record_only" }));
+  const member = await save(fx, { user_id: "user-wifi", memo: "장보기", amount: "900000" }, wifi);
+  const memberBox = toast(await home(fx, member.location, wifi));
+  t.ok(params(member.location).has("balert") && memberBox.startsWith('<div class="abSaveFeedback isWarning" ') && !memberBox.includes("data-ab-undo") && !memberBox.includes("abSaveFeedbackActions") && count(memberBox, 'class="abSaveFeedbackAction"') === 1,
+    "‘기록만’ 구성원의 경고 알림은 예전처럼 ‘예산 보기’ 하나다(실행 취소·단추 줄 없음)");
+
+  // T-23: 옛 UI 런타임 자산(ab-uiux-v22919·mobile-home-v22985)을 싣는 화면은 모두 셸 자산과 abV22812Shell 을 함께 가져 덮어쓰기가 걸린다.
+  for (const path of [HOME, `/reports?month=2026-07&household_id=${HH}`, `/budgets?month=2026-07&household_id=${HH}`, `/my/analysis?month=2026-07&household_id=${HH}`, `/menu?household_id=${HH}`, `/my/settings?household_id=${HH}`, `/annual?household_id=${HH}`, `/reserve-plans?household_id=${HH}`, `/start-guide?month=2026-07&household_id=${HH}`]) {
+    const html = await home(fx, path);
+    const bodyClass = ((html.match(/<body class="([^"]*)"/) || [])[1] || "").split(/\s+/);
+    const oldCss = /\/assets\/(ab-uiux-v22919|mobile-home-v22985)\.css/.test(html);
+    t.ok(oldCss && bodyClass.includes("abV2281") && bodyClass.includes("abV22812Shell") && html.includes(SHELL), `T-23 ${path.split("?")[0]}: 옛 글꼴 규칙을 싣는 화면에 셸 덮어쓰기(body.abV22812Shell.abV2281)가 걸린다`);
+  }
+}));
+
 // ── T-16 알림 타이머(V5 자산) ──
 const v5 = await asset(V5);
 const v5Module = readFileSync(new URL("../src/modules/client/v5-bundle-mains.js", import.meta.url), "utf8");
@@ -333,6 +423,14 @@ for (const [kind, hold, resume] of [["success", 5200, 2400], ["warning", 9000, 4
   run.fire("mouseleave");
   t.deepEq(run.pending(), [resume], `T-16 ${kind} 알림도 마우스가 나가면 ${resume / 1000}초 뒤`);
 }
+const warnUndo = toastHarness(feedbackSource, { search: `?month=2026-07&household_id=${HH}&msg=added&balert=x&saved_rid=${RID}&undo=abc.def`, kind: "warning", undo: true });
+t.deepEq(warnUndo.pending(), [0, 12000], "실행 취소가 있는 경고 알림은 성공 알림처럼 12초 보인다(단추 없는 경고는 9초 그대로)");
+warnUndo.runZero();
+t.eq(warnUndo.location.search, `?month=2026-07&household_id=${HH}`, "경고 알림도 한 틱 뒤 balert·saved_rid·undo 를 주소에서 지운다");
+warnUndo.fire("mouseenter");
+warnUndo.fire("mouseleave");
+t.deepEq(warnUndo.pending(), [6000], "실행 취소가 있는 경고 알림도 마우스가 나가면 6초 뒤 닫는다");
+t.ok(v5.includes("// V22.9.87 T-16: 실행 취소 단추가 있는 알림(성공·예산 경고)은 12초 보인다(지시서: 10초 이상)."), "V5 자산 주석도 경고 알림의 실행 취소를 말한다");
 const error = toastHarness(feedbackSource, { search: `?month=2026-07&err=amount_required`, kind: "error", undo: false });
 error.fire("mouseenter");
 error.fire("mouseleave");
