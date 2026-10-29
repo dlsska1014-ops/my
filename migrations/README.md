@@ -60,6 +60,13 @@ V22.9.44 감사 G-13 이 짚은 3개(`accountbook_mutate_payment_assets_v2280`·
 
 정확한 컬럼·제약·RLS 는 위 `pg_dump` 결과를 정본으로 삼으세요.
 
+## V22.9.82 이용 현황 집계 함수(검토용, 실행 금지)
+
+`V22_9_82_USAGE_SUMMARY_APPLY_REVIEW_ONLY.sql` 은 관제센터 '이용 현황'용 읽기 전용 함수 `accountbook_usage_summary_v22982(timestamptz, integer)`
+하나만 만든다(표·행 변경 없음, service_role 만 실행). 되돌리기는 `V22_9_82_USAGE_SUMMARY_ROLLBACK_REVIEW_ONLY.sql`(함수만 지움).
+두 파일 모두 맨 앞 `RAISE EXCEPTION` 가드가 있어 그대로 실행하면 멈춘다. 순서: Worker V22.9.82 배포 → 운영자 승인 → 가드를 지우고 적용 →
+파일 맨 아래 읽기 전용 확인. 적용 전에는 앱 `/internal/ops-usage` 가 `rpc_missing` 으로 답한다. 이 함수는 `/ready` 필수 목록에 넣지 않았다.
+
 ## V22.9.79 환불 연결(검토용, 실행 금지)
 
 `V22_9_79_REFUND_LINKS_APPLY_REVIEW_ONLY.sql` 은 환불 연결 표 `accountbook_refund_links`, RPC `accountbook_link_refund_v22979`·

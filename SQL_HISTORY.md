@@ -1,3 +1,13 @@
+## V22.9.82 이용 현황 집계 함수(검토용, 운영자 승인 뒤 적용)
+
+새 검토용 SQL `migrations/V22_9_82_USAGE_SUMMARY_APPLY_REVIEW_ONLY.sql` 은 읽기 전용 함수 `public.accountbook_usage_summary_v22982(timestamptz, integer)`
+하나만 만든다(STABLE·SECURITY INVOKER·search_path/timezone 고정, 실행 권한은 service_role 만). 표·행·RLS·인덱스는 바꾸지 않는다.
+- 관제 1.4.0 이 앱 `/internal/ops-usage` 를 거쳐 한 시간에 한 번 부른다. 답은 합계 숫자뿐이다(사용자·가계부 id·이름·금액·메모 없음).
+- 적용 전에는 앱이 `rpc_missing` 으로 답하고 관제는 '집계 함수 적용 전'만 보인다. 순서: Worker V22.9.82 배포 → SQL 검토·승인·적용 → 읽기 전용 확인.
+- 되돌리기는 `migrations/V22_9_82_USAGE_SUMMARY_ROLLBACK_REVIEW_ONLY.sql`(함수만 지움). 두 파일 모두 맨 앞 `RAISE EXCEPTION` 가드로 멈춘다.
+- 적용 SQL 은 PGlite(WASM Postgres)에서 그대로 돌려 확인했다(가드·권한·한국 시간 월 경계·재사용률·되돌리기 40개, `review-artifacts/v82-usage-metrics-2026-10-27/sql/`).
+- 관제 D1 스키마 변경 없음(월별 값은 기존 samples 표의 source 'usage' 줄).
+
 ## V22.9.81 운영 DB 변경 없음(환불 연결 검토용 SQL 에 주석·읽기 전용 조회)
 
 운영 스키마·RPC·RLS·권한 변경 없음. 관제 D1 스키마 변경 없음(왕복 상태는 기존 settings 표의 'roundtrip' 한 줄).
