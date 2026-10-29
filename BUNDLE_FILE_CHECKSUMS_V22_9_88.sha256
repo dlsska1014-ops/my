@@ -2,7 +2,7 @@
 1ab321e5317d6402a80f95e932d0d5648fa400d16fbd586564ab5d5fa641b0cb  ./.agents/skills/orchestrate-kakao-accountbook-graph/agents/openai.yaml
 3650639de7d91f5d4fabfb73118006066c86fe765730d75edce3f21ebdd20305  ./.agents/skills/run-kakao-accountbook-loop/SKILL.md
 9558e475266716f520de5f1402bb5f41994c0c1f062ffc8e221ad7cbce2541a4  ./.agents/skills/run-kakao-accountbook-loop/agents/openai.yaml
-8731b845ed9f3f7cd1d3fbe12ba15f13a9cd44f4b0710d2625e12df093a89194  ./.codex/scripts/verify-repository.mjs
+a2e7070bfc5484f49fc9a159faf47f0a4e6225856eb3096c550c16ffc6e55421  ./.codex/scripts/verify-repository.mjs
 d70641f8059980d5aa8f367e31f50797da942c839000f4ea00baf2d3ddbb70f5  ./.gitattributes
 97af5a3086d1d42c6cb8adbd3ef41c024bf33b4a5dacd8ceac75fdf195074a86  ./.github/workflows/monitoring.yml
 2116fb38bdf1e30332f2be4d557bdca857dc8b374622d7950861fd0d825bfb90  ./.github/workflows/verify.yml
@@ -62,7 +62,7 @@ b484171ad67c52c48c75edbd5cae2e11de955e0078f071105a9d96444b9a7d07  ./10_VERIFY_AF
 95cf55cb5dabc693abfe1f907134473b4f280204aeaf386f44f3330e14bc9ef5  ./10_VERIFY_AFTER_DEPLOY_V22_8_77.ps1
 3ea7d1bc9f173114c8dd5a0fbc923d07ee978ac422b133ff6e7f958e28c91405  ./10_VERIFY_AFTER_DEPLOY_V22_8_78.ps1
 e5c7827d455957de51f3362938b8fca9e9fa9cc09f25b35a2ba542ca4967379e  ./10_VERIFY_AFTER_DEPLOY_V22_8_79.ps1
-bce48e86726c2c8806e216c143c60bfe143ba8b42ad8f9d507a3d1629b874b5b  ./AGENTS.md
+0db0092555fb191b06570d29f927fa2e27b996149a22c6a39f3c7b22cf46face  ./AGENTS.md
 be324ac6787ba3c5847e7ccb8f1b4759174ba7b0d9a923a4f900cde69724ed79  ./ARTIFACT_MANIFEST_V22_8_74.txt
 51502036c5eb6525da7670d27c9215af897bc7e4ddf0afd85edf6841481829e6  ./ARTIFACT_MANIFEST_V22_8_75.txt
 f81e30563604fd3369238beea1920e849656a71b26236bf8b6bf7d75f0738d3c  ./ARTIFACT_MANIFEST_V22_8_76.txt
@@ -107,12 +107,12 @@ a5491539cbabe9c836b965394e95f478868d6395774af8f6c872d0a5f2ba05bd  ./BUNDLE_FILE_
 c0c3f38c4fa244937d5c55ce8e81e373b4a1e6a375d400d08211fbc13c1a3b90  ./BUNDLE_FILE_CHECKSUMS_V22_9_70.sha256
 b41013a64bfacdce79841d43e648faa89c82838af05281b5019dc224dbdbb36f  ./BUNDLE_FILE_CHECKSUMS_V22_9_71.sha256
 06d25a2442e79bfe86796dbd13e3603f96b078fd40222088479f2d0af6bf94c8  ./BUNDLE_FILE_CHECKSUMS_V22_9_72.sha256
-1d07186775b055e10a39ee04b3bba9ca020fe40418d202a35ac98d9b3b70c21d  ./CHANGELOG.md
-cf0b9de6b746e0152e6acc115d88b06b28e956345f52112fc5394aba689ea949  ./DEPLOYMENT_MATRIX.md
-12e57d30e178412d62c722b469093bda700be8d44cc2e9f82c12c83c7d10828b  ./KNOWN-ISSUES.md
+c0517d03cfb5419901edeb252916444cbe91d39eac0de926946df738516c4f8a  ./CHANGELOG.md
+f09bafc0d83051e67a9a4916af8008bd822f3bc990965b9ea3b7ec2a7c578d8d  ./DEPLOYMENT_MATRIX.md
+3ca73ad32221852951a0ce3222c9da2bb970f763b062f44c04554b4dd7890182  ./KNOWN-ISSUES.md
 31e3afc2454763d217721602a30c4245a3d0df244cb3a712f59a6c02c62ca5d1  ./NEXT_UPDATE_PLAN.md
 d21e5e100e3e34115c6b0413cb7ec04d9912b979014b1ed414f67212397bb1e4  ./README.md
-f7457f5fc7b0a3df1d36e92473f8a068ebdcd8d2c29a0af61cd082147b6dae05  ./RELEASE-CHECKLIST.md
+5f864a835691694c08031d203641ebe01336c83b218a58adef5ca93c07545611  ./RELEASE-CHECKLIST.md
 64d9fc63a64490035a6b730027cffb8762d11b2ad4a9c22e0824a5798de2c160  ./SQL_HISTORY.md
 a427da2a487c44699e46ec05c6ce5edb74ee3c5eb496ce8afb02e34da732a9ad  ./VALIDATION_REPORT_V22_8_74.md
 bfff5bbffd347d9e123b557db6d2ce3e671486f2a1efafc4aa83253f58b68940  ./VALIDATION_REPORT_V22_8_75.md
@@ -193,7 +193,7 @@ cc0bacb8bd4ba57ddb61ba167e2d1099f6d9cd23e7eaa3608c2aa10e0782172c  ./docs/ASIDE_V
 c90b5fa803c78add35cc4597f8d5cf8dfabbd482d7cab0f4ce41db68e1fd4861  ./docs/BACKUP_RECOVERY_RUNBOOK.md
 83b882e169a76a939fb5d0fee3a644b0d7622b553864c35f1b2f313f78e783bb  ./docs/MONETIZATION_OPS_PLAN_2026_10.md
 086bbde4d2d6794161d950738c4279fa5cadf12da4be44b21bfc7bdbdaf32852  ./docs/OPS_REMAINING_V22_9_29.md
-8753482be8ef082a42212734318fc3cf2150b8ea668e2ad1e7d01796bdb5377a  ./docs/STATUS.md
+033bc654802376e913c6def9a24cb2dc2de3977e1d6b349349bab2c507fec8c5  ./docs/STATUS.md
 49d6e6e2a73af4be3899d8bd1e30d87b28518b95983d20c545700ab30f68085d  ./docs/archive/CHANGELOG_V22_8.md
 4f95ce409b83e02c4a4c2c6d4811ff700864a3da03dad7805a972c82c322bece  ./docs/archive/DEPLOYMENT_MATRIX_V22_8.md
 5c1aede8f150bcf2380d58b7a4149acfb376f371af8d81aa615ef601e583dbab  ./docs/archive/KNOWN_ISSUES_V22_8.md
@@ -269,7 +269,7 @@ db8b0879fb9d553ecc08281f227f5dae81aa9c526342fd2fbe69893ee95dbd6b  ./monitoring/d
 b58b9aa45b9f4fc5be312cd0612b92e5bb1e6969046746a8502024c8755f7d6a  ./monitoring/worker.mjs
 a70ac192ae4ec8466fffac75ae7811deb9a8cd8a53ec74c08b85147a005e045e  ./monitoring/wrangler.jsonc
 8a25ae187dd3e60bc7b485f4999f97af6302fda6fd19b7ba5244364947d2d9e8  ./package.json
-9d769870b04d3c4cc0baee06493a4a7e401474ccb4a480686feb26d82d62684b  ./src/index.js
+dfe54e747129ed49aed02fb4f2f3588a1a993c87f9bbf6fa9527522c2df0dc29  ./src/index.js
 9be3c2b61821a1f25a91367b4eb7ed14ed89d380c561ff57b7a5fb6532beb830  ./src/modules/MANIFEST.txt
 e4806223cc96fe066e2460e43308640df95460a32fa3455412e9a51b7d6c66f6  ./src/modules/admin/backup-apply.js
 d5ef45691281f2d63c883fce9dce1c54fede2da1d7e2f41905d3ccc17e2b5baa  ./src/modules/admin/backup-compare.js
@@ -343,14 +343,14 @@ cdf8cc9871a1989af0efb0dc4df47d94cc1a2dba4ff49f7be46a4ab47a24654e  ./src/modules/
 2eb488e3448850acfb3b02b8b88c95d81d6cd62141dde1d984cb506d77ec4285  ./src/modules/kakao/edit-state-machine.js
 4d07f452eabcb8de5dcd38785812739347bfa3b8d9477b857250fa3de6947e95  ./src/modules/kakao/group-links-first-record.js
 ffb1898ad74ff3500768daa03d15fec2342d30e726ea9971e649200e3a62e808  ./src/modules/kakao/guided-flow-state.js
-1b40c97e315d304c0ad3b63544dae2fb39c1f8876467c30d6e06450a86b3e944  ./src/modules/kakao/guided-flows.js
+317a4258687c3cc66a9a244b8463596490644dc8eac45d94649bf6af8fccbc47  ./src/modules/kakao/guided-flows.js
 e2ee05d01f9f98160d27f8963aabf9ab5774ca95d3af76d5474d1c4639e44d15  ./src/modules/kakao/household-budget-commands.js
 2ca6cc27135c41dc218e158d64c04c95280d925a4009d5e2d8d7d0c702528ab9  ./src/modules/kakao/identity-chat-first.js
 eb7a98af6e2a5273e69517eef723f59bd4863546d4eabad56693200b3e1e12c7  ./src/modules/kakao/intent-nlu.js
 1346d0f336355261a1b57393c42d5716794ce3393530ffa090ad646f1b1cd914  ./src/modules/kakao/manual-guides.js
 4c7e2652651bd4bbfa7c8f72c167903a89e783cd787a441cecd68cae50b6df06  ./src/modules/kakao/reply-texts.js
 bba19c7c1c40b0eda3a66dacd5b9bff485567f1a4617166fde883a07c341e433  ./src/modules/kakao/request-guards.js
-c479da42646a22fa4dae06728b78f83ea26b56a485f57a4ae4dbcba18a30a8a7  ./src/modules/kakao/response-builders.js
+4bca96b8d1a7c59718276460fe4ff28b059528119d0e7d9cb6f05ce1b88e9017  ./src/modules/kakao/response-builders.js
 f78b886c501ef8a752f161ecd5889f9631659890dbe8ca3885fe72e43e01c19d  ./src/modules/kakao/separate-purchase.js
 c47267b693be4a4094919a4e7c9d68a410ceafbcd1ffca3b96e703c135a90097  ./src/modules/kakao/simple-commands.js
 05865dfc12095b9f1f07c8d8b9a827b7d089ded51a28cfe8f5dbd908858e3067  ./src/modules/kakao/skill-handler.js
@@ -382,7 +382,7 @@ c44ab6bdcecfee5a108e3decc873de23cbff83926b9631a0e0253050c1049c0f  ./src/modules/
 45681ee60c0087da0dac74e591ec5a281c95f1566c168e24804d0611433db552  ./src/modules/runtime/http.js
 4d1d8a4bc38660cdefb98c4fdb2cbc17395af2417903b02cb12e1f5090272f8f  ./src/modules/runtime/leases.js
 31b8c0c021b9f6a767f80bbbe67c247f9a888aa1239f2038e7e4852aefff1ec9  ./src/modules/runtime/ops-monitor.js
-cb7cb7b1639922864b6330c100849af2c2dde2df05e7e641f12da04329023f70  ./src/modules/runtime/ops-telemetry.js
+421b170496eb26b95ebe9383b74b2128b6d16852cc53098fcd8b49a51d717baa  ./src/modules/runtime/ops-telemetry.js
 053fb55ada2ce497b3f4c1140f790475e33b44c0d87c85e3ab05eb174e712f3d  ./src/modules/settings/categories-keywords.js
 bbd90013849e0f7ccedf8ba5d1ce3147ca84f7d9914d3703346bcc485e80151b  ./src/modules/settings/payment-assets.js
 7246b424566f756c5fdec7927a7a959548c26f3049a384e3df11afa1a738f645  ./src/modules/settings/reserve-plans.js
@@ -487,7 +487,7 @@ b4036b69e80e6d21140d48ff11572087bc083cbfe267d7a719ef7401bb614b07  ./validation/v
 7daddd34ffd0c8e0b3f8bc878ce6236f03a76d29efc92a7d55e6083355334a90  ./validation/validate-home-reports-v22891.mjs
 76572840a409b8a2a931ebd9eee2a46902e865de975ca85d5e8ce5696bafed84  ./validation/validate-home-tab-stops-v22896.mjs
 ade91a18cd535792d9d6711d3d5ea03390c254b37b8f5c9c06d58d4c6d1819f3  ./validation/validate-home-trend-usage-v22879.mjs
-6a784b1b896b933e9cd36bf6fcbccf6dc7220b7064804546e4d4104d4a0a4766  ./validation/validate-household-security.mjs
+f5fb80be3e9108fa3c591ee8e740fa529d27ba75f230e81f7392309b3c9da405  ./validation/validate-household-security.mjs
 de42b447835efa099cfd1e880310807ee23b6c27509c3fbb4f687f99e2bc1517  ./validation/validate-immutable-asset-addresses-v2299.mjs
 078e3d7c8e3f143617f59a399d72b209d1d3bd0709c4337de5d61be683ed3ba2  ./validation/validate-import-cron-v22930.mjs
 4f6ddd84ce4e352af902c2d84400dfcdeacf4ac473ae2573357214e4398af57a  ./validation/validate-import-mapping-v22956.mjs
@@ -594,7 +594,7 @@ ef942edbbb365ed60f76e08461eaf4e0eab6b4ca97e40c0bd17f7c2fa20d463d  ./BUNDLE_FILE_
 1b1ea96c27c5978f42c3c6b8ce814598d57fe432aadf52b6189fb5a755ca85aa  ./docs/deployments/V22_9_74_2026_10_21.md
 0feb95378d317c1ef455ba4714ac24ade096adc9503298d3c33ebb772f71dd2e  ./validation/validate-naver-verification-v22975.mjs
 553008e47d44f38b2b460ed8282d49a086f644e74c1f55246ea47bb97837088b  ./docs/OPERATIONS_CONFIG.md
-f272562b85a43090f433d95bb83578a5d7e511118e630097182011a5600a9fc6  ./docs/codex/FINDINGS_LEDGER.md
+aad64be2ab2345e64861dd787367ecf32211fd3358c083bb4137ea4ec62790e7  ./docs/codex/FINDINGS_LEDGER.md
 02821183d6a514fd16264ca61ce5b6b99acd27294b39f4e782d06880687358e1  ./docs/codex/PRELAUNCH_AUDIT_V22_9_76.md
 b4fe1a635747c1a9a1934c3f37fc3228c16c82bf3206f8f4cb2cf5330dc72194  ./validation/validate-data-fixes-v22976.mjs
 87321a501181cab95109db52502f6fad472e67aa023c3292f8029b58ab72a43c  ./validation/validate-findings-ledger-v22976.mjs
@@ -637,7 +637,7 @@ cd716b6594634b2370578a8b5d8ef7bdf4dc42162d2e20d3dfd489644f8dc183  ./src/modules/
 ac74e02b1881d77b8a549878287674948336ff2878bfa6bbd95b8c28bd28bb3f  ./tools/measure-cron-cpu-v22979.mjs
 43471fd97e5264f95775399c22feb05c980cef9c4e94815bbb5c5fe9757ac26f  ./validation/validate-backup-import-v22979.mjs
 572cc9b5d4f95b5b732708ddcba23bc11d7855e65a71c8bfaec0e3b716d378a1  ./validation/validate-cron-v22979.mjs
-67c7921ead3522039c0b37ba150a70f6f711ad173bacb46e04e97e42cde084cb  ./validation/validate-kakao-replies-v22979.mjs
+c6baf8d19a80d1b72c7677d2afac97df515acaf8c3f56383ae852ad2cba5fc6b  ./validation/validate-kakao-replies-v22979.mjs
 fd262afcaf560845316c6f5b4345f86b8858c0e11a763ca0316855b949a94c75  ./validation/validate-nlu-v22979.mjs
 86bbf214d1de8ee9b3947ed510ab1066ef8ec5c9a0712ec350f041ab8148014c  ./validation/validate-recurring-web-v22979.mjs
 3bb0634c3658f47916a58c07195918658054fc64955f48b7d613a41ce4d98901  ./validation/validate-refund-links-v22979.mjs
@@ -650,7 +650,7 @@ cd286fc8b1826ef91349061d8d618385ea1e5d3b16e35157ecc94f2c40f8a9e5  ./docs/deploym
 eed9ecec196714b49ede0e3694541091af176950f206e0f1861ee785512798ae  ./docs/deployments/V22_9_80_2026_10_27.md
 4084f974730a5ebf460d7d5cfa81206c2c43b3c85c47c90b90a3169c78b720e7  ./validation/validate-dark-screens-v22980.mjs
 aa73c23dd740114c7b0d842bda9fed0d385494ac36d0bbc5887e97a18acec6c7  ./validation/validate-data-import-v22980.mjs
-b6d073036406ec4b80c3892395e10ba86896be082456139d1de2c8c71e80125c  ./validation/validate-nlu-v22980.mjs
+a4566ba83f8363a79b5dd901e040656d4f5ff61b79e3594dd337406c0e11f734  ./validation/validate-nlu-v22980.mjs
 4fb71941e55d44535b1410518ded7fb4c962a73cbdbf8e20aa041e5698dcac13  ./validation/validate-refund-links-v22980.mjs
 490ff33e787ef2d826c7e68b0ca6ecd525734e1560aaca6ba2f68885ac2108ee  ./validation/validate-roles-v22980.mjs
 fbb664672002762f3ab84a2ab87fa870ba418e076714b5af6754eafc01dc3fb9  ./BUNDLE_FILE_CHECKSUMS_V22_9_79.sha256
@@ -699,9 +699,9 @@ d85b893a32864a242d0c6970ebfa5203901115705a183937334f2547caf1c15e  ./tools/build-
 1c6470743bd89f16d970af41fc31277c878dc6e870c5bcfa543f0ffda3091a00  ./validation/validate-design-uplift-v22987.mjs
 7e6dd2df8016a79b566b64cfe4cd148313adb4190495cb4dbf0901341e625d8f  ./validation/validate-public-brand-v22987.mjs
 151fb53cbd585e05d38392cd80bd5c940a5b13c8494a57a0367c00d042156ed7  ./BUNDLE_FILE_CHECKSUMS_V22_9_86.sha256
-002e3fb4d5c65336f07ac3e8ea5de90cc0b1619d5e284ab66e639796fe09f7c3  ./docs/codex/FOLLOWUP_FINDINGS_V22_9_88.md
+95e6ff67d414301911b20591234a5b7634a5708c5749393fe3c4ae154a8f9597  ./docs/codex/FOLLOWUP_FINDINGS_V22_9_88.md
 66dc698e4c1d238692d72a8fada1543453676d6834198d02529ea0b36d4e8049  ./migrations/V22_9_88_UNDO_DELETE_IF_UNCHANGED_APPLY_REVIEW_ONLY.sql
 ccc80853fd1a1c7bbc344b7e6128f467fffd2efd735f0c36e0b6069803332df1  ./migrations/V22_9_88_UNDO_DELETE_IF_UNCHANGED_ROLLBACK_REVIEW_ONLY.sql
 cc4c869f94c992b61914d96fe0d4a7032f3956d4ddb01af451e7ebd1ea43f61b  ./validation/validate-codex-findings-v22988.mjs
-073cfd2296daddcac0cdd3903751fb40f64e4b005b57464ce42afe9a865b0dbb  ./validation/validate-kakao-link-buttons-v22988.mjs
+841acaee0265f8b4bbca0925849a9f955e0ac70e2d47a9a45bcd9c26e47c3876  ./validation/validate-kakao-link-buttons-v22988.mjs
 0d8f89debbb9abe4f49fceee6fe08d134dceea4a4c2bc0274c1b20a0498f7ff1  ./BUNDLE_FILE_CHECKSUMS_V22_9_87.sha256

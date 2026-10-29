@@ -402,7 +402,9 @@ try {
       }),
     }), env, {});
     const payload = await response.json().catch(() => null);
-    return String(payload?.template?.outputs?.[0]?.simpleText?.text || "");
+    // V22.9.88(Y-7): 요청 제한 답은 글 대신 ‘가계부 확인’ 링크 버튼이 달린 글 카드다(주소를 글에 넣지 않는다). 카드 설명도 읽는다.
+    const first = payload?.template?.outputs?.[0];
+    return String(first?.simpleText?.text || first?.textCard?.description || "");
   };
   const rateLimited = (text) => /잠시만요|잠시 후/.test(text);
 

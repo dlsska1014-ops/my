@@ -187,10 +187,11 @@ function kakaoGroupChoiceButtons(quickReplies = []) {
 }
 
 // V22.9.88(Y-7): 링크 버튼(leadButtons)은 메시지 버튼보다 앞에 둔다. 그래서 늘 첫 카드에 들어가고, 글로 늘어놓는 나머지(rest)에는 오지 않는다.
+// 말풍선이 이미 3개이고 마지막 글이 길어 카드를 못 만들면 링크는 kakaoPlaceLeftLinks 가 다른 자리에 붙인다.
 function kakaoGroupChoiceCards(quickReplies = [], outputs = [], leadButtons = []) {
   const buttons = [...leadButtons, ...kakaoGroupChoiceButtons(quickReplies)];
   if (!buttons.length) return { outputs, rest: [] };
-  const merged = [...outputs];
+  let merged = [...outputs];
   let used = 0;
   const lastIndex = merged.length - 1;
   const lastText = merged[lastIndex]?.simpleText?.text;
@@ -205,7 +206,39 @@ function kakaoGroupChoiceCards(quickReplies = [], outputs = [], leadButtons = []
     merged.push({ textCard: { title, buttons: chunk, buttonLayout: "vertical" } });
     used += chunk.length;
   }
+  const leftLinks = buttons.slice(used).filter((button) => button.action === "webLink");
+  if (leftLinks.length) merged = kakaoPlaceLeftLinks(merged, leftLinks);
   return { outputs: merged, rest: buttons.slice(used).filter((button) => button.action === "message") };
+}
+
+// 글에서 주소를 뺐으므로 링크 버튼은 버리지 않는다. 자리를 찾는 차례: 버튼 자리가 남은 카드 → (단톡방만) 400자 이하 글 말풍선을 카드로 →
+// 이웃한 글 말풍선 둘을 하나로 합쳐(합쳐도 950자 이하일 때) 생긴 자리에 ‘바로 열기’ 카드. 1:1 은 글 말풍선을 카드로 바꾸지 않는다(웹 연결
+// 코드처럼 복사할 글이 있다). 그래도 자리가 없으면(말풍선 셋이 모두 버튼이 찬 카드이거나 합칠 수 없는 긴 글) 붙이지 못한다 — 지금 그런 답은 없다.
+function kakaoPlaceLeftLinks(outputs = [], links = [], { convertText = true } = {}) {
+  const placed = [...outputs];
+  let left = [...links];
+  for (let index = placed.length - 1; index >= 0 && left.length; index -= 1) {
+    const card = placed[index]?.textCard;
+    if (card) {
+      const buttons = Array.isArray(card.buttons) ? card.buttons : [];
+      const room = 5 - buttons.length;
+      if (room <= 0) continue;
+      const mention = buttons.filter((button) => button?.action === "mention");
+      placed[index] = { textCard: { ...card, buttons: [...left.slice(0, room), ...buttons.filter((button) => button?.action !== "mention"), ...mention], buttonLayout: "vertical" } };
+      left = left.slice(room);
+    } else if (convertText && typeof placed[index]?.simpleText?.text === "string" && placed[index].simpleText.text.length <= KAKAO_GROUP_CARD_TEXT_MAX) {
+      placed[index] = { textCard: { description: placed[index].simpleText.text, buttons: left.slice(0, 5), buttonLayout: "vertical" } };
+      left = left.slice(5);
+    }
+  }
+  while (left.length && placed.length >= 3) {
+    const at = placed.findIndex((output, index) => index > 0 && typeof output?.simpleText?.text === "string" && typeof placed[index - 1]?.simpleText?.text === "string"
+      && placed[index - 1].simpleText.text.length + 2 + output.simpleText.text.length <= KAKAO_SIMPLE_TEXT_SAFE_MAX);
+    if (at < 1) break;
+    placed.splice(at - 1, 2, { simpleText: { ...placed[at - 1].simpleText, text: `${placed[at - 1].simpleText.text}\n\n${placed[at].simpleText.text}` } });
+  }
+  if (left.length && placed.length < 3) placed.push({ textCard: { title: "바로 열기", buttons: left.slice(0, 5), buttonLayout: "vertical" } });
+  return placed;
 }
 
 // V22.9.88(Y-7): 카카오 그룹 챗봇 심사 의견(2026-10-29) — 챗봇 답의 글에 http(s) 주소를 그대로 넣지 말고, 버튼을 누르면 그 페이지가
@@ -213,9 +246,18 @@ function kakaoGroupChoiceCards(quickReplies = [], outputs = [], leadButtons = []
 // 쓴 메모 등)는 버튼으로 만들지 않고 글에서 ‘(링크)’로 바꾼다. 단톡방의 ‘웹가계부’ 메시지 버튼도 바로 열리는 링크 버튼으로 바꾼다
 // (1:1 의 ‘웹가계부’ 답은 웹 연결 코드를 주므로 메시지 버튼으로 둔다).
 // 버튼을 누르면 카카오가 주소 뒤에 botUserKey·appUserId·botGroupKey 를 붙인다. 웹은 그 값으로 로그인하거나 권한을 정하지 않는다.
-const KAKAO_TEXT_URL = /https?:\/\/[^\s<>"'`]+/gi;
+// 주소는 주소에 쓰는 ASCII 글자까지만 본다. 한글이 바로 붙어도(‘…/my에서’) 주소에 넣지 않아 버튼 주소가 깨지지 않는다.
+const KAKAO_TEXT_URL = /https?:\/\/[A-Za-z0-9._~:/?#@!$&'()*+,;=%[\]-]+/gi;
+const KAKAO_URL_TRAILING = /[)\].,;:!?'"]+$/;
+// 버튼 이름으로 쓰지 않는 줄: 문장 끝(.!?)·목록 줄(•·-·숫자·그림 글자로 시작)·‘이름: 값’ 꼴. 본문 줄을 버튼 이름으로 먹지 않는다.
+const KAKAO_LINK_LABEL_SKIP = /[.!?。…]$|^[•·*▶※\d-]|^\p{Extended_Pictographic}|[:：]/u;
+// 주소를 뺀 자리에 남는 빈 괄호·따옴표 쌍.
+const KAKAO_EMPTY_PAIR = /\(\s*\)|\[\s*\]|‘\s*’|“\s*”|'\s*'|"\s*"/g;
 const KAKAO_LINK_LABEL_MAX = 14;
-const KAKAO_LINK_BUTTON_MAX = 3;
+// 한 답의 링크 버튼은 카드 하나에 들어가는 5개까지(지금 답은 많아야 2개).
+const KAKAO_LINK_BUTTON_MAX = 5;
+// 글 말풍선 안전 길이(kakaoSafeText 가 이보다 길면 자른다).
+const KAKAO_SIMPLE_TEXT_SAFE_MAX = 950;
 const KAKAO_WEB_LEDGER_COMMANDS = new Set(["웹가계부", "웹 가계부 열기"]);
 
 function kakaoLinkButton(label, webLinkUrl) {
@@ -232,7 +274,7 @@ function kakaoLinkDefaultLabel(pathname = "") {
 
 function kakaoOwnLinkUrl(raw = "", origin = "") {
   try {
-    const url = new URL(String(raw).replace(/[)\].,;:!?'"’”」』…]+$/u, ""));
+    const url = new URL(String(raw).replace(KAKAO_URL_TRAILING, ""));
     return origin && url.origin === new URL(origin).origin ? url : null;
   } catch (_) {
     return null;
@@ -252,19 +294,30 @@ function kakaoTextLinks(text, origin = "") {
     let rest = line;
     const own = [];
     for (const raw of found) {
-      const url = kakaoOwnLinkUrl(raw, origin);
-      rest = rest.replace(raw, url ? "" : "(링크)");
+      // 주소 끝의 문장부호(마침표·닫는 괄호·따옴표)는 주소가 아니므로 글에 남긴다. 빈 괄호·따옴표 쌍은 아래에서 지운다.
+      const cut = raw.replace(KAKAO_URL_TRAILING, "");
+      const url = kakaoOwnLinkUrl(cut, origin);
+      const at = rest.indexOf(cut);
+      let before = rest.slice(0, at);
+      const after = rest.slice(at + cut.length);
+      // 우리 주소 바로 뒤에 낱말이 붙어 있으면(‘…/my에서’) 앞 빈칸도 지워 ‘웹 가계부에서’ 처럼 잇는다.
+      if (url && /\s$/.test(before) && /^[^\s.,;:!?)\]’”'"]/u.test(after)) before = before.replace(/\s+$/, "");
+      rest = before + (url ? "" : "(링크)") + after;
       if (url) own.push(url);
     }
-    rest = rest.replace(/\s*[:：→-]\s*$/u, "").replace(/\s{2,}/g, " ").trim();
+    // 남은 글을 버튼 이름으로 쓰는 것은 ‘이름: 주소’·‘이름 → 주소’ 처럼 가름표 뒤의 주소가 줄 끝일 때뿐이다(‘자세한 내용은 주소.’ 는 글로 남김).
+    const named = /[:：→]\s*$/u.test(rest) && line.trimEnd().endsWith(found.at(-1));
+    rest = rest.replace(KAKAO_EMPTY_PAIR, "").replace(/\(\(링크\)\)/g, "(링크)").replace(/\s*[:：→-]\s*$/u, "")
+      .replace(/\s+([.,;!?])/g, "$1").replace(/\s{2,}/g, " ").trim();
+    if (/^[\s.,;:!?'"’”…]*$/u.test(rest)) rest = "";
     let label = "";
     if (own.length === 1 && !rest) {
       const previous = String(lines.at(-1) || "").trim();
-      if (previous && previous.length <= KAKAO_LINK_LABEL_MAX && !/[.!?。…]$/u.test(previous)) {
+      if (previous && previous.length <= KAKAO_LINK_LABEL_MAX && !KAKAO_LINK_LABEL_SKIP.test(previous)) {
         label = previous;
         lines.pop();
       }
-    } else if (own.length === 1 && rest.length <= KAKAO_LINK_LABEL_MAX) {
+    } else if (own.length === 1 && named && rest.length <= KAKAO_LINK_LABEL_MAX && !KAKAO_LINK_LABEL_SKIP.test(rest)) {
       label = rest;
       rest = "";
     }
@@ -279,7 +332,8 @@ function kakaoUniqueLinks(links = []) {
   return links.filter((button) => !seen.has(button.webLinkUrl) && seen.add(button.webLinkUrl)).slice(0, KAKAO_LINK_BUTTON_MAX);
 }
 
-// 카드 안의 주소는 그 카드의 버튼 앞쪽에 넣는다. ‘기록하기’(멘션)는 맨 아래에 남기고 모두 5개까지.
+// 카드 안의 주소는 그 카드의 남은 버튼 자리(5개까지)에 앞쪽으로 넣는다. ‘기록하기’(멘션)는 맨 아래. 있던 버튼은 밀어내지 않고,
+// 자리가 모자란 링크(overflow)는 돌려줘 다른 자리에 붙인다. 링크를 넣으면 세로 배치로 둔다(가로는 2개까지만 보인다).
 function kakaoLinkCardOutput(kind, card, origin) {
   const next = { ...card };
   const own = [];
@@ -290,15 +344,16 @@ function kakaoLinkCardOutput(kind, card, origin) {
     if (result.text) next[field] = result.text;
     else delete next[field];
   }
-  let buttons = Array.isArray(next.buttons) ? next.buttons : [];
-  if (own.length) {
+  const buttons = Array.isArray(next.buttons) ? next.buttons : [];
+  const links = kakaoUniqueLinks(own);
+  const room = Math.max(0, 5 - buttons.length);
+  if (links.length && room) {
     const mention = buttons.filter((button) => button?.action === "mention");
-    const others = buttons.filter((button) => button?.action !== "mention");
-    buttons = [...kakaoUniqueLinks(own), ...others].slice(0, 5 - mention.length).concat(mention);
+    next.buttons = [...links.slice(0, room), ...buttons.filter((button) => button?.action !== "mention"), ...mention];
+    next.buttonLayout = "vertical";
   }
-  if (buttons.length) next.buttons = buttons;
   if (!next.title && !next.description) next.title = "바로 열기";
-  return { [kind]: next };
+  return { output: { [kind]: next }, overflow: links.slice(room) };
 }
 
 function kakaoLinkOutputs(outputs = [], origin = "") {
@@ -312,7 +367,13 @@ function kakaoLinkOutputs(outputs = [], origin = "") {
       continue;
     }
     const kind = output?.textCard ? "textCard" : output?.basicCard ? "basicCard" : "";
-    result.push(kind ? kakaoLinkCardOutput(kind, output[kind], origin) : output);
+    if (!kind) {
+      result.push(output);
+      continue;
+    }
+    const card = kakaoLinkCardOutput(kind, output[kind], origin);
+    result.push(card.output);
+    links.push(...card.overflow);
   }
   return { outputs: result, links: kakaoUniqueLinks(links) };
 }
@@ -341,7 +402,7 @@ async function kakaoDirectLinkResponse(response, origin = "") {
     const linked = kakaoLinkOutputs(template.outputs, origin);
     let outputs = linked.outputs.slice(0, 3);
     if (linked.links.length && outputs.length < 3) outputs.push({ textCard: { title: "바로 열기", buttons: linked.links, buttonLayout: "vertical" } });
-    else if (linked.links.length) outputs = kakaoGroupChoiceCards([], outputs, linked.links).outputs;
+    else if (linked.links.length) outputs = kakaoPlaceLeftLinks(outputs, linked.links, { convertText: false });
     if (!outputs.length) return response;
     const headers = new Headers(response.headers || {});
     headers.set("content-type", "application/json; charset=utf-8");

@@ -424,7 +424,9 @@ await scene("T-39", async () => {
     await say(fx, "그제 마트 30000");
     await say(fx, "어제 택시 8000");
     await say(fx, "커피 4500");
-    const strip = (text) => text.replace(/\n\n상세 분석 보기\n\S+$/, ""); // 첫 요약에만 붙는 ‘상세 분석 보기’ 링크(24시간에 한 번)는 비교에서 뺀다
+    // 첫 요약에만 붙는 ‘상세 분석 보기’ 링크(24시간에 한 번)는 비교에서 뺀다.
+    // V22.9.88(Y-7) 부터 주소는 글에서 빠지고 뒤에 붙는 ‘바로 열기’ 버튼 카드로 간다(카드 제목만 글로 읽힌다).
+    const strip = (text) => text.replace(/\n\n상세 분석 보기\n\S+$/, "").replace(/\n바로 열기$/, "");
     const rows = () => fx.db.transactions.length;
     const before = rows();
     const thisMonth = strip(await say(fx, "얼마 썼어"));

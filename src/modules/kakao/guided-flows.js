@@ -254,7 +254,8 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
       if (!groupKey) await setKakaoSelectedHousehold(env, user.id, household.id);
       const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
       const linked = groupKey ? await getLinkedKakaoGroupHousehold(env, groupKey) : null;
-      const cta = await maybeKakaoCta(env, user.id, household.id, origin, "household", `${origin}/my/households`);
+      // V22.9.88(Y-7): 버튼 이름이 연결하는 화면과 맞게(예전 기본값 ‘상세 분석 보기’ 로 가계부 관리가 열렸다).
+      const cta = await maybeKakaoCta(env, user.id, household.id, origin, "household", `${origin}/my/households`, "가계부 관리");
       const headLines = [
         `✅ ‘${household.name}’ 가계부를 만들었어요.`,
         kind && kind !== "직접 입력" ? `용도: ${kind}` : "",
@@ -493,7 +494,8 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       await saveKakaoBudget(env, household.id, month, category, amount);
       const totalNote = category === "__total" ? await kakaoTotalBudgetNote(env, household.id, month) : "";
       const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
-      const cta = await maybeKakaoCta(env, user.id, household.id, origin, "budget", `${origin}/my/settings?household_id=${encodeURIComponent(household.id)}&month=${encodeURIComponent(month)}`);
+      // V22.9.88(Y-7): 버튼 이름이 연결하는 화면과 맞게(예전 기본값 ‘상세 분석 보기’ 로 설정이 열렸다).
+      const cta = await maybeKakaoCta(env, user.id, household.id, origin, "budget", `${origin}/my/settings?household_id=${encodeURIComponent(household.id)}&month=${encodeURIComponent(month)}`, "예산 설정 열기");
       return {
         text: [`✅ ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.`, "", `설정 금액: ${numberWithCommas(amount)}원`].join("\n") + totalNote + cta + cleanupNotice,
         quickReplies: [["예산설정", "예산설정"], ["남은예산", "남은예산"]],
