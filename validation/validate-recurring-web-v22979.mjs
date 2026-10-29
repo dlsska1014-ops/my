@@ -38,8 +38,8 @@ for (const [mode, categoriesPresent] of MODES) {
     } finally { restore(); }
     const r = strip(reserve.html), s = strip(settings.html);
     eq(reserve.status, 200, `D25-A ${mode} /reserve-plans 는 목록을 못 읽어도 열린다`);
-    ok(r.includes("고정 수입·지출 목록을 불러오지 못했어요") && r.includes("새로고침해 목록을 확인한 뒤 추가해 주세요"), `D25-A ${mode} /reserve-plans 는 목록을 불러오지 못했다고 알리고 확인한 뒤 추가하라고 한다`);
-    ok(r.includes("고정 수입·지출 목록 확인 불가"), `D25-A ${mode} /reserve-plans 고정 항목 요약은 '목록 확인 불가'다`);
+    ok(r.includes("매달 자동 기록 목록을 불러오지 못했어요") && r.includes("새로고침해 목록을 확인한 뒤 추가해 주세요"), `D25-A ${mode} /reserve-plans 는 목록을 불러오지 못했다고 알리고 확인한 뒤 추가하라고 한다`);
+    ok(r.includes("매달 자동 기록 목록 확인 불가"), `D25-A ${mode} /reserve-plans 매달 자동 기록 요약은 '목록 확인 불가'다`);
     ok(!r.includes("등록된 항목 없음") && !r.includes("아직 없습니다. 월세·보험·구독료처럼"), `D25-A ${mode} /reserve-plans 는 '등록된 항목 없음'·'아직 없습니다'를 보이지 않는다 (예전: 목록 실패를 빈 목록으로 보였다)`);
     eq(settings.status, 200, `D25-A ${mode} /my/settings 는 목록을 못 읽어도 열린다`);
     ok(s.includes("정기 항목 목록을 불러오지 못했어요"), `D25-A ${mode} /my/settings 는 정기 항목 목록을 불러오지 못했다고 알린다`);
@@ -53,7 +53,7 @@ await withClock("2026-10-26", () => fixture(async (fx) => {
   fx.db.accountbook_recurring.length = 0;
   const r = strip((await page(fx, `/reserve-plans?${Q}`)).html);
   const s = strip((await page(fx, `/my/settings?${Q}`)).html);
-  ok(r.includes("고정 수입·지출 등록된 항목 없음") && r.includes("아직 없습니다. 월세·보험·구독료처럼"), "D25-B 빈 목록이면 /reserve-plans 는 '등록된 항목 없음'이다");
+  ok(r.includes("매달 자동 기록 등록된 항목 없음") && r.includes("아직 없습니다. 월세·보험·구독료처럼"), "D25-B 빈 목록이면 /reserve-plans 는 '등록된 항목 없음'이다");
   ok(!r.includes("불러오지 못했어요"), "D25-B 빈 목록은 실패 안내를 보이지 않는다");
   ok(s.includes("아직 정기지출이 없습니다") && s.includes("정기지출 합계 0원") && !s.includes("확인 불가"), "D25-B 빈 목록이면 /my/settings 는 '아직 정기지출이 없습니다'·합계 0원이다");
 }));

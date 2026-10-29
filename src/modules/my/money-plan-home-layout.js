@@ -32,7 +32,8 @@ import { escapeHtml } from "../domain/transactions-core.js";
 const MONEY_PLAN_TABS = [
   ["budgets", "월별 예산·수입", "/budgets", "이번 달에만 적용"],
   ["reserve-plans", "정기 수입·지출", "/reserve-plans", "매달·매년 반복"],
-  ["settings", "설정 한눈에", "/my/settings", "요약·정기·분류"],
+  // V22.9.83: "설정 한눈에" → "전체 요약". 이 탭은 예산·정기·분류를 한 화면에 모은 요약이라 "설정"이라는 이름이 사이드바의 설정 그룹과 헷갈렸다.
+  ["settings", "전체 요약", "/my/settings", "예산·정기·분류 한 화면"],
 ];
 
 // V22.9.79 V44 F-6: 설정 한눈에(/my/settings)는 소유자·관리자 전용이라 canManage 가 아니면 이 탭을 그리지 않는다(구성원이 누르면 403 이었다).

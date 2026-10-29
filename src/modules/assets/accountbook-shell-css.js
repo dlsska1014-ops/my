@@ -502,6 +502,19 @@ html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavGroupPrimary>
 html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavLinks{margin-left:17px!important;padding-left:11px!important;border-left:1px solid var(--line)!important}
 html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavLinks a{padding-left:10px!important;font-size:13.5px!important;letter-spacing:0!important}
 html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abNavCollapsed .abNavLinks{margin-left:0!important;padding-left:0!important;border-left:0!important}
+/* V22.9.83: 사용자 사이드바는 접지 않는 묶음(.abNavSection)이다. 묶음 위 작은 이름표, 링크는 들여쓰기 레일 없이 한 줄 36px.
+   위 라이트 규칙(.abNavGroup+.abNavGroup 구분선, .abNavLinks 레일)과 같은 세기로 적고 뒤에 두어 이긴다. 접힌 사이드바는 이름표를 숨기고 구분선만 남긴다. */
+html body.abV22812Shell .abNavSection.abNavGroup+.abNavSection{border-top:0!important;margin-top:0!important;padding-top:0!important}
+body.abV22812Shell .abNavSection{margin:0 0 10px!important}
+body.abV22812Shell .abNavLabel{margin:8px 12px 4px!important;font-size:11.5px!important;font-weight:700!important;letter-spacing:.02em!important;line-height:1.4!important;color:var(--sub)!important}
+html body.abV22812Shell .abNavSection .abNavLinks{margin-left:0!important;padding:0!important;border-left:0!important;gap:1px!important}
+html body.abV22812Shell .abNavSection .abNavLinks a{min-height:36px!important;padding:7px 12px!important}
+body.abV22812Shell.abNavCollapsed .abNavLabel{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important}
+html body.abV22812Shell.abNavCollapsed .abNavSection.abNavGroup+.abNavSection{border-top:1px solid var(--line)!important;padding-top:8px!important}
+/* V22.9.83: 소비 분석의 두 보기(한눈에 보기·종합 리포트) 탭. 화면마다 인라인으로 넣으면 /my/analysis 인라인 CSS 한도(24 KiB)를 넘어 공용 셸로 옮겼다. */
+.lrSeg.abAnalysisViews{display:inline-flex;gap:4px;padding:4px;border-radius:var(--ab12-r-lg,16px);background:var(--ab12-surface-raised,#eef1f5);margin:14px 0 0}
+.lrSeg.abAnalysisViews a{min-height:40px;display:inline-flex;align-items:center;justify-content:center;padding:0 16px;border-radius:var(--ab12-r-md,12px);text-decoration:none;font-weight:800;color:var(--ab12-muted,#5f6b7a)}
+.lrSeg.abAnalysisViews a[aria-current="true"]{background:var(--ab12-surface,#fff);color:var(--ab12-text,#191f28);box-shadow:var(--ab12-elev-card,0 2px 8px rgba(15,23,42,.08))}
 body.abV22812Shell .abNavItemIcon{width:22px!important;height:auto!important;flex:0 0 22px!important;background:transparent!important;color:inherit!important;font-size:15px!important}
 body.abV22812Shell .abNavFooter{padding:12px 10px!important;border-color:var(--line)!important}
 body.abV22812Shell .abNavGuide{background:var(--card-2)!important;border:1px solid var(--line)!important;color:var(--accent)!important;border-radius:12px!important;box-shadow:none!important}

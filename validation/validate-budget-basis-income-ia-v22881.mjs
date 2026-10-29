@@ -72,7 +72,7 @@ ok(source.includes("<b>정기 수입·지출</b><span>세금·보험</span>"), "
 ok(source.includes("function renderMoneyPlanTabs(active = \"budgets\""), "the shared section tab helper exists");
 ok(source.includes('["budgets", "월별 예산·수입", "/budgets", "이번 달에만 적용"]'), "the monthly budget tab says it applies to this month only");
 ok(source.includes('["reserve-plans", "정기 수입·지출", "/reserve-plans", "매달·매년 반복"]'), "the recurring tab says it repeats");
-ok(source.includes('["settings", "설정 한눈에", "/my/settings", "요약·정기·분류"]'), "the settings page is reachable as a tab");
+ok(source.includes('["settings", "전체 요약", "/my/settings", "예산·정기·분류 한 화면"]'), "the settings page is reachable as a tab");
 ok(source.includes("function moneyPlanTabsCss()"), "the tab styling helper exists");
 // 새 CSS 는 다크 커버리지를 함께 넣는다(작업지시 금지사항).
 ok(source.includes('html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a{'), "dark coverage exists for the tabs");
@@ -81,10 +81,11 @@ ok(source.includes('html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a.on{')
 eq((source.match(/\$\{renderMoneyPlanTabs\(/g) || []).length, 3, "all three pages render the shared tab bar");
 eq((source.match(/\$\{moneyPlanTabsCss\(\)\}/g) || []).length, 3, "all three pages carry the tab styling");
 
-// 내비게이션은 "예산·정기" 하나로 모인다.
-ok(source.includes('["budgets", "예산·정기", `/budgets?month=${encodeURIComponent(month)}${hh}`, "budget"]'), "the sidebar carries one merged entry");
-eq(source.includes('["reserve-plans", "정기 수입·지출", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`, "recurring"]'), false, "the records group no longer duplicates the recurring entry");
-ok(source.includes('["reserve-plans", "budgets"], ["settings", "budgets"]'), "any tab lights up the merged nav entry");
+// V22.9.83: 내비게이션은 예산과 정기 수입·지출을 예산·자산 묶음에 따로 싣는다. "예산·정기" 한 항목 아래 정기 화면이 탭으로
+// 숨어 있어 사용자가 정기 수입·지출을 찾지 못했다(2026-10-28 지적). 두 화면 위 탭(월별 예산·수입·정기 수입·지출·전체 요약)은 그대로다.
+ok(source.includes('["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`, "budget"]'), "the sidebar carries the budget entry");
+ok(source.includes('{ key: "plan", label: "예산·자산", icon: "budget", items: [["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`, "budget"], ["reserve-plans", "정기 수입·지출", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`, "recurring"]'), "the recurring entry sits next to the budget entry, not in the records group");
+ok(source.includes('["households", "my-households"], ["settings", "budgets"]') && !source.includes('["reserve-plans", "budgets"]'), "V22.9.83: the 전체 요약 tab lights the budget entry, 정기 수입·지출 lights its own entry");
 
 // 라우트는 하나도 지우지 않는다(금지 사항).
 for (const route of ["/reserve-plans", "/my/settings", "/budgets", "/admin/recurring/save", "/admin/recurring/apply", "/admin/recurring/delete", "/admin/reserve-plan/create", "/admin/reserve-plan/update", "/admin/reserve-plan/delete"]) {
@@ -101,7 +102,7 @@ ok(source.includes("function renderKeywordBulkEditor("), "the keyword editor its
 // 5. 부부 전용으로 읽히던 정산 메뉴 이름
 // ---------------------------------------------------------------------------
 
-ok(source.includes('["settlement", "정산 요약", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "settlement"]'), "the settlement entry no longer assumes a couple");
+ok(source.includes('["settlement", "정산", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "settlement"]'), "the settlement entry no longer assumes a couple (V22.9.83: 이름은 화면 제목과 같은 '정산')");
 eq(source.includes("부부 정산"), false, "no couple-only settlement label remains");
 
 // ---------------------------------------------------------------------------
@@ -141,7 +142,7 @@ eq(totalHtml.includes("예산 밖 지출"), false, "a total-only budget has no s
 for (const [path, activeLabel] of [
   ["/budgets?month=2026-08&household_id=house-home", "월별 예산·수입"],
   ["/reserve-plans?month=2026-08&household_id=house-home", "정기 수입·지출"],
-  ["/my/settings?month=2026-08&household_id=house-home", "설정 한눈에"],
+  ["/my/settings?month=2026-08&household_id=house-home", "전체 요약"],
 ]) {
   const res = await get(path);
   eq(res.status, 200, `${path} renders`);
@@ -161,12 +162,13 @@ eq(settingsHtml.includes("/my/category-keywords/bulk-save"), false, "the duplica
 const keywordHtml = await (await get("/keyword-guide?month=2026-08&household_id=house-home")).text();
 ok(keywordHtml.includes("/my/category-keywords/bulk-save"), "the keyword manager still carries the editor");
 
-// 내비에서 정기 항목은 예산·정기 하나로 모였고, 정산은 부부를 벗어났다.
+// 정산은 부부를 벗어났다. V22.9.83: 정기 수입·지출은 예산 옆의 제 항목으로 돌아왔고(예산·정기 하나에 숨던 것),
+// 정산 항목 이름은 화면 제목과 같은 '정산'이다.
 const homeHtml = await (await get("/app?month=2026-08&household_id=house-home")).text();
-ok(homeHtml.includes("예산·정기"), "the nav shows the merged entry");
-eq(homeHtml.includes('data-key="reserve-plans"'), false, "the nav no longer carries a separate recurring entry");
+eq(homeHtml.includes("예산·정기"), false, "the nav no longer hides the recurring screen under 예산·정기");
+ok(homeHtml.includes('data-key="reserve-plans"'), "the nav carries the recurring entry next to the budget entry");
 eq(homeHtml.includes("부부 정산"), false, "the couple-only label is gone from the nav");
-ok(homeHtml.includes("정산 요약"), "the settlement entry keeps a neutral name");
+ok(/<a data-key="settlement"[^>]*>[\s\S]*?<span>정산<\/span><\/a>/.test(homeHtml), "the settlement entry keeps a neutral name");
 ok(homeHtml.includes("/reserve-plans?"), "the home still offers a shortcut to the recurring page");
 
 // 정기 화면에서 수입 항목은 입금이라고 말한다.

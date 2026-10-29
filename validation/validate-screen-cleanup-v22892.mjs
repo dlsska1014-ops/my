@@ -86,10 +86,12 @@ eq(dayDetail.includes('node.querySelector("#abDayDetailStatus").textContent = "�
 // V22.8.75 가 나눈 역할("빠르게/깊게")은 그대로 두고, 무엇이 실제로 다른지를
 // 덧붙인다. 이름만 다른 두 화면 앞에서 사용자가 어느 쪽을 볼지 판단할 근거는
 // "요약이냐 상세냐"가 아니라 "필터가 있느냐 없느냐"다.
-ok(source.includes("빠르게 보는 요약 화면입니다."), "V22.8.75 의 요약 역할 문장이 남아 있다");
-ok(source.includes("깊게 보는 분석 화면입니다."), "V22.8.75 의 상세 역할 문장이 남아 있다");
-eq((source.match(/<b>소비 분석은 필터로 좁혀 보는 화면<\/b>/g) || []).length, 2, "두 화면 모두 소비 분석의 역할을 같은 문장으로 말한다");
-eq((source.match(/<b>종합 리포트는 이번 달 전체를 고정해 보는 화면<\/b>/g) || []).length, 2, "두 화면 모두 종합 리포트의 역할을 같은 문장으로 말한다");
+// V22.9.83: 역할 문장 대신 두 화면이 같은 보기 탭(한눈에 보기·종합 리포트)을 그린다. 사용자 지적("통계쪽 리포트류가 이상하다") 뒤
+// 머리말 두 문장이 서로를 설명하던 모양을 걷어냈다. 무엇이 다른지는 각 화면 머리말 한 줄이 말한다.
+ok(!source.includes("빠르게 보는 요약 화면입니다.") && !source.includes("깊게 보는 분석 화면입니다."), "V22.8.75 의 역할 문장은 보기 탭으로 바뀌었다");
+eq(source.split('<div class="lrSeg abAnalysisViews" role="group" aria-label="소비 분석 보기">').length - 1, 1, "보기 탭은 한 곳(renderAnalysisViewTabs)에서 그린다");
+ok(source.includes("기간·분류·결제수단·구성원·금액·검색어로 좁혀 봅니다"), "한눈에 보기 머리말은 필터로 좁혀 본다고 말한다");
+ok(source.includes("한 달 단위로 모아 봅니다"), "종합 리포트 머리말은 한 달을 모아 본다고 말한다");
 
 // ---------------------------------------------------------------------------
 // 7.2 / 7.5 — 소스에 고정되어야 하는 것
@@ -230,8 +232,8 @@ try {
   for (const [path, label] of [[`/my/analysis?${q}`, "소비 분석"], [`/my/analysis?view=report&${q}`, "종합 리포트"]]) {
     const page = await call(fixture, path, fixture.cookie);
     eq(page.status, 200, `${label} 화면이 열린다`);
-    ok(page.text.includes("소비 분석은 필터로 좁혀 보는 화면"), `${label} 이 소비 분석의 역할을 말한다`);
-    ok(page.text.includes("종합 리포트는 이번 달 전체를 고정해 보는 화면"), `${label} 이 종합 리포트의 역할을 말한다`);
+    ok(page.text.includes('<div class="lrSeg abAnalysisViews" role="group" aria-label="소비 분석 보기">'), `${label} 이 두 보기 탭을 보인다`);
+    ok(page.text.includes('aria-current="true"'), `${label} 이 지금 보기를 탭에 표시한다`);
   }
 
   // -------------------------------------------------------------------------

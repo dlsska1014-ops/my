@@ -24,14 +24,14 @@ ok(source.includes('<div class="homeProgress"><i style="width:${budgetBarPercent
 ok(source.includes('const budgetBarPercent = Math.max(0, Math.min(100, budgetPercent || 0));'), "the gauge is still capped at 100 percent");
 ok(source.includes('const displayBudgetPercent = Math.max(0, budgetPercent || 0);'), "the printed rate still shows real overuse above 100 percent");
 ok(source.includes('showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget'), "app reuses already-fetched rows and budget without a new DB request");
-ok(source.includes('class="abNavDashboard"'), "sidebar dashboard container is rendered");
+ok(!source.includes('class="abNavDashboard"'), "V22.9.83: the sidebar dashboard (mini calendar) is no longer rendered");
 ok(source.includes('class="abNavCalendar"'), "sidebar calendar markup is rendered");
 ok(source.includes('new Date(Date.UTC(year, mon - 1, 1)).getUTCDay()'), "calendar weekday offset is computed in the external runtime");
 ok(source.includes('for (var b = 0; b < firstDow; b++)'), "calendar renders computed leading blanks");
 ok(source.includes('&view=calendar&date=" + encodeURIComponent(date) + "&feed=all#feed'), "calendar date links preserve the existing date-filter flow");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22981.css"'), "current release uses a fresh immutable shell asset");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22983.css"'), "current release uses a fresh immutable shell asset");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22980.js"'), "current release uses a fresh immutable V5 bundle");
-ok(source.includes('"accountbook-shell-v22981-css"'), "current shell has a distinct ETag");
+ok(source.includes('"accountbook-shell-v22983-css"'), "current shell has a distinct ETag");
 ok(source.includes('body.abV22812Shell{--abNavW:252px}'), "desktop sidebar width follows the design handoff");
 ok(source.includes('.abNavCalGrid{display:grid;grid-template-columns:repeat(7'), "mini calendar uses a seven-column grid");
 ok(source.includes('.abNavBudget.isWarn'), "warning state style exists");

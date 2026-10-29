@@ -261,8 +261,8 @@ await fixture(async (fx) => {
   const past = await page(fx, "/reserve-plans?month=2026-09&household_id=house-home");
   const pastText = strip(past.html);
   // 리드 병합: 웹 수정이 ‘고정지출’을 ‘고정 수입·지출’로 바꿔 단추 문구도 그 말로 맞췄다.
-  ok(pastText.includes("2026년 9월 고정 수입·지출 기록하기") && !pastText.includes("이번 달 고정 수입·지출 기록하기"), "D-11 9월 화면의 단추는 ‘2026년 9월 고정지출 기록하기’ 다");
-  ok(strip((await page(fx, "/reserve-plans?month=2026-10&household_id=house-home")).html).includes("이번 달 고정 수입·지출 기록하기"), "D-11 이번 달 화면의 단추는 그대로 ‘이번 달’");
+  ok(pastText.includes("2026년 9월분 기록하기") && !pastText.includes("이번 달분 지금 기록하기"), "D-11 9월 화면의 단추는 ‘2026년 9월 고정지출 기록하기’ 다");
+  ok(strip((await page(fx, "/reserve-plans?month=2026-10&household_id=house-home")).html).includes("이번 달분 지금 기록하기"), "D-11 이번 달 화면의 단추는 그대로 ‘이번 달’");
   const { fields } = formFields(past.html, "/admin/recurring/apply");
   eq(fields.get("month"), "2026-09", "D-11 9월 화면의 단추는 9월로 보낸다");
   const before = fx.db.transactions.length;

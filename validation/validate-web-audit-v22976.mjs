@@ -50,14 +50,14 @@ await withClock("2026-10-26", () => fixture(async (fx) => {
     { id: "r-tax", name: "자동차세", amount: 240000, type: "expense", recurrence: "semiannual", due_months: [6, 12], due_day: 16, category: "세금/수수료" },
     { id: "r-allow", name: "직무수당", amount: 300000, type: "income", is_recurring: true, recurrence: "monthly", due_months: EVERY_MONTH, due_day: 20, category: "급여" },
   ]));
-  const metric = async (month) => after(strip((await page(fx, `/reserve-plans?month=${month}&household_id=${HH}`)).html), "이번 달 나갈 정기지출", 110);
+  const metric = async (month) => after(strip((await page(fx, `/reserve-plans?month=${month}&household_id=${HH}`)).html), "이번 달 납부 일정", 110);
   const dec = await metric("2026-12");
-  t.ok(dec.startsWith("이번 달 나갈 정기지출 295,000원") && dec.includes("2건 · 자동차세, 통신비"), `D-23 12월을 보면 12월에 돌아오는 자동차세·통신비를 센다 (${dec})`);
+  t.ok(dec.startsWith("이번 달 납부 일정 295,000원") && dec.includes("2건 · 자동차세, 통신비"), `D-23 12월을 보면 12월에 돌아오는 자동차세·통신비를 센다 (${dec})`);
   t.ok(dec.includes("이번 달 정기수입 +300,000원"), "D-23 그 달에 들어올 정기수입도 그 달 기준이다");
   const jan = await metric("2027-01");
-  t.ok(jan.startsWith("이번 달 나갈 정기지출 55,000원") && jan.includes("1건 · 통신비"), `D-23 다음 해 1월도 그 달 기준이다 (${jan})`);
+  t.ok(jan.startsWith("이번 달 납부 일정 55,000원") && jan.includes("1건 · 통신비"), `D-23 다음 해 1월도 그 달 기준이다 (${jan})`);
   const oct = await metric("2026-10");
-  t.ok(oct.startsWith("이번 달 나갈 정기지출 55,000원"), `D-23 이번 달은 납부일(25일)이 지나도 그 달 항목으로 센다 (${oct})`);
+  t.ok(oct.startsWith("이번 달 납부 일정 55,000원"), `D-23 이번 달은 납부일(25일)이 지나도 그 달 항목으로 센다 (${oct})`);
   t.ok(!oct.includes("자동차세"), "D-23 그 달에 돌아오지 않는 반기 항목은 넣지 않는다");
 }));
 

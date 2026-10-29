@@ -1,8 +1,5 @@
 // @build:imports-start
-import { safeArray } from "../admin/backup-compare.js";
-import {
-  renderNavMiniCalendar, safeNavHouseholdId, safeNavMonth,
-} from "../admin/ops-diagnostics-pages.js";
+import { safeNavHouseholdId, safeNavMonth } from "../admin/ops-diagnostics-pages.js";
 import { escapeHtml } from "../domain/transactions-core.js";
 // @build:imports-end
 
@@ -15,17 +12,15 @@ function renderUnifiedNav(active = "home", opts = {}) {
   const householdId = safeNavHouseholdId(opts.householdId);
   const hh = householdId ? `&household_id=${encodeURIComponent(householdId)}` : "";
   const householdName = String(opts.householdName || opts.name || "가계부").trim() || "가계부";
-  const sidebarRows = safeArray(opts.sidebarRows);
-  const sidebarBudget = opts.sidebarBudget && typeof opts.sidebarBudget === "object" ? opts.sidebarBudget : {};
   // 사이드바 챌린지 사본은 걷어냈다. 이 사본을 그리던 화면은 셋(홈·통계·종합 리포트)
   // 뿐이었는데 셋 다 본문에 큰 챌린지 카드를 이미 들고 있었다 — 어느 화면에서도
   // "사이드바가 유일한 접점"인 적이 없었다. 같은 정보를 한 화면에 두 번 그리면서,
   // 좁은 사이드바 쪽은 7일 체크가 뭉개져 읽히지도 않았다. 사본이 사라졌으므로
   // compact 렌더 경로와 그 CSS 도 함께 지운다(죽은 채로 두면 다음 사람이 있다고 믿는다).
-  const showSidebarDashboard = !!opts.showSidebarDashboard && !!householdId;
-  const sidebarDashboardHtml = showSidebarDashboard
-    ? `<div class="abNavDashboard">${renderNavMiniCalendar(month, householdId, sidebarRows)}</div>`
-    : "";
+  // V22.9.83: 사이드바 달력도 걷어냈다(opts.showSidebarDashboard·sidebarRows 는 받기만 한다). 메뉴 그룹을 모두 펼쳐 두면서
+  // (아래 groupHtml) 달력(약 250px)까지 얹으면 PC 첫 화면에서 아래 그룹이 화면 밖으로 밀렸다. 날짜별 기록은 홈의 주간 막대와
+  // 캘린더 화면이 같은 정보를 더 크게 보여 준다.
+  const sidebarDashboardHtml = "";
   const cat = `/keyword-guide?month=${encodeURIComponent(month)}${hh}`;
   const app = `/app?month=${encodeURIComponent(month)}${hh}`;
   // V22.9.5 (개편 3단계): 묶는 기준을 **시스템 개념에서 하는 일로** 바꾼다.
@@ -44,11 +39,22 @@ function renderUnifiedNav(active = "home", opts = {}) {
   //
   // 5/2/7/3/4 → 5/5/4/7. 가장 큰 그룹이 "설정"이 되는데, 설정은 훑어보는 곳이 아니라
   // 찾아가는 곳이라 그 자리가 낫다.
+  //
+  // V22.9.83 (화면 정리 1차, 사용자 지적 "적는다·본다·계획한다가 메뉴 이름으로 어설프다"):
+  // - 그룹 이름을 동사에서 명사로: 기록 · 분석 · 예산·자산 · 함께 · 설정. 가계부 앱의 메뉴는 이름표라 명사가 읽힌다.
+  // - 사이드바 항목 이름을 그 화면의 제목과 맞춘다. 통계 → 소비 분석(h1 과 같음), 정산 요약 → 정산, 자산·계좌 → 자산·결제수단.
+  // - "분석"(=종합 리포트, /my/analysis?view=report) 항목을 뺀다. 같은 주소의 두 보기라 소비 분석 화면 위 보기 탭으로 오간다
+  //   (그 보기에서도 소비 분석이 켜진다, activeAliases). 대신 숨어 있던 정기 수입·지출(/reserve-plans)을 예산 바로 아래에 올린다
+  //   — 예산·정기 한 칸 안의 탭이라 사이드바에서는 찾을 수 없었다. 항목 수는 20개 그대로다.
+  // - 단톡방 연결·참여자·초대·정산을 "함께"로 묶는다. 같이 쓰는 가계부에서만 쓰는 화면들이다. 스마트 도구는 반복·큰 지출 점검이라 분석으로 옮긴다.
+  // - 사용자 범위에서는 그룹을 접지 않는다(아래 groupHtml). 한 번에 한 그룹만 열려서 다른 그룹 항목은 눌러 보기 전에는 보이지 않았다.
+  // 4/4/5/3/4. 주소는 하나도 바꾸지 않는다.
   let groups = [
-    { key: "record", label: "적는다", icon: "records", items: [["app", "홈", app, "home"], ["records", "거래 내역", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions`, "records"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "calendar"], ["import", "가져오기", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=import#myImportForm`, "import"]] },
-    { key: "review", label: "본다", icon: "report", items: [["stats", "통계", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "stats"], ["analysis", "분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}&view=report`, "report"], ["reports", "생활비 리포트", `/reports?month=${encodeURIComponent(month)}${hh}`, "file"], ["annual", "연간 리포트", `/annual?year=${encodeURIComponent(month.slice(0, 4))}${hh}`, "report"], ["settlement", "정산 요약", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "settlement"]] },
-    { key: "plan", label: "계획한다", icon: "budget", items: [["budgets", "예산·정기", `/budgets?month=${encodeURIComponent(month)}${hh}`, "budget"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "bell"], ["goals", "저축·목표", `/goals?month=${encodeURIComponent(month)}${hh}`, "sparkle"], ["payment-methods", "자산·계좌", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "wallet"]] },
-    { key: "settings", label: "설정", icon: "tools", items: [["members", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "users"], ["groups", "단톡방 연결", `/my/groups?month=${encodeURIComponent(month)}${hh}`, "chat"], ["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "switch"], ["categories", "분류·키워드", cat, "tag"], ["smart-tools", "스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "sparkle"], ["backup", "백업·복구", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=backup`, "backup"], ["backup-login", "내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`, "shield"]] },
+    { key: "record", label: "기록", icon: "records", items: [["app", "홈", app, "home"], ["records", "거래 내역", `/app?month=${encodeURIComponent(month)}${hh}&tab=transactions`, "records"], ["calendar", "캘린더", `/app?month=${encodeURIComponent(month)}${hh}&view=calendar#calendar`, "calendar"], ["import", "가져오기", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=import#myImportForm`, "import"]] },
+    { key: "review", label: "분석", icon: "report", items: [["stats", "소비 분석", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, "stats"], ["reports", "생활비 리포트", `/reports?month=${encodeURIComponent(month)}${hh}`, "file"], ["annual", "연간 리포트", `/annual?year=${encodeURIComponent(month.slice(0, 4))}${hh}`, "report"], ["smart-tools", "스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "sparkle"]] },
+    { key: "plan", label: "예산·자산", icon: "budget", items: [["budgets", "예산", `/budgets?month=${encodeURIComponent(month)}${hh}`, "budget"], ["reserve-plans", "정기 수입·지출", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`, "recurring"], ["budget-alerts", "예산 알림", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`, "bell"], ["goals", "저축·목표", `/goals?month=${encodeURIComponent(month)}${hh}`, "sparkle"], ["payment-methods", "자산·결제수단", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "wallet"]] },
+    { key: "together", label: "함께", icon: "users", items: [["groups", "단톡방 연결", `/my/groups?month=${encodeURIComponent(month)}${hh}`, "chat"], ["members", "참여자·초대", `/my/members?month=${encodeURIComponent(month)}${hh}`, "users"], ["settlement", "정산", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`, "settlement"]] },
+    { key: "settings", label: "설정", icon: "tools", items: [["my-households", "가계부 전환·추가", `/my/households?month=${encodeURIComponent(month)}${hh}`, "switch"], ["categories", "분류·키워드", cat, "tag"], ["backup", "백업·복구", `/my/backup?month=${encodeURIComponent(month)}${hh}&mode=backup`, "backup"], ["backup-login", "내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?month=${encodeURIComponent(month)}${hh}`)}`, "shield"]] },
     { key: "ops", label: "운영 관리", icon: "shield", items: [["operation-center", "운영센터", "/operation-center", "tools"], ["release-candidate", "릴리스 후보", "/release-candidate", "check"], ["household-create-join", "가계부 생성·참여", "/household-create-join", "users"], ["ops-dashboard", "운영 대시보드", "/ops-dashboard", "report"], ["ops-duplicates", "중복 방어", "/ops-duplicates", "shield"], ["ops-traffic", "트래픽", "/ops-traffic", "report"], ["skill-ops", "스킬", "/skill-ops", "sparkle"], ["diagnostics", "시스템 진단", "/diagnostics", "tools"], ["deployment-check", "배포점검", "/deployment-check", "check"], ["ui-polish-check", "화면점검", "/ui-polish-check", "check"], ["final-release", "배포 확인", "/final-release", "check"]] },
   ];
   if (!opts.showOps) groups = groups.filter((g) => g.key !== "ops");
@@ -61,7 +67,8 @@ function renderUnifiedNav(active = "home", opts = {}) {
     ? requestedScope
     : (implicitAdminScope ? "admin" : opts.showOps || opsKeys.has(active) ? "ops" : "user");
   // V22.8.81: 예산·정기·설정은 한 묶음이라 어느 탭에 있어도 "예산·정기" 하나만 켠다.
-  const activeAliases = new Map([["home", "app"], ["keyword-guide", "categories"], ["households", "my-households"], ["reserve-plans", "budgets"], ["settings", "budgets"]]);
+  // V22.9.83: 정기 수입·지출이 제 항목을 가져서 그 화면에서는 그 항목을 켠다. 종합 리포트 보기(analysis)는 소비 분석을 켠다.
+  const activeAliases = new Map([["home", "app"], ["keyword-guide", "categories"], ["households", "my-households"], ["settings", "budgets"], ["analysis", "stats"]]);
   const activeKey = backupKeys.has(active) ? "backup" : opsKeys.has(active) ? "operation-center" : activeAliases.get(active) || active;
   const activeGroup = groups.find((g) => g.items.some((x) => x[0] === activeKey))?.key || "record";
   // V22.9.37 감사 U14: 참여자·초대와 단톡방 연결은 소유자·관리자만 열 수 있다. 일반 참여자(member·viewer)에게는
@@ -86,6 +93,11 @@ function renderUnifiedNav(active = "home", opts = {}) {
     }).join("");
     // V22.9.40 A1: "월 마감" → "생활비 리포트"로 홈 HTML 이 9 B 늘어 예산(35,840 B, 여유 6 B)을 넘는다. 그만큼을 이 클래스 끝
     // 공백(그룹 셋)과 아래 하단 탭의 이중 공백(넷), 홈의 두 군데 공백(mobile-home.js)에서 되찾는다. 속성 값과 의미는 같다.
+    // V22.9.83: 사용자 범위는 접는 <details> 대신 늘 펼친 묶음(role=group)과 작은 이름표로 그린다. 클라이언트의 "한 그룹만 열기"
+    // (legacy-ui-runtime 의 details.abNavGroup 선택자)는 묶음에 걸리지 않는다. 이름표는 제목 요소가 아니다 — 본문 h1 앞에 제목이
+    // 다섯 개 끼면 제목 순서가 흐트러진다. 묶음 이름은 aria-label 로 읽히고 보이는 이름표는 두 번 읽히지 않게 숨긴다.
+    // 운영자·관리자 범위는 그룹이 많아 예전처럼 접는다.
+    if (navScope === "user") return `<div class="abNavGroup abNavSection" role="group" aria-label="${escapeHtml(g.label)}"><p class="abNavLabel" aria-hidden="true">${escapeHtml(g.label)}</p><div class="abNavLinks">${links}</div></div>`;
     return `<details class="abNavGroup${g.key === "record" ? " abNavGroupPrimary" : ""}"${open ? " open" : ""}><summary><i data-ab-nav-icon="${escapeHtml(g.icon)}"></i><b>${escapeHtml(g.label)}</b></summary><div class="abNavLinks">${links}</div></details>`;
   }).join("");
   // V22.8.87 통합 작업지시서 M1. 다섯 칸은 유지하되 가운데를 기록으로 넘긴다.
@@ -98,11 +110,15 @@ function renderUnifiedNav(active = "home", opts = {}) {
   // 시트를 열고(기존 data-ab-quick-open 경로) 없으면 입력 자리로 이동한다.
   // 지시서가 대체 목적지로 적은 /quick 은 이 앱에 없는 주소여서, 이미 동작하는
   // 입력 앵커를 쓴다.
+  //
+  // V22.9.83: 하단 탭 이름을 사이드바와 맞춘다(거래 → 내역, 통계 → 분석). 브라우저 쪽 하단 탭(nav-search-notif-mains.js items())도
+  // 같은 다섯 칸으로 바꿨다 — 예전에는 그쪽이 홈·기록·입력·예산·전체로 다시 그려서, 화면이 뜨는 순간 탭 이름이 바뀌어 보였다.
+  // 전체 메뉴는 위쪽 막대의 "전체 메뉴" 단추가 이미 연다.
   const bottomDefs = [
     ["home", "홈", "home", app, false],
-    ["records", "거래", "records", `${app}&tab=transactions`, false],
+    ["records", "내역", "records", `${app}&tab=transactions`, false],
     ["quick", "입력", "plus", `${app}#add`, true],
-    ["stats", "통계", "stats", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, false],
+    ["stats", "분석", "stats", `/my/analysis?month=${encodeURIComponent(month)}${hh}`, false],
     ["budgets", "예산", "budget", `/budgets?month=${encodeURIComponent(month)}${hh}`, false],
   ];
   const bottomLinks = bottomDefs.map(([key, label, icon, href, isQuick]) => {
@@ -111,7 +127,7 @@ function renderUnifiedNav(active = "home", opts = {}) {
     const on = !isQuick && (key === activeKey
       || (key === "home" && activeKey === "app")
       || (key === "records" && activeKey === "calendar")
-      || (key === "stats" && activeKey === "analysis"));
+      || (key === "budgets" && activeKey === "reserve-plans"));
     const cls = [isQuick ? "abNavQuick" : "", on ? "active" : ""].filter(Boolean).join(" ");
     return `<a data-key="${escapeHtml(key)}"${isQuick ? ' data-ab-quick-open aria-label="빠른 입력"' : ""} class="${cls}"${on ? ' aria-current="page"' : ""} href="${escapeHtml(href)}"><i data-ab-nav-icon="${escapeHtml(icon)}"></i><span>${escapeHtml(label)}</span></a>`;
   }).join("");

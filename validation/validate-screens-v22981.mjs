@@ -137,22 +137,12 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
     }
   });
 
-  // ── U-29 작은 달력 오늘 칸 ────────────────────────────────────────────────────────────────
+  // ── U-29 작은 달력 오늘 칸 ────────────────────────────────────────────────────────
+  // V22.9.83: 사이드바 작은 달력을 걷어냈다(묶음을 모두 펼치며 아래 묶음이 첫 화면 밖으로 밀리던 것). 오늘 칸이 없으니
+  // 대비 대신 달력이 다시 그려지지 않는지를 본다.
   await section("U-29", async () => {
-    // 칸은 accountbookSidebarDashboardClientMain 이 section.abNavCalendar 안에 div.abNavCalGrid > a.abNavCalDay 로 그린다.
     for (const [name, l] of [["홈", home], ["종합 리포트", report]]) {
-      for (const tone of TONES) {
-        for (const dark of [true, false]) {
-          const cell = find(l.html, byClass("section", "abNavCalendar"), { dark, tone, label: "작은 달력" }, { tag: "div", classes: ["abNavCalGrid"] }, { tag: "a", classes: ["abNavCalDay", "isToday"] });
-          const dot = find(l.html, byClass("section", "abNavCalendar"), { dark, tone, label: "작은 달력" }, { tag: "div", classes: ["abNavCalGrid"] }, { tag: "a", classes: ["abNavCalDay", "isToday", "hasRecord"] }, { tag: "i" });
-          const c = contrast(l.css, cell, 1280);
-          const theme = dark ? "다크" : "라이트";
-          ok(c.fg === "#ffffff" && c.r >= 4.5, `U-29 ${name} ${theme}/${toneName(tone)} 오늘 칸 흰 글씨가 4.5:1 이상 (${show(c)})`);
-          const dotBg = bgOf(l.css, dot, 1280), cellBg = bgOf(l.css, cell, 1280);
-          ok(dotBg && cellBg && ratio(dotBg, cellBg) >= 3, `U-29 ${name} ${theme}/${toneName(tone)} 오늘 칸의 기록 점(${dotBg || "?"})이 칸 바탕(${cellBg || "?"}) 위에서 3:1 이상`);
-          if (!dark) eq(cellBg, LIGHT_ACCENT[tone], `U-29 ${name} 라이트/${toneName(tone)} 오늘 칸 바탕은 V22.9.80 그대로 ${LIGHT_ACCENT[tone]}`);
-        }
-      }
+      ok(!l.html.includes('class="abNavCalendar"') && !l.html.includes("abNavCalDay"), `U-29 ${name} 사이드바 작은 달력은 V22.9.83 에 걷어냈다`);
     }
   });
 

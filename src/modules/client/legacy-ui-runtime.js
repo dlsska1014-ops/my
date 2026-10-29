@@ -469,9 +469,9 @@ function guidedUiUxClientMain() {
     if (card) {
       card.id = "reserveAdd";
       const heading = card.querySelector("h2");
-      if (heading) heading.textContent = "정기 수입·지출 추가";
+      if (heading) heading.textContent = "납부·입금 일정 추가";
       const guide = card.querySelector(".guideLine");
-      if (guide) guide.innerHTML = "<b>언제, 얼마가 들어오거나 나가는지만 먼저 입력하세요.</b><br>연 1회·반기·분기를 선택하면 필요한 납부·입금월만 표시됩니다.";
+      if (guide) guide.innerHTML = "<b>보험료·세금처럼 날짜가 정해진 돈을 미리 알려 줍니다.</b><br>알림만 하고 기록은 만들지 않습니다. 연 1회·반기·분기를 고르면 필요한 납부·입금월만 보입니다.";
     }
     const primary = document.createElement("div");
     primary.className = "reservePrimaryGrid";
@@ -499,7 +499,7 @@ function guidedUiUxClientMain() {
     const submit = document.createElement("div");
     submit.className = "reserveSubmit";
     if (submitButton) {
-      submitButton.textContent = "정기 항목 저장";
+      submitButton.textContent = "일정 저장";
       submit.appendChild(submitButton);
     }
     const firstVisible = Array.from(form.children).find(function(node) { return node.tagName !== "INPUT" || node.type !== "hidden"; });

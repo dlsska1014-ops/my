@@ -450,7 +450,7 @@ await withClock("2026-10-10", () => fixture(async (fx) => {
 // (b) /reserve-plans ‘반영 완료’도 홈·예산 알림과 같은 판정이다(그 달 표식 또는 그 달 기록).
 const reservePage = async (fx) => (await page(fx, `/reserve-plans?${Q}`)).html;
 const reserveBadge = (html) => (String(html).match(/<b>월세<\/b><span>[\s\S]*?<\/span><span>(이번 달 [^<]*)<\/span>/) || [])[1] || "";
-const applyButtonCount = (html) => (String(html).match(/고정 수입·지출 기록하기( \([0-9,]+건 반영됨\))?<\/button>/) || [])[1] || "";
+const applyButtonCount = (html) => (String(html).match(/분 (?:지금 )?기록하기( \([0-9,]+건 반영됨\))?<\/button>/) || [])[1] || "";
 await withClock("2026-10-10", () => fixture(async (fx) => {
   const rule = fx.db.accountbook_recurring.find((item) => item.id === "recurring-rent");
   rule.last_applied_month = "2026-09";

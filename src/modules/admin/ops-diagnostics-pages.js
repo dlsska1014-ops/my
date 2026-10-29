@@ -261,7 +261,7 @@ function renderNavMiniCalendar(month = "", householdId = "", rows = []) {
 // @build:exports-start
 export {
   buildProductionOpsAudit, handleDiagnosticsPage, handleHouseholdAdminPage, handleHouseholdUserPage,
-  handleProductionOpsAuditPage, identityTypeLabel, maskKey, renderNavMiniCalendar,
-  safeNavHouseholdId, safeNavMonth, userHouseholdRoleLabel,
+  handleProductionOpsAuditPage, identityTypeLabel, maskKey, safeNavHouseholdId, safeNavMonth,
+  userHouseholdRoleLabel,
 };
 // @build:exports-end

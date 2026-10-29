@@ -56,10 +56,10 @@ ok(darkSurfaceRule.includes(".txTabHead") && darkSurfaceRule.includes(".txTabFil
 ok(/background:var\(--ab12-surface\)!important/.test(darkSurfaceRule), "the dark rule repaints the tab surfaces");
 ok(source.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell .txPager span'), "dark coverage exists for the pager");
 
-// 9. 하단탭 "거래" 는 이제 앵커가 아니라 탭 주소를 가리킨다.
+// 9. 하단탭 "내역"(V22.9.83 전 이름 "거래") 은 이제 앵커가 아니라 탭 주소를 가리킨다.
 // V22.8.87(M1): 정의에 "가운데 ＋ 인가" 표시가 한 칸 붙었다. 거래 탭이 가리키는
 // 주소는 그대로여야 한다.
-ok(source.includes('["records", "거래", "records", `${app}&tab=transactions`, false],'), "the unified bottom tab points at the transactions tab without a dead anchor");
+ok(source.includes('["records", "내역", "records", `${app}&tab=transactions`, false],'), "the unified bottom tab points at the transactions tab without a dead anchor");
 eq(source.includes("tab=transactions#feed"), false, "the dead #feed anchor is gone");
 
 // ---------------------------------------------------------------------------
@@ -118,10 +118,10 @@ const homeNav = navItems(home);
 const tabNav = navItems(tab);
 ok(homeNav.length >= 5 && tabNav.length >= 5, "the unified bottom nav renders on both views");
 eq(homeNav.find((i) => i.label === "홈")?.active, true, "home marks the home tab active");
-eq(homeNav.find((i) => i.label === "거래")?.active, false, "home does not mark the records tab active");
-eq(tabNav.find((i) => i.label === "거래")?.active, true, "the transactions view marks the records tab active");
+eq(homeNav.find((i) => i.label === "내역")?.active, false, "home does not mark the records tab active");
+eq(tabNav.find((i) => i.label === "내역")?.active, true, "the transactions view marks the records tab active");
 eq(tabNav.find((i) => i.label === "홈")?.active, false, "the transactions view releases the home tab");
-ok(tabNav.find((i) => i.label === "거래")?.href.includes("tab=transactions"), "the records tab links to the transactions tab");
+ok(tabNav.find((i) => i.label === "내역")?.href.includes("tab=transactions"), "the records tab links to the transactions tab");
 
 // 서버 필터가 탭에서도 실제로 걸린다.
 const cardCount = (html) => (html.match(/class="v8-tx"/g) || []).length;

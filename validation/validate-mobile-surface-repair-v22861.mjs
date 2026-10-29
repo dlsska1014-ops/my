@@ -9,8 +9,8 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime exposes the mobile surface repair release");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22981.css"'), "changed shell uses a new immutable path");
-ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22937.js"'), "changed navigation uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22983.css"'), "changed shell uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22983.js"'), "changed navigation uses a new immutable path");
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22980.js"'), "changed quick input runtime uses a new immutable path");
 ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22979.css"'), "byte-pinned legacy home stylesheet keeps its path");
 
@@ -51,7 +51,7 @@ ok(!source.includes("body.abV22812Shell .abGlobalActions{top:calc(env(safe-area-
 ok(source.includes("body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavDashboard{display:none!important}"), "mobile drawer hides the duplicated calendar dashboard");
 ok(source.includes("body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavLinks a{min-height:48px!important"), "drawer menu links keep a 48px touch target");
 ok(source.includes("body.abV22812Shell.abMobileNavOpen .abLayoutNav .abNavGroup summary{min-height:48px!important}"), "drawer group headers keep a 48px touch target");
-ok(source.includes('class="abNavDashboard"'), "sidebar dashboard markup is preserved for desktop");
+ok(!source.includes('class="abNavDashboard"'), "V22.9.83: the sidebar dashboard was removed on purpose (every nav group stays open instead)");
 
 // 4. 빠른 입력 시트는 배경 대신 시트 본문만 움직여야 한다.
 ok(source.includes("function lockScroll()") && source.includes("function unlockScroll()"), "quick input sheet locks and restores background scroll");
@@ -110,9 +110,9 @@ const fixture = await createV2265QaFixture();
 try {
   const beforeTransactions = fixture.db.transactions.length;
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22981.css", { cookie: "" });
+  const shell = await request(fixture, "/assets/accountbook-shell-v22983.css", { cookie: "" });
   eq(shell.response.status, 200, "new shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22981-css"', "new shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22983-css"', "new shell ETag is correct");
   ok(shell.text.includes("--action:var(--ab12-action)"), "deployed shell defines the action token");
   ok(shell.text.includes(".abNavDrawerActions"), "deployed shell styles the drawer action group that replaced the top-bar dock");
   ok(!shell.text.includes(".abNavMobileTopActions"), "deployed shell carries no styling for the retired top-bar dock");
@@ -122,9 +122,9 @@ try {
   // 지금은 그리지 않는 쪽으로 다루므로 display:none 이 그 자리다.
   ok(shell.text.includes(".chipRow button:before{display:none}"), "deployed shell keeps quick input chip decoration in CSS, not markup");
 
-  const nav = await request(fixture, "/assets/accountbook-nav-v22937.js", { cookie: "" });
+  const nav = await request(fixture, "/assets/accountbook-nav-v22983.js", { cookie: "" });
   eq(nav.response.status, 200, "new navigation asset is served");
-  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22937-js"', "new navigation ETag is correct");
+  eq(nav.response.headers.get("etag"), '"accountbook-nav-v22983-js"', "new navigation ETag is correct");
   ok(nav.text.includes("syncGlobalActionPlacement"), "deployed navigation runtime places the global actions by viewport");
   ok(!nav.text.includes("dockMobileAction"), "deployed navigation runtime no longer docks a mobile action button");
 
@@ -135,8 +135,8 @@ try {
 
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "personal home still renders");
-  ok(home.text.includes("/assets/accountbook-shell-v22981.css"), "home loads the refreshed shell");
-  ok(home.text.includes("/assets/accountbook-nav-v22937.js"), "home loads the refreshed navigation runtime");
+  ok(home.text.includes("/assets/accountbook-shell-v22983.css"), "home loads the refreshed shell");
+  ok(home.text.includes("/assets/accountbook-nav-v22983.js"), "home loads the refreshed navigation runtime");
   ok(home.text.includes("/assets/accountbook-v5-v22980.js"), "home loads the refreshed V5 runtime");
   ok(home.text.includes('class="abNavMobileTop"') && home.text.includes('id="abMobileMenuButton"'), "home keeps the mobile top bar and menu button the action docks beside");
   ok(home.text.includes('data-memo="점심"') && home.text.includes('data-pay-only='), "home quick input chips keep the attributes the icon CSS targets");
