@@ -5,6 +5,7 @@
 //        (T-08 고정 층 가림, 1280 평균: 예산 5.7%·리포트 5%·전체 메뉴 4%·홈 1.2%).
 //   V86:V-8 지난달·다음 달을 보는 예산 카드 머리도 ‘이번 달 쓸 수 있는 돈’이었다.
 //   V86:V-9 T-12 로 SMART NOTICE 띠가 빠지며 홈에서 ‘가장 가까운 정기 항목’ 한 건이 사라졌다.
+//   V85:R-9 데스크톱 사이드바 현재 메뉴의 면 대비가 1.10~1.40:1 이고 테두리가 없었다(라이트 글자 #1b64da 고정, 다크는 모든 메뉴 글자가 강조색).
 //   T-16 V22.9.86 은 저장 알림의 실행 취소를 만들지 않았다 — 삭제 길(/my/delete)이 ‘이 세션이 방금 만든 기록’을 보지 않아, 주소의 saved_rid 만으로
 //        단추를 그리면 꾸민 주소로 남의 기록을 지우게 할 수 있었다. V22.9.87 은 저장 응답에 서버가 서명한 60초 표(로그인 사용자·가계부·기록 번호·
 //        내용 지문)를 싣고, 새 경로 POST /my/undo 는 그 표만 받는다(사용자 결정 2026-10-29).
@@ -23,7 +24,7 @@ import { quickUndoFingerprint, readQuickUndoTicket, signedPurposeToken } from ".
 import { designUplift3Css } from "../src/modules/assets/design-uplift-3-css.js";
 import { designUplift4Css } from "../src/modules/assets/design-uplift-4-css.js";
 
-const t = counter("V22.9.87 디자인 보강 4단계(데스크톱 독 정리)와 V22.9.86 남은 결정(예산 카드 머리·가장 가까운 정기 항목·실행 취소)");
+const t = counter("V22.9.87 디자인 보강 4단계(데스크톱 독 정리·사이드바 현재 메뉴)와 V22.9.86 남은 결정(예산 카드 머리·가장 가까운 정기 항목·실행 취소)");
 const HH = "house-home";
 const HOME = `/app?month=2026-07&household_id=${HH}`;
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)";
@@ -109,6 +110,12 @@ t.ok(uplift4.includes("@media(min-width:900px) and (prefers-reduced-motion:no-pr
 t.ok(!/#[0-9a-f]{3,8}\b/i.test(uplift4), "T-19·T-16 색은 모두 토큰(--ab12-*)이다 — 톤 8개·다크에서 같은 규칙");
 t.ok(uplift4.includes("body.abV22812Shell .abSaveFeedbackUndo{display:contents}") && uplift4.includes("body.abV22812Shell button.abSaveFeedbackAction{margin:0;border:0;background:transparent;font:inherit;font-size:14px;font-weight:800;cursor:pointer}"),
   "T-16 실행 취소 폼은 상자를 만들지 않고 단추는 옆 링크(.abSaveFeedbackAction)와 같은 모양");
+for (const [needle, label] of [
+  ["@media(min-width:900px){\nbody.abV22812Shell .abLayoutNav .abNavLinks a{border:1px solid transparent!important}","900px 이상 메뉴 링크는 모두 투명 1px 테두리(현재 메뉴만 색이 생겨 글자가 밀리지 않는다)"],
+  ["body.abV22812Shell .abLayoutNav .abNavLinks a.active{border-color:var(--ab12-accent)!important;background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important}", "현재 메뉴는 강조색 테두리·글자(톤을 따른다, 옛 #1b64da 고정 아님)"],
+  ["html[data-ab-resolved-theme=\"dark\"] body.abV22812Shell .abLayoutNav .abNavLinks a:not(.active){color:var(--ab12-muted)!important}", "다크의 다른 메뉴 글자는 보조색(모두 강조색이던 것)"],
+]) t.ok(uplift4.includes(needle), `V85:R-9 ${label}`);
+t.ok(!/#1b64da/i.test(uplift4), "V85:R-9 새 규칙에는 고정 색이 없다");
 t.ok(!quickUndoBlock(uplift4).includes("!important") && shell.includes("@media(forced-colors:active){\n  body.abV22812Shell :is(a,button,input,select,textarea,summary){border:1px solid ButtonText!important}"),
   "T-16 실행 취소 단추 규칙은 !important 없이 — 고대비 모드의 단추 테두리(ButtonText)가 그대로 걸린다");
 

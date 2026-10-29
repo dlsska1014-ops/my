@@ -59,6 +59,21 @@ function quickFabCss() {
   ].join("\n");
 }
 
+// V85:R-9(T-19 에서 고친다고 적어 둔 것): 데스크톱 사이드바 현재 메뉴는 면 대비가 1.10~1.40:1 이고 테두리가 없었다. 라이트 글자는 옛 V22.8.11 셸 규칙의
+// #1b64da 로 고정돼 톤을 따르지 않았고, 다크에서는 R-3(다크 링크 강조색) 때문에 모든 메뉴 글자가 강조색이라 글자로도 구분되지 않았다.
+// 900px 이상에서 모든 메뉴 링크에 투명 1px 테두리를 두고(고른 것만 색이 생겨 글자가 밀리지 않는다) 현재 메뉴만 강조색 테두리·글자로 그린다.
+// --ab12-accent 는 톤마다 AA 로 맞춘 값이라 accent-soft 면 위 글자도, 흰·어두운 사이드바 위 테두리(3:1 이상)도 된다. 다크의 다른 메뉴 글자는 보조색이다.
+function deskNavCurrentCss() {
+  return [
+    `@media(min-width:900px){`,
+    `body.abV22812Shell .abLayoutNav .abNavLinks a{border:1px solid transparent!important}`,
+    `body.abV22812Shell .abLayoutNav .abNavLinks a.active{border-color:var(--ab12-accent)!important;background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important}`,
+    `html[data-ab-resolved-theme="dark"] body.abV22812Shell .abLayoutNav .abNavLinks a:not(.active){color:var(--ab12-muted)!important}`,
+    `html[data-ab-resolved-theme="dark"] body.abV22812Shell .abLayoutNav .abNavLinks a:not(.active):hover{color:var(--ab12-text)!important}`,
+    `}`,
+  ].join("\n");
+}
+
 // T-16 저장 알림 ‘실행 취소’: 폼(POST /my/undo)은 상자를 만들지 않고(display:contents) 단추가 알림 줄의 한 칸이 된다.
 // 모양·색은 옆 ‘예산 보기’·‘다시 시도’ 링크(.abSaveFeedbackAction, 시안 .undo 의 toastlink 색)와 같고, 단추 기본 테두리·바탕·글꼴만 지운다.
 // !important 를 쓰지 않는다 — 고대비(forced-colors) 모드에서 셸의 단추 테두리 규칙(ButtonText 1px)이 옆 링크처럼 이 단추에도 걸려야 한다.
@@ -70,7 +85,7 @@ function quickUndoCss() {
 }
 
 function designUplift4Css() {
-  return [`/* V22.9.87 T-19: 데스크톱 독 → 사이드바 검색 · 머리말 아이콘 단추 · 빠른 입력 단추 하나 / T-16 실행 취소 */`, deskSearchCss(), deskHeadActionsCss(), quickFabCss(), quickUndoCss()].join("\n");
+  return [`/* V22.9.87 T-19: 데스크톱 독 → 사이드바 검색 · 머리말 아이콘 단추 · 빠른 입력 단추 하나 / R-9 사이드바 현재 메뉴 / T-16 실행 취소 */`, deskSearchCss(), deskHeadActionsCss(), quickFabCss(), deskNavCurrentCss(), quickUndoCss()].join("\n");
 }
 // @build:exports-start
 export { designUplift4Css };
