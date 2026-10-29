@@ -484,7 +484,9 @@ eq(createHash("sha256").update(legacyBytes).digest("hex"), "d6ad5e2e7599274b472b
   eq(login.status, 200, "public login renders");
   eq(countOf(loginHtml, 'href="/assets/accountbook-shell-v22986.css"'), 1, "login loads the shell once");
   ok(loginHtml.includes('action="/my/local-login"') && loginHtml.includes('action="/my/local-signup"'), "login and signup form actions remain intact");
-  ok(loginHtml.includes("abPageLogin") && loginHtml.includes(".sep{text-align:center;color:#667085;"), "login receives its isolated dark scope and contrast-safe light separator");
+  // V22.9.87 T-20: ‘다른 방법으로 접속’ 구분선(.sep)은 카카오 버튼 아래 접힌 칸(로그인 이름으로 로그인)으로 바뀌었다. 그 아래 ‘처음이신가요?’ 줄 같은
+  // 보조 글씨는 셸 보조 토큰(라이트 #5f6b7a, 밝은 바탕에서 4.5:1 이상)을 쓰는지를 대신 본다.
+  ok(loginHtml.includes("abPageLogin") && loginHtml.includes('<details class="loginLocal" id="login-local"') && loginHtml.includes(".loginNext{display:flex;") && loginHtml.includes("color:var(--ab12-muted,#5f6b7a)"), "login receives its isolated dark scope and contrast-safe muted secondary text");
 
   const context = "month=2026-07&household_id=house-home";
   const userShellPaths = [

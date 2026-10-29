@@ -26,6 +26,7 @@
     "validate:www-canonical": "node validation/validate-www-canonical-v22940.mjs",
     "validate:public-articles": "node validation/validate-public-articles-v22940.mjs",
     "validate:public-articles-v22974": "node validation/validate-public-articles-v22974.mjs",
+    "validate:public-brand": "node validation/validate-public-brand-v22987.mjs",
     "validate:income-reserve": "node validation/validate-income-reserve-v22976.mjs",
     "validate:web-income-fixes": "node validation/validate-web-income-fixes-v22976.mjs",
     "validate:web-audit-v22976": "node validation/validate-web-audit-v22976.mjs",

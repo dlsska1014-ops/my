@@ -342,6 +342,12 @@ const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
 ]);
 
+// V22.9.87 T-20·T-21: 공개 머리와 로그인 시작 화면의 장부 마크(§3-4 로고 타일 안). 앱 메뉴의 renderAccountbookBrandIcon(web/unified-nav.js)과
+// 같은 모양이다(validate-public-brand-v22987 이 두 SVG 의 rect·path 를 비교한다). 색은 타일 CSS 가 정한다(흰 선, 브랜드 #3182f6 바탕).
+function ledgerMarkSvg() {
+  return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M8 3.5v17M11 8h5M11 12h5M11 16h3"/></svg>';
+}
+
 function publicSiteNav(active = "home") {
   // V22.9.74: '예산 계산'(/budget-guide, 사용 가이드 모음에서 닿음) 자리에 생활비 가이드 글 허브를 둔다.
   const links = [
@@ -366,8 +372,8 @@ export {
   adsHeadMarkup, adsHeaders, adsMode, adsPolicyLinks, adsPolicyText, adsensePublisherIdForTxt,
   appName, canonicalRedirectResponse, cardPerformanceEnabled, currentRequestBaseUrl, envFlagEnabled,
   handleKakaoCommandSystemPage, hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled,
-  kakaoChatCommandCatalog, kakaoRepresentativeCommands, memeCardsEnabled, normalizeBaseUrl,
-  premiumBetaEnabled, publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav,
-  publicSupportEmail, renderBusinessInfoFooter, renderSkillGetHealthHtml,
+  kakaoChatCommandCatalog, kakaoRepresentativeCommands, ledgerMarkSvg, memeCardsEnabled,
+  normalizeBaseUrl, premiumBetaEnabled, publicAdsenseHead, publicBaseUrl, publicSiteFooter,
+  publicSiteNav, publicSupportEmail, renderBusinessInfoFooter, renderSkillGetHealthHtml,
 };
 // @build:exports-end

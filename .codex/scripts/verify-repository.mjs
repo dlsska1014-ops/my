@@ -98,6 +98,7 @@ const validationScripts = [
   ["V22.9.87 디자인 보강 4단계 T-19(데스크톱 독 → 사이드바 검색 줄·머리말 아이콘 단추 묶음·빠른 입력 단추 하나)·V85:R-9(사이드바 현재 메뉴 테두리)와 V22.9.86 남은 결정(V-8 예산 카드 머리·V-9 가장 가까운 정기 항목·T-16 서명한 실행 취소 표와 /my/undo)", "validation/validate-design-uplift-v22987.mjs"],
   ["V22.9.82 이용 현황(앱: 관제용 /internal/ops-usage·읽기 전용 집계 함수 부름·인증·오류 구분·계약 밖 값 걸러내기·SQL 모양)", "validation/validate-usage-metrics-v22982.mjs"],
   ["V22.9.82 관제 이용 현황(관제 1.4.0: 55분마다 수집·달 행 24개월·걸러내기·경고/전체 상태 영향 없음·화면 상태·실제 앱과 왕복)", "validation/validate-monitor-v22982.mjs"],
+  ["V22.9.87 공개·로그인 묶음(T-20 로그인 먼저 시작 화면·T-21 공개 첫 화면 브랜드와 앱 미리보기·T-22 공유 이미지)", "validation/validate-public-brand-v22987.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
