@@ -1,3 +1,12 @@
+## V22.9.84 디자인 보강 1단계 검사
+
+- 두 모드 하네스와 CI. 두 모드 실측: 일반 35,318 · 분류 표 부재 35,315(체크섬 683개).
+- 새 검사: `validation/validate-design-uplift-v22984.mjs`(`npm run validate:design-uplift`).
+- 8테마(4톤 × 라이트·다크) 390px 확인은 헤드리스 크롬으로 했다: `review-artifacts/design-uplift-2026-10-28/` — 전 `probe-before/`, 후 `probe-after4/`
+  (`probe-s1.mjs`·`summarize-s1.mjs`), 화면 11개 × 라이트·다크 넘침·대비 `pages-before.json`·`pages-after.json`, 폼 단추 44개 화면 `formbtn-before.json`·`formbtn-after.json`.
+- `tools/screen-audit.mjs` 는 이 PC 에서 문서가 준비되기 전에 재기 시작해 실패한다(V22.9.82 에서도 같음). 2단계 T-08 에서 고친다. 같은 측정식을 쓰는 위 도구로 대신했다.
+- 수동(사용자): 카카오 인앱·iOS 사파리·안드로이드 크롬·다크·고대비·움직임 줄이기·화면 읽기.
+
 ## V22.9.83 화면 정리 검사
 
 - 두 모드 하네스와 CI. 두 모드 실측: 일반 35,237 · 분류 표 부재 35,234(체크섬 680개).

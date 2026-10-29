@@ -69,10 +69,10 @@ try {
   const nav = await request('/assets/accountbook-nav-v22983.js', { cookie: '' });
   new Function(nav.html); checks++;
   ok(nav.html.includes('수정 항목을 불러오는 중입니다') && nav.html.includes('다시 시도'), 'deferred editor explains loading and retry');
-  const bundle = await request('/assets/accountbook-v5-v22980.js', { cookie: '' });
+  const bundle = await request('/assets/accountbook-v5-v22984.js', { cookie: '' });
   new Function(bundle.html); checks++;
   ok(bundle.html.includes('typeof HTMLElement.prototype.showPopover'), 'popover enhancement checks support');
-  const css = await request('/assets/accountbook-shell-v22983.css', { cookie: '' });
+  const css = await request('/assets/accountbook-shell-v22984.css', { cookie: '' });
   ok(css.html.includes('@container home-reports'), 'report layout responds to actual content width');
   ok(css.html.includes('position-try-fallbacks'), 'help has anchor fallback positioning');
   const viewer = fixture.db.household_members.find(member => member.user_id === 'user-wifi' && member.household_id === 'house-home');

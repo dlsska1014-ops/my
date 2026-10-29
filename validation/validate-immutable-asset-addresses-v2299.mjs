@@ -27,7 +27,16 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
-  // V22.9.83: 셸 CSS(사이드바 묶음 이름표·달력 제거)·메뉴 스크립트(하단 탭 이름)·홈 스크립트와 홈 셸(납부·입금 일정 추가 양식 안내)·소비 분석 보기 탭의 바이트가 바뀌어 네 주소를 v22983 으로 올렸다.
+  // V22.9.84: 디자인 보강 1단계(T-01 칩·T-02 세그먼트·T-03 거래 행 읽기 이름·T-04 입력 카드 테두리·T-05 금액 색·T-06 줄바꿈·T-07 누름 반응)로
+  // 셸 CSS·홈 스타일시트·V5 번들·홈 스크립트·홈 셸의 바이트가 바뀌어 다섯 주소를 v22984 로 올렸다.
+  // 옛 주소(accountbook-shell-v22983.css·mobile-home-v22979.css·accountbook-v5-v22980.js·mobile-home(-shell)-v22983.js)의 바이트는
+  // AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 옛 해시로 계속 내려간다.
+  "/assets/accountbook-shell-v22984.css": "0c97c687fff61ffdaf3e8fa95a3c51a039b42cd2ae9e97f692c0076bbad0f246",
+  "/assets/mobile-home-v22984.css": "531267c8ca98ff0c39395e96d1a69df295cd5d1b229af5782b23f8466725babb",
+  "/assets/accountbook-v5-v22984.js": "3ca1d073aa029790a01d3a63fc2c3712d2828ab34497919d61758f55975c84f8",
+  "/assets/mobile-home-v22984.js": "ff2fd3236932a0e654c033fbaf6dc9f112eca57b304c800e717a8b788a6db063",
+  "/assets/mobile-home-shell-v22984.js": "7b2a444839a3b9343e2b7389add2c1c72e62594cf1ad0ad130629a5b4c447f39",
+  // V22.9.83:셸 CSS(사이드바 묶음 이름표·달력 제거)·메뉴 스크립트(하단 탭 이름)·홈 스크립트와 홈 셸(납부·입금 일정 추가 양식 안내)·소비 분석 보기 탭의 바이트가 바뀌어 네 주소를 v22983 으로 올렸다.
   // 옛 주소(accountbook-shell-v22981.css·accountbook-nav-v22937.js·mobile-home(-shell)-v22981.js)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 옛 해시로 계속 내려간다.
   "/assets/accountbook-shell-v22983.css": "bdaa586f7ad42d4d480aa3277e0cf7726dc3993b17b7d30b765ffbc32c89e536",
   "/assets/mobile-home-shell-v22983.js": "e3221b1f8a008e5cdfc27490434f4fd3d0f76a55583ab1fd3e29be7cbb521e07",

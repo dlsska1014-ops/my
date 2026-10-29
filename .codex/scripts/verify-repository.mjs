@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_83.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_84.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -92,6 +92,7 @@ const validationScripts = [
   ["V22.9.81 입력 해석(여러 건 머리 날짜·띄어 쓴 금액 잇기·없는 날짜 요약·지지난달/지지난주·자동이체 저장 이름·분류 이름 낱말 경계·구분 바꿀 때 분류)", "validation/validate-nlu-v22981.mjs"],
   ["V22.9.83 화면 정리 1차(메뉴 묶음·이름을 화면 제목과 맞춤·하단 탭 서버/브라우저 같음·전체 메뉴 묶음·소비 분석 두 보기 탭·탭 제목·정기 수입·지출 제목 버그·로그아웃 보조 단추)", "validation/validate-ui-clarity-v22983.mjs"],
   ["V22.9.83 테스트 서버(예시 데이터·바깥 요청 차단·검색 제외·역할 전환·운영 스크립트 이름 거절·업로드 계획)", "validation/validate-staging-preview-v22983.mjs"],
+  ["V22.9.84 디자인 보강 1단계(칩 고른 상태·제출 단추만 주 단추·세그먼트 토큰·거래 행 읽기 이름·입력 카드 테두리·금액 색·줄바꿈·누름 반응·홈 HTML 상한)", "validation/validate-design-uplift-v22984.mjs"],
   ["V22.9.82 이용 현황(앱: 관제용 /internal/ops-usage·읽기 전용 집계 함수 부름·인증·오류 구분·계약 밖 값 걸러내기·SQL 모양)", "validation/validate-usage-metrics-v22982.mjs"],
   ["V22.9.82 관제 이용 현황(관제 1.4.0: 55분마다 수집·달 행 24개월·걸러내기·경고/전체 상태 영향 없음·화면 상태·실제 앱과 왕복)", "validation/validate-monitor-v22982.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
@@ -328,7 +329,8 @@ function run(command, args, label) {
 // V22.9.81: 새 동작 검사 6개(역할 173·입력 해석 1,004·데이터 397·화면 209·환불 연결 83·관제 130)와 추적표 V81 출처. 두 모드 실측: 일반 34,835 · 분류 표 부재 34,832(V22.9.81 통합).
 // V22.9.82: 새 동작 검사 2개(앱 이용 현황 85·관제 이용 현황 182, 옛 관제 검사 4개는 판 고정값만). 두 모드 실측: 일반 35,102 · 분류 표 부재 35,099(V22.9.82 통합).
 // V22.9.83: 새 검사 2개(화면 정리 54·테스트 서버 109)와 옛 이름·구조를 고정하던 화면 검사 갱신. 두 모드 실측: 일반 35,237 · 분류 표 부재 35,234(V22.9.83 화면 정리).
-const EXPECTED_MINIMUM_CHECKS = 35234;
+// V22.9.84: 새 검사 1개(디자인 보강 1단계 65)·불변 자산 고정 5개(+15)와 옛 검사 6개 갱신(홈 스타일시트 해시·환불 꺼짐 화면 해시·ETag 판·정규식 셸 주소·고른 칩 색). 두 모드 실측: 일반 35,318 · 분류 표 부재 35,315(V22.9.84 디자인 보강 1단계).
+const EXPECTED_MINIMUM_CHECKS = 35315;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

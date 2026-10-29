@@ -77,7 +77,7 @@ try {
 
   // 5. 저장 버튼은 시트 아래에 붙는다. 안전 영역도 함께 본다.
   ok(sheet.includes('class="quickSubmit"'), "저장 영역이 따로 묶여 있다");
-  const shell = await get("/assets/accountbook-shell-v22983.css", "");
+  const shell = await get("/assets/accountbook-shell-v22984.css", "");
   eq(shell.response.status, 200, "셸이 서빙된다");
   const submitRule = (shell.text.match(/body\.abV22812Shell \.quickSubmit\{[^}]*\}/) || [""])[0];
   ok(submitRule.includes("position:sticky") && submitRule.includes("bottom:0"), "저장 버튼이 시트 하단에 고정된다");
@@ -95,7 +95,9 @@ try {
   // 7. 칩 선택 상태. 전부 파란 채움이라 무엇을 골랐는지 읽을 수 없었다.
   ok(shell.text.includes('body.abV22812Shell #add .chipRow button[aria-pressed="true"]'), "선택된 칩에만 채움이 붙는다");
   const chipOn = (shell.text.match(/body\.abV22812Shell #add \.chipRow button\[aria-pressed="true"\][^{]*\{[^}]*\}/) || [""])[0];
-  ok(chipOn.includes("var(--ab12-accent-soft)") && chipOn.includes("var(--ab12-action)"), "선택은 accent-soft 바탕에 action 글자다");
+  // V22.9.84 T-01: 디자인 작업 지시서의 수용 기준("선택 칩은 accent-soft 면 + accent 테두리·글자")에 따라 글자·테두리를 action 에서 accent 로 바꿨다.
+  // action 은 '기록 저장' 같은 주 단추의 색이라, 고른 칩이 주 단추처럼 읽히지 않게 한다. 자세한 칩 검사는 validate-design-uplift-v22984.mjs 에 있다.
+  ok(chipOn.includes("var(--ab12-accent-soft)") && chipOn.includes("color:var(--ab12-accent)") && !chipOn.includes("var(--ab12-action)"), "선택은 accent-soft 바탕에 accent 글자다(주 단추 색 action 이 아니다)");
   const chipBase = (shell.text.match(/body\.abV22812Shell #add \.chipRow button\{[^}]*\}/) || [""])[0];
   ok(chipBase.includes("min-height:44px"), "칩 높이가 44px 이다");
   ok(chipBase.includes("var(--ab12-surface)") && chipBase.includes("var(--ab12-line)"), "비선택은 surface 바탕에 line 테두리다");

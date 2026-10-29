@@ -220,6 +220,36 @@ function rawMobileHomeInlineRuntime() {
   return sample.slice(start + "<script>".length, end);
 }
 
+// V22.9.84 T-01: 빠른 입력 칩의 고른 상태를 aria-pressed 로 알린다. 칩은 내용 칸(결제수단 칩은 결제수단 칸)을 채우는
+// 단추라, 칸 값이 칩 값과 같은 동안만 눌린 상태로 둔다 — 손으로 고치거나 저장 뒤 비우면 풀린다.
+// 한 줄 입력이 내용 칸을 이벤트 없이 채우고 초안 복원은 ab:quick-restore 만 알리므로, 빠른 입력 칸 전체의 입력·누름 뒤에 한 번 맞춘다.
+function quickChipPressedClientMain() {
+  var section = document.querySelector("#add");
+  var form = section && section.querySelector("form.form");
+  if (!form) return;
+  function sync() {
+    var memo = form.querySelector("#memoInput");
+    var pay = form.querySelector("#payInput");
+    var memoValue = memo ? String(memo.value || "").trim() : "";
+    var payValue = pay ? String(pay.value || "").trim() : "";
+    form.querySelectorAll(".chipRow button").forEach(function (chip) {
+      var payOnly = chip.hasAttribute("data-pay-only");
+      var own = payOnly ? chip.getAttribute("data-pay-only") : chip.getAttribute("data-memo");
+      chip.setAttribute("aria-pressed", own && own === (payOnly ? payValue : memoValue) ? "true" : "false");
+    });
+  }
+  var queued = false;
+  function later() {
+    if (queued) return;
+    queued = true;
+    setTimeout(function () { queued = false; sync(); }, 0);
+  }
+  ["input", "change", "click"].forEach(function (type) { section.addEventListener(type, later); });
+  form.addEventListener("reset", later);
+  form.addEventListener("ab:quick-restore", later);
+  sync();
+}
+
 function mobileHomeJsAsset() {
   if (!AB_MOBILE_HOME_JS_CACHE) {
     AB_MOBILE_HOME_JS_CACHE = [
@@ -229,6 +259,7 @@ function mobileHomeJsAsset() {
       rawMobileHomeInlineRuntime(),
       `(${mobileShellUiClientMain.toString()})();`,
       `(${guidedUiUxClientMain.toString()})();`,
+      `(${quickChipPressedClientMain.toString()})();`,
     ].join("\n");
   }
   return AB_MOBILE_HOME_JS_CACHE;
