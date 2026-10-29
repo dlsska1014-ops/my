@@ -26,7 +26,8 @@ import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { supabase } from "../data/supabase-client.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
 import {
-  createManualTransaction, deleteTransactionWithAudit, updateTransaction,
+  createManualTransaction, deleteTransactionIfUnchanged, deleteTransactionWithAudit,
+  updateTransaction,
 } from "../domain/transactions-core.js";
 // @build:imports-end
 
@@ -288,7 +289,9 @@ async function handleMyQuickUndo(request, env) {
   if (policyError) return redirectResponse(back(selected.id, { err: policyError }));
   if (await quickUndoFingerprint(row) !== ticket.f) return redirectResponse(back(selected.id, { err: "undo_changed" }));
   try {
-    await deleteTransactionWithAudit(env, row.id, selected.id, { actorUserId: userId, actorKind: "user" });
+    // V22.9.88 Y-2: 위 비교와 지우기 사이에 바뀐 기록은 DB 가 잠근 채 다시 견줘 지우지 않는다(deleteTransactionIfUnchanged).
+    const outcome = await deleteTransactionIfUnchanged(env, row, selected.id, { actorUserId: userId, actorKind: "user" });
+    if (outcome === "changed") return redirectResponse(back(selected.id, { err: "undo_changed" }));
     return redirectResponse(back(selected.id, { msg: "undone" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_record_undo_failed", severity: "warn", path: "/my/undo", method: "POST", detail: safeError(err) });

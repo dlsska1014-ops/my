@@ -72,8 +72,12 @@ async function say(fx, utterance, user = BIN) {
   await Promise.allSettled(jobs);
   let json = null;
   try { json = JSON.parse(raw); } catch (_) {}
+  lastSkillBody = json;
   return (json?.template?.outputs || []).map((o) => o?.simpleText?.text || [o?.textCard?.title, o?.textCard?.description].filter(Boolean).join("\n")).join("\n") || raw;
 }
+// V22.9.88 Y-7: 주소는 글이 아니라 링크 버튼(webLink)으로 온다. 마지막 답의 링크 주소를 본다.
+let lastSkillBody = null;
+const lastLinkUrls = () => (lastSkillBody?.template?.outputs || []).flatMap((o) => o?.textCard?.buttons || []).filter((b) => b.action === "webLink").map((b) => b.webLinkUrl).join(" ");
 const rowsOf = (list) => (Array.isArray(list) ? list : []).map((row) => ({ memo: row.memo, amount: row.amount, date: row.transaction_date, payment: row.payment_method || "", category: row.category }));
 const show = (list) => JSON.stringify(rowsOf(list).map((row) => `${row.memo}:${row.amount}:${row.date}`));
 const root = new URL("../", import.meta.url);
@@ -520,7 +524,7 @@ await scene("U-6", async () => {
     const before = fx.db.transactions.length;
     // 분석 링크는 하루 한 번만 붙으므로(maybeKakaoCta) 첫 답장에서 본다
     const linked = await say(fx, "지지난달 요약");
-    t.ok(linked.includes("month=2026-06") && !linked.includes("month=2026-07"), "U-6 카카오 ‘지지난달 요약’의 분석 링크는 6월");
+    t.ok(lastLinkUrls().includes("month=2026-06") && !lastLinkUrls().includes("month=2026-07") && !/https?:\/\//.test(linked), "U-6 카카오 ‘지지난달 요약’의 분석 링크(링크 버튼)는 6월");
     for (const [text, header, money] of [["지지난달 요약", "📊 6월 요약", "10,000원"], ["지지난달 얼마나 썼어", "📊 6월 요약", "10,000원"], ["지지난주 요약", "📊 지지난 주 요약", "22,000원"], ["지지난주 얼마 나갔어", "📊 지지난 주 요약", "22,000원"]]) {
       const reply = await say(fx, text);
       t.ok(reply.includes(header) && reply.includes(`지출: ${money}`), `U-6 카카오 ‘${text}’ → ${header} ${money} (${reply.slice(0, 50).replace(/\n/g, " / ")})`);

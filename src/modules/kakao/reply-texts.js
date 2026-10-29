@@ -23,6 +23,8 @@ function formatMessage(msg) {
   if (msg === "member_alias_updated") return escapeHtml("참여자 이름을 수정했습니다.");
   const friendly = {
     backup_login_saved: "내 계정 로그인 비밀번호를 저장했습니다. 이전에 보던 화면으로 돌아왔습니다.",
+    // V22.9.88 Y-3: 비밀번호는 바뀌었지만 이 기기의 새 로그인을 만들지 못했을 때(예전 로그인은 모두 끊겼다).
+    backup_login_saved_relogin: "내 계정 로그인 비밀번호를 바꿨습니다. 보안을 위해 이 기기의 로그인도 끝났어요. 새 비밀번호로 다시 로그인해 주세요.",
     confirmation_required: "처리 내용을 확인하는 항목에 동의해 주세요.",
     current_password_wrong: "현재 관리자 비밀번호가 맞지 않습니다.",
     delete_confirm_required: "삭제 전 확인 문구를 정확히 입력해 주세요.",
@@ -374,7 +376,8 @@ function kakaoOpenBuilderGuideText(origin = "") {
     "카카오톡에서 기본 응답으로 빠지면 대부분 Worker가 아니라 오픈빌더 블록/폴백이 /skill로 전달되지 않는 상태예요.",
     "",
     "필수 연결",
-    `Skill URL: ${origin}/skill`,
+    // V22.9.88(Y-7): 답 글에 주소를 넣지 않는다. 스킬 주소는 아래 ‘설정 가이드’ 화면에 있다.
+    "Skill URL: 아래 ‘설정 가이드’에서 복사",
     "",
     "반드시 /skill로 연결할 발화",
     "• 도움말 / 처음 / 메뉴",

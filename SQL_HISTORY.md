@@ -1,3 +1,15 @@
+## V22.9.88 실행 취소 조건부 삭제 함수(검토용, 운영자 승인 뒤 적용)
+
+새 검토용 SQL `migrations/V22_9_88_UNDO_DELETE_IF_UNCHANGED_APPLY_REVIEW_ONLY.sql` 은 함수 `public.accountbook_delete_transaction_if_v22988(uuid, uuid, uuid, text, jsonb)`
+하나만 만든다(VOLATILE·SECURITY INVOKER·search_path 고정, 실행 권한은 service_role 만). 표·행·RLS·인덱스·다른 함수는 바꾸지 않는다.
+- 저장 알림 ‘실행 취소’(`POST /my/undo`)가 부른다. 행을 잠근(FOR UPDATE) 뒤 앱이 읽은 일곱 칸과 견주고, 같을 때만 v227 과 같은 감사 기록(action delete)을 남기고 지운다.
+  다르면 `{"deleted":false,"changed":true}` 를 돌려주고 지우지 않는다.
+- 적용 전에는 앱이 PGRST202 를 받고 예전처럼 v227 로 지운다. 순서: Worker V22.9.88 배포 → SQL 검토·승인·적용 → 읽기 전용 확인 두 개(함수 모양·권한).
+- 되돌리기는 `migrations/V22_9_88_UNDO_DELETE_IF_UNCHANGED_ROLLBACK_REVIEW_ONLY.sql`(함수만 지움). 두 파일 모두 맨 앞 `RAISE EXCEPTION` 가드로 멈춘다.
+- 적용 SQL 은 PGlite(WASM Postgres)에서 그대로 돌려 확인했다(54개, `review-artifacts/v22988-codex-findings-2026-10-29/sql/`).
+  가드·권한·칸마다 바뀜·빈 값과 NULL·금액 수 비교·없는 기록·되돌리기를 본다. 두 세션이 겨루는 잠금 자체는 PGlite(연결 하나)로 시험하지 못했다.
+- 예약 실행 상태 값의 판 번호(Y-6)는 기존 `accountbook_settings` 행의 값 글자만 바꾼다(스키마 변경 없음).
+
 ## V22.9.82 이용 현황 집계 함수(검토용, 운영자 승인 뒤 적용)
 
 새 검토용 SQL `migrations/V22_9_82_USAGE_SUMMARY_APPLY_REVIEW_ONLY.sql` 은 읽기 전용 함수 `public.accountbook_usage_summary_v22982(timestamptz, integer)`

@@ -1,3 +1,27 @@
+## V22.9.88 Codex 지적 6건 검사
+
+- 두 모드 하네스와 CI. 두 모드 실측: 일반 37,102 · 분류 표 부재 37,099(체크섬 707개, Y-7 포함). Y-1~Y-6 만일 때는 일반 36,778 · 분류 표 부재 36,775(체크섬 706개).
+- 새 검사 `validation/validate-codex-findings-v22988.mjs`(69개, `npm run validate:codex-findings-v22988`).
+  - 고치기 전 코드(main 7857cd5)로 돌리면 41개가 실패한다(Y-1 11·Y-2 7·Y-3 3·Y-4 3·Y-5 8·Y-6 9).
+    결과 `review-artifacts/v22988-codex-findings-2026-10-29/old-code-7857cd5-soft-run.txt`.
+- Y-2 SQL: PGlite 54개 통과(`review-artifacts/v22988-codex-findings-2026-10-29/sql/pglite-run.txt`, 시험 `undo-delete-sql-test.mjs`). 운영 DB 에는 적용하지 않았다.
+- 환불 연결 꺼짐 고정값: 판 이름을 V22.9.87 로 되돌린 같은 트리에서 옛 값 268개 통과를 확인한 뒤 셋(analysis·backupFull·backupMonth)을 다시 얻었다.
+- 바뀐 코드를 지나는 기존 검사(따로 돌려 통과):
+  - 카카오: bot-state 178·kakao-replies 234·kakao-audit 82·kakao-group 38·kakao-income-fixes 165·write-integrity 28
+  - 실행 취소·디자인: design-uplift-v22987 177·design-uplift-v22986 281
+  - 예약 실행: cron-import-v22977 69·cron-v22978 124·cron-v22979 135·import-cron-v22930 71·audit-batch-d 220
+- Y-7 카카오 심사 의견(같은 날 저녁): 새 검사 `validation/validate-kakao-link-buttons-v22988.mjs`(318개, `npm run validate:kakao-link-buttons-v22988`).
+  - 같은 검사를 고치기 전 코드(c3729c9)에 돌리면 307개 중 81개, 첫 Y-7 커밋(5c0c28e)에 돌리면 318개 중 23개가 실패한다.
+  - 독립 검토 1회: 라우터 요청 제한 답의 주소 글(확인된 새는 길)을 고치고 경계 다섯 가지를 막았다. 표 `review-artifacts/v22988-codex-findings-2026-10-29/y7-kakao-link-buttons/independent-review/REVIEW.md`.
+  - 전체 검사 204개를 멈춤 없이 돌려 옛 검사 11개를 고쳤다(목록은 CHANGELOG V22.9.88 절). 그 뒤 204개 모두 통과.
+  - 운영 수동 확인(사람, 배포 뒤): 운영 단톡방 ‘@말해가계부 웹가계부’ 의 ‘웹 가계부 열기’ 버튼·답 글에 주소 없음·20건 넘는 ‘오늘기록’ 버튼의 #records(DEPLOYMENT_MATRIX V22.9.88 절).
+  - 추적표 3,037·환불 연결 후속 268
+- 수동(사용자, 배포 뒤):
+  - 카카오 1:1 여러 건 입력(중복 한 줄 포함)의 중복 안내 문장.
+  - 웹 저장 뒤 실행 취소(SQL 적용 전·뒤).
+  - 비밀번호 변경 정상 경로.
+  - 다음 날 예약 실행 뒤 상태 값(읽기만).
+
 ## V22.9.87 디자인 보강 4단계 검사
 
 - 두 모드 하네스와 CI. 두 모드 실측: 일반 36,641 · 분류 표 부재 36,638(체크섬 700개, 사용자 결정 2 포함).

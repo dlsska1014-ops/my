@@ -621,8 +621,10 @@ function trafficLimitedResponse(url, request, result = {}, env = {}) {
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>요청이 잠시 제한되었어요</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:720px;margin:38px auto;padding:18px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:22px;box-shadow:0 18px 44px rgba(15,23,42,.08)}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.muted{color:#64748b;line-height:1.6}</style></head><body><main class="wrap"><section class="card"><h1>잠시 후 다시 시도해주세요</h1><p class="muted">짧은 시간에 저장·수정 요청이 많아 데이터 중복을 막기 위해 잠깐 제한했습니다. 약 ${retry}초 뒤 다시 시도해주세요.</p><a class="btn" href="/my">내 가계부로 이동</a></section></main></body></html>`, 429, { "retry-after": String(retry) });
 }
 
+// V22.9.88(Y-7): 라우터의 요청 제한(trafficLimitedResponse)에서는 이 답이 응답 마무리 함수(kakaoGroupCompatibleResponse)를 거치지 않고
+// 바로 나간다. 그래서 글에 주소를 넣지 않고 웹 가계부는 링크 버튼으로 단다(단톡방·1:1 모두 쓰는 글 카드, 바로가기 없음).
 function rateLimitedKakaoText(origin = "") {
-  return kakaoText([
+  const text = [
     "잠시만요 😊",
     "",
     "짧은 시간에 요청이 많아서 잠깐 쉬었다가 처리할게요.",
@@ -632,9 +634,12 @@ function rateLimitedKakaoText(origin = "") {
     "• 요약",
     "• 오늘 기록 보기",
     "• 남은 예산",
-    "",
-    origin ? `가계부 확인\n${origin}/my` : "",
-  ].filter(Boolean).join("\n"));
+  ].join("\n");
+  if (!origin) return kakaoText(text);
+  return jsonResponse({
+    version: "2.0",
+    template: { outputs: [{ textCard: { description: text, buttons: [{ label: "가계부 확인", action: "webLink", webLinkUrl: `${origin}/my` }], buttonLayout: "vertical" } }] },
+  }, 200);
 }
 // @build:exports-start
 export {

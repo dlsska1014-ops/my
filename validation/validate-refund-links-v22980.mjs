@@ -31,6 +31,11 @@
 // 해시하는 화면 원문 96개를 V22.9.86(2766b5b)과 견주어 그 셋을 가리면 모두 같음을 확인한 뒤(review-artifacts/design-uplift-2026-10-28/v87/refund-compare.txt, 바뀐 54개·그 밖 차이 0) --print-golden 으로 12개(home·homeTrend·homePrev·budgets·budgetAlerts·reports·reportsWeek·analysis·backupPage·backupFull·backupMonth·candidate)를 다시 얻었다.
 // 같은 판의 T-23(사용자 결정 D-1 = B, 2026-10-29)은 리포트 인라인 CSS 의 글꼴 목록에서 Pretendard 두 이름을 뺀다. 96개를 f0856b5 와 견주어 그 목록만 가리면 모두 같음을 확인한 뒤
 // (review-artifacts/design-uplift-2026-10-28/v87/refund-compare-font.txt, 바뀐 10개·그 밖 차이 0) reports·reportsWeek 둘을 다시 얻었다.
+// V22.9.88(2026-10-29): Codex 지적 6건은 꺼짐 화면을 바꾸지 않고 판 이름만 바뀐다. 판 이름을 V22.9.87 값으로 잠시 되돌린 같은 트리에서 옛 값 그대로
+// 268개가 모두 통과함을 먼저 확인한 뒤 analysis·backupFull·backupMonth 세 값을 --print-golden 으로 다시 얻었다(V22.9.82 와 같은 방법).
+// V22.9.88 Y-7(같은 판, 카카오 심사 의견): 카카오 답 글의 주소가 링크 버튼으로 옮겨 가 ‘kakao:이번달’(하루 한 번 붙는 ‘상세 분석 보기’ 주소가 있는 답)
+// 하나가 바뀐다. Y-7 직전 번들(c3729c9)로 잠시 바꿔 돌리면 옛 값 그대로 268개가 모두 통과하고, Y-7 번들에서는 그 값 하나만(플래그 셋 모두) 달랐다.
+// 그 뒤 --print-golden 으로 그 하나를 다시 얻었다. 나머지 카카오 값 넷은 그대로다.
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -48,15 +53,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 7f9263c56f9c0d9477c59a50",
   "reportsWeek": "200 b58080ec5107f1131cd0aa83",
-  "analysis": "200 0c1aec5bf4613ce6760cfb50",
+  "analysis": "200 03b718021142ef1749662ed5",
   "backupPage": "200 f9df266b7de8ad78b1aa0428",
-  "kakao:이번달": "200 98fb6fc3811a3c54849be3cc",
+  "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 bd8c75a30ba811deb0dd5bab",
-  "backupMonth": "200 2f6ba6498ac2d0ccaa1b7388",
+  "backupFull": "200 0cb1579de61651671b01e4b7",
+  "backupMonth": "200 2b50ef7e239b7aae2749b65a",
   "candidate": "200 f987089b646a468a2b5bff11",
   "legacyErr": "200 bfc684233d18c4570db218ba", // V22.9.81 U-19: 옛 관리자 화면 오류 칸이 record_update_failed 를 코드 글자 대신 안내 문장으로 보인다(의도한 변경)
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

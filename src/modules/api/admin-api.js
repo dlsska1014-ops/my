@@ -148,8 +148,17 @@ function normalizeApiTransactionBody(body = {}, partial = false) {
     transaction_date: body.transaction_date ?? body.date,
     source: body.source || "ledger_live",
   };
+  // V22.9.88 Y-5(Codex 지적): 부분 수정에서 메모·결제수단을 빈 값("" 또는 null)으로 보내면 지운다. 예전에는 빈 값을 ‘보내지 않음’과 같이 보고
+  // 빼서 지울 길이 없었다. 보내지 않은 칸(키 없음)과 분류·구분·금액·날짜·지출자의 빈 값은 예전처럼 바꾸지 않는다.
+  // 출처는 부분 수정에서 바꿀 수 없는 칸이라(validateAdminApiTransactionBody 가 거절) 넣지 않는다 — 예전에는 늘 기본값이 들어가 빈 수정도
+  // ‘변경할 내용이 없습니다’(empty_patch)가 아니라 바꾸는 것 없는 수정·감사 기록이 됐다.
+  const clearable = { memo: ["memo", "description"], payment_method: ["payment_method", "method"] };
   for (const [k, v] of Object.entries(map)) {
-    if (partial && (v === undefined || v === null || v === "")) continue;
+    if (partial && k === "source") continue;
+    if (partial && (v === undefined || v === null || v === "")) {
+      if (clearable[k]?.some((key) => Object.hasOwn(body, key))) out[k] = "";
+      continue;
+    }
     out[k] = v;
   }
   return out;

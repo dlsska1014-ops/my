@@ -30,7 +30,8 @@ const STATE_KEY = "cron_recurring_state_v22976";
 const snapshotKey = (hid, month = "2026-10") => `free_report_snapshot:${hid}:monthly:${month}`;
 const readJson = (value) => (value == null ? null : typeof value === "string" ? JSON.parse(value) : value);
 const snapshotOf = (fx, hid, month) => readJson(settingValue(fx, snapshotKey(hid, month)));
-const stateOf = (fx) => readJson(settingValue(fx, STATE_KEY));
+// V22.9.88 Y-6: 상태 맨 앞의 판 번호(rev)는 조건부 쓰기용 칸이라 칸 비교에서 뺀다(판 번호 동작은 validate-codex-findings-v22988 이 본다).
+const stateOf = (fx) => { const state = readJson(settingValue(fx, STATE_KEY)); if (state && typeof state === "object") delete state.rev; return state; };
 const recurringTx = (fx, ruleId, month = "2026-10") => fx.db.transactions.filter((t) => t.source === "recurring_auto" && t.raw_text === `recurring:${ruleId}:${month}`);
 const ruleNow = (fx, id) => fx.db.accountbook_recurring.find((r) => r.id === id) || {};
 

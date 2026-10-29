@@ -59,6 +59,8 @@ function matchesFilter(row, key, expression) {
     return values.includes(actual);
   }
   if (operator === "is") return expected === "null" ? row?.[key] == null : actual === expected;
+  // V22.9.88 Y-6: not.<연산자>. SQL 처럼 값이 NULL 이면 not.like 등은 맞지 않는다(not.is.null 만 NULL 이 아닌 값에 맞는다).
+  if (operator === "not") return expected.startsWith("is.") ? !matchesFilter(row, key, expected) : row?.[key] != null && !matchesFilter(row, key, expected);
   return true;
 }
 
@@ -451,6 +453,21 @@ export async function createV2265QaFixture(options = {}) {
         const householdId = String(data?.p_household_id || "");
         const row = db.transactions.find((item) => String(item.id) === transactionId && String(item.household_id) === householdId);
         if (!row) return new Response(JSON.stringify({ code: "P0001", message: "transaction_not_found" }), { status: 400, headers: { "content-type": "application/json" } });
+        db.transactions = db.transactions.filter((item) => String(item.id) !== transactionId);
+        return new Response(JSON.stringify({ deleted: true, id: transactionId }), { status: 200, headers: { "content-type": "application/json" } });
+      }
+      // V22.9.88 Y-2: migrations/V22_9_88_UNDO_DELETE_IF_UNCHANGED_APPLY_REVIEW_ONLY.sql 과 같은 판정. 행을 잠근 뒤 일곱 칸을 견주고 같을 때만 지운다.
+      if (rpcName === "accountbook_delete_transaction_if_v22988") {
+        const transactionId = String(data?.p_transaction_id || "");
+        const householdId = String(data?.p_household_id || "");
+        const expected = data?.p_expected;
+        if (!expected || typeof expected !== "object" || Array.isArray(expected)) return new Response(JSON.stringify({ code: "P0001", message: "expected_row_required" }), { status: 400, headers: { "content-type": "application/json" } });
+        const row = db.transactions.find((item) => String(item.id) === transactionId && String(item.household_id) === householdId);
+        if (!row) return new Response(JSON.stringify({ code: "P0001", message: "transaction_not_found" }), { status: 400, headers: { "content-type": "application/json" } });
+        const text = (value) => String(value ?? "");
+        const same = text(row.type) === text(expected.type) && Number(row.amount) === Number(expected.amount) && text(row.transaction_date) === text(expected.transaction_date)
+          && ["category", "memo", "payment_method"].every((key) => text(row[key]) === text(expected[key])) && (row.user_id ?? null) === (expected.user_id ?? null);
+        if (!same) return new Response(JSON.stringify({ deleted: false, changed: true, id: transactionId }), { status: 200, headers: { "content-type": "application/json" } });
         db.transactions = db.transactions.filter((item) => String(item.id) !== transactionId);
         return new Response(JSON.stringify({ deleted: true, id: transactionId }), { status: 200, headers: { "content-type": "application/json" } });
       }

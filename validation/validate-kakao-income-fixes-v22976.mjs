@@ -284,7 +284,9 @@ await scenario(async (fx) => {
   t.ok(flowAlias.text.includes("앞으로 내가 기록한 수입·지출은 ‘빈둥’ 이름으로 집계됩니다."), "15 이름 설정 단계형 답장도 같다");
 
   const keyword = await say(fx, "키워드 안내");
-  t.ok(keyword.text.includes("키워드 등록·수정은 웹 가계부 설정 화면에서 할 수 있어요.") && keyword.text.includes("https://malhaebook.com/my/settings"), "16 키워드 안내는 할 곳과 주소를 준다");
+  // V22.9.88 Y-7: 주소는 글이 아니라 링크 버튼으로 준다(카카오 심사 의견).
+  const keywordLinks = (keyword.card?.buttons || []).filter((b) => b.action === "webLink").map((b) => b.webLinkUrl);
+  t.ok(keyword.text.includes("키워드 등록·수정은 웹 가계부 설정 화면에서 할 수 있어요.") && keywordLinks.includes("https://malhaebook.com/my/settings") && !keyword.text.includes("https://"), "16 키워드 안내는 할 곳과 주소(링크 버튼)를 준다");
   t.ok(!keyword.text.includes("요청했을 때만"), "16 ‘키워드 안내를 요청했을 때만 연결’이라는 앞뒤 안 맞는 문장이 없다");
 });
 

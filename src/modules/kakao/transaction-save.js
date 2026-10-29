@@ -117,6 +117,10 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     // 말라"가 아니라 다시 보내 달라고 해야 기록이 사라지지 않는다. 응답 없이 끊긴 경우(시간
     // 초과·네트워크)만 저장 여부가 불확실하므로 예전 안내를 유지한다.
     rememberOpsEvent({ kind: "kakao_save_failed", severity: "error", path: "/skill", method: "POST", detail: safeError(err) });
+    // V22.9.88 Y-1(Codex 지적): 앞서 보낸 다른 기록의 결과를 아직 모르면 이번 문장은 보내지 않았다. 예전에는 ‘같은 내용을 다시 보내지 말고
+    // 기다려 주세요’라고 해 이번 내용을 다시 보내면 안 되는 것처럼 읽혔다. 거래를 보내기 전에 실패해 표식까지 지웠으면 저장 실패 안내다.
+    if (err?.kakao_previous_unresolved === true) return kakaoRecordCheckReply("앞서 보낸 기록의 저장 결과를 아직 확인하지 못해 이번 내용은 저장하지 않았어요. 앞 기록을 확인한 뒤 이번 내용은 잠시 뒤(길어야 10분) 다시 보내 주세요.", "");
+    if (err?.kakao_unsent === true) return kakaoText(kakaoSaveFailedText(origin));
     return isUncertainStorageWrite(err) ? kakaoRecordCheckReply("지금은 저장 확인이 지연되고 있어요. 중복될 수 있으니 같은 내용을 다시 보내지 말고 기다려 주세요.", utterance) : kakaoText(kakaoSaveFailedText(origin));
   }
   if (!savedRows.length) return kakaoText(kakaoSaveDelayText(origin));
@@ -130,7 +134,9 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     : incomeTotal ? `수입 합계 ${numberWithCommas(incomeTotal)}원` : `합계 ${numberWithCommas(expenseTotal)}원`;
   // V22.9.76 카카오 감사 11: 중복으로 건너뛴 기록의 안내를 그 기록의 원래 문장으로 만든다. 수입이면 ‘구매’가 아니라 ‘별도 기록’이다.
   const duplicateRows = savedRows.filter((row) => row.__duplicate_skipped);
-  const duplicateExample = String(limitedParsedList[savedRows.findIndex((row) => row.__duplicate_skipped)]?.raw_text || duplicateRows[0]?.raw_text || utterance || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  // V22.9.88 Y-4(Codex 지적): 저장 결과는 중복부터 돌아왔는데 안내는 그 자리 번호로 입력 문장을 골라 다른 거래의 문장을 보였다. 이제 결과는
+  // 입력 순서이고, 중복 행은 그 행을 만든 입력 문장(__input_raw_text)을 함께 가져온다.
+  const duplicateExample = String(duplicateRows[0]?.__input_raw_text || duplicateRows[0]?.raw_text || utterance || "").replace(/\s+/g, " ").trim().slice(0, 60);
   const duplicateNotice = !duplicateCount ? ""
     : duplicateRows.every((row) => row.type === "income") ? `\n따로 들어온 돈이라면 ‘별도 기록 추가 ${duplicateExample}’라고 보내 후보를 확인해 주세요.`
     : `\n서로 다른 구매라면 ‘별도 구매 추가 ${duplicateExample}’라고 원래 기록 문장을 보내 후보를 확인해 주세요.`;
@@ -213,6 +219,19 @@ function kakaoUnknownWriteError() {
   return error;
 }
 
+// V22.9.88 Y-1(Codex 지적): 앞서 보낸 다른 문장의 결과를 아직 모를 때. 이번 문장은 보내지 않았다(답장이 그렇게 안내한다). 다른 경로는 예전처럼
+// 결과 불확실로 다룬다.
+function kakaoPreviousWriteUnresolvedError() {
+  return Object.assign(kakaoUnknownWriteError(), { kakao_previous_unresolved: true });
+}
+
+// 확인하지 못한 표식의 기한. 거래 전송은 표식을 쓴 뒤 길어야 1분 안에 끝난다(응답 뒤 이어 저장해도 Workers 의 30초 제한). 10분이 지나도
+// 표식의 행이 다 없으면 늦게 들어올 전송은 없다고 본다. 시각은 표식을 만든 Date.now()(at)와 같은 시계다.
+const KAKAO_PENDING_WRITE_STALE_MS = 10 * 60 * 1000;
+function kakaoPendingWriteStale(pending, now = Date.now()) {
+  return !!pending && Number.isSafeInteger(pending.at) && now - pending.at >= KAKAO_PENDING_WRITE_STALE_MS;
+}
+
 async function dedupeKakaoRowsBeforeInsert(env, cleanRows = []) {
   const existing = [];
   const fresh = [];
@@ -261,7 +280,12 @@ async function insertKakaoTransactions(env, rows, options = {}) {
   const pending = options.pendingWrite;
   if (pending && pending.fp !== options.fingerprint) {
     const recovered = await kakaoRowsByIds(env, cleanRows[0].household_id, pending.ids);
-    if (!pending.rows || recovered.length !== pending.rows.length || !pending.rows.every(expected => recovered.some(actual => actual.id === expected.id && sameTransactionCore(actual, expected)))) throw kakaoUnknownWriteError();
+    if (!pending.rows || recovered.length !== pending.rows.length || !pending.rows.every(expected => recovered.some(actual => actual.id === expected.id && sameTransactionCore(actual, expected)))) {
+      // V22.9.88 Y-1(Codex 지적): 확인하지 못한 앞 기록의 표식은 기한(10분)까지만 다른 문장을 막는다. 예전에는 기한이 없어 같은 문장을 다시
+      // 보내지 않으면(날짜가 바뀌면 다시 보내도 지문이 달라) 끝까지 막혔다. 기한이 지나면 늦게 들어올 전송은 없다고 보고 표식을 덮어 쓴다.
+      if (!kakaoPendingWriteStale(pending)) throw kakaoPreviousWriteUnresolvedError();
+      rememberOpsEvent({ kind: "kakao_pending_write_expired", severity: "warn", path: "/skill", method: "POST", detail: `found:${recovered.length}/${pending.ids.length}` });
+    }
   }
   const replayIds = pending?.replay_ids || pending?.ids;
   const reuse = !!(pending && options.fingerprint && pending.fp === options.fingerprint && Array.isArray(replayIds) && replayIds.length === cleanRows.length);
@@ -272,19 +296,35 @@ async function insertKakaoTransactions(env, rows, options = {}) {
   // Persist stable IDs before any transaction POST. The duplicate scan is independent
   // and runs in parallel; failure of either prevents the write.
   const initialMarker = kakaoPendingMarker(options.fingerprint || "",cleanRows);
-  const [deduped] = await Promise.all([
+  // V22.9.88 Y-1(Codex 지적): 거래를 보내기 전에 실패하면(중복 조회·표식 저장·잠금 확인·요청 한도) 이 요청이 쓴 표식을 지운다. 예전에는 보내지
+  // 않은 번호의 표식이 남아 그 뒤의 다른 문장을 ‘저장 확인 지연’으로 계속 막았다. 같은 문장을 다시 보낸 경우(앞 표식과 지문이 같다)만 남긴다 —
+  // 앞 시도의 전송이 늦게 들어올 수 있어 그 번호를 지켜야 한다. 지우기는 이 요청의 지문·번호로 시작하는 표식만 지운다(그사이 다른 요청이 바꾼 표식은 그대로).
+  const unsentMarkers = [initialMarker];
+  const unsent = async (err) => {
+    if (pending && pending.fp === options.fingerprint) return err;
+    await Promise.all(unsentMarkers.map((marker) => clearKakaoConfirmedPendingWrite(env, cleanRows[0].household_id, cleanRows[0].user_id, marker).catch(() => {})));
+    return Object.assign(new Error(`kakao_unsent: ${safeError(err)}`, { cause: err }), { kakao_unsent: true });
+  };
+  // 둘 다 끝난 뒤에 판단한다. 중복 조회가 먼저 실패했을 때 표식 저장이 끝나기 전에 지우면 늦게 들어온 표식이 남는다.
+  const [dedupeResult, markerResult] = await Promise.allSettled([
     dedupeKakaoRowsBeforeInsert(env, cleanRows),
     writeKakaoPendingWrite(env, cleanRows[0].household_id, cleanRows[0].user_id, initialMarker, {exists:!!options.pendingWriteExists,marker:pending,emptyValue:options.pendingWriteEmptyValue}),
   ]);
-  const { existing, fresh, resolved } = deduped;
+  if (markerResult.status === "rejected") throw await unsent(markerResult.reason);
+  if (dedupeResult.status === "rejected") throw await unsent(dedupeResult.reason);
+  const { existing, fresh, resolved } = dedupeResult.value;
   // A skipped duplicate uses its actual stored ID. Persist that correspondence
   // before a partial write, so failed cleanup never strands unsent UUIDs.
   const finalMarker = kakaoPendingMarker(options.fingerprint || "",resolved);
-  if (existing.length) await writeKakaoPendingWrite(env,cleanRows[0].household_id,cleanRows[0].user_id,finalMarker,{exists:true,marker:initialMarker});
+  if (existing.length) {
+    unsentMarkers.push(finalMarker);
+    try { await writeKakaoPendingWrite(env,cleanRows[0].household_id,cleanRows[0].user_id,finalMarker,{exists:true,marker:initialMarker}); }
+    catch (err) { throw await unsent(err); }
+  }
   for (const dup of existing) rememberDuplicateEvent({ kind: "duplicate_skipped", source: "kakao_skill", household_id: dup.household_id, user_id: dup.user_id, amount: dup.amount, transaction_date: dup.transaction_date, detail: dup.memo || dup.raw_text || "", path: "/skill", method: "POST" });
   let insertedRows = [];
   if (fresh.length) {
-    options.assertFresh?.();
+    try { options.assertFresh?.(); } catch (err) { throw await unsent(err); }
     try {
       const inserted = await supabase(env, "/rest/v1/transactions?on_conflict=id", {
         method: "POST",
@@ -293,6 +333,8 @@ async function insertKakaoTransactions(env, rows, options = {}) {
       });
       insertedRows = Array.isArray(inserted) ? inserted : (inserted ? [inserted] : []);
     } catch (err) {
+      // 요청 한도·취소로 보내기 전에 멈췄으면 거래는 나가지 않았다(Y-1).
+      if (/_before_dispatch\b/.test(`${err?.code || ""} ${err?.message || ""}`)) throw await unsent(err);
       if (!isUncertainStorageWrite(err)) {
         if (isDefiniteStorageFailure(err)) await clearKakaoConfirmedPendingWrite(env,cleanRows[0].household_id,cleanRows[0].user_id,finalMarker).catch(()=>{});
         throw err;
@@ -316,7 +358,13 @@ async function insertKakaoTransactions(env, rows, options = {}) {
   const cleanup = clearKakaoConfirmedPendingWrite(env, cleanRows[0].household_id, cleanRows[0].user_id, finalMarker).catch(() => {});
   if (options.onConfirmed) options.onConfirmed(cleanup);
   else await cleanup;
-  return [...existing, ...insertedRows];
+  // V22.9.88 Y-4(Codex 지적): 입력 순서로 돌려준다(예전에는 중복 먼저라 답장이 자리 번호로 다른 문장을 집었다). 중복 행에는 그 행을 만든
+  // 입력 문장을 붙인다. 표식(finalMarker)은 이미 만들었으므로 이 칸은 저장되지 않는다.
+  const byId = new Map(actualRows.map((row) => [String(row.id), row]));
+  return resolved.map((row, index) => {
+    const actual = byId.get(String(row.id)) || row;
+    return actual.__duplicate_skipped ? { ...actual, __input_raw_text: cleanRows[index].raw_text } : actual;
+  });
 }
 
 function kakaoPendingWriteKey(householdId, userId) {
@@ -389,7 +437,8 @@ async function handleKakaoRecentDebug(request, env, url) {
 // @build:exports-start
 export {
   KAKAO_RETRY_DEDUP_SECONDS, clearKakaoConfirmedPendingWrite, fetchKakaoInputSettings,
-  handleKakaoRecentDebug, kakaoPendingWriteKey, kakaoRowsByIds, kakaoUnknownWriteError,
-  kakaoWriteLeaseKey, parseKakaoPendingWrite, saveKakaoParsedTransactionsReply,
+  handleKakaoRecentDebug, kakaoPendingWriteKey, kakaoPendingWriteStale, kakaoRowsByIds,
+  kakaoUnknownWriteError, kakaoWriteLeaseKey, parseKakaoPendingWrite,
+  saveKakaoParsedTransactionsReply,
 };
 // @build:exports-end

@@ -29,7 +29,7 @@ import {
 } from "./intent-nlu.js";
 import {
   dedupeQuickReplies, kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoNextStepReply,
-  kakaoText,
+  kakaoText, kakaoWebLedgerReply,
 } from "./response-builders.js";
 import { kakaoManualReply, kakaoManualTopic } from "./manual-guides.js";
 import {
@@ -419,6 +419,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   }
 
   if (earlyReply) {
+    // V22.9.88(Y-7): 단톡방 ‘웹가계부’는 웹 가계부를 바로 여는 링크 버튼 카드로 답한다(카카오 심사: 답 글에 주소를 넣지 않는다).
+    if (skillConfigured && botGroupKey && isLinkCommand(utterance)) return kakaoWebLedgerReply(origin);
     if (skillConfigured && isLinkCommand(utterance)) return kakaoText(await kakaoPrivateWebLinkReply(request, env, payload, kakaoUserKey, nickname, origin));
     return kakaoText(earlyReply);
   }

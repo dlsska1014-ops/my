@@ -165,23 +165,26 @@ ok(!/https?:\/\//i.test(helpOutput), "Help response contains no URL");
 const website = await callSkill("웹 가계부 열기");
 eq(website.response.status, 200, "representative web-entry command succeeds");
 const websiteText = responseText(website.data);
-ok(websiteText.includes(`${BASE}/my`), "representative web-entry command returns the website login URL");
-eq((websiteText.match(/https?:\/\//g) || []).length, 1, "representative web-entry command returns one focused URL");
-ok(!websiteText.includes("/start-guide") && !websiteText.includes("/keyword-guide"), "representative web-entry command does not append promotional guide links");
+// V22.9.88 Y-7: the website address is a webLink button, not text (Kakao review: no raw URL in replies).
+const responseLinks = (data) => (data?.template?.outputs || []).flatMap((output) => output?.textCard?.buttons || []).filter((button) => button.action === "webLink").map((button) => button.webLinkUrl);
+const websiteLinks = responseLinks(website.data);
+ok(websiteLinks.includes(`${BASE}/my`) && !/https?:\/\//i.test(websiteText), "representative web-entry command returns the website login URL as a link button");
+eq(websiteLinks.length, 1, "representative web-entry command returns one focused URL");
+ok(!websiteLinks.some((url) => url.includes("/start-guide") || url.includes("/keyword-guide")), "representative web-entry command does not append promotional guide links");
 ok(!Object.hasOwn(website.data.template || {}, "quickReplies"), "website command does not attach unrelated quick replies");
 
 for (const alias of ["링크", "홈페이지"]) {
   const aliasReply = await callSkill(alias);
   eq(aliasReply.response.status, 200, `${alias} legacy website alias succeeds`);
-  const aliasText = responseText(aliasReply.data);
-  ok(aliasText.includes(`${BASE}/my`), `${alias} legacy website alias returns the website login URL`);
-  eq((aliasText.match(/https?:\/\//g) || []).length, 1, `${alias} legacy website alias returns one focused URL`);
-  ok(!aliasText.includes("/start-guide") && !aliasText.includes("/keyword-guide") && !aliasText.includes("/chatbot-edit-guide"), `${alias} legacy website alias omits guide URLs`);
+  const aliasLinks = responseLinks(aliasReply.data);
+  ok(aliasLinks.includes(`${BASE}/my`) && !/https?:\/\//i.test(responseText(aliasReply.data)), `${alias} legacy website alias returns the website login URL as a link button`);
+  eq(aliasLinks.length, 1, `${alias} legacy website alias returns one focused URL`);
+  ok(!aliasLinks.some((url) => url.includes("/start-guide") || url.includes("/keyword-guide") || url.includes("/chatbot-edit-guide")), `${alias} legacy website alias omits guide URLs`);
 }
 
 const groupWebsite = await callSkill("웹 가계부 열기", "qa-prelogin-group");
 eq(groupWebsite.response.status, 200, "group web-entry command succeeds");
-ok(responseText(groupWebsite.data).includes(`${BASE}/my`), "group web-entry command returns the same website URL");
+ok(responseLinks(groupWebsite.data).includes(`${BASE}/my`) && !/https?:\/\//i.test(responseText(groupWebsite.data)), "group web-entry command returns the same website URL as a link button");
 ok(!Object.hasOwn(groupWebsite.data.template || {}, "quickReplies"), "real group response contains no quickReplies");
 
 const catalogResponse = await call("GET", "/kakao-command-menu.json");
