@@ -13,7 +13,7 @@ import {
 import { safeUserReturnPath } from "../admin/bulk-and-return-paths.js";
 import { safeObject } from "../admin/backup-compare.js";
 import {
-  inspectKakaoLoginConfig, makeUserSession, stripMergedMarkerSuffix, verifyUserSession,
+  inspectKakaoLoginConfig, makeUserSession, mergedMarkerFreeName, verifyUserSession,
 } from "./user-session.js";
 import {
   fetchStrongIdentityForUser, fetchUserIdentityLinks, findUserByLocalLoginIdentity,
@@ -58,7 +58,8 @@ async function ensureLocalLoginUser(env, nickname = "", accessCode = "") {
 
 async function createLocalLoginUser(env, loginName = "", displayName = "", accessCode = "") {
   const cleanLoginName = String(loginName || "").normalize("NFKC").trim().replace(/\s+/g, " ").slice(0, 80);
-  const cleanDisplayName = String(displayName || cleanLoginName).normalize("NFKC").trim().replace(/\s+/g, " ").slice(0, 80);
+  // V22.9.81 U-23: NFKC 로 전각 괄호 ‘（통합됨）’이 표식 ‘(통합됨)’이 되므로 바꾼 뒤에 표식을 뗀다(자른 끝도 함께).
+  const cleanDisplayName = mergedMarkerFreeName(String(displayName || cleanLoginName).normalize("NFKC").trim().replace(/\s+/g, " "), 80);
   const cleanCode = String(accessCode || "").trim();
   if (normalizeLocalLoginName(cleanLoginName).length < 2) throw new Error("invalid_login_name");
   if (cleanCode.length < 8) throw new Error("password_too_short");
@@ -155,7 +156,7 @@ async function handleMyLocalLogin(request, env) {
 async function handleMyLocalSignup(request, env) {
   const form = await request.formData();
   const loginName = String(form.get("login_name") || "").trim().slice(0, 80);
-  const displayName = stripMergedMarkerSuffix(String(form.get("display_name") || loginName)).slice(0, 80);
+  const displayName = mergedMarkerFreeName(String(form.get("display_name") || loginName), 80);
   const accessCode = String(form.get("access_code") || "").trim();
   const confirm = String(form.get("access_code_confirm") || "").trim();
   const inviteCode = String(form.get("invite_code") || "").trim().toUpperCase();

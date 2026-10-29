@@ -1,4 +1,4 @@
-import { MONITOR_VERSION, PRICING_VERIFIED_AT, DAY, numberOrNull, quotaStatus, monthlyForecast, daysToLimit, growthDaysToLimit, freshState, cpuPercent, percentile, percentileIndex, sanitizeTelemetry } from "./model.mjs";
+import { MONITOR_VERSION, PRICING_VERIFIED_AT, DAY, numberOrNull, quotaStatus, monthlyForecast, daysToLimit, growthDaysToLimit, freshState, cpuPercent, percentile, percentileIndex, sanitizeTelemetry, ROUNDTRIP_ALERT_FAILURES, roundtripRecord, roundtripView } from "./model.mjs";
 import { dashboardHtml } from "./dashboard.mjs";
 
 const HEADERS = { "cache-control": "no-store", "x-content-type-options": "nosniff", "referrer-policy": "no-referrer", "x-frame-options": "DENY" };
@@ -140,15 +140,46 @@ export async function collectUptime(env,now) {
   return { checks, checked_at:now.toISOString(), same_provider:true };
 }
 
-async function collectDatabase(env) {
-  if(!env.ACCOUNTBOOK || !env.OPS_MONITOR_TOKEN) throw new Error("not_connected");
-  const response=await env.ACCOUNTBOOK.fetch("https://accountbook.internal/internal/ops-metrics",{headers:{authorization:`Bearer ${env.OPS_MONITOR_TOKEN}`},signal:AbortSignal.timeout(10000)});
-  const text=await readBounded(response,32768);
-  // 1.1.0: 앱의 503 본문에는 실제 원인(not_connected·invalid_origin·metrics_unavailable 등)이 있다. 상태 코드만 던지면 그 원인이 사라진다.
-  let body=null; try { body=JSON.parse(text); } catch(_) { body=null; }
-  if(!response.ok) throw new Error(body?.error_code ? `${body.error_code}` : `http_${response.status}`);
-  if(!body||!body.ok) throw new Error(body?.error_code || "collection_failed");
-  return body.metrics;
+// 1.3.0(V79:T-43): DB 수집 요청에 왕복 확인 id 를 x-ab-monitor-roundtrip 머리로 싣는다. V22.9.81 앱은 그 id 로 사용자 요청 표본과 같은
+// 전송(OPS_MONITOR → /internal/telemetry)을 한 번 하고 결과를 답의 roundtrip 에 붙인다. 옛 앱은 머리를 모른 채 예전 답을 낸다.
+// DB 지표가 실패(503)해도 답에 roundtrip 이 있으면 쓴다. probe 에는 받은 것만 적고, 판정은 recordRoundtrip 이 한다.
+async function collectDatabase(env,probe={}) {
+  if(!env.ACCOUNTBOOK || !env.OPS_MONITOR_TOKEN) { probe.error="not_connected"; throw new Error("not_connected"); }
+  try {
+    const headers={authorization:`Bearer ${env.OPS_MONITOR_TOKEN}`};
+    if(probe.id) headers["x-ab-monitor-roundtrip"]=probe.id;
+    const response=await env.ACCOUNTBOOK.fetch("https://accountbook.internal/internal/ops-metrics",{headers,signal:AbortSignal.timeout(10000)});
+    const text=await readBounded(response,32768);
+    // 1.1.0: 앱의 503 본문에는 실제 원인(not_connected·invalid_origin·metrics_unavailable 등)이 있다. 상태 코드만 던지면 그 원인이 사라진다.
+    let body=null; try { body=JSON.parse(text); } catch(_) { body=null; }
+    probe.http=response.status; probe.reply=body&&typeof body==="object"?body.roundtrip:undefined;
+    if(!response.ok) throw new Error(body?.error_code ? `${body.error_code}` : `http_${response.status}`);
+    if(!body||!body.ok) throw new Error(body?.error_code || "collection_failed");
+    return body.metrics;
+  } catch(error) { if(probe.http===undefined) probe.error=failureCode(error); throw error; }
+}
+
+// 1.3.0(V79:T-43): 앱의 답과 D1 로 왕복 확인을 판정한다. 확인 표본 행은 받은 것을 확인하면서 지운다(id 는 관제가 만든 값이라
+// 사용자 표본과 겹치지 않고, 배포 전환 중 옛 관제가 'incident' 로 받아 둔 행도 함께 지운다). 그래서 요청 표본 통계·1.2.1 화면에 남지 않는다.
+async function checkRoundtrip(env,probe) {
+  if(probe.http===undefined) return {status:"unknown",error_code:probe.error||"app_unreachable"};
+  if(probe.http===401) return {status:"unknown",error_code:"unauthorized"};
+  const reply=probe.reply;
+  if(!reply||typeof reply!=="object") return {status:"unknown",error_code:"unsupported"};
+  if(reply.id!==probe.id) return {status:"unknown",error_code:"invalid_reply"};
+  if(reply.result!=="sent") return {status:"failing",error_code:/^[a-z0-9_]{1,40}$/.test(String(reply.result))?reply.result:"invalid_reply"};
+  const row=await env.MONITOR_DB.prepare("DELETE FROM telemetry WHERE id=? RETURNING id").bind(probe.id).first();
+  return row?.id===probe.id?{status:"ok",error_code:null}:{status:"failing",error_code:"not_received"};
+}
+async function recordRoundtrip(env,probe,now) {
+  try {
+    const outcome=await checkRoundtrip(env,probe);
+    const previous=await env.MONITOR_DB.prepare("SELECT value FROM settings WHERE key='roundtrip'").first();
+    let stored=null; try { stored=previous?.value?JSON.parse(previous.value):null; } catch(_) { stored=null; }
+    const record=roundtripRecord(stored,outcome,now.toISOString());
+    await env.MONITOR_DB.prepare("INSERT INTO settings(key,value) VALUES('roundtrip',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify(record)).run();
+    if(outcome.status==="failing") console.error(`monitor roundtrip failing: ${outcome.error_code} (${record.failures} in a row)`);
+  } catch(error) { console.error(`monitor roundtrip record failed: ${failureCode(error)}`); }
 }
 
 // 1.1.0: 분석 토큰의 만료일. README 4단계는 1년 만료 토큰을 권하지만 아무도 만료일을 보지 않았다.
@@ -198,9 +229,11 @@ async function collectSupabasePlan(env) {
 
 export async function collect(env,now=new Date()) {
   if(!env.MONITOR_DB) throw new Error("storage_not_connected");
+  // 1.3.0(V79:T-43): 왕복 확인은 DB 수집 요청에 얹고, 그 요청이 끝난 뒤 판정해 settings 'roundtrip' 에 적는다(요청을 더하지 않는다).
+  const probe={id:crypto.randomUUID()};
   await Promise.all([
     writeCollector(env,"uptime",()=>collectUptime(env,now),now),
-    writeCollector(env,"database",()=>collectDatabase(env),now),
+    writeCollector(env,"database",()=>collectDatabase(env,probe),now).then(()=>recordRoundtrip(env,probe,now)),
     writeCollector(env,"cloudflare",()=>collectCloudflare(env,now),now),
     writeCollector(env,"d1",()=>collectD1(env,now),now)
   ]);
@@ -228,8 +261,9 @@ async function alertGrowthDays(env,now,value,limit) {
 // 1.2.0(V44:G-5): '처리 중'으로 먼저 답한 요청(outcome "deferred")의 최종 결과 표본이 10분 넘게 오지 않으면 결과 미확인 실패로 센다.
 const DEFERRED_RESULT_GRACE_MS=10*60000;
 const failedSample=(e,stuckBefore)=>e.outcome==="error"||e.status>=500||e.db_failures>0||(e.outcome==="deferred"&&e.at<stuckBefore);
+// 1.3.0(V79:T-43): 왕복 확인 표본(sample_kind 'roundtrip')은 관제가 곧바로 지우지만, 지우기 전이나 답을 잃어 남은 행도 요청 표본으로 세지 않는다.
 async function dashboardTelemetry(env,now,stuckBefore) {
-  const events=(await env.MONITOR_DB.prepare("SELECT route,status,duration_ms,db_count,db_ms,db_failures,outcome,sample_kind,at FROM telemetry WHERE at >= ? ORDER BY at DESC LIMIT 1000").bind(now-DAY).all()).results;
+  const events=(await env.MONITOR_DB.prepare("SELECT route,status,duration_ms,db_count,db_ms,db_failures,outcome,sample_kind,at FROM telemetry WHERE at >= ? AND sample_kind<>'roundtrip' ORDER BY at DESC LIMIT 1000").bind(now-DAY).all()).results;
   const random=events.filter(e=>e.sample_kind==="random");
   const skillRandom=random.filter(e=>e.route==="skill");
   const web=random.filter(e=>e.route==="web");
@@ -237,7 +271,7 @@ async function dashboardTelemetry(env,now,stuckBefore) {
   return {count:events.length,last_observed:events.length?Math.max(...events.map(e=>e.at)):null,random:random.length,skill_random:skillRandom.length,web_random:web.length,
     skill_p95:percentile(skillRandom.map(e=>e.duration_ms)),web_p95:percentile(web.map(e=>e.duration_ms)),incidents:incidents.length,failures:incidents.filter(e=>failedSample(e,stuckBefore)).length,recent:events.slice(0,30)};
 }
-const ALERT_EVENTS="WITH e AS (SELECT route,status,duration_ms,db_failures,outcome,sample_kind,at FROM telemetry WHERE at >= ?1 ORDER BY at DESC LIMIT 1000)";
+const ALERT_EVENTS="WITH e AS (SELECT route,status,duration_ms,db_failures,outcome,sample_kind,at FROM telemetry WHERE at >= ?1 AND sample_kind<>'roundtrip' ORDER BY at DESC LIMIT 1000)";
 async function alertTelemetry(env,now,stuckBefore) {
   const row=await env.MONITOR_DB.prepare(`${ALERT_EVENTS} SELECT COUNT(*) AS n,MAX(at) AS last_at,SUM(sample_kind='random') AS random_n,SUM(sample_kind='random' AND route='skill') AS skill_n,SUM(sample_kind='random' AND route='web') AS web_n,SUM(outcome='error' OR status>=500 OR db_failures>0 OR (outcome='deferred' AND at<?2)) AS failures,SUM(sample_kind='incident' OR outcome='error' OR status>=500 OR db_failures>0 OR (outcome='deferred' AND at<?2)) AS incidents FROM e`).bind(now-DAY,stuckBefore).first();
   const count=Number(row?.n)||0;
@@ -250,8 +284,13 @@ async function alertTelemetry(env,now,stuckBefore) {
 
 export async function summary(env,now=Date.now(),{alerting=false}={}) {
   const rows=(await env.MONITOR_DB.prepare("SELECT * FROM collector_state").all()).results;
-  const settings=(await env.MONITOR_DB.prepare("SELECT * FROM settings WHERE key='plans'").all()).results;
-  const plans=settings[0]?JSON.parse(settings[0].value):{cloudflare:env.CF_PLAN||"unknown",supabase:env.SUPABASE_PLAN||"unknown",verified_at:env.PLAN_VERIFIED_AT||null};
+  // 1.3.0(V79:T-43): 같은 읽기로 왕복 확인 기록(settings 'roundtrip')도 받는다.
+  const settings=(await env.MONITOR_DB.prepare("SELECT * FROM settings WHERE key IN ('plans','roundtrip')").all()).results;
+  const planRow=settings.find(row=>row.key==="plans");
+  const plans=planRow?JSON.parse(planRow.value):{cloudflare:env.CF_PLAN||"unknown",supabase:env.SUPABASE_PLAN||"unknown",verified_at:env.PLAN_VERIFIED_AT||null};
+  const roundtripRow=settings.find(row=>row.key==="roundtrip");
+  let roundtripStored=null; try { roundtripStored=roundtripRow?JSON.parse(roundtripRow.value):null; } catch(_) { roundtripStored=null; }
+  const roundtrip=roundtripView(roundtripStored,now);
   // 1.2.1(V77:N-19): 요금제·토큰 확인은 매시 0~4분에만 돈다. 토큰을 5분 수집기와 같은 20분 기준으로 보면 정상이어도 매시간 약 40분 '갱신 지연'으로 보였다.
   const maxAgeMs=name=>name==="supabase_plan"?2*3600000:name==="token"?70*60000:20*60000;
   const states=Object.fromEntries(rows.map(row=>[row.name,{...freshState(row,maxAgeMs(row.name),now),data:row.payload?JSON.parse(row.payload):null}]));
@@ -310,13 +349,19 @@ export async function summary(env,now=Date.now(),{alerting=false}={}) {
   const skillP95=tele.skill_p95;
   if(skillP95!==null&&skillP95>=3500) alerts.push({status:"warning",title:"카카오 응답 지연",message:"표본 p95가 3.5초 이상입니다. DB 지연과 저장 오류를 확인하세요."});
   if(tele.failures>0) alerts.push({status:"warning",title:"최근 처리 실패 기록",message:"최근 24시간의 오류 표본을 확인하세요('처리 중'으로 먼저 답한 뒤의 저장 실패·결과 미확인 포함). 실패 횟수는 관제 누락 가능성이 있는 최소 관측값입니다."});
+  // 1.3.0(V79:T-43): 왕복 확인이 정상 확인 없이 3번(5분 수집 3번) 실패하면 주의로 알린다. 확인 불가(옛 앱·앱을 부르지 못함)는 경고가 아니다.
+  if(roundtrip.status==="failing"&&roundtrip.failures>=ROUNDTRIP_ALERT_FAILURES) alerts.push({status:"warning",title:"앱 요청 표본 전송 실패",message:`관제가 5분마다 앱에 보내게 하는 왕복 확인 표본이 정상 확인 없이 ${roundtrip.failures}번 돌아오지 않았습니다(${roundtrip.error_code}). 앱 Worker 의 OPS_MONITOR 서비스 연결·OPS_MONITOR_TOKEN 과 관제 저장소를 확인하세요. 그동안 카카오 응답 지연·처리 실패 경고는 표본이 없어 울리지 않습니다.`});
   const unknown=quotas.filter(q=>q.status==="unknown").map(q=>q.name);
   if(cpu===null) unknown.push(db.fresh&&db.data?.cpu_counter ? "DB CPU 비교 표본 부족 또는 카운터 초기화" : "DB CPU 지표 미관측 또는 갱신 지연");
   if(!db.fresh||numberOrNull(db.data?.connections)===null||!(numberOrNull(db.data?.max_connections)>0)) unknown.push("DB 연결 수 또는 최대 연결 수 미관측");
   if(!db.fresh||numberOrNull(db.data?.memory_available_bytes)===null||!(numberOrNull(db.data?.memory_total_bytes)>0)) unknown.push("DB 메모리 지표 미관측");
-  if(telemetryStatus!=="ok") unknown.push("앱 요청 표본 미관측 또는 갱신 지연");
+  // 1.3.0(V79:T-43): 왕복 확인이 정상이면 표본 경로가 살아 있으므로 표본이 없는 것은 요청이 적은 것이다(사고 요청은 모두 보낸다). 참고 사항으로 둔다.
+  // 왕복 확인이 실패·확인 불가이면 1.2.1 과 같이 확인되지 않은 항목이다.
+  const quietTraffic=telemetryStatus!=="ok"&&roundtrip.status==="ok";
+  if(telemetryStatus!=="ok"&&!quietTraffic) unknown.push("앱 요청 표본 미관측 또는 갱신 지연");
   // 1.1.0: p95 표본 부족은 낮은 트래픽에서 정상이다. "확인 불가"가 아니라 참고 사항으로 둔다(예전에는 이 둘 때문에 전체 상태가 늘 확인 불가였다).
   const notes=[];
+  if(quietTraffic) notes.push(`${telemetryStatus==="stale"?"최근 1시간":"최근 24시간"} 앱 요청 표본 없음(왕복 확인 정상 — 표본 경로는 살아 있고 요청이 적습니다)`);
   if(skillP95===null) notes.push("카카오 p95 표본 부족(하루 무작위 표본 30건 미만)");
   if(percentileIndex(tele.web_random)===null) notes.push("웹 p95 표본 부족(하루 무작위 표본 30건 미만)");
   if(planStale) { notes.push(`요금제 확인 기록이 7일을 넘었습니다(마지막 확인 ${String(plans.verified_at||"").slice(0,10)||"없음"}). 마지막 확인 요금제의 한도로 비교합니다.`); alerts.push({status:"warning",title:"요금제 확인 기록 만료",message:"공식 Billing 에서 Workers·Supabase 요금제를 다시 확인하고 관제 화면에 저장하세요. 그동안은 마지막 확인 요금제의 한도로 비교합니다."}); }
@@ -333,10 +378,10 @@ export async function summary(env,now=Date.now(),{alerting=false}={}) {
     delivery:{...delivery,channels:[env.ALERT_EMAIL&&env.ALERT_TO?"email":null,env.ALERT_WEBHOOK_URL?"webhook":null].filter(Boolean)},
     token:{status:tokenData?.status||null,expires_on:tokenData?.expires_on||null,days_left:tokenDaysLeft,checked_at:states.token?.last_success_at||null},
     database:{cpu_percent:cpu,connections:db.fresh?numberOrNull(db.data?.connections):null,max_connections:db.fresh?numberOrNull(db.data?.max_connections):null,memory_used_percent:db.fresh&&numberOrNull(db.data?.memory_available_bytes)!==null&&db.data?.memory_total_bytes?100*(1-db.data.memory_available_bytes/db.data.memory_total_bytes):null},
-    application:{telemetry_status:telemetryStatus,last_observed_at:lastObserved===null?null:new Date(lastObserved).toISOString(),random_samples:tele.random,skill_random_samples:tele.skill_random,skill_p95_ms:skillP95,web_p95_ms:tele.web_p95,incident_count:tele.incidents,recent:tele.recent,truncated:tele.count===1000,sample_rate:0.02,sample_bucket_max_per_kind:10,provider_requests:cfFresh?cf.data.app.requests:null,provider_runtime_errors:cfFresh?cf.data.app.errors:null},
+    application:{telemetry_status:telemetryStatus,last_observed_at:lastObserved===null?null:new Date(lastObserved).toISOString(),random_samples:tele.random,skill_random_samples:tele.skill_random,skill_p95_ms:skillP95,web_p95_ms:tele.web_p95,incident_count:tele.incidents,recent:tele.recent,truncated:tele.count===1000,sample_rate:0.02,sample_bucket_max_per_kind:10,provider_requests:cfFresh?cf.data.app.requests:null,provider_runtime_errors:cfFresh?cf.data.app.errors:null,roundtrip},
     database_history:history.filter((_,i)=>i%Math.max(1,Math.ceil(history.length/48))===0).map(r=>({at:r.at,value:r.value})),
     pricing:{verified_at:PRICING_VERIFIED_AT,workers_base_usd:5,supabase_pro_base_usd:25,currency:"USD",estimate_complete:false,note:"사용량 기반 추가 요금, CPU 합계, 추가 프로젝트·컴퓨트, 세금과 환율을 포함한 실제 청구액은 공식 Billing에서 확인해야 합니다."},
-    limitations:["Cloudflare 관제와 앱은 같은 계정의 요청 한도 및 플랫폼 장애를 공유합니다.","GraphQL 집계는 샘플링·반영 지연이 있을 수 있으며 청구서 수치와 차이가 날 수 있습니다.","앱 요청은 2% 무작위 표본과 별도 오류 표본을 수집합니다. 저장은 계정 전체에서 5분마다 유형별 최대 10건으로 제한되며 누락이 발생할 수 있습니다.","앱 지연은 무작위 표본에서 산출합니다. 표본 30건 미만이면 p95를 산출하지 않습니다.","DB 성장 예측은 최소 3개 표본과 2일 이상의 기록이 쌓인 뒤 표시합니다.","수동 청구 사용량은 24시간 뒤 확인 불가로 전환합니다. 원문 발화·사용자·가계부·거래 값은 관제에 저장하지 않습니다."]};
+    limitations:["Cloudflare 관제와 앱은 같은 계정의 요청 한도 및 플랫폼 장애를 공유합니다.","GraphQL 집계는 샘플링·반영 지연이 있을 수 있으며 청구서 수치와 차이가 날 수 있습니다.","앱 요청은 2% 무작위 표본과 별도 오류 표본을 수집합니다. 저장은 계정 전체에서 5분마다 유형별 최대 10건으로 제한되며 누락이 발생할 수 있습니다.","관제는 5분마다 DB 수집 요청에 왕복 확인을 실어 앱이 같은 전송으로 확인 표본 하나를 보내게 합니다. 이 표본은 요청 표본 수·p95·실패 수에 넣지 않으며, 왕복 확인을 지원하지 않는 앱(V22.9.80 까지)에서는 확인 불가로 보입니다.","앱 지연은 무작위 표본에서 산출합니다. 표본 30건 미만이면 p95를 산출하지 않습니다.","DB 성장 예측은 최소 3개 표본과 2일 이상의 기록이 쌓인 뒤 표시합니다.","수동 청구 사용량은 24시간 뒤 확인 불가로 전환합니다. 원문 발화·사용자·가계부·거래 값은 관제에 저장하지 않습니다."]};
 }
 
 async function manualUsage(request,env) {
@@ -407,6 +452,7 @@ function alertRecoveryConfirmed(result,title) {
     case "DB 연결 수 포화 위험": return db.fresh&&numberOrNull(result.database.connections)!==null&&result.database.max_connections>0&&result.database.connections/result.database.max_connections<0.85;
     case "카카오 응답 지연": return result.application.telemetry_status==="ok"&&below(result.application.skill_p95_ms,3500);
     case "최근 처리 실패 기록": return result.application.telemetry_status==="ok"&&result.application.incident_count===0;
+    case "앱 요청 표본 전송 실패": return result.application.roundtrip?.status==="ok";
     case "요금제 확인 기록 만료": return !result.plans.stale&&Number.isFinite(Date.parse(result.plans.verified_at))&&result.plans.cloudflare!=="unknown"&&result.plans.supabase!=="unknown";
     case "Cloudflare 분석 토큰 비활성": return token?.fresh&&token.data?.status==="active";
     case "Cloudflare 분석 토큰 만료 임박": return token?.fresh&&token.data?.status==="active"&&(token.data.expires_on===null||result.token.days_left>30);

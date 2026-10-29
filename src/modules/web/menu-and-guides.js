@@ -34,11 +34,13 @@ function renderPublicStartGuideHtml({ env, url }) {
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 시작가이드</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 46%,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:980px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#dbeafe}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.step{background:#fff;border:1px solid #e8edf4;border-radius:22px;padding:16px}.step b{display:block;font-size:17px}.step span{display:block;color:#667085;margin-top:6px;line-height:1.5}.btn{display:inline-flex;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:1000}</style></head><body><main class="wrap"><section class="hero"><h1>${title} 시작가이드</h1><p>카카오 로그인 없이도 이름과 개인 접속코드로 시작할 수 있습니다.</p><p><a class="btn" href="/my">가계부 시작하기</a></p></section><section class="card"><h2>처음 사용 순서</h2><div class="grid"><div class="step"><b>1. 내 이름과 접속코드</b><span>/my에서 본인만 아는 코드로 접속합니다.</span></div><div class="step"><b>2. 새 가계부 만들기 또는 초대 참여</b><span>가족/모임별로 가계부를 나눕니다.</span></div><div class="step"><b>3. 수입·예산 설정</b><span>분류별 예산 합계가 월 예산이 됩니다.</span></div><div class="step"><b>4. 정기지출 등록</b><span>보험, 통신비, 관리비처럼 반복되는 돈을 등록합니다.</span></div><div class="step"><b>5. 키워드 연결</b><span>자주 쓰는 표현을 분류에 연결합니다.</span></div><div class="step"><b>6. 기록/분석 확인</b><span>홈, 캘린더, 종합분석에서 흐름을 확인합니다.</span></div></div></section></main></body></html>`;
 }
 
-function renderUserStartGuideHtml({ env, user, households = [], month = currentMonthKst(), checklist = null, adKey = "", msg = "", err = "" }) {
+function renderUserStartGuideHtml({ env, user, households = [], selectedHousehold = null, month = currentMonthKst(), checklist = null, adKey = "", msg = "", err = "" }) {
   const title = escapeHtml(appName(env));
   const userName = escapeHtml(user?.nickname || "사용자");
   if (!households.length) return renderMyStartChoiceHtml({ env, user, msg, err });
-  const selected = households[0];
+  // V22.9.81 U-1: 링크·역할·사이드바·‘선택됨’은 고른 가계부(?household_id) 기준이다. 예전에는 늘 첫 가계부(households[0])를 써서, 다른 가계부를 고르면
+  // 점검표 숫자는 고른 가계부인데 링크는 첫 가계부로 가고, 역할이 다른 가계부의 역할로 관리자 전용 링크(403)를 보이거나 감췄다.
+  const selected = (selectedHousehold?.id && households.find((h) => String(h.id) === String(selectedHousehold.id))) || households[0];
   const role = selected.role || "member";
   const qs = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
   // V22.9.80 T-22: 예산·키워드(/my/settings)·단톡방(/my/groups)·참여자(/my/members)는 소유자·관리자만 열 수 있다. 구성원·조회 전용에게 그 링크를 그대로 보이면 누르는 순간 403 이라,
@@ -141,7 +143,7 @@ async function handleBeginnerGuidePage(request, env, url) {
       }
       // V22.9.40 (B): 가계부가 있어 안내를 그리는 경우에만 광고 키를 준다. 가계부가 없으면 같은 함수가 시작 선택(만들기·참여) 화면을 그린다.
       const adKey = households.length ? "/start-guide" : "";
-      return htmlResponse(renderUserStartGuideHtml({ env, user, households, month, checklist, adKey, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }), 200, adsHeaders(env, adKey, {}));
+      return htmlResponse(renderUserStartGuideHtml({ env, user, households, selectedHousehold: access.selected, month, checklist, adKey, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }), 200, adsHeaders(env, adKey, {}));
     }
     return htmlResponse(renderPublicStartGuideHtml({ env, url }));
   }

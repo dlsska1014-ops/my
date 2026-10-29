@@ -115,8 +115,16 @@ function parseIdentityMergeRedirectValue(value, expectedSecondaryId = "", strict
 // 표시 이름에서는 떼어 내, 통합 해석 경로가 입력만으로 켜지지 않게 한다.
 function stripMergedMarkerSuffix(value = "") {
   let out = String(value || "");
-  for (let i = 0; i < 3; i += 1) out = out.replace(/\s*\(\s*통합됨\s*\)\s*$/u, "");
+  // V22.9.81 U-23: 표식이 몇 개 겹쳐도 끝까지 뗀다. 세 번까지만 떼면 네 번째 표식이 남아 그 이름을 저장한 계정의 로그인이 막혔다.
+  for (let previous = ""; previous !== out;) { previous = out; out = out.replace(/\s*\(\s*통합됨\s*\)\s*$/u, ""); }
   return out.trim();
+}
+
+// V22.9.81 U-23: 저장할 이름은 떼고 → 길이 한도로 자르고 → 다시 뗀다. 자르기 전에만 떼면 ‘…(통합됨)…’을 한도에서 자른 이름이 표식으로
+// 끝나 그 계정의 로그인이 막혔다(세션 확인이 통합된 계정으로 본다). 이름을 저장하는 모든 곳(웹 로그인 콜백·카카오 연결·사용자 만들기·
+// 내 정보·가입·가계부 이름표)이 이 함수를 쓴다.
+function mergedMarkerFreeName(value = "", max = 80) {
+  return stripMergedMarkerSuffix(stripMergedMarkerSuffix(value).slice(0, max));
 }
 
 function cacheEffectiveUserId(sourceUserId = "", effectiveUserId = "") {
@@ -369,8 +377,8 @@ function kakaoLoginUserKey(kakaoId = "") {
 // @build:exports-start
 export {
   getKakaoRedirectUri, getUserSessionVersion, identityMergeRedirectSettingsKey,
-  inspectKakaoLoginConfig, kakaoLoginUserKey, makeUserSession, mergedUserSessionRecoveryResponse,
-  parseIdentityMergeRedirectValue, randomState, resolveEffectiveUserId, rewireEffectiveUserCache,
-  stripMergedMarkerSuffix, userSessionSecret, verifyUserSession,
+  inspectKakaoLoginConfig, kakaoLoginUserKey, makeUserSession, mergedMarkerFreeName,
+  mergedUserSessionRecoveryResponse, parseIdentityMergeRedirectValue, randomState,
+  resolveEffectiveUserId, rewireEffectiveUserCache, userSessionSecret, verifyUserSession,
 };
 // @build:exports-end

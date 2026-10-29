@@ -9,6 +9,9 @@
 // 트리(86a43b9 — V22.9.79 위에 다크·입력 해석·역할 표시·데이터 묶음과 자산 주소·판 이름)에서 이 파일을 `--print-golden` 으로 돌려 얻은 값이다
 // (묶음을 만들 때는 V22.9.79(29ee7cc) 트리 값이었다. 시계 2026-10-15 KST 고정. 실제 시계가 들어가는 칸 — 백업 exported_at·복구 버퍼 expires_at — 은 빼고
 // 비교한다). 연결 표의 내장 조회·트리거·일괄 수정 RPC·기록 삭제의 CASCADE 는 메모리 흉내다(운영 DB 에는 아직 없다, 실행 금지 SQL).
+// V22.9.81 통합(2026-10-27)에서 통합 트리로 다시 얻었다. 그 전에 76ea594(V22.9.80) 트리의 같은 화면과 글자 단위로 비교했고, 다른 것은 다른 묶음의
+// 변경뿐이었다: 자산 주소 v22981, U-7 의 ` data-ab-pick="1"`, U-17 옛 관리자 CSS(669바이트), U-19 옛 관리자 오류 문장, U-18 일괄 수정 msg 코드. 판 이름(APP_VERSION 값)이 analysis·backupFull·backupMonth 에 들어간다.
+// V22.9.81 환불 묶음(U-26·U-27)은 꺼짐 화면을 바꾸지 않는다.
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -18,28 +21,28 @@ import { BASE, app, ctx, fixture, intercept, page, post, skill, withClock } from
 const PRINT_GOLDEN = process.argv.includes("--print-golden");
 const SOFT = process.env.V22980_SOFT === "1";
 const FLAG_OFF_GOLDEN = {
-  "home": "200 642c60c72da5abcc046b8cd3",
-  "homeTrend": "200 19058ee05339e6cb77bd9e1a",
-  "homePrev": "200 2de35c548e14c046573c523a",
-  "budgets": "200 b4098bb0972fcf644afbc3ee",
-  "budgetAlerts": "200 082ee7b204dcf049292307c6",
+  "home": "200 230f9b1defe20cc21fda5597",
+  "homeTrend": "200 c0b929aadd538b4b0a5c5364",
+  "homePrev": "200 cde2fa9200515415d313f39f",
+  "budgets": "200 98ce9d7db0e1a6ebe94acb20",
+  "budgetAlerts": "200 fd81022cf8643620336843b2",
   "notifications": "200 df9761ab7204d02ba148aa42",
-  "reports": "200 aa5f26cb6ef20cc7280cdf92",
-  "reportsWeek": "200 438e9727242f652be6b12118",
-  "analysis": "200 26718485a40decb7e92d6d40",
-  "backupPage": "200 fe75214e287a757f00aaff4a",
+  "reports": "200 457e15e9b40028ed1b0629c5",
+  "reportsWeek": "200 2134379e9a3f079f9dd6110c",
+  "analysis": "200 a0f8ec06f535a5f22f6fae3d",
+  "backupPage": "200 9f6a7be65b1799bc73f6093f",
   "kakao:이번달": "200 98fb6fc3811a3c54849be3cc",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 045b7cca80de34947914aa09",
-  "backupMonth": "200 7b3d34659fee8cf6451badab",
-  "candidate": "200 a6b1bff39f137b2ee926b0f6",
-  "legacyErr": "200 32afcc96ee33616a38e78182",
+  "backupFull": "200 77ce792e8e1424d88693b2e9",
+  "backupMonth": "200 573064eb21ad015453215bc5",
+  "candidate": "200 2f9b946a78f12d62817a951c",
+  "legacyErr": "200 e7f0864a0e549a458db7b7e3", // V22.9.81 U-19: 옛 관리자 화면 오류 칸이 record_update_failed 를 코드 글자 대신 안내 문장으로 보인다(의도한 변경)
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
   "apiBatch": "200 {\"ok\":true,\"updatedCount\":1}",
-  "adminBulk": "303 /?legacy=1&month=2026-10&household_id=house-home&tab=transactions&msg=1%EA%B1%B4+%EC%9D%BC%EA%B4%84+%EC%88%98%EC%A0%95+%EC%99%84%EB%A3%8C",
+  "adminBulk": "303 /?legacy=1&month=2026-10&household_id=house-home&tab=transactions&msg=bulk_updated", // V22.9.81 U-18: 일괄 수정 성공은 코드로 보낸다(의도한 변경)
   "kakaoDelete": "59d0ab376fbb9feece99ac94",
   "kakaoUndoItem": "4b4cef4eedf1c84f21621d08",
   "kakaoRestore": "6e0dda7e90c6a0802b704a2d",

@@ -21,7 +21,7 @@ import { safeObject } from "../admin/backup-compare.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import { settlementHistoryKey } from "../features/settlement-ops-pages.js";
-import { stripMergedMarkerSuffix, verifyUserSession } from "../auth/user-session.js";
+import { mergedMarkerFreeName, verifyUserSession } from "../auth/user-session.js";
 import {
   clearHouseholdDeleteReauthCookie, hasBackupLoginIdentity, hasKakaoLoginIdentity,
   verifyHouseholdDeleteReauth, verifyPasswordReauth,
@@ -260,7 +260,7 @@ async function handleMyCreate(request, env) {
   const form = await request.formData();
   const attemptedName = String(form.get("household_name") || "").trim().slice(0,80);
   const name = sanitizeWebHouseholdNameInput(attemptedName);
-  const displayName = stripMergedMarkerSuffix(String(form.get("display_name") || user.nickname || "")).slice(0, 40);
+  const displayName = mergedMarkerFreeName(String(form.get("display_name") || user.nickname || ""), 40);
   const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
   if (!name) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=household_name_invalid&household_name=${encodeURIComponent(attemptedName)}#create`);
   if (!displayName) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=display_name_required#create`);
@@ -702,7 +702,15 @@ async function handleMyPage(request, env, url) {
   }
   const selectedHousehold = access.selected;
   if (selectedHousehold) {
-    return redirectResponse(`/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selectedHousehold.id)}`);
+    // V22.9.81 U-20: 결과 안내(msg·err)를 버리지 않고 /app 으로 넘긴다. /my/update·/my/delete(myReturnLocation)·카카오 연결·가계부 확인 실패가
+    // /my?msg=…·/my?err=… 로 돌아오는데, 예전에는 이 넘김에서 둘 다 빠져 저장·거절·막힌 이유(V22.9.80 T-12)가 화면에 보이지 않았다.
+    // /app 은 formatMessage 표의 코드만 안내로 바꾼다(모르는 값은 일반 안내). 둘 다 없으면 주소는 예전과 같다.
+    // 다른 화면이 고른 가계부를 열지 못해 보낸 ‘열 수 있는 가계부가 없습니다’(no_household·household_required)는 지금 가계부를 여는 /app 에서는
+    // 사실과 달라(가계부가 있다) 예전처럼 넘기지 않는다.
+    const notices = ["msg", "err"].map((key) => [key, url.searchParams.get(key) || ""])
+      .filter(([key, value]) => value && !(key === "err" && ["no_household", "household_required"].includes(value)))
+      .map(([key, value]) => `&${key}=${encodeURIComponent(value)}`).join("");
+    return redirectResponse(`/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selectedHousehold.id)}${notices}`);
   }
   const user = await fetchUserById(env, userId);
   if (!user) return handleMyLogout();

@@ -119,6 +119,10 @@ function transactionTypeFromText(text = "", rules = [], options = {}) {
 // V22.9.76 감사 A-12: 달 없이 일만 쓴 날("31일 송년회")이 오늘보다 뒤면, 이번 달의 그날과 그날이 있었던 가장 가까운 지난달의
 // 그날 중 오늘에 더 가까운 날로 본다(같으면 지난달). 2027-01-01 의 "31일"은 2026-12-31(예전에는 2027-01-31 앞날),
 // 10월 2일의 "30일"은 9월 30일, 10월 20일의 "25일 월세"는 미리 적는 10월 25일이다. 오늘까지의 날은 예전처럼 이번 달이다.
+// V22.9.81: ‘지지난달·저저번달 25일/말일’은 두 달 전이다(예전에는 안의 ‘지난달’을 읽어 지난달, 메모는 ‘지 커피’). 요일 앞의
+// ‘지지난주·저저번주’는 월요일에 시작하는 두 주 전의 그 요일, 주 없이 쓴 ‘지지난·저저번’은 ‘지난 금요일’(오늘을 뺀 바로 앞) 한 주 더 앞,
+// ‘지난번’은 ‘지난’, ‘이번 금요일’은 ‘이번주 금요일’, ‘다음·오는(돌아오는·다가오는) 금요일’은 오늘을 뺀 바로 다음 그 요일이다
+// (예전에는 넷 다 ‘금요일’로 보아 가장 가까운 지난 금요일). 앞날이 되면 ‘내일’·‘다음주 금요일’처럼 그 날 그대로다(미리 적는 기록).
 function quickInputDate(text = "", today = "") {
   const parts = (today || new Date(Date.now() + 32400000).toISOString().slice(0, 10)).split("-").map(Number);
   const now = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
@@ -138,10 +142,10 @@ function quickInputDate(text = "", today = "") {
     now.setUTCDate(now.getUTCDate() + count * (m[2] === "일" ? 1 : 7) * sign);
     return valid(now.getUTCFullYear(),now.getUTCMonth()+1,now.getUTCDate());
   }
-  m = raw.match(/(?:(지난\s*달|저번\s*달|이번\s*달|다음\s*달|이달|담달)\s*)?말일/);
-  if (m) { const dt = monthStart(/지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, lastDay(dt)); }
-  m = raw.match(/(?:지난\s*달|저번\s*달|이번\s*달|다음\s*달|이달|담달)\s*(\d{1,2})\s*일?/);
-  if (m) { const dt = monthStart(/지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, Number(m[1])); }
+  m = raw.match(/(?:(지지난\s*달|저저번\s*달|지난\s*달|저번\s*달|이번\s*달|다음\s*달|이달|담달)\s*)?말일/);
+  if (m) { const dt = monthStart(/지지난|저저번/.test(m[0]) ? -2 : /지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, lastDay(dt)); }
+  m = raw.match(/(?:지지난\s*달|저저번\s*달|지난\s*달|저번\s*달|이번\s*달|다음\s*달|이달|담달)\s*(\d{1,2})\s*일?/);
+  if (m) { const dt = monthStart(/지지난|저저번/.test(m[0]) ? -2 : /지난|저번/.test(m[0]) ? -1 : /다음|담달/.test(m[0]) ? 1 : 0); return valid(dt.getUTCFullYear(), dt.getUTCMonth() + 1, Number(m[1])); }
   m = raw.match(/(?:^|\s)(20\d{2})(\d{2})(\d{2})(?=\s|$)/);
   if (m) return valid(Number(m[1]),Number(m[2]),Number(m[3]));
   m = raw.match(/(?:^|\s)(20\d{2})[.\-/년]\s*(\d{1,2})[.\-/월]\s*(\d{1,2})/);
@@ -167,16 +171,21 @@ function quickInputDate(text = "", today = "") {
     if (!current || !past) return current || past;
     return Date.parse(todayIso) - Date.parse(past) <= Date.parse(current) - Date.parse(todayIso) ? past : current;
   }
-  m = raw.match(/(?:(지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주|지난|저번)\s*)?([월화수목금토일])요일/);
+  m = raw.match(/(?:(지지난\s*주|저저번\s*주|지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주|지지난번|지지난|저저번|지난번|지난|저번|이번|다음|(?:돌아|다가)?오는)\s*)?([월화수목금토일])요일/);
   if (!m) return "";
   const monday = (index) => (index + 6) % 7;
   const target = monday("일월화수목금토".indexOf(m[2])), current = monday(now.getUTCDay());
-  const scope = String(m[1] || "").replace(/\s+/g, "");
-  const offset = scope === "이번주" || scope === "금주" ? target - current
+  const word = String(m[1] || "").replace(/\s+/g, "");
+  const scope = word === "지난번" ? "지난" : word === "지지난번" ? "지지난" : /오는$/.test(word) ? "오는" : word;
+  const back = (current - target + 7) % 7 || 7;
+  const offset = scope === "이번주" || scope === "금주" || scope === "이번" ? target - current
     : scope === "다음주" || scope === "내주" ? target - current + 7
-      : scope === "지난" || scope === "저번" ? -((current - target + 7) % 7 || 7)
-        : scope ? target - current - 7
-          : -((current - target + 7) % 7);
+      : scope === "다음" || scope === "오는" ? (target - current + 7) % 7 || 7
+        : scope === "지난" || scope === "저번" ? -back
+          : scope === "지지난" || scope === "저저번" ? -back - 7
+            : scope === "지지난주" || scope === "저저번주" ? target - current - 14
+              : scope ? target - current - 7
+                : -((current - target + 7) % 7);
   now.setUTCDate(now.getUTCDate() + offset);
   return valid(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate());
 }

@@ -3,7 +3,7 @@ import { appName } from "../public/site-config.js";
 import { dashboardQuery } from "./transactions-households.js";
 import { renderSpenderOptions } from "../data/households-members-rows.js";
 import { renderObservedMoney } from "../domain/analytics.js";
-import { formatDate, nowKstDate } from "../nlu/date-payment.js";
+import { detectPaymentMethod, formatDate, nowKstDate } from "../nlu/date-payment.js";
 import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
 
@@ -125,9 +125,20 @@ function renderDesktopTransactionTable(rows, filterHidden = "") {
 
 const DEFAULT_CATEGORIES = ["식비","외식","배달","카페/간식","장보기","편의점","교통","택시","주유/충전","차량관리","쇼핑","의류/잡화","생활용품","주거/월세","관리비","공과금","통신비","보험","의료/병원","약국","건강","교육/학습","도서","육아/자녀","문화/여가","여행","운동","구독","경조사/선물","반려동물","미용","세금/수수료","가족/용돈","저축/투자","대출/이자","급여","상여/보너스","용돈수입","환급","이자배당","부업/매출","기타"];
 const DEFAULT_PAYMENTS = ["카드","신용카드","체크카드","현금","계좌이체","자동이체","삼성페이","카카오페이","네이버페이","토스","신한카드","현대카드","삼성카드","국민카드","우리카드","롯데카드","하나카드","농협카드"];
+// V22.9.81 U-7: 빠른 입력 결제수단 목록(#paymentList)의 option. 기본 목록에만 있고(등록 결제수단이 아니고) 공유 판정이 다른 이름으로 읽는
+// 말(‘자동이체’ → 계좌이체)은 고를 수만 있게 표시한다(data-ab-pick). 화면은 이 이름을 글에서 찾지 않아 카카오(등록 결제수단 → 공유 판정)와
+// 같은 이름으로 저장한다. 예전에는 같은 ‘통신비 50000 자동이체’가 웹은 자동이체, 카카오는 계좌이체였다. 직접 고르면 그대로 자동이체다.
+function paymentListOptionsHtml(options = [], registeredNames = []) {
+  const registered = new Set((Array.isArray(registeredNames) ? registeredNames : []).map((name) => String(name || "").trim()).filter(Boolean));
+  return (Array.isArray(options) ? options : []).map((name) => {
+    const pickOnly = DEFAULT_PAYMENTS.includes(name) && !registered.has(name) && detectPaymentMethod(name) !== name;
+    return `<option value="${escapeHtml(name)}"${pickOnly ? ' data-ab-pick="1"' : ""}></option>`;
+  }).join("");
+}
+
 // @build:exports-start
 export {
-  DEFAULT_CATEGORIES, DEFAULT_PAYMENTS, buildCustomStats, renderCustomStats,
+  DEFAULT_CATEGORIES, DEFAULT_PAYMENTS, buildCustomStats, paymentListOptionsHtml, renderCustomStats,
   renderDesktopTransactionTable, renderInsightCards, renderPublicShareCardHtml,
   renderServerCalendar, renderTransactionEditModal, renderTransactionPager,
   renderTransactionTurboScript,

@@ -21,8 +21,10 @@ function mobileUiUxClientMain() {
   // inferInputCategory·cleanInputMemo, client/shared-input-nlu.js)로 판정한다. 예전에는 이 안에 서버 사본이 있어 서버만 고친 결함
   // (V22.9.77 N-1 '토스트'→결제수단 토스, V22.9.76 A-10 낱말 속 글자 분류)가 미리 보기에 그대로 남았다.
   // V22.9.80 T-15: 결제수단 목록의 이름도 낱말 끝에서만 맞는다(공유 판정 inputPaymentNameIn, 카카오 저장의 등록 결제수단 판정과 같다).
+  // V22.9.81 U-7: 고를 수만 있는 이름(data-ab-pick — 기본 목록의 ‘자동이체’)은 글에서 찾지 않는다(카카오처럼 공유 판정이 계좌이체로 읽는다).
   function detectPayment(text) {
     const options = Array.from(document.querySelectorAll("#paymentList option"))
+      .filter(function(option) { return !(option.getAttribute && option.getAttribute("data-ab-pick")); })
       .map(function(option) { return String(option.value || "").trim(); })
       .filter(Boolean)
       .sort(function(a, b) { return b.length - a.length; });

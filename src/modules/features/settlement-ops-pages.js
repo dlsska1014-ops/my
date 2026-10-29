@@ -289,6 +289,33 @@ function settlementHistoryKey(householdId = "") {
   return `settlement_history:${String(householdId || "").trim()}`.slice(0, 180);
 }
 
+// V22.9.81 U-27: 완료 이력은 최근 30건만 남긴다. 예전에는 잘려 나간 항목의 달이 ‘완료한 달’에서 빠져, 그 달의 환불 연결 잠금
+// (앱 확인·검토용 SQL 의 refund_link_month_completed·환급 미리보기 409 — 모두 이력 항목의 month 를 본다)이 풀렸다.
+// 이제 잘려 나가는 항목의 달에 남는 완료 항목이 없으면 금액 없는 ‘완료 달 표식’을 이력 맨 앞에 남긴다. 표식은 지우지 않고
+// 화면에 보이지 않는다(정산 표에는 완료 항목만). 같은 줄에 있어 가계부 삭제(accountbook_purge_household_v22960)가 함께 지운다.
+// 완료 항목이 30건 이하이면 저장 값은 예전과 같다(플래그와 상관없이 같은 규칙 — 플래그를 켜기 전에 완료한 달도 잠긴다).
+const SETTLEMENT_HISTORY_LIMIT = 30;
+const SETTLEMENT_MONTH_MARKER_KIND = "settlement_month_completed";
+
+function isSettlementMonthMarker(item) {
+  return Boolean(item) && typeof item === "object" && item.kind === SETTLEMENT_MONTH_MARKER_KIND;
+}
+
+function settlementHistoryForSave(history = []) {
+  const list = safeArray(history);
+  const entries = list.filter((item) => !isSettlementMonthMarker(item));
+  if (entries.length <= SETTLEMENT_HISTORY_LIMIT) return list;
+  const kept = entries.slice(-SETTLEMENT_HISTORY_LIMIT);
+  const keptMonths = new Set(kept.map((item) => (item && typeof item === "object" ? item.month : "")));
+  const markers = new Map();
+  for (const item of list) if (isSettlementMonthMarker(item) && validMonth(item.month)) markers.set(item.month, { kind: SETTLEMENT_MONTH_MARKER_KIND, month: item.month, status: "completed" });
+  for (const item of entries.slice(0, entries.length - kept.length)) {
+    const month = item && typeof item === "object" ? validMonth(item.month) : null;
+    if (month && !keptMonths.has(month) && !markers.has(month)) markers.set(month, { kind: SETTLEMENT_MONTH_MARKER_KIND, month, status: "completed" });
+  }
+  return [...[...markers.values()].sort((a, b) => (a.month < b.month ? -1 : a.month > b.month ? 1 : 0)), ...kept];
+}
+
 async function handleSettlementHistorySave(request, env) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
@@ -344,7 +371,7 @@ async function handleSettlementHistorySave(request, env) {
         status: "completed",
       });
       assertFresh();
-      await saveSettingValue(env, settlementHistoryKey(selected.id), history.slice(-30));
+      await saveSettingValue(env, settlementHistoryKey(selected.id), settlementHistoryForSave(history));
       return "saved";
     });
     return redirectResponse(`${backTo}&msg=${outcome === "duplicate" ? "settlement_already_completed" : "settlement_completed"}`);
@@ -429,7 +456,8 @@ function settlementCompletedDayKst(value) {
 }
 
 function renderSettlementHistory(history = []) {
-  const rows = safeArray(history).slice().reverse().slice(0, 8);
+  // V22.9.81 U-27: 완료 달 표식(잘려 나간 달의 잠금용)은 정산 표에 보이지 않는다.
+  const rows = safeArray(history).filter((item) => !isSettlementMonthMarker(item)).reverse().slice(0, 8);
   if (!rows.length) return `<p class="muted">완료 처리한 정산이 아직 없습니다.</p>`;
   return `<div class="tableWrap"><table><thead><tr><th>완료일</th><th>대상 월</th><th>방식</th><th>총 지출</th><th>부담액</th><th>메모</th></tr></thead><tbody>${rows.map((item) => `<tr><td>${escapeHtml(settlementCompletedDayKst(item.completed_at))}</td><td>${escapeHtml(item.month || "")}</td><td>${escapeHtml({ equal: "동일", ratio: "비율", headcount: "인원수", item: "품목별" }[item.mode] || item.mode || "동일")}</td><td>${numberWithCommas(item.total_expense)}원${Number(item.refund_total) > 0 ? ` (환불 ${numberWithCommas(item.refund_total)}원 뺌)` : ""}</td><td>${Array.isArray(item.shares) && item.shares.length ? item.shares.map((share) => `${escapeHtml(share.name || "구성원")} ${numberWithCommas(share.share)}원`).join(" · ") : "-"}</td><td>${escapeHtml(item.note || "-")}</td></tr>`).join("")}</tbody></table></div>`;
 }
@@ -572,6 +600,7 @@ export {
   handleMeetingHouseholdTemplatePage, handleOpsDashboardPage, handleReleaseCandidateCheckPage,
   handleSettlementHistorySave, handleSettlementSummaryPage, handleTrafficOpsPage,
   parseSettlementConditions, renderSettlementRows, renderTransferRows, settlementConditionPairs,
-  settlementConditionQuery, settlementHistoryKey, settlementPreviewDigest, settlementRoleAllowed,
+  settlementConditionQuery, settlementHistoryForSave, settlementHistoryKey, settlementPreviewDigest,
+  settlementRoleAllowed,
 };
 // @build:exports-end

@@ -111,6 +111,74 @@ async function applyRecurringRuleForMonth(env, householdId, r, month) {
   return outcome;
 }
 
+// V22.9.81 U-14: 수동 ‘기록하기’가 지출자 자격이 없는 규칙을 건너뛰고 나머지를 넣는 길. 예전에는 규칙마다 applyRecurringRuleForMonth(기록 확인·
+// 저장·표식 3회)를 불러 남은 규칙이 16개쯤이면 요청 한도(50)에 닿아 recurring_apply_incomplete 로 끝났다(V22.9.80 T-14 와 같은 꼴). 예약 자동
+// 반영(processChunks)처럼 40개씩 묶어 기록 확인 1회·저장 1회(열 구성마다)·표식 1회로 넣는다. 넣는 기록·금액 0 건너뛰기·표식 규칙(더 나중 달
+// 표식은 그대로)은 applyRecurringRuleForMonth 와 같다. 확실히 거절된 묶음만 한 건씩 다시 넣고, 한 건이 거절되면(예전처럼) 거기서 멈춘다.
+// 멈출 때도 앞에서 확인한 규칙의 표식은 쓰고, 확인한 규칙이 있으면 오류에 recurringTransactionOutcome 을 달아 호출부가 부분 반영을 알린다.
+// 결과를 모르는 저장(응답 없음·응답에 빠진 행)은 표식을 바꾸지 않고 결과 불확실로 던진다. 확인한 규칙은 settled 에 넣고, 넣은 건수를 돌려준다.
+async function applyRecurringRulesForMonthBatched(env, householdId, rules = [], month = "", settled = []) {
+  let applied = 0;
+  for (let index = 0; index < rules.length; index += RECURRING_CRON_CHUNK) {
+    const items = rules.slice(index, index + RECURRING_CRON_CHUNK)
+      .map((rule) => ({ rule, row: recurringCronTransaction({ ...rule, household_id: householdId }, month) }))
+      .filter((item) => item.row.amount > 0);
+    if (!items.length) continue;
+    const existing = await fetchRecurringCronExisting(env, [householdId], items.map((item) => item.row.raw_text));
+    const confirmed = [];
+    const groups = new Map();
+    let failure = null;
+    for (const item of items) {
+      if (existing.has(`${householdId}|${item.row.raw_text}`)) { confirmed.push(item.rule); continue; }
+      let clean;
+      try { clean = sanitizeTransactionBody(item.row); } catch (err) { failure = err; break; }
+      const signature = Object.keys(clean).sort().join(",");
+      if (!groups.has(signature)) groups.set(signature, []);
+      groups.get(signature).push({ ...item, clean });
+    }
+    for (const group of groups.values()) {
+      try {
+        const created = await supabase(env, "/rest/v1/transactions", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(group.map((item) => item.clean)) });
+        const saved = new Set(safeArray(created).map((row) => `${row.household_id}|${row.raw_text}`));
+        for (const item of group) {
+          if (saved.has(`${householdId}|${item.row.raw_text}`)) { applied += 1; confirmed.push(item.rule); }
+          else failure = failure || Object.assign(new Error("recurring_insert_unconfirmed"), { uncertain_write: true });
+        }
+      } catch (err) {
+        if (isUncertainStorageWrite(err) || recurringCronBudgetStop(err)) { failure = err; break; }
+        // 묶음 저장은 한 문장이라 한 건만 걸려도 전부 되돌려진다. 한 건씩 다시 넣는다(같은 때 다른 반영과 겹친 고유 색인 충돌은 이미 있는 기록이다).
+        for (const item of group) {
+          try {
+            await createManualTransaction(env, item.row);
+            applied += 1; confirmed.push(item.rule);
+          } catch (rowError) {
+            if (isUniqueConstraintError(rowError)) { confirmed.push(item.rule); continue; }
+            failure = rowError; break;
+          }
+        }
+      }
+      if (failure) break;
+    }
+    // 거래 저장이나 기존 거래 확인이 끝난 규칙만 표식을 바꾼다. 더 나중 달 표식은 되돌리지 않는다(SIM-8, 저장소 조건으로도 막는다).
+    const advance = confirmed.filter((rule) => { const marker = String(rule.last_applied_month || ""); return !marker || marker < month; });
+    settled.push(...confirmed);
+    if (advance.length) {
+      const params = new URLSearchParams();
+      params.set("id", `in.${recurringCronInList(advance.map((rule) => rule.id))}`);
+      params.set("household_id", `eq.${householdId}`);
+      params.set("or", `(last_applied_month.is.null,last_applied_month.lt.${month})`);
+      try {
+        await supabase(env, `/rest/v1/accountbook_recurring?${params}`, { method: "PATCH", headers: { Prefer: "return=minimal" }, body: JSON.stringify({ last_applied_month: month }) });
+      } catch (err) {
+        // 표식 저장 실패는 이미 확인한 거래 저장을 되돌리지 않는다. 호출부가 부분 반영을 알릴 수 있게 보존한다.
+        throw Object.assign(new Error(safeError(err), { cause: err }), { recurringTransactionOutcome: "applied" });
+      }
+    }
+    if (failure) throw settled.length && !failure.recurringTransactionOutcome ? Object.assign(failure, { recurringTransactionOutcome: "applied" }) : failure;
+  }
+  return applied;
+}
+
 // V22.9.76 감사 P0-1(D-1): 자동 반영은 가계부를 다섯 개씩 도는 커서를 버리고 "지정일이 지났는데 그 달 반영 표식이 없는
 // 규칙"을 저장소에서 바로 고른다. 예전에는 하루 한 번 실행이 가계부 5개만 보고 다음 날로 넘어가, 가계부가 30개를 넘으면
 // 지정일 뒤에 다시 들르기 전에 달이 바뀌어 그 달 몫이 영영 기록되지 않았다(가계부 32개·28일 규칙: 11월분 10건, 12월분 15건 유실).
@@ -911,7 +979,7 @@ async function readScheduledRunLog(env) {
 }
 // @build:exports-start
 export {
-  SCHEDULED_RUN_LOG_CALLS, applyRecurringRuleForMonth, eligibleRecurringSpenders,
+  SCHEDULED_RUN_LOG_CALLS, applyRecurringRulesForMonthBatched, eligibleRecurringSpenders,
   handleRecurringCronApply, readScheduledRunLog, recordScheduledRun, recurringDateForMonth,
   recurringSpenderEligible, refreshRecurringReports, runRecurringAutoApply, scheduledRunErrorCode,
   settleRecurringBeforeEdit,

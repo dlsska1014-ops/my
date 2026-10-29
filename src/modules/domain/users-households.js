@@ -3,7 +3,7 @@ import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { safeError, withHouseholdDatabaseLease } from "../runtime/leases.js";
 import { bestRoleFromRows } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
-import { resolveEffectiveUserId, stripMergedMarkerSuffix } from "../auth/user-session.js";
+import { mergedMarkerFreeName, resolveEffectiveUserId } from "../auth/user-session.js";
 import { fetchUserById, withKakaoUserLifecycleLease } from "../data/users-household-create.js";
 import { optionalSupabase } from "./budgets.js";
 import { isDefiniteStorageFailure, isUncertainStorageWrite } from "../kakao/response-builders.js";
@@ -60,7 +60,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
     const created = await supabase(env, "/rest/v1/users?on_conflict=kakao_user_key", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=representation" },
-      body: JSON.stringify({ kakao_user_key: rawKey, nickname: (stripMergedMarkerSuffix(nickname) || "카카오사용자").slice(0, 80) }),
+      body: JSON.stringify({ kakao_user_key: rawKey, nickname: mergedMarkerFreeName(nickname, 80) || "카카오사용자" }),
     });
     user = Array.isArray(created) ? created[0] : created;
   } catch (err) {
@@ -77,7 +77,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
       const created = await supabase(env, "/rest/v1/users", {
         method: "POST",
         headers: { Prefer: "return=representation" },
-        body: JSON.stringify({ kakao_user_key: rawKey, nickname: (stripMergedMarkerSuffix(nickname) || "카카오사용자").slice(0, 80) }),
+        body: JSON.stringify({ kakao_user_key: rawKey, nickname: mergedMarkerFreeName(nickname, 80) || "카카오사용자" }),
       });
       user = Array.isArray(created) ? created[0] : created;
     }
@@ -231,6 +231,8 @@ function isHouseholdRoleCheckFailure(err) {
 // 따로 돌려준다: 부르는 쪽은 거절이 아니라 ‘권한을 확인하지 못했다’(household_role_check_failed)로 알리고 아무것도 바꾸지 않는다. 참여자가 아님·역할 부족은
 // 예전처럼 role 로 판정한다. 읽기는 getHouseholdMemberRole 과 같은 한 번이고, 로그인·가계부가 없으면 읽지 않는다(role "").
 const ROLE_CHECK_FAILED_TEXT = "권한을 확인하지 못해 아무것도 바꾸지 않았습니다. 잠시 후 다시 시도해 주세요.";
+// V22.9.81 U-4: 카카오 답장(‘~어요’ 말투)에서 같은 뜻으로 쓰는 문장. 예산 설정·내 이름·기록 수정·단톡방 연결 흐름이 역할 조회 실패를 ‘권한 없음’으로 읽지 않고 이렇게 알린다.
+const KAKAO_ROLE_CHECK_FAILED_TEXT = "권한을 확인하지 못해 아무것도 바꾸지 않았어요. 잠시 후 다시 보내 주세요.";
 async function readHouseholdRoleOrFailure(env, userId, householdId, { path = "", method = "POST" } = {}) {
   try {
     return { role: String(await getHouseholdMemberRoleStrict(env, userId, householdId) || "").toLowerCase(), failed: false };
@@ -249,7 +251,7 @@ function roleBlockedMessage(role, householdName = "") {
 }
 // @build:exports-start
 export {
-  ROLE_CHECK_FAILED_TEXT, cancelPendingHouseholdJoin, ensurePrimaryHousehold, ensureUser,
+  KAKAO_ROLE_CHECK_FAILED_TEXT, cancelPendingHouseholdJoin, ensurePrimaryHousehold, ensureUser,
   getHouseholdMemberRole, getHouseholdMemberRoleStrict, isHouseholdRoleCheckFailure,
   joinHouseholdByCode, readHouseholdRoleOrFailure, roleBlockedMessage,
 };

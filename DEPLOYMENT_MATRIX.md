@@ -1,3 +1,32 @@
+## V22.9.81 배포 판단
+
+앱 Worker 코드 변경(입력 해석, 데이터·가져오기, 플래그 뒤 환불 연결, 화면 대비, 역할·안내, 관제 왕복 확인 받기)과 1년 캐시 자산 새 주소 3개(v22981), 관제 Worker 1.2.1 → 1.3.0(왕복 확인).
+운영 SQL·스키마·Secret·바인딩 변경 없음(검토용 환불 연결 SQL 은 주석·주석으로 둔 읽기 전용 조회만, 실행 금지). 번들 7.87 MiB(gzip 2.03 MiB, V22.9.80 은 7.48·1.93).
+
+- 순서: 앱 Worker → 관제 Worker(권장). 반대 순서도 안전하다.
+  - 새 관제 + 옛 앱: 왕복이 ‘확인 불가(지원 안 하는 판)’로 보이고 경보는 없다.
+  - 옛 관제 + 새 앱: 왕복 머리가 없어 앱 /internal/ops-metrics 답이 V22.9.80 과 같은 바이트다.
+  - 환불 연결 플래그 `REFUND_LINKS_ENABLED` 는 설정하지 않는다(꺼짐).
+- 관제는 V22.9.78 방법의 한 파일로 올린다.
+  - 병합된 main 에서 model.mjs·dashboard.mjs 의 `export ` 를 빼고, worker.mjs 의 상대 import 두 줄을 뺀 뒤, model → dashboard → worker 순으로 잇는다.
+  - 예약 D1 문장 수는 실행마다 14 → 17 이다(정각 18 → 21, Free 한도 50).
+- 날짜: 매월 1일·2일과 말일은 피한다(2026-10-31·11-01·11-02 제외). V22.9.80 다음 날 확인(2026-10-28 09:10 예약 실행 뒤)이 끝난 뒤에 한다.
+- 배포 직후(앱):
+  - /health version `V22.9.81-REVIEW-FOLLOWUP`, /ready 필수 표 13개·실패 0·`refund_links` 칸 없음.
+  - 새 주소 3개(accountbook-shell-v22981.css·mobile-home-shell-v22981.js·mobile-home-v22981.js)가 200 이고, SHA-256 이 validate-immutable-asset-addresses-v2299 의 고정값과 같다.
+  - 옛 주소 3개(accountbook-shell-v22979.css·mobile-home-shell-v22980.js·mobile-home-v22980.js)도 200 이고 옛 바이트다(같은 검사의 옛 해시).
+  - 공개 화면 검사(`tools/verify-deployment-v22920.mjs`).
+- 배포 직후(관제):
+  - 관제 /health 1.3.0.
+  - 첫 예약(5분 안)에 /ops-dashboard ‘응답과 DB 부하’ 카드의 왕복 배지와 ‘수집 연결 상태’ 표의 ‘앱 표본 왕복 확인’ 행이 정상이다.
+  - Workers Logs 에 ‘monitor roundtrip failing’ 줄이 없고, telemetry 에 roundtrip 행이 쌓이지 않는다.
+- 다음 날(읽기만): 예약 실행 기록 V22.9.81·ok, 운영 이벤트(`household_role_check_failed` 의 path /skill 포함, error), 조용한 시간의 ‘요청이 적음’ 메모.
+- 운영 수동 확인: RELEASE-CHECKLIST V22.9.81 절.
+- 되돌릴 때: 앱 V22.9.80 `bdfaa29b-8b05-4590-a8db-d81a82e4de7b`, 관제 1.2.1 `520f6ef6-ade7-41e7-838b-f170ba791a4e`(둘 다 별도 사용자 승인 뒤에만).
+  - 앱을 되돌리면 U-1~U-30·X-1~X-11·X-29 가 다시 열린다.
+  - V22.9.81 이 쓴 ‘완료 달 표식’은 settlement_history 배열 맨 앞에 남는다. V22.9.80 화면은 끝 8개만 보여 표식이 보이지 않는다. V22.9.80 이 다시 저장하면 30건 자르기가 표식을 버린다(V22.9.80 의 원래 동작).
+  - 관제를 1.2.1 로 되돌리면 settings 의 ‘roundtrip’ 줄과 미해결 경보 기록이 남는다. 보이지 않고 아무 일도 하지 않는다.
+
 ## V22.9.80 배포 판단
 
 앱 Worker 코드 변경(다크 대비·화면, 입력 해석, 역할 표시·조회, 가져오기·예약·홈, 플래그 뒤 환불 연결 후속, 정산 완료일)과 1년 캐시 자산 새 주소 4개(v22980). 관제 Worker·운영 SQL·스키마·Secret 변경 없음(검토용 환불 연결 SQL 에 5절을 더함, 실행 금지). 번들 7.48 MiB(gzip 1.93 MiB, V22.9.79 는 7.11·1.82).

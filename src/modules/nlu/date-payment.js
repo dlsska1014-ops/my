@@ -167,20 +167,28 @@ function weekdayIndexOfYmd(date = "") {
 // V22.9.26: "지난주 금요일", "이번주 월요일", "다음주 일요일", "금요일" 을 날짜로 푼다.
 // 주 단위 말이 없으면 오늘을 포함해 가장 가까운 지난 그 요일이다.
 // V22.9.78(V77 N-12): 주 없이 ‘지난·저번 금요일’로 쓰면 오늘을 뺀 바로 앞의 그 요일이다(금요일에 쓰면 7일 전).
-const AB_WEEKDAY_PHRASE = /(?:(지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주|지난|저번)\s*)?([월화수목금토일])요일/;
+// V22.9.81: ‘지지난주·저저번주’(두 주 전)·‘지지난·저저번’(지난 금요일보다 한 주 앞)·‘지난번’(= 지난)·‘이번’(= 이번주)·
+// ‘다음·오는 금요일’(오늘을 뺀 바로 다음 그 요일)도 quickInputDate 와 같게 푼다.
+const AB_WEEKDAY_PHRASE = /(?:(지지난\s*주|저저번\s*주|지난\s*주|저번\s*주|전주|이번\s*주|금주|다음\s*주|내주|지지난번|지지난|저저번|지난번|지난|저번|이번|다음|(?:돌아|다가)?오는)\s*)?([월화수목금토일])요일/;
 function resolveWeekdayPhrase(raw = "", now = nowKstDate()) {
   const m = String(raw || "").match(AB_WEEKDAY_PHRASE);
   if (!m) return "";
   const target = "일월화수목금토".indexOf(m[2]);
   if (target < 0) return "";
   const mondayBased = (idx) => (idx + 6) % 7;
-  const scope = String(m[1] || "").replace(/\s+/g, "");
+  const word = String(m[1] || "").replace(/\s+/g, "");
+  const scope = word === "지난번" ? "지난" : word === "지지난번" ? "지지난" : /오는$/.test(word) ? "오는" : word;
+  const diff = mondayBased(target) - mondayBased(now.getDay());
+  const back = (7 - diff) % 7 || 7;
   let offset;
-  if (scope === "이번주" || scope === "금주") offset = mondayBased(target) - mondayBased(now.getDay());
-  else if (scope === "다음주" || scope === "내주") offset = mondayBased(target) - mondayBased(now.getDay()) + 7;
-  else if (scope === "지난" || scope === "저번") offset = -((mondayBased(now.getDay()) - mondayBased(target) + 7) % 7 || 7);
-  else if (scope) offset = mondayBased(target) - mondayBased(now.getDay()) - 7;
-  else offset = -((mondayBased(now.getDay()) - mondayBased(target) + 7) % 7);
+  if (scope === "이번주" || scope === "금주" || scope === "이번") offset = diff;
+  else if (scope === "다음주" || scope === "내주") offset = diff + 7;
+  else if (scope === "다음" || scope === "오는") offset = (diff + 7) % 7 || 7;
+  else if (scope === "지난" || scope === "저번") offset = -back;
+  else if (scope === "지지난" || scope === "저저번") offset = -back - 7;
+  else if (scope === "지지난주" || scope === "저저번주") offset = diff - 14;
+  else if (scope) offset = diff - 7;
+  else offset = -((7 - diff) % 7);
   return formatDate(addDays(now, offset));
 }
 

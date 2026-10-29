@@ -21,7 +21,9 @@ eq((source.match(heroLiteral) || []).length, 0, "no hero gradient pins its accen
 
 const heroToken = /linear-gradient\(135deg,#111827,var\(--ab12-action,(#[0-9a-fA-F]{6})\)\)/g;
 const heroFallbacks = [...source.matchAll(heroToken)].map((m) => m[1]);
-eq(heroFallbacks.length, 65, "every hero gradient reads the tone token (62 swept + 3 from V22.8.82)");
+// V22.9.81 U-5: 부르는 곳이 없던 handleBudgetCenterPageLegacyV2264 를 지우면서 그 안의 보라(#7c3aed) 히어로 1곳이 함께 빠졌다(65 → 64).
+// 보라 폴백은 다른 8곳에 남고 원래 색 19가지도 그대로다(아래 검사).
+eq(heroFallbacks.length, 64, "every hero gradient reads the tone token (62 swept + 3 from V22.8.82, minus 1 in the dead budget page removed in V22.9.81)");
 
 // 폴백은 원래 색이어야 한다. 셸 밖(--ab12-* 미정의)에서는 예전과 똑같이 보인다.
 ok(heroFallbacks.includes("#0f766e"), "the teal heroes keep teal as their fallback");
@@ -81,7 +83,7 @@ ok(source.includes("linear-gradient(135deg,#111827,#334155)"), "the slate decora
 //   immutable 1년 캐시 때문에 사용자에게 영영 반영되지 않는다.
 // ---------------------------------------------------------------------------
 
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22979.css"'), "the shell stylesheet path is unchanged because its content is unchanged");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22981.css"'), "the shell stylesheet path is unchanged because its content is unchanged");
 eq(/\.hero\{[^}]*linear-gradient\(135deg,#111827,#[0-9a-fA-F]{6}\)/.test(source), false, "the swept literals are gone from the shell too");
 
 // ---------------------------------------------------------------------------
@@ -113,7 +115,7 @@ for (const [name, path, fallback] of [
 }
 
 // 셸 CSS 는 정말로 그대로다(내용이 같으면 주소를 올리지 않는 것이 맞다).
-const shellRes = await get("/assets/accountbook-shell-v22979.css");
+const shellRes = await get("/assets/accountbook-shell-v22981.css");
 eq(shellRes.status, 200, "the shell stylesheet is still served at its current address");
 const shellCss = await shellRes.text();
 eq(/\.hero\{[^}]*linear-gradient\(135deg,#111827,#[0-9a-fA-F]{6}\)/.test(shellCss), false, "the shipped shell has no pinned hero colour either");

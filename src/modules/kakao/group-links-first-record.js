@@ -25,7 +25,7 @@ import { getHouseholdById, kakaoUnlinkedRoomStateLine } from "./household-budget
 import { saveKakaoParsedTransactionsReply } from "./transaction-save.js";
 import { markKakaoChatFirstHistory, stableShortHash } from "./identity-chat-first.js";
 import {
-  ensurePrimaryHousehold, getHouseholdMemberRole, roleBlockedMessage,
+  ensurePrimaryHousehold, getHouseholdMemberRole, readHouseholdRoleOrFailure, roleBlockedMessage,
 } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 import { makeInviteCode } from "../domain/transactions-core.js";
@@ -664,12 +664,18 @@ async function bindKakaoGroupByInviteCode(env, user = {}, groupKey = "", code = 
   const householdRows = await supabase(env, `/rest/v1/households?invite_code=eq.${encodeURIComponent(normalized)}&select=id,name,invite_code,created_at&limit=1`, { method: "GET" });
   const household = householdRows?.[0];
   if (!household) return { ok: false, error: "not_found", code: normalized };
-  const role = await getHouseholdMemberRole(env, user.id, household.id);
+  // V22.9.81 U-4: 역할 조회가 실패하면 ‘소유자·관리자만’(not_allowed·not_allowed_current)으로 거절하지 않고 household_role_check_failed 로 돌려준다.
+  // 연결은 바꾸지 않는다. 부르는 쪽은 ‘확인하지 못함’으로 안내한다(조회 횟수는 예전과 같다).
+  const target = await readHouseholdRoleOrFailure(env, user.id, household.id, { path: "/skill" });
+  if (target.failed) return { ok: false, error: "household_role_check_failed", household };
+  const role = target.role;
   if (!["owner", "admin"].includes(role)) return { ok: false, error: "not_allowed", role: role || "none", household };
   const current = await getLinkedKakaoGroupHousehold(env, groupKey, options);
   if (current?.id && String(current.id) === String(household.id)) return { ok: true, already_linked: true, role, household: current, linked: null };
   if (current?.id && String(current.id) !== String(household.id)) {
-    const currentRole = await getHouseholdMemberRole(env, user.id, current.id);
+    const currentLookup = await readHouseholdRoleOrFailure(env, user.id, current.id, { path: "/skill" });
+    if (currentLookup.failed) return { ok: false, error: "household_role_check_failed", role, current, household };
+    const currentRole = currentLookup.role;
     if (!["owner", "admin"].includes(currentRole)) {
       return { ok: false, error: "not_allowed_current", role, current_role: currentRole || "none", current, household };
     }
@@ -724,10 +730,13 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
       "초대코드는 가계부 관리자에게 확인해주세요.",
     ].join("\n");
   }
-  const role = user?.id ? await getHouseholdMemberRole(env, user.id, household.id) : "";
+  // V22.9.81 U-4: 역할을 읽지 못하면 ‘아직 참여 전’이라고 하지 않는다(참여자에게 참여 전이라고 말했다). 확인하지 못했다고 적고 나간 이력도 읽지 않는다.
+  const lookup = user?.id ? await readHouseholdRoleOrFailure(env, user.id, household.id, { path: "/skill" }) : { role: "", failed: false };
+  const role = lookup.role;
   // V22.9.79 감사 B-10: 참여 전·승인 대기인 사람에게는 이 방에서 기록하면 어떻게 되는지를 실제대로 말한다(나간 이력이 있으면 자동 참여하지 않는다).
-  const departed = user?.id && (!role || role === "pending") ? await kakaoRoomDepartedFromHousehold(env, groupKey, user.id, household.id) : false;
-  const roleLine = !role
+  const departed = !lookup.failed && user?.id && (!role || role === "pending") ? await kakaoRoomDepartedFromHousehold(env, groupKey, user.id, household.id) : false;
+  const roleLine = lookup.failed ? "내 권한: 확인하지 못했어요 · 잠시 후 다시 확인해 주세요"
+    : !role
     ? (departed ? "내 권한: 아직 참여 전 · 나간 이력이 있어 이 방에서 기록해도 자동으로 참여하지 않아요. 개인 대화에서 초대코드로 참여해 주세요"
       : "내 권한: 아직 참여 전 · 이 방에서 거래를 한 번 보내면 자동으로 참여해요")
     : role === "pending"

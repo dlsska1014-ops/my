@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_80.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_81.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -84,6 +84,12 @@ const validationScripts = [
   ["V22.9.80 데이터 묶음(백업 합계 행·키 줄/머리글 없는 표 분류 근거·번호/주소 머리글·미리 보기 후처리·표식 되살리기 묶음·카카오 날짜 목록 한도·홈 쓰는 속도 1~6일)", "validation/validate-data-import-v22980.mjs"],
   ["V22.9.80 다크 모드·화면 결함(예산 센터 카드·서식 카드·오류 요약 대비·사이드바 달력 KST 오늘·옛 관리자 화면·예산 표 줄바꿈·예시 줄바꿈·주 기준 표시)", "validation/validate-dark-screens-v22980.mjs"],
   ["V22.9.80 환불 연결 후속(막힌 수정 안내·일괄 수정 건너뛰기·백업·카카오 복구·화면별 환불 차감)", "validation/validate-refund-links-v22980.mjs"],
+  ["V22.9.81 역할·안내 문구·정리(카카오 역할 조회 실패·옛 관리자 일괄 처리 안내·시작가이드 선택 가계부·결제수단 오류 코드·고정항목 코드·/my 안내 전달·죽은 함수)", "validation/validate-roles-v22981.mjs"],
+  ["V22.9.81 환불 연결 후속(30건을 넘은 정산 이력의 완료 달 잠금·연결/차감 읽기를 끝까지 또는 확인 불가)", "validation/validate-refund-links-v22981.mjs"],
+  ["V22.9.81 관제 앱 표본 왕복 확인(관제 1.3.0: 5분 DB 수집 요청에 확인 표본·옛 관제/옛 앱 배포 순서·실패 판정·화면)", "validation/validate-monitor-v22981.mjs"],
+  ["V22.9.81 화면 대비·넘침(다크 알림 배지·작은 달력 오늘 칸·목표 납입 단추·거래 요약 수입·일별 그래프 빈 날·오픈빌더 여러 줄 예시·옛 관리자 화면 넘침)", "validation/validate-screens-v22981.mjs"],
+  ["V22.9.81 데이터 묶음(본문을 잃은 저장의 결과 불확실·카카오 닉네임 통합 표식·날짜 목록 밖 번호·정기 기록하기 묶음·가져오기 메모·카드 자리 머리글)", "validation/validate-data-v22981.mjs"],
+  ["V22.9.81 입력 해석(여러 건 머리 날짜·띄어 쓴 금액 잇기·없는 날짜 요약·지지난달/지지난주·자동이체 저장 이름·분류 이름 낱말 경계·구분 바꿀 때 분류)", "validation/validate-nlu-v22981.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
@@ -315,7 +321,8 @@ function run(command, args, label) {
 // V22.9.78: 새 동작 검사 6개(정기 반영 124·홈 앞으로 나갈 돈 52·요일 20·관제 19·백업 안내 16·함수 사본 15)와 추적표 V78 출처. 두 모드 실측: 일반 27,250 · 분류 표 부재 27,247.
 // V22.9.79: 새 동작 검사 9개(카카오 답장 234·환불 연결 251·예약 실행 135·정기 목록 90·월말 예상 98·입력 해석 1,645·웹 화면 153·백업 163·시각 120)와 추적표 V79 출처. 두 모드 실측: 일반 30,629 · 분류 표 부재 30,626(2026-10-26 통합 검토 수정 뒤).
 // V22.9.80: 새 동작 검사 5개(역할 표시 269·입력 해석 291·데이터 229·다크 화면 500·환불 연결 후속 268)와 추적표 V80 출처. 두 모드 실측: 일반 32,436 · 분류 표 부재 32,433(V22.9.80 통합).
-const EXPECTED_MINIMUM_CHECKS = 32433;
+// V22.9.81: 새 동작 검사 6개(역할 173·입력 해석 1,004·데이터 397·화면 209·환불 연결 83·관제 130)와 추적표 V81 출처. 두 모드 실측: 일반 34,835 · 분류 표 부재 34,832(V22.9.81 통합).
+const EXPECTED_MINIMUM_CHECKS = 34832;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

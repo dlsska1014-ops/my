@@ -25,7 +25,7 @@ const source = read("src/index.js");
   ok(worker.includes('title:"앱 Worker 런타임 오류(오늘)"'), "앱 런타임 오류는 요청 수와 무관하게 건수로 경고한다");
   ok(/metrics_unavailable\|http_\\d\+/.test(worker), "DB 수집 실패의 실제 원인 코드가 살아남는다");
   // 1.1.1: 발송 실패의 채널별 원인(Email Service 오류 코드)을 error_code 와 Workers Logs 에 남긴다.
-  ok(read("monitoring/model.mjs").includes('MONITOR_VERSION = "1.2.1"'), "관제 판은 1.2.1 이다(V22.9.78: 토큰 확인 수집 기준)");
+  ok(read("monitoring/model.mjs").includes('MONITOR_VERSION = "1.3.0"'), "관제 판은 1.3.0 이다(V22.9.81: 앱 표본 왕복 확인)");
   ok(worker.includes("E_[A-Z_]+") && worker.includes("monitor alert ${channel} failed"), "1.1.1: 발송 실패 코드가 error_code 와 로그에 남는다");
   const wrangler = read("monitoring/wrangler.jsonc");
   // V22.9.40: 수신 주소 ALERT_TO 는 Secret 으로 넣는다. 비어 있는 var 가 배포마다 Secret·대시보드 값을 덮어쓰지 않게 vars 에서 뺐고,

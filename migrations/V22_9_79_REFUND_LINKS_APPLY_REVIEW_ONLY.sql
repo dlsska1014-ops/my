@@ -17,6 +17,10 @@
 --     구성원: owner/admin/member/viewer)을 연결한다. 연결과 풀기는 그 가계부의 소유자·관리자만 한다.
 --   - 원래 지출 날짜 <= 환급 날짜, 환급 날짜 - 365일 이상. 금액은 1원 이상이고 환급·원래 지출 각각 연결 합계가 기록 금액 이하.
 --   - 환급 날짜의 달에 정산 완료 이력(accountbook_settings 'settlement_history:<가계부>')이 있으면 연결하거나 풀 수 없다.
+--     V22.9.81 U-27: Worker 는 이력을 최근 30건으로 자를 때, 잘려 나가는 달에 남는 완료 항목이 없으면 그 달의 ‘완료 달 표식’
+--     {"kind":"settlement_month_completed","month":"YYYY-MM","status":"completed"} 을 같은 배열 맨 앞에 남긴다(지우지 않는다,
+--     플래그와 상관없이). 두 RPC 의 확인은 배열 항목의 month 를 보므로 표식으로도 막는다. 그래서 따로 된 키·적용 때 채우기가 없다.
+--     V22.9.81 전에 이미 잘려 나간 달은 되살릴 수 없다(맨 아래 읽기 전용 확인으로 이력이 30건에 닿은 가계부를 찾는다).
 --   - 연결된 기록은 가계부·종류를 바꿀 수 없고, 금액을 연결 합계 아래로 줄일 수 없고, 환급의 분류를 바꿀 수 없고,
 --     날짜 순서·365일 창을 깨는 날짜로 옮길 수 없다(트리거). 기록을 지우면 연결도 지워진다(ON DELETE CASCADE).
 --   - 잠금 순서는 가계부 삭제(accountbook_purge_household_v22960)와 같다: 가계부 행 → 거래 행(id 순서) → 설정 행.
@@ -165,6 +169,7 @@ BEGIN
     RAISE EXCEPTION 'refund_link_amount_exceeded';
   END IF;
   -- 정산을 완료한 달(환급 날짜의 달)은 바꾸지 않는다. 완료 저장과 이 연결이 엇갈리지 않게 설정 행을 함께 잠근다.
+  -- 완료 항목과 V22.9.81 U-27 완료 달 표식이 모두 month 를 가지므로 아래 한 확인으로 둘 다 막는다.
   v_month := to_char(v_refund.transaction_date, 'YYYY-MM');
   SELECT s.value INTO v_history_raw FROM public.accountbook_settings s
    WHERE s.key = 'settlement_history:' || p_household_id::text FOR SHARE;
@@ -235,6 +240,7 @@ BEGIN
   IF v_link.amount IS DISTINCT FROM p_expected_amount THEN RAISE EXCEPTION 'refund_link_source_changed'; END IF;
   SELECT * INTO v_refund FROM public.transactions t WHERE t.id = v_link.refund_id;
   IF v_refund.id IS NULL THEN RAISE EXCEPTION 'refund_link_not_found'; END IF;
+  -- 연결 걸기와 같다: 완료 항목·완료 달 표식(V22.9.81 U-27)의 month 로 막는다.
   v_month := to_char(v_refund.transaction_date, 'YYYY-MM');
   SELECT s.value INTO v_history_raw FROM public.accountbook_settings s
    WHERE s.key = 'settlement_history:' || p_household_id::text FOR SHARE;
@@ -347,3 +353,9 @@ COMMIT;
 -- SELECT grantee, privilege_type FROM information_schema.role_table_grants WHERE table_schema = 'public' AND table_name = 'accountbook_refund_links';
 -- SELECT grantee, routine_name FROM information_schema.role_routine_grants WHERE routine_schema = 'public' AND routine_name LIKE 'accountbook_%refund_v22979';
 -- SELECT count(*) AS links FROM public.accountbook_refund_links;
+-- V22.9.81 U-27: 완료 이력이 30건에 닿은 가계부. V22.9.81 전에는 30건으로 자를 때 오래된 항목의 달을 그냥 버렸으므로, 이 가계부들은
+-- 그 전에 완료한 달이 잠기지 않을 수 있다(되살릴 수 없다 — 플래그를 켜기 전에 운영자가 본다). 값이 JSON 배열이 아니면 이 조회가 멈춘다
+-- (그 가계부는 RPC 도 refund_link_history_invalid 로 멈춘다).
+-- SELECT s.key, jsonb_array_length(s.value::jsonb) AS items, s.value LIKE '%"settlement_month_completed"%' AS has_month_markers
+--   FROM public.accountbook_settings s
+--  WHERE s.key LIKE 'settlement_history:%' AND jsonb_array_length(s.value::jsonb) >= 30;

@@ -450,10 +450,6 @@ function budgetFeedbackLine(rows = [], budgets = [], category = "") {
   return "";
 }
 
-async function kakaoBudgetStatusText(env, householdId, month, origin = "", householdName = "") {
-  return (await kakaoBudgetStatusParts(env, householdId, month, origin, householdName)).text;
-}
-
 // V22.9.72: 예산이 없을 때는 "예산을 정하고 지출을 기록하면 남은 예산을 볼 수 있다"는 짧은 안내만 돌려주고(noBudget),
 // 호출부가 예산설정·기록하기 버튼을 붙인다(2026-10-20 디자이너 피드백).
 async function kakaoBudgetStatusParts(env, householdId, month, origin = "", householdName = "", { canManage = true } = {}) {
@@ -548,6 +544,5 @@ export {
   budgetPlanFingerprint, budgetPlanMessage, budgetStageInfo, budgetStatusLabel, budgetSummary,
   fetchBudgets, fetchMobileHomeSettings, fetchObservationMonthRows, fetchRecurringMarkerRows,
   fetchRecurringRuleByIdStrict, fetchRecurringStrict, kakaoBudgetStatusParts, optionalSupabase,
-  renderBudgetBasisRows, renderBudgetConsistencyAlert, renderBudgetRows,
 };
 // @build:exports-end

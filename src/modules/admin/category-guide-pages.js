@@ -11,7 +11,7 @@ import {
 } from "../settings/categories-keywords.js";
 import { fetchAdminHouseholds } from "../data/households-members-rows.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
-import { stripMergedMarkerSuffix, verifyUserSession } from "../auth/user-session.js";
+import { mergedMarkerFreeName, verifyUserSession } from "../auth/user-session.js";
 import { fetchUserById } from "../data/users-household-create.js";
 import {
   canManageMyHousehold, getMySelectedHousehold, myAccessStatusResponse,
@@ -222,7 +222,7 @@ async function handleMyProfileUpdate(request, env) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
   const form = await request.formData();
-  const nickname = stripMergedMarkerSuffix(String(form.get("nickname") || "")).slice(0, 80);
+  const nickname = mergedMarkerFreeName(String(form.get("nickname") || ""), 80);
   if (!nickname) return redirectResponse("/my/profile?err=nickname_missing");
   await supabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(userId)}`, {
     method: "PATCH",

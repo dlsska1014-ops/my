@@ -219,14 +219,67 @@ const IMPORT_ALIAS_INDEX = (() => {
 // 이런 머리글은 제외 열(ignore)로 둔다 — 열 연결 화면에는 ‘제외 열’로 보이고 사용자가 직접 바꿀 수 있다. 정확히 같은 별칭(‘승인번호’·‘번호’ …)은
 // 그대로이고, 예전에 아무 열로도 읽지 않던 머리글(‘주소’)도 그대로다.
 const IMPORT_NUMBER_ADDRESS_HEADER = /번호|주소|number|address|^no$/;
+// V22.9.81 U-12: 카드 끝자리 머리글(‘카드 끝 4자리’·‘카드뒷자리’·‘Card Last 4’)도 결제수단이 아니다. ‘카드’ 별칭이 들어 있어 결제수단으로 읽혀
+// 끝 네 자리(‘1234’)가 결제수단 이름으로 저장됐다. 자리·끝자리 낱말이 든 머리글은 번호 머리글처럼 제외 열로 둔다(정확히 같은 별칭은 그대로).
+const IMPORT_DIGIT_POSITION_HEADER = /자리|last\d|digits?$/;
+// V22.9.81: 별칭이 더 긴 머리글 속에 든 쪽(앞 방향)에서 머리글이 다른 것을 뜻하는 경우(canonicalImportField 참고).
+// 따로 쓴 낱말 ‘ID’(Record ID·user_id·UserId) — 낱말 속 글자(‘paid’·‘valid’)는 아니다.
+const IMPORT_ID_WORD = /(?:^|[^A-Za-z])[Ii][Dd](?:$|[^A-Za-z])|[a-z]I[Dd](?:$|[^a-z])/;
+const IMPORT_MONEY_FIELDS = new Set(["income", "expense", "amount"]);
+// 금액 별칭 바로 뒤의 사람·곳 끝말(‘입금자명’·‘입금인’·‘지출처’·‘Depositor’) — 남은 꼬리 전체가 이 꼴일 때만 본다(‘입금자동이체금액’은 아니다).
+const IMPORT_PERSON_PLACE_TAIL = /^(?:(?:자|인)(?:명|이름|성명)?|처(?:명)?|(?:or|er)s?(?:name)?)$/;
+// 영문 금액 별칭 credit·debit 바로 뒤가 ‘card’ 하나뿐인 머리글(‘Credit Card’·‘Debit Card’ = 신용·체크카드)은 금액이 아니라 카드다.
+// 한글 금액 별칭 뒤의 ‘카드’(‘지출(카드)’·‘결제금액(카드)’ = 카드로 낸 금액)와 ‘Credit Card Amount’는 예전 그대로 금액이다.
+const IMPORT_CARD_TAIL = /^cards?$/;
+// 금액 별칭 바로 뒤가 날짜 끝말(한글 네 자 이하 + ‘일’: ‘일’·‘처리일’·‘예정일’)인 머리글(‘지출일’·‘입금일’·‘입금처리일’)은 금액이 아니라 날짜다.
+// ‘…요일’(요일 이름)은 날짜 칸이 아니라 빼고, ‘지출일자’·‘입금일시’는 예전처럼 날짜 별칭(일자·일시)으로 읽는다.
+const IMPORT_DATE_TAIL = /^[가-힣]{0,4}일$/;
+// 카드의 종류·구분 머리글(신용·체크·본인·가족이 적힌다). 머리글 전체가 이 꼴일 때만 본다(‘카드승인구분’처럼 다른 말이 든 머리글은 예전 그대로).
+const IMPORT_CARD_KIND_HEADER = /^(?:이용|결제|사용)?(?:카드|card)(?:구분|종류|유형|type)$/;
 
 function canonicalImportField(value = "") {
   const key = normalizeImportHeader(value);
   if (!key) return "";
   const exact = IMPORT_ALIAS_INDEX.exact.get(key)?.field;
   if (exact) return exact;
-  const fuzzy = IMPORT_ALIAS_INDEX.fuzzy.find((item) => key.includes(item.key) || item.key.includes(key))?.field || "";
-  return fuzzy && IMPORT_NUMBER_ADDRESS_HEADER.test(key) ? "ignore" : fuzzy;
+  // V22.9.81 U-12: 머리글이 별칭보다 짧은 쪽(별칭 속에 머리글이 든 경우)은 세 글자 이상이고 별칭의 앞부분일 때만 맞춘다(‘desc’→내용, ‘cat’→분류,
+  // ‘pay’→결제수단). 예전에는 아무 자리든 맞춰 ‘결제’·‘사용’·‘이용’이 날짜(결제일자·사용일자·이용일자), ‘거래’가 통화(거래통화), ‘합계’가 금액,
+  // ‘분’이 구분(수입지출구분), ‘in’이 원문(original)으로 읽혔다. 영문 ‘No’ 는 그렇게 맞춘 뒤 T-29 가 제외 열로 돌렸으므로 그대로 제외 열이다.
+  if (key === "no") return "ignore";
+  // V22.9.81: 별칭이 더 긴 머리글 속에 든 쪽(앞 방향)도 머리글이 다른 것을 뜻하면 그 별칭으로 맞추지 않는다. 열 연결 화면에서 직접 고를 수 있다.
+  //  · 카드종류·카드구분·Card Type 은 수입·지출 구분이 아니라 카드 종류다(‘구분’·‘type’ 별칭). 예전에는 행마다 ‘구분 ‘신용’을 직접
+  //    해석하지 못해’ 경고가 붙고, 영문 ‘Credit’(신용카드)은 수입으로 저장됐다. 제외 열로 둔다.
+  if ((key.includes("카드") || key.includes("card")) && IMPORT_CARD_KIND_HEADER.test(normalizeImportHeader(String(value).replace(/\([^)]*\)|\[[^\]]*\]/g, "")))) return "ignore";
+  let fuzzy = "";
+  for (const item of IMPORT_ALIAS_INDEX.fuzzy) {
+    if (key.includes(item.key)) {
+      //  · 영문 ‘id’ 는 따로 쓴 낱말일 때만 기록ID(제외 열)다. ‘Paid’ 속 글자로 제외 열이 되지 않게 다음 별칭을 본다.
+      if (item.key === "id" && !IMPORT_ID_WORD.test(String(value))) continue;
+      //  · 금액 별칭 뒤에 사람·곳 끝말이 붙은 머리글(‘입금자명’·‘출금인’·‘지출처’)은 금액이 아니다. 예전에는 이름이 수입·지출 금액으로 읽혀
+      //    그 행이 ‘금액 형식을 해석하지 못함’으로 빠졌다. 제외 열로 둔다.
+      if (IMPORT_MONEY_FIELDS.has(item.field)) {
+        const tail = key.slice(key.lastIndexOf(item.key) + item.key.length);
+        if (IMPORT_PERSON_PLACE_TAIL.test(tail)) return "ignore";
+        //  · 금액 별칭 뒤에 날짜 끝말이 붙은 머리글(‘지출일’·‘입금일’·‘입금처리일’)은 날짜다. 예전에는 날짜(‘2026-07-15’)가 수입·지출 금액으로 읽혀
+        //    그 표의 모든 행이 ‘금액 형식을 해석하지 못함’으로 빠졌다(‘지출일,내용,금액’ 표 전체). 날짜 열로 둔다. 괄호 속 ‘(일)’(단위·주기)은
+        //    날짜 끝말이 아니다(‘금액(일)’은 예전처럼 금액).
+        if (tail.endsWith("일") && !tail.endsWith("요일")) {
+          const bare = /[\[(]/.test(String(value)) ? normalizeImportHeader(String(value).replace(/\([^)]*\)|\[[^\]]*\]/g, "")) : key;
+          const at = bare.lastIndexOf(item.key);
+          if (at >= 0 && IMPORT_DATE_TAIL.test(bare.slice(at + item.key.length))) return "date";
+        }
+        //  · ‘Credit Card’·‘Debit Card’ 는 수입·지출 금액(credit·debit 별칭)이 아니라 신용·체크카드다. 예전에는 카드 이름(‘Visa 1234’)이 금액으로
+        //    읽혀 행이 금액 오류로 빠졌다. 다음 별칭(‘card’ → 결제수단)을 본다 — ‘신용카드’·‘체크카드’ 머리글과 같다.
+        if ((item.key === "credit" || item.key === "debit") && IMPORT_CARD_TAIL.test(tail)) continue;
+      }
+      fuzzy = item.field;
+      break;
+    }
+    if (key.length >= 3 && item.key.startsWith(key)) { fuzzy = item.field; break; }
+  }
+  // V22.9.81: 따로 쓴 낱말 ‘ID’가 든 머리글(‘user_id’·‘Card ID’·‘Category ID’)도 번호 머리글처럼 식별값이다. 예전에는 ‘user’·‘card’ 별칭으로
+  // 지출자·결제수단이 되어 ‘u_123’ 같은 값이 지출자·결제수단으로 읽혔다.
+  return fuzzy && (IMPORT_NUMBER_ADDRESS_HEADER.test(key) || IMPORT_DIGIT_POSITION_HEADER.test(key) || IMPORT_ID_WORD.test(String(value))) ? "ignore" : fuzzy;
 }
 
 function canonicalImportHeaderField(value = "") {
@@ -666,6 +719,35 @@ function parseImportAmountCell(value = "") {
   return { amount: Number.isFinite(amount) ? amount : 0, present: true, valid: Number.isSafeInteger(amount) && amount >= 0, negative, raw };
 }
 
+// V22.9.81: 머리글 없는 쉼표 표에 따옴표 없이 쓴 천 단위 쉼표(‘2026-07-15,5,000원,커피’)는 칸이 ‘5’·‘000원’으로 나뉘어, 0원인 ‘000원’이
+// 후보에서 빠지고 ‘5’ 하나가 금액(5원)이 됐다(메모 ‘000원 커피’, 기본 선택). 0으로 시작하는 3자리 칸(‘000’·‘050’, 끝에 ‘원’ 가능)은 홀로 쓴
+// 수가 아니므로 바로 앞의 1~3자리 칸(또는 이미 이은 금액)에 이어 한 금액으로 읽는다(‘1,000,000원’도 같다, ‘원’이 붙은 칸에서 끝).
+// 0으로 시작하지 않는 3자리 칸(‘3,500’·‘2,500원’·‘1,000,500’의 500)은 따로 쓴 수량·횟수·금액일 수 있어 잇지 않는다 — 예전처럼 금액 후보가
+// 여럿이면 확인 필요로 뺀다.
+const IMPORT_SPLIT_LEAD = /^[-−]?[₩￦]?[1-9]\d{0,2}$/;
+const IMPORT_SPLIT_GROUP = /^(0\d{2})(\s*원)?$/;
+function joinImportSplitThousandCells(cells = []) {
+  let out = null;
+  for (let i = 0; i < cells.length; i++) {
+    const lead = String(cells[i] ?? "").normalize("NFKC").trim();
+    let group = IMPORT_SPLIT_LEAD.test(lead) && i + 1 < cells.length ? String(cells[i + 1] ?? "").normalize("NFKC").trim().match(IMPORT_SPLIT_GROUP) : null;
+    if (!group) { if (out) out.push(cells[i]); continue; }
+    const parts = [lead];
+    let j = i + 1;
+    while (group) {
+      parts.push(group[0]);
+      j += 1;
+      group = !group[2] && j < cells.length ? String(cells[j] ?? "").normalize("NFKC").trim().match(IMPORT_SPLIT_GROUP) : null;
+    }
+    out = out || cells.slice(0, i);
+    out.push(parts.join(","));
+    i = j - 1;
+  }
+  if (!out) return cells;
+  if (cells.source_location) out.source_location = cells.source_location;
+  return out;
+}
+
 // V22.9.79 감사 E-1: 구분 칸은 "지출"·"수입"처럼 같은 값이 거의 모든 행에서 반복된다. 빈 칸은 바로 돌려주고, 같은 값은 해석 한 번 안에서 다시 계산하지 않는다.
 function normalizeImportTypeValue(value = "") {
   if (value === "" || value === null || value === undefined) return "";
@@ -949,8 +1031,14 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   // V22.9.79 감사 E-15: 이 앱이 내보낸 백업 CSV 는 빈 결제수단·분류·내용 칸이 "값이 없음"이다. 내용 글에서 결제수단·분류를 추측하거나 빈 내용을
   // 분류 이름으로 채우지 않고 파일에 적힌 그대로 되살린다(분류가 비면 구분별 기본 분류).
   const payment = paymentVal ? String(paymentVal).trim() : backup ? "" : (naturalParsed?.payment_method || detectPaymentMethod(contextText));
-  const category = refundFlipped ? "환급" : incomeReversed ? "기타지출" : (categoryVal || (backup ? (type === "income" ? "기타수입" : "기타지출") : naturalParsed?.category || inferCategory(obj.__mapped === true ? contextText : `${importCategoryEvidence(obj, contextText, cells, payment, options)} ${memoVal}`, type)));
-  const memo = backup ? memoVal : (memoVal || naturalParsed?.memo || cleanMemo(contextText, chosen.raw || String(chosen.amount), type, payment, category) || category);
+  // 분류 근거 글(T-28)은 분류와 메모(U-11)가 함께 쓰므로 한 번만 만든다.
+  let evidenceText = null;
+  const evidence = () => (evidenceText ??= importCategoryEvidence(obj, contextText, cells, payment, options));
+  const category = refundFlipped ? "환급" : incomeReversed ? "기타지출" : (categoryVal || (backup ? (type === "income" ? "기타수입" : "기타지출") : naturalParsed?.category || inferCategory(obj.__mapped === true ? contextText : `${evidence()} ${memoVal}`, type)));
+  // V22.9.81 U-11: 제목 없는 줄(‘키: 값’ 줄·칸이 여럿인 머리글 없는 표)의 메모는 읽는 키의 값과 남은 글(분류 근거와 같은 글)로만 만든다. 예전에는
+  // 줄 전체를 다듬어 키 이름(‘날짜 금액 지점 인터넷’)과 구분자(‘, ,스타벅스,인터넷’)가 메모가 됐다. 제목 있는 표·칸이 하나인 자연어 줄은 예전 그대로다.
+  const memoSource = obj.__mapped !== true && (Array.isArray(obj.__evidence) || safeArray(cells).length > 1) ? evidence() : contextText;
+  const memo = backup ? memoVal : (memoVal || naturalParsed?.memo || cleanMemo(memoSource, chosen.raw || String(chosen.amount), type, payment, category) || category);
   const textIssue = importStorageTextIssue({ memo, payment_method: payment });
   if (textIssue) return { row: null, rejection: importRejection(textIssue, options.rowNumber, rawText), warnings };
   const spender = canonicalImportValue(obj, "spender");
@@ -1133,6 +1221,7 @@ function parseFlexibleImportRecordsInScope(rawText, householdId, defaultUserId =
     if (!backupRecord && isImportSummaryRow(summaryCells, summaryCells.join(" "), options)) { addRejected(importRejection("summary_row", rowNumber, raw)); continue; }
     if (obj && Object.keys(safeObject(obj.__canonical)).length) natural = false;
     if (!currentHeaders.length && delimiter === "," && /\d{1,3},\d{3}(?:,\d{3})*(?:원)?(?:\s|$)/.test(raw) && !findImportDateInValues(cells, options)) effectiveCells = [raw];
+    else if (!currentHeaders.length && delimiter === ",") effectiveCells = joinImportSplitThousandCells(cells);
     const detailed = normalizeImportedRecordDetailed(obj, householdId, raw, effectiveCells, defaultUserId, { ...options, natural, rowNumber, source: options.source || "import_smart", signConvention: signConvention.mode });
     if (!detailed.row) { addRejected(detailed.rejection || importRejection("unsupported_row", rowNumber, raw)); continue; }
     if (detailed.twoDigitYear) twoDigitYearRows += 1;

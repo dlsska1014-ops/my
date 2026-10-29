@@ -9,7 +9,7 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime exposes the contrast release");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22979.css"'), "changed shell uses a new immutable path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22981.css"'), "changed shell uses a new immutable path");
 
 // 1. 연간 리포트: 연도 이동 버튼이 흰 배경에 흰 글자로 사라졌다.
 ok(source.includes("body.abV22812Shell .yearNav :is(a,span){background:var(--card-2)!important;color:var(--text)!important}"), "year navigation uses theme tokens");
@@ -24,7 +24,8 @@ ok(source.includes("body.abV22812Shell.abPageAssets .heroChips span{background:v
 // 4. 어두운 챌린지 카드 위의 폼 라벨.
 ok(source.includes("body.abV22812Shell .reportChallenge :is(label,label>span,summary){color:#d7dbee!important}"), "challenge form labels stay light on the dark card");
 // 5. 일자별 셀과 증감 배지.
-ok(source.includes("body.abV22812Shell .dailyCell.noValue{opacity:.78!important}"), "empty day cells are no longer dimmed below the threshold");
+// V22.9.81 U-15: .78 투명도도 날짜·'·' 을 4.00·3.31:1 로 깎아, 투명도를 풀고 글자색(--sub)으로 흐린다(대비는 validate-screens-v22981 이 잰다).
+ok(source.includes("body.abV22812Shell .dailyCell.noValue{opacity:1!important}"), "empty day cells are no longer dimmed below the threshold");
 ok(source.includes("body.abV22812Shell .dailyCell.hasValue span{color:var(--accent)!important}"), "day cell amounts use an accessible accent");
 ok(source.includes("body.abV22812Shell :is(.deltaDown,.deltaUp){color:var(--pos)!important}"), "positive delta badges use the accessible token");
 ok(source.includes("body.abV22812Shell .deltaUp{color:var(--neg)!important}"), "negative delta badges use the accessible token");
@@ -74,10 +75,10 @@ const fixture = await createV2265QaFixture();
 try {
   const beforeTransactions = fixture.db.transactions.length;
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22979.css");
+  const shell = await request(fixture, "/assets/accountbook-shell-v22981.css");
   eq(shell.response.status, 200, "new shell asset is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22979-css"', "new shell ETag is correct");
-  for (const rule of [".yearNav :is(a,span)", ".deductBox{background:var(--card-2)", ".reportChallenge :is(label,label>span,summary)", ".dailyCell.noValue{opacity:.78", ".heroChips span"]) {
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22981-css"', "new shell ETag is correct");
+  for (const rule of [".yearNav :is(a,span)", ".deductBox{background:var(--card-2)", ".reportChallenge :is(label,label>span,summary)", ".dailyCell.noValue{opacity:1!important}", ".readableTrendGrid .dailyCell.noValue :is(.dailyTop b,.dailyAmt){color:var(--sub)!important}", ".heroChips span"]) {
     ok(shell.text.includes(rule), `deployed shell ships ${rule}`);
   }
   ok(shell.text.includes("--action:var(--ab12-action)"), "V22.8.61 token aliases are preserved");
@@ -88,7 +89,7 @@ try {
   for (const [name, path] of [["연간 리포트", "/annual?year=2026&household_id=house-home"], ["자산·계좌", `/payment-methods?${q}`], ["종합 리포트", `/my/analysis?${q}&view=report`], ["스마트 도구", `/smart-tools?${q}`]]) {
     const page = await request(fixture, path);
     eq(page.response.status, 200, `${name} 화면이 200으로 응답한다`);
-    eq(page.text.split('href="/assets/accountbook-shell-v22979.css"').length - 1, 1, `${name} 화면이 새 셸을 정확히 한 번 참조한다`);
+    eq(page.text.split('href="/assets/accountbook-shell-v22981.css"').length - 1, 1, `${name} 화면이 새 셸을 정확히 한 번 참조한다`);
     ok(!page.text.includes("accountbook-shell-v22862.css"), `${name} 화면에 이전 셸이 남아 있지 않다`);
   }
 

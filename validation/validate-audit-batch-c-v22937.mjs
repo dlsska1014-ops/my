@@ -23,7 +23,7 @@ const { ok, eq, done } = process.env.AB_AUDIT_SOFT === "1" ? softCounter(LABEL) 
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 // 이번 릴리스의 자산 주소. 바뀐 자산은 주소를 올렸고(불변 캐시), 옛 JS 주소는 AB_HISTORICAL_RUNTIME_ASSETS 로 그대로 내려간다.
-const SHELL_CSS = "/assets/accountbook-shell-v22979.css";
+const SHELL_CSS = "/assets/accountbook-shell-v22981.css";
 const NAV_JS = "/assets/accountbook-nav-v22937.js";
 const V5_JS = "/assets/accountbook-v5-v22980.js";
 const GOALS_JS = "/assets/accountbook-goals-v22946.js";
@@ -60,7 +60,7 @@ const navOf = (html) => { const start = html.indexOf('class="abLayoutNav'); retu
 
 // ── 자산 주소: 바뀐 자산은 새 주소·새 ETag, 옛 JS 주소는 바이트 그대로 ───────────────
 {
-  for (const [path, version] of [[SHELL_CSS, "v22979"], [NAV_JS, "v22937"], [V5_JS, "v22980"], [GOALS_JS, "v22946"], ["/assets/accountbook-favrows-v22937.js", "v22937"], ["/assets/accountbook-search-v22979.js", "v22979"], ["/assets/accountbook-notif-v22937.js", "v22937"]]) {
+  for (const [path, version] of [[SHELL_CSS, "v22981"], [NAV_JS, "v22937"], [V5_JS, "v22980"], [GOALS_JS, "v22946"], ["/assets/accountbook-favrows-v22937.js", "v22937"], ["/assets/accountbook-search-v22979.js", "v22979"], ["/assets/accountbook-notif-v22937.js", "v22937"]]) {
     const served = await asset(path);
     ok(served.status === 200 && served.etag.includes(version), `${path} 가 ${version} ETag 로 내려온다 (${served.etag || served.status})`);
   }

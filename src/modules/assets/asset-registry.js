@@ -11,13 +11,13 @@ const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22979.css";
 const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v22919.css";
 // V22.9.78(V77 N-12): 홈 스크립트·홈 셸에 실리는 quickInputDate 가 주 없이 쓴 ‘지난·저번 요일’을 오늘을 뺀 앞 요일로 읽게 바뀌어
 // 두 주소를 v22976 → v22978 로 올렸다. 옛 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 그대로 내려간다.
-const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22980.js";
+const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22981.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
 // V22.9.37 감사 묶음 C: 셸 CSS(U4·U9·U14), 내비·검색·알림·목표·행 즐겨찾기·V5 번들 JS(H1·U2·U3·U5·U10·U12)가 바뀌어 주소를 올렸다.
 // 옛 JS 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 이미 받아 간 화면이 계속 동작한다.
 // V22.9.40 (C2): 셸 CSS 끝에 점진적 최신 규칙 한 블록(제목·문단 줄바꿈, 글상자 높이, 창·팝오버 등장, 스크롤 막대 자리,
 // 시트 스크롤 가두기)을 더해 주소를 v22937 → v22940 으로 올렸다.
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22979.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22981.css";
 const ACCOUNTBOOK_EXPERIENCE_CSS = `
 /* V22.9.25: scoped enhancements preserve the analysis surface and theme tokens. */
 body.abV22812Shell .homeReports{container-type:inline-size;container-name:home-reports}
@@ -87,6 +87,8 @@ body.abV22812Shell .abTransactionSummary>span{font-size:13px;color:var(--sub)}
 body.abV22812Shell .abTransactionSummary>b{display:block;margin:8px 0;font-size:32px;font-weight:700}
 body.abV22812Shell .abTransactionSummary dl>div{display:flex;justify-content:space-between;gap:12px;margin:12px 0}
 body.abV22812Shell .abTransactionSummary dd{margin:0;font-weight:650;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+/* V22.9.81 U-30: 수입 합계가 모바일 홈 CSS 의 .income(#059669)을 받아 흰 바탕 3.77:1 이었다. 수입 토큰 --pos(라이트 #087a55 5.35:1, 다크 #6ee7b7)로 맞춘다. */
+body.abV22812Shell .abTransactionSummary dd.income{color:var(--pos)}
 body.abV22812Shell .abTransactionConditions h3,body.abV22812Shell .abTransactionTools h3{font-size:14px;margin:0 0 12px;font-weight:650}
 body.abV22812Shell .abTransactionConditions p{white-space:pre-line;overflow-wrap:anywhere;font-size:14px;line-height:1.7;color:var(--sub);margin:0}
 body.abV22812Shell .abTransactionTools nav{display:grid;gap:8px;grid-template-columns:repeat(2,minmax(0,1fr))}
@@ -110,7 +112,7 @@ body.abV22812Shell.abImportPreview #myImportCommitForm td:nth-child(5){font-size
 @media(prefers-reduced-motion:no-preference){body.abV22812Shell .abTxDetail[open]{animation:abTxAppear 140ms ease-out}@keyframes abTxAppear{from{opacity:0;translate:0 12px}to{opacity:1;translate:0 0}}}
 `;
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22946.js";
-const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22980.js";
+const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22981.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22937.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22979.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22937.js";

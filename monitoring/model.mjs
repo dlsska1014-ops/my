@@ -1,4 +1,4 @@
-export const MONITOR_VERSION = "1.2.1";
+export const MONITOR_VERSION = "1.3.0";
 export const PRICING_VERIFIED_AT = "2026-10-01";
 export const DAY = 86400000;
 
@@ -118,11 +118,44 @@ export function sanitizeTelemetry(input, now = Date.now()) {
   const bounded = (value,max) => Math.min(max, Math.max(0, Math.round(Number(value)||0)));
   const id = typeof input.id === "string" && idPattern.test(input.id) ? input.id : crypto.randomUUID();
   const outcome = outcomes.has(input.outcome) ? input.outcome : "unknown";
+  // 1.3.0(V79:T-43): "roundtrip" = 관제가 5분 DB 수집 요청으로 앱에 보내게 한 왕복 확인 표본. 사용자 요청 표본과 같은 길로 들어와
+  // 같은 표에 잠깐 들어가지만 요청 표본 통계에서는 빠지고, 관제가 받았는지 확인하면서 지운다. 다른 표본을 고치지(ref) 못한다.
+  const kind = input.sample_kind === "random" ? "random" : input.sample_kind === "roundtrip" ? "roundtrip" : "incident";
   return {
     id,
     at, route: input.route, method: ["GET","POST","PATCH","DELETE","PUT","HEAD"].includes(input.method) ? input.method : "OTHER",
     status, duration_ms: bounded(input.duration_ms,120000), db_count: bounded(input.db_count,1000), db_ms: bounded(input.db_ms,300000), db_failures: bounded(input.db_failures,1000),
-    outcome, sample_kind: input.sample_kind === "random" ? "random" : "incident",
-    ref: outcome !== "deferred" && typeof input.ref === "string" && idPattern.test(input.ref) && input.ref !== id ? input.ref : null,
+    outcome, sample_kind: kind,
+    ref: kind !== "roundtrip" && outcome !== "deferred" && typeof input.ref === "string" && idPattern.test(input.ref) && input.ref !== id ? input.ref : null,
+  };
+}
+
+// ── 1.3.0(V79:T-43) 앱 표본 왕복 확인 ──────────────────────────────────────────
+// 관제는 요청 표본이 하루 창 안에 없으면 '미연결'로만 보여 저사용량과 전송 고장을 가르지 못했다(표본은 요청의 2% 와 사고 요청뿐).
+// 이제 5분마다 앱을 부르는 DB 수집 요청에 왕복 확인 id 를 싣고, 앱이 사용자 표본과 같은 전송으로 확인 표본을 하나 보낸다.
+// 상태: ok = 관제가 그 표본을 받음 · failing = 앱이 보내지 못했다고 답했거나, 보냈다는데 관제에 없음 ·
+// unknown = 옛 앱(답에 roundtrip 이 없음)·앱을 부르지 못함·인증 실패·기록 없음·20분 넘게 확인 없음. unknown 은 경고를 만들지 않는다.
+// 기록은 D1 settings 의 'roundtrip' 한 행이다(표 바꿈 없음, 1.2.1 은 이 행을 읽지 않는다).
+export const ROUNDTRIP_ALERT_FAILURES = 3;
+const ROUNDTRIP_MAX_AGE_MS = 20 * 60000;
+export function roundtripRecord(previous, outcome, checkedAt) {
+  const prev = previous && typeof previous === "object" ? previous : {};
+  const streak = Number.isSafeInteger(prev.failures) && prev.failures > 0 ? prev.failures : 0;
+  // 연속 실패는 정상 확인으로만 0 이 된다. unknown(확인 못 함)은 세지도 지우지도 않는다.
+  const failures = outcome.status === "ok" ? 0 : outcome.status === "failing" ? streak + 1 : streak;
+  return { status: outcome.status, checked_at: checkedAt, error_code: outcome.status === "ok" ? null : outcome.error_code || null, last_ok_at: outcome.status === "ok" ? checkedAt : typeof prev.last_ok_at === "string" ? prev.last_ok_at : null, failures };
+}
+export function roundtripView(record, now = Date.now()) {
+  const view = { status: "unknown", checked_at: null, last_ok_at: null, error_code: "not_checked", failures: 0 };
+  if (!record || typeof record !== "object") return view;
+  const age = now - Date.parse(record.checked_at || "");
+  const stored = ["ok", "failing", "unknown"].includes(record.status) ? record.status : "unknown";
+  const fresh = Number.isFinite(age) && age >= -60000 && age <= ROUNDTRIP_MAX_AGE_MS;
+  return {
+    status: fresh ? stored : "unknown",
+    checked_at: typeof record.checked_at === "string" ? record.checked_at : null,
+    last_ok_at: typeof record.last_ok_at === "string" ? record.last_ok_at : null,
+    error_code: fresh ? (stored === "ok" ? null : String(record.error_code || "unknown").slice(0, 60)) : "stale",
+    failures: Number.isSafeInteger(record.failures) && record.failures > 0 ? record.failures : 0,
   };
 }

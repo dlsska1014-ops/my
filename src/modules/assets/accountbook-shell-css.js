@@ -720,6 +720,8 @@ body.abV22812Shell .abV5Focus{animation:abV5FocusPulse 2.4s ease-out 1;border-ra
 body.abV22812Shell .abNavBellBtn{position:relative}
 body.abV22812Shell .abV5NotifBadge{position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--neg)!important;color:#fff!important;font-size:10px;font-weight:800;line-height:16px;text-align:center}
 body.abV22812Shell .abV5NotifBadge[hidden]{display:none}
+/* V22.9.81 U-28: 다크 --neg(#fca5a5)는 글자용으로 밝힌 값이라 흰 숫자가 1.90:1 이었다. 배지 바탕만 라이트 값(#c0362c, 5.52:1)으로 되돌린다. */
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .abV5NotifBadge{background:#c0362c!important}
 body.abV22812Shell .abV5NotifOverlay{position:fixed;inset:0;z-index:3000;display:flex;align-items:flex-start;justify-content:flex-end;padding:12px}
 body.abV22812Shell .abV5NotifOverlay[hidden]{display:none}
 body.abV22812Shell .abV5NotifScrim{position:absolute;inset:0;background:rgba(15,23,42,.42)}
@@ -772,7 +774,8 @@ body.abV22812Shell .abNavCalDows span{text-align:center;font-size:9.5px;font-wei
 body.abV22812Shell .abNavCalDay,body.abV22812Shell .abNavCalBlank{aspect-ratio:1;min-width:0}
 body.abV22812Shell .abNavCalDay{position:relative;display:grid;place-items:center;border-radius:8px;color:var(--sub)!important;text-decoration:none;font-size:10.5px;font-weight:700}
 body.abV22812Shell .abNavCalDay:hover{background:var(--card)!important;color:var(--text)!important}
-body.abV22812Shell .abNavCalDay.isToday{background:var(--accent)!important;color:#fff!important;font-weight:900}
+/* V22.9.81 U-29: 오늘 칸이 다크에서 밝아지는 --accent 위 흰 글씨(1.44~1.85:1)였다. 흰 글씨용 채움 --action(라이트는 --accent 와 같은 값)을 쓴다. */
+body.abV22812Shell .abNavCalDay.isToday{background:var(--action)!important;color:#fff!important;font-weight:900}
 body.abV22812Shell .abNavCalDay i{position:absolute;left:50%;bottom:2px;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--accent)!important}
 body.abV22812Shell .abNavCalDay.isToday i{background:#fff!important}
 body.abV22812Shell .abNavCalToday{display:block;margin-top:6px;text-align:right;color:var(--accent)!important;text-decoration:none;font-size:10.5px;font-weight:800}
@@ -1105,7 +1108,9 @@ body.abV22812Shell .dailyDrill{display:inline-flex;align-items:center;min-height
 body.abV22812Shell .reportChallenge :is(label,label>span,summary){color:#d7dbee!important}
 body.abV22812Shell .reportChallenge summary{color:#fff!important}
 /* 일자별 셀: 빈 날 표시와 금액 요약이 4.5:1을 넘기지 못했다. */
-body.abV22812Shell .dailyCell.noValue{opacity:.78!important}
+/* V22.9.81 U-15: 빈 날을 투명도(.78)로 흐리면 날짜·'·' 이 4.00·3.31:1 로 깎였다. 투명도는 풀고 글자색(--sub)으로 흐린다. */
+body.abV22812Shell .dailyCell.noValue{opacity:1!important}
+body.abV22812Shell .readableTrendGrid .dailyCell.noValue :is(.dailyTop b,.dailyAmt){color:var(--sub)!important}
 body.abV22812Shell .dailyCell :is(span,small){color:var(--sub)!important}
 body.abV22812Shell .dailyCell.hasValue span{color:var(--accent)!important}
 /* 증감 배지는 밝은 카드 위에서 4.5:1을 넘기지 못했다. 대비가 확보된 토큰으로 맞춘다. */

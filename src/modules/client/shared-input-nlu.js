@@ -28,9 +28,39 @@ function foldInputWidth(text = "") {
 // 1만 + 5천)으로 나뉘어 두 건으로 저장됐다. 뒤가 ‘만’으로 끝나면 앞이 억이거나 앞의 끝 단위(천·백)가 뒤의 첫 단위보다 클 때만 붙인다
 // (“만 오천만원”·“천 오천만원”은 예전처럼 둘). 뒤따르는 결제수단은 결제수단 판정(inputPaymentPatterns)이 그 자리에서 읽는 말만 본다
 // (‘현금영수증’·‘카드 지갑’·‘토스트’ 앞에서는 붙이지 않는다). 정규식은 처음 부를 때 한 번만 만든다.
+// V22.9.81 U-9: 앞이 십·백·천만 가진 수(“오십”·“삼백”·“천오백”, 단위 한 글자 “백”(가방)·“천”(옷감)은 빼고 “십”은 넣는다)이고 뒤가
+// ‘만·억’으로 끝나며 그 머리가 앞의 가장 작은 단위보다 작으면 한 금액이다(“오십 오만원” = 55만, “삼백 오만원” = 305만, “오십 5만원” = 55만).
+// 예전에는 앞이 만·억·천·백으로 끝날 때만 보아 “월세 오십 오만원”이 두 건(50원 + 50,000원)으로 저장됐다. 머리가 앞의 단위보다 크거나
+// 같으면(“오십 오십만원”) 잇지 않고, 뒤가 ‘만·억’으로 끝나지 않으면(“커피 오십 오천”) 예전 그대로다. 이 묶음을 먼저 이어야
+// “삼억 오십 오만원”이 아래 규칙으로 한 금액(3억55만)이 된다. 뒤따르는 말 조건(‘원’·문장 끝·결제수단)은 아래 규칙과 같다.
+// V22.9.81 (g): 세 낱말 사슬(“오십 오만 오천원” = 55만5천, “십 오만 삼천원” = 15만3천)도 한 금액이다. 뒤의 만·억 아래 수(‘오천’·‘5천’·‘오천오백’)는
+// 아래 규칙이 앞 낱말에 늘 잇는 꼴이라, 그 낱말이 뒤따르고 그 뒤가 ‘원’·문장 끝·결제수단이면 이 묶음도 잇는다. 예전에는 뒤따르는 말 조건에
+// 걸려 50원 + 55,000원 두 건이었다. 뒤 낱말이 ‘만’으로 끝나면(“오십 오만 오천만원”) 예전 그대로다.
 function joinSpacedKoreanAmount(text = "") {
-  const pattern = joinSpacedKoreanAmount.pattern || (joinSpacedKoreanAmount.pattern = new RegExp("(^|\\s)([일이삼사오육칠팔구십백천]*[만억천백])\\s+((?:[일이삼사오육칠팔구]|\\d{1,3}|\\d{4}(?=만))?([천백십만])[일이삼사오육칠팔구십백]*만?)(?=\\s*원|\\s*$|\\s+(?:" + inputPaymentPatterns().methods.map((method) => method[0].source).join("|") + "))", "gi"));
-  return String(text || "").replace(pattern,
+  if (!joinSpacedKoreanAmount.pattern) {
+    const end = "(?:\\s*원|\\s*$|\\s+(?:" + inputPaymentPatterns().methods.map((method) => method[0].source).join("|") + "))";
+    const after = "(?=" + end + ")";
+    const chain = "(?=" + end + "|\\s+(?:[일이삼사오육칠팔구]|\\d{1,3})?[천백십][일이삼사오육칠팔구십백]*" + end + ")";
+    joinSpacedKoreanAmount.smallHead = new RegExp("(^|\\s)(십|[일이삼사오육칠팔구십백천]+[십백천])\\s+([일이삼사오육칠팔구십백천]+|\\d{1,4})([만억])" + chain, "gi");
+    joinSpacedKoreanAmount.pattern = new RegExp("(^|\\s)([일이삼사오육칠팔구십백천]*[만억천백])\\s+((?:[일이삼사오육칠팔구]|\\d{1,3}|\\d{4}(?=만))?([천백십만])[일이삼사오육칠팔구십백]*만?)" + after, "gi");
+  }
+  const digit = { 일: 1, 이: 2, 삼: 3, 사: 4, 오: 5, 육: 6, 칠: 7, 팔: 8, 구: 9 };
+  const simple = (part) => { let out = 0; for (const ch of part) if (digit[ch] !== undefined) out = out * 10 + digit[ch]; return out; };
+  const below = (part) => {
+    let total = 0, rest = part;
+    for (const [name, value] of [["천", 1000], ["백", 100], ["십", 10]]) {
+      const at = rest.indexOf(name);
+      if (at >= 0) { total += (rest.slice(0, at) ? simple(rest.slice(0, at)) || 1 : 1) * value; rest = rest.slice(at + 1); }
+    }
+    return rest ? total + simple(rest) : total;
+  };
+  const joined = String(text || "").replace(joinSpacedKoreanAmount.smallHead,
+    (all, lead, head, next, big) => {
+      const nextValue = /^\d/.test(next) ? Number(next) : below(next);
+      if (!(nextValue > 0 && nextValue < { 십: 10, 백: 100, 천: 1000 }[head.slice(-1)])) return all;
+      return /^\d/.test(next) ? `${lead}${below(head) + nextValue}${big}` : `${lead}${head}${next}${big}`;
+    });
+  return joined.replace(joinSpacedKoreanAmount.pattern,
     (all, lead, head, tail, unit) => {
       const unitValue = { 억: 100000000, 만: 10000, 천: 1000, 백: 100 }[head.slice(-1)];
       const tailValue = { 만: 10000, 천: 1000, 백: 100, 십: 10 }[unit];
@@ -39,16 +69,6 @@ function joinSpacedKoreanAmount(text = "") {
         : unitValue > tailValue;
       if (!joinable) return all;
       if (!/^\d/.test(tail)) return `${lead}${head}${tail}`;
-      const digit = { 일: 1, 이: 2, 삼: 3, 사: 4, 오: 5, 육: 6, 칠: 7, 팔: 8, 구: 9 };
-      const simple = (part) => { let out = 0; for (const ch of part) if (digit[ch] !== undefined) out = out * 10 + digit[ch]; return out; };
-      const below = (part) => {
-        let total = 0, rest = part;
-        for (const [name, value] of [["천", 1000], ["백", 100], ["십", 10]]) {
-          const at = rest.indexOf(name);
-          if (at >= 0) { total += (rest.slice(0, at) ? simple(rest.slice(0, at)) || 1 : 1) * value; rest = rest.slice(at + 1); }
-        }
-        return rest ? total + simple(rest) : total;
-      };
       let headValue = 0, rest = head;
       const eok = rest.split("억");
       if (eok.length > 1) { headValue += (eok[0] ? below(eok[0]) : 1) * 100000000; rest = eok.slice(1).join("억"); }
@@ -268,6 +288,12 @@ function inferInputCategory(raw, type, rules) {
 // 간편결제·해외송금)이라 떼면 "공동구매"가 "공동"이 됐다. 금액을 뺀 뒤 홀로 남은 단위 ‘원’("점심 ₩12000"의 ₩)과 어림말 ‘정도’도 지운다.
 // V22.9.79: 카드사 이름·요일 앞말의 “앞이 글자가 아닐 때만” 조건은 뒤돌아보기 대신 앞 한 글자(글자 아님)를 함께 잡았다가 바꿀 때 돌려준다
 // (지우는 범위가 같아 결과가 같다).
+// V22.9.81: ‘지지난달·저저번달 25일/말일’은 통째로 지운다(예전에는 안의 ‘지난달 25일’만 지워 메모가 ‘지 커피’였다). 요일 앞의
+// ‘지지난번’·‘다가오는’도 함께 지운다.
+// V22.9.81 (d): 날짜 파서(quickInputDate)가 읽는 하루 말 ‘모레·지금·방금’과 맞는 8자리 날짜(‘20260731’)도 지운다. 예전에는 메모가
+// ‘모레 커피’·‘20260731 커피’였다. 날짜 파서와 같은 낱말 경계(앞이 문장 처음·띄어쓰기, 뒤가 띄어쓰기·끝, 사이에 때 말 ‘아침·저녁…’만)에서만
+// 지워 ‘아모레’·‘모레아’·‘지금껏’·‘방금전’은 그대로이고, 때 말은 ‘어제저녁’처럼 남긴다(‘모레아침 커피’ → ‘아침 커피’). 8자리 수는 달·날이
+// 맞을 때만 날짜다(‘주문번호 20123456’은 그대로). ‘2026-08-01’처럼 다른 날짜 말이 있어도 날짜 꼴이면 지운다(예전 규칙과 같다).
 function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
   const patterns = cleanInputMemo.cache || (cleanInputMemo.cache = (() => {
     const escape = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -285,7 +311,7 @@ function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
       fixed: fixedWords.map((item) => new RegExp(commandWords.includes(item) ? "(^|\\s)" + escape(item) + "(?=\\s|\\d|$)" : escape(item), "g")),
       cardName: withNames("(?:신용카드|체크카드|카드)" + pay.end, "gi"),
       paymentWord: new RegExp("(?:현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스페이|토스뱅크|토스|계좌이체|자동이체|무통장|체크|신용)" + pay.end, "g"),
-      weekday: new RegExp("(?:(^|[^가-힣])(?:(?:지지난|저저번|지난|저번|이번|다음|오는|돌아오는)\\s*주|전주|금주|내주|지지난|저저번|지난번|지난|저번|이번|다음|오는|돌아오는)\\s*[월화수목금토일]요일|[월화수목금토일]요일)", "g"),
+      weekday: new RegExp("(?:(^|[^가-힣])(?:(?:지지난|저저번|지난|저번|이번|다음|오는|돌아오는|다가오는)\\s*주|전주|금주|내주|지지난번|지지난|저저번|지난번|지난|저번|이번|다음|오는|돌아오는|다가오는)\\s*[월화수목금토일]요일|[월화수목금토일]요일)", "g"),
       anywhere: /^(?:(?:신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오|토스)카드|삼성페이|카카오페이|네이버페이|애플페이|페이코|제로페이)$/i,
     };
   })());
@@ -322,13 +348,15 @@ function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
 
   memo = memo
     .replace(/20\d{2}[.\-/년\s]+\d{1,2}[.\-/월\s]+\d{1,2}일?/g, " ")
+    .replace(/(^|\s)20(\d{2})(\d{2})(\d{2})(?=\s|$)/g, (all, before, y, m, d) => { const dt = new Date(Date.UTC(2000 + Number(y), Number(m) - 1, Number(d))); return dt.getUTCMonth() === Number(m) - 1 && dt.getUTCDate() === Number(d) ? keep(all, before) : all; })
+    .replace(/(^|\s)(?:지금|방금|모레)(?=(?:아침|점심|저녁|밤|새벽|오전|오후)?(?:\s|$))/g, keep)
     .replace(patterns.weekday, keep)
-    .replace(/(?:지난|저번)\s*달\s*\d{1,2}일?/g, " ")
+    .replace(/(?:지지난|저저번|지난|저번)\s*달\s*\d{1,2}일?/g, " ")
     .replace(/(?:이번\s*달|이달)\s*\d{1,2}일?/g, " ")
     .replace(/(?:다음\s*달|담달)\s*\d{1,2}일?/g, " ")
     .replace(/(?:^|\s)(?:\d{1,2}|한|두|세|네|일|이|삼|사)\s*(?:일|주일|주|달|개월)\s*[전후](?=\s|$)/g, " ")
     .replace(/(?:^|\s)(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\s*[전후](?=\s|$)/g, " ")
-    .replace(/(?:(?:지난|저번|이번|다음)\s*달|이달|담달)?\s*말일/g, " ")
+    .replace(/(?:(?:지지난|저저번|지난|저번|이번|다음)\s*달|이달|담달)?\s*말일/g, " ")
     .replace(/(?:재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*(?=\d{1,2}\s*(?:월|[./]))/g, " ")
     .replace(/\d{1,2}\s*월\s*\d{1,2}일?/g, " ")
     .replace(/\d{1,2}[.\/]\d{1,2}/g, " ")

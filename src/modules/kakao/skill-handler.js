@@ -800,6 +800,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   }
 
   const summaryRange = parseKakaoSummaryRange(utterance);
+  // V22.9.81 U-25: 달력에 없는 날은 다른 날로 넘겨 요약하지 않는다(제목·분석 링크도 만들지 않는다). 날짜 기록 목록의 안내와 같은 말을 쓴다.
+  if (summaryRange?.invalidDate) return kakaoText(`‘${summaryRange.text}’은 달력에 없는 날짜라서 요약하지 않았어요.\n이렇게 보내 주세요: 어제 요약 · 7월 10일 요약 · 9월 요약`);
   // V22.9.76 감사 A-13: 읽지 못한 기간을 이번 달로 바꿔 답하지 않는다.
   if (summaryRange?.unreadable) return kakaoText(`요약할 기간을 읽지 못했어요${summaryRange.text ? `: ‘${summaryRange.text}’` : ""}.\n이렇게 보내 주세요: 이번 달 요약 · 지난달 요약 · 9월 요약 · 어제 요약 · 이번 주 요약`);
   if (summaryRange) {

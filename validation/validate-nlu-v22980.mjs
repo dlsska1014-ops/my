@@ -443,7 +443,8 @@ await scene("T-39", async () => {
       t.ok(reply === expected && reply.includes(header), `T-39 ‘${ask}’는 ‘${summary}’와 같은 기간 요약(${header}) (${reply.slice(0, 60)})`);
     }
     // 읽지 못하는 기간은 이번 달로 바꾸지 않는다(A-13 — ‘저저번달 뭐 썼어’와 같다)
-    for (const ask of ["저저번달 얼마나 썼어", "저저번달 얼마 썼어", "지지난달 얼마나 썼어", "지지난주 얼마 나갔어", "작년 얼마나 썼어", "13월 얼마나 썼어", "다음 달 얼마나 썼어"]) {
+    // V22.9.81 U-6: ‘지지난달 얼마나 썼어’·‘지지난주 얼마 나갔어’는 두 단계 전 기간의 요약으로 읽게 되어 이 목록에서 뺐다(validate-nlu-v22981 U-6 장면이 본다).
+    for (const ask of ["저저번달 얼마나 썼어", "저저번달 얼마 썼어", "작년 얼마나 썼어", "13월 얼마나 썼어", "다음 달 얼마나 썼어"]) {
       const reply = await say(fx, ask);
       t.ok(reply.includes("요약할 기간을 읽지 못했어요") && !reply.includes("📊"), `T-39 읽지 못하는 기간 ‘${ask}’는 이번 달로 답하지 않는다 (${reply.slice(0, 60)})`);
     }

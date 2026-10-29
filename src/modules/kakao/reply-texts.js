@@ -91,6 +91,23 @@ function formatMessage(msg) {
     payment_asset_updated_snapshot_deferred: "자산 정보는 수정했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_balance_updated_snapshot_deferred: "현재 잔액은 저장했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
     payment_asset_deleted_snapshot_deferred: "자산·결제수단은 삭제했습니다. 이번 달 순자산 기록 갱신은 잠시 후 다시 시도해 주세요.",
+    // V22.9.81 U-2: 자산·결제수단 화면(/payment-methods)의 오류 코드. 예전에 err 에 그대로 싣던 문장이다.
+    payment_asset_manage_required: "자산·결제수단 관리는 가계부 소유자와 관리자만 할 수 있습니다.",
+    payment_asset_balance_invalid: "잔액을 숫자로 입력해 주세요(예: 500000, 1,500,000, 150만원). 입력 내용은 저장되지 않았습니다.",
+    payment_asset_balance_required: "잔액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.",
+    payment_asset_negative_balance: "음수 잔액은 대출·부채와 신용카드에서만 입력할 수 있습니다. 자산 잔액은 0 이상으로 입력해 주세요. 입력 내용은 저장되지 않았습니다.",
+    payment_asset_name_required: "이름을 입력해 주세요. 입력 내용은 저장되지 않았습니다.",
+    payment_asset_sensitive_number: "계좌번호·카드번호 전체는 저장할 수 없습니다. 알아볼 수 있는 별칭만 입력해 주세요.",
+    payment_asset_name_invalid: "이름이 비어 있거나 계좌번호·카드번호 전체가 들어 있어 저장하지 않았습니다. 알아볼 수 있는 별칭을 입력해 주세요.",
+    payment_asset_name_duplicate: "같은 이름의 자산·결제수단이 이미 있습니다. 다른 이름을 쓰거나 기존 항목을 수정해 주세요.",
+    payment_asset_not_found: "자산·결제수단 항목을 찾지 못했습니다. 이미 지워졌을 수 있으니 화면을 새로고침해 주세요.",
+    payment_asset_busy: "다른 자산 변경을 처리 중입니다. 잠시 후 다시 시도해 주세요.",
+    payment_asset_save_failed: "자산 저장을 완료하지 못했습니다. 기존 자산은 변경되지 않았습니다.",
+    payment_asset_update_failed: "자산 수정을 완료하지 못했습니다. 기존 값은 유지됩니다.",
+    payment_asset_delete_failed: "자산 삭제를 완료하지 못했습니다. 기존 항목은 유지됩니다.",
+    // V22.9.81 U-3: 정기 수입·지출 화면의 고정항목 반영 실패 코드(예전에는 err 에 문장으로 실어 일반 안내로 보였다).
+    recurring_spender_required: "지출자가 정해지지 않은 고정항목이 있어 반영하지 않았습니다. 고정항목의 지출자를 먼저 지정해 주세요.",
+    recurring_apply_failed: "고정항목 반영을 완료하지 못했습니다. 기존 기록은 변경하지 않았습니다.",
   };
   // V22.9.76 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 Object 의 함수 본문을 보였다).
   if (Object.hasOwn(friendly, String(msg)) && friendly[msg]) return escapeHtml(friendly[msg]);

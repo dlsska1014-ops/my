@@ -48,6 +48,8 @@ async function supabase(env, path, init = {}) {
   let failed = false;
   let dispatched = false;
   let status = 0;
+  // V22.9.81 U-22: 응답 머리(상태)는 받았지만 본문을 아직 다 받지 못한 동안 true 다.
+  let bodyPending = false;
   let expectedOptionalAbsence = false;
   let timer;
   let timeout = false;
@@ -72,7 +74,9 @@ async function supabase(env, path, init = {}) {
       const res = await fetch(`${base}${path}`, { ...fetchInit, headers, signal });
       status = res.status;
       if (rawHeadResponse && method === "HEAD" && (res.ok || [405, 501].includes(status))) return res;
+      bodyPending = true;
       const text = await res.text();
+      bodyPending = false;
       if (!res.ok) {
         // V22.9.45: only an explicitly optional categories GET may treat this
         // schema-cache absence as expected. Authentication, writes and other
@@ -124,7 +128,11 @@ async function supabase(env, path, init = {}) {
     }
   } catch (error) {
     failed = true;
-    if (!readOnly && dispatched && (!status || status >= 500 || status === 408)) {
+    // V22.9.81 U-22: 2xx 머리를 받은 뒤 본문 받기가 끊기거나 쓰기 시한에 걸린 쓰기도 결과 불확실이다. 저장소는 이미 반영했을 수 있다.
+    // 예전에는 상태가 있어 이 판정에 들지 않고 전송 오류·조회 시한 오류로 나가, 부르는 곳이 ‘저장하지 못함’으로 안내했다(다시 보내면
+    // 두 번 저장될 수 있다). 4xx 는 상태만으로 거절이 분명하므로 그대로 둔다.
+    const bodyLost = bodyPending && status >= 200 && status < 300;
+    if (!readOnly && dispatched && (!status || status >= 500 || status === 408 || bodyLost)) {
       const uncertain = new Error("supabase_write_result_unknown: 처리 결과를 확인하지 못했습니다. 기록·목표·참여 상태를 먼저 확인하고 같은 요청을 반복하지 마세요.", { cause: error });
       uncertain.name = "SupabaseWriteUncertainError";
       uncertain.code = "supabase_write_result_unknown";
