@@ -376,7 +376,8 @@ function kakaoOpenBuilderGuideText(origin = "") {
     "카카오톡에서 기본 응답으로 빠지면 대부분 Worker가 아니라 오픈빌더 블록/폴백이 /skill로 전달되지 않는 상태예요.",
     "",
     "필수 연결",
-    `Skill URL: ${origin}/skill`,
+    // V22.9.88(Y-7): 답 글에 주소를 넣지 않는다. 스킬 주소는 아래 ‘설정 가이드’ 화면에 있다.
+    "Skill URL: 아래 ‘설정 가이드’에서 복사",
     "",
     "반드시 /skill로 연결할 발화",
     "• 도움말 / 처음 / 메뉴",

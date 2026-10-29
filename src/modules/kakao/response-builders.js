@@ -186,8 +186,9 @@ function kakaoGroupChoiceButtons(quickReplies = []) {
     .map((reply) => ({ label: reply.messageText.length <= 14 ? reply.messageText : reply.label, action: "message", messageText: reply.messageText }));
 }
 
-function kakaoGroupChoiceCards(quickReplies = [], outputs = []) {
-  const buttons = kakaoGroupChoiceButtons(quickReplies);
+// V22.9.88(Y-7): 링크 버튼(leadButtons)은 메시지 버튼보다 앞에 둔다. 그래서 늘 첫 카드에 들어가고, 글로 늘어놓는 나머지(rest)에는 오지 않는다.
+function kakaoGroupChoiceCards(quickReplies = [], outputs = [], leadButtons = []) {
+  const buttons = [...leadButtons, ...kakaoGroupChoiceButtons(quickReplies)];
   if (!buttons.length) return { outputs, rest: [] };
   const merged = [...outputs];
   let used = 0;
@@ -200,13 +201,179 @@ function kakaoGroupChoiceCards(quickReplies = [], outputs = []) {
   }
   while (used < buttons.length && merged.length < 3) {
     const chunk = buttons.slice(used, used + 5);
-    merged.push({ textCard: { title: used ? "더 보기" : "골라 주세요", buttons: chunk, buttonLayout: "vertical" } });
+    const title = used ? "더 보기" : chunk.every((button) => button.action === "webLink") ? "바로 열기" : "골라 주세요";
+    merged.push({ textCard: { title, buttons: chunk, buttonLayout: "vertical" } });
     used += chunk.length;
   }
-  return { outputs: merged, rest: buttons.slice(used) };
+  return { outputs: merged, rest: buttons.slice(used).filter((button) => button.action === "message") };
 }
+
+// V22.9.88(Y-7): 카카오 그룹 챗봇 심사 의견(2026-10-29) — 챗봇 답의 글에 http(s) 주소를 그대로 넣지 말고, 버튼을 누르면 그 페이지가
+// 열리게 한다. 우리 사이트 주소는 링크 버튼(webLink)으로 옮긴다(주소만 있는 줄 바로 앞의 짧은 줄이 버튼 이름). 다른 곳 주소(사용자가
+// 쓴 메모 등)는 버튼으로 만들지 않고 글에서 ‘(링크)’로 바꾼다. 단톡방의 ‘웹가계부’ 메시지 버튼도 바로 열리는 링크 버튼으로 바꾼다
+// (1:1 의 ‘웹가계부’ 답은 웹 연결 코드를 주므로 메시지 버튼으로 둔다).
+// 버튼을 누르면 카카오가 주소 뒤에 botUserKey·appUserId·botGroupKey 를 붙인다. 웹은 그 값으로 로그인하거나 권한을 정하지 않는다.
+const KAKAO_TEXT_URL = /https?:\/\/[^\s<>"'`]+/gi;
+const KAKAO_LINK_LABEL_MAX = 14;
+const KAKAO_LINK_BUTTON_MAX = 3;
+const KAKAO_WEB_LEDGER_COMMANDS = new Set(["웹가계부", "웹 가계부 열기"]);
+
+function kakaoLinkButton(label, webLinkUrl) {
+  return { label: String(label || "").trim().slice(0, KAKAO_LINK_LABEL_MAX) || "웹에서 보기", action: "webLink", webLinkUrl: String(webLinkUrl) };
+}
+
+function kakaoLinkDefaultLabel(pathname = "") {
+  if (pathname === "/my" || pathname === "/app") return "웹 가계부 열기";
+  if (pathname.startsWith("/my/households")) return "가계부 관리";
+  if (pathname.startsWith("/my/settings")) return "설정 열기";
+  if (pathname.startsWith("/my/analysis")) return "분석 보기";
+  return "웹에서 보기";
+}
+
+function kakaoOwnLinkUrl(raw = "", origin = "") {
+  try {
+    const url = new URL(String(raw).replace(/[)\].,;:!?'"’”」』…]+$/u, ""));
+    return origin && url.origin === new URL(origin).origin ? url : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function kakaoTextLinks(text, origin = "") {
+  if (typeof text !== "string" || !/https?:\/\//i.test(text)) return { text, links: [] };
+  const lines = [];
+  const links = [];
+  for (const line of text.split("\n")) {
+    const found = line.match(KAKAO_TEXT_URL);
+    if (!found) {
+      lines.push(line);
+      continue;
+    }
+    let rest = line;
+    const own = [];
+    for (const raw of found) {
+      const url = kakaoOwnLinkUrl(raw, origin);
+      rest = rest.replace(raw, url ? "" : "(링크)");
+      if (url) own.push(url);
+    }
+    rest = rest.replace(/\s*[:：→-]\s*$/u, "").replace(/\s{2,}/g, " ").trim();
+    let label = "";
+    if (own.length === 1 && !rest) {
+      const previous = String(lines.at(-1) || "").trim();
+      if (previous && previous.length <= KAKAO_LINK_LABEL_MAX && !/[.!?。…]$/u.test(previous)) {
+        label = previous;
+        lines.pop();
+      }
+    } else if (own.length === 1 && rest.length <= KAKAO_LINK_LABEL_MAX) {
+      label = rest;
+      rest = "";
+    }
+    for (const url of own) links.push(kakaoLinkButton(label || kakaoLinkDefaultLabel(url.pathname), url.href));
+    if (rest) lines.push(rest);
+  }
+  return { text: lines.join("\n").replace(/\n{3,}/g, "\n\n").trim(), links };
+}
+
+function kakaoUniqueLinks(links = []) {
+  const seen = new Set();
+  return links.filter((button) => !seen.has(button.webLinkUrl) && seen.add(button.webLinkUrl)).slice(0, KAKAO_LINK_BUTTON_MAX);
+}
+
+// 카드 안의 주소는 그 카드의 버튼 앞쪽에 넣는다. ‘기록하기’(멘션)는 맨 아래에 남기고 모두 5개까지.
+function kakaoLinkCardOutput(kind, card, origin) {
+  const next = { ...card };
+  const own = [];
+  for (const field of ["title", "description"]) {
+    if (typeof next[field] !== "string") continue;
+    const result = kakaoTextLinks(next[field], origin);
+    own.push(...result.links);
+    if (result.text) next[field] = result.text;
+    else delete next[field];
+  }
+  let buttons = Array.isArray(next.buttons) ? next.buttons : [];
+  if (own.length) {
+    const mention = buttons.filter((button) => button?.action === "mention");
+    const others = buttons.filter((button) => button?.action !== "mention");
+    buttons = [...kakaoUniqueLinks(own), ...others].slice(0, 5 - mention.length).concat(mention);
+  }
+  if (buttons.length) next.buttons = buttons;
+  if (!next.title && !next.description) next.title = "바로 열기";
+  return { [kind]: next };
+}
+
+function kakaoLinkOutputs(outputs = [], origin = "") {
+  const links = [];
+  const result = [];
+  for (const output of outputs) {
+    if (typeof output?.simpleText?.text === "string") {
+      const { text, links: found } = kakaoTextLinks(output.simpleText.text, origin);
+      links.push(...found);
+      if (text) result.push(text === output.simpleText.text ? output : { simpleText: { ...output.simpleText, text } });
+      continue;
+    }
+    const kind = output?.textCard ? "textCard" : output?.basicCard ? "basicCard" : "";
+    result.push(kind ? kakaoLinkCardOutput(kind, output[kind], origin) : output);
+  }
+  return { outputs: result, links: kakaoUniqueLinks(links) };
+}
+
+// 단톡방의 ‘웹가계부’ 메시지 버튼(설명서 카드·바꾼 바로가기 모두)은 누르면 웹 가계부가 바로 열리는 링크 버튼으로 바꾼다.
+function kakaoWebLedgerLinkButtons(outputs = [], origin = "") {
+  if (!origin) return outputs;
+  return outputs.map((output) => {
+    const kind = output?.textCard ? "textCard" : output?.basicCard ? "basicCard" : "";
+    const buttons = kind && Array.isArray(output[kind].buttons) ? output[kind].buttons : null;
+    if (!buttons?.some((button) => button?.action === "message" && KAKAO_WEB_LEDGER_COMMANDS.has(String(button.messageText || "").trim()))) return output;
+    return { [kind]: { ...output[kind], buttons: buttons.map((button) => (button?.action === "message" && KAKAO_WEB_LEDGER_COMMANDS.has(String(button.messageText || "").trim())
+      ? kakaoLinkButton(button.label, `${origin}/my`) : button)) } };
+  });
+}
+
+// 1:1 은 바로가기(quickReplies)를 그대로 두고 글 속 주소만 링크 버튼으로 옮긴다. 글 말풍선은 그대로 두고(웹 연결 코드처럼 복사할
+// 글이 있다) 버튼은 뒤의 ‘바로 열기’ 카드에 둔다. 말풍선이 이미 3개면 마지막 짧은 글에 붙인다.
+async function kakaoDirectLinkResponse(response, origin = "") {
+  try {
+    const raw = await response.clone().text();
+    if (!/https?:\/\//i.test(raw)) return response;
+    const data = JSON.parse(raw || "{}");
+    const template = data?.template && typeof data.template === "object" ? { ...data.template } : null;
+    if (!template || !Array.isArray(template.outputs)) return response;
+    const linked = kakaoLinkOutputs(template.outputs, origin);
+    let outputs = linked.outputs.slice(0, 3);
+    if (linked.links.length && outputs.length < 3) outputs.push({ textCard: { title: "바로 열기", buttons: linked.links, buttonLayout: "vertical" } });
+    else if (linked.links.length) outputs = kakaoGroupChoiceCards([], outputs, linked.links).outputs;
+    if (!outputs.length) return response;
+    const headers = new Headers(response.headers || {});
+    headers.set("content-type", "application/json; charset=utf-8");
+    return new Response(JSON.stringify({ ...data, template: { ...template, outputs } }), { status: response.status, statusText: response.statusText, headers });
+  } catch (_) {
+    return response;
+  }
+}
+
+// V22.9.88(Y-7): ‘웹가계부’ 답(단톡방). 주소 글 대신 웹 가계부를 여는 버튼 하나를 단다. 로그인돼 있으면 바로 열리고, 아니면
+// 로그인 화면이 먼저 나온다(웹은 카카오가 붙이는 값으로 로그인하지 않는다).
+// 이 방 가계부 번호(household_id)는 넣지 않는다. 단톡방 기록 계정과 웹 로그인 계정은 아직 이어지지 않아(챗봇에 앱이 연결되지 않아
+// appUserId 가 없다), 웹 계정이 그 가계부 구성원이 아니면 /my?household_id= 는 ‘가계부를 찾을 수 없어요’(404)가 된다.
+function kakaoWebLedgerReply(origin = "") {
+  if (!origin) return kakaoText("웹 가계부는 말해가계부 웹사이트에서 로그인한 뒤 볼 수 있어요.");
+  return jsonResponse({
+    version: "2.0",
+    template: {
+      outputs: [{
+        textCard: {
+          title: "웹 가계부",
+          description: "전체 기록과 분석을 웹에서 크게 볼 수 있어요.\n아래 버튼을 누르면 바로 열려요(처음에는 로그인).",
+          buttons: [kakaoLinkButton("웹 가계부 열기", `${origin}/my`)],
+          buttonLayout: "vertical",
+        },
+      }],
+    },
+  }, 200);
+}
+
 async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "") {
-  if (!getKakaoBotGroupKey(payload)) return response;
+  if (!getKakaoBotGroupKey(payload)) return kakaoDirectLinkResponse(response, origin);
   try {
     const raw = await response.clone().text();
     const data = JSON.parse(raw || "{}");
@@ -214,15 +381,16 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
     const quickReplies = template.quickReplies;
     delete template.quickReplies;
 
-    const outputs = (Array.isArray(template.outputs) ? template.outputs : []).map((output) => {
+    const supported = (Array.isArray(template.outputs) ? template.outputs : []).map((output) => {
       if (!output || typeof output !== "object") return null;
       const supportedKey = Object.keys(output).find((key) => KAKAO_GROUP_SUPPORTED_OUTPUTS.has(key));
       return supportedKey ? { [supportedKey]: output[supportedKey] } : null;
     }).filter(Boolean).slice(0, 3);
 
-    if (!outputs.length) return kakaoText(kakaoSkillSafeFallbackText(origin));
-    const choice = kakaoGroupChoiceCards(quickReplies, outputs);
-    outputs.splice(0, outputs.length, ...choice.outputs);
+    if (!supported.length) return kakaoText(kakaoSkillSafeFallbackText(origin));
+    const linked = kakaoLinkOutputs(supported, origin);
+    const choice = kakaoGroupChoiceCards(quickReplies, linked.outputs, linked.links);
+    const outputs = kakaoWebLedgerLinkButtons(choice.outputs, origin);
     const textChoices = kakaoGroupTextChoices(choice.rest);
     if (textChoices) {
       const simpleTextOutput = outputs.find((output) => output?.simpleText?.text);
@@ -252,6 +420,6 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
 export {
   dedupeQuickReplies, isDefiniteStorageFailure, isUncertainStorageWrite, kakaoDefaultQuickReplies,
   kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoNextStepReply, kakaoQr,
-  kakaoSaveFailedText, kakaoText,
+  kakaoSaveFailedText, kakaoText, kakaoWebLedgerReply,
 };
 // @build:exports-end

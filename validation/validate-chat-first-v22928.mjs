@@ -49,8 +49,10 @@ async function issue(f) {
   const text = textOf(result.body);
   const code = text.match(codePattern)?.[0] || "";
   ok(code, "private trusted existing user receives an opaque code");
-  eq((text.match(/https:\/\//g) || []).length, 1, "private link contains exactly one URL");
-  ok(text.includes(`${BASE}/my`) && !text.includes("household_id="), "private URL stays generic /my");
+  // V22.9.88 Y-7: the address moved from the text into one webLink button (Kakao review: no raw URL in replies).
+  const links = (result.body.template?.outputs || []).flatMap((output) => output.textCard?.buttons || []).filter((button) => button.action === "webLink").map((button) => button.webLinkUrl);
+  eq((text.match(/https:\/\//g) || []).length, 0, "private reply text contains no URL");
+  eq(JSON.stringify(links), JSON.stringify([`${BASE}/my`]), "private link is exactly one generic /my button (no household_id)");
   return code;
 }
 const cookieFrom = (response) => response.headers.get("set-cookie")?.split(";")[0] || "";

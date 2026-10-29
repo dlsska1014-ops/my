@@ -156,7 +156,7 @@ const KAKAO_MANUAL_PAGES = Object.freeze({
   web: {
     title: "웹관리하기",
     description: [
-      "‘웹가계부’로 주소를 받아 로그인하면",
+      "‘웹가계부’를 눌러 로그인하면",
       "내역 수정·통계·예산을 크게 볼 수 있어요.",
     ].join("\n"),
     buttons: [

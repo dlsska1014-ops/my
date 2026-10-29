@@ -49,7 +49,9 @@ async function say(fx, utterance, { user = BIN, groupKey = "" } = {}) {
   }), fx.env, ctx);
   const data = JSON.parse(await response.text());
   const outputs = data?.template?.outputs || [];
-  return { text: outputs.map((o) => o?.simpleText?.text || [o?.textCard?.title, o?.textCard?.description].filter(Boolean).join("\n")).join("\n") };
+  // V22.9.88 Y-7: 주소는 글이 아니라 링크 버튼(webLink)으로 온다.
+  const links = outputs.flatMap((o) => o?.textCard?.buttons || []).filter((b) => b.action === "webLink").map((b) => b.webLinkUrl);
+  return { text: outputs.map((o) => o?.simpleText?.text || [o?.textCard?.title, o?.textCard?.description].filter(Boolean).join("\n")).join("\n"), links };
 }
 
 const count = (fx) => fx.db.transactions.length;
@@ -226,7 +228,7 @@ function listChecks(list, total, label) {
   t.ok(shown > 0 && numbers.at(-1) === total && !numbers.includes(1) && numbers.every((n, i) => i === 0 || n === numbers[i - 1] + 1), `A-14 ${label}: 가장 최근 기록(${pad(total)}번)까지 이어서 보이고 오래된 01번을 뺀다`);
   t.ok(lines.every((line) => /^\d{2}번 - .+ \/ [\d,]+원 \/ .+ \/ .+$/.test(line)), `A-14 ${label}: 줄 중간에서 끊긴 기록 줄이 없다`);
   t.ok(list.text.includes(`최근 ${shown}건을 번호순으로 보여요`) && list.text.includes(`외 ${omitted}건(01~${pad(omitted)}번)은 웹 가계부 기록에서 볼 수 있어요`), `A-14 ${label}: 순서와 빠진 건수(외 ${omitted}건)를 말한다`);
-  t.ok(list.text.includes("/my?month=2026-08&household_id=house-home#records") && list.text.includes(`수정 ${pad(numbers[0])}번`), `A-14 ${label}: 전체를 볼 웹 기록 주소와 보이는 번호로 된 안내`);
+  t.ok(list.links.some((url) => url.endsWith("/my?month=2026-08&household_id=house-home#records")) && !/https?:\/\//.test(list.text) && list.text.includes(`수정 ${pad(numbers[0])}번`), `A-14 ${label}: 전체를 볼 웹 기록 주소(링크 버튼)와 보이는 번호로 된 안내`);
 }
 await scenario("A-14 긴 메모", async (fx) => {
   const lines = FRUITS.map((name, i) => `${name} 장보기 메모를 아주 길게 적어 둔 내용 ${1000 + i * 10}원`);

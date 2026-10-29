@@ -100,6 +100,7 @@ const validationScripts = [
   ["V22.9.82 관제 이용 현황(관제 1.4.0: 55분마다 수집·달 행 24개월·걸러내기·경고/전체 상태 영향 없음·화면 상태·실제 앱과 왕복)", "validation/validate-monitor-v22982.mjs"],
   ["V22.9.87 공개·로그인 묶음(T-20 로그인 먼저 시작 화면·T-21 공개 첫 화면 브랜드와 앱 미리보기·T-22 공유 이미지)", "validation/validate-public-brand-v22987.mjs"],
   ["V22.9.88 Codex 지적 6건(Y-1 카카오 저장 전 실패 표식 정리·10분 기한·Y-2 실행 취소 조건부 삭제·Y-3 비밀번호 변경 결과 불확실/다시 로그인 안내·Y-4 중복 안내 문장·입력 순서·Y-5 관리자 API 메모·결제수단 지우기·빈 수정·Y-6 예약 상태 조건부 쓰기)", "validation/validate-codex-findings-v22988.mjs"],
+  ["V22.9.88 Y-7 카카오 심사 의견(답 글에 주소 없음·우리 주소는 링크 버튼·단톡방 ‘웹가계부’ 는 이 방 가계부로 바로 여는 버튼)", "validation/validate-kakao-link-buttons-v22988.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],

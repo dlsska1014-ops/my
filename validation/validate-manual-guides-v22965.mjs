@@ -90,6 +90,9 @@ try {
           if (b.action === "message") {
             ok(b.messageText && !/https?:\/\//.test(b.messageText), `${where} ${topic}: ${b.label} 메시지 버튼`);
             seenButtonTexts.add(b.messageText);
+          } else if (b.action === "webLink") {
+            // V22.9.88 Y-7: 단톡방의 ‘웹가계부’ 는 누르면 웹 가계부가 바로 열리는 링크 버튼이다(1:1 은 웹 연결 코드 답으로 가는 메시지 버튼).
+            ok(group && b.label === "웹가계부" && b.webLinkUrl === "https://malhaebook.com/my", `${where} ${topic}: ${b.label} 링크 버튼은 단톡방 ‘웹가계부’ 만 (${b.webLinkUrl})`);
           } else {
             ok(group && GROUP_PLUGINS.has(b.action), `${where} ${topic}: ${b.label} 플러그인은 단톡방에서만 (${b.action})`);
           }

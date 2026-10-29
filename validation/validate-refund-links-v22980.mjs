@@ -33,6 +33,9 @@
 // (review-artifacts/design-uplift-2026-10-28/v87/refund-compare-font.txt, 바뀐 10개·그 밖 차이 0) reports·reportsWeek 둘을 다시 얻었다.
 // V22.9.88(2026-10-29): Codex 지적 6건은 꺼짐 화면을 바꾸지 않고 판 이름만 바뀐다. 판 이름을 V22.9.87 값으로 잠시 되돌린 같은 트리에서 옛 값 그대로
 // 268개가 모두 통과함을 먼저 확인한 뒤 analysis·backupFull·backupMonth 세 값을 --print-golden 으로 다시 얻었다(V22.9.82 와 같은 방법).
+// V22.9.88 Y-7(같은 판, 카카오 심사 의견): 카카오 답 글의 주소가 링크 버튼으로 옮겨 가 ‘kakao:이번달’(하루 한 번 붙는 ‘상세 분석 보기’ 주소가 있는 답)
+// 하나가 바뀐다. Y-7 직전 번들(c3729c9)로 잠시 바꿔 돌리면 옛 값 그대로 268개가 모두 통과하고, Y-7 번들에서는 그 값 하나만(플래그 셋 모두) 달랐다.
+// 그 뒤 --print-golden 으로 그 하나를 다시 얻었다. 나머지 카카오 값 넷은 그대로다.
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -52,7 +55,7 @@ const FLAG_OFF_GOLDEN = {
   "reportsWeek": "200 b58080ec5107f1131cd0aa83",
   "analysis": "200 03b718021142ef1749662ed5",
   "backupPage": "200 f9df266b7de8ad78b1aa0428",
-  "kakao:이번달": "200 98fb6fc3811a3c54849be3cc",
+  "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",

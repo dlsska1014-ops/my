@@ -7,6 +7,8 @@
   - `POST /my/backup-login`(Y-3): 새 로그인 실패·결과 불확실 안내.
   - `PATCH /api/transactions/:id`·`/api/transactions/batch`(Y-5): 메모·결제수단 빈 값, 빈 수정 `empty_patch`.
   - 예약 실행 상태(Y-6): 상태 값 맨 앞 판 번호와 조건부 쓰기. 첫 실행이 판 번호 없는 값을 판 번호 1로 바꾼다.
+  - 카카오 답 모양(Y-7): 모든 답의 글에서 주소를 빼고 우리 주소는 링크 버튼(webLink)으로. 단톡방 ‘웹가계부’ 는 ‘웹 가계부 열기’ 버튼(`/my`).
+- 오픈빌더(Y-7, Worker 밖): ‘봇 입장’ 블록의 ‘웹가계부’ 버튼을 웹링크 `https://malhaebook.com/my` 로 바꾸고 배포한다. 사용자 승인 뒤, Worker 배포와 순서는 상관없다.
 - 운영 DB(Y-2): `migrations/V22_9_88_UNDO_DELETE_IF_UNCHANGED_APPLY_REVIEW_ONLY.sql` 은 실행 금지다.
   - 순서: Worker 배포 → SQL 검토·승인·적용(새 쿼리 탭) → 읽기 전용 확인 두 개(함수 모양·권한) → 사람이 웹에서 저장·실행 취소 한 번.
   - 함수 하나만 만든다(SECURITY INVOKER, service_role 만 실행). 표·행·RLS·다른 함수는 바꾸지 않는다. 되돌리기는 `…_ROLLBACK_REVIEW_ONLY.sql`(함수만 지움).
@@ -20,6 +22,7 @@
   - 웹 저장 뒤 ‘실행 취소’(SQL 적용 전·뒤).
   - 비밀번호 변경 정상 경로(새 로그인 쿠키로 돌아옴).
   - 배포 다음 날 예약 실행 뒤 `cron_recurring_state_v22976` 값이 `{"rev":` 로 시작하는지, `recurring_state_save_failed` 이벤트가 없는지(읽기만).
+  - 운영 단톡방에서 ‘@말해가계부 웹가계부’ → ‘웹 가계부 열기’ 버튼이 카카오톡 안 브라우저로 malhaebook.com/my 를 여는지, 답 글에 주소가 없는지(Y-7).
 
 ## V22.9.87 배포 판단
 
