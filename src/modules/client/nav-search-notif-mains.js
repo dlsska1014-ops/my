@@ -240,11 +240,13 @@ function accountbookStage4NavClientMain(iconPaths) {
   }
   var globalActionReturnFocus = null;
   function globalActionMarkup() {
+    // V22.9.87 T-19: 검색 단추의 ‘/’ 표시는 데스크톱 사이드바에서만 보인다(모바일 서랍에서는 CSS 가 숨긴다).
+    // 알림·화면 설정은 데스크톱에서 글자 없는 아이콘 단추가 되므로 마우스용 title 을 둔다(이름은 그대로 aria-label·글자).
     return '<div class="abGlobalActions" data-ab-quick-dock aria-label="빠른 실행">' +
-      '<button type="button" class="abGlobalAction" data-abv5-search-open>' + iconSvg("search") + '<span>거래 검색</span></button>' +
+      '<button type="button" class="abGlobalAction" data-abv5-search-open>' + iconSvg("search") + '<span>거래 검색</span><kbd class="abNavKbd" aria-hidden="true">/</kbd></button>' +
       '<a class="abGlobalAction abGlobalActionPrimary abGlobalActionQuick" data-ab-global-direct="quick" data-ab-quick-open href="/app?' + contextQuery() + '#add">' + iconSvg("plus") + '<span>빠른 입력</span></a>' +
-      '<button type="button" class="abGlobalAction" data-abv5-notif-open aria-label="알림 센터">' + iconSvg("bell") + '<span>알림</span><span class="abV5NotifBadge" hidden></span></button>' +
-      '<button type="button" class="abGlobalAction" data-ab-global-open="appearance">' + iconSvg("palette") + '<span>화면 설정</span></button>' +
+      '<button type="button" class="abGlobalAction" data-abv5-notif-open aria-label="알림 센터" title="알림 센터">' + iconSvg("bell") + '<span>알림</span><span class="abV5NotifBadge" hidden></span></button>' +
+      '<button type="button" class="abGlobalAction" data-ab-global-open="appearance" title="화면 설정">' + iconSvg("palette") + '<span>화면 설정</span></button>' +
       // V22.8.87 M1: 모바일 상단바의 "작업" 버튼을 뺐다. 그 버튼이 열던 목록은
       // 검색·알림·화면 설정 셋이었고, 셋 다 이제 전체 메뉴 서랍 안에 직접 놓인다.
       // 상단바에 아이콘을 쌓으면 좁은 화면에서 가계부 이름과 자리를 다툰다.
@@ -298,12 +300,57 @@ function accountbookStage4NavClientMain(iconPaths) {
   //
   // 복제가 아니라 이동을 쓴다: 검색·알림 트리거는 첫 번째 요소에만 묶일 수 있어
   // 복제본은 눌러도 아무 일이 없는 채로 조용히 남을 수 있다.
-  // 대신 되돌리는 길을 만든다 — 이 셋은 데스크톱 독에서도 쓰는 요소라, 창을 넓혔을 때
-  // 서랍에 남아 있으면 데스크톱에서 사라진다. 폭이 바뀔 때마다 제자리를 다시 잡는다.
+  // 대신 되돌리는 길을 만든다 — 창을 넓혔을 때 서랍에 남아 있으면 데스크톱에서 사라진다.
+  // 폭이 바뀔 때마다 제자리를 다시 잡는다.
+  //
+  // V22.9.87 (작업 지시서 T-19): 900px 이상에서 본문 아래 가운데 떠 있던 4버튼 독이 스크롤 중 글줄을 덮었다(T-08 가림 측정).
+  // 데스크톱 제자리를 바꾼다 — 거래 검색은 사이드바 브랜드 아래 한 줄(‘/’ 표시), 알림·화면 설정·금액 가리기는
+  // 머리말 오른쪽 위 44px 아이콘 단추 묶음(.abDeskActions), 빠른 입력만 독에 남아 오른쪽 아래 떠 있는 단추가 된다.
+  // 묶음은 머리말(.abV5PageHeader, 블록) 첫 자식으로 넣고 CSS 가 오른쪽에 띄운다(float) — 제목·안내문·조작 줄이
+  // 그 자리를 비켜 흐르므로 화면마다 비울 너비를 따로 적지 않는다. 머리말이 없는 화면(연간 리포트·전체 메뉴)은
+  // 본문 맨 위 오른쪽 한 줄(.abDeskActionsRow)에 둔다. 금액 가리기 눈 단추(lucian-e-mains.js 가 사이드바 위 줄에 붙인 것)도
+  // 데스크톱에서는 이 묶음으로 옮기고 모바일 폭에서 제자리로 돌린다.
   var GLOBAL_ACTION_ORDER = ["[data-abv5-search-open]", "[data-ab-quick-open]", "[data-abv5-notif-open]", "[data-ab-global-open='appearance']"];
+  var DESK_HEAD_ACTIONS = ["[data-abv5-notif-open]", "[data-ab-global-open='appearance']"];
   var mobileActionQuery = window.matchMedia ? window.matchMedia("(max-width:899px)") : null;
   function findGlobalAction(selector) {
-    return document.querySelector(".abGlobalActions " + selector) || document.querySelector(".abNavDrawerActions " + selector);
+    return document.querySelector(".abGlobalActions " + selector) || document.querySelector(".abNavDrawerActions " + selector) ||
+      document.querySelector(".abNavSearchSlot " + selector) || document.querySelector(".abDeskActions " + selector);
+  }
+  function deskActionHost() {
+    var head = document.querySelector(".abV5PageHeader");
+    if (head && window.getComputedStyle(head).display === "block") return head;
+    return document.getElementById("abMainContent");
+  }
+  function placeDeskActions() {
+    var navTop = document.querySelector(".abLayoutNav .abNavTop");
+    var search = findGlobalAction("[data-abv5-search-open]");
+    if (navTop && search) {
+      var slot = document.querySelector(".abNavSearchSlot");
+      if (!slot) {
+        slot = document.createElement("div");
+        slot.className = "abNavSearchSlot";
+        navTop.parentNode.insertBefore(slot, navTop.nextSibling);
+      }
+      if (search.parentNode !== slot) slot.appendChild(search);
+    }
+    var host = deskActionHost();
+    if (!host) return;
+    var cluster = document.querySelector(".abDeskActions");
+    if (!cluster) {
+      cluster = document.createElement("div");
+      cluster.className = "abDeskActions";
+      cluster.setAttribute("role", "group");
+      cluster.setAttribute("aria-label", "화면 도구");
+    }
+    if (cluster.parentNode !== host) host.insertBefore(cluster, host.firstChild);
+    cluster.classList.toggle("abDeskActionsRow", host.id === "abMainContent");
+    DESK_HEAD_ACTIONS.forEach(function(selector) {
+      var element = findGlobalAction(selector);
+      if (element && element.parentNode !== cluster) cluster.appendChild(element);
+    });
+    var eye = document.querySelector(".abNavTop .abPrivacyEye");
+    if (eye) cluster.appendChild(eye);
   }
   function syncGlobalActionPlacement() {
     var actions = document.querySelector(".abGlobalActions");
@@ -323,22 +370,49 @@ function accountbookStage4NavClientMain(iconPaths) {
         var element = findGlobalAction(selector);
         if (element && element.parentNode !== group) group.appendChild(element);
       });
+      var deskEye = document.querySelector(".abDeskActions .abPrivacyEye");
+      var navTop = document.querySelector(".abLayoutNav .abNavTop");
+      if (deskEye && navTop) navTop.appendChild(deskEye);
       return;
     }
+    placeDeskActions();
     if (!group) return;
-    // 데스크톱으로 돌아갈 때는 원래 순서대로 다시 붙인다. 옮겨 온 것만 되돌리면
-    // 빠른 입력이 맨 앞으로 밀려 독의 차례가 뒤집힌다.
+    // 데스크톱 제자리를 못 찾은 것(사이드바 위 줄·본문이 없는 화면)은 원래 순서대로 독에 다시 붙인다.
+    // 옮겨 온 것만 되돌리면 빠른 입력이 맨 앞으로 밀려 독의 차례가 뒤집힌다.
     GLOBAL_ACTION_ORDER.forEach(function(selector) {
-      var element = findGlobalAction(selector);
+      var element = group.querySelector(selector);
       if (element) actions.appendChild(element);
     });
     group.remove();
+  }
+  // V22.9.87 T-19: 빠른 입력 단추는 아래로 4px 넘게 스크롤하면 원형으로 줄고 위로 4px 넘게 올리면(또는 맨 위면) 펼친다.
+  // passive 리스너를 requestAnimationFrame 한 번으로 묶는다. 움직임 줄이기에서는 CSS 가 전환을 꺼 바로 바뀐다.
+  // 모바일 폭에서는 독이 숨어 있어 클래스만 바뀐다.
+  function bindQuickCompact() {
+    var dock = document.querySelector(".abGlobalActions[data-ab-quick-dock]");
+    if (!dock) return;
+    var lastY = window.pageYOffset || 0;
+    var queued = false;
+    function update() {
+      queued = false;
+      var y = window.pageYOffset || 0;
+      if (y <= 0) { dock.classList.remove("abQuickCompact"); lastY = 0; return; }
+      if (Math.abs(y - lastY) <= 4) return;
+      dock.classList.toggle("abQuickCompact", y > lastY);
+      lastY = y;
+    }
+    window.addEventListener("scroll", function() {
+      if (queued) return;
+      queued = true;
+      window.requestAnimationFrame(update);
+    }, { passive: true });
   }
   function bindGlobalActions() {
     if (!document.querySelector(".abLayoutNav")) return;
     if (document.getElementById("abGlobalActionDialog")) return;
     document.body.insertAdjacentHTML("beforeend", globalActionMarkup() + dialogMarkup());
     syncGlobalActionPlacement();
+    bindQuickCompact();
     if (mobileActionQuery) {
       if (mobileActionQuery.addEventListener) mobileActionQuery.addEventListener("change", syncGlobalActionPlacement);
       else if (mobileActionQuery.addListener) mobileActionQuery.addListener(syncGlobalActionPlacement);

@@ -120,7 +120,8 @@ try {
   await post(body([...allReports, ...allShortcuts]), fixture.cookie);
   const bare = await get(`/app?month=${month}&household_id=${householdId}`, fixture.cookie);
   eq(reportsOf(bare.text).length, 0, "전부 끄면 리포트가 없다");
-  ok(bare.text.includes("이번 달 쓸 수 있는 돈"), "그래도 P0 는 남는다");
+  // V22.9.87 V86:V-8: 예산 카드 머리는 보는 달에 따라 '이번 달 쓸 수 있는 돈'·'N월 예산에서 남은 돈'·'N월 쓸 수 있는 돈'이다. 이 검사의 달은 실제 시계로 지난달일 수 있어 카드 머리 자리와 세 이름을 함께 본다.
+  ok(/<div class="homeBudgetTop"><span>(이번 달 쓸 수 있는 돈|(\d{4}년 )?\d{1,2}월 (예산에서 남은 돈|쓸 수 있는 돈))<\/span>/.test(bare.text), "그래도 P0 는 남는다");
   ok(bare.text.includes("최근 내역"), "그래도 최근 내역은 남는다");
   eq(bare.text.includes('class="homeReports"'), false, "카드를 다 끄면 제목만 남은 빈 상자를 두지 않는다");
   // 되돌릴 길이 없으면 끈 사람이 갇힌다.

@@ -36,7 +36,7 @@ try {
 
   const home = await get("/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "데스크톱 홈이 렌더된다");
-  const runtime = await get("/assets/accountbook-v5-v22986.js", "");
+  const runtime = await get("/assets/accountbook-v5-v22987.js", "");
   eq(runtime.response.status, 200, "사이드바 런타임이 서빙된다");
 
   // 1. 달력은 격자다. 칸마다 링크를 두는 대신 격자 하나가 정지점을 갖는다.
@@ -66,7 +66,8 @@ try {
   eq(source.includes("function renderNavBudgetUsage("), false, "그 렌더 함수도 남아 있지 않다");
   eq(runtime.text.includes("data-ab-nav-budget"), false, "클라이언트 렌더러도 사라졌다");
   // 예산 사용률 자체는 사라지지 않았다 — 홈 P0 가 말한다(V22.8.88).
-  ok(home.text.includes("이번 달 쓸 수 있는 돈"), "예산 사용률은 홈 P0 에서 계속 보인다");
+  // V22.9.87 V86:V-8: 예산 카드 머리는 보는 달에 따라 '이번 달 쓸 수 있는 돈'·'N월 예산에서 남은 돈'·'N월 쓸 수 있는 돈'이다. 이 검사의 달은 실제 시계로 지난달일 수 있어 카드 머리 자리와 세 이름을 함께 본다.
+  ok(/<div class="homeBudgetTop"><span>(이번 달 쓸 수 있는 돈|(\d{4}년 )?\d{1,2}월 (예산에서 남은 돈|쓸 수 있는 돈))<\/span>/.test(home.text), "예산 사용률은 홈 P0 에서 계속 보인다");
   ok(home.text.includes('class="homeProgress"'), "사용률 게이지도 그대로다");
 
   // 5. 사이드바 달력 자체는 남는다. 지시서는 "달력은 남깁니다"라고 명시한다.

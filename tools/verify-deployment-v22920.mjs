@@ -63,9 +63,10 @@ const tasks = [
   ["manifest", async () => {
     const r = await request("/manifest.json");
     check(r.status === 200, "manifest HTTP 200");
-    check((r.headers.get("etag") || "").replace(/^W\//, "") === '"ab-manifest-v22920"', "manifest ETag");
+    // V22.9.87 T-21: 매니페스트 이름을 ‘말해가계부’로 붙여 쓰며 ETag 를 v22987 로 올렸다. 이 판부터 배포 확인은 새 값을 본다.
+    check((r.headers.get("etag") || "").replace(/^W\//, "") === '"ab-manifest-v22987"', "manifest ETag");
     const data = await r.json();
-    check(data.name === "말해 가계부", "manifest brand name");
+    check(data.name === "말해가계부", "manifest brand name");
   }],
   ["AdSense owner", async () => {
     const r = await request("/ads.txt");
@@ -121,6 +122,19 @@ for (const path of assetPaths) {
     check(expected.status === 200, `${path} local release asset available`);
     const digest = (bytes) => createHash("sha256").update(Buffer.from(bytes)).digest("hex");
     check(digest(await r.arrayBuffer()) === digest(await expected.arrayBuffer()), `${path} matches the local release bytes`);
+  }]);
+}
+// V22.9.87 T-22: 공유 미리보기 이미지(og:image)는 PNG 라 위 CSS·JS 자산 확인과 따로 본다(1년 캐시·image/png·로컬 바이트와 같음).
+const ogImagePath = (source.match(/const AB_OG_IMAGE_PATH = "(\/assets\/[^"\n]+\.png)";/) || [])[1];
+if (ogImagePath) {
+  tasks.push([ogImagePath, async () => {
+    const r = await request(ogImagePath);
+    check(r.status === 200, `${ogImagePath} HTTP 200`);
+    check((r.headers.get("cache-control") || "").includes("immutable"), `${ogImagePath} immutable cache`);
+    check((r.headers.get("content-type") || "").startsWith("image/png"), `${ogImagePath} content type`);
+    const expected = await app.fetch(new Request(`${base}${ogImagePath}`), {}, {});
+    const digest = (bytes) => createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+    check(digest(await r.arrayBuffer()) === digest(await expected.arrayBuffer()), `${ogImagePath} matches the local release bytes`);
   }]);
 }
 if (legacy) {

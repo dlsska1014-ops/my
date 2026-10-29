@@ -24,6 +24,7 @@ import { safeArray } from "./backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import { refundLinkLockedCode } from "../domain/refund-links.js";
 import { verifyUserSession } from "../auth/user-session.js";
+import { makeQuickUndoTicket } from "../auth/identity-reauth.js";
 import {
   fetchRawHouseholdMembers, withKakaoUserLifecycleLease,
 } from "../data/users-household-create.js";
@@ -340,7 +341,12 @@ async function handleAdminAddTransaction(request, env) {
     } catch (_) {}
     const receipt = String(savedTransaction?.id || "") === requestId && !savedTransaction?.__duplicate_skipped
       ? { saved_rid: requestId, saved_qd: abTransactionRequestId(form.get("quick_draft_token")) } : {};
-    const saved = { msg, ...receipt, ...(balert ? { balert } : {}) };
+    // V22.9.87 T-16: 로그인 사용자(관리자 세션 아님)가 이번 요청으로 새로 만든 기록이면(msg=added — 다시 보낸 요청의 already_saved 는 아니다)
+    // 저장 알림의 실행 취소 표(60초)를 함께 싣는다. 만들 수 없으면(비밀 없음·오류) 빈 값이고, 화면은 단추 대신 수정·삭제 화면 링크를 둔다.
+    // 표는 서명을 다시 확인하는 /my/undo 만 받는다.
+    const undo = msg === "added" && receipt.saved_rid && !access.admin && access.userId
+      ? await makeQuickUndoTicket(env, { row: savedTransaction, householdId, userId: access.userId }).catch(() => "") : "";
+    const saved = { msg, ...receipt, ...(undo ? { undo } : {}), ...(balert ? { balert } : {}) };
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg }), transactionAddRedirectExtras(form, saved, "success")));
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_create_failed", severity: "warn", path: "/admin/transactions", method: "POST", detail: safeError(err) });

@@ -64,8 +64,9 @@ for (const path of ["/", "/about", "/how-it-works", "/privacy", "/terms", "/site
 {
   const response = await get("/manifest.json");
   const manifest = JSON.parse(await response.text());
-  eq(manifest.name, "말해 가계부", "매니페스트 이름이 새 이름이다");
-  eq(response.headers.get("etag"), '"ab-manifest-v22920"', "매니페스트 내용이 바뀌어 ETag 를 올렸다");
+  // V22.9.87 T-21: 매니페스트 이름을 서비스 이름과 같은 ‘말해가계부’로 붙여 쓰고 ETag 를 다시 올렸다.
+  eq(manifest.name, "말해가계부", "매니페스트 이름이 새 이름이다");
+  eq(response.headers.get("etag"), '"ab-manifest-v22987"', "매니페스트 내용이 바뀌어 ETag 를 올렸다");
 }
 
 {

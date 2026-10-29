@@ -881,8 +881,8 @@ function accountbookActivityRailClientMain() {
 }
 
 // V22.9.86 T-15(디자인 작업 지시서 3단계): 저장 뒤 받은 새 기록 번호(saved_rid, 저장 경로가 새 기록일 때만 붙인다)의 행 #tx-<번호> 에
-// .abTxNew 강조(1.8초, accent-soft → 투명, 움직임 줄이기에서는 CSS 가 끈다)를 한 번 준다. 다시 불러와도 또 일어나지 않도록 saved_rid·saved_qd 를
-// 주소에서 지운다 — 빠른 입력 자산(accountbookQuickInputClientMain 의 autoOpen)이 두 값으로 저장된 초안을 지운 다음이어야 해서 한 틱 미룬다.
+// .abTxNew 강조(1.8초, accent-soft → 투명, 움직임 줄이기에서는 CSS 가 끈다)를 한 번 준다. 다시 불러와도 또 일어나지 않도록 saved_rid·saved_qd
+// (V22.9.87 부터 실행 취소 표 undo 도)를 주소에서 지운다 — 빠른 입력 자산(accountbookQuickInputClientMain 의 autoOpen)이 두 값으로 저장된 초안을 지운 다음이어야 해서 한 틱 미룬다.
 // "다시 시도"(빠른 입력 저장 실패 알림)는 알림을 닫고 같은 빠른 입력 시트를 연다(초안은 시트가 되살린다, 이미 열려 있으면 입력 칸으로 간다).
 // 시트를 닫을 때 초점은 사라진 알림 대신 보이는 빠른 입력 단추(모바일 입력 바 → 하단 탭 ＋ → 데스크톱 오른쪽 아래 "빠른 입력")로 돌아간다.
 function accountbookSaveFeedbackClientMain() {
@@ -899,6 +899,7 @@ function accountbookSaveFeedbackClientMain() {
         var left = new URLSearchParams(location.search);
         left.delete("saved_rid");
         left.delete("saved_qd");
+        left.delete("undo");
         var rest = left.toString();
         if (window.history && window.history.replaceState) window.history.replaceState({}, "", location.pathname + (rest ? "?" + rest : "") + location.hash);
       } catch (_error) {}
@@ -931,14 +932,23 @@ function accountbookSaveFeedbackClientMain() {
     });
     window.openAbQuickInput("", back);
   });
+  // V22.9.87 T-16: 실행 취소 단추가 있는 알림(성공·예산 경고)은 12초 보인다(지시서: 10초 이상). 마우스나 키보드 초점이 알림 안에 있는 동안은
+  // 모든 알림이 멈추고, 둘 다 나가면 남은 시간(실행 취소 6초·성공 2.4초·경고 4.2초) 뒤 닫는다. 실행 취소 표는 60초라 알림이 먼저 닫힌다.
+  var undoable = !!feedback.querySelector("[data-ab-undo]");
+  var holdMs = undoable ? 12000 : kind === "success" ? 5200 : kind === "warning" ? 9000 : 0;
+  var resumeMs = undoable ? 6000 : kind === "success" ? 2400 : kind === "warning" ? 4200 : 0;
+  var hovering = false;
+  function hold() { if (timer) clearTimeout(timer); timer = null; }
+  function resume() {
+    hold();
+    if (resumeMs && !hovering && !feedback.contains(document.activeElement)) timer = setTimeout(close, resumeMs);
+  }
   requestAnimationFrame(function() { feedback.classList.add("isVisible"); });
-  if (kind === "success") timer = setTimeout(close, 5200);
-  else if (kind === "warning") timer = setTimeout(close, 9000);
-  feedback.addEventListener("mouseenter", function() { if (timer) clearTimeout(timer); });
-  feedback.addEventListener("mouseleave", function() {
-    if (kind === "success") timer = setTimeout(close, 2400);
-    else if (kind === "warning") timer = setTimeout(close, 4200);
-  });
+  if (holdMs) timer = setTimeout(close, holdMs);
+  feedback.addEventListener("mouseenter", function() { hovering = true; hold(); });
+  feedback.addEventListener("mouseleave", function() { hovering = false; resume(); });
+  feedback.addEventListener("focusin", hold);
+  feedback.addEventListener("focusout", function() { setTimeout(resume, 0); });
   try {
     var params = new URLSearchParams(location.search);
     var changed = false;

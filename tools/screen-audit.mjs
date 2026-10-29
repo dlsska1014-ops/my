@@ -11,7 +11,7 @@
 //      글꼴과 색 전환이 끝난 뒤(--ab12-dur, 최소 180ms — 바로 재면 이전 테마 색이 나온다)
 //      - 화면 폭을 넘는 요소 — 모바일은 넘침만큼 배치 폭이 넓어져 글자가 작아진다
 //      - WCAG AA 대비(본문 4.5:1, 큰 글자 3:1) 미달 글자
-//      - 선택 상태 구분: [aria-pressed=true]·:checked+span·[aria-current]·.active 요소를 같은 무리의 안 고른 형제와 견줘
+//      - 선택 상태 구분: [aria-pressed=true]·:checked+span·[aria-current]·.active·[aria-selected=true]·.on 요소를 같은 무리의 안 고른 형제와 견줘
 //        면(바탕, 투명하면 부모 바탕 위에 겹친 색)과 테두리(1px 이상·투명 아님일 때만, ::before·::after 표시 막대 포함)
 //        대비가 둘 다 3:1 미만이면 실패. 표시가 글자 없는 자식(아이콘 칸)에 있으면 같은 자리의 자식끼리도 견준다. 조작 요소의 상태만 본다(주간 띠 '오늘'처럼 표시용 aria-current 는 report.json 의 skipped 에 남긴다).
 //      - 32px 미만 터치 대상, position:fixed 요소가 덮는 글자 노드 비율(스크롤 다섯 곳: 맨 위·끝·평균) — 참고용, 실패로 치지 않는다
@@ -287,12 +287,15 @@ const SELECTION = String.raw`(() => {
   };
   const usable = (el) => !el.matches(":disabled,[aria-disabled=true]");
   const label = (el) => el.tagName.toLowerCase() + (el.id ? "#" + el.id : "") + (typeof el.className === "string" && el.className.trim() ? "." + el.className.trim().split(/\s+/).slice(0, 2).join(".") : "") + "[" + (el.textContent || el.getAttribute("aria-label") || el.value || "").trim().replace(/\s+/g, " ").slice(0, 16) + "]";
-  const classesOf = (el) => [...el.classList].filter((c) => c !== "active");
+  // V22.9.87 R-17: 고른 표시 클래스(active·on)는 무리를 가를 때 빼고 본다.
+  const classesOf = (el) => [...el.classList].filter((c) => c !== "active" && c !== "on");
   const sameKind = (a, b) => { if (a.tagName !== b.tagName) return false; const x = classesOf(a), y = classesOf(b); return !x.length || !y.length || x.some((c) => y.includes(c)); };
   const unselected = {
     pressed: (p) => p.getAttribute("aria-pressed") === "false",
     current: (p) => !p.hasAttribute("aria-current") || p.getAttribute("aria-current") === "false",
     active: (p) => !p.classList.contains("active"),
+    selected: (p) => p.getAttribute("aria-selected") === "false",
+    on: (p) => !p.classList.contains("on"),
   };
   const nativeShown = (input) => { if (!input || input.tagName !== "INPUT") return false; const r = input.getBoundingClientRect(); return Number(getComputedStyle(input).opacity) > 0.05 && r.width >= 8 && r.height >= 8 && input.checkVisibility({ checkOpacity: true, checkVisibilityCSS: true }); };
   // 조작 요소(WCAG 1.4.11 의 "UI 구성요소의 상태"): 자신·조상·자손 가운데 하나가 조작 요소면 된다.
@@ -317,7 +320,9 @@ const SELECTION = String.raw`(() => {
     }
     return [];
   };
-  const SELECTORS = [["pressed", '[aria-pressed="true"]'], ["checked", ":checked + span"], ["current", '[aria-current]:not([aria-current="false"])'], ["active", ".active"]];
+  const SELECTORS = [["pressed", '[aria-pressed="true"]'], ["checked", ":checked + span"], ["current", '[aria-current]:not([aria-current="false"])'], ["active", ".active"],
+    // V22.9.87 R-17(V85 발견): 날짜 칩·탭 묶음·분석 칩이 쓰는 .on 과 역할 탭·목록의 aria-selected 도 본다. 앞 선택자에 이미 걸린 요소는 건너뛴다.
+    ["selected", '[aria-selected="true"]'], ["on", ".on"]];
   const done = new Set(), seen = new Set(), fails = [], passes = [], skipped = [];
   let checked = 0;
   for (const [type, selector] of SELECTORS) {

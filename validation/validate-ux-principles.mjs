@@ -203,7 +203,9 @@ try {
   const publicResponse = await app.fetch(new Request("https://malhaebook.com/my"), fixture.env, {});
   eq(publicResponse.status, 200, "public login page renders");
   const loginHtml = await publicResponse.text();
-  ok(loginHtml.includes("기존 계정 로그인"), "existing-account login remains the primary visible path");
+  // V22.9.87 T-20: 로그인 이름 로그인은 카카오 버튼 아래 접힌 칸(로그인 이름으로 로그인)이 됐다. 이 픽스처처럼 카카오 로그인이 꺼져 있으면
+  // 그 칸이 열린 채로 나와 여전히 첫 경로다(카카오가 켜진 화면은 validate-prelogin-preview·validate-public-brand 가 본다).
+  ok(loginHtml.includes('<details class="loginLocal" id="login-local" open><summary>') && loginHtml.includes("로그인 이름으로 로그인</summary>"), "existing-account login remains the primary visible path when Kakao login is unavailable");
   ok(loginHtml.includes("처음이라면 새 계정 만들기"), "signup remains a secondary disclosure");
   ok(loginHtml.includes('id="signupPasswordStatus"'), "signup has inline password-match feedback");
   ok(loginHtml.includes('aria-describedby="signupPasswordStatus"'), "signup fields expose their feedback to assistive technology");

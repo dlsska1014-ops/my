@@ -36,9 +36,11 @@ try {
   // 이 응답은 7일 캐시라 주소를 바꿀 필요는 없지만, 내용이 바뀌면 ETag 는 따라 올라가야
   // 이미 받아 간 브라우저가 새것을 가져온다. 지키려던 성질("ETag 가 내용과 함께 움직인다")
   // 은 그대로다.
-  eq(manifest.response.headers.get("etag"), '"ab-manifest-v22920"', "manifest has a stable ETag");
+  // V22.9.87 T-21: 이름을 ‘말해가계부’로 붙여 쓰며 내용이 바뀌어 ETag 를 v22987 로 올렸다(같은 성질: ETag 가 내용과 함께 움직인다).
+  eq(manifest.response.headers.get("etag"), '"ab-manifest-v22987"', "manifest has a stable ETag");
   const parsed = JSON.parse(new TextDecoder().decode(manifest.bytes));
-  eq(parsed.name, "말해 가계부", "manifest carries the product name");
+  // V22.9.87 T-21: 설치 이름도 서비스 이름과 같은 붙여 쓴 ‘말해가계부’다.
+  eq(parsed.name, "말해가계부", "manifest carries the product name");
   eq(parsed.short_name, "가계부", "manifest carries a short name for the home screen");
   eq(parsed.start_url, "/app", "install opens the personal home");
   eq(parsed.scope, "/", "manifest scope covers the whole app");

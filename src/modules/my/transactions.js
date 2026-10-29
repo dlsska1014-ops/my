@@ -11,11 +11,13 @@ import {
   parseFormAmountValue,
 } from "../admin/transactions-households.js";
 import { resolveManualInputClassification } from "../settings/payment-assets.js";
+import { safeUserReturnPath } from "../admin/bulk-and-return-paths.js";
 import { fetchHouseholdMembers, memberNameMap } from "../data/households-members-rows.js";
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { refundLinkLockedCode } from "../domain/refund-links.js";
 import { verifyUserSession } from "../auth/user-session.js";
+import { quickUndoFingerprint, readQuickUndoTicket } from "../auth/identity-reauth.js";
 import {
   canManageMyRecord, canWriteMyHousehold, getMySelectedHousehold, memberRecordChangeError,
   myReturnLocation,
@@ -257,9 +259,45 @@ async function handleMyDeleteTransaction(request, env) {
     return redirectResponse(myReturnLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "record_delete_failed" }));
   }
 }
+
+// V22.9.87 T-16(디자인 작업 지시서, 사용자 결정 2026-10-29): 저장 알림의 ‘실행 취소’. 서버가 서명한 표(readQuickUndoTicket — 이 로그인 사용자 것,
+// 60초 안)가 있어야 하고, 지울 기록 번호·가계부는 주소가 아니라 표에서 읽는다. 그다음은 위 /my/delete 와 같은 검사(가계부 쓰기 권한·내 기록이거나
+// 소유자·관리자·구성원 ‘기록만’ 정책)이고, 저장한 뒤 바뀐 기록(지문이 다르면)은 지우지 않는다. 같은 출처 검사는 라우터 전역(csrfOriginAllowed)이 한다.
+// 감사 기록은 보통 삭제와 같은 actor_kind "user" 다(DB 함수가 받는 값을 늘리지 않는다). 돌아갈 곳은 저장했던 화면(return_to)이고 msg=undone 을 붙인다.
+async function handleMyQuickUndo(request, env) {
+  const userId = await verifyUserSession(request, env);
+  if (!userId) return redirectResponse("/my");
+  const form = await request.formData();
+  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const back = (householdId, extra) => {
+    const fallback = `/app?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`;
+    const target = new URL(safeUserReturnPath(String(form.get("return_to") || ""), fallback), "https://accountbook.local");
+    for (const key of ["msg", "err", "balert", "saved_rid", "saved_qd", "undo", "quick", "day_detail", "rid"]) target.searchParams.delete(key);
+    for (const [key, value] of Object.entries(extra)) target.searchParams.set(key, value);
+    return `${target.pathname}${target.search}${target.hash}`;
+  };
+  const ticket = await readQuickUndoTicket(env, form.get("ticket"), userId);
+  if (!ticket) return redirectResponse(back("", { err: "undo_expired" }));
+  const { selected } = await getMySelectedHousehold(env, userId, ticket.h);
+  if (!selected || String(selected.id) !== String(ticket.h)) return redirectResponse(back("", { err: "undo_expired" }));
+  if (!canWriteMyHousehold(selected.role)) return redirectResponse(back(selected.id, { err: "write_not_allowed" }));
+  const row = await getTransactionForUserEdit(env, ticket.r, selected.id);
+  if (!row) return redirectResponse(back(selected.id, { err: "record_not_found" }));
+  if (!canManageMyRecord(selected.role, row, userId)) return redirectResponse(back(selected.id, { err: "not_my_record" }));
+  const policyError = await memberRecordChangeError(env, selected.role, selected.id);
+  if (policyError) return redirectResponse(back(selected.id, { err: policyError }));
+  if (await quickUndoFingerprint(row) !== ticket.f) return redirectResponse(back(selected.id, { err: "undo_changed" }));
+  try {
+    await deleteTransactionWithAudit(env, row.id, selected.id, { actorUserId: userId, actorKind: "user" });
+    return redirectResponse(back(selected.id, { msg: "undone" }));
+  } catch (err) {
+    rememberOpsEvent({ kind: "my_record_undo_failed", severity: "warn", path: "/my/undo", method: "POST", detail: safeError(err) });
+    return redirectResponse(back(selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "record_delete_failed" }));
+  }
+}
 // @build:exports-start
 export {
   activeSpenderExists, getTransactionForUserEdit, handleMyAddTransaction, handleMyDeleteTransaction,
-  handleMyUpdateTransaction, memberCanBeSpender, transactionEditHistoryKey,
+  handleMyQuickUndo, handleMyUpdateTransaction, memberCanBeSpender, transactionEditHistoryKey,
 };
 // @build:exports-end

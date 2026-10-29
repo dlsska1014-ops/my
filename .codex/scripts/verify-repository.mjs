@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_86.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_87.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -95,8 +95,10 @@ const validationScripts = [
   ["V22.9.84 디자인 보강 1단계(칩 고른 상태·제출 단추만 주 단추·세그먼트 토큰·거래 행 읽기 이름·입력 카드 테두리·금액 색·줄바꿈·누름 반응·홈 HTML 상한)", "validation/validate-design-uplift-v22984.mjs"],
   ["V22.9.85 디자인 보강 2단계(카테고리 판정 서버·브라우저 하나·§3-2 팔레트·Lucide 아이콘 파이프라인·웹 화면 이모지 → 아이콘·화면 감사 도구)와 V22.9.83·84 검토 후속(R-1~R-7)", "validation/validate-design-uplift-v22985.mjs"],
   ["V22.9.86 디자인 보강 3단계(모바일 홈 머리말·가계부 고르기 시트·카테고리 동그라미·한 줄 입력 바와 시트·저장 알림과 새 행 강조·하단 탭 바·빈 상태, T-16 은 보고)와 아이콘 생성 고침·V85 검토 후속(R-8·R-12·R-13·R-15·R-16)", "validation/validate-design-uplift-v22986.mjs"],
+  ["V22.9.87 디자인 보강 4단계 T-19(데스크톱 독 → 사이드바 검색 줄·머리말 아이콘 단추 묶음·빠른 입력 단추 하나)·V85:R-9(사이드바 현재 메뉴 테두리)와 V22.9.86 남은 결정(V-8 예산 카드 머리·V-9 가장 가까운 정기 항목·T-16 서명한 실행 취소 표와 /my/undo)", "validation/validate-design-uplift-v22987.mjs"],
   ["V22.9.82 이용 현황(앱: 관제용 /internal/ops-usage·읽기 전용 집계 함수 부름·인증·오류 구분·계약 밖 값 걸러내기·SQL 모양)", "validation/validate-usage-metrics-v22982.mjs"],
   ["V22.9.82 관제 이용 현황(관제 1.4.0: 55분마다 수집·달 행 24개월·걸러내기·경고/전체 상태 영향 없음·화면 상태·실제 앱과 왕복)", "validation/validate-monitor-v22982.mjs"],
+  ["V22.9.87 공개·로그인 묶음(T-20 로그인 먼저 시작 화면·T-21 공개 첫 화면 브랜드와 앱 미리보기·T-22 공유 이미지)", "validation/validate-public-brand-v22987.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
@@ -335,7 +337,8 @@ function run(command, args, label) {
 // V22.9.85 옛 자산 정리: 보관 주소 64 → 16(불변 고정 해시 45개 −135 · 정리한 주소 404 확인 +96 · 옛 보관본 검사 −16). 두 모드 실측: 일반 35,263 · 분류 표 부재 35,260(V22.9.85 옛 자산 정리).
 // V22.9.85: 새 검사 1개(디자인 보강 2단계 328)·불변 자산 고정 4개(+12)·추적표 V85 17건과 옛 검사 갱신(메뉴 아이콘 표·＋ 아이콘·셸 바이트·!important 상한·환불 꺼짐 화면 해시·정규식 셸 주소·ETag 판·홈 스타일시트 해시). 두 모드 실측: 일반 35,764 · 분류 표 부재 35,761(V22.9.85 2단계).
 // V22.9.86: 새 검사 1개(디자인 보강 3단계 281, T-12 포함)·불변 자산 고정 5개(+15)·추적표 V86 9건과 옛 검사 갱신(자산 주소 v22986·판 이름·빠른 입력 미리보기 문구·홈 마크업·셸 바이트·!important 상한·환불 꺼짐 화면 해시·ETag 판, T-12 하루 계획 문구·SMART NOTICE 띠·게이지 템플릿·정기 항목 홈 문장). 두 모드 실측: 일반 36,169 · 분류 표 부재 36,166(V22.9.86 디자인 보강 3단계).
-const EXPECTED_MINIMUM_CHECKS = 36166;
+// V22.9.87: 새 검사 2개(디자인 보강 4단계 177·공개·로그인 묶음 226)·불변 자산 고정(셸·V5·메뉴 v22987, 공유 이미지 PNG)·추적표 V87 4건과 옛 검사 갱신(자산 주소·판 이름·예산 카드 머리·홈·셸 바이트·!important 상한·로그인 시작 화면·매니페스트 이름·환불 꺼짐 화면 해시). 사용자 결정 2(T-23 글꼴·경고 알림 실행 취소·W-4·/demo·R-10·R-17) 포함 두 모드 실측: 일반 36,641 · 분류 표 부재 36,638(V22.9.87 디자인 보강 4단계).
+const EXPECTED_MINIMUM_CHECKS = 36638;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

@@ -450,7 +450,9 @@ if (run("search")) await scenario("search", () => withClock("2026-07-15", () => 
 if (run("signup")) await scenario("signup", () => fixture(async (fx) => {
   const signup = (values) => post(fx, "/my/local-signup", values, { cookie: "" });
   const card = (html) => (html.match(/<details class="card signupCard" id="signup-start"[\s\S]*?<\/details>/) || [""])[0];
-  const intro = (html) => (html.match(/<div class="authIntroHead">[\s\S]*?<div class="loginMethods">/) || [""])[0];
+  // V22.9.87 T-20: 소개 영역(.authIntroHead)이 없어지고 로그인 이름 칸은 카카오 버튼 아래 접힌 칸(#login-local) 안의 카드가 됐다. 로그인 오류는 그 칸을 연 채
+  // 폼 바로 위에 둔다. 그래서 ‘소개 영역’은 그 접힌 칸의 시작부터 로그인 폼 앞까지다.
+  const intro = (html) => (html.match(/<details class="loginLocal" id="login-local"[\s\S]*?<form method="post" action="\/my\/local-login">/) || [""])[0];
   const jump = (html) => (html.match(/<script id="authErrorJumpRuntime">([\s\S]*?)<\/script>/) || [, ""])[1];
   const typed = { login_name: "새가족", display_name: "엄마", invite_code: "ab12cd", access_code: "short", access_code_confirm: "short" };
 
@@ -459,7 +461,7 @@ if (run("signup")) await scenario("signup", () => fixture(async (fx) => {
   const signupCard = card(bad.text);
   ok(signupCard.includes("<div class=\"error\">새 비밀번호는 8자리 이상 입력하세요.</div>"), "오류 문구가 가입 카드 안에 있다");
   ok(signupCard.indexOf("class=\"error\"") < signupCard.indexOf("<form method=\"post\" action=\"/my/local-signup\">"), "오류 문구가 가입 폼 바로 위에 있다");
-  ok(!intro(bad.text).includes("class=\"error\""), "가입 오류를 ‘기존 계정 로그인’ 소개 영역에 두지 않는다");
+  ok(!intro(bad.text).includes("class=\"error\""), "가입 오류를 로그인 이름 칸(기존 계정 로그인)에 두지 않는다");
   ok(bad.text.includes("class=\"authErrorSummary\" href=\"#signupName\""), "맨 위 오류 요약 링크는 그대로 있다(스크립트 없이도 칸으로 간다)");
   ok(signupCard.includes("value=\"새가족\"") && signupCard.includes("value=\"엄마\"") && signupCard.includes("value=\"AB12CD\""), "적은 이름·표시 이름·초대 코드는 그대로 남는다(V22.9.76)");
   ok(!bad.text.includes("access_code\" value") && !/type="password"[^>]*value=/.test(bad.text), "비밀번호 칸은 비어 있다");
@@ -474,10 +476,10 @@ if (run("signup")) await scenario("signup", () => fixture(async (fx) => {
   ok(card(down.text).includes("class=\"error\"") && !intro(down.text).includes("class=\"error\"") && jump(down.text).includes("signupPassword"), "서버 오류 뒤에도 오류는 가입 카드 안, 점프 스크립트가 있다");
   ok(card(down.text).includes("value=\"서버오류가족\"") && card(down.text).includes("value=\"엄마\""), "서버 오류 뒤에도 이름 칸이 남는다");
 
-  // 로그인 오류는 소개 영역에 그대로 두고 로그인 칸으로 보낸다. 오류가 없는 처음 화면에는 스크립트가 없다.
+  // 로그인 오류는 로그인 이름 칸(열린 접힌 칸)의 폼 위에 두고 로그인 칸으로 보낸다. 오류가 없는 처음 화면에는 스크립트가 없다.
   const login = await post(fx, "/my/local-login", { login_name: "없는사람", access_code: "wrong-pass-123" }, { cookie: "" });
   ok(login.status >= 400, `틀린 로그인은 오류다 (${login.status})`);
-  ok(intro(login.text).includes("class=\"error\"") && !card(login.text).includes("class=\"error\""), "로그인 오류는 소개 영역에 그대로 있다");
+  ok(intro(login.text).startsWith("<details class=\"loginLocal\" id=\"login-local\" open>") && intro(login.text).includes("class=\"error\"") && !card(login.text).includes("class=\"error\""), "로그인 오류는 열린 로그인 이름 칸의 폼 위에 있다");
   ok(jump(login.text).includes("[\"loginName\",\"loginPassword\"]"), "로그인 오류는 로그인 칸으로 보낸다");
   const plain = await page(fx, "/my", { cookie: "" });
   ok(!plain.html.includes("authErrorJumpRuntime"), "오류가 없는 처음 화면에는 점프 스크립트가 없다");

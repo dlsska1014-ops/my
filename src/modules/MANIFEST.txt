@@ -79,6 +79,7 @@ assets/icon-paths.js
 web/quick-chip-icons.js
 assets/icon-mask-css.js
 assets/design-uplift-3-css.js
+assets/design-uplift-4-css.js
 assets/mobile-v81-css.js
 assets/ab-cursor.js
 assets/number-flow.js
@@ -86,6 +87,7 @@ assets/asset-registry.js
 assets/accountbook-shell-css.js
 assets/theme-home-assets.js
 client/nav-search-notif-mains.js
+assets/og-image.js
 assets/icons-manifest.js
 assets/historical-runtime-assets.js
 assets/form-controls-v22938.js
