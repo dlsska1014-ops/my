@@ -3,14 +3,18 @@
 // ── 이 파일이 왜 생겼는지 ──
 //   T-20 /my 시작 화면은 기능 미리보기가 먼저이고 카카오 로그인 버튼은 한참 아래(390×812 에서 y 3320)에 있었다. 첫 화면의 채운 버튼은
 //        ‘기능 먼저 보기’ 파란 버튼이었고, 로그인 이름 칸의 오류는 맨 위 요약에만 있었다.
+//   T-21 공개 페이지는 노란 ₩ 로고·검은 헤더 버튼·남색 주 버튼·노란 히어로 버튼·theme-color #312e81·매니페스트 이름 ‘말해 가계부’로
+//        앱(파란 장부 마크 #3182f6, 주 버튼 --ab12-action)과 브랜드가 달랐고, 첫 화면에 앱 화면이 없었다.
 //
 // ── 어떻게 잡는가 ──
 // 화면은 픽스처(카카오 로그인을 켠 env 와 끈 env)로 그린 HTML 의 순서·속성·문구를 보고, 로그인 칸 스크립트(loginFieldRuntime)는 vm 의 가짜 DOM 에서
-// 실제로 돌린다. 첫 화면 위치(카카오 버튼 y)와 채운 버튼 수는 review-artifacts/design-uplift-2026-10-28/v87/public/ 의 브라우저 측정이 맡는다.
+// 실제로 돌린다. 공개 미리보기는 같은 픽스처로 그린 앱 홈(T-12 예산 카드)과 셸 CSS(카테고리 색·아이콘·브랜드 토큰)에 대조한다.
+// 첫 화면 위치(카카오 버튼 y, /demo 예산 카드)와 채운 버튼 수는 review-artifacts/design-uplift-2026-10-28/v87/public/ 의 브라우저 측정이 맡는다.
 import vm from "node:vm";
-import { app, BASE, ctx, counter, fixture, page, post } from "./lib-audit-v22934.mjs";
+import { categoryKey } from "../src/index.js";
+import { app, BASE, ctx, counter, fixture, page, post, withClock } from "./lib-audit-v22934.mjs";
 
-const t = counter("V22.9.87 공개·로그인 묶음(T-20 로그인 먼저 시작 화면)");
+const t = counter("V22.9.87 공개·로그인 묶음(T-20 로그인 먼저 시작 화면·T-21 공개 브랜드와 앱 미리보기)");
 const KAKAO = { KAKAO_LOGIN_ENABLED: "1", KAKAO_REST_API_KEY: "qa-rest-key", PUBLIC_BASE_URL: BASE, KAKAO_REDIRECT_URI: `${BASE}/auth/kakao/callback` };
 const RETURN = "/my?return_to=%2Fapp%3Fmonth%3D2026-10%26household_id%3Dhouse-home";
 const count = (text, needle) => String(text).split(needle).length - 1;
@@ -143,6 +147,127 @@ await fixture(async (fx) => {
   t.ok(password.type === "text" && toggleAttrs.get("aria-pressed") === "true" && toggleAttrs.get("aria-label") === "비밀번호 숨기기", "보기 버튼: 글자로 보이고 aria-pressed·이름이 바뀐다");
   t.ok(!submit(), "맞게 쓰면 제출을 막지 않는다");
   t.ok(password.type === "password" && toggleAttrs.get("aria-pressed") === "false", "제출할 때 보이던 비밀번호를 다시 가린다");
+});
+
+// ── T-21 공개 페이지 브랜드(로고·주 버튼·theme-color·매니페스트) ──
+const OLD_PUBLIC_COLORS = ["#312e81", "#3730a3", "#5145a5", "#373078", "#eeedfa", "#1c2141", "#7554d9", "#FEE500"];
+await fixture(async (fx) => {
+  Object.assign(fx.env, KAKAO);
+  let outbound = 0;
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (...args) => { outbound += 1; return realFetch(...args); };
+  const pages = new Map();
+  try {
+    for (const path of ["/", "/demo", "/guides", "/articles", "/budget-ratio-guide", "/household-spending-statistics", "/faq"]) pages.set(path, await page(fx, path, { cookie: "" }));
+  } finally { globalThis.fetch = realFetch; }
+  t.eq(outbound, 0, "공개 페이지는 바깥 요청을 하지 않는다");
+  // 앱 홈은 이번 달일 때만 속도 문장·오늘 표시를 그린다. 픽스처 기록 달(2026-07)의 15일로 시계를 고정해 비교한다.
+  const appHtml = await withClock("2026-07-15", async () => (await page(fx, "/app?month=2026-07&household_id=house-home")).html);
+  const appIcon = (appHtml.match(/<svg class="abBrandIcon"[\s\S]*?<\/svg>/) || [""])[0];
+  for (const [path, view] of pages) {
+    const html = view.html;
+    t.eq(view.status, 200, `${path}: 공개 페이지가 열린다`);
+    t.eq(view.setCookie, "", `${path}: 쿠키를 만들지 않는다`);
+    t.ok(html.includes('<meta name="theme-color" content="#3182f6"/>') && !html.includes('content="#312e81"'), `${path}: theme-color 가 앱 브랜드 #3182f6 이다`);
+    const mark = between(html, '<a class="pubBrand" href="/"><span class="pubMark">', "</span>");
+    t.ok(mark.includes('<svg viewBox="0 0 24 24" aria-hidden="true">') && !html.includes("<span>₩</span>"), `${path}: 머리 로고는 장부 마크 타일이고 노란 ₩ 타일이 없다`);
+    t.deepEq(svgShape(mark), svgShape(appIcon), `${path}: 공개 머리 장부 마크의 rect·path 가 앱 메뉴 아이콘과 같다`);
+    t.ok(html.includes('<a class="pubStart" href="/my">로그인</a>'), `${path}: 머리 오른쪽 /my 링크는 ‘로그인’ 글자 링크다`);
+    const css = (html.match(/<style>([\s\S]*?)<\/style>/) || [, ""])[1];
+    t.ok(css.includes(".pubMark{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:var(--ab12-brand,#3182f6)}"), `${path}: 로고 타일은 32×32·모서리 10·브랜드 #3182f6 이다`);
+    t.ok(css.includes(".pubStart{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 12px;border-radius:12px;color:var(--ab12-accent,#1d4ed8);") && !css.includes("background:#172033"), `${path}: 머리 버튼은 검게 채우지 않은 accent 글자 링크다`);
+    t.ok(css.includes("min-height:50px;border-radius:12px;background:var(--ab12-action,#1d4ed8);color:#fff;") && css.includes(".pubBtn{min-height:54px;border-radius:14px}"), `${path}: 주 버튼은 --ab12-action 면·흰 글자, 높이 50/모바일 54(§3-4)다`);
+    const left = OLD_PUBLIC_COLORS.filter((color) => html.includes(color));
+    t.eq(left.join(" "), "", `${path}: 예전 남색·보라·노랑 브랜드 색이 남지 않았다`);
+    t.ok(!/\.pubHome \.pubHero\{background/.test(css), `${path}: 어두운 히어로 상자가 없다`);
+    if (path !== "/" && path !== "/demo") t.ok(!css.includes(".pubPreview") && !css.includes(".pubLand"), `${path}: 미리보기·랜딩 CSS 는 홈과 /demo 에만 싣는다`);
+  }
+  const fee = pages.get("/").html.match(/#fee500/gi) || [];
+  t.eq(fee.length, 1, "카카오 노랑은 홈에서 카카오 로그인 버튼 한 곳뿐이다");
+  t.ok(pages.get("/").html.includes(".kakaoBtn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:54px;border-radius:12px;background:#fee500;color:rgba(0,0,0,.85);"), "띠의 카카오 버튼: 높이 54·모서리 12·#FEE500·글씨 rgba(0,0,0,.85)(§3-4)");
+
+  // 셸 CSS 토큰과 같은 값인지(공개 화면은 셸 CSS 를 싣지 않아 대체값으로 쓴다)
+  const shellPath = (appHtml.match(/<link rel="stylesheet" href="(\/assets\/accountbook-shell-v\d+\.css)"\/>/) || [, ""])[1];
+  const shell = shellPath ? await (await app.fetch(new Request(`${BASE}${shellPath}`), fx.env, ctx)).text() : "";
+  t.ok(shell.includes("--ab12-brand:#3182f6;--ab12-accent:#1d4ed8;--ab12-action:#1d4ed8;--ab12-accent-soft:#e8f3ff"), `셸 CSS(${shellPath}) 의 라이트 토큰이 공개 대체값(brand #3182f6·accent/action #1d4ed8·accent-soft #e8f3ff)과 같다`);
+
+  // 매니페스트
+  const manifest = await app.fetch(new Request(`${BASE}/manifest.json`), fx.env, ctx);
+  const parsed = JSON.parse(await manifest.text());
+  t.ok(parsed.name === "말해가계부" && parsed.theme_color === "#3182f6", "매니페스트 이름은 ‘말해가계부’, 색은 #3182f6 이다");
+  t.eq(manifest.headers.get("etag"), '"ab-manifest-v22987"', "매니페스트 내용이 바뀌어 ETag 를 올렸다");
+
+  // ── T-21 공개 첫 화면 순서·문구 ──
+  const home = pages.get("/").html;
+  const order = ["<h1>", '<div class="pubHeroActions">', '<section class="pubLand pubLandPreview" id="app-preview"', 'aria-labelledby="land-steps"', '<section class="pubLand pubLandGroup"', '<section class="pubLand pubLandNote"', '<section class="pubSection" id="section-1">', "</article>", '<div class="pubReadingNext">', '<section class="pubBand"', '<footer class="pubFooter">'];
+  // 미리보기 거래 행도 <article> 이라, 표지마다 앞 표지 뒤에서부터 찾는다.
+  const at = [];
+  for (const mark of order) at.push(home.indexOf(mark, at.length ? at[at.length - 1] + 1 : 0));
+  t.ok(at.every((value) => value > 0), `홈 순서: 히어로 → 미리보기 → 세 걸음 → 공동 가계부 → 알아 둘 점 → 안내 절 → 카카오 로그인 띠 → 바닥글 (${at.join(" < ")})`);
+  t.ok(home.indexOf('<section class="pubSection" id="section-1">') > home.indexOf('<section class="pubLand pubLandNote"'), "안내 절은 랜딩 묶음 뒤에 온다");
+  t.ok(home.includes('<div class="pubHeroActions"><a class="pubBtn" href="/my">내 가계부 시작하기</a><a class="pubBtn secondary" href="/demo">가상 가계부 둘러보기</a></div>'), "히어로 주 버튼 ‘내 가계부 시작하기’, 보조 ‘가상 가계부 둘러보기’");
+  t.ok(home.includes("<h1>말한 기록이, 함께 보는 생활비가 됩니다</h1>"), "히어로 제목은 지금 문구 그대로다");
+  t.ok(!home.includes('<nav class="pubToc"'), "랜딩은 목차 대신 미리보기가 머리 바로 아래에 온다");
+  t.ok(home.includes("<h2 id=\"land-steps\">기록은 세 걸음이면 끝나요</h2>") && ["카카오톡에 한 줄", "금액·내용·결제수단 정리", "웹에서 예산 확인"].every((step) => home.includes(`<b>${step}</b>`)), "세 걸음: 카톡에 한 줄 / 금액·내용·결제수단 정리 / 웹에서 예산 확인");
+  t.ok(home.includes('<h2 id="land-group">단톡방이면 공동 가계부가 돼요</h2>') && between(home, '<section class="pubLand pubLandGroup"', "</section>").includes('href="/group-accountbook"'), "공동 가계부·정산 묶음과 정산 사례 링크");
+  t.eq(count(home, "함께 쓴 돈은 계산 근거까지 확인하세요"), 0, "예전 정산 절은 공동 가계부 묶음으로 합쳤다");
+  const independent = "말해가계부는 사용자가 입력한 생활비를 정리하는 독립 서비스입니다. 은행·카드사 계정을 자동으로 연결하거나 투자·세무 판단을 대신하지 않습니다. 카카오가 직접 제공하는 공식 가계부 서비스는 아닙니다.";
+  t.ok(between(home, '<section class="pubLand pubLandNote"', "</section>").includes(independent) && count(home, independent) === 1, "알아 둘 점은 지금 문구(은행·카드 자동 연결 안 함, 카카오 공식 아님) 그대로이고 한 번만 나온다");
+  const band = between(home, '<section class="pubBand"', "</section>");
+  t.ok(band.includes('<a class="kakaoBtn" href="/auth/kakao/start">') && band.includes('<a class="pubBtn secondary" href="/demo">가상 가계부 둘러보기</a>'), "카카오 로그인 띠: 카카오 로그인(설정된 서버) + 가상 가계부 둘러보기");
+  const heroActions = between(home, '<div class="pubHeroActions">', "</div>");
+  t.eq(count(heroActions, 'class="pubBtn"'), 1, "히어로의 채운 주 버튼은 하나다");
+
+  // ── T-21 앱 화면 미리보기(T-12·T-13 과 같은 마크업) ──
+  const preview = between(home, '<figure class="pubPreview">', "</figure>");
+  const budget = between(preview, '<section class="homeBudget">', "</section>");
+  const appBudget = (appHtml.match(/<section class="homeBudget[^"]*"[^>]*>[\s\S]*?<\/section>/) || [""])[0];
+  const classes = (fragment) => [...fragment.matchAll(/class="([^"]+)"/g)].map((m) => m[1]);
+  const appClasses = classes(appBudget).filter((name) => !["homeBudgetToday", "income", "expense", "abDailyHelp"].includes(name));
+  t.ok(appBudget.length > 0, "비교할 앱 홈 예산 카드를 찾았다");
+  t.deepEq(classes(budget), appClasses, `미리보기 예산 카드의 클래스 순서가 앱 홈(T-12)과 같다(오늘 쓴 돈·계산 도움말 줄만 뺐다: ${appClasses.join(" > ")})`);
+  const sentence = (fragment) => (fragment.match(/<div class="homeDailyPlan homePace"><p>([\s\S]*?)<\/p>/) || [, ""])[1].replace(/<span[^>]*>/g, "<span>").replace(/\d[\d,]*/g, "#");
+  t.ok(sentence(appBudget).length > 0 && sentence(budget) === sentence(appBudget), `속도 문장 틀이 앱과 같다 (${sentence(budget)})`);
+  const num = (text) => Number(String(text).replace(/,/g, ""));
+  const remaining = num((budget.match(/<div class="homeBudgetAmount"><b>([\d,]+)<\/b>/) || [])[1]);
+  const total = num((budget.match(/전체 예산 ([\d,]+)원/) || [])[1]);
+  const spent = num((budget.match(/지출 ([\d,]+)원/) || [])[1]);
+  t.eq(total - spent, remaining, "남은 돈 = 전체 예산 − 지출(981,400 = 1,230,000 − 248,600)");
+  const rate = Math.round((spent / total) * 100);
+  t.ok(budget.includes(`<em>예산 사용률 <span>${rate}%</span></em>`) && budget.includes(`<i style="width:${rate}%"></i>`) && budget.includes(`예산은 ${rate}%만 썼어요`), `사용률 ${rate}% 가 머리·게이지·문장에서 같다`);
+  const day = 12, days = 31;
+  t.ok(budget.includes(`style="--ab-today:${Math.round((day / days) * 100)}%"`) && budget.includes(`이번 달의 ${Math.round((day / days) * 100)}%가 지났고`), "오늘 표시와 경과율: 10월 12일 = 31일 중 39%");
+  t.ok(budget.includes(`<span data-ab-num="${Math.floor(remaining / (days - day + 1))}">${Math.floor(remaining / (days - day + 1)).toLocaleString("en-US")}</span>원씩`), "하루 금액 = 남은 돈 ÷ 오늘 포함 남은 20일(앱 규칙, 원 미만 버림)");
+  const rows = [...preview.matchAll(/<article class="v8-tx" data-type="(expense|income)"><div class="v8-tx-main"><span class="abCat" data-ck="(\w+)" aria-hidden="true"><i class="abCatIcon"><\/i><\/span><div><b>([^<]+)<\/b><span>([^<]+)<\/span><\/div><strong class="(expense|income)">([+-])[\d,]+원<\/strong><\/div><\/article>/g)];
+  t.eq(rows.length, 3, "거래 3행이 앱 거래 행(T-13 동그라미 포함)과 같은 마크업이다");
+  for (const [, type, ck, title, line, cls, sign] of rows) {
+    t.ok(cls === type && sign === (type === "income" ? "+" : "-"), `${title}: 금액 클래스·부호가 수입/지출과 맞다`);
+    t.eq(ck, categoryKey(line.split(" · ")[0], type, title), `${title}: 동그라미 키(${ck})가 앱 판정(categoryKey)과 같다`);
+  }
+  t.ok(!/<a\b|<button|<form|<input|<script|fetch\(|localStorage|sessionStorage|document\.cookie/.test(preview), "미리보기는 읽기 전용이다(링크·단추·폼·스크립트·저장 없음)");
+  const lightTokens = (shell.match(/(?:^|\n)body\.abV22812Shell\{(--ab12-cat-[^}]+)\}/) || [, ""])[1];
+  const homeCss = (home.match(/<style>([\s\S]*?)<\/style>/) || [, ""])[1];
+  for (const key of ["food", "cafe", "income"]) {
+    const pair = lightTokens.match(new RegExp(`--ab12-cat-${key}-bg:(#[0-9a-f]+);--ab12-cat-${key}-ink:(#[0-9a-f]+)`)) || [];
+    const shellIcon = (shell.match(new RegExp(`\\.abCat\\[data-ck="${key}"\\]\\{[^}]*--ab-ck-ico:(url\\("[^"]+"\\))`)) || [, ""])[1];
+    t.ok(pair[1] && homeCss.includes(`.pubPreview .abCat[data-ck="${key}"]{--ab-ck-bg:${pair[1]};--ab-ck-ink:${pair[2]};--ab-ck-ico:${shellIcon}}`), `${key}: 동그라미 바탕·잉크·아이콘이 셸 CSS 라이트 값과 같다(${pair[1]}/${pair[2]})`);
+  }
+
+  // ── T-21 /demo 위쪽의 같은 미리보기(읽기 전용) ──
+  const demo = pages.get("/demo").html;
+  const demoPreview = between(demo, '<figure class="pubPreview">', "</figure>");
+  t.ok(demoPreview.includes(budget) && rows.every((row) => demoPreview.includes(row[0])), "/demo 미리보기는 홈과 같은 예산 카드·거래 3행이다");
+  t.ok(demo.indexOf('<figure class="pubPreview">') > demo.indexOf("<h1>") && demo.indexOf('<figure class="pubPreview">') < demo.indexOf('<p class="pubMeta">') && demo.indexOf('<figure class="pubPreview">') < demo.indexOf('<section class="pubDemo"'), "/demo 미리보기는 머리 영역 소개 바로 아래(계산 예제보다 위)에 있다");
+  t.ok(demoPreview.includes('<p class="pubPreviewLabel">웹 가계부 홈 화면 예시 · 가상 데이터</p>') && demoPreview.includes("아래 예산 계산 예제와는 다른 숫자이고"), "/demo 미리보기는 홈 화면 예시·가상 데이터이고 계산 예제와 다른 숫자라고 적는다");
+  t.eq(pages.get("/demo").setCookie, "", "/demo 는 쿠키를 만들지 않는다");
+  t.ok(!/fetch\(|localStorage|sessionStorage|document\.cookie/.test(demo), "/demo 는 요청·저장소를 쓰지 않는다");
+});
+
+// ── T-21 카카오 로그인이 꺼진 서버의 띠 ──
+await fixture(async (fx) => {
+  const home = (await page(fx, "/", { cookie: "" })).html;
+  const band = between(home, '<section class="pubBand"', "</section>");
+  t.ok(!home.includes('class="kakaoBtn"') && band.includes('<a class="pubBtn" href="/my">내 가계부 시작하기</a>'), "카카오 로그인이 꺼진 env 의 띠는 /my 로 가는 주 버튼이다(오류 주소로 보내지 않는다)");
 });
 
 t.done();

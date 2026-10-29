@@ -63,9 +63,10 @@ const tasks = [
   ["manifest", async () => {
     const r = await request("/manifest.json");
     check(r.status === 200, "manifest HTTP 200");
-    check((r.headers.get("etag") || "").replace(/^W\//, "") === '"ab-manifest-v22920"', "manifest ETag");
+    // V22.9.87 T-21: 매니페스트 이름을 ‘말해가계부’로 붙여 쓰며 ETag 를 v22987 로 올렸다. 이 판부터 배포 확인은 새 값을 본다.
+    check((r.headers.get("etag") || "").replace(/^W\//, "") === '"ab-manifest-v22987"', "manifest ETag");
     const data = await r.json();
-    check(data.name === "말해 가계부", "manifest brand name");
+    check(data.name === "말해가계부", "manifest brand name");
   }],
   ["AdSense owner", async () => {
     const r = await request("/ads.txt");

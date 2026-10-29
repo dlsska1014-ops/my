@@ -31,7 +31,8 @@ const ORIGIN = "https://malhaebook.com";
 // ---------------------------------------------------------------------------
 const manifestResponse = await app.fetch(new Request(`${ORIGIN}/manifest.json`), {}, {});
 eq(manifestResponse.status, 200, "매니페스트가 서빙된다");
-eq(manifestResponse.headers.get("etag"), '"ab-manifest-v22920"', "내용이 바뀌었으므로 ETag 도 올라갔다");
+// V22.9.87 T-21: 매니페스트 이름이 바뀌어 ETag 가 v22987 이 됐다.
+eq(manifestResponse.headers.get("etag"), '"ab-manifest-v22987"', "내용이 바뀌었으므로 ETag 도 올라갔다");
 const manifest = JSON.parse(await manifestResponse.text());
 
 eq(manifest.share_target.method, "GET", "텍스트 공유는 GET 이다 — 서비스워커 없이 서버가 바로 받는다");

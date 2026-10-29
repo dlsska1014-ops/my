@@ -348,6 +348,12 @@ function ledgerMarkSvg() {
   return '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="3"/><path d="M8 3.5v17M11 8h5M11 12h5M11 16h3"/></svg>';
 }
 
+// V22.9.87 T-20·T-21: 카카오 로그인 버튼(§3-4: #FEE500 면, 검은 말풍선 심볼, 라벨 ‘카카오 로그인’). /my 시작 화면과 공개 첫 화면의
+// 카카오 로그인 띠가 같은 마크업을 쓴다. 색·크기는 각 화면 CSS 의 .kakaoBtn 이 정한다. 설정이 준비된 서버에서만 부른다.
+function kakaoLoginButtonHtml() {
+  return '<a class="kakaoBtn" href="/auth/kakao/start"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466 0 2.66 1.77 4.995 4.432 6.316l-.9 3.296a.35.35 0 0 0 .532.383l3.917-2.598c.5.06 1.007.09 1.519.09 5.247 0 9.5-3.343 9.5-7.487C21.5 6.843 17.247 3.5 12 3.5Z"/></svg>카카오 로그인</a>';
+}
+
 function publicSiteNav(active = "home") {
   // V22.9.74: '예산 계산'(/budget-guide, 사용 가이드 모음에서 닿음) 자리에 생활비 가이드 글 허브를 둔다.
   const links = [
@@ -359,7 +365,9 @@ function publicSiteNav(active = "home") {
     ["faq", "문제 해결", "/faq"],
   ];
   const linkHtml = links.map(([key,label,href]) => `<a class="${active === key ? "active" : ""}" ${active === key ? `aria-current="page"` : ""} href="${href}">${escapeHtml(label)}</a>`).join("");
-  return `<header class="pubHeader"><div class="pubHeaderInner"><a class="pubBrand" href="/"><span>₩</span><b>말해가계부</b></a><nav class="pubDesktopNav" aria-label="공개 페이지">${linkHtml}</nav><a class="pubStart" href="/my">가계부 시작하기</a><details class="pubMobileMenu"><summary aria-label="공개 페이지 메뉴 열기">메뉴</summary><nav aria-label="모바일 공개 페이지"><a href="/my">가계부 시작하기</a>${linkHtml}</nav></details></div></header>`;
+  // V22.9.87 T-21: 로고는 앱과 같은 파란 장부 마크 타일(결정 D-2, 노란 ₩ 타일을 뺐다). 오른쪽 /my 링크는 승인 시안대로 ‘로그인’ 글자 링크다
+  // (예전 검은 채운 버튼 — 화면의 채운 주 버튼은 히어로의 ‘내 가계부 시작하기’ 하나다). 모바일에서도 보인다. 메뉴 안 ‘가계부 시작하기’는 그대로.
+  return `<header class="pubHeader"><div class="pubHeaderInner"><a class="pubBrand" href="/"><span class="pubMark">${ledgerMarkSvg()}</span><b>말해가계부</b></a><nav class="pubDesktopNav" aria-label="공개 페이지">${linkHtml}</nav><a class="pubStart" href="/my">로그인</a><details class="pubMobileMenu"><summary aria-label="공개 페이지 메뉴 열기">메뉴</summary><nav aria-label="모바일 공개 페이지"><a href="/my">가계부 시작하기</a>${linkHtml}</nav></details></div></header>`;
 }
 
 function publicSiteFooter() {
@@ -372,8 +380,9 @@ export {
   adsHeadMarkup, adsHeaders, adsMode, adsPolicyLinks, adsPolicyText, adsensePublisherIdForTxt,
   appName, canonicalRedirectResponse, cardPerformanceEnabled, currentRequestBaseUrl, envFlagEnabled,
   handleKakaoCommandSystemPage, hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled,
-  kakaoChatCommandCatalog, kakaoRepresentativeCommands, ledgerMarkSvg, memeCardsEnabled,
-  normalizeBaseUrl, premiumBetaEnabled, publicAdsenseHead, publicBaseUrl, publicSiteFooter,
-  publicSiteNav, publicSupportEmail, renderBusinessInfoFooter, renderSkillGetHealthHtml,
+  kakaoChatCommandCatalog, kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg,
+  memeCardsEnabled, normalizeBaseUrl, premiumBetaEnabled, publicAdsenseHead, publicBaseUrl,
+  publicSiteFooter, publicSiteNav, publicSupportEmail, renderBusinessInfoFooter,
+  renderSkillGetHealthHtml,
 };
 // @build:exports-end

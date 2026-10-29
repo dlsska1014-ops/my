@@ -197,8 +197,9 @@ async function abIconPng(size = 180) {
 
 // 홈 화면에 추가했을 때 앱처럼 열리도록 하는 최소 매니페스트.
 // display를 "browser"로 바꾸면 기존처럼 브라우저 UI를 유지한 채 열린다.
+// V22.9.87 T-21: 설치 이름도 서비스 이름과 같은 붙여 쓴 ‘말해가계부’다(공개·로그인·앱 브랜드 하나). 내용이 바뀌어 ETag 를 올렸다.
 const AB_WEB_MANIFEST = {
-  name: "말해 가계부",
+  name: "말해가계부",
   short_name: "가계부",
   description: "카카오톡으로 기록하고 웹에서 정리하는 우리집 가계부",
   lang: "ko",
@@ -287,7 +288,7 @@ async function appIconAssetResponse(request, url) {
       "cache-control": "public, max-age=604800",
       "x-content-type-options": "nosniff",
       "cross-origin-resource-policy": "same-origin",
-      etag: route.kind === "manifest" ? '"ab-manifest-v22920"' : `"ab-icon-v22864-${route.kind}-${route.size}"`,
+      etag: route.kind === "manifest" ? '"ab-manifest-v22987"' : `"ab-icon-v22864-${route.kind}-${route.size}"`,
     },
   });
 }
