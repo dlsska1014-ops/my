@@ -2113,6 +2113,11 @@ const ACCOUNTBOOK_WORKER = {
         return await handleMyDeleteTransaction(request, env);
       }
 
+      // V22.9.87 T-16: 저장 알림의 실행 취소(서명한 표가 있어야 지운다 — my/transactions.js handleMyQuickUndo).
+      if (url.pathname === "/my/undo" && request.method === "POST") {
+        return await handleMyQuickUndo(request, env);
+      }
+
       if (url.pathname === "/my/logout" && request.method === "POST") {
         return await handleMyLogout();
       }
@@ -11982,7 +11987,12 @@ async function handleAdminAddTransaction(request, env) {
     } catch (_) {}
     const receipt = String(savedTransaction?.id || "") === requestId && !savedTransaction?.__duplicate_skipped
       ? { saved_rid: requestId, saved_qd: abTransactionRequestId(form.get("quick_draft_token")) } : {};
-    const saved = { msg, ...receipt, ...(balert ? { balert } : {}) };
+    // V22.9.87 T-16: 로그인 사용자(관리자 세션 아님)가 이번 요청으로 새로 만든 기록이면(msg=added — 다시 보낸 요청의 already_saved 는 아니다)
+    // 저장 알림의 실행 취소 표(60초)를 함께 싣는다. 만들 수 없으면(비밀 없음·오류) 빈 값이고, 화면은 단추 대신 수정·삭제 화면 링크를 둔다.
+    // 표는 서명을 다시 확인하는 /my/undo 만 받는다.
+    const undo = msg === "added" && receipt.saved_rid && !access.admin && access.userId
+      ? await makeQuickUndoTicket(env, { row: savedTransaction, householdId, userId: access.userId }).catch(() => "") : "";
+    const saved = { msg, ...receipt, ...(undo ? { undo } : {}), ...(balert ? { balert } : {}) };
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg }), transactionAddRedirectExtras(form, saved, "success")));
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_create_failed", severity: "warn", path: "/admin/transactions", method: "POST", detail: safeError(err) });
@@ -20992,8 +21002,8 @@ function accountbookActivityRailClientMain() {
 }
 
 // V22.9.86 T-15(디자인 작업 지시서 3단계): 저장 뒤 받은 새 기록 번호(saved_rid, 저장 경로가 새 기록일 때만 붙인다)의 행 #tx-<번호> 에
-// .abTxNew 강조(1.8초, accent-soft → 투명, 움직임 줄이기에서는 CSS 가 끈다)를 한 번 준다. 다시 불러와도 또 일어나지 않도록 saved_rid·saved_qd 를
-// 주소에서 지운다 — 빠른 입력 자산(accountbookQuickInputClientMain 의 autoOpen)이 두 값으로 저장된 초안을 지운 다음이어야 해서 한 틱 미룬다.
+// .abTxNew 강조(1.8초, accent-soft → 투명, 움직임 줄이기에서는 CSS 가 끈다)를 한 번 준다. 다시 불러와도 또 일어나지 않도록 saved_rid·saved_qd
+// (V22.9.87 부터 실행 취소 표 undo 도)를 주소에서 지운다 — 빠른 입력 자산(accountbookQuickInputClientMain 의 autoOpen)이 두 값으로 저장된 초안을 지운 다음이어야 해서 한 틱 미룬다.
 // "다시 시도"(빠른 입력 저장 실패 알림)는 알림을 닫고 같은 빠른 입력 시트를 연다(초안은 시트가 되살린다, 이미 열려 있으면 입력 칸으로 간다).
 // 시트를 닫을 때 초점은 사라진 알림 대신 보이는 빠른 입력 단추(모바일 입력 바 → 하단 탭 ＋ → 데스크톱 오른쪽 아래 "빠른 입력")로 돌아간다.
 function accountbookSaveFeedbackClientMain() {
@@ -21010,6 +21020,7 @@ function accountbookSaveFeedbackClientMain() {
         var left = new URLSearchParams(location.search);
         left.delete("saved_rid");
         left.delete("saved_qd");
+        left.delete("undo");
         var rest = left.toString();
         if (window.history && window.history.replaceState) window.history.replaceState({}, "", location.pathname + (rest ? "?" + rest : "") + location.hash);
       } catch (_error) {}
@@ -21042,14 +21053,23 @@ function accountbookSaveFeedbackClientMain() {
     });
     window.openAbQuickInput("", back);
   });
+  // V22.9.87 T-16: 실행 취소 단추가 있는 성공 알림은 12초 보인다(지시서: 10초 이상). 마우스나 키보드 초점이 알림 안에 있는 동안은
+  // 모든 알림이 멈추고, 둘 다 나가면 남은 시간(실행 취소 6초·성공 2.4초·경고 4.2초) 뒤 닫는다. 실행 취소 표는 60초라 알림이 먼저 닫힌다.
+  var undoable = !!feedback.querySelector("[data-ab-undo]");
+  var holdMs = undoable ? 12000 : kind === "success" ? 5200 : kind === "warning" ? 9000 : 0;
+  var resumeMs = undoable ? 6000 : kind === "success" ? 2400 : kind === "warning" ? 4200 : 0;
+  var hovering = false;
+  function hold() { if (timer) clearTimeout(timer); timer = null; }
+  function resume() {
+    hold();
+    if (resumeMs && !hovering && !feedback.contains(document.activeElement)) timer = setTimeout(close, resumeMs);
+  }
   requestAnimationFrame(function() { feedback.classList.add("isVisible"); });
-  if (kind === "success") timer = setTimeout(close, 5200);
-  else if (kind === "warning") timer = setTimeout(close, 9000);
-  feedback.addEventListener("mouseenter", function() { if (timer) clearTimeout(timer); });
-  feedback.addEventListener("mouseleave", function() {
-    if (kind === "success") timer = setTimeout(close, 2400);
-    else if (kind === "warning") timer = setTimeout(close, 4200);
-  });
+  if (holdMs) timer = setTimeout(close, holdMs);
+  feedback.addEventListener("mouseenter", function() { hovering = true; hold(); });
+  feedback.addEventListener("mouseleave", function() { hovering = false; resume(); });
+  feedback.addEventListener("focusin", hold);
+  feedback.addEventListener("focusout", function() { setTimeout(resume, 0); });
   try {
     var params = new URLSearchParams(location.search);
     var changed = false;
@@ -24399,6 +24419,30 @@ async function readPurposeToken(env, purpose, token = "") {
   const data = token.slice(0, dot);
   if (!constantTimeTextEqual(token.slice(dot+1), await hmacSha256(userSessionSecret(env), purpose + ":" + data))) return null;
   try { const payload = JSON.parse(base64UrlDecodeText(data)); return payload.purpose === purpose && payload.exp >= Math.floor(Date.now()/1000) ? payload : null; } catch (_) { return null; }
+}
+
+// V22.9.87 T-16(디자인 작업 지시서, 사용자 결정 2026-10-29): 저장 알림 ‘실행 취소’ 표. saved_rid 는 주소 값이라 남의 기록 번호로 꾸밀 수 있어
+// 그것만으로는 지우지 않는다. 저장한 서버가 이 로그인 사용자가 방금 만든 기록 한 건에만 60초짜리 용도 표(quick-undo)를 서명해 주소에 함께 싣는다.
+// 표: 기록 번호(r)·가계부(h)·만든 사용자(u)·기록 지문(f). 지문은 저장한 값 일곱 칸(종류·금액·날짜·분류·메모·결제수단·지출자)의 SHA-256 앞 32자라
+// 주소에 금액·메모가 남지 않고, 저장 뒤 누가 고친 기록은 실행 취소로 지우지 않는다. 표를 만들거나 읽지 못하면(비밀 없음 등) 빈 값·null 이고
+// 화면은 단추 대신 수정·삭제 화면 링크를 둔다. 받는 곳은 /my/undo(my/transactions.js handleMyQuickUndo) 하나다.
+const QUICK_UNDO_SECONDS = 60;
+async function quickUndoFingerprint(row = {}) {
+  const fields = [row.type, Number(row.amount || 0), row.transaction_date, row.category, row.memo, row.payment_method, row.user_id].map((value) => String(value ?? ""));
+  return (await sha256Hex(JSON.stringify(fields))).slice(0, 32);
+}
+
+async function makeQuickUndoTicket(env, { row, householdId = "", userId = "" } = {}) {
+  if (!row?.id || !householdId || !userId) return "";
+  return signedPurposeToken(env, "quick-undo", { r: String(row.id), h: String(householdId), u: String(userId), f: await quickUndoFingerprint(row) }, QUICK_UNDO_SECONDS);
+}
+
+async function readQuickUndoTicket(env, ticket = "", userId = "") {
+  if (!ticket || !userId) return null;
+  let payload = null;
+  try { payload = await readPurposeToken(env, "quick-undo", String(ticket)); } catch (_) { return null; }
+  if (!payload || !payload.r || !payload.h || !payload.f || String(payload.u || "") !== String(userId)) return null;
+  return payload;
 }
 
 async function makeCredentialProof(env, userId) {
@@ -31396,6 +31440,42 @@ async function handleMyDeleteTransaction(request, env) {
   }
 }
 
+// V22.9.87 T-16(디자인 작업 지시서, 사용자 결정 2026-10-29): 저장 알림의 ‘실행 취소’. 서버가 서명한 표(readQuickUndoTicket — 이 로그인 사용자 것,
+// 60초 안)가 있어야 하고, 지울 기록 번호·가계부는 주소가 아니라 표에서 읽는다. 그다음은 위 /my/delete 와 같은 검사(가계부 쓰기 권한·내 기록이거나
+// 소유자·관리자·구성원 ‘기록만’ 정책)이고, 저장한 뒤 바뀐 기록(지문이 다르면)은 지우지 않는다. 같은 출처 검사는 라우터 전역(csrfOriginAllowed)이 한다.
+// 감사 기록은 보통 삭제와 같은 actor_kind "user" 다(DB 함수가 받는 값을 늘리지 않는다). 돌아갈 곳은 저장했던 화면(return_to)이고 msg=undone 을 붙인다.
+async function handleMyQuickUndo(request, env) {
+  const userId = await verifyUserSession(request, env);
+  if (!userId) return redirectResponse("/my");
+  const form = await request.formData();
+  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const back = (householdId, extra) => {
+    const fallback = `/app?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`;
+    const target = new URL(safeUserReturnPath(String(form.get("return_to") || ""), fallback), "https://accountbook.local");
+    for (const key of ["msg", "err", "balert", "saved_rid", "saved_qd", "undo", "quick", "day_detail", "rid"]) target.searchParams.delete(key);
+    for (const [key, value] of Object.entries(extra)) target.searchParams.set(key, value);
+    return `${target.pathname}${target.search}${target.hash}`;
+  };
+  const ticket = await readQuickUndoTicket(env, form.get("ticket"), userId);
+  if (!ticket) return redirectResponse(back("", { err: "undo_expired" }));
+  const { selected } = await getMySelectedHousehold(env, userId, ticket.h);
+  if (!selected || String(selected.id) !== String(ticket.h)) return redirectResponse(back("", { err: "undo_expired" }));
+  if (!canWriteMyHousehold(selected.role)) return redirectResponse(back(selected.id, { err: "write_not_allowed" }));
+  const row = await getTransactionForUserEdit(env, ticket.r, selected.id);
+  if (!row) return redirectResponse(back(selected.id, { err: "record_not_found" }));
+  if (!canManageMyRecord(selected.role, row, userId)) return redirectResponse(back(selected.id, { err: "not_my_record" }));
+  const policyError = await memberRecordChangeError(env, selected.role, selected.id);
+  if (policyError) return redirectResponse(back(selected.id, { err: policyError }));
+  if (await quickUndoFingerprint(row) !== ticket.f) return redirectResponse(back(selected.id, { err: "undo_changed" }));
+  try {
+    await deleteTransactionWithAudit(env, row.id, selected.id, { actorUserId: userId, actorKind: "user" });
+    return redirectResponse(back(selected.id, { msg: "undone" }));
+  } catch (err) {
+    rememberOpsEvent({ kind: "my_record_undo_failed", severity: "warn", path: "/my/undo", method: "POST", detail: safeError(err) });
+    return redirectResponse(back(selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "record_delete_failed" }));
+  }
+}
+
 function householdTemplatePreset(key = "") {
   const presets = {
     household: { name: "우리집 생활비", label: "생활비" },
@@ -34630,8 +34710,18 @@ function quickFabCss() {
   ].join("\n");
 }
 
+// T-16 저장 알림 ‘실행 취소’: 폼(POST /my/undo)은 상자를 만들지 않고(display:contents) 단추가 알림 줄의 한 칸이 된다.
+// 모양·색은 옆 ‘예산 보기’·‘다시 시도’ 링크(.abSaveFeedbackAction, 시안 .undo 의 toastlink 색)와 같고, 단추 기본 테두리·바탕·글꼴만 지운다.
+// !important 를 쓰지 않는다 — 고대비(forced-colors) 모드에서 셸의 단추 테두리 규칙(ButtonText 1px)이 옆 링크처럼 이 단추에도 걸려야 한다.
+function quickUndoCss() {
+  return [
+    `body.abV22812Shell .abSaveFeedbackUndo{display:contents}`,
+    `body.abV22812Shell button.abSaveFeedbackAction{margin:0;border:0;background:transparent;font:inherit;font-size:14px;font-weight:800;cursor:pointer}`,
+  ].join("\n");
+}
+
 function designUplift4Css() {
-  return [`/* V22.9.87 T-19: 데스크톱 독 → 사이드바 검색 · 머리말 아이콘 단추 · 빠른 입력 단추 하나 */`, deskSearchCss(), deskHeadActionsCss(), quickFabCss()].join("\n");
+  return [`/* V22.9.87 T-19: 데스크톱 독 → 사이드바 검색 · 머리말 아이콘 단추 · 빠른 입력 단추 하나 / T-16 실행 취소 */`, deskSearchCss(), deskHeadActionsCss(), quickFabCss(), quickUndoCss()].join("\n");
 }
 
 // V22.9.40 A3(감사 U9): 수정 폼의 11px 라벨을 #687385(4.35:1) → #475467(밝은 카드 위 7:1 이상)로 올린다. 다크에서는 읽기 전용
@@ -39128,7 +39218,7 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
   return `<section id="calendar" class="panel homeCalendar"><div class="calHead"><h2>${escapeHtml(month)} 캘린더</h2><a class="calClose" href="${escapeHtml(closeHref)}">닫기</a></div><div class="calNav"><a href="${escapeHtml(monthHref(prevMonth))}" aria-label="이전 달">← 이전달</a><b>${escapeHtml(month)}</b><a href="${escapeHtml(monthHref(nextMonth))}" aria-label="다음 달">다음달 →</a></div>${selectedDate ? `<div class="calSelected"><b>${escapeHtml(selectedDate)}</b> 기록을 아래 최근 내역에서 확인·수정하세요. <a href="${escapeHtml(clearHref)}">선택 해제</a></div>` : ""}<div class="calGrid calDows">${weekHead}</div><div class="calGrid">${blanks}${cells}</div><p class="calHint">날짜를 누르면 지출·수입 합계와 실제 거래 항목이 팝업으로 열립니다. 전체 기록 보기는 기존 날짜 필터 화면으로 연결되며, 기록이 없는 날은 배경 없이 간결하게 표시됩니다.</p></section>`;
 }
 
-function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, paymentAssetNames = [], msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "", spenderMembers = members, memberCanChangeRecords = true, ledgerHasRecords = rows.length > 0, refundDeductions = [], refundFailed = false, quickRetry = false }) {
+function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, paymentAssetNames = [], msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "", spenderMembers = members, memberCanChangeRecords = true, ledgerHasRecords = rows.length > 0, refundDeductions = [], refundFailed = false, quickRetry = false, quickUndo = null }) {
   // 8.4: 저장된 홈 구성이 없거나 깨졌으면 기본 순서다. 이 폴백이 정상 경로다.
   const homeLayout = normalizeHomeLayout(homeLayoutSetting);
   const roleLower = String(sessionRole || "").toLowerCase();
@@ -39586,6 +39676,8 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
       ? "기록을 저장했고 예산을 확인해야 합니다"
       : msg === "deleted"
         ? "기록을 삭제했습니다"
+        : msg === "undone"
+          ? "저장을 취소했습니다"
         : msg === "updated"
           ? "기록을 수정했습니다"
           : msg === "duplicate_skipped"
@@ -39596,17 +39688,23 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 예산이 없으면 말할 남은 돈도 없으므로 붙이지 않는다. 오류·경고는 원문 그대로 둔다.
   // 저장은 msg=added, 그 밖에 created·updated·deleted 가 실제로 오는 값이다
   // ("saved" 는 이 앱이 쓰지 않는 이름이라 formatMessage 가 오류 문구로 되돌린다).
-  const feedbackResultLine = !err && !balert && budgetTotal && ["added", "created", "updated", "deleted"].includes(String(msg || ""))
+  const feedbackResultLine = !err && !balert && budgetTotal && ["added", "created", "updated", "deleted", "undone"].includes(String(msg || ""))
     ? `남은 예산 ${numberWithCommas(budgetRemaining)}원${dailyAllowanceAmt ? ` · 하루 ${numberWithCommas(dailyAllowanceAmt)}원` : ""}`
     : "";
   const feedbackMessage = err ? formatMessage(err) : [msg ? formatMessage(msg) : "", balert ? escapeHtml(balert) : "", feedbackResultLine ? escapeHtml(feedbackResultLine) : ""].filter(Boolean).join("<br/>");
   // V22.9.86 T-15(디자인 작업 지시서 3단계 §3-4·§3-6): 표식 칸은 셋 다 비우고 CSS 아이콘 원(성공 체크·경고 삼각·오류 느낌표)이 그린다.
   // 종류는 제목 문구로도 말한다(지금 서버 문구 그대로). 버튼: 경고는 "예산 보기"(예산 알림 화면), 오류는 빠른 입력 저장이 실패해 돌아온
   // 때(quick=1 — 초안이 남아 있고 시트가 다시 열린다)만 "다시 시도"(V5 자산이 알림을 닫고 같은 시트로 초점을 옮긴다, JS 가 없으면 #add 로 간다).
-  // 성공의 "실행 취소"(T-16)는 두지 않았다 — 이유는 docs/codex/DESIGN_FINDINGS_V22_9_86.md. role·aria-live 는 그대로다.
+  // role·aria-live 는 그대로다.
+  // V22.9.87 T-16(사용자 결정 2026-10-29): 새 기록 저장 성공 알림에 "실행 취소". 서명한 표(handleMobileV8Page 의 quickUndo.ticket)가 있으면
+  // POST /my/undo 폼 단추(JS 없이도 된다), 없으면 그 기록의 "수정·삭제 화면 열기" 링크다. 기록을 바꿀 수 없는 사람(조회 전용·‘기록만’ 구성원)에게는
+  // 둘 다 두지 않는다. 경고(예산 보기)·오류(다시 시도) 알림은 그대로다.
+  const undoAllowed = feedbackKind === "success" && !!quickUndo && appCanWrite && (appIsManager || memberCanChangeRecords);
   const feedbackActionHtml = feedbackKind === "warning"
     ? `<a class="abSaveFeedbackAction" href="${escapeHtml(`/budget-alerts?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`)}">예산 보기</a>`
-    : feedbackKind === "error" && quickRetry && appCanWrite ? `<a class="abSaveFeedbackAction" data-ab-feedback-retry href="#add">다시 시도</a>` : "";
+    : feedbackKind === "error" && quickRetry && appCanWrite ? `<a class="abSaveFeedbackAction" data-ab-feedback-retry href="#add">다시 시도</a>`
+    : undoAllowed && quickUndo.ticket ? `<form class="abSaveFeedbackUndo" method="post" action="/my/undo"><input type="hidden" name="ticket" value="${escapeHtml(quickUndo.ticket)}"><input type="hidden" name="month" value="${escapeHtml(month)}"><input type="hidden" name="return_to" value="${escapeHtml(quickUndo.returnTo)}"><button type="submit" class="abSaveFeedbackAction" data-ab-undo>실행 취소</button></form>`
+    : undoAllowed ? `<a class="abSaveFeedbackAction" data-ab-undo-edit href="${escapeHtml(txEditPath(quickUndo.rid, quickUndo.returnTo))}">수정·삭제 화면 열기</a>` : "";
   const saveFeedbackHtml = feedbackKind
     ? `<div class="abSaveFeedback ${feedbackKind === "error" ? "isError" : feedbackKind === "warning" ? "isWarning" : "isSuccess"}" data-ab-save-feedback data-ab-feedback-kind="${feedbackKind}" role="${feedbackKind === "error" ? "alert" : "status"}" aria-live="${feedbackKind === "error" ? "assertive" : "polite"}"><span class="abSaveFeedbackMark" aria-hidden="true"></span><div class="abSaveFeedbackCopy"><b>${escapeHtml(feedbackTitle)}</b><span>${feedbackMessage}</span></div>${feedbackActionHtml}<button type="button" class="abSaveFeedbackClose" data-ab-feedback-close aria-label="알림 닫기"></button></div>`
     : "";
@@ -39805,6 +39903,19 @@ async function handleMobileV8Page(request, env, url) {
   // 인라인 style 을 걷어내 일별 격자가 싸졌으므로(27KB → 3KB) 이제 기본으로 켠다.
   const trendView = ["daily", "weekly", "monthly"].includes(String(url.searchParams.get("trend") || "")) ? String(url.searchParams.get("trend")) : "daily";
   const balert = String(url.searchParams.get("balert") || "").slice(0, 120);
+  // V22.9.87 T-16: 방금 저장한 기록(msg=added·saved_rid)의 실행 취소 표가 이 로그인 사용자·이 가계부·같은 기록 번호이고 60초 안이면
+  // 알림에 ‘실행 취소’ 단추(POST /my/undo), 아니면(관리자 세션·시간 지남·표 없음) ‘수정·삭제 화면 열기’ 링크다. 돌아갈 곳은 지금 화면에서
+  // 알림·표 값을 뺀 주소다. 표를 다시 확인하는 것은 /my/undo 이고, 여기서는 단추를 그릴지만 정한다.
+  const savedRid = msg === "added" ? String(url.searchParams.get("saved_rid") || "").slice(0, 80) : "";
+  const undoTicket = savedRid && userId && !adminOk ? String(url.searchParams.get("undo") || "") : "";
+  const undoPayload = undoTicket ? await readQuickUndoTicket(env, undoTicket, userId) : null;
+  const undoBack = new URLSearchParams(url.search);
+  for (const key of ["msg", "err", "balert", "saved_rid", "saved_qd", "undo", "quick", "day_detail", "rid"]) undoBack.delete(key);
+  const quickUndo = savedRid ? {
+    rid: savedRid,
+    ticket: undoPayload && String(undoPayload.r) === savedRid && String(undoPayload.h) === String(householdId) ? undoTicket : "",
+    returnTo: `${url.pathname}${undoBack.toString() ? `?${undoBack.toString()}` : ""}`,
+  } : null;
   const homeView = url.searchParams.get("view") === "calendar" ? "calendar" : "";
   // V22.9.8: 공유 시트로 들어온 텍스트. 매니페스트의 share_target 이 카드 결제 알림·문자를
   // 이 세 파라미터로 넘긴다. 제목·본문 순으로 붙이는데, 안드로이드 공유는 앱마다
@@ -39816,7 +39927,7 @@ async function handleMobileV8Page(request, env, url) {
     .join(" ")
     .slice(0, 200);
   const calendarRows = rows;
-  return htmlResponse(abEchoQuickRequestId(url, err, renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed })));
+  return htmlResponse(abEchoQuickRequestId(url, err, renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed, quickUndo })));
 }
 
 async function handleBudgetSave(request, env) {
@@ -42174,7 +42285,7 @@ function formatMessage(msg) {
     no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.",
     joined_viewer: "조회 전용으로 참여 중인 가계부입니다. 기록은 볼 수 있지만 저장·수정·삭제할 수 없습니다.",
     join_blocked: "이 가계부에서는 참여가 차단되어 있습니다. 초대코드를 다시 입력해도 권한은 바뀌지 않습니다. 소유자에게 확인해 주세요.",
-    db_write_unknown: "처리 결과를 아직 확인하지 못했습니다. 기록·목표·참여 목록을 새로고침해 결과를 먼저 확인하고 같은 요청을 반복하지 마세요.", amount_required: "0원보다 큰 금액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.", amount_too_large: "금액이 너무 큽니다. 20억 원 이하로 입력해 주세요. 입력 내용은 저장되지 않았습니다.", record_not_found: "수정할 기록을 찾지 못했습니다. 기록 목록을 새로 열어 다시 선택해 주세요.", not_my_record: "이 기록을 바꿀 권한이 없습니다. 내가 만든 기록을 선택하거나 소유자·관리자에게 요청해 주세요.", budget_save_failed: "예산을 저장하지 못했습니다. 기존 값은 유지되므로 잠시 후 한 번만 다시 시도해 주세요.", budget_amount_invalid: "예산 금액을 숫자로 입력해 주세요. 기존 예산은 그대로 유지됩니다.", budget_plan_too_many: "예산 항목은 한 번에 100개까지 저장할 수 있습니다. 101번째 이후 항목을 줄인 뒤 다시 저장해 주세요. 기존 예산은 유지됩니다.", category_missing: "분류 이름을 입력해 주세요. 다른 입력값은 저장되지 않았습니다.", category_keywords_save_failed: "분류 키워드를 저장하지 못했습니다. 기존 설정은 유지되므로 잠시 후 다시 시도해 주세요.", category_created_keywords_pending: "분류는 추가했지만 키워드는 저장하지 못했습니다. 분류 목록에서 키워드만 다시 저장해 주세요.", keyword_manage_only: "분류 키워드 저장은 가계부 소유자·관리자만 할 수 있습니다. 현재 설정은 그대로 확인할 수 있습니다.", recurring_missing: "정기항목의 내용과 0원보다 큰 금액을 입력해 주세요.", recurring_table_required: "정기항목 저장 공간을 사용할 수 없습니다. 입력값은 저장되지 않았으니 관리자에게 운영 상태 확인을 요청해 주세요.", recurring_delete_failed: "정기항목을 삭제하지 못했습니다. 기존 항목은 유지되므로 새로고침 후 다시 시도해 주세요.", recurring_manual_month_end_blocked: "29~31일 고정항목은 현재 수동 반영에서 안전하게 처리할 수 없어 저장하지 않았습니다. 예약 실행은 실제 말일에 맞춰 처리하며, 수동 반영 RPC 확인과 별도 SQL 보완 승인이 필요합니다.", record_update_failed: "기록을 수정하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", record_delete_failed: "기록을 삭제하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", empty_import: "가져올 내용이 비어 있습니다. 파일을 다시 선택하거나 표·자연어 기록을 붙여넣어 주세요.", write_not_allowed: "현재 권한은 조회 전용이라 기록을 변경하거나 가져올 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.", excel_conversion_required: "엑셀 파일을 텍스트 표로 변환하지 못했습니다. 이 화면에서 다시 선택해 변환을 기다리거나 CSV로 저장해 올려 주세요.", import_file_too_large: "한 번에 분석할 수 있는 파일 크기를 넘었습니다. 원본은 바뀌지 않았으니 월별 또는 시트별로 나눠 다시 가져와 주세요.", import_file_read_failed: "파일을 읽지 못했습니다. 파일이 열리는지 확인한 뒤 CSV·TSV·TXT로 저장하거나 내용을 붙여넣어 주세요.", added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다. 이제 초대·단톡방 연결 → 기록 방법 → 첫 기록 순서로 진행해 보세요.", household_duplicate_selected: "같은 이름의 가계부가 이미 있어 중복 생성하지 않고 기존 가계부를 선택했습니다.", household_name_invalid: "가계부 이름은 2~40자의 일반 이름으로 입력해 주세요. 명령어·전화번호·초대코드·금액만 있는 이름은 사용할 수 없습니다.", household_create_failed: "가계부 생성을 완료하지 못했습니다. 중간 생성 데이터는 정리했으니 잠시 후 한 번만 다시 시도해 주세요.", household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다. 영문·숫자를 다시 확인하고, 계속 안 되면 초대한 사람에게 최신 코드를 요청해 주세요.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 같은 코드를 반복 입력하지 말고 관리자 승인 후 다시 열어 주세요.", join_failed: "참여 요청을 안전하게 저장하지 못했습니다. 권한은 자동으로 열리지 않았습니다. 잠시 후 한 번만 다시 시도해 주세요.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "자산·결제수단을 저장했습니다.", payment_asset_updated: "자산·결제수단 정보를 수정했습니다.", payment_asset_balance_updated: "현재 잔액을 저장하고 이번 달 순자산 기록을 갱신했습니다.", payment_asset_deleted: "자산·결제수단을 삭제하고 순자산 기록을 갱신했습니다.", reserve_saved: "정기 수입·지출 항목을 저장했습니다.",
+    db_write_unknown: "처리 결과를 아직 확인하지 못했습니다. 기록·목표·참여 목록을 새로고침해 결과를 먼저 확인하고 같은 요청을 반복하지 마세요.", amount_required: "0원보다 큰 금액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.", amount_too_large: "금액이 너무 큽니다. 20억 원 이하로 입력해 주세요. 입력 내용은 저장되지 않았습니다.", record_not_found: "수정할 기록을 찾지 못했습니다. 기록 목록을 새로 열어 다시 선택해 주세요.", not_my_record: "이 기록을 바꿀 권한이 없습니다. 내가 만든 기록을 선택하거나 소유자·관리자에게 요청해 주세요.", budget_save_failed: "예산을 저장하지 못했습니다. 기존 값은 유지되므로 잠시 후 한 번만 다시 시도해 주세요.", budget_amount_invalid: "예산 금액을 숫자로 입력해 주세요. 기존 예산은 그대로 유지됩니다.", budget_plan_too_many: "예산 항목은 한 번에 100개까지 저장할 수 있습니다. 101번째 이후 항목을 줄인 뒤 다시 저장해 주세요. 기존 예산은 유지됩니다.", category_missing: "분류 이름을 입력해 주세요. 다른 입력값은 저장되지 않았습니다.", category_keywords_save_failed: "분류 키워드를 저장하지 못했습니다. 기존 설정은 유지되므로 잠시 후 다시 시도해 주세요.", category_created_keywords_pending: "분류는 추가했지만 키워드는 저장하지 못했습니다. 분류 목록에서 키워드만 다시 저장해 주세요.", keyword_manage_only: "분류 키워드 저장은 가계부 소유자·관리자만 할 수 있습니다. 현재 설정은 그대로 확인할 수 있습니다.", recurring_missing: "정기항목의 내용과 0원보다 큰 금액을 입력해 주세요.", recurring_table_required: "정기항목 저장 공간을 사용할 수 없습니다. 입력값은 저장되지 않았으니 관리자에게 운영 상태 확인을 요청해 주세요.", recurring_delete_failed: "정기항목을 삭제하지 못했습니다. 기존 항목은 유지되므로 새로고침 후 다시 시도해 주세요.", recurring_manual_month_end_blocked: "29~31일 고정항목은 현재 수동 반영에서 안전하게 처리할 수 없어 저장하지 않았습니다. 예약 실행은 실제 말일에 맞춰 처리하며, 수동 반영 RPC 확인과 별도 SQL 보완 승인이 필요합니다.", record_update_failed: "기록을 수정하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", record_delete_failed: "기록을 삭제하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", empty_import: "가져올 내용이 비어 있습니다. 파일을 다시 선택하거나 표·자연어 기록을 붙여넣어 주세요.", write_not_allowed: "현재 권한은 조회 전용이라 기록을 변경하거나 가져올 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.", excel_conversion_required: "엑셀 파일을 텍스트 표로 변환하지 못했습니다. 이 화면에서 다시 선택해 변환을 기다리거나 CSV로 저장해 올려 주세요.", import_file_too_large: "한 번에 분석할 수 있는 파일 크기를 넘었습니다. 원본은 바뀌지 않았으니 월별 또는 시트별로 나눠 다시 가져와 주세요.", import_file_read_failed: "파일을 읽지 못했습니다. 파일이 열리는지 확인한 뒤 CSV·TSV·TXT로 저장하거나 내용을 붙여넣어 주세요.", added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", undone: "방금 기록을 지우고 예산을 되돌렸어요.", undo_expired: "실행 취소할 수 있는 시간이 지나 기록을 그대로 두었습니다. 지우려면 기록을 눌러 수정·삭제 화면에서 지워 주세요.", undo_changed: "저장한 뒤 바뀐 기록이라 실행 취소하지 않았습니다. 기록을 눌러 수정·삭제 화면에서 확인해 주세요.", updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다. 이제 초대·단톡방 연결 → 기록 방법 → 첫 기록 순서로 진행해 보세요.", household_duplicate_selected: "같은 이름의 가계부가 이미 있어 중복 생성하지 않고 기존 가계부를 선택했습니다.", household_name_invalid: "가계부 이름은 2~40자의 일반 이름으로 입력해 주세요. 명령어·전화번호·초대코드·금액만 있는 이름은 사용할 수 없습니다.", household_create_failed: "가계부 생성을 완료하지 못했습니다. 중간 생성 데이터는 정리했으니 잠시 후 한 번만 다시 시도해 주세요.", household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다. 영문·숫자를 다시 확인하고, 계속 안 되면 초대한 사람에게 최신 코드를 요청해 주세요.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 같은 코드를 반복 입력하지 말고 관리자 승인 후 다시 열어 주세요.", join_failed: "참여 요청을 안전하게 저장하지 못했습니다. 권한은 자동으로 열리지 않았습니다. 잠시 후 한 번만 다시 시도해 주세요.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "자산·결제수단을 저장했습니다.", payment_asset_updated: "자산·결제수단 정보를 수정했습니다.", payment_asset_balance_updated: "현재 잔액을 저장하고 이번 달 순자산 기록을 갱신했습니다.", payment_asset_deleted: "자산·결제수단을 삭제하고 순자산 기록을 갱신했습니다.", reserve_saved: "정기 수입·지출 항목을 저장했습니다.",
   reserve_updated: "정기 수입·지출 항목을 수정했습니다.", reserve_deleted: "정기 수입·지출 항목을 삭제했습니다.", budget_saved: "예산을 저장했습니다.", budget_month_invalid: "월 형식이 올바르지 않아 저장하지 않았습니다(예: 2026-07). 다른 달의 예산도 바꾸지 않았습니다.", budget_duplicate_category: "같은 분류가 두 줄 이상 서로 다른 금액으로 들어 있어 저장하지 않았습니다. 한 줄만 남기고 다시 저장해 주세요. 기존 예산은 그대로입니다.", reserve_name_duplicate: "같은 이름의 정기 항목이 이미 있어 저장하지 않았습니다. 기존 항목을 수정하거나 다른 이름을 써 주세요. 두 항목 모두 그대로 있습니다.", reserve_due_day_invalid: "납부·입금일은 1~28 사이 숫자로 입력해 주세요. 저장하지 않았습니다.", reserve_due_month_invalid: "납부·입금월은 1~12월 중에서 골라 주세요. 저장하지 않았습니다.", reserve_recurrence_invalid: "반복주기는 매월·연 1회·반기·분기 중 하나여야 합니다. 저장하지 않았습니다.", recurring_spender_ineligible: "고정항목의 지출자는 이 가계부의 소유자·관리자·구성원 중에서 골라야 합니다. 조회 전용·승인 대기·차단·나간 참여자의 규칙은 반영되지 않아 저장하지 않았습니다.", budget_deleted: "예산을 삭제했습니다.", budget_over: "저장했습니다. 예산을 초과했습니다.", recurring_saved: "고정항목을 저장했습니다.", recurring_deleted: "고정항목을 삭제했습니다.", password_updated: "비밀번호를 변경했습니다.", meme_saved: "밈카드를 도감에 저장했습니다.", meme_deleted: "밈카드를 삭제했습니다.", meme_liked: "좋아요를 반영했습니다.", meme_shared: "공유 횟수를 반영했습니다.", kakao_linked: "카카오 계정 연동이 완료되었습니다.",
 };
   const generic = "요청을 처리하지 못했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.";

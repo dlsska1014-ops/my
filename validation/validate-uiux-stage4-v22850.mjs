@@ -44,7 +44,9 @@ ok(source.includes('function transactionAddRedirectExtras'), "transaction create
 ok(source.includes('if (mode === "success") out.day_detail = "1"'), "successful quick saves reopen day detail");
 ok(source.includes('else out.quick = "1"'), "failed quick saves reopen the input surface");
 ok(source.includes('transactionAddRedirectExtras(form, { err: validationError }, "error")'), "validation failures use the quick reopen contract");
-ok(source.includes('transactionAddRedirectExtras(form, saved, "success")') && source.includes('const saved = { msg, ...receipt, ...(balert ? { balert } : {}) }'), "successful saves retain date detail and budget feedback with the confirmed receipt");
+// V22.9.87 T-16: 영수증과 예산 알림 사이에 실행 취소 표(undo — 이 세션이 방금 만든 기록일 때만)가 더해졌다.
+// 지켜야 할 성질(확인된 영수증·예산 알림을 그대로 싣고 같은 도우미로 날짜 상세를 다시 연다)은 그대로다.
+ok(source.includes('transactionAddRedirectExtras(form, saved, "success")') && /const saved = \{ msg, \.\.\.receipt, (?:\.\.\.\(undo \? \{ undo \} : \{\}\), )?\.\.\.\(balert \? \{ balert \} : \{\}\) \}/.test(source), "successful saves retain date detail and budget feedback with the confirmed receipt");
 ok(source.includes('params.get("day_detail") !== "1"'), "day detail auto-open is guarded by a one-shot parameter");
 ok(source.includes('params.delete("day_detail")'), "day detail one-shot parameter is cleaned after use");
 ok(source.includes('params.delete("quick")'), "quick-input one-shot parameter is cleaned after use");

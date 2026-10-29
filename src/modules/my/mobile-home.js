@@ -19,6 +19,7 @@ import {
 } from "../domain/refund-links.js";
 import { loadRefundDeductions } from "../features/settlement-refund-links.js";
 import { verifyUserSession } from "../auth/user-session.js";
+import { readQuickUndoTicket } from "../auth/identity-reauth.js";
 import { fetchUserById } from "../data/users-household-create.js";
 import { abEchoQuickRequestId } from "./backup-import.js";
 import { buildReportChallengeForHousehold, renderReportChallenge } from "./report-challenge.js";
@@ -37,6 +38,7 @@ import { homeUpcomingOut, monthSpendingOutlook } from "../domain/spending-outloo
 import {
   applyHomeLayoutSection, homeLayoutKey, lastNDaysExpense, normalizeHomeLayout,
   renderHomeReportCards, renderHomeWeekStrip, renderV8TxCards, renderV8TxDayGroups, todayExpense,
+  txEditPath,
 } from "./home-sections.js";
 import { MOBILE_HOME_CSS_ASSET_PATH } from "../assets/asset-registry.js";
 import { renderMonthlySeriesChart } from "../admin/pc-analysis-calendar.js";
@@ -131,7 +133,7 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
   return `<section id="calendar" class="panel homeCalendar"><div class="calHead"><h2>${escapeHtml(month)} 캘린더</h2><a class="calClose" href="${escapeHtml(closeHref)}">닫기</a></div><div class="calNav"><a href="${escapeHtml(monthHref(prevMonth))}" aria-label="이전 달">← 이전달</a><b>${escapeHtml(month)}</b><a href="${escapeHtml(monthHref(nextMonth))}" aria-label="다음 달">다음달 →</a></div>${selectedDate ? `<div class="calSelected"><b>${escapeHtml(selectedDate)}</b> 기록을 아래 최근 내역에서 확인·수정하세요. <a href="${escapeHtml(clearHref)}">선택 해제</a></div>` : ""}<div class="calGrid calDows">${weekHead}</div><div class="calGrid">${blanks}${cells}</div><p class="calHint">날짜를 누르면 지출·수입 합계와 실제 거래 항목이 팝업으로 열립니다. 전체 기록 보기는 기존 날짜 필터 화면으로 연결되며, 기록이 없는 날은 배경 없이 간결하게 표시됩니다.</p></section>`;
 }
 
-function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, paymentAssetNames = [], msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "", spenderMembers = members, memberCanChangeRecords = true, ledgerHasRecords = rows.length > 0, refundDeductions = [], refundFailed = false, quickRetry = false }) {
+function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, paymentAssetNames = [], msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "", spenderMembers = members, memberCanChangeRecords = true, ledgerHasRecords = rows.length > 0, refundDeductions = [], refundFailed = false, quickRetry = false, quickUndo = null }) {
   // 8.4: 저장된 홈 구성이 없거나 깨졌으면 기본 순서다. 이 폴백이 정상 경로다.
   const homeLayout = normalizeHomeLayout(homeLayoutSetting);
   const roleLower = String(sessionRole || "").toLowerCase();
@@ -589,6 +591,8 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
       ? "기록을 저장했고 예산을 확인해야 합니다"
       : msg === "deleted"
         ? "기록을 삭제했습니다"
+        : msg === "undone"
+          ? "저장을 취소했습니다"
         : msg === "updated"
           ? "기록을 수정했습니다"
           : msg === "duplicate_skipped"
@@ -599,17 +603,23 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 예산이 없으면 말할 남은 돈도 없으므로 붙이지 않는다. 오류·경고는 원문 그대로 둔다.
   // 저장은 msg=added, 그 밖에 created·updated·deleted 가 실제로 오는 값이다
   // ("saved" 는 이 앱이 쓰지 않는 이름이라 formatMessage 가 오류 문구로 되돌린다).
-  const feedbackResultLine = !err && !balert && budgetTotal && ["added", "created", "updated", "deleted"].includes(String(msg || ""))
+  const feedbackResultLine = !err && !balert && budgetTotal && ["added", "created", "updated", "deleted", "undone"].includes(String(msg || ""))
     ? `남은 예산 ${numberWithCommas(budgetRemaining)}원${dailyAllowanceAmt ? ` · 하루 ${numberWithCommas(dailyAllowanceAmt)}원` : ""}`
     : "";
   const feedbackMessage = err ? formatMessage(err) : [msg ? formatMessage(msg) : "", balert ? escapeHtml(balert) : "", feedbackResultLine ? escapeHtml(feedbackResultLine) : ""].filter(Boolean).join("<br/>");
   // V22.9.86 T-15(디자인 작업 지시서 3단계 §3-4·§3-6): 표식 칸은 셋 다 비우고 CSS 아이콘 원(성공 체크·경고 삼각·오류 느낌표)이 그린다.
   // 종류는 제목 문구로도 말한다(지금 서버 문구 그대로). 버튼: 경고는 "예산 보기"(예산 알림 화면), 오류는 빠른 입력 저장이 실패해 돌아온
   // 때(quick=1 — 초안이 남아 있고 시트가 다시 열린다)만 "다시 시도"(V5 자산이 알림을 닫고 같은 시트로 초점을 옮긴다, JS 가 없으면 #add 로 간다).
-  // 성공의 "실행 취소"(T-16)는 두지 않았다 — 이유는 docs/codex/DESIGN_FINDINGS_V22_9_86.md. role·aria-live 는 그대로다.
+  // role·aria-live 는 그대로다.
+  // V22.9.87 T-16(사용자 결정 2026-10-29): 새 기록 저장 성공 알림에 "실행 취소". 서명한 표(handleMobileV8Page 의 quickUndo.ticket)가 있으면
+  // POST /my/undo 폼 단추(JS 없이도 된다), 없으면 그 기록의 "수정·삭제 화면 열기" 링크다. 기록을 바꿀 수 없는 사람(조회 전용·‘기록만’ 구성원)에게는
+  // 둘 다 두지 않는다. 경고(예산 보기)·오류(다시 시도) 알림은 그대로다.
+  const undoAllowed = feedbackKind === "success" && !!quickUndo && appCanWrite && (appIsManager || memberCanChangeRecords);
   const feedbackActionHtml = feedbackKind === "warning"
     ? `<a class="abSaveFeedbackAction" href="${escapeHtml(`/budget-alerts?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`)}">예산 보기</a>`
-    : feedbackKind === "error" && quickRetry && appCanWrite ? `<a class="abSaveFeedbackAction" data-ab-feedback-retry href="#add">다시 시도</a>` : "";
+    : feedbackKind === "error" && quickRetry && appCanWrite ? `<a class="abSaveFeedbackAction" data-ab-feedback-retry href="#add">다시 시도</a>`
+    : undoAllowed && quickUndo.ticket ? `<form class="abSaveFeedbackUndo" method="post" action="/my/undo"><input type="hidden" name="ticket" value="${escapeHtml(quickUndo.ticket)}"><input type="hidden" name="month" value="${escapeHtml(month)}"><input type="hidden" name="return_to" value="${escapeHtml(quickUndo.returnTo)}"><button type="submit" class="abSaveFeedbackAction" data-ab-undo>실행 취소</button></form>`
+    : undoAllowed ? `<a class="abSaveFeedbackAction" data-ab-undo-edit href="${escapeHtml(txEditPath(quickUndo.rid, quickUndo.returnTo))}">수정·삭제 화면 열기</a>` : "";
   const saveFeedbackHtml = feedbackKind
     ? `<div class="abSaveFeedback ${feedbackKind === "error" ? "isError" : feedbackKind === "warning" ? "isWarning" : "isSuccess"}" data-ab-save-feedback data-ab-feedback-kind="${feedbackKind}" role="${feedbackKind === "error" ? "alert" : "status"}" aria-live="${feedbackKind === "error" ? "assertive" : "polite"}"><span class="abSaveFeedbackMark" aria-hidden="true"></span><div class="abSaveFeedbackCopy"><b>${escapeHtml(feedbackTitle)}</b><span>${feedbackMessage}</span></div>${feedbackActionHtml}<button type="button" class="abSaveFeedbackClose" data-ab-feedback-close aria-label="알림 닫기"></button></div>`
     : "";
@@ -808,6 +818,19 @@ async function handleMobileV8Page(request, env, url) {
   // 인라인 style 을 걷어내 일별 격자가 싸졌으므로(27KB → 3KB) 이제 기본으로 켠다.
   const trendView = ["daily", "weekly", "monthly"].includes(String(url.searchParams.get("trend") || "")) ? String(url.searchParams.get("trend")) : "daily";
   const balert = String(url.searchParams.get("balert") || "").slice(0, 120);
+  // V22.9.87 T-16: 방금 저장한 기록(msg=added·saved_rid)의 실행 취소 표가 이 로그인 사용자·이 가계부·같은 기록 번호이고 60초 안이면
+  // 알림에 ‘실행 취소’ 단추(POST /my/undo), 아니면(관리자 세션·시간 지남·표 없음) ‘수정·삭제 화면 열기’ 링크다. 돌아갈 곳은 지금 화면에서
+  // 알림·표 값을 뺀 주소다. 표를 다시 확인하는 것은 /my/undo 이고, 여기서는 단추를 그릴지만 정한다.
+  const savedRid = msg === "added" ? String(url.searchParams.get("saved_rid") || "").slice(0, 80) : "";
+  const undoTicket = savedRid && userId && !adminOk ? String(url.searchParams.get("undo") || "") : "";
+  const undoPayload = undoTicket ? await readQuickUndoTicket(env, undoTicket, userId) : null;
+  const undoBack = new URLSearchParams(url.search);
+  for (const key of ["msg", "err", "balert", "saved_rid", "saved_qd", "undo", "quick", "day_detail", "rid"]) undoBack.delete(key);
+  const quickUndo = savedRid ? {
+    rid: savedRid,
+    ticket: undoPayload && String(undoPayload.r) === savedRid && String(undoPayload.h) === String(householdId) ? undoTicket : "",
+    returnTo: `${url.pathname}${undoBack.toString() ? `?${undoBack.toString()}` : ""}`,
+  } : null;
   const homeView = url.searchParams.get("view") === "calendar" ? "calendar" : "";
   // V22.9.8: 공유 시트로 들어온 텍스트. 매니페스트의 share_target 이 카드 결제 알림·문자를
   // 이 세 파라미터로 넘긴다. 제목·본문 순으로 붙이는데, 안드로이드 공유는 앱마다
@@ -819,7 +842,7 @@ async function handleMobileV8Page(request, env, url) {
     .join(" ")
     .slice(0, 200);
   const calendarRows = rows;
-  return htmlResponse(abEchoQuickRequestId(url, err, renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed })));
+  return htmlResponse(abEchoQuickRequestId(url, err, renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed, quickUndo })));
 }
 // @build:exports-start
 export { handleMobileV8Page, lastNonEmptyParam, renderMobileV81Html };

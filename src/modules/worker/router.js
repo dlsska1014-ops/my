@@ -133,7 +133,7 @@ import {
   handleRecurringCandidateConfirm,
 } from "../my/settings-page.js";
 import {
-  handleMyAddTransaction, handleMyDeleteTransaction, handleMyUpdateTransaction,
+  handleMyAddTransaction, handleMyDeleteTransaction, handleMyQuickUndo, handleMyUpdateTransaction,
 } from "../my/transactions.js";
 import {
   handleMyCreate, handleMyHouseholdDelete, handleMyHouseholdLeave, handleMyHouseholdUpdate,
@@ -484,6 +484,11 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/my/delete" && request.method === "POST") {
         return await handleMyDeleteTransaction(request, env);
+      }
+
+      // V22.9.87 T-16: 저장 알림의 실행 취소(서명한 표가 있어야 지운다 — my/transactions.js handleMyQuickUndo).
+      if (url.pathname === "/my/undo" && request.method === "POST") {
+        return await handleMyQuickUndo(request, env);
       }
 
       if (url.pathname === "/my/logout" && request.method === "POST") {

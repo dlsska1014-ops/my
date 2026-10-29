@@ -6,6 +6,7 @@ import {
 } from "../runtime/http.js";
 import {
   PASSWORD_KDF_ITERATIONS, hmacSha256, newPasswordSalt, pbkdf2PasswordHash, recordAuthAttempt,
+  sha256Hex,
 } from "./crypto-admin-session.js";
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeObject } from "../admin/backup-compare.js";
@@ -219,6 +220,30 @@ async function readPurposeToken(env, purpose, token = "") {
   try { const payload = JSON.parse(base64UrlDecodeText(data)); return payload.purpose === purpose && payload.exp >= Math.floor(Date.now()/1000) ? payload : null; } catch (_) { return null; }
 }
 
+// V22.9.87 T-16(디자인 작업 지시서, 사용자 결정 2026-10-29): 저장 알림 ‘실행 취소’ 표. saved_rid 는 주소 값이라 남의 기록 번호로 꾸밀 수 있어
+// 그것만으로는 지우지 않는다. 저장한 서버가 이 로그인 사용자가 방금 만든 기록 한 건에만 60초짜리 용도 표(quick-undo)를 서명해 주소에 함께 싣는다.
+// 표: 기록 번호(r)·가계부(h)·만든 사용자(u)·기록 지문(f). 지문은 저장한 값 일곱 칸(종류·금액·날짜·분류·메모·결제수단·지출자)의 SHA-256 앞 32자라
+// 주소에 금액·메모가 남지 않고, 저장 뒤 누가 고친 기록은 실행 취소로 지우지 않는다. 표를 만들거나 읽지 못하면(비밀 없음 등) 빈 값·null 이고
+// 화면은 단추 대신 수정·삭제 화면 링크를 둔다. 받는 곳은 /my/undo(my/transactions.js handleMyQuickUndo) 하나다.
+const QUICK_UNDO_SECONDS = 60;
+async function quickUndoFingerprint(row = {}) {
+  const fields = [row.type, Number(row.amount || 0), row.transaction_date, row.category, row.memo, row.payment_method, row.user_id].map((value) => String(value ?? ""));
+  return (await sha256Hex(JSON.stringify(fields))).slice(0, 32);
+}
+
+async function makeQuickUndoTicket(env, { row, householdId = "", userId = "" } = {}) {
+  if (!row?.id || !householdId || !userId) return "";
+  return signedPurposeToken(env, "quick-undo", { r: String(row.id), h: String(householdId), u: String(userId), f: await quickUndoFingerprint(row) }, QUICK_UNDO_SECONDS);
+}
+
+async function readQuickUndoTicket(env, ticket = "", userId = "") {
+  if (!ticket || !userId) return null;
+  let payload = null;
+  try { payload = await readPurposeToken(env, "quick-undo", String(ticket)); } catch (_) { return null; }
+  if (!payload || !payload.r || !payload.h || !payload.f || String(payload.u || "") !== String(userId)) return null;
+  return payload;
+}
+
 async function makeCredentialProof(env, userId) {
   const version = await getUserSessionVersion(env, userId);
   if (version < 1) throw new Error("user_session_security_unavailable");
@@ -359,7 +384,8 @@ export {
   handleAccountReauth, hasBackupLoginIdentity, hasKakaoLoginIdentity,
   householdDeleteReauthCookieName, isPlaceholderUserNickname, kakaoLoginIdentityMatchesUser,
   linkKakaoLoginToUser, lookupKakaoLoginOwner, makeCredentialProof, makeHouseholdDeleteReauthToken,
-  normalizeLocalLoginName, readPurposeToken, replaceLocalLoginForUser, saveUserIdentityLinks,
-  signedPurposeToken, verifyCredentialProof, verifyHouseholdDeleteReauth, verifyPasswordReauth,
+  makeQuickUndoTicket, normalizeLocalLoginName, quickUndoFingerprint, readPurposeToken,
+  readQuickUndoTicket, replaceLocalLoginForUser, saveUserIdentityLinks, signedPurposeToken,
+  verifyCredentialProof, verifyHouseholdDeleteReauth, verifyPasswordReauth,
 };
 // @build:exports-end

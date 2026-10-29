@@ -59,8 +59,18 @@ function quickFabCss() {
   ].join("\n");
 }
 
+// T-16 저장 알림 ‘실행 취소’: 폼(POST /my/undo)은 상자를 만들지 않고(display:contents) 단추가 알림 줄의 한 칸이 된다.
+// 모양·색은 옆 ‘예산 보기’·‘다시 시도’ 링크(.abSaveFeedbackAction, 시안 .undo 의 toastlink 색)와 같고, 단추 기본 테두리·바탕·글꼴만 지운다.
+// !important 를 쓰지 않는다 — 고대비(forced-colors) 모드에서 셸의 단추 테두리 규칙(ButtonText 1px)이 옆 링크처럼 이 단추에도 걸려야 한다.
+function quickUndoCss() {
+  return [
+    `body.abV22812Shell .abSaveFeedbackUndo{display:contents}`,
+    `body.abV22812Shell button.abSaveFeedbackAction{margin:0;border:0;background:transparent;font:inherit;font-size:14px;font-weight:800;cursor:pointer}`,
+  ].join("\n");
+}
+
 function designUplift4Css() {
-  return [`/* V22.9.87 T-19: 데스크톱 독 → 사이드바 검색 · 머리말 아이콘 단추 · 빠른 입력 단추 하나 */`, deskSearchCss(), deskHeadActionsCss(), quickFabCss()].join("\n");
+  return [`/* V22.9.87 T-19: 데스크톱 독 → 사이드바 검색 · 머리말 아이콘 단추 · 빠른 입력 단추 하나 / T-16 실행 취소 */`, deskSearchCss(), deskHeadActionsCss(), quickFabCss(), quickUndoCss()].join("\n");
 }
 // @build:exports-start
 export { designUplift4Css };

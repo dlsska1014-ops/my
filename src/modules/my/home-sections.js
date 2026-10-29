@@ -409,6 +409,6 @@ export {
   lastNDaysExpense, longestNoSpendStreak, makeMemeCard, memeAmountByRegex, memeCardFor,
   memeCountByRegex, normalizeHomeLayout, renderHomeReportCards, renderHomeWeekStrip,
   renderTxEditSuggestionLists, renderV8TxCards, renderV8TxDayGroups, renderV8TxEditForm,
-  todayExpense,
+  todayExpense, txEditPath,
 };
 // @build:exports-end

@@ -207,7 +207,10 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   const success = toast(await home(fx, `${HOME}&msg=added&saved_rid=tx-expense-3`));
   t.ok(success.includes('class="abSaveFeedback isSuccess"') && success.includes('role="status" aria-live="polite"'), "T-15 성공 알림 role·aria-live 는 그대로다");
   t.ok(success.includes('<span class="abSaveFeedbackMark" aria-hidden="true"></span>'), "T-15 성공 표식은 글자 없이 CSS 체크 원이다");
-  t.ok(!success.includes("abSaveFeedbackAction") && !success.includes("실행 취소"), "T-15/T-16 성공 알림에 실행 취소를 두지 않았다(보안 판단 보고)");
+  // V22.9.87 T-16(사용자 결정 2026-10-29): 실행 취소는 서버가 서명한 표(undo)가 있을 때만 단추(POST /my/undo)가 된다. 주소의 saved_rid 만으로는
+  // 단추가 없고 수정·삭제 화면 링크(그 화면이 평소 권한 검사를 한다)만 둔다 — V86 이 막으려던 ‘꾸민 saved_rid 로 지우기’는 그대로 막혀 있다.
+  // 단추와 표 검사는 validate-design-uplift-v22987.mjs 가 맡는다.
+  t.ok(!success.includes("data-ab-undo>") && !success.includes("/my/undo") && !success.includes("실행 취소") && success.includes('<a class="abSaveFeedbackAction" data-ab-undo-edit href="/transactions/edit?id=tx-expense-3&amp;return_to='), "T-15/T-16 saved_rid 만 있는 성공 알림에는 실행 취소 단추가 없고 수정·삭제 화면 링크만 있다");
   t.ok(success.includes('data-ab-feedback-close aria-label="알림 닫기"></button>'), "T-15 닫기는 이름을 지키고 x 아이콘으로 그린다");
   t.ok(success.includes("기록을 저장했습니다") && success.includes("남은 예산 "), "T-15 제목·둘째 줄(남은 예산 …)은 지금 문구다");
   const warning = toast(await home(fx, `${HOME}&msg=added&balert=${encodeURIComponent("식비 예산의 85%를 썼습니다")}`));
