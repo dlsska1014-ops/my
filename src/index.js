@@ -34569,6 +34569,70 @@ function budgetPaceCss() {
 function designUplift3Css() {
   return [homeHeaderCss(), bottomSheetCss(), categoryCircleCss(), navIconStrokeCss(), bottomTabCss(), quickEntryCss(), saveFeedbackCss(), emptyStateCss(), homeCardFollowupCss(), budgetPaceCss()].join("\n");
 }
+// V22.9.87 (디자인 작업 지시서 4단계 — 데스크톱 T-19): 셸 CSS(accountbook-shell-css.js) 끝, V22.9.86 3단계 뒤·V22.9.40 (C) 블록 앞에 붙는다.
+// 색은 모두 --ab12-* 토큰이라 톤 8개·라이트/다크에서 같은 규칙으로 바뀐다. 900px 아래(모바일) 화면은 바꾸지 않는다.
+// 자리 옮기기는 nav-search-notif-mains.js(placeDeskActions·bindQuickCompact)가 한다. JS 가 없으면 독 자체가 없어 이 규칙도 할 일이 없다.
+// 크기·모양은 시안 Desktop(.navitem 검색 줄·.iconbtn 44px·.badge·.fab 56px)을 따른다.
+
+// 사이드바 거래 검색 한 줄: 브랜드 아래, 1px 선, 오른쪽에 ‘/’ 단축키 표시. 글자 크기는 옆 메뉴 링크(13.5px)에 맞춘다.
+// 사이드바를 접으면 아이콘만 남기고 이름은 보조기기용으로 숨긴다(메뉴 링크와 같은 방식).
+function deskSearchCss() {
+  return [
+    `body.abV22812Shell .abNavKbd{display:none}`,
+    `body.abV22812Shell .abNavSearchSlot{padding:2px 10px 6px}`,
+    `body.abV22812Shell .abNavSearchSlot .abGlobalAction{display:flex;width:100%;min-height:44px;justify-content:flex-start;gap:12px;padding:0 10px 0 12px;border:1px solid var(--ab12-line)!important;border-radius:12px;background:transparent!important;color:var(--ab12-muted)!important;box-shadow:none;font-size:13.5px;font-weight:600}`,
+    `body.abV22812Shell .abNavSearchSlot .abGlobalAction:hover{border-color:var(--ab12-accent)!important;color:var(--ab12-text)!important}`,
+    `body.abV22812Shell .abNavSearchSlot .abGlobalAction>span{flex:1;min-width:0;text-align:left}`,
+    `body.abV22812Shell .abNavSearchSlot .abNavKbd{display:inline-block;flex:none;padding:2px 6px;border-radius:6px;background:var(--ab12-surface-raised);color:var(--ab12-muted);font:inherit;font-size:11px;font-weight:700;line-height:1.4}`,
+    `body.abV22812Shell.abNavCollapsed .abNavSearchSlot{padding-inline:14px}`,
+    `body.abV22812Shell.abNavCollapsed .abNavSearchSlot .abGlobalAction{justify-content:center;padding:0}`,
+    `body.abV22812Shell.abNavCollapsed .abNavSearchSlot .abGlobalAction>span{position:absolute!important;width:1px!important;height:1px!important;margin:-1px!important;padding:0!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}`,
+    `body.abV22812Shell.abNavCollapsed .abNavSearchSlot .abNavKbd{display:none}`,
+  ].join("\n");
+}
+
+// 머리말 오른쪽 위 아이콘 단추 묶음(알림·화면 설정·금액 가리기). 머리말(블록) 첫 자식이라 float 로 오른쪽에 띄우면
+// 제목·안내문은 그 옆으로 줄을 바꾸고, 조작 줄(form·grid·flex)은 그 옆 남은 너비로 좁아진다 — 겹치지 않는다.
+// 위치: 제목(22px, 28px 줄) 가운데에 단추(44px) 가운데를 맞춘다(-8px). 홈 머리말(.appTop)은 제목이 화면에 없고
+// 첫 줄이 가계부·월 조작(46px, 위 여백 14px)이라 그 줄에 맞춘다. 머리말이 없는 화면은 본문 맨 위 오른쪽 한 줄이다.
+// 이름은 aria-label·숨긴 글자로 그대로 읽히고, 알림 배지는 시안처럼 18px·2px 바탕색 테두리다.
+// 화면 전용 CSS(리포트 머리말의 button 여백 3px 등)가 단추 크기를 바꾸지 못하게 바깥 여백까지 고정한다.
+function deskHeadActionsCss() {
+  return [
+    `body.abV22812Shell .abDeskActions{display:flex;align-items:center;gap:8px}`,
+    `body.abV22812Shell .abV5PageHeader>.abDeskActions{float:right;margin:-8px 0 6px 16px}`,
+    `body.abV22812Shell .appTop.abV5PageHeader>.abDeskActions{margin-top:14px}`,
+    `body.abV22812Shell .abDeskActionsRow{justify-content:flex-end;margin:12px 0}`,
+    `body.abV22812Shell .abDeskActions :is(.abGlobalAction,.abPrivacyEye){position:relative;display:grid!important;place-items:center;flex:none;box-sizing:border-box;width:44px!important;height:44px!important;min-width:44px!important;min-height:44px!important;margin:0!important;padding:0!important;border:1px solid var(--ab12-line)!important;border-radius:12px!important;background:var(--ab12-surface)!important;color:var(--ab12-text)!important;box-shadow:none!important}`,
+    `body.abV22812Shell .abDeskActions :is(.abGlobalAction,.abPrivacyEye):hover{border-color:var(--ab12-accent)!important;color:var(--ab12-text)!important}`,
+    `body.abV22812Shell .abDeskActions .abGlobalAction>span:not(.abV5NotifBadge){position:absolute!important;width:1px!important;height:1px!important;margin:-1px!important;padding:0!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}`,
+    `body.abV22812Shell .abDeskActions :is(.abNavIconSvg,.abPrivacyEye svg){width:20px!important;height:20px!important}`,
+    `body.abV22812Shell .abDeskActions .abV5NotifBadge{top:-4px;right:-4px;box-sizing:border-box;min-width:18px;height:18px;padding:0 5px;border:2px solid var(--ab12-surface);font-size:11px;line-height:14px}`,
+    `@media(max-width:899px){body.abV22812Shell :is(.abDeskActions,.abNavSearchSlot){display:none!important}}`,
+  ].join("\n");
+}
+
+// 빠른 입력 단추 하나: 독은 이제 이 단추만 담는 틀이다(바탕·테두리·흐림 없음). 오른쪽 28px·아래 24px, 높이 56px 알약.
+// 아래로 스크롤하면(.abQuickCompact) 56px 원으로 줄고 위로 올리면 펼친다. 왼쪽 안쪽 여백을 16px 로 두어 줄어도 + 가 가운데에
+// 그대로 남는다(16+24+16). 너비는 max-width 로 옮겨 그 사이를 그린다. 움직임 줄이기에서는 전환이 없어 바로 바뀐다.
+// 오른쪽 활동 레일(1320px 이상)이 있으면 그 왼쪽에 둔다. 몸통 아래 여백(94px)은 독 때와 같아 마지막 줄을 덮지 않는다.
+function quickFabCss() {
+  return [
+    `@media(min-width:900px){`,
+    `body.abV22812Shell .abGlobalActions[data-ab-quick-dock]{left:auto!important;right:28px;bottom:24px;transform:none;gap:0;padding:0!important;border:0!important;border-radius:999px;background:transparent!important;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none!important}`,
+    `body.abV22812Shell.abHasActivityRail .abGlobalActions[data-ab-quick-dock]{right:calc(var(--abActivityRailW,0px) + 28px)}`,
+    `body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick{box-sizing:border-box;max-width:220px;height:56px;min-height:56px;min-width:0;justify-content:flex-start;gap:8px;padding:0 22px 0 16px;border-radius:999px;font-size:15.5px;font-weight:800;white-space:nowrap;overflow:hidden;box-shadow:0 16px 40px rgba(15,23,42,.18)!important}`,
+    `html[data-ab-resolved-theme="dark"] body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick{box-shadow:0 16px 40px rgba(0,0,0,.55)!important}`,
+    `body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick .abNavIconSvg{width:24px!important;height:24px!important;flex:0 0 24px;stroke-width:2.2}`,
+    `body.abV22812Shell .abGlobalActions[data-ab-quick-dock].abQuickCompact .abGlobalActionQuick{max-width:56px;padding-right:0}`,
+    `}`,
+    `@media(min-width:900px) and (prefers-reduced-motion:no-preference){body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick{transition:max-width 220ms var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),padding 220ms var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}}`,
+  ].join("\n");
+}
+
+function designUplift4Css() {
+  return [`/* V22.9.87 T-19: 데스크톱 독 → 사이드바 검색 · 머리말 아이콘 단추 · 빠른 입력 단추 하나 */`, deskSearchCss(), deskHeadActionsCss(), quickFabCss()].join("\n");
+}
 
 // V22.9.40 A3(감사 U9): 수정 폼의 11px 라벨을 #687385(4.35:1) → #475467(밝은 카드 위 7:1 이상)로 올린다. 다크에서는 읽기 전용
 // 지출자 칸(.v8-spender-readonly)이 밝은 배경(#f8fafc)에 밝은 글자로 남아 1.1:1 이었다 — 다크 표면·보조 토큰으로 맞춘다.
@@ -36976,6 +37040,8 @@ body.abV22812Shell .quickMore>summary>span{flex:none;white-space:nowrap}
   + `\n${designUpliftIconCss()}\n`
   // V22.9.86 (지시서 3단계): 모바일 홈 머리말·바텀시트·예산 속도 문장·입력 바·알림·탭 바·빈 상태. 만드는 곳은 design-uplift-3-css.js.
   + `${designUplift3Css()}\n`
+  // V22.9.87 (지시서 4단계 T-19): 데스크톱 독 → 사이드바 검색·머리말 아이콘 단추·빠른 입력 단추 하나. 만드는 곳은 design-uplift-4-css.js.
+  + `${designUplift4Css()}\n`
   + `/* ── V22.9.40 (C) 점진적 최신 규칙 ──
    모르는 브라우저는 모르는 속성·@supports 블록을 통째로 건너뛰므로 아무것도 바뀌지 않는다.
    · 제목 줄바꿈은 text-wrap-style(긴 이름)만 쓴다. 줄임 이름 text-wrap 은 text-wrap-mode 까지 wrap 으로 되돌려
@@ -37598,11 +37664,13 @@ function accountbookStage4NavClientMain(iconPaths) {
   }
   var globalActionReturnFocus = null;
   function globalActionMarkup() {
+    // V22.9.87 T-19: 검색 단추의 ‘/’ 표시는 데스크톱 사이드바에서만 보인다(모바일 서랍에서는 CSS 가 숨긴다).
+    // 알림·화면 설정은 데스크톱에서 글자 없는 아이콘 단추가 되므로 마우스용 title 을 둔다(이름은 그대로 aria-label·글자).
     return '<div class="abGlobalActions" data-ab-quick-dock aria-label="빠른 실행">' +
-      '<button type="button" class="abGlobalAction" data-abv5-search-open>' + iconSvg("search") + '<span>거래 검색</span></button>' +
+      '<button type="button" class="abGlobalAction" data-abv5-search-open>' + iconSvg("search") + '<span>거래 검색</span><kbd class="abNavKbd" aria-hidden="true">/</kbd></button>' +
       '<a class="abGlobalAction abGlobalActionPrimary abGlobalActionQuick" data-ab-global-direct="quick" data-ab-quick-open href="/app?' + contextQuery() + '#add">' + iconSvg("plus") + '<span>빠른 입력</span></a>' +
-      '<button type="button" class="abGlobalAction" data-abv5-notif-open aria-label="알림 센터">' + iconSvg("bell") + '<span>알림</span><span class="abV5NotifBadge" hidden></span></button>' +
-      '<button type="button" class="abGlobalAction" data-ab-global-open="appearance">' + iconSvg("palette") + '<span>화면 설정</span></button>' +
+      '<button type="button" class="abGlobalAction" data-abv5-notif-open aria-label="알림 센터" title="알림 센터">' + iconSvg("bell") + '<span>알림</span><span class="abV5NotifBadge" hidden></span></button>' +
+      '<button type="button" class="abGlobalAction" data-ab-global-open="appearance" title="화면 설정">' + iconSvg("palette") + '<span>화면 설정</span></button>' +
       // V22.8.87 M1: 모바일 상단바의 "작업" 버튼을 뺐다. 그 버튼이 열던 목록은
       // 검색·알림·화면 설정 셋이었고, 셋 다 이제 전체 메뉴 서랍 안에 직접 놓인다.
       // 상단바에 아이콘을 쌓으면 좁은 화면에서 가계부 이름과 자리를 다툰다.
@@ -37656,12 +37724,57 @@ function accountbookStage4NavClientMain(iconPaths) {
   //
   // 복제가 아니라 이동을 쓴다: 검색·알림 트리거는 첫 번째 요소에만 묶일 수 있어
   // 복제본은 눌러도 아무 일이 없는 채로 조용히 남을 수 있다.
-  // 대신 되돌리는 길을 만든다 — 이 셋은 데스크톱 독에서도 쓰는 요소라, 창을 넓혔을 때
-  // 서랍에 남아 있으면 데스크톱에서 사라진다. 폭이 바뀔 때마다 제자리를 다시 잡는다.
+  // 대신 되돌리는 길을 만든다 — 창을 넓혔을 때 서랍에 남아 있으면 데스크톱에서 사라진다.
+  // 폭이 바뀔 때마다 제자리를 다시 잡는다.
+  //
+  // V22.9.87 (작업 지시서 T-19): 900px 이상에서 본문 아래 가운데 떠 있던 4버튼 독이 스크롤 중 글줄을 덮었다(T-08 가림 측정).
+  // 데스크톱 제자리를 바꾼다 — 거래 검색은 사이드바 브랜드 아래 한 줄(‘/’ 표시), 알림·화면 설정·금액 가리기는
+  // 머리말 오른쪽 위 44px 아이콘 단추 묶음(.abDeskActions), 빠른 입력만 독에 남아 오른쪽 아래 떠 있는 단추가 된다.
+  // 묶음은 머리말(.abV5PageHeader, 블록) 첫 자식으로 넣고 CSS 가 오른쪽에 띄운다(float) — 제목·안내문·조작 줄이
+  // 그 자리를 비켜 흐르므로 화면마다 비울 너비를 따로 적지 않는다. 머리말이 없는 화면(연간 리포트·전체 메뉴)은
+  // 본문 맨 위 오른쪽 한 줄(.abDeskActionsRow)에 둔다. 금액 가리기 눈 단추(lucian-e-mains.js 가 사이드바 위 줄에 붙인 것)도
+  // 데스크톱에서는 이 묶음으로 옮기고 모바일 폭에서 제자리로 돌린다.
   var GLOBAL_ACTION_ORDER = ["[data-abv5-search-open]", "[data-ab-quick-open]", "[data-abv5-notif-open]", "[data-ab-global-open='appearance']"];
+  var DESK_HEAD_ACTIONS = ["[data-abv5-notif-open]", "[data-ab-global-open='appearance']"];
   var mobileActionQuery = window.matchMedia ? window.matchMedia("(max-width:899px)") : null;
   function findGlobalAction(selector) {
-    return document.querySelector(".abGlobalActions " + selector) || document.querySelector(".abNavDrawerActions " + selector);
+    return document.querySelector(".abGlobalActions " + selector) || document.querySelector(".abNavDrawerActions " + selector) ||
+      document.querySelector(".abNavSearchSlot " + selector) || document.querySelector(".abDeskActions " + selector);
+  }
+  function deskActionHost() {
+    var head = document.querySelector(".abV5PageHeader");
+    if (head && window.getComputedStyle(head).display === "block") return head;
+    return document.getElementById("abMainContent");
+  }
+  function placeDeskActions() {
+    var navTop = document.querySelector(".abLayoutNav .abNavTop");
+    var search = findGlobalAction("[data-abv5-search-open]");
+    if (navTop && search) {
+      var slot = document.querySelector(".abNavSearchSlot");
+      if (!slot) {
+        slot = document.createElement("div");
+        slot.className = "abNavSearchSlot";
+        navTop.parentNode.insertBefore(slot, navTop.nextSibling);
+      }
+      if (search.parentNode !== slot) slot.appendChild(search);
+    }
+    var host = deskActionHost();
+    if (!host) return;
+    var cluster = document.querySelector(".abDeskActions");
+    if (!cluster) {
+      cluster = document.createElement("div");
+      cluster.className = "abDeskActions";
+      cluster.setAttribute("role", "group");
+      cluster.setAttribute("aria-label", "화면 도구");
+    }
+    if (cluster.parentNode !== host) host.insertBefore(cluster, host.firstChild);
+    cluster.classList.toggle("abDeskActionsRow", host.id === "abMainContent");
+    DESK_HEAD_ACTIONS.forEach(function(selector) {
+      var element = findGlobalAction(selector);
+      if (element && element.parentNode !== cluster) cluster.appendChild(element);
+    });
+    var eye = document.querySelector(".abNavTop .abPrivacyEye");
+    if (eye) cluster.appendChild(eye);
   }
   function syncGlobalActionPlacement() {
     var actions = document.querySelector(".abGlobalActions");
@@ -37681,22 +37794,49 @@ function accountbookStage4NavClientMain(iconPaths) {
         var element = findGlobalAction(selector);
         if (element && element.parentNode !== group) group.appendChild(element);
       });
+      var deskEye = document.querySelector(".abDeskActions .abPrivacyEye");
+      var navTop = document.querySelector(".abLayoutNav .abNavTop");
+      if (deskEye && navTop) navTop.appendChild(deskEye);
       return;
     }
+    placeDeskActions();
     if (!group) return;
-    // 데스크톱으로 돌아갈 때는 원래 순서대로 다시 붙인다. 옮겨 온 것만 되돌리면
-    // 빠른 입력이 맨 앞으로 밀려 독의 차례가 뒤집힌다.
+    // 데스크톱 제자리를 못 찾은 것(사이드바 위 줄·본문이 없는 화면)은 원래 순서대로 독에 다시 붙인다.
+    // 옮겨 온 것만 되돌리면 빠른 입력이 맨 앞으로 밀려 독의 차례가 뒤집힌다.
     GLOBAL_ACTION_ORDER.forEach(function(selector) {
-      var element = findGlobalAction(selector);
+      var element = group.querySelector(selector);
       if (element) actions.appendChild(element);
     });
     group.remove();
+  }
+  // V22.9.87 T-19: 빠른 입력 단추는 아래로 4px 넘게 스크롤하면 원형으로 줄고 위로 4px 넘게 올리면(또는 맨 위면) 펼친다.
+  // passive 리스너를 requestAnimationFrame 한 번으로 묶는다. 움직임 줄이기에서는 CSS 가 전환을 꺼 바로 바뀐다.
+  // 모바일 폭에서는 독이 숨어 있어 클래스만 바뀐다.
+  function bindQuickCompact() {
+    var dock = document.querySelector(".abGlobalActions[data-ab-quick-dock]");
+    if (!dock) return;
+    var lastY = window.pageYOffset || 0;
+    var queued = false;
+    function update() {
+      queued = false;
+      var y = window.pageYOffset || 0;
+      if (y <= 0) { dock.classList.remove("abQuickCompact"); lastY = 0; return; }
+      if (Math.abs(y - lastY) <= 4) return;
+      dock.classList.toggle("abQuickCompact", y > lastY);
+      lastY = y;
+    }
+    window.addEventListener("scroll", function() {
+      if (queued) return;
+      queued = true;
+      window.requestAnimationFrame(update);
+    }, { passive: true });
   }
   function bindGlobalActions() {
     if (!document.querySelector(".abLayoutNav")) return;
     if (document.getElementById("abGlobalActionDialog")) return;
     document.body.insertAdjacentHTML("beforeend", globalActionMarkup() + dialogMarkup());
     syncGlobalActionPlacement();
+    bindQuickCompact();
     if (mobileActionQuery) {
       if (mobileActionQuery.addEventListener) mobileActionQuery.addEventListener("change", syncGlobalActionPlacement);
       else if (mobileActionQuery.addListener) mobileActionQuery.addListener(syncGlobalActionPlacement);
@@ -39162,7 +39302,17 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
           ? `지출 ${homeReserveOutHeadline} · 수입 ${numberWithCommas(homeReserve.incomeCount)}건`
           : `수입 ${numberWithCommas(homeReserve.incomeCount)}건 · 매월 ${numberWithCommas(homeReserve.monthlyIncomeTotal)}원 들어와요`)
       : "아직 등록한 항목이 없어요";
+  // V22.9.87 V86:V-9(사용자 결정 2026-10-29): T-12 로 SMART NOTICE 띠가 빠지며 홈에서 사라진 ‘가장 가까운 정기 항목’ 한 건을 작은 줄 앞에 적는다.
+  // 말은 알림센터 제목과 같다(‘통신비 납부 4일 전’·‘직무수당 입금 오늘’). 같은 날이면 옛 띠처럼 지출을 먼저 말한다.
+  const homeReserveNextOut = homeReserve.upcomingExpense[0];
+  const homeReserveNextIn = homeReserve.upcomingIncome[0];
+  const homeReserveNext = homeReserveNextOut && (!homeReserveNextIn || Number(homeReserveNextOut.days_left) <= Number(homeReserveNextIn.days_left)) ? homeReserveNextOut : homeReserveNextIn;
+  const homeReserveNextIsOut = !!homeReserveNext && homeReserveNext === homeReserveNextOut;
+  const homeReserveNextText = homeReserveNext
+    ? `${homeReserveNext.plan?.name || (homeReserveNextIsOut ? "정기지출" : "정기 수입")} ${homeReserveNextIsOut ? "납부" : "입금"} ${Number(homeReserveNext.days_left) > 0 ? `${homeReserveNext.days_left}일 전` : "오늘"}`
+    : "";
   const homeReserveUpcoming = [
+    homeReserveNextText,
     homeReserve.upcomingExpense.length ? `준비 알림 ${numberWithCommas(homeReserve.upcomingExpense.length)}건` : "",
     homeReserve.upcomingIncome.length ? `입금 예정 ${numberWithCommas(homeReserve.upcomingIncome.length)}건` : "",
   ].filter(Boolean).join(" · ");
@@ -39260,6 +39410,10 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // V22.9.76 감사 D-12: 예산이 없으면 '쓸 수 있는 돈'을 계산할 수 없다. 예전에는 수입−지출(음수도 됨)을 이 자리에
   // 보여 "이번 달 쓸 수 있는 돈 3,835,234원"처럼 읽혔다. 숫자 대신 "예산 미설정"을 보인다(아래 템플릿).
   const budgetRemaining = budgetTotal ? Math.max(0, budgetTotal - budgetUsed) : 0;
+  // V22.9.87 V86:V-8(사용자 결정 2026-10-29): 지난달·다음 달을 볼 때도 카드 머리가 ‘이번 달 쓸 수 있는 돈’이라 무엇을 보는지 헷갈렸다.
+  // 이번 달은 그대로, 지난달은 더 쓸 수 없는 돈이라 ‘N월 예산에서 남은 돈’, 다음 달은 ‘N월 쓸 수 있는 돈’이다. 해가 다르면 ‘YYYY년 N월’.
+  const budgetMonthName = `${month.slice(0, 4) === todayStr.slice(0, 4) ? "" : `${month.slice(0, 4)}년 `}${Number(month.slice(5, 7))}월`;
+  const budgetHeadLabel = isCurrentMonth ? "이번 달 쓸 수 있는 돈" : month < todayStr.slice(0, 7) ? `${budgetMonthName} 예산에서 남은 돈` : `${budgetMonthName} 쓸 수 있는 돈`;
   // V22.9.79 감사 V44 D-4: 분류별 예산이면 예산을 잡지 않은 분류의 지출(예: 장보기)은 사용률에 들지 않는다. 지출 옆에 따로 적는다.
   // V22.9.79 감사 V44 D-12: 예산이 없으면 ‘예산 사용률 0%’를 쓰지 않는다(아래 템플릿, 금액 자리는 이미 ‘예산 미설정’).
   const budgetUncovered = budgetTotal && budget.basis === "category" ? Number(budget.uncoveredExpense || 0) : 0;
@@ -39471,7 +39625,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // V22.9.86 (V85:R-12, T-14): 날짜 칩의 고른 상태는 abQuickSyncMore 가 날짜 칸 값으로 정한다(aria-pressed + 옛 .on). 칩을 누를 때만이 아니라
   // 날짜를 직접 고르거나 한 줄 입력·초안 복원이 날짜를 바꿀 때도 맞는다. 요약 줄의 ‘오늘’도 같은 KST 날짜로 본다(예전에는 기기 시계라 F-8 과 같은 어긋남).
   // V22.9.86 (V86:V-5, T-18 빈 달): 들어온 돈·나간 돈 금액은 0원이면 부호를 붙이지 않는다(빈 달 홈이 ‘+0원 · -0원’이었다).
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"${isCurrentMonth && budgetTotal ? ` style="--ab-today:${monthElapsedPercent}%"` : ""}><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>전체 예산 ${numberWithCommas(budgetTotal)}원</span><span>지출 ${numberWithCommas(budgetUsed)}원${budgetUncovered ? ` · 예산 밖 ${numberWithCommas(budgetUncovered)}원` : ""}</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈</span><b class="${todayOk ? "income" : "expense"}">${numberWithCommas(todaySpend)}원</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${entryBarHtml}${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, upcoming: homeUpcoming, reserveHref: homeReserveHref, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">${stats.totals.income ? "+" : ""}${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">${stats.totals.expense ? "-" : ""}${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}${homeRefundNote ? `<small class="homeMomLine">${escapeHtml(homeRefundNote)}</small>` : ""}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}" data-income="${Math.max(0, Number(stats.totals?.income || 0))}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date(Date.now()+32400000+Number(this.getAttribute('data-day')||0)*86400000);var v=d.toISOString().slice(0,10);var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value&&!(o.getAttribute&&o.getAttribute('data-ab-pick')))payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(inputPaymentNameIn(text,payOpts[i]))return payOpts[i];}return detectInputPayment(normalizeInputText(text));}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase(),after=inputPaymentPatterns().after;var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value).toLowerCase();if(!v||optionHit)return;for(var at=raw.indexOf(v),seen=0;at>=0&&seen<16;at=raw.indexOf(v,at+1),seen++){var rest=raw.slice(at+v.length);if(/[a-z0-9]$/.test(v)?!/^[a-z0-9]/.test(rest):after.test(rest)){optionHit=o.value;return;}}});if(optionHit)return optionHit;return inferInputCategory(normalizeInputText(text).toLowerCase(),type,quickRules);}function stripQuickMemo(text,amountText,payment,category,type){return cleanInputMemo(text,amountText,type,payment,category);}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>${escapeHtml(budgetHeadLabel)}</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"${isCurrentMonth && budgetTotal ? ` style="--ab-today:${monthElapsedPercent}%"` : ""}><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>전체 예산 ${numberWithCommas(budgetTotal)}원</span><span>지출 ${numberWithCommas(budgetUsed)}원${budgetUncovered ? ` · 예산 밖 ${numberWithCommas(budgetUncovered)}원` : ""}</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈</span><b class="${todayOk ? "income" : "expense"}">${numberWithCommas(todaySpend)}원</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${entryBarHtml}${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, upcoming: homeUpcoming, reserveHref: homeReserveHref, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">${stats.totals.income ? "+" : ""}${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">${stats.totals.expense ? "-" : ""}${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}${homeRefundNote ? `<small class="homeMomLine">${escapeHtml(homeRefundNote)}</small>` : ""}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}" data-income="${Math.max(0, Number(stats.totals?.income || 0))}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date(Date.now()+32400000+Number(this.getAttribute('data-day')||0)*86400000);var v=d.toISOString().slice(0,10);var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value&&!(o.getAttribute&&o.getAttribute('data-ab-pick')))payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(inputPaymentNameIn(text,payOpts[i]))return payOpts[i];}return detectInputPayment(normalizeInputText(text));}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase(),after=inputPaymentPatterns().after;var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value).toLowerCase();if(!v||optionHit)return;for(var at=raw.indexOf(v),seen=0;at>=0&&seen<16;at=raw.indexOf(v,at+1),seen++){var rest=raw.slice(at+v.length);if(/[a-z0-9]$/.test(v)?!/^[a-z0-9]/.test(rest):after.test(rest)){optionHit=o.value;return;}}});if(optionHit)return optionHit;return inferInputCategory(normalizeInputText(text).toLowerCase(),type,quickRules);}function stripQuickMemo(text,amountText,payment,category,type){return cleanInputMemo(text,amountText,type,payment,category);}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}
 
 function abQuickTypeLabels(){var inc=!!document.querySelector('#add input[name=type][value=income]:checked');var who=document.querySelector('#add select[name=user_id]');var o=who&&who.options[0];if(o&&!o.value)o.text=inc?'수입자 선택':'지출자 선택';var pay=document.getElementById('payInput');if(pay)pay.placeholder=inc?'입금 계좌·수단':'결제수단';}function abQuickSyncMore(){abQuickTypeLabels();var d=document.getElementById('txDate');var dv=d&&d.value?d.value:'';var kstDay=function(n){return new Date(Date.now()+32400000+n*86400000).toISOString().slice(0,10);};document.querySelectorAll('.dateChip').forEach(function(x){var on=!!dv&&dv===kstDay(Number(x.getAttribute('data-day')||0));x.setAttribute('aria-pressed',on?'true':'false');x.classList.toggle('on',on);});var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var parts=[];parts.push(dv===kstDay(0)?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'&&!abImeComposing&&!e.isComposing){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type'){abQuickTypeLabels();abQuickSyncAfter();}});abQuickSyncMore();abSmartState.preview(true);var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`.replace(/(<(?:input|meta|link|br|hr)\b[^>]*?)\/>/g,"$1>");
 }

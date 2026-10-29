@@ -235,7 +235,8 @@ try {
   const calendarHomeHtml = await calendarHome.text();
   // 같은 성질을 실제 렌더에서 확인한다: 대표 숫자 자리가 하나 있고, 그 달의 지출
   // 금액은 사라진 게 아니라 homeMetrics 로 옮겨져 여전히 실제 값으로 보인다.
-  ok(calendarHomeHtml.includes('class="homeBudget"') && calendarHomeHtml.includes("이번 달 쓸 수 있는 돈"), "home renders one P0 hierarchy from real data");
+  // V22.9.87 V86:V-8: 예산 카드 머리는 보는 달에 따라 '이번 달 쓸 수 있는 돈'·'N월 예산에서 남은 돈'·'N월 쓸 수 있는 돈'이다. 이 검사의 달은 실제 시계로 지난달일 수 있어 카드 머리 자리와 세 이름을 함께 본다.
+  ok(calendarHomeHtml.includes('class="homeBudget"') && /<div class="homeBudgetTop"><span>(이번 달 쓸 수 있는 돈|(\d{4}년 )?\d{1,2}월 (예산에서 남은 돈|쓸 수 있는 돈))<\/span>/.test(calendarHomeHtml), "home renders one P0 hierarchy from real data");
   ok(calendarHomeHtml.includes("나간 돈") && /나간 돈[\s\S]{0,120}-[\d,]+원/.test(calendarHomeHtml), "the month expense figure is still shown, from real data");
   ok(!calendarHomeHtml.includes('class="homeSpendHero"'), "the duplicated monthly expense card is gone");
   ok(calendarHomeHtml.includes('class="panel homeCalendar"') && calendarHomeHtml.includes("기록이 없는 날은 배경 없이"), "home calendar uses the V2 empty-date hierarchy");

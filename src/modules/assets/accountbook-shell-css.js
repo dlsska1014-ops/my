@@ -2,6 +2,7 @@
 import { quickChipIconCss } from "../web/quick-chip-icons.js";
 import { designUpliftIconCss } from "./icon-mask-css.js";
 import { designUplift3Css } from "./design-uplift-3-css.js";
+import { designUplift4Css } from "./design-uplift-4-css.js";
 import { ACCOUNTBOOK_SHELL_V22811_CSS } from "./asset-registry.js";
 // @build:imports-end
 
@@ -1416,6 +1417,8 @@ body.abV22812Shell .quickMore>summary>span{flex:none;white-space:nowrap}
   + `\n${designUpliftIconCss()}\n`
   // V22.9.86 (지시서 3단계): 모바일 홈 머리말·바텀시트·예산 속도 문장·입력 바·알림·탭 바·빈 상태. 만드는 곳은 design-uplift-3-css.js.
   + `${designUplift3Css()}\n`
+  // V22.9.87 (지시서 4단계 T-19): 데스크톱 독 → 사이드바 검색·머리말 아이콘 단추·빠른 입력 단추 하나. 만드는 곳은 design-uplift-4-css.js.
+  + `${designUplift4Css()}\n`
   + `/* ── V22.9.40 (C) 점진적 최신 규칙 ──
    모르는 브라우저는 모르는 속성·@supports 블록을 통째로 건너뛰므로 아무것도 바뀌지 않는다.
    · 제목 줄바꿈은 text-wrap-style(긴 이름)만 쓴다. 줄임 이름 text-wrap 은 text-wrap-mode 까지 wrap 으로 되돌려

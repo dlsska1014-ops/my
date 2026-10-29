@@ -18,7 +18,8 @@ ok(!source.includes('data-ab-nav-budget'), "no sidebar budget markup or client r
 // 성질은 "예산 사용률을 한 곳에서, 홈 P0 에서 말한다"이고 그건 그대로다. 마크업이
 // 한 벌만 있는지를 보면 되므로 문구와 값 배선만 견주고 속성은 따지지 않는다.
 // V22.9.79 감사 V44 D-12: 예산이 없으면 ‘예산 사용률 0%’를 쓰지 않는다(금액 자리는 이미 ‘예산 미설정’). 문구는 예산이 있을 때만 나온다.
-ok(source.includes('<div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div>'), "budget usage is stated once, in the home P0");
+// V22.9.87 V86:V-8: 카드 머리 글자는 보는 달에 따라 budgetHeadLabel(이번 달·지난달·다음 달)이 정한다. 사용률을 한 번만 말하는 자리는 그대로다.
+ok(source.includes('<div class="homeBudgetTop"><span>${escapeHtml(budgetHeadLabel)}</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div>'), "budget usage is stated once, in the home P0");
 ok((source.match(/예산 사용률 <span data-ab-num/g) || []).length === 1, "the usage sentence exists exactly once");
 // V22.9.86 T-12: 이번 달·예산이 있으면 게이지에 오늘 표시 값(--ab-today, 경과율)을 단다. 채움 막대는 그대로다.
 ok(source.includes('<div class="homeProgress"${isCurrentMonth && budgetTotal ? ` style="--ab-today:${monthElapsedPercent}%"` : ""}><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div>'), "the P0 draws the usage gauge");
