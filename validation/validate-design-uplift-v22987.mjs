@@ -28,9 +28,9 @@ const t = counter("V22.9.87 디자인 보강 4단계(데스크톱 독 정리·�
 const HH = "house-home";
 const HOME = `/app?month=2026-07&household_id=${HH}`;
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)";
-const SHELL = "/assets/accountbook-shell-v22986.css";
-const NAV = "/assets/accountbook-nav-v22986.js";
-const V5 = "/assets/accountbook-v5-v22986.js";
+const SHELL = "/assets/accountbook-shell-v22987.css";
+const NAV = "/assets/accountbook-nav-v22987.js";
+const V5 = "/assets/accountbook-v5-v22987.js";
 const ADMIN_PASSWORD = "design-uplift-v22987-admin";
 const count = (text, needle) => String(text).split(needle).length - 1;
 const asset = async (path) => {

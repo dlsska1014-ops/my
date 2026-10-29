@@ -27,6 +27,14 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
+  // V22.9.87: 디자인 보강 4단계(T-19 데스크톱 독 → 사이드바 검색 줄·머리말 아이콘 단추·빠른 입력 단추 하나, V85:R-9 사이드바 현재 메뉴,
+  // T-16 저장 알림 실행 취소)로 셸 CSS·V5 번들·메뉴 스크립트의 바이트가 바뀌어 세 주소를 v22987 로 올렸다. 옛 주소(아래 v22986 세 줄)의 바이트는
+  // AB_HISTORICAL_RUNTIME_ASSETS 에 남아 옛 해시로 계속 내려간다(아직 배포 전인 V22.9.86 이 쓰는 주소라 보관 규칙에 든다). 홈 스크립트·홈 셸(v22986)은 그대로다.
+  "/assets/accountbook-shell-v22987.css": "d88248047e9e3918f433c1cef204aaf6cd23cb69fdb5cb3cbefd906b7eb32f13",
+  "/assets/accountbook-v5-v22987.js": "ec70d193d5901a18ddad4db2208869d920497ee81d0f4db3384033cbbc8976c7",
+  "/assets/accountbook-nav-v22987.js": "de61e7d8dbc8ac10bf3a2f3c60c5b5960e97ff3a786528042eb580073f42be6d",
+  // V22.9.87 T-22: 공유 미리보기 이미지(1200×630 PNG, assets/og-image.js 생성 파일)도 1년 캐시 주소다. 그림을 다시 만들면 주소의 판 번호를 올린다.
+  "/assets/og-malhaebook-v22987.png": "83b5aa2fd6d5d0a39c6bd293e3544a82b8f28f482af38e8fd5d72f9235791376",
   // V22.9.86: 디자인 보강 3단계(T-11 모바일 홈 머리말·가계부 고르기 시트, T-13 카테고리 동그라미, T-14 입력 바·빠른 입력 시트·미리보기,
   // T-15 저장 알림·새 행 강조, T-17 하단 탭 바, T-18 빈 상태)와 아이콘 생성 고침(첫 상대 이동·채운 점)으로 셸 CSS·V5 번들·메뉴 스크립트·
   // 홈 스크립트·홈 셸의 바이트가 바뀌어 다섯 주소를 v22986 으로 올렸다. 옛 주소(accountbook-shell-v22985.css·accountbook-v5-v22985.js·
@@ -113,8 +121,8 @@ for (const path of Object.keys(PINNED)) {
   measured[path] = createHash("sha256").update(bytes).digest("hex");
 
   // ETag 는 주소와 같은 판 번호를 달아야 한다. 주소만 올리고 ETag 를 두면
-  // 중간 캐시가 옛 바이트를 새 주소에 물려 줄 수 있다.
-  const version = (path.match(/-(v\d+)\.(css|js)$/) || [])[1];
+  // 중간 캐시가 옛 바이트를 새 주소에 물려 줄 수 있다. V22.9.87 T-22 부터 PNG(공유 미리보기 이미지)도 같은 규칙이다.
+  const version = (path.match(/-(v\d+)\.(css|js|png)$/) || [])[1];
   const etag = String(response.headers.get("etag") || "");
   ok(version && etag.includes(version), `${path} 의 ETag 가 주소와 같은 판이다 (${etag})`);
 }

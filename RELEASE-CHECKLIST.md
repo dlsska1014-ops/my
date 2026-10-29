@@ -1,3 +1,36 @@
+## V22.9.87 디자인 보강 4단계 검사
+
+- 두 모드 하네스와 CI. 두 모드 실측: 일반 36,578 · 분류 표 부재 36,575(체크섬 700개).
+- 새 검사:
+  - `validation/validate-design-uplift-v22987.mjs`(138개, `npm run validate:design-uplift`)
+  - `validation/validate-public-brand-v22987.mjs`(217개, `npm run validate:public-brand`)
+- 지시서가 티켓마다 정한 검사는 모두 통과했다: `review-artifacts/design-uplift-2026-10-28/v87/ticket-checks.txt`.
+  - T-16: validate:household-security·core-write·lifecycle
+  - T-19: validate:v5·ux-principles
+  - T-20: validate:account-runtime·signup-kdf·performance·ux-principles
+  - T-21: validate:public-articles·public-articles-v22974·ads-gate·www-canonical
+  - T-22: validate:public-articles·performance
+- T-16 실행 취소: 픽스처 왕복과 거절 목록은 `validate-design-uplift-v22987.mjs` 가 본다. 서버의 지문 검사를 빼면 이 검사가 실패하는 것도 확인했다(변이 시험).
+- 화면 감사(화면 14 × 390·1280 × 네 톤 × 라이트·다크 = 224번):
+  - 넘침·대비 미달은 0이다.
+  - 선택 상태 구분이 실패한 실행은 124 → 88번이다. 사이드바 현재 메뉴(V85:R-9) 실패 80건(1280 화면 10개 × 톤·테마 8)이 통과로 바뀌었고, 통과하다 실패로 바뀐 실행은 0이다.
+  - 남은 실패는 이전부터 있던 R-10(월간·주간·분석 기간 탭)·R-11(다크 `a.on`·세그먼트)·주 칩이다.
+  - 결과 `v87/screen-audit-v87`, 차이 `v87/screen-audit-diff-v86-v87.txt`.
+  - 통합 때 `/my` 말풍선 색(V87:W-3)을 고친 뒤 로그인 화면만 다시 봤다(네 톤 × 라이트·다크 × 390·1280 = 16번 모두 통과, `v87/login-w3-recheck.log`).
+  - 화면 감사 픽스처는 카카오 로그인이 꺼져 있다. 카카오 로그인을 켠 `/my` 전후 캡처는 `v87/login-kakao-v86/`·`login-kakao-v87/` 다(390 높이 4,305 → 2,400 px).
+- T-19 고정 층 가림(900·1024·1280, V22.9.86 ↔ 87):
+  - 다섯 화면(예산·리포트·전체 메뉴·홈·연간) × 세 폭 모두 평균 1% 이하다. V22.9.86 은 최대 6%(홈 900)였다.
+  - 화면별 표는 `docs/codex/DESIGN_FINDINGS_V22_9_87.md` T-19 절, 결과 `v87/t19-occlusion-v86.log`·`t19-occlusion-v87.log`.
+- R-9: 사이드바 선택 구분 실패 0(예산·리포트·전체 메뉴 × 900·1280 × 8테마 = 48회), `v87/r9/`.
+- 공개·로그인(T-20~T-22) 측정과 캡처는 `v87/public/`(전 `before/`, 후 `t20/`·`t21/`·`t22/`)에 있다.
+- 환불 연결 꺼짐 고정값: V22.9.86 ↔ 87 화면 원문 96개 비교 `v87/refund-compare.txt`(가린 뒤 차이 0).
+- 수동(사용자):
+  - 데스크톱 실제 브라우저: 사이드바 검색·‘/’, 머리말 아이콘 단추, 빠른 입력 단추 줄기·펼치기, 사이드바 현재 메뉴.
+  - 실제 휴대폰: 저장 뒤 ‘실행 취소’, 60초 뒤·다시 누름 안내.
+  - 카카오톡 인앱 `/my`: 첫 화면 카카오 로그인, 로그인 이름 칸 열기·오류·비밀번호 보기.
+  - 공개 랜딩·`/demo` 첫 화면, 배포 뒤 카카오톡 공유 미리보기 이미지.
+  - 다크·고대비·움직임 줄이기, 화면 읽기.
+
 ## V22.9.86 디자인 보강 3단계 검사
 
 - 두 모드 하네스와 CI. 두 모드 실측: 일반 36,169 · 분류 표 부재 36,166(체크섬 693개, T-12 커밋 뒤).

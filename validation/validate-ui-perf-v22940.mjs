@@ -31,7 +31,7 @@ const shellModule = readFileSync(new URL("../src/modules/assets/accountbook-shel
 const previousClock = globalThis.__AB_QA_FIXED_NOW_MS;
 globalThis.__AB_QA_FIXED_NOW_MS = Date.parse("2026-07-15T12:00:00+09:00");
 
-const SHELL_CSS = "/assets/accountbook-shell-v22986.css";
+const SHELL_CSS = "/assets/accountbook-shell-v22987.css";
 const RETIRED_SHELL_CSS = "/assets/accountbook-shell-v22937.css";
 const RULES_FILE = "/assets/speculation-rules-v22940.json";
 const inlineCssBytes = (html) => [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].reduce((sum, m) => sum + Buffer.byteLength(m[1]), 0);

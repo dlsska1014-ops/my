@@ -87,6 +87,11 @@ await fixture(async (fx) => {
   const example = between(html, '<section class="loginExample"', "</section>");
   t.ok(example.includes('<p class="exBubble">점심 12000 국민카드</p>') && example.includes('<span class="abCat" data-ck="food" aria-hidden="true"><i class="abCatIcon"></i></span><div><b>점심</b><small>식비 · 국민카드 · 오늘</small></div><strong>-12,000원</strong>'), "예시 카드: 카톡 한 줄 → 앱과 같은 카테고리 동그라미 행");
   t.ok(!/<form|<button|fetch\(|localStorage|document\.cookie/.test(example), "예시 카드는 읽기만 한다(폼·단추·요청·저장 없음)");
+  // 결정 D-2: 카카오 노랑은 카카오 로그인 버튼에만 쓴다. 카톡 말풍선(예시 카드·기존 기능 미리보기)도 노랑이 아니라 브랜드 옅은 면이다(통합 때 고침).
+  t.ok(html.includes(".exBubble{justify-self:end;max-width:85%;padding:10px 14px;border-radius:16px 16px 4px 16px;background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-text,#191f28);"), "예시 말풍선은 브랜드 옅은 면·본문 글자다(D-2)");
+  t.eq((html.match(/#fee500/gi) || []).length, 1, "시작 화면의 카카오 노랑은 카카오 로그인 버튼 한 곳뿐이다(D-2)");
+  t.ok(html.includes(".chatBubble.user{justify-self:end;background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-text,#191f28);"), "기존 기능 미리보기의 내 말풍선도 브랜드 옅은 면·본문 글자다(D-2)");
+  t.ok(!/#ffeb57/i.test(html), "시작 화면에 예전 노란 말풍선 색(#ffeb57)이 없다(D-2)");
   t.ok(html.includes('<span class="eyebrow">로그인 전 기능 미리보기</span>'), "기존 기능 미리보기는 예시 카드·가입 아래에 그대로 있다");
   t.ok(!html.includes('<details class="loginLocal" id="login-local" open>'), "카카오 로그인이 되는 처음 화면은 로그인 이름 칸을 접어 둔다");
 
