@@ -422,8 +422,10 @@ function budgetAlertText(rows = [], budgets = [], category = "") {
     info = budgetStageInfo(summary.budgetedExpense, summary.totalBudget);
   }
   if (!info || info.stage === "ok") return "";
-  if (info.stage === "over") return `🚨 ${name} 예산 초과 · ${numberWithCommas(info.over)}원 넘었어요 (${info.rate}%)`;
-  return `⚠️ ${name} 예산 ${info.rate}% · ${numberWithCommas(info.remain)}원 남음`;
+  // V22.9.85 T-10 §3-3: 이 문구는 웹 저장 알림에만 쓴다(카카오 답장은 budgetFeedbackLine). 앞에 붙던 🚨·⚠️ 대신 알림 표식 칸이
+  // Lucide triangle-alert 아이콘을 그린다(icon-mask-css.js). 카카오톡 메시지 속 이모지는 그대로다.
+  if (info.stage === "over") return `${name} 예산 초과 · ${numberWithCommas(info.over)}원 넘었어요 (${info.rate}%)`;
+  return `${name} 예산 ${info.rate}% · ${numberWithCommas(info.remain)}원 남음`;
 }
 
 function budgetFeedbackLine(rows = [], budgets = [], category = "") {

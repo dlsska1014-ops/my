@@ -120,9 +120,9 @@ await fixture(async (fx) => {
 
 // ── A3 감사 U9: 모바일 홈 11px 라벨 대비(라이트·다크) ───────────────────────────
 {
-  const css = await asset("/assets/mobile-home-v22984.css");
+  const css = await asset("/assets/mobile-home-v22985.css");
   eq(css.status, 200, "A3 새 홈 스타일시트 주소가 내려간다");
-  ok(css.type.startsWith("text/css") && css.cache.includes("immutable") && css.etag === '"mobile-home-v22984-css"', `A3 새 주소는 CSS·1년 불변 캐시·같은 판의 ETag 다 (${css.etag})`);
+  ok(css.type.startsWith("text/css") && css.cache.includes("immutable") && css.etag === '"mobile-home-v22985-css"', `A3 새 주소는 CSS·1년 불변 캐시·같은 판의 ETag 다 (${css.etag})`);
   const lightRule = ".v8-edit-field>span,.v8-spender-readonly>span{font-size:11px;color:#475467;font-weight:1000}";
   ok(css.text.includes(lightRule), "A3 11px 수정 폼 라벨의 원본 색이 #475467 이다");
   ok(!css.text.includes(".v8-edit-field>span,.v8-spender-readonly>span{font-size:11px;color:#687385"), "A3 옛 보조색(#687385, 4.35:1) 라벨 규칙이 남지 않는다");
@@ -134,7 +134,7 @@ await fixture(async (fx) => {
   ok(contrast("#475467", "#f8fafc") >= 7, `A3 라벨이 읽기 전용 칸(#f8fafc) 위 7:1 이상이다 (${contrast("#475467", "#f8fafc").toFixed(2)}:1)`);
   ok(contrast("#475467", "#f2f4f6") >= 4.5, `A3 감사가 잰 회색 표면(#f2f4f6) 위에서도 4.5:1 이상이다 (${contrast("#475467", "#f2f4f6").toFixed(2)}:1)`);
   ok(contrast("#687385", "#f2f4f6") < 4.5, `A3 고치기 전 색은 감사가 잰 표면 위 4.5:1 미만이었다 (${contrast("#687385", "#f2f4f6").toFixed(2)}:1, 감사 U9 4.35:1 재현)`);
-  const shell = await asset("/assets/accountbook-shell-v22984.css");
+  const shell = await asset("/assets/accountbook-shell-v22985.css");
   const darkTokens = (shell.text.match(/html\[data-ab-resolved-theme="dark"\] body\.abV22812Shell\{([^}]*--ab12-surface-raised:[^}]*)\}/) || [])[1] || "";
   const token = (name) => (darkTokens.match(new RegExp(`--${name}:(#[0-9a-fA-F]{6})`)) || [])[1] || "";
   const [muted, raised, text, line] = ["ab12-muted", "ab12-surface-raised", "ab12-text", "ab12-line"].map(token);
@@ -142,22 +142,20 @@ await fixture(async (fx) => {
   ok(contrast(muted, raised) >= 4.5, `A3 다크 라벨(보조 토큰)이 다크 표면 위 4.5:1 이상이다 (${contrast(muted || "#000000", raised || "#000000").toFixed(2)}:1)`);
   ok(contrast(text, raised) >= 4.5, `A3 다크 읽기 전용 칸의 이름 글자가 4.5:1 이상이다 (${contrast(text || "#000000", raised || "#000000").toFixed(2)}:1)`);
   ok(contrast("#edeff3", "#f8fafc") < 1.5, "A3 고치기 전 다크 읽기 전용 칸은 밝은 배경 위 밝은 글자였다(1.1:1, 헤드리스 Chrome 실측 재현)");
-  const head = await asset("/assets/mobile-home-v22984.css", "HEAD");
+  const head = await asset("/assets/mobile-home-v22985.css", "HEAD");
   ok(head.status === 200 && head.bytes.length === 0 && head.etag === css.etag, "A3 새 주소의 HEAD 는 본문 없이 같은 ETag 다");
-  // 옛 주소는 1년 캐시 약속대로 옛 바이트를 그대로 낸다(AB_HISTORICAL_RUNTIME_ASSETS, CSS 형식).
-  const old = await asset("/assets/mobile-home-v22919.css");
-  eq(old.status, 200, "A3 옛 주소(v22919)도 계속 내려간다");
-  ok(old.type.startsWith("text/css") && old.cache.includes("immutable") && old.etag === '"mobile-home-v22919-css"', `A3 옛 주소는 CSS 형식·불변 캐시·옛 ETag 그대로다 (${old.type})`);
-  eq(sha256(old.bytes), "0695bbde13382d71c11769607dabd7b70e91e1b7b83c8a4df4a8b92794d047f7", "A3 옛 주소의 바이트는 V22.9.19 고정 해시 그대로다");
-  ok(old.text.includes(".v8-edit-field>span,.v8-spender-readonly>span{font-size:11px;color:#687385;font-weight:1000}"), "A3 옛 바이트에는 옛 색이 그대로 있다(바이트를 고치지 않았다)");
-  const oldHead = await asset("/assets/mobile-home-v22919.css", "HEAD");
+  // V22.9.85: v22919 보관본은 옛 주소 정리로 뺐다. CSS 형식 보관은 남은 보관본(운영 V22.9.80 의 홈 스타일시트)으로 본다.
+  const old = await asset("/assets/mobile-home-v22979.css");
+  eq(old.status, 200, "A3 보관된 옛 주소(v22979)가 계속 내려간다");
+  ok(old.type.startsWith("text/css") && old.cache.includes("immutable") && old.etag === '"mobile-home-v22979-css"', `A3 옛 주소는 CSS 형식·불변 캐시·옛 ETag 그대로다 (${old.type})`);
+  eq(sha256(old.bytes), "2fcbe755ae1b608875b4a2eedb38e379459a5bd97f390f9577d61a92cdf50562", "A3 옛 주소의 바이트는 고정 해시 그대로다");
+  const oldHead = await asset("/assets/mobile-home-v22979.css", "HEAD");
   ok(oldHead.status === 200 && oldHead.bytes.length === 0 && oldHead.type.startsWith("text/css"), "A3 옛 주소의 HEAD 도 CSS 형식이고 본문이 없다");
-  const nav = await asset("/assets/accountbook-v5-v22934.js");
-  ok(nav.status === 200 && nav.type.startsWith("text/javascript"), "A3 형식을 적지 않은 옛 JS 보관본은 예전처럼 JS 로 내려간다");
+  eq((await asset("/assets/mobile-home-v22919.css")).status, 404, "A3 정리한 옛 주소(v22919)는 더 내려가지 않는다");
 }
 await fixture(async (fx) => {
   const home = await page(fx, HOME);
-  eq(count(home.html, 'href="/assets/mobile-home-v22984.css"'), 1, "A3 홈이 새 홈 스타일시트를 정확히 한 번 받는다");
+  eq(count(home.html, 'href="/assets/mobile-home-v22985.css"'), 1, "A3 홈이 새 홈 스타일시트를 정확히 한 번 받는다");
   ok(!home.html.includes("mobile-home-v22919.css"), "A3 홈이 옛 주소를 더 쓰지 않는다");
 });
 

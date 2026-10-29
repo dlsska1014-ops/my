@@ -502,7 +502,7 @@ await section("T-32", () => fixture(async (fx) => {
 }));
 
 // ── T-33. 사이드바 작은 달력의 ‘오늘’은 KST ──────────────────────────────────────────────────
-// 달력 스크립트는 V5 번들(/assets/accountbook-v5-v22984.js)의 accountbookSidebarDashboardClientMain 안 renderCalendar 다. 그 조각을 꺼내 가짜 DOM·가짜 시계로 돌리고,
+// 달력 스크립트는 V5 번들(/assets/accountbook-v5-v22985.js)의 accountbookSidebarDashboardClientMain 안 renderCalendar 다. 그 조각을 꺼내 가짜 DOM·가짜 시계로 돌리고,
 // 시간대는 process.env.TZ 로 바꾼다(F-8 날짜 칩 검사와 같은 방식). 예전 코드는 new Date() 의 로컬 getFullYear/getMonth/getDate 를 써서 KST 가 아닌 기기에서 다른 날을 골랐다.
 function sidebarMainOf(js) {
   const start = js.indexOf("function accountbookSidebarDashboardClientMain()");

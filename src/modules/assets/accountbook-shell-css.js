@@ -1,5 +1,6 @@
 // @build:imports-start
 import { quickChipIconCss } from "../web/quick-chip-icons.js";
+import { designUpliftIconCss } from "./icon-mask-css.js";
 import { ACCOUNTBOOK_SHELL_V22811_CSS } from "./asset-registry.js";
 // @build:imports-end
 
@@ -258,6 +259,16 @@ body.abV22812Shell #add :is(.chipRow button,.dateChip):active:not(:disabled){tra
 body.abV22812Shell #add .seg{background:var(--ab12-surface-raised);padding:4px;border-radius:14px;gap:4px}
 body.abV22812Shell #add .seg span{height:44px;border-radius:11px;background:transparent!important;border:1px solid transparent!important;color:var(--ab12-nav-inactive)!important;font-weight:700}
 body.abV22812Shell #add .seg input:checked+span{background:var(--ab12-surface)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;font-weight:800;box-shadow:var(--shadow)}
+/* V22.9.85 R-6(디자인 적합성 점검): 지시서 §3-5 대로 고른 칸이 바뀔 때도 면·테두리·글자가 180ms 로 바뀌고(움직임 줄이기에서는 끈다),
+   초점 링은 다른 조작부처럼 강조색 3px 이다(빠른 입력 자산의 옛 규칙은 2px 였다). */
+body.abV22812Shell #add .seg span{transition:background-color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),border-color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),box-shadow var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}
+body.abV22812Shell #add .seg input:focus-visible+span{outline:3px solid var(--ab12-accent)!important;outline-offset:3px!important}
+@media(prefers-reduced-motion:reduce){body.abV22812Shell #add .seg span{transition:none!important}}
+/* V22.9.85 R-7: 다크에서 ‘최근 10건’ 같은 피드 묶음 링크(.feedControls a)와 내역 거르기 칩(.txChip)은 고른 것과 안 고른 것의 면·테두리가 같았다
+   (1.00:1·1.16:1, 다크 표면 목록과 모든 링크를 강조색으로 칠하는 규칙이 이겼다). 고른 것은 강조색 연한 면 + 강조색 테두리·글자, 안 고른 내역 칩 글자는 본문색이다. */
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .feedControls a.active{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .txChip{color:var(--ab12-text)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .txChip.isOn{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important}
 /* V22.9.84 T-05: 금액 색 — 수입 --pos, 지출 본문색(8테마 같음). 빨강(--neg·--ab12-gauge-over)은 초과·오류에만 쓴다.
    홈 KPI(들어온 돈·나간 돈)와 거래 행 금액만 바꾼다(분석 화면은 바꾸지 않는다). html[data-ab-resolved-theme] 는 다크 증감 색 규칙보다 앞서려고 붙였다. */
 html[data-ab-resolved-theme] body.abV22812Shell :is(.homeMetric>b.income,.v8-tx strong.income,.homeTxAmt.income){color:var(--pos)!important}
@@ -368,8 +379,10 @@ body.abV22812Shell{
   --space-1:8px;--space-2:16px;--space-3:24px;--space-4:32px;
   --shadow:0 0 0 1px rgba(25,31,40,.06),0 1px 2px rgba(25,31,40,.03);--shadow-2:0 6px 22px rgba(25,31,40,.08);
   background:var(--bg)!important;color:var(--text)!important;
-  /* V22.9.84 T-06: 한국어 낱말 중간 줄바꿈(카카/오페이·바로 이/어서)을 막고, 띄어쓰기 없는 긴 글은 넘치기 전에 끊는다. */
-  word-break:keep-all;overflow-wrap:anywhere;
+  /* V22.9.84 T-06: 한국어 낱말 중간 줄바꿈(카카/오페이·바로 이/어서)을 막고, 띄어쓰기 없는 긴 글은 넘치기 전에 끊는다.
+     V22.9.85 R-1: anywhere 는 최소 폭 계산에서도 모든 글자를 끊을 곳으로 쳐서, 표 칸·가로 배치가 숫자 폭 아래로 줄며 "119,03/2원"·"72,000/원"·
+     날짜 눈금 "1/6"처럼 금액과 숫자를 쪼갰다. break-word 는 넘칠 때만 끊고 최소 폭은 그대로라 표는 예전처럼 가로로 넘겨 본다. */
+  word-break:keep-all;overflow-wrap:break-word;
   font-family:"Pretendard Variable",Pretendard,-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;
   font-feature-settings:"tnum";letter-spacing:-.01em
 }
@@ -446,11 +459,11 @@ body.abV22812Shell .appTop{view-transition-name:abTopBar}
 body.abV22812Shell :is(.muted,.note,.subtitle,.dataNote){color:var(--sub)!important;line-height:1.55}
 /* V22.9.84 T-07: 누름 반응 — 버튼·칩·하단 탭·거래 행은 누르는 즉시 .97 로 줄었다가(120ms) 돌아오고, 면·테두리·글자는 180ms 로 함께 바뀐다.
    움직임 줄이기에서는 모두 끈다. 하단 가운데 입력 탭은 위로 8px 솟은 자리를 지킨 채 줄인다. 초점 링(accent 3px)은 바탕 규칙 그대로다. */
-body.abV22812Shell :is(button,.btn,.chip,.abNavBottom a,.v8-tx-main){transition:transform var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),filter var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),background-color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),border-color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}
+body.abV22812Shell :is(button,.btn,.chip,.txChip,.abNavBottom a,.v8-tx-main){transition:transform var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),filter var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),background-color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),border-color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}
 body.abV22812Shell :is(button,.btn){box-shadow:none}
-body.abV22812Shell :is(button,.btn,.chip,.abNavBottom a,.v8-tx-main):active:not(:disabled){transform:scale(.97)}
+body.abV22812Shell :is(button,.btn,.chip,.txChip,.abNavBottom a,.v8-tx-main):active:not(:disabled){transform:scale(.97)}
 body.abV22812Shell .abNavBottom a.abNavQuickInput:active{transform:translateY(-8px) scale(.97)}
-@media(prefers-reduced-motion:reduce){body.abV22812Shell :is(button,.btn,.chip,.abNavBottom a,.v8-tx-main){transition:none!important}body.abV22812Shell :is(button,.btn,.chip,.abNavBottom a,.v8-tx-main):active{transform:none!important}body.abV22812Shell .abNavBottom a.abNavQuickInput:active{transform:none!important}}
+@media(prefers-reduced-motion:reduce){body.abV22812Shell :is(button,.btn,.chip,.txChip,.abNavBottom a,.v8-tx-main){transition:none!important}body.abV22812Shell :is(button,.btn,.chip,.txChip,.abNavBottom a,.v8-tx-main):active{transform:none!important}body.abV22812Shell .abNavBottom a.abNavQuickInput:active{transform:none!important}}
 body.abV22812Shell :is(.ghost,.secondary,.soft,.light,.btn.ghost){background:var(--card)!important;color:var(--text)!important;border-color:var(--line)!important}
 body.abV22812Shell :is(.ghost,.secondary,.soft,.light,.btn.ghost):hover{background:var(--card-2)!important;color:var(--text)!important}
 body.abV22812Shell :is(input,select,textarea){background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:var(--radius-xs)!important}
@@ -543,6 +556,10 @@ html body.abV22812Shell.abNavCollapsed .abNavSection.abNavGroup+.abNavSection{bo
 .lrSeg.abAnalysisViews{display:inline-flex;gap:4px;padding:4px;border-radius:var(--ab12-r-lg,16px);background:var(--ab12-surface-raised,#eef1f5);margin:14px 0 0}
 .lrSeg.abAnalysisViews a{min-height:40px;display:inline-flex;align-items:center;justify-content:center;padding:0 16px;border-radius:var(--ab12-r-md,12px);text-decoration:none;font-weight:800;color:var(--ab12-muted,#5f6b7a)}
 .lrSeg.abAnalysisViews a[aria-current="true"]{background:var(--ab12-surface,#fff);color:var(--ab12-text,#191f28);box-shadow:var(--ab12-elev-card,0 2px 8px rgba(15,23,42,.08))}
+/* V22.9.85 R-3: 다크에서는 모든 링크를 강조색으로 칠하는 규칙(!important)이 이겨 두 탭 글자가 같았고, 고른 칸 면(#1e2026)과 트랙(#282b33)은 1.15:1 이었다.
+   세그먼트(T-02)처럼 고른 탭은 강조색 글자·테두리, 안 고른 탭은 보조색 글자로 가른다. */
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .lrSeg.abAnalysisViews a{color:var(--ab12-muted)!important;border:1px solid transparent}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell .lrSeg.abAnalysisViews a[aria-current="true"]{color:var(--ab12-accent)!important;border-color:var(--ab12-accent)}
 body.abV22812Shell .abNavItemIcon{width:22px!important;height:auto!important;flex:0 0 22px!important;background:transparent!important;color:inherit!important;font-size:15px!important}
 body.abV22812Shell .abNavFooter{padding:12px 10px!important;border-color:var(--line)!important}
 body.abV22812Shell .abNavGuide{background:var(--card-2)!important;border:1px solid var(--line)!important;color:var(--accent)!important;border-radius:12px!important;box-shadow:none!important}
@@ -1392,7 +1409,11 @@ body.abV22812Shell .abV5PageHeader h1{overflow-wrap:anywhere}
 body.abV22812Shell .quickMore>summary>span{flex:none;white-space:nowrap}
 /* V22.9.79 F-4: 머리말 조회 줄(.abV5ControlBar)의 3열 규칙(1fr 1fr auto)은 컨트롤이 가계부·월·조회 셋일 때 맞춘 것이다. 정산 화면은 select 가 둘이라 월 입력이 88px 로 줄어 "2026년 07월"이 "2026"만 보였다(390px, 정상 데이터도 같다) → select 가 둘인 줄은 모바일에서 두 열로 쌓는다. */
 @media(max-width:560px){body.abV22812Shell .abV5ControlBar:has(select~select){grid-template-columns:repeat(2,minmax(0,1fr))!important}}
-/* ── V22.9.40 (C) 점진적 최신 규칙 ──
+`
+  // V22.9.85 T-09·T-10: 카테고리 팔레트 토큰(§3-2)·카테고리 동그라미 마스크·웹 화면 이모지를 대신하는 아이콘. 만드는 곳은 icon-mask-css.js.
+  // 아래 V22.9.40 (C) 블록은 셸 CSS 맨 끝에 치환 없이 있어야 해서(validate-ui-perf-v22940) 그 앞에 끼운다.
+  + `\n${designUpliftIconCss()}\n`
+  + `/* ── V22.9.40 (C) 점진적 최신 규칙 ──
    모르는 브라우저는 모르는 속성·@supports 블록을 통째로 건너뛰므로 아무것도 바뀌지 않는다.
    · 제목 줄바꿈은 text-wrap-style(긴 이름)만 쓴다. 줄임 이름 text-wrap 은 text-wrap-mode 까지 wrap 으로 되돌려
      .topLine h1 의 white-space:nowrap(말줄임)을 이긴다.

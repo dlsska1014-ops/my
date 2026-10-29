@@ -41,7 +41,8 @@ function mobileHomePerformanceAssetResponse(request, url) {
   }
   if (path === BUDGET_PREVIEW_JS_PATH) return new Response(request.method === "HEAD" ? null : budgetPlanPreviewJsAsset(), { headers: { "content-type": "text/javascript; charset=utf-8", "cache-control": "public, max-age=31536000, immutable", "x-content-type-options": "nosniff", "cross-origin-resource-policy": "same-origin", etag: '"accountbook-budget-preview-v22979-js"' } });
   const historical = AB_HISTORICAL_RUNTIME_ASSETS[path];
-  // V22.9.40 A3: 옛 CSS 주소(mobile-home-v22919.css)도 옛 바이트를 그대로 낸다. 항목이 contentType 을 적으면 그것을 쓴다(없으면 JS).
+  // V22.9.40 A3: 옛 CSS 주소도 옛 바이트를 그대로 낸다. 항목이 contentType 을 적으면 그것을 쓴다(없으면 JS).
+  // V22.9.85: 운영 마지막 두 판과 배포 전 판이 부르는 주소만 남긴다(기준은 validate-immutable-asset-addresses-v2299 RETIRED 위 설명).
   if (historical) return new Response(request.method === "HEAD" ? null : historical.body, {headers:{"content-type":historical.contentType || "text/javascript; charset=utf-8", "cache-control":"public, max-age=31536000, immutable", "x-content-type-options":"nosniff", "cross-origin-resource-policy":"same-origin", etag:historical.etag}});
   const assetPaths = [ACCOUNTBOOK_QUICK_INPUT_JS_ASSET_PATH,AB_CATEGORY_RULES_ASSET_PATH, AB_CURSOR_ASSET_PATH, AB_UIUX_CSS_ASSET_PATH, MOBILE_HOME_CSS_ASSET_PATH, LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_THEME_JS_ASSET_PATH, MOBILE_HOME_JS_ASSET_PATH, MOBILE_HOME_SHELL_JS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH, ACCOUNTBOOK_SEARCH_JS_ASSET_PATH, ACCOUNTBOOK_NOTIF_JS_ASSET_PATH, ACCOUNTBOOK_GOALS_JS_ASSET_PATH, ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH, ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH, NUMBER_FLOW_ASSET_PATH];
   if (!assetPaths.includes(path)) return null;
@@ -95,17 +96,17 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === AB_UIUX_CSS_ASSET_PATH
       ? '"ab-uiux-v22919-css"'
       : path === MOBILE_HOME_CSS_ASSET_PATH
-      ? '"mobile-home-v22984-css"'
+      ? '"mobile-home-v22985-css"'
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v22984-css"'
+        ? '"accountbook-shell-v22985-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22946-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
           ? '"mobile-home-shell-v22984-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
-          ? '"accountbook-nav-v22983-js"'
+          ? '"accountbook-nav-v22985-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
           ? '"accountbook-search-v22979-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
@@ -115,7 +116,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22937-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22984-js"'
+          ? '"accountbook-v5-v22985-js"'
           : '"mobile-home-v22984-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });

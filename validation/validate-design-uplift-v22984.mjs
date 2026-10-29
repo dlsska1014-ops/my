@@ -34,13 +34,15 @@ const homeHtml = async (fx) => (await app.fetch(new Request(`${BASE}${HOME}`, { 
 // 이 판의 실측(2026-10-28). 홈 HTML 은 V22.9.83 과 같은 바이트여야 한다.
 const HOME_BASE_MAX = 35626;
 const HOME_200_MAX = 40290;
-const SHELL_CSS_MAX_BYTES = 223568;
-const SHELL_IMPORTANT_MAX = 1506;
+// V22.9.85: 2단계(T-09 카테고리 토큰·마스크 15개, T-10 화면 아이콘 마스크 3개)와 R-1·R-3·R-6·R-7·의료 제외 낱말로 셸이 239,647 B(gzip 49,917)가 됐다.
+const SHELL_CSS_MAX_BYTES = 239647;
+// V22.9.85: R-3·R-6·R-7 의 다크·초점 규칙이 이미 !important 인 규칙(모든 링크 강조색·다크 표면 목록·옛 2px 초점 링)을 이겨야 해서 12회 늘었다.
+const SHELL_IMPORTANT_MAX = 1518;
 const HOME_CSS_IMPORTANT_MAX = 368;
 
-const SHELL = "/assets/accountbook-shell-v22984.css";
-const HOME_CSS = "/assets/mobile-home-v22984.css";
-const V5 = "/assets/accountbook-v5-v22984.js";
+const SHELL = "/assets/accountbook-shell-v22985.css";
+const HOME_CSS = "/assets/mobile-home-v22985.css";
+const V5 = "/assets/accountbook-v5-v22985.js";
 const HOME_JS = "/assets/mobile-home-v22984.js";
 const HOME_SHELL_JS = "/assets/mobile-home-shell-v22984.js";
 
@@ -153,7 +155,8 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   t.ok(!/class="(?:[^"]*\s)?(?:homeMetric|v8-tx|homeTxAmt)(?:\s[^"]*)?"/.test(analysis), "T-05 금액 색 규칙이 닿는 요소가 분석 화면에는 없다(분석 화면은 바꾸지 않는다)");
 
   // ── T-06 줄바꿈 ──
-  t.ok(/body\.abV22812Shell\{[^}]*word-break:keep-all;overflow-wrap:anywhere;[^}]*\}/.test(shell), "T-06 셸 바탕 body 규칙이 keep-all·anywhere 다(홈·사이드바 화면·/my 로그인)");
+  // V22.9.85 R-1: 셸 body 는 anywhere 대신 break-word 다. anywhere 가 최소 폭 계산까지 바꿔 표 칸·가로 배치의 금액을 쪼갰다(119,03/2원).
+  t.ok(/body\.abV22812Shell\{[^}]*word-break:keep-all;overflow-wrap:break-word;[^}]*\}/.test(shell), "T-06 셸 바탕 body 규칙이 keep-all·break-word 다(홈·사이드바 화면·/my 로그인)");
   const login = await page(fx, "/my", { cookie: "" });
   t.eq(login.status, 200, "T-06 /my 로그인 화면이 열린다");
   t.ok(login.html.includes(`href="${SHELL}"`) && /<body[^>]*class="[^"]*\babV22812Shell\b/.test(login.html), "T-06 /my 로그인 화면도 셸 CSS·셸 body 를 받아 같은 줄바꿈을 쓴다");
@@ -161,7 +164,8 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   t.ok(landing.status === 200 && landing.html.includes("word-break:keep-all"), "T-06 공개 랜딩은 원래 keep-all 이다");
 
   // ── T-07 누름 반응 ──
-  const motion = ":is(button,.btn,.chip,.abNavBottom a,.v8-tx-main)";
+  // V22.9.85 R-7: 내역 거르기 칩(.txChip)도 같은 누름 반응을 받는다(디자인 적합성 점검에서 누름 줄어듦·180ms 색 전환이 없었다).
+  const motion = ":is(button,.btn,.chip,.txChip,.abNavBottom a,.v8-tx-main)";
   t.ok(shell.includes(`body.abV22812Shell ${motion}{transition:transform var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),`), "T-07 단추·칩·하단 탭·거래 행 전환에 transform(120ms)이 들어 있다");
   t.ok(/--ab12-dur:180ms;[^}]*--ab12-ease:cubic-bezier\(\.2,\.8,\.2,1\);[^}]*--ab12-dur-fast:120ms;/.test(shell), "T-07 시간·곡선 토큰이 정의돼 있다");
   const pressAt = shell.indexOf(`body.abV22812Shell ${motion}:active:not(:disabled){transform:scale(.97)}`);

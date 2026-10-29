@@ -77,7 +77,7 @@ try {
   eq(home.text.includes("<span>작업</span>"), false, "작업 버튼이 사라졌다");
 
   // 6. 겹침의 원인 제거. 모바일에서 떠 있는 조작 레이어가 없어야 한다.
-  const shell = await get("/assets/accountbook-shell-v22984.css", "");
+  const shell = await get("/assets/accountbook-shell-v22985.css", "");
   eq(shell.response.status, 200, "셸이 서빙된다");
   ok(shell.text.includes("body.abV22812Shell .abGlobalActions{display:none!important}"), "모바일에서 떠 있는 조작 묶음이 없다");
   ok(shell.text.includes("body.abV22812Shell .abNavDrawerActions"), "그 조작들이 전체 메뉴 서랍 안에 자리를 갖는다");
@@ -97,10 +97,11 @@ try {
   eq(shell.text.includes("body.abV22812Shell .abNavBottom a.abNavQuick{justify-content:flex-start}"), true, "가운데 칸도 칸 전체가 탭 영역이다");
 
   // 9. 아이콘. 모르는 이름은 집 모양으로 돌아가므로, ＋ 가 진짜 ＋ 인지 본다.
-  ok(source.includes("plus: '<path d=\"M12 5v14M5 12h14\"/>',"), "＋ 아이콘이 아이콘표에 있다");
-  const nav = await get("/assets/accountbook-nav-v22983.js", "");
+  // V22.9.85 T-10: 메뉴 아이콘은 생성 파일(src/modules/assets/icon-paths.js, Lucide plus)의 path 표를 내비 자산이 인자로 받는다.
+  ok(source.includes('  plus: "M5 12h14m-7-7v14",'), "＋ 아이콘이 아이콘표에 있다");
+  const nav = await get("/assets/accountbook-nav-v22985.js", "");
   eq(nav.response.status, 200, "내비 자산이 서빙된다");
-  ok(nav.text.includes('plus: \'<path d="M12 5v14M5 12h14"/>\''), "배포되는 자산에도 ＋ 아이콘이 담긴다");
+  ok(nav.text.includes('"plus":"M5 12h14m-7-7v14"'), "배포되는 자산에도 ＋ 아이콘이 담긴다");
 
   // 10. 데스크톱은 건드리지 않았다. 하단 탭은 900px 이상에서 숨고, 독은 그대로다.
   ok(source.includes(".abNavBottom{display:none!important}"), "데스크톱에서는 하단 탭이 숨는다");

@@ -57,7 +57,7 @@ try {
   ok(source.includes("compositionend"), "한글 조합 끝을 듣는다");
   ok(source.includes("if(abImeComposing)return;"), "조합 중에는 파싱을 건너뛴다");
   // 실시간 파싱은 입력칸을 비우지 않아야 한다. 비우면 적는 도중 글자가 사라진다.
-  ok(source.includes("if(clearInput){smart.value='';"), "입력칸을 비우는 것은 Enter 로 확정할 때뿐이다");
+  ok(source.includes('if (clearInput) smart.value="";'), "입력칸을 비우는 것은 Enter 로 확정할 때뿐이다");
 
   // 3. 2단 배치. 날짜·지출자·결제수단·분류가 접힘 안으로 들어간다.
   for (const [field, label] of [['id="txDate"', "날짜"], ['select name="user_id"', "지출자"], ['id="payInput"', "결제수단"], ['id="catInput"', "분류"]]) {
@@ -77,7 +77,7 @@ try {
 
   // 5. 저장 버튼은 시트 아래에 붙는다. 안전 영역도 함께 본다.
   ok(sheet.includes('class="quickSubmit"'), "저장 영역이 따로 묶여 있다");
-  const shell = await get("/assets/accountbook-shell-v22984.css", "");
+  const shell = await get("/assets/accountbook-shell-v22985.css", "");
   eq(shell.response.status, 200, "셸이 서빙된다");
   const submitRule = (shell.text.match(/body\.abV22812Shell \.quickSubmit\{[^}]*\}/) || [""])[0];
   ok(submitRule.includes("position:sticky") && submitRule.includes("bottom:0"), "저장 버튼이 시트 하단에 고정된다");

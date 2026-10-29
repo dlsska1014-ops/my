@@ -20,6 +20,8 @@
 // V22.9.84(2026-10-28): 디자인 보강 1단계는 홈 HTML 마크업을 바꾸지 않고 1년 캐시 자산 다섯 개의 주소(v22984)와 판 이름만 바꾼다.
 // 이 파일의 해시 입력에서 그 주소·판 이름을 V22.9.83 값으로 바꿔 돌리면 옛 값 그대로 268개가 모두 통과함을 먼저 확인했고,
 // 그 뒤 --print-golden 으로 12개(home·homeTrend·homePrev·budgets·budgetAlerts·reports·reportsWeek·analysis·backupPage·backupFull·backupMonth·candidate)를 다시 얻었다.
+// V22.9.85(2026-10-28): 디자인 보강 2단계는 홈 HTML 의 두 곳(챌린지 배지 🔥·캘린더 링크 📅 를 CSS 아이콘으로)과 자산 주소 네 개(v22985)·판 이름만 바꾼다.
+// 해시 입력에서 그 셋을 V22.9.84 값으로 되돌려 돌리면 옛 값 그대로 268개가 모두 통과함을 먼저 확인했고, 그 뒤 --print-golden 으로 12개(home·homeTrend·homePrev·budgets·budgetAlerts·reports·reportsWeek·analysis·backupPage·backupFull·backupMonth·candidate)를 다시 얻었다.
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -29,24 +31,24 @@ import { BASE, app, ctx, fixture, intercept, page, post, skill, withClock } from
 const PRINT_GOLDEN = process.argv.includes("--print-golden");
 const SOFT = process.env.V22980_SOFT === "1";
 const FLAG_OFF_GOLDEN = {
-  "home": "200 05806aaf5889d4740498ab56",
-  "homeTrend": "200 3487550950d2dfd13a12bb67",
-  "homePrev": "200 b0d56ae1a9e22dfd7d791cf3",
-  "budgets": "200 49c364464726097073e00d67",
-  "budgetAlerts": "200 8e6ad3af7e90f471dd4de777",
+  "home": "200 77cc7cd3855b669ef05d1266",
+  "homeTrend": "200 6d9c4af957ed8dea75e79010",
+  "homePrev": "200 b6cceba5f38abde6e9ae2455",
+  "budgets": "200 518b6954e810efd1b0e1ea83",
+  "budgetAlerts": "200 c96cec2df99e12013ebe5125",
   "notifications": "200 df9761ab7204d02ba148aa42",
-  "reports": "200 34d6e186c182d405a97a7a27",
-  "reportsWeek": "200 eaa8cf43ed95e62ea3afc4a3",
-  "analysis": "200 62e989cb50dc62adf02b56aa",
-  "backupPage": "200 a3bc8fadd23f827c37a3ad4a",
+  "reports": "200 d260eabe687224b60097884d",
+  "reportsWeek": "200 eb1f90f49c78909528f3dc75",
+  "analysis": "200 4be23b66df514aa5735cabf8",
+  "backupPage": "200 2e31039475ff032220b4df14",
   "kakao:이번달": "200 98fb6fc3811a3c54849be3cc",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 961059aa4623953589d2f927",
-  "backupMonth": "200 0014037d3274d7b02a3e1785",
-  "candidate": "200 1a335b1a960a513cf52b29b9",
+  "backupFull": "200 26a74ac3b934abf4073d6303",
+  "backupMonth": "200 5d7f4c17a176ac48912e75d6",
+  "candidate": "200 7296fae49f0e281dbaa9816f",
   "legacyErr": "200 bfc684233d18c4570db218ba", // V22.9.81 U-19: 옛 관리자 화면 오류 칸이 record_update_failed 를 코드 글자 대신 안내 문장으로 보인다(의도한 변경)
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
   "apiBatch": "200 {\"ok\":true,\"updatedCount\":1}",

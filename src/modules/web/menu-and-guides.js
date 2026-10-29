@@ -246,7 +246,8 @@ async function handleUnifiedMenuPage(request, env, url) {
       ["자산·결제수단", `/payment-methods?${monthQs}`, "통장·현금·카드·대출", "wallet"],
     ]],
     ["함께", "단톡방과 참여자, 정산", [
-      ["단톡방 연결", `/my/groups?${monthQs}`, "카카오톡 단톡방에서 기록", "chat"],
+      // V22.9.85 R-2: 단톡방 연결(/my/groups)도 소유자·관리자 화면이다(구성원은 403). 사이드바(unified-nav adminOnlyKeys)처럼 관리자 전용을 붙인다.
+      ["단톡방 연결", `/my/groups?${monthQs}`, `${adminOnlyNote}카카오톡 단톡방에서 기록`, "chat"],
       ["참여자·초대", `/my/members?${monthQs}`, `${adminOnlyNote}구성원과 권한 관리`, "users"],
       ["정산", `/settlement-summary?${monthQs}`, "모임·여행 비용 정리", "settlement"],
     ]],

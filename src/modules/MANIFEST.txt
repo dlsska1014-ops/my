@@ -75,7 +75,9 @@ domain/budgets.js
 domain/spending-outlook.js
 my/home-sections.js
 features/meme-cards.js
+assets/icon-paths.js
 web/quick-chip-icons.js
+assets/icon-mask-css.js
 assets/mobile-v81-css.js
 assets/ab-cursor.js
 assets/number-flow.js

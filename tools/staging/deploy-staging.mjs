@@ -79,6 +79,9 @@ async function api(fetchImpl, token, method, path, body) {
 }
 
 export async function deployStaging({ env = process.env, fetchImpl = globalThis.fetch, log = console.log, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), plan = planStagingUpload() } = {}) {
+  // V22.9.85 R-5: 계획(plan)을 직접 넘기는 호출도 첫 요청 전에 이름을 다시 본다. 예전에는 planStagingUpload 를 거치는 명령 줄 경로만
+  // 운영 이름을 막아, plan.script 가 kakao-accountbook 인 계획을 넘기면 운영 Worker 를 통째로 덮어쓰는 PUT 을 보냈다.
+  if (plan?.script !== STAGING_SCRIPT || plan.script === PRODUCTION_SCRIPT) throw new Error(`refusing to upload to ${plan?.script}: only ${STAGING_SCRIPT} is allowed`);
   const token = env.CLOUDFLARE_API_TOKEN;
   const accountId = env.CLOUDFLARE_ACCOUNT_ID || env.CF_ACCOUNT_ID;
   const password = env.STAGING_PASSWORD;
