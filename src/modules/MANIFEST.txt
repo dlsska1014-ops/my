@@ -87,6 +87,7 @@ assets/asset-registry.js
 assets/accountbook-shell-css.js
 assets/theme-home-assets.js
 client/nav-search-notif-mains.js
+assets/og-image.js
 assets/icons-manifest.js
 assets/historical-runtime-assets.js
 assets/form-controls-v22938.js

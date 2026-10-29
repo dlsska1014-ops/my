@@ -5,16 +5,25 @@
 //        ‘기능 먼저 보기’ 파란 버튼이었고, 로그인 이름 칸의 오류는 맨 위 요약에만 있었다.
 //   T-21 공개 페이지는 노란 ₩ 로고·검은 헤더 버튼·남색 주 버튼·노란 히어로 버튼·theme-color #312e81·매니페스트 이름 ‘말해 가계부’로
 //        앱(파란 장부 마크 #3182f6, 주 버튼 --ab12-action)과 브랜드가 달랐고, 첫 화면에 앱 화면이 없었다.
+//   T-22 공개 페이지에 og:image 가 없어 카카오톡·SNS 공유 미리보기가 글자뿐이었다.
 //
 // ── 어떻게 잡는가 ──
 // 화면은 픽스처(카카오 로그인을 켠 env 와 끈 env)로 그린 HTML 의 순서·속성·문구를 보고, 로그인 칸 스크립트(loginFieldRuntime)는 vm 의 가짜 DOM 에서
 // 실제로 돌린다. 공개 미리보기는 같은 픽스처로 그린 앱 홈(T-12 예산 카드)과 셸 CSS(카테고리 색·아이콘·브랜드 토큰)에 대조한다.
 // 첫 화면 위치(카카오 버튼 y, /demo 예산 카드)와 채운 버튼 수는 review-artifacts/design-uplift-2026-10-28/v87/public/ 의 브라우저 측정이 맡는다.
+// 공유 이미지는 생성 파일(src/modules/assets/og-image.js)의 SHA-256 과 PNG SHA-256 을 아래에 고정하고, 카드 HTML(tools/build-og-images.mjs)이
+// 생성 파일 머리에 적힌 것과 같은지(카드를 고치고 다시 만들지 않은 채 두지 않게), 응답 머리·크기, 공개 페이지 머리의 og 태그를 본다.
 import vm from "node:vm";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { categoryKey } from "../src/index.js";
+import { LEDGER_MARK_SVG, LIBVIPS_VERSION, OG_HEIGHT, OG_IMAGE_ALT, OG_IMAGE_PATH, OG_WIDTH, SHARP_VERSION, checkToolVersions, ogCardHtml } from "../tools/build-og-images.mjs";
 import { app, BASE, ctx, counter, fixture, page, post, withClock } from "./lib-audit-v22934.mjs";
 
-const t = counter("V22.9.87 공개·로그인 묶음(T-20 로그인 먼저 시작 화면·T-21 공개 브랜드와 앱 미리보기)");
+const t = counter("V22.9.87 공개·로그인 묶음(T-20 로그인 먼저 시작 화면·T-21 공개 브랜드와 앱 미리보기·T-22 공유 미리보기 이미지)");
+// T-22: 생성 파일과 PNG 의 SHA-256. 다시 만들면(tools/build-og-images.mjs) 두 값을 새로 적는다.
+const OG_MODULE_SHA256 = "c017d2fca8eb7f20f8f2db7c3812990385cc3b906bde68b1e47c6f62ecc8ac5e";
+const OG_PNG_SHA256 = "83b5aa2fd6d5d0a39c6bd293e3544a82b8f28f482af38e8fd5d72f9235791376";
 const KAKAO = { KAKAO_LOGIN_ENABLED: "1", KAKAO_REST_API_KEY: "qa-rest-key", PUBLIC_BASE_URL: BASE, KAKAO_REDIRECT_URI: `${BASE}/auth/kakao/callback` };
 const RETURN = "/my?return_to=%2Fapp%3Fmonth%3D2026-10%26household_id%3Dhouse-home";
 const count = (text, needle) => String(text).split(needle).length - 1;
@@ -268,6 +277,75 @@ await fixture(async (fx) => {
   const home = (await page(fx, "/", { cookie: "" })).html;
   const band = between(home, '<section class="pubBand"', "</section>");
   t.ok(!home.includes('class="kakaoBtn"') && band.includes('<a class="pubBtn" href="/my">내 가계부 시작하기</a>'), "카카오 로그인이 꺼진 env 의 띠는 /my 로 가는 주 버튼이다(오류 주소로 보내지 않는다)");
+});
+
+// ── T-22 공유 미리보기 이미지(og:image) ──
+const sha256 = (data) => createHash("sha256").update(data).digest("hex");
+const ogModule = readFileSync(new URL("../src/modules/assets/og-image.js", import.meta.url));
+const ogText = ogModule.toString("utf8");
+t.eq(sha256(ogModule), OG_MODULE_SHA256, "생성 파일 og-image.js 가 고정한 SHA-256 과 같다(다시 만들었으면 위 두 값을 새로 적는다)");
+t.ok(ogText.startsWith("// 생성 파일이다 — 손으로 고치지 않는다. 다시 만드는 법은 tools/build-og-images.mjs 머리에 있다.\n"), "생성 파일 머리가 다시 만드는 방법을 가리킨다");
+t.ok(ogText.includes(`// 카드 HTML SHA-256 ${sha256(ogCardHtml())} ·`), "생성 파일이 지금 카드 HTML(tools/build-og-images.mjs ogCardHtml)로 만든 것이다");
+t.ok(ogText.includes(`sharp ${SHARP_VERSION} (libvips ${LIBVIPS_VERSION})`) && ogText.includes(" · 글꼴 Noto Sans KR\n"), `고정한 sharp ${SHARP_VERSION}(libvips ${LIBVIPS_VERSION})로 줄였고 글자는 Noto Sans KR 하나로 그렸다`);
+t.ok(Buffer.byteLength(ogText) <= 100 * 1024, `이미지 하나의 Worker 증가(생성 파일 ${Buffer.byteLength(ogText)} B)가 100 KB 이하다`);
+let refused = 0;
+for (const versions of [{ sharp: "0.35.4", vips: LIBVIPS_VERSION }, { sharp: "0.36.0", vips: LIBVIPS_VERSION }, { sharp: SHARP_VERSION, vips: "8.17.3" }, {}]) {
+  try { checkToolVersions(versions); } catch (_) { refused += 1; }
+}
+t.eq(refused, 4, "빌드 스크립트는 고정한 판이 아닌 sharp·libvips 를 거절한다");
+t.ok(checkToolVersions({ sharp: SHARP_VERSION, vips: LIBVIPS_VERSION }), "고정한 판(sharp·libvips)은 받아들인다");
+const ogBuild = readFileSync(new URL("../tools/build-og-images.mjs", import.meta.url), "utf8");
+t.ok(ogBuild.includes(`npm install sharp@${SHARP_VERSION} --ignore-scripts --save-exact`) && ogBuild.includes("sharp-0.35.5.tgz sha256 3b6bbbe6b308f5c383938ca4a31926cd5d79c4651ed8c5fda16a97da2014a9ac") && ogBuild.includes("sharp-win32-x64-0.35.5.tgz sha256 16a804181ddd258ca6fe7079b2faa0c0356654c9db3d93ab0a80ec5e5161c3d4"), "빌드 스크립트 머리에 고정 판을 받는 법과 꾸러미 SHA-256 이 있다");
+t.ok(!/^import [^\n]*sharp/m.test(ogBuild), "빌드 스크립트는 sharp 를 맨 위에서 불러오지 않는다(검사·저장소는 sharp 없이 돈다)");
+
+await fixture(async (fx) => {
+  Object.assign(fx.env, KAKAO);
+  const appHtml = (await page(fx, "/app?month=2026-07&household_id=house-home")).html;
+  const appIcon = (appHtml.match(/<svg class="abBrandIcon"[\s\S]*?<\/svg>/) || [""])[0];
+  t.deepEq(svgShape(LEDGER_MARK_SVG), svgShape(appIcon), "공유 이미지 카드의 장부 마크가 앱 메뉴 아이콘과 같은 rect·path 다");
+  const version = (OG_IMAGE_PATH.match(/^\/assets\/og-malhaebook-(v\d{5})\.png$/) || [])[1];
+  t.ok(version && ogText.includes(`const AB_OG_IMAGE_PATH = "${OG_IMAGE_PATH}";`), `공유 이미지는 판 번호가 붙은 /assets 주소다(${OG_IMAGE_PATH})`);
+
+  const url = `${BASE}${OG_IMAGE_PATH}`;
+  const response = await app.fetch(new Request(url), fx.env, ctx);
+  const png = Buffer.from(await response.arrayBuffer());
+  t.eq(response.status, 200, "공유 이미지가 내려간다");
+  t.eq(response.headers.get("content-type"), "image/png", "content-type 은 image/png 다");
+  t.eq(response.headers.get("cache-control"), "public, max-age=31536000, immutable", "1년 캐시·immutable 이다");
+  t.eq(response.headers.get("x-content-type-options"), "nosniff", "nosniff 를 붙인다");
+  t.eq(response.headers.get("cross-origin-resource-policy"), "cross-origin", "다른 출처의 미리보기 수집기가 읽을 수 있다(CORP cross-origin)");
+  t.ok((response.headers.get("etag") || "").includes(version || "-"), `ETag 가 주소와 같은 판이다(${response.headers.get("etag")})`);
+  t.eq(sha256(png), OG_PNG_SHA256, "내려가는 PNG 가 고정한 SHA-256 과 같다");
+  t.ok(ogText.includes(`PNG ${png.length} B · SHA-256 ${OG_PNG_SHA256}`), "생성 파일 머리의 PNG 크기·SHA-256 이 내려가는 바이트와 같다");
+  const pngSignature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  t.ok(png.subarray(0, 8).equals(pngSignature) && png.toString("latin1", 12, 16) === "IHDR" && png.readUInt32BE(16) === OG_WIDTH && png.readUInt32BE(20) === OG_HEIGHT && png[25] === 3, `PNG 머리: ${OG_WIDTH}×${OG_HEIGHT}, 팔레트(색 형식 3)`);
+  t.ok(png.length <= 75 * 1024, `PNG ${png.length} B — base64 로 담아도 이미지당 100 KB 안이다`);
+  const head = await app.fetch(new Request(url, { method: "HEAD" }), fx.env, ctx);
+  t.ok(head.status === 200 && head.headers.get("content-type") === "image/png" && (await head.arrayBuffer()).byteLength === 0, "HEAD 는 머리만 보낸다");
+  const again = Buffer.from(await (await app.fetch(new Request(url), fx.env, ctx)).arrayBuffer());
+  t.eq(sha256(again), OG_PNG_SHA256, "두 번째 요청도 같은 바이트다(디코드한 바이트를 한 번만 만들고 복사해 보낸다)");
+
+  // 공개 페이지 머리: 정본 출처의 절대 주소, 크기, 대체 글, 큰 이미지 카드. og:url 바로 뒤에 한 번씩.
+  const meta = `<meta property="og:image" content="${BASE}${OG_IMAGE_PATH}"/><meta property="og:image:type" content="image/png"/><meta property="og:image:width" content="${OG_WIDTH}"/><meta property="og:image:height" content="${OG_HEIGHT}"/><meta property="og:image:alt" content="${OG_IMAGE_ALT}"/><meta name="twitter:card" content="summary_large_image"/>`;
+  const sitemap = await (await app.fetch(new Request(`${BASE}/sitemap.xml`), fx.env, ctx)).text();
+  const paths = [...new Set([...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => new URL(m[1]).pathname))];
+  const entry = ["/", "/demo", "/guides", "/articles", "/budget-ratio-guide", "/fixed-cost-checklist"];
+  t.ok(entry.filter((path) => path !== "/fixed-cost-checklist").every((path) => paths.includes(path)), `사이트맵에 공개 진입 페이지가 있다(${paths.length}개)`);
+  let withOg = 0;
+  const missing = [];
+  for (const path of [...new Set([...entry, ...paths])]) {
+    const view = await page(fx, path, { cookie: "" });
+    if (view.status !== 200 || !view.html.includes('<meta property="og:title"')) continue;
+    const headHtml = view.html.slice(0, view.html.indexOf("</head>"));
+    const ok = count(headHtml, meta) === 1 && count(view.html, 'property="og:image"') === 1 && /<meta property="og:url" content="[^"]+"\/><meta property="og:image" /.test(headHtml);
+    if (ok) withOg += 1; else missing.push(path);
+  }
+  t.eq(missing.join(" "), "", `og:title 이 있는 공개 페이지 ${withOg}개 모두 og:image·크기·대체 글·twitter:card 를 머리에 한 번 싣는다`);
+  t.ok(withOg >= paths.length, `사이트맵의 공개 페이지(${paths.length}개)를 빠짐없이 봤다(${withOg}개)`);
+  for (const path of ["/", "/demo", "/guides", "/articles", "/budget-ratio-guide"]) {
+    t.ok(count((await page(fx, path, { cookie: "" })).html, meta) === 1, `${path}: 공유 이미지 태그가 있다`);
+  }
+  t.ok(OG_IMAGE_ALT.includes("말해가계부") && OG_IMAGE_ALT.includes("가상 데이터"), "대체 글이 이미지 내용(장부 마크·문구·가상 데이터 화면)을 말한다");
 });
 
 t.done();

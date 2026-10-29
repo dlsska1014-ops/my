@@ -1,3 +1,6 @@
+// @build:imports-start
+import { AB_OG_IMAGE_PATH, AB_OG_IMAGE_PNG_BASE64 } from "./og-image.js";
+// @build:imports-end
 
 // V22.8.63: 브라우저는 링크 태그가 없어도 /favicon.ico와 /apple-touch-icon.png를
 // 스스로 요청한다. 지금까지 두 경로가 404여서 모든 화면에 콘솔 404가 남고
@@ -253,10 +256,29 @@ const AB_ICON_ROUTES = new Map([
   [AB_MANIFEST_PATH, { kind: "manifest", size: 0 }],
 ]);
 
+// V22.9.87 T-22: 공유 미리보기 이미지(og:image). 바이트는 생성 파일 og-image.js(tools/build-og-images.mjs)가 base64 로 담는다.
+// 주소에 판 번호가 있어 1년 캐시(immutable)로 보낸다. 그림을 바꾸면 주소의 판 번호를 올린다. 카카오톡·SNS 미리보기 수집기와
+// 그 이미지 프록시는 다른 출처에서 읽으므로 CORP 는 cross-origin 이다(아이콘·매니페스트는 same-origin 그대로).
+let AB_OG_IMAGE_BYTES = null;
+function abOgImageResponse(method) {
+  if (!AB_OG_IMAGE_BYTES) AB_OG_IMAGE_BYTES = Uint8Array.from(atob(AB_OG_IMAGE_PNG_BASE64), (char) => char.charCodeAt(0));
+  return new Response(method === "HEAD" ? null : AB_OG_IMAGE_BYTES.slice(), {
+    status: 200,
+    headers: {
+      "content-type": "image/png",
+      "cache-control": "public, max-age=31536000, immutable",
+      "x-content-type-options": "nosniff",
+      "cross-origin-resource-policy": "cross-origin",
+      etag: '"ab-og-v22987"',
+    },
+  });
+}
+
 async function appIconAssetResponse(request, url) {
   if (!request || !url) return null;
   const method = String(request.method || "GET").toUpperCase();
   if (!["GET", "HEAD"].includes(method)) return null;
+  if (url.pathname === AB_OG_IMAGE_PATH) return abOgImageResponse(method);
   if (url.pathname === AB_SPECULATION_RULES_PATH) {
     return new Response(method === "HEAD" ? null : AB_SPECULATION_RULES_JSON, {
       status: 200,

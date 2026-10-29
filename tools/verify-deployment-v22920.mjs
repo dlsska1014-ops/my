@@ -124,6 +124,19 @@ for (const path of assetPaths) {
     check(digest(await r.arrayBuffer()) === digest(await expected.arrayBuffer()), `${path} matches the local release bytes`);
   }]);
 }
+// V22.9.87 T-22: 공유 미리보기 이미지(og:image)는 PNG 라 위 CSS·JS 자산 확인과 따로 본다(1년 캐시·image/png·로컬 바이트와 같음).
+const ogImagePath = (source.match(/const AB_OG_IMAGE_PATH = "(\/assets\/[^"\n]+\.png)";/) || [])[1];
+if (ogImagePath) {
+  tasks.push([ogImagePath, async () => {
+    const r = await request(ogImagePath);
+    check(r.status === 200, `${ogImagePath} HTTP 200`);
+    check((r.headers.get("cache-control") || "").includes("immutable"), `${ogImagePath} immutable cache`);
+    check((r.headers.get("content-type") || "").startsWith("image/png"), `${ogImagePath} content type`);
+    const expected = await app.fetch(new Request(`${base}${ogImagePath}`), {}, {});
+    const digest = (bytes) => createHash("sha256").update(Buffer.from(bytes)).digest("hex");
+    check(digest(await r.arrayBuffer()) === digest(await expected.arrayBuffer()), `${ogImagePath} matches the local release bytes`);
+  }]);
+}
 if (legacy) {
   tasks.push(["legacy redirect", async () => {
     const path = "/my?month=2026-10";
