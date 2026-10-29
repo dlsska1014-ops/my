@@ -1,3 +1,22 @@
+## V22.9.88 Codex 지적 6건 검사
+
+- 두 모드 하네스와 CI. 두 모드 실측: 일반 36,778 · 분류 표 부재 36,775(체크섬 706개).
+- 새 검사 `validation/validate-codex-findings-v22988.mjs`(69개, `npm run validate:codex-findings-v22988`).
+  - 고치기 전 코드(main 7857cd5)로 돌리면 41개가 실패한다(Y-1 11·Y-2 7·Y-3 3·Y-4 3·Y-5 8·Y-6 9).
+    결과 `review-artifacts/v22988-codex-findings-2026-10-29/old-code-7857cd5-soft-run.txt`.
+- Y-2 SQL: PGlite 54개 통과(`review-artifacts/v22988-codex-findings-2026-10-29/sql/pglite-run.txt`, 시험 `undo-delete-sql-test.mjs`). 운영 DB 에는 적용하지 않았다.
+- 환불 연결 꺼짐 고정값: 판 이름을 V22.9.87 로 되돌린 같은 트리에서 옛 값 268개 통과를 확인한 뒤 셋(analysis·backupFull·backupMonth)을 다시 얻었다.
+- 바뀐 코드를 지나는 기존 검사(따로 돌려 통과):
+  - 카카오: bot-state 178·kakao-replies 234·kakao-audit 82·kakao-group 38·kakao-income-fixes 165·write-integrity 28
+  - 실행 취소·디자인: design-uplift-v22987 177·design-uplift-v22986 281
+  - 예약 실행: cron-import-v22977 69·cron-v22978 124·cron-v22979 135·import-cron-v22930 71·audit-batch-d 220
+  - 추적표 3,037·환불 연결 후속 268
+- 수동(사용자, 배포 뒤):
+  - 카카오 1:1 여러 건 입력(중복 한 줄 포함)의 중복 안내 문장.
+  - 웹 저장 뒤 실행 취소(SQL 적용 전·뒤).
+  - 비밀번호 변경 정상 경로.
+  - 다음 날 예약 실행 뒤 상태 값(읽기만).
+
 ## V22.9.87 디자인 보강 4단계 검사
 
 - 두 모드 하네스와 CI. 두 모드 실측: 일반 36,641 · 분류 표 부재 36,638(체크섬 700개, 사용자 결정 2 포함).

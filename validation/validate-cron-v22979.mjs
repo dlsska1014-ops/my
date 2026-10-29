@@ -25,7 +25,8 @@ const { ok, eq, deepEq, done } = counter("V22.9.79 예약 실행 말일 바퀴·
 const KST = (ymd, hm = "09:10") => Date.parse(`${ymd}T${hm}:00+09:00`);
 const STATE_KEY = "cron_recurring_state_v22976";
 const readJson = (value) => (value == null || value === "" ? null : typeof value === "string" ? JSON.parse(value) : value);
-const stateOf = (fx) => readJson(settingValue(fx, STATE_KEY));
+// V22.9.88 Y-6: 상태 맨 앞의 판 번호(rev)는 조건부 쓰기용 칸이라 칸 비교에서 뺀다(판 번호 동작은 validate-codex-findings-v22988 이 본다).
+const stateOf = (fx) => { const state = readJson(settingValue(fx, STATE_KEY)); if (state && typeof state === "object") delete state.rev; return state; };
 const json = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
 const outage = () => json({ message: "synthetic outage" }, 503);
 const opsEvents = () => globalThis.__AB_OPS_EVENTS || [];

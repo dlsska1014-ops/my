@@ -259,15 +259,30 @@ async function handleMyBackupLoginSave(request, env) {
   if (!reauthenticated) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, hasBackup, returnTo, err: "현재 로그인 비밀번호 또는 원래 연결한 카카오 계정으로 먼저 본인 확인을 완료하세요." }), 403);
   try {
     await replaceLocalLoginForUser(env, loginName, accessCode, userId, { revokeSessions: true });
-    const session = await makeUserSession(env, userId);
-    return redirectResponse(addQueryToUrl(returnTo, { msg: "backup_login_saved" }), {
-      "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
-    });
   } catch (err) {
     const detail = safeError(err);
+    // V22.9.88 Y-3(Codex 지적): 응답을 잃은 변경은 이미 반영됐을 수 있다(그러면 예전 로그인이 모두 끊겨 이 기기도 로그아웃된다). 예전에는
+    // ‘저장하지 못했습니다’라고 해 바뀐 비밀번호를 모르는 채 예전 비밀번호로 로그인하다 막혔다.
+    if (isUncertainStorageWrite(err)) {
+      rememberOpsEvent({ kind: "backup_login_save_unknown", severity: "warn", path: "/my/backup-login", method: "POST", detail });
+      return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup, returnTo, err: "비밀번호 변경 결과를 확인하지 못했습니다. 이미 바뀌었을 수 있어요. 이 화면을 다시 열어 로그인 화면이 나오면 새 비밀번호로 로그인하고, 그대로 열리면 바뀌지 않은 것이니 다시 저장해 주세요." }), 503);
+    }
     const message = /login_name_in_use|duplicate key|409/i.test(detail) ? "이미 사용 중인 로그인 이름입니다." : "내 계정 로그인 비밀번호를 저장하지 못했습니다. V22.7 인증 마이그레이션 적용 상태를 확인하세요.";
     return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup, returnTo, err: message }), 409);
   }
+  // V22.9.88 Y-3: 여기서부터 비밀번호는 바뀌었고 예전 로그인은 모두 끊겼다. 이 기기의 새 로그인을 만들지 못하면(세션 판 조회 실패 등) 저장 실패가
+  // 아니라 ‘바꿨으니 새 비밀번호로 다시 로그인’이라고 안내하고, 끊긴 쿠키를 지운다.
+  let session = "";
+  try { session = await makeUserSession(env, userId); }
+  catch (err) {
+    rememberOpsEvent({ kind: "backup_login_session_reissue_failed", severity: "warn", path: "/my/backup-login", method: "POST", detail: safeError(err) });
+    return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, hasBackup: true, returnTo, msg: "backup_login_saved_relogin" }), 200, {
+      "set-cookie": "ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+    });
+  }
+  return redirectResponse(addQueryToUrl(returnTo, { msg: "backup_login_saved" }), {
+    "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
+  });
 }
 
 function renderMyBackupLoginHtml({ env, user, loginName = "", first = false, hasBackup = false, returnTo = "/my/households", msg = "", err = "" }) {

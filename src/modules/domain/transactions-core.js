@@ -3,7 +3,7 @@ import {
   duplicateGuardSeconds, isDuplicateGuardSource, rememberDuplicateEvent, rememberOpsEvent,
 } from "../runtime/ops-telemetry.js";
 import {
-  claimOperationLease, operationLeaseOwner, releaseOperationLease,
+  claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
 } from "../runtime/leases.js";
 import { jsonResponse } from "../runtime/http.js";
 import { sha256Hex } from "../auth/crypto-admin-session.js";
@@ -250,6 +250,35 @@ async function deleteTransactionWithAudit(env, id, householdId, options = {}) {
   return Array.isArray(deleted) ? deleted[0] : deleted;
 }
 
+// V22.9.88 Y-2(Codex 지적): 실행 취소는 기록을 읽어 견준 뒤 지우기까지 요청이 둘이라, 그 사이에 다른 사람이 고친 기록도 지웠다. DB 함수
+// accountbook_delete_transaction_if_v22988 이 행을 잠근 채 일곱 칸(실행 취소 표의 지문과 같은 칸 — 종류·금액·날짜·분류·메모·결제수단·지출자)을
+// 읽은 값과 다시 견주고, 같을 때만 감사 기록과 함께 지운다. 돌려주는 값은 "deleted" 또는 "changed"(그대로 둠)다. 함수가 아직 없으면(SQL 적용 전,
+// PGRST202) 예전처럼 감사 삭제 함수로 지운다 — 그때는 틈이 남고, migrations/V22_9_88_UNDO_DELETE_IF_UNCHANGED_APPLY_REVIEW_ONLY.sql 적용 뒤 닫힌다.
+async function deleteTransactionIfUnchanged(env, row = {}, householdId = "", options = {}) {
+  const expected = Object.fromEntries(["type", "amount", "transaction_date", "category", "memo", "payment_method", "user_id"].map((key) => [key, row[key] ?? null]));
+  try {
+    const result = await supabase(env, "/rest/v1/rpc/accountbook_delete_transaction_if_v22988", {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        p_transaction_id: row.id,
+        p_household_id: householdId,
+        p_actor_user_id: options.actorUserId || null,
+        p_actor_kind: String(options.actorKind || "system").slice(0, 30),
+        p_expected: expected,
+      }),
+    });
+    const outcome = Array.isArray(result) ? result[0] : result;
+    if (outcome?.deleted === true) return "deleted";
+    if (outcome?.changed === true) return "changed";
+    throw new Error("transaction_conditional_delete_invalid");
+  } catch (err) {
+    if (!/PGRST202|Could not find the function/i.test(safeError(err))) throw err;
+  }
+  await deleteTransactionWithAudit(env, row.id, householdId, options);
+  return "deleted";
+}
+
 async function bulkTransactionsAtomic(env, ids = [], householdId = "", patch = {}, options = {}) {
   const cleanIds = [...new Set(safeArray(ids).map((id) => String(id || "").trim()).filter(Boolean))];
   if (!cleanIds.length || cleanIds.length > 500) throw new Error("invalid bulk size");
@@ -435,9 +464,9 @@ function escapeHtml(s) {
 // @build:exports-start
 export {
   abTransactionRequestId, bulkTransactionsAtomic, calculateStats, calendarDaysFromRows,
-  createManualTransaction, deleteTransactionWithAudit, escapeHtml, findTransactionForRequest,
-  formatRecentTransactions, formatSummary, getCalendar, getMonthSummary, getStats, helpText,
-  jsonForInlineScript, linkText, listTransactions, makeInviteCode, nextMonthStart, numberWithCommas,
-  sameTransactionCore, sanitizeTransactionBody, updateTransaction,
+  createManualTransaction, deleteTransactionIfUnchanged, deleteTransactionWithAudit, escapeHtml,
+  findTransactionForRequest, formatRecentTransactions, formatSummary, getCalendar, getMonthSummary,
+  getStats, helpText, jsonForInlineScript, linkText, listTransactions, makeInviteCode,
+  nextMonthStart, numberWithCommas, sameTransactionCore, sanitizeTransactionBody, updateTransaction,
 };
 // @build:exports-end

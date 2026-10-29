@@ -3073,7 +3073,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.87-DESIGN-UPLIFT-4";
+const APP_VERSION = "V22.9.88-CODEX-FINDINGS";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -26762,7 +26762,8 @@ async function applyRecurringRulesForMonthBatched(env, householdId, rules = [], 
 // 규칙"을 저장소에서 바로 고른다. 예전에는 하루 한 번 실행이 가계부 5개만 보고 다음 날로 넘어가, 가계부가 30개를 넘으면
 // 지정일 뒤에 다시 들르기 전에 달이 바뀌어 그 달 몫이 영영 기록되지 않았다(가계부 32개·28일 규칙: 11월분 10건, 12월분 15건 유실).
 // 한 번 실행의 저장소 호출(Free 요금제 한 실행 50회 중 이 단계 몫 RECURRING_CRON_DB_CAP=30회, 리포트·NLU 정리가 나머지를 쓴다):
-//   고정 4~7회: 실행 잠금·해제 2 + 상태 읽기 1 + 이번 달 목록 1 (+ 지난달 따라잡기 목록 1, 상태 다시 읽기·저장 2는 필요할 때만)
+//   고정 4~6회: 실행 잠금·해제 2 + 상태 읽기 1 + 이번 달 목록 1 (+ 지난달 따라잡기 목록 1, 상태 저장 1은 필요할 때만 — V22.9.88 Y-6
+//   조건부 저장이라 다른 쓰기와 겹쳤을 때만 다시 읽기·저장 2씩 더)
 //   묶음마다 최대 4회(규칙 최대 40개): 참여자 확인 + 이미 들어간 기록 확인 + 한 번에 저장 + 반영 표식
 // 그래서 한 번에 규칙 약 240개를 넣는다. 다 못 넣으면 partial 로 끝나고 다음 실행이 이어 간다. 반영한 규칙은 표식이 바뀌어
 // 목록에서 빠지므로 커서가 필요 없다. 같은 규칙·같은 달은 기록 확인과 (household_id, raw_text) 고유 색인으로 한 번만 들어간다
@@ -26929,6 +26930,52 @@ function recurringStateBody(checkedDate = "", pendingMonth = "", queue = [], sca
   });
 }
 
+// V22.9.88 Y-6(Codex 지적, V79:T-7 남은 틈): 상태 키를 고쳐 쓰는 세 경로 — 예약 실행 끝 저장, ?month= 실행의 대기 보태기, 실행 밖 대기 보태기
+// (queueRecurringReportRebuild) — 가 모두 조건부로 쓴다. 상태 JSON 맨 앞에 판 번호(rev)를 두고, 읽은 때의 판 번호일 때만 바꾼다(PATCH
+// value=like.{"rev":N,*). 그사이 다른 경로가 썼으면 다시 읽어 그 위에 다시 합친다(최대 3번). 예전에는 다시 읽은 뒤 저장까지 한 번 왕복 사이에
+// 보탠 대기 항목이 덮였다. 상태 행이 없으면 없을 때만 넣고, 판 번호가 없는 예전 상태(V22.9.87 이하가 쓴 값)는 판 번호가 아직 없을 때만 바꾼다.
+// 저장소 호출 수는 예전과 같다(읽기 1 + 쓰기 1, 겹쳤을 때만 2회씩 더). 판 번호는 옛 코드가 읽지 않는 칸이라 되돌려도 그대로 읽힌다.
+function recurringStateRev(raw) {
+  const match = /^\{"rev":(\d{1,15}),/.exec(String(raw ?? ""));
+  return match ? Number(match[1]) : 0;
+}
+
+async function readRecurringState(env) {
+  const rows = await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(RECURRING_CRON_STATE_KEY)}&select=value&limit=1`, { method: "GET" });
+  if (!Array.isArray(rows)) throw new Error("recurring_state_read_invalid");
+  const raw = rows.length ? (rows[0]?.value ?? null) : null;
+  return { exists: rows.length > 0, raw, state: recurringCronState(raw || "") };
+}
+
+async function writeRecurringStateIfUnchanged(env, snapshot, body) {
+  const rev = recurringStateRev(snapshot.raw);
+  const value = `{"rev":${rev + 1},${String(body).slice(1)}`;
+  let rows;
+  if (!snapshot.exists) {
+    rows = await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+      method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=representation" }, body: JSON.stringify({ key: RECURRING_CRON_STATE_KEY, value }),
+    });
+  } else {
+    const filter = rev ? `like.{"rev":${rev},*` : snapshot.raw == null ? "is.null" : `not.like.{"rev":*`;
+    rows = await supabase(env, `/rest/v1/accountbook_settings?${new URLSearchParams({ key: `eq.${RECURRING_CRON_STATE_KEY}`, value: filter })}`, {
+      method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ value }),
+    });
+  }
+  return Array.isArray(rows) && rows.length === 1 && rows[0]?.value === value;
+}
+
+// compose(state, snapshot) 는 쓸 본문(recurringStateBody 의 JSON 글자)을, 쓸 것이 없으면 null 을 돌려준다. first 는 이미 읽어 둔 상태다(있으면 첫
+// 시도는 다시 읽지 않는다). 세 번 모두 다른 쓰기에 밀리면 던진다(부르는 곳은 예전 저장 실패와 같이 다룬다).
+async function updateRecurringState(env, compose, first = null) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const snapshot = attempt === 0 && first ? first : await readRecurringState(env);
+    const body = compose(snapshot.state, snapshot);
+    if (body == null) return false;
+    if (await writeRecurringStateIfUnchanged(env, snapshot, body)) return true;
+  }
+  throw new Error("recurring_state_write_conflict");
+}
+
 function recurringCronBudgetStop(err) {
   return String(err?.code || "") === "supabase_subrequest_budget_before_dispatch" || /supabase_subrequest_budget_before_dispatch/.test(safeError(err));
 }
@@ -27007,6 +27054,7 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   const reportTouched = [];
   const phases = [];
   let stored = null;
+  let storedSnapshot = null;
   let checkedDate = "";
   let partial = false;
   let queuedBefore = [];
@@ -27018,7 +27066,9 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     // N-17: 지난 달 ?month= 실행도 다시 만들기 대기에 남은 자리를 본다. report_rebuild 만 쓰고 checked_date·pending_month 는 보지 않는다.
     if (explicitMonth < currentMonth) queuedBefore = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY)).report_rebuild;
   } else {
-    stored = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
+    // V22.9.88 Y-6: 읽은 글자(판 번호)를 끝의 조건부 저장이 쓴다.
+    storedSnapshot = await readRecurringState(env);
+    stored = storedSnapshot.state;
     // 상태가 없으면(이 판의 첫 실행) 지난달은 끝난 것으로 본다. 예전 실행이 남긴 지난달 일을 뒤늦게 몰아 넣지 않는다.
     checkedDate = stored.checked_date || previousMonthEnd;
     if (checkedDate < previousMonthEnd) phases.push({ kind: "catchup", month: previousMonth, dueDay: 31, after: checkedDate });
@@ -27306,25 +27356,31 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
       // 읽어, 처음 읽은 뒤 새로 생긴 대기 항목을 이 실행의 대기 뒤에 붙인다. 다른 칸은 이 실행의 값이다(예약 실행끼리는 잠금으로
       // 겹치지 않고, 실행 밖에서는 대기만 보탠다). 다시 읽지 못하면 쓰지 않는다(저장 실패와 같다: 다음 실행이 앞선 상태에서 다시
       // 확인한다). 다시 읽은 뒤 저장까지의 한 번 왕복 사이에 보탠 항목은 여전히 덮일 수 있다.
+      // V22.9.88 Y-6: 그 틈을 닫았다. 처음 읽은 상태의 판 번호로 조건부로 쓰고, 그사이 누가 썼으면(조건이 맞지 않으면) 다시 읽어 새 항목을 붙여
+      // 다시 쓴다. 바뀐 것이 없으면 다시 읽지 않는다(호출 1회 절감). 세 번 모두 밀리거나 다시 읽지 못하면 예전처럼 저장 실패다.
       try {
-        const latest = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
         const known = new Set(stored.report_rebuild);
-        const added = latest.report_rebuild.filter((key) => !known.has(key));
-        if (added.length) {
-          reportQueue = recurringReportQueue([...reportQueue, ...added]);
-          if (reportQueue.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${reportQueue.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
-        }
-        await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(nextChecked, nextPending, reportQueue, scanAfter));
+        const baseQueue = reportQueue;
+        await updateRecurringState(env, (latest) => {
+          const added = latest.report_rebuild.filter((key) => !known.has(key));
+          reportQueue = recurringReportQueue([...baseQueue, ...added]);
+          return recurringStateBody(nextChecked, nextPending, reportQueue, scanAfter);
+        }, storedSnapshot);
+        if (reportQueue.length > baseQueue.length && reportQueue.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${reportQueue.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
       } catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
     }
   } else if (reportQueue.length) {
     // ?month= 실행은 상태를 읽지 않았다. 못 만든 스냅숏 목록만 보태고 checked_date·pending_month·이어 읽을 자리는 읽은 값 그대로 쓴다.
     try {
-      const current = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
-      const merged = recurringReportQueue([...current.report_rebuild, ...reportQueue]);
-      // V22.9.79 N-9: 월간 자리는 넣기 전에 셌다. 넘치면 저장할 때 뒤에 둔 주간 항목부터 잘린다.
-      if (merged.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${merged.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
-      await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(current.checked_date, current.pending_month, merged, current.scan_after));
+      // V22.9.88 Y-6: 읽은 상태일 때만 쓴다(그사이 다른 경로가 썼으면 다시 읽어 그 위에 보탠다).
+      let overflow = 0;
+      await updateRecurringState(env, (current) => {
+        const merged = recurringReportQueue([...current.report_rebuild, ...reportQueue]);
+        // V22.9.79 N-9: 월간 자리는 넣기 전에 셌다. 넘치면 저장할 때 뒤에 둔 주간 항목부터 잘린다.
+        overflow = Math.max(0, merged.length - RECURRING_REPORT_QUEUE_MAX);
+        return recurringStateBody(current.checked_date, current.pending_month, merged, current.scan_after);
+      });
+      if (overflow) report(`report_rebuild_overflow:${overflow}`, "recurring_report_rebuild_overflow");
     } catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
   }
   const month = catchupPhase && (catchupPhase.confirmed || remainingOf(catchupPhase).length) ? previousMonth : (explicitMonth || currentMonth);
@@ -27407,16 +27463,20 @@ async function refreshRecurringReports(env, householdId = "", rules = [], month 
 // 덮어쓰지 않는다(깨진 상태는 예약 실행이 처음 실행처럼 다시 쓴다). 저장소 호출은 읽기 1회·저장 1회이고, 실패해도 던지지 않고
 // 운영 이벤트만 남긴다. 같은 때 도는 예약 실행은 저장 바로 앞에 상태를 다시 읽어 이 항목을 붙인다(그 사이 한 번 왕복에 보탠
 // 항목만 덮일 수 있다).
+// V22.9.88 Y-6: 이 쓰기도 읽은 상태일 때만 쓰고, 그사이 예약 실행이나 다른 요청이 썼으면 다시 읽어 그 위에 보탠다(updateRecurringState).
+// 예약 실행 끝 저장도 같은 조건부 쓰기라 서로의 항목을 덮지 않는다.
 async function queueRecurringReportRebuild(env, entries = [], { path = "/recurring/edit", method = "POST" } = {}) {
   const add = recurringReportQueue(safeArray(entries).map(recurringReportKey));
   if (!add.length) return false;
   try {
-    const raw = await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY);
-    parseStrictSettingsObject(raw, "recurring_state");
-    const state = recurringCronState(raw);
-    const queue = recurringReportQueue([...state.report_rebuild, ...add]);
-    if (queue.length > RECURRING_REPORT_QUEUE_MAX) rememberOpsEvent({ kind: "recurring_report_rebuild_overflow", severity: "warn", path, method, detail: `report_rebuild_overflow:${queue.length - RECURRING_REPORT_QUEUE_MAX}` });
-    if (queue.join(",") !== state.report_rebuild.join(",")) await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(state.checked_date, state.pending_month, queue, state.scan_after));
+    let overflow = 0;
+    await updateRecurringState(env, (state, snapshot) => {
+      parseStrictSettingsObject(snapshot.raw || "", "recurring_state");
+      const queue = recurringReportQueue([...state.report_rebuild, ...add]);
+      overflow = Math.max(0, queue.length - RECURRING_REPORT_QUEUE_MAX);
+      return queue.join(",") !== state.report_rebuild.join(",") ? recurringStateBody(state.checked_date, state.pending_month, queue, state.scan_after) : null;
+    });
+    if (overflow) rememberOpsEvent({ kind: "recurring_report_rebuild_overflow", severity: "warn", path, method, detail: `report_rebuild_overflow:${overflow}` });
     return true;
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_report_rebuild_queue_failed", severity: "warn", path, method, detail: safeError(err) });
@@ -31564,7 +31624,9 @@ async function handleMyQuickUndo(request, env) {
   if (policyError) return redirectResponse(back(selected.id, { err: policyError }));
   if (await quickUndoFingerprint(row) !== ticket.f) return redirectResponse(back(selected.id, { err: "undo_changed" }));
   try {
-    await deleteTransactionWithAudit(env, row.id, selected.id, { actorUserId: userId, actorKind: "user" });
+    // V22.9.88 Y-2: 위 비교와 지우기 사이에 바뀐 기록은 DB 가 잠근 채 다시 견줘 지우지 않는다(deleteTransactionIfUnchanged).
+    const outcome = await deleteTransactionIfUnchanged(env, row, selected.id, { actorUserId: userId, actorKind: "user" });
+    if (outcome === "changed") return redirectResponse(back(selected.id, { err: "undo_changed" }));
     return redirectResponse(back(selected.id, { msg: "undone" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_record_undo_failed", severity: "warn", path: "/my/undo", method: "POST", detail: safeError(err) });
@@ -41221,15 +41283,30 @@ async function handleMyBackupLoginSave(request, env) {
   if (!reauthenticated) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, hasBackup, returnTo, err: "현재 로그인 비밀번호 또는 원래 연결한 카카오 계정으로 먼저 본인 확인을 완료하세요." }), 403);
   try {
     await replaceLocalLoginForUser(env, loginName, accessCode, userId, { revokeSessions: true });
-    const session = await makeUserSession(env, userId);
-    return redirectResponse(addQueryToUrl(returnTo, { msg: "backup_login_saved" }), {
-      "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
-    });
   } catch (err) {
     const detail = safeError(err);
+    // V22.9.88 Y-3(Codex 지적): 응답을 잃은 변경은 이미 반영됐을 수 있다(그러면 예전 로그인이 모두 끊겨 이 기기도 로그아웃된다). 예전에는
+    // ‘저장하지 못했습니다’라고 해 바뀐 비밀번호를 모르는 채 예전 비밀번호로 로그인하다 막혔다.
+    if (isUncertainStorageWrite(err)) {
+      rememberOpsEvent({ kind: "backup_login_save_unknown", severity: "warn", path: "/my/backup-login", method: "POST", detail });
+      return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup, returnTo, err: "비밀번호 변경 결과를 확인하지 못했습니다. 이미 바뀌었을 수 있어요. 이 화면을 다시 열어 로그인 화면이 나오면 새 비밀번호로 로그인하고, 그대로 열리면 바뀌지 않은 것이니 다시 저장해 주세요." }), 503);
+    }
     const message = /login_name_in_use|duplicate key|409/i.test(detail) ? "이미 사용 중인 로그인 이름입니다." : "내 계정 로그인 비밀번호를 저장하지 못했습니다. V22.7 인증 마이그레이션 적용 상태를 확인하세요.";
     return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup, returnTo, err: message }), 409);
   }
+  // V22.9.88 Y-3: 여기서부터 비밀번호는 바뀌었고 예전 로그인은 모두 끊겼다. 이 기기의 새 로그인을 만들지 못하면(세션 판 조회 실패 등) 저장 실패가
+  // 아니라 ‘바꿨으니 새 비밀번호로 다시 로그인’이라고 안내하고, 끊긴 쿠키를 지운다.
+  let session = "";
+  try { session = await makeUserSession(env, userId); }
+  catch (err) {
+    rememberOpsEvent({ kind: "backup_login_session_reissue_failed", severity: "warn", path: "/my/backup-login", method: "POST", detail: safeError(err) });
+    return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, hasBackup: true, returnTo, msg: "backup_login_saved_relogin" }), 200, {
+      "set-cookie": "ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+    });
+  }
+  return redirectResponse(addQueryToUrl(returnTo, { msg: "backup_login_saved" }), {
+    "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
+  });
 }
 
 function renderMyBackupLoginHtml({ env, user, loginName = "", first = false, hasBackup = false, returnTo = "/my/households", msg = "", err = "" }) {
@@ -42403,6 +42480,8 @@ function formatMessage(msg) {
   if (msg === "member_alias_updated") return escapeHtml("참여자 이름을 수정했습니다.");
   const friendly = {
     backup_login_saved: "내 계정 로그인 비밀번호를 저장했습니다. 이전에 보던 화면으로 돌아왔습니다.",
+    // V22.9.88 Y-3: 비밀번호는 바뀌었지만 이 기기의 새 로그인을 만들지 못했을 때(예전 로그인은 모두 끊겼다).
+    backup_login_saved_relogin: "내 계정 로그인 비밀번호를 바꿨습니다. 보안을 위해 이 기기의 로그인도 끝났어요. 새 비밀번호로 다시 로그인해 주세요.",
     confirmation_required: "처리 내용을 확인하는 항목에 동의해 주세요.",
     current_password_wrong: "현재 관리자 비밀번호가 맞지 않습니다.",
     delete_confirm_required: "삭제 전 확인 문구를 정확히 입력해 주세요.",
@@ -47959,6 +48038,10 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     // 말라"가 아니라 다시 보내 달라고 해야 기록이 사라지지 않는다. 응답 없이 끊긴 경우(시간
     // 초과·네트워크)만 저장 여부가 불확실하므로 예전 안내를 유지한다.
     rememberOpsEvent({ kind: "kakao_save_failed", severity: "error", path: "/skill", method: "POST", detail: safeError(err) });
+    // V22.9.88 Y-1(Codex 지적): 앞서 보낸 다른 기록의 결과를 아직 모르면 이번 문장은 보내지 않았다. 예전에는 ‘같은 내용을 다시 보내지 말고
+    // 기다려 주세요’라고 해 이번 내용을 다시 보내면 안 되는 것처럼 읽혔다. 거래를 보내기 전에 실패해 표식까지 지웠으면 저장 실패 안내다.
+    if (err?.kakao_previous_unresolved === true) return kakaoRecordCheckReply("앞서 보낸 기록의 저장 결과를 아직 확인하지 못해 이번 내용은 저장하지 않았어요. 앞 기록을 확인한 뒤 이번 내용은 잠시 뒤(길어야 10분) 다시 보내 주세요.", "");
+    if (err?.kakao_unsent === true) return kakaoText(kakaoSaveFailedText(origin));
     return isUncertainStorageWrite(err) ? kakaoRecordCheckReply("지금은 저장 확인이 지연되고 있어요. 중복될 수 있으니 같은 내용을 다시 보내지 말고 기다려 주세요.", utterance) : kakaoText(kakaoSaveFailedText(origin));
   }
   if (!savedRows.length) return kakaoText(kakaoSaveDelayText(origin));
@@ -47972,7 +48055,9 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     : incomeTotal ? `수입 합계 ${numberWithCommas(incomeTotal)}원` : `합계 ${numberWithCommas(expenseTotal)}원`;
   // V22.9.76 카카오 감사 11: 중복으로 건너뛴 기록의 안내를 그 기록의 원래 문장으로 만든다. 수입이면 ‘구매’가 아니라 ‘별도 기록’이다.
   const duplicateRows = savedRows.filter((row) => row.__duplicate_skipped);
-  const duplicateExample = String(limitedParsedList[savedRows.findIndex((row) => row.__duplicate_skipped)]?.raw_text || duplicateRows[0]?.raw_text || utterance || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  // V22.9.88 Y-4(Codex 지적): 저장 결과는 중복부터 돌아왔는데 안내는 그 자리 번호로 입력 문장을 골라 다른 거래의 문장을 보였다. 이제 결과는
+  // 입력 순서이고, 중복 행은 그 행을 만든 입력 문장(__input_raw_text)을 함께 가져온다.
+  const duplicateExample = String(duplicateRows[0]?.__input_raw_text || duplicateRows[0]?.raw_text || utterance || "").replace(/\s+/g, " ").trim().slice(0, 60);
   const duplicateNotice = !duplicateCount ? ""
     : duplicateRows.every((row) => row.type === "income") ? `\n따로 들어온 돈이라면 ‘별도 기록 추가 ${duplicateExample}’라고 보내 후보를 확인해 주세요.`
     : `\n서로 다른 구매라면 ‘별도 구매 추가 ${duplicateExample}’라고 원래 기록 문장을 보내 후보를 확인해 주세요.`;
@@ -48055,6 +48140,19 @@ function kakaoUnknownWriteError() {
   return error;
 }
 
+// V22.9.88 Y-1(Codex 지적): 앞서 보낸 다른 문장의 결과를 아직 모를 때. 이번 문장은 보내지 않았다(답장이 그렇게 안내한다). 다른 경로는 예전처럼
+// 결과 불확실로 다룬다.
+function kakaoPreviousWriteUnresolvedError() {
+  return Object.assign(kakaoUnknownWriteError(), { kakao_previous_unresolved: true });
+}
+
+// 확인하지 못한 표식의 기한. 거래 전송은 표식을 쓴 뒤 길어야 1분 안에 끝난다(응답 뒤 이어 저장해도 Workers 의 30초 제한). 10분이 지나도
+// 표식의 행이 다 없으면 늦게 들어올 전송은 없다고 본다. 시각은 표식을 만든 Date.now()(at)와 같은 시계다.
+const KAKAO_PENDING_WRITE_STALE_MS = 10 * 60 * 1000;
+function kakaoPendingWriteStale(pending, now = Date.now()) {
+  return !!pending && Number.isSafeInteger(pending.at) && now - pending.at >= KAKAO_PENDING_WRITE_STALE_MS;
+}
+
 async function dedupeKakaoRowsBeforeInsert(env, cleanRows = []) {
   const existing = [];
   const fresh = [];
@@ -48103,7 +48201,12 @@ async function insertKakaoTransactions(env, rows, options = {}) {
   const pending = options.pendingWrite;
   if (pending && pending.fp !== options.fingerprint) {
     const recovered = await kakaoRowsByIds(env, cleanRows[0].household_id, pending.ids);
-    if (!pending.rows || recovered.length !== pending.rows.length || !pending.rows.every(expected => recovered.some(actual => actual.id === expected.id && sameTransactionCore(actual, expected)))) throw kakaoUnknownWriteError();
+    if (!pending.rows || recovered.length !== pending.rows.length || !pending.rows.every(expected => recovered.some(actual => actual.id === expected.id && sameTransactionCore(actual, expected)))) {
+      // V22.9.88 Y-1(Codex 지적): 확인하지 못한 앞 기록의 표식은 기한(10분)까지만 다른 문장을 막는다. 예전에는 기한이 없어 같은 문장을 다시
+      // 보내지 않으면(날짜가 바뀌면 다시 보내도 지문이 달라) 끝까지 막혔다. 기한이 지나면 늦게 들어올 전송은 없다고 보고 표식을 덮어 쓴다.
+      if (!kakaoPendingWriteStale(pending)) throw kakaoPreviousWriteUnresolvedError();
+      rememberOpsEvent({ kind: "kakao_pending_write_expired", severity: "warn", path: "/skill", method: "POST", detail: `found:${recovered.length}/${pending.ids.length}` });
+    }
   }
   const replayIds = pending?.replay_ids || pending?.ids;
   const reuse = !!(pending && options.fingerprint && pending.fp === options.fingerprint && Array.isArray(replayIds) && replayIds.length === cleanRows.length);
@@ -48114,19 +48217,35 @@ async function insertKakaoTransactions(env, rows, options = {}) {
   // Persist stable IDs before any transaction POST. The duplicate scan is independent
   // and runs in parallel; failure of either prevents the write.
   const initialMarker = kakaoPendingMarker(options.fingerprint || "",cleanRows);
-  const [deduped] = await Promise.all([
+  // V22.9.88 Y-1(Codex 지적): 거래를 보내기 전에 실패하면(중복 조회·표식 저장·잠금 확인·요청 한도) 이 요청이 쓴 표식을 지운다. 예전에는 보내지
+  // 않은 번호의 표식이 남아 그 뒤의 다른 문장을 ‘저장 확인 지연’으로 계속 막았다. 같은 문장을 다시 보낸 경우(앞 표식과 지문이 같다)만 남긴다 —
+  // 앞 시도의 전송이 늦게 들어올 수 있어 그 번호를 지켜야 한다. 지우기는 이 요청의 지문·번호로 시작하는 표식만 지운다(그사이 다른 요청이 바꾼 표식은 그대로).
+  const unsentMarkers = [initialMarker];
+  const unsent = async (err) => {
+    if (pending && pending.fp === options.fingerprint) return err;
+    await Promise.all(unsentMarkers.map((marker) => clearKakaoConfirmedPendingWrite(env, cleanRows[0].household_id, cleanRows[0].user_id, marker).catch(() => {})));
+    return Object.assign(new Error(`kakao_unsent: ${safeError(err)}`, { cause: err }), { kakao_unsent: true });
+  };
+  // 둘 다 끝난 뒤에 판단한다. 중복 조회가 먼저 실패했을 때 표식 저장이 끝나기 전에 지우면 늦게 들어온 표식이 남는다.
+  const [dedupeResult, markerResult] = await Promise.allSettled([
     dedupeKakaoRowsBeforeInsert(env, cleanRows),
     writeKakaoPendingWrite(env, cleanRows[0].household_id, cleanRows[0].user_id, initialMarker, {exists:!!options.pendingWriteExists,marker:pending,emptyValue:options.pendingWriteEmptyValue}),
   ]);
-  const { existing, fresh, resolved } = deduped;
+  if (markerResult.status === "rejected") throw await unsent(markerResult.reason);
+  if (dedupeResult.status === "rejected") throw await unsent(dedupeResult.reason);
+  const { existing, fresh, resolved } = dedupeResult.value;
   // A skipped duplicate uses its actual stored ID. Persist that correspondence
   // before a partial write, so failed cleanup never strands unsent UUIDs.
   const finalMarker = kakaoPendingMarker(options.fingerprint || "",resolved);
-  if (existing.length) await writeKakaoPendingWrite(env,cleanRows[0].household_id,cleanRows[0].user_id,finalMarker,{exists:true,marker:initialMarker});
+  if (existing.length) {
+    unsentMarkers.push(finalMarker);
+    try { await writeKakaoPendingWrite(env,cleanRows[0].household_id,cleanRows[0].user_id,finalMarker,{exists:true,marker:initialMarker}); }
+    catch (err) { throw await unsent(err); }
+  }
   for (const dup of existing) rememberDuplicateEvent({ kind: "duplicate_skipped", source: "kakao_skill", household_id: dup.household_id, user_id: dup.user_id, amount: dup.amount, transaction_date: dup.transaction_date, detail: dup.memo || dup.raw_text || "", path: "/skill", method: "POST" });
   let insertedRows = [];
   if (fresh.length) {
-    options.assertFresh?.();
+    try { options.assertFresh?.(); } catch (err) { throw await unsent(err); }
     try {
       const inserted = await supabase(env, "/rest/v1/transactions?on_conflict=id", {
         method: "POST",
@@ -48135,6 +48254,8 @@ async function insertKakaoTransactions(env, rows, options = {}) {
       });
       insertedRows = Array.isArray(inserted) ? inserted : (inserted ? [inserted] : []);
     } catch (err) {
+      // 요청 한도·취소로 보내기 전에 멈췄으면 거래는 나가지 않았다(Y-1).
+      if (/_before_dispatch\b/.test(`${err?.code || ""} ${err?.message || ""}`)) throw await unsent(err);
       if (!isUncertainStorageWrite(err)) {
         if (isDefiniteStorageFailure(err)) await clearKakaoConfirmedPendingWrite(env,cleanRows[0].household_id,cleanRows[0].user_id,finalMarker).catch(()=>{});
         throw err;
@@ -48158,7 +48279,13 @@ async function insertKakaoTransactions(env, rows, options = {}) {
   const cleanup = clearKakaoConfirmedPendingWrite(env, cleanRows[0].household_id, cleanRows[0].user_id, finalMarker).catch(() => {});
   if (options.onConfirmed) options.onConfirmed(cleanup);
   else await cleanup;
-  return [...existing, ...insertedRows];
+  // V22.9.88 Y-4(Codex 지적): 입력 순서로 돌려준다(예전에는 중복 먼저라 답장이 자리 번호로 다른 문장을 집었다). 중복 행에는 그 행을 만든
+  // 입력 문장을 붙인다. 표식(finalMarker)은 이미 만들었으므로 이 칸은 저장되지 않는다.
+  const byId = new Map(actualRows.map((row) => [String(row.id), row]));
+  return resolved.map((row, index) => {
+    const actual = byId.get(String(row.id)) || row;
+    return actual.__duplicate_skipped ? { ...actual, __input_raw_text: cleanRows[index].raw_text } : actual;
+  });
 }
 
 function kakaoPendingWriteKey(householdId, userId) {
@@ -48290,7 +48417,11 @@ async function recoverKakaoPendingForSeparate(env, householdId, userId, assertFr
   const pending = parseKakaoPendingWrite(await getSettingValueStrict(env, kakaoPendingWriteKey(householdId,userId)));
   if (!pending) return;
   const rows = await kakaoRowsByIds(env, householdId, pending.ids);
-  if (!pending.rows || rows.length !== pending.rows.length || !pending.rows.every(expected => rows.some(actual => actual.id === expected.id && sameTransactionCore(actual,expected)))) throw kakaoUnknownWriteError();
+  if (!pending.rows || rows.length !== pending.rows.length || !pending.rows.every(expected => rows.some(actual => actual.id === expected.id && sameTransactionCore(actual,expected)))) {
+    // V22.9.88 Y-1: 카카오 기록 저장과 같은 기한(10분)이 지난 표식은 늦게 들어올 전송이 없다고 보고 지운다.
+    if (!kakaoPendingWriteStale(pending)) throw kakaoUnknownWriteError();
+    rememberOpsEvent({ kind: "kakao_pending_write_expired", severity: "warn", path: "/skill", method: "POST", detail: `separate found:${rows.length}/${pending.ids.length}` });
+  }
   assertFresh();
   await clearKakaoConfirmedPendingWrite(env,householdId,userId,pending);
 }
@@ -49161,8 +49292,17 @@ function normalizeApiTransactionBody(body = {}, partial = false) {
     transaction_date: body.transaction_date ?? body.date,
     source: body.source || "ledger_live",
   };
+  // V22.9.88 Y-5(Codex 지적): 부분 수정에서 메모·결제수단을 빈 값("" 또는 null)으로 보내면 지운다. 예전에는 빈 값을 ‘보내지 않음’과 같이 보고
+  // 빼서 지울 길이 없었다. 보내지 않은 칸(키 없음)과 분류·구분·금액·날짜·지출자의 빈 값은 예전처럼 바꾸지 않는다.
+  // 출처는 부분 수정에서 바꿀 수 없는 칸이라(validateAdminApiTransactionBody 가 거절) 넣지 않는다 — 예전에는 늘 기본값이 들어가 빈 수정도
+  // ‘변경할 내용이 없습니다’(empty_patch)가 아니라 바꾸는 것 없는 수정·감사 기록이 됐다.
+  const clearable = { memo: ["memo", "description"], payment_method: ["payment_method", "method"] };
   for (const [k, v] of Object.entries(map)) {
-    if (partial && (v === undefined || v === null || v === "")) continue;
+    if (partial && k === "source") continue;
+    if (partial && (v === undefined || v === null || v === "")) {
+      if (clearable[k]?.some((key) => Object.hasOwn(body, key))) out[k] = "";
+      continue;
+    }
     out[k] = v;
   }
   return out;
@@ -51958,6 +52098,35 @@ async function deleteTransactionWithAudit(env, id, householdId, options = {}) {
     }),
   });
   return Array.isArray(deleted) ? deleted[0] : deleted;
+}
+
+// V22.9.88 Y-2(Codex 지적): 실행 취소는 기록을 읽어 견준 뒤 지우기까지 요청이 둘이라, 그 사이에 다른 사람이 고친 기록도 지웠다. DB 함수
+// accountbook_delete_transaction_if_v22988 이 행을 잠근 채 일곱 칸(실행 취소 표의 지문과 같은 칸 — 종류·금액·날짜·분류·메모·결제수단·지출자)을
+// 읽은 값과 다시 견주고, 같을 때만 감사 기록과 함께 지운다. 돌려주는 값은 "deleted" 또는 "changed"(그대로 둠)다. 함수가 아직 없으면(SQL 적용 전,
+// PGRST202) 예전처럼 감사 삭제 함수로 지운다 — 그때는 틈이 남고, migrations/V22_9_88_UNDO_DELETE_IF_UNCHANGED_APPLY_REVIEW_ONLY.sql 적용 뒤 닫힌다.
+async function deleteTransactionIfUnchanged(env, row = {}, householdId = "", options = {}) {
+  const expected = Object.fromEntries(["type", "amount", "transaction_date", "category", "memo", "payment_method", "user_id"].map((key) => [key, row[key] ?? null]));
+  try {
+    const result = await supabase(env, "/rest/v1/rpc/accountbook_delete_transaction_if_v22988", {
+      method: "POST",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify({
+        p_transaction_id: row.id,
+        p_household_id: householdId,
+        p_actor_user_id: options.actorUserId || null,
+        p_actor_kind: String(options.actorKind || "system").slice(0, 30),
+        p_expected: expected,
+      }),
+    });
+    const outcome = Array.isArray(result) ? result[0] : result;
+    if (outcome?.deleted === true) return "deleted";
+    if (outcome?.changed === true) return "changed";
+    throw new Error("transaction_conditional_delete_invalid");
+  } catch (err) {
+    if (!/PGRST202|Could not find the function/i.test(safeError(err))) throw err;
+  }
+  await deleteTransactionWithAudit(env, row.id, householdId, options);
+  return "deleted";
 }
 
 async function bulkTransactionsAtomic(env, ids = [], householdId = "", patch = {}, options = {}) {

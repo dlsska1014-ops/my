@@ -1,5 +1,5 @@
 // @build:imports-start
-import { AB_KAKAO_INFLIGHT } from "../runtime/ops-telemetry.js";
+import { AB_KAKAO_INFLIGHT, rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import {
   parseStrictSettingsObject, withHouseholdDatabaseLease, withSettingsRmwLease,
 } from "../runtime/leases.js";
@@ -20,8 +20,9 @@ import {
 import { isStrongKakaoTransactionInput, stripLeadingCommand } from "./request-guards.js";
 import { getKakaoSelectedHouseholdId } from "./household-budget-commands.js";
 import {
-  clearKakaoConfirmedPendingWrite, fetchKakaoInputSettings, kakaoPendingWriteKey, kakaoRowsByIds,
-  kakaoUnknownWriteError, kakaoWriteLeaseKey, parseKakaoPendingWrite,
+  clearKakaoConfirmedPendingWrite, fetchKakaoInputSettings, kakaoPendingWriteKey,
+  kakaoPendingWriteStale, kakaoRowsByIds, kakaoUnknownWriteError, kakaoWriteLeaseKey,
+  parseKakaoPendingWrite,
 } from "./transaction-save.js";
 import {
   getKakaoBotGroupKey, getLinkedKakaoGroupHousehold, withKakaoGroupLifecycleLease,
@@ -96,7 +97,11 @@ async function recoverKakaoPendingForSeparate(env, householdId, userId, assertFr
   const pending = parseKakaoPendingWrite(await getSettingValueStrict(env, kakaoPendingWriteKey(householdId,userId)));
   if (!pending) return;
   const rows = await kakaoRowsByIds(env, householdId, pending.ids);
-  if (!pending.rows || rows.length !== pending.rows.length || !pending.rows.every(expected => rows.some(actual => actual.id === expected.id && sameTransactionCore(actual,expected)))) throw kakaoUnknownWriteError();
+  if (!pending.rows || rows.length !== pending.rows.length || !pending.rows.every(expected => rows.some(actual => actual.id === expected.id && sameTransactionCore(actual,expected)))) {
+    // V22.9.88 Y-1: 카카오 기록 저장과 같은 기한(10분)이 지난 표식은 늦게 들어올 전송이 없다고 보고 지운다.
+    if (!kakaoPendingWriteStale(pending)) throw kakaoUnknownWriteError();
+    rememberOpsEvent({ kind: "kakao_pending_write_expired", severity: "warn", path: "/skill", method: "POST", detail: `separate found:${rows.length}/${pending.ids.length}` });
+  }
   assertFresh();
   await clearKakaoConfirmedPendingWrite(env,householdId,userId,pending);
 }

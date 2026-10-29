@@ -261,9 +261,10 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   const done = await undo(fx, saved.ticket);
   t.ok(done.status === 303 && done.location === `${HOME}&msg=undone`, "T-16 실행 취소는 저장했던 화면으로 msg=undone 을 들고 돌아간다");
   t.ok(!has(fx, saved.rid), "T-16 방금 만든 기록이 지워진다");
-  const call = fx.db.__rpc_calls.filter((item) => item.name === "accountbook_delete_transaction_v227").at(-1);
+  // V22.9.88 Y-2: 지우기는 같은 감사 기록을 남기면서 잠근 행을 다시 견주는 조건부 삭제 함수로 바뀌었다(함수가 없으면 v227 — validate-codex-findings-v22988).
+  const call = fx.db.__rpc_calls.filter((item) => item.name === "accountbook_delete_transaction_if_v22988").at(-1);
   t.ok(call && call.data.p_transaction_id === saved.rid && call.data.p_household_id === HH && call.data.p_actor_user_id === "user-bin" && call.data.p_actor_kind === "user",
-    "T-16 지우기는 보통 삭제와 같은 감사 함수(누가·user)를 거친다");
+    "T-16 지우기는 보통 삭제와 같은 감사 기록(누가·user)을 남기는 조건부 삭제 함수를 거친다");
   t.eq(errOf(await undo(fx, saved.ticket)), "record_not_found", "T-16 같은 표를 다시 보내도 더 지우지 않는다");
   const after = toast(await home(fx, done.location));
   t.ok(after.includes("<b>저장을 취소했습니다</b>") && after.includes("방금 기록을 지우고 예산을 되돌렸어요.") && after.includes("남은 예산 ") && !after.includes("data-ab-undo"),

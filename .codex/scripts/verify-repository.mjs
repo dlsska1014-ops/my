@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_87.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_88.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -99,6 +99,7 @@ const validationScripts = [
   ["V22.9.82 이용 현황(앱: 관제용 /internal/ops-usage·읽기 전용 집계 함수 부름·인증·오류 구분·계약 밖 값 걸러내기·SQL 모양)", "validation/validate-usage-metrics-v22982.mjs"],
   ["V22.9.82 관제 이용 현황(관제 1.4.0: 55분마다 수집·달 행 24개월·걸러내기·경고/전체 상태 영향 없음·화면 상태·실제 앱과 왕복)", "validation/validate-monitor-v22982.mjs"],
   ["V22.9.87 공개·로그인 묶음(T-20 로그인 먼저 시작 화면·T-21 공개 첫 화면 브랜드와 앱 미리보기·T-22 공유 이미지)", "validation/validate-public-brand-v22987.mjs"],
+  ["V22.9.88 Codex 지적 6건(Y-1 카카오 저장 전 실패 표식 정리·10분 기한·Y-2 실행 취소 조건부 삭제·Y-3 비밀번호 변경 결과 불확실/다시 로그인 안내·Y-4 중복 안내 문장·입력 순서·Y-5 관리자 API 메모·결제수단 지우기·빈 수정·Y-6 예약 상태 조건부 쓰기)", "validation/validate-codex-findings-v22988.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
@@ -338,7 +339,8 @@ function run(command, args, label) {
 // V22.9.85: 새 검사 1개(디자인 보강 2단계 328)·불변 자산 고정 4개(+12)·추적표 V85 17건과 옛 검사 갱신(메뉴 아이콘 표·＋ 아이콘·셸 바이트·!important 상한·환불 꺼짐 화면 해시·정규식 셸 주소·ETag 판·홈 스타일시트 해시). 두 모드 실측: 일반 35,764 · 분류 표 부재 35,761(V22.9.85 2단계).
 // V22.9.86: 새 검사 1개(디자인 보강 3단계 281, T-12 포함)·불변 자산 고정 5개(+15)·추적표 V86 9건과 옛 검사 갱신(자산 주소 v22986·판 이름·빠른 입력 미리보기 문구·홈 마크업·셸 바이트·!important 상한·환불 꺼짐 화면 해시·ETag 판, T-12 하루 계획 문구·SMART NOTICE 띠·게이지 템플릿·정기 항목 홈 문장). 두 모드 실측: 일반 36,169 · 분류 표 부재 36,166(V22.9.86 디자인 보강 3단계).
 // V22.9.87: 새 검사 2개(디자인 보강 4단계 177·공개·로그인 묶음 226)·불변 자산 고정(셸·V5·메뉴 v22987, 공유 이미지 PNG)·추적표 V87 4건과 옛 검사 갱신(자산 주소·판 이름·예산 카드 머리·홈·셸 바이트·!important 상한·로그인 시작 화면·매니페스트 이름·환불 꺼짐 화면 해시). 사용자 결정 2(T-23 글꼴·경고 알림 실행 취소·W-4·/demo·R-10·R-17) 포함 두 모드 실측: 일반 36,641 · 분류 표 부재 36,638(V22.9.87 디자인 보강 4단계).
-const EXPECTED_MINIMUM_CHECKS = 36638;
+// V22.9.88: 새 검사 1개(Codex 지적 6건 69)·추적표 V88 6건과 옛 검사 갱신(카카오 표식 응답 소실 장면·실행 취소 함수 이름·예약 상태 판 번호 칸·판 이름만 바뀐 환불 꺼짐 화면 해시 셋). 두 모드 실측: 일반 36,778 · 분류 표 부재 36,775(V22.9.88 Codex 지적).
+const EXPECTED_MINIMUM_CHECKS = 36775;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

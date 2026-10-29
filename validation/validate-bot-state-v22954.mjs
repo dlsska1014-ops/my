@@ -282,13 +282,15 @@ await setup(async fx=>{
   });
   const old=Date.now;
   try {
-    await say(fx,"표식응답소실 7564원 현금");
+    const first=await say(fx,"표식응답소실 7564원 현금");
     eq(fx.db.transactions.length,0,"unknown pending persistence does not send a transaction");
-    const id=JSON.parse(fx.db.accountbook_settings.find(row=>row.key.includes(":pending_write:")).value).ids[0];
+    // V22.9.88 Y-1(Codex 지적): 거래를 보내지 않았으므로 이 요청이 쓴 표식을 지운다. 예전 검사는 표식(번호)이 남는 것을 확인했는데,
+    // 그 표식이 다음의 다른 문장을 막았다. 다시 보내면 새 번호로 한 번 저장한다.
+    eq(fx.db.accountbook_settings.filter(row=>row.key.includes(":pending_write:")).length,0,"unsent marker response loss clears its own marker");
+    ok(first.text.includes("저장하지 못했어요"),"unsent marker failure asks to send again");
     Date.now=()=>old()+9000;
     await say(fx,"표식응답소실 7564원 현금");
     eq(fx.db.transactions.length,1,"marker persistence retry completes once");
-    eq(fx.db.transactions[0].id,id,"marker response loss keeps the original fixed ID");
   } finally {Date.now=old;undo();}
 });
 for(const failureMode of ["unavailable","duplicate"]) await setup(async fx=>{

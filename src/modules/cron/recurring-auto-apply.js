@@ -183,7 +183,8 @@ async function applyRecurringRulesForMonthBatched(env, householdId, rules = [], 
 // 규칙"을 저장소에서 바로 고른다. 예전에는 하루 한 번 실행이 가계부 5개만 보고 다음 날로 넘어가, 가계부가 30개를 넘으면
 // 지정일 뒤에 다시 들르기 전에 달이 바뀌어 그 달 몫이 영영 기록되지 않았다(가계부 32개·28일 규칙: 11월분 10건, 12월분 15건 유실).
 // 한 번 실행의 저장소 호출(Free 요금제 한 실행 50회 중 이 단계 몫 RECURRING_CRON_DB_CAP=30회, 리포트·NLU 정리가 나머지를 쓴다):
-//   고정 4~7회: 실행 잠금·해제 2 + 상태 읽기 1 + 이번 달 목록 1 (+ 지난달 따라잡기 목록 1, 상태 다시 읽기·저장 2는 필요할 때만)
+//   고정 4~6회: 실행 잠금·해제 2 + 상태 읽기 1 + 이번 달 목록 1 (+ 지난달 따라잡기 목록 1, 상태 저장 1은 필요할 때만 — V22.9.88 Y-6
+//   조건부 저장이라 다른 쓰기와 겹쳤을 때만 다시 읽기·저장 2씩 더)
 //   묶음마다 최대 4회(규칙 최대 40개): 참여자 확인 + 이미 들어간 기록 확인 + 한 번에 저장 + 반영 표식
 // 그래서 한 번에 규칙 약 240개를 넣는다. 다 못 넣으면 partial 로 끝나고 다음 실행이 이어 간다. 반영한 규칙은 표식이 바뀌어
 // 목록에서 빠지므로 커서가 필요 없다. 같은 규칙·같은 달은 기록 확인과 (household_id, raw_text) 고유 색인으로 한 번만 들어간다
@@ -350,6 +351,52 @@ function recurringStateBody(checkedDate = "", pendingMonth = "", queue = [], sca
   });
 }
 
+// V22.9.88 Y-6(Codex 지적, V79:T-7 남은 틈): 상태 키를 고쳐 쓰는 세 경로 — 예약 실행 끝 저장, ?month= 실행의 대기 보태기, 실행 밖 대기 보태기
+// (queueRecurringReportRebuild) — 가 모두 조건부로 쓴다. 상태 JSON 맨 앞에 판 번호(rev)를 두고, 읽은 때의 판 번호일 때만 바꾼다(PATCH
+// value=like.{"rev":N,*). 그사이 다른 경로가 썼으면 다시 읽어 그 위에 다시 합친다(최대 3번). 예전에는 다시 읽은 뒤 저장까지 한 번 왕복 사이에
+// 보탠 대기 항목이 덮였다. 상태 행이 없으면 없을 때만 넣고, 판 번호가 없는 예전 상태(V22.9.87 이하가 쓴 값)는 판 번호가 아직 없을 때만 바꾼다.
+// 저장소 호출 수는 예전과 같다(읽기 1 + 쓰기 1, 겹쳤을 때만 2회씩 더). 판 번호는 옛 코드가 읽지 않는 칸이라 되돌려도 그대로 읽힌다.
+function recurringStateRev(raw) {
+  const match = /^\{"rev":(\d{1,15}),/.exec(String(raw ?? ""));
+  return match ? Number(match[1]) : 0;
+}
+
+async function readRecurringState(env) {
+  const rows = await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(RECURRING_CRON_STATE_KEY)}&select=value&limit=1`, { method: "GET" });
+  if (!Array.isArray(rows)) throw new Error("recurring_state_read_invalid");
+  const raw = rows.length ? (rows[0]?.value ?? null) : null;
+  return { exists: rows.length > 0, raw, state: recurringCronState(raw || "") };
+}
+
+async function writeRecurringStateIfUnchanged(env, snapshot, body) {
+  const rev = recurringStateRev(snapshot.raw);
+  const value = `{"rev":${rev + 1},${String(body).slice(1)}`;
+  let rows;
+  if (!snapshot.exists) {
+    rows = await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+      method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=representation" }, body: JSON.stringify({ key: RECURRING_CRON_STATE_KEY, value }),
+    });
+  } else {
+    const filter = rev ? `like.{"rev":${rev},*` : snapshot.raw == null ? "is.null" : `not.like.{"rev":*`;
+    rows = await supabase(env, `/rest/v1/accountbook_settings?${new URLSearchParams({ key: `eq.${RECURRING_CRON_STATE_KEY}`, value: filter })}`, {
+      method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ value }),
+    });
+  }
+  return Array.isArray(rows) && rows.length === 1 && rows[0]?.value === value;
+}
+
+// compose(state, snapshot) 는 쓸 본문(recurringStateBody 의 JSON 글자)을, 쓸 것이 없으면 null 을 돌려준다. first 는 이미 읽어 둔 상태다(있으면 첫
+// 시도는 다시 읽지 않는다). 세 번 모두 다른 쓰기에 밀리면 던진다(부르는 곳은 예전 저장 실패와 같이 다룬다).
+async function updateRecurringState(env, compose, first = null) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const snapshot = attempt === 0 && first ? first : await readRecurringState(env);
+    const body = compose(snapshot.state, snapshot);
+    if (body == null) return false;
+    if (await writeRecurringStateIfUnchanged(env, snapshot, body)) return true;
+  }
+  throw new Error("recurring_state_write_conflict");
+}
+
 function recurringCronBudgetStop(err) {
   return String(err?.code || "") === "supabase_subrequest_budget_before_dispatch" || /supabase_subrequest_budget_before_dispatch/.test(safeError(err));
 }
@@ -428,6 +475,7 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   const reportTouched = [];
   const phases = [];
   let stored = null;
+  let storedSnapshot = null;
   let checkedDate = "";
   let partial = false;
   let queuedBefore = [];
@@ -439,7 +487,9 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     // N-17: 지난 달 ?month= 실행도 다시 만들기 대기에 남은 자리를 본다. report_rebuild 만 쓰고 checked_date·pending_month 는 보지 않는다.
     if (explicitMonth < currentMonth) queuedBefore = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY)).report_rebuild;
   } else {
-    stored = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
+    // V22.9.88 Y-6: 읽은 글자(판 번호)를 끝의 조건부 저장이 쓴다.
+    storedSnapshot = await readRecurringState(env);
+    stored = storedSnapshot.state;
     // 상태가 없으면(이 판의 첫 실행) 지난달은 끝난 것으로 본다. 예전 실행이 남긴 지난달 일을 뒤늦게 몰아 넣지 않는다.
     checkedDate = stored.checked_date || previousMonthEnd;
     if (checkedDate < previousMonthEnd) phases.push({ kind: "catchup", month: previousMonth, dueDay: 31, after: checkedDate });
@@ -727,25 +777,31 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
       // 읽어, 처음 읽은 뒤 새로 생긴 대기 항목을 이 실행의 대기 뒤에 붙인다. 다른 칸은 이 실행의 값이다(예약 실행끼리는 잠금으로
       // 겹치지 않고, 실행 밖에서는 대기만 보탠다). 다시 읽지 못하면 쓰지 않는다(저장 실패와 같다: 다음 실행이 앞선 상태에서 다시
       // 확인한다). 다시 읽은 뒤 저장까지의 한 번 왕복 사이에 보탠 항목은 여전히 덮일 수 있다.
+      // V22.9.88 Y-6: 그 틈을 닫았다. 처음 읽은 상태의 판 번호로 조건부로 쓰고, 그사이 누가 썼으면(조건이 맞지 않으면) 다시 읽어 새 항목을 붙여
+      // 다시 쓴다. 바뀐 것이 없으면 다시 읽지 않는다(호출 1회 절감). 세 번 모두 밀리거나 다시 읽지 못하면 예전처럼 저장 실패다.
       try {
-        const latest = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
         const known = new Set(stored.report_rebuild);
-        const added = latest.report_rebuild.filter((key) => !known.has(key));
-        if (added.length) {
-          reportQueue = recurringReportQueue([...reportQueue, ...added]);
-          if (reportQueue.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${reportQueue.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
-        }
-        await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(nextChecked, nextPending, reportQueue, scanAfter));
+        const baseQueue = reportQueue;
+        await updateRecurringState(env, (latest) => {
+          const added = latest.report_rebuild.filter((key) => !known.has(key));
+          reportQueue = recurringReportQueue([...baseQueue, ...added]);
+          return recurringStateBody(nextChecked, nextPending, reportQueue, scanAfter);
+        }, storedSnapshot);
+        if (reportQueue.length > baseQueue.length && reportQueue.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${reportQueue.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
       } catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
     }
   } else if (reportQueue.length) {
     // ?month= 실행은 상태를 읽지 않았다. 못 만든 스냅숏 목록만 보태고 checked_date·pending_month·이어 읽을 자리는 읽은 값 그대로 쓴다.
     try {
-      const current = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
-      const merged = recurringReportQueue([...current.report_rebuild, ...reportQueue]);
-      // V22.9.79 N-9: 월간 자리는 넣기 전에 셌다. 넘치면 저장할 때 뒤에 둔 주간 항목부터 잘린다.
-      if (merged.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${merged.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
-      await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(current.checked_date, current.pending_month, merged, current.scan_after));
+      // V22.9.88 Y-6: 읽은 상태일 때만 쓴다(그사이 다른 경로가 썼으면 다시 읽어 그 위에 보탠다).
+      let overflow = 0;
+      await updateRecurringState(env, (current) => {
+        const merged = recurringReportQueue([...current.report_rebuild, ...reportQueue]);
+        // V22.9.79 N-9: 월간 자리는 넣기 전에 셌다. 넘치면 저장할 때 뒤에 둔 주간 항목부터 잘린다.
+        overflow = Math.max(0, merged.length - RECURRING_REPORT_QUEUE_MAX);
+        return recurringStateBody(current.checked_date, current.pending_month, merged, current.scan_after);
+      });
+      if (overflow) report(`report_rebuild_overflow:${overflow}`, "recurring_report_rebuild_overflow");
     } catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
   }
   const month = catchupPhase && (catchupPhase.confirmed || remainingOf(catchupPhase).length) ? previousMonth : (explicitMonth || currentMonth);
@@ -828,16 +884,20 @@ async function refreshRecurringReports(env, householdId = "", rules = [], month 
 // 덮어쓰지 않는다(깨진 상태는 예약 실행이 처음 실행처럼 다시 쓴다). 저장소 호출은 읽기 1회·저장 1회이고, 실패해도 던지지 않고
 // 운영 이벤트만 남긴다. 같은 때 도는 예약 실행은 저장 바로 앞에 상태를 다시 읽어 이 항목을 붙인다(그 사이 한 번 왕복에 보탠
 // 항목만 덮일 수 있다).
+// V22.9.88 Y-6: 이 쓰기도 읽은 상태일 때만 쓰고, 그사이 예약 실행이나 다른 요청이 썼으면 다시 읽어 그 위에 보탠다(updateRecurringState).
+// 예약 실행 끝 저장도 같은 조건부 쓰기라 서로의 항목을 덮지 않는다.
 async function queueRecurringReportRebuild(env, entries = [], { path = "/recurring/edit", method = "POST" } = {}) {
   const add = recurringReportQueue(safeArray(entries).map(recurringReportKey));
   if (!add.length) return false;
   try {
-    const raw = await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY);
-    parseStrictSettingsObject(raw, "recurring_state");
-    const state = recurringCronState(raw);
-    const queue = recurringReportQueue([...state.report_rebuild, ...add]);
-    if (queue.length > RECURRING_REPORT_QUEUE_MAX) rememberOpsEvent({ kind: "recurring_report_rebuild_overflow", severity: "warn", path, method, detail: `report_rebuild_overflow:${queue.length - RECURRING_REPORT_QUEUE_MAX}` });
-    if (queue.join(",") !== state.report_rebuild.join(",")) await saveSettingValue(env, RECURRING_CRON_STATE_KEY, recurringStateBody(state.checked_date, state.pending_month, queue, state.scan_after));
+    let overflow = 0;
+    await updateRecurringState(env, (state, snapshot) => {
+      parseStrictSettingsObject(snapshot.raw || "", "recurring_state");
+      const queue = recurringReportQueue([...state.report_rebuild, ...add]);
+      overflow = Math.max(0, queue.length - RECURRING_REPORT_QUEUE_MAX);
+      return queue.join(",") !== state.report_rebuild.join(",") ? recurringStateBody(state.checked_date, state.pending_month, queue, state.scan_after) : null;
+    });
+    if (overflow) rememberOpsEvent({ kind: "recurring_report_rebuild_overflow", severity: "warn", path, method, detail: `report_rebuild_overflow:${overflow}` });
     return true;
   } catch (err) {
     rememberOpsEvent({ kind: "recurring_report_rebuild_queue_failed", severity: "warn", path, method, detail: safeError(err) });
