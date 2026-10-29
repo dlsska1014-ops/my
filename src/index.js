@@ -34614,7 +34614,7 @@ function deskHeadActionsCss() {
 
 // 빠른 입력 단추 하나: 독은 이제 이 단추만 담는 틀이다(바탕·테두리·흐림 없음). 오른쪽 28px·아래 24px, 높이 56px 알약.
 // 아래로 스크롤하면(.abQuickCompact) 56px 원으로 줄고 위로 올리면 펼친다. 왼쪽 안쪽 여백을 16px 로 두어 줄어도 + 가 가운데에
-// 그대로 남는다(16+24+16). 너비는 max-width 로 옮겨 그 사이를 그린다. 움직임 줄이기에서는 전환이 없어 바로 바뀐다.
+// 그대로 남는다(16+24+16). 너비는 max-width 로 옮겨 그 사이를 그린다(눈금 --ab12-dur ‘나타남·접힘’). 움직임 줄이기에서는 전환이 없어 바로 바뀐다.
 // 오른쪽 활동 레일(1320px 이상)이 있으면 그 왼쪽에 둔다. 몸통 아래 여백(94px)은 독 때와 같아 마지막 줄을 덮지 않는다.
 function quickFabCss() {
   return [
@@ -34626,7 +34626,7 @@ function quickFabCss() {
     `body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick .abNavIconSvg{width:24px!important;height:24px!important;flex:0 0 24px;stroke-width:2.2}`,
     `body.abV22812Shell .abGlobalActions[data-ab-quick-dock].abQuickCompact .abGlobalActionQuick{max-width:56px;padding-right:0}`,
     `}`,
-    `@media(min-width:900px) and (prefers-reduced-motion:no-preference){body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick{transition:max-width 220ms var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),padding 220ms var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}}`,
+    `@media(min-width:900px) and (prefers-reduced-motion:no-preference){body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick{transition:max-width var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),padding var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}}`,
   ].join("\n");
 }
 
