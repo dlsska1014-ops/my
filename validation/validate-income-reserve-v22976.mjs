@@ -67,7 +67,9 @@ await withClock("2026-10-21", () => fixture(async (fx) => {
   t.eq(n.title, "직무수당 입금 4일 전", "수입 항목 알림 제목은 '입금 N일 전'이다");
   t.eq(n.body, "300,000원 · 2026-10-25 들어올 예정", "수입 항목 알림 본문에 '월 준비'를 쓰지 않는다");
   t.eq(n.level, "info", "수입 항목 알림은 경고(warn) 등급이 아니다");
-  t.ok(out.home.includes("직무수당 300,000원이 4일 후 들어올 예정이에요."), "홈 안내 문장은 들어올 돈으로 말한다");
+  // V22.9.86 T-12: 홈 SMART NOTICE 띠를 예산 카드 속도 문장으로 합쳐, 홈은 띠가 하던 정기 항목 문장을 말하지 않는다. 가장 가까운 입금·납부는
+  // 알림센터(위)와 정기 항목 화면이 말하고 홈 정기 카드는 건수를 센다(아래). 카드에 가장 가까운 한 건을 적을지는 사용자가 정한다(V86:V-9).
+  t.ok(!out.home.includes("SMART NOTICE") && !out.home.includes("들어올 예정이에요"), "홈에 정기 항목 안내 띠가 없다(T-12)");
   t.ok(!out.home.includes("직무수당 납부"), "홈에 '직무수당 납부'가 없다");
   t.ok(out.home.includes("수입 1건 · 매월 300,000원 들어와요"), "홈 정기 카드는 수입 건수와 월 환산을 적는다");
   t.ok(out.home.includes("입금 예정 1건") && !out.home.includes("준비 알림 1건"), "홈 정기 카드는 '준비 알림'이 아니라 '입금 예정'을 센다");
@@ -94,7 +96,8 @@ await withClock("2026-10-21", () => fixture(async (fx) => {
   const tax = out.notifications.find((x) => String(x.title).startsWith("자동차세"));
   t.eq(tax?.title, "자동차세 납부 56일 전", "반기 지출 항목 알림");
   t.eq(tax?.level, "info", "7일보다 먼 지출 항목은 안내 등급이다");
-  t.ok(out.home.includes("통신비 납부가 4일 남았습니다. 월 55,000원씩 준비하세요."), "홈 안내 문장은 가장 가까운 지출 기한을 말한다");
+  // V22.9.86 T-12: 띠가 빠져 홈은 납부 기한 문장을 말하지 않는다(알림센터 ‘통신비 납부 4일 전’은 위에서 본다).
+  t.ok(!out.home.includes("SMART NOTICE") && !out.home.includes("남았습니다. 월 55,000원씩 준비하세요."), "홈에 정기 항목 안내 띠가 없다(T-12)");
   t.ok(out.home.includes("2건 · 매월 95,000원 준비") && out.home.includes("준비 알림 2건"), "지출만 있는 가계부의 홈 정기 카드 문구는 예전과 같다");
   // V22.9.78 W-5: 이번 달 남은 지출의 합계다(대기 월세 650,000 + 25일 통신비 55,000, 12월 자동차세 제외).
   t.ok(after(out.home, "앞으로 나갈 돈").startsWith("앞으로 나갈 돈 정기지출 705,000원 이번 달 남은 고정지출 1건 · 정기지출 1건 "), "'앞으로 나갈 돈' 카드는 이번 달 남은 지출 항목을 센다");
@@ -107,7 +110,8 @@ await withClock("2026-10-21", () => fixture(async (fx) => {
   const out = await surfaces(fx, [INCOME, PHONE, CAR_TAX]);
   t.ok(out.notifications.some((x) => x.title === "직무수당 입금 4일 전" && x.level === "info"), "섞인 경우에도 수입 항목은 입금 알림이다");
   t.ok(out.notifications.some((x) => x.title === "통신비 납부 4일 전" && x.level === "warn"), "섞인 경우 지출 항목은 납부 알림이다");
-  t.ok(out.home.includes("통신비 납부가 4일 남았습니다."), "홈 안내 문장은 같은 날이어도 지출 기한을 먼저 말한다");
+  // V22.9.86 T-12: 띠가 빠져 홈은 어느 항목도 문장으로 말하지 않는다(두 알림은 위 알림센터에서 본다).
+  t.ok(!out.home.includes("통신비 납부가 4일 남았습니다.") && !out.home.includes("들어올 예정이에요"), "홈에 정기 항목 안내 띠가 없다(T-12)");
   t.ok(out.home.includes("지출 2건 · 매월 95,000원 준비 · 수입 1건"), "홈 정기 카드는 지출과 수입을 나눠 센다");
   t.ok(out.home.includes("준비 알림 2건 · 입금 예정 1건"), "홈 정기 카드의 알림 건수도 나눠 센다");
   t.ok(after(out.home, "앞으로 나갈 돈").startsWith("앞으로 나갈 돈 정기지출 705,000원 이번 달 남은 고정지출 1건 · 정기지출 1건 "), "'앞으로 나갈 돈' 카드는 수입 항목을 빼고 센다");
@@ -122,7 +126,8 @@ await withClock("2026-10-25", () => fixture(async (fx) => {
   const out = await surfaces(fx, [INCOME, PHONE], { kakao: false });
   t.ok(out.notifications.some((x) => x.title === "직무수당 입금 오늘"), "당일 수입 알림은 '입금 오늘'이다");
   t.ok(out.notifications.some((x) => x.title === "통신비 납부 오늘"), "당일 지출 알림은 '납부 오늘'이다");
-  t.ok(out.home.includes("오늘은 통신비 납부일입니다. 55,000원이 나갈 예정이에요."), "홈 안내 문장은 당일 납부를 '오늘'로 말한다");
+  // V22.9.86 T-12: 띠가 빠져 홈은 당일 납부 문장을 말하지 않는다(알림센터 ‘통신비 납부 오늘’은 위에서 본다).
+  t.ok(!out.home.includes("납부일입니다"), "홈에 정기 항목 안내 띠가 없다(T-12)");
 }));
 
 // 5) 지난달 화면 — 정기 항목을 불러오지 않은 달에 '등록 없음'이라고 단정하지 않는다.

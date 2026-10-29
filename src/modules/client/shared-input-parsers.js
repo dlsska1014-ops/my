@@ -233,12 +233,19 @@ function quickAmountFieldState(field, normalize = false) {
 
 // V22.9.34 감사 D15: 자정을 넘겨도 화면을 연 날을 오늘로 쓰지 않는다. 서버가 준 오늘 날짜를 기준으로 화면을 연 뒤
 // 지난 날수만큼(KST 날짜 경계 기준) 옮긴다. 달력에서 고른 날짜로 연 폼은 그 날짜를 그대로 쓴다.
+// V22.9.86 T-14(디자인 작업 지시서 3단계 §3-6): 미리보기 줄. 기록 저장은 금액과 내용이 모두 있을 때만 켜지고, 꺼진 이유는 이 줄이 말한다.
+// - 금액 전: 예산이 있으면 "금액을 넣으면 저장 뒤 남는 예산을 미리 보여드려요", 없으면 서버 문장 그대로("예산을 설정하면 …").
+//   서버 HTML 의 첫 문장(지금 남은 예산)은 JS 가 없어도 참이라 그대로 두고, JS 가 뜨면 조용히(aria-live 없이) 한 번 바꾼다.
+//   홈 페이지 스크립트(mobile-home.js)의 첫 동기화도 preview(true) 로 부른다 — V22.9.85 까지는 그 호출이 뜨자마자 aria-live 를 붙였다.
+// - 내용 전: "내용을 적으면 저장할 수 있어요". 꺼진 이유(금액·내용)는 분류 확인 문구(확인 중·실패)보다 먼저 말한다. 수입: 같은 달이면 "저장하면 이번 달 수입이 …원이 돼요"(data-income + 금액), 다른 달이면 옛 문장.
+// - 지출: "저장하면 남는 예산 …원 · 하루 …원"(옛 "남은" → 지시서 "남는"). JS 가 없으면 단추는 늘 켜져 있고 금액 칸 required 가 막는다.
 function quickSmartInputController(config) {
   const byId = id => document.getElementById(id);
   const smart = byId("smartInput"), amount = byId("amountInput"), date = byId("txDate"), after = byId("quickAfter");
   const form = amount?.closest("form");
   const initialDate = date?.value || "";
   const baseMessage = after?.textContent || "저장 전 입력 내용을 확인하세요.";
+  const submit = form?.querySelector('.quickSubmit button[type="submit"]'), memoField = byId("memoInput");
   let scope = {};
   try { const data=JSON.parse(after?.getAttribute("data-bsc") || "[]"); scope={month:form?.querySelector?.('input[name="month"]')?.value || "",today:String(data[0] || "").replace(/^(\d{4})(\d{2})(\d{2})$/,"$1-$2-$3"),basis:Array.isArray(data[1])?"category":data[1]===0?"total":"unknown",cats:Array.isArray(data[1])?data[1]:[]}; } catch (_) {}
   const loadedAt = Date.now(), serverToday = scope.today || initialDate;
@@ -263,24 +270,26 @@ function quickSmartInputController(config) {
   const validAmount = () => quickAmountFieldState(amount).valid;
   const validDate = () => /^20\d{2}-\d{2}-\d{2}$/.test(date?.value || "") && config.date(date.value,todayNow())===date.value;
   const setValidity = (field,bad,message) => { if (!field) return; field.setCustomValidity?.(bad?message:""); field.setAttribute("aria-invalid",bad?"true":"false"); };
-  function preview() {
+  function preview(quiet) {
     if (!after) return;
-    after.setAttribute("aria-live","polite");
+    if (!quiet) after.setAttribute("aria-live","polite");
+    if (submit) submit.disabled=!(cleanNumber() && validAmount() && String(memoField?.value || "").trim());
     if (confirmType && !manual.type) { after.textContent="결제·승인 취소 내역입니다. 수입 또는 지출을 직접 선택한 뒤 저장해 주세요."; return; }
-    if (classificationPending) { after.textContent="현재 가계부의 분류를 확인하고 있습니다."; return; }
-    if (classificationFailed) { after.textContent="분류 추천을 확인하지 못했습니다. 분류를 직접 입력하거나 저장 후 확인해 주세요."; return; }
     if (invalidAmount || invalidDate) { after.textContent=invalidAmount ? "금액이 분명하지 않습니다. 유효한 금액을 직접 입력하거나 문장을 고쳐 주세요." : "달력에 없는 날짜입니다. 유효한 날짜를 직접 선택하거나 문장을 고쳐 주세요."; return; }
     const value=cleanNumber();
-    if (!value || !validAmount()) { after.textContent=baseMessage; return; }
+    if (!value || !validAmount()) { after.textContent=after.getAttribute("data-has-budget")==="1" ? "금액을 넣으면 저장 뒤 남는 예산을 미리 보여드려요" : baseMessage; return; }
+    if (!String(memoField?.value || "").trim()) { after.textContent="내용을 적으면 저장할 수 있어요"; return; }
+    if (classificationPending) { after.textContent="현재 가계부의 분류를 확인하고 있습니다."; return; }
+    if (classificationFailed) { after.textContent="분류 추천을 확인하지 못했습니다. 분류를 직접 입력하거나 저장 후 확인해 주세요."; return; }
     const income=!!document.querySelector("input[name=type][value=income]:checked");
-    if (income) { after.textContent="수입으로 저장합니다. 지출 예산을 차감하지 않습니다."; return; }
+    const money=value=>new Intl.NumberFormat("ko-KR").format(value)+"원";
+    if (income) { const incomeAttr=after.getAttribute("data-income"), total=Number(incomeAttr); after.textContent=incomeAttr!==null && incomeAttr!=="" && total>=0 && validDate() && scope.month && date.value.slice(0,7)===scope.month ? "저장하면 이번 달 수입이 "+money(total+value)+"이 돼요" : "수입으로 저장합니다. 지출 예산을 차감하지 않습니다."; return; }
     const category=byId("catInput")?.value || "";
     if (!validDate() || !scope.month || date.value.slice(0,7)!==scope.month || scope.basis==="unknown") { after.textContent="기록의 분류·날짜를 확인하세요. 해당 월 예산 잔액은 저장 후 확인할 수 있습니다."; return; }
     if (scope.basis==="category" && !(scope.cats || []).includes(category)) { after.textContent="예산 밖 분류로 저장합니다. 설정한 분류 예산은 차감하지 않습니다."; return; }
     if (after.getAttribute("data-has-budget")!=="1") { after.textContent="기록을 저장한 뒤 예산을 설정할 수 있습니다."; return; }
     const remain=Math.max(0,Number(after.getAttribute("data-remaining") || 0)-value);
-    const money=value=>new Intl.NumberFormat("ko-KR").format(value)+"원";
-    after.textContent="저장하면 남은 예산 "+money(remain);
+    after.textContent="저장하면 남는 예산 "+money(remain);
     if (scope.month===scope.today.slice(0,7)) { const parts=scope.today.split("-").map(Number);const days=new Date(Date.UTC(parts[0],parts[1],0)).getUTCDate()-parts[2]+1;if(days>0)after.textContent+=" · 하루 "+money(Math.floor(remain/days)); }
   }
   function complete() {
@@ -374,6 +383,7 @@ function quickSmartInputController(config) {
   }
   document.querySelectorAll("input[name=type]").forEach(field=>{const changed=()=>{manual.type=true;if(markers.type)markers.type.value="1";resolveCategory();complete();};field.addEventListener("change",changed);field.addEventListener("click",changed);});
   form?.addEventListener("submit",event=>{if(amountComposing||(confirmType&&!manual.type)||invalidAmount||invalidDate||!validAmount()||!validDate()){event.preventDefault();invalidAmount=invalidAmount||!validAmount();invalidDate=invalidDate||!validDate();setValidity(amount,invalidAmount,"1원부터 20억원까지 정수 금액을 입력해 주세요.");complete();}});
+  preview(true);
   return {apply,preview};
 }
 // @build:exports-start

@@ -20,7 +20,8 @@ ok(!source.includes('data-ab-nav-budget'), "no sidebar budget markup or client r
 // V22.9.79 감사 V44 D-12: 예산이 없으면 ‘예산 사용률 0%’를 쓰지 않는다(금액 자리는 이미 ‘예산 미설정’). 문구는 예산이 있을 때만 나온다.
 ok(source.includes('<div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div>'), "budget usage is stated once, in the home P0");
 ok((source.match(/예산 사용률 <span data-ab-num/g) || []).length === 1, "the usage sentence exists exactly once");
-ok(source.includes('<div class="homeProgress"><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div>'), "the P0 draws the usage gauge");
+// V22.9.86 T-12: 이번 달·예산이 있으면 게이지에 오늘 표시 값(--ab-today, 경과율)을 단다. 채움 막대는 그대로다.
+ok(source.includes('<div class="homeProgress"${isCurrentMonth && budgetTotal ? ` style="--ab-today:${monthElapsedPercent}%"` : ""}><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div>'), "the P0 draws the usage gauge");
 ok(source.includes('const budgetBarPercent = Math.max(0, Math.min(100, budgetPercent || 0));'), "the gauge is still capped at 100 percent");
 ok(source.includes('const displayBudgetPercent = Math.max(0, budgetPercent || 0);'), "the printed rate still shows real overuse above 100 percent");
 ok(source.includes('showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget'), "app reuses already-fetched rows and budget without a new DB request");
@@ -29,9 +30,9 @@ ok(source.includes('class="abNavCalendar"'), "sidebar calendar markup is rendere
 ok(source.includes('new Date(Date.UTC(year, mon - 1, 1)).getUTCDay()'), "calendar weekday offset is computed in the external runtime");
 ok(source.includes('for (var b = 0; b < firstDow; b++)'), "calendar renders computed leading blanks");
 ok(source.includes('&view=calendar&date=" + encodeURIComponent(date) + "&feed=all#feed'), "calendar date links preserve the existing date-filter flow");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22985.css"'), "current release uses a fresh immutable shell asset");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22985.js"'), "current release uses a fresh immutable V5 bundle");
-ok(source.includes('"accountbook-shell-v22985-css"'), "current shell has a distinct ETag");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22986.css"'), "current release uses a fresh immutable shell asset");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22986.js"'), "current release uses a fresh immutable V5 bundle");
+ok(source.includes('"accountbook-shell-v22986-css"'), "current shell has a distinct ETag");
 ok(source.includes('body.abV22812Shell{--abNavW:252px}'), "desktop sidebar width follows the design handoff");
 ok(source.includes('.abNavCalGrid{display:grid;grid-template-columns:repeat(7'), "mini calendar uses a seven-column grid");
 ok(source.includes('.abNavBudget.isWarn'), "warning state style exists");

@@ -1,5 +1,6 @@
 // V22.9.18 — 화면을 실제 브라우저로 띄워 재는 도구 (저장소 하네스 밖, 사람이 돌린다).
 // V22.9.85 (작업 지시서 T-08) — 데스크톱 폭·톤 순회·선택 상태 구분·고정 요소 가림 보고·테마 전환 대기·다른 클론 재기.
+// V22.9.86 — 선택 상태 구분이 안쪽 윤곽선(box-shadow inset)과 글자 없는 자식(아이콘 칸)의 표시도 잰다(지시서 T-17 하단 탭 알약).
 //
 // 구조 계측(HTML 문자열 검사)으로는 겹침·넘침·대비를 판정할 수 없다. 이 도구는
 //   1) 설치된 Chrome 을 헤드리스로 띄워 DevTools 를 **파이프**로 구동하고(포트·네트워크 없음),
@@ -12,7 +13,7 @@
 //      - WCAG AA 대비(본문 4.5:1, 큰 글자 3:1) 미달 글자
 //      - 선택 상태 구분: [aria-pressed=true]·:checked+span·[aria-current]·.active 요소를 같은 무리의 안 고른 형제와 견줘
 //        면(바탕, 투명하면 부모 바탕 위에 겹친 색)과 테두리(1px 이상·투명 아님일 때만, ::before·::after 표시 막대 포함)
-//        대비가 둘 다 3:1 미만이면 실패. 조작 요소의 상태만 본다(주간 띠 '오늘'처럼 표시용 aria-current 는 report.json 의 skipped 에 남긴다).
+//        대비가 둘 다 3:1 미만이면 실패. 표시가 글자 없는 자식(아이콘 칸)에 있으면 같은 자리의 자식끼리도 견준다. 조작 요소의 상태만 본다(주간 띠 '오늘'처럼 표시용 aria-current 는 report.json 의 skipped 에 남긴다).
 //      - 32px 미만 터치 대상, position:fixed 요소가 덮는 글자 노드 비율(스크롤 다섯 곳: 맨 위·끝·평균) — 참고용, 실패로 치지 않는다
 //     을 재고, 원하면 전체 화면 PNG 를 남긴다. 측정값 전체는 결과 폴더의 report.json 에 적는다.
 //
@@ -231,8 +232,18 @@ const SELECTION = String.raw`(() => {
     return out;
   };
   const SIDES = ["Top", "Right", "Bottom", "Left"];
-  const SLOTS = ["top", "right", "bottom", "left", "::before", "::after"];
-  // 테두리 네 변 + 표시 막대(::before·::after). 막대는 1px 이상 상자에 바탕·테두리가 칠해졌거나 글자(✓ 등)가 있을 때 본다.
+  const SLOTS = ["top", "right", "bottom", "left", "::before", "::after", "ring"];
+  // V22.9.86: 안쪽 그림자 윤곽선(box-shadow inset, 흐림 0·퍼짐 1px 이상)은 테두리처럼 보이므로 한 변(ring)으로 본다.
+  const ring = (cs, under) => {
+    for (const part of String(cs.boxShadow || "none").split(/,(?![^(]*\))/)) {
+      if (!/\binset\b/.test(part)) continue;
+      const color = rgba((part.match(/rgba?\([^)]*\)/) || [""])[0]);
+      const lengths = (part.replace(/rgba?\([^)]*\)/, "").match(/-?[\d.]+px/g) || []).map(parseFloat);
+      if (color && color.a > 0 && lengths.length >= 4 && lengths[2] === 0 && lengths[3] >= 1) return { shown: true, color: color.a < 1 ? blend(color, under) : { ...color, a: 1 } };
+    }
+    return { shown: false, color: under };
+  };
+  // 테두리 네 변 + 표시 막대(::before·::after) + 안쪽 윤곽선. 막대는 1px 이상 상자에 바탕·테두리가 칠해졌거나 글자(✓ 등)가 있을 때 본다.
   const edges = (el, own) => {
     const cs = getComputedStyle(el);
     const under = cs.backgroundClip === "border-box" || !el.parentElement ? own : (face(el.parentElement) || own);
@@ -253,7 +264,7 @@ const SELECTION = String.raw`(() => {
       else if (!/^(""|'')$/.test(ps.content)) { const t = rgba(ps.color); if (t && t.a > 0) c = t; }
       return c ? { shown: true, color: solid(c, own) } : { shown: false, color: own };
     });
-    return sides.concat(marks);
+    return sides.concat(marks, [ring(cs, own)]);
   };
   // 모달 시트·덮개처럼 화면 절반 넘게 덮는 다른 고정 층 아래에 있으면 지금은 보이지 않는다 — 견주지 않는다.
   const layerOf = (el) => { let top = null; for (let e = el; e && e !== document.body && e !== document.documentElement; e = e.parentElement) if (getComputedStyle(e).position === "fixed") top = e; return top; };
@@ -315,40 +326,58 @@ const SELECTION = String.raw`(() => {
       done.add(el);
       if (type === "checked" && nativeShown(el.previousElementSibling)) { skipped.push(type + " " + label(el) + " 기본 컨트롤이 보임"); continue; }
       if (occluded(el)) { skipped.push(type + " " + label(el) + " 다른 고정 층(시트·덮개)에 가려짐"); continue; }
-      const peers = peersOf(el, type).filter((p) => visible(p) && usable(p));
-      if (!peers.length) continue;
+      const found = peersOf(el, type).filter((p) => visible(p) && usable(p));
+      if (!found.length) continue;
+      // V22.9.86: 같은 클래스(active 뺀)의 형제가 있으면 그것들과만 견준다 — 하단 탭의 고른 탭을 탭이 아닌 가운데 ＋ 단추(.abNavQuick 원)와 견주지 않는다.
+      const kind = (p) => classesOf(p).sort().join(" ");
+      const exact = found.filter((p) => kind(p) === kind(el));
+      const peers = exact.length ? exact : found;
       if (!isControl(el) && !peers.some(isControl)) { skipped.push(type + " " + label(el) + " 조작 요소가 아님(표시용)"); continue; }
       const own = face(el);
       if (!own) { skipped.push(type + " " + label(el) + " 그라디언트·이미지 바탕"); continue; }
       const ownEdges = edges(el, own);
+      // 한 쌍(고른 것·형제)의 면 대비와 가장 큰 변 대비.
+      const compare = (selFace, selEdges, peerFace, peerEdges) => {
+        const faceRatio = contrast(selFace, peerFace);
+        let borderRatio = null, side = -1;
+        selEdges.forEach((edge, i) => {
+          if (!edge.shown && !peerEdges[i].shown) return;
+          const r = contrast(edge.color, peerEdges[i].color);
+          if (borderRatio === null || r > borderRatio) { borderRatio = r; side = i; }
+        });
+        return { faceRatio, borderRatio, side, score: Math.max(faceRatio, borderRatio ?? 0), selFace, selEdges, peerFace, peerEdges, via: null };
+      };
       let worst = null;
       for (const peer of peers) {
         const other = face(peer);
         if (!other) continue;
-        const otherEdges = edges(peer, other);
-        const faceRatio = contrast(own, other);
-        let borderRatio = null, side = -1;
-        ownEdges.forEach((edge, i) => {
-          if (!edge.shown && !otherEdges[i].shown) return;
-          const r = contrast(edge.color, otherEdges[i].color);
-          if (borderRatio === null || r > borderRatio) { borderRatio = r; side = i; }
-        });
-        const score = Math.max(faceRatio, borderRatio ?? 0);
-        if (!worst || score < worst.score) worst = { peer, other, otherEdges, faceRatio, borderRatio, side, score };
+        let best = compare(own, ownEdges, other, edges(peer, other));
+        // V22.9.86: 표시가 글자 없는 자식(아이콘 칸)에 있을 수 있다 — 하단 탭(지시서 T-17)은 고른 탭의 알약을 아이콘 칸 i 에 그려
+        // 링크 자신에는 면·테두리 차이가 없다. 같은 순번·같은 태그의 글자 없는 자식끼리도 견줘 더 나은 쪽을 그 형제의 점수로 둔다.
+        for (let k = 0; k < el.children.length && best.score < 3; k += 1) {
+          const mine = el.children[k], theirs = peer.children[k];
+          if (!theirs || mine.tagName !== theirs.tagName || mine.textContent.trim() || theirs.textContent.trim() || !visible(mine)) continue;
+          const mineFace = face(mine), theirFace = face(theirs);
+          if (!mineFace || !theirFace) continue;
+          const child = compare(mineFace, edges(mine, mineFace), theirFace, edges(theirs, theirFace));
+          if (child.score > best.score) best = { ...child, via: label(mine) };
+        }
+        if (!worst || best.score < worst.score) worst = { ...best, peer };
       }
       if (!worst) { skipped.push(type + " " + label(el) + " 형제 바탕을 판정할 수 없음"); continue; }
       checked += 1;
       const item = {
         type, el: label(el), peer: label(worst.peer),
         face: Math.round(worst.faceRatio * 100) / 100, border: worst.borderRatio === null ? null : Math.round(worst.borderRatio * 100) / 100,
-        faceSel: hex(own), facePeer: hex(worst.other),
-        borderSel: worst.side < 0 ? null : (ownEdges[worst.side].shown ? hex(ownEdges[worst.side].color) : "없음"),
-        borderPeer: worst.side < 0 ? null : (worst.otherEdges[worst.side].shown ? hex(worst.otherEdges[worst.side].color) : "없음"),
+        faceSel: hex(worst.selFace), facePeer: hex(worst.peerFace),
+        borderSel: worst.side < 0 ? null : (worst.selEdges[worst.side].shown ? hex(worst.selEdges[worst.side].color) : "없음"),
+        borderPeer: worst.side < 0 ? null : (worst.peerEdges[worst.side].shown ? hex(worst.peerEdges[worst.side].color) : "없음"),
         side: worst.side < 0 ? null : SLOTS[worst.side],
+        via: worst.via,
         textSel: hex(rgba(getComputedStyle(el).color)), textPeer: hex(rgba(getComputedStyle(worst.peer).color)),
         pass: worst.score >= 3,
       };
-      const key = [type, el.tagName, el.className, item.faceSel, item.facePeer, item.borderSel, item.borderPeer].join("|");
+      const key = [type, el.tagName, el.className, item.via, item.faceSel, item.facePeer, item.borderSel, item.borderPeer].join("|");
       if (seen.has(key)) continue;
       seen.add(key);
       (item.pass ? passes : fails).push(item);
@@ -636,8 +665,8 @@ async function auditInteractions(page, name) {
 
 const pct = (sample) => (sample ? `${sample.pct}%` : "-");
 // 선택 줄: "면대비/테두리대비 종류 고른것 ↔ 형제 면 고른색/형제색 테두리(변) 고른색/형제색 글자 고른색/형제색"
-const selectionLine = (item) => `${item.face.toFixed(2)}/${item.border === null ? "-" : item.border.toFixed(2)} ${item.type} ${item.el} ↔ ${item.peer} 면 ${item.faceSel}/${item.facePeer}` +
-  (item.side ? ` ${item.side.startsWith("::") ? "표시" : "테두리"}(${item.side}) ${item.borderSel}/${item.borderPeer}` : " 테두리 없음") + ` 글자 ${item.textSel}/${item.textPeer}`;
+const selectionLine = (item) => `${item.face.toFixed(2)}/${item.border === null ? "-" : item.border.toFixed(2)} ${item.type} ${item.el} ↔ ${item.peer}${item.via ? ` 표시 칸 ${item.via}` : ""} 면 ${item.faceSel}/${item.facePeer}` +
+  (item.side ? ` ${item.side.startsWith("::") ? "표시" : item.side === "ring" ? "윤곽선" : "테두리"}(${item.side}) ${item.borderSel}/${item.borderPeer}` : " 테두리 없음") + ` 글자 ${item.textSel}/${item.textPeer}`;
 
 async function main() {
   const chromePath = findChrome();

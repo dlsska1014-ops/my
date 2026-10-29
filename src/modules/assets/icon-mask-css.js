@@ -68,5 +68,5 @@ function designUpliftIconCss() {
   return `${categoryIconCss()}\n${uiIconCss()}`;
 }
 // @build:exports-start
-export { designUpliftIconCss };
+export { AB_ICON_MASK, designUpliftIconCss, iconMaskUrl };
 // @build:exports-end

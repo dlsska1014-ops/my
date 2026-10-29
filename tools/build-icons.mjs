@@ -25,7 +25,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 export const LUCIDE_VERSION = "1.56.0";
 export const SVGO_VERSION = "4.1.0";
 // 아래 세 표의 Lucide 이름을 표 순서(메뉴 → 카테고리 → 화면, 겹치는 이름은 처음 한 번)대로 읽은 원본 SVG 바이트를 이은 것의 SHA-256.
-export const SOURCE_SHA256 = "05dafb3bf675a2b6290e6a2abe8dc232fe9d6529207b608baed0faf7ab088e51";
+export const SOURCE_SHA256 = "8c934eac4b2b1e20e3394d7afa72aec98cc59110744dfab739217e4365a8c169";
 
 // 메뉴 26개: 이름은 client/nav-search-notif-mains.js iconSvg() 의 키를 그대로 둔다(지시서 §3-3). 값은 Lucide 이름.
 export const NAV_ICONS = {
@@ -42,7 +42,13 @@ export const CATEGORY_ICONS = {
   cafe: "coffee", income: "banknote", etc: "circle-ellipsis",
 };
 // 웹 화면 이모지를 바꾸는 아이콘(지시서 §3-3: 무지출 불꽃, 캘린더, 예산 경고).
-export const UI_ICONS = { flame: "flame", calendar: "calendar", "triangle-alert": "triangle-alert" };
+// V22.9.86 (3단계): 속도 문장 시계(T-12), 가계부 이름 단추·월 이동 꺾쇠(T-11), 시트 닫기(T-14), 알림 표시 원의 체크·느낌표(T-15),
+// 빈 상태 타일(T-18)을 더했다. 앞 세 개의 순서는 그대로라 그 path 는 바뀌지 않는다.
+export const UI_ICONS = {
+  flame: "flame", calendar: "calendar", "triangle-alert": "triangle-alert",
+  clock: "clock", "chevron-down": "chevron-down", "chevron-left": "chevron-left", "chevron-right": "chevron-right",
+  x: "x", check: "check", "circle-alert": "circle-alert", "notebook-pen": "notebook-pen",
+};
 // Feather 시절 이름(LICENSE 의 MIT 목록은 옛 이름으로 적혀 있다).
 const FEATHER_ALIASES = { "triangle-alert": "alert-triangle", ellipsis: "more-horizontal" };
 
@@ -59,6 +65,24 @@ function rectToPath(tag) {
   if (!rx || !ry) return `<path d="M${x} ${y}h${w}v${h}h${-w}z"/>`;
   const arc = (dx, dy) => `a${rx} ${ry} 0 0 1 ${dx} ${dy}`;
   return `<path d="M${x + rx} ${y}h${w - 2 * rx}${arc(rx, ry)}v${h - 2 * ry}${arc(-rx, ry)}h${-(w - 2 * rx)}${arc(-rx, -ry)}v${-(h - 2 * ry)}${arc(rx, -ry)}z"/>`;
+}
+
+// V22.9.86: Lucide 는 작은 점(palette 4개·tag 1개)을 r=.5 원에 fill="currentColor" 로 칠한다. fill 없는 path 하나로 줄이면
+// 선(굵기 2)의 안쪽 가장자리가 원의 중심을 넘어 점 가운데에 반지름 0.5 구멍이 남는다(Chrome 실측: 점 하나가 96px 기준 12px 다르다).
+// 같은 자리에 길이 0 선을 더하면 둥근 끝이 그 구멍을 메운다. 그리는 쪽은 모두 stroke-linecap round 다(메뉴 .abNavIconSvg·CSS 마스크).
+// SVGO 는 길이 0 선을 쓸모없다고 지우므로 최적화가 끝난 d 뒤에 붙인다.
+const FILLED_DOT = /<circle\b[^>]*fill="currentColor"[^>]*\/>/g;
+const dotCaps = (svg) => [...svg.matchAll(FILLED_DOT)].map((m) => attrs(m[0])).map((a) => `M${a.cx} ${a.cy}h0`).join("");
+
+// path 의 맨 앞 상대 이동 "m x y [dx dy …]" 을 "M x y[l dx dy …]" 로 바꾼다. 첫 쌍은 (0,0) 에서 재므로 절대 좌표와 같고,
+// 뒤 쌍은 SVG 규칙대로 상대 직선이다. 맨 앞이 m 이 아니면 그대로 둔다.
+export function absoluteFirstMove(d) {
+  const head = d.match(/^m([^a-zA-Z]*)/);
+  if (!head) return d;
+  const nums = head[1].match(/[+-]?(?:\d+\.?\d*|\.\d+)(?:[eE][+-]?\d+)?/g) || [];
+  if (nums.length < 2 || nums.length % 2) throw new Error(`첫 이동의 좌표 수가 맞지 않는다: ${d.slice(0, 40)}`);
+  const list = (values) => values.map((n, i) => (i && !n.startsWith("-") ? ` ${n}` : n)).join("");
+  return `M${list(nums.slice(0, 2))}${nums.length > 2 ? `l${list(nums.slice(2))}` : ""}${d.slice(head[0].length)}`;
 }
 
 export async function buildIcons(lucideDir, svgoDir) {
@@ -79,17 +103,22 @@ export async function buildIcons(lucideDir, svgoDir) {
     plugins: ["preset-default", { name: "convertShapeToPath", params: { convertArcs: true } }, { name: "mergePaths", params: { force: true } }],
   }).data;
   const pathOf = (name) => {
-    const body = sources.get(name).replace(/<!--[\s\S]*?-->/g, "").replace(/<rect\b[^>]*\/>/g, rectToPath);
+    const body = sources.get(name).replace(/<!--[\s\S]*?-->/g, "").replace(/<rect\b[^>]*\/>/g, rectToPath)
+      .replace(FILLED_DOT, (tag) => tag.replace(/\s*fill="currentColor"/, ""));
     const svg = body.replace(/<svg\b[^>]*>/, '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2">');
     const first = shrink(svg);
     if (/<(circle|ellipse|rect|line|polyline|polygon)\b/.test(first)) throw new Error(`${name}: path 가 아닌 도형이 남았다`);
-    // 첫 m(상대 이동)은 절대 이동과 같다. 이어 붙이면 앞 도형 끝에서 재는 상대 이동이 되므로 M 으로 바꾼다.
-    const joined = [...first.matchAll(/\sd="([^"]+)"/g)].map((m) => m[1].replace(/^m/, "M")).join("");
+    // 첫 m(상대 이동)의 첫 좌표 쌍은 절대 이동과 같다. 이어 붙이면 앞 도형 끝에서 재는 상대 이동이 되므로 M 으로 바꾼다.
+    // V22.9.86: 그 뒤에 이어지는 좌표 쌍은 m 아래에서 ‘상대 직선’이다. 예전에는 m 을 M 으로만 바꿔 그 쌍까지 절대 좌표가 되어
+    // "m6 9 6 6 6-6"(꺾쇠)이 "M6 9V-6" 이 됐다. 첫 쌍 뒤에 l 을 넣어 상대 직선으로 남긴다(absoluteFirstMove).
+    const joined = [...first.matchAll(/\sd="([^"]+)"/g)].map((m) => absoluteFirstMove(m[1])).join("");
     if (!joined) throw new Error(`${name}: path 가 없다`);
     const again = shrink(`<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="2"><path d="${joined}"/></svg>`);
     const d = [...again.matchAll(/\sd="([^"]+)"/g)].map((m) => m[1]);
     if (d.length !== 1) throw new Error(`${name}: path 하나로 줄지 않았다(${d.length})`);
-    return d[0];
+    // 두 번째 SVGO 는 맨 앞 "M x yl…" 을 다시 "m x y …" 로 줄인다(맨 앞 m 은 SVG 규칙상 절대 좌표라 그림은 같다). 표의 모든 path 가
+    // 대문자 M 으로 시작하도록(이어 붙여도 앞 도형 끝에서 재지 않도록) 한 번 더 바꾼다.
+    return absoluteFirstMove(d[0]) + dotCaps(sources.get(name));
   };
   const table = (map) => Object.fromEntries(Object.entries(map).map(([key, name]) => [key, pathOf(name)]));
   const nav = table(NAV_ICONS), category = table(CATEGORY_ICONS), ui = table(UI_ICONS);

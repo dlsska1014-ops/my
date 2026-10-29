@@ -35,14 +35,18 @@ const asset = async (path) => {
   return response.text();
 };
 
-const SHELL = "/assets/accountbook-shell-v22985.css";
+const SHELL = "/assets/accountbook-shell-v22986.css";
 const HOME_CSS = "/assets/mobile-home-v22985.css";
-const V5 = "/assets/accountbook-v5-v22985.js";
-const NAV = "/assets/accountbook-nav-v22985.js";
+const V5 = "/assets/accountbook-v5-v22986.js";
+const NAV = "/assets/accountbook-nav-v22986.js";
 // V22.9.84 실측(2026-10-28): 기준 픽스처 홈 HTML 35,626 B. 이 단계는 홈 HTML 을 늘리지 않는다(지시서 T-10 수용 기준).
-const HOME_V84_BYTES = 35626;
+// V22.9.86: 3단계 T-14 입력 바(+148 B)와 V85:R-15 의 단어 잇개(U+2060, +3 B)가 기준 픽스처 홈 HTML 을 35,768 B 로 늘렸다(35 KiB 기준 안).
+// 2단계 이후 늘어난 값은 이 둘뿐이다.
+const HOME_V84_BYTES = 35768;
 // 생성 파일 icon-paths.js 의 SHA-256. tools/build-icons.mjs 를 같은 원본·도구로 다시 돌리면 같은 값이 나온다(두 번 돌려 확인).
-const ICON_PATHS_SHA256 = "1563ae2d275887f32738cef8249318e0b79c724181fec75701041198dd1037de";
+// V22.9.86: 생성기를 고쳤다 — 맨 앞 상대 이동 뒤의 좌표 쌍이 절대 좌표가 되던 것(6개 아이콘이 일그러짐)과 Lucide 의 채운 점(palette·tag)이
+// 구멍으로 남던 것. 3단계 화면 아이콘 8개(clock·chevron 셋·x·check·circle-alert·notebook-pen)를 더했다. 다시 돌려 같은 값이 나온다.
+const ICON_PATHS_SHA256 = "0549235744aee03cc5ea56e8e2205958c85bec7306d4935e8a402e576f591e2c";
 
 // ── 지시서 §3-2 팔레트(바탕, 잉크): 저장소의 지시서 원문(docs/ux/MALHAEBOOK_UX_WORK_ORDER.md)에서 바로 읽는다 ──
 const SPEC_PALETTE = (() => {

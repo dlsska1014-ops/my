@@ -442,7 +442,7 @@ function accountbookQuickInputClientMain() {
     overlay.className = "abQuickInputOverlay";
     overlay.setAttribute("hidden", "");
     overlay.setAttribute("aria-hidden", "true");
-    overlay.innerHTML = '<div class="abQuickInputScrim" data-ab-quick-close></div><section class="abQuickInputPanel" role="dialog" aria-modal="true" aria-labelledby="abQuickInputTitle" aria-describedby="abQuickInputDescription" tabindex="-1"><header class="abQuickInputHead"><div><b id="abQuickInputTitle">빠른 입력</b><small id="abQuickInputDescription">현재 가계부에 지출 또는 수입을 기록합니다.</small></div><button type="button" class="abQuickInputClose" data-ab-quick-close aria-label="빠른 입력 닫기">✕</button></header><div class="abQuickInputBody" data-ab-quick-body></div></section>';
+    overlay.innerHTML = '<div class="abQuickInputScrim" data-ab-quick-close></div><section class="abQuickInputPanel" role="dialog" aria-modal="true" aria-labelledby="abQuickInputTitle" aria-describedby="abQuickInputDescription" tabindex="-1"><header class="abQuickInputHead"><div><b id="abQuickInputTitle">빠른 입력</b><small id="abQuickInputDescription">현재 가계부에 지출 또는 수입을 기록합니다.</small></div><button type="button" class="abQuickInputClose" data-ab-quick-close aria-label="닫기"></button></header><div class="abQuickInputBody" data-ab-quick-body></div></section>';
     document.body.appendChild(overlay);
     panel = overlay.querySelector(".abQuickInputPanel");
     body = overlay.querySelector("[data-ab-quick-body]");
@@ -628,6 +628,10 @@ function accountbookQuickInputClientMain() {
     return !draftOpened && validDate(queryDate) ? queryDate : "";
   }
   window.openAbQuickInput = function(date, trigger) { open(date, trigger); };
+  // V22.9.86 T-14(디자인 작업 지시서 3단계): 모바일 홈은 예산 카드 아래 입력 바(.abEntryBar)와 하단 탭 ＋ 가 이 시트를 연다. 같은 폼을
+  // 본문에 한 번 더 보이지 않도록 시트가 품을 빠른 입력 칸(#add)을 본문에서 숨긴다(CSS body.abQuickSheetOnly, 899px 이하만).
+  // JS 가 없으면 칸이 그대로 보이고 입력 바는 #add 로 간다. 시트 닫기 단추 이름은 지시서 §3-4대로 "닫기"(대화상자 이름이 "빠른 입력")다.
+  if (location.pathname === "/app" && document.querySelector(".abEntryBar") && findSection()) document.body.classList.add("abQuickSheetOnly");
   window.closeAbQuickInput = close;
   document.addEventListener("click", function(event) {
     var trigger = event.target && event.target.closest && event.target.closest('[data-ab-quick-open],a[href^="/app?"][href$="#add"],a[href^="/app?"][href$="#quick"]');
@@ -876,7 +880,32 @@ function accountbookActivityRailClientMain() {
   else sync();
 }
 
+// V22.9.86 T-15(디자인 작업 지시서 3단계): 저장 뒤 받은 새 기록 번호(saved_rid, 저장 경로가 새 기록일 때만 붙인다)의 행 #tx-<번호> 에
+// .abTxNew 강조(1.8초, accent-soft → 투명, 움직임 줄이기에서는 CSS 가 끈다)를 한 번 준다. 다시 불러와도 또 일어나지 않도록 saved_rid·saved_qd 를
+// 주소에서 지운다 — 빠른 입력 자산(accountbookQuickInputClientMain 의 autoOpen)이 두 값으로 저장된 초안을 지운 다음이어야 해서 한 틱 미룬다.
+// "다시 시도"(빠른 입력 저장 실패 알림)는 알림을 닫고 같은 빠른 입력 시트를 연다(초안은 시트가 되살린다, 이미 열려 있으면 입력 칸으로 간다).
+// 시트를 닫을 때 초점은 사라진 알림 대신 보이는 빠른 입력 단추(모바일 입력 바 → 하단 탭 ＋ → 데스크톱 오른쪽 아래 "빠른 입력")로 돌아간다.
 function accountbookSaveFeedbackClientMain() {
+  var receipt = "";
+  try { receipt = new URLSearchParams(location.search).get("saved_rid") || ""; } catch (_error) {}
+  var fresh = receipt && /^[A-Za-z0-9_-]{1,80}$/.test(receipt) ? document.getElementById("tx-" + receipt) : null;
+  if (fresh) {
+    fresh.classList.add("abTxNew");
+    setTimeout(function() { fresh.classList.remove("abTxNew"); }, 1900);
+  }
+  if (receipt) {
+    var forget = function() {
+      try {
+        var left = new URLSearchParams(location.search);
+        left.delete("saved_rid");
+        left.delete("saved_qd");
+        var rest = left.toString();
+        if (window.history && window.history.replaceState) window.history.replaceState({}, "", location.pathname + (rest ? "?" + rest : "") + location.hash);
+      } catch (_error) {}
+    };
+    if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", function() { setTimeout(forget, 0); }, { once: true });
+    else setTimeout(forget, 0);
+  }
   var feedback = document.querySelector("[data-ab-save-feedback]");
   if (!feedback) return;
   var timer = null;
@@ -889,6 +918,19 @@ function accountbookSaveFeedbackClientMain() {
   }
   var closer = feedback.querySelector("[data-ab-feedback-close]");
   if (closer) closer.addEventListener("click", close);
+  var retry = feedback.querySelector("[data-ab-feedback-retry]");
+  if (retry) retry.addEventListener("click", function(event) {
+    if (typeof window.openAbQuickInput !== "function" || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    close();
+    var back = null;
+    [".abEntryBar", ".abNavBottom a.abNavQuick,.abNavBottom a.abNavQuickInput", ".abGlobalActionQuick"].some(function(selector) {
+      var el = document.querySelector(selector);
+      if (el && el.getClientRects().length) back = el;
+      return !!back;
+    });
+    window.openAbQuickInput("", back);
+  });
   requestAnimationFrame(function() { feedback.classList.add("isVisible"); });
   if (kind === "success") timer = setTimeout(close, 5200);
   else if (kind === "warning") timer = setTimeout(close, 9000);
@@ -1402,12 +1444,42 @@ function accountbookDetailExperienceClientMain() {
   });
 }
 
+// V22.9.86 T-13(디자인 작업 지시서 3단계): 거래 목록 행(article.v8-tx)과 빠른 입력 칩 앞에 카테고리 동그라미를 둔다.
+// HTML 을 늘리지 않으려고 브라우저가 그린다. 행은 날짜 줄 둘째 조각(분류, 비면 서버가 "미분류")·data-type·제목, 칩은 data-cat·data-memo 로
+// window.abCategoryKey(서버 categoryKey 와 같은 본문)를 불러 키를 얻는다. 동그라미는 장식이라 aria-hidden 이고 읽기 이름에 들지 않는다.
+// 지시서는 칩을 CSS 속성 선택자로 그리라 했지만, 속성 부분 일치로는 ‘분류 이름 먼저’ 순서와 제외 낱말(예약·계약 …)을 그대로 옮길 수 없어
+// 행과 같은 함수를 쓴다(quickChipIconCss 주석의 ‘감기약 예약’ 참고). JS 가 없으면 지금처럼 동그라미 없이 보인다.
+function accountbookCategoryCircleClientMain() {
+  "use strict";
+  var keyOf = window.abCategoryKey;
+  if (typeof keyOf !== "function") return;
+  function circle(key) {
+    var node = document.createElement("span");
+    node.className = "abCat";
+    node.setAttribute("data-ck", key);
+    node.setAttribute("aria-hidden", "true");
+    node.innerHTML = '<i class="abCatIcon"></i>';
+    return node;
+  }
+  document.querySelectorAll("article.v8-tx .v8-tx-main").forEach(function(main) {
+    if (main.querySelector(".abCat")) return;
+    var line = main.querySelector("span:not(.v8-spender)");
+    var title = main.querySelector("b");
+    var category = line ? line.textContent.split(" · ")[1] || "" : "";
+    main.insertBefore(circle(keyOf(category, main.closest("article.v8-tx").getAttribute("data-type") || "", title ? title.textContent : "")), main.firstChild);
+  });
+  document.querySelectorAll(".chipRow button[data-memo]").forEach(function(chip) {
+    if (chip.querySelector(".abCat")) return;
+    chip.insertBefore(circle(keyOf(chip.getAttribute("data-cat") || "", "", chip.getAttribute("data-memo") || "")), chip.firstChild);
+  });
+}
+
 function accountbookV5BundleJsAsset() {
   if (!AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE) {
     const ensureOverlays = `(function(){try{if(!document.getElementById("abV5Search"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_SEARCH_OVERLAY_HTML)});if(!document.getElementById("abV5Notif"))document.body.insertAdjacentHTML("beforeend",${JSON.stringify(ACCOUNTBOOK_V5_NOTIF_OVERLAY_HTML)});}catch(e){}})();`;
     // V22.9.85 (디자인 작업 지시서 T-09): 브라우저도 서버와 같은 카테고리 판정을 쓴다(web/quick-chip-icons.js 정본을 .toString() 으로 싣는다).
     // 거래 목록 행의 분류 동그라미(3단계 T-13)가 window.abCategoryKey(분류, 종류, 메모) 로 키를 얻는다.
-    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `window.abCategoryKey=(function(){${categoryKeyRules.toString()}${categoryKey.toString()}return categoryKey})();${ensureOverlays}(${accountbookCelebrationClientMain.toString()})();(${accountbookAmountPrivacyClientMain.toString()})();(${accountbookEmptyFolderClientMain.toString()})();(${accountbookTransactionDeleteClientMain.toString()})();(${accountbookTransactionFilterClientMain.toString()})();(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();(${accountbookSidebarDashboardClientMain.toString()})();(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();(${accountbookActivityRailClientMain.toString()})();(${accountbookSaveFeedbackClientMain.toString()})();(${accountbookChallengeClientMain.toString()})();(${accountbookDetailExperienceClientMain.toString()})();(${accountbookTourClientMain.toString()})();`;
+    AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE = `window.abCategoryKey=(function(){${categoryKeyRules.toString()}${categoryKey.toString()}return categoryKey})();${ensureOverlays}(${accountbookCelebrationClientMain.toString()})();(${accountbookAmountPrivacyClientMain.toString()})();(${accountbookEmptyFolderClientMain.toString()})();(${accountbookTransactionDeleteClientMain.toString()})();(${accountbookTransactionFilterClientMain.toString()})();(${accountbookSearchClientMain.toString()})();(${accountbookNotifClientMain.toString()})();(${accountbookFavRowsClientMain.toString()})();(${accountbookSidebarDashboardClientMain.toString()})();(${accountbookQuickInputClientMain.toString()})();(${accountbookDayDetailClientMain.toString()})();(${accountbookActivityRailClientMain.toString()})();(${accountbookSaveFeedbackClientMain.toString()})();(${accountbookChallengeClientMain.toString()})();(${accountbookDetailExperienceClientMain.toString()})();(${accountbookTourClientMain.toString()})();(${accountbookCategoryCircleClientMain.toString()})();`;
   }
   return AB_ACCOUNTBOOK_V5_BUNDLE_JS_CACHE;
 }

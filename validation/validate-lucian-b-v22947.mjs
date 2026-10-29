@@ -35,7 +35,9 @@ await withClock("2026-07-15", async () => {
     const broken = intercept(({ url }) => url.pathname.endsWith("/transactions") ? failure(503) : null);
     const fail = await page(fx, "/app?" + q + "&category=없음"); eq(fail.status, 500, "query failure is not empty data"); eq(links(fail.html).length, 0, "no counts on failed read"); broken();
     fx.db.transactions = fx.db.transactions.filter(row => row.household_id !== "house-home");
-    const monthEmpty = await page(fx, "/app?" + q); ok(monthEmpty.html.includes("이 달에는 기록이 없습니다."), "empty month is distinguished"); ok(monthEmpty.html.includes('href="#add" data-ab-quick-open'), "writer can add");
+    // V22.9.86 T-18(디자인 작업 지시서 3단계 §3-6): 기록 없는 달의 빈 상태 문구를 해요체로 바꿨다("이 달에는 기록이 없습니다." → "이 달에는 기록이 없어요").
+    // 픽스처 시계에서 2026-07 이 이번 달이라 "아직 이번 달 기록이 없어요"다(다른 달이면 "이 달에는 기록이 없어요").
+    const monthEmpty = await page(fx, "/app?" + q); ok(monthEmpty.html.includes("아직 이번 달 기록이 없어요"), "empty month is distinguished"); ok(monthEmpty.html.includes('href="#add" data-ab-quick-open'), "writer can add");
     fx.db.household_members.find(m => m.user_id === "user-wifi" && m.household_id === "house-home").role = "viewer";
     const reader = await page(fx, "/app?" + q, { cookie: await fx.cookieFor("user-wifi") }); eq(reader.status, 200, "reader sees empty state"); ok(!reader.html.includes('href="#add" data-ab-quick-open'), "reader has no empty-state write action");
   });

@@ -11,7 +11,7 @@ const asset = async path => {
   eq(response.status, 200, "served asset " + path);
   return response.text();
 };
-const runtime = await asset("/assets/mobile-home-v22984.js"); // V22.9.85: v22951 보관본 정리 뒤 지금 홈 런타임을 본다.
+const runtime = await asset("/assets/mobile-home-v22986.js"); // V22.9.85: v22951 보관본 정리 뒤 지금 홈 런타임을 본다.
 const review = await asset("/assets/accountbook-quick-input-v22951.js");
 const ast = parse(runtime, { ecmaVersion: "latest" });
 const functions = new Map();

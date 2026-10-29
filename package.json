@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.85",
+  "version": "22.9.86",
   "private": true,
   "type": "module",
   "engines": {
@@ -70,7 +70,7 @@
     "validate:monitor-v22982": "node validation/validate-monitor-v22982.mjs",
     "validate:ui-clarity-v22983": "node validation/validate-ui-clarity-v22983.mjs",
     "validate:staging-preview-v22983": "node validation/validate-staging-preview-v22983.mjs",
-    "validate:design-uplift": "node validation/validate-design-uplift-v22984.mjs && node validation/validate-design-uplift-v22985.mjs",
+    "validate:design-uplift": "node validation/validate-design-uplift-v22984.mjs && node validation/validate-design-uplift-v22985.mjs && node validation/validate-design-uplift-v22986.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "preview:app": "node tools/staging/preview-server.mjs",
     "deploy:staging": "node tools/staging/deploy-staging.mjs",

@@ -27,6 +27,17 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
+  // V22.9.86: 디자인 보강 3단계(T-11 모바일 홈 머리말·가계부 고르기 시트, T-13 카테고리 동그라미, T-14 입력 바·빠른 입력 시트·미리보기,
+  // T-15 저장 알림·새 행 강조, T-17 하단 탭 바, T-18 빈 상태)와 아이콘 생성 고침(첫 상대 이동·채운 점)으로 셸 CSS·V5 번들·메뉴 스크립트·
+  // 홈 스크립트·홈 셸의 바이트가 바뀌어 다섯 주소를 v22986 으로 올렸다. 옛 주소(accountbook-shell-v22985.css·accountbook-v5-v22985.js·
+  // accountbook-nav-v22985.js·mobile-home-v22984.js·mobile-home-shell-v22984.js)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아
+  // 아래 옛 해시로 계속 내려간다(아직 배포 전인 V22.9.84·85 가 쓰는 주소라 보관 규칙에 든다). 홈 스타일시트(mobile-home-v22985.css)는 그대로다.
+  "/assets/accountbook-shell-v22986.css": "fabc2973bc245f78e468dbae42cb3c4462ea5ede00bccf858dc7bd9b73d74916",
+  "/assets/accountbook-v5-v22986.js": "5d9c48e23fb9d35c3995875299df8147483167d729885a2be008df99eff9283a",
+  "/assets/accountbook-nav-v22986.js": "29d58d4199fe0b53d4e76983c6d822960bf7ef9bad0ee175f702d9cec020ccda",
+  "/assets/mobile-home-v22986.js": "53b9a3d0e9c2ace514ef299c0c460afa913030a14756a1b89b571c32f8f8c48b",
+  "/assets/mobile-home-shell-v22986.js": "3c1fd48e949af77b2f00df8c8c931f2ea871635b973d72dcc61f65ae21e08e54",
+
   // V22.9.85: 디자인 보강 2단계(T-09 카테고리 판정 공용화·§3-2 팔레트·T-10 아이콘 파이프라인)와 V22.9.83·84 검토 후속(R-1~R-7)으로
   // 셸 CSS·홈 스타일시트·V5 번들·메뉴 스크립트의 바이트가 바뀌어 네 주소를 v22985 로 올렸다.
   // 옛 주소(accountbook-shell-v22984.css·mobile-home-v22984.css·accountbook-v5-v22984.js·accountbook-nav-v22983.js)의 바이트는

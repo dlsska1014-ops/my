@@ -198,7 +198,9 @@ function renderHomeReportCards(options = {}) {
     const pct = totalExpense > 0 ? Math.max(2, Math.round((Number(c.expense || 0) / totalExpense) * 100)) : 0;
     return `<i style="width:${pct}%"></i>`;
   }).join("");
-  const whereCard = `<article class="homeReport"><div class="homeReportTop"><span>어디에 썼나</span><a href="${escapeHtml(analysisHref)}">소비 분석</a></div><b>${topCat ? `${escapeHtml(topCat.category || "미분류")} ${numberWithCommas(topCat.expense || 0)}원` : "아직 기록 없음"}</b><div class="homeReportBars">${catBars}</div><small>${topCat ? `가장 많이 쓴 곳이고 이번 달 지출의 ${topShare}%를 차지합니다` : "기록을 남기면 어디에 쓰는지 보여드려요"}</small></article>`;
+  // V22.9.86 (V85:R-15): ‘60%를’은 keep-all 이어도 Chrome 이 ‘%’ 뒤에서 줄을 바꿨다(1280px 홈). ‘%’와 조사 사이에 보이지 않는
+  // 단어 잇개(U+2060)를 넣어 한 덩어리로 둔다(HTML 3바이트, 읽기 프로그램은 읽지 않는다).
+  const whereCard = `<article class="homeReport"><div class="homeReportTop"><span>어디에 썼나</span><a href="${escapeHtml(analysisHref)}">소비 분석</a></div><b>${topCat ? `${escapeHtml(topCat.category || "미분류")} ${numberWithCommas(topCat.expense || 0)}원` : "아직 기록 없음"}</b><div class="homeReportBars">${catBars}</div><small>${topCat ? `가장 많이 쓴 곳이고 이번 달 지출의 ${topShare}%\u2060를 차지합니다` : "기록을 남기면 어디에 쓰는지 보여드려요"}</small></article>`;
 
   // 2. 쓰는 속도 — 지난 4주. 이번 달 주차로 그리면 1주차가 부분 주간이라 비교가 틀린다.
   //    다만 이 화면이 받아 둔 기록은 보고 있는 달뿐이라, 그 달 시작보다 앞선 주는

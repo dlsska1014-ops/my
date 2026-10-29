@@ -51,7 +51,7 @@ try {
   //
   // 대신 **캐스케이드에서 이기는 층**만 본다. 셸 CSS 는 head 의 마지막 스타일시트라
   // 여기서 정한 값이 화면에 나온다. 그 층 안의 카드 규칙이 토큰을 쓰면 결과가 하나가 된다.
-  const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22985.css`), {}, {})).text();
+  const shellCss = await (await app.fetch(new Request(`${ORIGIN}/assets/accountbook-shell-v22986.css`), {}, {})).text();
   const shellCardRules = [...shellCss.matchAll(/[^{}]{0,160}\{[^{}]*border-radius:[^{}]*\}/g)]
     .map((m) => m[0])
     .filter((rule) => /\.(card|panel|homeCard|abV5SectionCard|gaugeCard)\b/.test(rule.split("{")[0]));
@@ -61,7 +61,9 @@ try {
 
   const home = await (await app.fetch(new Request(`${ORIGIN}/app?month=2026-07&household_id=house-home`,
     { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0 (iPhone)" } }), fixture.env, {})).text();
-  ok(home.includes('class="reportChallenge"') && home.includes('class="homeNotice"'), "홈에 어두운 블록이 둘 다 있다");
+  // V22.9.86 T-12: 홈의 SMART NOTICE 띠(homeNotice)를 예산 카드 속도 문장으로 합쳐 홈의 어두운 블록은 챌린지 하나다.
+  // 아래 3) 의 공용 규칙(:is(.reportChallenge,.homeNotice))은 셸 CSS 에 그대로 있다(옛 바이트를 받는 화면이 같은 얼굴을 쓴다).
+  ok(home.includes('class="reportChallenge"') && !home.includes('class="homeNotice"'), "홈의 어두운 블록은 챌린지 하나다(SMART NOTICE 띠는 속도 문장으로 합침)");
 } finally {
   fixture.restore();
 }

@@ -250,6 +250,123 @@ function quickChipPressedClientMain() {
   sync();
 }
 
+// V22.9.86 T-11(디자인 작업 지시서 3단계): 모바일 홈(과 같은 /app 의 내역 탭) 머리말 — 가계부 이름은 상단 바에 한 번만 두고, 머리말에는 ‹ 7월 › 월 이동 한 줄만 둔다.
+// - 서버 HTML 은 그대로다. JS 가 없거나 여기서 멈추면 지금 select·월 입력이 그대로 보인다(숨김 CSS 는 body.abHomeHeadV86 아래에만 있다).
+// - 가계부 고르기는 상단 바 이름 링크를 단추로 쓴다. 상단 바에 <button> 을 더하면 메뉴 단추를 ".abNavMobileTop button" 으로 찾는
+//   옛 런타임(legacy-ui-runtime.js)이 그 단추를 잡으므로 링크에 role="button" 을 준다. 홈에서 그 링크는 지금 화면(/app)을 가리킨다.
+// - 고르기·월 이동 모두 기존 form(GET /app) 을 제출한다. 900px 이상은 CSS 가 바꾸지 않는다(데스크톱은 지시서 T-19).
+function homeHeaderClientMain() {
+  "use strict";
+  // 홈과 내역 탭(/app?tab=transactions — body 에 abMobileAppSurface 가 없다)은 같은 머리말을 쓴다.
+  var form = document.querySelector('header.appTop.abV5PageHeader form.selectLine[action="/app"]');
+  var month = form && form.querySelector('input[name="month"]');
+  if (!form || !month || !/^\d{4}-\d{2}$/.test(month.value)) return;
+  var select = form.querySelector('select[name="household_id"]');
+  var thisYear = new Date().getFullYear();
+  function label(value) {
+    var year = Number(value.slice(0, 4));
+    return (year === thisYear ? "" : year + "년 ") + Number(value.slice(5, 7)) + "월";
+  }
+  function shifted(step) {
+    var date = new Date(Number(month.value.slice(0, 4)), Number(month.value.slice(5, 7)) - 1 + step, 1);
+    return date.getFullYear() + "-" + String(date.getMonth() + 1).padStart(2, "0");
+  }
+  // ‹ 7월 ›: 가운데 글자 위에 월 입력을 투명하게 겹쳐, 누르면 기존 월 고르기가 열린다.
+  // month 를 모르는 브라우저(입력 type 이 text 가 된다)는 투명하게 두면 보이지 않는 글자를 적게 되므로 입력을 그대로 보인다.
+  var nav = document.createElement("div");
+  var face = document.createElement("label");
+  var text = document.createElement("span");
+  nav.className = "abMonthNav";
+  face.className = month.type === "month" ? "abMonthFace" : "abMonthFace abMonthPlain";
+  text.setAttribute("aria-hidden", "true");
+  text.textContent = label(month.value);
+  month.parentNode.insertBefore(nav, month);
+  [-1, 1].forEach(function (step) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = step < 0 ? "abMonthStep abMonthPrev" : "abMonthStep abMonthNext";
+    button.setAttribute("aria-label", (step < 0 ? "이전 달 " : "다음 달 ") + label(shifted(step)));
+    button.addEventListener("click", function () { month.value = shifted(step); text.textContent = label(month.value); form.submit(); });
+    if (step < 0) nav.appendChild(button);
+    else { face.appendChild(text); face.appendChild(month); nav.appendChild(face); nav.appendChild(button); }
+  });
+  document.body.classList.add("abHomeHeadV86");
+
+  var top = document.querySelector(".abNavMobileTop > a");
+  var options = select ? Array.prototype.filter.call(select.options, function (option) { return option.value; }) : [];
+  if (!top || options.length < 2) return;
+  var sheet = document.createElement("div");
+  sheet.id = "abHhSheet";
+  sheet.className = "abSheet";
+  sheet.hidden = true;
+  sheet.innerHTML = '<div class="abSheetScrim" data-ab-sheet-close></div><section class="abSheetPanel" role="dialog" aria-modal="true" aria-labelledby="abHhSheetTitle" tabindex="-1"><header class="abSheetHead"><b id="abHhSheetTitle">가계부 고르기</b><button type="button" class="abSheetClose" data-ab-sheet-close aria-label="닫기"></button></header><ul class="abHhList"></ul></section>';
+  var list = sheet.querySelector(".abHhList");
+  options.forEach(function (option) {
+    var item = document.createElement("li");
+    var pick = document.createElement("button");
+    pick.type = "button";
+    pick.value = option.value;
+    pick.textContent = option.getAttribute("data-household-name") || option.textContent;
+    if (option.selected) pick.setAttribute("aria-current", "true");
+    item.appendChild(pick);
+    list.appendChild(item);
+  });
+  document.body.appendChild(sheet);
+  var panel = sheet.querySelector(".abSheetPanel");
+  var opener = null;
+  top.setAttribute("role", "button");
+  top.setAttribute("aria-haspopup", "dialog");
+  top.setAttribute("aria-controls", sheet.id);
+  top.setAttribute("aria-expanded", "false");
+  // 이름 글자만 말줄임하고 꺾쇠는 늘 보이게, 링크 안 글자 마디를 하나로 모은다. span 은 셸 CSS ".abNavMobileTop a>span"(로고 칸 28px)이 잡아 b 를 쓴다.
+  var name = document.createElement("b");
+  name.className = "abHhName";
+  Array.prototype.slice.call(top.childNodes).forEach(function (node) { if (node.nodeType === 3) name.appendChild(node); });
+  top.appendChild(name);
+  top.insertAdjacentHTML("beforeend", '<i class="abHhChevron" aria-hidden="true"></i>');
+  function openSheet() {
+    opener = document.activeElement;
+    sheet.hidden = false;
+    top.setAttribute("aria-expanded", "true");
+    document.body.classList.add("abSheetOpen");
+    var here = list.querySelector('[aria-current="true"]') || list.querySelector("button");
+    if (here) here.focus();
+  }
+  function closeSheet() {
+    if (sheet.hidden) return;
+    sheet.hidden = true;
+    top.setAttribute("aria-expanded", "false");
+    document.body.classList.remove("abSheetOpen");
+    if (opener && opener.focus) { try { opener.focus(); } catch (_error) {} }
+    opener = null;
+  }
+  top.addEventListener("click", function (event) {
+    if (event.button || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    event.preventDefault();
+    openSheet();
+  });
+  top.addEventListener("keydown", function (event) {
+    if (event.key === " ") { event.preventDefault(); openSheet(); }
+  });
+  sheet.addEventListener("click", function (event) {
+    if (event.target.closest("[data-ab-sheet-close]")) { closeSheet(); return; }
+    var pick = event.target.closest(".abHhList button");
+    if (!pick) return;
+    if (pick.hasAttribute("aria-current")) { closeSheet(); return; }
+    select.value = pick.value;
+    form.submit();
+  });
+  document.addEventListener("keydown", function (event) {
+    if (sheet.hidden) return;
+    if (event.key === "Escape") { event.preventDefault(); closeSheet(); return; }
+    if (event.key !== "Tab") return;
+    var focusable = Array.prototype.slice.call(panel.querySelectorAll("button"));
+    var first = focusable[0], last = focusable[focusable.length - 1];
+    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+  });
+}
+
 function mobileHomeJsAsset() {
   if (!AB_MOBILE_HOME_JS_CACHE) {
     AB_MOBILE_HOME_JS_CACHE = [
@@ -260,6 +377,7 @@ function mobileHomeJsAsset() {
       `(${mobileShellUiClientMain.toString()})();`,
       `(${guidedUiUxClientMain.toString()})();`,
       `(${quickChipPressedClientMain.toString()})();`,
+      `(${homeHeaderClientMain.toString()})();`,
     ].join("\n");
   }
   return AB_MOBILE_HOME_JS_CACHE;
