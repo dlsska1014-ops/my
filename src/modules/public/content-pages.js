@@ -127,13 +127,16 @@ ${publicContentTable({ caption: "예제에 사용한 가상 거래 목록", head
 
 // V22.9.87 T-21: 공개 첫 화면과 /demo 위쪽의 앱 화면 미리보기(가상 데이터, 읽기 전용). 앱 홈 예산 카드(T-12, my/mobile-home.js)와
 // 거래 행(T-13, my/home-sections.js 행 + V5 동그라미)과 같은 클래스·마크업이다. 링크·버튼·폼·스크립트가 없어 서버 요청·쿠키·저장이 없다.
-// 숫자는 QA 픽스처 홈과 같은 예(전체 예산 1,230,000원·지출 248,600원 → 981,400원·20%)를 10월 12일(31일 중 39%)로 옮겼다.
+// 숫자는 QA 픽스처 홈과 같은 예(예산 1,230,000원·예산 쓴 돈 248,600원 → 981,400원·20%)를 10월 12일(31일 중 39%)로 옮겼다.
 // 하루 금액은 앱 규칙대로 981,400 ÷ 오늘 포함 남은 20일 = 49,070원. 문장 틀은 앱 속도 문장(T-12)과 같다 — 앱 문장이 바뀌면 함께 바꾼다
 // (validate-public-brand-v22987 이 앱 문장 틀·계산과 대조한다).
+// V22.9.89 U-04: 앱은 남은 날이 5일 이하이거나 하루 금액이 최근 7일 하루 평균의 3배를 넘으면 ‘남은 N일, 예산이 넉넉해요.’라고 짧게 말한다.
+// 두 미리보기는 하루 금액을 권하는 지금 문장 갈래다(/demo 는 9월 11~17일 지출 30,000원 → 3배 12,857원 ≥ 하루 12,500원, 검사가 확인한다).
+// 월말 문장(U-03)과 오늘 쓴 돈 줄은 미리보기에 두지 않는다.
 // /demo 는 바로 아래 예산 계산 예제(2026년 9월 네 기록, 식비 300,000·교통 100,000원 예산)를 9월 17일에 웹 홈으로 본 모습이다(사용자 결정
 // 2026-10-29: 광고를 두는 공개 화면에서 위 미리보기와 아래 예제의 숫자가 달라 읽는 사람이 헷갈렸다 — AdSense 심사도 이 화면을 본다).
 // 숫자는 계산 예제와 같은 함수(publicDemoRows·publicDemoSummary)에서 나온다. 분류별 예산이라 앱 홈처럼 예산을 잡은 분류의 지출(225,000원)만
-// 사용률에 넣고 의료비는 지출 옆 ‘예산 밖’으로 적는다(my/mobile-home.js budgetUncovered). 경과율 17 ÷ 30 = 57% 가 사용률 56% 보다 커서
+// 사용률에 넣고 의료비는 둘째 줄 ‘예산 안 정한 지출’로 적는다(my/mobile-home.js budgetUncovered, V22.9.89 U-02 에서 옛 ‘예산 밖’·‘지출’ 이름을 바꿈). 경과율 17 ÷ 30 = 57% 가 사용률 56% 보다 커서
 // 앱의 ‘만 썼어요’ 문장이고(검사가 갈래를 확인한다), 하루 금액은 175,000 ÷ 오늘 포함 남은 14일 = 12,500원이다. 거래 행은 최근 세 기록이다.
 function publicAppPreviewHtml(onDemo = false) {
   const row = (ck, type, title, line, amount) => `<article class="v8-tx" data-type="${type}"><div class="v8-tx-main"><span class="abCat" data-ck="${ck}" aria-hidden="true"><i class="abCatIcon"></i></span><div><b>${title}</b><span>${line}</span></div><strong class="${type}">${amount}</strong></div></article>`;
@@ -145,9 +148,9 @@ function publicAppPreviewHtml(onDemo = false) {
     const elapsed = Math.round((day / days) * 100);
     const daily = Math.floor(sum.remaining / (days - day + 1));
     const recent = [...rows].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
-    return `<figure class="pubPreview"><p class="pubPreviewLabel">아래 예제를 웹 가계부 홈 화면으로 본 모습 · 2026년 9월 17일 기준</p><div class="pubScreen"><section class="homeBudget"><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span>${sum.rate}%</span></em></div><div class="homeBudgetAmount"><b>${won(sum.remaining)}</b><small>원</small></div><div class="homeProgress" style="--ab-today:${elapsed}%"><i style="width:${sum.rate}%"></i></div><div class="homeBudgetFoot"><span>전체 예산 ${won(sum.budget)}원</span><span>지출 ${won(sum.covered)}원 · 예산 밖 ${won(sum.uncovered)}원</span></div><div class="homeDailyPlan homePace"><p>이번 달의 ${elapsed}%가 지났고 예산은 ${sum.rate}%만 썼어요. 하루 <span data-ab-num="${daily}">${won(daily)}</span>원씩 쓰면 돼요.</p></div></section>${recent.map((item) => row(categoryKey(item.category, "expense", item.memo), "expense", item.memo, `${item.category} · ${Number(item.date.slice(5, 7))}월 ${Number(item.date.slice(8, 10))}일`, `-${won(item.amount)}원`)).join("")}</div><figcaption>아래 예산 계산 예제와 같은 가상 기록으로 그린 웹 가계부 홈 화면이에요. 실제 기록이 아니고, 누르거나 고칠 수 없어요.</figcaption></figure>`;
+    return `<figure class="pubPreview"><p class="pubPreviewLabel">아래 예제를 웹 가계부 홈 화면으로 본 모습 · 2026년 9월 17일 기준</p><div class="pubScreen"><section class="homeBudget"><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span>${sum.rate}%</span></em></div><div class="homeBudgetAmount"><b>${won(sum.remaining)}</b><small>원</small></div><div class="homeProgress" style="--ab-today:${elapsed}%"><i style="width:${sum.rate}%"></i></div><div class="homeBudgetFoot"><span>예산 ${won(sum.budget)}원</span><span>예산 쓴 돈 ${won(sum.covered)}원<br>예산 안 정한 지출 ${won(sum.uncovered)}원</span></div><div class="homeDailyPlan homePace"><p>이번 달의 ${elapsed}%가 지났고 예산은 ${sum.rate}%만 썼어요. 하루 <span data-ab-num="${daily}">${won(daily)}</span>원씩 쓰면 돼요.</p></div></section>${recent.map((item) => row(categoryKey(item.category, "expense", item.memo), "expense", item.memo, `${item.category} · ${Number(item.date.slice(5, 7))}월 ${Number(item.date.slice(8, 10))}일`, `-${won(item.amount)}원`)).join("")}</div><figcaption>아래 예산 계산 예제와 같은 가상 기록으로 그린 웹 가계부 홈 화면이에요. 실제 기록이 아니고, 누르거나 고칠 수 없어요.</figcaption></figure>`;
   }
-  return `<figure class="pubPreview"><div class="pubScreen"><section class="homeBudget"><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span>20%</span></em></div><div class="homeBudgetAmount"><b>981,400</b><small>원</small></div><div class="homeProgress" style="--ab-today:39%"><i style="width:20%"></i></div><div class="homeBudgetFoot"><span>전체 예산 1,230,000원</span><span>지출 248,600원</span></div><div class="homeDailyPlan homePace"><p>이번 달의 39%가 지났고 예산은 20%만 썼어요. 하루 <span data-ab-num="49070">49,070</span>원씩 쓰면 돼요.</p></div></section>${row("food", "expense", "점심", "식비 · 국민카드", "-12,000원")}${row("cafe", "expense", "가족 카페", "카페/간식 · 카카오페이", "-28,600원")}${row("income", "income", "10월 월급", "급여 · 급여통장", "+3,200,000원")}</div><figcaption>가상 데이터로 그린 웹 가계부 홈 화면이에요. 실제 기록이 아니고, 누르거나 고칠 수 없어요.</figcaption></figure>`;
+  return `<figure class="pubPreview"><div class="pubScreen"><section class="homeBudget"><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span>20%</span></em></div><div class="homeBudgetAmount"><b>981,400</b><small>원</small></div><div class="homeProgress" style="--ab-today:39%"><i style="width:20%"></i></div><div class="homeBudgetFoot"><span>예산 1,230,000원</span><span>예산 쓴 돈 248,600원</span></div><div class="homeDailyPlan homePace"><p>이번 달의 39%가 지났고 예산은 20%만 썼어요. 하루 <span data-ab-num="49070">49,070</span>원씩 쓰면 돼요.</p></div></section>${row("food", "expense", "점심", "식비 · 국민카드", "-12,000원")}${row("cafe", "expense", "가족 카페", "카페/간식 · 카카오페이", "-28,600원")}${row("income", "income", "10월 월급", "급여 · 급여통장", "+3,200,000원")}</div><figcaption>가상 데이터로 그린 웹 가계부 홈 화면이에요. 실제 기록이 아니고, 누르거나 고칠 수 없어요.</figcaption></figure>`;
 }
 
 // 미리보기 CSS: 공개 화면은 셸 CSS 를 싣지 않으므로 앱에서 잰 값(390px 라이트, 셸 토큰 라이트 값)을 .pubPreview 안에만 옮겨 둔다.

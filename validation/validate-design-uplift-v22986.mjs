@@ -330,11 +330,14 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   const num = (n) => `<span data-ab-num="${n}" data-ab-num-unit="원">${n.toLocaleString("en-US")}</span>원`;
   const base = await home(fx);
   t.ok(!base.includes("homeNotice") && !base.includes("SMART NOTICE"), "T-12 홈에 SMART NOTICE 띠가 없다(예산 말은 속도 문장 하나)");
-  t.eq(plan(base), `<div class="homeDailyPlan homePace"><p>이번 달의 48%가 지났고 예산은 20%만 썼어요. 하루 ${num(57729)}씩 쓰면 돼요.</p><small>월말 예상대로면 716,227원이 남아요</small></div>`, "T-12 §3-6 여유(사용률 ≤ 경과율)");
+  // V22.9.89 U-04(V2): 하루 한도 57,729원이 최근 7일 하루 평균의 3배를 넘고 월말 예상이 예산 안이라 쓸 수 없는 하루 금액 대신 ‘넉넉해요’다.
+  // U-03: 월말 문장은 예산 범위·근사(716,227원 → 약 72만 원)이고, 예산에 안 넣은 분류(주거/관리)의 반영 대기 월세는 둘째 줄로 따로 적는다.
+  t.eq(plan(base), `<div class="homeDailyPlan homePace"><p>남은 17일, 예산이 넉넉해요.</p><small>이대로면 월말에 예산이 약 72만 원 남아요</small><small>예산에 안 넣은 월세 650,000원은 따로 나가요</small></div>`, "T-12 §3-6 여유(사용률 ≤ 경과율)");
   t.ok(base.includes('<div class="homeProgress" style="--ab-today:48%"><i style="width:20%"'), "T-12 이번 달 게이지에 오늘 표시(경과율 48%)");
-  t.ok(Buffer.byteLength(base) <= 35768, `T-12 통합으로 홈 HTML 이 줄거나 같다(35,768 → ${Buffer.byteLength(base)} B)`);
+  // V22.9.89(디자인 작업 지시서 V2 6단계): U-07 홈 정기 카드 세 줄(매달 나감·아직 안 나감·납부·입금 일정, +82 B), U-01 오늘 쓴 돈 ‘아직 없어요’(+11 B), U-02 아랫줄 이름(+1 B), U-03·U-04 속도·월말 문장과 예산에 안 넣은 월세 줄(−29 B), U-11 카드 머리(−2 B)로 35,797 B 다(35 KiB 기준 안).
+  t.ok(Buffer.byteLength(base) <= 35797, `T-12 통합으로 홈 HTML 이 줄거나 같다(V22.9.89 상한 35,797 → ${Buffer.byteLength(base)} B)`);
   setBudgets([100000, 100000, 100000]);
-  t.eq(plan(await home(fx)), `<div class="homeDailyPlan homePace"><p>이번 달의 48%가 지났는데 예산은 83%를 썼어요. 남은 17일은 하루 ${num(3023)} 안에서 써 보세요.</p><small>예상대로면 예산이 13일 먼저 끝나요</small></div>`, "T-12 §3-6 주의(경과율 < 사용률 < 100)");
+  t.eq(plan(await home(fx)), `<div class="homeDailyPlan homePace"><p>이번 달의 48%가 지났는데 예산은 83%를 썼어요. 남은 17일은 하루 ${num(3023)} 안에서 써 보세요.</p><small>이대로면 예산이 13일 먼저 끝나요</small><small>예산에 안 넣은 월세 650,000원은 따로 나가요</small></div>`, "T-12 §3-6 주의(경과율 < 사용률 < 100)"); // V22.9.89 U-03
   setBudgets([50000, 50000, 50000]);
   t.eq(plan(await home(fx)), `<div class="homeDailyPlan homePace homeDailyPlanOver"><p>예산을 98,600원 넘었어요. 예산을 늘리거나 남은 기간 지출을 줄여 보세요.</p></div>`, "T-12 §3-6 초과(사용률 ≥ 100)");
   setBudgets([148600, 50000, 50000]);

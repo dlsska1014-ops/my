@@ -76,8 +76,9 @@ const section = (home.html.match(/<section class="homeReports"[\s\S]*?<\/section
 ok(section.length > 0, "리포트 섹션이 렌더된다");
 const cards = [...section.matchAll(/<article class="homeReport">([\s\S]*?)<\/article>/g)].map((m) => m[1]);
 eq(cards.length, 4, `리포트는 네 장이다 (${cards.length})`);
-const questions = cards.map((card) => (card.match(/<span>([^<]*)<\/span>/) || [])[1] || "");
-eq(questions.join(","), "어디에 썼나,쓰는 속도,예산 항목,앞으로 나갈 돈", `네 질문이 지시서와 같다 (${questions.join(", ")})`);
+const paceName = (name) => (/^(?:최근 7일|마지막 7일|이번 달)$/.test(name) ? "최근 7일" : name); // V22.9.89 U-11: 카드 머리 = 기간 이름(보는 달에 따라 다름)
+const questions = cards.map((card) => paceName((card.match(/<span>([^<]*)<\/span>/) || [])[1] || ""));
+eq(questions.join(","), "어디에 썼나,최근 7일,예산 항목,앞으로 나갈 돈", `네 질문이 지시서와 같다 (${questions.join(", ")})`);
 eq(new Set(questions).size, 4, "네 질문이 서로 다르다");
 
 // 3. 카드마다 링크는 하나. 둘 이상이면 어디로 가는 카드인지 흐려진다.

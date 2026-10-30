@@ -18,9 +18,17 @@ await withClock('2026-07-15', async () => {
     ok(!html.includes('aria-label="달성 배지"') && !plain(html).includes('보다 100% 적게'), '미래 기간은 감소나 달성 배지를 주장하지 않는다');
     await save(fx, '1000');
     html = (await page(fx, url + '&range=week&week=2026-07-06')).html;
-    ok(!plain(html).includes('실적 목표 달성') && plain(html).includes('월 정기 예정액'), '주간 보기는 월 목표 달성 배지가 없고 월 정기 예정액으로 표기한다');
+    // V22.9.89 Astra 5: 끝난 주(7/6 주)는 그 주에 자동 기록된 정기 지출을 보이고, 지금 등록한 정기 항목은 ‘매달 …원(오늘 기준)’ 한 줄로 따로 적는다.
+    // 월 정기 예정액이라는 이름은 진행 중인 주(7/13 주)에서 본다.
+    ok(!plain(html).includes('실적 목표 달성') && plain(html).includes('이 기간에 기록된 정기 지출 0원') && plain(html).includes('매달 650,000원이에요(오늘 기준)') && !plain(html).includes('월 정기 예정액'), '끝난 주 보기는 월 목표 달성 배지가 없고, 그 주에 기록된 정기 지출과 지금 등록한 월 정기 금액(오늘 기준)을 나눠 적는다');
     const share = html.match(/<textarea[^>]*id="reportShare"[^>]*>([\s\S]*?)<\/textarea>/)?.[1] || '';
-    ok(share.includes('월 정기 예정액 650,000원'), '주간 공유 문구도 월 전체의 정기 예정액임을 명시한다');
+    ok(share.length > 0 && !share.includes('650,000원'), '끝난 주 공유 문구는 그 주에 기록되지 않은 월 정기 금액을 적지 않는다');
+    html = (await page(fx, url + '&range=week&week=2026-07-13')).html;
+    ok(!plain(html).includes('실적 목표 달성') && plain(html).includes('월 정기 예정액'), '진행 중인 주 보기는 월 목표 달성 배지가 없고 월 정기 예정액으로 표기한다');
+    const liveShare = html.match(/<textarea[^>]*id="reportShare"[^>]*>([\s\S]*?)<\/textarea>/)?.[1] || '';
+    ok(liveShare.includes('월 정기 예정액 650,000원'), '진행 중인 주 공유 문구도 월 전체의 정기 예정액임을 명시한다');
+    // V22.9.89(Astra 4 와 같은 갈래): 7/13 주는 오늘까지 직접 적은 기록이 없다 — 0원을 ‘지난주보다 100% 적게’라고 하지 않는다.
+    ok(plain(html).includes('이 기간에 직접 적은 기록이 없어 비교하지 않아요.') && !plain(html).includes('% 적게') && !plain(html).includes('덜 썼어요') && liveShare.includes('이 기간에 직접 적은 기록이 없어 비교하지 않아요.') && !liveShare.includes('📉'), '직접 적은 기록이 없는 주는 지난주와 견주지 않고 감소 배지도 없다');
   });
   await fixture(async fx => {
     const restore = intercept(({ url: u }) => u.pathname.endsWith('/transactions') && String(u.search).includes('2026-04-01') ? failure() : null);

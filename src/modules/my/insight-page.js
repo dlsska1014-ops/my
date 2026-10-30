@@ -34,7 +34,7 @@ import {
   buildWeeklyReport, detectRecurringCandidates, findAnomalousExpenses,
 } from "../admin/pc-analysis-calendar.js";
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
-import { addMonthsYm, calculateExtendedAnalytics } from "../domain/analytics.js";
+import { addMonthsYm, calculateExtendedAnalytics, householdStartYmd } from "../domain/analytics.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml, nextMonthStart } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -71,7 +71,7 @@ async function handleMyAnalysisPage(request, env, url) {
   const recurringCandidates = registeredRecurring ? detectRecurringCandidates(historyRows, month, registeredRecurring) : null;
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);
   const weeklyReport = buildWeeklyReport(historyRows, month);
-  const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows: ctx.rows, value: challengeValue });
+  const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows: ctx.rows, value: challengeValue, startedOn: householdStartYmd(ctx.selected, ctx.rows) });
   return htmlResponse(renderMyAnalysisHtml({ env, url, ...ctx, extended, recurringCandidates, anomalies, weeklyReport, challenge, truncated, msg: url.searchParams.get("msg") || "", err: analysisFlashCode(url.searchParams.get("err")) }));
 }
 
@@ -115,7 +115,7 @@ async function handleMyInsightPage(request, env, url) {
   const currentEnd = nextMonthStart(month);
   const currentRows = rows.filter((r) => String(r.transaction_date || "").slice(0, 10) >= currentStart && String(r.transaction_date || "").slice(0, 10) < currentEnd);
   const budget = budgetSummary(currentRows, budgets, { refundDeductions });
-  const challenge = await buildReportChallengeForHousehold(env, { householdId: selected.id, month, rows: currentRows, value: challengeValue });
+  const challenge = await buildReportChallengeForHousehold(env, { householdId: selected.id, month, rows: currentRows, value: challengeValue, startedOn: householdStartYmd(selected, currentRows) });
   const outlook = monthSpendingOutlook({ month, rows: currentRows, receipt, recurring, plans: reservePlans, refundDeductions });
   const dashboard = { ...buildReportDashboardSummary(currentRows, budget, month, { outlook, refundDeductions, refundFailed: !!refund.failed }), householdId: selected.id };
   return htmlResponse(renderMyInsightHtml({ env, month, selected, rows, currentRows, budget, dashboard, challenge, dataStart, truncated, receipt }));

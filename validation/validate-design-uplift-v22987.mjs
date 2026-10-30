@@ -62,21 +62,23 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
 }));
 
 // ── V86:V-9 홈 정기 카드 작은 줄의 가장 가까운 정기 항목 한 건 ──
-const reserveLine = (html) => plain((html.match(/<a class="homeReserveCard"[^]*?<small>([^]*?)<\/small>/) || ["", ""])[1]).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
+// V22.9.89 U-07(사용자 결정 D-9): 카드 작은 줄이 ‘이번 달 아직 안 나감’과 ‘납부·입금 일정 N건 · 가장 가까운 한 건’ 둘이 됐다. V-9 의 한 건은 둘째 줄에 있다.
+// 알림 창 밖이면 예전 ‘다가오는 납부 없음’ 대신 가장 가까운 날짜를 적는다(올해면 ‘12월 1일’).
+const reserveLine = (html) => plain((html.match(/<a class="homeReserveCard"[^]*?<small>(납부·입금 일정[^]*?)<\/small>/) || ["", ""])[1]).replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, "&");
 const CAR = { id: "reserve-1", name: "자동차보험", amount: 1200000, due_months: [8], recurrence: "annual" };
 await withClock("2026-07-15", () => fixture(async (fx) => {
-  t.eq(reserveLine(await home(fx)), "자동차보험 납부 17일 전 · 준비 알림 1건", "V-9 기본 픽스처: 8월 1일 자동차보험이 맨 앞");
+  t.eq(reserveLine(await home(fx)), "납부·입금 일정 1건 · 자동차보험 납부 17일 전", "V-9 기본 픽스처: 8월 1일 자동차보험이 맨 앞");
   for (const [plans, line, why] of [
-    [[CAR, { id: "reserve-2", name: "직무수당", amount: 300000, type: "income", due_months: [7], due_day: 20, recurrence: "annual" }], "직무수당 입금 5일 전 · 준비 알림 1건 · 입금 예정 1건", "입금이 더 가까우면 입금"],
-    [[CAR, { id: "reserve-2", name: "직무수당", amount: 300000, type: "income", due_months: [8], due_day: 1, recurrence: "annual" }], "자동차보험 납부 17일 전 · 준비 알림 1건 · 입금 예정 1건", "같은 날이면 지출을 먼저(옛 띠와 같다)"],
-    [[CAR, { id: "reserve-3", name: "재산세", amount: 400000, due_months: [7], due_day: 15, recurrence: "annual" }], "재산세 납부 오늘 · 준비 알림 2건", "오늘이면 ‘오늘’"],
-    [[{ id: "reserve-4", name: "<i>연회비", amount: 50000, due_months: [8], recurrence: "annual" }], "<i>연회비 납부 17일 전 · 준비 알림 1건", "이름은 글자로 적는다"],
-    [[{ id: "reserve-5", name: "종합소득세", amount: 900000, due_months: [12], recurrence: "annual" }], "다가오는 납부 없음", "알림 창 밖이면 예전 문구"],
+    [[CAR, { id: "reserve-2", name: "직무수당", amount: 300000, type: "income", due_months: [7], due_day: 20, recurrence: "annual" }], "납부·입금 일정 2건 · 직무수당 입금 5일 전", "입금이 더 가까우면 입금"],
+    [[CAR, { id: "reserve-2", name: "직무수당", amount: 300000, type: "income", due_months: [8], due_day: 1, recurrence: "annual" }], "납부·입금 일정 2건 · 자동차보험 납부 17일 전", "같은 날이면 지출을 먼저(옛 띠와 같다)"],
+    [[CAR, { id: "reserve-3", name: "재산세", amount: 400000, due_months: [7], due_day: 15, recurrence: "annual" }], "납부·입금 일정 2건 · 재산세 납부 오늘", "오늘이면 ‘오늘’"],
+    [[{ id: "reserve-4", name: "<i>연회비", amount: 50000, due_months: [8], recurrence: "annual" }], "납부·입금 일정 1건 · <i>연회비 납부 17일 전", "이름은 글자로 적는다"],
+    [[{ id: "reserve-5", name: "종합소득세", amount: 900000, due_months: [12], recurrence: "annual" }], "납부·입금 일정 1건 · 종합소득세 12월 1일", "알림 창 밖이면 가장 가까운 날짜(V22.9.89)"],
   ]) {
     putSetting(fx, `reserve_plans:${HH}`, JSON.stringify(plans));
     const html = await home(fx);
     t.eq(reserveLine(html), line, `V-9 ${why}`);
-    if (line.startsWith("<i>")) t.ok(html.includes("<small>&lt;i&gt;연회비 납부 17일 전") && !html.includes("<i>연회비"), "V-9 항목 이름은 escapeHtml 을 거친다");
+    if (line.includes("<i>")) t.ok(html.includes("<small>납부·입금 일정 1건 · &lt;i&gt;연회비 납부 17일 전") && !html.includes("<i>연회비"), "V-9 항목 이름은 escapeHtml 을 거친다");
   }
 }));
 

@@ -15,7 +15,7 @@ import {
 import { ACCOUNTBOOK_GOALS_JS_ASSET_PATH } from "../assets/asset-registry.js";
 import { monthObservation } from "../domain/analytics.js";
 import { normalizeText } from "../nlu/amount-parser.js";
-import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
+import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
 
@@ -150,22 +150,31 @@ function classifyDeductionPay(pm) {
   if (/카드|신용/.test(s)) return "credit";
   return "other";
 }
-function buildAnnualReportModel(rows, year, nowMonth = currentMonthKst()) {
+function buildAnnualReportModel(rows, year, nowMonth = currentMonthKst(), today = formatDate(nowKstDate())) {
   const monthsExp = new Array(12).fill(0);
   const monthsInc = new Array(12).fill(0);
   const monthsCount = new Array(12).fill(0);
-  let totalExp = 0, totalInc = 0, creditSpend = 0, deductibleSpend = 0;
+  // V22.9.89 Astra 1: 월 평균의 합과 나누는 달 수를 같은 기록(오늘까지 날짜)으로 센다. 예전에는 합이 한 해 전체(11월에 미리 적은 기록 포함)이고
+  // 달 수는 이번 달까지라, 10월 10만 원 + 11월에 미리 적은 90만 원이면 월 평균이 100만 원이 됐다. 연간 지출 합은 그대로 모든 기록이고,
+  // 오늘 뒤 날짜 기록이 있으면 그 금액을 연간 지출 아래에 적는다.
+  const monthsObserved = new Array(12).fill(0);
+  const monthsObservedExp = new Array(12).fill(0);
+  let totalExp = 0, totalInc = 0, creditSpend = 0, deductibleSpend = 0, futureExp = 0;
   const catExp = Object.create(null);
   for (const r of safeArray(rows)) {
     const mi = Number(String(r.transaction_date || "").slice(5, 7)) - 1;
     const amt = Number(r.amount || 0);
+    const observed = String(r.transaction_date || "").slice(0, 10) <= today;
     if (mi >= 0 && mi < 12) monthsCount[mi] += 1;
+    if (mi >= 0 && mi < 12 && observed) monthsObserved[mi] += 1;
     if (r.type === "income") {
       totalInc += amt;
       if (mi >= 0 && mi < 12) monthsInc[mi] += amt;
     } else {
       totalExp += amt;
       if (mi >= 0 && mi < 12) monthsExp[mi] += amt;
+      if (mi >= 0 && mi < 12 && observed) monthsObservedExp[mi] += amt;
+      if (!observed) futureExp += amt;
       const c = r.category || "미분류";
       catExp[c] = (catExp[c] || 0) + amt;
       const kind = classifyDeductionPay(r.payment_method);
@@ -179,11 +188,12 @@ function buildAnnualReportModel(rows, year, nowMonth = currentMonthKst()) {
   // 기록이 있는 달 수로 나누고 화면에 몇 개월 평균인지 적는다(소비 분석의 3개월 평균과 같은 규칙).
   const nowYear = Number(nowMonth.slice(0, 4));
   const elapsedMonths = year < nowYear ? 12 : year === nowYear ? Number(nowMonth.slice(5, 7)) : 0;
-  const avgMonths = monthsCount.slice(0, elapsedMonths).filter((count) => count > 0).length;
+  const avgMonths = monthsObserved.slice(0, elapsedMonths).filter((count) => count > 0).length;
+  const avgExp = monthsObservedExp.slice(0, elapsedMonths).reduce((sum, value) => sum + value, 0);
   return {
-    year, monthsExp, monthsInc, totalExp, totalInc,
+    year, monthsExp, monthsInc, totalExp, totalInc, futureExp,
     savings: totalInc - totalExp,
-    monthAvgExp: avgMonths ? Math.round(totalExp / avgMonths) : 0,
+    monthAvgExp: avgMonths ? Math.round(avgExp / avgMonths) : 0,
     avgMonths,
     catTop, maxMonth: Math.max(1, ...monthsExp), creditSpend, deductibleSpend,
   };
@@ -230,11 +240,11 @@ function renderAnnualReportHtml({ env, households, selected, model, nowYear, now
   const prevY = model.year - 1;
   const nextY = model.year + 1;
   const nextDisabled = nextY > nowYear;
+  // V22.9.89 U-08(V2, 사용자 결정 D-8 = A, Astra 6): 연말정산 칸의 ‘예상 N원’(사용액 × 15%·30%)을 지운다. 신용카드 등 소득공제는 총급여의
+  // 25%를 넘게 쓴 부분부터 계산하는데 그 문턱을 빼서 크게 보였고, 그 값은 돌려받는 세금도 아니다. 사용액 두 칸과 참고용 안내는 둔다.
   const savingsLabel = model.savings >= 0 ? `저축 ${numberWithCommas(model.savings)}원` : `적자 ${numberWithCommas(Math.abs(model.savings))}원`;
-  const creditDeduct = Math.round(model.creditSpend * 0.15);
-  const otherDeduct = Math.round(model.deductibleSpend * 0.30);
   const style = `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.6}.yearNav{display:flex;align-items:center;gap:10px;margin-top:12px}.yearNav a,.yearNav span{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 14px;border-radius:12px;background:rgba(255,255,255,.16);color:#fff!important;text-decoration:none;font-weight:1000}.yearNav a.disabled,.yearNav span.disabled{opacity:.4;pointer-events:none}.yearNav b{font-size:22px;padding:0 6px}.filters{display:grid;grid-template-columns:minmax(0,1fr) 130px;gap:8px;margin-top:12px}.filters select{min-width:0;width:100%}.filters select,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 12px;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.annualBars{display:flex;align-items:flex-end;gap:6px;height:170px;margin-top:6px}.annualBarCol{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}.annualBarTrack{width:100%;height:140px;display:flex;align-items:flex-end;background:#eef2f7;border-radius:8px;overflow:hidden}.annualBar{width:100%;background:#93b4f6;border-radius:8px 8px 0 0}.annualBar.cur{background:#1d4ed8}.annualBarCol span{font-size:11px;color:#64748b;font-weight:800}.catList{list-style:none;margin:0;padding:0;display:grid;gap:10px}.catRow{display:flex;justify-content:space-between;gap:10px}.catRow b{font-size:14px}.catRow span{color:#64748b;font-variant-numeric:tabular-nums}.miniBar{height:9px;background:#eef2f7;border-radius:999px;overflow:hidden;margin-top:6px}.miniBar span{display:block;height:100%;border-radius:999px;background:#1d4ed8}.deduct{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.deductBox{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:15px}.deductBox b{display:block;font-size:20px;margin:4px 0}.deductBox small{color:#64748b}.notice{border-radius:16px;padding:14px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;line-height:1.6;margin-top:10px}.actions{display:flex;flex-wrap:wrap;gap:8px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:14px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 14px;border:0;cursor:pointer;font:inherit}.btn.light{background:#eff6ff;color:#1e3a8a!important}.muted{color:#64748b;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metric b{font-size:20px}.annualBars{height:150px}.annualBarTrack{height:120px}}@media print{.abLayoutNav,.abNavMobileTop,.abNavBottom,.yearNav,.filters,.actions{display:none!important}body{background:#fff!important}.hero{background:#111827!important}}`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 연간 리포트</title><style>${style}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("annual", { month: `${model.year}-01`, householdId: selected.id, householdName: selected.name, role: String(selected.role || "") })}<main class="wrap"><section class="hero"><h1>${model.year} 연간 리포트</h1><p>한 해의 수입·지출 흐름과 연말정산 참고 자료를 정리했어요.</p><div class="yearNav"><a href="/annual?year=${prevY}${hh}" aria-label="이전 해">‹</a><b>${model.year}</b>${nextDisabled ? `<span class="disabled" aria-disabled="true">›</span>` : `<a href="/annual?year=${nextY}${hh}" aria-label="다음 해">›</a>`}</div><form class="filters" method="get" action="/annual"><input type="hidden" name="year" value="${model.year}"/><select name="household_id">${opts}</select><button type="submit">조회</button></form></section>${limitExceeded ? `<section class="notice" role="alert"><b>연간 리포트를 만들 수 없습니다.</b> ${model.year}년 기록이 ${numberWithCommas(ANNUAL_REPORT_ROW_LIMIT)}건을 넘어, 일부 기록만으로 연간 합계를 내지 않았습니다. 월별 화면과 CSV 백업으로 확인해 주세요.</section>` : `<section class="grid"><div class="metric"><span>연간 수입</span><b>${numberWithCommas(model.totalInc)}원</b></div><div class="metric"><span>연간 지출</span><b>${numberWithCommas(model.totalExp)}원</b></div><div class="metric"><span>연간 ${model.savings >= 0 ? "저축" : "적자"}</span><b>${numberWithCommas(Math.abs(model.savings))}원</b></div><div class="metric"><span>월 평균 지출${model.avgMonths ? ` · 기록 있는 ${model.avgMonths}개월` : ""}</span><b>${numberWithCommas(model.monthAvgExp)}원</b></div></section><section class="card"><h2>월별 지출</h2><div class="annualBars">${barsHtml}</div></section><section class="card"><h2>연간 카테고리 TOP6</h2><ul class="catList">${catHtml}</ul></section>${adSlotMarkup(env, adKey)}<section class="card"><h2>연말정산 참고</h2><p class="muted">${savingsLabel} · 연간 총수입 ${numberWithCommas(model.totalInc)}원</p><div class="deduct"><div class="deductBox"><small>신용카드 사용액</small><b>${numberWithCommas(model.creditSpend)}원</b><small>공제율 15% 안내 · 예상 ${numberWithCommas(creditDeduct)}원</small></div><div class="deductBox"><small>체크·현금·간편결제</small><b>${numberWithCommas(model.deductibleSpend)}원</b><small>공제율 30% 안내 · 예상 ${numberWithCommas(otherDeduct)}원</small></div></div><div class="notice">여기 표시되는 금액과 공제율은 참고용 안내입니다. 실제 소득공제는 국세청 연말정산 간소화 자료와 공제 한도·총급여 기준에 따라 달라집니다.</div></section><section class="card"><h2>내보내기</h2><div class="actions"><button type="button" class="btn" onclick="window.print()">PDF로 저장 / 인쇄</button><a class="btn light" href="/app?month=${encodeURIComponent(model.year + "-01")}${hh}">가계부로 이동</a></div></section>`}</main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 연간 리포트</title><style>${style}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("annual", { month: `${model.year}-01`, householdId: selected.id, householdName: selected.name, role: String(selected.role || "") })}<main class="wrap"><section class="hero"><h1>${model.year} 연간 리포트</h1><p>한 해의 수입·지출 흐름과 연말정산 참고 자료를 정리했어요.</p><div class="yearNav"><a href="/annual?year=${prevY}${hh}" aria-label="이전 해">‹</a><b>${model.year}</b>${nextDisabled ? `<span class="disabled" aria-disabled="true">›</span>` : `<a href="/annual?year=${nextY}${hh}" aria-label="다음 해">›</a>`}</div><form class="filters" method="get" action="/annual"><input type="hidden" name="year" value="${model.year}"/><select name="household_id">${opts}</select><button type="submit">조회</button></form></section>${limitExceeded ? `<section class="notice" role="alert"><b>연간 리포트를 만들 수 없습니다.</b> ${model.year}년 기록이 ${numberWithCommas(ANNUAL_REPORT_ROW_LIMIT)}건을 넘어, 일부 기록만으로 연간 합계를 내지 않았습니다. 월별 화면과 CSV 백업으로 확인해 주세요.</section>` : `<section class="grid"><div class="metric"><span>연간 수입</span><b>${numberWithCommas(model.totalInc)}원</b></div><div class="metric"><span>연간 지출</span><b>${numberWithCommas(model.totalExp)}원</b>${model.futureExp ? `<small style="display:block;color:#64748b;margin-top:3px">오늘 뒤 날짜 기록 ${numberWithCommas(model.futureExp)}원 포함</small>` : ""}</div><div class="metric"><span>연간 ${model.savings >= 0 ? "저축" : "적자"}</span><b>${numberWithCommas(Math.abs(model.savings))}원</b></div><div class="metric"><span>월 평균 지출${model.avgMonths ? ` · ${model.futureExp ? "오늘까지 " : ""}기록 있는 ${model.avgMonths}개월` : ""}</span><b>${numberWithCommas(model.monthAvgExp)}원</b></div></section><section class="card"><h2>월별 지출</h2><div class="annualBars">${barsHtml}</div></section><section class="card"><h2>연간 카테고리 TOP6</h2><ul class="catList">${catHtml}</ul></section>${adSlotMarkup(env, adKey)}<section class="card"><h2>연말정산 참고</h2><p class="muted">${savingsLabel} · 연간 총수입 ${numberWithCommas(model.totalInc)}원</p><div class="deduct"><div class="deductBox"><small>신용카드 사용액</small><b>${numberWithCommas(model.creditSpend)}원</b><small>공제율 15%</small></div><div class="deductBox"><small>체크·현금·간편결제</small><b>${numberWithCommas(model.deductibleSpend)}원</b><small>공제율 30%</small></div></div><p class="muted">공제는 총급여의 25%를 넘게 쓴 부분부터 계산돼요. 문턱을 넘은 뒤에는 체크카드·현금영수증 공제율이 더 높아요.</p><div class="notice">여기 표시되는 금액과 공제율은 참고용 안내입니다. 실제 소득공제는 국세청 연말정산 간소화 자료와 공제 한도·총급여 기준에 따라 달라집니다.</div></section><section class="card"><h2>내보내기</h2><div class="actions"><button type="button" class="btn" onclick="window.print()">PDF로 저장 / 인쇄</button><a class="btn light" href="/app?month=${encodeURIComponent(model.year + "-01")}${hh}">가계부로 이동</a></div></section>`}</main></body></html>`;
 }
 
 // V22.8.31 V5 저축·목표 페이지(§3.7) + 로딩 스켈레톤/토스트·Undo(§3.17) — V5 네이티브 클라이언트 서피스.

@@ -21,9 +21,9 @@ import {
 import { spendingOutlookCaption } from "../domain/spending-outlook.js";
 import { addQueryToUrl } from "../auth/local-login-pages.js";
 import {
-  addMonthsYm, calculateDashboardAnalysis, calculateExtendedAnalytics, deltaClass,
-  formatChangeAgainst, percentChange, renderCategoryCompareTable, renderMonthlyTrendTable,
-  renderObservedMoney, renderStrategyCards,
+  addMonthsYm, calculateDashboardAnalysis, calculateExtendedAnalytics, consumptionSignalLabel,
+  deltaClass, formatChangeAgainst, percentChange, renderCategoryCompareTable,
+  renderMonthlyTrendTable, renderObservedMoney, renderStrategyCards,
 } from "../domain/analytics.js";
 import { readHouseholdRoleOrFailure } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
@@ -290,6 +290,7 @@ function buildWeeklyReport(historyRows = [], month = currentMonthKst()) {
 
 // V22.9.80 T-24: ‘주’가 화면마다 다른 뜻이었다 — 이 주간 리포트(PC 분석·종합 리포트)는 월요일 시작, 홈 ‘주별’ 탭(V22.9.79 D-16)은 홈 캘린더처럼 일요일 시작.
 // 어느 쪽 계산도 바꾸지 않고(운영자 결정: 보수적 안), 이 리포트가 실제로 더한 날짜 범위를 요일과 함께 적어 어느 주인지 모호하지 않게 한다.
+// V22.9.89 U-11(사용자 결정 D-6 2026-10-29: 한 주는 월요일 시작): 홈 ‘주별’ 탭과 홈 캘린더도 월요일 시작이 되어 ‘합계가 다를 수 있어요’ 문구를 뺐다.
 function weekRangeText(from, to) {
   const part = (ymd) => {
     const [y, m, d] = String(ymd).split("-").map(Number);
@@ -301,7 +302,7 @@ function weekRangeText(from, to) {
 function renderWeeklyReportCard(weekly) {
   if (!weekly) return "";
   const basis = weekly.thisWeekStart && weekly.lastWeekStart
-    ? `이번 주(월요일부터: ${weekRangeText(weekly.thisWeekStart, weekly.todayStr)}) 지출을 지난주 같은 시점(${weekRangeText(weekly.lastWeekStart, weekly.lastWeekSamePoint)})까지의 지출과 비교합니다. 홈의 ‘주별’ 탭은 일요일부터 한 주를 세므로 합계가 다를 수 있어요.`
+    ? `이번 주(월요일부터: ${weekRangeText(weekly.thisWeekStart, weekly.todayStr)}) 지출을 지난주 같은 시점(${weekRangeText(weekly.lastWeekStart, weekly.lastWeekSamePoint)})까지의 지출과 비교합니다.`
     : "이번 주(월요일~오늘) 지출을 지난주 같은 시점까지의 지출과 비교합니다.";
   // V22.9.79 감사 V44 D-13: 지난주 같은 시점이 0원이면 +100% 를 지어내지 않는다(비교 기록 없음, 빠르다·아낀다 판단도 하지 않음).
   const compared = Number(weekly.lastWeekToPoint || 0) > 0;
@@ -331,9 +332,10 @@ function renderPcAnalysisHtml({ month, households, selectedHousehold, rows, stat
     ["고정비 비중", `${analysis.fixedRate || 0}%`, `${numberWithCommas(analysis.fixedExpense || 0)}원`],
     ["주말 지출 비중", `${analysis.weekendRate || 0}%`, `${numberWithCommas(analysis.weekendExpense || 0)}원`],
     ["카테고리 집중도", `${analysis.concentration || 0}%`, `${escapeHtml(analysis.topCategory?.category || "없음")} 중심`],
-    ["소비 위험도", analysis.basisDays === 0 ? "관측 전" : `${analysis.riskScore || 0}점`, analysis.basisDays === 0 ? "관측 기간 없음" : (analysis.riskScore || 0) >= 70 ? "주의" : "정상"],
+    // V22.9.89 Astra 7: 소비 신호 세 단계(45 주의 · 70 넘침 위험)로 다른 분석 화면과 같은 경계를 쓴다.
+    ["소비 신호", analysis.basisDays === 0 ? "관측 전" : consumptionSignalLabel(analysis.riskScore || 0), analysis.basisDays === 0 ? "관측 기간 없음" : `${analysis.riskScore || 0}점`],
     // V22.9.34 2차 점검 U01: 이번 달은 오늘까지, 앞으로 올 달은 세지 않는다.
-    ["무지출일", analysis.basisDays === 0 ? "-" : `${analysis.noSpendDays || 0}일`, analysis.basisDays === 0 ? "아직 오지 않은 달" : month === currentMonthKst() ? "오늘까지 소비 없는 날짜" : "그 달 소비 없는 날짜"],
+    ["무지출일", analysis.basisDays === 0 || analysis.noSpendDays == null ? "-" : `${analysis.noSpendDays}일`, analysis.basisDays === 0 ? "아직 오지 않은 달" : analysis.noSpendDays == null ? "직접 적은 기록 없음" : month === currentMonthKst() ? "오늘까지 소비 없는 날짜" : "그 달 소비 없는 날짜"],
   ].map(([a,b,c]) => `<div class="metric"><span>${a}</span><b>${b}</b><small>${c}</small></div>`).join("");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(selected.name || "가계부")} · 분석</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 12px 32px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c3aed));color:#fff}.hero h1{margin:0;font-size:30px}.hero p{opacity:.9}.filters{display:grid;grid-template-columns:1fr 200px 140px;gap:8px;margin-top:14px}.filters select,.filters input,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span,.metric small{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin:5px 0}.trendChart{display:flex;align-items:end;gap:5px;min-height:176px;overflow:auto;padding:12px;border:1px solid #e8edf4;border-radius:18px;background:#f8fafc}.trendBar{display:grid;grid-template-rows:22px 1fr 16px;align-items:end;justify-items:center;min-width:26px;height:156px}.trendBar strong{font-size:10px;color:#334155;white-space:nowrap;writing-mode:vertical-rl;transform:rotate(180deg);align-self:start}.trendBar i{display:block;width:13px;background:#2563eb;border-radius:999px 999px 0 0}.trendBar span{font-size:10px;color:#64748b}.tableWrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:720px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left}.btn{display:inline-flex;background:#111827;color:#fff!important;border-radius:14px;text-decoration:none;padding:10px 14px;font-weight:1000}.soft{background:#eef2f7!important;color:#111827!important}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.filters{grid-template-columns:1fr}.filters select,.filters input,.filters button{width:100%;font-size:16px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.metricGrid{grid-template-columns:1fr 1fr;gap:8px}.metric{padding:13px;border-radius:18px}.metric b{font-size:20px}.card{border-radius:20px;padding:16px}.trendChart{min-height:150px}.tableWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}table{min-width:680px}}
 .muted{color:#64748b;font-size:13px;line-height:1.5}

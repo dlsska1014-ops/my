@@ -19,7 +19,9 @@ ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountboo
 ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22987.js"'), "activity runtime uses a fresh immutable URL");
 ok(source.includes('"accountbook-shell-v22987-css"'), "shell ETag is refreshed");
 ok(source.includes('"accountbook-v5-v22987-js"'), "activity runtime ETag is refreshed");
-ok(source.includes('const displayMode = settings.periodDays <= 7 ? "daily" : "percent"'), "one-week display threshold is explicit");
+// V22.9.89 독립 검토: 한 주 이하는 날짜 칸, 더 길면 달성률이다. 직접 적은 기록이 없어 지난 날을 셀 수 없는 동안도 달성률이다
+// (홈 날짜 칸의 상태 글자는 1년 캐시 클라이언트가 s·x·t·f 로만 붙여, 그런 날이 ‘예정’으로 읽혔다).
+ok(source.includes('const displayMode = settings.periodDays <= 7 && (recording || !evaluatedDays) ? "daily" : "percent"'), "one-week display threshold is explicit");
 // V22.8.73 에서 챌린지가 3종으로 늘어 성공 문구가 유형별 라벨이 됐다.
 // 무지출 방식은 기존 문구를 그대로 쓰고, 나머지는 자기 라벨을 쓴다.
 ok(source.includes('state === "success" ? (settings.type === "no_spend_days" ? "무지출 성공" : settings.successLabel)'), "day slots expose a textual success state");

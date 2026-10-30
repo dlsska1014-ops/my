@@ -697,6 +697,8 @@ await section("T-38", () => fixture(async (fx) => {
 // ── T-24. ‘주’의 기준을 화면에 적는다(계산은 그대로) ───────────────────────────────────────────
 // 종합 리포트·PC 분석의 주간 리포트는 월요일 시작, 홈 ‘주별’ 탭(D-16)은 일요일 시작이다. 운영자 결정(권장안): 어느 쪽 계산도 바꾸지 않고 두 화면이 실제로 더한
 // 날짜 범위와 요일을 적는다. 2026-07-12 는 일요일이다 — 월요일 시작 리포트에서는 지난주, 일요일 시작 홈 탭에서는 이번 주(12~18일)에 든다.
+// V22.9.89 U-11(사용자 결정 D-6 2026-10-29: 한 주는 월요일 시작): 홈 ‘주별’ 탭도 월요일~일요일이 되어 두 화면의 주가 같다. ‘합계가 다를 수 있어요’는
+// 지웠고, 홈 3주차(13~19일)와 주간 리포트 이번 주(7/13~7/15)가 같은 30,000원인지 본다. 일요일(7/12)은 두 화면 모두 2주차·지난주다.
 await section("T-24", async () => {
   const savedTz = process.env.TZ;
   try {
@@ -714,7 +716,7 @@ await section("T-24", async () => {
         const note = (card.match(/<p class="muted">([\s\S]*?)<\/p>/) || [])[1] || "";
         ok(note.includes("월요일부터") && note.includes("7/13(월)~7/15(수)"), `${zone}: 주간 리포트가 이번 주 범위를 요일과 함께 적는다 (${note.slice(0, 40)}…)`);
         ok(note.includes("지난주 같은 시점(7/6(월)~7/8(수))"), `${zone}: 비교 구간(지난주 같은 시점)의 범위도 요일과 함께 적는다`);
-        ok(note.includes("‘주별’ 탭은 일요일부터") && note.includes("합계가 다를 수 있어요"), `${zone}: 홈 ‘주별’ 탭이 일요일 시작이라 합계가 다를 수 있다고 알린다`);
+        ok(!note.includes("일요일부터") && !note.includes("합계가 다를 수 있어요"), `${zone}: 홈 ‘주별’ 탭도 월요일 시작이라 ‘합계가 다를 수 있어요’를 쓰지 않는다(V22.9.89)`);
         // 계산은 그대로: 일요일(7/12)은 월요일 시작 리포트에서 지난주다
         ok(/<div class="weeklyHead"><b>30,000원<\/b>/.test(card), `${zone}: 이번 주(월~수) 합계는 30,000원 그대로 — 일요일 100만원은 이번 주에 들지 않는다`);
         ok(/<div class="trendLabel">지난주 전체<\/div>[\s\S]*?<div class="trendValue">1,100,600원<\/div>/.test(card), `${zone}: 지난주 전체(월~일)는 일요일 기록을 포함한 1,100,600원 그대로`);
@@ -723,18 +725,18 @@ await section("T-24", async () => {
         const pc = await page(fx, `/analysis?month=2026-07&household_id=${HH}`, { cookie: `${fx.cookie}; ${admin}` });
         eq(pc.status, 200, `${zone}: PC 분석(관리자+사용자 세션)이 열린다`);
         const pcNote = (pc.html.match(/<h2>주간 리포트<\/h2><p class="muted">([\s\S]*?)<\/p>/) || [])[1] || "";
-        ok(pcNote.includes("월요일부터: 7/13(월)~7/15(수)") && pcNote.includes("‘주별’ 탭은 일요일부터"), `${zone}: PC 분석의 주간 리포트도 같은 기준 문장을 적는다`);
+        ok(pcNote.includes("월요일부터: 7/13(월)~7/15(수)") && !pcNote.includes("일요일부터"), `${zone}: PC 분석의 주간 리포트도 같은 기준 문장을 적는다(V22.9.89: 일요일 시작 안내 없음)`);
         ok(/<div class="weeklyHead"><b>30,000원<\/b>/.test(pc.html), `${zone}: PC 분석의 이번 주 합계도 30,000원 그대로`);
         const daily = await page(fx, `/app?month=2026-07&household_id=${HH}`, { headers: { "user-agent": DESKTOP } });
-        ok(!daily.html.includes("일요일~토요일(홈 캘린더의 한 줄)"), `${zone}: 기본(일별) 홈에는 새 안내 문장이 없다(홈 HTML 은 ‘주별’ 탭에서만 조금 늘었다)`);
+        ok(!daily.html.includes("월요일~일요일(홈 캘린더의 한 줄)"), `${zone}: 기본(일별) 홈에는 새 안내 문장이 없다(홈 HTML 은 ‘주별’ 탭에서만 조금 늘었다)`);
         const home = await page(fx, `/app?month=2026-07&household_id=${HH}&trend=weekly`, { headers: { "user-agent": DESKTOP } });
         eq(home.status, 200, `${zone}: 홈 ‘주별’ 탭이 열린다`);
         ok(home.html.length <= daily.html.length, `${zone}: ‘주별’ 탭 홈(${home.html.length}바이트)은 기본 홈(${daily.html.length}바이트)보다 크지 않다 — 안내 문장이 홈 예산 상한을 넘기지 않는다`);
         const grid = (home.html.match(/<div class="weeklyTrendGrid"[\s\S]*?<p class="homeTrendHint"[^>]*>([^<]*)<\/p>/) || []);
         ok(!!grid[0], `${zone}: 주별 격자 아래에 기준 안내(.homeTrendHint)가 있다`);
-        ok((grid[1] || "").includes("일요일~토요일") && (grid[1] || "").includes("잘린 주"), `${zone}: 홈 ‘주별’ 탭이 한 주를 일요일~토요일로 세고 달 경계에서 잘린 주를 알린다`);
+        ok((grid[1] || "").includes("월요일~일요일") && (grid[1] || "").includes("잘린 주"), `${zone}: 홈 ‘주별’ 탭이 한 주를 월요일~일요일로 세고 달 경계에서 잘린 주를 알린다(V22.9.89)`);
         const weekText = (home.html.match(/<b[^>]*>3주차<\/b>[\s\S]*?<strong[^>]*>([^<]*)<\/strong>/) || [])[0] || "";
-        ok(/12~18일/.test(weekText) && /103만/.test(weekText), `${zone}: 홈 3주차(12~18일)는 일요일 기록을 포함한 103만원 그대로 (${weekText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()})`);
+        ok(/13~19일/.test(weekText) && /3만/.test(weekText) && !/103만/.test(weekText), `${zone}: 홈 3주차(13~19일)는 월~수 30,000원(3만)으로 주간 리포트 이번 주와 같다 — 일요일 100만원은 2주차다 (${weekText.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim()})`);
       }));
     }
     // 요일 글자: 오늘이 일요일·월요일·화요일일 때도 범위가 맞다(2026-07-19 일, 2026-07-13 월, 2026-07-14 화)

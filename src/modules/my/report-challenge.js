@@ -26,10 +26,10 @@ import {
 import {
   budgetSummary, fetchBudgets, fetchObservationMonthRows, fetchRecurringStrict,
 } from "../domain/budgets.js";
-import { monthSpendingOutlook } from "../domain/spending-outlook.js";
+import { isRecurringSourceRow, monthSpendingOutlook } from "../domain/spending-outlook.js";
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
 import {
-  calculateDashboardAnalysis, monthlyObservedSpending, renderObservedMoney,
+  calculateDashboardAnalysis, householdStartYmd, monthlyObservedSpending, renderObservedMoney,
 } from "../domain/analytics.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
 import {
@@ -65,7 +65,7 @@ async function getMyPageContext(request, env, url, { observedComparison = false,
   const calendar = calendarDaysFromRows(rows, month);
   const stats = calculateStats(rows);
   const budget = budgetSummary(rows, budgets);
-  const analysis = calculateDashboardAnalysis(rows, rows, calendar, month, outlook ? { outlook: monthSpendingOutlook({ month, rows, recurring, plans: reservePlans }) } : {});
+  const analysis = calculateDashboardAnalysis(rows, rows, calendar, month, { startedOn: householdStartYmd(selected, rows), ...(outlook ? { outlook: monthSpendingOutlook({ month, rows, recurring, plans: reservePlans }) } : {}) });
   return { userId, user, month, households, selected, members, rows, calendar, stats, budgets, budget, analysis, recurring, reservePlans };
 }
 
@@ -106,7 +106,7 @@ function reportChallengeTypeMeta(type = "no_spend_days", settings = {}) {
   return { type: "no_spend_days", typeLabel: "무지출 일수", successLabel: "무지출 성공", failureLabel: "지출 있음", goalLabel: "지출 0원" };
 }
 
-function normalizeReportChallenge(value = {}, month = currentMonthKst()) {
+function normalizeReportChallenge(value = {}, month = currentMonthKst(), startedOn = "") {
   const raw = value && typeof value === "object" ? value : parseJsonSetting(value, {});
   const targetDays = Math.max(1, Math.min(20, Math.round(Number(raw.target_days || 4)) || 4));
   const title = String(raw.title || "무지출 데이").trim().replace(/\s+/g, " ").slice(0, 30) || "무지출 데이";
@@ -114,7 +114,9 @@ function normalizeReportChallenge(value = {}, month = currentMonthKst()) {
   const targetAmount = Math.max(0, Math.min(MAX_TRANSACTION_AMOUNT, Math.round(Number(raw.target_amount || raw.goal?.amount || 0)) || 0));
   const category = String(raw.category || raw.goal?.category || "").trim().replace(/\s+/g, " ").slice(0, 40);
   const today = formatDate(nowKstDate());
-  const startDate = isValidTransactionDateString(raw.start_date) ? String(raw.start_date) : `${validMonth(month) || currentMonthKst()}-01`;
+  // V22.9.89 Astra 4: 저장하지 않은 기본 챌린지는 그 달 1일부터인데, 그 달에 가계부를 시작했으면 시작한 날부터다(시작 전의 날을 무지출 성공으로 세지 않음).
+  const monthStart = `${validMonth(month) || currentMonthKst()}-01`;
+  const startDate = isValidTransactionDateString(raw.start_date) ? String(raw.start_date) : startedOn && startedOn > monthStart && startedOn.slice(0, 7) === monthStart.slice(0, 7) ? startedOn : monthStart;
   let targetDate = isValidTransactionDateString(raw.target_date) ? String(raw.target_date) : shiftChallengeDate(startDate, targetDays - 1);
   let periodDays = challengePeriodDays(startDate, targetDate);
   if (!periodDays || periodDays > 90) {
@@ -125,9 +127,9 @@ function normalizeReportChallenge(value = {}, month = currentMonthKst()) {
   return { schemaVersion: Number(raw.schema_version || 1), revision: Math.max(0, Math.round(Number(raw.revision || 0)) || 0), enabled: raw.enabled !== false, targetDays: Math.min(targetDays, periodDays), title, type, targetAmount, category, ...meta, startDate, targetDate, periodDays };
 }
 
-function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) {
+function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}, { startedOn = "" } = {}) {
   const safeMonth = validMonth(month) || currentMonthKst();
-  const settings = normalizeReportChallenge(value,safeMonth);
+  const settings = normalizeReportChallenge(value, safeMonth, startedOn);
   const today = formatDate(nowKstDate());
   const yesterday = shiftChallengeDate(today, -1);
   const evaluationEnd = yesterday < settings.targetDate ? yesterday : settings.targetDate;
@@ -147,8 +149,11 @@ function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) 
     const failed = settings.type === "no_spend_days" ? spent > 0 : spent > settings.targetAmount;
     if (failed) failedDays.add(date);
   }
+  // V22.9.89 Astra 4: 챌린지 시작일부터 오늘까지 직접 적은 기록(정기 자동 기록 제외)이 하나도 없으면 지난 날을 성공으로 세지 않는다.
+  // 기록이 없는 가계부가 "무지출 4/4일 · 목표를 달성했습니다"였다. 그런 동안은 날짜 칸 대신 달성률(0/N일)로 보인다(아래 displayMode).
+  const recording = safeArray(rows).some((row) => { const date = String(row.transaction_date || "").slice(0, 10); return !isRecurringSourceRow(row) && date >= settings.startDate && date <= today; });
   let completed = 0;
-  for (let offset = 0; offset < evaluatedDays; offset++) {
+  if (recording) for (let offset = 0; offset < evaluatedDays; offset++) {
     const date = shiftChallengeDate(settings.startDate, offset);
     if (!failedDays.has(date)) completed++;
   }
@@ -158,7 +163,9 @@ function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) 
   const remaining = Math.max(0, target - progress);
   const currentDay = today < settings.startDate ? 0 : Math.min(settings.periodDays, challengePeriodDays(settings.startDate, today));
   const phase = today < settings.startDate ? "scheduled" : today > settings.targetDate ? "ended" : "active";
-  const displayMode = settings.periodDays <= 7 ? "daily" : "percent";
+  // 날짜 칸에는 ‘기록 없음’ 상태가 없다: 홈 칸의 상태 글자는 1년 캐시 클라이언트(v5 묶음)가 s·x·t·f 로만 붙여, 지난 날이 ‘○ 예정’으로
+  // 읽혔다(V22.9.89 독립 검토). 지난 날을 셀 수 없는 동안(직접 적은 기록 없음)은 달성률로 보이고, 설명은 아래 상태 문장이 한다.
+  const displayMode = settings.periodDays <= 7 && (recording || !evaluatedDays) ? "daily" : "percent";
   const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
   const daySlots = displayMode === "daily"
     ? Array.from({ length: settings.periodDays }, (_unused, offset) => {
@@ -174,13 +181,13 @@ function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) 
         return { date, day, weekday, state, stateLabel };
       })
     : [];
-  const hasMonthlyRecords = safeArray(rows).some(row => String(row.transaction_date || "").slice(0, 7) === safeMonth);
-  return { ...settings, month: safeMonth, hasMonthlyRecords, today, targetDays: target, completedDays: completed, progress, rate, remaining, evaluatedDays, currentDay, phase, displayMode, daySlots };
+  const hasMonthlyRecords = safeArray(rows).some(row => String(row.transaction_date || "").slice(0, 7) === safeMonth && !isRecurringSourceRow(row));
+  return { ...settings, month: safeMonth, hasMonthlyRecords, recording, today, targetDays: target, completedDays: completed, progress, rate, remaining, evaluatedDays, currentDay, phase, displayMode, daySlots };
 }
 
-async function buildReportChallengeForHousehold(env, { householdId = "", month = currentMonthKst(), rows = [], value = {} } = {}) {
+async function buildReportChallengeForHousehold(env, { householdId = "", month = currentMonthKst(), rows = [], value = {}, startedOn = "" } = {}) {
   const safeMonth = validMonth(month) || currentMonthKst();
-  const settings = normalizeReportChallenge(value,safeMonth);
+  const settings = normalizeReportChallenge(value, safeMonth, startedOn);
   const monthStart = `${safeMonth}-01`;
   const monthEnd = nextMonthStart(safeMonth);
   const today = formatDate(nowKstDate());
@@ -204,7 +211,7 @@ async function buildReportChallengeForHousehold(env, { householdId = "", month =
     }
   }
   // The optional cross-month challenge read must not make an empty selected month celebrate.
-  return { ...buildReportChallenge(challengeRows, safeMonth, value), hasMonthlyRecords: safeArray(rows).some(row => String(row.transaction_date || "").slice(0, 7) === safeMonth) };
+  return { ...buildReportChallenge(challengeRows, safeMonth, value, { startedOn }), hasMonthlyRecords: safeArray(rows).some(row => String(row.transaction_date || "").slice(0, 7) === safeMonth && !isRecurringSourceRow(row)) };
 }
 
 function reportMonthHref(path = "/my/analysis", month = currentMonthKst(), householdId = "", view = "", extra = {}) {
@@ -312,8 +319,12 @@ function buildReportDashboardSummary(rows = [], budget = {}, month = currentMont
   else if (totalBudget && paceGap > 8) insight = `달력 진행률보다 예산을 ${Math.abs(paceGap)}%p 빠르게 사용하고 있어요. 사용률이 높은 분류부터 확인해 보세요.`;
   else if (totalBudget && paceGap < -8) insight = `달력 진행률보다 예산 사용이 ${Math.abs(paceGap)}%p 여유로워요. 지금의 소비 흐름을 유지해 보세요.`;
   else if (totalBudget) insight = "달력 진행률과 예산 사용 속도가 비슷해요. 큰 지출 예정이 있다면 남은 예산을 먼저 확인하세요.";
+  // V22.9.89 Astra 2: 이 칸의 이번 달 지출은 그 달 날짜의 기록을 모두 센다(생활비 리포트는 오늘까지). 오늘 뒤 날짜로 미리 적은 지출이 있으면
+  // 라벨에 ‘미리 적은 N원 포함’을 붙여 두 화면의 합계가 다른 이유를 보인다. Astra 3: 정기 항목을 못 읽은 월말 예상(partial)은 ‘정기 항목 빼고 계산’.
+  // 아직 오지 않은 달(basisEnd 없음)은 그 달 기록이 모두 미리 적은 것이다(V22.9.89 독립 검토: 10월에 11월을 보면 표시가 없었다).
+  const futureExpense = rows.filter((row) => row.type === "expense" && String(row.transaction_date || "").slice(0, 7) === safeMonth && (!observation.basisEnd || String(row.transaction_date || "") > observation.basisEnd)).reduce((sum, row) => sum + Number(row.amount || 0), 0);
   // observation 의 burnForecast(예전 식)가 남지 않도록 같은 월말 예상으로 덮는다.
-  return { ...observation, burnForecast: forecast, month: safeMonth, expense, income, balance: income - expense, totalBudget, budgetRate, elapsedRate, remainingBudget, forecast, spendingOutlook, paceGap, categoryAlerts, insight,
+  return { ...observation, burnForecast: forecast, month: safeMonth, expense, income, balance: income - expense, futureExpense, totalBudget, budgetRate, elapsedRate, remainingBudget, forecast, spendingOutlook, paceGap, categoryAlerts, insight,
     ...(stats.refund || refundFailed ? { refund: stats.refund || null, refundFailed: !!refundFailed } : {}) };
 }
 
@@ -326,7 +337,7 @@ function renderReportDashboard(summary = {}) {
     const itemRate = Math.max(0, Math.min(100, Number(item.rate || 0)));
     return `<li><div><b>${escapeHtml(item.category || "미분류")}</b><span>${numberWithCommas(item.spent || 0)}원 / ${numberWithCommas(item.budget || 0)}원</span></div><strong>${numberWithCommas(item.rate || 0)}%</strong><i><em style="width:${itemRate}%"></em></i></li>`;
   }).join("");
-  return `<section class="reportCockpit" aria-labelledby="reportCockpitTitle"><div class="reportCockpitHead"><div><span>월간 요약</span><h2 id="reportCockpitTitle">${escapeHtml(summary.month || "")} 한눈에 보기</h2></div><a href="/app?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}&view=calendar#calendar">거래 캘린더 보기</a></div><div class="reportCockpitGrid"><div class="reportPace"><div class="reportGauge" style="--report-rate:${rate}%"><div><b>${summary.totalBudget ? `${numberWithCommas(summary.budgetRate || 0)}%` : "—"}</b><span>예산 사용</span></div></div><p>${summary.totalBudget ? `월 ${numberWithCommas(summary.totalBudget)}원 기준` : "월 예산 미설정"}</p></div><div class="reportKpis"><div><span>이번 달 지출${refundNote ? ` · ${escapeHtml(refundNote)}` : ""}</span><b>${numberWithCommas(summary.expense || 0)}원</b></div><div><span>이번 달 수입</span><b>${numberWithCommas(summary.income || 0)}원</b></div><div><span>남은 예산</span><b>${summary.totalBudget ? `${numberWithCommas(summary.remainingBudget || 0)}원` : "설정 전"}</b></div><div><span>월말 예상 지출</span><b>${renderObservedMoney(summary, summary.forecast)}</b></div></div></div><div class="reportInsight"><span aria-hidden="true">✦</span><p>${escapeHtml(summary.insight || "")}</p></div>${categories ? `<div class="reportCategoryBudget"><div class="reportSectionTitle"><b>분류별 예산 속도</b><a href="/budgets?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}">전체 예산 보기</a></div><ul>${categories}</ul></div>` : ""}</section>`;
+  return `<section class="reportCockpit" aria-labelledby="reportCockpitTitle"><div class="reportCockpitHead"><div><span>월간 요약</span><h2 id="reportCockpitTitle">${escapeHtml(summary.month || "")} 한눈에 보기</h2></div><a href="/app?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}&view=calendar#calendar">거래 캘린더 보기</a></div><div class="reportCockpitGrid"><div class="reportPace"><div class="reportGauge" style="--report-rate:${rate}%"><div><b>${summary.totalBudget ? `${numberWithCommas(summary.budgetRate || 0)}%` : "—"}</b><span>예산 사용</span></div></div><p>${summary.totalBudget ? `월 ${numberWithCommas(summary.totalBudget)}원 기준` : "월 예산 미설정"}</p></div><div class="reportKpis"><div><span>이번 달 지출${summary.futureExpense ? ` · 미리 적은 ${numberWithCommas(summary.futureExpense)}원 포함` : ""}${refundNote ? ` · ${escapeHtml(refundNote)}` : ""}</span><b>${numberWithCommas(summary.expense || 0)}원</b></div><div><span>이번 달 수입</span><b>${numberWithCommas(summary.income || 0)}원</b></div><div><span>남은 예산</span><b>${summary.totalBudget ? `${numberWithCommas(summary.remainingBudget || 0)}원` : "설정 전"}</b></div><div><span>월말 예상 지출${summary.spendingOutlook?.partial && summary.forecast != null ? " · 정기 항목 빼고 계산" : ""}</span><b>${renderObservedMoney(summary, summary.forecast)}</b></div></div></div><div class="reportInsight"><span aria-hidden="true">✦</span><p>${escapeHtml(summary.insight || "")}</p></div>${categories ? `<div class="reportCategoryBudget"><div class="reportSectionTitle"><b>분류별 예산 속도</b><a href="/budgets?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}">전체 예산 보기</a></div><ul>${categories}</ul></div>` : ""}</section>`;
 }
 
 function renderChallengeProgress(challenge = {}, { hydrate = false } = {}) {
@@ -361,6 +372,8 @@ function renderReportChallenge(challenge = {}, { householdId = "", canManage = f
     ? "챌린지가 꺼져 있습니다."
     : safe.phase === "scheduled"
       ? `${safe.startDate}부터 시작합니다.`
+      : safe.recording === false && safe.evaluatedDays > 0
+        ? `${safe.phase === "ended" ? `${safe.targetDate}에 끝난 챌린지입니다.` : `${dayPosition}입니다.`} 직접 적은 기록이 없어 성공한 날을 세지 않았어요.`
       : safe.phase === "ended"
         ? `${safe.targetDate}에 끝난 챌린지입니다. ${safe.remaining ? `목표까지 ${safe.remaining}일을 남기고 끝났습니다.` : "목표를 달성했습니다."}`
         : safe.remaining
@@ -441,7 +454,7 @@ async function handleReportChallengeSave(request, env) {
   if (!inline) return redirectResponse(`${returnTo}&msg=challenge_saved#reportChallenge`);
   try {
     const rows = await fetchAdminRows(env, { month, householdId, type: "all" });
-    const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows, value });
+    const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows, value, startedOn: householdStartYmd(selected, rows) });
     return jsonResponse({
       ok: true,
       saved: true,

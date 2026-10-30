@@ -1,6 +1,6 @@
 // @build:imports-start
 import { isValidTransactionDateString } from "../admin/transactions-households.js";
-import { monthSpendingOutlook } from "./spending-outlook.js";
+import { isRecurringSourceRow, monthSpendingOutlook } from "./spending-outlook.js";
 import { chooseMemeCard } from "../features/meme-engine-premium.js";
 import { isMissingCategory, isMissingPayment } from "../kakao/reply-texts.js";
 import { formatDate, nowKstDate } from "../nlu/date-payment.js";
@@ -110,16 +110,25 @@ function buildWeekdayStats(rows) {
   return map;
 }
 
+// V22.9.89 Astra 7: 소비 신호 세 단계(V2 §5-1). 점수 경계는 색과 같은 45·70 이다.
+function consumptionSignalLabel(score = 0) {
+  return score >= 70 ? "넘침 위험" : score >= 45 ? "주의" : "안정";
+}
+
 function renderStrategyCards(ext, a) {
   const cards = [
     // 분석 기간 기록이 한도를 넘어 일부만 읽었으면 먼저 알린다(QA B05).
     ...(ext.historyTruncated ? [{ cls: "danger", title: "분석 범위", value: "일부만 분석", desc: "기간 기록이 6,000건을 넘어 최신 6,000건으로 계산했습니다. 정확한 합계는 월별 화면과 CSV에서 확인하세요." }] : []),
     { cls: !Number(ext.prev?.totals?.expense || 0) ? "" : ext.expenseMoMRate > 20 ? "danger" : ext.expenseMoMRate > 5 ? "warn" : "good", title: "전월 대비 지출", value: formatChangeRate(ext.current?.totals?.expense, ext.prev?.totals?.expense, "비교 기록 없음"), desc: `전월 ${numberWithCommas(ext.prev.totals.expense)}원 → 이번 달 ${numberWithCommas(ext.current.totals.expense)}원` },
     { cls: ext.avg3Expense > 0 && ext.current.totals.expense > ext.avg3Expense * 1.2 ? "warn" : "good", title: "3개월 평균 대비", value: `${numberWithCommas(ext.avg3Expense)}원`, desc: `최근 3개월 중 기록이 있는 ${ext.avg3Months ?? 3}개월의 평균입니다(지출 0원인 달 포함). 이번 달 속도와 비교하세요.` },
-    { cls: ext.cleanupCount > 0 ? "danger" : "good", title: "분석 신뢰도", value: `${ext.cleanupCount}건`, desc: "미정리 데이터가 적을수록 고급 분석이 정확해집니다." },
+    // V22.9.89 Astra 7(V2 §5-1 ‘정리할 기록’): 예전 이름 ‘분석 신뢰도 0건’은 0이 나쁜 값처럼 읽혔다. 비어 있는 칸이 있는 기록 수이고 0이면 깔끔하다.
+    // 빨강은 넘침·오류에만 쓴다(§5-2) — 정리할 기록은 주의 색이다.
+    { cls: ext.cleanupCount > 0 ? "warn" : "good", title: "정리할 기록", value: ext.cleanupCount ? `${ext.cleanupCount}건` : "깔끔해요", desc: ext.cleanupCount ? "분류나 결제수단이 비어 있는 기록이에요. 채우면 분석이 정확해져요." : "분류와 결제수단이 모두 채워져 있어요." },
     { cls: ext.topIncrease.diff > 0 ? "warn" : "good", title: "최대 증가 항목", value: ext.topIncrease.name, desc: `${numberWithCommas(ext.topIncrease.diff)}원 증가 · ${formatChangeRate(ext.topIncrease.current, ext.topIncrease.previous)}` },
     { cls: a.weekendRate >= 45 ? "warn" : "good", title: "주말 소비", value: `${a.weekendRate}%`, desc: "주말 외식·여가성 소비 비중을 점검하세요." },
-    { cls: a.basisDays === 0 ? "" : a.riskScore >= 70 ? "danger" : a.riskScore >= 45 ? "warn" : "good", title: "가계부 경보", value: a.basisDays === 0 ? "관측 전" : `${a.riskScore}점`, desc: "고정비, 쏠림, 미정리, 월말 예상치를 종합한 점수입니다." },
+    // V22.9.89 Astra 7(V2 §5-1 ‘소비 신호’): 점수만 있던 ‘가계부 경보 32점’을 안정·주의·넘침 위험으로 말하고 점수와 경계는 설명에 둔다.
+    // 경계(45·70)는 색과 같고, 종합 리포트의 ‘정상 범위’(70 미만)도 같은 경계로 맞췄다.
+    { cls: a.basisDays === 0 ? "" : a.riskScore >= 70 ? "danger" : a.riskScore >= 45 ? "warn" : "good", title: "소비 신호", value: a.basisDays === 0 ? "관측 전" : consumptionSignalLabel(a.riskScore), desc: a.basisDays === 0 ? "고정비, 쏠림, 미정리, 월말 예상치를 합쳐 봅니다." : `${a.riskScore}점 · 고정비, 쏠림, 미정리, 월말 예상치를 합친 점수예요. 45점부터 주의, 70점부터 넘침 위험이에요.` },
   ];
   return cards.map((c) => `<div class="insight ${c.cls}"><b>${escapeHtml(c.title)}</b><div style="font-size:24px;font-weight:950;letter-spacing:-.04em">${escapeHtml(c.value)}</div><div class="muted">${escapeHtml(c.desc)}</div></div>`).join("");
 }
@@ -176,7 +185,25 @@ function monthObservation(month, rows, { receipt = null, endDay = null } = {}) {
     rows: status === "complete" ? rows.filter(row => row.transaction_date >= `${month}-01` && row.transaction_date <= end) : null };
 }
 
-function monthlyObservedSpending(rows, month) {
+// V22.9.89 Astra 4: 가계부를 시작한 날(KST). 가계부를 만든 날이고, 그보다 앞선 날짜의 기록이 있으면(지난 지출을 나중에 적음) 그 날이다.
+// 만든 날을 모르면 빈 값이고, 무지출은 예전처럼 기간 첫날부터 센다.
+// rows 는 보는 달의 기록을 넘긴다(홈·소비 분석·챌린지). 화면마다 다른 범위를 넘기면 같은 달의 무지출일이 달라진다 — 생활비 리포트는
+// 만든 날만 받아 그 기간의 기록으로 같은 셈을 한다(V22.9.89 독립 검토).
+function householdStartYmd(household = null, rows = []) {
+  const ms = Date.parse(String(household?.created_at || ""));
+  if (!Number.isFinite(ms)) return "";
+  const created = new Date(ms + 32400000).toISOString().slice(0, 10);
+  let first = "";
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const date = String(row?.transaction_date || "").slice(0, 10);
+    if (isValidTransactionDateString(date) && (!first || date < first)) first = date;
+  }
+  return first && first < created ? first : created;
+}
+
+// V22.9.89 Astra 4: 무지출일은 기록하는 동안 지출이 없던 날이다. 그 달 오늘까지 직접 적은 기록(정기 자동 기록 제외)이 하나도 없으면 세지 않고(null),
+// 가계부를 시작한 날(startedOn) 전의 날도 세지 않는다. 예전에는 기록이 없는 가계부도 "무지출 29일"이었다.
+function monthlyObservedSpending(rows, month, { startedOn = "" } = {}) {
   if (!Array.isArray(rows) || !/^20\d{2}-(?:0[1-9]|1[0-2])$/.test(String(month))) throw new Error("analysis_observation_invalid");
   const today = formatDate(nowKstDate());
   const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
@@ -189,8 +216,20 @@ function monthlyObservedSpending(rows, month) {
     observedExpense, basisDays, basisEnd, daysInMonth, hasObservation: basisDays > 0,
     avgExpense: basisDays ? Math.round(observedExpense / basisDays) : null,
     burnForecast: basisDays ? Math.round(observedExpense / basisDays * daysInMonth) : null,
-    expenseDays, noSpendDays: basisDays - expenseDays,
+    expenseDays, noSpendDays: noSpendDaysFrom(rows, month, basisEnd, startedOn),
   };
+}
+
+function noSpendDaysFrom(rows, month, basisEnd, startedOn = "") {
+  if (!basisEnd) return 0;
+  const first = `${month}-01`;
+  const inMonth = (r) => String(r.transaction_date || "") >= first && String(r.transaction_date || "") <= basisEnd;
+  if (!rows.some((r) => inMonth(r) && !isRecurringSourceRow(r))) return null;
+  const from = startedOn && startedOn > first ? startedOn : first;
+  if (from > basisEnd) return 0;
+  const days = Math.round((Date.parse(`${basisEnd}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
+  const spent = new Set(rows.filter((r) => r.type === "expense" && Number(r.amount) > 0 && inMonth(r) && r.transaction_date >= from).map((r) => r.transaction_date)).size;
+  return Math.max(0, days - spent);
 }
 
 // V22.9.79 W-7: 월말 예상을 낼 수 없으면(기록 날짜·금액 오류, 영수증 불완전) 0원이 아니라 확인 불가로 적는다.
@@ -201,13 +240,13 @@ function renderObservedMoney(analysis, amount) {
 // V22.9.79 V76 W-7: 월말 예상(burnForecast)은 monthSpendingOutlook(전체 분류)이다. 고정지출 규칙·정기지출 항목을 읽은 화면
 // (/my/analysis?view=report·/smart-tools)은 그 결과(outlook)를 넘기고, 넘기지 않으면 기록만으로 계산한다(규칙·항목은 못 읽은 것으로
 // 보아 partial — 그래도 이미 적힌 고정지출은 속도에서 빠진다). 밈·위험 점수도 이 값을 쓴다.
-function calculateDashboardAnalysis(allRows, filteredRows, calendar, month, { outlook = null } = {}) {
+function calculateDashboardAnalysis(allRows, filteredRows, calendar, month, { outlook = null, startedOn = "" } = {}) {
   const stats = calculateStats(allRows);
   const expense = stats.totals.expense;
   const income = stats.totals.income;
   // V22.9.34 2차 점검 U01: 하루 평균·무지출일은 이번 달이면 오늘까지, 지난 달이면 그 달 전체, 앞으로 올 달이면
   // 0일을 기준으로 센다. 예전에는 이번 달도 아직 오지 않은 날까지 세어 무지출일이 부풀고 하루 평균이 낮아졌다.
-  const observation = monthlyObservedSpending(allRows, month);
+  const observation = monthlyObservedSpending(allRows, month, { startedOn });
   const { basisDays, basisEnd, avgExpense, noSpendDays, expenseDays } = observation;
   const spendingOutlook = outlook || monthSpendingOutlook({ month, rows: allRows, recurring: null, plans: null });
   const burnForecast = basisDays && spendingOutlook.expected ? spendingOutlook.expected.total : null;
@@ -264,9 +303,9 @@ function calculateDashboardAnalysis(allRows, filteredRows, calendar, month, { ou
 // @build:exports-start
 export {
   addMonthsYm, calculateDashboardAnalysis, calculateExtendedAnalytics, categoryExpenseMap,
-  deltaClass, formatChangeAgainst, formatSignedPercent, monthObservation, monthlyObservedSpending,
-  percentChange, renderCategoryCompareTable, renderCategoryTrendTable, renderMonthlyTrendMini,
-  renderMonthlyTrendTable, renderObservedMoney, renderStrategyCards, renderWeekdayStats,
-  renderYearlyMonthSummary,
+  consumptionSignalLabel, deltaClass, formatChangeAgainst, formatSignedPercent, householdStartYmd,
+  monthObservation, monthlyObservedSpending, percentChange, renderCategoryCompareTable,
+  renderCategoryTrendTable, renderMonthlyTrendMini, renderMonthlyTrendTable, renderObservedMoney,
+  renderStrategyCards, renderWeekdayStats, renderYearlyMonthSummary,
 };
 // @build:exports-end

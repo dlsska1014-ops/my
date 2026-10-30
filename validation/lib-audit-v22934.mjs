@@ -47,11 +47,38 @@ export function beforeUiClarityV22983(block) {
   return block;
 }
 
+// V22.9.89 (Codex Astra 리포트, 사용자 2026-10-29 "확인해서 반영이나 수정해야하는 사항 있으면 진행하고") changes renderMyAnalysisHtml in
+// exactly three places — numbers and names only, no layout (V2 §8 R3: 소비 분석은 D-5 전 보호 화면이라 배치·탭·필터는 그대로다):
+// Astra 4 (Z-4) 무지출일 is "-" when nothing was written by hand (noSpendDays null), Astra 3 (Z-3) the 월말 예상 지출 label says
+// "정기 항목 빼고 계산" when the recurring rules could not be read, and Astra 7 (Z-7) the improvement tip uses the "정리할 기록" name.
+// Reversing them keeps the whole-renderer hashes guarding every other byte.
+export function beforeNumbersTrustV22989(block) {
+  const reversals = [
+    [
+      '<b>${analysis.basisDays === 0 || analysis.noSpendDays == null ? "-" : `${numberWithCommas(analysis.noSpendDays)}일`}</b>',
+      '<b>${analysis.basisDays === 0 ? "-" : `${numberWithCommas(analysis.noSpendDays || 0)}일`}</b>',
+    ],
+    [
+      '<span class="muted">월말 예상 지출${analysis.spendingOutlook?.partial && analysis.burnForecast != null ? " · 정기 항목 빼고 계산" : ""}</span>',
+      '<span class="muted">월말 예상 지출</span>',
+    ],
+    [
+      '<div><b>정리할 기록 줄이기</b><br/><span class="muted">분류나 결제수단이 비어 있는 기록이 많으면 분석이 부정확해져요. 키워드 설정을 보강하세요.</span></div>',
+      '<div><b>분류 누락 정리</b><br/><span class="muted">분류·결제수단 누락이 많으면 분석 정확도가 떨어지므로 키워드 설정을 보강하세요.</span></div>',
+    ],
+  ];
+  for (const [current, previous] of reversals) {
+    assert.equal(block.split(current).length - 1, 1, "V22.9.89 renderer exception must occur exactly once: " + current);
+    block = block.replace(current, () => previous);
+  }
+  return block;
+}
+
 // V22.9.54 changes only these two money expressions in renderMyAnalysisHtml.
 // Reversing them lets existing whole-renderer hashes keep guarding all other
 // bytes. Actual future-month output is covered by validate-bot-observation.
 export function beforeBotObservationRenderer(block) {
-  block = beforeDarkBudgetTable(beforeUiClarityV22983(block));
+  block = beforeDarkBudgetTable(beforeUiClarityV22983(beforeNumbersTrustV22989(block)));
   // V22.9.58 authorizes exactly two comparison spans and one local declaration.
   const reversals = [
     [

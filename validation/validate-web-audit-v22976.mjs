@@ -38,7 +38,8 @@ await withClock("2026-10-03", () => fixture(async (fx) => {
   const home = strip((await page(fx, `/app?month=2026-10&household_id=${HH}`)).html);
   t.ok(home.includes("지난달 1~3일보다 10,000원 덜 썼어요."), `D-3 홈은 10월 1~3일 20,000원을 9월 1~3일 30,000원과 견준다 (${(home.match(/지난달 1~3일[^.]*\./) || [""])[0]})`);
   t.ok(!home.includes("170,000원 더 썼어요"), "D-3 아직 나가지 않은 25일 관리비를 '더 썼어요'에 넣지 않는다");
-  t.ok(home.includes("지출 200,000원"), "D-3 이번 달 등록 지출 합계(미래 날짜 포함)는 그대로 보인다");
+  // V22.9.89 U-02: 예산이 없으면 카드 아랫줄은 ‘예산 없음’ · ‘예산 안 정한 지출 N원’(모든 지출)이다. 숫자는 예전 ‘지출 N원’과 같다.
+  t.ok(home.includes("예산 없음") && home.includes("예산 안 정한 지출 200,000원") && !home.includes("예산 쓴 돈"), "D-3 이번 달 등록 지출 합계(미래 날짜 포함)는 그대로 보인다");
   const reports = strip((await page(fx, `/reports?month=2026-10&household_id=${HH}`)).html);
   t.ok(reports.includes("지난달 같은 기간(1~3일)보다 10,000원 덜 썼어요"), "D-3 생활비 리포트와 같은 결론이다");
 }));

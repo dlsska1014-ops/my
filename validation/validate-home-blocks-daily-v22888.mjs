@@ -117,7 +117,8 @@ ok(/이번 달의 \d+%가 지났고 예산은 \d+%만 썼어요/.test(slowPlan.t
 ok(/하루 [\d,]+\s*원/.test(slowPlan.text), `하루 기준 금액을 말한다 (${slowPlan.text})`);
 // 그리고 그 금액에는 스크립트가 굴릴 값이 실려 있어야 한다(9.1).
 ok(/<span data-ab-num="\d+" data-ab-num-unit="원">/.test(slowPlan.block), "하루 환산 금액에 전환 대상 값이 실려 있다");
-ok(slowPlan.text.includes("월말 예상대로면") && slowPlan.text.includes("남아요"), "느린 속도에서는 남을 금액을 말한다");
+// V22.9.89 U-03(V2): 월말 문장은 예산 범위를 말하고 근사로 쓴다(‘이대로면 월말에 예산이 약 N만 원 남아요’).
+ok(slowPlan.text.includes("이대로면 월말에 예산이 약 ") && slowPlan.text.includes("남아요"), `느린 속도에서는 남을 금액을 말한다 (${slowPlan.text})`);
 
 // V22.9.16: 이 검사는 "오늘이 며칠인지"에 따라 결과가 달라졌다. 예산 100만원에 80만원을
 // 썼을 때 "먼저 끝난다"가 되려면 이 속도로 달 끝까지 갔을 때 예산을 넘어야 하는데,
@@ -127,14 +128,16 @@ ok(slowPlan.text.includes("월말 예상대로면") && slowPlan.text.includes("�
 // 돌려도 같은 결과가 나오고, 마지막 날에 안내가 비는 갈래는 아래에서 따로 확인한다.
 const fast = await renderHome((fixture) => { noFixedItems(fixture); addTotalBudget(fixture, 1000000); addExpense(fixture, 800000); });
 const fastPlan = planOf(fast.html);
-ok(/예상대로면 예산이 \d+일 먼저 끝나요/.test(fastPlan.text), `빠른 속도에서는 며칠 먼저 끝나는지 말한다 (${fastPlan.text})`);
+ok(/이대로면 예산이 \d+일 먼저 끝나요/.test(fastPlan.text), `빠른 속도에서는 며칠 먼저 끝나는지 말한다 (${fastPlan.text})`); // V22.9.89 U-03 문구
 // V22.9.86 T-12: 빠른 속도(경과율 < 사용률 < 100) 문장이 남은 일수와 하루 금액을 함께 말한다.
 ok(/예산은 \d+%를 썼어요\. 남은 \d+일은 하루 [\d,]+\s*원 안에서 써 보세요/.test(fastPlan.text), `빠른 속도에서는 남은 일수와 하루 금액을 말한다 (${fastPlan.text})`);
 const lastDay = new Date(Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth() + 1, 0)).getUTCDate();
 globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), lastDay, 3, 0, 0);
 const lastDayPlan = planOf((await renderHome((fixture) => { noFixedItems(fixture); addTotalBudget(fixture, 1000000); addExpense(fixture, 800000); })).html);
 // V22.9.86 T-12: 마지막 날은 경과율 100%(사용 80% → 느린 속도 문장)다. 남은 하루로 나누므로 하루 금액이 남은 예산 20만원 전부다.
-ok(/이번 달의 100%가 지났고/.test(lastDayPlan.text) && /하루 200,000\s*원씩/.test(lastDayPlan.text), `마지막 날에는 남은 하루로 나눈다 (${lastDayPlan.text})`);
+// V22.9.89 U-04(V2): 남은 날이 5일 이하이고 예산이 넉넉하면(월말 예상이 예산 안) 쓸 수 없는 크기의 하루 금액 대신 짧게 말한다.
+// 마지막 날은 남은 날을 0일이 아니라 오늘 하나(1일)로 센다.
+ok(lastDayPlan.text.includes("남은 1일, 예산이 넉넉해요.") && !/하루 [\d,]+\s*원씩/.test(lastDayPlan.text), `마지막 날에는 남은 하루(1일)로 세고 넉넉하면 짧게 말한다 (${lastDayPlan.text})`);
 ok(!/먼저 끝나요/.test(lastDayPlan.text), "마지막 날에는 '먼저 끝난다'를 말하지 않는다(달 끝보다 이른 날이 없다)");
 // 월초에는 같은 금액도 빠른 속도로 판단하고, 월말에는 느린 속도로 판단한다.
 globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), 1, 3, 0, 0);
@@ -143,11 +146,12 @@ globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUT
 const firstDayPlan = planOf((await renderHome((fixture) => { noFixedItems(fixture); addTotalBudget(fixture, 3000000); addExpense(fixture, 200000, 4, "01"); })).html);
 const firstDayFuturePlan = planOf((await renderHome((fixture) => { noFixedItems(fixture); addTotalBudget(fixture, 3000000); addExpense(fixture, 200000); })).html);
 ok(!/먼저 끝나요/.test(firstDayFuturePlan.text), `1일에 다음 날짜로 미리 적은 지출만 있으면 빠른 속도라고 하지 않는다 (${firstDayFuturePlan.text})`);
-ok(/예상대로면 예산이 \d+일 먼저 끝나요/.test(firstDayPlan.text), `1일에는 빠른 속도 안내를 표시한다 (${firstDayPlan.text})`);
+ok(/이대로면 예산이 \d+일 먼저 끝나요/.test(firstDayPlan.text), `1일에는 빠른 속도 안내를 표시한다 (${firstDayPlan.text})`); // V22.9.89 U-03 문구
 globalThis.__AB_QA_FIXED_NOW_MS = Date.UTC(pinned.getUTCFullYear(), pinned.getUTCMonth(), lastDay, 3, 0, 0);
 const slowLastDayPlan = planOf((await renderHome((fixture) => { addTotalBudget(fixture, 3000000); addExpense(fixture, 200000); })).html);
 // V22.9.86 T-12: 한 문장이 된 뒤에도 마지막 날은 남은 하루로 나눈다(300만 − 20만 = 하루 280만원).
-ok(/이번 달의 100%가 지났고/.test(slowLastDayPlan.text) && /하루 2,800,000\s*원씩/.test(slowLastDayPlan.text), `느린 속도도 마지막 날에는 남은 하루로 나눈다 (${slowLastDayPlan.text})`);
+// V22.9.89 U-04: 남은 하루에 280만원을 권하지 않고 ‘남은 1일, 예산이 넉넉해요.’라 하고, 남을 금액은 월말 문장이 말한다(픽스처의 반영 대기 월세 650,000원을 뺀 약 215만 원).
+ok(slowLastDayPlan.text.includes("남은 1일, 예산이 넉넉해요.") && slowLastDayPlan.text.includes("이대로면 월말에 예산이 약 215만 원 남아요"), `느린 속도도 마지막 날에는 남은 하루로 센다 (${slowLastDayPlan.text})`);
 ok(slowLastDayPlan.text.includes("남아요"), "마지막 날에는 남을 금액을 표시한다");
 globalThis.__AB_QA_FIXED_NOW_MS = pinnedNow;
 

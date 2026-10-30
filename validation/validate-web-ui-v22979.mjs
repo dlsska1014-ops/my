@@ -34,9 +34,10 @@ const expense = (id, date, amount, extra = {}) => ({ id, household_id: HH, user_
 // ── 홈 카드·탭 도우미 ───────────────────────────────────────────────────────────
 async function home(fx, month, extra = "", cookie = fx.cookie) {
   const response = await page(fx, `/app?month=${month}&${hh}${extra}`, { cookie });
-  const card = (response.html.match(/<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도<\/span>[\s\S]*?<\/article>/) || [""])[0];
+  // V22.9.89 U-11: 카드 머리 ‘쓰는 속도’ → 큰 숫자가 세는 기간(최근 7일 · 지난 달은 마지막 7일 · 이번 달 1~6일은 이번 달).
+  const card = (response.html.match(/<article class="homeReport"><div class="homeReportTop"><span>(?:최근 7일|마지막 7일|이번 달)<\/span>[\s\S]*?<\/article>/) || [""])[0];
   return {
-    status: response.status, html: response.html, card,
+    status: response.status, html: response.html, card, head: (card.match(/<div class="homeReportTop"><span>([^<]*)<\/span>/) || [])[1] || "",
     value: (card.match(/<b>([^<]*)<\/b>/) || [])[1] || "",
     note: (card.match(/<small>([^<]*)<\/small>/) || [])[1] || "",
     label: (card.match(/aria-label="([^"]*)"/) || [])[1] || "",
@@ -81,6 +82,7 @@ if (run("pace")) await scenario("pace", () => withClock("2026-10-25", () => fixt
   july([[12, 10000], [20, 30000], [27, 50000], [31, 20000]]);
   const up = await home(fx, "2026-07");
   eq(up.status, 200, "지난 달 홈이 열린다");
+  eq(up.head, "마지막 7일", `V22.9.89 지난 달 카드 머리는 그 달 ‘마지막 7일’이다 (${up.head})`);
   eq(up.value, "70,000원", `지난 달의 큰 숫자는 그 달 마지막 7일(25~31일) 지출이다 (${up.value})`);
   eq(up.note, "마지막 7일이 직전 7일보다 ▲ 40,000원 많았어요", `직전 7일(18~24일 30,000원)과 견준 말이 과거형이다 (${up.note})`);
   eq(up.label, "마지막 4주 지출", "막대 설명이 ‘최근’이 아니라 ‘마지막’ 4주다");
@@ -148,7 +150,8 @@ if (run("weekly")) await scenario("weekly", () => withClock("2026-10-25", () => 
   eq(weekly.status, 200, "주별 탭이 열린다");
   eq((weekly.html.match(/class="homeTrendOn"[^>]*>([^<]*)</) || [])[1], "주별", "주별 탭이 선택돼 있다");
   eq(cells.map((c) => c.title).join(","), "1주차,2주차,3주차,4주차,5주차", `7월은 다섯 주다 (${cells.map((c) => c.title).join(",")})`);
-  eq(cells.map((c) => c.range).join(","), "1~4일,5~11일,12~18일,19~25일,26~31일", "첫 주·마지막 주는 잘린 날짜 범위를 적는다");
+  // V22.9.89 U-11(사용자 결정 D-6): 한 주는 월요일~일요일이다(예전 일요일 시작). 2026-07-01 은 수요일이라 첫 주는 1~5일(수~일).
+  eq(cells.map((c) => c.range).join(","), "1~5일,6~12일,13~19일,20~26일,27~31일", "첫 주·마지막 주는 잘린 날짜 범위를 적는다(월요일 시작)");
   eq(cells.map((c) => c.amount).join(","), "15만,10만,·,·,·", `주마다 그 주의 지출을 더한다 (${cells.map((c) => c.amount).join(",")})`);
   eq(cells.map((c) => c.count).join(","), "1,2,,,", "건수는 있는 주에만 적는다");
   eq(cells.map((c) => (c.peak ? "peak" : "-")).join(","), "peak,-,-,-,-", "가장 많이 쓴 주 하나만 강조한다");
@@ -157,13 +160,15 @@ if (run("weekly")) await scenario("weekly", () => withClock("2026-10-25", () => 
   ok(Buffer.byteLength(weekly.html) <= 47104, `주별 탭 홈이 HTML 예산 안이다 (${Buffer.byteLength(weekly.html)}B)`);
   ok(weekly.html.includes("aria-label=\"7월 주별 지출\""), "주별 격자에 이름이 있다");
 
-  // 한 달이 여섯 주에 걸치는 경우(2026-08: 1일이 토요일)와 딱 네 주인 경우(2026-02: 1일이 일요일).
+  // 한 달이 여섯 주에 걸치는 경우(2026-08: 1일이 토요일)와 딱 네 주인 경우(월요일 시작이라 1일이 월요일인 2027-02). 2026-02 는 1일이 일요일이라 첫 주가 하루다.
   fx.db.transactions.push(expense("wk-1", "2026-08-01", 3000), expense("wk-2", "2026-08-31", 4000), expense("wk-3", "2026-08-15", 9000), { ...expense("wk-4", "2026-08-15", 777000), type: "income" });
   const aug = weeklyCells((await home(fx, "2026-08", "&trend=weekly")).html);
-  eq(aug.map((c) => c.range).join(","), "1일,2~8일,9~15일,16~22일,23~29일,30~31일", `8월은 여섯 주, 첫 주는 하루 (${aug.map((c) => c.range).join(",")})`);
+  eq(aug.map((c) => c.range).join(","), "1~2일,3~9일,10~16일,17~23일,24~30일,31일", `8월은 여섯 주, 첫 주는 토·일 이틀 (${aug.map((c) => c.range).join(",")})`);
   eq(aug.map((c) => c.amount).join(","), "3천,·,9천,·,·,4천", `수입은 더하지 않는다 (${aug.map((c) => c.amount).join(",")})`);
   const feb = weeklyCells((await home(fx, "2026-02", "&trend=weekly")).html);
-  eq(feb.map((c) => c.range).join(","), "1~7일,8~14일,15~21일,22~28일", "2월은 네 주(모두 온전한 주)");
+  eq(feb.map((c) => c.range).join(","), "1일,2~8일,9~15일,16~22일,23~28일", `2026년 2월은 1일(일요일)이 첫 주다 (${feb.map((c) => c.range).join(",")})`);
+  const feb27 = weeklyCells((await home(fx, "2027-02", "&trend=weekly")).html);
+  eq(feb27.map((c) => c.range).join(","), "1~7일,8~14일,15~21일,22~28일", `2027년 2월(1일이 월요일)은 네 주(모두 온전한 주) (${feb27.map((c) => c.range).join(",")})`);
 
   // 함수 단위: 달 밖 날짜·깨진 날짜·수입은 건너뛰고, 달을 못 읽으면 이번 달로 그린다.
   const analysis = await import("../src/modules/my/analysis-page.js");
@@ -174,7 +179,8 @@ if (run("weekly")) await scenario("weekly", () => withClock("2026-10-25", () => 
     { type: "expense", transaction_date: "2026-08-01", amount: 5000 }, { type: "expense", transaction_date: "2026-07-xx", amount: 5000 },
     { type: "income", transaction_date: "2026-07-05", amount: 5000 }, { type: "expense", transaction_date: "", amount: 5000 },
   ], "2026-07"));
-  eq(unit.map((c) => c.amount).join(","), "·,1천,·,·,·", `달 밖·깨진 날짜·수입은 더하지 않는다 (${unit.map((c) => c.amount).join(",")})`);
+  // V22.9.89 U-11: 7/5 는 일요일이라 월요일 시작에서는 첫 주(1~5일)다.
+  eq(unit.map((c) => c.amount).join(","), "1천,·,·,·,·", `달 밖·깨진 날짜·수입은 더하지 않는다 (${unit.map((c) => c.amount).join(",")})`);
   ok(renderWeeklyTrend([], "not-a-month").includes("주별 지출"), "달을 못 읽어도 깨지지 않는다");
 
   // 요일별 추이는 종합 리포트에 그대로 있다.

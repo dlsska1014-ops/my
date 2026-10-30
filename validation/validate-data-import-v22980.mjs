@@ -436,9 +436,10 @@ const expenseRow = (id, date, amount, extra = {}) => ({ id, household_id: HH, us
 const decodeHtml = (value) => String(value || "").replace(/&quot;/g, "\"").replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
 async function paceCard(fx, month) {
   const response = await page(fx, `/app?month=${month}&household_id=${HH}`);
-  const card = (response.html.match(/<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도<\/span>[\s\S]*?<\/article>/) || [""])[0];
+  // V22.9.89 U-11: 카드 머리 ‘쓰는 속도’ → 큰 숫자가 세는 기간(최근 7일 · 지난 달은 마지막 7일 · 이번 달 1~6일은 이번 달).
+  const card = (response.html.match(/<article class="homeReport"><div class="homeReportTop"><span>(?:최근 7일|마지막 7일|이번 달)<\/span>[\s\S]*?<\/article>/) || [""])[0];
   return {
-    status: response.status, bytes: Buffer.byteLength(response.html),
+    status: response.status, bytes: Buffer.byteLength(response.html), head: (card.match(/<div class="homeReportTop"><span>([^<]*)<\/span>/) || [])[1] || "",
     value: decodeHtml((card.match(/<b>([^<]*)<\/b>/) || [])[1] || ""),
     note: decodeHtml((card.match(/<small>([^<]*)<\/small>/) || [])[1] || ""),
     label: (card.match(/aria-label="([^"]*)"/) || [])[1] || "",
@@ -457,6 +458,7 @@ await attempt("T-20", async () => {
       eq(card.status, 200, `T-20 ${day} 홈이 열린다`);
       eq(card.value, `${sum.toLocaleString("en-US")}원`, `T-20 ${day}: 큰 숫자가 1일부터 오늘까지의 지출 합계다 (${card.value})`);
       ok(card.note.startsWith("1일부터 오늘까지 쓴 돈이에요"), `T-20 ${day}: 1일부터 오늘까지라고 말한다 (${card.note})`);
+      eq(card.head, "이번 달", `V22.9.89 T-20 ${day}: 카드 머리도 큰 숫자의 기간(이번 달)이다 (${card.head})`);
       eq(card.label, "최근 4주 지출", `T-20 ${day}: 막대 설명은 그대로다`);
       eq(card.bars.join(","), "blank,blank,blank,100%", `T-20 ${day}: 오늘로 끝나는 창만 그려지고 앞 창들은 비어 있다 (${card.bars.join(",")})`);
     }));

@@ -32,9 +32,13 @@ import {
 } from "./access-control.js";
 import { activeSpenderExists, memberCanBeSpender } from "./transactions.js";
 import {
-  budgetCenterSummary, budgetSummary, fetchBudgets, fetchMobileHomeSettings, fetchRecurringStrict,
+  budgetCategoryScope, budgetCenterSummary, budgetSummary, fetchBudgets, fetchMobileHomeSettings,
+  fetchRecurringStrict,
 } from "../domain/budgets.js";
-import { homeUpcomingOut, monthSpendingOutlook } from "../domain/spending-outlook.js";
+import { METRIC_LABELS, approxWon } from "../domain/metric-labels.js";
+import {
+  homeUpcomingOut, isRecurringSourceRow, monthSpendingOutlook,
+} from "../domain/spending-outlook.js";
 import {
   applyHomeLayoutSection, homeLayoutKey, lastNDaysExpense, normalizeHomeLayout,
   renderHomeReportCards, renderHomeWeekStrip, renderV8TxCards, renderV8TxDayGroups, todayExpense,
@@ -43,7 +47,7 @@ import {
 import { MOBILE_HOME_CSS_ASSET_PATH } from "../assets/asset-registry.js";
 import { renderMonthlySeriesChart } from "../admin/pc-analysis-calendar.js";
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
-import { addMonthsYm, percentChange } from "../domain/analytics.js";
+import { addMonthsYm, householdStartYmd, percentChange } from "../domain/analytics.js";
 import {
   DEFAULT_CATEGORIES, DEFAULT_PAYMENTS, paymentListOptionsHtml,
 } from "../admin/dashboard-fragments.js";
@@ -113,9 +117,10 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
   const year = Number(month.slice(0, 4));
   const mon = Number(month.slice(5, 7));
   const daysInMonth = new Date(year, mon, 0).getDate();
-  const firstDow = new Date(Date.UTC(year, mon - 1, 1)).getUTCDay();
+  // V22.9.89 U-11(사용자 결정 D-6): 캘린더 한 줄도 월요일~일요일이다(앞 빈칸 = 1일의 요일을 월요일 0 으로 센 값). 토·일 색 표시는 그대로다.
+  const firstDow = (new Date(Date.UTC(year, mon - 1, 1)).getUTCDay() + 6) % 7;
   const today = formatDate(nowKstDate());
-  const weekHead = ["일", "월", "화", "수", "목", "금", "토"].map((w, i) => `<span class="calDow${i === 0 ? " sun" : i === 6 ? " sat" : ""}">${w}</span>`).join("");
+  const weekHead = ["월", "화", "수", "목", "금", "토", "일"].map((w, i) => `<span class="calDow${i === 6 ? " sun" : i === 5 ? " sat" : ""}">${w}</span>`).join("");
   const blanks = Array.from({ length: firstDow }, () => `<span class="calDay blank"></span>`).join("");
   const cells = Array.from({ length: daysInMonth }, (_, i) => {
     const day = i + 1;
@@ -195,7 +200,16 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const remainDays = isCurrentMonth ? Math.max(1, daysInThisMonth - Number(todayStr.slice(8, 10)) + 1) : 0;
   const remainBudgetAmt = Math.max(0, Number(budget.totalBudget || 0) - Number(budget.budgetedExpense ?? budget.expense ?? 0));
   const dailyAllowanceAmt = (isCurrentMonth && budget.totalBudget) ? Math.floor(remainBudgetAmt / remainDays) : 0;
-  const todayOk = dailyAllowanceAmt ? todaySpend <= dailyAllowanceAmt : true;
+  // V22.9.89 U-01(V2): 오늘 쓴 돈은 한도 안이면 초록(수입 색)을 쓰지 않는다. 넘으면 넘침 색과 함께 "하루 한도를 넘었어요"를 글로 적고(색만으로
+  // 알리지 않음), 0원이면 "아직 없어요"다. 한도 안의 본문색 지정은 셸 CSS 를 바꿔야 해 다음 판(1년 캐시 주소 갱신)에서 한다.
+  // 넘었는지는 오늘 아침의 하루 한도(오늘 직접 적은 예산 분류 지출을 되돌린 남은 예산 ÷ 남은 날)와 그 지출로 견준다(V22.9.89 독립 검토).
+  // 위 dailyAllowanceAmt 는 오늘 쓴 돈을 이미 뺀 앞으로의 하루 금액이라, 안내받은 하루 금액만큼만 써도 넘었다고 했다.
+  // 예산을 정하지 않은 분류의 지출과 정기 자동 기록(월세 등)은 하루 한도와 견주지 않는다(금액 칸은 그대로 오늘 쓴 돈 전부다).
+  const todayBudgetRange = budgetCategoryScope(budgets);
+  const todayOwnBudgeted = rows.filter((r) => r.type !== "income" && String(r.transaction_date || "") === todayStr && !isRecurringSourceRow(r) && todayBudgetRange.includes(r.category)).reduce((a, r) => a + Number(r.amount || 0), 0);
+  const todayStartRemainAmt = Math.max(0, Number(budget.totalBudget || 0) - (Number(budget.budgetedExpense ?? budget.expense ?? 0) - todayOwnBudgeted));
+  const todayStartAllowanceAmt = (isCurrentMonth && budget.totalBudget) ? Math.floor(todayStartRemainAmt / remainDays) : 0;
+  const todayOk = todayStartAllowanceAmt ? todayOwnBudgeted <= todayStartAllowanceAmt : true;
   // V22.8.88 통합 작업지시서 M3(하루 환산). 계산은 이미 위에 있었다 — remainDays 는
   // 오늘을 포함하고(8월 8일이면 24일) Math.max(1,…) 로 묶여 있어 마지막 날에도 0으로
   // 나누지 않는다. 없던 것은 그 값을 사람에게 보여 주는 자리였다. 지금까지 이 숫자는
@@ -210,10 +224,24 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 고정지출 규칙을 못 읽은 달(partial)에는 남는 돈을 부풀려 말하지 않도록 이 한 줄을 쓰지 않는다(‘앞으로 나갈 돈’ 카드가 확인 불가를 알린다).
   const homeOutlookBudget = homeOutlook && !homeOutlook.partial ? homeOutlook.budget : null;
   const homeOutlookDiff = homeOutlookBudget ? homeOutlookBudget.diff : null;
+  // V22.9.89 U-03(디자인 작업 지시서 V2): 이 줄은 예산을 정한 분류만 본다(scope budgeted). 무엇이 남는지(예산)를 말하고,
+  // 추정치는 §5-2 대로 반올림해 ‘약’을 붙인다(approxWon). 예전 "월말 예상대로면 888,893원이 남아요"는 분석의 ‘월말 예상 지출’
+  // (전체 분류 + 아직 안 나간 월세)과 반대로 읽혔다.
   const dailyPlanNote = homeOutlookDiff == null ? ""
     : homeOutlookDiff > 0
-      ? (homeOutlookBudget.runOutDay && homeOutlookBudget.runOutDay > homeOutlook.elapsedDays ? `예상대로면 예산이 ${homeOutlookBudget.daysEarly}일 먼저 끝나요` : `월말 예상이 예산보다 ${numberWithCommas(homeOutlookDiff)}원 많아요`)
-      : homeOutlookDiff < 0 ? `월말 예상대로면 ${numberWithCommas(-homeOutlookDiff)}원이 남아요` : "";
+      ? (homeOutlookBudget.runOutDay && homeOutlookBudget.runOutDay > homeOutlook.elapsedDays ? `이대로면 예산이 ${homeOutlookBudget.daysEarly}일 먼저 끝나요` : `이대로면 월말에 예산을 ${approxWon(homeOutlookDiff)} 넘어요`)
+      : homeOutlookDiff < 0 ? `이대로면 월말에 예산이 ${approxWon(-homeOutlookDiff)} 남아요` : "";
+  // 예산에 넣지 않은 분류의 정기 항목이 이번 달에 아직 안 나갔으면 한 줄을 더한다(위 문장의 ‘남는 예산’과 따로 나가는 돈).
+  // 월말 문장에 붙는 줄이라 그 문장이 없는 달(예산을 넘었거나 다 씀)에는 쓰지 않는다(아래 dailyPlanHtml).
+  // 금액은 정해진 값이라 반올림하지 않는다. 계산은 월말 예상이 이미 나눠 둔 값(outsidePendingRules·outsideReservePlans)이다.
+  const homeOutsideItems = homeOutlookBudget ? [
+    ...safeArray(homeOutlook.notYetRecorded?.outsidePendingRules).map((rule) => ({ name: rule.memo || rule.category || "정기 항목", amount: Number(rule.amount || 0) })),
+    ...safeArray(homeOutlook.notYetRecorded?.outsideReservePlans).map((entry) => ({ name: entry.plan?.name || "정기 항목", amount: Number(entry.plan?.amount || 0) })),
+  ].filter((item) => item.amount > 0) : [];
+  const homeOutsideTotal = homeOutsideItems.reduce((sum, item) => sum + item.amount, 0);
+  const homeOutsideNote = homeOutsideItems.length
+    ? `예산에 안 넣은 ${homeOutsideItems[0].name}${homeOutsideItems.length > 1 ? ` 등 ${homeOutsideItems.length}건` : ""} ${numberWithCommas(homeOutsideTotal)}원은 따로 나가요`
+    : "";
   // 하루 계획 줄(dailyPlanHtml)은 카드 머리의 사용률(displayBudgetPercent)과 같은 값으로 말하므로 아래 budgetUsedRatio 뒤에서 만든다(V22.9.86 T-12).
   const freqMap = Object.create(null);
   for (const r of rows) {
@@ -287,48 +315,54 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const homeReserveHref = `/reserve-plans?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`;
   // 정기항목은 이번 달을 볼 때만 불러온다(과거 달에서 질의를 늘리지 않으려는 기존 판단).
   // 안 불러온 달에서 "없음" 이라고 말하면 거짓이 되므로 건수를 단정하지 않는다.
-  // V22.9.76: 수입 항목(예: 수당)을 "N건 · 매월 X원 준비"·"준비 알림"에 세지 않는다. 지출과 수입을 나눠 적는다.
-  const homeReserveOutHeadline = homeReserve.expenseCount
-    ? `${numberWithCommas(homeReserve.expenseCount)}건 · 매월 ${numberWithCommas(homeReserve.monthlyReserveTotal)}원 준비`
-    : "";
   // V22.9.78 감사 V76 W-5: 리포트 넷째 카드(앞으로 나갈 돈)는 반영 대기 고정지출과 이번 달 남은 정기지출을 한 번씩만 더한다.
   // 아래에서 rows 가 최근 내역용 필터 결과로 바뀌므로 그 전에 그 달 전체 기록으로 센다(이미 기록된 고정지출을 빼는 데 쓴다).
   const homeUpcoming = homeUpcomingOut({ month, today: todayStr, rows, plans: reservePlans, recurring });
+  // V22.9.89 U-07(V2, 사용자 결정 D-9 2026-10-29: 정기 수입·지출 = 매월 고정적으로 나가거나 들어오는 돈의 기록): 첫 줄은 매달 자동 기록
+  // (accountbook_recurring) 합, 둘째 줄은 이번 달 아직 안 나간 항목(‘앞으로 나갈 돈’과 같은 homeUpcomingOut 대기 목록), 셋째 줄은
+  // 납부·입금 일정(reserve_plans) 가운데 가장 가까운 것이다. 예전에는 납부·입금 일정만 세서 매달 나가는 월세 650,000원이 빠지고
+  // "1건 · 매월 100,000원 준비 · 다가오는 납부 없음"이었다. 지난달·다음 달은 정기 항목을 읽지 않으므로(reserveLoaded) 금액을 단정하지 않는다.
   // V22.9.79 V78 S-2: 정기 항목을 못 읽었으면(null) ‘등록 없음’이라고 하지 않는다(‘앞으로 나갈 돈’ 카드는 확인 불가).
-  const homeReserveUnread = reserveLoaded && !Array.isArray(reservePlans);
+  const homeReserveUnread = reserveLoaded && (!Array.isArray(reservePlans) || !Array.isArray(recurring));
+  const homeRecurringOn = reserveLoaded && Array.isArray(recurring) ? recurring.filter((rule) => rule && !(rule.is_active === false || String(rule.is_active) === "false") && Number(rule.amount || 0) > 0) : [];
+  const homeRecurringIsIn = (rule) => String(rule.type || "expense") === "income";
+  const homeRecurringOutCount = homeRecurringOn.filter((rule) => !homeRecurringIsIn(rule)).length;
+  const homeRecurringOutTotal = homeRecurringOn.filter((rule) => !homeRecurringIsIn(rule)).reduce((sum, rule) => sum + Number(rule.amount || 0), 0);
+  const homeRecurringInTotal = homeRecurringOn.filter(homeRecurringIsIn).reduce((sum, rule) => sum + Number(rule.amount || 0), 0);
+  const homePendingFixed = safeArray(homeUpcoming.pendingFixed);
   const homeReserveHeadline = !reserveLoaded
     ? "이번 달 기준으로 관리해요"
     : homeReserveUnread
       ? "정기 항목을 불러오지 못했어요"
-      : homeReserveCount
-      ? (!homeReserve.incomeCount
-        ? homeReserveOutHeadline
-        : homeReserve.expenseCount
-          ? `지출 ${homeReserveOutHeadline} · 수입 ${numberWithCommas(homeReserve.incomeCount)}건`
-          : `수입 ${numberWithCommas(homeReserve.incomeCount)}건 · 매월 ${numberWithCommas(homeReserve.monthlyIncomeTotal)}원 들어와요`)
-      : "아직 등록한 항목이 없어요";
-  // V22.9.87 V86:V-9(사용자 결정 2026-10-29): T-12 로 SMART NOTICE 띠가 빠지며 홈에서 사라진 ‘가장 가까운 정기 항목’ 한 건을 작은 줄 앞에 적는다.
-  // 말은 알림센터 제목과 같다(‘통신비 납부 4일 전’·‘직무수당 입금 오늘’). 같은 날이면 옛 띠처럼 지출을 먼저 말한다.
+      : homeRecurringOn.length
+        ? `매달 나감 ${numberWithCommas(homeRecurringOutTotal)}원 · 들어옴 ${numberWithCommas(homeRecurringInTotal)}원`
+        : homeReserveCount ? "매달 자동 기록은 아직 없어요" : "아직 등록한 항목이 없어요";
+  const homePendingText = homeRecurringOutCount
+    ? (homePendingFixed.length
+      ? `이번 달 아직 안 나감 ${numberWithCommas(homePendingFixed.length)}건(${homePendingFixed[0].memo || homePendingFixed[0].category || "정기 항목"} · ${Number(homePendingFixed[0].day_of_month || 1)}일)`
+      : "이번 달 나갈 항목은 모두 기록됐어요")
+    : "";
+  // V22.9.87 V86:V-9(사용자 결정 2026-10-29): T-12 로 SMART NOTICE 띠가 빠지며 홈에서 사라진 ‘가장 가까운 정기 항목’ 한 건을 적는다.
+  // 알림 기간이면 말은 알림센터 제목과 같다(‘통신비 납부 4일 전’·‘직무수당 입금 오늘’). 같은 날이면 옛 띠처럼 지출을 먼저 말한다.
+  // 알림 기간 밖이면 가장 가까운 납부·입금 날짜를 적는다(올해면 ‘8월 1일’, 아니면 ‘2027년 8월’).
   const homeReserveNextOut = homeReserve.upcomingExpense[0];
   const homeReserveNextIn = homeReserve.upcomingIncome[0];
   const homeReserveNext = homeReserveNextOut && (!homeReserveNextIn || Number(homeReserveNextOut.days_left) <= Number(homeReserveNextIn.days_left)) ? homeReserveNextOut : homeReserveNextIn;
   const homeReserveNextIsOut = !!homeReserveNext && homeReserveNext === homeReserveNextOut;
+  const homeReserveNearest = homeReserve.statuses[0];
+  const homeReserveDueLabel = (due = "") => /^\d{4}-\d{2}-\d{2}$/.test(due) ? (due.slice(0, 4) === todayStr.slice(0, 4) ? `${Number(due.slice(5, 7))}월 ${Number(due.slice(8, 10))}일` : `${due.slice(0, 4)}년 ${Number(due.slice(5, 7))}월`) : "";
   const homeReserveNextText = homeReserveNext
     ? `${homeReserveNext.plan?.name || (homeReserveNextIsOut ? "정기지출" : "정기 수입")} ${homeReserveNextIsOut ? "납부" : "입금"} ${Number(homeReserveNext.days_left) > 0 ? `${homeReserveNext.days_left}일 전` : "오늘"}`
-    : "";
-  const homeReserveUpcoming = [
-    homeReserveNextText,
-    homeReserve.upcomingExpense.length ? `준비 알림 ${numberWithCommas(homeReserve.upcomingExpense.length)}건` : "",
-    homeReserve.upcomingIncome.length ? `입금 예정 ${numberWithCommas(homeReserve.upcomingIncome.length)}건` : "",
-  ].filter(Boolean).join(" · ");
-  const homeReserveSub = !reserveLoaded
-    ? "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다"
+    : homeReserveNearest ? `${homeReserveNearest.plan?.name || "정기 항목"} ${homeReserveDueLabel(String(homeReserveNearest.due_date || ""))}`.trim() : "";
+  const homeScheduleText = homeReserveCount ? `${METRIC_LABELS.reserveSchedule.label} ${numberWithCommas(homeReserveCount)}건${homeReserveNextText ? ` · ${homeReserveNextText}` : ""}` : "";
+  const homeReserveSubs = !reserveLoaded
+    ? ["세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다"]
     : homeReserveUnread
-      ? "새로고침하면 다시 불러와요"
-      : homeReserveCount
-      ? (homeReserveUpcoming || (homeReserve.expenseCount ? "다가오는 납부 없음" : "다가오는 입금 없음"))
-      : "세금·보험처럼 큰돈이 나가는 달을 미리 준비하세요";
-  const homeReserveCard = `<a class="homeReserveCard" href="${escapeHtml(homeReserveHref)}"><div class="homeReserveCopy"><span class="homeReserveEyebrow">정기 수입·지출</span><b>${escapeHtml(homeReserveHeadline)}</b><small>${escapeHtml(homeReserveSub)}</small></div><span class="homeReserveGo" aria-hidden="true">관리 →</span></a>`;
+      ? ["새로고침하면 다시 불러와요"]
+      : homeRecurringOn.length || homeReserveCount
+        ? [homePendingText, homeScheduleText].filter(Boolean)
+        : ["월세·구독료·월급처럼 매달 같은 돈을 등록해 보세요"];
+  const homeReserveCard = `<a class="homeReserveCard" href="${escapeHtml(homeReserveHref)}"><div class="homeReserveCopy"><span class="homeReserveEyebrow">${METRIC_LABELS.recurring.label}</span><b>${escapeHtml(homeReserveHeadline)}</b>${homeReserveSubs.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}</div><span class="homeReserveGo" aria-hidden="true">관리 →</span></a>`;
 
   // ── 거래내역 전용 탭 (tab=transactions) ────────────────────────────────
   // 새 라우트를 만들지 않고 같은 함수 안에서 갈라진다. 서버 필터는 홈과 공유하는
@@ -421,6 +455,9 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const budgetHeadLabel = isCurrentMonth ? "이번 달 쓸 수 있는 돈" : month < todayStr.slice(0, 7) ? `${budgetMonthName} 예산에서 남은 돈` : `${budgetMonthName} 쓸 수 있는 돈`;
   // V22.9.79 감사 V44 D-4: 분류별 예산이면 예산을 잡지 않은 분류의 지출(예: 장보기)은 사용률에 들지 않는다. 지출 옆에 따로 적는다.
   // V22.9.79 감사 V44 D-12: 예산이 없으면 ‘예산 사용률 0%’를 쓰지 않는다(아래 템플릿, 금액 자리는 이미 ‘예산 미설정’).
+  // V22.9.89 U-02(V2 §5-1): 예산 카드 아래 줄은 ‘예산 ${총액}’ · ‘예산 쓴 돈’(예산을 정한 분류) 이고, 예산을 안 정한 분류의 지출은 둘째 줄
+  // ‘예산 안 정한 지출’(옛 ‘예산 밖’)이다. 예전 ‘지출 319,100원’은 이번 달 지출(모든 분류 462,000원)과 이름이 같아 다른 화면과 어긋나 보였다.
+  // 예산이 없으면 ‘예산 없음’과 ‘예산 안 정한 지출’(모든 지출)이다 — ‘예산 0원 · 예산 쓴 돈 N원’이라 하지 않는다.
   const budgetUncovered = budgetTotal && budget.basis === "category" ? Number(budget.uncoveredExpense || 0) : 0;
   const budgetPercent = budgetTotal ? Math.round((budgetUsed / budgetTotal) * 100) : 0;
   // 막대 너비는 100%에서 멈추지만 표기 숫자는 실제 사용률을 그대로 보여준다.
@@ -445,19 +482,32 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const monthElapsedPercent = isCurrentMonth ? Math.round((Number(todayStr.slice(8, 10)) / daysInThisMonth) * 100) : 0;
   const dailyAmountHtml = `<span data-ab-num="${dailyAllowanceAmt}" data-ab-num-unit="원">${numberWithCommas(dailyAllowanceAmt)}</span>원`;
   const budgetSpentAll = budgetOverAmt > 0 || !budgetRemaining;
+  // V22.9.89 U-04(V2): 남은 날이 5일 이하이거나 하루 한도가 최근 7일 하루 평균의 3배를 넘으면 ‘하루 303,633원씩 쓰면 돼요’처럼
+  // 쓸 수 없는 크기의 금액을 권하게 된다. 그때 예산이 넉넉하면(월말 예상이 예산 안, 못 읽으면 사용률 ≤ 경과율) 짧게 말하고,
+  // 넘칠 위험이면 지금 문장을 쓰되 금액을 §5-2 대로 반올림한다. 최근 7일은 이 달 기록만 갖고 있어 7일 창이 이 달 안일 때(7일부터)만 본다.
+  // 최근 7일에 지출이 없으면 견줄 속도가 없어 3배 조건을 보지 않는다(V2 수용 기준: 15일에는 지금 문장 유지).
+  // V2 는 넉넉할 때 둘째 줄에 남은 예산을 두라고 했지만 카드 머리 큰 숫자가 이미 남은 예산이라 되풀이하지 않는다(둘째 줄은 U-03 월말 문장).
+  const todayDayNum = isCurrentMonth ? Number(todayStr.slice(8, 10)) : 0;
+  const recentWeekStart = todayDayNum >= 7 ? `${month}-${String(todayDayNum - 6).padStart(2, "0")}` : "";
+  const recentWeekAvg = recentWeekStart ? rows.filter((r) => r.type !== "income" && r.transaction_date >= recentWeekStart && r.transaction_date <= todayStr).reduce((sum, r) => sum + Number(r.amount || 0), 0) / 7 : 0;
+  const paceStretched = isCurrentMonth && !!dailyAllowanceAmt && (remainDays <= 5 || (recentWeekAvg > 0 && dailyAllowanceAmt > recentWeekAvg * 3));
+  const paceRoomy = homeOutlookDiff == null ? displayBudgetPercent <= monthElapsedPercent : homeOutlookDiff <= 0;
+  const paceDailyText = paceStretched ? escapeHtml(approxWon(dailyAllowanceAmt)) : dailyAmountHtml;
   const paceSentenceHtml = budgetOverAmt > 0
     ? `예산을 ${numberWithCommas(budgetOverAmt)}원 넘었어요. 예산을 늘리거나 남은 기간 지출을 줄여 보세요.`
     : !budgetRemaining
       ? "예산을 모두 썼어요. 예산을 늘리거나 남은 기간 지출을 줄여 보세요."
-      : displayBudgetPercent <= monthElapsedPercent
-        ? `이번 달의 ${monthElapsedPercent}%가 지났고 예산은 ${displayBudgetPercent}%만 썼어요. 하루 ${dailyAmountHtml}씩 쓰면 돼요.`
-        : `이번 달의 ${monthElapsedPercent}%가 지났는데 예산은 ${displayBudgetPercent}%를 썼어요. 남은 ${remainDays}일은 하루 ${dailyAmountHtml} 안에서 써 보세요.`;
+      : paceStretched && paceRoomy
+        ? `남은 ${remainDays}일, 예산이 넉넉해요.`
+        : displayBudgetPercent <= monthElapsedPercent
+          ? `이번 달의 ${monthElapsedPercent}%가 지났고 예산은 ${displayBudgetPercent}%만 썼어요. 하루 ${paceDailyText}씩 쓰면 돼요.`
+          : `이번 달의 ${monthElapsedPercent}%가 지났는데 예산은 ${displayBudgetPercent}%를 썼어요. 남은 ${remainDays}일은 하루 ${paceDailyText} 안에서 써 보세요.`;
   // 세 갈래: 예산 없음(설정 안내 링크) · 이번 달이 아님(문장 없음) · 이번 달(속도 문장, 남는 예산이 있으면 월말 예상 한 줄).
   const dailyPlanHtml = !budgetTotal
     ? `<div class="homeDailyPlan homeDailyPlanEmpty"><a href="${escapeHtml(`/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`)}">예산을 설정하면 하루 기준이 생겨요</a></div>`
     : !isCurrentMonth
       ? ""
-      : `<div class="homeDailyPlan homePace${budgetSpentAll ? " homeDailyPlanOver" : ""}"><p>${paceSentenceHtml}</p>${!budgetSpentAll && dailyPlanNote ? `<small>${escapeHtml(dailyPlanNote)}</small>` : ""}</div>`;
+      : `<div class="homeDailyPlan homePace${budgetSpentAll ? " homeDailyPlanOver" : ""}"><p>${paceSentenceHtml}</p>${!budgetSpentAll && dailyPlanNote ? `<small>${escapeHtml(dailyPlanNote)}</small>${homeOutsideNote ? `<small>${escapeHtml(homeOutsideNote)}</small>` : ""}` : ""}</div>`;
   // V22.8.93 (8.2): 저장하고 돌아온 화면에서 게이지가 **이전 값에서 출발해** 실제
   // 값으로 움직인다. 이전 값은 방금 저장한 기록을 사용액에서 빼면 나온다 — 새 질의도,
   // 쓰기 경로 변경도 필요 없다. 저장 직후가 아니거나 예산이 없으면 속성을 달지 않고,
@@ -556,10 +606,15 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // V22.9.76: 지난 기간 지출 기록이 없으면 0원과 견주지 않는다(생활비 리포트의 "기록이 없어 비교하지 않아요"와 같은 말).
   // 첫 달 사용자는 늘 "지난달 1~N일보다 (이번 달 지출 전부)원 더 썼어요"를 봤다.
   const noPreviousExpense = !!prevStats && previousExpense === 0 && Number(stats.totals.expense || 0) > 0;
+  // V22.9.89(Astra 4 와 같은 갈래): 이 달(이번 달이면 오늘까지)에 직접 적은 기록(정기 자동 기록 제외)이 없으면 0원은 덜 쓴 것이 아니다.
+  // 지난달과 견주지 않고 그렇다고 말한다(생활비 리포트의 "직접 적은 기록이 없어 비교하지 않아요"와 같은 말).
+  const noOwnRecords = !!prevStats && previousExpense > 0 && !safeArray(rows).some((r) => (!isCurrentMonth || String(r.transaction_date || "") <= todayStr) && !isRecurringSourceRow(r));
   const expenseDeltaText = !prevStats
     ? "이번 달 기록을 기준으로 소비 흐름을 보여드려요."
     : noPreviousExpense
       ? `${prevLabel} 기록이 없어 비교하지 않아요.`
+    : noOwnRecords
+      ? `직접 적은 기록이 없어 ${prevLabel}과 비교하지 않아요.`
     : expenseDeltaAmount > 0
       ? `${prevLabel}보다 ${numberWithCommas(expenseDeltaAmount)}원 더 썼어요.`
       : expenseDeltaAmount < 0
@@ -567,7 +622,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
         : Number(stats.totals.expense || 0) === 0 && previousExpense === 0
           ? "아직 지출 기록이 없어요. 한 줄로 첫 기록을 남겨보세요."
           : `${prevLabel}과 같은 금액을 썼어요.`;
-  const expenseDeltaClass = noPreviousExpense ? "spendFlat" : expenseDeltaAmount > 0 ? "spendUp" : expenseDeltaAmount < 0 ? "spendDown" : "spendFlat";
+  const expenseDeltaClass = noPreviousExpense || noOwnRecords ? "spendFlat" : expenseDeltaAmount > 0 ? "spendUp" : expenseDeltaAmount < 0 ? "spendDown" : "spendFlat";
   // V22.8.97 (7.1): "N월 지출" 카드를 걷어낸다. 지시서는 이 카드와 "이번 달 쓸 수
   // 있는 돈" 카드를 **하나의 P0 로 합치라**고 했는데, PR4 는 오늘 쓴 돈과 하루 환산만
   // 흡수하고 이 카드를 남겨 뒀다. 남은 내용은 이미 두 곳에 그대로 있다 —
@@ -643,7 +698,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // V22.9.86 (V85:R-12, T-14): 날짜 칩의 고른 상태는 abQuickSyncMore 가 날짜 칸 값으로 정한다(aria-pressed + 옛 .on). 칩을 누를 때만이 아니라
   // 날짜를 직접 고르거나 한 줄 입력·초안 복원이 날짜를 바꿀 때도 맞는다. 요약 줄의 ‘오늘’도 같은 KST 날짜로 본다(예전에는 기기 시계라 F-8 과 같은 어긋남).
   // V22.9.86 (V86:V-5, T-18 빈 달): 들어온 돈·나간 돈 금액은 0원이면 부호를 붙이지 않는다(빈 달 홈이 ‘+0원 · -0원’이었다).
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>${escapeHtml(budgetHeadLabel)}</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"${isCurrentMonth && budgetTotal ? ` style="--ab-today:${monthElapsedPercent}%"` : ""}><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>전체 예산 ${numberWithCommas(budgetTotal)}원</span><span>지출 ${numberWithCommas(budgetUsed)}원${budgetUncovered ? ` · 예산 밖 ${numberWithCommas(budgetUncovered)}원` : ""}</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈</span><b class="${todayOk ? "income" : "expense"}">${numberWithCommas(todaySpend)}원</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${entryBarHtml}${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, upcoming: homeUpcoming, reserveHref: homeReserveHref, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">${stats.totals.income ? "+" : ""}${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">${stats.totals.expense ? "-" : ""}${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}${homeRefundNote ? `<small class="homeMomLine">${escapeHtml(homeRefundNote)}</small>` : ""}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}" data-income="${Math.max(0, Number(stats.totals?.income || 0))}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date(Date.now()+32400000+Number(this.getAttribute('data-day')||0)*86400000);var v=d.toISOString().slice(0,10);var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value&&!(o.getAttribute&&o.getAttribute('data-ab-pick')))payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(inputPaymentNameIn(text,payOpts[i]))return payOpts[i];}return detectInputPayment(normalizeInputText(text));}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase(),after=inputPaymentPatterns().after;var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value).toLowerCase();if(!v||optionHit)return;for(var at=raw.indexOf(v),seen=0;at>=0&&seen<16;at=raw.indexOf(v,at+1),seen++){var rest=raw.slice(at+v.length);if(/[a-z0-9]$/.test(v)?!/^[a-z0-9]/.test(rest):after.test(rest)){optionHit=o.value;return;}}});if(optionHit)return optionHit;return inferInputCategory(normalizeInputText(text).toLowerCase(),type,quickRules);}function stripQuickMemo(text,amountText,payment,category,type){return cleanInputMemo(text,amountText,type,payment,category);}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>${escapeHtml(budgetHeadLabel)}</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"${isCurrentMonth && budgetTotal ? ` style="--ab-today:${monthElapsedPercent}%"` : ""}><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>${budgetTotal ? `예산 ${numberWithCommas(budgetTotal)}원` : "예산 없음"}</span><span>${budgetTotal ? METRIC_LABELS.budgetSpent.label : METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUsed)}원${budgetUncovered ? `<br>${METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUncovered)}원` : ""}</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈${todayOk ? "" : " · 하루 한도를 넘었어요"}</span><b${!todaySpend ? " class=\"muted\"" : todayOk ? "" : " class=\"expense\""}>${todaySpend ? `${numberWithCommas(todaySpend)}원` : "아직 없어요"}</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${entryBarHtml}${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, upcoming: homeUpcoming, reserveHref: homeReserveHref, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">${stats.totals.income ? "+" : ""}${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">${stats.totals.expense ? "-" : ""}${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}${homeRefundNote ? `<small class="homeMomLine">${escapeHtml(homeRefundNote)}</small>` : ""}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}" data-income="${Math.max(0, Number(stats.totals?.income || 0))}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date(Date.now()+32400000+Number(this.getAttribute('data-day')||0)*86400000);var v=d.toISOString().slice(0,10);var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value&&!(o.getAttribute&&o.getAttribute('data-ab-pick')))payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(inputPaymentNameIn(text,payOpts[i]))return payOpts[i];}return detectInputPayment(normalizeInputText(text));}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase(),after=inputPaymentPatterns().after;var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value).toLowerCase();if(!v||optionHit)return;for(var at=raw.indexOf(v),seen=0;at>=0&&seen<16;at=raw.indexOf(v,at+1),seen++){var rest=raw.slice(at+v.length);if(/[a-z0-9]$/.test(v)?!/^[a-z0-9]/.test(rest):after.test(rest)){optionHit=o.value;return;}}});if(optionHit)return optionHit;return inferInputCategory(normalizeInputText(text).toLowerCase(),type,quickRules);}function stripQuickMemo(text,amountText,payment,category,type){return cleanInputMemo(text,amountText,type,payment,category);}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}
 
 function abQuickTypeLabels(){var inc=!!document.querySelector('#add input[name=type][value=income]:checked');var who=document.querySelector('#add select[name=user_id]');var o=who&&who.options[0];if(o&&!o.value)o.text=inc?'수입자 선택':'지출자 선택';var pay=document.getElementById('payInput');if(pay)pay.placeholder=inc?'입금 계좌·수단':'결제수단';}function abQuickSyncMore(){abQuickTypeLabels();var d=document.getElementById('txDate');var dv=d&&d.value?d.value:'';var kstDay=function(n){return new Date(Date.now()+32400000+n*86400000).toISOString().slice(0,10);};document.querySelectorAll('.dateChip').forEach(function(x){var on=!!dv&&dv===kstDay(Number(x.getAttribute('data-day')||0));x.setAttribute('aria-pressed',on?'true':'false');x.classList.toggle('on',on);});var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var parts=[];parts.push(dv===kstDay(0)?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'&&!abImeComposing&&!e.isComposing){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type'){abQuickTypeLabels();abQuickSyncAfter();}});abQuickSyncMore();abSmartState.preview(true);var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`.replace(/(<(?:input|meta|link|br|hr)\b[^>]*?)\/>/g,"$1>");
 }
@@ -802,7 +857,7 @@ async function handleMobileV8Page(request, env, url) {
   // Lucian E #088: only an empty month with no previous-month rows needs the
   // user-authorized, household-scoped existence read. An error is unknown, not zero.
   const [reportChallenge, formerSpenders, ledgerHasRecords] = await Promise.all([
-    buildReportChallengeForHousehold(env, { householdId, month, rows, value: homeSettings.challengeValue }),
+    buildReportChallengeForHousehold(env, { householdId, month, rows, value: homeSettings.challengeValue, startedOn: householdStartYmd(selectedHousehold, rows) }),
     fetchFormerSpenderMembers(env, rawMonthlyRows, members),
     rawMonthlyRows.length || prevAmountRows.length ? true
       : householdId && url.searchParams.get("tab") !== "transactions"

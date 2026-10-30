@@ -236,17 +236,23 @@ await fixture(async (fx) => {
   const preview = between(home, '<figure class="pubPreview">', "</figure>");
   const budget = between(preview, '<section class="homeBudget">', "</section>");
   const appBudget = (appHtml.match(/<section class="homeBudget[^"]*"[^>]*>[\s\S]*?<\/section>/) || [""])[0];
+  // V22.9.89 U-04(V2): 7월 15일 앱은 하루 한도가 최근 7일 하루 평균의 3배를 넘어 ‘남은 17일, 예산이 넉넉해요.’ 갈래다.
+  // 미리보기 두 곳은 하루 금액을 권하는 지금 문장 갈래라, 같은 갈래가 나오는 7월 20일 앱 문장과 틀을 견준다(/demo 는 아래에서 갈래 조건도 확인한다).
+  const appPaceHtml = await withClock("2026-07-20", async () => (await page(fx, "/app?month=2026-07&household_id=house-home")).html);
+  const appPaceBudget = (appPaceHtml.match(/<section class="homeBudget[^"]*"[^>]*>[\s\S]*?<\/section>/) || [""])[0];
   const classes = (fragment) => [...fragment.matchAll(/class="([^"]+)"/g)].map((m) => m[1]);
-  const appClasses = classes(appBudget).filter((name) => !["homeBudgetToday", "income", "expense", "abDailyHelp"].includes(name));
+  // V22.9.89 U-01: 오늘 쓴 돈이 아직 없으면 그 줄 값이 흐린 글자(<b class="muted">)다. 미리보기에는 오늘 쓴 돈 줄이 없으니 그 클래스도 뺀다.
+  const appClasses = classes(appBudget).filter((name) => !["homeBudgetToday", "income", "expense", "muted", "abDailyHelp"].includes(name));
   t.ok(appBudget.length > 0, "비교할 앱 홈 예산 카드를 찾았다");
   t.deepEq(classes(budget), appClasses, `미리보기 예산 카드의 클래스 순서가 앱 홈(T-12)과 같다(오늘 쓴 돈·계산 도움말 줄만 뺐다: ${appClasses.join(" > ")})`);
   const sentence = (fragment) => (fragment.match(/<div class="homeDailyPlan homePace"><p>([\s\S]*?)<\/p>/) || [, ""])[1].replace(/<span[^>]*>/g, "<span>").replace(/\d[\d,]*/g, "#");
-  t.ok(sentence(appBudget).length > 0 && sentence(budget) === sentence(appBudget), `속도 문장 틀이 앱과 같다 (${sentence(budget)})`);
+  t.ok(sentence(appPaceBudget).length > 0 && sentence(budget) === sentence(appPaceBudget), `속도 문장 틀이 앱과 같다 (${sentence(budget)})`);
   const num = (text) => Number(String(text).replace(/,/g, ""));
   const remaining = num((budget.match(/<div class="homeBudgetAmount"><b>([\d,]+)<\/b>/) || [])[1]);
-  const total = num((budget.match(/전체 예산 ([\d,]+)원/) || [])[1]);
-  const spent = num((budget.match(/지출 ([\d,]+)원/) || [])[1]);
-  t.eq(total - spent, remaining, "남은 돈 = 전체 예산 − 지출(981,400 = 1,230,000 − 248,600)");
+  // V22.9.89 U-02: 아랫줄 이름은 앱과 같이 ‘예산 N원 / 예산 쓴 돈 N원’이다(옛 ‘전체 예산 / 지출’).
+  const total = num((budget.match(/<span>예산 ([\d,]+)원<\/span>/) || [])[1]);
+  const spent = num((budget.match(/예산 쓴 돈 ([\d,]+)원/) || [])[1]);
+  t.eq(total - spent, remaining, "남은 돈 = 예산 − 예산 쓴 돈(981,400 = 1,230,000 − 248,600)");
   const rate = Math.round((spent / total) * 100);
   t.ok(budget.includes(`<em>예산 사용률 <span>${rate}%</span></em>`) && budget.includes(`<i style="width:${rate}%"></i>`) && budget.includes(`예산은 ${rate}%만 썼어요`), `사용률 ${rate}% 가 머리·게이지·문장에서 같다`);
   const day = 12, days = 31;
@@ -272,19 +278,25 @@ await fixture(async (fx) => {
   const demoPreview = between(demo, '<figure class="pubPreview">', "</figure>");
   const demoBudget = between(demoPreview, '<section class="homeBudget">', "</section>");
   t.deepEq(classes(demoBudget), appClasses, "/demo 미리보기 예산 카드도 앱 홈(T-12)과 같은 클래스 순서다");
-  t.ok(sentence(demoBudget) === sentence(appBudget), `/demo 속도 문장 틀이 앱과 같다 (${sentence(demoBudget)})`);
+  t.ok(sentence(demoBudget) === sentence(appPaceBudget), `/demo 속도 문장 틀이 앱과 같다 (${sentence(demoBudget)})`);
   const metric = (key) => num((demo.match(new RegExp(`<dd id="demo-${key}">([\\d,]+)원</dd>`)) || [])[1]);
   const won = (amount) => amount.toLocaleString("en-US");
   const demoRemaining = num((demoBudget.match(/<div class="homeBudgetAmount"><b>([\d,]+)<\/b>/) || [])[1]);
   const demoRate = num((demo.match(/<strong id="demo-rate">(\d+)%<\/strong>/) || [])[1]);
-  t.ok(demoRemaining === metric("remaining") && metric("remaining") === metric("budget") - metric("covered") && demoBudget.includes(`<span>전체 예산 ${won(metric("budget"))}원</span><span>지출 ${won(metric("covered"))}원 · 예산 밖 ${won(metric("uncovered"))}원</span>`),
-    `/demo 미리보기 금액이 아래 계산 예제와 같다(남은 ${won(demoRemaining)} = 예산 ${won(metric("budget"))} − 적용 ${won(metric("covered"))}, 예산 밖 ${won(metric("uncovered"))})`);
+  t.ok(demoRemaining === metric("remaining") && metric("remaining") === metric("budget") - metric("covered") && demoBudget.includes(`<span>예산 ${won(metric("budget"))}원</span><span>예산 쓴 돈 ${won(metric("covered"))}원<br>예산 안 정한 지출 ${won(metric("uncovered"))}원</span>`),
+    `/demo 미리보기 금액이 아래 계산 예제와 같다(남은 ${won(demoRemaining)} = 예산 ${won(metric("budget"))} − 적용 ${won(metric("covered"))}, 예산 안 정한 지출 ${won(metric("uncovered"))})`);
   t.ok(demoRate === Math.round((metric("covered") / metric("budget")) * 100) && demoBudget.includes(`<em>예산 사용률 <span>${demoRate}%</span></em>`) && demoBudget.includes(`<i style="width:${demoRate}%"></i>`) && demoBudget.includes(`예산은 ${demoRate}%만 썼어요`), `/demo 사용률 ${demoRate}% 가 계산 예제·머리·게이지·문장에서 같다`);
   const demoDay = 17, demoDays = 30, demoElapsed = Math.round((demoDay / demoDays) * 100), demoDaily = Math.floor(demoRemaining / (demoDays - demoDay + 1));
   t.ok(demoRate <= demoElapsed && demoBudget.includes(`style="--ab-today:${demoElapsed}%"`) && demoBudget.includes(`이번 달의 ${demoElapsed}%가 지났고`), `/demo 경과율은 9월 17일 = 30일 중 ${demoElapsed}% 이고 사용률 이상이라 앱의 ‘만 썼어요’ 갈래다`);
   t.ok(demoBudget.includes(`<span data-ab-num="${demoDaily}">${won(demoDaily)}</span>원씩`), `/demo 하루 금액 = 남은 돈 ÷ 오늘 포함 남은 14일 = ${won(demoDaily)}원(앱 규칙, 원 미만 버림)`);
-  t.ok(readFileSync(new URL("../src/modules/my/mobile-home.js", import.meta.url), "utf8").includes("` · 예산 밖 ${numberWithCommas(budgetUncovered)}원`"), "‘지출 … · 예산 밖 …원’은 앱 홈 예산 카드(분류별 예산)의 표기와 같다");
+  // V22.9.89 U-02: 앱 홈 아랫줄은 metric-labels.js 의 이름(‘예산 쓴 돈’·‘예산 안 정한 지출’)을 쓴다(V2 R2).
+  const metricLabels = readFileSync(new URL("../src/modules/domain/metric-labels.js", import.meta.url), "utf8");
+  t.ok(readFileSync(new URL("../src/modules/my/mobile-home.js", import.meta.url), "utf8").includes("`<br>${METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUncovered)}원`") && metricLabels.includes('budgetSpent: Object.freeze({ label: "예산 쓴 돈"') && metricLabels.includes('budgetUnset: Object.freeze({ label: "예산 안 정한 지출"'), "‘예산 쓴 돈 …원 / 예산 안 정한 지출 …원’은 앱 홈 예산 카드(분류별 예산)의 표기와 같다");
   const tableRows = [...between(demo, '<table class="pubTable">', "</table>").matchAll(/<tr><th scope="row">([\d-]+)<\/th><td>([^<]+)<\/td><td>([^<]+)<\/td><td>([\d,]+)원<\/td><\/tr>/g)].map(([, date, category, memo, amount]) => ({ date, category, memo, amount }));
+  // V22.9.89 U-04(V2): 앱은 남은 날(오늘 포함)이 5일 이하이거나 하루 금액이 최근 7일(모든 분류 지출) 하루 평균의 3배를 넘으면 ‘남은 N일, 예산이 넉넉해요.’라고 짧게 말한다.
+  // /demo 는 9월 11~17일 지출이 병원 30,000원뿐이라 3배(12,857원)가 하루 12,500원보다 커서 하루 금액을 권하는 지금 문장 갈래다.
+  const demoWeek = tableRows.filter((row) => row.date >= "2026-09-11" && row.date <= "2026-09-17").reduce((sum, row) => sum + num(row.amount), 0);
+  t.ok(demoDays - demoDay + 1 > 5 && demoWeek > 0 && demoDaily <= (demoWeek / 7) * 3, `/demo 는 U-04 짧은 문장 갈래가 아니다(하루 ${won(demoDaily)}원 ≤ 최근 7일 하루 평균의 3배 ${won(Math.round((demoWeek / 7) * 3))}원)`);
   const latest = [...tableRows].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
   const demoRows = [...demoPreview.matchAll(/<article class="v8-tx" data-type="expense"><div class="v8-tx-main"><span class="abCat" data-ck="(\w+)" aria-hidden="true"><i class="abCatIcon"><\/i><\/span><div><b>([^<]+)<\/b><span>([^<]+) · (\d+)월 (\d+)일<\/span><\/div><strong class="expense">-([\d,]+)원<\/strong><\/div><\/article>/g)];
   t.ok(tableRows.length === 4 && demoRows.length === 3 && demoRows.every(([, ck, memo, category, m, d, amount], i) => memo === latest[i].memo && category === latest[i].category && Number(m) === Number(latest[i].date.slice(5, 7)) && Number(d) === Number(latest[i].date.slice(8, 10)) && amount === latest[i].amount && ck === categoryKey(category, "expense", memo)),
