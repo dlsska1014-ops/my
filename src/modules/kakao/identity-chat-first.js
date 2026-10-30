@@ -17,6 +17,7 @@ import {
 } from "../data/users-household-create.js";
 import { saveSettingValue } from "../my/reports-premium.js";
 import { kakaoClaimUserUnmerged } from "../auth/kakao-web-claim.js";
+import { queueKakaoAccountLinkOffer } from "../auth/kakao-account-link.js";
 import { kakaoText } from "./response-builders.js";
 import {
   getHouseholdById, getKakaoSelectedHouseholdId, setKakaoSelectedHousehold,
@@ -137,7 +138,9 @@ const AB_KAKAO_LOGIN_CONFLICT_TRACED = globalThis.__AB_KAKAO_LOGIN_CONFLICT_TRAC
 
 // 운영 이벤트(ops-telemetry)에 남긴다. 받은 말·카카오 id 는 넣지 않고, 사용자 id 는 앞 8자만 적는다(전체 id 는 이벤트에서 가려진다).
 // 같은 두 계정은 isolate 마다 10분에 한 번만 적는다.
-function traceKakaoLoginAliasConflict(chatUid = "", ownerUid = "", source = "") {
+// V22.9.91 계정 잇기: 같은 충돌을 남길 때 그 둘을 ‘잇기 제안’으로도 요청 안에 모아 둔다. 답 처리가 끝난 뒤 skill-handler.js 가
+// DB 호출 여유가 있을 때 쓴다(auth/kakao-account-link.js). 카카오 로그인 id 는 제안 표에 해시로만 남고 운영 이벤트에는 쓰지 않는다.
+function traceKakaoLoginAliasConflict(env, chatUid = "", ownerUid = "", source = "", kakaoId = "") {
   const key = `${chatUid}|${ownerUid}`;
   const now = Date.now();
   if (now - Number(AB_KAKAO_LOGIN_CONFLICT_TRACED.get(key) || 0) < 10 * 60 * 1000) return;
@@ -147,6 +150,7 @@ function traceKakaoLoginAliasConflict(chatUid = "", ownerUid = "", source = "") 
     kind: "kakao_login_alias_conflict", severity: "warn", path: "/skill", method: "POST", label: "채팅 계정과 카카오 로그인 계정이 다름",
     detail: `자동 병합 안 함·지금 연결 유지 · 채팅 ${String(chatUid).slice(0, 8)} · 카카오 로그인 ${String(ownerUid).slice(0, 8)} · 근거 ${source || "-"}`,
   });
+  queueKakaoAccountLinkOffer(env, { chatUserId: chatUid, loginUserId: ownerUid, kakaoId });
 }
 
 // V22.9.77 감사 B-7: kakao_login:<appUserId> 별칭의 주인이 이 사용자가 아닌 다른 계정인지 본다(링크 표에 있으면 그 사람,
@@ -164,8 +168,12 @@ async function foreignKakaoLoginOwner(env, alias = "", canonicalUid = "", links 
     ownerUid = String(owner?.user?.id || "").trim();
     source = owner?.source || "";
   }
-  if (!ownerUid || ownerUid === canonicalUid || await resolveEffectiveUserId(env, ownerUid) === canonicalUid) return null;
-  return { ownerUid, source, explicit: !!linkedUid };
+  if (!ownerUid || ownerUid === canonicalUid) return null;
+  // V22.9.91 독립 검토: 주인이 통합된 계정이면 주 계정을 주인으로 본다. 잇기 제안이 통합된 계정에 묶이면 확인 화면이 곧바로
+  // ‘지난 제안’으로 지우고 다음 대화가 다시 남기기를 되풀이했고, 정작 주 계정에는 제안이 가지 않았다.
+  const effectiveOwnerUid = await resolveEffectiveUserId(env, ownerUid) || ownerUid;
+  if (effectiveOwnerUid === canonicalUid) return null;
+  return { ownerUid: effectiveOwnerUid, source, explicit: !!linkedUid };
 }
 
 function identityAliasPersistenceError(error) {
@@ -201,7 +209,7 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
       if (!kakaoLoginIdFromAlias(alias) || kakaoLoginChecked.has(alias)) { kept.push(alias); continue; }
       const foreign = await foreignKakaoLoginOwner(env, alias, canonicalUid, links);
       if (foreign && (keepCurrentOnConflict || !foreign.explicit)) {
-        if (keepCurrentOnConflict) traceKakaoLoginAliasConflict(canonicalUid, foreign.ownerUid, foreign.source);
+        if (keepCurrentOnConflict) traceKakaoLoginAliasConflict(env, canonicalUid, foreign.ownerUid, foreign.source, kakaoLoginIdFromAlias(alias));
         // 이 요청 안에서는 다시 확인하지 않는다(별칭은 쓰지 않았고, 채팅은 지금 계정으로 계속한다).
         if (env.__AB_IDENTITY_CONFIRMED) env.__AB_IDENTITY_CONFIRMED.set(alias, requestedUid);
         continue;
@@ -247,7 +255,7 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
             ? await foreignKakaoLoginOwner(env, key, canonicalUid, links) : null;
           if (foreign) {
             if (!keepCurrentOnConflict && foreign.explicit) throw new Error("identity_alias_conflict");
-            if (keepCurrentOnConflict) traceKakaoLoginAliasConflict(canonicalUid, foreign.ownerUid, foreign.source);
+            if (keepCurrentOnConflict) traceKakaoLoginAliasConflict(env, canonicalUid, foreign.ownerUid, foreign.source, kakaoLoginIdFromAlias(key));
             continue;
           }
           if (existingUid) {

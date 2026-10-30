@@ -40,6 +40,7 @@ import {
 } from "./access-control.js";
 import { transactionEditHistoryKey } from "./transactions.js";
 import { addQueryToUrl, renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
+import { kakaoAccountLinkPrompt } from "../auth/kakao-account-link.js";
 import { myNavCss, renderUserLoginHtml } from "../web/login-page-side-nav.js";
 import { formatMessage } from "../kakao/reply-texts.js";
 import { isDefiniteStorageFailure, isUncertainStorageWrite } from "../kakao/response-builders.js";
@@ -678,6 +679,12 @@ async function handleMyJoin(request, env) {
 async function handleMyPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return htmlResponse(renderUserLoginHtml(env, "", safeUserReturnPath(url.searchParams.get("return_to") || "", "")));
+  // V22.9.91 계정 잇기: 이 사람의 카카오톡 방 기록 계정과 웹 계정이 갈라져 있으면(잇기 제안) 가계부보다 확인 화면을 먼저 보인다.
+  // ‘나중에’를 골랐거나 방금 이은 뒤(msg=account_linked)는 묻지 않는다.
+  if (url.searchParams.get("msg") !== "account_linked") {
+    const linkPrompt = await kakaoAccountLinkPrompt(request, env, userId);
+    if (linkPrompt) return linkPrompt;
+  }
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const access = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
   if (access.restricted) {

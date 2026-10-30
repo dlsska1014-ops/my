@@ -27,6 +27,13 @@ V22.9.76 작성(감사 G-15). 값은 적지 않는다. 이름과 빠졌을 때�
 
 `KAKAO_LOGIN_ENABLED`, `KAKAO_REST_API_KEY`, `KAKAO_REDIRECT_URI`, `KAKAO_CLIENT_SECRET`, `KAKAO_CLIENT_SECRET_REQUIRED`.
 상태는 관리자 운영 진단 화면(`src/modules/admin/ops-diagnostics-pages.js`)에 보인다.
+`KAKAO_INAPP_AUTO_LOGIN`(V22.9.91, 없으면 켬): 카카오톡 인앱 브라우저에서 세션 없이 /my·/app 을 열면 카카오 로그인을 화면 없이(prompt=none) 한 번 해 본다. `0` 이면 끈다. 위 로그인 설정이 준비되지 않으면 저절로 쉰다.
+자동 로그인은 새 계정을 만들지 않고, 가계부나 이을 계정이 있는 웹 계정만 들인다.
+
+`KAKAO_ACCOUNT_LINK_ENABLED`(V22.9.91, 없으면 끔): 단톡방 기록 계정과 웹 계정 잇기(/my 의 안내, /my/account-link 확인 화면, 합치기)를 켠다. `1` 이면 켠다.
+꺼져 있어도 잇기 제안(`kakao_login_link_offers_v22991`)과 appUserId 진단은 남는다. 켜는 것은 설정 변경이라 사용자 승인 뒤에 한다.
+켜기 전 확인(DEPLOYMENT_MATRIX V22.9.91 절): 카카오 콘솔에서 웹 로그인 앱 1489689 를 그룹 챗봇에 연결하고, 운영자 자신의 갈라진 계정으로 관리자 /identity-audit 의 ‘appUserId 옴’과 잇기 제안을 본다.
+TEST 앱 1508592 는 연결하지 않는다(다른 회원번호가 와 남의 웹 계정을 가리킬 수 있다). 관리자 진단 칸이 이 값의 켜짐·꺼짐을 보인다.
 
 ## 예약 작업 (cron)
 

@@ -99,6 +99,7 @@ my/money-plan-home-layout.js
 admin/budget-center-recurring.js
 auth/local-login-pages.js
 auth/kakao-web-claim.js
+auth/kakao-account-link.js
 web/login-page-side-nav.js
 domain/analytics.js
 features/meme-engine-premium.js

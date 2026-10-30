@@ -51,7 +51,8 @@ await fixture(async (fx) => {
   t.ok(html.indexOf('<header class="loginTop">') < html.indexOf("<main"), "머리는 본문 앞에 있다");
 
   // 순서: 제목 → 카카오 → 로그인 이름 칸 → 카카오 기록 이어 열기 → 새 계정·둘러보기 → 예시 카드 → 가입 → 기능 미리보기
-  const marks = ['<h1 id="landingTitle">', '<a class="kakaoBtn" href="/auth/kakao/start">', '<details class="loginLocal" id="login-local">', 'id="kakao-claim-start"', '<p class="loginNext">', '<section class="loginExample"', '<details class="card signupCard" id="signup-start">', '<section id="feature-preview"'];
+  // V22.9.91: 로그인이 풀려 return_to 를 들고 온 시작 화면의 카카오 버튼은 그 화면으로 돌아갈 주소를 함께 싣는다.
+  const marks = ['<h1 id="landingTitle">', '<a class="kakaoBtn" href="/auth/kakao/start?return_to=%2Fapp%3Fmonth%3D2026-10%26household_id%3Dhouse-home">', '<details class="loginLocal" id="login-local">', 'id="kakao-claim-start"', '<p class="loginNext">', '<section class="loginExample"', '<details class="card signupCard" id="signup-start">', '<section id="feature-preview"'];
   const at = marks.map((mark) => html.indexOf(mark));
   t.ok(at.every((value, index) => value > 0 && (index === 0 || value > at[index - 1])), `시작 화면 순서가 지시서와 같다 (${at.join(" < ")})`);
   t.ok(html.includes('<h1 id="landingTitle">말하듯 기록하고,<br/><strong>숫자로 바로 이해하세요.</strong></h1><p class="heroLead">카카오톡에서 한 줄로 적고, 웹에서 예산과 정산까지 확인해요.</p>'), "제목과 한 줄 소개");

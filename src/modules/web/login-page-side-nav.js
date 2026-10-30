@@ -17,7 +17,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login", signupValues = {}) {
   const keep = (key) => escapeHtml(String(signupValues?.[key] ?? "").slice(0, 80));
   const title = escapeHtml(appName(env));
-  const kakaoPart = kakaoLoginStatusBlock(env);
+  const kakaoPart = kakaoLoginStatusBlock(env, returnTo);
   const signupMode = authMode === "signup";
   const claimMode = authMode === "kakao_claim";
   const authTarget = claimMode ? "kakaoClaimCode" : signupMode ? "signupName" : "loginName";

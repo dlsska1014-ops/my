@@ -111,6 +111,7 @@ import { mergedUserSessionRecoveryResponse, verifyUserSession } from "../auth/us
 import { boundedFormRequest, handleAccountReauth } from "../auth/identity-reauth.js";
 import {
   handleKakaoLoginCallback, handleKakaoLoginStart, handleMyLogout,
+  kakaoAccountLinkAuthorizeResponse,
 } from "../auth/kakao-oauth.js";
 import { handleMyMemberPolicySave, handleMyMembersPage } from "../my/members-page.js";
 import { handleMyBackupCsv, handleMyBackupPage, handleMyImport } from "../my/backup-import.js";
@@ -163,6 +164,10 @@ import {
   renderKakaoLoginCheckHtml,
 } from "../auth/local-login-pages.js";
 import { handleMyKakaoClaim } from "../auth/kakao-web-claim.js";
+import {
+  handleMyAccountLinkPage, handleMyAccountLinkRun, handleMyAccountLinkStart,
+  kakaoInAppAutoLoginResponse,
+} from "../auth/kakao-account-link.js";
 import { renderUserLoginHtml } from "../web/login-page-side-nav.js";
 import { renderPublicShareCardHtml } from "../admin/dashboard-fragments.js";
 import {
@@ -270,6 +275,11 @@ const ACCOUNTBOOK_WORKER = {
 
       const publicDocument = await publicDocumentResponse(request, env, url);
       if (publicDocument) return publicDocument;
+
+      // V22.9.91: 카카오톡 인앱 브라우저에서 세션 없이 /my·/app 을 열면 로그인 화면 대신 카카오 자동 로그인(prompt=none)을 먼저 해 본다.
+      // 회원이면 화면 없이 로그인되고, 아니면 지금처럼 로그인 화면이 나온다(auth/kakao-account-link.js).
+      const kakaoAutoLogin = await kakaoInAppAutoLoginResponse(request, env, url);
+      if (kakaoAutoLogin) return kakaoAutoLogin;
 
       if (request.method === "HEAD" && url.pathname === "/" && !isExplicitAdminUrl(url) && url.searchParams.get("legacy") !== "1") {
         return headOnlyResponse(await handlePublicContentPage(request, env, url, "home"));
@@ -498,7 +508,20 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if (url.pathname === "/my/logout" && request.method === "POST") {
-        return await handleMyLogout();
+        return await handleMyLogout({ explicit: true });
+      }
+
+      // V22.9.91 계정 잇기: 확인 화면(GET), 카카오로 다시 확인(POST), 합치기(GET, 카카오 확인 뒤 콜백이 준 5분짜리 표가 있어야 한다).
+      if (url.pathname === "/my/account-link" && request.method === "GET") {
+        return safeHtmlRoute(request, url, () => handleMyAccountLinkPage(request, env, url), "계정 잇기");
+      }
+
+      if (url.pathname === "/my/account-link" && request.method === "POST") {
+        return await handleMyAccountLinkStart(request, env, kakaoAccountLinkAuthorizeResponse);
+      }
+
+      if (url.pathname === "/my/account-link/run" && request.method === "GET") {
+        return safeHtmlRoute(request, url, () => handleMyAccountLinkRun(request, env), "계정 잇기");
       }
 
       if ((url.pathname === "/auth/kakao/start" || url.pathname === "/my/kakao-link") && request.method === "GET") {

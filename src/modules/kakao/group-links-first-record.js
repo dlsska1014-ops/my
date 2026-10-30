@@ -507,14 +507,22 @@ async function fetchKakaoGroupLinkItemRows(env, options = {}) {
 
 // V22.9.34 감사 S2: 계정 통합은 방 연결의 linked_by 만 옮긴다. 방마다 잠금 안에서 그 방 행을 다시 읽고,
 // 옛 통합 맵은 엄격하게 읽어 같은 칸만 고친다.
-async function reassignKakaoGroupLinkOwner(env, fromUserId = "", toUserId = "") {
+// V22.9.91 독립 검토: options.hasRoom(n) 이 거짓이면 남은 방(잠금·읽기·쓰기·풀기 4회, 옛 맵 몫 4회를 남김)과 옛 맵은 고치지 않고
+// 그 수를 돌려준다({ changed, pending, legacyPending }). 계정 잇기는 한 요청 안에서 부르고, 잠금을 잡고 못 풀면 90초 남는다.
+async function reassignKakaoGroupLinkOwner(env, fromUserId = "", toUserId = "", options = {}) {
   const from = String(fromUserId || "");
   const to = String(toUserId || "");
-  if (!from || !to || from === to) return 0;
+  const hasRoom = typeof options.hasRoom === "function" ? options.hasRoom : () => true;
+  if (!from || !to || from === to) return { changed: 0, pending: 0, legacyPending: false };
   let changed = 0;
+  let pending = 0;
   const items = await fetchKakaoGroupLinkItemRows(env, { strict: true });
   for (const [groupKey, item] of Object.entries(items)) {
     if (String(item.linked_by || "") !== from) continue;
+    if (pending || !hasRoom(8)) {
+      pending += 1;
+      continue;
+    }
     await withKakaoGroupLifecycleLease(env, groupKey, async ({ assertFresh }) => {
       const value = await getSettingValueStrict(env, kakaoGroupLinkItemSettingsKey(groupKey));
       const current = normalizeKakaoGroupLinkItem(value, groupKey);
@@ -524,6 +532,7 @@ async function reassignKakaoGroupLinkOwner(env, fromUserId = "", toUserId = "") 
       changed += 1;
     });
   }
+  if (!hasRoom(4)) return { changed, pending, legacyPending: true };
   await withSettingsRmwLease(env, "settings-rmw:kakao_group_links", async ({ assertFresh }) => {
     const map = await fetchLegacyKakaoGroupLinkMap(env, true);
     let legacyChanged = false;
@@ -536,7 +545,7 @@ async function reassignKakaoGroupLinkOwner(env, fromUserId = "", toUserId = "") 
     assertFresh();
     await saveSettingValue(env, kakaoGroupLinksSettingsKey(), JSON.stringify(map));
   });
-  return changed;
+  return { changed, pending, legacyPending: false };
 }
 
 async function fetchKakaoGroupLinkMap(env) {

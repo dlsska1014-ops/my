@@ -11,8 +11,8 @@ import {
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeObject } from "../admin/backup-compare.js";
 import {
-  getUserSessionVersion, kakaoLoginUserKey, mergedMarkerFreeName, userSessionSecret,
-  verifyUserSession,
+  getUserSessionVersion, kakaoLoginUserKey, mergedMarkerFreeName, resolveEffectiveUserId,
+  userSessionSecret, verifyUserSession,
 } from "./user-session.js";
 import { fetchUserById } from "../data/users-household-create.js";
 import { optionalSupabase } from "../domain/budgets.js";
@@ -345,24 +345,38 @@ async function lookupKakaoLoginOwner(env, kakaoId = "", options = {}) {
   const strong = await fetchStrongIdentityBySubject(env, "kakao", kid);
   if (strong?.user_id) {
     const user = await fetchUserById(env, strong.user_id);
-    if (user) return { user, source: "strong" };
+    if (user) return effectiveKakaoLoginOwner(env, { user, source: "strong" });
   }
   const key = kakaoLoginUserKey(kid);
   const links = options.links || await fetchUserIdentityLinks(env);
   const linkedUserId = String(safeObject(links[key]).user_id || "");
   if (linkedUserId) {
     const linked = await fetchUserById(env, linkedUserId);
-    if (linked) return { user: linked, source: "link" };
+    if (linked) return effectiveKakaoLoginOwner(env, { user: linked, source: "link" });
   }
   const existing = await supabase(env, `/rest/v1/users?kakao_user_key=eq.${encodeURIComponent(key)}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" });
   if (existing?.[0]) return { user: existing[0], source: "user_key" };
   return null;
 }
 
+// V22.9.91 독립 검토: 강한 식별·링크가 통합된 계정(merged:)을 가리키면(통합 뒤 링크 정리가 실패한 경우 등) 통합 리다이렉트로
+// 주 계정을 찾아 그 계정을 주인으로 본다. 예전에는 통합된 계정으로 세션을 만들어 세션 확인이 거절했고, 카카오톡 자동 로그인은
+// 그 자리를 되풀이했다. 주 계정을 찾지 못하면 merged 표시를 달아 돌려준다(웹 로그인은 멈추고 새 계정을 만들지 않는다).
+async function effectiveKakaoLoginOwner(env, found) {
+  const mergedRow = (user) => String(user?.kakao_user_key || "").startsWith("merged:") || /\(통합됨\)\s*$/.test(String(user?.nickname || ""));
+  if (!found?.user || !mergedRow(found.user)) return found;
+  const mergedId = String(found.user.id || "");
+  const effectiveId = await resolveEffectiveUserId(env, mergedId, { fresh: true });
+  const effective = effectiveId && effectiveId !== mergedId ? await fetchUserById(env, effectiveId) : null;
+  return effective && !mergedRow(effective) ? { user: effective, source: found.source, mergedFrom: mergedId } : { ...found, merged: true };
+}
+
 async function findUserByKakaoLoginId(env, kakaoId = "") {
   const kid = String(kakaoId || "").trim();
   const found = await lookupKakaoLoginOwner(env, kid);
   if (!found) return null;
+  // 통합된 계정만 찾고 주 계정을 못 찾으면 로그인하지 않는다(그 세션은 거절되고, 새 계정을 만들면 기록이 갈라진다). 관리자 통합 화면에서 고친다.
+  if (found.merged) throw new Error("kakao_login_owner_merged_unresolved");
   if (found.source !== "strong") {
     try { await linkKakaoLoginToUser(env, kid, found.user.id, { nickname: found.user.nickname || "" }); } catch (err) { rememberOpsEvent({ kind: "legacy_kakao_identity_migration_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: "V22.7 migration required" }); }
   }
@@ -398,8 +412,8 @@ async function ensureKakaoLoginUser(env, kakaoId, nickname) {
 // @build:exports-start
 export {
   boundedFormRequest, clearHouseholdDeleteReauthCookie, ensureKakaoLoginUser,
-  fetchStrongIdentityForUser, fetchUserIdentityLinks, findUserByLocalLoginIdentity,
-  handleAccountReauth, hasBackupLoginIdentity, hasKakaoLoginIdentity,
+  fetchStrongIdentityForUser, fetchUserIdentityLinks, findUserByKakaoLoginId,
+  findUserByLocalLoginIdentity, handleAccountReauth, hasBackupLoginIdentity, hasKakaoLoginIdentity,
   householdDeleteReauthCookieName, isPlaceholderUserNickname, kakaoLoginIdentityMatchesUser,
   linkKakaoLoginToUser, lookupKakaoLoginOwner, makeCredentialProof, makeDeleteRestoreTicket,
   makeHouseholdDeleteReauthToken, makeQuickUndoTicket, normalizeLocalLoginName,

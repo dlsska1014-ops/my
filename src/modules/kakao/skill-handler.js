@@ -20,6 +20,7 @@ import { fetchUserHouseholds } from "../data/users-household-create.js";
 import { canManageMyHousehold } from "../my/access-control.js";
 import { kakaoBudgetStatusParts } from "../domain/budgets.js";
 import { kakaoPrivateWebLinkReply } from "../auth/kakao-web-claim.js";
+import { afterKakaoSkillIdentityWork } from "../auth/kakao-account-link.js";
 import {
   kakaoAmbiguityGuide, kakaoBudgetGuideText, kakaoSkillSafeFallbackText,
 } from "./reply-texts.js";
@@ -244,6 +245,9 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     headers.set("x-accountbook-latency-ms", String(latencyMs));
     return new Response(fallback.body, { status: fallback.status, statusText: fallback.statusText, headers });
   } })();
+  // V22.9.91 계정 잇기: 답 처리 중 모아 둔 잇기 제안과 appUserId 도착 진단을 답 처리가 끝난 뒤 쓴다(auth/kakao-account-link.js).
+  // 답을 늦추지 않게 waitUntil 로 미루고, 이 요청의 DB 호출 여유가 있을 때만 쓴다. 실패해도 답에는 영향이 없다.
+  if (canDeferSave) ctx.waitUntil(work.then(() => {}, () => {}).then(() => afterKakaoSkillIdentityWork(env, payload, trustedChatFirstSkillCaller(request, env))).catch(() => {}));
   if (!canDeferSave) return await work;
   const budgetMs = boundedRuntimeNumber(env.KAKAO_RESPONSE_BUDGET_MS, 4000, 200, 4700);
   let deadlineTimer = null;
