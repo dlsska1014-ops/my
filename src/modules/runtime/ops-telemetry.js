@@ -36,8 +36,11 @@ function nluDiagnosticFields(event = {}) {
   const intents = ["EMPTY", "UNKNOWN", "EDIT", "MENU", "START", "CREATE_HOUSEHOLD", "JOIN_HOUSEHOLD", "HOUSEHOLD_SWITCH", "MEMBER_ALIAS_CHANGE", "INVITE_CODE_SHOW", "INVITE_MEMBER", "BUDGET_SETUP", "BUDGET_STATUS", "GROUP_LINK", "SETTLEMENT", "SUMMARY", "RECENT_RECORDS", "INPUT_EXAMPLE", "EDIT_GUIDE", "KEYWORD_GUIDE", "RESERVE_GUIDE", "DATA_POLICY", "CANCEL", "HELP", "WEB_LINK", "TRANSACTION"];
   const reasons = ["generic_fallback", "guided_clarification", "handled", "save_failed", "save_uncertain", "safe_error_response", "handler_error"];
   const reason = String(event.reason || "");
+  // V22.9.90: the natural-intent detector names these two HOUSEHOLD_CREATE/HOUSEHOLD_JOIN; the stored names (and the monitor labels) are the ones below.
+  const aliases = { HOUSEHOLD_CREATE: "CREATE_HOUSEHOLD", HOUSEHOLD_JOIN: "JOIN_HOUSEHOLD" };
+  const intent = aliases[event.intent] || event.intent;
   return {
-    intent: intents.includes(event.intent) ? event.intent : "UNKNOWN",
+    intent: intents.includes(intent) ? intent : "UNKNOWN",
     result: ["ok", "fallback", "clarify", "error"].includes(event.result) ? event.result : "error",
     reason: reasons.includes(reason) || /^edit_(?:unrecognized|unrecognized_final|duplicate_reply_guard|restore_error):attempt_[0-3]$/.test(reason) ? reason : "handler_error",
   };

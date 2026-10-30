@@ -25,7 +25,7 @@ const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8")
 // 이번 릴리스의 자산 주소. 바뀐 자산은 주소를 올렸고(불변 캐시), 옛 JS 주소는 AB_HISTORICAL_RUNTIME_ASSETS 로 그대로 내려간다.
 const SHELL_CSS = "/assets/accountbook-shell-v22987.css";
 const NAV_JS = "/assets/accountbook-nav-v22987.js";
-const V5_JS = "/assets/accountbook-v5-v22987.js";
+const V5_JS = "/assets/accountbook-v5-v22990.js";
 const GOALS_JS = "/assets/accountbook-goals-v22946.js";
 const PREVIOUS_ASSETS = {
   "/assets/accountbook-nav-v22937.js": ["accountbook-nav-v22937-js", "c6c30dcbf5ea883ca539becccba221d6c7e616c39859441afc7c4e1fd6ba3ed8"],
@@ -56,7 +56,8 @@ const navOf = (html) => { const start = html.indexOf('class="abLayoutNav'); retu
 // ── 자산 주소: 바뀐 자산은 새 주소·새 ETag, 옛 JS 주소는 바이트 그대로 ───────────────
 {
   // V22.9.87: 셸 CSS·메뉴 스크립트·V5 번들 주소를 v22987 로 올렸다(디자인 보강 4단계).
-  for (const [path, version] of [[SHELL_CSS, "v22987"], [NAV_JS, "v22987"], [V5_JS, "v22987"], [GOALS_JS, "v22946"], ["/assets/accountbook-favrows-v22937.js", "v22937"], ["/assets/accountbook-search-v22979.js", "v22979"], ["/assets/accountbook-notif-v22937.js", "v22937"]]) {
+  // V22.9.90: V5 번들 주소를 v22990 으로 올렸다(사용자 피드백 — 삭제 알림 되돌리기 5초).
+  for (const [path, version] of [[SHELL_CSS, "v22987"], [NAV_JS, "v22987"], [V5_JS, "v22990"],[GOALS_JS, "v22946"], ["/assets/accountbook-favrows-v22937.js", "v22937"], ["/assets/accountbook-search-v22979.js", "v22979"], ["/assets/accountbook-notif-v22937.js", "v22937"]]) {
     const served = await asset(path);
     ok(served.status === 200 && served.etag.includes(version), `${path} 가 ${version} ETag 로 내려온다 (${served.etag || served.status})`);
   }

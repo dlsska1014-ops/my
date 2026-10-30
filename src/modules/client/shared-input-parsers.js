@@ -296,7 +296,7 @@ function quickSmartInputController(config) {
     preview(); config.sync?.();
     if (typeof Event === "function") document.dispatchEvent?.(new Event("ab:quick-update"));
   }
-  function apply(clearInput) {
+  function apply(clearInput, composing) {
     // V22.9.79: 입력은 카카오와 같은 순서로 읽는다 — 전각 숫자를 반각으로 바꾸고(A-16) 서버와 같은 정본 normalizeInputText 로 다듬은 문장에서
     // 금액·날짜·구분·결제수단·분류·메모를 찾는다("만 오천원"(A-07)은 이 단계에서 한 금액이 된다). 저장하는 원문(rawTextInput)은 친 그대로다.
     // 서버(parseTransaction)는 입구에서 한 번 다듬고 금액·날짜·구분 판정에서 한 번 더 다듬는다("(1234)삼만 오천원"은 첫 번째로 괄호가 지워진
@@ -318,12 +318,20 @@ function quickSmartInputController(config) {
     if (byId("rawTextInput")) byId("rawTextInput").value=typed;
     setValidity(amount,invalidAmount,"유효한 금액을 입력하세요."); setValidity(date,invalidDate,"유효한 날짜를 선택하세요.");
     if (clearInput) smart.value="";
-    resolveCategory(); complete();
+    // V22.9.90(독립 검토): 한글 조합 중(composing)에는 위에서 이 기기가 읽은 분류를 그대로 보이고, 가계부 분류 요청은 조합이 끝나 다시 읽을 때 보낸다
+    // (자모마다 분류 칸을 비우고 요청을 다시 걸던 깜빡임을 없앤다). 조합이 끝나기 전에 저장하면 아래 submit 이 분류 칸을 비워 서버가 정한다(요청 중 저장과 같다).
+    if (composing) deferCategory(); else resolveCategory();
+    complete();
   }
-  let classificationSequence=0, classificationTimer=0, classificationPending=false, classificationFailed=false;
+  let classificationSequence=0, classificationTimer=0, classificationPending=false, classificationFailed=false, categoryDeferred=false;
+  function deferCategory() {
+    ++classificationSequence;
+    clearTimeout(classificationTimer); classificationPending=false; classificationFailed=false;
+    categoryDeferred=!manual.category;
+  }
   function resolveCategory() {
     const sequence=++classificationSequence;
-    clearTimeout(classificationTimer); classificationPending=false; classificationFailed=false;
+    clearTimeout(classificationTimer); classificationPending=false; classificationFailed=false; categoryDeferred=false;
     if (manual.category) return;
     const memo=byId("memoInput")?.value || "", raw=byId("rawTextInput")?.value || "";
     if (!memo && !raw) return;
@@ -382,7 +390,7 @@ function quickSmartInputController(config) {
     field.addEventListener("input",changed); field.addEventListener("change",changed);
   }
   document.querySelectorAll("input[name=type]").forEach(field=>{const changed=()=>{manual.type=true;if(markers.type)markers.type.value="1";resolveCategory();complete();};field.addEventListener("change",changed);field.addEventListener("click",changed);});
-  form?.addEventListener("submit",event=>{if(amountComposing||(confirmType&&!manual.type)||invalidAmount||invalidDate||!validAmount()||!validDate()){event.preventDefault();invalidAmount=invalidAmount||!validAmount();invalidDate=invalidDate||!validDate();setValidity(amount,invalidAmount,"1원부터 20억원까지 정수 금액을 입력해 주세요.");complete();}});
+  form?.addEventListener("submit",event=>{if(amountComposing||(confirmType&&!manual.type)||invalidAmount||invalidDate||!validAmount()||!validDate()){event.preventDefault();invalidAmount=invalidAmount||!validAmount();invalidDate=invalidDate||!validDate();setValidity(amount,invalidAmount,"1원부터 20억원까지 정수 금액을 입력해 주세요.");complete();}else if(categoryDeferred&&!manual.category&&byId("catInput")){byId("catInput").value="";categoryDeferred=false;}});
   preview(true);
   return {apply,preview};
 }

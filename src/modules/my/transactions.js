@@ -17,17 +17,20 @@ import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { refundLinkLockedCode } from "../domain/refund-links.js";
 import { verifyUserSession } from "../auth/user-session.js";
-import { quickUndoFingerprint, readQuickUndoTicket } from "../auth/identity-reauth.js";
+import {
+  quickUndoFingerprint, readDeleteRestoreTicket, readQuickUndoTicket,
+} from "../auth/identity-reauth.js";
 import {
   canManageMyRecord, canWriteMyHousehold, getMySelectedHousehold, memberRecordChangeError,
   myReturnLocation,
 } from "./access-control.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
+import { KAKAO_TX_SELECT_V4 } from "../kakao/edit-session-v4.js";
 import { supabase } from "../data/supabase-client.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
 import {
   createManualTransaction, deleteTransactionIfUnchanged, deleteTransactionWithAudit,
-  updateTransaction,
+  fetchDeletedTransactionAudit, reinsertDeletedTransaction, updateTransaction,
 } from "../domain/transactions-core.js";
 // @build:imports-end
 
@@ -273,7 +276,7 @@ async function handleMyQuickUndo(request, env) {
   const back = (householdId, extra) => {
     const fallback = `/app?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`;
     const target = new URL(safeUserReturnPath(String(form.get("return_to") || ""), fallback), "https://accountbook.local");
-    for (const key of ["msg", "err", "balert", "saved_rid", "saved_qd", "undo", "quick", "day_detail", "rid"]) target.searchParams.delete(key);
+    for (const key of ["msg", "err", "balert", "saved_rid", "saved_qd", "undo", "restore", "quick", "day_detail", "rid"]) target.searchParams.delete(key);
     for (const [key, value] of Object.entries(extra)) target.searchParams.set(key, value);
     return `${target.pathname}${target.search}${target.hash}`;
   };
@@ -298,9 +301,53 @@ async function handleMyQuickUndo(request, env) {
     return redirectResponse(back(selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "record_delete_failed" }));
   }
 }
+
+// V22.9.90(사용자 피드백 2026-10-30 "삭제하면 5초뒤 삭제되는데 바로 삭제되게하고 되돌리기를 5초 유지해줘"): 웹 삭제의 ‘되돌리기’. 삭제는 누르는 즉시
+// 하고, 돌아간 홈 알림(msg=deleted)에 이 경로로 보내는 ‘되돌리기’ 폼 단추를 둔다(알림은 5초 보인다). 서버가 서명한 표(readDeleteRestoreTicket — 이 로그인
+// 사용자 것, 60초 안)가 있어야 하고, 되살릴 기록 번호·가계부는 주소가 아니라 표에서 읽는다. 되살릴 값은 DB 감사 기록(이 사용자가 표를 받기 직전에 지운
+// 그 행 전체)이고 카카오 ‘복구’와 같은 칸·같은 기록 번호로 다시 넣는다(reinsertDeletedTransaction). 검사는 /my/undo 와 같다(가계부 쓰기 권한·내 기록이거나
+// 소유자·관리자·구성원 ‘기록만’ 정책). 이미 있으면(앞선 되돌리기가 응답만 잃었으면) 다시 넣지 않고 되살린 것으로 본다. 같은 출처 검사는 라우터 전역이 한다.
+// 돌아갈 곳은 지운 화면(return_to)이고 msg=restored 를 붙인다.
+async function handleMyDeleteRestore(request, env) {
+  const userId = await verifyUserSession(request, env);
+  if (!userId) return redirectResponse("/my");
+  const form = await request.formData();
+  const month = validMonth(String(form.get("month") || "")) || currentMonthKst();
+  const back = (householdId, extra) => {
+    const fallback = `/app?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`;
+    const target = new URL(safeUserReturnPath(String(form.get("return_to") || ""), fallback), "https://accountbook.local");
+    for (const key of ["msg", "err", "balert", "saved_rid", "saved_qd", "undo", "restore", "quick", "day_detail", "rid"]) target.searchParams.delete(key);
+    for (const [key, value] of Object.entries(extra)) target.searchParams.set(key, value);
+    return `${target.pathname}${target.search}${target.hash}`;
+  };
+  const ticket = await readDeleteRestoreTicket(env, form.get("ticket"), userId);
+  if (!ticket) return redirectResponse(back("", { err: "restore_expired" }));
+  const { selected } = await getMySelectedHousehold(env, userId, ticket.h);
+  if (!selected || String(selected.id) !== String(ticket.h)) return redirectResponse(back("", { err: "restore_expired" }));
+  if (!canWriteMyHousehold(selected.role)) return redirectResponse(back(selected.id, { err: "write_not_allowed" }));
+  const findById = async (id) => {
+    const rows = await supabase(env, `/rest/v1/transactions?select=${KAKAO_TX_SELECT_V4}&id=eq.${encodeURIComponent(id)}&household_id=eq.${encodeURIComponent(selected.id)}&limit=1`, { method: "GET" }) || [];
+    return Array.isArray(rows) ? rows[0] || null : null;
+  };
+  try {
+    if (await findById(ticket.r)) return redirectResponse(back(selected.id, { msg: "restored" }));
+    // 표를 받은 그 삭제의 행만 쓴다. 그 뒤 다시 지운 기록(다른 사람이든 나든)이면 restore_changed 로 거절한다(fetchDeletedTransactionAudit).
+    const { row, reason } = await fetchDeletedTransactionAudit(env, { transactionId: ticket.r, householdId: selected.id, userId, deletedAt: ticket.d });
+    if (!row) return redirectResponse(back(selected.id, { err: reason === "changed" ? "restore_changed" : "restore_expired" }));
+    if (!canManageMyRecord(selected.role, row, userId)) return redirectResponse(back(selected.id, { err: "not_my_record" }));
+    const policyError = await memberRecordChangeError(env, selected.role, selected.id);
+    if (policyError) return redirectResponse(back(selected.id, { err: policyError }));
+    await reinsertDeletedTransaction(env, selected.id, row, findById);
+    return redirectResponse(back(selected.id, { msg: "restored" }));
+  } catch (err) {
+    rememberOpsEvent({ kind: "my_record_restore_failed", severity: "warn", path: "/my/restore", method: "POST", detail: safeError(err) });
+    return redirectResponse(back(selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : "restore_failed" }));
+  }
+}
 // @build:exports-start
 export {
-  activeSpenderExists, getTransactionForUserEdit, handleMyAddTransaction, handleMyDeleteTransaction,
-  handleMyQuickUndo, handleMyUpdateTransaction, memberCanBeSpender, transactionEditHistoryKey,
+  activeSpenderExists, getTransactionForUserEdit, handleMyAddTransaction, handleMyDeleteRestore,
+  handleMyDeleteTransaction, handleMyQuickUndo, handleMyUpdateTransaction, memberCanBeSpender,
+  transactionEditHistoryKey,
 };
 // @build:exports-end

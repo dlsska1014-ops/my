@@ -244,6 +244,24 @@ async function readQuickUndoTicket(env, ticket = "", userId = "") {
   return payload;
 }
 
+// V22.9.90(사용자 피드백 2026-10-30 "삭제하면 5초뒤 삭제되는데 바로 삭제되게하고 되돌리기를 5초 유지해줘"): 웹 삭제는 누르는 즉시 지우고,
+// 화면은 5초 동안 ‘되돌리기’를 둔다. 지운 서버가 이 로그인 사용자가 방금 지운 기록 한 건에만 용도 표(delete-restore)를 서명해 삭제 응답(JSON)에 싣는다.
+// 표: 기록 번호(r)·가계부(h)·지운 사용자(u)·지운 시각(d, 초). 금액·메모는 싣지 않는다 — 되살릴 값은 /my/restore 가 DB 감사 기록(지운 행 전체)에서 읽는다.
+// 화면이 단추를 두는 시간은 5초지만 표는 60초까지 받는다(지운 뒤 화면을 다시 불러오는 시간·느린 망). 받는 곳은 /my/restore(my/transactions.js) 하나다.
+const DELETE_RESTORE_SECONDS = 60;
+async function makeDeleteRestoreTicket(env, { transactionId = "", householdId = "", userId = "" } = {}) {
+  if (!transactionId || !householdId || !userId) return "";
+  return signedPurposeToken(env, "delete-restore", { r: String(transactionId), h: String(householdId), u: String(userId), d: Math.floor(Date.now() / 1000) }, DELETE_RESTORE_SECONDS);
+}
+
+async function readDeleteRestoreTicket(env, ticket = "", userId = "") {
+  if (!ticket || !userId) return null;
+  let payload = null;
+  try { payload = await readPurposeToken(env, "delete-restore", String(ticket)); } catch (_) { return null; }
+  if (!payload || !payload.r || !payload.h || !(Number(payload.d) > 0) || String(payload.u || "") !== String(userId)) return null;
+  return payload;
+}
+
 async function makeCredentialProof(env, userId) {
   const version = await getUserSessionVersion(env, userId);
   if (version < 1) throw new Error("user_session_security_unavailable");
@@ -383,9 +401,10 @@ export {
   fetchStrongIdentityForUser, fetchUserIdentityLinks, findUserByLocalLoginIdentity,
   handleAccountReauth, hasBackupLoginIdentity, hasKakaoLoginIdentity,
   householdDeleteReauthCookieName, isPlaceholderUserNickname, kakaoLoginIdentityMatchesUser,
-  linkKakaoLoginToUser, lookupKakaoLoginOwner, makeCredentialProof, makeHouseholdDeleteReauthToken,
-  makeQuickUndoTicket, normalizeLocalLoginName, quickUndoFingerprint, readPurposeToken,
-  readQuickUndoTicket, replaceLocalLoginForUser, saveUserIdentityLinks, signedPurposeToken,
-  verifyCredentialProof, verifyHouseholdDeleteReauth, verifyPasswordReauth,
+  linkKakaoLoginToUser, lookupKakaoLoginOwner, makeCredentialProof, makeDeleteRestoreTicket,
+  makeHouseholdDeleteReauthToken, makeQuickUndoTicket, normalizeLocalLoginName,
+  quickUndoFingerprint, readDeleteRestoreTicket, readPurposeToken, readQuickUndoTicket,
+  replaceLocalLoginForUser, saveUserIdentityLinks, signedPurposeToken, verifyCredentialProof,
+  verifyHouseholdDeleteReauth, verifyPasswordReauth,
 };
 // @build:exports-end

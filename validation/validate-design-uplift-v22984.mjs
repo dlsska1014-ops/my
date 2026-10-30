@@ -67,9 +67,9 @@ const HOME_CSS_IMPORTANT_MAX = 368;
 
 const SHELL = "/assets/accountbook-shell-v22987.css";
 const HOME_CSS = "/assets/mobile-home-v22985.css";
-const V5 = "/assets/accountbook-v5-v22987.js";
-const HOME_JS = "/assets/mobile-home-v22986.js";
-const HOME_SHELL_JS = "/assets/mobile-home-shell-v22986.js";
+const V5 = "/assets/accountbook-v5-v22990.js";
+const HOME_JS = "/assets/mobile-home-v22990.js";
+const HOME_SHELL_JS = "/assets/mobile-home-shell-v22990.js";
 
 await withClock("2026-07-15", () => fixture(async (fx) => {
   const home = await homeHtml(fx);

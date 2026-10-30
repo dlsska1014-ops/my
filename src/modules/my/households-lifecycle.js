@@ -707,10 +707,12 @@ async function handleMyPage(request, env, url) {
     // /app 은 formatMessage 표의 코드만 안내로 바꾼다(모르는 값은 일반 안내). 둘 다 없으면 주소는 예전과 같다.
     // 다른 화면이 고른 가계부를 열지 못해 보낸 ‘열 수 있는 가계부가 없습니다’(no_household·household_required)는 지금 가계부를 여는 /app 에서는
     // 사실과 달라(가계부가 있다) 예전처럼 넘기지 않는다.
+    // V22.9.90: 웹 삭제의 되살리기 표(restore)도 지운 알림(msg=deleted)과 함께 넘긴다. 표의 서명·사용자·가계부는 /app 이 다시 확인한다.
     const notices = ["msg", "err"].map((key) => [key, url.searchParams.get(key) || ""])
       .filter(([key, value]) => value && !(key === "err" && ["no_household", "household_required"].includes(value)))
       .map(([key, value]) => `&${key}=${encodeURIComponent(value)}`).join("");
-    return redirectResponse(`/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selectedHousehold.id)}${notices}`);
+    const restore = url.searchParams.get("msg") === "deleted" ? String(url.searchParams.get("restore") || "") : "";
+    return redirectResponse(`/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selectedHousehold.id)}${notices}${restore ? `&restore=${encodeURIComponent(restore)}` : ""}`);
   }
   const user = await fetchUserById(env, userId);
   if (!user) return handleMyLogout();

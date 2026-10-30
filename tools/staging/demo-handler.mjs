@@ -37,7 +37,8 @@ export async function createDemoHandler({ app, createFixture, publicOrigin, now 
 
   async function build() {
     if (state) state.fixture.restore();
-    const fixture = await createFixture({ categoriesPresent: true });
+    // V22.9.90: 지울 때 운영처럼 감사 기록을 남긴다. 삭제 알림의 ‘되돌리기’(/my/restore)가 그 기록을 읽는다.
+    const fixture = await createFixture({ categoriesPresent: true, auditDeletes: true });
     const summary = applyDemoData(fixture.db, now());
     Object.assign(fixture.env, { SKILL_RATE_LIMIT: 10000, TRAFFIC_GUARD_LIMIT: 10000 });
     const mockFetch = globalThis.fetch;

@@ -37,7 +37,7 @@ const asset = async (path) => {
 
 const SHELL = "/assets/accountbook-shell-v22987.css";
 const HOME_CSS = "/assets/mobile-home-v22985.css";
-const V5 = "/assets/accountbook-v5-v22987.js";
+const V5 = "/assets/accountbook-v5-v22990.js";
 const NAV = "/assets/accountbook-nav-v22987.js";
 // V22.9.84 실측(2026-10-28): 기준 픽스처 홈 HTML 35,626 B. 이 단계는 홈 HTML 을 늘리지 않는다(지시서 T-10 수용 기준).
 // V22.9.86: 3단계 T-14 입력 바(+148 B)와 V85:R-15 의 단어 잇개(U+2060, +3 B)가 기준 픽스처 홈 HTML 을 35,768 B 로 늘렸다(35 KiB 기준 안).
