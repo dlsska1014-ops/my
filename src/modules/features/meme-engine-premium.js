@@ -393,7 +393,8 @@ function buildAffiliateState({ env, month, allRows, analysis, extended, origin }
       emoji: "🐷",
       title: "무지출 챌린지",
       desc: "무지출일이 쌓이면 소비몬 카드가 더 재미있어지고, 월말 잔액도 방어됩니다.",
-      reason: analysis.basisDays === 0 ? "관측 전 · 아직 무지출일을 계산하지 않습니다." : `무지출일 ${analysis.noSpendDays || 0}일 · 이번 달 방어력 체크`,
+      // V22.9.89 Z-4: 직접 적은 기록이 없으면 무지출일을 세지 않는다(null) — 0일로 적지 않고 그렇다고 말한다.
+      reason: analysis.basisDays === 0 ? "관측 전 · 아직 무지출일을 계산하지 않습니다." : analysis.noSpendDays == null ? "직접 적은 기록이 없어 아직 무지출일을 세지 않습니다." : `무지출일 ${analysis.noSpendDays}일 · 이번 달 방어력 체크`,
       score: Number(analysis.noSpendDays || 0) * 8,
       href: affiliateLink(env, "TIP_SAVING_URL"),
       label: "절약",

@@ -122,7 +122,8 @@ await get("/admin/reserve-plan/create", form({ household_id: "house-home", month
 await get("/admin/reserve-plan/create", form({ household_id: "house-home", month, name: "재산세나중", amount: "800000", type: "expense", recurrence: "annual", due_month_1: String(annualFar.month), due_day: String(annualFar.day), category: "세금/수수료" }));
 
 const reserveHtml = await (await get(`/reserve-plans?month=${month}&household_id=house-home`)).text();
-const dueSection = reserveHtml.slice(reserveHtml.indexOf("다가오는 납부"), reserveHtml.indexOf('id="fixed"'));
+// V22.9.89 U-07(사용자 결정 D-9): 칸 순서가 매달 자동 기록(#fixed) → 다가오는 납부·입금 → 일정 추가(#reserveAdd)가 됐다.
+const dueSection = reserveHtml.slice(reserveHtml.indexOf("다가오는 납부"), reserveHtml.indexOf('id="reserveAdd"'));
 const cards = new Map(dueSection.split('<div class="reserveCard').slice(1).map((chunk) => [
   (chunk.match(/<b>([^<]*)<\/b>/) || [])[1],
   chunk.slice(0, 60).includes("alert"),
@@ -140,7 +141,8 @@ eq(cards.get("자동차보험"), false, "the fixture annual plan (356 days out) 
 const alertCount = [...cards.values()].filter(Boolean).length;
 ok(alertCount > 0 && alertCount < cards.size, `only part of the list is highlighted (${alertCount}/${cards.size})`);
 ok(reserveHtml.includes("<span>준비 알림</span><b>2건</b>"), "the metric counts only the genuinely upcoming items");
-ok(reserveHtml.includes("<span>등록 항목</span><b>5개</b>"), "every plan is still listed even when it is not highlighted");
+// V22.9.89 U-07: 위 요약의 등록 항목은 매달 자동 기록(픽스처의 월세 1)과 납부·입금 일정(5)을 나눠 센다.
+ok(reserveHtml.includes("<span>등록 항목</span><b>매달 1 · 일정 5</b>"), "every plan is still listed even when it is not highlighted");
 
 // 카카오 알림도 같은 판정을 쓴다(화면과 알림이 어긋나면 안 된다).
 const kakaoRes = await get(`/budget-alerts?month=${month}&household_id=house-home`);

@@ -14,10 +14,12 @@ import { numberWithCommas } from "./transactions-core.js";
 //             + round(오늘까지 변동 지출 ÷ 지난 날 수 × 남은 날 수)
 // - 정기 출처 기록(자동·수동 반영이 만든 기록)은 속도에서 뺀다. 1일에 적힌 월세가 하루 평균으로 부풀지 않는다.
 // - 앞 날짜로 미리 적은 일반 지출은 더하지 않고 따로 돌려준다(D3 계약: 미래 거래는 예상에 더하지 않음).
+//   V22.9.89: 다만 남은 날 예상은 미리 적은 일반 지출보다 작지 않다(max — 더하지는 않으니 겹쳐 세지 않는다). 예전에는 미리 적은 금액이
+//   속도 예상보다 크면 월말 예상이 그 달 등록액보다 작아, 홈이 ‘남은 예산’보다 많은 돈이 월말에 남는다고 말했다.
 // - 지난달은 예상 = 실적, 미래 달은 관측 전(before), 영수증 불완전·날짜·금액 오류는 확인 불가(unavailable).
 // - 고정지출 규칙·정기지출 항목을 못 읽으면(null) 그 몫을 빼고 계산하고 partial 로 알린다.
 // - scope "all" 은 전체 지출, "budgeted" 는 예산 화면과 같은 분류 판정(budgetCategoryScope)으로 거른다.
-// - 정기 행·대기·준비금이 없으면 예전 burnForecast(round(관측 ÷ 지난 날 × 그 달 일수))와 같은 값이다.
+// - 정기 행·대기·준비금이 없고 미리 적은 일반 지출이 속도 예상 이하이면 예전 burnForecast(round(관측 ÷ 지난 날 × 그 달 일수))와 같은 값이다.
 // - refundDeductions: 환불 연결(V44 D-5·V76 M-7)을 통합할 때 넘길 차감 목록 [{ transaction_date, amount(양수), category }].
 //   기본은 빈 목록이라 아무것도 바꾸지 않는다. 넘기면 기록(오늘까지·등록액)에서 빼고 속도 계산에는 넣지 않는다.
 
@@ -119,9 +121,10 @@ function homeUpcomingOut({ month = "", today = formatDate(nowKstDate()), rows = 
   const fixed = safeArray(unrecorded.pending);
   const fixedTotal = fixed.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const planTotal = unrecorded.planEntries.reduce((sum, entry) => sum + Number(entry.plan.amount || 0), 0);
+  // V22.9.89 U-07: 홈 정기 카드가 ‘이번 달 아직 안 나감 1건(월세 · 5일)’을 이 대기 목록(pendingFixed)으로 쓴다 — 두 카드가 같은 값을 말한다.
   return {
     available, rulesKnown, plansKnown, total: fixedTotal + planTotal,
-    fixedCount: fixed.length, fixedTotal, planCount: unrecorded.planEntries.length, planTotal,
+    fixedCount: fixed.length, fixedTotal, pendingFixed: fixed, planCount: unrecorded.planEntries.length, planTotal,
     expenseItems: rules.filter((r) => !isIncomeRule(r)).length + outPlans.length,
     incomeItems: rules.filter(isIncomeRule).length + allPlans.length - outPlans.length,
   };
@@ -179,7 +182,9 @@ function monthSpendingOutlook({ month = "", rows = [], today = "", receipt = nul
     rulesKnown: current ? !!unrecorded?.rulesKnown : null, plansKnown: current ? !!unrecorded?.plansKnown : null,
   };
   const partialReasons = current ? [...(Array.isArray(recurring) ? [] : ["recurring"]), ...(Array.isArray(plans) ? [] : ["plans"])] : [];
-  const pace = current ? Math.round(recorded.variable / elapsedDays * remainingDays) : 0;
+  // V22.9.89 Astra 2: 오늘 뒤 날짜로 미리 적은 일반 지출은 남은 날 예상의 아래 한도다(지금 속도 × 남은 날이 그보다 작으면 미리 적은 금액).
+  // 예전에는 미리 적은 지출을 빼고 예상해, 남은 예산(그 달 기록을 모두 뺌)보다 ‘월말에 남을 예산’이 더 큰 일이 있었다. 미리 적은 지출이 없으면 예전 값과 같다.
+  const pace = current ? Math.max(Math.round(recorded.variable / elapsedDays * remainingDays), recorded.futureOrdinary) : 0;
   const fixedRemaining = recorded.scheduledFixed + notYetRecorded.pendingFixed + notYetRecorded.reserveRemaining;
   const expected = status !== "complete" ? null : {
     total: recorded.toDate + fixedRemaining + pace, recorded: recorded.toDate, fixedRemaining, pace,
@@ -188,7 +193,7 @@ function monthSpendingOutlook({ month = "", rows = [], today = "", receipt = nul
   };
   return {
     ...base, elapsedDays, remainingDays, recorded, notYetRecorded, expected,
-    budget: budgeted ? outlookBudget({ range, recorded, expected, current, elapsedDays, daysInMonth, scheduledRows, pendingIn, planIn }) : null,
+    budget: budgeted ? outlookBudget({ range, recorded, expected, current, elapsedDays, daysInMonth, scheduledRows, pendingIn, planIn, futureOrdinaryRows }) : null,
     partial: !!expected?.partial,
   };
 }
@@ -196,7 +201,8 @@ function monthSpendingOutlook({ month = "", rows = [], today = "", receipt = nul
 // 예산과 견준 값. 하루 사용 가능 = floor(남은 예산 ÷ 오늘 포함 남은 날)(V44 D-18: 홈·예산 알림 모두 내림).
 // 바닥나는 날도 같은 근거다: 오늘까지 기록 + 날짜가 정해진 남은 고정·정기(지정일이 지난 대기 규칙은 오늘)
 // + 하루 변동 속도 × 지난 날을 더한 누계가 예산을 처음 넘는 날. 넘지 않으면 null.
-function outlookBudget({ range, recorded, expected, current, elapsedDays, daysInMonth, scheduledRows = [], pendingIn = [], planIn = [] }) {
+// V22.9.89: 변동 몫은 월말 예상과 같이 그날까지 미리 적은 일반 지출보다 작지 않다(그달 끝에서 누계 = 월말 예상).
+function outlookBudget({ range, recorded, expected, current, elapsedDays, daysInMonth, scheduledRows = [], pendingIn = [], planIn = [], futureOrdinaryRows = [] }) {
   const total = Number(range.totalBudget || 0);
   const remaining = total ? Math.max(0, total - recorded.registered) : 0;
   const daysLeft = current ? daysInMonth - elapsedDays + 1 : 0;
@@ -212,7 +218,8 @@ function outlookBudget({ range, recorded, expected, current, elapsedDays, daysIn
     const perDay = recorded.variable / elapsedDays;
     for (let d = elapsedDays; d <= daysInMonth; d += 1) {
       const known = dated.filter(([when]) => when <= d).reduce((sum, [, amount]) => sum + amount, 0);
-      if (recorded.toDate + known + perDay * (d - elapsedDays) > total) { runOutDay = d; break; }
+      const ahead = futureOrdinaryRows.filter((row) => Number(row.transaction_date.slice(8, 10)) <= d).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+      if (recorded.toDate + known + Math.max(perDay * (d - elapsedDays), ahead) > total) { runOutDay = d; break; }
     }
   }
   return { total, basis: range.basis, spent: recorded.registered, remaining, dailyAllowance, diff, runOutDay, daysEarly: runOutDay ? daysInMonth - runOutDay + 1 : 0 };
@@ -242,7 +249,8 @@ function spendingOutlookCaption(outlook) {
 }
 // @build:exports-start
 export {
-  homeUpcomingOut, isOutgoingRecurringRule, monthSpendingOutlook, pendingRecurringRules,
-  recurringMarkerSet, recurringRuleAppliedInMonth, spendingOutlookBreakdown, spendingOutlookCaption,
+  homeUpcomingOut, isOutgoingRecurringRule, isRecurringSourceRow, monthSpendingOutlook,
+  pendingRecurringRules, recurringMarkerSet, recurringRuleAppliedInMonth, spendingOutlookBreakdown,
+  spendingOutlookCaption,
 };
 // @build:exports-end

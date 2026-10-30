@@ -3078,7 +3078,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.88-CODEX-FINDINGS";
+const APP_VERSION = "V22.9.89-NUMBERS-TRUST";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -8447,13 +8447,16 @@ ${publicContentTable({ caption: "예제에 사용한 가상 거래 목록", head
 
 // V22.9.87 T-21: 공개 첫 화면과 /demo 위쪽의 앱 화면 미리보기(가상 데이터, 읽기 전용). 앱 홈 예산 카드(T-12, my/mobile-home.js)와
 // 거래 행(T-13, my/home-sections.js 행 + V5 동그라미)과 같은 클래스·마크업이다. 링크·버튼·폼·스크립트가 없어 서버 요청·쿠키·저장이 없다.
-// 숫자는 QA 픽스처 홈과 같은 예(전체 예산 1,230,000원·지출 248,600원 → 981,400원·20%)를 10월 12일(31일 중 39%)로 옮겼다.
+// 숫자는 QA 픽스처 홈과 같은 예(예산 1,230,000원·예산 쓴 돈 248,600원 → 981,400원·20%)를 10월 12일(31일 중 39%)로 옮겼다.
 // 하루 금액은 앱 규칙대로 981,400 ÷ 오늘 포함 남은 20일 = 49,070원. 문장 틀은 앱 속도 문장(T-12)과 같다 — 앱 문장이 바뀌면 함께 바꾼다
 // (validate-public-brand-v22987 이 앱 문장 틀·계산과 대조한다).
+// V22.9.89 U-04: 앱은 남은 날이 5일 이하이거나 하루 금액이 최근 7일 하루 평균의 3배를 넘으면 ‘남은 N일, 예산이 넉넉해요.’라고 짧게 말한다.
+// 두 미리보기는 하루 금액을 권하는 지금 문장 갈래다(/demo 는 9월 11~17일 지출 30,000원 → 3배 12,857원 ≥ 하루 12,500원, 검사가 확인한다).
+// 월말 문장(U-03)과 오늘 쓴 돈 줄은 미리보기에 두지 않는다.
 // /demo 는 바로 아래 예산 계산 예제(2026년 9월 네 기록, 식비 300,000·교통 100,000원 예산)를 9월 17일에 웹 홈으로 본 모습이다(사용자 결정
 // 2026-10-29: 광고를 두는 공개 화면에서 위 미리보기와 아래 예제의 숫자가 달라 읽는 사람이 헷갈렸다 — AdSense 심사도 이 화면을 본다).
 // 숫자는 계산 예제와 같은 함수(publicDemoRows·publicDemoSummary)에서 나온다. 분류별 예산이라 앱 홈처럼 예산을 잡은 분류의 지출(225,000원)만
-// 사용률에 넣고 의료비는 지출 옆 ‘예산 밖’으로 적는다(my/mobile-home.js budgetUncovered). 경과율 17 ÷ 30 = 57% 가 사용률 56% 보다 커서
+// 사용률에 넣고 의료비는 둘째 줄 ‘예산 안 정한 지출’로 적는다(my/mobile-home.js budgetUncovered, V22.9.89 U-02 에서 옛 ‘예산 밖’·‘지출’ 이름을 바꿈). 경과율 17 ÷ 30 = 57% 가 사용률 56% 보다 커서
 // 앱의 ‘만 썼어요’ 문장이고(검사가 갈래를 확인한다), 하루 금액은 175,000 ÷ 오늘 포함 남은 14일 = 12,500원이다. 거래 행은 최근 세 기록이다.
 function publicAppPreviewHtml(onDemo = false) {
   const row = (ck, type, title, line, amount) => `<article class="v8-tx" data-type="${type}"><div class="v8-tx-main"><span class="abCat" data-ck="${ck}" aria-hidden="true"><i class="abCatIcon"></i></span><div><b>${title}</b><span>${line}</span></div><strong class="${type}">${amount}</strong></div></article>`;
@@ -8465,9 +8468,9 @@ function publicAppPreviewHtml(onDemo = false) {
     const elapsed = Math.round((day / days) * 100);
     const daily = Math.floor(sum.remaining / (days - day + 1));
     const recent = [...rows].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
-    return `<figure class="pubPreview"><p class="pubPreviewLabel">아래 예제를 웹 가계부 홈 화면으로 본 모습 · 2026년 9월 17일 기준</p><div class="pubScreen"><section class="homeBudget"><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span>${sum.rate}%</span></em></div><div class="homeBudgetAmount"><b>${won(sum.remaining)}</b><small>원</small></div><div class="homeProgress" style="--ab-today:${elapsed}%"><i style="width:${sum.rate}%"></i></div><div class="homeBudgetFoot"><span>전체 예산 ${won(sum.budget)}원</span><span>지출 ${won(sum.covered)}원 · 예산 밖 ${won(sum.uncovered)}원</span></div><div class="homeDailyPlan homePace"><p>이번 달의 ${elapsed}%가 지났고 예산은 ${sum.rate}%만 썼어요. 하루 <span data-ab-num="${daily}">${won(daily)}</span>원씩 쓰면 돼요.</p></div></section>${recent.map((item) => row(categoryKey(item.category, "expense", item.memo), "expense", item.memo, `${item.category} · ${Number(item.date.slice(5, 7))}월 ${Number(item.date.slice(8, 10))}일`, `-${won(item.amount)}원`)).join("")}</div><figcaption>아래 예산 계산 예제와 같은 가상 기록으로 그린 웹 가계부 홈 화면이에요. 실제 기록이 아니고, 누르거나 고칠 수 없어요.</figcaption></figure>`;
+    return `<figure class="pubPreview"><p class="pubPreviewLabel">아래 예제를 웹 가계부 홈 화면으로 본 모습 · 2026년 9월 17일 기준</p><div class="pubScreen"><section class="homeBudget"><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span>${sum.rate}%</span></em></div><div class="homeBudgetAmount"><b>${won(sum.remaining)}</b><small>원</small></div><div class="homeProgress" style="--ab-today:${elapsed}%"><i style="width:${sum.rate}%"></i></div><div class="homeBudgetFoot"><span>예산 ${won(sum.budget)}원</span><span>예산 쓴 돈 ${won(sum.covered)}원<br>예산 안 정한 지출 ${won(sum.uncovered)}원</span></div><div class="homeDailyPlan homePace"><p>이번 달의 ${elapsed}%가 지났고 예산은 ${sum.rate}%만 썼어요. 하루 <span data-ab-num="${daily}">${won(daily)}</span>원씩 쓰면 돼요.</p></div></section>${recent.map((item) => row(categoryKey(item.category, "expense", item.memo), "expense", item.memo, `${item.category} · ${Number(item.date.slice(5, 7))}월 ${Number(item.date.slice(8, 10))}일`, `-${won(item.amount)}원`)).join("")}</div><figcaption>아래 예산 계산 예제와 같은 가상 기록으로 그린 웹 가계부 홈 화면이에요. 실제 기록이 아니고, 누르거나 고칠 수 없어요.</figcaption></figure>`;
   }
-  return `<figure class="pubPreview"><div class="pubScreen"><section class="homeBudget"><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span>20%</span></em></div><div class="homeBudgetAmount"><b>981,400</b><small>원</small></div><div class="homeProgress" style="--ab-today:39%"><i style="width:20%"></i></div><div class="homeBudgetFoot"><span>전체 예산 1,230,000원</span><span>지출 248,600원</span></div><div class="homeDailyPlan homePace"><p>이번 달의 39%가 지났고 예산은 20%만 썼어요. 하루 <span data-ab-num="49070">49,070</span>원씩 쓰면 돼요.</p></div></section>${row("food", "expense", "점심", "식비 · 국민카드", "-12,000원")}${row("cafe", "expense", "가족 카페", "카페/간식 · 카카오페이", "-28,600원")}${row("income", "income", "10월 월급", "급여 · 급여통장", "+3,200,000원")}</div><figcaption>가상 데이터로 그린 웹 가계부 홈 화면이에요. 실제 기록이 아니고, 누르거나 고칠 수 없어요.</figcaption></figure>`;
+  return `<figure class="pubPreview"><div class="pubScreen"><section class="homeBudget"><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span>20%</span></em></div><div class="homeBudgetAmount"><b>981,400</b><small>원</small></div><div class="homeProgress" style="--ab-today:39%"><i style="width:20%"></i></div><div class="homeBudgetFoot"><span>예산 1,230,000원</span><span>예산 쓴 돈 248,600원</span></div><div class="homeDailyPlan homePace"><p>이번 달의 39%가 지났고 예산은 20%만 썼어요. 하루 <span data-ab-num="49070">49,070</span>원씩 쓰면 돼요.</p></div></section>${row("food", "expense", "점심", "식비 · 국민카드", "-12,000원")}${row("cafe", "expense", "가족 카페", "카페/간식 · 카카오페이", "-28,600원")}${row("income", "income", "10월 월급", "급여 · 급여통장", "+3,200,000원")}</div><figcaption>가상 데이터로 그린 웹 가계부 홈 화면이에요. 실제 기록이 아니고, 누르거나 고칠 수 없어요.</figcaption></figure>`;
 }
 
 // 미리보기 CSS: 공개 화면은 셸 CSS 를 싣지 않으므로 앱에서 잰 값(390px 라이트, 셸 토큰 라이트 값)을 .pubPreview 안에만 옮겨 둔다.
@@ -14017,8 +14020,23 @@ async function handleReservePlansPage(request, env, url) {
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, customCategoryRows.map((c) => c.name)).map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`).join("");
   const paymentOptions = mergedOptions(DEFAULT_PAYMENTS, paymentAssetRows.map((p) => p.name)).map((p) => `<option value="${escapeHtml(p)}">${escapeHtml(p)}</option>`).join("");
+  // V22.9.89 U-07(V2, 사용자 결정 D-9 2026-10-29: 정기 수입·지출 = 매월 고정적으로 나가거나 들어오는 돈의 기록): 위 요약은 매달 자동 기록부터
+  // 센다 — 홈 정기 카드와 같은 기준(꺼지지 않았고 금액이 있는 규칙, 반영 판정은 위 appliedThisMonth). 납부·입금 일정의 수치(이번 달 납부 일정·
+  // 월 준비 권장액·준비 알림)는 그 칸 안으로 옮기고, 칸 순서는 ‘매달 자동 기록’ → ‘다가오는 납부·입금’ → 추가 폼이다. 예전 요약은 납부·입금
+  // 일정만 세서 매달 나가는 월세가 있어도 "등록 항목 1개 · 이번 달 나갈 항목 없음"이었다.
+  // 고정 항목 목록을 못 읽으면(D-25) 세 칸 모두 ‘확인 불가’다 — 첫 칸도 ‘매달 0’이라 하지 않는다(독립 검토).
+  const ruleUsable = (r) => !!r && !(r.is_active === false || String(r.is_active) === "false") && Number(r.amount || 0) > 0;
+  const rulesOn = recurring.filter(ruleUsable);
+  const rulesOut = rulesOn.filter((r) => r.type !== "income");
+  const rulesOutTotal = rulesOut.reduce((a, r) => a + Number(r.amount || 0), 0);
+  const rulesInTotal = rulesOn.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
+  const rulesWaiting = rulesOut.filter((r) => !appliedThisMonth(r));
+  const waitingLabel = month === currentMonthKst() ? "이번 달 아직 안 나감" : `${Number(month.slice(5, 7))}월에 아직 기록 안 됨`;
+  const metricNote = (html, color = "#64748b") => `<small style="display:block;color:${color};margin-top:3px">${html}</small>`;
+  const recurringSummaryHtml = `<section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${recurringUnavailable ? "매달 확인 불가" : `매달 ${numberWithCommas(rulesOn.length)}`} · 일정 ${numberWithCommas(plans.length)}</b></div><div class="metric"><span>매달 나감</span><b>${recurringUnavailable ? "확인 불가" : `${numberWithCommas(rulesOutTotal)}원`}</b>${recurringUnavailable ? "" : metricNote(`들어옴 ${numberWithCommas(rulesInTotal)}원`, "#059669")}</div><div class="metric"><span>${waitingLabel}</span><b>${recurringUnavailable ? "확인 불가" : `${numberWithCommas(rulesWaiting.length)}건`}</b>${!recurringUnavailable && rulesWaiting.length ? metricNote(`${escapeHtml(rulesWaiting.slice(0, 2).map((r) => `${r.memo || r.category || "정기 항목"} ${numberWithCommas(r.amount)}원`).join(", "))}${rulesWaiting.length > 2 ? " 외" : ""}`) : ""}</div></section>`;
+  const scheduleSectionHtml = `<section class="card"><h2>다가오는 납부·입금</h2><p class="note">납부·입금 일정은 날짜가 다가오면 알려 주기만 하고 기록은 만들지 않습니다.</p><section class="metricGrid"><div class="metric"><span>이번 달 납부 일정</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDueOut.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDueOut.length)}건 · ${escapeHtml(monthDueOut.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDueOut.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 나갈 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcomingExpense.length)}건</b>${dashboard.upcomingIncome.length ? `<small style="display:block;color:#059669;margin-top:3px">입금 예정 ${numberWithCommas(dashboard.upcomingIncome.length)}건</small>` : ""}</div></section><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section>`;
   // V22.9.79 V44 F-6: 예산 화면과 같다 — 구성원·조회 전용에게는 설정 한눈에 탭을 그리지 않고 내비에 역할을 넘긴다.
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기 수입·지출</title><style>${moneyPlanTabsCss()}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip,.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0;position:relative}.formGrid .reserveTypeSeg input[type=radio],.reserveTypeSeg input[type=radio]{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;margin:0;cursor:pointer}.reserveTypeSeg input:focus-visible+span{outline:3px solid #2563eb;outline-offset:2px}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}.fixedAdd{margin-top:12px;border:1px solid var(--line,#e5e7eb);border-radius:14px;padding:0 14px}.fixedAdd>summary{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:6px;font-weight:800;list-style:none}.fixedAdd>summary::-webkit-details-marker{display:none}.fixedAdd>summary::before{content:"+";font-weight:900}.fixedAdd[open]>summary::before{content:"−"}.fixedAdd[open]{padding-bottom:14px}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name, role: String(selected?.role || "") })}<main class="wrap">${renderMoneyPlanTabs("reserve-plans", { month, householdId, canManage })}${feedbackHtml}<section class="hero"><h1>정기 수입·지출</h1><p><b>납부·입금 일정</b>은 보험료·세금처럼 날짜가 정해진 돈을 3개월·2개월·1개월 전에 미리 알려 주고, <b>매달 자동 기록</b>은 월급·월세처럼 매달 같은 돈을 지정일에 기록합니다. 이번 달 한도는 예산 화면에서 정합니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="metricGrid"><div class="metric"><span>등록 항목</span><b>${numberWithCommas(plans.length)}개</b></div><div class="metric"><span>이번 달 납부 일정</span><b>${numberWithCommas(monthDueTotal)}원</b>${monthDueIncome ? `<small style="display:block;color:#059669;margin-top:3px">이번 달 정기수입 +${numberWithCommas(monthDueIncome)}원 · 순액 ${monthDueNet >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(monthDueNet))}원</small>` : ""}${monthDueOut.length ? `<small style="display:block;color:#64748b;margin-top:3px">${numberWithCommas(monthDueOut.length)}건 · ${escapeHtml(monthDueOut.slice(0,2).map((st)=>st.plan?.name||"").filter(Boolean).join(", "))}${monthDueOut.length>2 ? " 외" : ""}</small>` : `<small style="display:block;color:#64748b;margin-top:3px">이번 달 나갈 항목 없음</small>`}</div><div class="metric"><span>월 준비 권장액</span><b>${numberWithCommas(dashboard.monthlyReserveTotal)}원</b>${dashboard.monthlyIncomeTotal ? `<small style="display:block;color:#059669;margin-top:3px">정기수입 월 환산 +${numberWithCommas(dashboard.monthlyIncomeTotal)}원 · 순액 ${dashboard.monthlyNetTotal >= 0 ? "+" : "-"}${numberWithCommas(Math.abs(dashboard.monthlyNetTotal))}원</small>` : ""}</div><div class="metric"><span>준비 알림</span><b>${numberWithCommas(dashboard.upcomingExpense.length)}건</b>${dashboard.upcomingIncome.length ? `<small style="display:block;color:#059669;margin-top:3px">입금 예정 ${numberWithCommas(dashboard.upcomingIncome.length)}건</small>` : ""}</div></section><section class="card"><h2>다가오는 납부·입금</h2><p class="note">납부·입금 일정은 날짜가 다가오면 알려 주기만 하고 기록은 만들지 않습니다.</p><div>${renderReserveStatusCards(dashboard.statuses, canManage)}</div></section><section class="card" id="fixed"><div class="sectionHeadRow"><h2>매달 자동 기록</h2><span class="fixedSum">${recurringUnavailable ? "목록 확인 불가" : recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료·월급처럼 매달 같은 날 같은 금액인 항목입니다. 지정일이 되면 그달 기록에 한 번 자동으로 들어가고, 지정일 전에 넣으려면 아래 기록하기 단추를 누르세요(기록 날짜는 지정일).</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${appliedThisMonth(r) ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}${recurringSpenderEligible(recurringMembers, r.user_id) ? "" : `<span class="note">${r.type === "income" ? "수입자" : "지출자"} 확인 필요 · ${r.type === "income" ? "수입자" : "지출자"}가 활성 참여자(소유자·관리자·구성원)가 아니어서 자동·수동 반영에서 건너뜁니다. 수정에서 ${r.type === "income" ? "수입자" : "지출자"}를 다시 고르세요.</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `${renderRecurringEditForm(r, householdId, month, recurringMembers, "/admin/recurring/save")}<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 ${r.type === "income" ? "고정 수입" : "고정지출"} 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : recurringUnavailable ? `<p class="note" role="status">매달 자동 기록 목록을 불러오지 못했어요. 이미 등록한 항목이 있을 수 있으니 새로고침해 목록을 확인한 뒤 추가해 주세요.</p>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목이나 월급·수당처럼 들어오는 항목을 추가해 보세요.</p>`}${canManage ? `<details class="fixedAdd"${recurring.length ? "" : " open"}><summary>자동 기록 항목 추가</summary><form class="formGrid" method="post" action="/admin/recurring/save"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type" onchange="var f=this.form,w=this.value==='income'?'수입자':'지출자',s=f&&f.querySelector('[data-recurring-person]'),u=f&&f.elements.user_id,o=u&&u.options[0];if(s)s.textContent=w;if(o&&!o.value)o.text=w+' 선택'"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="31" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label><span data-recurring-person>지출자</span><select name="user_id">${spenderOptions}</select></label><button type="submit">자동 기록 추가</button></form></details><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">${month === currentMonthKst() ? "이번 달분 지금 기록하기" : `${Number(month.slice(0, 4))}년 ${Number(month.slice(5, 7))}월분 기록하기`}${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">매달 자동 기록의 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${canManage ? `<section class="card"><h2>납부·입금 일정 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부·입금월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부·입금월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부·입금월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부·입금월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부·입금일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm,.reserveEditForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>납부·입금 일정 추가</h2><p class="note">납부·입금 일정 추가·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>정기 수입·지출</title><style>${moneyPlanTabsCss()}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#b45309));color:#fff;border-radius:28px;padding:22px;margin:12px 0;box-shadow:0 18px 42px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:28px}.hero p{line-height:1.55;opacity:.92}.filters,.formGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:8px;margin-top:12px}.filters select,.filters input,.filters button,.formGrid input,.formGrid select,.formGrid button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.formGrid label{display:grid;gap:6px;font-size:12px;font-weight:1000;color:#475569}.formGrid label input,.formGrid label select{width:100%}.filters button,.formGrid button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:5px}.reserveCard{display:grid;grid-template-columns:1fr auto auto;gap:10px;align-items:center;background:#f8fafc;border:1px solid #e5e7eb;border-radius:20px;padding:14px;margin:8px 0}.reserveCard.alert{background:#fff7ed;border-color:#fdba74}.reserveCard b{display:block;font-size:17px}.reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#64748b;font-size:13px;line-height:1.45}.reserveAmt{text-align:right}.reserveAmt strong{display:block;font-size:18px}.reserveCard button{height:34px;border:0;border-radius:11px;background:#fee2e2;color:#991b1b;font-weight:900;padding:0 11px}.tip,.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:16px;padding:12px;line-height:1.55}.guideLine{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:16px;padding:12px;line-height:1.55;margin:10px 0}.suggestBox{margin:8px 0}.suggestBox strong{display:block;font-size:12px;color:#64748b;margin:0 0 4px}.sectionHeadRow{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.sectionHeadRow h2{margin:0}.fixedSum{color:#64748b;font-size:13px;font-weight:900}.reserveKind{font-style:normal;display:inline-flex;align-items:center;border-radius:999px;padding:3px 8px;font-size:11px;font-weight:1000;margin-right:5px}.kindExpense{background:#fee2e2;color:#991b1b}.kindIncome{background:#dcfce7;color:#166534}.kindRepeat{background:#eef2ff;color:#3730a3}.amtIncome{color:#059669}.amtExpense{color:#b91c1c}.reserveActions{display:grid;gap:7px;align-content:start}.reserveEdit summary{cursor:pointer;list-style:none;height:34px;display:inline-flex;align-items:center;justify-content:center;border-radius:11px;background:#eef2ff;color:#1e3a8a;font-weight:1000;padding:0 13px;font-size:13px}.reserveEdit summary::-webkit-details-marker{display:none}.reserveEdit[open]{grid-column:1/-1;background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:12px;margin-top:4px}.reserveEdit .formGrid{margin-top:10px}.reserveTypeSeg{display:flex;gap:6px}.reserveTypeSeg label{flex:1;margin:0;position:relative}.formGrid .reserveTypeSeg input[type=radio],.reserveTypeSeg input[type=radio]{position:absolute;inset:0;opacity:0;width:100%;height:100%;min-height:0;margin:0;cursor:pointer}.reserveTypeSeg input:focus-visible+span{outline:3px solid #2563eb;outline-offset:2px}.reserveTypeSeg span{display:flex;align-items:center;justify-content:center;height:44px;border-radius:14px;background:#f1f5f9;color:#475569;font-weight:1000;cursor:pointer}.reserveTypeSeg input:checked+span{background:#111827;color:#fff}.reserveRepeat{flex-direction:row!important;align-items:center;gap:8px!important;display:flex!important}.reserveRepeat input{width:20px!important;height:20px!important;min-height:0!important;flex:none}.fixedAdd{margin-top:12px;border:1px solid var(--line,#e5e7eb);border-radius:14px;padding:0 14px}.fixedAdd>summary{cursor:pointer;min-height:44px;display:flex;align-items:center;gap:6px;font-weight:800;list-style:none}.fixedAdd>summary::-webkit-details-marker{display:none}.fixedAdd>summary::before{content:"+";font-weight:900}.fixedAdd[open]>summary::before{content:"−"}.fixedAdd[open]{padding-bottom:14px}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.formGrid,.filters{grid-template-columns:1fr}.formGrid input,.formGrid select,.formGrid button,.filters input,.filters select,.filters button{width:100%;font-size:16px;min-height:46px}.card{border-radius:20px;padding:16px}.metricGrid{grid-template-columns:1fr}.reserveCard{grid-template-columns:1fr}.reserveAmt{text-align:left}.guideLine,.tip{font-size:13px}}</style></head><body>${renderUnifiedNav("reserve-plans", { month, householdId, householdName: (households.find((h)=>h.id===householdId)||{}).name, role: String(selected?.role || "") })}<main class="wrap">${renderMoneyPlanTabs("reserve-plans", { month, householdId, canManage })}${feedbackHtml}<section class="hero"><h1>정기 수입·지출</h1><p><b>납부·입금 일정</b>은 보험료·세금처럼 날짜가 정해진 돈을 3개월·2개월·1개월 전에 미리 알려 주고, <b>매달 자동 기록</b>은 월급·월세처럼 매달 같은 돈을 지정일에 기록합니다. 이번 달 한도는 예산 화면에서 정합니다.</p><form class="filters" method="get" action="/reserve-plans"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section>${recurringSummaryHtml}<section class="card" id="fixed"><div class="sectionHeadRow"><h2>매달 자동 기록</h2><span class="fixedSum">${recurringUnavailable ? "목록 확인 불가" : recurring.length ? `${numberWithCommas(recurring.length)}건 · 지출 ${numberWithCommas(recurringExpense)}원${recurringIncome ? ` · 수입 ${numberWithCommas(recurringIncome)}원` : ""}` : "등록된 항목 없음"}</span></div><p class="note">월세·구독료·월급처럼 매달 같은 날 같은 금액인 항목입니다. 지정일이 되면 그달 기록에 한 번 자동으로 들어가고, 지정일 전에 넣으려면 아래 기록하기 단추를 누르세요(기록 날짜는 지정일).</p>${recurring.length ? `<div>${recurring.map((r) => `<div class="reserveCard"><div><b>${escapeHtml(r.memo || "-")}</b><span><em class="reserveKind ${r.type === "income" ? "kindIncome" : "kindExpense"}">${r.type === "income" ? "수입" : "지출"}</em>매월 ${escapeHtml(String(r.day_of_month || 1))}일 · ${escapeHtml(r.category || "기타")}${r.payment_method ? ` · ${escapeHtml(r.payment_method)}` : ""}</span>${appliedThisMonth(r) ? `<span>이번 달 반영 완료</span>` : `<span>이번 달 아직 반영 안 됨</span>`}${recurringSpenderEligible(recurringMembers, r.user_id) ? "" : `<span class="note">${r.type === "income" ? "수입자" : "지출자"} 확인 필요 · ${r.type === "income" ? "수입자" : "지출자"}가 활성 참여자(소유자·관리자·구성원)가 아니어서 자동·수동 반영에서 건너뜁니다. 수정에서 ${r.type === "income" ? "수입자" : "지출자"}를 다시 고르세요.</span>`}</div><div class="reserveAmt"><strong class="${r.type === "income" ? "amtIncome" : "amtExpense"}">${r.type === "income" ? "+" : "-"}${numberWithCommas(r.amount)}원</strong></div>${canManage ? `${renderRecurringEditForm(r, householdId, month, recurringMembers, "/admin/recurring/save")}<form method="post" action="/admin/recurring/delete" onsubmit="return confirm('이 ${r.type === "income" ? "고정 수입" : "고정지출"} 항목을 삭제할까요? 이미 기록된 거래는 삭제되지 않습니다.')"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="id" value="${escapeHtml(r.id)}"/><button class="danger" type="submit">삭제</button></form>` : ""}</div>`).join("")}</div>` : recurringUnavailable ? `<p class="note" role="status">매달 자동 기록 목록을 불러오지 못했어요. 이미 등록한 항목이 있을 수 있으니 새로고침해 목록을 확인한 뒤 추가해 주세요.</p>` : `<p class="note">아직 없습니다. 월세·보험·구독료처럼 매달 같은 금액이 나가는 항목이나 월급·수당처럼 들어오는 항목을 추가해 보세요.</p>`}${canManage ? `<details class="fixedAdd"${recurring.length ? "" : " open"}><summary>자동 기록 항목 추가</summary><form class="formGrid" method="post" action="/admin/recurring/save"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label>수입·지출<select name="type" onchange="var f=this.form,w=this.value==='income'?'수입자':'지출자',s=f&&f.querySelector('[data-recurring-person]'),u=f&&f.elements.user_id,o=u&&u.options[0];if(s)s.textContent=w;if(o&&!o.value)o.text=w+' 선택'"><option value="expense">지출</option><option value="income">수입</option></select></label><label>항목명<input name="memo" placeholder="예: 월세, 넷플릭스"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 550000"/></label><label>매월 며칠<input type="number" name="day_of_month" min="1" max="31" value="1"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 주거/관리"/></label><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label><span data-recurring-person>지출자</span><select name="user_id">${spenderOptions}</select></label><button type="submit">자동 기록 추가</button></form></details><form method="post" action="/admin/recurring/apply" style="margin-top:10px"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><button type="submit">${month === currentMonthKst() ? "이번 달분 지금 기록하기" : `${Number(month.slice(0, 4))}년 ${Number(month.slice(5, 7))}월분 기록하기`}${recurringApplied ? ` (${numberWithCommas(recurringApplied)}건 반영됨)` : ""}</button></form><p class="note">같은 달에 여러 번 눌러도 이미 반영된 항목은 다시 들어가지 않습니다.</p>` : `<p class="note">매달 자동 기록의 추가·반영·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p>`}</section>${scheduleSectionHtml}${canManage ? `<section class="card"><h2>납부·입금 일정 추가</h2><p class="guideLine"><b>입력 기준</b><br/>매월은 납부일만 입력합니다. 연 1회는 납부월 1개, 반기는 납부월 2개, 분기는 납부월 4개를 선택합니다.</p><form class="formGrid reserveSmartForm" method="post" action="/admin/reserve-plan/create"><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><label>수입·지출${reservePlanTypeRadios("type", "expense")}</label><label>항목명<input name="name" placeholder="예: 재산세, 자동차보험"/></label><label>금액<input name="amount" inputmode="numeric" placeholder="예: 850000"/></label><label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label><label>반복주기<select name="recurrence" class="jsRecurrence"><option value="monthly">매월</option><option value="annual">연 1회</option><option value="semiannual">반기</option><option value="quarterly">분기</option></select></label><label class="dueMonth due1">납부·입금월 1<select name="due_month_1"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due2">납부·입금월 2<select name="due_month_2"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due3">납부·입금월 3<select name="due_month_3"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label class="dueMonth due4">납부·입금월 4<select name="due_month_4"><option value="">선택</option>${Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}월</option>`).join("")}</select></label><label>납부·입금일<input name="due_day" inputmode="numeric" placeholder="예: 16"/></label><label>분류<input name="category" list="reserveCategoryList" placeholder="예: 보험, 세금/수수료, 용돈수입"/></label><datalist id="reserveCategoryList">${categoryOptions}</datalist><label>결제수단<select name="payment_method"><option value="">결제수단 선택 안 함</option>${paymentOptions}</select></label><label>메모<input name="memo" placeholder="메모"/></label><button type="submit">저장</button></form><p class="tip">예: 재산세는 반기 7월/9월, 자동차보험은 연 1회 만기월, 통신비는 매월 납부일만 입력하면 됩니다.</p><script>document.querySelectorAll(".reserveSmartForm,.reserveEditForm").forEach((form)=>{const sel=form.querySelector(".jsRecurrence");const months=[...form.querySelectorAll(".dueMonth")];function sync(){const v=sel?.value||"monthly";const need=v==="monthly"?0:v==="annual"?1:v==="semiannual"?2:4;months.forEach((el,i)=>{const on=i<need;el.hidden=!on;const s=el.querySelector("select");if(s){s.disabled=!on;if(!on)s.value="";}});}sel&&sel.addEventListener("change",sync);sync();});</script></section>` : `<section class="card"><h2>납부·입금 일정 추가</h2><p class="note">납부·입금 일정 추가·삭제는 가계부 소유자·관리자만 할 수 있습니다.</p></section>`}</main></body></html>`);
 }
 
 async function handleReservePlanCreate(request, env) {
@@ -16603,7 +16621,7 @@ async function renderServerDashboardHtml(env, url) {
   const guideHtml = renderGuideTab({ month, household: selectedHousehold, origin: publicBaseUrl(env, url), skillUrl });
   const importHtml = renderImportTab({ month, households, household: selectedHousehold, defaultHouseholdId, members: householdMembers });
 
-  const overviewHtml = `${renderQuickStartPanel({ month, household: selectedHousehold, origin: publicBaseUrl(env, url), compact: true })}<section class="grid8"><div class="card kpi"><span>수입</span><b class="income">${numberWithCommas(allStats.totals.income)}원</b><small>이번 달 전체</small></div><div class="card kpi"><span>지출</span><b class="expense">${numberWithCommas(allStats.totals.expense)}원</b><small>${formatChangeAgainst("전월", extended.current?.totals?.expense, extended.prev?.totals?.expense)}</small></div><div class="card kpi"><span>잔액</span><b class="balance">${numberWithCommas(allStats.totals.balance)}원</b><small>수입-지출</small></div><div class="card kpi"><span>기록 수</span><b>${allRows.length}건</b><small>정리 대상 포함</small></div><div class="card kpi"><span>일평균 지출</span><b>${renderObservedMoney(analysis, analysis.avgExpense)}</b><small>월말 예상 ${renderObservedMoney(analysis, analysis.burnForecast)}</small></div><div class="card kpi"><span>무지출일</span><b class="income">${analysis.basisDays === 0 ? "관측 전" : `${analysis.noSpendDays}일`}</b><small>소비 방어일</small></div><div class="card kpi"><span>정리 필요</span><b class="amber">${analysis.missingAny}건</b><small>미분류/수단 미입력</small></div><div class="card kpi"><span>위험 점수</span><b class="purple">${analysis.basisDays === 0 ? "관측 전" : `${analysis.riskScore}점`}</b><div class="progress"><span style="width:${Math.min(100, analysis.riskScore)}%"></span></div></div></section><section class="layout"><div class="card"><h3>고급 분석 · 경각심 카드</h3><div class="analysisGrid">${renderInsightCards(analysis)}</div></div><div class="card"><h3>무료 스마트 도구 요약</h3><p class="muted">현재 기록을 기준으로 월말 예상과 절약 후보를 계산합니다.</p><div class="analysisGrid"><div class="insight"><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b><span>월말 예상 지출</span></div><div class="insight"><b>${premiumState.hasObservation === false ? "관측 전" : `${numberWithCommas(premiumState.savingPotential)}원`}</b><span>절약 후보</span></div><div class="insight"><b>${premiumState.hasObservation === false ? "관측 전" : `${premiumState.premiumScore}점`}</b><span>관리 점수</span></div></div></div></section><section class="layout2"><div class="card"><h3>최근 3개월 지출 추이</h3>${renderMonthlyTrendMini(extended.threeMonthTrend)}</div><div class="card"><h3>전월 대비 급증 카테고리</h3>${renderCategoryCompareTable(extended.categoryCompare.slice(0, 8), true)}</div></section>${renderInlinePremiumTeaser(premiumState)}${renderInlineAffiliateZone(affiliateState)}`;
+  const overviewHtml = `${renderQuickStartPanel({ month, household: selectedHousehold, origin: publicBaseUrl(env, url), compact: true })}<section class="grid8"><div class="card kpi"><span>수입</span><b class="income">${numberWithCommas(allStats.totals.income)}원</b><small>이번 달 전체</small></div><div class="card kpi"><span>지출</span><b class="expense">${numberWithCommas(allStats.totals.expense)}원</b><small>${formatChangeAgainst("전월", extended.current?.totals?.expense, extended.prev?.totals?.expense)}</small></div><div class="card kpi"><span>잔액</span><b class="balance">${numberWithCommas(allStats.totals.balance)}원</b><small>수입-지출</small></div><div class="card kpi"><span>기록 수</span><b>${allRows.length}건</b><small>정리 대상 포함</small></div><div class="card kpi"><span>일평균 지출</span><b>${renderObservedMoney(analysis, analysis.avgExpense)}</b><small>월말 예상 ${renderObservedMoney(analysis, analysis.burnForecast)}</small></div><div class="card kpi"><span>무지출일</span><b class="income">${analysis.basisDays === 0 ? "관측 전" : analysis.noSpendDays == null ? "-" : `${analysis.noSpendDays}일`}</b><small>소비 방어일</small></div><div class="card kpi"><span>정리 필요</span><b class="amber">${analysis.missingAny}건</b><small>미분류/수단 미입력</small></div><div class="card kpi"><span>위험 점수</span><b class="purple">${analysis.basisDays === 0 ? "관측 전" : `${analysis.riskScore}점`}</b><div class="progress"><span style="width:${Math.min(100, analysis.riskScore)}%"></span></div></div></section><section class="layout"><div class="card"><h3>고급 분석 · 경각심 카드</h3><div class="analysisGrid">${renderInsightCards(analysis)}</div></div><div class="card"><h3>무료 스마트 도구 요약</h3><p class="muted">현재 기록을 기준으로 월말 예상과 절약 후보를 계산합니다.</p><div class="analysisGrid"><div class="insight"><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b><span>월말 예상 지출</span></div><div class="insight"><b>${premiumState.hasObservation === false ? "관측 전" : `${numberWithCommas(premiumState.savingPotential)}원`}</b><span>절약 후보</span></div><div class="insight"><b>${premiumState.hasObservation === false ? "관측 전" : `${premiumState.premiumScore}점`}</b><span>관리 점수</span></div></div></div></section><section class="layout2"><div class="card"><h3>최근 3개월 지출 추이</h3>${renderMonthlyTrendMini(extended.threeMonthTrend)}</div><div class="card"><h3>전월 대비 급증 카테고리</h3>${renderCategoryCompareTable(extended.categoryCompare.slice(0, 8), true)}</div></section>${renderInlinePremiumTeaser(premiumState)}${renderInlineAffiliateZone(affiliateState)}`;
 
   const calendarHtml = `<section id="calendarSection" class="layout2"><div class="card"><div class="sectionHead"><div><h3>소비 캘린더</h3><p class="muted">날짜를 클릭해도 페이지가 새로고침되지 않도록 개선했습니다. 스크립트가 막히면 해당 위치로만 이동합니다.</p></div><div class="calendarLegend"><span class="legend heat1"></span>적음 <span class="legend heat5"></span>많음</div></div>${renderServerCalendar(calendar, month, householdValue, date, type, q, quality, categoryFilter, paymentFilter, groupBy)}</div><div class="card"><h3>선택 조건 통계 · ${escapeHtml(groupLabel(groupBy))}</h3>${renderCustomStats(customStats)}</div></section>${transactionManager("날짜별 거래내역", "캘린더에서 선택한 날짜를 이 영역에서 바로 확인합니다.", rowsBase, "transactionsSection")}`;
 
@@ -20117,22 +20135,31 @@ function classifyDeductionPay(pm) {
   if (/카드|신용/.test(s)) return "credit";
   return "other";
 }
-function buildAnnualReportModel(rows, year, nowMonth = currentMonthKst()) {
+function buildAnnualReportModel(rows, year, nowMonth = currentMonthKst(), today = formatDate(nowKstDate())) {
   const monthsExp = new Array(12).fill(0);
   const monthsInc = new Array(12).fill(0);
   const monthsCount = new Array(12).fill(0);
-  let totalExp = 0, totalInc = 0, creditSpend = 0, deductibleSpend = 0;
+  // V22.9.89 Astra 1: 월 평균의 합과 나누는 달 수를 같은 기록(오늘까지 날짜)으로 센다. 예전에는 합이 한 해 전체(11월에 미리 적은 기록 포함)이고
+  // 달 수는 이번 달까지라, 10월 10만 원 + 11월에 미리 적은 90만 원이면 월 평균이 100만 원이 됐다. 연간 지출 합은 그대로 모든 기록이고,
+  // 오늘 뒤 날짜 기록이 있으면 그 금액을 연간 지출 아래에 적는다.
+  const monthsObserved = new Array(12).fill(0);
+  const monthsObservedExp = new Array(12).fill(0);
+  let totalExp = 0, totalInc = 0, creditSpend = 0, deductibleSpend = 0, futureExp = 0;
   const catExp = Object.create(null);
   for (const r of safeArray(rows)) {
     const mi = Number(String(r.transaction_date || "").slice(5, 7)) - 1;
     const amt = Number(r.amount || 0);
+    const observed = String(r.transaction_date || "").slice(0, 10) <= today;
     if (mi >= 0 && mi < 12) monthsCount[mi] += 1;
+    if (mi >= 0 && mi < 12 && observed) monthsObserved[mi] += 1;
     if (r.type === "income") {
       totalInc += amt;
       if (mi >= 0 && mi < 12) monthsInc[mi] += amt;
     } else {
       totalExp += amt;
       if (mi >= 0 && mi < 12) monthsExp[mi] += amt;
+      if (mi >= 0 && mi < 12 && observed) monthsObservedExp[mi] += amt;
+      if (!observed) futureExp += amt;
       const c = r.category || "미분류";
       catExp[c] = (catExp[c] || 0) + amt;
       const kind = classifyDeductionPay(r.payment_method);
@@ -20146,11 +20173,12 @@ function buildAnnualReportModel(rows, year, nowMonth = currentMonthKst()) {
   // 기록이 있는 달 수로 나누고 화면에 몇 개월 평균인지 적는다(소비 분석의 3개월 평균과 같은 규칙).
   const nowYear = Number(nowMonth.slice(0, 4));
   const elapsedMonths = year < nowYear ? 12 : year === nowYear ? Number(nowMonth.slice(5, 7)) : 0;
-  const avgMonths = monthsCount.slice(0, elapsedMonths).filter((count) => count > 0).length;
+  const avgMonths = monthsObserved.slice(0, elapsedMonths).filter((count) => count > 0).length;
+  const avgExp = monthsObservedExp.slice(0, elapsedMonths).reduce((sum, value) => sum + value, 0);
   return {
-    year, monthsExp, monthsInc, totalExp, totalInc,
+    year, monthsExp, monthsInc, totalExp, totalInc, futureExp,
     savings: totalInc - totalExp,
-    monthAvgExp: avgMonths ? Math.round(totalExp / avgMonths) : 0,
+    monthAvgExp: avgMonths ? Math.round(avgExp / avgMonths) : 0,
     avgMonths,
     catTop, maxMonth: Math.max(1, ...monthsExp), creditSpend, deductibleSpend,
   };
@@ -20197,11 +20225,11 @@ function renderAnnualReportHtml({ env, households, selected, model, nowYear, now
   const prevY = model.year - 1;
   const nextY = model.year + 1;
   const nextDisabled = nextY > nowYear;
+  // V22.9.89 U-08(V2, 사용자 결정 D-8 = A, Astra 6): 연말정산 칸의 ‘예상 N원’(사용액 × 15%·30%)을 지운다. 신용카드 등 소득공제는 총급여의
+  // 25%를 넘게 쓴 부분부터 계산하는데 그 문턱을 빼서 크게 보였고, 그 값은 돌려받는 세금도 아니다. 사용액 두 칸과 참고용 안내는 둔다.
   const savingsLabel = model.savings >= 0 ? `저축 ${numberWithCommas(model.savings)}원` : `적자 ${numberWithCommas(Math.abs(model.savings))}원`;
-  const creditDeduct = Math.round(model.creditSpend * 0.15);
-  const otherDeduct = Math.round(model.deductibleSpend * 0.30);
   const style = `*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f7f8fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.6}.yearNav{display:flex;align-items:center;gap:10px;margin-top:12px}.yearNav a,.yearNav span{display:inline-flex;align-items:center;justify-content:center;min-height:40px;padding:0 14px;border-radius:12px;background:rgba(255,255,255,.16);color:#fff!important;text-decoration:none;font-weight:1000}.yearNav a.disabled,.yearNav span.disabled{opacity:.4;pointer-events:none}.yearNav b{font-size:22px;padding:0 6px}.filters{display:grid;grid-template-columns:minmax(0,1fr) 130px;gap:8px;margin-top:12px}.filters select{min-width:0;width:100%}.filters select,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;background:#fff;padding:0 12px;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.annualBars{display:flex;align-items:flex-end;gap:6px;height:170px;margin-top:6px}.annualBarCol{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0}.annualBarTrack{width:100%;height:140px;display:flex;align-items:flex-end;background:#eef2f7;border-radius:8px;overflow:hidden}.annualBar{width:100%;background:#93b4f6;border-radius:8px 8px 0 0}.annualBar.cur{background:#1d4ed8}.annualBarCol span{font-size:11px;color:#64748b;font-weight:800}.catList{list-style:none;margin:0;padding:0;display:grid;gap:10px}.catRow{display:flex;justify-content:space-between;gap:10px}.catRow b{font-size:14px}.catRow span{color:#64748b;font-variant-numeric:tabular-nums}.miniBar{height:9px;background:#eef2f7;border-radius:999px;overflow:hidden;margin-top:6px}.miniBar span{display:block;height:100%;border-radius:999px;background:#1d4ed8}.deduct{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.deductBox{background:#f8fafc;border:1px solid #e8edf4;border-radius:18px;padding:15px}.deductBox b{display:block;font-size:20px;margin:4px 0}.deductBox small{color:#64748b}.notice{border-radius:16px;padding:14px;background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;line-height:1.6;margin-top:10px}.actions{display:flex;flex-wrap:wrap;gap:8px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:14px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 14px;border:0;cursor:pointer;font:inherit}.btn.light{background:#eff6ff;color:#1e3a8a!important}.muted{color:#64748b;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metric b{font-size:20px}.annualBars{height:150px}.annualBarTrack{height:120px}}@media print{.abLayoutNav,.abNavMobileTop,.abNavBottom,.yearNav,.filters,.actions{display:none!important}body{background:#fff!important}.hero{background:#111827!important}}`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 연간 리포트</title><style>${style}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("annual", { month: `${model.year}-01`, householdId: selected.id, householdName: selected.name, role: String(selected.role || "") })}<main class="wrap"><section class="hero"><h1>${model.year} 연간 리포트</h1><p>한 해의 수입·지출 흐름과 연말정산 참고 자료를 정리했어요.</p><div class="yearNav"><a href="/annual?year=${prevY}${hh}" aria-label="이전 해">‹</a><b>${model.year}</b>${nextDisabled ? `<span class="disabled" aria-disabled="true">›</span>` : `<a href="/annual?year=${nextY}${hh}" aria-label="다음 해">›</a>`}</div><form class="filters" method="get" action="/annual"><input type="hidden" name="year" value="${model.year}"/><select name="household_id">${opts}</select><button type="submit">조회</button></form></section>${limitExceeded ? `<section class="notice" role="alert"><b>연간 리포트를 만들 수 없습니다.</b> ${model.year}년 기록이 ${numberWithCommas(ANNUAL_REPORT_ROW_LIMIT)}건을 넘어, 일부 기록만으로 연간 합계를 내지 않았습니다. 월별 화면과 CSV 백업으로 확인해 주세요.</section>` : `<section class="grid"><div class="metric"><span>연간 수입</span><b>${numberWithCommas(model.totalInc)}원</b></div><div class="metric"><span>연간 지출</span><b>${numberWithCommas(model.totalExp)}원</b></div><div class="metric"><span>연간 ${model.savings >= 0 ? "저축" : "적자"}</span><b>${numberWithCommas(Math.abs(model.savings))}원</b></div><div class="metric"><span>월 평균 지출${model.avgMonths ? ` · 기록 있는 ${model.avgMonths}개월` : ""}</span><b>${numberWithCommas(model.monthAvgExp)}원</b></div></section><section class="card"><h2>월별 지출</h2><div class="annualBars">${barsHtml}</div></section><section class="card"><h2>연간 카테고리 TOP6</h2><ul class="catList">${catHtml}</ul></section>${adSlotMarkup(env, adKey)}<section class="card"><h2>연말정산 참고</h2><p class="muted">${savingsLabel} · 연간 총수입 ${numberWithCommas(model.totalInc)}원</p><div class="deduct"><div class="deductBox"><small>신용카드 사용액</small><b>${numberWithCommas(model.creditSpend)}원</b><small>공제율 15% 안내 · 예상 ${numberWithCommas(creditDeduct)}원</small></div><div class="deductBox"><small>체크·현금·간편결제</small><b>${numberWithCommas(model.deductibleSpend)}원</b><small>공제율 30% 안내 · 예상 ${numberWithCommas(otherDeduct)}원</small></div></div><div class="notice">여기 표시되는 금액과 공제율은 참고용 안내입니다. 실제 소득공제는 국세청 연말정산 간소화 자료와 공제 한도·총급여 기준에 따라 달라집니다.</div></section><section class="card"><h2>내보내기</h2><div class="actions"><button type="button" class="btn" onclick="window.print()">PDF로 저장 / 인쇄</button><a class="btn light" href="/app?month=${encodeURIComponent(model.year + "-01")}${hh}">가계부로 이동</a></div></section>`}</main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 연간 리포트</title><style>${style}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("annual", { month: `${model.year}-01`, householdId: selected.id, householdName: selected.name, role: String(selected.role || "") })}<main class="wrap"><section class="hero"><h1>${model.year} 연간 리포트</h1><p>한 해의 수입·지출 흐름과 연말정산 참고 자료를 정리했어요.</p><div class="yearNav"><a href="/annual?year=${prevY}${hh}" aria-label="이전 해">‹</a><b>${model.year}</b>${nextDisabled ? `<span class="disabled" aria-disabled="true">›</span>` : `<a href="/annual?year=${nextY}${hh}" aria-label="다음 해">›</a>`}</div><form class="filters" method="get" action="/annual"><input type="hidden" name="year" value="${model.year}"/><select name="household_id">${opts}</select><button type="submit">조회</button></form></section>${limitExceeded ? `<section class="notice" role="alert"><b>연간 리포트를 만들 수 없습니다.</b> ${model.year}년 기록이 ${numberWithCommas(ANNUAL_REPORT_ROW_LIMIT)}건을 넘어, 일부 기록만으로 연간 합계를 내지 않았습니다. 월별 화면과 CSV 백업으로 확인해 주세요.</section>` : `<section class="grid"><div class="metric"><span>연간 수입</span><b>${numberWithCommas(model.totalInc)}원</b></div><div class="metric"><span>연간 지출</span><b>${numberWithCommas(model.totalExp)}원</b>${model.futureExp ? `<small style="display:block;color:#64748b;margin-top:3px">오늘 뒤 날짜 기록 ${numberWithCommas(model.futureExp)}원 포함</small>` : ""}</div><div class="metric"><span>연간 ${model.savings >= 0 ? "저축" : "적자"}</span><b>${numberWithCommas(Math.abs(model.savings))}원</b></div><div class="metric"><span>월 평균 지출${model.avgMonths ? ` · ${model.futureExp ? "오늘까지 " : ""}기록 있는 ${model.avgMonths}개월` : ""}</span><b>${numberWithCommas(model.monthAvgExp)}원</b></div></section><section class="card"><h2>월별 지출</h2><div class="annualBars">${barsHtml}</div></section><section class="card"><h2>연간 카테고리 TOP6</h2><ul class="catList">${catHtml}</ul></section>${adSlotMarkup(env, adKey)}<section class="card"><h2>연말정산 참고</h2><p class="muted">${savingsLabel} · 연간 총수입 ${numberWithCommas(model.totalInc)}원</p><div class="deduct"><div class="deductBox"><small>신용카드 사용액</small><b>${numberWithCommas(model.creditSpend)}원</b><small>공제율 15%</small></div><div class="deductBox"><small>체크·현금·간편결제</small><b>${numberWithCommas(model.deductibleSpend)}원</b><small>공제율 30%</small></div></div><p class="muted">공제는 총급여의 25%를 넘게 쓴 부분부터 계산돼요. 문턱을 넘은 뒤에는 체크카드·현금영수증 공제율이 더 높아요.</p><div class="notice">여기 표시되는 금액과 공제율은 참고용 안내입니다. 실제 소득공제는 국세청 연말정산 간소화 자료와 공제 한도·총급여 기준에 따라 달라집니다.</div></section><section class="card"><h2>내보내기</h2><div class="actions"><button type="button" class="btn" onclick="window.print()">PDF로 저장 / 인쇄</button><a class="btn light" href="/app?month=${encodeURIComponent(model.year + "-01")}${hh}">가계부로 이동</a></div></section>`}</main></body></html>`;
 }
 
 // V22.8.31 V5 저축·목표 페이지(§3.7) + 로딩 스켈레톤/토스트·Undo(§3.17) — V5 네이티브 클라이언트 서피스.
@@ -27878,7 +27906,7 @@ async function getMyPageContext(request, env, url, { observedComparison = false,
   const calendar = calendarDaysFromRows(rows, month);
   const stats = calculateStats(rows);
   const budget = budgetSummary(rows, budgets);
-  const analysis = calculateDashboardAnalysis(rows, rows, calendar, month, outlook ? { outlook: monthSpendingOutlook({ month, rows, recurring, plans: reservePlans }) } : {});
+  const analysis = calculateDashboardAnalysis(rows, rows, calendar, month, { startedOn: householdStartYmd(selected, rows), ...(outlook ? { outlook: monthSpendingOutlook({ month, rows, recurring, plans: reservePlans }) } : {}) });
   return { userId, user, month, households, selected, members, rows, calendar, stats, budgets, budget, analysis, recurring, reservePlans };
 }
 
@@ -27919,7 +27947,7 @@ function reportChallengeTypeMeta(type = "no_spend_days", settings = {}) {
   return { type: "no_spend_days", typeLabel: "무지출 일수", successLabel: "무지출 성공", failureLabel: "지출 있음", goalLabel: "지출 0원" };
 }
 
-function normalizeReportChallenge(value = {}, month = currentMonthKst()) {
+function normalizeReportChallenge(value = {}, month = currentMonthKst(), startedOn = "") {
   const raw = value && typeof value === "object" ? value : parseJsonSetting(value, {});
   const targetDays = Math.max(1, Math.min(20, Math.round(Number(raw.target_days || 4)) || 4));
   const title = String(raw.title || "무지출 데이").trim().replace(/\s+/g, " ").slice(0, 30) || "무지출 데이";
@@ -27927,7 +27955,9 @@ function normalizeReportChallenge(value = {}, month = currentMonthKst()) {
   const targetAmount = Math.max(0, Math.min(MAX_TRANSACTION_AMOUNT, Math.round(Number(raw.target_amount || raw.goal?.amount || 0)) || 0));
   const category = String(raw.category || raw.goal?.category || "").trim().replace(/\s+/g, " ").slice(0, 40);
   const today = formatDate(nowKstDate());
-  const startDate = isValidTransactionDateString(raw.start_date) ? String(raw.start_date) : `${validMonth(month) || currentMonthKst()}-01`;
+  // V22.9.89 Astra 4: 저장하지 않은 기본 챌린지는 그 달 1일부터인데, 그 달에 가계부를 시작했으면 시작한 날부터다(시작 전의 날을 무지출 성공으로 세지 않음).
+  const monthStart = `${validMonth(month) || currentMonthKst()}-01`;
+  const startDate = isValidTransactionDateString(raw.start_date) ? String(raw.start_date) : startedOn && startedOn > monthStart && startedOn.slice(0, 7) === monthStart.slice(0, 7) ? startedOn : monthStart;
   let targetDate = isValidTransactionDateString(raw.target_date) ? String(raw.target_date) : shiftChallengeDate(startDate, targetDays - 1);
   let periodDays = challengePeriodDays(startDate, targetDate);
   if (!periodDays || periodDays > 90) {
@@ -27938,9 +27968,9 @@ function normalizeReportChallenge(value = {}, month = currentMonthKst()) {
   return { schemaVersion: Number(raw.schema_version || 1), revision: Math.max(0, Math.round(Number(raw.revision || 0)) || 0), enabled: raw.enabled !== false, targetDays: Math.min(targetDays, periodDays), title, type, targetAmount, category, ...meta, startDate, targetDate, periodDays };
 }
 
-function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) {
+function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}, { startedOn = "" } = {}) {
   const safeMonth = validMonth(month) || currentMonthKst();
-  const settings = normalizeReportChallenge(value,safeMonth);
+  const settings = normalizeReportChallenge(value, safeMonth, startedOn);
   const today = formatDate(nowKstDate());
   const yesterday = shiftChallengeDate(today, -1);
   const evaluationEnd = yesterday < settings.targetDate ? yesterday : settings.targetDate;
@@ -27960,8 +27990,11 @@ function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) 
     const failed = settings.type === "no_spend_days" ? spent > 0 : spent > settings.targetAmount;
     if (failed) failedDays.add(date);
   }
+  // V22.9.89 Astra 4: 챌린지 시작일부터 오늘까지 직접 적은 기록(정기 자동 기록 제외)이 하나도 없으면 지난 날을 성공으로 세지 않는다.
+  // 기록이 없는 가계부가 "무지출 4/4일 · 목표를 달성했습니다"였다. 그런 동안은 날짜 칸 대신 달성률(0/N일)로 보인다(아래 displayMode).
+  const recording = safeArray(rows).some((row) => { const date = String(row.transaction_date || "").slice(0, 10); return !isRecurringSourceRow(row) && date >= settings.startDate && date <= today; });
   let completed = 0;
-  for (let offset = 0; offset < evaluatedDays; offset++) {
+  if (recording) for (let offset = 0; offset < evaluatedDays; offset++) {
     const date = shiftChallengeDate(settings.startDate, offset);
     if (!failedDays.has(date)) completed++;
   }
@@ -27971,7 +28004,9 @@ function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) 
   const remaining = Math.max(0, target - progress);
   const currentDay = today < settings.startDate ? 0 : Math.min(settings.periodDays, challengePeriodDays(settings.startDate, today));
   const phase = today < settings.startDate ? "scheduled" : today > settings.targetDate ? "ended" : "active";
-  const displayMode = settings.periodDays <= 7 ? "daily" : "percent";
+  // 날짜 칸에는 ‘기록 없음’ 상태가 없다: 홈 칸의 상태 글자는 1년 캐시 클라이언트(v5 묶음)가 s·x·t·f 로만 붙여, 지난 날이 ‘○ 예정’으로
+  // 읽혔다(V22.9.89 독립 검토). 지난 날을 셀 수 없는 동안(직접 적은 기록 없음)은 달성률로 보이고, 설명은 아래 상태 문장이 한다.
+  const displayMode = settings.periodDays <= 7 && (recording || !evaluatedDays) ? "daily" : "percent";
   const weekdays = ["일", "월", "화", "수", "목", "금", "토"];
   const daySlots = displayMode === "daily"
     ? Array.from({ length: settings.periodDays }, (_unused, offset) => {
@@ -27987,13 +28022,13 @@ function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}) 
         return { date, day, weekday, state, stateLabel };
       })
     : [];
-  const hasMonthlyRecords = safeArray(rows).some(row => String(row.transaction_date || "").slice(0, 7) === safeMonth);
-  return { ...settings, month: safeMonth, hasMonthlyRecords, today, targetDays: target, completedDays: completed, progress, rate, remaining, evaluatedDays, currentDay, phase, displayMode, daySlots };
+  const hasMonthlyRecords = safeArray(rows).some(row => String(row.transaction_date || "").slice(0, 7) === safeMonth && !isRecurringSourceRow(row));
+  return { ...settings, month: safeMonth, hasMonthlyRecords, recording, today, targetDays: target, completedDays: completed, progress, rate, remaining, evaluatedDays, currentDay, phase, displayMode, daySlots };
 }
 
-async function buildReportChallengeForHousehold(env, { householdId = "", month = currentMonthKst(), rows = [], value = {} } = {}) {
+async function buildReportChallengeForHousehold(env, { householdId = "", month = currentMonthKst(), rows = [], value = {}, startedOn = "" } = {}) {
   const safeMonth = validMonth(month) || currentMonthKst();
-  const settings = normalizeReportChallenge(value,safeMonth);
+  const settings = normalizeReportChallenge(value, safeMonth, startedOn);
   const monthStart = `${safeMonth}-01`;
   const monthEnd = nextMonthStart(safeMonth);
   const today = formatDate(nowKstDate());
@@ -28017,7 +28052,7 @@ async function buildReportChallengeForHousehold(env, { householdId = "", month =
     }
   }
   // The optional cross-month challenge read must not make an empty selected month celebrate.
-  return { ...buildReportChallenge(challengeRows, safeMonth, value), hasMonthlyRecords: safeArray(rows).some(row => String(row.transaction_date || "").slice(0, 7) === safeMonth) };
+  return { ...buildReportChallenge(challengeRows, safeMonth, value, { startedOn }), hasMonthlyRecords: safeArray(rows).some(row => String(row.transaction_date || "").slice(0, 7) === safeMonth && !isRecurringSourceRow(row)) };
 }
 
 function reportMonthHref(path = "/my/analysis", month = currentMonthKst(), householdId = "", view = "", extra = {}) {
@@ -28125,8 +28160,12 @@ function buildReportDashboardSummary(rows = [], budget = {}, month = currentMont
   else if (totalBudget && paceGap > 8) insight = `달력 진행률보다 예산을 ${Math.abs(paceGap)}%p 빠르게 사용하고 있어요. 사용률이 높은 분류부터 확인해 보세요.`;
   else if (totalBudget && paceGap < -8) insight = `달력 진행률보다 예산 사용이 ${Math.abs(paceGap)}%p 여유로워요. 지금의 소비 흐름을 유지해 보세요.`;
   else if (totalBudget) insight = "달력 진행률과 예산 사용 속도가 비슷해요. 큰 지출 예정이 있다면 남은 예산을 먼저 확인하세요.";
+  // V22.9.89 Astra 2: 이 칸의 이번 달 지출은 그 달 날짜의 기록을 모두 센다(생활비 리포트는 오늘까지). 오늘 뒤 날짜로 미리 적은 지출이 있으면
+  // 라벨에 ‘미리 적은 N원 포함’을 붙여 두 화면의 합계가 다른 이유를 보인다. Astra 3: 정기 항목을 못 읽은 월말 예상(partial)은 ‘정기 항목 빼고 계산’.
+  // 아직 오지 않은 달(basisEnd 없음)은 그 달 기록이 모두 미리 적은 것이다(V22.9.89 독립 검토: 10월에 11월을 보면 표시가 없었다).
+  const futureExpense = rows.filter((row) => row.type === "expense" && String(row.transaction_date || "").slice(0, 7) === safeMonth && (!observation.basisEnd || String(row.transaction_date || "") > observation.basisEnd)).reduce((sum, row) => sum + Number(row.amount || 0), 0);
   // observation 의 burnForecast(예전 식)가 남지 않도록 같은 월말 예상으로 덮는다.
-  return { ...observation, burnForecast: forecast, month: safeMonth, expense, income, balance: income - expense, totalBudget, budgetRate, elapsedRate, remainingBudget, forecast, spendingOutlook, paceGap, categoryAlerts, insight,
+  return { ...observation, burnForecast: forecast, month: safeMonth, expense, income, balance: income - expense, futureExpense, totalBudget, budgetRate, elapsedRate, remainingBudget, forecast, spendingOutlook, paceGap, categoryAlerts, insight,
     ...(stats.refund || refundFailed ? { refund: stats.refund || null, refundFailed: !!refundFailed } : {}) };
 }
 
@@ -28139,7 +28178,7 @@ function renderReportDashboard(summary = {}) {
     const itemRate = Math.max(0, Math.min(100, Number(item.rate || 0)));
     return `<li><div><b>${escapeHtml(item.category || "미분류")}</b><span>${numberWithCommas(item.spent || 0)}원 / ${numberWithCommas(item.budget || 0)}원</span></div><strong>${numberWithCommas(item.rate || 0)}%</strong><i><em style="width:${itemRate}%"></em></i></li>`;
   }).join("");
-  return `<section class="reportCockpit" aria-labelledby="reportCockpitTitle"><div class="reportCockpitHead"><div><span>월간 요약</span><h2 id="reportCockpitTitle">${escapeHtml(summary.month || "")} 한눈에 보기</h2></div><a href="/app?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}&view=calendar#calendar">거래 캘린더 보기</a></div><div class="reportCockpitGrid"><div class="reportPace"><div class="reportGauge" style="--report-rate:${rate}%"><div><b>${summary.totalBudget ? `${numberWithCommas(summary.budgetRate || 0)}%` : "—"}</b><span>예산 사용</span></div></div><p>${summary.totalBudget ? `월 ${numberWithCommas(summary.totalBudget)}원 기준` : "월 예산 미설정"}</p></div><div class="reportKpis"><div><span>이번 달 지출${refundNote ? ` · ${escapeHtml(refundNote)}` : ""}</span><b>${numberWithCommas(summary.expense || 0)}원</b></div><div><span>이번 달 수입</span><b>${numberWithCommas(summary.income || 0)}원</b></div><div><span>남은 예산</span><b>${summary.totalBudget ? `${numberWithCommas(summary.remainingBudget || 0)}원` : "설정 전"}</b></div><div><span>월말 예상 지출</span><b>${renderObservedMoney(summary, summary.forecast)}</b></div></div></div><div class="reportInsight"><span aria-hidden="true">✦</span><p>${escapeHtml(summary.insight || "")}</p></div>${categories ? `<div class="reportCategoryBudget"><div class="reportSectionTitle"><b>분류별 예산 속도</b><a href="/budgets?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}">전체 예산 보기</a></div><ul>${categories}</ul></div>` : ""}</section>`;
+  return `<section class="reportCockpit" aria-labelledby="reportCockpitTitle"><div class="reportCockpitHead"><div><span>월간 요약</span><h2 id="reportCockpitTitle">${escapeHtml(summary.month || "")} 한눈에 보기</h2></div><a href="/app?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}&view=calendar#calendar">거래 캘린더 보기</a></div><div class="reportCockpitGrid"><div class="reportPace"><div class="reportGauge" style="--report-rate:${rate}%"><div><b>${summary.totalBudget ? `${numberWithCommas(summary.budgetRate || 0)}%` : "—"}</b><span>예산 사용</span></div></div><p>${summary.totalBudget ? `월 ${numberWithCommas(summary.totalBudget)}원 기준` : "월 예산 미설정"}</p></div><div class="reportKpis"><div><span>이번 달 지출${summary.futureExpense ? ` · 미리 적은 ${numberWithCommas(summary.futureExpense)}원 포함` : ""}${refundNote ? ` · ${escapeHtml(refundNote)}` : ""}</span><b>${numberWithCommas(summary.expense || 0)}원</b></div><div><span>이번 달 수입</span><b>${numberWithCommas(summary.income || 0)}원</b></div><div><span>남은 예산</span><b>${summary.totalBudget ? `${numberWithCommas(summary.remainingBudget || 0)}원` : "설정 전"}</b></div><div><span>월말 예상 지출${summary.spendingOutlook?.partial && summary.forecast != null ? " · 정기 항목 빼고 계산" : ""}</span><b>${renderObservedMoney(summary, summary.forecast)}</b></div></div></div><div class="reportInsight"><span aria-hidden="true">✦</span><p>${escapeHtml(summary.insight || "")}</p></div>${categories ? `<div class="reportCategoryBudget"><div class="reportSectionTitle"><b>분류별 예산 속도</b><a href="/budgets?month=${encodeURIComponent(summary.month || currentMonthKst())}${householdQuery}">전체 예산 보기</a></div><ul>${categories}</ul></div>` : ""}</section>`;
 }
 
 function renderChallengeProgress(challenge = {}, { hydrate = false } = {}) {
@@ -28174,6 +28213,8 @@ function renderReportChallenge(challenge = {}, { householdId = "", canManage = f
     ? "챌린지가 꺼져 있습니다."
     : safe.phase === "scheduled"
       ? `${safe.startDate}부터 시작합니다.`
+      : safe.recording === false && safe.evaluatedDays > 0
+        ? `${safe.phase === "ended" ? `${safe.targetDate}에 끝난 챌린지입니다.` : `${dayPosition}입니다.`} 직접 적은 기록이 없어 성공한 날을 세지 않았어요.`
       : safe.phase === "ended"
         ? `${safe.targetDate}에 끝난 챌린지입니다. ${safe.remaining ? `목표까지 ${safe.remaining}일을 남기고 끝났습니다.` : "목표를 달성했습니다."}`
         : safe.remaining
@@ -28254,7 +28295,7 @@ async function handleReportChallengeSave(request, env) {
   if (!inline) return redirectResponse(`${returnTo}&msg=challenge_saved#reportChallenge`);
   try {
     const rows = await fetchAdminRows(env, { month, householdId, type: "all" });
-    const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows, value });
+    const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows, value, startedOn: householdStartYmd(selected, rows) });
     return jsonResponse({
       ok: true,
       saved: true,
@@ -28675,7 +28716,7 @@ function livingReportBucket(row = {}) {
   return "";
 }
 
-function buildLivingReport({ month = currentMonthKst(), range = "month", week = "", historyRows = [], recurring = [], assets = [], targets = Object.create(null), reservePlans = [], historyAvailable = true, recurringAvailable = true, settingsAvailable = true, today = formatDate(nowKstDate()), refundDeductions = [], refundFailed = false } = {}) {
+function buildLivingReport({ month = currentMonthKst(), range = "month", week = "", startedOn = "", historyRows = [], recurring = [], assets = [], targets = Object.create(null), reservePlans = [], historyAvailable = true, recurringAvailable = true, settingsAvailable = true, today = formatDate(nowKstDate()), refundDeductions = [], refundFailed = false } = {}) {
   const period = livingReportPeriod({ range, month, week, today });
   const inWindow = (row, start, end) => { const d = String(row.transaction_date || "").slice(0, 10); return d >= start && d <= end; };
   const rowsAll = safeArray(historyRows);
@@ -28683,6 +28724,9 @@ function buildLivingReport({ month = currentMonthKst(), range = "month", week = 
   const curEnd = period.basisEnd || period.end;
   const cur = period.basisEnd ? expenseRows.filter((r) => inWindow(r, period.start, curEnd)) : [];
   const currentRows = period.basisEnd ? rowsAll.filter((r) => inWindow(r, period.start, curEnd)) : [];
+  // V22.9.89 Astra 2: 이번 달·이번 주 리포트는 오늘까지 기록만 센다(소비 분석·홈은 그 달 날짜의 기록을 모두 센다). 오늘 뒤 날짜로 미리 적은
+  // 지출이 있으면 그 금액을 지출 칸에 ‘제외’로 적어, 다른 화면과 합계가 다른 이유를 보인다.
+  const futureExpense = period.live ? expenseRows.filter((r) => inWindow(r, ymdShift(curEnd, 1), period.end)).reduce((s, r) => s + Number(r.amount || 0), 0) : 0;
   // V22.9.80 V76 M-7: 연결한 환불은 환급 날짜의 기간에서 지출·수입을 같은 금액만큼 줄인다(지출은 0 아래로 내리지 않는다).
   // 날짜별 막대·주말·생활 패턴·카드·구독은 기록 그대로다. 차감이 없으면 아래 값은 모두 예전과 같다.
   const curRefund = period.basisEnd ? refundDeductionsInRange(refundDeductions, period.start, curEnd) : [];
@@ -28721,6 +28765,11 @@ function buildLivingReport({ month = currentMonthKst(), range = "month", week = 
     return { name, amount: sum(c), count: c.length, prevAmount: sum(p), prevCount: p.length, delta: sum(c) - sum(p) };
   });
   const biggestIncrease = comparisonAvailable ? buckets.filter((b) => b.delta > 0).sort((a, b) => b.delta - a.delta)[0] || null : null;
+  // V22.9.89 Astra 5: 끝난 기간(지난달·지난주)의 리포트는 그 기간에 자동 기록된 정기 지출을 보인다. 아래 정기 항목(rules)은 지금 등록된 것이라
+  // 오늘 기준으로 따로 적고, ‘고정비 N건 등록’ 배지와 30일 안 적립 계획(오늘부터 셈)은 지난 기간에 넣지 않는다.
+  const past = !!period.basisEnd && !period.live;
+  const pastFixedRows = past ? cur.filter(isRecurringSourceRow).map((r) => ({ memo: String(r.memo || r.category || "정기지출"), date: String(r.transaction_date || "").slice(0, 10), amount: Number(r.amount || 0) })) : [];
+  const pastFixedTotal = pastFixedRows.reduce((s, r) => s + r.amount, 0);
   const rules = safeArray(recurring).filter((r) => r.is_active !== false && String(r.type || "expense") !== "income");
   const monthRows = expenseRows.filter((r) => inWindow(r, `${month}-01`, monthLastYmd(month)));
   // V22.9.79 V78 S-2: 홈·예산 알림과 같은 판정(그 달 표식 또는 그 달 기록)이다. 반영된 기록을 지워도 표식이 그 달이면 반영됨이다.
@@ -28735,7 +28784,7 @@ function buildLivingReport({ month = currentMonthKst(), range = "month", week = 
   const subscription = { amount: sum(subscriptionRows), count: subscriptionRows.length };
   const fromDate = new Date(`${today}T00:00:00`);
   // V22.9.76: "30일 안에 나갈 적립 계획"(고정비와 구독 절)에는 지출 항목만 넣는다. 수당 같은 정기 수입이 나갈 돈으로 적혔다.
-  const upcoming = safeArray(reservePlans).filter((plan) => !isIncomeReservePlan(plan)).map((plan) => reservePlanStatus(plan, fromDate)).filter((s) => Number(s.days_left) <= 30).sort((a, b) => a.days_left - b.days_left).slice(0, 5)
+  const upcoming = past ? [] : safeArray(reservePlans).filter((plan) => !isIncomeReservePlan(plan)).map((plan) => reservePlanStatus(plan, fromDate)).filter((s) => Number(s.days_left) <= 30).sort((a, b) => a.days_left - b.days_left).slice(0, 5)
     .map((s) => ({ name: String(s.plan?.name || "적립 계획"), amount: Number(s.plan?.amount || 0), due_date: s.due_date, days_left: s.days_left, monthly_reserve: s.monthly_reserve }));
   const cards = safeArray(assets).filter((a) => paymentAssetKindMeta(a.kind).group === "card");
   const usage = computeCardUsageMap(cards, cur);
@@ -28745,14 +28794,34 @@ function buildLivingReport({ month = currentMonthKst(), range = "month", week = 
     const target = Number(targets[c.id]?.target || 0);
     return { id: String(c.id), name: String(c.name || "카드"), issuer: String(c.issuer || ""), amount: u.amount, count: u.count, prevAmount: Number((prevUsage[c.id] || {}).amount || 0), target, rate: target ? Math.min(999, Math.round(u.amount / target * 100)) : null, remaining: target ? Math.max(0, target - u.amount) : null, reached: historyAvailable && range === "month" && period.elapsed > 0 && target > 0 && u.amount >= target };
   });
-  const noSpendDays = days.filter((d) => !d.future && d.amount === 0).length;
+  // V22.9.89 U-09(V2 §3 #29): 등록한 카드 자산과 맞지 않는 카드 결제수단은 위 목록에서 말없이 빠졌다. 이름에 ‘카드’가 든 결제수단만 모아
+  // 금액·건수를 따로 돌려준다(맞춤은 computeCardUsageMap 그대로 — 한 건씩 넣어 맞는 카드가 없으면 등록 안 됨).
+  const unregisteredMap = new Map();
+  for (const r of cur) {
+    const pm = String(r.payment_method || "").trim();
+    if (!/카드/.test(pm) || Object.values(computeCardUsageMap(cards, [r])).some((u) => u.count > 0)) continue;
+    const item = unregisteredMap.get(pm) || { name: pm, amount: 0, count: 0 };
+    item.amount += Number(r.amount || 0); item.count += 1;
+    unregisteredMap.set(pm, item);
+  }
+  const unregisteredCards = [...unregisteredMap.values()].sort((a, b) => b.amount - a.amount).slice(0, 5);
+  // V22.9.89 Astra 4: 기록하지 않은 날은 무지출이 아니다. 기간에 직접 적은 기록(정기 자동 기록 제외)이 하나도 없으면 무지출을 세지 않고(null),
+  // 가계부를 시작한 날(startedOn = 만든 날, 그보다 앞선 기록이 있으면 그 날) 전의 날도 세지 않는다. 시작한 날을 모르면 기간 첫날부터 센다.
+  const ownRecorded = !!period.basisEnd && currentRows.some((r) => !isRecurringSourceRow(r));
+  // ‘그보다 앞선 기록’은 이 기간의 기록으로 본다(startedOn 은 만든 날만 받는다). 홈·소비 분석·챌린지도 보는 달의 기록으로 세므로 같은 달이면
+  // 같은 무지출일이다(V22.9.89 독립 검토: 두 달치 기록으로 세어 지난달에 적은 기록이 있으면 이 화면만 달랐다).
+  const firstRecorded = currentRows.reduce((min, r) => { const d = String(r.transaction_date || "").slice(0, 10); return d && (!min || d < min) ? d : min; }, "");
+  const startDay = startedOn && firstRecorded && firstRecorded < startedOn ? firstRecorded : startedOn;
+  const noSpendFrom = startDay && startDay > period.start ? startDay : period.start;
+  const noSpendDays = ownRecorded ? days.filter((d) => !d.future && d.amount === 0 && d.date >= noSpendFrom).length : null;
   const badges = [];
   if (period.elapsed >= 3 && noSpendDays >= 3) badges.push({ emoji: "🌿", text: `무지출 ${noSpendDays}일` });
-  if (comparisonAvailable && prevExpense > 0 && delta < 0) badges.push({ emoji: "📉", text: `${period.basisLabel.replace(/ 대비$/, "")}보다 ${Math.abs(deltaPct)}% 적게` });
-  if (ruleItems.length) badges.push({ emoji: "📌", text: `고정비 ${ruleItems.length}건 등록` });
+  // V22.9.89(Astra 4 와 같은 갈래): 직접 적은 기록이 없는 기간의 0원은 덜 쓴 것이 아니다 — 감소 배지와 증감 문장을 쓰지 않는다.
+  if (comparisonAvailable && ownRecorded && prevExpense > 0 && delta < 0) badges.push({ emoji: "📉", text: `${period.basisLabel.replace(/ 대비$/, "")}보다 ${Math.abs(deltaPct)}% 적게` });
+  if (!past && ruleItems.length) badges.push({ emoji: "📌", text: `고정비 ${ruleItems.length}건 등록` });
   for (const c of cardItems) if (c.reached) badges.push({ emoji: "💳", text: `${c.name} 실적 목표 달성` });
   if (period.elapsed >= 5 && spendDays >= Math.ceil(period.elapsed * 0.6)) badges.push({ emoji: "✍️", text: `${spendDays}일 꾸준히 기록` });
-  return { month, period, historyAvailable, recurringAvailable, settingsAvailable, currentAvailable, comparisonAvailable, expense, prevExpense, delta, deltaPct, income, count: currentRows.length, spendDays, dailyAvg, days, topDays, topCategories, weekend, buckets, biggestIncrease, ruleItems, fixedTotal, candidates, subscription, upcoming, cards: cardItems, badges: historyAvailable && period.elapsed > 0 ? badges : [], noSpendDays,
+  return { month, period, historyAvailable, recurringAvailable, settingsAvailable, currentAvailable, comparisonAvailable, ownRecorded, expense, prevExpense, delta, deltaPct, income, count: currentRows.length, expenseCount: currentRows.filter((r) => r.type !== "income").length, incomeCount: currentRows.filter((r) => r.type === "income").length, futureExpense, past, pastFixedRows, pastFixedTotal, unregisteredCards, spendDays, dailyAvg, days, topDays, topCategories, weekend, buckets, biggestIncrease, ruleItems, fixedTotal, candidates, subscription, upcoming, cards: cardItems, badges: historyAvailable && period.elapsed > 0 ? badges : [], noSpendDays,
     ...(curRefund.length || prevRefund.length || refundFailed ? { refund: { ...refundCur, prevApplied: prevRefundApplied, failed: !!refundFailed } } : {}) };
 }
 
@@ -28761,6 +28830,8 @@ function livingReportChangeText(report = {}) {
   if (!report.period?.basisEnd) return "아직 오지 않은 기간이라 지출이 없어요.";
   if (!report.historyAvailable) return "이전 기록을 불러오지 못해 비교할 수 없어요.";
   if (!(report.prevExpense > 0)) return `${basis} 기록이 없어 비교하지 않아요.`;
+  // V22.9.89(Astra 4 와 같은 갈래): 이 기간에 직접 적은 기록(정기 자동 기록 제외)이 없으면 0원을 ‘덜 썼어요’라고 하지 않는다.
+  if (report.ownRecorded === false) return "이 기간에 직접 적은 기록이 없어 비교하지 않아요.";
   if (report.delta === 0) return `${basis}와 같아요.`;
   return `${basis}보다 ${numberWithCommas(Math.abs(report.delta))}원 ${report.delta > 0 ? "더" : "덜"} 썼어요 (${report.delta > 0 ? "+" : "−"}${Math.abs(report.deltaPct)}%).`;
 }
@@ -28769,11 +28840,13 @@ function livingReportShareText(report = {}, householdName = "가계부") {
   const p = report.period || {};
   if (!report.currentAvailable) return `${householdName} 생활비 리포트\n기간: ${p.title || ""}\n기간 전체 기록을 불러오지 못해 합계와 무지출 일수를 확인할 수 없습니다. 새로고침한 뒤 다시 확인해 주세요.`;
   const top = safeArray(report.topCategories).slice(0, 3).map((item, index) => `${index + 1}. ${item.name} ${numberWithCommas(item.amount)}원`).join("\n") || "분류별 지출 없음";
-  const lines = [`📊 ${householdName} ${p.range === "week" ? "주간" : "월간"} 생활비 리포트`, `기간: ${p.title || ""}${p.live ? " (오늘까지)" : ""}`, `지출 ${numberWithCommas(report.expense)}원${report.refund && refundDeductionNote(report.refund, { failed: report.refund.failed }) ? ` (${refundDeductionNote(report.refund, { failed: report.refund.failed })})` : ""} · ${livingReportChangeText(report)}`, `기록 ${numberWithCommas(report.count)}건 · 지출한 날 ${numberWithCommas(report.spendDays)}일 · 하루 평균 ${numberWithCommas(report.dailyAvg)}원`, "", "지출 상위", top];
-  if (report.fixedTotal > 0) lines.push("", `${p.range === "week" ? "월 정기 예정액" : "고정비"} ${numberWithCommas(report.fixedTotal)}원 (정기 항목 ${report.ruleItems.length}건)`);
+  const lines = [`📊 ${householdName} ${p.range === "week" ? "주간" : "월간"} 생활비 리포트`, `기간: ${p.title || ""}${p.live ? " (오늘까지)" : ""}`, `지출 ${numberWithCommas(report.expense)}원${report.futureExpense ? ` (오늘 뒤 날짜 ${numberWithCommas(report.futureExpense)}원 제외)` : ""}${report.refund && refundDeductionNote(report.refund, { failed: report.refund.failed }) ? ` (${refundDeductionNote(report.refund, { failed: report.refund.failed })})` : ""} · ${livingReportChangeText(report)}`, `${recordCountText(report.expenseCount, report.incomeCount)} · 지출한 날 ${numberWithCommas(report.spendDays)}일 · 하루 평균 ${numberWithCommas(report.dailyAvg)}원`, "", "지출 상위", top];
+  if (report.past) { if (report.pastFixedTotal > 0) lines.push("", `이 기간에 기록된 정기 지출 ${numberWithCommas(report.pastFixedTotal)}원 (${report.pastFixedRows.length}건)`); }
+  else if (report.fixedTotal > 0) lines.push("", `${p.range === "week" ? "월 정기 예정액" : "고정비"} ${numberWithCommas(report.fixedTotal)}원 (정기 항목 ${report.ruleItems.length}건)`);
   if (report.topDays?.length) lines.push(`가장 많이 쓴 날: ${ymdWithWeekday(report.topDays[0].date)} ${numberWithCommas(report.topDays[0].amount)}원`);
   if (report.badges?.length) lines.push("", report.badges.map((b) => `${b.emoji} ${b.text}`).join("  "));
-  lines.push("", `기준: ${p.basisLabel || ""} · 말해가계부`);
+  // V22.9.89 Astra 5: 공유한 글은 나중에 다시 읽히므로 언제 만든 글인지 적는다.
+  lines.push("", `기준: ${p.basisLabel || ""} · ${ymdWithWeekday(formatDate(nowKstDate()))} 작성 · 말해가계부`);
   return lines.join("\n");
 }
 
@@ -28816,7 +28889,7 @@ async function handleFreeReportsPage(request, env, url) {
   const monthlySnapshot = parseJsonSetting(values.get(keys.monthly), null);
   const assets = normalizePaymentAssetList(values.get(keys.assets), hid);
   const reservePlans = normalizeReservePlanList(values.get(keys.reserve), hid);
-  const report = buildLivingReport({ month, range, week, historyRows, recurring: recurringResult.rows, assets, targets, reservePlans, historyAvailable: !historyLimited, recurringAvailable: recurringResult.available, settingsAvailable: !settingsUnavailable, today: formatDate(nowKstDate()), refundDeductions: refundRead.entries || [], refundFailed: !!refundRead.failed });
+  const report = buildLivingReport({ month, range, week, startedOn: householdStartYmd(ctx.selected), historyRows, recurring: recurringResult.rows, assets, targets, reservePlans, historyAvailable: !historyLimited, recurringAvailable: recurringResult.available, settingsAvailable: !settingsUnavailable, today: formatDate(nowKstDate()), refundDeductions: refundRead.entries || [], refundFailed: !!refundRead.failed });
   // V22.9.40 (B): 광고는 그 기간 기록을 읽어 낸 리포트에만 둔다. 기록이 없거나 기간을 읽지 못한 화면은 광고 키를 받지 않는다.
   const adKey = report.currentAvailable && report.count > 0 ? "/reports" : "";
   return htmlResponse(renderFreeReportsHtml({ env, ...ctx, report, range, week, live, preference, weeklySnapshot, monthlySnapshot, historyLimited, settingsUnavailable, memberCanChangeSettings, adKey, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }), 200, adsHeaders(env, adKey, {}));
@@ -28888,7 +28961,8 @@ function renderLivingReportSections({ report, selected, month, range, week, canW
   const deltaClass = (delta) => delta > 0 ? "lrDelta isUp" : delta < 0 ? "lrDelta isDown" : "lrDelta";
   // V22.9.76: 지난 기간 지출 기록이 없으면 요약은 "비교하지 않아요"라고 하면서 아래 항목은 0원과 견준 "+N원",
   // "…보다 N원 늘었어요"를 적었다. 요약과 같이 항목별 증감과 '가장 늘어난 항목' 문장도 숨긴다.
-  const noPrevious = report.comparisonAvailable && !(report.prevExpense > 0);
+  // V22.9.89: 이 기간에 직접 적은 기록이 없을 때도 같다(요약은 "직접 적은 기록이 없어 비교하지 않아요").
+  const noPrevious = report.comparisonAvailable && (!(report.prevExpense > 0) || report.ownRecorded === false);
   const topDaysText = report.topDays.length ? report.topDays.map((d) => `${ymdWithWeekday(d.date)} ${won(d.amount)}`).join(" · ") : "아직 지출한 날이 없어요";
   const maxDay = Math.max(1, ...report.days.map((d) => d.amount));
   const topSet = new Set(report.topDays.map((d) => d.date));
@@ -28898,12 +28972,16 @@ function renderLivingReportSections({ report, selected, month, range, week, canW
   // V22.9.76 감사 C-3: 주소의 msg·err 는 표에 직접 적은 코드만 찾는다(?msg=constructor 가 함수 본문을 보였다).
   const flash = ownMessage({ card_target_saved: ["ok", "카드 실적 목표를 저장했어요."], card_target_cleared: ["ok", "카드 실적 목표를 지웠어요."], preference_saved: ["ok", "자동 리포트 설정을 저장했습니다."] }, msg);
   const flashErr = ownMessage({ card_target_invalid: "실적 목표는 1,000원 이상의 금액으로 적어 주세요. 비우면 목표를 지웁니다.", card_target_write_not_allowed: "조회 전용 참여자는 실적 목표를 바꿀 수 없어요.", member_record_only: "구성원 권한이 ‘기록만’이라 실적 목표를 바꿀 수 없어요.", member_policy_unavailable: "구성원 권한을 확인하지 못해 실적 목표를 바꾸지 않았어요.", card_target_busy: "다른 설정 변경을 처리 중이에요. 잠시 뒤 다시 시도해 주세요.", card_target_asset_missing: "그 카드를 찾지 못했어요. 자산·결제수단에서 카드가 남아 있는지 확인해 주세요.", card_target_save_failed: "실적 목표를 저장하지 못했어요. 연결 상태를 확인한 뒤 다시 시도해 주세요." }, err) || (err ? "설정을 저장하지 못했습니다. 가계부 관리 권한과 연결 상태를 확인해 주세요." : "");
-  const summary = !report.currentAvailable ? `<section class="card" id="summary"><h2>기간 요약</h2><p>선택한 주의 일부 날짜를 불러오지 못해 합계·기록 수·무지출 일수를 확인할 수 없어요.</p></section>` : `<section class="card" id="summary"><h2>기간 요약</h2><p class="lead">${escapeHtml(p.title)}${p.live ? " · 오늘까지" : ""} · ${escapeHtml(selected.name || "가계부")}</p><div class="grid abV5KpiGrid"><div class="metric"><span>지출</span><b>${won(report.expense)}</b><small>${p.elapsed ? `${p.elapsed}일 동안` : "기록 없음"}${refundNote ? ` · ${escapeHtml(refundNote)}` : ""}</small></div><div class="metric"><span>수입</span><b>${won(report.income)}</b><small>${p.live ? "오늘까지" : p.elapsed ? "기간 전체" : "아직 오지 않은 기간"}</small></div><div class="metric"><span>하루 평균</span><b>${won(report.dailyAvg)}</b><small>지출한 날 ${numberWithCommas(report.spendDays)}일</small></div><div class="metric"><span>기록</span><b>${numberWithCommas(report.count)}건</b><small>무지출 ${numberWithCommas(report.noSpendDays)}일</small></div></div><p class="lrChange">${escapeHtml(livingReportChangeText(report))}<span class="lrBasis">기준: ${escapeHtml(p.basisLabel)} · ${escapeHtml(p.basisNote)} 비교 기준은 한 가지만 씁니다.</span></p>${report.badges.length ? `<ul class="lrBadges" aria-label="달성 배지">${report.badges.map((b) => `<li><span aria-hidden="true">${escapeHtml(b.emoji)}</span>${escapeHtml(b.text)}</li>`).join("")}</ul>` : ""}</section>`;
-  const fixed = `<section class="card" id="fixed"><h2>고정비와 구독</h2><p class="lead">정기 항목으로 등록한 지출과, 기록에서 반복이 보이는 지출입니다. 등록하지 않은 반복 지출은 "후보"로만 보여 줍니다.</p><div class="lrTwo"><div class="lrBox"><h3>${range === "week" ? "월 정기 예정액" : "매달 나가는 정기 항목"} ${report.recurringAvailable ? won(report.fixedTotal) : "확인 불가"}</h3>${!report.recurringAvailable ? `<p class="empty">정기 항목을 불러오지 못했습니다. 새로고침하면 다시 시도합니다.</p>` : report.ruleItems.length ? `<ul class="lrList">${report.ruleItems.map((r) => `<li><div><b>${escapeHtml(r.memo)}</b><small>매월 ${r.day}일${r.category ? ` · ${escapeHtml(r.category)}` : ""}</small></div><div class="amt">${won(r.amount)}<span class="lrTag ${r.applied ? "isOk" : ""}">${!report.historyAvailable ? "반영 확인 불가" : r.applied ? month === currentMonthKst() ? "이번 달 반영" : "선택한 달 반영" : "반영 전"}</span></div></li>`).join("")}</ul>` : `<p class="empty">등록한 정기 지출이 없어요. <a href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}#fixed">정기 수입·지출</a>에서 월세·통신비 같은 고정비를 등록하면 여기에 모입니다.</p>`}</div><div class="lrBox"><h3>구독·반복 지출</h3>${report.currentAvailable ? `<p>구독으로 보이는 지출 <b>${won(report.subscription.amount)}</b> (${numberWithCommas(report.subscription.count)}건)</p>` : `<p>기간 구독 지출 확인 불가</p>`}${!report.historyAvailable || !report.recurringAvailable ? `<p class="empty">조회하지 못한 기록이나 정기 항목이 있어 반복 지출 후보를 확인할 수 없어요.</p>` : report.candidates.length ? `<p>최근 석 달에 두 번 이상 보인 지출(후보)</p><ul class="lrList">${report.candidates.map((c) => `<li><div><b>${escapeHtml(c.memo || c.category || "반복 지출")}</b><small>${c.hitMonths}개월 반복 · 매월 ${c.dayOfMonth}일 무렵</small></div><div class="amt">${won(c.amount)}</div></li>`).join("")}</ul><p class="empty">후보는 기록상 패턴일 뿐이에요. 정기 지출이 맞으면 <a href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}#fixed">정기 항목으로 등록</a>하세요.</p>` : `<p class="empty">반복 지출 후보가 아직 없어요. 석 달 넘게 기록이 쌓이면 찾아 드립니다.</p>`}${report.upcoming.length ? `<p>30일 안에 나갈 적립 계획</p><ul class="lrList">${report.upcoming.map((u) => `<li><div><b>${escapeHtml(u.name)}</b><small>${escapeHtml(u.due_date)} · D-${numberWithCommas(u.days_left)}</small></div><div class="amt">${won(u.amount)}</div></li>`).join("")}</ul>` : ""}</div></div></section>`;
+  const summary = !report.currentAvailable ? `<section class="card" id="summary"><h2>기간 요약</h2><p>선택한 주의 일부 날짜를 불러오지 못해 합계·기록 수·무지출 일수를 확인할 수 없어요.</p></section>` : `<section class="card" id="summary"><h2>기간 요약</h2><p class="lead">${escapeHtml(p.title)}${p.live ? " · 오늘까지" : ""} · ${escapeHtml(selected.name || "가계부")}</p><div class="grid abV5KpiGrid"><div class="metric"><span>지출</span><b>${won(report.expense)}</b><small>${p.elapsed ? `${p.live ? "오늘까지 " : ""}${p.elapsed}일 동안` : "기록 없음"}${report.futureExpense ? ` · 오늘 뒤 날짜 ${won(report.futureExpense)} 제외` : ""}${refundNote ? ` · ${escapeHtml(refundNote)}` : ""}</small></div><div class="metric"><span>수입</span><b>${won(report.income)}</b><small>${p.live ? "오늘까지" : p.elapsed ? "기간 전체" : "아직 오지 않은 기간"}</small></div><div class="metric"><span>하루 평균</span><b>${won(report.dailyAvg)}</b><small>${p.elapsed ? `${p.elapsed}일 평균 · ` : ""}지출한 날 ${numberWithCommas(report.spendDays)}일</small></div><div class="metric"><span>기록</span><b>${numberWithCommas(report.count)}건</b><small>지출 ${numberWithCommas(report.expenseCount)} · 수입 ${numberWithCommas(report.incomeCount)}${!p.elapsed ? "" : report.noSpendDays == null ? " · 직접 적은 기록 없음" : ` · 무지출 ${numberWithCommas(report.noSpendDays)}일`}</small></div></div><p class="lrChange">${escapeHtml(livingReportChangeText(report))}<span class="lrBasis">기준: ${escapeHtml(p.basisLabel)} · ${escapeHtml(p.basisNote)} 비교 기준은 한 가지만 씁니다.</span></p>${report.badges.length ? `<ul class="lrBadges" aria-label="달성 배지">${report.badges.map((b) => `<li><span aria-hidden="true">${escapeHtml(b.emoji)}</span>${escapeHtml(b.text)}</li>`).join("")}</ul>` : ""}</section>`;
+  // V22.9.89 Astra 5: 끝난 기간은 그 기간에 자동 기록된 정기 지출을 보이고, 지금 등록한 정기 항목은 오늘 기준 한 줄로 따로 적는다(반영 꼬리표 없음).
+  const fixedMainBox = report.past ? `<div class="lrBox"><h3>이 기간에 기록된 정기 지출 ${won(report.pastFixedTotal)}</h3>${report.pastFixedRows.length ? `<ul class="lrList">${report.pastFixedRows.map((r) => `<li><div><b>${escapeHtml(r.memo)}</b><small>${escapeHtml(ymdWithWeekday(r.date))}</small></div><div class="amt">${won(r.amount)}</div></li>`).join("")}</ul>` : `<p class="empty">이 기간에는 정기 항목으로 자동 기록된 지출이 없어요.</p>`}<p class="empty">${report.recurringAvailable ? `지금 등록한 정기 지출은 ${numberWithCommas(report.ruleItems.length)}건, 매달 ${won(report.fixedTotal)}이에요(오늘 기준).` : "지금 등록한 정기 항목은 불러오지 못했어요."} <a href="/reserve-plans?month=${encodeURIComponent(currentMonthKst())}&household_id=${encodeURIComponent(hid)}#fixed">정기 수입·지출</a></p></div>` : `<div class="lrBox"><h3>${range === "week" ? "월 정기 예정액" : "매달 나가는 정기 항목"} ${report.recurringAvailable ? won(report.fixedTotal) : "확인 불가"}</h3>${!report.recurringAvailable ? `<p class="empty">정기 항목을 불러오지 못했습니다. 새로고침하면 다시 시도합니다.</p>` : report.ruleItems.length ? `<ul class="lrList">${report.ruleItems.map((r) => `<li><div><b>${escapeHtml(r.memo)}</b><small>매월 ${r.day}일${r.category ? ` · ${escapeHtml(r.category)}` : ""}</small></div><div class="amt">${won(r.amount)}<span class="lrTag ${r.applied ? "isOk" : ""}">${!report.historyAvailable ? "반영 확인 불가" : r.applied ? month === currentMonthKst() ? "이번 달 반영" : "선택한 달 반영" : "반영 전"}</span></div></li>`).join("")}</ul>` : `<p class="empty">등록한 정기 지출이 없어요. <a href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}#fixed">정기 수입·지출</a>에서 월세·통신비 같은 고정비를 등록하면 여기에 모입니다.</p>`}</div>`;
+  const fixed = `<section class="card" id="fixed"><h2>고정비와 구독</h2><p class="lead">정기 항목으로 등록한 지출과, 기록에서 반복이 보이는 지출입니다. 등록하지 않은 반복 지출은 "후보"로만 보여 줍니다.</p><div class="lrTwo">${fixedMainBox}<div class="lrBox"><h3>구독·반복 지출</h3>${report.currentAvailable ? `<p>구독으로 보이는 지출 <b>${won(report.subscription.amount)}</b> (${numberWithCommas(report.subscription.count)}건)</p>` : `<p>기간 구독 지출 확인 불가</p>`}${!report.historyAvailable || !report.recurringAvailable ? `<p class="empty">조회하지 못한 기록이나 정기 항목이 있어 반복 지출 후보를 확인할 수 없어요.</p>` : report.candidates.length ? `<p>최근 석 달에 두 번 이상 보인 지출(후보)</p><ul class="lrList">${report.candidates.map((c) => `<li><div><b>${escapeHtml(c.memo || c.category || "반복 지출")}</b><small>${c.hitMonths}개월 반복 · 매월 ${c.dayOfMonth}일 무렵</small></div><div class="amt">${won(c.amount)}</div></li>`).join("")}</ul><p class="empty">후보는 기록상 패턴일 뿐이에요. 정기 지출이 맞으면 <a href="/reserve-plans?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}#fixed">정기 항목으로 등록</a>하세요.</p>` : `<p class="empty">반복 지출 후보가 아직 없어요. 석 달 넘게 기록이 쌓이면 찾아 드립니다.</p>`}${report.upcoming.length ? `<p>30일 안에 나갈 적립 계획</p><ul class="lrList">${report.upcoming.map((u) => `<li><div><b>${escapeHtml(u.name)}</b><small>${escapeHtml(u.due_date)} · D-${numberWithCommas(u.days_left)}</small></div><div class="amt">${won(u.amount)}</div></li>`).join("")}</ul>` : ""}</div></div></section>`;
   const daily = !report.currentAvailable ? `<section class="card" id="daily"><h2>날짜별 지출</h2><p>선택한 주의 날짜별 기록을 모두 불러온 뒤 표시합니다.</p></section>` : `<section class="card" id="daily"><h2>날짜별 지출</h2><p class="lead">지출이 큰 날: ${escapeHtml(topDaysText)}</p><div class="lrBars" role="img" aria-label="${escapeHtml(p.title)} 날짜별 지출 막대. ${escapeHtml(topDaysText)}">${bars}</div></section>`;
   const weekendLine = report.weekend.weekdayDays && report.weekend.days ? `주말 하루 평균 ${won(report.weekend.avg)} · 평일 하루 평균 ${won(report.weekend.weekdayAvg)} (주말 비중 ${report.weekend.share}%)` : "주말과 평일을 견줄 기록이 아직 없어요.";
   const pattern = !report.currentAvailable ? `<section class="card" id="pattern"><h2>생활 패턴</h2><p>기간 기록을 확인할 수 없어요.</p></section>` : `<section class="card" id="pattern"><h2>생활 패턴</h2><p class="lead">${escapeHtml(weekendLine)}</p><div class="lrTwo">${report.buckets.map((b) => `<div class="lrBox"><h3>${escapeHtml(b.name)} ${won(b.amount)}</h3><p>${numberWithCommas(b.count)}건${noPrevious ? "" : ` · <span class="${deltaClass(b.delta)}">${escapeHtml(deltaText(b.delta, b.prevAmount))}</span> <small>(${escapeHtml(p.basisLabel)})</small>`}</p></div>`).join("")}</div><p class="note">${noPrevious ? escapeHtml(livingReportChangeText(report)) : !report.comparisonAvailable ? "기간 비교를 확인할 수 없어요." : report.biggestIncrease ? `${escapeHtml(report.biggestIncrease.name)} 지출이 ${escapeHtml(p.basisLabel.replace(/ 대비$/, ""))}보다 ${won(report.biggestIncrease.delta)} 늘었어요. 줄일 곳을 찾는다면 여기부터 보면 좋아요. 늘어난 금액이 곧 낭비라는 뜻은 아니에요.` : "지난 기간보다 늘어난 생활비 항목이 없어요."}</p></section>`;
-  const cards = `<section class="card" id="cards"><h2>카드별 사용액과 실적 목표</h2><p class="lead">기록된 결제수단 기준 사용액이에요. 카드사가 인정하는 실적과 다를 수 있으니 "예상"으로 보세요. 실적 목표는 카드마다 직접 적습니다${range === "week" ? " (목표 진행률은 월간에서 봅니다)" : ""}.</p>${!report.currentAvailable ? `<p class="empty">기간 기록을 모두 불러오지 못해 카드 사용액을 확인할 수 없어요.</p>` : !report.settingsAvailable ? `<p class="empty">카드 설정을 불러오지 못해 사용액과 목표를 확인할 수 없어요.</p>` : report.cards.length ? `<div class="lrTwo">${report.cards.map((c) => `<div class="lrCard"><h3><span>${escapeHtml(c.name)}</span><span class="amt">${won(c.amount)}</span></h3><p class="lead" style="margin:0">${numberWithCommas(c.count)}건${noPrevious ? "" : ` · <span class="${deltaClass(c.amount - c.prevAmount)}">${escapeHtml(deltaText(c.amount - c.prevAmount, c.prevAmount))}</span> <small>(${escapeHtml(p.basisLabel)})</small>`}</p>${c.target && range === "month" && report.historyAvailable && p.elapsed > 0 ? `<div class="lrTrack" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(100, c.rate)}" aria-label="${escapeHtml(c.name)} 실적 목표 진행률"><i class="${c.reached ? "isOver" : ""}" style="width:${Math.min(100, c.rate)}%"></i></div><p class="lead" style="margin:0">목표 ${won(c.target)} 중 ${c.rate}% · ${c.reached ? "예상 실적 목표 달성" : `${won(c.remaining)} 남음(예상)`}</p>` : c.target ? `<p class="lead" style="margin:0">월 실적 목표 ${won(c.target)}</p>` : `<p class="lead" style="margin:0">실적 목표가 없어요.</p>`}${canWrite ? `<form method="post" action="/my/card-target/save"><input type="hidden" name="household_id" value="${escapeHtml(hid)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="range" value="${escapeHtml(range)}"/><input type="hidden" name="week" value="${escapeHtml(range === "week" ? p.start : "")}"/><input type="hidden" name="asset_id" value="${escapeHtml(c.id)}"/><input type="text" inputmode="numeric" name="target" value="${c.target ? escapeHtml(String(c.target)) : ""}" placeholder="월 실적 목표(원)" aria-label="${escapeHtml(c.name)} 월 실적 목표"/><button type="submit">${c.target ? "목표 바꾸기" : "목표 저장"}</button></form>` : ""}</div>`).join("")}</div>` : `<p class="empty">등록한 카드가 없어요. <a href="/payment-methods?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}">자산·결제수단</a>에 카드를 등록하면 카드별 사용액과 실적 목표를 볼 수 있어요.</p>`}</section>`;
+  // V22.9.89 U-09: 등록하지 않은 카드로 적은 지출을 목록 끝에 금액·건수와 등록 길로 보인다(예전에는 말없이 빠졌다).
+  const unregisteredHtml = report.currentAvailable && report.settingsAvailable && report.unregisteredCards.length ? `<p class="lead" style="margin:10px 0 0">등록 안 된 카드: ${report.unregisteredCards.map((u) => `${escapeHtml(u.name)} ${won(u.amount)}(${numberWithCommas(u.count)}건)`).join(" · ")}. <a href="/payment-methods?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}">자산·결제수단</a>에 등록하면 위 목록에 함께 보여요.</p>` : "";
+  const cards = `<section class="card" id="cards"><h2>카드별 사용액과 실적 목표</h2><p class="lead">기록된 결제수단 기준 사용액이에요. 카드사가 인정하는 실적과 다를 수 있으니 "예상"으로 보세요. 실적 목표는 카드마다 직접 적습니다${range === "week" ? " (목표 진행률은 월간에서 봅니다)" : ""}.</p>${!report.currentAvailable ? `<p class="empty">기간 기록을 모두 불러오지 못해 카드 사용액을 확인할 수 없어요.</p>` : !report.settingsAvailable ? `<p class="empty">카드 설정을 불러오지 못해 사용액과 목표를 확인할 수 없어요.</p>` : report.cards.length ? `<div class="lrTwo">${report.cards.map((c) => `<div class="lrCard"><h3><span>${escapeHtml(c.name)}</span><span class="amt">${won(c.amount)}</span></h3><p class="lead" style="margin:0">${numberWithCommas(c.count)}건${noPrevious ? "" : ` · <span class="${deltaClass(c.amount - c.prevAmount)}">${escapeHtml(deltaText(c.amount - c.prevAmount, c.prevAmount))}</span> <small>(${escapeHtml(p.basisLabel)})</small>`}</p>${c.target && range === "month" && report.historyAvailable && p.elapsed > 0 ? `<div class="lrTrack" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${Math.min(100, c.rate)}" aria-label="${escapeHtml(c.name)} 실적 목표 진행률"><i class="${c.reached ? "isOver" : ""}" style="width:${Math.min(100, c.rate)}%"></i></div><p class="lead" style="margin:0">목표 ${won(c.target)} 중 ${c.rate}% · ${c.reached ? "예상 실적 목표 달성" : `${won(c.remaining)} 남음(예상)`}</p>` : c.target ? `<p class="lead" style="margin:0">월 실적 목표 ${won(c.target)}</p>` : `<p class="lead" style="margin:0">실적 목표가 없어요.</p>`}${canWrite ? `<form method="post" action="/my/card-target/save"><input type="hidden" name="household_id" value="${escapeHtml(hid)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="range" value="${escapeHtml(range)}"/><input type="hidden" name="week" value="${escapeHtml(range === "week" ? p.start : "")}"/><input type="hidden" name="asset_id" value="${escapeHtml(c.id)}"/><input type="text" inputmode="numeric" name="target" value="${c.target ? escapeHtml(String(c.target)) : ""}" placeholder="월 실적 목표(원)" aria-label="${escapeHtml(c.name)} 월 실적 목표"/><button type="submit">${c.target ? "목표 바꾸기" : "목표 저장"}</button></form>` : ""}</div>`).join("")}</div>` : `<p class="empty">등록한 카드가 없어요. <a href="/payment-methods?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(hid)}">자산·결제수단</a>에 카드를 등록하면 카드별 사용액과 실적 목표를 볼 수 있어요.</p>`}${unregisteredHtml}</section>`;
   return { segment, weekChips, flash, flashErr, summary, fixed, daily, pattern, cards };
 }
 
@@ -29021,7 +29099,7 @@ async function handleMyAnalysisPage(request, env, url) {
   const recurringCandidates = registeredRecurring ? detectRecurringCandidates(historyRows, month, registeredRecurring) : null;
   const anomalies = findAnomalousExpenses(ctx.rows, historyRows, month);
   const weeklyReport = buildWeeklyReport(historyRows, month);
-  const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows: ctx.rows, value: challengeValue });
+  const challenge = await buildReportChallengeForHousehold(env, { householdId, month, rows: ctx.rows, value: challengeValue, startedOn: householdStartYmd(ctx.selected, ctx.rows) });
   return htmlResponse(renderMyAnalysisHtml({ env, url, ...ctx, extended, recurringCandidates, anomalies, weeklyReport, challenge, truncated, msg: url.searchParams.get("msg") || "", err: analysisFlashCode(url.searchParams.get("err")) }));
 }
 
@@ -29065,7 +29143,7 @@ async function handleMyInsightPage(request, env, url) {
   const currentEnd = nextMonthStart(month);
   const currentRows = rows.filter((r) => String(r.transaction_date || "").slice(0, 10) >= currentStart && String(r.transaction_date || "").slice(0, 10) < currentEnd);
   const budget = budgetSummary(currentRows, budgets, { refundDeductions });
-  const challenge = await buildReportChallengeForHousehold(env, { householdId: selected.id, month, rows: currentRows, value: challengeValue });
+  const challenge = await buildReportChallengeForHousehold(env, { householdId: selected.id, month, rows: currentRows, value: challengeValue, startedOn: householdStartYmd(selected, currentRows) });
   const outlook = monthSpendingOutlook({ month, rows: currentRows, receipt, recurring, plans: reservePlans, refundDeductions });
   const dashboard = { ...buildReportDashboardSummary(currentRows, budget, month, { outlook, refundDeductions, refundFailed: !!refund.failed }), householdId: selected.id };
   return htmlResponse(renderMyInsightHtml({ env, month, selected, rows, currentRows, budget, dashboard, challenge, dataStart, truncated, receipt }));
@@ -30547,7 +30625,8 @@ function renderPatternBoxes(analysis = {}) {
     ["구독", `${numberWithCommas(analysis.subscriptionAmount || 0)}원`, `${numberWithCommas(analysis.subscriptionCount || 0)}건`],
     ["고정비 비중", `${analysis.fixedRate || 0}%`, `${numberWithCommas(analysis.fixedExpense || 0)}원`],
     ["주말 지출", `${analysis.weekendRate || 0}%`, `${numberWithCommas(analysis.weekendExpense || 0)}원`],
-    ["분류 누락", `${numberWithCommas(analysis.missingAny || 0)}건`, "정리 필요"],
+    // V22.9.89 Astra 7: ‘분류 누락 N건 · 정리 필요’와 ‘분석 신뢰도’를 ‘정리할 기록’ 한 이름으로 쓴다(같은 식·같은 기록).
+    ["정리할 기록", analysis.missingAny ? `${numberWithCommas(analysis.missingAny)}건` : "깔끔해요", analysis.missingAny ? "분류·결제수단 비어 있음" : "모두 채워져 있어요"],
   ];
   return items.map(([a,b,c]) => `<div class="box"><span class="muted">${escapeHtml(a)}</span><b>${escapeHtml(b)}</b><span class="muted">${escapeHtml(c)}</span></div>`).join("");
 }
@@ -30645,7 +30724,8 @@ function renderWeeklyTrend(rows = [], month = currentMonthKst()) {
   const year = Number(ym.slice(0, 4));
   const mon = Number(ym.slice(5, 7));
   const lastDay = new Date(Date.UTC(year, mon, 0)).getUTCDate();
-  const firstDow = new Date(Date.UTC(year, mon - 1, 1)).getUTCDay();
+  // V22.9.89 U-11(사용자 결정 D-6): 한 주는 월요일~일요일이다(종합 리포트 주간 리포트·생활비 리포트 주간과 같음). 예전에는 일요일 시작이었다.
+  const firstDow = (new Date(Date.UTC(year, mon - 1, 1)).getUTCDay() + 6) % 7;
   const weekOf = (day) => Math.floor((day - 1 + firstDow) / 7);
   const weeks = Array.from({ length: weekOf(lastDay) + 1 }, () => ({ from: 0, to: 0, amount: 0, count: 0 }));
   for (let day = 1; day <= lastDay; day += 1) {
@@ -30671,7 +30751,7 @@ function renderWeeklyTrend(rows = [], month = currentMonthKst()) {
     return `<div class="weekdayCell weekCell${peak ? " peak" : ""}" style="display:grid;gap:7px;background:${peak ? "#FFFBEB" : "#F8F9FB"};border:1px solid ${peak ? "#FDE68A" : "#EEF0F3"};border-radius:14px;padding:11px;box-sizing:border-box;"><div style="display:flex;justify-content:space-between;align-items:center;gap:8px;"><b style="font-size:15px;color:#4E5968;">${index + 1}주차</b>${w.count ? `<span style="font-size:11px;color:#8B95A1;font-weight:800;">${numberWithCommas(w.count)}건</span>` : ""}</div><small style="font-size:11px;color:#8B95A1;font-weight:800;">${range}</small><strong style="font-size:17px;color:#191919;white-space:nowrap;letter-spacing:-.02em;">${w.amount ? shortWonLabel(w.amount) : "·"}</strong><div style="height:7px;background:#E8EBEF;border-radius:999px;overflow:hidden;"><i style="display:block;height:100%;width:${pct}%;background:${peak ? "#F5B800" : "#3182F6"};border-radius:999px;"></i></div></div>`;
   }).join("");
   // V22.9.80 T-24: 이 탭의 한 주는 일요일~토요일(홈 캘린더의 한 줄)이다. 종합 리포트의 ‘주간 리포트’는 월요일부터 세므로 같은 ‘주’가 두 뜻이 되지 않게 기준을 적는다(계산은 그대로).
-  return `<div class="weeklyTrendGrid" role="group" aria-label="${mon}월 주별 지출" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;width:100%;box-sizing:border-box;">${cells}</div><p class="homeTrendHint" style="margin-top:8px">한 주는 일요일~토요일(홈 캘린더의 한 줄) 기준입니다. 달 처음·끝에서 잘린 주는 그 달의 날짜만 더합니다.</p>`;
+  return `<div class="weeklyTrendGrid" role="group" aria-label="${mon}월 주별 지출" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(110px,1fr));gap:8px;width:100%;box-sizing:border-box;">${cells}</div><p class="homeTrendHint" style="margin-top:8px">한 주는 월요일~일요일(홈 캘린더의 한 줄) 기준입니다. 달 처음·끝에서 잘린 주는 그 달의 날짜만 더합니다.</p>`;
 }
 
 function renderAnalysisToolCards({ budget = {}, analysis = {}, stats = {}, month = currentMonthKst() }) {
@@ -30685,10 +30765,12 @@ function renderAnalysisToolCards({ budget = {}, analysis = {}, stats = {}, month
     ["현금흐름", `${numberWithCommas(saving)}원`, `수입-지출 · 저축률 ${savingRate}%`],
     ["잔여 총예산", `${numberWithCommas(budgetRemain)}원`, `이번 달 사용 가능 금액`],
     ["월말 예상 지출", `${renderObservedMoney(analysis, analysis.burnForecast)}`, spendingOutlookCaption(analysis.spendingOutlook)],
-    ["소비 위험도", analysis.basisDays === 0 ? "관측 전" : `${risk}점`, analysis.basisDays === 0 ? "관측 기간 없음" : risk >= 70 ? "주의 필요" : "정상 범위"],
+    // V22.9.89 Astra 7: 예전에는 70점 미만을 ‘정상 범위’라 해 45점부터 주의 색인 전략 카드와 어긋났다. 같은 소비 신호 세 단계로 쓴다.
+    ["소비 신호", analysis.basisDays === 0 ? "관측 전" : consumptionSignalLabel(risk), analysis.basisDays === 0 ? "관측 기간 없음" : `${risk}점 · 45점 주의 · 70점 넘침 위험`],
     ["고정비", `${numberWithCommas(analysis.fixedExpense || 0)}원`, `지출 중 ${analysis.fixedRate || 0}%`],
     // V22.9.34 2차 점검 U01: 이번 달은 오늘까지, 앞으로 올 달은 세지 않는다.
-    ["무지출일", analysis.basisDays === 0 ? "-" : `${numberWithCommas(analysis.noSpendDays || 0)}일`, analysis.basisDays === 0 ? "아직 오지 않은 달" : month === currentMonthKst() ? "오늘까지 소비 없는 날짜" : "소비 없는 날짜"],
+    // V22.9.89 Astra 4: 직접 적은 기록이 없으면 무지출을 세지 않는다(null).
+    ["무지출일", analysis.basisDays === 0 || analysis.noSpendDays == null ? "-" : `${numberWithCommas(analysis.noSpendDays)}일`, analysis.basisDays === 0 ? "아직 오지 않은 달" : analysis.noSpendDays == null ? "직접 적은 기록 없음" : month === currentMonthKst() ? "오늘까지 소비 없는 날짜" : "소비 없는 날짜"],
     ["최대 지출일", `${escapeHtml(analysis.maxDay?.date || "-")}`, `${numberWithCommas(analysis.maxDay?.expense || 0)}원`],
     ["카테고리 집중도", `${analysis.concentration || 0}%`, `${escapeHtml(analysis.topCategory?.category || "없음")} 중심`],
   ];
@@ -30767,7 +30849,7 @@ details.foldSection summary h2{display:inline;font-size:inherit}
 .trendLine{display:grid;grid-template-columns:84px 1fr 130px;gap:10px;align-items:center}
 .trendLabel{font-size:12px;font-weight:900;color:#334155}
 .trendValue{text-align:right;font-size:12px;color:#64748b}
-@media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}.budgetTableHead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.budgetTableHead h2{margin:0}.budgetTableSet{flex:none;display:inline-flex;align-items:center;min-height:36px;border-radius:12px;background:#eef2ff;color:#1e3a8a;text-decoration:none;padding:0 12px;font-size:12px;font-weight:1000}.budgetTable th:first-child,.budgetTable td:first-child{min-width:7.5em;word-break:keep-all;overflow-wrap:break-word}.budgetTable td:not(:first-child){white-space:nowrap}${reportUxCss()}</style></head><body>${renderUnifiedNav("analysis", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, role: String(selected.role || ""), sidebarRows: rows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap"><div class="pageMain">${message}${error}${truncation}<section class="hero"><h1>종합 리포트</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 예산, 소비 추이, 고정비, 반복지출, 분류별 지출을 한 달 단위로 모아 봅니다.</p>${renderAnalysisViewTabs("report", qs)}<p class="muted">\uD3C9\uADE0\u00B7\uBB34\uC9C0\uCD9C: ${analysis.basisDays === 0 ? "\uC544\uC9C1 \uC624\uC9C0 \uC54A\uC740 \uB2EC\uC774\uB77C \uC138\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4" : month === currentMonthKst() ? `${escapeHtml(month)}-01 ~ ${escapeHtml(analysis.basisEnd || "")} \uC624\uB298\uAE4C\uC9C0 \uAE30\uC900` : `${escapeHtml(month)}-01 ~ ${escapeHtml(month)}-${new Date(Number(month.slice(0,4)),Number(month.slice(5,7)),0).getDate()} \uC6D4 \uC804\uCCB4 \uAE30\uC900`}</p><div class="pcBox"><a class="btn secondary" href="/budgets?${qs}">예산 설정</a><a class="btn secondary" href="/app?${qs}&view=calendar#calendar">캘린더 보기</a></div></section>${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id, view: "report" })}${renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(role) })}<section class="grid"><div class="box"><span class="muted">총 지출</span><b>${numberWithCommas(stats.totals?.expense || 0)}원</b><span class="${comparisonDisplay.expense.cls}">${escapeHtml(comparisonDisplay.expense.text)}</span></div><div class="box"><span class="muted">총 수입</span><b>${numberWithCommas(stats.totals?.income || 0)}원</b><span class="${comparisonDisplay.income.cls}">${escapeHtml(comparisonDisplay.income.text)}</span></div><div class="box"><span class="muted">하루 평균 지출</span><b>${renderObservedMoney(analysis, analysis.avgExpense)}</b></div><div class="box"><span class="muted">최다 분류</span><b>${escapeHtml(topCategory.category || "없음")}</b><span class="muted">${numberWithCommas(topCategory.expense || 0)}원</span></div><div class="box"><span class="muted">${month === currentMonthKst() ? "오늘까지 무지출일" : "무지출일"}</span><b>${analysis.basisDays === 0 ? "-" : `${numberWithCommas(analysis.noSpendDays || 0)}일`}</b></div><div class="box"><span class="muted">월말 예상 지출</span><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b></div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderBudgetGaugeCards(budget)}<section class="card"><div class="budgetTableHead"><h2>분류별 예산 사용률</h2><a class="budgetTableSet" href="/budgets?${qs}">예산 설정 →</a></div><p class="muted">여기서는 사용률만 봅니다. 금액을 바꾸려면 예산 설정으로 이동하세요.</p><div class="scroll"><table class="budgetTable"><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>잔여</th><th>사용률</th></tr></thead><tbody>${renderBudgetGaugeRows(budget)}</tbody></table></div></section><section class="card"><h2>일별 소비 그래프</h2><p class="muted">날짜별 지출 흐름을 카드형으로 봅니다. 금액이 있는 날을 누르면 그날 기록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}`)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(safeArray(stats.categories), Number(stats.totals?.expense || 0))}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn secondary" href="/reserve-plans?${qs}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>분석 도구</h2><div class="grid">${renderAnalysisToolCards({ budget, analysis, stats, month })}</div></section><section class="card"><h2>패턴 분석</h2><div class="grid">${renderPatternBoxes(analysis)}</div></section><section class="card"><h2>개선 인사이트</h2><div class="insightList"><div><b>예산 초과/주의 분류</b><br/><span class="muted">사용률이 높은 분류부터 키워드와 예산을 재점검하세요.</span></div><div><b>고정비 점검</b><br/><span class="muted">정기지출과 구독성 지출은 해지/조정 효과가 큽니다.</span></div><div><b>분류 누락 정리</b><br/><span class="muted">분류·결제수단 누락이 많으면 분석 정확도가 떨어지므로 키워드 설정을 보강하세요.</span></div></div></section><section class="card"><h2>분류별 지출/건수</h2><div class="scroll"><table><thead><tr><th>분류</th><th>지출금액</th><th>건수</th></tr></thead><tbody>${renderMiniCategoryRows(stats)}</tbody></table></div></section></div></main></body></html>`;
+@media(max-width:760px){.grid2col{grid-template-columns:1fr}.donutWrap{grid-template-columns:1fr}.insightGrid{grid-template-columns:1fr}.seriesCol{min-width:44px}.trendLine{grid-template-columns:70px 1fr}.trendValue{display:none}}.budgetTableHead{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap}.budgetTableHead h2{margin:0}.budgetTableSet{flex:none;display:inline-flex;align-items:center;min-height:36px;border-radius:12px;background:#eef2ff;color:#1e3a8a;text-decoration:none;padding:0 12px;font-size:12px;font-weight:1000}.budgetTable th:first-child,.budgetTable td:first-child{min-width:7.5em;word-break:keep-all;overflow-wrap:break-word}.budgetTable td:not(:first-child){white-space:nowrap}${reportUxCss()}</style></head><body>${renderUnifiedNav("analysis", { month, householdId: selected.id || "", householdName: selected.name || "가계부", showSidebarDashboard: true, role: String(selected.role || ""), sidebarRows: rows, sidebarBudget: budget, reportChallenge: challenge })}<main class="wrap"><div class="pageMain">${message}${error}${truncation}<section class="hero"><h1>종합 리포트</h1><p>${escapeHtml(selected.name)} · ${escapeHtml(month)} · 예산, 소비 추이, 고정비, 반복지출, 분류별 지출을 한 달 단위로 모아 봅니다.</p>${renderAnalysisViewTabs("report", qs)}<p class="muted">\uD3C9\uADE0\u00B7\uBB34\uC9C0\uCD9C: ${analysis.basisDays === 0 ? "\uC544\uC9C1 \uC624\uC9C0 \uC54A\uC740 \uB2EC\uC774\uB77C \uC138\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4" : month === currentMonthKst() ? `${escapeHtml(month)}-01 ~ ${escapeHtml(analysis.basisEnd || "")} \uC624\uB298\uAE4C\uC9C0 \uAE30\uC900` : `${escapeHtml(month)}-01 ~ ${escapeHtml(month)}-${new Date(Number(month.slice(0,4)),Number(month.slice(5,7)),0).getDate()} \uC6D4 \uC804\uCCB4 \uAE30\uC900`}</p><div class="pcBox"><a class="btn secondary" href="/budgets?${qs}">예산 설정</a><a class="btn secondary" href="/app?${qs}&view=calendar#calendar">캘린더 보기</a></div></section>${renderReportMonthNavigator({ path: "/my/analysis", month, householdId: selected.id, view: "report" })}${renderReportChallenge(challenge, { householdId: selected.id, canManage: canManageMyHousehold(role) })}<section class="grid"><div class="box"><span class="muted">총 지출</span><b>${numberWithCommas(stats.totals?.expense || 0)}원</b><span class="${comparisonDisplay.expense.cls}">${escapeHtml(comparisonDisplay.expense.text)}</span></div><div class="box"><span class="muted">총 수입</span><b>${numberWithCommas(stats.totals?.income || 0)}원</b><span class="${comparisonDisplay.income.cls}">${escapeHtml(comparisonDisplay.income.text)}</span></div><div class="box"><span class="muted">하루 평균 지출</span><b>${renderObservedMoney(analysis, analysis.avgExpense)}</b></div><div class="box"><span class="muted">최다 분류</span><b>${escapeHtml(topCategory.category || "없음")}</b><span class="muted">${numberWithCommas(topCategory.expense || 0)}원</span></div><div class="box"><span class="muted">${month === currentMonthKst() ? "오늘까지 무지출일" : "무지출일"}</span><b>${analysis.basisDays === 0 || analysis.noSpendDays == null ? "-" : `${numberWithCommas(analysis.noSpendDays)}일`}</b></div><div class="box"><span class="muted">월말 예상 지출${analysis.spendingOutlook?.partial && analysis.burnForecast != null ? " · 정기 항목 빼고 계산" : ""}</span><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b></div></section>${renderWeeklyReportCard(weeklyReport)}<section class="card"><h2>핵심 인사이트</h2><p class="muted">전월 대비 변화, 3개월 평균, 급증 분류, 소비 경보를 한눈에 요약했습니다.</p><div class="insightGrid">${renderStrategyCards(ext, analysis)}</div></section>${renderBudgetGaugeCards(budget)}<section class="card"><div class="budgetTableHead"><h2>분류별 예산 사용률</h2><a class="budgetTableSet" href="/budgets?${qs}">예산 설정 →</a></div><p class="muted">여기서는 사용률만 봅니다. 금액을 바꾸려면 예산 설정으로 이동하세요.</p><div class="scroll"><table class="budgetTable"><thead><tr><th>분류</th><th>예산</th><th>사용</th><th>잔여</th><th>사용률</th></tr></thead><tbody>${renderBudgetGaugeRows(budget)}</tbody></table></div></section><section class="card"><h2>일별 소비 그래프</h2><p class="muted">날짜별 지출 흐름을 카드형으로 봅니다. 금액이 있는 날을 누르면 그날 기록으로 이동합니다.</p>${renderReadableDailyTrend(rows, month, `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected.id || "")}`)}</section><section class="card"><h2>요일별 소비 추이</h2><p class="muted">요일별로 소비가 집중되는 패턴을 확인합니다.</p>${renderWeekdayTrend(rows)}</section><section class="card"><details class="foldSection"><summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2><p class="muted">상위 분류가 전체 지출에서 차지하는 비중입니다.</p>${renderDonutChart(safeArray(stats.categories), Number(stats.totals?.expense || 0))}</div></details></section><section class="card"><details class="foldSection"><summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class="muted">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}</div></details></section><section class="card"><details class="foldSection"><summary>최근 6개월 수입·지출 흐름 · 12개월 상세</summary><div><h2>최근 6개월 수입·지출 흐름</h2><p class="muted">막대에 마우스를 올리면 정확한 금액이 표시됩니다.</p>${renderMonthlySeriesChart(ext.monthlyTrend)}<details class="foldTable"><summary>최근 12개월 상세 표 보기</summary><div>${renderMonthlyTrendTable(ext.monthlyTrend)}</div></details></div></details></section><section class="card"><details class="foldSection"><summary>매달 나가는 돈 (반복 지출 후보)</summary><div><h2>매달 나가는 돈</h2><p class="muted">최근 3개월간 같은 이름·같은 금액으로 반복된 지출입니다.${recurringTotal ? ` 합치면 매달 약 <b>${numberWithCommas(recurringTotal)}원</b>이에요.` : ""}</p>${renderRecurringInsightList(recurringCandidates)}<a class="btn secondary" href="/reserve-plans?${qs}">정기지출로 관리하기</a></div></details></section><section class="card"><details class="foldSection"><summary>큰 지출 체크</summary><div><h2>큰 지출 체크</h2><p class="muted">평소 그 분류에서 쓰던 평균보다 크게 벗어난 지출입니다.</p>${renderAnomalyList(anomalies)}</div></details></section><section class="card"><h2>분석 도구</h2><div class="grid">${renderAnalysisToolCards({ budget, analysis, stats, month })}</div></section><section class="card"><h2>패턴 분석</h2><div class="grid">${renderPatternBoxes(analysis)}</div></section><section class="card"><h2>개선 인사이트</h2><div class="insightList"><div><b>예산 초과/주의 분류</b><br/><span class="muted">사용률이 높은 분류부터 키워드와 예산을 재점검하세요.</span></div><div><b>고정비 점검</b><br/><span class="muted">정기지출과 구독성 지출은 해지/조정 효과가 큽니다.</span></div><div><b>정리할 기록 줄이기</b><br/><span class="muted">분류나 결제수단이 비어 있는 기록이 많으면 분석이 부정확해져요. 키워드 설정을 보강하세요.</span></div></div></section><section class="card"><h2>분류별 지출/건수</h2><div class="scroll"><table><thead><tr><th>분류</th><th>지출금액</th><th>건수</th></tr></thead><tbody>${renderMiniCategoryRows(stats)}</tbody></table></div></section></div></main></body></html>`;
 }
 
 function shiftMonthString(month = currentMonthKst(), delta = 0) {
@@ -33132,6 +33214,49 @@ function budgetPlanMessage(code = "") {
     default: return "";
   }
 }
+// V22.9.89 U-02(디자인 작업 지시서 V2 §5-1·§5-2): 화면에 쓰는 지표 이름과 숫자 쓰는 법을 한곳에 둔다.
+// 한 이름은 어느 화면에서나 한 정의다. 범위가 다르면 이름도 다르다(‘이번 달 지출’ = 모든 분류, ‘예산 쓴 돈’ = 예산을 정한 분류).
+// 홈·리포트·예산·정기 항목 화면은 이름을 여기서 가져온다(V2 §8 R2). 소비 분석(한눈에 보기·종합 리포트)은 D-5 결정 전이라
+// 화면 바이트를 바꾸지 않으므로(R3) 아직 옮기지 않는다 — 결정 뒤 같은 표를 쓴다.
+const METRIC_LABELS = Object.freeze({
+  monthSpend: Object.freeze({ label: "이번 달 지출", help: "1일부터 오늘까지 모든 분류의 지출 합이에요. 오늘 뒤 날짜로 미리 적은 기록은 넣지 않아요." }),
+  budgetSpent: Object.freeze({ label: "예산 쓴 돈", help: "예산을 정한 분류의 지출이에요." }),
+  budgetUnset: Object.freeze({ label: "예산 안 정한 지출", help: "예산을 정하지 않은 분류의 지출이에요." }),
+  budgetRemaining: Object.freeze({ label: "남은 예산", help: "예산에서 예산 쓴 돈을 뺀 값이에요." }),
+  budgetMonthEnd: Object.freeze({ label: "월말에 남을 예산", help: "지금 쓰는 속도와 남은 고정 항목으로 본 월말의 남은 예산이에요." }),
+  monthEndSpend: Object.freeze({ label: "월말 예상 지출", help: "오늘까지 지출 + 남은 날 예상 + 아직 안 나간 정기 항목이에요." }),
+  dailyAverage: Object.freeze({ label: "하루 평균 지출", help: "이번 달 지출을 지난 날 수(오늘 포함)로 나눈 값이에요." }),
+  recurring: Object.freeze({ label: "정기 수입·지출", help: "매월 고정적으로 나가거나 들어오는 돈(월세·구독료·월급)의 기록이에요." }),
+  fixedCost: Object.freeze({ label: "고정비", help: "정기 수입·지출 가운데 지출 항목의 합이에요. 분류 합(주거/관리)은 고정비라 부르지 않아요." }),
+  reserveSchedule: Object.freeze({ label: "납부·입금 일정", help: "연 1회·반기·분기처럼 날짜가 정해진 큰돈을 미리 알려 줘요. 기록은 만들지 않아요." }),
+  thisWeek: Object.freeze({ label: "이번 주", help: "월요일부터 오늘까지예요." }),
+  last7Days: Object.freeze({ label: "최근 7일", help: "오늘을 포함한 7일이에요." }),
+  noSpendDay: Object.freeze({ label: "무지출일", help: "기록을 시작한 날부터 오늘까지 지출 기록 없이 지난 날이에요. 기록을 시작하기 전의 날은 세지 않아요." }),
+});
+
+// 소비 분석 밖의 화면에 다시 나오면 안 되는 옛 이름(V2 U-02). 검증 validate-metric-consistency-v22989 가 쓴다.
+const METRIC_RETIRED_LABELS = Object.freeze(["분석 신뢰도", "가계부 경보", "예산 밖", "관측 기간"]);
+
+// V2 §5-2 추정치 표기: 10만 원 이상은 만 원 단위로 반올림해 "약 89만 원", 그보다 작으면 100원 단위로 "약 15,900원".
+// 실제 기록 합(지출·수입·남은 예산)은 이 함수를 쓰지 않고 원 단위로 정확히 쓴다.
+// 경계(V22.9.89 독립 검토): 반올림이 0원이면 "100원 미만"(‘약 0원 남아요’라 하지 않음), 99,950원부터는 "약 10만 원"(‘약 100,000원’ 아님),
+// 1억 원부터는 "약 1억 2,346만 원"(‘약 12,346만 원’ 아님).
+function approxWon(amount = 0) {
+  const value = Math.abs(Number(amount) || 0);
+  const hundreds = Math.round(value / 100) * 100;
+  if (hundreds < 100000) return value && !hundreds ? "100원 미만" : `약 ${numberWithCommas(hundreds)}원`;
+  const man = Math.round(value / 10000);
+  if (man < 10000) return `약 ${numberWithCommas(man)}만 원`;
+  const rest = man % 10000;
+  return `약 ${numberWithCommas(Math.floor(man / 10000))}억${rest ? ` ${numberWithCommas(rest)}만` : ""} 원`;
+}
+
+// V2 §5-1 ‘기록’: 수입이 있으면 "기록 11건 · 지출 9 · 수입 2", 없으면 "기록 9건 · 지출 9" 로 나눠 적는다.
+function recordCountText(expenseCount = 0, incomeCount = 0) {
+  const expense = Math.max(0, Number(expenseCount) || 0);
+  const income = Math.max(0, Number(incomeCount) || 0);
+  return `기록 ${numberWithCommas(expense + income)}건 · 지출 ${numberWithCommas(expense)}${income ? ` · 수입 ${numberWithCommas(income)}` : ""}`;
+}
 // V22.9.79 V76 W-7: 화면마다 따로 계산하던 ‘월말 예상’을 이 함수 하나로 맞춘다
 // (docs/codex/PROPOSAL_W7_SPENDING_OUTLOOK_V22_9_78.md, 2026-10-25 운영자가 권장안 채택).
 // 예전에는 분석·리포트·스마트 도구·밈·위험 점수(전체 분류, 하루 평균 × 그 달 일수), 예산 알림·알림센터(예산 분류,
@@ -33140,10 +33265,12 @@ function budgetPlanMessage(code = "") {
 //             + round(오늘까지 변동 지출 ÷ 지난 날 수 × 남은 날 수)
 // - 정기 출처 기록(자동·수동 반영이 만든 기록)은 속도에서 뺀다. 1일에 적힌 월세가 하루 평균으로 부풀지 않는다.
 // - 앞 날짜로 미리 적은 일반 지출은 더하지 않고 따로 돌려준다(D3 계약: 미래 거래는 예상에 더하지 않음).
+//   V22.9.89: 다만 남은 날 예상은 미리 적은 일반 지출보다 작지 않다(max — 더하지는 않으니 겹쳐 세지 않는다). 예전에는 미리 적은 금액이
+//   속도 예상보다 크면 월말 예상이 그 달 등록액보다 작아, 홈이 ‘남은 예산’보다 많은 돈이 월말에 남는다고 말했다.
 // - 지난달은 예상 = 실적, 미래 달은 관측 전(before), 영수증 불완전·날짜·금액 오류는 확인 불가(unavailable).
 // - 고정지출 규칙·정기지출 항목을 못 읽으면(null) 그 몫을 빼고 계산하고 partial 로 알린다.
 // - scope "all" 은 전체 지출, "budgeted" 는 예산 화면과 같은 분류 판정(budgetCategoryScope)으로 거른다.
-// - 정기 행·대기·준비금이 없으면 예전 burnForecast(round(관측 ÷ 지난 날 × 그 달 일수))와 같은 값이다.
+// - 정기 행·대기·준비금이 없고 미리 적은 일반 지출이 속도 예상 이하이면 예전 burnForecast(round(관측 ÷ 지난 날 × 그 달 일수))와 같은 값이다.
 // - refundDeductions: 환불 연결(V44 D-5·V76 M-7)을 통합할 때 넘길 차감 목록 [{ transaction_date, amount(양수), category }].
 //   기본은 빈 목록이라 아무것도 바꾸지 않는다. 넘기면 기록(오늘까지·등록액)에서 빼고 속도 계산에는 넣지 않는다.
 
@@ -33245,9 +33372,10 @@ function homeUpcomingOut({ month = "", today = formatDate(nowKstDate()), rows = 
   const fixed = safeArray(unrecorded.pending);
   const fixedTotal = fixed.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const planTotal = unrecorded.planEntries.reduce((sum, entry) => sum + Number(entry.plan.amount || 0), 0);
+  // V22.9.89 U-07: 홈 정기 카드가 ‘이번 달 아직 안 나감 1건(월세 · 5일)’을 이 대기 목록(pendingFixed)으로 쓴다 — 두 카드가 같은 값을 말한다.
   return {
     available, rulesKnown, plansKnown, total: fixedTotal + planTotal,
-    fixedCount: fixed.length, fixedTotal, planCount: unrecorded.planEntries.length, planTotal,
+    fixedCount: fixed.length, fixedTotal, pendingFixed: fixed, planCount: unrecorded.planEntries.length, planTotal,
     expenseItems: rules.filter((r) => !isIncomeRule(r)).length + outPlans.length,
     incomeItems: rules.filter(isIncomeRule).length + allPlans.length - outPlans.length,
   };
@@ -33305,7 +33433,9 @@ function monthSpendingOutlook({ month = "", rows = [], today = "", receipt = nul
     rulesKnown: current ? !!unrecorded?.rulesKnown : null, plansKnown: current ? !!unrecorded?.plansKnown : null,
   };
   const partialReasons = current ? [...(Array.isArray(recurring) ? [] : ["recurring"]), ...(Array.isArray(plans) ? [] : ["plans"])] : [];
-  const pace = current ? Math.round(recorded.variable / elapsedDays * remainingDays) : 0;
+  // V22.9.89 Astra 2: 오늘 뒤 날짜로 미리 적은 일반 지출은 남은 날 예상의 아래 한도다(지금 속도 × 남은 날이 그보다 작으면 미리 적은 금액).
+  // 예전에는 미리 적은 지출을 빼고 예상해, 남은 예산(그 달 기록을 모두 뺌)보다 ‘월말에 남을 예산’이 더 큰 일이 있었다. 미리 적은 지출이 없으면 예전 값과 같다.
+  const pace = current ? Math.max(Math.round(recorded.variable / elapsedDays * remainingDays), recorded.futureOrdinary) : 0;
   const fixedRemaining = recorded.scheduledFixed + notYetRecorded.pendingFixed + notYetRecorded.reserveRemaining;
   const expected = status !== "complete" ? null : {
     total: recorded.toDate + fixedRemaining + pace, recorded: recorded.toDate, fixedRemaining, pace,
@@ -33314,7 +33444,7 @@ function monthSpendingOutlook({ month = "", rows = [], today = "", receipt = nul
   };
   return {
     ...base, elapsedDays, remainingDays, recorded, notYetRecorded, expected,
-    budget: budgeted ? outlookBudget({ range, recorded, expected, current, elapsedDays, daysInMonth, scheduledRows, pendingIn, planIn }) : null,
+    budget: budgeted ? outlookBudget({ range, recorded, expected, current, elapsedDays, daysInMonth, scheduledRows, pendingIn, planIn, futureOrdinaryRows }) : null,
     partial: !!expected?.partial,
   };
 }
@@ -33322,7 +33452,8 @@ function monthSpendingOutlook({ month = "", rows = [], today = "", receipt = nul
 // 예산과 견준 값. 하루 사용 가능 = floor(남은 예산 ÷ 오늘 포함 남은 날)(V44 D-18: 홈·예산 알림 모두 내림).
 // 바닥나는 날도 같은 근거다: 오늘까지 기록 + 날짜가 정해진 남은 고정·정기(지정일이 지난 대기 규칙은 오늘)
 // + 하루 변동 속도 × 지난 날을 더한 누계가 예산을 처음 넘는 날. 넘지 않으면 null.
-function outlookBudget({ range, recorded, expected, current, elapsedDays, daysInMonth, scheduledRows = [], pendingIn = [], planIn = [] }) {
+// V22.9.89: 변동 몫은 월말 예상과 같이 그날까지 미리 적은 일반 지출보다 작지 않다(그달 끝에서 누계 = 월말 예상).
+function outlookBudget({ range, recorded, expected, current, elapsedDays, daysInMonth, scheduledRows = [], pendingIn = [], planIn = [], futureOrdinaryRows = [] }) {
   const total = Number(range.totalBudget || 0);
   const remaining = total ? Math.max(0, total - recorded.registered) : 0;
   const daysLeft = current ? daysInMonth - elapsedDays + 1 : 0;
@@ -33338,7 +33469,8 @@ function outlookBudget({ range, recorded, expected, current, elapsedDays, daysIn
     const perDay = recorded.variable / elapsedDays;
     for (let d = elapsedDays; d <= daysInMonth; d += 1) {
       const known = dated.filter(([when]) => when <= d).reduce((sum, [, amount]) => sum + amount, 0);
-      if (recorded.toDate + known + perDay * (d - elapsedDays) > total) { runOutDay = d; break; }
+      const ahead = futureOrdinaryRows.filter((row) => Number(row.transaction_date.slice(8, 10)) <= d).reduce((sum, row) => sum + Number(row.amount || 0), 0);
+      if (recorded.toDate + known + Math.max(perDay * (d - elapsedDays), ahead) > total) { runOutDay = d; break; }
     }
   }
   return { total, basis: range.basis, spent: recorded.registered, remaining, dailyAllowance, diff, runOutDay, daysEarly: runOutDay ? daysInMonth - runOutDay + 1 : 0 };
@@ -33481,7 +33613,9 @@ function renderV8TxEditForm(t = {}, currentPath = "", members = [], canEditSpend
 // 홈의 뼈대를 사용자가 지울 수 있으면 "홈이 비었어요" 문의에 답할 방법이 없다.
 const HOME_LAYOUT_REPORTS = [
   ["where", "어디에 썼나"],
-  ["pace", "쓰는 속도"],
+  // V22.9.89 U-11: 이 카드는 최근 7일(오늘 포함)과 직전 7일을 견준다. 한 주(월요일 시작)와 다른 기간이라 이름을 계산대로 ‘최근 7일’로 쓴다
+  // (카드 머리는 지난 달이면 ‘마지막 7일’, 이번 달 1~6일이면 ‘이번 달’ — 큰 숫자가 세는 기간).
+  ["pace", "최근 7일"],
   ["budget", "예산 항목"],
   ["reserve", "앞으로 나갈 돈"],
 ];
@@ -33610,7 +33744,7 @@ function renderHomeReportCards(options = {}) {
           : paceDelta < 0
             ? (pacePast ? `마지막 7일이 직전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 적었어요` : `직전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 덜 쓰는 속도입니다`)
             : (pacePast ? `마지막 7일과 직전 7일이 같았어요` : `직전 7일과 같은 속도입니다`);
-  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${paceFuture ? "관측 전" : `${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원`}</b><div class="homeReportPace" role="img" aria-label="${paceFuture ? "관측 전" : pacePast ? "마지막 4주 지출" : "최근 4주 지출"}">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
+  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>${pacePast ? "마지막 7일" : thisWeek.partial ? "이번 달" : "최근 7일"}</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${paceFuture ? "관측 전" : `${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원`}</b><div class="homeReportPace" role="img" aria-label="${paceFuture ? "관측 전" : pacePast ? "마지막 4주 지출" : "최근 4주 지출"}">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
 
   // 3. 예산 항목 — 넘겼거나 곧 넘길 분류가 있는지.
   const alerts = safeArray(budgetAlerts);
@@ -39439,9 +39573,10 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
   const year = Number(month.slice(0, 4));
   const mon = Number(month.slice(5, 7));
   const daysInMonth = new Date(year, mon, 0).getDate();
-  const firstDow = new Date(Date.UTC(year, mon - 1, 1)).getUTCDay();
+  // V22.9.89 U-11(사용자 결정 D-6): 캘린더 한 줄도 월요일~일요일이다(앞 빈칸 = 1일의 요일을 월요일 0 으로 센 값). 토·일 색 표시는 그대로다.
+  const firstDow = (new Date(Date.UTC(year, mon - 1, 1)).getUTCDay() + 6) % 7;
   const today = formatDate(nowKstDate());
-  const weekHead = ["일", "월", "화", "수", "목", "금", "토"].map((w, i) => `<span class="calDow${i === 0 ? " sun" : i === 6 ? " sat" : ""}">${w}</span>`).join("");
+  const weekHead = ["월", "화", "수", "목", "금", "토", "일"].map((w, i) => `<span class="calDow${i === 6 ? " sun" : i === 5 ? " sat" : ""}">${w}</span>`).join("");
   const blanks = Array.from({ length: firstDow }, () => `<span class="calDay blank"></span>`).join("");
   const cells = Array.from({ length: daysInMonth }, (_, i) => {
     const day = i + 1;
@@ -39521,7 +39656,16 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const remainDays = isCurrentMonth ? Math.max(1, daysInThisMonth - Number(todayStr.slice(8, 10)) + 1) : 0;
   const remainBudgetAmt = Math.max(0, Number(budget.totalBudget || 0) - Number(budget.budgetedExpense ?? budget.expense ?? 0));
   const dailyAllowanceAmt = (isCurrentMonth && budget.totalBudget) ? Math.floor(remainBudgetAmt / remainDays) : 0;
-  const todayOk = dailyAllowanceAmt ? todaySpend <= dailyAllowanceAmt : true;
+  // V22.9.89 U-01(V2): 오늘 쓴 돈은 한도 안이면 초록(수입 색)을 쓰지 않는다. 넘으면 넘침 색과 함께 "하루 한도를 넘었어요"를 글로 적고(색만으로
+  // 알리지 않음), 0원이면 "아직 없어요"다. 한도 안의 본문색 지정은 셸 CSS 를 바꿔야 해 다음 판(1년 캐시 주소 갱신)에서 한다.
+  // 넘었는지는 오늘 아침의 하루 한도(오늘 직접 적은 예산 분류 지출을 되돌린 남은 예산 ÷ 남은 날)와 그 지출로 견준다(V22.9.89 독립 검토).
+  // 위 dailyAllowanceAmt 는 오늘 쓴 돈을 이미 뺀 앞으로의 하루 금액이라, 안내받은 하루 금액만큼만 써도 넘었다고 했다.
+  // 예산을 정하지 않은 분류의 지출과 정기 자동 기록(월세 등)은 하루 한도와 견주지 않는다(금액 칸은 그대로 오늘 쓴 돈 전부다).
+  const todayBudgetRange = budgetCategoryScope(budgets);
+  const todayOwnBudgeted = rows.filter((r) => r.type !== "income" && String(r.transaction_date || "") === todayStr && !isRecurringSourceRow(r) && todayBudgetRange.includes(r.category)).reduce((a, r) => a + Number(r.amount || 0), 0);
+  const todayStartRemainAmt = Math.max(0, Number(budget.totalBudget || 0) - (Number(budget.budgetedExpense ?? budget.expense ?? 0) - todayOwnBudgeted));
+  const todayStartAllowanceAmt = (isCurrentMonth && budget.totalBudget) ? Math.floor(todayStartRemainAmt / remainDays) : 0;
+  const todayOk = todayStartAllowanceAmt ? todayOwnBudgeted <= todayStartAllowanceAmt : true;
   // V22.8.88 통합 작업지시서 M3(하루 환산). 계산은 이미 위에 있었다 — remainDays 는
   // 오늘을 포함하고(8월 8일이면 24일) Math.max(1,…) 로 묶여 있어 마지막 날에도 0으로
   // 나누지 않는다. 없던 것은 그 값을 사람에게 보여 주는 자리였다. 지금까지 이 숫자는
@@ -39536,10 +39680,24 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 고정지출 규칙을 못 읽은 달(partial)에는 남는 돈을 부풀려 말하지 않도록 이 한 줄을 쓰지 않는다(‘앞으로 나갈 돈’ 카드가 확인 불가를 알린다).
   const homeOutlookBudget = homeOutlook && !homeOutlook.partial ? homeOutlook.budget : null;
   const homeOutlookDiff = homeOutlookBudget ? homeOutlookBudget.diff : null;
+  // V22.9.89 U-03(디자인 작업 지시서 V2): 이 줄은 예산을 정한 분류만 본다(scope budgeted). 무엇이 남는지(예산)를 말하고,
+  // 추정치는 §5-2 대로 반올림해 ‘약’을 붙인다(approxWon). 예전 "월말 예상대로면 888,893원이 남아요"는 분석의 ‘월말 예상 지출’
+  // (전체 분류 + 아직 안 나간 월세)과 반대로 읽혔다.
   const dailyPlanNote = homeOutlookDiff == null ? ""
     : homeOutlookDiff > 0
-      ? (homeOutlookBudget.runOutDay && homeOutlookBudget.runOutDay > homeOutlook.elapsedDays ? `예상대로면 예산이 ${homeOutlookBudget.daysEarly}일 먼저 끝나요` : `월말 예상이 예산보다 ${numberWithCommas(homeOutlookDiff)}원 많아요`)
-      : homeOutlookDiff < 0 ? `월말 예상대로면 ${numberWithCommas(-homeOutlookDiff)}원이 남아요` : "";
+      ? (homeOutlookBudget.runOutDay && homeOutlookBudget.runOutDay > homeOutlook.elapsedDays ? `이대로면 예산이 ${homeOutlookBudget.daysEarly}일 먼저 끝나요` : `이대로면 월말에 예산을 ${approxWon(homeOutlookDiff)} 넘어요`)
+      : homeOutlookDiff < 0 ? `이대로면 월말에 예산이 ${approxWon(-homeOutlookDiff)} 남아요` : "";
+  // 예산에 넣지 않은 분류의 정기 항목이 이번 달에 아직 안 나갔으면 한 줄을 더한다(위 문장의 ‘남는 예산’과 따로 나가는 돈).
+  // 월말 문장에 붙는 줄이라 그 문장이 없는 달(예산을 넘었거나 다 씀)에는 쓰지 않는다(아래 dailyPlanHtml).
+  // 금액은 정해진 값이라 반올림하지 않는다. 계산은 월말 예상이 이미 나눠 둔 값(outsidePendingRules·outsideReservePlans)이다.
+  const homeOutsideItems = homeOutlookBudget ? [
+    ...safeArray(homeOutlook.notYetRecorded?.outsidePendingRules).map((rule) => ({ name: rule.memo || rule.category || "정기 항목", amount: Number(rule.amount || 0) })),
+    ...safeArray(homeOutlook.notYetRecorded?.outsideReservePlans).map((entry) => ({ name: entry.plan?.name || "정기 항목", amount: Number(entry.plan?.amount || 0) })),
+  ].filter((item) => item.amount > 0) : [];
+  const homeOutsideTotal = homeOutsideItems.reduce((sum, item) => sum + item.amount, 0);
+  const homeOutsideNote = homeOutsideItems.length
+    ? `예산에 안 넣은 ${homeOutsideItems[0].name}${homeOutsideItems.length > 1 ? ` 등 ${homeOutsideItems.length}건` : ""} ${numberWithCommas(homeOutsideTotal)}원은 따로 나가요`
+    : "";
   // 하루 계획 줄(dailyPlanHtml)은 카드 머리의 사용률(displayBudgetPercent)과 같은 값으로 말하므로 아래 budgetUsedRatio 뒤에서 만든다(V22.9.86 T-12).
   const freqMap = Object.create(null);
   for (const r of rows) {
@@ -39613,48 +39771,54 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const homeReserveHref = `/reserve-plans?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`;
   // 정기항목은 이번 달을 볼 때만 불러온다(과거 달에서 질의를 늘리지 않으려는 기존 판단).
   // 안 불러온 달에서 "없음" 이라고 말하면 거짓이 되므로 건수를 단정하지 않는다.
-  // V22.9.76: 수입 항목(예: 수당)을 "N건 · 매월 X원 준비"·"준비 알림"에 세지 않는다. 지출과 수입을 나눠 적는다.
-  const homeReserveOutHeadline = homeReserve.expenseCount
-    ? `${numberWithCommas(homeReserve.expenseCount)}건 · 매월 ${numberWithCommas(homeReserve.monthlyReserveTotal)}원 준비`
-    : "";
   // V22.9.78 감사 V76 W-5: 리포트 넷째 카드(앞으로 나갈 돈)는 반영 대기 고정지출과 이번 달 남은 정기지출을 한 번씩만 더한다.
   // 아래에서 rows 가 최근 내역용 필터 결과로 바뀌므로 그 전에 그 달 전체 기록으로 센다(이미 기록된 고정지출을 빼는 데 쓴다).
   const homeUpcoming = homeUpcomingOut({ month, today: todayStr, rows, plans: reservePlans, recurring });
+  // V22.9.89 U-07(V2, 사용자 결정 D-9 2026-10-29: 정기 수입·지출 = 매월 고정적으로 나가거나 들어오는 돈의 기록): 첫 줄은 매달 자동 기록
+  // (accountbook_recurring) 합, 둘째 줄은 이번 달 아직 안 나간 항목(‘앞으로 나갈 돈’과 같은 homeUpcomingOut 대기 목록), 셋째 줄은
+  // 납부·입금 일정(reserve_plans) 가운데 가장 가까운 것이다. 예전에는 납부·입금 일정만 세서 매달 나가는 월세 650,000원이 빠지고
+  // "1건 · 매월 100,000원 준비 · 다가오는 납부 없음"이었다. 지난달·다음 달은 정기 항목을 읽지 않으므로(reserveLoaded) 금액을 단정하지 않는다.
   // V22.9.79 V78 S-2: 정기 항목을 못 읽었으면(null) ‘등록 없음’이라고 하지 않는다(‘앞으로 나갈 돈’ 카드는 확인 불가).
-  const homeReserveUnread = reserveLoaded && !Array.isArray(reservePlans);
+  const homeReserveUnread = reserveLoaded && (!Array.isArray(reservePlans) || !Array.isArray(recurring));
+  const homeRecurringOn = reserveLoaded && Array.isArray(recurring) ? recurring.filter((rule) => rule && !(rule.is_active === false || String(rule.is_active) === "false") && Number(rule.amount || 0) > 0) : [];
+  const homeRecurringIsIn = (rule) => String(rule.type || "expense") === "income";
+  const homeRecurringOutCount = homeRecurringOn.filter((rule) => !homeRecurringIsIn(rule)).length;
+  const homeRecurringOutTotal = homeRecurringOn.filter((rule) => !homeRecurringIsIn(rule)).reduce((sum, rule) => sum + Number(rule.amount || 0), 0);
+  const homeRecurringInTotal = homeRecurringOn.filter(homeRecurringIsIn).reduce((sum, rule) => sum + Number(rule.amount || 0), 0);
+  const homePendingFixed = safeArray(homeUpcoming.pendingFixed);
   const homeReserveHeadline = !reserveLoaded
     ? "이번 달 기준으로 관리해요"
     : homeReserveUnread
       ? "정기 항목을 불러오지 못했어요"
-      : homeReserveCount
-      ? (!homeReserve.incomeCount
-        ? homeReserveOutHeadline
-        : homeReserve.expenseCount
-          ? `지출 ${homeReserveOutHeadline} · 수입 ${numberWithCommas(homeReserve.incomeCount)}건`
-          : `수입 ${numberWithCommas(homeReserve.incomeCount)}건 · 매월 ${numberWithCommas(homeReserve.monthlyIncomeTotal)}원 들어와요`)
-      : "아직 등록한 항목이 없어요";
-  // V22.9.87 V86:V-9(사용자 결정 2026-10-29): T-12 로 SMART NOTICE 띠가 빠지며 홈에서 사라진 ‘가장 가까운 정기 항목’ 한 건을 작은 줄 앞에 적는다.
-  // 말은 알림센터 제목과 같다(‘통신비 납부 4일 전’·‘직무수당 입금 오늘’). 같은 날이면 옛 띠처럼 지출을 먼저 말한다.
+      : homeRecurringOn.length
+        ? `매달 나감 ${numberWithCommas(homeRecurringOutTotal)}원 · 들어옴 ${numberWithCommas(homeRecurringInTotal)}원`
+        : homeReserveCount ? "매달 자동 기록은 아직 없어요" : "아직 등록한 항목이 없어요";
+  const homePendingText = homeRecurringOutCount
+    ? (homePendingFixed.length
+      ? `이번 달 아직 안 나감 ${numberWithCommas(homePendingFixed.length)}건(${homePendingFixed[0].memo || homePendingFixed[0].category || "정기 항목"} · ${Number(homePendingFixed[0].day_of_month || 1)}일)`
+      : "이번 달 나갈 항목은 모두 기록됐어요")
+    : "";
+  // V22.9.87 V86:V-9(사용자 결정 2026-10-29): T-12 로 SMART NOTICE 띠가 빠지며 홈에서 사라진 ‘가장 가까운 정기 항목’ 한 건을 적는다.
+  // 알림 기간이면 말은 알림센터 제목과 같다(‘통신비 납부 4일 전’·‘직무수당 입금 오늘’). 같은 날이면 옛 띠처럼 지출을 먼저 말한다.
+  // 알림 기간 밖이면 가장 가까운 납부·입금 날짜를 적는다(올해면 ‘8월 1일’, 아니면 ‘2027년 8월’).
   const homeReserveNextOut = homeReserve.upcomingExpense[0];
   const homeReserveNextIn = homeReserve.upcomingIncome[0];
   const homeReserveNext = homeReserveNextOut && (!homeReserveNextIn || Number(homeReserveNextOut.days_left) <= Number(homeReserveNextIn.days_left)) ? homeReserveNextOut : homeReserveNextIn;
   const homeReserveNextIsOut = !!homeReserveNext && homeReserveNext === homeReserveNextOut;
+  const homeReserveNearest = homeReserve.statuses[0];
+  const homeReserveDueLabel = (due = "") => /^\d{4}-\d{2}-\d{2}$/.test(due) ? (due.slice(0, 4) === todayStr.slice(0, 4) ? `${Number(due.slice(5, 7))}월 ${Number(due.slice(8, 10))}일` : `${due.slice(0, 4)}년 ${Number(due.slice(5, 7))}월`) : "";
   const homeReserveNextText = homeReserveNext
     ? `${homeReserveNext.plan?.name || (homeReserveNextIsOut ? "정기지출" : "정기 수입")} ${homeReserveNextIsOut ? "납부" : "입금"} ${Number(homeReserveNext.days_left) > 0 ? `${homeReserveNext.days_left}일 전` : "오늘"}`
-    : "";
-  const homeReserveUpcoming = [
-    homeReserveNextText,
-    homeReserve.upcomingExpense.length ? `준비 알림 ${numberWithCommas(homeReserve.upcomingExpense.length)}건` : "",
-    homeReserve.upcomingIncome.length ? `입금 예정 ${numberWithCommas(homeReserve.upcomingIncome.length)}건` : "",
-  ].filter(Boolean).join(" · ");
-  const homeReserveSub = !reserveLoaded
-    ? "세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다"
+    : homeReserveNearest ? `${homeReserveNearest.plan?.name || "정기 항목"} ${homeReserveDueLabel(String(homeReserveNearest.due_date || ""))}`.trim() : "";
+  const homeScheduleText = homeReserveCount ? `${METRIC_LABELS.reserveSchedule.label} ${numberWithCommas(homeReserveCount)}건${homeReserveNextText ? ` · ${homeReserveNextText}` : ""}` : "";
+  const homeReserveSubs = !reserveLoaded
+    ? ["세금·보험처럼 큰돈이 나가는 달을 미리 준비합니다"]
     : homeReserveUnread
-      ? "새로고침하면 다시 불러와요"
-      : homeReserveCount
-      ? (homeReserveUpcoming || (homeReserve.expenseCount ? "다가오는 납부 없음" : "다가오는 입금 없음"))
-      : "세금·보험처럼 큰돈이 나가는 달을 미리 준비하세요";
-  const homeReserveCard = `<a class="homeReserveCard" href="${escapeHtml(homeReserveHref)}"><div class="homeReserveCopy"><span class="homeReserveEyebrow">정기 수입·지출</span><b>${escapeHtml(homeReserveHeadline)}</b><small>${escapeHtml(homeReserveSub)}</small></div><span class="homeReserveGo" aria-hidden="true">관리 →</span></a>`;
+      ? ["새로고침하면 다시 불러와요"]
+      : homeRecurringOn.length || homeReserveCount
+        ? [homePendingText, homeScheduleText].filter(Boolean)
+        : ["월세·구독료·월급처럼 매달 같은 돈을 등록해 보세요"];
+  const homeReserveCard = `<a class="homeReserveCard" href="${escapeHtml(homeReserveHref)}"><div class="homeReserveCopy"><span class="homeReserveEyebrow">${METRIC_LABELS.recurring.label}</span><b>${escapeHtml(homeReserveHeadline)}</b>${homeReserveSubs.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}</div><span class="homeReserveGo" aria-hidden="true">관리 →</span></a>`;
 
   // ── 거래내역 전용 탭 (tab=transactions) ────────────────────────────────
   // 새 라우트를 만들지 않고 같은 함수 안에서 갈라진다. 서버 필터는 홈과 공유하는
@@ -39747,6 +39911,9 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const budgetHeadLabel = isCurrentMonth ? "이번 달 쓸 수 있는 돈" : month < todayStr.slice(0, 7) ? `${budgetMonthName} 예산에서 남은 돈` : `${budgetMonthName} 쓸 수 있는 돈`;
   // V22.9.79 감사 V44 D-4: 분류별 예산이면 예산을 잡지 않은 분류의 지출(예: 장보기)은 사용률에 들지 않는다. 지출 옆에 따로 적는다.
   // V22.9.79 감사 V44 D-12: 예산이 없으면 ‘예산 사용률 0%’를 쓰지 않는다(아래 템플릿, 금액 자리는 이미 ‘예산 미설정’).
+  // V22.9.89 U-02(V2 §5-1): 예산 카드 아래 줄은 ‘예산 ${총액}’ · ‘예산 쓴 돈’(예산을 정한 분류) 이고, 예산을 안 정한 분류의 지출은 둘째 줄
+  // ‘예산 안 정한 지출’(옛 ‘예산 밖’)이다. 예전 ‘지출 319,100원’은 이번 달 지출(모든 분류 462,000원)과 이름이 같아 다른 화면과 어긋나 보였다.
+  // 예산이 없으면 ‘예산 없음’과 ‘예산 안 정한 지출’(모든 지출)이다 — ‘예산 0원 · 예산 쓴 돈 N원’이라 하지 않는다.
   const budgetUncovered = budgetTotal && budget.basis === "category" ? Number(budget.uncoveredExpense || 0) : 0;
   const budgetPercent = budgetTotal ? Math.round((budgetUsed / budgetTotal) * 100) : 0;
   // 막대 너비는 100%에서 멈추지만 표기 숫자는 실제 사용률을 그대로 보여준다.
@@ -39771,19 +39938,32 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   const monthElapsedPercent = isCurrentMonth ? Math.round((Number(todayStr.slice(8, 10)) / daysInThisMonth) * 100) : 0;
   const dailyAmountHtml = `<span data-ab-num="${dailyAllowanceAmt}" data-ab-num-unit="원">${numberWithCommas(dailyAllowanceAmt)}</span>원`;
   const budgetSpentAll = budgetOverAmt > 0 || !budgetRemaining;
+  // V22.9.89 U-04(V2): 남은 날이 5일 이하이거나 하루 한도가 최근 7일 하루 평균의 3배를 넘으면 ‘하루 303,633원씩 쓰면 돼요’처럼
+  // 쓸 수 없는 크기의 금액을 권하게 된다. 그때 예산이 넉넉하면(월말 예상이 예산 안, 못 읽으면 사용률 ≤ 경과율) 짧게 말하고,
+  // 넘칠 위험이면 지금 문장을 쓰되 금액을 §5-2 대로 반올림한다. 최근 7일은 이 달 기록만 갖고 있어 7일 창이 이 달 안일 때(7일부터)만 본다.
+  // 최근 7일에 지출이 없으면 견줄 속도가 없어 3배 조건을 보지 않는다(V2 수용 기준: 15일에는 지금 문장 유지).
+  // V2 는 넉넉할 때 둘째 줄에 남은 예산을 두라고 했지만 카드 머리 큰 숫자가 이미 남은 예산이라 되풀이하지 않는다(둘째 줄은 U-03 월말 문장).
+  const todayDayNum = isCurrentMonth ? Number(todayStr.slice(8, 10)) : 0;
+  const recentWeekStart = todayDayNum >= 7 ? `${month}-${String(todayDayNum - 6).padStart(2, "0")}` : "";
+  const recentWeekAvg = recentWeekStart ? rows.filter((r) => r.type !== "income" && r.transaction_date >= recentWeekStart && r.transaction_date <= todayStr).reduce((sum, r) => sum + Number(r.amount || 0), 0) / 7 : 0;
+  const paceStretched = isCurrentMonth && !!dailyAllowanceAmt && (remainDays <= 5 || (recentWeekAvg > 0 && dailyAllowanceAmt > recentWeekAvg * 3));
+  const paceRoomy = homeOutlookDiff == null ? displayBudgetPercent <= monthElapsedPercent : homeOutlookDiff <= 0;
+  const paceDailyText = paceStretched ? escapeHtml(approxWon(dailyAllowanceAmt)) : dailyAmountHtml;
   const paceSentenceHtml = budgetOverAmt > 0
     ? `예산을 ${numberWithCommas(budgetOverAmt)}원 넘었어요. 예산을 늘리거나 남은 기간 지출을 줄여 보세요.`
     : !budgetRemaining
       ? "예산을 모두 썼어요. 예산을 늘리거나 남은 기간 지출을 줄여 보세요."
-      : displayBudgetPercent <= monthElapsedPercent
-        ? `이번 달의 ${monthElapsedPercent}%가 지났고 예산은 ${displayBudgetPercent}%만 썼어요. 하루 ${dailyAmountHtml}씩 쓰면 돼요.`
-        : `이번 달의 ${monthElapsedPercent}%가 지났는데 예산은 ${displayBudgetPercent}%를 썼어요. 남은 ${remainDays}일은 하루 ${dailyAmountHtml} 안에서 써 보세요.`;
+      : paceStretched && paceRoomy
+        ? `남은 ${remainDays}일, 예산이 넉넉해요.`
+        : displayBudgetPercent <= monthElapsedPercent
+          ? `이번 달의 ${monthElapsedPercent}%가 지났고 예산은 ${displayBudgetPercent}%만 썼어요. 하루 ${paceDailyText}씩 쓰면 돼요.`
+          : `이번 달의 ${monthElapsedPercent}%가 지났는데 예산은 ${displayBudgetPercent}%를 썼어요. 남은 ${remainDays}일은 하루 ${paceDailyText} 안에서 써 보세요.`;
   // 세 갈래: 예산 없음(설정 안내 링크) · 이번 달이 아님(문장 없음) · 이번 달(속도 문장, 남는 예산이 있으면 월말 예상 한 줄).
   const dailyPlanHtml = !budgetTotal
     ? `<div class="homeDailyPlan homeDailyPlanEmpty"><a href="${escapeHtml(`/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}`)}">예산을 설정하면 하루 기준이 생겨요</a></div>`
     : !isCurrentMonth
       ? ""
-      : `<div class="homeDailyPlan homePace${budgetSpentAll ? " homeDailyPlanOver" : ""}"><p>${paceSentenceHtml}</p>${!budgetSpentAll && dailyPlanNote ? `<small>${escapeHtml(dailyPlanNote)}</small>` : ""}</div>`;
+      : `<div class="homeDailyPlan homePace${budgetSpentAll ? " homeDailyPlanOver" : ""}"><p>${paceSentenceHtml}</p>${!budgetSpentAll && dailyPlanNote ? `<small>${escapeHtml(dailyPlanNote)}</small>${homeOutsideNote ? `<small>${escapeHtml(homeOutsideNote)}</small>` : ""}` : ""}</div>`;
   // V22.8.93 (8.2): 저장하고 돌아온 화면에서 게이지가 **이전 값에서 출발해** 실제
   // 값으로 움직인다. 이전 값은 방금 저장한 기록을 사용액에서 빼면 나온다 — 새 질의도,
   // 쓰기 경로 변경도 필요 없다. 저장 직후가 아니거나 예산이 없으면 속성을 달지 않고,
@@ -39882,10 +40062,15 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // V22.9.76: 지난 기간 지출 기록이 없으면 0원과 견주지 않는다(생활비 리포트의 "기록이 없어 비교하지 않아요"와 같은 말).
   // 첫 달 사용자는 늘 "지난달 1~N일보다 (이번 달 지출 전부)원 더 썼어요"를 봤다.
   const noPreviousExpense = !!prevStats && previousExpense === 0 && Number(stats.totals.expense || 0) > 0;
+  // V22.9.89(Astra 4 와 같은 갈래): 이 달(이번 달이면 오늘까지)에 직접 적은 기록(정기 자동 기록 제외)이 없으면 0원은 덜 쓴 것이 아니다.
+  // 지난달과 견주지 않고 그렇다고 말한다(생활비 리포트의 "직접 적은 기록이 없어 비교하지 않아요"와 같은 말).
+  const noOwnRecords = !!prevStats && previousExpense > 0 && !safeArray(rows).some((r) => (!isCurrentMonth || String(r.transaction_date || "") <= todayStr) && !isRecurringSourceRow(r));
   const expenseDeltaText = !prevStats
     ? "이번 달 기록을 기준으로 소비 흐름을 보여드려요."
     : noPreviousExpense
       ? `${prevLabel} 기록이 없어 비교하지 않아요.`
+    : noOwnRecords
+      ? `직접 적은 기록이 없어 ${prevLabel}과 비교하지 않아요.`
     : expenseDeltaAmount > 0
       ? `${prevLabel}보다 ${numberWithCommas(expenseDeltaAmount)}원 더 썼어요.`
       : expenseDeltaAmount < 0
@@ -39893,7 +40078,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
         : Number(stats.totals.expense || 0) === 0 && previousExpense === 0
           ? "아직 지출 기록이 없어요. 한 줄로 첫 기록을 남겨보세요."
           : `${prevLabel}과 같은 금액을 썼어요.`;
-  const expenseDeltaClass = noPreviousExpense ? "spendFlat" : expenseDeltaAmount > 0 ? "spendUp" : expenseDeltaAmount < 0 ? "spendDown" : "spendFlat";
+  const expenseDeltaClass = noPreviousExpense || noOwnRecords ? "spendFlat" : expenseDeltaAmount > 0 ? "spendUp" : expenseDeltaAmount < 0 ? "spendDown" : "spendFlat";
   // V22.8.97 (7.1): "N월 지출" 카드를 걷어낸다. 지시서는 이 카드와 "이번 달 쓸 수
   // 있는 돈" 카드를 **하나의 P0 로 합치라**고 했는데, PR4 는 오늘 쓴 돈과 하루 환산만
   // 흡수하고 이 카드를 남겨 뒀다. 남은 내용은 이미 두 곳에 그대로 있다 —
@@ -39969,7 +40154,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // V22.9.86 (V85:R-12, T-14): 날짜 칩의 고른 상태는 abQuickSyncMore 가 날짜 칸 값으로 정한다(aria-pressed + 옛 .on). 칩을 누를 때만이 아니라
   // 날짜를 직접 고르거나 한 줄 입력·초안 복원이 날짜를 바꿀 때도 맞는다. 요약 줄의 ‘오늘’도 같은 KST 날짜로 본다(예전에는 기기 시계라 F-8 과 같은 어긋남).
   // V22.9.86 (V86:V-5, T-18 빈 달): 들어온 돈·나간 돈 금액은 0원이면 부호를 붙이지 않는다(빈 달 홈이 ‘+0원 · -0원’이었다).
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>${escapeHtml(budgetHeadLabel)}</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"${isCurrentMonth && budgetTotal ? ` style="--ab-today:${monthElapsedPercent}%"` : ""}><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>전체 예산 ${numberWithCommas(budgetTotal)}원</span><span>지출 ${numberWithCommas(budgetUsed)}원${budgetUncovered ? ` · 예산 밖 ${numberWithCommas(budgetUncovered)}원` : ""}</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈</span><b class="${todayOk ? "income" : "expense"}">${numberWithCommas(todaySpend)}원</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${entryBarHtml}${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, upcoming: homeUpcoming, reserveHref: homeReserveHref, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">${stats.totals.income ? "+" : ""}${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">${stats.totals.expense ? "-" : ""}${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}${homeRefundNote ? `<small class="homeMomLine">${escapeHtml(homeRefundNote)}</small>` : ""}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}" data-income="${Math.max(0, Number(stats.totals?.income || 0))}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date(Date.now()+32400000+Number(this.getAttribute('data-day')||0)*86400000);var v=d.toISOString().slice(0,10);var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value&&!(o.getAttribute&&o.getAttribute('data-ab-pick')))payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(inputPaymentNameIn(text,payOpts[i]))return payOpts[i];}return detectInputPayment(normalizeInputText(text));}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase(),after=inputPaymentPatterns().after;var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value).toLowerCase();if(!v||optionHit)return;for(var at=raw.indexOf(v),seen=0;at>=0&&seen<16;at=raw.indexOf(v,at+1),seen++){var rest=raw.slice(at+v.length);if(/[a-z0-9]$/.test(v)?!/^[a-z0-9]/.test(rest):after.test(rest)){optionHit=o.value;return;}}});if(optionHit)return optionHit;return inferInputCategory(normalizeInputText(text).toLowerCase(),type,quickRules);}function stripQuickMemo(text,amountText,payment,category,type){return cleanInputMemo(text,amountText,type,payment,category);}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>${escapeHtml(budgetHeadLabel)}</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"${isCurrentMonth && budgetTotal ? ` style="--ab-today:${monthElapsedPercent}%"` : ""}><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>${budgetTotal ? `예산 ${numberWithCommas(budgetTotal)}원` : "예산 없음"}</span><span>${budgetTotal ? METRIC_LABELS.budgetSpent.label : METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUsed)}원${budgetUncovered ? `<br>${METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUncovered)}원` : ""}</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈${todayOk ? "" : " · 하루 한도를 넘었어요"}</span><b${!todaySpend ? " class=\"muted\"" : todayOk ? "" : " class=\"expense\""}>${todaySpend ? `${numberWithCommas(todaySpend)}원` : "아직 없어요"}</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${entryBarHtml}${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, upcoming: homeUpcoming, reserveHref: homeReserveHref, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">${stats.totals.income ? "+" : ""}${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">${stats.totals.expense ? "-" : ""}${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}${homeRefundNote ? `<small class="homeMomLine">${escapeHtml(homeRefundNote)}</small>` : ""}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}" data-income="${Math.max(0, Number(stats.totals?.income || 0))}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date(Date.now()+32400000+Number(this.getAttribute('data-day')||0)*86400000);var v=d.toISOString().slice(0,10);var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value&&!(o.getAttribute&&o.getAttribute('data-ab-pick')))payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(inputPaymentNameIn(text,payOpts[i]))return payOpts[i];}return detectInputPayment(normalizeInputText(text));}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase(),after=inputPaymentPatterns().after;var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value).toLowerCase();if(!v||optionHit)return;for(var at=raw.indexOf(v),seen=0;at>=0&&seen<16;at=raw.indexOf(v,at+1),seen++){var rest=raw.slice(at+v.length);if(/[a-z0-9]$/.test(v)?!/^[a-z0-9]/.test(rest):after.test(rest)){optionHit=o.value;return;}}});if(optionHit)return optionHit;return inferInputCategory(normalizeInputText(text).toLowerCase(),type,quickRules);}function stripQuickMemo(text,amountText,payment,category,type){return cleanInputMemo(text,amountText,type,payment,category);}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput){abSmartState.apply(clearInput);}
 
 function abQuickTypeLabels(){var inc=!!document.querySelector('#add input[name=type][value=income]:checked');var who=document.querySelector('#add select[name=user_id]');var o=who&&who.options[0];if(o&&!o.value)o.text=inc?'수입자 선택':'지출자 선택';var pay=document.getElementById('payInput');if(pay)pay.placeholder=inc?'입금 계좌·수단':'결제수단';}function abQuickSyncMore(){abQuickTypeLabels();var d=document.getElementById('txDate');var dv=d&&d.value?d.value:'';var kstDay=function(n){return new Date(Date.now()+32400000+n*86400000).toISOString().slice(0,10);};document.querySelectorAll('.dateChip').forEach(function(x){var on=!!dv&&dv===kstDay(Number(x.getAttribute('data-day')||0));x.setAttribute('aria-pressed',on?'true':'false');x.classList.toggle('on',on);});var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var parts=[];parts.push(dv===kstDay(0)?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(){if(abImeComposing)return;applySmart(false);});smart.addEventListener('keydown',function(e){if(e.key==='Enter'&&!abImeComposing&&!e.isComposing){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type'){abQuickTypeLabels();abQuickSyncAfter();}});abQuickSyncMore();abSmartState.preview(true);var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`.replace(/(<(?:input|meta|link|br|hr)\b[^>]*?)\/>/g,"$1>");
 }
@@ -40128,7 +40313,7 @@ async function handleMobileV8Page(request, env, url) {
   // Lucian E #088: only an empty month with no previous-month rows needs the
   // user-authorized, household-scoped existence read. An error is unknown, not zero.
   const [reportChallenge, formerSpenders, ledgerHasRecords] = await Promise.all([
-    buildReportChallengeForHousehold(env, { householdId, month, rows, value: homeSettings.challengeValue }),
+    buildReportChallengeForHousehold(env, { householdId, month, rows, value: homeSettings.challengeValue, startedOn: householdStartYmd(selectedHousehold, rows) }),
     fetchFormerSpenderMembers(env, rawMonthlyRows, members),
     rawMonthlyRows.length || prevAmountRows.length ? true
       : householdId && url.searchParams.get("tab") !== "transactions"
@@ -40431,6 +40616,7 @@ function buildWeeklyReport(historyRows = [], month = currentMonthKst()) {
 
 // V22.9.80 T-24: ‘주’가 화면마다 다른 뜻이었다 — 이 주간 리포트(PC 분석·종합 리포트)는 월요일 시작, 홈 ‘주별’ 탭(V22.9.79 D-16)은 홈 캘린더처럼 일요일 시작.
 // 어느 쪽 계산도 바꾸지 않고(운영자 결정: 보수적 안), 이 리포트가 실제로 더한 날짜 범위를 요일과 함께 적어 어느 주인지 모호하지 않게 한다.
+// V22.9.89 U-11(사용자 결정 D-6 2026-10-29: 한 주는 월요일 시작): 홈 ‘주별’ 탭과 홈 캘린더도 월요일 시작이 되어 ‘합계가 다를 수 있어요’ 문구를 뺐다.
 function weekRangeText(from, to) {
   const part = (ymd) => {
     const [y, m, d] = String(ymd).split("-").map(Number);
@@ -40442,7 +40628,7 @@ function weekRangeText(from, to) {
 function renderWeeklyReportCard(weekly) {
   if (!weekly) return "";
   const basis = weekly.thisWeekStart && weekly.lastWeekStart
-    ? `이번 주(월요일부터: ${weekRangeText(weekly.thisWeekStart, weekly.todayStr)}) 지출을 지난주 같은 시점(${weekRangeText(weekly.lastWeekStart, weekly.lastWeekSamePoint)})까지의 지출과 비교합니다. 홈의 ‘주별’ 탭은 일요일부터 한 주를 세므로 합계가 다를 수 있어요.`
+    ? `이번 주(월요일부터: ${weekRangeText(weekly.thisWeekStart, weekly.todayStr)}) 지출을 지난주 같은 시점(${weekRangeText(weekly.lastWeekStart, weekly.lastWeekSamePoint)})까지의 지출과 비교합니다.`
     : "이번 주(월요일~오늘) 지출을 지난주 같은 시점까지의 지출과 비교합니다.";
   // V22.9.79 감사 V44 D-13: 지난주 같은 시점이 0원이면 +100% 를 지어내지 않는다(비교 기록 없음, 빠르다·아낀다 판단도 하지 않음).
   const compared = Number(weekly.lastWeekToPoint || 0) > 0;
@@ -40472,9 +40658,10 @@ function renderPcAnalysisHtml({ month, households, selectedHousehold, rows, stat
     ["고정비 비중", `${analysis.fixedRate || 0}%`, `${numberWithCommas(analysis.fixedExpense || 0)}원`],
     ["주말 지출 비중", `${analysis.weekendRate || 0}%`, `${numberWithCommas(analysis.weekendExpense || 0)}원`],
     ["카테고리 집중도", `${analysis.concentration || 0}%`, `${escapeHtml(analysis.topCategory?.category || "없음")} 중심`],
-    ["소비 위험도", analysis.basisDays === 0 ? "관측 전" : `${analysis.riskScore || 0}점`, analysis.basisDays === 0 ? "관측 기간 없음" : (analysis.riskScore || 0) >= 70 ? "주의" : "정상"],
+    // V22.9.89 Astra 7: 소비 신호 세 단계(45 주의 · 70 넘침 위험)로 다른 분석 화면과 같은 경계를 쓴다.
+    ["소비 신호", analysis.basisDays === 0 ? "관측 전" : consumptionSignalLabel(analysis.riskScore || 0), analysis.basisDays === 0 ? "관측 기간 없음" : `${analysis.riskScore || 0}점`],
     // V22.9.34 2차 점검 U01: 이번 달은 오늘까지, 앞으로 올 달은 세지 않는다.
-    ["무지출일", analysis.basisDays === 0 ? "-" : `${analysis.noSpendDays || 0}일`, analysis.basisDays === 0 ? "아직 오지 않은 달" : month === currentMonthKst() ? "오늘까지 소비 없는 날짜" : "그 달 소비 없는 날짜"],
+    ["무지출일", analysis.basisDays === 0 || analysis.noSpendDays == null ? "-" : `${analysis.noSpendDays}일`, analysis.basisDays === 0 ? "아직 오지 않은 달" : analysis.noSpendDays == null ? "직접 적은 기록 없음" : month === currentMonthKst() ? "오늘까지 소비 없는 날짜" : "그 달 소비 없는 날짜"],
   ].map(([a,b,c]) => `<div class="metric"><span>${a}</span><b>${b}</b><small>${c}</small></div>`).join("");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(selected.name || "가계부")} · 분석</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 12px 32px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c3aed));color:#fff}.hero h1{margin:0;font-size:30px}.hero p{opacity:.9}.filters{display:grid;grid-template-columns:1fr 200px 140px;gap:8px;margin-top:14px}.filters select,.filters input,.filters button{height:44px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.metricGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px}.metric span,.metric small{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin:5px 0}.trendChart{display:flex;align-items:end;gap:5px;min-height:176px;overflow:auto;padding:12px;border:1px solid #e8edf4;border-radius:18px;background:#f8fafc}.trendBar{display:grid;grid-template-rows:22px 1fr 16px;align-items:end;justify-items:center;min-width:26px;height:156px}.trendBar strong{font-size:10px;color:#334155;white-space:nowrap;writing-mode:vertical-rl;transform:rotate(180deg);align-self:start}.trendBar i{display:block;width:13px;background:#2563eb;border-radius:999px 999px 0 0}.trendBar span{font-size:10px;color:#64748b}.tableWrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:720px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left}.btn{display:inline-flex;background:#111827;color:#fff!important;border-radius:14px;text-decoration:none;padding:10px 14px;font-weight:1000}.soft{background:#eef2f7!important;color:#111827!important}@media(max-width:760px){body{overflow-x:hidden}.wrap{padding:12px 10px 96px}.filters{grid-template-columns:1fr}.filters select,.filters input,.filters button{width:100%;font-size:16px}.hero{border-radius:22px;padding:18px}.hero h1{font-size:24px;line-height:1.25}.metricGrid{grid-template-columns:1fr 1fr;gap:8px}.metric{padding:13px;border-radius:18px}.metric b{font-size:20px}.card{border-radius:20px;padding:16px}.trendChart{min-height:150px}.tableWrap{overflow-x:auto;-webkit-overflow-scrolling:touch}table{min-width:680px}}
 .muted{color:#64748b;font-size:13px;line-height:1.5}
@@ -41733,16 +41920,25 @@ function buildWeekdayStats(rows) {
   return map;
 }
 
+// V22.9.89 Astra 7: 소비 신호 세 단계(V2 §5-1). 점수 경계는 색과 같은 45·70 이다.
+function consumptionSignalLabel(score = 0) {
+  return score >= 70 ? "넘침 위험" : score >= 45 ? "주의" : "안정";
+}
+
 function renderStrategyCards(ext, a) {
   const cards = [
     // 분석 기간 기록이 한도를 넘어 일부만 읽었으면 먼저 알린다(QA B05).
     ...(ext.historyTruncated ? [{ cls: "danger", title: "분석 범위", value: "일부만 분석", desc: "기간 기록이 6,000건을 넘어 최신 6,000건으로 계산했습니다. 정확한 합계는 월별 화면과 CSV에서 확인하세요." }] : []),
     { cls: !Number(ext.prev?.totals?.expense || 0) ? "" : ext.expenseMoMRate > 20 ? "danger" : ext.expenseMoMRate > 5 ? "warn" : "good", title: "전월 대비 지출", value: formatChangeRate(ext.current?.totals?.expense, ext.prev?.totals?.expense, "비교 기록 없음"), desc: `전월 ${numberWithCommas(ext.prev.totals.expense)}원 → 이번 달 ${numberWithCommas(ext.current.totals.expense)}원` },
     { cls: ext.avg3Expense > 0 && ext.current.totals.expense > ext.avg3Expense * 1.2 ? "warn" : "good", title: "3개월 평균 대비", value: `${numberWithCommas(ext.avg3Expense)}원`, desc: `최근 3개월 중 기록이 있는 ${ext.avg3Months ?? 3}개월의 평균입니다(지출 0원인 달 포함). 이번 달 속도와 비교하세요.` },
-    { cls: ext.cleanupCount > 0 ? "danger" : "good", title: "분석 신뢰도", value: `${ext.cleanupCount}건`, desc: "미정리 데이터가 적을수록 고급 분석이 정확해집니다." },
+    // V22.9.89 Astra 7(V2 §5-1 ‘정리할 기록’): 예전 이름 ‘분석 신뢰도 0건’은 0이 나쁜 값처럼 읽혔다. 비어 있는 칸이 있는 기록 수이고 0이면 깔끔하다.
+    // 빨강은 넘침·오류에만 쓴다(§5-2) — 정리할 기록은 주의 색이다.
+    { cls: ext.cleanupCount > 0 ? "warn" : "good", title: "정리할 기록", value: ext.cleanupCount ? `${ext.cleanupCount}건` : "깔끔해요", desc: ext.cleanupCount ? "분류나 결제수단이 비어 있는 기록이에요. 채우면 분석이 정확해져요." : "분류와 결제수단이 모두 채워져 있어요." },
     { cls: ext.topIncrease.diff > 0 ? "warn" : "good", title: "최대 증가 항목", value: ext.topIncrease.name, desc: `${numberWithCommas(ext.topIncrease.diff)}원 증가 · ${formatChangeRate(ext.topIncrease.current, ext.topIncrease.previous)}` },
     { cls: a.weekendRate >= 45 ? "warn" : "good", title: "주말 소비", value: `${a.weekendRate}%`, desc: "주말 외식·여가성 소비 비중을 점검하세요." },
-    { cls: a.basisDays === 0 ? "" : a.riskScore >= 70 ? "danger" : a.riskScore >= 45 ? "warn" : "good", title: "가계부 경보", value: a.basisDays === 0 ? "관측 전" : `${a.riskScore}점`, desc: "고정비, 쏠림, 미정리, 월말 예상치를 종합한 점수입니다." },
+    // V22.9.89 Astra 7(V2 §5-1 ‘소비 신호’): 점수만 있던 ‘가계부 경보 32점’을 안정·주의·넘침 위험으로 말하고 점수와 경계는 설명에 둔다.
+    // 경계(45·70)는 색과 같고, 종합 리포트의 ‘정상 범위’(70 미만)도 같은 경계로 맞췄다.
+    { cls: a.basisDays === 0 ? "" : a.riskScore >= 70 ? "danger" : a.riskScore >= 45 ? "warn" : "good", title: "소비 신호", value: a.basisDays === 0 ? "관측 전" : consumptionSignalLabel(a.riskScore), desc: a.basisDays === 0 ? "고정비, 쏠림, 미정리, 월말 예상치를 합쳐 봅니다." : `${a.riskScore}점 · 고정비, 쏠림, 미정리, 월말 예상치를 합친 점수예요. 45점부터 주의, 70점부터 넘침 위험이에요.` },
   ];
   return cards.map((c) => `<div class="insight ${c.cls}"><b>${escapeHtml(c.title)}</b><div style="font-size:24px;font-weight:950;letter-spacing:-.04em">${escapeHtml(c.value)}</div><div class="muted">${escapeHtml(c.desc)}</div></div>`).join("");
 }
@@ -41799,7 +41995,25 @@ function monthObservation(month, rows, { receipt = null, endDay = null } = {}) {
     rows: status === "complete" ? rows.filter(row => row.transaction_date >= `${month}-01` && row.transaction_date <= end) : null };
 }
 
-function monthlyObservedSpending(rows, month) {
+// V22.9.89 Astra 4: 가계부를 시작한 날(KST). 가계부를 만든 날이고, 그보다 앞선 날짜의 기록이 있으면(지난 지출을 나중에 적음) 그 날이다.
+// 만든 날을 모르면 빈 값이고, 무지출은 예전처럼 기간 첫날부터 센다.
+// rows 는 보는 달의 기록을 넘긴다(홈·소비 분석·챌린지). 화면마다 다른 범위를 넘기면 같은 달의 무지출일이 달라진다 — 생활비 리포트는
+// 만든 날만 받아 그 기간의 기록으로 같은 셈을 한다(V22.9.89 독립 검토).
+function householdStartYmd(household = null, rows = []) {
+  const ms = Date.parse(String(household?.created_at || ""));
+  if (!Number.isFinite(ms)) return "";
+  const created = new Date(ms + 32400000).toISOString().slice(0, 10);
+  let first = "";
+  for (const row of Array.isArray(rows) ? rows : []) {
+    const date = String(row?.transaction_date || "").slice(0, 10);
+    if (isValidTransactionDateString(date) && (!first || date < first)) first = date;
+  }
+  return first && first < created ? first : created;
+}
+
+// V22.9.89 Astra 4: 무지출일은 기록하는 동안 지출이 없던 날이다. 그 달 오늘까지 직접 적은 기록(정기 자동 기록 제외)이 하나도 없으면 세지 않고(null),
+// 가계부를 시작한 날(startedOn) 전의 날도 세지 않는다. 예전에는 기록이 없는 가계부도 "무지출 29일"이었다.
+function monthlyObservedSpending(rows, month, { startedOn = "" } = {}) {
   if (!Array.isArray(rows) || !/^20\d{2}-(?:0[1-9]|1[0-2])$/.test(String(month))) throw new Error("analysis_observation_invalid");
   const today = formatDate(nowKstDate());
   const daysInMonth = new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
@@ -41812,8 +42026,20 @@ function monthlyObservedSpending(rows, month) {
     observedExpense, basisDays, basisEnd, daysInMonth, hasObservation: basisDays > 0,
     avgExpense: basisDays ? Math.round(observedExpense / basisDays) : null,
     burnForecast: basisDays ? Math.round(observedExpense / basisDays * daysInMonth) : null,
-    expenseDays, noSpendDays: basisDays - expenseDays,
+    expenseDays, noSpendDays: noSpendDaysFrom(rows, month, basisEnd, startedOn),
   };
+}
+
+function noSpendDaysFrom(rows, month, basisEnd, startedOn = "") {
+  if (!basisEnd) return 0;
+  const first = `${month}-01`;
+  const inMonth = (r) => String(r.transaction_date || "") >= first && String(r.transaction_date || "") <= basisEnd;
+  if (!rows.some((r) => inMonth(r) && !isRecurringSourceRow(r))) return null;
+  const from = startedOn && startedOn > first ? startedOn : first;
+  if (from > basisEnd) return 0;
+  const days = Math.round((Date.parse(`${basisEnd}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86400000) + 1;
+  const spent = new Set(rows.filter((r) => r.type === "expense" && Number(r.amount) > 0 && inMonth(r) && r.transaction_date >= from).map((r) => r.transaction_date)).size;
+  return Math.max(0, days - spent);
 }
 
 // V22.9.79 W-7: 월말 예상을 낼 수 없으면(기록 날짜·금액 오류, 영수증 불완전) 0원이 아니라 확인 불가로 적는다.
@@ -41824,13 +42050,13 @@ function renderObservedMoney(analysis, amount) {
 // V22.9.79 V76 W-7: 월말 예상(burnForecast)은 monthSpendingOutlook(전체 분류)이다. 고정지출 규칙·정기지출 항목을 읽은 화면
 // (/my/analysis?view=report·/smart-tools)은 그 결과(outlook)를 넘기고, 넘기지 않으면 기록만으로 계산한다(규칙·항목은 못 읽은 것으로
 // 보아 partial — 그래도 이미 적힌 고정지출은 속도에서 빠진다). 밈·위험 점수도 이 값을 쓴다.
-function calculateDashboardAnalysis(allRows, filteredRows, calendar, month, { outlook = null } = {}) {
+function calculateDashboardAnalysis(allRows, filteredRows, calendar, month, { outlook = null, startedOn = "" } = {}) {
   const stats = calculateStats(allRows);
   const expense = stats.totals.expense;
   const income = stats.totals.income;
   // V22.9.34 2차 점검 U01: 하루 평균·무지출일은 이번 달이면 오늘까지, 지난 달이면 그 달 전체, 앞으로 올 달이면
   // 0일을 기준으로 센다. 예전에는 이번 달도 아직 오지 않은 날까지 세어 무지출일이 부풀고 하루 평균이 낮아졌다.
-  const observation = monthlyObservedSpending(allRows, month);
+  const observation = monthlyObservedSpending(allRows, month, { startedOn });
   const { basisDays, basisEnd, avgExpense, noSpendDays, expenseDays } = observation;
   const spendingOutlook = outlook || monthSpendingOutlook({ month, rows: allRows, recurring: null, plans: null });
   const burnForecast = basisDays && spendingOutlook.expected ? spendingOutlook.expected.total : null;
@@ -42273,7 +42499,8 @@ function buildAffiliateState({ env, month, allRows, analysis, extended, origin }
       emoji: "🐷",
       title: "무지출 챌린지",
       desc: "무지출일이 쌓이면 소비몬 카드가 더 재미있어지고, 월말 잔액도 방어됩니다.",
-      reason: analysis.basisDays === 0 ? "관측 전 · 아직 무지출일을 계산하지 않습니다." : `무지출일 ${analysis.noSpendDays || 0}일 · 이번 달 방어력 체크`,
+      // V22.9.89 Z-4: 직접 적은 기록이 없으면 무지출일을 세지 않는다(null) — 0일로 적지 않고 그렇다고 말한다.
+      reason: analysis.basisDays === 0 ? "관측 전 · 아직 무지출일을 계산하지 않습니다." : analysis.noSpendDays == null ? "직접 적은 기록이 없어 아직 무지출일을 세지 않습니다." : `무지출일 ${analysis.noSpendDays}일 · 이번 달 방어력 체크`,
       score: Number(analysis.noSpendDays || 0) * 8,
       href: affiliateLink(env, "TIP_SAVING_URL"),
       label: "절약",

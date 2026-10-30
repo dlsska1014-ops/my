@@ -24,12 +24,13 @@ const ORIGIN = "https://malhaebook.com";
 const month = "2026-07";
 const householdId = "house-home";
 
-const reportsOf = (html) => [...html.matchAll(/<article class="homeReport"><div class="homeReportTop"><span>([^<]*)<\/span>/g)].map((m) => m[1]);
+const paceName = (name) => (/^(?:최근 7일|마지막 7일|이번 달)$/.test(name) ? "최근 7일" : name); // V22.9.89 U-11: 카드 머리 = 기간 이름(보는 달에 따라 다름)
+const reportsOf = (html) => [...html.matchAll(/<article class="homeReport"><div class="homeReportTop"><span>([^<]*)<\/span>/g)].map((m) => paceName(m[1]));
 const shortcutsOf = (html) => {
   const nav = (html.match(/<nav class="homeQuick[^"]*">[\s\S]*?<\/nav>/) || [""])[0];
   return [...nav.matchAll(/<b>([^<]*)<\/b>/g)].map((m) => m[1]);
 };
-const DEFAULT_REPORTS = "어디에 썼나,쓰는 속도,예산 항목,앞으로 나갈 돈";
+const DEFAULT_REPORTS = "어디에 썼나,최근 7일,예산 항목,앞으로 나갈 돈";
 const DEFAULT_SHORTCUTS = "입력,예산,정기 수입·지출,스마트,분류,전체";
 
 // ---------------------------------------------------------------------------
@@ -108,7 +109,7 @@ try {
   eq(saved.status, 303, "저장은 리다이렉트로 끝난다");
   ok(saved.location.includes("msg=saved"), "저장 결과를 알려 준다");
   const after = await get(`/app?month=${month}&household_id=${householdId}`, fixture.cookie);
-  eq(reportsOf(after.text).join(","), "쓰는 속도,어디에 썼나,예산 항목", "끈 카드는 사라지고 옮긴 카드는 위로 간다");
+  eq(reportsOf(after.text).join(","), "최근 7일,어디에 썼나,예산 항목", "끈 카드는 사라지고 옮긴 카드는 위로 간다");
   eq(shortcutsOf(after.text).join(","), "입력,전체", "끈 바로가기는 사라진다");
   // 새 표를 만들지 않았다 — 설정 한 줄에만 담긴다.
   eq(fixture.db.accountbook_settings.filter((row) => row.key === key).length, 1, "설정 한 줄에만 담긴다");
@@ -156,7 +157,7 @@ try {
   fixture.db.accountbook_settings.length = 0;
   fixture.db.accountbook_settings.push({ key, value: JSON.stringify({ reports: { order: ["reserve", "ghost"], hidden: [] } }), updated_at: "2026-07-01T00:00:00.000Z" });
   const partial = await get(`/app?month=${month}&household_id=${householdId}`, fixture.cookie);
-  eq(reportsOf(partial.text).join(","), "앞으로 나갈 돈,어디에 썼나,쓰는 속도,예산 항목", "설정에 없던 카드는 뒤에 붙고 모르는 id 는 버려진다");
+  eq(reportsOf(partial.text).join(","), "앞으로 나갈 돈,어디에 썼나,최근 7일,예산 항목", "설정에 없던 카드는 뒤에 붙고 모르는 id 는 버려진다");
   fixture.db.accountbook_settings.length = 0;
 
   // -------------------------------------------------------------------------

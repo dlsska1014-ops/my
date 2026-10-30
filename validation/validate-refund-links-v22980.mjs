@@ -36,6 +36,11 @@
 // V22.9.88 Y-7(같은 판, 카카오 심사 의견): 카카오 답 글의 주소가 링크 버튼으로 옮겨 가 ‘kakao:이번달’(하루 한 번 붙는 ‘상세 분석 보기’ 주소가 있는 답)
 // 하나가 바뀐다. Y-7 직전 번들(c3729c9)로 잠시 바꿔 돌리면 옛 값 그대로 268개가 모두 통과하고, Y-7 번들에서는 그 값 하나만(플래그 셋 모두) 달랐다.
 // 그 뒤 --print-golden 으로 그 하나를 다시 얻었다. 나머지 카카오 값 넷은 그대로다.
+// V22.9.89(2026-10-29, 디자인 작업 지시서 V2 6단계 + Codex Astra 리포트): 꺼짐 화면의 홈 세 개와 생활비 리포트 둘이 이번 판 티켓대로 바뀌고 판 이름이 바뀐다.
+// 해시하는 화면 원문 96개를 V22.9.88(fe86b4e)과 견주어 판 이름만 가리면 다른 파일 27개의 조각이 모두 아래 티켓이고 그 밖 차이는 0이었다
+// (review-artifacts/v89-numbers-trust-2026-10-29/refund-compare.txt): 홈 아랫줄 이름(U-02, 예산 없으면 ‘예산 없음·예산 안 정한 지출’), 오늘 쓴 돈 색(U-01),
+// 카드 머리 ‘최근 7일’·‘마지막 7일’(U-11), 정기 카드 세 줄(U-07), 리포트 ‘오늘까지 N일 동안’·‘N일 평균’(Astra 2), ‘지출 N · 수입 N’(U-10), 등록 안 된 카드(U-09),
+// 공유 글 ‘M/D(요일) 작성’(Astra 5). 그 뒤 --print-golden 으로 home·homeTrend·homePrev·reports·reportsWeek 와 판 이름만 바뀐 analysis·backupFull·backupMonth 를 다시 얻었다.
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -45,23 +50,23 @@ import { BASE, app, ctx, fixture, intercept, page, post, skill, withClock } from
 const PRINT_GOLDEN = process.argv.includes("--print-golden");
 const SOFT = process.env.V22980_SOFT === "1";
 const FLAG_OFF_GOLDEN = {
-  "home": "200 31168c1f566d7cf368d913bc",
-  "homeTrend": "200 618dc8f882637137ea8989c9",
-  "homePrev": "200 d6800bfcb0e4b5183008efd6",
+  "home": "200 25f50aaf5875bf3c339369ab",
+  "homeTrend": "200 fcd98f85429681c753a9fcfb",
+  "homePrev": "200 3d583be13fde4bcb559f56c0",
   "budgets": "200 76b008ca0356f5dd7e358085",
   "budgetAlerts": "200 6fc3543c522d72c8860c0694",
   "notifications": "200 df9761ab7204d02ba148aa42",
-  "reports": "200 7f9263c56f9c0d9477c59a50",
-  "reportsWeek": "200 b58080ec5107f1131cd0aa83",
-  "analysis": "200 03b718021142ef1749662ed5",
+  "reports": "200 d771a85262df31d7fc14512e",
+  "reportsWeek": "200 6d52d8af288802c12a8a3a86",
+  "analysis": "200 dfdf98c6f0dde42d67a164ea",
   "backupPage": "200 f9df266b7de8ad78b1aa0428",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 0cb1579de61651671b01e4b7",
-  "backupMonth": "200 2b50ef7e239b7aae2749b65a",
+  "backupFull": "200 6ea6f055669e59d97d5423f0",
+  "backupMonth": "200 f2164ff6a3d1a965b89f1dda",
   "candidate": "200 f987089b646a468a2b5bff11",
   "legacyErr": "200 bfc684233d18c4570db218ba", // V22.9.81 U-19: 옛 관리자 화면 오류 칸이 record_update_failed 를 코드 글자 대신 안내 문장으로 보인다(의도한 변경)
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

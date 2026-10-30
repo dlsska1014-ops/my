@@ -34,6 +34,8 @@ for(const [rel,names] of Object.entries(protection)){
 // V22.9.76 감사 D-20: 조회 전용·나간 사람 정산 결함을 고치려 buildSettlementModel·handleSettlementHistorySave 를 의도적으로 바꿔 두 지문을 새로 적었다.
 // V22.9.81 U-27: 완료 이력을 30건으로 자를 때 잘려 나가는 달을 완료 달 표식으로 남기려 handleSettlementHistorySave 의 저장 줄
 // (history.slice(-30) → settlementHistoryForSave(history))을 의도적으로 바꿔 그 지문을 새로 적었다. 30건 이하이면 저장 값은 예전과 같다.
+// V22.9.89 Astra 4(Z-4): 기록하지 않은 날을 무지출로 세지 않으려 monthlyObservedSpending 의 무지출일만 noSpendDaysFrom(가계부 시작일·직접 적은 기록)으로 바꾸고
+// 선택 인자 { startedOn } 을 더해 그 지문을 새로 적었다. 관측 지출·관측 일수·하루 평균·월말 예상(burnForecast)·지출한 날은 예전 식 그대로다(아래 값 검사).
  for(const [name,hash]of Object.entries(names)){const node=ast.body.find(n=>n.id?.name===name);ok(!!node,"protected function exists "+name);eq(sha(source.slice(node.start,node.end)),hash,"V57 unchanged contract "+name);}
 }
 const renderer=readFileSync(new URL("../src/modules/my/analysis-page.js",import.meta.url),"utf8");
@@ -58,7 +60,9 @@ await withClock("2026-10-15",async()=>{
  for(const [rows,prior]of [[null,[]],[[],null],[[tx("2026-02-30",1)],[]],[[tx("bad",1)],[]],[[tx("2026-10-01",null)],[]]])eq(computeFairMoM("2026-10",rows,prior).state,"unavailable","invalid or unread rows are not zeros");
  for(const status of ["unknown","response-cap","limit","inconsistent"]){eq(computeFairMoM("2026-10",[],[],{currentReceipt:{status}}).state,"unavailable","current receipt "+status);eq(computeFairMoM("2026-10",[],[],{previousReceipt:{status}}).state,"unavailable","previous receipt "+status);deepEq([model(current,{receipt:{status}}).avgDaily,model(current,{receipt:{status}}).forecastExpense],[null,null],"budget receipt "+status);}
  deepEq([model([]).observedSpent,model([]).avgDaily,model([]).forecastExpense],[0,0,0],"complete empty current month is observed zero");
- deepEq([model([tx("2026-10-25",150000)]).spent,model([tx("2026-10-25",150000)]).forecastExpense],[150000,0],"future-only current month has true observed zero");
+ // V22.9.89 Z-8: 월말 예상은 그달 오늘 뒤 날짜로 미리 적은 일반 지출보다 작지 않다(남은 날 예상 = max(속도 예상, 미리 적은 금액)).
+ // 더하지는 않으므로 D3 ‘미래 거래 추가 합산 안 함’은 그대로이고, 관측(오늘까지) 지출·하루 평균은 여전히 0이다. 예전 0원은 남은 예산(700,000 − 150,000)보다 많이 남는다고 읽혔다.
+ {const ahead=model([tx("2026-10-25",150000)]);deepEq([ahead.spent,ahead.observedSpent,ahead.avgDaily,ahead.forecastExpense],[150000,0,0,150000],"future-only current month has true observed zero and the month-end outlook is floored at the pre-entered amount");}
  const exhausted=model(current,{budgets:[{category:"식비",amount:450000}]});eq(exhausted.dailyAllowance,0,"zero allowance is a real amount");
  const past=model([tx("2026-09-30",300000)],{month:"2026-09"});deepEq([past.currentDay,past.avgDaily,past.forecastExpense,past.pendingRecurring,past.pendingRecurringTotal,past.afterPendingForecast,past.dailyAllowance],[30,10000,300000,null,null,null,null],"past month is completed performance and deferred recurring");
  const future=model([tx("2026-11-01",300000)],{month:"2026-11"});deepEq([future.currentDay,future.avgDaily,future.forecastExpense,future.pendingRecurringTotal,future.afterPendingForecast,future.status],[0,null,null,null,null,"before"],"future has no observation or presumed pending");
@@ -71,7 +75,8 @@ await withClock("2026-10-15",async()=>{
  deepEq([union.totalBudget,union.spent,union.observedSpent,union.budget.uncoveredExpense,union.pendingRecurringTotal,union.pendingRecurring.length],[700000,230000,180000,800000,70000,3],"same legacy/custom union, duplicate budget allocations and recurring without double count");
  eq(union.afterPendingForecast,442000,"unrounded observed ratio plus every pending item, no similarity deduplication");
  eq(model(unionRows,{budgets:[{category:"__total",amount:2000000}]}).observedSpent,980000,"total fallback covers all expense categories");
- const low=model([tx("2026-10-25",600000)]);eq(low.status,"warning","future registered amount can cause full-month warning");eq(low.forecastExpense,0,"monthly warning is not a pace warning");
+ // V22.9.89 Z-8: 월말 예상은 미리 적은 600,000원(속도 예상 0원보다 큼)이다. 예산 700,000원 안이라 경고는 여전히 등록액 85% 경고다.
+ const low=model([tx("2026-10-25",600000)]);eq(low.status,"warning","future registered amount can cause full-month warning");deepEq([low.observedSpent,low.avgDaily,low.forecastExpense],[0,0,600000],"monthly warning is not a pace warning (pace 0, outlook floored at the pre-entered 600,000)");
  const over=model([tx("2026-10-25",800000)],{month:"2026-10"});eq(over.status,"over","monthly over-budget is retained");ok(over.statusMessage.includes("미래"),"monthly warning explains future registered records");
  const unknown=model(current,{recurring:null});deepEq([unknown.forecastExpense,unknown.pendingState,unknown.pendingRecurringTotal,unknown.afterPendingForecast],[620000,"unavailable",null,null],"recurring-only failure preserves observed forecast");
  for(const input of [{rows:null},{budgets:null},{rows:{}},{budgets:{}}]){assert.throws(()=>model([] ,input),/budget_observation_read_invalid/);ok(true,"non-array model input refuses zero substitution");}

@@ -36,7 +36,8 @@ await withClock("2026-07-15", async () => {
     ok(res.html.includes("<h1>생활비 리포트</h1>"), "제목이 생활비 리포트다");
     eq(h2s(res.html).join("|"), "기간 요약|고정비와 구독|날짜별 지출|지출 상위 분류|생활 패턴|카드별 사용액과 실적 목표|자동 생성 설정|카카오톡에 공유할 문구", "절 제목이 정해진 순서대로 있고 분석 화면 제목과 겹치지 않는다");
     ok(t.includes("2026년 7월 · 오늘까지"), "진행 중인 달은 오늘까지임을 적는다");
-    ok(t.includes("지출 248,600원 15일 동안"), "15일 동안의 지출 합계를 적는다");
+    // V22.9.89 Astra 2: 진행 중인 기간은 지출 칸 아래에 ‘오늘까지’를 함께 적는다(소비 분석·홈은 그 달 날짜의 기록을 모두 센다).
+    ok(t.includes("지출 248,600원 오늘까지 15일 동안"), "15일 동안의 지출 합계를 오늘까지라고 적는다");
     ok(t.includes("하루 평균 16,573원"), "하루 평균은 지난 날 수(15일)로 나눈다");
     ok(t.includes("지출한 날 3일") && t.includes("무지출 12일"), "지출한 날·무지출 날을 센다");
     ok(t.includes("지난달 같은 기간(1~15일) 기록이 없어 비교하지 않아요"), "비교 기록이 없으면 비교하지 않는다고 말한다");
@@ -61,7 +62,13 @@ await withClock("2026-07-15", async () => {
     const week = await page(fx, `/reports?${Q}&range=week`);
     const wt = text(week.html);
     ok(wt.includes("7/13(월)부터 한 주") && wt.includes("기준: 지난주 같은 요일까지 대비"), "주간 기본값은 오늘이 든 주이고 지난주 같은 요일까지와 견준다");
-    ok(wt.includes("지난주 같은 요일까지보다 72,000원 덜 썼어요 (−100%)"), "지난주 월~수(7/7 72,000원)와 견준다");
+    // V22.9.89 Z-9: 이번 주(7/13~15)에 직접 적은 기록이 없으면 0원을 ‘72,000원 덜 썼어요 (−100%)’라고 하지 않는다(예전 고정값).
+    // 비교 기준(지난주 월~수, 7/7 72,000원)은 이번 주에 한 건(7/14 10,000원)을 적은 뒤 본다.
+    ok(wt.includes("이 기간에 직접 적은 기록이 없어 비교하지 않아요.") && !wt.includes("덜 썼어요"), "이번 주에 직접 적은 기록이 없으면 지난주와 견주지 않는다");
+    fx.db.transactions.push({ id: "tx-lr-week", household_id: "house-home", user_id: "user-bin", transaction_date: "2026-07-14", type: "expense", amount: 10000, category: "식비", memo: "점심", payment_method: "", source: "web", raw_text: "점심", created_at: "2026-07-14T03:00:00Z" });
+    const weekOwn = text((await page(fx, `/reports?${Q}&range=week`)).html);
+    ok(weekOwn.includes("지난주 같은 요일까지보다 62,000원 덜 썼어요 (−86%)"), "지난주 월~수(7/7 72,000원)와 견준다(이번 주 10,000원)");
+    fx.db.transactions = fx.db.transactions.filter((r) => r.id !== "tx-lr-week");
     ok(/<a href="[^"]*range=week&amp;week=2026-07-13" aria-current="true" class="">7\/13~7\/19 · 이번 주<\/a>/.test(week.html), "이번 주 칩이 선택돼 있다");
     ok(/reportMonthNav[\s\S]*href="\/reports\?month=2026-06&amp;household_id=house-home&amp;range=week"/.test(week.html), "월 이동 링크가 주간 보기를 유지한다");
     ok(week.html.includes('<input type="hidden" name="range" value="week"/>'), "월 이동 폼도 주간 보기를 유지한다");

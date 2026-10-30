@@ -28,6 +28,8 @@ const SOURCES = [
   { key: "V87", path: "docs/codex/DESIGN_FINDINGS_V22_9_87.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(W-[0-9]+)(?=[ *]|$)/gm, expected: 4 },
   // V22.9.88: V22.9.81~87 운영 반영 뒤 Codex 검토가 짚은 6건(Y-6 = V79:T-7 의 남은 틈).
   { key: "V88", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_88.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(Y-[0-9]+)(?=[ *]|$)/gm, expected: 7 },
+  // V22.9.89: V22.9.88 운영 뒤 Codex Astra 리포트의 계산 7건과 고치며 찾은 2건(Z-8 월말 예상 바닥·Z-9 기록 없는 기간 비교).
+  { key: "V89", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_89.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(Z-[0-9]+)(?=[ *]|$)/gm, expected: 9 },
 ];
 // '결함 아님'은 다시 확인해 보니 규격·의도대로인 항목이다. 메모에 근거(규격 문서 줄 등)를 적는다.
 const STATUSES = new Set(["고침", "일부 고침", "남음", "결정 필요", "확인 불가", "결함 아님"]);
@@ -38,7 +40,7 @@ const ledger = read("docs/codex/FINDINGS_LEDGER.md");
 const harness = read(".codex/scripts/verify-repository.mjs");
 const rows = [];
 for (const line of ledger.split("\n")) {
-  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88):[A-Z]-[0-9]+) *[|]/.exec(line);
+  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89):[A-Z]-[0-9]+) *[|]/.exec(line);
   if (!match) continue;
   const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
   const [id, severity, title, status, fixedIn, check, note] = cells;

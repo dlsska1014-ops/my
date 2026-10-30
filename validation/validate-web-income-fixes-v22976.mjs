@@ -233,10 +233,14 @@ await withClock("2026-10-21", () => fixture(async (fx) => {
   );
   fx.db.accountbook_budgets.push(budget("b-food", "식비", 500000));
   const observation = (await api(fx, `/u/api/notifications?${Q}`)).data?.budget_observation || {};
-  t.eq(observation.forecast, 124000, "+ 알림센터의 관측 월말 예상은 오늘까지의 84,000원으로 센다");
+  // V22.9.89 Z-8: 속도는 그대로 오늘까지의 84,000원으로 센다(남은 10일 40,000원). 다만 남은 날 예상은 미리 적은 100,000원보다 작지 않아
+  // 월말 예상은 184,000원(= 그 달 등록액)이다. 예전 124,000원이면 홈이 ‘376,000원이 남아요’라 해 지금 남은 예산 316,000원보다 컸다.
+  t.eq(observation.forecast, 184000, "+ 알림센터의 월말 예상: 속도(84,000원 기준 40,000원)보다 미리 적은 100,000원이 커서 184,000원");
   const home = strip((await page(fx, `/app?${Q}`)).html);
   // V22.9.79 V76 W-7: 홈 한 줄과 예산 알림의 이름이 ‘월말 예상’ 하나로 바뀌었다(숫자는 같은 monthSpendingOutlook).
-  t.ok(home.includes(`월말 예상대로면 ${won(500000 - observation.forecast)}이 남아요`), `+ 홈 '월말 예상대로면'이 알림센터 예상과 같은 숫자다 (${(home.match(/월말 예상대로면 [^ ]+/) || [""])[0]})`);
+  // V22.9.89 U-03: 홈 한 줄은 ‘이대로면 월말에 예산이 약 N만 원 남아요’(근사)다. 같은 월말 예상에서 나온다.
+  t.ok(home.includes(`이대로면 월말에 예산이 약 ${Math.round((500000 - observation.forecast) / 10000)}만 원 남아요`), `+ 홈 월말 문장이 알림센터 예상과 같은 숫자다 (${(home.match(/이대로면 월말에 [^.]*?남아요/) || [""])[0]})`);
+  t.ok(500000 - observation.forecast <= 316000, "+ 월말에 남을 예산이 지금 남은 예산(316,000원)보다 크지 않다");
   const alerts = strip((await page(fx, `/budget-alerts?${Q}`)).html);
   t.ok(alerts.includes(`월말 예상 지출 ${won(observation.forecast)}`), "+ 예산 알림 화면도 같은 월말 예상을 보여 준다");
   t.ok(home.includes("316,000") && home.includes("하루 28,727"), "+ 남은 예산·하루 금액은 예전처럼 미래 날짜 기록을 포함한 월 전체 기준이다");

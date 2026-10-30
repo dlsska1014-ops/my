@@ -124,7 +124,9 @@ function renderV8TxEditForm(t = {}, currentPath = "", members = [], canEditSpend
 // 홈의 뼈대를 사용자가 지울 수 있으면 "홈이 비었어요" 문의에 답할 방법이 없다.
 const HOME_LAYOUT_REPORTS = [
   ["where", "어디에 썼나"],
-  ["pace", "쓰는 속도"],
+  // V22.9.89 U-11: 이 카드는 최근 7일(오늘 포함)과 직전 7일을 견준다. 한 주(월요일 시작)와 다른 기간이라 이름을 계산대로 ‘최근 7일’로 쓴다
+  // (카드 머리는 지난 달이면 ‘마지막 7일’, 이번 달 1~6일이면 ‘이번 달’ — 큰 숫자가 세는 기간).
+  ["pace", "최근 7일"],
   ["budget", "예산 항목"],
   ["reserve", "앞으로 나갈 돈"],
 ];
@@ -253,7 +255,7 @@ function renderHomeReportCards(options = {}) {
           : paceDelta < 0
             ? (pacePast ? `마지막 7일이 직전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 적었어요` : `직전 7일보다 ▼ ${numberWithCommas(Math.abs(paceDelta))}원 덜 쓰는 속도입니다`)
             : (pacePast ? `마지막 7일과 직전 7일이 같았어요` : `직전 7일과 같은 속도입니다`);
-  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>쓰는 속도</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${paceFuture ? "관측 전" : `${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원`}</b><div class="homeReportPace" role="img" aria-label="${paceFuture ? "관측 전" : pacePast ? "마지막 4주 지출" : "최근 4주 지출"}">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
+  const paceCard = `<article class="homeReport"><div class="homeReportTop"><span>${pacePast ? "마지막 7일" : thisWeek.partial ? "이번 달" : "최근 7일"}</span><a href="${escapeHtml(reportHref)}">종합 리포트</a></div><b>${paceFuture ? "관측 전" : `${numberWithCommas(thisWeek.covered ? thisWeek.amount : 0)}원`}</b><div class="homeReportPace" role="img" aria-label="${paceFuture ? "관측 전" : pacePast ? "마지막 4주 지출" : "최근 4주 지출"}">${paceBars}</div><small>${escapeHtml(paceRead)}</small></article>`;
 
   // 3. 예산 항목 — 넘겼거나 곧 넘길 분류가 있는지.
   const alerts = safeArray(budgetAlerts);

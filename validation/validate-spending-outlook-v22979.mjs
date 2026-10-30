@@ -98,19 +98,41 @@ await withClock("2026-10-15", async () => {
     return same(need(outlookModule, "spendingOutlookBreakdown")(o), "기록 300,000원 + 남은 고정·정기 0원 + 남은 16일 예상 320,000원");
   });
 });
+// V22.9.89: 남은 날 예상은 미리 적은 일반 지출(31일 999원)보다 작지 않다. 속도 예상이 그보다 크면 예전 식과 같고,
+// 작으면(금액 1·7원) 오늘까지 기록 + 999원이다 — 예전에는 이때 월말 예상이 그 달 등록액보다 작았다.
 for (const day of ["01", "02", "15", "30", "31"]) {
-  await withClock(`2026-10-${day}`, () => check(`1 정기 항목이 없으면 ${day}일에도 예전 식(round(관측 ÷ 지난 날 × 그 달 일수))과 같다`, () => {
+  await withClock(`2026-10-${day}`, () => check(`1 정기 항목이 없으면 ${day}일에도 예전 식(round(관측 ÷ 지난 날 × 그 달 일수))과 같되, 미리 적은 일반 지출보다 작지 않다`, () => {
     const outlook = need(outlookModule, "monthSpendingOutlook");
     const observed = need(analyticsModule, "monthlyObservedSpending");
     for (const amount of [1, 7, 12345, 300000]) {
       const rows = [tx("2026-10-01", amount), tx(`2026-10-${day}`, amount * 3), tx("2026-10-31", 999)];
       const got = outlook({ month: MONTH, rows, recurring: [], plans: [] }).expected.total;
-      const old = observed(rows, MONTH).burnForecast;
-      if (got !== old) return `금액 ${amount}: ${got} ≠ ${old}`;
+      const old = observed(rows, MONTH);
+      const want = Math.max(old.burnForecast, old.observedExpense + (day === "31" ? 0 : 999));
+      if (got !== want) return `금액 ${amount}: ${got} ≠ ${want}`;
+      if (amount >= 12345 && got !== old.burnForecast) return `금액 ${amount}: 예전 식 ${old.burnForecast} 과 다름(${got})`;
     }
     return true;
   }));
 }
+await withClock("2026-10-15", async () => {
+  // 예산 1,000,000원(식비), 15일까지 100,000원, 20일로 미리 적은 일반 지출. 속도 예상(16일 106,667원)보다 크면 그 금액을 쓴다.
+  const budgets = [{ category: "식비", amount: 1000000 }];
+  const rowsWith = (ahead) => [tx("2026-10-05", 100000, { category: "식비" }), tx("2026-10-20", ahead, { category: "식비" })];
+  await check("1 V22.9.89 미리 적은 800,000원 > 속도 예상: 월말 예상 900,000원, 월말에 남을 예산(100,000원)이 지금 남은 예산을 넘지 않는다", () => {
+    const o = need(outlookModule, "monthSpendingOutlook")({ month: MONTH, rows: rowsWith(800000), recurring: [], plans: [], budgets, scope: "budgeted" });
+    return all(same([o.expected.total, o.expected.pace, o.recorded.futureOrdinary, o.budget.remaining, o.budget.diff, o.budget.runOutDay], [900000, 800000, 800000, 100000, -100000, null]),
+      o.budget.total - o.expected.total <= o.budget.remaining || "월말에 남을 예산이 지금 남은 예산보다 크다");
+  });
+  await check("1 V22.9.89 미리 적은 950,000원으로 예산을 넘으면 그 날(20일)에 바닥난다(12일 먼저)", () => {
+    const o = need(outlookModule, "monthSpendingOutlook")({ month: MONTH, rows: rowsWith(950000), recurring: [], plans: [], budgets, scope: "budgeted" });
+    return same([o.expected.total, o.budget.diff, o.budget.runOutDay, o.budget.daysEarly], [1050000, 50000, 20, 12]);
+  });
+  await check("1 V22.9.89 미리 적은 50,000원 < 속도 예상: 예전처럼 더하지 않는다(D3 계약)", () => {
+    const o = need(outlookModule, "monthSpendingOutlook")({ month: MONTH, rows: rowsWith(50000), recurring: [], plans: [], budgets, scope: "budgeted" });
+    return same([o.expected.total, o.expected.pace, o.budget.runOutDay], [206667, 106667, null]);
+  });
+});
 
 // ── 2. 1일에 적힌 월세는 하루 평균을 부풀리지 않는다(시험 2) ──────────────────────────────
 const RENT_FIRST = [fixedRow("r-rent", MONTH, "2026-10-01", 600000), tx("2026-10-04", 200000, { category: "식비" })];
@@ -266,7 +288,8 @@ await withClock("2026-10-10", () => fixture(async (fx) => {
     const b = notes.budget_observation || {};
     return same([b.forecast, b.after_pending_assumption, b.expected_parts], [1170000, 1170000, { recorded: 150000, fixed_remaining: 705000, pace: 315000, remaining_days: 21, reserve_state: "complete", partial: false }]);
   });
-  await check("7 홈 하루 계획 한 줄: 월말 예상대로면 1,830,000원이 남아요(300만 − 1,170,000)", () => same(homePlanNote(home), "월말 예상대로면 1,830,000원이 남아요"));
+  // V22.9.89 U-03(V2 작업 지시서): 범위를 말하고 큰 금액은 만 원 단위 근사로 쓴다. 근거 숫자(300만 − 1,170,000)는 그대로다.
+  await check("7 홈 하루 계획 한 줄: 이대로면 월말에 예산이 약 183만 원 남아요(300만 − 1,170,000)", () => same(homePlanNote(home), "이대로면 월말에 예산이 약 183만 원 남아요"));
   await check("7 홈 ‘앞으로 나갈 돈’ 705,000원 = 알림 JSON 남은 고정·정기", () => all(same(homeCard(home), won(705000)), same(notes.budget_observation?.expected_parts?.fixed_remaining, 705000)));
   await check("7 /my/analysis 월말 예상 지출 1,170,000원", () => same(metric(insight, "월말 예상 지출"), expected));
   await check("7 /my/analysis?view=report 월말 예상 1,170,000원(두 카드)", () => all(has(report, `<span class="muted">월말 예상 지출</span><b>${expected}</b>`), has(report, `<span class="muted">월말 예상</span><b>${expected}</b>`)));
@@ -287,7 +310,7 @@ await withClock("2026-10-10", () => fixture(async (fx) => {
     const warn = (notes.notifications || []).find((item) => item.key === `budget-warn:${MONTH}`);
     return all(same(notes.budget_observation?.forecast, 1015000), has(warn?.body || "", "남은 고정지출까지 더한 월말 예상 1,015,000원 / 예산 1,000,000원"));
   });
-  await check("7b 홈도 같은 근거로 예산이 먼저 끝난다고 말한다(30일 바닥 → 2일 먼저)", () => same(homePlanNote(home), "예상대로면 예산이 2일 먼저 끝나요"));
+  await check("7b 홈도 같은 근거로 예산이 먼저 끝난다고 말한다(30일 바닥 → 2일 먼저)", () => same(homePlanNote(home), "이대로면 예산이 2일 먼저 끝나요")); // V22.9.89 U-03 문구
 }));
 
 // ── 3b. 화면에서도 반영 대기를 한 번만, 같은 판정·같은 이름으로(V78 S-2) ─────────────────────
@@ -389,7 +412,8 @@ await withClock("2026-10-14", () => fixture(async (fx) => {
   const budgets = strip((await page(fx, `/budgets?${Q}`)).html);
   await check("D-4 카카오 남은예산: 외식 예산이 배달까지 센다(35,000원)", () => has(kakao, "사용 금액: 35,000원"));
   await check("D-4 카카오 남은예산: 예산 밖 지출(장보기 9,000원)을 조용히 빼지 않고 적는다", () => has(kakao, "예산 밖 지출: 9,000원"));
-  await check("D-4 홈: 지출 35,000원 옆에 예산 밖 9,000원을 적는다", () => has(home, "<span>지출 35,000원 · 예산 밖 9,000원</span>"));
+  // V22.9.89 U-02: 홈 예산 카드 아랫줄은 용어 사전(metric-labels.js) 이름을 쓴다(‘지출’→‘예산 쓴 돈’, ‘예산 밖’→‘예산 안 정한 지출’). 숫자는 같다.
+  await check("D-4 홈: 예산 쓴 돈 35,000원 아래에 예산 안 정한 지출 9,000원을 적는다", () => has(home, "<span>예산 쓴 돈 35,000원<br>예산 안 정한 지출 9,000원</span>"));
   await check("D-4 예산 화면도 같은 숫자다(사용 35,000원, 예산 밖 9,000원)", () => all(has(budgets, "사용 35,000원"), has(budgets, "예산 밖 지출 9,000원")));
 }));
 

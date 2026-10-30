@@ -39,7 +39,8 @@ ok(source.includes("const includeReserve = !!selectedHousehold && month === curr
 
 // 5. 카드 문자열은 escapeHtml 을 통과한다.
 ok(source.includes("${escapeHtml(homeReserveHeadline)}"), "the headline is escaped");
-ok(source.includes("${escapeHtml(homeReserveSub)}"), "the sub copy is escaped");
+// V22.9.89 U-07: 작은 줄이 여러 줄(이번 달 아직 안 나감 · 납부·입금 일정)이 되어 줄마다 escapeHtml 을 거친다.
+ok(source.includes('${homeReserveSubs.map((line) => `<small>${escapeHtml(line)}</small>`).join("")}'), "the sub copy is escaped");
 ok(source.includes("${escapeHtml(homeReserveHref)}"), "the card href is escaped");
 
 // 6. 라이트/다크 스타일이 있다.
@@ -80,7 +81,9 @@ const nowHome = await (await get(`/app?month=${kstMonth}${hh}`)).text();
 const nowCard = cardOf(nowHome);
 ok(nowCard, "the reserve entry card renders on the current month");
 ok(nowCard.includes("1건"), "the card counts the fixture reserve plan");
-ok(nowCard.includes("매월 100,000원 준비"), "the card shows the monthly preparation amount (1,200,000 / 12)");
+// V22.9.89 U-07(사용자 결정 D-9): 홈 카드는 매달 자동 기록(픽스처의 월세 650,000원)을 첫 줄에, 납부·입금 일정은 가장 가까운 한 건을 적는다.
+// 월 준비 권장액(1,200,000 / 12)은 정기 수입·지출 화면의 납부·입금 일정 칸으로 옮겼다(아래 reserveHtml 에서 본다).
+ok(nowCard.includes("매달 나감 650,000원") && nowCard.includes("납부·입금 일정 1건 · 자동차보험"), "the card shows the monthly fixed items first and the nearest schedule");
 ok(nowCard.includes("/reserve-plans?"), "the card links to the reserve plans page");
 
 // 과거 달: 정기항목을 불러오지 않으므로 "없음" 이라고 말하면 안 된다.
@@ -102,6 +105,7 @@ eq(reserveRes.status, 200, "the reserve plans page still renders");
 const reserveHtml = await reserveRes.text();
 ok(reserveHtml.includes("/admin/reserve-plan/create"), "the reserve plans page keeps its create form");
 ok(reserveHtml.includes("자동차보험"), "the reserve plans page lists the fixture plan");
+ok(reserveHtml.includes("<span>월 준비 권장액</span><b>100,000원"), "the monthly preparation amount (1,200,000 / 12) lives in the schedule section");
 
 // 리포트: 표는 읽기전용, 링크만 예산으로.
 const reportHtml = await (await get(`/my/analysis?month=${kstMonth}${hh}&view=report`)).text();
