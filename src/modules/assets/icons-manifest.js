@@ -316,6 +316,7 @@ async function appIconAssetResponse(request, url) {
 }
 // @build:exports-start
 export {
-  AB_MANIFEST_LINK, AB_SPECULATION_RULES_PATH, AB_SPECULATION_RULES_TAG, appIconAssetResponse,
+  AB_MANIFEST_LINK, AB_SPECULATION_RULES_JSON, AB_SPECULATION_RULES_PATH, AB_SPECULATION_RULES_TAG,
+  appIconAssetResponse,
 };
 // @build:exports-end

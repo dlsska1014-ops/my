@@ -47,6 +47,8 @@
 // 그 뒤 --print-golden 으로 12개(home·homeTrend·homePrev·budgets·budgetAlerts·reports·reportsWeek·analysis·backupPage·backupFull·backupMonth·candidate)를 다시 얻었다.
 // V22.9.91(2026-10-30, 계정 잇기): 꺼짐 화면은 바뀌지 않고 판 이름만 바뀐다. 판 이름을 V22.9.90 값으로 잠시 되돌린 같은 트리에서 옛 값 그대로
 // 268개가 모두 통과함을 먼저 확인한 뒤 analysis·backupFull·backupMonth 세 값을 --print-golden 으로 다시 얻었다(V22.9.88 과 같은 방법).
+// V22.9.92(2026-10-30, 애드핏 준비·기능 둘러보기): 꺼짐 화면은 바뀌지 않고 판 이름만 바뀐다. 같은 방법(판 이름을 V22.9.91 값으로 잠시 되돌린
+// 트리에서 옛 값 268개 통과 확인)으로 analysis·backupFull·backupMonth 세 값을 다시 얻었다.
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -64,15 +66,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 9d10c0158793897e5885deba",
   "reportsWeek": "200 65df83aea0e816b4d91d2daa",
-  "analysis": "200 90cf879755209102dde00f82",
+  "analysis": "200 f1e14d587f51696f7496945a",
   "backupPage": "200 a949073b28fb83b6346eaba3",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 eeb32222897c3b127785a798",
-  "backupMonth": "200 2750a572b514c668beb85fae",
+  "backupFull": "200 afd05d317f6cf59941e882a7",
+  "backupMonth": "200 60a23a513dbea83d1042f36e",
   "candidate": "200 1a0d7777dca01ce01a87e80f",
   "legacyErr": "200 bfc684233d18c4570db218ba", // V22.9.81 U-19: 옛 관리자 화면 오류 칸이 record_update_failed 를 코드 글자 대신 안내 문장으로 보인다(의도한 변경)
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

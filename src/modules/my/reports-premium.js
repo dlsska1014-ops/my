@@ -818,6 +818,6 @@ export {
   cardTargetsKey, freeReportPreferenceKey, handleAutomaticReportCron, handleCardTargetSave,
   handleFreeReportsPage, handleMyPremiumPage, handleReportPreferenceSave,
   parseJsonArraySettingStrict, parseJsonSetting, rebuildMonthlyReportSnapshots,
-  renderMiniCategoryRows, runAutomaticReports, saveSettingValue,
+  renderMiniCategoryRows, renderReportTopRows, runAutomaticReports, saveSettingValue,
 };
 // @build:exports-end

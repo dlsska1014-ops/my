@@ -2,8 +2,8 @@
 import { nluOpsConfig } from "../runtime/ops-telemetry.js";
 import {
   BUSINESS_FOOTER_INFO, PUBLIC_CONTENT_PATHS, adSlotMarkup, adsHeadMarkup, adsHeaders,
-  adsPolicyLinks, adsPolicyText, adsensePublisherIdForTxt, appName, kakaoLoginButtonHtml,
-  publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav,
+  adsPolicyLinks, adsPolicyNetwork, adsPolicyText, adsensePublisherIdForTxt, appName,
+  kakaoLoginButtonHtml, publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav,
 } from "./site-config.js";
 import {
   publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages,
@@ -16,6 +16,7 @@ import {
 import { headOnlyResponse, htmlResponse } from "../runtime/http.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { inspectKakaoLoginConfig } from "../auth/user-session.js";
+import { renderReportTopRows } from "../my/reports-premium.js";
 import {
   AB_CATEGORY_ICON_PATHS, AB_NAV_ICON_PATHS, AB_UI_ICON_PATHS,
 } from "../assets/icon-paths.js";
@@ -28,6 +29,9 @@ import { escapeHtml } from "../domain/transactions-core.js";
 // @build:imports-end
 
 function publicPageCatalog(env = {}, url = null) {
+  // V22.9.92: 카카오 애드핏으로 광고를 내는 서버(adsPolicyNetwork 가 "adfit")에서는 개인정보처리방침·쿠키 안내의 광고 절을
+  // 카카오 기준 문장과 링크로 바꾼다(Google 안내·지역별 동의 절은 Google 광고에만 맞는 말이라 뺀다). 그 밖(심사 모드·AdSense)은 지금 그대로다.
+  const adfit = adsPolicyNetwork(env) === "adfit";
   const catalog = {
     ...publicGuidePages(env),
     ...publicLivingCostArticlesV22974(),
@@ -40,7 +44,7 @@ function publicPageCatalog(env = {}, url = null) {
         { title: "1. 처리하는 항목과 목적", paragraphs: ["사용자 식별키와 로그인 정보는 사용자 구분과 세션 유지에 사용합니다. 가계부 이름, 참여자 권한, 초대코드, 표시 이름은 공동 가계부 운영에 사용합니다.", "수입·지출, 날짜, 분류, 결제수단, 메모, 예산과 설정값은 기록·조회·분석·백업 기능을 제공하기 위해 처리합니다. 카카오 거래 입력 원문은 거래 데이터와 함께 보관될 수 있습니다. 단톡방 연결키는 첫 기록으로 준비하거나 직접 연결한 공동 가계부와 해당 방을 구분하는 데 사용합니다."], bullets: ["회원 및 세션 관리", "가계부 생성·참여·권한 관리", "거래 기록·예산·요약·정산 제공", "중복 저장 방지와 장애 대응", "법적 의무와 분쟁 대응"] },
         { title: "2. 사용자 발화와 자연어 운영 로그", paragraphs: ["사용자 발화는 요청을 이해하고 응답하기 위해 사용합니다. 발화를 외부 AI 모델의 학습 데이터로 자동 전송하거나 자동 학습 데이터로 등록하지 않습니다.", "운영 통계는 의도, 처리 결과, 지연시간과 배포 버전을 집계합니다. 실패한 요청의 일부 문장은 URL·이메일·전화번호·코드·긴 숫자 등을 마스킹하여 임시 메모리에 보관할 수 있습니다. 마스킹이 모든 개인정보를 완전히 제거한다고 보장하지는 않습니다. 별도 실패 사례 저장은 운영 설정에 따르며 거래 데이터의 보관과 구분합니다."] },
         { title: "3. 보유기간과 삭제", paragraphs: ["가계부 거래와 설정은 사용자가 서비스를 이용하는 동안 보관하며 웹에서 직접 수정·삭제할 수 있습니다. 가계부 소유자가 영구 삭제를 완료하면 해당 가계부의 거래와 관련 설정을 삭제합니다. 가계부 나가기는 참여 권한을 종료하며 공동 거래 이력은 보존합니다. 현재 계정 자체를 탈퇴·삭제하는 온라인 기능은 제공하지 않으며 개인정보 삭제 요청은 서비스 문의 경로로 확인합니다.", "세션과 운영 로그는 목적에 필요한 기간만 보관합니다. 법령상 보존 의무가 있는 경우 해당 기간 동안 분리 보관할 수 있습니다."] },
-        { title: "4. 제3자 광고와 쿠키", paragraphs: [adsPolicyText(env, "privacy") || "현재 공개 페이지에서는 Google 광고를 실행하지 않습니다. 향후 광고 기능이 활성화되면 Google을 포함한 제3자 광고 사업자가 쿠키를 사용해 사용자의 이전 방문 정보 등을 바탕으로 광고를 제공하고 성과를 측정할 수 있습니다.", "제3자는 광고 제공 과정에서 브라우저의 쿠키를 저장·조회하거나 웹 비콘과 IP 주소 같은 기술을 사용할 수 있습니다. 말해가계부는 거래 내용, 예산, 가계부 구성원 정보와 사용자 발화 원문을 광고주에게 판매하지 않습니다. 사용자는 Google 광고 설정과 브라우저 설정을 통해 광고 개인화와 쿠키를 관리할 수 있습니다."], links: [...adsPolicyLinks(env), ["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 파트너 사이트 정보 이용 안내", "https://policies.google.com/technologies/partner-sites?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
+        adfit ? { title: "4. 제3자 광고와 쿠키", paragraphs: [adsPolicyText(env, "privacy"), adsPolicyText(env, "privacy-control")], links: adsPolicyLinks(env) } : { title: "4. 제3자 광고와 쿠키", paragraphs: [adsPolicyText(env, "privacy") || "현재 공개 페이지에서는 Google 광고를 실행하지 않습니다. 향후 광고 기능이 활성화되면 Google을 포함한 제3자 광고 사업자가 쿠키를 사용해 사용자의 이전 방문 정보 등을 바탕으로 광고를 제공하고 성과를 측정할 수 있습니다.", "제3자는 광고 제공 과정에서 브라우저의 쿠키를 저장·조회하거나 웹 비콘과 IP 주소 같은 기술을 사용할 수 있습니다. 말해가계부는 거래 내용, 예산, 가계부 구성원 정보와 사용자 발화 원문을 광고주에게 판매하지 않습니다. 사용자는 Google 광고 설정과 브라우저 설정을 통해 광고 개인화와 쿠키를 관리할 수 있습니다."], links: [...adsPolicyLinks(env), ["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 파트너 사이트 정보 이용 안내", "https://policies.google.com/technologies/partner-sites?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
         { title: "5. 이용자의 권리", paragraphs: ["사용자는 자신의 기록과 설정을 열람·수정·삭제하고 백업할 수 있습니다. 개인정보 처리에 관한 문의와 권리 행사는 문의 안내에 표시된 경로로 요청할 수 있으며 본인과 권한 확인 후 처리합니다."] },
         { title: "6. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
       ],
@@ -67,9 +71,9 @@ function publicPageCatalog(env = {}, url = null) {
       intro: "쿠키는 웹사이트가 브라우저에 저장하는 작은 정보입니다. 말해가계부는 로그인과 보안에 필요한 쿠키를 사용할 수 있으며, 광고 기능을 활성화한 경우 제3자 광고 쿠키가 사용될 수 있습니다.",
       sections: [
         { title: "필수 쿠키", paragraphs: ["로그인 세션 유지, 요청 위조 방지, 사용자 화면 설정과 보안 기능에 필요한 쿠키입니다. 필수 쿠키를 차단하면 로그인이나 가계부 기능이 정상 작동하지 않을 수 있습니다."] },
-        { title: "광고 및 측정 기술", paragraphs: [adsPolicyText(env, "cookies") || "현재 공개 페이지에서는 Google 광고 실행 코드와 광고 쿠키를 사용하지 않습니다. 향후 광고 기능을 활성화하면 Google과 제3자 광고 사업자가 쿠키와 유사 기술을 사용해 광고를 제공하고 성과를 측정할 수 있습니다.", "사용자는 Google 광고 설정과 브라우저의 사이트별 쿠키 설정을 통해 광고 개인화와 저장된 쿠키를 관리할 수 있습니다."], links: [...adsPolicyLinks(env), ["Google 쿠키 사용 안내", "https://policies.google.com/technologies/cookies?hl=ko"], ["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
-        { title: "쿠키 관리", bullets: ["브라우저 설정에서 쿠키 확인·삭제", "사이트별 쿠키 허용 또는 차단", "Google 광고 및 개인정보 안내 확인", "공용 기기 사용 후 로그아웃"] },
-        { title: "지역별 동의", paragraphs: ["유럽경제지역, 영국, 스위스 등 별도의 동의 요건이 적용되는 지역에 광고를 제공할 경우 Google이 요구하는 인증된 동의 관리 플랫폼과 관련 절차를 적용합니다."] },
+        adfit ? { title: "광고 및 측정 기술", paragraphs: [adsPolicyText(env, "cookies"), adsPolicyText(env, "cookies-control")], links: adsPolicyLinks(env) } : { title: "광고 및 측정 기술", paragraphs: [adsPolicyText(env, "cookies") || "현재 공개 페이지에서는 Google 광고 실행 코드와 광고 쿠키를 사용하지 않습니다. 향후 광고 기능을 활성화하면 Google과 제3자 광고 사업자가 쿠키와 유사 기술을 사용해 광고를 제공하고 성과를 측정할 수 있습니다.", "사용자는 Google 광고 설정과 브라우저의 사이트별 쿠키 설정을 통해 광고 개인화와 저장된 쿠키를 관리할 수 있습니다."], links: [...adsPolicyLinks(env), ["Google 쿠키 사용 안내", "https://policies.google.com/technologies/cookies?hl=ko"], ["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
+        { title: "쿠키 관리", bullets: ["브라우저 설정에서 쿠키 확인·삭제", "사이트별 쿠키 허용 또는 차단", adfit ? "카카오 맞춤형 광고 안내 확인" : "Google 광고 및 개인정보 안내 확인", "공용 기기 사용 후 로그아웃"] },
+        ...(adfit ? [] : [{ title: "지역별 동의", paragraphs: ["유럽경제지역, 영국, 스위스 등 별도의 동의 요건이 적용되는 지역에 광고를 제공할 경우 Google이 요구하는 인증된 동의 관리 플랫폼과 관련 절차를 적용합니다."] }]),
       ],
     },
   };
@@ -182,6 +186,49 @@ function publicLandingHtml() {
     + `<section class="pubLand pubLandNote" aria-labelledby="land-note">${ico("shield")}<div><h2 id="land-note">알아 둘 점</h2><p>말해가계부는 사용자가 입력한 생활비를 정리하는 독립 서비스입니다. 은행·카드사 계정을 자동으로 연결하거나 투자·세무 판단을 대신하지 않습니다. 카카오가 직접 제공하는 공식 가계부 서비스는 아닙니다.</p></div></section>`;
 }
 
+// V22.9.92(사용자 2026-10-30 "심사자가 가입 없이 전체 기능들과 필요한 주소들을 체험할 수 있는 무언가" → 조사 권장 ‘기능 둘러보기’):
+// /demo 맨 위 웹 홈 미리보기 아래에 여섯 가지 기능을 차례로 보인다. 모두 가상 데이터이고 링크 말고는 조작 요소가 없다(폼·단추·스크립트 없음,
+// 서버 요청·쿠키·저장 없음). 카카오톡 답은 실제 저장 답과 같은 줄이다 — 9월 9일 ‘식사 60000원 카드’를 1:1 채팅에 보낸 답에서 가계부 이름·
+// 분류·지출자만 예제 값으로 둔다(validate-demo-tour-v22992 가 픽스처의 실제 /skill 답과 줄마다 대조한다). 리포트 표는 실제 리포트의
+// ‘지출 상위 분류’ 줄 함수(renderReportTopRows)로 아래 예산 예제와 같은 네 기록(publicDemoRows)을 그린다.
+const PUBLIC_TOUR_CHAT = Object.freeze({
+  utterance: "식사 60000원 카드",
+  reply: Object.freeze(["💸 지출 저장했어요 😊", "새로 저장 1건 · 중복 저장 안 함 0건 · 합계 60,000원", "날짜: 2026-09-09", "가계부: 우리집 생활비", "01번 - 식사 / 60,000원 / 카드 / 식비", "지출자: 민지", "", "수정: \"수정 01번\" 또는 \"수정 01번 금액 13000\"", "삭제: \"삭제 01번\""]),
+});
+
+function publicTourTopCategories() {
+  const totals = new Map();
+  for (const row of publicDemoRows()) {
+    const item = totals.get(row.category) || { name: row.category, amount: 0, count: 0 };
+    item.amount += row.amount;
+    item.count += 1;
+    totals.set(row.category, item);
+  }
+  return [...totals.values()].sort((a, b) => b.amount - a.amount);
+}
+
+function publicTourHtml() {
+  const stop = (id, num, title, body, preview, where, links) => `<li class="pubTourStop" id="tour-${id}"><h3><span aria-hidden="true">${num}</span>${title}</h3><p>${body}</p>${preview}<p class="pubTourWhere">${where}</p>${publicContentLinks(links)}</li>`;
+  const chat = `<figure class="pubTourPreview pubChat"><figcaption>카카오톡 1:1 채팅 · 가상 예시</figcaption><p class="pubChatMe"><span class="pubSr">내가 보낸 말: </span>${escapeHtml(PUBLIC_TOUR_CHAT.utterance)}</p><div class="pubChatBot"><b>말해가계부</b><p>${PUBLIC_TOUR_CHAT.reply.map((line) => escapeHtml(line)).join("\n")}</p></div></figure>`;
+  const report = `<figure class="pubTourPreview pubTourReport"><figcaption>2026년 9월 · 지출 상위 분류 · 가상 예시</figcaption><table><thead><tr><th scope="col">분류</th><th scope="col">금액</th><th scope="col">건수</th></tr></thead><tbody>${renderReportTopRows({ top_categories: publicTourTopCategories() })}</tbody></table></figure>`;
+  return `<section class="pubSection pubTour" id="tour" aria-labelledby="tour-title"><h2 id="tour-title">한눈에 보는 여섯 가지 기능</h2><p>아래 예시는 모두 가상 데이터예요. 기록은 카카오톡이나 웹 가계부 홈의 빠른 입력으로 하고, 카드 내역 파일은 ‘가져오기’로 한 번에 옮겨요. 확인과 정리는 로그인한 웹 가계부에서 해요. 각 화면의 주소는 아래 ‘주요 화면 주소’에 모아 두었어요.</p><ol class="pubTourList" role="list">`
+    + stop("kakao", 1, "카카오톡에 한 줄로 기록해요", "말해가계부 채널 1:1 채팅이나 봇을 부른 단톡방에 ‘식사 60000원 카드’처럼 보내면 날짜·금액·결제수단·분류를 나눠 저장하고, 고칠 때 쓸 번호를 알려 줘요.", chat, "어디서: 카카오톡 채팅방", [["카카오 입력·수정 방법", "/kakao-guide"], ["첫 기록과 웹 이어 열기", "/how-it-works"]])
+    + stop("home", 2, "웹 홈에서 남은 예산을 봐요", "웹 가계부 홈은 이번 달 쓸 수 있는 돈, 예산 사용률, 하루에 써도 되는 금액과 최근 기록을 한 화면에 모아요. 이 페이지 맨 위 화면이 아래 예제를 9월 17일에 홈으로 본 모습이에요.", "", "어디서: 로그인 뒤 /app", [["예산 숫자 읽는 법", "/budget-guide"]])
+    + stop("edit", 3, "고치고, 지워도 되돌릴 수 있어요", "웹 가계부의 거래 내역에서 금액·분류·메모를 고치거나 기록을 지울 수 있어요. 지운 직후 5초 동안은 ‘되돌리기’로 다시 살릴 수 있어요. 카카오톡에서는 저장 답의 번호로 ‘수정 01번 금액 13000’, ‘삭제 01번’처럼 보내요.", "", "어디서: 로그인 뒤 /app?tab=transactions(거래 내역) · 카카오톡", [["기능과 권한", "/service-guide"]])
+    + stop("report", 4, "리포트로 어디에 많이 썼는지 봐요", "생활비 리포트는 주간·월간 지출을 분류별로 정리하고 지난 기간과 비교해요. 아래 표는 예제 네 기록으로 만든 ‘지출 상위 분류’예요.", report, "어디서: 로그인 뒤 /reports · 1년 흐름은 /annual", [["리포트 읽는 법", "/report-guide"]])
+    + stop("budget", 5, "예산을 바꿔 계산해 봐요", "분류별 예산을 정하면 예산을 정한 분류의 지출만 사용률에 넣고, 나머지는 ‘예산 안 정한 지출’로 따로 보여 줘요. 아래 예제에서 식비·교통 예산을 직접 바꿔 보세요.", "", "어디서: 로그인 뒤 /budgets", [["예산 계산 예제로 가기", "#example"], ["예산 계산 방법", "/budget-guide"]])
+    + stop("group", 6, "단톡방이면 함께 쓰는 가계부가 돼요", "단톡방에서 봇을 부르고 기록하면 그 방의 공동 가계부가 준비돼요. 참여자와 초대코드는 ‘참여자·초대’에서, 누가 얼마를 보내면 되는지는 ‘정산’에서 봐요. 송금 금액은 제안만 하고 실제 송금은 직접 해요.", "", "어디서: 카카오톡 단톡방 · 로그인 뒤 /my/members · /settlement-summary", [["공동 가계부와 정산 사례", "/group-accountbook"]])
+    + `</ol></section>`;
+}
+
+// 둘러보기 CSS: /demo 에만 싣는다. 카카오톡 말풍선은 카카오톡 라이트 화면 색(배경 #bacee0, 내 말 #fee500, 봇 말 흰색)이다.
+function publicTourStyles() {
+  return `.pubTour .pubSr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.pubTour .pubTourList{display:grid;gap:14px;margin:18px 0 0;padding:0;list-style:none}.pubTour .pubTourStop{padding:20px;border:1px solid #dce3ef;border-radius:18px;background:#fff}.pubTourStop h3{display:flex;align-items:center;gap:10px;margin:0 0 8px;font-size:19px;line-height:1.45;letter-spacing:-.03em}.pubTourStop h3 span{display:inline-grid;place-items:center;flex:none;width:28px;height:28px;border-radius:50%;background:#e8f3ff;color:#1d4ed8;font-size:14px;font-weight:800}.pubTour .pubTourStop p{margin:0 0 10px}.pubTour .pubTourWhere{margin:10px 0 0;color:#526075;font-size:14px;line-height:1.7}.pubTourStop .pubLinks{margin:8px 0 0}`
+    + `.pubTourPreview{max-width:440px;margin:12px 0 4px}.pubTourPreview figcaption{margin:0 0 8px;color:#5f6b7a;font-size:13px;font-weight:800;line-height:1.5}`
+    + `.pubChat{display:grid;gap:10px;padding:14px;border-radius:20px;background:#bacee0}.pubChat figcaption{color:#1f2937}.pubTour .pubChatMe{justify-self:end;max-width:80%;margin:0;padding:9px 12px;border-radius:14px 4px 14px 14px;background:#fee500;color:#191919;font-size:14.5px;line-height:1.55}.pubChatBot{justify-self:start;max-width:94%}.pubChatBot b{display:block;margin:0 0 4px;color:#1f2937;font-size:12.5px;font-weight:700}.pubTour .pubChatBot p{max-width:none;margin:0;padding:10px 12px;border-radius:4px 14px 14px 14px;background:#fff;color:#191919;font-size:14px;line-height:1.6;white-space:pre-line}`
+    + `.pubTourReport table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #dce3ef;border-radius:14px;overflow:hidden;background:#fff;font-size:14px;line-height:1.6}.pubTourReport th,.pubTourReport td{padding:10px 12px;border-top:1px solid #e1e7f0;text-align:left}.pubTourReport thead th{border-top:0;background:#f1f5fb;color:#1e293b}.pubTourReport td{color:#43516a}.pubTourReport td:nth-child(n+2),.pubTourReport th:nth-child(n+2){text-align:right;font-variant-numeric:tabular-nums}`;
+}
+
 // 카카오 로그인 띠: 카카오 로그인이 준비된 서버에서는 /my 와 같은 카카오 버튼(/auth/kakao/start), 아니면 /my 로 가는 주 버튼.
 function publicLandingBand(env = {}) {
   const start = inspectKakaoLoginConfig(env).ready ? kakaoLoginButtonHtml() : `<a class="pubBtn" href="/my">내 가계부 시작하기</a>`;
@@ -248,7 +295,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home") {
     ? `작성·관리: <a href="/about">${escapeHtml(BUSINESS_FOOTER_INFO.company)} 운영팀</a> · 수정 <time datetime="${page.updated}">${page.updated}</time> · 작성 <time class="pubPublished" datetime="${page.published}">${page.published}</time> · 읽는 시간 약 ${publicArticleReadingMinutes(page)}분`
     : `${type === "Article" ? "작성·관리" : "운영"}: <a href="/about">${escapeHtml(BUSINESS_FOOTER_INFO.company)}${type === "Article" ? " 운영팀" : ""}</a> · 안내 수정 <time datetime="${page.updated}">${page.updated}</time>`;
   const readingNext = living ? `<a href="/articles">생활비 가이드 글 전체 목록 보기 →</a>` : `<a href="/guides">다른 사용 가이드 찾아보기 →</a>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/><meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${page.landing || page.demo ? publicPreviewStyles(!!page.demo) : ""}${page.landing ? publicLandingStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml(true) : ""}<p class="pubMeta">${metaLine}</p><div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.landing ? publicLandingHtml() : ""}${extras.summary}${toc}${sections}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}</main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/><meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${page.landing || page.demo ? publicPreviewStyles(!!page.demo) : ""}${page.landing ? publicLandingStyles() : ""}${page.demo ? publicTourStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml(true) : ""}<p class="pubMeta">${metaLine}</p><div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.landing ? publicLandingHtml() : ""}${page.demo ? publicTourHtml() : ""}${extras.summary}${toc}${sections}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}</main></body></html>`;
 }
 
 // V22.9.40 (B): 광고 게이트가 쓰는 화면 키는 정본 경로다. 정책·신원 페이지는 게이트의 허용 목록에 없다.

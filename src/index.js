@@ -2357,8 +2357,8 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/ready") {
         const missing = missingRuntimeConfiguration(env);
-        // V22.9.40 (B): ads_mode 는 운영자가 광고 게이트 상태("review"|"live")를 확인하는 값이다. /health 의 모양은 바꾸지 않는다.
-        if (missing.length) return jsonResponse({ ok: false, ready: false, error: "missing_required_configuration", reason: "missing_required_configuration", message: "필수 설정이 비어 있어 요청을 처리할 수 없습니다.", missing_count: missing.length, ads_mode: adsMode(env) }, 503);
+        // V22.9.40 (B): ads_mode 는 운영자가 광고 게이트 상태("review"|"live")를 확인하는 값이다. /health 의 모양은 바꾸지 않는다. V22.9.92: ads_mode 에 "adfit"(카카오 애드핏)이 생겼고, 그때만 광고 단위 상태 adfit_unit("ok"·"missing")를 더한다.
+        if (missing.length) return jsonResponse({ ok: false, ready: false, error: "missing_required_configuration", reason: "missing_required_configuration", message: "필수 설정이 비어 있어 요청을 처리할 수 없습니다.", missing_count: missing.length, ads_mode: adsMode(env), ...(adfitUnitStatus(env) ? { adfit_unit: adfitUnitStatus(env) } : {}) }, 503);
         // V22.9.79 D-5: 환불 연결은 플래그가 켜졌을 때만 따로 알린다(ready 판정·필수 표 13개에는 넣지 않는다).
         const [checks, optionalChecks, rpcResults, alternativeRpcResults, refundLinksReady] = await Promise.all([
           Promise.all(READINESS_REQUIRED_TABLES.map((name) => checkTableAvailable(env, name))),
@@ -2374,7 +2374,7 @@ const ACCOUNTBOOK_WORKER = {
         const allMissingRpcs = [...missingRpcs, ...missingAlternativeRpcs];
         const ready = failed.length === 0 && allMissingRpcs.length === 0;
         const checkedRpcCount = READINESS_CORE_RPCS.length + READINESS_ALTERNATIVE_RPC_GROUPS.reduce((sum, group) => sum + group.length, 0);
-        return jsonResponse({ ok: ready, ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, unavailable_optional_tables: unavailableOptionalTables, missing_rpcs: allMissingRpcs, ads_mode: adsMode(env), ...(refundLinksReady ? { refund_links: refundLinksReady } : {}), time: new Date().toISOString() }, ready ? 200 : 503);
+        return jsonResponse({ ok: ready, ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, unavailable_optional_tables: unavailableOptionalTables, missing_rpcs: allMissingRpcs, ads_mode: adsMode(env), ...(adfitUnitStatus(env) ? { adfit_unit: adfitUnitStatus(env) } : {}), ...(refundLinksReady ? { refund_links: refundLinksReady } : {}), time: new Date().toISOString() }, ready ? 200 : 503);
       }
 
       if ((url.pathname === "/nlu-intents.json" || url.pathname === "/nlu-runtime.json") && request.method === "GET") {
@@ -3078,7 +3078,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.91-IDENTITY-LINK";
+const APP_VERSION = "V22.9.92-ADFIT-READY";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3289,15 +3289,20 @@ function publicAdsenseHead(env = {}) {
 // 마크업, 광고 쿠키 고지 문구는 이 블록 안에만 둔다(validate-adsense-v2-v22817 이 블록 밖 소스 전체에
 // 광고 호스트가 없는지 본다). 기본값(심사 모드)의 HTML 과 헤더는 게이트가 생기기 전과 바이트 단위로 같다.
 function adsMode(env = {}) {
-  // 운영 변수 ADS_MODE 는 이 함수에서만 읽는다. 정확히 "live" 일 때만 live 이고, 값이 없거나
+  // 운영 변수 ADS_MODE 는 이 함수에서만 읽는다. 정확히 "live" 일 때만 live(Google AdSense)이고, 값이 없거나
   // "LIVE"·"on"·"1"·"review"·앞뒤 공백이 붙은 값이면 모두 review 다.
-  return env?.ADS_MODE === "live" ? "live" : "review";
+  // V22.9.92: 정확히 "adfit" 이면 adfit(카카오 애드핏)이다("ADFIT"·"Adfit"·공백 붙은 값은 review). 애드핏을 따로 변수(예: 광고 네트워크
+  // 이름)로 두지 않고 ADS_MODE 의 새 값으로 둔 것은 되돌리기 때문이다. 이 판 전의 판은 "adfit" 을 모르는 값으로 읽어 review(광고 없음)로
+  // 돌아간다. live 에 네트워크 변수를 더하는 방식이면 옛 판이 live 를 AdSense 로 읽어 Google 로더를 싣는다.
+  const value = env?.ADS_MODE;
+  return value === "live" ? "live" : value === "adfit" ? "adfit" : "review";
 }
 
 // 광고를 둘 수 있는 화면(라이브에서만). 공개 정본 가이드에서 정책·신원 화면(privacy·terms·cookies·
 // contact·about·site-map)을 뺀 45쪽(가이드 12쪽 + V22.9.40 생활비 가이드 글 12편 + V22.9.74 허브 1쪽·글 20편)과 로그인 뒤 읽는 화면 5개다. 이 목록에 없는 화면(/app 의 모든 보기,
 // 로그인·가입, 설정·예산·참여자·백업, /my/analysis, 관리자·운영, API·/skill, 404·안전모드)은 키를
 // 받지 않으므로 구조적으로 광고가 붙지 않는다. 새 공개 문서는 일부러 여기에 적어야만 광고가 붙는다.
+// V22.9.92: 애드핏(ADS_MODE=adfit)은 이 목록 가운데 공개 정본 문서만 쓴다(로그인 뒤 화면 5개는 빼고, adsPageLive).
 const AD_PAGE_KEYS = Object.freeze([
   "/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide",
   "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide",
@@ -3323,21 +3328,78 @@ function adsSlotId(env = {}) {
   return typeof value === "string" && /^[0-9]{8,12}$/.test(value) ? value : "";
 }
 
+// V22.9.92: 애드핏 광고 단위. 애드핏이 발급한 광고단위 ID(ADFIT_UNIT_CONTENT, DAN- 뒤 영문·숫자)와 그 단위의 크기(ADFIT_UNIT_SIZE,
+// 가로x세로)를 이 함수에서만 읽는다. 공식 SDK 안내(https://github.com/adfit/adfit-web-sdk)는 발급 코드의 광고단위 정보를 고쳐 설치하지
+// 말라고 하므로 크기도 대시보드에서 만든 값 그대로 받는다. 휴대폰 폭(360px)에 들어가는 배너 크기만 받는다 — 728x90 같은 PC 크기는
+// 휴대폰에서 넘친다. 둘 중 하나라도 맞지 않으면 광고 단위가 없는 것이고, 그러면 애드핏은 어느 화면에도 광고·CSP 확장을 붙이지 않는다.
+const ADFIT_UNIT_SIZES = Object.freeze(["320x50", "320x100", "300x250", "250x250"]);
+
+function adfitUnit(env = {}) {
+  const id = env?.ADFIT_UNIT_CONTENT;
+  const size = env?.ADFIT_UNIT_SIZE;
+  if (typeof id !== "string" || !/^DAN-[A-Za-z0-9]{6,32}$/.test(id)) return null;
+  if (typeof size !== "string" || !ADFIT_UNIT_SIZES.includes(size)) return null;
+  const [width, height] = size.split("x");
+  return { id, width, height };
+}
+
+// V22.9.92: /ready 에 보이는 애드핏 광고 단위 상태 — 애드핏일 때만 "ok"·"missing", 아니면 "". 광고 단위 ID 는 내보이지 않는다.
+function adfitUnitStatus(env = {}) {
+  if (adsMode(env) !== "adfit") return "";
+  return adfitUnit(env) ? "ok" : "missing";
+}
+
 function adsPageLive(env = {}, pageKey = "") {
-  return adsMode(env) === "live" && AD_PAGE_KEYS.includes(pageKey);
+  const mode = adsMode(env);
+  if (mode === "review" || !AD_PAGE_KEYS.includes(pageKey)) return false;
+  // V22.9.92: 애드핏은 로그인한 사람만 보는 화면에 광고를 둘 수 없다(애드핏 운영정책 5.2 "허용된 방문자(예: 멤버십 로그인 등)만
+  // 조회/열람이 가능한 경우"). 그래서 누구나 여는 공개 정본 문서(PUBLIC_CONTENT_PATHS)에만 둔다. 로그인 뒤 읽는 화면 5개
+  // (/reports·/annual·/smart-tools·/start-guide·/keyword-guide)는 AdSense 에서만 허용 화면이다. 광고 단위가 없으면 어디에도 두지 않는다.
+  if (mode === "adfit") return PUBLIC_CONTENT_PATHS.includes(pageKey) && !!adfitUnit(env);
+  return true;
 }
 
 // 광고 자리는 광고가 늦게 와도 화면이 밀리지 않게 높이를 먼저 잡는다. 주변 버튼·링크와 16px 넘게
 // 띄우고(공통 셸의 카드 여백 12px!important 보다 앞서도록 선택자를 높였다), 인쇄에서는 뺀다.
 const ADS_SLOT_CSS = `.adSlot{display:block;min-height:120px;margin:24px 0;padding:12px 16px 16px;background:var(--ab12-surface,#fff);border:1px solid var(--ab12-line,#e5e9f0);border-radius:var(--ab12-radius,20px)}.adSlot::before{content:"광고";content:"광고"/"";display:block;margin:0 0 8px;color:var(--ab12-muted,#667085);font-size:12px;font-weight:700;line-height:1.4}html body .adSlot.adSlot.adSlot{margin-top:24px!important;margin-bottom:24px!important}@media print{.adSlot{display:none!important}}`;
 
+// V22.9.92: 애드핏 SDK 주소(공식 SDK 안내의 설치 코드). 광고 자리 바로 뒤에 한 번 싣는다.
+const ADFIT_SDK_URL = "https://t1.kakaocdn.net/kas/static/ba.min.js";
+
+// V22.9.92 (병합 전 검토): 애드핏 광고는 단위 폭(320·300·250px)보다 좁아지지 않는다. 공개 화면 좌우 여백 18px 과 자리 안쪽
+// 여백 16px 을 빼면 360px 휴대폰에서도 320px 광고가 자리 밖으로 넘쳤다. 그래서 애드핏 자리는 좌우 안쪽 여백을 없애고, 화면 폭이
+// 단위 폭 + 37px 이하이면 자리를 화면 양 끝까지 넓힌다(좌우 테두리·모서리는 뺀다). 단위 폭보다 좁은 화면(320px 단위면 320px
+// 미만)은 맞출 수 없다 — DEPLOYMENT_MATRIX V22.9.92 절.
+function adfitSlotCss(unit) {
+  return `html body .adSlot.adfitSlot.adfitSlot{padding-left:0;padding-right:0;text-align:center}@media (max-width:${Number(unit.width) + 37}px){html body .adSlot.adfitSlot.adfitSlot{margin-left:calc(50% - 50vw)!important;margin-right:calc(50% - 50vw)!important;border-left:0;border-right:0;border-radius:0}}`;
+}
+
+// V22.9.92 (병합 전 검토): 애드핏 SDK 는 미리 렌더링(prerender)을 가리지 않고 실리자마자 광고를 부른다. 공통 규칙은 링크를 누르기
+// 시작할 때(conservative) 다음 화면을 미리 렌더링하므로, 누르다 스크롤만 한 경우에도 보이지 않는 광고 요청이 생긴다. 애드핏
+// 화면에서는 같은 대상·같은 시점의 미리 받기(prefetch, 스크립트를 실행하지 않음)로 바꾼다. 이 태그가 있으면 attachUiUxRuntime 과
+// 홈 응답 머리는 공통 규칙을 더하지 않는다(html-postprocess.js). 광고 없는 화면에서 애드핏 화면으로 가는 링크와 검색·주소창의
+// 미리 렌더링은 남는다 — KNOWN-ISSUES V22.9.92. 번들은 한 범위이고 icons-manifest 가 이 모듈 뒤에 오므로 부를 때 만든다.
+function adfitSpeculationRulesJson() {
+  return JSON.stringify({ prefetch: JSON.parse(AB_SPECULATION_RULES_JSON).prerender });
+}
+
 function adsHeadMarkup(env = {}, pageKey = "") {
   if (!adsPageLive(env, pageKey)) return "";
+  // 애드핏은 공식 안내대로 SDK 를 본문 아래쪽(광고 자리 바로 뒤)에 두므로 머리에는 자리 CSS 와 미리 받기 규칙만 넣는다.
+  if (adsMode(env) === "adfit") return `<style>${ADS_SLOT_CSS}${adfitSlotCss(adfitUnit(env))}</style><script type="speculationrules">${adfitSpeculationRulesJson()}</script>`;
   const client = escapeHtml(adsensePublisherId(env));
   return `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}" crossorigin="anonymous"></script><style>${ADS_SLOT_CSS}</style>`;
 }
 
 function adSlotMarkup(env = {}, pageKey = "") {
+  // V22.9.92: 애드핏 자리. 설치 코드(ins·SDK)는 공식 SDK 안내 그대로이고, 한 화면에 이 자리 하나만 둔다(운영정책 5.2: 한 페이지 4개 이하).
+  // 높이는 광고 단위 높이에 ‘광고’ 표시·여백을 더해 먼저 잡는다. 광고가 없거나 요청이 실패하면 data-ad-onfail 함수가 빈 자리를 숨긴다.
+  // SDK 자체를 받지 못하면(광고 차단·네트워크) onfail 이 불리지 않으므로, 자리 안 스크립트의 불러오기 실패도 같은 함수로 숨긴다(설치 코드는 그대로).
+  if (adsMode(env) === "adfit") {
+    const unit = adfitUnit(env);
+    if (!adsPageLive(env, pageKey) || !unit) return "";
+    return `<section class="card adSlot noPrint adfitSlot" style="min-height:${Number(unit.height) + 56}px" aria-label="광고"><ins class="kakao_ad_area" style="display:none;width:100%;" data-ad-unit="${unit.id}" data-ad-width="${unit.width}" data-ad-height="${unit.height}" data-ad-onfail="malhaeAdfitNoAd"></ins><script>function malhaeAdfitNoAd(el){var slot=el&&el.closest?el.closest(".adSlot"):null;if(slot)slot.style.display="none";}addEventListener("error",function(e){var t=e.target;if(t&&t.tagName==="SCRIPT")malhaeAdfitNoAd(t);},true);</script><script async type="text/javascript" charset="utf-8" src="${ADFIT_SDK_URL}"></script></section>`;
+  }
   const slot = adsSlotId(env);
   // 슬롯 id 가 없으면 자리를 만들지 않는다. 머리의 로더만 남으므로 대시보드에서 자동 광고를 켠 경우에만 광고가 나온다.
   if (!adsPageLive(env, pageKey) || !slot) return "";
@@ -3354,12 +3416,35 @@ const ADS_POLICY_TEXT = Object.freeze({
   faq: "현재 공개된 기능은 무료로 제공합니다. 서비스 운영을 위해 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시하며, 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있습니다.",
 });
 
+// V22.9.92: 애드핏을 켠 서버의 고지. 광고 사업자(주식회사 카카오)와 수집하는 행태정보, 광고를 두지 않는 화면, 끄는 방법을 적는다.
+// 끄는 곳은 카카오 개인정보처리방침이 맞춤형 광고 거부 방법으로 잇는 ‘카카오 맞춤형 광고 안내’(info.ds.kakao.com/optout.do,
+// 2026-10-30 확인)이고, 그 안내대로 쿠키를 지우면 거부 설정도 지워질 수 있다고 적는다. -control 은 정책 화면의 둘째 문단이다.
+const ADFIT_POLICY_TEXT = Object.freeze({
+  privacy: "말해가계부는 공개 가이드와 생활비 글처럼 로그인 없이 누구나 읽는 화면에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 광고 사업자인 주식회사 카카오가 쿠키와 광고 식별자 같은 기술로 이 사이트와 다른 사이트를 방문한 기록(행태정보)을 수집해 맞춤형 광고를 제공하고 광고 성과를 측정할 수 있습니다. 카카오가 수집하는 정보의 항목·보유기간과 처리 방식은 카카오 개인정보처리방침을 따릅니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고를 두지 않습니다.",
+  "privacy-control": "말해가계부는 광고를 누른 방문자의 개인정보를 따로 수집하지 않고, 거래 내용·예산·가계부 구성원 정보와 사용자 발화 원문을 광고 사업자나 광고주에게 제공하거나 판매하지 않습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내 화면에서 끌 수 있고, 브라우저 설정에서 쿠키를 차단해 거부할 수도 있습니다. 쿠키를 지우면 거부 설정도 함께 지워질 수 있습니다.",
+  cookies: "말해가계부는 공개 가이드와 생활비 글처럼 로그인 없이 누구나 읽는 화면에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 주식회사 카카오가 광고 쿠키와 유사 기술을 사용해 맞춤형 광고를 제공하고 성과를 측정할 수 있습니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
+  "cookies-control": "사용자는 카카오 맞춤형 광고 안내 화면과 브라우저의 사이트별 쿠키 설정으로 맞춤형 광고와 저장된 쿠키를 관리할 수 있습니다. 쿠키를 지우면 맞춤형 광고 거부 설정도 함께 지워질 수 있습니다.",
+  faq: "현재 공개된 기능은 무료로 제공합니다. 서비스 운영을 위해 공개 가이드와 생활비 글처럼 로그인 없이 읽는 화면에 카카오 애드핏 광고를 표시하며, 로그인한 사람만 보는 화면·거래를 입력·저장하는 화면·로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내(https://info.ds.kakao.com/optout.do)에서 끌 수 있습니다.",
+});
+
+// V22.9.92: 정책 화면이 쓸 광고 사업자 — 실제로 광고를 낼 수 있을 때만 "adsense"(live)·"adfit", 아니면 ""(지금 문장). 애드핏 광고
+// 단위가 없으면 광고가 나가지 않으므로 지금 문장을 그대로 둔다.
+function adsPolicyNetwork(env = {}) {
+  const mode = adsMode(env);
+  if (mode === "live") return "adsense";
+  return mode === "adfit" && adfitUnit(env) ? "adfit" : "";
+}
+
 function adsPolicyText(env = {}, topic = "") {
-  return adsMode(env) === "live" && Object.hasOwn(ADS_POLICY_TEXT, topic) ? ADS_POLICY_TEXT[topic] : "";
+  const network = adsPolicyNetwork(env);
+  const texts = network === "adfit" ? ADFIT_POLICY_TEXT : network === "adsense" ? ADS_POLICY_TEXT : null;
+  return texts && Object.hasOwn(texts, topic) ? texts[topic] : "";
 }
 
 function adsPolicyLinks(env = {}) {
-  return adsMode(env) === "live" ? [["Google 광고 설정에서 맞춤 광고 해제", "https://adssettings.google.com"]] : [];
+  const network = adsPolicyNetwork(env);
+  if (network === "adfit") return [["카카오 맞춤형 광고 안내(맞춤형 광고 끄기)", "https://info.ds.kakao.com/optout.do"], ["카카오 개인정보처리방침", "https://www.kakao.com/policy/privacy"]];
+  return network === "adsense" ? [["Google 광고 설정에서 맞춤 광고 해제", "https://adssettings.google.com"]] : [];
 }
 
 // CSP 출처: AdSense 고객센터 "Integrate the AdSense ad code with a Content Security Policy (CSP)"
@@ -3373,6 +3458,8 @@ function adsPolicyLinks(env = {}) {
 // 화면에서만, 광고 코드가 문서 안에서 쓰는 지시어를 공식 예시의 하위 호환 해석('unsafe-inline'
 // 'unsafe-eval' https:) 수준으로 연다. img-src 는 이미 https: 를 허용한다. default-src·base-uri·
 // object-src·frame-ancestors·form-action·font-src·worker-src 와 다른 보안 헤더는 그대로다.
+// V22.9.92: 애드핏도 같은 확장을 쓴다. 애드핏은 광고 호스트 허용 목록을 내지 않고(SDK 는 t1.kakaocdn.net, 광고는 iframe·이미지·클릭
+// 측정이 여러 카카오 호스트로 간다), 같은 화면·같은 지시어 범위라 AdSense 와 달리 좁힐 근거가 없다.
 const ADS_CSP_ADDITIONS = Object.freeze([
   ["script-src", "'unsafe-eval' https:"],
   ["style-src", "https:"],
@@ -3380,9 +3467,17 @@ const ADS_CSP_ADDITIONS = Object.freeze([
   ["frame-src", "'self' https:"],
 ]);
 
-function adsLiveCsp(policy = "") {
+// V22.9.92 (병합 전 검토): 애드핏 SDK 는 광고 틀을 같은 출처 iframe(about:blank 에 document.write, srcdoc)에 써서 그 틀이 이 화면의
+// CSP 를 물려받는다. 광고 안 글꼴·동영상이 막히지 않게 애드핏 화면에서만 font-src 와 media-src 를 더 연다. AdSense live 는 그대로다.
+const ADFIT_CSP_ADDITIONS = Object.freeze([
+  ...ADS_CSP_ADDITIONS,
+  ["font-src", "https:"],
+  ["media-src", "'self' https: blob:"],
+]);
+
+function adsLiveCsp(policy = "", additions = ADS_CSP_ADDITIONS) {
   const directives = String(policy || "").split(";").map((part) => part.trim()).filter(Boolean);
-  for (const [name, sources] of ADS_CSP_ADDITIONS) {
+  for (const [name, sources] of additions) {
     const index = directives.findIndex((directive) => directive.split(" ")[0] === name);
     if (index >= 0) directives[index] = `${directives[index]} ${sources}`;
     else directives.push(`${name} ${sources}`);
@@ -3392,7 +3487,8 @@ function adsLiveCsp(policy = "") {
 
 function adsHeaders(env = {}, pageKey = "", headers = {}) {
   if (!adsPageLive(env, pageKey)) return headers;
-  return { ...headers, "content-security-policy": adsLiveCsp(headers["content-security-policy"] || HTML_HEADERS["content-security-policy"]) };
+  const additions = adsMode(env) === "adfit" ? ADFIT_CSP_ADDITIONS : ADS_CSP_ADDITIONS;
+  return { ...headers, "content-security-policy": adsLiveCsp(headers["content-security-policy"] || HTML_HEADERS["content-security-policy"], additions) };
 }
 
 const PUBLIC_CONTENT_PATHS = Object.freeze([
@@ -3515,10 +3611,18 @@ function publicGuidePages(env = {}) {
       { title: "CSV 백업에 들어가는 것과 들어가지 않는 것", table: { caption: "일반 사용자 거래 CSV의 범위", headers: ["구분", "범위"], rows: [["포함", "선택 월 또는 전체 기간의 거래 목록"], ["별도 관리", "계정 로그인 정보·참여 권한·예산·가계부 설정"], ["다시 가져오기", "분석 미리보기와 행 선택을 거치는 거래 등록"], ["보장하지 않는 것", "영구 삭제한 가계부 전체를 한 번에 복원하는 기능"]] }, paragraphs: ["내려받은 CSV에는 생활비와 메모가 담길 수 있습니다. 파일을 보관할 위치와 공유할 대상을 확인하고 공용 기기에 남겨두지 마세요. 중요한 일괄 변경 전에는 거래 CSV를 내려받아 원본과 함께 보관하는 편이 확인에 도움이 됩니다."] },
       { title: "일부만 저장되었다면", paragraphs: ["전체 파일을 곧바로 다시 올리지 말고 가져오기 결과에서 저장된 행과 실패한 행을 구분합니다. 저장 여부를 확인할 수 없다는 안내는 실패가 확정되었다는 뜻이 아닙니다. 거래 목록에서 결과를 확인한 뒤 남은 행만 다시 처리하세요."], links: [["저장·중복 문제 FAQ", "/faq"], ["문의할 때 가릴 정보", "/contact"]] },
     ]),
-    demo: page("가상 가계부로 예산 계산을 확인해 보세요", "가상 거래 네 건과 분류별 예산으로 전체 지출·예산 적용 사용액·잔여액을 직접 비교하는 저장 없는 체험입니다.", "가입 없이 보는 가상 예제", "식비 180,000원, 교통 45,000원, 의료 30,000원을 기록한 가상 사례입니다. 식비와 교통 예산을 바꿔 보면 예산 비교 범위와 남은 금액이 어떻게 달라지는지 확인할 수 있습니다.", [
+    // V22.9.92: ‘가상 체험’을 기능 둘러보기로 넓혔다(가입 없이 여섯 가지 기능과 주요 화면 주소). 둘러보기 본문은 content-pages.js publicTourHtml,
+    // 예산 계산 예제와 숫자는 그대로다.
+    demo: page("가입 없이 말해가계부 기능을 둘러보세요", "카카오톡 기록, 웹 홈, 기록 고치기, 리포트, 예산 계산, 공동 가계부를 가상 데이터로 미리 보고 주요 화면 주소를 확인하는 저장 없는 둘러보기입니다.", "가입 없이 보는 기능 둘러보기", "2026년 9월에 식비 180,000원, 교통 45,000원, 의료 30,000원을 기록한 가상 가계부로 주요 기능을 차례로 보여 드립니다. 식비와 교통 예산은 직접 바꿔 계산해 볼 수 있고, 무엇도 저장하지 않습니다.", [
       { title: "이 예제에서 확인할 질문", bullets: ["전체 지출이 255,000원인데 예산 적용 사용액은 왜 225,000원인가요?", "교통 예산을 0원으로 바꾸면 교통비는 어디로 가나요?", "예산을 줄여 사용액보다 작아지면 잔여액과 초과액은 어떻게 표시되나요?"], paragraphs: ["아래 체험은 실제 사용자 데이터와 연결하지 않습니다. 금액 변경은 이 화면의 계산에만 사용하며 서버로 보내거나 브라우저에 보관하지 않습니다. 새로고침하면 처음 예제로 돌아갑니다."] },
       { title: "숫자를 읽는 순서", paragraphs: ["전체 지출은 네 건의 합계입니다. 예산 적용 사용액은 0원보다 큰 예산을 둔 분류의 지출만 합한 값입니다. 예산 밖 지출도 실제 지출이므로 함께 확인해야 합니다.", "두 예산을 모두 0원으로 바꾸면 이 예제에는 전체 예산도 없으므로 ‘예산 미설정’으로 표시합니다. 실제 서비스에서는 분류별 예산이 없고 전체 예산이 남아 있다면 그 전체 예산을 기준으로 사용합니다."], links: [["전체 예산과 분류별 예산의 우선순위", "/budget-guide"], ["같은 기록의 리포트 해석", "/report-guide"]] },
-    ], { type: "WebPage", demo: true, primary: ["내 가계부 시작하기", "/my"], secondary: ["계산 방법 읽기", "/budget-guide"] }),
+      { title: "주요 화면 주소", paragraphs: ["공개 화면은 누구나 열 수 있습니다. 가계부 화면은 카카오 로그인이나 내 계정 로그인 뒤에 열리고, 로그인하지 않으면 로그인 화면으로 안내합니다. 기록은 말해가계부 카카오톡 채널 1:1 채팅, 봇을 부른 단톡방, 웹 가계부 홈의 빠른 입력에서 합니다."], table: { caption: "말해가계부의 주요 화면과 주소", headers: ["화면", "주소", "볼 수 있는 사람"], rows: [
+        ["서비스 소개", "/", "누구나"], ["기능 둘러보기(이 페이지)", "/demo", "누구나"], ["사용 가이드 모음", "/guides", "누구나"], ["카카오 입력·수정 방법", "/kakao-guide", "누구나"],
+        ["생활비 글 모음", "/articles", "누구나"], ["문제 해결", "/faq", "누구나"], ["개인정보처리방침", "/privacy", "누구나"],
+        ["웹 가계부 홈", "/app", "로그인한 사람"], ["거래 내역", "/app?tab=transactions", "로그인한 사람"], ["생활비 리포트", "/reports", "로그인한 사람"], ["연간 리포트", "/annual", "로그인한 사람"],
+        ["소비 분석", "/my/analysis", "로그인한 사람"], ["예산", "/budgets", "로그인한 사람"], ["참여자·초대", "/my/members", "로그인한 사람"], ["정산", "/settlement-summary", "로그인한 사람"], ["백업·복구", "/my/backup", "로그인한 사람"],
+      ] }, links: [["사용 가이드 모음", "/guides"], ["카카오 입력·수정 방법", "/kakao-guide"], ["문제 해결", "/faq"]] },
+    ], { type: "WebPage", demo: true, primary: ["내 가계부 시작하기", "/my"], secondary: ["계산 방법 읽기", "/budget-guide"], updated: "2026-10-30" }),
     security: page("내 기록과 접근 권한을 관리하는 방법", "가계부별 권한, 초대코드와 웹 연결 코드, 거래 원문과 오류 기록, 백업 파일을 구분해 안전하게 관리하는 방법입니다.", "사용자가 확인할 수 있는 보호 방법", "가계부 기록은 어떤 계정과 가계부에서 사용하느냐에 따라 접근 범위가 달라집니다. 편리한 공유 기능을 사용할 때에도 코드와 파일의 용도를 먼저 확인하세요.", [
       { title: "서로 다른 세 가지 접근 수단", table: { caption: "로그인·참여·웹 이어 열기의 차이", headers: ["수단", "용도", "공유 기준"], rows: [["계정 로그인 비밀번호", "내 계정으로 로그인", "다른 사람에게 전달하지 않음"], ["가계부 초대코드", "특정 가계부 참여와 단톡방 연결", "참여시킬 사람에게만 전달"], ["1회용 웹 연결 코드", "카카오 기록을 같은 계정으로 웹에서 이어 열기", "본인만 사용, 10분 유효"]] } },
       { title: "거래 기록과 오류 기록은 다릅니다", paragraphs: ["카카오에서 보낸 거래 입력 원문은 금액·날짜·메모 등의 거래 데이터와 함께 보관될 수 있습니다. 그러므로 기록 문장에 계좌 비밀번호나 불필요한 개인정보를 넣지 마세요.", "장애 대응 과정에서는 처리 결과와 지연시간을 집계하고, 실패한 요청의 일부 문장을 마스킹하여 임시 메모리에 남길 수 있습니다. 별도 실패 사례 저장과 보관기간은 운영 설정에 따릅니다. 마스킹이 모든 개인정보를 완전히 제거한다고 보장하지는 않습니다.", "사용자 발화를 외부 AI 모델 학습에 자동 전송하지 않습니다. 거래 보관과 운영 기록의 상세 범위는 개인정보처리방침에서 확인하세요."], links: [["개인정보 처리 범위", "/privacy"]] },
@@ -8350,6 +8454,9 @@ function publicArticleSiteMapLinks(index = []) {
 }
 
 function publicPageCatalog(env = {}, url = null) {
+  // V22.9.92: 카카오 애드핏으로 광고를 내는 서버(adsPolicyNetwork 가 "adfit")에서는 개인정보처리방침·쿠키 안내의 광고 절을
+  // 카카오 기준 문장과 링크로 바꾼다(Google 안내·지역별 동의 절은 Google 광고에만 맞는 말이라 뺀다). 그 밖(심사 모드·AdSense)은 지금 그대로다.
+  const adfit = adsPolicyNetwork(env) === "adfit";
   const catalog = {
     ...publicGuidePages(env),
     ...publicLivingCostArticlesV22974(),
@@ -8362,7 +8469,7 @@ function publicPageCatalog(env = {}, url = null) {
         { title: "1. 처리하는 항목과 목적", paragraphs: ["사용자 식별키와 로그인 정보는 사용자 구분과 세션 유지에 사용합니다. 가계부 이름, 참여자 권한, 초대코드, 표시 이름은 공동 가계부 운영에 사용합니다.", "수입·지출, 날짜, 분류, 결제수단, 메모, 예산과 설정값은 기록·조회·분석·백업 기능을 제공하기 위해 처리합니다. 카카오 거래 입력 원문은 거래 데이터와 함께 보관될 수 있습니다. 단톡방 연결키는 첫 기록으로 준비하거나 직접 연결한 공동 가계부와 해당 방을 구분하는 데 사용합니다."], bullets: ["회원 및 세션 관리", "가계부 생성·참여·권한 관리", "거래 기록·예산·요약·정산 제공", "중복 저장 방지와 장애 대응", "법적 의무와 분쟁 대응"] },
         { title: "2. 사용자 발화와 자연어 운영 로그", paragraphs: ["사용자 발화는 요청을 이해하고 응답하기 위해 사용합니다. 발화를 외부 AI 모델의 학습 데이터로 자동 전송하거나 자동 학습 데이터로 등록하지 않습니다.", "운영 통계는 의도, 처리 결과, 지연시간과 배포 버전을 집계합니다. 실패한 요청의 일부 문장은 URL·이메일·전화번호·코드·긴 숫자 등을 마스킹하여 임시 메모리에 보관할 수 있습니다. 마스킹이 모든 개인정보를 완전히 제거한다고 보장하지는 않습니다. 별도 실패 사례 저장은 운영 설정에 따르며 거래 데이터의 보관과 구분합니다."] },
         { title: "3. 보유기간과 삭제", paragraphs: ["가계부 거래와 설정은 사용자가 서비스를 이용하는 동안 보관하며 웹에서 직접 수정·삭제할 수 있습니다. 가계부 소유자가 영구 삭제를 완료하면 해당 가계부의 거래와 관련 설정을 삭제합니다. 가계부 나가기는 참여 권한을 종료하며 공동 거래 이력은 보존합니다. 현재 계정 자체를 탈퇴·삭제하는 온라인 기능은 제공하지 않으며 개인정보 삭제 요청은 서비스 문의 경로로 확인합니다.", "세션과 운영 로그는 목적에 필요한 기간만 보관합니다. 법령상 보존 의무가 있는 경우 해당 기간 동안 분리 보관할 수 있습니다."] },
-        { title: "4. 제3자 광고와 쿠키", paragraphs: [adsPolicyText(env, "privacy") || "현재 공개 페이지에서는 Google 광고를 실행하지 않습니다. 향후 광고 기능이 활성화되면 Google을 포함한 제3자 광고 사업자가 쿠키를 사용해 사용자의 이전 방문 정보 등을 바탕으로 광고를 제공하고 성과를 측정할 수 있습니다.", "제3자는 광고 제공 과정에서 브라우저의 쿠키를 저장·조회하거나 웹 비콘과 IP 주소 같은 기술을 사용할 수 있습니다. 말해가계부는 거래 내용, 예산, 가계부 구성원 정보와 사용자 발화 원문을 광고주에게 판매하지 않습니다. 사용자는 Google 광고 설정과 브라우저 설정을 통해 광고 개인화와 쿠키를 관리할 수 있습니다."], links: [...adsPolicyLinks(env), ["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 파트너 사이트 정보 이용 안내", "https://policies.google.com/technologies/partner-sites?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
+        adfit ? { title: "4. 제3자 광고와 쿠키", paragraphs: [adsPolicyText(env, "privacy"), adsPolicyText(env, "privacy-control")], links: adsPolicyLinks(env) } : { title: "4. 제3자 광고와 쿠키", paragraphs: [adsPolicyText(env, "privacy") || "현재 공개 페이지에서는 Google 광고를 실행하지 않습니다. 향후 광고 기능이 활성화되면 Google을 포함한 제3자 광고 사업자가 쿠키를 사용해 사용자의 이전 방문 정보 등을 바탕으로 광고를 제공하고 성과를 측정할 수 있습니다.", "제3자는 광고 제공 과정에서 브라우저의 쿠키를 저장·조회하거나 웹 비콘과 IP 주소 같은 기술을 사용할 수 있습니다. 말해가계부는 거래 내용, 예산, 가계부 구성원 정보와 사용자 발화 원문을 광고주에게 판매하지 않습니다. 사용자는 Google 광고 설정과 브라우저 설정을 통해 광고 개인화와 쿠키를 관리할 수 있습니다."], links: [...adsPolicyLinks(env), ["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 파트너 사이트 정보 이용 안내", "https://policies.google.com/technologies/partner-sites?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
         { title: "5. 이용자의 권리", paragraphs: ["사용자는 자신의 기록과 설정을 열람·수정·삭제하고 백업할 수 있습니다. 개인정보 처리에 관한 문의와 권리 행사는 문의 안내에 표시된 경로로 요청할 수 있으며 본인과 권한 확인 후 처리합니다."] },
         { title: "6. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
       ],
@@ -8389,9 +8496,9 @@ function publicPageCatalog(env = {}, url = null) {
       intro: "쿠키는 웹사이트가 브라우저에 저장하는 작은 정보입니다. 말해가계부는 로그인과 보안에 필요한 쿠키를 사용할 수 있으며, 광고 기능을 활성화한 경우 제3자 광고 쿠키가 사용될 수 있습니다.",
       sections: [
         { title: "필수 쿠키", paragraphs: ["로그인 세션 유지, 요청 위조 방지, 사용자 화면 설정과 보안 기능에 필요한 쿠키입니다. 필수 쿠키를 차단하면 로그인이나 가계부 기능이 정상 작동하지 않을 수 있습니다."] },
-        { title: "광고 및 측정 기술", paragraphs: [adsPolicyText(env, "cookies") || "현재 공개 페이지에서는 Google 광고 실행 코드와 광고 쿠키를 사용하지 않습니다. 향후 광고 기능을 활성화하면 Google과 제3자 광고 사업자가 쿠키와 유사 기술을 사용해 광고를 제공하고 성과를 측정할 수 있습니다.", "사용자는 Google 광고 설정과 브라우저의 사이트별 쿠키 설정을 통해 광고 개인화와 저장된 쿠키를 관리할 수 있습니다."], links: [...adsPolicyLinks(env), ["Google 쿠키 사용 안내", "https://policies.google.com/technologies/cookies?hl=ko"], ["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
-        { title: "쿠키 관리", bullets: ["브라우저 설정에서 쿠키 확인·삭제", "사이트별 쿠키 허용 또는 차단", "Google 광고 및 개인정보 안내 확인", "공용 기기 사용 후 로그아웃"] },
-        { title: "지역별 동의", paragraphs: ["유럽경제지역, 영국, 스위스 등 별도의 동의 요건이 적용되는 지역에 광고를 제공할 경우 Google이 요구하는 인증된 동의 관리 플랫폼과 관련 절차를 적용합니다."] },
+        adfit ? { title: "광고 및 측정 기술", paragraphs: [adsPolicyText(env, "cookies"), adsPolicyText(env, "cookies-control")], links: adsPolicyLinks(env) } : { title: "광고 및 측정 기술", paragraphs: [adsPolicyText(env, "cookies") || "현재 공개 페이지에서는 Google 광고 실행 코드와 광고 쿠키를 사용하지 않습니다. 향후 광고 기능을 활성화하면 Google과 제3자 광고 사업자가 쿠키와 유사 기술을 사용해 광고를 제공하고 성과를 측정할 수 있습니다.", "사용자는 Google 광고 설정과 브라우저의 사이트별 쿠키 설정을 통해 광고 개인화와 저장된 쿠키를 관리할 수 있습니다."], links: [...adsPolicyLinks(env), ["Google 쿠키 사용 안내", "https://policies.google.com/technologies/cookies?hl=ko"], ["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
+        { title: "쿠키 관리", bullets: ["브라우저 설정에서 쿠키 확인·삭제", "사이트별 쿠키 허용 또는 차단", adfit ? "카카오 맞춤형 광고 안내 확인" : "Google 광고 및 개인정보 안내 확인", "공용 기기 사용 후 로그아웃"] },
+        ...(adfit ? [] : [{ title: "지역별 동의", paragraphs: ["유럽경제지역, 영국, 스위스 등 별도의 동의 요건이 적용되는 지역에 광고를 제공할 경우 Google이 요구하는 인증된 동의 관리 플랫폼과 관련 절차를 적용합니다."] }]),
       ],
     },
   };
@@ -8504,6 +8611,49 @@ function publicLandingHtml() {
     + `<section class="pubLand pubLandNote" aria-labelledby="land-note">${ico("shield")}<div><h2 id="land-note">알아 둘 점</h2><p>말해가계부는 사용자가 입력한 생활비를 정리하는 독립 서비스입니다. 은행·카드사 계정을 자동으로 연결하거나 투자·세무 판단을 대신하지 않습니다. 카카오가 직접 제공하는 공식 가계부 서비스는 아닙니다.</p></div></section>`;
 }
 
+// V22.9.92(사용자 2026-10-30 "심사자가 가입 없이 전체 기능들과 필요한 주소들을 체험할 수 있는 무언가" → 조사 권장 ‘기능 둘러보기’):
+// /demo 맨 위 웹 홈 미리보기 아래에 여섯 가지 기능을 차례로 보인다. 모두 가상 데이터이고 링크 말고는 조작 요소가 없다(폼·단추·스크립트 없음,
+// 서버 요청·쿠키·저장 없음). 카카오톡 답은 실제 저장 답과 같은 줄이다 — 9월 9일 ‘식사 60000원 카드’를 1:1 채팅에 보낸 답에서 가계부 이름·
+// 분류·지출자만 예제 값으로 둔다(validate-demo-tour-v22992 가 픽스처의 실제 /skill 답과 줄마다 대조한다). 리포트 표는 실제 리포트의
+// ‘지출 상위 분류’ 줄 함수(renderReportTopRows)로 아래 예산 예제와 같은 네 기록(publicDemoRows)을 그린다.
+const PUBLIC_TOUR_CHAT = Object.freeze({
+  utterance: "식사 60000원 카드",
+  reply: Object.freeze(["💸 지출 저장했어요 😊", "새로 저장 1건 · 중복 저장 안 함 0건 · 합계 60,000원", "날짜: 2026-09-09", "가계부: 우리집 생활비", "01번 - 식사 / 60,000원 / 카드 / 식비", "지출자: 민지", "", "수정: \"수정 01번\" 또는 \"수정 01번 금액 13000\"", "삭제: \"삭제 01번\""]),
+});
+
+function publicTourTopCategories() {
+  const totals = new Map();
+  for (const row of publicDemoRows()) {
+    const item = totals.get(row.category) || { name: row.category, amount: 0, count: 0 };
+    item.amount += row.amount;
+    item.count += 1;
+    totals.set(row.category, item);
+  }
+  return [...totals.values()].sort((a, b) => b.amount - a.amount);
+}
+
+function publicTourHtml() {
+  const stop = (id, num, title, body, preview, where, links) => `<li class="pubTourStop" id="tour-${id}"><h3><span aria-hidden="true">${num}</span>${title}</h3><p>${body}</p>${preview}<p class="pubTourWhere">${where}</p>${publicContentLinks(links)}</li>`;
+  const chat = `<figure class="pubTourPreview pubChat"><figcaption>카카오톡 1:1 채팅 · 가상 예시</figcaption><p class="pubChatMe"><span class="pubSr">내가 보낸 말: </span>${escapeHtml(PUBLIC_TOUR_CHAT.utterance)}</p><div class="pubChatBot"><b>말해가계부</b><p>${PUBLIC_TOUR_CHAT.reply.map((line) => escapeHtml(line)).join("\n")}</p></div></figure>`;
+  const report = `<figure class="pubTourPreview pubTourReport"><figcaption>2026년 9월 · 지출 상위 분류 · 가상 예시</figcaption><table><thead><tr><th scope="col">분류</th><th scope="col">금액</th><th scope="col">건수</th></tr></thead><tbody>${renderReportTopRows({ top_categories: publicTourTopCategories() })}</tbody></table></figure>`;
+  return `<section class="pubSection pubTour" id="tour" aria-labelledby="tour-title"><h2 id="tour-title">한눈에 보는 여섯 가지 기능</h2><p>아래 예시는 모두 가상 데이터예요. 기록은 카카오톡이나 웹 가계부 홈의 빠른 입력으로 하고, 카드 내역 파일은 ‘가져오기’로 한 번에 옮겨요. 확인과 정리는 로그인한 웹 가계부에서 해요. 각 화면의 주소는 아래 ‘주요 화면 주소’에 모아 두었어요.</p><ol class="pubTourList" role="list">`
+    + stop("kakao", 1, "카카오톡에 한 줄로 기록해요", "말해가계부 채널 1:1 채팅이나 봇을 부른 단톡방에 ‘식사 60000원 카드’처럼 보내면 날짜·금액·결제수단·분류를 나눠 저장하고, 고칠 때 쓸 번호를 알려 줘요.", chat, "어디서: 카카오톡 채팅방", [["카카오 입력·수정 방법", "/kakao-guide"], ["첫 기록과 웹 이어 열기", "/how-it-works"]])
+    + stop("home", 2, "웹 홈에서 남은 예산을 봐요", "웹 가계부 홈은 이번 달 쓸 수 있는 돈, 예산 사용률, 하루에 써도 되는 금액과 최근 기록을 한 화면에 모아요. 이 페이지 맨 위 화면이 아래 예제를 9월 17일에 홈으로 본 모습이에요.", "", "어디서: 로그인 뒤 /app", [["예산 숫자 읽는 법", "/budget-guide"]])
+    + stop("edit", 3, "고치고, 지워도 되돌릴 수 있어요", "웹 가계부의 거래 내역에서 금액·분류·메모를 고치거나 기록을 지울 수 있어요. 지운 직후 5초 동안은 ‘되돌리기’로 다시 살릴 수 있어요. 카카오톡에서는 저장 답의 번호로 ‘수정 01번 금액 13000’, ‘삭제 01번’처럼 보내요.", "", "어디서: 로그인 뒤 /app?tab=transactions(거래 내역) · 카카오톡", [["기능과 권한", "/service-guide"]])
+    + stop("report", 4, "리포트로 어디에 많이 썼는지 봐요", "생활비 리포트는 주간·월간 지출을 분류별로 정리하고 지난 기간과 비교해요. 아래 표는 예제 네 기록으로 만든 ‘지출 상위 분류’예요.", report, "어디서: 로그인 뒤 /reports · 1년 흐름은 /annual", [["리포트 읽는 법", "/report-guide"]])
+    + stop("budget", 5, "예산을 바꿔 계산해 봐요", "분류별 예산을 정하면 예산을 정한 분류의 지출만 사용률에 넣고, 나머지는 ‘예산 안 정한 지출’로 따로 보여 줘요. 아래 예제에서 식비·교통 예산을 직접 바꿔 보세요.", "", "어디서: 로그인 뒤 /budgets", [["예산 계산 예제로 가기", "#example"], ["예산 계산 방법", "/budget-guide"]])
+    + stop("group", 6, "단톡방이면 함께 쓰는 가계부가 돼요", "단톡방에서 봇을 부르고 기록하면 그 방의 공동 가계부가 준비돼요. 참여자와 초대코드는 ‘참여자·초대’에서, 누가 얼마를 보내면 되는지는 ‘정산’에서 봐요. 송금 금액은 제안만 하고 실제 송금은 직접 해요.", "", "어디서: 카카오톡 단톡방 · 로그인 뒤 /my/members · /settlement-summary", [["공동 가계부와 정산 사례", "/group-accountbook"]])
+    + `</ol></section>`;
+}
+
+// 둘러보기 CSS: /demo 에만 싣는다. 카카오톡 말풍선은 카카오톡 라이트 화면 색(배경 #bacee0, 내 말 #fee500, 봇 말 흰색)이다.
+function publicTourStyles() {
+  return `.pubTour .pubSr{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.pubTour .pubTourList{display:grid;gap:14px;margin:18px 0 0;padding:0;list-style:none}.pubTour .pubTourStop{padding:20px;border:1px solid #dce3ef;border-radius:18px;background:#fff}.pubTourStop h3{display:flex;align-items:center;gap:10px;margin:0 0 8px;font-size:19px;line-height:1.45;letter-spacing:-.03em}.pubTourStop h3 span{display:inline-grid;place-items:center;flex:none;width:28px;height:28px;border-radius:50%;background:#e8f3ff;color:#1d4ed8;font-size:14px;font-weight:800}.pubTour .pubTourStop p{margin:0 0 10px}.pubTour .pubTourWhere{margin:10px 0 0;color:#526075;font-size:14px;line-height:1.7}.pubTourStop .pubLinks{margin:8px 0 0}`
+    + `.pubTourPreview{max-width:440px;margin:12px 0 4px}.pubTourPreview figcaption{margin:0 0 8px;color:#5f6b7a;font-size:13px;font-weight:800;line-height:1.5}`
+    + `.pubChat{display:grid;gap:10px;padding:14px;border-radius:20px;background:#bacee0}.pubChat figcaption{color:#1f2937}.pubTour .pubChatMe{justify-self:end;max-width:80%;margin:0;padding:9px 12px;border-radius:14px 4px 14px 14px;background:#fee500;color:#191919;font-size:14.5px;line-height:1.55}.pubChatBot{justify-self:start;max-width:94%}.pubChatBot b{display:block;margin:0 0 4px;color:#1f2937;font-size:12.5px;font-weight:700}.pubTour .pubChatBot p{max-width:none;margin:0;padding:10px 12px;border-radius:4px 14px 14px 14px;background:#fff;color:#191919;font-size:14px;line-height:1.6;white-space:pre-line}`
+    + `.pubTourReport table{width:100%;border-collapse:separate;border-spacing:0;border:1px solid #dce3ef;border-radius:14px;overflow:hidden;background:#fff;font-size:14px;line-height:1.6}.pubTourReport th,.pubTourReport td{padding:10px 12px;border-top:1px solid #e1e7f0;text-align:left}.pubTourReport thead th{border-top:0;background:#f1f5fb;color:#1e293b}.pubTourReport td{color:#43516a}.pubTourReport td:nth-child(n+2),.pubTourReport th:nth-child(n+2){text-align:right;font-variant-numeric:tabular-nums}`;
+}
+
 // 카카오 로그인 띠: 카카오 로그인이 준비된 서버에서는 /my 와 같은 카카오 버튼(/auth/kakao/start), 아니면 /my 로 가는 주 버튼.
 function publicLandingBand(env = {}) {
   const start = inspectKakaoLoginConfig(env).ready ? kakaoLoginButtonHtml() : `<a class="pubBtn" href="/my">내 가계부 시작하기</a>`;
@@ -8570,7 +8720,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home") {
     ? `작성·관리: <a href="/about">${escapeHtml(BUSINESS_FOOTER_INFO.company)} 운영팀</a> · 수정 <time datetime="${page.updated}">${page.updated}</time> · 작성 <time class="pubPublished" datetime="${page.published}">${page.published}</time> · 읽는 시간 약 ${publicArticleReadingMinutes(page)}분`
     : `${type === "Article" ? "작성·관리" : "운영"}: <a href="/about">${escapeHtml(BUSINESS_FOOTER_INFO.company)}${type === "Article" ? " 운영팀" : ""}</a> · 안내 수정 <time datetime="${page.updated}">${page.updated}</time>`;
   const readingNext = living ? `<a href="/articles">생활비 가이드 글 전체 목록 보기 →</a>` : `<a href="/guides">다른 사용 가이드 찾아보기 →</a>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/><meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${page.landing || page.demo ? publicPreviewStyles(!!page.demo) : ""}${page.landing ? publicLandingStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml(true) : ""}<p class="pubMeta">${metaLine}</p><div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.landing ? publicLandingHtml() : ""}${extras.summary}${toc}${sections}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}</main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/><meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${page.landing || page.demo ? publicPreviewStyles(!!page.demo) : ""}${page.landing ? publicLandingStyles() : ""}${page.demo ? publicTourStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml(true) : ""}<p class="pubMeta">${metaLine}</p><div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.landing ? publicLandingHtml() : ""}${page.demo ? publicTourHtml() : ""}${extras.summary}${toc}${sections}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}</main></body></html>`;
 }
 
 // V22.9.40 (B): 광고 게이트가 쓰는 화면 키는 정본 경로다. 정책·신원 페이지는 게이트의 허용 목록에 없다.

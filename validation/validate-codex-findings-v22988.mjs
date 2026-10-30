@@ -38,7 +38,13 @@ async function kakao(task) {
     fx.db.transactions = [];
     putSetting(fx, "kakao_selected_household_v2251:user-bin", "house-home");
     const realNow = Date.now;
-    let shift = 0;
+    // V22.9.92: 장면은 시계를 10분 넘게 앞으로 민다. 별도 구매는 같은 날짜의 앞 기록을 찾으므로, 실제 시각이 한국 자정 직전이면 민 시계가
+    // 다음 날로 넘어가 Y-1-E 가 실패했다(2026-10-30 23:50 무렵 하네스 두 모드). 자정까지 30분이 안 남았으면 장면 시계를 자정 1분 뒤로 옮겨
+    // 시작한다. 뒤로 돌리면 실제 시계를 쓰는 곳과 어긋나 Y-1-A 가 깨지므로, 이 검사가 원래 하듯 앞으로만 민다.
+    const DAY = 24 * 3600 * 1000;
+    const kstMs = (realNow() + 9 * 3600 * 1000) % DAY;
+    let shift = kstMs > DAY - 30 * 60 * 1000 ? DAY - kstMs + 60 * 1000 : 0;
+    if (shift) Date.now = () => realNow() + shift;
     // 같은 문장을 8초 안에 다시 보내면 막는 장치를 피하려고 장면 안의 시계를 앞으로 민다. 표식의 at 도 같은 시계다.
     const later = (ms) => { shift += ms; Date.now = () => realNow() + shift; };
     try { await task(fx, later); } finally { Date.now = realNow; }
