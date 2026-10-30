@@ -214,12 +214,6 @@ async function submit(label) {
   return saveRequests-count;
 }
 async function observe(label, detail={}) {report.observations.push({label,...detail,state:await state(),drafts:await keys(),submitted:structuredClone(submitted),rows:structuredClone(fx.db.transactions.filter(r=>!original.some(o=>o.id===r.id)))});}
-async function openDelete() {
-  await click('#tx-tx-expense-1 .v8-tx-main'); await until("!!document.querySelector('dialog[open] [data-ab-tx-edit]')");
-  await click('dialog[open] [data-ab-tx-edit]'); await until("!!document.querySelector('dialog[open] button[formaction=\"/admin/delete\"]')");
-  await click('dialog[open] button[formaction="/admin/delete"]'); await until("!!document.querySelector('.abDeleteNotice[data-state=pending]')");
-}
-const realTimer = ms => new Promise(resolve=>setTimeout(resolve,ms));
 try {
   report.chrome = await send("Browser.getVersion");
   await page("Page.enable"); await page("Runtime.enable"); await page("Network.enable");
@@ -322,34 +316,11 @@ try {
   await navigate(home+'&quick=1');check(!await evaluate("document.querySelector('#add form')"),"read-only user receives no draft write form");member.role=role;
   const blockedStorage=(await page('Page.addScriptToEvaluateOnNewDocument',{source:"Object.defineProperty(window,'sessionStorage',{get(){throw Error('fixture storage denied')}})"})).identifier;
   await navigate(home+'&quick=1');await readySheet();await replace('amountInput','1200');check((await state()).amount==='1,200',"storage access failure keeps numeric input usable");await page('Page.removeScriptToEvaluateOnNewDocument',{identifier:blockedStorage});
-  // Native click/submit ordering, actual timer, pointer/keyboard pause and real document navigation.
+  // V22.9.90(사용자 피드백 2026-10-30 "삭제하면 … 바로 삭제되게하고 되돌리기를 5초 유지해줘"): 웹 삭제는 누르면 바로 보낸다. V22.9.47 의 5초 대기와
+  // 대기 중 되돌리기(Tab·마우스 멈춤, 다른 폼·실제 이동·뒤로 가기 때 보내기 전 취소)를 실제 Chrome 으로 보던 장면은 그 동작이 없어져 뺐다.
+  // 즉시 전송·결과 모름 처리는 validate-lucian-b-v22947(가짜 DOM, 실제 함수), 되돌리기(/my/restore·알림 5초)는 validate-user-feedback-v22990 이 보고,
+  // 실제 브라우저의 삭제 → 되돌리기는 RELEASE-CHECKLIST V22.9.90 절의 사람 확인이다.
   await page('Emulation.setDeviceMetricsOverride',{width:1280,height:900,deviceScaleFactor:1,mobile:false});
-  fx.db.transactions=structuredClone(original);await navigate(home+'&feed=all');await openDelete();const deleted=deleteResponses;
-  await click('a.abGlobalActionQuick');check(await evaluate("!!document.querySelector('[data-ab-delete-pending]')"),"opening sheet preserves existing deletion wait");
-  await until(()=>deleteResponses>deleted,'real five-second deletion completes');check(!fx.db.transactions.some(r=>r.id==='tx-expense-1'),"sheet-open deletion sends once and deletes exact row");
-  report.observations.push({label:'pending quick native',deleteResponses:deleteResponses-deleted,submitted:structuredClone(submitted),rows:structuredClone(fx.db.transactions)});
-  fx.db.transactions=structuredClone(original);await navigate(home+'&feed=all');await openDelete();const paused=deleteResponses;
-  await key('Tab','Tab',9);check(await evaluate("document.activeElement.hasAttribute('data-ab-delete-undo')"),"native Tab reaches undo and pauses time");await realTimer(5300);check(deleteResponses===paused,"keyboard focus pauses real deletion timer");
-  await click('[data-ab-delete-undo]');check(await evaluate("!document.querySelector('[data-ab-delete-pending]')&&document.querySelector('.abDeleteNotice').dataset.state==='cancelled'"),"undo restores row and clears pending state");
-  fx.db.transactions=structuredClone(original);await navigate(home+'&feed=all');await openDelete();const hovered=deleteResponses;
-  const hoverPoint=await evaluate("(()=>{const r=document.querySelector('.abDeleteNotice').getBoundingClientRect();return{x:r.x+r.width/2,y:r.y+r.height/2}})()");
-  await page('Input.dispatchMouseEvent',{type:'mouseMoved',...hoverPoint});await realTimer(5300);
-  check(deleteResponses===hovered&&await evaluate("!!document.querySelector('[data-ab-delete-pending]')"),"native pointer hover pauses real deletion timer");
-  await click('[data-ab-delete-undo]');check(deleteResponses===hovered,"pointer pause and undo create zero delete requests");
-  fx.db.transactions=structuredClone(original);await navigate(home+'&feed=all');await openDelete();const prevented=deleteResponses;
-  await evaluate("const f=document.createElement('form');f.id='fixturePrevented';f.action='/menu';f.method='get';f.innerHTML='<button type=submit>보조 폼 제출</button>';f.addEventListener('submit',e=>e.preventDefault());document.body.appendChild(f)");
-  await click('#fixturePrevented button');check(await evaluate("!!document.querySelector('[data-ab-delete-pending]')"),"later prevented native form submit preserves pending deletion");
-  await click('[data-ab-delete-undo]');check(deleteResponses===prevented,"prevented form and undo create no delete request");
-  fx.db.transactions=structuredClone(original);await navigate(home+'&feed=all');await openDelete();const navDelete=deleteResponses;
-  await evaluate("const a=document.createElement('a');a.href='/menu?household_id=house-home';a.id='fixtureNavigation';a.textContent='메뉴로 이동';document.body.appendChild(a)");
-  await click('#fixtureNavigation');await until("document.readyState==='complete'&&location.pathname==='/menu'");await realTimer(5300);
-  check(deleteResponses===navDelete&&fx.db.transactions.some(r=>r.id==='tx-expense-1'),"actual page navigation cancels before write");
-  const history=await page('Page.getNavigationHistory');const back=history.entries[history.currentIndex-1];
-  const pageShowCount=report.pageShows?.length||0,bfcacheReasonCount=report.backForwardCacheNotUsed?.length||0;
-  await page('Page.navigateToHistoryEntry',{entryId:back.id});await until("document.readyState==='complete'&&location.pathname==='/app'");
-  check(deleteResponses===navDelete&&fx.db.transactions.some(r=>r.id==='tx-expense-1'),"native history return never revives cancelled deletion");
-  check(await evaluate("!document.querySelector('[data-ab-delete-pending]')&&(!document.querySelector('.abDeleteNotice')||document.querySelector('.abDeleteNotice').hidden||document.querySelector('.abDeleteNotice').dataset.state!=='pending')"),"history return has no stale timer countdown or undo");
-  report.historyReturn={pageShows:(report.pageShows||[]).slice(pageShowCount),backForwardCacheNotUsed:(report.backForwardCacheNotUsed||[]).slice(bfcacheReasonCount),navigation:await evaluate("performance.getEntriesByType('navigation').map(e=>({type:e.type,notRestoredReasons:e.notRestoredReasons?.toJSON?.()}))"),deleteRequests:deleteResponses-navDelete,recordPresent:fx.db.transactions.some(r=>r.id==='tx-expense-1')};
   // Visual and focus checks use actual Tab input at every requested width/theme.
   for(const width of [320,360,375,768,1280,1440])for(const theme of ['light','dark']){
     await settings(theme);await page('Emulation.setDeviceMetricsOverride',{width,height:900,deviceScaleFactor:1,mobile:width<900});await fresh();await smart('어제 점심 12000 국민카드');

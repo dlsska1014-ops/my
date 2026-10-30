@@ -24,7 +24,7 @@ import { safeArray } from "./backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import { refundLinkLockedCode } from "../domain/refund-links.js";
 import { verifyUserSession } from "../auth/user-session.js";
-import { makeQuickUndoTicket } from "../auth/identity-reauth.js";
+import { makeDeleteRestoreTicket, makeQuickUndoTicket } from "../auth/identity-reauth.js";
 import {
   fetchRawHouseholdMembers, withKakaoUserLifecycleLease,
 } from "../data/users-household-create.js";
@@ -397,7 +397,15 @@ async function handleAdminDeleteTransaction(request, env) {
       error.uncertain_write = true;
       throw error;
     }
-    const location = returnLocation(form, transactionReturnFallback(month, householdId, { msg: "deleted" }), { msg: "deleted" });
+    // V22.9.90(사용자 피드백 2026-10-30): 로그인 사용자(관리자 세션 아님)가 지운 기록이면 ‘되돌리기’ 표(60초, /my/restore 만 받음)를
+    // 돌아갈 주소의 restore 에 싣는다(T-16 실행 취소 표 undo 와 같은 방식). 홈 알림이 그 표로 ‘되돌리기’ 단추를 그린다. 만들지 못하면(비밀 없음·오류)
+    // 싣지 않고, 돌아갈 주소에 남아 있던 앞선 삭제의 표도 지운다(단추가 다른 기록을 되살리지 않게).
+    const restoreTicket = !access.admin && access.userId
+      ? await makeDeleteRestoreTicket(env, { transactionId: id, householdId: rowHousehold, userId: access.userId }).catch(() => "") : "";
+    const returned = new URL(returnLocation(form, transactionReturnFallback(month, householdId, { msg: "deleted" }), { msg: "deleted" }), "https://dummy.local");
+    returned.searchParams.delete("restore");
+    if (restoreTicket) returned.searchParams.set("restore", restoreTicket);
+    const location = returned.pathname + returned.search + returned.hash;
     if (wantsJson) return jsonResponse({ ok: true, deleted: true, transaction_id: id, household_id: rowHousehold, location });
     return redirectResponse(location);
   } catch (err) {
@@ -467,7 +475,8 @@ async function handleTransactionEditPage(request, env, url) {
     if (wantsFragment) return new Response(`<p class="v8-editError">${escapeHtml(missing)}</p>`, { status: 404, headers: { ...HTML_HEADERS } });
     return redirectResponse(backTo);
   }
-  const formHtml = renderV8TxEditForm(editRow, backTo, members, isManager);
+  // V22.9.90: 로그인 사용자(관리자 세션 아님)가 지우면 돌아간 홈에 ‘되돌리기’가 있다(handleAdminDeleteTransaction 의 restore 표). 그때만 묻지 않고 바로 지운다.
+  const formHtml = renderV8TxEditForm(editRow, backTo, members, isManager, { restorableDelete: !access.admin && !!access.userId });
   if (wantsFragment) {
     // 개인 기록이므로 캐시에 남기지 않는다.
     return new Response(formHtml, {

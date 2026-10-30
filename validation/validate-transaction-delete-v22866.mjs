@@ -12,7 +12,8 @@ ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime expos
 
 // formaction은 폼에 소속된 제출 버튼에서만 동작한다. 버튼이 </form> 뒤에 있으면
 // 소유 폼이 없어 눌러도 아무 요청이 나가지 않는다.
-ok(source.includes('<button class="danger" type="submit" formaction="/admin/delete" formnovalidate onclick="return confirm(\'삭제할까요?\')">삭제</button></form>'), "delete button sits inside the owning form");
+// V22.9.90: 로그인 사용자 화면(되돌리기가 따라옴)이면 삭제 단추에 data-ab-delete-restorable 을 단다(renderV8TxEditForm 의 restorableDelete). 단추는 그대로 폼 안 마지막이다.
+ok(source.includes('<button class="danger" type="submit" formaction="/admin/delete" formnovalidate${restorableDelete ? " data-ab-delete-restorable" : ""} onclick="return confirm(\'삭제할까요?\')">삭제</button></form>'), "delete button sits inside the owning form");
 ok(!/<\/form>\s*<button[^>]*formaction=/.test(source), "no submit button with formaction is left outside its form");
 
 // 어떤 화면에서도 폼 밖 formaction 버튼이 생기지 않아야 한다.

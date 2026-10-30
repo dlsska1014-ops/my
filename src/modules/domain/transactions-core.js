@@ -3,18 +3,24 @@ import {
   duplicateGuardSeconds, isDuplicateGuardSource, rememberDuplicateEvent, rememberOpsEvent,
 } from "../runtime/ops-telemetry.js";
 import {
-  claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
+  claimOperationLease, isUniqueConstraintError, operationLeaseOwner, releaseOperationLease,
+  safeError,
 } from "../runtime/leases.js";
 import { jsonResponse } from "../runtime/http.js";
 import { sha256Hex } from "../auth/crypto-admin-session.js";
 import {
   MAX_TRANSACTION_AMOUNT, fetchTransactionRowById, isValidTransactionDateString,
 } from "../admin/transactions-households.js";
+import {
+  commitImportedTransactionRows, importStorageTextIssue,
+} from "../import/flexible-import-parser.js";
 import { fetchPostgrestRows } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { findExactDuplicateTransaction } from "../import/csv-duplicates.js";
+import { myImportStoredValue, reconcileImportedTransactionIds } from "../my/backup-import.js";
 import { isMissingCategory } from "../kakao/reply-texts.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
+import { kakaoRestoreRowV4 } from "../kakao/edit-session-v4.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
@@ -279,6 +285,59 @@ async function deleteTransactionIfUnchanged(env, row = {}, householdId = "", opt
   return "deleted";
 }
 
+// V22.9.90 웹 ‘되돌리기’: 지운 행은 지우는 DB 함수(accountbook_delete_transaction_v227·_if_v22988)가 감사 기록(before_value = 지운 행 전체)에 남긴다.
+// 표는 그 한 번의 삭제에만 쓴다(독립 검토): 그 기록의 가장 최근 삭제 감사를 누가 지웠든 읽고(지운 시각 2분 전부터), 그것이 이 사용자가 표를 받은
+// 삭제(지운 시각 30초 뒤까지 — 서버·DB 시계 차이 여유)일 때만 지운 행을 준다. 그 뒤 다른 사람(관리자)이나 내가 다시 지운 기록을 옛 표로 되살리지 않는다.
+// { row } 이고, 없거나 모양이 다르면 reason "expired", 더 뒤의 다른 삭제면 reason "changed" 다.
+async function fetchDeletedTransactionAudit(env, { transactionId = "", householdId = "", userId = "", deletedAt = 0 } = {}) {
+  if (!transactionId || !householdId || !userId || !(Number(deletedAt) > 0)) return { row: null, reason: "expired" };
+  const params = new URLSearchParams();
+  params.set("select", "before_value,actor_user_id,created_at");
+  params.set("transaction_id", `eq.${transactionId}`);
+  params.set("household_id", `eq.${householdId}`);
+  params.set("action", "eq.delete");
+  params.set("created_at", `gte.${new Date((Number(deletedAt) - 120) * 1000).toISOString()}`);
+  params.set("order", "created_at.desc");
+  params.set("limit", "1");
+  const rows = await supabase(env, `/rest/v1/accountbook_transaction_audit?${params.toString()}`, { method: "GET" }) || [];
+  const latest = Array.isArray(rows) ? rows[0] : null;
+  const at = Date.parse(String(latest?.created_at || "")) / 1000;
+  if (!latest || !Number.isFinite(at)) return { row: null, reason: "expired" };
+  if (String(latest.actor_user_id || "") !== String(userId) || at > Number(deletedAt) + 30) return { row: null, reason: "changed" };
+  const before = latest.before_value;
+  if (!before || typeof before !== "object" || Array.isArray(before)) return { row: null, reason: "expired" };
+  if (String(before.id || "") !== String(transactionId) || String(before.household_id || "") !== String(householdId)) return { row: null, reason: "expired" };
+  return { row: before, reason: "" };
+}
+
+// 지운 기록 한 건을 같은 기록 번호로 다시 넣는다. 카카오 ‘복구’(kakao/edit-flow-v4.js)와 같은 칸(KAKAO_TX_RESTORE_COLUMNS_V4)·같은 순서다 —
+// 가져오기 기록은 가져오기 저장 경로로 넣고 번호로 다시 확인하며, 결과를 모르거나 같은 번호가 이미 있으면 다시 넣지 않고 번호로 확인한다
+// (번호를 뺀 재삽입은 중복을 만든다). findById(id) 는 지금 있는 행을 돌려준다. 되살린 행을 돌려주고, 확인하지 못하면 던진다.
+async function reinsertDeletedTransaction(env, householdId = "", row = {}, findById = async () => null) {
+  const body = kakaoRestoreRowV4(row, householdId);
+  if (!body.id) throw new Error("restore_row_invalid");
+  const imported = ["my_import", "backup_import_v19_3"].includes(body.source);
+  let restored = null;
+  try {
+    if (imported) {
+      if (importStorageTextIssue(body)) throw new Error("import_restore_fields_invalid");
+      await commitImportedTransactionRows(env, householdId, [body]);
+      const found = await reconcileImportedTransactionIds(env, householdId, [body]);
+      if (!found.has(String(body.id))) throw Object.assign(new Error("import_restore_unconfirmed"), { uncertain_write: true });
+      restored = body;
+    } else {
+      const inserted = await supabase(env, "/rest/v1/transactions", { method: "POST", headers: { Prefer: "return=representation" }, body: JSON.stringify(body) });
+      restored = (Array.isArray(inserted) && inserted[0]) || body;
+    }
+  } catch (err) {
+    if (!isUncertainStorageWrite(err) && !isUniqueConstraintError(err)) throw err;
+    restored = await findById(body.id);
+    if (!restored) throw err;
+  }
+  if (imported && myImportStoredValue(restored) !== myImportStoredValue(body)) throw new Error("import_restore_unconfirmed");
+  return restored;
+}
+
 async function bulkTransactionsAtomic(env, ids = [], householdId = "", patch = {}, options = {}) {
   const cleanIds = [...new Set(safeArray(ids).map((id) => String(id || "").trim()).filter(Boolean))];
   if (!cleanIds.length || cleanIds.length > 500) throw new Error("invalid bulk size");
@@ -465,8 +524,9 @@ function escapeHtml(s) {
 export {
   abTransactionRequestId, bulkTransactionsAtomic, calculateStats, calendarDaysFromRows,
   createManualTransaction, deleteTransactionIfUnchanged, deleteTransactionWithAudit, escapeHtml,
-  findTransactionForRequest, formatRecentTransactions, formatSummary, getCalendar, getMonthSummary,
-  getStats, helpText, jsonForInlineScript, linkText, listTransactions, makeInviteCode,
-  nextMonthStart, numberWithCommas, sameTransactionCore, sanitizeTransactionBody, updateTransaction,
+  fetchDeletedTransactionAudit, findTransactionForRequest, formatRecentTransactions, formatSummary,
+  getCalendar, getMonthSummary, getStats, helpText, jsonForInlineScript, linkText, listTransactions,
+  makeInviteCode, nextMonthStart, numberWithCommas, reinsertDeletedTransaction, sameTransactionCore,
+  sanitizeTransactionBody, updateTransaction,
 };
 // @build:exports-end

@@ -482,16 +482,16 @@ function kakaoEditGuideText(origin = "") {
 }
 // @build:exports-start
 export {
-  KAKAO_AUDIT_ACTOR_KIND, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq,
-  getDailyKakaoRows, getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
-  hasKakaoEditSessionHint, isKakaoDailyListCommand, isKakaoEditCancelCommand,
-  isKakaoEditGuideCommand, isKakaoSessionSeqReplyV4, isKakaoTransactionSpenderChangeCommand,
-  kakaoActiveSpenderMembers, kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4,
-  kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditMenuTextV4, kakaoEditRecordLineV4,
-  kakaoEditSessionKeyV4, kakaoEditTargetRejectTextV4, kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4,
-  kakaoRowLabel, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
-  parseKakaoSpenderChoiceValue, readKakaoEditUndoItemsV4, resolveKakaoEditDateV4,
-  saveKakaoEditSessionV4, stripKakaoEditDatePrefixV4, twoDigitSeq, withKakaoEditUndoLeaseV4,
-  writeKakaoEditUndoItemsV4,
+  KAKAO_AUDIT_ACTOR_KIND, KAKAO_TX_SELECT_V4, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4,
+  findDailyKakaoRowBySeq, getDailyKakaoRows, getKakaoEditSessionV4, getKakaoRowById,
+  getRecentKakaoOwnedTransactionsV2254, hasKakaoEditSessionHint, isKakaoDailyListCommand,
+  isKakaoEditCancelCommand, isKakaoEditGuideCommand, isKakaoSessionSeqReplyV4,
+  isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers, kakaoEditDayPrefixV4,
+  kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditMenuTextV4,
+  kakaoEditRecordLineV4, kakaoEditSessionKeyV4, kakaoEditTargetRejectTextV4,
+  kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4, kakaoRowLabel, parseKakaoDeleteCommandV4,
+  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue,
+  readKakaoEditUndoItemsV4, resolveKakaoEditDateV4, saveKakaoEditSessionV4,
+  stripKakaoEditDatePrefixV4, twoDigitSeq, withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
 };
 // @build:exports-end

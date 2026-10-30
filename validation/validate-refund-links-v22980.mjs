@@ -41,6 +41,10 @@
 // (review-artifacts/v89-numbers-trust-2026-10-29/refund-compare.txt): 홈 아랫줄 이름(U-02, 예산 없으면 ‘예산 없음·예산 안 정한 지출’), 오늘 쓴 돈 색(U-01),
 // 카드 머리 ‘최근 7일’·‘마지막 7일’(U-11), 정기 카드 세 줄(U-07), 리포트 ‘오늘까지 N일 동안’·‘N일 평균’(Astra 2), ‘지출 N · 수입 N’(U-10), 등록 안 된 카드(U-09),
 // 공유 글 ‘M/D(요일) 작성’(Astra 5). 그 뒤 --print-golden 으로 home·homeTrend·homePrev·reports·reportsWeek 와 판 이름만 바뀐 analysis·backupFull·backupMonth 를 다시 얻었다.
+// V22.9.90(2026-10-30, 사용자 직접 확인 피드백): 홈 셸·홈 스크립트·V5 번들의 1년 캐시 주소가 v22986·v22987 → v22990 으로 바뀌고 판 이름이 바뀐다.
+// 해시하는 화면 원문 96개를 V22.9.89(77d9b67)와 견주어 판 이름만 가리면 다른 파일 48개의 조각이 모두 그 주소(홈 셋은 셸·V5 두 주소, 나머지는 V5 주소)였고
+// 그 밖 차이는 0이었다(판 이름만 다름 6 · 같음 42, review-artifacts/v90-user-feedback-2026-10-30/refund-compare.txt).
+// 그 뒤 --print-golden 으로 12개(home·homeTrend·homePrev·budgets·budgetAlerts·reports·reportsWeek·analysis·backupPage·backupFull·backupMonth·candidate)를 다시 얻었다.
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -50,24 +54,24 @@ import { BASE, app, ctx, fixture, intercept, page, post, skill, withClock } from
 const PRINT_GOLDEN = process.argv.includes("--print-golden");
 const SOFT = process.env.V22980_SOFT === "1";
 const FLAG_OFF_GOLDEN = {
-  "home": "200 25f50aaf5875bf3c339369ab",
-  "homeTrend": "200 fcd98f85429681c753a9fcfb",
-  "homePrev": "200 3d583be13fde4bcb559f56c0",
-  "budgets": "200 76b008ca0356f5dd7e358085",
-  "budgetAlerts": "200 6fc3543c522d72c8860c0694",
+  "home": "200 cc5c5aad447bc811779316e9",
+  "homeTrend": "200 6ff2fdd71d4aa50144f281e8",
+  "homePrev": "200 03040c7ac7d1a201c36a12a2",
+  "budgets": "200 374227d0f8dad99fa12015a1",
+  "budgetAlerts": "200 563bfee10092bac3c20d9aaa",
   "notifications": "200 df9761ab7204d02ba148aa42",
-  "reports": "200 d771a85262df31d7fc14512e",
-  "reportsWeek": "200 6d52d8af288802c12a8a3a86",
-  "analysis": "200 dfdf98c6f0dde42d67a164ea",
-  "backupPage": "200 f9df266b7de8ad78b1aa0428",
+  "reports": "200 9d10c0158793897e5885deba",
+  "reportsWeek": "200 65df83aea0e816b4d91d2daa",
+  "analysis": "200 2dd0d6a33861bbb38fcdeba6",
+  "backupPage": "200 a949073b28fb83b6346eaba3",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 6ea6f055669e59d97d5423f0",
-  "backupMonth": "200 f2164ff6a3d1a965b89f1dda",
-  "candidate": "200 f987089b646a468a2b5bff11",
+  "backupFull": "200 24295fdf5b38dd03272ed185",
+  "backupMonth": "200 3c5d3dfcdc84f0582c368223",
+  "candidate": "200 1a0d7777dca01ce01a87e80f",
   "legacyErr": "200 bfc684233d18c4570db218ba", // V22.9.81 U-19: 옛 관리자 화면 오류 칸이 record_update_failed 를 코드 글자 대신 안내 문장으로 보인다(의도한 변경)
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
   "apiBatch": "200 {\"ok\":true,\"updatedCount\":1}",

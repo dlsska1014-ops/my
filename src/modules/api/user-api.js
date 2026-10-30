@@ -256,6 +256,9 @@ async function handleUserDayTransactions(request, env, url) {
     date,
     can_write: canWrite,
     can_manage_spender: canManageSpender,
+    // V22.9.90(사용자 피드백 2026-10-30): 로그인 사용자(관리자 세션 아님)의 삭제는 돌아간 홈 알림에 ‘되돌리기’가 있다. 날짜 시트 삭제 폼은
+    // 그때만 data-ab-delete-restorable 을 달아 묻지 않고 바로 지운다(삭제 스크립트 lucian-b-mains.js). 관리자 세션은 예전처럼 먼저 묻는다.
+    restorable_delete: !scope.adminOk && !!scope.userId,
     // V22.9.79 V44 F-3: 날짜 시트 수정 칸의 분류·결제수단 제안 목록. 기본 목록에 그날 기록의 값만 더한다(새 조회 없음).
     // 수정 폼을 쓸 수 없는 역할에는 비워 보낸다.
     categories: canWrite ? mergedOptions(DEFAULT_CATEGORIES, items.map((item) => item.category)) : [],

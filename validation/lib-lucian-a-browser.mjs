@@ -1,7 +1,8 @@
 import vm from "node:vm";
 
 // DOM subset for the shipped client. Native layout, caret and composition also run in Chrome.
-export function createInputBrowser({ writer=true }={}) {
+// V22.9.90: fetch 를 주면 VM 안에서 전역 fetch 로 쓴다(가계부 분류 요청 검사). 주지 않으면 예전처럼 fetch 가 없다.
+export function createInputBrowser({ writer=true, fetch }={}) {
  const listeners=()=>({handlers:new Map(),addEventListener(type,fn,capture=false){const list=this.handlers.get(type)||[];list.push({fn,capture:!!capture});this.handlers.set(type,list);}});
  const run=(target,event,capture)=>{for(const entry of target.handlers?.get(event.type)||[]){if(capture!==undefined&&entry.capture!==capture)continue;entry.fn(event);if(event.stopped)break;}};
  let document;
@@ -35,6 +36,6 @@ export function createInputBrowser({ writer=true }={}) {
   element("input",{type:"hidden",name:"month",value:"2026-07"},form);
   fields.after=element("p",{id:"quickAfter","data-bsc":"[20260715,0]","data-has-budget":"1","data-remaining":"10000"},form);
  }
- const context=vm.createContext({document,Event:class{constructor(type,options){this.type=type;Object.assign(this,options);}},queueMicrotask,setTimeout,clearTimeout,console});
- return {body,head,document,form,smart,fields,run(source){vm.runInContext(typeof source==='function'?'('+source.toString()+')()':source,context);},click:target=>dispatch(target,"click"),fire:(target,type,extra)=>dispatch(target,type,extra),async flush(){await new Promise(resolve=>setImmediate(resolve));},set(id,value){fields[id].value=value;dispatch(fields[id],"input");},button(key){return body.querySelectorAll("button").find(n=>n.dataset.abInputField===key);},add(value){return body.querySelectorAll("button").find(n=>n.dataset.abAmountAdd===String(value));}};
+ const context=vm.createContext({...(typeof fetch==='function'?{fetch}:{}),document,Event:class{constructor(type,options){this.type=type;Object.assign(this,options);}},queueMicrotask,setTimeout,clearTimeout,console});
+ return {body,head,document,form,smart,fields,element,run(source){vm.runInContext(typeof source==='function'?'('+source.toString()+')()':source,context);},click:target=>dispatch(target,"click"),fire:(target,type,extra)=>dispatch(target,type,extra),async flush(){await new Promise(resolve=>setImmediate(resolve));},set(id,value){fields[id].value=value;dispatch(fields[id],"input");},button(key){return body.querySelectorAll("button").find(n=>n.dataset.abInputField===key);},add(value){return body.querySelectorAll("button").find(n=>n.dataset.abAmountAdd===String(value));}};
 }

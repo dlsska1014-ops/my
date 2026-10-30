@@ -190,6 +190,10 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   // 넘기면 먼저 '처리 중' 답을 보내고 같은 처리는 ctx.waitUntil 로 끝까지 마친다. 중복 저장을 막는 처리 중 표시는 그 처리가
   // 끝날 때 내려가고, 관제 지표에는 실제로 걸린 시간과 결과를 남긴다.
   const canDeferSave = typeof ctx?.waitUntil === "function";
+  // V22.9.90: 관제 이용 현황의 카카오 기능 순위(record_nlu_metric)는 메뉴 낱말 판별(detectKakaoNaturalIntent)만 써서 기록 글("점심 12000원")과
+  // 고치기 명령을 ‘알 수 없음’으로 셌다(10-30 관제 확인: 129회 중 53회). 처리기가 기록·고치기로 읽은 글이면 그 이름(usage.intent)을 쓴다.
+  const usage = {};
+  const metricIntent = () => (intentMatch.intent === "UNKNOWN" && usage.intent) || intentMatch.intent;
   const work = (async () => { try {
     const headers = new Headers(request.headers || {});
     headers.delete("content-length");
@@ -199,7 +203,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
       headers,
       body: JSON.stringify(payload || {}),
     });
-    const response = await handleKakaoSkill(cloned, env, { canDeferSave });
+    const response = await handleKakaoSkill(cloned, env, { canDeferSave, usage });
     const normalizedResponse = await normalizeKakaoSkillResponse(response, origin);
     const safeResponse = await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin);
     const latencyMs = Date.now() - skillStartedAt;
@@ -207,34 +211,34 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     const outcome = nluOutcomeFromKakaoResponse(responsePreview);
     armKakaoRepeatGuard(repeat.key, responsePreview);
     clearKakaoInFlight(repeat.key);
-    rememberSkillLatency(latencyMs, { intent: intentMatch.intent, result: outcome.result });
-    const nluEvent = { at: new Date().toISOString(), request_id: requestId, intent: intentMatch.intent, confidence: intentMatch.confidence, result: outcome.result, reason: outcome.reason, latency_ms: latencyMs, block: blockName, version: APP_VERSION, utterance };
+    rememberSkillLatency(latencyMs, { intent: metricIntent(), result: outcome.result });
+    const nluEvent = { at: new Date().toISOString(), request_id: requestId, intent: metricIntent(), confidence: intentMatch.confidence, result: outcome.result, reason: outcome.reason, latency_ms: latencyMs, block: blockName, version: APP_VERSION, utterance };
     rememberNluRuntimeEvent(nluEvent, env);
     scheduleNluOpsPersistence(ctx, env, nluEvent);
-    rememberSkillEvent({ kind: "ok", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${intentMatch.intent}; result=${outcome.result}; status=${response.status}; normalized=${safeResponse.status}; latency_ms=${latencyMs}; db_retries=${env.__AB_MONITOR_REQUEST?.db_retries || 0}` });
+    rememberSkillEvent({ kind: "ok", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${metricIntent()}; result=${outcome.result}; status=${response.status}; normalized=${safeResponse.status}; latency_ms=${latencyMs}; db_retries=${env.__AB_MONITOR_REQUEST?.db_retries || 0}` });
     const safeHeaders = new Headers(safeResponse.headers || {});
     safeHeaders.set("x-kakao-skill-latency-ms", String(latencyMs));
     safeHeaders.set("x-accountbook-latency-ms", String(latencyMs));
     safeHeaders.set("x-accountbook-version", APP_VERSION);
-    safeHeaders.set("x-accountbook-intent", intentMatch.intent);
+    safeHeaders.set("x-accountbook-intent", metricIntent());
     safeHeaders.set("x-accountbook-nlu-result", outcome.result);
     safeHeaders.set("x-accountbook-request-id", requestId);
     return new Response(safeResponse.body, { status: safeResponse.status, statusText: safeResponse.statusText, headers: safeHeaders });
   } catch (err) {
     const latencyMs = Date.now() - skillStartedAt;
-    const nluEvent = { at: new Date().toISOString(), request_id: requestId, intent: intentMatch.intent, confidence: intentMatch.confidence, result: "error", reason: safeError(err), latency_ms: latencyMs, block: blockName, version: APP_VERSION, utterance };
+    const nluEvent = { at: new Date().toISOString(), request_id: requestId, intent: metricIntent(), confidence: intentMatch.confidence, result: "error", reason: safeError(err), latency_ms: latencyMs, block: blockName, version: APP_VERSION, utterance };
     rememberNluRuntimeEvent(nluEvent, env);
     scheduleNluOpsPersistence(ctx, env, nluEvent);
-    rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${intentMatch.intent}; ${safeError(err)}; latency_ms=${latencyMs}` });
+    rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${metricIntent()}; ${safeError(err)}; latency_ms=${latencyMs}` });
     clearKakaoInFlight(repeat.key);
-    rememberSkillLatency(latencyMs, { intent: intentMatch.intent, result: "error" });
+    rememberSkillLatency(latencyMs, { intent: metricIntent(), result: "error" });
     // V22.9.76 감사 B-6: 식별 별칭 저장이 동시 요청으로 바빠 실패하면 기록하기 전에 멈춘 것이다. "다시 보내주세요" 예시만 주던
     // 일반 안내 대신, 저장하지 않았으니 같은 내용을 다시 보내라고 분명히 말한다.
     const busyIdentity = String(err?.code || "") === "identity_alias_persistence_failed";
     const fallback = await kakaoGroupCompatibleResponse(kakaoText(busyIdentity ? "요청이 한꺼번에 몰려 이번 내용은 저장하지 못했어요.\n잠시 뒤 같은 내용을 한 번 더 보내 주세요." : kakaoSkillSafeFallbackText(origin)), payload, origin);
     const headers = new Headers(fallback.headers || {});
     headers.set("x-accountbook-version", APP_VERSION);
-    headers.set("x-accountbook-intent", intentMatch.intent);
+    headers.set("x-accountbook-intent", metricIntent());
     headers.set("x-accountbook-nlu-result", "error");
     headers.set("x-accountbook-request-id", requestId);
     headers.set("x-accountbook-latency-ms", String(latencyMs));
@@ -253,7 +257,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   const deferred = await kakaoGroupCompatibleResponse(kakaoDeferredReply(utterance, payload), payload, origin);
   const deferredHeaders = new Headers(deferred.headers || {});
   deferredHeaders.set("x-accountbook-version", APP_VERSION);
-  deferredHeaders.set("x-accountbook-intent", intentMatch.intent);
+  deferredHeaders.set("x-accountbook-intent", metricIntent());
   deferredHeaders.set("x-accountbook-nlu-result", "deferred");
   deferredHeaders.set("x-accountbook-request-id", requestId);
   deferredHeaders.set("x-accountbook-latency-ms", String(Date.now() - skillStartedAt));
@@ -332,7 +336,7 @@ function kakaoMixedTypeConfirmationReply(utterance = "") {
   return kakaoText(`수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n쓴 돈이면 ‘지출 ${example}’, 들어온 돈이면 ‘수입 ${example}’처럼 앞에 구분을 붙여 다시 보내 주세요.`, replies);
 }
 
-async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
+async function handleKakaoSkill(request, env, { canDeferSave = false, usage = null } = {}) {
   const handlerStartedAt = Date.now();
   const payload = await readJson(request);
   const origin = publicBaseUrl(env, new URL(request.url));
@@ -342,6 +346,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
   // V22.9.76 카카오 감사 3: "어제수정 01번 금액 5000"·"10월20일수정 …"처럼 날짜와 수정 명령을 붙여 쓴 말은 아래 두
   // 기록 거절 안내가 아니라 수정 흐름으로 보낸다.
   const editLikeUtterance = !separatePurchaseCommand && looksLikeKakaoEditCommandV4(utterance);
+  // V22.9.90: 관제 기능 순위용 이름(부른 쪽은 메뉴 낱말 판별이 UNKNOWN 일 때만 쓴다). 기록으로 읽힌 글은 TRANSACTION, 고치기 명령 꼴은 EDIT.
+  if (usage) usage.intent = editLikeUtterance ? "EDIT" : separatePurchaseCommand || preParsedList.length ? "TRANSACTION" : "";
   if (!separatePurchaseCommand && !editLikeUtterance && (preParsedList.blocked?.message === "transaction_type_confirmation_required" || (!preParsedList.length && parseTransaction(utterance,payload).message === "transaction_type_confirmation_required"))) {
     if (preParsedList.blocked?.reason === "mixed_cues") return kakaoMixedTypeConfirmationReply(utterance);
     return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");
@@ -415,7 +421,11 @@ async function handleKakaoSkill(request, env, { canDeferSave = false } = {}) {
     // T6: 분명한 새 기록이면 세션만 끝나고(passThrough) 아래 기록 경로로 이어진다.
     const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, sessionRaw: routingSnapshot?.edit });
     if (editSessionReply?.passThrough) editSessionNotice = String(editSessionReply.notice || "");
-    else if (editSessionReply) return editSessionReply;
+    else if (editSessionReply) {
+      // V22.9.90 독립 검토: 열린 수정 세션이 받은 답("금액 13000"·"1번")은 위 미리 읽기가 기록으로 보았어도 관제 기능 순위에서는 고치기(EDIT)다.
+      if (usage) usage.intent = "EDIT";
+      return editSessionReply;
+    }
   }
 
   if (earlyReply) {

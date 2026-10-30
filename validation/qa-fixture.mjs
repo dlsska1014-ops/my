@@ -184,6 +184,9 @@ async function signedSessionCookie(userId, secret) {
 
 export async function createV2265QaFixture(options = {}) {
   const categoriesPresent = options.categoriesPresent ?? process.env.AB_QA_CATEGORIES_ABSENT !== "1";
+  // V22.9.90: 운영의 지우는 DB 함수(v227·_if_v22988)는 accountbook_transaction_audit 에 지운 행 전체를 남긴다. 웹 삭제 되돌리기(/my/restore)가
+  // 그 기록을 읽으므로 테스트 서버와 그 검사는 이 값을 켠다. 기본은 꺼짐이다(예전 검사의 fx.db 비교가 그대로다).
+  const auditDeletes = options.auditDeletes === true;
   const createdAt = "2026-07-01T00:00:00.000Z";
   const db = {
     users: [
@@ -247,6 +250,15 @@ export async function createV2265QaFixture(options = {}) {
     const rpcMatch = url.pathname.match(/\/rest\/v1\/rpc\/([^/]+)$/);
     if (rpcMatch) {
       const rpcName = rpcMatch[1];
+      // 운영 함수와 같은 칸(V22_9_88_UNDO_DELETE_IF_UNCHANGED_APPLY_REVIEW_ONLY.sql 의 INSERT): 행위자 종류는 비면 'user', 30자까지.
+      const auditDelete = (row) => {
+        if (!auditDeletes) return;
+        (db.accountbook_transaction_audit ||= []).push({
+          id: `audit-delete-${db.accountbook_transaction_audit.length + 1}`, transaction_id: row.id, household_id: row.household_id,
+          actor_user_id: data?.p_actor_user_id ?? null, actor_kind: String(data?.p_actor_kind ?? "user").slice(0, 30), action: "delete",
+          before_value: clone(row), after_value: null, created_at: new Date().toISOString(),
+        });
+      };
       db.__rpc_calls.push({ name: rpcName, data: clone(data || {}) });
       if (typeof db.__before_rpc === "function") await db.__before_rpc(rpcName, clone(data || {}));
       if (db.__operation_rpc_available === false || (db.__missing_rpcs || []).includes(rpcName)) {
@@ -453,6 +465,7 @@ export async function createV2265QaFixture(options = {}) {
         const householdId = String(data?.p_household_id || "");
         const row = db.transactions.find((item) => String(item.id) === transactionId && String(item.household_id) === householdId);
         if (!row) return new Response(JSON.stringify({ code: "P0001", message: "transaction_not_found" }), { status: 400, headers: { "content-type": "application/json" } });
+        auditDelete(row);
         db.transactions = db.transactions.filter((item) => String(item.id) !== transactionId);
         return new Response(JSON.stringify({ deleted: true, id: transactionId }), { status: 200, headers: { "content-type": "application/json" } });
       }
@@ -468,6 +481,7 @@ export async function createV2265QaFixture(options = {}) {
         const same = text(row.type) === text(expected.type) && Number(row.amount) === Number(expected.amount) && text(row.transaction_date) === text(expected.transaction_date)
           && ["category", "memo", "payment_method"].every((key) => text(row[key]) === text(expected[key])) && (row.user_id ?? null) === (expected.user_id ?? null);
         if (!same) return new Response(JSON.stringify({ deleted: false, changed: true, id: transactionId }), { status: 200, headers: { "content-type": "application/json" } });
+        auditDelete(row);
         db.transactions = db.transactions.filter((item) => String(item.id) !== transactionId);
         return new Response(JSON.stringify({ deleted: true, id: transactionId }), { status: 200, headers: { "content-type": "application/json" } });
       }

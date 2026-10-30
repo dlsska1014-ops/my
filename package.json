@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.89",
+  "version": "22.9.90",
   "private": true,
   "type": "module",
   "engines": {
@@ -75,6 +75,7 @@
     "validate:codex-findings-v22988": "node validation/validate-codex-findings-v22988.mjs",
     "validate:kakao-link-buttons-v22988": "node validation/validate-kakao-link-buttons-v22988.mjs",
     "validate:metric-consistency": "node validation/validate-metric-consistency-v22989.mjs",
+    "validate:user-feedback-v22990": "node validation/validate-user-feedback-v22990.mjs",
     "preview:public": "node tools/preview-public.mjs",
     "preview:app": "node tools/staging/preview-server.mjs",
     "deploy:staging": "node tools/staging/deploy-staging.mjs",

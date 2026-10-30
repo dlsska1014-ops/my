@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_89.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_90.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -102,6 +102,7 @@ const validationScripts = [
   ["V22.9.88 Codex 지적 6건(Y-1 카카오 저장 전 실패 표식 정리·10분 기한·Y-2 실행 취소 조건부 삭제·Y-3 비밀번호 변경 결과 불확실/다시 로그인 안내·Y-4 중복 안내 문장·입력 순서·Y-5 관리자 API 메모·결제수단 지우기·빈 수정·Y-6 예약 상태 조건부 쓰기)", "validation/validate-codex-findings-v22988.mjs"],
   ["V22.9.88 Y-7 카카오 심사 의견(답 글에 주소 없음·우리 주소는 링크 버튼·단톡방 ‘웹가계부’ 는 웹 가계부(/my)를 바로 여는 버튼·버튼 주소가 열리는지)", "validation/validate-kakao-link-buttons-v22988.mjs"],
   ["V22.9.89 숫자 신뢰(V2 6단계: 용어 사전·홈 예산 카드 아랫줄·월말 문장 범위·하루 금액 문장·정기 카드·연말정산 공제율·미등록 카드·기록 수·월요일 주 + Codex Astra 7건: 연간 월 평균·미리 적은 지출 표시와 월말 예상 바닥·정기 항목 못 읽은 예상·기록 없는 날 무지출·지난 리포트 정기 항목·정리할 기록·소비 신호)", "validation/validate-metric-consistency-v22989.mjs"],
+  ["V22.9.90 사용자 피드백(웹 삭제 즉시·삭제 알림 되돌리기 5초(/my/restore 감사 기록으로 같은 번호 되살리기)·한 줄 입력 한글 조합 중 읽기·관제 카카오 기능 이름 TRANSACTION·EDIT·가계부 만들기/참여)", "validation/validate-user-feedback-v22990.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
@@ -344,7 +345,8 @@ function run(command, args, label) {
 // V22.9.88: 새 검사 1개(Codex 지적 6건 69)·추적표 V88 6건과 옛 검사 갱신(카카오 표식 응답 소실 장면·실행 취소 함수 이름·예약 상태 판 번호 칸·판 이름만 바뀐 환불 꺼짐 화면 해시 셋). 두 모드 실측: 일반 36,778 · 분류 표 부재 36,775(V22.9.88 Codex 지적).
 // V22.9.88(Y-7): 새 검사 1개(카카오 링크 버튼 318)·추적표 V88:Y-7 과 옛 검사 11개 갱신(기간 요약 비교의 ‘바로 열기’ 카드·주소 글 대신 링크 버튼·요청 제한 답 카드 설명). 두 모드 실측: 일반 37,102 · 분류 표 부재 37,099.
 // V22.9.89: 새 검사 1개(숫자 신뢰 77, 병합 전 독립 검토 13 포함)·추적표 V89 9건과 옛 검사 갱신(홈 아랫줄·월말·하루 금액 문장·정기 카드·카드 머리·월요일 주·홈 바이트·생활비 리포트·무지출 지문·환불 꺼짐 화면 해시 여덟·분석 렌더러 지문·챌린지 표시 조건). 두 모드 실측: 일반 37,300 · 분류 표 부재 37,297(V22.9.89 숫자 신뢰).
-const EXPECTED_MINIMUM_CHECKS = 37297;
+// V22.9.90: 새 검사 1개(사용자 피드백 167: 삭제 되살리기·알림 5초·한글 조합 중 읽기·관제 기능 이름·테스트 서버 왕복)·추적표 V90 3건(V88:Y-2 고침)과 옛 검사 갱신(삭제 즉시 전송·되돌리기 없는 삭제는 먼저 묻기·자산 주소 v22990·불변 자산 고정 셋·환불 꺼짐 화면 해시 12개·삭제 단추 원문). 병합 전 독립 검토 5건 반영. 두 모드 실측: 일반 37,527 · 분류 표 부재 37,524(V22.9.90 사용자 피드백).
+const EXPECTED_MINIMUM_CHECKS = 37524;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

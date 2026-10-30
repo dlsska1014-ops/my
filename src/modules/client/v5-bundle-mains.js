@@ -934,9 +934,12 @@ function accountbookSaveFeedbackClientMain() {
   });
   // V22.9.87 T-16: 실행 취소 단추가 있는 알림(성공·예산 경고)은 12초 보인다(지시서: 10초 이상). 마우스나 키보드 초점이 알림 안에 있는 동안은
   // 모든 알림이 멈추고, 둘 다 나가면 남은 시간(실행 취소 6초·성공 2.4초·경고 4.2초) 뒤 닫는다. 실행 취소 표는 60초라 알림이 먼저 닫힌다.
+  // V22.9.90(사용자 피드백 2026-10-30 "되돌리기를 5초 유지해줘"): 삭제 알림의 ‘되돌리기’(data-ab-restore, POST /my/restore)는 5초 보인다.
+  // 초점·마우스가 알림 안에 있으면 멈추는 것과 나간 뒤 2.4초는 성공 알림과 같다. 되살리기 표는 60초라 알림이 먼저 닫힌다.
   var undoable = !!feedback.querySelector("[data-ab-undo]");
-  var holdMs = undoable ? 12000 : kind === "success" ? 5200 : kind === "warning" ? 9000 : 0;
-  var resumeMs = undoable ? 6000 : kind === "success" ? 2400 : kind === "warning" ? 4200 : 0;
+  var restorable = !!feedback.querySelector("[data-ab-restore]");
+  var holdMs = restorable ? 5000 : undoable ? 12000 : kind === "success" ? 5200 : kind === "warning" ? 9000 : 0;
+  var resumeMs = restorable ? 2400 : undoable ? 6000 : kind === "success" ? 2400 : kind === "warning" ? 4200 : 0;
   var hovering = false;
   function hold() { if (timer) clearTimeout(timer); timer = null; }
   function resume() {
@@ -952,7 +955,7 @@ function accountbookSaveFeedbackClientMain() {
   try {
     var params = new URLSearchParams(location.search);
     var changed = false;
-    ["msg", "err", "balert"].forEach(function(key) { if (params.has(key)) { params.delete(key); changed = true; } });
+    ["msg", "err", "balert", "restore"].forEach(function(key) { if (params.has(key)) { params.delete(key); changed = true; } });
     if (changed && window.history && window.history.replaceState) {
       var query = params.toString();
       window.history.replaceState({}, "", location.pathname + (query ? "?" + query : "") + location.hash);
@@ -1012,7 +1015,8 @@ function accountbookDayDetailClientMain() {
       : '<input type="hidden" name="user_id" value="' + esc(item.user_id || "") + '"/><p class="abDayDetailSpender">' + (item.type === "income" ? "수입자" : "지출자") + " " + esc(item.member || "미지정") + "</p>";
     var edit = item.can_edit ? '<details class="abDayDetailEdit"><summary>수정</summary><form method="post" action="/admin/update" data-ab-day-write data-ab-day-update>' + hidden + orig + '<div class="abDayDetailEditGrid"><label><span>구분</span><select name="type"><option value="expense"' + (item.type !== "income" ? " selected" : "") + '>지출</option><option value="income"' + (item.type === "income" ? " selected" : "") + '>수입</option></select></label><label><span>날짜</span><input type="date" name="transaction_date" value="' + esc(date) + '" required/></label><label><span>금액</span><input name="amount" inputmode="numeric" value="' + esc(item.amount || 0) + '" required/></label><label><span>분류</span><input name="category"' + suggestAttr(data, "categories", "abDayCategoryList") + ' value="' + esc(item.category || "") + '"/></label><label><span>결제수단</span><input name="payment_method"' + suggestAttr(data, "payments", "abDayPaymentList") + ' value="' + esc(item.payment_method || "") + '"/></label><label class="abDayDetailMemo"><span>메모</span><input name="memo" value="' + esc(rawMemo) + '" placeholder="' + esc(item.memo || "메모") + '"/></label>' + spender + '</div><button type="submit" class="abDayDetailSave">수정 저장</button></form></details>' : "";
     var description = (item.memo || "내용 없음") + " · " + fmt(item.amount) + "원";
-    var remove = item.can_delete ? '<form method="post" action="/admin/delete" class="abDayDetailDelete" data-ab-day-write data-ab-day-delete data-confirm="' + esc(description + " 기록을 삭제할까요?") + '">' + hidden + '<button type="submit">삭제</button></form>' : "";
+    // V22.9.90: data.restorable_delete(로그인 사용자 세션)일 때만 삭제 폼에 data-ab-delete-restorable — 삭제 스크립트가 묻지 않고 바로 지우고 홈 알림이 ‘되돌리기’를 준다.
+    var remove = item.can_delete ? '<form method="post" action="/admin/delete" class="abDayDetailDelete" data-ab-day-write data-ab-day-delete' + (data && data.restorable_delete === true ? " data-ab-delete-restorable" : "") + ' data-confirm="' + esc(description + " 기록을 삭제할까요?") + '">' + hidden + '<button type="submit">삭제</button></form>' : "";
     return '<div class="abDayDetailActions">' + edit + remove + "</div>";
   }
   function ensure() {
