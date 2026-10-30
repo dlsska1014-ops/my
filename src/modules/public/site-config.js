@@ -1,13 +1,14 @@
 // @build:imports-start
 import { HTML_HEADERS } from "../runtime/config-readiness.js";
 import { htmlResponse } from "../runtime/http.js";
+import { AB_SPECULATION_RULES_JSON } from "../assets/icons-manifest.js";
 import { kakaoDefaultQuickReplies } from "../kakao/response-builders.js";
 import { escapeHtml } from "../domain/transactions-core.js";
 // @build:imports-end
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.91-IDENTITY-LINK";
+const APP_VERSION = "V22.9.92-ADFIT-READY";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -218,15 +219,20 @@ function publicAdsenseHead(env = {}) {
 // 마크업, 광고 쿠키 고지 문구는 이 블록 안에만 둔다(validate-adsense-v2-v22817 이 블록 밖 소스 전체에
 // 광고 호스트가 없는지 본다). 기본값(심사 모드)의 HTML 과 헤더는 게이트가 생기기 전과 바이트 단위로 같다.
 function adsMode(env = {}) {
-  // 운영 변수 ADS_MODE 는 이 함수에서만 읽는다. 정확히 "live" 일 때만 live 이고, 값이 없거나
+  // 운영 변수 ADS_MODE 는 이 함수에서만 읽는다. 정확히 "live" 일 때만 live(Google AdSense)이고, 값이 없거나
   // "LIVE"·"on"·"1"·"review"·앞뒤 공백이 붙은 값이면 모두 review 다.
-  return env?.ADS_MODE === "live" ? "live" : "review";
+  // V22.9.92: 정확히 "adfit" 이면 adfit(카카오 애드핏)이다("ADFIT"·"Adfit"·공백 붙은 값은 review). 애드핏을 따로 변수(예: 광고 네트워크
+  // 이름)로 두지 않고 ADS_MODE 의 새 값으로 둔 것은 되돌리기 때문이다. 이 판 전의 판은 "adfit" 을 모르는 값으로 읽어 review(광고 없음)로
+  // 돌아간다. live 에 네트워크 변수를 더하는 방식이면 옛 판이 live 를 AdSense 로 읽어 Google 로더를 싣는다.
+  const value = env?.ADS_MODE;
+  return value === "live" ? "live" : value === "adfit" ? "adfit" : "review";
 }
 
 // 광고를 둘 수 있는 화면(라이브에서만). 공개 정본 가이드에서 정책·신원 화면(privacy·terms·cookies·
 // contact·about·site-map)을 뺀 45쪽(가이드 12쪽 + V22.9.40 생활비 가이드 글 12편 + V22.9.74 허브 1쪽·글 20편)과 로그인 뒤 읽는 화면 5개다. 이 목록에 없는 화면(/app 의 모든 보기,
 // 로그인·가입, 설정·예산·참여자·백업, /my/analysis, 관리자·운영, API·/skill, 404·안전모드)은 키를
 // 받지 않으므로 구조적으로 광고가 붙지 않는다. 새 공개 문서는 일부러 여기에 적어야만 광고가 붙는다.
+// V22.9.92: 애드핏(ADS_MODE=adfit)은 이 목록 가운데 공개 정본 문서만 쓴다(로그인 뒤 화면 5개는 빼고, adsPageLive).
 const AD_PAGE_KEYS = Object.freeze([
   "/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide",
   "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide",
@@ -252,21 +258,78 @@ function adsSlotId(env = {}) {
   return typeof value === "string" && /^[0-9]{8,12}$/.test(value) ? value : "";
 }
 
+// V22.9.92: 애드핏 광고 단위. 애드핏이 발급한 광고단위 ID(ADFIT_UNIT_CONTENT, DAN- 뒤 영문·숫자)와 그 단위의 크기(ADFIT_UNIT_SIZE,
+// 가로x세로)를 이 함수에서만 읽는다. 공식 SDK 안내(https://github.com/adfit/adfit-web-sdk)는 발급 코드의 광고단위 정보를 고쳐 설치하지
+// 말라고 하므로 크기도 대시보드에서 만든 값 그대로 받는다. 휴대폰 폭(360px)에 들어가는 배너 크기만 받는다 — 728x90 같은 PC 크기는
+// 휴대폰에서 넘친다. 둘 중 하나라도 맞지 않으면 광고 단위가 없는 것이고, 그러면 애드핏은 어느 화면에도 광고·CSP 확장을 붙이지 않는다.
+const ADFIT_UNIT_SIZES = Object.freeze(["320x50", "320x100", "300x250", "250x250"]);
+
+function adfitUnit(env = {}) {
+  const id = env?.ADFIT_UNIT_CONTENT;
+  const size = env?.ADFIT_UNIT_SIZE;
+  if (typeof id !== "string" || !/^DAN-[A-Za-z0-9]{6,32}$/.test(id)) return null;
+  if (typeof size !== "string" || !ADFIT_UNIT_SIZES.includes(size)) return null;
+  const [width, height] = size.split("x");
+  return { id, width, height };
+}
+
+// V22.9.92: /ready 에 보이는 애드핏 광고 단위 상태 — 애드핏일 때만 "ok"·"missing", 아니면 "". 광고 단위 ID 는 내보이지 않는다.
+function adfitUnitStatus(env = {}) {
+  if (adsMode(env) !== "adfit") return "";
+  return adfitUnit(env) ? "ok" : "missing";
+}
+
 function adsPageLive(env = {}, pageKey = "") {
-  return adsMode(env) === "live" && AD_PAGE_KEYS.includes(pageKey);
+  const mode = adsMode(env);
+  if (mode === "review" || !AD_PAGE_KEYS.includes(pageKey)) return false;
+  // V22.9.92: 애드핏은 로그인한 사람만 보는 화면에 광고를 둘 수 없다(애드핏 운영정책 5.2 "허용된 방문자(예: 멤버십 로그인 등)만
+  // 조회/열람이 가능한 경우"). 그래서 누구나 여는 공개 정본 문서(PUBLIC_CONTENT_PATHS)에만 둔다. 로그인 뒤 읽는 화면 5개
+  // (/reports·/annual·/smart-tools·/start-guide·/keyword-guide)는 AdSense 에서만 허용 화면이다. 광고 단위가 없으면 어디에도 두지 않는다.
+  if (mode === "adfit") return PUBLIC_CONTENT_PATHS.includes(pageKey) && !!adfitUnit(env);
+  return true;
 }
 
 // 광고 자리는 광고가 늦게 와도 화면이 밀리지 않게 높이를 먼저 잡는다. 주변 버튼·링크와 16px 넘게
 // 띄우고(공통 셸의 카드 여백 12px!important 보다 앞서도록 선택자를 높였다), 인쇄에서는 뺀다.
 const ADS_SLOT_CSS = `.adSlot{display:block;min-height:120px;margin:24px 0;padding:12px 16px 16px;background:var(--ab12-surface,#fff);border:1px solid var(--ab12-line,#e5e9f0);border-radius:var(--ab12-radius,20px)}.adSlot::before{content:"광고";content:"광고"/"";display:block;margin:0 0 8px;color:var(--ab12-muted,#667085);font-size:12px;font-weight:700;line-height:1.4}html body .adSlot.adSlot.adSlot{margin-top:24px!important;margin-bottom:24px!important}@media print{.adSlot{display:none!important}}`;
 
+// V22.9.92: 애드핏 SDK 주소(공식 SDK 안내의 설치 코드). 광고 자리 바로 뒤에 한 번 싣는다.
+const ADFIT_SDK_URL = "https://t1.kakaocdn.net/kas/static/ba.min.js";
+
+// V22.9.92 (병합 전 검토): 애드핏 광고는 단위 폭(320·300·250px)보다 좁아지지 않는다. 공개 화면 좌우 여백 18px 과 자리 안쪽
+// 여백 16px 을 빼면 360px 휴대폰에서도 320px 광고가 자리 밖으로 넘쳤다. 그래서 애드핏 자리는 좌우 안쪽 여백을 없애고, 화면 폭이
+// 단위 폭 + 37px 이하이면 자리를 화면 양 끝까지 넓힌다(좌우 테두리·모서리는 뺀다). 단위 폭보다 좁은 화면(320px 단위면 320px
+// 미만)은 맞출 수 없다 — DEPLOYMENT_MATRIX V22.9.92 절.
+function adfitSlotCss(unit) {
+  return `html body .adSlot.adfitSlot.adfitSlot{padding-left:0;padding-right:0;text-align:center}@media (max-width:${Number(unit.width) + 37}px){html body .adSlot.adfitSlot.adfitSlot{margin-left:calc(50% - 50vw)!important;margin-right:calc(50% - 50vw)!important;border-left:0;border-right:0;border-radius:0}}`;
+}
+
+// V22.9.92 (병합 전 검토): 애드핏 SDK 는 미리 렌더링(prerender)을 가리지 않고 실리자마자 광고를 부른다. 공통 규칙은 링크를 누르기
+// 시작할 때(conservative) 다음 화면을 미리 렌더링하므로, 누르다 스크롤만 한 경우에도 보이지 않는 광고 요청이 생긴다. 애드핏
+// 화면에서는 같은 대상·같은 시점의 미리 받기(prefetch, 스크립트를 실행하지 않음)로 바꾼다. 이 태그가 있으면 attachUiUxRuntime 과
+// 홈 응답 머리는 공통 규칙을 더하지 않는다(html-postprocess.js). 광고 없는 화면에서 애드핏 화면으로 가는 링크와 검색·주소창의
+// 미리 렌더링은 남는다 — KNOWN-ISSUES V22.9.92. 번들은 한 범위이고 icons-manifest 가 이 모듈 뒤에 오므로 부를 때 만든다.
+function adfitSpeculationRulesJson() {
+  return JSON.stringify({ prefetch: JSON.parse(AB_SPECULATION_RULES_JSON).prerender });
+}
+
 function adsHeadMarkup(env = {}, pageKey = "") {
   if (!adsPageLive(env, pageKey)) return "";
+  // 애드핏은 공식 안내대로 SDK 를 본문 아래쪽(광고 자리 바로 뒤)에 두므로 머리에는 자리 CSS 와 미리 받기 규칙만 넣는다.
+  if (adsMode(env) === "adfit") return `<style>${ADS_SLOT_CSS}${adfitSlotCss(adfitUnit(env))}</style><script type="speculationrules">${adfitSpeculationRulesJson()}</script>`;
   const client = escapeHtml(adsensePublisherId(env));
   return `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}" crossorigin="anonymous"></script><style>${ADS_SLOT_CSS}</style>`;
 }
 
 function adSlotMarkup(env = {}, pageKey = "") {
+  // V22.9.92: 애드핏 자리. 설치 코드(ins·SDK)는 공식 SDK 안내 그대로이고, 한 화면에 이 자리 하나만 둔다(운영정책 5.2: 한 페이지 4개 이하).
+  // 높이는 광고 단위 높이에 ‘광고’ 표시·여백을 더해 먼저 잡는다. 광고가 없거나 요청이 실패하면 data-ad-onfail 함수가 빈 자리를 숨긴다.
+  // SDK 자체를 받지 못하면(광고 차단·네트워크) onfail 이 불리지 않으므로, 자리 안 스크립트의 불러오기 실패도 같은 함수로 숨긴다(설치 코드는 그대로).
+  if (adsMode(env) === "adfit") {
+    const unit = adfitUnit(env);
+    if (!adsPageLive(env, pageKey) || !unit) return "";
+    return `<section class="card adSlot noPrint adfitSlot" style="min-height:${Number(unit.height) + 56}px" aria-label="광고"><ins class="kakao_ad_area" style="display:none;width:100%;" data-ad-unit="${unit.id}" data-ad-width="${unit.width}" data-ad-height="${unit.height}" data-ad-onfail="malhaeAdfitNoAd"></ins><script>function malhaeAdfitNoAd(el){var slot=el&&el.closest?el.closest(".adSlot"):null;if(slot)slot.style.display="none";}addEventListener("error",function(e){var t=e.target;if(t&&t.tagName==="SCRIPT")malhaeAdfitNoAd(t);},true);</script><script async type="text/javascript" charset="utf-8" src="${ADFIT_SDK_URL}"></script></section>`;
+  }
   const slot = adsSlotId(env);
   // 슬롯 id 가 없으면 자리를 만들지 않는다. 머리의 로더만 남으므로 대시보드에서 자동 광고를 켠 경우에만 광고가 나온다.
   if (!adsPageLive(env, pageKey) || !slot) return "";
@@ -283,12 +346,35 @@ const ADS_POLICY_TEXT = Object.freeze({
   faq: "현재 공개된 기능은 무료로 제공합니다. 서비스 운영을 위해 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시하며, 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있습니다.",
 });
 
+// V22.9.92: 애드핏을 켠 서버의 고지. 광고 사업자(주식회사 카카오)와 수집하는 행태정보, 광고를 두지 않는 화면, 끄는 방법을 적는다.
+// 끄는 곳은 카카오 개인정보처리방침이 맞춤형 광고 거부 방법으로 잇는 ‘카카오 맞춤형 광고 안내’(info.ds.kakao.com/optout.do,
+// 2026-10-30 확인)이고, 그 안내대로 쿠키를 지우면 거부 설정도 지워질 수 있다고 적는다. -control 은 정책 화면의 둘째 문단이다.
+const ADFIT_POLICY_TEXT = Object.freeze({
+  privacy: "말해가계부는 공개 가이드와 생활비 글처럼 로그인 없이 누구나 읽는 화면에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 광고 사업자인 주식회사 카카오가 쿠키와 광고 식별자 같은 기술로 이 사이트와 다른 사이트를 방문한 기록(행태정보)을 수집해 맞춤형 광고를 제공하고 광고 성과를 측정할 수 있습니다. 카카오가 수집하는 정보의 항목·보유기간과 처리 방식은 카카오 개인정보처리방침을 따릅니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고를 두지 않습니다.",
+  "privacy-control": "말해가계부는 광고를 누른 방문자의 개인정보를 따로 수집하지 않고, 거래 내용·예산·가계부 구성원 정보와 사용자 발화 원문을 광고 사업자나 광고주에게 제공하거나 판매하지 않습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내 화면에서 끌 수 있고, 브라우저 설정에서 쿠키를 차단해 거부할 수도 있습니다. 쿠키를 지우면 거부 설정도 함께 지워질 수 있습니다.",
+  cookies: "말해가계부는 공개 가이드와 생활비 글처럼 로그인 없이 누구나 읽는 화면에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 주식회사 카카오가 광고 쿠키와 유사 기술을 사용해 맞춤형 광고를 제공하고 성과를 측정할 수 있습니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
+  "cookies-control": "사용자는 카카오 맞춤형 광고 안내 화면과 브라우저의 사이트별 쿠키 설정으로 맞춤형 광고와 저장된 쿠키를 관리할 수 있습니다. 쿠키를 지우면 맞춤형 광고 거부 설정도 함께 지워질 수 있습니다.",
+  faq: "현재 공개된 기능은 무료로 제공합니다. 서비스 운영을 위해 공개 가이드와 생활비 글처럼 로그인 없이 읽는 화면에 카카오 애드핏 광고를 표시하며, 로그인한 사람만 보는 화면·거래를 입력·저장하는 화면·로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내(https://info.ds.kakao.com/optout.do)에서 끌 수 있습니다.",
+});
+
+// V22.9.92: 정책 화면이 쓸 광고 사업자 — 실제로 광고를 낼 수 있을 때만 "adsense"(live)·"adfit", 아니면 ""(지금 문장). 애드핏 광고
+// 단위가 없으면 광고가 나가지 않으므로 지금 문장을 그대로 둔다.
+function adsPolicyNetwork(env = {}) {
+  const mode = adsMode(env);
+  if (mode === "live") return "adsense";
+  return mode === "adfit" && adfitUnit(env) ? "adfit" : "";
+}
+
 function adsPolicyText(env = {}, topic = "") {
-  return adsMode(env) === "live" && Object.hasOwn(ADS_POLICY_TEXT, topic) ? ADS_POLICY_TEXT[topic] : "";
+  const network = adsPolicyNetwork(env);
+  const texts = network === "adfit" ? ADFIT_POLICY_TEXT : network === "adsense" ? ADS_POLICY_TEXT : null;
+  return texts && Object.hasOwn(texts, topic) ? texts[topic] : "";
 }
 
 function adsPolicyLinks(env = {}) {
-  return adsMode(env) === "live" ? [["Google 광고 설정에서 맞춤 광고 해제", "https://adssettings.google.com"]] : [];
+  const network = adsPolicyNetwork(env);
+  if (network === "adfit") return [["카카오 맞춤형 광고 안내(맞춤형 광고 끄기)", "https://info.ds.kakao.com/optout.do"], ["카카오 개인정보처리방침", "https://www.kakao.com/policy/privacy"]];
+  return network === "adsense" ? [["Google 광고 설정에서 맞춤 광고 해제", "https://adssettings.google.com"]] : [];
 }
 
 // CSP 출처: AdSense 고객센터 "Integrate the AdSense ad code with a Content Security Policy (CSP)"
@@ -302,6 +388,8 @@ function adsPolicyLinks(env = {}) {
 // 화면에서만, 광고 코드가 문서 안에서 쓰는 지시어를 공식 예시의 하위 호환 해석('unsafe-inline'
 // 'unsafe-eval' https:) 수준으로 연다. img-src 는 이미 https: 를 허용한다. default-src·base-uri·
 // object-src·frame-ancestors·form-action·font-src·worker-src 와 다른 보안 헤더는 그대로다.
+// V22.9.92: 애드핏도 같은 확장을 쓴다. 애드핏은 광고 호스트 허용 목록을 내지 않고(SDK 는 t1.kakaocdn.net, 광고는 iframe·이미지·클릭
+// 측정이 여러 카카오 호스트로 간다), 같은 화면·같은 지시어 범위라 AdSense 와 달리 좁힐 근거가 없다.
 const ADS_CSP_ADDITIONS = Object.freeze([
   ["script-src", "'unsafe-eval' https:"],
   ["style-src", "https:"],
@@ -309,9 +397,17 @@ const ADS_CSP_ADDITIONS = Object.freeze([
   ["frame-src", "'self' https:"],
 ]);
 
-function adsLiveCsp(policy = "") {
+// V22.9.92 (병합 전 검토): 애드핏 SDK 는 광고 틀을 같은 출처 iframe(about:blank 에 document.write, srcdoc)에 써서 그 틀이 이 화면의
+// CSP 를 물려받는다. 광고 안 글꼴·동영상이 막히지 않게 애드핏 화면에서만 font-src 와 media-src 를 더 연다. AdSense live 는 그대로다.
+const ADFIT_CSP_ADDITIONS = Object.freeze([
+  ...ADS_CSP_ADDITIONS,
+  ["font-src", "https:"],
+  ["media-src", "'self' https: blob:"],
+]);
+
+function adsLiveCsp(policy = "", additions = ADS_CSP_ADDITIONS) {
   const directives = String(policy || "").split(";").map((part) => part.trim()).filter(Boolean);
-  for (const [name, sources] of ADS_CSP_ADDITIONS) {
+  for (const [name, sources] of additions) {
     const index = directives.findIndex((directive) => directive.split(" ")[0] === name);
     if (index >= 0) directives[index] = `${directives[index]} ${sources}`;
     else directives.push(`${name} ${sources}`);
@@ -321,7 +417,8 @@ function adsLiveCsp(policy = "") {
 
 function adsHeaders(env = {}, pageKey = "", headers = {}) {
   if (!adsPageLive(env, pageKey)) return headers;
-  return { ...headers, "content-security-policy": adsLiveCsp(headers["content-security-policy"] || HTML_HEADERS["content-security-policy"]) };
+  const additions = adsMode(env) === "adfit" ? ADFIT_CSP_ADDITIONS : ADS_CSP_ADDITIONS;
+  return { ...headers, "content-security-policy": adsLiveCsp(headers["content-security-policy"] || HTML_HEADERS["content-security-policy"], additions) };
 }
 
 const PUBLIC_CONTENT_PATHS = Object.freeze([
@@ -379,12 +476,12 @@ function publicSiteFooter() {
 export {
   APP_MODE, APP_VERSION, BUSINESS_FOOTER_INFO, DEFAULT_PUBLIC_BASE_URL,
   KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS, PUBLIC_CONTENT_PATHS, adSlotMarkup,
-  adsHeadMarkup, adsHeaders, adsMode, adsPolicyLinks, adsPolicyText, adsensePublisherIdForTxt,
-  appName, canonicalRedirectResponse, cardPerformanceEnabled, currentRequestBaseUrl, envFlagEnabled,
-  handleKakaoCommandSystemPage, hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled,
-  kakaoChatCommandCatalog, kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg,
-  memeCardsEnabled, normalizeBaseUrl, premiumBetaEnabled, publicAdsenseHead, publicBaseUrl,
-  publicSiteFooter, publicSiteNav, publicSupportEmail, renderBusinessInfoFooter,
-  renderSkillGetHealthHtml,
+  adfitUnitStatus, adsHeadMarkup, adsHeaders, adsMode, adsPolicyLinks, adsPolicyNetwork,
+  adsPolicyText, adsensePublisherIdForTxt, appName, canonicalRedirectResponse,
+  cardPerformanceEnabled, currentRequestBaseUrl, envFlagEnabled, handleKakaoCommandSystemPage,
+  hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled, kakaoChatCommandCatalog,
+  kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg, memeCardsEnabled,
+  normalizeBaseUrl, premiumBetaEnabled, publicAdsenseHead, publicBaseUrl, publicSiteFooter,
+  publicSiteNav, publicSupportEmail, renderBusinessInfoFooter, renderSkillGetHealthHtml,
 };
 // @build:exports-end

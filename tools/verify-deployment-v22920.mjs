@@ -37,8 +37,16 @@ async function request(path, method = "GET", requestBase = base) {
 // and shared by the readiness and AdSense checks. A missing field means a release from before the gate, which
 // is review mode. Review: no ad runtime anywhere (as before). Live: the public guides (/ included, it is in
 // AD_PAGE_KEYS) carry exactly one fixed-publisher loader; the login and policy/identity pages carry none.
+// V22.9.92: ads_mode may also be "adfit" (Kakao AdFit), and then /ready adds adfit_unit ("ok" | "missing"). AdFit:
+// the public guides carry exactly one AdFit slot and the SDK, no Google ad code; the same pages stay ad-free. Pre-merge review:
+// AdFit pages also widen font-src/media-src (creative frames inherit the CSP), swap prerender for prefetch, and /privacy·/faq
+// name Kakao with the opt-out page; review and live pages carry no AdFit code.
 const AD_LOADER = "https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-3546469870344416";
 const AD_FREE_PATHS = ["/my", "/privacy", "/terms", "/cookies", "/contact", "/about", "/site-map"];
+const ADFIT_SDK = "https://t1.kakaocdn.net/kas/static/ba.min.js";
+function adfitSlotCount(html) {
+  return html.split('class="kakao_ad_area"').length - 1;
+}
 let readyResult;
 function readReady() {
   readyResult ??= request("/ready").then(async (r) => ({ status: r.status, data: await r.json() }));
@@ -80,14 +88,35 @@ const tasks = [
       check(adLoaderCount(html) === 1 && html.includes(AD_LOADER), "live: / has exactly one fixed-publisher ad loader");
       const guide = await (await request("/budget-guide")).text();
       check(adLoaderCount(guide) === 1 && guide.includes(AD_LOADER), "live: /budget-guide has exactly one fixed-publisher ad loader");
+      check(adfitSlotCount(html) + adfitSlotCount(guide) === 0 && !html.includes(ADFIT_SDK) && !guide.includes(ADFIT_SDK), "live: / and /budget-guide carry no AdFit code");
       // Sequential on purpose: the task batches below already keep four requests in flight.
       for (const path of AD_FREE_PATHS) {
         const page = await request(path);
         check(page.status === 200 && adLoaderCount(await page.text()) === 0, `live: ${path} has no ad loader`);
       }
+    } else if (adsMode === "adfit") {
+      const unit = (await readReady()).data?.adfit_unit;
+      check(unit === "ok", `adfit: ready reports adfit_unit ok (got ${JSON.stringify(unit)})`);
+      const guideResponse = await request("/budget-guide");
+      const guide = await guideResponse.text();
+      const csp = guideResponse.headers.get("content-security-policy") || "";
+      check(csp.includes("font-src 'self' data: https:") && csp.includes("media-src 'self' https: blob:") && csp.includes("frame-src 'self' https:"), "adfit: /budget-guide CSP lets the creative frames load fonts, media and frames");
+      check(guide.includes('<script type="speculationrules">{"prefetch":') && !guide.includes('{"prerender":'), "adfit: /budget-guide prefetches instead of prerendering");
+      for (const [path, page] of [["/", html], ["/budget-guide", guide]]) {
+        check(adfitSlotCount(page) === 1 && page.split(ADFIT_SDK).length - 1 === 1 && adLoaderCount(page) === 0, `adfit: ${path} has exactly one AdFit slot and SDK and no Google ad loader`);
+      }
+      for (const path of AD_FREE_PATHS) {
+        const page = await request(path);
+        const text = await page.text();
+        check(page.status === 200 && adfitSlotCount(text) === 0 && !text.includes(ADFIT_SDK) && adLoaderCount(text) === 0, `adfit: ${path} has no ad code`);
+        if (path === "/privacy") check(text.includes("카카오 애드핏 광고를 표시합니다") && text.includes('href="https://info.ds.kakao.com/optout.do"'), "adfit: /privacy names Kakao AdFit and links the opt-out page");
+      }
+      const faq = await (await request("/faq")).text();
+      check(faq.includes("카카오 애드핏 광고를 표시하며") && faq.includes("https://info.ds.kakao.com/optout.do"), "adfit: /faq names Kakao AdFit and the opt-out page");
     } else {
-      if (adsMode !== "review") check(false, `ready reports ads_mode review or live (got ${JSON.stringify(adsMode)})`);
+      if (adsMode !== "review") check(false, `ready reports ads_mode review, live or adfit (got ${JSON.stringify(adsMode)})`);
       check(!html.includes("adsbygoogle.js"), "ad runtime remains disabled during review");
+      check(adfitSlotCount(html) === 0 && !html.includes(ADFIT_SDK), "review: / carries no AdFit code");
     }
   }],
   ["kakao login", async () => {

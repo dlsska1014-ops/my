@@ -50,6 +50,13 @@ TEST 앱 1508592 는 연결하지 않는다(다른 회원번호가 와 남의 �
 
 `ADS_MODE` 는 정확히 `live` 일 때만 광고 코드를 넣고 그 밖에는 `review`. `ADS_SLOT_CONTENT` 는 숫자 8~12자리만 쓴다(`src/modules/public/site-config.js`).
 
+V22.9.92: `ADS_MODE` 가 정확히 `adfit` 이면 카카오 애드핏이다. 공개 정본 문서 45쪽에만 광고 자리 하나를 두고(로그인 뒤 화면 5개는 빼고), Google 광고 코드는 싣지 않는다.
+애드핏 광고 단위는 `ADFIT_UNIT_CONTENT`(애드핏이 발급한 광고단위 ID, `DAN-` 뒤 영문·숫자 6~32자)와 `ADFIT_UNIT_SIZE`(`320x50`·`320x100`·`300x250`·`250x250` 중 하나)다.
+둘 중 하나라도 맞지 않으면 광고·CSP 확장·정책 문구 변경이 모두 없다. 상태는 `/ready` 의 `ads_mode`·`adfit_unit`(`ok`·`missing`, 애드핏일 때만)이다.
+애드핏을 `ADS_MODE` 의 새 값으로 둔 것은 되돌리기 때문이다. V22.9.91 까지의 판은 `adfit` 을 `review` 로 읽어 광고를 싣지 않는다.
+광고 코드는 요청 호스트를 보지 않는다. `CANONICAL_REDIRECT=1` 이 아니면 workers.dev·미리보기 주소에서도 같은 광고 코드가 실리므로 켜기 전에 확인한다.
+켜는 순서와 확인은 DEPLOYMENT_MATRIX V22.9.92 절이다. 애드핏 신청·변수 설정은 각각 사용자 승인 뒤에 한다.
+
 ## 주소
 
 `PUBLIC_BASE_URL`, `CANONICAL_BASE_URL`, `CANONICAL_REDIRECT`, `APP_BASE_URL`, `SERVICE_BASE_URL`, `SUPPORT_EMAIL`·`PUBLIC_SUPPORT_EMAIL`.

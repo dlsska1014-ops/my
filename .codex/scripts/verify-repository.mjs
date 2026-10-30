@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_91.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_92.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -104,6 +104,8 @@ const validationScripts = [
   ["V22.9.89 숫자 신뢰(V2 6단계: 용어 사전·홈 예산 카드 아랫줄·월말 문장 범위·하루 금액 문장·정기 카드·연말정산 공제율·미등록 카드·기록 수·월요일 주 + Codex Astra 7건: 연간 월 평균·미리 적은 지출 표시와 월말 예상 바닥·정기 항목 못 읽은 예상·기록 없는 날 무지출·지난 리포트 정기 항목·정리할 기록·소비 신호)", "validation/validate-metric-consistency-v22989.mjs"],
   ["V22.9.90 사용자 피드백(웹 삭제 즉시·삭제 알림 되돌리기 5초(/my/restore 감사 기록으로 같은 번호 되살리기)·한 줄 입력 한글 조합 중 읽기·관제 카카오 기능 이름 TRANSACTION·EDIT·가계부 만들기/참여)", "validation/validate-user-feedback-v22990.mjs"],
   ["V22.9.91 계정 잇기(카카오톡 인앱 자동 로그인 prompt=none·되풀이 막기·로그아웃 뒤 멈춤·잇기 제안·빈 쪽 자동 잇기·확인 뒤 잇기·같은 종류 로그인 막기·옛 세션 풀기·관리자 통합 같은 순서·연결 진단)", "validation/validate-identity-link-v22991.mjs"],
+  ["V22.9.92 카카오 애드핏 광고 게이트(ADS_MODE=adfit·되돌리면 옛 판은 review·광고 단위 ID·크기 검증·공개 정본 문서에만·로그인 뒤 화면 빼기·공식 설치 코드·빈 자리 숨김·정책 화면 카카오 문구·/ready ads_mode·adfit_unit·AdSense·심사 모드 바이트 동일)", "validation/validate-adfit-gate-v22992.mjs"],
+  ["V22.9.92 공개 기능 둘러보기(/demo 여섯 단계·읽기 전용·카카오톡 답 예시=실제 저장 답·리포트 표=리포트 줄 함수·주요 화면 주소 표 열림·문장 사실)", "validation/validate-demo-tour-v22992.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
@@ -348,7 +350,8 @@ function run(command, args, label) {
 // V22.9.89: 새 검사 1개(숫자 신뢰 77, 병합 전 독립 검토 13 포함)·추적표 V89 9건과 옛 검사 갱신(홈 아랫줄·월말·하루 금액 문장·정기 카드·카드 머리·월요일 주·홈 바이트·생활비 리포트·무지출 지문·환불 꺼짐 화면 해시 여덟·분석 렌더러 지문·챌린지 표시 조건). 두 모드 실측: 일반 37,300 · 분류 표 부재 37,297(V22.9.89 숫자 신뢰).
 // V22.9.90: 새 검사 1개(사용자 피드백 167: 삭제 되살리기·알림 5초·한글 조합 중 읽기·관제 기능 이름·테스트 서버 왕복)·추적표 V90 3건(V88:Y-2 고침)과 옛 검사 갱신(삭제 즉시 전송·되돌리기 없는 삭제는 먼저 묻기·자산 주소 v22990·불변 자산 고정 셋·환불 꺼짐 화면 해시 12개·삭제 단추 원문). 병합 전 독립 검토 5건 반영. 두 모드 실측: 일반 37,527 · 분류 표 부재 37,524(V22.9.90 사용자 피드백).
 // V22.9.91: 새 검사 1개(계정 잇기 220: 인앱 자동 로그인·잇기 제안·자동·확인 잇기·관리자 통합 링크, 병합 전 독립 검토 7건 12~17번 포함)·추적표 V91 2건과 옛 검사 갱신(카카오 단추 return_to·판 이름만 바뀐 환불 꺼짐 화면 해시 셋). 두 모드 실측: 일반 37,774 · 분류 표 부재 37,771(V22.9.91 계정 잇기).
-const EXPECTED_MINIMUM_CHECKS = 37771;
+// V22.9.92: 새 검사 2개(애드핏 광고 게이트 2,319: ADS_MODE=adfit·광고 단위 검증·공개 정본 문서 45쪽만·정책 화면 카카오 문구·/ready adfit_unit, 기능 둘러보기 119)와 옛 검사 갱신(광고 게이트 adsMode 모양·판 이름만 바뀐 환불 꺼짐 화면 해시 셋). 두 모드 실측: 일반 40,226 · 분류 표 부재 40,223(V22.9.92 애드핏 준비).
+const EXPECTED_MINIMUM_CHECKS = 40223;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

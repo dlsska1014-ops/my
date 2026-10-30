@@ -114,7 +114,8 @@ for (const name of ["function adsSlotId(", "function adsPageLive(", "function ad
   eq(countOf(outside, name), 0, `${name} 는 블록 밖에 없다`);
 }
 eq(countOf(source, ".ADS_MODE"), 1, "ADS_MODE 는 소스 전체에서 한 곳에서만 읽는다");
-ok(functionBlock("adsMode").includes("env?.ADS_MODE === \"live\""), "ADS_MODE 를 읽는 곳은 adsMode 이고 정확히 \"live\" 만 live 로 본다");
+// V22.9.92: adsMode 는 값을 한 번 읽어 정확히 "live"·"adfit"(카카오 애드핏, validate-adfit-gate-v22992)·그 밖(review)으로 나눈다.
+ok(functionBlock("adsMode").includes("const value = env?.ADS_MODE;") && functionBlock("adsMode").includes("return value === \"live\" ? \"live\" :"), "ADS_MODE 를 읽는 곳은 adsMode 이고 정확히 \"live\" 만 live 로 본다");
 eq(countOf(outside, "ADS_MODE"), 0, "게이트 블록 밖에는 ADS_MODE 를 읽거나 적는 곳이 없다");
 eq(countOf(source, ".ADS_SLOT_CONTENT"), 1, "ADS_SLOT_CONTENT 는 소스 전체에서 한 곳에서만 읽는다");
 ok(functionBlock("adsSlotId").includes(".ADS_SLOT_CONTENT") && functionBlock("adsSlotId").includes("/^[0-9]{8,12}$/"), "ADS_SLOT_CONTENT 는 adsSlotId 에서 숫자 8~12자리로만 받는다");

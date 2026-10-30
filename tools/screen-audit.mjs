@@ -20,7 +20,7 @@
 // 사용: node tools/screen-audit.mjs [--out 폴더] [--pages home,reports] [--schemes light,dark]
 //                                    [--width 390] [--shots]
 //                                    [--width 1280 | --width 390,1280] [--height 800] [--tones blue,emerald,violet,amber]
-//                                    [--root 클론] [--interactions]
+//                                    [--root 클론] [--interactions] [--shot-height 8000]
 //   --height 를 안 주면 모바일(폭 700 미만) 844px · 데스크톱 900px.
 //   --tones 를 주면 톤(localStorage ab:appearance:tone → html data-ab-tone)마다 돈다(값 없이 주면 네 톤). 안 주면 기본 톤 하나.
 //   --root 는 잴 클론 폴더(기본: 이 도구가 든 저장소). 그 클론의 src/index.js·validation/qa-fixture.mjs·VERSION.txt 를 읽는다.
@@ -52,6 +52,8 @@ const SCHEMES = listFlag("schemes", "light,dark");
 const ALL_TONES = ["blue", "emerald", "violet", "amber"];
 const TONES = args.includes("--tones") ? listFlag("tones", ALL_TONES.join(",")) : [null];
 const SHOTS = args.includes("--shots");
+// V22.9.92: 사진 높이 상한(기본 8000px). 애드핏 심사 자료처럼 첫 화면만 찍을 때 --shot-height 1400 처럼 준다.
+const SHOT_HEIGHT = Number(flag("shot-height", "8000")) || 8000;
 const ORIGIN = "https://malhaebook.com";
 const MOBILE_UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) Mobile";
 const DESKTOP_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36";
@@ -73,8 +75,11 @@ const ALL_PAGES = {
   // V22.9.37 감사 U4·U9: 로그아웃 시작(로그인) 화면과 시작 안내. login 은 쿠키 없이 그린다(로그아웃 상태의 다크 대비를 잰다).
   login: "/my",
   startGuide: `/start-guide?month=2026-07&${H}`,
+  // V22.9.92: 공개 기능 둘러보기와 첫 화면(쿠키 없이 그린다). 애드핏 심사 자료 사진에도 쓴다.
+  demo: "/demo",
+  landing: "/",
 };
-const LOGGED_OUT_PAGES = new Set(["login"]);
+const LOGGED_OUT_PAGES = new Set(["login", "demo", "landing"]);
 const PAGES = flag("pages", Object.keys(ALL_PAGES).join(",")).split(",").filter((name) => ALL_PAGES[name]);
 
 function findChrome() {
@@ -770,7 +775,7 @@ async function main() {
               for (const item of selection.fails) console.log(`       선택  ${selectionLine(item)}`);
               for (const line of state.dialogs) console.log(`       대화상자  ${line}`);
               if (SHOTS) {
-                const height = Math.min(m.docHeight, 8000);
+                const height = Math.min(m.docHeight, SHOT_HEIGHT);
                 const shot = await page("Page.captureScreenshot", { format: "png", captureBeyondViewport: true, clip: { x: 0, y: 0, width, height, scale: 1 } });
                 run.shot = `${name}-${tone ? `${tone}-` : ""}${scheme}-${width}.png`;
                 writeFileSync(join(OUT, "shots", run.shot), Buffer.from(shot.data, "base64"));
