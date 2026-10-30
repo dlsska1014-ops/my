@@ -239,13 +239,13 @@ async function getMySelectedHousehold(env, userId, householdId = "") {
 }
 // @build:exports-start
 export {
-  MEMBER_POLICY_RECORD_EDIT, MEMBER_POLICY_RECORD_ONLY, canChangeMyHouseholdRecords,
-  canChangeMyHouseholdRecordsForView, canManageMyHousehold, canManageMyRecord, canReadMyHousehold,
-  canWriteMyHousehold, fetchHouseholdMemberPolicy, getMySelectedHousehold, homeMemberPolicyValue,
-  householdIdWasRemembered, householdNotFoundResponse, memberPolicyDescription,
-  memberPolicyJoinLine, memberPolicyLabel, memberPolicySettingsKey, memberRecordChangeError,
-  memberRecordChangeMessage, memberRecordOnlyRefusalText, myAccessStatusResponse, myReturnLocation,
-  parseMemberPolicyValue, renderHouseholdNotFoundHtml, renderMyAccessStatusHtml,
-  saveHouseholdMemberPolicy,
+  MEMBER_POLICY_RECORD_EDIT, MEMBER_POLICY_RECORD_ONLY, MY_ACCESS_STATUS_CSS,
+  canChangeMyHouseholdRecords, canChangeMyHouseholdRecordsForView, canManageMyHousehold,
+  canManageMyRecord, canReadMyHousehold, canWriteMyHousehold, fetchHouseholdMemberPolicy,
+  getMySelectedHousehold, homeMemberPolicyValue, householdIdWasRemembered,
+  householdNotFoundResponse, memberPolicyDescription, memberPolicyJoinLine, memberPolicyLabel,
+  memberPolicySettingsKey, memberRecordChangeError, memberRecordChangeMessage,
+  memberRecordOnlyRefusalText, myAccessStatusResponse, myReturnLocation, parseMemberPolicyValue,
+  renderHouseholdNotFoundHtml, renderMyAccessStatusHtml, saveHouseholdMemberPolicy,
 };
 // @build:exports-end

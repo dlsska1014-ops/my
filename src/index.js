@@ -1879,6 +1879,11 @@ const ACCOUNTBOOK_WORKER = {
       const publicDocument = await publicDocumentResponse(request, env, url);
       if (publicDocument) return publicDocument;
 
+      // V22.9.91: 카카오톡 인앱 브라우저에서 세션 없이 /my·/app 을 열면 로그인 화면 대신 카카오 자동 로그인(prompt=none)을 먼저 해 본다.
+      // 회원이면 화면 없이 로그인되고, 아니면 지금처럼 로그인 화면이 나온다(auth/kakao-account-link.js).
+      const kakaoAutoLogin = await kakaoInAppAutoLoginResponse(request, env, url);
+      if (kakaoAutoLogin) return kakaoAutoLogin;
+
       if (request.method === "HEAD" && url.pathname === "/" && !isExplicitAdminUrl(url) && url.searchParams.get("legacy") !== "1") {
         return headOnlyResponse(await handlePublicContentPage(request, env, url, "home"));
       }
@@ -2106,7 +2111,20 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if (url.pathname === "/my/logout" && request.method === "POST") {
-        return await handleMyLogout();
+        return await handleMyLogout({ explicit: true });
+      }
+
+      // V22.9.91 계정 잇기: 확인 화면(GET), 카카오로 다시 확인(POST), 합치기(GET, 카카오 확인 뒤 콜백이 준 5분짜리 표가 있어야 한다).
+      if (url.pathname === "/my/account-link" && request.method === "GET") {
+        return safeHtmlRoute(request, url, () => handleMyAccountLinkPage(request, env, url), "계정 잇기");
+      }
+
+      if (url.pathname === "/my/account-link" && request.method === "POST") {
+        return await handleMyAccountLinkStart(request, env, kakaoAccountLinkAuthorizeResponse);
+      }
+
+      if (url.pathname === "/my/account-link/run" && request.method === "GET") {
+        return safeHtmlRoute(request, url, () => handleMyAccountLinkRun(request, env), "계정 잇기");
       }
 
       if ((url.pathname === "/auth/kakao/start" || url.pathname === "/my/kakao-link") && request.method === "GET") {
@@ -3060,7 +3078,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.90-USER-FEEDBACK";
+const APP_VERSION = "V22.9.91-IDENTITY-LINK";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3403,8 +3421,10 @@ function ledgerMarkSvg() {
 
 // V22.9.87 T-20·T-21: 카카오 로그인 버튼(§3-4: #FEE500 면, 검은 말풍선 심볼, 라벨 ‘카카오 로그인’). /my 시작 화면과 공개 첫 화면의
 // 카카오 로그인 띠가 같은 마크업을 쓴다. 색·크기는 각 화면 CSS 의 .kakaoBtn 이 정한다. 설정이 준비된 서버에서만 부른다.
-function kakaoLoginButtonHtml() {
-  return '<a class="kakaoBtn" href="/auth/kakao/start"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466 0 2.66 1.77 4.995 4.432 6.316l-.9 3.296a.35.35 0 0 0 .532.383l3.917-2.598c.5.06 1.007.09 1.519.09 5.247 0 9.5-3.343 9.5-7.487C21.5 6.843 17.247 3.5 12 3.5Z"/></svg>카카오 로그인</a>';
+// V22.9.91: 로그인이 풀려 /my?return_to=… 로 온 사람은 카카오 로그인 뒤에도 보던 화면으로 돌아간다(주소는 safeUserReturnPath 를 거친 값만 받는다).
+function kakaoLoginButtonHtml(returnTo = "") {
+  const href = returnTo ? `/auth/kakao/start?return_to=${encodeURIComponent(returnTo)}` : "/auth/kakao/start";
+  return '<a class="kakaoBtn" href="' + href + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466 0 2.66 1.77 4.995 4.432 6.316l-.9 3.296a.35.35 0 0 0 .532.383l3.917-2.598c.5.06 1.007.09 1.519.09 5.247 0 9.5-3.343 9.5-7.487C21.5 6.843 17.247 3.5 12 3.5Z"/></svg>카카오 로그인</a>';
 }
 
 function publicSiteNav(active = "home") {
@@ -24678,24 +24698,38 @@ async function lookupKakaoLoginOwner(env, kakaoId = "", options = {}) {
   const strong = await fetchStrongIdentityBySubject(env, "kakao", kid);
   if (strong?.user_id) {
     const user = await fetchUserById(env, strong.user_id);
-    if (user) return { user, source: "strong" };
+    if (user) return effectiveKakaoLoginOwner(env, { user, source: "strong" });
   }
   const key = kakaoLoginUserKey(kid);
   const links = options.links || await fetchUserIdentityLinks(env);
   const linkedUserId = String(safeObject(links[key]).user_id || "");
   if (linkedUserId) {
     const linked = await fetchUserById(env, linkedUserId);
-    if (linked) return { user: linked, source: "link" };
+    if (linked) return effectiveKakaoLoginOwner(env, { user: linked, source: "link" });
   }
   const existing = await supabase(env, `/rest/v1/users?kakao_user_key=eq.${encodeURIComponent(key)}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" });
   if (existing?.[0]) return { user: existing[0], source: "user_key" };
   return null;
 }
 
+// V22.9.91 독립 검토: 강한 식별·링크가 통합된 계정(merged:)을 가리키면(통합 뒤 링크 정리가 실패한 경우 등) 통합 리다이렉트로
+// 주 계정을 찾아 그 계정을 주인으로 본다. 예전에는 통합된 계정으로 세션을 만들어 세션 확인이 거절했고, 카카오톡 자동 로그인은
+// 그 자리를 되풀이했다. 주 계정을 찾지 못하면 merged 표시를 달아 돌려준다(웹 로그인은 멈추고 새 계정을 만들지 않는다).
+async function effectiveKakaoLoginOwner(env, found) {
+  const mergedRow = (user) => String(user?.kakao_user_key || "").startsWith("merged:") || /\(통합됨\)\s*$/.test(String(user?.nickname || ""));
+  if (!found?.user || !mergedRow(found.user)) return found;
+  const mergedId = String(found.user.id || "");
+  const effectiveId = await resolveEffectiveUserId(env, mergedId, { fresh: true });
+  const effective = effectiveId && effectiveId !== mergedId ? await fetchUserById(env, effectiveId) : null;
+  return effective && !mergedRow(effective) ? { user: effective, source: found.source, mergedFrom: mergedId } : { ...found, merged: true };
+}
+
 async function findUserByKakaoLoginId(env, kakaoId = "") {
   const kid = String(kakaoId || "").trim();
   const found = await lookupKakaoLoginOwner(env, kid);
   if (!found) return null;
+  // 통합된 계정만 찾고 주 계정을 못 찾으면 로그인하지 않는다(그 세션은 거절되고, 새 계정을 만들면 기록이 갈라진다). 관리자 통합 화면에서 고친다.
+  if (found.merged) throw new Error("kakao_login_owner_merged_unresolved");
   if (found.source !== "strong") {
     try { await linkKakaoLoginToUser(env, kid, found.user.id, { nickname: found.user.nickname || "" }); } catch (err) { rememberOpsEvent({ kind: "legacy_kakao_identity_migration_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: "V22.7 migration required" }); }
   }
@@ -24734,7 +24768,10 @@ async function handleKakaoLoginStart(request, env, url) {
   const reauthMode = !!reauthPurpose;
   const reauthHouseholdId = String(url.searchParams.get("household_id") || "").trim();
   const reauthReturnTo = safeUserReturnPath(url.searchParams.get("return_to") || "/my/households", "/my/households");
+  // V22.9.91: 카카오톡 인앱 브라우저 자동 로그인(라우터의 kakaoInAppAutoLoginResponse 가 auto=1 로 보낸다). prompt=none 이라 카카오 화면이 뜨지 않는다.
+  const autoMode = url.searchParams.get("auto") === "1" && !reauthMode && url.searchParams.get("link") !== "1" && isKakaoTalkInAppBrowser(request);
   const config = inspectKakaoLoginConfig(env);
+  if (autoMode && !config.ready) return redirectResponseWithCookies(kakaoAutoLoginFallbackLocation(url.searchParams.get("return_to") || ""), [kakaoAutoLoginCookie("skip")]);
   if (!config.enabled) {
     if (reauthMode) return redirectResponse(addQueryToUrl(reauthReturnTo, { err: "kakao_reauth_unavailable" }));
     return htmlResponse(renderUserLoginHtml(env, "카카오 로그인을 잠시 사용할 수 없습니다. 아래 다른 방법으로 접속해주세요."));
@@ -24760,14 +24797,14 @@ async function handleKakaoLoginStart(request, env, url) {
     if (reauthPurpose === "household-delete" && (!reauthHouseholdId || role !== "owner")) return redirectResponse(addQueryToUrl(reauthReturnTo, { err: "household_delete_owner_only" }));
     if (!(await hasKakaoLoginIdentity(env, currentUser))) return redirectResponse(addQueryToUrl(reauthReturnTo, { err: "kakao_reauth_unavailable" }));
   }
-  const state = await signedPurposeToken(env, "kakao-oauth", { nonce: randomState(), user_id: currentUserId, mode: reauthPurpose || (linkMode ? "link" : "login"), household_id: reauthHouseholdId, return_to: reauthReturnTo }, 600);
-  const redirectUri = config.redirectUri;
-  const qs = new URLSearchParams();
-  qs.set("client_id", kakaoRestApiKey(env));
-  qs.set("redirect_uri", redirectUri);
-  qs.set("response_type", "code");
-  qs.set("state", state);
-  if (reauthMode) qs.set("prompt", "login");
+  // 로그인(login) 뒤 돌아갈 화면은 next 에 따로 둔다. return_to 의 기본값(/my/households)은 본인 확인용이라 로그인에는 쓰지 않는다.
+  const statePayload = { nonce: randomState(), user_id: currentUserId, mode: reauthPurpose || (linkMode ? "link" : "login"), household_id: reauthHouseholdId, return_to: reauthReturnTo };
+  if (!linkMode) {
+    const loginNext = safeUserReturnPath(url.searchParams.get("return_to") || "", "");
+    if (loginNext) statePayload.next = loginNext;
+    if (autoMode) statePayload.auto = 1;
+  }
+  const state = await signedPurposeToken(env, "kakao-oauth", statePayload, 600);
   const cookies = [
     `kakao_oauth_state=${encodeURIComponent(state)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`,
     linkMode && currentUserId
@@ -24780,7 +24817,40 @@ async function handleKakaoLoginStart(request, env, url) {
       ? `kakao_oauth_return_to=${encodeURIComponent(reauthReturnTo)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`
       : "kakao_oauth_return_to=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
   ];
-  return redirectResponseWithCookies(`https://kauth.kakao.com/oauth/authorize?${qs.toString()}`, cookies);
+  if (autoMode) cookies.push(kakaoAutoLoginCookie("try"));
+  return redirectResponseWithCookies(kakaoAuthorizeLocation(env, config, state, { reauth: reauthMode, quiet: autoMode }), cookies);
+}
+
+function kakaoAuthorizeLocation(env, config, state, { reauth = false, quiet = false } = {}) {
+  const qs = new URLSearchParams();
+  qs.set("client_id", kakaoRestApiKey(env));
+  qs.set("redirect_uri", config.redirectUri);
+  qs.set("response_type", "code");
+  qs.set("state", state);
+  // 본인 확인은 카카오 로그인 화면을 다시 띄운다. 카카오톡 인앱 브라우저의 자동 로그인·잇기 확인은 화면 없이 지나간다(카카오 문서: prompt=none).
+  if (reauth) qs.set("prompt", "login");
+  else if (quiet) qs.set("prompt", "none");
+  return `https://kauth.kakao.com/oauth/authorize?${qs.toString()}`;
+}
+
+// V22.9.91 계정 잇기 확인(/my/account-link 의 POST, auth/kakao-account-link.js handleMyAccountLinkStart). 지금 로그인한 사람이 잇기 제안의
+// 카카오 계정을 가졌는지 카카오 로그인으로 다시 확인한다. 연결 모드처럼 세션 사용자를 상태와 쿠키에 묶는다. 인앱 브라우저는 화면 없이(prompt=none)
+// 지나가고, 그게 안 되면 확인 화면이 interactive 로 다시 보낸다. 설정이 준비되지 않았으면 null(확인 화면이 안내한다).
+async function kakaoAccountLinkAuthorizeResponse(request, env, { userId = "", offerUserId = "", interactive = false } = {}) {
+  const config = inspectKakaoLoginConfig(env);
+  if (!config.ready || !userId || !offerUserId) return null;
+  const origin = new URL(request.url).origin;
+  if (config.publicOrigin && origin !== config.publicOrigin) return redirectResponse(`${config.publicOrigin}/my/account-link`);
+  const quiet = !interactive && isKakaoTalkInAppBrowser(request);
+  const payload = { nonce: randomState(), user_id: userId, mode: "account-link", household_id: "", return_to: "/my", offer: offerUserId };
+  if (quiet) payload.auto = 1;
+  const state = await signedPurposeToken(env, "kakao-oauth", payload, 600);
+  return redirectResponseWithCookies(kakaoAuthorizeLocation(env, config, state, { quiet }), [
+    `kakao_oauth_state=${encodeURIComponent(state)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`,
+    `kakao_oauth_link_user=${encodeURIComponent(userId)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`,
+    "kakao_oauth_reauth_household=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+    "kakao_oauth_return_to=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+  ]);
 }
 
 async function fetchKakaoProfileByCode(env, url, code = "") {
@@ -24844,6 +24914,8 @@ function kakaoCallbackErrorMessage(stage = "", traceId = "") {
     token: `카카오 인증 확인에 실패했습니다. 잠시 후 다시 시도하거나 아래 다른 방법으로 접속해주세요.${suffix}`,
     profile: `카카오 프로필을 불러오지 못했습니다. 잠시 후 다시 시도하거나 아래 다른 방법으로 접속해주세요.${suffix}`,
     account: `로그인은 확인됐지만 계정 정보를 저장하지 못했습니다. 기존 기록은 변경되지 않았습니다.${suffix}`,
+    // V22.9.91: 같은 곳(IP)에서 카카오 로그인이 짧은 시간에 많으면 잠시 막는다. 예전에는 ‘확인 시간이 지났습니다’로 보여 이유가 달랐다.
+    busy: "카카오 로그인 요청이 잠시 많아 처리하지 못했습니다. 1~2분 뒤 다시 시도하거나 아래 다른 방법으로 접속해주세요.",
   };
   return messages[String(stage || "")] || `카카오 로그인을 완료하지 못했습니다. 기존 기록은 변경되지 않았습니다.${suffix}`;
 }
@@ -24862,13 +24934,32 @@ async function handleKakaoLoginCallback(request, env, url) {
   const errorResponse = (stage, status = 500) => reauthRequested
     ? redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { err: stage === "cancelled" ? "kakao_reauth_cancelled" : "kakao_reauth_failed" }), clearOauthCookies)
     : htmlResponseWithCookies(
-      renderUserLoginHtml(env, kakaoCallbackErrorMessage(stage, ["cancelled", "state", "config"].includes(stage) ? "" : traceId)),
+      renderUserLoginHtml(env, kakaoCallbackErrorMessage(stage, ["cancelled", "state", "config", "busy"].includes(stage) ? "" : traceId)),
       status,
       clearOauthCookies
     );
+  // V22.9.91: 서명된 상태를 먼저 읽어 자동 로그인(auto)·계정 잇기(account-link) 흐름이 실패했을 때 갈 곳을 고른다. 서명만 확인한 값이라
+  // 갈 곳을 고르는 데만 쓰고, 로그인·연결 판단은 아래에서 쿠키와 견준 stateProof 로 한다.
+  let flowProof = null;
+  try { flowProof = await readPurposeToken(env, "kakao-oauth", String(url.searchParams.get("state") || "")); } catch (_) { flowProof = null; }
+  const autoMode = flowProof?.mode === "login" && flowProof?.auto === 1;
+  const accountLinkMode = flowProof?.mode === "account-link";
+  // 자동 로그인이 안 되면(비회원·오류·쿠키 막힘) 지금처럼 로그인 화면으로 간다. 하루 동안 다시 보내지 않고(skip), 주소의 auto=0 이 쿠키 없이도 되풀이를 끊는다.
+  const autoFallback = () => redirectResponseWithCookies(kakaoAutoLoginFallbackLocation(String(flowProof?.next || "")), [...clearOauthCookies, kakaoAutoLoginCookie("skip")]);
+  const accountLinkError = (code) => redirectResponseWithCookies(`/my/account-link?err=${encodeURIComponent(code)}`, clearOauthCookies);
   let stage = "state";
   try {
     const oauthError = String(url.searchParams.get("error") || "");
+    if (oauthError && accountLinkMode) {
+      rememberOpsEvent({ kind: "kakao_account_link_kakao_error", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `error=${oauthError.slice(0, 80)};trace=${traceId}` });
+      return accountLinkError(flowProof.auto === 1 ? "kakao_retry" : oauthError === "access_denied" ? "cancelled" : "kakao_unavailable");
+    }
+    if (oauthError && autoMode) {
+      // 카카오 문서: prompt=none 에서 회원이 아니면 consent_required 다. 그때는 로그인하지 않은 화면을 보인다(동의 화면으로 보내지 않는다).
+      const nonmember = ["consent_required", "login_required", "interaction_required"].includes(oauthError);
+      rememberOpsEvent({ kind: nonmember ? "kakao_auto_login_nonmember" : "kakao_auto_login_error", severity: nonmember ? "info" : "warn", path: "/auth/kakao/callback", method: "GET", detail: `error=${oauthError.slice(0, 80)};trace=${traceId}` });
+      return autoFallback();
+    }
     if (oauthError) {
       const cancelled = oauthError === "access_denied";
       rememberOpsEvent({
@@ -24883,6 +24974,8 @@ async function handleKakaoLoginCallback(request, env, url) {
     const config = inspectKakaoLoginConfig(env);
     if (!config.ready) {
       rememberOpsEvent({ kind: "kakao_login_config_blocked", severity: "error", path: "/auth/kakao/callback", method: "GET", detail: `${config.issues.join(",") || "disabled"};trace=${traceId}` });
+      if (autoMode) return autoFallback();
+      if (accountLinkMode) return accountLinkError("kakao_unavailable");
       return errorResponse("config", 503);
     }
     const code = String(url.searchParams.get("code") || "");
@@ -24897,10 +24990,19 @@ async function handleKakaoLoginCallback(request, env, url) {
         method: "GET",
         detail: `code=${code ? "set" : "missing"};state=${state ? "set" : "missing"};cookie=${savedState ? "set" : "missing"};trace=${traceId}`,
       });
+      if (autoMode) return autoFallback();
+      if (accountLinkMode) return accountLinkError("expired");
       return errorResponse("state", 400);
     }
-    const callbackAttempt = await recordAuthAttempt(env, request, "/auth/kakao/callback", false, {limit: 20});
-    if (!callbackAttempt.allowed) return errorResponse("state", callbackAttempt.unavailable ? 503 : 429);
+    // 이 한도는 성공해도 풀리지 않는다(V22.9.30 감사: 같은 곳의 입장 수는 성공으로 지우지 않는다). 자동 로그인도 카카오가 코드를 준 요청만 센다.
+    // V22.9.91 독립 검토: 자동 로그인은 따로 센다. 같은 IP(통신사 공유 IP·회사)의 자동 로그인이 손으로 누른 로그인을 ‘요청이 많아요’로 막지 않게 한다.
+    // 자동 로그인 칸이 차면 로그인 화면으로 가고(하루 쉼), 그때 손으로 누른 로그인은 원래 칸을 쓴다.
+    const callbackAttempt = await recordAuthAttempt(env, request, autoMode ? "/auth/kakao/callback#auto" : "/auth/kakao/callback", false, {limit: 20});
+    if (!callbackAttempt.allowed) {
+      if (autoMode) return autoFallback();
+      if (accountLinkMode) return accountLinkError("busy");
+      return errorResponse("busy", callbackAttempt.unavailable ? 503 : 429);
+    }
     if (stateProof.user_id !== (getCookie(request, "kakao_oauth_link_user") || "") || (reauthRequested && stateProof.mode !== (reauthHouseholdId === "credential-change" ? "credential-change" : "household-delete"))) return errorResponse("state", 400);
     if (stateProof.mode === "household-delete" && stateProof.household_id !== reauthHouseholdId) return errorResponse("state", 400);
     if (reauthRequested && /KAKAOTALK/i.test(request.headers.get("user-agent") || "")) return errorResponse("state", 403);
@@ -24932,12 +25034,24 @@ async function handleKakaoLoginCallback(request, env, url) {
         `${householdDeleteReauthCookieName()}=${encodeURIComponent(reauthToken)}; Path=/; Max-Age=300; HttpOnly; Secure; SameSite=Lax`,
       ]);
     }
+    if (stateProof.mode === "account-link") {
+      if (!linkUserId || !currentUserId || !constantTimeTextEqual(linkUserId, currentUserId)) return accountLinkError("session");
+      const linkProof = await kakaoAccountLinkProofAfterKakao(env, { userId: currentUserId, kakaoId: profile.kakaoId, offerUserId: String(stateProof.offer || ""), mode: "confirm", next: "/my" });
+      if (linkProof.ok) return redirectResponseWithCookies("/my/account-link/run", [...clearOauthCookies, linkProof.cookie]);
+      rememberOpsEvent({ kind: "kakao_account_link_check_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: `${linkProof.reason};trace=${traceId}` });
+      return linkProof.reason === "kakao_account_mismatch" ? accountLinkError("kakao_account_mismatch") : redirectResponseWithCookies("/my", clearOauthCookies);
+    }
     if (linkUserId && currentUserId && linkUserId === currentUserId) {
       if (stateProof.mode !== "link" || !(await verifyCredentialProof(request, env, currentUserId))) return errorResponse("state", 403);
       await linkKakaoLoginToUser(env, profile.kakaoId, currentUserId, profile);
       return redirectResponseWithCookies("/my?msg=kakao_linked", clearOauthCookies);
     }
-    let user = await ensureKakaoLoginUser(env, profile.kakaoId, profile.nickname);
+    // V22.9.91 독립 검토: 자동 로그인(auto)은 새 계정을 만들지 않는다. 이 카카오 계정의 웹 계정이 이미 있을 때만 들인다.
+    let user = autoMode ? await findUserByKakaoLoginId(env, profile.kakaoId) : await ensureKakaoLoginUser(env, profile.kakaoId, profile.nickname);
+    if (autoMode && !user?.id) {
+      rememberOpsEvent({ kind: "kakao_auto_login_no_account", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId}` });
+      return autoFallback();
+    }
     if (!user?.id) throw kakaoStageError("account", "Kakao user provisioning failed");
     // V22.9.81 U-23: 프로필 이름 끝의 ‘(통합됨)’은 계정 통합 표식이라 떼고 쓴다(사용자를 만들 때와 같다). 그대로 쓰면 세션 확인이
     // 통합된 계정으로 보고 로그인을 거절했고, 다음 로그인에는 저장된 이름이 자리표시가 아니라서 풀리지 않았다.
@@ -24950,25 +25064,50 @@ async function handleKakaoLoginCallback(request, env, url) {
       });
       user = { ...user, nickname: profileName };
     }
-    const session = await makeUserSession(env, user.id);
     const existingHouseholds = await fetchUserHouseholds(env, user.id);
-    const next = !existingHouseholds.length ? "/my/households?first=1#create" : "/my";
-    return redirectResponseWithCookies(next, [
+    const loginNext = stateProof.mode === "login" ? safeUserReturnPath(String(stateProof.next || ""), "") : "";
+    const next = !existingHouseholds.length ? "/my/households?first=1#create" : (loginNext || "/my");
+    // V22.9.91 계정 잇기: 이 카카오 계정의 단톡방 기록 계정이 따로 있으면(잇기 제안) 합치기 단계(/my/account-link/run)로 보낸다.
+    // 제안 표는 이 카카오 id 로 방금 확인했을 때만 합치기 표를 준다. 읽지 못하면 지금처럼 가계부로 간다.
+    let linkProof = null;
+    try {
+      linkProof = await kakaoAccountLinkProofAfterKakao(env, { userId: user.id, kakaoId: profile.kakaoId, offerUserId: user.id, mode: "login", next: loginNext || "/my" });
+    } catch (linkErr) {
+      rememberOpsEvent({ kind: "kakao_account_link_check_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: `${safeError(linkErr)};trace=${traceId}` });
+    }
+    // V22.9.91 독립 검토: 자동 로그인은 가계부가 있거나 이을 계정이 있는 사람만 들인다. 빈 웹 계정에 말없이 들이면 첫 가계부 만들기
+    // 화면이 나와, 단톡방 가계부가 따로 있는 사람이 거기서 새 가계부를 만들어 기록이 갈라질 수 있다. 그런 사람은 지금처럼 로그인 화면을 본다.
+    if (autoMode && !existingHouseholds.length && !linkProof?.ok) {
+      rememberOpsEvent({ kind: "kakao_auto_login_empty_account", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId}` });
+      return autoFallback();
+    }
+    const session = await makeUserSession(env, user.id);
+    const cookies = [
       ...clearOauthCookies,
       `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
-    ]);
+    ];
+    // 다시 카카오로 로그인했으니 자동 로그인 멈춤(로그아웃 off·비회원 skip)을 푼다. 쿠키가 있을 때만 지운다.
+    // 자동 로그인은 되풀이 막기(try, 10분)를 남긴다(V22.9.91 독립 검토). 세션이 붙지 않거나 확인에서 거절되면 다음 화면이 자동 로그인을
+    // 다시 보내지 않고 로그인 화면을 보인다. 예전에는 여기서 지워 같은 자리를 되풀이할 수 있었다.
+    if (!autoMode && getCookie(request, "ab_kakao_auto")) cookies.push(kakaoAutoLoginCookie(""));
+    if (linkProof?.ok) return redirectResponseWithCookies("/my/account-link/run", [...cookies, linkProof.cookie]);
+    return redirectResponseWithCookies(next, cookies);
   } catch (err) {
     const failedStage = String(err?.kakaoStage || stage || "unknown");
     logWorkerError({ event: "kakao_login_error", path: "/auth/kakao/callback", method: "GET", label: failedStage, trace_id: traceId, error: err });
     rememberOpsEvent({ kind: "kakao_login_error", severity: "error", path: "/auth/kakao/callback", method: "GET", detail: `stage=${failedStage};trace=${traceId};${safeError(err)}` });
+    if (accountLinkMode) return accountLinkError("kakao_unavailable");
+    if (autoMode) return autoFallback();
     return errorResponse(failedStage, 500);
   }
 }
 
-function handleMyLogout() {
-  return redirectResponse("/my", {
-    "set-cookie": "ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
-  });
+// V22.9.91: 직접 누른 로그아웃(POST /my/logout)은 이 브라우저의 카카오톡 자동 로그인을 30일 멈춘다. 그러지 않으면 인앱 브라우저에서
+// 로그아웃하자마자 /my 가 다시 자동 로그인한다. 다시 카카오로 로그인하면 풀린다. 세션이 풀려 부르는 다른 곳은 멈추지 않는다.
+function handleMyLogout({ explicit = false } = {}) {
+  const cookies = ["ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax"];
+  if (explicit) cookies.push(kakaoAutoLoginCookie("off"));
+  return redirectResponseWithCookies("/my", cookies);
 }
 
 async function fetchUserById(env, userId) {
@@ -32397,6 +32536,12 @@ async function handleMyJoin(request, env) {
 async function handleMyPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return htmlResponse(renderUserLoginHtml(env, "", safeUserReturnPath(url.searchParams.get("return_to") || "", "")));
+  // V22.9.91 계정 잇기: 이 사람의 카카오톡 방 기록 계정과 웹 계정이 갈라져 있으면(잇기 제안) 가계부보다 확인 화면을 먼저 보인다.
+  // ‘나중에’를 골랐거나 방금 이은 뒤(msg=account_linked)는 묻지 않는다.
+  if (url.searchParams.get("msg") !== "account_linked") {
+    const linkPrompt = await kakaoAccountLinkPrompt(request, env, userId);
+    if (linkPrompt) return linkPrompt;
+  }
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const access = await getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || "");
   if (access.restricted) {
@@ -41520,12 +41665,12 @@ async function handleMyLocalSignup(request, env) {
   });
 }
 
-function kakaoLoginStatusBlock(env) {
+function kakaoLoginStatusBlock(env, returnTo = "") {
   const config = inspectKakaoLoginConfig(env);
   if (config.ready) {
     // V22.9.87 T-20: 카카오 로그인 버튼(§3-4: #FEE500 면, 검은 말풍선 심볼, 라벨 ‘카카오 로그인’). 시작 화면에서 첫 화면의 유일한 채운 버튼이다.
     // 예전 ‘가장 간편한 방법’ 안내 상자와 ‘다른 방법으로 접속’ 구분선은 없앴다. 로그인 이름 칸은 바로 아래 접힌 칸(로그인 이름으로 로그인)이다.
-    return kakaoLoginButtonHtml();
+    return kakaoLoginButtonHtml(returnTo);
   }
   if (!config.enabled) {
     return `<div class="warn"><b>카카오 로그인을 잠시 사용할 수 없어요</b><br/>기존 로그인 이름과 내 계정 로그인 비밀번호로 접속할 수 있습니다.</div><div class="mobileAccessHelp"><b>PC에서는 이미 사용 중인가요?</b><br/>PC의 전체 메뉴 → 내 계정·보안에서 한 번 설정한 뒤, 모바일에서 같은 로그인 이름과 비밀번호를 입력하세요.</div>`;
@@ -41817,12 +41962,527 @@ function authErrorJumpClientMain(ids) {
   try { target.focus({ preventScroll: true }); } catch (error) { try { target.focus(); } catch (ignored) {} }
 }
 
+// V22.9.91 계정 잇기(사용자 2026-10-30 "로그인 없이 바로 가계부가 나오도록 계정 잇기가 필요해", 같은 날 "좋아 추천으로 진행하자").
+// 조사는 review-artifacts/identity-link-2026-10-30/RESEARCH.md 에 있다. 이 파일이 맡는 일은 셋이다.
+//  1) 카카오톡 인앱 브라우저 자동 로그인. 세션 없이 /my·/app 을 열면 prompt=none 으로 카카오 로그인을 먼저 해 본다(카카오 문서
+//     ‘카카오톡에서 자동 로그인’). 회원이면 화면 없이 로그인되고, 비회원(consent_required)·오류면 지금처럼 로그인 화면이 나온다.
+//  2) 갈라진 계정 잇기. 단톡방 기록 계정(봇 사용자 키)과 웹 카카오 로그인 계정이 따로 있을 수 있다. Secret 으로 확인된 카카오 요청의
+//     appUserId 가 그 웹 계정의 카카오 로그인 id 와 같으면 같은 사람이다. 채팅 요청은 계정을 합치지 않고 ‘잇기 제안’만 남긴다
+//     (identity-chat-first.js). 합치기는 같은 카카오 계정으로 방금 로그인한 브라우저에서만 한다. 남의 세션 쿠키만으로는 못 합친다.
+//     한쪽에 가계부·기록이 없으면 확인 없이 잇고, 둘 다 있으면 /my/account-link 에서 확인을 받은 뒤 잇는다.
+//  3) appUserId 도착 진단. 콘솔에서 웹 로그인 앱(1489689)을 그룹 챗봇에 연결한 뒤 실제로 오는지 관리자 화면(/identity-audit)에서 본다.
+// 2)의 합치기(안내·확인 화면·합치기 표)는 KAKAO_ACCOUNT_LINK_ENABLED=1 일 때만 한다(기본 꺼짐, kakaoAccountLinkEnabled). 1)·3)과 제안 남기기는 꺼져 있어도 한다.
+const KAKAO_AUTO_LOGIN_COOKIE = "ab_kakao_auto";
+// try: 자동 로그인을 보낸 뒤 돌아올 때까지(되풀이 막기). skip: 비회원·오류(하루 동안 다시 보내지 않음). off: 직접 로그아웃(30일).
+const KAKAO_AUTO_LOGIN_COOKIE_AGES = { try: 600, skip: 86400, off: 2592000 };
+const KAKAO_ACCOUNT_LINK_OFFERS_KEY = "kakao_login_link_offers_v22991";
+const KAKAO_ACCOUNT_LINK_PROOF_COOKIE = "ab_account_link";
+const KAKAO_ACCOUNT_LINK_LATER_COOKIE = "ab_account_link_later";
+const KAKAO_ACCOUNT_LINK_PAUSE_COOKIE = "ab_account_link_pause";
+const KAKAO_ACCOUNT_LINK_PAUSE_SECONDS = 600;
+const KAKAO_ACCOUNT_LINK_OFFER_CAPACITY = 200;
+const KAKAO_ACCOUNT_LINK_OFFER_TTL_MS = 30 * 24 * 60 * 60 * 1000;
+const KAKAO_ACCOUNT_LINK_CACHE_MS = 60 * 1000;
+const KAKAO_APP_USER_ID_PROBE_PREFIX = "kakao_app_user_id_probe_v22991:";
+const KAKAO_APP_USER_ID_PROBE_SLOTS = ["present:group", "present:direct", "absent:group", "absent:direct"];
+const AB_KAKAO_ACCOUNT_LINK_OFFERS_CACHE = globalThis.__AB_KAKAO_ACCOUNT_LINK_OFFERS_CACHE || (globalThis.__AB_KAKAO_ACCOUNT_LINK_OFFERS_CACHE = { at: 0, value: null });
+const AB_KAKAO_APP_USER_ID_PROBE = globalThis.__AB_KAKAO_APP_USER_ID_PROBE || (globalThis.__AB_KAKAO_APP_USER_ID_PROBE = new Map());
+
+// V22.9.91 독립 검토: 합치기는 Secret 으로 확인된 채팅 요청의 appUserId 를 믿는다. 콘솔에 엉뚱한 앱이 연결되거나 Secret 이 새면 남의 웹
+// 계정과 이어질 수 있으니, 앱 1489689 를 봇에 연결하고 운영자 자신의 갈라진 계정으로 진단(appUserId 옴)·제안을 확인한 뒤에 켠다.
+function kakaoAccountLinkEnabled(env) {
+  return envFlagEnabled(env?.KAKAO_ACCOUNT_LINK_ENABLED, false) && inspectKakaoLoginConfig(env).ready;
+}
+
+// 카카오 문서: 인앱 브라우저는 UserAgent 에 대문자 KAKAOTALK 이 있다. 링크 미리보기 수집기(kakaotalk-scrap)는 사람이 아니라서 뺀다.
+function isKakaoTalkInAppBrowser(request) {
+  const ua = String(request?.headers?.get?.("user-agent") || "");
+  return /\bKAKAOTALK\b/.test(ua) && !/kakaotalk-scrap/i.test(ua);
+}
+
+function kakaoAutoLoginCookie(kind = "") {
+  const age = KAKAO_AUTO_LOGIN_COOKIE_AGES[kind];
+  return age
+    ? `${KAKAO_AUTO_LOGIN_COOKIE}=${kind}; Path=/; Max-Age=${age}; HttpOnly; Secure; SameSite=Lax`
+    : `${KAKAO_AUTO_LOGIN_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
+}
+
+function kakaoAutoLoginPath(pathname = "") {
+  const path = String(pathname || "");
+  if (path === "/my" || path === "/app" || path === "/m") return true;
+  if (!path.startsWith("/my/") || path === "/my/logout" || path.startsWith("/my/account-link")) return false;
+  return !/\.(?:js|css|json|png|svg|ico|webmanifest|txt)$/i.test(path);
+}
+
+// 라우터가 통합 계정 세션 복구 다음에 부른다. 로그인 화면을 그리기 전에 카카오 로그인을 화면 없이 한 번 해 본다.
+// 세션이 있거나(같은 요청 캐시라 왕복이 늘지 않는다), 이미 해 봤거나(ab_kakao_auto), 페이지 이동이 아닌 요청이면 하지 않는다.
+// 관리자 세션이 있는 브라우저의 /app 은 관리자 화면이라 건드리지 않는다. 운영에서 끌 때는 KAKAO_INAPP_AUTO_LOGIN=0.
+async function kakaoInAppAutoLoginResponse(request, env, url) {
+  if (String(request?.method || "GET").toUpperCase() !== "GET" || !url || !kakaoAutoLoginPath(url.pathname)) return null;
+  if (url.searchParams.get("auto") === "0" || !isKakaoTalkInAppBrowser(request) || getCookie(request, KAKAO_AUTO_LOGIN_COOKIE)) return null;
+  const fetchMode = String(request.headers.get("sec-fetch-mode") || "").toLowerCase();
+  if (fetchMode ? fetchMode !== "navigate" : !/text\/html/i.test(String(request.headers.get("accept") || ""))) return null;
+  if (/prefetch|prerender/i.test(`${request.headers.get("sec-purpose") || ""} ${request.headers.get("purpose") || ""}`)) return null;
+  if (!envFlagEnabled(env.KAKAO_INAPP_AUTO_LOGIN, true) || !inspectKakaoLoginConfig(env).ready || getCookie(request, "ab_admin")) return null;
+  if (await verifyUserSession(request, env)) return null;
+  const back = safeUserReturnPath(`${url.pathname}${url.search}`, "");
+  const qs = new URLSearchParams({ auto: "1" });
+  if (back && back !== "/my" && back.length <= 512) qs.set("return_to", back);
+  return redirectResponse(`/auth/kakao/start?${qs.toString()}`);
+}
+
+// 자동 로그인이 안 됐을 때 돌아갈 로그인 화면. auto=0 은 쿠키가 막힌 인앱 브라우저에서도 되풀이를 끊는다.
+function kakaoAutoLoginFallbackLocation(next = "") {
+  const back = safeUserReturnPath(next || "", "");
+  return back && back !== "/my" ? `/my?auto=0&return_to=${encodeURIComponent(back)}` : "/my?auto=0";
+}
+
+async function kakaoAccountLinkOfferHash(kakaoId = "") {
+  return sha256Hex(`kakao-login-link-offer:v1:${String(kakaoId || "").trim()}`);
+}
+
+// 잇기 제안 표: { 웹 로그인 계정 id: { chat_user_id, kakao_hash, created_at, updated_at } }. 카카오 로그인 id 는 해시로만 둔다.
+// 모양이 틀린 줄은 버린다(원형 없는 객체에 담아 "__proto__" 같은 키가 원형을 바꾸지 못한다).
+function normalizeKakaoAccountLinkOffers(value) {
+  const parsed = parseStrictSettingsObject(value, KAKAO_ACCOUNT_LINK_OFFERS_KEY);
+  const out = Object.create(null);
+  for (const [loginUserId, raw] of Object.entries(parsed)) {
+    const item = safeObject(raw);
+    const chatUserId = String(item.chat_user_id || "").trim();
+    const kakaoHash = String(item.kakao_hash || "");
+    const updatedAt = String(item.updated_at || "");
+    if (!/^[A-Za-z0-9_-]{1,80}$/.test(loginUserId) || ["__proto__", "constructor", "prototype"].includes(loginUserId)) continue;
+    if (!chatUserId || chatUserId === loginUserId || !/^[a-f0-9]{64}$/.test(kakaoHash) || !Number.isFinite(Date.parse(updatedAt))) continue;
+    out[loginUserId] = { chat_user_id: chatUserId, kakao_hash: kakaoHash, created_at: String(item.created_at || updatedAt), updated_at: updatedAt };
+  }
+  return out;
+}
+
+function rememberKakaoAccountLinkOffersCache(offers) {
+  AB_KAKAO_ACCOUNT_LINK_OFFERS_CACHE.value = offers;
+  AB_KAKAO_ACCOUNT_LINK_OFFERS_CACHE.at = Date.now();
+}
+
+// /my 의 확인은 isolate 마다 1분 동안 같은 표를 쓴다(제안이 없는 사람에게 DB 조회를 늘리지 않는다). 합치기·제안 저장은 fresh 로 새로 읽는다.
+async function readKakaoAccountLinkOffers(env, { fresh = false } = {}) {
+  const cache = AB_KAKAO_ACCOUNT_LINK_OFFERS_CACHE;
+  if (!fresh && cache.value && Date.now() - cache.at < KAKAO_ACCOUNT_LINK_CACHE_MS) return cache.value;
+  const offers = normalizeKakaoAccountLinkOffers(await getSettingValueStrict(env, KAKAO_ACCOUNT_LINK_OFFERS_KEY));
+  rememberKakaoAccountLinkOffersCache(offers);
+  return offers;
+}
+
+function prunedKakaoAccountLinkOffers(offers, now = Date.now()) {
+  const entries = Object.entries(offers)
+    .filter(([, item]) => now - Date.parse(item.updated_at) < KAKAO_ACCOUNT_LINK_OFFER_TTL_MS)
+    .sort((a, b) => Date.parse(b[1].updated_at) - Date.parse(a[1].updated_at))
+    .slice(0, KAKAO_ACCOUNT_LINK_OFFER_CAPACITY);
+  const out = Object.create(null);
+  for (const [key, item] of entries) out[key] = item;
+  return out;
+}
+
+async function rememberKakaoAccountLinkOffer(env, { chatUserId = "", loginUserId = "", kakaoId = "" } = {}) {
+  const chat = String(chatUserId || "").trim();
+  const login = String(loginUserId || "").trim();
+  if (!chat || !login || chat === login || !String(kakaoId || "").trim()) return false;
+  const hash = await kakaoAccountLinkOfferHash(kakaoId);
+  const cached = AB_KAKAO_ACCOUNT_LINK_OFFERS_CACHE.value?.[login];
+  if (cached && cached.chat_user_id === chat && cached.kakao_hash === hash && Date.now() - AB_KAKAO_ACCOUNT_LINK_OFFERS_CACHE.at < KAKAO_ACCOUNT_LINK_CACHE_MS) return false;
+  return withSettingsRmwLease(env, `settings-rmw:${KAKAO_ACCOUNT_LINK_OFFERS_KEY}`, async ({ assertFresh }) => {
+    const offers = normalizeKakaoAccountLinkOffers(await getSettingValueStrict(env, KAKAO_ACCOUNT_LINK_OFFERS_KEY));
+    const current = offers[login];
+    if (current && current.chat_user_id === chat && current.kakao_hash === hash) {
+      rememberKakaoAccountLinkOffersCache(offers);
+      return false;
+    }
+    const now = new Date().toISOString();
+    offers[login] = { chat_user_id: chat, kakao_hash: hash, created_at: now, updated_at: now };
+    const kept = prunedKakaoAccountLinkOffers(offers);
+    assertFresh();
+    await saveSettingValue(env, KAKAO_ACCOUNT_LINK_OFFERS_KEY, JSON.stringify(kept));
+    rememberKakaoAccountLinkOffersCache(kept);
+    rememberOpsEvent({ kind: "kakao_account_link_offer", severity: "info", path: "/skill", method: "POST", label: "계정 잇기 제안 저장", detail: `채팅 ${chat.slice(0, 8)} · 카카오 로그인 ${login.slice(0, 8)}` });
+    return true;
+  });
+}
+
+async function forgetKakaoAccountLinkOffer(env, loginUserId = "") {
+  const login = String(loginUserId || "").trim();
+  if (!login) return false;
+  return withSettingsRmwLease(env, `settings-rmw:${KAKAO_ACCOUNT_LINK_OFFERS_KEY}`, async ({ assertFresh }) => {
+    const offers = normalizeKakaoAccountLinkOffers(await getSettingValueStrict(env, KAKAO_ACCOUNT_LINK_OFFERS_KEY));
+    if (!offers[login]) {
+      rememberKakaoAccountLinkOffersCache(offers);
+      return false;
+    }
+    delete offers[login];
+    assertFresh();
+    await saveSettingValue(env, KAKAO_ACCOUNT_LINK_OFFERS_KEY, JSON.stringify(offers));
+    rememberKakaoAccountLinkOffersCache(offers);
+    return true;
+  });
+}
+
+function kakaoAccountLinkOfferForUser(offers = {}, userId = "") {
+  const uid = String(userId || "").trim();
+  if (!uid) return null;
+  if (offers[uid]) return { loginUserId: uid, ...offers[uid] };
+  for (const [loginUserId, item] of Object.entries(offers)) {
+    if (item.chat_user_id === uid) return { loginUserId, ...item };
+  }
+  return null;
+}
+
+// 채팅 요청(identity-chat-first.js)은 제안을 바로 쓰지 않고 요청 안에 모아 둔다. 답 처리가 끝난 뒤 afterKakaoSkillIdentityWork 가
+// 이 요청의 DB 호출 여유가 있을 때만 쓴다. 단톡방 첫 기록처럼 호출이 많은 요청을 50회 한도 쪽으로 밀지 않기 위해서다.
+function queueKakaoAccountLinkOffer(env, offer = {}) {
+  if (!env || typeof env !== "object") return;
+  const queue = Array.isArray(env.__AB_PENDING_ACCOUNT_LINK_OFFERS) ? env.__AB_PENDING_ACCOUNT_LINK_OFFERS : (env.__AB_PENDING_ACCOUNT_LINK_OFFERS = []);
+  if (queue.length < 4) queue.push({ chatUserId: String(offer.chatUserId || ""), loginUserId: String(offer.loginUserId || ""), kakaoId: String(offer.kakaoId || "") });
+}
+
+function hasDatabaseRoom(env, reserve = 0) {
+  const budget = env?.__AB_DB_BUDGET;
+  return !budget || Number(budget.used || 0) + reserve <= Number(budget.limit || 50);
+}
+
+// appUserId 가 실제로 오는지(콘솔에서 앱 1489689 를 봇에 연결한 뒤) 관리자 화면에서 보려고 남긴다. 받은 값은 적지 않고 왔는지·안 왔는지와
+// 시각만 적는다. 칸(왔음·안 옴 × 단톡방·1:1)마다 isolate 당 한 시간에 한 번만 쓴다. 웹 카카오 로그인이 꺼진 곳에서는 잇기가 없으니 남기지 않는다.
+async function noteKakaoAppUserIdProbe(env, payload = {}) {
+  if (!env?.SUPABASE_URL || !env?.SUPABASE_SERVICE_ROLE_KEY || !inspectKakaoLoginConfig(env).ready) return false;
+  const user = safeObject(payload?.userRequest?.user || payload?.user || {});
+  const props = safeObject(user.properties || {});
+  const present = !!String(props.appUserId || payload?.appUserId || "").trim();
+  const slot = `${present ? "present" : "absent"}:${getKakaoBotGroupKey(payload) ? "group" : "direct"}`;
+  const now = Date.now();
+  if (now - Number(AB_KAKAO_APP_USER_ID_PROBE.get(slot) || 0) < 60 * 60 * 1000) return false;
+  AB_KAKAO_APP_USER_ID_PROBE.set(slot, now);
+  try {
+    await saveSettingValue(env, `${KAKAO_APP_USER_ID_PROBE_PREFIX}${slot}`, JSON.stringify({ version: 1, at: new Date(now).toISOString(), app_version: APP_VERSION }));
+    return true;
+  } catch (err) {
+    AB_KAKAO_APP_USER_ID_PROBE.delete(slot);
+    rememberOpsEvent({ kind: "kakao_app_user_id_probe_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) });
+    return false;
+  }
+}
+
+// skill-handler.js 가 답 처리(work)가 끝난 뒤 waitUntil 로 부른다. 실패해도 답에는 영향이 없다.
+// 웹 카카오 로그인이 꺼진 곳에서는 이을 수 없으니 제안도 진단도 남기지 않는다.
+async function afterKakaoSkillIdentityWork(env, payload = {}, trustedKakaoCaller = false) {
+  const queue = Array.isArray(env?.__AB_PENDING_ACCOUNT_LINK_OFFERS) ? env.__AB_PENDING_ACCOUNT_LINK_OFFERS.splice(0) : [];
+  if (!inspectKakaoLoginConfig(env).ready) return;
+  for (const offer of queue) {
+    if (!hasDatabaseRoom(env, 8)) {
+      // 같은 두 계정의 충돌은 isolate 마다 10분에 한 번 남기므로(identity-chat-first.js) 그 뒤 요청이 다시 남긴다.
+      rememberOpsEvent({ kind: "kakao_account_link_offer_deferred", severity: "info", path: "/skill", method: "POST", detail: "DB 호출 여유가 없어 이번 요청에서는 쓰지 않음" });
+      break;
+    }
+    try {
+      await rememberKakaoAccountLinkOffer(env, offer);
+    } catch (err) {
+      rememberOpsEvent({ kind: "kakao_account_link_offer_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) });
+    }
+  }
+  if (trustedKakaoCaller && hasDatabaseRoom(env, 4)) await noteKakaoAppUserIdProbe(env, payload);
+}
+
+// 합치기 방향과 가능 여부. 계정 잇기의 합치기는 performIdentityMerge 의 잠금 안에서 이것을 다시 부른다.
+//  - stale: 두 계정 중 하나가 이미 통합됐거나 없다(제안을 지운다).
+//  - blocked: 두 계정이 같은 종류의 로그인(카카오·로그인 이름)을 각각 갖고 있다. 합치기 RPC 가 보조 쪽 것을 지우므로 하지 않는다.
+//  - auto: 한쪽에 가계부·기록이 없다. 빈 쪽을 보조로 합친다(잃을 것이 없다).
+//  - confirm: 둘 다 있다. 확인을 받은 뒤 채팅 계정을 주 계정으로 합친다(방 연결·나가기 이력이 채팅 계정에 붙어 있어 옮길 것이 적다).
+async function kakaoAccountLinkPlan(env, { chatUserId = "", loginUserId = "", counts = false } = {}) {
+  const chat = String(chatUserId || "").trim();
+  const login = String(loginUserId || "").trim();
+  if (!chat || !login || chat === login) return { status: "stale", reason: "same_or_missing" };
+  env.__AB_REQUEST_USER_ROWS?.delete(chat);
+  env.__AB_REQUEST_USER_ROWS?.delete(login);
+  const [chatUnmerged, loginUnmerged] = await Promise.all([kakaoClaimUserUnmerged(env, chat), kakaoClaimUserUnmerged(env, login)]);
+  if (!chatUnmerged || !loginUnmerged) return { status: "stale", reason: "merged_or_missing" };
+  const ids = `${encodeURIComponent(chat)},${encodeURIComponent(login)}`;
+  const [members, identities] = await Promise.all([
+    supabase(env, `/rest/v1/household_members?user_id=in.(${ids})&select=user_id,household_id,role`, { method: "GET" }),
+    supabase(env, `/rest/v1/accountbook_user_identities?user_id=in.(${ids})&select=user_id,provider`, { method: "GET" }),
+  ]);
+  if (!Array.isArray(members) || !Array.isArray(identities)) throw new Error("account_link_source_invalid");
+  const providers = (uid) => new Set(identities.filter((row) => String(row?.user_id || "") === uid).map((row) => String(row?.provider || "")));
+  const chatProviders = providers(chat);
+  const shared = [...providers(login)].filter((provider) => provider && chatProviders.has(provider));
+  const households = (uid) => [...new Set(members.filter((row) => String(row?.user_id || "") === uid).map((row) => String(row?.household_id || "")).filter(Boolean))];
+  // 기록은 확인 화면(counts)에서는 세어 보이고, 합치기에서는 가계부가 없는 쪽만 한 건이라도 있는지 본다(가계부가 있으면 이미 빈 쪽이 아니다).
+  const records = async (uid) => {
+    if (counts) return Math.max(0, Number(await supabaseExactCount(env, `/rest/v1/transactions?user_id=eq.${encodeURIComponent(uid)}&select=id`)) || 0);
+    if (households(uid).length) return null;
+    const rows = await supabase(env, `/rest/v1/transactions?user_id=eq.${encodeURIComponent(uid)}&select=id&limit=1`, { method: "GET" });
+    if (!Array.isArray(rows)) throw new Error("account_link_source_invalid");
+    return rows.length;
+  };
+  const [chatRecords, loginRecords] = await Promise.all([records(chat), records(login)]);
+  const summary = {
+    chat: { households: households(chat).length, records: chatRecords },
+    login: { households: households(login).length, records: loginRecords },
+  };
+  if (shared.length) return { status: "blocked", reason: "same_provider", ...summary };
+  const chatHasData = summary.chat.households > 0 || Number(summary.chat.records || 0) > 0;
+  const loginHasData = summary.login.households > 0 || Number(summary.login.records || 0) > 0;
+  if (!loginHasData) return { status: "auto", primaryId: chat, secondaryId: login, secondaryHouseholdIds: households(login), ...summary };
+  if (!chatHasData) return { status: "auto", primaryId: login, secondaryId: chat, secondaryHouseholdIds: households(chat), ...summary };
+  return { status: "confirm", primaryId: chat, secondaryId: login, secondaryHouseholdIds: households(login), ...summary };
+}
+
+// 방금 카카오 로그인으로 확인한 카카오 id 가 제안의 그것과 같을 때만 합치기 표(5분, 이 브라우저의 세션 사용자에게 묶임)를 준다.
+// mode login: 로그인 콜백. 빈 쪽이 있을 때만 합치고, 둘 다 있으면 확인 화면으로 보낸다. mode confirm: 확인 화면에서 누른 뒤.
+async function kakaoAccountLinkProofAfterKakao(env, { userId = "", kakaoId = "", offerUserId = "", mode = "login", next = "/my" } = {}) {
+  const uid = String(userId || "").trim();
+  const offerKey = String(offerUserId || "").trim();
+  if (!kakaoAccountLinkEnabled(env)) return { ok: false, reason: "disabled" };
+  if (!uid || !offerKey || !String(kakaoId || "").trim()) return { ok: false, reason: "no_offer" };
+  const offers = await readKakaoAccountLinkOffers(env, { fresh: true });
+  const offer = offers[offerKey];
+  if (!offer || ![offerKey, offer.chat_user_id].includes(uid)) return { ok: false, reason: "no_offer" };
+  const hash = await kakaoAccountLinkOfferHash(kakaoId);
+  if (offer.kakao_hash !== hash) return { ok: false, reason: "kakao_account_mismatch" };
+  if (mode === "confirm") {
+    // 확인 화면에서 온 요청은 로그인한 사람이 채팅 계정일 수도 있다. 카카오 id 의 주인이 제안의 웹 계정인지 다시 본다.
+    const owner = await lookupKakaoLoginOwner(env, kakaoId);
+    const ownerId = String(owner?.user?.id || "");
+    if (!ownerId || (ownerId !== offerKey && await resolveEffectiveUserId(env, ownerId) !== offerKey)) return { ok: false, reason: "kakao_account_mismatch" };
+  }
+  const token = await signedPurposeToken(env, "account-link", { u: uid, b: offerKey, h: hash, m: mode === "confirm" ? "confirm" : "login", n: safeUserReturnPath(next || "/my", "/my") }, 300);
+  return { ok: true, cookie: kakaoAccountLinkProofCookie(token) };
+}
+
+function kakaoAccountLinkProofCookie(token = "") {
+  return token
+    ? `${KAKAO_ACCOUNT_LINK_PROOF_COOKIE}=${encodeURIComponent(token)}; Path=/my/account-link; Max-Age=300; HttpOnly; Secure; SameSite=Lax`
+    : `${KAKAO_ACCOUNT_LINK_PROOF_COOKIE}=; Path=/my/account-link; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
+}
+
+async function readKakaoAccountLinkProof(env, request) {
+  const raw = getCookie(request, KAKAO_ACCOUNT_LINK_PROOF_COOKIE);
+  if (!raw) return null;
+  let payload = null;
+  try { payload = await readPurposeToken(env, "account-link", raw); } catch (_) { return null; }
+  if (!payload || !payload.u || !payload.b || !/^[a-f0-9]{64}$/.test(String(payload.h || "")) || !["login", "confirm"].includes(payload.m)) return null;
+  return payload;
+}
+
+function kakaoAccountLinkLaterCookie(offer = null, seconds = 7 * 24 * 60 * 60) {
+  return offer?.kakao_hash
+    ? `${KAKAO_ACCOUNT_LINK_LATER_COOKIE}=${offer.kakao_hash.slice(0, 16)}; Path=/; Max-Age=${seconds}; HttpOnly; Secure; SameSite=Lax`
+    : `${KAKAO_ACCOUNT_LINK_LATER_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
+}
+
+// V22.9.91 독립 검토: 확인 화면이 화면을 그리지 않고 /my 로 돌려보낼 때 준다(10분). 그동안 /my 는 확인 화면으로 다시 보내지 않는다.
+// 1분 캐시에 남은 제안, 지우지 못한 제안, 읽기 실패가 두 화면을 오가게 하거나 오류 화면에 가두지 않게 한다.
+function kakaoAccountLinkPauseCookie() {
+  return `${KAKAO_ACCOUNT_LINK_PAUSE_COOKIE}=1; Path=/; Max-Age=${KAKAO_ACCOUNT_LINK_PAUSE_SECONDS}; HttpOnly; Secure; SameSite=Lax`;
+}
+
+// /my(handleMyPage)가 가계부 화면으로 보내기 전에 부른다. 이 사람에게 잇기 제안이 있고 ‘나중에’를 고르지 않았으면 확인 화면으로 보낸다.
+// 표는 1분 캐시라 제안이 없는 사람에게는 DB 조회가 늘지 않는다. 읽지 못하면 지금처럼 가계부를 연다.
+// 잇기가 꺼져 있거나(웹 카카오 로그인이 없으면 카카오 확인을 할 수 없다) 멈춤 쿠키가 있으면 묻지 않는다.
+async function kakaoAccountLinkPrompt(request, env, userId = "") {
+  if (!kakaoAccountLinkEnabled(env) || getCookie(request, KAKAO_ACCOUNT_LINK_PAUSE_COOKIE)) return null;
+  try {
+    const offer = kakaoAccountLinkOfferForUser(await readKakaoAccountLinkOffers(env), userId);
+    if (!offer || getCookie(request, KAKAO_ACCOUNT_LINK_LATER_COOKIE) === offer.kakao_hash.slice(0, 16)) return null;
+    return redirectResponse("/my/account-link");
+  } catch (err) {
+    return null;
+  }
+}
+
+const KAKAO_ACCOUNT_LINK_ERRORS = {
+  expired: "확인 시간이 지났어요. 아래 버튼을 다시 눌러 주세요.",
+  unavailable: "지금 계정 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.",
+  failed: "계정을 잇지 못했어요. 두 계정의 가계부와 기록은 바뀌지 않았어요. 잠시 후 다시 시도해 주세요.",
+  result_unknown: "잇기 결과를 아직 확인하지 못했어요. 같은 버튼을 다시 누르지 말고 잠시 뒤 가계부 화면에서 결과를 확인해 주세요.",
+  kakao_account_mismatch: "확인한 카카오 계정이 이 가계부의 카카오 계정과 달라요. 카카오톡 방에서 쓰는 카카오 계정으로 확인해 주세요.",
+  session: "로그인 상태가 바뀌었어요. 가계부를 다시 연 뒤 시도해 주세요.",
+  kakao_unavailable: "카카오 확인을 지금 쓸 수 없어요. 잠시 후 다시 시도해 주세요.",
+  kakao_retry: "카카오 확인을 화면 없이 끝내지 못했어요. 아래 버튼을 다시 누르면 카카오 확인 화면이 열려요.",
+  cancelled: "카카오 확인을 취소했어요. 계정은 잇지 않았고 가계부와 기록은 그대로예요.",
+  busy: "카카오 로그인 요청이 잠시 많아요. 1~2분 뒤 다시 시도해 주세요.",
+  in_progress: "다른 창이나 카카오톡 방의 요청이 이 계정을 쓰고 있어 이번에는 바꾼 것이 없어요. 잠시 뒤 가계부 화면에서 결과를 확인하고, 아직 이어지지 않았으면 다시 시도해 주세요.",
+};
+
+function renderKakaoAccountLinkHtml(env, { plan, err = "" } = {}) {
+  const title = escapeHtml(appName(env));
+  const status = plan?.status || "";
+  const heading = status === "blocked" ? "두 계정을 자동으로 이을 수 없어요"
+    : status === "auto" ? "카카오톡 방 가계부와 웹을 이어 드릴게요" : "카카오톡 방 가계부와 웹 계정을 이을까요?";
+  const sub = status === "blocked"
+    ? "같은 카카오 계정의 기록 계정이 둘로 나뉘어 있는데, 두 계정에 서로 다른 로그인 방법이 이미 하나씩 있어요. 잘못 합치지 않도록 이 화면에서는 잇지 않아요."
+    : status === "auto"
+      ? "같은 카카오 계정으로 쓰는 계정이 둘로 나뉘어 있고, 한쪽은 아직 비어 있어요. 카카오로 한 번 확인하면 카카오톡 방 가계부가 바로 열려요."
+      : "같은 카카오 계정으로 쓰는 계정이 둘로 나뉘어 있어요. 이으면 카카오톡 방에서 기록한 가계부와 웹 가계부를 한 계정에서 봐요.";
+  const rows = plan && plan.chat && plan.login ? `<ol><li><b>방</b><span>카카오톡 방 기록 계정 · 가계부 ${numberWithCommas(plan.chat.households)}개 · 내가 쓴 기록 ${numberWithCommas(plan.chat.records)}건</span></li><li><b>웹</b><span>웹 로그인 계정 · 가계부 ${numberWithCommas(plan.login.households)}개 · 내가 쓴 기록 ${numberWithCommas(plan.login.records)}건</span></li></ol>` : "";
+  const guide = status === "blocked"
+    ? "가계부와 기록은 그대로 두었어요. 계정을 하나로 합치려면 관리자에게 문의해 주세요."
+    : "가계부·기록·초대코드는 지우지 않고 한 계정으로 옮겨요. 이은 뒤에는 카카오톡과 웹 어디서든 같은 가계부가 열려요. 잇기는 되돌릴 수 없어요.";
+  const error = KAKAO_ACCOUNT_LINK_ERRORS[err] ? `<p class="linkError" role="alert">${escapeHtml(KAKAO_ACCOUNT_LINK_ERRORS[err])}</p>` : "";
+  const actions = status === "blocked"
+    ? `<div class="actions"><a class="btn" href="/my/account-link?later=blocked">가계부로 가기</a></div>`
+    : `<form method="post" action="/my/account-link" class="actions">${err === "kakao_retry" ? '<input type="hidden" name="interactive" value="1"/>' : ""}<button class="btn" type="submit">카카오로 확인하고 잇기</button><a class="btn soft" href="/my/account-link?later=1">나중에 하기</a></form><p class="sub">카카오톡 안에서는 확인 화면 없이 바로 지나가요. 다른 브라우저에서는 카카오 로그인 화면이 한 번 나올 수 있어요.</p>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 계정 잇기</title><style>${MY_ACCESS_STATUS_CSS}button.btn{border:0;font:inherit;cursor:pointer}.linkError{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:14px;padding:12px;line-height:1.6}</style></head><body><main class="wrap"><section class="card"><span class="badge">계정 잇기</span><h1>${heading}</h1><p class="sub">${escapeHtml(sub)}</p>${error}${rows}<div class="guide">${escapeHtml(guide)}</div>${actions}</section></main></body></html>`;
+}
+
+// 화면을 그리지 않고 가계부로 돌려보낼 때는 멈춤 쿠키를 함께 준다(V22.9.91 독립 검토). 계정을 읽지 못하면 오류 화면 대신 지금처럼
+// 가계부를 연다. 예전에는 읽기 실패·지우지 못한 제안이 /my 와 이 화면을 오가게 하거나 503 화면에 가뒀다(‘나중에’도 같은 확인을 거쳤다).
+async function handleMyAccountLinkPage(request, env, url) {
+  const userId = await verifyUserSession(request, env);
+  if (!userId) return redirectResponse("/my");
+  const backToBook = () => redirectResponseWithCookies("/my", [kakaoAccountLinkPauseCookie()]);
+  if (!kakaoAccountLinkEnabled(env)) return backToBook();
+  let offers;
+  try {
+    offers = await readKakaoAccountLinkOffers(env, { fresh: true });
+  } catch (err) {
+    rememberOpsEvent({ kind: "kakao_account_link_read_failed", severity: "warn", path: "/my/account-link", method: "GET", detail: safeError(err) });
+    return backToBook();
+  }
+  const offer = kakaoAccountLinkOfferForUser(offers, userId);
+  if (!offer) return backToBook();
+  // ‘나중에’는 계정 확인보다 먼저 받는다. later=blocked 는 이을 수 없는 두 계정의 화면에서 온다(30일).
+  const later = String(url.searchParams.get("later") || "");
+  if (later === "1" || later === "blocked") {
+    return redirectResponseWithCookies("/my", [kakaoAccountLinkLaterCookie(offer, later === "blocked" ? 30 * 24 * 60 * 60 : 7 * 24 * 60 * 60)]);
+  }
+  let plan;
+  try {
+    plan = await kakaoAccountLinkPlan(env, { chatUserId: offer.chat_user_id, loginUserId: offer.loginUserId, counts: true });
+  } catch (err) {
+    rememberOpsEvent({ kind: "kakao_account_link_plan_failed", severity: "warn", path: "/my/account-link", method: "GET", detail: safeError(err) });
+    return backToBook();
+  }
+  if (plan.status === "stale") {
+    try { await forgetKakaoAccountLinkOffer(env, offer.loginUserId); } catch (_) {}
+    return backToBook();
+  }
+  return htmlResponse(renderKakaoAccountLinkHtml(env, { plan, err: String(url.searchParams.get("err") || "") }));
+}
+
+// 확인 화면의 ‘카카오로 확인하고 잇기’(POST, 라우터의 CSRF 출처 확인을 거친다). 카카오 로그인(account-link 모드)으로 보낸다.
+// interactive=1 은 인앱 브라우저에서 화면 없는 확인(prompt=none)이 안 됐을 때 확인 화면이 넣는다. 그때는 카카오 화면을 띄운다.
+async function handleMyAccountLinkStart(request, env, startKakao) {
+  if (!kakaoAccountLinkEnabled(env)) return redirectResponse("/my");
+  const userId = await verifyUserSession(request, env);
+  if (!userId) return redirectResponse("/my");
+  let interactive = false;
+  try { interactive = String((await request.formData()).get("interactive") || "") === "1"; } catch (_) { interactive = false; }
+  let offer = null;
+  try {
+    offer = kakaoAccountLinkOfferForUser(await readKakaoAccountLinkOffers(env, { fresh: true }), userId);
+  } catch (err) {
+    return redirectResponse("/my/account-link?err=unavailable");
+  }
+  if (!offer) return redirectResponse("/my");
+  const response = await startKakao(request, env, { userId, offerUserId: offer.loginUserId, interactive });
+  return response || redirectResponse("/my/account-link?err=kakao_unavailable");
+}
+
+// 카카오 확인 뒤(콜백이 준 합치기 표) 실제로 합친다. 로그인 콜백과 다른 요청이라 DB 호출 한도(50회)를 합치기에 온전히 쓴다.
+async function handleMyAccountLinkRun(request, env) {
+  const clearProof = kakaoAccountLinkProofCookie("");
+  if (!kakaoAccountLinkEnabled(env)) return redirectResponseWithCookies("/my", [clearProof]);
+  const userId = await verifyUserSession(request, env);
+  if (!userId) return redirectResponseWithCookies("/my", [clearProof]);
+  const proof = await readKakaoAccountLinkProof(env, request);
+  if (!proof || proof.u !== userId) return redirectResponseWithCookies("/my/account-link?err=expired", [clearProof]);
+  const next = safeUserReturnPath(proof.n || "/my", "/my");
+  let offers;
+  try {
+    offers = await readKakaoAccountLinkOffers(env, { fresh: true });
+  } catch (err) {
+    rememberOpsEvent({ kind: "kakao_account_link_read_failed", severity: "warn", path: "/my/account-link/run", method: "GET", detail: safeError(err) });
+    return redirectResponseWithCookies("/my/account-link?err=unavailable", [clearProof]);
+  }
+  const offer = offers[proof.b];
+  if (!offer || offer.kakao_hash !== proof.h || ![proof.b, offer.chat_user_id].includes(userId)) return redirectResponseWithCookies(next, [clearProof]);
+  let plan = null;
+  let merged = null;
+  const cookies = [clearProof, kakaoAccountLinkLaterCookie(null)];
+  try {
+    merged = await performIdentityMerge(env, {
+      userIds: [offer.chat_user_id, proof.b],
+      path: "/my/account-link/run",
+      revokeSecondarySessions: true,
+      choose: async () => {
+        plan = await kakaoAccountLinkPlan(env, { chatUserId: offer.chat_user_id, loginUserId: proof.b });
+        return plan.status === "auto" || (plan.status === "confirm" && proof.m === "confirm") ? plan : null;
+      },
+      // V22.9.91 독립 검토: 합친 바로 뒤, 방 연결·표시 별명 정리보다 먼저 이 브라우저의 새 세션을 만들고 제안을 지운다. 방이 많은 사람은
+      // 그 정리가 DB 호출 한도(50회)를 다 써서 예전에는 새 세션을 못 만들거나 제안 표 잠금이 90초 남았다. 보조 계정의 옛 세션은 판이 올라 풀렸다.
+      afterMerge: async ({ primaryId }) => {
+        try {
+          const session = await makeUserSession(env, primaryId);
+          cookies.push(`ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`);
+        } catch (err) {
+          // 합치기는 끝났다. 세션을 새로 못 만들면 로그인 화면이 다시 나오고, 카카오로 로그인하면 이은 계정으로 들어간다.
+          rememberOpsEvent({ kind: "kakao_account_link_session_pending", severity: "warn", path: "/my/account-link/run", method: "GET", detail: safeError(err) });
+        }
+        // 제안 지우기는 잠금·읽기·쓰기·풀기 4회가 남았을 때만 한다(잠금을 잡고 못 풀면 90초 남는다). 못 지우면 다음 확인 화면이 지운다.
+        try {
+          if (!hasDatabaseRoom(env, 4)) throw new Error("account_link_offer_cleanup_no_budget");
+          await forgetKakaoAccountLinkOffer(env, proof.b);
+        } catch (err) {
+          rememberOpsEvent({ kind: "kakao_account_link_offer_cleanup_pending", severity: "warn", path: "/my/account-link/run", method: "GET", detail: safeError(err) });
+        }
+      },
+    });
+  } catch (err) {
+    // V22.9.91 독립 검토: 두 계정의 잠금을 다른 요청(다른 창의 잇기, 카카오톡 방의 기록)이 쥐고 있으면 아무것도 바꾸기 전에 멈춘다.
+    // 예전에는 ‘잇지 못했어요’로 보여, 다른 창에서 이미 이은 사람이 다시 누르게 했다.
+    const busy = !err?.mergeRpcStarted && !err?.departurePreservationStarted && /settings_rmw_busy/.test(safeError(err));
+    rememberOpsEvent({ kind: busy ? "kakao_account_link_busy" : "kakao_account_link_failed", severity: busy ? "warn" : "error", path: "/my/account-link/run", method: "GET", detail: safeError(err) });
+    const unknown = err?.mergeRpcStarted && !isDefiniteStorageFailure(err) && !/identity_merge_not_confirmed/.test(safeError(err));
+    return redirectResponseWithCookies(`/my/account-link?err=${busy ? "in_progress" : unknown ? "result_unknown" : "failed"}`, [clearProof]);
+  }
+  if (!merged) {
+    if (plan?.status === "stale") {
+      try { await forgetKakaoAccountLinkOffer(env, proof.b); } catch (_) {}
+      return redirectResponseWithCookies(next, [clearProof]);
+    }
+    // 로그인 콜백에서 왔는데 둘 다 가계부·기록이 있거나(확인 필요), 이을 수 없는 두 계정이다. 확인 화면이 이유를 보인다.
+    return redirectResponseWithCookies(plan?.status === "confirm" || plan?.status === "blocked" ? "/my/account-link" : next, [clearProof]);
+  }
+  rememberOpsEvent({ kind: "kakao_account_link_merged", severity: "info", path: "/my/account-link/run", method: "GET", label: "계정 잇기 완료", detail: `${plan?.status || "-"} · 주 ${String(merged.primaryId).slice(0, 8)} · 보조 ${String(merged.secondaryId).slice(0, 8)}` });
+  return redirectResponseWithCookies(addQueryToUrl(proof.m === "login" ? next : "/my", { msg: "account_linked" }), cookies);
+}
+
+// 관리자 계정·가계부 점검(/identity-audit) 화면의 진단 칸. appUserId 가 마지막으로 온 때·안 온 때와 남은 잇기 제안 수를 보인다.
+async function renderKakaoAccountLinkDiagnostics(env) {
+  let probe = Object.create(null);
+  let offers = null;
+  try {
+    const rows = await supabase(env, `/rest/v1/accountbook_settings?key=like.${encodeURIComponent(`${KAKAO_APP_USER_ID_PROBE_PREFIX}*`)}&select=key,value`, { method: "GET" });
+    for (const row of Array.isArray(rows) ? rows : []) {
+      const slot = String(row?.key || "").slice(KAKAO_APP_USER_ID_PROBE_PREFIX.length);
+      if (!KAKAO_APP_USER_ID_PROBE_SLOTS.includes(slot)) continue;
+      try { probe[slot] = String(JSON.parse(String(row.value || "{}")).at || "").slice(0, 19).replace("T", " "); } catch (_) {}
+    }
+  } catch (err) {
+    probe = null;
+  }
+  try { offers = await readKakaoAccountLinkOffers(env, { fresh: true }); } catch (err) { offers = null; }
+  const cell = (slot) => escapeHtml(probe?.[slot] ? `${probe[slot]} (UTC)` : "기록 없음");
+  const probeRows = probe ? `<tr><td>단톡방</td><td>${cell("present:group")}</td><td>${cell("absent:group")}</td></tr><tr><td>1:1</td><td>${cell("present:direct")}</td><td>${cell("absent:direct")}</td></tr>` : `<tr><td colspan="3">진단 기록을 읽지 못했습니다.</td></tr>`;
+  const offerCount = offers ? Object.keys(offers).length : null;
+  const switchState = kakaoAccountLinkEnabled(env)
+    ? "켜짐 — 제안이 있는 사람에게 /my 에서 잇기를 묻습니다."
+    : "꺼짐 — 제안과 진단만 남기고 잇기는 묻지 않습니다. 운영자 계정으로 appUserId 옴과 제안을 확인한 뒤 KAKAO_ACCOUNT_LINK_ENABLED=1 로 켭니다.";
+  return `<section class="card"><h2>카카오 로그인 연결 진단</h2><p>그룹 챗봇에 웹 로그인 앱을 연결하면 카카오가 방 메시지에 appUserId 를 실어 보냅니다. 받은 값은 적지 않고 마지막으로 온 때와 안 온 때만 적습니다(isolate 마다 한 시간에 한 번).</p><div class="tableWrap"><table><thead><tr><th>대화</th><th>appUserId 옴</th><th>appUserId 안 옴</th></tr></thead><tbody>${probeRows}</tbody></table></div><p>계정 잇기: ${escapeHtml(switchState)}</p><p>남은 계정 잇기 제안: ${offerCount === null ? "읽지 못함" : `${numberWithCommas(offerCount)}건`} · 웹에서 이은 뒤 사라집니다.</p></section>`;
+}
+
 // V22.9.76 감사 F-9: 가입 오류 뒤 다시 그린 폼이 비어 있었다. 비밀이 아닌 칸(로그인 이름·표시 이름·초대 코드)만
 // signupValues 로 받아 다시 채운다. 비밀번호는 절대 다시 쓰지 않는다. 값은 escapeHtml 로 속성에 넣는다.
 function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login", signupValues = {}) {
   const keep = (key) => escapeHtml(String(signupValues?.[key] ?? "").slice(0, 80));
   const title = escapeHtml(appName(env));
-  const kakaoPart = kakaoLoginStatusBlock(env);
+  const kakaoPart = kakaoLoginStatusBlock(env, returnTo);
   const signupMode = authMode === "signup";
   const claimMode = authMode === "kakao_claim";
   const authTarget = claimMode ? "kakaoClaimCode" : signupMode ? "signupName" : "loginName";
@@ -42901,7 +43561,7 @@ function formatMessage(msg) {
     joined_viewer: "조회 전용으로 참여 중인 가계부입니다. 기록은 볼 수 있지만 저장·수정·삭제할 수 없습니다.",
     join_blocked: "이 가계부에서는 참여가 차단되어 있습니다. 초대코드를 다시 입력해도 권한은 바뀌지 않습니다. 소유자에게 확인해 주세요.",
     db_write_unknown: "처리 결과를 아직 확인하지 못했습니다. 기록·목표·참여 목록을 새로고침해 결과를 먼저 확인하고 같은 요청을 반복하지 마세요.", amount_required: "0원보다 큰 금액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.", amount_too_large: "금액이 너무 큽니다. 20억 원 이하로 입력해 주세요. 입력 내용은 저장되지 않았습니다.", record_not_found: "수정할 기록을 찾지 못했습니다. 기록 목록을 새로 열어 다시 선택해 주세요.", not_my_record: "이 기록을 바꿀 권한이 없습니다. 내가 만든 기록을 선택하거나 소유자·관리자에게 요청해 주세요.", budget_save_failed: "예산을 저장하지 못했습니다. 기존 값은 유지되므로 잠시 후 한 번만 다시 시도해 주세요.", budget_amount_invalid: "예산 금액을 숫자로 입력해 주세요. 기존 예산은 그대로 유지됩니다.", budget_plan_too_many: "예산 항목은 한 번에 100개까지 저장할 수 있습니다. 101번째 이후 항목을 줄인 뒤 다시 저장해 주세요. 기존 예산은 유지됩니다.", category_missing: "분류 이름을 입력해 주세요. 다른 입력값은 저장되지 않았습니다.", category_keywords_save_failed: "분류 키워드를 저장하지 못했습니다. 기존 설정은 유지되므로 잠시 후 다시 시도해 주세요.", category_created_keywords_pending: "분류는 추가했지만 키워드는 저장하지 못했습니다. 분류 목록에서 키워드만 다시 저장해 주세요.", keyword_manage_only: "분류 키워드 저장은 가계부 소유자·관리자만 할 수 있습니다. 현재 설정은 그대로 확인할 수 있습니다.", recurring_missing: "정기항목의 내용과 0원보다 큰 금액을 입력해 주세요.", recurring_table_required: "정기항목 저장 공간을 사용할 수 없습니다. 입력값은 저장되지 않았으니 관리자에게 운영 상태 확인을 요청해 주세요.", recurring_delete_failed: "정기항목을 삭제하지 못했습니다. 기존 항목은 유지되므로 새로고침 후 다시 시도해 주세요.", recurring_manual_month_end_blocked: "29~31일 고정항목은 현재 수동 반영에서 안전하게 처리할 수 없어 저장하지 않았습니다. 예약 실행은 실제 말일에 맞춰 처리하며, 수동 반영 RPC 확인과 별도 SQL 보완 승인이 필요합니다.", record_update_failed: "기록을 수정하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", record_delete_failed: "기록을 삭제하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", empty_import: "가져올 내용이 비어 있습니다. 파일을 다시 선택하거나 표·자연어 기록을 붙여넣어 주세요.", write_not_allowed: "현재 권한은 조회 전용이라 기록을 변경하거나 가져올 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.", excel_conversion_required: "엑셀 파일을 텍스트 표로 변환하지 못했습니다. 이 화면에서 다시 선택해 변환을 기다리거나 CSV로 저장해 올려 주세요.", import_file_too_large: "한 번에 분석할 수 있는 파일 크기를 넘었습니다. 원본은 바뀌지 않았으니 월별 또는 시트별로 나눠 다시 가져와 주세요.", import_file_read_failed: "파일을 읽지 못했습니다. 파일이 열리는지 확인한 뒤 CSV·TSV·TXT로 저장하거나 내용을 붙여넣어 주세요.", added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", undone: "방금 기록을 지우고 예산을 되돌렸어요.", undo_expired: "실행 취소할 수 있는 시간이 지나 기록을 그대로 두었습니다. 지우려면 기록을 눌러 수정·삭제 화면에서 지워 주세요.", undo_changed: "저장한 뒤 바뀐 기록이라 실행 취소하지 않았습니다. 기록을 눌러 수정·삭제 화면에서 확인해 주세요.", restored: "지운 기록을 되살렸어요.", restore_expired: "되돌릴 수 있는 시간이 지나 기록을 되살리지 않았습니다. 필요하면 새로 기록해 주세요.", restore_failed: "지운 기록을 되살리지 못했습니다. 목록을 새로고침해 기록이 있는지 확인해 주세요.", restore_changed: "그 뒤에 다시 지운 기록이라 이 되돌리기로는 되살리지 않았습니다. 목록을 새로고침해 확인해 주세요.",updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다. 이제 초대·단톡방 연결 → 기록 방법 → 첫 기록 순서로 진행해 보세요.", household_duplicate_selected: "같은 이름의 가계부가 이미 있어 중복 생성하지 않고 기존 가계부를 선택했습니다.", household_name_invalid: "가계부 이름은 2~40자의 일반 이름으로 입력해 주세요. 명령어·전화번호·초대코드·금액만 있는 이름은 사용할 수 없습니다.", household_create_failed: "가계부 생성을 완료하지 못했습니다. 중간 생성 데이터는 정리했으니 잠시 후 한 번만 다시 시도해 주세요.", household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다. 영문·숫자를 다시 확인하고, 계속 안 되면 초대한 사람에게 최신 코드를 요청해 주세요.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 같은 코드를 반복 입력하지 말고 관리자 승인 후 다시 열어 주세요.", join_failed: "참여 요청을 안전하게 저장하지 못했습니다. 권한은 자동으로 열리지 않았습니다. 잠시 후 한 번만 다시 시도해 주세요.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "자산·결제수단을 저장했습니다.", payment_asset_updated: "자산·결제수단 정보를 수정했습니다.", payment_asset_balance_updated: "현재 잔액을 저장하고 이번 달 순자산 기록을 갱신했습니다.", payment_asset_deleted: "자산·결제수단을 삭제하고 순자산 기록을 갱신했습니다.", reserve_saved: "정기 수입·지출 항목을 저장했습니다.",
-  reserve_updated: "정기 수입·지출 항목을 수정했습니다.", reserve_deleted: "정기 수입·지출 항목을 삭제했습니다.", budget_saved: "예산을 저장했습니다.", budget_month_invalid: "월 형식이 올바르지 않아 저장하지 않았습니다(예: 2026-07). 다른 달의 예산도 바꾸지 않았습니다.", budget_duplicate_category: "같은 분류가 두 줄 이상 서로 다른 금액으로 들어 있어 저장하지 않았습니다. 한 줄만 남기고 다시 저장해 주세요. 기존 예산은 그대로입니다.", reserve_name_duplicate: "같은 이름의 정기 항목이 이미 있어 저장하지 않았습니다. 기존 항목을 수정하거나 다른 이름을 써 주세요. 두 항목 모두 그대로 있습니다.", reserve_due_day_invalid: "납부·입금일은 1~28 사이 숫자로 입력해 주세요. 저장하지 않았습니다.", reserve_due_month_invalid: "납부·입금월은 1~12월 중에서 골라 주세요. 저장하지 않았습니다.", reserve_recurrence_invalid: "반복주기는 매월·연 1회·반기·분기 중 하나여야 합니다. 저장하지 않았습니다.", recurring_spender_ineligible: "고정항목의 지출자는 이 가계부의 소유자·관리자·구성원 중에서 골라야 합니다. 조회 전용·승인 대기·차단·나간 참여자의 규칙은 반영되지 않아 저장하지 않았습니다.", budget_deleted: "예산을 삭제했습니다.", budget_over: "저장했습니다. 예산을 초과했습니다.", recurring_saved: "고정항목을 저장했습니다.", recurring_deleted: "고정항목을 삭제했습니다.", password_updated: "비밀번호를 변경했습니다.", meme_saved: "밈카드를 도감에 저장했습니다.", meme_deleted: "밈카드를 삭제했습니다.", meme_liked: "좋아요를 반영했습니다.", meme_shared: "공유 횟수를 반영했습니다.", kakao_linked: "카카오 계정 연동이 완료되었습니다.",
+  reserve_updated: "정기 수입·지출 항목을 수정했습니다.", reserve_deleted: "정기 수입·지출 항목을 삭제했습니다.", budget_saved: "예산을 저장했습니다.", budget_month_invalid: "월 형식이 올바르지 않아 저장하지 않았습니다(예: 2026-07). 다른 달의 예산도 바꾸지 않았습니다.", budget_duplicate_category: "같은 분류가 두 줄 이상 서로 다른 금액으로 들어 있어 저장하지 않았습니다. 한 줄만 남기고 다시 저장해 주세요. 기존 예산은 그대로입니다.", reserve_name_duplicate: "같은 이름의 정기 항목이 이미 있어 저장하지 않았습니다. 기존 항목을 수정하거나 다른 이름을 써 주세요. 두 항목 모두 그대로 있습니다.", reserve_due_day_invalid: "납부·입금일은 1~28 사이 숫자로 입력해 주세요. 저장하지 않았습니다.", reserve_due_month_invalid: "납부·입금월은 1~12월 중에서 골라 주세요. 저장하지 않았습니다.", reserve_recurrence_invalid: "반복주기는 매월·연 1회·반기·분기 중 하나여야 합니다. 저장하지 않았습니다.", recurring_spender_ineligible: "고정항목의 지출자는 이 가계부의 소유자·관리자·구성원 중에서 골라야 합니다. 조회 전용·승인 대기·차단·나간 참여자의 규칙은 반영되지 않아 저장하지 않았습니다.", budget_deleted: "예산을 삭제했습니다.", budget_over: "저장했습니다. 예산을 초과했습니다.", recurring_saved: "고정항목을 저장했습니다.", recurring_deleted: "고정항목을 삭제했습니다.", password_updated: "비밀번호를 변경했습니다.", meme_saved: "밈카드를 도감에 저장했습니다.", meme_deleted: "밈카드를 삭제했습니다.", meme_liked: "좋아요를 반영했습니다.", meme_shared: "공유 횟수를 반영했습니다.", kakao_linked: "카카오 계정 연동이 완료되었습니다.", account_linked: "카카오톡 방 가계부와 웹 계정을 하나로 이었습니다. 이제 카카오톡과 웹에서 같은 가계부를 봅니다.",
 };
   const generic = "요청을 처리하지 못했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.";
   // 쿼리 문자열은 사용자가 직접 만들 수 있다. 정확히 열거한 코드만 사용자 안내로 바꾸고,
@@ -47913,6 +48573,9 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     headers.set("x-accountbook-latency-ms", String(latencyMs));
     return new Response(fallback.body, { status: fallback.status, statusText: fallback.statusText, headers });
   } })();
+  // V22.9.91 계정 잇기: 답 처리 중 모아 둔 잇기 제안과 appUserId 도착 진단을 답 처리가 끝난 뒤 쓴다(auth/kakao-account-link.js).
+  // 답을 늦추지 않게 waitUntil 로 미루고, 이 요청의 DB 호출 여유가 있을 때만 쓴다. 실패해도 답에는 영향이 없다.
+  if (canDeferSave) ctx.waitUntil(work.then(() => {}, () => {}).then(() => afterKakaoSkillIdentityWork(env, payload, trustedChatFirstSkillCaller(request, env))).catch(() => {}));
   if (!canDeferSave) return await work;
   const budgetMs = boundedRuntimeNumber(env.KAKAO_RESPONSE_BUDGET_MS, 4000, 200, 4700);
   let deadlineTimer = null;
@@ -50404,14 +51067,22 @@ async function fetchKakaoGroupLinkItemRows(env, options = {}) {
 
 // V22.9.34 감사 S2: 계정 통합은 방 연결의 linked_by 만 옮긴다. 방마다 잠금 안에서 그 방 행을 다시 읽고,
 // 옛 통합 맵은 엄격하게 읽어 같은 칸만 고친다.
-async function reassignKakaoGroupLinkOwner(env, fromUserId = "", toUserId = "") {
+// V22.9.91 독립 검토: options.hasRoom(n) 이 거짓이면 남은 방(잠금·읽기·쓰기·풀기 4회, 옛 맵 몫 4회를 남김)과 옛 맵은 고치지 않고
+// 그 수를 돌려준다({ changed, pending, legacyPending }). 계정 잇기는 한 요청 안에서 부르고, 잠금을 잡고 못 풀면 90초 남는다.
+async function reassignKakaoGroupLinkOwner(env, fromUserId = "", toUserId = "", options = {}) {
   const from = String(fromUserId || "");
   const to = String(toUserId || "");
-  if (!from || !to || from === to) return 0;
+  const hasRoom = typeof options.hasRoom === "function" ? options.hasRoom : () => true;
+  if (!from || !to || from === to) return { changed: 0, pending: 0, legacyPending: false };
   let changed = 0;
+  let pending = 0;
   const items = await fetchKakaoGroupLinkItemRows(env, { strict: true });
   for (const [groupKey, item] of Object.entries(items)) {
     if (String(item.linked_by || "") !== from) continue;
+    if (pending || !hasRoom(8)) {
+      pending += 1;
+      continue;
+    }
     await withKakaoGroupLifecycleLease(env, groupKey, async ({ assertFresh }) => {
       const value = await getSettingValueStrict(env, kakaoGroupLinkItemSettingsKey(groupKey));
       const current = normalizeKakaoGroupLinkItem(value, groupKey);
@@ -50421,6 +51092,7 @@ async function reassignKakaoGroupLinkOwner(env, fromUserId = "", toUserId = "") 
       changed += 1;
     });
   }
+  if (!hasRoom(4)) return { changed, pending, legacyPending: true };
   await withSettingsRmwLease(env, "settings-rmw:kakao_group_links", async ({ assertFresh }) => {
     const map = await fetchLegacyKakaoGroupLinkMap(env, true);
     let legacyChanged = false;
@@ -50433,7 +51105,7 @@ async function reassignKakaoGroupLinkOwner(env, fromUserId = "", toUserId = "") 
     assertFresh();
     await saveSettingValue(env, kakaoGroupLinksSettingsKey(), JSON.stringify(map));
   });
-  return changed;
+  return { changed, pending, legacyPending: false };
 }
 
 async function fetchKakaoGroupLinkMap(env) {
@@ -50708,8 +51380,203 @@ async function handleIdentityAuditPage(request, env, url) {
   const householdOptions = audit.households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${selected?.id === h.id ? " selected" : ""}>${escapeHtml(h.name || h.id)}</option>`).join("");
   const memberOptions = audit.members.map((m) => `<option value="${escapeHtml(m.user_id)}">${escapeHtml(m.nickname || "구성원")} · ${escapeHtml(identityTypeLabel(m.kakao_user_key))} · 거래 ${numberWithCommas(m.transaction_count)}건</option>`).join("");
   const tableRows = audit.members.map((m) => `<tr><td><b>${escapeHtml(m.nickname || "구성원")}</b><br/><span>${escapeHtml(m.base_nickname || "")}</span></td><td>${escapeHtml(userHouseholdRoleLabel(m.role))}</td><td>${escapeHtml(identityTypeLabel(m.kakao_user_key))}<br/><code>${escapeHtml(maskIdentityKey(m.kakao_user_key))}</code></td><td>${numberWithCommas(m.transaction_count)}건</td><td>${escapeHtml(String(m.created_at || "").slice(0, 19).replace("T", " "))}</td></tr>`).join("") || `<tr><td colspan="5">참여자가 없습니다.</td></tr>`;
+  const linkDiagnostics = await renderKakaoAccountLinkDiagnostics(env);
   const warning = audit.owners.length > 1 ? `소유자가 ${audit.owners.length}명입니다. 같은 사람의 챗봇·웹 로그인 계정이 나뉜 경우, 거래가 많은 계정을 주 계정으로 선택해 통합하세요.` : "소유자 수는 정상입니다.";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>계정·가계부 안정성 점검</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 28px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c3aed));color:#fff}.hero p{color:#ede9fe;line-height:1.6}.warn,.ok,.error{border-radius:15px;padding:12px;line-height:1.55}.warn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412}.ok{background:#ecfdf5;border:1px solid #86efac;color:#166534}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:grid;gap:6px;margin:10px 0}.field select,.field input{height:44px;border:1px solid #d1d5db;border-radius:12px;padding:0 10px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:12px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.tableWrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:760px}th,td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top;font-size:13px}td span{color:#64748b}code{font-size:11px}@media(max-width:760px){.wrap{padding:10px}.grid{grid-template-columns:1fr}.hero{border-radius:20px}.field select,.field input,button{width:100%;font-size:16px}}</style></head><body>${renderUnifiedNav("identity-audit", { householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap"><section class="hero"><h1>계정·가계부 안정성 점검</h1><p>챗봇, 카카오 웹 로그인, 백업 로그인이 서로 다른 사용자로 생성됐는지 확인하고 관리자가 명시적으로 통합합니다. 이 화면은 자동으로 계정을 합치거나 거래를 삭제하지 않습니다.</p></section>${msg ? `<div class="ok">${escapeHtml(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}<section class="card"><form method="get" action="/identity-audit"><div class="field"><label>점검할 가계부</label><select name="household_id">${householdOptions}</select></div><button type="submit">점검하기</button></form><p class="warn">${escapeHtml(warning)}<br/>화면에 보였던 8자리 값은 초대코드가 아니라 내부 사용자 ID 일부였습니다. V22.4.1부터 일반 사용자 화면에서는 표시하지 않습니다.</p></section><section class="card"><h2>${escapeHtml(selected?.name || "가계부 없음")} 참여자</h2><div class="tableWrap"><table><thead><tr><th>표시 이름</th><th>역할</th><th>계정 유형</th><th>거래</th><th>참여 시각</th></tr></thead><tbody>${tableRows}</tbody></table></div></section><section class="card"><h2>중복 계정 통합</h2><div class="warn">주 계정은 앞으로 로그인과 거래를 유지할 계정입니다. 일반적으로 거래 건수가 많고 현재 웹에서 정상 접속되는 계정을 선택합니다. 확신이 없으면 통합하지 마세요.</div><form method="post" action="/admin/identity/merge"><input type="hidden" name="household_id" value="${escapeHtml(selected?.id || "")}"/><div class="grid"><div class="field"><label>주 계정(남길 계정)</label><select name="primary_user_id" required><option value="">선택</option>${memberOptions}</select></div><div class="field"><label>보조 계정(합칠 계정)</label><select name="secondary_user_id" required><option value="">선택</option>${memberOptions}</select></div></div><div class="field"><label>확인 문구</label><input name="confirm_text" placeholder="통합" required/></div><button type="submit">계정 통합 실행</button></form></section><section class="card"><h2>통합 범위</h2><ul><li>보조 계정의 거래 지출자 ID를 주 계정으로 변경</li><li>가계부 참여 역할을 가장 높은 역할 하나로 합침</li><li>가계부 표시 별명과 로그인 연결 정보를 주 계정으로 이전</li><li>보조 계정은 삭제하지 않고 ‘통합된 이전 계정’으로 보존</li><li>가계부·거래·초대코드는 삭제하거나 재생성하지 않음</li></ul></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>계정·가계부 안정성 점검</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 28px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c3aed));color:#fff}.hero p{color:#ede9fe;line-height:1.6}.warn,.ok,.error{border-radius:15px;padding:12px;line-height:1.55}.warn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412}.ok{background:#ecfdf5;border:1px solid #86efac;color:#166534}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:grid;gap:6px;margin:10px 0}.field select,.field input{height:44px;border:1px solid #d1d5db;border-radius:12px;padding:0 10px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:12px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.tableWrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:760px}th,td{padding:10px;border-bottom:1px solid #e5e7eb;text-align:left;vertical-align:top;font-size:13px}td span{color:#64748b}code{font-size:11px}@media(max-width:760px){.wrap{padding:10px}.grid{grid-template-columns:1fr}.hero{border-radius:20px}.field select,.field input,button{width:100%;font-size:16px}}</style></head><body>${renderUnifiedNav("identity-audit", { householdId: selected?.id || "", householdName: selected?.name || "" })}<main class="wrap"><section class="hero"><h1>계정·가계부 안정성 점검</h1><p>챗봇, 카카오 웹 로그인, 백업 로그인이 서로 다른 사용자로 생성됐는지 확인하고 관리자가 명시적으로 통합합니다. 이 화면은 자동으로 계정을 합치거나 거래를 삭제하지 않습니다.</p></section>${msg ? `<div class="ok">${escapeHtml(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}<section class="card"><form method="get" action="/identity-audit"><div class="field"><label>점검할 가계부</label><select name="household_id">${householdOptions}</select></div><button type="submit">점검하기</button></form><p class="warn">${escapeHtml(warning)}<br/>화면에 보였던 8자리 값은 초대코드가 아니라 내부 사용자 ID 일부였습니다. V22.4.1부터 일반 사용자 화면에서는 표시하지 않습니다.</p></section><section class="card"><h2>${escapeHtml(selected?.name || "가계부 없음")} 참여자</h2><div class="tableWrap"><table><thead><tr><th>표시 이름</th><th>역할</th><th>계정 유형</th><th>거래</th><th>참여 시각</th></tr></thead><tbody>${tableRows}</tbody></table></div></section><section class="card"><h2>중복 계정 통합</h2><div class="warn">주 계정은 앞으로 로그인과 거래를 유지할 계정입니다. 일반적으로 거래 건수가 많고 현재 웹에서 정상 접속되는 계정을 선택합니다. 확신이 없으면 통합하지 마세요.</div><form method="post" action="/admin/identity/merge"><input type="hidden" name="household_id" value="${escapeHtml(selected?.id || "")}"/><div class="grid"><div class="field"><label>주 계정(남길 계정)</label><select name="primary_user_id" required><option value="">선택</option>${memberOptions}</select></div><div class="field"><label>보조 계정(합칠 계정)</label><select name="secondary_user_id" required><option value="">선택</option>${memberOptions}</select></div></div><div class="field"><label>확인 문구</label><input name="confirm_text" placeholder="통합" required/></div><button type="submit">계정 통합 실행</button></form></section>${linkDiagnostics}<section class="card"><h2>통합 범위</h2><ul><li>보조 계정의 거래 지출자 ID를 주 계정으로 변경</li><li>가계부 참여 역할을 가장 높은 역할 하나로 합침</li><li>가계부 표시 별명과 로그인 연결 정보를 주 계정으로 이전</li><li>보조 계정은 삭제하지 않고 ‘통합된 이전 계정’으로 보존</li><li>가계부·거래·초대코드는 삭제하거나 재생성하지 않음</li></ul></section></main></body></html>`);
+}
+
+// V22.9.91: 관리자 통합(handleIdentityMerge)과 계정 잇기(auth/kakao-account-link.js 의 /my/account-link/run)가 같은 순서로 합친다.
+//  - primaryId·secondaryId: 정해진 두 계정(관리자 통합). choose 를 주면 두 계정의 잠금을 잡은 뒤 choose() 가 방향을 정한다
+//    (계정 잇기 — 가계부·기록 유무로 정한다). choose 가 null 이면 아무것도 바꾸지 않고 null 을 돌려준다.
+//  - householdId: 관리자 통합의 범위 가계부. 두 계정이 모두 그 가계부 구성원이어야 하고 그 가계부 잠금도 함께 잡는다. 계정 잇기는 비운다.
+//  - revokeSecondarySessions: 합친 뒤 보조 계정의 옛 세션 판을 올려 옛 쿠키를 주 계정 세션으로 이어 주지 않는다. 계정 잇기만 켠다
+//    (보조 계정 쿠키를 가진 다른 브라우저가 주 계정의 가계부까지 열지 않게). 관리자 통합은 예전처럼 옛 세션을 주 계정으로 이어 준다.
+//    판을 읽지 못하면 아무것도 바꾸기 전에 멈춘다.
+//  - afterMerge({ primaryId, secondaryId }): 합친 바로 뒤, 아래 정리(링크 표·방 연결·표시 별명)보다 먼저 부른다. 계정 잇기는 여기서
+//    이 브라우저의 새 세션을 만들고 제안을 지운다. 정리는 한 요청의 DB 호출 한도(50회) 안에서만 하고, 모자라면 남기고 운영 이벤트를 적는다.
+// 실패하면 오류에 mergeRpcStarted·departurePreservationStarted 를 달아 던진다(관리자 화면 안내 문구가 이것으로 갈린다).
+async function performIdentityMerge(env, options = {}) {
+  const path = String(options.path || "/admin/identity/merge");
+  const householdId = String(options.householdId || "").trim();
+  let primaryId = String(options.primaryId || "").trim();
+  let secondaryId = String(options.secondaryId || "").trim();
+  const lockIds = [...new Set((Array.isArray(options.userIds) ? options.userIds : [primaryId, secondaryId]).map((id) => String(id || "").trim()).filter(Boolean))];
+  let primary = null;
+  let secondary = null;
+  let aliasHouseholdIds = [];
+  let mergeRpcStarted = false;
+  let departurePreservationStarted = false;
+  let summary = null;
+  try {
+    summary = await withKakaoUserLifecycleLease(env, lockIds, async ({ assertFresh: lifecycleFresh }) => {
+      const merge = async (assertFresh) => {
+        let decided = null;
+        if (typeof options.choose === "function") {
+          decided = await options.choose({ assertFresh });
+          if (!decided) return null;
+          primaryId = String(decided.primaryId || "").trim();
+          secondaryId = String(decided.secondaryId || "").trim();
+          if (!primaryId || !secondaryId || primaryId === secondaryId || !lockIds.includes(primaryId) || !lockIds.includes(secondaryId)) throw new Error("identity_merge_scope_changed");
+        } else if (!(await kakaoClaimUserUnmerged(env, primaryId)) || !(await kakaoClaimUserUnmerged(env, secondaryId))) {
+          throw new Error("identity_merge_scope_changed");
+        }
+        const knownHouseholdIds = Array.isArray(decided?.secondaryHouseholdIds) ? decided.secondaryHouseholdIds : null;
+        const [secondaryMemberships, selectedMembers] = await Promise.all([
+          knownHouseholdIds ? null
+            : supabase(env, `/rest/v1/household_members?user_id=eq.${encodeURIComponent(secondaryId)}&select=household_id,user_id,role,created_at`, { method: "GET" }),
+          householdId ? fetchRawHouseholdMembers(env, householdId) : null,
+        ]);
+        if (householdId && (!selectedMembers.some((m) => String(m.user_id) === primaryId) || !selectedMembers.some((m) => String(m.user_id) === secondaryId))) throw new Error("identity_merge_scope_changed");
+        if (!knownHouseholdIds && !Array.isArray(secondaryMemberships)) throw new Error("household_member_source_invalid");
+        aliasHouseholdIds = [...new Set((knownHouseholdIds || secondaryMemberships.map((item) => item.household_id)).map((id) => String(id || "").trim()).filter(Boolean))];
+        // 합친 뒤 링크 표를 고칠 때 쓰는 두 계정의 원래 키. 합치기 RPC 가 보조 계정 키를 merged: 로 바꾸므로 먼저 잡아 둔다.
+        [primary, secondary] = await Promise.all([fetchUserById(env, primaryId), fetchUserById(env, secondaryId)]);
+        // 보조 계정의 세션 판을 읽지 못하면 옛 세션을 끊을 수 없으니 합치지 않는다(아무것도 바꾸기 전이다).
+        const secondarySessionVersion = options.revokeSecondarySessions ? await getUserSessionVersion(env, secondaryId) : 0;
+        if (options.revokeSecondarySessions && secondarySessionVersion < 1) throw new Error("identity_merge_session_version_unavailable");
+        assertFresh();
+        departurePreservationStarted = true;
+        await preserveKakaoGroupDeparturesForMerge(env, primaryId, secondaryId, assertFresh);
+        assertFresh();
+        let result;
+        try {
+          mergeRpcStarted = true;
+          result = await supabase(env, "/rest/v1/rpc/accountbook_merge_users_v227", {
+            method: "POST", headers: { Prefer: "return=representation" },
+            body: JSON.stringify({ p_primary_user_id: primaryId, p_secondary_user_id: secondaryId }),
+          });
+        } catch (err) {
+          if (isDefiniteStorageFailure(err)) throw err;
+          assertFresh();
+          env.__AB_REQUEST_USER_ROWS?.delete(secondaryId);
+          const [mergedUser, redirect] = await Promise.all([fetchUserById(env, secondaryId), getSettingValueStrict(env, identityMergeRedirectSettingsKey(secondaryId))]);
+          if (!String(mergedUser?.kakao_user_key || "").startsWith("merged:") || parseIdentityMergeRedirectValue(redirect, secondaryId) !== primaryId) throw err;
+          result = { merged: true, recovered: true };
+        }
+        const merged = Array.isArray(result) ? result[0] : result;
+        if (!merged?.merged) throw new Error("identity_merge_not_confirmed");
+        env.__AB_REQUEST_USER_ROWS?.delete(primaryId);
+        env.__AB_REQUEST_USER_ROWS?.delete(secondaryId);
+        try {
+          assertFresh();
+          await markKakaoChatFirstHistoryBatch(env, [primaryId, secondaryId]);
+        } catch (historyErr) {
+          rememberOpsEvent({ kind: "identity_merge_history_pending", severity: "warn", path, method: "POST", detail: safeError(historyErr) });
+        }
+        if (secondarySessionVersion > 0) {
+          // 합치기 RPC 가 보조 계정의 세션 판 행을 지웠다. 옛 판보다 큰 판으로 다시 적어 옛 쿠키가 통합 복구로 주 계정 세션이 되지 않게 한다.
+          try {
+            await supabase(env, "/rest/v1/accountbook_user_security?on_conflict=user_id", {
+              method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+              body: JSON.stringify({ user_id: secondaryId, session_version: secondarySessionVersion + 1 }),
+            });
+          } catch (revokeErr) {
+            rememberOpsEvent({ kind: "identity_merge_session_revoke_pending", severity: "warn", path, method: "POST", detail: safeError(revokeErr) });
+          }
+        }
+        return merged;
+      };
+      if (!householdId) return merge(lifecycleFresh);
+      return withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => merge(() => { lifecycleFresh(); householdFresh(); }));
+    });
+  } catch (err) {
+    const failure = err instanceof Error ? err : new Error(safeError(err));
+    failure.mergeRpcStarted = mergeRpcStarted;
+    failure.departurePreservationStarted = departurePreservationStarted;
+    throw failure;
+  }
+  if (!summary) return null;
+
+  rewireEffectiveUserCache(secondaryId, primaryId);
+  // V22.9.91: 뒤처리는 모두 실패해도 합치기를 되돌리지 않는다. 한 요청의 DB 호출 한도(50회) 안에서 부르는 쪽의 뒤처리(afterMerge)부터
+  // 하고 링크 표 → 방 연결 → 가계부별 표시 별명 순서로 한다. 잠금을 잡고 못 풀면 90초 남으므로, 남은 호출이 모자라면 시작하지 않고
+  // 운영 이벤트(…_deferred)로 남긴다. 남겨도 로그인·기록은 통합 리다이렉트로 주 계정을 찾는다.
+  const dbRoom = (calls) => {
+    const budget = env.__AB_DB_BUDGET;
+    return !budget || Number(budget.used || 0) + calls <= Number(budget.limit || 50);
+  };
+  if (typeof options.afterMerge === "function") {
+    try {
+      await options.afterMerge({ primaryId, secondaryId });
+    } catch (err) {
+      rememberOpsEvent({ kind: "identity_merge_after_failed", severity: "warn", path, method: "POST", detail: safeError(err) });
+    }
+  }
+  // 링크 표: 잠금·읽기·쓰기·풀기 4회.
+  try {
+    if (!dbRoom(4)) throw Object.assign(new Error("legacy identity cleanup pending: no database budget"), { deferred: true });
+    await withGlobalIdentitySettingsRmw(env, async ({ assertFresh }) => {
+      const links = await fetchUserIdentityLinks(env);
+      for (const [key, value] of Object.entries(safeObject(links))) {
+        if (String(safeObject(value).user_id || "") === secondaryId) links[key] = { ...safeObject(value), user_id: primaryId, merged_at: new Date().toISOString() };
+      }
+      if (secondary?.kakao_user_key) links[`skill_identity:${secondary.kakao_user_key}`] = { user_id: primaryId, provider: "identity_merge", linked_at: new Date().toISOString() };
+      if (primary?.kakao_user_key) links[`skill_identity:${primary.kakao_user_key}`] = { user_id: primaryId, provider: "identity_merge", linked_at: new Date().toISOString() };
+      // V22.9.91: 웹 카카오 로그인으로 만든 계정의 사용자 키(kakao_login:<카카오 id>)도 링크 표에서 주 계정을 가리키게 한다. 합치기 RPC 가
+      // 보조 계정의 키를 merged: 로 바꾸므로, 강한 식별이 없는 옛 가입자는 다음 웹 로그인에 주인을 못 찾아 빈 새 계정이 생길 수 있었다.
+      for (const row of [secondary, primary]) {
+        const key = String(row?.kakao_user_key || "");
+        if (key.startsWith("kakao_login:")) links[key] = { ...safeObject(links[key]), user_id: primaryId, provider: safeObject(links[key]).provider || "identity_merge", linked_at: safeObject(links[key]).linked_at || new Date().toISOString() };
+      }
+      assertFresh();
+      await saveUserIdentityLinks(env, links);
+    });
+  } catch (err) {
+    rememberOpsEvent({ kind: err?.deferred ? "identity_legacy_link_cleanup_deferred" : "identity_legacy_link_cleanup_failed", severity: "warn", path, method: "POST", detail: err?.deferred ? err.message : "legacy identity cleanup pending" });
+  }
+  // 방 연결: 연결 읽기 1회 + 옛 통합 맵 4회가 남아야 시작한다. 방마다 4회는 reassignKakaoGroupLinkOwner 가 hasRoom 으로 본다.
+  if (!dbRoom(5)) {
+    rememberOpsEvent({ kind: "identity_group_link_cleanup_deferred", severity: "warn", path, method: "POST", detail: "group link cleanup pending: not checked" });
+  } else {
+    try {
+      // V22.9.34 감사 S2: 방 연결은 linked_by 만 바꾼다. 예전에는 관대하게 읽은 합친 맵으로 옛 통합 맵 전체를
+      // 다시 써서, 옛 맵 읽기가 실패하면 옛 맵에만 있던 방 연결이 사라지고 그 방의 다음 기록이 새 가계부로 갔다.
+      const rooms = await reassignKakaoGroupLinkOwner(env, secondaryId, primaryId, { hasRoom: dbRoom });
+      if (rooms.pending || rooms.legacyPending) rememberOpsEvent({ kind: "identity_group_link_cleanup_deferred", severity: "warn", path, method: "POST", detail: `group link cleanup pending: ${rooms.pending} room(s)${rooms.legacyPending ? " + legacy map" : ""}` });
+    } catch (err) {
+      rememberOpsEvent({ kind: "identity_group_link_cleanup_failed", severity: "warn", path, method: "POST", detail: "group link cleanup pending" });
+    }
+  }
+  // V22.9.91: 보조 계정의 표시 별명이 있는 가계부만 잠그고 고친다. 별명 표를 한 번에 읽어 보고, 읽지 못하면 예전처럼 모든 가계부를 본다.
+  // 가계부마다 잠금·확인·읽기·쓰기·풀기로 4~5회씩 들어 가계부가 많은 사람은 한 요청의 한도를 넘겼다. 남은 호출이 모자라면 멈추고 남긴다.
+  if (aliasHouseholdIds.length && dbRoom(6)) {
+    try {
+      const rows = await supabase(env, `/rest/v1/accountbook_settings?key=in.(${aliasHouseholdIds.map((hid) => encodeURIComponent(memberAliasSettingsKey(hid))).join(",")})&select=key,value`, { method: "GET" });
+      if (Array.isArray(rows)) {
+        const keys = new Set(rows.filter((row) => {
+          try { return Object.prototype.hasOwnProperty.call(safeObject(JSON.parse(String(row?.value || "{}"))), secondaryId); } catch (_) { return true; }
+        }).map((row) => String(row?.key || "")));
+        aliasHouseholdIds = aliasHouseholdIds.filter((hid) => keys.has(memberAliasSettingsKey(hid)));
+      }
+    } catch (_) {
+      // 읽지 못하면 모든 가계부를 잠그고 다시 읽는다(아래).
+    }
+  }
+  let aliasHouseholdsDone = 0;
+  // 병합 RPC 뒤 최신 별칭을 가계부별로 다시 읽는다. 잠금은 한 번에 하나만 잡아
+  // 여러 가계부의 설정 잠금 순서가 교차하지 않게 한다.
+  for (const hid of aliasHouseholdIds) {
+    if (!dbRoom(5)) {
+      rememberOpsEvent({ kind: "identity_alias_cleanup_deferred", severity: "warn", path, method: "POST", detail: `alias cleanup pending: ${aliasHouseholdIds.length - aliasHouseholdsDone} household(s)` });
+      break;
+    }
+    aliasHouseholdsDone += 1;
+    try {
+      await withHouseholdSettingsRmw(env, hid, async ({ assertFresh }) => {
+        const aliases = await fetchMemberAliasMap(env, hid, { strict: true });
+        let changed = false;
+        if (!aliases[primaryId] && aliases[secondaryId]) { aliases[primaryId] = aliases[secondaryId]; changed = true; }
+        if (Object.prototype.hasOwnProperty.call(aliases, secondaryId)) { delete aliases[secondaryId]; changed = true; }
+        if (!changed) return false;
+        assertFresh();
+        await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ key: memberAliasSettingsKey(hid), value: JSON.stringify(aliases) }) });
+        return true;
+      }, { missingHousehold: "noop", missingResult: false });
+    } catch (err) {
+      rememberOpsEvent({ kind: "identity_alias_cleanup_failed", severity: "warn", path, method: "POST", detail: "alias cleanup pending" });
+    }
+  }
+  return { summary, primaryId, secondaryId };
 }
 
 async function handleIdentityMerge(request, env) {
@@ -50724,98 +51591,16 @@ async function handleIdentityMerge(request, env) {
   const [primary, secondary] = await Promise.all([fetchUserById(env, primaryId), fetchUserById(env, secondaryId)]);
   if (!primary || !secondary) return redirectResponse(`${base}&err=${encodeURIComponent("사용자 계정을 찾지 못했습니다.")}`);
 
-  let aliasHouseholdIds = [];
-  let mergeRpcStarted = false;
-  let departurePreservationStarted = false;
   try {
-    await withKakaoUserLifecycleLease(env, [primaryId, secondaryId], async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
-      const assertFresh = () => { lifecycleFresh(); householdFresh(); };
-      if (!(await kakaoClaimUserUnmerged(env, primaryId)) || !(await kakaoClaimUserUnmerged(env, secondaryId))) throw new Error("identity_merge_scope_changed");
-      const [secondaryMemberships, selectedMembers] = await Promise.all([
-        supabase(env, `/rest/v1/household_members?user_id=eq.${encodeURIComponent(secondaryId)}&select=household_id,user_id,role,created_at`, { method: "GET" }),
-        fetchRawHouseholdMembers(env, householdId),
-      ]);
-      if (!selectedMembers.some((m) => String(m.user_id) === primaryId) || !selectedMembers.some((m) => String(m.user_id) === secondaryId)) throw new Error("identity_merge_scope_changed");
-      aliasHouseholdIds = [...new Set(secondaryMemberships.map((item) => String(item.household_id || "").trim()).filter(Boolean))];
-      assertFresh();
-      departurePreservationStarted = true;
-      await preserveKakaoGroupDeparturesForMerge(env, primaryId, secondaryId, assertFresh);
-      assertFresh();
-      let result;
-      try {
-        mergeRpcStarted = true;
-        result = await supabase(env, "/rest/v1/rpc/accountbook_merge_users_v227", {
-          method: "POST", headers: { Prefer: "return=representation" },
-          body: JSON.stringify({ p_primary_user_id: primaryId, p_secondary_user_id: secondaryId }),
-        });
-      } catch (err) {
-        if (isDefiniteStorageFailure(err)) throw err;
-        assertFresh();
-        const [mergedUser, redirect] = await Promise.all([fetchUserById(env, secondaryId), getSettingValueStrict(env, identityMergeRedirectSettingsKey(secondaryId))]);
-        if (!String(mergedUser?.kakao_user_key || "").startsWith("merged:") || parseIdentityMergeRedirectValue(redirect, secondaryId) !== primaryId) throw err;
-        result = { merged: true, recovered: true };
-      }
-      const summary = Array.isArray(result) ? result[0] : result;
-      if (!summary?.merged) throw new Error("identity_merge_not_confirmed");
-      try {
-        assertFresh();
-        await markKakaoChatFirstHistory(env, primaryId);
-        assertFresh();
-        await markKakaoChatFirstHistory(env, secondaryId);
-      } catch (historyErr) {
-        rememberOpsEvent({ kind: "identity_merge_history_pending", severity: "warn", path: "/admin/identity/merge", method: "POST", detail: safeError(historyErr) });
-      }
-      return summary;
-    }));
+    await performIdentityMerge(env, { primaryId, secondaryId, householdId, path: "/admin/identity/merge" });
   } catch (err) {
     rememberOpsEvent({ kind: "identity_atomic_merge_failed", severity: "error", path: "/admin/identity/merge", method: "POST", detail: safeError(err) });
     const message = /identity_merge_scope_changed/.test(safeError(err)) ? "선택한 두 계정이 모두 이 가계부의 참여자인지 다시 확인하세요."
-      : (!mergeRpcStarted || isDefiniteStorageFailure(err) || /identity_merge_not_confirmed/.test(safeError(err))) ? (departurePreservationStarted
+      : (!err?.mergeRpcStarted || isDefiniteStorageFailure(err) || /identity_merge_not_confirmed/.test(safeError(err))) ? (err?.departurePreservationStarted
         ? "계정 통합을 완료하지 못했습니다. 기존 계정과 거래는 변경하지 않았습니다. 나가기 이력을 먼저 보존했을 수 있어 자동 참여가 제한될 수 있습니다."
         : "계정 통합을 완료하지 못했습니다. 기존 계정과 거래는 변경하지 않았습니다.")
       : "계정 통합 결과를 확인하지 못했습니다. 같은 요청을 다시 제출하지 말고 통합 목록에서 현재 상태를 확인하세요.";
     return redirectResponse(`${base}&err=${encodeURIComponent(message)}`);
-  }
-
-  rewireEffectiveUserCache(secondaryId, primaryId);
-  // 병합 RPC 뒤 최신 별칭을 가계부별로 다시 읽는다. 잠금은 한 번에 하나만 잡아
-  // 여러 가계부의 설정 잠금 순서가 교차하지 않게 한다.
-  for (const hid of aliasHouseholdIds) {
-    try {
-      await withHouseholdSettingsRmw(env, hid, async ({ assertFresh }) => {
-        const aliases = await fetchMemberAliasMap(env, hid, { strict: true });
-        let changed = false;
-        if (!aliases[primaryId] && aliases[secondaryId]) { aliases[primaryId] = aliases[secondaryId]; changed = true; }
-        if (Object.prototype.hasOwnProperty.call(aliases, secondaryId)) { delete aliases[secondaryId]; changed = true; }
-        if (!changed) return false;
-        assertFresh();
-        await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", { method: "POST", headers: { Prefer: "resolution=merge-duplicates,return=minimal" }, body: JSON.stringify({ key: memberAliasSettingsKey(hid), value: JSON.stringify(aliases) }) });
-        return true;
-      }, { missingHousehold: "noop", missingResult: false });
-    } catch (err) {
-      rememberOpsEvent({ kind: "identity_alias_cleanup_failed", severity: "warn", path: "/admin/identity/merge", method: "POST", detail: "alias cleanup pending" });
-    }
-  }
-  try {
-    await withGlobalIdentitySettingsRmw(env, async ({ assertFresh }) => {
-      const links = await fetchUserIdentityLinks(env);
-      for (const [key, value] of Object.entries(safeObject(links))) {
-        if (String(safeObject(value).user_id || "") === secondaryId) links[key] = { ...safeObject(value), user_id: primaryId, merged_at: new Date().toISOString() };
-      }
-      if (secondary.kakao_user_key) links[`skill_identity:${secondary.kakao_user_key}`] = { user_id: primaryId, provider: "identity_merge", linked_at: new Date().toISOString() };
-      if (primary.kakao_user_key) links[`skill_identity:${primary.kakao_user_key}`] = { user_id: primaryId, provider: "identity_merge", linked_at: new Date().toISOString() };
-      assertFresh();
-      await saveUserIdentityLinks(env, links);
-    });
-  } catch (err) {
-    rememberOpsEvent({ kind: "identity_legacy_link_cleanup_failed", severity: "warn", path: "/admin/identity/merge", method: "POST", detail: "legacy identity cleanup pending" });
-  }
-  try {
-    // V22.9.34 감사 S2: 방 연결은 linked_by 만 바꾼다. 예전에는 관대하게 읽은 합친 맵으로 옛 통합 맵 전체를
-    // 다시 써서, 옛 맵 읽기가 실패하면 옛 맵에만 있던 방 연결이 사라지고 그 방의 다음 기록이 새 가계부로 갔다.
-    await reassignKakaoGroupLinkOwner(env, secondaryId, primaryId);
-  } catch (err) {
-    rememberOpsEvent({ kind: "identity_group_link_cleanup_failed", severity: "warn", path: "/admin/identity/merge", method: "POST", detail: "group link cleanup pending" });
   }
   return redirectResponse(`${base}&msg=${encodeURIComponent("계정 통합이 완료됐습니다. 거래와 참여 권한은 한 번에 이동됐습니다.")}`);
 }
@@ -50930,7 +51715,9 @@ const AB_KAKAO_LOGIN_CONFLICT_TRACED = globalThis.__AB_KAKAO_LOGIN_CONFLICT_TRAC
 
 // 운영 이벤트(ops-telemetry)에 남긴다. 받은 말·카카오 id 는 넣지 않고, 사용자 id 는 앞 8자만 적는다(전체 id 는 이벤트에서 가려진다).
 // 같은 두 계정은 isolate 마다 10분에 한 번만 적는다.
-function traceKakaoLoginAliasConflict(chatUid = "", ownerUid = "", source = "") {
+// V22.9.91 계정 잇기: 같은 충돌을 남길 때 그 둘을 ‘잇기 제안’으로도 요청 안에 모아 둔다. 답 처리가 끝난 뒤 skill-handler.js 가
+// DB 호출 여유가 있을 때 쓴다(auth/kakao-account-link.js). 카카오 로그인 id 는 제안 표에 해시로만 남고 운영 이벤트에는 쓰지 않는다.
+function traceKakaoLoginAliasConflict(env, chatUid = "", ownerUid = "", source = "", kakaoId = "") {
   const key = `${chatUid}|${ownerUid}`;
   const now = Date.now();
   if (now - Number(AB_KAKAO_LOGIN_CONFLICT_TRACED.get(key) || 0) < 10 * 60 * 1000) return;
@@ -50940,6 +51727,7 @@ function traceKakaoLoginAliasConflict(chatUid = "", ownerUid = "", source = "") 
     kind: "kakao_login_alias_conflict", severity: "warn", path: "/skill", method: "POST", label: "채팅 계정과 카카오 로그인 계정이 다름",
     detail: `자동 병합 안 함·지금 연결 유지 · 채팅 ${String(chatUid).slice(0, 8)} · 카카오 로그인 ${String(ownerUid).slice(0, 8)} · 근거 ${source || "-"}`,
   });
+  queueKakaoAccountLinkOffer(env, { chatUserId: chatUid, loginUserId: ownerUid, kakaoId });
 }
 
 // V22.9.77 감사 B-7: kakao_login:<appUserId> 별칭의 주인이 이 사용자가 아닌 다른 계정인지 본다(링크 표에 있으면 그 사람,
@@ -50957,8 +51745,12 @@ async function foreignKakaoLoginOwner(env, alias = "", canonicalUid = "", links 
     ownerUid = String(owner?.user?.id || "").trim();
     source = owner?.source || "";
   }
-  if (!ownerUid || ownerUid === canonicalUid || await resolveEffectiveUserId(env, ownerUid) === canonicalUid) return null;
-  return { ownerUid, source, explicit: !!linkedUid };
+  if (!ownerUid || ownerUid === canonicalUid) return null;
+  // V22.9.91 독립 검토: 주인이 통합된 계정이면 주 계정을 주인으로 본다. 잇기 제안이 통합된 계정에 묶이면 확인 화면이 곧바로
+  // ‘지난 제안’으로 지우고 다음 대화가 다시 남기기를 되풀이했고, 정작 주 계정에는 제안이 가지 않았다.
+  const effectiveOwnerUid = await resolveEffectiveUserId(env, ownerUid) || ownerUid;
+  if (effectiveOwnerUid === canonicalUid) return null;
+  return { ownerUid: effectiveOwnerUid, source, explicit: !!linkedUid };
 }
 
 function identityAliasPersistenceError(error) {
@@ -50994,7 +51786,7 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
       if (!kakaoLoginIdFromAlias(alias) || kakaoLoginChecked.has(alias)) { kept.push(alias); continue; }
       const foreign = await foreignKakaoLoginOwner(env, alias, canonicalUid, links);
       if (foreign && (keepCurrentOnConflict || !foreign.explicit)) {
-        if (keepCurrentOnConflict) traceKakaoLoginAliasConflict(canonicalUid, foreign.ownerUid, foreign.source);
+        if (keepCurrentOnConflict) traceKakaoLoginAliasConflict(env, canonicalUid, foreign.ownerUid, foreign.source, kakaoLoginIdFromAlias(alias));
         // 이 요청 안에서는 다시 확인하지 않는다(별칭은 쓰지 않았고, 채팅은 지금 계정으로 계속한다).
         if (env.__AB_IDENTITY_CONFIRMED) env.__AB_IDENTITY_CONFIRMED.set(alias, requestedUid);
         continue;
@@ -51040,7 +51832,7 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
             ? await foreignKakaoLoginOwner(env, key, canonicalUid, links) : null;
           if (foreign) {
             if (!keepCurrentOnConflict && foreign.explicit) throw new Error("identity_alias_conflict");
-            if (keepCurrentOnConflict) traceKakaoLoginAliasConflict(canonicalUid, foreign.ownerUid, foreign.source);
+            if (keepCurrentOnConflict) traceKakaoLoginAliasConflict(env, canonicalUid, foreign.ownerUid, foreign.source, kakaoLoginIdFromAlias(key));
             continue;
           }
           if (existingUid) {

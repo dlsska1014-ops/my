@@ -210,12 +210,12 @@ async function handleMyLocalSignup(request, env) {
   });
 }
 
-function kakaoLoginStatusBlock(env) {
+function kakaoLoginStatusBlock(env, returnTo = "") {
   const config = inspectKakaoLoginConfig(env);
   if (config.ready) {
     // V22.9.87 T-20: 카카오 로그인 버튼(§3-4: #FEE500 면, 검은 말풍선 심볼, 라벨 ‘카카오 로그인’). 시작 화면에서 첫 화면의 유일한 채운 버튼이다.
     // 예전 ‘가장 간편한 방법’ 안내 상자와 ‘다른 방법으로 접속’ 구분선은 없앴다. 로그인 이름 칸은 바로 아래 접힌 칸(로그인 이름으로 로그인)이다.
-    return kakaoLoginButtonHtml();
+    return kakaoLoginButtonHtml(returnTo);
   }
   if (!config.enabled) {
     return `<div class="warn"><b>카카오 로그인을 잠시 사용할 수 없어요</b><br/>기존 로그인 이름과 내 계정 로그인 비밀번호로 접속할 수 있습니다.</div><div class="mobileAccessHelp"><b>PC에서는 이미 사용 중인가요?</b><br/>PC의 전체 메뉴 → 내 계정·보안에서 한 번 설정한 뒤, 모바일에서 같은 로그인 이름과 비밀번호를 입력하세요.</div>`;
