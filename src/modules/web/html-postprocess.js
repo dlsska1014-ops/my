@@ -1,8 +1,8 @@
 // @build:imports-start
 import { renderBusinessInfoFooter } from "../public/site-config.js";
 import {
-  explicitDateIntent, moneyTokenSpans, parseMobileAmountText, quickAmountFieldState, quickInputDate,
-  transactionTypeFromText,
+  explicitDateIntent, moneyTokenSpans, parseMobileAmountText, quickAmountCount,
+  quickAmountFieldState, quickInputDate, transactionTypeFromText,
 } from "../client/shared-input-parsers.js";
 import {
   cleanInputMemo, detectInputPayment, foldInputWidth, inferInputCategory, inputPaymentNameIn,
@@ -489,7 +489,7 @@ function attachUiUxRuntime(html = "", options = {}) {
   if (!optimizedMobileHome && needsRuntime && !source.includes('id="v2262UiUxRuntime"') && source.includes("</body>")) {
     const needsSmartRuntime = source.includes('id="smartInput"') && !source.includes('id="mobileAppInlineRuntime"');
     const runtime = needsSmartRuntime
-      ? quickAmountFieldState.toString() + "\n" + moneyTokenSpans.toString() + "\n" + transactionTypeFromText.toString() + "\n" + quickInputDate.toString() + "\n" + explicitDateIntent.toString() + "\n" + parseMobileAmountText.toString() + "\n" + foldInputWidth.toString() + "\n" + joinSpacedKoreanAmount.toString() + "\n" + normalizeInputText.toString() + "\n" + inputPaymentPatterns.toString() + "\n" + detectInputPayment.toString() + "\n" + inputPaymentNameIn.toString() + "\n" + inferInputCategory.toString() + "\n" + cleanInputMemo.toString() + "\n(" + mobileUiUxClientMain.toString() + ")();"
+      ? quickAmountFieldState.toString() + "\n" + moneyTokenSpans.toString() + "\n" + quickAmountCount.toString() + "\n" + transactionTypeFromText.toString() + "\n" + quickInputDate.toString() + "\n" + explicitDateIntent.toString() + "\n" + parseMobileAmountText.toString() + "\n" + foldInputWidth.toString() + "\n" + joinSpacedKoreanAmount.toString() + "\n" + normalizeInputText.toString() + "\n" + inputPaymentPatterns.toString() + "\n" + detectInputPayment.toString() + "\n" + inputPaymentNameIn.toString() + "\n" + inferInputCategory.toString() + "\n" + cleanInputMemo.toString() + "\n(" + mobileUiUxClientMain.toString() + ")();"
       : "(" + mobileShellUiClientMain.toString() + ")();";
     // 분류 규칙은 이 런타임보다 먼저 있어야 한다. 평범한 <script src> 는 순서대로
     // 실행되므로 이 한 줄이면 충분하다(defer·async 를 붙이면 순서가 깨진다).

@@ -236,7 +236,7 @@ async function handleUnifiedMenuPage(request, env, url) {
     ]],
     ["분석", "소비 흐름과 리포트", [
       ["생활비 리포트", `/reports?${monthQs}`, "주간·월간 소비 요약", "file"],
-      ["연간 리포트", `/annual?year=${encodeURIComponent(month.slice(0, 4))}${hh}`, "한 해 수입·지출 흐름", "report"],
+      ["연간 리포트", `/annual?month=${encodeURIComponent(month)}${hh}`, "한 해 수입·지출 흐름", "report"],
       ["스마트 도구", `/smart-tools?${monthQs}`, "예측·반복·이상 지출", "sparkle"],
     ]],
     ["예산·자산", "정기 항목과 목표, 보유 현황", [

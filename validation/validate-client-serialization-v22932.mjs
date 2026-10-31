@@ -28,6 +28,7 @@ const PAGE_GLOBALS = [
   { client: "mobileUiUxClientMain", name: "quickAmountFieldState", providers: ["attachUiUxRuntime"] },
   { client: "quickSmartInputController", name: "moneyTokenSpans", providers: ["attachUiUxRuntime", "mobileHomeJsAsset"] },
   { client: "quickSmartInputController", name: "explicitDateIntent", providers: ["attachUiUxRuntime", "mobileHomeJsAsset"] },
+  { client: "quickSmartInputController", name: "quickAmountCount", providers: ["attachUiUxRuntime", "mobileHomeJsAsset"] },
   // V22.9.79: 빠른 입력은 카카오와 같은 순서(전각 숫자 변환 → 거래 문장 다듬기)로 문장을 읽는다. 두 함수는 client/shared-input-nlu.js 의 공유 해석 함수다.
   { client: "quickSmartInputController", name: "foldInputWidth", providers: ["attachUiUxRuntime", "mobileHomeJsAsset"] },
   { client: "quickSmartInputController", name: "normalizeInputText", providers: ["attachUiUxRuntime", "mobileHomeJsAsset"] },

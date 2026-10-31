@@ -1,5 +1,6 @@
 // @build:imports-start
 import { moneyTokenSpans } from "../client/shared-input-parsers.js";
+import { foldInputWidth } from "../client/shared-input-nlu.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { fetchCustomCategories } from "../settings/categories-keywords.js";
 import { kakaoReserveAlert } from "../settings/reserve-plans.js";
@@ -417,7 +418,8 @@ function parseBudgetMonthHint(text = "") {
 }
 
 function parseDirectBudgetSetCommand(text = "") {
-  const t = normalizeText(text);
+  // V22.9.93 Q-2: ‘식비 예산 300.000원’이 300원이 됐다. 거래 입구와 같은 접기를 지난다.
+  const t = normalizeText(foldInputWidth(text));
   const span = moneyTokenSpans(t)[0];
   if (span && /(?:^|\s)예산(?=\s|$)/.test(t)) {
     const withoutAmount = (t.slice(0,span.start) + " " + t.slice(span.end)).replace(/^(?:이번\s*달|다음\s*달|지지난\s*달|저저번\s*달|지난\s*달|저번\s*달|(?:20\d{2}년\s*)?\d{1,2}월)\s*/, "").replace(/(?:^|\s)(?:예산|설정|저장|등록|변경|수정)(?=\s|$)/g," ").replace(/\s+/g," ").trim();

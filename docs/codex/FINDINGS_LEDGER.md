@@ -7,9 +7,10 @@
 - 감사 문서의 모든 항목이 이 표에 한 번씩 있다. 새 감사 문서를 쓰면 검사의 `SOURCES` 에 한 줄을 더하고 항목을 모두 옮긴다.
 - 상태는 고침 · 일부 고침 · 남음 · 결정 필요 · 확인 불가 · 결함 아님. ‘고침’이 아니면 메모에 남은 것·이유·다음 행동(결함 아님은 근거)을 적는다.
 - V22.9.76 부터 고친 코드 결함은 ‘검사’ 칸에 하네스에 등록된 `validation/*.mjs` 를 적는다. 문서만 고친 항목은 메모에 ‘문서’라고 적는다.
-- ID 앞머리: V44 = `docs/codex/AUDIT_FINDINGS_V22_9_44.md`(2026-10-14), V76 = `docs/codex/PRELAUNCH_AUDIT_V22_9_76.md`(2026-10-21), V77 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_77.md`(2026-10-22, V22.9.77 을 고치며 새로 찾은 항목), V78 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_78.md`(2026-10-25, V22.9.78 을 고치며 새로 찾은 항목), V79 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_79.md`(2026-10-25, V22.9.79 를 고치며 새로 찾은 항목), V80 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_80.md`(2026-10-26, V22.9.80 을 고치며 새로 찾은 항목), V81 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_81.md`(2026-10-27, V22.9.81 을 고치며 새로 찾은 항목), V85 = `docs/codex/DESIGN_FINDINGS_V22_9_85.md`(2026-10-28, V22.9.83·84 코드 검토·디자인 적합성 점검·화면 감사), V86 = `docs/codex/DESIGN_FINDINGS_V22_9_86.md`(2026-10-28, 디자인 보강 3단계를 만들며 새로 찾은 항목), V87 = `docs/codex/DESIGN_FINDINGS_V22_9_87.md`(2026-10-29, 디자인 보강 4단계를 만들며 새로 찾은 항목), V88 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_88.md`(2026-10-29, V22.9.81~87 운영 반영 뒤 Codex 검토), V89 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_89.md`(2026-10-29, V22.9.88 운영 뒤 Codex Astra 리포트·디자인 작업 지시서 V2 6단계), V90 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_90.md`(2026-10-30, V22.9.88 운영 뒤 사용자 직접 확인·관리자 화면 확인), V91 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_91.md`(2026-10-30, V22.9.90 운영 뒤 계정 잇기 요청·만들며 찾은 관리자 통합 결함).
+- ID 앞머리: V44 = `docs/codex/AUDIT_FINDINGS_V22_9_44.md`(2026-10-14), V76 = `docs/codex/PRELAUNCH_AUDIT_V22_9_76.md`(2026-10-21), V77 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_77.md`(2026-10-22, V22.9.77 을 고치며 새로 찾은 항목), V78 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_78.md`(2026-10-25, V22.9.78 을 고치며 새로 찾은 항목), V79 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_79.md`(2026-10-25, V22.9.79 를 고치며 새로 찾은 항목), V80 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_80.md`(2026-10-26, V22.9.80 을 고치며 새로 찾은 항목), V81 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_81.md`(2026-10-27, V22.9.81 을 고치며 새로 찾은 항목), V85 = `docs/codex/DESIGN_FINDINGS_V22_9_85.md`(2026-10-28, V22.9.83·84 코드 검토·디자인 적합성 점검·화면 감사), V86 = `docs/codex/DESIGN_FINDINGS_V22_9_86.md`(2026-10-28, 디자인 보강 3단계를 만들며 새로 찾은 항목), V87 = `docs/codex/DESIGN_FINDINGS_V22_9_87.md`(2026-10-29, 디자인 보강 4단계를 만들며 새로 찾은 항목), V88 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_88.md`(2026-10-29, V22.9.81~87 운영 반영 뒤 Codex 검토), V89 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_89.md`(2026-10-29, V22.9.88 운영 뒤 Codex Astra 리포트·디자인 작업 지시서 V2 6단계), V90 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_90.md`(2026-10-30, V22.9.88 운영 뒤 사용자 직접 확인·관리자 화면 확인), V91 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_91.md`(2026-10-30, V22.9.90 운영 뒤 계정 잇기 요청·만들며 찾은 관리자 통합 결함). V93 = `docs/codex/FOLLOWUP_FINDINGS_V22_9_93.md`(2026-10-31, 출시 전 입력 시험·전체 기능 검수).
 
-현재(2026-10-30, V22.9.90 운영 · V22.9.91 PR): 전체 329건 — 고침 292, 일부 고침 11, 남음 21, 결정 필요 0, 확인 불가 3, 결함 아님 2.
+현재(2026-10-31, V22.9.92 운영 · V22.9.93 PR): 전체 380건 — 고침 347, 일부 고침 11, 남음 17, 결정 필요 0, 확인 불가 3, 결함 아님 2.
+(V22.9.93 에서 출시 전 입력 시험과 전체 기능 검수로 찾은 V93:Q 행을 더했고, 같은 판에서 옛 항목 V81:X-12·X-13·X-17·X-27 을 닫았다.)
 (V22.9.91 에서 계정 잇기 요청 V91:L-1 과 그것을 만들며 찾은 관리자 통합 결함 L-2 를 더했다. L-1 은 앱 쪽을 고쳤고 카카오 콘솔 연결(사용자 승인)이 남아 ‘일부 고침’, L-2 는 고쳤다.)
 (V22.9.90 에서 사용자 직접 확인 피드백 V90:F-1(웹 삭제 즉시·되돌리기 5초)·F-2(한 줄 입력 한글 조합)와 관리자 화면 확인에서 찾은 F-3(관제 카카오 기능 이름)을 더했고 모두 고쳤다. V88:Y-2 는 2026-10-30 운영 DB 함수 적용과 사람 확인으로 ‘고침’이 됐다.)
 (V22.9.89 에서 Codex Astra 리포트의 계산 항목 V89:Z-1~Z-7 과 그것을 고치며 찾은 Z-8(월말 예상 바닥)·Z-9(직접 적은 기록이 없는 기간의 비교)를 더했고 모두 고쳤다. Z-8 은 2026-10-30 10:55 사용자가 승인했다.)
@@ -285,12 +286,12 @@ V22.9.81 의 U-26(연결 끝까지 읽기)·U-27(완료 달 표식)은 꺼진 �
 | V81:X-9 | P3 | 메모에 ‘모레’·‘지금’·‘방금’·8자리 날짜가 남음 | 고침 | V22.9.81 | validation/validate-nlu-v22981.mjs | 낱말 경계에서만 지운다(‘아모레’·‘지금껏’·‘주문번호 20123456’ 그대로) |
 | V81:X-10 | P3 | ‘오십 오만 오천원’이 두 건으로 나뉨(세 낱말 사슬) | 고침 | V22.9.81 | validation/validate-nlu-v22981.mjs | joinSpacedKoreanAmount 가 세 낱말 사슬을 잇는다(555,000원). 네 낱말·억 사슬은 V81:X-25 |
 | V81:X-11 | P3 | 윤년 2월 29일 전에 보낸 ‘2월 29일 요약’이 지난해로 옮겨져 ‘없는 날짜’로 답함 | 고침 | V22.9.81 | validation/validate-nlu-v22981.mjs | 지난해로 옮기기는 지난해 달력에 그날이 있을 때만. 윤년 다음 해는 V81:X-26 |
-| V81:X-12 | P3 | 가계부 삭제 재인증이 느슨한 역할 읽기를 써서 읽기 실패 때 소유자가 ‘소유자만’ 안내를 봄 | 남음 | — | — | readHouseholdRoleOrFailure 로 바꾸고 실패는 ‘확인하지 못함’으로 안내한다 |
-| V81:X-13 | P3 | /budgets 안내가 formatMessage 결과를 한 번 더 이스케이프함(&quot; 가 보임) | 남음 | — | — | 이미 이스케이프된 값은 다시 이스케이프하지 않는다 |
+| V81:X-12 | P3 | 가계부 삭제 재인증이 느슨한 역할 읽기를 써서 읽기 실패 때 소유자가 ‘소유자만’ 안내를 봄 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 가계부 삭제 본인 확인의 시작·콜백이 readHouseholdRoleOrFailure 를 쓴다. 읽기 실패는 household_role_check_failed 로 안내하고 삭제 본인 확인 표를 주지 않는다 |
+| V81:X-13 | P3 | /budgets 안내가 formatMessage 결과를 한 번 더 이스케이프함(&quot; 가 보임) | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | formatMessageText(평문)를 더해 householdPageMessage 가 평문을 돌려준다. /budgets·/my/households·/my/members 의 안내가 한 번만 이스케이프된다 |
 | V81:X-14 | P3 | 부르는 곳 없는 함수·상수·CSS(ensurePendingMemberIfMissing·renderBudget*·ROLE_CHECK_FAILED_TEXT·bind 후보 하나 갈래·죽은 CSS) | 남음 | — | — | 정리. ensurePendingMemberIfMissing 은 되살리면 읽기 실패 때 pending 행을 넣으므로 지운다 |
 | V81:X-15 | P3 | 환불 연결 읽기 실패·상한 넘침이 카카오에서 이유 없는 일반 대체 답장으로 나감(플래그 꺼짐) | 남음 | — | — | 플래그를 켜기 전에 ‘확인하지 못함’ 답장으로 바꾼다 |
 | V81:X-16 | P3 | 환불 연결 쪽 읽기 사이에 연결이 바뀌면 하나가 빠지거나 겹칠 수 있음(1,000개 넘을 때, 플래그 꺼짐) | 남음 | — | — | id 순 커서 읽기나 한 번의 상한 읽기로 바꾸는 것을 플래그 켜기 전에 검토한다 |
-| V81:X-17 | P3 | settlement_history 의 null 항목이 정산 화면 500 을 냄(손으로 고친 행만) | 남음 | — | — | null·객체 아닌 항목을 건너뛴다 |
+| V81:X-17 | P3 | settlement_history 의 null 항목이 정산 화면 500 을 냄(손으로 고친 행만) | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 정산 표·완료 중복 확인·환급 미리보기가 null·객체 아닌 항목을 건너뛴다. 정산 저장 함수 지문을 다시 적었다 |
 | V81:X-18 | P3 | 관제 ‘최근 처리 실패 기록’ 회복이 telemetry_status ok 를 요구해 요청이 적으면 회복을 확정하지 못함 | 남음 | — | — | 왕복 확인 정상을 회복 근거로 함께 본다 |
 | V81:X-19 | P3 | 관제 표본 칸 INSERT OR IGNORE 때문에 같은 창의 동시 예약이 not_received 를 한 번 낼 수 있음 | 남음 | — | — | 경보는 3번 연속이라 영향 없음. 칸 키에 실행 id 를 넣는 것을 검토한다 |
 | V81:X-20 | P3 | validate-audit-hotfix-v22945 의 room@100ms 가 부하 때 거짓으로 실패함 | 남음 | — | — | 4초 예산 대비 여유를 넓히거나 시간 측정을 가짜 시계로 바꾼다 |
@@ -300,7 +301,7 @@ V22.9.81 의 U-26(연결 끝까지 읽기)·U-27(완료 달 표식)은 꺼진 �
 | V81:X-24 | P3 | ‘저저번달’을 요약은 읽지 못하고 예산·거래 날짜는 두 달 전으로 읽음 | 남음 | — | — | 하나로 맞출지 운영자 판단(요약 쪽은 검사 세 개가 고정) |
 | V81:X-25 | P3 | 네 낱말·억 사슬 금액(삼억 오십 오만 오천원)이 두 건으로 나뉨 | 남음 | — | — | 사슬 잇기를 일반화한 뒤 오탐 검토 |
 | V81:X-26 | P3 | 윤년 다음 해의 ‘2월 29일 요약’이 ‘없는 날짜’로 답함 | 남음 | — | — | 가장 가까운 지난 2월 29일로 볼지 정한다(처음 생길 수 있는 때 2029-01-01) |
-| V81:X-27 | P3 | ‘오늘의집’·‘내일배움카드’처럼 낱말 속 하루 말이 메모에서 지워짐 | 남음 | — | — | X-9 처럼 낱말 경계에서만 지운다 |
+| V81:X-27 | P3 | ‘오늘의집’·‘내일배움카드’처럼 낱말 속 하루 말이 메모에서 지워짐 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | cleanInputMemo 가 날짜 말을 낱말 경계에서만 지운다. ‘내일배움카드’ 는 끝의 ‘카드’ 가 결제수단으로 읽혀 메모가 ‘내일배움’ 이다(KNOWN-ISSUES) |
 | V81:X-28 | P3 | 20으로 시작하는 8자리 수(주문번호·송장)를 날짜로 읽음 | 남음 | — | — | 주문번호·송장 같은 앞말이 있으면 날짜로 보지 않는다 |
 | V81:X-29 | P3 | 대표 명령어 ‘기록하기’ 뒤에 이어 쓴 거래의 메모에 ‘기록하기’가 남음 | 고침 | V22.9.81 | validation/validate-nlu-v22981.mjs | 앞머리 ‘기록하기·입력하기’(쌍점 포함)도 ‘기록·입력’처럼 뗀다. 명령어만 보내면 예전처럼 기록 방법 안내 |
 | V85:R-1 | P2 | 셸 body 의 overflow-wrap:anywhere 가 표 칸·가로 배치의 금액을 쪼갬(119,03/2원) | 고침 | V22.9.85 | validation/validate-design-uplift-v22985.mjs | 셸 body 는 break-word. 공개 화면·로그인의 anywhere 는 그대로 |
@@ -354,3 +355,54 @@ V22.9.81 의 U-26(연결 끝까지 읽기)·U-27(완료 달 표식)은 꺼진 �
 | V90:F-3 | P3 | 관제 이용 현황 카카오 기능 순위 1위가 ‘알 수 없음’(기록 글·고치기 명령·가계부 만들기·초대코드 참여가 UNKNOWN) | 고침 | V22.9.90 | validation/validate-user-feedback-v22990.mjs | 메뉴 판별이 UNKNOWN 이면 처리기가 읽은 대로(TRANSACTION·EDIT) 센다. HOUSEHOLD_CREATE·HOUSEHOLD_JOIN 은 저장 이름으로 바꾼다. 관제 배포·SQL 없음. 배포된 달은 앞뒤 이름이 섞인다. 병합 전 독립 검토: 열린 수정 세션의 답도 EDIT |
 | V91:L-1 | P2 | 단톡방 기록 계정과 웹 카카오 로그인 계정이 따로 있어 카카오톡 ‘웹가계부’ 버튼이 로그인 화면을 열고, 로그인해도 단톡방 가계부가 안 보일 수 있음 | 일부 고침 | V22.9.91 | validation/validate-identity-link-v22991.mjs | 앱 쪽: 카카오톡 인앱 브라우저 자동 로그인(prompt=none, 비회원·오류면 로그인 화면, 하루 쉼·직접 로그아웃 뒤 30일 멈춤), Secret 이 확인된 방 요청의 appUserId 가 다른 웹 계정의 카카오 로그인이면 잇기 제안, 같은 카카오 계정으로 방금 로그인한 브라우저에서만 합치기(한쪽이 비면 바로, 둘 다 있으면 /my/account-link 확인 뒤, 두 계정에 같은 종류 로그인이 있으면 막음), 보조 계정 옛 세션 풀기, /identity-audit 연결 진단. 합치기는 스위치 KAKAO_ACCOUNT_LINK_ENABLED(기본 꺼짐) 뒤(병합 전 독립 검토). 남은 것: 콘솔에서 웹 로그인 앱 1489689 를 그룹 챗봇(운영·개발 채널)에 연결(사용자 승인 뒤) → 진단 칸에서 appUserId 도착·운영자 계정 제안 확인 → 스위치 켜기(사용자 승인 뒤) → 휴대폰 사람 확인 |
 | V91:L-2 | P3 | 관리자 계정 통합에서 보조 계정이 카카오 로그인을 users.kakao_user_key(kakao_login:)로만 가지면 통합 뒤 그 카카오 웹 로그인이 새 빈 계정을 만듦 | 고침 | V22.9.91 | validation/validate-identity-link-v22991.mjs | 통합 함수가 보조 계정 키를 merged: 로 바꿔 로그인 주인 찾기가 못 찾았다. 통합 뒤 링크 다시 쓰기(전역 잠금 안)에서 kakao_login:<회원번호> 링크를 주 계정으로 둔다. 강한 식별이 없는 옛 계정(또는 옮겨 적기 실패)만 해당 |
+| V93:Q-1 | P2 | 조사를 붙이거나 붙여 쓴 날짜 말을 날짜로 읽지 못해 오늘 날짜로 저장됨(‘어제는 커피’·‘그저께에 택시’·‘어제커피’·‘내일모레 회비’·‘25일에 월세’), ‘10월 3일에 커피’ 는 0건 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 거래 문장 입구 foldInputWidth 가 조사를 떼고 붙여 쓴 말을 띄운다. 웹·카카오·서버 공통 |
+| V93:Q-2 | P2 | 세 자리씩 점을 찍은 금액을 소수로 읽음(‘회비 12.000원’ 이 12원, ‘월세 1.200.000원’ 0건) | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | ‘원’ 이 붙었거나 끝이 .000 이면 자릿수, 끝 00 은 그 줄에 다른 금액이 없을 때만. 단위가 뒤따르면 읽지 않는다. 예산 명령도 같다 |
+| V93:Q-3 | P3 | 흔한 지출 낱말 303개 중 120개(40%)가 기타지출로 빠짐 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 분류 낱말을 더해 6개로 줄었다. 시험관·알리바바·꽃게 오탐은 except·exact 로 막았다 |
+| V93:Q-4 | P2 | 제출 잠금이 눌린 버튼의 값을 지움: 홈 구성 위아래 버튼이 순서를 안 바꾸고, 관리자 일괄 삭제가 빈 요청이 됨 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 눌린 버튼의 이름·값을 숨은 칸으로 남기고 막는다. 뒤로 가기에서 지운다. 실제 클릭 확인은 저장소 밖 real-browser/ |
+| V93:Q-5 | P3 | 없는 주소를 브라우저로 열면 원시 JSON 이 보임 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | GET + text/html 은 한글 404 화면, API·스크립트는 JSON 유지 |
+| V93:Q-6 | P3 | 연간 리포트를 거치면 사이드바 달이 그 해 1월로 바뀜 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 메뉴 링크가 /annual?month= 로 보던 달을 들고 간다. 스마트 도구에 기준 달 |
+| V93:Q-7 | P2 | 목표 금액에서 숫자만 남겨 ‘-100’ 이 100, ‘10만’ 이 10 으로 저장됨 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 화면이 적은 그대로 보내고 서버가 판정한다 |
+| V93:Q-8 | P3 | 같은 이름 목표가 안내 없이 둘이 됨 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 진행 중인 같은 이름은 409 duplicate_goal. 다 모은 목표는 다시 시작 가능 |
+| V93:Q-9 | P3 | 화면에 영어 역할 이름이 보임 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 지출자 칸·하루 상세·스마트 도구·약관·가계부 안내를 한글로 |
+| V93:Q-10 | P3 | 고칠 수 없는 행의 읽기 이름이 ‘수정·삭제’ 이고 160자 넘는 내용이 말없이 잘림 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | ‘상세 보기’ 로 나누고 저장 전 요약에 알린다 |
+| V93:Q-11 | P2 | 웹 저장 판정이 원문을 읽어 ‘월세 1.200.000원’·‘회비 5.000’ 이 막힘 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 판정도 foldInputWidth 를 지난 글자를 읽는다. 저장 원문은 그대로 |
+| V93:Q-12 | P3 | 연간 화면 안의 이동이 보던 달을 버림 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 해 화살표·해 고르기·가계부로 이동이 같은 달을 들고 간다 |
+| V93:Q-13 | P3 | 목표 금액의 원 기호·점 자릿수가 막히고 두 번 누르면 두 요청 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 서버가 읽고, 안내에 범위를 적고, 보내는 동안 다시 보내지 않는다 |
+| V93:Q-14 | P3 | 비밀번호 변경 재인증이 없는 가계부의 역할을 읽어 허위 실패가 남음 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | credential-change 경로는 역할을 읽지 않는다 |
+| V93:Q-15 | P3 | 정기 추가 폼이 빈 칸으로 제출되고 저장 뒤 달이 바뀜 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 금액·지출자 필수, 돌아갈 주소에 달 |
+| V93:Q-16 | P3 | 줄어든 빠른 입력 버튼에 글자 조각이 보임 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 줄었을 때 간격 16px |
+| V93:Q-17 | P3 | 좁은 폭 조회 줄의 달 칸이 잘림 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 440px 이하에서 가계부 칸을 윗줄로 |
+| V93:Q-18 | P2 | 다크에서 상태 배지·카드사 글자가 안 읽힘 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 배지 바탕까지 다크 값, 카드사 글자 흰색 고정 |
+| V93:Q-19 | P3 | 리포트 두 자리 날짜 축이 세로로 갈라짐 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 줄바꿈 막음 |
+| V93:Q-20 | P3 | 권한 안내·찾을 수 없음 화면에 다크가 안 먹음 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 테마 스크립트와 다크 값 |
+| V93:Q-21 | P2 | 값 칸의 점 자릿수를 소수로 읽어 ‘01번 금액 12.000원’ 이 12원 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | parseAmountValue·고치기 금액도 foldInputWidth 를 지난다 |
+| V93:Q-22 | P3 | ‘방금 12000원으로 바꿔줘’ 가 새 기록 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 방금 기록의 금액 고치기로 읽는다 |
+| V93:Q-23 | P2 | 고치기 값의 조사가 저장됨(결제수단 ‘현금으로’, 분류 ‘외식으로’), ‘5000원으로’ 답이 새 기록 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 칸이 정해진 값은 조사를 뗀다. 내용은 ‘으로’ 만 |
+| V93:Q-24 | P2 | 고치거나 지우려는 말이 메모에 ‘바꿔줘’·‘삭제’ 가 남은 새 기록 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 번호가 있으면 고치고, 없으면 저장 전에 안내한다 |
+| V93:Q-25 | P3 | ‘방금 거 지워줘’ 가 이해 못함, ‘1번 취소’ 가 지워진 줄 알게 함 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 방금 기록 삭제로 읽고, 취소는 지우지 않고 안내한다 |
+| V93:Q-26 | P2 | 웹 한 줄 입력의 금액 둘이 한 건으로 저장되고 뒤 금액이 메모에 남음 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 저장을 막고 나눠 적게 안내한다. 임시저장으로 되살린 문장도 센다 |
+| V93:Q-27 | P3 | 정산 조회 줄이 360 폭에서 가계부 칸을 자름 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 좁은 폭에서 가계부 칸과 단추가 한 줄을 쓴다 |
+| V93:Q-28 | P2 | 줄머리 목록 표식: 웹 ‘1. 김밥 3200원’ 이 1원, 카카오 ‘1) …’ 이 저장되지 않음 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 웹은 카카오와 같은 표식을 먼저 떼고, 카카오는 다듬기 전에 뗀다 |
+| V93:Q-29 | P3 | 목표 이름 칸의 예시 문구가 360 폭에서 잘림 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 760px 이하에서 이름 칸과 추가 단추가 한 줄을 쓴다 |
+| V93:Q-30 | P1 | 고치는 말을 막는 가드가 저장 경로 뒤에 있어 실제 방·1:1 첫 기록·세션 넘김에서 새 기록이 됨(‘커피 5000원으로 바꿔줘’ 등) | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 가드를 강한 입력·첫 기록 판정의 앞에 두고 고치는 말 표를 edit-vocabulary 로 모았다. 검사는 직접·방 두 경로로 돈다 |
+| V93:Q-31 | P1 | 세션 답의 끝맺음(‘5000원이요’·‘금액은 5000원’·‘현금이요’)이 값으로 읽히지 않거나 새 기록·메모가 됨 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 세션 답의 앞뒤 말과 묻는 칸 이름을 뗀다. 방 경로도 수정이 끝났다고 알린다 |
+| V93:Q-32 | P1 | 묻는 말·불평(‘아까 거 내용 뭐였지’·‘방금 금액 틀렸어’)이 값으로 저장됨 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 값이 아니면 기록이 그대로라고 답하고, 칸을 짚은 불평은 그 칸을 다시 묻는다 |
+| V93:Q-33 | P1 | 금액 둘을 이어 읽어 ‘01번 금액 5000 3000’ 이 5천만 원대가 됨 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 띄어 쓴 금액 둘은 값으로 읽지 않는다 |
+| V93:Q-34 | P2 | 조사를 받침과 무관하게 떼어 ‘종로’ 가 ‘종’, ‘현대카드 제로’ 가 ‘현대카드 제’ 가 됨 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 받침 규칙을 지킬 때만 뗀다 |
+| V93:Q-35 | P3 | 끝 문장부호·전각 숫자(‘방금 거 지워줘.’·‘０１번 금액 １２．０００원’)를 고치는 말로 읽지 못함 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 명령 판정 전에 전각을 접고 끝 부호를 뗀다(저장 원문은 그대로) |
+| V93:Q-36 | P3 | ‘으로’ 를 무조건 ‘원’ 으로 바꿔 ‘세트1로’·‘7/3으로’·‘2로’ 를 금액으로 읽음 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 금액 꼴에만 ‘원’ 을 붙인다 |
+| V93:Q-37 | P2 | 세션의 ‘취소할게’·‘1번 취소’·‘02번 점심’ 이 값으로 저장됨 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 취소 말을 넓히고 다른 번호는 번호 없이 보내라고 답한다 |
+| V93:Q-38 | P1 | 붙여 쓴 금액(‘커피 5000점심 9000’)을 웹이 한 건으로 저장함(카카오는 두 건) | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 수량 단위가 아닌 낱말이 숫자로 이어지면 금액으로 센다 |
+| V93:Q-39 | P3 | 금액 칸을 먼저 고치면 금액 둘 경고가 뜨지 않고, 지운 문장이 임시저장에서 되살아남 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 경고를 본 뒤 고친 칸만 경고를 풀고 문장이 바뀌면 다시 묻는다. 지울 때 원문도 비운다 |
+| V93:Q-40 | P1 | 띄어 쓴 날짜(‘10. 31 커피 4000’)가 금액 네 건·두 건이 되거나 표식을 두 번 떼어 날짜를 잃음 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 입구에서 줄머리 날짜를 붙이고 표식은 한 번만 뗀다 |
+| V93:Q-41 | P2 | 금액 뒤 쉼표(‘점심 9000원, 국민카드’)에서 웹 금액 칸이 비어 저장되지 않음 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 쉼표 다음이 숫자가 아니면 금액 끝으로 읽는다 |
+| V93:Q-42 | P1 | 세션에서 ‘02번 12000원으로 바꿔줘’ 가 01번의 금액을 바꿈 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 메뉴를 기다릴 때 0 으로 시작한 번호는 기록 번호로 보고 고치는 기록을 알린다 |
+| V93:Q-43 | P3 | ‘날짜 7/3으로’ 를 날짜로 읽지 못함 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 숫자로 끝난 값의 조사는 뗀다 |
+| V93:Q-44 | P3 | ‘5000원 부탁해’ 를 고치는 말로 읽지 못해 다시 물음 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 끝맺음 표에 더했다 |
+| V93:Q-45 | P2 | ‘1번 기록 삭제’·‘최근 기록 삭제’ 가 수정 안내로 빠져 지워지지 않음. ‘1번 기록 수정’ 은 내용을 ‘기록’ 으로 바꾸려 함 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 기록을 짚은 말은 안내가 아니라 명령으로 읽는다 |
+| V93:Q-46 | P2 | 소수 단위(‘콜라 1.5L 2500’·‘주차 1.5시간 3000’)를 없는 날짜로 보아 저장을 막음. 웹은 메모가 ‘L 콜라’ | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 바로 뒤에 단위가 붙으면 날짜 말이 아니다 |
+| V93:Q-47 | P3 | 메모에 부호·이음말이 남음(‘점심 ,’·‘커피 .’·‘. 커피’·‘+ 점심’·‘과 점심’) | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 앞뒤에 홀로 남은 부호를 지우고, 금액 뒤에서 나눈 조각의 머리에서 이음말을 뗀다 |
+| V93:Q-48 | P1 | 두 자리 연도 ‘26. 10. 31 커피 4000’ 이 10원·31원·4000원 세 건으로 저장됨 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 두 자리 연도를 입구에서 네 자리로 읽는다 |
+| V93:Q-49 | P2 | 되풀이 말에서 지수 시간이 걸리는 정규식: 운영에 있던 ‘1번 ’ 되풀이(30번이면 몇 초), Q-24 가 만든 ‘1만만만…’ 28자 4초 | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 되풀이 안의 갈래를 없앴다. 모든 카카오 말이 지나는 판정이다 |
+| V93:Q-50 | P2 | 한 말로 저장한 여러 건 뒤의 ‘방금 삭제’·‘방금 거 금액 5000원으로’ 가 저장 시각이 같은 건 중 아무 건이나 지우거나 고침(운영에 있던 것) | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 건을 보여 주고 번호를 묻는다. 아무것도 바꾸지 않는다 |
+| V93:Q-51 | P3 | 목표 입력줄이 761~1180 폭에서 좁아 이름 칸 예시가 잘리고 날짜 칸이 좁아짐(Aside 5차는 780 폭에서 봤고, 사이드바가 있는 900~1100 폭이 더 좁았다) | 고침 | V22.9.93 | validation/validate-launch-fixes-v22993.mjs | 화면 폭이 아니라 칸이 들어갈 자리에 따라 줄을 바꾼다 |

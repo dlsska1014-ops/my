@@ -169,7 +169,8 @@ async function handleRecurringSave(request, env) {
     return redirectResponse("/?legacy=1");
   }
   const householdId = String(form.get("household_id") || "").trim();
-  const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?household_id=${encodeURIComponent(String(form.get("household_id") || "").trim())}#fixed`);
+  // V22.9.93: 돌아갈 주소에 달이 없어 지난달 화면에서 추가하면 이번 달로 넘어갔다.
+  const returnTo = safeAdminReturnPath(form.get("return_to") || "", `/reserve-plans?month=${encodeURIComponent(_month)}&household_id=${encodeURIComponent(String(form.get("household_id") || "").trim())}#fixed`);
   const members = await fetchHouseholdMembers(env, householdId);
   const spenderId = String(form.get("user_id") || "").trim();
   const ruleId = String(form.get("id") || "").trim();

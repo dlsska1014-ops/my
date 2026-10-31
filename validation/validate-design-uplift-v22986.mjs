@@ -24,9 +24,9 @@ const t = counter("V22.9.86 디자인 보강 3단계(모바일 홈 머리말·�
 const HH = "house-home";
 const HOME = `/app?month=2026-07&household_id=${HH}`;
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)";
-const SHELL = "/assets/accountbook-shell-v22987.css";
-const V5 = "/assets/accountbook-v5-v22990.js";
-const HOME_SHELL_JS = "/assets/mobile-home-shell-v22990.js";
+const SHELL = "/assets/accountbook-shell-v22993.css";
+const V5 = "/assets/accountbook-v5-v22993.js";
+const HOME_SHELL_JS = "/assets/mobile-home-shell-v22993.js";
 const count = (text, needle) => String(text).split(needle).length - 1;
 const asset = async (path) => {
   const response = await app.fetch(new Request(`${BASE}${path}`), {}, ctx);
@@ -335,7 +335,8 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   t.eq(plan(base), `<div class="homeDailyPlan homePace"><p>남은 17일, 예산이 넉넉해요.</p><small>이대로면 월말에 예산이 약 72만 원 남아요</small><small>예산에 안 넣은 월세 650,000원은 따로 나가요</small></div>`, "T-12 §3-6 여유(사용률 ≤ 경과율)");
   t.ok(base.includes('<div class="homeProgress" style="--ab-today:48%"><i style="width:20%"'), "T-12 이번 달 게이지에 오늘 표시(경과율 48%)");
   // V22.9.89(디자인 작업 지시서 V2 6단계): U-07 홈 정기 카드 세 줄(매달 나감·아직 안 나감·납부·입금 일정, +82 B), U-01 오늘 쓴 돈 ‘아직 없어요’(+11 B), U-02 아랫줄 이름(+1 B), U-03·U-04 속도·월말 문장과 예산에 안 넣은 월세 줄(−29 B), U-11 카드 머리(−2 B)로 35,797 B 다(35 KiB 기준 안).
-  t.ok(Buffer.byteLength(base) <= 35797, `T-12 통합으로 홈 HTML 이 줄거나 같다(V22.9.89 상한 35,797 → ${Buffer.byteLength(base)} B)`);
+  // V22.9.93(Aside 전체 검수): 사이드바 연간 리포트 링크가 보던 달을 들고 간다(Q-6, +4 B), 지출자 칸의 역할이 한글이다(Q-9, +7 B). 기준 35,808 B(35 KiB 기준 안).
+  t.ok(Buffer.byteLength(base) <= 35808, `T-12 통합으로 홈 HTML 이 줄거나 같다(V22.9.93 상한 35,808 → ${Buffer.byteLength(base)} B)`);
   setBudgets([100000, 100000, 100000]);
   t.eq(plan(await home(fx)), `<div class="homeDailyPlan homePace"><p>이번 달의 48%가 지났는데 예산은 83%를 썼어요. 남은 17일은 하루 ${num(3023)} 안에서 써 보세요.</p><small>이대로면 예산이 13일 먼저 끝나요</small><small>예산에 안 넣은 월세 650,000원은 따로 나가요</small></div>`, "T-12 §3-6 주의(경과율 < 사용률 < 100)"); // V22.9.89 U-03
   setBudgets([50000, 50000, 50000]);

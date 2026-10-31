@@ -33,9 +33,9 @@ const t = counter("V22.9.87 디자인 보강 4단계(데스크톱 독 정리·�
 const HH = "house-home";
 const HOME = `/app?month=2026-07&household_id=${HH}`;
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)";
-const SHELL = "/assets/accountbook-shell-v22987.css";
+const SHELL = "/assets/accountbook-shell-v22993.css";
 const NAV = "/assets/accountbook-nav-v22987.js";
-const V5 = "/assets/accountbook-v5-v22990.js";
+const V5 = "/assets/accountbook-v5-v22993.js";
 const ADMIN_PASSWORD = "design-uplift-v22987-admin";
 const count = (text, needle) => String(text).split(needle).length - 1;
 const asset = async (path) => {
@@ -104,7 +104,7 @@ for (const [needle, label] of [
   ["body.abV22812Shell.abHasActivityRail .abGlobalActions[data-ab-quick-dock]{right:calc(var(--abActivityRailW,0px) + 28px)}", "오른쪽 활동 레일이 있으면 그 왼쪽"],
   ["max-width:220px;height:56px;min-height:56px;min-width:0;justify-content:flex-start;gap:8px;padding:0 22px 0 16px;border-radius:999px;", "빠른 입력 단추는 높이 56 알약(왼쪽 16 + 아이콘 24)"],
   [".abGlobalActionQuick .abNavIconSvg{width:24px!important;height:24px!important;flex:0 0 24px;", "빠른 입력 아이콘 24px"],
-  ["body.abV22812Shell .abGlobalActions[data-ab-quick-dock].abQuickCompact .abGlobalActionQuick{max-width:56px;padding-right:0}", "줄면 56px 원(16+24+16)"],
+  ["body.abV22812Shell .abGlobalActions[data-ab-quick-dock].abQuickCompact .abGlobalActionQuick{max-width:56px;padding-right:0;gap:16px}", "줄면 56px 원(16+24+16), V22.9.93: 간격을 벌려 글자 조각이 원 안에 남지 않는다"],
   ["html[data-ab-resolved-theme=\"dark\"] body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick{box-shadow:0 16px 40px rgba(0,0,0,.55)!important}", "다크 그림자는 따로"],
 ]) t.ok(uplift4.includes(needle), `T-19 ${label}`);
 const fabStart = uplift4.indexOf("@media(min-width:900px){\n");

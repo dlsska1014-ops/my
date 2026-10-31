@@ -34,6 +34,7 @@ for(const [rel,names] of Object.entries(protection)){
 // V22.9.76 감사 D-20: 조회 전용·나간 사람 정산 결함을 고치려 buildSettlementModel·handleSettlementHistorySave 를 의도적으로 바꿔 두 지문을 새로 적었다.
 // V22.9.81 U-27: 완료 이력을 30건으로 자를 때 잘려 나가는 달을 완료 달 표식으로 남기려 handleSettlementHistorySave 의 저장 줄
 // (history.slice(-30) → settlementHistoryForSave(history))을 의도적으로 바꿔 그 지문을 새로 적었다. 30건 이하이면 저장 값은 예전과 같다.
+// V22.9.93 X-17: 손으로 고친 이력의 null·객체 아닌 항목이 정산 완료에서 500 을 내지 않게 handleSettlementHistorySave 의 중복 확인 첫 줄에 건너뛰기를 더해 그 지문을 새로 적었다.
 // V22.9.89 Astra 4(Z-4): 기록하지 않은 날을 무지출로 세지 않으려 monthlyObservedSpending 의 무지출일만 noSpendDaysFrom(가계부 시작일·직접 적은 기록)으로 바꾸고
 // 선택 인자 { startedOn } 을 더해 그 지문을 새로 적었다. 관측 지출·관측 일수·하루 평균·월말 예상(burnForecast)·지출한 날은 예전 식 그대로다(아래 값 검사).
  for(const [name,hash]of Object.entries(names)){const node=ast.body.find(n=>n.id?.name===name);ok(!!node,"protected function exists "+name);eq(sha(source.slice(node.start,node.end)),hash,"V57 unchanged contract "+name);}

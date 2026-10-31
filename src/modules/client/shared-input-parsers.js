@@ -13,6 +13,9 @@ export function parseMobileAmountText(text = "") {
 // V22.9.79 A-16: 전각 숫자·부호(“４５００”, “１２，０００원”)를 반각으로 읽는다(글자 수가 같아 위치는 그대로다). “1+1 우유 3000”의 1+1
 // (덤 행사 표기)은 부호가 붙은 금액이 아니라 수량이라 후보에서 빼고(예전에는 문장 전체를 금액 없음으로 거절), “생수 2 박스”·
 // “쌀 10 kg”처럼 숫자 뒤에 띄어 쓴 수량 단위가 오면 그 숫자는 금액이 아니다.
+// V22.9.93 Q-38: ‘커피 5000점심 9000’ 의 5000 은 다음 항목에 붙은 금액이다(9,000원 한 건, 메모 ‘커피 5000점심’ 이 됐다). 가격 꼴(네 자리 이상, 00 으로 끝남) 뒤에 두 글자 이상 낱말과
+// 다음 숫자가 이어질 때만 금액으로 읽는다. 위 수량 단위(‘맥주 1000밀리 5000’)는 그 앞에서 걸러진다.
+// V22.9.93 Q-41: 금액 바로 뒤 쉼표를 자릿수로 여겨 ‘점심 9000원, 국민카드’ 의 금액을 건너뛰었다(웹 금액 칸이 비어 저장되지 않았다). 뒤가 숫자일 때만 자릿수다.
 function moneyTokenSpans(text = "") {
   const source = String(text || "").replace(/[０-９，．：／－＋％（）]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)).replace(/[₩￦]/g, "원");
   if (/\d+,\d{1,2}(?!\d)/.test(source)) return [];
@@ -23,7 +26,7 @@ function moneyTokenSpans(text = "") {
     const start = match.index, end = start + match[0].trimEnd().length;
     if (excluded.some(([a, b]) => start < b && end > a)) continue;
     if (/[+\-\u2212\uFE63\uFF0D\uFF0B]\s*(?:원\s*)?$/.test(source.slice(0, start))) return [];
-    if (/[A-Za-z\d,.]/.test(source[start - 1] || "") || /[A-Za-z\d,]/.test(source[end] || "") || /^\.\d/.test(source.slice(end))) continue;
+    if (/[A-Za-z\d,.]/.test(source[start - 1] || "") || /[A-Za-z\d]/.test(source[end] || "") || /^(?:,,|,\d|\.\d)/.test(source.slice(end))) continue;
     let raw = match[0].trim();
     // Words such as 만두 and 천원샵 are not Korean money expressions.
     if (!/\d/.test(raw) && !/원$|[십백천만억]$/.test(raw)) continue;
@@ -36,9 +39,10 @@ function moneyTokenSpans(text = "") {
       if (!amountStem.test(stem) && !( /원/.test(raw) && /^[일이삼사오육칠팔구한두세네]/.test(raw))) continue;
     }
     if (/^\d{1,3}$/.test(raw) && /[가-힣]/.test(source[start-1] || "")) continue;
-    if (!/원/.test(raw) && /[가-힣]/.test(source[end] || "") && !/^(?:랑|하고)(?=\s)/.test(source.slice(end))) continue;
+    const gluedPrice = /^\d[\d,]*00$/.test(raw) && raw.replace(/,/g, "").length >= 4 && /^[가-힣]{2,}\s*\d/.test(source.slice(end));
+    if (!gluedPrice && !/원/.test(raw) && /[가-힣]/.test(source[end] || "") && !/^(?:랑|하고)(?=\s)/.test(source.slice(end))) continue;
     if (!/[\d]/.test(raw) && !/[십백천만억]/.test(raw)) continue;
-    if (!/[원십백천만억]/.test(raw) && /[가-힣A-Za-z]/.test(source[end] || "") && !/^(?:랑|하고)(?=\s)/.test(source.slice(end))) continue;
+    if (!gluedPrice && !/[원십백천만억]/.test(raw) && /[가-힣A-Za-z]/.test(source[end] || "") && !/^(?:랑|하고)(?=\s)/.test(source.slice(end))) continue;
     const body = raw.replace(/[\s,원]/g, "").replace(/하나|한/g, "일").replace(/둘|두/g, "이").replace(/셋|세/g, "삼").replace(/넷|네/g, "사").replace(/다섯/g, "오").replace(/여섯/g, "육").replace(/일곱/g, "칠").replace(/여덟/g, "팔").replace(/아홉/g, "구");
     const digit = {영:0,공:0,일:1,이:2,삼:3,사:4,오:5,육:6,칠:7,팔:8,구:9};
     const tokens = body.match(/\d+(?:\.\d+)?|[영공일이삼사오육칠팔구]|[십백천만억]/g) || [];
@@ -190,6 +194,7 @@ function quickInputDate(text = "", today = "") {
   return valid(now.getUTCFullYear(), now.getUTCMonth() + 1, now.getUTCDate());
 }
 
+// V22.9.93 Q-46: ‘콜라 1.5L 2500’·‘주차 1.5시간 3000’ 의 소수를 날짜로 보고 ‘달력에 없는 날짜’ 라며 저장을 막았다. 바로 뒤에 단위가 붙으면 날짜 말이 아니다.
 function explicitDateIntent(text = "") {
   const raw = String(text || "");
   if (/(?:^|\s)(?:\d{1,2}|한|두|세|네|일|이|삼|사)\s*(?:일|주일|주|달|개월)\s*(?:전|후)(?=\s|$)/.test(raw)) return true;
@@ -197,7 +202,7 @@ function explicitDateIntent(text = "") {
   if (/[월화수목금토일]요일/.test(raw)) return true;
   if (/말일/.test(raw)) return true;
   if (/(?:^|\s)(?:재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*\d{1,2}\s*(?:월|[./-])/.test(raw)) return true;
-  return /(?:^|\s)(?:그끄저께|그끄제|엊그저께|엊그제|그저께|그제|어젯밤|엊저녁|어제|전날|오늘|금일|지금|방금|내일|모레)(?=(?:아침|점심|저녁|밤|새벽|오전|오후)?(?:\s|$))|(?:지난\s*달|저번\s*달|이번\s*달|다음\s*달|이달|담달)\s*\d{1,2}|(?:^|\s)20\d{2}(?:[.\-/년]\s*\d{1,2}|\d{4}(?=\s|$))|(?:^|\s)\d{1,2}\s*월\s*\d{1,2}|(?:^|\s)\d{1,2}[./-]\d{1,2}(?!\d|\s*[억만천백십원])|(?:^|\s)\d{1,2}일(?=\s|$)/.test(raw);
+  return /(?:^|\s)(?:그끄저께|그끄제|엊그저께|엊그제|그저께|그제|어젯밤|엊저녁|어제|전날|오늘|금일|지금|방금|내일|모레)(?=(?:아침|점심|저녁|밤|새벽|오전|오후)?(?:\s|$))|(?:지난\s*달|저번\s*달|이번\s*달|다음\s*달|이달|담달)\s*\d{1,2}|(?:^|\s)20\d{2}(?:[.\-/년]\s*\d{1,2}|\d{4}(?=\s|$))|(?:^|\s)\d{1,2}\s*월\s*\d{1,2}|(?:^|\s)\d{1,2}[./-]\d{1,2}(?!\d|\s*[억만천백십원]|[A-Za-z]|인치|리터|인분|단계|시간|킬로|키로|그램|미터|센티|[평배도](?=\s|$))|(?:^|\s)\d{1,2}일(?=\s|$)/.test(raw);
 }
 
 // Commas may have uneven groups while a digit is edited in an already formatted field.
@@ -231,6 +236,11 @@ function quickAmountFieldState(field, normalize = false) {
   return { valid, value: valid ? value : 0 };
 }
 
+// V22.9.93 Q-26: 한 줄에 금액이 몇 건인지 센다. 카카오의 문장 구분(쉼표·세미콜론·가운뎃점·띄운 빗금)을 지우고 세므로 ‘빵 2600, 우산 4700’ 도 두 건이다.
+function quickAmountCount(text = "") {
+  return moneyTokenSpans(String(text || "").replace(/[,，;；·](?!\d)|\s\/\s/g, " ")).length;
+}
+
 // V22.9.34 감사 D15: 자정을 넘겨도 화면을 연 날을 오늘로 쓰지 않는다. 서버가 준 오늘 날짜를 기준으로 화면을 연 뒤
 // 지난 날수만큼(KST 날짜 경계 기준) 옮긴다. 달력에서 고른 날짜로 연 폼은 그 날짜를 그대로 쓴다.
 // V22.9.86 T-14(디자인 작업 지시서 3단계 §3-6): 미리보기 줄. 기록 저장은 금액과 내용이 모두 있을 때만 켜지고, 꺼진 이유는 이 줄이 말한다.
@@ -239,6 +249,11 @@ function quickAmountFieldState(field, normalize = false) {
 //   홈 페이지 스크립트(mobile-home.js)의 첫 동기화도 preview(true) 로 부른다 — V22.9.85 까지는 그 호출이 뜨자마자 aria-live 를 붙였다.
 // - 내용 전: "내용을 적으면 저장할 수 있어요". 꺼진 이유(금액·내용)는 분류 확인 문구(확인 중·실패)보다 먼저 말한다. 수입: 같은 달이면 "저장하면 이번 달 수입이 …원이 돼요"(data-income + 금액), 다른 달이면 옛 문장.
 // - 지출: "저장하면 남는 예산 …원 · 하루 …원"(옛 "남은" → 지시서 "남는"). JS 가 없으면 단추는 늘 켜져 있고 금액 칸 required 가 막는다.
+// V22.9.93 Q-26: 이 폼은 한 번에 한 건만 저장한다. 금액이 둘인 문장(‘커피 12000 점심 9000’)은 앞 금액 한 건으로 저장되고 뒤 금액이 메모에 남았다(카카오는 두 건).
+// 둘 이상이면 저장을 막고 나눠 적게 한다. 금액이나 내용을 손으로 고치면 본 것으로 여겨 막지 않는다.
+// 나눠 적으라고 했으니 Enter 로도 문장을 비우지 않고, 문장을 지우면 앞 금액만 읽어 채운 칸도 함께 비운다(지운 뒤 틀린 한 건이 저장되지 않게).
+// 패널을 닫았다 열어 임시저장에서 되살린 문장도 다시 센다(이 길은 apply 를 지나지 않는다).
+// V22.9.93 Q-28: 줄머리 목록 표식은 카카오(KAKAO_LIST_MARKER_PREFIX)처럼 먼저 뗀다. ‘1. 김밥 3200원’ 이 1원으로 읽혔다. 저장하는 원문은 친 그대로다.
 function quickSmartInputController(config) {
   const byId = id => document.getElementById(id);
   const smart = byId("smartInput"), amount = byId("amountInput"), date = byId("txDate"), after = byId("quickAfter");
@@ -259,7 +274,10 @@ function quickSmartInputController(config) {
   };
   const defaultDate = () => initialDate === serverToday ? todayNow() : initialDate;
   const manual = {amount:false,date:false,category:false,payment:false,memo:false,type:false};
-  let invalidAmount = false, invalidDate = false, confirmType = false;
+  // V22.9.93 Q-39: 금액 칸·내용 칸을 먼저 고쳐 둔 뒤 금액 둘인 문장을 넣으면 경고 없이 저장됐다. 경고를 본 뒤에 고친 경우만 푼다.
+  let invalidAmount = false, invalidDate = false, confirmType = false, manyAmounts = false, splitSettled = false, splitText = "";
+  const splitNeeded = () => manyAmounts && !splitSettled;
+  const readLine = typed => normalizeInputText(foldInputWidth(typed).replace(/^(?:\d{1,2}[.)]|[-•*])\s+/,""));
   const markers = Object.create(null);
   for (const key of Object.keys(manual)) {
     if (form && document.createElement && form.appendChild) {
@@ -273,7 +291,8 @@ function quickSmartInputController(config) {
   function preview(quiet) {
     if (!after) return;
     if (!quiet) after.setAttribute("aria-live","polite");
-    if (submit) submit.disabled=!(cleanNumber() && validAmount() && String(memoField?.value || "").trim());
+    if (submit) submit.disabled=splitNeeded()||!(cleanNumber() && validAmount() && String(memoField?.value || "").trim());
+    if (splitNeeded()) { after.textContent="금액이 둘 이상이에요. 여기서는 한 번에 한 건만 저장돼요. 한 건씩 나눠 적어 주세요."; return; }
     if (confirmType && !manual.type) { after.textContent="결제·승인 취소 내역입니다. 수입 또는 지출을 직접 선택한 뒤 저장해 주세요."; return; }
     if (invalidAmount || invalidDate) { after.textContent=invalidAmount ? "금액이 분명하지 않습니다. 유효한 금액을 직접 입력하거나 문장을 고쳐 주세요." : "달력에 없는 날짜입니다. 유효한 날짜를 직접 선택하거나 문장을 고쳐 주세요."; return; }
     const value=cleanNumber();
@@ -301,12 +320,18 @@ function quickSmartInputController(config) {
     // 금액·날짜·구분·결제수단·분류·메모를 찾는다("만 오천원"(A-07)은 이 단계에서 한 금액이 된다). 저장하는 원문(rawTextInput)은 친 그대로다.
     // 서버(parseTransaction)는 입구에서 한 번 다듬고 금액·날짜·구분 판정에서 한 번 더 다듬는다("(1234)삼만 오천원"은 첫 번째로 괄호가 지워진
     // 뒤에야 띄어 쓴 금액이 붙는다). 결제수단·분류·메모 판정 함수는 스스로 한 번 더 다듬으므로 그대로 text 를 주고, 금액·날짜·구분은 scan 을 준다.
-    const typed=smart?.value.trim(); if (!typed) return;
-    const text=normalizeInputText(foldInputWidth(typed)), scan=normalizeInputText(text);
+    const typed=smart?.value.trim();
+    if (!typed) {
+      if (manyAmounts) { manyAmounts=false; if (!manual.amount) amount.value=""; if (!manual.memo&&memoField) memoField.value=""; if (byId("rawTextInput")) byId("rawTextInput").value=""; complete(); }
+      return;
+    }
+    const text=readLine(typed), scan=normalizeInputText(text);
     const value=config.amount(scan), parsedDate=config.date(scan,todayNow());
     const type=config.type(scan), payment=config.payment(text), category=config.category(text,type);
     confirmType=/(?:결제|승인)\s*취소/.test(text) && !/(?:^|\s)(?:수입|지출)(?=\s|$)/.test(text);
     const token=moneyTokenSpans(scan)[0]?.raw || "";
+    manyAmounts=quickAmountCount(scan)>1;
+    if (typed!==splitText) { splitText=typed; splitSettled=false; }
     if (!manual.amount) { amount.value=value ? new Intl.NumberFormat("ko-KR").format(value) : ""; invalidAmount=!value; }
     else invalidAmount=!validAmount();
     if (!manual.date) { date.value=parsedDate || (explicitDateIntent(scan)?"":defaultDate()); invalidDate=explicitDateIntent(scan) && !parsedDate; }
@@ -317,7 +342,7 @@ function quickSmartInputController(config) {
     if (!manual.category&&byId("catInput")) byId("catInput").value=category;
     if (byId("rawTextInput")) byId("rawTextInput").value=typed;
     setValidity(amount,invalidAmount,"유효한 금액을 입력하세요."); setValidity(date,invalidDate,"유효한 날짜를 선택하세요.");
-    if (clearInput) smart.value="";
+    if (clearInput && !manyAmounts) smart.value="";
     // V22.9.90(독립 검토): 한글 조합 중(composing)에는 위에서 이 기기가 읽은 분류를 그대로 보이고, 가계부 분류 요청은 조합이 끝나 다시 읽을 때 보낸다
     // (자모마다 분류 칸을 비우고 요청을 다시 걸던 깜빡임을 없앤다). 조합이 끝나기 전에 저장하면 아래 submit 이 분류 칸을 비워 서버가 정한다(요청 중 저장과 같다).
     if (composing) deferCategory(); else resolveCategory();
@@ -365,6 +390,8 @@ function quickSmartInputController(config) {
     }
     const text = byId("rawTextInput")?.value || "";
     confirmType = /(?:결제|승인)\s*취소/.test(text) && !/(?:^|\s)(?:수입|지출)(?=\s|$)/.test(text);
+    manyAmounts = quickAmountCount(normalizeInputText(readLine(text.trim()))) > 1;
+    splitSettled = manual.amount || manual.memo; splitText = text.trim();
     invalidAmount = !quickAmountFieldState(amount, true).valid;
     invalidDate = !validDate();
     setValidity(date, invalidDate, "유효한 날짜를 선택하세요.");
@@ -377,6 +404,7 @@ function quickSmartInputController(config) {
       if (key === "amount") invalidAmount = !quickAmountFieldState(amount, true).valid;
       if (!event?.detail?.abQuickDefault) {
         manual[key]=true; if(markers[key])markers[key].value="1";
+        if(manyAmounts&&(key==="amount"||key==="memo"))splitSettled=true;
         if(key==="date")invalidDate=!validDate();
         if(key==="memo"||key==="category")resolveCategory();
       }
@@ -390,13 +418,13 @@ function quickSmartInputController(config) {
     field.addEventListener("input",changed); field.addEventListener("change",changed);
   }
   document.querySelectorAll("input[name=type]").forEach(field=>{const changed=()=>{manual.type=true;if(markers.type)markers.type.value="1";resolveCategory();complete();};field.addEventListener("change",changed);field.addEventListener("click",changed);});
-  form?.addEventListener("submit",event=>{if(amountComposing||(confirmType&&!manual.type)||invalidAmount||invalidDate||!validAmount()||!validDate()){event.preventDefault();invalidAmount=invalidAmount||!validAmount();invalidDate=invalidDate||!validDate();setValidity(amount,invalidAmount,"1원부터 20억원까지 정수 금액을 입력해 주세요.");complete();}else if(categoryDeferred&&!manual.category&&byId("catInput")){byId("catInput").value="";categoryDeferred=false;}});
+  form?.addEventListener("submit",event=>{if(amountComposing||splitNeeded()||(confirmType&&!manual.type)||invalidAmount||invalidDate||!validAmount()||!validDate()){event.preventDefault();invalidAmount=invalidAmount||!validAmount();invalidDate=invalidDate||!validDate();setValidity(amount,invalidAmount,"1원부터 20억원까지 정수 금액을 입력해 주세요.");complete();}else if(categoryDeferred&&!manual.category&&byId("catInput")){byId("catInput").value="";categoryDeferred=false;}});
   preview(true);
   return {apply,preview};
 }
 // @build:exports-start
 export {
-  explicitDateIntent, moneyTokenSpans, quickAmountFieldState, quickInputDate,
+  explicitDateIntent, moneyTokenSpans, quickAmountCount, quickAmountFieldState, quickInputDate,
   quickSmartInputController, transactionTypeFromText,
 };
 // @build:exports-end

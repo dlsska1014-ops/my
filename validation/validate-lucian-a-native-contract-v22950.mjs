@@ -11,7 +11,7 @@ const asset = async path => {
   eq(response.status, 200, "served asset " + path);
   return response.text();
 };
-const runtime = await asset("/assets/mobile-home-v22990.js"); // V22.9.85: v22951 보관본 정리 뒤 지금 홈 런타임을 본다.
+const runtime = await asset("/assets/mobile-home-v22993.js"); // V22.9.85: v22951 보관본 정리 뒤 지금 홈 런타임을 본다.
 const review = await asset("/assets/accountbook-quick-input-v22951.js");
 const ast = parse(runtime, { ecmaVersion: "latest" });
 const functions = new Map();
@@ -21,13 +21,13 @@ function visit(node) {
   for (const value of Object.values(node)) if (Array.isArray(value)) value.forEach(visit); else if (value && typeof value === "object") visit(value);
 }
 visit(ast);
-for (const name of ["quickAmountFieldState", "quickSmartInputController", "moneyTokenSpans", "explicitDateIntent", "quickInputDate", "parseMobileAmountText", "transactionTypeFromText"]) ok(functions.has(name), "shipped runtime provides " + name);
+for (const name of ["quickAmountFieldState", "quickSmartInputController", "moneyTokenSpans", "quickAmountCount", "explicitDateIntent", "quickInputDate", "parseMobileAmountText", "transactionTypeFromText"]) ok(functions.has(name), "shipped runtime provides " + name);
 ok(!review.includes("queueMicrotask"), "review has no capture microtask recovery");
 ok(!review.includes("setCustomValidity"), "review does not compete for amount validity");
 ok(!runtime.includes("var raw=this.value.replace(/[^0-9]/g"), "destructive legacy inline formatter is absent");
 const create = () => {
   const b = createInputBrowser();
-  b.run([...functions.entries()].filter(([name]) => ["quickAmountFieldState", "moneyTokenSpans", "explicitDateIntent", "quickInputDate", "parseMobileAmountText", "transactionTypeFromText", "normalizeInputText", "foldInputWidth", "joinSpacedKoreanAmount", "inputPaymentPatterns"].includes(name)).map(([, source]) => source).join("\n"));
+  b.run([...functions.entries()].filter(([name]) => ["quickAmountFieldState", "moneyTokenSpans", "quickAmountCount", "explicitDateIntent", "quickInputDate", "parseMobileAmountText", "transactionTypeFromText", "normalizeInputText", "foldInputWidth", "joinSpacedKoreanAmount", "inputPaymentPatterns"].includes(name)).map(([, source]) => source).join("\n"));
   b.run("const state=(" + functions.get("quickSmartInputController") + ")({amount:parseMobileAmountText,date:quickInputDate,type:text=>transactionTypeFromText(text,[]),category:()=>'',payment:()=> '국민카드',memo:text=>text});smartInput=document.getElementById('smartInput');smartInput.addEventListener('input',()=>state.apply(false));");
   b.run(review); return b;
 };
