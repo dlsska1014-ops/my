@@ -3,11 +3,15 @@ import {
   AB_KAKAO_INFLIGHT, AB_KAKAO_REPEAT_GUARD, boundedRuntimeNumber, pruneTimestampMap,
 } from "../runtime/ops-telemetry.js";
 import { incompleteFeatureQaEnabled } from "../public/site-config.js";
+import { foldInputWidth } from "../client/shared-input-nlu.js";
 import { jsonResponse } from "../runtime/http.js";
 import { verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { kakaoSkillSafeFallbackText } from "./reply-texts.js";
 import { isCommandMenuCommand, isHouseholdSwitchCommand } from "./intent-nlu.js";
 import { kakaoText } from "./response-builders.js";
+import {
+  KAKAO_DELETE_WORD_V4, KAKAO_EDIT_AMOUNT_V4, KAKAO_EDIT_VERB_V4,
+} from "./edit-vocabulary.js";
 import {
   KAKAO_AMOUNT_CHANGE_TAIL_V4, KAKAO_LATEST_AMOUNT_EDIT_V4, KAKAO_SEQ_AMOUNT_EDIT_V4,
   hasKakaoEditSessionHint, isKakaoTransactionSpenderChangeCommand, parseKakaoDeleteCommandV4,
@@ -50,8 +54,9 @@ function stripLeadingCommand(text = "") {
   // "수정 01번 금액 13000원" → "01번 금액 13000원"
   const m = t.match(/^\/?(기록하기|입력하기|기록|입력)(?:\s*[:：]\s*|\s+)(.+)$/i);
   if (m) return m[2].trim();
+  // V22.9.93 Q-79: ‘수정’ 을 떼면 ‘1번 커피 5000원’ 이 ‘1번 국도 8000원’ 같은 기록과 같아져 메모 ‘1번 커피’ 로 저장됐다. ‘수정 01번 …’ 처럼 두 자리로 맞춰 고치는 말로 남긴다.
   const e = t.match(/^\/?수정\s+(\d{1,3}\s*번.+)$/i);
-  if (e) return e[1].trim();
+  if (e) return e[1].trim().replace(/^(\d)(?=\s*번(?:[\s,]|$))/, "0$1");
   // 대표 명령어가 /시작처럼 전달되거나 사용자가 직접 슬래시를 입력해도
   // 모든 기존 자연어 판별 함수가 동일한 문장을 받도록 선행 슬래시를 제거합니다.
   if (/^\/+\s*$/.test(t)) return "메뉴";
@@ -90,18 +95,29 @@ function looksLikeKakaoEditCommandV4(text = "") {
 // 금액 뒤에 고치는 말이 오지 않으면(‘바지 수정 5000원’·‘5000원으로 점심’) 기록이다.
 // V22.9.93 Q-30: 저장 바로 앞에서만 보면 신뢰된 방(tryKakaoGroupFirstRecord)과 1:1 첫 기록, 열린 세션의 새 기록 넘김이 이 판정 전에 저장해 버린다. 강한 입력 판정이 함께 쓴다.
 // 칸 이름으로 시작하는 말은 두 낱말까지만 본다(‘날짜 변경 수수료 30000원’ 은 기록이다).
+// V22.9.93 Q-68: ‘메모 패드 3000원’·‘내용 증명 5000원’·‘분류 작업비 30000원’·‘날짜 변경 30000원’ 은 이름이라 기록이다. ‘제거’ 는 금액 바로 뒤에서만 고치는 말이다(‘3만원 곰팡이 제거’ 는 기록이다).
+const KAKAO_DELETE_TAIL_V4 = new RegExp(String.raw`(?:\S\s+(?!제거)|(?:원|\d|[만천])\s+)${KAKAO_DELETE_WORD_V4}$`);
+// V22.9.93 Q-84: 시키는 말이 앞에 오거나(‘바꿔줘 5000원’·‘정정 5000원’) 대상만 가리킨 꼴(‘그거 5000원으로’·‘1번은 5000원’·‘방금 거 5000원 맞아’)도 고치는 말이다. ‘아까 거 환불 5000원’ 은 기록이다.
+const KAKAO_CHANGE_FIRST_V4 = new RegExp(String.raw`^(?:${KAKAO_EDIT_VERB_V4}\s+${KAKAO_EDIT_AMOUNT_V4}(?:\s*(?:으로|로))?|(?:그거|이거|저거|그것|이것|저것)(?:을|를)?\s+${KAKAO_EDIT_AMOUNT_V4}\s*(?:으로|로)|\d{1,2}\s*번(?:은|는)\s+${KAKAO_EDIT_AMOUNT_V4}|(?:방금|아까)\s*(?:거|것|건|꺼)\s+${KAKAO_EDIT_AMOUNT_V4}\s+맞(?:아요?|음|습니다|다))$`);
+// V22.9.93 Q-80: ‘4500원 말고 5000원’·‘커피 8000 아니 9000’ 이 두 건이 됐다. 앞도 뒤도 금액이고 말이 거기서 끝날 때만 고치는 말이다(‘커피 4500 말고 라떼 5000’·‘병원 말고 3만원’·‘학원 아니고 30만원’·‘팁 5000원 말고 1000원 더 줌’ 은 기록이다).
+const KAKAO_AMOUNT_WORD_V4 = String.raw`(?:${KAKAO_EDIT_AMOUNT_V4}|[일이삼사오육칠팔구십백천만억]+[십백천만억])`;
+const KAKAO_AMOUNT_INSTEAD_V4 = new RegExp(String.raw`(?:^|\s)${KAKAO_AMOUNT_WORD_V4}\s*(?:(?:이|가)?\s*(?:아니(?:고요?|라|구|야|요|에요|예요|지|잖아)?|아닌데|아닙니다)|말고|말구)[,\s]+${KAKAO_AMOUNT_WORD_V4}\s*(?:으로|로|이야|야|이요|요|임|입니다|이에요|예요|맞아요?|맞음)?$`);
+
 function looksLikeKakaoChangeRequest(text = "") {
   const t = normalizeText(text);
   return KAKAO_AMOUNT_CHANGE_TAIL_V4.test(t)
     || isKakaoAmountAnswer(t)
-    || (/\S\s+(?:(?:삭제|제거)(?:\s*해\s*(?:줘요?|주세요)?)?|지워\s*(?:줘요?|주세요)?)$/.test(t) && !/(?:예산|가계부|단톡방|연결|구성원|초대|카테고리|분류|정기|알림)/.test(t))
-    || /^(?:수정|삭제)\s+(?!테이프|액|펜)\S/.test(t)
+    || (KAKAO_DELETE_TAIL_V4.test(t) && !/(?:예산|가계부|단톡방|연결|구성원|초대|카테고리|분류|정기|알림)/.test(t))
+    || /^(?:수정|삭제)\s+(?!테이프|액|펜|볼펜|화장)\S/.test(t)
     || /^(?:금액|가격)\s*(?:수정|변경)(?:\s+\d[\d,.]*\s*원?)?$/.test(t)
     || /^(?:금액|가격)\s*(?:이|가|을|를)?\s*(?:틀렸|틀려|잘못\s*(?:됐|됨|되었|입력|적|썼|기록|저장))/.test(t)
-    || /^(?:금액|가격|내용|분류|결제수단|날짜|메모)(?:을|를|은|는|이|가)?\s+\S+(?:\s+\S+)?$/.test(t)
+    || /^(?:틀렸|틀려|잘못\s*(?:됐|됨|되었|입력|적|썼|기록|저장))\S*\s+.*\d/.test(t)
+    || KAKAO_CHANGE_FIRST_V4.test(t)
+    || /^(?:금액|가격|내용|분류|결제수단|날짜|메모)(?:을|를|은|는|이|가)?\s+(?!패드|보드|증명|작업|변경)\S+(?:\s+\S+)?$/.test(t)
     || /^\d{1,3}\s*번\s.*(?:원|\d|[만천])\s*(?:으로|로)$/.test(t)
-    || /^0\d\s*번\s/.test(t)
-    || /^\d{1,3}\s*번\s*(?:거|것|꺼|기록)(?:을|를)?\s/.test(t)
+    || /^0\d\s*번[,\s]/.test(t)
+    || /^\d{1,3}\s*번\s*(?:거|것|꺼|건|기록|입력)(?:을|를)?\s/.test(t)
+    || (/말[고구]|아니|아닌|아닙/.test(t) && KAKAO_AMOUNT_INSTEAD_V4.test(t))
     || /^아까\s*(?:거|것|건|꺼|기록|입력)?\s*(?:금액|가격)(?:을|를|은|는|이|가)?(?=\s|$)/.test(t);
 }
 
@@ -110,16 +126,18 @@ function isStrongKakaoTransactionInput(text = "", parsedList = []) {
   if (!raw || !Array.isArray(parsedList) || !parsedList.length) return false;
   if (looksLikeKakaoEditCommandV4(text) || looksLikeKakaoEditCommandV4(raw) || looksLikeKakaoChangeRequest(text) || looksLikeKakaoChangeRequest(raw)) return false;
   if (/(?:^|\s)예산(?=\s|$)|^초대코드|^단톡방\s*연결|^가계부\s*(?:참여|만들기|생성)/.test(raw)) return false;
-  const amountInfo = extractAmount(raw);
+  // V22.9.93 Q-72: 거래 해석기와 같은 입구로 읽는다. 원문을 읽어 처음 쓰는 사람의 ‘월세 1.200.000원’ 이 저장되지 않고 시작 안내만 받았다.
+  const folded = foldInputWidth(raw);
+  const amountInfo = extractAmount(folded);
   if (!amountInfo?.amount) return false;
-  const remainder = raw
+  const remainder = folded
     .replace(amountInfo.raw || "", " ")
     .replace(/(국민|신한|현대|삼성|롯데|우리|하나|농협|카카오|토스)?\s*(카드|체크카드|신용카드)|현금|계좌이체|이체|페이/gi, " ")
     .replace(/오늘|어제|그제|그저께|내일/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  // 금액만 보낸 단계형 답변(예: 100만원)은 빠른 거래 경로로 보내지 않습니다.
-  return /[가-힣A-Za-z]{2,}/.test(remainder);
+  // 금액만 보낸 단계형 답변(예: 100만원)은 빠른 거래 경로로 보내지 않습니다. V22.9.93 Q-81: ‘5000정도’·‘5000쯤’ 의 끝맺음도 내용이 아니다(수정 중인 답이 새 기록이 됐다).
+  return /[가-힣A-Za-z]{2,}/.test(remainder.replace(/^(?:에|이요|요|이에요|예요|입니다|임|(?:정도|쯤|가량)(?:이?요|입니다|이에요|예요)?)$/, ""));
 }
 
 // V22.9.63 감사(1:1 2): 가계부가 없는 사람의 첫 기록 자동 준비는 "밥 4500원", "물 1000원"처럼 한 글자 내용도 받는다. 강한 입력
@@ -130,9 +148,10 @@ function isKakaoFirstRecordInput(text = "", parsedList = []) {
   if (!raw || !Array.isArray(parsedList) || parsedList.length !== 1) return false;
   if (looksLikeKakaoEditCommandV4(text) || looksLikeKakaoEditCommandV4(raw) || looksLikeKakaoChangeRequest(text) || looksLikeKakaoChangeRequest(raw)) return false;
   if (/(?:^|\s)예산(?=\s|$)|^초대코드|^단톡방\s*연결|^가계부\s*(?:참여|만들기|생성)/.test(raw)) return false;
-  const amountInfo = extractAmount(raw);
+  const folded = foldInputWidth(raw);
+  const amountInfo = extractAmount(folded);
   if (!amountInfo?.amount || !/원\s*$/.test(String(amountInfo.raw || ""))) return false;
-  const remainder = raw
+  const remainder = folded
     .replace(amountInfo.raw || "", " ")
     .replace(/(국민|신한|현대|삼성|롯데|우리|하나|농협|카카오|토스)?\s*(카드|체크카드|신용카드)|현금|계좌이체|이체|페이/gi, " ")
     .replace(/오늘|어제|그제|그저께|내일/g, " ")

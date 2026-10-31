@@ -20,7 +20,7 @@ function parseMultipleTransactions(text, payload) {
   const clauses = splitTransactionClauses(text);
   if (clauses.length <= 1) {
     // V22.9.63: 한 줄짜리 번호 목록("1. 점심 12000원")도 표식을 뗀 본문으로 읽는다. 예전에는 "1"이 금액으로 읽혔다.
-    const one = parseTransaction(clauses.length === 1 && KAKAO_LIST_MARKER_PREFIX.test(String(text || "").trim()) ? clauses[0] : text, payload, true);
+    const one = parseTransaction(clauses.length === 1 && (clauses.dateJoined || KAKAO_LIST_MARKER_PREFIX.test(String(text || "").trim())) ? clauses[0] : text, payload, true);
     if (one.ok && one.type_confirmation) return blockedTransactionParse(mixedTypeConfirmation(one));
     return one.ok ? [{ ...one, raw_text: original }] : blockedTransactionParse(one);
   }
@@ -30,7 +30,14 @@ function parseMultipleTransactions(text, payload) {
     if (parsed.message === "invalid_transaction_date" || (parsed.message === "amount_unit_required" || parsed.message === "transaction_type_confirmation_required")) return blockedTransactionParse(parsed);
     if (parsed.ok && parsed.type_confirmation) return blockedTransactionParse(mixedTypeConfirmation(parsed));
     if (parsed.ok) out.push({ ...parsed, raw_text: clause });
+    // V22.9.93 Q-57: 금액을 못 읽은 조각은 저장 답에 적는다. 말없이 빠지면 나머지만 저장된 줄을 사람이 모른다(날짜만 쓴 조각은 뜻이 없어 뺀다).
+    else if (clause !== extractLeadingDateHint(clause)) (out.unread ||= []).push(clause);
   }
+  // V22.9.93 Q-87: 앞 건들의 합을 적은 끝말(‘커피 4000 택시 8000 총 12000원’)이 한 건 더 저장돼 합계가 두 배가 됐다. 합이 정확히 맞을 때만 뺀다(‘카드 총 5000 현금 총 5000’ 은 앞 건도 총이라 두 건이다). ‘전체’·‘모두’ 는 품목일 수 있어 앞 건이 둘 이상일 때만 합이다(‘부분 염색 5만원 전체 5만원’).
+  const totalWord = /^(?:총|합|합계|총합|총액|총계|총금액|총합계|총비용|도합|토탈)$/, allWord = /^(?:전체|모두|전부|합쳐서|다\s*해서)$/;
+  const last = out[out.length - 1];
+  const before = out.slice(0, -1);
+  if (before.length && (totalWord.test(last.memo) || (before.length > 1 && allWord.test(last.memo))) && !before.some((row) => totalWord.test(row.memo) || allWord.test(row.memo)) && last.amount === before.reduce((sum, row) => sum + row.amount, 0)) out.pop();
   return out;
 }
 
@@ -58,6 +65,9 @@ const AB_DATE_DAY_WORDS = "그끄저께|그끄제|엊그저께|엊그제|그저�
 const AB_DATE_DAY_PARTS = "아침|점심|저녁|밤|새벽|오전|오후";
 const AB_DATE_MONTH_WORDS = "지지난\\s*달|저저번\\s*달|지난\\s*달|저번\\s*달|이번\\s*달|이달|다음\\s*달|담달";
 const AB_DATE_YEAR_WORDS = "재작년|작년|지난\\s*해|올해|금년|내년|다음\\s*해";
+// V22.9.93 Q-56: 점·슬래시·하이픈 날짜. 뒤에 글자가 붙거나(‘1.5L’·‘3.1절’·‘1.5만원’) 점·하이픈 뒤에 띄어 쓴 단위가 오면(‘1.5 만원’) 날짜가 아니다(quickInputDate 와 같은 규칙).
+// 예전에는 앞 조각의 소수가 머리 날짜가 돼 ‘1.5L 콜라 2000, 커피 3000’ 의 커피가 1월 5일이 되고, 뒤 조각의 소수가 제 날짜로 보여 ‘어제 커피 4000, 택시 1.5만원’ 의 택시가 오늘이 됐다.
+const AB_DATE_NUMERIC = "(?!\\d{1,2}[.-]\\d{1,2}\\s+[억만천백십]+(?:\\s|$|원))\\d{1,2}[.\\/-]\\d{1,2}일?(?=\\s|$|[.,!?])(?!\\s*원(?!\\d))";
 const AB_DATE_PHRASES = [
   "(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\\s*[전후](?=\\s|$)",
   "(?:\\d{1,2}|한|두|세|네|일|이|삼|사)\\s*(?:일|주일|주|달|개월)\\s*[전후](?=\\s|$)",
@@ -66,7 +76,7 @@ const AB_DATE_PHRASES = [
   "20\\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\\d|3[01])(?=\\s|$)",
   "20\\d{2}[.\\-/년\\s]+\\d{1,2}[.\\-/월\\s]+\\d{1,2}일?",
   `(?:(?:${AB_DATE_YEAR_WORDS})\\s*)?\\d{1,2}\\s*월\\s*\\d{1,2}\\s*일?`,
-  `(?:(?:${AB_DATE_YEAR_WORDS})\\s*)?\\d{1,2}[.\\/-]\\d{1,2}`,
+  `(?:(?:${AB_DATE_YEAR_WORDS})\\s*)?${AB_DATE_NUMERIC}`,
   "(?:지지난\\s*주|저저번\\s*주|지난\\s*주|저번\\s*주|전주|이번\\s*주|금주|다음\\s*주|내주|지지난번|지지난|저저번|지난번|지난|저번|이번|다음|(?:돌아|다가)?오는)?\\s*[월화수목금토일]요일",
 ];
 // 달 없이 쓴 ‘25일’은 머리 날짜로만 본다. 뒤 조각의 ‘숙박 2일’·‘주차 3일’은 기간이기도 해서 조각의 제 날짜로 보면 머리 날짜를 잃는다(예전 그대로 머리 날짜).
@@ -78,7 +88,7 @@ const AB_LEADING_DATE_HINT = new RegExp(`^((?:${AB_DATE_DAY_WORDS}|${AB_DATE_PHR
 // 그 파서와 같은 낱말 경계로 찾는다("아모레"는 날짜가 아니다). 조각이 제 날짜를 가지면 머리 날짜를 붙이지 않는다 — 붙이면 한 건 파서가
 // 먼저 보는 머리 말이 조각의 날짜를 덮는다("어제 커피 4500원 모레 택시 8000원"의 택시가 어제가 됐다). 8자리 수는 달·날 꼴일 때만 날짜다(주문번호).
 const AB_PIECE_DATE_HINT = new RegExp([
-  "(오늘|금일|지금|방금|어제|전날|그제|그저께|엊그저께|어젯밤|엊저녁|엊그제|그끄저께|그끄제|내일|지난\\s*달|저번\\s*달|이번\\s*달|이달|다음\\s*달|담달|말일|(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\\s*[전후](?=\\s|$)|(?:^|\\s)(?:\\d{1,2}|한|두|세|네|일|이|삼|사)\\s*(?:일|주일|주|달|개월)\\s*[전후](?=\\s|$)|20\\d{2}[.\\-/년\\s]+\\d{1,2}|\\d{1,2}\\s*월\\s*\\d{1,2}|\\d{1,2}[.\\/-]\\d{1,2}|[월화수목금토일]요일)",
+  "(오늘|금일|지금|방금|어제|전날|그제|그저께|엊그저께|어젯밤|엊저녁|엊그제|그끄저께|그끄제|내일|지난\\s*달|저번\\s*달|이번\\s*달|이달|다음\\s*달|담달|말일|(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\\s*[전후](?=\\s|$)|(?:^|\\s)(?:\\d{1,2}|한|두|세|네|일|이|삼|사)\\s*(?:일|주일|주|달|개월)\\s*[전후](?=\\s|$)|20\\d{2}[.\\-/년\\s]+\\d{1,2}|\\d{1,2}\\s*월\\s*\\d{1,2}|[월화수목금토일]요일)",
   `(?:^|\\s)(?:(?:${AB_DATE_DAY_WORDS})(?=(?:${AB_DATE_DAY_PARTS})?(?:\\s|$))|${AB_DATE_PHRASES.join("|")})`,
 ].join("|"));
 
@@ -105,36 +115,91 @@ function splitTransactionClauses(text) {
   // 다음 줄에 붙어 "커피 택시 8100원"이 됐고, "1. 점심 12000원" 같은 번호 목록은 1원으로 읽혔다. 줄을 먼저 나누고 줄머리 목록
   // 표식(1. · 2) · - · •)을 뗀 뒤, 예전 규칙을 줄마다 적용한다.
   // V22.9.93 Q-28: normalizeText 가 괄호를 지우므로 ‘2)’ 는 다듬기 전에 뗀다. 다듬은 뒤에 떼면 ‘2 커피 4000원’ 이 남아 저장되지 않았다.
-  const lines = String(text || "").split(/\r?\n/).map((line) => normalizeText(line.trim().replace(KAKAO_LIST_MARKER_PREFIX, "")).trim()).filter(Boolean);
-  const firstPass = (lines.length ? lines : [raw]).flatMap((line) => line
+  const lines = String(text || "").split(/\r?\n/).flatMap(splitAmountSemicolons).flatMap(splitInlineNumberedList).map((line) => normalizeText(line.trim().replace(KAKAO_LIST_MARKER_PREFIX, "")).trim()).filter(Boolean);
+  let dateJoined = false;
+  const firstPass = (lines.length ? lines : [raw]).flatMap((line) => {
+    const pieces = line
     // V22.9.26: 공백이 붙은 슬래시("커피 4500 / 점심 9000")와 가운뎃점도 문장 구분이다.
     // "10/3 마트 52000" 의 날짜 슬래시는 양쪽이 붙어 있어 나누지 않는다.
     .split(/\s*(?:(?<!\d)[,，](?!\d)|[,，](?!\d)|(?<!\d)[,，]|;|；|\n|(?<=\s)\/|\/(?=\s)|·|(?<=^|\s)(?:그리고|또|추가로|다음으로)\s+|(?<=[가-힣]{2})(?:랑|하고)\s+)\s*/)
     .map((x) => String(x || "").trim())
-    .filter(Boolean));
+    .filter(Boolean);
+    const joined = attachDateOnlyPieces(pieces);
+    dateJoined ||= joined.length < pieces.length;
+    return joined;
+  });
   const datePrefix = extractLeadingDateHint(raw);
+  // V22.9.93 Q-56: 머리 날짜는 ‘7월 3일’ 꼴로 붙인다. ‘7.3’ 그대로 붙이면 다음 조각의 ‘만원’ 과 이어져 7.3만 = 73,000원이 됐다.
+  const carriedDate = datePrefix.replace(/(^|\s)(\d{1,2})[.\/-](\d{1,2})일?$/, "$1$2월 $3일");
   const clauses = [];
   for (const part of firstPass) {
     const pieces = splitByAmountEnds(part);
     for (let piece of pieces) {
       // V22.9.81 U-24: 머리 날짜로 시작하는 조각(첫 조각)에는 다시 붙이지 않는다. 달 없는 ‘25일’은 조각 날짜 판정에 없어 두 번 붙으면 메모에 ‘25일’이 남는다.
-      if (datePrefix && !hasDateHint(piece) && !`${piece} `.startsWith(`${datePrefix} `)) piece = `${datePrefix} ${piece}`;
+      if (datePrefix && !hasDateHint(piece) && !`${piece} `.startsWith(`${datePrefix} `)) piece = `${carriedDate} ${piece}`;
       if (piece.trim()) clauses.push(piece.trim());
     }
   }
+  if (dateJoined) clauses.dateJoined = true;
   return clauses;
 }
 
-// V22.9.93 Q-47: 금액 뒤에서 나눈 조각의 머리에 이음말·부호가 남아 메모가 ‘과 점심’·‘+ 점심’ 이었다.
+// V22.9.93 Q-85: 쉼표 뒤에 날짜만 쓴 조각은 앞 조각의 날짜다(‘커피 4000, 어제’ 의 날짜를 버려 오늘로 저장됐다. 웹은 읽었다). 줄 끝 조각이면 앞 조각 모두의 날짜다(‘커피 4000, 택시 8000, 어제’).
+// 맨 숫자 꼴은 기간·수량일 수 있어 잇지 않는다(‘숙박 20만원, 2일’·‘콜라 2000, 1.5’·‘쿠폰 1000, 1/2’). 연도까지 쓴 세 칸은 날짜다(‘택시 8000, 26. 3. 5’). 줄이 다르면 다음 줄의 머리말일 수 있어 잇지 않는다.
+function isDateOnlyPiece(piece) {
+  return piece === extractLeadingDateHint(piece) && (!/^\d/.test(piece) || /^\d{1,2}\s*월|[전후]$|^\d{2,4}\s*[./\-년]\s*\d{1,2}\s*[./\-월]\s*\d{1,2}/.test(piece));
+}
+
+function attachDateOnlyPieces(pieces) {
+  if (isDateOnlyPiece(pieces[0])) return pieces;
+  const out = [];
+  for (const piece of pieces) {
+    if (out.length && isDateOnlyPiece(piece)) out[out.length - 1] += ` ${piece}`;
+    else out.push(piece);
+  }
+  const trailing = pieces[pieces.length - 1];
+  return out.length < pieces.length && isDateOnlyPiece(trailing) ? out.map((piece) => (hasDateHint(piece) ? piece : `${piece} ${trailing}`)) : out;
+}
+
+// V22.9.93 Q-59: 세미콜론은 다듬으면 지워져 다음 조각과 이어졌다(‘식사 12000; 천 원 커튼’ 이 12,000,000원). 조각마다 금액이 있을 때만 줄처럼 나눈다(‘날짜=2026-09-02; 금액=12000; 메모=점심’ 은 한 건이다).
+function splitAmountSemicolons(line = "") {
+  const parts = line.split(/[;；]/);
+  return parts.length > 1 && parts.every((part) => findAmountTokenSpans(part).length) ? parts : [line];
+}
+
+// V22.9.93 Q-53: 한 줄로 이어 쓴 번호 목록을 줄로 나눈다. ‘1. 김밥 1만 2. 떡볶이 4천원’ 의 ‘1만 2’ 가 10,002원이 됐고, ‘1. 김밥 1만원 2. 떡볶이 4천원’ 은 저장되지 않았다.
+// 1번으로 시작해 같은 표식의 다음 번호가 차례로 이어질 때만 목록이다(문장 속 ‘2.’ 하나로는 나누지 않는다). 나눈 줄은 다시 접는다(‘1. 커피 4000 2. 12. 25 점심 9000’ 의 날짜가 줄 가운데라 12원·25원 두 건이 됐다).
+function splitInlineNumberedList(line = "") {
+  const mark = /^\s*1([.)])\s/.exec(line)?.[1];
+  if (!mark) return [line];
+  const parts = [];
+  let from = 0;
+  for (let next = 2; next <= 20; next += 1) {
+    const at = line.indexOf(` ${next}${mark} `, from);
+    if (at < 0) break;
+    parts.push(line.slice(from, at));
+    from = at + 1;
+  }
+  parts.push(line.slice(from));
+  return parts.length > 1 ? parts.map((part) => foldInputWidth(part)) : parts;
+}
+
+// V22.9.93 Q-47: 금액 뒤에서 나눈 조각의 머리에 이음말·부호가 남아 메모가 ‘과 점심’·‘+ 점심’ 이었다. Q-81 의 끝맺음(‘커피 4000에 빵 3000’)도 같다.
+// V22.9.93 Q-76: 금액으로 시작해 낱말로 끝나는 줄은 금액 앞에서 나눈다. ‘4000 커피 5000 라면’ 이 4,000원 기타지출과 5,000원 ‘커피 라면’ 이 됐다. 낱말로 끝나지 않거나(‘5000 커피 4000’) 금액 사이에 날짜가 있으면(날짜가 뒤 금액의 것이다) 예전대로 읽는다.
 function splitByAmountEnds(text) {
   const t = normalizeText(text);
   const spans = findAmountTokenSpans(t);
   if (spans.length <= 1) return [t];
+  const head = t.slice(0, spans[0].start).trim();
+  const dated = spans.slice(1).some((span, i) => hasDateHint(t.slice(spans[i].end, span.start)));
+  if ((!head || head === extractLeadingDateHint(t)) && !dated && t.slice(spans[spans.length - 1].end).trim()) {
+    return spans.map((span, i) => t.slice(i ? span.start : 0, i + 1 < spans.length ? spans[i + 1].start : t.length).trim());
+  }
   const out = [];
   let start = 0;
   for (let i = 0; i < spans.length; i++) {
     const end = spans[i].end;
-    const part = t.slice(start, end).replace(i ? /^\s*(?:(?:과|와|랑|하고|및)\s+|[.+\-–—ㅡ&|]+\s*)/ : "", "").trim();
+    const part = t.slice(start, end).replace(i ? /^\s*(?:(?:과|와|랑|이랑|하고|및|에|이고|이며|이요|요|이에요|예요|입니다|임|정도|쯤|가량)\s+|[.+\-–—ㅡ&|]+\s*)/ : "", "").trim();
     if (part) out.push(part);
     start = end;
   }

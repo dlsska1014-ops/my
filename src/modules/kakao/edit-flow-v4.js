@@ -36,7 +36,7 @@ import {
   kakaoEditTypeValue, startsWithKakaoEditField,
 } from "./edit-state-machine.js";
 import {
-  KAKAO_ROLE_CHECK_FAILED_TEXT, readHouseholdRoleOrFailure,
+  KAKAO_ROLE_CHECK_FAILED_TEXT, readHouseholdRoleOrFailure, roleBlockedMessage,
 } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 import { parseMultipleTransactions } from "../nlu/transaction-parser.js";
@@ -501,7 +501,7 @@ function kakaoDailyListTextV4({ date = "", householdName = "", ownOnlyLine = "",
 
 // 3장 1단계: "수정 NN번 [나머지]" — 나머지가 없으면 메뉴, 있으면 모듈 파서로.
 // 즉시 반영(apply)되면 세션은 저장되지 않는다.
-async function startKakaoEditFlowV4(env, ctx, { row, seq, rest, dailyLimit = 0 }) {
+async function startKakaoEditFlowV4(env, ctx, { row, seq, rest, dailyLimit = 0, directed = false }) {
   const { kakaoUserKey, payload, household, user, origin } = ctx;
   // V22.9.81 U-13: 번호를 모르는 기록(‘방금’ 기록이 그날 목록 밖)은 번호로 이어지는 수정 세션을 열지 않는다. 세션 답장·안내가 모두
   // ‘수정 NN번 …’ 꼴이라, 번호를 지어내면 그 번호의 다른 기록을 고치게 된다.
@@ -532,13 +532,16 @@ async function startKakaoEditFlowV4(env, ctx, { row, seq, rest, dailyLimit = 0 }
     return sendKakaoEditReplyV4(env, { kakaoUserKey, payload }, session, kakaoEditMenuTextV4(row, seq), session);
   }
   const config = await buildKakaoEditConfigV4(env, household.id, session.rowType);
-  const result = handleEditMessage(session, rest, { ...config, now: Date.now() });
+  const result = handleEditMessage(session, rest, { ...config, now: Date.now(), directed });
   return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin }, session, result, config);
 }
 
 // V22.9.43: 소유자가 구성원 권한을 ‘기록만’으로 정한 가계부에서 구성원은 기록을 고치거나 지우거나 되살리지 못한다.
 // 권한을 읽지 못하면 아무것도 바꾸지 않는다(막힌 쪽). 소유자·관리자는 정책을 읽지 않는다.
 async function kakaoRecordChangeRefusalTextV4(env, household = {}, role = "") {
+  // V22.9.93 Q-73: 조회 전용 구성원의 ‘최근 기록 삭제’ 에 ‘기록만’ 정책을 안내했다.
+  const blocked = roleBlockedMessage(role, household?.name);
+  if (blocked) return blocked;
   try {
     if (await canChangeMyHouseholdRecords(env, role, household?.id)) return "";
   } catch (_) {
@@ -549,6 +552,11 @@ async function kakaoRecordChangeRefusalTextV4(env, household = {}, role = "") {
 
 // 3장 1·2단계 + 조회·복구: 최상위 수정 관련 명령 라우터.
 // 어떤 이해 실패도 메뉴 재출력으로 이어지지 않는다(I8) — 실패는 모듈 fail 경로뿐.
+function kakaoEditNamesRowV4(row = {}, word = "") {
+  const said = compact(word), memo = compact(row.memo || "");
+  return !!memo && (memo.includes(said) || said.includes(memo));
+}
+
 async function handleKakaoEditCommandV4(env, ctx) {
   const { utterance, household, user, kakaoUserKey, payload, origin } = ctx;
   const raw = normalizeText(utterance);
@@ -677,11 +685,11 @@ async function handleKakaoEditCommandV4(env, ctx) {
   const editTarget = parseKakaoEditCommandV4(raw);
   if (editTarget) {
     // V22.9.63 감사(1:1 1): "수정 01번 02번 금액 5000"처럼 번호가 둘 이상이면 어느 기록인지 정하지 않고 한 건씩 적어 달라고 한다.
-    if (/^\d{1,2}\s*번(?=\s|$)/.test(String(editTarget.rest || ""))) return kakaoText("한 번에 한 건씩만 수정할 수 있어요. 번호 하나만 적어 주세요.\n예: 수정 01번 금액 5000");
+    if (editTarget.multi || /^\d{1,2}\s*번(?=\s|$)/.test(String(editTarget.rest || ""))) return kakaoText("한 번에 한 건씩만 수정할 수 있어요. 번호 하나만 적어 주세요.\n예: 수정 01번 금액 5000");
     const rejected = kakaoEditTargetRejectTextV4(editTarget);
     if (rejected) return kakaoText(rejected);
     // V22.9.93 Q-25: ‘1번 취소’ 에 ‘01번 수정을 취소했어요’ 라고 답해 기록이 지워진 줄 알게 했다. 기록은 그대로라고 말한다.
-    if (editTarget.seq && /^취소(?:요|\s*해\s*(?:줘요?|주세요)?|\s*할게요?)?$/.test(String(editTarget.rest || ""))) {
+    if (editTarget.seq && /^취소(?:요|\s*해\s*(?:요|줘요?|주세요)?|\s*할(?:게요?|래요?)|\s*합니다|\s*하기)?$/.test(String(editTarget.rest || ""))) {
       const shown = twoDigitSeq(editTarget.seq);
       return kakaoText(`${shown}번 기록은 그대로예요.\n지우려면 ‘삭제 ${shown}번’이라고 보내 주세요.`);
     }
@@ -694,7 +702,12 @@ async function handleKakaoEditCommandV4(env, ctx) {
       if (complaint) return startKakaoEditFlowV4(env, ctx, { row, seq, rest: complaint, dailyLimit });
       return kakaoText([kakaoRowLabel(row, seq), "기록은 그대로예요. 바꾸려면 이렇게 보내 주세요.", `${Number(seq) >= 1 ? `수정 ${twoDigitSeq(seq)}번` : "방금"} 내용 점심`].join("\n"));
     }
-    return startKakaoEditFlowV4(env, ctx, { row, seq, rest: editTarget.rest, dailyLimit });
+    // V22.9.93 Q-62: 말한 내용이 그 번호의 기록이 아니면 고치지 않는다(‘3번 버스 1400원으로’ 가 3번 김밥 기록의 금액을 덮어썼다. 금액은 ‘복구’ 로 되돌릴 수 없다).
+    if (editTarget.namedWord && !kakaoEditNamesRowV4(row, editTarget.namedWord)) {
+      const shown = twoDigitSeq(seq);
+      return kakaoText([kakaoRowLabel(row, seq), `보낸 내용(‘${editTarget.namedWord}’)과 달라서 고치지 않았어요. 이 기록이 맞다면 이렇게 보내 주세요.`, `수정 ${shown}번 ${editTarget.rest}`].join("\n"));
+    }
+    return startKakaoEditFlowV4(env, ctx, { row, seq, rest: editTarget.rest, dailyLimit, directed: editTarget.directed });
   }
 
   // 번호 없는 "지출자 변경"/"지출자 엄마" — 방금 저장한 기록에 대해 같은 V4 경로로 처리

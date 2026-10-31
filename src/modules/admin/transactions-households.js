@@ -268,7 +268,8 @@ async function handleAdminAddTransaction(request, env) {
   const transactionDate = String(form.get("transaction_date") || (form.get("quick_manual_date") === "1" ? "" : formatDate(nowKstDate()))).trim();
   const amount = readTransactionAmount(form);
   // V22.9.93 Q-2: 문장 판정은 해석기와 같은 글자를 읽는다. 미리 보기는 ‘월세 1.200.000원’을 읽는데 여기는 원문을 봐서 ‘금액 없음’으로 막혔다.
-  const smartText=foldInputWidth(String(form.get("raw_text") || ""));
+  // V22.9.93 Q-72: 화면 미리 보기(readLine)와 같이 목록 표식을 뗀다. ‘- 4500원 커피’ 를 화면은 저장할 수 있다고 보여 주고 여기서는 음수로 읽어 막았다.
+  const smartText=foldInputWidth(String(form.get("raw_text") || "")).replace(/^(?:\d{1,2}[.)]|[-•*])\s+/,"");
   if (/(?:결제|승인)\s*취소/.test(smartText) && !/(?:^|\s)(?:수입|지출)(?=\s|$)/.test(smartText) && form.get("quick_manual_type")!=="1") {
     const err="취소 내역은 수입 또는 지출을 직접 선택한 뒤 저장해 주세요.";
     return redirectResponse(returnLocation(form,transactionReturnFallback(month,householdId,{err}),transactionAddRedirectExtras(form,{err},"error")));

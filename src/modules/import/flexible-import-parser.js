@@ -1,7 +1,7 @@
 // @build:imports-start
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { moneyTokenSpans, quickInputDate } from "../client/shared-input-parsers.js";
-import { inputPaymentPatterns } from "../client/shared-input-nlu.js";
+import { foldInputWidth, inputPaymentPatterns } from "../client/shared-input-nlu.js";
 import { safeError } from "../runtime/leases.js";
 import { jsonResponse, redirectResponse } from "../runtime/http.js";
 import { sha256Hex, verifyAdminSession } from "../auth/crypto-admin-session.js";
@@ -930,7 +930,8 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const resolveImportRowDate = (opts) => {
     let value = dateVal ? parseImportDateCell(dateVal, { ...opts, allowSerial: true }) : "";
     if (!value && dateVal && /[가-힣]/.test(dateVal)) value = importDateFromFreeText(dateVal, opts);
-    if (!value && !importHasDateField(obj)) value = findImportDateInValues(contextCells, opts) || importDateFromFreeText(contextText, opts);
+    // V22.9.93 Q-71: 문장 칸의 날짜도 거래 해석기와 같은 입구로 읽는다. ‘10월 3일에 커피 4000’ 의 금액은 읽으면서 날짜는 못 읽어 오늘로 저장될 뻔했다(확인 필요 표시만 남았다).
+    if (!value && !importHasDateField(obj)) value = findImportDateInValues(contextCells, opts) || importDateFromFreeText(foldInputWidth(contextText), opts);
     return value;
   };
   let transactionDate = resolveImportRowDate(options);

@@ -30,9 +30,9 @@ const PINNED = {
   // V22.9.93(출시 전 입력 시험 Q-1~Q-3·X-27): 공유 입력 해석(foldInputWidth·cleanInputMemo)이 실리는 홈 스크립트·홈 셸과 분류 낱말이 실리는 분류 규칙의 바이트가 바뀌어
   // 세 주소를 v22993 으로 올렸다. 옛 주소(ab-category-rules-v22980·mobile-home-v22990·mobile-home-shell-v22990, 운영 V22.9.90~92 가 쓰는 주소)의 바이트는
   // AB_HISTORICAL_RUNTIME_ASSETS 에 남아 옛 해시(아래 줄)로 계속 내려간다.
-  "/assets/ab-category-rules-v22993.js": "78899ad42d4db9f8a25daecd64c1308141f05359f1db922b685181b8a9a389a0",
-  "/assets/mobile-home-v22993.js": "675ca9ec9d4b2bb56e71aed3e1f601bf5f12ab713fcae693bed0412a88594e48",
-  "/assets/mobile-home-shell-v22993.js": "9cd888e4ecc2ca286930e13e63c0a41e4989c0df1e1b35991527725a85063379",
+  "/assets/ab-category-rules-v22993.js": "9e816c59bac6964109335d80aed1caa2184bb089608d78157035965064e61c9b",
+  "/assets/mobile-home-v22993.js": "46a28f9aff85b360045a58414bdd770b7b1c215456efdee0e5590ae93733dcde",
+  "/assets/mobile-home-shell-v22993.js": "bc993ad7dec6fc174656d92614ecfae86b57e5f6ecbf133dd5cd60c1e1a8d5c1",
   "/assets/accountbook-shell-v22993.css": "e5da88f98b1404f6f932820648077e75a1d7ee513f09934ca54217308a965e56",
   "/assets/accountbook-goals-v22993.js": "9df990a3469854d3bd17ff902d54a695a7239201612584aba4a27514d1cd00ae",
   "/assets/accountbook-v5-v22993.js": "789af0f9b7e58fc29dfa55e3962eed7ab6f1f4ff04f99ccf712ee23483777d28",
@@ -106,7 +106,7 @@ const PINNED = {
   "/assets/accountbook-search-v22979.js": "23294f6783eab195046b6e17e49c48ea2fd43e017ad227c45bc1846d60409a48",
   "/assets/accountbook-v5-v22979.js": "5105846f10fb25f84ece1a3bdbf341f9b03062d1ca32e050468ccfaca3d29787",
   "/assets/accountbook-budget-preview-v22979.js": "8aee568492093d03d361cf49adf33a0b3dfd28c5f2c7913a98c6ff957e3b9bae",
-  "/assets/accountbook-budget-preview-v22993.js": "49045bef51f7f2f0d4b7be6cb823a3fec7b4cfe819952b3c84965960f9cfebbe",
+  "/assets/accountbook-budget-preview-v22993.js": "5f9afcc94904b4cc3912642df2dd2c426b0b6a88a74da1f23fa5fb7910be7776",
   // V22.9.78(V77 N-12): 홈 스크립트·홈 셸에 실리는 quickInputDate 가 주 없이 쓴 ‘지난·저번 요일’을 오늘을 뺀 앞 요일로 읽게 바뀌어 두 주소를 올렸다.
   // 옛 주소(mobile-home-shell-v22976·mobile-home-v22976)는 V22.9.85 옛 주소 정리로 뺐다(아래 RETIRED).
   // V22.9.76: 홈 스크립트·홈 셸·분류 규칙 자산의 내용이 바뀌어(수입·지출 화면 수정, 분류 규칙 데이터 A-10) 세 주소를 올렸다.

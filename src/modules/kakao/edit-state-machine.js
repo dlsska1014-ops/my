@@ -1,6 +1,8 @@
 // @build:imports-start
 import { foldInputWidth } from "../client/shared-input-nlu.js";
-import { KAKAO_EDIT_AMOUNT_V4, KAKAO_EDIT_VERB_V4 } from "./edit-vocabulary.js";
+import {
+  KAKAO_DELETE_WORD_V4, KAKAO_EDIT_AMOUNT_V4, KAKAO_EDIT_JOSA_VERB_V4, KAKAO_EDIT_VERB_V4,
+} from "./edit-vocabulary.js";
 import { extractAmount, normalizeText } from "../nlu/amount-parser.js";
 import { numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -100,14 +102,16 @@ const DATE_WORDS = new Set(["오늘", "어제", "그제", "그저께", "엊그�
 const METHOD_WORDS = ["현금", "체크카드", "신용카드", "카드", "계좌이체", "이체", "페이", "카카오페이", "네이버페이", "삼성페이"];
 
 const KAKAO_EDIT_ANSWER_END = new RegExp(String.raw`\s+(?:${KAKAO_EDIT_VERB_V4}|할게요?|할래요?|해요|합니다)$`);
-const KAKAO_EDIT_ANSWER_JOSA_END = new RegExp(String.raw`(으로|로)\s*(?:${KAKAO_EDIT_VERB_V4}|할게요?|할래요?|해요|합니다)$`);
+const KAKAO_EDIT_ANSWER_JOSA_END = new RegExp(String.raw`(으로|로)\s*${KAKAO_EDIT_JOSA_VERB_V4}$`);
 // ‘5000원으로’·‘5000원이요’·‘5천원입니다’·‘오천으로’·‘5000원 맞아요’·‘아니 5000원’: 금액만 보낸 답이다.
 const KAKAO_AMOUNT_ANSWER_V4 = new RegExp(String.raw`^(?:(?:아니(?:요|오)?|아뇨|네|예|응|그럼|그냥|다시)[,\s]+)?(${KAKAO_EDIT_AMOUNT_V4}|[일이삼사오육칠팔구십백천만억\s]*[십백천만억])\s*(?:(?:으로|로)요?|이?요|입니다|이에요|예요|이야|야|임|이다|(?:이\s*)?맞(?:아요?|습니다|음))?$`);
 // ‘커피 5000원으로 바꿔줘’: 세션의 기록을 되짚어 말한 금액 고치기다.
-const KAKAO_NAMED_AMOUNT_ANSWER = new RegExp(String.raw`^\S.*\s(${KAKAO_EDIT_AMOUNT_V4})\s*(?:으로|로)$`);
+const KAKAO_NAMED_AMOUNT_ANSWER = new RegExp(String.raw`^\S.*?\s(${KAKAO_EDIT_AMOUNT_V4})\s*(?:으로|로)$`);
+// V22.9.93 Q-60: 지우는 말만 있을 때만 지운다. ‘삭제하지 마’·‘삭제 취소’·‘삭제 말고 금액 5000’·‘7번 금액 5000’ 이 낱말 머리만 보고 기록을 지웠다.
+const KAKAO_PLAIN_DELETE = new RegExp(String.raw`^(?:7\s*번?|지우기|${KAKAO_DELETE_WORD_V4})$`);
 // V22.9.93 Q-32: 칸 이름 뒤의 질문·불평·지우기 말은 바꿀 값이 아니다(‘아까 거 내용 뭐였지’ 가 메모를 ‘뭐였지’ 로 덮어썼다). ‘지우개’·‘맞춤’·‘이상형’ 은 값이라 낱말째로 본다.
 const KAKAO_EDIT_COMPLAINT = String.raw`틀렸(?:어요?|네|음|다)?|틀려(?:요)?|틀림|잘못(?:됐어요?|됐네|됐음|됨|되었어요?)?|이상(?:해요?|함|한데|하네|합니다)|아니(?:야|에요|잖아|지)|아닌(?:데|듯|것\s*같아)`;
-const KAKAO_EDIT_NOT_VALUE = new RegExp(String.raw`(?:^|\s)(?:뭐(?:야|예요|에요|임|냐|니|지|였지|였어요?|였더라|더라)?|얼마(?:야|예요|에요|임|냐|니|지|였지|였어요?)|언제(?:야|예요|에요|임|냐|니|지|였지|였어요?)|왜|어때요?|어떻게(?:\s*돼)?|확인(?:\s*해\s*(?:줘|주세요)?|\s*좀)?|맞(?:아요?|지|죠|나요?|니|냐|습니까|음)?|${KAKAO_EDIT_COMPLAINT}|지워(?:줘|주세요|요)?|지우기|삭제(?:해(?:줘|주세요)?)?|없애(?:줘|주세요)?|비워(?:줘|주세요)?|몰라(?:요)?)\s*[?？!]*$`);
+const KAKAO_EDIT_NOT_VALUE = new RegExp(String.raw`(?:^|\s)(?:뭐(?:야|예요|에요|임|냐|니|지|였지|였어요?|였더라|더라)?|얼마(?:야|예요|에요|임|냐|니|지|였지|였어요?)|언제(?:야|예요|에요|임|냐|니|지|였지|였어요?)|왜|어때요?|어떻게(?:\s*돼)?|확인(?:\s*해\s*(?:줘|주세요)?|\s*좀)?|알려(?:\s*(?:줘요?|주세요))?|보여(?:\s*(?:줘요?|주세요))?|맞(?:아요?|지|죠|나요?|니|냐|습니까|음)?|${KAKAO_EDIT_COMPLAINT}|지워(?:줘|주세요|요)?|지우기|삭제(?:해(?:줘|주세요)?)?|없애(?:줘|주세요)?|비워(?:줘|주세요)?|몰라(?:요)?)\s*[?？!]*$`);
 const KAKAO_EDIT_COMPLAINT_REST = new RegExp(String.raw`^(\S+)\s+(?:${KAKAO_EDIT_COMPLAINT})\s*[?？!]*$`);
 
 // ------------------------- 유틸 -------------------------
@@ -174,9 +178,11 @@ function tokenToField(tokenRaw) {
 //      (안 그러면 "엄마"→"얼마(금액)", "어제"→"삭제" 같은 오인 발생)
 function tokenToFieldFuzzy(tokenRaw) {
   const c = compact(normalize(tokenRaw).replace(/번$/, ""));
-  if (!c || c.length < 2) return null;
+  // V22.9.93 Q-60: ‘수정’·‘변경’ 은 칸 이름의 오타가 아니다(‘수정 바랍니다’ 가 결제수단이 됐다).
+  if (!c || c.length < 2 || FILLER_TOKENS.has(c)) return null;
   for (const [field, words] of Object.entries(FIELD_SYNONYMS)) {
     if (field === "type") continue; // V22.9.77 감사 K-4: 구분은 정확히 쓴 말만 받는다(기분·부분 ≠ 구분).
+    if (field === "delete") continue; // V22.9.93 Q-60: 오타로 지우지 않는다(‘세제 8000’·‘어제 커피 4500’·‘지갑 30000원’ 이 묻지도 않고 기록을 지웠다).
     if (words.some((w) => w.length >= 2 && editDistance(c, w) <= 1)) return field;
   }
   return null;
@@ -202,7 +208,7 @@ function startsWithKakaoEditField(textRaw = "") {
 // V22.9.93 Q-23: ‘결제수단 현금으로’·‘분류 외식으로’·‘날짜 어제로’·‘내용 점심으로’ 의 조사가 값으로 저장됐다(결제수단이 ‘현금으로’ 가 됐다). 칸이 정해진 값은 조사를 뗀다.
 // V22.9.93 Q-34: 무조건 떼면 ‘종로’ 가 ‘종’, ‘현대카드 제로’ 가 ‘현대카드 제’ 가 됐다. ‘로’ 는 받침이 없거나 ㄹ 받침 뒤에, ‘으로’ 는 그 밖의 받침 뒤에 온다.
 // 규칙에 어긋나거나 ‘로’ 앞이 한 글자이거나 낱말 자체면 이름의 일부다. 등록된 이름은 먼저 본다. 숫자 뒤의 조사는 뗀다(Q-43 ‘날짜 7/3으로’).
-const KAKAO_EDIT_RO_WORD = /^(?:앞으로|뒤로|위로|새로|따로|바로|서로|그대로|제대로|을지로|퇴계로|충무로|세종로|청계로|테헤란로|.+대로)$/;
+const KAKAO_EDIT_RO_WORD = /^(?:앞으로|뒤로|위로|새로|따로|바로|서로|그대로|제대로|대학로|을지로|퇴계로|충무로|세종로|청계로|테헤란로|고속도로|교차로|마시멜로|레트로|메트로|히어로|.+대로|.*(?:콜라|펩시|사이다|카드|맥주)제로|.*(?:맥북|패드|갤럭시|에어팟)프로)$/;
 
 function stripKakaoEditDirection(field, value, config = {}) {
   const text = normalize(value);
@@ -214,6 +220,8 @@ function stripKakaoEditDirection(field, value, config = {}) {
   if (!found) return text;
   const [, stem, particle] = found;
   if (known.some((name) => compact(name) === compact(stem)) || /\d$/.test(stem)) return stem;
+  // V22.9.93 Q-70: 고치는 말이 없으면 내용의 ‘로’ 는 두 글자 낱말 뒤에서만 조사다. ‘택시로’ 는 답이지만 ‘맥북프로’·‘고속도로’·‘마시멜로’ 는 끝 글자가 잘렸다.
+  if (field === "content" && particle === "로" && !config.directed && stem.split(" ").pop().length > 2) return text;
   const code = stem.charCodeAt(stem.length - 1);
   const jong = code >= 0xac00 && code <= 0xd7a3 ? (code - 0xac00) % 28 : 0;
   const word = stem.split(" ").pop();
@@ -223,11 +231,20 @@ function stripKakaoEditDirection(field, value, config = {}) {
 }
 
 // V22.9.93 Q-31: 세션 답의 앞뒤 말을 뗀다. ‘5000원으로 바꿔줘’·‘5000원이요’·‘5000원 맞아요’·‘아니 5000원’ 이 값으로 읽히지 않거나 메모에 그대로 남았다.
+// V22.9.93 Q-61: 끝맺음을 뗀 뒤에도 금액 전체를 본다. ‘2만 5천원으로 바꿔줘’ 가 끝 낱말만 읽혀 5,000원이 됐다.
+// V22.9.93 Q-70: 끝맺음이 없으면 받은 말 그대로다(‘아니 그게’ 가 ‘그게’ 가 됐다). 뒤의 ‘변경’·‘수정’ 은 이름의 일부일 수 있다(‘주소 변경’·‘바지 수정’).
+// V22.9.93 Q-88: ‘라떼로 변경’·‘현금으로 변경’ 의 조사 뒤 ‘변경’ 은 고치는 말이다(메모가 ‘라떼로 변경’ 이 되거나 다시 물었다). ‘경로 변경’·‘도로 수정’ 처럼 ‘로’ 앞이 한 글자이면 이름이다.
 function kakaoEditAnswerText(textRaw = "") {
-  const plain = normalize(textRaw).replace(/^(?:아니(?:요|오)?|아뇨)[,\s]+/, "");
-  const amount = kakaoAmountAnswerValue(plain);
+  const text = normalize(textRaw);
+  const plain = text.replace(/^(?:아니(?:요|오)?|아뇨)[,\s]+/, "");
+  const amount = kakaoAmountAnswerValue(plain.replace(/\s*(?:정도|쯤|가량)(?:이?요|입니다|이에요|예요)?$/, ""));
   if (amount) return amount;
-  return normalize(plain.replace(KAKAO_EDIT_ANSWER_JOSA_END, "$1").replace(KAKAO_EDIT_ANSWER_END, "")) || plain;
+  const spoken = normalize(plain.replace(KAKAO_EDIT_ANSWER_JOSA_END, "$1").replace(KAKAO_EDIT_ANSWER_END, "")) || plain;
+  const spokenAmount = kakaoAmountAnswerValue(spoken);
+  if (spokenAmount) return spokenAmount;
+  const changed = plain.match(/(\S+)\s+(?:변경|수정|정정)$/)?.[1] || "";
+  const directed = /으로$/.test(changed) || (/\S{2,}로$/.test(changed) && !KAKAO_EDIT_RO_WORD.test(changed));
+  return spoken === plain || (changed && !directed) ? text : spoken;
 }
 
 function kakaoAmountAnswerValue(textRaw = "") {
@@ -240,8 +257,12 @@ function isKakaoAmountAnswer(textRaw = "") {
   return !!value && value !== normalize(textRaw);
 }
 
+// V22.9.93 Q-73: ‘서류 확인’·‘주문 잘못’ 은 내용이다. 끝말이 ‘확인’·‘잘못’ 이면 혼자 쓰거나 칸 이름·‘이거’ 뒤에 올 때만 값이 아니다.
 function isKakaoEditNotValue(textRaw = "") {
-  return KAKAO_EDIT_NOT_VALUE.test(normalize(textRaw));
+  const text = normalize(textRaw);
+  if (!KAKAO_EDIT_NOT_VALUE.test(text)) return false;
+  const soft = text.match(/^(.+)\s(?:확인|잘못)$/);
+  return !soft || soft[1].split(" ").some((word) => tokenToField(word.replace(/(?:을|를|은|는|이|가)$/, "")) || /^(?:이거|그거|저거|이것|그것|기록|방금|아까)$/.test(word));
 }
 
 // ‘방금 금액 틀렸어’ 처럼 칸을 짚은 불평이면 그 칸 이름을 준다. 값을 묻는 세션을 연다(안내만 하면 다음 말 ‘5000원’ 이 새 기록이 된다).
@@ -252,29 +273,44 @@ function kakaoEditComplaintField(textRaw = "") {
 
 function kakaoEditNamedAmount(textRaw = "") {
   const text = normalize(textRaw);
-  if (startsWithKakaoEditField(text) || /^\d{1,2}\s*번(?:\s|$)/.test(text)) return "";
-  return (text.match(KAKAO_NAMED_AMOUNT_ANSWER)?.[1] || "").trim();
+  if (startsWithKakaoEditField(text) || /(?:^|\s)\d{1,2}\s*번(?:\s|$)/.test(text) || KAKAO_EDIT_TWO_AMOUNTS.test(text)) return "";
+  const amount = (text.match(KAKAO_NAMED_AMOUNT_ANSWER)?.[1] || "").trim();
+  return isKakaoClearAmount(amount) ? amount : "";
+}
+
+// V22.9.93 Q-62: 내용과 함께 말한 숫자는 금액이 분명할 때만 금액이다(‘세트 2로’·‘아이폰 15로’·‘사이즈 270으로’ 가 금액이 됐다).
+function isKakaoClearAmount(value = "") {
+  return /원$|[십백천만억]|\d,?\d{3}/.test(String(value).trim());
 }
 
 // V22.9.93 Q-31: ‘금액은 5000원’·‘내용 점심으로 바꿔줘’ 의 칸 이름이 값으로 남았다. 묻고 있는 칸의 이름만 뗀다.
-function stripKakaoEditFieldWord(field, textRaw = "") {
+// V22.9.93 Q-70: 조사나 고치는 말이 없으면 낱말이 값의 일부다(‘이름 없는 식당’·‘메모 작성’·‘내용 증명’ 의 앞 낱말이 잘렸다). 금액 칸은 숫자 앞의 이름이라 그대로 뗀다.
+function stripKakaoEditFieldWord(field, textRaw = "", directed = false) {
   const [first, ...rest] = normalize(textRaw).split(" ");
   const word = first.replace(/(?:을|를|은|는|이|가)$/, "");
-  return rest.length && (FIELD_SYNONYMS[field] || []).some((name) => name === first || name === word) ? rest.join(" ") : normalize(textRaw);
+  const named = (FIELD_SYNONYMS[field] || []).some((name) => name === first || name === word);
+  return rest.length && named && (word !== first || directed || field === "amount") ? rest.join(" ") : normalize(textRaw);
 }
 
+// V22.9.93 Q-83: ‘결제 카드로’·‘생일 카드로’·‘월급 페이로’ 를 끝말만 보고 결제수단 ‘결제 카드’ 로 저장했다. 띄어 쓴 값은 카드사·회사·사람의 것일 때만 결제수단이고, 앞의 ‘결제’ 는 칸 이름이다.
+const KAKAO_EDIT_PAY_HEAD = /^(?:결제|결재|지불)\s+(.+)$/;
+const KAKAO_EDIT_CARD_OWNER = /^(?:신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오|토스|네이버|애플|우체국|씨티|기업|IBK|법인|회사|개인|남편|아내|와이프|신랑|엄마|아빠|언니|오빠|누나|형|동생|아들|딸|내|제)\s+(?:체크|신용)?(?:카드|페이)$/i;
+
 // [L2] 값만 보고 필드 추론. config.members = 그룹 구성원 이름 배열
-function inferFieldFromValue(textRaw, config = {}) {
+function inferFieldFromValue(textRaw, config = {}, depth = 0) {
   const c = compact(textRaw);
-  if (!c) return null;
+  if (!c || depth > 2) return null;
   // V22.9.93 Q-23: 조사를 뗀 값이 결제수단·날짜·구성원·분류·금액이면 그 칸이다(‘현금으로’·‘어제로’·‘외식으로’·‘5000원으로’). 숫자도 ‘원’ 도 없는 금액 꼴은 뺀다(‘일로’ 가 1원이 되면 안 된다).
   const stem = normalize(textRaw).replace(/\s*(?:으로|로)요?$/, "");
   if (stem && compact(stem) !== c) {
-    const direct = inferFieldFromValue(stem, config);
+    const direct = inferFieldFromValue(stem, config, depth + 1);
     // V22.9.93 Q-36: ‘01번 2로 바꿔줘’ 가 2원이 됐다. 두 자리까지의 맨 숫자는 금액으로 보지 않는다.
     if (direct?.confidence === "high" && (direct.field !== "amount" || /\d{3}|[십백천만억]|원$/.test(stem))) return direct;
     if ((config.categories || []).includes(stem)) return { field: "category", value: stem, confidence: "high" };
   }
+  const paidWith = KAKAO_EDIT_PAY_HEAD.exec(stem);
+  const paidMethod = paidWith ? inferFieldFromValue(paidWith[1], config, depth + 1) : null;
+  if (paidMethod?.field === "method") return paidMethod;
   // 숫자(+원) → 금액
   // V22.9.93 Q-33: 공백을 지운 값을 읽어 ‘5000 3000’ 이 50,003,000원이 됐다. 숫자 묶음이 둘이면 금액이 아니다.
   if (/^\d[\d,]*원?$/.test(c) && !KAKAO_EDIT_TWO_AMOUNTS.test(normalize(textRaw))) return { field: "amount", value: c.replace(/[원,]/g, ""), confidence: "high" };
@@ -294,7 +330,9 @@ function inferFieldFromValue(textRaw, config = {}) {
   // 결제수단 어휘 → 결제수단 (등록 카드명 포함 가능: config.methods)
   const methods = [...METHOD_WORDS, ...(config.methods || [])];
   // 숫자가 섞인 문장("12000원 국민카드")은 결제수단 이름이 아니다.
-  if (!/\d/.test(c) && methods.some((w) => c === compact(w) || c.endsWith("카드") || c.endsWith("페이"))) {
+  const spacedText = normalize(textRaw);
+  const spacedValue = spacedText.includes(" ") && !KAKAO_EDIT_CARD_OWNER.test(spacedText) && !(members.includes(compact(spacedText.split(" ")[0])) && /\s(?:체크|신용)?(?:카드|페이)$/.test(spacedText));
+  if (!/\d/.test(c) && methods.some((w) => c === compact(w) || (!spacedValue && (c.endsWith("카드") || c.endsWith("페이"))))) {
     return { field: "method", value: normalize(textRaw), confidence: "high" };
   }
   // 그 외 짧은 텍스트 → 내용일 가능성. 확신 낮음 → [L3] 확인 단계로
@@ -313,7 +351,8 @@ function inferFieldFromValue(textRaw, config = {}) {
 // `수정 01번 금액 6만원`은 "숫자만 보내주세요"로 되돌리면, 앱이 아는 말을 사용자가
 // 다시 배워야 한다. 입력 경로와 같은 추출기를 쓰되 금액처럼 생긴 문구만 통과시킨다.
 const KAKAO_EDIT_AMOUNT_SHAPE = /^[0-9.,\s원억만천백십일이삼사오육칠팔구영공하나둘셋넷다섯여섯일곱여덟아홉]+$/;
-const KAKAO_EDIT_TWO_AMOUNTS = /\d\s*원?\s+\d/;
+// V22.9.93 Q-63: 부호를 지우고 읽어 ‘5000, 3000’ 이 50,003,000원, ‘1. 5000’ 이 1원이 됐고 ‘3만 2만’·‘5천 3천’ 은 더해졌다. 자릿수 쉼표가 아닌 쉼표와 같은 단위의 되풀이는 금액이 둘이다.
+const KAKAO_EDIT_TWO_AMOUNTS = /\d\s*원?\s+\d|\d\s*원?\s*[.,]\s+\d|\d,(?!\d{3}(?:\D|$))\d|([억만천백])\s*원?[\s,]+\d+\s*\1/;
 
 function normalizeKakaoEditAmountValue(textRaw = "") {
   // V22.9.93 Q-21: ‘01번 금액 12.000원’ 이 12원으로 바뀌었다. 거래 문장과 같은 입구로 점 자릿수를 읽는다.
@@ -368,7 +407,13 @@ function parseEditInput(textRaw, config = {}) {
 
   // ③ fuzzy 필드 매칭 (오타: "지츨자")
   const fuzzy = tokenToFieldFuzzy(tokens[0]);
-  if (fuzzy) return buildFieldResult(fuzzy);
+  if (fuzzy) {
+    // V22.9.93 Q-60: 오타로 읽은 칸의 값은 바로 넣지 않고 묻는다(‘가스 40000’·‘01번 가방 30000’ 이 금액을, ‘수박 20000’ 이 결제수단을 덮어썼다).
+    const result = buildFieldResult(fuzzy);
+    if (!result.value) return result;
+    // 숫자만 남았으면 오타 칸의 값이 아니다(‘01번 수건 12000’ 을 결제수단 ‘12000’ 으로 물었다).
+    if (fuzzy === "amount" || !/^[\d,.\s]+원?$/.test(result.value)) return { ...result, via: "infer", confidence: "low" };
+  }
 
   // ④ 저신뢰 값 추론 (확인 질문으로 이어짐)
   if (inferred) return { ...inferred, via: "infer" };
@@ -506,7 +551,10 @@ function handleEditMessage(session, textRaw, config = {}) {
   const text = normalize(textRaw);
   const c = compact(text);
 
-  const answer = kakaoEditAnswerText(text);
+  let answer = kakaoEditAnswerText(text);
+  // ‘으로’ 나 고치는 말이 있으면 끝의 ‘로’ 와 앞의 칸 이름을 값에서 뗀다(Q-70).
+  const directed = !!config.directed || answer !== text || /으로요?$/.test(text);
+  const editConfig = { ...config, directed };
 
   // ---- [L4] 탈출 키워드: 어느 단계든 최우선 ----
   if (CANCEL_WORDS.has(c) || KAKAO_EDIT_CANCEL_TALK.test(c)) {
@@ -546,8 +594,8 @@ function handleEditMessage(session, textRaw, config = {}) {
 
   // ---- awaiting_value: 이번 입력 전체가 값 [V4: 숫자 옵션 우선] ----
   if (session.step === "awaiting_value") {
-    const spoken = stripKakaoEditFieldWord(session.field, answer);
-    let value = stripKakaoEditDirection(session.field, spoken, config);
+    const spoken = stripKakaoEditFieldWord(session.field, answer, directed);
+    let value = stripKakaoEditDirection(session.field, spoken, editConfig);
     const opts = session.valueOptions;
 
     // 숫자 선택 (선택형 필드)
@@ -571,7 +619,9 @@ function handleEditMessage(session, textRaw, config = {}) {
     }
     // V22.9.93 Q-32·Q-37: 묻는 말과 다른 기록의 번호는 값이 아니다(‘뭐였지’·‘02번 점심’ 이 메모가 됐다).
     if (isKakaoEditNotValue(value)) return fail(session, now, text, `바꿀 값을 알아듣지 못했어요. 기록은 그대로예요.\n예: ${exampleFor(session.field, session)}\n(그만하려면: 취소)`);
-    if (/^\d{1,2}\s*번(?:\s|$)/.test(value)) return fail(session, now, text, `지금은 ${session.entryNo}번 기록을 고치고 있어요. 번호 없이 바꿀 값만 보내 주세요.\n다른 기록을 고치려면 먼저 ‘취소’를 보내 주세요.`);
+    // V22.9.93 Q-73: 내용 칸의 ‘7번 버스’·‘2번 출구’ 는 값이다. ‘02번’ 은 기록 번호이고, 번호만 있거나 뒤가 숫자·칸 이름이면 값이 아니다.
+    const numbered = value.match(/^(\d{1,2})\s*번(?:\s+(.+))?$/);
+    if (numbered && (session.field !== "content" || numbered[1].startsWith("0") || !numbered[2] || /\d/.test(numbered[2]) || tokenToField(numbered[2].split(" ")[0]))) return fail(session, now, text, `지금은 ${session.entryNo}번 기록을 고치고 있어요. 번호 없이 바꿀 값만 보내 주세요.\n다른 기록을 고치려면 먼저 ‘취소’를 보내 주세요.`);
     if (session.field === "amount") {
       const num = normalizeKakaoEditAmountValue(kakaoEditNamedAmount(spoken) || value);
       if (!num) return fail(session, now, text, `금액을 알아듣지 못했어요. 13000 · 1만3천 · 1만3천원 처럼 보내주세요.`);
@@ -583,13 +633,32 @@ function handleEditMessage(session, textRaw, config = {}) {
 
   // ---- awaiting_field: 필드(+값) 파싱 [L1][L2] ----
   // V22.9.93 Q-42: 메뉴 번호(1~8)와 달리 ‘02번’ 은 기록 번호다. 예전에는 ‘수정 01번’ 뒤의 ‘02번 12000원으로 바꿔줘’ 가 01번의 금액을 바꿨다.
-  if (/^0\d\s*번(?:\s|$)/.test(answer)) return fail(session, now, text, `지금은 ${session.entryNo}번 기록을 고치고 있어요. 번호 없이 바꿀 칸과 값을 보내 주세요. 예: 금액 13000\n다른 기록을 고치려면 먼저 ‘취소’를 보내 주세요.`);
+  const otherRecord = `지금은 ${session.entryNo}번 기록을 고치고 있어요. 번호 없이 바꿀 칸과 값을 보내 주세요. 예: 금액 13000\n다른 기록을 고치려면 먼저 ‘취소’를 보내 주세요.`;
+  if (/^0\d\s*번(?:\s|$)/.test(answer)) return fail(session, now, text, otherRecord);
+  // V22.9.93 Q-60: ‘1번 13000’·‘6번 엄마’ 는 메뉴 번호와 값이지만, ‘2번 금액 5000’·‘3번 5000’·‘1번 5000원으로’ 는 다른 기록을 고치려는 말이다(분류가 ‘금액 5000’, 결제수단이 ‘5000’ 이 됐다).
+  const seqAnswer = answer.match(/^(\d{1,2})\s*번\s+(.+)$/);
+  if (seqAnswer) {
+    const [, no, rest] = seqAnswer;
+    const named = tokenToField(rest.split(" ")[0].replace(/(?:을|를|은|는|이|가)$/, ""));
+    if ((named && named !== FIELD_BY_NUMBER[Number(no)]) || (no !== "1" && /^[\d,]+\s*원?$/.test(rest))) return fail(session, now, text, otherRecord);
+    if (/(?:으로|로)$/.test(rest) && kakaoAmountAnswerValue(rest)) {
+      if (Number(no) !== Number(session.entryNo)) return fail(session, now, text, otherRecord);
+      answer = rest;
+    }
+  }
+  // V22.9.93 Q-62: 메뉴에 온 ‘25로’ 는 메뉴 번호도 금액도 아니다(25원이 됐다).
+  if (/^\d{1,2}$/.test(answer) && answer !== text && !/^[1-8]$/.test(answer)) return fail(session, now, text);
   const namedAmount = kakaoEditNamedAmount(answer);
-  const parsed = parseEditInput(namedAmount ? `금액 ${namedAmount}` : answer, { ...config, rowType: config.rowType || session.rowType });
+  const parsed = parseEditInput(namedAmount ? `금액 ${namedAmount}` : answer, { ...editConfig, rowType: config.rowType || session.rowType });
 
   if (!parsed) return fail(session, now, text);
+  // 물은 것이 없을 때의 ‘네’ 는 값이 아니다(‘방금 거 수정’ 뒤의 ‘네’ 를 내용으로 되물었다).
+  if (parsed.via === "infer" && parsed.confidence === "low" && /^(?:네|넵|예|응|아니요|아니오|아니)$/.test(answer)) return fail(session, now, text);
 
-  if (parsed.field === "delete") {
+  // 지우는 말이 든 답은 저신뢰 확인으로 넘기지 않는다(‘아니 삭제하지 마’ 를 내용으로 묻게 된다).
+  const deleteTalk = parsed.field === "delete" || (parsed.via === "infer" && parsed.confidence === "low" && /삭제|지우|지워/.test(text));
+  if (deleteTalk) {
+    if (!KAKAO_PLAIN_DELETE.test(text)) return fail(session, now, text, `지우지 않았어요. 기록은 그대로예요.\n지우려면 ‘삭제’라고만 보내 주세요.\n(그만하려면: 취소)`);
     return finish(session, {
       action: "delete",
       reply: `🗑️ ${session.entryNo}번 ${session.rowType === "income" ? "수입" : "지출"}을 삭제했어요.\n되돌리려면: 복구 ${session.entryNo}번`,
@@ -774,10 +843,10 @@ function loopFuzzTest(config = {}, rounds = 200) {
 }
 // @build:exports-start
 export {
-  FIELD_BY_NUMBER, FIELD_LABEL, FIELD_SYNONYMS, KAKAO_EDIT_DEFAULT_CATEGORIES, MAX_FAILS,
-  MAX_TOTAL_TURNS, SESSION_TTL_MS, buildValuePrompt, compact, handleEditMessage,
-  isExactKakaoEditFieldStart, isKakaoAmountAnswer, isKakaoEditNotValue, isSessionExpired, josa,
-  kakaoEditComplaintField, kakaoEditTypeValue, loopFuzzTest, normalizeKakaoEditAmountValue,
-  parseEditInput, selfTest, startsWithKakaoEditField,
+  FIELD_BY_NUMBER, FIELD_LABEL, FIELD_SYNONYMS, KAKAO_EDIT_DEFAULT_CATEGORIES,
+  KAKAO_EDIT_TWO_AMOUNTS, MAX_FAILS, MAX_TOTAL_TURNS, SESSION_TTL_MS, buildValuePrompt, compact,
+  handleEditMessage, isExactKakaoEditFieldStart, isKakaoAmountAnswer, isKakaoClearAmount,
+  isKakaoEditNotValue, isSessionExpired, josa, kakaoEditComplaintField, kakaoEditTypeValue,
+  loopFuzzTest, normalizeKakaoEditAmountValue, parseEditInput, selfTest, startsWithKakaoEditField,
 };
 // @build:exports-end

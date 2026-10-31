@@ -35,8 +35,8 @@ import {
 import { kakaoManualReply, kakaoManualTopic } from "./manual-guides.js";
 import {
   getRecentKakaoOwnedTransactionsV2254, isKakaoDailyListCommand, isKakaoSessionSeqReplyV4,
-  kakaoEditInputTextV4, kakaoEditSessionKeyV4, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
-  parseKakaoRestoreCommandV4,
+  kakaoEditInputTextV4, kakaoEditSessionKeyV4, kakaoEditSessionTextV4, parseKakaoDeleteCommandV4,
+  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
 } from "./edit-session-v4.js";
 import { startsWithKakaoEditField } from "./edit-state-machine.js";
 import { handleKakaoEditCommandV4, handleKakaoEditSessionMessageV4 } from "./edit-flow-v4.js";
@@ -425,7 +425,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   if (!separatePurchaseCommand && skillConfigured && kakaoUserKey && !isKakaoEditSessionBypassCommand(utterance) &&
       (isKakaoSessionSeqReplyV4(commandText) || (!parseKakaoEditCommandV4(commandText) && !parseKakaoDeleteCommandV4(commandText) && !parseKakaoRestoreCommandV4(commandText)))) {
     // T6: 분명한 새 기록이면 세션만 끝나고(passThrough) 아래 기록 경로로 이어진다.
-    const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance: commandText || utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, sessionRaw: routingSnapshot?.edit });
+    const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance: kakaoEditSessionTextV4(utterance) || utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, sessionRaw: routingSnapshot?.edit });
     if (editSessionReply?.passThrough) editSessionNotice = String(editSessionReply.notice || "");
     else if (editSessionReply) {
       // V22.9.90 독립 검토: 열린 수정 세션이 받은 답("금액 13000"·"1번")은 위 미리 읽기가 기록으로 보았어도 관제 기능 순위에서는 고치기(EDIT)다.
