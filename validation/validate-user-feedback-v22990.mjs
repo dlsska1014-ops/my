@@ -276,7 +276,8 @@ await withAudit(async (fx) => {
   const outer = globalThis.fetch;
   const handler = await createDemoHandler({ app, createFixture: createV2265QaFixture, publicOrigin: ORIGIN, version: "V22.9.90-test" });
   try {
-    const row = handler.db.transactions.find((item) => item.household_id === HH && item.type === "expense" && item.user_id === "user-bin");
+    const owner = handler.db.household_members.find((item) => item.household_id === HH && item.role === "owner").user_id;
+    const row = handler.db.transactions.find((item) => item.household_id === HH && item.type === "expense" && item.user_id === owner);
     const month = String(row?.transaction_date || "").slice(0, 7);
     const back = `/app?month=${month}&household_id=${HH}&tab=transactions`;
     const form = (path, body) => handler.fetch(new Request(`${ORIGIN}${path}`, { method: "POST", headers: { origin: ORIGIN, "sec-fetch-site": "same-origin", "content-type": "application/x-www-form-urlencoded", accept: "text/html" }, body: new URLSearchParams(body).toString() }));
@@ -299,7 +300,7 @@ await withAudit(async (fx) => {
 // ── 4. 알림 5초(V5 자산의 저장 알림 함수) ──
 const v5Module = readFileSync(new URL("../src/modules/client/v5-bundle-mains.js", import.meta.url), "utf8");
 const feedbackSource = functionSource(v5Module, "accountbookSaveFeedbackClientMain");
-const v5Asset = await (await app.fetch(new Request(`${BASE}/assets/accountbook-v5-v22990.js`), {}, ctx)).text();
+const v5Asset = await (await app.fetch(new Request(`${BASE}/assets/accountbook-v5-v22993.js`), {}, ctx)).text();
 t.ok(v5Asset.includes(`(${feedbackSource})();`), "4 V5 자산(v22990)이 고친 알림 함수를 싣고 부른다");
 const restorable = toastHarness(feedbackSource, { search: `?month=2026-07&household_id=${HH}&tab=transactions&msg=deleted&restore=abc.def`, kind: "success", restore: true });
 t.deepEq(restorable.pending(), [5000], "4 되돌리기 알림은 5초 보인다");
@@ -328,8 +329,8 @@ const oldV5 = await (await app.fetch(new Request(`${BASE}/assets/accountbook-v5-
 t.ok(oldV5.includes("5초 후 삭제합니다."), "5 옛 주소(v22987, 운영 V87·88 이 쓰는 주소)는 옛 바이트 그대로 내려간다");
 
 // ── 6. 한 줄 입력: 한글 조합 중에도 읽기 ──
-const homeJs = await (await app.fetch(new Request(`${BASE}/assets/mobile-home-v22990.js`), {}, ctx)).text();
-const shellJs = await (await app.fetch(new Request(`${BASE}/assets/mobile-home-shell-v22990.js`), {}, ctx)).text();
+const homeJs = await (await app.fetch(new Request(`${BASE}/assets/mobile-home-v22993.js`), {}, ctx)).text();
+const shellJs = await (await app.fetch(new Request(`${BASE}/assets/mobile-home-shell-v22993.js`), {}, ctx)).text();
 const START = "var abImeComposing=false;if(smart){";
 for (const [label, source] of [["홈 스크립트", homeJs], ["홈 셸", shellJs]]) {
   t.eq(source.split(START).length - 1, 1, `6 ${label}에 한 줄 입력 연결이 한 번 있다`);
@@ -352,7 +353,7 @@ t.deepEq(ime.calls.at(-1), ["점심 12000원 현금 ", true, false], "6 조합�
 // 읽는 쪽(공유 컨트롤러)은 한 줄 입력 칸을 Enter 때만 비운다 — 조합 중 읽기가 입력을 끊지 않는 까닭.
 const sharedParsers = readFileSync(new URL("../src/modules/client/shared-input-parsers.js", import.meta.url), "utf8");
 const applyBody = (sharedParsers.match(/function apply\(clearInput, composing\) \{[^]*?\n  \}\n/) || [""])[0];
-t.ok(applyBody.includes("if (clearInput) smart.value=\"\";") && applyBody.split("smart.value=").length - 1 === 1, "6 읽기는 Enter(clearInput) 때만 한 줄 입력 칸을 비운다");
+t.ok(applyBody.includes("if (clearInput && !manyAmounts) smart.value=\"\";") && applyBody.split("smart.value=").length - 1 === 1, "6 읽기는 Enter(clearInput) 때만 한 줄 입력 칸을 비운다");
 t.ok(homeJs.includes(sharedParsers.match(/function quickSmartInputController\(config\) \{/)[0]), "6 홈 스크립트가 같은 공유 컨트롤러를 싣는다");
 // 공유 컨트롤러(독립 검토): 조합 중 읽기는 이 기기가 읽은 분류를 그대로 보이고 가계부 분류 요청을 보내지 않는다(자모마다 칸을 비우고 요청을 다시 걸던 깜빡임).
 // 조합이 끝난 읽기가 한 번 묻고, 조합이 끝나기 전에 저장하면 분류 칸을 비워 서버가 가계부 규칙으로 정한다(요청 중 저장과 같다).
@@ -363,7 +364,7 @@ t.ok(homeJs.includes(sharedParsers.match(/function quickSmartInputController\(co
   b.element("input", { id: "rawTextInput", type: "hidden", name: "raw_text" }, b.form);
   b.run([
     quickAmountFieldState.toString(), quickSmartInputController.toString(),
-    'function normalizeInputText(s){return String(s||"").trim();}', "function foldInputWidth(s){return s;}", "function moneyTokenSpans(){return [];}", "function explicitDateIntent(){return false;}",
+    'function normalizeInputText(s){return String(s||"").trim();}', "function foldInputWidth(s){return s;}", "function moneyTokenSpans(){return [];}", "function quickAmountCount(){return 0;}", "function explicitDateIntent(){return false;}",
     'var abCtl=quickSmartInputController({amount:function(s){return s.indexOf("12000")>=0?12000:0;},date:function(s){return s.length===10&&s.charAt(4)==="-"?s:"";},type:function(){return "expense";},payment:function(s){return s.indexOf("현금")>=0?"현금":"";},category:function(s){return s.indexOf("점심")>=0?"외식":"";},memo:function(){return "점심";}});',
   ].join("\n"));
   const settle = async () => { await new Promise((resolve) => setTimeout(resolve, 320)); await b.flush(); };

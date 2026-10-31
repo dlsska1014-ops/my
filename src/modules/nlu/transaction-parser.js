@@ -20,13 +20,13 @@ function parseMultipleTransactions(text, payload) {
   const clauses = splitTransactionClauses(text);
   if (clauses.length <= 1) {
     // V22.9.63: 한 줄짜리 번호 목록("1. 점심 12000원")도 표식을 뗀 본문으로 읽는다. 예전에는 "1"이 금액으로 읽혔다.
-    const one = parseTransaction(clauses.length === 1 && KAKAO_LIST_MARKER_PREFIX.test(String(text || "").trim()) ? clauses[0] : text, payload);
+    const one = parseTransaction(clauses.length === 1 && KAKAO_LIST_MARKER_PREFIX.test(String(text || "").trim()) ? clauses[0] : text, payload, true);
     if (one.ok && one.type_confirmation) return blockedTransactionParse(mixedTypeConfirmation(one));
     return one.ok ? [{ ...one, raw_text: original }] : blockedTransactionParse(one);
   }
   const out = [];
   for (const clause of clauses) {
-    const parsed = parseTransaction(clause, {});
+    const parsed = parseTransaction(clause, {}, true);
     if (parsed.message === "invalid_transaction_date" || (parsed.message === "amount_unit_required" || parsed.message === "transaction_type_confirmation_required")) return blockedTransactionParse(parsed);
     if (parsed.ok && parsed.type_confirmation) return blockedTransactionParse(mixedTypeConfirmation(parsed));
     if (parsed.ok) out.push({ ...parsed, raw_text: clause });
@@ -104,7 +104,8 @@ function splitTransactionClauses(text) {
   // V22.9.63 감사(1:1 3): 줄바꿈은 normalizeText 가 공백으로 바꿔 아래 규칙의 \n 이 한 번도 쓰이지 않았다. 금액 없는 줄("커피")이
   // 다음 줄에 붙어 "커피 택시 8100원"이 됐고, "1. 점심 12000원" 같은 번호 목록은 1원으로 읽혔다. 줄을 먼저 나누고 줄머리 목록
   // 표식(1. · 2) · - · •)을 뗀 뒤, 예전 규칙을 줄마다 적용한다.
-  const lines = String(text || "").split(/\r?\n/).map((line) => normalizeText(line).replace(KAKAO_LIST_MARKER_PREFIX, "").trim()).filter(Boolean);
+  // V22.9.93 Q-28: normalizeText 가 괄호를 지우므로 ‘2)’ 는 다듬기 전에 뗀다. 다듬은 뒤에 떼면 ‘2 커피 4000원’ 이 남아 저장되지 않았다.
+  const lines = String(text || "").split(/\r?\n/).map((line) => normalizeText(line.trim().replace(KAKAO_LIST_MARKER_PREFIX, "")).trim()).filter(Boolean);
   const firstPass = (lines.length ? lines : [raw]).flatMap((line) => line
     // V22.9.26: 공백이 붙은 슬래시("커피 4500 / 점심 9000")와 가운뎃점도 문장 구분이다.
     // "10/3 마트 52000" 의 날짜 슬래시는 양쪽이 붙어 있어 나누지 않는다.
@@ -124,6 +125,7 @@ function splitTransactionClauses(text) {
   return clauses;
 }
 
+// V22.9.93 Q-47: 금액 뒤에서 나눈 조각의 머리에 이음말·부호가 남아 메모가 ‘과 점심’·‘+ 점심’ 이었다.
 function splitByAmountEnds(text) {
   const t = normalizeText(text);
   const spans = findAmountTokenSpans(t);
@@ -132,7 +134,7 @@ function splitByAmountEnds(text) {
   let start = 0;
   for (let i = 0; i < spans.length; i++) {
     const end = spans[i].end;
-    const part = t.slice(start, end).trim();
+    const part = t.slice(start, end).replace(i ? /^\s*(?:(?:과|와|랑|하고|및)\s+|[.+\-–—ㅡ&|]+\s*)/ : "", "").trim();
     if (part) out.push(part);
     start = end;
   }
@@ -146,8 +148,9 @@ function splitByAmountEnds(text) {
 
 function findAmountTokenSpans(text) { return moneyTokenSpans(normalizeText(text)); }
 
-function parseTransaction(text, payload) {
-  const raw = normalizeText(foldInputWidth(text));
+// V22.9.93: 점 자릿수 판정은 줄 전체를 봐야 한다(foldInputWidth 머리말). 입구에서 이미 접은 절은 folded 로 넘겨 다시 판정하지 않는다.
+function parseTransaction(text, payload, folded = false) {
+  const raw = normalizeText(foldInputWidth(text, folded));
   const params = extractKakaoParams(payload);
   const entityType = normalizeType(params.type || params.transaction_type || params.거래구분 || params.구분);
   const typeDetail = entityType ? null : detectTypeDetail(raw);

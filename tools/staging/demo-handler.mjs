@@ -13,7 +13,8 @@ import { applyDemoData } from "./demo-data.mjs";
 
 export const APP_ORIGIN = "https://malhaebook.com";
 const MOCK_HOST = "mock.supabase.co";
-const DEMO_USERS = { owner: "user-bin", member: "user-wifi" };
+// V22.9.93: 운영 users.id 는 uuid 다. 문자열 id 로 두면 가져오기가 지출자를 지워 운영에 없는 저장 실패가 보였다.
+const DEMO_USERS = { owner: "11111111-1111-4111-8111-111111111111", member: "22222222-2222-4222-8222-222222222222" };
 const REWRITE_TYPES = /^(text\/html|text\/javascript|application\/javascript|application\/json|text\/css)/i;
 
 function bannerHtml(role) {
@@ -40,6 +41,9 @@ export async function createDemoHandler({ app, createFixture, publicOrigin, now 
     // V22.9.90: 지울 때 운영처럼 감사 기록을 남긴다. 삭제 알림의 ‘되돌리기’(/my/restore)가 그 기록을 읽는다.
     const fixture = await createFixture({ categoriesPresent: true, auditDeletes: true });
     const summary = applyDemoData(fixture.db, now());
+    for (const [name, rows] of Object.entries(fixture.db)) {
+      if (Array.isArray(rows)) fixture.db[name] = JSON.parse(JSON.stringify(rows).replaceAll("user-bin", DEMO_USERS.owner).replaceAll("user-wifi", DEMO_USERS.member));
+    }
     Object.assign(fixture.env, { SKILL_RATE_LIMIT: 10000, TRAFFIC_GUARD_LIMIT: 10000 });
     const mockFetch = globalThis.fetch;
     globalThis.fetch = async (input, init) => {

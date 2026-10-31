@@ -6,7 +6,12 @@ import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { refundLinkCountForRow } from "../features/settlement-refund-links.js";
 import { isDefiniteStorageFailure, isUncertainStorageWrite } from "./response-builders.js";
-import { SESSION_TTL_MS, isSessionExpired } from "./edit-state-machine.js";
+import {
+  KAKAO_EDIT_AMOUNT_V4, KAKAO_EDIT_PLEASE_V4, KAKAO_EDIT_VERB_V4,
+} from "./edit-vocabulary.js";
+import {
+  SESSION_TTL_MS, isSessionExpired, startsWithKakaoEditField,
+} from "./edit-state-machine.js";
 import { getKakaoBotGroupKey } from "./group-links-first-record.js";
 import { stableShortHash } from "./identity-chat-first.js";
 import { supabase } from "../data/supabase-client.js";
@@ -322,6 +327,12 @@ function isKakaoEditGuideCommand(text = "") {
   return /^(수정가이드|수정 가이드|번호수정|번호 수정|챗봇수정|챗봇 수정)$/i.test(normalizeText(text));
 }
 
+// V22.9.93 Q-35: 고치는 말의 입구. 전각 숫자(‘０１번’)·점 자릿수(‘12.000원’)는 거래 문장과 같이 읽고, 끝 문장부호와 웃음 자모(‘바꿔줘.’·‘지워줘!!’·‘바꿔줘ㅠㅠ’)는 뗀다.
+// 저장하는 원문은 받은 그대로 두려고 기록 해석에는 쓰지 않는다.
+function kakaoEditInputTextV4(text = "") {
+  return normalizeText(String(text || "").replace(/[０-９，．：／－＋％（）]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))).replace(/[\s.!~…ㅠㅜㅎㅋ]+$/, "");
+}
+
 function isKakaoEditCancelCommand(text = "") {
   return /^(취소|수정취소|수정 취소|그만|취소취소|선택취소|선택 취소)$/i.test(normalizeText(text));
 }
@@ -367,16 +378,22 @@ function parseKakaoDeleteCommandV4(text = "") {
   if (!raw) return null;
   const { body, prefix, date: explicitDate, dateError } = splitKakaoEditDatePrefixV4(raw);
   const date = dateError ? "" : (explicitDate || formatDate(nowKstDate()));
-  const m = body.match(/^(?:삭제|지워|지우기)\s*(\d{1,2})\s*번$/) || body.match(/^(\d{1,2})\s*번\s*(?:삭제|제거|지워줘?)(?:해줘)?$/);
+  // V22.9.93 Q-25: 안내의 ‘삭제 01번’ 에서 ‘번’ 을 뺀 ‘삭제 01’ 이 ‘금액이 1원으로 읽혀’ 라는 답을 받았다.
+  const m = body.match(/^(?:삭제|지워|지우기)\s*(\d{1,2})\s*번?$/) || body.match(KAKAO_SEQ_DELETE_V4);
   if (m) return { seq: Number(m[1]), latest: false, date, prefix, dateError };
-  if (/^(방금 삭제|방금삭제|최근 입력 삭제|최근입력삭제|마지막 삭제|마지막삭제|방금 거 삭제|방금거삭제)$/.test(body)) {
+  // V22.9.93 Q-25: ‘방금 거 지워줘’·‘방금꺼 삭제’·‘마지막 거 삭제해줘’·‘아까 거 삭제’·‘최근 기록 삭제’ 도 ‘방금 삭제’ 다(지운 기록은 ‘복구’ 로 되돌린다). ‘취소’ 는 지우지 않고 안내한다(isUndoCommand).
+  if (KAKAO_LATEST_DELETE_V4.test(body)) {
     return { seq: 0, latest: true, date, prefix, dateError };
   }
   return null;
 }
 
 function parseKakaoRestoreCommandV4(text = "") {
-  const raw = normalizeText(text);
+  // V22.9.93 Q-25: 지운 뒤 바로 쓰는 ‘복구해줘’·‘방금 거 복구’·‘되돌려줘’ 도 ‘복구’ 다. 예전에는 ‘이해하지 못했어요’ 였다.
+  const raw = normalizeText(text)
+    .replace(/^(?:방금|아까|마지막)\s*(?:거|것|건|꺼|기록|입력)?\s*(?=복구|되돌려)/, "")
+    .replace(/^되돌려/, "복구")
+    .replace(/\s*(?:해\s*)?(?:줘요?|주세요)$/, "");
   const m = raw.match(/^복구\s*(\d{1,2})?\s*번?$/) || raw.match(/^(\d{1,2})\s*번\s*복구$/);
   if (!m) return null;
   // "복구"만 보내면 가장 최근 삭제다. "복구 00번"은 그 뜻이 아니므로 따로 표시한다.
@@ -391,6 +408,36 @@ function isKakaoSessionSeqReplyV4(text = "") {
   return /^\d{1,2}\s*번(?:\s|$)/.test(raw) && !/(?:수정|삭제|제거|지워|지우기|복구)/.test(raw);
 }
 
+// V22.9.93 Q-24·Q-30: 끝맺음(KAKAO_EDIT_VERB_V4)과 금액 꼴(KAKAO_EDIT_AMOUNT_V4)은 edit-vocabulary 의 표를 쓴다.
+const KAKAO_EDIT_VERB_ONLY_V4 = new RegExp(String.raw`^(?:내용\s*수정|${KAKAO_EDIT_VERB_V4})$`);
+const KAKAO_EDIT_VERB_TAIL_V4 = new RegExp(String.raw`^(.+?)\s+${KAKAO_EDIT_VERB_V4}$`);
+const KAKAO_EDIT_JOSA_VERB_TAIL_V4 = new RegExp(String.raw`^(.+?(?:으로|로))\s*${KAKAO_EDIT_VERB_V4}$`);
+// ‘01번 5000원 수정’ 처럼 ‘으로’ 가 없어도 고치는 말이다. 뒤에 다른 말이 이어지면(‘2번 만원으로 먹음’) 기록이다.
+const KAKAO_SEQ_AMOUNT_EDIT_V4 = new RegExp(String.raw`^\d+\s*번(?:을|를)?\s*${KAKAO_EDIT_AMOUNT_V4}(?:\s*(?:으로|로)(?:\s*${KAKAO_EDIT_VERB_V4})?|\s*${KAKAO_EDIT_VERB_V4})$`);
+const KAKAO_AMOUNT_CHANGE_TAIL_V4 = new RegExp(String.raw`(?:원|\d|[만천])\s*(?:(?:으로|로)\s*(?:${KAKAO_EDIT_VERB_V4}|할게요?|할래요?)|${KAKAO_EDIT_VERB_V4})$`);
+// V22.9.93 Q-22·Q-30: ‘방금 12000원으로 바꿔줘’·‘마지막 거 13000원으로’·‘방금 거 5000원’ 은 방금 기록의 금액 고치기다. ‘방금 5000원’ 과 뒤에 다른 말이 이어지는 ‘방금 5000원으로 밥 먹음’ 은 기록이다.
+const KAKAO_LATEST_AMOUNT_EDIT_V4 = new RegExp(String.raw`^(?:방금|아까|최근|마지막)\s*(?:(?:거|것|건|꺼|기록|입력)\s*${KAKAO_EDIT_AMOUNT_V4}(?:\s*(?:으로|로))?(?:\s*${KAKAO_EDIT_VERB_V4})?|${KAKAO_EDIT_AMOUNT_V4}(?:\s*(?:으로|로)(?:\s*${KAKAO_EDIT_VERB_V4})?|\s*${KAKAO_EDIT_VERB_V4}))$`);
+// ‘방금 커피 5000원으로 수정’ 처럼 내용까지 말한 꼴.
+const KAKAO_NAMED_AMOUNT_V4 = new RegExp(String.raw`^\S.*\s(${KAKAO_EDIT_AMOUNT_V4})(?:\s*(?:으로|로))?$`);
+const KAKAO_WHOLE_AMOUNT_V4 = new RegExp(String.raw`^${KAKAO_EDIT_AMOUNT_V4}(?:\s*(?:으로|로))?$`);
+const KAKAO_EDIT_AMOUNT_VALUE_V4 = new RegExp(String.raw`^((?:금액|가격|얼마|액수|돈|값)\s+)?(${KAKAO_EDIT_AMOUNT_V4})\s*(?:으로|로)$`);
+const KAKAO_DELETE_WORD_V4 = String.raw`(?:(?:삭제|제거)(?:요|\s*(?:해요?|합니다|할게요?|할래요?))?(?:${KAKAO_EDIT_PLEASE_V4})?|지워(?:요|${KAKAO_EDIT_PLEASE_V4})?)`;
+const KAKAO_SEQ_DELETE_V4 = new RegExp(String.raw`^(\d{1,2})\s*번(?:\s*(?:거|것|꺼|기록))?(?:을|를)?\s*${KAKAO_DELETE_WORD_V4}$`);
+const KAKAO_LATEST_DELETE_V4 = new RegExp(String.raw`^(?:(?:방금|마지막)\s*(?:거|것|건|꺼|기록|입력)?|(?:아까|최근)\s*(?:거|것|건|꺼|기록|입력))(?:을|를)?\s*${KAKAO_DELETE_WORD_V4}$`);
+// V22.9.93 Q-23: ‘방금 거 카드로’·‘방금 거 외식으로’ 처럼 값만 있는 말도 방금 기록을 고치는 말이다.
+const KAKAO_LATEST_VALUE_EDIT_V4 = /^(?:방금|아까|최근|마지막)\s*(?:거|것|건|꺼|기록|입력)\s+\S+(?:으로|로)$/;
+// ‘아까’ 는 뒤에 ‘거’·‘기록’ 이 있을 때만 기록을 가리킨다(‘아까 내용 뭐였지’ 를 내용 고치기로 읽으면 안 된다).
+const KAKAO_LATEST_HEAD_V4 = /^(?:방금|최근|마지막|아까\s*(?:거|것|건|꺼|기록|입력)(?=\s|$))/;
+
+// V22.9.93 Q-36: ‘으로’ 를 ‘원’ 으로 바꾸는 일은 금액 꼴에만 한다. 끝 글자만 보고 바꿔 ‘세트1로’·‘7/3으로’·‘2로’ 에 ‘원’ 이 붙었다.
+function kakaoEditAmountRestV4(rest = "") {
+  const found = rest.match(KAKAO_EDIT_AMOUNT_VALUE_V4);
+  if (!found) return rest;
+  const head = found[1] || "", value = found[2].trim();
+  if (!head && /^\d{1,2}(?:[./]\d{1,2})?$/.test(value)) return rest;
+  return `${head}${value.replace(/\s*원$/, "")}원`;
+}
+
 function parseKakaoEditCommandV4(text = "") {
   const raw = normalizeText(text);
   if (!raw || parseKakaoDeleteCommandV4(raw) || parseKakaoRestoreCommandV4(raw)) return null;
@@ -398,23 +445,31 @@ function parseKakaoEditCommandV4(text = "") {
   let seq = 0;
   let latest = false;
   let rest = "";
-  const m = body.match(/^수정\s*(\d{1,2})\s*번\s*(.*)$/) || body.match(/^(\d{1,2})\s*번\s*(.*)$/);
+  // V22.9.93 Q-24: ‘01번을 12000원으로 수정’ 의 조사도 받는다. Q-45: ‘1번 기록 수정’·‘1번 거 금액 5000원’ 의 ‘기록’·‘거’ 도 번호의 일부다.
+  const m = body.match(/^수정\s*(\d{1,2})(?:\s*번(?:\s*(?:거|것|꺼|기록)(?=\s|을|를|$))?(?:을|를)?\s*|\s+|$)(.*)$/) || body.match(/^(\d{1,2})\s*번(?:\s*(?:거|것|꺼|기록)(?=\s|을|를|$))?(?:을|를)?\s*(.*)$/);
   if (m) {
     seq = Number(m[1]);
     rest = m[2] || "";
-  } else if (/^(방금|최근|마지막)/.test(body) && /(수정|변경|바꿔|고쳐|금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자|수입자|구분)/.test(body)) {
+  } else if ((KAKAO_LATEST_HEAD_V4.test(body) && /(수정|변경|바꿔|고쳐|금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자|수입자|구분)/.test(body)) || KAKAO_LATEST_AMOUNT_EDIT_V4.test(body) || KAKAO_LATEST_VALUE_EDIT_V4.test(body)) {
     latest = true;
-    rest = body.replace(/^(방금|최근|마지막)\s*(거|것|기록|입력)?\s*/, "");
+    rest = body.replace(/^(방금|아까|최근|마지막)\s*(거|것|건|꺼|기록|입력)?\s*/, "");
   } else {
     return null;
   }
   // "01번 수정해줘"류의 동사만 남은 나머지는 메뉴 요청으로 정규화한다.
-  rest = normalizeText(rest).replace(/^(내용\s*수정|수정해줘|수정|변경해줘|변경|바꿔줘|바꿔|고쳐줘|고쳐|해줘|해주세요)$/, "");
+  rest = normalizeText(rest).replace(KAKAO_EDIT_VERB_ONLY_V4, "");
   // V22.9.63 감사(1:1 1): "금액을 13000원으로 바꿔줘", "가격 13200", "13300원으로"처럼 조사·동사가 붙은 한 줄 수정도 값으로 읽는다.
-  rest = normalizeText(rest)
+  const spokenRest = normalizeText(rest);
+  rest = kakaoEditAmountRestV4(spokenRest
     .replace(/^(금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자|구분)(?:을|를|은|는|이|가)(?=\s|$)/, "$1")
-    .replace(/^(.+?)\s+(?:바꿔줘|바꿔|변경해줘|변경|수정해줘|수정|고쳐줘|고쳐|해줘|해주세요)$/, "$1")
-    .replace(/(\d)\s*(?:원)?\s*(?:으로|로)$/, "$1원");
+    .replace(KAKAO_EDIT_JOSA_VERB_TAIL_V4, "$1")
+    .replace(KAKAO_EDIT_VERB_TAIL_V4, "$1"));
+  // V22.9.93 Q-30: 내용까지 말한 금액 고치기. 번호가 있으면 그 기록이 대상이다. ‘방금 커피 5000원으로 수정’ 은 방금 기록이 커피라는 보장이 없어 고치지 않고 저장 전 가드가 안내한다.
+  // ‘수정 01번 점심 5000원’ 처럼 고치는 말이 없으면 무엇을 바꾸려는지 몰라 예전처럼 되묻는다.
+  const spoken = rest !== spokenRest || /(?:으로|로)$/.test(rest);
+  const named = !spoken || startsWithKakaoEditField(rest) || KAKAO_WHOLE_AMOUNT_V4.test(rest) ? null : rest.match(KAKAO_NAMED_AMOUNT_V4);
+  if (named && latest) return null;
+  if (named) rest = `금액 ${named[1].trim()}`;
   return { seq, latest, date: dateError ? "" : (explicitDate || formatDate(nowKstDate())), prefix, dateError, rest: normalizeText(rest) };
 }
 
@@ -482,13 +537,14 @@ function kakaoEditGuideText(origin = "") {
 }
 // @build:exports-start
 export {
-  KAKAO_AUDIT_ACTOR_KIND, KAKAO_TX_SELECT_V4, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4,
+  KAKAO_AMOUNT_CHANGE_TAIL_V4, KAKAO_AUDIT_ACTOR_KIND, KAKAO_LATEST_AMOUNT_EDIT_V4,
+  KAKAO_SEQ_AMOUNT_EDIT_V4, KAKAO_TX_SELECT_V4, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4,
   findDailyKakaoRowBySeq, getDailyKakaoRows, getKakaoEditSessionV4, getKakaoRowById,
   getRecentKakaoOwnedTransactionsV2254, hasKakaoEditSessionHint, isKakaoDailyListCommand,
   isKakaoEditCancelCommand, isKakaoEditGuideCommand, isKakaoSessionSeqReplyV4,
   isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers, kakaoEditDayPrefixV4,
-  kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditMenuTextV4,
-  kakaoEditRecordLineV4, kakaoEditSessionKeyV4, kakaoEditTargetRejectTextV4,
+  kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditInputTextV4,
+  kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditSessionKeyV4, kakaoEditTargetRejectTextV4,
   kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4, kakaoRowLabel, parseKakaoDeleteCommandV4,
   parseKakaoEditCommandV4, parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue,
   readKakaoEditUndoItemsV4, resolveKakaoEditDateV4, saveKakaoEditSessionV4,

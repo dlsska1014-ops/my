@@ -17,10 +17,11 @@ function mergedOptions(base, extra) {
   return out;
 }
 
-function formatMessage(msg) {
+// V22.9.93 X-13: 부르는 쪽이 직접 이스케이프하는 화면은 평문을 받는다(이스케이프한 값을 한 번 더 이스케이프하면 &quot; 가 그대로 보인다).
+function formatMessageText(msg) {
   if (msg === "signup_created_invite_missing") return "계정을 만들고 로그인했습니다. 입력한 초대코드는 찾지 못했습니다. 가입을 다시 누르지 말고 아래에서 가계부를 만들거나 초대코드로 참여하세요.";
-  if (msg === "import_preview_expired") return escapeHtml("가져오기 미리보기가 만료되었거나 현재 계정·가계부와 맞지 않습니다. 원본은 저장되지 않았으니 파일을 다시 선택해 미리보기를 만들어 주세요.");
-  if (msg === "member_alias_updated") return escapeHtml("참여자 이름을 수정했습니다.");
+  if (msg === "import_preview_expired") return "가져오기 미리보기가 만료되었거나 현재 계정·가계부와 맞지 않습니다. 원본은 저장되지 않았으니 파일을 다시 선택해 미리보기를 만들어 주세요.";
+  if (msg === "member_alias_updated") return "참여자 이름을 수정했습니다.";
   const friendly = {
     backup_login_saved: "내 계정 로그인 비밀번호를 저장했습니다. 이전에 보던 화면으로 돌아왔습니다.",
     // V22.9.88 Y-3: 비밀번호는 바뀌었지만 이 기기의 새 로그인을 만들지 못했을 때(예전 로그인은 모두 끊겼다).
@@ -112,7 +113,7 @@ function formatMessage(msg) {
     recurring_apply_failed: "고정항목 반영을 완료하지 못했습니다. 기존 기록은 변경하지 않았습니다.",
   };
   // V22.9.76 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 Object 의 함수 본문을 보였다).
-  if (Object.hasOwn(friendly, String(msg)) && friendly[msg]) return escapeHtml(friendly[msg]);
+  if (Object.hasOwn(friendly, String(msg)) && friendly[msg]) return friendly[msg];
   const map = { member_record_only: "소유자가 구성원 권한을 ‘기록만’으로 정해 기록을 수정·삭제할 수 없습니다. 소유자나 관리자에게 요청하세요.", member_policy_unavailable: "구성원 권한을 확인하지 못해 기록을 바꾸지 않았습니다. 잠시 후 다시 시도하세요.",
     no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.",
     joined_viewer: "조회 전용으로 참여 중인 가계부입니다. 기록은 볼 수 있지만 저장·수정·삭제할 수 없습니다.",
@@ -123,7 +124,11 @@ function formatMessage(msg) {
   const generic = "요청을 처리하지 못했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.";
   // 쿼리 문자열은 사용자가 직접 만들 수 있다. 정확히 열거한 코드만 사용자 안내로 바꾸고,
   // 코드가 아닌 자유 문장(짧은 한국어 포함)은 출처를 증명할 수 없으므로 일반 안내로 닫는다.
-  return escapeHtml((Object.hasOwn(map, String(msg)) && map[msg]) || generic);
+  return (Object.hasOwn(map, String(msg)) && map[msg]) || generic;
+}
+
+function formatMessage(msg) {
+  return escapeHtml(formatMessageText(msg));
 }
 
 function isMissingCategory(value) {
@@ -432,10 +437,10 @@ function kakaoDataPolicyText(origin = "") {
 }
 // @build:exports-start
 export {
-  detectKakaoAmbiguity, formatMessage, groupLabel, isMissingCategory, isMissingPayment,
-  kakaoAmbiguityGuide, kakaoBrandGuideText, kakaoBudgetGuideText, kakaoDataPolicyText,
-  kakaoEditSimpleGuideText, kakaoInputExampleText, kakaoKeywordGuideText, kakaoNoMatchGuide,
-  kakaoOpenBuilderGuideText, kakaoReserveSimpleGuideText, kakaoSkillSafeFallbackText, mergedOptions,
-  renderGroupOptions, renderQualityOptions,
+  detectKakaoAmbiguity, formatMessage, formatMessageText, groupLabel, isMissingCategory,
+  isMissingPayment, kakaoAmbiguityGuide, kakaoBrandGuideText, kakaoBudgetGuideText,
+  kakaoDataPolicyText, kakaoEditSimpleGuideText, kakaoInputExampleText, kakaoKeywordGuideText,
+  kakaoNoMatchGuide, kakaoOpenBuilderGuideText, kakaoReserveSimpleGuideText,
+  kakaoSkillSafeFallbackText, mergedOptions, renderGroupOptions, renderQualityOptions,
 };
 // @build:exports-end

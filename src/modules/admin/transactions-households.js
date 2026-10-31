@@ -3,6 +3,7 @@ import { boundedRuntimeNumber, rememberOpsEvent } from "../runtime/ops-telemetry
 import { HTML_HEADERS } from "../runtime/config-readiness.js";
 import { appName } from "../public/site-config.js";
 import { explicitDateIntent, moneyTokenSpans } from "../client/shared-input-parsers.js";
+import { foldInputWidth } from "../client/shared-input-nlu.js";
 import {
   claimOperationLease, operationLeaseOwner, releaseOperationLease, safeError,
   withHouseholdDatabaseLease,
@@ -266,7 +267,8 @@ async function handleAdminAddTransaction(request, env) {
   const txType = normalizeTransactionType(form.get("type"));
   const transactionDate = String(form.get("transaction_date") || (form.get("quick_manual_date") === "1" ? "" : formatDate(nowKstDate()))).trim();
   const amount = readTransactionAmount(form);
-  const smartText=String(form.get("raw_text") || "");
+  // V22.9.93 Q-2: 문장 판정은 해석기와 같은 글자를 읽는다. 미리 보기는 ‘월세 1.200.000원’을 읽는데 여기는 원문을 봐서 ‘금액 없음’으로 막혔다.
+  const smartText=foldInputWidth(String(form.get("raw_text") || ""));
   if (/(?:결제|승인)\s*취소/.test(smartText) && !/(?:^|\s)(?:수입|지출)(?=\s|$)/.test(smartText) && form.get("quick_manual_type")!=="1") {
     const err="취소 내역은 수입 또는 지출을 직접 선택한 뒤 저장해 주세요.";
     return redirectResponse(returnLocation(form,transactionReturnFallback(month,householdId,{err}),transactionAddRedirectExtras(form,{err},"error")));

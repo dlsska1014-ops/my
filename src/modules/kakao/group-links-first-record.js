@@ -426,7 +426,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
               firstNotice = `${automaticRoom ? "이 방의 공동 가계부에 참여했어요." : `이 방에 연결된 ‘${household.name}’ 가계부에 참여했어요.`}\n같은 방의 참여자들이 함께 기록을 사용해요.\n${policy ? `${memberPolicyJoinLine(policy)}\n` : ""}\n`;
             }
           }
-          return await saveKakaoParsedTransactionsReply(env, { ...context, household: { ...household, role, from_group_link: true, bot_group_key: groupKey }, firstNotice, soleMember: roomCreatedNow, assertFresh, onSaved: async () => { recordSaved = true; } });
+          return await saveKakaoParsedTransactionsReply(env, { ...context, household: { ...household, role, from_group_link: true, bot_group_key: groupKey }, firstNotice: `${context.editSessionNotice || ""}${firstNotice}`, soleMember: roomCreatedNow, assertFresh, onSaved: async () => { recordSaved = true; } });
         });
       });
     });

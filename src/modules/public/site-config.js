@@ -8,7 +8,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.92-ADFIT-READY";
+const APP_VERSION = "V22.9.93-LAUNCH-FIXES";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -55,16 +55,17 @@ function premiumBetaEnabled(_env = {}) {
   return true;
 }
 
-function hiddenFeature404() {
-  const body = `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>페이지를 찾을 수 없습니다</title></head><body><main style="max-width:620px;margin:70px auto;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif"><h1>페이지를 찾을 수 없습니다.</h1><p style="color:#64748b;line-height:1.65">요청한 페이지가 없거나 현재 사용할 수 없습니다.</p><p><a href="/my" style="display:inline-flex;padding:11px 14px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:900">내 가계부로 이동</a></p></main></body></html>`;
+// V22.9.93 Q-5: 없는 주소를 브라우저로 열 때도 이 화면을 쓴다(라우터 마지막). 로그인 전 방문자도 오므로 처음 화면 링크를 같이 둔다.
+function pageNotFoundResponse() {
+  const body = `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>페이지를 찾을 수 없습니다</title></head><body><main style="max-width:620px;margin:70px auto;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif"><h1>페이지를 찾을 수 없습니다.</h1><p style="color:#64748b;line-height:1.65">요청한 페이지가 없거나 현재 사용할 수 없습니다.</p><p><a href="/my" style="display:inline-flex;padding:11px 14px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:900">내 가계부로 이동</a> <a href="/" style="display:inline-flex;padding:11px 14px;border-radius:13px;border:1px solid #cbd5e1;color:#111827;text-decoration:none;font-weight:800">처음 화면</a></p></main></body></html>`;
   return new Response(body, { status: 404, headers: { ...HTML_HEADERS, "x-robots-tag": "noindex, nofollow" } });
 }
 
 function hiddenIncompleteFeatureResponse(request, env, url) {
   const path = String(url?.pathname || "");
-  if (INTERNAL_MEME_OPERATIONS_PATHS.has(path) && !envFlagEnabled(env.MEME_CONTENT_OPERATIONS_ENABLED, false)) return hiddenFeature404();
-  if (!memeCardsEnabled(env) && HIDDEN_MEME_PATHS.has(path)) return hiddenFeature404();
-  if (!cardPerformanceEnabled(env) && HIDDEN_CARD_PERFORMANCE_PATHS.has(path)) return hiddenFeature404();
+  if (INTERNAL_MEME_OPERATIONS_PATHS.has(path) && !envFlagEnabled(env.MEME_CONTENT_OPERATIONS_ENABLED, false)) return pageNotFoundResponse();
+  if (!memeCardsEnabled(env) && HIDDEN_MEME_PATHS.has(path)) return pageNotFoundResponse();
+  if (!cardPerformanceEnabled(env) && HIDDEN_CARD_PERFORMANCE_PATHS.has(path)) return pageNotFoundResponse();
   return null;
 }
 
@@ -481,7 +482,8 @@ export {
   cardPerformanceEnabled, currentRequestBaseUrl, envFlagEnabled, handleKakaoCommandSystemPage,
   hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled, kakaoChatCommandCatalog,
   kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg, memeCardsEnabled,
-  normalizeBaseUrl, premiumBetaEnabled, publicAdsenseHead, publicBaseUrl, publicSiteFooter,
-  publicSiteNav, publicSupportEmail, renderBusinessInfoFooter, renderSkillGetHealthHtml,
+  normalizeBaseUrl, pageNotFoundResponse, premiumBetaEnabled, publicAdsenseHead, publicBaseUrl,
+  publicSiteFooter, publicSiteNav, publicSupportEmail, renderBusinessInfoFooter,
+  renderSkillGetHealthHtml,
 };
 // @build:exports-end

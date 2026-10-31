@@ -1,3 +1,14 @@
+## V22.9.93 배포 판단
+
+- 상태: PR 만 있다(병합·배포 전). main 1aa804b(= 운영 V22.9.92 코드) 위다. 운영은 V22.9.92 `9b052633-e023-4ff3-bcfc-ce357360b312`(#321) 이다.
+- 바뀌는 것: 앱 Worker 만. Secret·바인딩·cron·관제 Worker·DB(새 SQL 없음)는 그대로다.
+  - 1년 캐시 자산 일곱 주소가 v22993 으로 올라간다: `/assets/accountbook-budget-preview-v22993.js`·`/assets/ab-category-rules-v22993.js`·`/assets/mobile-home-v22993.js`·`/assets/mobile-home-shell-v22993.js`·`/assets/accountbook-v5-v22993.js`·`/assets/accountbook-goals-v22993.js`·`/assets/accountbook-shell-v22993.css`. 옛 주소 여섯 개(`ab-category-rules-v22980`·`mobile-home-v22990`·`mobile-home-shell-v22990`·`accountbook-v5-v22990`·`accountbook-goals-v22946`·`accountbook-shell-v22987`)는 보관본으로 계속 내려간다.
+  - 예약 실행 코드(반복·리포트·정리)는 바뀌지 않는다. 분류 낱말이 늘어 새로 입력하는 기록의 분류가 달라질 수 있다. 이미 저장된 기록은 바뀌지 않는다.
+- 묶음 크기: Worker 번들 9,043,965 바이트(V22.9.92 는 8,357,967). gzip 2.35 MB(Workers Free 한도 3 MB).
+- 되돌리기 대상은 V22.9.92 `9b052633-e023-4ff3-bcfc-ce357360b312` 다. 되돌리면 입력 해석·분류 낱말·Q-4~Q-29·작은 결함 셋이 예전으로 돌아간다. DB 영향은 없다.
+- 날짜: 말일·1일·2일은 예약 실행의 월 처리 때문에 피한다(V76·V77 규칙). V22.9.93 은 예약 실행 코드를 바꾸지 않지만 이 규칙의 예외는 사용자가 그때 지목해야 한다.
+- 배포 뒤 확인: health 3회·ready·named 차이 0·1년 캐시(새 6·유지·정리)·sitemap 51·공개 기준선, 카카오 방 ‘어제는 커피 4500’ 한 건(사람 확인).
+
 ## V22.9.92 배포 판단
 
 - 상태: PR 만 있다(병합·배포 전). V22.9.91(PR #111, 병합·배포 전) 머리 위에 쌓았다. 운영은 V22.9.90 `b58bdb78-cdf0-4576-b49d-69d44bb3cf98` 이다.

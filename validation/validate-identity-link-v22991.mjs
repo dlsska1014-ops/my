@@ -567,7 +567,7 @@ await linkFixture(async (fx) => {
   await chatAccount(fx, "bot-v91-audit");
   await say(fx, "점심 8100", { user: "bot-v91-audit", appUserId: "2265" });
   const audit = await go(fx, null, "/identity-audit?household_id=house-home", { ua: CHROME, headers: { authorization: `Bearer ${fx.env.ADMIN_API_TOKEN}` } });
-  ok(audit.html.includes("남은 계정 잇기 제안: 1건") && /appUserId 옴<\/th>.*?<td>단톡방<\/td><td>기록 없음<\/td>.*?<td>1:1<\/td><td>2026-10-30 \d\d:\d\d:\d\d \(UTC\)<\/td>/s.test(audit.html), "9 진단 칸에 appUserId 가 온 때와 남은 제안 수가 보인다");
+  ok(audit.html.includes("남은 계정 잇기 제안: 1건") && /appUserId 옴<\/th>.*?<td>단톡방<\/td><td>기록 없음<\/td>.*?<td>1:1<\/td><td>\d{4}-\d\d-\d\d \d\d:\d\d:\d\d \(UTC\)<\/td>/s.test(audit.html), "9 진단 칸에 appUserId 가 온 때와 남은 제안 수가 보인다");
   const card = audit.html.slice(audit.html.indexOf("<h2>카카오 로그인 연결 진단</h2>"), audit.html.indexOf("</section>", audit.html.indexOf("<h2>카카오 로그인 연결 진단</h2>")));
   ok(card.length > 0 && !card.includes("2265"), "9 진단 칸에 카카오 id 를 보이지 않는다");
 });

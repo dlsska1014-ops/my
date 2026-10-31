@@ -1,6 +1,6 @@
 // @build:imports-start
 import { moneyTokenSpans, transactionTypeFromText } from "../client/shared-input-parsers.js";
-import { normalizeInputText } from "../client/shared-input-nlu.js";
+import { foldInputWidth, normalizeInputText } from "../client/shared-input-nlu.js";
 import { CATEGORY_RULES } from "./category-rules.js";
 // @build:imports-end
 
@@ -60,7 +60,8 @@ function detectTypeDetail(text) { const raw = normalizeText(text); return transa
 
 function parseAmountValue(value) {
   if (typeof value === "number") return Number.isSafeInteger(value) && value > 0 ? value : 0;
-  const found = extractAmount(String(value));
+  // V22.9.93 Q-21: 값 하나만 받는 칸(예산 대화·정기 폼)도 거래 문장과 같은 입구를 지난다. 안 그러면 ‘12.000’ 이 12원이다.
+  const found = extractAmount(foldInputWidth(String(value)));
   return found ? found.amount : 0;
 }
 

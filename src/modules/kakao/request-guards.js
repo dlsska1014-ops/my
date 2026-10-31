@@ -9,9 +9,11 @@ import { kakaoSkillSafeFallbackText } from "./reply-texts.js";
 import { isCommandMenuCommand, isHouseholdSwitchCommand } from "./intent-nlu.js";
 import { kakaoText } from "./response-builders.js";
 import {
+  KAKAO_AMOUNT_CHANGE_TAIL_V4, KAKAO_LATEST_AMOUNT_EDIT_V4, KAKAO_SEQ_AMOUNT_EDIT_V4,
   hasKakaoEditSessionHint, isKakaoTransactionSpenderChangeCommand, parseKakaoDeleteCommandV4,
   parseKakaoEditCommandV4, parseKakaoRestoreCommandV4, stripKakaoEditDatePrefixV4,
 } from "./edit-session-v4.js";
+import { isKakaoAmountAnswer } from "./edit-state-machine.js";
 import {
   isKakaoFlowCancelCommand, isKakaoGuidedCommand, isKakaoStartCommand,
 } from "./guided-flow-state.js";
@@ -75,17 +77,38 @@ function looksLikeKakaoEditCommandV4(text = "") {
     || /^수정\s*\d{1,3}\s*번(?=\s|$)/.test(original)
     // "01번 13300원으로"는 번호 뒤에 바로 값이 온 수정이다(기록이라면 내용이 있어야 한다).
     // "01번 02번 금액 5000"처럼 번호가 둘 이상 이어지고 수정 낱말이 오면 수정 시도다(한 건씩만 받는다).
-    || /^\d+\s*번(?:\s*[,·]?\s*\d+\s*번)+\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자|삭제|제거|복구|수정)(?=\s|$)/.test(control)
-    || /^\d+\s*번\s*\d[\d,.]*\s*(?:원|만원|천원)?\s*(?:으로|로)(?=\s|$)/.test(control)
+    // V22.9.93 Q-49: 예전 꼴 ‘\s*[,·]?\s*’ 은 공백 하나를 앞뒤 어느 쪽이 가져갈지 갈려 ‘1번 ’ 30번이면 몇 초를 넘겼다(모든 카카오 말이 지난다).
+    || /^\d+\s*번(?:\s*(?:[,·]\s*)?\d+\s*번)+\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자|삭제|제거|복구|수정)(?=\s|$)/.test(control)
+    || KAKAO_SEQ_AMOUNT_EDIT_V4.test(control)
     || /^\d+\s*번\s*(?:금액|가격|얼마|액수|돈|값|분류|카테고리|항목|결제수단|결재수단|수단|지불수단|지불방법|결제방법|내용|이름|품목|제목|메모|날짜|일자|날자|지출자|결제자|결재자|지불자|수입자)(?:을|를|은|는|이|가|도|만|으로|로)?(?=\s|$)/.test(control)
     // "방금 금액 7000"은 방금 기록의 수정이다(parseKakaoEditCommandV4 의 latest 문법). 새 지출 "방금 금액"이 아니다.
-    || /^(?:방금|최근|마지막)\s*(?:거|것|기록|입력)?\s*(?:금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자|수입자)(?=\s|$)/.test(normalizeText(stripLeadingCommand(text)));
+    || /^(?:(?:방금|최근|마지막)\s*(?:거|것|건|꺼|기록|입력)?|아까\s*(?:거|것|건|꺼|기록|입력))\s*(?:금액|가격|분류|카테고리|결제수단|내용|메모|날짜|일자|지출자|결제자|수입자)(?:을|를|은|는|이|가)?(?=\s|$)/.test(normalizeText(stripLeadingCommand(text)))
+    || KAKAO_LATEST_AMOUNT_EDIT_V4.test(normalizeText(stripLeadingCommand(text)));
+}
+
+// V22.9.93 Q-24: 번호 없이 기록을 고치거나 지우려는 말. 어느 기록인지 몰라 고치지는 않지만, 저장하면 메모에 ‘바꿔줘’·‘삭제’ 가 남은 기록이 하나 더 생긴다.
+// 금액 뒤에 고치는 말이 오지 않으면(‘바지 수정 5000원’·‘5000원으로 점심’) 기록이다.
+// V22.9.93 Q-30: 저장 바로 앞에서만 보면 신뢰된 방(tryKakaoGroupFirstRecord)과 1:1 첫 기록, 열린 세션의 새 기록 넘김이 이 판정 전에 저장해 버린다. 강한 입력 판정이 함께 쓴다.
+// 칸 이름으로 시작하는 말은 두 낱말까지만 본다(‘날짜 변경 수수료 30000원’ 은 기록이다).
+function looksLikeKakaoChangeRequest(text = "") {
+  const t = normalizeText(text);
+  return KAKAO_AMOUNT_CHANGE_TAIL_V4.test(t)
+    || isKakaoAmountAnswer(t)
+    || (/\S\s+(?:(?:삭제|제거)(?:\s*해\s*(?:줘요?|주세요)?)?|지워\s*(?:줘요?|주세요)?)$/.test(t) && !/(?:예산|가계부|단톡방|연결|구성원|초대|카테고리|분류|정기|알림)/.test(t))
+    || /^(?:수정|삭제)\s+(?!테이프|액|펜)\S/.test(t)
+    || /^(?:금액|가격)\s*(?:수정|변경)(?:\s+\d[\d,.]*\s*원?)?$/.test(t)
+    || /^(?:금액|가격)\s*(?:이|가|을|를)?\s*(?:틀렸|틀려|잘못\s*(?:됐|됨|되었|입력|적|썼|기록|저장))/.test(t)
+    || /^(?:금액|가격|내용|분류|결제수단|날짜|메모)(?:을|를|은|는|이|가)?\s+\S+(?:\s+\S+)?$/.test(t)
+    || /^\d{1,3}\s*번\s.*(?:원|\d|[만천])\s*(?:으로|로)$/.test(t)
+    || /^0\d\s*번\s/.test(t)
+    || /^\d{1,3}\s*번\s*(?:거|것|꺼|기록)(?:을|를)?\s/.test(t)
+    || /^아까\s*(?:거|것|건|꺼|기록|입력)?\s*(?:금액|가격)(?:을|를|은|는|이|가)?(?=\s|$)/.test(t);
 }
 
 function isStrongKakaoTransactionInput(text = "", parsedList = []) {
   const raw = normalizeText(stripLeadingCommand(text));
   if (!raw || !Array.isArray(parsedList) || !parsedList.length) return false;
-  if (looksLikeKakaoEditCommandV4(text) || looksLikeKakaoEditCommandV4(raw)) return false;
+  if (looksLikeKakaoEditCommandV4(text) || looksLikeKakaoEditCommandV4(raw) || looksLikeKakaoChangeRequest(text) || looksLikeKakaoChangeRequest(raw)) return false;
   if (/(?:^|\s)예산(?=\s|$)|^초대코드|^단톡방\s*연결|^가계부\s*(?:참여|만들기|생성)/.test(raw)) return false;
   const amountInfo = extractAmount(raw);
   if (!amountInfo?.amount) return false;
@@ -105,7 +128,7 @@ function isKakaoFirstRecordInput(text = "", parsedList = []) {
   if (isStrongKakaoTransactionInput(text, parsedList)) return true;
   const raw = normalizeText(stripLeadingCommand(text));
   if (!raw || !Array.isArray(parsedList) || parsedList.length !== 1) return false;
-  if (looksLikeKakaoEditCommandV4(text) || looksLikeKakaoEditCommandV4(raw)) return false;
+  if (looksLikeKakaoEditCommandV4(text) || looksLikeKakaoEditCommandV4(raw) || looksLikeKakaoChangeRequest(text) || looksLikeKakaoChangeRequest(raw)) return false;
   if (/(?:^|\s)예산(?=\s|$)|^초대코드|^단톡방\s*연결|^가계부\s*(?:참여|만들기|생성)/.test(raw)) return false;
   const amountInfo = extractAmount(raw);
   if (!amountInfo?.amount || !/원\s*$/.test(String(amountInfo.raw || ""))) return false;
@@ -290,7 +313,8 @@ async function normalizeKakaoSkillResponse(response, origin = "") {
 export {
   armKakaoRepeatGuard, buildKakaoSkillTestPayload, checkKakaoRepeatGuard, clearKakaoInFlight,
   isKakaoFirstRecordInput, isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoDeferredReply,
-  kakaoQaRequestAllowed, kakaoRecordCheckReply, kakaoRepeatGuardText, looksLikeKakaoEditCommandV4,
-  normalizeKakaoSkillResponse, optionalWithin, stripKakaoBotMention, stripLeadingCommand,
+  kakaoQaRequestAllowed, kakaoRecordCheckReply, kakaoRepeatGuardText, looksLikeKakaoChangeRequest,
+  looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse, optionalWithin, stripKakaoBotMention,
+  stripLeadingCommand,
 };
 // @build:exports-end

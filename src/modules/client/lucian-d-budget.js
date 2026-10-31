@@ -5,7 +5,7 @@ import { normalizeText } from "../nlu/amount-parser.js";
 import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
 
-const BUDGET_PREVIEW_JS_PATH = "/assets/accountbook-budget-preview-v22979.js";
+const BUDGET_PREVIEW_JS_PATH = "/assets/accountbook-budget-preview-v22993.js";
 
 function budgetPlanInput(incomeRows = [], expenseRows = []) {
   return {

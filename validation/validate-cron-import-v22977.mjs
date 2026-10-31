@@ -287,27 +287,28 @@ const SAMPLES = [
   ["natural-1000", naturalLines(1000), { maxRows: 5000, importYear: 2026 }],
 ];
 // 고치기 전(V22.9.76 adb66ed) 묶음으로 같은 표본을 해석한 결과의 SHA-256 앞 32자. --print-golden 으로 다시 뽑는다.
+// V22.9.93 Q-3: 표본의 ‘CGV 용산’이 문화/여가로, ‘꽃’이 경조사/선물로 분류돼 아홉 표본의 지문을 다시 얻었다. V22.9.92 번들과 행마다 견주면 달라진 칸은 이 두 낱말의 category 뿐이다.
 const GOLDEN = {
-  "card-tsv": "844b5e42768cb72f150da0bd04521445",
-  "bank-csv": "5fbc0c8fb6f1ddf9c9bcbea3fdf22574",
+  "card-tsv": "c1da7fc94656e201faa9d626c1d12f82",
+  "bank-csv": "7cb55b076ca7a8609f1dcf68432f3fb6",
   "english-csv": "d25f3dd1a9b6ee3d43518388b58c71b0",
-  "noyear-default-jan": "2413f5345a6d00f1e4d004e4c04bc904",
+  "noyear-default-jan": "6f3739b536273857defbe5094085dd33",
   "noyear-selected-jan": "c40de1f677f3a873004cec5dbcc5fe5a",
   "negative-variants": "6ec7961b102d5d7fb32c0d729150f9f4",
-  "signed-file": "0fdf343fa79ce9bc1fee90b97d66833a",
+  "signed-file": "58999290308fb098b168cb0c8d662987",
   "natural": "a1755eb53273940d6fed6e71367aa758",
   // V22.9.81 U-11: 머리글 없는 표의 메모에 쉼표가 남지 않는다(‘,이마트 성수점,’ → ‘이마트 성수점’). 바뀐 것은 메모 20건뿐이다(예전 7f33e583d349a321d2e6e40646bd0ecf).
-  "headerless": "8549f24613cf03983401b5e4c26ddfc8",
+  "headerless": "c26689184b640eb5149272cddf3e21fe",
   "json": "930d43511b9c83957c868335fe6fa054",
   "sections": "3e53ba9424eba5e7e27bfe9292f8ae2b",
   "two-digit-year": "e6919ba6af7303ccc6da02471cb69089",
   "serial-dates": "047b4c0373419c6c2f5475c9656ec7f1",
   "key-value": "60ac2ca6b3ab46076442f1d4bd280f13",
-  "mapping-delta": "fde1d21193d3a04ac37a5a40a5e10830",
-  "over-limit": "7e3a9c38c2d01b2607223a6831c05cf3",
+  "mapping-delta": "7871b15e8a0d28b9db5904475ec6077e",
+  "over-limit": "e36d3a6bfe3feccc235048cefaf335a8",
   "quote-errors": "53f328dad2019fcba48e3ab1c7633775",
-  "card-1000": "238b1cd999484f1abffbbd2e05f4590c",
-  "natural-1000": "6a25299b8fae7ddc00ae9693c777439c",
+  "card-1000": "8adc47faf41af6bd2c9311526a045d44",
+  "natural-1000": "886d760128c0f3dcd7a569d5b87e63d1",
   "nlu-sentences": "3ffbcf96de3141c1a1935be12bca66d1",
 };
 const digest = (value) => createHash("sha256").update(JSON.stringify(value)).digest("hex").slice(0, 32);

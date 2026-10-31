@@ -35,7 +35,7 @@ import {
 import { kakaoManualReply, kakaoManualTopic } from "./manual-guides.js";
 import {
   getRecentKakaoOwnedTransactionsV2254, isKakaoDailyListCommand, isKakaoSessionSeqReplyV4,
-  kakaoEditSessionKeyV4, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
+  kakaoEditInputTextV4, kakaoEditSessionKeyV4, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
   parseKakaoRestoreCommandV4,
 } from "./edit-session-v4.js";
 import { startsWithKakaoEditField } from "./edit-state-machine.js";
@@ -43,8 +43,8 @@ import { handleKakaoEditCommandV4, handleKakaoEditSessionMessageV4 } from "./edi
 import {
   armKakaoRepeatGuard, checkKakaoRepeatGuard, clearKakaoInFlight, isKakaoFirstRecordInput,
   isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoDeferredReply, kakaoQaRequestAllowed,
-  kakaoRepeatGuardText, looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse,
-  stripLeadingCommand,
+  kakaoRepeatGuardText, looksLikeKakaoChangeRequest, looksLikeKakaoEditCommandV4,
+  normalizeKakaoSkillResponse, stripLeadingCommand,
 } from "./request-guards.js";
 import {
   clearKakaoFlowState, completeKakaoFlowState, getKakaoFlowState, isKakaoBudgetSetupCommand,
@@ -345,21 +345,23 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   const payload = await readJson(request);
   const origin = publicBaseUrl(env, new URL(request.url));
   const utterance = normalizeKakaoButtonLabel(stripLeadingCommand(String(payload?.userRequest?.utterance || payload?.utterance || "").trim()));
+  // V22.9.93 Q-35: 고치고 지우는 말은 전각 숫자와 끝 문장부호를 다듬어 읽는다(저장 원문은 utterance 그대로다).
+  const commandText = kakaoEditInputTextV4(utterance);
   const separatePurchaseCommand = parseKakaoSeparatePurchaseCommand(utterance);
   const preParsedList = separatePurchaseCommand ? [] : parseMultipleTransactions(utterance, payload);
   // V22.9.76 카카오 감사 3: "어제수정 01번 금액 5000"·"10월20일수정 …"처럼 날짜와 수정 명령을 붙여 쓴 말은 아래 두
   // 기록 거절 안내가 아니라 수정 흐름으로 보낸다.
-  const editLikeUtterance = !separatePurchaseCommand && looksLikeKakaoEditCommandV4(utterance);
+  const editLikeUtterance = !separatePurchaseCommand && looksLikeKakaoEditCommandV4(commandText);
   // V22.9.90: 관제 기능 순위용 이름(부른 쪽은 메뉴 낱말 판별이 UNKNOWN 일 때만 쓴다). 기록으로 읽힌 글은 TRANSACTION, 고치기 명령 꼴은 EDIT.
-  if (usage) usage.intent = editLikeUtterance ? "EDIT" : separatePurchaseCommand || preParsedList.length ? "TRANSACTION" : "";
+  if (usage) usage.intent = editLikeUtterance || looksLikeKakaoChangeRequest(commandText) ? "EDIT" : separatePurchaseCommand || preParsedList.length ? "TRANSACTION" : "";
   if (!separatePurchaseCommand && !editLikeUtterance && (preParsedList.blocked?.message === "transaction_type_confirmation_required" || (!preParsedList.length && parseTransaction(utterance,payload).message === "transaction_type_confirmation_required"))) {
     if (preParsedList.blocked?.reason === "mixed_cues") return kakaoMixedTypeConfirmationReply(utterance);
     return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");
   }
   if (!separatePurchaseCommand && !editLikeUtterance && !preParsedList.length && parseTransaction(utterance,payload).message === "invalid_transaction_date") return kakaoText("달력에 없는 날짜여서 기록을 저장하지 않았어요. 날짜를 확인해 다시 보내 주세요. 연도 없는 M/D는 올해 날짜로 저장합니다.");
-  const strongTransactionInput = isStrongKakaoTransactionInput(utterance, preParsedList);
+  const strongTransactionInput = isStrongKakaoTransactionInput(commandText, preParsedList);
   // V22.9.63 감사(1:1 2): 가계부가 없는 사람의 첫 기록은 "밥 4500원"처럼 한 글자 내용도 받는다. 아래 두 자동 준비 길에만 쓴다.
-  const firstRecordInput = strongTransactionInput || isKakaoFirstRecordInput(utterance, preParsedList);
+  const firstRecordInput = strongTransactionInput || isKakaoFirstRecordInput(commandText, preParsedList);
   const kakaoUserKey = getKakaoUserKey(payload);
   const nickname = getKakaoNickname(payload);
 
@@ -421,9 +423,9 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // 먼저 잡아 다른 기록을 바꿨다. 수정·삭제·복구 말이 없는 "N번…"은 열린 세션에 먼저 넘긴다(세션이 없으면 예전 경로).
   // 감사 B-4: 목록·요약·정산·예산·가계부 전환·메뉴 명령은 세션을 비켜 간다(세션은 남아 있어 이어서 고칠 수 있다).
   if (!separatePurchaseCommand && skillConfigured && kakaoUserKey && !isKakaoEditSessionBypassCommand(utterance) &&
-      (isKakaoSessionSeqReplyV4(utterance) || (!parseKakaoEditCommandV4(utterance) && !parseKakaoDeleteCommandV4(utterance) && !parseKakaoRestoreCommandV4(utterance)))) {
+      (isKakaoSessionSeqReplyV4(commandText) || (!parseKakaoEditCommandV4(commandText) && !parseKakaoDeleteCommandV4(commandText) && !parseKakaoRestoreCommandV4(commandText)))) {
     // T6: 분명한 새 기록이면 세션만 끝나고(passThrough) 아래 기록 경로로 이어진다.
-    const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, sessionRaw: routingSnapshot?.edit });
+    const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance: commandText || utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, sessionRaw: routingSnapshot?.edit });
     if (editSessionReply?.passThrough) editSessionNotice = String(editSessionReply.notice || "");
     else if (editSessionReply) {
       // V22.9.90 독립 검토: 열린 수정 세션이 받은 답("금액 13000"·"1번")은 위 미리 읽기가 기록으로 보았어도 관제 기능 순위에서는 고치기(EDIT)다.
@@ -636,7 +638,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     const tooLarge = preParsedList.find((parsed) => Number(parsed.amount || 0) > MAX_TRANSACTION_AMOUNT);
     if (tooLarge) return kakaoText(`금액이 너무 커서 저장하지 않았어요.\n입력 금액: ${numberWithCommas(tooLarge.amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 기록할 수 있어요. 금액을 확인해 다시 보내 주세요.`);
     // V22.9.79 감사 N-5: 방 기록의 저장 답장도 같은 이름 가계부를 구별한다 — 이미 던져 둔 내 가계부 목록을 답장 만들 때 쓰도록 넘긴다(조회는 늘지 않는다).
-    return await tryKakaoGroupFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, groupKey: botGroupKey, householdRowsPromise: householdsPromise.then((result) => result.value || null) });
+    return await tryKakaoGroupFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, groupKey: botGroupKey, editSessionNotice, householdRowsPromise: householdsPromise.then((result) => result.value || null) });
   }
 
   // V21.5.1: 회원목록과 그룹 연결을 병렬 조회하고 결과를 재사용해 중복 Supabase 왕복을 줄입니다.
@@ -791,7 +793,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // isStrongKakaoTransactionInput이 수정 명령 패턴을 이미 제외하므로 게이트 불필요.
   if (!directBudget && moneyTokenSpans(utterance).length && /(?:^|\s)예산(?=\s|$)/.test(utterance)) return kakaoText(kakaoBudgetGuideText(origin));
   // V22.9.79 감사 A-18: 하루를 가리킨 ‘뭐 썼어’류 조회는 그날의 번호 있는 기록 목록으로 답한다(아래 최근 5건 답은 날짜 없는 ‘최근’용).
-  const kakaoEditCommandReply = strongTransactionInput ? null : await handleKakaoEditCommandV4(env, { utterance: kakaoRecentDayListUtterance(utterance) || utterance, household, user, kakaoUserKey, payload, origin, role: accessRole });
+  const kakaoEditCommandReply = strongTransactionInput ? null : await handleKakaoEditCommandV4(env, { utterance: kakaoRecentDayListUtterance(utterance) || commandText || utterance, household, user, kakaoUserKey, payload, origin, role: accessRole });
   if (kakaoEditCommandReply) return kakaoEditCommandReply;
 
   if (!strongTransactionInput && isLinkCommand(utterance)) return kakaoText(linkText(origin, household.invite_code));
@@ -848,7 +850,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
 ${formatRecentTransactions(rows)}`);
   }
 
-  if (!strongTransactionInput && isUndoCommand(utterance)) {
+  if (!strongTransactionInput && isUndoCommand(commandText)) {
     return kakaoText("삭제할 기록의 번호를 먼저 확인해 주세요.\n예: 오늘 기록 보기 → 삭제 01번\n\n방금 입력을 지우려면 ‘방금 삭제’라고 입력해 주세요.\n삭제한 기록은 ‘복구’로 되돌릴 수 있어요.");
   }
 
@@ -858,7 +860,8 @@ ${formatRecentTransactions(rows)}`);
     return kakaoText(`금액이 ${small}원으로 읽혀 저장하지 않았어요. 정말 ${small}원이면 "${small}원"처럼 원을 붙여 다시 보내 주세요.`);
   }
   // D3: 날짜를 읽지 못한 수정·삭제 명령("지난주 금요일 01번 금액 5000")이 여기까지 오면 새 기록으로 저장하지 않는다.
-  if (looksLikeKakaoEditCommandV4(utterance)) return kakaoText("수정·삭제 명령으로 보여서 새 기록으로 저장하지 않았어요.\n날짜는 이렇게 붙여 주세요.\n어제 수정 01번 금액 13000\n7월 10일 삭제 01번");
+  if (looksLikeKakaoEditCommandV4(commandText)) return kakaoText("수정·삭제 명령으로 보여서 새 기록으로 저장하지 않았어요.\n날짜는 이렇게 붙여 주세요.\n어제 수정 01번 금액 13000\n7월 10일 삭제 01번");
+  if (looksLikeKakaoChangeRequest(commandText)) return kakaoText("기록을 고치거나 지우려는 말로 보여서 새 기록으로 저장하지 않았어요.\n‘오늘기록’으로 번호를 본 뒤 이렇게 보내 주세요.\n수정 01번 금액 5000\n삭제 01번\n방금 기록이라면 ‘방금 5000원으로 바꿔줘’·‘방금 삭제’로 돼요.\n\n새로 적는 거라면 ‘커피 5000원’처럼 보내 주세요.", [["오늘기록", "오늘기록"]]);
   // T-44: 조회 전용은 위 판정에서 막는다. 조회 판정이 넓어져도 새 기록 저장에는 닿지 않게 저장 바로 앞에서 한 번 더 본다.
   if (accessRole === "viewer") return kakaoText(roleBlockedMessage(accessRole, household.name));
   // V22.9.43: 단톡방 연결 가계부에는 역할이 실려 있지 않다. 저장 안내가 구성원 권한(기록만)을 알 수 있게 실제 역할을 붙인다.

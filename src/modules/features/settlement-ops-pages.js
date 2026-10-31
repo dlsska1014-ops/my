@@ -349,6 +349,7 @@ async function handleSettlementHistorySave(request, env) {
     const outcome = await withHouseholdSettingsRmw(env, selected.id, async ({ assertFresh }) => {
       const history = parseJsonArraySettingStrict(await getSettingValueStrict(env, settlementHistoryKey(selected.id)), "settlement_history_json_invalid");
       const duplicate = history.some((item) => {
+        if (!item || typeof item !== "object") return false;
         const completedAt = Date.parse(String(item.completed_at || ""));
         const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
         return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && (!item.rows_digest || item.rows_digest === digest);
@@ -457,7 +458,8 @@ function settlementCompletedDayKst(value) {
 
 function renderSettlementHistory(history = []) {
   // V22.9.81 U-27: 완료 달 표식(잘려 나간 달의 잠금용)은 정산 표에 보이지 않는다.
-  const rows = safeArray(history).filter((item) => !isSettlementMonthMarker(item)).reverse().slice(0, 8);
+  // V22.9.93 X-17: 손으로 고친 이력의 null·객체 아닌 항목은 건너뛴다.
+  const rows = safeArray(history).filter((item) => item && typeof item === "object" && !isSettlementMonthMarker(item)).reverse().slice(0, 8);
   if (!rows.length) return `<p class="muted">완료 처리한 정산이 아직 없습니다.</p>`;
   return `<div class="tableWrap"><table><thead><tr><th>완료일</th><th>대상 월</th><th>방식</th><th>총 지출</th><th>부담액</th><th>메모</th></tr></thead><tbody>${rows.map((item) => `<tr><td>${escapeHtml(settlementCompletedDayKst(item.completed_at))}</td><td>${escapeHtml(item.month || "")}</td><td>${escapeHtml({ equal: "동일", ratio: "비율", headcount: "인원수", item: "품목별" }[item.mode] || item.mode || "동일")}</td><td>${numberWithCommas(item.total_expense)}원${Number(item.refund_total) > 0 ? ` (환불 ${numberWithCommas(item.refund_total)}원 뺌)` : ""}</td><td>${Array.isArray(item.shares) && item.shares.length ? item.shares.map((share) => `${escapeHtml(share.name || "구성원")} ${numberWithCommas(share.share)}원`).join(" · ") : "-"}</td><td>${escapeHtml(item.note || "-")}</td></tr>`).join("")}</tbody></table></div>`;
 }

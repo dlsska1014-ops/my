@@ -192,7 +192,7 @@ function isExplicitKakaoTopLevelCommandV2254(text = "") {
   // V22.9.79: ‘어제 기록 보기’·‘7월 3일 기록 보기’도 ‘오늘기록’처럼 열려 있던 단계 흐름을 끊고 목록으로 답한다. 조회 전용도 이 목록을 볼 수 있게
   // 되면서(skill-handler), 남아 있던 이름 입력 흐름이 이 말을 입력값으로 삼키지 않도록 하는 쪽이다.
   if (isKakaoDailyListCommand(t)) return true;
-  if (/^(?:\d{1,2}\s*번|방금|최근|마지막).*(?:수정|변경|삭제|지출자|결제자|수입자)/.test(t)) return true;
+  if (/^(?:\d{1,2}\s*번|방금|아까|최근|마지막).*(?:수정|변경|삭제|지워|지출자|결제자|수입자)/.test(t)) return true;
   if (/^(?:수정|삭제|복구)\s*\d{1,2}\s*번/.test(t)) return true;
   if (/^(?:취소|수정취소|선택취소|방금삭제|입력취소|삭제확인|삭제 확인)$/.test(t)) return true;
   return false;
