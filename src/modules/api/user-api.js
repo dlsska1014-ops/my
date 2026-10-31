@@ -481,13 +481,15 @@ function goalsKey(householdId) {
 // 목표 금액·모은 금액은 0 이상 정수 원이며 1,000억 원을 넘지 않는다. Number("1e309") 는 Infinity 라
 // "> 0" 검사를 통과한 뒤 JSON 에서 null 이 되어 다음 조회 때 0원이 된다(QA B01). 그래서 입력은 숫자
 // 문자열(쉼표·공백·끝의 "원" 허용)이나 안전한 정수만 받고, 지수·소수·음수·상한 초과는 저장 전에 거부한다.
+// V22.9.93 Q-7: 화면이 숫자만 남기던 때 저장되던 꼴 가운데 뜻이 분명한 앞의 ₩ 와 세 자리 점 묶음(1.000.000)은 그대로 받는다.
 const MAX_GOAL_AMOUNT = 100_000_000_000;
 function parseGoalAmountInput(value, { allowZero = true, max = MAX_GOAL_AMOUNT } = {}) {
   if (value === undefined || value === null || value === "") return allowZero ? 0 : null;
   let amount;
   if (typeof value === "number") amount = value;
   else {
-    const text = String(value).replace(/[,\s]/g, "").replace(/원$/, "");
+    const typed = String(value).replace(/[,\s]/g, "").replace(/^[₩￦]/, "").replace(/원$/, "");
+    const text = /^[1-9]\d{0,2}(?:\.\d{3})+$/.test(typed) ? typed.split(".").join("") : typed;
     if (!/^\d{1,15}$/.test(text)) return null;
     amount = Number(text);
   }
@@ -506,7 +508,7 @@ function goalAmountsFromInput(source = {}, fallback = {}) {
   const monthly = parseGoalAmountInput(pick("monthly"));
   return target === null || saved === null || monthly === null ? null : { target, saved, monthly };
 }
-const GOAL_AMOUNT_INVALID = { ok: false, error: "invalid_amount", reason: "invalid_amount", message: "금액은 0 이상 1,000억 원 이하의 숫자로 입력해 주세요." };
+const GOAL_AMOUNT_INVALID = { ok: false, error: "invalid_amount", reason: "invalid_amount", message: "금액은 숫자로만 입력해 주세요(‘100만’ 같은 한글 단위는 쓸 수 없습니다). 목표 금액은 1원부터 1,000억 원까지입니다." };
 // V22.9.37 감사 N12: 마감월은 실제 YYYY-MM 만 받는다. "2026-13" 이 그대로 저장돼 남은 달 계산이 틀렸다. 비우는 것은 된다.
 const GOAL_DEADLINE_INVALID = { ok: false, error: "invalid_deadline", reason: "invalid_deadline", message: "마감월은 YYYY-MM 형식의 실제 월로 입력해 주세요." };
 function invalidGoalDeadline(value) {
@@ -629,6 +631,8 @@ async function handleUserGoals(request, env, url) {
         const g = normalizeGoal({ name: body.name, emoji: body.emoji, ...amounts, deadline: body.deadline });
         if (!g || !(g.target > 0)) return jsonResponse({ ok: false, error: "invalid_goal", reason: "invalid_goal", message: "목표 이름과 0원보다 큰 목표 금액을 확인해 주세요." }, 400);
         if (list.length >= 50) return jsonResponse({ok:false,error:"goal_limit",message:"\uBAA9\uD45C\uB294 50\uAC1C\uAE4C\uC9C0 \uC800\uC7A5\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4."},400);
+        // V22.9.93 Q-8: 진행 중인 같은 이름 목표를 또 만들지 않는다(버튼을 두 번 눌러도 둘이 생겼다). 다 모은 목표는 같은 이름으로 다시 시작할 수 있다.
+        if (list.some((x) => x.name === g.name && x.saved < x.target)) return jsonResponse({ ok: false, error: "duplicate_goal", reason: "duplicate_goal", message: "같은 이름의 목표가 이미 있습니다. 다른 이름으로 만들거나 기존 목표에 납입해 주세요." }, 409);
         list = [...list, g];
       } else if (action === "restore") {
         const amounts = goalAmountsFromInput(safeObject(body.goal));

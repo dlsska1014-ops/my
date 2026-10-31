@@ -1,8 +1,8 @@
 // @build:imports-start
 import { accountbookAmountMaskClientMain } from "../client/lucian-e-mains.js";
 import {
-  explicitDateIntent, moneyTokenSpans, parseMobileAmountText, quickAmountFieldState, quickInputDate,
-  transactionTypeFromText,
+  explicitDateIntent, moneyTokenSpans, parseMobileAmountText, quickAmountCount,
+  quickAmountFieldState, quickInputDate, transactionTypeFromText,
 } from "../client/shared-input-parsers.js";
 import {
   cleanInputMemo, detectInputPayment, foldInputWidth, inferInputCategory, inputPaymentNameIn,
@@ -370,7 +370,7 @@ function homeHeaderClientMain() {
 function mobileHomeJsAsset() {
   if (!AB_MOBILE_HOME_JS_CACHE) {
     AB_MOBILE_HOME_JS_CACHE = [
-      quickAmountFieldState.toString(), moneyTokenSpans.toString(), transactionTypeFromText.toString(), quickInputDate.toString(), explicitDateIntent.toString(), parseMobileAmountText.toString(),
+      quickAmountFieldState.toString(), moneyTokenSpans.toString(), quickAmountCount.toString(), transactionTypeFromText.toString(), quickInputDate.toString(), explicitDateIntent.toString(), parseMobileAmountText.toString(),
       // V22.9.79: 서버(nlu/*)와 같은 해석 함수 — 전각·띄어 쓴 금액 정리, 결제수단·분류·메모 판정(client/shared-input-nlu.js).
       foldInputWidth.toString(), joinSpacedKoreanAmount.toString(), normalizeInputText.toString(), inputPaymentPatterns.toString(), detectInputPayment.toString(), inputPaymentNameIn.toString(), inferInputCategory.toString(), cleanInputMemo.toString(),
       rawMobileHomeInlineRuntime(),

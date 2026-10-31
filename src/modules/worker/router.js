@@ -15,7 +15,8 @@ import {
 import {
   APP_MODE, APP_VERSION, KAKAO_SECONDARY_COMMANDS, adfitUnitStatus, adsMode, appName,
   canonicalRedirectResponse, handleKakaoCommandSystemPage, hiddenIncompleteFeatureResponse,
-  kakaoChatCommandCatalog, kakaoRepresentativeCommands, publicBaseUrl, renderSkillGetHealthHtml,
+  kakaoChatCommandCatalog, kakaoRepresentativeCommands, pageNotFoundResponse, publicBaseUrl,
+  renderSkillGetHealthHtml,
 } from "../public/site-config.js";
 import { handlePublicContentPage, publicDocumentResponse } from "../public/content-pages.js";
 import { logWorkerError, safeError } from "../runtime/leases.js";
@@ -1392,6 +1393,10 @@ const ACCOUNTBOOK_WORKER = {
         return await handleApi(request, env, url);
       }
 
+      // V22.9.93 Q-5: 브라우저 주소창에 원시 JSON 이 보이지 않게 한다. API·스크립트 요청은 그대로 JSON 이다.
+      if (request.method === "GET" && !url.pathname.startsWith("/u/api/") && String(request.headers.get("accept") || "").includes("text/html")) {
+        return pageNotFoundResponse();
+      }
       return jsonResponse({ ok: false, error: "not_found", reason: "not_found", message: "요청한 내용을 찾지 못했습니다." }, 404);
     } catch (err) {
       if (err?.httpStatus === 400 || err?.httpStatus === 413) return jsonResponse({ ok: false, error: err.httpStatus === 413 ? "body_too_large" : "invalid_body", message: "입력 내용을 확인해 주세요." }, err.httpStatus);

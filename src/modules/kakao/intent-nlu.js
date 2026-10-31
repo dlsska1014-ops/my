@@ -162,7 +162,10 @@ function detectKakaoNaturalIntent(text = "") {
   const dataPolicy = hits("DATA_POLICY");
   if (/^(개인정보|데이터보관|프라이버시)$/.test(compact) || dataPolicy.targetHits > 0) return result("DATA_POLICY", 0.96, "data-policy");
   const editGuide = hits("EDIT_GUIDE");
-  if (/^(수정가이드|수정방법|삭제방법)$/.test(compact) || (editGuide.targetHits > 0 && editGuide.actionHits > 0) || /(?:기록|거래).*(?:고치|수정|삭제).*(?:방법|어떻게)?/.test(normalized)) return result("EDIT_GUIDE", 0.96, "edit-guide");
+  // V22.9.93 Q-45: ‘1번 기록 삭제’·‘최근 기록 삭제’ 처럼 기록을 짚은 말은 수정 안내가 아니라 명령이다(안내가 먼저 답해 지워지지 않았다).
+  // V22.9.93 Q-60: 묻거나 말리는 말은 명령이 아니다(‘1번 기록 삭제 안돼요’·‘삭제해도 될까’·‘삭제 하지마’ 가 기록을 지웠고 ‘수정 가능?’ 이 결제수단을 ‘가능’ 으로 바꿨다).
+  const editQuestion = /(?:안\s*(?:돼|되|해|함)|않|말아|말고|지\s*마|못|가능|될까|돼\s*$|돼요\s*$|할까|방법|어떻게|왜)/.test(normalized);
+  if (/^(수정가이드|수정방법|삭제방법)$/.test(compact) || (editGuide.targetHits > 0 && editGuide.actionHits > 0) || (/(?:기록|거래).*(?:고치|수정|삭제)/.test(normalized) && (editQuestion || !/^(?:\d{1,2}\s*번|방금|아까|마지막|최근)/.test(normalized)))) return result("EDIT_GUIDE", 0.96, "edit-guide");
   const keywordGuide = hits("KEYWORD_GUIDE");
   if (/^(키워드안내|자동분류|분류키워드)$/.test(compact) || keywordGuide.targetHits > 0) return result("KEYWORD_GUIDE", 0.95, "keyword-guide");
   const reserveGuide = hits("RESERVE_GUIDE");

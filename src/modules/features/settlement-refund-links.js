@@ -581,6 +581,7 @@ async function handleSettlementHistorySaveV22979(request, env) {
       if (submittedDigest && submittedDigest !== digest) return "changed";
       const history = parseJsonArraySettingStrict(historyValue, "settlement_history_json_invalid");
       const duplicate = history.some((item) => {
+        if (!item || typeof item !== "object") return false;
         const completedAt = Date.parse(String(item.completed_at || ""));
         const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
         return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && (!item.rows_digest || item.rows_digest === digest);

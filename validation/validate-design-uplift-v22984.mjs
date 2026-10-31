@@ -42,8 +42,9 @@ const homeHtml = async (fx) => (await app.fetch(new Request(`${BASE}${HOME}`, { 
 // V22.9.89(디자인 작업 지시서 V2 6단계): U-07 홈 정기 카드 세 줄(매달 나감·아직 안 나감·납부·입금 일정, +82 B), U-01 오늘 쓴 돈 ‘아직 없어요’(+11 B),
 // U-02 아랫줄 이름(+1 B), U-03·U-04 속도·월말 문장과 예산에 안 넣은 월세 줄(−29 B), U-11 카드 머리(−2 B)로 기준 35,797 B 가 됐다. V2 R4 의 35 KiB(35,840 B) 기준 안이다.
 // 200행 픽스처는 같은 몫에 하루 한도를 넘은 날의 ‘· 하루 한도를 넘었어요’(+33 B, U-01 글로 알림)와 예산에 안 넣은 월세 줄(+70 B)이 더해져 40,625 B 다.
-const HOME_BASE_MAX = 35797;
-const HOME_200_MAX = 40625;
+// V22.9.93(Aside 전체 검수): 사이드바 연간 리포트 링크가 보던 달을 들고 간다(Q-6, +4 B), 지출자 칸의 역할이 한글이다(Q-9, +7 B). 기준 35,808 B(35 KiB 기준 안).
+const HOME_BASE_MAX = 35808;
+const HOME_200_MAX = 40636;
 // V22.9.85: 2단계(T-09 카테고리 토큰·마스크 15개, T-10 화면 아이콘 마스크 3개)와 R-1·R-3·R-6·R-7·의료 제외 낱말로 셸이 239,647 B(gzip 49,917)가 됐다.
 // V22.9.86: 3단계(T-11 머리말·가계부 고르기 시트, T-13 동그라미, T-14 입력 바·시트, T-15 알림·새 행 강조, T-17 탭 바, T-18 빈 상태)가
 // design-uplift-3-css.js 로 붙고, V85 검토 후속 R-8(다크 탭 글자)·R-12(날짜 칩)·R-13(빠른 입력 초점)·R-16(챌린지 카드 초점)과 메뉴 아이콘 선(V86:V-6)·탭 아이콘 크기가 더해져
@@ -53,7 +54,9 @@ const HOME_200_MAX = 40625;
 // V22.9.87 V85:R-9: 데스크톱 사이드바 현재 메뉴(투명 1px 테두리·현재 메뉴 강조색 테두리·다크 다른 메뉴 보조색) 네 규칙으로 265,382 B 다.
 // V22.9.87 사용자 결정(2026-10-29): 경고 알림 실행 취소 단추 줄 두 규칙(T-16), 실행 취소 단추 바탕·글자색 두 규칙(V87:W-4), 리포트 기간 탭 두 규칙(V85:R-10),
 // 글꼴 목록 한 규칙(T-23)과 그 주석으로 266,298 B 다.
-const SHELL_CSS_MAX_BYTES = 266298;
+// V22.9.93(Aside 2차 검수): 좁은 폭 달 칸 규칙, 다크 상태 배지 네 묶음, 상태 색 토큰, 빠른 입력 간격으로 267,463 B 다.
+// V22.9.93(Aside 3차 검수): 정산 조회 줄의 가계부 칸·단추 규칙(Q-27)으로 267,649 B 다.
+const SHELL_CSS_MAX_BYTES = 267649;
 // V22.9.85: R-3·R-6·R-7 의 다크·초점 규칙이 이미 !important 인 규칙(모든 링크 강조색·다크 표면 목록·옛 2px 초점 링)을 이겨야 해서 12회 늘었다.
 // V22.9.86: 81회 늘었다. 모두 이미 !important 인 옛 규칙(머리말 단추 40px·탭 바 높이·칩 패딩·빠른 입력 시트·알림 면 색·옛 칩 무리·outline:0)을 이겨야 하는 자리다.
 // V22.9.87: T-19 가 49회 늘렸다. 보조기기용 숨김 글자 두 곳(9회씩, 접은 사이드바 메뉴 링크와 같은 방식) 18회와, 옛 !important 규칙(독 가운데 놓기·흐림·테두리·그림자,
@@ -62,14 +65,15 @@ const SHELL_CSS_MAX_BYTES = 266298;
 // V22.9.87 사용자 결정(2026-10-29): 6회 — 실행 취소 단추 바탕·글자색 3회(V87:W-4, mobile-home-v22985.css 의 파랗게 채운 submit 규칙이 !important),
 // 리포트 기간 탭 글자색 2회(V85:R-10, 다크 링크 강조색 R-3 이 !important), 글꼴 목록 1회(T-23, 옛 UI 런타임 body.abV2281 글꼴 규칙이 !important).
 // 단추 테두리는 고대비 모드 테두리가 이기도록 여전히 !important 를 쓰지 않는다.
-const SHELL_IMPORTANT_MAX = 1660;
+// V22.9.93(Aside 2차 검수): 9회 — 다크 상태 배지 8회(쪽마다 둔 밝은 바탕과 셸의 다크 글자색이 !important 라 이겨야 한다), 좁은 폭 달 칸 1회(옛 조회 줄 열 규칙이 !important).
+const SHELL_IMPORTANT_MAX = 1669;
 const HOME_CSS_IMPORTANT_MAX = 368;
 
-const SHELL = "/assets/accountbook-shell-v22987.css";
+const SHELL = "/assets/accountbook-shell-v22993.css";
 const HOME_CSS = "/assets/mobile-home-v22985.css";
-const V5 = "/assets/accountbook-v5-v22990.js";
-const HOME_JS = "/assets/mobile-home-v22990.js";
-const HOME_SHELL_JS = "/assets/mobile-home-shell-v22990.js";
+const V5 = "/assets/accountbook-v5-v22993.js";
+const HOME_JS = "/assets/mobile-home-v22993.js";
+const HOME_SHELL_JS = "/assets/mobile-home-shell-v22993.js";
 
 await withClock("2026-07-15", () => fixture(async (fx) => {
   const home = await homeHtml(fx);
@@ -157,7 +161,8 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
 
   // ── T-03 거래 행 읽기 이름 ──
   t.ok(v5.includes('["b", "span:not(.v8-spender)", "span.v8-spender", "strong"]'), "T-03 V5 번들이 제목·날짜 줄·지출자·금액을 따로 읽는다");
-  t.ok(v5.includes('parts.join(", ") + ", 수정·삭제 상세 보기"'), "T-03 쉼표로 나누고 끝에 '수정·삭제 상세 보기'를 한 번만 붙인다");
+  // V22.9.93 Q-10: 고칠 수 없는 행은 ‘상세 보기’ 만 붙인다.
+  t.ok(v5.includes('parts.join(", ") + ", " + action') && v5.includes('"수정·삭제 상세 보기" : "상세 보기"'), "T-03 쉼표로 나누고 끝에 상세 보기 이름을 한 번만 붙인다");
   const text = (html) => html.replace(/<[^>]+>/g, "").replace(/&amp;/g, "&").trim().replace(/\s+/g, " ");
   const label = (inner) => {
     const pick = (re) => { const m = inner.match(re); return m ? text(m[1]) : ""; };

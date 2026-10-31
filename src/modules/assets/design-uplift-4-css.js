@@ -45,6 +45,7 @@ function deskHeadActionsCss() {
 // 아래로 스크롤하면(.abQuickCompact) 56px 원으로 줄고 위로 올리면 펼친다. 왼쪽 안쪽 여백을 16px 로 두어 줄어도 + 가 가운데에
 // 그대로 남는다(16+24+16). 너비는 max-width 로 옮겨 그 사이를 그린다(눈금 --ab12-dur ‘나타남·접힘’). 움직임 줄이기에서는 전환이 없어 바로 바뀐다.
 // 오른쪽 활동 레일(1320px 이상)이 있으면 그 왼쪽에 둔다. 몸통 아래 여백(94px)은 독 때와 같아 마지막 줄을 덮지 않는다.
+// V22.9.93 (Aside 전체 검수): 줄었을 때 글자가 간격 8px 뒤(48px)에서 시작해 원 오른쪽에 첫 글자 조각이 보였다. 간격을 16px 로 벌려 원 밖(56px)으로 민다.
 function quickFabCss() {
   return [
     `@media(min-width:900px){`,
@@ -53,7 +54,7 @@ function quickFabCss() {
     `body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick{box-sizing:border-box;max-width:220px;height:56px;min-height:56px;min-width:0;justify-content:flex-start;gap:8px;padding:0 22px 0 16px;border-radius:999px;font-size:15.5px;font-weight:800;white-space:nowrap;overflow:hidden;box-shadow:0 16px 40px rgba(15,23,42,.18)!important}`,
     `html[data-ab-resolved-theme="dark"] body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick{box-shadow:0 16px 40px rgba(0,0,0,.55)!important}`,
     `body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick .abNavIconSvg{width:24px!important;height:24px!important;flex:0 0 24px;stroke-width:2.2}`,
-    `body.abV22812Shell .abGlobalActions[data-ab-quick-dock].abQuickCompact .abGlobalActionQuick{max-width:56px;padding-right:0}`,
+    `body.abV22812Shell .abGlobalActions[data-ab-quick-dock].abQuickCompact .abGlobalActionQuick{max-width:56px;padding-right:0;gap:16px}`,
     `}`,
     `@media(min-width:900px) and (prefers-reduced-motion:no-preference){body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick{transition:max-width var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),padding var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}}`,
   ].join("\n");
@@ -114,8 +115,25 @@ function fontStackCss() {
   return `body.abV22812Shell.abV2281{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif!important}`;
 }
 
+// V22.9.93 (Aside 전체 검수):
+// - 440px 이하 조회 줄: 가계부·달·조회 세 칸에서 달 칸이 105~127px 라 ‘2026년 10월’이 ‘2026년’까지만 보였다. 가계부를 윗줄로 올린다(select 둘인 줄은 V22.9.79 F-4 규칙).
+// - 다크의 상태 배지: 쪽마다 인라인으로 둔 밝은 바탕은 남고 글자만 셸이 밝게 바꿔 ‘초과 238%’·‘부족’이 안 읽혔다. 바탕까지 다크 값으로 맞춘다.
+function launchFixesCss() {
+  const bar = "body.abV22812Shell .abV5ControlBar:has(input[type=\"month\"]):not(:has(select~select))";
+  const menu = "body.abV22812Shell.abPageMenu .menuContext";
+  const both = "body.abV22812Shell .abV5ControlBar:has(input[type=\"month\"]):has(select~select)";
+  const chip = (names, tone) => `html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(${names}){background:var(--ab12-${tone}-bg)!important;color:var(--ab12-${tone}-text)!important}`;
+  return [
+    `@media(max-width:440px){${bar},${menu}{grid-template-columns:minmax(0,1fr) auto!important}${bar}>:is(select,a),${menu}>select,${both}>select:first-of-type,${both}>button{grid-column:1/-1}}`,
+    chip(".pill.ok,.state.ok,.goalStatus.st-done", "ok"),
+    chip(".pill.warn,.state.warn,.goalStatus.st-behind", "warn"),
+    chip(".pill.bad,.state.bad", "bad"),
+    `html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.pill.setup,.goalStatus.st-onTrack){background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important}`,
+  ].join("\n");
+}
+
 function designUplift4Css() {
-  return [`/* V22.9.87 T-19: 데스크톱 독 → 사이드바 검색 · 머리말 아이콘 단추 · 빠른 입력 단추 하나 / R-9 사이드바 현재 메뉴 / T-16 실행 취소 / R-10 리포트 기간 탭 / T-23 글꼴 */`, deskSearchCss(), deskHeadActionsCss(), quickFabCss(), deskNavCurrentCss(), quickUndoCss(), reportPeriodTabsCss(), fontStackCss()].join("\n");
+  return [`/* V22.9.87 T-19: 데스크톱 독 → 사이드바 검색 · 머리말 아이콘 단추 · 빠른 입력 단추 하나 / R-9 사이드바 현재 메뉴 / T-16 실행 취소 / R-10 리포트 기간 탭 / T-23 글꼴 */`, deskSearchCss(), deskHeadActionsCss(), quickFabCss(), launchFixesCss(), deskNavCurrentCss(), quickUndoCss(), reportPeriodTabsCss(), fontStackCss()].join("\n");
 }
 // @build:exports-start
 export { designUplift4Css };

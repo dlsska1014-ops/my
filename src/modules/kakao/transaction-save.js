@@ -140,7 +140,9 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const duplicateNotice = !duplicateCount ? ""
     : duplicateRows.every((row) => row.type === "income") ? `\n따로 들어온 돈이라면 ‘별도 기록 추가 ${duplicateExample}’라고 보내 후보를 확인해 주세요.`
     : `\n서로 다른 구매라면 ‘별도 구매 추가 ${duplicateExample}’라고 원래 기록 문장을 보내 후보를 확인해 주세요.`;
-  const resultLine = `새로 저장 ${newCount}건 · 중복 저장 안 함 ${duplicateCount}건 · ${totalText}` + duplicateNotice;
+  const unread = parsedList.unread || [];
+  const unreadNotice = unread.length ? `\n금액을 읽지 못해 저장하지 않은 말: ${unread.slice(0, 3).map((text) => `‘${text.slice(0, 20)}’`).join(", ")}${unread.length > 3 ? ` 외 ${unread.length - 3}개` : ""}` : "";
+  const resultLine = `새로 저장 ${newCount}건 · 중복 저장 안 함 ${duplicateCount}건 · ${totalText}` + duplicateNotice + unreadNotice;
 
   const householdLine = await resolveHouseholdLine();
   let finalizeNotice = "";

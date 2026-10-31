@@ -35,16 +35,17 @@ const asset = async (path) => {
   return response.text();
 };
 
-const SHELL = "/assets/accountbook-shell-v22987.css";
+const SHELL = "/assets/accountbook-shell-v22993.css";
 const HOME_CSS = "/assets/mobile-home-v22985.css";
-const V5 = "/assets/accountbook-v5-v22990.js";
+const V5 = "/assets/accountbook-v5-v22993.js";
 const NAV = "/assets/accountbook-nav-v22987.js";
 // V22.9.84 실측(2026-10-28): 기준 픽스처 홈 HTML 35,626 B. 이 단계는 홈 HTML 을 늘리지 않는다(지시서 T-10 수용 기준).
 // V22.9.86: 3단계 T-14 입력 바(+148 B)와 V85:R-15 의 단어 잇개(U+2060, +3 B)가 기준 픽스처 홈 HTML 을 35,768 B 로 늘렸다(35 KiB 기준 안).
 // 2단계 이후 늘어난 값은 이 둘뿐이다.
 // V22.9.89(디자인 작업 지시서 V2 6단계): U-07 홈 정기 카드 세 줄(매달 나감·아직 안 나감·납부·입금 일정, +82 B), U-01 오늘 쓴 돈 ‘아직 없어요’(+11 B),
 // U-02 아랫줄 이름(+1 B), U-03·U-04 속도·월말 문장과 예산에 안 넣은 월세 줄(−29 B), U-11 카드 머리(−2 B)로 기준 35,797 B 가 됐다(35 KiB 기준 안).
-const HOME_V84_BYTES = 35797;
+// V22.9.93(Aside 전체 검수): 사이드바 연간 리포트 링크가 보던 달을 들고 간다(Q-6, +4 B), 지출자 칸의 역할이 한글이다(Q-9, +7 B). 기준 35,808 B(35 KiB 기준 안).
+const HOME_V84_BYTES = 35808;
 // 생성 파일 icon-paths.js 의 SHA-256. tools/build-icons.mjs 를 같은 원본·도구로 다시 돌리면 같은 값이 나온다(두 번 돌려 확인).
 // V22.9.86: 생성기를 고쳤다 — 맨 앞 상대 이동 뒤의 좌표 쌍이 절대 좌표가 되던 것(6개 아이콘이 일그러짐)과 Lucide 의 채운 점(palette·tag)이
 // 구멍으로 남던 것. 3단계 화면 아이콘 8개(clock·chevron 셋·x·check·circle-alert·notebook-pen)를 더했다. 다시 돌려 같은 값이 나온다.

@@ -176,21 +176,26 @@ function accountbookGoalsClientMain() {
     hideToast();
     if (undo) undo();
   });
+  var adding = false;
   if (addForm) addForm.addEventListener("submit", function (ev) {
     ev.preventDefault();
     if (pending) commitPending();
     var f = addForm;
+    // V22.9.93 Q-7: 숫자만 남기면 ‘-100’ 이 100, ‘10만’ 이 10 으로 저장됐다. 적은 그대로 보내 서버가 판정한다.
     var body = {
       action: "create",
       name: f.name.value,
       emoji: f.emoji.value,
-      target: String(f.target.value || "").replace(/[^0-9]/g, ""),
-      monthly: String(f.monthly.value || "").replace(/[^0-9]/g, ""),
+      target: String(f.target.value || "").trim(),
+      monthly: String(f.monthly.value || "").trim(),
       deadline: f.deadline.value,
     };
     if (!String(body.name || "").trim()) { f.name.focus(); return; }
-    if (!(Number(body.target) > 0)) { f.target.focus(); return; }
-    api(body).then(function (p) { applyPayload(p); render(true); f.name.value = ""; f.target.value = ""; f.monthly.value = ""; f.deadline.value = ""; f.emoji.value = "🎯"; }).catch(function (err) { if (err && err.error === "db_write_unknown") { load().then(function () { showError(err); }); } else { showError(err); } });
+    if (!body.target) { f.target.focus(); return; }
+    // V22.9.93 Q-8: 같은 이름을 막으니 두 번 누르면 첫 요청이 저장돼도 둘째가 ‘이미 있습니다’ 로 보였다. 답이 올 때까지 다시 보내지 않는다.
+    if (adding) return;
+    adding = true;
+    api(body).then(function (p) { adding = false; applyPayload(p); render(true); f.name.value = ""; f.target.value = ""; f.monthly.value = ""; f.deadline.value = ""; f.emoji.value = "🎯"; }).catch(function (err) { adding = false; if (err && err.error === "db_write_unknown") { load().then(function () { showError(err); }); } else { showError(err); } });
   });
   function load() {
     var url = "/u/api/goals";
@@ -987,9 +992,11 @@ function accountbookDayDetailClientMain() {
     return out + "&view=calendar&date=" + encodeURIComponent(date) + "&feed=all&day_detail=1#calendar";
   }
   function memberOptions(members, selected) {
+    var roleNames = { owner: "소유자", admin: "관리자", member: "구성원", viewer: "조회전용" };
     return (Array.isArray(members) ? members : []).map(function (member) {
       var id = String(member && member.user_id || "");
-      return '<option value="' + esc(id) + '"' + (id === String(selected || "") ? " selected" : "") + '>' + esc(member && member.nickname || "구성원") + " (" + esc(member && member.role || "member") + ")</option>";
+      var role = String(member && member.role || "member");
+      return '<option value="' + esc(id) + '"' + (id === String(selected || "") ? " selected" : "") + '>' + esc(member && member.nickname || "구성원") + " (" + esc(roleNames[role] || role) + ")</option>";
     }).join("");
   }
   // V22.9.79 V44 F-3: 분류·결제수단 칸의 제안 목록. 서버가 보낸 categories·payments 로 시트 안에 datalist 를 한 번만 만든다
@@ -1402,7 +1409,9 @@ function accountbookDetailExperienceClientMain() {
       var text = node ? node.textContent.trim().replace(/\s+/g, " ") : "";
       if (text) parts.push(text);
     });
-    main.setAttribute("aria-label", parts.length ? parts.join(", ") + ", 수정·삭제 상세 보기" : main.textContent.trim().replace(/\s+/g, " ") + " 상세 보기");
+    // V22.9.93 Q-10: 고칠 수 없는 행(남의 기록 등)은 summary 가 아니고 조회 상세만 열린다. ‘수정·삭제’ 라고 읽어 주지 않는다.
+    var action = main.tagName === "SUMMARY" ? "수정·삭제 상세 보기" : "상세 보기";
+    main.setAttribute("aria-label", parts.length ? parts.join(", ") + ", " + action : main.textContent.trim().replace(/\s+/g, " ") + " 상세 보기");
     main.addEventListener("keydown", function(event) { if (event.key === "Enter" || event.key === " ") { if (showRow(main)) event.preventDefault(); } });
   });
 
@@ -1426,7 +1435,8 @@ function accountbookDetailExperienceClientMain() {
     summary.hidden = !amount && !memo;
     var income = form.querySelector('input[name="type"][value="income"]:checked');
     summary.querySelector("b").textContent = (income ? "수입 " : "지출 ") + (amount ? amount.toLocaleString("ko-KR") + "원" : rawAmount ? "금액 형식을 확인하세요" : "금액을 입력하세요");
-    summary.querySelector("small").textContent = memo || "내용을 입력하면 이곳에 표시됩니다.";
+    // V22.9.93 Q-10: 내용은 160자까지 저장된다. 넘는 글이 말없이 잘리지 않게 저장 전에 알린다.
+    summary.querySelector("small").textContent = memo ? memo.slice(0, 160) + (memo.length >= 160 ? " (내용은 160자까지 저장됩니다)" : "") : "내용을 입력하면 이곳에 표시됩니다.";
   }
   function scheduleSummary() { if (!summaryQueued) { summaryQueued = true; queueMicrotask(syncQuickSummary); } }
   document.addEventListener("input", scheduleSummary);

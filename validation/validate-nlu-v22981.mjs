@@ -337,10 +337,11 @@ const SPACED_JOIN = [
 const SPACED_KEEP = [
   ["월세 오십 오십만원", "오십 오십만"], ["오십 15만원", "오십 15만"], // 머리가 앞의 가장 작은 단위보다 크거나 같다
   ["커피 오십 오천", "오십 오천"], // 뒤가 ‘만·억’으로 끝나지 않는다(세 낱말 사슬 ‘오십 오만 오천원’은 V81-g 가 한 금액으로 읽는다)
-  ["명품 백 오만원", "백 오만"], ["커튼 천 오만원", "천 오만"], // 단위 한 글자 ‘백’(가방)·‘천’(옷감)은 앞 수로 보지 않는다
   ["오십 오만 월세", "오십 오만"], ["오십 오만 현금영수증", "오십 오만"], // 뒤따르는 말이 ‘원’·문장 끝·결제수단이 아니다(V80 규칙과 같다)
   ["만 오천만원", "만 오천만"], // 앞이 만이고 뒤도 만(V80 T-17 그대로)
 ];
+// 단위 한 글자 ‘백’(가방)·‘천’(옷감)은 앞 수로 보지 않는다. V22.9.93 Q-52 부터 낱말이 메모에 남아 한 건이다(100원 + 5만원 두 건이 됐다).
+const SPACED_WORD = [["명품 백 오만원", "백 오만", "명품 백", 50000], ["커튼 천 오만원", "천 오만", "커튼 천", 50000], ["백 오만 오천원", "백 오만", "백", 55000]];
 await scene("U-9", async () => {
   await withClock(DAY, () => fixture(async (fx) => {
     const { web, legacy, inBrowser } = await webHarness(fx);
@@ -352,6 +353,10 @@ await scene("U-9", async () => {
     for (const [text, pair] of SPACED_KEEP) {
       const server = normalizeInputText(text), browser = inBrowser(`normalizeInputText(${JSON.stringify(text)})`);
       t.ok(server.includes(pair) && browser === server && kakaoRows(text).length !== 1, `U-9 음성 "${text}"의 ‘${pair}’는 잇지 않는다 (서버 ${JSON.stringify(server)} · 화면 ${JSON.stringify(browser)})`);
+    }
+    for (const [text, pair, memo, amount] of SPACED_WORD) {
+      const server = normalizeInputText(text), browser = inBrowser(`normalizeInputText(${JSON.stringify(text)})`), rows = kakaoRows(text);
+      t.ok(server.includes(pair) && browser === server && rows.length === 1 && rows[0].amount === amount && rows[0].memo === memo, `U-9 음성 "${text}"의 ‘${pair}’는 잇지 않고 뒤 금액 한 건이다 (서버 ${JSON.stringify(server)} · 화면 ${JSON.stringify(browser)} · 카카오 ${JSON.stringify(rows.map((row) => [row.amount, row.memo]))})`);
     }
     // 서버와 화면 자산이 같은 함수 본문을 쓴다(한쪽만 고치지 않았다)
     t.eq(inBrowser(`joinSpacedKoreanAmount.toString()`), joinSpacedKoreanAmount.toString(), "U-9 홈 자산의 joinSpacedKoreanAmount 가 서버 함수와 같은 본문이다");
@@ -384,7 +389,6 @@ const SPACED_CHAIN = [
 const SPACED_CHAIN_KEEP = [
   ["오십 오만 오천만원", "오십 오만"], // 뒤 낱말이 ‘만’으로 끝난다(예전 그대로)
   ["오십 오만 오천 현금영수증", "오십 오만"], // 뒤따르는 말이 ‘원’·문장 끝·결제수단이 아니다(U-9·V80 규칙과 같다)
-  ["백 오만 오천원", "백 오만"], // 단위 한 글자 ‘백’(가방)은 앞 수로 보지 않는다
   ["오십 오십만 오천원", "오십 오십만"], // 머리가 앞의 가장 작은 단위보다 크거나 같다
 ];
 await scene("V81-g", async () => {

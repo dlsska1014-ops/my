@@ -138,7 +138,7 @@ function projectSelectedColumns(rows, select = "") {
   return rows.map((row) => Object.fromEntries(pairs.filter(([, source]) => source in row).map(([alias, source]) => [alias, row[source]])));
 }
 
-function upsert(db, table, item, keys, sequence) {
+function upsert(db, table, item, keys, sequence, statementAt = new Date().toISOString()) {
   const rows = db[table] || (db[table] = []);
   const index = rows.findIndex((row) => keys.every((key) => String(row?.[key] ?? "") === String(item?.[key] ?? "")));
   const existing = index >= 0 ? rows[index] : {};
@@ -146,7 +146,7 @@ function upsert(db, table, item, keys, sequence) {
     ...existing,
     ...item,
     id: item.id || existing.id || `${table}-${sequence.value++}`,
-    created_at: item.created_at || existing.created_at || new Date().toISOString(),
+    created_at: item.created_at || existing.created_at || statementAt,
   };
   if (index >= 0) rows[index] = saved;
   else rows.push(saved);
@@ -553,6 +553,8 @@ export async function createV2265QaFixture(options = {}) {
         return new Response(JSON.stringify({ code: "23505", message: "duplicate key value violates unique constraint" }), { status: 409, headers: { "content-type": "application/json" } });
       }
       const ignoreDuplicates = new Headers(init.headers || {}).get("Prefer")?.includes("resolution=ignore-duplicates");
+      // 실제 DB 는 한 번에 넣은 행의 created_at(기본값 now())이 모두 같다. 행마다 시계를 읽으면 밀리초 경계에서 값이 갈린다.
+      const statementAt = new Date().toISOString();
       const saved = items.flatMap((item) => {
         const conflictKeys = table === "users" ? ["kakao_user_key"] : table === "household_members" ? ["household_id", "user_id"] : table === "accountbook_settings" ? ["key"] : table === "accountbook_budgets" ? ["household_id", "month", "category"] : ["id"];
         if (ignoreDuplicates && db[table].some(row => conflictKeys.every(key => String(row[key] ?? "") === String(item[key] ?? "")))) return [];
@@ -560,7 +562,7 @@ export async function createV2265QaFixture(options = {}) {
         if (table === "household_members") return upsert(db, table, item, ["household_id", "user_id"], sequence);
         if (table === "accountbook_settings") return upsert(db, table, item, ["key"], sequence);
         if (table === "accountbook_budgets") return upsert(db, table, item, ["household_id", "month", "category"], sequence);
-        return upsert(db, table, item, ["id"], sequence);
+        return upsert(db, table, item, ["id"], sequence, statementAt);
       });
       if (table === "transactions" && Number(db.__lose_next_transaction_response || 0) > 0) {
         db.__lose_next_transaction_response = Number(db.__lose_next_transaction_response) - 1;

@@ -49,6 +49,12 @@
 // 268개가 모두 통과함을 먼저 확인한 뒤 analysis·backupFull·backupMonth 세 값을 --print-golden 으로 다시 얻었다(V22.9.88 과 같은 방법).
 // V22.9.92(2026-10-30, 애드핏 준비·기능 둘러보기): 꺼짐 화면은 바뀌지 않고 판 이름만 바뀐다. 같은 방법(판 이름을 V22.9.91 값으로 잠시 되돌린
 // 트리에서 옛 값 268개 통과 확인)으로 analysis·backupFull·backupMonth 세 값을 다시 얻었다.
+// V22.9.93 Aside 2차 검수 뒤: 셸 CSS 주소(v22987 → v22993), 리포트 축 CSS(Q-19), 백업 카드사 글자 CSS(Q-18)만 더 바뀌었다. 차이 조각은 같은 폴더 work/ 에서 다시 확인했다.
+// V22.9.93 Aside 전체 검수 뒤: 화면마다 사이드바 연간 링크(Q-6)·셸 주소, 홈은 지출자 칸 역할 이름(Q-9), 인라인 안내 스크립트는 제출 잠금(Q-4)만 더 바뀌었다. 차이 조각 전부 review-artifacts/v93-launch-fixes-2026-10-31/refund-compare.txt.
+// V22.9.93(2026-10-31, 출시 전 수정): 꺼짐 화면의 홈 셋은 홈 셸 주소(v22990 → v22993)만, 분석·백업 둘은 판 이름만 바뀐다. 해시하는 화면 원문 96개를 V22.9.92(ca9c3b2)와
+// 견주면 같음 68·다름 28 이고 다른 28개의 조각은 모두 그 두 가지였다(review-artifacts/v93-launch-fixes-2026-10-31/refund-compare.txt).
+// 그 뒤 --print-golden 으로 home·homeTrend·homePrev·analysis·backupFull·backupMonth 여섯 값을 다시 얻었다.
+// V22.9.93 독립 검토 2차 뒤: 금액 읽기(Q-40·이중 쉼표)가 예산 미리보기 자산에 실려 주소가 v22979 → v22993 으로 바뀌었다. budgets 화면은 해시 입력에서 이 주소만 되돌리면 옛 값과 같음을 확인했다.
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -58,25 +64,25 @@ import { BASE, app, ctx, fixture, intercept, page, post, skill, withClock } from
 const PRINT_GOLDEN = process.argv.includes("--print-golden");
 const SOFT = process.env.V22980_SOFT === "1";
 const FLAG_OFF_GOLDEN = {
-  "home": "200 cc5c5aad447bc811779316e9",
-  "homeTrend": "200 6ff2fdd71d4aa50144f281e8",
-  "homePrev": "200 03040c7ac7d1a201c36a12a2",
-  "budgets": "200 374227d0f8dad99fa12015a1",
-  "budgetAlerts": "200 563bfee10092bac3c20d9aaa",
+  "home": "200 3d61dcb3c5af98187e2497f9",
+  "homeTrend": "200 6ab138e0b1dbb4730c1eec80",
+  "homePrev": "200 1ea729b47e6652a3ba90f6dc",
+  "budgets": "200 e35058b43403a4cd620726c8",
+  "budgetAlerts": "200 e87cb397f66610e837dd7c83",
   "notifications": "200 df9761ab7204d02ba148aa42",
-  "reports": "200 9d10c0158793897e5885deba",
-  "reportsWeek": "200 65df83aea0e816b4d91d2daa",
-  "analysis": "200 f1e14d587f51696f7496945a",
-  "backupPage": "200 a949073b28fb83b6346eaba3",
+  "reports": "200 207d64b369bd78b881a09c36",
+  "reportsWeek": "200 6ff6c6ade3301c38d835dca4",
+  "analysis": "200 251eef2139e5bbfa22145451",
+  "backupPage": "200 d4e2173d38990ea97bd1a73f",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 afd05d317f6cf59941e882a7",
-  "backupMonth": "200 60a23a513dbea83d1042f36e",
-  "candidate": "200 1a0d7777dca01ce01a87e80f",
-  "legacyErr": "200 bfc684233d18c4570db218ba", // V22.9.81 U-19: 옛 관리자 화면 오류 칸이 record_update_failed 를 코드 글자 대신 안내 문장으로 보인다(의도한 변경)
+  "backupFull": "200 6b0fbf1f04421abb99fb433c",
+  "backupMonth": "200 ec09414594b39d0166a22c7c",
+  "candidate": "200 983fb55df7f069a2ab4a5fdd",
+  "legacyErr": "200 d539582f2d5a6042e415e38b", // V22.9.81 U-19: 옛 관리자 화면 오류 칸이 record_update_failed 를 코드 글자 대신 안내 문장으로 보인다(의도한 변경)
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
   "apiBatch": "200 {\"ok\":true,\"updatedCount\":1}",
   "adminBulk": "303 /?legacy=1&month=2026-10&household_id=house-home&tab=transactions&msg=bulk_updated", // V22.9.81 U-18: 일괄 수정 성공은 코드로 보낸다(의도한 변경)

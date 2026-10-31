@@ -10,10 +10,104 @@
 //   3) 정규식은 처음 부를 때 한 번만 만들어 함수 자신에 붙여 둔다(E-1: 문장 한 줄 해석의 new RegExp 횟수 상한).
 // 함수 안의 설명은 브라우저 바이트가 되므로 이 머리말과 함수 위에 모아 둔다.
 
-// V22.9.79 A-16: 전각 숫자(０-９)와 숫자 곁에 쓰는 전각 부호(， ． ： ／ － ＋ ％ （ ）)를 반각으로 바꾼다. 한 글자가 한 글자로 바뀌어
-// 글자 위치는 그대로다. 예전에는 전각으로 쓴 금액(“커피 ４５００”)을 읽지 못했다. 글자·한글은 건드리지 않는다.
-function foldInputWidth(text = "") {
-  return String(text || "").replace(/[０-９，．：／－＋％（）]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+// V22.9.79 A-16: 전각 숫자(０-９)와 숫자 곁에 쓰는 전각 부호(， ． ： ／ － ＋ ％ （ ）)를 반각으로 바꾼다. 예전에는 전각으로 쓴
+// 금액(“커피 ４５００”)을 읽지 못했다. 글자·한글은 건드리지 않는다.
+// V22.9.93 Q-1: 거래 문장 입구에서 사람이 실제로 치는 날짜 꼴도 맞춘다(카카오와 웹 빠른 입력이 모두 이 입구를 지난다). 날짜 판정은 띄어 쓴
+// ‘어제’만 읽는데 메모는 낱말 속 ‘어제’까지 지워, ‘어제는 커피 4500’·‘어제커피 4500’·‘어제저녁에 치킨 23000’이 날짜 말만 사라진 채
+// 오늘로 저장됐다. 조사(은·는·도·에·엔·만)를 떼고 붙여 쓴 말을 띄운다. ‘25일에’·‘25일날’·‘10월 3일에’도 같다(‘10월 3일에 커피 4000’은
+// 저장조차 안 됐다). ‘내일모레’는 모레다. 붙여 쓴 말을 띄우는 것은 오늘·어제·그제 무리뿐이다: 내일·금일·전날로 시작하는 낱말은 이름이
+// 많고(내일배움카드·내일로·금일봉) 붙여 쓴 미래 기록은 드물다. 오늘의집·오늘회·오늘날·어제자처럼 뒤까지가 한 낱말인 말도 그대로 둔다
+// (오늘회식은 띄운다).
+// V22.9.93 Q-2: ‘12.000원’을 12원으로 저장했다. 점 뒤가 세 자리씩이면 자릿수 구분일 수 있다(‘1.5만’·‘10.31’·‘2026.10.31’은 그대로). 다만 환율·금리·
+// 리터·버전(‘1.320 달러’·‘3.125’·‘45.123 리터’)도 같은 꼴이라, 금액이 분명할 때만 잇는다: ‘원’이 붙었거나, 끝이 .000 이거나(소수로 쓸 일이 없고
+// 그대로 두면 12원이 된다), 끝이 00 이고 그 줄에 다른 금액이 없을 때다. 뒤에 단위(달러·리터·kg·%·포인트)가 오거나 점이 셋 이상이면 잇지 않는다.
+// 이 판정은 줄 전체를 봐야 하므로 입구에서 한 번만 한다: 절(parseTransaction)과 메모(cleanInputMemo)는 memo=true 로 불러 점을 건드리지 않는다.
+// V22.9.93 (독립 검토): 붙여 쓴 말을 띄우는 규칙은 뒤가 조사(어제보다·어제와·어제까지·어제부터)이거나 ‘어제오늘’이면 쓰지 않는다. ‘그제’는 ‘그제품·그제과점’이
+// 있어 때를 뜻하는 말이 붙었을 때만 띄운다. ‘오늘회’는 그 낱말일 때만 막는다(오늘회식·어제회사는 띄운다). 달 없는 ‘N일’은 은·도·쯤을 받지 않고(‘3일은 입원’·
+// ‘2일도 안 쓴’) ‘1일에 두 번’도 날짜가 아니다. ‘10/3에’·‘10.31에’는 에·엔만 받고, 점 꼴은 두 자리가 있어야 한다(‘4.5도’·‘1.5에’·‘1/2는’은 예전처럼 막는다).
+// 날짜 꼴·자릿수를 맞추면 글자 위치가 바뀐다. 이 함수의 결과로 원문 위치를 되짚는 곳은 없다.
+// V22.9.93 Q-40: 줄머리의 띄어 쓴 날짜(‘2026. 10. 31 커피 4000’·‘10. 31. 커피 4000’)를 붙인다. 네 건 2,026원이 되거나 ‘7.’ 을 목록 표식으로 떼어 날짜를 잃었다.
+// 달력 범위(1~12월, 1~31일) 안일 때만 붙인다. ‘1. 3000원’·‘3. 5만원’ 은 뒤 숫자가 날짜 꼴이 아니라 목록 표식 그대로다.
+// V22.9.93 Q-54: 목록 표식 뒤(‘- 26. 10. 31 커피 4000’·‘1) 25. 12. 25 커피 4000’)와 문장 가운데(‘커피 4000, 25. 12. 25 점심 9000’)의 띄어 쓴 날짜가 금액 세 건이 됐다. 표식은 그대로 두고 날짜를 붙이며,
+// 연도까지 있는 세 칸 날짜는 줄 어디서든 붙인다. 연도 없는 띄어 쓴 날짜는 ‘7월 3일’ 로 접는다(‘7. 3. 만원 주유’ 가 7.3만 = 73,000원이 됐다). Q-55 ‘25년 12월 25일’ 의 두 자리 연도도 접는다(올해로 저장되고 메모에 ‘25년’ 이 남았다). 쉼표·슬래시 뒤의 띄어 쓴 날짜도 접는다(‘커피 4000, 12. 25 점심 9000’ 의 12·25 가 두 건이 됐다).
+// V22.9.93 Q-65: ‘1. 12.500원 점심’·‘1. 1.5만원 커피’·‘1. 5 만원 커피’ 의 목록 표식을 달로, 금액 앞자리를 날로 읽어 ‘1월 12일 500원’·‘1월 1일 5만원’ 이 됐다. 날 뒤에 숫자가 이어지거나(점 금액·소수) 수량 단위가 오면 날짜가 아니다. 줄머리의 ‘4. 5 만원’ 은 예전처럼 목록 번호 뒤의 5만원으로 읽는다. 앞에 연도·표식·쉼표가 있거나 날 뒤에 점이 있으면(‘7. 3. 만원’) 날짜다.
+// ‘2. 10. 31 커피 4000’ 은 세 칸 중 첫 칸이 연도가 아니면 표식이다(뒤 두 칸이 날짜). 연도와 겹치지 않게 표식은 1~19 만 받는다. 둘째 칸이 달이 못 되거나 셋째 칸 뒤에 금액 단위가 오면 앞 두 칸이 날짜다(‘10. 31. 3 만원’·‘1. 5. 3 만원’).
+// V22.9.93 Q-67: 두 자리 연도(25.12.25)는 줄머리·표식 뒤·쉼표 뒤에서만 날짜다. 문장 가운데의 ‘버전 23.1.2’·‘쿠폰 22-1-5’·‘비료 20-10-10’ 이 2023년 기록이 됐다. 달 없는 ‘N일에’ 도 같다(‘구독 30일에 9900원’·‘제주도 2박 3일에 50만원’ 의 기간이 날짜가 됐다).
+// V22.9.93 Q-86: ‘3일 전에’·‘이틀 전에’ 의 조사 때문에 날짜를 못 읽어 오늘이 되거나 3일이 됐다. ‘2박 3일’ 은 기간이고(7월 3일이 됐다) ‘1.5 리터’ 는 수량이다(1월 5일이 됐다). ‘오늘 말고 어제’ 는 뒤의 날이 맞다.
+// V22.9.93 Q-102 (독립 검토 6회차): 은·는 을 뗀 날 말이 뒤의 날 말을 이겨 ‘어제는 못 샀고 오늘 커피 4000’ 이 어제가 됐다. Q-103: ‘3일에 걸쳐’·‘3일에 나눠서’·‘1일에 세 끼’ 는 기간이다.
+// V22.9.93 Q-106·Q-114 (독립 검토 7·8회차): 조사를 떼고 붙은 말을 띄우자 운영이 오늘로 맞게 저장하던 말이 어제·내일이 됐다. 막는 말을 덧대도 다음 검토가 또 찾아서, 꼴이 정확할 때만 뗀다. 절 머리의 날 말 + 낱말 하나 + 금액 + 절 끝이거나(‘어제는 커피 4000’) 날 말만 있는 절이다(‘어제는’). 그 밖은 운영 그대로다(‘어제는 참았는데 치킨 2만원’·‘어제도 마셨는데 오늘 또 커피 4000’·‘커피 4000 어제도 마셨어’). 낱말 자리에 동사·활용형·횟수가 오면 뗀 말이 날이 아닐 수 있어 운영 그대로다(‘1/2에 샀어 3000’·‘어제는 쌌는데 5000’·‘어제는 무지출 5000’·‘3일에 한번 5000’). ‘1/2에’·‘2/3에’·‘3/4에’ 는 분수와 가릴 수 없어 떼지 않는다. Q-120: 환율·단가 뒤의 점 수는 자릿수로 읽지 않는다(‘환율 1.300’). ‘내일’·‘모레’ 는 어떤 조사도 떼지 않고 ‘만’ 은 떼지도 띄우지도 않는다(띄우면 ‘오늘만 특가 5000’ 의 ‘만’ 이 1만 원이 된다). 앞뒤는 일정한 길이만 봐서 긴 입력에서 처리 시간이 입력 길이의 제곱으로 늘지 않는다.
+// Q-104: 여행 기간은 ‘N박 N+1일’ 과 세 밤 이상의 ‘3박 3일’·‘3박 5일’, ‘무박 3일’ 까지다(‘다낭 3박 5일 패키지’ 가 5일이 됐다). ‘호텔 1박 3일 결제’ 의 3일은 날짜다.
+function foldInputWidth(text = "", memo = false) {
+  const folded = String(text || "").replace(/[０-９，．：／－＋％（）]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+  if (!/[일늘제께녁밤날레]|[전후][에엔]|\d[./-]\d|\d\.\s+\d/.test(folded)) return folded;
+  const rules = foldInputWidth.rules || (foldInputWidth.rules = (() => {
+    const parts = "(?:아침|점심|저녁|밤|새벽|오전|오후)";
+    const days = "그끄저께|그끄제|엊그저께|엊그제|그저께|어젯밤|엊저녁|어제|오늘";
+    const particle = "(?:에는|에도|엔|에|은|는|도)(?=\\s|$)";
+    return {
+      thousandDots: /(^|[^\d.,]|[^\d.,],)([1-9]\d{0,2}(?:\.\d{3}){1,2})(?=(\s*[원₩￦])|[!?~.,;:)\]]*(?:\s|$)|[,;][가-힣A-Za-z])(?!\s*(?:달러|불|유로|엔|위안|리터|키로|퍼센트|프로|포인트|kg|km|ml|l|g|m|%)(?![가-힣a-z]))/gi,
+      spacedDate: /(^|\n|[,;/]\s)([ \t]*(?:[-•*]\s+|\d{1,2}\)\s+|1?\d\.\s+)?)(20\d{2}\.\s*|2\d\.\s+)?(\d{1,2})\.\s+(\d{1,2})(?:\.(?!\d|\s+\d{1,2}(?:\s|$|\.\s))\s*|(?=\s)(?!\s+(?:인분|개|잔|병|캔|장|권|벌|대|명|마리|켤레|박스|상자|세트|봉지|번|킬로|키로|리터|그램|시간|그릇|판|팩|줄|포기|통|송이|근|컵|회|층|호|호선|차|인|부|달|주|살|세|kg|g|ml|l)(?:\s|$)))/g,
+      moneyAfterDay: /^\s+(?:[억만천백십]+(?:\s|$|원)|원(?![가-힣]))/,
+      spacedFullDate: /(^|[\s,;])(20\d{2}|2\d)\.\s+(\d{1,2})\.\s+(\d{1,2})\.?(?=\s|$)/g,
+      shortYear: /(^|\n|[,;]\s*)([ \t]*(?:[-•*]\s+|\d{1,2}\)\s+|1?\d\.\s+)?)(2\d)([.\/-])(\d{1,2})\4(\d{1,2})(?=\s|$|[.,!?])/g,
+      shortYearWord: /(^|[\s,;])(2\d)년\s*(?=\d{1,2}월\s*\d{1,2}일)/g,
+      dottedNumber: /\d{1,3}(?:\.\d{3})+/g,
+      rateWord: /(?:환율|리터당|단가|시세|주가|유가)\s*$/,
+      otherAmount: /\d{3,}(?![\d./-]|[가-힣])|\d\s*[천만억원]|[십백천만억]\s*원/,
+      dayParticle: new RegExp("(^|\\s)(" + days + "|그제|전날|금일)(\\s*" + parts + ")?" + particle, "g"),
+      clauseEnd: /\n|;|,(?!\d)/,
+      dayItem: new RegExp("^\\s*(?!(?:" + days + "|그제|전날|금일|지금|방금|내일|모레|[월화수목금토일]요일)(?:\\s|$)|[가-힣]*(?:[았었했샀냈줬썼갔왔봤탔셨쌌잤였렸겼찼났][가-힣]?|는데|은데|인데|니까|아서|어서|해서|라서|지만)\\s|(?:무지출|공짜|무료|쉼|굶음|휴무|쉬는날|하나|(?:안|못)[가-힣]*[음함심서]|(?:한|두|세|네)(?:번|잔|끼|개|병|명|장|판|캔|회|차|알|권|통|벌|대)씩?)\\s)[가-힣A-Za-z]+\\s+(?:\\d[\\d,]*[\\d십백천만억]*|[일이삼사오육칠팔구십백천만억]+)\\s*원?\\s*$"),
+      dayGlued: new RegExp("(^|\\s)(" + days + "|그제(?=" + parts + "))(" + parts + ")?(?!의|날(?!짜|씨)|서야|오늘|내일|에(?:\\s|$)|보다|보단|처럼|만큼|까지|까진|부터|부턴|같이|같은|(?:자|자로|회|야|가|이|를|을|로|(?:만|와|과|랑|이랑|하고)[은는도]?)(?:\\s|$))(?=[가-힣A-Za-z0-9])", "g"),
+      dateParticle: /(^|\s)(\d{1,2}월\s*\d{1,2}일)(?:날에|날|에는|에도|엔|에|은|는|도|쯤)(?=\s|$)/g,
+      loneDateParticle: /(^|\n|[,;]\s*)(\d{1,2}일|(?!(?:1\/[2-9]|2\/3|3\/4)(?:날|에|엔))\d{1,2}\/\d{1,2}|\d{2}\.\d{1,2}|\d\.\d{2})(?:날에|날|에는|에도|엔|에)(?=\s|$)/g,
+      agoParticle: /(^|\s)((?:(?:\d{1,2}|한|두|세|네|일|이|삼|사)\s*(?:일|주일|주|달|개월)|하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\s*[전후])(?:에는|에도|엔|에)(?=\s|$)/g,
+      stayDays: /(\d{1,2}|무)박\s+(\d{1,2})일(?=\s|$)(?!\s*[전후](?:\s|$))/g,
+      decimalUnit: /(\d\.\d{1,2})\s+(리터|인치|인분|킬로|키로|그램|미터|센티|근|kg|ml|l|g)(?=\s|$)/gi,
+      dayInstead: new RegExp("(^|\\s)(?:" + days + "|그제)\\s+말고\\s+(?=(?:" + days + "|그제)(?:\\s|$))", "g"),
+    };
+  })());
+  const joinDots = (all, lead, number, won, at, whole) => {
+    if (!won && !number.endsWith("000")) {
+      const from = at + lead.length, to = whole.indexOf("\n", from);
+      const line = whole.slice(whole.lastIndexOf("\n", from) + 1, to < 0 ? whole.length : to);
+      if (!number.endsWith("00") || rules.otherAmount.test(line.replace(rules.dottedNumber, " "))) return all;
+    }
+    if (rules.rateWord.test(whole.slice(Math.max(0, at + lead.length - 6), at + lead.length))) return all;
+    return lead + number.split(".").join("");
+  };
+  const apart = (lead) => (lead === "," || lead === ";" ? lead + " " : lead);
+  const itemTail = (all, at, whole) => {
+    const tail = whole.slice(at + all.length, at + all.length + 40).split(rules.clauseEnd)[0];
+    return !/\S/.test(tail) || rules.dayItem.test(tail);
+  };
+  const plainDay = (all, lead, at, whole) => {
+    const from = at + lead.length;
+    return !/\S/.test(whole.slice(Math.max(0, from - 24), from).split(rules.clauseEnd).pop()) && itemTail(all, at, whole);
+  };
+  const plainDate = (all, lead, date, at, whole) => (plainDay(all, lead, at, whole) ? lead + date : all);
+  const joinDate = (all, lead, mark, year, month, day, at, whole) => {
+    const moneyAfter = rules.moneyAfterDay.test(whole.slice(at + all.length));
+    const first = year ? 0 : (/^[ \t]*(\d{1,2})\.\s+$/.exec(mark) || [])[1];
+    if (Number(first) >= 1 && Number(first) <= 12 && Number(month) >= 1 && Number(month) <= 31 && (moneyAfter || Number(month) > 12)) return lead + first + "월 " + month + "일 " + day + " ";
+    if (Number(month) < 1 || Number(month) > 12 || Number(day) < 1 || Number(day) > 31) return all;
+    if (!year && !mark && !/[,;/]/.test(lead) && !/\.\s*$/.test(all) && moneyAfter) return all;
+    if (!year && !/\.\s*$/.test(all) && !moneyAfter && !itemTail(all, at, whole)) return all;
+    const head = year ? year.replace(/\s/g, "") : "";
+    return lead + mark + (head ? (head.length === 3 ? "20" : "") + head + month + "." + day : month + "월 " + day + "일") + " ";
+  };
+  const fullYear = (all, lead, mark, year, sep, month, day) => (Number(month) < 1 || Number(month) > 12 || Number(day) < 1 || Number(day) > 31 ? all : apart(lead) + mark + "20" + year + "." + month + "." + day);
+  return (memo ? folded : folded.replace(rules.spacedDate, joinDate).replace(rules.spacedFullDate, (all, lead, year, month, day) => fullYear(all, lead, "", year.slice(-2), "", month, day)).replace(rules.shortYearWord, (all, lead, year) => apart(lead) + "20" + year + "년 ").replace(rules.shortYear, fullYear).replace(rules.thousandDots, joinDots))
+    .replace(rules.dayInstead, "$1")
+    .replace(rules.dayParticle, (all, lead, day, part, at, whole) => (plainDay(all, lead, at, whole) ? lead + day + (part || "") : all))
+    .replace(rules.dayGlued, (all, lead, day, part, at, whole) => (plainDay(all, lead, at, whole) ? lead + day + (part || "") + " " : all))
+    .replace(rules.dateParticle, plainDate)
+    .replace(rules.loneDateParticle, plainDate)
+    .replace(rules.agoParticle, plainDate)
+    .replace(rules.stayDays, (all, nights, days) => {
+      const stay = nights === "무" ? 0 : Number(nights), more = Number(days) - stay;
+      return more === 1 || (stay >= 3 && (more === 0 || more === 2)) || (!stay && more >= 1 && more <= 3) ? `${nights}박${days}일` : all;
+    })
+    .replace(rules.decimalUnit, "$1$2");
 }
 
 // V22.9.76 감사 A-07: 수 단위 뒤의 띄어쓰기("만 오천원", "삼만 오천원", "만 2천원", "사천 오백원")는 한 금액이다. 띄운 채 두면
@@ -36,9 +130,10 @@ function foldInputWidth(text = "") {
 // V22.9.81 (g): 세 낱말 사슬(“오십 오만 오천원” = 55만5천, “십 오만 삼천원” = 15만3천)도 한 금액이다. 뒤의 만·억 아래 수(‘오천’·‘5천’·‘오천오백’)는
 // 아래 규칙이 앞 낱말에 늘 잇는 꼴이라, 그 낱말이 뒤따르고 그 뒤가 ‘원’·문장 끝·결제수단이면 이 묶음도 잇는다. 예전에는 뒤따르는 말 조건에
 // 걸려 50원 + 55,000원 두 건이었다. 뒤 낱말이 ‘만’으로 끝나면(“오십 오만 오천만원”) 예전 그대로다.
+// V22.9.93 Q-81: 끝맺음도 ‘원’ 처럼 금액의 끝이다(‘택시 삼만 오천쯤’ 이 두 건으로 갈렸다).
 function joinSpacedKoreanAmount(text = "") {
   if (!joinSpacedKoreanAmount.pattern) {
-    const end = "(?:\\s*원|\\s*$|\\s+(?:" + inputPaymentPatterns().methods.map((method) => method[0].source).join("|") + "))";
+    const end = "(?:\\s*원|\\s*$|\\s*(?:이요|요|이에요|예요|입니다|임|정도|쯤|가량|에)\\s*$|\\s+(?:" + inputPaymentPatterns().methods.map((method) => method[0].source).join("|") + "))";
     const after = "(?=" + end + ")";
     const chain = "(?=" + end + "|\\s+(?:[일이삼사오육칠팔구]|\\d{1,3})?[천백십][일이삼사오육칠팔구십백]*" + end + ")";
     joinSpacedKoreanAmount.smallHead = new RegExp("(^|\\s)(십|[일이삼사오육칠팔구십백천]+[십백천])\\s+([일이삼사오육칠팔구십백천]+|\\d{1,4})([만억])" + chain, "gi");
@@ -294,21 +389,23 @@ function inferInputCategory(raw, type, rules) {
 // ‘모레 커피’·‘20260731 커피’였다. 날짜 파서와 같은 낱말 경계(앞이 문장 처음·띄어쓰기, 뒤가 띄어쓰기·끝, 사이에 때 말 ‘아침·저녁…’만)에서만
 // 지워 ‘아모레’·‘모레아’·‘지금껏’·‘방금전’은 그대로이고, 때 말은 ‘어제저녁’처럼 남긴다(‘모레아침 커피’ → ‘아침 커피’). 8자리 수는 달·날이
 // 맞을 때만 날짜다(‘주문번호 20123456’은 그대로). ‘2026-08-01’처럼 다른 날짜 말이 있어도 날짜 꼴이면 지운다(예전 규칙과 같다).
+// V22.9.93 Q-46: 소수 단위(‘1.5L’)는 날짜가 아니라 지우지 않는다(메모가 ‘L 콜라’ 였다). Q-47: 금액·날짜를 뺀 뒤 앞뒤에 홀로 남은 부호를 지운다(‘점심 ,’·‘커피 .’·‘. 커피’).
 function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
   const patterns = cleanInputMemo.cache || (cleanInputMemo.cache = (() => {
     const escape = (s) => String(s).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
     const pay = inputPaymentPatterns();
     const commandWords = ["수입", "입금", "지출", "출금", "사용", "결제", "구매", "납부", "정산", "기록", "가계부"];
+    const dayWords = ["오늘", "금일", "어젯밤", "엊저녁", "어제", "전날", "엊그저께", "엊그제", "그끄저께", "그끄제", "그저께", "그제", "내일"];
     const fixedWords = [
       ...commandWords,
       "받았어요", "받았어", "받았음", "받았다", "들어왔어요", "들어왔어", "들어왔음", "들어왔다", "들어옴", "들어온", "입금됨", "받음", "받았",
-      "오늘", "금일", "어젯밤", "엊저녁", "어제", "전날", "엊그저께", "엊그제", "그끄저께", "그끄제", "그저께", "그제", "내일",
+      ...dayWords,
     ];
     const cardNames = "(?:KB|NH|IBK|SC|BC|BNK|DGB|KDB|KEB)\\s+|[A-Za-z]{1,6}[가-힣]{0,4}|신한|현대|삼성|국민|우리|롯데|하나|농협|비씨|카카오|토스|기업|씨티|수협|신협|우체국|새마을|케이뱅크|카카오뱅크|토스뱅크";
     const withNames = (core, flags) => new RegExp("(?:(^|[^A-Za-z가-힣])(?:" + cardNames + ")(?:" + core + ")|(?:" + core + "))", flags);
     return {
       escape, commandWords, cardNames, withNames,
-      fixed: fixedWords.map((item) => new RegExp(commandWords.includes(item) ? "(^|\\s)" + escape(item) + "(?=\\s|\\d|$)" : escape(item), "g")),
+      fixed: fixedWords.map((item) => new RegExp(commandWords.includes(item) ? "(^|\\s)" + escape(item) + "(?=\\s|\\d|$)" : dayWords.includes(item) ? "(^|\\s)" + escape(item) + "(?=\\s|\\d|$|아침|점심|저녁|밤|새벽|오전|오후)" : escape(item), "g")),
       cardName: withNames("(?:신용카드|체크카드|카드)" + pay.end, "gi"),
       paymentWord: new RegExp("(?:현금|삼성페이|삼페|카카오페이|카페이|네이버페이|네페|애플페이|페이코|제로페이|토스페이|토스뱅크|토스|계좌이체|자동이체|무통장|체크|신용)" + pay.end, "g"),
       weekday: new RegExp("(?:(^|[^가-힣])(?:(?:지지난|저저번|지난|저번|이번|다음|오는|돌아오는|다가오는)\\s*주|전주|금주|내주|지지난번|지지난|저저번|지난번|지난|저번|이번|다음|오는|돌아오는|다가오는)\\s*[월화수목금토일]요일|[월화수목금토일]요일)", "g"),
@@ -320,7 +417,7 @@ function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
   // 가린 낱말의 첫 글자 뒤에 눈에 안 보이는 표식(U+E000)을 끼워 아래 결제수단 지우기가 읽지 못하게 하고 끝에서 뺀다.
   const mark = String.fromCharCode(0xE000);
   const protect = inputPaymentPatterns();
-  let memo = normalizeInputText(foldInputWidth(raw)).split(mark).join("");
+  let memo = normalizeInputText(foldInputWidth(raw, true)).split(mark).join("");
   if (/카드|신용|체크|현금/.test(memo)) {
     for (const pattern of protect.protect) {
       memo = memo.replace(pattern, (all, ...rest) => {
@@ -331,7 +428,7 @@ function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
       });
     }
   }
-  if (amountRaw) memo = memo.replace(new RegExp(patterns.escape(amountRaw), "g"), " ");
+  if (amountRaw) memo = memo.replace(new RegExp(patterns.escape(amountRaw) + "(?:\\s*(?:이요|요|이에요|예요|입니다|임|쯤|가량)(?=\\s|$))?", "g"), " ");
   for (const pattern of patterns.fixed) memo = memo.replace(pattern, " ");
   if (paymentMethod) {
     const pay = inputPaymentPatterns();
@@ -359,16 +456,17 @@ function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
     .replace(/(?:(?:지지난|저저번|지난|저번|이번|다음)\s*달|이달|담달)?\s*말일/g, " ")
     .replace(/(?:재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*(?=\d{1,2}\s*(?:월|[./]))/g, " ")
     .replace(/\d{1,2}\s*월\s*\d{1,2}일?/g, " ")
-    .replace(/\d{1,2}[.\/]\d{1,2}/g, " ")
+    .replace(/\d{1,2}[.\/]\d{1,2}(?!\d|[A-Za-z]|인치|리터|인분|단계|시간|킬로|키로|그램|미터|센티|마리|[평배도근병잔개줄판통](?=\s|$))/g, " ")
     .replace(/(?:^|\s)\d{1,2}일(?:\s|$)/g, " ")
     .replace(patterns.cardName, keep)
     .replace(patterns.paymentWord, " ")
     .replace(/([가-힣A-Za-z0-9]{2,})(에서|으로|에게|한테)(?=\s|$)/g, "$1 ")
     .replace(/([가-힣]{2,})(썼어|썼다|썻어|썼음|냈어|냈음|샀어|샀음|했어|했다)(?=\s|$)/g, "$1 ")
     .replace(/(?:^|\s)(에서|으로|에게|한테|로|에|을|를|은|는|이|가|썼어|썼다|썻어|썼음|냄|냈어|냈음|샀어|샀음|삼|했어|함|했다|사용|결제|구매|납부|송금|이체)(?=\s|$)/g, " ")
-    .replace(/(?:^|\s)(?:원|정도)(?=\s|$)/g, " ")
+    .replace(/(?:^|\s)(?:원|정도|어치|짜리)(?=\s|$)/g, " ")
     .replace(/\s+/g, " ")
     .trim()
+    .replace(/^(?:[.,;:·~+\-–—ㅡ]+(?:\s+|$))+|(?:\s+[.,;:·~…]+)+$/g, "")
     .split(mark).join("");
 
   if (!memo) memo = category || (type === "income" ? "기타수입" : "기타지출");

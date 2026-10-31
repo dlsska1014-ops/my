@@ -30,7 +30,7 @@ body.abV22812Shell{--ab12-sp-1:4px;--ab12-sp-2:8px;--ab12-sp-3:12px;--ab12-sp-4:
    보라색이 되면 안 된다. 그래서 톤 선택자에는 넣지 않고 여기 한 곳에만 둔다.
    다크에서만 명도를 올린다 — 같은 뜻, 어두운 바탕에서 읽히는 값. */
 body.abV22812Shell{--ab12-up:#c2410c;--ab12-down:#0f766e;--ab12-parse-text:#3182f6;--ab12-parse-amount:#c2410c;--ab12-parse-method:#0f766e;--ab12-gauge-warn:#c2410c;--ab12-gauge-over:#b91c1c}
-html[data-ab-resolved-theme="dark"] body.abV22812Shell{--ab12-up:#fb923c;--ab12-down:#2dd4bf;--ab12-parse-text:#60a5fa;--ab12-parse-amount:#fb923c;--ab12-parse-method:#2dd4bf;--ab12-gauge-warn:#fbbf24;--ab12-gauge-over:#f87171}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell{--ab12-up:#fb923c;--ab12-down:#2dd4bf;--ab12-parse-text:#60a5fa;--ab12-parse-amount:#fb923c;--ab12-parse-method:#2dd4bf;--ab12-gauge-warn:#fbbf24;--ab12-gauge-over:#f87171;--ab12-ok-bg:#123c33;--ab12-ok-text:#bbf7d0;--ab12-bad-bg:#4b1d1d;--ab12-bad-text:#fecaca}
 /* V22.8.82: 경고색은 일부러 톤을 따라가지 않는다. 파란 경고는 경고로 읽히지 않는다.
    대신 값을 흩뿌리지 않고 --ab12-warn-* 한 곳에 모아 "안 바뀌는 것이 의도"임을 남긴다.
    강조색(--ab12-accent*)을 써야 할 자리에 이 값을 쓰면 톤 전환이 닿지 않는다. */

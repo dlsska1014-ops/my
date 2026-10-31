@@ -136,7 +136,12 @@ function isRecentCommand(text) {
 }
 
 function isUndoCommand(text) {
-  return /^(취소|방금취소|방금 취소|삭제|방금삭제|방금 삭제|마지막삭제|마지막 삭제|입력취소|입력 취소|잘못입력|잘못 입력|되돌리기|방금 거 삭제)$/i.test(normalizeText(text));
+  const t = normalizeText(text);
+  // V22.9.93 Q-25: ‘방금 거 취소’·‘방금 입력 취소’·‘잘못 입력했어’ 가 ‘무슨 뜻인지 이해하지 못했어요’ 였다. ‘취소’ 와 같은 안내를 받는다(지우지는 않는다).
+  return /^(취소|방금취소|방금 취소|삭제|방금삭제|방금 삭제|마지막삭제|마지막 삭제|입력취소|입력 취소|잘못입력|잘못 입력|되돌리기|방금 거 삭제)$/i.test(t)
+    || /^취소(?:요|\s*해\s*(?:줘요?|주세요)|\s*할게요?)$/.test(t)
+    || /^(?:방금|아까|마지막)\s*(?:거|것|건|꺼|기록|입력)?\s*취소(?:요|\s*해\s*(?:줘요?|주세요)?|\s*할게요?)?$/.test(t)
+    || /^잘못\s*(?:입력|기록|적|썼|쓴|저장)(?:했어요?|했어|했네|했다|었어요?|어요?)?$/.test(t);
 }
 
 function isInputExampleCommand(text) {
@@ -148,7 +153,7 @@ function isKeywordGuideCommand(text) {
 }
 
 function isEditGuideSimpleCommand(text) {
-  return detectKakaoNaturalIntent(text).intent === "EDIT_GUIDE" || /^(수정|수정방법|수정 방법|삭제방법|삭제 방법|번호수정|번호 수정|수정가이드|수정 가이드|방금수정|방금 수정)$/i.test(normalizeText(text));
+  return detectKakaoNaturalIntent(text).intent === "EDIT_GUIDE" || /^(수정|수정방법|수정 방법|삭제방법|삭제 방법|번호수정|번호 수정|수정가이드|수정 가이드|방금수정|방금 수정|수정할래|수정할게|수정하고 싶어|고칠래|고칠게|고치고 싶어)$/i.test(normalizeText(text));
 }
 
 function isReserveGuideCommand(text) {

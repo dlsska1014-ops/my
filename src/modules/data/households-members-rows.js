@@ -3,6 +3,7 @@ import { parseStrictSettingsObject, withHouseholdSettingsRmw } from "../runtime/
 import { verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
+import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { fetchUserHouseholds, supabaseWithEmbedFallback } from "./users-household-create.js";
 import { canReadMyHousehold } from "../my/access-control.js";
@@ -458,7 +459,7 @@ function renderSpenderOptions(members = [], selected = "", blankLabel = "지출�
   const names = memberNameMap(members);
   for (const m of members) {
     if (!memberCanBeSpender(m)) continue;
-    opts.push(`<option value="${escapeHtml(m.user_id)}"${selected === m.user_id ? " selected" : ""}>${escapeHtml(names[m.user_id] || m.nickname || "구성원")} (${escapeHtml(m.role || "member")})</option>`);
+    opts.push(`<option value="${escapeHtml(m.user_id)}"${selected === m.user_id ? " selected" : ""}>${escapeHtml(names[m.user_id] || m.nickname || "구성원")} (${escapeHtml(userHouseholdRoleLabel(m.role || "member"))})</option>`);
   }
   return opts.join("");
 }

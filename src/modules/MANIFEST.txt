@@ -108,6 +108,7 @@ kakao/reply-texts.js
 kakao/intent-nlu.js
 kakao/response-builders.js
 kakao/manual-guides.js
+kakao/edit-vocabulary.js
 kakao/edit-session-v4.js
 kakao/edit-state-machine.js
 kakao/edit-flow-v4.js

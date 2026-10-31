@@ -15,10 +15,10 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "V22.8.58 runtime version is explicit");
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22987.css"'), "shell uses a fresh immutable URL");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22990.js"'), "activity runtime uses a fresh immutable URL");
-ok(source.includes('"accountbook-shell-v22987-css"'), "shell ETag is refreshed");
-ok(source.includes('"accountbook-v5-v22990-js"'), "activity runtime ETag is refreshed");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22993.css"'), "shell uses a fresh immutable URL");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22993.js"'), "activity runtime uses a fresh immutable URL");
+ok(source.includes('"accountbook-shell-v22993-css"'), "shell ETag is refreshed");
+ok(source.includes('"accountbook-v5-v22993-js"'), "activity runtime ETag is refreshed");
 // V22.9.89 독립 검토: 한 주 이하는 날짜 칸, 더 길면 달성률이다. 직접 적은 기록이 없어 지난 날을 셀 수 없는 동안도 달성률이다
 // (홈 날짜 칸의 상태 글자는 1년 캐시 클라이언트가 s·x·t·f 로만 붙여, 그런 날이 ‘예정’으로 읽혔다).
 ok(source.includes('const displayMode = settings.periodDays <= 7 && (recording || !evaluatedDays) ? "daily" : "percent"'), "one-week display threshold is explicit");
@@ -103,8 +103,8 @@ try {
   const home = await request(fixture, "/app?month=2026-07&household_id=house-home");
   eq(home.response.status, 200, "home renders with the upgraded challenge");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "home remains below the protected 35 KiB budget");
-  ok(home.text.includes('/assets/accountbook-shell-v22987.css'), "home loads the refreshed shell");
-  ok(home.text.includes('/assets/accountbook-v5-v22990.js'), "home loads the refreshed activity runtime");
+  ok(home.text.includes('/assets/accountbook-shell-v22993.css'), "home loads the refreshed shell");
+  ok(home.text.includes('/assets/accountbook-v5-v22993.js'), "home loads the refreshed activity runtime");
   ok(home.text.includes('class="reportChallengeDays"') || home.text.includes('class="reportChallengePercent"'), "home challenge uses one responsive progress mode");
   eq(fixture.db.transactions.length, before, "home rendering remains read-only");
 
@@ -130,9 +130,9 @@ try {
   eq(activityQueries[0].searchParams.get("limit"), "81", "activity endpoint requests one sentinel row beyond the 80-row display bound");
   eq(fixture.db.transactions.length, before, "activity endpoint remains read-only");
 
-  const shell = await request(fixture, "/assets/accountbook-shell-v22987.css");
+  const shell = await request(fixture, "/assets/accountbook-shell-v22993.css");
   eq(shell.response.status, 200, "refreshed shell is served");
-  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22987-css"', "refreshed shell ETag is correct");
+  eq(shell.response.headers.get("etag"), '"accountbook-shell-v22993-css"', "refreshed shell ETag is correct");
   ok(shell.text.includes(".reportChallengeDays"), "shell includes challenge date-cell styling");
   // 사이드바 사본과 함께 .abChallengePercent / .abChallengeDays CSS 4.3 KB 도 걷어냈다.
   // 긴 챌린지의 퍼센트 표시는 본문 쪽 .reportChallengePercent 가 계속 담당한다.
@@ -142,9 +142,9 @@ try {
   ok(shell.text.includes(".abActivityTypeIcon svg"), "shell includes unified SVG activity icon styling");
   ok(shell.text.includes(".abActivityItem:focus-visible"), "activity items have a visible keyboard focus state");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22990.js");
+  const v5 = await request(fixture, "/assets/accountbook-v5-v22993.js");
   eq(v5.response.status, 200, "refreshed activity runtime is served");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22990-js"', "refreshed activity runtime ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22993-js"', "refreshed activity runtime ETag is correct");
   ok(v5.text.includes("function iconSvg(kind)"), "runtime contains the controlled SVG icon renderer");
   ok(v5.text.includes('class="abActivityTypeIcon kind-') && v5.text.includes("교통"), "runtime emits semantic category icon classes");
   ok(v5.text.includes("aria-label"), "runtime emits accessible activity labels");

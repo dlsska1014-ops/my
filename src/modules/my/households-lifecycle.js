@@ -42,7 +42,7 @@ import { transactionEditHistoryKey } from "./transactions.js";
 import { addQueryToUrl, renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
 import { kakaoAccountLinkPrompt } from "../auth/kakao-account-link.js";
 import { myNavCss, renderUserLoginHtml } from "../web/login-page-side-nav.js";
-import { formatMessage } from "../kakao/reply-texts.js";
+import { formatMessage, formatMessageText } from "../kakao/reply-texts.js";
 import { isDefiniteStorageFailure, isUncertainStorageWrite } from "../kakao/response-builders.js";
 import {
   clearKakaoSelectedHousehold, findExistingKakaoHouseholdByNameV2254, getKakaoSelectedHouseholdId,
@@ -136,7 +136,7 @@ function householdPageMessage(code = "") {
   };
   // V22.9.76 감사 C-3: 표에 직접 적은 코드만 찾는다(?msg=constructor 가 /my/members 에 함수 본문을 보였다).
   const key = String(code || "");
-  return (Object.hasOwn(map, key) && map[key]) || formatMessage(code || "");
+  return (Object.hasOwn(map, key) && map[key]) || formatMessageText(code || "");
 }
 
 async function handleMyHouseholdsPage(request, env, url) {

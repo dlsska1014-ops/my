@@ -195,7 +195,8 @@ try {
   // -------------------------------------------------------------------------
   // 일곱 칸을 링크로 두면 그것만으로 정지점이 일곱 개 늘어난다. 달력에서 이미
   // 같은 실수를 했고(PR6), 그래서 이 블록은 정보 표시로만 만들었다.
-  const now = new Date().toISOString().slice(0, 7);
+  // 앱의 이번 달은 한국 시각이다. UTC 로 세면 매월 1일 오전 9시 전에 지난달을 가리켜 스트립이 없다.
+  const now = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 7);
   const thisMonth = await app.fetch(new Request(`${ORIGIN}/app?month=${now}&household_id=house-home`, { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0" } }), fixture.env, {});
   const thisMonthHtml = await thisMonth.text();
   const stripStart = thisMonthHtml.indexOf('<ol class="homeWeek"');

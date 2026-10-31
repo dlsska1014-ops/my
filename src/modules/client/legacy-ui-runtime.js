@@ -674,6 +674,7 @@ function guidedUiUxClientMain() {
     delete form.dataset.abSubmitting;
     delete form.dataset.submitting;
     form.removeAttribute("aria-busy");
+    form.querySelectorAll('[data-ab-submit-kept="1"]').forEach(function(kept) { kept.remove(); });
     form.querySelectorAll('[data-ab-submit-locked="1"]').forEach(function(button) {
       delete button.dataset.abSubmitLocked;
       button.disabled = false;
@@ -735,6 +736,16 @@ function guidedUiUxClientMain() {
       if (!button || (button.disabled && button.getAttribute("aria-busy") !== "true")) return;
       form.dataset.abSubmitting = "1";
       form.setAttribute("aria-busy", "true");
+      // V22.9.93 Q-4: 실제 클릭에서는 이 잠금이 브라우저가 보낼 값을 모으기 전에 돈다. 막힌 버튼은 값에서
+      // 빠지므로 누른 버튼의 이름·값을 숨은 칸으로 남긴다(홈 구성 위아래, 관리자 일괄 삭제).
+      if (button === event.submitter && button.name) {
+        const kept = document.createElement("input");
+        kept.type = "hidden";
+        kept.name = button.name;
+        kept.value = button.value;
+        kept.dataset.abSubmitKept = "1";
+        form.appendChild(kept);
+      }
       button.dataset.abSubmitLocked = "1";
       button.disabled = true;
       button.setAttribute("aria-busy", "true");

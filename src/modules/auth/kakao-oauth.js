@@ -25,7 +25,7 @@ import {
   kakaoAutoLoginFallbackLocation,
 } from "./kakao-account-link.js";
 import { renderUserLoginHtml } from "../web/login-page-side-nav.js";
-import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { readHouseholdRoleOrFailure } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 // @build:imports-end
 
@@ -56,10 +56,12 @@ async function handleKakaoLoginStart(request, env, url) {
   if (reauthMode && /KAKAOTALK/i.test(request.headers.get("user-agent") || "")) return htmlResponse("<p>본인 확인은 Chrome 또는 Safari에서 이 주소를 열어 진행해 주세요.</p>", 403);
   if (linkMode && !reauthMode && !(await verifyCredentialProof(request, env, currentUserId))) return redirectResponse("/my/backup-login?err=account_reauth_required");
   if (reauthMode) {
-    const [role, currentUser] = await Promise.all([
-      getHouseholdMemberRole(env, currentUserId, reauthHouseholdId),
+    // V22.9.93 X-12: 역할을 읽지 못한 것을 ‘소유자가 아님’으로 안내하지 않는다.
+    const [{ role, failed: roleCheckFailed }, currentUser] = await Promise.all([
+      readHouseholdRoleOrFailure(env, currentUserId, reauthHouseholdId, { path: "/auth/kakao/start", method: "GET" }),
       fetchUserById(env, currentUserId),
     ]);
+    if (reauthPurpose === "household-delete" && roleCheckFailed) return redirectResponse(addQueryToUrl(reauthReturnTo, { err: "household_role_check_failed" }));
     if (reauthPurpose === "household-delete" && (!reauthHouseholdId || role !== "owner")) return redirectResponse(addQueryToUrl(reauthReturnTo, { err: "household_delete_owner_only" }));
     if (!(await hasKakaoLoginIdentity(env, currentUser))) return redirectResponse(addQueryToUrl(reauthReturnTo, { err: "kakao_reauth_unavailable" }));
   }
@@ -281,9 +283,10 @@ async function handleKakaoLoginCallback(request, env, url) {
       if (!linkUserId || !currentUserId || !constantTimeTextEqual(linkUserId, currentUserId)) {
         return redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { err: "kakao_reauth_failed" }), clearOauthCookies);
       }
-      const [identityMatches, role] = await Promise.all([
+      const [identityMatches, { role, failed: roleCheckFailed }] = await Promise.all([
         kakaoLoginIdentityMatchesUser(env, currentUserId, profile.kakaoId),
-        getHouseholdMemberRole(env, currentUserId, reauthHouseholdId),
+        // V22.9.93: 비밀번호 변경 재인증에는 가계부가 없다(쿠키 값 credential-change). 조회하면 uuid 칸에 글자를 넣어 허위 경보만 남는다.
+        stateProof.mode === "credential-change" ? { role: "", failed: false } : readHouseholdRoleOrFailure(env, currentUserId, reauthHouseholdId, { path: "/auth/kakao/callback", method: "GET" }),
       ]);
       if (!identityMatches) {
         rememberOpsEvent({ kind: "kakao_reauth_identity_mismatch", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId}` });
@@ -293,6 +296,7 @@ async function handleKakaoLoginCallback(request, env, url) {
         const proof = await makeCredentialProof(env, currentUserId);
         return redirectResponseWithCookies("/my/backup-login?msg=account_reauth_verified", [...clearOauthCookies, `ab_credential_reauth=${encodeURIComponent(proof)}; Path=/; Max-Age=300; HttpOnly; Secure; SameSite=Lax`]);
       }
+      if (roleCheckFailed) return redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { err: "household_role_check_failed" }), clearOauthCookies);
       if (role !== "owner") return redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { err: "household_delete_owner_only" }), clearOauthCookies);
       const reauthToken = await makeHouseholdDeleteReauthToken(env, currentUserId, reauthHouseholdId);
       return redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { msg: "kakao_reauth_verified" }), [

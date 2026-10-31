@@ -45,9 +45,13 @@ async function kakao(task) {
     const kstMs = (realNow() + 9 * 3600 * 1000) % DAY;
     let shift = kstMs > DAY - 30 * 60 * 1000 ? DAY - kstMs + 60 * 1000 : 0;
     if (shift) Date.now = () => realNow() + shift;
+    // V22.9.93: 민 시계가 Date.now 에만 닿아 픽스처의 저장 시각(new Date())은 실제 시계였다. 23:30~23:50 에는 옮긴 폭이 중복 조회 범위(10분)보다 커서
+    // 앞 기록을 찾지 못해 Y-1-B 가 실패했다(2026-10-31 23:46 전체 검사, V22.9.92 코드도 같다). new Date() 도 같은 시계를 쓴다.
+    const RealDate = Date;
+    globalThis.Date = class extends RealDate { constructor(...args) { if (args.length) super(...args); else super(realNow() + shift); } };
     // 같은 문장을 8초 안에 다시 보내면 막는 장치를 피하려고 장면 안의 시계를 앞으로 민다. 표식의 at 도 같은 시계다.
     const later = (ms) => { shift += ms; Date.now = () => realNow() + shift; };
-    try { await task(fx, later); } finally { Date.now = realNow; }
+    try { await task(fx, later); } finally { globalThis.Date = RealDate; Date.now = realNow; }
   });
 }
 const markers = (fx) => fx.db.accountbook_settings.filter((row) => String(row.key).includes(":pending_write:"));

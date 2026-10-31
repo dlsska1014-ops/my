@@ -72,7 +72,7 @@ async function handleSettlementRefundPreview(request,env,url) {
     fetchAdminRows(env,{month,householdId,type:"all"}),fetchHouseholdMembers(env,householdId),getSettingValueStrict(env,settlementHistoryKey(householdId)),
   ]);
   const history=parseJsonArraySettingStrict(historyRaw,"settlement_history_json_invalid");
-  if (history.some(item=>item.month===month)) return htmlResponse(`<main><h1>환급 연결 미리보기</h1><p>${refundNotice}</p><p>완료 이력이 있는 달은 환급을 다시 계산하지 않습니다. 기존 완료 이력은 그대로 유지됩니다.</p></main>`,409);
+  if (history.some(item=>item?.month===month)) return htmlResponse(`<main><h1>환급 연결 미리보기</h1><p>${refundNotice}</p><p>완료 이력이 있는 달은 환급을 다시 계산하지 않습니다. 기존 완료 이력은 그대로 유지됩니다.</p></main>`,409);
   const mode=["equal","ratio","headcount","item"].includes(params.get("mode"))?params.get("mode"):"equal";
   const conditions=parseSettlementConditions(params,members,rows.filter(r=>r.type==="expense"));
   const options={householdId,month,mode,...conditions,refundLinks:[]};
