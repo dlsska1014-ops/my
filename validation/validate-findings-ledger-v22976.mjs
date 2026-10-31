@@ -35,7 +35,7 @@ const SOURCES = [
   // V22.9.91: V22.9.90 운영 뒤 계정 잇기 요청(L-1, 콘솔 연결은 사용자 승인)과 만들며 찾은 관리자 통합 결함(L-2 카카오 로그인 주인 링크).
   { key: "V91", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_91.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(L-[0-9]+)(?=[ *]|$)/gm, expected: 2 },
   // V22.9.93: 운영 V22.9.92 뒤 출시 전 입력 시험(날짜 말투·점 자릿수·분류 낱말)과 전체 기능 검수.
-  { key: "V93", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_93.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(Q-[0-9]+)(?=[ *]|$)/gm, expected: 95 },
+  { key: "V93", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_93.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(Q-[0-9]+)(?=[ *]|$)/gm, expected: 120 },
 ];
 // '결함 아님'은 다시 확인해 보니 규격·의도대로인 항목이다. 메모에 근거(규격 문서 줄 등)를 적는다.
 const STATUSES = new Set(["고침", "일부 고침", "남음", "결정 필요", "확인 불가", "결함 아님"]);

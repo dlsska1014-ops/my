@@ -423,7 +423,7 @@ const KAKAO_EDIT_VERB_TAIL_V4 = new RegExp(String.raw`^(.+?)\s+${KAKAO_EDIT_VERB
 const KAKAO_EDIT_JOSA_VERB_TAIL_V4 = new RegExp(String.raw`^(.+?(?:으로|로))\s*${KAKAO_EDIT_JOSA_VERB_V4}$`);
 // ‘01번 5000원 수정’ 처럼 ‘으로’ 가 없어도 고치는 말이다. 뒤에 다른 말이 이어지면(‘2번 만원으로 먹음’) 기록이다.
 const KAKAO_SEQ_AMOUNT_EDIT_V4 = new RegExp(String.raw`^\d+\s*번(?:을|를)?\s*${KAKAO_EDIT_AMOUNT_V4}(?:\s*(?:으로|로)(?:\s*${KAKAO_EDIT_JOSA_VERB_V4})?|\s*${KAKAO_EDIT_VERB_V4})$`);
-const KAKAO_AMOUNT_CHANGE_TAIL_V4 = new RegExp(String.raw`(?:[\d십백천만억]\s*원|\d|[만천])\s*(?:(?:으로|로)\s*(?:${KAKAO_EDIT_VERB_V4}|${KAKAO_EDIT_ORDER_VERB_V4})|${KAKAO_EDIT_VERB_V4})$`);
+const KAKAO_AMOUNT_CHANGE_TAIL_V4 = new RegExp(String.raw`(?:[\d십백천만억]\s*원|\d|[만천])\s*(?:(?:으로|로)\s*(?:${KAKAO_EDIT_VERB_V4}|${KAKAO_EDIT_ORDER_VERB_V4}|다시(?:\s*(?:적어|써|넣어|입력해|기록해)\s*(?:줘요?|주세요)?)?|좀\s*부탁)|${KAKAO_EDIT_VERB_V4})$`);
 // V22.9.93 Q-22·Q-30: ‘방금 12000원으로 바꿔줘’·‘마지막 거 13000원으로’·‘방금 거 5000원’ 은 방금 기록의 금액 고치기다. ‘방금 5000원’ 과 뒤에 다른 말이 이어지는 ‘방금 5000원으로 밥 먹음’ 은 기록이다.
 const KAKAO_LATEST_AMOUNT_EDIT_V4 = new RegExp(String.raw`^(?:방금|아까|최근|마지막)\s*(?:(?:거|것|건|꺼|기록|입력)\s*${KAKAO_EDIT_AMOUNT_V4}(?:\s*(?:으로|로))?(?:\s*${KAKAO_EDIT_JOSA_VERB_V4})?|${KAKAO_EDIT_AMOUNT_V4}(?:\s*(?:으로|로)(?:\s*${KAKAO_EDIT_JOSA_VERB_V4})?|\s*${KAKAO_EDIT_VERB_V4}))$`);
 // ‘방금 커피 5000원으로 수정’ 처럼 내용까지 말한 꼴. 앞을 짧게 잡아 ‘커피 1만 2천원으로’ 의 금액을 끝 낱말 ‘2천원’ 으로 자르지 않는다(Q-61).

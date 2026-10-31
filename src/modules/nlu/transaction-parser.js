@@ -31,7 +31,8 @@ function parseMultipleTransactions(text, payload) {
     if (parsed.ok && parsed.type_confirmation) return blockedTransactionParse(mixedTypeConfirmation(parsed));
     if (parsed.ok) out.push({ ...parsed, raw_text: clause });
     // V22.9.93 Q-57: 금액을 못 읽은 조각은 저장 답에 적는다. 말없이 빠지면 나머지만 저장된 줄을 사람이 모른다(날짜만 쓴 조각은 뜻이 없어 뺀다).
-    else if (clause !== extractLeadingDateHint(clause)) (out.unread ||= []).push(clause);
+    // Q-112 (독립 검토 7회차): 수가 없는 조각은 금액을 놓친 것이 아니다(‘친구랑 술 5만원’ 의 ‘친구’, 머리말 줄 ‘오늘 지출’, 쉼표 뒤 ‘국민카드’ 를 못 읽은 말로 알렸다).
+    else if (clause !== extractLeadingDateHint(clause) && /\d|[십백천만억]\s*원/.test(clause)) (out.unread ||= []).push(clause);
   }
   // V22.9.93 Q-87: 앞 건들의 합을 적은 끝말(‘커피 4000 택시 8000 총 12000원’)이 한 건 더 저장돼 합계가 두 배가 됐다. 합이 정확히 맞을 때만 뺀다(‘카드 총 5000 현금 총 5000’ 은 앞 건도 총이라 두 건이다). ‘전체’·‘모두’ 는 품목일 수 있어 앞 건이 둘 이상일 때만 합이다(‘부분 염색 5만원 전체 5만원’).
   const totalWord = /^(?:총|합|합계|총합|총액|총계|총금액|총합계|총비용|도합|토탈)$/, allWord = /^(?:전체|모두|전부|합쳐서|다\s*해서)$/;
@@ -67,7 +68,8 @@ const AB_DATE_MONTH_WORDS = "지지난\\s*달|저저번\\s*달|지난\\s*달|저
 const AB_DATE_YEAR_WORDS = "재작년|작년|지난\\s*해|올해|금년|내년|다음\\s*해";
 // V22.9.93 Q-56: 점·슬래시·하이픈 날짜. 뒤에 글자가 붙거나(‘1.5L’·‘3.1절’·‘1.5만원’) 점·하이픈 뒤에 띄어 쓴 단위가 오면(‘1.5 만원’) 날짜가 아니다(quickInputDate 와 같은 규칙).
 // 예전에는 앞 조각의 소수가 머리 날짜가 돼 ‘1.5L 콜라 2000, 커피 3000’ 의 커피가 1월 5일이 되고, 뒤 조각의 소수가 제 날짜로 보여 ‘어제 커피 4000, 택시 1.5만원’ 의 택시가 오늘이 됐다.
-const AB_DATE_NUMERIC = "(?!\\d{1,2}[.-]\\d{1,2}\\s+[억만천백십]+(?:\\s|$|원))\\d{1,2}[.\\/-]\\d{1,2}일?(?=\\s|$|[.,!?])(?!\\s*원(?!\\d))";
+// Q-100: ‘원’ 뒤에 글자가 오면 낱말이다(‘7/3 원피스 3만원’, quickInputDate 와 같은 규칙).
+const AB_DATE_NUMERIC = "(?!\\d{1,2}[.-]\\d{1,2}\\s+[억만천백십]+(?:\\s|$|원))\\d{1,2}[.\\/-]\\d{1,2}일?(?=\\s|$|[.,!?])(?!\\s*원(?![\\d가-힣]))";
 const AB_DATE_PHRASES = [
   "(?:하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\\s*[전후](?=\\s|$)",
   "(?:\\d{1,2}|한|두|세|네|일|이|삼|사)\\s*(?:일|주일|주|달|개월)\\s*[전후](?=\\s|$)",
@@ -104,6 +106,8 @@ function extractLeadingDateHint(text) {
   return m ? m[1].trim() : "";
 }
 
+// V22.9.93 Q-104: 날짜만 쓴 줄은 다음 줄들의 날짜다(‘어제\n커피 4000\n오늘\n택시 8000’ 이 둘 다 어제였다).
+// Q-107 (독립 검토 7·8회차): ‘N일’ 로 시작하는 조각은 운영처럼 머리 날짜를 따른다. ‘N일’ 은 기간일 수 있고(‘5일 약국 1만원\n3일 치 약값 9000’), 맨 숫자 줄도 머리 날짜가 아니다(‘택시 8000\n1.5\n커피 3000’). ‘랑’·‘하고’ 로 갈린 날 말은 날짜가 아니다(‘어제랑 똑같이 커피 4000’).
 function splitTransactionClauses(text) {
   const raw = normalizeText(text);
   if (!raw) return [];
@@ -128,15 +132,17 @@ function splitTransactionClauses(text) {
     dateJoined ||= joined.length < pieces.length;
     return joined;
   });
-  const datePrefix = extractLeadingDateHint(raw);
+  let datePrefix = extractLeadingDateHint(raw);
   // V22.9.93 Q-56: 머리 날짜는 ‘7월 3일’ 꼴로 붙인다. ‘7.3’ 그대로 붙이면 다음 조각의 ‘만원’ 과 이어져 7.3만 = 73,000원이 됐다.
-  const carriedDate = datePrefix.replace(/(^|\s)(\d{1,2})[.\/-](\d{1,2})일?$/, "$1$2월 $3일");
+  const carryDate = (date) => date.replace(/(^|\s)(\d{1,2})[.\/-](\d{1,2})일?$/, "$1$2월 $3일");
   const clauses = [];
   for (const part of firstPass) {
-    const pieces = splitByAmountEnds(part);
+    if (isDateOnlyPiece(part) && !raw.includes(`${part}랑 `) && !raw.includes(`${part}하고 `)) datePrefix = part;
+    // V22.9.93 Q-117: 줄 전체에서 한 조각이어도 그 조각만 보면 금액이 둘일 수 있다(‘커피 5000점심 9000 택시 3000’ 의 앞 조각). 다시 나누지 않으면 뒤 금액이 메모로 사라진다.
+    const pieces = splitByAmountEnds(part).flatMap(splitByAmountEnds);
     for (let piece of pieces) {
       // V22.9.81 U-24: 머리 날짜로 시작하는 조각(첫 조각)에는 다시 붙이지 않는다. 달 없는 ‘25일’은 조각 날짜 판정에 없어 두 번 붙으면 메모에 ‘25일’이 남는다.
-      if (datePrefix && !hasDateHint(piece) && !`${piece} `.startsWith(`${datePrefix} `)) piece = `${carriedDate} ${piece}`;
+      if (datePrefix && !hasDateHint(piece) && !`${piece} `.startsWith(`${datePrefix} `)) piece = `${carryDate(datePrefix)} ${piece}`;
       if (piece.trim()) clauses.push(piece.trim());
     }
   }
@@ -145,9 +151,9 @@ function splitTransactionClauses(text) {
 }
 
 // V22.9.93 Q-85: 쉼표 뒤에 날짜만 쓴 조각은 앞 조각의 날짜다(‘커피 4000, 어제’ 의 날짜를 버려 오늘로 저장됐다. 웹은 읽었다). 줄 끝 조각이면 앞 조각 모두의 날짜다(‘커피 4000, 택시 8000, 어제’).
-// 맨 숫자 꼴은 기간·수량일 수 있어 잇지 않는다(‘숙박 20만원, 2일’·‘콜라 2000, 1.5’·‘쿠폰 1000, 1/2’). 연도까지 쓴 세 칸은 날짜다(‘택시 8000, 26. 3. 5’). 줄이 다르면 다음 줄의 머리말일 수 있어 잇지 않는다.
+// 맨 숫자 꼴은 기간·수량일 수 있어 잇지 않는다(‘숙박 20만원, 2일’·‘콜라 2000, 1.5’·‘쿠폰 1000, 1/2’). ‘후’ 로 끝나면 쓴 날이 아니다(‘적금 50만원, 6개월 후’, Q-120). 연도까지 쓴 세 칸은 날짜다(‘택시 8000, 26. 3. 5’). 줄이 다르면 다음 줄의 머리말일 수 있어 잇지 않는다.
 function isDateOnlyPiece(piece) {
-  return piece === extractLeadingDateHint(piece) && (!/^\d/.test(piece) || /^\d{1,2}\s*월|[전후]$|^\d{2,4}\s*[./\-년]\s*\d{1,2}\s*[./\-월]\s*\d{1,2}/.test(piece));
+  return piece === extractLeadingDateHint(piece) && !piece.endsWith("후") && (!/^\d/.test(piece) || /^\d{1,2}\s*월|[전후]$|^\d{2,4}\s*[./\-년]\s*\d{1,2}\s*[./\-월]\s*\d{1,2}/.test(piece));
 }
 
 function attachDateOnlyPieces(pieces) {
@@ -293,5 +299,8 @@ function unwrapKakaoParam(value) {
   return String(value);
 }
 // @build:exports-start
-export { extractLeadingDateHint, hasDateHint, parseMultipleTransactions, parseTransaction };
+export {
+  extractLeadingDateHint, findAmountTokenSpans, hasDateHint, parseMultipleTransactions,
+  parseTransaction,
+};
 // @build:exports-end

@@ -3,6 +3,7 @@ import { foldInputWidth } from "../client/shared-input-nlu.js";
 import {
   KAKAO_DELETE_WORD_V4, KAKAO_EDIT_AMOUNT_V4, KAKAO_EDIT_JOSA_VERB_V4, KAKAO_EDIT_VERB_V4,
 } from "./edit-vocabulary.js";
+import { findAmountTokenSpans } from "../nlu/transaction-parser.js";
 import { extractAmount, normalizeText } from "../nlu/amount-parser.js";
 import { numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -294,8 +295,9 @@ function stripKakaoEditFieldWord(field, textRaw = "", directed = false) {
 
 // V22.9.93 Q-83: ‘결제 카드로’·‘생일 카드로’·‘월급 페이로’ 를 끝말만 보고 결제수단 ‘결제 카드’ 로 저장했다. 띄어 쓴 값은 카드사·회사·사람의 것일 때만 결제수단이고, 앞의 ‘결제’ 는 칸 이름이다.
 const KAKAO_EDIT_PAY_HEAD = /^(?:결제|결재|지불)\s+(.+)$/;
-const KAKAO_EDIT_CARD_OWNER = /^(?:신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오|토스|네이버|애플|우체국|씨티|기업|IBK|법인|회사|개인|남편|아내|와이프|신랑|엄마|아빠|언니|오빠|누나|형|동생|아들|딸|내|제)\s+(?:체크|신용)?(?:카드|페이)$/i;
+const KAKAO_EDIT_CARD_OWNER = /^(?:신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오|토스|네이버|애플|구글|쿠|스마일|쓱|SSG|제로|우체국|씨티|기업|IBK|수협|신협|새마을|카뱅|케이뱅크|법인|회사|개인|남편|아내|와이프|신랑|엄마|아빠|언니|오빠|누나|형|동생|아들|딸|내|제|체크|신용|교통)\s*(?:체크|신용)?(?:카드|페이)$/i;
 
+// V22.9.93 Q-105 (독립 검토 6회차): 조사를 뗀 값이 ‘카드’·‘페이’ 로 끝나기만 해도 결제수단이 되어 ‘방금 거 포토카드로’ 가 확인 없이 고쳐졌다. 조사를 뗀 값은 표에 있는 이름만 바로 고친다. 단위 글자 하나(‘방금 거 백으로’)는 금액이 아니다.
 // [L2] 값만 보고 필드 추론. config.members = 그룹 구성원 이름 배열
 function inferFieldFromValue(textRaw, config = {}, depth = 0) {
   const c = compact(textRaw);
@@ -305,7 +307,7 @@ function inferFieldFromValue(textRaw, config = {}, depth = 0) {
   if (stem && compact(stem) !== c) {
     const direct = inferFieldFromValue(stem, config, depth + 1);
     // V22.9.93 Q-36: ‘01번 2로 바꿔줘’ 가 2원이 됐다. 두 자리까지의 맨 숫자는 금액으로 보지 않는다.
-    if (direct?.confidence === "high" && (direct.field !== "amount" || /\d{3}|[십백천만억]|원$/.test(stem))) return direct;
+    if (direct?.confidence === "high" && (direct.field !== "amount" || /\d{3}|[십백천만억]|원$/.test(stem)) && (direct.field !== "method" || METHOD_WORDS.some((word) => compact(word) === compact(stem)) || (config.methods || []).some((word) => compact(word) === compact(stem)) || KAKAO_EDIT_CARD_OWNER.test(stem))) return direct;
     if ((config.categories || []).includes(stem)) return { field: "category", value: stem, confidence: "high" };
   }
   const paidWith = KAKAO_EDIT_PAY_HEAD.exec(stem);
@@ -320,7 +322,7 @@ function inferFieldFromValue(textRaw, config = {}, depth = 0) {
   }
   // V22.9.37 감사 NEW-8: "50억"·"1만3천원"처럼 단위가 붙은 금액 표기도 금액이다. 내용으로 넘기면 "내용을 '50억'으로
   // 바꾸는 건가요?"라고 되묻게 된다. 20억 상한은 반영 단계가 새 기록·한 줄 수정과 같은 문구로 거절한다.
-  if (/[\d일이삼사오육칠팔구십백천만억]/.test(c) && !/^\d+$/.test(c)) {
+  if (/[\d일이삼사오육칠팔구십백천만억]/.test(c) && !/^\d+$/.test(c) && !/^[십백천만억]$/.test(c)) {
     const unitAmount = normalizeKakaoEditAmountValue(textRaw);
     if (unitAmount) return { field: "amount", value: unitAmount, confidence: "high" };
   }
@@ -352,12 +354,13 @@ function inferFieldFromValue(textRaw, config = {}, depth = 0) {
 // 다시 배워야 한다. 입력 경로와 같은 추출기를 쓰되 금액처럼 생긴 문구만 통과시킨다.
 const KAKAO_EDIT_AMOUNT_SHAPE = /^[0-9.,\s원억만천백십일이삼사오육칠팔구영공하나둘셋넷다섯여섯일곱여덟아홉]+$/;
 // V22.9.93 Q-63: 부호를 지우고 읽어 ‘5000, 3000’ 이 50,003,000원, ‘1. 5000’ 이 1원이 됐고 ‘3만 2만’·‘5천 3천’ 은 더해졌다. 자릿수 쉼표가 아닌 쉼표와 같은 단위의 되풀이는 금액이 둘이다.
+// V22.9.93 Q-105: 금액이 둘로 읽히는 값(‘만 5000’·‘이만 5000원’·‘3만원 5천원’)을 앞 금액만 받아 10,000원으로 고쳤다(운영에도 있었다). 받지 않고 다시 묻는다.
 const KAKAO_EDIT_TWO_AMOUNTS = /\d\s*원?\s+\d|\d\s*원?\s*[.,]\s+\d|\d,(?!\d{3}(?:\D|$))\d|([억만천백])\s*원?[\s,]+\d+\s*\1/;
 
 function normalizeKakaoEditAmountValue(textRaw = "") {
   // V22.9.93 Q-21: ‘01번 금액 12.000원’ 이 12원으로 바뀌었다. 거래 문장과 같은 입구로 점 자릿수를 읽는다.
   const text = normalizeText(foldInputWidth(textRaw));
-  if (!text || KAKAO_EDIT_TWO_AMOUNTS.test(text)) return null;
+  if (!text || KAKAO_EDIT_TWO_AMOUNTS.test(text) || findAmountTokenSpans(text).length > 1) return null;
   const plain = text.replace(/[원,\s]/g, "");
   if (/^\d+$/.test(plain)) return plain;
   if (!KAKAO_EDIT_AMOUNT_SHAPE.test(text)) return null;

@@ -103,6 +103,7 @@ const KAKAO_CHANGE_FIRST_V4 = new RegExp(String.raw`^(?:${KAKAO_EDIT_VERB_V4}\s+
 const KAKAO_AMOUNT_WORD_V4 = String.raw`(?:${KAKAO_EDIT_AMOUNT_V4}|[일이삼사오육칠팔구십백천만억]+[십백천만억])`;
 const KAKAO_AMOUNT_INSTEAD_V4 = new RegExp(String.raw`(?:^|\s)${KAKAO_AMOUNT_WORD_V4}\s*(?:(?:이|가)?\s*(?:아니(?:고요?|라|구|야|요|에요|예요|지|잖아)?|아닌데|아닙니다)|말고|말구)[,\s]+${KAKAO_AMOUNT_WORD_V4}\s*(?:으로|로|이야|야|이요|요|임|입니다|이에요|예요|맞아요?|맞음)?$`);
 
+// V22.9.93 Q-105: ‘5000원으로 다시 적어줘’·‘금액 잘못 넣었어 5000원’·‘방금 거 만 5000으로’ 가 새 기록이 됐다(운영에도 있었다).
 function looksLikeKakaoChangeRequest(text = "") {
   const t = normalizeText(text);
   return KAKAO_AMOUNT_CHANGE_TAIL_V4.test(t)
@@ -110,7 +111,7 @@ function looksLikeKakaoChangeRequest(text = "") {
     || (KAKAO_DELETE_TAIL_V4.test(t) && !/(?:예산|가계부|단톡방|연결|구성원|초대|카테고리|분류|정기|알림)/.test(t))
     || /^(?:수정|삭제)\s+(?!테이프|액|펜|볼펜|화장)\S/.test(t)
     || /^(?:금액|가격)\s*(?:수정|변경)(?:\s+\d[\d,.]*\s*원?)?$/.test(t)
-    || /^(?:금액|가격)\s*(?:이|가|을|를)?\s*(?:틀렸|틀려|잘못\s*(?:됐|됨|되었|입력|적|썼|기록|저장))/.test(t)
+    || /^(?:금액|가격)\s*(?:이|가|을|를)?\s*(?:틀렸|틀려|잘못\s*(?:됐|됨|되었|입력|적|썼|넣|기록|저장))/.test(t)
     || /^(?:틀렸|틀려|잘못\s*(?:됐|됨|되었|입력|적|썼|기록|저장))\S*\s+.*\d/.test(t)
     || KAKAO_CHANGE_FIRST_V4.test(t)
     || /^(?:금액|가격|내용|분류|결제수단|날짜|메모)(?:을|를|은|는|이|가)?\s+(?!패드|보드|증명|작업|변경)\S+(?:\s+\S+)?$/.test(t)
@@ -118,6 +119,7 @@ function looksLikeKakaoChangeRequest(text = "") {
     || /^0\d\s*번[,\s]/.test(t)
     || /^\d{1,3}\s*번\s*(?:거|것|꺼|건|기록|입력)(?:을|를)?\s/.test(t)
     || (/말[고구]|아니|아닌|아닙/.test(t) && KAKAO_AMOUNT_INSTEAD_V4.test(t))
+    || /^(?:방금|아까)\s*(?:거|것|건|꺼)\s+\S+\s+\d[\d,]*\s*원?\s*(?:으로|로)$/.test(t)
     || /^아까\s*(?:거|것|건|꺼|기록|입력)?\s*(?:금액|가격)(?:을|를|은|는|이|가)?(?=\s|$)/.test(t);
 }
 

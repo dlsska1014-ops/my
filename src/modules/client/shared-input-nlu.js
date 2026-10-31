@@ -34,31 +34,36 @@
 // ‘2. 10. 31 커피 4000’ 은 세 칸 중 첫 칸이 연도가 아니면 표식이다(뒤 두 칸이 날짜). 연도와 겹치지 않게 표식은 1~19 만 받는다. 둘째 칸이 달이 못 되거나 셋째 칸 뒤에 금액 단위가 오면 앞 두 칸이 날짜다(‘10. 31. 3 만원’·‘1. 5. 3 만원’).
 // V22.9.93 Q-67: 두 자리 연도(25.12.25)는 줄머리·표식 뒤·쉼표 뒤에서만 날짜다. 문장 가운데의 ‘버전 23.1.2’·‘쿠폰 22-1-5’·‘비료 20-10-10’ 이 2023년 기록이 됐다. 달 없는 ‘N일에’ 도 같다(‘구독 30일에 9900원’·‘제주도 2박 3일에 50만원’ 의 기간이 날짜가 됐다).
 // V22.9.93 Q-86: ‘3일 전에’·‘이틀 전에’ 의 조사 때문에 날짜를 못 읽어 오늘이 되거나 3일이 됐다. ‘2박 3일’ 은 기간이고(7월 3일이 됐다) ‘1.5 리터’ 는 수량이다(1월 5일이 됐다). ‘오늘 말고 어제’ 는 뒤의 날이 맞다.
+// V22.9.93 Q-102 (독립 검토 6회차): 은·는 을 뗀 날 말이 뒤의 날 말을 이겨 ‘어제는 못 샀고 오늘 커피 4000’ 이 어제가 됐다. Q-103: ‘3일에 걸쳐’·‘3일에 나눠서’·‘1일에 세 끼’ 는 기간이다.
+// V22.9.93 Q-106·Q-114 (독립 검토 7·8회차): 조사를 떼고 붙은 말을 띄우자 운영이 오늘로 맞게 저장하던 말이 어제·내일이 됐다. 막는 말을 덧대도 다음 검토가 또 찾아서, 꼴이 정확할 때만 뗀다. 절 머리의 날 말 + 낱말 하나 + 금액 + 절 끝이거나(‘어제는 커피 4000’) 날 말만 있는 절이다(‘어제는’). 그 밖은 운영 그대로다(‘어제는 참았는데 치킨 2만원’·‘어제도 마셨는데 오늘 또 커피 4000’·‘커피 4000 어제도 마셨어’). 낱말 자리에 동사·활용형·횟수가 오면 뗀 말이 날이 아닐 수 있어 운영 그대로다(‘1/2에 샀어 3000’·‘어제는 쌌는데 5000’·‘어제는 무지출 5000’·‘3일에 한번 5000’). ‘1/2에’·‘2/3에’·‘3/4에’ 는 분수와 가릴 수 없어 떼지 않는다. Q-120: 환율·단가 뒤의 점 수는 자릿수로 읽지 않는다(‘환율 1.300’). ‘내일’·‘모레’ 는 어떤 조사도 떼지 않고 ‘만’ 은 떼지도 띄우지도 않는다(띄우면 ‘오늘만 특가 5000’ 의 ‘만’ 이 1만 원이 된다). 앞뒤는 일정한 길이만 봐서 긴 입력에서 처리 시간이 입력 길이의 제곱으로 늘지 않는다.
+// Q-104: 여행 기간은 ‘N박 N+1일’ 과 세 밤 이상의 ‘3박 3일’·‘3박 5일’, ‘무박 3일’ 까지다(‘다낭 3박 5일 패키지’ 가 5일이 됐다). ‘호텔 1박 3일 결제’ 의 3일은 날짜다.
 function foldInputWidth(text = "", memo = false) {
   const folded = String(text || "").replace(/[０-９，．：／－＋％（）]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
   if (!/[일늘제께녁밤날레]|[전후][에엔]|\d[./-]\d|\d\.\s+\d/.test(folded)) return folded;
   const rules = foldInputWidth.rules || (foldInputWidth.rules = (() => {
     const parts = "(?:아침|점심|저녁|밤|새벽|오전|오후)";
     const days = "그끄저께|그끄제|엊그저께|엊그제|그저께|어젯밤|엊저녁|어제|오늘";
-    const particle = "(?:에는|에도|엔|에|은|는|도|만)(?=\\s|$)";
+    const particle = "(?:에는|에도|엔|에|은|는|도)(?=\\s|$)";
     return {
       thousandDots: /(^|[^\d.,]|[^\d.,],)([1-9]\d{0,2}(?:\.\d{3}){1,2})(?=(\s*[원₩￦])|[!?~.,;:)\]]*(?:\s|$)|[,;][가-힣A-Za-z])(?!\s*(?:달러|불|유로|엔|위안|리터|키로|퍼센트|프로|포인트|kg|km|ml|l|g|m|%)(?![가-힣a-z]))/gi,
-      spacedDate: /(^|\n|[,;/]\s)([ \t]*(?:[-•*]\s+|\d{1,2}\)\s+|1?\d\.\s+)?)(20\d{2}\.\s*|2\d\.\s+)?(\d{1,2})\.\s+(\d{1,2})(?:\.(?!\d|\s+\d{1,2}(?:\s|$|\.\s))\s*|(?=\s)(?!\s+(?:인분|개|잔|병|캔|장|권|벌|대|명|마리|켤레|박스|상자|세트|봉지|번)(?:\s|$)))/g,
-      moneyAfterDay: /^\s+(?:[억만천백십]+(?:\s|$|원)|원)/,
+      spacedDate: /(^|\n|[,;/]\s)([ \t]*(?:[-•*]\s+|\d{1,2}\)\s+|1?\d\.\s+)?)(20\d{2}\.\s*|2\d\.\s+)?(\d{1,2})\.\s+(\d{1,2})(?:\.(?!\d|\s+\d{1,2}(?:\s|$|\.\s))\s*|(?=\s)(?!\s+(?:인분|개|잔|병|캔|장|권|벌|대|명|마리|켤레|박스|상자|세트|봉지|번|킬로|키로|리터|그램|시간|그릇|판|팩|줄|포기|통|송이|근|컵|회|층|호|호선|차|인|부|달|주|살|세|kg|g|ml|l)(?:\s|$)))/g,
+      moneyAfterDay: /^\s+(?:[억만천백십]+(?:\s|$|원)|원(?![가-힣]))/,
       spacedFullDate: /(^|[\s,;])(20\d{2}|2\d)\.\s+(\d{1,2})\.\s+(\d{1,2})\.?(?=\s|$)/g,
       shortYear: /(^|\n|[,;]\s*)([ \t]*(?:[-•*]\s+|\d{1,2}\)\s+|1?\d\.\s+)?)(2\d)([.\/-])(\d{1,2})\4(\d{1,2})(?=\s|$|[.,!?])/g,
       shortYearWord: /(^|[\s,;])(2\d)년\s*(?=\d{1,2}월\s*\d{1,2}일)/g,
       dottedNumber: /\d{1,3}(?:\.\d{3})+/g,
+      rateWord: /(?:환율|리터당|단가|시세|주가|유가)\s*$/,
       otherAmount: /\d{3,}(?![\d./-]|[가-힣])|\d\s*[천만억원]|[십백천만억]\s*원/,
-      dayAfterNext: /(^|\s)내일\s*모레(?=\s|$|[은는도에엔])/g,
-      dayParticle: new RegExp("(^|\\s)(" + days + "|그제|전날|금일|내일|모레)(\\s*" + parts + ")?" + particle, "g"),
-      dayGlued: new RegExp("(^|\\s)(" + days + "|그제(?=" + parts + "))(" + parts + ")?(?!의|날(?!짜|씨)|서야|오늘|내일|(?:자|자로|회|야|와|과|랑|이랑|하고|보다|처럼|만큼|까지|부터|같이|같은)(?:\\s|$))(?=[가-힣A-Za-z0-9])", "g"),
+      dayParticle: new RegExp("(^|\\s)(" + days + "|그제|전날|금일)(\\s*" + parts + ")?" + particle, "g"),
+      clauseEnd: /\n|;|,(?!\d)/,
+      dayItem: new RegExp("^\\s*(?!(?:" + days + "|그제|전날|금일|지금|방금|내일|모레|[월화수목금토일]요일)(?:\\s|$)|[가-힣]*(?:[았었했샀냈줬썼갔왔봤탔셨쌌잤였렸겼찼났][가-힣]?|는데|은데|인데|니까|아서|어서|해서|라서|지만)\\s|(?:무지출|공짜|무료|쉼|굶음|휴무|쉬는날|하나|(?:안|못)[가-힣]*[음함심서]|(?:한|두|세|네)(?:번|잔|끼|개|병|명|장|판|캔|회|차|알|권|통|벌|대)씩?)\\s)[가-힣A-Za-z]+\\s+(?:\\d[\\d,]*[\\d십백천만억]*|[일이삼사오육칠팔구십백천만억]+)\\s*원?\\s*$"),
+      dayGlued: new RegExp("(^|\\s)(" + days + "|그제(?=" + parts + "))(" + parts + ")?(?!의|날(?!짜|씨)|서야|오늘|내일|에(?:\\s|$)|보다|보단|처럼|만큼|까지|까진|부터|부턴|같이|같은|(?:자|자로|회|야|가|이|를|을|로|(?:만|와|과|랑|이랑|하고)[은는도]?)(?:\\s|$))(?=[가-힣A-Za-z0-9])", "g"),
       dateParticle: /(^|\s)(\d{1,2}월\s*\d{1,2}일)(?:날에|날|에는|에도|엔|에|은|는|도|쯤)(?=\s|$)/g,
-      loneDateParticle: /(^|\n|[,;]\s*)(\d{1,2}일|\d{1,2}\/\d{1,2}|\d{2}\.\d{1,2}|\d\.\d{2})(?:날에|날|에는|에도|엔|에)(?=\s|$)(?!\s+(?:(?:한|두|세|네)\s*(?:번|회)|\d))/g,
+      loneDateParticle: /(^|\n|[,;]\s*)(\d{1,2}일|(?!(?:1\/[2-9]|2\/3|3\/4)(?:날|에|엔))\d{1,2}\/\d{1,2}|\d{2}\.\d{1,2}|\d\.\d{2})(?:날에|날|에는|에도|엔|에)(?=\s|$)/g,
       agoParticle: /(^|\s)((?:(?:\d{1,2}|한|두|세|네|일|이|삼|사)\s*(?:일|주일|주|달|개월)|하루|이틀|사흘|나흘|닷새|엿새|이레|열흘|보름)\s*[전후])(?:에는|에도|엔|에)(?=\s|$)/g,
       stayDays: /(\d{1,2}|무)박\s+(\d{1,2})일(?=\s|$)(?!\s*[전후](?:\s|$))/g,
       decimalUnit: /(\d\.\d{1,2})\s+(리터|인치|인분|킬로|키로|그램|미터|센티|근|kg|ml|l|g)(?=\s|$)/gi,
-      dayInstead: new RegExp("(^|\\s)(?:" + days + "|그제|내일|모레)\\s+말고\\s+(?=(?:" + days + "|그제|내일|모레)(?:\\s|$))", "g"),
+      dayInstead: new RegExp("(^|\\s)(?:" + days + "|그제)\\s+말고\\s+(?=(?:" + days + "|그제)(?:\\s|$))", "g"),
     };
   })());
   const joinDots = (all, lead, number, won, at, whole) => {
@@ -67,28 +72,41 @@ function foldInputWidth(text = "", memo = false) {
       const line = whole.slice(whole.lastIndexOf("\n", from) + 1, to < 0 ? whole.length : to);
       if (!number.endsWith("00") || rules.otherAmount.test(line.replace(rules.dottedNumber, " "))) return all;
     }
+    if (rules.rateWord.test(whole.slice(Math.max(0, at + lead.length - 6), at + lead.length))) return all;
     return lead + number.split(".").join("");
   };
   const apart = (lead) => (lead === "," || lead === ";" ? lead + " " : lead);
+  const itemTail = (all, at, whole) => {
+    const tail = whole.slice(at + all.length, at + all.length + 40).split(rules.clauseEnd)[0];
+    return !/\S/.test(tail) || rules.dayItem.test(tail);
+  };
+  const plainDay = (all, lead, at, whole) => {
+    const from = at + lead.length;
+    return !/\S/.test(whole.slice(Math.max(0, from - 24), from).split(rules.clauseEnd).pop()) && itemTail(all, at, whole);
+  };
+  const plainDate = (all, lead, date, at, whole) => (plainDay(all, lead, at, whole) ? lead + date : all);
   const joinDate = (all, lead, mark, year, month, day, at, whole) => {
     const moneyAfter = rules.moneyAfterDay.test(whole.slice(at + all.length));
     const first = year ? 0 : (/^[ \t]*(\d{1,2})\.\s+$/.exec(mark) || [])[1];
     if (Number(first) >= 1 && Number(first) <= 12 && Number(month) >= 1 && Number(month) <= 31 && (moneyAfter || Number(month) > 12)) return lead + first + "월 " + month + "일 " + day + " ";
     if (Number(month) < 1 || Number(month) > 12 || Number(day) < 1 || Number(day) > 31) return all;
     if (!year && !mark && !/[,;/]/.test(lead) && !/\.\s*$/.test(all) && moneyAfter) return all;
+    if (!year && !/\.\s*$/.test(all) && !moneyAfter && !itemTail(all, at, whole)) return all;
     const head = year ? year.replace(/\s/g, "") : "";
     return lead + mark + (head ? (head.length === 3 ? "20" : "") + head + month + "." + day : month + "월 " + day + "일") + " ";
   };
   const fullYear = (all, lead, mark, year, sep, month, day) => (Number(month) < 1 || Number(month) > 12 || Number(day) < 1 || Number(day) > 31 ? all : apart(lead) + mark + "20" + year + "." + month + "." + day);
   return (memo ? folded : folded.replace(rules.spacedDate, joinDate).replace(rules.spacedFullDate, (all, lead, year, month, day) => fullYear(all, lead, "", year.slice(-2), "", month, day)).replace(rules.shortYearWord, (all, lead, year) => apart(lead) + "20" + year + "년 ").replace(rules.shortYear, fullYear).replace(rules.thousandDots, joinDots))
     .replace(rules.dayInstead, "$1")
-    .replace(rules.dayAfterNext, "$1모레")
-    .replace(rules.dayParticle, (all, lead, day, part) => lead + day + (part || ""))
-    .replace(rules.dayGlued, (all, lead, day, part) => lead + day + (part || "") + " ")
-    .replace(rules.dateParticle, "$1$2")
-    .replace(rules.loneDateParticle, "$1$2")
-    .replace(rules.agoParticle, "$1$2")
-    .replace(rules.stayDays, (all, nights, days) => (Number(days) === (nights === "무" ? 2 : Number(nights) + 1) ? `${nights}박${days}일` : all))
+    .replace(rules.dayParticle, (all, lead, day, part, at, whole) => (plainDay(all, lead, at, whole) ? lead + day + (part || "") : all))
+    .replace(rules.dayGlued, (all, lead, day, part, at, whole) => (plainDay(all, lead, at, whole) ? lead + day + (part || "") + " " : all))
+    .replace(rules.dateParticle, plainDate)
+    .replace(rules.loneDateParticle, plainDate)
+    .replace(rules.agoParticle, plainDate)
+    .replace(rules.stayDays, (all, nights, days) => {
+      const stay = nights === "무" ? 0 : Number(nights), more = Number(days) - stay;
+      return more === 1 || (stay >= 3 && (more === 0 || more === 2)) || (!stay && more >= 1 && more <= 3) ? `${nights}박${days}일` : all;
+    })
     .replace(rules.decimalUnit, "$1$2");
 }
 
