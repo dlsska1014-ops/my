@@ -260,7 +260,20 @@ function recurringCronState(raw) {
     pending_month: validMonth(state.pending_month) || "",
     report_rebuild: recurringReportQueue(state.report_rebuild),
     scan_after: recurringScanAfter(state.scan_after),
+    report_req: recurringReportMarksV22994(state.report_req),
   };
+}
+
+// V22.9.94 C-10(외부 검토): 실행 밖 요청이 다시 만들기를 청한 가계부·기간과 그 요청이 쓴 상태 판 번호(rev). 예약 실행은 상태를 읽은 뒤에
+// (판 번호가 그보다 큰) 다시 청한 항목을 끝 저장에서 대기에 남긴다. 형식이 틀린 항목은 버린다(항목 자체는 대기에 있어 다시 만들기는 그대로다).
+function recurringReportMarksV22994(value) {
+  const out = new Map();
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+  for (const [key, rev] of Object.entries(value)) {
+    if (out.size >= RECURRING_REPORT_QUEUE_MAX) break;
+    if (Number.isSafeInteger(rev) && rev > 0 && recurringReportQueue([key]).length === 1) out.set(key, rev);
+  }
+  return out;
 }
 
 // V22.9.78 N-16: 달마다 이어 읽을 자리({month, day, household_id, id}). 예전 상태(칸 없음)와 형식이 틀린 항목은 자리 없음이다.
@@ -342,12 +355,15 @@ function recurringCronIsWeekEnd(ymd = "") {
   return isValidTransactionDateString(ymd) && new Date(`${ymd}T00:00:00Z`).getUTCDay() === 0;
 }
 
-function recurringStateBody(checkedDate = "", pendingMonth = "", queue = [], scanAfter = []) {
+function recurringStateBody(checkedDate = "", pendingMonth = "", queue = [], scanAfter = [], marks = null) {
   // 다시 만들 스냅숏도 이어 읽을 자리도 없으면 예전과 같은 두 값만 쓴다.
+  // V22.9.94 C-10: 요청 표시(report_req)는 있을 때만 쓴다. 옛 코드는 이 칸을 읽지 않으므로 되돌리면 표시만 사라진다.
+  const req = marks instanceof Map ? [...marks].slice(-RECURRING_REPORT_QUEUE_MAX) : [];
   return JSON.stringify({
     checked_date: checkedDate, pending_month: pendingMonth,
     ...(queue.length ? { report_rebuild: queue.slice(0, RECURRING_REPORT_QUEUE_MAX) } : {}),
     ...(scanAfter.length ? { scan_after: scanAfter } : {}),
+    ...(req.length ? { report_req: Object.fromEntries(req) } : {}),
   });
 }
 
@@ -740,12 +756,19 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   // V22.9.79 전 예약 실행은 저장 1회)은 남겨 둔다. 한도에 걸려 못 만든 항목은 상태 키에 남아 다음 실행이 잇는다.
   let reportQueue = recurringReportQueue([...(stored ? stored.report_rebuild : []), ...reportTouched]);
   let reportRebuilt = 0;
+  // V22.9.94 C-10: 이 실행이 대기에서 지운 항목(다시 만들었거나 스냅숏이 없어 버린 것). 끝 저장이 그사이 다시 청한 항목을 찾는 데 쓴다.
+  let reportHandled = [];
   if (reportQueue.length) {
     const reserve = 2;
-    const outcome = await rebuildMonthlyReportSnapshots(env, recurringReportEntries(reportQueue), { limit: RECURRING_REPORT_REBUILDS, canSpend: (calls) => room(calls + reserve) });
+    // V22.9.94 C-10: 예약 실행은 확인한 스냅숏이 그대로일 때만 바꾼다(conditional). 기록을 읽은 뒤 실행 밖 요청이 그 자리에서 새로
+    // 만들었으면 덮지 않고 그 항목을 대기에 남긴다. 예전에는 먼저 읽은 옛 기록으로 덮었다.
+    const outcome = await rebuildMonthlyReportSnapshots(env, recurringReportEntries(reportQueue), { limit: RECURRING_REPORT_REBUILDS, canSpend: (calls) => room(calls + reserve), conditional: true });
     stats.failed += outcome.failed;
     reportRebuilt = outcome.rebuilt;
+    const before = reportQueue;
     reportQueue = recurringReportQueue(outcome.remaining.map(recurringReportKey));
+    const left = new Set(reportQueue);
+    reportHandled = before.filter((key) => !left.has(key));
     if (reportQueue.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${reportQueue.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
   }
   let nextChecked = checkedDate;
@@ -771,7 +794,11 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
       .map((phase) => ({ month: phase.month, day: phase.cursor[0], household_id: phase.cursor[1], id: phase.cursor[2], ...(phase.started >= phase.monthEnd ? { started: phase.started } : {}) }));
     const queueChanged = reportQueue.join(",") !== stored.report_rebuild.join(",");
     const scanChanged = JSON.stringify(scanAfter) !== JSON.stringify(stored.scan_after);
-    if (nextChecked !== stored.checked_date || nextPending !== stored.pending_month || queueChanged || scanChanged) {
+    // V22.9.94 C-10: 처음 읽은 상태의 판 번호. 끝 저장 때 이보다 큰 판 번호로 다시 청한 항목은 이 실행이 다시 만든 뒤에도 대기에 남긴다.
+    // 읽을 때 이미 있던 요청 표시는 이 실행이 그 항목을 대기에서 처리했으므로 지운다(표시만 남은 상태도 한 번 써서 지운다).
+    const startRev = recurringStateRev(storedSnapshot.raw);
+    const marksLeft = stored.report_req.size > 0;
+    if (nextChecked !== stored.checked_date || nextPending !== stored.pending_month || queueChanged || scanChanged || marksLeft) {
       // V22.9.79: 이 실행이 도는 동안 예약 실행 밖(정기 규칙 수정·수동 반영의 queueRecurringReportRebuild)이 다시 만들기 대기에
       // 보탠 항목을 덮지 않는다. 예전에는 처음 읽은 상태로 계산한 값을 그대로 써서 그 항목이 사라졌다. 저장 바로 앞에 상태를 다시
       // 읽어, 처음 읽은 뒤 새로 생긴 대기 항목을 이 실행의 대기 뒤에 붙인다. 다른 칸은 이 실행의 값이다(예약 실행끼리는 잠금으로
@@ -779,12 +806,16 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
       // 확인한다). 다시 읽은 뒤 저장까지의 한 번 왕복 사이에 보탠 항목은 여전히 덮일 수 있다.
       // V22.9.88 Y-6: 그 틈을 닫았다. 처음 읽은 상태의 판 번호로 조건부로 쓰고, 그사이 누가 썼으면(조건이 맞지 않으면) 다시 읽어 새 항목을 붙여
       // 다시 쓴다. 바뀐 것이 없으면 다시 읽지 않는다(호출 1회 절감). 세 번 모두 밀리거나 다시 읽지 못하면 예전처럼 저장 실패다.
+      // V22.9.94 C-10(외부 검토): 이 실행이 다시 만드는 동안(기록을 읽은 뒤·저장 전) 실행 밖 요청이 같은 기간에 기록을 넣고 다시 만들기를
+      // 청하면, 그 항목은 처음 읽은 대기에 이미 있어 새 항목(added)으로 보이지 않았고 이 실행이 지워 사라졌다(스냅숏은 먼저 읽은 기록 그대로).
+      // 이제 요청은 늘 판 번호를 적고(queueRecurringReportRebuild), 처음 읽은 판 번호 뒤에 다시 청한 항목은 지운 항목이어도 대기에 남긴다.
       try {
         const known = new Set(stored.report_rebuild);
         const baseQueue = reportQueue;
         await updateRecurringState(env, (latest) => {
           const added = latest.report_rebuild.filter((key) => !known.has(key));
-          reportQueue = recurringReportQueue([...baseQueue, ...added]);
+          const again = reportHandled.filter((key) => (latest.report_req.get(key) || 0) > startRev);
+          reportQueue = recurringReportQueue([...baseQueue, ...added, ...again]);
           return recurringStateBody(nextChecked, nextPending, reportQueue, scanAfter);
         }, storedSnapshot);
         if (reportQueue.length > baseQueue.length && reportQueue.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${reportQueue.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
@@ -799,7 +830,8 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
         const merged = recurringReportQueue([...current.report_rebuild, ...reportQueue]);
         // V22.9.79 N-9: 월간 자리는 넣기 전에 셌다. 넘치면 저장할 때 뒤에 둔 주간 항목부터 잘린다.
         overflow = Math.max(0, merged.length - RECURRING_REPORT_QUEUE_MAX);
-        return recurringStateBody(current.checked_date, current.pending_month, merged, current.scan_after);
+        // V22.9.94 C-10: 같은 때 도는 예약 실행이 볼 요청 표시는 그대로 둔다.
+        return recurringStateBody(current.checked_date, current.pending_month, merged, current.scan_after, current.report_req);
       });
       if (overflow) report(`report_rebuild_overflow:${overflow}`, "recurring_report_rebuild_overflow");
     } catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
@@ -895,7 +927,13 @@ async function queueRecurringReportRebuild(env, entries = [], { path = "/recurri
       parseStrictSettingsObject(snapshot.raw || "", "recurring_state");
       const queue = recurringReportQueue([...state.report_rebuild, ...add]);
       overflow = Math.max(0, queue.length - RECURRING_REPORT_QUEUE_MAX);
-      return queue.join(",") !== state.report_rebuild.join(",") ? recurringStateBody(state.checked_date, state.pending_month, queue, state.scan_after) : null;
+      // V22.9.94 C-10(외부 검토): 대기에 이미 있는 항목이어도 늘 쓴다. 예전에는 대기가 그대로면 아무것도 쓰지 않고 성공으로 돌아와(중복으로
+      // 취급), 그 항목을 다시 만들던 예약 실행이 먼저 읽은 기록으로 저장한 뒤 지워 버렸다. 이제 이 요청이 쓰는 판 번호를 항목마다 요청
+      // 표시(report_req)로 남겨, 그 실행이 끝 저장에서 다시 청한 것을 알아보고 대기에 남긴다.
+      const rev = recurringStateRev(snapshot.raw) + 1;
+      const marks = new Map(state.report_req);
+      for (const key of add) { marks.delete(key); marks.set(key, rev); }
+      return recurringStateBody(state.checked_date, state.pending_month, queue, state.scan_after, marks);
     });
     if (overflow) rememberOpsEvent({ kind: "recurring_report_rebuild_overflow", severity: "warn", path, method, detail: `report_rebuild_overflow:${overflow}` });
     return true;

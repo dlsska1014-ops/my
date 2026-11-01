@@ -19,7 +19,7 @@ import {
 import {
   fetchAdminRows, fetchAdminRowsRange, isRowLimitExceededError,
 } from "../data/households-members-rows.js";
-import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
+import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { computeCardUsageMap } from "../features/payment-methods-page.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
@@ -47,7 +47,7 @@ import {
 import { buildPremiumState } from "../features/meme-engine-premium.js";
 import { supabase } from "../data/supabase-client.js";
 import {
-  currentMonthKst, formatDate, nowKstDate, validMonth, weekdayIndexOfYmd,
+  currentMonthKst, formatDate, nowKstDate, qaFixedNowMs, validMonth, weekdayIndexOfYmd,
 } from "../nlu/date-payment.js";
 import {
   calculateStats, escapeHtml, nextMonthStart, numberWithCommas,
@@ -165,81 +165,243 @@ async function handleReportPreferenceSave(request, env) {
   }
 }
 
-async function runAutomaticReportsUnlocked(env, opts = {}) {
-  const invocationDate = opts.today || formatDate(nowKstDate());
-  const cursorKey = "cron_report_cursor_v22930";
-  const cursor = parseStrictSettingsObject(await getSettingValueStrict(env,cursorKey),"report_cursor");
-  if (cursor.scopes !== undefined && !Array.isArray(cursor.scopes)) throw new Error("report_cursor_scope_invalid");
-  const scopes = safeArray(cursor.scopes).map(scope => ({...scope}));
-  if (scopes.some(scope => !isValidTransactionDateString(scope.date) || typeof scope.after !== "string" || [scope.force,scope.weekly,scope.monthly].some(flag => typeof flag !== "boolean"))) throw new Error("report_cursor_scope_invalid");
-  const requested = new Date(`${invocationDate}T12:00:00`);
-  const requestedTomorrow = new Date(requested.getFullYear(),requested.getMonth(),requested.getDate()+1);
-  if ((opts.force || requested.getDay() === 0 || requestedTomorrow.getMonth() !== requested.getMonth()) && !scopes.some(scope => scope.date === invocationDate)) scopes.push({date:invocationDate,after:"",force:!!opts.force,weekly:!!opts.force || requested.getDay()===0,monthly:!!opts.force || requestedTomorrow.getMonth()!==requested.getMonth()});
-  if (!scopes.length) return {ok:true,partial:false,today:invocationDate,invocation_date:invocationDate,scanned:0,generated:0,skipped:0,invalid:0,failed:0};
-  await saveSettingValue(env,cursorKey,JSON.stringify({scopes}));
-  const active = scopes[0];
-  const today = new Date(`${active.date}T12:00:00`), todayString = active.date;
-  const tomorrow = new Date(today.getFullYear(),today.getMonth(),today.getDate()+1);
-  const isWeekEnd = active.weekly, isMonthEnd = active.monthly, force = active.force;
-  const preferenceQuery = new URLSearchParams();
-  preferenceQuery.append("key", "gte.free_report_preference:");
-  preferenceQuery.append("key", "lt.free_report_preference;");
-  preferenceQuery.set("select", "key,value");
-  if (active.after) preferenceQuery.append("key", `gt.${active.after}`);
-  preferenceQuery.set("order", "key.asc");
-  preferenceQuery.set("limit", "3");
-  const settings = await supabase(env, `/rest/v1/accountbook_settings?${preferenceQuery}`, {method:"GET"});
-  if (!Array.isArray(settings)) throw new Error("report_preferences_source_invalid");
-  let after = active.after, partial = settings.length === 3;
-  let scanned = 0, generated = 0, skipped = 0, failed = 0, invalid = 0;
-  scan: for (const setting of safeArray(settings).slice(0,2)) {
-    if ((env.__AB_DB_BUDGET?.used || 0) >= 41) { partial = true; break; }
-    const previousAfter = after;
-    after = String(setting.key || "");
-    const preference = parseJsonSetting(setting.value, {});
-    const key = String(setting.key || "");
-    const prefix = "free_report_preference:";
-    const householdId = key.startsWith(prefix) ? key.slice(prefix.length).trim() : "";
-    // 설정 JSON이 변조되거나 오래된 값과 섞여도 다른 가계부를 읽지 않도록
-    // 실제 조회 범위는 키에 들어 있는 가계부 ID만 신뢰합니다.
-    if (!householdId || (preference.household_id && String(preference.household_id) !== householdId)) {
-      invalid++;
-      rememberOpsEvent({ kind: "free_report_preference_scope_mismatch", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: key.slice(0, 180) });
-      continue;
-    }
-    if (!preference.enabled) { skipped++; continue; }
-    scanned++;
-    const jobs = [];
-    if (preference.weekly && (force || isWeekEnd)) jobs.push({ kind: "weekly", period: isoWeekPeriod(today), start: formatDate(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6)), end: formatDate(tomorrow) });
-    if (preference.monthly && (force || isMonthEnd)) jobs.push({ kind: "monthly", period: todayString.slice(0, 7), start: `${todayString.slice(0, 7)}-01`, end: formatDate(tomorrow) });
-    if (!jobs.length) { skipped++; continue; }
-    for (const job of jobs) {
-      if ((env.__AB_DB_BUDGET?.used || 0) >= 41) { after = previousAfter; partial = true; break scan; }
-      const snapshotKey = freeReportSnapshotKey(householdId, job.kind, job.period);
-      try {
-        const existing = await getSettingValue(env, snapshotKey);
-        if (existing && !force) { skipped++; continue; }
-        const rows = await fetchAdminRowsRange(env, { householdId, start: job.start, end: job.end, limit: 9001 });
-        const report = buildFreeReportSnapshot(rows, { householdId, householdName: preference.household_name || "가계부", kind: job.kind, period: job.period });
-        await saveSettingValue(env, snapshotKey, report);
-        generated++;
-      } catch (err) {
-        if (isRowLimitExceededError(err)) {
-          // 기간 기록이 한도를 넘으면 일부만으로 스냅숏을 저장하지 않고 이 기간만 건너뛴다(QA B05).
-          failed++;
-          rememberOpsEvent({ kind: "free_report_row_limit", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `${householdId}:${job.kind}:${job.period}` });
-          continue;
-        }
-        failed++; after = previousAfter; partial = true;
-        rememberOpsEvent({ kind: "free_report_generate_failed", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `${householdId}:${job.kind}:${safeError(err)}` });
-        break scan;
-      }
-    }
+// ── V22.9.94 R-1(내부 검토): 자동 리포트 예약 실행 ─────────────────────────────────────────────
+// 예전에는 한 실행에 가계부 2개만 만들었고(limit 3·slice 2), 일요일·말일 09:10 에 한 번 만든 스냅숏은 다시 만들지 않아(existing && !force →
+// 건너뜀) 그날 09:10 뒤 기록이 빠졌다. 리포트를 켠 가계부가 셋 이상이면 월말 리포트가 며칠씩 늦었고, 주간은 다음 일요일이 와도 끝나지 않았다.
+// 이제
+//  - 남은 저장소 호출 몫 안에서 가계부를 처리한다(정기 반영 단계와 같은 방식). 가계부마다 기록 조회 1회(1,000행마다 1회 더)·저장 1회 몫이
+//    남을 때만 시작하고, 커서 저장·잠금 풀기·NLU 정리 몫(REPORT_CRON_RESERVE_V22994)은 늘 남긴다. 한 실행이 읽는 기록 행도
+//    REPORT_CRON_ROW_BUDGET_V22994 를 넘기면 다음 가계부를 시작하지 않는다(요청당 CPU 10ms, 첫 가계부는 늘 처리). 멈춘 자리는 다음 실행이 잇는다.
+//  - 일요일·말일 실행이 만드는 스냅숏은 미리 보기다(그날 09:10 까지의 기록, '매주 일요일'·'매월 말' 안내 그대로). 그 범위를 다 돌면 같은 날짜의
+//    확정 범위(final)를 남기고, 다음 날 실행부터 그 기간 전체 기록으로 다시 만든다. 확정은 스냅숏을 20개씩 한 번에 찾아, 기간이 끝난 뒤 만든
+//    스냅숏은 건너뛰고 기록이 그대로면 다시 쓰지 않는다. 저장은 찾은 스냅숏이 그대로일 때만 바꾼다(그사이 실행 밖 요청이 만든 것을 덮지 않는다).
+//  - 아직 스냅숏이 없는 가계부를 만드는 범위(미리 보기·빠진 날 확정·다 못 돈 미리 보기의 뒤쪽)를 날짜 순서(오래 기다린 것부터)로 먼저 돌고,
+//    미리 보기가 있는 가계부를 다시 만드는 확정(refresh)은 그 뒤에 돈다. 실행이 빠진 날이 있으면 그 사이 일요일·말일(최근 7일)을 확정 범위로
+//    넣는다(pushed = 마지막으로 범위를 넣은 날).
+//  - 커서는 예전 코드도 읽는 모양이다(date·after·force·weekly·monthly 그대로, final·upto·refresh·pushed 는 옛 코드가 읽지 않는 칸).
+// 결과: partial = 남은 범위가 있다(다음 날 확정 포함), pending_scopes = 이번 실행에 돌 수 있었는데 다 못 돈 범위 수, ok = 실패도 그런 범위도 없다.
+const REPORT_CURSOR_KEY_V22994 = "cron_report_cursor_v22930";
+const REPORT_CRON_RESERVE_V22994 = 3;
+const REPORT_CRON_PAGE_V22994 = 20;
+const REPORT_CRON_ROW_BUDGET_V22994 = 2000;
+const REPORT_CRON_CATCHUP_DAYS_V22994 = 7;
+
+function reportNowIsoV22994() { return new Date(qaFixedNowMs()).toISOString(); }
+function reportIsWeekEndV22994(ymd = "") { return weekdayIndexOfYmd(ymd) === 0; }
+function reportIsMonthEndV22994(ymd = "") { return ymdShift(ymd, 1).slice(8, 10) === "01"; }
+
+function reportBudgetStopV22994(err) {
+  return String(err?.code || "") === "supabase_subrequest_budget_before_dispatch" || /supabase_subrequest_budget_before_dispatch/.test(safeError(err));
+}
+
+// 기간이 끝난 뒤(다음 날 0시 KST 이후)에 만든 스냅숏인가. 확정 범위는 이런 스냅숏을 다시 만들지 않는다.
+function reportSnapshotFinalV22994(raw, date = "") {
+  if (!raw) return false;
+  const at = Date.parse(String(parseJsonSetting(raw, {})?.generated_at || ""));
+  return Number.isFinite(at) && at >= Date.parse(`${ymdShift(date, 1)}T00:00:00+09:00`);
+}
+
+// 생성 시각만 다른 같은 스냅숏인가(기록이 그대로면 다시 쓰지 않는다).
+function reportSnapshotSameV22994(raw, report = {}) {
+  const previous = parseJsonSetting(raw, null);
+  if (!previous || typeof previous !== "object" || Array.isArray(previous)) return false;
+  return JSON.stringify({ ...previous, generated_at: "" }) === JSON.stringify({ ...report, generated_at: "" });
+}
+
+// V22.9.94 C-10·R-1: 확인한 스냅숏이 그대로일 때만 바꾼다(PATCH value=like.*"generated_at":"<확인한 값>"*, 호출 1회는 예전 저장과 같다).
+// 그사이 다른 곳이 다시 만들었으면 바꾸지 않고 false 를 돌려준다. 확인한 값에 생성 시각이 없으면 예전처럼 덮어쓴다.
+async function replaceReportSnapshotIfUnchangedV22994(env, key, previousRaw, report) {
+  const stamp = /"generated_at":"([0-9T:.+\-Z]{10,40})"/.exec(typeof previousRaw === "string" ? previousRaw : "");
+  if (!stamp) { await saveSettingValue(env, key, report); return true; }
+  const params = new URLSearchParams({ key: `eq.${String(key).slice(0, 180)}`, value: `like.*"generated_at":"${stamp[1]}"*`, select: "key" });
+  const rows = await supabase(env, `/rest/v1/accountbook_settings?${params}`, {
+    method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ value: JSON.stringify(report) }),
+  });
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+// 범위 하나에서 이 가계부가 만들 스냅숏. 주간은 그 날짜까지 7일(일요일이면 그 주 월~일), 월간은 그 달 1일부터 그 날짜까지다(예전과 같다).
+function reportScopeJobsV22994(scope = {}, preference = {}, householdId = "") {
+  const date = String(scope.date || "");
+  const jobs = [];
+  if (preference.weekly && scope.weekly) {
+    const period = isoWeekPeriod(new Date(`${date}T12:00:00`));
+    jobs.push({ kind: "weekly", period, start: ymdShift(date, -6), end: ymdShift(date, 1), key: freeReportSnapshotKey(householdId, "weekly", period) });
   }
-  if (partial) active.after = after; else scopes.shift();
-  await saveSettingValue(env,cursorKey,JSON.stringify({scopes}));
-  partial = partial || scopes.length > 0;
-  return { ok: failed === 0 && !partial, partial, cursor:after, today: todayString, invocation_date:invocationDate, pending_scopes:scopes.length, scanned, generated, skipped, invalid, failed };
+  if (preference.monthly && scope.monthly) {
+    const period = date.slice(0, 7);
+    jobs.push({ kind: "monthly", period, start: `${period}-01`, end: ymdShift(date, 1), key: freeReportSnapshotKey(householdId, "monthly", period) });
+  }
+  return jobs;
+}
+
+// 미리 보기 범위가 끝났거나 날짜를 넘기면 확정 범위로 바꾼다. 그 날짜가 일요일·말일이 아니면(수동 생성) 확정 범위가 없다.
+// 중간에 날짜를 넘겼으면 아직 돌지 않은 뒤쪽(스냅숏 없음)을 한 범위로, 이미 돈 앞쪽(upto 까지, 미리 보기 있음)을 다른 범위로 둔다.
+// 미리 보기가 있는 가계부만 도는 범위는 refresh 로 적어, 아직 스냅숏이 없는 가계부의 범위(미리 보기·빠진 날 확정·뒤쪽)보다 뒤에 돈다.
+function reportFinalScopesV22994(scope = {}) {
+  const weekly = !!scope.weekly && reportIsWeekEndV22994(scope.date);
+  const monthly = !!scope.monthly && reportIsMonthEndV22994(scope.date);
+  if (!weekly && !monthly) return [];
+  const make = (after, upto, refresh) => ({ date: scope.date, after, force: false, weekly, monthly, final: true, ...(upto ? { upto } : {}), ...(refresh ? { refresh: true } : {}) });
+  return scope.after ? [make(scope.after, "", false), make("", scope.after, true)] : [make("", "", true)];
+}
+
+// 스냅숏이 없는 가계부를 만드는 범위를 먼저, 그 안에서는 날짜 순서(오래 기다린 것부터)로 돈다.
+function reportScopeOrderV22994(a = {}, b = {}) {
+  return (a.refresh === true) - (b.refresh === true) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
+    || (b.final === true) - (a.final === true) || (!!a.upto) - (!!b.upto);
+}
+
+async function runAutomaticReportsUnlocked(env, opts = {}) {
+  const invocationDate = isValidTransactionDateString(String(opts.today || "")) ? String(opts.today) : formatDate(nowKstDate());
+  const cursor = parseStrictSettingsObject(await getSettingValueStrict(env, REPORT_CURSOR_KEY_V22994), "report_cursor");
+  if (cursor.scopes !== undefined && !Array.isArray(cursor.scopes)) throw new Error("report_cursor_scope_invalid");
+  const stored = safeArray(cursor.scopes).map((scope) => ({ ...scope }));
+  if (stored.some((scope) => !isValidTransactionDateString(scope.date) || typeof scope.after !== "string" || [scope.force, scope.weekly, scope.monthly].some((flag) => typeof flag !== "boolean"))) throw new Error("report_cursor_scope_invalid");
+  const pushed = isValidTransactionDateString(String(cursor.pushed || "")) ? String(cursor.pushed) : "";
+  let lastText = JSON.stringify({ scopes: stored, ...(pushed ? { pushed } : {}) });
+  // 날짜를 넘긴 미리 보기 범위(옛 코드가 남긴 범위 포함)는 확정 범위로 바꾼다. 새 칸은 맞는 값만 남긴다.
+  const scopes = [];
+  for (const scope of stored) {
+    const clean = { date: scope.date, after: scope.after, force: scope.force, weekly: scope.weekly, monthly: scope.monthly };
+    if (scope.final === true) scopes.push({ ...clean, final: true, ...(typeof scope.upto === "string" && scope.upto ? { upto: scope.upto } : {}), ...(scope.refresh === true ? { refresh: true } : {}) });
+    else if (clean.date < invocationDate && reportFinalScopesV22994(clean).length) scopes.push(...reportFinalScopesV22994(clean));
+    else scopes.push(clean);
+  }
+  const covers = (scope, want) => scope.date === want.date && (scope.final === true) === (want.final === true) && (!want.weekly || scope.weekly) && (!want.monthly || scope.monthly);
+  const request = (want) => {
+    if (scopes.some((scope) => covers(scope, want))) return;
+    const fresh = scopes.find((scope) => scope.date === want.date && (scope.final === true) === (want.final === true) && !scope.after && !scope.upto);
+    if (fresh) { fresh.weekly = fresh.weekly || want.weekly; fresh.monthly = fresh.monthly || want.monthly; }
+    else scopes.push(want);
+  };
+  // 수동 생성(force)은 예전처럼 오늘 날짜의 미리 보기·수동 범위가 없을 때만 넣는다.
+  let requested = false;
+  if (opts.force && !scopes.some((scope) => scope.date === invocationDate && scope.final !== true)) {
+    scopes.push({ date: invocationDate, after: "", force: true, weekly: true, monthly: true });
+    requested = true;
+  }
+  // 마지막으로 본 날(pushed) 다음 날부터 오늘까지(최근 7일, 처음이면 어제부터)의 일요일·말일. 지난 날은 확정, 오늘은 미리 보기다.
+  // 수동 요청의 today 가 실제 오늘보다 뒤면 그날 몫만 보고 pushed 는 옮기지 않는다(앞날로 옮기면 그때까지 예약 실행이 범위를 넣지 않는다).
+  const future = invocationDate > formatDate(nowKstDate());
+  const floor = ymdShift(invocationDate, 1 - REPORT_CRON_CATCHUP_DAYS_V22994);
+  let day = future ? invocationDate : pushed ? ymdShift(pushed, 1) : ymdShift(invocationDate, -1);
+  if (day < floor) day = floor;
+  for (; day <= invocationDate; day = ymdShift(day, 1)) {
+    const weekly = reportIsWeekEndV22994(day), monthly = reportIsMonthEndV22994(day);
+    if (!weekly && !monthly) continue;
+    requested = true;
+    if (day < invocationDate) request({ date: day, after: "", force: false, weekly, monthly, final: true });
+    else if (!scopes.some((scope) => scope.date === day)) scopes.push({ date: day, after: "", force: false, weekly, monthly });
+  }
+  const keptPushed = requested && !future && pushed < invocationDate ? invocationDate : pushed;
+  scopes.sort(reportScopeOrderV22994);
+  const saveCursor = async () => {
+    const text = JSON.stringify({ scopes, ...(keptPushed ? { pushed: keptPushed } : {}) });
+    if (text === lastText) return;
+    await saveSettingValue(env, REPORT_CURSOR_KEY_V22994, text);
+    lastText = text;
+  };
+  if (!scopes.length) return { ok: true, partial: false, today: invocationDate, invocation_date: invocationDate, pending_scopes: 0, scanned: 0, generated: 0, skipped: 0, invalid: 0, failed: 0 };
+  // 커서는 끝에 한 번 쓴다(처리 중 던지면 던지기 전에 쓴다). 실행이 통째로 끊겨 못 써도 pushed 가 그대로라 다음 실행이 같은 범위를 다시 넣는다.
+  const budget = env.__AB_DB_BUDGET || (env.__AB_DB_BUDGET = { used: 0, limit: 50 });
+  const hardLimit = Number(budget.limit);
+  const softLimit = hardLimit - REPORT_CRON_RESERVE_V22994;
+  const room = (calls) => Number(budget.used || 0) + calls <= softLimit;
+  const runnable = (scope) => (scope.final === true ? scope.date < invocationDate : scope.date <= invocationDate);
+  const totals = { scanned: 0, generated: 0, skipped: 0, invalid: 0, failed: 0 };
+  const event = (kind, detail) => rememberOpsEvent({ kind, severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail });
+  let rows = 0, touched = false, stop = "", firstDate = "";
+  const runScope = async (scope) => {
+    const final = scope.final === true;
+    for (;;) {
+      if (!room(1)) { stop = "budget"; return false; }
+      const query = new URLSearchParams();
+      query.append("key", "gte.free_report_preference:");
+      query.append("key", "lt.free_report_preference;");
+      query.set("select", "key,value");
+      if (scope.after) query.append("key", `gt.${scope.after}`);
+      if (scope.upto) query.append("key", `lte.${scope.upto}`);
+      query.set("order", "key.asc");
+      query.set("limit", String(REPORT_CRON_PAGE_V22994));
+      let settings;
+      try { settings = await supabase(env, `/rest/v1/accountbook_settings?${query}`, { method: "GET" }); }
+      catch (err) { if (reportBudgetStopV22994(err)) { stop = "budget"; return false; } throw err; }
+      if (!Array.isArray(settings)) throw new Error("report_preferences_source_invalid");
+      const items = settings.map((setting) => {
+        const key = String(setting?.key || "");
+        const preference = parseJsonSetting(setting?.value, {});
+        const householdId = key.startsWith("free_report_preference:") ? key.slice("free_report_preference:".length).trim() : "";
+        // 설정 JSON이 변조되거나 오래된 값과 섞여도 다른 가계부를 읽지 않도록 실제 조회 범위는 키에 들어 있는 가계부 ID만 신뢰합니다.
+        if (!householdId || (preference.household_id && String(preference.household_id) !== householdId)) return { key, invalid: true };
+        if (!preference.enabled) return { key, disabled: true };
+        return { key, householdId, preference, jobs: reportScopeJobsV22994(scope, preference, householdId) };
+      });
+      // 확정 범위는 이 쪽의 스냅숏을 한 번에 찾는다(미리 보기·수동 생성은 찾지 않고 만든다).
+      let values = new Map();
+      const lookup = final ? items.flatMap((item) => (item.jobs || []).map((job) => job.key)) : [];
+      if (lookup.length) {
+        if (!room(1)) { stop = "budget"; return false; }
+        try { values = await fetchSettingValues(env, lookup); }
+        catch (err) {
+          if (reportBudgetStopV22994(err)) { stop = "budget"; return false; }
+          totals.failed++; event("free_report_generate_failed", `lookup:${safeError(err)}`); stop = "error"; return false;
+        }
+      }
+      for (const item of items) {
+        if (item.invalid) { totals.invalid++; event("free_report_preference_scope_mismatch", item.key.slice(0, 180)); scope.after = item.key; continue; }
+        if (item.disabled) { totals.skipped++; scope.after = item.key; continue; }
+        const work = final ? item.jobs.filter((job) => !reportSnapshotFinalV22994(values.get(job.key), scope.date)) : item.jobs;
+        if (work.length) {
+          if (touched && rows >= REPORT_CRON_ROW_BUDGET_V22994) { stop = "rows"; return false; }
+          if (!room(work.length * 2)) { stop = "budget"; return false; }
+        }
+        let skipped = item.jobs.length ? item.jobs.length - work.length : 1;
+        for (const job of work) {
+          try {
+            const found = await fetchAdminRowsRange(env, { householdId: item.householdId, start: job.start, end: job.end, limit: 9001 });
+            touched = true; rows += safeArray(found).length;
+            const report = buildFreeReportSnapshot(found, { householdId: item.householdId, householdName: item.preference.household_name || "가계부", kind: job.kind, period: job.period, generatedAt: reportNowIsoV22994() });
+            const previous = final ? values.get(job.key) : undefined;
+            if (previous && reportSnapshotSameV22994(previous, report)) { skipped++; continue; }
+            if (previous && !(await replaceReportSnapshotIfUnchangedV22994(env, job.key, previous, report))) { skipped++; continue; }
+            if (!previous) await saveSettingValue(env, job.key, report);
+            totals.generated++;
+          } catch (err) {
+            if (reportBudgetStopV22994(err)) { stop = "budget"; break; }
+            if (isRowLimitExceededError(err)) {
+              // 기간 기록이 한도를 넘으면 일부만으로 스냅숏을 저장하지 않고 이 기간만 건너뛴다(QA B05).
+              totals.failed++; event("free_report_row_limit", `${item.householdId}:${job.kind}:${job.period}`); continue;
+            }
+            totals.failed++; event("free_report_generate_failed", `${item.householdId}:${job.kind}:${safeError(err)}`); stop = "error"; break;
+          }
+        }
+        // 멈춘 가계부는 다음 실행이 처음부터 다시 본다(커서는 이 가계부 앞에 둔다).
+        if (stop) return false;
+        totals.scanned++; totals.skipped += skipped; scope.after = item.key;
+      }
+      if (settings.length < REPORT_CRON_PAGE_V22994) return true;
+    }
+  };
+  let thrown = null;
+  // 단계 몫 안에서만 부른다: 여러 쪽 기록 조회가 남겨 둔 몫(커서 저장·잠금 풀기·NLU 정리)을 쓰지 않게 한도를 잠시 낮춘다.
+  budget.limit = Math.max(Number(budget.used || 0), softLimit);
+  try {
+    for (const scope of scopes.slice()) {
+      if (!runnable(scope)) continue;
+      // today 는 예전처럼 이번 실행이 처리한 범위의 날짜다. 여러 범위를 돌면 가장 앞 날짜를 적는다.
+      if (!firstDate || scope.date < firstDate) firstDate = scope.date;
+      if (!(await runScope(scope))) break;
+      scopes.splice(scopes.indexOf(scope), 1);
+      if (scope.final !== true) for (const next of reportFinalScopesV22994({ ...scope, after: "" })) if (!scopes.some((other) => covers(other, next))) scopes.push(next);
+    }
+  } catch (err) { thrown = err; }
+  finally { budget.limit = hardLimit; }
+  scopes.sort(reportScopeOrderV22994);
+  try { await saveCursor(); } catch (err) { if (!thrown) throw err; }
+  if (thrown) throw thrown;
+  const pending = scopes.filter(runnable).length;
+  return { ok: totals.failed === 0 && pending === 0, partial: scopes.length > 0, today: firstDate || invocationDate, invocation_date: invocationDate, pending_scopes: pending, ...totals, ...(stop ? { stop } : {}) };
 }
 
 async function runAutomaticReports(env, opts = {}) {
@@ -271,11 +433,13 @@ const REPORT_REBUILD_LOOKUP = 40;
 
 // V22.9.79 N-9: 주간 항목({ household_id, week_end: 그 주 일요일 })도 같은 길로 다시 만든다. 기간·주 번호는 일요일 실행이
 // 만드는 것과 같다(그 일요일 앞 6일부터 그 일요일까지, isoWeekPeriod). 월간 항목은 예전 그대로다.
-async function rebuildMonthlyReportSnapshots(env, entries = [], { limit = 2, canSpend = () => true, path = "/cron/recurring/apply", method = "SCHEDULED" } = {}) {
+// V22.9.94 C-10: conditional 이면(예약 실행) 확인한 스냅숏이 그대로일 때만 바꾼다. 확인한 뒤 실행 밖 요청이 그 자리에서 새로 만들었으면
+// 덮지 않고 remaining 에 남겨(conflicts) 다음 실행이 다시 본다. 예전에는 먼저 읽은 옛 기록으로 요청이 만든 새 스냅숏을 덮었다.
+async function rebuildMonthlyReportSnapshots(env, entries = [], { limit = 2, canSpend = () => true, path = "/cron/recurring/apply", method = "SCHEDULED", conditional = false } = {}) {
   const list = safeArray(entries).filter((entry) => entry && String(entry.household_id || "") && (entry.week_end ? isValidTransactionDateString(entry.week_end) && weekdayIndexOfYmd(entry.week_end) === 0 : validMonth(entry.month)));
   const weekPeriodOf = (entry) => isoWeekPeriod(new Date(`${entry.week_end}T12:00:00`));
   const keyOf = (entry) => entry.week_end ? freeReportSnapshotKey(entry.household_id, "weekly", weekPeriodOf(entry)) : freeReportSnapshotKey(entry.household_id, "monthly", entry.month);
-  const result = { rebuilt: 0, dropped: 0, failed: 0, remaining: list };
+  const result = { rebuilt: 0, dropped: 0, failed: 0, conflicts: 0, remaining: list };
   if (!list.length || !canSpend(1)) return result;
   const lookup = list.slice(0, REPORT_REBUILD_LOOKUP);
   const done = new Set();
@@ -299,8 +463,15 @@ async function rebuildMonthlyReportSnapshots(env, entries = [], { limit = 2, can
       : { kind: "monthly", period: entry.month, start: `${entry.month}-01`, end: nextMonthStart(entry.month) };
     try {
       const rows = await fetchAdminRowsRange(env, { householdId: entry.household_id, start: job.start, end: job.end, limit: 9001 });
-      const previous = parseJsonSetting(values.get(key), {});
-      await saveSettingValue(env, key, buildFreeReportSnapshot(rows, { householdId: entry.household_id, householdName: previous.household_name || "가계부", kind: job.kind, period: job.period }));
+      const previousRaw = values.get(key);
+      const previous = parseJsonSetting(previousRaw, {});
+      const report = buildFreeReportSnapshot(rows, { householdId: entry.household_id, householdName: previous.household_name || "가계부", kind: job.kind, period: job.period, generatedAt: reportNowIsoV22994() });
+      if (conditional && !(await replaceReportSnapshotIfUnchangedV22994(env, key, previousRaw, report))) {
+        result.conflicts++;
+        rememberOpsEvent({ kind: "free_report_rebuild_conflict", severity: "info", path, method, detail: `${entry.household_id}:${entry.week_end || entry.month}` });
+        continue;
+      }
+      if (!conditional) await saveSettingValue(env, key, report);
       done.add(key); result.rebuilt++;
     } catch (err) {
       result.failed++;
