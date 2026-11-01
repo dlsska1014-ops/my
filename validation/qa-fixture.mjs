@@ -31,8 +31,76 @@ function wildcardRegex(pattern = "") {
   return new RegExp(`^${escaped}$`);
 }
 
+// V22.9.94 R-5: `or=(…)`·`and=(…)` 논리식을 실제 PostgREST 처럼 평가한다. 전에는 무조건 참이라(`return true`) 운영에서 한 번도 돌려 보지 않은
+// 카카오 소유 조건(kakaoOwnerFilterV22979)과 정기 규칙 자리 조건(recurringCronAfterFilter)이 검사에서 항상 통과했다 — 문법이 틀려도, 남의 줄이 섞여도.
+// 문법: 항목은 쉼표로 나누고(따옴표·괄호 안의 쉼표는 제외), 항목은 `칸.연산자.값`·`칸.not.연산자.값`·`and(…)`·`or(…)`·`not.and(…)`·`not.or(…)`.
+// 논리식 안의 값은 큰따옴표로 감쌀 수 있고 `\"`·`\\` 만 이스케이프다(PostgREST pQuotedValue). 문법이 틀리면 실제 서버처럼 400 PGRST100 이다.
+// 옛 동작이 꼭 필요한 검사는 `db.__permissive_logic_filters = true` 로 돌릴 수 있다(새 검사에서는 쓰지 않는다).
+function splitPostgrestLogicItemsV22994(text = "") {
+  const items = [];
+  let depth = 0;
+  let quoted = false;
+  let current = "";
+  for (let index = 0; index < text.length; index += 1) {
+    const ch = text[index];
+    if (quoted) {
+      current += ch;
+      if (ch === "\\" && index + 1 < text.length) { current += text[index + 1]; index += 1; }
+      else if (ch === "\"") quoted = false;
+      continue;
+    }
+    if (ch === "\"") { quoted = true; current += ch; continue; }
+    if (ch === "(") depth += 1;
+    if (ch === ")") depth -= 1;
+    if (depth < 0) throw postgrestLogicSyntaxErrorV22994(`괄호가 맞지 않습니다: ${text}`);
+    if (ch === "," && depth === 0) { items.push(current); current = ""; continue; }
+    current += ch;
+  }
+  if (quoted || depth !== 0) throw postgrestLogicSyntaxErrorV22994(`따옴표나 괄호가 닫히지 않았습니다: ${text}`);
+  items.push(current);
+  return items;
+}
+
+function unquotePostgrestLogicValueV22994(value = "") {
+  const text = String(value);
+  if (text.length >= 2 && text.startsWith("\"") && text.endsWith("\"")) return text.slice(1, -1).replace(/\\(.)/g, "$1");
+  return text;
+}
+
+function postgrestLogicSyntaxErrorV22994(detail) {
+  return Object.assign(new Error(`"failed to parse logic tree" (${detail})`), { postgrestSyntax: true });
+}
+
+function matchesPostgrestLogicV22994(row, operator, expression) {
+  const body = String(expression ?? "").trim();
+  if (!body.startsWith("(") || !body.endsWith(")") || body.length < 3) throw postgrestLogicSyntaxErrorV22994(`${operator}=${body || "(빈 값)"}`);
+  const items = splitPostgrestLogicItemsV22994(body.slice(1, -1));
+  const results = items.map((item) => {
+    let node = item.trim();
+    if (!node) throw postgrestLogicSyntaxErrorV22994(`빈 항목: ${operator}=${body}`);
+    let negate = false;
+    if (/^not\.(and|or)\(/.test(node)) { negate = true; node = node.slice(4); }
+    const nested = node.match(/^(and|or)\(([\s\S]*)\)$/);
+    if (nested) return negate !== matchesPostgrestLogicV22994(row, nested[1], `(${nested[2]})`);
+    const dot = node.indexOf(".");
+    if (dot <= 0 || dot === node.length - 1) throw postgrestLogicSyntaxErrorV22994(`항목 꼴이 아닙니다: ${node}`);
+    const column = node.slice(0, dot);
+    let rest = node.slice(dot + 1);
+    let negatedLeaf = false;
+    if (rest.startsWith("not.")) { negatedLeaf = true; rest = rest.slice(4); }
+    const operatorDot = rest.indexOf(".");
+    if (operatorDot <= 0) throw postgrestLogicSyntaxErrorV22994(`연산자 뒤에 값이 없습니다: ${node}`);
+    const leafOperator = rest.slice(0, operatorDot);
+    const rawValue = rest.slice(operatorDot + 1);
+    const value = leafOperator === "in" ? rawValue : unquotePostgrestLogicValueV22994(rawValue);
+    return matchesFilter(row, column, `${negatedLeaf ? "not." : ""}${leafOperator}.${value}`);
+  });
+  return operator === "or" ? results.some(Boolean) : results.every(Boolean);
+}
+
 function matchesFilter(row, key, expression) {
-  if (key === "or" || key === "and") return true;
+  if (key === "or" || key === "and") return matchesFilter.permissiveLogic ? true : matchesPostgrestLogicV22994(row, key, expression);
+  if (key === "not.or" || key === "not.and") return matchesFilter.permissiveLogic ? true : !matchesPostgrestLogicV22994(row, key.slice(4), expression);
   // URL.searchParams has already decoded the query once, as PostgREST receives it.
   const decoded = String(expression || "");
   const dot = decoded.indexOf(".");
@@ -66,6 +134,7 @@ function matchesFilter(row, key, expression) {
 
 function filteredRows(db, table, url) {
   let rows = clone(db[table] || []);
+  matchesFilter.permissiveLogic = Boolean(db.__permissive_logic_filters);
   const ignored = new Set(["select", "order", "limit", "offset", "on_conflict"]);
   for (const key of new Set(url.searchParams.keys())) {
     if (ignored.has(key)) continue;
@@ -242,7 +311,16 @@ export async function createV2265QaFixture(options = {}) {
   db.__operation_claim_count = 0;
   db.__operation_release_count = 0;
   const originalFetch = globalThis.fetch;
+  // V22.9.94 R-5: 논리식 문법 오류는 실제 PostgREST 처럼 400 PGRST100 으로 돌려준다(검사 프로세스가 죽지 않고, 앱의 4xx 처리 경로가 돈다).
   globalThis.fetch = async (input, init = {}) => {
+    try {
+      return await mockSupabaseFetchV22994(input, init);
+    } catch (error) {
+      if (!error?.postgrestSyntax) throw error;
+      return new Response(JSON.stringify({ code: "PGRST100", details: null, hint: null, message: error.message }), { status: 400, headers: { "content-type": "application/json" } });
+    }
+  };
+  const mockSupabaseFetchV22994 = async (input, init = {}) => {
     const url = new URL(typeof input === "string" ? input : input.url);
     if (url.hostname !== "mock.supabase.co") return originalFetch(input, init);
     const method = String(init.method || "GET").toUpperCase();
