@@ -32,22 +32,118 @@ async function tableCheckPair(env, table) {
   return [r.ok, r.detail];
 }
 
+// V22.9.94 R-2: V22.9.88 실행 취소 조건부 삭제 함수도 점검한다. 이 함수가 없으면(PGRST202) 삭제가 조용히 옛 함수로
+// 돌아가(domain/transactions-core.js deleteTransactionIfUnchanged) 바뀐 기록까지 지울 수 있는데 /ready 는 초록이었다.
+// 점검 본문은 운영 함수(migrations/V22_9_88_UNDO_DELETE_IF_UNCHANGED_APPLY_REVIEW_ONLY.sql)의 다섯 인자 이름 그대로이고, uuid 변환에서
+// 22P02 로 멈춰 아무것도 지우지 않는다. 다른 점검 목록·본문은 runtime/config-readiness.js 에 있다(이 판에서 그 파일은 다른 일이 고친다).
+const READINESS_EXTRA_RPC_PROBE_BODIES_V22994 = {
+  accountbook_delete_transaction_if_v22988: { p_transaction_id: "readiness-invalid-uuid", p_household_id: "readiness-invalid-uuid", p_actor_user_id: "readiness-invalid-uuid", p_actor_kind: "readiness", p_expected: {} },
+};
+const READINESS_EXTRA_CORE_RPCS_V22994 = Object.keys(READINESS_EXTRA_RPC_PROBE_BODIES_V22994);
+const READINESS_RPC_DETAIL_V22994 = { missing: "함수 없음", forbidden: "권한 없음", mismatch: "인자·정의 불일치", unknown: "확인 불가" };
+
+// V22.9.94 R-2: 점검 실패를 나눈다. 예전에는 PGRST202 말고는 모두 "존재(안전 점검 중단)"로 보아 권한 거절(401·403·42501)·인자 불일치
+// (PGRST203)·시한·5xx·전송 오류에도 /ready 가 초록이었다. status: missing(없음)·forbidden(권한)·mismatch(인자·정의 불일치)·
+// unknown(확인 불가). reason 은 PostgREST·Postgres 오류 코드, 상태 번호(http_NNN) 또는 timeout·network·subrequest_budget·error 뿐이다
+// (오류 원문은 공개 /ready 에 싣지 않는다). 쓰기 경로 오류(supabase_write_result_unknown)는 감싼 원래 오류(cause)를 본다.
+function readinessRpcOutcomeV22994(rpcName, err) {
+  const inner = err?.code === "supabase_write_result_unknown" && err?.cause ? err.cause : err;
+  const message = String(inner?.message || "");
+  const httpStatus = Number(message.match(/^Supabase (\d{3}):/)?.[1] || 0);
+  if (!httpStatus) {
+    const code = String(inner?.code || "");
+    const name = String(inner?.name || "");
+    const reason = code === "supabase_read_timeout" || name === "TimeoutError" || name === "AbortError" ? "timeout"
+      : code === "supabase_subrequest_budget_before_dispatch" ? "subrequest_budget"
+      : inner instanceof TypeError ? "network" : "error";
+    return { status: "unknown", reason };
+  }
+  const code = message.match(/"code"\s*:\s*"([0-9A-Za-z_]{1,40})"/)?.[1] || "";
+  const fallback = `http_${httpStatus}`;
+  if (code === "PGRST202" || (!code && /Could not find the function/i.test(message))) {
+    // 이름이 같고 인자가 다른 함수가 있으면 PostgREST 가 힌트로 그 함수를 알려 준다: 함수는 있지만 앱이 부르는 인자와 맞지 않는다.
+    const sameName = new RegExp(`"hint"\\s*:\\s*"[^"]*\\bpublic\\.${rpcName}\\(`).test(message);
+    return { status: sameName ? "mismatch" : "missing", reason: "PGRST202" };
+  }
+  if (code === "PGRST203" || httpStatus === 300) return { status: "mismatch", reason: code || fallback };
+  if (httpStatus === 401 || httpStatus === 403 || code === "42501" || /^PGRST3\d\d$/.test(code) || /^(?:28|0L|0P)/.test(code)) return { status: "forbidden", reason: code || fallback };
+  if (code === "42883") return { status: "missing", reason: code };
+  if (/^42/.test(code) || /^PGRST[12]\d\d$/.test(code)) return { status: "mismatch", reason: code };
+  if (httpStatus >= 500 || /^PGRST/.test(code) || /^(?:08|25|40|53|54|55|57|58|XX|2D|3B|F0|HV)/.test(code)) return { status: "unknown", reason: code || fallback };
+  // 함수까지 가서 입력을 거절한 답(22P02 uuid 변환·P0001 첫 검사·23505 등, 코드 없는 400 포함)은 함수가 있다는 뜻이다.
+  if (httpStatus === 400 || httpStatus === 409 || httpStatus === 422) return { status: "ok", reason: code || fallback };
+  return { status: "unknown", reason: code || fallback };
+}
+
 // P0-2: /ready 준비 점검에서 핵심 RPC 존재 여부를 확인한다.
 // 실제 파라미터 이름과 안전한 무효값을 보내 PostgREST가 함수 시그니처를
 // 정확히 선택하게 한다. 함수가 존재하면 UUID 변환 또는 첫 입력 검증에서
-// 쓰기 전에 실패하며, PGRST202일 때만 실제 누락으로 판정한다.
+// 쓰기 전에 실패한다. V22.9.94: 정상 답과 그 입력 거절만 있음(ok)이고 나머지는 분류(status·reason)와 함께 실패다.
 async function checkRpcAvailable(env, rpcName) {
+  const probeBody = Object.hasOwn(READINESS_EXTRA_RPC_PROBE_BODIES_V22994, rpcName) ? READINESS_EXTRA_RPC_PROBE_BODIES_V22994[rpcName] : READINESS_RPC_PROBE_BODIES[rpcName];
+  if (!probeBody) return { ok: false, status: "unknown", reason: "no_probe_body", detail: "점검 시그니처 없음" };
   try {
-    const probeBody = READINESS_RPC_PROBE_BODIES[rpcName];
-    if (!probeBody) return { ok: false, detail: "점검 시그니처 없음" };
     await supabase(env, `/rest/v1/rpc/${rpcName}`, { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(probeBody) });
-    return { ok: true, detail: "실행됨" };
+    return { ok: true, status: "ok", reason: "", detail: "실행됨" };
   } catch (err) {
-    const msg = safeError(err);
-    if (/PGRST202|Could not find the function/i.test(msg)) {
-      return { ok: false, detail: "함수 없음" };
+    const outcome = readinessRpcOutcomeV22994(rpcName, err);
+    if (outcome.status === "ok") return { ok: true, status: "ok", reason: outcome.reason, detail: "존재(입력 거절)" };
+    return { ok: false, status: outcome.status, reason: outcome.reason, detail: outcome.status === "unknown" ? `확인 불가(${outcome.reason})` : READINESS_RPC_DETAIL_V22994[outcome.status] };
+  }
+}
+
+// V22.9.94 R-4: 관제 1.5.0 이 /internal/ops-usage 로 함께 받는 예약 실행(매일 09:10 KST) 마지막 기록이다. 실행 기록(cron_run_log_v22978)과
+// 정기 처리 상태(cron_recurring_state_v22976 의 rev)를 Supabase 한 번(GET, 3초 시한)으로 읽는다. 두 키는 cron/recurring-auto-apply.js 와
+// 같아야 한다(그 모듈이 이 모듈을 import 하므로 거꾸로 가져오면 순환이 된다. validate-v22994-ops 가 두 소스를 맞대 본다).
+// 기록 모양은 그 모듈의 normalizeScheduledRun 이 저장한 것이다(새것이 앞). 읽기 실패·깨진 기록은 { ok:false, error_code } 로만 알린다(원문 없음).
+const OPS_CRON_LOG_KEY_V22994 = "cron_run_log_v22978";
+const OPS_CRON_STATE_KEY_V22994 = "cron_recurring_state_v22976";
+function opsCronCodeV22994(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9_:.-]{0,59}$/.test(text) ? text : "error";
+}
+function opsCronStageNoteV22994(name, stage) {
+  if (!stage || typeof stage !== "object" || Array.isArray(stage)) return null;
+  if (stage.error !== undefined) return `${name}:${opsCronCodeV22994(stage.error)}`;
+  if (stage.partial_reason) return `${name}:${opsCronCodeV22994(stage.partial_reason)}`;
+  return stage.partial === true ? `${name}:partial` : null;
+}
+async function opsCronStatusV22994(env) {
+  try {
+    let rows;
+    try {
+      rows = await supabase(env, `/rest/v1/accountbook_settings?key=in.(${OPS_CRON_LOG_KEY_V22994},${OPS_CRON_STATE_KEY_V22994})&select=key,value&limit=2`, { method: "GET", timeoutMs: 3000 });
+    } catch (err) {
+      const status = String(err?.message || "").match(/^Supabase (\d{3})\b/)?.[1];
+      const code = String(err?.code || "");
+      return { ok: false, error_code: status ? `db_${status}` : /^[a-z][a-z0-9_]{2,59}$/.test(code) ? code : "cron_unavailable" };
     }
-    return { ok: true, detail: "존재(안전 점검 중단)" };
+    const valueOf = (key) => (Array.isArray(rows) ? rows.find((row) => row?.key === key)?.value : undefined);
+    const stateRaw = valueOf(OPS_CRON_STATE_KEY_V22994);
+    const revText = typeof stateRaw === "string" ? stateRaw.match(/^\{"rev":(\d{1,15}),/)?.[1] : undefined;
+    const rev = revText !== undefined ? Number(revText) : Number.isSafeInteger(stateRaw?.rev) && stateRaw.rev >= 0 ? stateRaw.rev : null;
+    const logRaw = valueOf(OPS_CRON_LOG_KEY_V22994);
+    let entries = [];
+    if (logRaw !== undefined && logRaw !== null && logRaw !== "") {
+      try { entries = typeof logRaw === "string" ? JSON.parse(logRaw) : logRaw; } catch (_) { entries = null; }
+      if (!Array.isArray(entries)) return { ok: false, error_code: "log_invalid" };
+    }
+    const isTime = (value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value) && Number.isFinite(Date.parse(value));
+    const latest = entries.find((entry) => entry && typeof entry === "object" && !Array.isArray(entry) && isTime(entry.started_at));
+    if (!latest) return { ok: true, last_run_at: null, last_status: null, last_error: null, version: null, rev };
+    const status = ["ok", "partial", "error"].includes(latest.status) ? latest.status : "error";
+    const errors = Array.isArray(latest.errors) ? latest.errors : [];
+    const note = status === "ok" ? null : opsCronStageNoteV22994("recurring", latest.recurring) || opsCronStageNoteV22994("reports", latest.reports) || opsCronStageNoteV22994("cleanup", latest.cleanup);
+    return {
+      ok: true,
+      last_run_at: latest.started_at,
+      last_status: status,
+      last_error: errors.length ? opsCronCodeV22994(errors[0]) : note,
+      version: typeof latest.version === "string" && /^V[0-9A-Za-z._-]{1,47}$/.test(latest.version) ? latest.version : null,
+      rev,
+    };
+  } catch (_) {
+    return { ok: false, error_code: "cron_unavailable" };
   }
 }
 
@@ -188,8 +284,8 @@ async function handleRecordFlowAuditPage(request, env, url) {
 }
 // @build:exports-start
 export {
-  checkRpcAvailable, checkTableAvailable, getSettingValue, getSettingValueStrict,
-  handleRecordFlowAuditPage, handleRouteAuditPage, handleSettingsPage, handleSettingsPasswordUpdate,
-  handleTopTabAuditPage, tableCheckPair,
+  READINESS_EXTRA_CORE_RPCS_V22994, checkRpcAvailable, checkTableAvailable, getSettingValue,
+  getSettingValueStrict, handleRecordFlowAuditPage, handleRouteAuditPage, handleSettingsPage,
+  handleSettingsPasswordUpdate, handleTopTabAuditPage, opsCronStatusV22994, tableCheckPair,
 };
 // @build:exports-end

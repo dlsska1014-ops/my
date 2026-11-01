@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
 import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
-import worker, { collect, deliverAlerts, summary } from "./worker.mjs";
+import { isDeepStrictEqual } from "node:util";
+import vm from "node:vm";
+import worker, { collect, collectUsage, deliverAlerts, summary } from "./worker.mjs";
+import { dashboardHtml } from "./dashboard.mjs";
 
 // 시험 시계를 달 가운데 정오에 고정한다(흐르기는 한다). 실제 시계로 돌리면 UTC 하루 첫 5분(09:00~09:05 KST)에
 // collectCloudflare 의 until(now-5분)이 전날이라 일간 요청이 unknown 이 되어 전체 normal 검사가 실패했다
@@ -31,14 +34,14 @@ const eq=(value,expected,message)=>{assert.deepEqual(value,expected,message);che
 const now=new Date();
 const env={MONITOR_DB:db,OPS_MONITOR_TOKEN:"sqlite-test-secret",CF_ANALYTICS_TOKEN:"only-a-test",CF_ACCOUNT_ID:"test-account",APP_WORKER_NAME:"test-app",APP_ORIGIN:"https://app.example",SUPABASE_ORG_ID:"test-org",CF_PLAN:"free",SUPABASE_PLAN:"free",PLAN_VERIFIED_AT:now.toISOString(),ACCOUNTBOOK:{async fetch(){return new Response(JSON.stringify({ok:true,metrics:{database_bytes:30*1024**2,connections:5,max_connections:60,cpu_counter:{total:100,idle:80}}}));}}};
 const originalFetch=globalThis.fetch;
-let graphFails=false, uptimeFails=false, webhookFails=false, tokenExpiresInDays=null, appErrors=0;
+let graphFails=false, uptimeFails=false, webhookFails=false, tokenExpiresInDays=null, appErrors=0, d1Reply=null;
 const hooks=[];
 globalThis.fetch=async(input,init)=>{
   const url=new URL(typeof input==="string"?input:input.url);
   if(url.hostname==="hooks.example") { if(webhookFails) return new Response("down",{status:500}); hooks.push(JSON.parse(String(init?.body))); return new Response("ok"); }
   if(url.hostname==="api.cloudflare.com") {
     if(url.pathname==="/client/v4/user/tokens/verify") return new Response(JSON.stringify({success:true,result:{id:"t",status:"active",expires_on:tokenExpiresInDays===null?null:new Date(Date.now()+tokenExpiresInDays*86400000).toISOString()}}));
-    if(String(init?.body).includes('d1AnalyticsAdaptiveGroups')&&!graphFails) return new Response(JSON.stringify({data:{viewer:{accounts:[{usage:[{sum:{rowsRead:450000,rowsWritten:4000}}],storage:[{dimensions:{databaseId:'fixture'},max:{databaseSizeBytes:1048576}}]}]}}}));
+    if(String(init?.body).includes('d1AnalyticsAdaptiveGroups')&&!graphFails) return new Response(JSON.stringify(d1Reply||{data:{viewer:{accounts:[{usage:[{sum:{rowsRead:450000,rowsWritten:4000}}],storage:[{dimensions:{databaseId:'fixture'},max:{databaseSizeBytes:1048576}}]}]}}}));
     if(graphFails)return new Response('{"errors":[{"message":"test failure"}]}');
     return new Response(JSON.stringify({data:{viewer:{accounts:[{today:[{sum:{requests:20000,errors:0,subrequests:20},dimensions:{status:"success"}}],hour:[{sum:{requests:100,errors:0,subrequests:1}}],app:[{sum:{requests:19000,errors:appErrors,subrequests:19}}]}]}}}));
   }
@@ -236,5 +239,198 @@ try {
   await collect(env,afterFirstMinutes);
   result=await summary(env,afterFirstMinutes.getTime());
   eq(result.quotas.find(q=>q.key==="worker_requests").value,20000,"daily request value returns once the window reaches the new UTC day");
+  // ── 1.5.0(V22.9.94) C-6 그날 D1 사용량이 빈 것 · R-4 앱 예약 실행 경보 ─────────────────
+  // 시각은 모두 인자로 준다(위 고정 시계·실제 시각과 무관하게 같은 결과). 새 저장소에서 보고, 이 구간의 실패는 모아 한 번에 보인다.
+  {
+    const misses=[];
+    const want=(value,message)=>{checks++;if(!value)misses.push(message);};
+    const freshDb=()=>{
+      const store=new DatabaseSync(":memory:");
+      store.exec(readFileSync(new URL("schema.sql",import.meta.url),"utf8"));
+      return {store,db:{
+        prepare(sql){const statement=store.prepare(sql);let args=[];const api={bind(...values){args=values;return api;},async all(){return {results:statement.all(...args)};},async first(){return statement.get(...args)||null;},run(){const data=statement.run(...args);return {success:true,meta:{changes:data.changes}};}};return api;},
+        async batch(statements){store.exec("BEGIN");try{const values=[];for(const s of statements)values.push(s.run());store.exec("COMMIT");return values;}catch(e){store.exec("ROLLBACK");throw e;}}
+      }};
+    };
+    const renderDash=data=>{
+      const script=dashboardHtml("").match(/<script>([\s\S]*?)<\/script>/)[1];
+      const elements=new Map();
+      const element=id=>{if(!elements.has(id))elements.set(id,{id,innerHTML:"",textContent:"",value:"",disabled:false,addEventListener(){},querySelector(){return {disabled:false};}});return elements.get(id);};
+      const context=vm.createContext({document:{hidden:true,addEventListener(){},getElementById:element},setInterval(){},console,AbortSignal,fetch(){throw new Error("not expected while hidden");}});
+      vm.runInContext(script,context);
+      context.__summary=JSON.parse(JSON.stringify(data));
+      vm.runInContext("render(__summary)",context);
+      return element("content").innerHTML;
+    };
+    const H=3600000, M=60000, at=t=>new Date(t).toISOString();
+
+    // C-6: Cloudflare 가 그날 D1 사용량·저장 용량 행을 아직 주지 않은 것(UTC 하루 첫 몇 분·집계 지연)은 실패가 아니라 데이터 대기다.
+    const c6=freshDb();
+    const c6Env={...env,MONITOR_DB:c6.db};
+    const c6At=Date.parse("2026-06-16T00:01:00.000Z");
+    const storage=[{dimensions:{databaseId:"fixture"},max:{databaseSizeBytes:1048576}}];
+    const d1State=()=>c6.store.prepare("SELECT status,error_code,payload FROM collector_state WHERE name='d1'").get()||null;
+    const quota=(data,key)=>data.quotas.find(q=>q.key===key)||{};
+    d1Reply={data:{viewer:{accounts:[{usage:[],storage}]}}};
+    await collect(c6Env,new Date(c6At));
+    let d1Row=d1State(), r6=await summary(c6Env,c6At);
+    want(d1Row?.status==="ok"&&d1Row.error_code===null,`C-6: 빈 사용량 배열은 수집 실패(empty_result)가 아니라 정상 수집이다: ${d1Row?.status} ${d1Row?.error_code}`);
+    want(quota(r6,"d1_reads").value===0&&quota(r6,"d1_writes").value===0&&quota(r6,"d1_reads").status==="normal",`C-6: 빈 사용량은 읽기·쓰기 0(데이터 대기)이다: ${quota(r6,"d1_reads").value}/${quota(r6,"d1_writes").value}`);
+    want(quota(r6,"d1_storage").value===1048576&&quota(r6,"d1_storage").status==="normal","C-6: 저장 용량 지표는 그대로 남는다");
+    want(!r6.unknown.some(item=>item.startsWith("관제 저장소 사용량 수집")),`C-6: 빈 사용량 때문에 수집기가 확인되지 않은 항목에 오르지 않는다: ${r6.unknown.join(",")}`);
+    let d1Payload=null; try { d1Payload=JSON.parse(d1Row?.payload||"null"); } catch(_) { d1Payload=null; }
+    want(d1Payload?.usage_pending===true&&d1Payload?.storage_pending===undefined,"C-6: 저장한 값에 사용량 대기 표시만 있다");
+    d1Reply={data:{viewer:{accounts:[{usage:[],storage:[]}]}}};
+    await collect(c6Env,new Date(c6At+5*M));
+    d1Row=d1State(); r6=await summary(c6Env,c6At+5*M);
+    want(d1Row?.status==="ok"&&quota(r6,"d1_storage").value===null&&quota(r6,"d1_storage").status==="unknown"&&quota(r6,"d1_reads").value===0,`C-6: 저장 용량 행도 아직 없으면 저장 용량만 확인 불가(null)이고 수집은 정상이다: ${d1Row?.status} ${quota(r6,"d1_storage").value}`);
+    // 수집 상태의 error_code 는 failureCode 가 줄인 값이다(empty_result → empty, unsupported_fields → unsupported, graphql_error → graphql).
+    for(const [label,reply,code] of [["계정 없음",{data:{viewer:{accounts:[]}}},"empty"],["사용량 칸이 배열이 아님",{data:{viewer:{accounts:[{usage:null,storage}]}}},"empty"],["저장 용량 칸이 배열이 아님",{data:{viewer:{accounts:[{usage:[],storage:{}}]}}},"empty"],["숫자가 아닌 사용량",{data:{viewer:{accounts:[{usage:[{sum:{rowsRead:"many",rowsWritten:1}}],storage}]}}},"unsupported"],["숫자가 아닌 저장 용량",{data:{viewer:{accounts:[{usage:[],storage:[{max:{databaseSizeBytes:"big"}}]}]}}},"unsupported"],["GraphQL 오류",{errors:[{message:"bad"}]},"graphql"]]) {
+      d1Reply=reply;
+      await collect(c6Env,new Date(c6At+10*M));
+      d1Row=d1State();
+      want(d1Row?.status==="error"&&d1Row.error_code===code,`C-6 ${label}: 모양이 틀린 응답은 그대로 실패(${code})다: ${d1Row?.status} ${d1Row?.error_code}`);
+    }
+    d1Reply=null;
+    c6.store.close();
+
+    // R-4: 앱 예약 실행(매일 09:10 KST) 기록을 이용 현황 요청(55분마다)에 실어 받고, 실패·일부 처리·26시간 누락이면 주의로 알린다.
+    const r4=freshDb();
+    const SAMPLE=JSON.parse(readFileSync(new URL("../validation/usage-summary-sample-v22982.json",import.meta.url),"utf8"));
+    let appHttp=200, cronBody;
+    const appCalls=[];
+    const r4App={async fetch(input,init){
+      const request=new Request(input,init);
+      if(new URL(request.url).pathname!=="/internal/ops-usage") return new Response(JSON.stringify({ok:true,metrics:{database_bytes:30*1024**2,connections:5,max_connections:60,cpu_counter:{total:100,idle:80}}}));
+      appCalls.push({cron:request.headers.get("x-ab-monitor-cron"),authorization:request.headers.get("authorization")});
+      const body=appHttp===200?{ok:true,usage:SAMPLE}:{ok:false,error_code:appHttp===503?"rpc_missing":"unauthorized"};
+      if(cronBody!==undefined) body.cron=cronBody;
+      return new Response(JSON.stringify(body),{status:appHttp,headers:{"content-type":"application/json"}});
+    }};
+    const r4Env={MONITOR_DB:r4.db,OPS_MONITOR_TOKEN:"sqlite-test-secret",ACCOUNTBOOK:r4App,APP_ORIGIN:"https://app.example",CF_PLAN:"free",SUPABASE_PLAN:"free",PLAN_VERIFIED_AT:"2026-06-16T00:00:00.000Z"};
+    const setting=key=>{const row=r4.store.prepare("SELECT value FROM settings WHERE key=?").get(key);return row?JSON.parse(row.value):null;};
+    // 이용 현황은 직전 시도 뒤 55분이 지나야 묻는다. 경우마다 시도 기록을 지워 그 시각에 바로 묻게 한다.
+    const ask=async t=>{r4.store.prepare("DELETE FROM settings WHERE key='usage'").run();await collectUsage(r4Env,new Date(t));};
+    const cronAlerts=data=>(data.alerts||[]).filter(a=>String(a.title).startsWith("앱 예약 실행"));
+    const cronUnknown=data=>(data.unknown||[]).filter(item=>String(item).startsWith("앱 예약 실행"));
+    const t0=Date.parse("2026-06-16T01:00:00.000Z");
+    const lastRun="2026-06-16T00:10:02.000Z";
+    const cronOk={ok:true,last_run_at:lastRun,last_status:"ok",last_error:null,version:"V22.9.94-REVIEW-FIXES",rev:4};
+    // 1) 옛 앱(답에 cron 없음)
+    await ask(t0-2*H);
+    want(appCalls.length===1&&appCalls[0].cron==="1"&&appCalls[0].authorization==="Bearer sqlite-test-secret",`R-4: 이용 현황 요청에 x-ab-monitor-cron: 1 을 싣는다: ${JSON.stringify(appCalls[0])}`);
+    want(setting("cron")===null&&setting("usage")?.status==="ok","R-4: 답에 cron 이 없으면(앱 V22.9.93 이하) 'cron' 행을 쓰지 않고 이용 현황은 그대로 적는다");
+    let r=await summary(r4Env,t0-2*H+M);
+    want(r.cron?.status==="never"&&!cronAlerts(r).length&&!cronUnknown(r).length,`R-4: 기록이 없으면 '수집 전'이고 경고·확인되지 않은 항목이 없다: ${r.cron?.status}`);
+    // 2) 정상
+    cronBody=cronOk;
+    await ask(t0);
+    want(isDeepStrictEqual(setting("cron"),{status:"ok",error_code:null,last_attempt_at:at(t0),last_success_at:at(t0),data:{last_run_at:lastRun,last_status:"ok",last_error:null,version:"V22.9.94-REVIEW-FIXES",rev:4}}),`R-4: 앱이 보낸 예약 실행 기록을 settings 'cron' 한 행에 적는다: ${JSON.stringify(setting("cron"))}`);
+    want(setting("usage")?.status==="ok","R-4: 같은 답의 이용 현황도 정상으로 적는다");
+    r=await summary(r4Env,t0+M);
+    want(r.cron?.status==="ok"&&r.cron?.fresh===true&&r.cron?.missed===false&&!cronAlerts(r).length&&!cronUnknown(r).length,`R-4: 마지막 실행이 정상이면 경고가 없다: ${JSON.stringify(r.cron)}`);
+    const alertingView=await summary(r4Env,t0+M,{alerting:true});
+    want(isDeepStrictEqual(alertingView.cron,r.cron)&&isDeepStrictEqual(alertingView.alerts,r.alerts),"R-4: 알림 판정 범위와 화면 범위의 예약 실행 판정이 같다");
+    // 3) 실패·일부 처리·26시간 누락(관제가 기록을 받은 시각과 마지막 실행 시각의 차이)
+    for(const [label,body,title,parts] of [
+      ["실패",{...cronOk,last_status:"error",last_error:"recurring:db_503"},"앱 예약 실행 실패",["recurring:db_503","2026-06-16 09:10 KST"]],
+      ["일부 처리",{...cronOk,last_status:"partial",last_error:"recurring:page_cap"},"앱 예약 실행 일부 처리",["recurring:page_cap"]],
+      ["마지막 실행 27시간 전",{...cronOk,last_run_at:at(t0+H-27*H)},"앱 예약 실행 누락",["26시간"]],
+      ["실행 기록 없음",{ok:true,last_run_at:null,last_status:null,last_error:null,version:null,rev:2},"앱 예약 실행 누락",["기록이 없습니다"]],
+      ["마지막 실행 25시간 전",{...cronOk,last_run_at:at(t0+H-25*H)},null,[]],
+    ]) {
+      cronBody=body;
+      await ask(t0+H);
+      r=await summary(r4Env,t0+H+M);
+      const hit=cronAlerts(r);
+      want(title===null?hit.length===0&&r.cron?.status==="ok":hit.length===1&&hit[0].title===title&&hit[0].status==="warning"&&parts.every(part=>String(hit[0].message).includes(part)),`R-4 ${label}: ${title||"경고 없음"} (받음 ${JSON.stringify(hit)} · ${r.cron?.status})`);
+    }
+    // 4) 130분 넘게 새 기록을 받지 못하면 경고 대신 확인되지 않은 항목(다른 수집기처럼 확인할 수 없는 것을 정상·해소로 보지 않는다)
+    cronBody={...cronOk,last_status:"error",last_error:"recurring:db_503"};
+    await ask(t0+2*H);
+    r=await summary(r4Env,t0+2*H+129*M);
+    want(r.cron?.status==="error"&&cronAlerts(r).length===1,"R-4: 130분 안의 기록은 그대로 판정한다");
+    r=await summary(r4Env,t0+2*H+131*M);
+    want(r.cron?.status==="stale"&&!cronAlerts(r).length&&isDeepStrictEqual(cronUnknown(r),["앱 예약 실행 기록 확인 지연(stale)"]),`R-4: 130분 넘게 새 기록이 없으면 경고 대신 확인되지 않은 항목이다: ${r.cron?.status} · ${cronUnknown(r).join(",")}`);
+    // 5) 앱이 기록을 읽지 못함(cron.ok false)·계약 밖 값: 마지막 자료와 성공 시각은 지키고 상태·코드만 적는다
+    const kept=setting("cron");
+    cronBody={ok:false,error_code:"db_503"};
+    await ask(t0+3*H);
+    let row=setting("cron");
+    want(row?.status==="error"&&row.error_code==="db_503"&&row.last_attempt_at===at(t0+3*H)&&row.last_success_at===kept?.last_success_at&&isDeepStrictEqual(row.data,kept?.data),`R-4: 앱이 기록을 읽지 못하면 마지막 자료·성공 시각을 지키고 상태·코드만 적는다: ${JSON.stringify(row)}`);
+    r=await summary(r4Env,t0+3*H+M);
+    want(r.cron?.status==="error"&&r.cron?.error_code==="db_503"&&cronAlerts(r).length===1,`R-4: 마지막 성공이 130분 안이면 그 자료로 판정하고 최근 확인 실패 코드를 함께 보인다: ${JSON.stringify(r.cron)}`);
+    r=await summary(r4Env,t0+4*H+11*M);
+    want(r.cron?.status==="stale"&&isDeepStrictEqual(cronUnknown(r),["앱 예약 실행 기록 확인 지연(db_503)"]),`R-4: 그 뒤 130분 넘게 성공이 없으면 앱이 보낸 코드가 확인되지 않은 항목에 보인다: ${cronUnknown(r).join(",")}`);
+    for(const [label,body] of [["모르는 결과",{...cronOk,last_status:"weird"}],["시각 꼴이 아님",{...cronOk,last_run_at:"어제"}],["객체가 아님","ok"],["코드 꼴이 아님",{ok:false,error_code:"Bad Code!"}]]) {
+      cronBody=body;
+      await ask(t0+5*H);
+      row=setting("cron");
+      want(row?.status==="error"&&row.error_code==="invalid_reply"&&isDeepStrictEqual(row.data,kept?.data),`R-4 ${label}: invalid_reply 로 적고 마지막 자료는 지킨다: ${JSON.stringify(row)}`);
+    }
+    cronBody={...cronOk,last_error:"<script>",version:"v1 bad",rev:-1};
+    await ask(t0+5*H+M);
+    row=setting("cron");
+    want(row?.status==="ok"&&row.data?.last_error===null&&row.data?.version===null&&row.data?.rev===null&&row.data?.last_status==="ok","R-4: 덧붙은 칸(오류 코드·판·rev)이 꼴에 맞지 않으면 그 칸만 버린다");
+    // 6) 이용 현황이 503(rpc_missing)이어도 답에 붙은 기록은 따로 적고, 401 은 본문을 읽지 않는다
+    appHttp=503; cronBody=cronOk;
+    await ask(t0+6*H);
+    want(setting("usage")?.error_code==="rpc_missing"&&setting("cron")?.status==="ok"&&setting("cron")?.last_success_at===at(t0+6*H),"R-4: 이용 현황이 503(rpc_missing)이어도 답에 붙은 예약 실행 기록은 따로 적는다");
+    appHttp=401; cronBody={...cronOk,last_status:"error"};
+    await ask(t0+7*H);
+    want(setting("usage")?.error_code==="unauthorized"&&setting("cron")?.last_attempt_at===at(t0+6*H)&&setting("cron")?.data?.last_status==="ok","R-4: 401 답은 본문을 읽지 않아 예약 실행 기록을 바꾸지 않는다");
+    appHttp=200;
+    // 7) 5분 예약 실행 경로: 알림 판정은 이용 현황 수집보다 먼저 돈다. 같은 경고는 24시간에 한 번, 정상 3번(10분 이상)이면 해소(주의라 해소 메일 없음)
+    const alertEnv4={...r4Env,ALERT_WEBHOOK_URL:"https://hooks.example/cron"};
+    const pending4=[];
+    const tick=async t=>{await worker.scheduled({scheduledTime:t},alertEnv4,{waitUntil:p=>pending4.push(p)});await Promise.all(pending4.splice(0));};
+    const mark=hooks.length;
+    const sentTexts=()=>hooks.slice(mark).map(h=>String(h.text));
+    const a0=t0+10*H;
+    cronBody={...cronOk,last_run_at:at(a0-50*M),last_status:"error",last_error:"recurring:db_503"};
+    r4.store.prepare("DELETE FROM settings WHERE key='usage'").run();
+    await tick(a0);
+    want(appCalls.at(-1)?.cron==="1"&&setting("cron")?.data?.last_status==="error"&&setting("cron")?.last_attempt_at===at(a0),"R-4: 5분 예약 실행이 이용 현황 요청으로 예약 실행 기록을 받아 적는다");
+    want(sentTexts().length===0,"R-4: 이번 실행의 알림 판정은 새 기록을 받기 전에 돌았다(다음 5분 실행에서 판정)");
+    await tick(a0+5*M);
+    want(sentTexts().length===1&&sentTexts()[0].includes("앱 예약 실행 실패")&&sentTexts()[0].includes("recurring:db_503"),`R-4: 다음 5분 실행에서 실패 경고를 보낸다: ${sentTexts().join(" | ").slice(0,160)}`);
+    for(const offset of [10*M,15*M,60*M]) await tick(a0+offset);
+    want(sentTexts().length===1,"R-4: 같은 실패 경고는 바로 다시 보내지 않는다");
+    await tick(a0+23*H);
+    await tick(a0+23*H+5*M);
+    want(sentTexts().length===1,"R-4: 실패가 이어져도 24시간 안에는 다시 보내지 않는다");
+    await tick(a0+24*H+10*M);
+    want(sentTexts().length===2&&sentTexts()[1].includes("앱 예약 실행 실패"),"R-4: 24시간이 지나도 실패가 이어지면 하루에 한 번 다시 보낸다");
+    cronBody={...cronOk,last_run_at:at(a0+24*H-50*M)};
+    r4.store.prepare("DELETE FROM settings WHERE key='usage'").run();
+    await tick(a0+24*H+15*M);
+    for(const offset of [20,25,30]) await tick(a0+24*H+offset*M);
+    const failRecord=r4.store.prepare("SELECT value FROM settings WHERE key LIKE 'alert:%'").all().map(x=>JSON.parse(x.value)).find(x=>x.title==="앱 예약 실행 실패");
+    want(failRecord?.resolved_at===at(a0+24*H+30*M)&&sentTexts().length===2,`R-4: 정상 기록이 5분 판정 3번(10분 이상) 이어지면 해소로 적고, 주의라 해소 메일은 보내지 않는다: ${JSON.stringify(failRecord)}`);
+    // 8) 화면·판
+    let html=renderDash(await summary(r4Env,a0+24*H+31*M));
+    want(html.includes('앱 예약 실행 <span class="badge normal">정상</span>')&&html.includes("마지막 실행")&&html.includes("V22.9.94-REVIEW-FIXES")&&html.includes("rev 4"),"R-4 화면: 정상이면 마지막 실행 시각·판·rev 와 '정상'을 보인다");
+    cronBody={...cronOk,last_run_at:at(t0+40*H-50*M),last_status:"error",last_error:"recurring:db_503"};
+    await ask(t0+40*H);
+    html=renderDash(await summary(r4Env,t0+40*H+M));
+    want(html.includes('앱 예약 실행 <span class="badge warning">실패</span>')&&html.includes("recurring:db_503"),"R-4 화면: 실패면 '실패'와 오류 코드를 보인다");
+    html=renderDash(await summary(r4Env,t0+40*H+131*M));
+    want(html.includes('앱 예약 실행 <span class="badge unknown">확인 지연</span>'),"R-4 화면: 130분 넘게 새 기록이 없으면 '확인 지연'");
+    cronBody={...cronOk,last_run_at:at(t0+41*H-27*H)};
+    await ask(t0+41*H);
+    html=renderDash(await summary(r4Env,t0+41*H+M));
+    want(html.includes('앱 예약 실행 <span class="badge warning">누락</span>'),"R-4 화면: 26시간 넘게 실행이 없으면 '누락'");
+    const blank=freshDb();
+    const blankView=await summary({...r4Env,MONITOR_DB:blank.db},t0);
+    html=renderDash(blankView);
+    want(html.includes('앱 예약 실행 <span class="badge unknown">수집 전</span>')&&blankView.cron?.status==="never","R-4 화면: 기록이 없으면 '수집 전'");
+    const states=html.slice(html.indexOf("<h2>수집 연결 상태</h2>"),html.indexOf("<h2>최근 요청 표본</h2>"));
+    want(states.length>0&&!states.includes("예약 실행"),"R-4 화면: 수집 연결 상태 표에는 예약 실행 줄을 더하지 않는다(수집기가 아니다)");
+    blank.store.close();
+    const health=await (await worker.fetch(new Request("https://monitor.example/health"),r4Env,{})).json();
+    want(health.version==="1.5.0",`관제 판은 1.5.0 이다: ${health.version}`);
+    r4.store.close();
+    assert.equal(misses.length,0,`V22.9.94 관제(C-6·R-4) 검사 실패 ${misses.length}건:\n- ${misses.join("\n- ")}`);
+  }
   console.log(`PASS: monitor D1 integration (${checks} checks)`);
 } finally {globalThis.fetch=originalFetch;globalThis.Date=RealDate;sqlite.close();}
