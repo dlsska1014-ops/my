@@ -10,6 +10,7 @@ import { fetchHouseholdMembers } from "../data/households-members-rows.js";
 import { refundLinkLockedReason } from "../domain/refund-links.js";
 import { bulkUpdateSkippingRefundLocks } from "../features/settlement-refund-links.js";
 import { activeSpenderExists } from "../my/transactions.js";
+import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { supabase } from "../data/supabase-client.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { bulkTransactionsAtomic } from "../domain/transactions-core.js";
@@ -82,9 +83,19 @@ async function handleAdminBulkUpdate(request, env) {
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_bulk_update_failed", severity: "warn", path: "/admin/transactions/bulk", method: "POST", detail: safeError(err) });
     // V22.9.80 T-12: 트리거가 막았는데 막힌 기록을 가려내지 못했거나 모두 막혔으면 아무것도 바뀌지 않았다. 이유를 그대로 알린다.
+    // V22.9.94 C-11(외부 검토): 결과를 모르는 실패(응답 없음·시한·5xx — 저장소는 이미 지웠거나 바꿨을 수 있다)에도 ‘기존 기록은 유지됩니다’라고 했고,
+    // 일괄 삭제에도 ‘수정하지 못했습니다’라고 했다. 이제 결과 모름은 다시 보내지 말고 목록부터 확인하라고 알리고(이 화면으로 돌아오면 목록을 새로 읽는다),
+    // 거절(4xx·검증)만 ‘기존 기록은 유지됩니다’다. 삭제와 수정 문장을 나눈다.
+    const isDelete = String(form?.get?.("bulk_delete") || "") === "1";
     const message = refundLinkLockedReason(err)
       ? "환불과 연결된 기록이 있어 아무것도 바꾸지 않았습니다. 연결은 정산 화면의 ‘환불·환급’에서 먼저 풀어 주세요."
-      : "선택한 거래내역을 수정하지 못했습니다. 기존 기록은 유지됩니다.";
+      : isUncertainStorageWrite(err)
+        ? (isDelete
+          ? "삭제 결과를 확인하지 못했습니다. 같은 요청을 다시 보내지 말고, 목록을 새로 고쳐 선택한 기록이 지워졌는지 먼저 확인해 주세요."
+          : "일괄 수정 결과를 확인하지 못했습니다. 같은 요청을 다시 보내지 말고, 목록을 새로 고쳐 바뀌었는지 먼저 확인해 주세요.")
+        : isDelete
+          ? "선택한 거래내역을 삭제하지 못했습니다. 기존 기록은 유지됩니다."
+          : "선택한 거래내역을 수정하지 못했습니다. 기존 기록은 유지됩니다.";
     const fallback = transactionReturnFallback(month, householdId, { err: message });
     return redirectResponse(form ? returnLocation(form, fallback, { err: message }) : fallback);
   }

@@ -18,7 +18,7 @@ import {
 import { resolveManualInputClassification } from "../settings/payment-assets.js";
 import { returnLocation, safeUserReturnPath } from "./bulk-and-return-paths.js";
 import {
-  bestRoleFromRows, fetchAdminRows, fetchHouseholdMembers, saveMemberAlias,
+  bestRoleFromRows, fetchAdminRows, fetchHouseholdMembers, roleRank, saveMemberAlias,
 } from "../data/households-members-rows.js";
 import { renderServerDashboardHtml, renderServerLoginHtml } from "./dashboard-page.js";
 import { safeArray } from "./backup-compare.js";
@@ -48,7 +48,7 @@ import {
 } from "../nlu/date-payment.js";
 import {
   abTransactionRequestId, createManualTransaction, deleteTransactionWithAudit, escapeHtml,
-  makeInviteCode, numberWithCommas, updateTransaction,
+  fetchDeleteAuditIdV22994, makeInviteCode, numberWithCommas, updateTransactionIfUnchangedV22994,
 } from "../domain/transactions-core.js";
 // @build:imports-end
 
@@ -403,8 +403,12 @@ async function handleAdminDeleteTransaction(request, env) {
     // V22.9.90(사용자 피드백 2026-10-30): 로그인 사용자(관리자 세션 아님)가 지운 기록이면 ‘되돌리기’ 표(60초, /my/restore 만 받음)를
     // 돌아갈 주소의 restore 에 싣는다(T-16 실행 취소 표 undo 와 같은 방식). 홈 알림이 그 표로 ‘되돌리기’ 단추를 그린다. 만들지 못하면(비밀 없음·오류)
     // 싣지 않고, 돌아갈 주소에 남아 있던 앞선 삭제의 표도 지운다(단추가 다른 기록을 되살리지 않게).
-    const restoreTicket = !access.admin && access.userId
-      ? await makeDeleteRestoreTicket(env, { transactionId: id, householdId: rowHousehold, userId: access.userId }).catch(() => "") : "";
+    // V22.9.94 C-4: 표는 이 삭제가 남긴 감사 기록 번호를 함께 싣는다(그 삭제 한 번만 되돌린다). 번호를 읽지 못하면 표를 싣지 않는다.
+    let restoreTicket = "";
+    if (!access.admin && access.userId) {
+      const auditId = await fetchDeleteAuditIdV22994(env, { transactionId: id, householdId: rowHousehold, userId: access.userId }).catch(() => "");
+      restoreTicket = auditId ? await makeDeleteRestoreTicket(env, { transactionId: id, householdId: rowHousehold, userId: access.userId, auditId }).catch(() => "") : "";
+    }
     const returned = new URL(returnLocation(form, transactionReturnFallback(month, householdId, { msg: "deleted" }), { msg: "deleted" }), "https://dummy.local");
     returned.searchParams.delete("restore");
     if (restoreTicket) returned.searchParams.set("restore", restoreTicket);
@@ -548,19 +552,29 @@ async function handleAdminUpdateTransaction(request, env) {
   let lease = null;
   try {
     lease = await claimOperationLease(env, { key: `transaction-edit:${id}`, owner: operationLeaseOwner("transaction-edit"), leaseSeconds: 30 });
-    if (!lease.acquired) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "edit_busy" }), { err: "edit_busy" }));
-    const current = await getTransactionForUserEdit(env, id, rowHousehold);
-    if (!current) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "record_not_found" }), { err: "record_not_found" }));
-    const plan = planTransactionEdit(current, submitted, original);
-    if (plan.conflicts.length) {
-      if (!members.length) members = await fetchHouseholdMembers(env, rowHousehold);
-      const backTo = safeUserReturnPath(String(form.get("return_to") || ""), `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(rowHousehold)}`);
-      return htmlResponse(renderTransactionEditConflictHtml(env, current, plan.conflicts, backTo, members, isManager), 409);
+    const back = (extra) => redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, extra), extra));
+    if (!lease.acquired) return back({ err: "edit_busy" });
+    let current = await getTransactionForUserEdit(env, id, rowHousehold);
+    if (!current) return back({ err: "record_not_found" });
+    // V22.9.94 C-9(외부 검토): 이 잠금(transaction-edit)은 이 경로끼리만 막는다 — 카카오 수정·/my/update·관리 API 는 잡지 않아서, 위에서 읽은 뒤·아래에서
+    // 저장하기 전에 그쪽 저장이 끼어들면 예전에는 조건 없는 감사 RPC 가 그 값을 덮어쓰고 ‘수정했습니다’라고 했다. 이제 저장은 바꾸는 칸의 읽은 값을 건 조건부
+    // 저장(updateTransactionIfUnchangedV22994)이다. 0행이면 지금 값으로 다시 계획한다: 같은 칸이 다르게 바뀌었으면 충돌 화면(409), 다른 칸만 바뀌었거나
+    // 같은 값이 됐으면 내 칸만 다시 저장한다(세 번까지, 그래도 엇갈리면 edit_conflict). 기준 값은 폼의 orig_* 이고, 없는 칸은 처음 읽은 값이다.
+    const baseline = { ...Object.fromEntries(AB_EDIT_FIELDS.map((key) => [key, String(current[key] ?? "")])), ...(original || {}) };
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const plan = planTransactionEdit(current, submitted, baseline);
+      if (plan.conflicts.length) {
+        if (!members.length) members = await fetchHouseholdMembers(env, rowHousehold);
+        const backTo = safeUserReturnPath(String(form.get("return_to") || ""), `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(rowHousehold)}`);
+        return htmlResponse(renderTransactionEditConflictHtml(env, current, plan.conflicts, backTo, members, isManager), 409);
+      }
+      if (!Object.keys(plan.patch).length) return back({ msg: "updated" });
+      const outcome = await updateTransactionIfUnchangedV22994(env, id, plan.patch, current, { householdId: rowHousehold, actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user", path: "/admin/update" });
+      if (outcome.status === "updated") return back({ msg: "updated" });
+      if (outcome.status === "missing") return back({ err: "record_not_found" });
+      current = outcome.row;
     }
-    if (Object.keys(plan.patch).length) {
-      await updateTransaction(env, id, plan.patch, { householdId: rowHousehold, actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user" });
-    }
-    return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg: "updated" }), { msg: "updated" }));
+    return back({ err: "edit_conflict" });
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_update_failed", severity: "warn", path: "/admin/transactions/update", method: "POST", detail: safeError(err) });
     // V22.9.80 T-12: 환불 연결 보호 트리거가 막은 수정은 ‘수정하지 못했다’가 아니라 이유별 코드로 돌려보낸다(formatMessage 표).
@@ -702,7 +716,8 @@ async function handleAdminMemberUpdate(request, env) {
     if (!scopeRows.some((row) => String(row.user_id || "") === userId)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "변경할 참여자를 찾지 못했습니다." }));
     return await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
     const assertFresh = () => { lifecycleFresh(); householdFresh(); };
-    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRoleStrict(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
+    const actorRole = adminOk ? "" : await getHouseholdMemberRoleStrict(env, sessionUserId, householdId);
+    if (!adminOk && !["owner", "admin"].includes(actorRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
     // 권한 변경은 보안 작업이므로 선택 조회 실패를 빈 목록으로 간주하지 않는다.
     const rows = await supabase(env, `/rest/v1/household_members?select=household_id,user_id,role&household_id=eq.${encodeURIComponent(householdId)}`);
     if (!Array.isArray(rows)) throw new Error("member_role_source_invalid");
@@ -711,6 +726,9 @@ async function handleAdminMemberUpdate(request, env) {
       return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "변경할 참여자를 찾지 못했습니다. 목록을 새로고침한 뒤 다시 확인하세요." }));
     }
     const targetRole = bestRoleFromRows(targetRows);
+    // V22.9.94 R-3: 관리자는 자기보다 낮은 역할만 다룬다(소유자 역할의 변경·부여와 관리자 지정·변경은 소유자만). 판정은 잠금 안에서 다시 읽은 역할로 한다.
+    const roleDenied = memberRoleChangeDeniedV22994({ adminOk, actorRole, targetRole, nextRole: role });
+    if (roleDenied) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: roleDenied }));
     const ownerIds = [...new Set(rows.filter((m) => String(m.role || "") === "owner").map((m) => String(m.user_id || "")).filter(Boolean))];
     if (role === "owner" && ownerIds.some((id) => id !== userId)) {
       return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "이미 소유자가 있습니다. 계정 중복이면 관리자 계정 통합을 먼저 실행하세요." }));
@@ -761,11 +779,15 @@ async function handleAdminMemberRemove(request, env) {
     if (!scopeRows.some((row) => String(row.user_id || "") === userId)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "변경할 참여자를 찾지 못했습니다." }));
     return await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
     const assertFresh = () => { lifecycleFresh(); householdFresh(); };
-    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRoleStrict(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
+    const actorRole = adminOk ? "" : await getHouseholdMemberRoleStrict(env, sessionUserId, householdId);
+    if (!adminOk && !["owner", "admin"].includes(actorRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
     const rows = await fetchRawHouseholdMembers(env, householdId);
     const targetRole = bestRoleFromRows(rows.filter((m) => String(m.user_id || "") === userId));
     const ownerIds = [...new Set(rows.filter((m) => String(m.role || "") === "owner").map((m) => String(m.user_id || "")).filter(Boolean))];
     if (!targetRole) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "삭제할 참여자를 찾지 못했습니다. 목록을 새로고침한 뒤 다시 확인하세요." }));
+    // V22.9.94 R-3: 소유자·관리자는 소유자만 내보낸다(관리자는 자기보다 낮은 역할만).
+    const roleDenied = memberRoleChangeDeniedV22994({ adminOk, actorRole, targetRole, nextRole: null });
+    if (roleDenied) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: roleDenied }));
     if (targetRole === "owner" && ownerIds.length <= 1) {
       return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "유일한 소유자는 삭제할 수 없습니다." }));
     }
@@ -784,6 +806,19 @@ async function handleAdminMemberRemove(request, env) {
     rememberOpsEvent({ kind: "member_remove_failed", severity: "error", path: "/admin/member/remove", method: "POST", detail: safeError(err) });
     return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: isHouseholdRoleCheckFailure(err) ? "household_role_check_failed" : "member_remove_failed" }));
   }
+}
+
+// V22.9.94 R-3(내부 검토): 참여자 역할 변경·내보내기의 권한 행렬. 예전에는 소유자와 관리자를 같게 봐서, 소유자가 둘이면 관리자가 소유자를 내리거나
+// 내보낼 수 있었다(소유자가 하나면 ‘유일한 소유자’ 보호만 막았다). 운영 관리자 세션(adminOk)과 소유자는 모두 할 수 있고(둘째 소유자 금지·마지막 소유자
+// 보호는 각 처리기에서 그대로), 가계부 관리자는 대상의 지금 역할과 새 역할이 모두 관리자보다 낮을 때(구성원·조회 전용·승인 대기·차단)만 할 수 있다 —
+// 소유자·관리자(자기 자신 포함)의 변경·내보내기와 소유자·관리자 지정은 거절한다. nextRole 이 null 이면 내보내기다. 거절 코드는 참여자 화면이 이미
+// 한국어로 보이는 member_manage_not_allowed 다. 그 밖의 역할(구성원 이하)은 앞 검사에서 이미 거절됐다.
+function memberRoleChangeDeniedV22994({ adminOk = false, actorRole = "", targetRole = "", nextRole = null } = {}) {
+  if (adminOk || String(actorRole || "") === "owner") return "";
+  const adminRank = roleRank("admin");
+  if (roleRank(targetRole) >= adminRank) return "member_manage_not_allowed";
+  if (nextRole !== null && roleRank(nextRole) >= adminRank) return "member_manage_not_allowed";
+  return "";
 }
 
 function normalizeHouseholdRole(value = "") {

@@ -30,7 +30,7 @@ import { supabase } from "../data/supabase-client.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
 import {
   createManualTransaction, deleteTransactionIfUnchanged, deleteTransactionWithAudit,
-  fetchDeletedTransactionAudit, reinsertDeletedTransaction, updateTransaction,
+  fetchDeletedTransactionAudit, reinsertDeletedTransaction, updateTransactionIfUnchangedV22994,
 } from "../domain/transactions-core.js";
 // @build:imports-end
 
@@ -220,12 +220,17 @@ async function handleMyUpdateTransaction(request, env) {
     user_id: canManageAllRecords(selected.role) && requestedUserId && activeSpenderExists(members, requestedUserId) ? requestedUserId : row.user_id,
   };
   try {
-    await updateTransaction(env, id, patch, { householdId: selected.id, actorUserId: userId, actorKind: "user" });
+    // V22.9.94 C-9(외부 검토): 위에서 읽은 행(row)과 저장 사이에 다른 곳(카카오 수정·홈 수정·관리 API)이 저장하면 예전에는 일곱 칸을 모두 이 폼 값으로
+    // 덮어썼다. 이제 읽은 값을 건 조건부 저장이라, 그 사이 바뀐 기록은 저장하지 않고 충돌(edit_conflict)을, 지워진 기록은 record_not_found 를 알린다.
+    // 이 경로의 폼에는 원래 값(orig_*)이 없어, 읽기 전에 이미 바뀐 기록(옛 화면에서 보낸 값)은 가려내지 못한다 — 화면의 수정 폼은 /admin/update 를 쓴다.
+    const outcome = await updateTransactionIfUnchangedV22994(env, id, patch, row, { householdId: selected.id, actorUserId: userId, actorKind: "user", path: "/my/update" });
+    if (outcome.status === "missing") return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
+    if (outcome.status === "changed") return redirectResponse(myReturnLocation(month, selected.id, { err: "edit_conflict" }));
     try {
       await appendTransactionEditHistory(env, selected.id, id, row, { ...row, ...patch }, userId, members);
     } catch (historyError) {
-      // The atomic transaction RPC already committed the edit and its database
-      // audit. A secondary display-history failure must not tell the user that
+      // The conditional save above already committed the edit (and its database
+      // audit row). A secondary display-history failure must not tell the user that
       // the transaction itself failed or encourage a duplicate retry.
       rememberOpsEvent({ kind: "transaction_edit_history_save_failed", severity: "warn", path: "/my/update", method: "POST", detail: safeError(historyError) });
     }
@@ -331,8 +336,9 @@ async function handleMyDeleteRestore(request, env) {
   };
   try {
     if (await findById(ticket.r)) return redirectResponse(back(selected.id, { msg: "restored" }));
-    // 표를 받은 그 삭제의 행만 쓴다. 그 뒤 다시 지운 기록(다른 사람이든 나든)이면 restore_changed 로 거절한다(fetchDeletedTransactionAudit).
-    const { row, reason } = await fetchDeletedTransactionAudit(env, { transactionId: ticket.r, householdId: selected.id, userId, deletedAt: ticket.d });
+    // 표를 받은 그 삭제의 행만 쓴다. 그 뒤 다시 지운 기록(다른 사람이든 나든, 몇 초 뒤든)이면 restore_changed 로 거절한다 — V22.9.94 C-4: 표의 감사
+    // 기록 번호(a)와 가장 최근 삭제 감사의 번호를 견준다(fetchDeletedTransactionAudit).
+    const { row, reason } = await fetchDeletedTransactionAudit(env, { transactionId: ticket.r, householdId: selected.id, userId, deletedAt: ticket.d, auditId: ticket.a });
     if (!row) return redirectResponse(back(selected.id, { err: reason === "changed" ? "restore_changed" : "restore_expired" }));
     if (!canManageMyRecord(selected.role, row, userId)) return redirectResponse(back(selected.id, { err: "not_my_record" }));
     const policyError = await memberRecordChangeError(env, selected.role, selected.id);

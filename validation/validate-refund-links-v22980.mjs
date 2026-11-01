@@ -226,6 +226,14 @@ function refundDb(fx, { table = true, embed = "ok", linkReads = "ok" } = {}) {
       const locked = row ? guard(fx, row, body.p_patch || {}) : "";
       return locked ? rpcError(locked) : undefined;
     }
+    // V22.9.94 C-9: 웹 수정(/my/update·/admin/update)은 조건부 PATCH 로 저장한다. 보호 트리거는 표의 BEFORE UPDATE 라 PATCH 에도 같은 판정으로 걸린다.
+    if (method === "PATCH" && url.pathname === "/rest/v1/transactions") {
+      const id = String(url.searchParams.get("id") || "").replace(/^eq\./, "");
+      const row = findTx(fx, id);
+      log.updates.push(id);
+      const locked = row ? guard(fx, row, JSON.parse(String(init.body || "{}"))) : "";
+      return locked ? rpcError(locked) : undefined;
+    }
     if (url.pathname === "/rest/v1/rpc/accountbook_bulk_transactions_v227") {
       const body = JSON.parse(String(init.body || "{}"));
       const ids = (body.p_transaction_ids || []).map(String);

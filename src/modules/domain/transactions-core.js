@@ -286,28 +286,124 @@ async function deleteTransactionIfUnchanged(env, row = {}, householdId = "", opt
 }
 
 // V22.9.90 웹 ‘되돌리기’: 지운 행은 지우는 DB 함수(accountbook_delete_transaction_v227·_if_v22988)가 감사 기록(before_value = 지운 행 전체)에 남긴다.
-// 표는 그 한 번의 삭제에만 쓴다(독립 검토): 그 기록의 가장 최근 삭제 감사를 누가 지웠든 읽고(지운 시각 2분 전부터), 그것이 이 사용자가 표를 받은
-// 삭제(지운 시각 30초 뒤까지 — 서버·DB 시계 차이 여유)일 때만 지운 행을 준다. 그 뒤 다른 사람(관리자)이나 내가 다시 지운 기록을 옛 표로 되살리지 않는다.
-// { row } 이고, 없거나 모양이 다르면 reason "expired", 더 뒤의 다른 삭제면 reason "changed" 다.
-async function fetchDeletedTransactionAudit(env, { transactionId = "", householdId = "", userId = "", deletedAt = 0 } = {}) {
-  if (!transactionId || !householdId || !userId || !(Number(deletedAt) > 0)) return { row: null, reason: "expired" };
+// 표는 그 한 번의 삭제에만 쓴다(독립 검토): 그 기록의 가장 최근 삭제 감사를 누가 지웠든 읽고(지운 시각 2분 전부터), 그것이 표가 가리키는 삭제일 때만
+// 지운 행을 준다. { row } 이고, 없거나 모양이 다르면 reason "expired", 더 뒤의 다른 삭제면 reason "changed" 다.
+// V22.9.94 C-4(외부 검토): 예전에는 ‘이 사용자가 지운 시각 30초 뒤까지의 삭제’를 표의 삭제로 봐서(서버·DB 시계 차이 여유), 지움 → 되돌리기 → 고침 →
+// 30초 안에 다시 지움 다음에 첫 표가 두 번째 삭제를 되돌렸다. 이제 표는 그 삭제가 남긴 감사 기록 번호(auditId — 삭제 한 번의 고유 번호,
+// fetchDeleteAuditIdV22994)를 서명해 싣고, 가장 최근 삭제 감사가 같은 번호일 때만 되살린다(시각 비교 없음). 모든 삭제 경로(웹·카카오·일괄·실행 취소의
+// _if_v22988 와 그 대체 v227)가 감사 기록을 남기므로 뒤의 삭제는 늘 새 번호다. 번호가 없는 표(배포 전 표)는 받지 않는다.
+async function fetchDeletedTransactionAudit(env, { transactionId = "", householdId = "", userId = "", deletedAt = 0, auditId = "" } = {}) {
+  if (!transactionId || !householdId || !userId || !String(auditId || "") || !(Number(deletedAt) > 0)) return { row: null, reason: "expired" };
   const params = new URLSearchParams();
-  params.set("select", "before_value,actor_user_id,created_at");
+  params.set("select", "id,before_value,actor_user_id,created_at");
   params.set("transaction_id", `eq.${transactionId}`);
   params.set("household_id", `eq.${householdId}`);
   params.set("action", "eq.delete");
   params.set("created_at", `gte.${new Date((Number(deletedAt) - 120) * 1000).toISOString()}`);
-  params.set("order", "created_at.desc");
+  params.set("order", "created_at.desc,id.desc");
   params.set("limit", "1");
   const rows = await supabase(env, `/rest/v1/accountbook_transaction_audit?${params.toString()}`, { method: "GET" }) || [];
   const latest = Array.isArray(rows) ? rows[0] : null;
   const at = Date.parse(String(latest?.created_at || "")) / 1000;
   if (!latest || !Number.isFinite(at)) return { row: null, reason: "expired" };
-  if (String(latest.actor_user_id || "") !== String(userId) || at > Number(deletedAt) + 30) return { row: null, reason: "changed" };
+  if (String(latest.id ?? "") !== String(auditId) || String(latest.actor_user_id || "") !== String(userId)) return { row: null, reason: "changed" };
   const before = latest.before_value;
   if (!before || typeof before !== "object" || Array.isArray(before)) return { row: null, reason: "expired" };
   if (String(before.id || "") !== String(transactionId) || String(before.household_id || "") !== String(householdId)) return { row: null, reason: "expired" };
   return { row: before, reason: "" };
+}
+
+// V22.9.94 C-4: 방금 지운 기록의 가장 최근 삭제 감사 기록 번호. 그 감사가 이 사용자의 것일 때만 번호를 주고(아니면 ""), 되살리기 표가 이 번호를 싣는다.
+// 지우는 DB 함수가 감사 번호를 돌려주지 않아 지운 뒤 한 번 읽는다. 읽지 못하면 부르는 곳이 표를 싣지 않는다(삭제 결과는 그대로).
+async function fetchDeleteAuditIdV22994(env, { transactionId = "", householdId = "", userId = "" } = {}) {
+  if (!transactionId || !householdId || !userId) return "";
+  const params = new URLSearchParams();
+  params.set("select", "id,actor_user_id,created_at");
+  params.set("transaction_id", `eq.${transactionId}`);
+  params.set("household_id", `eq.${householdId}`);
+  params.set("action", "eq.delete");
+  params.set("order", "created_at.desc,id.desc");
+  params.set("limit", "1");
+  const rows = await supabase(env, `/rest/v1/accountbook_transaction_audit?${params.toString()}`, { method: "GET" }) || [];
+  const latest = Array.isArray(rows) ? rows[0] : null;
+  if (!latest || latest.id === undefined || latest.id === null || String(latest.id) === "") return "";
+  return String(latest.actor_user_id || "") === String(userId) ? String(latest.id) : "";
+}
+
+// V22.9.94 C-9(외부 검토): 웹 수정(/admin/update·/my/update)은 기록을 읽어 견준 뒤 감사 RPC(accountbook_update_transaction_v227)로 조건 없이 저장해서,
+// 읽은 뒤·저장 전에 다른 곳(카카오 수정·다른 화면·관리 API)이 저장한 값을 덮어썼다(두 화면 모두 ‘수정했습니다’). 이제 저장은 바꾸는 칸마다 읽은 값
+// (expected)을 PostgREST eq 조건으로 건 조건부 PATCH 한 번이다 — DB 가 그 행을 잠근 채 조건을 보고 바꾸므로 비교와 저장 사이의 틈이 없다.
+// 바꾸지 않는 칸은 조건에 걸지 않는다(다른 곳이 그 칸만 바꿨으면 둘 다 남는다 — 예전 칸별 병합과 같다). 바꾸는 칸은 감사 RPC 와 같은 일곱 칸뿐이다.
+// 0행이면 다시 읽는다: 없으면 { status: "missing" }, 바꾸려던 칸이 읽은 값과 다르면 { status: "changed", row: 지금 행 } — 부르는 곳이 충돌을 알린다.
+// 바꾸려던 칸이 그대로인데 0행이면(eq 비교가 저장된 글자와 어긋나는 드문 경우) 예전 감사 RPC 로 저장한다(그 기록을 영영 못 고치게 두지 않는다).
+// 감사 기록: RPC 는 같은 트랜잭션에서 남겼지만 PATCH 는 저장 뒤 한 줄을 따로 남긴다(before = 저장된 행에서 바꾼 칸만 읽은 값으로 되돌린 행 전체).
+// 이 한 줄이 실패해도 수정은 이미 저장됐으므로 성공으로 답하고 운영 이벤트만 남긴다. 결과를 모르는 PATCH(응답 없음·5xx)는 supabase() 가 결과 불확실로
+// 던진다. 지출자 바꾸기는 부르는 곳이 같은 요청에서 받은 참여자 목록으로 먼저 확인한다(RPC 는 잠근 채 한 번 더 확인했다). 환불 연결 보호 트리거
+// (refund_link_guard_v22979, BEFORE UPDATE)는 PATCH 에도 그대로 걸린다.
+const TX_CONDITIONAL_EDIT_COLUMNS_V22994 = ["type", "amount", "transaction_date", "category", "memo", "payment_method", "user_id"];
+
+function txConditionalEditFilterV22994(key, value) {
+  if (value === null || value === undefined) return "is.null";
+  return `eq.${key === "amount" ? Number(value) : String(value)}`;
+}
+
+function txConditionalEditSameV22994(key, a, b) {
+  if (key === "amount") return Number(a) === Number(b);
+  if (a === null || a === undefined || b === null || b === undefined) return (a ?? null) === (b ?? null);
+  return String(a) === String(b);
+}
+
+async function updateTransactionIfUnchangedV22994(env, id, body, expected = {}, options = {}) {
+  const transactionId = String(id || "").trim();
+  const householdId = String(options.householdId || expected?.household_id || "").trim();
+  if (!transactionId || !householdId) throw new Error("transaction household not found");
+  const sanitized = sanitizeTransactionBody(body, true);
+  const patch = Object.fromEntries(TX_CONDITIONAL_EDIT_COLUMNS_V22994.filter((key) => Object.hasOwn(sanitized, key)).map((key) => [key, sanitized[key]]));
+  const keys = Object.keys(patch);
+  if (!keys.length) return { status: "updated", row: expected };
+  const actorKind = String(options.actorKind || "system").slice(0, 30);
+  const params = new URLSearchParams();
+  params.set("id", `eq.${transactionId}`);
+  params.set("household_id", `eq.${householdId}`);
+  for (const key of keys) params.set(key, txConditionalEditFilterV22994(key, expected?.[key]));
+  const updated = await supabase(env, `/rest/v1/transactions?${params.toString()}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify(patch),
+  });
+  if (!Array.isArray(updated)) throw Object.assign(new Error("transaction_conditional_update_invalid"), { uncertain_write: true });
+  const after = updated[0];
+  if (after) {
+    const before = { ...after };
+    for (const key of keys) before[key] = expected?.[key] ?? null;
+    try {
+      await supabase(env, "/rest/v1/accountbook_transaction_audit", {
+        method: "POST",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ transaction_id: transactionId, household_id: householdId, actor_user_id: options.actorUserId || null, actor_kind: actorKind, action: "update", before_value: before, after_value: after }),
+      });
+    } catch (auditError) {
+      rememberOpsEvent({ kind: "transaction_update_audit_failed", severity: "warn", path: String(options.path || ""), method: "POST", detail: safeError(auditError) });
+    }
+    return { status: "updated", row: after };
+  }
+  const fresh = await txConditionalEditRowV22994(env, transactionId, householdId);
+  if (!fresh) return { status: "missing", row: null };
+  if (keys.some((key) => !txConditionalEditSameV22994(key, fresh[key], expected?.[key]))) return { status: "changed", row: fresh };
+  rememberOpsEvent({ kind: "transaction_conditional_update_filter_mismatch", severity: "warn", path: String(options.path || ""), method: "PATCH", detail: keys.join(",") });
+  const viaRpc = await updateTransaction(env, transactionId, patch, { householdId, actorUserId: options.actorUserId || null, actorKind });
+  return { status: "updated", row: viaRpc || fresh };
+}
+
+// 수정 화면·충돌 화면이 쓰는 칸 그대로(my/transactions.js getTransactionForUserEdit 와 같은 select).
+async function txConditionalEditRowV22994(env, id, householdId) {
+  const params = new URLSearchParams();
+  params.set("select", "id,household_id,user_id,type,amount,category,memo,payment_method,transaction_date,source,raw_text,created_at");
+  params.set("id", `eq.${id}`);
+  params.set("household_id", `eq.${householdId}`);
+  params.set("limit", "1");
+  const rows = await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" }) || [];
+  return Array.isArray(rows) ? rows[0] || null : null;
 }
 
 // 지운 기록 한 건을 같은 기록 번호로 다시 넣는다. 카카오 ‘복구’(kakao/edit-flow-v4.js)와 같은 칸(KAKAO_TX_RESTORE_COLUMNS_V4)·같은 순서다 —
@@ -524,9 +620,10 @@ function escapeHtml(s) {
 export {
   abTransactionRequestId, bulkTransactionsAtomic, calculateStats, calendarDaysFromRows,
   createManualTransaction, deleteTransactionIfUnchanged, deleteTransactionWithAudit, escapeHtml,
-  fetchDeletedTransactionAudit, findTransactionForRequest, formatRecentTransactions, formatSummary,
-  getCalendar, getMonthSummary, getStats, helpText, jsonForInlineScript, linkText, listTransactions,
-  makeInviteCode, nextMonthStart, numberWithCommas, reinsertDeletedTransaction, sameTransactionCore,
-  sanitizeTransactionBody, updateTransaction,
+  fetchDeleteAuditIdV22994, fetchDeletedTransactionAudit, findTransactionForRequest,
+  formatRecentTransactions, formatSummary, getCalendar, getMonthSummary, getStats, helpText,
+  jsonForInlineScript, linkText, listTransactions, makeInviteCode, nextMonthStart, numberWithCommas,
+  reinsertDeletedTransaction, sameTransactionCore, sanitizeTransactionBody, updateTransaction,
+  updateTransactionIfUnchangedV22994,
 };
 // @build:exports-end
