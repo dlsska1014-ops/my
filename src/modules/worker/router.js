@@ -229,7 +229,8 @@ async function readinessReportV22994(env) {
   if (cached && cached.key === key && cached.transport === transport && now >= cached.at && now - cached.at < READINESS_CACHE_MS_V22994) {
     return { ...cached.report, cached: true };
   }
-  const coreRpcs = [...READINESS_CORE_RPCS, ...READINESS_EXTRA_CORE_RPCS_V22994];
+  // 같은 함수를 두 번 점검하지 않는다(나중에 V88 함수가 config-readiness.js 목록으로 옮겨 가도 그대로 19개).
+  const coreRpcs = [...new Set([...READINESS_CORE_RPCS, ...READINESS_EXTRA_CORE_RPCS_V22994])];
   const [checks, optionalChecks, rpcResults, alternativeRpcResults, refundLinksReady] = await Promise.all([
     Promise.all(READINESS_REQUIRED_TABLES.map((name) => checkTableAvailable(env, name))),
     Promise.all(READINESS_OPTIONAL_TABLES.map((name) => checkTableAvailable(env, name))),

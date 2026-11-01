@@ -34,7 +34,7 @@ const TABLE_COUNT = listOf("READINESS_REQUIRED_TABLES").length + listOf("READINE
 const V88 = "accountbook_delete_transaction_if_v22988";
 const TARGET = "accountbook_set_local_identity_v227";
 const [ALT_NEW, ALT_OLD] = ALT;
-const EXPECTED_RPCS = [...CORE, V88, ...ALT].sort();
+const EXPECTED_RPCS = [...new Set([...CORE, V88, ...ALT])].sort();
 const EXPECTED_RPC_COUNT = EXPECTED_RPCS.length;
 const READY_ENV = { ADMIN_SESSION_SECRET: "qa-v22994-admin-session", ADMIN_API_TOKEN: "qa-v22994-admin-token" };
 // V22.9.93 의 /ready 칸 순서(validate-refund-links-v22979 의 readyKeys 와 같다) + time.
