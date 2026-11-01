@@ -3,6 +3,17 @@ import { DatabaseSync } from "node:sqlite";
 import { readFileSync } from "node:fs";
 import worker, { collect, deliverAlerts, summary } from "./worker.mjs";
 
+// 시험 시계를 달 가운데 정오에 고정한다(흐르기는 한다). 실제 시계로 돌리면 UTC 하루 첫 5분(09:00~09:05 KST)에
+// collectCloudflare 의 until(now-5분)이 전날이라 일간 요청이 unknown 이 되어 전체 normal 검사가 실패했다
+// (V22.9.93 main CI 41254522862). 그 5분의 동작은 파일 끝에서 따로 본다.
+const RealDate=Date;
+const clockStart=RealDate.parse("2026-06-15T12:00:00.000Z"), realStart=RealDate.now();
+const testNow=()=>clockStart+RealDate.now()-realStart;
+globalThis.Date=class extends RealDate {
+  constructor(...args){if(args.length)super(...args);else super(testNow());}
+  static now(){return testNow();}
+};
+
 const sqlite=new DatabaseSync(":memory:");
 sqlite.exec(readFileSync(new URL("schema.sql",import.meta.url),"utf8"));
 const db={
@@ -215,5 +226,15 @@ try {
   eq((await deliverAlerts(alertEnv,confirmedAt)).recovered,1,"three consecutive fresh normal DB checks confirm recovery despite unrelated unknown collectors");
   ok(hooks.at(-1).text.includes("[해소] DB 논리 용량")&&JSON.parse(quotaRecord().value).resolved_at===confirmedAt.toISOString()&&JSON.parse(quotaRecord().value).sent_at===JSON.parse(criticalRecord).sent_at,"confirmed recovery is delivered and the record keeps its last send time (1.2.0)");
   eq((await deliverAlerts(alertEnv,confirmedAt)).recovered,0,"confirmed DB recovery is sent only once");
+  // UTC 하루 첫 5분: collectCloudflare 는 now-5분 까지만 세므로 그날 값이 아직 없다. 전날 값을 오늘 값으로 보이지 않는다.
+  graphFails=false;
+  const firstMinutes=new Date(now);firstMinutes.setUTCDate(firstMinutes.getUTCDate()+2);firstMinutes.setUTCHours(0,2,0,0);
+  await collect(env,firstMinutes);
+  result=await summary(env,firstMinutes.getTime());
+  eq(result.quotas.find(q=>q.key==="worker_requests").value,null,"first five UTC minutes show no daily request value instead of yesterday's total");
+  const afterFirstMinutes=new Date(firstMinutes.getTime()+5*60000);
+  await collect(env,afterFirstMinutes);
+  result=await summary(env,afterFirstMinutes.getTime());
+  eq(result.quotas.find(q=>q.key==="worker_requests").value,20000,"daily request value returns once the window reaches the new UTC day");
   console.log(`PASS: monitor D1 integration (${checks} checks)`);
-} finally {globalThis.fetch=originalFetch;sqlite.close();}
+} finally {globalThis.fetch=originalFetch;globalThis.Date=RealDate;sqlite.close();}
