@@ -575,7 +575,8 @@ await scenario("/ready 켜짐", async (fx) => {
 await scenario("연결된 기록 수정", async (fx) => {
   seed(fx, { flag: "1", links: [linkRow("link-a", "e1", "r1", 40000)] });
   refundDb(fx);
-  intercept(({ url }) => (url.pathname === "/rest/v1/rpc/accountbook_update_transaction_v227" ? rpcError("refund_link_locked_amount") : undefined));
+  // V22.9.94 C-9: 웹 수정은 감사 RPC 대신 조건부 PATCH(/rest/v1/transactions)로 저장한다. 보호 트리거(BEFORE UPDATE)는 둘 다에 걸리므로 흉내도 둘 다 막는다.
+  intercept(({ url, method }) => (url.pathname === "/rest/v1/rpc/accountbook_update_transaction_v227" || (method === "PATCH" && url.pathname === "/rest/v1/transactions") ? rpcError("refund_link_locked_amount") : undefined));
   const res = await post(fx, "/my/update", { id: "e1", household_id: HH, month: MONTH, type: "expense", amount: "30000", transaction_date: "2026-10-03", memo: "쿠팡 주문", category: "생활", payment_method: "카드" });
   t.ok(res.status === 303 && res.location.includes("err=refund_link_locked"), "수정: 트리거 오류(refund_link_locked_*)를 refund_link_locked 로 돌려보낸다");
   t.ok(String(call(replyTexts, "formatMessage", "refund_link_locked") || "").includes("환불과 연결된 기록이라 이 변경은 저장하지 않았습니다."), "수정: 막힌 이유와 푸는 곳을 알린다");

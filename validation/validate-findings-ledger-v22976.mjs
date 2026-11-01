@@ -36,6 +36,8 @@ const SOURCES = [
   { key: "V91", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_91.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(L-[0-9]+)(?=[ *]|$)/gm, expected: 2 },
   // V22.9.93: 운영 V22.9.92 뒤 출시 전 입력 시험(날짜 말투·점 자릿수·분류 낱말)과 전체 기능 검수.
   { key: "V93", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_93.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(Q-[0-9]+)(?=[ *]|$)/gm, expected: 120 },
+  // V22.9.94: 2026-11-01 전체 점검(R-)과 Codex·Astra 버그 검토(C-). 고치지 않은 점검 항목도 결정 필요·남음으로 옮겨 잊히지 않게 한다.
+  { key: "V94", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_94.md", pattern: /^(###|[ ]*-) +(?:[*][*])?([CR]-[0-9]+)(?=[ *]|$)/gm, expected: 31 },
 ];
 // '결함 아님'은 다시 확인해 보니 규격·의도대로인 항목이다. 메모에 근거(규격 문서 줄 등)를 적는다.
 const STATUSES = new Set(["고침", "일부 고침", "남음", "결정 필요", "확인 불가", "결함 아님"]);
@@ -46,7 +48,7 @@ const ledger = read("docs/codex/FINDINGS_LEDGER.md");
 const harness = read(".codex/scripts/verify-repository.mjs");
 const rows = [];
 for (const line of ledger.split("\n")) {
-  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93):[A-Z]-[0-9]+) *[|]/.exec(line);
+  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94):[A-Z]-[0-9]+) *[|]/.exec(line);
   if (!match) continue;
   const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
   const [id, severity, title, status, fixedIn, check, note] = cells;

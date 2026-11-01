@@ -655,6 +655,17 @@ function isImportSummaryRow(cells = [], raw = "", options = {}) {
 // V22.9.37 감사 T10: 파일 전체의 부호 규칙. 금액이 있는 행 중 둘 이상·절반 이상이 음수이고, 양수인데 지출로 적힌 행과
 // 음수인데 수입으로 적힌 행이 하나도 없으면 "음수 = 지출, 양수 = 수입"으로 내보낸 파일(signed)이다. 그 밖(양수 지출
 // 사이의 음수 몇 건)은 예전처럼 취소·환불로 본다(default). 제목 행이 없는 표·자연어는 규칙을 정하지 않는다.
+// V22.9.94 C-8: 환불 말(환불·환급·반품·취소·refund·cancel)이 든 음수 행은 부호 규칙의 근거로 세지 않는다. 은행식 부호 파일에서는 환불이 양수로 오므로
+// 음수 환불 행은 예전 규칙(음수 = 취소·환불)에 맞는 행이다. 예전에는 이런 행이 둘 이상이면 그것만으로 부호 파일이 되어, 한 행이면 환급(수입)·확인
+// 필요이던 ‘지출,-100,커피 환불’ 이 두 행이면 둘 다 양수 지출로 기본 선택되고 같은 파일의 양수 행(‘점심 3000’)은 수입이 됐다.
+// 수수료·위약금·배송비·반품비(비용), 환불·취소 불가, 입금·수입 취소는 환불 말로 보지 않는다.
+const IMPORT_REFUND_WORD_V22994 = /환불|환급|반품|취소|refund|cancel/i;
+const IMPORT_REFUND_EXCEPT_V22994 = /수수료|위약금|배송비|택배비|반송비|반품비|(?:환불|취소)\s*불가|(?:입금|수입)\s*취소|\bfees?\b/i;
+function importRefundContextV22994(text = "") {
+  const value = String(text ?? "");
+  return IMPORT_REFUND_WORD_V22994.test(value) && !IMPORT_REFUND_EXCEPT_V22994.test(value);
+}
+
 function detectImportSignConvention(table = [], headerIndex = -1, maxRows = 5000, options = {}) {
   const summary = { mode: "default", amount_rows: 0, negative_rows: 0 };
   if (headerIndex < 0 || !safeArray(table[headerIndex]).length) return summary;
@@ -664,6 +675,7 @@ function detectImportSignConvention(table = [], headerIndex = -1, maxRows = 5000
   let fields = columns.map((column) => column.field);
   let positiveExpense = 0;
   let negativeIncome = 0;
+  let refundNegative = 0;
   for (let i = headerIndex + 1; i < Math.min(table.length, maxRows); i++) {
     const cells = safeArray(table[i]);
     if (!cells.some((cell) => String(cell ?? "").trim())) continue;
@@ -691,10 +703,16 @@ function detectImportSignConvention(table = [], headerIndex = -1, maxRows = 5000
     const inferenceCells = aligned.cells.filter((_, index) => ["date", "amount", "income", "expense", "memo", "type", "category", "payment"].includes(columns[index]?.field));
     if (isImportSummaryRow(inferenceCells, inferenceCells.join(" "), options)) continue;
     summary.amount_rows += 1;
-    if (money.negative) { summary.negative_rows += 1; if (typed === "income") negativeIncome += 1; }
+    if (money.negative) {
+      summary.negative_rows += 1;
+      if (typed === "income") negativeIncome += 1;
+      else if (importRefundContextV22994(inferenceCells.join(" "))) refundNegative += 1;
+    }
     else if (typed === "expense") positiveExpense += 1;
   }
-  if (summary.negative_rows >= 2 && summary.negative_rows * 2 >= summary.amount_rows && positiveExpense === 0 && negativeIncome === 0) summary.mode = "signed";
+  // 음수 행 수(negative_rows)는 미리보기 안내용으로 그대로 두고, 판정에는 환불 말이 없는 음수 행만 쓴다(행 수와 절반 비교 모두).
+  const signedNegative = summary.negative_rows - refundNegative;
+  if (signedNegative >= 2 && signedNegative * 2 >= summary.amount_rows && positiveExpense === 0 && negativeIncome === 0) summary.mode = "signed";
   return summary;
 }
 
@@ -717,6 +735,36 @@ function parseImportAmountCell(value = "") {
   }
   else amount = NaN;
   return { amount: Number.isFinite(amount) ? amount : 0, present: true, valid: Number.isSafeInteger(amount) && amount >= 0, negative, raw };
+}
+
+// V22.9.94 C-7: 외화 표시. 머리글 있는 표의 금액 칸과 머리글 없는 행에서 금액을 찾은 칸이 같은 기준을 쓴다(₩·￦·원·KRW·won 은 원화).
+// 예전에는 머리글 없는 행의 금액 추론이 이 검사 앞에 있어 ‘2026-07-01,커피,$100’ 이 100원 지출로 기본 선택됐다.
+const IMPORT_FOREIGN_MARK_V22994 = /[$¥€£]|USD|EUR|JPY|GBP|CNY|달러|유로|엔화|파운드|위안/i;
+const IMPORT_LOCAL_MARK_V22994 = /원|[₩￦]|krw|won/i;
+// 숫자에 붙은 외화 표시(앞: $100·US$ 100·USD 100·¥1,000·$1.5만, 뒤: 100$·100 EUR·100 dollars·3달러). 자연어 해석(parseTransaction)은
+// $·€ 같은 기호를 빈칸으로 지우고 숫자만 읽으므로(‘커피 €100’ 이 100원), 이 꼴을 지운 글에서도 같은 금액이 읽힐 때만 원화 금액으로 본다.
+// 뒤에 붙는 꼴은 숫자 덩어리의 첫 자리에서만 시작하고(?<![\d,.]) 부호 앞뒤 빈칸을 한 번만 읽어, 긴 숫자·빈칸 칸에서도 시간이 길이에 비례한다.
+const IMPORT_FOREIGN_AMOUNT_TOKEN_V22994 = /(?:[$¥€£]|(?<![A-Za-z])(?:USD|EUR|JPY|GBP|CNY|RMB|HKD|AUD|CAD|CHF|SGD|TWD|THB|VND|PHP|NZD)(?![A-Za-z]))\s*(?:[-−+]\s*)?\d(?:[\d,.]*\d)?(?:\s*[십백천만억])*|(?<![\d,.])\d(?:[\d,.]*\d)?(?:\s*[십백천만억])*\s*(?:[$¥€£]|(?:USD|EUR|JPY|GBP|CNY|RMB|HKD|AUD|CAD|CHF|SGD|TWD|THB|VND|PHP|NZD|dollars?|euros?|yen|yuan)(?![A-Za-z])|달러|유로|엔화|파운드|위안)/gi;
+// 머리글 없는 표에서 통화 코드·기호만 적힌 칸(제목 없는 통화 열).
+const IMPORT_FOREIGN_CODE_CELL_V22994 = /^(?:[$¥€£]|US\$|USD|EUR|JPY|GBP|CNY|RMB|HKD|AUD|CAD|CHF|SGD|TWD|THB|VND|PHP|NZD|달러|유로|엔|엔화|파운드|위안)$/i;
+
+function importForeignAmountRejectionV22994(rowNumber = 0, rawText = "") {
+  return { row: null, rejection: importRejection("ambiguous_amount", rowNumber, rawText), warnings: ["외화 금액을 원화로 자동 환산하지 않습니다."] };
+}
+
+// 칸 전체가 외화 금액인지(‘€1’·‘USD 1’·‘(-$100)’·‘000$’). 메모 속 외화(‘커피 €3’·‘PHP7 교재’)는 아니다.
+function importForeignAmountOnlyV22994(value = "") {
+  const text = String(value ?? "").normalize("NFKC");
+  const rest = text.replace(IMPORT_FOREIGN_AMOUNT_TOKEN_V22994, "");
+  return rest !== text && !rest.replace(/[\s()+\-−]/g, "");
+}
+
+function importForeignNaturalAmountV22994(text = "", amount = 0) {
+  const folded = String(text ?? "").normalize("NFKC");
+  const stripped = folded.replace(IMPORT_FOREIGN_AMOUNT_TOKEN_V22994, " ");
+  if (stripped === folded) return false;
+  const rest = parseTransaction(stripped, {});
+  return !rest.ok || rest.amount !== amount;
 }
 
 // V22.9.81: 머리글 없는 쉼표 표에 따옴표 없이 쓴 천 단위 쉼표(‘2026-07-15,5,000원,커피’)는 칸이 ‘5’·‘000원’으로 나뉘어, 0원인 ‘000원’이
@@ -959,30 +1007,49 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   if (incomeInfo.amount > 0 && expenseInfo.amount > 0) return { row: null, rejection: importRejection("both_income_expense", options.rowNumber, rawText), warnings };
 
   let chosen = incomeInfo.amount > 0 ? incomeInfo : expenseInfo.amount > 0 ? expenseInfo : amountInfo;
-  if (/\$|¥|USD|EUR|JPY|달러|유로|엔화/i.test(chosen.raw || "")) return {row:null,rejection:importRejection("ambiguous_amount",options.rowNumber,rawText),warnings:["외화 금액을 원화로 자동 환산하지 않습니다."]};
+  if (IMPORT_FOREIGN_MARK_V22994.test(chosen.raw || "")) return importForeignAmountRejectionV22994(options.rowNumber, rawText);
   let forcedType = incomeInfo.amount > 0 ? "income" : expenseInfo.amount > 0 ? "expense" : "";
   const anyAmountPresent = amountInfo.present || incomeInfo.present || expenseInfo.present;
+  let inferredAmount = false, inferredLocal = false;
   if (!chosen.amount && !canonicalImportValue(obj, "amount") && !canonicalImportValue(obj, "income") && !canonicalImportValue(obj, "expense")) {
     const amountCandidates = [];
+    let foreignAmountCell = false;
     for (const cell of contextCells || []) {
       if (!String(cell || "").trim() || parseImportDateCell(cell, options) || normalizeImportTypeValue(cell)) continue;
       const info = parseImportAmountCell(cell);
       if (info.amount > 0) amountCandidates.push(info);
+      else if (importForeignAmountOnlyV22994(info.raw)) foreignAmountCell = true;
     }
     const unique = [...new Map(amountCandidates.map((item) => [item.amount, item])).values()];
-    if (unique.length === 1) { chosen = unique[0]; warnings.push("금액 제목이 없어 행의 숫자에서 금액을 찾았습니다."); }
+    if (unique.length === 1) {
+      // V22.9.94 C-7: 찾은 금액 칸(같은 금액의 칸 모두)에 외화 표시가 있으면 머리글 경로처럼 거절한다. 외화 금액만 적힌 칸(‘€1’·‘USD 1’·‘000$’ —
+      // 따옴표 없는 천 단위 쉼표로 나뉜 ‘€1,234’·‘1,000$’)이 함께 있으면 남은 숫자(‘234’·‘1’)는 원화 표시가 있을 때만 금액으로 쓴다.
+      inferredLocal = amountCandidates.some((item) => IMPORT_LOCAL_MARK_V22994.test(item.raw || ""));
+      if (amountCandidates.some((item) => IMPORT_FOREIGN_MARK_V22994.test(item.raw || "")) || (foreignAmountCell && !inferredLocal)) return importForeignAmountRejectionV22994(options.rowNumber, rawText);
+      chosen = unique[0]; inferredAmount = true; warnings.push("금액 제목이 없어 행의 숫자에서 금액을 찾았습니다.");
+    }
     else if (unique.length > 1) return { row: null, rejection: importRejection("ambiguous_amount", options.rowNumber, rawText), warnings };
   }
 
   let naturalParsed = null;
   if (!chosen.amount && !anyAmountPresent) {
     naturalParsed = parseTransaction(contextText, {});
-    if (naturalParsed.ok) chosen = { amount: naturalParsed.amount, negative: false, present: true, valid: true, raw: String(naturalParsed.amount) };
+    if (naturalParsed.ok) {
+      // V22.9.94 C-7: 자연어로 읽은 금액이 외화 표시가 붙은 숫자(‘€100’·‘USD 100’·‘커피 $100’)에서 왔으면 거절한다.
+      if (importForeignNaturalAmountV22994(contextText, naturalParsed.amount)) return importForeignAmountRejectionV22994(options.rowNumber, rawText);
+      chosen = { amount: naturalParsed.amount, negative: false, present: true, valid: true, raw: String(naturalParsed.amount) };
+      inferredAmount = true;
+    }
   }
   if (!chosen.amount) return { row: null, rejection: importRejection(anyAmountPresent ? "invalid_amount" : "missing_amount", options.rowNumber, rawText), warnings };
   if (Math.abs(Math.round(Number(chosen.amount || 0))) > MAX_TRANSACTION_AMOUNT) {
     return { row: null, rejection: importRejection("amount_too_large", options.rowNumber, rawText), warnings };
   }
+  // V22.9.94 C-7: 머리글 없는 행에 통화 코드만 적힌 칸(‘2026-07-01,커피,100,USD’)이 있으면 찾은 금액이 원화인지 알 수 없다. 금액에 원화 표시가
+  // 없으면 저장 후보로 남기되 확인 필요로 두어 기본 선택하지 않는다(머리글 있는 표의 통화 열은 위에서 거절한다).
+  const foreignCodeCell = inferredAmount && obj.__mapped !== true && !inferredLocal
+    && [...safeArray(contextCells), ...safeArray(obj.__cells)].some((cell) => IMPORT_FOREIGN_CODE_CELL_V22994.test(String(cell ?? "").normalize("NFKC").trim()));
+  if (foreignCodeCell) warnings.push("같은 행에 외화 통화 표시가 있어 원화 금액인지 확인이 필요합니다. 확인 후 저장하세요.");
 
   const typeVal = canonicalImportValue(obj, "type");
   const normalizedType = normalizeImportTypeValue(typeVal);
@@ -1009,10 +1076,14 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const cancellation = !backup && /취소|승인취소|결제취소|cancel(?:led|lation)?|refund/i.test(contextText) && !/취소\s*수수료/.test(contextText);
   if (cancellation && !chosen.negative) warnings.push("취소 거래입니다. 원거래·취소 금액과 구분을 확인한 뒤 직접 선택하세요.");
   const genericNegative = chosen.negative && !String(typeVal || "").trim() && !forcedType;
-  if (!signedFile && chosen.negative && (normalizedType === "expense" || forcedType === "expense" || genericNegative)) {
+  // V22.9.94 C-8: 부호 파일(음수 = 지출)이라도 환불 말이 든 음수 행은 부호 규칙과 맞지 않는다(그런 파일의 환불은 양수다). 행 수로 뜻이 바뀌지
+  // 않게 한 행만 가져올 때와 같이 환급(수입)·확인 필요로 둔다. 예전에는 같은 행이 둘 이상이면 양수 지출로 기본 선택됐다.
+  const signedRefund = signedFile && chosen.negative && !backup && importRefundContextV22994(contextText);
+  if ((!signedFile || signedRefund) && chosen.negative && (normalizedType === "expense" || forcedType === "expense" || genericNegative)) {
     type = "income";
     refundFlipped = true;
     warnings.push("음수 금액이라 취소·환불(수입)로 처리했습니다. 확인 후 저장하세요.");
+    if (signedRefund) warnings.push("환불·취소 내용이 있는 음수 금액이라 파일의 부호 규칙(음수 = 지출)을 적용하지 않았습니다.");
   }
   // V22.9.76 감사 P1-3: 구분 열이 수입인데 금액이 음수면 수입 취소·정정이다. 예전에는 부호를 떼어 양수 수입으로 저장해
   // 수입이 오히려 늘었다. 음수 지출과 같은 규칙으로 반대 구분(지출)으로 돌리고, 확인 표시를 남겨 미리보기에서 기본 선택하지 않는다.
@@ -1058,7 +1129,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     raw_text: String(rawField || (backup ? memoVal : rawText)).slice(0, 500),
     _import_spender: String(spender || "").slice(0, 80),
     _import_warnings: warnings.slice(),
-    _import_needs_confirmation: refundFlipped || incomeReversed || cancellation || yearBasisReview,
+    _import_needs_confirmation: refundFlipped || incomeReversed || cancellation || yearBasisReview || foreignCodeCell,
   };
   return { row, rejection: null, warnings, twoDigitYear: isTwoDigitYearImportDate(dateVal) };
 }

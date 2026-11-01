@@ -199,8 +199,8 @@ globalThis.fetch = worldFetch;
 try {
   // ── 0. 관제 판 ─────────────────────────────────────────────────────────────
   await section("0 관제 판", async () => {
-    eq(model.MONITOR_VERSION, "1.4.0", "관제 판은 1.4.0 이다(1.3.0 → 1.4.0, V22.9.82 이용 현황. 1.3.0 은 V79:T-43 앱 표본 왕복 확인)");
-    eq((await (await monitor.fetch(new Request("https://monitor.example/health"), {}, {})).json()).version, "1.4.0", "/health 가 1.4.0 을 알린다");
+    eq(model.MONITOR_VERSION, "1.5.0", "관제 판은 1.5.0 이다(1.4.0 → 1.5.0, V22.9.94 예약 실행 경보·빈 사용량. 1.3.0 은 V79:T-43 앱 표본 왕복 확인)");
+    eq((await (await monitor.fetch(new Request("https://monitor.example/health"), {}, {})).json()).version, "1.5.0", "/health 가 1.5.0 을 알린다");
   });
 
   // ── 1. 관제 모델: 왕복 확인 표본의 종류와 기록 ─────────────────────────────────

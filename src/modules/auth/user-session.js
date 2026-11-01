@@ -6,7 +6,7 @@ import {
 import { pruneExpiringMap, rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { envFlagEnabled, normalizeBaseUrl } from "../public/site-config.js";
 import { safeError } from "../runtime/leases.js";
-import { constantTimeTextEqual, getCookie, redirectResponse } from "../runtime/http.js";
+import { constantTimeTextEqual, getCookie } from "../runtime/http.js";
 import { hmacSha256, requiredSecret } from "./crypto-admin-session.js";
 import { getSettingValue } from "../admin/settings-audit-pages.js";
 import { safeObject } from "../admin/backup-compare.js";
@@ -259,41 +259,11 @@ async function verifyUserSession(request, env) {
   }
 }
 
-function isMergedSessionRecoveryPath(pathname = "") {
-  const path = String(pathname || "");
-  // This script is fetched immediately after the analysis HTML. Running the
-  // account-merge recovery lookup again for a static asset adds database
-  // latency to first paint without any recovery benefit; the parent page has
-  // already performed the same check.
-  if (path === "/my/analysis/app.js") return false;
-  return path === "/my" || path.startsWith("/my/") || [
-    "/app", "/households", "/keyword-guide", "/payment-methods", "/reserve-plans",
-    "/analysis", "/calendar", "/budgets", "/categories",
-  ].includes(path);
-}
-
-async function mergedUserSessionRecoveryResponse(request, env, url) {
-  try {
-    if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
-    if (!isMergedSessionRecoveryPath(url.pathname)) return null;
-    if (url.pathname === "/my/logout" || url.pathname.startsWith("/auth/kakao/")) return null;
-    // V22.9.16: 통합 계정 확인을 먼저 부른다. 그 안에서 세션 판 확인과 사용자 행 조회가 나란히
-    // 나가고 원본 세션 결과도 같은 요청 캐시에 남으므로, 뒤의 원본 조회는 왕복 없이 끝난다.
-    // 예전 순서(원본 → 통합)는 둘을 줄줄이 기다려 모든 /my·/app 첫 화면에 한 단계를 보탰다.
-    const effectiveUserId = await verifyUserSession(request, env);
-    if (!effectiveUserId) return null;
-    const rawUserId = await verifyRawUserSession(request, env);
-    if (!rawUserId || effectiveUserId === rawUserId) return null;
-    const session = await makeUserSession(env, effectiveUserId);
-    return redirectResponse(`${url.pathname}${url.search}`, {
-      "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
-      "x-accountbook-session-recovered": "1",
-    });
-  } catch (err) {
-    rememberOpsEvent({ kind: "merged_session_recovery_deferred", severity: "warn", path: url?.pathname || "", method: request?.method || "GET", detail: safeError(err) });
-    return null;
-  }
-}
+// V22.9.94 C-5(외부 검토): 관리자 계정 통합 뒤 ‘보조 계정의 옛 웹 세션을 주 계정 세션으로 자동 복구’하던 V22.6.1 처리는 V22.9.30 S-4
+// (docs/codex/CLAUDE_REPORT_DISPOSITION_V22_9_30.md: "이전 raw ID 토큰을 primary 세션으로 자동 복구하지 않습니다")부터 한 번도 돌지 않았다 —
+// verifyUserSession 이 통합된 계정(merged: 키·‘(통합됨)’ 이름)의 세션을 먼저 거절해서, 복구 코드는 늘 null 로 끝났다. 복구를 되살리면 서명·만료·세션 판이
+// 맞는 옛 보조 계정 쿠키(다른 기기에 남은 것 포함, 최대 14일)가 그 계정이 들어가지 않던 주 계정 가계부까지 여는 세션이 된다. 그래서 되살리지 않고
+// 돌지 않던 본문(사용자 조회 두 번·세션 발급)과 라우터(worker/router.js)의 호출을 함께 지웠다. 통합된 보조 계정 쿠키는 지금처럼 다시 로그인하게 한다.
 
 function configuredPublicBaseUrl(env = {}) {
   return normalizeBaseUrl(env.PUBLIC_BASE_URL || env.SERVICE_BASE_URL || env.APP_BASE_URL || env.CANONICAL_BASE_URL || "");
@@ -378,7 +348,7 @@ function kakaoLoginUserKey(kakaoId = "") {
 export {
   getKakaoRedirectUri, getUserSessionVersion, identityMergeRedirectSettingsKey,
   inspectKakaoLoginConfig, kakaoLoginUserKey, makeUserSession, mergedMarkerFreeName,
-  mergedUserSessionRecoveryResponse, parseIdentityMergeRedirectValue, randomState,
-  resolveEffectiveUserId, rewireEffectiveUserCache, userSessionSecret, verifyUserSession,
+  parseIdentityMergeRedirectValue, randomState, resolveEffectiveUserId, rewireEffectiveUserCache,
+  userSessionSecret, verifyUserSession,
 };
 // @build:exports-end

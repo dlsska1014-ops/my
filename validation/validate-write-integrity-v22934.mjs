@@ -202,7 +202,9 @@ await fixture(async (fx) => {
   target.raw_text = "마트 장보기 148000원";
   const form = await editForm(fx, "tx-expense-1");
   await submitEdit(fx, form, { amount: "150000" });
-  ok(target.memo === "" && Number(target.amount) === 150000, "B14 금액만 고치면 비어 있던 메모에 원문(raw_text)을 넣지 않는다");
+  // V22.9.94 C-9: 수정은 조건부 PATCH 로 저장된다 — 픽스처의 PATCH 는 행 객체를 새로 만들므로 저장 뒤의 행을 다시 찾는다.
+  const saved = fx.db.transactions.find((item) => item.id === "tx-expense-1");
+  ok(saved?.memo === "" && Number(saved?.amount) === 150000, "B14 금액만 고치면 비어 있던 메모에 원문(raw_text)을 넣지 않는다");
 });
 
 // ── SIM-1 관리자 수정 모달 ──────────────────────────────────
@@ -224,7 +226,9 @@ await withClock("2026-07-15", async () => {
     const ambiguous = await send(new URLSearchParams([...base, ["type", "income"], ["type", "expense"]]));
     ok(query(ambiguous.headers.get("location"), "err") === "ambiguous_field" && income.type === "income" && !income.memo.includes("메모만"), "SIM-1 서로 다른 type 이 함께 오면 저장하지 않는다");
     const memoOnly = await send(new URLSearchParams([...base, ["type", "income"]]));
-    ok(query(memoOnly.headers.get("location"), "msg") === "updated" && income.type === "income" && income.memo.includes("메모만"), "SIM-1 수입 기록의 메모만 고치면 수입 그대로 저장된다");
+    // V22.9.94 C-9: 조건부 PATCH 저장은 픽스처의 행 객체를 새로 만든다 — 저장 뒤의 행을 다시 찾는다.
+    const savedIncome = fx.db.transactions.find((row) => row.id === "tx-income-1");
+    ok(query(memoOnly.headers.get("location"), "msg") === "updated" && savedIncome?.type === "income" && String(savedIncome?.memo || "").includes("메모만"), "SIM-1 수입 기록의 메모만 고치면 수입 그대로 저장된다");
   });
 });
 

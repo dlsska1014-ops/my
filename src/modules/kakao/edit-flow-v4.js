@@ -18,6 +18,7 @@ import {
   memberRecordOnlyRefusalText, myReturnLocation,
 } from "../my/access-control.js";
 import { isUncertainStorageWrite, kakaoNextStepReply, kakaoText } from "./response-builders.js";
+import { KAKAO_EDIT_AMOUNT_V4 } from "./edit-vocabulary.js";
 import {
   KAKAO_AUDIT_ACTOR_KIND, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq,
   getDailyKakaoRows, getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
@@ -31,9 +32,9 @@ import {
   withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
 } from "./edit-session-v4.js";
 import {
-  KAKAO_EDIT_DEFAULT_CATEGORIES, MAX_FAILS, compact, handleEditMessage, isExactKakaoEditFieldStart,
-  isKakaoAmountAnswer, isKakaoEditNotValue, isSessionExpired, josa, kakaoEditComplaintField,
-  kakaoEditTypeValue, startsWithKakaoEditField,
+  KAKAO_EDIT_DEFAULT_CATEGORIES, MAX_FAILS, MAX_TOTAL_TURNS, buildValuePrompt, compact,
+  handleEditMessage, isExactKakaoEditFieldStart, isKakaoAmountAnswer, isKakaoEditNotValue,
+  isSessionExpired, josa, kakaoEditComplaintField, kakaoEditTypeValue, startsWithKakaoEditField,
 } from "./edit-state-machine.js";
 import {
   KAKAO_ROLE_CHECK_FAILED_TEXT, readHouseholdRoleOrFailure, roleBlockedMessage,
@@ -378,6 +379,36 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
   return sendKakaoEditReplyV4(env, ctx, session, result?.reply || "", result?.nextSession || null);
 }
 
+// V22.9.94 C-1: 열린 수정 세션에 온 ‘5000원 아니야’·‘5000원 아니요’·‘오천원이 아닌데’ 는 바꿀 값도 새 기록도 아니다. 예전에는 금액과
+// 낱말이 있는 강한 입력이라 세션을 끝내고 5,000원 지출을 새로 저장했다(직접·방 모두, 고치던 4,500원은 그대로). 금액 하나 뒤에 부정
+// 끝맺음만 온 꼴일 때만 이렇게 읽는다. ‘5000원 아니고 6000원’ 처럼 값이 둘인 말과 다른 꼴은 예전 길 그대로다(상태 기계가 다시 묻는다).
+// 세션이 없거나 끝난 뒤의 같은 말은 이 판정에 오지 않는다(운영 동작 그대로).
+// 끝맺음은 ‘아니다’ 의 말끝만 받는다(아냐·아니라고·아니었어 …). 묻는 말(‘아닌가요’)·조건(‘아니면’)·다른 낱말(‘틀렸어’·‘안 냈어’)은 예전 길이다.
+const KAKAO_EDIT_NEGATED_AMOUNT_V22994 = new RegExp(String.raw`^(?:${KAKAO_EDIT_AMOUNT_V4}|[일이삼사오육칠팔구십백천만억]+[십백천만억])\s*(?:이|가|은|는)?\s*(?:아니(?:야|요|오|고|라|에요|예요|에여|예여|지요?|잖아요?|라고요?|라니까요?|거든요?|[었였]어요?)?|아냐|아녜요|아닌데요?|아닙니다|아님)\s*[?？!.~]*$`);
+
+function isKakaoEditNegatedAmountV22994(text = "") {
+  return KAKAO_EDIT_NEGATED_AMOUNT_V22994.test(normalizeText(text));
+}
+
+// 아무것도 바꾸지 않고 다시 묻는다. 값을 묻던 중이면 그 칸을, 메뉴·확인 단계면 무엇을 바꿀지 묻는다.
+// 상태 기계의 실패와 같게 센다(세 번째면 세션을 끝낸다. 대화 턴 상한도 같다).
+function kakaoEditNegatedAmountResultV22994(session = {}, utterance = "", config = {}, now = Date.now()) {
+  const repeatCount = (Number(session.repeatCount) || 0) + 1;
+  const totalTurns = (Number(session.totalTurns) || 0) + 1;
+  const log = { type: repeatCount >= MAX_FAILS ? "unrecognized_final" : "unrecognized", entryNo: session.entryNo, input: String(utterance || "").slice(0, 80), attempt: repeatCount };
+  if (repeatCount >= MAX_FAILS || totalTurns > MAX_TOTAL_TURNS) {
+    return { action: "cancel", log, nextSession: null, reply: `😅 ${session.entryNo}번 수정을 끝냈어요. 기록은 그대로예요.\n다시 하려면 한 줄로 보내 주세요:\n👉 수정 ${session.entryNo}번 금액 13000` };
+  }
+  const asking = session.step === "awaiting_value" && !!session.field;
+  const prompt = asking ? buildValuePrompt(session.field, { ...config, rowType: config.rowType || session.rowType }) : null;
+  return {
+    action: "reprompt",
+    log,
+    reply: `⚠️ 아니라고 하셔서 바꾸지 않았어요. 기록은 그대로예요.\n✏️ ${prompt ? prompt.prompt : "무엇을 바꿀까요? 번호(1~8)나 ‘금액 13000’처럼 보내 주세요."}\n(그만하려면: 취소)`,
+    nextSession: { ...session, step: asking ? "awaiting_value" : "awaiting_field", ...(prompt ? { valueOptions: prompt.options } : {}), pendingField: null, pendingValue: null, repeatCount, totalTurns, updatedAt: now },
+  };
+}
+
 // 3장 3단계: 유효 세션 보유 사용자의 메시지는 전부 이 경로가 소비한다.
 async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction = false, sessionRaw = undefined }) {
   const session = await getKakaoEditSessionV4(env, kakaoUserKey, payload, sessionRaw);
@@ -394,13 +425,17 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
     return null;
   }
   // T6: 항목 이름 없이 온 분명한 새 기록(금액+내용)은 수정 값이 아니다. 세션을 끝내고 기록 경로로 넘긴다.
-  if (newTransaction && !startsWithKakaoEditField(utterance)) {
+  // V22.9.94 C-1: ‘5000원 아니야’ 는 금액과 낱말이 있어 여기서 새 기록으로 넘어갔다. 새 기록도 값도 아니다.
+  const negatedAmount = isKakaoEditNegatedAmountV22994(utterance);
+  if (newTransaction && !negatedAmount && !startsWithKakaoEditField(utterance)) {
     await saveKakaoEditSessionV4(env, kakaoUserKey, payload, null);
     return { passThrough: true, notice: `✏️ ${session.entryNo}번 수정은 끝내고, 보낸 내용을 새 기록으로 처리했어요.\n` };
   }
   const text = isKakaoEditCancelCommand(utterance) ? "취소" : utterance;
   const config = await buildKakaoEditConfigV4(env, session.householdId, session.rowType);
-  const result = handleEditMessage(session, text, { ...config, now: Date.now() });
+  const result = negatedAmount
+    ? kakaoEditNegatedAmountResultV22994(session, utterance, config, Date.now())
+    : handleEditMessage(session, text, { ...config, now: Date.now() });
   // V22.9.81 U-4: sessionStored — 저장된 세션에 온 답이다(역할 조회가 실패하면 이 세션을 그대로 둔다).
   return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin, sessionStored: true }, session, result, config);
 }

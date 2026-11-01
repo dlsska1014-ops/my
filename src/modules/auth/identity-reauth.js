@@ -248,17 +248,20 @@ async function readQuickUndoTicket(env, ticket = "", userId = "") {
 // 화면은 5초 동안 ‘되돌리기’를 둔다. 지운 서버가 이 로그인 사용자가 방금 지운 기록 한 건에만 용도 표(delete-restore)를 서명해 삭제 응답(JSON)에 싣는다.
 // 표: 기록 번호(r)·가계부(h)·지운 사용자(u)·지운 시각(d, 초). 금액·메모는 싣지 않는다 — 되살릴 값은 /my/restore 가 DB 감사 기록(지운 행 전체)에서 읽는다.
 // 화면이 단추를 두는 시간은 5초지만 표는 60초까지 받는다(지운 뒤 화면을 다시 불러오는 시간·느린 망). 받는 곳은 /my/restore(my/transactions.js) 하나다.
+// V22.9.94 C-4(외부 검토): 표에 그 삭제가 남긴 감사 기록 번호(a — 삭제 한 번의 고유 번호)를 함께 서명한다. 되살릴 때 그 기록의 가장 최근 삭제가 이
+// 번호일 때만 되살리므로(domain/transactions-core.js fetchDeletedTransactionAudit) 한 표가 뒤의 다른 삭제를 되돌리지 않는다. 번호가 없으면 표를
+// 만들지 않고, 번호가 없는 표(배포 전에 만든 표 — 길어야 60초)는 읽지 않는다.
 const DELETE_RESTORE_SECONDS = 60;
-async function makeDeleteRestoreTicket(env, { transactionId = "", householdId = "", userId = "" } = {}) {
-  if (!transactionId || !householdId || !userId) return "";
-  return signedPurposeToken(env, "delete-restore", { r: String(transactionId), h: String(householdId), u: String(userId), d: Math.floor(Date.now() / 1000) }, DELETE_RESTORE_SECONDS);
+async function makeDeleteRestoreTicket(env, { transactionId = "", householdId = "", userId = "", auditId = "" } = {}) {
+  if (!transactionId || !householdId || !userId || !String(auditId || "")) return "";
+  return signedPurposeToken(env, "delete-restore", { r: String(transactionId), h: String(householdId), u: String(userId), d: Math.floor(Date.now() / 1000), a: String(auditId) }, DELETE_RESTORE_SECONDS);
 }
 
 async function readDeleteRestoreTicket(env, ticket = "", userId = "") {
   if (!ticket || !userId) return null;
   let payload = null;
   try { payload = await readPurposeToken(env, "delete-restore", String(ticket)); } catch (_) { return null; }
-  if (!payload || !payload.r || !payload.h || !(Number(payload.d) > 0) || String(payload.u || "") !== String(userId)) return null;
+  if (!payload || !payload.r || !payload.h || !String(payload.a ?? "") || !(Number(payload.d) > 0) || String(payload.u || "") !== String(userId)) return null;
   return payload;
 }
 

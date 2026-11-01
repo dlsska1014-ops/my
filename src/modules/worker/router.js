@@ -21,9 +21,9 @@ import {
 import { handlePublicContentPage, publicDocumentResponse } from "../public/content-pages.js";
 import { logWorkerError, safeError } from "../runtime/leases.js";
 import {
-  browserFormRequestFailed, emergencyReturnUrl, headOnlyResponse, htmlResponse, isExplicitAdminUrl,
-  isJsonApiPath, isMobileRequest, jsonResponse, mobileAppLocation, redirectPublicAwayFromAdmin,
-  redirectResponse, renderEmergencyErrorHtml, safeHtmlRoute,
+  browserFormRequestFailed, constantTimeTextEqual, emergencyReturnUrl, headOnlyResponse,
+  htmlResponse, isExplicitAdminUrl, isJsonApiPath, isMobileRequest, jsonResponse, mobileAppLocation,
+  redirectPublicAwayFromAdmin, redirectResponse, renderEmergencyErrorHtml, safeHtmlRoute,
 } from "../runtime/http.js";
 import {
   kakaoSkillAuthSnapshot, skillLatencySnapshot, verifyAdminSession,
@@ -50,8 +50,9 @@ import {
 } from "../import/flexible-import-parser.js";
 import { getScopedHouseholdsForPage } from "../data/households-members-rows.js";
 import {
-  checkRpcAvailable, checkTableAvailable, handleRecordFlowAuditPage, handleRouteAuditPage,
-  handleSettingsPage, handleSettingsPasswordUpdate, handleTopTabAuditPage,
+  READINESS_EXTRA_CORE_RPCS_V22994, checkRpcAvailable, checkTableAvailable,
+  handleRecordFlowAuditPage, handleRouteAuditPage, handleSettingsPage, handleSettingsPasswordUpdate,
+  handleTopTabAuditPage, opsCronStatusV22994,
 } from "../admin/settings-audit-pages.js";
 import {
   handleAdminExportJson, handleBackupCenterPage, handleBackupComparePage, handleBackupComparePost,
@@ -108,7 +109,7 @@ import {
   handleWelcomeLinkGuidePage,
 } from "../admin/nlu-openbuilder-ops.js";
 import { handleBeginnerGuidePage, handleUnifiedMenuPage } from "../web/menu-and-guides.js";
-import { mergedUserSessionRecoveryResponse, verifyUserSession } from "../auth/user-session.js";
+import { verifyUserSession } from "../auth/user-session.js";
 import { boundedFormRequest, handleAccountReauth } from "../auth/identity-reauth.js";
 import {
   handleKakaoLoginCallback, handleKakaoLoginStart, handleMyLogout,
@@ -211,6 +212,67 @@ function scrubPrototypePollution(where = "") {
   return polluted.length;
 }
 
+// V22.9.94 R-2: /ready 는 인증 없는 공개 GET 인데 부를 때마다 Supabase 를 표 14·함수 18 = 32번 불렀다(이 판부터 함수 19). 같은 인스턴스에서는
+// 마지막 점검 결과(성공·실패 모두)를 60초 동안 다시 쓰고, 다시 쓴 답에는 cached:true 와 실제 점검 시각 checked_at 을 붙인다.
+// 판·카카오 인증·광고 칸처럼 설정에서 나오는 값은 요청마다 새로 계산한다. 진행 중인 점검을 다른 요청과 나누지 않는다(Workers 는 입출력이
+// 요청에 묶인다). 시계는 qaFixedNowMs()(검사가 고정·이동한다)이고, 시계가 점검 시각보다 앞이면 다시 쓰지 않는다. 같은 Supabase 주소·
+// 환불 연결 플래그·전송(globalThis.fetch)일 때만 다시 쓴다(운영에서는 전송이 늘 같고, 검사 픽스처는 장면마다 바꿔 끼워 서로 섞이지 않는다).
+const READINESS_CACHE_MS_V22994 = 60000;
+let readinessCacheV22994 = null;
+
+async function readinessReportV22994(env) {
+  const refundEnabled = !!refundLinksEnabled(env);
+  const key = `${String(env.SUPABASE_URL || "")}|${refundEnabled ? "refund" : "-"}`;
+  const transport = globalThis.fetch;
+  const now = qaFixedNowMs();
+  const cached = readinessCacheV22994;
+  if (cached && cached.key === key && cached.transport === transport && now >= cached.at && now - cached.at < READINESS_CACHE_MS_V22994) {
+    return { ...cached.report, cached: true };
+  }
+  // 같은 함수를 두 번 점검하지 않는다(나중에 V88 함수가 config-readiness.js 목록으로 옮겨 가도 그대로 19개).
+  const coreRpcs = [...new Set([...READINESS_CORE_RPCS, ...READINESS_EXTRA_CORE_RPCS_V22994])];
+  const [checks, optionalChecks, rpcResults, alternativeRpcResults, refundLinksReady] = await Promise.all([
+    Promise.all(READINESS_REQUIRED_TABLES.map((name) => checkTableAvailable(env, name))),
+    Promise.all(READINESS_OPTIONAL_TABLES.map((name) => checkTableAvailable(env, name))),
+    Promise.all(coreRpcs.map((name) => checkRpcAvailable(env, name))),
+    Promise.all(READINESS_ALTERNATIVE_RPC_GROUPS.map(async (group) => Promise.all(group.map((name) => checkRpcAvailable(env, name))))),
+    refundEnabled ? refundLinksReadiness(env) : null,
+  ]);
+  const failedGroups = READINESS_ALTERNATIVE_RPC_GROUPS.map((group, index) => ({ group, results: alternativeRpcResults[index] })).filter((item) => !item.results.some((result) => result.ok));
+  const missingRpcs = [...coreRpcs.filter((_name, index) => !rpcResults[index].ok), ...failedGroups.map((item) => item.group.join("|"))];
+  // missing_rpcs 는 예전처럼 쓸 수 없는 함수 이름 전부다. 함수 없음(missing)이 아닌 실패(권한·불일치·확인 불가)는 분류와 원인 코드를
+  // rpc_failures 로 함께 알린다(대체 묶음은 묶음 전체가 실패일 때만).
+  const rpcFailures = [
+    ...coreRpcs.map((name, index) => ({ rpc: name, result: rpcResults[index] })),
+    ...failedGroups.flatMap((item) => item.group.map((name, index) => ({ rpc: name, result: item.results[index] }))),
+  ].filter((item) => !item.result.ok && item.result.status !== "missing").map((item) => ({ rpc: item.rpc, status: item.result.status, reason: item.result.reason }));
+  const failedTables = READINESS_REQUIRED_TABLES.filter((_name, index) => !checks[index].ok);
+  const report = {
+    ready: failedTables.length === 0 && missingRpcs.length === 0,
+    checkedRpcs: coreRpcs.length + READINESS_ALTERNATIVE_RPC_GROUPS.reduce((sum, group) => sum + group.length, 0),
+    failedTables,
+    unavailableOptionalTables: READINESS_OPTIONAL_TABLES.filter((_name, index) => !optionalChecks[index].ok),
+    missingRpcs,
+    rpcFailures,
+    refundLinksReady,
+    checkedAt: new Date(now).toISOString(),
+  };
+  readinessCacheV22994 = { key, transport, at: now, report };
+  return { ...report, cached: false };
+}
+
+// V22.9.94 R-4: 관제 1.5.0 은 이용 현황 요청(한 시간에 한 번)에 x-ab-monitor-cron: 1 을 실어 앱 예약 실행의 마지막 기록을 함께 받는다.
+// 인증은 abMonitorUsageProbe 와 같은 토큰 비교이고, 틀리면 그 함수의 401 을 그대로 낸다(기록을 읽지 않는다). 기록 읽기(Supabase 한 번)는
+// 이용 현황 집계와 함께 돌고, 실패해도 이용 현황 답(200·503)은 그대로이며 cron 칸만 ok:false 다. 머리가 없으면 이 함수를 거치지 않는다.
+async function opsUsageWithCronV22994(request, env) {
+  if (!env.OPS_MONITOR_TOKEN || !constantTimeTextEqual(request.headers.get("authorization") || "", `Bearer ${env.OPS_MONITOR_TOKEN}`)) return await abMonitorUsageProbe(request, env);
+  const [response, cron] = await Promise.all([abMonitorUsageProbe(request, env), opsCronStatusV22994(env)]);
+  let body = null;
+  try { body = JSON.parse(await response.text()); } catch (_) { body = null; }
+  if (!body || typeof body !== "object" || Array.isArray(body)) body = { ok: false, error_code: "invalid_reply" };
+  return jsonResponse({ ...body, cron }, response.status);
+}
+
 const ACCOUNTBOOK_WORKER = {
   async fetch(request, env, ctx) {
     scrubPrototypePollution("fetch:start");
@@ -240,7 +302,9 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       // V22.9.82: 관제 1.4.0 의 이용 현황 수집(한 시간에 한 번, 같은 토큰). 합계 숫자만 답한다.
+      // V22.9.94 R-4: 관제 1.5.0 이 x-ab-monitor-cron: 1 을 보내면 예약 실행 마지막 기록(cron 칸)을 붙인다. 머리가 없으면 예전 답 그대로다.
       if (url.pathname === "/internal/ops-usage" && request.method === "GET") {
+        if (request.headers.get("x-ab-monitor-cron") === "1") return await opsUsageWithCronV22994(request, env);
         return await abMonitorUsageProbe(request, env);
       }
 
@@ -259,9 +323,8 @@ const ACCOUNTBOOK_WORKER = {
       const appIcon = await appIconAssetResponse(request, url);
       if (appIcon) return appIcon;
 
-      // V22.6.1: 통합된 보조 계정의 오래된 웹 세션을 주 계정 세션으로 자동 복구합니다.
-      const recoveredUserSession = await mergedUserSessionRecoveryResponse(request, env, url);
-      if (recoveredUserSession) return recoveredUserSession;
+      // V22.9.94 C-5: V22.6.1 의 ‘통합된 보조 계정의 옛 웹 세션을 주 계정 세션으로 자동 복구’ 호출은 V22.9.30 S-4 뒤로 한 번도 돌지 않던
+      // 죽은 코드라 지웠다(auth/user-session.js 의 설명 참고). 통합된 보조 계정 쿠키는 다시 로그인한다.
 
       const trafficGuard = checkTrafficGuard(request, env, url);
       if (!trafficGuard.ok) return trafficLimitedResponse(url, request, trafficGuard, env);
@@ -758,21 +821,10 @@ const ACCOUNTBOOK_WORKER = {
         // V22.9.40 (B): ads_mode 는 운영자가 광고 게이트 상태("review"|"live")를 확인하는 값이다. /health 의 모양은 바꾸지 않는다. V22.9.92: ads_mode 에 "adfit"(카카오 애드핏)이 생겼고, 그때만 광고 단위 상태 adfit_unit("ok"·"missing")를 더한다.
         if (missing.length) return jsonResponse({ ok: false, ready: false, error: "missing_required_configuration", reason: "missing_required_configuration", message: "필수 설정이 비어 있어 요청을 처리할 수 없습니다.", missing_count: missing.length, ads_mode: adsMode(env), ...(adfitUnitStatus(env) ? { adfit_unit: adfitUnitStatus(env) } : {}) }, 503);
         // V22.9.79 D-5: 환불 연결은 플래그가 켜졌을 때만 따로 알린다(ready 판정·필수 표 13개에는 넣지 않는다).
-        const [checks, optionalChecks, rpcResults, alternativeRpcResults, refundLinksReady] = await Promise.all([
-          Promise.all(READINESS_REQUIRED_TABLES.map((name) => checkTableAvailable(env, name))),
-          Promise.all(READINESS_OPTIONAL_TABLES.map((name) => checkTableAvailable(env, name))),
-          Promise.all(READINESS_CORE_RPCS.map((name) => checkRpcAvailable(env, name))),
-          Promise.all(READINESS_ALTERNATIVE_RPC_GROUPS.map(async (group) => Promise.all(group.map((name) => checkRpcAvailable(env, name))))),
-          refundLinksEnabled(env) ? refundLinksReadiness(env) : null,
-        ]);
-        const failed = READINESS_REQUIRED_TABLES.filter((_name, index) => !checks[index].ok);
-        const unavailableOptionalTables = READINESS_OPTIONAL_TABLES.filter((_name, index) => !optionalChecks[index].ok);
-        const missingRpcs = READINESS_CORE_RPCS.filter((_name, index) => !rpcResults[index].ok);
-        const missingAlternativeRpcs = READINESS_ALTERNATIVE_RPC_GROUPS.filter((_group, index) => !alternativeRpcResults[index].some((result) => result.ok)).map((group) => group.join("|"));
-        const allMissingRpcs = [...missingRpcs, ...missingAlternativeRpcs];
-        const ready = failed.length === 0 && allMissingRpcs.length === 0;
-        const checkedRpcCount = READINESS_CORE_RPCS.length + READINESS_ALTERNATIVE_RPC_GROUPS.reduce((sum, group) => sum + group.length, 0);
-        return jsonResponse({ ok: ready, ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, unavailable_optional_tables: unavailableOptionalTables, missing_rpcs: allMissingRpcs, ads_mode: adsMode(env), ...(adfitUnitStatus(env) ? { adfit_unit: adfitUnitStatus(env) } : {}), ...(refundLinksReady ? { refund_links: refundLinksReady } : {}), time: new Date().toISOString() }, ready ? 200 : 503);
+        // V22.9.94 R-2: 점검은 readinessReportV22994 가 하고 60초 동안 다시 쓴다. 칸 순서는 V22.9.93 그대로이고, 함수 없음이 아닌 실패가
+        // 있을 때만 rpc_failures 를, 다시 쓴 답일 때만 cached·checked_at 을 더한다.
+        const report = await readinessReportV22994(env);
+        return jsonResponse({ ok: report.ready, ready: report.ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: report.checkedRpcs, failed_tables: report.failedTables, unavailable_optional_tables: report.unavailableOptionalTables, missing_rpcs: report.missingRpcs, ...(report.rpcFailures.length ? { rpc_failures: report.rpcFailures } : {}), ads_mode: adsMode(env), ...(adfitUnitStatus(env) ? { adfit_unit: adfitUnitStatus(env) } : {}), ...(report.refundLinksReady ? { refund_links: report.refundLinksReady } : {}), ...(report.cached ? { cached: true, checked_at: report.checkedAt } : {}), time: new Date().toISOString() }, report.ready ? 200 : 503);
       }
 
       if ((url.pathname === "/nlu-intents.json" || url.pathname === "/nlu-runtime.json") && request.method === "GET") {

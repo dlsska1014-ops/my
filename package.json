@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.93",
+  "version": "22.9.94",
   "private": true,
   "type": "module",
   "engines": {
@@ -78,6 +78,12 @@
     "validate:user-feedback-v22990": "node validation/validate-user-feedback-v22990.mjs",
     "validate:identity-link-v22991": "node validation/validate-identity-link-v22991.mjs",
     "validate:launch-fixes-v22993": "node validation/validate-launch-fixes-v22993.mjs",
+    "validate:review-fixes-v22994": "node validation/validate-v22994-review-fixes.mjs",
+    "validate:kakao-v22994": "node validation/validate-v22994-kakao.mjs",
+    "validate:import-v22994": "node validation/validate-v22994-import.mjs",
+    "validate:admin-v22994": "node validation/validate-v22994-admin.mjs",
+    "validate:cron-v22994": "node validation/validate-v22994-cron.mjs",
+    "validate:ops-v22994": "node validation/validate-v22994-ops.mjs",
     "validate:adfit-gate-v22992": "node validation/validate-adfit-gate-v22992.mjs",
     "validate:demo-tour-v22992": "node validation/validate-demo-tour-v22992.mjs",
     "preview:public": "node tools/preview-public.mjs",

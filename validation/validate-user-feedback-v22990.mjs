@@ -76,7 +76,8 @@ await withAudit(async (fx) => {
   t.ok(!!(await readDeleteRestoreTicket(fx.env, params(form.location).get("restore"), "user-bin")), "1 JS 없는 폼 삭제에도 되살리기 표가 실린다");
 });
 
-await fixture(async (fx) => {
+// V22.9.94 C-4: 표는 그 삭제가 남긴 감사 기록 번호를 싣는다 — 감사 기록을 남기는 픽스처(운영과 같음)에서 본다.
+await withAudit(async (fx) => {
   // 관리자 세션은 표를 받지 않고, 돌아갈 주소에 남아 있던 앞선 삭제의 표도 지운다(단추가 다른 기록을 되살리지 않게).
   const admin = await app.fetch(new Request(`${BASE}/admin/delete`, {
     method: "POST",
@@ -113,7 +114,8 @@ await withAudit(async (fx) => {
   t.eq(restoreForm(await home(fx, `${HOME}&msg=deleted&restore=${encodeURIComponent(forged)}`)), "", "2 고친 표에는 단추가 없다");
   const wifi = await fx.cookieFor("user-wifi");
   t.eq(restoreForm(await home(fx, location, wifi)), "", "2 다른 사용자 화면에는 단추가 없다");
-  const tripTicket = await makeDeleteRestoreTicket(fx.env, { transactionId: "tx-expense-2", householdId: "house-trip", userId: "user-bin" });
+  const tripTicket = await makeDeleteRestoreTicket(fx.env, { transactionId: "tx-expense-2", householdId: "house-trip", userId: "user-bin", auditId: "audit-delete-1" });
+  t.ok(!!tripTicket, "2 (V22.9.94) 감사 번호가 있으면 다른 가계부 표도 만들어진다(단추는 가계부가 달라 없다)");
   t.eq(restoreForm(await home(fx, `${HOME}&msg=deleted&restore=${encodeURIComponent(tripTicket)}`)), "", "2 다른 가계부의 표에는 단추가 없다");
   t.eq(restoreForm(await home(fx, `${HOME}&msg=added&restore=${encodeURIComponent(ticket)}`)), "", "2 삭제 알림이 아니면 단추가 없다");
   const expired = await signedPurposeToken(fx.env, "delete-restore", { r: "tx-expense-2", h: HH, u: "user-bin", d: Math.floor(Date.now() / 1000) - 120 }, -1);
@@ -171,7 +173,8 @@ await withAudit(async (fx) => {
   // 감사 기록이 없거나(다른 경로로 지움·2분 넘음) 다른 사람이 지운 기록이면 되살리지 않는다.
   // tx-expense-1 은 감사 없이(다른 경로로) 사라진 기록으로 둔다. 남아 있는 기록이면 ‘이미 있음 = 되살림’으로 답한다(아래 3 다시 누르기).
   fx.db.transactions = fx.db.transactions.filter((row) => row.id !== "tx-expense-1");
-  const other = await makeDeleteRestoreTicket(fx.env, { transactionId: "tx-expense-1", householdId: HH, userId: "user-bin" });
+  const other = await makeDeleteRestoreTicket(fx.env, { transactionId: "tx-expense-1", householdId: HH, userId: "user-bin", auditId: "audit-delete-99" });
+  t.ok(!!other, "3 (V22.9.94) 감사 번호를 실은 표를 만든다");
   t.eq(errOf(await restore(fx, other)), "restore_expired", "3 감사 기록이 없으면 되살리지 않는다");
   fx.db.accountbook_transaction_audit[0].actor_user_id = "user-wifi";
   t.eq(errOf(await restore(fx, ticket)), "restore_changed", "3 그 기록의 가장 최근 삭제를 다른 사람이 했으면 되살리지 않는다(restore_changed)");
@@ -211,8 +214,11 @@ await withAudit(async (fx) => {
   audit.at(-1).actor_user_id = "user-bin"; audit.at(-1).actor_kind = "user";
   audit.at(-1).created_at = new Date(Date.now() + 60 * 1000).toISOString();
   t.eq(errOf(await restore(fx, ticket)), "restore_changed", "3 내가 30초 넘게 뒤에 다시 지운 기록도 옛 표로는 되살리지 않는다(그 삭제의 새 표를 쓴다)");
+  // V22.9.94 C-4(외부 검토): 예전에는 ‘지운 시각 30초 안의 내 삭제’(서버·DB 시계 차이 여유)를 표의 삭제로 봐서, 곧바로 다시 지운 두 번째 삭제를
+  // 첫 표가 되돌렸다. 이제 표는 그 삭제의 감사 기록 번호를 싣고 번호가 같을 때만 되살린다 — 1초 뒤의 내 삭제도 다른 삭제다.
   audit.at(-1).created_at = new Date(Date.now() + 1000).toISOString();
-  t.eq(params((await restore(fx, ticket)).location).get("msg"), "restored", "3 지운 시각 30초 안의 내 삭제면 되살린다(서버·DB 시계 차이 여유)");
+  t.eq(errOf(await restore(fx, ticket)), "restore_changed", "3 내가 곧바로(30초 안) 다시 지운 기록도 옛 표로는 되살리지 않는다(삭제 번호가 다르다)");
+  t.eq(rowsOf(fx, "tx-expense-2").length, 0, "3 (V22.9.94) 옛 표를 거절하면 뒤 삭제는 그대로 남는다");
 });
 
 // 가져오기로 넣은 기록(source my_import)은 가져오기 저장 경로(accountbook_commit_import_v22960)로 되살리고 번호로 다시 확인한다(카카오 ‘복구’와 같다).

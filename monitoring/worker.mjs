@@ -115,14 +115,18 @@ async function collectD1(env,now) {
   const body=await fetchJson("https://api.cloudflare.com/client/v4/graphql",{method:"POST",headers:{authorization:`Bearer ${env.CF_ANALYTICS_TOKEN}`,"content-type":"application/json"},body:JSON.stringify({query})});
   if(body.errors?.length) throw new Error("graphql_error");
   const data=body.data?.viewer?.accounts?.[0];
-  if(!data||!Array.isArray(data.usage)||!Array.isArray(data.storage)||!data.usage.length||!data.storage.length) throw new Error("empty_result");
+  // 1.5.0(V22.9.94 C-6): 그날 행이 아직 없는 빈 배열(UTC 하루 첫 몇 분·집계 지연)은 실패가 아니라 데이터 대기다. 예전에는 빈 배열도
+  // empty_result 로 던져 아래 0 처리에 닿지 못했다(수집 실패 · D1 세 칸 확인 불가). 빈 사용량은 읽기·쓰기 0, 빈 저장 용량은 null(확인 불가)로
+  // 두고 대기 표시를 남긴다. 계정이 없거나 칸이 배열이 아닌 것·숫자가 아닌 값만 실패다.
+  if(!data||!Array.isArray(data.usage)||!Array.isArray(data.storage)) throw new Error("empty_result");
   if(data.storage.length>=100) throw new Error("truncated_result");
-  const rowsRead=data.usage.length?numberOrNull(data.usage[0].sum?.rowsRead):0;
-  const rowsWritten=data.usage.length?numberOrNull(data.usage[0].sum?.rowsWritten):0;
+  const usagePending=!data.usage.length, storagePending=!data.storage.length;
+  const rowsRead=usagePending?0:numberOrNull(data.usage[0]?.sum?.rowsRead);
+  const rowsWritten=usagePending?0:numberOrNull(data.usage[0]?.sum?.rowsWritten);
   if(rowsRead===null||rowsWritten===null) throw new Error("unsupported_fields");
-  const sizes=data.storage.map(row=>numberOrNull(row.max?.databaseSizeBytes));
+  const sizes=data.storage.map(row=>numberOrNull(row?.max?.databaseSizeBytes));
   if(sizes.some(size=>size===null)) throw new Error("unsupported_fields");
-  return {rows_read:rowsRead,rows_written:rowsWritten,storage_bytes:sizes.reduce((a,b)=>a+b,0),day:now.toISOString().slice(0,10),scope:"account",storage_measure:"sum_of_daily_database_maxima",sampled:true};
+  return {rows_read:rowsRead,rows_written:rowsWritten,storage_bytes:storagePending?null:sizes.reduce((a,b)=>a+b,0),day:now.toISOString().slice(0,10),scope:"account",storage_measure:"sum_of_daily_database_maxima",sampled:true,...(usagePending?{usage_pending:true}:{}),...(storagePending?{storage_pending:true}:{})};
 }
 
 export async function collectUptime(env,now) {
@@ -236,13 +240,71 @@ async function collectSupabasePlan(env) {
 const USAGE_ERROR=/^[a-z0-9_]{1,40}$/;
 // 이 수집기가 스스로 정한 코드만 usage_code 로 달아 그대로 남긴다. 나머지(시한·연결 끊김·크기 초과)는 failureCode 가 정한다.
 const usageFail=code=>Object.assign(new Error(code),{usage_code:code});
-async function fetchUsage(env) {
+
+// ── 1.5.0(V22.9.94 R-4) 앱 예약 실행 경보 ────────────────────────────────────────
+// 앱의 예약 실행(매일 09:10 KST: 정기 거래 반영·자동 리포트·기록 정리)이 실패하거나 돌지 않아도 관제는 몰랐다(기록은 앱 /ops-dashboard 에만 있었다).
+// 이용 현황 요청(55분마다)에 x-ab-monitor-cron: 1 을 실으면 앱 V22.9.94 는 답에 cron(마지막 실행 시각·결과·첫 오류 코드·판·rev)을 붙인다.
+// 이용 현황의 성공·실패와 따로 settings 'cron' 한 행에 적는다(collector_state 가 아니라서 1.4.0 으로 되돌려도 수집 상태 표에 모르는 행이 남지 않는다).
+// 앱이 cron 을 붙이지 않으면(V22.9.93 이하·401·404·연결 실패) 아무것도 쓰지 않는다. 판정은 cronView, 경고·확인되지 않은 항목은 summary 가 정한다.
+const CRON_STALE_MS=130*60000;   // 이용 현황과 같은 기준: 성공 뒤 130분 넘게 새 기록을 받지 못하면 확인 지연
+const CRON_MISSED_MS=26*3600000; // 관제가 기록을 받은 시각에 마지막 실행이 26시간보다 오래면 누락(매일 한 번 + 여유)
+const CRON_CODE=/^[a-z0-9][a-z0-9_:.-]{0,59}$/;
+const CRON_VERSION=/^V[0-9A-Za-z._-]{1,47}$/;
+const isPlainObject=value=>value!==null&&typeof value==="object"&&!Array.isArray(value);
+// 핵심(마지막 실행 시각·결과)이 계약과 다르면 통째로 버리고(invalid_reply), 덧붙은 칸(오류 코드·판·rev)은 그 칸만 버린다.
+function cronData(input) {
+  const reject=()=>{ throw new Error("invalid_reply"); };
+  if(!isPlainObject(input)) reject();
+  const runAt=input.last_run_at===null?null:typeof input.last_run_at==="string"&&input.last_run_at.length<=40&&/^\d{4}-\d{2}-\d{2}T/.test(input.last_run_at)&&Number.isFinite(Date.parse(input.last_run_at))?new Date(Date.parse(input.last_run_at)).toISOString():reject();
+  const status=runAt===null?null:["ok","partial","error"].includes(input.last_status)?input.last_status:reject();
+  return {last_run_at:runAt,last_status:status,last_error:runAt!==null&&typeof input.last_error==="string"&&CRON_CODE.test(input.last_error)?input.last_error:null,version:runAt!==null&&typeof input.version==="string"&&CRON_VERSION.test(input.version)?input.version:null,rev:Number.isSafeInteger(input.rev)&&input.rev>=0?input.rev:null};
+}
+// 앱이 기록을 읽지 못했거나(cron.ok false) 계약 밖 값이면 마지막으로 받은 자료와 성공 시각은 그대로 두고 상태·코드만 바꾼다.
+function cronRecord(previous,reply,at) {
+  const prev=isPlainObject(previous)?previous:{};
+  const kept={last_success_at:typeof prev.last_success_at==="string"?prev.last_success_at:null,data:isPlainObject(prev.data)?prev.data:null};
+  if(isPlainObject(reply)&&reply.ok===true) { try { return {status:"ok",error_code:null,last_attempt_at:at,last_success_at:at,data:cronData(reply)}; } catch(_) { return {status:"error",error_code:"invalid_reply",last_attempt_at:at,...kept}; } }
+  const code=isPlainObject(reply)&&reply.ok===false&&typeof reply.error_code==="string"&&CRON_CODE.test(reply.error_code)?reply.error_code:"invalid_reply";
+  return {status:"error",error_code:code,last_attempt_at:at,...kept};
+}
+// 상태: never(기록 없음)·ok·partial·error(마지막 실행 결과)·missed(26시간 넘게 실행 없음 또는 실행 기록 없음)·stale(130분 넘게 새 기록 없음).
+// 누락은 관제가 기록을 받은 시각(last_success_at) 기준이다. 수집이 잠깐 밀린 사이에 실행이 있었는지 모르는 것을 누락으로 세지 않는다.
+export function cronView(record,now=Date.now()) {
+  const view={status:"never",fresh:false,missed:false,error_code:null,last_attempt_at:null,last_success_at:null,data:null};
+  if(!isPlainObject(record)) return view;
+  const time=value=>typeof value==="string"&&Number.isFinite(Date.parse(value))?value:null;
+  const successAt=time(record.last_success_at);
+  const data=isPlainObject(record.data)?record.data:null;
+  const age=successAt?now-Date.parse(successAt):NaN;
+  const fresh=Boolean(data)&&Number.isFinite(age)&&age>=-60000&&age<=CRON_STALE_MS;
+  const failedCode=record.status==="error"?(CRON_CODE.test(String(record.error_code))?record.error_code:"invalid_reply"):null;
+  const runAt=data?time(data.last_run_at):null;
+  const missed=fresh&&(runAt===null||Date.parse(successAt)-Date.parse(runAt)>CRON_MISSED_MS);
+  const status=!fresh?"stale":missed?"missed":["ok","partial","error"].includes(data.last_status)?data.last_status:"error";
+  return {status,fresh,missed,error_code:fresh?failedCode:failedCode||"stale",last_attempt_at:time(record.last_attempt_at),last_success_at:successAt,
+    data:data?{last_run_at:runAt,last_status:typeof data.last_status==="string"?data.last_status:null,last_error:typeof data.last_error==="string"?data.last_error:null,version:typeof data.version==="string"?data.version:null,rev:Number.isSafeInteger(data.rev)?data.rev:null}:null};
+}
+async function recordCron(env,probe,at) {
+  if(!Object.hasOwn(probe,"cron")) return;
+  try {
+    const row=await env.MONITOR_DB.prepare("SELECT value FROM settings WHERE key='cron'").first();
+    let previous=null; try { previous=row?.value?JSON.parse(row.value):null; } catch(_) { previous=null; }
+    const record=cronRecord(previous,probe.cron,at);
+    await env.MONITOR_DB.prepare("INSERT INTO settings(key,value) VALUES('cron',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify(record)).run();
+    if(record.status!=="ok") console.error(`monitor app cron record failed: ${record.error_code}`);
+  } catch(error) { console.error(`monitor app cron record failed: ${failureCode(error)}`); }
+}
+
+async function fetchUsage(env,probe={}) {
   if(!env.ACCOUNTBOOK||!env.OPS_MONITOR_TOKEN) throw usageFail("not_connected");
-  const response=await env.ACCOUNTBOOK.fetch("https://accountbook.internal/internal/ops-usage",{headers:{authorization:`Bearer ${env.OPS_MONITOR_TOKEN}`},signal:AbortSignal.timeout(10000)});
+  // 1.5.0(V22.9.94 R-4): x-ab-monitor-cron: 1 = 답에 예약 실행 기록(cron)도 붙여 달라는 뜻. 옛 앱은 머리를 모른 채 예전 답을 낸다.
+  const response=await env.ACCOUNTBOOK.fetch("https://accountbook.internal/internal/ops-usage",{headers:{authorization:`Bearer ${env.OPS_MONITOR_TOKEN}`,"x-ab-monitor-cron":"1"},signal:AbortSignal.timeout(10000)});
   // V22.9.81 이하의 앱은 이 경로가 없다(404 → app_not_ready). 401 은 토큰 불일치다. 둘 다 본문을 읽지 않고 닫는다.
   if(response.status===404||response.status===401) { await response.body?.cancel().catch(()=>{}); throw usageFail(response.status===404?"app_not_ready":"unauthorized"); }
   const text=await readBounded(response,32768);
   let body=null; try { body=JSON.parse(text); } catch(_) { body=null; }
+  // 예약 실행 기록은 이용 현황의 성공·실패와 따로 받는다(503 rpc_missing 답에도 붙는다). probe 에는 받은 것만 두고 판정은 recordCron 이 한다.
+  if(isPlainObject(body)&&Object.hasOwn(body,"cron")) probe.cron=body.cron;
   // 앱의 503 본문 error_code(not_connected·rpc_missing·usage_unavailable·invalid_reply)는 글자이고 형식이 맞을 때만 그대로 쓴다.
   const sent=typeof body?.error_code==="string"&&USAGE_ERROR.test(body.error_code)?body.error_code:null;
   if(!response.ok) throw usageFail(response.status===503&&sent?sent:`http_${response.status}`);
@@ -256,18 +318,22 @@ export async function collectUsage(env,now=new Date()) {
     if(!usageDue(previous,now.getTime())) return {skipped:true};
     const at=now.toISOString();
     const save=record=>env.MONITOR_DB.prepare("INSERT INTO settings(key,value) VALUES('usage',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(JSON.stringify(record));
+    // 1.5.0(V22.9.94 R-4): 같은 답에 붙은 예약 실행 기록. 이용 현황을 적은 뒤(성공·실패 모두) 따로 적는다. 앱이 붙이지 않았으면 문장을 더하지 않는다.
+    const probe={};
     try {
-      const usage=await fetchUsage(env);
+      const usage=await fetchUsage(env,probe);
       await env.MONITOR_DB.batch([
         env.MONITOR_DB.prepare("INSERT INTO samples(source,bucket,collected_at,payload) VALUES('usage',?,?,?) ON CONFLICT(source,bucket) DO UPDATE SET collected_at=excluded.collected_at,payload=excluded.payload").bind(usage.month,at,JSON.stringify(usage)),
         save({status:"ok",error_code:null,last_attempt_at:at,last_success_at:at,month:usage.month})
       ]);
+      await recordCron(env,probe,at);
       return {status:"ok",month:usage.month};
     } catch(error) {
       // 이 수집기가 정한 코드(app_not_ready·unauthorized·rpc_missing·http_503·invalid_reply 등)는 그대로, 시한·연결 끊김·크기 초과는 다른 수집기와 같은 failureCode 로 남긴다.
       const code=typeof error?.usage_code==="string"?error.usage_code:failureCode(error);
       console.error(`monitor collector usage failed: ${code}`);
       await save({status:code==="not_connected"?"not_connected":"error",error_code:code,last_attempt_at:at,last_success_at:typeof previous?.last_success_at==="string"?previous.last_success_at:null,month:typeof previous?.month==="string"?previous.month:null}).run();
+      await recordCron(env,probe,at);
       return {status:"error",error_code:code};
     }
   } catch(error) { console.error(`monitor usage record failed: ${failureCode(error)}`); return {status:"error",error_code:failureCode(error)}; }
@@ -345,12 +411,16 @@ async function usageSummary(env,now,row) {
 export async function summary(env,now=Date.now(),{alerting=false}={}) {
   const rows=(await env.MONITOR_DB.prepare("SELECT * FROM collector_state").all()).results;
   // 1.3.0(V79:T-43): 같은 읽기로 왕복 확인 기록(settings 'roundtrip')도 받는다. 1.4.0(V22.9.82): 이용 현황 수집 상태('usage')도 같이 받는다.
-  const settings=(await env.MONITOR_DB.prepare("SELECT * FROM settings WHERE key IN ('plans','roundtrip','usage')").all()).results;
+  // 1.5.0(V22.9.94 R-4): 앱 예약 실행 기록('cron')도 같은 읽기로 받는다(문장을 더하지 않는다).
+  const settings=(await env.MONITOR_DB.prepare("SELECT * FROM settings WHERE key IN ('plans','roundtrip','usage','cron')").all()).results;
   const planRow=settings.find(row=>row.key==="plans");
   const plans=planRow?JSON.parse(planRow.value):{cloudflare:env.CF_PLAN||"unknown",supabase:env.SUPABASE_PLAN||"unknown",verified_at:env.PLAN_VERIFIED_AT||null};
   const roundtripRow=settings.find(row=>row.key==="roundtrip");
   let roundtripStored=null; try { roundtripStored=roundtripRow?JSON.parse(roundtripRow.value):null; } catch(_) { roundtripStored=null; }
   const roundtrip=roundtripView(roundtripStored,now);
+  const cronRow=settings.find(row=>row.key==="cron");
+  let cronStored=null; try { cronStored=cronRow?JSON.parse(cronRow.value):null; } catch(_) { cronStored=null; }
+  const cron=cronView(cronStored,now);
   // 1.2.1(V77:N-19): 요금제·토큰 확인은 매시 0~4분에만 돈다. 토큰을 5분 수집기와 같은 20분 기준으로 보면 정상이어도 매시간 약 40분 '갱신 지연'으로 보였다.
   const maxAgeMs=name=>name==="supabase_plan"?2*3600000:name==="token"?70*60000:20*60000;
   const states=Object.fromEntries(rows.map(row=>[row.name,{...freshState(row,maxAgeMs(row.name),now),data:row.payload?JSON.parse(row.payload):null}]));
@@ -411,6 +481,12 @@ export async function summary(env,now=Date.now(),{alerting=false}={}) {
   if(tele.failures>0) alerts.push({status:"warning",title:"최근 처리 실패 기록",message:"최근 24시간의 오류 표본을 확인하세요('처리 중'으로 먼저 답한 뒤의 저장 실패·결과 미확인 포함). 실패 횟수는 관제 누락 가능성이 있는 최소 관측값입니다."});
   // 1.3.0(V79:T-43): 왕복 확인이 정상 확인 없이 3번(5분 수집 3번) 실패하면 주의로 알린다. 확인 불가(옛 앱·앱을 부르지 못함)는 경고가 아니다.
   if(roundtrip.status==="failing"&&roundtrip.failures>=ROUNDTRIP_ALERT_FAILURES) alerts.push({status:"warning",title:"앱 요청 표본 전송 실패",message:`관제가 5분마다 앱에 보내게 하는 왕복 확인 표본이 정상 확인 없이 ${roundtrip.failures}번 돌아오지 않았습니다(${roundtrip.error_code}). 앱 Worker 의 OPS_MONITOR 서비스 연결·OPS_MONITOR_TOKEN 과 관제 저장소를 확인하세요. 그동안 카카오 응답 지연·처리 실패 경고는 표본이 없어 울리지 않습니다.`});
+  // 1.5.0(V22.9.94 R-4): 앱 예약 실행(매일 09:10 KST)이 실패·일부 처리로 끝났거나 26시간 넘게 실행이 없으면 주의로 알린다(같은 경고는 24시간에 한 번).
+  // 제목은 고정이다(같은 경고로 묶는 열쇠). 기록을 130분 넘게 새로 받지 못하면 경고 대신 아래 확인되지 않은 항목이다.
+  const cronRun=cron.data?.last_run_at?kstText(Date.parse(cron.data.last_run_at)):"";
+  if(cron.status==="error") alerts.push({status:"warning",title:"앱 예약 실행 실패",message:`앱의 마지막 예약 실행(${cronRun} 시작)이 실패로 끝났습니다(오류 ${cron.data.last_error||"코드 없음"}). 정기 거래 반영·자동 리포트·기록 정리가 빠졌을 수 있습니다. 앱 /ops-dashboard 의 ‘최근 예약 실행’과 Workers Logs 에서 원인을 확인하세요.`});
+  else if(cron.status==="partial") alerts.push({status:"warning",title:"앱 예약 실행 일부 처리",message:`앱의 마지막 예약 실행(${cronRun} 시작)이 일부만 처리됐습니다(${cron.data.last_error||"사유 없음"}). 앱 /ops-dashboard 의 ‘최근 예약 실행’에서 남은 건수와 사유를 확인하세요.`});
+  else if(cron.status==="missed") alerts.push({status:"warning",title:"앱 예약 실행 누락",message:cronRun?`앱의 마지막 예약 실행이 ${cronRun} 시작으로, 26시간 넘게 새 실행이 없습니다(마지막 결과 ${cron.data.last_status||"모름"}). 앱 Worker 의 매일 09:10 KST 예약(Cron Trigger)이 돌았는지 Cloudflare 와 앱 /ops-dashboard 에서 확인하세요.`:"앱에 예약 실행 기록이 없습니다. 앱 Worker 의 매일 09:10 KST 예약(Cron Trigger)이 돌았는지 Cloudflare 와 앱 /ops-dashboard 에서 확인하세요."});
   const unknown=quotas.filter(q=>q.status==="unknown").map(q=>q.name);
   if(cpu===null) unknown.push(db.fresh&&db.data?.cpu_counter ? "DB CPU 비교 표본 부족 또는 카운터 초기화" : "DB CPU 지표 미관측 또는 갱신 지연");
   if(!db.fresh||numberOrNull(db.data?.connections)===null||!(numberOrNull(db.data?.max_connections)>0)) unknown.push("DB 연결 수 또는 최대 연결 수 미관측");
@@ -419,6 +495,8 @@ export async function summary(env,now=Date.now(),{alerting=false}={}) {
   // 왕복 확인이 실패·확인 불가이면 1.2.1 과 같이 확인되지 않은 항목이다.
   const quietTraffic=telemetryStatus!=="ok"&&roundtrip.status==="ok";
   if(telemetryStatus!=="ok"&&!quietTraffic) unknown.push("앱 요청 표본 미관측 또는 갱신 지연");
+  // 1.5.0(V22.9.94 R-4): 예약 실행 기록을 받은 적이 있는데 130분 넘게 새로 받지 못하면 확인되지 않은 항목이다(기록이 아예 없으면 앱 V22.9.94 전이라 넣지 않는다).
+  if(cron.status==="stale") unknown.push(`앱 예약 실행 기록 확인 지연(${cron.error_code})`);
   // 1.1.0: p95 표본 부족은 낮은 트래픽에서 정상이다. "확인 불가"가 아니라 참고 사항으로 둔다(예전에는 이 둘 때문에 전체 상태가 늘 확인 불가였다).
   const notes=[];
   if(quietTraffic) notes.push(`${telemetryStatus==="stale"?"최근 1시간":"최근 24시간"} 앱 요청 표본 없음(왕복 확인 정상 — 표본 경로는 살아 있고 요청이 적습니다)`);
@@ -441,10 +519,11 @@ export async function summary(env,now=Date.now(),{alerting=false}={}) {
     token:{status:tokenData?.status||null,expires_on:tokenData?.expires_on||null,days_left:tokenDaysLeft,checked_at:states.token?.last_success_at||null},
     database:{cpu_percent:cpu,connections:db.fresh?numberOrNull(db.data?.connections):null,max_connections:db.fresh?numberOrNull(db.data?.max_connections):null,memory_used_percent:db.fresh&&numberOrNull(db.data?.memory_available_bytes)!==null&&db.data?.memory_total_bytes?100*(1-db.data.memory_available_bytes/db.data.memory_total_bytes):null},
     application:{telemetry_status:telemetryStatus,last_observed_at:lastObserved===null?null:new Date(lastObserved).toISOString(),random_samples:tele.random,skill_random_samples:tele.skill_random,skill_p95_ms:skillP95,web_p95_ms:tele.web_p95,incident_count:tele.incidents,recent:tele.recent,truncated:tele.count===1000,sample_rate:0.02,sample_bucket_max_per_kind:10,provider_requests:cfFresh?cf.data.app.requests:null,provider_runtime_errors:cfFresh?cf.data.app.errors:null,roundtrip},
+    cron,
     usage,
     database_history:history.filter((_,i)=>i%Math.max(1,Math.ceil(history.length/48))===0).map(r=>({at:r.at,value:r.value})),
     pricing:{verified_at:PRICING_VERIFIED_AT,workers_base_usd:5,supabase_pro_base_usd:25,currency:"USD",estimate_complete:false,note:"사용량 기반 추가 요금, CPU 합계, 추가 프로젝트·컴퓨트, 세금과 환율을 포함한 실제 청구액은 공식 Billing에서 확인해야 합니다."},
-    limitations:["Cloudflare 관제와 앱은 같은 계정의 요청 한도 및 플랫폼 장애를 공유합니다.","GraphQL 집계는 샘플링·반영 지연이 있을 수 있으며 청구서 수치와 차이가 날 수 있습니다.","앱 요청은 2% 무작위 표본과 별도 오류 표본을 수집합니다. 저장은 계정 전체에서 5분마다 유형별 최대 10건으로 제한되며 누락이 발생할 수 있습니다.","관제는 5분마다 DB 수집 요청에 왕복 확인을 실어 앱이 같은 전송으로 확인 표본 하나를 보내게 합니다. 이 표본은 요청 표본 수·p95·실패 수에 넣지 않으며, 왕복 확인을 지원하지 않는 앱(V22.9.80 까지)에서는 확인 불가로 보입니다.","앱 지연은 무작위 표본에서 산출합니다. 표본 30건 미만이면 p95를 산출하지 않습니다.","DB 성장 예측은 최소 3개 표본과 2일 이상의 기록이 쌓인 뒤 표시합니다.","수동 청구 사용량은 24시간 뒤 확인 불가로 전환합니다. 원문 발화·사용자·가계부·거래 값은 관제에 저장하지 않습니다.","이용 현황은 앱이 DB 에서 센 합계 숫자만 한 시간에 한 번 받아 달마다 마지막 값을 24개월 보관합니다. 전체 상태·경고·확인되지 않은 항목에는 넣지 않습니다."]};
+    limitations:["Cloudflare 관제와 앱은 같은 계정의 요청 한도 및 플랫폼 장애를 공유합니다.","GraphQL 집계는 샘플링·반영 지연이 있을 수 있으며 청구서 수치와 차이가 날 수 있습니다.","앱 요청은 2% 무작위 표본과 별도 오류 표본을 수집합니다. 저장은 계정 전체에서 5분마다 유형별 최대 10건으로 제한되며 누락이 발생할 수 있습니다.","관제는 5분마다 DB 수집 요청에 왕복 확인을 실어 앱이 같은 전송으로 확인 표본 하나를 보내게 합니다. 이 표본은 요청 표본 수·p95·실패 수에 넣지 않으며, 왕복 확인을 지원하지 않는 앱(V22.9.80 까지)에서는 확인 불가로 보입니다.","앱 지연은 무작위 표본에서 산출합니다. 표본 30건 미만이면 p95를 산출하지 않습니다.","DB 성장 예측은 최소 3개 표본과 2일 이상의 기록이 쌓인 뒤 표시합니다.","수동 청구 사용량은 24시간 뒤 확인 불가로 전환합니다. 원문 발화·사용자·가계부·거래 값은 관제에 저장하지 않습니다.","이용 현황은 앱이 DB 에서 센 합계 숫자만 한 시간에 한 번 받아 달마다 마지막 값을 24개월 보관합니다. 전체 상태·경고·확인되지 않은 항목에는 넣지 않습니다.","앱 예약 실행(매일 09:10 KST) 기록은 이용 현황을 묻는 요청으로 한 시간에 한 번 받습니다. 마지막 실행이 실패·일부 처리이거나 26시간 넘게 새 실행이 없으면 주의로 알리고(같은 경고는 24시간에 한 번), 130분 넘게 기록을 새로 받지 못하면 확인되지 않은 항목으로 보입니다. 앱 V22.9.93 이하는 이 기록을 보내지 않습니다."]};
 }
 
 async function manualUsage(request,env) {
@@ -516,6 +595,10 @@ function alertRecoveryConfirmed(result,title) {
     case "카카오 응답 지연": return result.application.telemetry_status==="ok"&&below(result.application.skill_p95_ms,3500);
     case "최근 처리 실패 기록": return result.application.telemetry_status==="ok"&&result.application.incident_count===0;
     case "앱 요청 표본 전송 실패": return result.application.roundtrip?.status==="ok";
+    // 1.5.0(V22.9.94 R-4): 새로 받은(130분 안) 기록이 정상일 때만 해소 쪽으로 센다. 확인 지연·누락은 해소가 아니다.
+    case "앱 예약 실행 실패":
+    case "앱 예약 실행 일부 처리": return result.cron?.fresh===true&&result.cron.status==="ok";
+    case "앱 예약 실행 누락": return result.cron?.fresh===true&&result.cron.missed===false;
     case "요금제 확인 기록 만료": return !result.plans.stale&&Number.isFinite(Date.parse(result.plans.verified_at))&&result.plans.cloudflare!=="unknown"&&result.plans.supabase!=="unknown";
     case "Cloudflare 분석 토큰 비활성": return token?.fresh&&token.data?.status==="active";
     case "Cloudflare 분석 토큰 만료 임박": return token?.fresh&&token.data?.status==="active"&&(token.data.expires_on===null||result.token.days_left>30);

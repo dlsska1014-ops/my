@@ -13,10 +13,24 @@ import { cleanMemo, inferCategory, normalizeCategoryName } from "./category-rule
 // V22.9.63: 줄머리 목록 표식. 한 줄짜리("1. 점심 12000원")와 여러 줄 모두에서 뗀다.
 const KAKAO_LIST_MARKER_PREFIX = /^(?:\d{1,2}[.)]|[-•*])\s+/;
 
+// V22.9.94 C-3: ‘신한카드 1234 결제 5000’ 의 1234 는 카드 끝자리인데 1,234원과 5,000원 두 건으로 저장됐다.
+// 결제 카드 이름(‘카드’ 한 낱말, 결제수단 표의 신한·국민·KB … 카드, 체크·신용카드) 바로 뒤에 단위 없이 홀로 쓴 네 자리 수이고, 같은 줄에 다른 금액이 있을 때만
+// 카드 끝자리로 보고 뗀다(메모에도 남기지 않는다). 원화 금액은 10원 단위라 끝자리가 0 인 수는 금액으로 둔다(‘신한카드 5000 국민카드 3000’ 은 카드별 금액이다).
+// 네 자리 수 뒤에 낱말이 이어질 때만이다. 다른 금액이 없거나(‘신한카드 1234’) 단위가 붙거나(‘카드 1234원’) 줄 끝이거나(‘신한카드 1234 국민카드 5678’)
+// 뒤에 수나 다른 결제수단이 이어지면(‘카드 4567 현금 3000’) 예전처럼 읽는다. ‘포토카드’·‘교통카드’ 같은 물건 이름은 결제 카드가 아니다.
+const AB_CARD_DIGITS_V22994 = /(^|\s)((?:(?:신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오|토스|체크|신용)+\s*)?카드)\s*\d{3}[1-9](?=\s+(?!현금|계좌|이체|\S*카드|\S*페이)[^\s\d원십백천만억.,])/gi;
+
+function stripCardDigitsV22994(text = "") {
+  return String(text || "").split(/(\r?\n)/).map((line) => {
+    const stripped = line.replace(AB_CARD_DIGITS_V22994, "$1$2");
+    return stripped !== line && findAmountTokenSpans(stripped).length ? stripped : line;
+  }).join("");
+}
+
 function parseMultipleTransactions(text, payload) {
   // V22.9.79 A-16: 전각 숫자(“커피 ４５００”)는 입구에서 반각으로 바꿔 날짜·금액·메모가 모두 같은 글자를 읽게 한다. 저장하는 원문은 받은 그대로다.
   const original = text;
-  text = foldInputWidth(text);
+  text = stripCardDigitsV22994(foldInputWidth(text));
   const clauses = splitTransactionClauses(text);
   if (clauses.length <= 1) {
     // V22.9.63: 한 줄짜리 번호 목록("1. 점심 12000원")도 표식을 뗀 본문으로 읽는다. 예전에는 "1"이 금액으로 읽혔다.
@@ -121,7 +135,16 @@ function splitTransactionClauses(text) {
   // V22.9.93 Q-28: normalizeText 가 괄호를 지우므로 ‘2)’ 는 다듬기 전에 뗀다. 다듬은 뒤에 떼면 ‘2 커피 4000원’ 이 남아 저장되지 않았다.
   const lines = String(text || "").split(/\r?\n/).flatMap(splitAmountSemicolons).flatMap(splitInlineNumberedList).map((line) => normalizeText(line.trim().replace(KAKAO_LIST_MARKER_PREFIX, "")).trim()).filter(Boolean);
   let dateJoined = false;
-  const firstPass = (lines.length ? lines : [raw]).flatMap((line) => {
+  const sourceLines = lines.length ? lines : [raw];
+  // V22.9.94 C-2: 첫 줄이 맨 ‘N일’ 하나뿐인 머리말 꼴(‘3일⏎커피 4000⏎5일⏎택시 8000’)이면 뒤에 오는 맨 ‘M일’ 한 줄도 다음 줄들의 날짜다.
+  // 예전에는 ‘5일’ 줄이 ‘3일 5일’ 로 읽혀 택시도 3일에 저장되고 ‘3일 5일’ 을 못 읽은 말로 알렸다. 줄 전체가 ‘M일’ 일 때만이다.
+  // ‘5일 택시 8000’ 처럼 낱말이 붙은 줄은 기간일 수 있어(‘5일 약국 1만원⏎3일 치 약값 9000’·‘10일 렌트 10만원⏎2일 보험 3만원’, Q-115) 예전처럼 머리 날짜를 따른다.
+  // 첫 줄에 달이 있으면(‘6월 3일’) 달을 옮겨 붙일 수 없어 예전 그대로다.
+  const dayHeadLine = (line) => /^(?:[1-9]|[12]\d|3[01])일$/.test(line);
+  const dayHeadsOn = sourceLines.length > 1 && dayHeadLine(sourceLines[0]) && extractLeadingDateHint(raw) === sourceLines[0];
+  const dayHeads = new Set();
+  let produced = 0;
+  const firstPass = sourceLines.flatMap((line, index) => {
     const pieces = line
     // V22.9.26: 공백이 붙은 슬래시("커피 4500 / 점심 9000")와 가운뎃점도 문장 구분이다.
     // "10/3 마트 52000" 의 날짜 슬래시는 양쪽이 붙어 있어 나누지 않는다.
@@ -130,14 +153,16 @@ function splitTransactionClauses(text) {
     .filter(Boolean);
     const joined = attachDateOnlyPieces(pieces);
     dateJoined ||= joined.length < pieces.length;
+    if (dayHeadsOn && index > 0 && joined.length === 1 && dayHeadLine(line)) dayHeads.add(produced);
+    produced += joined.length;
     return joined;
   });
   let datePrefix = extractLeadingDateHint(raw);
   // V22.9.93 Q-56: 머리 날짜는 ‘7월 3일’ 꼴로 붙인다. ‘7.3’ 그대로 붙이면 다음 조각의 ‘만원’ 과 이어져 7.3만 = 73,000원이 됐다.
   const carryDate = (date) => date.replace(/(^|\s)(\d{1,2})[.\/-](\d{1,2})일?$/, "$1$2월 $3일");
   const clauses = [];
-  for (const part of firstPass) {
-    if (isDateOnlyPiece(part) && !raw.includes(`${part}랑 `) && !raw.includes(`${part}하고 `)) datePrefix = part;
+  for (const [at, part] of firstPass.entries()) {
+    if ((isDateOnlyPiece(part) && !raw.includes(`${part}랑 `) && !raw.includes(`${part}하고 `)) || dayHeads.has(at)) datePrefix = part;
     // V22.9.93 Q-117: 줄 전체에서 한 조각이어도 그 조각만 보면 금액이 둘일 수 있다(‘커피 5000점심 9000 택시 3000’ 의 앞 조각). 다시 나누지 않으면 뒤 금액이 메모로 사라진다.
     const pieces = splitByAmountEnds(part).flatMap(splitByAmountEnds);
     for (let piece of pieces) {
