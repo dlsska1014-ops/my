@@ -383,7 +383,8 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
 // 낱말이 있는 강한 입력이라 세션을 끝내고 5,000원 지출을 새로 저장했다(직접·방 모두, 고치던 4,500원은 그대로). 금액 하나 뒤에 부정
 // 끝맺음만 온 꼴일 때만 이렇게 읽는다. ‘5000원 아니고 6000원’ 처럼 값이 둘인 말과 다른 꼴은 예전 길 그대로다(상태 기계가 다시 묻는다).
 // 세션이 없거나 끝난 뒤의 같은 말은 이 판정에 오지 않는다(운영 동작 그대로).
-const KAKAO_EDIT_NEGATED_AMOUNT_V22994 = new RegExp(String.raw`^(?:${KAKAO_EDIT_AMOUNT_V4}|[일이삼사오육칠팔구십백천만억]+[십백천만억])\s*(?:이|가|은|는)?\s*(?:아니(?:야|요|오|에요|예요|지|잖아)?|아닌데요?|아닙니다|아님)\s*[?？!.~]*$`);
+// 끝맺음은 ‘아니다’ 의 말끝만 받는다(아냐·아니라고·아니었어 …). 묻는 말(‘아닌가요’)·조건(‘아니면’)·다른 낱말(‘틀렸어’·‘안 냈어’)은 예전 길이다.
+const KAKAO_EDIT_NEGATED_AMOUNT_V22994 = new RegExp(String.raw`^(?:${KAKAO_EDIT_AMOUNT_V4}|[일이삼사오육칠팔구십백천만억]+[십백천만억])\s*(?:이|가|은|는)?\s*(?:아니(?:야|요|오|고|라|에요|예요|에여|예여|지요?|잖아요?|라고요?|라니까요?|거든요?|[었였]어요?)?|아냐|아녜요|아닌데요?|아닙니다|아님)\s*[?？!.~]*$`);
 
 function isKakaoEditNegatedAmountV22994(text = "") {
   return KAKAO_EDIT_NEGATED_AMOUNT_V22994.test(normalizeText(text));
