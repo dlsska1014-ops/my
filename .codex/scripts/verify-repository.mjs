@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_93.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_94.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -107,6 +107,12 @@ const validationScripts = [
   ["V22.9.92 카카오 애드핏 광고 게이트(ADS_MODE=adfit·되돌리면 옛 판은 review·광고 단위 ID·크기 검증·공개 정본 문서에만·로그인 뒤 화면 빼기·공식 설치 코드·빈 자리 숨김·정책 화면 카카오 문구·/ready ads_mode·adfit_unit·AdSense·심사 모드 바이트 동일)", "validation/validate-adfit-gate-v22992.mjs"],
   ["V22.9.92 공개 기능 둘러보기(/demo 여섯 단계·읽기 전용·카카오톡 답 예시=실제 저장 답·리포트 표=리포트 줄 함수·주요 화면 주소 표 열림·문장 사실)", "validation/validate-demo-tour-v22992.mjs"],
   ["V22.9.93 출시 전 수정(날짜 말투·점 자릿수·이름 속 날짜 말·분류 낱말·카카오 고치기 말·웹 한 줄 입력·Aside 검수 결함·안내 이스케이프·정산 이력 null·삭제 본인 확인 역할 읽기, 서버와 브라우저 자산 동일)", "validation/validate-launch-fixes-v22993.mjs"],
+  ["V22.9.94 점검 후속 — 시험 대역 or/and 논리식 실제 평가(PGRST100)·가계부 0개 화면의 카카오 기록 이어 열기 안내", "validation/validate-v22994-review-fixes.mjs"],
+  ["V22.9.94 카카오(C-1 고치기 세션의 부정 답이 새 기록이 됨·C-2 여러 줄 ‘N일’ 날짜(Q-104)·C-3 카드 끝자리 금액·R-7 ‘탈퇴’ 문구)", "validation/validate-v22994-kakao.mjs"],
+  ["V22.9.94 가져오기(C-7 머리글 없는 CSV 외화·C-8 환불 행 부호 추정)", "validation/validate-v22994-import.mjs"],
+  ["V22.9.94 거래·권한(C-4 복구 표를 삭제 사건에 묶기·C-5 계정 통합 뒤 세션 복구·C-9 동시 수정 충돌·C-11 일괄 삭제 결과 불명 안내·R-3 소유자 역할은 소유자만)", "validation/validate-v22994-admin.mjs"],
+  ["V22.9.94 예약 실행(C-10 리포트 재생성 요청 중복 버림·R-1 리포트 처리량 예산 기반·말일 스냅숏 재생성)", "validation/validate-v22994-cron.mjs"],
+  ["V22.9.94 준비 상태·경보(R-2 /ready 분류·삭제 RPC·60초 캐시·R-4 cron 마지막 실행 지표)", "validation/validate-v22994-ops.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
@@ -352,6 +358,7 @@ function run(command, args, label) {
 // V22.9.90: 새 검사 1개(사용자 피드백 167: 삭제 되살리기·알림 5초·한글 조합 중 읽기·관제 기능 이름·테스트 서버 왕복)·추적표 V90 3건(V88:Y-2 고침)과 옛 검사 갱신(삭제 즉시 전송·되돌리기 없는 삭제는 먼저 묻기·자산 주소 v22990·불변 자산 고정 셋·환불 꺼짐 화면 해시 12개·삭제 단추 원문). 병합 전 독립 검토 5건 반영. 두 모드 실측: 일반 37,527 · 분류 표 부재 37,524(V22.9.90 사용자 피드백).
 // V22.9.91: 새 검사 1개(계정 잇기 220: 인앱 자동 로그인·잇기 제안·자동·확인 잇기·관리자 통합 링크, 병합 전 독립 검토 7건 12~17번 포함)·추적표 V91 2건과 옛 검사 갱신(카카오 단추 return_to·판 이름만 바뀐 환불 꺼짐 화면 해시 셋). 두 모드 실측: 일반 37,774 · 분류 표 부재 37,771(V22.9.91 계정 잇기).
 // V22.9.92: 새 검사 2개(애드핏 광고 게이트 2,319: ADS_MODE=adfit·광고 단위 검증·공개 정본 문서 45쪽만·정책 화면 카카오 문구·/ready adfit_unit, 기능 둘러보기 119)와 옛 검사 갱신(광고 게이트 adsMode 모양·판 이름만 바뀐 환불 꺼짐 화면 해시 셋). 두 모드 실측: 일반 40,226 · 분류 표 부재 40,223(V22.9.92 애드핏 준비).
+// V22.9.94: 새 검사 6개(전체 점검·Codex/Astra 검토 수정 — 시험 대역·화면 73, 카카오 950, 가져오기 293, 관리자 134, 예약 실행 61, 준비 상태·관제 184)·추적표 V94 31건과 옛 검사 갱신(Q-104 기대값·M-8-C 한 실행 2개·되돌리기 30초 기대·감사 기록 픽스처·관제 판 1.5.0·준비 상태 RPC 19개·판 이름만 바뀐 환불 지문 셋). 하한은 두 모드 실측 중 작은 값으로 올렸다.
 const EXPECTED_MINIMUM_CHECKS = 56516;
 
 function runValidation(script, label) {

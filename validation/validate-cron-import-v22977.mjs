@@ -135,12 +135,13 @@ async function m8() {
       for (const id of withReport) if (!stale[id] && snapshotOf(fx, id, "2026-10")) stale[id] = snapshotOf(fx, id, "2026-10");
       if (day === "2026-11-02") { stateAfterNov2 = stateOf(fx); for (const id of withReport) snapshotsAfterNov2[id] = snapshotOf(fx, id, "2026-10"); }
     }
-    // 월말 리포트는 한 실행에 가계부 2개씩 만든다: 10/31 h1·h2, 11/1 h3·h4, 11/2 h5(따라잡기 뒤라 처음부터 담는다).
+    // V22.9.94 R-1: 한 실행 2개 고정이 아니라 호출 예산만큼 처리한다. 10/31 말일 실행은 미리 보기(h5 포함)를 만들고, 11/2 따라잡기 뒤 실행은
+    // 예산 안에서 h1·h2 를 확정하며 아직 못 한 h3·h4·h5 를 상태 키에 남긴다(h5 도 10/31 미리 보기가 있어 다시 만들 대상이다).
     eq([...withReport, ...without].filter((id) => recurringTx(fx, `${id}-r`).length === 1).length, 7, "M-8-C 11/2 따라잡기가 가계부 7개의 10월 31일 몫을 넣는다");
-    deepEq(stateAfterNov2?.report_rebuild, ["2026-10|m8-h3", "2026-10|m8-h4"], "M-8-C 11/2 실행은 2개(h1·h2)만 다시 만들고 h3·h4 를 상태 키에 남긴다(h5·스냅숏 없는 가계부는 남기지 않는다)");
+    deepEq(stateAfterNov2?.report_rebuild, ["2026-10|m8-h3", "2026-10|m8-h4", "2026-10|m8-h5"], "M-8-C 11/2 실행은 예산 안의 h1·h2 를 다시 만들고 h3·h4·h5 를 상태 키에 남긴다(스냅숏 없는 가계부는 남기지 않는다)");
     ok(["m8-h1", "m8-h2"].every((id) => includes(snapshotsAfterNov2[id], stale[id], 10000, 1)), "M-8-C 11/2 실행 뒤 h1·h2 스냅숏은 따라잡은 기록을 담는다");
     ok(["m8-h3", "m8-h4"].every((id) => snapshotsAfterNov2[id]?.transaction_count === 1), "M-8-C 11/2 실행 뒤 h3·h4 는 아직 예전 스냅숏이다(한 실행 2개 한도)");
-    ok(snapshotsAfterNov2["m8-h5"]?.transaction_count === 2 && snapshotsAfterNov2["m8-h5"]?.expense === 40000, "M-8-C h5 는 월말 생성이 따라잡기 뒤에 처음부터 담아 만든다");
+    ok(snapshotsAfterNov2["m8-h5"]?.transaction_count === 1, "M-8-C h5 는 10/31 말일 미리 보기로 있고, 11/2 에는 아직 다시 만들기 전이다(다음 실행이 확정한다)");
     ok(withReport.every((id) => snapshotOf(fx, id, "2026-10")?.transaction_count === 2 && snapshotOf(fx, id, "2026-10")?.expense === 40000), "M-8-C 다음 실행이 남은 h3·h4 를 이어 만들어 다섯 가계부 스냅숏이 모두 10월 기록 전체(2건·40,000원)와 같다");
     ok(without.every((id) => settingValue(fx, snapshotKey(id)) === undefined), "M-8-C 자동 리포트를 켜지 않은 가계부의 스냅숏은 만들지 않는다");
     deepEq(Object.keys(stateOf(fx)).sort(), ["checked_date", "pending_month"], "M-8-C 남은 목록을 다 만든 뒤 report_rebuild 칸이 사라진다");

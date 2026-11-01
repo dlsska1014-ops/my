@@ -1,4 +1,4 @@
-// V22.9.94-REVIEW-FIXES — 거래 수정·삭제·되돌리기·권한·세션 검사(외부 검토 C-4·C-5·C-9·C-11, 내부 R-3).
+// V22.9.94 — 거래 수정·삭제·되돌리기·권한·세션 검사(외부 검토 C-4·C-5·C-9·C-11, 내부 R-3).
 //
 // ── 무엇을 보나 ──
 //   C-4  되살리기 표(delete-restore)는 그 표를 만든 한 번의 삭제만 되돌린다. 예전에는 ‘지운 시각 30초 안의 내 삭제’를 받아서,
@@ -148,9 +148,10 @@ await scenario("C-5", () => fixture(async (fx) => {
   const mine = await page(fx, `/app?month=${MONTH}&household_id=${HH}`);
   eq(mine.status, 200, "C-5 주 계정 자신의 세션은 그대로 열린다");
   const source = readFileSync(new URL("../src/modules/auth/user-session.js", import.meta.url), "utf8");
-  const body = functionSource(source, "mergedUserSessionRecoveryResponse");
-  ok(!!body, "C-5 라우터가 부르는 mergedUserSessionRecoveryResponse 는 남아 있다");
-  ok(!/makeUserSession\(|verifyUserSession\(|verifyRawUserSession\(/.test(body), "C-5 복구 함수에 돌지 않는 세션 발급·조회 코드(죽은 코드)가 없다");
+  // 통합 때(코디네이터): 라우터 호출까지 지웠으므로 복구 함수 자체가 없어야 한다.
+  ok(!functionSource(source, "mergedUserSessionRecoveryResponse"), "C-5 돌지 않던 복구 함수 mergedUserSessionRecoveryResponse 를 지웠다");
+  const router = readFileSync(new URL("../src/modules/worker/router.js", import.meta.url), "utf8");
+  ok(!/mergedUserSessionRecoveryResponse/.test(router), "C-5 라우터가 복구 함수를 부르지도 들여오지도 않는다");
   ok(!/function isMergedSessionRecoveryPath/.test(source), "C-5 복구 전용 경로 판정 함수도 지웠다");
 }));
 

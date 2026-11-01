@@ -169,8 +169,8 @@ globalThis.fetch = async (input) => { const url = typeof input === "string" ? in
 try {
   // ── 0. 관제 판 ─────────────────────────────────────────────────────────────
   await section("0 관제 판", async () => {
-    eq(model.MONITOR_VERSION, "1.4.0", "관제 판은 1.4.0 이다(1.3.0 → 1.4.0, V22.9.82 이용 현황)");
-    eq((await (await monitor.fetch(new Request("https://monitor.example/health"), {}, {})).json()).version, "1.4.0", "/health 가 1.4.0 을 알린다");
+    eq(model.MONITOR_VERSION, "1.5.0", "관제 판은 1.5.0 이다(1.4.0 → 1.5.0, V22.9.94 예약 실행 경보·빈 사용량)");
+    eq((await (await monitor.fetch(new Request("https://monitor.example/health"), {}, {})).json()).version, "1.5.0", "/health 가 1.5.0 을 알린다");
   });
 
   // ── 1. 관제 모델: 나눗셈 값·변화율·기능 이름·간격·달 ─────────────────────────────
@@ -529,6 +529,8 @@ try {
         rpc.push(`${init?.method || (typeof input === "string" ? "GET" : input.method)} ${url.search}`);
         return mode === "missing" ? json({ code: "PGRST202", message: "Could not find the function public.accountbook_usage_summary_v22982 in the schema cache" }, 404) : json(answer);
       }
+      // V22.9.94 R-4: 관제 1.5.0 은 이용 현황을 물을 때 x-ab-monitor-cron 머리를 붙이고, 앱은 그때 cron_run_log 대신 accountbook_settings 에서 마지막 예약 실행을 읽는다. 이 절은 빈 답으로 둔다.
+      if (url.hostname === "fixture.supabase.co" && url.pathname === "/rest/v1/accountbook_settings") return json([]);
       network.push(url.href);
       throw new Error(`unexpected network ${url.href}`);
     };

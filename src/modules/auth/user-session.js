@@ -263,11 +263,7 @@ async function verifyUserSession(request, env) {
 // (docs/codex/CLAUDE_REPORT_DISPOSITION_V22_9_30.md: "이전 raw ID 토큰을 primary 세션으로 자동 복구하지 않습니다")부터 한 번도 돌지 않았다 —
 // verifyUserSession 이 통합된 계정(merged: 키·‘(통합됨)’ 이름)의 세션을 먼저 거절해서, 복구 코드는 늘 null 로 끝났다. 복구를 되살리면 서명·만료·세션 판이
 // 맞는 옛 보조 계정 쿠키(다른 기기에 남은 것 포함, 최대 14일)가 그 계정이 들어가지 않던 주 계정 가계부까지 여는 세션이 된다. 그래서 되살리지 않고
-// 돌지 않던 본문(사용자 조회 두 번·세션 발급)을 지운다. 통합된 보조 계정 쿠키는 지금처럼 다시 로그인하게 한다. 라우터(worker/router.js)가 아직
-// 이 이름을 부르므로 늘 null 을 돌려주는 함수로 남긴다(그 호출과 ‘자동 복구합니다’ 설명은 라우터 쪽에서 지우면 된다).
-async function mergedUserSessionRecoveryResponse(_request, _env, _url) {
-  return null;
-}
+// 돌지 않던 본문(사용자 조회 두 번·세션 발급)과 라우터(worker/router.js)의 호출을 함께 지웠다. 통합된 보조 계정 쿠키는 지금처럼 다시 로그인하게 한다.
 
 function configuredPublicBaseUrl(env = {}) {
   return normalizeBaseUrl(env.PUBLIC_BASE_URL || env.SERVICE_BASE_URL || env.APP_BASE_URL || env.CANONICAL_BASE_URL || "");
@@ -352,7 +348,7 @@ function kakaoLoginUserKey(kakaoId = "") {
 export {
   getKakaoRedirectUri, getUserSessionVersion, identityMergeRedirectSettingsKey,
   inspectKakaoLoginConfig, kakaoLoginUserKey, makeUserSession, mergedMarkerFreeName,
-  mergedUserSessionRecoveryResponse, parseIdentityMergeRedirectValue, randomState,
-  resolveEffectiveUserId, rewireEffectiveUserCache, userSessionSecret, verifyUserSession,
+  parseIdentityMergeRedirectValue, randomState, resolveEffectiveUserId, rewireEffectiveUserCache,
+  userSessionSecret, verifyUserSession,
 };
 // @build:exports-end

@@ -109,7 +109,7 @@ import {
   handleWelcomeLinkGuidePage,
 } from "../admin/nlu-openbuilder-ops.js";
 import { handleBeginnerGuidePage, handleUnifiedMenuPage } from "../web/menu-and-guides.js";
-import { mergedUserSessionRecoveryResponse, verifyUserSession } from "../auth/user-session.js";
+import { verifyUserSession } from "../auth/user-session.js";
 import { boundedFormRequest, handleAccountReauth } from "../auth/identity-reauth.js";
 import {
   handleKakaoLoginCallback, handleKakaoLoginStart, handleMyLogout,
@@ -323,9 +323,8 @@ const ACCOUNTBOOK_WORKER = {
       const appIcon = await appIconAssetResponse(request, url);
       if (appIcon) return appIcon;
 
-      // V22.6.1: 통합된 보조 계정의 오래된 웹 세션을 주 계정 세션으로 자동 복구합니다.
-      const recoveredUserSession = await mergedUserSessionRecoveryResponse(request, env, url);
-      if (recoveredUserSession) return recoveredUserSession;
+      // V22.9.94 C-5: V22.6.1 의 ‘통합된 보조 계정의 옛 웹 세션을 주 계정 세션으로 자동 복구’ 호출은 V22.9.30 S-4 뒤로 한 번도 돌지 않던
+      // 죽은 코드라 지웠다(auth/user-session.js 의 설명 참고). 통합된 보조 계정 쿠키는 다시 로그인한다.
 
       const trafficGuard = checkTrafficGuard(request, env, url);
       if (!trafficGuard.ok) return trafficLimitedResponse(url, request, trafficGuard, env);

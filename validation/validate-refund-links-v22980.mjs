@@ -54,6 +54,8 @@
 // V22.9.93(2026-10-31, 출시 전 수정): 꺼짐 화면의 홈 셋은 홈 셸 주소(v22990 → v22993)만, 분석·백업 둘은 판 이름만 바뀐다. 해시하는 화면 원문 96개를 V22.9.92(ca9c3b2)와
 // 견주면 같음 68·다름 28 이고 다른 28개의 조각은 모두 그 두 가지였다(review-artifacts/v93-launch-fixes-2026-10-31/refund-compare.txt).
 // 그 뒤 --print-golden 으로 home·homeTrend·homePrev·analysis·backupFull·backupMonth 여섯 값을 다시 얻었다.
+// V22.9.94(통합 뒤): 바뀐 것은 판 이름뿐이다. 판 이름을 V22.9.93 으로 되돌려 돌리면 옛 값 그대로 268개가 모두 통과함을 먼저 확인한 뒤
+// analysis·backupFull·backupMonth 세 값을 --print-golden 으로 다시 얻었다(V22.9.88 과 같은 방법). 그 밖의 값은 그대로다.
 // V22.9.93 독립 검토 2차 뒤: 금액 읽기(Q-40·이중 쉼표)가 예산 미리보기 자산에 실려 주소가 v22979 → v22993 으로 바뀌었다. budgets 화면은 해시 입력에서 이 주소만 되돌리면 옛 값과 같음을 확인했다.
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
@@ -72,15 +74,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 207d64b369bd78b881a09c36",
   "reportsWeek": "200 6ff6c6ade3301c38d835dca4",
-  "analysis": "200 251eef2139e5bbfa22145451",
+  "analysis": "200 51241f32d93c8c402630cfc9",
   "backupPage": "200 d4e2173d38990ea97bd1a73f",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 6b0fbf1f04421abb99fb433c",
-  "backupMonth": "200 ec09414594b39d0166a22c7c",
+  "backupFull": "200 ae986243b7c0712c5dd6d47d",
+  "backupMonth": "200 6dc4ff5d81ae8ed48aae6b36",
   "candidate": "200 983fb55df7f069a2ab4a5fdd",
   "legacyErr": "200 d539582f2d5a6042e415e38b", // V22.9.81 U-19: 옛 관리자 화면 오류 칸이 record_update_failed 를 코드 글자 대신 안내 문장으로 보인다(의도한 변경)
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

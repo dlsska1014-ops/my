@@ -1813,6 +1813,67 @@ function scrubPrototypePollution(where = "") {
   return polluted.length;
 }
 
+// V22.9.94 R-2: /ready 는 인증 없는 공개 GET 인데 부를 때마다 Supabase 를 표 14·함수 18 = 32번 불렀다(이 판부터 함수 19). 같은 인스턴스에서는
+// 마지막 점검 결과(성공·실패 모두)를 60초 동안 다시 쓰고, 다시 쓴 답에는 cached:true 와 실제 점검 시각 checked_at 을 붙인다.
+// 판·카카오 인증·광고 칸처럼 설정에서 나오는 값은 요청마다 새로 계산한다. 진행 중인 점검을 다른 요청과 나누지 않는다(Workers 는 입출력이
+// 요청에 묶인다). 시계는 qaFixedNowMs()(검사가 고정·이동한다)이고, 시계가 점검 시각보다 앞이면 다시 쓰지 않는다. 같은 Supabase 주소·
+// 환불 연결 플래그·전송(globalThis.fetch)일 때만 다시 쓴다(운영에서는 전송이 늘 같고, 검사 픽스처는 장면마다 바꿔 끼워 서로 섞이지 않는다).
+const READINESS_CACHE_MS_V22994 = 60000;
+let readinessCacheV22994 = null;
+
+async function readinessReportV22994(env) {
+  const refundEnabled = !!refundLinksEnabled(env);
+  const key = `${String(env.SUPABASE_URL || "")}|${refundEnabled ? "refund" : "-"}`;
+  const transport = globalThis.fetch;
+  const now = qaFixedNowMs();
+  const cached = readinessCacheV22994;
+  if (cached && cached.key === key && cached.transport === transport && now >= cached.at && now - cached.at < READINESS_CACHE_MS_V22994) {
+    return { ...cached.report, cached: true };
+  }
+  // 같은 함수를 두 번 점검하지 않는다(나중에 V88 함수가 config-readiness.js 목록으로 옮겨 가도 그대로 19개).
+  const coreRpcs = [...new Set([...READINESS_CORE_RPCS, ...READINESS_EXTRA_CORE_RPCS_V22994])];
+  const [checks, optionalChecks, rpcResults, alternativeRpcResults, refundLinksReady] = await Promise.all([
+    Promise.all(READINESS_REQUIRED_TABLES.map((name) => checkTableAvailable(env, name))),
+    Promise.all(READINESS_OPTIONAL_TABLES.map((name) => checkTableAvailable(env, name))),
+    Promise.all(coreRpcs.map((name) => checkRpcAvailable(env, name))),
+    Promise.all(READINESS_ALTERNATIVE_RPC_GROUPS.map(async (group) => Promise.all(group.map((name) => checkRpcAvailable(env, name))))),
+    refundEnabled ? refundLinksReadiness(env) : null,
+  ]);
+  const failedGroups = READINESS_ALTERNATIVE_RPC_GROUPS.map((group, index) => ({ group, results: alternativeRpcResults[index] })).filter((item) => !item.results.some((result) => result.ok));
+  const missingRpcs = [...coreRpcs.filter((_name, index) => !rpcResults[index].ok), ...failedGroups.map((item) => item.group.join("|"))];
+  // missing_rpcs 는 예전처럼 쓸 수 없는 함수 이름 전부다. 함수 없음(missing)이 아닌 실패(권한·불일치·확인 불가)는 분류와 원인 코드를
+  // rpc_failures 로 함께 알린다(대체 묶음은 묶음 전체가 실패일 때만).
+  const rpcFailures = [
+    ...coreRpcs.map((name, index) => ({ rpc: name, result: rpcResults[index] })),
+    ...failedGroups.flatMap((item) => item.group.map((name, index) => ({ rpc: name, result: item.results[index] }))),
+  ].filter((item) => !item.result.ok && item.result.status !== "missing").map((item) => ({ rpc: item.rpc, status: item.result.status, reason: item.result.reason }));
+  const failedTables = READINESS_REQUIRED_TABLES.filter((_name, index) => !checks[index].ok);
+  const report = {
+    ready: failedTables.length === 0 && missingRpcs.length === 0,
+    checkedRpcs: coreRpcs.length + READINESS_ALTERNATIVE_RPC_GROUPS.reduce((sum, group) => sum + group.length, 0),
+    failedTables,
+    unavailableOptionalTables: READINESS_OPTIONAL_TABLES.filter((_name, index) => !optionalChecks[index].ok),
+    missingRpcs,
+    rpcFailures,
+    refundLinksReady,
+    checkedAt: new Date(now).toISOString(),
+  };
+  readinessCacheV22994 = { key, transport, at: now, report };
+  return { ...report, cached: false };
+}
+
+// V22.9.94 R-4: 관제 1.5.0 은 이용 현황 요청(한 시간에 한 번)에 x-ab-monitor-cron: 1 을 실어 앱 예약 실행의 마지막 기록을 함께 받는다.
+// 인증은 abMonitorUsageProbe 와 같은 토큰 비교이고, 틀리면 그 함수의 401 을 그대로 낸다(기록을 읽지 않는다). 기록 읽기(Supabase 한 번)는
+// 이용 현황 집계와 함께 돌고, 실패해도 이용 현황 답(200·503)은 그대로이며 cron 칸만 ok:false 다. 머리가 없으면 이 함수를 거치지 않는다.
+async function opsUsageWithCronV22994(request, env) {
+  if (!env.OPS_MONITOR_TOKEN || !constantTimeTextEqual(request.headers.get("authorization") || "", `Bearer ${env.OPS_MONITOR_TOKEN}`)) return await abMonitorUsageProbe(request, env);
+  const [response, cron] = await Promise.all([abMonitorUsageProbe(request, env), opsCronStatusV22994(env)]);
+  let body = null;
+  try { body = JSON.parse(await response.text()); } catch (_) { body = null; }
+  if (!body || typeof body !== "object" || Array.isArray(body)) body = { ok: false, error_code: "invalid_reply" };
+  return jsonResponse({ ...body, cron }, response.status);
+}
+
 const ACCOUNTBOOK_WORKER = {
   async fetch(request, env, ctx) {
     scrubPrototypePollution("fetch:start");
@@ -1842,7 +1903,9 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       // V22.9.82: 관제 1.4.0 의 이용 현황 수집(한 시간에 한 번, 같은 토큰). 합계 숫자만 답한다.
+      // V22.9.94 R-4: 관제 1.5.0 이 x-ab-monitor-cron: 1 을 보내면 예약 실행 마지막 기록(cron 칸)을 붙인다. 머리가 없으면 예전 답 그대로다.
       if (url.pathname === "/internal/ops-usage" && request.method === "GET") {
+        if (request.headers.get("x-ab-monitor-cron") === "1") return await opsUsageWithCronV22994(request, env);
         return await abMonitorUsageProbe(request, env);
       }
 
@@ -1861,9 +1924,8 @@ const ACCOUNTBOOK_WORKER = {
       const appIcon = await appIconAssetResponse(request, url);
       if (appIcon) return appIcon;
 
-      // V22.6.1: 통합된 보조 계정의 오래된 웹 세션을 주 계정 세션으로 자동 복구합니다.
-      const recoveredUserSession = await mergedUserSessionRecoveryResponse(request, env, url);
-      if (recoveredUserSession) return recoveredUserSession;
+      // V22.9.94 C-5: V22.6.1 의 ‘통합된 보조 계정의 옛 웹 세션을 주 계정 세션으로 자동 복구’ 호출은 V22.9.30 S-4 뒤로 한 번도 돌지 않던
+      // 죽은 코드라 지웠다(auth/user-session.js 의 설명 참고). 통합된 보조 계정 쿠키는 다시 로그인한다.
 
       const trafficGuard = checkTrafficGuard(request, env, url);
       if (!trafficGuard.ok) return trafficLimitedResponse(url, request, trafficGuard, env);
@@ -2360,21 +2422,10 @@ const ACCOUNTBOOK_WORKER = {
         // V22.9.40 (B): ads_mode 는 운영자가 광고 게이트 상태("review"|"live")를 확인하는 값이다. /health 의 모양은 바꾸지 않는다. V22.9.92: ads_mode 에 "adfit"(카카오 애드핏)이 생겼고, 그때만 광고 단위 상태 adfit_unit("ok"·"missing")를 더한다.
         if (missing.length) return jsonResponse({ ok: false, ready: false, error: "missing_required_configuration", reason: "missing_required_configuration", message: "필수 설정이 비어 있어 요청을 처리할 수 없습니다.", missing_count: missing.length, ads_mode: adsMode(env), ...(adfitUnitStatus(env) ? { adfit_unit: adfitUnitStatus(env) } : {}) }, 503);
         // V22.9.79 D-5: 환불 연결은 플래그가 켜졌을 때만 따로 알린다(ready 판정·필수 표 13개에는 넣지 않는다).
-        const [checks, optionalChecks, rpcResults, alternativeRpcResults, refundLinksReady] = await Promise.all([
-          Promise.all(READINESS_REQUIRED_TABLES.map((name) => checkTableAvailable(env, name))),
-          Promise.all(READINESS_OPTIONAL_TABLES.map((name) => checkTableAvailable(env, name))),
-          Promise.all(READINESS_CORE_RPCS.map((name) => checkRpcAvailable(env, name))),
-          Promise.all(READINESS_ALTERNATIVE_RPC_GROUPS.map(async (group) => Promise.all(group.map((name) => checkRpcAvailable(env, name))))),
-          refundLinksEnabled(env) ? refundLinksReadiness(env) : null,
-        ]);
-        const failed = READINESS_REQUIRED_TABLES.filter((_name, index) => !checks[index].ok);
-        const unavailableOptionalTables = READINESS_OPTIONAL_TABLES.filter((_name, index) => !optionalChecks[index].ok);
-        const missingRpcs = READINESS_CORE_RPCS.filter((_name, index) => !rpcResults[index].ok);
-        const missingAlternativeRpcs = READINESS_ALTERNATIVE_RPC_GROUPS.filter((_group, index) => !alternativeRpcResults[index].some((result) => result.ok)).map((group) => group.join("|"));
-        const allMissingRpcs = [...missingRpcs, ...missingAlternativeRpcs];
-        const ready = failed.length === 0 && allMissingRpcs.length === 0;
-        const checkedRpcCount = READINESS_CORE_RPCS.length + READINESS_ALTERNATIVE_RPC_GROUPS.reduce((sum, group) => sum + group.length, 0);
-        return jsonResponse({ ok: ready, ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: checkedRpcCount, failed_tables: failed, unavailable_optional_tables: unavailableOptionalTables, missing_rpcs: allMissingRpcs, ads_mode: adsMode(env), ...(adfitUnitStatus(env) ? { adfit_unit: adfitUnitStatus(env) } : {}), ...(refundLinksReady ? { refund_links: refundLinksReady } : {}), time: new Date().toISOString() }, ready ? 200 : 503);
+        // V22.9.94 R-2: 점검은 readinessReportV22994 가 하고 60초 동안 다시 쓴다. 칸 순서는 V22.9.93 그대로이고, 함수 없음이 아닌 실패가
+        // 있을 때만 rpc_failures 를, 다시 쓴 답일 때만 cached·checked_at 을 더한다.
+        const report = await readinessReportV22994(env);
+        return jsonResponse({ ok: report.ready, ready: report.ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: report.checkedRpcs, failed_tables: report.failedTables, unavailable_optional_tables: report.unavailableOptionalTables, missing_rpcs: report.missingRpcs, ...(report.rpcFailures.length ? { rpc_failures: report.rpcFailures } : {}), ads_mode: adsMode(env), ...(adfitUnitStatus(env) ? { adfit_unit: adfitUnitStatus(env) } : {}), ...(report.refundLinksReady ? { refund_links: report.refundLinksReady } : {}), ...(report.cached ? { cached: true, checked_at: report.checkedAt } : {}), time: new Date().toISOString() }, report.ready ? 200 : 503);
       }
 
       if ((url.pathname === "/nlu-intents.json" || url.pathname === "/nlu-runtime.json") && request.method === "GET") {
@@ -3082,7 +3133,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.93-LAUNCH-FIXES";
+const APP_VERSION = "V22.9.94-REVIEW-FIXES";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -12593,8 +12644,12 @@ async function handleAdminDeleteTransaction(request, env) {
     // V22.9.90(사용자 피드백 2026-10-30): 로그인 사용자(관리자 세션 아님)가 지운 기록이면 ‘되돌리기’ 표(60초, /my/restore 만 받음)를
     // 돌아갈 주소의 restore 에 싣는다(T-16 실행 취소 표 undo 와 같은 방식). 홈 알림이 그 표로 ‘되돌리기’ 단추를 그린다. 만들지 못하면(비밀 없음·오류)
     // 싣지 않고, 돌아갈 주소에 남아 있던 앞선 삭제의 표도 지운다(단추가 다른 기록을 되살리지 않게).
-    const restoreTicket = !access.admin && access.userId
-      ? await makeDeleteRestoreTicket(env, { transactionId: id, householdId: rowHousehold, userId: access.userId }).catch(() => "") : "";
+    // V22.9.94 C-4: 표는 이 삭제가 남긴 감사 기록 번호를 함께 싣는다(그 삭제 한 번만 되돌린다). 번호를 읽지 못하면 표를 싣지 않는다.
+    let restoreTicket = "";
+    if (!access.admin && access.userId) {
+      const auditId = await fetchDeleteAuditIdV22994(env, { transactionId: id, householdId: rowHousehold, userId: access.userId }).catch(() => "");
+      restoreTicket = auditId ? await makeDeleteRestoreTicket(env, { transactionId: id, householdId: rowHousehold, userId: access.userId, auditId }).catch(() => "") : "";
+    }
     const returned = new URL(returnLocation(form, transactionReturnFallback(month, householdId, { msg: "deleted" }), { msg: "deleted" }), "https://dummy.local");
     returned.searchParams.delete("restore");
     if (restoreTicket) returned.searchParams.set("restore", restoreTicket);
@@ -12738,19 +12793,29 @@ async function handleAdminUpdateTransaction(request, env) {
   let lease = null;
   try {
     lease = await claimOperationLease(env, { key: `transaction-edit:${id}`, owner: operationLeaseOwner("transaction-edit"), leaseSeconds: 30 });
-    if (!lease.acquired) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "edit_busy" }), { err: "edit_busy" }));
-    const current = await getTransactionForUserEdit(env, id, rowHousehold);
-    if (!current) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "record_not_found" }), { err: "record_not_found" }));
-    const plan = planTransactionEdit(current, submitted, original);
-    if (plan.conflicts.length) {
-      if (!members.length) members = await fetchHouseholdMembers(env, rowHousehold);
-      const backTo = safeUserReturnPath(String(form.get("return_to") || ""), `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(rowHousehold)}`);
-      return htmlResponse(renderTransactionEditConflictHtml(env, current, plan.conflicts, backTo, members, isManager), 409);
+    const back = (extra) => redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, extra), extra));
+    if (!lease.acquired) return back({ err: "edit_busy" });
+    let current = await getTransactionForUserEdit(env, id, rowHousehold);
+    if (!current) return back({ err: "record_not_found" });
+    // V22.9.94 C-9(외부 검토): 이 잠금(transaction-edit)은 이 경로끼리만 막는다 — 카카오 수정·/my/update·관리 API 는 잡지 않아서, 위에서 읽은 뒤·아래에서
+    // 저장하기 전에 그쪽 저장이 끼어들면 예전에는 조건 없는 감사 RPC 가 그 값을 덮어쓰고 ‘수정했습니다’라고 했다. 이제 저장은 바꾸는 칸의 읽은 값을 건 조건부
+    // 저장(updateTransactionIfUnchangedV22994)이다. 0행이면 지금 값으로 다시 계획한다: 같은 칸이 다르게 바뀌었으면 충돌 화면(409), 다른 칸만 바뀌었거나
+    // 같은 값이 됐으면 내 칸만 다시 저장한다(세 번까지, 그래도 엇갈리면 edit_conflict). 기준 값은 폼의 orig_* 이고, 없는 칸은 처음 읽은 값이다.
+    const baseline = { ...Object.fromEntries(AB_EDIT_FIELDS.map((key) => [key, String(current[key] ?? "")])), ...(original || {}) };
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const plan = planTransactionEdit(current, submitted, baseline);
+      if (plan.conflicts.length) {
+        if (!members.length) members = await fetchHouseholdMembers(env, rowHousehold);
+        const backTo = safeUserReturnPath(String(form.get("return_to") || ""), `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(rowHousehold)}`);
+        return htmlResponse(renderTransactionEditConflictHtml(env, current, plan.conflicts, backTo, members, isManager), 409);
+      }
+      if (!Object.keys(plan.patch).length) return back({ msg: "updated" });
+      const outcome = await updateTransactionIfUnchangedV22994(env, id, plan.patch, current, { householdId: rowHousehold, actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user", path: "/admin/update" });
+      if (outcome.status === "updated") return back({ msg: "updated" });
+      if (outcome.status === "missing") return back({ err: "record_not_found" });
+      current = outcome.row;
     }
-    if (Object.keys(plan.patch).length) {
-      await updateTransaction(env, id, plan.patch, { householdId: rowHousehold, actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user" });
-    }
-    return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { msg: "updated" }), { msg: "updated" }));
+    return back({ err: "edit_conflict" });
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_update_failed", severity: "warn", path: "/admin/transactions/update", method: "POST", detail: safeError(err) });
     // V22.9.80 T-12: 환불 연결 보호 트리거가 막은 수정은 ‘수정하지 못했다’가 아니라 이유별 코드로 돌려보낸다(formatMessage 표).
@@ -12892,7 +12957,8 @@ async function handleAdminMemberUpdate(request, env) {
     if (!scopeRows.some((row) => String(row.user_id || "") === userId)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "변경할 참여자를 찾지 못했습니다." }));
     return await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
     const assertFresh = () => { lifecycleFresh(); householdFresh(); };
-    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRoleStrict(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
+    const actorRole = adminOk ? "" : await getHouseholdMemberRoleStrict(env, sessionUserId, householdId);
+    if (!adminOk && !["owner", "admin"].includes(actorRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
     // 권한 변경은 보안 작업이므로 선택 조회 실패를 빈 목록으로 간주하지 않는다.
     const rows = await supabase(env, `/rest/v1/household_members?select=household_id,user_id,role&household_id=eq.${encodeURIComponent(householdId)}`);
     if (!Array.isArray(rows)) throw new Error("member_role_source_invalid");
@@ -12901,6 +12967,9 @@ async function handleAdminMemberUpdate(request, env) {
       return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "변경할 참여자를 찾지 못했습니다. 목록을 새로고침한 뒤 다시 확인하세요." }));
     }
     const targetRole = bestRoleFromRows(targetRows);
+    // V22.9.94 R-3: 관리자는 자기보다 낮은 역할만 다룬다(소유자 역할의 변경·부여와 관리자 지정·변경은 소유자만). 판정은 잠금 안에서 다시 읽은 역할로 한다.
+    const roleDenied = memberRoleChangeDeniedV22994({ adminOk, actorRole, targetRole, nextRole: role });
+    if (roleDenied) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: roleDenied }));
     const ownerIds = [...new Set(rows.filter((m) => String(m.role || "") === "owner").map((m) => String(m.user_id || "")).filter(Boolean))];
     if (role === "owner" && ownerIds.some((id) => id !== userId)) {
       return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "이미 소유자가 있습니다. 계정 중복이면 관리자 계정 통합을 먼저 실행하세요." }));
@@ -12951,11 +13020,15 @@ async function handleAdminMemberRemove(request, env) {
     if (!scopeRows.some((row) => String(row.user_id || "") === userId)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "변경할 참여자를 찾지 못했습니다." }));
     return await withKakaoUserLifecycleLease(env, userId, async ({ assertFresh: lifecycleFresh }) => withHouseholdDatabaseLease(env, householdId, async ({ assertFresh: householdFresh }) => {
     const assertFresh = () => { lifecycleFresh(); householdFresh(); };
-    if (!adminOk && !["owner", "admin"].includes(await getHouseholdMemberRoleStrict(env, sessionUserId, householdId))) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
+    const actorRole = adminOk ? "" : await getHouseholdMemberRoleStrict(env, sessionUserId, householdId);
+    if (!adminOk && !["owner", "admin"].includes(actorRole)) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "member_manage_not_allowed" }));
     const rows = await fetchRawHouseholdMembers(env, householdId);
     const targetRole = bestRoleFromRows(rows.filter((m) => String(m.user_id || "") === userId));
     const ownerIds = [...new Set(rows.filter((m) => String(m.role || "") === "owner").map((m) => String(m.user_id || "")).filter(Boolean))];
     if (!targetRole) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "삭제할 참여자를 찾지 못했습니다. 목록을 새로고침한 뒤 다시 확인하세요." }));
+    // V22.9.94 R-3: 소유자·관리자는 소유자만 내보낸다(관리자는 자기보다 낮은 역할만).
+    const roleDenied = memberRoleChangeDeniedV22994({ adminOk, actorRole, targetRole, nextRole: null });
+    if (roleDenied) return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: roleDenied }));
     if (targetRole === "owner" && ownerIds.length <= 1) {
       return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: "유일한 소유자는 삭제할 수 없습니다." }));
     }
@@ -12974,6 +13047,19 @@ async function handleAdminMemberRemove(request, env) {
     rememberOpsEvent({ kind: "member_remove_failed", severity: "error", path: "/admin/member/remove", method: "POST", detail: safeError(err) });
     return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { err: isHouseholdRoleCheckFailure(err) ? "household_role_check_failed" : "member_remove_failed" }));
   }
+}
+
+// V22.9.94 R-3(내부 검토): 참여자 역할 변경·내보내기의 권한 행렬. 예전에는 소유자와 관리자를 같게 봐서, 소유자가 둘이면 관리자가 소유자를 내리거나
+// 내보낼 수 있었다(소유자가 하나면 ‘유일한 소유자’ 보호만 막았다). 운영 관리자 세션(adminOk)과 소유자는 모두 할 수 있고(둘째 소유자 금지·마지막 소유자
+// 보호는 각 처리기에서 그대로), 가계부 관리자는 대상의 지금 역할과 새 역할이 모두 관리자보다 낮을 때(구성원·조회 전용·승인 대기·차단)만 할 수 있다 —
+// 소유자·관리자(자기 자신 포함)의 변경·내보내기와 소유자·관리자 지정은 거절한다. nextRole 이 null 이면 내보내기다. 거절 코드는 참여자 화면이 이미
+// 한국어로 보이는 member_manage_not_allowed 다. 그 밖의 역할(구성원 이하)은 앞 검사에서 이미 거절됐다.
+function memberRoleChangeDeniedV22994({ adminOk = false, actorRole = "", targetRole = "", nextRole = null } = {}) {
+  if (adminOk || String(actorRole || "") === "owner") return "";
+  const adminRank = roleRank("admin");
+  if (roleRank(targetRole) >= adminRank) return "member_manage_not_allowed";
+  if (nextRole !== null && roleRank(nextRole) >= adminRank) return "member_manage_not_allowed";
+  return "";
 }
 
 function normalizeHouseholdRole(value = "") {
@@ -14885,9 +14971,19 @@ async function handleAdminBulkUpdate(request, env) {
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_bulk_update_failed", severity: "warn", path: "/admin/transactions/bulk", method: "POST", detail: safeError(err) });
     // V22.9.80 T-12: 트리거가 막았는데 막힌 기록을 가려내지 못했거나 모두 막혔으면 아무것도 바뀌지 않았다. 이유를 그대로 알린다.
+    // V22.9.94 C-11(외부 검토): 결과를 모르는 실패(응답 없음·시한·5xx — 저장소는 이미 지웠거나 바꿨을 수 있다)에도 ‘기존 기록은 유지됩니다’라고 했고,
+    // 일괄 삭제에도 ‘수정하지 못했습니다’라고 했다. 이제 결과 모름은 다시 보내지 말고 목록부터 확인하라고 알리고(이 화면으로 돌아오면 목록을 새로 읽는다),
+    // 거절(4xx·검증)만 ‘기존 기록은 유지됩니다’다. 삭제와 수정 문장을 나눈다.
+    const isDelete = String(form?.get?.("bulk_delete") || "") === "1";
     const message = refundLinkLockedReason(err)
       ? "환불과 연결된 기록이 있어 아무것도 바꾸지 않았습니다. 연결은 정산 화면의 ‘환불·환급’에서 먼저 풀어 주세요."
-      : "선택한 거래내역을 수정하지 못했습니다. 기존 기록은 유지됩니다.";
+      : isUncertainStorageWrite(err)
+        ? (isDelete
+          ? "삭제 결과를 확인하지 못했습니다. 같은 요청을 다시 보내지 말고, 목록을 새로 고쳐 선택한 기록이 지워졌는지 먼저 확인해 주세요."
+          : "일괄 수정 결과를 확인하지 못했습니다. 같은 요청을 다시 보내지 말고, 목록을 새로 고쳐 바뀌었는지 먼저 확인해 주세요.")
+        : isDelete
+          ? "선택한 거래내역을 삭제하지 못했습니다. 기존 기록은 유지됩니다."
+          : "선택한 거래내역을 수정하지 못했습니다. 기존 기록은 유지됩니다.";
     const fallback = transactionReturnFallback(month, householdId, { err: message });
     return redirectResponse(form ? returnLocation(form, fallback, { err: message }) : fallback);
   }
@@ -15585,6 +15681,17 @@ function isImportSummaryRow(cells = [], raw = "", options = {}) {
 // V22.9.37 감사 T10: 파일 전체의 부호 규칙. 금액이 있는 행 중 둘 이상·절반 이상이 음수이고, 양수인데 지출로 적힌 행과
 // 음수인데 수입으로 적힌 행이 하나도 없으면 "음수 = 지출, 양수 = 수입"으로 내보낸 파일(signed)이다. 그 밖(양수 지출
 // 사이의 음수 몇 건)은 예전처럼 취소·환불로 본다(default). 제목 행이 없는 표·자연어는 규칙을 정하지 않는다.
+// V22.9.94 C-8: 환불 말(환불·환급·반품·취소·refund·cancel)이 든 음수 행은 부호 규칙의 근거로 세지 않는다. 은행식 부호 파일에서는 환불이 양수로 오므로
+// 음수 환불 행은 예전 규칙(음수 = 취소·환불)에 맞는 행이다. 예전에는 이런 행이 둘 이상이면 그것만으로 부호 파일이 되어, 한 행이면 환급(수입)·확인
+// 필요이던 ‘지출,-100,커피 환불’ 이 두 행이면 둘 다 양수 지출로 기본 선택되고 같은 파일의 양수 행(‘점심 3000’)은 수입이 됐다.
+// 수수료·위약금·배송비·반품비(비용), 환불·취소 불가, 입금·수입 취소는 환불 말로 보지 않는다.
+const IMPORT_REFUND_WORD_V22994 = /환불|환급|반품|취소|refund|cancel/i;
+const IMPORT_REFUND_EXCEPT_V22994 = /수수료|위약금|배송비|택배비|반송비|반품비|(?:환불|취소)\s*불가|(?:입금|수입)\s*취소|\bfees?\b/i;
+function importRefundContextV22994(text = "") {
+  const value = String(text ?? "");
+  return IMPORT_REFUND_WORD_V22994.test(value) && !IMPORT_REFUND_EXCEPT_V22994.test(value);
+}
+
 function detectImportSignConvention(table = [], headerIndex = -1, maxRows = 5000, options = {}) {
   const summary = { mode: "default", amount_rows: 0, negative_rows: 0 };
   if (headerIndex < 0 || !safeArray(table[headerIndex]).length) return summary;
@@ -15594,6 +15701,7 @@ function detectImportSignConvention(table = [], headerIndex = -1, maxRows = 5000
   let fields = columns.map((column) => column.field);
   let positiveExpense = 0;
   let negativeIncome = 0;
+  let refundNegative = 0;
   for (let i = headerIndex + 1; i < Math.min(table.length, maxRows); i++) {
     const cells = safeArray(table[i]);
     if (!cells.some((cell) => String(cell ?? "").trim())) continue;
@@ -15621,10 +15729,16 @@ function detectImportSignConvention(table = [], headerIndex = -1, maxRows = 5000
     const inferenceCells = aligned.cells.filter((_, index) => ["date", "amount", "income", "expense", "memo", "type", "category", "payment"].includes(columns[index]?.field));
     if (isImportSummaryRow(inferenceCells, inferenceCells.join(" "), options)) continue;
     summary.amount_rows += 1;
-    if (money.negative) { summary.negative_rows += 1; if (typed === "income") negativeIncome += 1; }
+    if (money.negative) {
+      summary.negative_rows += 1;
+      if (typed === "income") negativeIncome += 1;
+      else if (importRefundContextV22994(inferenceCells.join(" "))) refundNegative += 1;
+    }
     else if (typed === "expense") positiveExpense += 1;
   }
-  if (summary.negative_rows >= 2 && summary.negative_rows * 2 >= summary.amount_rows && positiveExpense === 0 && negativeIncome === 0) summary.mode = "signed";
+  // 음수 행 수(negative_rows)는 미리보기 안내용으로 그대로 두고, 판정에는 환불 말이 없는 음수 행만 쓴다(행 수와 절반 비교 모두).
+  const signedNegative = summary.negative_rows - refundNegative;
+  if (signedNegative >= 2 && signedNegative * 2 >= summary.amount_rows && positiveExpense === 0 && negativeIncome === 0) summary.mode = "signed";
   return summary;
 }
 
@@ -15647,6 +15761,36 @@ function parseImportAmountCell(value = "") {
   }
   else amount = NaN;
   return { amount: Number.isFinite(amount) ? amount : 0, present: true, valid: Number.isSafeInteger(amount) && amount >= 0, negative, raw };
+}
+
+// V22.9.94 C-7: 외화 표시. 머리글 있는 표의 금액 칸과 머리글 없는 행에서 금액을 찾은 칸이 같은 기준을 쓴다(₩·￦·원·KRW·won 은 원화).
+// 예전에는 머리글 없는 행의 금액 추론이 이 검사 앞에 있어 ‘2026-07-01,커피,$100’ 이 100원 지출로 기본 선택됐다.
+const IMPORT_FOREIGN_MARK_V22994 = /[$¥€£]|USD|EUR|JPY|GBP|CNY|달러|유로|엔화|파운드|위안/i;
+const IMPORT_LOCAL_MARK_V22994 = /원|[₩￦]|krw|won/i;
+// 숫자에 붙은 외화 표시(앞: $100·US$ 100·USD 100·¥1,000·$1.5만, 뒤: 100$·100 EUR·100 dollars·3달러). 자연어 해석(parseTransaction)은
+// $·€ 같은 기호를 빈칸으로 지우고 숫자만 읽으므로(‘커피 €100’ 이 100원), 이 꼴을 지운 글에서도 같은 금액이 읽힐 때만 원화 금액으로 본다.
+// 뒤에 붙는 꼴은 숫자 덩어리의 첫 자리에서만 시작하고(?<![\d,.]) 부호 앞뒤 빈칸을 한 번만 읽어, 긴 숫자·빈칸 칸에서도 시간이 길이에 비례한다.
+const IMPORT_FOREIGN_AMOUNT_TOKEN_V22994 = /(?:[$¥€£]|(?<![A-Za-z])(?:USD|EUR|JPY|GBP|CNY|RMB|HKD|AUD|CAD|CHF|SGD|TWD|THB|VND|PHP|NZD)(?![A-Za-z]))\s*(?:[-−+]\s*)?\d(?:[\d,.]*\d)?(?:\s*[십백천만억])*|(?<![\d,.])\d(?:[\d,.]*\d)?(?:\s*[십백천만억])*\s*(?:[$¥€£]|(?:USD|EUR|JPY|GBP|CNY|RMB|HKD|AUD|CAD|CHF|SGD|TWD|THB|VND|PHP|NZD|dollars?|euros?|yen|yuan)(?![A-Za-z])|달러|유로|엔화|파운드|위안)/gi;
+// 머리글 없는 표에서 통화 코드·기호만 적힌 칸(제목 없는 통화 열).
+const IMPORT_FOREIGN_CODE_CELL_V22994 = /^(?:[$¥€£]|US\$|USD|EUR|JPY|GBP|CNY|RMB|HKD|AUD|CAD|CHF|SGD|TWD|THB|VND|PHP|NZD|달러|유로|엔|엔화|파운드|위안)$/i;
+
+function importForeignAmountRejectionV22994(rowNumber = 0, rawText = "") {
+  return { row: null, rejection: importRejection("ambiguous_amount", rowNumber, rawText), warnings: ["외화 금액을 원화로 자동 환산하지 않습니다."] };
+}
+
+// 칸 전체가 외화 금액인지(‘€1’·‘USD 1’·‘(-$100)’·‘000$’). 메모 속 외화(‘커피 €3’·‘PHP7 교재’)는 아니다.
+function importForeignAmountOnlyV22994(value = "") {
+  const text = String(value ?? "").normalize("NFKC");
+  const rest = text.replace(IMPORT_FOREIGN_AMOUNT_TOKEN_V22994, "");
+  return rest !== text && !rest.replace(/[\s()+\-−]/g, "");
+}
+
+function importForeignNaturalAmountV22994(text = "", amount = 0) {
+  const folded = String(text ?? "").normalize("NFKC");
+  const stripped = folded.replace(IMPORT_FOREIGN_AMOUNT_TOKEN_V22994, " ");
+  if (stripped === folded) return false;
+  const rest = parseTransaction(stripped, {});
+  return !rest.ok || rest.amount !== amount;
 }
 
 // V22.9.81: 머리글 없는 쉼표 표에 따옴표 없이 쓴 천 단위 쉼표(‘2026-07-15,5,000원,커피’)는 칸이 ‘5’·‘000원’으로 나뉘어, 0원인 ‘000원’이
@@ -15889,30 +16033,49 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   if (incomeInfo.amount > 0 && expenseInfo.amount > 0) return { row: null, rejection: importRejection("both_income_expense", options.rowNumber, rawText), warnings };
 
   let chosen = incomeInfo.amount > 0 ? incomeInfo : expenseInfo.amount > 0 ? expenseInfo : amountInfo;
-  if (/\$|¥|USD|EUR|JPY|달러|유로|엔화/i.test(chosen.raw || "")) return {row:null,rejection:importRejection("ambiguous_amount",options.rowNumber,rawText),warnings:["외화 금액을 원화로 자동 환산하지 않습니다."]};
+  if (IMPORT_FOREIGN_MARK_V22994.test(chosen.raw || "")) return importForeignAmountRejectionV22994(options.rowNumber, rawText);
   let forcedType = incomeInfo.amount > 0 ? "income" : expenseInfo.amount > 0 ? "expense" : "";
   const anyAmountPresent = amountInfo.present || incomeInfo.present || expenseInfo.present;
+  let inferredAmount = false, inferredLocal = false;
   if (!chosen.amount && !canonicalImportValue(obj, "amount") && !canonicalImportValue(obj, "income") && !canonicalImportValue(obj, "expense")) {
     const amountCandidates = [];
+    let foreignAmountCell = false;
     for (const cell of contextCells || []) {
       if (!String(cell || "").trim() || parseImportDateCell(cell, options) || normalizeImportTypeValue(cell)) continue;
       const info = parseImportAmountCell(cell);
       if (info.amount > 0) amountCandidates.push(info);
+      else if (importForeignAmountOnlyV22994(info.raw)) foreignAmountCell = true;
     }
     const unique = [...new Map(amountCandidates.map((item) => [item.amount, item])).values()];
-    if (unique.length === 1) { chosen = unique[0]; warnings.push("금액 제목이 없어 행의 숫자에서 금액을 찾았습니다."); }
+    if (unique.length === 1) {
+      // V22.9.94 C-7: 찾은 금액 칸(같은 금액의 칸 모두)에 외화 표시가 있으면 머리글 경로처럼 거절한다. 외화 금액만 적힌 칸(‘€1’·‘USD 1’·‘000$’ —
+      // 따옴표 없는 천 단위 쉼표로 나뉜 ‘€1,234’·‘1,000$’)이 함께 있으면 남은 숫자(‘234’·‘1’)는 원화 표시가 있을 때만 금액으로 쓴다.
+      inferredLocal = amountCandidates.some((item) => IMPORT_LOCAL_MARK_V22994.test(item.raw || ""));
+      if (amountCandidates.some((item) => IMPORT_FOREIGN_MARK_V22994.test(item.raw || "")) || (foreignAmountCell && !inferredLocal)) return importForeignAmountRejectionV22994(options.rowNumber, rawText);
+      chosen = unique[0]; inferredAmount = true; warnings.push("금액 제목이 없어 행의 숫자에서 금액을 찾았습니다.");
+    }
     else if (unique.length > 1) return { row: null, rejection: importRejection("ambiguous_amount", options.rowNumber, rawText), warnings };
   }
 
   let naturalParsed = null;
   if (!chosen.amount && !anyAmountPresent) {
     naturalParsed = parseTransaction(contextText, {});
-    if (naturalParsed.ok) chosen = { amount: naturalParsed.amount, negative: false, present: true, valid: true, raw: String(naturalParsed.amount) };
+    if (naturalParsed.ok) {
+      // V22.9.94 C-7: 자연어로 읽은 금액이 외화 표시가 붙은 숫자(‘€100’·‘USD 100’·‘커피 $100’)에서 왔으면 거절한다.
+      if (importForeignNaturalAmountV22994(contextText, naturalParsed.amount)) return importForeignAmountRejectionV22994(options.rowNumber, rawText);
+      chosen = { amount: naturalParsed.amount, negative: false, present: true, valid: true, raw: String(naturalParsed.amount) };
+      inferredAmount = true;
+    }
   }
   if (!chosen.amount) return { row: null, rejection: importRejection(anyAmountPresent ? "invalid_amount" : "missing_amount", options.rowNumber, rawText), warnings };
   if (Math.abs(Math.round(Number(chosen.amount || 0))) > MAX_TRANSACTION_AMOUNT) {
     return { row: null, rejection: importRejection("amount_too_large", options.rowNumber, rawText), warnings };
   }
+  // V22.9.94 C-7: 머리글 없는 행에 통화 코드만 적힌 칸(‘2026-07-01,커피,100,USD’)이 있으면 찾은 금액이 원화인지 알 수 없다. 금액에 원화 표시가
+  // 없으면 저장 후보로 남기되 확인 필요로 두어 기본 선택하지 않는다(머리글 있는 표의 통화 열은 위에서 거절한다).
+  const foreignCodeCell = inferredAmount && obj.__mapped !== true && !inferredLocal
+    && [...safeArray(contextCells), ...safeArray(obj.__cells)].some((cell) => IMPORT_FOREIGN_CODE_CELL_V22994.test(String(cell ?? "").normalize("NFKC").trim()));
+  if (foreignCodeCell) warnings.push("같은 행에 외화 통화 표시가 있어 원화 금액인지 확인이 필요합니다. 확인 후 저장하세요.");
 
   const typeVal = canonicalImportValue(obj, "type");
   const normalizedType = normalizeImportTypeValue(typeVal);
@@ -15939,10 +16102,14 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   const cancellation = !backup && /취소|승인취소|결제취소|cancel(?:led|lation)?|refund/i.test(contextText) && !/취소\s*수수료/.test(contextText);
   if (cancellation && !chosen.negative) warnings.push("취소 거래입니다. 원거래·취소 금액과 구분을 확인한 뒤 직접 선택하세요.");
   const genericNegative = chosen.negative && !String(typeVal || "").trim() && !forcedType;
-  if (!signedFile && chosen.negative && (normalizedType === "expense" || forcedType === "expense" || genericNegative)) {
+  // V22.9.94 C-8: 부호 파일(음수 = 지출)이라도 환불 말이 든 음수 행은 부호 규칙과 맞지 않는다(그런 파일의 환불은 양수다). 행 수로 뜻이 바뀌지
+  // 않게 한 행만 가져올 때와 같이 환급(수입)·확인 필요로 둔다. 예전에는 같은 행이 둘 이상이면 양수 지출로 기본 선택됐다.
+  const signedRefund = signedFile && chosen.negative && !backup && importRefundContextV22994(contextText);
+  if ((!signedFile || signedRefund) && chosen.negative && (normalizedType === "expense" || forcedType === "expense" || genericNegative)) {
     type = "income";
     refundFlipped = true;
     warnings.push("음수 금액이라 취소·환불(수입)로 처리했습니다. 확인 후 저장하세요.");
+    if (signedRefund) warnings.push("환불·취소 내용이 있는 음수 금액이라 파일의 부호 규칙(음수 = 지출)을 적용하지 않았습니다.");
   }
   // V22.9.76 감사 P1-3: 구분 열이 수입인데 금액이 음수면 수입 취소·정정이다. 예전에는 부호를 떼어 양수 수입으로 저장해
   // 수입이 오히려 늘었다. 음수 지출과 같은 규칙으로 반대 구분(지출)으로 돌리고, 확인 표시를 남겨 미리보기에서 기본 선택하지 않는다.
@@ -15988,7 +16155,7 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
     raw_text: String(rawField || (backup ? memoVal : rawText)).slice(0, 500),
     _import_spender: String(spender || "").slice(0, 80),
     _import_warnings: warnings.slice(),
-    _import_needs_confirmation: refundFlipped || incomeReversed || cancellation || yearBasisReview,
+    _import_needs_confirmation: refundFlipped || incomeReversed || cancellation || yearBasisReview || foreignCodeCell,
   };
   return { row, rejection: null, warnings, twoDigitYear: isTwoDigitYearImportDate(dateVal) };
 }
@@ -17123,22 +17290,118 @@ async function tableCheckPair(env, table) {
   return [r.ok, r.detail];
 }
 
+// V22.9.94 R-2: V22.9.88 실행 취소 조건부 삭제 함수도 점검한다. 이 함수가 없으면(PGRST202) 삭제가 조용히 옛 함수로
+// 돌아가(domain/transactions-core.js deleteTransactionIfUnchanged) 바뀐 기록까지 지울 수 있는데 /ready 는 초록이었다.
+// 점검 본문은 운영 함수(migrations/V22_9_88_UNDO_DELETE_IF_UNCHANGED_APPLY_REVIEW_ONLY.sql)의 다섯 인자 이름 그대로이고, uuid 변환에서
+// 22P02 로 멈춰 아무것도 지우지 않는다. 다른 점검 목록·본문은 runtime/config-readiness.js 에 있다(이 판에서 그 파일은 다른 일이 고친다).
+const READINESS_EXTRA_RPC_PROBE_BODIES_V22994 = {
+  accountbook_delete_transaction_if_v22988: { p_transaction_id: "readiness-invalid-uuid", p_household_id: "readiness-invalid-uuid", p_actor_user_id: "readiness-invalid-uuid", p_actor_kind: "readiness", p_expected: {} },
+};
+const READINESS_EXTRA_CORE_RPCS_V22994 = Object.keys(READINESS_EXTRA_RPC_PROBE_BODIES_V22994);
+const READINESS_RPC_DETAIL_V22994 = { missing: "함수 없음", forbidden: "권한 없음", mismatch: "인자·정의 불일치", unknown: "확인 불가" };
+
+// V22.9.94 R-2: 점검 실패를 나눈다. 예전에는 PGRST202 말고는 모두 "존재(안전 점검 중단)"로 보아 권한 거절(401·403·42501)·인자 불일치
+// (PGRST203)·시한·5xx·전송 오류에도 /ready 가 초록이었다. status: missing(없음)·forbidden(권한)·mismatch(인자·정의 불일치)·
+// unknown(확인 불가). reason 은 PostgREST·Postgres 오류 코드, 상태 번호(http_NNN) 또는 timeout·network·subrequest_budget·error 뿐이다
+// (오류 원문은 공개 /ready 에 싣지 않는다). 쓰기 경로 오류(supabase_write_result_unknown)는 감싼 원래 오류(cause)를 본다.
+function readinessRpcOutcomeV22994(rpcName, err) {
+  const inner = err?.code === "supabase_write_result_unknown" && err?.cause ? err.cause : err;
+  const message = String(inner?.message || "");
+  const httpStatus = Number(message.match(/^Supabase (\d{3}):/)?.[1] || 0);
+  if (!httpStatus) {
+    const code = String(inner?.code || "");
+    const name = String(inner?.name || "");
+    const reason = code === "supabase_read_timeout" || name === "TimeoutError" || name === "AbortError" ? "timeout"
+      : code === "supabase_subrequest_budget_before_dispatch" ? "subrequest_budget"
+      : inner instanceof TypeError ? "network" : "error";
+    return { status: "unknown", reason };
+  }
+  const code = message.match(/"code"\s*:\s*"([0-9A-Za-z_]{1,40})"/)?.[1] || "";
+  const fallback = `http_${httpStatus}`;
+  if (code === "PGRST202" || (!code && /Could not find the function/i.test(message))) {
+    // 이름이 같고 인자가 다른 함수가 있으면 PostgREST 가 힌트로 그 함수를 알려 준다: 함수는 있지만 앱이 부르는 인자와 맞지 않는다.
+    const sameName = new RegExp(`"hint"\\s*:\\s*"[^"]*\\bpublic\\.${rpcName}\\(`).test(message);
+    return { status: sameName ? "mismatch" : "missing", reason: "PGRST202" };
+  }
+  if (code === "PGRST203" || httpStatus === 300) return { status: "mismatch", reason: code || fallback };
+  if (httpStatus === 401 || httpStatus === 403 || code === "42501" || /^PGRST3\d\d$/.test(code) || /^(?:28|0L|0P)/.test(code)) return { status: "forbidden", reason: code || fallback };
+  if (code === "42883") return { status: "missing", reason: code };
+  if (/^42/.test(code) || /^PGRST[12]\d\d$/.test(code)) return { status: "mismatch", reason: code };
+  if (httpStatus >= 500 || /^PGRST/.test(code) || /^(?:08|25|40|53|54|55|57|58|XX|2D|3B|F0|HV)/.test(code)) return { status: "unknown", reason: code || fallback };
+  // 함수까지 가서 입력을 거절한 답(22P02 uuid 변환·P0001 첫 검사·23505 등, 코드 없는 400 포함)은 함수가 있다는 뜻이다.
+  if (httpStatus === 400 || httpStatus === 409 || httpStatus === 422) return { status: "ok", reason: code || fallback };
+  return { status: "unknown", reason: code || fallback };
+}
+
 // P0-2: /ready 준비 점검에서 핵심 RPC 존재 여부를 확인한다.
 // 실제 파라미터 이름과 안전한 무효값을 보내 PostgREST가 함수 시그니처를
 // 정확히 선택하게 한다. 함수가 존재하면 UUID 변환 또는 첫 입력 검증에서
-// 쓰기 전에 실패하며, PGRST202일 때만 실제 누락으로 판정한다.
+// 쓰기 전에 실패한다. V22.9.94: 정상 답과 그 입력 거절만 있음(ok)이고 나머지는 분류(status·reason)와 함께 실패다.
 async function checkRpcAvailable(env, rpcName) {
+  const probeBody = Object.hasOwn(READINESS_EXTRA_RPC_PROBE_BODIES_V22994, rpcName) ? READINESS_EXTRA_RPC_PROBE_BODIES_V22994[rpcName] : READINESS_RPC_PROBE_BODIES[rpcName];
+  if (!probeBody) return { ok: false, status: "unknown", reason: "no_probe_body", detail: "점검 시그니처 없음" };
   try {
-    const probeBody = READINESS_RPC_PROBE_BODIES[rpcName];
-    if (!probeBody) return { ok: false, detail: "점검 시그니처 없음" };
     await supabase(env, `/rest/v1/rpc/${rpcName}`, { method: "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(probeBody) });
-    return { ok: true, detail: "실행됨" };
+    return { ok: true, status: "ok", reason: "", detail: "실행됨" };
   } catch (err) {
-    const msg = safeError(err);
-    if (/PGRST202|Could not find the function/i.test(msg)) {
-      return { ok: false, detail: "함수 없음" };
+    const outcome = readinessRpcOutcomeV22994(rpcName, err);
+    if (outcome.status === "ok") return { ok: true, status: "ok", reason: outcome.reason, detail: "존재(입력 거절)" };
+    return { ok: false, status: outcome.status, reason: outcome.reason, detail: outcome.status === "unknown" ? `확인 불가(${outcome.reason})` : READINESS_RPC_DETAIL_V22994[outcome.status] };
+  }
+}
+
+// V22.9.94 R-4: 관제 1.5.0 이 /internal/ops-usage 로 함께 받는 예약 실행(매일 09:10 KST) 마지막 기록이다. 실행 기록(cron_run_log_v22978)과
+// 정기 처리 상태(cron_recurring_state_v22976 의 rev)를 Supabase 한 번(GET, 3초 시한)으로 읽는다. 두 키는 cron/recurring-auto-apply.js 와
+// 같아야 한다(그 모듈이 이 모듈을 import 하므로 거꾸로 가져오면 순환이 된다. validate-v22994-ops 가 두 소스를 맞대 본다).
+// 기록 모양은 그 모듈의 normalizeScheduledRun 이 저장한 것이다(새것이 앞). 읽기 실패·깨진 기록은 { ok:false, error_code } 로만 알린다(원문 없음).
+const OPS_CRON_LOG_KEY_V22994 = "cron_run_log_v22978";
+const OPS_CRON_STATE_KEY_V22994 = "cron_recurring_state_v22976";
+function opsCronCodeV22994(value) {
+  const text = String(value ?? "").trim().toLowerCase();
+  return /^[a-z0-9][a-z0-9_:.-]{0,59}$/.test(text) ? text : "error";
+}
+function opsCronStageNoteV22994(name, stage) {
+  if (!stage || typeof stage !== "object" || Array.isArray(stage)) return null;
+  if (stage.error !== undefined) return `${name}:${opsCronCodeV22994(stage.error)}`;
+  if (stage.partial_reason) return `${name}:${opsCronCodeV22994(stage.partial_reason)}`;
+  return stage.partial === true ? `${name}:partial` : null;
+}
+async function opsCronStatusV22994(env) {
+  try {
+    let rows;
+    try {
+      rows = await supabase(env, `/rest/v1/accountbook_settings?key=in.(${OPS_CRON_LOG_KEY_V22994},${OPS_CRON_STATE_KEY_V22994})&select=key,value&limit=2`, { method: "GET", timeoutMs: 3000 });
+    } catch (err) {
+      const status = String(err?.message || "").match(/^Supabase (\d{3})\b/)?.[1];
+      const code = String(err?.code || "");
+      return { ok: false, error_code: status ? `db_${status}` : /^[a-z][a-z0-9_]{2,59}$/.test(code) ? code : "cron_unavailable" };
     }
-    return { ok: true, detail: "존재(안전 점검 중단)" };
+    const valueOf = (key) => (Array.isArray(rows) ? rows.find((row) => row?.key === key)?.value : undefined);
+    const stateRaw = valueOf(OPS_CRON_STATE_KEY_V22994);
+    const revText = typeof stateRaw === "string" ? stateRaw.match(/^\{"rev":(\d{1,15}),/)?.[1] : undefined;
+    const rev = revText !== undefined ? Number(revText) : Number.isSafeInteger(stateRaw?.rev) && stateRaw.rev >= 0 ? stateRaw.rev : null;
+    const logRaw = valueOf(OPS_CRON_LOG_KEY_V22994);
+    let entries = [];
+    if (logRaw !== undefined && logRaw !== null && logRaw !== "") {
+      try { entries = typeof logRaw === "string" ? JSON.parse(logRaw) : logRaw; } catch (_) { entries = null; }
+      if (!Array.isArray(entries)) return { ok: false, error_code: "log_invalid" };
+    }
+    const isTime = (value) => typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value) && Number.isFinite(Date.parse(value));
+    const latest = entries.find((entry) => entry && typeof entry === "object" && !Array.isArray(entry) && isTime(entry.started_at));
+    if (!latest) return { ok: true, last_run_at: null, last_status: null, last_error: null, version: null, rev };
+    const status = ["ok", "partial", "error"].includes(latest.status) ? latest.status : "error";
+    const errors = Array.isArray(latest.errors) ? latest.errors : [];
+    const note = status === "ok" ? null : opsCronStageNoteV22994("recurring", latest.recurring) || opsCronStageNoteV22994("reports", latest.reports) || opsCronStageNoteV22994("cleanup", latest.cleanup);
+    return {
+      ok: true,
+      last_run_at: latest.started_at,
+      last_status: status,
+      last_error: errors.length ? opsCronCodeV22994(errors[0]) : note,
+      version: typeof latest.version === "string" && /^V[0-9A-Za-z._-]{1,47}$/.test(latest.version) ? latest.version : null,
+      rev,
+    };
+  } catch (_) {
+    return { ok: false, error_code: "cron_unavailable" };
   }
 }
 
@@ -24710,41 +24973,11 @@ async function verifyUserSession(request, env) {
   }
 }
 
-function isMergedSessionRecoveryPath(pathname = "") {
-  const path = String(pathname || "");
-  // This script is fetched immediately after the analysis HTML. Running the
-  // account-merge recovery lookup again for a static asset adds database
-  // latency to first paint without any recovery benefit; the parent page has
-  // already performed the same check.
-  if (path === "/my/analysis/app.js") return false;
-  return path === "/my" || path.startsWith("/my/") || [
-    "/app", "/households", "/keyword-guide", "/payment-methods", "/reserve-plans",
-    "/analysis", "/calendar", "/budgets", "/categories",
-  ].includes(path);
-}
-
-async function mergedUserSessionRecoveryResponse(request, env, url) {
-  try {
-    if (!request || !url || !["GET", "HEAD"].includes(String(request.method || "GET").toUpperCase())) return null;
-    if (!isMergedSessionRecoveryPath(url.pathname)) return null;
-    if (url.pathname === "/my/logout" || url.pathname.startsWith("/auth/kakao/")) return null;
-    // V22.9.16: 통합 계정 확인을 먼저 부른다. 그 안에서 세션 판 확인과 사용자 행 조회가 나란히
-    // 나가고 원본 세션 결과도 같은 요청 캐시에 남으므로, 뒤의 원본 조회는 왕복 없이 끝난다.
-    // 예전 순서(원본 → 통합)는 둘을 줄줄이 기다려 모든 /my·/app 첫 화면에 한 단계를 보탰다.
-    const effectiveUserId = await verifyUserSession(request, env);
-    if (!effectiveUserId) return null;
-    const rawUserId = await verifyRawUserSession(request, env);
-    if (!rawUserId || effectiveUserId === rawUserId) return null;
-    const session = await makeUserSession(env, effectiveUserId);
-    return redirectResponse(`${url.pathname}${url.search}`, {
-      "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
-      "x-accountbook-session-recovered": "1",
-    });
-  } catch (err) {
-    rememberOpsEvent({ kind: "merged_session_recovery_deferred", severity: "warn", path: url?.pathname || "", method: request?.method || "GET", detail: safeError(err) });
-    return null;
-  }
-}
+// V22.9.94 C-5(외부 검토): 관리자 계정 통합 뒤 ‘보조 계정의 옛 웹 세션을 주 계정 세션으로 자동 복구’하던 V22.6.1 처리는 V22.9.30 S-4
+// (docs/codex/CLAUDE_REPORT_DISPOSITION_V22_9_30.md: "이전 raw ID 토큰을 primary 세션으로 자동 복구하지 않습니다")부터 한 번도 돌지 않았다 —
+// verifyUserSession 이 통합된 계정(merged: 키·‘(통합됨)’ 이름)의 세션을 먼저 거절해서, 복구 코드는 늘 null 로 끝났다. 복구를 되살리면 서명·만료·세션 판이
+// 맞는 옛 보조 계정 쿠키(다른 기기에 남은 것 포함, 최대 14일)가 그 계정이 들어가지 않던 주 계정 가계부까지 여는 세션이 된다. 그래서 되살리지 않고
+// 돌지 않던 본문(사용자 조회 두 번·세션 발급)과 라우터(worker/router.js)의 호출을 함께 지웠다. 통합된 보조 계정 쿠키는 지금처럼 다시 로그인하게 한다.
 
 function configuredPublicBaseUrl(env = {}) {
   return normalizeBaseUrl(env.PUBLIC_BASE_URL || env.SERVICE_BASE_URL || env.APP_BASE_URL || env.CANONICAL_BASE_URL || "");
@@ -25053,17 +25286,20 @@ async function readQuickUndoTicket(env, ticket = "", userId = "") {
 // 화면은 5초 동안 ‘되돌리기’를 둔다. 지운 서버가 이 로그인 사용자가 방금 지운 기록 한 건에만 용도 표(delete-restore)를 서명해 삭제 응답(JSON)에 싣는다.
 // 표: 기록 번호(r)·가계부(h)·지운 사용자(u)·지운 시각(d, 초). 금액·메모는 싣지 않는다 — 되살릴 값은 /my/restore 가 DB 감사 기록(지운 행 전체)에서 읽는다.
 // 화면이 단추를 두는 시간은 5초지만 표는 60초까지 받는다(지운 뒤 화면을 다시 불러오는 시간·느린 망). 받는 곳은 /my/restore(my/transactions.js) 하나다.
+// V22.9.94 C-4(외부 검토): 표에 그 삭제가 남긴 감사 기록 번호(a — 삭제 한 번의 고유 번호)를 함께 서명한다. 되살릴 때 그 기록의 가장 최근 삭제가 이
+// 번호일 때만 되살리므로(domain/transactions-core.js fetchDeletedTransactionAudit) 한 표가 뒤의 다른 삭제를 되돌리지 않는다. 번호가 없으면 표를
+// 만들지 않고, 번호가 없는 표(배포 전에 만든 표 — 길어야 60초)는 읽지 않는다.
 const DELETE_RESTORE_SECONDS = 60;
-async function makeDeleteRestoreTicket(env, { transactionId = "", householdId = "", userId = "" } = {}) {
-  if (!transactionId || !householdId || !userId) return "";
-  return signedPurposeToken(env, "delete-restore", { r: String(transactionId), h: String(householdId), u: String(userId), d: Math.floor(Date.now() / 1000) }, DELETE_RESTORE_SECONDS);
+async function makeDeleteRestoreTicket(env, { transactionId = "", householdId = "", userId = "", auditId = "" } = {}) {
+  if (!transactionId || !householdId || !userId || !String(auditId || "")) return "";
+  return signedPurposeToken(env, "delete-restore", { r: String(transactionId), h: String(householdId), u: String(userId), d: Math.floor(Date.now() / 1000), a: String(auditId) }, DELETE_RESTORE_SECONDS);
 }
 
 async function readDeleteRestoreTicket(env, ticket = "", userId = "") {
   if (!ticket || !userId) return null;
   let payload = null;
   try { payload = await readPurposeToken(env, "delete-restore", String(ticket)); } catch (_) { return null; }
-  if (!payload || !payload.r || !payload.h || !(Number(payload.d) > 0) || String(payload.u || "") !== String(userId)) return null;
+  if (!payload || !payload.r || !payload.h || !String(payload.a ?? "") || !(Number(payload.d) > 0) || String(payload.u || "") !== String(userId)) return null;
   return payload;
 }
 
@@ -27488,7 +27724,20 @@ function recurringCronState(raw) {
     pending_month: validMonth(state.pending_month) || "",
     report_rebuild: recurringReportQueue(state.report_rebuild),
     scan_after: recurringScanAfter(state.scan_after),
+    report_req: recurringReportMarksV22994(state.report_req),
   };
+}
+
+// V22.9.94 C-10(외부 검토): 실행 밖 요청이 다시 만들기를 청한 가계부·기간과 그 요청이 쓴 상태 판 번호(rev). 예약 실행은 상태를 읽은 뒤에
+// (판 번호가 그보다 큰) 다시 청한 항목을 끝 저장에서 대기에 남긴다. 형식이 틀린 항목은 버린다(항목 자체는 대기에 있어 다시 만들기는 그대로다).
+function recurringReportMarksV22994(value) {
+  const out = new Map();
+  if (!value || typeof value !== "object" || Array.isArray(value)) return out;
+  for (const [key, rev] of Object.entries(value)) {
+    if (out.size >= RECURRING_REPORT_QUEUE_MAX) break;
+    if (Number.isSafeInteger(rev) && rev > 0 && recurringReportQueue([key]).length === 1) out.set(key, rev);
+  }
+  return out;
 }
 
 // V22.9.78 N-16: 달마다 이어 읽을 자리({month, day, household_id, id}). 예전 상태(칸 없음)와 형식이 틀린 항목은 자리 없음이다.
@@ -27570,12 +27819,15 @@ function recurringCronIsWeekEnd(ymd = "") {
   return isValidTransactionDateString(ymd) && new Date(`${ymd}T00:00:00Z`).getUTCDay() === 0;
 }
 
-function recurringStateBody(checkedDate = "", pendingMonth = "", queue = [], scanAfter = []) {
+function recurringStateBody(checkedDate = "", pendingMonth = "", queue = [], scanAfter = [], marks = null) {
   // 다시 만들 스냅숏도 이어 읽을 자리도 없으면 예전과 같은 두 값만 쓴다.
+  // V22.9.94 C-10: 요청 표시(report_req)는 있을 때만 쓴다. 옛 코드는 이 칸을 읽지 않으므로 되돌리면 표시만 사라진다.
+  const req = marks instanceof Map ? [...marks].slice(-RECURRING_REPORT_QUEUE_MAX) : [];
   return JSON.stringify({
     checked_date: checkedDate, pending_month: pendingMonth,
     ...(queue.length ? { report_rebuild: queue.slice(0, RECURRING_REPORT_QUEUE_MAX) } : {}),
     ...(scanAfter.length ? { scan_after: scanAfter } : {}),
+    ...(req.length ? { report_req: Object.fromEntries(req) } : {}),
   });
 }
 
@@ -27968,12 +28220,19 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   // V22.9.79 전 예약 실행은 저장 1회)은 남겨 둔다. 한도에 걸려 못 만든 항목은 상태 키에 남아 다음 실행이 잇는다.
   let reportQueue = recurringReportQueue([...(stored ? stored.report_rebuild : []), ...reportTouched]);
   let reportRebuilt = 0;
+  // V22.9.94 C-10: 이 실행이 대기에서 지운 항목(다시 만들었거나 스냅숏이 없어 버린 것). 끝 저장이 그사이 다시 청한 항목을 찾는 데 쓴다.
+  let reportHandled = [];
   if (reportQueue.length) {
     const reserve = 2;
-    const outcome = await rebuildMonthlyReportSnapshots(env, recurringReportEntries(reportQueue), { limit: RECURRING_REPORT_REBUILDS, canSpend: (calls) => room(calls + reserve) });
+    // V22.9.94 C-10: 예약 실행은 확인한 스냅숏이 그대로일 때만 바꾼다(conditional). 기록을 읽은 뒤 실행 밖 요청이 그 자리에서 새로
+    // 만들었으면 덮지 않고 그 항목을 대기에 남긴다. 예전에는 먼저 읽은 옛 기록으로 덮었다.
+    const outcome = await rebuildMonthlyReportSnapshots(env, recurringReportEntries(reportQueue), { limit: RECURRING_REPORT_REBUILDS, canSpend: (calls) => room(calls + reserve), conditional: true });
     stats.failed += outcome.failed;
     reportRebuilt = outcome.rebuilt;
+    const before = reportQueue;
     reportQueue = recurringReportQueue(outcome.remaining.map(recurringReportKey));
+    const left = new Set(reportQueue);
+    reportHandled = before.filter((key) => !left.has(key));
     if (reportQueue.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${reportQueue.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
   }
   let nextChecked = checkedDate;
@@ -27999,7 +28258,11 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
       .map((phase) => ({ month: phase.month, day: phase.cursor[0], household_id: phase.cursor[1], id: phase.cursor[2], ...(phase.started >= phase.monthEnd ? { started: phase.started } : {}) }));
     const queueChanged = reportQueue.join(",") !== stored.report_rebuild.join(",");
     const scanChanged = JSON.stringify(scanAfter) !== JSON.stringify(stored.scan_after);
-    if (nextChecked !== stored.checked_date || nextPending !== stored.pending_month || queueChanged || scanChanged) {
+    // V22.9.94 C-10: 처음 읽은 상태의 판 번호. 끝 저장 때 이보다 큰 판 번호로 다시 청한 항목은 이 실행이 다시 만든 뒤에도 대기에 남긴다.
+    // 읽을 때 이미 있던 요청 표시는 이 실행이 그 항목을 대기에서 처리했으므로 지운다(표시만 남은 상태도 한 번 써서 지운다).
+    const startRev = recurringStateRev(storedSnapshot.raw);
+    const marksLeft = stored.report_req.size > 0;
+    if (nextChecked !== stored.checked_date || nextPending !== stored.pending_month || queueChanged || scanChanged || marksLeft) {
       // V22.9.79: 이 실행이 도는 동안 예약 실행 밖(정기 규칙 수정·수동 반영의 queueRecurringReportRebuild)이 다시 만들기 대기에
       // 보탠 항목을 덮지 않는다. 예전에는 처음 읽은 상태로 계산한 값을 그대로 써서 그 항목이 사라졌다. 저장 바로 앞에 상태를 다시
       // 읽어, 처음 읽은 뒤 새로 생긴 대기 항목을 이 실행의 대기 뒤에 붙인다. 다른 칸은 이 실행의 값이다(예약 실행끼리는 잠금으로
@@ -28007,12 +28270,16 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
       // 확인한다). 다시 읽은 뒤 저장까지의 한 번 왕복 사이에 보탠 항목은 여전히 덮일 수 있다.
       // V22.9.88 Y-6: 그 틈을 닫았다. 처음 읽은 상태의 판 번호로 조건부로 쓰고, 그사이 누가 썼으면(조건이 맞지 않으면) 다시 읽어 새 항목을 붙여
       // 다시 쓴다. 바뀐 것이 없으면 다시 읽지 않는다(호출 1회 절감). 세 번 모두 밀리거나 다시 읽지 못하면 예전처럼 저장 실패다.
+      // V22.9.94 C-10(외부 검토): 이 실행이 다시 만드는 동안(기록을 읽은 뒤·저장 전) 실행 밖 요청이 같은 기간에 기록을 넣고 다시 만들기를
+      // 청하면, 그 항목은 처음 읽은 대기에 이미 있어 새 항목(added)으로 보이지 않았고 이 실행이 지워 사라졌다(스냅숏은 먼저 읽은 기록 그대로).
+      // 이제 요청은 늘 판 번호를 적고(queueRecurringReportRebuild), 처음 읽은 판 번호 뒤에 다시 청한 항목은 지운 항목이어도 대기에 남긴다.
       try {
         const known = new Set(stored.report_rebuild);
         const baseQueue = reportQueue;
         await updateRecurringState(env, (latest) => {
           const added = latest.report_rebuild.filter((key) => !known.has(key));
-          reportQueue = recurringReportQueue([...baseQueue, ...added]);
+          const again = reportHandled.filter((key) => (latest.report_req.get(key) || 0) > startRev);
+          reportQueue = recurringReportQueue([...baseQueue, ...added, ...again]);
           return recurringStateBody(nextChecked, nextPending, reportQueue, scanAfter);
         }, storedSnapshot);
         if (reportQueue.length > baseQueue.length && reportQueue.length > RECURRING_REPORT_QUEUE_MAX) report(`report_rebuild_overflow:${reportQueue.length - RECURRING_REPORT_QUEUE_MAX}`, "recurring_report_rebuild_overflow");
@@ -28027,7 +28294,8 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
         const merged = recurringReportQueue([...current.report_rebuild, ...reportQueue]);
         // V22.9.79 N-9: 월간 자리는 넣기 전에 셌다. 넘치면 저장할 때 뒤에 둔 주간 항목부터 잘린다.
         overflow = Math.max(0, merged.length - RECURRING_REPORT_QUEUE_MAX);
-        return recurringStateBody(current.checked_date, current.pending_month, merged, current.scan_after);
+        // V22.9.94 C-10: 같은 때 도는 예약 실행이 볼 요청 표시는 그대로 둔다.
+        return recurringStateBody(current.checked_date, current.pending_month, merged, current.scan_after, current.report_req);
       });
       if (overflow) report(`report_rebuild_overflow:${overflow}`, "recurring_report_rebuild_overflow");
     } catch (err) { stats.failed++; report(safeError(err), "recurring_state_save_failed"); }
@@ -28123,7 +28391,13 @@ async function queueRecurringReportRebuild(env, entries = [], { path = "/recurri
       parseStrictSettingsObject(snapshot.raw || "", "recurring_state");
       const queue = recurringReportQueue([...state.report_rebuild, ...add]);
       overflow = Math.max(0, queue.length - RECURRING_REPORT_QUEUE_MAX);
-      return queue.join(",") !== state.report_rebuild.join(",") ? recurringStateBody(state.checked_date, state.pending_month, queue, state.scan_after) : null;
+      // V22.9.94 C-10(외부 검토): 대기에 이미 있는 항목이어도 늘 쓴다. 예전에는 대기가 그대로면 아무것도 쓰지 않고 성공으로 돌아와(중복으로
+      // 취급), 그 항목을 다시 만들던 예약 실행이 먼저 읽은 기록으로 저장한 뒤 지워 버렸다. 이제 이 요청이 쓰는 판 번호를 항목마다 요청
+      // 표시(report_req)로 남겨, 그 실행이 끝 저장에서 다시 청한 것을 알아보고 대기에 남긴다.
+      const rev = recurringStateRev(snapshot.raw) + 1;
+      const marks = new Map(state.report_req);
+      for (const key of add) { marks.delete(key); marks.set(key, rev); }
+      return recurringStateBody(state.checked_date, state.pending_month, queue, state.scan_after, marks);
     });
     if (overflow) rememberOpsEvent({ kind: "recurring_report_rebuild_overflow", severity: "warn", path, method, detail: `report_rebuild_overflow:${overflow}` });
     return true;
@@ -29034,81 +29308,243 @@ async function handleReportPreferenceSave(request, env) {
   }
 }
 
-async function runAutomaticReportsUnlocked(env, opts = {}) {
-  const invocationDate = opts.today || formatDate(nowKstDate());
-  const cursorKey = "cron_report_cursor_v22930";
-  const cursor = parseStrictSettingsObject(await getSettingValueStrict(env,cursorKey),"report_cursor");
-  if (cursor.scopes !== undefined && !Array.isArray(cursor.scopes)) throw new Error("report_cursor_scope_invalid");
-  const scopes = safeArray(cursor.scopes).map(scope => ({...scope}));
-  if (scopes.some(scope => !isValidTransactionDateString(scope.date) || typeof scope.after !== "string" || [scope.force,scope.weekly,scope.monthly].some(flag => typeof flag !== "boolean"))) throw new Error("report_cursor_scope_invalid");
-  const requested = new Date(`${invocationDate}T12:00:00`);
-  const requestedTomorrow = new Date(requested.getFullYear(),requested.getMonth(),requested.getDate()+1);
-  if ((opts.force || requested.getDay() === 0 || requestedTomorrow.getMonth() !== requested.getMonth()) && !scopes.some(scope => scope.date === invocationDate)) scopes.push({date:invocationDate,after:"",force:!!opts.force,weekly:!!opts.force || requested.getDay()===0,monthly:!!opts.force || requestedTomorrow.getMonth()!==requested.getMonth()});
-  if (!scopes.length) return {ok:true,partial:false,today:invocationDate,invocation_date:invocationDate,scanned:0,generated:0,skipped:0,invalid:0,failed:0};
-  await saveSettingValue(env,cursorKey,JSON.stringify({scopes}));
-  const active = scopes[0];
-  const today = new Date(`${active.date}T12:00:00`), todayString = active.date;
-  const tomorrow = new Date(today.getFullYear(),today.getMonth(),today.getDate()+1);
-  const isWeekEnd = active.weekly, isMonthEnd = active.monthly, force = active.force;
-  const preferenceQuery = new URLSearchParams();
-  preferenceQuery.append("key", "gte.free_report_preference:");
-  preferenceQuery.append("key", "lt.free_report_preference;");
-  preferenceQuery.set("select", "key,value");
-  if (active.after) preferenceQuery.append("key", `gt.${active.after}`);
-  preferenceQuery.set("order", "key.asc");
-  preferenceQuery.set("limit", "3");
-  const settings = await supabase(env, `/rest/v1/accountbook_settings?${preferenceQuery}`, {method:"GET"});
-  if (!Array.isArray(settings)) throw new Error("report_preferences_source_invalid");
-  let after = active.after, partial = settings.length === 3;
-  let scanned = 0, generated = 0, skipped = 0, failed = 0, invalid = 0;
-  scan: for (const setting of safeArray(settings).slice(0,2)) {
-    if ((env.__AB_DB_BUDGET?.used || 0) >= 41) { partial = true; break; }
-    const previousAfter = after;
-    after = String(setting.key || "");
-    const preference = parseJsonSetting(setting.value, {});
-    const key = String(setting.key || "");
-    const prefix = "free_report_preference:";
-    const householdId = key.startsWith(prefix) ? key.slice(prefix.length).trim() : "";
-    // 설정 JSON이 변조되거나 오래된 값과 섞여도 다른 가계부를 읽지 않도록
-    // 실제 조회 범위는 키에 들어 있는 가계부 ID만 신뢰합니다.
-    if (!householdId || (preference.household_id && String(preference.household_id) !== householdId)) {
-      invalid++;
-      rememberOpsEvent({ kind: "free_report_preference_scope_mismatch", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: key.slice(0, 180) });
-      continue;
-    }
-    if (!preference.enabled) { skipped++; continue; }
-    scanned++;
-    const jobs = [];
-    if (preference.weekly && (force || isWeekEnd)) jobs.push({ kind: "weekly", period: isoWeekPeriod(today), start: formatDate(new Date(today.getFullYear(), today.getMonth(), today.getDate() - 6)), end: formatDate(tomorrow) });
-    if (preference.monthly && (force || isMonthEnd)) jobs.push({ kind: "monthly", period: todayString.slice(0, 7), start: `${todayString.slice(0, 7)}-01`, end: formatDate(tomorrow) });
-    if (!jobs.length) { skipped++; continue; }
-    for (const job of jobs) {
-      if ((env.__AB_DB_BUDGET?.used || 0) >= 41) { after = previousAfter; partial = true; break scan; }
-      const snapshotKey = freeReportSnapshotKey(householdId, job.kind, job.period);
-      try {
-        const existing = await getSettingValue(env, snapshotKey);
-        if (existing && !force) { skipped++; continue; }
-        const rows = await fetchAdminRowsRange(env, { householdId, start: job.start, end: job.end, limit: 9001 });
-        const report = buildFreeReportSnapshot(rows, { householdId, householdName: preference.household_name || "가계부", kind: job.kind, period: job.period });
-        await saveSettingValue(env, snapshotKey, report);
-        generated++;
-      } catch (err) {
-        if (isRowLimitExceededError(err)) {
-          // 기간 기록이 한도를 넘으면 일부만으로 스냅숏을 저장하지 않고 이 기간만 건너뛴다(QA B05).
-          failed++;
-          rememberOpsEvent({ kind: "free_report_row_limit", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `${householdId}:${job.kind}:${job.period}` });
-          continue;
-        }
-        failed++; after = previousAfter; partial = true;
-        rememberOpsEvent({ kind: "free_report_generate_failed", severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail: `${householdId}:${job.kind}:${safeError(err)}` });
-        break scan;
-      }
-    }
+// ── V22.9.94 R-1(내부 검토): 자동 리포트 예약 실행 ─────────────────────────────────────────────
+// 예전에는 한 실행에 가계부 2개만 만들었고(limit 3·slice 2), 일요일·말일 09:10 에 한 번 만든 스냅숏은 다시 만들지 않아(existing && !force →
+// 건너뜀) 그날 09:10 뒤 기록이 빠졌다. 리포트를 켠 가계부가 셋 이상이면 월말 리포트가 며칠씩 늦었고, 주간은 다음 일요일이 와도 끝나지 않았다.
+// 이제
+//  - 남은 저장소 호출 몫 안에서 가계부를 처리한다(정기 반영 단계와 같은 방식). 가계부마다 기록 조회 1회(1,000행마다 1회 더)·저장 1회 몫이
+//    남을 때만 시작하고, 커서 저장·잠금 풀기·NLU 정리 몫(REPORT_CRON_RESERVE_V22994)은 늘 남긴다. 한 실행이 읽는 기록 행도
+//    REPORT_CRON_ROW_BUDGET_V22994 를 넘기면 다음 가계부를 시작하지 않는다(요청당 CPU 10ms, 첫 가계부는 늘 처리). 멈춘 자리는 다음 실행이 잇는다.
+//  - 일요일·말일 실행이 만드는 스냅숏은 미리 보기다(그날 09:10 까지의 기록, '매주 일요일'·'매월 말' 안내 그대로). 그 범위를 다 돌면 같은 날짜의
+//    확정 범위(final)를 남기고, 다음 날 실행부터 그 기간 전체 기록으로 다시 만든다. 확정은 스냅숏을 20개씩 한 번에 찾아, 기간이 끝난 뒤 만든
+//    스냅숏은 건너뛰고 기록이 그대로면 다시 쓰지 않는다. 저장은 찾은 스냅숏이 그대로일 때만 바꾼다(그사이 실행 밖 요청이 만든 것을 덮지 않는다).
+//  - 아직 스냅숏이 없는 가계부를 만드는 범위(미리 보기·빠진 날 확정·다 못 돈 미리 보기의 뒤쪽)를 날짜 순서(오래 기다린 것부터)로 먼저 돌고,
+//    미리 보기가 있는 가계부를 다시 만드는 확정(refresh)은 그 뒤에 돈다. 실행이 빠진 날이 있으면 그 사이 일요일·말일(최근 7일)을 확정 범위로
+//    넣는다(pushed = 마지막으로 범위를 넣은 날).
+//  - 커서는 예전 코드도 읽는 모양이다(date·after·force·weekly·monthly 그대로, final·upto·refresh·pushed 는 옛 코드가 읽지 않는 칸).
+// 결과: partial = 남은 범위가 있다(다음 날 확정 포함), pending_scopes = 이번 실행에 돌 수 있었는데 다 못 돈 범위 수, ok = 실패도 그런 범위도 없다.
+const REPORT_CURSOR_KEY_V22994 = "cron_report_cursor_v22930";
+const REPORT_CRON_RESERVE_V22994 = 3;
+const REPORT_CRON_PAGE_V22994 = 20;
+const REPORT_CRON_ROW_BUDGET_V22994 = 2000;
+const REPORT_CRON_CATCHUP_DAYS_V22994 = 7;
+
+function reportNowIsoV22994() { return new Date(qaFixedNowMs()).toISOString(); }
+function reportIsWeekEndV22994(ymd = "") { return weekdayIndexOfYmd(ymd) === 0; }
+function reportIsMonthEndV22994(ymd = "") { return ymdShift(ymd, 1).slice(8, 10) === "01"; }
+
+function reportBudgetStopV22994(err) {
+  return String(err?.code || "") === "supabase_subrequest_budget_before_dispatch" || /supabase_subrequest_budget_before_dispatch/.test(safeError(err));
+}
+
+// 기간이 끝난 뒤(다음 날 0시 KST 이후)에 만든 스냅숏인가. 확정 범위는 이런 스냅숏을 다시 만들지 않는다.
+function reportSnapshotFinalV22994(raw, date = "") {
+  if (!raw) return false;
+  const at = Date.parse(String(parseJsonSetting(raw, {})?.generated_at || ""));
+  return Number.isFinite(at) && at >= Date.parse(`${ymdShift(date, 1)}T00:00:00+09:00`);
+}
+
+// 생성 시각만 다른 같은 스냅숏인가(기록이 그대로면 다시 쓰지 않는다).
+function reportSnapshotSameV22994(raw, report = {}) {
+  const previous = parseJsonSetting(raw, null);
+  if (!previous || typeof previous !== "object" || Array.isArray(previous)) return false;
+  return JSON.stringify({ ...previous, generated_at: "" }) === JSON.stringify({ ...report, generated_at: "" });
+}
+
+// V22.9.94 C-10·R-1: 확인한 스냅숏이 그대로일 때만 바꾼다(PATCH value=like.*"generated_at":"<확인한 값>"*, 호출 1회는 예전 저장과 같다).
+// 그사이 다른 곳이 다시 만들었으면 바꾸지 않고 false 를 돌려준다. 확인한 값에 생성 시각이 없으면 예전처럼 덮어쓴다.
+async function replaceReportSnapshotIfUnchangedV22994(env, key, previousRaw, report) {
+  const stamp = /"generated_at":"([0-9T:.+\-Z]{10,40})"/.exec(typeof previousRaw === "string" ? previousRaw : "");
+  if (!stamp) { await saveSettingValue(env, key, report); return true; }
+  const params = new URLSearchParams({ key: `eq.${String(key).slice(0, 180)}`, value: `like.*"generated_at":"${stamp[1]}"*`, select: "key" });
+  const rows = await supabase(env, `/rest/v1/accountbook_settings?${params}`, {
+    method: "PATCH", headers: { Prefer: "return=representation" }, body: JSON.stringify({ value: JSON.stringify(report) }),
+  });
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+// 범위 하나에서 이 가계부가 만들 스냅숏. 주간은 그 날짜까지 7일(일요일이면 그 주 월~일), 월간은 그 달 1일부터 그 날짜까지다(예전과 같다).
+function reportScopeJobsV22994(scope = {}, preference = {}, householdId = "") {
+  const date = String(scope.date || "");
+  const jobs = [];
+  if (preference.weekly && scope.weekly) {
+    const period = isoWeekPeriod(new Date(`${date}T12:00:00`));
+    jobs.push({ kind: "weekly", period, start: ymdShift(date, -6), end: ymdShift(date, 1), key: freeReportSnapshotKey(householdId, "weekly", period) });
   }
-  if (partial) active.after = after; else scopes.shift();
-  await saveSettingValue(env,cursorKey,JSON.stringify({scopes}));
-  partial = partial || scopes.length > 0;
-  return { ok: failed === 0 && !partial, partial, cursor:after, today: todayString, invocation_date:invocationDate, pending_scopes:scopes.length, scanned, generated, skipped, invalid, failed };
+  if (preference.monthly && scope.monthly) {
+    const period = date.slice(0, 7);
+    jobs.push({ kind: "monthly", period, start: `${period}-01`, end: ymdShift(date, 1), key: freeReportSnapshotKey(householdId, "monthly", period) });
+  }
+  return jobs;
+}
+
+// 미리 보기 범위가 끝났거나 날짜를 넘기면 확정 범위로 바꾼다. 그 날짜가 일요일·말일이 아니면(수동 생성) 확정 범위가 없다.
+// 중간에 날짜를 넘겼으면 아직 돌지 않은 뒤쪽(스냅숏 없음)을 한 범위로, 이미 돈 앞쪽(upto 까지, 미리 보기 있음)을 다른 범위로 둔다.
+// 미리 보기가 있는 가계부만 도는 범위는 refresh 로 적어, 아직 스냅숏이 없는 가계부의 범위(미리 보기·빠진 날 확정·뒤쪽)보다 뒤에 돈다.
+function reportFinalScopesV22994(scope = {}) {
+  const weekly = !!scope.weekly && reportIsWeekEndV22994(scope.date);
+  const monthly = !!scope.monthly && reportIsMonthEndV22994(scope.date);
+  if (!weekly && !monthly) return [];
+  const make = (after, upto, refresh) => ({ date: scope.date, after, force: false, weekly, monthly, final: true, ...(upto ? { upto } : {}), ...(refresh ? { refresh: true } : {}) });
+  return scope.after ? [make(scope.after, "", false), make("", scope.after, true)] : [make("", "", true)];
+}
+
+// 스냅숏이 없는 가계부를 만드는 범위를 먼저, 그 안에서는 날짜 순서(오래 기다린 것부터)로 돈다.
+function reportScopeOrderV22994(a = {}, b = {}) {
+  return (a.refresh === true) - (b.refresh === true) || (a.date < b.date ? -1 : a.date > b.date ? 1 : 0)
+    || (b.final === true) - (a.final === true) || (!!a.upto) - (!!b.upto);
+}
+
+async function runAutomaticReportsUnlocked(env, opts = {}) {
+  const invocationDate = isValidTransactionDateString(String(opts.today || "")) ? String(opts.today) : formatDate(nowKstDate());
+  const cursor = parseStrictSettingsObject(await getSettingValueStrict(env, REPORT_CURSOR_KEY_V22994), "report_cursor");
+  if (cursor.scopes !== undefined && !Array.isArray(cursor.scopes)) throw new Error("report_cursor_scope_invalid");
+  const stored = safeArray(cursor.scopes).map((scope) => ({ ...scope }));
+  if (stored.some((scope) => !isValidTransactionDateString(scope.date) || typeof scope.after !== "string" || [scope.force, scope.weekly, scope.monthly].some((flag) => typeof flag !== "boolean"))) throw new Error("report_cursor_scope_invalid");
+  const pushed = isValidTransactionDateString(String(cursor.pushed || "")) ? String(cursor.pushed) : "";
+  let lastText = JSON.stringify({ scopes: stored, ...(pushed ? { pushed } : {}) });
+  // 날짜를 넘긴 미리 보기 범위(옛 코드가 남긴 범위 포함)는 확정 범위로 바꾼다. 새 칸은 맞는 값만 남긴다.
+  const scopes = [];
+  for (const scope of stored) {
+    const clean = { date: scope.date, after: scope.after, force: scope.force, weekly: scope.weekly, monthly: scope.monthly };
+    if (scope.final === true) scopes.push({ ...clean, final: true, ...(typeof scope.upto === "string" && scope.upto ? { upto: scope.upto } : {}), ...(scope.refresh === true ? { refresh: true } : {}) });
+    else if (clean.date < invocationDate && reportFinalScopesV22994(clean).length) scopes.push(...reportFinalScopesV22994(clean));
+    else scopes.push(clean);
+  }
+  const covers = (scope, want) => scope.date === want.date && (scope.final === true) === (want.final === true) && (!want.weekly || scope.weekly) && (!want.monthly || scope.monthly);
+  const request = (want) => {
+    if (scopes.some((scope) => covers(scope, want))) return;
+    const fresh = scopes.find((scope) => scope.date === want.date && (scope.final === true) === (want.final === true) && !scope.after && !scope.upto);
+    if (fresh) { fresh.weekly = fresh.weekly || want.weekly; fresh.monthly = fresh.monthly || want.monthly; }
+    else scopes.push(want);
+  };
+  // 수동 생성(force)은 예전처럼 오늘 날짜의 미리 보기·수동 범위가 없을 때만 넣는다.
+  let requested = false;
+  if (opts.force && !scopes.some((scope) => scope.date === invocationDate && scope.final !== true)) {
+    scopes.push({ date: invocationDate, after: "", force: true, weekly: true, monthly: true });
+    requested = true;
+  }
+  // 마지막으로 본 날(pushed) 다음 날부터 오늘까지(최근 7일, 처음이면 어제부터)의 일요일·말일. 지난 날은 확정, 오늘은 미리 보기다.
+  // 수동 요청의 today 가 실제 오늘보다 뒤면 그날 몫만 보고 pushed 는 옮기지 않는다(앞날로 옮기면 그때까지 예약 실행이 범위를 넣지 않는다).
+  const future = invocationDate > formatDate(nowKstDate());
+  const floor = ymdShift(invocationDate, 1 - REPORT_CRON_CATCHUP_DAYS_V22994);
+  let day = future ? invocationDate : pushed ? ymdShift(pushed, 1) : ymdShift(invocationDate, -1);
+  if (day < floor) day = floor;
+  for (; day <= invocationDate; day = ymdShift(day, 1)) {
+    const weekly = reportIsWeekEndV22994(day), monthly = reportIsMonthEndV22994(day);
+    if (!weekly && !monthly) continue;
+    requested = true;
+    if (day < invocationDate) request({ date: day, after: "", force: false, weekly, monthly, final: true });
+    else if (!scopes.some((scope) => scope.date === day)) scopes.push({ date: day, after: "", force: false, weekly, monthly });
+  }
+  const keptPushed = requested && !future && pushed < invocationDate ? invocationDate : pushed;
+  scopes.sort(reportScopeOrderV22994);
+  const saveCursor = async () => {
+    const text = JSON.stringify({ scopes, ...(keptPushed ? { pushed: keptPushed } : {}) });
+    if (text === lastText) return;
+    await saveSettingValue(env, REPORT_CURSOR_KEY_V22994, text);
+    lastText = text;
+  };
+  if (!scopes.length) return { ok: true, partial: false, today: invocationDate, invocation_date: invocationDate, pending_scopes: 0, scanned: 0, generated: 0, skipped: 0, invalid: 0, failed: 0 };
+  // 커서는 끝에 한 번 쓴다(처리 중 던지면 던지기 전에 쓴다). 실행이 통째로 끊겨 못 써도 pushed 가 그대로라 다음 실행이 같은 범위를 다시 넣는다.
+  const budget = env.__AB_DB_BUDGET || (env.__AB_DB_BUDGET = { used: 0, limit: 50 });
+  const hardLimit = Number(budget.limit);
+  const softLimit = hardLimit - REPORT_CRON_RESERVE_V22994;
+  const room = (calls) => Number(budget.used || 0) + calls <= softLimit;
+  const runnable = (scope) => (scope.final === true ? scope.date < invocationDate : scope.date <= invocationDate);
+  const totals = { scanned: 0, generated: 0, skipped: 0, invalid: 0, failed: 0 };
+  const event = (kind, detail) => rememberOpsEvent({ kind, severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail });
+  let rows = 0, touched = false, stop = "", firstDate = "";
+  const runScope = async (scope) => {
+    const final = scope.final === true;
+    for (;;) {
+      if (!room(1)) { stop = "budget"; return false; }
+      const query = new URLSearchParams();
+      query.append("key", "gte.free_report_preference:");
+      query.append("key", "lt.free_report_preference;");
+      query.set("select", "key,value");
+      if (scope.after) query.append("key", `gt.${scope.after}`);
+      if (scope.upto) query.append("key", `lte.${scope.upto}`);
+      query.set("order", "key.asc");
+      query.set("limit", String(REPORT_CRON_PAGE_V22994));
+      let settings;
+      try { settings = await supabase(env, `/rest/v1/accountbook_settings?${query}`, { method: "GET" }); }
+      catch (err) { if (reportBudgetStopV22994(err)) { stop = "budget"; return false; } throw err; }
+      if (!Array.isArray(settings)) throw new Error("report_preferences_source_invalid");
+      const items = settings.map((setting) => {
+        const key = String(setting?.key || "");
+        const preference = parseJsonSetting(setting?.value, {});
+        const householdId = key.startsWith("free_report_preference:") ? key.slice("free_report_preference:".length).trim() : "";
+        // 설정 JSON이 변조되거나 오래된 값과 섞여도 다른 가계부를 읽지 않도록 실제 조회 범위는 키에 들어 있는 가계부 ID만 신뢰합니다.
+        if (!householdId || (preference.household_id && String(preference.household_id) !== householdId)) return { key, invalid: true };
+        if (!preference.enabled) return { key, disabled: true };
+        return { key, householdId, preference, jobs: reportScopeJobsV22994(scope, preference, householdId) };
+      });
+      // 확정 범위는 이 쪽의 스냅숏을 한 번에 찾는다(미리 보기·수동 생성은 찾지 않고 만든다).
+      let values = new Map();
+      const lookup = final ? items.flatMap((item) => (item.jobs || []).map((job) => job.key)) : [];
+      if (lookup.length) {
+        if (!room(1)) { stop = "budget"; return false; }
+        try { values = await fetchSettingValues(env, lookup); }
+        catch (err) {
+          if (reportBudgetStopV22994(err)) { stop = "budget"; return false; }
+          totals.failed++; event("free_report_generate_failed", `lookup:${safeError(err)}`); stop = "error"; return false;
+        }
+      }
+      for (const item of items) {
+        if (item.invalid) { totals.invalid++; event("free_report_preference_scope_mismatch", item.key.slice(0, 180)); scope.after = item.key; continue; }
+        if (item.disabled) { totals.skipped++; scope.after = item.key; continue; }
+        const work = final ? item.jobs.filter((job) => !reportSnapshotFinalV22994(values.get(job.key), scope.date)) : item.jobs;
+        if (work.length) {
+          if (touched && rows >= REPORT_CRON_ROW_BUDGET_V22994) { stop = "rows"; return false; }
+          if (!room(work.length * 2)) { stop = "budget"; return false; }
+        }
+        let skipped = item.jobs.length ? item.jobs.length - work.length : 1;
+        for (const job of work) {
+          try {
+            const found = await fetchAdminRowsRange(env, { householdId: item.householdId, start: job.start, end: job.end, limit: 9001 });
+            touched = true; rows += safeArray(found).length;
+            const report = buildFreeReportSnapshot(found, { householdId: item.householdId, householdName: item.preference.household_name || "가계부", kind: job.kind, period: job.period, generatedAt: reportNowIsoV22994() });
+            const previous = final ? values.get(job.key) : undefined;
+            if (previous && reportSnapshotSameV22994(previous, report)) { skipped++; continue; }
+            if (previous && !(await replaceReportSnapshotIfUnchangedV22994(env, job.key, previous, report))) { skipped++; continue; }
+            if (!previous) await saveSettingValue(env, job.key, report);
+            totals.generated++;
+          } catch (err) {
+            if (reportBudgetStopV22994(err)) { stop = "budget"; break; }
+            if (isRowLimitExceededError(err)) {
+              // 기간 기록이 한도를 넘으면 일부만으로 스냅숏을 저장하지 않고 이 기간만 건너뛴다(QA B05).
+              totals.failed++; event("free_report_row_limit", `${item.householdId}:${job.kind}:${job.period}`); continue;
+            }
+            totals.failed++; event("free_report_generate_failed", `${item.householdId}:${job.kind}:${safeError(err)}`); stop = "error"; break;
+          }
+        }
+        // 멈춘 가계부는 다음 실행이 처음부터 다시 본다(커서는 이 가계부 앞에 둔다).
+        if (stop) return false;
+        totals.scanned++; totals.skipped += skipped; scope.after = item.key;
+      }
+      if (settings.length < REPORT_CRON_PAGE_V22994) return true;
+    }
+  };
+  let thrown = null;
+  // 단계 몫 안에서만 부른다: 여러 쪽 기록 조회가 남겨 둔 몫(커서 저장·잠금 풀기·NLU 정리)을 쓰지 않게 한도를 잠시 낮춘다.
+  budget.limit = Math.max(Number(budget.used || 0), softLimit);
+  try {
+    for (const scope of scopes.slice()) {
+      if (!runnable(scope)) continue;
+      // today 는 예전처럼 이번 실행이 처리한 범위의 날짜다. 여러 범위를 돌면 가장 앞 날짜를 적는다.
+      if (!firstDate || scope.date < firstDate) firstDate = scope.date;
+      if (!(await runScope(scope))) break;
+      scopes.splice(scopes.indexOf(scope), 1);
+      if (scope.final !== true) for (const next of reportFinalScopesV22994({ ...scope, after: "" })) if (!scopes.some((other) => covers(other, next))) scopes.push(next);
+    }
+  } catch (err) { thrown = err; }
+  finally { budget.limit = hardLimit; }
+  scopes.sort(reportScopeOrderV22994);
+  try { await saveCursor(); } catch (err) { if (!thrown) throw err; }
+  if (thrown) throw thrown;
+  const pending = scopes.filter(runnable).length;
+  return { ok: totals.failed === 0 && pending === 0, partial: scopes.length > 0, today: firstDate || invocationDate, invocation_date: invocationDate, pending_scopes: pending, ...totals, ...(stop ? { stop } : {}) };
 }
 
 async function runAutomaticReports(env, opts = {}) {
@@ -29140,11 +29576,13 @@ const REPORT_REBUILD_LOOKUP = 40;
 
 // V22.9.79 N-9: 주간 항목({ household_id, week_end: 그 주 일요일 })도 같은 길로 다시 만든다. 기간·주 번호는 일요일 실행이
 // 만드는 것과 같다(그 일요일 앞 6일부터 그 일요일까지, isoWeekPeriod). 월간 항목은 예전 그대로다.
-async function rebuildMonthlyReportSnapshots(env, entries = [], { limit = 2, canSpend = () => true, path = "/cron/recurring/apply", method = "SCHEDULED" } = {}) {
+// V22.9.94 C-10: conditional 이면(예약 실행) 확인한 스냅숏이 그대로일 때만 바꾼다. 확인한 뒤 실행 밖 요청이 그 자리에서 새로 만들었으면
+// 덮지 않고 remaining 에 남겨(conflicts) 다음 실행이 다시 본다. 예전에는 먼저 읽은 옛 기록으로 요청이 만든 새 스냅숏을 덮었다.
+async function rebuildMonthlyReportSnapshots(env, entries = [], { limit = 2, canSpend = () => true, path = "/cron/recurring/apply", method = "SCHEDULED", conditional = false } = {}) {
   const list = safeArray(entries).filter((entry) => entry && String(entry.household_id || "") && (entry.week_end ? isValidTransactionDateString(entry.week_end) && weekdayIndexOfYmd(entry.week_end) === 0 : validMonth(entry.month)));
   const weekPeriodOf = (entry) => isoWeekPeriod(new Date(`${entry.week_end}T12:00:00`));
   const keyOf = (entry) => entry.week_end ? freeReportSnapshotKey(entry.household_id, "weekly", weekPeriodOf(entry)) : freeReportSnapshotKey(entry.household_id, "monthly", entry.month);
-  const result = { rebuilt: 0, dropped: 0, failed: 0, remaining: list };
+  const result = { rebuilt: 0, dropped: 0, failed: 0, conflicts: 0, remaining: list };
   if (!list.length || !canSpend(1)) return result;
   const lookup = list.slice(0, REPORT_REBUILD_LOOKUP);
   const done = new Set();
@@ -29168,8 +29606,15 @@ async function rebuildMonthlyReportSnapshots(env, entries = [], { limit = 2, can
       : { kind: "monthly", period: entry.month, start: `${entry.month}-01`, end: nextMonthStart(entry.month) };
     try {
       const rows = await fetchAdminRowsRange(env, { householdId: entry.household_id, start: job.start, end: job.end, limit: 9001 });
-      const previous = parseJsonSetting(values.get(key), {});
-      await saveSettingValue(env, key, buildFreeReportSnapshot(rows, { householdId: entry.household_id, householdName: previous.household_name || "가계부", kind: job.kind, period: job.period }));
+      const previousRaw = values.get(key);
+      const previous = parseJsonSetting(previousRaw, {});
+      const report = buildFreeReportSnapshot(rows, { householdId: entry.household_id, householdName: previous.household_name || "가계부", kind: job.kind, period: job.period, generatedAt: reportNowIsoV22994() });
+      if (conditional && !(await replaceReportSnapshotIfUnchangedV22994(env, key, previousRaw, report))) {
+        result.conflicts++;
+        rememberOpsEvent({ kind: "free_report_rebuild_conflict", severity: "info", path, method, detail: `${entry.household_id}:${entry.week_end || entry.month}` });
+        continue;
+      }
+      if (!conditional) await saveSettingValue(env, key, report);
       done.add(key); result.rebuilt++;
     } catch (err) {
       result.failed++;
@@ -32257,12 +32702,17 @@ async function handleMyUpdateTransaction(request, env) {
     user_id: canManageAllRecords(selected.role) && requestedUserId && activeSpenderExists(members, requestedUserId) ? requestedUserId : row.user_id,
   };
   try {
-    await updateTransaction(env, id, patch, { householdId: selected.id, actorUserId: userId, actorKind: "user" });
+    // V22.9.94 C-9(외부 검토): 위에서 읽은 행(row)과 저장 사이에 다른 곳(카카오 수정·홈 수정·관리 API)이 저장하면 예전에는 일곱 칸을 모두 이 폼 값으로
+    // 덮어썼다. 이제 읽은 값을 건 조건부 저장이라, 그 사이 바뀐 기록은 저장하지 않고 충돌(edit_conflict)을, 지워진 기록은 record_not_found 를 알린다.
+    // 이 경로의 폼에는 원래 값(orig_*)이 없어, 읽기 전에 이미 바뀐 기록(옛 화면에서 보낸 값)은 가려내지 못한다 — 화면의 수정 폼은 /admin/update 를 쓴다.
+    const outcome = await updateTransactionIfUnchangedV22994(env, id, patch, row, { householdId: selected.id, actorUserId: userId, actorKind: "user", path: "/my/update" });
+    if (outcome.status === "missing") return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
+    if (outcome.status === "changed") return redirectResponse(myReturnLocation(month, selected.id, { err: "edit_conflict" }));
     try {
       await appendTransactionEditHistory(env, selected.id, id, row, { ...row, ...patch }, userId, members);
     } catch (historyError) {
-      // The atomic transaction RPC already committed the edit and its database
-      // audit. A secondary display-history failure must not tell the user that
+      // The conditional save above already committed the edit (and its database
+      // audit row). A secondary display-history failure must not tell the user that
       // the transaction itself failed or encourage a duplicate retry.
       rememberOpsEvent({ kind: "transaction_edit_history_save_failed", severity: "warn", path: "/my/update", method: "POST", detail: safeError(historyError) });
     }
@@ -32368,8 +32818,9 @@ async function handleMyDeleteRestore(request, env) {
   };
   try {
     if (await findById(ticket.r)) return redirectResponse(back(selected.id, { msg: "restored" }));
-    // 표를 받은 그 삭제의 행만 쓴다. 그 뒤 다시 지운 기록(다른 사람이든 나든)이면 restore_changed 로 거절한다(fetchDeletedTransactionAudit).
-    const { row, reason } = await fetchDeletedTransactionAudit(env, { transactionId: ticket.r, householdId: selected.id, userId, deletedAt: ticket.d });
+    // 표를 받은 그 삭제의 행만 쓴다. 그 뒤 다시 지운 기록(다른 사람이든 나든, 몇 초 뒤든)이면 restore_changed 로 거절한다 — V22.9.94 C-4: 표의 감사
+    // 기록 번호(a)와 가장 최근 삭제 감사의 번호를 견준다(fetchDeletedTransactionAudit).
+    const { row, reason } = await fetchDeletedTransactionAudit(env, { transactionId: ticket.r, householdId: selected.id, userId, deletedAt: ticket.d, auditId: ticket.a });
     if (!row) return redirectResponse(back(selected.id, { err: reason === "changed" ? "restore_changed" : "restore_expired" }));
     if (!canManageMyRecord(selected.role, row, userId)) return redirectResponse(back(selected.id, { err: "not_my_record" }));
     const policyError = await memberRecordChangeError(env, selected.role, selected.id);
@@ -32391,6 +32842,12 @@ function householdTemplatePreset(key = "") {
     family_event: { name: "가족 행사비", label: "가족 행사" },
   };
   return presets[String(key || "").trim()] || null;
+}
+
+// V22.9.94 R-6: 단톡방 ‘웹가계부’ 버튼 → /my → 카카오 로그인은 채팅과 다른 계정이라(앱 1489689 가 채널에 안 붙어 있음) 가계부 0개인 이 화면으로 온다.
+// 여기서 ‘새 가계부 만들기’ 를 누르면 두 번째 계정이 생긴다. 가계부가 하나도 없을 때만 1:1 ‘웹 가계부 열기’ 코드 길(/my/kakao-claim)을 보여 준다.
+function kakaoRecordHintCardV22994() {
+  return `<div class="card" id="kakao-record-link" style="grid-column:1/-1"><span class="eyebrow">카카오톡에서 이미 기록했다면</span><h2>카카오톡에서 이미 기록하고 있었나요?</h2><p class="muted">단톡방이나 봇과의 1:1 채팅에서 남긴 기록은 이 웹 계정이 아니라 카카오 기록 계정에 있어요. 새 가계부를 만들지 말고 같은 기록을 이어 여세요. 단톡방의 ‘웹가계부’ 버튼으로 들어왔는데 가계부가 비어 있을 때가 바로 이 경우예요.</p><ol class="muted" style="margin:0 0 12px;padding-left:20px;line-height:1.7"><li>카카오톡에서 봇과의 1:1 채팅을 열고 <b>웹 가계부 열기</b>라고 보냅니다.</li><li>받은 웹 연결 코드를 아래 버튼을 눌러 붙여 넣습니다(10분 동안 1회).</li></ol><a class="primaryButton" href="/my/kakao-claim" style="background:#eef2ff;color:#3730a3!important">카카오 기록 이어 열기</a></div>`;
 }
 
 function householdPageMessage(code = "") {
@@ -32535,7 +32992,7 @@ async function handleMyHouseholdsPage(request, env, url) {
       ${leaveForm}
     </section>` : "";
 
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 전환·관리</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px 16px 120px}.hero,.card,.inviteStage,.accountSecurity{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px;font-size:25px}.hero p,.muted,.inlineHelp,.sectionHead p{color:#667085;line-height:1.6}.flow{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.flow span,.stepBadge,.eyebrow{display:inline-flex;border-radius:999px;background:#fff7cc;color:#5c4700;padding:6px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0;line-height:1.55}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.createJoin{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:12px}.field{display:grid;gap:7px;margin:11px 0}.field label,.settingsForm label,.dangerZone label{display:grid;gap:7px;font-size:13px;font-weight:1000;color:#475467}.field small{font-weight:700;color:#667085}.field input,.settingsForm input,.dangerZone input{width:100%;height:48px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit;background:#fff}.primaryButton,button,.hhActions a,.stageActions a,.stageActions button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.primaryButton{width:100%}.inlineHelp a,.dangerZone a{color:#1d4ed8;font-weight:1000}.list{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}.hhCard{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:10px;min-width:0}.hhCard.active{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.1);background:#f0fdfa}.hhMain{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.hhMain b{display:block;font-size:18px;word-break:break-word}.hhMain span{display:block;color:#667085;font-size:12px;margin-top:4px}.hhMain em{font-style:normal;background:#ccfbf1;color:#115e59;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:1000;white-space:nowrap}.hhActions{display:flex;gap:7px;flex-wrap:wrap}.hhActions a{background:#eef2f7;color:#111827!important;min-height:39px}.hhActions a.primary{background:#111827;color:#fff!important}.hhActions .cancelJoin{display:contents}.hhActions .cancelJoinButton{background:#fee2e2;color:#991b1b!important;min-height:39px}.inviteFold{border-top:1px solid #edf0f4;padding-top:8px}.inviteFold summary{cursor:pointer;font-weight:900;color:#475467}.inviteFold div{display:flex;gap:8px;align-items:center;margin-top:8px}.inviteFold code,.inviteCode{background:#fff7cc;border:1px solid #fde68a;border-radius:13px;padding:11px;font-weight:1000;word-break:break-all}.inviteFold button{min-height:38px}.inviteStage{border-color:#fde68a;background:linear-gradient(180deg,#fffef5,#fff)}.inviteStage h2{margin:11px 0 4px}.stageActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.stageActions a{background:#eef2f7;color:#111827!important}.exitGuide{color:#667085;font-size:13px}.sectionHead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.sectionHead h2{margin:8px 0 0}.closeLink{color:#475467;font-weight:900}.optionGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:14px 0}.optionGrid a{display:block;text-decoration:none;color:#101828;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:13px;min-width:0}.optionGrid b,.optionGrid span{display:block}.optionGrid span{color:#667085;font-size:12px;margin-top:4px;line-height:1.45}.manageGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.settingsForm,.dangerZone{border:1px solid #e5e7eb;border-radius:18px;padding:14px}.settingsForm h3,.dangerZone h3{margin:0 0 10px}.dangerZone{background:#fff7f7;border-color:#fecaca}.dangerZone button{background:#b91c1c;width:100%;margin-top:10px}.dangerZone p{color:#991b1b;font-size:13px;line-height:1.55}.dangerZone .check{grid-template-columns:auto 1fr;align-items:start}.dangerZone .check input{width:20px;height:20px}.accountSecurity{display:flex;align-items:center;justify-content:space-between;gap:14px}.accountSecurity b,.accountSecurity span{display:block}.accountSecurity span{color:#667085;font-size:13px;line-height:1.55;margin-top:4px}.accountSecurity>a,.reauthButton{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#eef2ff;color:#3730a3!important;text-decoration:none;font-weight:1000;padding:0 13px}.reauthOk{background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;border-radius:13px;padding:11px;margin:10px 0;font-weight:900}.orText{text-align:center;color:#667085;font-size:12px;font-weight:900;margin:8px 0}.readOnlyNote,.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:16px;padding:14px;color:#667085}@media(max-width:760px){.wrap{padding:10px 10px 128px}.createJoin,.manageGrid{grid-template-columns:1fr}.list{grid-template-columns:1fr}.optionGrid{grid-template-columns:1fr 1fr}.hero,.card,.inviteStage{border-radius:19px;padding:16px}.hero h1{font-size:22px}.field input,.settingsForm input,.dangerZone input{font-size:16px}.sectionHead{display:block}.closeLink{display:inline-block;margin-top:9px}.stageActions>*{width:100%}.accountSecurity{display:grid}.accountSecurity>a,.reauthButton{width:100%}}@media(max-width:390px){.optionGrid{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("my-households", { month, householdId: selected?.id || "", householdName: selected?.name || "", role: String(selected?.role || "") })}<main class="wrap"><section class="hero"><h1>가계부 전환·관리</h1><p>가계부마다 이름·참여자·초대코드·단톡방·백업·예산을 따로 관리합니다. 가계부 자체에는 비밀번호가 없고, 로그인 보안은 내 계정에 한 번만 설정합니다.</p><div class="flow"><span>1 이름 입력</span><span>2 가계부 생성</span><span>3 초대·단톡방 연결</span></div></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}${accountSecurityCard}${inviteStage}<section class="createJoin"><div class="card" id="create"><span class="eyebrow">1단계 · 이름</span><h2>${preset ? `${escapeHtml(preset.label)} 템플릿으로 만들기` : "새 가계부 만들기"}</h2><p class="muted">가계부 이름과 이 가계부에서 보일 내 이름만 확인하면 됩니다. 비밀번호를 새로 만들거나 다시 입력하지 않습니다.</p><form method="post" action="/my/create"><input type="hidden" name="template" value="${escapeHtml(url.searchParams.get("template") || "")}"/><div class="field"><label>가계부 이름</label><input name="household_name" value="${escapeHtml(url.searchParams.get("household_name") ?? preset?.name ?? "")}" placeholder="예: 우리집 생활비, 제주 여행 경비" minlength="2" maxlength="40" required/></div><div class="field"><label>이 가계부에서 보일 내 이름</label><input name="display_name" value="${escapeHtml(user.nickname || "카카오사용자")}" autocomplete="nickname" maxlength="40" required/></div><button class="primaryButton" type="submit">가계부 만들기</button></form></div><div class="card"><span class="eyebrow">이미 초대받았나요?</span><h2>초대코드로 참여</h2><p class="muted">받은 코드를 입력하면 참여 요청이 접수됩니다. 승인 대기 중에는 같은 코드를 반복 입력할 필요가 없습니다.</p><form method="post" action="/my/join"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: ABCD1234" autocomplete="off" required/></div><button class="primaryButton" type="submit">참여 요청 보내기</button></form></div></section><section class="card"><h2>내 가계부 ${numberWithCommas(households.length)}개</h2><p class="muted">카드를 열지 않아도 핵심 작업을 바로 선택할 수 있습니다.</p><div class="list">${cards}</div></section>${selectedManage}</main><script>(function(){document.querySelectorAll('[data-copy]').forEach(function(button){button.addEventListener('click',function(){var text=button.getAttribute('data-copy')||'';var done=function(){button.textContent='복사됨';setTimeout(function(){button.textContent='복사';},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(done).catch(function(){window.prompt('복사하세요',text)});}else{window.prompt('복사하세요',text);}});});})();</script></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 전환·관리</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:16px 16px 120px}.hero,.card,.inviteStage,.accountSecurity{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px;font-size:25px}.hero p,.muted,.inlineHelp,.sectionHead p{color:#667085;line-height:1.6}.flow{display:flex;gap:7px;flex-wrap:wrap;margin-top:14px}.flow span,.stepBadge,.eyebrow{display:inline-flex;border-radius:999px;background:#fff7cc;color:#5c4700;padding:6px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0;line-height:1.55}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.createJoin{display:grid;grid-template-columns:minmax(0,1.2fr) minmax(280px,.8fr);gap:12px}.field{display:grid;gap:7px;margin:11px 0}.field label,.settingsForm label,.dangerZone label{display:grid;gap:7px;font-size:13px;font-weight:1000;color:#475467}.field small{font-weight:700;color:#667085}.field input,.settingsForm input,.dangerZone input{width:100%;height:48px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit;background:#fff}.primaryButton,button,.hhActions a,.stageActions a,.stageActions button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.primaryButton{width:100%}.inlineHelp a,.dangerZone a{color:#1d4ed8;font-weight:1000}.list{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:10px}.hhCard{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:10px;min-width:0}.hhCard.active{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.1);background:#f0fdfa}.hhMain{display:flex;align-items:flex-start;justify-content:space-between;gap:8px}.hhMain b{display:block;font-size:18px;word-break:break-word}.hhMain span{display:block;color:#667085;font-size:12px;margin-top:4px}.hhMain em{font-style:normal;background:#ccfbf1;color:#115e59;border-radius:999px;padding:5px 8px;font-size:11px;font-weight:1000;white-space:nowrap}.hhActions{display:flex;gap:7px;flex-wrap:wrap}.hhActions a{background:#eef2f7;color:#111827!important;min-height:39px}.hhActions a.primary{background:#111827;color:#fff!important}.hhActions .cancelJoin{display:contents}.hhActions .cancelJoinButton{background:#fee2e2;color:#991b1b!important;min-height:39px}.inviteFold{border-top:1px solid #edf0f4;padding-top:8px}.inviteFold summary{cursor:pointer;font-weight:900;color:#475467}.inviteFold div{display:flex;gap:8px;align-items:center;margin-top:8px}.inviteFold code,.inviteCode{background:#fff7cc;border:1px solid #fde68a;border-radius:13px;padding:11px;font-weight:1000;word-break:break-all}.inviteFold button{min-height:38px}.inviteStage{border-color:#fde68a;background:linear-gradient(180deg,#fffef5,#fff)}.inviteStage h2{margin:11px 0 4px}.stageActions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.stageActions a{background:#eef2f7;color:#111827!important}.exitGuide{color:#667085;font-size:13px}.sectionHead{display:flex;justify-content:space-between;gap:10px;align-items:flex-start}.sectionHead h2{margin:8px 0 0}.closeLink{color:#475467;font-weight:900}.optionGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px;margin:14px 0}.optionGrid a{display:block;text-decoration:none;color:#101828;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:13px;min-width:0}.optionGrid b,.optionGrid span{display:block}.optionGrid span{color:#667085;font-size:12px;margin-top:4px;line-height:1.45}.manageGrid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.settingsForm,.dangerZone{border:1px solid #e5e7eb;border-radius:18px;padding:14px}.settingsForm h3,.dangerZone h3{margin:0 0 10px}.dangerZone{background:#fff7f7;border-color:#fecaca}.dangerZone button{background:#b91c1c;width:100%;margin-top:10px}.dangerZone p{color:#991b1b;font-size:13px;line-height:1.55}.dangerZone .check{grid-template-columns:auto 1fr;align-items:start}.dangerZone .check input{width:20px;height:20px}.accountSecurity{display:flex;align-items:center;justify-content:space-between;gap:14px}.accountSecurity b,.accountSecurity span{display:block}.accountSecurity span{color:#667085;font-size:13px;line-height:1.55;margin-top:4px}.accountSecurity>a,.reauthButton{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#eef2ff;color:#3730a3!important;text-decoration:none;font-weight:1000;padding:0 13px}.reauthOk{background:#ecfdf5;border:1px solid #a7f3d0;color:#166534;border-radius:13px;padding:11px;margin:10px 0;font-weight:900}.orText{text-align:center;color:#667085;font-size:12px;font-weight:900;margin:8px 0}.readOnlyNote,.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:16px;padding:14px;color:#667085}@media(max-width:760px){.wrap{padding:10px 10px 128px}.createJoin,.manageGrid{grid-template-columns:1fr}.list{grid-template-columns:1fr}.optionGrid{grid-template-columns:1fr 1fr}.hero,.card,.inviteStage{border-radius:19px;padding:16px}.hero h1{font-size:22px}.field input,.settingsForm input,.dangerZone input{font-size:16px}.sectionHead{display:block}.closeLink{display:inline-block;margin-top:9px}.stageActions>*{width:100%}.accountSecurity{display:grid}.accountSecurity>a,.reauthButton{width:100%}}@media(max-width:390px){.optionGrid{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("my-households", { month, householdId: selected?.id || "", householdName: selected?.name || "", role: String(selected?.role || "") })}<main class="wrap"><section class="hero"><h1>가계부 전환·관리</h1><p>가계부마다 이름·참여자·초대코드·단톡방·백업·예산을 따로 관리합니다. 가계부 자체에는 비밀번호가 없고, 로그인 보안은 내 계정에 한 번만 설정합니다.</p><div class="flow"><span>1 이름 입력</span><span>2 가계부 생성</span><span>3 초대·단톡방 연결</span></div></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}${accountSecurityCard}${inviteStage}<section class="createJoin"><div class="card" id="create"><span class="eyebrow">1단계 · 이름</span><h2>${preset ? `${escapeHtml(preset.label)} 템플릿으로 만들기` : "새 가계부 만들기"}</h2><p class="muted">가계부 이름과 이 가계부에서 보일 내 이름만 확인하면 됩니다. 비밀번호를 새로 만들거나 다시 입력하지 않습니다.</p><form method="post" action="/my/create"><input type="hidden" name="template" value="${escapeHtml(url.searchParams.get("template") || "")}"/><div class="field"><label>가계부 이름</label><input name="household_name" value="${escapeHtml(url.searchParams.get("household_name") ?? preset?.name ?? "")}" placeholder="예: 우리집 생활비, 제주 여행 경비" minlength="2" maxlength="40" required/></div><div class="field"><label>이 가계부에서 보일 내 이름</label><input name="display_name" value="${escapeHtml(user.nickname || "카카오사용자")}" autocomplete="nickname" maxlength="40" required/></div><button class="primaryButton" type="submit">가계부 만들기</button></form></div><div class="card"><span class="eyebrow">이미 초대받았나요?</span><h2>초대코드로 참여</h2><p class="muted">받은 코드를 입력하면 참여 요청이 접수됩니다. 승인 대기 중에는 같은 코드를 반복 입력할 필요가 없습니다.</p><form method="post" action="/my/join"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: ABCD1234" autocomplete="off" required/></div><button class="primaryButton" type="submit">참여 요청 보내기</button></form></div>${households.length ? "" : kakaoRecordHintCardV22994()}</section><section class="card"><h2>내 가계부 ${numberWithCommas(households.length)}개</h2><p class="muted">카드를 열지 않아도 핵심 작업을 바로 선택할 수 있습니다.</p><div class="list">${cards}</div></section>${selectedManage}</main><script>(function(){document.querySelectorAll('[data-copy]').forEach(function(button){button.addEventListener('click',function(){var text=button.getAttribute('data-copy')||'';var done=function(){button.textContent='복사됨';setTimeout(function(){button.textContent='복사';},1400)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(done).catch(function(){window.prompt('복사하세요',text)});}else{window.prompt('복사하세요',text);}});});})();</script></body></html>`);
 }
 
 async function handleMyHouseholdsPageLegacyV2264(request, env, url) {
@@ -41990,7 +42447,7 @@ function renderMyStartChoiceHtml({ env, user, msg = "", err = "" }) {
   const title = escapeHtml(appName(env));
   const userName = escapeHtml(user?.nickname || "카카오사용자");
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 가계부 시작</title><style>
-  *,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9 0%,#f8fafc 48%,#eef2f7 100%);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1000px;margin:0 auto;padding:18px}.hero{background:#fff;border:1px solid #e8edf4;border-radius:32px;box-shadow:0 22px 54px rgba(15,23,42,.09);padding:26px;margin:16px 0}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{margin:14px 0 10px;font-size:32px;letter-spacing:-.06em}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;box-shadow:0 14px 34px rgba(15,23,42,.055)}.card h2{margin:0 0 8px;font-size:22px}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:12px;font-weight:1000;color:#475467}.field input{height:48px;border:1px solid #d0d5dd;background:#fff;border-radius:16px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;border:0;border-radius:16px;background:#111827;color:#fff;font-weight:1000;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.criteria{background:#f8fafc;border:1px solid #edf1f7;border-radius:18px;padding:13px;margin:12px 0}.criteria b{display:block}.criteria span{display:block;color:#667085;font-size:13px;line-height:1.5;margin-top:4px}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:11px;margin:10px 0}.foot{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:20px;padding:14px;margin:14px 0;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.grid{grid-template-columns:1fr}.hero h1{font-size:26px}}</style></head><body><main class="wrap"><section class="hero"><span class="badge">가계부 시작</span><h1>${userName}님,<br/>새로 만들까요? 참여할까요?</h1><p class="muted">아래 두 가지 중 현재 상황에 맞는 것을 선택하세요. 잘못 선택해도 나중에 다른 가계부를 추가하거나 초대코드로 다시 참여할 수 있습니다.</p>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}</section>${renderAccountbookEmptyState()}<section class="grid"><div class="card"><h2>새 가계부 만들기</h2><p class="muted">아직 가계부가 없거나, 내가 우리집/모임 가계부의 시작자가 되는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>내가 가계부를 만들고 구성원을 초대한 뒤 첫 기록부터 시작할 때</span></div><form method="post" action="/my/create"><div class="field"><label>가계부 이름</label><input name="household_name" placeholder="예: 우리집 가계부" value="우리집 가계부"/></div><button type="submit">새 가계부 만들기</button></form></div><div class="card"><h2>초대코드로 참여하기</h2><p class="muted">가족, 배우자, 모임장이 이미 만든 가계부가 있는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>이미 받은 초대코드가 있고 같은 가계부에 내 기록을 함께 남길 때</span></div><form method="post" action="/my/join"><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: 38NDLPNR" required/></div><button class="secondary" type="submit">초대코드로 참여하기</button></form></div></section><div class="foot"><b>다음 단계</b><br/>가계부 생성 또는 참여 → 구성원 초대·승인 → 단톡방 연결(선택) → 기록 방법 확인 → 첫 기록 순서로 진행하세요. 예산과 분류는 첫 기록 후 필요할 때 설정해도 됩니다.</div></main></body></html>`;
+  *,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9 0%,#f8fafc 48%,#eef2f7 100%);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1000px;margin:0 auto;padding:18px}.hero{background:#fff;border:1px solid #e8edf4;border-radius:32px;box-shadow:0 22px 54px rgba(15,23,42,.09);padding:26px;margin:16px 0}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{margin:14px 0 10px;font-size:32px;letter-spacing:-.06em}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;box-shadow:0 14px 34px rgba(15,23,42,.055)}.card h2{margin:0 0 8px;font-size:22px}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:12px;font-weight:1000;color:#475467}.field input{height:48px;border:1px solid #d0d5dd;background:#fff;border-radius:16px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;border:0;border-radius:16px;background:#111827;color:#fff;font-weight:1000;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.criteria{background:#f8fafc;border:1px solid #edf1f7;border-radius:18px;padding:13px;margin:12px 0}.criteria b{display:block}.criteria span{display:block;color:#667085;font-size:13px;line-height:1.5;margin-top:4px}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:11px;margin:10px 0}.foot{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:20px;padding:14px;margin:14px 0;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.grid{grid-template-columns:1fr}.hero h1{font-size:26px}}</style></head><body><main class="wrap"><section class="hero"><span class="badge">가계부 시작</span><h1>${userName}님,<br/>새로 만들까요? 참여할까요?</h1><p class="muted">아래에서 현재 상황에 맞는 것을 선택하세요. 잘못 선택해도 나중에 다른 가계부를 추가하거나 초대코드로 다시 참여할 수 있습니다.</p>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}</section>${renderAccountbookEmptyState()}<section class="grid"><div class="card"><h2>새 가계부 만들기</h2><p class="muted">아직 가계부가 없거나, 내가 우리집/모임 가계부의 시작자가 되는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>내가 가계부를 만들고 구성원을 초대한 뒤 첫 기록부터 시작할 때</span></div><form method="post" action="/my/create"><div class="field"><label>가계부 이름</label><input name="household_name" placeholder="예: 우리집 가계부" value="우리집 가계부"/></div><button type="submit">새 가계부 만들기</button></form></div><div class="card"><h2>초대코드로 참여하기</h2><p class="muted">가족, 배우자, 모임장이 이미 만든 가계부가 있는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>이미 받은 초대코드가 있고 같은 가계부에 내 기록을 함께 남길 때</span></div><form method="post" action="/my/join"><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: 38NDLPNR" required/></div><button class="secondary" type="submit">초대코드로 참여하기</button></form></div><div class="card" id="kakao-record-link" style="grid-column:1/-1"><h2>카카오톡에서 이미 기록하고 있었나요?</h2><p class="muted">단톡방이나 봇과의 1:1 채팅에서 남긴 기록은 이 웹 계정이 아니라 카카오 기록 계정에 있어요. 새 가계부를 만들지 말고 같은 기록을 이어 여세요.</p><div class="criteria"><b>이럴 때 선택</b><span>단톡방의 ‘웹가계부’ 버튼으로 들어왔는데 가계부가 비어 있을 때</span></div><ol class="muted" style="margin:10px 0 14px;padding-left:20px;line-height:1.7"><li>카카오톡에서 봇과의 1:1 채팅을 열고 <b>웹 가계부 열기</b>라고 보냅니다.</li><li>받은 웹 연결 코드를 아래 버튼을 눌러 붙여 넣습니다(10분 동안 1회).</li></ol><a class="btn secondary" href="/my/kakao-claim">카카오 기록 이어 열기</a></div></section><div class="foot"><b>다음 단계</b><br/>가계부 생성 또는 참여 → 구성원 초대·승인 → 단톡방 연결(선택) → 기록 방법 확인 → 첫 기록 순서로 진행하세요. 예산과 분류는 첫 기록 후 필요할 때 설정해도 됩니다.</div></main></body></html>`;
 }
 
 function localWebUserKey(nickname = "", accessCode = "") {
@@ -44364,7 +44821,11 @@ function kakaoDataPolicyText(origin = "") {
     "",
     "보관 기준",
     "• 가계부 이용 중에는 보관합니다.",
-    "• 웹에서 직접 삭제하거나 탈퇴하면 더 이상 보관하지 않습니다.",
+    // V22.9.94 R-7: 회원 탈퇴 기능이 없는데 ‘탈퇴하면 더 이상 보관하지 않는다’ 고 했다. 실제로 있는 길(웹의 기록 삭제, 소유자의 가계부 영구 삭제)만
+    // 적고 개인정보 처리방침(/privacy 3절)과 같게 쓴다.
+    "• 기록은 웹에서 직접 삭제할 수 있고, 가계부 소유자가 가계부를 영구 삭제하면 그 가계부의 기록도 삭제합니다.",
+    "• 가계부에서 나가도 함께 쓴 기록은 남습니다.",
+    "• 계정 탈퇴 기능은 아직 없습니다. 개인정보 삭제는 개인정보처리방침에 적힌 문의 경로로 요청해 주세요.",
     "",
     origin ? `자세히 보기\n${origin}/privacy` : "",
   ].filter(Boolean).join("\n");
@@ -47092,6 +47553,36 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
   return sendKakaoEditReplyV4(env, ctx, session, result?.reply || "", result?.nextSession || null);
 }
 
+// V22.9.94 C-1: 열린 수정 세션에 온 ‘5000원 아니야’·‘5000원 아니요’·‘오천원이 아닌데’ 는 바꿀 값도 새 기록도 아니다. 예전에는 금액과
+// 낱말이 있는 강한 입력이라 세션을 끝내고 5,000원 지출을 새로 저장했다(직접·방 모두, 고치던 4,500원은 그대로). 금액 하나 뒤에 부정
+// 끝맺음만 온 꼴일 때만 이렇게 읽는다. ‘5000원 아니고 6000원’ 처럼 값이 둘인 말과 다른 꼴은 예전 길 그대로다(상태 기계가 다시 묻는다).
+// 세션이 없거나 끝난 뒤의 같은 말은 이 판정에 오지 않는다(운영 동작 그대로).
+// 끝맺음은 ‘아니다’ 의 말끝만 받는다(아냐·아니라고·아니었어 …). 묻는 말(‘아닌가요’)·조건(‘아니면’)·다른 낱말(‘틀렸어’·‘안 냈어’)은 예전 길이다.
+const KAKAO_EDIT_NEGATED_AMOUNT_V22994 = new RegExp(String.raw`^(?:${KAKAO_EDIT_AMOUNT_V4}|[일이삼사오육칠팔구십백천만억]+[십백천만억])\s*(?:이|가|은|는)?\s*(?:아니(?:야|요|오|고|라|에요|예요|에여|예여|지요?|잖아요?|라고요?|라니까요?|거든요?|[었였]어요?)?|아냐|아녜요|아닌데요?|아닙니다|아님)\s*[?？!.~]*$`);
+
+function isKakaoEditNegatedAmountV22994(text = "") {
+  return KAKAO_EDIT_NEGATED_AMOUNT_V22994.test(normalizeText(text));
+}
+
+// 아무것도 바꾸지 않고 다시 묻는다. 값을 묻던 중이면 그 칸을, 메뉴·확인 단계면 무엇을 바꿀지 묻는다.
+// 상태 기계의 실패와 같게 센다(세 번째면 세션을 끝낸다. 대화 턴 상한도 같다).
+function kakaoEditNegatedAmountResultV22994(session = {}, utterance = "", config = {}, now = Date.now()) {
+  const repeatCount = (Number(session.repeatCount) || 0) + 1;
+  const totalTurns = (Number(session.totalTurns) || 0) + 1;
+  const log = { type: repeatCount >= MAX_FAILS ? "unrecognized_final" : "unrecognized", entryNo: session.entryNo, input: String(utterance || "").slice(0, 80), attempt: repeatCount };
+  if (repeatCount >= MAX_FAILS || totalTurns > MAX_TOTAL_TURNS) {
+    return { action: "cancel", log, nextSession: null, reply: `😅 ${session.entryNo}번 수정을 끝냈어요. 기록은 그대로예요.\n다시 하려면 한 줄로 보내 주세요:\n👉 수정 ${session.entryNo}번 금액 13000` };
+  }
+  const asking = session.step === "awaiting_value" && !!session.field;
+  const prompt = asking ? buildValuePrompt(session.field, { ...config, rowType: config.rowType || session.rowType }) : null;
+  return {
+    action: "reprompt",
+    log,
+    reply: `⚠️ 아니라고 하셔서 바꾸지 않았어요. 기록은 그대로예요.\n✏️ ${prompt ? prompt.prompt : "무엇을 바꿀까요? 번호(1~8)나 ‘금액 13000’처럼 보내 주세요."}\n(그만하려면: 취소)`,
+    nextSession: { ...session, step: asking ? "awaiting_value" : "awaiting_field", ...(prompt ? { valueOptions: prompt.options } : {}), pendingField: null, pendingValue: null, repeatCount, totalTurns, updatedAt: now },
+  };
+}
+
 // 3장 3단계: 유효 세션 보유 사용자의 메시지는 전부 이 경로가 소비한다.
 async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction = false, sessionRaw = undefined }) {
   const session = await getKakaoEditSessionV4(env, kakaoUserKey, payload, sessionRaw);
@@ -47108,13 +47599,17 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
     return null;
   }
   // T6: 항목 이름 없이 온 분명한 새 기록(금액+내용)은 수정 값이 아니다. 세션을 끝내고 기록 경로로 넘긴다.
-  if (newTransaction && !startsWithKakaoEditField(utterance)) {
+  // V22.9.94 C-1: ‘5000원 아니야’ 는 금액과 낱말이 있어 여기서 새 기록으로 넘어갔다. 새 기록도 값도 아니다.
+  const negatedAmount = isKakaoEditNegatedAmountV22994(utterance);
+  if (newTransaction && !negatedAmount && !startsWithKakaoEditField(utterance)) {
     await saveKakaoEditSessionV4(env, kakaoUserKey, payload, null);
     return { passThrough: true, notice: `✏️ ${session.entryNo}번 수정은 끝내고, 보낸 내용을 새 기록으로 처리했어요.\n` };
   }
   const text = isKakaoEditCancelCommand(utterance) ? "취소" : utterance;
   const config = await buildKakaoEditConfigV4(env, session.householdId, session.rowType);
-  const result = handleEditMessage(session, text, { ...config, now: Date.now() });
+  const result = negatedAmount
+    ? kakaoEditNegatedAmountResultV22994(session, utterance, config, Date.now())
+    : handleEditMessage(session, text, { ...config, now: Date.now() });
   // V22.9.81 U-4: sessionStored — 저장된 세션에 온 답이다(역할 조회가 실패하면 이 세션을 그대로 둔다).
   return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin, sessionStored: true }, session, result, config);
 }
@@ -53404,10 +53899,24 @@ function parseGroupBindCommand(text = "") {
 // V22.9.63: 줄머리 목록 표식. 한 줄짜리("1. 점심 12000원")와 여러 줄 모두에서 뗀다.
 const KAKAO_LIST_MARKER_PREFIX = /^(?:\d{1,2}[.)]|[-•*])\s+/;
 
+// V22.9.94 C-3: ‘신한카드 1234 결제 5000’ 의 1234 는 카드 끝자리인데 1,234원과 5,000원 두 건으로 저장됐다.
+// 결제 카드 이름(‘카드’ 한 낱말, 결제수단 표의 신한·국민·KB … 카드, 체크·신용카드) 바로 뒤에 단위 없이 홀로 쓴 네 자리 수이고, 같은 줄에 다른 금액이 있을 때만
+// 카드 끝자리로 보고 뗀다(메모에도 남기지 않는다). 원화 금액은 10원 단위라 끝자리가 0 인 수는 금액으로 둔다(‘신한카드 5000 국민카드 3000’ 은 카드별 금액이다).
+// 네 자리 수 뒤에 낱말이 이어질 때만이다. 다른 금액이 없거나(‘신한카드 1234’) 단위가 붙거나(‘카드 1234원’) 줄 끝이거나(‘신한카드 1234 국민카드 5678’)
+// 뒤에 수나 다른 결제수단이 이어지면(‘카드 4567 현금 3000’) 예전처럼 읽는다. ‘포토카드’·‘교통카드’ 같은 물건 이름은 결제 카드가 아니다.
+const AB_CARD_DIGITS_V22994 = /(^|\s)((?:(?:신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오|토스|체크|신용)+\s*)?카드)\s*\d{3}[1-9](?=\s+(?!현금|계좌|이체|\S*카드|\S*페이)[^\s\d원십백천만억.,])/gi;
+
+function stripCardDigitsV22994(text = "") {
+  return String(text || "").split(/(\r?\n)/).map((line) => {
+    const stripped = line.replace(AB_CARD_DIGITS_V22994, "$1$2");
+    return stripped !== line && findAmountTokenSpans(stripped).length ? stripped : line;
+  }).join("");
+}
+
 function parseMultipleTransactions(text, payload) {
   // V22.9.79 A-16: 전각 숫자(“커피 ４５００”)는 입구에서 반각으로 바꿔 날짜·금액·메모가 모두 같은 글자를 읽게 한다. 저장하는 원문은 받은 그대로다.
   const original = text;
-  text = foldInputWidth(text);
+  text = stripCardDigitsV22994(foldInputWidth(text));
   const clauses = splitTransactionClauses(text);
   if (clauses.length <= 1) {
     // V22.9.63: 한 줄짜리 번호 목록("1. 점심 12000원")도 표식을 뗀 본문으로 읽는다. 예전에는 "1"이 금액으로 읽혔다.
@@ -53512,7 +54021,16 @@ function splitTransactionClauses(text) {
   // V22.9.93 Q-28: normalizeText 가 괄호를 지우므로 ‘2)’ 는 다듬기 전에 뗀다. 다듬은 뒤에 떼면 ‘2 커피 4000원’ 이 남아 저장되지 않았다.
   const lines = String(text || "").split(/\r?\n/).flatMap(splitAmountSemicolons).flatMap(splitInlineNumberedList).map((line) => normalizeText(line.trim().replace(KAKAO_LIST_MARKER_PREFIX, "")).trim()).filter(Boolean);
   let dateJoined = false;
-  const firstPass = (lines.length ? lines : [raw]).flatMap((line) => {
+  const sourceLines = lines.length ? lines : [raw];
+  // V22.9.94 C-2: 첫 줄이 맨 ‘N일’ 하나뿐인 머리말 꼴(‘3일⏎커피 4000⏎5일⏎택시 8000’)이면 뒤에 오는 맨 ‘M일’ 한 줄도 다음 줄들의 날짜다.
+  // 예전에는 ‘5일’ 줄이 ‘3일 5일’ 로 읽혀 택시도 3일에 저장되고 ‘3일 5일’ 을 못 읽은 말로 알렸다. 줄 전체가 ‘M일’ 일 때만이다.
+  // ‘5일 택시 8000’ 처럼 낱말이 붙은 줄은 기간일 수 있어(‘5일 약국 1만원⏎3일 치 약값 9000’·‘10일 렌트 10만원⏎2일 보험 3만원’, Q-115) 예전처럼 머리 날짜를 따른다.
+  // 첫 줄에 달이 있으면(‘6월 3일’) 달을 옮겨 붙일 수 없어 예전 그대로다.
+  const dayHeadLine = (line) => /^(?:[1-9]|[12]\d|3[01])일$/.test(line);
+  const dayHeadsOn = sourceLines.length > 1 && dayHeadLine(sourceLines[0]) && extractLeadingDateHint(raw) === sourceLines[0];
+  const dayHeads = new Set();
+  let produced = 0;
+  const firstPass = sourceLines.flatMap((line, index) => {
     const pieces = line
     // V22.9.26: 공백이 붙은 슬래시("커피 4500 / 점심 9000")와 가운뎃점도 문장 구분이다.
     // "10/3 마트 52000" 의 날짜 슬래시는 양쪽이 붙어 있어 나누지 않는다.
@@ -53521,14 +54039,16 @@ function splitTransactionClauses(text) {
     .filter(Boolean);
     const joined = attachDateOnlyPieces(pieces);
     dateJoined ||= joined.length < pieces.length;
+    if (dayHeadsOn && index > 0 && joined.length === 1 && dayHeadLine(line)) dayHeads.add(produced);
+    produced += joined.length;
     return joined;
   });
   let datePrefix = extractLeadingDateHint(raw);
   // V22.9.93 Q-56: 머리 날짜는 ‘7월 3일’ 꼴로 붙인다. ‘7.3’ 그대로 붙이면 다음 조각의 ‘만원’ 과 이어져 7.3만 = 73,000원이 됐다.
   const carryDate = (date) => date.replace(/(^|\s)(\d{1,2})[.\/-](\d{1,2})일?$/, "$1$2월 $3일");
   const clauses = [];
-  for (const part of firstPass) {
-    if (isDateOnlyPiece(part) && !raw.includes(`${part}랑 `) && !raw.includes(`${part}하고 `)) datePrefix = part;
+  for (const [at, part] of firstPass.entries()) {
+    if ((isDateOnlyPiece(part) && !raw.includes(`${part}랑 `) && !raw.includes(`${part}하고 `)) || dayHeads.has(at)) datePrefix = part;
     // V22.9.93 Q-117: 줄 전체에서 한 조각이어도 그 조각만 보면 금액이 둘일 수 있다(‘커피 5000점심 9000 택시 3000’ 의 앞 조각). 다시 나누지 않으면 뒤 금액이 메모로 사라진다.
     const pieces = splitByAmountEnds(part).flatMap(splitByAmountEnds);
     for (let piece of pieces) {
@@ -54399,28 +54919,124 @@ async function deleteTransactionIfUnchanged(env, row = {}, householdId = "", opt
 }
 
 // V22.9.90 웹 ‘되돌리기’: 지운 행은 지우는 DB 함수(accountbook_delete_transaction_v227·_if_v22988)가 감사 기록(before_value = 지운 행 전체)에 남긴다.
-// 표는 그 한 번의 삭제에만 쓴다(독립 검토): 그 기록의 가장 최근 삭제 감사를 누가 지웠든 읽고(지운 시각 2분 전부터), 그것이 이 사용자가 표를 받은
-// 삭제(지운 시각 30초 뒤까지 — 서버·DB 시계 차이 여유)일 때만 지운 행을 준다. 그 뒤 다른 사람(관리자)이나 내가 다시 지운 기록을 옛 표로 되살리지 않는다.
-// { row } 이고, 없거나 모양이 다르면 reason "expired", 더 뒤의 다른 삭제면 reason "changed" 다.
-async function fetchDeletedTransactionAudit(env, { transactionId = "", householdId = "", userId = "", deletedAt = 0 } = {}) {
-  if (!transactionId || !householdId || !userId || !(Number(deletedAt) > 0)) return { row: null, reason: "expired" };
+// 표는 그 한 번의 삭제에만 쓴다(독립 검토): 그 기록의 가장 최근 삭제 감사를 누가 지웠든 읽고(지운 시각 2분 전부터), 그것이 표가 가리키는 삭제일 때만
+// 지운 행을 준다. { row } 이고, 없거나 모양이 다르면 reason "expired", 더 뒤의 다른 삭제면 reason "changed" 다.
+// V22.9.94 C-4(외부 검토): 예전에는 ‘이 사용자가 지운 시각 30초 뒤까지의 삭제’를 표의 삭제로 봐서(서버·DB 시계 차이 여유), 지움 → 되돌리기 → 고침 →
+// 30초 안에 다시 지움 다음에 첫 표가 두 번째 삭제를 되돌렸다. 이제 표는 그 삭제가 남긴 감사 기록 번호(auditId — 삭제 한 번의 고유 번호,
+// fetchDeleteAuditIdV22994)를 서명해 싣고, 가장 최근 삭제 감사가 같은 번호일 때만 되살린다(시각 비교 없음). 모든 삭제 경로(웹·카카오·일괄·실행 취소의
+// _if_v22988 와 그 대체 v227)가 감사 기록을 남기므로 뒤의 삭제는 늘 새 번호다. 번호가 없는 표(배포 전 표)는 받지 않는다.
+async function fetchDeletedTransactionAudit(env, { transactionId = "", householdId = "", userId = "", deletedAt = 0, auditId = "" } = {}) {
+  if (!transactionId || !householdId || !userId || !String(auditId || "") || !(Number(deletedAt) > 0)) return { row: null, reason: "expired" };
   const params = new URLSearchParams();
-  params.set("select", "before_value,actor_user_id,created_at");
+  params.set("select", "id,before_value,actor_user_id,created_at");
   params.set("transaction_id", `eq.${transactionId}`);
   params.set("household_id", `eq.${householdId}`);
   params.set("action", "eq.delete");
   params.set("created_at", `gte.${new Date((Number(deletedAt) - 120) * 1000).toISOString()}`);
-  params.set("order", "created_at.desc");
+  params.set("order", "created_at.desc,id.desc");
   params.set("limit", "1");
   const rows = await supabase(env, `/rest/v1/accountbook_transaction_audit?${params.toString()}`, { method: "GET" }) || [];
   const latest = Array.isArray(rows) ? rows[0] : null;
   const at = Date.parse(String(latest?.created_at || "")) / 1000;
   if (!latest || !Number.isFinite(at)) return { row: null, reason: "expired" };
-  if (String(latest.actor_user_id || "") !== String(userId) || at > Number(deletedAt) + 30) return { row: null, reason: "changed" };
+  if (String(latest.id ?? "") !== String(auditId) || String(latest.actor_user_id || "") !== String(userId)) return { row: null, reason: "changed" };
   const before = latest.before_value;
   if (!before || typeof before !== "object" || Array.isArray(before)) return { row: null, reason: "expired" };
   if (String(before.id || "") !== String(transactionId) || String(before.household_id || "") !== String(householdId)) return { row: null, reason: "expired" };
   return { row: before, reason: "" };
+}
+
+// V22.9.94 C-4: 방금 지운 기록의 가장 최근 삭제 감사 기록 번호. 그 감사가 이 사용자의 것일 때만 번호를 주고(아니면 ""), 되살리기 표가 이 번호를 싣는다.
+// 지우는 DB 함수가 감사 번호를 돌려주지 않아 지운 뒤 한 번 읽는다. 읽지 못하면 부르는 곳이 표를 싣지 않는다(삭제 결과는 그대로).
+async function fetchDeleteAuditIdV22994(env, { transactionId = "", householdId = "", userId = "" } = {}) {
+  if (!transactionId || !householdId || !userId) return "";
+  const params = new URLSearchParams();
+  params.set("select", "id,actor_user_id,created_at");
+  params.set("transaction_id", `eq.${transactionId}`);
+  params.set("household_id", `eq.${householdId}`);
+  params.set("action", "eq.delete");
+  params.set("order", "created_at.desc,id.desc");
+  params.set("limit", "1");
+  const rows = await supabase(env, `/rest/v1/accountbook_transaction_audit?${params.toString()}`, { method: "GET" }) || [];
+  const latest = Array.isArray(rows) ? rows[0] : null;
+  if (!latest || latest.id === undefined || latest.id === null || String(latest.id) === "") return "";
+  return String(latest.actor_user_id || "") === String(userId) ? String(latest.id) : "";
+}
+
+// V22.9.94 C-9(외부 검토): 웹 수정(/admin/update·/my/update)은 기록을 읽어 견준 뒤 감사 RPC(accountbook_update_transaction_v227)로 조건 없이 저장해서,
+// 읽은 뒤·저장 전에 다른 곳(카카오 수정·다른 화면·관리 API)이 저장한 값을 덮어썼다(두 화면 모두 ‘수정했습니다’). 이제 저장은 바꾸는 칸마다 읽은 값
+// (expected)을 PostgREST eq 조건으로 건 조건부 PATCH 한 번이다 — DB 가 그 행을 잠근 채 조건을 보고 바꾸므로 비교와 저장 사이의 틈이 없다.
+// 바꾸지 않는 칸은 조건에 걸지 않는다(다른 곳이 그 칸만 바꿨으면 둘 다 남는다 — 예전 칸별 병합과 같다). 바꾸는 칸은 감사 RPC 와 같은 일곱 칸뿐이다.
+// 0행이면 다시 읽는다: 없으면 { status: "missing" }, 바꾸려던 칸이 읽은 값과 다르면 { status: "changed", row: 지금 행 } — 부르는 곳이 충돌을 알린다.
+// 바꾸려던 칸이 그대로인데 0행이면(eq 비교가 저장된 글자와 어긋나는 드문 경우) 예전 감사 RPC 로 저장한다(그 기록을 영영 못 고치게 두지 않는다).
+// 감사 기록: RPC 는 같은 트랜잭션에서 남겼지만 PATCH 는 저장 뒤 한 줄을 따로 남긴다(before = 저장된 행에서 바꾼 칸만 읽은 값으로 되돌린 행 전체).
+// 이 한 줄이 실패해도 수정은 이미 저장됐으므로 성공으로 답하고 운영 이벤트만 남긴다. 결과를 모르는 PATCH(응답 없음·5xx)는 supabase() 가 결과 불확실로
+// 던진다. 지출자 바꾸기는 부르는 곳이 같은 요청에서 받은 참여자 목록으로 먼저 확인한다(RPC 는 잠근 채 한 번 더 확인했다). 환불 연결 보호 트리거
+// (refund_link_guard_v22979, BEFORE UPDATE)는 PATCH 에도 그대로 걸린다.
+const TX_CONDITIONAL_EDIT_COLUMNS_V22994 = ["type", "amount", "transaction_date", "category", "memo", "payment_method", "user_id"];
+
+function txConditionalEditFilterV22994(key, value) {
+  if (value === null || value === undefined) return "is.null";
+  return `eq.${key === "amount" ? Number(value) : String(value)}`;
+}
+
+function txConditionalEditSameV22994(key, a, b) {
+  if (key === "amount") return Number(a) === Number(b);
+  if (a === null || a === undefined || b === null || b === undefined) return (a ?? null) === (b ?? null);
+  return String(a) === String(b);
+}
+
+async function updateTransactionIfUnchangedV22994(env, id, body, expected = {}, options = {}) {
+  const transactionId = String(id || "").trim();
+  const householdId = String(options.householdId || expected?.household_id || "").trim();
+  if (!transactionId || !householdId) throw new Error("transaction household not found");
+  const sanitized = sanitizeTransactionBody(body, true);
+  const patch = Object.fromEntries(TX_CONDITIONAL_EDIT_COLUMNS_V22994.filter((key) => Object.hasOwn(sanitized, key)).map((key) => [key, sanitized[key]]));
+  const keys = Object.keys(patch);
+  if (!keys.length) return { status: "updated", row: expected };
+  const actorKind = String(options.actorKind || "system").slice(0, 30);
+  const params = new URLSearchParams();
+  params.set("id", `eq.${transactionId}`);
+  params.set("household_id", `eq.${householdId}`);
+  for (const key of keys) params.set(key, txConditionalEditFilterV22994(key, expected?.[key]));
+  const updated = await supabase(env, `/rest/v1/transactions?${params.toString()}`, {
+    method: "PATCH",
+    headers: { Prefer: "return=representation" },
+    body: JSON.stringify(patch),
+  });
+  if (!Array.isArray(updated)) throw Object.assign(new Error("transaction_conditional_update_invalid"), { uncertain_write: true });
+  const after = updated[0];
+  if (after) {
+    const before = { ...after };
+    for (const key of keys) before[key] = expected?.[key] ?? null;
+    try {
+      await supabase(env, "/rest/v1/accountbook_transaction_audit", {
+        method: "POST",
+        headers: { Prefer: "return=minimal" },
+        body: JSON.stringify({ transaction_id: transactionId, household_id: householdId, actor_user_id: options.actorUserId || null, actor_kind: actorKind, action: "update", before_value: before, after_value: after }),
+      });
+    } catch (auditError) {
+      rememberOpsEvent({ kind: "transaction_update_audit_failed", severity: "warn", path: String(options.path || ""), method: "POST", detail: safeError(auditError) });
+    }
+    return { status: "updated", row: after };
+  }
+  const fresh = await txConditionalEditRowV22994(env, transactionId, householdId);
+  if (!fresh) return { status: "missing", row: null };
+  if (keys.some((key) => !txConditionalEditSameV22994(key, fresh[key], expected?.[key]))) return { status: "changed", row: fresh };
+  rememberOpsEvent({ kind: "transaction_conditional_update_filter_mismatch", severity: "warn", path: String(options.path || ""), method: "PATCH", detail: keys.join(",") });
+  const viaRpc = await updateTransaction(env, transactionId, patch, { householdId, actorUserId: options.actorUserId || null, actorKind });
+  return { status: "updated", row: viaRpc || fresh };
+}
+
+// 수정 화면·충돌 화면이 쓰는 칸 그대로(my/transactions.js getTransactionForUserEdit 와 같은 select).
+async function txConditionalEditRowV22994(env, id, householdId) {
+  const params = new URLSearchParams();
+  params.set("select", "id,household_id,user_id,type,amount,category,memo,payment_method,transaction_date,source,raw_text,created_at");
+  params.set("id", `eq.${id}`);
+  params.set("household_id", `eq.${householdId}`);
+  params.set("limit", "1");
+  const rows = await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" }) || [];
+  return Array.isArray(rows) ? rows[0] || null : null;
 }
 
 // 지운 기록 한 건을 같은 기록 번호로 다시 넣는다. 카카오 ‘복구’(kakao/edit-flow-v4.js)와 같은 칸(KAKAO_TX_RESTORE_COLUMNS_V4)·같은 순서다 —
