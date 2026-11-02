@@ -69,8 +69,8 @@ try {
   //    유니코드 글리프(✎ ▤ ↔ ◴ ▣ …)를 아이콘으로 쓰면 폰트마다 굵기·크기·세로 정렬이
   //    달라 줄이 안 맞는다. 사이드바가 이미 쓰는 SVG 세트를 같이 쓴다.
   const iconSlots = [...main.matchAll(/class="(?:menuRowIcon|featuredIcon)"[^>]*/g)].map((m) => m[0]);
-  eq(iconSlots.length, 26, `아이콘 자리가 26개다 (${iconSlots.length}개)`);
-  eq(iconSlots.filter((slot) => slot.includes("data-ab-nav-icon=")).length, 26, "아이콘 자리가 전부 공용 SVG 이름을 가리킨다");
+  eq(iconSlots.length, 27, `아이콘 자리가 27개다 (${iconSlots.length}개)`);
+  eq(iconSlots.filter((slot) => slot.includes("data-ab-nav-icon=")).length, 27, "아이콘 자리가 전부 공용 SVG 이름을 가리킨다");
   for (const glyph of ["✎", "▤", "↔", "◴", "▣", "↻", "⇄", "⌁", "◇", "⇩"]) {
     ok(!main.includes(`aria-hidden="true">${glyph}<`), `글리프 아이콘 "${glyph}" 가 남아 있지 않다`);
   }

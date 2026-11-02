@@ -313,8 +313,9 @@ await section("공지 띠", async () => {
 await section("문의 메뉴", async () => {
   await fixture(async (fx) => {
     const html = String((await page(fx, "/menu"))?.html ?? "");
-    const privacy = html.indexOf("개인정보 안내"), faq = html.indexOf("문의·FAQ");
-    ok(privacy > 0 && faq > privacy && html.slice(Math.max(0, faq - 400), faq).includes('href="/faq'), `/menu ‘도움말과 안내’ 에 ‘개인정보 안내’ 다음 ‘문의·FAQ’(/faq) 줄이 있다 (${privacy}, ${faq})`);
+    // 통합 때 고침: 법무 영역(R-9)이 메뉴 이름을 ‘개인정보처리방침’ 으로 바꿨다.
+    const privacy = html.indexOf("개인정보처리방침"), faq = html.indexOf("문의·FAQ");
+    ok(privacy > 0 && faq > privacy && html.slice(Math.max(0, faq - 400), faq).includes('href="/faq'), `/menu ‘도움말과 안내’ 에 ‘개인정보처리방침’ 다음 ‘문의·FAQ’(/faq) 줄이 있다 (${privacy}, ${faq})`);
     const faqPage = await (await app.fetch(new Request(`${BASE}/faq`), {}, ctx)).text();
     ok(faqPage.includes('href="/contact"'), "/faq 에서 /contact 로 가는 링크가 있다");
   });
