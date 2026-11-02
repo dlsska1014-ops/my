@@ -85,7 +85,8 @@ eq(landingResponse.headers.get("x-frame-options"), "DENY", "pre-login landing re
 eq(landingResponse.headers.get("set-cookie"), null, "viewing the pre-login landing creates no cookie");
 ok(landingHtml.includes('<meta name="robots" content="noindex,nofollow"/>'), "account entry landing is not indexed as a public content page");
 ok(!landingHtml.includes("google-adsense-account") && !landingHtml.includes("pagead2.googlesyndication.com"), "account entry landing does not gain AdSense metadata or runtime");
-ok(Buffer.byteLength(landingHtml, "utf8") <= 48 * 1024, "pre-login landing stays within a focused 48 KiB HTML budget");
+// V22.9.95 R-9: 약관·개인정보처리방침 동의 칸 둘과 방침 링크 줄(법정 고지)로 48 KiB 를 넘어 한도를 50 KiB 로 올린다(validate-public-brand-v22987 과 같다).
+ok(Buffer.byteLength(landingHtml, "utf8") <= 50 * 1024, `pre-login landing stays within a focused 50 KiB HTML budget (${Buffer.byteLength(landingHtml, "utf8")} B)`);
 
 const previewStart = landingHtml.indexOf('<section id="feature-preview"');
 const authStart = landingHtml.indexOf('<section id="login-start"');

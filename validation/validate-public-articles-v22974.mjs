@@ -47,7 +47,8 @@ try {
   // 1. 사이트맵: 정본 51개(가이드 18 + 글 12 + 허브 1 + 글 20). 새 글과 허브의 lastmod 는 이번 판 이후다.
   const xml = await (await get("/sitemap.xml")).text();
   const entries = [...xml.matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)].map((m) => ({ path: new URL(m[1]).pathname, lastmod: m[2] }));
-  eq(entries.length, LEGACY.length + V22940.length + ARTICLES.length + 1, "sitemap lists the 51 canonical public documents");
+  // V22.9.95 후원: 후원 안내(/support) 한 쪽이 더해져 52개다.
+  eq(entries.length, LEGACY.length + V22940.length + ARTICLES.length + 2, "sitemap lists the 52 canonical public documents");
   for (const path of [HUB, ...ARTICLES]) {
     const entry = entries.find((e) => e.path === path);
     ok(entry, `${path}: listed in XML sitemap`);

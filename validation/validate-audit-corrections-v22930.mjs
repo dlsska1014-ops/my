@@ -126,14 +126,14 @@ for(let i=0;i<40;i++) {
   const textContent=node=>[node.textContent||"",...(node.children||[]).map(textContent)].join(" ");const gauge=textContent(nodes.budgetBox);
   ok(gauge.includes("800,000"),"actual analysis renderer retains matching budget remainder");ok(gauge.includes("200,000")&&!gauge.includes("170%"),"actual analysis renderer does not count uncovered expense");eq(paceRows.length,1,"actual analysis pace curve follows configured-category scope");
   const r=await app.fetch(new Request(BASE+"/skill",{method:"POST",headers:{"content-type":"application/json","user-agent":"audit-budget-unique"},body:JSON.stringify({userRequest:{utterance:"남은 예산",user:{id:"kakao_login:2265",properties:{}}}})}),f.env,{waitUntil(){}});const text=(await r.json()).template.outputs.map(o=>o.simpleText?.text||"").join("\n");ok(text.includes("800,000원"),"actual Kakao remaining budget matches web: "+text);ok(text.includes("200,000원"),"actual Kakao budgeted usage matches web");
-  const asset=await(await app.fetch(new Request(BASE+"/assets/mobile-home-shell-v22993.js"),{},{})).text();const start=asset.indexOf("function moneyTokenSpans(");const end=asset.indexOf("(function(){var q=");const parsed=vm.createContext({});vm.runInContext(asset.slice(start,end),parsed);eq(vm.runInContext('parseMobileAmountText("전세 1억 5천만원")',parsed),150000000,"actual immutable asset ships the combined-unit scanner");eq(vm.runInContext('quickInputDate("7/4", "2026-10-07")',parsed),"2026-07-04","actual immutable asset ships the date helper");
+  const asset=await(await app.fetch(new Request(BASE+"/assets/mobile-home-shell-v22995.js"),{},{})).text();const start=asset.indexOf("function moneyTokenSpans(");const end=asset.indexOf("(function(){var q=");const parsed=vm.createContext({});vm.runInContext(asset.slice(start,end),parsed);eq(vm.runInContext('parseMobileAmountText("전세 1억 5천만원")',parsed),150000000,"actual immutable asset ships the combined-unit scanner");eq(vm.runInContext('quickInputDate("7/4", "2026-10-07")',parsed),"2026-07-04","actual immutable asset ships the date helper");
  }finally{globalThis.__AB_QA_FIXED_NOW_MS=oldNow;f.restore();}
 }
 {
  const f=await createV2265QaFixture();
  try {
   const login=await(await call(f,"GET","/my",{},{cookie:""})).text();ok(login.includes('href="#signup-start" data-signup-entry'),"first-screen signup anchor is explicit");ok(login.includes('id="loginEntryAnchorRuntime"'),"actual login page ships the disclosure anchor handler");
-  const before=f.db.users.length;const created=await call(f,"POST","/my/local-signup",{login_name:"audit-signup-invite",access_code:"AuditSignupPassword123",access_code_confirm:"AuditSignupPassword123",invite_code:"NOT_A_REAL_INVITE"},{cookie:""});eq(f.db.users.length,before+1,"invalid invitation still creates exactly one account");
+  const before=f.db.users.length;const created=await call(f,"POST","/my/local-signup",{login_name:"audit-signup-invite",access_code:"AuditSignupPassword123",access_code_confirm:"AuditSignupPassword123",invite_code:"NOT_A_REAL_INVITE",consent:"1"},{cookie:""});eq(f.db.users.length,before+1,"invalid invitation still creates exactly one account");
   const location=created.headers.get("location");ok(location.includes("msg=signup_created_invite_missing")&&!location.includes("err="),"account creation and invitation result are separate success feedback");
   const createdCookie=created.headers.getSetCookie().find(c=>c.startsWith("ab_user="))?.split(";")[0];const message=await(await call(f,"GET",location,{},{cookie:createdCookie})).text();ok(message.includes("가입을 다시 누르지 말고"),"actual signup result guides next household step rather than another signup");
   const bad=await call(f,"POST","/my/create",{household_name:'A"',display_name:"Audit actor"});const back=bad.headers.get("location");ok(back.includes("household_name="),"invalid household name is preserved without password fields");const page=await(await call(f,"GET",back)).text();ok(page.includes('value="A&quot;"'),"actual household form restores escaped attempted name");
@@ -148,7 +148,7 @@ for(let i=0;i<40;i++) {
  try {
   f.db.transactions=[];f.db.accountbook_budgets=[{id:"food-only",household_id:"house-home",month:"2026-07",category:"식비",amount:100000}];
   const html=await(await call(f,"GET","/app?month=2026-07&household_id=house-home")).text();
-  const script=await(await app.fetch(new Request(BASE+"/assets/mobile-home-shell-v22993.js"),{},{})).text();
+  const script=await(await app.fetch(new Request(BASE+"/assets/mobile-home-shell-v22995.js"),{},{})).text();
   const end=script.indexOf("\n(function mobileShellUiClientMain");ok(end>0,"actual shipped quick-input IIFE boundary exists");
   const afterTag=html.match(/<p[^>]*id="quickAfter"[^>]*>/)[0];
   const afterAttrs=Object.fromEntries([...afterTag.matchAll(/([a-z-]+)="([^"]*)"/g)].map(match=>[match[1],decode(match[2])]));

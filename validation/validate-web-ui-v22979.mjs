@@ -454,7 +454,8 @@ if (run("search")) await scenario("search", () => withClock("2026-07-15", () => 
 // F-9 가입 오류 뒤 입력할 폼
 // ─────────────────────────────────────────────────────────────────────────────
 if (run("signup")) await scenario("signup", () => fixture(async (fx) => {
-  const signup = (values) => post(fx, "/my/local-signup", values, { cookie: "" });
+  // V22.9.95 R-9: 가입은 약관·개인정보처리방침 동의와 만 14세 확인 칸(consent=1)을 체크해야 된다(사람이 체크하고 보낸 요청).
+  const signup = (values) => post(fx, "/my/local-signup", { consent: "1", ...values }, { cookie: "" });
   const card = (html) => (html.match(/<details class="card signupCard" id="signup-start"[\s\S]*?<\/details>/) || [""])[0];
   // V22.9.87 T-20: 소개 영역(.authIntroHead)이 없어지고 로그인 이름 칸은 카카오 버튼 아래 접힌 칸(#login-local) 안의 카드가 됐다. 로그인 오류는 그 칸을 연 채
   // 폼 바로 위에 둔다. 그래서 ‘소개 영역’은 그 접힌 칸의 시작부터 로그인 폼 앞까지다.

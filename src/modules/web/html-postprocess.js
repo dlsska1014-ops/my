@@ -560,6 +560,45 @@ function renameLegacyDocumentTitleV22983(source = "") {
   return source;
 }
 
+// V22.9.95 공지 띠: 운영 변수 NOTICE_TEXT 가 있으면 /my·/app 셸과 공개 문서 화면(pubHeader) 맨 위(본문 바로가기 다음)에 한 줄 띠를 붙인다.
+// 변수가 없으면 아무것도 붙이지 않는다(빈 요소도 없다). 읽어 주는 프로그램이 바로 읽도록 role="status", 닫기 단추는 없다(지침).
+// NOTICE_LINK 는 우리 화면 주소(‘/…’) 또는 https 주소만 받아 글 끝에 ‘자세히’ 를 단다. 색은 주의 톤(노랑)이고 다크(앱 설정)에서도 대비 4.5 이상이다.
+// 응답 마무리(worker/router.js fetch)에서 env 와 주소를 함께 아는 한 곳에서 부른다. 1년 캐시 자산은 건드리지 않는다(인라인 style 한 덩어리).
+const AB_NOTICE_BAND_STYLE_V22995 = '<style id="abNoticeBandStyle">.abNoticeBand{margin:0;padding:10px 16px;background:#fff4cc;color:#4a3800;border-bottom:1px solid #e9c868;font-size:14px;line-height:1.5;text-align:center;word-break:keep-all;overflow-wrap:anywhere}.abNoticeBand p{margin:0 auto;max-width:960px}.abNoticeBand a{color:#4a3800;font-weight:700;text-decoration:underline;text-underline-offset:2px;margin-left:6px}.abNoticeBand a:focus-visible{outline:2px solid currentColor;outline-offset:2px}html[data-ab-resolved-theme="dark"] .abNoticeBand{background:#3a2f0b;color:#ffe9a8;border-bottom-color:#6b5a1d}html[data-ab-resolved-theme="dark"] .abNoticeBand a{color:#ffe9a8}</style>';
+function abNoticeBandParts(env = {}) {
+  const text = String(env?.NOTICE_TEXT || "").replace(/\s+/g, " ").trim().slice(0, 200);
+  if (!text) return null;
+  const link = String(env?.NOTICE_LINK || "").trim();
+  const safeLink = /^\/(?!\/)[^\s"'<>]*$/.test(link) || /^https:\/\/[^\s"'<>]+$/.test(link) ? link : "";
+  return { text, link: safeLink };
+}
+function attachNoticeBand(html = "", env = {}, pathname = "") {
+  const parts = abNoticeBandParts(env);
+  const source = String(html || "");
+  if (!parts || !source || source.includes('class="abNoticeBand"')) return source;
+  const appShell = pathname === "/app" || pathname === "/my" || pathname.startsWith("/my/");
+  if (!appShell && !/class=["'][^"']*\bpubHeader\b/i.test(source)) return source;
+  if (!/<body\b[^>]*>/i.test(source)) return source;
+  const band = '<div class="abNoticeBand" role="status"><p>' + escapeHtml(parts.text) + (parts.link ? ' <a href="' + escapeHtml(parts.link) + '">자세히</a>' : "") + "</p></div>";
+  // 스타일은 </head> 앞에 둔다. 머리가 없는 조각 화면이면 띠 바로 앞에 둔다.
+  const inline = source.includes("</head>") ? "" : AB_NOTICE_BAND_STYLE_V22995;
+  const withStyle = inline ? source : source.replace("</head>", AB_NOTICE_BAND_STYLE_V22995 + "</head>");
+  const skip = /<a class="abSkipLink" href="[^"]*">본문 바로가기<\/a>/;
+  return skip.test(withStyle) ? withStyle.replace(skip, (full) => full + inline + band) : withStyle.replace(/<body\b[^>]*>/i, (full) => full + inline + band);
+}
+async function noticeBandResponse(request, env = {}, response) {
+  if (!abNoticeBandParts(env) || !(response instanceof Response) || response.status !== 200 || String(request?.method || "GET").toUpperCase() !== "GET") return response;
+  if (!/^text\/html\b/i.test(response.headers.get("content-type") || "")) return response;
+  let pathname = "";
+  try { pathname = new URL(request.url).pathname; } catch (_) { return response; }
+  const html = await response.clone().text();
+  const changed = attachNoticeBand(html, env, pathname);
+  if (changed === html) return response;
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  return new Response(changed, { status: response.status, statusText: response.statusText, headers });
+}
+
 function attachBusinessInfoFooter(html = "") {
   const source = String(html || "");
   // Shared responsive CSS can mention `.abBusinessFooter` before the actual
@@ -574,5 +613,5 @@ function attachBusinessInfoFooter(html = "") {
   return source;
 }
 // @build:exports-start
-export { attachBusinessInfoFooter, attachUiUxRuntime, shellResponseHints };
+export { attachBusinessInfoFooter, attachUiUxRuntime, noticeBandResponse, shellResponseHints };
 // @build:exports-end

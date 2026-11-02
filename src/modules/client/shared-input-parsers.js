@@ -1,5 +1,5 @@
 // @build:imports-start
-import { foldInputWidth, normalizeInputText } from "./shared-input-nlu.js";
+import { foldInputWidth, foreignCurrencyAmountIn, normalizeInputText } from "./shared-input-nlu.js";
 // @build:imports-end
 
 export function parseMobileAmountText(text = "") {
@@ -416,6 +416,11 @@ function quickSmartInputController(config) {
   // V22.9.93 Q-39: 금액 칸·내용 칸을 먼저 고쳐 둔 뒤 금액 둘인 문장을 넣으면 경고 없이 저장됐다. 경고를 본 뒤에 고친 경우만 푼다.
   let invalidAmount = false, invalidDate = false, confirmType = false, manyAmounts = false, splitSettled = false, splitText = "";
   const splitNeeded = () => manyAmounts && !splitSettled;
+  // V22.9.95 R-20: 외화 금액(foreignCurrencyAmountIn, 카카오와 같은 기준)이 있으면 금액을 채우지 않고 원화로 적게 한다. 금액 칸을 손으로 채우면 본 것으로 여겨 막지 않는다.
+  let foreignAmount = false;
+  const foreignNeeded = () => foreignAmount && !manual.amount;
+  // 홈 자산(mobileHomeJsAsset)이 이 함수를 함께 싣는다. 함께 실리지 않은 화면에서도 입력이 멈추지 않게 typeof 로 먼저 본다.
+  const foreignIn = (text) => typeof foreignCurrencyAmountIn === "function" && foreignCurrencyAmountIn(text);
   const readLine = typed => normalizeInputText(foldInputWidth(typed).replace(/^(?:\d{1,2}[.)]|[-•*])\s+/,""));
   const markers = Object.create(null);
   for (const key of Object.keys(manual)) {
@@ -430,7 +435,8 @@ function quickSmartInputController(config) {
   function preview(quiet) {
     if (!after) return;
     if (!quiet) after.setAttribute("aria-live","polite");
-    if (submit) submit.disabled=splitNeeded()||!(cleanNumber() && validAmount() && String(memoField?.value || "").trim());
+    if (submit) submit.disabled=splitNeeded()||foreignNeeded()||!(cleanNumber() && validAmount() && String(memoField?.value || "").trim());
+    if (foreignNeeded()) { after.textContent="외화 금액은 원화로 바꿔 적어 주세요(예: 커피 130000원). 금액 칸에 원화 금액을 직접 넣어도 돼요."; return; }
     if (splitNeeded()) { after.textContent="금액이 둘 이상이에요. 여기서는 한 번에 한 건만 저장돼요. 한 건씩 나눠 적어 주세요."; return; }
     if (confirmType && !manual.type) { after.textContent="결제·승인 취소 내역입니다. 수입 또는 지출을 직접 선택한 뒤 저장해 주세요."; return; }
     if (invalidAmount || invalidDate) { after.textContent=invalidAmount ? "금액이 분명하지 않습니다. 유효한 금액을 직접 입력하거나 문장을 고쳐 주세요." : "달력에 없는 날짜입니다. 유효한 날짜를 직접 선택하거나 문장을 고쳐 주세요."; return; }
@@ -461,6 +467,7 @@ function quickSmartInputController(config) {
     // 뒤에야 띄어 쓴 금액이 붙는다). 결제수단·분류·메모 판정 함수는 스스로 한 번 더 다듬으므로 그대로 text 를 주고, 금액·날짜·구분은 scan 을 준다.
     const typed=smart?.value.trim();
     if (!typed) {
+      if (foreignAmount) { foreignAmount=false; if (!manyAmounts) complete(); }
       if (manyAmounts) { manyAmounts=false; if (!manual.amount) amount.value=""; if (!manual.memo&&memoField) memoField.value=""; if (byId("rawTextInput")) byId("rawTextInput").value=""; complete(); }
       return;
     }
@@ -470,8 +477,9 @@ function quickSmartInputController(config) {
     confirmType=/(?:결제|승인)\s*취소/.test(text) && !/(?:^|\s)(?:수입|지출)(?=\s|$)/.test(text);
     const token=moneyTokenSpans(scan)[0]?.raw || "";
     manyAmounts=quickAmountCount(scan)>1;
+    foreignAmount=foreignIn(typed);
     if (typed!==splitText) { splitText=typed; splitSettled=false; }
-    if (!manual.amount) { amount.value=value ? new Intl.NumberFormat("ko-KR").format(value) : ""; invalidAmount=!value; }
+    if (!manual.amount) { amount.value=value && !foreignAmount ? new Intl.NumberFormat("ko-KR").format(value) : ""; invalidAmount=!value && !foreignAmount; }
     else invalidAmount=!validAmount();
     if (!manual.date) { date.value=parsedDate || (explicitDateIntent(scan)?"":defaultDate()); invalidDate=explicitDateIntent(scan) && !parsedDate; }
     else invalidDate=!validDate();
@@ -530,6 +538,7 @@ function quickSmartInputController(config) {
     const text = byId("rawTextInput")?.value || "";
     confirmType = /(?:결제|승인)\s*취소/.test(text) && !/(?:^|\s)(?:수입|지출)(?=\s|$)/.test(text);
     manyAmounts = quickAmountCount(normalizeInputText(readLine(text.trim()))) > 1;
+    foreignAmount = foreignIn(text);
     splitSettled = manual.amount || manual.memo; splitText = text.trim();
     invalidAmount = !quickAmountFieldState(amount, true).valid;
     invalidDate = !validDate();
@@ -557,7 +566,7 @@ function quickSmartInputController(config) {
     field.addEventListener("input",changed); field.addEventListener("change",changed);
   }
   document.querySelectorAll("input[name=type]").forEach(field=>{const changed=()=>{manual.type=true;if(markers.type)markers.type.value="1";resolveCategory();complete();};field.addEventListener("change",changed);field.addEventListener("click",changed);});
-  form?.addEventListener("submit",event=>{if(amountComposing||splitNeeded()||(confirmType&&!manual.type)||invalidAmount||invalidDate||!validAmount()||!validDate()){event.preventDefault();invalidAmount=invalidAmount||!validAmount();invalidDate=invalidDate||!validDate();setValidity(amount,invalidAmount,"1원부터 20억원까지 정수 금액을 입력해 주세요.");complete();}else if(categoryDeferred&&!manual.category&&byId("catInput")){byId("catInput").value="";categoryDeferred=false;}});
+  form?.addEventListener("submit",event=>{if(amountComposing||splitNeeded()||foreignNeeded()||(confirmType&&!manual.type)||invalidAmount||invalidDate||!validAmount()||!validDate()){event.preventDefault();invalidAmount=invalidAmount||!validAmount();invalidDate=invalidDate||!validDate();setValidity(amount,invalidAmount,"1원부터 20억원까지 정수 금액을 입력해 주세요.");complete();}else if(categoryDeferred&&!manual.category&&byId("catInput")){byId("catInput").value="";categoryDeferred=false;}});
   preview(true);
   return {apply,preview};
 }

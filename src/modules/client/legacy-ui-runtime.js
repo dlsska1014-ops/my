@@ -878,17 +878,23 @@ const KAKAO_LOGIN_PROGRESS_TIPS = [
   "카카오톡 챗봇에 “커피 4500원”이라고 보내도 바로 기록돼요.",
 ];
 
+// V22.9.95 R-9: 카카오 로그인 단추가 동의 칸이 있는 GET 폼(form.kakaoStart)의 제출 단추가 됐다. 대기 화면은 링크 클릭 대신 폼 제출(submit)에 띄운다.
+// submit 은 브라우저 검사(동의 칸 required)를 통과해야 오므로 동의 칸을 비운 채 누르면 덮지 않는다. 보조키·가운데 단추로 누른 제출(새 창)은
+// 덮지 않는다(V22.9.26 링크 때와 같은 뜻). window.stop 이 없는 브라우저는 그냥 숨긴다. 뒤로 가기로 돌아오면(pageshow persisted) 대기 화면을 거둔다.
+// toString 으로 화면에 들어가므로 설명은 함수 밖에 둔다.
 function kakaoLoginProgressClientMain(config) {
-  var link = document.querySelector('a.kakaoBtn[href^="/auth/kakao/start"]');
+  var form = document.querySelector('form.kakaoStart[action="/auth/kakao/start"]');
+  var button = form && form.querySelector(".kakaoBtn");
   var overlay = document.getElementById(config.overlayId);
   var tipEl = document.getElementById(config.tipId);
   var slowEl = document.getElementById(config.slowId);
   var cancel = document.getElementById(config.cancelId);
   var tips = config.tips || [];
-  if (!link || !overlay || !tipEl) return;
+  if (!form || !button || !overlay || !tipEl) return;
   var tipTimer = 0;
   var slowTimer = 0;
   var index = 0;
+  var modified = false;
 
   function showTip() {
     tipEl.textContent = tips[index % tips.length] || "";
@@ -901,17 +907,22 @@ function kakaoLoginProgressClientMain(config) {
     if (slowEl) slowEl.hidden = true;
     clearInterval(tipTimer);
     clearTimeout(slowTimer);
-    link.removeAttribute("aria-busy");
+    button.removeAttribute("aria-busy");
   }
 
-  link.addEventListener("click", function (event) {
-    // V22.9.26: 새 탭 열기(보조키·가운데 버튼)나 이미 처리된 클릭에는 대기 화면을 덮지 않는다.
-    if (event && (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)) return;
+  button.addEventListener("click", function (event) {
+    modified = !!(event && (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey));
+  });
+
+  form.addEventListener("submit", function (event) {
+    var skip = modified || (event && event.defaultPrevented);
+    modified = false;
+    if (skip) return;
     index = Math.floor(Math.random() * Math.max(tips.length, 1));
     showTip();
     overlay.hidden = false;
     document.documentElement.classList.add("kakaoProgressOpen");
-    link.setAttribute("aria-busy", "true");
+    button.setAttribute("aria-busy", "true");
     clearInterval(tipTimer);
     tipTimer = setInterval(showTip, 3600);
     clearTimeout(slowTimer);
@@ -920,12 +931,11 @@ function kakaoLoginProgressClientMain(config) {
 
   if (cancel) {
     cancel.addEventListener("click", function () {
-      try { window.stop(); } catch (err) { /* 일부 브라우저는 stop을 지원하지 않는다 */ }
+      try { window.stop(); } catch (err) {}
       hide();
     });
   }
 
-  // 뒤로 가기로 돌아왔을 때 오버레이가 남아 화면을 가리지 않게 한다.
   window.addEventListener("pageshow", function (event) { if (event.persisted) hide(); });
 }
 

@@ -17,11 +17,14 @@
 // 옛 주소(accountbook-v5-v22990.js·accountbook-goals-v22946.js)의 바이트도 AB_HISTORICAL_RUNTIME_ASSETS 에 남는다.
 // V22.9.93(Aside 2차 검수 피드백): 셸 CSS 도 올렸다 — 빠른 입력 버튼 글자 조각, 좁은 폭의 달 입력칸, 다크의 상태 배지.
 // 옛 주소(accountbook-shell-v22987.css)의 바이트도 AB_HISTORICAL_RUNTIME_ASSETS 에 남는다.
+// V22.9.95(안내·해석): 세 자산의 바이트가 바뀌어 주소를 v22995 로 올렸다 — 홈 스크립트·홈 셸(폭 0 글자·전각 글자 정리, 외화 금액 되묻기
+// foreignCurrencyAmountIn), 분류 규칙(R-16 예외 낱말: 운동화·충전기·참기름·들기름·버스킹). 옛 주소(mobile-home(-shell)-v22993.js·
+// ab-category-rules-v22993.js, 운영 V22.9.93·94 가 쓰는 주소)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 그대로 내려간다.
 const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22985.css";
 const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v22919.css";
 // V22.9.78(V77 N-12): 홈 스크립트·홈 셸에 실리는 quickInputDate 가 주 없이 쓴 ‘지난·저번 요일’을 오늘을 뺀 앞 요일로 읽게 바뀌어
 // 두 주소를 v22976 → v22978 로 올렸다. 옛 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 그대로 내려간다.
-const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22993.js";
+const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22995.js";
 const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v22811.css";
 // V22.9.37 감사 묶음 C: 셸 CSS(U4·U9·U14), 내비·검색·알림·목표·행 즐겨찾기·V5 번들 JS(H1·U2·U3·U5·U10·U12)가 바뀌어 주소를 올렸다.
 // 옛 JS 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 이미 받아 간 화면이 계속 동작한다.
@@ -122,7 +125,7 @@ body.abV22812Shell.abImportPreview #myImportCommitForm td:nth-child(5){font-size
 @media(prefers-reduced-motion:no-preference){body.abV22812Shell .abTxDetail[open]{animation:abTxAppear 140ms ease-out}@keyframes abTxAppear{from{opacity:0;translate:0 12px}to{opacity:1;translate:0 0}}}
 `;
 const ACCOUNTBOOK_THEME_JS_ASSET_PATH = "/assets/accountbook-theme-v22946.js";
-const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22993.js";
+const MOBILE_HOME_SHELL_JS_ASSET_PATH = "/assets/mobile-home-shell-v22995.js";
 const ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH = "/assets/accountbook-nav-v22987.js";
 const ACCOUNTBOOK_SEARCH_JS_ASSET_PATH = "/assets/accountbook-search-v22979.js";
 const ACCOUNTBOOK_NOTIF_JS_ASSET_PATH = "/assets/accountbook-notif-v22937.js";

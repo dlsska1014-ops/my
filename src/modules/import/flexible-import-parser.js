@@ -716,12 +716,33 @@ function detectImportSignConvention(table = [], headerIndex = -1, maxRows = 5000
   return summary;
 }
 
+// V22.9.95 R-19: 가져오기에서 금액·자연어로 읽는 칸(칸이 하나인 줄은 그 줄)의 글자 수 상한. 메모 저장 한도(160자)와 같다.
+// 더 긴 칸은 금액 정규식과 자연어 해석이 길이의 제곱으로 느려져(숫자 4만 자 칸 하나에 4초 넘게) 읽지 않는다. 앞 160자만 잘라 읽지도 않는다 —
+// 잘라 읽으면 ‘5000 …(긴 빈칸)… 만’ 처럼 예전에 거절하던 칸이 다른 금액이 된다. 긴 칸은 예전처럼 ‘잘못된 금액’·‘메모 저장 한도 초과’ 로 빠진다.
+const IMPORT_CELL_TEXT_MAX_V22995 = 160;
+
+// 글자(코드 포인트) 수가 상한을 넘는지. 긴 글 전체를 배열로 만들지 않고 상한 + 1 자까지만 센다.
+function importTextOverCapV22995(text = "") {
+  const value = String(text ?? "");
+  if (value.length <= IMPORT_CELL_TEXT_MAX_V22995) return false;
+  let count = 0;
+  for (const _ of value) if (++count > IMPORT_CELL_TEXT_MAX_V22995) return true;
+  return false;
+}
+
 function parseImportAmountCell(value = "") {
   const raw = String(value ?? "").normalize("NFKC").trim();
   if (!raw || /^(?:-|—|–)$/.test(raw)) return { amount: 0, present: !!raw, valid: true, negative: false, raw };
+  // V22.9.95 R-19: 상한을 넘는 칸은 금액으로 읽지 않는다(잘못된 금액). 외화 표시 검사는 예전처럼 칸 전체(raw)로 한다.
+  if (importTextOverCapV22995(raw)) return { amount: 0, present: true, valid: false, negative: false, raw };
   let numeric = raw, negative = false, signs = 0;
   if (/^\(.*\)$/.test(numeric)) { negative = true; signs++; numeric = numeric.slice(1, -1).trim(); }
-  const stripCurrency = text => text.replace(/^(?:₩|￦|\$|krw(?=[\d\s−△▲-])|won(?=[\d\s−△▲-]))\s*/i, "").replace(/\s*(?:원|krw|won)$/i, "").trim();
+  // V22.9.95 R-19: 끝의 ‘원’·krw·won 을 뗄 때 `\s*(?:원|krw|won)$` 꼴은 긴 빈칸 뒤에서 제곱 시간이 걸려, 끝 글자만 맞춘 뒤 앞 빈칸은 trimEnd 로 뗀다(결과 같음).
+  const stripCurrency = text => {
+    const head = text.replace(/^(?:₩|￦|\$|krw(?=[\d\s−△▲-])|won(?=[\d\s−△▲-]))\s*/i, "");
+    const unit = /(?:원|krw|won)$/i.exec(head);
+    return (unit ? head.slice(0, unit.index).trimEnd() : head).trim();
+  };
   numeric = stripCurrency(numeric);
   if (/^[-−△▲]/.test(numeric)) { negative = true; signs++; numeric = numeric.slice(1).trim(); }
   if (/[-−]$/.test(numeric)) { negative = true; signs++; numeric = numeric.slice(0, -1).trim(); }
@@ -1033,6 +1054,9 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
 
   let naturalParsed = null;
   if (!chosen.amount && !anyAmountPresent) {
+    // V22.9.95 R-19: 자연어 해석(parseTransaction)은 긴 글에서 제곱 시간이다(글자 4만 자 2초, 숫자 4만 자 4.5초). 가져오기에서는 상한을 넘는 글을
+    // 자연어로 읽지 않고 메모 저장 한도 초과로 뺀다(원본을 자르거나 저장하지 않는다). 카카오·웹 입력은 바꾸지 않는다.
+    if (importTextOverCapV22995(contextText.replace(/\s+/g, " ").trim())) return { row: null, rejection: importRejection("memo_too_long", options.rowNumber, rawText), warnings };
     naturalParsed = parseTransaction(contextText, {});
     if (naturalParsed.ok) {
       // V22.9.94 C-7: 자연어로 읽은 금액이 외화 표시가 붙은 숫자(‘€100’·‘USD 100’·‘커피 $100’)에서 왔으면 거절한다.

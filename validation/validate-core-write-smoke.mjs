@@ -72,6 +72,8 @@ try {
     display_name: "새 사용자",
     access_code: "safe-password-2026",
     access_code_confirm: "safe-password-2026",
+    // V22.9.95 R-9: 가입은 약관·개인정보처리방침 동의와 만 14세 확인 칸(consent=1)을 체크해야 된다(사람이 체크하고 보낸 요청).
+    consent: "1",
   });
   const signupResponse = await request(signupFixture, "/my/local-signup", { cookie: "", method: "POST", body: signupBody });
   eq(signupResponse.status, 303, "local account creation redirects after the atomic RPC succeeds");
@@ -91,7 +93,7 @@ try {
   const mismatchResponse = await request(signupFixture, "/my/local-signup", {
     cookie: "",
     method: "POST",
-    body: form({ login_name: "mismatch", display_name: "불일치", access_code: "safe-password-2026", access_code_confirm: "different-password" }),
+    body: form({ login_name: "mismatch", display_name: "불일치", access_code: "safe-password-2026", access_code_confirm: "different-password", consent: "1" }),
   });
   eq(mismatchResponse.status, 400, "password mismatch is rejected before database mutation");
   eq(signupFixture.db.users.length, beforeUsers + 1, "invalid signup leaves user storage unchanged");
@@ -100,7 +102,7 @@ try {
   const missingRpcResponse = await request(signupFixture, "/my/local-signup", {
     cookie: "",
     method: "POST",
-    body: form({ login_name: "schema-check", display_name: "스키마", access_code: "safe-password-2026", access_code_confirm: "safe-password-2026" }),
+    body: form({ login_name: "schema-check", display_name: "스키마", access_code: "safe-password-2026", access_code_confirm: "safe-password-2026", consent: "1" }),
   });
   eq(missingRpcResponse.status, 503, "missing signup RPC is reported as service unavailable");
   ok((await missingRpcResponse.text()).includes("PostgREST 스키마 새로고침"), "missing signup RPC explains the exact migration and cache check");

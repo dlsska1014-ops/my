@@ -77,7 +77,7 @@ try {
   const publicAliasPaths = [
     ["/sitemap", "/site-map"], ["/service", "/service-guide"], ["/usage-guide", "/how-it-works"], ["/kakao-accountbook-guide", "/kakao-guide"],
     ["/budget-management-guide", "/budget-guide"], ["/family-accountbook", "/group-accountbook"], ["/data-security", "/security"],
-    ["/about-service", "/about"], ["/support", "/contact"], ["/cookie-policy", "/cookies"], ["/data-policy", "/privacy"], ["/service-policy", "/terms"],
+    ["/about-service", "/about"], ["/cookie-policy", "/cookies"], ["/data-policy", "/privacy"], ["/service-policy", "/terms"],
   ];
   for (const [path, target] of publicAliasPaths) {
     const response = await request(path);

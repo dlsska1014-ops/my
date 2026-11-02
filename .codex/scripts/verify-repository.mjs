@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_94.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_95.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -113,6 +113,10 @@ const validationScripts = [
   ["V22.9.94 거래·권한(C-4 복구 표를 삭제 사건에 묶기·C-5 계정 통합 뒤 세션 복구·C-9 동시 수정 충돌·C-11 일괄 삭제 결과 불명 안내·R-3 소유자 역할은 소유자만)", "validation/validate-v22994-admin.mjs"],
   ["V22.9.94 예약 실행(C-10 리포트 재생성 요청 중복 버림·R-1 리포트 처리량 예산 기반·말일 스냅숏 재생성)", "validation/validate-v22994-cron.mjs"],
   ["V22.9.94 준비 상태·경보(R-2 /ready 분류·삭제 RPC·60초 캐시·R-4 cron 마지막 실행 지표)", "validation/validate-v22994-ops.mjs"],
+  ["V22.9.95 데이터·운영(R-12 감사 기록 보존 정리·예약 실행 표 판·남은 범위 열·R-11 CI 푸시·취소 설정)", "validation/validate-v22995-data.mjs"],
+  ["V22.9.95 후원(/support 페이지·후원자 플래그·배지·포인트 색·관리자 후원자 설정)", "validation/validate-v22995-support.mjs"],
+  ["V22.9.95 법무(R-9 약관·개인정보처리방침 동의와 만 14세 확인·가입/카카오 동의 기록·방침 6~13절·이용약관 2절·꼬리말 대표·문의 이메일)", "validation/validate-v22995-legal.mjs"],
+  ["V22.9.95 안내·해석(R-14 안내 보강·공지 띠·문의 메뉴·R-16 분류 예외·폭 0/전각 글자·R-20 외화 되묻기·R-19 가져오기 칸 상한)", "validation/validate-v22995-guide.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],
@@ -359,7 +363,7 @@ function run(command, args, label) {
 // V22.9.91: 새 검사 1개(계정 잇기 220: 인앱 자동 로그인·잇기 제안·자동·확인 잇기·관리자 통합 링크, 병합 전 독립 검토 7건 12~17번 포함)·추적표 V91 2건과 옛 검사 갱신(카카오 단추 return_to·판 이름만 바뀐 환불 꺼짐 화면 해시 셋). 두 모드 실측: 일반 37,774 · 분류 표 부재 37,771(V22.9.91 계정 잇기).
 // V22.9.92: 새 검사 2개(애드핏 광고 게이트 2,319: ADS_MODE=adfit·광고 단위 검증·공개 정본 문서 45쪽만·정책 화면 카카오 문구·/ready adfit_unit, 기능 둘러보기 119)와 옛 검사 갱신(광고 게이트 adsMode 모양·판 이름만 바뀐 환불 꺼짐 화면 해시 셋). 두 모드 실측: 일반 40,226 · 분류 표 부재 40,223(V22.9.92 애드핏 준비).
 // V22.9.94: 새 검사 6개(전체 점검·Codex/Astra 검토 수정 — 시험 대역·화면 73, 카카오 950, 가져오기 293, 관리자 134, 예약 실행 61, 준비 상태·관제 184)·추적표 V94 31건과 옛 검사 갱신(Q-104 기대값·M-8-C 한 실행 2개·되돌리기 30초 기대·감사 기록 픽스처·관제 판 1.5.0·준비 상태 RPC 19개·판 이름만 바뀐 환불 지문 셋). 하한은 두 모드 실측 중 작은 값으로 올렸다.
-const EXPECTED_MINIMUM_CHECKS = 58504;
+const EXPECTED_MINIMUM_CHECKS = 59320;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
