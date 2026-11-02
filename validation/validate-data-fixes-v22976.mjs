@@ -391,7 +391,8 @@ await section("F-9", async () => {
       const tag = String(html || "").match(new RegExp(`<input\\b[^>]*\\bid="${id}"[^>]*>`))?.[0] || "";
       return tag ? decode((tag.match(/\bvalue="([^"]*)"/) || [, ""])[1]) : null;
     };
-    const signup = (values) => post(fx, "/my/local-signup", values, { cookie: "" });
+    // V22.9.95 R-9: 가입은 약관·개인정보처리방침 동의와 만 14세 확인 칸(consent=1)을 체크해야 된다(사람이 체크하고 보낸 요청).
+    const signup = (values) => post(fx, "/my/local-signup", { consent: "1", ...values }, { cookie: "" });
     const typed = { login_name: "새가족\"<b>", display_name: "엄마 & 아빠", invite_code: "ab12cd", access_code: "secret-pass-1", access_code_confirm: "secret-pass-2" };
     const mismatch = await signup(typed);
     eq(mismatch.status, 400, "비밀번호 확인이 다르면 가입 폼을 오류와 함께 다시 그린다");

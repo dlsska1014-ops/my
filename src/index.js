@@ -3281,14 +3281,27 @@ function appName(env) {
   return env.APP_NAME || env.BRAND_NAME || "말해가계부";
 }
 
+// V22.9.95 R-9: 꼬리말에 대표자와 문의 이메일이 없었다. 대표자는 개인정보 보호책임자이고, 이메일은 개인정보처리방침 7절의 요청 경로와 같다.
+// 전화번호는 공개하지 않는다.
 const BUSINESS_FOOTER_INFO = Object.freeze({
   service: "말해가계부",
   company: "도담 네트워크",
+  representative: "백인남",
   businessNumber: "729-24-02288",
   address: "경기도 평택시 신촌3로 12",
   businessType: "정보통신업",
   businessItem: "응용 소프트웨어 개발 및 공급업",
+  email: "admin@malhaebook.com",
 });
+
+// V22.9.95 R-9: 개인정보처리방침·이용약관의 개정일이자 가입 동의 기록(consent:<user_id>)의 version 이다. 배포일에 맞춰 이 한 곳만 바꾼다.
+const POLICY_REVISION_DATE = "2026-11-10";
+
+// "2026-11-10" → "2026년 11월 10일"(방침 머리의 시행·개정일 표기).
+function policyDateLabel(ymd = POLICY_REVISION_DATE) {
+  const [y, m, d] = String(ymd || "").split("-").map((part) => Number(part));
+  return y && m && d ? `${y}년 ${m}월 ${d}일` : String(ymd || "");
+}
 
 function businessFooterText(value = "") {
   return escapeHtml(String(value || "").trim());
@@ -3302,15 +3315,18 @@ function renderBusinessInfoFooter() {
   .abBusinessFooterTitle{font-weight:1000;color:#334155;white-space:nowrap}
   .abBusinessFooterItem{display:inline-flex;gap:5px;align-items:baseline;min-width:0}
   .abBusinessFooterItem b{color:#475569;font-weight:900;white-space:nowrap}
+  .abBusinessFooterItem a{color:inherit;text-decoration:underline;overflow-wrap:anywhere}
   @media(max-width:700px){.abBusinessFooterInner{gap:5px 11px}.abBusinessFooterTitle{flex-basis:100%}.abBusinessFooterItem{font-size:10.5px}}
   </style><footer class="abBusinessFooter" aria-label="사업자 정보"><div class="abBusinessFooterInner">
     <span class="abBusinessFooterTitle">사업자 정보</span>
     <span class="abBusinessFooterItem"><b>상호</b>${businessFooterText(info.company)}</span>
+    <span class="abBusinessFooterItem"><b>대표</b>${businessFooterText(info.representative)}</span>
     <span class="abBusinessFooterItem"><b>등록번호</b>${businessFooterText(info.businessNumber)}</span>
     <span class="abBusinessFooterItem"><b>소재지</b>${businessFooterText(info.address)}</span>
     <span class="abBusinessFooterItem"><b>업태</b>${businessFooterText(info.businessType)}</span>
     <span class="abBusinessFooterItem"><b>종목</b>${businessFooterText(info.businessItem)}</span>
     <span class="abBusinessFooterItem"><b>서비스</b>${businessFooterText(info.service)}</span>
+    <span class="abBusinessFooterItem"><b>문의</b><a href="mailto:${businessFooterText(info.email)}">${businessFooterText(info.email)}</a></span>
   </div></footer>`;
 }
 
@@ -3574,9 +3590,19 @@ function ledgerMarkSvg() {
 // V22.9.87 T-20·T-21: 카카오 로그인 버튼(§3-4: #FEE500 면, 검은 말풍선 심볼, 라벨 ‘카카오 로그인’). /my 시작 화면과 공개 첫 화면의
 // 카카오 로그인 띠가 같은 마크업을 쓴다. 색·크기는 각 화면 CSS 의 .kakaoBtn 이 정한다. 설정이 준비된 서버에서만 부른다.
 // V22.9.91: 로그인이 풀려 /my?return_to=… 로 온 사람은 카카오 로그인 뒤에도 보던 화면으로 돌아간다(주소는 safeUserReturnPath 를 거친 값만 받는다).
-function kakaoLoginButtonHtml(returnTo = "") {
-  const href = returnTo ? `/auth/kakao/start?return_to=${encodeURIComponent(returnTo)}` : "/auth/kakao/start";
-  return '<a class="kakaoBtn" href="' + href + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466 0 2.66 1.77 4.995 4.432 6.316l-.9 3.296a.35.35 0 0 0 .532.383l3.917-2.598c.5.06 1.007.09 1.519.09 5.247 0 9.5-3.343 9.5-7.487C21.5 6.843 17.247 3.5 12 3.5Z"/></svg>카카오 로그인</a>';
+// V22.9.95 R-9: 카카오 로그인으로 새 계정이 생길 수 있어 단추 위에 동의 칸(약관·개인정보처리방침 동의 + 만 14세 이상, 필수)을 둔다. 링크였던 단추를
+// GET 폼(/auth/kakao/start)의 제출 단추로 바꿨다. 스크립트가 없어도 브라우저 required 가 막고, 서버도 consent=1 이 없으면 로그인 화면으로 되돌린다.
+// 돌아갈 곳(return_to)은 숨은 칸으로 싣는다(서버가 읽는 이름과 값은 예전 주소와 같다). consentError 는 서버가 되돌린 화면의 칸 아래 문구다.
+function kakaoLoginButtonHtml(returnTo = "", { consentError = "" } = {}) {
+  const back = returnTo ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/>` : "";
+  return '<form class="kakaoStart" method="get" action="/auth/kakao/start">' + back + signupConsentFieldHtml("kakaoConsent", consentError) + '<button class="kakaoBtn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466 0 2.66 1.77 4.995 4.432 6.316l-.9 3.296a.35.35 0 0 0 .532.383l3.917-2.598c.5.06 1.007.09 1.519.09 5.247 0 9.5-3.343 9.5-7.487C21.5 6.843 17.247 3.5 12 3.5Z"/></svg>카카오 로그인</button></form>';
+}
+
+// V22.9.95 R-9: 가입 폼과 카카오 로그인 폼이 같이 쓰는 동의 칸. 두 링크는 새 탭으로 연다(같은 사이트라 opener 위험이 없다). 서버 오류가 있을 때만
+// 칸에 aria-invalid 와 칸 아래 문구(.fieldError)를 붙인다. 미리 체크해 두지 않는다(동의는 사용자가 직접 표시한다).
+function signupConsentFieldHtml(id = "signupConsent", error = "") {
+  const note = error ? ` aria-invalid="true" aria-describedby="${id}Error"` : "";
+  return `<label class="consentRow"><input id="${id}" name="consent" type="checkbox" value="1" required${note}/><span><a href="/terms" target="_blank">이용약관</a>과 <a href="/privacy" target="_blank">개인정보처리방침</a>에 동의하며, 만 14세 이상입니다</span></label>${error ? `<p class="fieldError" id="${id}Error">${escapeHtml(error)}</p>` : ""}`;
 }
 
 function publicSiteNav(active = "home") {
@@ -8513,31 +8539,55 @@ function publicPageCatalog(env = {}, url = null) {
   // V22.9.92: 카카오 애드핏으로 광고를 내는 서버(adsPolicyNetwork 가 "adfit")에서는 개인정보처리방침·쿠키 안내의 광고 절을
   // 카카오 기준 문장과 링크로 바꾼다(Google 안내·지역별 동의 절은 Google 광고에만 맞는 말이라 뺀다). 그 밖(심사 모드·AdSense)은 지금 그대로다.
   const adfit = adsPolicyNetwork(env) === "adfit";
+  // V22.9.95 R-9: 개인정보처리방침 보강(처리 항목 표·보호책임자·위탁과 국외 이전·만 14세·파기·구제·변경 고지). 개정일은 POLICY_REVISION_DATE 한 곳이다.
+  // 항목은 코드로 확인한 것만 적는다. Supabase 데이터센터 리전은 저장소 문서에 없어 확인 전까지 아래 문구로 둔다(확인 필요).
+  const revision = `시행일 2026년 7월 13일 · 개정 ${policyDateLabel(POLICY_REVISION_DATE)}`;
+  const supportEmail = BUSINESS_FOOTER_INFO.email;
+  const databaseRegion = "서비스 설정상 해외 데이터센터";
   const catalog = {
     ...publicGuidePages(env),
     ...publicLivingCostArticlesV22974(),
     privacy: {
       title: "개인정보처리방침",
-      description: "말해가계부가 처리하는 개인정보와 가계부 데이터, 처리 목적, 보관 기간, 광고 쿠키와 이용자 권리를 안내합니다.",
-      eyebrow: "시행일 2026년 7월 13일",
+      description: "말해가계부가 처리하는 개인정보와 가계부 데이터, 처리 목적, 보관 기간, 처리 위탁과 국외 이전, 개인정보 보호책임자, 광고 쿠키와 이용자 권리를 안내합니다.",
+      eyebrow: revision,
       intro: "말해가계부는 서비스 제공에 필요한 범위에서 사용자와 가계부 데이터를 처리합니다. 처리 목적과 보유기간을 벗어나 임의로 이용하지 않으며, 사용자 발화를 AI 모델 학습에 자동 활용하지 않습니다.",
       sections: [
         { title: "1. 처리하는 항목과 목적", paragraphs: ["사용자 식별키와 로그인 정보는 사용자 구분과 세션 유지에 사용합니다. 가계부 이름, 참여자 권한, 초대코드, 표시 이름은 공동 가계부 운영에 사용합니다.", "수입·지출, 날짜, 분류, 결제수단, 메모, 예산과 설정값은 기록·조회·분석·백업 기능을 제공하기 위해 처리합니다. 카카오 거래 입력 원문은 거래 데이터와 함께 보관될 수 있습니다. 단톡방 연결키는 첫 기록으로 준비하거나 직접 연결한 공동 가계부와 해당 방을 구분하는 데 사용합니다."], bullets: ["회원 및 세션 관리", "가계부 생성·참여·권한 관리", "거래 기록·예산·요약·정산 제공", "중복 저장 방지와 장애 대응", "법적 의무와 분쟁 대응"] },
         { title: "2. 사용자 발화와 자연어 운영 로그", paragraphs: ["사용자 발화는 요청을 이해하고 응답하기 위해 사용합니다. 발화를 외부 AI 모델의 학습 데이터로 자동 전송하거나 자동 학습 데이터로 등록하지 않습니다.", "운영 통계는 의도, 처리 결과, 지연시간과 배포 버전을 집계합니다. 실패한 요청의 일부 문장은 URL·이메일·전화번호·코드·긴 숫자 등을 마스킹하여 임시 메모리에 보관할 수 있습니다. 마스킹이 모든 개인정보를 완전히 제거한다고 보장하지는 않습니다. 별도 실패 사례 저장은 운영 설정에 따르며 거래 데이터의 보관과 구분합니다."] },
-        { title: "3. 보유기간과 삭제", paragraphs: ["가계부 거래와 설정은 사용자가 서비스를 이용하는 동안 보관하며 웹에서 직접 수정·삭제할 수 있습니다. 가계부 소유자가 영구 삭제를 완료하면 해당 가계부의 거래와 관련 설정을 삭제합니다. 가계부 나가기는 참여 권한을 종료하며 공동 거래 이력은 보존합니다. 현재 계정 자체를 탈퇴·삭제하는 온라인 기능은 제공하지 않으며 개인정보 삭제 요청은 서비스 문의 경로로 확인합니다.", "세션과 운영 로그는 목적에 필요한 기간만 보관합니다. 법령상 보존 의무가 있는 경우 해당 기간 동안 분리 보관할 수 있습니다."] },
+        { title: "3. 보유기간과 삭제", paragraphs: [`가계부 거래와 설정은 사용자가 서비스를 이용하는 동안 보관하며 웹에서 직접 수정·삭제할 수 있습니다. 가계부 소유자가 영구 삭제를 완료하면 해당 가계부의 거래와 관련 설정을 삭제합니다. 가계부 나가기는 참여 권한을 종료하며 공동 거래 이력은 보존합니다. 현재 계정 자체를 탈퇴·삭제하는 온라인 기능은 제공하지 않으며 개인정보 삭제 요청은 서비스 문의 경로로 확인합니다. 문의 경로는 7절의 개인정보 보호책임자 이메일(${supportEmail})입니다.`, "세션과 운영 로그는 목적에 필요한 기간만 보관합니다. 법령상 보존 의무가 있는 경우 해당 기간 동안 분리 보관할 수 있습니다."] },
         adfit ? { title: "4. 제3자 광고와 쿠키", paragraphs: [adsPolicyText(env, "privacy"), adsPolicyText(env, "privacy-control")], links: adsPolicyLinks(env) } : { title: "4. 제3자 광고와 쿠키", paragraphs: [adsPolicyText(env, "privacy") || "현재 공개 페이지에서는 Google 광고를 실행하지 않습니다. 향후 광고 기능이 활성화되면 Google을 포함한 제3자 광고 사업자가 쿠키를 사용해 사용자의 이전 방문 정보 등을 바탕으로 광고를 제공하고 성과를 측정할 수 있습니다.", "제3자는 광고 제공 과정에서 브라우저의 쿠키를 저장·조회하거나 웹 비콘과 IP 주소 같은 기술을 사용할 수 있습니다. 말해가계부는 거래 내용, 예산, 가계부 구성원 정보와 사용자 발화 원문을 광고주에게 판매하지 않습니다. 사용자는 Google 광고 설정과 브라우저 설정을 통해 광고 개인화와 쿠키를 관리할 수 있습니다."], links: [...adsPolicyLinks(env), ["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 파트너 사이트 정보 이용 안내", "https://policies.google.com/technologies/partner-sites?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
-        { title: "5. 이용자의 권리", paragraphs: ["사용자는 자신의 기록과 설정을 열람·수정·삭제하고 백업할 수 있습니다. 개인정보 처리에 관한 문의와 권리 행사는 문의 안내에 표시된 경로로 요청할 수 있으며 본인과 권한 확인 후 처리합니다."] },
-        { title: "6. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
+        { title: "5. 이용자의 권리", paragraphs: ["사용자는 자신의 기록과 설정을 열람·수정·삭제하고 백업할 수 있습니다. 개인정보 처리에 관한 문의와 권리 행사는 문의 안내에 표시된 경로로 요청할 수 있으며 본인과 권한 확인 후 처리합니다.", "개인정보의 열람·정정·삭제·처리정지 요구는 7절의 개인정보 보호책임자에게 이메일로 할 수 있습니다."] },
+        { title: "6. 처리하는 개인정보 항목과 보유기간", paragraphs: ["말해가계부는 아래 항목만 처리합니다. 카카오 로그인으로는 카카오 회원번호와 닉네임만 저장하며 프로필 사진·이메일·전화번호는 저장하지 않습니다."], table: { caption: "처리하는 개인정보 항목, 수집 시점과 보유기간", headers: ["구분", "처리 항목", "수집 시점", "보유기간"], rows: [
+          ["카카오 로그인", "카카오 회원번호, 카카오 닉네임", "카카오 로그인으로 가입하거나 로그인할 때", "회원 이용 기간(삭제 요청 시까지)"],
+          ["로그인 이름 계정", "로그인 이름, 표시 이름, 비밀번호(복원할 수 없게 변환한 값만 저장)", "새 계정을 만들거나 로그인 정보를 바꿀 때", "회원 이용 기간(삭제 요청 시까지)"],
+          ["카카오톡 챗봇", "카카오가 보내는 챗봇 사용자 식별키(botUserKey 등), 단톡방 식별키(botGroupKey), 보낸 문장 원문", "챗봇에 문장을 보낼 때", "회원 이용 기간. 문장 원문은 그 문장으로 저장한 거래와 함께 보관합니다."],
+          ["가계부 데이터", "수입·지출 내역(금액·날짜·분류·결제수단·메모), 예산, 정기 규칙, 가계부 이름, 참여자와 권한, 초대코드, 설정값", "사용자가 입력하거나 설정할 때", "가계부를 영구 삭제할 때까지"],
+          ["거래 변경 이력", "고치거나 지운 거래의 바뀌기 전·후 내용, 변경한 사용자, 변경 시각", "거래를 고치거나 지울 때", "최대 180일"],
+          ["접속·보안 기록", "IP 주소, 브라우저 정보(User-Agent), 요청 경로와 시각", "서비스에 접속할 때 자동으로 생성", "요청 횟수 제한에 쓰는 값은 서버 인스턴스 메모리에만 잠시 두고 저장하지 않습니다. 로그인·가입 시도 제한에는 IP 주소 등을 복원할 수 없게 변환한 값과 시도 횟수만 데이터베이스에 저장하고, 로그인에 성공하면 그 기록을 지웁니다."],
+          ["쿠키", "아래 쿠키 목록", "로그인·본인 확인·가계부 선택 때", "아래 쿠키 목록"],
+        ] }, bullets: ["ab_user: 로그인 유지(세션), 14일", "ab_hh: 마지막으로 연 가계부 기억, 1년", "kakao_oauth_state·kakao_oauth_link_user·kakao_oauth_reauth_household·kakao_oauth_return_to: 카카오 로그인 요청 확인, 10분", "ab_credential_reauth·ab_household_delete_reauth·ab_account_link: 본인 확인과 계정 잇기 확인, 5분", "ab_kakao_auto: 카카오톡 안 자동 로그인 시도 상태, 10분~30일(직접 로그아웃하면 30일 동안 멈춤)", "ab_account_link_later·ab_account_link_pause: 계정 잇기 안내 미루기, 7일·10분", "ab_admin: 운영자 관리 화면 로그인(운영자만), 12시간", "모든 쿠키는 HTTPS 연결에서만 보내고(Secure) 화면의 스크립트가 읽지 못하게(HttpOnly) 설정합니다. 광고 쿠키는 4절을 따릅니다."] },
+        { title: "7. 개인정보 보호책임자", paragraphs: [`개인정보 처리 업무를 총괄하고 이용자의 불만 처리와 피해 구제를 맡는 개인정보 보호책임자는 다음과 같습니다. 성명 ${BUSINESS_FOOTER_INFO.representative}(대표), 이메일 ${supportEmail}.`, "개인정보의 열람·정정·삭제·처리정지 요구와 개인정보 관련 문의는 위 이메일로 보내 주세요. 본인임을 확인한 뒤 처리하며, 요구를 받은 날부터 10일 안에 결과를 알립니다. 그 안에 처리하기 어려우면 이유와 처리할 날짜를 알립니다. 이메일에 계정 비밀번호나 연결 코드는 적지 마세요."], links: [["개인정보 보호책임자에게 이메일 보내기", `mailto:${supportEmail}`]] },
+        { title: "8. 개인정보 처리 위탁과 국외 이전", paragraphs: ["말해가계부는 서비스를 제공하려고 아래 사업자에게 개인정보 처리 업무를 맡깁니다. 미국 법인에 맡기는 처리는 개인정보의 국외 이전에 해당하며, 서비스 제공 계약을 이행하는 데 필요한 처리 위탁과 보관이므로 이 방침에 알리고 이전합니다. 맡긴 업무 밖으로 개인정보를 쓰지 않도록 관리합니다."], table: { caption: "개인정보 처리 위탁과 국외 이전", headers: ["받는 자(국가)", "맡기는 업무", "이전되는 항목", "이전 시점과 방법", "보유·이용 기간"], rows: [
+          ["Cloudflare, Inc.(미국)", "서비스 실행(Workers), 네트워크 전송과 보안", "서비스를 이용하며 주고받는 정보(접속 기록 포함)", "이용할 때마다 암호화 통신(HTTPS)으로 전송", "위탁 계약이 끝날 때까지(Cloudflare 개인정보처리방침에 따름)"],
+          ["Supabase, Inc.(미국 법인)", "데이터베이스 보관과 운영", "6절의 계정·가계부·챗봇·보안 기록", `저장하거나 읽을 때마다 암호화 통신(HTTPS)으로 전송해 ${databaseRegion}에 보관`, "회원 정보 삭제 또는 위탁 계약이 끝날 때까지"],
+          ["주식회사 카카오(대한민국)", "카카오 로그인, 카카오톡 챗봇 메시지 전달", "카카오 회원번호·닉네임, 챗봇 식별키·보낸 문장과 답", "로그인하거나 챗봇을 쓸 때 카카오 서버를 거쳐 전달", "카카오 개인정보처리방침에 따름"],
+        ] }, note: "국외 이전을 원하지 않으면 가입하지 않거나 7절의 이메일로 개인정보 삭제를 요청할 수 있습니다. 이 이전은 서비스를 제공하는 데 꼭 필요하므로, 거부하면 서비스를 이용할 수 없습니다." },
+        { title: "9. 만 14세 미만 아동의 개인정보", paragraphs: ["만 14세 미만 아동은 가입하거나 서비스를 이용할 수 없습니다. 웹에서 새 계정을 만들거나 카카오 로그인을 할 때 만 14세 이상인지 확인합니다.", "만 14세 미만 아동의 계정이나 개인정보임을 알게 되면 지체 없이 삭제합니다."] },
+        { title: "10. 개인정보의 파기 절차와 방법", paragraphs: ["보유기간이 끝나거나 처리 목적을 이룬 개인정보는 지체 없이 파기합니다. 다른 법령에 따라 보존해야 하면 다른 정보와 분리해 그 기간 동안만 보관합니다.", "파기 절차: 파기할 개인정보를 정하고 개인정보 보호책임자의 확인을 거쳐 파기합니다. 파기 방법: 전자 파일은 복구할 수 없도록 데이터베이스에서 삭제합니다. 개인정보를 종이로 출력해 두지 않으며, 출력한 것이 있으면 분쇄하거나 소각합니다.", "거래 변경 이력(고치거나 지운 거래의 바뀌기 전 내용)은 실행 취소와 복구를 위해 보관하며, 180일이 지나면 자동으로 삭제합니다.", "사용자가 내려받은 백업 파일은 사용자 기기에 저장되므로 사용자가 직접 지워야 합니다. 장애에 대비해 데이터베이스 사본을 만드는 경우 운영자만 접근하게 하고, 원본에서 지운 정보는 사본의 보관 기간이 끝날 때 함께 지웁니다."] },
+        { title: "11. 권익침해 구제 방법", paragraphs: ["개인정보 침해에 대한 신고나 상담이 필요하면 아래 기관에 문의할 수 있습니다."], bullets: ["개인정보침해신고센터(한국인터넷진흥원): privacy.kisa.or.kr, 국번 없이 118", "개인정보분쟁조정위원회: www.kopico.go.kr, 1833-6972", "대검찰청 사이버수사과: www.spo.go.kr, 국번 없이 1301", "경찰청 사이버수사국: ecrm.police.go.kr, 국번 없이 182"] },
+        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다.", `이 방침은 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
+        { title: "13. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
       ],
     },
     terms: {
       title: "서비스 이용약관",
       description: "말해가계부의 서비스 목적, 사용자 책임, 공동 가계부 권한, 데이터 관리, 광고와 서비스 변경 기준을 안내합니다.",
-      eyebrow: "시행일 2026년 7월 13일",
+      eyebrow: revision,
       intro: "본 약관은 말해가계부를 이용할 때 서비스와 사용자 사이의 기본 기준을 설명합니다. 사용자는 최신 약관과 개인정보처리방침을 확인한 뒤 서비스를 이용합니다.",
       sections: [
         { title: "1. 서비스 목적", paragraphs: ["말해가계부는 사용자가 직접 입력한 생활 수입·지출을 개인 또는 공동 가계부 단위로 기록하고 예산·요약·분석·백업 기능을 제공하는 서비스입니다.", "금융상품, 투자, 세무, 법률 자문을 제공하지 않으며 서비스의 계산값은 생활 기록을 돕는 참고자료입니다."] },
-        { title: "2. 사용자 책임", paragraphs: ["사용자는 입력한 금액, 날짜, 결제수단, 메모와 분류의 정확성을 확인해야 합니다. 계정, 초대코드와 접근 수단을 안전하게 관리하고 다른 사람의 정보를 권한 없이 입력해서는 안 됩니다."] },
+        { title: "2. 사용자 책임", paragraphs: ["사용자는 입력한 금액, 날짜, 결제수단, 메모와 분류의 정확성을 확인해야 합니다. 계정, 초대코드와 접근 수단을 안전하게 관리하고 다른 사람의 정보를 권한 없이 입력해서는 안 됩니다.", "말해가계부는 만 14세 이상만 이용할 수 있습니다. 웹에서 새 계정을 만들거나 카카오 로그인을 할 때 이용약관과 개인정보처리방침에 동의하고 만 14세 이상임을 확인하는 절차를 거칩니다."] },
         { title: "3. 공동 가계부와 권한", paragraphs: ["가계부 소유자와 관리자는 참여자 초대, 승인, 역할과 표시 이름을 관리할 수 있습니다. 참여자는 부여된 권한 범위에서 조회·기록·수정 기능을 사용합니다.", "새 미연결 단톡방에서는 봇에게 명확한 첫 거래를 보내면 공동 가계부를 준비하고 첫 기록자가 소유자가 됩니다. 기존 가계부를 연결하려면 해당 가계부의 소유자 또는 관리자 권한이 필요합니다. 연결을 변경할 때에는 현재 연결된 가계부의 관리 권한도 확인합니다. 기록 전 가계부 이름과 공유 범위를 확인해야 합니다."] },
         { title: "4. 데이터 수정·삭제와 백업", paragraphs: ["사용자는 거래와 설정을 수정·삭제할 수 있으며 중요한 변경 전 백업을 권장합니다. 가져오기, 일괄 수정, 삭제와 복구는 확인 절차를 제공하지만 모든 실수를 자동 복원한다고 보장하지 않습니다."] },
         { title: "5. 서비스 제한과 장애", paragraphs: ["보안, 과도 요청, 점검, 외부 서비스 장애 또는 법적 필요가 있는 경우 일부 기능을 일시 제한할 수 있습니다. 중복 저장과 데이터 손상을 줄이는 것을 우선하며 장애가 발생하면 안전 안내와 재시도 방법을 제공합니다."] },
@@ -8566,6 +8616,9 @@ function publicPageCatalog(env = {}, url = null) {
     catalog[key].type = "WebPage";
     catalog[key].updated = "2026-10-11";
   }
+  // V22.9.95 R-9: 이번 판에 고친 방침·약관은 수정일이 개정일이다(쿠키 안내는 그대로).
+  catalog.privacy.updated = POLICY_REVISION_DATE;
+  catalog.terms.updated = POLICY_REVISION_DATE;
   // V22.9.74: 생활비 가이드 글(12편 + 20편)에 분류·작성일을 붙이고, 글 목록 허브와 사이트맵 절을 그 목록으로 만든다.
   publicNormalizeLivingArticles(catalog);
   const articleIndex = publicArticleIndex(catalog);
@@ -8727,6 +8780,8 @@ function publicLandingStyles() {
     + `.pubLandNote{display:flex;gap:14px;align-items:flex-start}.pubLandNote .pubIco{width:40px;height:40px;border-radius:12px}.pubHome .pubLandNote h2{margin:0 0 6px;font-size:18px}.pubLandNote p{max-width:760px;margin:0;color:#43516a;font-size:15px;line-height:1.8}`
     + `.pubBand{margin:12px 0 4px;padding:26px 20px;border-radius:24px;background:#e8f3ff;text-align:center}.pubHome .pubBand h2{margin:0 0 16px;font-size:21px}.pubBandActions{display:grid;gap:10px;max-width:420px;margin:0 auto}.pubBand .pubBtn{min-height:54px}.pubBand .pubBtn.secondary{background:#fff!important}`
     + `.kakaoBtn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:54px;border-radius:12px;background:#fee500;color:rgba(0,0,0,.85);font-size:16px;font-weight:800;text-decoration:none}.kakaoBtn svg{width:22px;height:22px;fill:#000}`
+    // V22.9.95 R-9: 띠의 카카오 로그인은 동의 칸이 있는 GET 폼이다(로그인 화면과 같은 마크업). 제출 단추가 글꼴을 물려받고 칸 글은 왼쪽 정렬이다.
+    + `button.kakaoBtn{width:100%;border:0;font:inherit;font-size:16px;font-weight:800;cursor:pointer}.consentRow{display:flex;align-items:flex-start;gap:9px;margin:0 0 10px;color:#334155;font-size:13.5px;line-height:1.55;text-align:left;cursor:pointer}.consentRow input{flex:none;width:20px;height:20px;margin:1px 0 0;accent-color:#1d4ed8}.consentRow span{min-width:0}.consentRow a{font-weight:700}`
     + `@media(min-width:760px){.pubSteps{grid-template-columns:repeat(3,minmax(0,1fr))}.pubSteps li{flex-direction:column}}@media(min-width:860px){.pubLandPreview{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,440px);grid-template-rows:auto auto 1fr;column-gap:48px;align-items:start}.pubLandPreview>*{grid-column:1}.pubLandPreview>.pubPreview{grid-column:2;grid-row:1/-1}.pubLandHead{justify-content:flex-start}}@media(max-width:600px){.pubHome .pubHeroActions{flex-direction:column}.pubHome .pubHero h1{font-size:30px}}`;
 }
 
@@ -10787,17 +10842,23 @@ const KAKAO_LOGIN_PROGRESS_TIPS = [
   "카카오톡 챗봇에 “커피 4500원”이라고 보내도 바로 기록돼요.",
 ];
 
+// V22.9.95 R-9: 카카오 로그인 단추가 동의 칸이 있는 GET 폼(form.kakaoStart)의 제출 단추가 됐다. 대기 화면은 링크 클릭 대신 폼 제출(submit)에 띄운다.
+// submit 은 브라우저 검사(동의 칸 required)를 통과해야 오므로 동의 칸을 비운 채 누르면 덮지 않는다. 보조키·가운데 단추로 누른 제출(새 창)은
+// 덮지 않는다(V22.9.26 링크 때와 같은 뜻). window.stop 이 없는 브라우저는 그냥 숨긴다. 뒤로 가기로 돌아오면(pageshow persisted) 대기 화면을 거둔다.
+// toString 으로 화면에 들어가므로 설명은 함수 밖에 둔다.
 function kakaoLoginProgressClientMain(config) {
-  var link = document.querySelector('a.kakaoBtn[href^="/auth/kakao/start"]');
+  var form = document.querySelector('form.kakaoStart[action="/auth/kakao/start"]');
+  var button = form && form.querySelector(".kakaoBtn");
   var overlay = document.getElementById(config.overlayId);
   var tipEl = document.getElementById(config.tipId);
   var slowEl = document.getElementById(config.slowId);
   var cancel = document.getElementById(config.cancelId);
   var tips = config.tips || [];
-  if (!link || !overlay || !tipEl) return;
+  if (!form || !button || !overlay || !tipEl) return;
   var tipTimer = 0;
   var slowTimer = 0;
   var index = 0;
+  var modified = false;
 
   function showTip() {
     tipEl.textContent = tips[index % tips.length] || "";
@@ -10810,17 +10871,22 @@ function kakaoLoginProgressClientMain(config) {
     if (slowEl) slowEl.hidden = true;
     clearInterval(tipTimer);
     clearTimeout(slowTimer);
-    link.removeAttribute("aria-busy");
+    button.removeAttribute("aria-busy");
   }
 
-  link.addEventListener("click", function (event) {
-    // V22.9.26: 새 탭 열기(보조키·가운데 버튼)나 이미 처리된 클릭에는 대기 화면을 덮지 않는다.
-    if (event && (event.defaultPrevented || event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey)) return;
+  button.addEventListener("click", function (event) {
+    modified = !!(event && (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey));
+  });
+
+  form.addEventListener("submit", function (event) {
+    var skip = modified || (event && event.defaultPrevented);
+    modified = false;
+    if (skip) return;
     index = Math.floor(Math.random() * Math.max(tips.length, 1));
     showTip();
     overlay.hidden = false;
     document.documentElement.classList.add("kakaoProgressOpen");
-    link.setAttribute("aria-busy", "true");
+    button.setAttribute("aria-busy", "true");
     clearInterval(tipTimer);
     tipTimer = setInterval(showTip, 3600);
     clearTimeout(slowTimer);
@@ -10829,12 +10895,11 @@ function kakaoLoginProgressClientMain(config) {
 
   if (cancel) {
     cancel.addEventListener("click", function () {
-      try { window.stop(); } catch (err) { /* 일부 브라우저는 stop을 지원하지 않는다 */ }
+      try { window.stop(); } catch (err) {}
       hide();
     });
   }
 
-  // 뒤로 가기로 돌아왔을 때 오버레이가 남아 화면을 가리지 않게 한다.
   window.addEventListener("pageshow", function (event) { if (event.persisted) hide(); });
 }
 
@@ -24601,8 +24666,9 @@ async function handleUnifiedMenuPage(request, env, url) {
     ["처음 시작", `/start-guide?${monthQs}`, "초보자 체크리스트", "check"],
     ["스마트 입력 도움말", "/quick-input-help", "한 줄·여러 줄 입력 예시", "chat"],
     ["카카오 명령어", "/kakao-commands", "챗봇 대표 발화", "chat"],
-    ["이용안내", "/terms", "서비스 이용 기준", "file"],
-    ["개인정보 안내", "/privacy", "데이터 처리 안내", "shield"],
+    // V22.9.95 R-9: 가입 동의 칸과 같은 이름(이용약관·개인정보처리방침)으로 보인다. 개인정보처리방침은 표준 명칭을 쓴다.
+    ["이용약관", "/terms", "서비스 이용 기준", "file"],
+    ["개인정보처리방침", "/privacy", "처리 항목·보호책임자·삭제 요청", "shield"],
   ];
   const row = ([label, href, desc, icon]) => `<a class="menuRow" href="${escapeHtml(href)}"><span class="menuRowIcon" aria-hidden="true" data-ab-nav-icon="${escapeHtml(icon)}"></span><span class="menuRowTitle">${escapeHtml(label)}</span><span class="menuRowDesc">${escapeHtml(desc)}</span><span class="menuArrow" aria-hidden="true">›</span></a>`;
   const sectionHtml = sections.map(([title, subtitle, links]) => `<section class="menuSection"><div class="menuSectionHead"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(subtitle)}</span></div><div class="menuList">${links.map(row).join("")}</div></section>`).join("");
@@ -25424,9 +25490,12 @@ async function findUserByKakaoLoginId(env, kakaoId = "") {
   return found.user;
 }
 
-async function ensureKakaoLoginUser(env, kakaoId, nickname) {
+// V22.9.95 R-9: allowCreate 가 false 면(약관·방침 동의를 받지 않은 로그인) 새 계정을 만들지 않고 null 을 돌려준다. onCreated 는 새 계정을 만들고
+// 카카오 식별 연결까지 끝났을 때만 그 사용자로 부른다(동의 기록용). 두 값을 주지 않는 예전 호출은 예전과 같다.
+async function ensureKakaoLoginUser(env, kakaoId, nickname, { allowCreate = true, onCreated = null } = {}) {
   const found = await findUserByKakaoLoginId(env, kakaoId);
   if (found) return found;
+  if (!allowCreate) return null;
   const key = kakaoLoginUserKey(kakaoId);
   const created = await supabase(env, "/rest/v1/users", {
     method: "POST",
@@ -25447,6 +25516,7 @@ async function ensureKakaoLoginUser(env, kakaoId, nickname) {
       }
       throw err;
     }
+    if (typeof onCreated === "function") onCreated(user);
   }
   return user;
 }
@@ -25473,6 +25543,14 @@ async function handleKakaoLoginStart(request, env, url) {
     return redirectResponse(`${config.publicOrigin}/auth/kakao/start${url.search}`);
   }
   const linkMode = url.searchParams.get("link") === "1" || reauthMode;
+  // V22.9.95 R-9: 보통 로그인(login)은 새 계정이 생길 수 있는 길이라 약관·개인정보처리방침 동의와 만 14세 확인(consent=1)을 받아야 시작한다.
+  // 없고 로그인 세션도 없으면 카카오로 보내지 않고 로그인 화면(동의 칸 오류)으로 되돌린다. 인앱 자동 로그인(auto, 기존 계정만)·연결(link)·
+  // 본인 확인(reauth)은 새 계정을 만들지 않으므로 예전과 같다. 세션이 있는 사람은 막지 않되 상태에 동의가 없어 콜백이 새 계정을 만들지 않는다.
+  const consentGiven = url.searchParams.get("consent") === "1";
+  if (!linkMode && !autoMode && !consentGiven && !(await verifyUserSession(request, env))) {
+    rememberOpsEvent({ kind: "kakao_login_consent_missing", severity: "info", path: "/auth/kakao/start", method: "GET", detail: "start" });
+    return htmlResponse(renderUserLoginHtml(env, SIGNUP_CONSENT_REQUIRED_MESSAGE, safeUserReturnPath(url.searchParams.get("return_to") || "", ""), "kakao_consent"), 400);
+  }
   const currentUserId = linkMode ? await verifyUserSession(request, env) : "";
   if (linkMode && !currentUserId) return redirectResponse(reauthMode ? addQueryToUrl(reauthReturnTo, { err: "login_required" }) : "/my?err=login_required");
   if (reauthMode && /KAKAOTALK/i.test(request.headers.get("user-agent") || "")) return htmlResponse("<p>본인 확인은 Chrome 또는 Safari에서 이 주소를 열어 진행해 주세요.</p>", 403);
@@ -25493,6 +25571,7 @@ async function handleKakaoLoginStart(request, env, url) {
     const loginNext = safeUserReturnPath(url.searchParams.get("return_to") || "", "");
     if (loginNext) statePayload.next = loginNext;
     if (autoMode) statePayload.auto = 1;
+    if (consentGiven) statePayload.consent = 1;
   }
   const state = await signedPurposeToken(env, "kakao-oauth", statePayload, 600);
   const cookies = [
@@ -25739,11 +25818,20 @@ async function handleKakaoLoginCallback(request, env, url) {
       return redirectResponseWithCookies("/my?msg=kakao_linked", clearOauthCookies);
     }
     // V22.9.91 독립 검토: 자동 로그인(auto)은 새 계정을 만들지 않는다. 이 카카오 계정의 웹 계정이 이미 있을 때만 들인다.
-    let user = autoMode ? await findUserByKakaoLoginId(env, profile.kakaoId) : await ensureKakaoLoginUser(env, profile.kakaoId, profile.nickname);
+    // V22.9.95 R-9: 새 계정은 시작할 때 동의(consent=1)를 받은 로그인에서만 만든다(서명된 상태에 실린 값). 동의가 없으면(세션이 있던 사람, 배포 직전에
+    // 시작한 로그인 등) 기존 계정만 들이고, 새 계정이 필요하면 만들지 않고 로그인 화면(동의 칸 오류)으로 돌려보낸다. 만들었으면 동의 기록을 남긴다.
+    const loginConsent = stateProof.mode === "login" && stateProof.consent === 1;
+    let createdUser = null;
+    let user = autoMode ? await findUserByKakaoLoginId(env, profile.kakaoId) : await ensureKakaoLoginUser(env, profile.kakaoId, profile.nickname, { allowCreate: loginConsent, onCreated: (created) => { createdUser = created; } });
     if (autoMode && !user?.id) {
       rememberOpsEvent({ kind: "kakao_auto_login_no_account", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId}` });
       return autoFallback();
     }
+    if (!user?.id && !loginConsent) {
+      rememberOpsEvent({ kind: "kakao_login_consent_missing", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `new_account;trace=${traceId}` });
+      return htmlResponseWithCookies(renderUserLoginHtml(env, SIGNUP_CONSENT_REQUIRED_MESSAGE, stateProof.mode === "login" ? safeUserReturnPath(String(stateProof.next || ""), "") : "", "kakao_consent"), 400, clearOauthCookies);
+    }
+    if (createdUser?.id) await recordSignupConsent(env, createdUser.id, "kakao");
     if (!user?.id) throw kakaoStageError("account", "Kakao user provisioning failed");
     // V22.9.81 U-23: 프로필 이름 끝의 ‘(통합됨)’은 계정 통합 표식이라 떼고 쓴다(사용자를 만들 때와 같다). 그대로 쓰면 세션 확인이
     // 통합된 계정으로 보고 로그인을 거절했고, 다음 로그인에는 저장된 이름이 자리표시가 아니라서 풀리지 않았다.
@@ -42450,6 +42538,28 @@ function renderMyStartChoiceHtml({ env, user, msg = "", err = "" }) {
   *,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9 0%,#f8fafc 48%,#eef2f7 100%);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1000px;margin:0 auto;padding:18px}.hero{background:#fff;border:1px solid #e8edf4;border-radius:32px;box-shadow:0 22px 54px rgba(15,23,42,.09);padding:26px;margin:16px 0}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{margin:14px 0 10px;font-size:32px;letter-spacing:-.06em}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;box-shadow:0 14px 34px rgba(15,23,42,.055)}.card h2{margin:0 0 8px;font-size:22px}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:12px;font-weight:1000;color:#475467}.field input{height:48px;border:1px solid #d0d5dd;background:#fff;border-radius:16px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;border:0;border-radius:16px;background:#111827;color:#fff;font-weight:1000;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.criteria{background:#f8fafc;border:1px solid #edf1f7;border-radius:18px;padding:13px;margin:12px 0}.criteria b{display:block}.criteria span{display:block;color:#667085;font-size:13px;line-height:1.5;margin-top:4px}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:11px;margin:10px 0}.foot{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:20px;padding:14px;margin:14px 0;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.grid{grid-template-columns:1fr}.hero h1{font-size:26px}}</style></head><body><main class="wrap"><section class="hero"><span class="badge">가계부 시작</span><h1>${userName}님,<br/>새로 만들까요? 참여할까요?</h1><p class="muted">아래에서 현재 상황에 맞는 것을 선택하세요. 잘못 선택해도 나중에 다른 가계부를 추가하거나 초대코드로 다시 참여할 수 있습니다.</p>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}</section>${renderAccountbookEmptyState()}<section class="grid"><div class="card"><h2>새 가계부 만들기</h2><p class="muted">아직 가계부가 없거나, 내가 우리집/모임 가계부의 시작자가 되는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>내가 가계부를 만들고 구성원을 초대한 뒤 첫 기록부터 시작할 때</span></div><form method="post" action="/my/create"><div class="field"><label>가계부 이름</label><input name="household_name" placeholder="예: 우리집 가계부" value="우리집 가계부"/></div><button type="submit">새 가계부 만들기</button></form></div><div class="card"><h2>초대코드로 참여하기</h2><p class="muted">가족, 배우자, 모임장이 이미 만든 가계부가 있는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>이미 받은 초대코드가 있고 같은 가계부에 내 기록을 함께 남길 때</span></div><form method="post" action="/my/join"><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: 38NDLPNR" required/></div><button class="secondary" type="submit">초대코드로 참여하기</button></form></div><div class="card" id="kakao-record-link" style="grid-column:1/-1"><h2>카카오톡에서 이미 기록하고 있었나요?</h2><p class="muted">단톡방이나 봇과의 1:1 채팅에서 남긴 기록은 이 웹 계정이 아니라 카카오 기록 계정에 있어요. 새 가계부를 만들지 말고 같은 기록을 이어 여세요.</p><div class="criteria"><b>이럴 때 선택</b><span>단톡방의 ‘웹가계부’ 버튼으로 들어왔는데 가계부가 비어 있을 때</span></div><ol class="muted" style="margin:10px 0 14px;padding-left:20px;line-height:1.7"><li>카카오톡에서 봇과의 1:1 채팅을 열고 <b>웹 가계부 열기</b>라고 보냅니다.</li><li>받은 웹 연결 코드를 아래 버튼을 눌러 붙여 넣습니다(10분 동안 1회).</li></ol><a class="btn secondary" href="/my/kakao-claim">카카오 기록 이어 열기</a></div></section><div class="foot"><b>다음 단계</b><br/>가계부 생성 또는 참여 → 구성원 초대·승인 → 단톡방 연결(선택) → 기록 방법 확인 → 첫 기록 순서로 진행하세요. 예산과 분류는 첫 기록 후 필요할 때 설정해도 됩니다.</div></main></body></html>`;
 }
 
+// V22.9.95 R-9: 가입 폼과 카카오 로그인이 같이 쓰는 동의 오류 문구(맨 위 요약과 칸 아래에 같은 말).
+const SIGNUP_CONSENT_REQUIRED_MESSAGE = "약관·개인정보처리방침 동의와 만 14세 이상 확인이 필요해요";
+
+// V22.9.95 R-9: 새 계정이 만들어질 때만(로컬 가입 성공, 카카오 콜백의 새 사용자) 동의 기록을 설정 표 consent:<user_id> 에 남긴다.
+// version 은 방침 개정일, age14 는 동의 칸이 만 14세 이상 확인을 함께 묻기 때문이다. 기록이 실패해도 가입은 막지 않고 운영 이벤트(warn)만 남긴다.
+async function recordSignupConsent(env, userId = "", via = "local") {
+  const id = String(userId || "").trim();
+  if (!id) return false;
+  const kakao = via === "kakao";
+  try {
+    await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+      method: "POST",
+      headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+      body: JSON.stringify({ key: `consent:${id}`.slice(0, 180), value: JSON.stringify({ version: POLICY_REVISION_DATE, at: new Date(qaFixedNowMs()).toISOString(), via: kakao ? "kakao" : "local", age14: true }) }),
+    });
+    return true;
+  } catch (err) {
+    rememberOpsEvent({ kind: "consent_record_failed", severity: "warn", path: kakao ? "/auth/kakao/callback" : "/my/local-signup", method: kakao ? "GET" : "POST", detail: safeError(err) });
+    return false;
+  }
+}
+
 function localWebUserKey(nickname = "", accessCode = "") {
   const seed = `${normalizeText(nickname)}|${String(accessCode || "").trim()}`;
   return `local_web:${stableShortHash(seed)}`;
@@ -42569,6 +42679,9 @@ async function handleMyLocalSignup(request, env) {
   if (!displayName) return htmlResponse(renderUserLoginHtml(env, "가계부에 표시할 이름을 입력하세요.", "", "signup", keep), 400);
   if (accessCode.length < 8) return htmlResponse(renderUserLoginHtml(env, "새 비밀번호는 8자리 이상 입력하세요.", "", "signup", keep), 400);
   if (accessCode !== confirm) return htmlResponse(renderUserLoginHtml(env, "비밀번호 확인이 일치하지 않습니다.", "", "signup", keep), 400);
+  // V22.9.95 R-9: 약관·개인정보처리방침 동의와 만 14세 이상 확인(동의 칸 consent=1) 없이는 계정을 만들지 않는다. 다른 칸 검사 뒤, 횟수 제한 전에 본다
+  // (빠뜨린 칸 때문에 가입 시도 횟수를 쓰지 않게). 다시 그린 폼은 비밀이 아닌 칸만 되살리고 동의 칸은 비워 둔다.
+  if (String(form.get("consent") || "") !== "1") return htmlResponse(renderUserLoginHtml(env, SIGNUP_CONSENT_REQUIRED_MESSAGE, "", "signup", keep), 400);
   const attempt = await recordAuthAttempt(env, request, "/my/local-signup", false, {scope:"client"});
   if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "계정 생성 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", "", "signup", keep), 503);
   if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "계정 생성 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", "", "signup", keep), 429, { "retry-after": "900" });
@@ -42587,6 +42700,8 @@ async function handleMyLocalSignup(request, env) {
     rememberOpsEvent({ kind: "local_signup_failed", severity: classified.status >= 500 ? "error" : "warn", path: "/my/local-signup", method: "POST", detail: `${classified.code}; ${safeError(err)}` });
     return htmlResponse(renderUserLoginHtml(env, classified.message, "", "signup", keep), classified.status);
   }
+
+  await recordSignupConsent(env, user.id, "local");
 
   let session = "";
   try {
@@ -42613,12 +42728,13 @@ async function handleMyLocalSignup(request, env) {
   });
 }
 
-function kakaoLoginStatusBlock(env, returnTo = "") {
+function kakaoLoginStatusBlock(env, returnTo = "", { consentError = "" } = {}) {
   const config = inspectKakaoLoginConfig(env);
   if (config.ready) {
     // V22.9.87 T-20: 카카오 로그인 버튼(§3-4: #FEE500 면, 검은 말풍선 심볼, 라벨 ‘카카오 로그인’). 시작 화면에서 첫 화면의 유일한 채운 버튼이다.
     // 예전 ‘가장 간편한 방법’ 안내 상자와 ‘다른 방법으로 접속’ 구분선은 없앴다. 로그인 이름 칸은 바로 아래 접힌 칸(로그인 이름으로 로그인)이다.
-    return kakaoLoginButtonHtml(returnTo);
+    // V22.9.95 R-9: 단추 위 동의 칸과 함께 그린다. 서버가 동의 없는 시작을 되돌린 화면이면 칸 아래에 오류를 적는다.
+    return kakaoLoginButtonHtml(returnTo, { consentError });
   }
   if (!config.enabled) {
     return `<div class="warn"><b>카카오 로그인을 잠시 사용할 수 없어요</b><br/>기존 로그인 이름과 내 계정 로그인 비밀번호로 접속할 수 있습니다.</div><div class="mobileAccessHelp"><b>PC에서는 이미 사용 중인가요?</b><br/>PC의 전체 메뉴 → 내 계정·보안에서 한 번 설정한 뒤, 모바일에서 같은 로그인 이름과 비밀번호를 입력하세요.</div>`;
@@ -43430,17 +43546,21 @@ async function renderKakaoAccountLinkDiagnostics(env) {
 function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login", signupValues = {}) {
   const keep = (key) => escapeHtml(String(signupValues?.[key] ?? "").slice(0, 80));
   const title = escapeHtml(appName(env));
-  const kakaoPart = kakaoLoginStatusBlock(env, returnTo);
   const signupMode = authMode === "signup";
   const claimMode = authMode === "kakao_claim";
-  const authTarget = claimMode ? "kakaoClaimCode" : signupMode ? "signupName" : "loginName";
+  // V22.9.95 R-9: kakao_consent 는 동의 칸을 체크하지 않고 카카오 로그인을 시작해 서버가 되돌린 화면이다. 오류 요약이 카카오 동의 칸을 가리키고
+  // 그 칸 아래에도 같은 말을 적는다. 로그인 이름 칸은 열지 않는다(그 칸의 오류가 아니다). 가입 폼의 동의 오류도 칸 아래에 적는다.
+  const consentMode = authMode === "kakao_consent";
+  const signupConsentError = signupMode && error === SIGNUP_CONSENT_REQUIRED_MESSAGE ? error : "";
+  const kakaoPart = kakaoLoginStatusBlock(env, returnTo, { consentError: consentMode ? error : "" });
+  const authTarget = consentMode ? "kakaoConsent" : claimMode ? "kakaoClaimCode" : signupMode ? (signupConsentError ? "signupConsent" : "signupName") : "loginName";
   // V22.9.79 V44 F-9: 오류로 다시 그린 화면은 폼이 소개·미리보기 아래 멀리 있어 오류만 보이고 입력할 곳은 화면 밖이었다. 오류가 있을 때만
   // 입력할 첫 빈 칸(가입이면 채워 둔 이름 칸 다음의 비밀번호)으로 스크롤하고 초점을 준다. 오류 문구는 가입이면 가입 카드 안에 함께 둔다.
-  const jumpFields = claimMode ? ["kakaoClaimCode"] : signupMode ? ["signupName", "signupDisplay", "signupPassword", "signupPasswordConfirm"] : ["loginName", "loginPassword"];
+  const jumpFields = consentMode ? ["kakaoConsent"] : claimMode ? ["kakaoClaimCode"] : signupMode ? ["signupName", "signupDisplay", "signupPassword", "signupPasswordConfirm"] : ["loginName", "loginPassword"];
   // V22.9.80 T-32: 다크 모드의 오류 요약(.authErrorSummary)은 연분홍 바탕(#fef2f2)이 그대로인데 셸 다크 규칙이 b·strong 글씨를 밝은 --ab12-text(#edeff3)로 강제해
   // 1.05:1 이었다. 셸의 .error 와 같은 다크 값(#3f1d2a 바탕·#fecaca 글씨·#7f3545 선)으로 바꾸고, 셸이 !important 로 읽는 --ab12-text·--ab12-accent 를 이 상자
   // 안에서만 같은 밝은 분홍으로 덮어 b·strong·링크 글씨가 따라오게 한다(!important 싸움 없이).
-  const errorSummary = error ? `<a class="authErrorSummary" href="#${authTarget}" role="alert" autofocus><b>입력 내용을 확인해 주세요.</b><span>${escapeHtml(error)}</span><strong>${claimMode ? "카카오 기록 연결로 이동" : signupMode ? "새 계정 만들기로 이동" : "로그인으로 이동"}</strong></a>` : "";
+  const errorSummary = error ? `<a class="authErrorSummary" href="#${authTarget}" role="alert" autofocus><b>입력 내용을 확인해 주세요.</b><span>${escapeHtml(error)}</span><strong>${consentMode ? "카카오 로그인으로 이동" : claimMode ? "카카오 기록 연결로 이동" : signupMode ? "새 계정 만들기로 이동" : "로그인으로 이동"}</strong></a>` : "";
   // 로그인이 풀려 튕겨 나온 사람은 원래 보던 화면으로 돌아가야 한다.
   const backField = returnTo ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/>` : "";
   // V22.9.87 T-20: 시작 화면은 로그인이 먼저다(머리 → 제목·한 줄 → 카카오 로그인 → 로그인 이름 칸 → 새 계정·둘러보기 → 예시 카드 → 가입 → 기능 미리보기).
@@ -43448,16 +43568,18 @@ function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login",
   // 로그인 오류로 다시 그린 화면은 그 칸을 열어 둔다. 서버 검증·문구는 그대로이고(맨 위 오류 요약), 칸에 해당하는 두 서버 오류만 칸 아래에도 짧게 보인다.
   // 비밀번호 칸 아래 문구는 지시서의 ‘8자리 이상’이 아니라 서버 기준(4자리, 예전 접속코드)과 같은 4자리다. 8자리로 막으면 4자리 접속코드로는 들어올 수 없다.
   // 카톡 말풍선(예시 카드 .exBubble·기존 기능 미리보기 .chatBubble.user)은 결정 D-2(카카오 노랑은 카카오 로그인 버튼에만)대로 브랜드 옅은 면(--ab12-accent-soft)이다. 노랑은 이 화면에서 카카오 버튼 한 곳이다.
-  const loginMode = !signupMode && !claimMode;
+  const loginMode = !signupMode && !claimMode && !consentMode;
   const fieldMessages = { loginName: "로그인 이름을 입력해 주세요", loginPassword: "비밀번호는 4자리 이상이에요" };
   const fieldError = loginMode && error === "로그인 이름을 입력하세요." ? "loginName" : loginMode && error === "비밀번호를 4자리 이상 입력하세요." ? "loginPassword" : "";
   const fieldNote = (id) => (fieldError === id ? fieldMessages[id] : "");
   const invalid = (id) => (fieldError === id ? ' aria-invalid="true"' : "");
   const localOpen = !kakaoPart.includes('class="kakaoBtn"') || (loginMode && Boolean(error)) ? " open" : "";
   const icon = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
+  // V22.9.95 R-9: 동의 칸(.consentRow)은 좁은 폭에서 글이 줄바꿈되고(min-width:0) 체크 칸은 줄지 않는다. 카카오 단추가 <button> 이 되어 셸의 단추 최소 높이(44px)가
+  // 54px 을 덮지 않게 한다. 화면 끝에 이용약관·개인정보처리방침·문의 줄(.loginLegal)을 둔다(로그인 화면에 방침 링크가 없었다).
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><meta name="theme-color" content="#3182f6"/><title>${title} · 시작</title><style>
-  *,*:before,*:after{box-sizing:border-box}:root{color-scheme:light}html{scroll-behavior:smooth}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#172033;letter-spacing:-.025em}.skipLink{position:absolute;left:12px;top:-80px;z-index:10000;background:#111827;color:#fff!important;padding:12px 16px;border-radius:12px;font-weight:800}.skipLink:focus{top:12px}.eyebrow{display:inline-flex;align-items:center;min-height:30px;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:850;letter-spacing:-.01em;background:#e7efff;color:#20479f}.previewSection{scroll-margin-top:18px;padding:32px 0 24px}.sectionHead{display:flex;justify-content:space-between;align-items:end;gap:20px;margin-bottom:18px}.sectionHead h2{margin:8px 0 0;font-size:clamp(28px,3.2vw,42px);letter-spacing:-.06em}.sectionHead p{max-width:520px;margin:0;color:#586579;line-height:1.65}.sampleNotice{margin:0 0 18px;border:1px solid #eadb92;background:#fffbea;color:#66520b;border-radius:16px;padding:12px 14px;line-height:1.55;font-size:14px}.demoPanel,.sampleCard{background:#fff;border:1px solid #dfe5ed;box-shadow:0 12px 34px rgba(27,45,78,.055)}.demoPanel{border-radius:24px;padding:22px}.demoPanel h3,.sampleCard h3{margin:0 0 14px;font-size:18px}.chatStack{display:grid;gap:12px}.chatBubble{max-width:88%;border-radius:18px;padding:13px 15px;line-height:1.55}.chatBubble.user{justify-self:end;background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-text,#191f28);border-bottom-right-radius:6px;font-weight:750}.chatBubble.bot{justify-self:start;background:#eff3f8;color:#364152;border-bottom-left-radius:6px}.chatCaption{margin:14px 0 0;color:#667085;font-size:13px;line-height:1.5}.sampleGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.sampleGrid>.demoPanel{grid-column:1/-1}.chatStack{max-width:640px}.sampleCard{border-radius:22px;padding:20px;min-width:0}.cardKicker{display:block;color:#68758a;font-size:12px;font-weight:800;margin-bottom:6px}.metricLine{display:flex;justify-content:space-between;align-items:end;gap:12px}.metricLine strong{font-size:25px;letter-spacing:-.045em}.metricLine span{color:#586579;font-size:13px}.progressTrack{height:10px;border-radius:999px;background:#e9eef5;overflow:hidden;margin:16px 0 10px}.progressTrack i{display:block;width:70%;height:100%;background:var(--ab12-action,#2457d6);border-radius:inherit}.sampleMeta{display:flex;justify-content:space-between;gap:12px;color:#5e6b7f;font-size:13px}.summaryList{display:grid;gap:9px;margin-top:12px}.summaryList div{display:flex;justify-content:space-between;gap:12px;border-top:1px solid #edf0f4;padding-top:9px}.summaryList span{color:#657187}.settlementFlow{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;margin:14px 0}.person{background:#f2f5f9;border-radius:14px;padding:12px;text-align:center;font-weight:800}.flowArrow{color:var(--ab12-action,#2457d6);font-weight:900}.settlementAmount{border-radius:14px;background:#eaf8f1;color:#0c6344;padding:11px;text-align:center;font-weight:850}.muted{color:#667085;line-height:1.65}.field{display:grid;gap:7px;margin:11px 0}.field input{width:100%;height:50px;padding:0 13px;font:inherit}button{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:12px;background:#172033;color:#fff!important;font-weight:800;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}button:disabled{cursor:not-allowed;opacity:.55}.secondary{border:1px solid}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.authErrorSummary{display:grid;gap:5px;margin:0 auto 18px;max-width:460px;padding:15px 17px;border:1px solid #fecaca;border-radius:16px;background:#fef2f2;color:#991b1b;text-decoration:none;line-height:1.5;box-shadow:0 10px 28px rgba(127,29,29,.08)}.authErrorSummary:focus{outline:3px solid #991b1b;outline-offset:3px}.authErrorSummary span{color:#7f1d1d}.authErrorSummary strong{font-size:13px;text-decoration:underline}html[data-ab-resolved-theme="dark"] .authErrorSummary{background:#3f1d2a;border-color:#7f3545;color:#fecaca;box-shadow:none;--ab12-text:#fecaca;--ab12-accent:#fecaca}html[data-ab-resolved-theme="dark"] .authErrorSummary span{color:#fecaca}html[data-ab-resolved-theme="dark"] .authErrorSummary:focus{outline-color:#fecaca}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:13px;padding:12px;margin:10px 0}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}form+.hint{margin-top:8px}.loginOptional summary,.signupCard>summary{cursor:pointer;min-height:44px}.signupCard>summary{display:grid;gap:4px}.signupCard>summary span{color:#667085;font-size:13px;font-weight:500}.signupBody{padding-top:10px}.credentialFeedback{min-height:20px;margin:-3px 0 10px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}.kakaoProgress{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.62);backdrop-filter:blur(3px)}.kakaoProgress[hidden]{display:none}.kakaoProgressCard{width:min(100%,380px);background:#fff;color:#101828;border-radius:22px;padding:26px 22px;text-align:center;box-shadow:0 24px 60px rgba(15,23,42,.35)}.kakaoProgressCard h2{margin:14px 0 6px;font-size:20px}.kakaoProgressCard p{margin:0;color:#667085;line-height:1.55;font-size:14px}.kakaoSpinner{width:44px;height:44px;margin:0 auto;border-radius:50%;border:4px solid #fde68a;border-top-color:#f59e0b;animation:kakaoSpin .9s linear infinite}.kakaoTip{margin-top:18px;background:#fffbea;border:1px solid #fde68a;border-radius:14px;padding:13px;text-align:left}.kakaoTip b{display:block;font-size:12px;color:#92400e;margin-bottom:4px}.kakaoTip span{display:block;font-size:14px;line-height:1.55;color:#3f3f46;min-height:44px}.kakaoSlow{margin-top:14px}.kakaoSlow button{min-height:42px;width:auto;padding:0 16px;margin-top:8px}html.kakaoProgressOpen body{overflow:hidden}@keyframes kakaoSpin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.kakaoSpinner{animation-duration:2.4s}}.loginTop{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:1180px;min-height:60px;margin:0 auto;padding:0 20px}.loginBrand{display:inline-flex;align-items:center;gap:8px;min-height:44px;font-size:17px;text-decoration:none}.loginBrand b{color:var(--ab12-text,#191f28);font-weight:800}.loginMark{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:var(--ab12-brand,#3182f6)}.loginMark svg{width:19px;height:19px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}body.abPageLogin .loginTop .loginAbout,body.abPageLogin .loginNext .loginTour{display:inline-flex;align-items:center;min-height:44px;color:var(--ab12-muted,#5f6b7a)!important;font-size:14px;font-weight:700;text-decoration:none}.landingPage{max-width:1180px;margin:0 auto;padding:4px 20px 96px}.landingHero{display:grid;gap:12px;max-width:460px;margin:0 auto;padding:8px 0 20px}.landingHero h1{margin:0;font-size:27px;line-height:1.32;letter-spacing:-.035em}.landingHero h1 strong{color:var(--ab12-accent,#1d4ed8)}.heroLead{margin:-4px 0 6px;color:var(--ab12-muted,#5f6b7a);font-size:15px;line-height:1.6}.kakaoBtn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:54px;border-radius:12px;background:#fee500!important;color:rgba(0,0,0,.85)!important;font-size:16px;font-weight:800;text-decoration:none}.kakaoBtn svg{width:22px;height:22px;fill:#000}body.abPageLogin .loginLocal>summary{display:flex;align-items:center;justify-content:center;gap:8px;min-height:52px;border:1px solid var(--ab12-line,#e9ebee);border-radius:12px;background:var(--ab12-surface,#fff);font-size:15px;font-weight:700;list-style:none;cursor:pointer}.loginLocal>summary::-webkit-details-marker{display:none}body.abPageLogin .landingHero .loginLocal[open]>summary{border-color:var(--ab12-accent,#1d4ed8);background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-accent,#1d4ed8)!important}.loginLocal svg,.pwToggle svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}body.abPageLogin .landingHero .loginCard{margin:10px 0 0!important}.fieldError{display:flex;align-items:center;gap:6px;margin:0;color:var(--neg,#c0362c);font-size:12.5px;font-weight:600}.fieldError:before{content:"!";display:grid;place-items:center;flex:none;width:16px;height:16px;border-radius:50%;background:currentColor;color:var(--ab12-surface,#fff);font-size:11px;font-weight:900}.fieldError:empty,.pwToggle[hidden]{display:none}body.abPageLogin .field input[aria-invalid="true"]{border-color:var(--neg,#c0362c)!important}.pwWrap{position:relative}.field .pwWrap input{padding-right:52px}.pwToggle{position:absolute;top:50%;right:3px;transform:translateY(-50%);width:44px;min-height:44px;padding:0;background:none;color:var(--ab12-muted,#5f6b7a)!important}.pwToggle[aria-pressed="true"]{color:var(--ab12-accent,#1d4ed8)!important}body.abPageLogin .loginOptional{border-color:var(--ab12-line,#edf0f4)}.loginNext{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 12px;margin:0;color:var(--ab12-muted,#5f6b7a);font-size:14px}.loginNext a{display:inline-flex;align-items:center;min-height:44px;font-weight:700}body.abPageLogin .landingPage .signupCard{max-width:460px;margin:0 auto 16px!important}.loginExample{display:grid;gap:10px;max-width:460px;margin:0 auto 16px;padding:18px;border:1px solid var(--ab12-line,#e9ebee);border-radius:20px;background:var(--ab12-surface,#fff);box-shadow:var(--ab12-shadow,0 4px 16px rgba(15,23,42,.045))}.loginExample p{margin:0}.exLabel{color:var(--ab12-muted,#5f6b7a);font-size:13px;font-weight:700}.exBubble{justify-self:end;max-width:85%;padding:10px 14px;border-radius:16px 16px 4px 16px;background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-text,#191f28);font-size:15px;font-weight:600}.exRow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px;border-radius:14px;background:var(--ab12-surface-raised,#f4f6f8)}.exRow small{display:block;color:var(--ab12-muted,#5f6b7a);font-size:12.5px}.exRow strong{font-size:15px}@media(min-width:760px){.landingPage{padding-top:20px}.landingHero h1{font-size:32px}}@media(max-width:900px){.sampleGrid{grid-template-columns:1fr 1fr}.sampleCard:last-child{grid-column:1/-1}.sectionHead{align-items:start;flex-direction:column}}@media(max-width:680px){.loginTop{padding:0 16px}.landingPage{padding:4px 16px 90px}.previewSection{padding-top:22px}.sampleGrid{grid-template-columns:1fr}.sampleCard:last-child{grid-column:auto}.demoPanel,.sampleCard{padding:18px;border-radius:19px}.field input{font-size:16px}.kakaoProgressCard{padding:24px 18px}}
-  </style></head><body><a class="skipLink" href="#feature-preview">기능 미리보기로 건너뛰기</a><header class="loginTop"><a class="loginBrand" href="/"><span class="loginMark">${ledgerMarkSvg()}</span><b>${title}</b></a><a class="loginAbout" href="/">서비스 소개</a></header><main class="landingPage">${errorSummary}<section id="login-start" class="landingHero" aria-labelledby="landingTitle"><h1 id="landingTitle">말하듯 기록하고,<br/><strong>숫자로 바로 이해하세요.</strong></h1><p class="heroLead">카카오톡에서 한 줄로 적고, 웹에서 예산과 정산까지 확인해요.</p><div class="loginMethods">${kakaoPart}</div><details class="loginLocal" id="login-local"${localOpen}><summary>${icon("M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2M8 7a4 4 0 1 0 8 0a4 4 0 1 0-8 0")}로그인 이름으로 로그인</summary><div class="card loginCard">${loginMode && error && !fieldError ? `<div class="error">${escapeHtml(error)}</div>` : ""}<form method="post" action="/my/local-login">${backField}<div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="PC에서 쓰던 로그인 이름" aria-describedby="loginNameError" required${invalid("loginName")}/><p class="fieldError" id="loginNameError">${fieldNote("loginName")}</p></div><div class="field"><label for="loginPassword">비밀번호</label><div class="pwWrap"><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="계정 로그인 비밀번호" aria-describedby="loginPasswordError" required${invalid("loginPassword")}/><button class="pwToggle" id="loginPasswordToggle" type="button" aria-controls="loginPassword" aria-pressed="false" aria-label="비밀번호 보기" hidden>${icon("M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0")}</button></div><p class="fieldError" id="loginPasswordError">${fieldNote("loginPassword")}</p></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form><p class="hint legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b> 정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</p></div></details>${claimMode && error ? `<div class="error">${escapeHtml(error)}</div>` : ""}${renderKakaoClaimForm(backField, claimMode)}<p class="loginNext"><span>처음이신가요? <a href="#signup-start" data-signup-entry>새 계정 만들기</a></span><a class="loginTour" href="/demo">먼저 둘러보기 →</a></p></section><section class="loginExample" aria-label="이렇게 기록돼요"><p class="exLabel">카카오톡에 이렇게 보내면</p><p class="exBubble">점심 12000 국민카드</p><p class="exLabel"><span aria-hidden="true">↓ </span>웹 가계부에 이렇게 정리돼요</p><div class="exRow"><span class="abCat" data-ck="food" aria-hidden="true"><i class="abCatIcon"></i></span><div><b>점심</b><small>식비 · 국민카드 · 오늘</small></div><strong>-12,000원</strong></div><p class="hint">예시 화면이에요. 실제 기록은 로그인한 계정의 가계부에만 저장돼요.</p></section><details class="card signupCard" id="signup-start"${signupMode ? " open" : ""}><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody">${signupMode && error ? `<div class="error">${escapeHtml(error)}</div>` : ""}<form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" value="${keep("login_name")}" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" value="${keep("display_name")}" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" aria-describedby="signupPasswordStatus" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" aria-describedby="signupPasswordStatus" required/></div><div id="signupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" value="${keep("invite_code")}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div><button id="signupPasswordSubmit" class="secondary" type="submit">새 계정 만들기</button></form></div></details><section id="feature-preview" class="previewSection" aria-labelledby="previewTitle"><div class="sectionHead"><div><span class="eyebrow">로그인 전 기능 미리보기</span><h2 id="previewTitle">한 줄 입력이 가계부 정보로 정리됩니다.</h2></div><p>대화 입력부터 예산 확인과 공동 정산까지, 실제 사용 흐름을 가상 예시로 먼저 살펴보세요.</p></div><p class="sampleNotice"><b>예시 데이터 · 실제 저장 아님</b><br/>이 영역의 이름, 금액, 기록은 모두 설명용으로 만든 가상 정보입니다. 버튼 제출, 네트워크 요청, 쿠키나 브라우저 저장소 사용이 없습니다.</p><div class="sampleGrid"><article class="demoPanel"><h3>카카오톡 대화 예시</h3><div class="chatStack" aria-label="가상 대화 기록 예시"><div class="chatBubble user">점심 12000원 국민카드</div><div class="chatBubble bot"><b>지출 12,000원 기록 예시</b><br/>오늘 · 식비 · 국민카드</div><div class="chatBubble user">어제 택시 18000원</div><div class="chatBubble bot"><b>지출 18,000원 기록 예시</b><br/>어제 · 교통 · 결제수단 미지정</div></div><p class="chatCaption">실제 카카오톡에서는 챗봇을 호출한 뒤 명령을 보냅니다. 새 사용자는 웹 로그인 없이 첫 개인 기록을 시작할 수 있습니다. <b>웹 가계부 열기</b>는 나중에 이름·예산을 설정하고 분석을 볼 때 사용하세요.</p></article><article class="sampleCard"><span class="cardKicker">가상 예산 카드</span><h3>식비 예산</h3><div class="metricLine"><strong>420,000원</strong><span>600,000원 중</span></div><div class="progressTrack" role="progressbar" aria-label="가상 식비 예산 사용률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70"><i></i></div><div class="sampleMeta"><span>사용률 70%</span><b>180,000원 남음</b></div></article><article class="sampleCard"><span class="cardKicker">가상 월간 리포트</span><h3>10월 리포트</h3><div class="summaryList"><div><span>수입</span><b>3,200,000원</b></div><div><span>지출</span><b>1,286,000원</b></div><div><span>남은 금액</span><b>1,914,000원</b></div></div></article><article class="sampleCard"><span class="cardKicker">가상 정산 카드</span><h3>함께 쓴 비용 정산</h3><div class="settlementFlow"><div class="person">민지</div><span class="flowArrow" aria-hidden="true">→</span><div class="person">준호</div></div><div class="settlementAmount">42,500원 보내기 예시</div></article></div></section></main><div id="kakaoLoginProgress" class="kakaoProgress" role="alertdialog" aria-modal="true" aria-labelledby="kakaoProgressTitle" aria-describedby="kakaoProgressTip" hidden><div class="kakaoProgressCard"><div class="kakaoSpinner" aria-hidden="true"></div><h2 id="kakaoProgressTitle">로그인 중입니다</h2><p>카카오 인증 화면으로 이동하고 있어요. 잠시만 기다려 주세요.</p><div class="kakaoTip" aria-live="polite"><b>가계부 사용 팁</b><span id="kakaoProgressTip"></span></div><div id="kakaoProgressSlow" class="kakaoSlow" hidden><p>평소보다 오래 걸리고 있어요. 네트워크 상태에 따라 10초 이상 걸릴 수 있습니다.</p><button id="kakaoProgressCancel" type="button" class="secondary">취소하고 다른 방법 선택</button></div></div></div><script id="kakaoLoginProgressRuntime">(${kakaoLoginProgressClientMain.toString()})({overlayId:"kakaoLoginProgress",tipId:"kakaoProgressTip",slowId:"kakaoProgressSlow",cancelId:"kakaoProgressCancel",tips:${JSON.stringify(KAKAO_LOGIN_PROGRESS_TIPS)}});</script><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"signupPassword",confirmationId:"signupPasswordConfirm",statusId:"signupPasswordStatus",buttonId:"signupPasswordSubmit"});</script><script id="loginEntryAnchorRuntime">(${loginEntryAnchorClientMain.toString()})();</script><script id="loginFieldRuntime">(${loginFieldClientMain.toString()})({nameId:"loginName",passwordId:"loginPassword",toggleId:"loginPasswordToggle",min:4,nameMsg:${JSON.stringify(fieldMessages.loginName)},passwordMsg:${JSON.stringify(fieldMessages.loginPassword)}});</script>${error ? `<script id="authErrorJumpRuntime">(${authErrorJumpClientMain.toString()})(${JSON.stringify(jumpFields)});</script>` : ""}</body></html>`;
+  *,*:before,*:after{box-sizing:border-box}:root{color-scheme:light}html{scroll-behavior:smooth}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#172033;letter-spacing:-.025em}.skipLink{position:absolute;left:12px;top:-80px;z-index:10000;background:#111827;color:#fff!important;padding:12px 16px;border-radius:12px;font-weight:800}.skipLink:focus{top:12px}.eyebrow{display:inline-flex;align-items:center;min-height:30px;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:850;letter-spacing:-.01em;background:#e7efff;color:#20479f}.previewSection{scroll-margin-top:18px;padding:32px 0 24px}.sectionHead{display:flex;justify-content:space-between;align-items:end;gap:20px;margin-bottom:18px}.sectionHead h2{margin:8px 0 0;font-size:clamp(28px,3.2vw,42px);letter-spacing:-.06em}.sectionHead p{max-width:520px;margin:0;color:#586579;line-height:1.65}.sampleNotice{margin:0 0 18px;border:1px solid #eadb92;background:#fffbea;color:#66520b;border-radius:16px;padding:12px 14px;line-height:1.55;font-size:14px}.demoPanel,.sampleCard{background:#fff;border:1px solid #dfe5ed;box-shadow:0 12px 34px rgba(27,45,78,.055)}.demoPanel{border-radius:24px;padding:22px}.demoPanel h3,.sampleCard h3{margin:0 0 14px;font-size:18px}.chatStack{display:grid;gap:12px}.chatBubble{max-width:88%;border-radius:18px;padding:13px 15px;line-height:1.55}.chatBubble.user{justify-self:end;background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-text,#191f28);border-bottom-right-radius:6px;font-weight:750}.chatBubble.bot{justify-self:start;background:#eff3f8;color:#364152;border-bottom-left-radius:6px}.chatCaption{margin:14px 0 0;color:#667085;font-size:13px;line-height:1.5}.sampleGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.sampleGrid>.demoPanel{grid-column:1/-1}.chatStack{max-width:640px}.sampleCard{border-radius:22px;padding:20px;min-width:0}.cardKicker{display:block;color:#68758a;font-size:12px;font-weight:800;margin-bottom:6px}.metricLine{display:flex;justify-content:space-between;align-items:end;gap:12px}.metricLine strong{font-size:25px;letter-spacing:-.045em}.metricLine span{color:#586579;font-size:13px}.progressTrack{height:10px;border-radius:999px;background:#e9eef5;overflow:hidden;margin:16px 0 10px}.progressTrack i{display:block;width:70%;height:100%;background:var(--ab12-action,#2457d6);border-radius:inherit}.sampleMeta{display:flex;justify-content:space-between;gap:12px;color:#5e6b7f;font-size:13px}.summaryList{display:grid;gap:9px;margin-top:12px}.summaryList div{display:flex;justify-content:space-between;gap:12px;border-top:1px solid #edf0f4;padding-top:9px}.summaryList span{color:#657187}.settlementFlow{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;margin:14px 0}.person{background:#f2f5f9;border-radius:14px;padding:12px;text-align:center;font-weight:800}.flowArrow{color:var(--ab12-action,#2457d6);font-weight:900}.settlementAmount{border-radius:14px;background:#eaf8f1;color:#0c6344;padding:11px;text-align:center;font-weight:850}.muted{color:#667085;line-height:1.65}.field{display:grid;gap:7px;margin:11px 0}.field input{width:100%;height:50px;padding:0 13px;font:inherit}button{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:12px;background:#172033;color:#fff!important;font-weight:800;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}button:disabled{cursor:not-allowed;opacity:.55}.secondary{border:1px solid}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.authErrorSummary{display:grid;gap:5px;margin:0 auto 18px;max-width:460px;padding:15px 17px;border:1px solid #fecaca;border-radius:16px;background:#fef2f2;color:#991b1b;text-decoration:none;line-height:1.5;box-shadow:0 10px 28px rgba(127,29,29,.08)}.authErrorSummary:focus{outline:3px solid #991b1b;outline-offset:3px}.authErrorSummary span{color:#7f1d1d}.authErrorSummary strong{font-size:13px;text-decoration:underline}html[data-ab-resolved-theme="dark"] .authErrorSummary{background:#3f1d2a;border-color:#7f3545;color:#fecaca;box-shadow:none;--ab12-text:#fecaca;--ab12-accent:#fecaca}html[data-ab-resolved-theme="dark"] .authErrorSummary span{color:#fecaca}html[data-ab-resolved-theme="dark"] .authErrorSummary:focus{outline-color:#fecaca}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:13px;padding:12px;margin:10px 0}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}form+.hint{margin-top:8px}.loginOptional summary,.signupCard>summary{cursor:pointer;min-height:44px}.signupCard>summary{display:grid;gap:4px}.signupCard>summary span{color:#667085;font-size:13px;font-weight:500}.signupBody{padding-top:10px}.credentialFeedback{min-height:20px;margin:-3px 0 10px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}.kakaoProgress{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.62);backdrop-filter:blur(3px)}.kakaoProgress[hidden]{display:none}.kakaoProgressCard{width:min(100%,380px);background:#fff;color:#101828;border-radius:22px;padding:26px 22px;text-align:center;box-shadow:0 24px 60px rgba(15,23,42,.35)}.kakaoProgressCard h2{margin:14px 0 6px;font-size:20px}.kakaoProgressCard p{margin:0;color:#667085;line-height:1.55;font-size:14px}.kakaoSpinner{width:44px;height:44px;margin:0 auto;border-radius:50%;border:4px solid #fde68a;border-top-color:#f59e0b;animation:kakaoSpin .9s linear infinite}.kakaoTip{margin-top:18px;background:#fffbea;border:1px solid #fde68a;border-radius:14px;padding:13px;text-align:left}.kakaoTip b{display:block;font-size:12px;color:#92400e;margin-bottom:4px}.kakaoTip span{display:block;font-size:14px;line-height:1.55;color:#3f3f46;min-height:44px}.kakaoSlow{margin-top:14px}.kakaoSlow button{min-height:42px;width:auto;padding:0 16px;margin-top:8px}html.kakaoProgressOpen body{overflow:hidden}@keyframes kakaoSpin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.kakaoSpinner{animation-duration:2.4s}}.loginTop{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:1180px;min-height:60px;margin:0 auto;padding:0 20px}.loginBrand{display:inline-flex;align-items:center;gap:8px;min-height:44px;font-size:17px;text-decoration:none}.loginBrand b{color:var(--ab12-text,#191f28);font-weight:800}.loginMark{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:var(--ab12-brand,#3182f6)}.loginMark svg{width:19px;height:19px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}body.abPageLogin .loginTop .loginAbout,body.abPageLogin .loginNext .loginTour{display:inline-flex;align-items:center;min-height:44px;color:var(--ab12-muted,#5f6b7a)!important;font-size:14px;font-weight:700;text-decoration:none}.landingPage{max-width:1180px;margin:0 auto;padding:4px 20px 96px}.landingHero{display:grid;gap:12px;max-width:460px;margin:0 auto;padding:8px 0 20px}.landingHero h1{margin:0;font-size:27px;line-height:1.32;letter-spacing:-.035em}.landingHero h1 strong{color:var(--ab12-accent,#1d4ed8)}.heroLead{margin:-4px 0 6px;color:var(--ab12-muted,#5f6b7a);font-size:15px;line-height:1.6}.kakaoBtn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:54px;border-radius:12px;background:#fee500!important;color:rgba(0,0,0,.85)!important;font-size:16px;font-weight:800;text-decoration:none}.kakaoBtn svg{width:22px;height:22px;fill:#000}body.abPageLogin .loginLocal>summary{display:flex;align-items:center;justify-content:center;gap:8px;min-height:52px;border:1px solid var(--ab12-line,#e9ebee);border-radius:12px;background:var(--ab12-surface,#fff);font-size:15px;font-weight:700;list-style:none;cursor:pointer}.loginLocal>summary::-webkit-details-marker{display:none}body.abPageLogin .landingHero .loginLocal[open]>summary{border-color:var(--ab12-accent,#1d4ed8);background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-accent,#1d4ed8)!important}.loginLocal svg,.pwToggle svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}body.abPageLogin .landingHero .loginCard{margin:10px 0 0!important}.fieldError{display:flex;align-items:center;gap:6px;margin:0;color:var(--neg,#c0362c);font-size:12.5px;font-weight:600}.fieldError:before{content:"!";display:grid;place-items:center;flex:none;width:16px;height:16px;border-radius:50%;background:currentColor;color:var(--ab12-surface,#fff);font-size:11px;font-weight:900}.fieldError:empty,.pwToggle[hidden]{display:none}body.abPageLogin .field input[aria-invalid="true"]{border-color:var(--neg,#c0362c)!important}.pwWrap{position:relative}.field .pwWrap input{padding-right:52px}.pwToggle{position:absolute;top:50%;right:3px;transform:translateY(-50%);width:44px;min-height:44px;padding:0;background:none;color:var(--ab12-muted,#5f6b7a)!important}.pwToggle[aria-pressed="true"]{color:var(--ab12-accent,#1d4ed8)!important}body.abPageLogin .loginOptional{border-color:var(--ab12-line,#edf0f4)}.loginNext{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 12px;margin:0;color:var(--ab12-muted,#5f6b7a);font-size:14px}.loginNext a{display:inline-flex;align-items:center;min-height:44px;font-weight:700}body.abPageLogin .landingPage .signupCard{max-width:460px;margin:0 auto 16px!important}.loginExample{display:grid;gap:10px;max-width:460px;margin:0 auto 16px;padding:18px;border:1px solid var(--ab12-line,#e9ebee);border-radius:20px;background:var(--ab12-surface,#fff);box-shadow:var(--ab12-shadow,0 4px 16px rgba(15,23,42,.045))}.loginExample p{margin:0}.exLabel{color:var(--ab12-muted,#5f6b7a);font-size:13px;font-weight:700}.exBubble{justify-self:end;max-width:85%;padding:10px 14px;border-radius:16px 16px 4px 16px;background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-text,#191f28);font-size:15px;font-weight:600}.exRow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px;border-radius:14px;background:var(--ab12-surface-raised,#f4f6f8)}.exRow small{display:block;color:var(--ab12-muted,#5f6b7a);font-size:12.5px}.exRow strong{font-size:15px}@media(min-width:760px){.landingPage{padding-top:20px}.landingHero h1{font-size:32px}}@media(max-width:900px){.sampleGrid{grid-template-columns:1fr 1fr}.sampleCard:last-child{grid-column:1/-1}.sectionHead{align-items:start;flex-direction:column}}@media(max-width:680px){.loginTop{padding:0 16px}.landingPage{padding:4px 16px 90px}.previewSection{padding-top:22px}.sampleGrid{grid-template-columns:1fr}.sampleCard:last-child{grid-column:auto}.demoPanel,.sampleCard{padding:18px;border-radius:19px}.field input{font-size:16px}.kakaoProgressCard{padding:24px 18px}}.consentRow{display:flex;align-items:flex-start;gap:9px;margin:0 0 10px;font-size:13.5px;line-height:1.55;text-align:left;cursor:pointer}.consentRow input{flex:none;width:20px;height:20px;margin:1px 0 0;accent-color:var(--ab12-action,#2457d6)}.consentRow span{min-width:0;overflow-wrap:anywhere}.consentRow a{font-weight:700}.consentRow+.fieldError{margin:-4px 0 10px 29px}body.abPageLogin .kakaoStart button.kakaoBtn{min-height:54px!important;font-family:inherit;letter-spacing:inherit}.loginLegal{display:flex;flex-wrap:wrap;justify-content:center;gap:0 18px;margin:28px 0 0;font-size:13px}.loginLegal a{display:inline-flex;align-items:center;min-height:44px;color:var(--ab12-muted,#5f6b7a)!important}
+  </style></head><body><a class="skipLink" href="#feature-preview">기능 미리보기로 건너뛰기</a><header class="loginTop"><a class="loginBrand" href="/"><span class="loginMark">${ledgerMarkSvg()}</span><b>${title}</b></a><a class="loginAbout" href="/">서비스 소개</a></header><main class="landingPage">${errorSummary}<section id="login-start" class="landingHero" aria-labelledby="landingTitle"><h1 id="landingTitle">말하듯 기록하고,<br/><strong>숫자로 바로 이해하세요.</strong></h1><p class="heroLead">카카오톡에서 한 줄로 적고, 웹에서 예산과 정산까지 확인해요.</p><div class="loginMethods">${kakaoPart}</div><details class="loginLocal" id="login-local"${localOpen}><summary>${icon("M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2M8 7a4 4 0 1 0 8 0a4 4 0 1 0-8 0")}로그인 이름으로 로그인</summary><div class="card loginCard">${loginMode && error && !fieldError ? `<div class="error">${escapeHtml(error)}</div>` : ""}<form method="post" action="/my/local-login">${backField}<div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="PC에서 쓰던 로그인 이름" aria-describedby="loginNameError" required${invalid("loginName")}/><p class="fieldError" id="loginNameError">${fieldNote("loginName")}</p></div><div class="field"><label for="loginPassword">비밀번호</label><div class="pwWrap"><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="계정 로그인 비밀번호" aria-describedby="loginPasswordError" required${invalid("loginPassword")}/><button class="pwToggle" id="loginPasswordToggle" type="button" aria-controls="loginPassword" aria-pressed="false" aria-label="비밀번호 보기" hidden>${icon("M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0")}</button></div><p class="fieldError" id="loginPasswordError">${fieldNote("loginPassword")}</p></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form><p class="hint legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b> 정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</p></div></details>${claimMode && error ? `<div class="error">${escapeHtml(error)}</div>` : ""}${renderKakaoClaimForm(backField, claimMode)}<p class="loginNext"><span>처음이신가요? <a href="#signup-start" data-signup-entry>새 계정 만들기</a></span><a class="loginTour" href="/demo">먼저 둘러보기 →</a></p></section><section class="loginExample" aria-label="이렇게 기록돼요"><p class="exLabel">카카오톡에 이렇게 보내면</p><p class="exBubble">점심 12000 국민카드</p><p class="exLabel"><span aria-hidden="true">↓ </span>웹 가계부에 이렇게 정리돼요</p><div class="exRow"><span class="abCat" data-ck="food" aria-hidden="true"><i class="abCatIcon"></i></span><div><b>점심</b><small>식비 · 국민카드 · 오늘</small></div><strong>-12,000원</strong></div><p class="hint">예시 화면이에요. 실제 기록은 로그인한 계정의 가계부에만 저장돼요.</p></section><details class="card signupCard" id="signup-start"${signupMode ? " open" : ""}><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody">${signupMode && error && !signupConsentError ? `<div class="error">${escapeHtml(error)}</div>` : ""}<form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" value="${keep("login_name")}" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" value="${keep("display_name")}" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" aria-describedby="signupPasswordStatus" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" aria-describedby="signupPasswordStatus" required/></div><div id="signupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" value="${keep("invite_code")}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div>${signupConsentFieldHtml("signupConsent", signupConsentError)}<button id="signupPasswordSubmit" class="secondary" type="submit">새 계정 만들기</button></form></div></details><section id="feature-preview" class="previewSection" aria-labelledby="previewTitle"><div class="sectionHead"><div><span class="eyebrow">로그인 전 기능 미리보기</span><h2 id="previewTitle">한 줄 입력이 가계부 정보로 정리됩니다.</h2></div><p>대화 입력부터 예산 확인과 공동 정산까지, 실제 사용 흐름을 가상 예시로 먼저 살펴보세요.</p></div><p class="sampleNotice"><b>예시 데이터 · 실제 저장 아님</b><br/>이 영역의 이름, 금액, 기록은 모두 설명용으로 만든 가상 정보입니다. 버튼 제출, 네트워크 요청, 쿠키나 브라우저 저장소 사용이 없습니다.</p><div class="sampleGrid"><article class="demoPanel"><h3>카카오톡 대화 예시</h3><div class="chatStack" aria-label="가상 대화 기록 예시"><div class="chatBubble user">점심 12000원 국민카드</div><div class="chatBubble bot"><b>지출 12,000원 기록 예시</b><br/>오늘 · 식비 · 국민카드</div><div class="chatBubble user">어제 택시 18000원</div><div class="chatBubble bot"><b>지출 18,000원 기록 예시</b><br/>어제 · 교통 · 결제수단 미지정</div></div><p class="chatCaption">실제 카카오톡에서는 챗봇을 호출한 뒤 명령을 보냅니다. 새 사용자는 웹 로그인 없이 첫 개인 기록을 시작할 수 있습니다. <b>웹 가계부 열기</b>는 나중에 이름·예산을 설정하고 분석을 볼 때 사용하세요.</p></article><article class="sampleCard"><span class="cardKicker">가상 예산 카드</span><h3>식비 예산</h3><div class="metricLine"><strong>420,000원</strong><span>600,000원 중</span></div><div class="progressTrack" role="progressbar" aria-label="가상 식비 예산 사용률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70"><i></i></div><div class="sampleMeta"><span>사용률 70%</span><b>180,000원 남음</b></div></article><article class="sampleCard"><span class="cardKicker">가상 월간 리포트</span><h3>10월 리포트</h3><div class="summaryList"><div><span>수입</span><b>3,200,000원</b></div><div><span>지출</span><b>1,286,000원</b></div><div><span>남은 금액</span><b>1,914,000원</b></div></div></article><article class="sampleCard"><span class="cardKicker">가상 정산 카드</span><h3>함께 쓴 비용 정산</h3><div class="settlementFlow"><div class="person">민지</div><span class="flowArrow" aria-hidden="true">→</span><div class="person">준호</div></div><div class="settlementAmount">42,500원 보내기 예시</div></article></div></section><p class="loginLegal"><a href="/terms">이용약관</a><a href="/privacy"><b>개인정보처리방침</b></a><a href="/contact">문의</a></p></main><div id="kakaoLoginProgress" class="kakaoProgress" role="alertdialog" aria-modal="true" aria-labelledby="kakaoProgressTitle" aria-describedby="kakaoProgressTip" hidden><div class="kakaoProgressCard"><div class="kakaoSpinner" aria-hidden="true"></div><h2 id="kakaoProgressTitle">로그인 중입니다</h2><p>카카오 인증 화면으로 이동하고 있어요. 잠시만 기다려 주세요.</p><div class="kakaoTip" aria-live="polite"><b>가계부 사용 팁</b><span id="kakaoProgressTip"></span></div><div id="kakaoProgressSlow" class="kakaoSlow" hidden><p>평소보다 오래 걸리고 있어요. 네트워크 상태에 따라 10초 이상 걸릴 수 있습니다.</p><button id="kakaoProgressCancel" type="button" class="secondary">취소하고 다른 방법 선택</button></div></div></div><script id="kakaoLoginProgressRuntime">(${kakaoLoginProgressClientMain.toString()})({overlayId:"kakaoLoginProgress",tipId:"kakaoProgressTip",slowId:"kakaoProgressSlow",cancelId:"kakaoProgressCancel",tips:${JSON.stringify(KAKAO_LOGIN_PROGRESS_TIPS)}});</script><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"signupPassword",confirmationId:"signupPasswordConfirm",statusId:"signupPasswordStatus",buttonId:"signupPasswordSubmit"});</script><script id="loginEntryAnchorRuntime">(${loginEntryAnchorClientMain.toString()})();</script><script id="loginFieldRuntime">(${loginFieldClientMain.toString()})({nameId:"loginName",passwordId:"loginPassword",toggleId:"loginPasswordToggle",min:4,nameMsg:${JSON.stringify(fieldMessages.loginName)},passwordMsg:${JSON.stringify(fieldMessages.loginPassword)}});</script>${error ? `<script id="authErrorJumpRuntime">(${authErrorJumpClientMain.toString()})(${JSON.stringify(jumpFields)});</script>` : ""}</body></html>`;
 }
 // V22.9.87 T-20: 로그인 이름 칸 아래 오류(aria-invalid·aria-describedby)와 비밀번호 보기 버튼. 스크립트가 없으면 required·minlength 기본 검사가 그대로 막고
 // 보기 버튼은 숨은 채다. toString 으로 페이지에 들어가므로 Worker 의 이름을 쓰지 않는다. 제출할 때 보이던 비밀번호는 다시 가린다(브라우저가 글자 칸으로 기억하지 않게).

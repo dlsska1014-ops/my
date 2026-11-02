@@ -42,7 +42,8 @@ await fixture(async (fx) => {
   const html = view.html;
   t.eq(view.status, 200, "로그아웃 /my 가 그려진다");
   t.eq(outbound, 0, "로그아웃 /my 는 DB·바깥 요청을 하지 않는다(데이터 요청 0회)");
-  t.ok(Buffer.byteLength(html) <= 48 * 1024, `시작 화면 HTML 이 48 KiB 안이다 (${Buffer.byteLength(html)} B)`);
+  // V22.9.95 R-9: 동의 칸 둘(가입·카카오)과 화면 끝 이용약관·개인정보처리방침 줄로 1.4 KB 늘어 48 KiB 를 넘었다(50,339 B). 법정 고지라 줄이지 않고 한도를 50 KiB 로 올린다.
+  t.ok(Buffer.byteLength(html) <= 50 * 1024, `시작 화면 HTML 이 50 KiB 안이다 (${Buffer.byteLength(html)} B)`);
   t.ok(html.includes('<meta name="theme-color" content="#3182f6"/>'), "시작 화면 브라우저 색이 브랜드 #3182f6 이다");
 
   // 머리: 장부 마크 타일 → /, 오른쪽 ‘서비스 소개’
@@ -52,13 +53,14 @@ await fixture(async (fx) => {
 
   // 순서: 제목 → 카카오 → 로그인 이름 칸 → 카카오 기록 이어 열기 → 새 계정·둘러보기 → 예시 카드 → 가입 → 기능 미리보기
   // V22.9.91: 로그인이 풀려 return_to 를 들고 온 시작 화면의 카카오 버튼은 그 화면으로 돌아갈 주소를 함께 싣는다.
-  const marks = ['<h1 id="landingTitle">', '<a class="kakaoBtn" href="/auth/kakao/start?return_to=%2Fapp%3Fmonth%3D2026-10%26household_id%3Dhouse-home">', '<details class="loginLocal" id="login-local">', 'id="kakao-claim-start"', '<p class="loginNext">', '<section class="loginExample"', '<details class="card signupCard" id="signup-start">', '<section id="feature-preview"'];
+  const marks = ['<h1 id="landingTitle">', '<form class="kakaoStart" method="get" action="/auth/kakao/start"><input type="hidden" name="return_to" value="/app?month=2026-10&amp;household_id=house-home"/>', '<details class="loginLocal" id="login-local">', 'id="kakao-claim-start"', '<p class="loginNext">', '<section class="loginExample"', '<details class="card signupCard" id="signup-start">', '<section id="feature-preview"'];
   const at = marks.map((mark) => html.indexOf(mark));
   t.ok(at.every((value, index) => value > 0 && (index === 0 || value > at[index - 1])), `시작 화면 순서가 지시서와 같다 (${at.join(" < ")})`);
   t.ok(html.includes('<h1 id="landingTitle">말하듯 기록하고,<br/><strong>숫자로 바로 이해하세요.</strong></h1><p class="heroLead">카카오톡에서 한 줄로 적고, 웹에서 예산과 정산까지 확인해요.</p>'), "제목과 한 줄 소개");
 
   // 카카오 로그인 버튼(§3-4)
-  const kakao = between(html, '<a class="kakaoBtn"', "</a>");
+  // V22.9.95 R-9: 카카오 로그인은 동의 칸이 있는 GET 폼의 제출 단추다(돌아갈 곳은 숨은 칸).
+  const kakao = between(html, '<button class="kakaoBtn" type="submit">', "</button>");
   t.ok(kakao.includes('<path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466') && kakao.endsWith("카카오 로그인"), "카카오 버튼은 말풍선 심볼과 ‘카카오 로그인’ 라벨이다");
   t.eq(count(html, 'class="kakaoBtn"'), 1, "카카오 로그인 버튼은 하나다");
   t.ok(html.includes(".kakaoBtn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:54px;border-radius:12px;background:#fee500!important;color:rgba(0,0,0,.85)!important"), "카카오 버튼: 높이 54·모서리 12·#FEE500·글씨 rgba(0,0,0,.85)");
@@ -68,7 +70,8 @@ await fixture(async (fx) => {
   // 첫 화면 채운 버튼은 카카오 하나: 로그인 구간에서 카카오 앞뒤로 다른 채운 단추가 열려 있지 않다
   const hero = between(html, '<section id="login-start"', '<section class="loginExample"');
   const beforeLocal = hero.slice(0, hero.indexOf('<details class="loginLocal"'));
-  t.ok(!beforeLocal.includes("<button") && !hero.includes('class="cta'), "카카오 버튼 앞뒤의 첫 화면에는 다른 단추가 없다");
+  // V22.9.95 R-9: 카카오 단추가 <button> 이 됐다. 그 단추 말고 다른 단추는 없어야 한다.
+  t.ok(count(beforeLocal, "<button") === 1 && beforeLocal.includes('<button class="kakaoBtn" type="submit">') && !hero.includes('class="cta'), "카카오 버튼 앞뒤의 첫 화면에는 다른 단추가 없다");
   t.ok(hero.includes('<details class="loginLocal" id="login-local"><summary>') && hero.includes('<details class="loginOptional" id="kakao-claim-start"><summary'), "로그인 이름 칸과 카카오 기록 이어 열기는 접힌 채다(그 안의 제출 단추는 첫 화면에 없다)");
   t.ok(!html.includes('class="cta ctaPrimary"') && !html.includes("기능 먼저 보기"), "예전 ‘기능 먼저 보기’ 파란 버튼이 없다");
 
@@ -229,7 +232,7 @@ await fixture(async (fx) => {
   const independent = "말해가계부는 사용자가 입력한 생활비를 정리하는 독립 서비스입니다. 은행·카드사 계정을 자동으로 연결하거나 투자·세무 판단을 대신하지 않습니다. 카카오가 직접 제공하는 공식 가계부 서비스는 아닙니다.";
   t.ok(between(home, '<section class="pubLand pubLandNote"', "</section>").includes(independent) && count(home, independent) === 1, "알아 둘 점은 지금 문구(은행·카드 자동 연결 안 함, 카카오 공식 아님) 그대로이고 한 번만 나온다");
   const band = between(home, '<section class="pubBand"', "</section>");
-  t.ok(band.includes('<a class="kakaoBtn" href="/auth/kakao/start">') && band.includes('<a class="pubBtn secondary" href="/demo">가상 가계부 둘러보기</a>'), "카카오 로그인 띠: 카카오 로그인(설정된 서버) + 가상 가계부 둘러보기");
+  t.ok(band.includes('<form class="kakaoStart" method="get" action="/auth/kakao/start"><label class="consentRow">') && band.includes('<button class="kakaoBtn" type="submit">') && band.includes('<a class="pubBtn secondary" href="/demo">가상 가계부 둘러보기</a>'), "카카오 로그인 띠: 카카오 로그인(설정된 서버) + 가상 가계부 둘러보기");
   const heroActions = between(home, '<div class="pubHeroActions">', "</div>");
   t.eq(count(heroActions, 'class="pubBtn"'), 1, "히어로의 채운 주 버튼은 하나다");
 

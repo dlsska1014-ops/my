@@ -113,6 +113,7 @@ const validationScripts = [
   ["V22.9.94 거래·권한(C-4 복구 표를 삭제 사건에 묶기·C-5 계정 통합 뒤 세션 복구·C-9 동시 수정 충돌·C-11 일괄 삭제 결과 불명 안내·R-3 소유자 역할은 소유자만)", "validation/validate-v22994-admin.mjs"],
   ["V22.9.94 예약 실행(C-10 리포트 재생성 요청 중복 버림·R-1 리포트 처리량 예산 기반·말일 스냅숏 재생성)", "validation/validate-v22994-cron.mjs"],
   ["V22.9.94 준비 상태·경보(R-2 /ready 분류·삭제 RPC·60초 캐시·R-4 cron 마지막 실행 지표)", "validation/validate-v22994-ops.mjs"],
+  ["V22.9.95 법무(R-9 약관·개인정보처리방침 동의와 만 14세 확인·가입/카카오 동의 기록·방침 6~13절·이용약관 2절·꼬리말 대표·문의 이메일)", "validation/validate-v22995-legal.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],

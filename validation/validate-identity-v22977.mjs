@@ -87,7 +87,8 @@ async function webKakaoLogin(fx, kakaoId, nickname) {
     return null;
   });
   try {
-    const start = await app.fetch(new Request(`${BASE}/auth/kakao/start`), fx.env, ctx);
+    // V22.9.95 R-9: 직접 누른 카카오 로그인은 동의 칸(consent=1)을 체크해야 시작한다(사람이 체크하고 누른 요청).
+    const start = await app.fetch(new Request(`${BASE}/auth/kakao/start?consent=1`), fx.env, ctx);
     const state = new URL(start.headers.get("location") || `${BASE}/`).searchParams.get("state") || "";
     const callback = await app.fetch(new Request(`${BASE}/auth/kakao/callback?code=qa-code&state=${encodeURIComponent(state)}`, {
       headers: { cookie: setCookiePairs(start.headers).join("; ") },

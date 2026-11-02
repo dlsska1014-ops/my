@@ -97,7 +97,8 @@ const entry = {
 // ---------------------------------------------------------------------------
 {
   const credentials = { login_name: "복귀시험", access_code: "pw123456789" };
-  eq((await post("/my/local-signup", { ...credentials, display_name: "복귀씨", access_code_confirm: credentials.access_code })).status, 303, "시험용 계정을 만든다");
+  // V22.9.95 R-9: 가입은 약관·개인정보처리방침 동의와 만 14세 확인 칸(consent=1)을 체크해야 된다(사람이 체크하고 보낸 요청).
+  eq((await post("/my/local-signup", { ...credentials, display_name: "복귀씨", access_code_confirm: credentials.access_code, consent: "1" })).status, 303, "시험용 계정을 만든다");
 
   const back = `${homeReturn}&err=${encodeURIComponent("로그인이 풀려서 저장하지 못했습니다.")}&quick=1`;
   const signedIn = await post("/my/local-login", { ...credentials, return_to: back });

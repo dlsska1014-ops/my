@@ -235,7 +235,8 @@ async function kakaoWebLogin(fx, kakaoId, nickname) {
     return null;
   });
   try {
-    const start = await app.fetch(new Request(`${BASE}/auth/kakao/start`), fx.env, ctx);
+    // V22.9.95 R-9: 직접 누른 카카오 로그인은 동의 칸(consent=1)을 체크해야 시작한다(사람이 체크하고 누른 요청).
+    const start = await app.fetch(new Request(`${BASE}/auth/kakao/start?consent=1`), fx.env, ctx);
     const state = new URL(start.headers.get("location") || `${BASE}/`).searchParams.get("state") || "";
     const callback = await app.fetch(new Request(`${BASE}/auth/kakao/callback?code=qa-code&state=${encodeURIComponent(state)}`, { headers: { cookie: setCookiePairs(start.headers).join("; ") } }), fx.env, ctx);
     const cookie = setCookiePairs(callback.headers).find((pair) => pair.startsWith("ab_user=")) || "";
@@ -310,7 +311,8 @@ await attempt("U-23 자른 끝 웹", () => fixture(async (fx) => {
   await post(fx, "/my/profile", { nickname: "민지 (팀장)" });
   eq(storedName(fx, (user) => user.id === "user-bin"), "민지 (팀장)", "U-23 자른 끝: 보통 이름(괄호 포함)은 예전 그대로 저장한다");
   const signup = async (loginName, displayName) => {
-    const response = await post(fx, "/my/local-signup", { login_name: loginName, display_name: displayName, access_code: "u23-pass-1234", access_code_confirm: "u23-pass-1234" }, { cookie: "" });
+    // V22.9.95 R-9: 가입은 약관·개인정보처리방침 동의와 만 14세 확인 칸(consent=1)을 체크해야 된다(사람이 체크하고 보낸 요청).
+    const response = await post(fx, "/my/local-signup", { login_name: loginName, display_name: displayName, access_code: "u23-pass-1234", access_code_confirm: "u23-pass-1234", consent: "1" }, { cookie: "" });
     const identity = fx.db.accountbook_user_identities.find((row) => row.provider === "local" && row.provider_subject === loginName);
     const cookie = setCookiePairs(new Headers(response.setCookie ? { "set-cookie": response.setCookie } : {})).find((pair) => pair.startsWith("ab_user=")) || "";
     return { nickname: identity ? storedName(fx, (user) => user.id === identity.user_id) : undefined, cookie };

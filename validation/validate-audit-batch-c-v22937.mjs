@@ -134,7 +134,8 @@ await fixture(async (fx) => {
   ok(/ab_hh=;[^,]*Max-Age=0/.test(stale.setCookie), "H4 그 안내 화면이 낡은 기억을 지운다");
   const next = await page(fx, "/app?month=2026-07");
   eq(next.status, 200, "기억이 지워진 다음 화면은 다시 열린다");
-  const signup = await post(fx, "/my/local-signup", { login_name: "cookiereset", display_name: "쿠키초기화", access_code: "cookie-reset-2026", access_code_confirm: "cookie-reset-2026" }, { cookie: "ab_hh=house-home" });
+  // V22.9.95 R-9: 가입은 약관·개인정보처리방침 동의와 만 14세 확인 칸(consent=1)을 체크해야 된다(사람이 체크하고 보낸 요청).
+  const signup = await post(fx, "/my/local-signup", { login_name: "cookiereset", display_name: "쿠키초기화", access_code: "cookie-reset-2026", access_code_confirm: "cookie-reset-2026", consent: "1" }, { cookie: "ab_hh=house-home" });
   eq(signup.status, 303, "새 계정 만들기가 된다");
   ok(/ab_user=[^;]/.test(signup.setCookie) && /ab_hh=;[^,]*Max-Age=0/.test(signup.setCookie), "H4 가입으로 세션을 발급하면 이전 사람의 가계부 기억을 지운다");
   const login = await post(fx, "/my/local-login", { login_name: "cookiereset", access_code: "cookie-reset-2026" }, { cookie: "ab_hh=house-home" });
