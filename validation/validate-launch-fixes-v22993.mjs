@@ -158,7 +158,7 @@ const fromAsset = (source, name) => {
 };
 const { foldInputWidth } = await import("../src/modules/client/shared-input-nlu.js");
 const sentences = [...dayCases.map((item) => item[0]), "회비 12.000원", "월세 1.200.000원", "7.3 커피 4000", "오늘의집 30000", "금일봉 100000", "어제의커피 4500", "어제자 신문 2000", "내일배움카드 50000", "１２,０００원 점심"];
-for (const path of ["/assets/mobile-home-v22993.js", "/assets/mobile-home-shell-v22993.js"]) {
+for (const path of ["/assets/mobile-home-v22995.js", "/assets/mobile-home-shell-v22995.js"]) {
   const code = fromAsset(await assetText(path), "foldInputWidth");
   const browser = vm.runInNewContext(`(${code})`);
   for (const text of sentences) eq(browser(text), foldInputWidth(text), `${path} ‘${text}’ 이 서버와 같다`);
@@ -189,7 +189,7 @@ for (const [category, words] of Object.entries(categoryWords)) {
 for (const [word, wrong] of [["시험관 시술", "교육/학습"], ["알리바바", "쇼핑"], ["꽃게", "경조사/선물"], ["꽃게탕", "경조사/선물"]]) {
   ok(parseTransaction(`${word} 10000`, {})?.category !== wrong, `Q-3 ‘${word}’ 는 ${wrong} 이 아니다`);
 }
-const rulesAsset = await assetText("/assets/ab-category-rules-v22993.js");
+const rulesAsset = await assetText("/assets/ab-category-rules-v22995.js");
 for (const word of ["오늘의집", "삼겹살", "파리바게뜨", "시험관"]) ok(rulesAsset.includes(word), `Q-3 브라우저 분류 규칙에 ‘${word}’ 가 있다`);
 
 // ── X-13 안내 문장 이스케이프 ──────────────────────────────────────────────────
@@ -262,7 +262,7 @@ ok(!/\bgetHouseholdMemberRole\b/.test(read("src/modules/auth/kakao-oauth.js")), 
 // ── Q-4 제출 잠금이 눌린 버튼의 값을 지우지 않는다 ─────────────────────────────────
 // 실제 클릭은 제출 이벤트 → 마이크로태스크(잠금) → 보낼 값 모으기 순서로 간다. 막힌 버튼은 보낼 값에서 빠진다.
 // 스크립트의 button.click() 은 잠금이 값을 모은 뒤에 돌아 이 결함이 보이지 않았다. 아래 흉내는 실제 클릭 순서를 따른다.
-const guidedCode = fromAsset(await assetText("/assets/mobile-home-v22993.js"), "guidedUiUxClientMain");
+const guidedCode = fromAsset(await assetText("/assets/mobile-home-v22995.js"), "guidedUiUxClientMain");
 const submitLock = ({ cancelled = false, submitterOutside = false } = {}) => {
   const documentListeners = new Map();
   const windowListeners = new Map();
@@ -499,7 +499,7 @@ await withClock("2026-07-15", async () => {
   }
   for (const text of notDates) eq(rowsOf(text).length, 0, `Q-1 ‘${text}’ 는 날짜를 짐작해 저장하지 않는다`);
 });
-for (const path of ["/assets/mobile-home-v22993.js", "/assets/mobile-home-shell-v22993.js"]) {
+for (const path of ["/assets/mobile-home-v22995.js", "/assets/mobile-home-shell-v22995.js"]) {
   const code = fromAsset(await assetText(path), "foldInputWidth");
   const browser = vm.runInNewContext(`(${code})`);
   for (const text of [...digitCases.map((item) => item[0]), ...notAmounts, ...dayWordCases.map((item) => item[0]), ...notDates]) {
@@ -628,7 +628,7 @@ await fixture(async (fx) => {
 // ── Q-26 웹 한 줄 입력의 금액 둘(이 폼은 한 번에 한 건만 저장한다) ─────────────────────────
 {
   const { normalizeInputText } = await import("../src/modules/client/shared-input-nlu.js");
-  const home = await assetText("/assets/mobile-home-v22993.js");
+  const home = await assetText("/assets/mobile-home-v22995.js");
   const scan = (text) => normalizeInputText(normalizeInputText(foldInputWidth(text)));
   const count = vm.runInNewContext(`${fromAsset(home, "moneyTokenSpans")}\n${fromAsset(home, "quickAmountCount")}\nquickAmountCount`);
   for (const [text, expected] of [
@@ -1251,13 +1251,13 @@ await withClock("2026-07-15", () => {
 });
 const { moneyTokenSpans, quickInputDate } = await import("../src/modules/client/shared-input-parsers.js");
 const amountSentences = [...wordAmountCases.map((item) => item[0]), ...wordPayCases.map((item) => item[0]), ...wordRefused, ...clauseCases.map((item) => item[0]), ...dateClauseCases.map((item) => item[0])];
-for (const path of ["/assets/mobile-home-v22993.js", "/assets/mobile-home-shell-v22993.js", "/assets/accountbook-budget-preview-v22993.js"]) {
+for (const path of ["/assets/mobile-home-v22995.js", "/assets/mobile-home-shell-v22995.js", "/assets/accountbook-budget-preview-v22993.js"]) {
   const code = fromAsset(await assetText(path), "moneyTokenSpans");
   const browser = vm.runInNewContext(`(${code})`);
   ok(!/\(\?<[=!]/.test(code), `${path} moneyTokenSpans 에 lookbehind 가 없다`);
   for (const text of amountSentences) eq(JSON.stringify(browser(text)), JSON.stringify(moneyTokenSpans(text)), `${path} ‘${text}’ 의 금액이 서버와 같다`);
 }
-for (const path of ["/assets/mobile-home-v22993.js", "/assets/mobile-home-shell-v22993.js"]) {
+for (const path of ["/assets/mobile-home-v22995.js", "/assets/mobile-home-shell-v22995.js"]) {
   const dateFn = vm.runInNewContext(`(${fromAsset(await assetText(path), "quickInputDate")})`);
   for (const text of amountSentences) eq(dateFn(foldInputWidth(text), "2026-07-15"), quickInputDate(foldInputWidth(text), "2026-07-15"), `${path} ‘${text}’ 의 날짜가 서버와 같다`);
 }
@@ -2542,11 +2542,11 @@ await withClock("2026-07-15", () => {
     ok(want.split("|").includes(got), `독립 검토 7~9회차 ‘${text}’: ${got} ≠ ${want}`);
   }
 });
-for (const path of ["/assets/mobile-home-v22993.js", "/assets/mobile-home-shell-v22993.js", "/assets/accountbook-budget-preview-v22993.js"]) {
+for (const path of ["/assets/mobile-home-v22995.js", "/assets/mobile-home-shell-v22995.js", "/assets/accountbook-budget-preview-v22993.js"]) {
   const browser = vm.runInNewContext(`(${fromAsset(await assetText(path), "moneyTokenSpans")})`);
   for (const [text] of [...parseCases, ...round7Cases, ...round8Cases, ...round9Cases]) eq(JSON.stringify(browser(text)), JSON.stringify(moneyTokenSpans(text)), `${path} ‘${text}’ 의 금액이 서버와 같다`);
 }
-for (const path of ["/assets/mobile-home-v22993.js", "/assets/mobile-home-shell-v22993.js"]) {
+for (const path of ["/assets/mobile-home-v22995.js", "/assets/mobile-home-shell-v22995.js"]) {
   const fold = vm.runInNewContext(`(${fromAsset(await assetText(path), "foldInputWidth")})`);
   const dateFn = vm.runInNewContext(`(${fromAsset(await assetText(path), "quickInputDate")})`);
   for (const [text] of parseCases) {

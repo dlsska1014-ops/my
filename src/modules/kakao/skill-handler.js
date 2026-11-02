@@ -6,6 +6,7 @@ import {
 import { abMonitorOutcome } from "../runtime/ops-monitor.js";
 import { APP_VERSION, publicBaseUrl } from "../public/site-config.js";
 import { moneyTokenSpans } from "../client/shared-input-parsers.js";
+import { foreignCurrencyAmountIn } from "../client/shared-input-nlu.js";
 import { safeError } from "../runtime/leases.js";
 import {
   kakaoSkillCallerAuthorized, randomEntityId, rememberSkillLatency, sha256Hex,
@@ -22,7 +23,7 @@ import { kakaoBudgetStatusParts } from "../domain/budgets.js";
 import { kakaoPrivateWebLinkReply } from "../auth/kakao-web-claim.js";
 import { afterKakaoSkillIdentityWork } from "../auth/kakao-account-link.js";
 import {
-  kakaoAmbiguityGuide, kakaoBudgetGuideText, kakaoSkillSafeFallbackText,
+  kakaoAmbiguityGuide, kakaoBudgetGuideText, kakaoForeignAmountText, kakaoSkillSafeFallbackText,
 } from "./reply-texts.js";
 import {
   detectKakaoNaturalIntent, hasKakaoImageAttachment, isCommandMenuCommand, isHouseholdSwitchCommand,
@@ -359,6 +360,9 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");
   }
   if (!separatePurchaseCommand && !editLikeUtterance && !preParsedList.length && parseTransaction(utterance,payload).message === "invalid_transaction_date") return kakaoText("달력에 없는 날짜여서 기록을 저장하지 않았어요. 날짜를 확인해 다시 보내 주세요. 연도 없는 M/D는 올해 날짜로 저장합니다.");
+  // V22.9.95 R-20: 외화 금액(‘커피 $100’·‘USD 100 커피’)이 하나라도 있는 말은 금액을 읽지 않고 되묻는다(직접·방 같은 입구). 예전에는 $ 를 지운
+  // 숫자가 원화로 저장됐다(100원). 고치는 말·예산 말도 같다. 열린 수정 세션·단계 흐름은 그대로 두므로 원화로 다시 보내면 이어진다.
+  if (foreignCurrencyAmountIn(utterance)) return kakaoText(kakaoForeignAmountText(origin));
   const strongTransactionInput = isStrongKakaoTransactionInput(commandText, preParsedList);
   // V22.9.63 감사(1:1 2): 가계부가 없는 사람의 첫 기록은 "밥 4500원"처럼 한 글자 내용도 받는다. 아래 두 자동 준비 길에만 쓴다.
   const firstRecordInput = strongTransactionInput || isKakaoFirstRecordInput(commandText, preParsedList);

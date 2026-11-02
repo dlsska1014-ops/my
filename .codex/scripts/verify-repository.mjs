@@ -116,6 +116,7 @@ const validationScripts = [
   ["V22.9.95 데이터·운영(R-12 감사 기록 보존 정리·예약 실행 표 판·남은 범위 열·R-11 CI 푸시·취소 설정)", "validation/validate-v22995-data.mjs"],
   ["V22.9.95 후원(/support 페이지·후원자 플래그·배지·포인트 색·관리자 후원자 설정)", "validation/validate-v22995-support.mjs"],
   ["V22.9.95 법무(R-9 약관·개인정보처리방침 동의와 만 14세 확인·가입/카카오 동의 기록·방침 6~13절·이용약관 2절·꼬리말 대표·문의 이메일)", "validation/validate-v22995-legal.mjs"],
+  ["V22.9.95 안내·해석(R-14 안내 보강·공지 띠·문의 메뉴·R-16 분류 예외·폭 0/전각 글자·R-20 외화 되묻기·R-19 가져오기 칸 상한)", "validation/validate-v22995-guide.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],

@@ -19,6 +19,7 @@ import {
   renderSkillGetHealthHtml,
 } from "../public/site-config.js";
 import { handlePublicContentPage, publicDocumentResponse } from "../public/content-pages.js";
+import { noticeBandResponse } from "../web/html-postprocess.js";
 import { logWorkerError, safeError } from "../runtime/leases.js";
 import {
   browserFormRequestFailed, constantTimeTextEqual, emergencyReturnUrl, headOnlyResponse,
@@ -284,7 +285,8 @@ const ACCOUNTBOOK_WORKER = {
     const requestEnv = { ...env, ...(monitoring ? { __AB_MONITOR_REQUEST: monitoring } : {}), __AB_REQUEST_USER_ROWS: new Map(), __AB_IDENTITY_CONFIRMED: new Map(), __AB_MEMBER_POLICY: new Map(), __AB_DB_BUDGET: {used: 0, limit: 50} };
     const routed = rememberedHouseholdRequest(request);
     try {
-      const response = await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx);
+      // V22.9.95 공지 띠: NOTICE_TEXT 가 있을 때만 HTML 을 다시 쓴다(없으면 응답 그대로). html-postprocess.js attachNoticeBand 참고.
+      const response = await noticeBandResponse(routed.request, env, await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx));
       abMonitorCompleted(requestEnv, ctx, response);
       return withRememberedHouseholdCookie(routed, response);
     } catch (error) {

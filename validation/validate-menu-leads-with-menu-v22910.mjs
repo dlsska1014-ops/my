@@ -61,8 +61,8 @@ try {
   // 3) 목적지가 하나도 사라지지 않았다
   const links = [...main.matchAll(/<a class="(?:menuRow|featuredCard)" href="([^"]+)"/g)].map((m) => m[1]);
   // V22.9.83: 전체 메뉴가 사이드바와 같은 묶음이 되며 가져오기·연간 리포트·저축·목표·단톡방 연결이 더해졌다(21 → 25).
-  // V22.9.95 후원: ‘도움말과 안내’ 끝에 ‘후원하기’(/support) 한 줄이 더해졌다(25 → 26).
-  eq(links.length, 26, `메뉴 목적지 26개가 그대로다 (${links.length}개)`);
+  // V22.9.95: ‘도움말과 안내’ 에 ‘문의·FAQ’(/faq, R-14)와 ‘후원하기’(/support, 후원) 두 줄이 더해졌다(25 → 27).
+  eq(links.length, 27, `메뉴 목적지 27개가 그대로다 (${links.length}개)`);
   eq(new Set(links).size, links.length, "같은 목적지를 두 번 싣지 않는다");
 
   // 4) 아이콘이 글자가 아니라 그림이다
