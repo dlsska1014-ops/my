@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_95.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_96.sha256",
 );
 const validationScripts = [
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
@@ -363,7 +363,7 @@ function run(command, args, label) {
 // V22.9.91: 새 검사 1개(계정 잇기 220: 인앱 자동 로그인·잇기 제안·자동·확인 잇기·관리자 통합 링크, 병합 전 독립 검토 7건 12~17번 포함)·추적표 V91 2건과 옛 검사 갱신(카카오 단추 return_to·판 이름만 바뀐 환불 꺼짐 화면 해시 셋). 두 모드 실측: 일반 37,774 · 분류 표 부재 37,771(V22.9.91 계정 잇기).
 // V22.9.92: 새 검사 2개(애드핏 광고 게이트 2,319: ADS_MODE=adfit·광고 단위 검증·공개 정본 문서 45쪽만·정책 화면 카카오 문구·/ready adfit_unit, 기능 둘러보기 119)와 옛 검사 갱신(광고 게이트 adsMode 모양·판 이름만 바뀐 환불 꺼짐 화면 해시 셋). 두 모드 실측: 일반 40,226 · 분류 표 부재 40,223(V22.9.92 애드핏 준비).
 // V22.9.94: 새 검사 6개(전체 점검·Codex/Astra 검토 수정 — 시험 대역·화면 73, 카카오 950, 가져오기 293, 관리자 134, 예약 실행 61, 준비 상태·관제 184)·추적표 V94 31건과 옛 검사 갱신(Q-104 기대값·M-8-C 한 실행 2개·되돌리기 30초 기대·감사 기록 픽스처·관제 판 1.5.0·준비 상태 RPC 19개·판 이름만 바뀐 환불 지문 셋). 하한은 두 모드 실측 중 작은 값으로 올렸다.
-const EXPECTED_MINIMUM_CHECKS = 59320;
+const EXPECTED_MINIMUM_CHECKS = 59322;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

@@ -37,7 +37,7 @@ const siteConfig = read("../src/modules/public/site-config.js");
 const REVISION = siteConfig.match(/const POLICY_REVISION_DATE = "(\d{4}-\d{2}-\d{2})";/)?.[1] || "";
 const [RY, RM, RD] = REVISION.split("-").map(Number);
 const REVISION_LABEL = `${RY}년 ${RM}월 ${RD}일`;
-// E-17: 공고일(화면에 올린 날) + 7일 = 시행일. 12절의 ‘시행 7일 전 고지’ 와 같은 수.
+// E-17: 공고일(화면에 올린 날)과 시행일. V22.9.95 는 공고일 + 7일, V22.9.96(재결정) 은 공고일 = 시행일(불리하지 않은 변경은 알린 날부터). 둘 중 하나여야 한다.
 const NOTICE = siteConfig.match(/const POLICY_NOTICE_DATE = "(\d{4}-\d{2}-\d{2})";/)?.[1] || "";
 const [NY, NM, ND] = NOTICE.split("-").map(Number);
 const NOTICE_LABEL = `${NY}년 ${NM}월 ${ND}일`;
@@ -150,7 +150,7 @@ function progressSandbox(source, { withForm = true } = {}) {
 }
 
 ok(/^\d{4}-\d{2}-\d{2}$/.test(REVISION) && Number.isFinite(Date.parse(`${REVISION}T00:00:00Z`)), `0 개정일 상수 POLICY_REVISION_DATE 가 날짜다 (${REVISION})`);
-ok(/^\d{4}-\d{2}-\d{2}$/.test(NOTICE) && Date.parse(`${REVISION}T00:00:00Z`) - Date.parse(`${NOTICE}T00:00:00Z`) === 7 * 86400000, `0 공고일 상수 POLICY_NOTICE_DATE 가 날짜이고 시행일이 공고일 + 7일이다 (${NOTICE} → ${REVISION}, E-17)`);
+ok(/^\d{4}-\d{2}-\d{2}$/.test(NOTICE) && [0, 7 * 86400000].includes(Date.parse(`${REVISION}T00:00:00Z`) - Date.parse(`${NOTICE}T00:00:00Z`)), `0 공고일 상수 POLICY_NOTICE_DATE 가 날짜이고 시행일이 공고일과 같거나(V22.9.96 E-17 재결정) 공고일 + 7일이다 (${NOTICE} → ${REVISION})`);
 
 // ── 1. 로그인 화면 ───────────────────────────────────────────────────────────
 await section("1 로그인 화면", () => scene(async (fx) => {
@@ -396,7 +396,9 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
     ["경찰청", "경찰청 사이버수사국: ecrm.police.go.kr, 국번 없이 182"],
     ["변경 고지 7일", "시행 7일 전부터 서비스 화면에 알립니다"],
     ["중요한 변경 30일", "이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다"],
-    ["시행 문장(E-17)", `이 개정 방침은 ${NOTICE_LABEL}에 알리고 ${REVISION_LABEL}부터 시행합니다`],
+    ["시행 문장(E-17)", NOTICE === REVISION ? `이 개정 방침은 ${NOTICE_LABEL}에 알리고 같은 날부터 시행합니다` : `이 개정 방침은 ${NOTICE_LABEL}에 알리고 ${REVISION_LABEL}부터 시행합니다`],
+    ["불리하지 않은 변경(V22.9.96)", "이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다"],
+    ...(NOTICE === REVISION ? [["이번 개정 성격(V22.9.96)", "이번 개정은 동의 절차와 보호 조치를 더하고 처리 내용을 더 자세히 적은 것이어서 이용자에게 불리하지 않은 변경입니다"]] : []),
     ["3절 문의 경로", "문의 경로는 7절의 개인정보 보호책임자 이메일(admin@malhaebook.com)입니다"],
     ["3절 탈퇴 기능 없음(V22.9.94 R-7 문장)", "계정 자체를 탈퇴·삭제하는 온라인 기능은 제공하지 않으며 개인정보 삭제 요청은 서비스 문의 경로로 확인합니다"],
   ]) ok(body.includes(words), `5 /privacy ${label}: ‘${words}’`);
