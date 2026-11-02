@@ -153,7 +153,8 @@ try {
 
   // ── 인증 ────────────────────────────────────────────────────────────────
   rpcCalls.length = 0;
-  let response = await form("/my/local-signup", { login_name: "launchfam", display_name: "출시 (통합됨)", access_code: "pass-word-2026", access_code_confirm: "pass-word-2026" }, "");
+  // V22.9.95 R-9: 가입은 약관·개인정보처리방침 동의와 만 14세 확인 칸(consent=1)을 체크해야 된다(사람이 체크하고 보낸 요청).
+  let response = await form("/my/local-signup", { login_name: "launchfam", display_name: "출시 (통합됨)", access_code: "pass-word-2026", access_code_confirm: "pass-word-2026", consent: "1" }, "");
   eq(response.status, 303, "가입이 된다");
   const signupKeys = [...new Set(rpcCalls.map((c) => c.p_key))];
   eq(signupKeys.length, 2, "가입은 클라이언트·IP 두 범위를 센다");

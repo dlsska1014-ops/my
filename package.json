@@ -86,6 +86,7 @@
     "validate:ops-v22994": "node validation/validate-v22994-ops.mjs",
     "validate:data-v22995": "node validation/validate-v22995-data.mjs",
     "validate:support-v22995": "node validation/validate-v22995-support.mjs",
+    "validate:legal-v22995": "node validation/validate-v22995-legal.mjs",
     "validate:adfit-gate-v22992": "node validation/validate-adfit-gate-v22992.mjs",
     "validate:demo-tour-v22992": "node validation/validate-demo-tour-v22992.mjs",
     "preview:public": "node tools/preview-public.mjs",

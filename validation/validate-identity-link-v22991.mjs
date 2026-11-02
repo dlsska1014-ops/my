@@ -191,9 +191,12 @@ const events = (kind) => (globalThis.__AB_OPS_EVENTS || []).filter((event) => ev
 const securityVersion = (fx, id) => Number(fx.db.accountbook_user_security.find((row) => row.user_id === id)?.session_version || 0);
 
 // 웹 카카오 로그인(start → callback). 콜백 응답까지 돌려준다(따라가지 않는다).
+// V22.9.95 R-9: 직접 누르는 카카오 로그인은 동의 칸(consent=1)을 체크해야 시작한다. 사람이 칸을 체크하고 누른 것처럼 붙인다.
+// 자동 로그인(auto=1)은 동의 칸이 없는 길이라 그대로 둔다.
+const withConsent = (path) => (/[?&](auto|consent)=/.test(path) ? path : `${path}${path.includes("?") ? "&" : "?"}consent=1`);
 async function kakaoLogin(fx, jar, server, kakaoId, { ua = CHROME, start = "/auth/kakao/start" } = {}) {
   server.id = String(kakaoId);
-  const begin = await go(fx, jar, start, { ua });
+  const begin = await go(fx, jar, withConsent(start), { ua });
   const authorize = new URL(begin.location || `${BASE}/`);
   const state = authorize.searchParams.get("state") || "";
   const callback = await go(fx, jar, `/auth/kakao/callback?code=qa-code&state=${encodeURIComponent(state)}`, { ua });
@@ -272,11 +275,11 @@ await linkFixture(async (fx, server) => {
   ok(state?.mode === "login" && state.auto === 1 && state.next === RETURN_APP, `2 서명된 상태에 자동 표시와 돌아갈 곳이 있다 (${JSON.stringify(state)})`);
   eq(jar.get("ab_kakao_auto"), "try", "2 되풀이 막기 쿠키(try)를 둔다");
 
-  const plain = await go(fx, new Jar(), "/auth/kakao/start?auto=1", { ua: CHROME });
+  const plain = await go(fx, new Jar(), "/auth/kakao/start?auto=1&consent=1", { ua: CHROME });
   ok(!new URL(plain.location).searchParams.has("prompt") && !plain.cookies.some((line) => line.startsWith("ab_kakao_auto=")), "2 인앱이 아닌 브라우저의 auto=1 은 보통 로그인이다");
-  const back = await go(fx, new Jar(), "/auth/kakao/start?return_to=%2Fmy%2Fanalysis", { ua: CHROME });
+  const back = await go(fx, new Jar(), "/auth/kakao/start?return_to=%2Fmy%2Fanalysis&consent=1", { ua: CHROME });
   eq((await stateOf(fx, back.location))?.next, "/my/analysis", "2 보통 로그인도 돌아갈 곳을 상태에 싣는다");
-  eq((await stateOf(fx, (await go(fx, new Jar(), "/auth/kakao/start?return_to=https%3A%2F%2Fevil.example%2F", { ua: CHROME })).location))?.next, undefined, "2 바깥 주소는 돌아갈 곳으로 받지 않는다");
+  eq((await stateOf(fx, (await go(fx, new Jar(), "/auth/kakao/start?return_to=https%3A%2F%2Fevil.example%2F&consent=1", { ua: CHROME })).location))?.next, undefined, "2 바깥 주소는 돌아갈 곳으로 받지 않는다");
 
   // 비회원(consent_required): 로그인 화면으로, 하루 멈춤, 토큰 교환 없음.
   const before = server.exchanges;
@@ -289,7 +292,8 @@ await linkFixture(async (fx, server) => {
   ok(events("kakao_auto_login_nonmember").length > 0, "2 비회원 자동 로그인은 운영 이벤트(info)로 남긴다");
   const loginPage = await go(fx, jar, nonmember.location, { ua: INAPP });
   eq(loginPage.status, 200, "2 돌아간 로그인 화면은 다시 자동 로그인으로 보내지 않는다");
-  ok(loginPage.html.includes(`<a class="kakaoBtn" href="/auth/kakao/start?return_to=${encodeURIComponent(RETURN_APP)}">`), "2 로그인 화면의 카카오 버튼이 돌아갈 곳을 싣는다");
+  // V22.9.95 R-9: 카카오 로그인은 동의 칸이 있는 GET 폼이고 돌아갈 곳은 숨은 칸이다(서버가 읽는 이름·값은 예전 주소와 같다).
+  ok(loginPage.html.includes(`<form class="kakaoStart" method="get" action="/auth/kakao/start"><input type="hidden" name="return_to" value="${RETURN_APP.replace(/&/g, "&amp;")}"/>`), "2 로그인 화면의 카카오 버튼이 돌아갈 곳을 싣는다");
   eq((await go(fx, new Jar(), "/my?auto=0", { ua: INAPP })).status, 200, "2 쿠키가 막힌 브라우저도 주소의 auto=0 으로 되풀이가 끊긴다");
 
   // 쿠키가 막혀 상태 쿠키가 없다: 오류 화면 대신 로그인 화면, 토큰 교환 없음.
@@ -301,7 +305,7 @@ await linkFixture(async (fx, server) => {
   ok(odd.location === "/my?auto=0" && events("kakao_auto_login_error").length > 0, "2 그 밖의 카카오 오류도 로그인 화면으로 가고 경고 이벤트를 남긴다");
 
   // 보통(자동 아님) 로그인의 오류 화면은 그대로.
-  const plainState = new URL((await go(fx, new Jar(), "/auth/kakao/start", { ua: CHROME })).location).searchParams.get("state");
+  const plainState = new URL((await go(fx, new Jar(), "/auth/kakao/start?consent=1", { ua: CHROME })).location).searchParams.get("state");
   const cancelled = await go(fx, new Jar(), `/auth/kakao/callback?error=access_denied&state=${encodeURIComponent(plainState)}`, { ua: CHROME });
   ok(cancelled.status === 400 && cancelled.html.includes("카카오 로그인을 취소했습니다"), "2 직접 누른 로그인의 취소 화면은 예전과 같다");
 });

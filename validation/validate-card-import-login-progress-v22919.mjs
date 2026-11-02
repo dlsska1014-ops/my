@@ -56,7 +56,8 @@ function assertScriptsParse(html, label) {
 {
   const login = await fetchPage("/my", { env: kakaoEnv, cookie: "" });
   eq(login.status, 200, "로그인 화면이 열린다");
-  ok(login.text.includes('href="/auth/kakao/start"'), "카카오 로그인 버튼이 있다");
+  // V22.9.95 R-9: 카카오 로그인은 동의 칸이 있는 GET 폼의 제출 단추다(대기 화면은 폼 제출에 뜬다).
+  ok(login.text.includes('<form class="kakaoStart" method="get" action="/auth/kakao/start">') && login.text.includes('<button class="kakaoBtn" type="submit">'), "카카오 로그인 버튼이 있다");
   ok(/<div id="kakaoLoginProgress"[^>]*\shidden[\s>]/.test(login.text), "팝업은 처음에 숨겨져 있다");
   ok(login.text.includes("로그인 중입니다"), "팝업이 '로그인 중입니다'라고 말한다");
   ok(/role="alertdialog"[^>]*aria-modal="true"/.test(login.text), "팝업은 대화상자로 알려진다(보조기기)");

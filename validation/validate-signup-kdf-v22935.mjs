@@ -51,7 +51,8 @@ subtleProto.deriveBits = function spyDeriveBits(algorithm, ...rest) {
 // ── 3. 가입·로그인 ────────────────────────────────────────────────
 await fixture(async (fx) => {
   const password = "kdf-check-2026";
-  const signup = await post(fx, "/my/local-signup", { login_name: "kdfcheck", display_name: "해시점검", access_code: password, access_code_confirm: password }, { cookie: "" });
+  // V22.9.95 R-9: 가입은 약관·개인정보처리방침 동의와 만 14세 확인 칸(consent=1)을 체크해야 된다(사람이 체크하고 보낸 요청).
+  const signup = await post(fx, "/my/local-signup", { login_name: "kdfcheck", display_name: "해시점검", access_code: password, access_code_confirm: password, consent: "1" }, { cookie: "" });
   eq(signup.status, 303, "운영 상한 아래에서 새 계정 만들기가 된다(예전에는 500)");
   ok(/ab_user=[^;]/.test(signup.setCookie), "가입 뒤 로그인 쿠키를 준다");
   const identity = fx.db.accountbook_user_identities.find((row) => row.provider === "local" && row.provider_subject === "kdfcheck");

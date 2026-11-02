@@ -142,7 +142,8 @@ const loginEnv = {
   KAKAO_REDIRECT_URI: `${NEW_ORIGIN}/auth/kakao/callback`,
   ADMIN_API_TOKEN: "qa-rename-admin-token",
 };
-const startLogin = (env) => app.fetch(new Request(`${NEW_ORIGIN}/auth/kakao/start`), env, ctx);
+// V22.9.95 R-9: 직접 누른 카카오 로그인은 동의 칸(consent=1)을 체크해야 시작한다(사람이 체크하고 누른 요청).
+const startLogin = (env) => app.fetch(new Request(`${NEW_ORIGIN}/auth/kakao/start?consent=1`), env, ctx);
 {
   const response = await startLogin(loginEnv);
   eq(response.status, 303, "새 도메인과 콜백을 함께 설정하면 카카오 로그인을 시작한다");

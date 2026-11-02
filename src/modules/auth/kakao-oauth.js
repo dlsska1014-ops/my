@@ -19,7 +19,9 @@ import {
   signedPurposeToken, verifyCredentialProof,
 } from "./identity-reauth.js";
 import { fetchUserById, fetchUserHouseholds } from "../data/users-household-create.js";
-import { addQueryToUrl } from "./local-login-pages.js";
+import {
+  SIGNUP_CONSENT_REQUIRED_MESSAGE, addQueryToUrl, recordSignupConsent,
+} from "./local-login-pages.js";
 import {
   isKakaoTalkInAppBrowser, kakaoAccountLinkProofAfterKakao, kakaoAutoLoginCookie,
   kakaoAutoLoginFallbackLocation,
@@ -51,6 +53,14 @@ async function handleKakaoLoginStart(request, env, url) {
     return redirectResponse(`${config.publicOrigin}/auth/kakao/start${url.search}`);
   }
   const linkMode = url.searchParams.get("link") === "1" || reauthMode;
+  // V22.9.95 R-9: 보통 로그인(login)은 새 계정이 생길 수 있는 길이라 약관·개인정보처리방침 동의와 만 14세 확인(consent=1)을 받아야 시작한다.
+  // 없고 로그인 세션도 없으면 카카오로 보내지 않고 로그인 화면(동의 칸 오류)으로 되돌린다. 인앱 자동 로그인(auto, 기존 계정만)·연결(link)·
+  // 본인 확인(reauth)은 새 계정을 만들지 않으므로 예전과 같다. 세션이 있는 사람은 막지 않되 상태에 동의가 없어 콜백이 새 계정을 만들지 않는다.
+  const consentGiven = url.searchParams.get("consent") === "1";
+  if (!linkMode && !autoMode && !consentGiven && !(await verifyUserSession(request, env))) {
+    rememberOpsEvent({ kind: "kakao_login_consent_missing", severity: "info", path: "/auth/kakao/start", method: "GET", detail: "start" });
+    return htmlResponse(renderUserLoginHtml(env, SIGNUP_CONSENT_REQUIRED_MESSAGE, safeUserReturnPath(url.searchParams.get("return_to") || "", ""), "kakao_consent"), 400);
+  }
   const currentUserId = linkMode ? await verifyUserSession(request, env) : "";
   if (linkMode && !currentUserId) return redirectResponse(reauthMode ? addQueryToUrl(reauthReturnTo, { err: "login_required" }) : "/my?err=login_required");
   if (reauthMode && /KAKAOTALK/i.test(request.headers.get("user-agent") || "")) return htmlResponse("<p>본인 확인은 Chrome 또는 Safari에서 이 주소를 열어 진행해 주세요.</p>", 403);
@@ -71,6 +81,7 @@ async function handleKakaoLoginStart(request, env, url) {
     const loginNext = safeUserReturnPath(url.searchParams.get("return_to") || "", "");
     if (loginNext) statePayload.next = loginNext;
     if (autoMode) statePayload.auto = 1;
+    if (consentGiven) statePayload.consent = 1;
   }
   const state = await signedPurposeToken(env, "kakao-oauth", statePayload, 600);
   const cookies = [
@@ -317,11 +328,20 @@ async function handleKakaoLoginCallback(request, env, url) {
       return redirectResponseWithCookies("/my?msg=kakao_linked", clearOauthCookies);
     }
     // V22.9.91 독립 검토: 자동 로그인(auto)은 새 계정을 만들지 않는다. 이 카카오 계정의 웹 계정이 이미 있을 때만 들인다.
-    let user = autoMode ? await findUserByKakaoLoginId(env, profile.kakaoId) : await ensureKakaoLoginUser(env, profile.kakaoId, profile.nickname);
+    // V22.9.95 R-9: 새 계정은 시작할 때 동의(consent=1)를 받은 로그인에서만 만든다(서명된 상태에 실린 값). 동의가 없으면(세션이 있던 사람, 배포 직전에
+    // 시작한 로그인 등) 기존 계정만 들이고, 새 계정이 필요하면 만들지 않고 로그인 화면(동의 칸 오류)으로 돌려보낸다. 만들었으면 동의 기록을 남긴다.
+    const loginConsent = stateProof.mode === "login" && stateProof.consent === 1;
+    let createdUser = null;
+    let user = autoMode ? await findUserByKakaoLoginId(env, profile.kakaoId) : await ensureKakaoLoginUser(env, profile.kakaoId, profile.nickname, { allowCreate: loginConsent, onCreated: (created) => { createdUser = created; } });
     if (autoMode && !user?.id) {
       rememberOpsEvent({ kind: "kakao_auto_login_no_account", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId}` });
       return autoFallback();
     }
+    if (!user?.id && !loginConsent) {
+      rememberOpsEvent({ kind: "kakao_login_consent_missing", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `new_account;trace=${traceId}` });
+      return htmlResponseWithCookies(renderUserLoginHtml(env, SIGNUP_CONSENT_REQUIRED_MESSAGE, stateProof.mode === "login" ? safeUserReturnPath(String(stateProof.next || ""), "") : "", "kakao_consent"), 400, clearOauthCookies);
+    }
+    if (createdUser?.id) await recordSignupConsent(env, createdUser.id, "kakao");
     if (!user?.id) throw kakaoStageError("account", "Kakao user provisioning failed");
     // V22.9.81 U-23: 프로필 이름 끝의 ‘(통합됨)’은 계정 통합 표식이라 떼고 쓴다(사용자를 만들 때와 같다). 그대로 쓰면 세션 확인이
     // 통합된 계정으로 보고 로그인을 거절했고, 다음 로그인에는 저장된 이름이 자리표시가 아니라서 풀리지 않았다.

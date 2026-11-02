@@ -266,8 +266,9 @@ async function handleUnifiedMenuPage(request, env, url) {
     ["처음 시작", `/start-guide?${monthQs}`, "초보자 체크리스트", "check"],
     ["스마트 입력 도움말", "/quick-input-help", "한 줄·여러 줄 입력 예시", "chat"],
     ["카카오 명령어", "/kakao-commands", "챗봇 대표 발화", "chat"],
-    ["이용안내", "/terms", "서비스 이용 기준", "file"],
-    ["개인정보 안내", "/privacy", "데이터 처리 안내", "shield"],
+    // V22.9.95 R-9: 가입 동의 칸과 같은 이름(이용약관·개인정보처리방침)으로 보인다. 개인정보처리방침은 표준 명칭을 쓴다.
+    ["이용약관", "/terms", "서비스 이용 기준", "file"],
+    ["개인정보처리방침", "/privacy", "처리 항목·보호책임자·삭제 요청", "shield"],
     // V22.9.95 후원: 도움말과 안내 목록 끝에 후원 안내 한 줄.
     ["후원하기", "/support", "운영 비용 함께 나누기", "sparkle"],
   ];

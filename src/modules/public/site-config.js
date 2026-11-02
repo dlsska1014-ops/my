@@ -156,14 +156,27 @@ function appName(env) {
   return env.APP_NAME || env.BRAND_NAME || "말해가계부";
 }
 
+// V22.9.95 R-9: 꼬리말에 대표자와 문의 이메일이 없었다. 대표자는 개인정보 보호책임자이고, 이메일은 개인정보처리방침 7절의 요청 경로와 같다.
+// 전화번호는 공개하지 않는다.
 const BUSINESS_FOOTER_INFO = Object.freeze({
   service: "말해가계부",
   company: "도담 네트워크",
+  representative: "백인남",
   businessNumber: "729-24-02288",
   address: "경기도 평택시 신촌3로 12",
   businessType: "정보통신업",
   businessItem: "응용 소프트웨어 개발 및 공급업",
+  email: "admin@malhaebook.com",
 });
+
+// V22.9.95 R-9: 개인정보처리방침·이용약관의 개정일이자 가입 동의 기록(consent:<user_id>)의 version 이다. 배포일에 맞춰 이 한 곳만 바꾼다.
+const POLICY_REVISION_DATE = "2026-11-10";
+
+// "2026-11-10" → "2026년 11월 10일"(방침 머리의 시행·개정일 표기).
+function policyDateLabel(ymd = POLICY_REVISION_DATE) {
+  const [y, m, d] = String(ymd || "").split("-").map((part) => Number(part));
+  return y && m && d ? `${y}년 ${m}월 ${d}일` : String(ymd || "");
+}
 
 function businessFooterText(value = "") {
   return escapeHtml(String(value || "").trim());
@@ -177,15 +190,18 @@ function renderBusinessInfoFooter() {
   .abBusinessFooterTitle{font-weight:1000;color:#334155;white-space:nowrap}
   .abBusinessFooterItem{display:inline-flex;gap:5px;align-items:baseline;min-width:0}
   .abBusinessFooterItem b{color:#475569;font-weight:900;white-space:nowrap}
+  .abBusinessFooterItem a{color:inherit;text-decoration:underline;overflow-wrap:anywhere}
   @media(max-width:700px){.abBusinessFooterInner{gap:5px 11px}.abBusinessFooterTitle{flex-basis:100%}.abBusinessFooterItem{font-size:10.5px}}
   </style><footer class="abBusinessFooter" aria-label="사업자 정보"><div class="abBusinessFooterInner">
     <span class="abBusinessFooterTitle">사업자 정보</span>
     <span class="abBusinessFooterItem"><b>상호</b>${businessFooterText(info.company)}</span>
+    <span class="abBusinessFooterItem"><b>대표</b>${businessFooterText(info.representative)}</span>
     <span class="abBusinessFooterItem"><b>등록번호</b>${businessFooterText(info.businessNumber)}</span>
     <span class="abBusinessFooterItem"><b>소재지</b>${businessFooterText(info.address)}</span>
     <span class="abBusinessFooterItem"><b>업태</b>${businessFooterText(info.businessType)}</span>
     <span class="abBusinessFooterItem"><b>종목</b>${businessFooterText(info.businessItem)}</span>
     <span class="abBusinessFooterItem"><b>서비스</b>${businessFooterText(info.service)}</span>
+    <span class="abBusinessFooterItem"><b>문의</b><a href="mailto:${businessFooterText(info.email)}">${businessFooterText(info.email)}</a></span>
   </div></footer>`;
 }
 
@@ -451,9 +467,19 @@ function ledgerMarkSvg() {
 // V22.9.87 T-20·T-21: 카카오 로그인 버튼(§3-4: #FEE500 면, 검은 말풍선 심볼, 라벨 ‘카카오 로그인’). /my 시작 화면과 공개 첫 화면의
 // 카카오 로그인 띠가 같은 마크업을 쓴다. 색·크기는 각 화면 CSS 의 .kakaoBtn 이 정한다. 설정이 준비된 서버에서만 부른다.
 // V22.9.91: 로그인이 풀려 /my?return_to=… 로 온 사람은 카카오 로그인 뒤에도 보던 화면으로 돌아간다(주소는 safeUserReturnPath 를 거친 값만 받는다).
-function kakaoLoginButtonHtml(returnTo = "") {
-  const href = returnTo ? `/auth/kakao/start?return_to=${encodeURIComponent(returnTo)}` : "/auth/kakao/start";
-  return '<a class="kakaoBtn" href="' + href + '"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466 0 2.66 1.77 4.995 4.432 6.316l-.9 3.296a.35.35 0 0 0 .532.383l3.917-2.598c.5.06 1.007.09 1.519.09 5.247 0 9.5-3.343 9.5-7.487C21.5 6.843 17.247 3.5 12 3.5Z"/></svg>카카오 로그인</a>';
+// V22.9.95 R-9: 카카오 로그인으로 새 계정이 생길 수 있어 단추 위에 동의 칸(약관·개인정보처리방침 동의 + 만 14세 이상, 필수)을 둔다. 링크였던 단추를
+// GET 폼(/auth/kakao/start)의 제출 단추로 바꿨다. 스크립트가 없어도 브라우저 required 가 막고, 서버도 consent=1 이 없으면 로그인 화면으로 되돌린다.
+// 돌아갈 곳(return_to)은 숨은 칸으로 싣는다(서버가 읽는 이름과 값은 예전 주소와 같다). consentError 는 서버가 되돌린 화면의 칸 아래 문구다.
+function kakaoLoginButtonHtml(returnTo = "", { consentError = "" } = {}) {
+  const back = returnTo ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/>` : "";
+  return '<form class="kakaoStart" method="get" action="/auth/kakao/start">' + back + signupConsentFieldHtml("kakaoConsent", consentError) + '<button class="kakaoBtn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466 0 2.66 1.77 4.995 4.432 6.316l-.9 3.296a.35.35 0 0 0 .532.383l3.917-2.598c.5.06 1.007.09 1.519.09 5.247 0 9.5-3.343 9.5-7.487C21.5 6.843 17.247 3.5 12 3.5Z"/></svg>카카오 로그인</button></form>';
+}
+
+// V22.9.95 R-9: 가입 폼과 카카오 로그인 폼이 같이 쓰는 동의 칸. 두 링크는 새 탭으로 연다(같은 사이트라 opener 위험이 없다). 서버 오류가 있을 때만
+// 칸에 aria-invalid 와 칸 아래 문구(.fieldError)를 붙인다. 미리 체크해 두지 않는다(동의는 사용자가 직접 표시한다).
+function signupConsentFieldHtml(id = "signupConsent", error = "") {
+  const note = error ? ` aria-invalid="true" aria-describedby="${id}Error"` : "";
+  return `<label class="consentRow"><input id="${id}" name="consent" type="checkbox" value="1" required${note}/><span><a href="/terms" target="_blank">이용약관</a>과 <a href="/privacy" target="_blank">개인정보처리방침</a>에 동의하며, 만 14세 이상입니다</span></label>${error ? `<p class="fieldError" id="${id}Error">${escapeHtml(error)}</p>` : ""}`;
 }
 
 function publicSiteNav(active = "home") {
@@ -478,14 +504,14 @@ function publicSiteFooter() {
 // @build:exports-start
 export {
   APP_MODE, APP_VERSION, BUSINESS_FOOTER_INFO, DEFAULT_PUBLIC_BASE_URL,
-  KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS, PUBLIC_CONTENT_PATHS, adSlotMarkup,
-  adfitUnitStatus, adsHeadMarkup, adsHeaders, adsMode, adsPolicyLinks, adsPolicyNetwork,
-  adsPolicyText, adsensePublisherIdForTxt, appName, canonicalRedirectResponse,
-  cardPerformanceEnabled, currentRequestBaseUrl, envFlagEnabled, handleKakaoCommandSystemPage,
-  hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled, kakaoChatCommandCatalog,
-  kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg, memeCardsEnabled,
-  normalizeBaseUrl, pageNotFoundResponse, premiumBetaEnabled, publicAdsenseHead, publicBaseUrl,
-  publicSiteFooter, publicSiteNav, publicSupportEmail, renderBusinessInfoFooter,
-  renderSkillGetHealthHtml,
+  KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS, POLICY_REVISION_DATE,
+  PUBLIC_CONTENT_PATHS, adSlotMarkup, adfitUnitStatus, adsHeadMarkup, adsHeaders, adsMode,
+  adsPolicyLinks, adsPolicyNetwork, adsPolicyText, adsensePublisherIdForTxt, appName,
+  canonicalRedirectResponse, cardPerformanceEnabled, currentRequestBaseUrl, envFlagEnabled,
+  handleKakaoCommandSystemPage, hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled,
+  kakaoChatCommandCatalog, kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg,
+  memeCardsEnabled, normalizeBaseUrl, pageNotFoundResponse, policyDateLabel, premiumBetaEnabled,
+  publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav, publicSupportEmail,
+  renderBusinessInfoFooter, renderSkillGetHealthHtml, signupConsentFieldHtml,
 };
 // @build:exports-end

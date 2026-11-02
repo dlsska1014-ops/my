@@ -1,9 +1,10 @@
 // @build:imports-start
 import { nluOpsConfig } from "../runtime/ops-telemetry.js";
 import {
-  BUSINESS_FOOTER_INFO, PUBLIC_CONTENT_PATHS, adSlotMarkup, adsHeadMarkup, adsHeaders,
-  adsPolicyLinks, adsPolicyNetwork, adsPolicyText, adsensePublisherIdForTxt, appName,
-  kakaoLoginButtonHtml, publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav,
+  BUSINESS_FOOTER_INFO, POLICY_REVISION_DATE, PUBLIC_CONTENT_PATHS, adSlotMarkup, adsHeadMarkup,
+  adsHeaders, adsPolicyLinks, adsPolicyNetwork, adsPolicyText, adsensePublisherIdForTxt, appName,
+  kakaoLoginButtonHtml, policyDateLabel, publicAdsenseHead, publicBaseUrl, publicSiteFooter,
+  publicSiteNav,
 } from "./site-config.js";
 import {
   publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages,
@@ -34,31 +35,55 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
   // V22.9.92: 카카오 애드핏으로 광고를 내는 서버(adsPolicyNetwork 가 "adfit")에서는 개인정보처리방침·쿠키 안내의 광고 절을
   // 카카오 기준 문장과 링크로 바꾼다(Google 안내·지역별 동의 절은 Google 광고에만 맞는 말이라 뺀다). 그 밖(심사 모드·AdSense)은 지금 그대로다.
   const adfit = adsPolicyNetwork(env) === "adfit";
+  // V22.9.95 R-9: 개인정보처리방침 보강(처리 항목 표·보호책임자·위탁과 국외 이전·만 14세·파기·구제·변경 고지). 개정일은 POLICY_REVISION_DATE 한 곳이다.
+  // 항목은 코드로 확인한 것만 적는다. Supabase 데이터센터 리전은 저장소 문서에 없어 확인 전까지 아래 문구로 둔다(확인 필요).
+  const revision = `시행일 2026년 7월 13일 · 개정 ${policyDateLabel(POLICY_REVISION_DATE)}`;
+  const supportEmail = BUSINESS_FOOTER_INFO.email;
+  const databaseRegion = "서비스 설정상 해외 데이터센터";
   const catalog = {
     ...publicGuidePages(env),
     ...publicLivingCostArticlesV22974(),
     privacy: {
       title: "개인정보처리방침",
-      description: "말해가계부가 처리하는 개인정보와 가계부 데이터, 처리 목적, 보관 기간, 광고 쿠키와 이용자 권리를 안내합니다.",
-      eyebrow: "시행일 2026년 7월 13일",
+      description: "말해가계부가 처리하는 개인정보와 가계부 데이터, 처리 목적, 보관 기간, 처리 위탁과 국외 이전, 개인정보 보호책임자, 광고 쿠키와 이용자 권리를 안내합니다.",
+      eyebrow: revision,
       intro: "말해가계부는 서비스 제공에 필요한 범위에서 사용자와 가계부 데이터를 처리합니다. 처리 목적과 보유기간을 벗어나 임의로 이용하지 않으며, 사용자 발화를 AI 모델 학습에 자동 활용하지 않습니다.",
       sections: [
         { title: "1. 처리하는 항목과 목적", paragraphs: ["사용자 식별키와 로그인 정보는 사용자 구분과 세션 유지에 사용합니다. 가계부 이름, 참여자 권한, 초대코드, 표시 이름은 공동 가계부 운영에 사용합니다.", "수입·지출, 날짜, 분류, 결제수단, 메모, 예산과 설정값은 기록·조회·분석·백업 기능을 제공하기 위해 처리합니다. 카카오 거래 입력 원문은 거래 데이터와 함께 보관될 수 있습니다. 단톡방 연결키는 첫 기록으로 준비하거나 직접 연결한 공동 가계부와 해당 방을 구분하는 데 사용합니다."], bullets: ["회원 및 세션 관리", "가계부 생성·참여·권한 관리", "거래 기록·예산·요약·정산 제공", "중복 저장 방지와 장애 대응", "법적 의무와 분쟁 대응"] },
         { title: "2. 사용자 발화와 자연어 운영 로그", paragraphs: ["사용자 발화는 요청을 이해하고 응답하기 위해 사용합니다. 발화를 외부 AI 모델의 학습 데이터로 자동 전송하거나 자동 학습 데이터로 등록하지 않습니다.", "운영 통계는 의도, 처리 결과, 지연시간과 배포 버전을 집계합니다. 실패한 요청의 일부 문장은 URL·이메일·전화번호·코드·긴 숫자 등을 마스킹하여 임시 메모리에 보관할 수 있습니다. 마스킹이 모든 개인정보를 완전히 제거한다고 보장하지는 않습니다. 별도 실패 사례 저장은 운영 설정에 따르며 거래 데이터의 보관과 구분합니다."] },
-        { title: "3. 보유기간과 삭제", paragraphs: ["가계부 거래와 설정은 사용자가 서비스를 이용하는 동안 보관하며 웹에서 직접 수정·삭제할 수 있습니다. 가계부 소유자가 영구 삭제를 완료하면 해당 가계부의 거래와 관련 설정을 삭제합니다. 가계부 나가기는 참여 권한을 종료하며 공동 거래 이력은 보존합니다. 현재 계정 자체를 탈퇴·삭제하는 온라인 기능은 제공하지 않으며 개인정보 삭제 요청은 서비스 문의 경로로 확인합니다.", "세션과 운영 로그는 목적에 필요한 기간만 보관합니다. 법령상 보존 의무가 있는 경우 해당 기간 동안 분리 보관할 수 있습니다."] },
+        { title: "3. 보유기간과 삭제", paragraphs: [`가계부 거래와 설정은 사용자가 서비스를 이용하는 동안 보관하며 웹에서 직접 수정·삭제할 수 있습니다. 가계부 소유자가 영구 삭제를 완료하면 해당 가계부의 거래와 관련 설정을 삭제합니다. 가계부 나가기는 참여 권한을 종료하며 공동 거래 이력은 보존합니다. 현재 계정 자체를 탈퇴·삭제하는 온라인 기능은 제공하지 않으며 개인정보 삭제 요청은 서비스 문의 경로로 확인합니다. 문의 경로는 7절의 개인정보 보호책임자 이메일(${supportEmail})입니다.`, "세션과 운영 로그는 목적에 필요한 기간만 보관합니다. 법령상 보존 의무가 있는 경우 해당 기간 동안 분리 보관할 수 있습니다."] },
         adfit ? { title: "4. 제3자 광고와 쿠키", paragraphs: [adsPolicyText(env, "privacy"), adsPolicyText(env, "privacy-control")], links: adsPolicyLinks(env) } : { title: "4. 제3자 광고와 쿠키", paragraphs: [adsPolicyText(env, "privacy") || "현재 공개 페이지에서는 Google 광고를 실행하지 않습니다. 향후 광고 기능이 활성화되면 Google을 포함한 제3자 광고 사업자가 쿠키를 사용해 사용자의 이전 방문 정보 등을 바탕으로 광고를 제공하고 성과를 측정할 수 있습니다.", "제3자는 광고 제공 과정에서 브라우저의 쿠키를 저장·조회하거나 웹 비콘과 IP 주소 같은 기술을 사용할 수 있습니다. 말해가계부는 거래 내용, 예산, 가계부 구성원 정보와 사용자 발화 원문을 광고주에게 판매하지 않습니다. 사용자는 Google 광고 설정과 브라우저 설정을 통해 광고 개인화와 쿠키를 관리할 수 있습니다."], links: [...adsPolicyLinks(env), ["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 파트너 사이트 정보 이용 안내", "https://policies.google.com/technologies/partner-sites?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
-        { title: "5. 이용자의 권리", paragraphs: ["사용자는 자신의 기록과 설정을 열람·수정·삭제하고 백업할 수 있습니다. 개인정보 처리에 관한 문의와 권리 행사는 문의 안내에 표시된 경로로 요청할 수 있으며 본인과 권한 확인 후 처리합니다."] },
-        { title: "6. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
+        { title: "5. 이용자의 권리", paragraphs: ["사용자는 자신의 기록과 설정을 열람·수정·삭제하고 백업할 수 있습니다. 개인정보 처리에 관한 문의와 권리 행사는 문의 안내에 표시된 경로로 요청할 수 있으며 본인과 권한 확인 후 처리합니다.", "개인정보의 열람·정정·삭제·처리정지 요구는 7절의 개인정보 보호책임자에게 이메일로 할 수 있습니다."] },
+        { title: "6. 처리하는 개인정보 항목과 보유기간", paragraphs: ["말해가계부는 아래 항목만 처리합니다. 카카오 로그인으로는 카카오 회원번호와 닉네임만 저장하며 프로필 사진·이메일·전화번호는 저장하지 않습니다."], table: { caption: "처리하는 개인정보 항목, 수집 시점과 보유기간", headers: ["구분", "처리 항목", "수집 시점", "보유기간"], rows: [
+          ["카카오 로그인", "카카오 회원번호, 카카오 닉네임", "카카오 로그인으로 가입하거나 로그인할 때", "회원 이용 기간(삭제 요청 시까지)"],
+          ["로그인 이름 계정", "로그인 이름, 표시 이름, 비밀번호(복원할 수 없게 변환한 값만 저장)", "새 계정을 만들거나 로그인 정보를 바꿀 때", "회원 이용 기간(삭제 요청 시까지)"],
+          ["카카오톡 챗봇", "카카오가 보내는 챗봇 사용자 식별키(botUserKey 등), 단톡방 식별키(botGroupKey), 보낸 문장 원문", "챗봇에 문장을 보낼 때", "회원 이용 기간. 문장 원문은 그 문장으로 저장한 거래와 함께 보관합니다."],
+          ["가계부 데이터", "수입·지출 내역(금액·날짜·분류·결제수단·메모), 예산, 정기 규칙, 가계부 이름, 참여자와 권한, 초대코드, 설정값", "사용자가 입력하거나 설정할 때", "가계부를 영구 삭제할 때까지"],
+          ["거래 변경 이력", "고치거나 지운 거래의 바뀌기 전·후 내용, 변경한 사용자, 변경 시각", "거래를 고치거나 지울 때", "최대 180일"],
+          ["접속·보안 기록", "IP 주소, 브라우저 정보(User-Agent), 요청 경로와 시각", "서비스에 접속할 때 자동으로 생성", "요청 횟수 제한에 쓰는 값은 서버 인스턴스 메모리에만 잠시 두고 저장하지 않습니다. 로그인·가입 시도 제한에는 IP 주소 등을 복원할 수 없게 변환한 값과 시도 횟수만 데이터베이스에 저장하고, 로그인에 성공하면 그 기록을 지웁니다."],
+          ["쿠키", "아래 쿠키 목록", "로그인·본인 확인·가계부 선택 때", "아래 쿠키 목록"],
+        ] }, bullets: ["ab_user: 로그인 유지(세션), 14일", "ab_hh: 마지막으로 연 가계부 기억, 1년", "kakao_oauth_state·kakao_oauth_link_user·kakao_oauth_reauth_household·kakao_oauth_return_to: 카카오 로그인 요청 확인, 10분", "ab_credential_reauth·ab_household_delete_reauth·ab_account_link: 본인 확인과 계정 잇기 확인, 5분", "ab_kakao_auto: 카카오톡 안 자동 로그인 시도 상태, 10분~30일(직접 로그아웃하면 30일 동안 멈춤)", "ab_account_link_later·ab_account_link_pause: 계정 잇기 안내 미루기, 7일·10분", "ab_admin: 운영자 관리 화면 로그인(운영자만), 12시간", "모든 쿠키는 HTTPS 연결에서만 보내고(Secure) 화면의 스크립트가 읽지 못하게(HttpOnly) 설정합니다. 광고 쿠키는 4절을 따릅니다."] },
+        { title: "7. 개인정보 보호책임자", paragraphs: [`개인정보 처리 업무를 총괄하고 이용자의 불만 처리와 피해 구제를 맡는 개인정보 보호책임자는 다음과 같습니다. 성명 ${BUSINESS_FOOTER_INFO.representative}(대표), 이메일 ${supportEmail}.`, "개인정보의 열람·정정·삭제·처리정지 요구와 개인정보 관련 문의는 위 이메일로 보내 주세요. 본인임을 확인한 뒤 처리하며, 요구를 받은 날부터 10일 안에 결과를 알립니다. 그 안에 처리하기 어려우면 이유와 처리할 날짜를 알립니다. 이메일에 계정 비밀번호나 연결 코드는 적지 마세요."], links: [["개인정보 보호책임자에게 이메일 보내기", `mailto:${supportEmail}`]] },
+        { title: "8. 개인정보 처리 위탁과 국외 이전", paragraphs: ["말해가계부는 서비스를 제공하려고 아래 사업자에게 개인정보 처리 업무를 맡깁니다. 미국 법인에 맡기는 처리는 개인정보의 국외 이전에 해당하며, 서비스 제공 계약을 이행하는 데 필요한 처리 위탁과 보관이므로 이 방침에 알리고 이전합니다. 맡긴 업무 밖으로 개인정보를 쓰지 않도록 관리합니다."], table: { caption: "개인정보 처리 위탁과 국외 이전", headers: ["받는 자(국가)", "맡기는 업무", "이전되는 항목", "이전 시점과 방법", "보유·이용 기간"], rows: [
+          ["Cloudflare, Inc.(미국)", "서비스 실행(Workers), 네트워크 전송과 보안", "서비스를 이용하며 주고받는 정보(접속 기록 포함)", "이용할 때마다 암호화 통신(HTTPS)으로 전송", "위탁 계약이 끝날 때까지(Cloudflare 개인정보처리방침에 따름)"],
+          ["Supabase, Inc.(미국 법인)", "데이터베이스 보관과 운영", "6절의 계정·가계부·챗봇·보안 기록", `저장하거나 읽을 때마다 암호화 통신(HTTPS)으로 전송해 ${databaseRegion}에 보관`, "회원 정보 삭제 또는 위탁 계약이 끝날 때까지"],
+          ["주식회사 카카오(대한민국)", "카카오 로그인, 카카오톡 챗봇 메시지 전달", "카카오 회원번호·닉네임, 챗봇 식별키·보낸 문장과 답", "로그인하거나 챗봇을 쓸 때 카카오 서버를 거쳐 전달", "카카오 개인정보처리방침에 따름"],
+        ] }, note: "국외 이전을 원하지 않으면 가입하지 않거나 7절의 이메일로 개인정보 삭제를 요청할 수 있습니다. 이 이전은 서비스를 제공하는 데 꼭 필요하므로, 거부하면 서비스를 이용할 수 없습니다." },
+        { title: "9. 만 14세 미만 아동의 개인정보", paragraphs: ["만 14세 미만 아동은 가입하거나 서비스를 이용할 수 없습니다. 웹에서 새 계정을 만들거나 카카오 로그인을 할 때 만 14세 이상인지 확인합니다.", "만 14세 미만 아동의 계정이나 개인정보임을 알게 되면 지체 없이 삭제합니다."] },
+        { title: "10. 개인정보의 파기 절차와 방법", paragraphs: ["보유기간이 끝나거나 처리 목적을 이룬 개인정보는 지체 없이 파기합니다. 다른 법령에 따라 보존해야 하면 다른 정보와 분리해 그 기간 동안만 보관합니다.", "파기 절차: 파기할 개인정보를 정하고 개인정보 보호책임자의 확인을 거쳐 파기합니다. 파기 방법: 전자 파일은 복구할 수 없도록 데이터베이스에서 삭제합니다. 개인정보를 종이로 출력해 두지 않으며, 출력한 것이 있으면 분쇄하거나 소각합니다.", "거래 변경 이력(고치거나 지운 거래의 바뀌기 전 내용)은 실행 취소와 복구를 위해 보관하며, 180일이 지나면 자동으로 삭제합니다.", "사용자가 내려받은 백업 파일은 사용자 기기에 저장되므로 사용자가 직접 지워야 합니다. 장애에 대비해 데이터베이스 사본을 만드는 경우 운영자만 접근하게 하고, 원본에서 지운 정보는 사본의 보관 기간이 끝날 때 함께 지웁니다."] },
+        { title: "11. 권익침해 구제 방법", paragraphs: ["개인정보 침해에 대한 신고나 상담이 필요하면 아래 기관에 문의할 수 있습니다."], bullets: ["개인정보침해신고센터(한국인터넷진흥원): privacy.kisa.or.kr, 국번 없이 118", "개인정보분쟁조정위원회: www.kopico.go.kr, 1833-6972", "대검찰청 사이버수사과: www.spo.go.kr, 국번 없이 1301", "경찰청 사이버수사국: ecrm.police.go.kr, 국번 없이 182"] },
+        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다.", `이 방침은 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
+        { title: "13. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
       ],
     },
     terms: {
       title: "서비스 이용약관",
       description: "말해가계부의 서비스 목적, 사용자 책임, 공동 가계부 권한, 데이터 관리, 광고와 서비스 변경 기준을 안내합니다.",
-      eyebrow: "시행일 2026년 7월 13일",
+      eyebrow: revision,
       intro: "본 약관은 말해가계부를 이용할 때 서비스와 사용자 사이의 기본 기준을 설명합니다. 사용자는 최신 약관과 개인정보처리방침을 확인한 뒤 서비스를 이용합니다.",
       sections: [
         { title: "1. 서비스 목적", paragraphs: ["말해가계부는 사용자가 직접 입력한 생활 수입·지출을 개인 또는 공동 가계부 단위로 기록하고 예산·요약·분석·백업 기능을 제공하는 서비스입니다.", "금융상품, 투자, 세무, 법률 자문을 제공하지 않으며 서비스의 계산값은 생활 기록을 돕는 참고자료입니다."] },
-        { title: "2. 사용자 책임", paragraphs: ["사용자는 입력한 금액, 날짜, 결제수단, 메모와 분류의 정확성을 확인해야 합니다. 계정, 초대코드와 접근 수단을 안전하게 관리하고 다른 사람의 정보를 권한 없이 입력해서는 안 됩니다."] },
+        { title: "2. 사용자 책임", paragraphs: ["사용자는 입력한 금액, 날짜, 결제수단, 메모와 분류의 정확성을 확인해야 합니다. 계정, 초대코드와 접근 수단을 안전하게 관리하고 다른 사람의 정보를 권한 없이 입력해서는 안 됩니다.", "말해가계부는 만 14세 이상만 이용할 수 있습니다. 웹에서 새 계정을 만들거나 카카오 로그인을 할 때 이용약관과 개인정보처리방침에 동의하고 만 14세 이상임을 확인하는 절차를 거칩니다."] },
         { title: "3. 공동 가계부와 권한", paragraphs: ["가계부 소유자와 관리자는 참여자 초대, 승인, 역할과 표시 이름을 관리할 수 있습니다. 참여자는 부여된 권한 범위에서 조회·기록·수정 기능을 사용합니다.", "새 미연결 단톡방에서는 봇에게 명확한 첫 거래를 보내면 공동 가계부를 준비하고 첫 기록자가 소유자가 됩니다. 기존 가계부를 연결하려면 해당 가계부의 소유자 또는 관리자 권한이 필요합니다. 연결을 변경할 때에는 현재 연결된 가계부의 관리 권한도 확인합니다. 기록 전 가계부 이름과 공유 범위를 확인해야 합니다."] },
         { title: "4. 데이터 수정·삭제와 백업", paragraphs: ["사용자는 거래와 설정을 수정·삭제할 수 있으며 중요한 변경 전 백업을 권장합니다. 가져오기, 일괄 수정, 삭제와 복구는 확인 절차를 제공하지만 모든 실수를 자동 복원한다고 보장하지 않습니다."] },
         { title: "5. 서비스 제한과 장애", paragraphs: ["보안, 과도 요청, 점검, 외부 서비스 장애 또는 법적 필요가 있는 경우 일부 기능을 일시 제한할 수 있습니다. 중복 저장과 데이터 손상을 줄이는 것을 우선하며 장애가 발생하면 안전 안내와 재시도 방법을 제공합니다."] },
@@ -87,6 +112,9 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
     catalog[key].type = "WebPage";
     catalog[key].updated = "2026-10-11";
   }
+  // V22.9.95 R-9: 이번 판에 고친 방침·약관은 수정일이 개정일이다(쿠키 안내는 그대로).
+  catalog.privacy.updated = POLICY_REVISION_DATE;
+  catalog.terms.updated = POLICY_REVISION_DATE;
   // V22.9.74: 생활비 가이드 글(12편 + 20편)에 분류·작성일을 붙이고, 글 목록 허브와 사이트맵 절을 그 목록으로 만든다.
   publicNormalizeLivingArticles(catalog);
   const articleIndex = publicArticleIndex(catalog);
@@ -250,6 +278,8 @@ function publicLandingStyles() {
     + `.pubLandNote{display:flex;gap:14px;align-items:flex-start}.pubLandNote .pubIco{width:40px;height:40px;border-radius:12px}.pubHome .pubLandNote h2{margin:0 0 6px;font-size:18px}.pubLandNote p{max-width:760px;margin:0;color:#43516a;font-size:15px;line-height:1.8}`
     + `.pubBand{margin:12px 0 4px;padding:26px 20px;border-radius:24px;background:#e8f3ff;text-align:center}.pubHome .pubBand h2{margin:0 0 16px;font-size:21px}.pubBandActions{display:grid;gap:10px;max-width:420px;margin:0 auto}.pubBand .pubBtn{min-height:54px}.pubBand .pubBtn.secondary{background:#fff!important}`
     + `.kakaoBtn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:54px;border-radius:12px;background:#fee500;color:rgba(0,0,0,.85);font-size:16px;font-weight:800;text-decoration:none}.kakaoBtn svg{width:22px;height:22px;fill:#000}`
+    // V22.9.95 R-9: 띠의 카카오 로그인은 동의 칸이 있는 GET 폼이다(로그인 화면과 같은 마크업). 제출 단추가 글꼴을 물려받고 칸 글은 왼쪽 정렬이다.
+    + `button.kakaoBtn{width:100%;border:0;font:inherit;font-size:16px;font-weight:800;cursor:pointer}.consentRow{display:flex;align-items:flex-start;gap:9px;margin:0 0 10px;color:#334155;font-size:13.5px;line-height:1.55;text-align:left;cursor:pointer}.consentRow input{flex:none;width:20px;height:20px;margin:1px 0 0;accent-color:#1d4ed8}.consentRow span{min-width:0}.consentRow a{font-weight:700}`
     + `@media(min-width:760px){.pubSteps{grid-template-columns:repeat(3,minmax(0,1fr))}.pubSteps li{flex-direction:column}}@media(min-width:860px){.pubLandPreview{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,440px);grid-template-rows:auto auto 1fr;column-gap:48px;align-items:start}.pubLandPreview>*{grid-column:1}.pubLandPreview>.pubPreview{grid-column:2;grid-row:1/-1}.pubLandHead{justify-content:flex-start}}@media(max-width:600px){.pubHome .pubHeroActions{flex-direction:column}.pubHome .pubHero h1{font-size:30px}}`;
 }
 
