@@ -1,9 +1,9 @@
 name: Repository verification
 
 # V22.9.95 R-11: 브랜치 푸시 실행은 PR 의 pull_request 실행과 같은 검사를 되풀이해(PR 당 8번) main 푸시만 돌리고, main 실행은 새 푸시가 와도 취소하지 않는다.
+# PR 실행은 base 가 어느 브랜치든 돈다(쌓인 PR 도 검사). main 은 커밋(sha)마다 따로 묶어 짧은 사이의 병합도 모두 돈다.
 on:
   pull_request:
-    branches: [main]
   push:
     branches: [main]
 
@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: verify-${{ github.workflow }}-${{ github.ref }}
+  group: verify-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:

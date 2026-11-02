@@ -291,10 +291,12 @@ await section("7 CI 설정", async () => {
   const yml = read("../.github/workflows/verify.yml");
   ok(yml.includes("\n  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}\n") && !/cancel-in-progress:\s*true/.test(yml), "7-a 앞선 실행 취소는 main 이 아닐 때만이다(main 실행은 끝까지 돈다)");
   ok(yml.includes("\n  push:\n    branches: [main]\n") && !yml.includes("'**'"), "7-b 푸시 실행은 main 만이다(브랜치 푸시는 PR 의 pull_request 실행이 맡는다)");
-  ok(yml.includes("\non:\n  pull_request:\n    branches: [main]\n"), "7-c main 대상 PR 실행은 그대로다");
-  ok(yml.includes("        os: [ubuntu-latest, windows-latest]\n        categories: [present, absent]\n") && yml.includes("run: node .codex/scripts/verify-repository.mjs") && yml.includes("run: node monitoring/test-d1.mjs") && yml.includes("  group: verify-${{ github.workflow }}-${{ github.ref }}\n"),
-    "7-d 네 칸(ubuntu·windows × present·absent)·두 단계·동시 실행 묶음 이름은 그대로다");
-  ok((yml.match(/^# V22\.9\.95 R-11: .+$/gm) || []).length === 1, "7-e 왜 바꿨는지 주석 한 줄이 있다");
+  // 통합 때 고침(에이전트 보고 P2): pull_request 에 branches 거르개가 있으면 base 가 main 이 아닌 쌓인 PR 은 CI 가 전혀 없다(푸시 실행도 main 만이라).
+  ok(yml.includes("\non:\n  pull_request:\n  push:\n") && !yml.includes("pull_request:\n    branches"), "7-c PR 실행은 base 가 어느 브랜치든 돈다(쌓인 PR 도 검사한다)");
+  // 통합 때 고침(P3): 같은 묶음에서 기다리는 실행은 하나뿐이라 짧은 사이의 병합 세 번이면 가운데 실행이 버려진다. main 은 커밋(sha)마다 따로 묶는다.
+  ok(yml.includes("        os: [ubuntu-latest, windows-latest]\n        categories: [present, absent]\n") && yml.includes("run: node .codex/scripts/verify-repository.mjs") && yml.includes("run: node monitoring/test-d1.mjs") && yml.includes("  group: verify-${{ github.workflow }}-${{ github.ref == 'refs/heads/main' && github.sha || github.ref }}\n"),
+    "7-d 네 칸(ubuntu·windows × present·absent)·두 단계는 그대로이고 main 실행은 커밋마다 따로 묶는다");
+  ok((yml.match(/^# V22\.9\.95 R-11: .+$/gm) || []).length === 1 && /^# PR 실행은 base 가 어느 브랜치든 돈다/m.test(yml), "7-e 왜 바꿨는지 주석이 있다");
 });
 
 if (failures.length) {
