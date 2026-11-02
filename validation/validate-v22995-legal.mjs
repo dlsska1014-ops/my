@@ -37,6 +37,10 @@ const siteConfig = read("../src/modules/public/site-config.js");
 const REVISION = siteConfig.match(/const POLICY_REVISION_DATE = "(\d{4}-\d{2}-\d{2})";/)?.[1] || "";
 const [RY, RM, RD] = REVISION.split("-").map(Number);
 const REVISION_LABEL = `${RY}년 ${RM}월 ${RD}일`;
+// E-17: 공고일(화면에 올린 날) + 7일 = 시행일. 12절의 ‘시행 7일 전 고지’ 와 같은 수.
+const NOTICE = siteConfig.match(/const POLICY_NOTICE_DATE = "(\d{4}-\d{2}-\d{2})";/)?.[1] || "";
+const [NY, NM, ND] = NOTICE.split("-").map(Number);
+const NOTICE_LABEL = `${NY}년 ${NM}월 ${ND}일`;
 const SCENE_AT = new Date(Date.parse(`${REVISION}T12:00:00+09:00`)).toISOString();
 const MESSAGE = "약관·개인정보처리방침 동의와 만 14세 이상 확인이 필요해요";
 const LABEL = "이용약관과 개인정보처리방침에 동의하며, 만 14세 이상입니다";
@@ -146,6 +150,7 @@ function progressSandbox(source, { withForm = true } = {}) {
 }
 
 ok(/^\d{4}-\d{2}-\d{2}$/.test(REVISION) && Number.isFinite(Date.parse(`${REVISION}T00:00:00Z`)), `0 개정일 상수 POLICY_REVISION_DATE 가 날짜다 (${REVISION})`);
+ok(/^\d{4}-\d{2}-\d{2}$/.test(NOTICE) && Date.parse(`${REVISION}T00:00:00Z`) - Date.parse(`${NOTICE}T00:00:00Z`) === 7 * 86400000, `0 공고일 상수 POLICY_NOTICE_DATE 가 날짜이고 시행일이 공고일 + 7일이다 (${NOTICE} → ${REVISION}, E-17)`);
 
 // ── 1. 로그인 화면 ───────────────────────────────────────────────────────────
 await section("1 로그인 화면", () => scene(async (fx) => {
@@ -359,8 +364,8 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
   const titles = [...html.matchAll(/<section class="pubSection" id="section-\d+"><h2>([^<]*)<\/h2>/g)].map((m) => m[1]);
   eq(titles.map((title) => Number(title.split(".")[0])), Array.from({ length: 13 }, (_, i) => i + 1), "5 1~13절 번호가 차례대로다");
   eq(titles.slice(5), ["6. 처리하는 개인정보 항목과 보유기간", "7. 개인정보 보호책임자", "8. 개인정보 처리 위탁과 국외 이전", "9. 만 14세 미만 아동의 개인정보", "10. 개인정보의 파기 절차와 방법", "11. 권익침해 구제 방법", "12. 개인정보처리방침의 변경", "13. 안전성 확보 조치"], "5 6~13절 제목");
-  ok(html.includes(`시행일 2026년 7월 13일 · 개정 ${REVISION_LABEL}`), "5 머리에 시행일과 개정일이 있다");
-  ok(html.includes(`"dateModified":"${REVISION}"`) && html.includes(`<time datetime="${REVISION}">`), "5 수정일(구조화 데이터·화면)이 개정일이다");
+  ok(html.includes(`시행일 2026년 7월 13일 · 개정 공고 ${NOTICE_LABEL} · 개정 시행 ${REVISION_LABEL}`), "5 머리에 최초 시행일·개정 공고일·개정 시행일이 있다");
+  ok(html.includes(`"dateModified":"${NOTICE}"`) && html.includes(`<time datetime="${NOTICE}">`), "5 수정일(구조화 데이터·화면)이 개정 공고일(화면에 올린 날)이다");
   const tables = [...html.matchAll(/<table class="pubTable"><caption id="[^"]+">([^<]*)<\/caption><thead><tr>([\s\S]*?)<\/tr><\/thead><tbody>([\s\S]*?)<\/tbody><\/table>/g)];
   const table = (caption) => tables.find((m) => m[1] === caption);
   const heads = (m) => [...(m?.[2] || "").matchAll(/<th scope="col">([^<]*)<\/th>/g)].map((x) => x[1]);
@@ -370,14 +375,18 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
   eq(rowHeads(items), ["카카오 로그인", "로그인 이름 계정", "카카오톡 챗봇", "가계부 데이터", "거래 변경 이력", "접속·보안 기록", "쿠키"], "5 처리 항목 표의 구분");
   const transfer = table("개인정보 처리 위탁과 국외 이전");
   eq(heads(transfer), ["받는 자(국가)", "맡기는 업무", "이전되는 항목", "이전 시점과 방법", "보유·이용 기간"], "5 위탁·국외 이전 표의 열");
-  eq(rowHeads(transfer), ["Cloudflare, Inc.(미국)", "Supabase, Inc.(미국 법인)", "주식회사 카카오(대한민국)"], "5 위탁·국외 이전 표의 받는 자");
+  eq(rowHeads(transfer), ["Cloudflare, Inc.(미국)", "Supabase, Inc.(미국 법인)", "주식회사 카카오(대한민국)", "네이버 주식회사(대한민국)"], "5 위탁·국외 이전 표의 받는 자(E-19: 문의 메일함 네이버 포함)");
   const body = text(html);
   for (const [label, words] of [
     ["카카오 로그인 저장 항목", "카카오 회원번호와 닉네임만 저장하며 프로필 사진·이메일·전화번호는 저장하지 않습니다"],
     ["보호책임자", "성명 백인남(대표), 이메일 admin@malhaebook.com"],
     ["답변 기한", "요구를 받은 날부터 10일 안에 결과를 알립니다"],
     ["거부 방법", "국외 이전을 원하지 않으면 가입하지 않거나 7절의 이메일로 개인정보 삭제를 요청할 수 있습니다"],
-    ["데이터센터(리전 확인 전 문구)", "서비스 설정상 해외 데이터센터"],
+    ["데이터센터 리전(E-19, 운영 DB 호스트 주소 → AWS ap-southeast-2)", "호주 시드니 리전(AWS ap-southeast-2)의 데이터센터"],
+    ["받는 자 연락처: Cloudflare(E-19)", "privacyquestions@cloudflare.com"],
+    ["받는 자 연락처: Supabase(E-19)", "privacy@supabase.com"],
+    ["메일 전달 위탁(E-19)", "문의 메일(admin@malhaebook.com) 전달(Email Routing)"],
+    ["메일함 위탁(E-19)", "문의 메일(admin@malhaebook.com) 수신함 제공"],
     ["만 14세 미만", "만 14세 미만 아동은 가입하거나 서비스를 이용할 수 없습니다"],
     ["만 14세 미만 삭제", "만 14세 미만 아동의 계정이나 개인정보임을 알게 되면 지체 없이 삭제합니다"],
     ["감사 기록 파기", "180일이 지나면 자동으로 삭제합니다"],
@@ -387,7 +396,7 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
     ["경찰청", "경찰청 사이버수사국: ecrm.police.go.kr, 국번 없이 182"],
     ["변경 고지 7일", "시행 7일 전부터 서비스 화면에 알립니다"],
     ["중요한 변경 30일", "이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다"],
-    ["시행 문장", `이 방침은 ${REVISION_LABEL}부터 시행합니다`],
+    ["시행 문장(E-17)", `이 개정 방침은 ${NOTICE_LABEL}에 알리고 ${REVISION_LABEL}부터 시행합니다`],
     ["3절 문의 경로", "문의 경로는 7절의 개인정보 보호책임자 이메일(admin@malhaebook.com)입니다"],
     ["3절 탈퇴 기능 없음(V22.9.94 R-7 문장)", "계정 자체를 탈퇴·삭제하는 온라인 기능은 제공하지 않으며 개인정보 삭제 요청은 서비스 문의 경로로 확인합니다"],
   ]) ok(body.includes(words), `5 /privacy ${label}: ‘${words}’`);
@@ -401,12 +410,14 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
   eq(names.filter((name) => !code.some((source) => source.includes(`"${name}"`) || source.includes(`${name}=`))), [], "5 방침에 적은 쿠키 이름은 모두 코드가 실제로 쓰는 이름이다(방침 글 밖의 코드)");
 
   const terms = await page(fx, "/terms", { cookie: "" });
-  ok(terms.status === 200 && terms.html.includes(`시행일 2026년 7월 13일 · 개정 ${REVISION_LABEL}`) && terms.html.includes(`"dateModified":"${REVISION}"`), "5 /terms 머리·수정일이 개정일이다");
+  ok(terms.status === 200 && terms.html.includes(`시행일 2026년 7월 13일 · 개정 공고 ${NOTICE_LABEL} · 개정 시행 ${REVISION_LABEL}`) && terms.html.includes(`"dateModified":"${NOTICE}"`), "5 /terms 머리가 공고·시행일이고 수정일이 공고일이다");
   const second = text(terms.html.slice(terms.html.indexOf('id="section-2"'), terms.html.indexOf('id="section-3"')));
   ok(second.includes("말해가계부는 만 14세 이상만 이용할 수 있습니다") && second.includes("이용약관과 개인정보처리방침에 동의하고 만 14세 이상임을 확인하는 절차를 거칩니다"), "5 이용약관 2절에 만 14세 이상과 동의 절차가 있다");
   const pagesSource = read("../src/modules/public/content-pages.js");
   ok(!pagesSource.includes(REVISION) && !pagesSource.includes(REVISION_LABEL) && pagesSource.includes("policyDateLabel(POLICY_REVISION_DATE)"), "5 방침·약관은 개정일을 상수(POLICY_REVISION_DATE)로만 쓴다");
+  ok(!pagesSource.includes(NOTICE) && !pagesSource.includes(NOTICE_LABEL) && pagesSource.includes("policyDateLabel(POLICY_NOTICE_DATE)"), "5 방침·약관은 공고일을 상수(POLICY_NOTICE_DATE)로만 쓴다");
   eq(sources.map((item) => item.source).join("\n").match(/const POLICY_REVISION_DATE = /g)?.length || 0, 1, "5 개정일 상수는 한 곳뿐이다");
+  eq(sources.map((item) => item.source).join("\n").match(/const POLICY_NOTICE_DATE = /g)?.length || 0, 1, "5 공고일 상수는 한 곳뿐이다");
 }));
 
 // ── 6. 꼬리말·메뉴·카카오 답 ─────────────────────────────────────────────────

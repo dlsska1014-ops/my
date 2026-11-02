@@ -169,10 +169,12 @@ const BUSINESS_FOOTER_INFO = Object.freeze({
   email: "admin@malhaebook.com",
 });
 
-// V22.9.95 R-9: 개인정보처리방침·이용약관의 개정일이자 가입 동의 기록(consent:<user_id>)의 version 이다. 배포일에 맞춰 이 한 곳만 바꾼다.
-const POLICY_REVISION_DATE = "2026-11-10";
+// V22.9.95 R-9: 개인정보처리방침·이용약관의 개정 시행일이자 가입 동의 기록(consent:<user_id>)의 version 이다. 공고일(POLICY_NOTICE_DATE)은 개정
+// 내용을 화면에 올린 날(= V22.9.95 배포일)이고, 시행일은 방침 12절의 ‘시행 7일 전 고지’ 에 맞춰 공고일 + 7일이다(E-17, 사용자 결정). 날짜는 이 두 줄만 바꾼다.
+const POLICY_NOTICE_DATE = "2026-11-02";
+const POLICY_REVISION_DATE = "2026-11-09";
 
-// "2026-11-10" → "2026년 11월 10일"(방침 머리의 시행·개정일 표기).
+// "2026-07-13" → "2026년 7월 13일"(방침 머리의 시행·공고·개정일 표기).
 function policyDateLabel(ymd = POLICY_REVISION_DATE) {
   const [y, m, d] = String(ymd || "").split("-").map((part) => Number(part));
   return y && m && d ? `${y}년 ${m}월 ${d}일` : String(ymd || "");
@@ -504,7 +506,7 @@ function publicSiteFooter() {
 // @build:exports-start
 export {
   APP_MODE, APP_VERSION, BUSINESS_FOOTER_INFO, DEFAULT_PUBLIC_BASE_URL,
-  KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS, POLICY_REVISION_DATE,
+  KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS, POLICY_NOTICE_DATE, POLICY_REVISION_DATE,
   PUBLIC_CONTENT_PATHS, adSlotMarkup, adfitUnitStatus, adsHeadMarkup, adsHeaders, adsMode,
   adsPolicyLinks, adsPolicyNetwork, adsPolicyText, adsensePublisherIdForTxt, appName,
   canonicalRedirectResponse, cardPerformanceEnabled, currentRequestBaseUrl, envFlagEnabled,

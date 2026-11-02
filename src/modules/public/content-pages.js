@@ -1,10 +1,10 @@
 // @build:imports-start
 import { nluOpsConfig } from "../runtime/ops-telemetry.js";
 import {
-  BUSINESS_FOOTER_INFO, POLICY_REVISION_DATE, PUBLIC_CONTENT_PATHS, adSlotMarkup, adsHeadMarkup,
-  adsHeaders, adsPolicyLinks, adsPolicyNetwork, adsPolicyText, adsensePublisherIdForTxt, appName,
-  kakaoLoginButtonHtml, policyDateLabel, publicAdsenseHead, publicBaseUrl, publicSiteFooter,
-  publicSiteNav,
+  BUSINESS_FOOTER_INFO, POLICY_NOTICE_DATE, POLICY_REVISION_DATE, PUBLIC_CONTENT_PATHS,
+  adSlotMarkup, adsHeadMarkup, adsHeaders, adsPolicyLinks, adsPolicyNetwork, adsPolicyText,
+  adsensePublisherIdForTxt, appName, kakaoLoginButtonHtml, policyDateLabel, publicAdsenseHead,
+  publicBaseUrl, publicSiteFooter, publicSiteNav,
 } from "./site-config.js";
 import {
   publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages,
@@ -36,10 +36,11 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
   // 카카오 기준 문장과 링크로 바꾼다(Google 안내·지역별 동의 절은 Google 광고에만 맞는 말이라 뺀다). 그 밖(심사 모드·AdSense)은 지금 그대로다.
   const adfit = adsPolicyNetwork(env) === "adfit";
   // V22.9.95 R-9: 개인정보처리방침 보강(처리 항목 표·보호책임자·위탁과 국외 이전·만 14세·파기·구제·변경 고지). 개정일은 POLICY_REVISION_DATE 한 곳이다.
-  // 항목은 코드로 확인한 것만 적는다. Supabase 데이터센터 리전은 저장소 문서에 없어 확인 전까지 아래 문구로 둔다(확인 필요).
-  const revision = `시행일 2026년 7월 13일 · 개정 ${policyDateLabel(POLICY_REVISION_DATE)}`;
+  // 항목은 코드로 확인한 것만 적는다. Supabase 리전은 V22.9.95 배포 전에 운영 프로젝트 DB 호스트(db.<ref>.supabase.co)의 주소를 AWS 공식 IP 범위와
+  // 대조해 ap-southeast-2(호주 시드니)로 확인했다(E-19). 개정은 공고일에 알리고 공고일 + 7일에 시행한다(E-17). 두 날짜는 site-config.js 상수뿐이다.
+  const revision = `시행일 2026년 7월 13일 · 개정 공고 ${policyDateLabel(POLICY_NOTICE_DATE)} · 개정 시행 ${policyDateLabel(POLICY_REVISION_DATE)}`;
   const supportEmail = BUSINESS_FOOTER_INFO.email;
-  const databaseRegion = "서비스 설정상 해외 데이터센터";
+  const databaseRegion = "호주 시드니 리전(AWS ap-southeast-2)의 데이터센터";
   const catalog = {
     ...publicGuidePages(env),
     ...publicLivingCostArticlesV22974(),
@@ -65,14 +66,15 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
         ] }, bullets: ["ab_user: 로그인 유지(세션), 14일", "ab_hh: 마지막으로 연 가계부 기억, 1년", "kakao_oauth_state·kakao_oauth_link_user·kakao_oauth_reauth_household·kakao_oauth_return_to: 카카오 로그인 요청 확인, 10분", "ab_credential_reauth·ab_household_delete_reauth·ab_account_link: 본인 확인과 계정 잇기 확인, 5분", "ab_kakao_auto: 카카오톡 안 자동 로그인 시도 상태, 10분~30일(직접 로그아웃하면 30일 동안 멈춤)", "ab_account_link_later·ab_account_link_pause: 계정 잇기 안내 미루기, 7일·10분", "ab_admin: 운영자 관리 화면 로그인(운영자만), 12시간", "모든 쿠키는 HTTPS 연결에서만 보내고(Secure) 화면의 스크립트가 읽지 못하게(HttpOnly) 설정합니다. 광고 쿠키는 4절을 따릅니다."] },
         { title: "7. 개인정보 보호책임자", paragraphs: [`개인정보 처리 업무를 총괄하고 이용자의 불만 처리와 피해 구제를 맡는 개인정보 보호책임자는 다음과 같습니다. 성명 ${BUSINESS_FOOTER_INFO.representative}(대표), 이메일 ${supportEmail}.`, "개인정보의 열람·정정·삭제·처리정지 요구와 개인정보 관련 문의는 위 이메일로 보내 주세요. 본인임을 확인한 뒤 처리하며, 요구를 받은 날부터 10일 안에 결과를 알립니다. 그 안에 처리하기 어려우면 이유와 처리할 날짜를 알립니다. 이메일에 계정 비밀번호나 연결 코드는 적지 마세요."], links: [["개인정보 보호책임자에게 이메일 보내기", `mailto:${supportEmail}`]] },
         { title: "8. 개인정보 처리 위탁과 국외 이전", paragraphs: ["말해가계부는 서비스를 제공하려고 아래 사업자에게 개인정보 처리 업무를 맡깁니다. 미국 법인에 맡기는 처리는 개인정보의 국외 이전에 해당하며, 서비스 제공 계약을 이행하는 데 필요한 처리 위탁과 보관이므로 이 방침에 알리고 이전합니다. 맡긴 업무 밖으로 개인정보를 쓰지 않도록 관리합니다."], table: { caption: "개인정보 처리 위탁과 국외 이전", headers: ["받는 자(국가)", "맡기는 업무", "이전되는 항목", "이전 시점과 방법", "보유·이용 기간"], rows: [
-          ["Cloudflare, Inc.(미국)", "서비스 실행(Workers), 네트워크 전송과 보안", "서비스를 이용하며 주고받는 정보(접속 기록 포함)", "이용할 때마다 암호화 통신(HTTPS)으로 전송", "위탁 계약이 끝날 때까지(Cloudflare 개인정보처리방침에 따름)"],
+          ["Cloudflare, Inc.(미국)", "서비스 실행(Workers), 네트워크 전송과 보안, 문의 메일(admin@malhaebook.com) 전달(Email Routing)", "서비스를 이용하며 주고받는 정보(접속 기록 포함), 문의 메일의 내용과 보낸 주소", "이용할 때마다 암호화 통신(HTTPS)으로 전송. 문의 메일은 보낼 때 전달", "위탁 계약이 끝날 때까지(Cloudflare 개인정보처리방침에 따름)"],
           ["Supabase, Inc.(미국 법인)", "데이터베이스 보관과 운영", "6절의 계정·가계부·챗봇·보안 기록", `저장하거나 읽을 때마다 암호화 통신(HTTPS)으로 전송해 ${databaseRegion}에 보관`, "회원 정보 삭제 또는 위탁 계약이 끝날 때까지"],
           ["주식회사 카카오(대한민국)", "카카오 로그인, 카카오톡 챗봇 메시지 전달", "카카오 회원번호·닉네임, 챗봇 식별키·보낸 문장과 답", "로그인하거나 챗봇을 쓸 때 카카오 서버를 거쳐 전달", "카카오 개인정보처리방침에 따름"],
-        ] }, note: "국외 이전을 원하지 않으면 가입하지 않거나 7절의 이메일로 개인정보 삭제를 요청할 수 있습니다. 이 이전은 서비스를 제공하는 데 꼭 필요하므로, 거부하면 서비스를 이용할 수 없습니다." },
+          ["네이버 주식회사(대한민국)", "문의 메일(admin@malhaebook.com) 수신함 제공", "문의 메일의 내용과 보낸 주소", "문의 메일을 보낼 때 Cloudflare Email Routing 을 거쳐 운영자 메일함으로 전달", "문의 처리 뒤 삭제하거나 메일 서비스 이용이 끝날 때까지"],
+        ] }, note: "국외 이전을 원하지 않으면 가입하지 않거나 7절의 이메일로 개인정보 삭제를 요청할 수 있습니다. 이 이전은 서비스를 제공하는 데 꼭 필요하므로, 거부하면 서비스를 이용할 수 없습니다. 받는 자의 연락처: Cloudflare, Inc. 는 privacyquestions@cloudflare.com(101 Townsend St., San Francisco, CA 94107, 미국), Supabase 는 privacy@supabase.com, 주식회사 카카오와 네이버 주식회사는 각 회사 개인정보처리방침에 적힌 고객센터입니다.", links: [["Cloudflare 개인정보처리방침", "https://www.cloudflare.com/privacypolicy/"], ["Supabase 개인정보처리방침", "https://supabase.com/privacy"], ["카카오 개인정보처리방침", "https://www.kakao.com/policy/privacy?lang=ko"], ["네이버 개인정보처리방침", "https://privacy.naver.com/"]] },
         { title: "9. 만 14세 미만 아동의 개인정보", paragraphs: ["만 14세 미만 아동은 가입하거나 서비스를 이용할 수 없습니다. 웹에서 새 계정을 만들거나 카카오 로그인을 할 때 만 14세 이상인지 확인합니다.", "만 14세 미만 아동의 계정이나 개인정보임을 알게 되면 지체 없이 삭제합니다."] },
         { title: "10. 개인정보의 파기 절차와 방법", paragraphs: ["보유기간이 끝나거나 처리 목적을 이룬 개인정보는 지체 없이 파기합니다. 다른 법령에 따라 보존해야 하면 다른 정보와 분리해 그 기간 동안만 보관합니다.", "파기 절차: 파기할 개인정보를 정하고 개인정보 보호책임자의 확인을 거쳐 파기합니다. 파기 방법: 전자 파일은 복구할 수 없도록 데이터베이스에서 삭제합니다. 개인정보를 종이로 출력해 두지 않으며, 출력한 것이 있으면 분쇄하거나 소각합니다.", "거래 변경 이력(고치거나 지운 거래의 바뀌기 전 내용)은 실행 취소와 복구를 위해 보관하며, 180일이 지나면 자동으로 삭제합니다.", "사용자가 내려받은 백업 파일은 사용자 기기에 저장되므로 사용자가 직접 지워야 합니다. 장애에 대비해 데이터베이스 사본을 만드는 경우 운영자만 접근하게 하고, 원본에서 지운 정보는 사본의 보관 기간이 끝날 때 함께 지웁니다."] },
         { title: "11. 권익침해 구제 방법", paragraphs: ["개인정보 침해에 대한 신고나 상담이 필요하면 아래 기관에 문의할 수 있습니다."], bullets: ["개인정보침해신고센터(한국인터넷진흥원): privacy.kisa.or.kr, 국번 없이 118", "개인정보분쟁조정위원회: www.kopico.go.kr, 1833-6972", "대검찰청 사이버수사과: www.spo.go.kr, 국번 없이 1301", "경찰청 사이버수사국: ecrm.police.go.kr, 국번 없이 182"] },
-        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다.", `이 방침은 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
+        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다.", `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
         { title: "13. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
       ],
     },
@@ -112,9 +114,9 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
     catalog[key].type = "WebPage";
     catalog[key].updated = "2026-10-11";
   }
-  // V22.9.95 R-9: 이번 판에 고친 방침·약관은 수정일이 개정일이다(쿠키 안내는 그대로).
-  catalog.privacy.updated = POLICY_REVISION_DATE;
-  catalog.terms.updated = POLICY_REVISION_DATE;
+  // V22.9.95 R-9: 이번 판에 고친 방침·약관은 수정일이 개정 공고일(화면에 올린 날)이다(쿠키 안내는 그대로).
+  catalog.privacy.updated = POLICY_NOTICE_DATE;
+  catalog.terms.updated = POLICY_NOTICE_DATE;
   // V22.9.74: 생활비 가이드 글(12편 + 20편)에 분류·작성일을 붙이고, 글 목록 허브와 사이트맵 절을 그 목록으로 만든다.
   publicNormalizeLivingArticles(catalog);
   const articleIndex = publicArticleIndex(catalog);

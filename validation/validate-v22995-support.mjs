@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // V22.9.95 후원 검사 — 공개 후원 안내(/support)·후원자 표시(설정 키 supporter:<user_id>)·배지·포인트 색·관리자 후원자 설정.
-//   1. /support: 200·제목·절 구성(비용 표·쓰는 곳·약속·방법·혜택·이야기하는 곳·문의), 운영 변수가 없으면 ‘준비 중’ 한 줄과 송금 링크 0,
+//   1. /support: 200·제목·절 구성(왜 필요한가(비용 표 없음, E-18)·쓰는 곳·약속·방법·혜택·이야기하는 곳·문의), 운영 변수가 없으면 ‘준비 중’ 한 줄과 송금 링크 0,
 //      변수가 있으면 카카오페이·토스·소통 오픈채팅 링크 3 과 계좌 줄, http(s) 가 아닌 값은 무시, 후원자 방 주소는 공개 페이지에 없음,
 //      광고 모드(AdSense live·애드핏)에서도 광고 없음, ‘기부’ 라는 말 없음, 사이트맵·사이트맵 페이지·꼬리말 링크, /contact 그대로.
 //   2. 후원자 표시: 플래그 없는 사용자는 /menu·/app 에 배지·data-supporter·포인트 색이 없고, 켜진 사용자는 있다(선택지 3).
@@ -108,7 +108,8 @@ await withClock(TODAY, () => fixture(async (fx) => {
     const secs = sectionsOf(support.html);
     eq(secs.map((s) => s.title), ["왜 후원이 필요한가요", "후원금은 이렇게 써요", "후원하는 방법", "후원자에게 드리는 것", "함께 이야기하는 곳", "문의"], "1-d 절 구성(명단이 없으면 명단 절은 없다)");
     const cost = secs[0]?.body || "";
-    ok(/<caption[^>]*>한 달 운영 비용\(지금과 출시 뒤 예정\)<\/caption>/.test(cost) && cost.includes("Cloudflare Workers") && cost.includes("Supabase") && cost.includes("약 4만 5천 원") && cost.includes("예정"), "1-e 비용 표: Workers·Supabase·도메인, 출시 뒤 금액은 ‘예정’");
+    ok(!/<table|달러|요금제|4만 5천|한 달 운영 비용/.test(cost) && cost.includes("서버 운영 비용과 유지보수·업데이트에 큰 도움이 됩니다") && cost.includes("후원하지 않아도 쓸 수 있는 기능은 똑같아요"), "1-e 첫 절: 비용 표·금액 없이 ‘서버 운영 비용과 유지보수·업데이트에 큰 도움’(E-18, 사용자 결정)");
+    ok(!/달러|요금제|4만 5천|한 달 운영 비용/.test(support.html), "1-e′ 페이지 어디에도 요금제·달러·예정 금액이 없다(E-18)");
     ok(secs[1]?.body.includes("로그인 화면과 카카오톡 봇 답장에는 광고를 넣지 않아요") && secs[1]?.body.includes("핵심 기능은 후원과 관계없이 계속 무료"), "1-f 약속: 로그인 화면·봇에 광고 없음, 핵심 기능 무료");
     const ways = secs[2]?.body || "";
     ok(ways.includes("후원 창구를 준비하고 있어요(출시 뒤 안내).") && hrefs(ways).length === 0 && !/<ul>/.test(ways), "1-g 변수가 없으면 ‘준비 중’ 한 줄만, 링크 0");
