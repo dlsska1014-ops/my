@@ -26,7 +26,7 @@ const HOME = `/app?month=2026-07&household_id=${HH}`;
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)";
 const SHELL = "/assets/accountbook-shell-v22993.css";
 const V5 = "/assets/accountbook-v5-v22993.js";
-const HOME_SHELL_JS = "/assets/mobile-home-shell-v22993.js";
+const HOME_SHELL_JS = "/assets/mobile-home-shell-v22995.js";
 const count = (text, needle) => String(text).split(needle).length - 1;
 const asset = async (path) => {
   const response = await app.fetch(new Request(`${BASE}${path}`), {}, ctx);

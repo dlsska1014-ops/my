@@ -180,6 +180,9 @@ function joinSpacedKoreanAmount(text = "") {
 // 금액 뒤에 말이 붙어 있으면("만원정도"·"만원정산") ‘원’ 뒤를 띄어 그 말의 ‘정’을 살린다(예전: "만원도"·"만원산").
 // V22.9.34 감사 D1·N2: 시각(19:40)·괄호 속 카드 끝자리((1234))·가린 카드번호·카드 문자의 누적·잔액·한도
 // 금액은 기호를 지우기 전에 뺀다. 지우고 나면 "19 40", " 1234 " 가 되어 금액으로 읽혔다.
+// V22.9.95 보이지 않는 글자: 맨 앞에서 폭 0 글자(U+200B~U+200D·U+2060·U+FEFF)를 지우고 전각 라틴·숫자·부호(U+FF01~U+FF5E)와 전각 빈칸(U+3000)만
+// 반각으로 접는다. 복사해 붙인 ‘커피 4500’(4 와 5 사이에 폭 0 글자)이 아무것도 저장되지 않거나 메모에 보이지 않는 글자가 남았고, ‘ＫＴＸ’ 는 분류 낱말 ktx 로 읽지 못했다.
+// NFKC 전체는 쓰지 않는다(한글·다른 기호는 그대로). 전각 ＠ 도 @ 가 되므로 맨 앞 ‘＠이름’ 은 ‘@이름’ 처럼 지워진다(멘션 규칙 자체는 그대로다).
 function normalizeInputText(text) {
   function normalizeTextSymbols(value) {
     const chunks = [];
@@ -191,6 +194,9 @@ function normalizeInputText(text) {
     return chunks.join("").trim();
   }
   const prepared = String(text || "")
+    .replace(/[\u200B-\u200D\u2060\uFEFF]/g, "")
+    .replace(/[\uFF01-\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0))
+    .replace(/\u3000/g, " ")
     .replace(/^@[\w가-힣_-]+\s*/, "")
     .replace(/^\/+/, "")
     .replace(/[，]/g, ",")
@@ -210,6 +216,17 @@ function normalizeInputText(text) {
     .replace(/[*＊xX]{2,}[-\s]?\d{2,4}/g, " ")
     .replace(/(?:누적|잔액|잔고|남은\s*한도|한도)\s*:?\s*[\d,]+\s*원?/g, " ")
   );
+}
+
+// V22.9.95 R-20: 외화 금액이 하나라도 있는지 본다. 숫자 바로 앞·뒤(빈칸 0~1칸)에 통화 기호 $·€·£·¥·US$(전각 ＄·￥·￡ 포함) 또는 통화 코드
+// USD·EUR·JPY·CNY·GBP(대소문자)가 붙은 꼴만이다. 있으면 그 문장은 금액을 읽지 않고 되묻는다(카카오 입구와 웹 빠른 입력). 예전에는 normalizeInputText 가
+// 기호를 빈칸으로 지워 ‘커피 $100’ 이 100원으로 저장됐다. ₩·￦ 는 원화라 여기 들지 않는다(지금처럼 ‘원’). ‘달러’ 같은 한글 낱말은 이 판에서 넓히지 않는다.
+// 해석기(parseTransaction)는 바꾸지 않는다 — 가져오기 자연어 경로가 같은 해석기를 부르고 C-7 은 자기 기준(IMPORT_FOREIGN_*)으로 거절한다.
+// 폭 0 글자·전각 접기는 normalizeInputText 맨 앞과 같은 한 줄이다(이 함수는 기호를 지우기 전의 원문을 봐야 해서 그 함수를 부르지 않는다).
+function foreignCurrencyAmountIn(text) {
+  const rule = foreignCurrencyAmountIn.rule || (foreignCurrencyAmountIn.rule = /(?:US\$|[$€£¥￥￡]) ?\d|\d ?(?:US\$|[$€£¥￥￡])|(?:^|[^A-Za-z])(?:USD|EUR|JPY|CNY|GBP) ?\d|\d ?(?:USD|EUR|JPY|CNY|GBP)(?![A-Za-z])/i);
+  const folded = String(text || "").replace(/[\u200B-\u200D\u2060\uFEFF]/g, "").replace(/[\uFF01-\uFF5E]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0)).replace(/\u3000/g, " ");
+  return rule.test(folded);
 }
 
 // 결제수단 말에 쓰는 정규식 한 벌(찾기·메모에서 지우기가 같은 기준을 쓰게 한 곳에서 만든다).
@@ -474,7 +491,7 @@ function cleanInputMemo(raw, amountRaw, type, paymentMethod, category) {
 }
 // @build:exports-start
 export {
-  cleanInputMemo, detectInputPayment, foldInputWidth, inferInputCategory, inputPaymentNameIn,
-  inputPaymentPatterns, joinSpacedKoreanAmount, normalizeInputText,
+  cleanInputMemo, detectInputPayment, foldInputWidth, foreignCurrencyAmountIn, inferInputCategory,
+  inputPaymentNameIn, inputPaymentPatterns, joinSpacedKoreanAmount, normalizeInputText,
 };
 // @build:exports-end

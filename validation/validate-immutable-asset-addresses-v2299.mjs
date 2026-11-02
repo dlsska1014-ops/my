@@ -27,6 +27,11 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
+  // V22.9.95(안내·해석: 폭 0·전각 글자 정리, 외화 금액 되묻기, R-16 분류 예외 낱말): 공유 입력 해석이 실리는 홈 스크립트·홈 셸과 분류 규칙의 바이트가
+  // 바뀌어 세 주소를 v22995 로 올렸다. 옛 주소(v22993, 운영 V22.9.93·94 가 쓰는 주소)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 v22993 해시로 계속 내려간다.
+  "/assets/ab-category-rules-v22995.js": "1634aa035748a19ab8786347b6c7ee42f0bc6eb6bbf1588e163e70f92950687b",
+  "/assets/mobile-home-v22995.js": "df0d2cdfdcd8015b870f308787ad396241108f5218ebf8a56883464c32b515b7",
+  "/assets/mobile-home-shell-v22995.js": "b3c5d96634f6d5fe406c45879dd3ff09ca1b7d00765019721ec17bf5f0984b70",
   // V22.9.93(출시 전 입력 시험 Q-1~Q-3·X-27): 공유 입력 해석(foldInputWidth·cleanInputMemo)이 실리는 홈 스크립트·홈 셸과 분류 낱말이 실리는 분류 규칙의 바이트가 바뀌어
   // 세 주소를 v22993 으로 올렸다. 옛 주소(ab-category-rules-v22980·mobile-home-v22990·mobile-home-shell-v22990, 운영 V22.9.90~92 가 쓰는 주소)의 바이트는
   // AB_HISTORICAL_RUNTIME_ASSETS 에 남아 옛 해시(아래 줄)로 계속 내려간다.

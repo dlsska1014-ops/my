@@ -278,6 +278,17 @@ function kakaoGreetingReply(utterance = "") {
   return { text, quickReplies: [["기록방법", "기록방법"], ["이번달요약", "이번달요약"], ["도움말 보기", "도움말 보기"]] };
 }
 
+// V22.9.95 R-14: 금액을 못 읽어 되묻는 답(아래 kakaoNoMatchGuide)과 외화 되묻기(kakaoForeignAmountText)에 붙이는 ‘입력 예시 보기’ 버튼.
+// 답 글에는 주소를 넣지 않는다(Y-7) — ‘버튼 이름 줄 + 우리 주소 줄’ 은 응답 마무리(response-builders.js kakaoTextLinks)가 링크 버튼(webLink)으로 옮기고 글에서 지운다.
+function kakaoInputExampleLink(origin = "") {
+  return origin ? "\n\n입력 예시 보기\n" + String(origin).replace(/\/+$/, "") + "/kakao-guide" : "";
+}
+
+// V22.9.95 R-20: 외화 금액이 있는 말(foreignCurrencyAmountIn)은 저장도 수정도 하지 않고 원화로 다시 적게 한다.
+function kakaoForeignAmountText(origin = "") {
+  return "외화 금액은 원화로 바꿔 적어 주세요(예: 커피 130000원)\n이번 메시지는 저장하지 않았어요." + kakaoInputExampleLink(origin);
+}
+
 function kakaoNoMatchGuide(utterance = "", origin = "") {
   if (isKakaoGreetingUtterance(utterance)) return kakaoGreetingReply(utterance);
   const nlu = detectKakaoNaturalIntent(utterance);
@@ -292,7 +303,9 @@ function kakaoNoMatchGuide(utterance = "", origin = "") {
   if (/가계부/.test(nlu.normalized)) {
     return { text: "가계부를 새로 만들거나, 초대코드로 참여하거나, 다른 가계부로 전환할 수 있어요.", quickReplies: [["새 가계부", "새 가계부 만들기"], ["코드로 참여", "초대코드로 참여"], ["가계부전환", "가계부전환"]] };
   }
-  return { text, quickReplies: [["도움말 보기", "도움말 보기"], ["오늘기록", "오늘기록"]] };
+  // V22.9.95 R-14: 금액을 못 읽은 기본 답(‘내용과 금액을…’·‘무슨 뜻인지…’)에만 버튼을 붙인다. 이름·초대 안내는 그대로다.
+  const example = /^(?:내용과 금액을|무슨 뜻인지)/.test(text) ? kakaoInputExampleLink(origin) : "";
+  return { text: text + example, quickReplies: [["도움말 보기", "도움말 보기"], ["오늘기록", "오늘기록"]] };
 }
 
 function kakaoInputExampleText(origin = "") {
@@ -313,6 +326,10 @@ function kakaoInputExampleText(origin = "") {
     "• 오늘 기록",
     "• 수정 01번 금액 13000원",
     "• 수정 01번 삭제",
+    "",
+    // V22.9.95 R-14: 여러 건과 단위 안내 두 줄.
+    "• 여러 건은 쉼표로 나눠 적어요",
+    "• 금액 뒤에 ‘원’ 을 붙이면 더 정확해요",
   ].join("\n");
 }
 
@@ -443,8 +460,8 @@ function kakaoDataPolicyText(origin = "") {
 export {
   detectKakaoAmbiguity, formatMessage, formatMessageText, groupLabel, isMissingCategory,
   isMissingPayment, kakaoAmbiguityGuide, kakaoBrandGuideText, kakaoBudgetGuideText,
-  kakaoDataPolicyText, kakaoEditSimpleGuideText, kakaoInputExampleText, kakaoKeywordGuideText,
-  kakaoNoMatchGuide, kakaoOpenBuilderGuideText, kakaoReserveSimpleGuideText,
+  kakaoDataPolicyText, kakaoEditSimpleGuideText, kakaoForeignAmountText, kakaoInputExampleText,
+  kakaoKeywordGuideText, kakaoNoMatchGuide, kakaoOpenBuilderGuideText, kakaoReserveSimpleGuideText,
   kakaoSkillSafeFallbackText, mergedOptions, renderGroupOptions, renderQualityOptions,
 };
 // @build:exports-end

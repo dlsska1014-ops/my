@@ -264,6 +264,8 @@ async function handleUnifiedMenuPage(request, env, url) {
     ["카카오 명령어", "/kakao-commands", "챗봇 대표 발화", "chat"],
     ["이용안내", "/terms", "서비스 이용 기준", "file"],
     ["개인정보 안내", "/privacy", "데이터 처리 안내", "shield"],
+    // V22.9.95 R-14: 자주 묻는 질문(/faq)과 문의(/contact). 후원 영역이 이 목록 끝에 ‘후원하기’ 를 잇는다.
+    ["문의·FAQ", "/faq", "자주 묻는 질문과 문의 방법", "chat"],
   ];
   const row = ([label, href, desc, icon]) => `<a class="menuRow" href="${escapeHtml(href)}"><span class="menuRowIcon" aria-hidden="true" data-ab-nav-icon="${escapeHtml(icon)}"></span><span class="menuRowTitle">${escapeHtml(label)}</span><span class="menuRowDesc">${escapeHtml(desc)}</span><span class="menuArrow" aria-hidden="true">›</span></a>`;
   const sectionHtml = sections.map(([title, subtitle, links]) => `<section class="menuSection"><div class="menuSectionHead"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(subtitle)}</span></div><div class="menuList">${links.map(row).join("")}</div></section>`).join("");

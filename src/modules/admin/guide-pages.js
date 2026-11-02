@@ -313,21 +313,23 @@ async function handleMobileFirstFlowGuidePage(request, env, url) {
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 모바일 흐름</title><style>${userPolishBaseStyle()}</style></head><body>${renderUnifiedNav("mobile-first-flow")}<main class="wrap"><section class="hero"><span class="tag">모바일 우선</span><h1>휴대폰에서 보는 순서대로 정리</h1><p>카카오톡이나 모바일 브라우저에서 쓰는 사용자는 입력과 확인이 빠르면 됩니다. 운영/점검 기능은 뒤로 숨깁니다.</p>${userPolishNav()}</section><section class="card"><h2>사용자 경로 기준</h2><div class="tableWrap"><table><thead><tr><th>경로</th><th>역할</th><th>보여줄 내용</th></tr></thead><tbody>${rows}</tbody></table></div></section><section class="notice"><b>모바일 기준</b><br/>첫 화면은 오늘 필요한 정보만 보여주고, 복잡한 설정은 예산/가계부/백업 같은 별도 화면으로 분리합니다.</section></main></body></html>`);
 }
 
+// V22.9.95 R-14: 지금 웹 빠른 입력 동작으로 다시 썼다 — 한 줄에 한 건, 금액이 둘 이상이거나 외화가 있으면 저장하지 않고 안내한다(금액 칸을 직접 고치면 그 값으로 저장).
+// 예전 글의 ‘V20.2 기준’·‘날짜 묶음 여러 줄 입력’ 은 웹 입력 칸이 하지 않는 일이었다. 표의 결과는 validate-v22995-guide 가 화면 스크립트로 다시 확인한다.
 async function handleQuickInputHelpPage(request, env, url) {
   const title = escapeHtml(appName(env));
   const adminOk = await verifyAdminSession(request, env);
   const examples = [
-    ["점심 12000 국민카드", "오늘 지출 1건"],
-    ["커피 4500 카카오페이", "결제수단 포함 지출"],
-    ["월급 250만원", "수입으로 인식"],
-    ["7월3일\n온열안대 9900 삼성카드\n풋샴푸 10150 삼성카드", "날짜 묶음 여러 줄 입력"],
-    ["7월5일 쌀 36900 현대카드", "날짜+메모+금액+카드 입력"],
-    ["01번 삭제", "최근 기록 번호 기준 삭제"],
-    ["01번 금액 13000원", "최근 기록 번호 기준 수정"],
+    ["점심 12000 국민카드", "오늘 지출 12,000원을 채워요"],
+    ["어제 병원 15000", "날짜를 어제로 채워요"],
+    ["월급 250만원", "수입으로 골라 2,500,000원을 채워요"],
+    ["월급 300", "300원으로 채워요. 300만 원이면 ‘월급 300만원’ 처럼 단위를 적어요"],
+    ["커피 4500, 택시 8000", "금액이 둘 이상이에요. 한 건씩 나눠 적어요"],
+    ["신한카드 1234 결제 5000", "카드 끝자리도 금액으로 읽어 금액이 둘 이상이에요. 끝자리는 빼고 적어요"],
+    ["커피 $100", "외화 금액은 원화로 바꿔 적어 주세요(예: 커피 130000원)"],
   ];
   const rows = examples.map(([a,b]) => `<tr><td><code>${escapeHtml(a)}</code></td><td>${escapeHtml(b)}</td></tr>`).join("");
-  const copy = examples.slice(0,5).map(([a]) => a).join("\n\n");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 빠른 입력</title><style>${userPolishBaseStyle()}</style></head><body>${renderUnifiedNav("quick-input-help")}<main class="wrap"><section class="hero"><span class="tag">스마트 입력 안내</span><h1>사용자는 문장처럼 쓰면 됩니다</h1><p>금액, 날짜, 결제수단, 메모를 자연스럽게 적으면 웹과 카카오에서 같은 방식으로 처리됩니다.</p>${userPolishNav(adminOk)}</section><section class="card"><h2>대표 입력 예시</h2><div class="tableWrap"><table><thead><tr><th>입력</th><th>동작</th></tr></thead><tbody>${rows}</tbody></table></div></section><section class="card"><h2>복사용 예시</h2><div class="copy">${escapeHtml(copy)}</div></section><section class="notice"><b>오입력 안내 기준</b><br/>금액이 없거나 날짜만 있는 줄은 저장하지 않고, 저장 가능한 줄만 분리해서 처리합니다. 중복 저장 방어는 V20.2 기준을 유지합니다.</section></main></body></html>`);
+  const copy = ["점심 12000 국민카드", "어제 병원 15000", "월급 250만원"].join("\n\n");
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 빠른 입력</title><style>${userPolishBaseStyle()}</style></head><body>${renderUnifiedNav("quick-input-help")}<main class="wrap"><section class="hero"><span class="tag">스마트 입력 안내</span><h1>한 줄에 한 건씩 적으면 됩니다</h1><p>내용과 금액을 한 줄로 적으면 금액·날짜·수입/지출·결제수단 칸을 채워 줘요. 저장하기 전에 칸을 확인하고 고칠 수 있어요.</p>${userPolishNav(adminOk)}</section><section class="card"><h2>대표 입력 예시</h2><div class="tableWrap"><table><thead><tr><th>입력</th><th>입력 칸에서 일어나는 일</th></tr></thead><tbody>${rows}</tbody></table></div></section><section class="card"><h2>복사용 예시</h2><div class="copy">${escapeHtml(copy)}</div></section><section class="notice"><b>저장하지 않고 안내하는 경우</b><br/>웹 입력 칸은 한 번에 한 건만 저장해요. 금액이 둘 이상이거나 외화 금액이 있으면 저장 단추가 꺼지고 안내가 나와요. 금액 칸을 직접 고치면 그 금액으로 저장할 수 있어요. 여러 건을 한 번에 적으려면 카카오톡에서 쉼표로 나눠 보내세요(<a href="/kakao-guide">카카오 입력 안내</a>).</section></main></body></html>`);
 }
 
 async function handleMenuPolishGuidePage(request, env, url) {

@@ -84,6 +84,7 @@
     "validate:admin-v22994": "node validation/validate-v22994-admin.mjs",
     "validate:cron-v22994": "node validation/validate-v22994-cron.mjs",
     "validate:ops-v22994": "node validation/validate-v22994-ops.mjs",
+    "validate:guide-v22995": "node validation/validate-v22995-guide.mjs",
     "validate:adfit-gate-v22992": "node validation/validate-adfit-gate-v22992.mjs",
     "validate:demo-tour-v22992": "node validation/validate-demo-tour-v22992.mjs",
     "preview:public": "node tools/preview-public.mjs",
