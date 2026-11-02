@@ -2324,6 +2324,19 @@ const ACCOUNTBOOK_WORKER = {
         return await handleIdentityMerge(request, env);
       }
 
+      // V22.9.95 후원: 관리자 후원자 설정. POST 는 라우터 앞단의 전역 CSRF 확인(같은 출처만)을 지난 뒤에 온다.
+      if (url.pathname === "/admin/supporters" && request.method === "GET") {
+        return await handleSupportersAdminPage(request, env, url);
+      }
+
+      if (url.pathname === "/admin/supporters/save" && request.method === "POST") {
+        return await handleSupportersAdminSave(request, env);
+      }
+
+      if (url.pathname === "/admin/supporters/remove" && request.method === "POST") {
+        return await handleSupportersAdminRemove(request, env);
+      }
+
       if (url.pathname === "/categories" && request.method === "GET") {
         const userId = await verifyUserSession(request, env);
         if (userId) return redirectResponse(`/keyword-guide?month=${encodeURIComponent(validMonth(url.searchParams.get("month")) || currentMonthKst())}${url.searchParams.get("household_id") ? `&household_id=${encodeURIComponent(url.searchParams.get("household_id"))}` : ""}`);
@@ -3585,6 +3598,8 @@ const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order",
   "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning",
   "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
+  // V22.9.95 후원: 후원 안내(운영 비용·후원하는 방법·후원자 혜택). 광고 화면 목록(AD_PAGE_KEYS)에는 넣지 않는다.
+  "/support",
 ]);
 
 // V22.9.87 T-20·T-21: 공개 머리와 로그인 시작 화면의 장부 마크(§3-4 로고 타일 안). 앱 메뉴의 renderAccountbookBrandIcon(web/unified-nav.js)과
@@ -3628,7 +3643,7 @@ function publicSiteNav(active = "home") {
 }
 
 function publicSiteFooter() {
-  return `<footer class="pubFooter"><div><b>말해가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a><a href="https://tools.malhaebook.com/" target="_blank" rel="noopener">생활 계산기</a></div></footer>`;
+  return `<footer class="pubFooter"><div><b>말해가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a><a href="/support">후원하기</a><a href="https://tools.malhaebook.com/" target="_blank" rel="noopener">생활 계산기</a></div></footer>`;
 }
 // Public guides use synthetic examples, never household or account records.
 function publicGuidePages(env = {}) {
@@ -3747,7 +3762,7 @@ function publicGuidePages(env = {}) {
       { title: "서비스와 첫 기록", links: [["서비스 홈", "/"], ["사용 가이드 모음", "/guides"], ["가상 가계부 체험", "/demo"], ["기능과 권한", "/service-guide"], ["처음 기록하기", "/how-it-works"], ["카카오 입력 방법", "/kakao-guide"]] },
       { title: "기록 점검과 관리", links: [["예산 계산", "/budget-guide"], ["공동 가계부와 정산", "/group-accountbook"], ["생활비 리포트", "/report-guide"], ["가져오기와 거래 백업", "/import-guide"], ["데이터 보호", "/security"], ["문제 해결 FAQ", "/faq"]] },
       { title: "생활비 가이드 글", links: [["생활비 예산 비율 정하기", "/budget-ratio-guide"], ["고정비 점검 체크리스트", "/fixed-cost-checklist"], ["구독 정리법", "/subscription-cleanup"], ["카드 실적 조건의 원리와 함정", "/card-spending-threshold"], ["공동 생활비 정산 규칙", "/shared-living-cost-rules"], ["가계부 습관 설계", "/accountbook-habit"], ["월급날 기준 가계부 주기", "/payday-budget-cycle"], ["변동비 분류 기준 만들기", "/expense-category-rules"], ["비상금과 예비비 계산", "/emergency-fund-basics"], ["주간 리포트 읽는 법", "/weekly-report-reading"], ["가족·커플 가계부 역할 나누기", "/family-roles-accountbook"], ["한 장짜리 현금흐름표 만들기", "/cash-flow-table"]] },
-      { title: "운영 정보와 정책", links: [["서비스와 콘텐츠 운영 원칙", "/about"], ["문의 안내", "/contact"], ["개인정보처리방침", "/privacy"], ["서비스 이용약관", "/terms"], ["쿠키 정책", "/cookies"], ["XML 사이트맵", "/sitemap.xml"]] },
+      { title: "운영 정보와 정책", links: [["서비스와 콘텐츠 운영 원칙", "/about"], ["문의 안내", "/contact"], ["개인정보처리방침", "/privacy"], ["서비스 이용약관", "/terms"], ["쿠키 정책", "/cookies"], ["후원 안내", "/support"], ["XML 사이트맵", "/sitemap.xml"]] },
     ], { type: "CollectionPage", primary: ["사용 가이드 모음", "/guides"], updated: "2026-10-21" }),
     ...publicLivingCostArticles(),
   };
@@ -8540,8 +8555,124 @@ function publicArticlesHubPage(index = []) {
 function publicArticleSiteMapLinks(index = []) {
   return [["생활비 가이드 글 전체 목록", "/articles"], ...index.map((item) => [item.title, item.path])];
 }
+// V22.9.95 후원: 공개 후원 안내 페이지(/support). 결제 연동·금액 입력·영수증은 없다 — 받는 길(카카오페이 송금 링크·계좌이체·토스 송금 링크)과
+// 오픈채팅 주소는 운영 변수로만 받고, 값이 없거나 http(s) 주소가 아니면 그 줄을 숨긴다. 이 변수들은 /ready·/health 에 내보내지 않는다.
+// 후원자 오픈채팅 주소는 공개 페이지에 싣지 않는다 — 후원을 확인한 분의 전체 메뉴(화면 설정)에만 보인다(누구나 들어오면 후원자 방이 아니다).
+const SUPPORT_CONTACT_EMAIL_V22995 = "admin@malhaebook.com";
 
-function publicPageCatalog(env = {}, url = null) {
+function supportUrlV22995(value) {
+  const text = String(value ?? "").trim();
+  if (!text || text.length > 500 || /[\s<>"'`]/.test(text)) return "";
+  try {
+    const parsed = new URL(text);
+    if (!["https:", "http:"].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password) return "";
+    return parsed.href;
+  } catch (_) {
+    return "";
+  }
+}
+
+function supportBankLineV22995(value) {
+  const text = String(value ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  return text.length <= 100 ? text : "";
+}
+
+// 운영 변수는 여기 한 곳에서만 읽는다.
+function supportConfigV22995(env = {}) {
+  return {
+    kakaopay: supportUrlV22995(env.SUPPORT_KAKAOPAY_URL),
+    bank: supportBankLineV22995(env.SUPPORT_BANK_ACCOUNT),
+    toss: supportUrlV22995(env.SUPPORT_TOSS_URL),
+    community: supportUrlV22995(env.COMMUNITY_OPENCHAT_URL),
+    supporterChat: supportUrlV22995(env.SUPPORTER_OPENCHAT_URL),
+  };
+}
+
+// 후원하는 방법 절. 우선순위는 카카오페이 → 계좌이체 → 토스. 셋 다 없으면 준비 중 한 줄만 둔다.
+function publicSupportWaysSectionV22995(config, email) {
+  const ways = [
+    config.kakaopay ? "카카오페이 송금: 아래 ‘카카오페이로 송금하기’ 를 누르면 송금 화면이 열려요." : "",
+    config.bank ? `계좌이체: ${config.bank}` : "",
+    config.toss ? "토스 송금: 아래 ‘토스로 송금하기’ 를 누르면 송금 화면이 열려요." : "",
+  ].filter(Boolean);
+  if (!ways.length) return { title: "후원하는 방법", paragraphs: ["후원 창구를 준비하고 있어요(출시 뒤 안내)."] };
+  const links = [config.kakaopay ? ["카카오페이로 송금하기", config.kakaopay] : null, config.toss ? ["토스로 송금하기", config.toss] : null].filter(Boolean);
+  return {
+    title: "후원하는 방법",
+    paragraphs: [`정해진 금액은 없어요. 편한 방법으로 보내 주신 뒤 보낸 분 이름·보낸 날짜·말해가계부 로그인 이름을 ${email} 로 알려 주시면 확인하고 후원자 표시를 켜 드려요.`],
+    bullets: ways,
+    note: "말해가계부 후원은 연말정산 공제 대상이 아니고 영수증을 발행하지 않아요. 잘못 보냈다면 같은 이메일로 알려 주세요.",
+    ...(links.length ? { links } : {}),
+  };
+}
+
+function publicSupportPageV22995(env = {}, supporters = []) {
+  const config = supportConfigV22995(env);
+  const email = SUPPORT_CONTACT_EMAIL_V22995;
+  const names = safeArray(supporters).map((name) => String(name || "").trim()).filter(Boolean);
+  const sections = [
+    {
+      title: "왜 후원이 필요한가요",
+      paragraphs: ["말해가계부의 기록·요약·공동 가계부·리포트는 누구나 무료로 써요. 서버·데이터베이스·도메인 비용은 운영사인 도담 네트워크가 내고 있고, 후원은 이 비용을 함께 나누는 방법이에요."],
+      table: {
+        caption: "한 달 운영 비용(지금과 출시 뒤 예정)",
+        headers: ["항목", "지금", "출시 뒤(예정)"],
+        rows: [
+          ["서버(Cloudflare Workers)", "무료 요금제", "유료 요금제 약 5달러"],
+          ["데이터베이스(Supabase)", "무료 요금제", "Pro 요금제 약 25달러"],
+          ["도메인(malhaebook.com)", "1년에 한 번 갱신", "1년에 한 번 갱신"],
+          ["한 달 합계", "도메인 비용 정도", "약 4만 5천 원(환율에 따라 달라요)"],
+        ],
+      },
+      note: "출시 뒤 금액은 이용자가 늘 때 바꿀 계획인 요금제 기준의 예정 금액이에요. 요금제를 바꾸면 이 표를 고쳐 알려 드릴게요.",
+    },
+    {
+      title: "후원금은 이렇게 써요",
+      bullets: ["서버(Cloudflare Workers)와 데이터베이스(Supabase) 요금", "도메인 갱신과 관제(장애 알림·사용량 확인)", "운영비를 넘는 몫은 새 기능 개발과 개선"],
+      note: "약속: 로그인 화면과 카카오톡 봇 답장에는 광고를 넣지 않아요. 기록·요약·공동 가계부·리포트 같은 핵심 기능은 후원과 관계없이 계속 무료예요.",
+    },
+    publicSupportWaysSectionV22995(config, email),
+    {
+      title: "후원자에게 드리는 것",
+      bullets: ["웹 가계부에 보이는 ‘후원자’ 배지", "후원자만 고를 수 있는 포인트 색 3가지(코랄·민트·라벤더)", "후원자 오픈채팅방 초대(운영 소식을 먼저 듣고 의견을 나누는 곳)", "이 페이지 후원자 명단에 이름 올리기(원하는 분만, 원하는 이름으로)"],
+      note: "보상은 보이는 표시와 이야기 나누는 곳뿐이에요. 후원하지 않아도 쓸 수 있는 기능은 똑같아요.",
+    },
+    {
+      title: "함께 이야기하는 곳",
+      paragraphs: [
+        config.community
+          ? "누구나 들어올 수 있는 말해가계부 오픈채팅방이 있어요. 쓰는 방법을 묻거나 고쳐 줬으면 하는 점을 나눠 주세요."
+          : `누구나 들어올 수 있는 오픈채팅방을 준비하고 있어요. 그동안은 ${email} 로 의견을 보내 주세요.`,
+        config.supporterChat
+          ? "후원자 오픈채팅방은 후원을 확인한 분께 웹 가계부 ‘전체 메뉴’ 의 화면 설정에서 들어가는 단추로 안내해요."
+          : "후원자 오픈채팅방도 준비하고 있어요. 열리면 후원자께 웹 가계부에서 안내해 드려요.",
+      ],
+      ...(config.community ? { links: [["말해가계부 오픈채팅 들어가기", config.community]] } : {}),
+    },
+    ...(names.length ? [{
+      title: "고마운 후원자",
+      paragraphs: ["명단에 이름을 올려도 된다고 알려 주신 분만 적었어요. 먼저 후원해 주신 순서예요.", names.join(" · ")],
+    }] : []),
+    {
+      title: "문의",
+      paragraphs: [`후원 확인, 후원자 표시, 명단 이름 바꾸기와 빼기는 ${email} 로 알려 주세요. 보낸 분 이름·보낸 날짜·로그인 이름을 함께 적어 주시면 빨리 확인할 수 있어요.`],
+      links: [[`${email} 로 메일 보내기`, `mailto:${email}`], ["문의 안내", "/contact"]],
+    },
+  ];
+  return {
+    title: "말해가계부 후원 안내",
+    description: "말해가계부 운영 비용과 후원금을 쓰는 곳, 후원하는 방법, 후원자에게 드리는 배지·포인트 색·오픈채팅과 문의 방법을 안내합니다.",
+    eyebrow: "핵심 기능은 계속 무료",
+    intro: "말해가계부는 누구나 무료로 쓰는 가계부예요. 서버와 도메인 비용을 함께 나눠 주시면 더 오래, 더 안정적으로 운영할 수 있어요. 후원은 선택이고, 후원하지 않아도 모든 핵심 기능을 똑같이 쓸 수 있어요.",
+    sections,
+    type: "WebPage",
+    updated: "2026-11-02",
+    primary: ["후원하는 방법 보기", "#section-3"],
+    secondary: ["문의 안내", "/contact"],
+  };
+}
+
+function publicPageCatalog(env = {}, url = null, extra = {}) {
   // V22.9.92: 카카오 애드핏으로 광고를 내는 서버(adsPolicyNetwork 가 "adfit")에서는 개인정보처리방침·쿠키 안내의 광고 절을
   // 카카오 기준 문장과 링크로 바꾼다(Google 안내·지역별 동의 절은 Google 광고에만 맞는 말이라 뺀다). 그 밖(심사 모드·AdSense)은 지금 그대로다.
   const adfit = adsPolicyNetwork(env) === "adfit";
@@ -8631,6 +8762,8 @@ function publicPageCatalog(env = {}, url = null) {
   catalog.articles = publicArticlesHubPage(articleIndex);
   const siteMapArticles = safeArray(catalog["site-map"]?.sections).find((section) => section.title === "생활비 가이드 글");
   if (siteMapArticles) siteMapArticles.links = publicArticleSiteMapLinks(articleIndex);
+  // V22.9.95 후원: 후원 안내(/support). 명단은 handlePublicContentPage 가 GET 때만 읽어 extra.supporters 로 넘긴다.
+  catalog.support = publicSupportPageV22995(env, safeArray(extra?.supporters));
   return catalog;
 }
 
@@ -8804,8 +8937,8 @@ function publicOgImageMeta(origin) {
   return `<meta property="og:image" content="${escapeHtml(`${origin}${AB_OG_IMAGE_PATH}`)}"/><meta property="og:image:type" content="image/png"/><meta property="og:image:width" content="${AB_OG_IMAGE_WIDTH}"/><meta property="og:image:height" content="${AB_OG_IMAGE_HEIGHT}"/><meta property="og:image:alt" content="${escapeHtml(AB_OG_IMAGE_ALT)}"/><meta name="twitter:card" content="summary_large_image"/>`;
 }
 
-function renderPublicContentPage(env = {}, url = null, key = "home") {
-  const catalog = publicPageCatalog(env, url);
+function renderPublicContentPage(env = {}, url = null, key = "home", extra = {}) {
+  const catalog = publicPageCatalog(env, url, extra);
   const page = Object.hasOwn(catalog, key) ? catalog[key] : catalog.home;
   const origin = publicBaseUrl(env, url);
   const canonical = `${origin}${key === "home" ? "/" : `/${key}`}`;
@@ -8846,7 +8979,9 @@ function publicContentAdKey(key = "home") {
 }
 
 async function handlePublicContentPage(request, env, url, key = "home") {
-  return htmlResponse(renderPublicContentPage(env, url, key), 200, adsHeaders(env, publicContentAdKey(key), { "cache-control": "public, max-age=300, stale-while-revalidate=600", "x-robots-tag": "index, follow" }));
+  // V22.9.95 후원: /support 는 후원자 명단(이름을 올려도 된다고 한 분)을 GET 때 한 번 읽는다. 읽지 못하면 명단 절을 뺀다. HEAD 는 읽지 않는다.
+  const extra = key === "support" && request.method === "GET" ? { supporters: await fetchPublicSupporterNames(env) } : {};
+  return htmlResponse(renderPublicContentPage(env, url, key, extra), 200, adsHeaders(env, publicContentAdKey(key), { "cache-control": "public, max-age=300, stale-while-revalidate=600", "x-robots-tag": "index, follow" }));
 }
 
 async function publicDocumentResponse(request, env, url) {
@@ -8856,7 +8991,8 @@ async function publicDocumentResponse(request, env, url) {
     ["/usage-guide", "/how-it-works"], ["/kakao-accountbook-guide", "/kakao-guide"],
     ["/budget-management-guide", "/budget-guide"], ["/family-accountbook", "/group-accountbook"],
     ["/data-security", "/security"], ["/about-service", "/about"],
-    ["/support", "/contact"], ["/cookie-policy", "/cookies"],
+    // V22.9.95 후원: /support 는 이제 /contact 별칭이 아니라 후원 안내 페이지다(/contact 는 그대로).
+    ["/cookie-policy", "/cookies"],
     ["/data-policy", "/privacy"], ["/service-policy", "/terms"],
   ];
   const path = url.pathname.replace(/\/+$/, "");
@@ -23073,7 +23209,7 @@ async function handleOpsDashboardPage(request, env, url) {
   const auditKeep = auditRetentionDaysV22995(env);
   const status = errCount ? "주의" : warnCount ? "관찰" : "정상";
   const statusClass = errCount ? "bad" : warnCount ? "warn" : "ok";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 운영 대시보드</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.box span{display:block;color:#64748b;font-size:12px;font-weight:900}.box b{display:block;margin-top:6px;font-size:25px}.ok{color:#166534}.warn{color:#b45309}.bad{color:#b91c1c}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px;background:#fff}table{width:100%;border-collapse:collapse;min-width:780px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px;vertical-align:top}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.6}.badge{display:inline-flex;border-radius:999px;padding:7px 11px;background:#eff6ff;color:#1e3a8a;font-size:12px;font-weight:1000}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}table{min-width:680px}}</style></head><body>${renderUnifiedNav("operation-center", { showOps: true })}<main class="wrap"><section class="hero"><span class="badge">${escapeHtml(APP_VERSION)}</span><h1>운영 대시보드</h1><p>최근 오류, 과도 요청 제한, 카카오 발화 이벤트를 한 화면에서 확인합니다. 예약 실행 요약 말고는 장기 저장을 하지 않는 인스턴스 메모리 기반 운영 패널입니다.</p><p><a class="btn light" href="/operation-center">운영센터</a><a class="btn light" href="/ops-monitor">종합 관제 · 사용량과 이력</a><a class="btn light" href="/ops-traffic">트래픽</a><a class="btn light" href="/ops-duplicates">중복 방어</a><a class="btn light" href="/skill-ops">스킬 운영</a><a class="btn light" href="/ops-snapshot.json">JSON 스냅샷</a></p></section><section class="grid"><div class="box"><span>현재 인스턴스의 관측 상태</span><b class="${statusClass}">${status}</b></div><div class="box"><span>최근 오류</span><b>${numberWithCommas(errCount)}</b></div><div class="box"><span>최근 경고</span><b>${numberWithCommas(warnCount)}</b></div><div class="box"><span>Traffic 활성 버킷</span><b>${numberWithCommas(traffic.activeBuckets || 0)}</b></div><div class="box"><span>Skill 활성 버킷</span><b>${numberWithCommas(skill.activeBuckets || 0)}</b></div><div class="box"><span>쓰기 제한 기준</span><b>${numberWithCommas(snap.limits.traffic_guard_limit)}/분</b></div></section><section class="card"><h2>최근 예약 실행</h2><div class="scroll"><table><thead><tr><th>시작(KST)</th><th>판</th><th>상태</th><th>정기 반영</th><th>자동 리포트</th><th>남은 범위</th><th>기록 정리</th><th>오류 코드</th></tr></thead><tbody>${runRows}</tbody></table></div><p class="note">매일 예약 실행(정기 반영·자동 리포트·기록 정리)의 결과 요약입니다. 저장소에 최근 14번까지 남아 인스턴스가 바뀌어도 보입니다. 기록 정리의 ‘감사 n건’은 보존 기간(${auditKeep.days}일${auditKeep.invalid ? ", AUDIT_RETENTION_DAYS 값이 잘못돼 기본값" : ""})이 지나 지운 거래 변경 감사 기록 수입니다.</p></section><section class="card"><h2>최근 운영 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>등급</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${opsRows}</tbody></table></div><p class="note">안전모드 전환, 서버 오류, 예약 실행 오류, 과도 요청 제한이 여기에 표시됩니다.</p></section><section class="card"><h2>최근 과도 요청 제한</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${trafficRows}</tbody></table></div></section><section class="card"><h2>최근 카카오 발화 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>User Key</th><th>발화</th><th>상세</th></tr></thead><tbody>${skillRows}</tbody></table></div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 운영 대시보드</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.box span{display:block;color:#64748b;font-size:12px;font-weight:900}.box b{display:block;margin-top:6px;font-size:25px}.ok{color:#166534}.warn{color:#b45309}.bad{color:#b91c1c}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px;background:#fff}table{width:100%;border-collapse:collapse;min-width:780px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px;vertical-align:top}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.6}.badge{display:inline-flex;border-radius:999px;padding:7px 11px;background:#eff6ff;color:#1e3a8a;font-size:12px;font-weight:1000}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}table{min-width:680px}}</style></head><body>${renderUnifiedNav("operation-center", { showOps: true })}<main class="wrap"><section class="hero"><span class="badge">${escapeHtml(APP_VERSION)}</span><h1>운영 대시보드</h1><p>최근 오류, 과도 요청 제한, 카카오 발화 이벤트를 한 화면에서 확인합니다. 예약 실행 요약 말고는 장기 저장을 하지 않는 인스턴스 메모리 기반 운영 패널입니다.</p><p><a class="btn light" href="/operation-center">운영센터</a><a class="btn light" href="/ops-monitor">종합 관제 · 사용량과 이력</a><a class="btn light" href="/admin/supporters">후원자 관리</a><a class="btn light" href="/ops-traffic">트래픽</a><a class="btn light" href="/ops-duplicates">중복 방어</a><a class="btn light" href="/skill-ops">스킬 운영</a><a class="btn light" href="/ops-snapshot.json">JSON 스냅샷</a></p></section><section class="grid"><div class="box"><span>현재 인스턴스의 관측 상태</span><b class="${statusClass}">${status}</b></div><div class="box"><span>최근 오류</span><b>${numberWithCommas(errCount)}</b></div><div class="box"><span>최근 경고</span><b>${numberWithCommas(warnCount)}</b></div><div class="box"><span>Traffic 활성 버킷</span><b>${numberWithCommas(traffic.activeBuckets || 0)}</b></div><div class="box"><span>Skill 활성 버킷</span><b>${numberWithCommas(skill.activeBuckets || 0)}</b></div><div class="box"><span>쓰기 제한 기준</span><b>${numberWithCommas(snap.limits.traffic_guard_limit)}/분</b></div></section><section class="card"><h2>최근 예약 실행</h2><div class="scroll"><table><thead><tr><th>시작(KST)</th><th>판</th><th>상태</th><th>정기 반영</th><th>자동 리포트</th><th>남은 범위</th><th>기록 정리</th><th>오류 코드</th></tr></thead><tbody>${runRows}</tbody></table></div><p class="note">매일 예약 실행(정기 반영·자동 리포트·기록 정리)의 결과 요약입니다. 저장소에 최근 14번까지 남아 인스턴스가 바뀌어도 보입니다. 기록 정리의 ‘감사 n건’은 보존 기간(${auditKeep.days}일${auditKeep.invalid ? ", AUDIT_RETENTION_DAYS 값이 잘못돼 기본값" : ""})이 지나 지운 거래 변경 감사 기록 수입니다.</p></section><section class="card"><h2>최근 운영 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>등급</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${opsRows}</tbody></table></div><p class="note">안전모드 전환, 서버 오류, 예약 실행 오류, 과도 요청 제한이 여기에 표시됩니다.</p></section><section class="card"><h2>최근 과도 요청 제한</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${trafficRows}</tbody></table></div></section><section class="card"><h2>최근 카카오 발화 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>User Key</th><th>발화</th><th>상세</th></tr></thead><tbody>${skillRows}</tbody></table></div></section></main></body></html>`);
 }
 
 async function handleTrafficOpsPage(request, env, url) {
@@ -24682,6 +24818,8 @@ async function handleUnifiedMenuPage(request, env, url) {
     // V22.9.95 R-9: 가입 동의 칸과 같은 이름(이용약관·개인정보처리방침)으로 보인다. 개인정보처리방침은 표준 명칭을 쓴다.
     ["이용약관", "/terms", "서비스 이용 기준", "file"],
     ["개인정보처리방침", "/privacy", "처리 항목·보호책임자·삭제 요청", "shield"],
+    // V22.9.95 후원: 도움말과 안내 목록 끝에 후원 안내 한 줄.
+    ["후원하기", "/support", "운영 비용 함께 나누기", "sparkle"],
   ];
   const row = ([label, href, desc, icon]) => `<a class="menuRow" href="${escapeHtml(href)}"><span class="menuRowIcon" aria-hidden="true" data-ab-nav-icon="${escapeHtml(icon)}"></span><span class="menuRowTitle">${escapeHtml(label)}</span><span class="menuRowDesc">${escapeHtml(desc)}</span><span class="menuArrow" aria-hidden="true">›</span></a>`;
   const sectionHtml = sections.map(([title, subtitle, links]) => `<section class="menuSection"><div class="menuSectionHead"><h2>${escapeHtml(title)}</h2><span>${escapeHtml(subtitle)}</span></div><div class="menuList">${links.map(row).join("")}</div></section>`).join("");
@@ -24690,13 +24828,17 @@ async function handleUnifiedMenuPage(request, env, url) {
   // V22.8.95 (10.1): 마우스 따라오는 표시 스위치. 테마·톤과 달리 이 값은 기기가
   // 아니라 계정에 붙으므로(지시서) 폼 하나로 서버에 저장한다. 데스크톱에서만 뜻이
   // 있어서 모바일에서는 아무것도 하지 않는다는 사실을 문구로 말한다.
-  const cursorOn = String(await getSettingValue(env, cursorPrefKey(userId || "shared")).catch(() => "") || "") !== "off";
+  // V22.9.95 후원: 마우스 표시 설정과 후원자 표시를 한 번에 읽는다(전체 메뉴 조회 수 그대로). 읽지 못하면 둘 다 기본값(켜짐·후원자 아님)이다.
+  const menuSupporterKey = userId ? supporterSettingsKey(userId) : "";
+  const menuPrefs = await fetchSettingValuesByKeysV22995(env, [cursorPrefKey(userId || "shared"), menuSupporterKey]).catch(() => new Map());
+  const cursorOn = String(menuPrefs.get(cursorPrefKey(userId || "shared")) || "") !== "off";
+  const menuSupporter = menuSupporterKey ? activeSupporterFlag(menuPrefs.get(menuSupporterKey)) : null;
   const cursorSwitchHtml = `<form class="abCursorPref" method="post" action="/cursor-preference/save"><input type="hidden" name="household_id" value="${escapeHtml(hid)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label class="abCursorPick"><input type="checkbox" name="cursor" value="on"${cursorOn ? " checked" : ""}/><span><b>마우스 따라오는 표시</b><small>마우스가 있는 큰 화면에서만 켜집니다. 동작 줄이기를 켜 두면 이 설정과 무관하게 나타나지 않습니다.</small></span></label><button type="submit">표시 설정 저장</button></form>`;
-  const appearanceHtml = `<section class="abAppearancePanel" aria-labelledby="abAppearanceTitle"><div class="abAppearanceHead"><div><h2 id="abAppearanceTitle">화면 설정</h2><p>이 브라우저에서 사용할 화면 모드와 포인트 컬러를 선택하세요.</p></div><span class="abAppearanceDevice">기기별 저장</span></div><div class="abAppearanceRows"><div><b>화면 모드</b><div class="abAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div><b>컬러톤</b><div class="abAppearanceChoices abToneChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false"><i class="abToneDot abToneBlue" aria-hidden="true"></i>블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false"><i class="abToneDot abToneEmerald" aria-hidden="true"></i>그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false"><i class="abToneDot abToneViolet" aria-hidden="true"></i>바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false"><i class="abToneDot abToneAmber" aria-hidden="true"></i>앰버</button></div></div></div><p id="abAppearanceStatus" class="abAppearanceStatus" aria-live="polite">화면 설정을 불러오는 중입니다.</p>${cursorSwitchHtml}</section>`;
+  const appearanceHtml = `<section class="abAppearancePanel" aria-labelledby="abAppearanceTitle"><div class="abAppearanceHead"><div><h2 id="abAppearanceTitle">화면 설정</h2><p>이 브라우저에서 사용할 화면 모드와 포인트 컬러를 선택하세요.</p></div><span class="abAppearanceDevice">기기별 저장</span></div><div class="abAppearanceRows"><div><b>화면 모드</b><div class="abAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div><b>컬러톤</b><div class="abAppearanceChoices abToneChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false"><i class="abToneDot abToneBlue" aria-hidden="true"></i>블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false"><i class="abToneDot abToneEmerald" aria-hidden="true"></i>그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false"><i class="abToneDot abToneViolet" aria-hidden="true"></i>바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false"><i class="abToneDot abToneAmber" aria-hidden="true"></i>앰버</button></div></div>${menuSupporter ? supporterAccentChoicesHtml({ supporterChatUrl: supportConfigV22995(env).supporterChat }) : ""}</div><p id="abAppearanceStatus" class="abAppearanceStatus" aria-live="polite">화면 설정을 불러오는 중입니다.</p>${cursorSwitchHtml}</section>`;
   // V22.9.34 감사 U1: 일반 사용자 화면에 로그아웃이 없어 공용 PC 에서 14일 세션이 남았다.
   // 관리자 세션은 운영 화면의 로그아웃을 쓴다.
   const logoutHtml = userId ? `<form class="menuLogout" method="post" action="/my/logout"><button class="secondary" type="submit">로그아웃</button><p>이 기기에서 로그인을 끝냅니다. 여러 사람이 쓰는 PC 라면 사용 뒤 꼭 로그아웃하세요.</p></form>` : "";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title><style>.menuLogout{margin:22px 0 6px;display:grid;justify-items:center;gap:8px;text-align:center}.menuLogout button{appearance:none;width:100%;max-width:340px;min-height:46px;border:1px solid currentColor;border-radius:14px;background:transparent;color:inherit;font:inherit;font-weight:800;cursor:pointer}.menuLogout p{margin:0;font-size:12.5px;line-height:1.5;opacity:.75}.menuPage .menuLogout button{width:auto!important;min-width:150px;max-width:240px;min-height:40px!important;padding:0 18px!important;border:1px solid currentColor!important;border-radius:12px!important;background:transparent!important;color:inherit!important;opacity:.78;box-shadow:none!important;font-weight:700!important}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:var(--ab12-action,#2457d6);color:#fff;border-color:var(--ab12-action,#2457d6);font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "", role: userId ? String(selectedHousehold?.role || "") : "" })}<main class="wrap menuPage"><header class="menuHeader"><div><h1>전체 메뉴</h1></div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header>${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${appearanceHtml}${logoutHtml}</main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"${supporterHtmlAttr(!!menuSupporter)}><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title>${supporterHeadHtml({ viewer: !!menuSupporter })}<style>.menuLogout{margin:22px 0 6px;display:grid;justify-items:center;gap:8px;text-align:center}.menuLogout button{appearance:none;width:100%;max-width:340px;min-height:46px;border:1px solid currentColor;border-radius:14px;background:transparent;color:inherit;font:inherit;font-weight:800;cursor:pointer}.menuLogout p{margin:0;font-size:12.5px;line-height:1.5;opacity:.75}.menuPage .menuLogout button{width:auto!important;min-width:150px;max-width:240px;min-height:40px!important;padding:0 18px!important;border:1px solid currentColor!important;border-radius:12px!important;background:transparent!important;color:inherit!important;opacity:.78;box-shadow:none!important;font-weight:700!important}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:var(--ab12-action,#2457d6);color:#fff;border-color:var(--ab12-action,#2457d6);font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: selectedHousehold?.name || "", role: userId ? String(selectedHousehold?.role || "") : "" })}<main class="wrap menuPage"><header class="menuHeader"><div><h1>전체 메뉴</h1>${menuSupporter ? supporterThanksHtml() : ""}</div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header>${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${appearanceHtml}${logoutHtml}</main></body></html>`);
 }
 
 function renderPcSidebar(active, month, householdId, householdName = "") {
@@ -26231,11 +26373,12 @@ async function handleMyMembersPage(request, env, url) {
   if (!selected) return htmlResponse(renderMyStartChoiceHtml({ env, user, err: "no_household" }));
   if (!canManageMyHousehold(selected.role)) return myAccessStatusResponse({ env, user, household: selected, role: selected.role, month, manageOnly: true, screen: "members" });
   // V22.9.43: 구성원 권한은 참여자 목록과 함께 읽는다. 읽지 못하면 값을 추측하지 않고 확인 불가로 그린다.
-  const [members, memberPolicy] = await Promise.all([
-    fetchHouseholdMembers(env, selected.id),
+  // V22.9.95 후원: 구성원 id 를 모아 후원자 표시를 한 번에 읽는다(구성원 목록 뒤 한 번, 권한 읽기와는 나란히). 읽지 못하면 배지 없이 그린다.
+  const [[members, supporterFlags], memberPolicy] = await Promise.all([
+    fetchHouseholdMembers(env, selected.id).then(async (rows) => [rows, await fetchSupporterFlags(env, safeArray(rows).map((m) => m.user_id)).catch(() => new Map())]),
     fetchHouseholdMemberPolicy(env, selected.id).catch(() => ""),
   ]);
-  return htmlResponse(renderMyMembersHtml({ env, user, month, households, selected, members, memberPolicy, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
+  return htmlResponse(renderMyMembersHtml({ env, user, month, households, selected, members, memberPolicy, supporterFlags, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
 }
 
 // V22.9.43: 구성원 권한(기록만/기록·수정) 저장. 소유자만 바꾸며, 결과는 참여자 화면의 같은 칸으로 돌아가 알린다.
@@ -26267,7 +26410,11 @@ function renderMemberPolicySection({ selected, month, memberPolicy = "" }) {
   return `<section class="card" id="member-policy"><h2>구성원 권한</h2>${intro}<form method="post" action="/my/member-policy/save" class="policyForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/>${option(MEMBER_POLICY_RECORD_EDIT)}${option(MEMBER_POLICY_RECORD_ONLY)}<button type="submit">권한 저장</button></form><p class="muted">카카오톡에서는 ‘구성원 권한 기록만’ 또는 ‘구성원 권한 기록 수정’으로도 바꿀 수 있습니다.</p></section>`;
 }
 
-function renderMyMembersHtml({ env, month, households, selected, members = [], memberPolicy = "", msg = "", err = "" }) {
+function renderMyMembersHtml({ env, user = null, month, households, selected, members = [], memberPolicy = "", msg = "", err = "", supporterFlags = null }) {
+  const supporterIds = supporterFlags instanceof Map ? supporterFlags : new Map();
+  const supporterBadges = safeArray(members).some((m) => supporterIds.has(String(m.user_id || "")));
+  // V22.9.95 후원: 보는 사람도 구성원이라 같은 조회에 들어 있다. 후원자면 이 화면에도 고른 포인트 색을 맞춘다(추가 조회 없음).
+  const supporterViewer = supporterIds.has(String(user?.id || ""));
   const title = escapeHtml(appName(env));
   const hh = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
   const returnTo = `/my/members?${hh}`;
@@ -26277,10 +26424,10 @@ function renderMyMembersHtml({ env, month, households, selected, members = [], m
     const owner = role === "owner";
     const roleForm = owner ? `<span class="ownerBadge">소유자</span>` : `<form method="post" action="/admin/member/update" class="roleForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/><select name="role"><option value="member"${role === "member" ? " selected" : ""}>구성원 · 기록 가능</option><option value="viewer"${role === "viewer" ? " selected" : ""}>조회 전용</option><option value="admin"${role === "admin" ? " selected" : ""}>관리자</option><option value="pending"${role === "pending" ? " selected" : ""}>승인 대기</option><option value="blocked"${role === "blocked" ? " selected" : ""}>이용 제한</option></select><button type="submit">권한 저장</button></form>`;
     const remove = owner ? "" : `<form method="post" action="/admin/member/remove" onsubmit="return confirm('이 참여자를 가계부에서 내보낼까요?')"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/><button class="danger" type="submit">내보내기</button></form>`;
-    return `<article class="memberCard"><div class="memberHead"><div class="avatar">${escapeHtml(String(m.nickname || "구").slice(0, 1))}</div><div><b>${escapeHtml(m.nickname || "구성원")}</b><span>${escapeHtml(userHouseholdRoleLabel(role))} · ${escapeHtml(String(m.created_at || "").slice(0, 10) || "참여일 미상")}</span></div></div><form method="post" action="/admin/member/nickname" class="nameForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/><label>이 가계부에서 보일 이름<input name="nickname" value="${escapeHtml(m.nickname || "")}" maxlength="40" required/></label><button type="submit">이름 저장</button></form>${roleForm}<div class="memberFoot"><small>표시 이름과 권한으로 구분합니다.</small>${remove}</div></article>`;
+    return `<article class="memberCard"><div class="memberHead"><div class="avatar">${escapeHtml(String(m.nickname || "구").slice(0, 1))}</div><div><b>${escapeHtml(m.nickname || "구성원")}${supporterIds.has(String(m.user_id || "")) ? supporterBadgeHtml() : ""}</b><span>${escapeHtml(userHouseholdRoleLabel(role))} · ${escapeHtml(String(m.created_at || "").slice(0, 10) || "참여일 미상")}</span></div></div><form method="post" action="/admin/member/nickname" class="nameForm"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/><label>이 가계부에서 보일 이름<input name="nickname" value="${escapeHtml(m.nickname || "")}" maxlength="40" required/></label><button type="submit">이름 저장</button></form>${roleForm}<div class="memberFoot"><small>표시 이름과 권한으로 구분합니다.</small>${remove}</div></article>`;
   }).join("") || `<div class="empty">참여자가 없습니다.</div>`;
   // V22.9.79 F-4: 줄바꿈 없는 긴 표시 이름(영문 닉네임 등)이 참여자 카드를 360px 밖(R=576)으로 밀고 "이름 저장" 단추가 카드 밖으로 나갔다. 모바일 격자를 minmax(0,1fr)로, 이름 칸에 min-width:0·줄바꿈 허용.
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 참여자·초대</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px 16px 120px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px}.hero p,.muted{color:#667085;line-height:1.6}.toolbar{display:grid;grid-template-columns:minmax(0,1fr) 160px 100px;gap:8px}.toolbar select,.toolbar input,.toolbar button,.nameForm input,.roleForm select{width:100%;min-width:0;height:44px;border:1px solid #d0d5dd;border-radius:13px;padding:0 11px;background:#fff;font:inherit}.toolbar button,.nameForm button,.roleForm button,.danger,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 12px}.inviteBox{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:center;background:#fffbea;border:1px solid #fde68a;border-radius:18px;padding:14px}.inviteBox code{font-size:22px;font-weight:1000;word-break:break-all}.inviteBox button{min-height:42px;border:0;border-radius:13px;background:#FEE500;color:#191919;font-weight:1000;padding:0 14px}.memberGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}.memberCard{border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:11px;min-width:0}.memberHead{display:flex;gap:10px;align-items:center}.avatar{width:42px;height:42px;border-radius:15px;background:#eef2ff;color:#3730a3;display:grid;place-items:center;font-weight:1000;font-size:18px}.memberHead>div:last-child{min-width:0}.avatar{flex:none}.memberHead b{overflow-wrap:anywhere}.memberHead b,.memberHead span{display:block}.memberHead span{color:#667085;font-size:12px;margin-top:3px}.nameForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}.nameForm label{display:grid;gap:6px;color:#475467;font-size:12px;font-weight:1000}.roleForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.memberFoot{display:flex;justify-content:space-between;gap:8px;align-items:center;border-top:1px solid #edf0f4;padding-top:9px}.memberFoot small{color:#98a2b3}.danger{background:#fee2e2;color:#991b1b!important;min-height:38px}.ownerBadge{display:inline-flex;justify-self:start;background:#dcfce7;color:#166534;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.empty{padding:16px;color:#667085;background:#f8fafc;border-radius:16px}@media(max-width:760px){.wrap{padding:10px 10px 126px}.toolbar,.nameForm,.roleForm{grid-template-columns:minmax(0,1fr)}.memberGrid{grid-template-columns:minmax(0,1fr)}.hero,.card{padding:16px;border-radius:19px}.inviteBox{grid-template-columns:1fr}.inviteBox button{width:100%}.memberFoot{align-items:flex-start}.nameForm input,.roleForm select,.toolbar select,.toolbar input{font-size:16px}}.policyForm{display:grid;gap:9px}.policyOption{display:flex;gap:10px;align-items:flex-start;border:1px solid #e8edf4;border-radius:16px;padding:12px}.policyOption input{width:20px;height:20px;margin:2px 0 0;flex:none}.policyOption b,.policyOption small{display:block}.policyOption small{color:#667085;margin-top:3px;line-height:1.5}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "members")}<div class="pageMain"><section class="hero"><h1>참여자·초대 관리</h1><p>초대코드를 공유하고, 승인 대기·기록 가능·조회 전용·이용 제한을 가계부별로 관리합니다.</p></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}<section class="card"><form class="toolbar" method="get" action="/my/members"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="card"><h2>초대코드</h2><div class="inviteBox"><code>가계부 참여 ${escapeHtml(selected.invite_code || "")}</code><button type="button" id="copyInvite">초대 문구 복사</button></div><p class="muted">참여자는 자기 카카오 계정 또는 내 계정 로그인 비밀번호로 접속합니다. 초대코드는 가계부 참여용이며 비밀번호가 아닙니다.</p></section>${renderMemberPolicySection({ selected, month, memberPolicy })}<section class="card"><h2>참여자 ${numberWithCommas(members.length)}명</h2><div class="memberGrid">${cards}</div></section></div></div></main><script>(function(){var b=document.getElementById('copyInvite');if(!b)return;var t=${jsonForInlineScript(`가계부 참여 ${selected.invite_code || ""}`)};b.addEventListener('click',function(){if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){b.textContent='복사됨';});}else{window.prompt('복사하세요',t);}});})();</script></body></html>`;
+  return `<!doctype html><html lang="ko"${supporterHtmlAttr(supporterViewer)}><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 참여자·초대</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}html,body{max-width:100%;overflow-x:hidden}body{margin:0;background:#f6f7fb;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px 16px 120px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 30px rgba(15,23,42,.055)}.hero h1{margin:0 0 7px}.hero p,.muted{color:#667085;line-height:1.6}.toolbar{display:grid;grid-template-columns:minmax(0,1fr) 160px 100px;gap:8px}.toolbar select,.toolbar input,.toolbar button,.nameForm input,.roleForm select{width:100%;min-width:0;height:44px;border:1px solid #d0d5dd;border-radius:13px;padding:0 11px;background:#fff;font:inherit}.toolbar button,.nameForm button,.roleForm button,.danger,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 12px}.inviteBox{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:9px;align-items:center;background:#fffbea;border:1px solid #fde68a;border-radius:18px;padding:14px}.inviteBox code{font-size:22px;font-weight:1000;word-break:break-all}.inviteBox button{min-height:42px;border:0;border-radius:13px;background:#FEE500;color:#191919;font-weight:1000;padding:0 14px}.memberGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:10px}.memberCard{border:1px solid #e5e7eb;border-radius:18px;padding:14px;display:grid;gap:11px;min-width:0}.memberHead{display:flex;gap:10px;align-items:center}.avatar{width:42px;height:42px;border-radius:15px;background:#eef2ff;color:#3730a3;display:grid;place-items:center;font-weight:1000;font-size:18px}.memberHead>div:last-child{min-width:0}.avatar{flex:none}.memberHead b{overflow-wrap:anywhere}.memberHead b,.memberHead span{display:block}.memberHead span{color:#667085;font-size:12px;margin-top:3px}.nameForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;align-items:end}.nameForm label{display:grid;gap:6px;color:#475467;font-size:12px;font-weight:1000}.roleForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}.memberFoot{display:flex;justify-content:space-between;gap:8px;align-items:center;border-top:1px solid #edf0f4;padding-top:9px}.memberFoot small{color:#98a2b3}.danger{background:#fee2e2;color:#991b1b!important;min-height:38px}.ownerBadge{display:inline-flex;justify-self:start;background:#dcfce7;color:#166534;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:1000}.ok,.error{border-radius:14px;padding:11px;margin:10px 0}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca}.empty{padding:16px;color:#667085;background:#f8fafc;border-radius:16px}@media(max-width:760px){.wrap{padding:10px 10px 126px}.toolbar,.nameForm,.roleForm{grid-template-columns:minmax(0,1fr)}.memberGrid{grid-template-columns:minmax(0,1fr)}.hero,.card{padding:16px;border-radius:19px}.inviteBox{grid-template-columns:1fr}.inviteBox button{width:100%}.memberFoot{align-items:flex-start}.nameForm input,.roleForm select,.toolbar select,.toolbar input{font-size:16px}}.policyForm{display:grid;gap:9px}.policyOption{display:flex;gap:10px;align-items:flex-start;border:1px solid #e8edf4;border-radius:16px;padding:12px}.policyOption input{width:20px;height:20px;margin:2px 0 0;flex:none}.policyOption b,.policyOption small{display:block}.policyOption small{color:#667085;margin-top:3px;line-height:1.5}</style>${supporterHeadHtml({ viewer: supporterViewer, badges: supporterBadges })}</head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "members")}<div class="pageMain"><section class="hero"><h1>참여자·초대 관리</h1><p>초대코드를 공유하고, 승인 대기·기록 가능·조회 전용·이용 제한을 가계부별로 관리합니다.</p></section>${msg ? `<div class="ok">${escapeHtml(householdPageMessage(msg))}</div>` : ""}${err ? `<div class="error">${escapeHtml(householdPageMessage(err))}</div>` : ""}<section class="card"><form class="toolbar" method="get" action="/my/members"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="card"><h2>초대코드</h2><div class="inviteBox"><code>가계부 참여 ${escapeHtml(selected.invite_code || "")}</code><button type="button" id="copyInvite">초대 문구 복사</button></div><p class="muted">참여자는 자기 카카오 계정 또는 내 계정 로그인 비밀번호로 접속합니다. 초대코드는 가계부 참여용이며 비밀번호가 아닙니다.</p></section>${renderMemberPolicySection({ selected, month, memberPolicy })}<section class="card"><h2>참여자 ${numberWithCommas(members.length)}명</h2><div class="memberGrid">${cards}</div></section></div></div></main><script>(function(){var b=document.getElementById('copyInvite');if(!b)return;var t=${jsonForInlineScript(`가계부 참여 ${selected.invite_code || ""}`)};b.addEventListener('click',function(){if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(function(){b.textContent='복사됨';});}else{window.prompt('복사하세요',t);}});})();</script></body></html>`;
 }
 
 function renderMyMembersHtmlLegacyV2264({ env, month, households, selected, members = [], msg = "", err = "" }) {
@@ -26289,6 +26436,172 @@ function renderMyMembersHtmlLegacyV2264({ env, month, households, selected, memb
   const opts = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(h.name)} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
   const rows = safeArray(members).map((m) => `<tr><td>${escapeHtml(m.nickname || "구성원")}</td><td>${escapeHtml(m.role || "member")}</td><td>${escapeHtml(String(m.created_at || "").slice(0,10))}</td></tr>`).join("") || `<tr><td colspan="3">참여자가 없습니다.</td></tr>`;
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 참여자/초대</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 50%,#eef2f7);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#101828}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff}.hero p{color:#dbeafe}.muted{color:#667085;line-height:1.6}input,select{border:1px solid #cbd5e1;border-radius:14px;padding:11px;font:inherit;background:#fff}button,.btn{display:inline-flex;border:0;border-radius:14px;background:#111827;color:#fff!important;padding:11px 14px;text-decoration:none;font-weight:1000}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.code{font-size:24px;font-weight:1000;background:#f8fafc;border:1px dashed #cbd5e1;border-radius:18px;padding:14px;display:inline-block}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left}</style></head><body><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "members")}<div class="pageMain"><section class="hero"><h1>참여자/초대 관리</h1><p>가족이나 모임 구성원에게 초대코드를 공유하고, 참여자를 확인합니다.</p></section><section class="card"><form method="get" action="/my/members"><select name="household_id">${opts}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="card"><h2>초대코드</h2><div class="code">${escapeHtml(selected.invite_code || "")}</div><p class="muted">구성원은 /my에서 이름과 개인 접속코드를 입력한 뒤 이 초대코드로 참여할 수 있습니다. 승인/권한 세부 변경이 필요하면 관리자 화면에서 처리하세요.</p></section><section class="card"><h2>참여자 목록</h2><table><thead><tr><th>이름</th><th>권한</th><th>참여일</th></tr></thead><tbody>${rows}</tbody></table></section></div></div></main></body></html>`;
+}
+// V22.9.95 후원자 표시: 후원자는 설정 표의 한 줄 `supporter:<user_id>` 로만 켠다(새 표·SQL 없음). 운영자가 송금을 확인한 뒤
+// 관리자 화면(/admin/supporters)에서 넣는다. 값은 { since, until|null, note, public_name|null } 이고 until 이 지났으면 꺼진 것으로 본다.
+// 후원자라도 기능은 같다 — 배지와 포인트 색처럼 보이는 표시만 다르다. 읽지 못하면 조용히 ‘후원자 아님’ 이다(화면을 막지 않는다).
+// 조회는 이미 설정 표를 읽는 길에 얹는다: 홈은 fetchMobileHomeSettings 의 extraKeys, 전체 메뉴는 마우스 표시 설정과 한 번에,
+// 참여자 화면은 구성원 id 들을 모아 한 번(fetchSupporterFlags). 공개 /support 명단은 GET 때 한 번(fetchPublicSupporterNames).
+const SUPPORTER_KEY_PREFIX_V22995 = "supporter:";
+const SUPPORTER_ACCENTS_V22995 = Object.freeze([["coral", "코랄"], ["mint", "민트"], ["lavender", "라벤더"]]);
+// 포인트 색 점(선택 단추 안)의 색. 아래 CSS 의 --ab12-brand 와 같다.
+const SUPPORTER_ACCENT_DOTS_V22995 = Object.freeze({ coral: "#e8593c", mint: "#14a38b", lavender: "#7c6fd6" });
+
+function supporterSettingsKey(userId = "") {
+  const id = String(userId || "").trim();
+  return id ? `${SUPPORTER_KEY_PREFIX_V22995}${id}` : "";
+}
+
+function supporterDateV22995(value) {
+  const text = String(value ?? "").trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return "";
+  const date = new Date(`${text}T00:00:00Z`);
+  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === text ? text : "";
+}
+
+function supporterTextV22995(value, max) {
+  return String(value ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, max);
+}
+
+// 저장된 값(JSON 글 또는 jsonb 객체)을 정리한다. 시작일이 없거나 날짜 모양이 틀리면 null(후원자 아님)이다.
+function normalizeSupporterFlag(value) {
+  let raw = value;
+  if (typeof raw === "string") {
+    try { raw = JSON.parse(raw); } catch (_) { return null; }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const since = supporterDateV22995(raw.since);
+  if (!since) return null;
+  const until = raw.until == null || raw.until === "" ? null : supporterDateV22995(raw.until);
+  if (until === "" || (until && until < since)) return null;
+  return { since, until, note: supporterTextV22995(raw.note, 200), public_name: supporterTextV22995(raw.public_name, 30) || null };
+}
+
+function supporterTodayV22995() {
+  return formatDate(nowKstDate());
+}
+
+// 오늘(KST)이 시작일과 끝나는 날 사이면 켜져 있다. 끝나는 날 당일까지 켜져 있고 다음 날 꺼진다.
+function supporterFlagActive(flag, today = supporterTodayV22995()) {
+  return !!flag && flag.since <= today && (!flag.until || flag.until >= today);
+}
+
+function activeSupporterFlag(value, today = supporterTodayV22995()) {
+  const flag = normalizeSupporterFlag(value);
+  return supporterFlagActive(flag, today) ? flag : null;
+}
+
+// PostgREST in.(…) 목록 안의 값은 큰따옴표로 감싼다(쉼표·괄호가 섞여도 목록이 깨지지 않게). 따옴표와 역슬래시는 키에 없으므로 뺀다.
+function supporterInValueV22995(value = "") {
+  return `"${String(value).replace(/["\\]/g, "")}"`;
+}
+
+// 설정 여러 줄을 key=in.(…) 한 번으로 읽는다. 읽지 못하면 빈 Map 이다(각 화면이 기본값으로 그린다 — getSettingValue 와 같은 뜻).
+async function fetchSettingValuesByKeysV22995(env, keys = []) {
+  const list = [...new Set(safeArray(keys).map((key) => String(key || "")).filter(Boolean))];
+  const out = new Map();
+  if (!list.length) return out;
+  const params = new URLSearchParams();
+  params.set("key", `in.(${list.map(supporterInValueV22995).join(",")})`);
+  params.set("select", "key,value");
+  params.set("limit", String(list.length));
+  const rows = await optionalSupabase(env, `/rest/v1/accountbook_settings?${params.toString()}`, { method: "GET" }, []);
+  for (const row of safeArray(rows)) out.set(String(row?.key || ""), row?.value);
+  return out;
+}
+
+// 한 사용자: key=eq. 한 번. 관리자 고치기가 지금 값을 읽을 때 쓴다(꺼진 값도 그대로 돌려준다).
+async function fetchSupporterFlag(env, userId = "") {
+  const key = supporterSettingsKey(userId);
+  if (!key) return null;
+  const rows = await optionalSupabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`, { method: "GET" }, []);
+  return normalizeSupporterFlag(safeArray(rows)[0]?.value);
+}
+
+// 여러 사용자(최대 50명): key=in.(…) 한 번. 지금 켜진 사람만 Map(user_id → flag)에 담는다. 실패하면 빈 Map.
+async function fetchSupporterFlags(env, userIds = []) {
+  const ids = [...new Set(safeArray(userIds).map((id) => String(id || "").trim()).filter(Boolean))].slice(0, 50);
+  const out = new Map();
+  if (!ids.length) return out;
+  const values = await fetchSettingValuesByKeysV22995(env, ids.map(supporterSettingsKey));
+  const today = supporterTodayV22995();
+  for (const id of ids) {
+    const flag = activeSupporterFlag(values.get(supporterSettingsKey(id)), today);
+    if (flag) out.set(id, flag);
+  }
+  return out;
+}
+
+// 모든 후원자 줄(관리자 목록·공개 명단). 읽지 못하면 null 이다(관리자 화면은 ‘불러오지 못함’, 공개 명단은 절을 뺀다).
+async function fetchSupporterRows(env, limit = 200) {
+  const params = new URLSearchParams();
+  params.set("key", `like.${SUPPORTER_KEY_PREFIX_V22995}*`);
+  params.set("select", "key,value");
+  params.set("order", "key.asc");
+  params.set("limit", String(Math.max(1, Math.min(500, Number(limit) || 200))));
+  try {
+    const rows = await supabase(env, `/rest/v1/accountbook_settings?${params.toString()}`, { method: "GET" });
+    if (!Array.isArray(rows)) return null;
+    return rows
+      .map((row) => ({ user_id: String(row?.key || "").startsWith(SUPPORTER_KEY_PREFIX_V22995) ? String(row.key).slice(SUPPORTER_KEY_PREFIX_V22995.length) : "", raw: row?.value, flag: normalizeSupporterFlag(row?.value) }))
+      .filter((row) => row.user_id);
+  } catch (_) {
+    return null;
+  }
+}
+
+// 공개 /support 의 후원자 명단: 지금 켜져 있고 명단 이름(public_name)을 준 분만, 먼저 후원한 순서. 많아야 100명.
+async function fetchPublicSupporterNames(env) {
+  const rows = await fetchSupporterRows(env, 200);
+  if (!rows) return [];
+  const today = supporterTodayV22995();
+  return rows.filter((row) => supporterFlagActive(row.flag, today) && row.flag.public_name)
+    .sort((a, b) => a.flag.since.localeCompare(b.flag.since) || a.flag.public_name.localeCompare(b.flag.public_name, "ko"))
+    .slice(0, 100).map((row) => row.flag.public_name);
+}
+
+// 배지: 글자 + 하트 아이콘. 대비 7.3:1(밝은 화면)·11:1(다크). 읽는 프로그램에는 ‘후원자’ 한 번만 읽힌다.
+function supporterBadgeHtml() {
+  return '<span class="abSupporterBadge" role="img" aria-label="후원자" title="후원해 주셔서 고마워요"><svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" focusable="false"><path d="M12 20.6s-7.3-4.5-9.3-8.9C1.3 8.5 3.3 4.8 7 4.8c2 0 3.5 1.1 5 2.9 1.5-1.8 3-2.9 5-2.9 3.7 0 5.7 3.7 4.3 6.9-2 4.4-9.3 8.9-9.3 8.9z"/></svg>후원자</span>';
+}
+
+// 배지 CSS(배지가 하나라도 있는 화면). 화면마다 이름 칸 CSS 가 span 을 덮어서(예: 참여자 카드 .memberHead span) 몇 칸은 !important 로 지킨다.
+const SUPPORTER_BADGE_CSS_V22995 = '.abSupporterBadge{display:inline-flex!important;align-items:center;gap:3px;margin:0 0 0 6px!important;padding:1px 8px;border:1px solid #fecdd3;border-radius:999px;background:#fff1f2;color:#9f1239!important;font-size:12px!important;font-weight:800;line-height:1.6;vertical-align:middle;white-space:nowrap}.abSupporterBadge svg{width:12px;height:12px;fill:currentColor;flex:none}html[data-ab-resolved-theme="dark"] .abSupporterBadge{background:#4c0519;border-color:#881337;color:#fecdd3!important}';
+
+// 포인트 색: 셸 CSS 의 컬러톤(html[data-ab-tone=…] body.abV22812Shell)과 같은 변수 넷을 덮는다. 서버가 data-supporter="1" 을 그린 화면에서만
+// 맞는다 — 후원이 끝나면 저장값(ab:appearance:accent)이 남아도 적용되지 않는다. 선택자가 컬러톤보다 구체적이라(0,3,0 > 0,2,2, 다크 0,4,0 > 0,3,2)
+// 포인트 색을 고르면 컬러톤보다 먼저 보인다. 대비: 단추 흰 글자 5.4:1 이상, 본문 강조 글자 4.7:1 이상(밝은), 8:1 이상(다크).
+const SUPPORTER_ACCENT_CSS_V22995 = [
+  ["coral", "#e8593c", "#b93a22", "#ffe8e1", "#f28b6d", "#ffb4a0", "#4a2018"],
+  ["mint", "#14a38b", "#0f766e", "#d5f7ee", "#2dc2a4", "#7eead2", "#123d37"],
+  ["lavender", "#7c6fd6", "#5a4bc2", "#ece9fd", "#9d92ec", "#cfc8ff", "#2b2650"],
+].map(([name, brand, accent, soft, darkBrand, darkAccent, darkSoft]) => `[data-supporter="1"][data-ab-accent=${name}] .abV22812Shell{--ab12-brand:${brand};--ab12-accent:${accent};--ab12-action:${accent};--ab12-accent-soft:${soft}}[data-supporter="1"][data-ab-accent=${name}][data-ab-resolved-theme=dark] .abV22812Shell{--ab12-brand:${darkBrand};--ab12-accent:${darkAccent};--ab12-action:${accent};--ab12-accent-soft:${darkSoft}}`).join("");
+
+// 저장·적용 스크립트(머리 안, 그리기 전에 속성을 붙인다). 기존 화면 설정 스크립트(1년 캐시 자산)는 건드리지 않는다.
+// 컬러톤 단추를 누르면 포인트 색을 끈다(고른 컬러톤이 바로 보이게). data-supporter 가 없는 화면에서는 아무것도 하지 않는다.
+const SUPPORTER_ACCENT_JS_V22995 = '(function(){var D=document,d=D.documentElement,K="ab:appearance:accent",A=["coral","mint","lavender"],C="[data-ab-accent-choice]";function g(){try{var v=localStorage.getItem(K);return A.indexOf(v)>=0?v:""}catch(e){return""}}function s(v,m){if(d.getAttribute("data-supporter")!=="1")return;v?d.setAttribute("data-ab-accent",v):d.removeAttribute("data-ab-accent");var b=D.querySelectorAll(C),i,o,n="기본",t=D.getElementById("abAccentStatus");for(i=0;i<b.length;i++){o=b[i].getAttribute("data-ab-accent-choice")===v;b[i].setAttribute("aria-pressed",o);if(o&&v)n=b[i].textContent}if(t)t.textContent=(m?"저장했어요. ":"")+"포인트 색: "+n}s(g());D.addEventListener("click",function(e){var x=e.target.closest&&e.target.closest(C+",[data-ab-tone-choice]");if(!x)return;var v=x.getAttribute("data-ab-accent-choice")||"";v=A.indexOf(v)>=0?v:"";if(!v&&!g())return;try{v?localStorage.setItem(K,v):localStorage.removeItem(K)}catch(_){}s(v,1)});D.addEventListener("DOMContentLoaded",function(){s(g())})})();';
+
+// <html> 에 붙이는 표식. 지금 보는 사람이 후원자일 때만.
+function supporterHtmlAttr(viewerIsSupporter = false) {
+  return viewerIsSupporter ? ' data-supporter="1"' : "";
+}
+
+// 머리(<head>) 안 조각. 보는 사람이 후원자면 배지 CSS + 포인트 색 CSS + 스크립트, 다른 사람 배지만 있으면 배지 CSS 만, 둘 다 없으면 빈 글(바이트 그대로).
+function supporterHeadHtml({ viewer = false, badges = false } = {}) {
+  if (!viewer && !badges) return "";
+  return `<style id="abSupporterStyle">${SUPPORTER_BADGE_CSS_V22995}${viewer ? SUPPORTER_ACCENT_CSS_V22995 : ""}</style>${viewer ? `<script id="abSupporterAccent">${SUPPORTER_ACCENT_JS_V22995}</script>` : ""}`;
+}
+
+// 전체 메뉴 머리말의 후원자 줄(보는 사람이 후원자일 때만).
+function supporterThanksHtml() {
+  return `<p class="abSupporterThanks">${supporterBadgeHtml()} 후원해 주셔서 고마워요. 포인트 색은 아래 화면 설정에서 고를 수 있어요.</p>`;
+}
+
+// 전체 메뉴 ‘화면 설정’ 패널의 후원자 줄(후원자에게만 그린다). 기본(지금 컬러톤) + 포인트 색 셋. 후원자 오픈채팅 주소가 있으면 들어가는 단추도 둔다.
+function supporterAccentChoicesHtml({ supporterChatUrl = "" } = {}) {
+  const choices = SUPPORTER_ACCENTS_V22995.map(([value, label]) => `<button type="button" data-ab-accent-choice="${value}" aria-pressed="false"><i class="abToneDot" style="background:${SUPPORTER_ACCENT_DOTS_V22995[value]}" aria-hidden="true"></i>${escapeHtml(label)}</button>`).join("");
+  const chat = supporterChatUrl ? `<p><a class="abSupporterChat" href="${escapeHtml(supporterChatUrl)}" target="_blank" rel="noopener noreferrer">후원자 오픈채팅 들어가기</a></p>` : "";
+  return `<div class="abAccentRow" data-ab-supporter-accent style="grid-column:1/-1"><b>포인트 색 ${supporterBadgeHtml()}</b><div class="abAppearanceChoices" role="group" aria-label="포인트 색"><button type="button" data-ab-accent-choice="" aria-pressed="true">기본</button>${choices}</div><p id="abAccentStatus" class="abAppearanceStatus" aria-live="polite">포인트 색: 기본</p><p class="abAppearanceStatus">후원자만 고를 수 있는 색이에요. 이 브라우저에 저장되고, 고르면 컬러톤보다 먼저 보여요.</p>${chat}</div>`;
 }
 
 // 카드사별 사용내역 가져오기 안내. 그림은 실제 화면 캡처가 아니라 클릭 위치를 설명하는 도식이다.
@@ -40938,7 +41251,7 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
   return `<section id="calendar" class="panel homeCalendar"><div class="calHead"><h2>${escapeHtml(month)} 캘린더</h2><a class="calClose" href="${escapeHtml(closeHref)}">닫기</a></div><div class="calNav"><a href="${escapeHtml(monthHref(prevMonth))}" aria-label="이전 달">← 이전달</a><b>${escapeHtml(month)}</b><a href="${escapeHtml(monthHref(nextMonth))}" aria-label="다음 달">다음달 →</a></div>${selectedDate ? `<div class="calSelected"><b>${escapeHtml(selectedDate)}</b> 기록을 아래 최근 내역에서 확인·수정하세요. <a href="${escapeHtml(clearHref)}">선택 해제</a></div>` : ""}<div class="calGrid calDows">${weekHead}</div><div class="calGrid">${blanks}${cells}</div><p class="calHint">날짜를 누르면 지출·수입 합계와 실제 거래 항목이 팝업으로 열립니다. 전체 기록 보기는 기존 날짜 필터 화면으로 연결되며, 기록이 없는 날은 배경 없이 간결하게 표시됩니다.</p></section>`;
 }
 
-function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, paymentAssetNames = [], msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "", spenderMembers = members, memberCanChangeRecords = true, ledgerHasRecords = rows.length > 0, refundDeductions = [], refundFailed = false, quickRetry = false, quickUndo = null, deleteRestore = null }) {
+function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, paymentAssetNames = [], msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "", spenderMembers = members, memberCanChangeRecords = true, ledgerHasRecords = rows.length > 0, refundDeductions = [], refundFailed = false, quickRetry = false, quickUndo = null, deleteRestore = null, supporter = null }) {
   // 8.4: 저장된 홈 구성이 없거나 깨졌으면 기본 순서다. 이 폴백이 정상 경로다.
   const homeLayout = normalizeHomeLayout(homeLayoutSetting);
   const roleLower = String(sessionRole || "").toLowerCase();
@@ -41511,7 +41824,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 예전(V22.8.89)에는 조합 중 input 을 건너뛰어 마지막 글자(‘금’)가 띄어쓰기·다른 입력으로 조합이 끝날 때까지 결제수단·분류에 반영되지 않았다.
   // 읽기(applySmart(false))는 한 줄 입력 칸의 값을 바꾸지 않고 다른 칸만 채우므로 조합을 끊지 않는다. 조합 중 Enter 는 예전처럼 저장하지 않는다.
   // 조합 중 읽기는 composing 을 넘겨 가계부 분류 요청을 조합이 끝날 때(compositionend 의 읽기)로 미룬다(공유 컨트롤러 apply, 독립 검토).
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/></head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1></div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>${escapeHtml(budgetHeadLabel)}</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"${isCurrentMonth && budgetTotal ? ` style="--ab-today:${monthElapsedPercent}%"` : ""}><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>${budgetTotal ? `예산 ${numberWithCommas(budgetTotal)}원` : "예산 없음"}</span><span>${budgetTotal ? METRIC_LABELS.budgetSpent.label : METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUsed)}원${budgetUncovered ? `<br>${METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUncovered)}원` : ""}</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈${todayOk ? "" : " · 하루 한도를 넘었어요"}</span><b${!todaySpend ? " class=\"muted\"" : todayOk ? "" : " class=\"expense\""}>${todaySpend ? `${numberWithCommas(todaySpend)}원` : "아직 없어요"}</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${entryBarHtml}${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, upcoming: homeUpcoming, reserveHref: homeReserveHref, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">${stats.totals.income ? "+" : ""}${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">${stats.totals.expense ? "-" : ""}${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}${homeRefundNote ? `<small class="homeMomLine">${escapeHtml(homeRefundNote)}</small>` : ""}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}" data-income="${Math.max(0, Number(stats.totals?.income || 0))}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date(Date.now()+32400000+Number(this.getAttribute('data-day')||0)*86400000);var v=d.toISOString().slice(0,10);var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value&&!(o.getAttribute&&o.getAttribute('data-ab-pick')))payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(inputPaymentNameIn(text,payOpts[i]))return payOpts[i];}return detectInputPayment(normalizeInputText(text));}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase(),after=inputPaymentPatterns().after;var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value).toLowerCase();if(!v||optionHit)return;for(var at=raw.indexOf(v),seen=0;at>=0&&seen<16;at=raw.indexOf(v,at+1),seen++){var rest=raw.slice(at+v.length);if(/[a-z0-9]$/.test(v)?!/^[a-z0-9]/.test(rest):after.test(rest)){optionHit=o.value;return;}}});if(optionHit)return optionHit;return inferInputCategory(normalizeInputText(text).toLowerCase(),type,quickRules);}function stripQuickMemo(text,amountText,payment,category,type){return cleanInputMemo(text,amountText,type,payment,category);}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput,composing){abSmartState.apply(clearInput,composing);}
+  return `<!doctype html><html lang="ko"${supporterHtmlAttr(!!supporter)}><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/>${supporterHeadHtml({ viewer: !!supporter })}</head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1>${supporter ? supporterBadgeHtml() : ""}</div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>${escapeHtml(budgetHeadLabel)}</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"${isCurrentMonth && budgetTotal ? ` style="--ab-today:${monthElapsedPercent}%"` : ""}><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>${budgetTotal ? `예산 ${numberWithCommas(budgetTotal)}원` : "예산 없음"}</span><span>${budgetTotal ? METRIC_LABELS.budgetSpent.label : METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUsed)}원${budgetUncovered ? `<br>${METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUncovered)}원` : ""}</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈${todayOk ? "" : " · 하루 한도를 넘었어요"}</span><b${!todaySpend ? " class=\"muted\"" : todayOk ? "" : " class=\"expense\""}>${todaySpend ? `${numberWithCommas(todaySpend)}원` : "아직 없어요"}</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${entryBarHtml}${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, upcoming: homeUpcoming, reserveHref: homeReserveHref, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">${stats.totals.income ? "+" : ""}${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">${stats.totals.expense ? "-" : ""}${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}${homeRefundNote ? `<small class="homeMomLine">${escapeHtml(homeRefundNote)}</small>` : ""}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}" data-income="${Math.max(0, Number(stats.totals?.income || 0))}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date(Date.now()+32400000+Number(this.getAttribute('data-day')||0)*86400000);var v=d.toISOString().slice(0,10);var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value&&!(o.getAttribute&&o.getAttribute('data-ab-pick')))payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(inputPaymentNameIn(text,payOpts[i]))return payOpts[i];}return detectInputPayment(normalizeInputText(text));}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase(),after=inputPaymentPatterns().after;var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value).toLowerCase();if(!v||optionHit)return;for(var at=raw.indexOf(v),seen=0;at>=0&&seen<16;at=raw.indexOf(v,at+1),seen++){var rest=raw.slice(at+v.length);if(/[a-z0-9]$/.test(v)?!/^[a-z0-9]/.test(rest):after.test(rest)){optionHit=o.value;return;}}});if(optionHit)return optionHit;return inferInputCategory(normalizeInputText(text).toLowerCase(),type,quickRules);}function stripQuickMemo(text,amountText,payment,category,type){return cleanInputMemo(text,amountText,type,payment,category);}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput,composing){abSmartState.apply(clearInput,composing);}
 
 function abQuickTypeLabels(){var inc=!!document.querySelector('#add input[name=type][value=income]:checked');var who=document.querySelector('#add select[name=user_id]');var o=who&&who.options[0];if(o&&!o.value)o.text=inc?'수입자 선택':'지출자 선택';var pay=document.getElementById('payInput');if(pay)pay.placeholder=inc?'입금 계좌·수단':'결제수단';}function abQuickSyncMore(){abQuickTypeLabels();var d=document.getElementById('txDate');var dv=d&&d.value?d.value:'';var kstDay=function(n){return new Date(Date.now()+32400000+n*86400000).toISOString().slice(0,10);};document.querySelectorAll('.dateChip').forEach(function(x){var on=!!dv&&dv===kstDay(Number(x.getAttribute('data-day')||0));x.setAttribute('aria-pressed',on?'true':'false');x.classList.toggle('on',on);});var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var parts=[];parts.push(dv===kstDay(0)?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(e){applySmart(false,abImeComposing||!!(e&&e.isComposing));});smart.addEventListener('keydown',function(e){if(e.key==='Enter'&&!abImeComposing&&!e.isComposing){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type'){abQuickTypeLabels();abQuickSyncAfter();}});abQuickSyncMore();abSmartState.preview(true);var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`.replace(/(<(?:input|meta|link|br|hr)\b[^>]*?)\/>/g,"$1>");
 }
@@ -41601,9 +41914,11 @@ async function handleMobileV8Page(request, env, url) {
   // V22.9.80 V76 M-7: 플래그가 켜진 홈은 연결한 환불 차감을 한 번 더 읽는다. 대신 홈 구성 줄을 아래 설정 조회에 합쳐 홈 조회 9회를 지킨다.
   const refundOn = !!selectedHousehold && refundLinksEnabled(env);
   const layoutKey = homeLayoutKey(selectedHousehold?.id || "", userId || "shared");
+  // V22.9.95 후원: 로그인한 사용자의 후원자 표시도 아래 설정 조회 한 번에 얹는다(홈 조회 9회 그대로). 관리자 세션은 읽지 않는다.
+  const homeSupporterKey = !adminOk && userId ? supporterSettingsKey(userId) : "";
   const trendMonthly = !!selectedHousehold && url.searchParams.get("tab") !== "transactions" && url.searchParams.get("trend") === "monthly";
   const homeSettingsPromise = selectedHousehold
-    ? fetchMobileHomeSettings(env, householdId, month, { includeReserve, includePayment: canLoadWriteOptions, includeMemberPolicy: !adminOk && String(selectedHousehold?.role || "").toLowerCase() === "member", ...(refundOn ? { extraKeys: [layoutKey] } : {}) })
+    ? fetchMobileHomeSettings(env, householdId, month, { includeReserve, includePayment: canLoadWriteOptions, includeMemberPolicy: !adminOk && String(selectedHousehold?.role || "").toLowerCase() === "member", extraKeys: [...(refundOn ? [layoutKey] : []), homeSupporterKey].filter(Boolean) })
     : Promise.resolve({ aliases: {}, reservePlans: [], paymentAssets: [], challengeValue: {} });
   // V22.8.94 (8.4): 홈 구성은 (가계부·사용자)별 설정 한 줄이다. 읽지 못해도 홈은
   // 기본 순서로 그려야 하므로 실패를 삼킨다 — 설정 조회가 홈을 막을 이유는 없다.
@@ -41722,7 +42037,7 @@ async function handleMobileV8Page(request, env, url) {
     .join(" ")
     .slice(0, 200);
   const calendarRows = rows;
-  return htmlResponse(abEchoQuickRequestId(url, err, renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed, quickUndo, deleteRestore })));
+  return htmlResponse(abEchoQuickRequestId(url, err, renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, supporter: homeSupporterKey ? activeSupporterFlag(homeSettings.extra?.get(homeSupporterKey)) : null, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed, quickUndo, deleteRestore })));
 }
 
 async function handleBudgetSave(request, env) {
@@ -53134,6 +53449,148 @@ async function handleIdentityMerge(request, env) {
     return redirectResponse(`${base}&err=${encodeURIComponent(message)}`);
   }
   return redirectResponse(`${base}&msg=${encodeURIComponent("계정 통합이 완료됐습니다. 거래와 참여 권한은 한 번에 이동됐습니다.")}`);
+}
+// V22.9.95 후원: 관리자 후원자 설정(/admin/supporters). 운영자가 송금을 확인한 뒤 사용자 한 명에게 후원자 표시를 켜고(설정 표 한 줄
+// supporter:<user_id>), 끝나는 날·메모·공개 명단 이름을 고치거나 지운다. 새 표·SQL 없음. 금액·계좌 같은 결제 정보는 받지 않는다.
+// CSRF 는 다른 관리자 폼처럼 라우터의 전역 확인(같은 출처 POST 만 통과)에 맡기고, 세션은 verifyAdminSession 으로 본다.
+const SUPPORTER_ADMIN_MESSAGES_V22995 = Object.freeze({
+  saved: "후원자 표시를 저장했어요.",
+  removed: "후원자 표시를 지웠어요.",
+});
+const SUPPORTER_ADMIN_ERRORS_V22995 = Object.freeze({
+  form: "입력을 읽지 못했어요. 다시 시도해 주세요.",
+  user_required: "찾을 사용자를 적어 주세요.",
+  user_not_found: "그 사용자를 찾지 못했어요. user_id 나 로그인 이름을 다시 확인해 주세요.",
+  user_ambiguous: "같은 표시 이름이 여러 명이에요. user_id 나 로그인 이름으로 찾아 주세요.",
+  since_invalid: "시작일은 YYYY-MM-DD 꼴로 적어 주세요.",
+  until_invalid: "끝나는 날은 YYYY-MM-DD 꼴로 적거나 비워 두세요.",
+  until_before_since: "끝나는 날이 시작일보다 빨라요.",
+  confirm_required: "지우려면 확인 문구 칸에 ‘제거’ 를 적어 주세요.",
+  save_failed: "저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+  remove_failed: "지우지 못했어요. 잠시 뒤 다시 시도해 주세요.",
+});
+
+function supporterAdminRedirectV22995(params = {}) {
+  const search = new URLSearchParams(Object.entries(params).filter(([, value]) => value));
+  const query = search.toString();
+  return redirectResponse(`/admin/supporters${query ? `?${query}` : ""}`);
+}
+
+// 사용자 찾기: user_id(그대로), 로그인 이름(로컬 로그인 아이디), 표시 이름(정확히 한 명일 때만) 가운데 관리자가 고른 방법 하나.
+async function supporterAdminFindUserV22995(env, who = "", by = "user_id") {
+  const text = String(who || "").trim().slice(0, 120);
+  if (!text) return { error: "user_required" };
+  if (by === "login") {
+    const login = normalizeLocalLoginName(text);
+    if (!login) return { error: "user_not_found" };
+    const rows = await supabase(env, `/rest/v1/accountbook_user_identities?provider=eq.local&provider_subject=eq.${encodeURIComponent(login)}&select=user_id&limit=2`, { method: "GET" }).catch(() => []);
+    const ids = [...new Set(safeArray(rows).map((row) => String(row?.user_id || "")).filter(Boolean))];
+    if (ids.length !== 1) return { error: "user_not_found" };
+    const user = await fetchUserById(env, ids[0]).catch(() => null);
+    return user?.id ? { user } : { error: "user_not_found" };
+  }
+  if (by === "nickname") {
+    const rows = await supabase(env, `/rest/v1/users?nickname=eq.${encodeURIComponent(text)}&select=id,nickname&limit=2`, { method: "GET" }).catch(() => []);
+    const list = safeArray(rows).filter((row) => row?.id);
+    if (list.length === 1) return { user: list[0] };
+    return { error: list.length > 1 ? "user_ambiguous" : "user_not_found" };
+  }
+  const user = await fetchUserById(env, text).catch(() => null);
+  return user?.id ? { user } : { error: "user_not_found" };
+}
+
+async function supporterAdminNamesV22995(env, ids = []) {
+  const list = [...new Set(safeArray(ids).filter(Boolean))].slice(0, 100);
+  const names = new Map();
+  if (!list.length) return names;
+  const params = new URLSearchParams();
+  params.set("id", `in.(${list.map(supporterInValueV22995).join(",")})`);
+  params.set("select", "id,nickname");
+  params.set("limit", String(list.length));
+  const rows = await optionalSupabase(env, `/rest/v1/users?${params.toString()}`, { method: "GET" }, []);
+  for (const row of safeArray(rows)) names.set(String(row?.id || ""), String(row?.nickname || ""));
+  return names;
+}
+
+function supporterAdminStateV22995(flag, today) {
+  if (!flag) return ["값 오류", "bad"];
+  if (flag.since > today) return ["시작 전", "wait"];
+  return supporterFlagActive(flag, today) ? ["켜짐", "on"] : ["끝남", "off"];
+}
+
+async function handleSupportersAdminPage(request, env, url) {
+  if (!(await verifyAdminSession(request, env))) return redirectResponse(adminLoginLocation(url));
+  const rows = await fetchSupporterRows(env, 500);
+  const names = await supporterAdminNamesV22995(env, safeArray(rows).map((row) => row.user_id));
+  const today = supporterTodayV22995();
+  const msg = SUPPORTER_ADMIN_MESSAGES_V22995[String(url.searchParams.get("msg") || "")] || "";
+  const err = SUPPORTER_ADMIN_ERRORS_V22995[String(url.searchParams.get("err") || "")] || "";
+  const editId = String(url.searchParams.get("user_id") || "").trim();
+  const editing = editId ? safeArray(rows).find((row) => row.user_id === editId) || null : null;
+  const editFlag = editing?.flag || null;
+  const tableRows = rows === null
+    ? `<tr><td colspan="9">후원자 목록을 불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.</td></tr>`
+    : rows.map((row) => {
+      const [stateLabel, stateKey] = supporterAdminStateV22995(row.flag, today);
+      const id = escapeHtml(row.user_id);
+      return `<tr><td><code>${id}</code></td><td>${escapeHtml(names.get(row.user_id) || "(이름 없음)")}</td><td><span class="state ${stateKey}">${stateLabel}</span></td><td>${escapeHtml(row.flag?.since || "-")}</td><td>${escapeHtml(row.flag?.until || "없음")}</td><td>${escapeHtml(row.flag?.note || "")}</td><td>${escapeHtml(row.flag?.public_name || "(명단에 안 보임)")}</td><td><a href="/admin/supporters?user_id=${encodeURIComponent(row.user_id)}#edit">고치기</a></td><td><form method="post" action="/admin/supporters/remove" class="inline"><input type="hidden" name="user_id" value="${id}"/><label>확인 문구 <input name="confirm_text" placeholder="제거" autocomplete="off" required/></label><button type="submit" class="danger">제거</button></form></td></tr>`;
+    }).join("") || `<tr><td colspan="9">아직 후원자 표시가 없어요.</td></tr>`;
+  const value = (key) => escapeHtml(editFlag?.[key] || "");
+  const finder = editing
+    ? `<input type="hidden" name="user_id" value="${escapeHtml(editing.user_id)}"/><p>고치는 사용자: <code>${escapeHtml(editing.user_id)}</code> · ${escapeHtml(names.get(editing.user_id) || "(이름 없음)")} <a href="/admin/supporters#edit">새로 추가하기</a></p>`
+    : `<div class="grid"><label class="field">찾는 방법<select name="by"><option value="user_id">user_id</option><option value="login">로그인 이름(아이디)</option><option value="nickname">표시 이름(한 명일 때만)</option></select></label><label class="field">사용자<input name="who" required maxlength="120" autocomplete="off"/></label></div>`;
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>후원자 관리</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 28px rgba(15,23,42,.06)}.hero{background:#111827;color:#fff}.hero p{color:#ede9fe;line-height:1.6}.hero a{color:#fff}.ok,.error,.warn{border-radius:15px;padding:12px;line-height:1.55}.ok{background:#ecfdf5;border:1px solid #86efac;color:#166534}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.warn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:grid;gap:6px;margin:10px 0;font-weight:700}.field input,.field select{height:44px;border:1px solid #d0d5dd;border-radius:12px;padding:0 12px;font:inherit;font-weight:400}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th,td{border-top:1px solid #e5e7eb;padding:10px 8px;text-align:left;vertical-align:top}code{font-size:12px;word-break:break-all}button{min-height:44px;border:0;border-radius:12px;padding:0 16px;font:inherit;font-weight:800;background:#111827;color:#fff;cursor:pointer}button.danger{background:#b42318}.inline{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.inline input{height:36px;width:72px;border:1px solid #d0d5dd;border-radius:10px;padding:0 8px}.state{display:inline-block;border-radius:999px;padding:2px 8px;font-weight:800;font-size:12px}.state.on{background:#dcfce7;color:#166534}.state.off{background:#f2f4f7;color:#475467}.state.wait{background:#eff6ff;color:#1d4ed8}.state.bad{background:#fef2f2;color:#991b1b}@media(max-width:720px){.grid{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("identity-audit", { scope: "admin" })}<main class="wrap"><section class="hero"><h1>후원자 관리</h1><p>송금을 확인한 사용자에게 후원자 배지와 포인트 색을 켜요. 기능은 후원과 관계없이 같아요. 오늘(KST) ${escapeHtml(today)} 기준으로 끝나는 날이 지나면 저절로 꺼져요.</p><p><a href="/ops-dashboard">운영 대시보드</a> · <a href="/support">공개 후원 안내</a></p></section>${msg ? `<p class="ok" role="status">${escapeHtml(msg)}</p>` : ""}${err ? `<p class="error" role="alert">${escapeHtml(err)}</p>` : ""}<section class="card"><h2>후원자 목록</h2><div class="tableWrap"><table><thead><tr><th scope="col">user_id</th><th scope="col">표시 이름</th><th scope="col">상태</th><th scope="col">시작일(since)</th><th scope="col">끝나는 날(until)</th><th scope="col">메모(note)</th><th scope="col">명단 이름(public_name)</th><th scope="col">고치기</th><th scope="col">제거</th></tr></thead><tbody>${tableRows}</tbody></table></div></section><section class="card" id="edit"><h2>${editing ? "후원자 표시 고치기" : "후원자 표시 추가"}</h2><form method="post" action="/admin/supporters/save">${finder}<div class="grid"><label class="field">시작일(비우면 ${editing ? "그대로" : "오늘"})<input name="since" placeholder="YYYY-MM-DD" value="${value("since")}" inputmode="numeric" maxlength="10"/></label><label class="field">끝나는 날(비우면 끝없음)<input name="until" placeholder="YYYY-MM-DD" value="${value("until")}" inputmode="numeric" maxlength="10"/></label><label class="field">메모(관리자만 봐요, 200자)<input name="note" value="${value("note")}" maxlength="200" autocomplete="off"/></label><label class="field">명단 이름(공개 /support 에 보임, 비우면 안 보임, 30자)<input name="public_name" value="${value("public_name")}" maxlength="30" autocomplete="off"/></label></div><p class="warn">명단 이름은 본인이 공개해도 된다고 한 이름만 적어요. 메모에는 계좌번호·금액 같은 결제 정보를 적지 않아요.</p><button type="submit">저장</button></form></section></main></body></html>`);
+}
+
+async function handleSupportersAdminSave(request, env) {
+  if (!(await verifyAdminSession(request, env))) return redirectResponse("/admin-view?return_to=%2Fadmin%2Fsupporters");
+  const form = await request.formData().catch(() => null);
+  if (!form) return supporterAdminRedirectV22995({ err: "form" });
+  const field = (name) => String(form.get(name) || "").trim();
+  let user = null;
+  const fixedId = field("user_id");
+  if (fixedId) {
+    user = await fetchUserById(env, fixedId).catch(() => null);
+    if (!user?.id) return supporterAdminRedirectV22995({ err: "user_not_found" });
+  } else {
+    const by = ["user_id", "login", "nickname"].includes(field("by")) ? field("by") : "user_id";
+    const found = await supporterAdminFindUserV22995(env, field("who"), by);
+    if (found.error) return supporterAdminRedirectV22995({ err: found.error });
+    user = found.user;
+  }
+  const userId = String(user.id);
+  const existing = await fetchSupporterFlag(env, userId).catch(() => null);
+  const sinceRaw = field("since");
+  const since = sinceRaw ? supporterDateV22995(sinceRaw) : existing?.since || supporterTodayV22995();
+  if (!since) return supporterAdminRedirectV22995({ err: "since_invalid", user_id: fixedId });
+  const untilRaw = field("until");
+  const until = untilRaw ? supporterDateV22995(untilRaw) : null;
+  if (untilRaw && !until) return supporterAdminRedirectV22995({ err: "until_invalid", user_id: fixedId });
+  if (until && until < since) return supporterAdminRedirectV22995({ err: "until_before_since", user_id: fixedId });
+  const flag = { since, until, note: supporterTextV22995(field("note"), 200), public_name: supporterTextV22995(field("public_name"), 30) || null };
+  try {
+    await saveSettingValue(env, supporterSettingsKey(userId), flag);
+  } catch (_) {
+    return supporterAdminRedirectV22995({ err: "save_failed", user_id: fixedId });
+  }
+  rememberOpsEvent({ kind: "supporter_flag_saved", severity: "info", path: "/admin/supporters/save", method: "POST", detail: `user=${userId}` });
+  return supporterAdminRedirectV22995({ msg: "saved" });
+}
+
+async function handleSupportersAdminRemove(request, env) {
+  if (!(await verifyAdminSession(request, env))) return redirectResponse("/admin-view?return_to=%2Fadmin%2Fsupporters");
+  const form = await request.formData().catch(() => null);
+  if (!form) return supporterAdminRedirectV22995({ err: "form" });
+  const userId = String(form.get("user_id") || "").trim();
+  if (!userId) return supporterAdminRedirectV22995({ err: "user_required" });
+  if (String(form.get("confirm_text") || "").trim() !== "제거") return supporterAdminRedirectV22995({ err: "confirm_required" });
+  try {
+    await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(supporterSettingsKey(userId))}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+  } catch (_) {
+    return supporterAdminRedirectV22995({ err: "remove_failed" });
+  }
+  rememberOpsEvent({ kind: "supporter_flag_removed", severity: "info", path: "/admin/supporters/remove", method: "POST", detail: `user=${userId}` });
+  return supporterAdminRedirectV22995({ msg: "removed" });
 }
 
 function eligibleKakaoUserId(payload = {}) {
