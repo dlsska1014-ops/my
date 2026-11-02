@@ -467,4 +467,4 @@ if (failures.length) {
   console.error(`V22.9.95 법무 검사 checks ${checks} failed ${failures.length}`);
   process.exit(1);
 }
-console.log(`V22.9.95 법무 검사 checks ${checks} failed 0`);
+console.log(`V22.9.95 법무 검사 통과 (${checks} checks)`);

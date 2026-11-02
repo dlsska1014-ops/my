@@ -409,4 +409,4 @@ if (failures.length) {
   console.error(`V22.9.95 안내·해석 검사 실패 — checks ${checks} failed ${failures.length}`);
   process.exit(1);
 }
-console.log(`V22.9.95 안내·해석(R-14 안내·R-16 분류 예외·폭 0/전각 글자·R-20 외화 되묻기·R-19 가져오기·공지 띠·문의 메뉴) 검사 통과 — checks ${checks} failed 0`);
+console.log(`V22.9.95 안내·해석(R-14 안내·R-16 분류 예외·폭 0/전각 글자·R-20 외화 되묻기·R-19 가져오기·공지 띠·문의 메뉴) 검사 통과 (${checks} checks)`);

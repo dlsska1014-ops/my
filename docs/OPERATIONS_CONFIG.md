@@ -40,6 +40,7 @@ TEST 앱 1508592 는 연결하지 않는다(다른 회원번호가 와 남의 �
 - 일정(Triggers)은 저장소가 아니라 Cloudflare 대시보드에 있다. 정기 항목 자동 기록과 월간 리포트 생성이 이 일정으로 돈다.
 - 수동 실행 경로 `POST /cron/recurring/apply`, `POST /cron/reports/generate` 는 `CRON_SECRET`(`x-cron-secret` 또는 `Bearer`) 이나 `ADMIN_API_TOKEN` Bearer 로 통과한다.
 - 임대 시간: `CRON_RECURRING_LEASE_SECONDS`, `CRON_REPORT_LEASE_SECONDS`(기본 900초).
+- 감사 기록 보존(V22.9.95): `AUDIT_RETENTION_DAYS`(기본 180, 30~3650 밖이면 180 으로 돌고 운영 이벤트 `audit_retention_days_invalid`). 매일 예약 실행의 정리 단계가 이 일수를 넘은 `accountbook_transaction_audit` 행을 오래된 것부터 500행 × 2묶음까지 지운다(더 남으면 다음 실행). 개인정보처리방침 9절의 ‘거래 변경 이력 180일’ 이 이 기본값에 기대므로 값을 바꾸면 방침 문구도 바꾼다.
 
 ## 관제
 
@@ -56,6 +57,18 @@ V22.9.92: `ADS_MODE` 가 정확히 `adfit` 이면 카카오 애드핏이다. 공
 애드핏을 `ADS_MODE` 의 새 값으로 둔 것은 되돌리기 때문이다. V22.9.91 까지의 판은 `adfit` 을 `review` 로 읽어 광고를 싣지 않는다.
 광고 코드는 요청 호스트를 보지 않는다. `CANONICAL_REDIRECT=1` 이 아니면 workers.dev·미리보기 주소에서도 같은 광고 코드가 실리므로 켜기 전에 확인한다.
 켜는 순서와 확인은 DEPLOYMENT_MATRIX V22.9.92 절이다. 애드핏 신청·변수 설정은 각각 사용자 승인 뒤에 한다.
+
+## 후원·공지·법무 (V22.9.95, 모두 선택)
+
+후원 안내 `/support` 와 후원자 표시는 운영 변수로만 켠다(값은 사용자가 준다. Secret 이 아니라 일반 변수이고 `/health`·`/ready` 에 내보내지 않는다. 변수는 `src/modules/public/support-page.js` 한 곳에서만 읽는다):
+`SUPPORT_KAKAOPAY_URL`(카카오페이 송금 링크), `SUPPORT_BANK_ACCOUNT`(계좌 한 줄, 100자 이하), `SUPPORT_TOSS_URL`(토스 송금 링크), `COMMUNITY_OPENCHAT_URL`(누구나 들어오는 오픈채팅),
+`SUPPORTER_OPENCHAT_URL`(후원자 오픈채팅 — 공개 페이지에는 싣지 않고 후원자의 /menu 화면 설정에만). 주소는 http(s) 만 받고 따옴표·공백·계정 정보가 든 값은 무시한다.
+셋(카카오페이·계좌·토스)이 다 없으면 /support 의 ‘후원하는 방법’ 은 ‘준비 중’ 한 줄이다. 후원자 표시 자체는 변수 없이 관리자 `/admin/supporters` 에서 켠다(설정 표 `supporter:<user_id>`).
+
+공지 띠: `NOTICE_TEXT`(200자, 이스케이프)와 `NOTICE_LINK`(같은 사이트 경로 `/…` 또는 따옴표·꺾쇠 없는 https 주소만). 있으면 /app·/my·/my/*·공개 문서의 머리말 위에 띠가 붙고, 없으면 띠가 없다.
+
+법무: 약관·개인정보처리방침의 개정일은 환경변수가 아니라 코드 상수 `POLICY_REVISION_DATE`(`src/modules/public/site-config.js`)다. 동의 기록 `consent:<user_id>` 의 version 도 이 값이다.
+배포 전에 사용자가 정한 날짜로 바꾸고 하네스·manifest 를 다시 만든다.
 
 ## 주소
 

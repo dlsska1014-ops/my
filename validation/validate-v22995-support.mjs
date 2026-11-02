@@ -354,5 +354,5 @@ await section("5 소스", async () => {
 });
 
 if (failures.length) for (const line of failures) console.error(`실패: ${line}`);
-console.log(`V22.9.95 후원 검사: checks ${checks} failed ${failures.length}`);
-if (failures.length) process.exit(1);
+if (failures.length) { console.error(`V22.9.95 후원 검사 실패 checks ${checks} failed ${failures.length}`); process.exit(1); }
+console.log(`V22.9.95 후원 검사 통과 (${checks} checks)`);

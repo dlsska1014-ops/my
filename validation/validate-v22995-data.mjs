@@ -304,4 +304,4 @@ if (failures.length) {
   console.error(`V22.9.95 데이터·운영(감사 기록 보존·예약 실행 표·CI) 검사 checks ${checks} failed ${failures.length}`);
   process.exit(1);
 }
-console.log(`V22.9.95 데이터·운영(감사 기록 보존·예약 실행 표·CI) 검사 통과 checks ${checks} failed 0`);
+console.log(`V22.9.95 데이터·운영(감사 기록 보존·예약 실행 표·CI) 검사 통과 (${checks} checks)`);
