@@ -57,6 +57,9 @@
 // V22.9.94(통합 뒤): 바뀐 것은 판 이름뿐이다. 판 이름을 V22.9.93 으로 되돌려 돌리면 옛 값 그대로 268개가 모두 통과함을 먼저 확인한 뒤
 // analysis·backupFull·backupMonth 세 값을 --print-golden 으로 다시 얻었다(V22.9.88 과 같은 방법). 그 밖의 값은 그대로다.
 // V22.9.93 독립 검토 2차 뒤: 금액 읽기(Q-40·이중 쉼표)가 예산 미리보기 자산에 실려 주소가 v22979 → v22993 으로 바뀌었다. budgets 화면은 해시 입력에서 이 주소만 되돌리면 옛 값과 같음을 확인했다.
+// V22.9.95(판 이름 꼬리표 LAUNCH-PREP, 안내 영역의 홈 셸 자산 주소 v22993 → v22995): 해시하는 화면 원문 96개를 V22.9.94(main 73d2f48)와 견주어 판 이름을 가리면
+// 홈 셸 스크립트 주소 한 조각만 다름(같음 68·판 이름만 11·그 밖 17 모두 같은 조각, review-artifacts/v95-launch-prep-2026-11-02/work/compare-v94-v95.txt)을 확인한 뒤
+// --print-golden 으로 다시 얻었다. 바뀐 값 6개(home·homeTrend·homePrev·analysis·backupFull·backupMonth), 그대로 19개(apiBatch 는 JSON 본문이라 값 자체가 같다).
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -66,23 +69,23 @@ import { BASE, app, ctx, fixture, intercept, page, post, skill, withClock } from
 const PRINT_GOLDEN = process.argv.includes("--print-golden");
 const SOFT = process.env.V22980_SOFT === "1";
 const FLAG_OFF_GOLDEN = {
-  "home": "200 3d61dcb3c5af98187e2497f9",
-  "homeTrend": "200 6ab138e0b1dbb4730c1eec80",
-  "homePrev": "200 1ea729b47e6652a3ba90f6dc",
+  "home": "200 533102cb5dde6d29d37a59ae",
+  "homeTrend": "200 fe8cb1f4652ff7144607cc1a",
+  "homePrev": "200 e748b08e436dbc9d60a3de60",
   "budgets": "200 e35058b43403a4cd620726c8",
   "budgetAlerts": "200 e87cb397f66610e837dd7c83",
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 207d64b369bd78b881a09c36",
   "reportsWeek": "200 6ff6c6ade3301c38d835dca4",
-  "analysis": "200 51241f32d93c8c402630cfc9",
+  "analysis": "200 60f94a8fdcb6a7d100ccace1",
   "backupPage": "200 d4e2173d38990ea97bd1a73f",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 ae986243b7c0712c5dd6d47d",
-  "backupMonth": "200 6dc4ff5d81ae8ed48aae6b36",
+  "backupFull": "200 4069b54a4a1879d27cb9e550",
+  "backupMonth": "200 6af2fa5fd8bd26c672795f99",
   "candidate": "200 983fb55df7f069a2ab4a5fdd",
   "legacyErr": "200 d539582f2d5a6042e415e38b", // V22.9.81 U-19: 옛 관리자 화면 오류 칸이 record_update_failed 를 코드 글자 대신 안내 문장으로 보인다(의도한 변경)
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
