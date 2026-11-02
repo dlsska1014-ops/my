@@ -1016,6 +1016,14 @@ function scheduledRunStage(value, fields = [], flags = []) {
   return out;
 }
 
+// V22.9.95 R-12: 정리 단계 칸. 감사 기록 정리 건수(audit_deleted·audit_batches)와 더 남았는지(audit_more, 참·거짓 그대로)는 오류가 있어도
+// 남긴다(앞 묶음은 이미 지웠을 수 있다). 감사 칸이 없는 예전 기록은 예전 모양 그대로다. 되돌린 V22.9.94 는 모르는 칸을 버리고 읽는다.
+function scheduledRunCleanupStageV22995(value) {
+  const base = scheduledRunStage(value, [], ["ok", "skipped"]);
+  if (!base || typeof value.audit_more !== "boolean") return base;
+  return { ...base, audit_deleted: scheduledRunCount(value.audit_deleted), audit_batches: scheduledRunCount(value.audit_batches), audit_more: value.audit_more };
+}
+
 // 새 기록과 저장돼 있던 기록을 같은 틀로 거른다. 아는 칸만 남기고 수는 0~10억, 글자는 짧은 코드로 줄인다.
 function normalizeScheduledRun(entry = {}) {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
@@ -1031,7 +1039,9 @@ function normalizeScheduledRun(entry = {}) {
     if (isValidTransactionDateString(String(entry.recurring.checked_date || ""))) recurring.checked_date = String(entry.recurring.checked_date);
   }
   const reports = scheduledRunStage(entry.reports, SCHEDULED_RUN_REPORT_FIELDS, ["partial", "skipped_run"]);
-  const cleanup = scheduledRunStage(entry.cleanup, [], ["ok", "skipped"]);
+  // V22.9.95: 남은 범위 칸(pending_scopes)이 없던 기록(V22.9.93 이하·다른 실행이 처리 중이라 건너뛴 실행)은 0 으로 채우지 않는다(관리 화면 ‘-’).
+  if (reports && !reports.error && entry.reports.pending_scopes == null) delete reports.pending_scopes;
+  const cleanup = scheduledRunCleanupStageV22995(entry.cleanup);
   const version = typeof entry.version === "string" && /^V[0-9A-Za-z._-]{1,47}$/.test(entry.version) ? entry.version : "";
   return {
     started_at: startedAt, finished_at: time(entry.finished_at) || startedAt,
@@ -1075,11 +1085,79 @@ async function readScheduledRunLog(env) {
   catch (_) { return { entries: [], invalid: true }; }
   return { entries: entries.map(normalizeScheduledRun).filter(Boolean).slice(0, SCHEDULED_RUN_LOG_MAX), invalid: false };
 }
+
+// V22.9.95 R-12(전체 점검 P2 데이터): 거래 변경 감사 표(accountbook_transaction_audit)는 지운 행 전체(메모·원문·카카오 키)를 기한 없이 쌓았다.
+// 이 표를 읽는 곳은 웹 ‘되돌리기’(domain/transactions-core.js fetchDeletedTransactionAudit — 표는 60초 유효, 지운 시각 2분 전부터 읽는다)와
+// 지운 직후의 감사 번호 읽기(fetchDeleteAuditIdV22994 — 방금 남은 행)뿐이다. 카카오 ‘복구’(24시간)는 수정 세션 버퍼의 행을 다시 넣고 이 표를
+// 읽지 않는다. 점검 화면(/ready·/diagnostics·운영 점검)은 표가 있는지만 본다. 그래서 그 창보다 훨씬 긴 AUDIT_RETENTION_DAYS(기본 180일, 30~3650 정수)보다
+// 오래된 행만 매일 예약 실행의 정리 단계에서 지운다. 한 실행에 오래된 것부터 500행씩 두 묶음(읽기 1 + 지우기 1)까지이고, 그 몫
+// (AUDIT_RETENTION_CALLS_V22995)은 예약 실행이 처음부터 떼어 둔다(리포트 단계가 다 쓰지 않게). 지우기는 읽은 번호(id=in.)에 기준 시각
+// (created_at=lt.)도 함께 걸어 기준보다 새 행은 어떤 경우에도 지우지 않는다. 던지지 않는다: 실패는 { ok:false, error:"audit_cleanup_failed" }
+// 와 운영 이벤트(warn)이고 실행은 기존 규칙대로 partial 이다(관제 1.5.0 ‘일부 처리’). 지울 행이 더 남은 것(audit_more)은 오류가 아니다.
+const AUDIT_RETENTION_DEFAULT_DAYS_V22995 = 180;
+const AUDIT_RETENTION_BATCH_V22995 = 500;
+const AUDIT_RETENTION_BATCHES_V22995 = 2;
+const AUDIT_RETENTION_CALLS_V22995 = AUDIT_RETENTION_BATCHES_V22995 * 2;
+
+// 보존 일수. 비었으면 기본이고, 30~3650 정수가 아니면(소수·글자·범위 밖) 기본 180일을 쓰고 invalid 로 알린다.
+function auditRetentionDaysV22995(env = {}) {
+  const raw = env?.AUDIT_RETENTION_DAYS;
+  const text = raw === undefined || raw === null ? "" : String(raw).trim();
+  if (!text) return { days: AUDIT_RETENTION_DEFAULT_DAYS_V22995, invalid: false };
+  const days = /^\d{1,4}$/.test(text) ? Number(text) : NaN;
+  return days >= 30 && days <= 3650 ? { days, invalid: false } : { days: AUDIT_RETENTION_DEFAULT_DAYS_V22995, invalid: true };
+}
+
+async function cleanupTransactionAuditRetentionV22995(env = {}) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return { skipped: true };
+  const result = { ok: true, audit_deleted: 0, audit_batches: 0, audit_more: false };
+  const report = (kind, detail) => rememberOpsEvent({ kind, severity: "warn", path: "/cron/audit-retention", method: "SCHEDULED", detail });
+  let phase = "config";
+  try {
+    const { days, invalid } = auditRetentionDaysV22995(env);
+    if (invalid) report("audit_retention_days_invalid", `default:${days}`);
+    const cutoff = new Date(qaFixedNowMs() - days * 86400000).toISOString();
+    const older = `created_at=lt.${encodeURIComponent(cutoff)}`;
+    const budget = env.__AB_DB_BUDGET;
+    const room = (calls) => !budget || Number(budget.used || 0) + calls <= Number(budget.limit || 0);
+    for (let batch = 0; batch < AUDIT_RETENTION_BATCHES_V22995; batch += 1) {
+      // 읽기·지우기 두 번이 남을 때만 묶음을 시작한다. 모자라면 남은 행은 다음 실행이 잇는다.
+      if (!room(2)) { result.audit_more = true; break; }
+      phase = "select";
+      const rows = await supabase(env, `/rest/v1/accountbook_transaction_audit?select=id&${older}&order=created_at.asc&limit=${AUDIT_RETENTION_BATCH_V22995}`, { method: "GET" });
+      const list = Array.isArray(rows) ? rows : [];
+      if (!list.length) { result.audit_more = false; break; }
+      const ids = [...new Set(list.map((row) => String(row?.id ?? "")).filter((id) => /^[1-9]\d{0,18}$/.test(id)))];
+      if (!ids.length) throw Object.assign(new Error("audit_retention_ids_invalid"), { code: "audit_retention_ids_invalid" });
+      phase = "delete";
+      const deleted = await supabase(env, `/rest/v1/accountbook_transaction_audit?id=in.(${ids.join(",")})&${older}&select=id`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+      result.audit_batches += 1;
+      result.audit_deleted += Array.isArray(deleted) ? deleted.length : 0;
+      result.audit_more = list.length >= AUDIT_RETENTION_BATCH_V22995;
+      if (!result.audit_more) break;
+    }
+    return result;
+  } catch (err) {
+    report("audit_retention_error", `${phase}:${scheduledRunErrorCode(err)}`);
+    return { ...result, ok: false, error: "audit_cleanup_failed", audit_more: true };
+  }
+}
+
+// V22.9.95 R-12: 정리 단계 결과를 하나로 합친다(NLU 진단 표 정리 + 감사 기록 정리). 하나라도 실패하면 ok:false 와 먼저 실패한 쪽 코드이고,
+// 감사 정리 건수는 그래도 남긴다.
+function mergeScheduledCleanupV22995(nlu, audit) {
+  const counts = audit && !audit.skipped ? { audit_deleted: audit.audit_deleted, audit_batches: audit.audit_batches, audit_more: audit.audit_more } : {};
+  const error = nlu?.error ?? audit?.error;
+  if (error !== undefined) return { ok: false, error, ...counts };
+  if (nlu?.skipped && (!audit || audit.skipped)) return { skipped: true };
+  return { ok: true, ...counts };
+}
 // @build:exports-start
 export {
-  SCHEDULED_RUN_LOG_CALLS, applyRecurringRulesForMonthBatched, eligibleRecurringSpenders,
-  handleRecurringCronApply, readScheduledRunLog, recordScheduledRun, recurringDateForMonth,
-  recurringSpenderEligible, refreshRecurringReports, runRecurringAutoApply, scheduledRunErrorCode,
-  settleRecurringBeforeEdit,
+  AUDIT_RETENTION_CALLS_V22995, SCHEDULED_RUN_LOG_CALLS, applyRecurringRulesForMonthBatched,
+  auditRetentionDaysV22995, cleanupTransactionAuditRetentionV22995, eligibleRecurringSpenders,
+  handleRecurringCronApply, mergeScheduledCleanupV22995, readScheduledRunLog, recordScheduledRun,
+  recurringDateForMonth, recurringSpenderEligible, refreshRecurringReports, runRecurringAutoApply,
+  scheduledRunErrorCode, settleRecurringBeforeEdit,
 };
 // @build:exports-end

@@ -350,7 +350,8 @@ const ALLOWED = {
   entry: ["started_at", "finished_at", "status", "version", "recurring", "reports", "cleanup", "errors"],
   recurring: ["households", "rules_seen", "scanned", "applied", "deduplicated", "skipped", "failed", "remaining", "pages", "report_rebuilt", "report_rebuild_pending", "report_rebuild_deferred", "partial", "more", "skipped_run", "partial_reason", "checked_date", "error"],
   reports: ["scanned", "generated", "skipped", "invalid", "failed", "pending_scopes", "partial", "skipped_run", "error"],
-  cleanup: ["ok", "skipped", "error"],
+  // V22.9.95 R-12: 정리 단계에 감사 기록 정리 칸 셋(지운 수·묶음 수·더 남았는지)이 더해졌다(validate-v22995-data 가 값을 본다).
+  cleanup: ["ok", "skipped", "error", "audit_deleted", "audit_batches", "audit_more"],
 };
 await fixture(async (fx) => {
   fx.db.accountbook_recurring.length = 0;
