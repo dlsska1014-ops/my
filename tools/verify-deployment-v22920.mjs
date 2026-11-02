@@ -120,7 +120,10 @@ const tasks = [
     }
   }],
   ["kakao login", async () => {
-    const r = await request("/auth/kakao/start");
+    // V22.9.95 R-9: 동의 없는 시작은 새 계정을 만들 수 있는 길이라 303 대신 동의 안내 화면(400)이다. 동의(consent=1)가 있어야 카카오로 보낸다.
+    const bare = await request("/auth/kakao/start");
+    check(bare.status === 400 && (await bare.text()).includes("동의"), "Kakao start without consent shows the consent screen (400)");
+    const r = await request("/auth/kakao/start?consent=1");
     check(r.status === 303, "Kakao login configuration ready");
     const location = r.headers.get("location");
     if (!location) return check(false, "Kakao authorization location present");
