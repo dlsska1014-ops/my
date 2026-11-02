@@ -7,7 +7,8 @@ import { stripBuildBlocks } from "../tools/build-worker.mjs";
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks++; };
 const eq = (actual, expected, message) => { assert.equal(actual, expected, message); checks++; };
-const paths = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide", "/group-accountbook", "/security", "/faq", "/about", "/contact", "/privacy", "/terms", "/cookies", "/site-map", "/guides", "/demo", "/report-guide", "/import-guide"];
+// V22.9.95 후원: /support 는 /contact 별칭에서 후원 안내 정본 페이지가 됐다(별칭 목록에서도 뺐다).
+const paths = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide", "/group-accountbook", "/security", "/faq", "/about", "/contact", "/privacy", "/terms", "/cookies", "/site-map", "/guides", "/demo", "/report-guide", "/import-guide", "/support"];
 // V22.9.40 (D): 생활비 가이드 글은 validate-public-articles-v22940 이 자세히 검사한다. 여기서는 정본 목록에만 더한다.
 const articlePaths = ["/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup", "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit", "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics", "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table"];
 // V22.9.74: 글 목록 허브와 생활비 가이드 글 20편은 validate-public-articles-v22974 가 자세히 검사한다. 정본 목록에만 더한다.
@@ -59,7 +60,7 @@ try {
     for (const [, src] of html.matchAll(/src="(\/assets\/[^\"]+)"/g)) assets.add(src);
   }
   for (const asset of assets) eq((await get(asset)).status, 200, `shared asset ${asset} is available`);
-  for (const [alias, canonical] of [["/sitemap", "/site-map"], ["/service", "/service-guide"], ["/usage-guide", "/how-it-works"], ["/kakao-accountbook-guide", "/kakao-guide"], ["/budget-management-guide", "/budget-guide"], ["/family-accountbook", "/group-accountbook"], ["/data-security", "/security"], ["/about-service", "/about"], ["/support", "/contact"], ["/cookie-policy", "/cookies"], ["/data-policy", "/privacy"], ["/service-policy", "/terms"]]) {
+  for (const [alias, canonical] of [["/sitemap", "/site-map"], ["/service", "/service-guide"], ["/usage-guide", "/how-it-works"], ["/kakao-accountbook-guide", "/kakao-guide"], ["/budget-management-guide", "/budget-guide"], ["/family-accountbook", "/group-accountbook"], ["/data-security", "/security"], ["/about-service", "/about"], ["/cookie-policy", "/cookies"], ["/data-policy", "/privacy"], ["/service-policy", "/terms"]]) {
     for (const method of ["GET", "HEAD"]) {
       const response = await get(`${alias}?utm_source=guide`, method);
       eq(response.status, 308, `${alias}: ${method} permanent consolidation`);

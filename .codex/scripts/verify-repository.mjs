@@ -114,6 +114,7 @@ const validationScripts = [
   ["V22.9.94 예약 실행(C-10 리포트 재생성 요청 중복 버림·R-1 리포트 처리량 예산 기반·말일 스냅숏 재생성)", "validation/validate-v22994-cron.mjs"],
   ["V22.9.94 준비 상태·경보(R-2 /ready 분류·삭제 RPC·60초 캐시·R-4 cron 마지막 실행 지표)", "validation/validate-v22994-ops.mjs"],
   ["V22.9.95 데이터·운영(R-12 감사 기록 보존 정리·예약 실행 표 판·남은 범위 열·R-11 CI 푸시·취소 설정)", "validation/validate-v22995-data.mjs"],
+  ["V22.9.95 후원(/support 페이지·후원자 플래그·배지·포인트 색·관리자 후원자 설정)", "validation/validate-v22995-support.mjs"],
   ["V22.9.74 생활비 가이드 글 20편·글 목록 허브·작성자와 검토 방식", "validation/validate-public-articles-v22974.mjs"],
   ["V22.9.40 생활비 가이드 글 12편(길이·고유성·링크·검색 메타)", "validation/validate-public-articles-v22940.mjs"],
   ["공개 가이드·가상 체험·검색 경계", "validation/validate-public-guides-v22939.mjs"],

@@ -118,7 +118,7 @@ function publicGuidePages(env = {}) {
       { title: "서비스와 첫 기록", links: [["서비스 홈", "/"], ["사용 가이드 모음", "/guides"], ["가상 가계부 체험", "/demo"], ["기능과 권한", "/service-guide"], ["처음 기록하기", "/how-it-works"], ["카카오 입력 방법", "/kakao-guide"]] },
       { title: "기록 점검과 관리", links: [["예산 계산", "/budget-guide"], ["공동 가계부와 정산", "/group-accountbook"], ["생활비 리포트", "/report-guide"], ["가져오기와 거래 백업", "/import-guide"], ["데이터 보호", "/security"], ["문제 해결 FAQ", "/faq"]] },
       { title: "생활비 가이드 글", links: [["생활비 예산 비율 정하기", "/budget-ratio-guide"], ["고정비 점검 체크리스트", "/fixed-cost-checklist"], ["구독 정리법", "/subscription-cleanup"], ["카드 실적 조건의 원리와 함정", "/card-spending-threshold"], ["공동 생활비 정산 규칙", "/shared-living-cost-rules"], ["가계부 습관 설계", "/accountbook-habit"], ["월급날 기준 가계부 주기", "/payday-budget-cycle"], ["변동비 분류 기준 만들기", "/expense-category-rules"], ["비상금과 예비비 계산", "/emergency-fund-basics"], ["주간 리포트 읽는 법", "/weekly-report-reading"], ["가족·커플 가계부 역할 나누기", "/family-roles-accountbook"], ["한 장짜리 현금흐름표 만들기", "/cash-flow-table"]] },
-      { title: "운영 정보와 정책", links: [["서비스와 콘텐츠 운영 원칙", "/about"], ["문의 안내", "/contact"], ["개인정보처리방침", "/privacy"], ["서비스 이용약관", "/terms"], ["쿠키 정책", "/cookies"], ["XML 사이트맵", "/sitemap.xml"]] },
+      { title: "운영 정보와 정책", links: [["서비스와 콘텐츠 운영 원칙", "/about"], ["문의 안내", "/contact"], ["개인정보처리방침", "/privacy"], ["서비스 이용약관", "/terms"], ["쿠키 정책", "/cookies"], ["후원 안내", "/support"], ["XML 사이트맵", "/sitemap.xml"]] },
     ], { type: "CollectionPage", primary: ["사용 가이드 모음", "/guides"], updated: "2026-10-21" }),
     ...publicLivingCostArticles(),
   };

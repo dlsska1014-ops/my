@@ -438,6 +438,8 @@ const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order",
   "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning",
   "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
+  // V22.9.95 후원: 후원 안내(운영 비용·후원하는 방법·후원자 혜택). 광고 화면 목록(AD_PAGE_KEYS)에는 넣지 않는다.
+  "/support",
 ]);
 
 // V22.9.87 T-20·T-21: 공개 머리와 로그인 시작 화면의 장부 마크(§3-4 로고 타일 안). 앱 메뉴의 renderAccountbookBrandIcon(web/unified-nav.js)과
@@ -471,7 +473,7 @@ function publicSiteNav(active = "home") {
 }
 
 function publicSiteFooter() {
-  return `<footer class="pubFooter"><div><b>말해가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a><a href="https://tools.malhaebook.com/" target="_blank" rel="noopener">생활 계산기</a></div></footer>`;
+  return `<footer class="pubFooter"><div><b>말해가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a><a href="/support">후원하기</a><a href="https://tools.malhaebook.com/" target="_blank" rel="noopener">생활 계산기</a></div></footer>`;
 }
 // @build:exports-start
 export {
