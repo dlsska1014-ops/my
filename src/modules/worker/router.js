@@ -191,6 +191,9 @@ import {
 } from "../api/user-api.js";
 import { handleApi } from "../api/admin-api.js";
 import { handleIdentityAuditPage, handleIdentityMerge } from "../admin/identity-merge.js";
+import {
+  handleSupportersAdminPage, handleSupportersAdminRemove, handleSupportersAdminSave,
+} from "../admin/supporters-admin.js";
 import { currentMonthKst, qaFixedNowMs, validMonth } from "../nlu/date-payment.js";
 import {
   handleBetaReleaseCandidateFinalPage, handleDomainMigrationGuidePage,
@@ -721,6 +724,19 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/admin/identity/merge" && request.method === "POST") {
         return await handleIdentityMerge(request, env);
+      }
+
+      // V22.9.95 후원: 관리자 후원자 설정. POST 는 라우터 앞단의 전역 CSRF 확인(같은 출처만)을 지난 뒤에 온다.
+      if (url.pathname === "/admin/supporters" && request.method === "GET") {
+        return await handleSupportersAdminPage(request, env, url);
+      }
+
+      if (url.pathname === "/admin/supporters/save" && request.method === "POST") {
+        return await handleSupportersAdminSave(request, env);
+      }
+
+      if (url.pathname === "/admin/supporters/remove" && request.method === "POST") {
+        return await handleSupportersAdminRemove(request, env);
       }
 
       if (url.pathname === "/categories" && request.method === "GET") {

@@ -13,9 +13,11 @@ import {
   publicArticleSiteMapLinks, publicArticlesHubPage, publicLivingCostArticlesV22974,
   publicNormalizeLivingArticles,
 } from "./living-cost-articles-v22974.js";
+import { publicSupportPageV22995 } from "./support-page.js";
 import { headOnlyResponse, htmlResponse } from "../runtime/http.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { inspectKakaoLoginConfig } from "../auth/user-session.js";
+import { fetchPublicSupporterNames } from "../my/supporters.js";
 import { renderReportTopRows } from "../my/reports-premium.js";
 import {
   AB_CATEGORY_ICON_PATHS, AB_NAV_ICON_PATHS, AB_UI_ICON_PATHS,
@@ -28,7 +30,7 @@ import {
 import { escapeHtml } from "../domain/transactions-core.js";
 // @build:imports-end
 
-function publicPageCatalog(env = {}, url = null) {
+function publicPageCatalog(env = {}, url = null, extra = {}) {
   // V22.9.92: 카카오 애드핏으로 광고를 내는 서버(adsPolicyNetwork 가 "adfit")에서는 개인정보처리방침·쿠키 안내의 광고 절을
   // 카카오 기준 문장과 링크로 바꾼다(Google 안내·지역별 동의 절은 Google 광고에만 맞는 말이라 뺀다). 그 밖(심사 모드·AdSense)은 지금 그대로다.
   const adfit = adsPolicyNetwork(env) === "adfit";
@@ -91,6 +93,8 @@ function publicPageCatalog(env = {}, url = null) {
   catalog.articles = publicArticlesHubPage(articleIndex);
   const siteMapArticles = safeArray(catalog["site-map"]?.sections).find((section) => section.title === "생활비 가이드 글");
   if (siteMapArticles) siteMapArticles.links = publicArticleSiteMapLinks(articleIndex);
+  // V22.9.95 후원: 후원 안내(/support). 명단은 handlePublicContentPage 가 GET 때만 읽어 extra.supporters 로 넘긴다.
+  catalog.support = publicSupportPageV22995(env, safeArray(extra?.supporters));
   return catalog;
 }
 
@@ -262,8 +266,8 @@ function publicOgImageMeta(origin) {
   return `<meta property="og:image" content="${escapeHtml(`${origin}${AB_OG_IMAGE_PATH}`)}"/><meta property="og:image:type" content="image/png"/><meta property="og:image:width" content="${AB_OG_IMAGE_WIDTH}"/><meta property="og:image:height" content="${AB_OG_IMAGE_HEIGHT}"/><meta property="og:image:alt" content="${escapeHtml(AB_OG_IMAGE_ALT)}"/><meta name="twitter:card" content="summary_large_image"/>`;
 }
 
-function renderPublicContentPage(env = {}, url = null, key = "home") {
-  const catalog = publicPageCatalog(env, url);
+function renderPublicContentPage(env = {}, url = null, key = "home", extra = {}) {
+  const catalog = publicPageCatalog(env, url, extra);
   const page = Object.hasOwn(catalog, key) ? catalog[key] : catalog.home;
   const origin = publicBaseUrl(env, url);
   const canonical = `${origin}${key === "home" ? "/" : `/${key}`}`;
@@ -304,7 +308,9 @@ function publicContentAdKey(key = "home") {
 }
 
 async function handlePublicContentPage(request, env, url, key = "home") {
-  return htmlResponse(renderPublicContentPage(env, url, key), 200, adsHeaders(env, publicContentAdKey(key), { "cache-control": "public, max-age=300, stale-while-revalidate=600", "x-robots-tag": "index, follow" }));
+  // V22.9.95 후원: /support 는 후원자 명단(이름을 올려도 된다고 한 분)을 GET 때 한 번 읽는다. 읽지 못하면 명단 절을 뺀다. HEAD 는 읽지 않는다.
+  const extra = key === "support" && request.method === "GET" ? { supporters: await fetchPublicSupporterNames(env) } : {};
+  return htmlResponse(renderPublicContentPage(env, url, key, extra), 200, adsHeaders(env, publicContentAdKey(key), { "cache-control": "public, max-age=300, stale-while-revalidate=600", "x-robots-tag": "index, follow" }));
 }
 
 async function publicDocumentResponse(request, env, url) {
@@ -314,7 +320,8 @@ async function publicDocumentResponse(request, env, url) {
     ["/usage-guide", "/how-it-works"], ["/kakao-accountbook-guide", "/kakao-guide"],
     ["/budget-management-guide", "/budget-guide"], ["/family-accountbook", "/group-accountbook"],
     ["/data-security", "/security"], ["/about-service", "/about"],
-    ["/support", "/contact"], ["/cookie-policy", "/cookies"],
+    // V22.9.95 후원: /support 는 이제 /contact 별칭이 아니라 후원 안내 페이지다(/contact 는 그대로).
+    ["/cookie-policy", "/cookies"],
     ["/data-policy", "/privacy"], ["/service-policy", "/terms"],
   ];
   const path = url.pathname.replace(/\/+$/, "");

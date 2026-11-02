@@ -13,6 +13,7 @@ worker/router.js
 public/site-config.js
 public/guide-content.js
 public/living-cost-articles-v22974.js
+public/support-page.js
 public/content-pages.js
 client/shared-input-parsers.js
 client/shared-input-nlu.js
@@ -55,6 +56,7 @@ auth/kakao-oauth.js
 data/users-household-create.js
 import/csv-duplicates.js
 my/members-page.js
+my/supporters.js
 my/card-import-guide.js
 client/lucian-d-import.js
 my/backup-import.js
@@ -123,6 +125,7 @@ api/user-api.js
 api/admin-api.js
 kakao/group-links-first-record.js
 admin/identity-merge.js
+admin/supporters-admin.js
 kakao/identity-chat-first.js
 domain/users-households.js
 data/supabase-client.js
