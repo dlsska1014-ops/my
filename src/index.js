@@ -3086,7 +3086,8 @@ const ACCOUNTBOOK_WORKER = {
   async scheduled(controller, env, ctx) {
     scrubPrototypePollution("scheduled:start");
     // V22.9.78 N-18: 실행 요약 기록(읽기·저장 SCHEDULED_RUN_LOG_CALLS 회) 몫을 남겨 두고 세 단계를 돈다. 기록은 마지막에 50회 한도로 쓴다.
-    env = { ...env, __AB_DB_BUDGET: { used: 0, limit: 50 - SCHEDULED_RUN_LOG_CALLS } };
+    // V22.9.95 R-12: 감사 기록 정리 몫(AUDIT_RETENTION_CALLS_V22995)도 처음부터 떼어 두었다가 정리 단계에서 푼다(리포트 단계가 다 쓰지 않게).
+    env = { ...env, __AB_DB_BUDGET: { used: 0, limit: 50 - SCHEDULED_RUN_LOG_CALLS - AUDIT_RETENTION_CALLS_V22995 } };
     ctx.waitUntil((async () => {
       // V22.9.26: 세 단계를 각각 격리한다. 예전에는 정기지출 단계(가계부 목록 조회)가 던지면
       // 자동 리포트와 NLU 보존 정리가 통째로 건너뛰었다. 오류는 모두 실행한 뒤 다시 던진다.
@@ -3117,6 +3118,11 @@ const ACCOUNTBOOK_WORKER = {
         run.errors.push(`cleanup:${scheduledRunErrorCode(nluErr)}`);
         rememberOpsEvent({ kind: "nlu_retention_error", severity: "warn", path: "/cron/nlu-retention", method: "SCHEDULED", detail: safeError(nluErr) });
       }
+      // V22.9.95 R-12: 같은 정리 단계에서 오래된 거래 변경 감사 기록을 지운다. 떼어 둔 몫을 풀고 부른다. 던지지 않고, 실패는 정리 오류(partial)다.
+      env.__AB_DB_BUDGET.limit = 50 - SCHEDULED_RUN_LOG_CALLS;
+      const auditCleanup = await cleanupTransactionAuditRetentionV22995(env);
+      run.cleanup = mergeScheduledCleanupV22995(run.cleanup, auditCleanup);
+      if (auditCleanup.error) run.errors.push(`cleanup:${auditCleanup.error}`);
       rememberOpsEvent({ kind: "scheduled", severity: "info", path: "/cron/recurring/apply", method: "SCHEDULED", detail: firstError ? "recurring auto apply + free reports + nlu retention completed with errors" : "recurring auto apply + free reports + nlu retention completed" });
       // N-18: 아래에서 던질 실행은 error, 단계 하나라도 덜 끝났거나 정리가 실패하면 partial. 기록 저장은 실패해도 던지지 않는다.
       run.status = firstError ? "error" : (run.recurring?.ok === false || run.reports?.ok === false || run.cleanup?.error) ? "partial" : "ok";
@@ -22969,10 +22975,15 @@ function renderScheduledRunRow(run = {}) {
     : `적용 ${count(r.applied)} · 건너뜀 ${count(r.skipped)} · 실패 ${count(r.failed)} · 남음 ${count(r.remaining)} · ${count(r.pages)}쪽${r.partial_reason ? ` · ${reasonLabel[r.partial_reason] || r.partial_reason}` : ""}`;
   const p = run.reports || {};
   const reports = !run.reports ? "-" : p.error ? `오류 ${p.error}` : p.skipped_run ? "다른 실행이 처리 중이라 건너뜀"
-    : `생성 ${count(p.generated)} · 실패 ${count(p.failed)}${p.pending_scopes ? ` · 남은 범위 ${count(p.pending_scopes)}` : ""}`;
+    : `생성 ${count(p.generated)} · 실패 ${count(p.failed)}`;
+  // V22.9.95: 판(이 실행을 돌린 앱 판)과 남은 범위(자동 리포트가 이번 실행에 다 못 돈 범위 수, 칸이 없던 기록은 ‘-’)를 따로 보인다.
+  const version = run.version || "-";
+  const pending = !run.reports || p.error || p.pending_scopes === undefined ? "-" : count(p.pending_scopes);
   const c = run.cleanup || {};
-  const cleanup = !run.cleanup ? "-" : c.error ? `오류 ${c.error}` : c.skipped ? "건너뜀" : "완료";
-  return `<tr><td>${escapeHtml(kst(run.started_at))}</td><td class="${statusClass}">${statusLabel}</td><td>${escapeHtml(recurring)}</td><td>${escapeHtml(reports)}</td><td>${escapeHtml(cleanup)}</td><td>${escapeHtml((run.errors || []).join(", ") || "-")}</td></tr>`;
+  // V22.9.95 R-12: 지운 감사 기록 수를 붙인다(0 이면 ‘완료’만). 더 남았으면 다음 실행이 잇는다.
+  const audited = Number(c.audit_deleted || 0) > 0 ? ` · 감사 ${count(c.audit_deleted)}건` : "";
+  const cleanup = !run.cleanup ? "-" : c.error ? `오류 ${c.error}${audited}` : c.skipped ? "건너뜀" : `완료${audited}${c.audit_more ? " · 다음 실행에 이어서" : ""}`;
+  return `<tr><td>${escapeHtml(kst(run.started_at))}</td><td>${escapeHtml(version)}</td><td class="${statusClass}">${statusLabel}</td><td>${escapeHtml(recurring)}</td><td>${escapeHtml(reports)}</td><td>${escapeHtml(pending)}</td><td>${escapeHtml(cleanup)}</td><td>${escapeHtml((run.errors || []).join(", ") || "-")}</td></tr>`;
 }
 
 async function handleOpsDashboardPage(request, env, url) {
@@ -22991,11 +23002,13 @@ async function handleOpsDashboardPage(request, env, url) {
   // V22.9.78 N-18: 예약 실행 요약은 설정 키에 남아 다른 인스턴스·재시작 뒤에도 보인다. 읽지 못하면 그렇다고만 보인다.
   let runLog = null;
   try { runLog = await readScheduledRunLog(env); } catch (_) { runLog = null; }
-  const runRows = !runLog ? `<tr><td colspan="6">예약 실행 기록을 불러오지 못했어요.</td></tr>`
-    : runLog.entries.map(renderScheduledRunRow).join("") || `<tr><td colspan="6">${runLog.invalid ? "저장된 예약 실행 기록이 깨져 있어요. 다음 예약 실행이 새로 씁니다." : "아직 저장된 예약 실행 기록이 없어요."}</td></tr>`;
+  // V22.9.95: 표는 판·남은 범위 열을 더해 여덟 칸이다. 표 아래에 감사 기록 보존 기간(AUDIT_RETENTION_DAYS, 잘못된 값이면 기본)을 적는다.
+  const runRows = !runLog ? `<tr><td colspan="8">예약 실행 기록을 불러오지 못했어요.</td></tr>`
+    : runLog.entries.map(renderScheduledRunRow).join("") || `<tr><td colspan="8">${runLog.invalid ? "저장된 예약 실행 기록이 깨져 있어요. 다음 예약 실행이 새로 씁니다." : "아직 저장된 예약 실행 기록이 없어요."}</td></tr>`;
+  const auditKeep = auditRetentionDaysV22995(env);
   const status = errCount ? "주의" : warnCount ? "관찰" : "정상";
   const statusClass = errCount ? "bad" : warnCount ? "warn" : "ok";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 운영 대시보드</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.box span{display:block;color:#64748b;font-size:12px;font-weight:900}.box b{display:block;margin-top:6px;font-size:25px}.ok{color:#166534}.warn{color:#b45309}.bad{color:#b91c1c}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px;background:#fff}table{width:100%;border-collapse:collapse;min-width:780px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px;vertical-align:top}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.6}.badge{display:inline-flex;border-radius:999px;padding:7px 11px;background:#eff6ff;color:#1e3a8a;font-size:12px;font-weight:1000}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}table{min-width:680px}}</style></head><body>${renderUnifiedNav("operation-center", { showOps: true })}<main class="wrap"><section class="hero"><span class="badge">${escapeHtml(APP_VERSION)}</span><h1>운영 대시보드</h1><p>최근 오류, 과도 요청 제한, 카카오 발화 이벤트를 한 화면에서 확인합니다. 예약 실행 요약 말고는 장기 저장을 하지 않는 인스턴스 메모리 기반 운영 패널입니다.</p><p><a class="btn light" href="/operation-center">운영센터</a><a class="btn light" href="/ops-monitor">종합 관제 · 사용량과 이력</a><a class="btn light" href="/ops-traffic">트래픽</a><a class="btn light" href="/ops-duplicates">중복 방어</a><a class="btn light" href="/skill-ops">스킬 운영</a><a class="btn light" href="/ops-snapshot.json">JSON 스냅샷</a></p></section><section class="grid"><div class="box"><span>현재 인스턴스의 관측 상태</span><b class="${statusClass}">${status}</b></div><div class="box"><span>최근 오류</span><b>${numberWithCommas(errCount)}</b></div><div class="box"><span>최근 경고</span><b>${numberWithCommas(warnCount)}</b></div><div class="box"><span>Traffic 활성 버킷</span><b>${numberWithCommas(traffic.activeBuckets || 0)}</b></div><div class="box"><span>Skill 활성 버킷</span><b>${numberWithCommas(skill.activeBuckets || 0)}</b></div><div class="box"><span>쓰기 제한 기준</span><b>${numberWithCommas(snap.limits.traffic_guard_limit)}/분</b></div></section><section class="card"><h2>최근 예약 실행</h2><div class="scroll"><table><thead><tr><th>시작(KST)</th><th>상태</th><th>정기 반영</th><th>자동 리포트</th><th>기록 정리</th><th>오류 코드</th></tr></thead><tbody>${runRows}</tbody></table></div><p class="note">매일 예약 실행(정기 반영·자동 리포트·기록 정리)의 결과 요약입니다. 저장소에 최근 14번까지 남아 인스턴스가 바뀌어도 보입니다.</p></section><section class="card"><h2>최근 운영 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>등급</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${opsRows}</tbody></table></div><p class="note">안전모드 전환, 서버 오류, 예약 실행 오류, 과도 요청 제한이 여기에 표시됩니다.</p></section><section class="card"><h2>최근 과도 요청 제한</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${trafficRows}</tbody></table></div></section><section class="card"><h2>최근 카카오 발화 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>User Key</th><th>발화</th><th>상세</th></tr></thead><tbody>${skillRows}</tbody></table></div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 운영 대시보드</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.box{background:#fff;border:1px solid #e8edf4;border-radius:20px;padding:15px}.box span{display:block;color:#64748b;font-size:12px;font-weight:900}.box b{display:block;margin-top:6px;font-size:25px}.ok{color:#166534}.warn{color:#b45309}.bad{color:#b91c1c}.scroll{overflow:auto;border:1px solid #e8edf4;border-radius:18px;background:#fff}table{width:100%;border-collapse:collapse;min-width:780px}td,th{border-bottom:1px solid #e8edf4;padding:10px;text-align:left;font-size:13px;vertical-align:top}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:40px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.6}.badge{display:inline-flex;border-radius:999px;padding:7px 11px;background:#eff6ff;color:#1e3a8a;font-size:12px;font-weight:1000}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}table{min-width:680px}}</style></head><body>${renderUnifiedNav("operation-center", { showOps: true })}<main class="wrap"><section class="hero"><span class="badge">${escapeHtml(APP_VERSION)}</span><h1>운영 대시보드</h1><p>최근 오류, 과도 요청 제한, 카카오 발화 이벤트를 한 화면에서 확인합니다. 예약 실행 요약 말고는 장기 저장을 하지 않는 인스턴스 메모리 기반 운영 패널입니다.</p><p><a class="btn light" href="/operation-center">운영센터</a><a class="btn light" href="/ops-monitor">종합 관제 · 사용량과 이력</a><a class="btn light" href="/ops-traffic">트래픽</a><a class="btn light" href="/ops-duplicates">중복 방어</a><a class="btn light" href="/skill-ops">스킬 운영</a><a class="btn light" href="/ops-snapshot.json">JSON 스냅샷</a></p></section><section class="grid"><div class="box"><span>현재 인스턴스의 관측 상태</span><b class="${statusClass}">${status}</b></div><div class="box"><span>최근 오류</span><b>${numberWithCommas(errCount)}</b></div><div class="box"><span>최근 경고</span><b>${numberWithCommas(warnCount)}</b></div><div class="box"><span>Traffic 활성 버킷</span><b>${numberWithCommas(traffic.activeBuckets || 0)}</b></div><div class="box"><span>Skill 활성 버킷</span><b>${numberWithCommas(skill.activeBuckets || 0)}</b></div><div class="box"><span>쓰기 제한 기준</span><b>${numberWithCommas(snap.limits.traffic_guard_limit)}/분</b></div></section><section class="card"><h2>최근 예약 실행</h2><div class="scroll"><table><thead><tr><th>시작(KST)</th><th>판</th><th>상태</th><th>정기 반영</th><th>자동 리포트</th><th>남은 범위</th><th>기록 정리</th><th>오류 코드</th></tr></thead><tbody>${runRows}</tbody></table></div><p class="note">매일 예약 실행(정기 반영·자동 리포트·기록 정리)의 결과 요약입니다. 저장소에 최근 14번까지 남아 인스턴스가 바뀌어도 보입니다. 기록 정리의 ‘감사 n건’은 보존 기간(${auditKeep.days}일${auditKeep.invalid ? ", AUDIT_RETENTION_DAYS 값이 잘못돼 기본값" : ""})이 지나 지운 거래 변경 감사 기록 수입니다.</p></section><section class="card"><h2>최근 운영 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>등급</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${opsRows}</tbody></table></div><p class="note">안전모드 전환, 서버 오류, 예약 실행 오류, 과도 요청 제한이 여기에 표시됩니다.</p></section><section class="card"><h2>최근 과도 요청 제한</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>Method</th><th>Path</th><th>상세</th></tr></thead><tbody>${trafficRows}</tbody></table></div></section><section class="card"><h2>최근 카카오 발화 이벤트</h2><div class="scroll"><table><thead><tr><th>시간</th><th>종류</th><th>User Key</th><th>발화</th><th>상세</th></tr></thead><tbody>${skillRows}</tbody></table></div></section></main></body></html>`);
 }
 
 async function handleTrafficOpsPage(request, env, url) {
@@ -28480,6 +28493,14 @@ function scheduledRunStage(value, fields = [], flags = []) {
   return out;
 }
 
+// V22.9.95 R-12: 정리 단계 칸. 감사 기록 정리 건수(audit_deleted·audit_batches)와 더 남았는지(audit_more, 참·거짓 그대로)는 오류가 있어도
+// 남긴다(앞 묶음은 이미 지웠을 수 있다). 감사 칸이 없는 예전 기록은 예전 모양 그대로다. 되돌린 V22.9.94 는 모르는 칸을 버리고 읽는다.
+function scheduledRunCleanupStageV22995(value) {
+  const base = scheduledRunStage(value, [], ["ok", "skipped"]);
+  if (!base || typeof value.audit_more !== "boolean") return base;
+  return { ...base, audit_deleted: scheduledRunCount(value.audit_deleted), audit_batches: scheduledRunCount(value.audit_batches), audit_more: value.audit_more };
+}
+
 // 새 기록과 저장돼 있던 기록을 같은 틀로 거른다. 아는 칸만 남기고 수는 0~10억, 글자는 짧은 코드로 줄인다.
 function normalizeScheduledRun(entry = {}) {
   if (!entry || typeof entry !== "object" || Array.isArray(entry)) return null;
@@ -28495,7 +28516,9 @@ function normalizeScheduledRun(entry = {}) {
     if (isValidTransactionDateString(String(entry.recurring.checked_date || ""))) recurring.checked_date = String(entry.recurring.checked_date);
   }
   const reports = scheduledRunStage(entry.reports, SCHEDULED_RUN_REPORT_FIELDS, ["partial", "skipped_run"]);
-  const cleanup = scheduledRunStage(entry.cleanup, [], ["ok", "skipped"]);
+  // V22.9.95: 남은 범위 칸(pending_scopes)이 없던 기록(V22.9.93 이하·다른 실행이 처리 중이라 건너뛴 실행)은 0 으로 채우지 않는다(관리 화면 ‘-’).
+  if (reports && !reports.error && entry.reports.pending_scopes == null) delete reports.pending_scopes;
+  const cleanup = scheduledRunCleanupStageV22995(entry.cleanup);
   const version = typeof entry.version === "string" && /^V[0-9A-Za-z._-]{1,47}$/.test(entry.version) ? entry.version : "";
   return {
     started_at: startedAt, finished_at: time(entry.finished_at) || startedAt,
@@ -28538,6 +28561,73 @@ async function readScheduledRunLog(env) {
   try { entries = parseStrictSettingsArray(raw, "scheduled_run_log"); }
   catch (_) { return { entries: [], invalid: true }; }
   return { entries: entries.map(normalizeScheduledRun).filter(Boolean).slice(0, SCHEDULED_RUN_LOG_MAX), invalid: false };
+}
+
+// V22.9.95 R-12(전체 점검 P2 데이터): 거래 변경 감사 표(accountbook_transaction_audit)는 지운 행 전체(메모·원문·카카오 키)를 기한 없이 쌓았다.
+// 이 표를 읽는 곳은 웹 ‘되돌리기’(domain/transactions-core.js fetchDeletedTransactionAudit — 표는 60초 유효, 지운 시각 2분 전부터 읽는다)와
+// 지운 직후의 감사 번호 읽기(fetchDeleteAuditIdV22994 — 방금 남은 행)뿐이다. 카카오 ‘복구’(24시간)는 수정 세션 버퍼의 행을 다시 넣고 이 표를
+// 읽지 않는다. 점검 화면(/ready·/diagnostics·운영 점검)은 표가 있는지만 본다. 그래서 그 창보다 훨씬 긴 AUDIT_RETENTION_DAYS(기본 180일, 30~3650 정수)보다
+// 오래된 행만 매일 예약 실행의 정리 단계에서 지운다. 한 실행에 오래된 것부터 500행씩 두 묶음(읽기 1 + 지우기 1)까지이고, 그 몫
+// (AUDIT_RETENTION_CALLS_V22995)은 예약 실행이 처음부터 떼어 둔다(리포트 단계가 다 쓰지 않게). 지우기는 읽은 번호(id=in.)에 기준 시각
+// (created_at=lt.)도 함께 걸어 기준보다 새 행은 어떤 경우에도 지우지 않는다. 던지지 않는다: 실패는 { ok:false, error:"audit_cleanup_failed" }
+// 와 운영 이벤트(warn)이고 실행은 기존 규칙대로 partial 이다(관제 1.5.0 ‘일부 처리’). 지울 행이 더 남은 것(audit_more)은 오류가 아니다.
+const AUDIT_RETENTION_DEFAULT_DAYS_V22995 = 180;
+const AUDIT_RETENTION_BATCH_V22995 = 500;
+const AUDIT_RETENTION_BATCHES_V22995 = 2;
+const AUDIT_RETENTION_CALLS_V22995 = AUDIT_RETENTION_BATCHES_V22995 * 2;
+
+// 보존 일수. 비었으면 기본이고, 30~3650 정수가 아니면(소수·글자·범위 밖) 기본 180일을 쓰고 invalid 로 알린다.
+function auditRetentionDaysV22995(env = {}) {
+  const raw = env?.AUDIT_RETENTION_DAYS;
+  const text = raw === undefined || raw === null ? "" : String(raw).trim();
+  if (!text) return { days: AUDIT_RETENTION_DEFAULT_DAYS_V22995, invalid: false };
+  const days = /^\d{1,4}$/.test(text) ? Number(text) : NaN;
+  return days >= 30 && days <= 3650 ? { days, invalid: false } : { days: AUDIT_RETENTION_DEFAULT_DAYS_V22995, invalid: true };
+}
+
+async function cleanupTransactionAuditRetentionV22995(env = {}) {
+  if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return { skipped: true };
+  const result = { ok: true, audit_deleted: 0, audit_batches: 0, audit_more: false };
+  const report = (kind, detail) => rememberOpsEvent({ kind, severity: "warn", path: "/cron/audit-retention", method: "SCHEDULED", detail });
+  let phase = "config";
+  try {
+    const { days, invalid } = auditRetentionDaysV22995(env);
+    if (invalid) report("audit_retention_days_invalid", `default:${days}`);
+    const cutoff = new Date(qaFixedNowMs() - days * 86400000).toISOString();
+    const older = `created_at=lt.${encodeURIComponent(cutoff)}`;
+    const budget = env.__AB_DB_BUDGET;
+    const room = (calls) => !budget || Number(budget.used || 0) + calls <= Number(budget.limit || 0);
+    for (let batch = 0; batch < AUDIT_RETENTION_BATCHES_V22995; batch += 1) {
+      // 읽기·지우기 두 번이 남을 때만 묶음을 시작한다. 모자라면 남은 행은 다음 실행이 잇는다.
+      if (!room(2)) { result.audit_more = true; break; }
+      phase = "select";
+      const rows = await supabase(env, `/rest/v1/accountbook_transaction_audit?select=id&${older}&order=created_at.asc&limit=${AUDIT_RETENTION_BATCH_V22995}`, { method: "GET" });
+      const list = Array.isArray(rows) ? rows : [];
+      if (!list.length) { result.audit_more = false; break; }
+      const ids = [...new Set(list.map((row) => String(row?.id ?? "")).filter((id) => /^[1-9]\d{0,18}$/.test(id)))];
+      if (!ids.length) throw Object.assign(new Error("audit_retention_ids_invalid"), { code: "audit_retention_ids_invalid" });
+      phase = "delete";
+      const deleted = await supabase(env, `/rest/v1/accountbook_transaction_audit?id=in.(${ids.join(",")})&${older}&select=id`, { method: "DELETE", headers: { Prefer: "return=representation" } });
+      result.audit_batches += 1;
+      result.audit_deleted += Array.isArray(deleted) ? deleted.length : 0;
+      result.audit_more = list.length >= AUDIT_RETENTION_BATCH_V22995;
+      if (!result.audit_more) break;
+    }
+    return result;
+  } catch (err) {
+    report("audit_retention_error", `${phase}:${scheduledRunErrorCode(err)}`);
+    return { ...result, ok: false, error: "audit_cleanup_failed", audit_more: true };
+  }
+}
+
+// V22.9.95 R-12: 정리 단계 결과를 하나로 합친다(NLU 진단 표 정리 + 감사 기록 정리). 하나라도 실패하면 ok:false 와 먼저 실패한 쪽 코드이고,
+// 감사 정리 건수는 그래도 남긴다.
+function mergeScheduledCleanupV22995(nlu, audit) {
+  const counts = audit && !audit.skipped ? { audit_deleted: audit.audit_deleted, audit_batches: audit.audit_batches, audit_more: audit.audit_more } : {};
+  const error = nlu?.error ?? audit?.error;
+  if (error !== undefined) return { ok: false, error, ...counts };
+  if (nlu?.skipped && (!audit || audit.skipped)) return { skipped: true };
+  return { ok: true, ...counts };
 }
 
 // 키워드 편집기는 설정 화면과 분류·키워드 화면 두 곳에서 쓴다. 결과를 항상 설정 화면으로 돌려보내면

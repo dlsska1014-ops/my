@@ -118,7 +118,8 @@ import {
 import { handleMyMemberPolicySave, handleMyMembersPage } from "../my/members-page.js";
 import { handleMyBackupCsv, handleMyBackupPage, handleMyImport } from "../my/backup-import.js";
 import {
-  SCHEDULED_RUN_LOG_CALLS, handleRecurringCronApply, recordScheduledRun, runRecurringAutoApply,
+  AUDIT_RETENTION_CALLS_V22995, SCHEDULED_RUN_LOG_CALLS, cleanupTransactionAuditRetentionV22995,
+  handleRecurringCronApply, mergeScheduledCleanupV22995, recordScheduledRun, runRecurringAutoApply,
   scheduledRunErrorCode,
 } from "../cron/recurring-auto-apply.js";
 import { handleMyBudgetBulkSave, handleMyGroupsPage } from "../my/groups-budget-bulk.js";
@@ -1485,7 +1486,8 @@ const ACCOUNTBOOK_WORKER = {
   async scheduled(controller, env, ctx) {
     scrubPrototypePollution("scheduled:start");
     // V22.9.78 N-18: 실행 요약 기록(읽기·저장 SCHEDULED_RUN_LOG_CALLS 회) 몫을 남겨 두고 세 단계를 돈다. 기록은 마지막에 50회 한도로 쓴다.
-    env = { ...env, __AB_DB_BUDGET: { used: 0, limit: 50 - SCHEDULED_RUN_LOG_CALLS } };
+    // V22.9.95 R-12: 감사 기록 정리 몫(AUDIT_RETENTION_CALLS_V22995)도 처음부터 떼어 두었다가 정리 단계에서 푼다(리포트 단계가 다 쓰지 않게).
+    env = { ...env, __AB_DB_BUDGET: { used: 0, limit: 50 - SCHEDULED_RUN_LOG_CALLS - AUDIT_RETENTION_CALLS_V22995 } };
     ctx.waitUntil((async () => {
       // V22.9.26: 세 단계를 각각 격리한다. 예전에는 정기지출 단계(가계부 목록 조회)가 던지면
       // 자동 리포트와 NLU 보존 정리가 통째로 건너뛰었다. 오류는 모두 실행한 뒤 다시 던진다.
@@ -1516,6 +1518,11 @@ const ACCOUNTBOOK_WORKER = {
         run.errors.push(`cleanup:${scheduledRunErrorCode(nluErr)}`);
         rememberOpsEvent({ kind: "nlu_retention_error", severity: "warn", path: "/cron/nlu-retention", method: "SCHEDULED", detail: safeError(nluErr) });
       }
+      // V22.9.95 R-12: 같은 정리 단계에서 오래된 거래 변경 감사 기록을 지운다. 떼어 둔 몫을 풀고 부른다. 던지지 않고, 실패는 정리 오류(partial)다.
+      env.__AB_DB_BUDGET.limit = 50 - SCHEDULED_RUN_LOG_CALLS;
+      const auditCleanup = await cleanupTransactionAuditRetentionV22995(env);
+      run.cleanup = mergeScheduledCleanupV22995(run.cleanup, auditCleanup);
+      if (auditCleanup.error) run.errors.push(`cleanup:${auditCleanup.error}`);
       rememberOpsEvent({ kind: "scheduled", severity: "info", path: "/cron/recurring/apply", method: "SCHEDULED", detail: firstError ? "recurring auto apply + free reports + nlu retention completed with errors" : "recurring auto apply + free reports + nlu retention completed" });
       // N-18: 아래에서 던질 실행은 error, 단계 하나라도 덜 끝났거나 정리가 실패하면 partial. 기록 저장은 실패해도 던지지 않는다.
       run.status = firstError ? "error" : (run.recurring?.ok === false || run.reports?.ok === false || run.cleanup?.error) ? "partial" : "ok";
