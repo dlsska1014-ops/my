@@ -26,6 +26,8 @@ try {
   const pages = new Map();
   const assets = new Set();
   const titles = new Set(), descriptions = new Set();
+  // V22.9.97 모임 정산: 다른 공개 화면의 한 자리로 가는 링크(/demo#tour-settle)는 경로 부분을 정본과 대조하고, 그 id 는 모든 화면을 받은 뒤 본다.
+  const crossAnchors = [];
   for (const path of paths) {
     const response = await get(path);
     eq(response.status, 200, `${path}: anonymous GET succeeds`);
@@ -57,9 +59,16 @@ try {
     for (const [, href] of html.matchAll(/href="([^"]+)"/g)) {
       if (href.startsWith("#")) ok(html.includes(`id="${href.slice(1)}"`), `${path}: anchor ${href} exists`);
       else if (href.startsWith("/assets/") || href === "/manifest.json") assets.add(href);
-      else if (href.startsWith("/")) ok(allPaths.includes(href) || ["/my", "/sitemap.xml"].includes(href), `${path}: internal link ${href} has a supported destination`);
+      else if (href.startsWith("/")) {
+        ok(allPaths.includes(href.split("#")[0]) || ["/my", "/sitemap.xml"].includes(href), `${path}: internal link ${href} has a supported destination`);
+        if (href.includes("#")) crossAnchors.push([path, href]);
+      }
     }
     for (const [, src] of html.matchAll(/src="(\/assets\/[^\"]+)"/g)) assets.add(src);
+  }
+  for (const [from, href] of crossAnchors) {
+    const [target, id] = href.split("#");
+    ok(pages.has(target) && pages.get(target).includes(`id="${id}"`), `${from}: cross-page anchor ${href} exists on ${target}`);
   }
   for (const asset of assets) eq((await get(asset)).status, 200, `shared asset ${asset} is available`);
   for (const [alias, canonical] of [["/sitemap", "/site-map"], ["/service", "/service-guide"], ["/usage-guide", "/how-it-works"], ["/kakao-accountbook-guide", "/kakao-guide"], ["/budget-management-guide", "/budget-guide"], ["/family-accountbook", "/group-accountbook"], ["/data-security", "/security"], ["/about-service", "/about"], ["/cookie-policy", "/cookies"], ["/data-policy", "/privacy"], ["/service-policy", "/terms"]]) {
