@@ -1,3 +1,9 @@
+## V22.9.98 배포 판단
+
+- 앱 Worker만 교체한다. V22.9.98-ARTICLE-LINKS는 기존 글의 관련 링크 8곳과 수정일을 바꾼다. 새 판 병합·운영 승격은 사용자 지목 뒤에 진행한다.
+- SQL·Secret·환경변수·바인딩 33개·cron·관제 1.6.0·Kakao Developers·OpenBuilder·1년 캐시 자산은 변경하지 않는다. 공개 글 40편·사이트맵 60개·광고 대상 53쪽을 유지한다.
+- 운영 반영 뒤 /health·/ready, 관련 글 링크 8곳과 목적지 200, /articles 40편, sitemap.xml 60개와 수정일을 읽기 전용으로 확인한다. 운영 소스는 V22.9.97 `d97741c8-231c-4c73-a222-75019def45eb`(#328)이고 이 판을 아직 배포하지 않았다.
+
 ## V22.9.97 배포 판단
 
 - **운영 반영(2026-11-03 낮)**: PR #121 병합 `a228dab`(12:55:19) → PR #122 병합 `4d57f29`(12:56:42, Aside 세션 54LMfPMVOsIZI89o, PR CI 4/4 실행 41572823650, main CI 4/4 실행 41575177940). 앱 version `bf7345be-b4f3-4e26-86bf-39ddcc42f67d`(#327), deployment `52f34d2e-dbda-4ff8-adc3-754754f020db`, 13:28:07 KST(Aside 세션 0RpaXwvEvnVo2aSf; 1차 시도는 Quick Editor 응답 없음으로 Save 전 중단, 탭 정리 뒤 2차 성공; `last_deployed_from` 출처 차이 허용). 이어서 `COMMUNITY_OPENCHAT_URL` 추가 = version `d97741c8-231c-4c73-a222-75019def45eb`(#328, deployment `718d6cd2-18bc-48d9-95a1-08d58a3579b4`, 13:30:13 KST, 바인딩 32 → 33, 코드 같음). 관제 1.6.0 version `ce046034-060a-4671-bb88-cb0216d8e44a`, deployment `73d544c8-c6d7-4dc9-ab9f-7b8a4b6f3641`, 2026-11-03 13:50:15 KST. 사용자 12:50 무렵 "Aside로 PR #121, #122 병합하고 V22.9.97 앱 배포, 후원 오픈채팅 변수 추가, 관제 1.6.0 배포까지 진행해줘". 직후 확인 통과(Aside 5단계·7단계 안내 문장 + Claude: health·ready·/support 안내·경유 주소 302/404·/articles 8/8·/demo·sitemap 60·1년 캐시 기대대로·공개 123/123). 관제 1.6.0 직후: /health 1.6.0, 13:55:12 수집 갱신, ‘후원(대략, 30일)’ 줄 표시(수집 전 ‘-’), 전체 상태 ‘주의’(요금제 확인 기록 만료·Supabase 요금제 미연결 = 1.5.0 때와 같음). 기록 docs/deployments/V22_9_97_2026_11_03.md. **다음 배포 대조는 바인딩 33·금지 변수 열하나.**
