@@ -309,6 +309,7 @@ async function fetchUsage(env,probe={}) {
   const sent=typeof body?.error_code==="string"&&USAGE_ERROR.test(body.error_code)?body.error_code:null;
   if(!response.ok) throw usageFail(response.status===503&&sent?sent:`http_${response.status}`);
   if(body?.ok!==true) throw usageFail(sent||"invalid_reply");
+  // 1.6.0(V22.9.97): 앱이 붙인 후원 집계(support 칸)도 sanitizeUsage 가 걸러 같은 JSON 에 남긴다 — 달 행(samples 'usage')에 함께 저장되고 D1 스키마는 그대로다.
   try { return sanitizeUsage(body.usage); } catch(_) { throw usageFail("invalid_reply"); }
 }
 export async function collectUsage(env,now=new Date()) {

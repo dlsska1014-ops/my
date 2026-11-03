@@ -86,11 +86,16 @@ try {
     const good = await usage();
     eq(good.status, 200, "함수가 있으면 200");
     ok(good.type.includes("application/json"), "답은 JSON");
-    eq(calls.length, 1, "Supabase 를 한 번만 부른다");
-    eq(calls[0].url, RPC_URL, "읽기 전용 함수를 GET 주소(p_heavy_threshold=30)로 부른다");
-    eq(calls[0].method, "GET", "GET 으로 부른다(STABLE 함수, 쓰기 경로 아님)");
-    eq(calls[0].body, null, "본문을 보내지 않는다");
-    eq(calls[0].apikey, "fixture-service-key", "service_role 키로 부른다");
+    // V22.9.97 후원 지표: 이용 현황 함수와 함께 후원 집계 읽기 두 번(설정 표 GET — 그날 줄·후원자 줄)이 돈다(예전 기대: 부름 1번).
+    // 이 흉내는 모든 부름에 같은 답(배열이 아닌 SAMPLE)을 내므로 후원 칸은 빠지고(읽지 못함 = 칸 없음) 이용 현황 답은 그대로다.
+    const rpcCalls = calls.filter(call => call.url.includes("/rest/v1/rpc/"));
+    const supportReads = calls.filter(call => !call.url.includes("/rest/v1/rpc/"));
+    eq(rpcCalls.length, 1, "이용 현황 함수는 한 번만 부른다");
+    ok(calls.length === 3 && supportReads.every(call => call.method === "GET" && call.body === null && call.url.startsWith("https://fixture.supabase.co/rest/v1/accountbook_settings?")), "나머지 두 번은 후원 집계 읽기(설정 표 GET, 쓰기 없음)다(V22.9.97)");
+    eq(rpcCalls[0]?.url, RPC_URL, "읽기 전용 함수를 GET 주소(p_heavy_threshold=30)로 부른다");
+    eq(rpcCalls[0]?.method, "GET", "GET 으로 부른다(STABLE 함수, 쓰기 경로 아님)");
+    eq(rpcCalls[0]?.body, null, "본문을 보내지 않는다");
+    eq(rpcCalls[0]?.apikey, "fixture-service-key", "service_role 키로 부른다");
     eq(good.body.ok, true, "ok:true");
     deepEq(good.body.usage, SAMPLE, "실제 SQL 답(PGlite)은 걸러내기를 그대로 통과한다");
     eq(telemetry, 0, "/internal/ops-usage 는 사용자 요청 표본을 보내지 않는다");
@@ -174,7 +179,9 @@ try {
     answer = () => { throw new TypeError("fetch failed"); };
     const transport = await usage();
     deepEq([transport.status, transport.body], [503, { ok: false, error_code: "usage_unavailable" }], "전송 오류 → 503 usage_unavailable");
-    ok(calls.length >= 1 && calls.length <= 2, "읽기 재시도는 한 번까지(조회 규칙)");
+    // V22.9.97: 후원 집계 읽기도 같은 흉내 답(전송 오류)을 받으므로 이용 현황 함수 부름만 센다.
+    const rpcTries = calls.filter(call => call.url.includes("accountbook_usage_summary_v22982")).length;
+    ok(rpcTries >= 1 && rpcTries <= 2, "읽기 재시도는 한 번까지(조회 규칙)");
     answer = json(SAMPLE);
   });
 

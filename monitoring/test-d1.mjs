@@ -297,13 +297,13 @@ try {
     // R-4: 앱 예약 실행(매일 09:10 KST) 기록을 이용 현황 요청(55분마다)에 실어 받고, 실패·일부 처리·26시간 누락이면 주의로 알린다.
     const r4=freshDb();
     const SAMPLE=JSON.parse(readFileSync(new URL("../validation/usage-summary-sample-v22982.json",import.meta.url),"utf8"));
-    let appHttp=200, cronBody;
+    let appHttp=200, cronBody, usageExtra={};
     const appCalls=[];
     const r4App={async fetch(input,init){
       const request=new Request(input,init);
       if(new URL(request.url).pathname!=="/internal/ops-usage") return new Response(JSON.stringify({ok:true,metrics:{database_bytes:30*1024**2,connections:5,max_connections:60,cpu_counter:{total:100,idle:80}}}));
       appCalls.push({cron:request.headers.get("x-ab-monitor-cron"),authorization:request.headers.get("authorization")});
-      const body=appHttp===200?{ok:true,usage:SAMPLE}:{ok:false,error_code:appHttp===503?"rpc_missing":"unauthorized"};
+      const body=appHttp===200?{ok:true,usage:{...SAMPLE,...usageExtra}}:{ok:false,error_code:appHttp===503?"rpc_missing":"unauthorized"};
       if(cronBody!==undefined) body.cron=cronBody;
       return new Response(JSON.stringify(body),{status:appHttp,headers:{"content-type":"application/json"}});
     }};
@@ -427,10 +427,39 @@ try {
     const states=html.slice(html.indexOf("<h2>수집 연결 상태</h2>"),html.indexOf("<h2>최근 요청 표본</h2>"));
     want(states.length>0&&!states.includes("예약 실행"),"R-4 화면: 수집 연결 상태 표에는 예약 실행 줄을 더하지 않는다(수집기가 아니다)");
     blank.store.close();
+    // 1.6.0(V22.9.97) 후원 줄: 앱이 이용 현황에 붙인 support 칸은 samples 의 JSON 에 함께 저장하고(D1 스키마 그대로) '후원(대략, 30일)' 줄로 보인다.
+    // 옛 앱(V22.9.96 이하)은 이 칸이 없고 줄은 '-' 다. 모양이 틀린 칸은 그 칸만 버리고 이용 현황은 그대로 받는다.
+    const usageRow=()=>{const row=r4.store.prepare("SELECT payload FROM samples WHERE source='usage' ORDER BY bucket DESC LIMIT 1").get();return row?JSON.parse(row.payload):null;};
+    const supportLine=page=>{const i=page.indexOf('<p class="usupport">');return i<0?"":page.slice(i,page.indexOf("</p>",i)+4);};
+    const supportGood={days:30,visits:12,clicks:{kakaopay:2,toss:1,openchat:1,supporter_openchat:1},clicks_total:99,supporters_active:3,as_of:"2026-06-17"};
+    const supportWant={...supportGood,clicks_total:5};
+    const s0=t0+42*H;
+    appHttp=200; usageExtra={support:supportGood};
+    await ask(s0);
+    want(setting("usage")?.status==="ok"&&isDeepStrictEqual(usageRow()?.support,supportWant),`V22.9.97 후원: support 칸을 이용 현황 JSON 에 함께 저장하고 합계는 칸별 수로 다시 센다(앱이 보낸 99 가 아니라 5): ${JSON.stringify(usageRow()?.support)}`);
+    r=await summary(r4Env,s0+M);
+    want(isDeepStrictEqual(r.usage?.data?.support,supportWant),`V22.9.97 후원: /api/summary 이용 현황에 support 가 실린다: ${JSON.stringify(r.usage?.data?.support)}`);
+    html=renderDash(r);
+    want(supportLine(html)==='<p class="usupport"><strong>후원(대략, 30일)</strong> 방문 12 · 클릭 5(카카오페이 2·토스 1·오픈채팅 1·후원자방 1) · 후원자 3명 · 6월 17일까지</p>',`V22.9.97 후원 화면: 이용 현황에 '후원(대략, 30일)' 줄을 그린다: ${supportLine(html)}`);
+    want(html.includes("후원 줄은 대략입니다"),"V22.9.97 후원 화면: 대략인 까닭(동시 요청·봇·관리자·스크립트 꺼짐·사람 수 아님)을 알린다");
+    usageExtra={};
+    await ask(s0+H);
+    want(setting("usage")?.status==="ok"&&usageRow()!==null&&!("support" in usageRow()),"V22.9.97 후원: 옛 앱(support 칸 없음)이면 저장한 JSON 에도 support 가 없다");
+    r=await summary(r4Env,s0+H+M);
+    html=renderDash(r);
+    want(Boolean(r.usage?.data)&&!("support" in r.usage.data)&&supportLine(html)==='<p class="usupport"><strong>후원(대략, 30일)</strong> -</p>',`V22.9.97 후원 화면: 옛 앱이면 줄을 '-' 로 그린다: ${supportLine(html)}`);
+    const badSupport=[];
+    for(const bad of [{...supportGood,clicks:{...supportGood.clicks,toss:-1}},{...supportGood,days:0},{...supportGood,clicks:null},{...supportGood,as_of:"6월 17일"},{...supportGood,visits:"12"},"support"]){
+      usageExtra={support:bad};
+      await ask(s0+2*H);
+      if(setting("usage")?.status!=="ok"||usageRow()===null||"support" in usageRow()) badSupport.push(JSON.stringify(bad));
+    }
+    want(badSupport.length===0,`V22.9.97 후원: 모양이 틀린 support 칸은 그 칸만 버리고 이용 현황은 정상으로 받는다: ${badSupport.join(" | ")}`);
+    usageExtra={};
     const health=await (await worker.fetch(new Request("https://monitor.example/health"),r4Env,{})).json();
-    want(health.version==="1.5.0",`관제 판은 1.5.0 이다: ${health.version}`);
+    want(health.version==="1.6.0",`관제 판은 1.6.0 이다(V22.9.97 후원 줄): ${health.version}`);
     r4.store.close();
-    assert.equal(misses.length,0,`V22.9.94 관제(C-6·R-4) 검사 실패 ${misses.length}건:\n- ${misses.join("\n- ")}`);
+    assert.equal(misses.length,0,`V22.9.94·V22.9.97 관제(C-6·R-4·후원 줄) 검사 실패 ${misses.length}건:\n- ${misses.join("\n- ")}`);
   }
   console.log(`PASS: monitor D1 integration (${checks} checks)`);
 } finally {globalThis.fetch=originalFetch;globalThis.Date=RealDate;sqlite.close();}

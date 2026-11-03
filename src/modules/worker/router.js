@@ -18,6 +18,7 @@ import {
   kakaoChatCommandCatalog, kakaoRepresentativeCommands, pageNotFoundResponse, publicBaseUrl,
   renderSkillGetHealthHtml,
 } from "../public/site-config.js";
+import { supportGoResponseV22997, supportVisitResponseV22997 } from "../public/support-page.js";
 import { handlePublicContentPage, publicDocumentResponse } from "../public/content-pages.js";
 import { noticeBandResponse } from "../web/html-postprocess.js";
 import { logWorkerError, safeError } from "../runtime/leases.js";
@@ -342,6 +343,13 @@ const ACCOUNTBOOK_WORKER = {
 
       const hiddenFeature = hiddenIncompleteFeatureResponse(request, env, url);
       if (hiddenFeature) return hiddenFeature;
+
+      // V22.9.97 후원 지표: /support/go/<kind> 는 송금·오픈채팅 주소로 보내는 경유 주소다(누른 수만 센다). /support/visit 는 /support 화면이
+      // 실제로 보일 때 보내는 방문 신호(POST, 204)다. 둘 다 public/support-page.js.
+      const supportVisit = supportVisitResponseV22997(request, env, url, ctx);
+      if (supportVisit) return supportVisit;
+      const supportGo = await supportGoResponseV22997(request, env, url, ctx);
+      if (supportGo) return supportGo;
 
       const publicDocument = await publicDocumentResponse(request, env, url);
       if (publicDocument) return publicDocument;
