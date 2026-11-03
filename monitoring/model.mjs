@@ -1,4 +1,4 @@
-export const MONITOR_VERSION = "1.5.0";
+export const MONITOR_VERSION = "1.6.0";
 export const PRICING_VERIFIED_AT = "2026-10-01";
 export const DAY = 86400000;
 
@@ -190,6 +190,15 @@ export function usageDue(record, now) {
   const last = Date.parse(record?.last_attempt_at || "");
   return !Number.isFinite(last) || now - last >= USAGE_INTERVAL_MS || last - now > USAGE_INTERVAL_MS;
 }
+// 1.6.0(V22.9.97): 앱이 이용 현황에 붙이는 후원 집계(support 칸) — 최근 days 일의 /support 방문·송금 링크 누름 합계(대략)와 지금 켜진 후원자 수.
+// 계약 밖 값은 버리고 모양이 틀리면 이 칸만 버린다(이용 현황 전체는 그대로 받는다). 합계는 칸별 수로 다시 센다. 옛 앱(V22.9.96 이하)은 이 칸이 없다.
+const USAGE_SUPPORT_CLICKS = ["kakaopay", "toss", "openchat", "supporter_openchat"];
+export function usageSupport(input) {
+  if (!isPlain(input) || !isPlain(input.clicks) || !Number.isSafeInteger(input.days) || input.days < 1 || input.days > 90 || !isCount(input.visits) || !isCount(input.supporters_active) || !isText(input.as_of, USAGE_DAY)) return null;
+  const clicks = {};
+  for (const key of USAGE_SUPPORT_CLICKS) { if (!isCount(input.clicks[key])) return null; clicks[key] = input.clicks[key]; }
+  return { days: input.days, visits: input.visits, clicks, clicks_total: USAGE_SUPPORT_CLICKS.reduce((sum, key) => sum + clicks[key], 0), supporters_active: input.supporters_active, as_of: input.as_of };
+}
 export function sanitizeUsage(input) {
   const reject = () => { throw new Error("invalid_reply"); };
   const count = value => isCount(value) ? value : reject();
@@ -218,6 +227,7 @@ export function sanitizeUsage(input) {
     || !Number.isSafeInteger(input.heavy_threshold) || input.heavy_threshold < 1 || !Array.isArray(input.daily) || !isPlain(input.totals)) reject();
   const generated = typeof input.generated_at === "string" && input.generated_at.length <= 40 && /^\d{4}-\d{2}-\d{2}T/.test(input.generated_at) ? Date.parse(input.generated_at) : NaN;
   if (!Number.isFinite(generated)) reject();
+  const support = usageSupport(input.support);
   // 날마다 줄은 계약대로 날짜 오름차순만 받는다(앞 줄보다 늦지 않은 날·겹친 날·틀린 줄은 버림). 정렬하지 않고 마지막 62줄을 남긴다.
   const daily = [];
   for (const row of input.daily.slice(-200)) {
@@ -229,6 +239,7 @@ export function sanitizeUsage(input) {
     current: period(input.current), previous_same: period(input.previous_same), previous_full: period(input.previous_full),
     daily: daily.slice(-62),
     totals: { users: count(input.totals.users), households: count(input.totals.households), shared_households: count(input.totals.shared_households) },
+    ...(support ? { support } : {}),
   };
 }
 // 관제가 계산해 보이는 값(계약 '관제가 계산해 보이는 값'). 분모가 0 이거나 값이 없으면 null 이고 화면은 "—" 로 보인다.

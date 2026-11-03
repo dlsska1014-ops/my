@@ -1743,6 +1743,19 @@ function abUsagePeriod(raw) {
   return out;
 }
 
+// V22.9.97 후원 지표: 이용 현황에 붙는 support 칸(관제 1.6.0 ‘후원(대략, 30일)’ 줄). { days, visits, clicks: {kakaopay,toss,openchat,supporter_openchat},
+// clicks_total, supporters_active, as_of } 만 남기고 모양이 틀리면 칸째 버린다(이용 현황 답은 그대로). 합계(clicks_total)는 여기서 다시 센다.
+// 옛 관제 1.5.0 은 이 칸을 모른다 — 관제 sanitizeUsage 가 계약 칸만 골라 새 객체를 만들므로 그대로 버려진다(수집·화면 영향 없음).
+const AB_USAGE_SUPPORT_CLICKS = ["kakaopay", "toss", "openchat", "supporter_openchat"];
+function abUsageSupport(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || !raw.clicks || typeof raw.clicks !== "object" || Array.isArray(raw.clicks)) return null;
+  const days = abUsageCount(raw.days), visits = abUsageCount(raw.visits), active = abUsageCount(raw.supporters_active), asOf = abUsageDay(raw.as_of);
+  if (!days || days > 90 || visits === null || active === null || !asOf) return null;
+  const clicks = {};
+  for (const key of AB_USAGE_SUPPORT_CLICKS) { const n = abUsageCount(raw.clicks[key]); if (n === null) return null; clicks[key] = n; }
+  return { days, visits, clicks, clicks_total: AB_USAGE_SUPPORT_CLICKS.reduce((sum, key) => sum + clicks[key], 0), supporters_active: active, as_of: asOf };
+}
+
 function abSanitizeUsage(raw) {
   if (!raw || typeof raw !== "object" || raw.schema !== 1) return null;
   const month = typeof raw.month === "string" && /^\d{4}-\d{2}$/.test(raw.month) ? raw.month : null;
@@ -1757,14 +1770,20 @@ function abSanitizeUsage(raw) {
     const values = AB_USAGE_DAILY_COUNTS.map(key => abUsageCount(row?.[key]));
     return day && !values.includes(null) ? [{ day, recorders: values[0], records: values[1], kakao_requests: values[2], new_users: values[3] }] : [];
   });
-  return { schema: 1, generated_at: generatedAt, month, through_day: throughDay, heavy_threshold: heavy, current, previous_same: previousSame, previous_full: previousFull, daily, totals };
+  const support = abUsageSupport(raw.support);
+  return { schema: 1, generated_at: generatedAt, month, through_day: throughDay, heavy_threshold: heavy, current, previous_same: previousSame, previous_full: previousFull, daily, totals, ...(support ? { support } : {}) };
 }
 
 async function abMonitorUsageSummary(env) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return { body: { ok: false, error_code: "not_connected" }, status: 503 };
   try {
-    const raw = await supabase(env, `/rest/v1/rpc/accountbook_usage_summary_v22982?p_heavy_threshold=${AB_USAGE_HEAVY_THRESHOLD}`, { method: "GET", timeoutMs: 8000 });
-    const usage = abSanitizeUsage(raw);
+    // V22.9.97 후원 지표: 후원 집계 읽기 두 번(public/support-page.js supportUsageSummaryV22997)을 이용 현황 함수와 함께 돌린다. 집계를 읽지 못해도
+    // 이용 현황 답은 그대로이고 support 칸만 빠진다. DB 함수의 답에 support 가 섞여 와도 쓰지 않는다(앱이 센 값만 붙인다).
+    const [raw, support] = await Promise.all([
+      supabase(env, `/rest/v1/rpc/accountbook_usage_summary_v22982?p_heavy_threshold=${AB_USAGE_HEAVY_THRESHOLD}`, { method: "GET", timeoutMs: 8000 }),
+      supportUsageSummaryV22997(env).catch(() => null),
+    ]);
+    const usage = abSanitizeUsage(raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw, support } : raw);
     return usage ? { body: { ok: true, usage }, status: 200 } : { body: { ok: false, error_code: "invalid_reply" }, status: 503 };
   } catch (error) {
     // PostgREST 는 함수가 없으면 404(PGRST202)로 답한다. 그 밖(권한·시한·전송)은 원인을 밖으로 내지 않고 usage_unavailable 로 묶는다.
@@ -1938,6 +1957,13 @@ const ACCOUNTBOOK_WORKER = {
 
       const hiddenFeature = hiddenIncompleteFeatureResponse(request, env, url);
       if (hiddenFeature) return hiddenFeature;
+
+      // V22.9.97 후원 지표: /support/go/<kind> 는 송금·오픈채팅 주소로 보내는 경유 주소다(누른 수만 센다). /support/visit 는 /support 화면이
+      // 실제로 보일 때 보내는 방문 신호(POST, 204)다. 둘 다 public/support-page.js.
+      const supportVisit = supportVisitResponseV22997(request, env, url, ctx);
+      if (supportVisit) return supportVisit;
+      const supportGo = await supportGoResponseV22997(request, env, url, ctx);
+      if (supportGo) return supportGo;
 
       const publicDocument = await publicDocumentResponse(request, env, url);
       if (publicDocument) return publicDocument;
@@ -8614,7 +8640,8 @@ function publicSupportWaysSectionV22995(config, email) {
     config.toss ? "토스 송금: 아래 ‘토스로 송금하기’ 를 누르면 송금 화면이 열려요." : "",
   ].filter(Boolean);
   if (!ways.length) return { title: "후원하는 방법", paragraphs: ["후원 창구를 준비하고 있어요(출시 뒤 안내)."] };
-  const links = [config.kakaopay ? ["카카오페이로 송금하기", config.kakaopay] : null, config.toss ? ["토스로 송금하기", config.toss] : null].filter(Boolean);
+  // V22.9.97 후원 지표: 송금 단추는 변수 주소를 바로 싣지 않고 경유 주소(/support/go/<kind>)로 간다. 누른 수를 센 뒤 같은 주소로 302 한다.
+  const links = [config.kakaopay ? ["카카오페이로 송금하기", "/support/go/kakaopay"] : null, config.toss ? ["토스로 송금하기", "/support/go/toss"] : null].filter(Boolean);
   return {
     title: "후원하는 방법",
     paragraphs: [`정해진 금액은 없어요. 편한 방법으로 보내 주신 뒤 보낸 분 이름·보낸 날짜·말해가계부 로그인 이름을 ${email} 로 알려 주시면 확인하고 후원자 표시를 켜 드려요.`],
@@ -8657,7 +8684,7 @@ function publicSupportPageV22995(env = {}, supporters = []) {
           ? "후원자 오픈채팅방은 후원을 확인한 분께 웹 가계부 ‘전체 메뉴’ 의 화면 설정에서 들어가는 단추로 안내해요."
           : "후원자 오픈채팅방도 준비하고 있어요. 열리면 후원자께 웹 가계부에서 안내해 드려요.",
       ],
-      ...(config.community ? { links: [["말해가계부 오픈채팅 들어가기", config.community]] } : {}),
+      ...(config.community ? { links: [["말해가계부 오픈채팅 들어가기", "/support/go/openchat"]] } : {}),
     },
     ...(names.length ? [{
       title: "고마운 후원자",
@@ -8679,6 +8706,176 @@ function publicSupportPageV22995(env = {}, supporters = []) {
     updated: "2026-11-02",
     primary: ["후원하는 방법 보기", "#section-3"],
     secondary: ["문의 안내", "/contact"],
+  };
+}
+
+// ── V22.9.97 후원 지표 ──────────────────────────────────────────────────────
+// 사용자(2026-11-02) "후원 페이지가 보이지 않아" + 수익화 검토 3절 2번(후원 지표를 관제에): /support 방문 → 송금 링크 누름 두 단계를 하루 한 줄로 센다.
+// 설정 표 한 줄 support_stats:<KST 날짜>, 값 { visits, clicks: { kakaopay, toss, openchat, supporter_openchat } }. 새 표·SQL 은 없다.
+// 읽고-더하고-올리는(upsert merge-duplicates) 방식이라 같은 순간에 둘이 들어오면 하나가 빠질 수 있다 — 관제에는 ‘대략’ 으로 보인다.
+// 사용자 id·IP·UA 는 적지 않는다. 응답은 기다리지 않고(ctx.waitUntil), DB 실패는 로그 한 줄로 끝낸다.
+const SUPPORT_STATS_PREFIX_V22997 = "support_stats:";
+const SUPPORT_CLICK_KEYS_V22997 = Object.freeze(["kakaopay", "toss", "openchat", "supporter_openchat"]);
+// 경유 주소 종류 → [설정 칸(supportConfigV22995), 집계 칸]. 계좌(SUPPORT_BANK_ACCOUNT)는 글자라 경유하지 않는다.
+const SUPPORT_GO_KINDS_V22997 = Object.freeze({
+  kakaopay: ["kakaopay", "kakaopay"],
+  toss: ["toss", "toss"],
+  openchat: ["community", "openchat"],
+  "supporter-openchat": ["supporterChat", "supporter_openchat"],
+});
+// 지침의 봇 목록(bot·crawl·spider·slurp·facebookexternalhit·preview·lighthouse)에 국내 수집기 셋을 더했다: 카카오톡 링크 미리보기(kakaotalk-scrap,
+// auth/kakao-account-link.js 와 같은 판단)·네이버 검색(Yeti)·다음 검색(Daumoa·Daum/4.1 꼴, 사람이 쓰는 다음 앱 DaumApps 는 세는 쪽). 자동화 브라우저(HeadlessChrome)도 사람이 아니다.
+const SUPPORT_BOT_UA_V22997 = /bot|crawl|spider|slurp|scrap|yeti|daumoa|daum[/][0-9]|headless|facebookexternalhit|preview|lighthouse/i;
+
+// 사람이 연 화면 이동만 센다. 봇 UA·UA 없음·미리 받기(prefetch·prerender)·화면 이동이 아닌 요청(Sec-Fetch-Mode 가 navigate 가 아님)은 빼고,
+// Sec-Fetch-Mode 머리가 없는 옛 브라우저는 센다(카카오 자동 로그인 판정 auth/kakao-account-link.js 와 같은 기준).
+function supportCountableRequestV22997(request) {
+  const headers = request?.headers;
+  if (!headers || typeof headers.get !== "function") return false;
+  const mode = String(headers.get("sec-fetch-mode") || "").toLowerCase();
+  if (mode && mode !== "navigate") return false;
+  if (/prefetch|prerender/i.test(`${headers.get("sec-purpose") || ""} ${headers.get("purpose") || ""}`)) return false;
+  const agent = String(headers.get("user-agent") || "");
+  return !!agent.trim() && !SUPPORT_BOT_UA_V22997.test(agent);
+}
+
+function supportStatCountV22997(value) {
+  return Number.isSafeInteger(value) && value >= 0 ? value : 0;
+}
+
+// 저장된 값(jsonb 객체 또는 JSON 글)을 정리한다. 모르는 칸은 버리고 틀린 수는 0 이다.
+function normalizeSupportStatsV22997(raw) {
+  let value = raw;
+  if (typeof value === "string") { try { value = JSON.parse(value); } catch (_) { value = null; } }
+  const source = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  const clicks = source.clicks && typeof source.clicks === "object" && !Array.isArray(source.clicks) ? source.clicks : {};
+  return { visits: supportStatCountV22997(source.visits), clicks: Object.fromEntries(SUPPORT_CLICK_KEYS_V22997.map((key) => [key, supportStatCountV22997(clicks[key])])) };
+}
+
+// 그날 줄을 읽어 한 칸에 1 을 더해 올린다. 읽기에 실패하면 쓰지 않는다(0 부터 다시 세어 덮지 않게).
+async function bumpSupportStatsV22997(env, field) {
+  const key = `${SUPPORT_STATS_PREFIX_V22997}${supporterTodayV22995()}`;
+  const rows = await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(key)}&select=value&limit=1`, { method: "GET", timeoutMs: 5000 });
+  if (!Array.isArray(rows)) throw new Error("support_stats_unreadable");
+  const value = normalizeSupportStatsV22997(rows[0]?.value);
+  if (field === "visits") value.visits += 1;
+  else if (SUPPORT_CLICK_KEYS_V22997.includes(field)) value.clicks[field] += 1;
+  else return;
+  await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+    method: "POST",
+    headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
+    body: JSON.stringify([{ key, value }]),
+  });
+}
+
+// 응답을 막지 않고 센다. 운영자가 확인하려고 연 화면(관리자 세션)은 세지 않는다 — 관리자 쿠키가 없으면 DB 를 읽지 않고 바로 넘어간다.
+function recordSupportStatV22997(request, env, ctx, field) {
+  const task = (async () => {
+    if (await verifyAdminSession(request, env).catch(() => false)) return;
+    await bumpSupportStatsV22997(env, field);
+  })().catch((error) => {
+    console.warn(JSON.stringify({ level: "warn", event: "support_stats_failed", field, error: String(error?.message || error).slice(0, 120) }));
+  });
+  if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(task);
+  return task;
+}
+
+// /support 방문은 화면이 실제로 보일 때 그 화면이 보내는 신호(POST /support/visit)로 센다. GET 응답에서 세지 않는 까닭:
+// 모든 화면의 미리 렌더링 규칙(conservative, assets/icons-manifest.js)이 /support 를 누르기 시작할 때 미리 열고(Sec-Purpose: prerender)
+// 누르면 그 화면을 그대로 쓰므로 Worker 에 두 번째 요청이 오지 않는다 — GET 에서 세면 크롬 계열의 앱 안 링크 방문이 빠지고, 미리
+// 렌더링까지 세면 ‘링크된 주소를 GET 으로 열어도 데이터가 바뀌지 않는다’ 는 약속(validate-speculation-rules-v2297)이 깨진다.
+// 미리 렌더링된 화면은 실제로 열릴 때(prerenderingchange) 한 번 보낸다. 5분 캐시로 다시 연 화면도 센다(화면 수, 사람 수가 아니다).
+// 스크립트가 꺼진 브라우저·봇은 세지 않는다.
+const SUPPORT_VISIT_PATH_V22997 = "/support/visit";
+const SUPPORT_VISIT_SCRIPT_V22997 = `<script>(function(){var d=document;function v(){try{navigator.sendBeacon("${SUPPORT_VISIT_PATH_V22997}")}catch(e){}}if(d.prerendering){d.addEventListener("prerenderingchange",v,{once:true})}else{v()}})();</script>`;
+
+// 같은 출처 화면이 보낸 신호만 센다(Sec-Fetch-Site 머리가 없는 옛 브라우저는 센다. 다른 출처 POST 는 라우터의 csrfOriginAllowed 가 먼저 막는다).
+// 봇 UA·UA 없음·미리 받기는 뺀다.
+function supportBeaconCountableV22997(request) {
+  const headers = request?.headers;
+  if (!headers || typeof headers.get !== "function") return false;
+  const site = String(headers.get("sec-fetch-site") || "").toLowerCase();
+  if (site && site !== "same-origin") return false;
+  if (/prefetch|prerender/i.test(`${headers.get("sec-purpose") || ""} ${headers.get("purpose") || ""}`)) return false;
+  const agent = String(headers.get("user-agent") || "");
+  return !!agent.trim() && !SUPPORT_BOT_UA_V22997.test(agent);
+}
+
+// POST /support/visit: 늘 204(몸 없음·캐시 없음)이라 무엇을 셌는지 알리지 않는다. POST 밖은 다루지 않는다(라우터의 다음 경로).
+function supportVisitResponseV22997(request, env, url, ctx) {
+  if (String(url?.pathname || "") !== SUPPORT_VISIT_PATH_V22997 || String(request?.method || "").toUpperCase() !== "POST") return null;
+  if (supportBeaconCountableV22997(request)) recordSupportStatV22997(request, env, ctx, "visits");
+  return new Response(null, { status: 204, headers: { "cache-control": "no-store", "x-robots-tag": "noindex, nofollow" } });
+}
+
+// /support 화면(200)에 방문 신호 스크립트를 붙인다(content-pages.js handlePublicContentPage).
+function withSupportVisitScriptV22997(html) {
+  const text = String(html || "");
+  return text.includes("</body>") ? text.replace("</body>", () => `${SUPPORT_VISIT_SCRIPT_V22997}</body>`) : text;
+}
+
+// 후원자 오픈채팅은 지금 켜진 후원자 세션에만 보낸다. V22.9.95 약속(후원자 방 주소는 공개 페이지에 싣지 않는다)을 경유 주소에서도 지킨다 —
+// 이 주소를 아는 누구나 방에 들어오면 후원자 방이 아니다. 아니면 다른 ‘없음’ 과 같은 404 다(방이 있는지도 알리지 않는다).
+async function supportViewerIsSupporterV22997(request, env) {
+  try {
+    const userId = await verifyUserSession(request, env);
+    return !!userId && supporterFlagActive(await fetchSupporterFlag(env, userId));
+  } catch (_) {
+    return false;
+  }
+}
+
+const SUPPORT_GO_MISSING_HTML_V22997 = `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>후원 링크를 찾을 수 없어요</title></head><body><main style="max-width:620px;margin:70px auto;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;color:#172033"><h1>후원 링크를 찾을 수 없어요.</h1><p style="color:#475569;line-height:1.65">이 후원 창구는 아직 준비 중이거나 지금은 열 수 없어요. 후원 안내에서 다른 방법을 확인해 주세요.</p><p><a href="/support" style="display:inline-flex;align-items:center;min-height:44px;color:#1d4ed8">후원 안내로 돌아가기</a></p></main></body></html>`;
+
+function supportGoMissingResponseV22997(method = "GET") {
+  return new Response(method === "HEAD" ? null : SUPPORT_GO_MISSING_HTML_V22997, { status: 404, headers: { ...HTML_HEADERS, "x-robots-tag": "noindex, nofollow" } });
+}
+
+// /support/go/<kind>: 변수가 있으면 그 주소로 302(캐시 없음·리퍼러 없음)하고 누른 수를 센다(GET 이고 사람 요청일 때만). 변수가 없거나
+// http(s) 주소가 아니거나(supportUrlV22995 가 빈 값으로 만든다) 모르는 종류면 404 안내다. GET·HEAD 밖은 다루지 않는다(라우터의 다음 경로).
+async function supportGoResponseV22997(request, env, url, ctx) {
+  const match = /^\/support\/go\/([^/]*)\/?$/.exec(String(url?.pathname || ""));
+  if (!match) return null;
+  const method = String(request?.method || "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") return null;
+  const kind = Object.prototype.hasOwnProperty.call(SUPPORT_GO_KINDS_V22997, match[1]) ? match[1] : "";
+  let target = kind ? supportConfigV22995(env)[SUPPORT_GO_KINDS_V22997[kind][0]] : "";
+  if (target && kind === "supporter-openchat" && !(await supportViewerIsSupporterV22997(request, env))) target = "";
+  if (!target) return supportGoMissingResponseV22997(method);
+  if (method === "GET" && supportCountableRequestV22997(request)) recordSupportStatV22997(request, env, ctx, SUPPORT_GO_KINDS_V22997[kind][1]);
+  return new Response(null, { status: 302, headers: { location: target, "cache-control": "no-store", "referrer-policy": "no-referrer", "x-robots-tag": "noindex, nofollow" } });
+}
+
+// /internal/ops-usage 의 support 칸(관제 1.6.0 ‘후원’ 줄): 오늘(KST)까지 30일의 방문·누른 수 합계와 지금 켜진 후원자 수. 읽기 두 번(그날 줄 최근
+// 31줄·후원자 줄 최대 200줄)이고, 하나라도 읽지 못하면 null 이다(이 칸을 빼고 보낸다 — 관제는 ‘-’). 후원자 id 는 세기만 하고 내보내지 않는다.
+async function supportUsageSummaryV22997(env) {
+  const today = supporterTodayV22995();
+  const from = new Date(Date.parse(`${today}T00:00:00Z`) - 29 * 86400000).toISOString().slice(0, 10);
+  const params = new URLSearchParams();
+  params.set("key", `like.${SUPPORT_STATS_PREFIX_V22997}*`);
+  params.set("select", "key,value");
+  params.set("order", "key.desc");
+  params.set("limit", "31");
+  const [rows, supporters] = await Promise.all([
+    supabase(env, `/rest/v1/accountbook_settings?${params.toString()}`, { method: "GET", timeoutMs: 5000 }).catch(() => null),
+    fetchSupporterRows(env, 200),
+  ]);
+  if (!Array.isArray(rows) || !Array.isArray(supporters)) return null;
+  let visits = 0;
+  const clicks = Object.fromEntries(SUPPORT_CLICK_KEYS_V22997.map((name) => [name, 0]));
+  for (const row of rows) {
+    const key = String(row?.key || "");
+    const day = key.startsWith(SUPPORT_STATS_PREFIX_V22997) ? key.slice(SUPPORT_STATS_PREFIX_V22997.length) : "";
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || day < from || day > today) continue;
+    const value = normalizeSupportStatsV22997(row.value);
+    visits += value.visits;
+    for (const name of SUPPORT_CLICK_KEYS_V22997) clicks[name] += value.clicks[name];
+  }
+  return {
+    days: 30, visits, clicks,
+    clicks_total: SUPPORT_CLICK_KEYS_V22997.reduce((sum, name) => sum + clicks[name], 0),
+    supporters_active: supporters.filter((row) => supporterFlagActive(row.flag, today)).length,
+    as_of: today,
   };
 }
 
@@ -8795,8 +8992,9 @@ function publicSourceHost(href = "") {
   try { return new URL(href).hostname.replace(/^www\./, ""); } catch { return ""; }
 }
 
+// V22.9.97 후원 지표: /support 의 송금·오픈채팅 단추는 경유 주소(/support/go/<kind>)지만 바깥 화면으로 가므로 바깥 링크처럼 새 창 + noopener 다.
 function publicContentLinks(links = []) {
-  return `<div class="pubLinks">${safeArray(links).map(([label, href]) => `<a href="${escapeHtml(href)}"${/^https?:\/\//i.test(href) ? ' target="_blank" rel="noopener noreferrer"' : ""}>${escapeHtml(label)}<span aria-hidden="true"> →</span></a>`).join("")}</div>`;
+  return `<div class="pubLinks">${safeArray(links).map(([label, href]) => `<a href="${escapeHtml(href)}"${/^(?:https?:\/\/|\/support\/go\/)/i.test(href) ? ' target="_blank" rel="noopener noreferrer"' : ""}>${escapeHtml(label)}<span aria-hidden="true"> →</span></a>`).join("")}</div>`;
 }
 
 function publicContentTable(table, id) {
@@ -8993,7 +9191,10 @@ function publicContentAdKey(key = "home") {
 async function handlePublicContentPage(request, env, url, key = "home") {
   // V22.9.95 후원: /support 는 후원자 명단(이름을 올려도 된다고 한 분)을 GET 때 한 번 읽는다. 읽지 못하면 명단 절을 뺀다. HEAD 는 읽지 않는다.
   const extra = key === "support" && request.method === "GET" ? { supporters: await fetchPublicSupporterNames(env) } : {};
-  return htmlResponse(renderPublicContentPage(env, url, key, extra), 200, adsHeaders(env, publicContentAdKey(key), { "cache-control": "public, max-age=300, stale-while-revalidate=600", "x-robots-tag": "index, follow" }));
+  // V22.9.97 후원 지표: /support 에는 화면이 실제로 보일 때 방문 신호(POST /support/visit)를 보내는 작은 스크립트를 붙인다.
+  // GET 응답에서는 세지 않는다(미리 렌더링 규칙과 GET 무변경 약속, public/support-page.js).
+  const html = renderPublicContentPage(env, url, key, extra);
+  return htmlResponse(key === "support" ? withSupportVisitScriptV22997(html) : html, 200, adsHeaders(env, publicContentAdKey(key), { "cache-control": "public, max-age=300, stale-while-revalidate=600", "x-robots-tag": "index, follow" }));
 }
 
 async function publicDocumentResponse(request, env, url) {
@@ -20174,6 +20375,11 @@ function renderAccountbookBrandIcon(className = "abBrandIcon") {
   return `<svg class="${escapeHtml(className)}" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><rect x="4" y="3.5" width="16" height="17" rx="3"></rect><path d="M8 3.5v17M11 8h5M11 12h5M11 16h3"></path></svg>`;
 }
 
+// V22.9.97 후원 진입점(데스크톱 셸): 사용자 화면 사이드바 아래쪽(처음 사용 가이드 밑)에 ‘후원하기’ 작은 링크 하나. 관리자·운영 화면 사이드바에는 없다.
+// 셸 CSS(1년 캐시 자산)는 바꾸지 않으므로 모양은 속성으로 준다. 글자색은 셸의 링크 색(--ab12-accent, 밝은·다크 모두)을 그대로 받는다.
+// 접힌 사이드바(72px)에서도 한 줄(약 52px)로 들어간다. 휴대폰에서는 ‘전체 메뉴’ 서랍 아래쪽에 같은 링크가 보인다.
+const NAV_SUPPORT_LINK_V22997 = '<a class="abNavSupport" href="/support" title="운영 비용 함께 나누기" style="display:flex;align-items:center;justify-content:center;min-height:44px;font-size:13px;font-weight:800;white-space:nowrap">후원하기</a>';
+
 function renderUnifiedNav(active = "home", opts = {}) {
   const month = safeNavMonth(opts.month);
   const householdId = safeNavHouseholdId(opts.householdId);
@@ -20446,7 +20652,7 @@ input,select,textarea{border-radius:13px!important}
   .card,.panel{padding:22px!important}
   .metric b{font-size:24px!important}
 }
-</style>`}<aside id="abDesktopSidebar" class="abLayoutNav abNavMobileDrawer" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" href="${escapeHtml(app)}"><span class="abNavLogo">${renderAccountbookBrandIcon()}</span><span class="abNavBrandText" title="${escapeHtml(householdName)}">${escapeHtml(householdName)}<small>말해가계부</small></span></a><button id="abDesktopNavToggle" class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-controls="abDesktopSidebar" aria-expanded="true" aria-label="사이드바 접기"><svg class="abNavToggleIcon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m12.5 5-5 5 5 5"></path></svg></button></div>${sidebarDashboardHtml}<nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>처음 사용 가이드</span><small>첫 기록까지 차근차근</small></a></div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span class="abNavMobileLogo">${renderAccountbookBrandIcon("abBrandIcon abBrandIconMobile")}</span>${escapeHtml(householdName)}</a><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abDesktopSidebar" aria-expanded="false">전체 메뉴</button></div><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav>${navScope === "user" ? "" : `<script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}function syncSideNav(collapsed){document.body.classList.toggle("abNavCollapsed",!!collapsed);var button=document.getElementById("abDesktopNavToggle");if(button){button.setAttribute("aria-expanded",collapsed?"false":"true");button.setAttribute("aria-label",collapsed?"사이드바 펼치기":"사이드바 접기");}}window.syncAbMobileMenu=syncMobileMenu;window.syncAbSideNav=syncSideNav;try{syncSideNav(localStorage.getItem("abNavCollapsed")==="1")}catch(e){syncSideNav(false)}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav a");if(link&&window.matchMedia&&window.matchMedia("(max-width:899px)").matches){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});})();function toggleAbSideNav(){var collapsed=!document.body.classList.contains("abNavCollapsed");if(window.syncAbSideNav)window.syncAbSideNav(collapsed);try{localStorage.setItem("abNavCollapsed",collapsed?"1":"0")}catch(e){}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`}`;
+</style>`}<aside id="abDesktopSidebar" class="abLayoutNav abNavMobileDrawer" aria-label="가계부 전체 메뉴"><div class="abNavTop"><a class="abNavBrand" href="${escapeHtml(app)}"><span class="abNavLogo">${renderAccountbookBrandIcon()}</span><span class="abNavBrandText" title="${escapeHtml(householdName)}">${escapeHtml(householdName)}<small>말해가계부</small></span></a><button id="abDesktopNavToggle" class="abNavToggle" type="button" onclick="toggleAbSideNav()" aria-controls="abDesktopSidebar" aria-expanded="true" aria-label="사이드바 접기"><svg class="abNavToggleIcon" viewBox="0 0 20 20" aria-hidden="true" focusable="false"><path d="m12.5 5-5 5 5 5"></path></svg></button></div>${sidebarDashboardHtml}<nav class="abNavBody">${groupHtml}</nav><div class="abNavFooter"><a class="abNavGuide" href="/start-guide?month=${encodeURIComponent(month)}${hh}"><span>처음 사용 가이드</span><small>첫 기록까지 차근차근</small></a>${navScope === "user" ? NAV_SUPPORT_LINK_V22997 : ""}</div></aside><div class="abNavMobileTop"><a href="${escapeHtml(app)}"><span class="abNavMobileLogo">${renderAccountbookBrandIcon("abBrandIcon abBrandIconMobile")}</span>${escapeHtml(householdName)}</a><button id="abMobileMenuButton" type="button" onclick="toggleAbMobileNav()" aria-controls="abDesktopSidebar" aria-expanded="false">전체 메뉴</button></div><nav class="abNavBottom" aria-label="가계부 주요 메뉴">${bottomLinks}</nav>${navScope === "user" ? "" : `<script>(function(){function syncMobileMenu(open){document.body.classList.toggle("abMobileNavOpen",!!open);var button=document.getElementById("abMobileMenuButton");if(button)button.setAttribute("aria-expanded",open?"true":"false");}function syncSideNav(collapsed){document.body.classList.toggle("abNavCollapsed",!!collapsed);var button=document.getElementById("abDesktopNavToggle");if(button){button.setAttribute("aria-expanded",collapsed?"false":"true");button.setAttribute("aria-label",collapsed?"사이드바 펼치기":"사이드바 접기");}}window.syncAbMobileMenu=syncMobileMenu;window.syncAbSideNav=syncSideNav;try{syncSideNav(localStorage.getItem("abNavCollapsed")==="1")}catch(e){syncSideNav(false)}document.addEventListener("click",function(ev){var link=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav a");if(link&&window.matchMedia&&window.matchMedia("(max-width:899px)").matches){syncMobileMenu(false);return;}var drawer=ev.target&&ev.target.closest&&ev.target.closest(".abLayoutNav");var top=ev.target&&ev.target.closest&&ev.target.closest(".abNavMobileTop");if(document.body.classList.contains("abMobileNavOpen")&&!drawer&&!top)syncMobileMenu(false);});document.addEventListener("keydown",function(ev){if(ev.key==="Escape")syncMobileMenu(false);});})();function toggleAbSideNav(){var collapsed=!document.body.classList.contains("abNavCollapsed");if(window.syncAbSideNav)window.syncAbSideNav(collapsed);try{localStorage.setItem("abNavCollapsed",collapsed?"1":"0")}catch(e){}}function toggleAbMobileNav(){if(window.syncAbMobileMenu)window.syncAbMobileMenu(!document.body.classList.contains("abMobileNavOpen"))}</script>`}`;
 }
 
 async function handleUiPolishCheckPage(request, env, url) {
@@ -24939,7 +25145,10 @@ async function handleUnifiedMenuPage(request, env, url) {
   const cursorOn = String(menuPrefs.get(cursorPrefKey(userId || "shared")) || "") !== "off";
   const menuSupporter = menuSupporterKey ? activeSupporterFlag(menuPrefs.get(menuSupporterKey)) : null;
   const cursorSwitchHtml = `<form class="abCursorPref" method="post" action="/cursor-preference/save"><input type="hidden" name="household_id" value="${escapeHtml(hid)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label class="abCursorPick"><input type="checkbox" name="cursor" value="on"${cursorOn ? " checked" : ""}/><span><b>마우스 따라오는 표시</b><small>마우스가 있는 큰 화면에서만 켜집니다. 동작 줄이기를 켜 두면 이 설정과 무관하게 나타나지 않습니다.</small></span></label><button type="submit">표시 설정 저장</button></form>`;
-  const appearanceHtml = `<section class="abAppearancePanel" aria-labelledby="abAppearanceTitle"><div class="abAppearanceHead"><div><h2 id="abAppearanceTitle">화면 설정</h2><p>이 브라우저에서 사용할 화면 모드와 포인트 컬러를 선택하세요.</p></div><span class="abAppearanceDevice">기기별 저장</span></div><div class="abAppearanceRows"><div><b>화면 모드</b><div class="abAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div><b>컬러톤</b><div class="abAppearanceChoices abToneChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false"><i class="abToneDot abToneBlue" aria-hidden="true"></i>블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false"><i class="abToneDot abToneEmerald" aria-hidden="true"></i>그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false"><i class="abToneDot abToneViolet" aria-hidden="true"></i>바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false"><i class="abToneDot abToneAmber" aria-hidden="true"></i>앰버</button></div></div>${menuSupporter ? supporterAccentChoicesHtml({ supporterChatUrl: supportConfigV22995(env).supporterChat }) : ""}</div><p id="abAppearanceStatus" class="abAppearanceStatus" aria-live="polite">화면 설정을 불러오는 중입니다.</p>${cursorSwitchHtml}</section>`;
+  // V22.9.97 후원 진입점(설정): 후원자가 아니면 포인트 색 줄 자리에 ‘후원하기’ 한 줄을 둔다(후원자는 V22.9.95 고마움 줄·포인트 색 그대로).
+  // 후원자 오픈채팅 단추는 경유 주소(/support/go/supporter-openchat)로 간다 — 누른 수를 세고, 그 주소는 지금 켜진 후원자 세션에만 방으로 보낸다.
+  const menuSupportInviteHtml = `<p class="abAppearanceStatus" data-ab-support-invite style="grid-column:1/-1">후원자에게는 포인트 색 3가지를 더 드려요. <a href="/support" style="display:inline-flex;align-items:center;min-height:44px">후원하기 — 운영 비용 함께 나누기</a></p>`;
+  const appearanceHtml = `<section class="abAppearancePanel" aria-labelledby="abAppearanceTitle"><div class="abAppearanceHead"><div><h2 id="abAppearanceTitle">화면 설정</h2><p>이 브라우저에서 사용할 화면 모드와 포인트 컬러를 선택하세요.</p></div><span class="abAppearanceDevice">기기별 저장</span></div><div class="abAppearanceRows"><div><b>화면 모드</b><div class="abAppearanceChoices" role="group" aria-label="화면 모드"><button type="button" data-ab-theme-choice="light" aria-pressed="false">라이트</button><button type="button" data-ab-theme-choice="dark" aria-pressed="false">다크</button></div></div><div><b>컬러톤</b><div class="abAppearanceChoices abToneChoices" role="group" aria-label="컬러톤"><button type="button" data-ab-tone-choice="blue" aria-pressed="false"><i class="abToneDot abToneBlue" aria-hidden="true"></i>블루</button><button type="button" data-ab-tone-choice="emerald" aria-pressed="false"><i class="abToneDot abToneEmerald" aria-hidden="true"></i>그린</button><button type="button" data-ab-tone-choice="violet" aria-pressed="false"><i class="abToneDot abToneViolet" aria-hidden="true"></i>바이올렛</button><button type="button" data-ab-tone-choice="amber" aria-pressed="false"><i class="abToneDot abToneAmber" aria-hidden="true"></i>앰버</button></div></div>${menuSupporter ? supporterAccentChoicesHtml({ supporterChatUrl: supportConfigV22995(env).supporterChat ? "/support/go/supporter-openchat" : "" }) : menuSupportInviteHtml}</div><p id="abAppearanceStatus" class="abAppearanceStatus" aria-live="polite">화면 설정을 불러오는 중입니다.</p>${cursorSwitchHtml}</section>`;
   // V22.9.34 감사 U1: 일반 사용자 화면에 로그아웃이 없어 공용 PC 에서 14일 세션이 남았다.
   // 관리자 세션은 운영 화면의 로그아웃을 쓴다.
   const logoutHtml = userId ? `<form class="menuLogout" method="post" action="/my/logout"><button class="secondary" type="submit">로그아웃</button><p>이 기기에서 로그인을 끝냅니다. 여러 사람이 쓰는 PC 라면 사용 뒤 꼭 로그아웃하세요.</p></form>` : "";
@@ -41363,6 +41572,10 @@ function renderHomeCalendarSection(rows, month, baseQs = "", selectedDate = "") 
   return `<section id="calendar" class="panel homeCalendar"><div class="calHead"><h2>${escapeHtml(month)} 캘린더</h2><a class="calClose" href="${escapeHtml(closeHref)}">닫기</a></div><div class="calNav"><a href="${escapeHtml(monthHref(prevMonth))}" aria-label="이전 달">← 이전달</a><b>${escapeHtml(month)}</b><a href="${escapeHtml(monthHref(nextMonth))}" aria-label="다음 달">다음달 →</a></div>${selectedDate ? `<div class="calSelected"><b>${escapeHtml(selectedDate)}</b> 기록을 아래 최근 내역에서 확인·수정하세요. <a href="${escapeHtml(clearHref)}">선택 해제</a></div>` : ""}<div class="calGrid calDows">${weekHead}</div><div class="calGrid">${blanks}${cells}</div><p class="calHint">날짜를 누르면 지출·수입 합계와 실제 거래 항목이 팝업으로 열립니다. 전체 기록 보기는 기존 날짜 필터 화면으로 연결되며, 기록이 없는 날은 배경 없이 간결하게 표시됩니다.</p></section>`;
 }
 
+// V22.9.97 후원 진입점(휴대폰 홈): 홈 탭 맨 아래(최근 내역 다음)에 ‘후원하기’ 한 줄. 내역 탭·로그인 화면에는 없다. 글자색은 셸 링크 색(--ab12-accent,
+// 밝은·다크 모두)이고, 셸 CSS(1년 캐시 자산)를 바꾸지 않으려고 모양은 속성으로 준다. 눌리는 높이 44px, 360px 폭에서 한 줄이다.
+const HOME_SUPPORT_LINE_V22997 = '<p class="abHomeSupport" style="margin:10px 0 0;text-align:center;font-size:13px"><a href="/support" style="display:inline-flex;align-items:center;min-height:44px;padding:0 12px">후원하기 — 운영 비용 함께 나누기</a></p>';
+
 function renderMobileV81Html({ title, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, paymentAssetNames = [], msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "", spenderMembers = members, memberCanChangeRecords = true, ledgerHasRecords = rows.length > 0, refundDeductions = [], refundFailed = false, quickRetry = false, quickUndo = null, deleteRestore = null, supporter = null }) {
   // 8.4: 저장된 홈 구성이 없거나 깨졌으면 기본 순서다. 이 폴백이 정상 경로다.
   const homeLayout = normalizeHomeLayout(homeLayoutSetting);
@@ -41936,9 +42149,11 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
   // 예전(V22.8.89)에는 조합 중 input 을 건너뛰어 마지막 글자(‘금’)가 띄어쓰기·다른 입력으로 조합이 끝날 때까지 결제수단·분류에 반영되지 않았다.
   // 읽기(applySmart(false))는 한 줄 입력 칸의 값을 바꾸지 않고 다른 칸만 채우므로 조합을 끊지 않는다. 조합 중 Enter 는 예전처럼 저장하지 않는다.
   // 조합 중 읽기는 composing 을 넘겨 가계부 분류 요청을 조합이 끝날 때(compositionend 의 읽기)로 미룬다(공유 컨트롤러 apply, 독립 검토).
-  return `<!doctype html><html lang="ko"${supporterHtmlAttr(!!supporter)}><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/>${supporterHeadHtml({ viewer: !!supporter })}</head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1>${supporter ? supporterBadgeHtml() : ""}</div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>${escapeHtml(budgetHeadLabel)}</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"${isCurrentMonth && budgetTotal ? ` style="--ab-today:${monthElapsedPercent}%"` : ""}><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>${budgetTotal ? `예산 ${numberWithCommas(budgetTotal)}원` : "예산 없음"}</span><span>${budgetTotal ? METRIC_LABELS.budgetSpent.label : METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUsed)}원${budgetUncovered ? `<br>${METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUncovered)}원` : ""}</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈${todayOk ? "" : " · 하루 한도를 넘었어요"}</span><b${!todaySpend ? " class=\"muted\"" : todayOk ? "" : " class=\"expense\""}>${todaySpend ? `${numberWithCommas(todaySpend)}원` : "아직 없어요"}</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${entryBarHtml}${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, upcoming: homeUpcoming, reserveHref: homeReserveHref, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">${stats.totals.income ? "+" : ""}${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">${stats.totals.expense ? "-" : ""}${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}${homeRefundNote ? `<small class="homeMomLine">${escapeHtml(homeRefundNote)}</small>` : ""}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}" data-income="${Math.max(0, Number(stats.totals?.income || 0))}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date(Date.now()+32400000+Number(this.getAttribute('data-day')||0)*86400000);var v=d.toISOString().slice(0,10);var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value&&!(o.getAttribute&&o.getAttribute('data-ab-pick')))payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(inputPaymentNameIn(text,payOpts[i]))return payOpts[i];}return detectInputPayment(normalizeInputText(text));}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase(),after=inputPaymentPatterns().after;var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value).toLowerCase();if(!v||optionHit)return;for(var at=raw.indexOf(v),seen=0;at>=0&&seen<16;at=raw.indexOf(v,at+1),seen++){var rest=raw.slice(at+v.length);if(/[a-z0-9]$/.test(v)?!/^[a-z0-9]/.test(rest):after.test(rest)){optionHit=o.value;return;}}});if(optionHit)return optionHit;return inferInputCategory(normalizeInputText(text).toLowerCase(),type,quickRules);}function stripQuickMemo(text,amountText,payment,category,type){return cleanInputMemo(text,amountText,type,payment,category);}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput,composing){abSmartState.apply(clearInput,composing);}
+  // V22.9.97 홈 HTML 예산(35 KiB, validate-ui-perf-v22940): 후원 줄·사이드바 후원 링크를 더하기 전 여유가 32 B 뿐이었다. 맨 끝의 바이트 줄이기(빈 요소의
+  // ‘/>’ 빼기)에 빈 option 의 끝 태그 빼기를 더한다 — HTML 규칙상 생략할 수 있는 태그라 브라우저가 만드는 DOM 은 같다(분류·결제수단 목록 75개 = 675 B).
+  return `<!doctype html><html lang="ko"${supporterHtmlAttr(!!supporter)}><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/>${supporterHeadHtml({ viewer: !!supporter })}</head><body>${renderUnifiedNav(appNavActive, { month, householdId, householdName: selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(selectedHousehold?.name || "가계부")}</h1>${supporter ? supporterBadgeHtml() : ""}</div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>${escapeHtml(budgetHeadLabel)}</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"${isCurrentMonth && budgetTotal ? ` style="--ab-today:${monthElapsedPercent}%"` : ""}><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>${budgetTotal ? `예산 ${numberWithCommas(budgetTotal)}원` : "예산 없음"}</span><span>${budgetTotal ? METRIC_LABELS.budgetSpent.label : METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUsed)}원${budgetUncovered ? `<br>${METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUncovered)}원` : ""}</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈${todayOk ? "" : " · 하루 한도를 넘었어요"}</span><b${!todaySpend ? " class=\"muted\"" : todayOk ? "" : " class=\"expense\""}>${todaySpend ? `${numberWithCommas(todaySpend)}원` : "아직 없어요"}</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${entryBarHtml}${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, upcoming: homeUpcoming, reserveHref: homeReserveHref, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref })}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">${stats.totals.income ? "+" : ""}${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">${stats.totals.expense ? "-" : ""}${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}${homeRefundNote ? `<small class="homeMomLine">${escapeHtml(homeRefundNote)}</small>` : ""}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div><div class="grid2"><select name="user_id">${spenderOptions}</select><input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}" data-income="${Math.max(0, Number(stats.totals?.income || 0))}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>찾기·거르기</b><span>${hasMobileFilter ? "적용 중" : "전체"}</span></summary>${mobileFilterForm}${feedLinks}<input id="v8Search" class="homeSpender" placeholder="현재 표시된 내역에서 빠른 검색"/></details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow) : onboardingHtml}</div>${rows.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(rows.length)}건 조회</a>` : ""}</section>${HOME_SUPPORT_LINE_V22997}`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date(Date.now()+32400000+Number(this.getAttribute('data-day')||0)*86400000);var v=d.toISOString().slice(0,10);var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value&&!(o.getAttribute&&o.getAttribute('data-ab-pick')))payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(inputPaymentNameIn(text,payOpts[i]))return payOpts[i];}return detectInputPayment(normalizeInputText(text));}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase(),after=inputPaymentPatterns().after;var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value).toLowerCase();if(!v||optionHit)return;for(var at=raw.indexOf(v),seen=0;at>=0&&seen<16;at=raw.indexOf(v,at+1),seen++){var rest=raw.slice(at+v.length);if(/[a-z0-9]$/.test(v)?!/^[a-z0-9]/.test(rest):after.test(rest)){optionHit=o.value;return;}}});if(optionHit)return optionHit;return inferInputCategory(normalizeInputText(text).toLowerCase(),type,quickRules);}function stripQuickMemo(text,amountText,payment,category,type){return cleanInputMemo(text,amountText,type,payment,category);}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput,composing){abSmartState.apply(clearInput,composing);}
 
-function abQuickTypeLabels(){var inc=!!document.querySelector('#add input[name=type][value=income]:checked');var who=document.querySelector('#add select[name=user_id]');var o=who&&who.options[0];if(o&&!o.value)o.text=inc?'수입자 선택':'지출자 선택';var pay=document.getElementById('payInput');if(pay)pay.placeholder=inc?'입금 계좌·수단':'결제수단';}function abQuickSyncMore(){abQuickTypeLabels();var d=document.getElementById('txDate');var dv=d&&d.value?d.value:'';var kstDay=function(n){return new Date(Date.now()+32400000+n*86400000).toISOString().slice(0,10);};document.querySelectorAll('.dateChip').forEach(function(x){var on=!!dv&&dv===kstDay(Number(x.getAttribute('data-day')||0));x.setAttribute('aria-pressed',on?'true':'false');x.classList.toggle('on',on);});var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var parts=[];parts.push(dv===kstDay(0)?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(e){applySmart(false,abImeComposing||!!(e&&e.isComposing));});smart.addEventListener('keydown',function(e){if(e.key==='Enter'&&!abImeComposing&&!e.isComposing){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type'){abQuickTypeLabels();abQuickSyncAfter();}});abQuickSyncMore();abSmartState.preview(true);var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`.replace(/(<(?:input|meta|link|br|hr)\b[^>]*?)\/>/g,"$1>");
+function abQuickTypeLabels(){var inc=!!document.querySelector('#add input[name=type][value=income]:checked');var who=document.querySelector('#add select[name=user_id]');var o=who&&who.options[0];if(o&&!o.value)o.text=inc?'수입자 선택':'지출자 선택';var pay=document.getElementById('payInput');if(pay)pay.placeholder=inc?'입금 계좌·수단':'결제수단';}function abQuickSyncMore(){abQuickTypeLabels();var d=document.getElementById('txDate');var dv=d&&d.value?d.value:'';var kstDay=function(n){return new Date(Date.now()+32400000+n*86400000).toISOString().slice(0,10);};document.querySelectorAll('.dateChip').forEach(function(x){var on=!!dv&&dv===kstDay(Number(x.getAttribute('data-day')||0));x.setAttribute('aria-pressed',on?'true':'false');x.classList.toggle('on',on);});var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var parts=[];parts.push(dv===kstDay(0)?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(e){applySmart(false,abImeComposing||!!(e&&e.isComposing));});smart.addEventListener('keydown',function(e){if(e.key==='Enter'&&!abImeComposing&&!e.isComposing){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type'){abQuickTypeLabels();abQuickSyncAfter();}});abQuickSyncMore();abSmartState.preview(true);var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`.replace(/(<(?:input|meta|link|br|hr)\b[^>]*?)\/>/g,"$1>").replace(/(<option\b[^>]*>)<\/option>/g,"$1");
 }
 
 async function fetchMonthAmountRows(env, month, householdId, { withDate = false } = {}) {

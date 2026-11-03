@@ -14,7 +14,7 @@ import {
   publicArticleSiteMapLinks, publicArticlesHubPage, publicLivingCostArticlesV22974,
   publicNormalizeLivingArticles,
 } from "./living-cost-articles-v22974.js";
-import { publicSupportPageV22995 } from "./support-page.js";
+import { publicSupportPageV22995, withSupportVisitScriptV22997 } from "./support-page.js";
 import { headOnlyResponse, htmlResponse } from "../runtime/http.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { inspectKakaoLoginConfig } from "../auth/user-session.js";
@@ -144,8 +144,9 @@ function publicSourceHost(href = "") {
   try { return new URL(href).hostname.replace(/^www\./, ""); } catch { return ""; }
 }
 
+// V22.9.97 후원 지표: /support 의 송금·오픈채팅 단추는 경유 주소(/support/go/<kind>)지만 바깥 화면으로 가므로 바깥 링크처럼 새 창 + noopener 다.
 function publicContentLinks(links = []) {
-  return `<div class="pubLinks">${safeArray(links).map(([label, href]) => `<a href="${escapeHtml(href)}"${/^https?:\/\//i.test(href) ? ' target="_blank" rel="noopener noreferrer"' : ""}>${escapeHtml(label)}<span aria-hidden="true"> →</span></a>`).join("")}</div>`;
+  return `<div class="pubLinks">${safeArray(links).map(([label, href]) => `<a href="${escapeHtml(href)}"${/^(?:https?:\/\/|\/support\/go\/)/i.test(href) ? ' target="_blank" rel="noopener noreferrer"' : ""}>${escapeHtml(label)}<span aria-hidden="true"> →</span></a>`).join("")}</div>`;
 }
 
 function publicContentTable(table, id) {
@@ -342,7 +343,10 @@ function publicContentAdKey(key = "home") {
 async function handlePublicContentPage(request, env, url, key = "home") {
   // V22.9.95 후원: /support 는 후원자 명단(이름을 올려도 된다고 한 분)을 GET 때 한 번 읽는다. 읽지 못하면 명단 절을 뺀다. HEAD 는 읽지 않는다.
   const extra = key === "support" && request.method === "GET" ? { supporters: await fetchPublicSupporterNames(env) } : {};
-  return htmlResponse(renderPublicContentPage(env, url, key, extra), 200, adsHeaders(env, publicContentAdKey(key), { "cache-control": "public, max-age=300, stale-while-revalidate=600", "x-robots-tag": "index, follow" }));
+  // V22.9.97 후원 지표: /support 에는 화면이 실제로 보일 때 방문 신호(POST /support/visit)를 보내는 작은 스크립트를 붙인다.
+  // GET 응답에서는 세지 않는다(미리 렌더링 규칙과 GET 무변경 약속, public/support-page.js).
+  const html = renderPublicContentPage(env, url, key, extra);
+  return htmlResponse(key === "support" ? withSupportVisitScriptV22997(html) : html, 200, adsHeaders(env, publicContentAdKey(key), { "cache-control": "public, max-age=300, stale-while-revalidate=600", "x-robots-tag": "index, follow" }));
 }
 
 async function publicDocumentResponse(request, env, url) {

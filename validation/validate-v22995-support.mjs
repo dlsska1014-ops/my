@@ -131,15 +131,17 @@ await withClock(TODAY, () => fixture(async (fx) => {
     const full = await withEnv(fx, SUPPORT_VARS, () => page(fx, "/support", { cookie: "" }));
     const secs = sectionsOf(full.html);
     const ways = secs.find((s) => s.title === "후원하는 방법")?.body || "";
-    eq(hrefs(ways), [SUPPORT_VARS.SUPPORT_KAKAOPAY_URL, SUPPORT_VARS.SUPPORT_TOSS_URL], "2-a 송금 링크는 카카오페이 → 토스 순서 둘");
+    // V22.9.97 후원 지표: 송금·오픈채팅 단추는 변수 주소 대신 경유 주소(/support/go/<kind>)를 싣는다(누른 수를 세고 같은 주소로 302,
+    // validate-v22997-support). 2-a·2-d·2-e·2-g 의 기대값을 변수 주소 → 경유 주소로 바꿨다. 순서·개수·새 창 규칙은 그대로다.
+    eq(hrefs(ways), ["/support/go/kakaopay", "/support/go/toss"], "2-a 송금 링크는 카카오페이 → 토스 순서 둘(경유 주소, V22.9.97)");
     ok(ways.includes(`계좌이체: ${SUPPORT_VARS.SUPPORT_BANK_ACCOUNT}`) && ways.indexOf("카카오페이 송금") < ways.indexOf("계좌이체") && ways.indexOf("계좌이체") < ways.indexOf("토스 송금"), "2-b 계좌 줄은 글로, 카카오페이 → 계좌이체 → 토스 순서");
     ok(!ways.includes("준비하고 있어요") && ways.includes("영수증을 발행하지 않아요"), "2-c 창구가 있으면 ‘준비 중’ 줄이 없고 영수증 안내가 있다");
     const talk = secs.find((s) => s.title === "함께 이야기하는 곳")?.body || "";
-    eq(hrefs(talk), [SUPPORT_VARS.COMMUNITY_OPENCHAT_URL], "2-d 누구나 들어오는 오픈채팅 링크 하나");
-    const configured = hrefs(full.html).filter((href) => Object.values(SUPPORT_VARS).includes(href));
-    eq(configured, [SUPPORT_VARS.SUPPORT_KAKAOPAY_URL, SUPPORT_VARS.SUPPORT_TOSS_URL, SUPPORT_VARS.COMMUNITY_OPENCHAT_URL], "2-e 변수 링크는 페이지 전체에서 3개(카카오페이·토스·소통방)");
+    eq(hrefs(talk), ["/support/go/openchat"], "2-d 누구나 들어오는 오픈채팅 링크 하나(경유 주소, V22.9.97)");
+    const configured = hrefs(full.html).filter((href) => href.startsWith("/support/go/") || Object.values(SUPPORT_VARS).includes(href));
+    eq(configured, ["/support/go/kakaopay", "/support/go/toss", "/support/go/openchat"], "2-e 변수 링크는 페이지 전체에서 3개(카카오페이·토스·소통방, 경유 주소 — 변수 주소는 페이지에 없다, V22.9.97)");
     ok(!full.html.includes(SUPPORT_VARS.SUPPORTER_OPENCHAT_URL) && talk.includes("후원을 확인한 분께"), "2-f 후원자 오픈채팅 주소는 공개 페이지에 싣지 않는다(안내 문장만)");
-    ok(/<a href="https:\/\/qr\.kakaopay\.com\/qa-v22995-kakaopay" target="_blank" rel="noopener noreferrer">/.test(ways), "2-g 바깥 송금 링크는 새 창 + noopener");
+    ok(/<a href="\/support\/go\/kakaopay" target="_blank" rel="noopener noreferrer">/.test(ways), "2-g 바깥 송금 링크는 새 창 + noopener(경유 주소도 바깥 링크로 표시, V22.9.97)");
     const bad = await withEnv(fx, { SUPPORT_KAKAOPAY_URL: "javascript:alert(1)", SUPPORT_TOSS_URL: "ftp://toss.me/x", COMMUNITY_OPENCHAT_URL: "open.kakao.com/o/noScheme", SUPPORTER_OPENCHAT_URL: "https://open.kakao.com/o/x\"onmouseover=\"1", SUPPORT_BANK_ACCOUNT: "   " }, () => page(fx, "/support", { cookie: "" }));
     const badWays = sectionsOf(bad.html).find((s) => s.title === "후원하는 방법")?.body || "";
     ok(badWays.includes("후원 창구를 준비하고 있어요(출시 뒤 안내).") && hrefs(badWays).length === 0, "2-h http(s) 가 아닌 값·빈 계좌는 없는 것으로 본다(준비 중)");
@@ -233,10 +235,12 @@ await withClock(TODAY, () => fixture(async (fx) => {
     ok(home.html.includes('<html lang="ko" data-supporter="1">') && /<header class="appTop[^"]*"[^>]*><div class="topLine[^"]*">(?:<div class="abV5PageTitle">)?<h1[^>]*>우리집 생활비<\/h1><span class="abSupporterBadge" role="img" aria-label="후원자"/.test(home.html) && home.html.includes('<script id="abSupporterAccent">'), "5-m 후원자의 홈: data-supporter·머리말 배지·포인트 색 스크립트");
     eq(homeLog.length, fx.__homeReads, "5-n 후원자여도 홈 조회 수는 그대로");
     const chat = await withEnv(fx, { SUPPORTER_OPENCHAT_URL: SUPPORT_VARS.SUPPORTER_OPENCHAT_URL }, () => page(fx, MENU));
-    ok(chat.html.includes(`<a class="abSupporterChat" href="${SUPPORT_VARS.SUPPORTER_OPENCHAT_URL}" target="_blank" rel="noopener noreferrer">후원자 오픈채팅 들어가기</a>`), "5-o 후원자 방 주소가 있으면 후원자의 화면 설정에만 들어가기 단추");
+    // V22.9.97 후원 지표: 후원자 방 단추도 경유 주소(/support/go/supporter-openchat, 켜진 후원자 세션에만 방으로 302)로 간다. 방 주소는 화면에 싣지 않는다.
+    ok(chat.html.includes(`<a class="abSupporterChat" href="/support/go/supporter-openchat" target="_blank" rel="noopener noreferrer">후원자 오픈채팅 들어가기</a>`) && !chat.html.includes(SUPPORT_VARS.SUPPORTER_OPENCHAT_URL), "5-o 후원자 방 주소가 있으면 후원자의 화면 설정에만 들어가기 단추(경유 주소, V22.9.97)");
     fx.db.accountbook_settings = fx.db.accountbook_settings.filter((row) => row.key !== "supporter:user-bin");
     const chatNon = await withEnv(fx, { SUPPORTER_OPENCHAT_URL: SUPPORT_VARS.SUPPORTER_OPENCHAT_URL }, () => page(fx, MENU));
-    ok(!chatNon.html.includes(SUPPORT_VARS.SUPPORTER_OPENCHAT_URL), "5-p 비후원자에게는 후원자 방 단추가 없다");
+    // V22.9.97: 방 주소는 이제 누구 화면에도 없으므로 단추(경유 주소·abSupporterChat) 자체가 없는지 본다(검사의 뜻 그대로).
+    ok(!chatNon.html.includes(SUPPORT_VARS.SUPPORTER_OPENCHAT_URL) && !chatNon.html.includes("abSupporterChat") && !chatNon.html.includes("/support/go/supporter-openchat"), "5-p 비후원자에게는 후원자 방 단추가 없다");
   });
 
   await section("2 기간", async () => {
