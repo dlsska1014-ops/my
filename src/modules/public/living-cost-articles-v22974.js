@@ -271,7 +271,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 통계로 보는 생활비",
       "intro": "혼자 살면 집세와 식비가 월급의 절반을 가져가는 느낌이 듭니다. 1인 가구 지출이 왜 그런 모양이 되는지 공표 통계로 확인하고, 실수령액에서 주거 묶음·통신·저축·식비 순으로 예산을 세우는 절차를 다룹니다.",
       "published": "2026-10-21",
-      "updated": "2026-10-21",
+      "updated": "2026-11-03",
       "type": "Article",
       "summary": [
         "2024년 1인 가구 월평균 소비지출은 168만 9천원이고, 주거·수도·광열 18.4%와 음식·숙박 18.2%가 가장 큰 항목입니다.",
@@ -516,8 +516,8 @@ function publicLivingCostArticlesV22974() {
           "/subscription-cleanup"
         ],
         [
-          "첫 월급으로 예산 세우기",
-          "/first-job-budget"
+          "1인 가구 연말정산, 부양가족 없이 챙길 공제",
+          "/single-household-year-end-tax"
         ]
       ]
     },
@@ -1308,7 +1308,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "카드를 많이 쓸수록 세금이 줄어든다는 말은 절반만 맞습니다. 총급여의 25%를 넘긴 뒤부터 공제가 시작되는 구조, 결제수단별 공제율과 한도, 그리고 결제수단을 어떻게 나눌지 숫자로 판단하는 예시를 법령 조문을 바탕으로 정리했습니다.",
       "published": "2026-10-21",
-      "updated": "2026-10-21",
+      "updated": "2026-11-03",
       "type": "Article",
       "summary": [
         "총급여의 25%까지는 어떤 수단으로 결제해도 공제액이 같고, 그 위부터 결제수단별 공제율 차이가 생깁니다.",
@@ -1498,8 +1498,8 @@ function publicLivingCostArticlesV22974() {
           "/year-end-tax-expense-check"
         ],
         [
-          "카드 내역을 가계부로 가져오는 방법",
-          "/import-guide"
+          "11~12월 결제수단 점검: 카드 공제 문턱을 넘긴 뒤",
+          "/payment-method-switch-nov-dec"
         ]
       ]
     },
@@ -1510,7 +1510,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "연말정산 서류를 1월에 한 번에 모으면 빠지는 것이 생깁니다. 가계부 기록을 공제 항목별로 묶어 영수증과 대조하고, 간소화 자료에 없는 지출을 미리 찾아내는 순서를 월별 점검 달력과 함께 안내합니다.",
       "published": "2026-10-21",
-      "updated": "2026-10-21",
+      "updated": "2026-11-03",
       "type": "Article",
       "summary": [
         "가계부의 의료·교육·기부·주거·보험·연금 분류가 그대로 연말정산 점검표가 됩니다.",
@@ -1706,8 +1706,8 @@ function publicLivingCostArticlesV22974() {
           "/rent-tax-credit-records"
         ],
         [
-          "주간·월간 리포트 읽는 법",
-          "/report-guide"
+          "연말정산 11월부터 2월까지 월별 준비 순서",
+          "/year-end-tax-timeline-checklist"
         ]
       ]
     },
@@ -1718,7 +1718,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "매달 월세를 이체하면서도 연말에 공제를 놓치는 이유는 서류와 기록이 서로 맞지 않기 때문입니다. 공제 요건을 스스로 점검하는 표와, 계약서·이체 내역·주민등록을 한 줄로 맞춰 두는 방법, 일수 비례 계산의 주의점을 다룹니다.",
       "published": "2026-10-21",
-      "updated": "2026-10-21",
+      "updated": "2026-11-03",
       "type": "Article",
       "summary": [
         "요건은 무주택 세대주(또는 세대원), 총급여 8,000만원 이하, 국민주택규모나 기준시가 4억원 이하 주택, 주소지 일치입니다.",
@@ -1899,8 +1899,8 @@ function publicLivingCostArticlesV22974() {
           "/year-end-tax-expense-check"
         ],
         [
-          "고정비 점검 체크리스트",
-          "/fixed-cost-checklist"
+          "주택 관련 공제 한눈에: 청약·전세대출·주택담보대출·월세",
+          "/housing-deductions-overview"
         ],
         [
           "1인 가구 생활비 구조 보기",
@@ -2541,7 +2541,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 저축·비상금·부채",
       "intro": "두 건 이상의 빚이 있다면 어느 것을 먼저 갚을지에 따라 총 이자가 달라집니다. 빚 목록표를 만드는 법, 금리 우선과 잔액 우선 두 순서를 같은 숫자로 비교한 결과, 그리고 자기 상황에 맞는 순서를 고르는 기준을 정리했습니다.",
       "published": "2026-10-21",
-      "updated": "2026-10-21",
+      "updated": "2026-11-03",
       "type": "Article",
       "summary": [
         "빚은 종류·잔액·금리·만기·월 상환액·중도상환수수료 여섯 칸으로 한 표에 모아야 순서를 정할 수 있습니다.",
@@ -2751,8 +2751,8 @@ function publicLivingCostArticlesV22974() {
           "/cash-flow-table"
         ],
         [
-          "연간 비정기 지출을 월 적립으로 바꾸는 법",
-          "/sinking-fund-annual-expenses"
+          "연말정산 환급금, 들어오기 전에 쓸 곳 정하기",
+          "/tax-refund-money-plan"
         ]
       ]
     },
@@ -2763,7 +2763,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 리포트·분석",
       "intro": "저축률은 한 달 수입 중 얼마를 남겼는지를 보여 주는 가장 단순한 지표입니다. 어떤 정의를 고를지, 월별 추적표를 어떻게 만들고 비정기 수입까지 일관되게 기록할지, 현실적인 목표 저축률은 어떻게 정할지를 예시표로 설명합니다.",
       "published": "2026-10-21",
-      "updated": "2026-10-21",
+      "updated": "2026-11-03",
       "type": "Article",
       "summary": [
         "저축률 = 저축액 ÷ 수입. 분모를 실수령액으로 할지 세전 급여로 할지 먼저 정하고 바꾸지 않습니다.",
@@ -2922,8 +2922,8 @@ function publicLivingCostArticlesV22974() {
           "/monthly-closing-routine"
         ],
         [
-          "생활비 예산 비율 정하기",
-          "/budget-ratio-guide"
+          "연금저축·IRP 세액공제 한도와 공제율 정리",
+          "/pension-savings-irp-tax-credit"
         ]
       ]
     },
@@ -3468,7 +3468,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 생활 영역별 지출",
       "intro": "육아비는 카시트를 사는 달과 아무 일 없는 달의 차이가 커서 한 덩어리로 적으면 예산이 서지 않습니다. 고정·변동·일회성 세 묶음으로 나눠 월 예산을 세우고, 아이가 자라며 바뀌는 지출을 미리 반영하며, 정부 지원 제도를 어디서 확인하는지 정리했습니다.",
       "published": "2026-10-21",
-      "updated": "2026-10-21",
+      "updated": "2026-11-03",
       "type": "Article",
       "summary": [
         "육아비는 고정·변동·일회성 세 묶음으로 나누고 묶음마다 예산을 따로 둡니다.",
@@ -3713,8 +3713,8 @@ function publicLivingCostArticlesV22974() {
           "/family-roles-accountbook"
         ],
         [
-          "분류별 예산과 전체 지출 비교 안내",
-          "/budget-guide"
+          "의료비·교육비·기부금 공제 기준과 영수증 정리",
+          "/medical-education-donation-deductions"
         ]
       ]
     },
@@ -3725,7 +3725,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 공동 생활비",
       "intro": "두 사람의 수입과 성향에 맞는 통장 구조는 하나가 아닙니다. 세 가지 구조를 한 표로 비교하고, 각 구조에서 가계부를 어떻게 적을지, 나중에 구조를 바꿀 때 무엇을 정산해야 하는지를 예시 숫자로 설명합니다.",
       "published": "2026-10-21",
-      "updated": "2026-10-21",
+      "updated": "2026-11-03",
       "type": "Article",
       "summary": [
         "전부 공동, 공동 생활비와 개인 용돈, 소득 비율 분담은 투명성과 자율성의 균형이 다릅니다.",
@@ -3901,8 +3901,8 @@ function publicLivingCostArticlesV22974() {
           "/family-roles-accountbook"
         ],
         [
-          "첫 월급으로 예산을 세우는 순서",
-          "/first-job-budget"
+          "맞벌이 부부 연말정산, 공제를 누구에게 모을까",
+          "/dual-income-deduction-allocation"
         ]
       ]
     },

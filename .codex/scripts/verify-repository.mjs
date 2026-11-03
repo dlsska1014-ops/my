@@ -12,9 +12,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_97.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_98.sha256",
 );
 const validationScripts = [
+  ["V22.9.98 public article links (V97:H-8)", "validation/validate-article-links-v22998.mjs"],
   ["V22.9.75 네이버 홈 소유 확인 메타", "validation/validate-naver-verification-v22975.mjs"],
   ["V22.9.73 요청 멈춤 대비(조회 짧은 시한·1회 재시도·쓰기 시한·결과 불확실·관제 재시도 기록)", "validation/validate-db-stall-guard-v22973.mjs"],
   ["V22.9.72 단톡방 피드백(짧은 버튼 이름·도움말 워딩·맨 아래 기록하기·참여 전·빈 결과·지연 답)", "validation/validate-chat-feedback-v22972.mjs"],
@@ -367,7 +368,8 @@ function run(command, args, label) {
 // V22.9.92: 새 검사 2개(애드핏 광고 게이트 2,319: ADS_MODE=adfit·광고 단위 검증·공개 정본 문서 45쪽만·정책 화면 카카오 문구·/ready adfit_unit, 기능 둘러보기 119)와 옛 검사 갱신(광고 게이트 adsMode 모양·판 이름만 바뀐 환불 꺼짐 화면 해시 셋). 두 모드 실측: 일반 40,226 · 분류 표 부재 40,223(V22.9.92 애드핏 준비).
 // V22.9.94: 새 검사 6개(전체 점검·Codex/Astra 검토 수정 — 시험 대역·화면 73, 카카오 950, 가져오기 293, 관리자 134, 예약 실행 61, 준비 상태·관제 184)·추적표 V94 31건과 옛 검사 갱신(Q-104 기대값·M-8-C 한 실행 2개·되돌리기 30초 기대·감사 기록 픽스처·관제 판 1.5.0·준비 상태 RPC 19개·판 이름만 바뀐 환불 지문 셋). 하한은 두 모드 실측 중 작은 값으로 올렸다.
 // V22.9.97: 새 검사 3개(후원 진입점·지표 50, 생활비 글 8편 768, 모임 정산 둘러보기 70)·추적표 V97 15건과 옛 검사 갱신(후원 경유 주소·ops-usage 호출 수·홈 탭 정지 상한·관제 판 1.6.0·공개 글 40편과 sitemap 60·둘러보기 7단계·D1 시험 147·판 이름과 후원 조각 때문에 환불 지문 12개 재채취). 두 모드 실측: 일반 61,083 · 분류 표 부재 61,080(V22.9.97 수익화 준비; 하한은 그 아래 61,078 로 둔다).
-const EXPECTED_MINIMUM_CHECKS = 61078;
+// V22.9.98: related article links 583 checks and findings ledger +2; minimum fixture count 61,665.
+const EXPECTED_MINIMUM_CHECKS = 61665;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
