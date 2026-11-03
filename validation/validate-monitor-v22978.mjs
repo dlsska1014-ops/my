@@ -85,8 +85,8 @@ const seen = Date.parse("2026-10-25T03:57:00Z"), success = Date.parse("2026-10-2
   eq(states.supabase_plan.status, "stale", "요금제 자동 확인은 2시간을 넘으면 갱신 지연이다(기준 그대로)");
 }
 
-eq(MONITOR_VERSION, "1.5.0", "관제 판은 1.5.0 이다(1.4.0 → 1.5.0, V22.9.94 예약 실행 경보·빈 사용량)");
-eq((await (await monitor.fetch(new Request("https://monitor.example/health"), {}, {})).json()).version, "1.5.0", "/health 가 1.5.0 을 알린다");
+eq(MONITOR_VERSION, "1.6.0", "관제 판은 1.6.0 이다(1.5.0 → 1.6.0, V22.9.97 이용 현황 후원 줄. 1.5.0 은 V22.9.94 예약 실행 경보·빈 사용량)");
+eq((await (await monitor.fetch(new Request("https://monitor.example/health"), {}, {})).json()).version, "1.6.0", "/health 가 1.6.0 을 알린다");
 ok(readFileSync(new URL("../monitoring/worker.mjs", import.meta.url), "utf8").includes('name==="token"?70*60000'), "토큰 수집기 기준은 70분이다");
 
 done();

@@ -13,7 +13,9 @@ const paths = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-
 const articlePaths = ["/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup", "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit", "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics", "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table"];
 // V22.9.74: 글 목록 허브와 생활비 가이드 글 20편은 validate-public-articles-v22974 가 자세히 검사한다. 정본 목록에만 더한다.
 const v22974Paths = ["/articles", "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark", "/utility-bills-seasonality", "/inflation-budget-update", "/card-income-deduction-basics", "/year-end-tax-expense-check", "/rent-tax-credit-records", "/apartment-maintenance-fee", "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order", "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning", "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions"];
-const allPaths = [...paths, ...articlePaths, ...v22974Paths];
+// V22.9.97 생활비 글: 연말정산·절세 시즌 글 8편은 validate-v22997-articles 가 자세히 검사한다. 정본 목록에만 더한다.
+const v22997Paths = ["/year-end-tax-timeline-checklist", "/payment-method-switch-nov-dec", "/medical-education-donation-deductions", "/dual-income-deduction-allocation", "/pension-savings-irp-tax-credit", "/single-household-year-end-tax", "/tax-refund-money-plan", "/housing-deductions-overview"];
+const allPaths = [...paths, ...articlePaths, ...v22974Paths, ...v22997Paths];
 const origin = "https://malhaebook.com";
 const get = (path, method = "GET", env = {}, headers = {}) => app.fetch(new Request(`${origin}${path}`, { method, headers }), env, {});
 const originalFetch = globalThis.fetch;
@@ -24,6 +26,8 @@ try {
   const pages = new Map();
   const assets = new Set();
   const titles = new Set(), descriptions = new Set();
+  // V22.9.97 모임 정산: 다른 공개 화면의 한 자리로 가는 링크(/demo#tour-settle)는 경로 부분을 정본과 대조하고, 그 id 는 모든 화면을 받은 뒤 본다.
+  const crossAnchors = [];
   for (const path of paths) {
     const response = await get(path);
     eq(response.status, 200, `${path}: anonymous GET succeeds`);
@@ -55,9 +59,16 @@ try {
     for (const [, href] of html.matchAll(/href="([^"]+)"/g)) {
       if (href.startsWith("#")) ok(html.includes(`id="${href.slice(1)}"`), `${path}: anchor ${href} exists`);
       else if (href.startsWith("/assets/") || href === "/manifest.json") assets.add(href);
-      else if (href.startsWith("/")) ok(allPaths.includes(href) || ["/my", "/sitemap.xml"].includes(href), `${path}: internal link ${href} has a supported destination`);
+      else if (href.startsWith("/")) {
+        ok(allPaths.includes(href.split("#")[0]) || ["/my", "/sitemap.xml"].includes(href), `${path}: internal link ${href} has a supported destination`);
+        if (href.includes("#")) crossAnchors.push([path, href]);
+      }
     }
     for (const [, src] of html.matchAll(/src="(\/assets\/[^\"]+)"/g)) assets.add(src);
+  }
+  for (const [from, href] of crossAnchors) {
+    const [target, id] = href.split("#");
+    ok(pages.has(target) && pages.get(target).includes(`id="${id}"`), `${from}: cross-page anchor ${href} exists on ${target}`);
   }
   for (const asset of assets) eq((await get(asset)).status, 200, `shared asset ${asset} is available`);
   for (const [alias, canonical] of [["/sitemap", "/site-map"], ["/service", "/service-guide"], ["/usage-guide", "/how-it-works"], ["/kakao-accountbook-guide", "/kakao-guide"], ["/budget-management-guide", "/budget-guide"], ["/family-accountbook", "/group-accountbook"], ["/data-security", "/security"], ["/about-service", "/about"], ["/cookie-policy", "/cookies"], ["/data-policy", "/privacy"], ["/service-policy", "/terms"]]) {

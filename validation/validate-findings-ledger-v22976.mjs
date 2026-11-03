@@ -40,6 +40,8 @@ const SOURCES = [
   { key: "V94", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_94.md", pattern: /^(###|[ ]*-) +(?:[*][*])?([CR]-[0-9]+)(?=[ *]|$)/gm, expected: 31 },
   // V22.9.95: 2026-11-02 출시 준비 판(법무·후원·안내/해석·데이터)을 만들며 찾았거나 일부러 남긴 항목(E-). 사용자 결정이 필요한 문구·날짜도 결정 필요로 올린다.
   { key: "V95", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_95.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(E-[0-9]+)(?=[ *]|$)/gm, expected: 19 },
+  // V22.9.97: 2026-11-03 수익화 준비 판(후원 진입점·지표, 연말정산·절세 글 8편, 모임 정산 둘러보기)을 만들며 찾았거나 남긴 항목(H-). 설계 결정·사람 확인·사용자 결정도 올린다.
+  { key: "V97", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_97.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(H-[0-9]+)(?=[ *]|$)/gm, expected: 15 },
 ];
 // '결함 아님'은 다시 확인해 보니 규격·의도대로인 항목이다. 메모에 근거(규격 문서 줄 등)를 적는다.
 const STATUSES = new Set(["고침", "일부 고침", "남음", "결정 필요", "확인 불가", "결함 아님"]);
@@ -50,7 +52,7 @@ const ledger = read("docs/codex/FINDINGS_LEDGER.md");
 const harness = read(".codex/scripts/verify-repository.mjs");
 const rows = [];
 for (const line of ledger.split("\n")) {
-  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95):[A-Z]-[0-9]+) *[|]/.exec(line);
+  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97):[A-Z]-[0-9]+) *[|]/.exec(line);
   if (!match) continue;
   const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
   const [id, severity, title, status, fixedIn, check, note] = cells;

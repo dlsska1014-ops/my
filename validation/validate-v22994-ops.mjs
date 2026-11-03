@@ -303,13 +303,14 @@ await section("3 관제용 예약 실행 기록", async () => {
       const plain = await usageOf(fx, { header: false });
       eq(plain.status, 200, "3-a 머리가 없으면 예전처럼 200");
       eq(Object.keys(plain.body), ["ok", "usage"], "3-a 머리가 없으면 답은 예전처럼 ok·usage 두 칸이다(관제 1.4.0)");
-      eq(log.calls, 1, "3-a 머리가 없으면 Supabase 를 한 번(이용 현황 함수)만 부른다");
+      // V22.9.97 후원 지표: 이용 현황 답에는 머리와 관계없이 후원 집계(support 칸, 설정 표 읽기 두 번)가 붙는다. 3-a 1→3, 3-b 3→7(누적).
+      eq(log.calls, 3, "3-a 머리가 없으면 Supabase 를 이용 현황 함수 1번 + 후원 집계 읽기 2번만 부른다(V22.9.97)");
       const withHeader = await usageOf(fx);
       eq(withHeader.status, 200, "3-b 머리가 있어도 200");
       eq(Object.keys(withHeader.body), ["ok", "usage", "cron"], "3-b 머리가 있으면 같은 답 끝에 cron 칸 하나만 더한다");
       eq(withHeader.body.usage, plain.body.usage, "3-b 이용 현황 값은 머리 유무와 같다");
-      eq(log.calls, 3, "3-b 예약 실행 기록은 Supabase 한 번으로 읽는다(이용 현황 1 + 기록 1)");
-      const settingsReads = log.requests.filter((line) => line.startsWith("GET /rest/v1/accountbook_settings"));
+      eq(log.calls, 7, "3-b 예약 실행 기록은 Supabase 한 번으로 읽는다(앞 3 + 이용 현황 1 + 후원 집계 2 + 기록 1)");
+      const settingsReads = log.requests.filter((line) => line.startsWith("GET /rest/v1/accountbook_settings") && !line.includes("key=like.support"));
       ok(settingsReads.length === 1 && settingsReads[0].includes(LOG_KEY) && settingsReads[0].includes(STATE_KEY), `3-b 기록·상태 두 키를 한 번의 GET 으로 읽는다: ${settingsReads.join(" | ")}`);
       ok(log.requests.every((line) => line.startsWith("GET ")), "3-b 읽기만 한다(쓰기 없음)");
       eq(withHeader.body.cron, { ok: true, last_run_at: "2026-11-01T00:10:02.000Z", last_status: "ok", last_error: null, version: "V22.9.93-LAUNCH-FIXES", rev: 3 }, "3-b cron 칸 = 가장 최근 실행의 시각·결과·오류·판 + 정기 처리 상태 rev");

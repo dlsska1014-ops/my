@@ -169,8 +169,8 @@ globalThis.fetch = async (input) => { const url = typeof input === "string" ? in
 try {
   // ── 0. 관제 판 ─────────────────────────────────────────────────────────────
   await section("0 관제 판", async () => {
-    eq(model.MONITOR_VERSION, "1.5.0", "관제 판은 1.5.0 이다(1.4.0 → 1.5.0, V22.9.94 예약 실행 경보·빈 사용량)");
-    eq((await (await monitor.fetch(new Request("https://monitor.example/health"), {}, {})).json()).version, "1.5.0", "/health 가 1.5.0 을 알린다");
+    eq(model.MONITOR_VERSION, "1.6.0", "관제 판은 1.6.0 이다(1.5.0 → 1.6.0, V22.9.97 이용 현황 후원 줄. 1.5.0 은 V22.9.94 예약 실행 경보·빈 사용량)");
+    eq((await (await monitor.fetch(new Request("https://monitor.example/health"), {}, {})).json()).version, "1.6.0", "/health 가 1.6.0 을 알린다");
   });
 
   // ── 1. 관제 모델: 나눗셈 값·변화율·기능 이름·간격·달 ─────────────────────────────
@@ -537,10 +537,15 @@ try {
     const appEnv = { OPS_MONITOR_TOKEN: TOKEN, SUPABASE_URL: "https://fixture.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "fixture-only" };
     const binding = (envForApp) => ({ async fetch(input, init) { return app.fetch(new Request(input, init), envForApp, { waitUntil() {} }); } });
     const run = async (envForApp) => { const fx = monitorDb(); await collectUsage({ MONITOR_DB: fx.db, OPS_MONITOR_TOKEN: TOKEN, ACCOUNTBOOK: binding(envForApp) }, new Date(T)); return fx; };
-    const good = await run(appEnv);
+    // V22.9.97 후원 줄: 앱은 이용 현황 답에 support 칸(최근 30일 /support 방문·누름 합계와 후원자 수)을 붙인다. 이 절의 설정 표 읽기는 빈 답이라
+    // 모두 0 이고, 그 칸의 날짜(as_of = 한국 날짜)가 정해지도록 이 실행만 장면 시계를 T(2026-10-27 12:10 KST)로 둔다.
+    const previousClock = globalThis.__AB_QA_FIXED_NOW_MS;
+    globalThis.__AB_QA_FIXED_NOW_MS = T;
+    const good = await run(appEnv).finally(() => { globalThis.__AB_QA_FIXED_NOW_MS = previousClock; });
     const stored = usageRows(good.sqlite);
+    const supportZero = { days: 30, visits: 0, clicks: { kakaopay: 0, toss: 0, openchat: 0, supporter_openchat: 0 }, clicks_total: 0, supporters_active: 0, as_of: "2026-10-27" };
     ok(usageState(good.sqlite)?.status === "ok" && stored.length === 1 && stored[0].bucket === "2026-10" && rpc.length === 1, `실제 앱이 DB 함수 답을 넘기고 관제가 정상으로 적는다: ${JSON.stringify(usageState(good.sqlite))} · ${rpc.join(",")}`);
-    same(JSON.parse(stored[0]?.payload || "null"), model.sanitizeUsage(answer), "앱이 다시 검사해 보낸 값을 관제도 그대로 받아 적는다(두 쪽 검사가 같은 계약을 본다)");
+    same(JSON.parse(stored[0]?.payload || "null"), { ...model.sanitizeUsage(answer), support: supportZero }, "앱이 다시 검사해 보낸 값을 관제도 그대로 받아 적는다(두 쪽 검사가 같은 계약을 본다. V22.9.97: 앱이 붙인 support 칸도 같은 JSON 에 함께)");
     mode = "missing";
     eq(usageState((await run(appEnv)).sqlite)?.error_code, "rpc_missing", "DB 함수가 아직 없으면(PostgREST 404 PGRST202) 앱 503 rpc_missing 이 관제까지 그대로 온다");
     mode = "ok";

@@ -8,7 +8,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.96-POLICY-EFFECTIVE";
+const APP_VERSION = "V22.9.97-MONETIZATION-PREP";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -249,7 +249,7 @@ function adsMode(env = {}) {
 }
 
 // 광고를 둘 수 있는 화면(라이브에서만). 공개 정본 가이드에서 정책·신원 화면(privacy·terms·cookies·
-// contact·about·site-map)을 뺀 45쪽(가이드 12쪽 + V22.9.40 생활비 가이드 글 12편 + V22.9.74 허브 1쪽·글 20편)과 로그인 뒤 읽는 화면 5개다. 이 목록에 없는 화면(/app 의 모든 보기,
+// contact·about·site-map)을 뺀 53쪽(가이드 12쪽 + V22.9.40 생활비 가이드 글 12편 + V22.9.74 허브 1쪽·글 20편 + V22.9.97 글 8편)과 로그인 뒤 읽는 화면 5개다. 이 목록에 없는 화면(/app 의 모든 보기,
 // 로그인·가입, 설정·예산·참여자·백업, /my/analysis, 관리자·운영, API·/skill, 404·안전모드)은 키를
 // 받지 않으므로 구조적으로 광고가 붙지 않는다. 새 공개 문서는 일부러 여기에 적어야만 광고가 붙는다.
 // V22.9.92: 애드핏(ADS_MODE=adfit)은 이 목록 가운데 공개 정본 문서만 쓴다(로그인 뒤 화면 5개는 빼고, adsPageLive).
@@ -268,6 +268,10 @@ const AD_PAGE_KEYS = Object.freeze([
   "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order",
   "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning",
   "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
+  // V22.9.97 생활비 글: 연말정산·절세 시즌 글 8편도 긴 읽을거리라 광고 자리로 둔다(애드핏은 공개 정본이라 함께 쓴다).
+  "/year-end-tax-timeline-checklist", "/payment-method-switch-nov-dec", "/medical-education-donation-deductions",
+  "/dual-income-deduction-allocation", "/pension-savings-irp-tax-credit", "/single-household-year-end-tax",
+  "/tax-refund-money-plan", "/housing-deductions-overview",
   "/reports", "/annual", "/smart-tools", "/start-guide", "/keyword-guide",
 ]);
 
@@ -457,6 +461,10 @@ const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order",
   "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning",
   "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
+  // V22.9.97 생활비 글: 연말정산·절세 시즌 글 8편. 글 본문은 public/living-cost-articles-v22997.js.
+  "/year-end-tax-timeline-checklist", "/payment-method-switch-nov-dec", "/medical-education-donation-deductions",
+  "/dual-income-deduction-allocation", "/pension-savings-irp-tax-credit", "/single-household-year-end-tax",
+  "/tax-refund-money-plan", "/housing-deductions-overview",
   // V22.9.95 후원: 후원 안내(운영 비용·후원하는 방법·후원자 혜택). 광고 화면 목록(AD_PAGE_KEYS)에는 넣지 않는다.
   "/support",
 ]);

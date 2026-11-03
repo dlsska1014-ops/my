@@ -63,7 +63,10 @@ V22.9.92: `ADS_MODE` 가 정확히 `adfit` 이면 카카오 애드핏이다. 공
 후원 안내 `/support` 와 후원자 표시는 운영 변수로만 켠다(값은 사용자가 준다. Secret 이 아니라 일반 변수이고 `/health`·`/ready` 에 내보내지 않는다. 변수는 `src/modules/public/support-page.js` 한 곳에서만 읽는다):
 `SUPPORT_KAKAOPAY_URL`(카카오페이 송금 링크), `SUPPORT_BANK_ACCOUNT`(계좌 한 줄, 100자 이하), `SUPPORT_TOSS_URL`(토스 송금 링크), `COMMUNITY_OPENCHAT_URL`(누구나 들어오는 오픈채팅),
 `SUPPORTER_OPENCHAT_URL`(후원자 오픈채팅 — 공개 페이지에는 싣지 않고 후원자의 /menu 화면 설정에만). 주소는 http(s) 만 받고 따옴표·공백·계정 정보가 든 값은 무시한다.
-셋(카카오페이·계좌·토스)이 다 없으면 /support 의 ‘후원하는 방법’ 은 ‘준비 중’ 한 줄이다. 후원자 표시 자체는 변수 없이 관리자 `/admin/supporters` 에서 켠다(설정 표 `supporter:<user_id>`).
+셋(카카오페이·계좌·토스)이 다 없을 때 `COMMUNITY_OPENCHAT_URL` 이 있으면 /support 의 ‘후원하는 방법’ 은 ‘오픈채팅방에서 운영자가 직접 안내’ 문장 + 오픈채팅 경유 링크이고(V22.9.97, 사용자 2026-11-03 결정: 운영 값 https://open.kakao.com/o/sKbnenVi), 그것도 없으면 ‘준비 중’ 한 줄이다. 후원자 표시 자체는 변수 없이 관리자 `/admin/supporters` 에서 켠다(설정 표 `supporter:<user_id>`).
+V22.9.97 후원 지표(변수 없음, 새 SQL 없음): 송금·오픈채팅 단추는 변수 주소를 바로 싣지 않고 경유 주소 `GET /support/go/<kind>`(kakaopay·toss·openchat·supporter-openchat)로 간다 — 변수가 있으면 그 주소로 302(캐시 없음·리퍼러 없음·noindex)하며 누른 수를 세고, 변수가 없거나 http(s) 가 아니거나 모르는 종류면 404 다. supporter-openchat 은 켜진 후원자 세션에만 302 한다.
+/support 화면이 실제로 보일 때 `POST /support/visit`(늘 204)로 방문을 센다. 집계는 설정 표 `accountbook_settings` 의 `support_stats:<KST 날짜>` 한 줄(`{visits, clicks:{kakaopay,toss,openchat,supporter_openchat}}`, 대략값, 사용자 id·IP 없음, 봇 UA 제외)이고 `/internal/ops-usage` 의 `support` 칸(최근 30일 합계·활성 후원자 수)으로 관제 1.6.0 이용 현황의 ‘후원(대략, 30일)’ 줄에 보인다(관제 1.5.0 은 칸을 버린다).
+후원 변수를 넣으면 그때부터 경유 주소가 302 로 살아나고, 변수 추가는 그 자체가 새 배포(바인딩 32 → 최대 37)다.
 
 공지 띠: `NOTICE_TEXT`(200자, 이스케이프)와 `NOTICE_LINK`(같은 사이트 경로 `/…` 또는 따옴표·꺾쇠 없는 https 주소만). 있으면 /app·/my·/my/*·공개 문서의 머리말 위에 띠가 붙고, 없으면 띠가 없다.
   - 방침 개정 안내(E-17, V22.9.96 재결정으로 공고일 = 시행일 2026-11-02): 개정을 알리는 띠를 켜려면 `NOTICE_TEXT` = `개인정보처리방침과 이용약관을 11월 2일에 개정해 바로 적용하고 있어요.`, `NOTICE_LINK` = `/privacy`. 변수를 더하면 Worker 바인딩이 30 → 32 가 되므로 다음 배포 대조(지시문의 바인딩 수)를 그 값으로 바꾼다. 변수 추가·삭제는 그 자체가 새 버전·배포다. 출시(11-13) 뒤 일주일쯤 지나면 두 변수를 지운다. V22.9.95 배포(11-02 18:17)에는 넣지 않았고, V22.9.96 배포 직후 사용자 지시("개정 공고 … 지금 바로")로 넣는다.

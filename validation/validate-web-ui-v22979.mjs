@@ -192,7 +192,8 @@ if (run("weekly")) await scenario("weekly", () => withClock("2026-10-25", () => 
 // F-3 수정 폼의 제안 목록 (전체 화면 · 홈 상세 · 일별 시트)
 // ─────────────────────────────────────────────────────────────────────────────
 if (run("edit")) await scenario("edit", () => withClock("2026-07-15", () => fixture(async (fx) => {
-  const optionValues = (html, id) => [...((html.match(new RegExp(`<datalist id="${id}">([\\s\\S]*?)</datalist>`)) || [, ""])[1]).matchAll(/<option value="([^"]*)"><\/option>/g)].map((m) => decode(m[1]));
+  // V22.9.97: 홈(휴대폰 홈)은 35 KiB 예산 때문에 빈 option 의 끝 태그를 생략한다(HTML 규칙상 브라우저 DOM 은 같다). 두 꼴을 모두 읽는다.
+  const optionValues = (html, id) => [...((html.match(new RegExp(`<datalist id="${id}">([\\s\\S]*?)</datalist>`)) || [, ""])[1]).matchAll(/<option value="([^"]*)">(?:<\/option>)?/g)].map((m) => decode(m[1]));
   const input = (html, name) => (html.match(new RegExp(`<input name="${name}"[^>]*>`)) || [""])[0];
   fx.db.transactions.find((row) => row.id === "tx-expense-2").category = "동네병원\"<b>";
   fx.db.transactions.find((row) => row.id === "tx-expense-2").payment_method = "동네카드";

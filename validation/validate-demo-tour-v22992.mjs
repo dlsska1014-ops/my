@@ -9,6 +9,7 @@
 //   4. 주요 화면 주소 표: ‘누구나’는 로그인 없이 열리고, ‘로그인한 사람’은 로그인 없이 열면 로그인 화면으로 가고 로그인하면 열린다
 //   5. 둘러보기 문장의 사실(9월 17일 홈, 되돌리기 5초, 수정 명령)이 앱과 맞다, 다른 공개 화면은 그대로다
 // 렌더링은 QA 픽스처와 app.fetch 로만 한다(서버·네트워크 없음).
+// V22.9.97 모임 정산: 일곱째 단계(settle, 단톡방 모임 정산)가 더해졌다. 그 말풍선과 실제 정산 답의 대조·문장 사실은 validate-v22997-demo 가 본다.
 import { readFileSync } from "node:fs";
 import vm from "node:vm";
 import { parse } from "../tools/vendor/acorn.mjs";
@@ -17,7 +18,7 @@ import { createV2265QaFixture } from "./qa-fixture.mjs";
 import { fixture, withClock, skill, page, post } from "./lib-audit-v22934.mjs";
 
 const ORIGIN = "https://malhaebook.com";
-const STOPS = ["kakao", "home", "edit", "report", "budget", "group"];
+const STOPS = ["kakao", "home", "edit", "report", "budget", "group", "settle"];
 const ROW_RE = /^<tr><td><b>[^<]+<\/b><\/td><td>[0-9,]+원<\/td><td>[0-9,]+건<\/td><\/tr>$/;
 
 let passed = 0;
@@ -71,8 +72,9 @@ try {
   ok(/<title>가입 없이 말해가계부 기능을 둘러보세요/.test(html) && html.includes("<h1>가입 없이 말해가계부 기능을 둘러보세요</h1>") && html.includes(">가입 없이 보는 기능 둘러보기</span>"), "제목·머리 문구가 기능 둘러보기다");
   ok(Buffer.byteLength(html) <= 72 * 1024, `/demo HTML 은 72 KiB 이하다 (${Buffer.byteLength(html)} B)`);
   // 내용을 바꾼 날을 안내 수정일로 보인다(공통 기본값 2026-10-11 이 아니다). 사이트맵 lastmod 도 같은 값이다.
-  ok(html.includes(`안내 수정 <time datetime="2026-10-30">2026-10-30</time>`), "/demo 의 안내 수정일은 기능 둘러보기로 바꾼 2026-10-30 이다");
-  ok(/<loc>https:\/\/malhaebook\.com\/demo<\/loc>\s*<lastmod>2026-10-30<\/lastmod>/.test((await get("/sitemap.xml")).html), "사이트맵의 /demo lastmod 도 2026-10-30 이다");
+  // V22.9.97: 일곱째 단계(모임 정산)를 더한 2026-11-03 으로 옮겼다(전 2026-10-30).
+  ok(html.includes(`안내 수정 <time datetime="2026-11-03">2026-11-03</time>`), "/demo 의 안내 수정일은 일곱째 단계를 더한 2026-11-03 이다");
+  ok(/<loc>https:\/\/malhaebook\.com\/demo<\/loc>\s*<lastmod>2026-11-03<\/lastmod>/.test((await get("/sitemap.xml")).html), "사이트맵의 /demo lastmod 도 2026-11-03 이다");
   eq(countOf(html, '<section class="pubSection pubTour" id="tour" aria-labelledby="tour-title">'), 1, "둘러보기 절은 하나다");
   const tourStart = html.indexOf('<section class="pubSection pubTour"');
   const tourEnd = html.indexOf("</ol></section>", tourStart) + "</ol></section>".length;
@@ -80,9 +82,9 @@ try {
   ok(html.lastIndexOf("</header>", tourStart) > html.indexOf('<header class="pubHero">') && html.indexOf('<section class="pubSection" id="section-1">') > tourEnd, "둘러보기는 머리(웹 홈 미리보기) 바로 아래, 예제 질문 절 위다");
   ok(html.indexOf('id="example"') > tourEnd, "예산 계산 예제(#example)는 둘러보기 아래에 그대로 있다");
   const stopIds = [...tour.matchAll(/<li class="pubTourStop" id="tour-([a-z]+)"><h3><span aria-hidden="true">(\d)<\/span>([^<]+)<\/h3>/g)];
-  eq(JSON.stringify(stopIds.map((m) => m[1])), JSON.stringify(STOPS), "여섯 단계가 정한 순서로 있다");
-  eq(JSON.stringify(stopIds.map((m) => m[2])), JSON.stringify(["1", "2", "3", "4", "5", "6"]), "단계 번호가 1~6 이다");
-  eq(countOf(tour, '<p class="pubTourWhere">어디서: '), 6, "단계마다 ‘어디서’ 줄이 있다");
+  eq(JSON.stringify(stopIds.map((m) => m[1])), JSON.stringify(STOPS), "일곱 단계가 정한 순서로 있다");
+  eq(JSON.stringify(stopIds.map((m) => m[2])), JSON.stringify(["1", "2", "3", "4", "5", "6", "7"]), "단계 번호가 1~7 이다");
+  eq(countOf(tour, '<p class="pubTourWhere">어디서: '), 7, "단계마다 ‘어디서’ 줄이 있다");
   ok(!/<(?:form|button|input|select|textarea|script|iframe|details)\b/i.test(tour), "둘러보기 안에는 폼·단추·입력·스크립트가 없다(읽기 전용)");
   ok(!/\son[a-z]+=/i.test(tour) && !/style="/.test(tour), "둘러보기 안에 인라인 처리기·인라인 스타일이 없다");
   const hrefs = [...tour.matchAll(/href="([^"]+)"/g)].map((m) => m[1]);

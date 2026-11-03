@@ -1,6 +1,7 @@
 // @build:imports-start
 import { rememberOpsEvent } from "./ops-telemetry.js";
 import { HTML_HEADERS } from "./config-readiness.js";
+import { supportUsageSummaryV22997 } from "../public/support-page.js";
 import { constantTimeTextEqual, htmlResponse, jsonResponse, redirectResponse } from "./http.js";
 import { adminLoginLocation, verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { supabase } from "../data/supabase-client.js";
@@ -199,6 +200,21 @@ function abUsagePeriod(raw) {
   return out;
 }
 
+// V22.9.97 후원 지표: 이용 현황에 붙는 support 칸(관제 1.6.0 ‘후원(대략, 30일)’ 줄). { days, visits, clicks: {kakaopay,toss,openchat,supporter_openchat},
+// clicks_total, supporters_active, as_of } 만 남기고 모양이 틀리면 칸째 버린다(이용 현황 답은 그대로). 합계(clicks_total)는 여기서 다시 센다.
+// 옛 관제 1.5.0 은 이 칸을 모른다 — 관제 sanitizeUsage 가 계약 칸만 골라 새 객체를 만들므로 그대로 버려진다(수집·화면 영향 없음).
+const AB_USAGE_SUPPORT_CLICKS = ["kakaopay", "toss", "openchat", "supporter_openchat"];
+function abUsageSupport(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw) || !raw.clicks || typeof raw.clicks !== "object" || Array.isArray(raw.clicks)) return null;
+  const days = abUsageCount(raw.days), visits = abUsageCount(raw.visits), active = abUsageCount(raw.supporters_active), asOf = abUsageDay(raw.as_of);
+  if (!days || days > 90 || visits === null || active === null || !asOf) return null;
+  // SIM-10(validate-proto-safety-v22934): 빈 객체에 계산된 키를 넣지 않는다. 키는 상수 넷이라 fromEntries 로 한 번에 만든다.
+  const counts = AB_USAGE_SUPPORT_CLICKS.map((key) => abUsageCount(raw.clicks[key]));
+  if (counts.includes(null)) return null;
+  const clicks = Object.fromEntries(AB_USAGE_SUPPORT_CLICKS.map((key, index) => [key, counts[index]]));
+  return { days, visits, clicks, clicks_total: AB_USAGE_SUPPORT_CLICKS.reduce((sum, key) => sum + clicks[key], 0), supporters_active: active, as_of: asOf };
+}
+
 function abSanitizeUsage(raw) {
   if (!raw || typeof raw !== "object" || raw.schema !== 1) return null;
   const month = typeof raw.month === "string" && /^\d{4}-\d{2}$/.test(raw.month) ? raw.month : null;
@@ -213,14 +229,20 @@ function abSanitizeUsage(raw) {
     const values = AB_USAGE_DAILY_COUNTS.map(key => abUsageCount(row?.[key]));
     return day && !values.includes(null) ? [{ day, recorders: values[0], records: values[1], kakao_requests: values[2], new_users: values[3] }] : [];
   });
-  return { schema: 1, generated_at: generatedAt, month, through_day: throughDay, heavy_threshold: heavy, current, previous_same: previousSame, previous_full: previousFull, daily, totals };
+  const support = abUsageSupport(raw.support);
+  return { schema: 1, generated_at: generatedAt, month, through_day: throughDay, heavy_threshold: heavy, current, previous_same: previousSame, previous_full: previousFull, daily, totals, ...(support ? { support } : {}) };
 }
 
 async function abMonitorUsageSummary(env) {
   if (!env.SUPABASE_URL || !env.SUPABASE_SERVICE_ROLE_KEY) return { body: { ok: false, error_code: "not_connected" }, status: 503 };
   try {
-    const raw = await supabase(env, `/rest/v1/rpc/accountbook_usage_summary_v22982?p_heavy_threshold=${AB_USAGE_HEAVY_THRESHOLD}`, { method: "GET", timeoutMs: 8000 });
-    const usage = abSanitizeUsage(raw);
+    // V22.9.97 후원 지표: 후원 집계 읽기 두 번(public/support-page.js supportUsageSummaryV22997)을 이용 현황 함수와 함께 돌린다. 집계를 읽지 못해도
+    // 이용 현황 답은 그대로이고 support 칸만 빠진다. DB 함수의 답에 support 가 섞여 와도 쓰지 않는다(앱이 센 값만 붙인다).
+    const [raw, support] = await Promise.all([
+      supabase(env, `/rest/v1/rpc/accountbook_usage_summary_v22982?p_heavy_threshold=${AB_USAGE_HEAVY_THRESHOLD}`, { method: "GET", timeoutMs: 8000 }),
+      supportUsageSummaryV22997(env).catch(() => null),
+    ]);
+    const usage = abSanitizeUsage(raw && typeof raw === "object" && !Array.isArray(raw) ? { ...raw, support } : raw);
     return usage ? { body: { ok: true, usage }, status: 200 } : { body: { ok: false, error_code: "invalid_reply" }, status: 503 };
   } catch (error) {
     // PostgREST 는 함수가 없으면 404(PGRST202)로 답한다. 그 밖(권한·시한·전송)은 원인을 밖으로 내지 않고 usage_unavailable 로 묶는다.
