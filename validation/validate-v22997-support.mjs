@@ -11,6 +11,7 @@
 //   4. /internal/ops-usage: support 칸(30일 합계·켜진 후원자 수·as_of) 모양과 합산, 추가 읽기 2번·쓰기 없음, 읽기 실패면 칸을 뺀다(0 이 아님),
 //      예약 실행 머리 경로에도 있다, 관제 1.6.0 의 계약 검사(sanitizeUsage)가 그대로 받는다, 토큰이 틀리면 읽지 않는다.
 //   5. 집계 키는 한 모듈만 다루고, 사이트맵에 경유 주소가 없다.
+//   2-l·2-m(2026-11-03 사용자 결정): 송금 창구 변수 없이 소통 오픈채팅만 있으면 ‘후원하는 방법’ 은 오픈채팅 안내 + 경유 링크, 둘 다 없으면 ‘준비 중’.
 // 관제 쪽(저장·‘후원(대략, 30일)’ 줄·옛 앱 ‘-’)은 monitoring/test-d1.mjs 가 본다.
 // 실제 번들(src/index.js)의 app.fetch 와 QA 픽스처로 본다. DB·네트워크 없음. 장면 시계는 2026-07-15(KST) 로 고정한다.
 import { readFileSync } from "node:fs";
@@ -172,6 +173,17 @@ await withClock(TODAY, () => fixture(async (fx) => {
     ok(support.status === 200 && ["/support/go/kakaopay", "/support/go/toss", "/support/go/openchat"].every((path) => support.html.includes(`href="${path}"`))
       && Object.entries(VARS).filter(([name]) => name !== "SUPPORT_BANK_ACCOUNT").every(([, value]) => !support.html.includes(value)) && support.html.includes("QA은행"),
       "2-k /support 의 송금·오픈채팅 링크는 경유 주소이고 원래 주소는 싣지 않는다(계좌 줄은 그대로)");
+    // 사용자(2026-11-03) "후원은 카톡방 전용 링크로 접속한 사람한테 내가 안내할께": 송금 창구 변수 없이 소통 오픈채팅만 두는 운영.
+    setVars(fx, { COMMUNITY_OPENCHAT_URL: VARS.COMMUNITY_OPENCHAT_URL });
+    const chatOnly = await open(fx, "/support", { ua: "" });
+    const chatLinks = (chatOnly.html.match(/href="\/support\/go\/openchat"/g) || []).length;
+    ok(chatOnly.status === 200 && chatOnly.html.includes("오픈채팅방에서 운영자가 직접 안내해 드려요") && !chatOnly.html.includes("준비하고 있어요(출시 뒤 안내)")
+      && chatLinks === 2 && !chatOnly.html.includes("/support/go/kakaopay") && !chatOnly.html.includes("/support/go/toss") && !chatOnly.html.includes(VARS.COMMUNITY_OPENCHAT_URL),
+      `2-l 송금 창구 변수가 없고 소통 오픈채팅만 있으면 ‘후원하는 방법’ 은 ‘준비 중’ 대신 오픈채팅 안내 + 경유 링크(방법 절·이야기하는 곳 절 각 하나 = 2), 송금 경유 주소·원래 주소 없음: ${chatOnly.status} · 링크 ${chatLinks}`);
+    setVars(fx, {});
+    const noneAtAll = await open(fx, "/support", { ua: "" });
+    ok(noneAtAll.status === 200 && noneAtAll.html.includes("후원 창구를 준비하고 있어요(출시 뒤 안내).") && !noneAtAll.html.includes("/support/go/openchat"), "2-m 오픈채팅도 없으면 종전처럼 ‘준비 중’ 한 줄");
+    setVars(fx, VARS);
   });
 
   // ── 3. 집계 support_stats:<KST 날짜> ────────────────────────────────────

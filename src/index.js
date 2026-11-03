@@ -9477,7 +9477,22 @@ function publicSupportWaysSectionV22995(config, email) {
     config.bank ? `계좌이체: ${config.bank}` : "",
     config.toss ? "토스 송금: 아래 ‘토스로 송금하기’ 를 누르면 송금 화면이 열려요." : "",
   ].filter(Boolean);
-  if (!ways.length) return { title: "후원하는 방법", paragraphs: ["후원 창구를 준비하고 있어요(출시 뒤 안내)."] };
+  if (!ways.length) {
+    // V22.9.97 사용자(2026-11-03) "후원은 카톡방 전용 링크로 접속한 사람한테 내가 안내할께": 송금 창구 변수가 없고 소통 오픈채팅(COMMUNITY_OPENCHAT_URL)만 있으면
+    // ‘준비 중’ 대신 오픈채팅에서 운영자가 직접 안내한다는 문장과 경유 링크(/support/go/openchat, 누른 수를 센다)를 둔다. 오픈채팅도 없으면 종전처럼 준비 중 한 줄.
+    if (config.community) {
+      return {
+        title: "후원하는 방법",
+        paragraphs: [
+          "후원 방법은 말해가계부 오픈채팅방에서 운영자가 직접 안내해 드려요. 아래 ‘말해가계부 오픈채팅 들어가기’ 로 들어와 ‘후원하고 싶어요’ 라고 말씀해 주세요.",
+          `오픈채팅이 어려우면 ${email} 로 알려 주셔도 돼요.`,
+        ],
+        note: "말해가계부 후원은 연말정산 공제 대상이 아니고 영수증을 발행하지 않아요.",
+        links: [["말해가계부 오픈채팅 들어가기", "/support/go/openchat"]],
+      };
+    }
+    return { title: "후원하는 방법", paragraphs: ["후원 창구를 준비하고 있어요(출시 뒤 안내)."] };
+  }
   // V22.9.97 후원 지표: 송금 단추는 변수 주소를 바로 싣지 않고 경유 주소(/support/go/<kind>)로 간다. 누른 수를 센 뒤 같은 주소로 302 한다.
   const links = [config.kakaopay ? ["카카오페이로 송금하기", "/support/go/kakaopay"] : null, config.toss ? ["토스로 송금하기", "/support/go/toss"] : null].filter(Boolean);
   return {
