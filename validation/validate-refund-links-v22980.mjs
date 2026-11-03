@@ -62,6 +62,9 @@
 // --print-golden 으로 다시 얻었다. 바뀐 값 6개(home·homeTrend·homePrev·analysis·backupFull·backupMonth), 그대로 19개(apiBatch 는 JSON 본문이라 값 자체가 같다).
 // V22.9.96(판 이름 꼬리표 POLICY-EFFECTIVE, 방침 시행일 상수와 12절 문장만 바뀜): 해시 입력에서 판 이름을 V22.9.95-LAUNCH-PREP 로 되돌려 돌리면 옛 값 그대로 268개가 모두 통과함을
 // 먼저 확인한 뒤(V22.9.82 와 같은 방법), analysis·backupFull·backupMonth 세 값을 --print-golden 으로 다시 얻었다. 그대로 22개.
+// V22.9.97(판 이름 꼬리표 MONETIZATION-PREP, 후원 진입점이 홈·사이드바에 들어감): 해시하는 화면 원문 96개를 V22.9.96(af15e5a)과 견주어 판 이름을 가리면
+// 후원 조각 3종(사이드바 abNavSupport 링크·홈 abHomeSupport 줄·홈 datalist 의 빈 option 끝 태그 생략)만 다름(같음 42·판 이름만 6·그 밖 48 모두 그 조각, review-artifacts/v97-monetization-prep-2026-11-02/work/compare-v96-v97.txt)을
+// 확인한 뒤 --print-golden 으로 다시 얻었다. 바뀐 값 12개(home·homeTrend·homePrev·budgets·budgetAlerts·reports·reportsWeek·analysis·backupPage·backupFull·backupMonth·candidate), 그대로 13개(apiBatch 는 JSON 본문이라 값 자체가 같다).
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
@@ -71,24 +74,24 @@ import { BASE, app, ctx, fixture, intercept, page, post, skill, withClock } from
 const PRINT_GOLDEN = process.argv.includes("--print-golden");
 const SOFT = process.env.V22980_SOFT === "1";
 const FLAG_OFF_GOLDEN = {
-  "home": "200 533102cb5dde6d29d37a59ae",
-  "homeTrend": "200 fe8cb1f4652ff7144607cc1a",
-  "homePrev": "200 e748b08e436dbc9d60a3de60",
-  "budgets": "200 e35058b43403a4cd620726c8",
-  "budgetAlerts": "200 e87cb397f66610e837dd7c83",
+  "home": "200 07ea6a83ccff3fda6c893531",
+  "homeTrend": "200 7c0be1432114fc2258a96c25",
+  "homePrev": "200 6980d87da2f51570f81fc62a",
+  "budgets": "200 9842980d5244618b7f76489b",
+  "budgetAlerts": "200 f180af377b9648a700cce48a",
   "notifications": "200 df9761ab7204d02ba148aa42",
-  "reports": "200 207d64b369bd78b881a09c36",
-  "reportsWeek": "200 6ff6c6ade3301c38d835dca4",
-  "analysis": "200 b842520b8ba75b7fc5861673",
-  "backupPage": "200 d4e2173d38990ea97bd1a73f",
+  "reports": "200 2650be4d675f435f95f15645",
+  "reportsWeek": "200 85718eb49c81e03c4ee6a44b",
+  "analysis": "200 98798eeab8cf6837677355dd",
+  "backupPage": "200 b9a026f5decec130db68d757",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 2b8e0eb05c1fe73aec78596b",
-  "backupMonth": "200 a7aae7071da9de3f02e205f5",
-  "candidate": "200 983fb55df7f069a2ab4a5fdd",
+  "backupFull": "200 0b9e2790b629d8c6c23e97ca",
+  "backupMonth": "200 75d235bce12c55d2d5bae68b",
+  "candidate": "200 500f881e0ca7f01cb92e917a",
   "legacyErr": "200 d539582f2d5a6042e415e38b", // V22.9.81 U-19: 옛 관리자 화면 오류 칸이 record_update_failed 를 코드 글자 대신 안내 문장으로 보인다(의도한 변경)
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
   "apiBatch": "200 {\"ok\":true,\"updatedCount\":1}",

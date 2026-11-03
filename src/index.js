@@ -1751,8 +1751,10 @@ function abUsageSupport(raw) {
   if (!raw || typeof raw !== "object" || Array.isArray(raw) || !raw.clicks || typeof raw.clicks !== "object" || Array.isArray(raw.clicks)) return null;
   const days = abUsageCount(raw.days), visits = abUsageCount(raw.visits), active = abUsageCount(raw.supporters_active), asOf = abUsageDay(raw.as_of);
   if (!days || days > 90 || visits === null || active === null || !asOf) return null;
-  const clicks = {};
-  for (const key of AB_USAGE_SUPPORT_CLICKS) { const n = abUsageCount(raw.clicks[key]); if (n === null) return null; clicks[key] = n; }
+  // SIM-10(validate-proto-safety-v22934): 빈 객체에 계산된 키를 넣지 않는다. 키는 상수 넷이라 fromEntries 로 한 번에 만든다.
+  const counts = AB_USAGE_SUPPORT_CLICKS.map((key) => abUsageCount(raw.clicks[key]));
+  if (counts.includes(null)) return null;
+  const clicks = Object.fromEntries(AB_USAGE_SUPPORT_CLICKS.map((key, index) => [key, counts[index]]));
   return { days, visits, clicks, clicks_total: AB_USAGE_SUPPORT_CLICKS.reduce((sum, key) => sum + clicks[key], 0), supporters_active: active, as_of: asOf };
 }
 
