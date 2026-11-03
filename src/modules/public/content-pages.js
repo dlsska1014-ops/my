@@ -14,6 +14,7 @@ import {
   publicArticleSiteMapLinks, publicArticlesHubPage, publicLivingCostArticlesV22974,
   publicNormalizeLivingArticles,
 } from "./living-cost-articles-v22974.js";
+import { publicLivingCostArticlesV22997 } from "./living-cost-articles-v22997.js";
 import { publicSupportPageV22995 } from "./support-page.js";
 import { headOnlyResponse, htmlResponse } from "../runtime/http.js";
 import { safeArray } from "../admin/backup-compare.js";
@@ -44,6 +45,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
   const catalog = {
     ...publicGuidePages(env),
     ...publicLivingCostArticlesV22974(),
+    ...publicLivingCostArticlesV22997(),
     privacy: {
       title: "개인정보처리방침",
       description: "말해가계부가 처리하는 개인정보와 가계부 데이터, 처리 목적, 보관 기간, 처리 위탁과 국외 이전, 개인정보 보호책임자, 광고 쿠키와 이용자 권리를 안내합니다.",
