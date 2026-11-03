@@ -24,6 +24,8 @@ const ARTICLES = [
   "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
 ];
 const V22940 = ["/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup", "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit", "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics", "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table"];
+// V22.9.97 생활비 글: 연말정산·절세 시즌 글 8편(public/living-cost-articles-v22997.js). 자세한 검사는 validate-v22997-articles 이고 여기서는 사이트맵·허브 수에만 더한다.
+const V22997 = ["/year-end-tax-timeline-checklist", "/payment-method-switch-nov-dec", "/medical-education-donation-deductions", "/dual-income-deduction-allocation", "/pension-savings-irp-tax-credit", "/single-household-year-end-tax", "/tax-refund-money-plan", "/housing-deductions-overview"];
 const LEGACY = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide", "/group-accountbook", "/security", "/faq", "/about", "/contact", "/privacy", "/terms", "/cookies", "/site-map", "/guides", "/demo", "/report-guide", "/import-guide"];
 const CATEGORIES = ["예산 세우기", "고정비·구독", "공동 생활비", "기록 습관", "리포트·분석", "저축·비상금·부채", "카드·세금", "통계로 보는 생활비", "생활 영역별 지출"];
 const FORBIDDEN = ["낭비", "헛돈", "추천 카드", "대출 추천", "투자 추천", "후기", "사용자 수", "무조건", "최고의", "반드시", "대박", "꿀팁", "완벽"];
@@ -48,7 +50,8 @@ try {
   const xml = await (await get("/sitemap.xml")).text();
   const entries = [...xml.matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)].map((m) => ({ path: new URL(m[1]).pathname, lastmod: m[2] }));
   // V22.9.95 후원: 후원 안내(/support) 한 쪽이 더해져 52개다.
-  eq(entries.length, LEGACY.length + V22940.length + ARTICLES.length + 2, "sitemap lists the 52 canonical public documents");
+  // V22.9.97 생활비 글: 연말정산·절세 글 8편이 더해져 60개다.
+  eq(entries.length, LEGACY.length + V22940.length + ARTICLES.length + V22997.length + 2, "sitemap lists the 60 canonical public documents");
   for (const path of [HUB, ...ARTICLES]) {
     const entry = entries.find((e) => e.path === path);
     ok(entry, `${path}: listed in XML sitemap`);
@@ -172,7 +175,8 @@ try {
   eq(structuredOf(hub)["@type"], "CollectionPage", "hub is a CollectionPage");
   eq((hub.match(/<h1[ >]/g) || []).length, 1, "hub has one H1");
   const cardLinks = [...hub.matchAll(/<ul class="pubCards">([\s\S]*?)<\/ul>/g)].flatMap((m) => [...m[1].matchAll(/<li><a href="([^"]+)">/g)].map((x) => x[1]));
-  eq(cardLinks.length, V22940.length + ARTICLES.length, "hub lists every article as a card");
+  // V22.9.97 생활비 글: 허브 카드는 12 + 20 + 8 = 40편이다.
+  eq(cardLinks.length, V22940.length + ARTICLES.length + V22997.length, "hub lists every article as a card");
   eq(new Set(cardLinks).size, cardLinks.length, "hub lists each article once");
   for (const path of [...V22940, ...ARTICLES]) ok(cardLinks.includes(path), `${path}: has a card on the hub`);
   eq((hub.match(/<small>작성 \d{4}-\d{2}-\d{2}/g) || []).length, cardLinks.length, "every card shows its publication date");

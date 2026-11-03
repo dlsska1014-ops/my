@@ -22,7 +22,7 @@ try {
     eq(page.includes("naver-site-verification"),false,"home-only metadata: "+p);
   }
   eq((await (await get("/health")).json()).version,readFileSync(new URL("../VERSION.txt", import.meta.url),"utf8").trim(),"health version");
-  eq(((await (await get("/sitemap.xml")).text()).match(/<loc>/g)||[]).length,52,"sitemap unchanged (V22.9.95 후원 안내 /support 를 더해 52)");
+  eq(((await (await get("/sitemap.xml")).text()).match(/<loc>/g)||[]).length,60,"sitemap unchanged (V22.9.95 후원 안내 /support 를 더해 52, V22.9.97 생활비 글 8편을 더해 60)");
   eq(outbound,0,"public responses make no external requests");
 } finally { globalThis.fetch = originalFetch; }
 console.log("V22.9.75 Naver verification: "+checks+" checks passed");

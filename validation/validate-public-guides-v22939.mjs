@@ -13,7 +13,9 @@ const paths = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-
 const articlePaths = ["/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup", "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit", "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics", "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table"];
 // V22.9.74: 글 목록 허브와 생활비 가이드 글 20편은 validate-public-articles-v22974 가 자세히 검사한다. 정본 목록에만 더한다.
 const v22974Paths = ["/articles", "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark", "/utility-bills-seasonality", "/inflation-budget-update", "/card-income-deduction-basics", "/year-end-tax-expense-check", "/rent-tax-credit-records", "/apartment-maintenance-fee", "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order", "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning", "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions"];
-const allPaths = [...paths, ...articlePaths, ...v22974Paths];
+// V22.9.97 생활비 글: 연말정산·절세 시즌 글 8편은 validate-v22997-articles 가 자세히 검사한다. 정본 목록에만 더한다.
+const v22997Paths = ["/year-end-tax-timeline-checklist", "/payment-method-switch-nov-dec", "/medical-education-donation-deductions", "/dual-income-deduction-allocation", "/pension-savings-irp-tax-credit", "/single-household-year-end-tax", "/tax-refund-money-plan", "/housing-deductions-overview"];
+const allPaths = [...paths, ...articlePaths, ...v22974Paths, ...v22997Paths];
 const origin = "https://malhaebook.com";
 const get = (path, method = "GET", env = {}, headers = {}) => app.fetch(new Request(`${origin}${path}`, { method, headers }), env, {});
 const originalFetch = globalThis.fetch;

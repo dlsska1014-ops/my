@@ -9,7 +9,7 @@
 //      애드핏 호스트·설치 코드·고지 링크는 게이트 블록 밖에 없다
 //   1. 기본값과 AdSense 는 그대로: ADS_MODE 가 정확히 "adfit" 이 아니면 광고 단위 변수가 있어도 review·AdSense live 와 바이트 동일,
 //      광고 단위가 맞지 않으면 review 와 바이트 동일(광고·CSP 확장 없음)
-//   2. 애드핏 공개 화면 45쪽: 설치 코드 하나(공식 SDK 코드 그대로)·Google 광고 코드 없음·본문 끝 자리·CSP 확장
+//   2. 애드핏 공개 화면 53쪽(V22.9.97 글 8편 포함): 설치 코드 하나(공식 SDK 코드 그대로)·Google 광고 코드 없음·본문 끝 자리·CSP 확장
 //   3. 애드핏 로그인 뒤 화면 5개(운영정책 5.2)와 금지 화면: review 와 바이트 동일
 //   4. 광고 단위 값 검증(ID·크기), 5. 정책 화면 문구(카카오 기준), 6. /ready 의 ads_mode·adfit_unit, /health 는 그대로
 // 렌더링은 QA 픽스처와 app.fetch 로만 한다(서버·네트워크 없음).
@@ -107,7 +107,8 @@ for (const path of ["wrangler.toml", "wrangler.json", "wrangler.jsonc", "monitor
 const pageKeys = [...(source.match(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 const publicPaths = [...(source.match(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 const PUBLIC_ALLOWED = pageKeys.filter((key) => publicPaths.includes(key));
-eq(PUBLIC_ALLOWED.length, 45, "애드핏 허용 화면은 공개 정본 문서 45쪽이다(AD_PAGE_KEYS ∩ PUBLIC_CONTENT_PATHS)");
+// V22.9.97 생활비 글: 연말정산·절세 글 8편이 공개 정본·광고 화면 목록에 함께 더해져 45 → 53쪽이다.
+eq(PUBLIC_ALLOWED.length, 53, "애드핏 허용 화면은 공개 정본 문서 53쪽이다(AD_PAGE_KEYS ∩ PUBLIC_CONTENT_PATHS)");
 eq(JSON.stringify(pageKeys.filter((key) => !publicPaths.includes(key))), JSON.stringify(["/reports", "/annual", "/smart-tools", "/start-guide", "/keyword-guide"]), "애드핏에서 빠지는 화면은 로그인 뒤 읽는 5개뿐이다");
 
 // ── 렌더 준비 ─────────────────────────────────────────────────────────────
