@@ -1,6 +1,6 @@
 # 현재 상태 (작업 시작 때 이 파일만 읽는다)
 
-마지막 갱신: 2026-11-04 (Codex). 강제 종료 뒤 운영 V22.9.98의 정상 응답과 깨끗한 작업 트리를 확인했다. 배포 기록 PR #125의 머리 7f39197을 기반으로 V22.9.99-SUPPORT-WORDING을 구현했다. 문구 정리·후원 비용 설명·공지 하루 숨김이 범위이며 일반 61,894개·분류 표 부재 61,891개·체크섬 765개가 통과했다. PR·CI를 준비하며 병합·운영 배포 전이다.
+마지막 갱신: 2026-11-04 (Codex). PR #126을 main `df7c579`에 병합하고 V22.9.99-SUPPORT-WORDING을 운영에 반영했다(version `a0a169e7…` #330). 바인딩 33개와 금지 변수 11개 부재를 유지했다. health 5회 연속·ready·후원 문구·공지 숨김 POST 1회를 확인했다. 기록은 docs/deployments/V22_9_99_2026_11_04.md에 있다. 다음 작업은 V22.9.100 K-1의 구현 PR·CI 4/4까지다.
 
 이전 갱신: 2026-11-03 18:15 KST (Codex). PR #124 병합(main 369a440, 18:09:37)과 V22.9.98-ARTICLE-LINKS 앱 배포(18:13:59, version 9568bfdb… #329)를 완료했다. 관제는 1.6.0이며 바인딩 33개를 유지했다. 직후 검사와 관련 글 연결 8/8이 통과했다. 기록은 docs/deployments/V22_9_98_2026_11_03.md에 있다.
 
@@ -11,8 +11,8 @@
 | 항목 | 값 |
 |---|---|
 | 운영 Worker | `kakao-accountbook`, 도메인 https://malhaebook.com |
-| 운영 판 | **V22.9.98-ARTICLE-LINKS**, 2026-11-03 18:13:59.500 KST에 100% 승격했다. version `9568bfdb-4d82-4e0e-9182-e8bd8e716cc3`(#329), deployment `2b4e8553-df4d-4e1e-9c11-c12284a6edba`, 바인딩 33개. main `369a440`, 번들 9,604,959바이트. 기록 docs/deployments/V22_9_98_2026_11_03.md. |
-| 되돌리기 대상 | 앱 V22.9.97-MONETIZATION-PREP `d97741c8-231c-4c73-a222-75019def45eb`(#328, 바인딩 33개). 별도 사용자 지목 뒤에만 수행한다. 되돌리면 관련 글 링크 8곳이 이전 상태로 돌아가며 DB 영향은 없다. 관제 1.6.0은 이번에 변경하지 않았다. |
+| 운영 판 | **V22.9.99-SUPPORT-WORDING**, 2026-11-04 20:43 KST에 100% 승격했다. version `a0a169e7-6390-4a5b-8061-e2bcc88dbfad`(#330), deployment `64a7bfa5-89b4-45f4-a85c-3b7d1f631df3`, 바인딩 33개. main `df7c579`, 번들 9,607,075바이트. 기록 docs/deployments/V22_9_99_2026_11_04.md. |
+| 되돌리기 대상 | 앱 V22.9.98-ARTICLE-LINKS `9568bfdb-4d82-4e0e-9182-e8bd8e716cc3`(#329, 바인딩 33개). 별도 사용자 지목 뒤 수행한다. 되돌리면 V98 문구와 공지가 돌아오고 숨김 쿠키는 무시된다. DB 영향은 없다. |
 | 관제 Worker | `malhaebook-monitor` 1.6.0, version `ce046034-060a-4671-bb88-cb0216d8e44a`, 배포 `73d544c8-c6d7-4dc9-ab9f-7b8a4b6f3641`(2026-11-03 13:50:15 KST). 이용 현황에 ‘후원(대략, 30일)’ 줄을 더했다(앱 support 칸이 없으면 ‘-’). 되돌리기 대상 1.5.0 `3083fd46-857c-4a8d-ac75-32b9f9dac838`(별도 사용자 승인 뒤에만. 되돌리면 후원 줄이 사라진다. 그 앞 1.4.0 `c973405f-a765-4e48-84d4-950ac152ca6a`. 1.4.0 아래로 내리면 30일 정리가 지난달 이전 이용 현황 달 행을 지운다) |
 | 운영 DB | Supabase. 2026-10-18 V61 수명주기 migration 적용 완료. 재실행·V44 복귀·구형 RPC 권한 복원 금지. 2026-10-29 16:38 V22.9.82 읽기 전용 집계 함수 accountbook_usage_summary_v22982 적용(service_role 만 실행). 2026-10-30 11:02 V22.9.88 Y-2 실행 취소 조건부 삭제 함수 accountbook_delete_transaction_if_v22988 적용(service_role 만 실행) |
 | 외부 콘솔 | OpenBuilder v4.1 부분 배포(2026-10-30 11:55, 사용자가 Aside 로): 봇 입장 블록 ‘웹가계부’ 버튼 = URL 링크 https://malhaebook.com/my(카카오 심사 의견). 그 앞 v4.0 전체 배포(10-29 19:35, 웰컴 본문), v3.7 대표 명령어 ‘기록하기’(10-27). 다음 배포는 v4.2. 봇 입장 블록 버튼 셋(웹가계부·도움말 보기·기록하기), 도움말 하단 창, 대표 명령어 14개. Kakao Developers·채널 변경 없음 |
@@ -22,8 +22,8 @@
 
 | 항목 | 값 |
 |---|---|
-| GitHub main | `369a440` = PR #124 병합(2026-11-03 18:09:37 KST). 트리는 검증한 머리 e5de32a와 같다. PR CI 4/4(41604186519), main CI 성공(41608745369). |
-| 진행 중 | `codex/v22999-support-wording`, 폴더 `my-v22999-support-wording`. 미병합 배포 기록 PR #125의 머리에서 분기했다. V99 PR은 #125 브랜치를 기준으로 검토하고, #125 병합 후 main으로 전환한다. 운영은 V98이며 새 SQL·환경변수·관제·카카오 콘솔 변경은 없다. |
+| GitHub main | `df7c579` = PR #126 병합(2026-11-04). 트리는 검증한 머리 `283bef5`와 같다. PR CI 4/4(41746732260). |
+| 진행 중 | V99 배포 기록 브랜치 `codex/v22999-deployment-records`. 다음 구현은 V22.9.100 K-1이며 PR·CI 4/4 뒤 멈춘다. 후속은 B-0 → A-1 즉시 닫기·A-2 최근 글·A-4 사실 검토 → B → C 순서다. 앱 1489689 재연결은 K-1·B-0 운영 반영 뒤 사용자 지목을 기다린다. |
 | 배포 절차 | `node tools/deploy-worker-version.mjs`(업로드·대조, 배포 아님) → 출력의 `--promote <id>` 명령(승인 뒤). 토큰은 환경변수로만. 답장에 실행 가능한 되돌리기 예시를 적지 않는다(2026-10-19 사고) |
 | 검증 | `node tools/build-worker.mjs --check` → `node .codex/scripts/verify-repository.mjs` → `npm run validate:categories-absent`. 하한·manifest 는 하네스 머리의 상수와 `BUNDLE_FILE_CHECKSUMS_<판>.sha256`. 운영 /ready 에 `accountbook_categories` 가 없으므로 분류 표 부재 모드가 실제 운영 모드다 |
 | 운영 설정 | 필요한 Secret·환경변수·cron·관제 한 장: `docs/OPERATIONS_CONFIG.md` |
