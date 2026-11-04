@@ -108,9 +108,9 @@ await withClock(TODAY, () => fixture(async (fx) => {
     const secs = sectionsOf(support.html);
     eq(secs.map((s) => s.title), ["왜 후원이 필요한가요", "후원금은 이렇게 써요", "후원하는 방법", "후원자에게 드리는 것", "함께 이야기하는 곳", "문의"], "1-d 절 구성(명단이 없으면 명단 절은 없다)");
     const cost = secs[0]?.body || "";
-    ok(!/<table|달러|요금제|4만 5천|한 달 운영 비용/.test(cost) && cost.includes("서버 운영 비용과 유지보수·업데이트에 큰 도움이 됩니다") && cost.includes("후원하지 않아도 쓸 수 있는 기능은 똑같아요"), "1-e 첫 절: 비용 표·금액 없이 ‘서버 운영 비용과 유지보수·업데이트에 큰 도움’(E-18, 사용자 결정)");
+    ok(!/<table|달러|요금제|4만 5천|한 달 운영 비용/.test(cost) && cost.includes("운영 비용과 유지보수·업데이트에 큰 도움이 됩니다") && cost.includes("금액은 정해져 있지 않아요"), "1-e 첫 절: 비용 표·금액 없이 ‘서버 운영 비용과 유지보수·업데이트에 큰 도움’(E-18, 사용자 결정)");
     ok(!/달러|요금제|4만 5천|한 달 운영 비용/.test(support.html), "1-e′ 페이지 어디에도 요금제·달러·예정 금액이 없다(E-18)");
-    ok(secs[1]?.body.includes("로그인 화면과 카카오톡 봇 답장에는 광고를 넣지 않아요") && secs[1]?.body.includes("핵심 기능은 후원과 관계없이 계속 무료"), "1-f 약속: 로그인 화면·봇에 광고 없음, 핵심 기능 무료");
+    ok(secs[1]?.body.includes("외부 저장소 비용") && !/계속 무료|후원하지 않아도/.test(support.html), "1-f 서버·저장소 비용 안내, 미래 이용료 약속 없음");
     const ways = secs[2]?.body || "";
     ok(ways.includes("후원 창구를 준비하고 있어요(출시 뒤 안내).") && hrefs(ways).length === 0 && !/<ul>/.test(ways), "1-g 변수가 없으면 ‘준비 중’ 한 줄만, 링크 0");
     ok(!/kakaopay|toss\.me|open\.kakao\.com/.test(support.html), "1-h 변수가 없으면 송금·오픈채팅 주소가 페이지 어디에도 없다");

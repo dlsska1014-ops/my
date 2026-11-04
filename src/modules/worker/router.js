@@ -20,7 +20,7 @@ import {
 } from "../public/site-config.js";
 import { supportGoResponseV22997, supportVisitResponseV22997 } from "../public/support-page.js";
 import { handlePublicContentPage, publicDocumentResponse } from "../public/content-pages.js";
-import { noticeBandResponse } from "../web/html-postprocess.js";
+import { handleNoticeHideV22999, noticeBandResponse } from "../web/html-postprocess.js";
 import { logWorkerError, safeError } from "../runtime/leases.js";
 import {
   browserFormRequestFailed, constantTimeTextEqual, emergencyReturnUrl, headOnlyResponse,
@@ -344,6 +344,8 @@ const ACCOUNTBOOK_WORKER = {
       const hiddenFeature = hiddenIncompleteFeatureResponse(request, env, url);
       if (hiddenFeature) return hiddenFeature;
 
+      if (url.pathname === "/notice/hide") return await handleNoticeHideV22999(request, env);
+
       // V22.9.97 후원 지표: /support/go/<kind> 는 송금·오픈채팅 주소로 보내는 경유 주소다(누른 수만 센다). /support/visit 는 /support 화면이
       // 실제로 보일 때 보내는 방문 신호(POST, 204)다. 둘 다 public/support-page.js.
       const supportVisit = supportVisitResponseV22997(request, env, url, ctx);
@@ -484,7 +486,7 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if ((url.pathname === "/smart-tools" || url.pathname === "/my/premium") && request.method === "GET") {
-        return safeHtmlRoute(request, url, () => handleMyPremiumPage(request, env, url), "무료 스마트 도구");
+        return safeHtmlRoute(request, url, () => handleMyPremiumPage(request, env, url), "스마트 도구");
       }
 
       // 영수증 사진 등록은 인식률 문제로 없앴다. 예전 북마크·홈 화면 바로가기는 홈으로 보낸다.

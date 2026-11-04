@@ -305,7 +305,7 @@ function renderPcSidebar(active, month, householdId, householdName = "") {
     ["calendar", "달력", "◷"],
     ["analysis", "분석", "▣"],
     ["cleanup", "정리", "✓"],
-    ["premium", "무료 스마트", "◇"],
+    ["premium", "스마트", "◇"],
   ];
   const m = safeNavMonth(month);
   const hid = safeNavHouseholdId(householdId);
@@ -391,7 +391,7 @@ function renderTabs(active, month, householdId, extra) {
     ["cleanup", "정리"],
     ["import", "파일"],
     ["guide", "가이드"],
-    ["premium", "무료 스마트"],
+    ["premium", "스마트"],
   ];
   const normal = tabs.map(([key, label]) => `<a class="tab ${active === key ? "active" : ""}" href="${escapeHtml(dashboardQuery(month, householdId, { ...extra, tab: key }))}">${label}</a>`).join("");
   const tools = `<a class="tab tool" href="/households${householdId ? `?household_id=${encodeURIComponent(householdId)}` : ""}">가계부·참여자</a><a class="tab tool" href="/categories${householdId ? `?household_id=${encodeURIComponent(householdId)}` : ""}">분류설정</a><a class="tab tool" href="/kakao-recent">카카오확인</a><a class="tab tool" href="/diagnostics">시스템진단</a><a class="tab tool" href="/app">모바일 입력</a>`;

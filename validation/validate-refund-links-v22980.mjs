@@ -74,32 +74,34 @@ import { BASE, app, ctx, fixture, intercept, page, post, skill, withClock } from
 
 const PRINT_GOLDEN = process.argv.includes("--print-golden");
 const SOFT = process.env.V22980_SOFT === "1";
+// V22.9.99: 96 raw hash inputs compared with V98. Only version and authorized copy/title changes remain.
+// Evidence: review-artifacts/v99-support-wording-2026-11-04/refund-normalized-comparison.json.
 const FLAG_OFF_GOLDEN = {
-  "home": "200 07ea6a83ccff3fda6c893531",
-  "homeTrend": "200 7c0be1432114fc2258a96c25",
-  "homePrev": "200 6980d87da2f51570f81fc62a",
+  "home": "200 6102bc4636a8a2cab4984d97",
+  "homeTrend": "200 e94b798ea28058746d83ed40",
+  "homePrev": "200 a8385ede6c84ba16f2933388",
   "budgets": "200 9842980d5244618b7f76489b",
   "budgetAlerts": "200 f180af377b9648a700cce48a",
   "notifications": "200 df9761ab7204d02ba148aa42",
-  "reports": "200 2650be4d675f435f95f15645",
-  "reportsWeek": "200 85718eb49c81e03c4ee6a44b",
-  "analysis": "200 9c4632edbfaa94c7672f3d22",
+  "reports": "200 fef72cab327c9203e1d1d3b7",
+  "reportsWeek": "200 428380c89484611de8943026",
+  "analysis": "200 92546550c340f7e1eb36d0c8",
   "backupPage": "200 b9a026f5decec130db68d757",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 53671f16a7fb258adbe52c46",
-  "backupMonth": "200 4b28dcdc7074eb163d650c14",
+  "backupFull": "200 ff32352e69690af431d96c03",
+  "backupMonth": "200 9e3b4960a019e07918182f17",
   "candidate": "200 500f881e0ca7f01cb92e917a",
-  "legacyErr": "200 d539582f2d5a6042e415e38b", // V22.9.81 U-19: 옛 관리자 화면 오류 칸이 record_update_failed 를 코드 글자 대신 안내 문장으로 보인다(의도한 변경)
+  "legacyErr": "200 8483371f87264a4e90af381d",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
   "apiBatch": "200 {\"ok\":true,\"updatedCount\":1}",
-  "adminBulk": "303 /?legacy=1&month=2026-10&household_id=house-home&tab=transactions&msg=bulk_updated", // V22.9.81 U-18: 일괄 수정 성공은 코드로 보낸다(의도한 변경)
+  "adminBulk": "303 /?legacy=1&month=2026-10&household_id=house-home&tab=transactions&msg=bulk_updated",
   "kakaoDelete": "59d0ab376fbb9feece99ac94",
   "kakaoUndoItem": "4b4cef4eedf1c84f21621d08",
-  "kakaoRestore": "6e0dda7e90c6a0802b704a2d",
+  "kakaoRestore": "6e0dda7e90c6a0802b704a2d"
 };
 
 const failures = [];

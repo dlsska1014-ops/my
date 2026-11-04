@@ -1960,6 +1960,8 @@ const ACCOUNTBOOK_WORKER = {
       const hiddenFeature = hiddenIncompleteFeatureResponse(request, env, url);
       if (hiddenFeature) return hiddenFeature;
 
+      if (url.pathname === "/notice/hide") return await handleNoticeHideV22999(request, env);
+
       // V22.9.97 후원 지표: /support/go/<kind> 는 송금·오픈채팅 주소로 보내는 경유 주소다(누른 수만 센다). /support/visit 는 /support 화면이
       // 실제로 보일 때 보내는 방문 신호(POST, 204)다. 둘 다 public/support-page.js.
       const supportVisit = supportVisitResponseV22997(request, env, url, ctx);
@@ -2100,7 +2102,7 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if ((url.pathname === "/smart-tools" || url.pathname === "/my/premium") && request.method === "GET") {
-        return safeHtmlRoute(request, url, () => handleMyPremiumPage(request, env, url), "무료 스마트 도구");
+        return safeHtmlRoute(request, url, () => handleMyPremiumPage(request, env, url), "스마트 도구");
       }
 
       // 영수증 사진 등록은 인식률 문제로 없앴다. 예전 북마크·홈 화면 바로가기는 홈으로 보낸다.
@@ -3181,7 +3183,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.98-ARTICLE-LINKS";
+const APP_VERSION = "V22.9.99-SUPPORT-WORDING";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3540,7 +3542,7 @@ function adSlotMarkup(env = {}, pageKey = "") {
 const ADS_POLICY_TEXT = Object.freeze({
   privacy: "말해가계부는 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시합니다. Google을 포함한 제3자 광고 사업자는 쿠키를 사용해 사용자가 이 사이트나 다른 사이트를 방문한 기록을 바탕으로 광고를 제공하고 성과를 측정합니다. Google은 광고 쿠키(DoubleClick 쿠키 등)를 사용해 Google과 파트너가 이 사이트와 다른 사이트 방문 기록을 바탕으로 광고를 제공할 수 있게 합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있으며, Google이 광고에 정보를 이용하는 방식은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다.",
   cookies: "말해가계부는 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시합니다. 광고가 표시되는 화면에서는 Google과 파트너가 광고 쿠키(DoubleClick 쿠키 등)와 유사 기술을 사용해 광고를 제공하고 성과를 측정합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있고, 자세한 내용은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
-  faq: "현재 공개된 기능은 무료로 제공합니다. 서비스 운영을 위해 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시하며, 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있습니다.",
+  faq: "지금은 가입비나 이용료 없이 쓸 수 있어요. 서비스 운영을 위해 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시하며, 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있습니다.",
 });
 
 // V22.9.92: 애드핏을 켠 서버의 고지. 광고 사업자(주식회사 카카오)와 수집하는 행태정보, 광고를 두지 않는 화면, 끄는 방법을 적는다.
@@ -3551,7 +3553,7 @@ const ADFIT_POLICY_TEXT = Object.freeze({
   "privacy-control": "말해가계부는 광고를 누른 방문자의 개인정보를 따로 수집하지 않고, 거래 내용·예산·가계부 구성원 정보와 사용자 발화 원문을 광고 사업자나 광고주에게 제공하거나 판매하지 않습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내 화면에서 끌 수 있고, 브라우저 설정에서 쿠키를 차단해 거부할 수도 있습니다. 쿠키를 지우면 거부 설정도 함께 지워질 수 있습니다.",
   cookies: "말해가계부는 공개 가이드와 생활비 글처럼 로그인 없이 누구나 읽는 화면에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 주식회사 카카오가 광고 쿠키와 유사 기술을 사용해 맞춤형 광고를 제공하고 성과를 측정할 수 있습니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
   "cookies-control": "사용자는 카카오 맞춤형 광고 안내 화면과 브라우저의 사이트별 쿠키 설정으로 맞춤형 광고와 저장된 쿠키를 관리할 수 있습니다. 쿠키를 지우면 맞춤형 광고 거부 설정도 함께 지워질 수 있습니다.",
-  faq: "현재 공개된 기능은 무료로 제공합니다. 서비스 운영을 위해 공개 가이드와 생활비 글처럼 로그인 없이 읽는 화면에 카카오 애드핏 광고를 표시하며, 로그인한 사람만 보는 화면·거래를 입력·저장하는 화면·로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내(https://info.ds.kakao.com/optout.do)에서 끌 수 있습니다.",
+  faq: "지금은 가입비나 이용료 없이 쓸 수 있어요. 서비스 운영을 위해 공개 가이드와 생활비 글처럼 로그인 없이 읽는 화면에 카카오 애드핏 광고를 표시하며, 로그인한 사람만 보는 화면·거래를 입력·저장하는 화면·로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내(https://info.ds.kakao.com/optout.do)에서 끌 수 있습니다.",
 });
 
 // V22.9.92: 정책 화면이 쓸 광고 사업자 — 실제로 광고를 낼 수 있을 때만 "adsense"(live)·"adfit", 아니면 ""(지금 문장). 애드핏 광고
@@ -3692,7 +3694,7 @@ function publicGuidePages(env = {}) {
     title, description, eyebrow, intro, sections, updated: "2026-10-11", ...extra,
   });
   return {
-    home: page("말한 기록이, 함께 보는 생활비가 됩니다", "카카오톡에서 수입과 지출을 기록하고 웹에서 예산·생활비·정산을 확인하세요. 가입 전 가상 예제로 계산 방법을 살펴볼 수 있습니다.", "카카오톡으로 기록하는 말해가계부", "점심값은 채팅으로 남기고, 한 달 생활비는 웹에서 확인하세요. 개인 가계부와 방마다 나누는 공동 가계부를 무료로 사용할 수 있습니다. 먼저 가상 예제로 기록이 어떻게 합계와 예산으로 이어지는지 살펴보세요.", [
+    home: page("말한 기록이, 함께 보는 생활비가 됩니다", "카카오톡에서 수입과 지출을 기록하고 웹에서 예산·생활비·정산을 확인하세요. 가입 전 가상 예제로 계산 방법을 살펴볼 수 있습니다.", "카카오톡으로 기록하는 말해가계부", "점심값은 채팅으로 남기고, 한 달 생활비는 웹에서 확인하세요. 개인 가계부와 방마다 나누는 공동 가계부를 사용할 수 있습니다. 먼저 가상 예제로 기록이 어떻게 합계와 예산으로 이어지는지 살펴보세요.", [
       { title: "내게 맞는 시작 방법", table: { caption: "개인 기록과 공동 기록의 시작 방법", headers: ["사용할 곳", "첫 행동", "확인할 결과"], rows: [["카카오톡 1:1", "점심 만원", "웹 로그인 없이 개인 가계부의 첫 기록을 준비합니다."], ["새 단톡방", "봇을 호출하고 점심 12000원", "그 방의 공동 가계부를 준비합니다. 첫 기록자는 소유자가 됩니다."], ["기존 가계부", "오늘 기록 보기", "현재 연결된 가계부의 기록을 확인합니다."]] }, note: "봇 추가만으로 거래를 만들지는 않습니다. 명확한 기록 요청이 있어야 하며, 기존 권한 제한이나 삭제·연결 해제 이력은 그대로 적용됩니다.", links: [["처음 기록하는 순서", "/how-it-works"]] },
       { title: "전체 지출과 남은 예산이 다른 이유", paragraphs: ["식비와 교통에만 예산을 세웠다면 의료비는 전체 지출에 포함되지만 예산 비교에서는 따로 봅니다. 무엇을 예산에 포함했는지 알아야 남은 금액도 정확히 읽을 수 있습니다."], links: [["255,000원 지출 예제로 직접 확인", "/demo"], ["분류별 예산 계산 방법", "/budget-guide"]] },
       { title: "기록 이후에 필요한 도구", links: [["주간·월간 생활비 리포트 읽기", "/report-guide"], ["카드 내역 가져오기와 CSV 백업", "/import-guide"], ["기능별로 할 수 있는 일", "/service-guide"]] },
@@ -3711,7 +3713,7 @@ function publicGuidePages(env = {}) {
       { title: "어디에서 무엇을 하나요?", table: { caption: "주요 기능과 사용 위치", headers: ["작업", "카카오톡", "웹"], rows: [["거래 기록", "내용과 금액을 한 문장으로 전송", "빠른 입력과 거래 수정"], ["예산", "예산 설정·남은 예산 조회", "분류별 예산과 적용 지출 확인"], ["생활비 점검", "오늘 기록·이번 달 요약", "주간·월간 리포트와 상세 분석"], ["공동 사용", "방별 기록·초대·연결", "참여자와 역할 관리·정산"], ["내역 이동", "웹 가계부 열기로 이동", "파일 미리보기·선택 저장·CSV 내보내기"]] }, links: [["카카오 명령 예시", "/kakao-guide"], ["생활비 리포트", "/report-guide"]] },
       { title: "권한에 따라 할 수 있는 일이 달라집니다", table: { caption: "가계부 안에서의 역할", headers: ["역할", "가능한 작업", "주의할 점"], rows: [["소유자·관리자", "조회·기록·구성원 기록 관리·가계부 관리", "영구 삭제 등 일부 작업은 소유자와 본인 확인이 필요합니다."], ["구성원", "조회·기록·자신의 기록 수정과 삭제", "소유자가 구성원 권한을 ‘기록만’으로 정하면 새 기록만 남깁니다. 예산과 참여자 관리는 관리 권한이 필요합니다."], ["조회 전용", "조회·거래 CSV 다운로드", "새 기록이나 파일 가져오기는 할 수 없습니다."], ["승인 대기·이용 제한", "허용된 안내와 권한 확인", "초대코드를 반복 입력해도 제한이 해제되지 않습니다."]] } },
       { title: "자동으로 처리하지 않는 작업", bullets: ["은행·카드사 계정에 로그인하여 결제 내역을 자동 수집하지 않습니다.", "단톡방 전체 대화를 읽지 않으며 봇에 전달된 요청을 처리합니다.", "정산 화면에서 제안한 금액을 실제로 송금하지 않습니다.", "CSV 거래 백업으로 계정·참여 권한·모든 설정을 통째로 복원하지 않습니다.", "영수증 사진 등록 기능은 현재 제공하지 않습니다."], links: [["파일 가져오기 범위", "/import-guide"], ["공동 정산 계산 사례", "/group-accountbook"]] },
-      { title: "처리 결과는 어디에서 확인하나요?", paragraphs: ["카카오 저장 응답 뒤에는 ‘오늘 기록 보기’에서 날짜·금액·내용을 확인합니다. 웹에서는 선택한 가계부와 기간을 확인한 뒤 거래 목록을 봅니다. 저장 결과가 불명확하다는 안내를 받으면 같은 입력을 반복하지 말고 목록을 먼저 확인하세요.", "공개된 기능은 현재 무료로 제공합니다. 기능 사용 권한은 유료 등급이 아니라 가계부 안에서의 역할에 따라 달라집니다."], links: [["첫 기록 안내", "/how-it-works"], ["문제가 있을 때", "/faq"]] },
+      { title: "처리 결과는 어디에서 확인하나요?", paragraphs: ["카카오 저장 응답 뒤에는 ‘오늘 기록 보기’에서 날짜·금액·내용을 확인합니다. 웹에서는 선택한 가계부와 기간을 확인한 뒤 거래 목록을 봅니다. 저장 결과가 불명확하다는 안내를 받으면 같은 입력을 반복하지 말고 목록을 먼저 확인하세요.", "기능 사용 권한은 가계부 안에서의 역할에 따라 달라집니다."], links: [["첫 기록 안내", "/how-it-works"], ["문제가 있을 때", "/faq"]] },
     ]),
     "how-it-works": page("첫 기록을 남기고 같은 가계부를 웹에서 열기", "카카오 1:1 첫 기록, 새 단톡방의 공동 기록, 10분 연결 코드로 웹에서 이어 여는 방법을 단계별로 설명합니다.", "처음 사용하는 날", "개인 기록은 1:1 채팅에서 시작하세요. 여러 사람이 같은 내역을 보려면 단톡방에서 봇을 호출해 기록합니다. 웹은 상세 확인이나 파일 작업이 필요할 때 이어 열 수 있습니다.", [
       { title: "1:1 채팅에서 개인 첫 기록", steps: ["말해가계부와의 1:1 채팅에 ‘점심 만원’을 보냅니다.", "처음 사용하는 계정이라면 웹 로그인 없이 개인 가계부와 첫 기록을 준비합니다.", "저장 응답에서 10,000원과 내용을 확인하고 ‘오늘 기록 보기’로 다시 확인합니다.", "이름과 예산은 필요할 때 설정합니다. 시작부터 모든 설정을 마칠 필요는 없습니다."], note: "이미 사용한 계정, 삭제·나가기 이력이 있는 계정, 승인 대기·조회 전용·이용 제한 계정은 기존 가계부와 권한 절차를 따릅니다." },
@@ -3811,7 +3813,7 @@ function publicGuidePages(env = {}) {
       ["참여했는데 예산이나 다른 사람의 거래를 바꿀 수 없어요.", "구성원은 자신의 기록을 수정·삭제합니다. 다만 소유자가 구성원 권한을 ‘기록만’으로 정한 가계부에서는 새 기록만 남길 수 있습니다. 예산과 참여자 관리에는 소유자·관리자 권한이 필요합니다. 조회 전용이나 승인 대기 상태는 초대코드 재입력만으로 바뀌지 않습니다."],
       ["카드별 사용액이 카드사 실적과 달라요.", "말해가계부는 입력한 결제수단 기준으로 합산합니다. 실시간 카드사 데이터가 아니며 누락·취소·혜택 제외 항목이 다를 수 있습니다. 공식 명세서와 혜택 조건을 대조하세요."],
       ["CSV만 있으면 계정 전체를 복구할 수 있나요?", "일반 CSV 백업은 거래 목록입니다. 계정 로그인, 참여 권한, 예산과 모든 설정을 통째로 복원하지 않습니다. 가져오기 미리보기에서 행을 확인한 뒤 거래를 등록합니다."],
-      ["무료인가요? 광고가 나오나요?", adsPolicyText(env, "faq") || "현재 공개된 기능은 무료로 제공합니다. 현재 공개 페이지에는 Google 광고를 실행하지 않습니다. 광고 기능을 도입할 때에는 관련 안내와 필요한 절차를 갖춘 뒤 운영합니다."],
+      ["이용료가 있나요? 광고가 나오나요?", adsPolicyText(env, "faq") || "지금은 가입비나 이용료 없이 쓸 수 있어요. 현재 공개 페이지에는 Google 광고를 실행하지 않습니다. 광고 기능을 도입할 때에는 관련 안내와 필요한 절차를 갖춘 뒤 운영합니다."],
       ["단톡방 전체 대화나 입력 문장을 AI 학습에 쓰나요?", "단톡방 전체 대화를 임의로 읽지 않고 봇에 전달된 요청을 처리합니다. 거래 입력 원문과 일부 마스킹 오류 기록은 서비스 운영을 위해 보관될 수 있으나 외부 AI 모델 학습에 자동 전송하지 않습니다."],
     ] }),
     about: page("말해가계부와 콘텐츠 운영 원칙", "도담 네트워크가 운영하는 독립 가계부 서비스의 목적, 안내 작성 기준, 가상 사례와 수정 원칙을 설명합니다.", "서비스를 만드는 기준", "말해가계부는 도담 네트워크가 운영하는 생활비 기록 서비스입니다. 카카오톡에서 남긴 짧은 기록을 웹의 예산·분석·공동 정산으로 이어 확인하도록 구성했습니다.", [
@@ -3819,7 +3821,7 @@ function publicGuidePages(env = {}) {
       { title: "안내와 예제를 작성하는 방법", paragraphs: ["공개 가이드는 말해가계부의 기능과 계산 규칙을 기준으로 작성합니다. 예산·정산·리포트 사례에는 설명을 위해 구성한 가상 데이터를 사용하며, 실제 이용 후기나 고객의 절약 성과로 제시하지 않습니다.", "글 수나 분량을 늘리기 위해 같은 설명을 여러 페이지에 반복하지 않습니다. 각 페이지는 하나의 작업을 다루고, 다른 작업은 관련 가이드로 연결합니다. 기능 동작이 바뀌거나 잘못된 설명을 찾으면 해당 안내와 수정일을 갱신합니다.", "외부 자료를 참고할 때에는 출처를 밝히고, 외부 글을 그대로 가져오는 대신 서비스에서 확인할 수 있는 과정과 한계를 설명합니다."], links: [["목적별 사용 가이드", "/guides"], ["가상 예제의 계산 근거", "/demo"]] },
       { title: "운영팀과 글 작성 원칙", paragraphs: ["공개 가이드와 생활비 가이드 글은 도담 네트워크 운영팀이 쓰고 관리합니다. 글은 말해가계부에 실제로 구현된 기능과 직접 구성한 가상 사례를 기준으로 하며, 사례의 계산은 공개 전에 다시 확인합니다. 특정 금융상품이나 카드, 대출, 투자를 권하지 않고, 통계나 법령처럼 출처가 필요한 내용은 확인할 수 있는 공식 자료가 있을 때만 다룹니다. 틀린 내용이나 실제 화면과 다른 설명을 발견하면 문의 페이지로 알려 주세요. 각 글의 위쪽에는 마지막으로 고친 날짜를 표시합니다."], links: [["생활비 가이드 글 모음", "/guides"], ["잘못된 내용 신고하기", "/contact"]] },
       { title: "글을 쓰는 사람과 검토 방식", paragraphs: ["공개 가이드와 생활비 가이드 글은 도담 네트워크 운영자가 서비스 개발과 운영을 맡으면서 직접 쓰고 검토합니다. 재무 상담 자격을 내세우는 글이 아니라, 생활비 기록 서비스를 만들고 운영하며 정리한 계산 방법과 점검 절차를 설명하는 글입니다.", "글은 주제 선정, 공식 자료 확인, 예시 계산 검산, 게시, 수정일 표기 순서로 만듭니다. 통계·세율·요금처럼 바뀌는 숫자는 통계청·국세청·법령정보센터 같은 공식 자료를 확인한 경우에만 적고, 글 아래 참고 자료에 출처를 남깁니다. 초안 정리와 문장 다듬기에는 생성형 글쓰기 도구를 포함한 소프트웨어를 사용하지만, 어떤 주제를 다룰지, 숫자가 맞는지, 게시할지는 운영자가 직접 판단하고 책임집니다.", "다루지 않는 것도 분명히 합니다. 특정 금융상품·카드·대출·보험·투자를 권하지 않고, 세무·법률 자문을 대신하지 않습니다. 광고가 표시되는 경우에도 본문과 구분하며 광고주는 글의 내용에 관여하지 않습니다. 틀린 내용을 알려 주시면 확인 뒤 본문과 수정일을 함께 고칩니다."], links: [["생활비 가이드 글 전체 목록", "/articles"], ["문의와 수정 요청", "/contact"]] },
-      { title: "운영 범위와 한계", paragraphs: ["카카오와 연동하는 독립 서비스이며 카카오가 직접 제공하는 공식 가계부 서비스는 아닙니다. 기록과 계산은 사용자가 입력한 값에 따라 달라지며 은행·카드사 계정을 자동 연결하지 않습니다.", "공개 기능은 현재 무료로 제공합니다. 금융상품 추천이나 투자·세무 자문을 제공하지 않으며, 미래 절약액이나 수익을 보장하지 않습니다."] },
+      { title: "운영 범위와 한계", paragraphs: ["카카오와 연동하는 독립 서비스이며 카카오가 직접 제공하는 공식 가계부 서비스는 아닙니다. 기록과 계산은 사용자가 입력한 값에 따라 달라지며 은행·카드사 계정을 자동 연결하지 않습니다.", "금융상품 추천이나 투자·세무 자문을 제공하지 않으며, 미래 절약액이나 수익을 보장하지 않습니다."] },
       { title: "오류나 설명이 다른 부분을 발견했다면", paragraphs: ["해당 페이지 주소와 문제가 되는 문장, 실제로 확인한 상황을 문의 경로로 알려주세요. 개인정보와 연결 코드는 가리고, 금액 사례의 오류라면 계산식도 함께 적어주시면 확인에 도움이 됩니다."], links: [["운영자 문의", "/contact"], ["개인정보처리방침", "/privacy"], ["이용약관", "/terms"]] },
     ], { type: "AboutPage", updated: "2026-10-21" }),
     contact: page("사용 문의와 잘못된 안내 신고", "말해가계부 문의 경로, 오류를 확인하는 데 필요한 정보, 개인정보를 가리는 방법과 서면 문의 주소를 안내합니다.", "문의를 준비하는 방법", support ? `운영 문의 이메일: ${support}` : `운영 문의는 서면으로 접수할 수 있습니다. ${BUSINESS_FOOTER_INFO.address}, ${BUSINESS_FOOTER_INFO.company} 앞으로 보내주세요. 카카오톡의 ‘도움말’은 자동 사용 안내이며 운영자 상담 접수 창구는 아닙니다.`, [
@@ -9512,20 +9514,19 @@ function publicSupportPageV22995(env = {}, supporters = []) {
     {
       title: "왜 후원이 필요한가요",
       paragraphs: [
-        "말해가계부의 기록·요약·공동 가계부·리포트는 누구나 무료로 써요. 그래도 서비스를 돌리는 서버와 데이터베이스, 도메인에는 매달 운영 비용이 들고, 기능을 고치고 더하는 유지보수·업데이트에도 꾸준히 시간이 들어요.",
-        "보내 주시는 후원은 이렇게 발생하는 서버 운영 비용과 유지보수·업데이트에 큰 도움이 됩니다. 금액은 정해져 있지 않고, 후원하지 않아도 쓸 수 있는 기능은 똑같아요.",
+        "말해가계부가 돌아가는 데는 매달 비용이 들어요. 카카오톡으로 묻고 답하는 서버, 여러분의 소중한 기록을 안전하게 보관하는 외부 저장소, 그리고 주소(도메인)와 장애 감시가 쉬지 않고 돌아가야 하거든요. 기능을 고치고 더하는 유지보수·업데이트에도 꾸준히 시간이 들어요.",
+        "보내 주시는 후원은 이렇게 끊이지 않고 드는 운영 비용과 유지보수·업데이트에 큰 도움이 됩니다. 금액은 정해져 있지 않아요.",
       ],
     },
     {
       title: "후원금은 이렇게 써요",
-      bullets: ["서버(Cloudflare Workers)와 데이터베이스(Supabase) 요금", "도메인 갱신과 관제(장애 알림·사용량 확인)", "운영비를 넘는 몫은 새 기능 개발과 개선"],
-      note: "약속: 로그인 화면과 카카오톡 봇 답장에는 광고를 넣지 않아요. 기록·요약·공동 가계부·리포트 같은 핵심 기능은 후원과 관계없이 계속 무료예요.",
+      bullets: ["카카오톡으로 묻고 답하는 서버 비용", "여러분의 기록을 안전하게 보관하는 외부 저장소 비용", "주소(도메인) 갱신과 장애 감시", "운영비를 넘는 몫은 새 기능 개발과 개선"],
     },
     publicSupportWaysSectionV22995(config, email),
     {
       title: "후원자에게 드리는 것",
       bullets: ["웹 가계부에 보이는 ‘후원자’ 배지", "후원자만 고를 수 있는 포인트 색 3가지(코랄·민트·라벤더)", "후원자 오픈채팅방 초대(운영 소식을 먼저 듣고 의견을 나누는 곳)", "이 페이지 후원자 명단에 이름 올리기(원하는 분만, 원하는 이름으로)"],
-      note: "보상은 보이는 표시와 이야기 나누는 곳뿐이에요. 후원하지 않아도 쓸 수 있는 기능은 똑같아요.",
+      note: "보상은 보이는 표시와 이야기 나누는 곳이에요.",
     },
     {
       title: "함께 이야기하는 곳",
@@ -9551,12 +9552,12 @@ function publicSupportPageV22995(env = {}, supporters = []) {
   ];
   return {
     title: "말해가계부 후원 안내",
-    description: "말해가계부 후원이 서버 운영 비용과 유지보수·업데이트에 쓰이는 곳, 후원하는 방법, 후원자에게 드리는 배지·포인트 색·오픈채팅과 문의 방법을 안내합니다.",
-    eyebrow: "핵심 기능은 계속 무료",
-    intro: "말해가계부는 누구나 무료로 쓰는 가계부예요. 후원은 서버 운영 비용과 유지보수·업데이트에 큰 도움이 되고, 그만큼 더 오래 안정적으로 운영할 수 있어요. 후원은 선택이고, 후원하지 않아도 모든 핵심 기능을 똑같이 쓸 수 있어요.",
+    description: "말해가계부 후원이 서버와 저장소 운영 비용, 유지보수·업데이트에 쓰이는 곳, 후원하는 방법, 후원자에게 드리는 배지·포인트 색·오픈채팅과 문의 방법을 안내합니다.",
+    eyebrow: "후원은 선택이에요",
+    intro: "후원은 선택이에요. 보내 주시는 후원은 카카오톡으로 묻고 답하는 서버와 기록을 안전하게 보관하는 저장소, 그리고 유지보수·업데이트에 쓰여 서비스를 더 오래 안정적으로 운영하는 데 큰 도움이 됩니다.",
     sections,
     type: "WebPage",
-    updated: "2026-11-02",
+    updated: "2026-11-04",
     primary: ["후원하는 방법 보기", "#section-3"],
     secondary: ["문의 안내", "/contact"],
   };
@@ -12443,15 +12444,15 @@ function normalizeUserFacingUi(html = "") {
   }
 
   if (/프리미엄|유료 전환/.test(source)) {
-    source = source.replace(/프리미엄 1차 베타|프리미엄 베타/g, "무료 스마트 도구");
-    source = source.replace(/<p>([^<]*?) · 현재 결제 기능은 연결하지 않았습니다\. 실제 데이터에서 가치와 정확도를 검증한 뒤 유료 전환합니다\.<\/p>/, "<p>$1 · 초기 서비스에서는 모든 스마트 기능을 무료로 사용할 수 있습니다.</p>");
+    source = source.replace(/프리미엄 1차 베타|프리미엄 베타/g, "스마트 도구");
+    source = source.replace(/<p>([^<]*?) · 현재 결제 기능은 연결하지 않았습니다\. 실제 데이터에서 가치와 정확도를 검증한 뒤 유료 전환합니다\.<\/p>/, "<p>$1 · 현재 기록을 바탕으로 스마트 기능을 사용할 수 있습니다.</p>");
     source = source.replace(/<span>월말 예상 지출<\/span><b>([\d,]+)원<\/b>/, function(_, amount) { return "<span>월말 예상 지출</span><b>" + approximateWonLabel(amount) + "</b>"; });
     source = source.replace(/<span>절약 후보<\/span><b>([\d,]+)원<\/b>/, function(_, amount) { return "<span>절약 후보</span><b>" + approximateWonLabel(amount) + "</b>"; });
-    source = source.replace("프리미엄 1차 개발 예정", "무료 스마트 기능");
+    source = source.replace("프리미엄 1차 개발 예정", "스마트 기능");
     source = source.replace(/<p class="notice"><b>운영 원칙<\/b><br\/>밈카드와 카드 실적 기능은[\s\S]*?<\/p>/, "");
     const today = nowKstDate();
     const basis = (today.getMonth() + 1) + "/" + today.getDate();
-    source = source.replace('</section><section class="card"><h2>현재 동작하는 무료 스마트 도구</h2>', '</section><p class="metricBasis">' + basis + ' 기준 · 월말 예상은 오늘까지 기록에 남은 고정지출·정기지출과 남은 날 예상(변동 지출의 하루 평균)을 더한 값이며 실제 지출에 따라 달라질 수 있습니다.</p><section class="card"><h2>현재 동작하는 스마트 분석</h2>');
+    source = source.replace('</section><section class="card"><h2>현재 동작하는 스마트 도구</h2>', '</section><p class="metricBasis">' + basis + ' 기준 · 월말 예상은 오늘까지 기록에 남은 고정지출·정기지출과 남은 날 예상(변동 지출의 하루 평균)을 더한 값이며 실제 지출에 따라 달라질 수 있습니다.</p><section class="card"><h2>현재 동작하는 스마트 분석</h2>');
   }
 
   source = source.replace("일반 사용자가 매일 쓰는 메뉴만 모았습니다. 운영/점검/배포/진단 메뉴는 이 화면에 노출하지 않고 운영센터에서만 관리합니다.", "기록, 정산, 가계부 관리와 개인 설정을 한곳에서 찾을 수 있습니다.");
@@ -12528,9 +12529,9 @@ function normalizeUserFacingUi(html = "") {
   source = promoteLegacyUserLayoutToV5(source);
   source = normalizeUiV5RemainingPages(source);
   source = source.replace(/\/my\/premium/g, "/smart-tools");
-  source = source.replace(/프리미엄 1차 개발 순서|프리미엄 1차 개발 예정/g, "무료 스마트 기능");
-  source = source.replace(/프리미엄 1차 베타|프리미엄 베타|프리미엄/g, "무료 스마트 도구");
-  source = source.replace(/실제 데이터에서 가치와 정확도를 검증한 뒤 유료 전환합니다\./g, "초기 서비스에서는 모든 기능을 무료로 제공합니다.");
+  source = source.replace(/프리미엄 1차 개발 순서|프리미엄 1차 개발 예정/g, "스마트 기능");
+  source = source.replace(/프리미엄 1차 베타|프리미엄 베타|프리미엄/g, "스마트 도구");
+  source = source.replace(/실제 데이터에서 가치와 정확도를 검증한 뒤 유료 전환합니다\./g, "현재 기록을 바탕으로 기능을 사용할 수 있습니다.");
   source = source.replace('<span class="abNavLogo">💛</span>', '<span class="abNavLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span>');
   source = source.replace(/<div class="abNavMobileTop"><a([^>]*)>💛\s*/i, '<div class="abNavMobileTop"><a$1><span class="abBrandMark" aria-hidden="true"><i></i><i></i><i></i></span>');
   source = source.replace("🌱 시작가이드", "처음 사용 가이드");
@@ -12570,8 +12571,8 @@ function normalizeUserFacingUi(html = "") {
   if (source.includes("시작가이드</title>")) bodyClasses.push("abPageGuide");
   if (source.includes('id="keywordBulkForm"')) bodyClasses.push("abPageKeywords");
   if (source.includes(" · 백업/가져오기</title>")) bodyClasses.push("abPageBackup");
-  if (source.includes(" · 무료 리포트</title>")) bodyClasses.push("abPageReports");
-  if (source.includes(" · 무료 스마트 도구</title>")) bodyClasses.push("abPageSmartTools");
+  if (source.includes(" · 생활비 리포트</title>")) bodyClasses.push("abPageReports");
+  if (source.includes(" · 스마트 도구</title>")) bodyClasses.push("abPageSmartTools");
   if (source.includes(" · 분류 설정</title>")) bodyClasses.push("abPageCategories");
   if (source.includes(" · 단톡방 연결</title>")) bodyClasses.push("abPageGroups");
   if (source.includes("abV5RemainingPage")) bodyClasses.push("abV5RemainingPage");
@@ -12636,8 +12637,8 @@ function legacyUiV5ActiveKey(source = "") {
   if (/참여자[·/]초대|가계부·참여자/.test(title)) return "members";
   if (/백업\/가져오기|가져오기 (?:미리보기|결과)/.test(title)) return "backup";
   if (/단톡방 연결/.test(title)) return "groups";
-  if (/무료 스마트 도구/.test(title)) return "smart-tools";
-  if (/무료 리포트/.test(title)) return "reports";
+  if (/스마트 도구/.test(title)) return "smart-tools";
+  if (/생활비 리포트/.test(title)) return "reports";
   if (/수입·예산 설정|·\s*설정$/.test(title)) return "budgets";
   if (/종합 리포트| · 분석/.test(title)) return "analysis";
   if (/시작가이드/.test(title)) return "guide";
@@ -12686,7 +12687,7 @@ function promoteLegacyUserLayoutToV5(html = "") {
 
 function normalizeUiV5RemainingPages(html = "") {
   let source = String(html || "");
-  const remainingPage = /(?:무료 리포트|무료 스마트 도구|수입·예산|가계부 전환·관리|참여자[·/]초대|백업\/가져오기|분류 설정|단톡방 연결|종합 리포트|내 계정·보안)<\/title>/.test(source)
+  const remainingPage = /(?:생활비 리포트|스마트 도구|수입·예산|가계부 전환·관리|참여자[·/]초대|백업\/가져오기|분류 설정|단톡방 연결|종합 리포트|내 계정·보안)<\/title>/.test(source)
     || source.includes("가계부·참여자</title>")
     || source.includes("<title>자산·결제수단</title>")
     || source.includes("<title>정기 수입·지출</title>")
@@ -12710,7 +12711,7 @@ function normalizeUiV5RemainingPages(html = "") {
   source = source.replace(/class="(toolbar|filters)(?![^"]*abV5ControlBar)([^"]*)"/gi, 'class="$1$2 abV5ControlBar"');
   source = source.replace(/class="(metricGrid|summaryGrid)(?![^"]*abV5KpiGrid)([^"]*)"/gi, 'class="$1$2 abV5KpiGrid"');
   source = source.replace('class="grid metricGrid"', 'class="grid metricGrid abV5KpiGrid"');
-  if (/무료 리포트|종합 리포트/.test(source)) source = source.replace('<section class="grid">', '<section class="grid abV5KpiGrid">');
+  if (/<title>[^<]*(?:생활비 리포트|종합 리포트)<\/title>/.test(source)) source = source.replace('<section class="grid">', '<section class="grid abV5KpiGrid">');
   return source;
 }
 
@@ -12892,13 +12893,13 @@ function attachUiUxRuntime(html = "", options = {}) {
   return opaque.restore(renameLegacyDocumentTitleV22983(source));
 }
 
-// V22.9.83: 브라우저 탭 제목에 남은 옛 이름을 화면 이름으로 바꾼다 — 홈이 PC 에서도 "모바일", 생활비 리포트가 "무료 리포트",
-// 스마트 도구가 "무료 스마트 도구", 정산이 "고급 정산"으로 떴다. 위 후처리 규칙 여럿이 이 제목 글자를 화면 표식으로 읽으므로
-// (" · 무료 리포트</title>" 등) 모든 규칙이 끝난 맨 마지막에, 문서의 첫 </title> 바로 앞 글자만 바꾼다.
+// V22.9.83: 브라우저 탭 제목에 남은 옛 이름을 화면 이름으로 바꾼다 — 홈이 PC 에서도 "모바일", 생활비 리포트가 "생활비 리포트",
+// 스마트 도구가 "스마트 도구", 정산이 "고급 정산"으로 떴다. 위 후처리 규칙 여럿이 이 제목 글자를 화면 표식으로 읽으므로
+// (" · 생활비 리포트</title>" 등) 모든 규칙이 끝난 맨 마지막에, 문서의 첫 </title> 바로 앞 글자만 바꾼다.
 const LEGACY_DOCUMENT_TITLES_V22983 = [
   [" · 모바일</title>", " · 홈</title>"],
-  [" · 무료 리포트</title>", " · 생활비 리포트</title>"],
-  [" · 무료 스마트 도구</title>", " · 스마트 도구</title>"],
+  [" · 생활비 리포트</title>", " · 생활비 리포트</title>"],
+  [" · 스마트 도구</title>", " · 스마트 도구</title>"],
   [" · 고급 정산</title>", " · 정산</title>"],
 ];
 function renameLegacyDocumentTitleV22983(source = "") {
@@ -12912,10 +12913,10 @@ function renameLegacyDocumentTitleV22983(source = "") {
 }
 
 // V22.9.95 공지 띠: 운영 변수 NOTICE_TEXT 가 있으면 /my·/app 셸과 공개 문서 화면(pubHeader) 맨 위(본문 바로가기 다음)에 한 줄 띠를 붙인다.
-// 변수가 없으면 아무것도 붙이지 않는다(빈 요소도 없다). 읽어 주는 프로그램이 바로 읽도록 role="status", 닫기 단추는 없다(지침).
+// 변수가 없으면 아무것도 붙이지 않는다(빈 요소도 없다). role="status"를 유지하고 V22.9.99부터 POST 폼으로 하루 동안 숨길 수 있다.
 // NOTICE_LINK 는 우리 화면 주소(‘/…’) 또는 https 주소만 받아 글 끝에 ‘자세히’ 를 단다. 색은 주의 톤(노랑)이고 다크(앱 설정)에서도 대비 4.5 이상이다.
 // 응답 마무리(worker/router.js fetch)에서 env 와 주소를 함께 아는 한 곳에서 부른다. 1년 캐시 자산은 건드리지 않는다(인라인 style 한 덩어리).
-const AB_NOTICE_BAND_STYLE_V22995 = '<style id="abNoticeBandStyle">.abNoticeBand{margin:0;padding:10px 16px;background:#fff4cc;color:#4a3800;border-bottom:1px solid #e9c868;font-size:14px;line-height:1.5;text-align:center;word-break:keep-all;overflow-wrap:anywhere}.abNoticeBand p{margin:0 auto;max-width:960px}.abNoticeBand a{color:#4a3800;font-weight:700;text-decoration:underline;text-underline-offset:2px;margin-left:6px}.abNoticeBand a:focus-visible{outline:2px solid currentColor;outline-offset:2px}html[data-ab-resolved-theme="dark"] .abNoticeBand{background:#3a2f0b;color:#ffe9a8;border-bottom-color:#6b5a1d}html[data-ab-resolved-theme="dark"] .abNoticeBand a{color:#ffe9a8}</style>';
+const AB_NOTICE_BAND_STYLE_V22995 = '<style id="abNoticeBandStyle">.abNoticeBand{margin:0;padding:10px 16px;background:#fff4cc;color:#4a3800;border-bottom:1px solid #e9c868;font-size:14px;line-height:1.5;text-align:center;word-break:keep-all;overflow-wrap:anywhere}.abNoticeBand p{display:inline;margin:0 auto;max-width:960px}.abNoticeBand a{color:#4a3800;font-weight:700;text-decoration:underline;text-underline-offset:2px;margin-left:6px}.abNoticeBand a:focus-visible{outline:2px solid currentColor;outline-offset:2px}.abNoticeBand .abNoticeHide{display:inline-block;margin:0 0 0 12px}.abNoticeBand .abNoticeHide button{min-height:44px;padding:8px 4px;border:0!important;background:transparent!important;color:inherit!important;box-shadow:none!important;font:inherit;font-size:12px;text-decoration:underline;cursor:pointer}.abNoticeHide button:focus-visible{outline:2px solid currentColor;outline-offset:2px}html[data-ab-resolved-theme="dark"] .abNoticeBand{background:#3a2f0b;color:#ffe9a8;border-bottom-color:#6b5a1d}html[data-ab-resolved-theme="dark"] .abNoticeBand a{color:#ffe9a8}</style>';
 function abNoticeBandParts(env = {}) {
   const text = String(env?.NOTICE_TEXT || "").replace(/\s+/g, " ").trim().slice(0, 200);
   if (!text) return null;
@@ -12923,14 +12924,46 @@ function abNoticeBandParts(env = {}) {
   const safeLink = /^\/(?!\/)[^\s"'<>]*$/.test(link) || /^https:\/\/[^\s"'<>]+$/.test(link) ? link : "";
   return { text, link: safeLink };
 }
-function attachNoticeBand(html = "", env = {}, pathname = "") {
+function noticeReturnPathV22999(raw = "") {
+  const value = typeof raw === "string" ? raw : "";
+  if (!value.startsWith("/") || value.startsWith("//") || value.length > 2048 || /[\\\x00-\x20\x7f]/.test(value)) return "/";
+  try {
+    const parsed = new URL(value, "https://accountbook.local");
+    const decodedPath = decodeURIComponent(parsed.pathname);
+    if (parsed.origin !== "https://accountbook.local" || decodedPath.startsWith("//") || /[\\\x00-\x20\x7f]/.test(decodedPath)) return "/";
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch (_) { return "/"; }
+}
+async function noticeHashV22999(env = {}) {
+  return (await sha256Hex(String(env.NOTICE_TEXT || "") + String(env.NOTICE_LINK || ""))).slice(0, 16);
+}
+async function handleNoticeHideV22999(request, env = {}) {
+  if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { allow: "POST", "cache-control": "no-store" } });
+  let form;
+  try { form = await request.formData(); }
+  catch (_) { return new Response("Bad Request", { status: 400, headers: { "cache-control": "no-store" } }); }
+  const back = noticeReturnPathV22999(form.get("back"));
+  if (!abNoticeBandParts(env)) return redirectResponse(back);
+  return redirectResponse(back, { "set-cookie": `ab_notice_hide=${await noticeHashV22999(env)}; Path=/; Max-Age=86400; HttpOnly; Secure; SameSite=Lax` });
+}
+function noticeResponseHeadersV22999(response) {
+  const headers = new Headers(response.headers);
+  const vary = (headers.get("vary") || "").split(",").map((value) => value.trim()).filter(Boolean);
+  if (!vary.some((value) => /^(cookie|\*)$/i.test(value))) vary.push("Cookie");
+  headers.set("vary", vary.join(", "));
+  // 공지 표시 여부는 브라우저 쿠키별로 다르므로 공유 캐시에 저장하지 않는다. 개인 화면의 no-store는 유지한다.
+  if (/\bpublic\b/i.test(headers.get("cache-control") || "")) headers.set("cache-control", "private, max-age=300");
+  headers.delete("content-length");
+  return headers;
+}
+function attachNoticeBand(html = "", env = {}, pathname = "", back = pathname) {
   const parts = abNoticeBandParts(env);
   const source = String(html || "");
   if (!parts || !source || source.includes('class="abNoticeBand"')) return source;
   const appShell = pathname === "/app" || pathname === "/my" || pathname.startsWith("/my/");
   if (!appShell && !/class=["'][^"']*\bpubHeader\b/i.test(source)) return source;
   if (!/<body\b[^>]*>/i.test(source)) return source;
-  const band = '<div class="abNoticeBand" role="status"><p>' + escapeHtml(parts.text) + (parts.link ? ' <a href="' + escapeHtml(parts.link) + '">자세히</a>' : "") + "</p></div>";
+  const band = '<div class="abNoticeBand" role="status"><p>' + escapeHtml(parts.text) + (parts.link ? ' <a href="' + escapeHtml(parts.link) + '">자세히</a>' : "") + '</p><form class="abNoticeHide" method="post" action="/notice/hide"><input type="hidden" name="back" value="' + escapeHtml(noticeReturnPathV22999(back)) + '"/><button class="secondary" type="submit">오늘 하루 안 보기</button></form></div>';
   // 스타일은 </head> 앞에 둔다. 머리가 없는 조각 화면이면 띠 바로 앞에 둔다.
   const inline = source.includes("</head>") ? "" : AB_NOTICE_BAND_STYLE_V22995;
   const withStyle = inline ? source : source.replace("</head>", AB_NOTICE_BAND_STYLE_V22995 + "</head>");
@@ -12938,16 +12971,16 @@ function attachNoticeBand(html = "", env = {}, pathname = "") {
   return skip.test(withStyle) ? withStyle.replace(skip, (full) => full + inline + band) : withStyle.replace(/<body\b[^>]*>/i, (full) => full + inline + band);
 }
 async function noticeBandResponse(request, env = {}, response) {
-  if (!abNoticeBandParts(env) || !(response instanceof Response) || response.status !== 200 || String(request?.method || "GET").toUpperCase() !== "GET") return response;
+  if (!abNoticeBandParts(env) || !(response instanceof Response) || response.status !== 200 || !["GET", "HEAD"].includes(request?.method)) return response;
   if (!/^text\/html\b/i.test(response.headers.get("content-type") || "")) return response;
-  let pathname = "";
-  try { pathname = new URL(request.url).pathname; } catch (_) { return response; }
+  if (request.method === "HEAD") return new Response(null, { status: response.status, statusText: response.statusText, headers: noticeResponseHeadersV22999(response) });
+  let url;
+  try { url = new URL(request.url); } catch (_) { return response; }
   const html = await response.clone().text();
-  const changed = attachNoticeBand(html, env, pathname);
+  const changed = attachNoticeBand(html, env, url.pathname, url.pathname + url.search);
   if (changed === html) return response;
-  const headers = new Headers(response.headers);
-  headers.delete("content-length");
-  return new Response(changed, { status: response.status, statusText: response.statusText, headers });
+  const hidden = getCookie(request, "ab_notice_hide") === await noticeHashV22999(env);
+  return new Response(hidden ? html : changed, { status: response.status, statusText: response.statusText, headers: noticeResponseHeadersV22999(response) });
 }
 
 function attachBusinessInfoFooter(html = "") {
@@ -18623,7 +18656,7 @@ async function renderServerDashboardHtml(env, url) {
   const guideHtml = renderGuideTab({ month, household: selectedHousehold, origin: publicBaseUrl(env, url), skillUrl });
   const importHtml = renderImportTab({ month, households, household: selectedHousehold, defaultHouseholdId, members: householdMembers });
 
-  const overviewHtml = `${renderQuickStartPanel({ month, household: selectedHousehold, origin: publicBaseUrl(env, url), compact: true })}<section class="grid8"><div class="card kpi"><span>수입</span><b class="income">${numberWithCommas(allStats.totals.income)}원</b><small>이번 달 전체</small></div><div class="card kpi"><span>지출</span><b class="expense">${numberWithCommas(allStats.totals.expense)}원</b><small>${formatChangeAgainst("전월", extended.current?.totals?.expense, extended.prev?.totals?.expense)}</small></div><div class="card kpi"><span>잔액</span><b class="balance">${numberWithCommas(allStats.totals.balance)}원</b><small>수입-지출</small></div><div class="card kpi"><span>기록 수</span><b>${allRows.length}건</b><small>정리 대상 포함</small></div><div class="card kpi"><span>일평균 지출</span><b>${renderObservedMoney(analysis, analysis.avgExpense)}</b><small>월말 예상 ${renderObservedMoney(analysis, analysis.burnForecast)}</small></div><div class="card kpi"><span>무지출일</span><b class="income">${analysis.basisDays === 0 ? "관측 전" : analysis.noSpendDays == null ? "-" : `${analysis.noSpendDays}일`}</b><small>소비 방어일</small></div><div class="card kpi"><span>정리 필요</span><b class="amber">${analysis.missingAny}건</b><small>미분류/수단 미입력</small></div><div class="card kpi"><span>위험 점수</span><b class="purple">${analysis.basisDays === 0 ? "관측 전" : `${analysis.riskScore}점`}</b><div class="progress"><span style="width:${Math.min(100, analysis.riskScore)}%"></span></div></div></section><section class="layout"><div class="card"><h3>고급 분석 · 경각심 카드</h3><div class="analysisGrid">${renderInsightCards(analysis)}</div></div><div class="card"><h3>무료 스마트 도구 요약</h3><p class="muted">현재 기록을 기준으로 월말 예상과 절약 후보를 계산합니다.</p><div class="analysisGrid"><div class="insight"><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b><span>월말 예상 지출</span></div><div class="insight"><b>${premiumState.hasObservation === false ? "관측 전" : `${numberWithCommas(premiumState.savingPotential)}원`}</b><span>절약 후보</span></div><div class="insight"><b>${premiumState.hasObservation === false ? "관측 전" : `${premiumState.premiumScore}점`}</b><span>관리 점수</span></div></div></div></section><section class="layout2"><div class="card"><h3>최근 3개월 지출 추이</h3>${renderMonthlyTrendMini(extended.threeMonthTrend)}</div><div class="card"><h3>전월 대비 급증 카테고리</h3>${renderCategoryCompareTable(extended.categoryCompare.slice(0, 8), true)}</div></section>${renderInlinePremiumTeaser(premiumState)}${renderInlineAffiliateZone(affiliateState)}`;
+  const overviewHtml = `${renderQuickStartPanel({ month, household: selectedHousehold, origin: publicBaseUrl(env, url), compact: true })}<section class="grid8"><div class="card kpi"><span>수입</span><b class="income">${numberWithCommas(allStats.totals.income)}원</b><small>이번 달 전체</small></div><div class="card kpi"><span>지출</span><b class="expense">${numberWithCommas(allStats.totals.expense)}원</b><small>${formatChangeAgainst("전월", extended.current?.totals?.expense, extended.prev?.totals?.expense)}</small></div><div class="card kpi"><span>잔액</span><b class="balance">${numberWithCommas(allStats.totals.balance)}원</b><small>수입-지출</small></div><div class="card kpi"><span>기록 수</span><b>${allRows.length}건</b><small>정리 대상 포함</small></div><div class="card kpi"><span>일평균 지출</span><b>${renderObservedMoney(analysis, analysis.avgExpense)}</b><small>월말 예상 ${renderObservedMoney(analysis, analysis.burnForecast)}</small></div><div class="card kpi"><span>무지출일</span><b class="income">${analysis.basisDays === 0 ? "관측 전" : analysis.noSpendDays == null ? "-" : `${analysis.noSpendDays}일`}</b><small>소비 방어일</small></div><div class="card kpi"><span>정리 필요</span><b class="amber">${analysis.missingAny}건</b><small>미분류/수단 미입력</small></div><div class="card kpi"><span>위험 점수</span><b class="purple">${analysis.basisDays === 0 ? "관측 전" : `${analysis.riskScore}점`}</b><div class="progress"><span style="width:${Math.min(100, analysis.riskScore)}%"></span></div></div></section><section class="layout"><div class="card"><h3>고급 분석 · 경각심 카드</h3><div class="analysisGrid">${renderInsightCards(analysis)}</div></div><div class="card"><h3>스마트 도구 요약</h3><p class="muted">현재 기록을 기준으로 월말 예상과 절약 후보를 계산합니다.</p><div class="analysisGrid"><div class="insight"><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b><span>월말 예상 지출</span></div><div class="insight"><b>${premiumState.hasObservation === false ? "관측 전" : `${numberWithCommas(premiumState.savingPotential)}원`}</b><span>절약 후보</span></div><div class="insight"><b>${premiumState.hasObservation === false ? "관측 전" : `${premiumState.premiumScore}점`}</b><span>관리 점수</span></div></div></div></section><section class="layout2"><div class="card"><h3>최근 3개월 지출 추이</h3>${renderMonthlyTrendMini(extended.threeMonthTrend)}</div><div class="card"><h3>전월 대비 급증 카테고리</h3>${renderCategoryCompareTable(extended.categoryCompare.slice(0, 8), true)}</div></section>${renderInlinePremiumTeaser(premiumState)}${renderInlineAffiliateZone(affiliateState)}`;
 
   const calendarHtml = `<section id="calendarSection" class="layout2"><div class="card"><div class="sectionHead"><div><h3>소비 캘린더</h3><p class="muted">날짜를 클릭해도 페이지가 새로고침되지 않도록 개선했습니다. 스크립트가 막히면 해당 위치로만 이동합니다.</p></div><div class="calendarLegend"><span class="legend heat1"></span>적음 <span class="legend heat5"></span>많음</div></div>${renderServerCalendar(calendar, month, householdValue, date, type, q, quality, categoryFilter, paymentFilter, groupBy)}</div><div class="card"><h3>선택 조건 통계 · ${escapeHtml(groupLabel(groupBy))}</h3>${renderCustomStats(customStats)}</div></section>${transactionManager("날짜별 거래내역", "캘린더에서 선택한 날짜를 이 영역에서 바로 확인합니다.", rowsBase, "transactionsSection")}`;
 
@@ -18872,7 +18905,7 @@ function canonicalRouteRows(month = currentMonthKst(), householdId = "") {
     ["가계부·참여자", "/households", "가족/모임 공동 사용"],
     ["분류 설정", hid ? `/categories?household_id=${encodeURIComponent(hid)}` : "/categories", "카테고리"],
     ["예산 관리", `/budgets?month=${encodeURIComponent(month)}${hh}`, "월 수입 대비 예산"],
-    ["무료 스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "예측·반복지출·리포트"],
+    ["스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`, "예측·반복지출·리포트"],
     ["생활비 리포트", `/reports?month=${encodeURIComponent(month)}${hh}`, "주간·월간 생성·공유"],
     ["결제수단", `/payment-methods?month=${encodeURIComponent(month)}${hh}`, "카드/계좌/간편결제"],
     ["정기지출 준비", `/reserve-plans?month=${encodeURIComponent(month)}${hh}`, "세금/보험 미리 준비"],
@@ -20156,7 +20189,7 @@ async function handleUserReadyCheckPage(request, env, url) {
     ["운영센터", "점검 메뉴는 운영센터 안으로 통합"],
     ["공유 기능", "기본 공유와 문구 복사 중심으로 안정화"],
   ].map(([a,b]) => `<tr><td><b>${escapeHtml(a)}</b></td><td>${escapeHtml(b)}</td><td><span class="okb">완료</span></td></tr>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>최종 사용자 준비 확인</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1050px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#16a34a));color:#fff;border-radius:28px;padding:24px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.2)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.94}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:680px}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:14px}.okb{border-radius:999px;padding:5px 9px;background:#dcfce7;color:#166534;font-size:12px;font-weight:1000}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("operation-center", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>최종 사용자 준비 확인</h1><p>최종 배포 전 사용자 화면 기준으로 메뉴, 안내문구, 핵심 기능을 다시 확인합니다.</p><p><a class="btn light" href="/menu">메뉴 확인</a><a class="btn light" href="/smart-tools?month=${escapeHtml(month)}${hid ? `&household_id=${escapeHtml(hid)}` : ""}">무료 스마트 도구 확인</a><a class="btn light" href="/backup?month=${escapeHtml(month)}${hid ? `&household_id=${escapeHtml(hid)}` : ""}">백업·복구 확인</a></p></section><section class="card"><h2>최종 정리 상태</h2><div class="tableWrap"><table><tbody>${rows}</tbody></table></div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>최종 사용자 준비 확인</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1050px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#16a34a));color:#fff;border-radius:28px;padding:24px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.2)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.94}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:680px}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:14px}.okb{border-radius:999px;padding:5px 9px;background:#dcfce7;color:#166534;font-size:12px;font-weight:1000}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("operation-center", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>최종 사용자 준비 확인</h1><p>최종 배포 전 사용자 화면 기준으로 메뉴, 안내문구, 핵심 기능을 다시 확인합니다.</p><p><a class="btn light" href="/menu">메뉴 확인</a><a class="btn light" href="/smart-tools?month=${escapeHtml(month)}${hid ? `&household_id=${escapeHtml(hid)}` : ""}">스마트 도구 확인</a><a class="btn light" href="/backup?month=${escapeHtml(month)}${hid ? `&household_id=${escapeHtml(hid)}` : ""}">백업·복구 확인</a></p></section><section class="card"><h2>최종 정리 상태</h2><div class="tableWrap"><table><tbody>${rows}</tbody></table></div></section></main></body></html>`);
 }
 
 async function handleUserReleaseCheckPage(request, env, url) {
@@ -20175,7 +20208,7 @@ async function handleUserReleaseCheckPage(request, env, url) {
     ["운영센터", true, "점검 메뉴는 운영센터로 통합"],
   ];
   const rows = checks.map(([name, ok, detail]) => `<tr><td><b>${escapeHtml(name)}</b></td><td><span class="${ok ? "okb" : "badb"}">${ok ? "정상" : "확인필요"}</span></td><td>${escapeHtml(detail)}</td></tr>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>사용자 배포 확인</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1080px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff;border-radius:28px;padding:24px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.2)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.94}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.link{display:block;text-decoration:none;color:#111827;background:#f8fafc;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.link b{display:block}.link span{display:block;color:#64748b;margin-top:6px}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:680px}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:14px}.okb,.badb{border-radius:999px;padding:5px 9px;font-size:12px;font-weight:1000}.okb{background:#dcfce7;color:#166534}.badb{background:#fee2e2;color:#991b1b}.note{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("operation-center", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>사용자 배포 확인</h1><p>최종 사용자가 보기에 불필요한 개발 문구와 기술 메뉴를 정리한 운영 배포 확인 화면입니다.</p></section><section class="card"><h2>사용자 기준 확인</h2><div class="tableWrap"><table><tbody>${rows}</tbody></table></div></section><section class="card"><h2>사용자 주요 흐름</h2><div class="grid"><a class="link" href="/app?month=${escapeHtml(month)}${hid ? `&household_id=${escapeHtml(hid)}` : ""}"><b>입력</b><span>지출을 빠르게 기록</span></a><a class="link" href="${escapeHtml(dashboardQuery(month, hid, { tab: "transactions" }))}"><b>기록</b><span>수정/삭제/확인</span></a><a class="link" href="/smart-tools?month=${escapeHtml(month)}${hid ? `&household_id=${escapeHtml(hid)}` : ""}"><b>무료 스마트 도구</b><span>예측과 반복지출 확인</span></a><a class="link" href="/backup?month=${escapeHtml(month)}${hid ? `&household_id=${escapeHtml(hid)}` : ""}"><b>백업·복구</b><span>데이터 안전관리</span></a></div></section><p class="note">일반 사용자는 상단 메뉴의 입력, 기록, 분석, 결제수단, 백업·복구만 사용하면 됩니다. 점검 기능은 운영센터 안에 정리되어 있습니다.</p></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>사용자 배포 확인</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1080px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#2563eb));color:#fff;border-radius:28px;padding:24px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.2)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.94}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.link{display:block;text-decoration:none;color:#111827;background:#f8fafc;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.link b{display:block}.link span{display:block;color:#64748b;margin-top:6px}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;min-width:680px}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:14px}.okb,.badb{border-radius:999px;padding:5px 9px;font-size:12px;font-weight:1000}.okb{background:#dcfce7;color:#166534}.badb{background:#fee2e2;color:#991b1b}.note{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("operation-center", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>사용자 배포 확인</h1><p>최종 사용자가 보기에 불필요한 개발 문구와 기술 메뉴를 정리한 운영 배포 확인 화면입니다.</p></section><section class="card"><h2>사용자 기준 확인</h2><div class="tableWrap"><table><tbody>${rows}</tbody></table></div></section><section class="card"><h2>사용자 주요 흐름</h2><div class="grid"><a class="link" href="/app?month=${escapeHtml(month)}${hid ? `&household_id=${escapeHtml(hid)}` : ""}"><b>입력</b><span>지출을 빠르게 기록</span></a><a class="link" href="${escapeHtml(dashboardQuery(month, hid, { tab: "transactions" }))}"><b>기록</b><span>수정/삭제/확인</span></a><a class="link" href="/smart-tools?month=${escapeHtml(month)}${hid ? `&household_id=${escapeHtml(hid)}` : ""}"><b>스마트 도구</b><span>예측과 반복지출 확인</span></a><a class="link" href="/backup?month=${escapeHtml(month)}${hid ? `&household_id=${escapeHtml(hid)}` : ""}"><b>백업·복구</b><span>데이터 안전관리</span></a></div></section><p class="note">일반 사용자는 상단 메뉴의 입력, 기록, 분석, 결제수단, 백업·복구만 사용하면 됩니다. 점검 기능은 운영센터 안에 정리되어 있습니다.</p></main></body></html>`);
 }
 
 async function handleOperationCenterPage(request, env, url) {
@@ -20243,7 +20276,7 @@ async function handleOperationCenterPage(request, env, url) {
   const quick = [
     ["모바일 입력", `/app?month=${encodeURIComponent(month)}${hh}`],
     ["기록 관리", dashboardQuery(month, hid, { tab: "transactions" })],
-    ["무료 스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`],
+    ["스마트 도구", `/smart-tools?month=${encodeURIComponent(month)}${hh}`],
     ["백업·복구", `/backup?month=${encodeURIComponent(month)}${hh}`],
   ].map(([label, href]) => `<a class="btn light" href="${escapeHtml(href)}">${escapeHtml(label)}</a>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>운영센터</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.wrap{max-width:1160px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff;border-radius:28px;padding:24px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.2)}.hero h1{margin:0;font-size:32px}.hero p{line-height:1.65;opacity:.94}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.opGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.opCard{display:block;text-decoration:none;color:#111827;background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:16px;box-shadow:0 10px 24px rgba(15,23,42,.05)}.opCard span{display:inline-flex;border-radius:999px;background:#eff6ff;color:#1e3a8a;font-size:12px;font-weight:1000;padding:5px 9px}.opCard b{display:block;margin-top:10px;font-size:18px}.opCard p{color:#64748b;line-height:1.45}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#eff6ff;color:#1e3a8a}.warn{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("operation-center", { month, householdId: hid })}<main class="wrap"><section class="hero"><h1>운영센터</h1><p>일반 사용자가 매일 누를 필요 없는 점검 메뉴를 한곳으로 모았습니다. 상단 메뉴는 실제 사용 흐름만 남기고, 운영/점검/배포 확인은 이 화면에서 관리합니다.</p><p>${quick}</p></section><section class="card"><h2>운영·점검 메뉴</h2><div class="opGrid">${cards}</div></section><section class="card"><h2>운영 원칙</h2><p class="warn">실제 사용자는 입력·기록·분석·백업센터만 주로 사용하면 됩니다. 메뉴점검, 운영점검, 배포런북 같은 관리 메뉴는 문제가 있을 때 운영센터에서만 확인하세요.</p></section></main></body></html>`);
@@ -20264,7 +20297,7 @@ const FINAL_FEATURE_MATRIX = [
   { group: "요약/리포트", name: "일/월 통계", status: "운영포함", route: "/app", detail: "월별 합계, 최근 내역, 필터 기반 조회" },
   { group: "숨김 기능", name: "카드 실적·예상 혜택", status: "미완성숨김", route: "-", detail: "조건 데이터와 계산 정확도 검증 완료 전 메뉴·직접 URL 숨김" },
   { group: "카드혜택", name: "결제수단 연결 안내", status: "신규포함", route: "/payment-methods", detail: "기존 payment_method 기준 카드/계좌/간편결제 흐름 확인" },
-  { group: "스마트 도구", name: "예측·반복지출·이상지출", status: "운영포함", route: "/smart-tools", detail: "월말 예측·반복지출·이상지출·절약 후보를 무료 제공" },
+  { group: "스마트 도구", name: "예측·반복지출·이상지출", status: "운영포함", route: "/smart-tools", detail: "월말 예측·반복지출·이상지출·절약 후보를 제공" },
   { group: "요약/리포트", name: "주간·월간 생활비 리포트", status: "운영포함", route: "/reports", detail: "자동 생성 설정과 복사·공유·인쇄/PDF 저장" },
   { group: "백업/복구", name: "백업센터", status: "운영포함", route: "/backup", detail: "JSON/CSV 백업" },
   { group: "백업/복구", name: "백업 미리보기", status: "운영포함", route: "/backup/preview", detail: "DB 저장 없는 구조 검증" },
@@ -20364,7 +20397,7 @@ async function buildFinalReleaseAudit(env) {
     ["DB 주요 테이블", !!ops.ok, "Supabase 주요 테이블 접근"],
     ["통합메뉴", true, "/menu 기준 전체 진입"],
     ["모바일 입력", true, "/app 기준 운영"],
-    ["공개 무료 기능", premiumBetaEnabled(env), "반복 거래·고급 정산·자동 리포트·스마트 분석 무료 제공"],
+    ["공개 기능", premiumBetaEnabled(env), "반복 거래·고급 정산·자동 리포트·스마트 분석 제공"],
     ["미완성 기능 숨김", !memeCardsEnabled(env) && !cardPerformanceEnabled(env), "소비 카드/밈·카드 실적/혜택 메뉴와 직접 URL 비노출"],
     ["백업/복구 안전흐름", true, "/backup 전체 단계"],
     ["되돌리기 안전흐름", true, "후보/최종확인까지 제공, 실제 삭제는 보류"],
@@ -20409,7 +20442,7 @@ function finalReleaseBaseStyle() {
 async function handleFinalReleasePage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const audit = await buildFinalReleaseAudit(env);
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>최종 배포판</title><style>${finalReleaseBaseStyle()}</style></head><body>${renderUnifiedNav("final-release")}<main class="wrap"><section class="hero"><h1>최종 배포판 점검</h1><p>전체 기능, 무료 스마트 도구, 백업/복구 안전 흐름, 운영 배포 기준을 사용자 불필요 JSON 화면 없이 한 화면에서 확인합니다.</p><p>버전: <b>${FINAL_RELEASE_VERSION}</b></p><p><a class="btn light" href="/release-check">사용자 배포 확인</a><a class="btn light" href="/feature-map">기능맵</a><a class="btn light" href="/deploy-runbook">배포 안내</a><a class="btn light" href="/ops-audit">운영점검</a></p></section><section class="grid"><div class="metric"><span>배포 가능 상태</span><b>${audit.ok ? "가능" : "확인필요"}</b></div><div class="metric"><span>운영 포함 기능</span><b>${numberWithCommas(audit.live_feature_count)}개</b></div><div class="metric"><span>다음 확장</span><b>${numberWithCommas(audit.planned_feature_count)}개</b></div><div class="metric"><span>운영 경로</span><b>${numberWithCommas(audit.routes.length)}개</b></div></section><section class="card"><h2>배포 게이트</h2><div class="tableWrap"><table><thead><tr><th>항목</th><th>상태</th><th>상세</th></tr></thead><tbody>${renderFinalGates(audit.gates)}</tbody></table></div></section><section class="card"><h2>최종 기능 매트릭스</h2><div class="tableWrap"><table><thead><tr><th>그룹</th><th>기능</th><th>상태</th><th>경로</th><th>상세</th></tr></thead><tbody>${renderFinalFeatureRows(audit.feature_matrix)}</tbody></table></div></section><section class="card"><h2>운영 주요 경로</h2><div class="routeGrid">${renderFinalRouteLinks(audit.routes)}</div></section><section class="card"><h2>배포 전 필수 순서</h2><p class="warnBox">1) 현재 코드·DB 백업 → 2) V22.6.8·V22.7.0 마이그레이션 확인 → 3) schema_v22_8_0_asset_dashboard_complete.sql 적용 → 4) Worker 코드 배포 → 5) /health와 /ready → 6) /final-release·/ops-audit → 7) 로그인·가계부 전환·기록 수정·자산 저장 실사용 확인</p></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>최종 배포판</title><style>${finalReleaseBaseStyle()}</style></head><body>${renderUnifiedNav("final-release")}<main class="wrap"><section class="hero"><h1>최종 배포판 점검</h1><p>전체 기능, 스마트 도구, 백업/복구 안전 흐름, 운영 배포 기준을 사용자 불필요 JSON 화면 없이 한 화면에서 확인합니다.</p><p>버전: <b>${FINAL_RELEASE_VERSION}</b></p><p><a class="btn light" href="/release-check">사용자 배포 확인</a><a class="btn light" href="/feature-map">기능맵</a><a class="btn light" href="/deploy-runbook">배포 안내</a><a class="btn light" href="/ops-audit">운영점검</a></p></section><section class="grid"><div class="metric"><span>배포 가능 상태</span><b>${audit.ok ? "가능" : "확인필요"}</b></div><div class="metric"><span>운영 포함 기능</span><b>${numberWithCommas(audit.live_feature_count)}개</b></div><div class="metric"><span>다음 확장</span><b>${numberWithCommas(audit.planned_feature_count)}개</b></div><div class="metric"><span>운영 경로</span><b>${numberWithCommas(audit.routes.length)}개</b></div></section><section class="card"><h2>배포 게이트</h2><div class="tableWrap"><table><thead><tr><th>항목</th><th>상태</th><th>상세</th></tr></thead><tbody>${renderFinalGates(audit.gates)}</tbody></table></div></section><section class="card"><h2>최종 기능 매트릭스</h2><div class="tableWrap"><table><thead><tr><th>그룹</th><th>기능</th><th>상태</th><th>경로</th><th>상세</th></tr></thead><tbody>${renderFinalFeatureRows(audit.feature_matrix)}</tbody></table></div></section><section class="card"><h2>운영 주요 경로</h2><div class="routeGrid">${renderFinalRouteLinks(audit.routes)}</div></section><section class="card"><h2>배포 전 필수 순서</h2><p class="warnBox">1) 현재 코드·DB 백업 → 2) V22.6.8·V22.7.0 마이그레이션 확인 → 3) schema_v22_8_0_asset_dashboard_complete.sql 적용 → 4) Worker 코드 배포 → 5) /health와 /ready → 6) /final-release·/ops-audit → 7) 로그인·가계부 전환·기록 수정·자산 저장 실사용 확인</p></section></main></body></html>`);
 }
 
 async function handleFeatureMapPage(request, env, url) {
@@ -21065,7 +21098,7 @@ async function buildProductionOpsAudit(env) {
       ["백업/복구 안전장치", true, "백업→미리보기→비교→후보→최종확인→적용→이력"],
       ["되돌리기 안전장치", true, "후보→최종확인까지 제공, 실제 삭제는 별도 안전 단계 권장"],
       ["운영 헤더", true, "nosniff / same-origin referrer / frame deny 적용"],
-      ["공개 무료 기능", premiumBetaEnabled(env), "반복 거래·정산·리포트·스마트 분석 무료 제공"],
+      ["공개 기능", premiumBetaEnabled(env), "반복 거래·정산·리포트·스마트 분석 제공"],
       ["미완성 기능 숨김", !memeCardsEnabled(env) && !cardPerformanceEnabled(env), "소비 카드/밈·카드 실적/혜택 기본 비노출"],
       ["최종 배포판", true, "/final-release, /feature-map, /deploy-runbook"],
     ],
@@ -21128,7 +21161,7 @@ async function handleDiagnosticsPage(request, env, url) {
     ["카카오 로그인", !kakaoConfig.enabled || kakaoConfig.ready, !kakaoConfig.enabled ? "명시적으로 비활성화됨" : kakaoConfig.ready ? "공개 주소·Redirect URI·앱 키 로컬 설정 일치" : `설정 불일치로 버튼 자동 차단: ${kakaoConfig.issues.join(", ")}`],
     ["소비 카드/밈 숨김", !memeCardsEnabled(env), "미완성 상태: 메뉴·공유·직접 URL 404"],
     ["카드 실적/혜택 숨김", !cardPerformanceEnabled(env), "미완성 상태: 메뉴·직접 URL 404"],
-    ["무료 스마트 도구", premiumBetaEnabled(env), "/smart-tools · 월말예측·반복지출·이상지출"],
+    ["스마트 도구", premiumBetaEnabled(env), "/smart-tools · 월말예측·반복지출·이상지출"],
     ["UI 안정화", true, "모바일·데스크톱 주요 화면과 빠른입력 유지"],
     ["배포운영 점검", true, "/ops-audit"],
     ["최종 배포판", true, "/final-release, /feature-map, /deploy-runbook"],
@@ -21138,7 +21171,7 @@ async function handleDiagnosticsPage(request, env, url) {
 
 function renderDiagnosticsHtml({ envStatus, checks, households }) {
   const row = (name, ok, detail) => `<tr><td>${escapeHtml(name)}</td><td><span class="${ok ? "okb" : "badb"}">${ok ? "정상" : "확인필요"}</span></td><td>${escapeHtml(detail || "")}</td></tr>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>진단 · 가계부</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{width:100%;max-width:1100px;margin:0 auto;padding:18px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center}.btn{display:inline-flex;align-items:center;justify-content:center;height:38px;border-radius:12px;background:#111827;color:#fff!important;text-decoration:none;font-weight:900;padding:0 12px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:14px 0;box-shadow:0 8px 24px rgba(15,23,42,.055)}table{width:100%;border-collapse:collapse;background:#fff}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:14px}.okb,.badb{border-radius:999px;padding:5px 9px;font-weight:900;font-size:12px}.okb{background:#dcfce7;color:#166534}.badb{background:#fee2e2;color:#991b1b}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.link{display:block;border:1px solid #e5e7eb;border-radius:16px;padding:13px;text-decoration:none;color:#111827;background:#f8fafc;font-weight:900}</style></head><body>${renderUnifiedNav("diagnostics")}<main class="wrap"><div class="top"><div><h1>시스템진단</h1><p>운영 서버와 Supabase 연결 상태를 화면에서 확인합니다. 민감한 키 값은 표시하지 않습니다.</p></div><a class="btn" href="/?legacy=1">관리자 홈</a></div><section class="card"><h2>환경변수</h2><table><tbody>${envStatus.map(([k, ok]) => row(k, ok, ok ? "설정됨" : "미설정")).join("")}</tbody></table></section><section class="card"><h2>DB/기능 테이블</h2><table><tbody>${checks.map((c) => row(c[0], c[1], c[2])).join("")}</tbody></table><p>확인필요 항목이 보이면 운영센터에서 상태를 확인한 뒤 관리자에게 점검을 요청하세요.</p></section><section class="card"><h2>주요 화면 바로가기</h2><div class="grid"><a class="link" href="/app">모바일 앱</a><a class="link" href="/?legacy=1">관리자 홈</a><a class="link" href="/?legacy=1&tab=import">파일 업로드</a><a class="link" href="/households">가계부·참여자</a><a class="link" href="/categories">분류 설정</a><a class="link" href="/budgets">예산 관리</a><a class="link" href="/smart-tools">무료 스마트 도구</a><a class="link" href="/payment-methods">결제수단</a><a class="link" href="/final-release">최종 배포판</a><a class="link" href="/feature-map">기능맵</a><a class="link" href="/deploy-runbook">배포 런북</a><a class="link" href="/kakao-recent">카카오 저장 확인</a><a class="link" href="/ledger">기록 관리</a><a class="link" href="/ops-audit">배포운영 점검</a><a class="link" href="/health">Health</a></div></section><section class="card"><h2>가계부 목록</h2><table><tbody>${households.map((h) => `<tr><td>${escapeHtml(h.name || "")}</td><td>${escapeHtml(h.id || "")}</td></tr>`).join("") || `<tr><td colspan="2">가계부가 없습니다. /households에서 생성하세요.</td></tr>`}</tbody></table></section></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>진단 · 가계부</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{width:100%;max-width:1100px;margin:0 auto;padding:18px}.top{display:flex;justify-content:space-between;gap:10px;align-items:center}.btn{display:inline-flex;align-items:center;justify-content:center;height:38px;border-radius:12px;background:#111827;color:#fff!important;text-decoration:none;font-weight:900;padding:0 12px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:14px 0;box-shadow:0 8px 24px rgba(15,23,42,.055)}table{width:100%;border-collapse:collapse;background:#fff}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:14px}.okb,.badb{border-radius:999px;padding:5px 9px;font-weight:900;font-size:12px}.okb{background:#dcfce7;color:#166534}.badb{background:#fee2e2;color:#991b1b}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}.link{display:block;border:1px solid #e5e7eb;border-radius:16px;padding:13px;text-decoration:none;color:#111827;background:#f8fafc;font-weight:900}</style></head><body>${renderUnifiedNav("diagnostics")}<main class="wrap"><div class="top"><div><h1>시스템진단</h1><p>운영 서버와 Supabase 연결 상태를 화면에서 확인합니다. 민감한 키 값은 표시하지 않습니다.</p></div><a class="btn" href="/?legacy=1">관리자 홈</a></div><section class="card"><h2>환경변수</h2><table><tbody>${envStatus.map(([k, ok]) => row(k, ok, ok ? "설정됨" : "미설정")).join("")}</tbody></table></section><section class="card"><h2>DB/기능 테이블</h2><table><tbody>${checks.map((c) => row(c[0], c[1], c[2])).join("")}</tbody></table><p>확인필요 항목이 보이면 운영센터에서 상태를 확인한 뒤 관리자에게 점검을 요청하세요.</p></section><section class="card"><h2>주요 화면 바로가기</h2><div class="grid"><a class="link" href="/app">모바일 앱</a><a class="link" href="/?legacy=1">관리자 홈</a><a class="link" href="/?legacy=1&tab=import">파일 업로드</a><a class="link" href="/households">가계부·참여자</a><a class="link" href="/categories">분류 설정</a><a class="link" href="/budgets">예산 관리</a><a class="link" href="/smart-tools">스마트 도구</a><a class="link" href="/payment-methods">결제수단</a><a class="link" href="/final-release">최종 배포판</a><a class="link" href="/feature-map">기능맵</a><a class="link" href="/deploy-runbook">배포 런북</a><a class="link" href="/kakao-recent">카카오 저장 확인</a><a class="link" href="/ledger">기록 관리</a><a class="link" href="/ops-audit">배포운영 점검</a><a class="link" href="/health">Health</a></div></section><section class="card"><h2>가계부 목록</h2><table><tbody>${households.map((h) => `<tr><td>${escapeHtml(h.name || "")}</td><td>${escapeHtml(h.id || "")}</td></tr>`).join("") || `<tr><td colspan="2">가계부가 없습니다. /households에서 생성하세요.</td></tr>`}</tbody></table></section></main></body></html>`;
 }
 
 function userHouseholdRoleLabel(role = "") {
@@ -21879,7 +21912,7 @@ async function handleRealUserQaPage(request, env, url) {
     ["/menu", "사용자 메뉴", "운영/점검 메뉴가 일반 전체보기에서 보이지 않는지 확인", `/menu?month=${encodeURIComponent(month)}${hh}`],
     ["/budget-alerts", "예산 알림", "오늘예산·월말예상·정기지출예정·초과/주의 분류가 자연스럽게 보이는지 확인", `/budget-alerts?month=${encodeURIComponent(month)}${hh}`],
     ["/settlement-summary", "모임 정산", "참여자별 지출과 1/N 정산 요약이 선택 가계부 범위 안에서만 보이는지 확인", `/settlement-summary?month=${encodeURIComponent(month)}${hh}`],
-    ["/smart-tools", "무료 스마트 도구", "월말 예상·반복지출·이상지출과 무료 제공 안내가 정확한지 확인", `/smart-tools?month=${encodeURIComponent(month)}${hh}`],
+    ["/smart-tools", "스마트 도구", "월말 예상·반복지출·이상지출과 기능 안내가 정확한지 확인", `/smart-tools?month=${encodeURIComponent(month)}${hh}`],
     ["/privacy", "심사 정보", "개인정보 안내와 하단 사업자 푸터가 자연스럽게 표시되는지 확인", "/privacy"],
     ["/ops-dashboard", "운영 로그", "최근 오류·트래픽·중복 방어 이벤트가 운영자 화면에서만 보이는지 확인", "/ops-dashboard"],
   ].map(([route, name, desc, href]) => `<a class="qaCard" href="${escapeHtml(href)}"><code>${escapeHtml(route)}</code><b>${escapeHtml(name)}</b><span>${escapeHtml(desc)}</span></a>`).join("");
@@ -21889,7 +21922,7 @@ async function handleRealUserQaPage(request, env, url) {
     "사용자 /menu에는 운영·점검 항목이 보이지 않고, 운영자는 /operation-center에서만 확인합니다.",
     "빠른 입력 샘플 30개 중 이상한 분류가 나오면 기능 추가가 아니라 키워드 HOTFIX로만 처리합니다.",
   ].map((x,i)=>`<li><b>${i+1}</b><span>${escapeHtml(x)}</span></li>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 실사용 QA</title><style>${userPolishBaseStyle()}.qaGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.qaCard{display:block;text-decoration:none;color:#111827;background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px;box-shadow:0 10px 24px rgba(15,23,42,.05)}.qaCard code{display:inline-flex;background:#eff6ff;color:#1e3a8a;border-radius:999px;padding:5px 8px;font-size:12px;font-weight:1000}.qaCard b{display:block;margin-top:10px;font-size:17px}.qaCard span{display:block;color:#64748b;line-height:1.45;margin-top:6px}.stepList{list-style:none;padding:0;margin:0;display:grid;gap:9px}.stepList li{display:flex;gap:10px;align-items:flex-start;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px}.stepList b{display:inline-flex;width:26px;height:26px;align-items:center;justify-content:center;border-radius:999px;background:#111827;color:#fff}.stepList span{line-height:1.55}</style></head><body>${renderUnifiedNav("real-user-qa", { month, householdId })}<main class="wrap"><section class="hero"><span class="tag">V20.8 실사용 QA</span><h1>실제 사용자 기준으로 마지막 어색함을 잡습니다</h1><p>기능을 더 붙이기보다 모바일 입력, 메뉴 노출, 가계부 전환, 무료 스마트 도구, 심사 정보, 운영 로그를 한 번에 확인하는 단계입니다.</p>${userPolishNav()}</section><section class="card"><h2>바로 눌러 확인할 화면</h2><div class="qaGrid">${cards}</div></section><section class="card"><h2>진행 순서</h2><ol class="stepList">${steps}</ol></section><section class="notice"><b>운영 원칙</b><br/>이 화면에서 발견된 문제는 V20.8.x HOTFIX로만 고칩니다. /my, /app, /skill 저장 로직과 권한 구조는 안정 버전으로 유지합니다.</section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 실사용 QA</title><style>${userPolishBaseStyle()}.qaGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.qaCard{display:block;text-decoration:none;color:#111827;background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px;box-shadow:0 10px 24px rgba(15,23,42,.05)}.qaCard code{display:inline-flex;background:#eff6ff;color:#1e3a8a;border-radius:999px;padding:5px 8px;font-size:12px;font-weight:1000}.qaCard b{display:block;margin-top:10px;font-size:17px}.qaCard span{display:block;color:#64748b;line-height:1.45;margin-top:6px}.stepList{list-style:none;padding:0;margin:0;display:grid;gap:9px}.stepList li{display:flex;gap:10px;align-items:flex-start;background:#f8fafc;border:1px solid #e5e7eb;border-radius:16px;padding:12px}.stepList b{display:inline-flex;width:26px;height:26px;align-items:center;justify-content:center;border-radius:999px;background:#111827;color:#fff}.stepList span{line-height:1.55}</style></head><body>${renderUnifiedNav("real-user-qa", { month, householdId })}<main class="wrap"><section class="hero"><span class="tag">V20.8 실사용 QA</span><h1>실제 사용자 기준으로 마지막 어색함을 잡습니다</h1><p>기능을 더 붙이기보다 모바일 입력, 메뉴 노출, 가계부 전환, 스마트 도구, 심사 정보, 운영 로그를 한 번에 확인하는 단계입니다.</p>${userPolishNav()}</section><section class="card"><h2>바로 눌러 확인할 화면</h2><div class="qaGrid">${cards}</div></section><section class="card"><h2>진행 순서</h2><ol class="stepList">${steps}</ol></section><section class="notice"><b>운영 원칙</b><br/>이 화면에서 발견된 문제는 V20.8.x HOTFIX로만 고칩니다. /my, /app, /skill 저장 로직과 권한 구조는 안정 버전으로 유지합니다.</section></main></body></html>`);
 }
 
 async function handleQuickInputQaPage(request, env, url) {
@@ -26036,7 +26069,7 @@ function renderPcSidebar(active, month, householdId, householdName = "") {
     ["calendar", "달력", "◷"],
     ["analysis", "분석", "▣"],
     ["cleanup", "정리", "✓"],
-    ["premium", "무료 스마트", "◇"],
+    ["premium", "스마트", "◇"],
   ];
   const m = safeNavMonth(month);
   const hid = safeNavHouseholdId(householdId);
@@ -26122,7 +26155,7 @@ function renderTabs(active, month, householdId, extra) {
     ["cleanup", "정리"],
     ["import", "파일"],
     ["guide", "가이드"],
-    ["premium", "무료 스마트"],
+    ["premium", "스마트"],
   ];
   const normal = tabs.map(([key, label]) => `<a class="tab ${active === key ? "active" : ""}" href="${escapeHtml(dashboardQuery(month, householdId, { ...extra, tab: key }))}">${label}</a>`).join("");
   const tools = `<a class="tab tool" href="/households${householdId ? `?household_id=${encodeURIComponent(householdId)}` : ""}">가계부·참여자</a><a class="tab tool" href="/categories${householdId ? `?household_id=${encodeURIComponent(householdId)}` : ""}">분류설정</a><a class="tab tool" href="/kakao-recent">카카오확인</a><a class="tab tool" href="/diagnostics">시스템진단</a><a class="tab tool" href="/app">모바일 입력</a>`;
@@ -31748,7 +31781,7 @@ function renderFreeReportsHtml({ env, month, selected, report, range = "month", 
   const share = livingReportShareText(report, selected.name || "가계부");
   const savedSummary = [weeklySnapshot ? `주간 ${escapeHtml(weeklySnapshot.period || "")}` : "주간 대기", monthlySnapshot ? `월간 ${escapeHtml(monthlySnapshot.period || "")}` : "월간 대기"].join(" · ");
   const parts = renderLivingReportSections({ report, selected, month, range, week, canWrite, msg, err });
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 무료 리포트</title><style>${livingReportCss()}${reportUxCss()}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("reports", { month, householdId: selected.id, householdName: selected.name, role: String(selected.role || "") })}<main class="wrap">${parts.flash ? `<div class="${parts.flash[0]}">${parts.flash[1]}</div>` : ""}${parts.flashErr ? `<div class="error">${escapeHtml(parts.flashErr)}</div>` : ""}<section class="hero"><h1>생활비 리포트</h1><p>${escapeHtml(selected.name || "가계부")} · 같은 기록을 주간과 월간으로 읽습니다. 고정비·구독, 날짜별 지출, 생활 패턴, 카드별 사용액을 한 화면에서 봅니다.</p>${parts.segment}<p class="noPrint"><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><button type="button" onclick="window.print()">인쇄·PDF 저장</button></p></section>${renderReportMonthNavigator({ path: "/reports", month, householdId: selected.id, extra: range === "week" ? { range: "week" } : {} })}${parts.weekChips}${historyLimited ? `<div class="note">기간 전체 기록을 불러오지 못했습니다. 아래 합계는 불러온 선택 월 기록만 포함하며, 기간 비교·반복 후보·달성 배지는 표시하지 않습니다.</div>` : ""}${settingsUnavailable ? `<div class="note">카드·적립 계획 설정을 불러오지 못해 그 부분은 비워 두었어요. 새로고침하면 다시 시도합니다.</div>` : ""}${parts.summary}${parts.fixed}${parts.daily}<section class="card"><h2>지출 상위 분류</h2><p class="lead">${escapeHtml(report.period.title)}${report.period.live ? " 오늘까지" : ""} 기준</p><div class="tableWrap tableFit"><table><thead><tr><th>분류</th><th>금액</th><th>건수</th></tr></thead><tbody>${report.currentAvailable ? renderReportTopRows({ top_categories: report.topCategories }) : `<tr><td colspan="3">기간 기록 확인 불가</td></tr>`}</tbody></table></div></section>${adSlotMarkup(env, adKey)}${parts.pattern}${parts.cards}<section class="card noPrint"><h2>자동 생성 설정</h2><p class="note">모든 기능은 무료입니다. 자동 생성은 가계부 전체 설정이므로 소유자·관리자만 바꿀 수 있습니다. 생성 상태: ${savedSummary}</p>${settingsUnavailable ? `<p>설정을 확인할 수 없어 변경할 수 없습니다. 새로고침한 뒤 다시 확인해 주세요.</p>` : canManage ? `<form class="settings" method="post" action="/my/report-preference/save"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label><input type="checkbox" name="enabled" value="1"${preference.enabled ? " checked" : ""}/> 자동 리포트 생성 사용</label><label><input type="checkbox" name="weekly" value="1"${preference.weekly ? " checked" : ""}/> 매주 일요일 주간 리포트</label><label><input type="checkbox" name="monthly" value="1"${preference.monthly ? " checked" : ""}/> 매월 말 월간 리포트</label><button type="submit">설정 저장</button></form>` : `<p>현재 권한에서는 리포트 조회·복사·PDF 저장을 사용할 수 있고, 자동 생성 설정은 소유자·관리자가 변경합니다.</p>`}</section><section class="card noPrint"><h2>카카오톡에 공유할 문구</h2><textarea id="reportShare" class="share" readonly>${escapeHtml(share)}</textarea><p><button type="button" id="copyReport">문구 복사</button><a class="btn light" href="/my/analysis?${qs}">상세 분석</a></p><p class="note">서비스가 사용자 대신 임의로 메시지를 보내지 않습니다. 문구를 복사해 원하는 대화방에 직접 공유하면 오발송을 막을 수 있습니다.</p></section></main><script>(${livingReportCopyMain.toString()})();</script></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 생활비 리포트</title><style>${livingReportCss()}${reportUxCss()}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("reports", { month, householdId: selected.id, householdName: selected.name, role: String(selected.role || "") })}<main class="wrap">${parts.flash ? `<div class="${parts.flash[0]}">${parts.flash[1]}</div>` : ""}${parts.flashErr ? `<div class="error">${escapeHtml(parts.flashErr)}</div>` : ""}<section class="hero"><h1>생활비 리포트</h1><p>${escapeHtml(selected.name || "가계부")} · 같은 기록을 주간과 월간으로 읽습니다. 고정비·구독, 날짜별 지출, 생활 패턴, 카드별 사용액을 한 화면에서 봅니다.</p>${parts.segment}<p class="noPrint"><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><button type="button" onclick="window.print()">인쇄·PDF 저장</button></p></section>${renderReportMonthNavigator({ path: "/reports", month, householdId: selected.id, extra: range === "week" ? { range: "week" } : {} })}${parts.weekChips}${historyLimited ? `<div class="note">기간 전체 기록을 불러오지 못했습니다. 아래 합계는 불러온 선택 월 기록만 포함하며, 기간 비교·반복 후보·달성 배지는 표시하지 않습니다.</div>` : ""}${settingsUnavailable ? `<div class="note">카드·적립 계획 설정을 불러오지 못해 그 부분은 비워 두었어요. 새로고침하면 다시 시도합니다.</div>` : ""}${parts.summary}${parts.fixed}${parts.daily}<section class="card"><h2>지출 상위 분류</h2><p class="lead">${escapeHtml(report.period.title)}${report.period.live ? " 오늘까지" : ""} 기준</p><div class="tableWrap tableFit"><table><thead><tr><th>분류</th><th>금액</th><th>건수</th></tr></thead><tbody>${report.currentAvailable ? renderReportTopRows({ top_categories: report.topCategories }) : `<tr><td colspan="3">기간 기록 확인 불가</td></tr>`}</tbody></table></div></section>${adSlotMarkup(env, adKey)}${parts.pattern}${parts.cards}<section class="card noPrint"><h2>자동 생성 설정</h2><p class="note">자동 생성은 가계부 전체 설정이므로 소유자·관리자만 바꿀 수 있습니다. 생성 상태: ${savedSummary}</p>${settingsUnavailable ? `<p>설정을 확인할 수 없어 변경할 수 없습니다. 새로고침한 뒤 다시 확인해 주세요.</p>` : canManage ? `<form class="settings" method="post" action="/my/report-preference/save"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><label><input type="checkbox" name="enabled" value="1"${preference.enabled ? " checked" : ""}/> 자동 리포트 생성 사용</label><label><input type="checkbox" name="weekly" value="1"${preference.weekly ? " checked" : ""}/> 매주 일요일 주간 리포트</label><label><input type="checkbox" name="monthly" value="1"${preference.monthly ? " checked" : ""}/> 매월 말 월간 리포트</label><button type="submit">설정 저장</button></form>` : `<p>현재 권한에서는 리포트 조회·복사·PDF 저장을 사용할 수 있고, 자동 생성 설정은 소유자·관리자가 변경합니다.</p>`}</section><section class="card noPrint"><h2>카카오톡에 공유할 문구</h2><textarea id="reportShare" class="share" readonly>${escapeHtml(share)}</textarea><p><button type="button" id="copyReport">문구 복사</button><a class="btn light" href="/my/analysis?${qs}">상세 분석</a></p><p class="note">서비스가 사용자 대신 임의로 메시지를 보내지 않습니다. 문구를 복사해 원하는 대화방에 직접 공유하면 오발송을 막을 수 있습니다.</p></section></main><script>(${livingReportCopyMain.toString()})();</script></body></html>`;
 }
 
 function renderMiniCategoryRows(stats = {}) {
@@ -31803,7 +31836,7 @@ function renderMyPremiumHtml({ env, month, selected, rows = [], budget = {}, ana
   const title = escapeHtml(appName(env));
   const message = msg === "recurring_registered" ? `<div class="ok">반복지출 후보를 확정했습니다. 지정일이 되면 같은 달 중복 없이 자동 기록됩니다.</div>` : msg === "recurring_exists" ? `<div class="ok">이미 같은 이름·금액의 반복지출이 등록되어 있습니다.</div>` : "";
   const error = err ? `<div class="error">처리하지 못했습니다. 입력값과 가계부 관리 권한을 확인해 주세요.</div>` : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 무료 스마트 도구</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:12px 0}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:10px 0 6px;font-size:30px}.hero p{line-height:1.65;color:#ccfbf1}.badge{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:7px 11px;font-size:12px;font-weight:1000}.grid,.features,.candidateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:25px;margin-top:7px}.feature,.candidate{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#f8fafc}.feature b,.candidate b{display:block;font-size:16px;color:#166534}.feature span,.candidate span,.candidate small{display:block;color:#64748b;line-height:1.55;margin-top:5px}.candidate{display:grid;gap:9px}.candidate strong{font-size:20px}.candidate form{display:grid;gap:8px}.candidate label{font-size:12px;color:#475569}.candidate button{border:0;border-radius:13px;min-height:42px;background:#111827;color:#fff;font-weight:1000}.muted{color:#64748b;line-height:1.6}.insightList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.insightList li{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc}.insightList span{color:#64748b;font-size:13px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#ecfdf5;color:#065f46!important}.ok,.error{border-radius:16px;padding:13px;line-height:1.6;margin:12px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:16px;padding:13px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid .metric{padding:14px}.metricGrid .metric b{font-size:20px}.insightList li{grid-template-columns:1fr}.btn{width:100%;margin:4px 0}}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("smart-tools",{ month, householdId: selected?.id || "", householdName: selected?.name || "", role: String(selected?.role || "") })}<main class="wrap">${message}${error}<section class="hero"><span class="badge">초기 서비스 · 모두 무료</span><h1>스마트 생활 도구</h1><p>${escapeHtml(selected?.name || "가계부")} · ${escapeHtml(month.slice(0, 4))}년 ${Number(month.slice(5, 7))}월 기준. 예측·자동화·정산·리포트를 한 곳에서 사용합니다. 현재 공개된 기능은 결제나 구독 등급 없이 모두 무료입니다.</p><p><a class="btn" href="/reports?${qs}">생활비 리포트</a><a class="btn light" href="/settlement-summary?${qs}">고급 정산</a></p></section><section class="grid metricGrid"><div class="card metric"><span>월말 예상 지출</span><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b></div><div class="card metric"><span>예산 잔여</span><b>${numberWithCommas(budgetRemain)}원</b></div><div class="card metric"><span>반복지출 후보</span>${recurringMetric}</div><div class="card metric"><span>이상지출 후보</span><b>${anomalies.length}건</b><small>${numberWithCommas(anomalyTotal)}원</small></div><div class="card metric"><span>이번 주 지출</span><b>${weeklyText}</b></div><div class="card metric"><span>절약 후보</span><b>${premium.hasObservation === false ? "관측 전" : `${numberWithCommas(premium.savingPotential)}원`}</b></div></section><section class="card"><h2>무료로 사용할 수 있는 기능</h2><div class="features"><div class="feature"><b>반복 거래 자동화</b><span>후보를 가계부 소유자·관리자가 명시적으로 확정하면 지정일에 월 1회만 자동 반영합니다.</span></div><div class="feature"><b>고급 정산</b><span>동일·비율·인원수·품목별 분배와 최소 송금 제안을 제공합니다.</span></div><div class="feature"><b>주간·월간 리포트</b><span>자동 생성 설정, 복사·공유, 인쇄/PDF 저장을 제공합니다.</span></div><div class="feature"><b>스마트 예산·미션</b><span>현재 지출에서 추천 예산과 현실적인 절약 후보를 계산합니다.</span></div><div class="feature"><b>가족별 비교 분석</b><span>참여자와 분류별 기록을 기존 분석 화면에서 비교합니다.</span></div></div><p><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><a class="btn light" href="/payment-methods?${qs}">자산·결제수단</a></p></section><section class="card"><h2>반복지출 후보 확정</h2><p class="muted">자동 등록 전 반드시 동의해야 하며, 같은 이름·금액은 중복 등록하지 않습니다. 금액이 바뀌면 새 후보로 다시 확인합니다.</p>${renderRecurringCandidateCards(recurringCandidates, selected, month)}</section><section class="card"><h2>큰 지출 점검</h2>${renderAnomalyList(anomalies)}</section>${adSlotMarkup(env, adKey)}<p class="notice"><b>무료 제공 원칙</b><br/>초기 서비스에서는 별도 유료 등급, 결제, 사용량 제한을 두지 않습니다. 가계부 역할 권한(소유자·관리자·구성원·조회전용)과 데이터 격리는 그대로 유지합니다. 준비가 끝나지 않은 기능은 메뉴와 직접 경로에서 숨깁니다.</p></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 스마트 도구</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:12px 0}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:10px 0 6px;font-size:30px}.hero p{line-height:1.65;color:#ccfbf1}.badge{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:7px 11px;font-size:12px;font-weight:1000}.grid,.features,.candidateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:25px;margin-top:7px}.feature,.candidate{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#f8fafc}.feature b,.candidate b{display:block;font-size:16px;color:#166534}.feature span,.candidate span,.candidate small{display:block;color:#64748b;line-height:1.55;margin-top:5px}.candidate{display:grid;gap:9px}.candidate strong{font-size:20px}.candidate form{display:grid;gap:8px}.candidate label{font-size:12px;color:#475569}.candidate button{border:0;border-radius:13px;min-height:42px;background:#111827;color:#fff;font-weight:1000}.muted{color:#64748b;line-height:1.6}.insightList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.insightList li{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc}.insightList span{color:#64748b;font-size:13px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#ecfdf5;color:#065f46!important}.ok,.error{border-radius:16px;padding:13px;line-height:1.6;margin:12px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:16px;padding:13px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid .metric{padding:14px}.metricGrid .metric b{font-size:20px}.insightList li{grid-template-columns:1fr}.btn{width:100%;margin:4px 0}}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("smart-tools",{ month, householdId: selected?.id || "", householdName: selected?.name || "", role: String(selected?.role || "") })}<main class="wrap">${message}${error}<section class="hero"><span class="badge">스마트 도구</span><h1>스마트 생활 도구</h1><p>${escapeHtml(selected?.name || "가계부")} · ${escapeHtml(month.slice(0, 4))}년 ${Number(month.slice(5, 7))}월 기준. 예측·자동화·정산·리포트를 한 곳에서 사용합니다.</p><p><a class="btn" href="/reports?${qs}">생활비 리포트</a><a class="btn light" href="/settlement-summary?${qs}">고급 정산</a></p></section><section class="grid metricGrid"><div class="card metric"><span>월말 예상 지출</span><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b></div><div class="card metric"><span>예산 잔여</span><b>${numberWithCommas(budgetRemain)}원</b></div><div class="card metric"><span>반복지출 후보</span>${recurringMetric}</div><div class="card metric"><span>이상지출 후보</span><b>${anomalies.length}건</b><small>${numberWithCommas(anomalyTotal)}원</small></div><div class="card metric"><span>이번 주 지출</span><b>${weeklyText}</b></div><div class="card metric"><span>절약 후보</span><b>${premium.hasObservation === false ? "관측 전" : `${numberWithCommas(premium.savingPotential)}원`}</b></div></section><section class="card"><h2>사용할 수 있는 기능</h2><div class="features"><div class="feature"><b>반복 거래 자동화</b><span>후보를 가계부 소유자·관리자가 명시적으로 확정하면 지정일에 월 1회만 자동 반영합니다.</span></div><div class="feature"><b>고급 정산</b><span>동일·비율·인원수·품목별 분배와 최소 송금 제안을 제공합니다.</span></div><div class="feature"><b>주간·월간 리포트</b><span>자동 생성 설정, 복사·공유, 인쇄/PDF 저장을 제공합니다.</span></div><div class="feature"><b>스마트 예산·미션</b><span>현재 지출에서 추천 예산과 현실적인 절약 후보를 계산합니다.</span></div><div class="feature"><b>가족별 비교 분석</b><span>참여자와 분류별 기록을 기존 분석 화면에서 비교합니다.</span></div></div><p><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><a class="btn light" href="/payment-methods?${qs}">자산·결제수단</a></p></section><section class="card"><h2>반복지출 후보 확정</h2><p class="muted">자동 등록 전 반드시 동의해야 하며, 같은 이름·금액은 중복 등록하지 않습니다. 금액이 바뀌면 새 후보로 다시 확인합니다.</p>${renderRecurringCandidateCards(recurringCandidates, selected, month)}</section><section class="card"><h2>큰 지출 점검</h2>${renderAnomalyList(anomalies)}</section>${adSlotMarkup(env, adKey)}<p class="notice"><b>기능 이용 안내</b><br/>가계부 역할 권한(소유자·관리자·구성원·조회전용)과 데이터 격리는 그대로 유지합니다. 준비가 끝나지 않은 기능은 메뉴와 직접 경로에서 숨깁니다.</p></main></body></html>`;
 }
 
 // V22.9.76 감사 C-3: 분석 화면의 ?err= 는 화면 안 오류 문구 표(errorMessages)에서 찾는다. constructor·toString 처럼
@@ -42830,7 +42863,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
     add: `<a href="#add"><b>입력</b><span>바로 기록</span></a>`,
     budgets: `<a href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><b>예산</b><span>남은 돈</span></a>`,
     "reserve-plans": `<a href="/reserve-plans?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><b>정기 수입·지출</b><span>세금·보험</span></a>`,
-    "smart-tools": `<a href="/smart-tools?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><b>스마트</b><span>무료 도구</span></a>`,
+    "smart-tools": `<a href="/smart-tools?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><b>스마트</b><span>스마트 도구</span></a>`,
     categories: `<a href="/categories?household_id=${encodeURIComponent(householdId)}"><b>분류</b><span>키워드</span></a>`,
     menu: `<a href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><b>전체</b><span>메뉴</span></a>`,
   };
@@ -45239,7 +45272,7 @@ function renderMySideNav(selectedHousehold, role = "", month = currentMonthKst()
   };
   const securityHref = `/my/backup-login?return_to=${encodeURIComponent(returnByMenu[current] || `/my/households?${qs}`)}`;
   const item = (key, href, label, hint = "") => `<a class="${current === key ? "active" : ""}" href="${href}"><span>${label}</span>${hint ? `<small>${hint}</small>` : ""}</a>`;
-  return `<details class="appMenu" open><summary>☰ 메뉴</summary><div class="appMenuBody"><div class="navGroup"><div class="navGroupTitle">가계부</div>${item("home", `/app?${qs}`, "홈", "요약·입력")}${item("analysis", `/my/analysis?${qs}`, "분석", "필터·차트")}${item("smart-tools", `/smart-tools?${qs}`, "무료 스마트 도구", "예측·자동화")}${item("reports", `/reports?${qs}`, "생활비 리포트", "주간·월간")}${item("calendar", `/app?${qs}&view=calendar#calendar`, "캘린더", "일별/수정")}${item("settings", `/my/settings?${qs}`, "수입·예산", "분류 합계")}</div><div class="navGroup"><div class="navGroupTitle">가계부 관리</div>${item("households", `/my/households?${qs}`, "가계부 전환·옵션", "이름·삭제")}${item("groups", `/my/groups?${qs}`, "단톡방 연결", "챗봇")}${item("backup", `/my/backup?${qs}`, "백업·가져오기", "CSV")}${isManager ? item("members", `/my/members?${qs}`, "참여자·초대", "권한") : item("profile", "/my/profile", "내 프로필", "표시명")}</div><div class="navGroup"><div class="navGroupTitle">계정·도움말</div>${item("backup-login", securityHref, "내 계정·보안", "로그인·복구")}${item("guide", `/start-guide?${qs}`, "시작가이드", "순서")}${item("keyword", `/keyword-guide?${qs}`, "키워드 안내", "분류")}${item("privacy", "/privacy", "개인정보 안내", "정책")}</div></div></details><script>(function(){try{if(Math.min(window.innerWidth||9999,(document.documentElement||{}).clientWidth||9999)<1024){var m=document.querySelector(".appMenu");if(m)m.removeAttribute("open");}}catch(e){}})();</script>`;
+  return `<details class="appMenu" open><summary>☰ 메뉴</summary><div class="appMenuBody"><div class="navGroup"><div class="navGroupTitle">가계부</div>${item("home", `/app?${qs}`, "홈", "요약·입력")}${item("analysis", `/my/analysis?${qs}`, "분석", "필터·차트")}${item("smart-tools", `/smart-tools?${qs}`, "스마트 도구", "예측·자동화")}${item("reports", `/reports?${qs}`, "생활비 리포트", "주간·월간")}${item("calendar", `/app?${qs}&view=calendar#calendar`, "캘린더", "일별/수정")}${item("settings", `/my/settings?${qs}`, "수입·예산", "분류 합계")}</div><div class="navGroup"><div class="navGroupTitle">가계부 관리</div>${item("households", `/my/households?${qs}`, "가계부 전환·옵션", "이름·삭제")}${item("groups", `/my/groups?${qs}`, "단톡방 연결", "챗봇")}${item("backup", `/my/backup?${qs}`, "백업·가져오기", "CSV")}${isManager ? item("members", `/my/members?${qs}`, "참여자·초대", "권한") : item("profile", "/my/profile", "내 프로필", "표시명")}</div><div class="navGroup"><div class="navGroupTitle">계정·도움말</div>${item("backup-login", securityHref, "내 계정·보안", "로그인·복구")}${item("guide", `/start-guide?${qs}`, "시작가이드", "순서")}${item("keyword", `/keyword-guide?${qs}`, "키워드 안내", "분류")}${item("privacy", "/privacy", "개인정보 안내", "정책")}</div></div></details><script>(function(){try{if(Math.min(window.innerWidth||9999,(document.documentElement||{}).clientWidth||9999)<1024){var m=document.querySelector(".appMenu");if(m)m.removeAttribute("open");}}catch(e){}})();</script>`;
 }
 
 function renderMemberOptions(members = [], selected = "") {
@@ -45837,11 +45870,11 @@ function buildSmartBudgets(rows, totalExpense) {
 }
 
 function renderInlinePremiumTeaser(state) {
-  return `<section class="premiumHero"><h3>✨ 무료 스마트 도구</h3><p>이번 달 절약 후보 <b>${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.savingPotential)}원`}</b> · 관리 점수 <b>${state.hasObservation === false ? "관측 전" : `${state.premiumScore}점`}</b></p><div class="premiumCta"><a class="dark" href="/smart-tools?month=${encodeURIComponent(state.month)}">스마트 도구 보기</a><span>월말 예측</span><span>반복지출 탐지</span><span>스마트 예산 추천</span></div></section>`;
+  return `<section class="premiumHero"><h3>✨ 스마트 도구</h3><p>이번 달 절약 후보 <b>${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.savingPotential)}원`}</b> · 관리 점수 <b>${state.hasObservation === false ? "관측 전" : `${state.premiumScore}점`}</b></p><div class="premiumCta"><a class="dark" href="/smart-tools?month=${encodeURIComponent(state.month)}">스마트 도구 보기</a><span>월말 예측</span><span>반복지출 탐지</span><span>스마트 예산 추천</span></div></section>`;
 }
 
 function renderPremiumTab(state) {
-  return `<section class="premiumHero"><span class="premiumRibbon">모두 무료</span><h3>✨ 지출을 기록하는 데서 끝내지 않고, 다음 행동까지 알려드립니다</h3><p>월말 예상, 반복지출, 이상지출, 예산 추천을 현재 기록에서 계산합니다. 별도 결제나 구독 등급이 없습니다.</p><div class="premiumCta"><span>관리 점수 ${state.hasObservation === false ? "관측 전" : `${state.premiumScore}점`}</span><span>절약 후보 ${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.savingPotential)}원`}</span><span>월말 예상 ${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.report.forecast)}원`}</span><a class="dark" href="/smart-tools?month=${encodeURIComponent(state.month)}">전체 무료 도구</a></div></section><section class="premiumGrid"><div class="premiumCard"><span class="premiumRibbon">월말 예측</span><div class="premiumTitle">예상 지출</div><div class="premiumValue">${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.report.forecast)}원`}</div><div class="premiumDesc">오늘까지 기록에 남은 고정지출과 남은 날 예상을 더해 월말 지출을 미리 확인합니다.</div></div><div class="premiumCard"><span class="premiumRibbon">절약 분석</span><div class="premiumTitle">줄일 수 있는 후보</div><div class="premiumValue">${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.savingPotential)}원`}</div><div class="premiumDesc">고정비, 카페, 주말 소비, 급증 항목을 기준으로 계산합니다.</div></div><div class="premiumCard"><span class="premiumRibbon">위험 점검</span><div class="premiumTitle">소비 위험 점수</div><div class="premiumValue">${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.report.riskScore)}점`}</div><div class="premiumDesc">예산·지출 집중도·고정비 비중을 함께 살펴봅니다.</div></div></section><section class="layout2"><div class="card"><h3>🎯 스마트 절약 미션</h3><div class="premiumGrid">${state.missions.map((m)=>`<div class="premiumMission"><div class="missionTop"><b>${escapeHtml(m.title)}</b><span class="missionBadge">${escapeHtml(m.reward)}</span></div><div class="premiumDesc">${escapeHtml(m.desc)}</div></div>`).join("")}</div></div><div class="card"><h3>📊 스마트 예산 추천</h3>${renderPremiumBudgetTable(state.budgets)}</div></section>`;
+  return `<section class="premiumHero"><h3>✨ 지출을 기록하는 데서 끝내지 않고, 다음 행동까지 알려드립니다</h3><p>월말 예상, 반복지출, 이상지출, 예산 추천을 현재 기록에서 계산합니다.</p><div class="premiumCta"><span>관리 점수 ${state.hasObservation === false ? "관측 전" : `${state.premiumScore}점`}</span><span>절약 후보 ${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.savingPotential)}원`}</span><span>월말 예상 ${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.report.forecast)}원`}</span><a class="dark" href="/smart-tools?month=${encodeURIComponent(state.month)}">전체 스마트 도구</a></div></section><section class="premiumGrid"><div class="premiumCard"><span class="premiumRibbon">월말 예측</span><div class="premiumTitle">예상 지출</div><div class="premiumValue">${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.report.forecast)}원`}</div><div class="premiumDesc">오늘까지 기록에 남은 고정지출과 남은 날 예상을 더해 월말 지출을 미리 확인합니다.</div></div><div class="premiumCard"><span class="premiumRibbon">절약 분석</span><div class="premiumTitle">줄일 수 있는 후보</div><div class="premiumValue">${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.savingPotential)}원`}</div><div class="premiumDesc">고정비, 카페, 주말 소비, 급증 항목을 기준으로 계산합니다.</div></div><div class="premiumCard"><span class="premiumRibbon">위험 점검</span><div class="premiumTitle">소비 위험 점수</div><div class="premiumValue">${state.hasObservation === false ? "관측 전" : `${numberWithCommas(state.report.riskScore)}점`}</div><div class="premiumDesc">예산·지출 집중도·고정비 비중을 함께 살펴봅니다.</div></div></section><section class="layout2"><div class="card"><h3>🎯 스마트 절약 미션</h3><div class="premiumGrid">${state.missions.map((m)=>`<div class="premiumMission"><div class="missionTop"><b>${escapeHtml(m.title)}</b><span class="missionBadge">${escapeHtml(m.reward)}</span></div><div class="premiumDesc">${escapeHtml(m.desc)}</div></div>`).join("")}</div></div><div class="card"><h3>📊 스마트 예산 추천</h3>${renderPremiumBudgetTable(state.budgets)}</div></section>`;
 }
 
 function renderPremiumBudgetTable(items) {

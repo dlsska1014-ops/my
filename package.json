@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.98",
+  "version": "22.9.99",
   "private": true,
   "type": "module",
   "engines": {
@@ -213,6 +213,7 @@
     "validate:lucian-c": "node validation/validate-lucian-c-comparison-v22957.mjs",
     "validate:lucian-c-native": "node tools/check-lucian-c-comparison.mjs",
     "validate:d3-refund-guidance": "node validation/validate-d3-refund-guidance-v22958.mjs",
-    "validate:d3-refund-native": "node tools/check-d3-refund-guidance-v22958.mjs"
+    "validate:d3-refund-native": "node tools/check-d3-refund-guidance-v22958.mjs",
+    "validate:support-wording-v22999": "node validation/validate-support-wording-v22999.mjs"
   }
 }
