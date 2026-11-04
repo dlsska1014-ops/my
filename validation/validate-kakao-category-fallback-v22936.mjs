@@ -26,10 +26,10 @@ const events = () => globalThis.__AB_OPS_EVENTS || [];
 {
   const fn = source.slice(source.indexOf("async function fetchKakaoInputSettings("), source.indexOf("const KAKAO_RETRY_DEDUP_SECONDS"));
   ok(fn.length > 200, "fetchKakaoInputSettings 를 찾았다");
-  ok(/accountbook_categories\?[^\n]*\n\s*\.catch\(/.test(fn), "분류 표 조회에 .catch 대체가 붙어 있다(운영에는 이 표가 없다)");
+  ok(fn.includes("await readOptionalCategoryTable(") && /catch \(err\) \{[\s\S]*?return \[\];/.test(fn), "분류 표 조회 실패를 빈 목록으로 대체한다(운영에는 이 표가 없다)");
   ok(fn.includes('kind: "kakao_category_table_unavailable"'), "표 조회 실패를 운영 이벤트 kakao_category_table_unavailable 로 남긴다");
   ok(fn.includes("globalThis.__AB_KAKAO_CATEGORY_TABLE_WARNED"), "운영 이벤트는 인스턴스마다 한 번만 남긴다(220개 버퍼를 채우지 않는다)");
-  ok(fn.includes('if (!Array.isArray(settings)) throw new Error("kakao_input_settings_invalid");'), "설정 조회 실패만 오류로 본다(표 결과는 빈 목록이어도 된다)");
+  ok(fn.includes('if (!Array.isArray(rows)') && fn.includes('throw new Error("kakao_input_settings_invalid");'), "설정 조회 실패만 오류로 본다(표 결과는 빈 목록이어도 된다)");
   ok(!fn.includes("!Array.isArray(categories)"), "표 결과를 필수로 보던 검사가 없다");
   ok(source.includes("inputSettingsPromise.catch(() => {});"), "allSettled 가 붙기 전의 거절이 처리되지 않은 거절이 되지 않는다");
 }
@@ -38,7 +38,8 @@ const events = () => globalThis.__AB_OPS_EVENTS || [];
 await fixture(async (fx) => {
   selectHome(fx);
   delete globalThis.__AB_KAKAO_CATEGORY_TABLE_WARNED;
-  const restore = intercept(async ({ url }) => (categoryTable(url) ? TABLE_MISSING() : null));
+  let tableCalls = 0;
+  const restore = intercept(async ({ url }) => { if (!categoryTable(url)) return null; tableCalls++; return TABLE_MISSING(); });
   try {
     const before = events().length;
     const reply = await skill(fx, "점심 9000 표없음저장");
@@ -53,6 +54,11 @@ await fixture(async (fx) => {
     const again = await skill(fx, "커피 4500 표없음둘째");
     ok(again.includes("저장했어요") && savedRow(fx, "표없음둘째"), "두 번째 저장도 된다");
     eq(events().slice(before).filter((e) => e.kind === "kakao_category_table_unavailable").length, 1, "같은 인스턴스에서는 이벤트를 다시 남기지 않는다");
+    eq(tableCalls, 1, "404 PGRST205를 받은 뒤에는 10분 동안 분류 표를 다시 조회하지 않는다");
+    globalThis.__AB_CATEGORY_TABLE_ABSENT_UNTIL = Date.now() - 1;
+    const expired = await skill(fx, "우유 3200 표캐시만료");
+    ok(expired.includes("저장했어요"), "캐시 만료 뒤에도 기록을 저장한다");
+    eq(tableCalls, 2, "10분 캐시가 만료되면 분류 표를 다시 조회한다");
   } finally { restore(); }
 });
 
@@ -77,12 +83,15 @@ await fixture(async (fx) => {
 await fixture(async (fx) => {
   selectHome(fx);
   delete globalThis.__AB_KAKAO_CATEGORY_TABLE_WARNED;
-  const restore = intercept(async ({ url }) => (categoryTable(url) ? TABLE_DOWN() : null));
+  let tableCalls = 0;
+  const restore = intercept(async ({ url }) => { if (!categoryTable(url)) return null; tableCalls++; return TABLE_DOWN(); });
   try {
     const before = events().length;
     const reply = await skill(fx, "주유 50000 표장애저장");
     ok(reply.includes("저장했어요") && savedRow(fx, "표장애저장"), "표 조회가 503 이어도 새 기록은 저장된다");
     ok(events().slice(before).some((e) => e.kind === "kakao_category_table_unavailable" && String(e.detail).includes("503")), "503 도 운영 이벤트로 남는다");
+    await skill(fx, "주유 51000 표장애다음");
+    eq(tableCalls, 2, "503 장애는 표 없음으로 캐시하지 않아서 다음 요청이 다시 조회한다");
   } finally { restore(); }
 });
 

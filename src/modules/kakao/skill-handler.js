@@ -7,13 +7,13 @@ import { abMonitorOutcome } from "../runtime/ops-monitor.js";
 import { APP_VERSION, publicBaseUrl } from "../public/site-config.js";
 import { moneyTokenSpans } from "../client/shared-input-parsers.js";
 import { foreignCurrencyAmountIn } from "../client/shared-input-nlu.js";
-import { safeError } from "../runtime/leases.js";
+import { finishKakaoMessageLeases, runKakaoAfterReply, safeError } from "../runtime/leases.js";
 import {
   kakaoSkillCallerAuthorized, randomEntityId, rememberSkillLatency, sha256Hex,
 } from "../auth/crypto-admin-session.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { kakaoReserveAlert } from "../settings/reserve-plans.js";
-import { saveMemberAlias } from "../data/households-members-rows.js";
+import { bestRoleFromRows, saveMemberAlias } from "../data/households-members-rows.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { refundAdjustedStats } from "../domain/refund-links.js";
 import { loadRefundDeductions } from "../features/settlement-refund-links.js";
@@ -76,7 +76,7 @@ import {
   bindKakaoGroupByInviteCode, getExplicitKakaoBotGroupKey, getKakaoBotGroupKey,
   getLinkedKakaoGroupHousehold, kakaoGroupInfoText, kakaoRoomBindConfirmLine, kakaoRoomBindDoneText,
   kakaoRoomDepartedFromHousehold, kakaoRoomPhaseOf, readKakaoGroupFirstSnapshot,
-  tryKakaoGroupFirstRecord,
+  readKakaoRoomRoutingSnapshot, startKakaoRoomRecordSnapshot, tryKakaoGroupFirstRecord,
 } from "./group-links-first-record.js";
 import {
   getKakaoIdentityAliases, getKakaoNickname, getKakaoUserKey, hasChatFirstKakaoIdentity,
@@ -192,6 +192,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   // 넘기면 먼저 '처리 중' 답을 보내고 같은 처리는 ctx.waitUntil 로 끝까지 마친다. 중복 저장을 막는 처리 중 표시는 그 처리가
   // 끝날 때 내려가고, 관제 지표에는 실제로 걸린 시간과 결과를 남긴다.
   const canDeferSave = typeof ctx?.waitUntil === "function";
+  if (env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.enabled = canDeferSave;
   // V22.9.90: 관제 이용 현황의 카카오 기능 순위(record_nlu_metric)는 메뉴 낱말 판별(detectKakaoNaturalIntent)만 써서 기록 글("점심 12000원")과
   // 고치기 명령을 ‘알 수 없음’으로 셌다(10-30 관제 확인: 129회 중 53회). 처리기가 기록·고치기로 읽은 글이면 그 이름(usage.intent)을 쓴다.
   const usage = {};
@@ -205,7 +206,9 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
       headers,
       body: JSON.stringify(payload || {}),
     });
-    const response = await handleKakaoSkill(cloned, env, { canDeferSave, usage });
+    let response;
+    try { response = await handleKakaoSkill(cloned, env, { canDeferSave, usage }); }
+    finally { await finishKakaoMessageLeases(env); }
     const normalizedResponse = await normalizeKakaoSkillResponse(response, origin);
     const safeResponse = await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin);
     const latencyMs = Date.now() - skillStartedAt;
@@ -248,7 +251,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   } })();
   // V22.9.91 계정 잇기: 답 처리 중 모아 둔 잇기 제안과 appUserId 도착 진단을 답 처리가 끝난 뒤 쓴다(auth/kakao-account-link.js).
   // 답을 늦추지 않게 waitUntil 로 미루고, 이 요청의 DB 호출 여유가 있을 때만 쓴다. 실패해도 답에는 영향이 없다.
-  if (canDeferSave) ctx.waitUntil(work.then(() => {}, () => {}).then(() => afterKakaoSkillIdentityWork(env, payload, trustedChatFirstSkillCaller(request, env))).catch(() => {}));
+  if (canDeferSave) ctx.waitUntil(work.then(() => {}, () => {}).then(() => runKakaoAfterReply(env)).then(() => afterKakaoSkillIdentityWork(env, payload, trustedChatFirstSkillCaller(request, env))).catch(() => {}));
   if (!canDeferSave) return await work;
   const budgetMs = boundedRuntimeNumber(env.KAKAO_RESPONSE_BUDGET_MS, 4000, 200, 4700);
   let deadlineTimer = null;
@@ -395,6 +398,10 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   const trustedIdentity = trustedKakaoCaller && hasChatFirstKakaoIdentity(payload, kakaoUserKey);
   const seedChatFirst = !botGroupKey && trustedIdentity;
   const groupFirstRecord = !!botGroupKey && trustedIdentity && firstRecordInput && getExplicitKakaoBotGroupKey(payload) === botGroupKey;
+  const roomRecordRead = !!botGroupKey && trustedIdentity && preParsedList.length > 0 && !earlyReply && getExplicitKakaoBotGroupKey(payload) === botGroupKey;
+  const roomSnapshotPromise = roomRecordRead && skillConfigured && env.__AB_KAKAO_REQUEST
+    ? readKakaoRoomRoutingSnapshot(env, botGroupKey, kakaoUserKey, payload) : null;
+  roomSnapshotPromise?.catch(() => {});
 
   // V22.9.16: 사용자 행 조회는 수정 세션 확인과 서로 필요 없다. 먼저 던져 두고 아래에서 받는다.
   // 공개 응답으로 끝나는 발화는 예전처럼 사용자 행을 만들지 않도록 여기서는 던지지 않는다.
@@ -407,6 +414,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // (새 "수정/삭제/복구 NN번" 명령은 아래 본 라우터의 1·2단계에서 새로 시작한다.)
   let editSessionNotice = "";
   let routingSnapshot = null, routingHouseholdsPromise = null;
+  let roomContext = null;
+  if (roomSnapshotPromise) { roomContext = await roomSnapshotPromise; routingSnapshot = { edit: roomContext.edit }; }
   // One request-local snapshot replaces three independent routing reads. It is
   // never retained across messages; the mutation-sensitive pending marker below
   // is protected separately by an atomic compare-and-set under the writer lease.
@@ -460,13 +469,18 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   if (earlyUser?.error) throw earlyUser.error;
   const user = earlyUser?.user || await ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst, create: trustedKakaoCaller, trustedKakaoCaller });
   if (!user?.id) return kakaoText("skill_identity_untrusted: \uC778\uC99D\uB41C \uCE74\uCE74\uC624 \uC694\uCCAD\uC5D0\uC11C \uCC98\uC74C \uAE30\uB85D\uC744 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
+  // Ordinary parsed records can reuse a connected room, but cannot gain first-
+  // record onboarding eligibility or automatically join an unlinked room.
+  if (roomContext && !groupFirstRecord && !roomContext.observed.link) roomContext = null;
+  if (roomContext) roomContext = startKakaoRoomRecordSnapshot(env, roomContext, user, payload);
 
   // V22.9.16: 가계부 목록·단톡방 연결·선택 가계부는 거의 모든 발화가 결국 읽는다. 흐름 상태
   // 조회와 나란히 던져 두고 필요한 자리에서 받는다. 가계부를 바꾸는 길(만들기·참여·연결)은
   // 전부 아래 사용 지점 전에 응답하고 끝나므로 미리 읽은 값이 낡을 일이 없다.
-  const householdsPromise = routingHouseholdsPromise || fetchUserHouseholds(env, user.id).then((rows) => ({ value: rows }), (error) => ({ error }));
+  const householdsPromise = roomContext ? roomContext.membershipPromise.then(value => ({ value: value.households }), error => ({ error }))
+    : routingHouseholdsPromise || fetchUserHouseholds(env, user.id).then((rows) => ({ value: rows }), (error) => ({ error }));
   const linkedGroupPromise = botGroupKey && !groupFirstRecord
-    ? getLinkedKakaoGroupHousehold(env, botGroupKey).then((value) => ({ value }), (error) => ({ error }))
+    ? (roomContext ? roomContext.membershipPromise.then(snapshot => snapshot.household || getLinkedKakaoGroupHousehold(env, botGroupKey)) : getLinkedKakaoGroupHousehold(env, botGroupKey)).then((value) => ({ value }), (error) => ({ error }))
     : Promise.resolve({ value: null });
   const selectedHouseholdIdPromise = botGroupKey
     ? Promise.resolve({ value: "" })
@@ -543,7 +557,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     return kakaoManualReply("home", { group: false, statusLine: active.length ? "" : "첫 기록을 보내면 내 가계부가 바로 만들어져요." });
   }
 
-  const activeFlowBeforeRouting = await getKakaoFlowState(env, user.id, payload, routingSnapshot?.flow);
+  const flowSnapshot = roomContext ? (await roomContext.settingsPromise).get(roomContext.flowKey) ?? null : routingSnapshot?.flow;
+  const activeFlowBeforeRouting = await getKakaoFlowState(env, user.id, payload, flowSnapshot);
   if (activeFlowBeforeRouting && ["create_household", "join_household", "household_choice"].includes(activeFlowBeforeRouting.flow)) {
     if (shouldInterruptKakaoFlowV2254(activeFlowBeforeRouting, utterance)) {
       await clearKakaoFlowState(env, user.id, payload);
@@ -642,7 +657,17 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     const tooLarge = preParsedList.find((parsed) => Number(parsed.amount || 0) > MAX_TRANSACTION_AMOUNT);
     if (tooLarge) return kakaoText(`금액이 너무 커서 저장하지 않았어요.\n입력 금액: ${numberWithCommas(tooLarge.amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 기록할 수 있어요. 금액을 확인해 다시 보내 주세요.`);
     // V22.9.79 감사 N-5: 방 기록의 저장 답장도 같은 이름 가계부를 구별한다 — 이미 던져 둔 내 가계부 목록을 답장 만들 때 쓰도록 넘긴다(조회는 늘지 않는다).
-    return await tryKakaoGroupFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, groupKey: botGroupKey, editSessionNotice, householdRowsPromise: householdsPromise.then((result) => result.value || null) });
+    const room = roomContext ? await roomContext.ready : null;
+    const common = { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, groupKey: botGroupKey, editSessionNotice, householdRowsPromise: householdsPromise.then((result) => result.value || null), ...(room || {}) };
+    if (room?.observed.link && (room.observed.done || !room.observed.marker) && room.membership.household && !room.redirectValue && !String(user.kakao_user_key || "").startsWith("merged:") && !/\(통합됨\)\s*$/.test(String(user.nickname || ""))) {
+      const role = bestRoleFromRows(room.membership.roomRows.filter(row => String(row.user_id) === String(user.id)));
+      if (["owner", "admin", "member"].includes(role)) {
+        const household = { ...room.membership.household, role, from_group_link: true, bot_group_key: botGroupKey };
+        return await saveKakaoParsedTransactionsReply(env, { ...common, household, householdLabel: kakaoHouseholdReplyName(household, room.membership.households), firstNotice: editSessionNotice });
+      }
+      if (["viewer", "blocked"].includes(role)) return kakaoText(roleBlockedMessage(role, room.membership.household.name));
+    }
+    return await tryKakaoGroupFirstRecord(env, common);
   }
 
   // V21.5.1: 회원목록과 그룹 연결을 병렬 조회하고 결과를 재사용해 중복 Supabase 왕복을 줄입니다.
@@ -871,7 +896,8 @@ ${formatRecentTransactions(rows)}`);
   // V22.9.43: 단톡방 연결 가계부에는 역할이 실려 있지 않다. 저장 안내가 구성원 권한(기록만)을 알 수 있게 실제 역할을 붙인다.
   // V22.9.77 감사 D-6: 같은 이름의 가계부가 내 목록에 또 있으면 답장의 ‘가계부:’ 줄에 역할·만든 날을 붙인다(이미 읽은 목록이라 조회는 늘지 않는다).
   const savedHousehold = household.role ? household : { ...household, role: accessRole };
-  return await saveKakaoParsedTransactionsReply(env, { household: savedHousehold, householdLabel: kakaoHouseholdReplyName(savedHousehold, activeHouseholds), user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, firstNotice: editSessionNotice });
+  const roomSave = roomContext?.householdId === savedHousehold.id ? await roomContext.ready : null;
+  return await saveKakaoParsedTransactionsReply(env, { ...(roomSave || {}), household: savedHousehold, householdLabel: kakaoHouseholdReplyName(savedHousehold, activeHouseholds), user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, firstNotice: editSessionNotice });
 }
 // @build:exports-start
 export { handleKakaoSkillStable };

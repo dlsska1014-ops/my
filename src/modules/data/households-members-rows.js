@@ -512,10 +512,10 @@ async function fetchAdminRowsRange(env, { householdId = "", start = "", end = ""
 // @build:exports-start
 export {
   attachSpenderNames, attachSpenderNamesWithHistory, bestRoleFromRows, countHouseholdTransactions,
-  distinctPersonLabels, fetchAdminHouseholds, fetchAdminRows, fetchAdminRowsRange,
-  fetchAnalysisRowsRange, fetchFormerSpenderMembers, fetchHouseholdMemberCounts,
-  fetchHouseholdMembers, fetchMemberAliasMap, fetchPostgrestRows, fetchRowsByPlainIds,
-  getScopedHouseholdsForPage, householdPersonLabels, isRowLimitExceededError,
+  dedupeMemberRowsByKey, distinctPersonLabels, fetchAdminHouseholds, fetchAdminRows,
+  fetchAdminRowsRange, fetchAnalysisRowsRange, fetchFormerSpenderMembers,
+  fetchHouseholdMemberCounts, fetchHouseholdMembers, fetchMemberAliasMap, fetchPostgrestRows,
+  fetchRowsByPlainIds, getScopedHouseholdsForPage, householdPersonLabels, isRowLimitExceededError,
   memberAliasSettingsKey, memberNameMap, normalizeMemberAliasMap, renderSpenderOptions, roleRank,
   saveMemberAlias, selectRequestedScopedHousehold, supabaseExactCount,
 };

@@ -243,16 +243,29 @@ function isKakaoRowOwnedByRequesterV2254(row = {}, userId = "", kakaoUserKey = "
 // 없을 수 있으므로, 돌려주는 배열의 dailyLimit 에 그 한도(500)를 달아 답장이 한 줄로 말하게 한다 — 더 읽는 요청은 하지 않는다(답장 4초 안).
 const KAKAO_DAILY_ROW_LIMIT_V22980 = 500;
 async function getDailyKakaoRows(env, householdId, userId, kakaoUserKey, date) {
+  const rows = await getDailyKakaoRawRows(env, householdId, date);
+  const own = rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey));
+  own.dailyLimit = rows.length >= KAKAO_DAILY_ROW_LIMIT_V22980 ? KAKAO_DAILY_ROW_LIMIT_V22980 : 0;
+  return own;
+}
+
+async function getDailyKakaoRawRows(env, householdId, date) {
   const params = new URLSearchParams();
   params.set("select", KAKAO_TX_SELECT_V4);
   params.set("household_id", `eq.${householdId}`);
   params.set("transaction_date", `eq.${date}`);
   params.set("order", "created_at.asc,id.asc");
   params.set("limit", String(KAKAO_DAILY_ROW_LIMIT_V22980));
-  const rows = (await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" })) || [];
-  const own = rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey));
-  own.dailyLimit = rows.length >= KAKAO_DAILY_ROW_LIMIT_V22980 ? KAKAO_DAILY_ROW_LIMIT_V22980 : 0;
-  return own;
+  const rows = await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" });
+  if (!Array.isArray(rows)) throw new Error("kakao_daily_rows_invalid");
+  return rows;
+}
+
+function kakaoDailySeqFromRows(rows, row, userId, kakaoUserKey) {
+  const own = rows.filter(item => isKakaoRowOwnedByRequesterV2254(item, userId, kakaoUserKey));
+  own.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")) || String(a.id).localeCompare(String(b.id)));
+  const index = own.findIndex(item => String(item.id) === String(row.id));
+  return index >= 0 ? index + 1 : 0;
 }
 
 async function getKakaoRowById(env, householdId, userId, kakaoUserKey, id) {
@@ -275,8 +288,7 @@ async function findDailyKakaoRowBySeq(env, householdId, userId, kakaoUserKey, da
 
 async function dailySeqForKakaoRow(env, householdId, userId, kakaoUserKey, row = {}) {
   const rows = await getDailyKakaoRows(env, householdId, userId, kakaoUserKey, row.transaction_date || formatDate(nowKstDate()));
-  const idx = rows.findIndex((r) => String(r.id) === String(row.id));
-  return idx >= 0 ? idx + 1 : 0;
+  return kakaoDailySeqFromRows(rows, row, userId, kakaoUserKey);
 }
 
 // V22.9.79: PostgREST 논리 조건의 값은 큰따옴표로 감싼다(쉼표·점·콜론·괄호가 든 키도 값 그대로 읽힌다). 따옴표와 역슬래시만 이스케이프한다.
@@ -552,18 +564,19 @@ function kakaoEditGuideText(origin = "") {
 }
 // @build:exports-start
 export {
-  KAKAO_AMOUNT_CHANGE_TAIL_V4, KAKAO_AUDIT_ACTOR_KIND, KAKAO_LATEST_AMOUNT_EDIT_V4,
-  KAKAO_SEQ_AMOUNT_EDIT_V4, KAKAO_TX_SELECT_V4, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4,
-  findDailyKakaoRowBySeq, getDailyKakaoRows, getKakaoEditSessionV4, getKakaoRowById,
-  getRecentKakaoOwnedTransactionsV2254, hasKakaoEditSessionHint, isKakaoDailyListCommand,
-  isKakaoEditCancelCommand, isKakaoEditGuideCommand, isKakaoSessionSeqReplyV4,
-  isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers, kakaoEditDayPrefixV4,
+  KAKAO_AMOUNT_CHANGE_TAIL_V4, KAKAO_AUDIT_ACTOR_KIND, KAKAO_DAILY_ROW_LIMIT_V22980,
+  KAKAO_LATEST_AMOUNT_EDIT_V4, KAKAO_SEQ_AMOUNT_EDIT_V4, KAKAO_TX_SELECT_V4, dailySeqForKakaoRow,
+  deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq, getDailyKakaoRawRows, getDailyKakaoRows,
+  getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
+  hasKakaoEditSessionHint, isKakaoDailyListCommand, isKakaoEditCancelCommand,
+  isKakaoEditGuideCommand, isKakaoSessionSeqReplyV4, isKakaoTransactionSpenderChangeCommand,
+  kakaoActiveSpenderMembers, kakaoDailySeqFromRows, kakaoEditDayPrefixV4,
   kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditInputTextV4,
   kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditSessionKeyV4, kakaoEditSessionTextV4,
   kakaoEditTargetRejectTextV4, kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4, kakaoRowLabel,
   parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
-  parseKakaoSpenderChoiceValue, readKakaoEditUndoItemsV4, resolveKakaoEditDateV4,
-  saveKakaoEditSessionV4, stripKakaoEditDatePrefixV4, twoDigitSeq, withKakaoEditUndoLeaseV4,
-  writeKakaoEditUndoItemsV4,
+  parseKakaoSpenderChoiceValue, postgrestQuotedValueV22979, readKakaoEditUndoItemsV4,
+  resolveKakaoEditDateV4, saveKakaoEditSessionV4, stripKakaoEditDatePrefixV4, twoDigitSeq,
+  withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
 };
 // @build:exports-end

@@ -252,6 +252,9 @@ async function signedSessionCookie(userId, secret) {
 }
 
 export async function createV2265QaFixture(options = {}) {
+  // Each fixture represents a separate database; only requests within it share the optional-table cache.
+  const previousCategoryAbsentUntil = globalThis.__AB_CATEGORY_TABLE_ABSENT_UNTIL;
+  globalThis.__AB_CATEGORY_TABLE_ABSENT_UNTIL = 0;
   const categoriesPresent = options.categoriesPresent ?? process.env.AB_QA_CATEGORIES_ABSENT !== "1";
   // V22.9.90: 운영의 지우는 DB 함수(v227·_if_v22988)는 accountbook_transaction_audit 에 지운 행 전체를 남긴다. 웹 삭제 되돌리기(/my/restore)가
   // 그 기록을 읽으므로 테스트 서버와 그 검사는 이 값을 켠다. 기본은 꺼짐이다(예전 검사의 fx.db 비교가 그대로다).
@@ -678,6 +681,6 @@ export async function createV2265QaFixture(options = {}) {
     env,
     cookie,
     cookieFor(userId) { return signedSessionCookie(userId, env.USER_SESSION_SECRET); },
-    restore() { globalThis.fetch = originalFetch; },
+    restore() { globalThis.fetch = originalFetch; globalThis.__AB_CATEGORY_TABLE_ABSENT_UNTIL = previousCategoryAbsentUntil; },
   };
 }

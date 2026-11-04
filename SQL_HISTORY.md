@@ -1,3 +1,7 @@
+## V22.9.100 SQL 판단
+
+- SQL·스키마·RPC 계약 변경과 실행이 없다. K-1은 기존 조회·메시지 잠금·표식 CAS를 재배치한다. 저장 RPC 통합 K-2는 별도 SQL 승인과 운영 검증이 필요한 후속 작업이다.
+
 ## V22.9.88 실행 취소 조건부 삭제 함수(검토용, 운영자 승인 뒤 적용)
 
 새 검토용 SQL `migrations/V22_9_88_UNDO_DELETE_IF_UNCHANGED_APPLY_REVIEW_ONLY.sql` 은 함수 `public.accountbook_delete_transaction_if_v22988(uuid, uuid, uuid, text, jsonb)`

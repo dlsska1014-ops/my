@@ -62,8 +62,9 @@ async function b1() {
   // V22.9.73: since V22.9.72 the first-record path is shorter (about 29 sequential calls before the
   // save gate), so at 120ms a synchronous caller's preparation took 3.48-3.6s and straddled the 3.5s
   // gate (repeated ubuntu CI failures: "room@120ms waitUntil=false: first transaction count").
-  // 150ms and 200ms clear both the gate and the 4s response budget.
-  for (const delayMs of [150, 200]) {
+  // K-1 removed routing reads; 250ms/300ms still exceed both the preparation gate
+  // and response budget, preserving deferred completion and replay coverage.
+  for (const delayMs of [250, 300]) {
     for (const kind of ["room", "dm"]) {
       for (const waitUntil of [true, false]) {
         await withFx(async (fx) => {
@@ -184,6 +185,7 @@ async function g1() {
       await again.text(); await Promise.all(jobs);
       eq(sent.length, 0, "optional absence does not trigger incident-only telemetry");
       // A genuine failure of the same optional read must still be an incident.
+      globalThis.__AB_CATEGORY_TABLE_ABSENT_UNTIL = Date.now() - 1;
       const memoryFetch = globalThis.fetch;
       globalThis.fetch = async (input, init) => new URL(input).pathname === "/rest/v1/accountbook_categories"
         ? new Response(JSON.stringify({ code: "PGRST001", message: "synthetic DB outage" }), { status: 503 })

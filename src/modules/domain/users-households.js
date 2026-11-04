@@ -54,7 +54,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
     return await seedKakaoChatFirstUser(env, rawKey, nickname, aliases, trust);
   }
 
-  let user = null;
+  let user = null, returnedByCreate = false;
   try {
     options.assertFresh?.();
     const created = await supabase(env, "/rest/v1/users?on_conflict=kakao_user_key", {
@@ -63,6 +63,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
       body: JSON.stringify({ kakao_user_key: rawKey, nickname: mergedMarkerFreeName(nickname, 80) || "카카오사용자" }),
     });
     user = Array.isArray(created) ? created[0] : created;
+    returnedByCreate = true;
   } catch (err) {
     let retry;
     try { retry = await supabase(env, `/rest/v1/users?kakao_user_key=eq.${key}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" }); }
@@ -80,9 +81,16 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
         body: JSON.stringify({ kakao_user_key: rawKey, nickname: mergedMarkerFreeName(nickname, 80) || "카카오사용자" }),
       });
       user = Array.isArray(created) ? created[0] : created;
+      returnedByCreate = true;
     }
   }
   if (user?.id) {
+    // K-1: use the authoritative POST representation for this request's first
+    // resolution. Recovered reads and merged-looking rows keep the strict path.
+    if (returnedByCreate && env.__AB_KAKAO_REQUEST && !String(user.kakao_user_key || "").startsWith("merged:") && !/\(통합됨\)\s*$/.test(String(user.nickname || ""))) {
+      env.__AB_REQUEST_USER_ROWS?.set(String(user.id), user);
+      env.__AB_KAKAO_REQUEST.createdUsers.add(String(user.id));
+    }
     const effectiveId = await resolveEffectiveUserId(env, user.id);
     const effective = effectiveId === String(user.id) ? user : await fetchUserById(env, effectiveId);
     if (!effective) throw new Error("effective_user_missing");

@@ -180,6 +180,7 @@ export async function api(fx, path, method = "GET", body) {
 }
 
 export async function skill(fx, utterance, { user = "kakao_login:2265", groupKey = "" } = {}) {
+  const jobs = [];
   const userRequest = {
     timezone: "Asia/Seoul",
     params: {},
@@ -199,8 +200,9 @@ export async function skill(fx, utterance, { user = "kakao_login:2265", groupKey
       action: { id: "a1", name: "스킬", params: {}, detailParams: {}, clientExtra: {} },
       contexts: [],
     }),
-  }), fx.env, ctx);
+  }), fx.env, { waitUntil(job) { jobs.push(job); } });
   const raw = await response.text();
+  for (let offset = 0; offset < jobs.length;) { const batch = jobs.slice(offset); offset += batch.length; await Promise.allSettled(batch); }
   try {
     const data = JSON.parse(raw);
     return String(data?.template?.outputs?.map((o) => o?.simpleText?.text || o?.textCard?.description || "").join("\n") || raw);

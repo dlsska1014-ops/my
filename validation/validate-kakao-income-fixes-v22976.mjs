@@ -20,12 +20,14 @@ const YESTERDAY = "2026-08-04";
 
 // lib 의 skill() 은 글만 돌려준다. 바로답장 버튼까지 보려고 응답 JSON 을 그대로 읽는다.
 async function say(fx, utterance, { user = "kakao_login:2265" } = {}) {
+  const jobs = [];
   const userRequest = { timezone: "Asia/Seoul", params: {}, block: { id: "b1", name: "블록" }, utterance, lang: "kr", user: { id: user, type: "botUserKey", properties: { botUserKey: user } } };
   const response = await app.fetch(new Request(`${BASE}/skill`, {
     method: "POST", headers: { "content-type": "application/json" },
     body: JSON.stringify({ intent: { id: "i1", name: "블록" }, userRequest, bot: { id: "bot1", name: "말해가계부" }, action: { id: "a1", name: "스킬", params: {}, detailParams: {}, clientExtra: {} }, contexts: [] }),
-  }), fx.env, ctx);
+  }), fx.env, { waitUntil(job) { jobs.push(job); } });
   const data = JSON.parse(await response.text());
+  for (let offset = 0; offset < jobs.length;) { const batch = jobs.slice(offset); offset += batch.length; await Promise.allSettled(batch); }
   const outputs = data?.template?.outputs || [];
   const text = outputs.map((o) => o?.simpleText?.text || [o?.textCard?.title, o?.textCard?.description].filter(Boolean).join("\n")).join("\n");
   const card = outputs.find((o) => o?.textCard)?.textCard || null;

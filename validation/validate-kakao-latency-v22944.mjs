@@ -49,17 +49,22 @@ async function skill(f, utterance, { key, ctx = "collect" } = {}) {
 
 const leaseKeys = (f) => f.calls.filter((c) => c.method === "POST" && c.path === "/rest/v1/rpc/accountbook_claim_operation").map((c) => String(c.body?.p_key || ""));
 
-// 1. 방 기록의 잠금은 예전과 같다: 사용자 → 방 → 가계부 → 메시지 중복 잠금. 준비·참여 쓰기는 없다.
+// 1. 참여는 생애주기 순서를 지키며, 기존 구성원의 기록은 메시지 잠금만 쓴다.
 await withFixture(async (f) => {
   const owner = `${f.key}-owner`, member = `${f.key}-member`;
   const first = await skill(f, "@말해가계부 점심 5만원", { key: owner });
   await first.settle();
   const ledger = f.db.transactions.at(-1).household_id;
   ok(first.text.includes("공동 가계부를 준비했어요"), "first record prepares the room ledger");
+  f.calls = [];
   const joined = await skill(f, "@말해가계부 커피 4500", { key: member });
   await joined.settle();
   eq(roleOf(f, userIdOf(f, member), ledger), "member", "second participant joins");
   ok(joined.text.includes("참여했어요") && joined.text.includes("내 권한: 기록·수정"), "join notice still states the member permission");
+  const joiningKeys = leaseKeys(f);
+  const joinAt = pattern => joiningKeys.findIndex(key => pattern.test(key));
+  ok(joinAt(/^kakao_first_record_lifecycle_v22928:/) >= 0 && joinAt(/^kakao-group-lifecycle:/) >= 0 && joinAt(/^household-settings-rmw:/) >= 0 && joinAt(/^kakao-message:/) >= 0, "join retains all lifecycle and writer leases");
+  ok(joinAt(/^kakao_first_record_lifecycle_v22928:/) < joinAt(/^kakao-group-lifecycle:/) && joinAt(/^kakao-group-lifecycle:/) < joinAt(/^household-settings-rmw:/), "join lifecycle lease order stays users -> rooms -> households");
 
   for (const [who, key, utterance] of [["member", member, "@말해가계부 우유 3300"], ["owner", owner, "@말해가계부 택시 12000"]]) {
     f.calls = [];
@@ -70,14 +75,13 @@ await withFixture(async (f) => {
     eq(f.db.transactions.at(-1).household_id, ledger, `${who}: record lands in the room ledger`);
     ok(reply.text.includes("저장했어요"), `${who}: normal save reply`);
     const keys = leaseKeys(f);
-    const at = (pattern) => keys.findIndex((k) => pattern.test(k));
-    ok(at(/^kakao_first_record_lifecycle_v22928:/) >= 0 && at(/^kakao-group-lifecycle:v22931:/) >= 0 && at(new RegExp(`^household-settings-rmw:${ledger}$`)) >= 0 && at(/^kakao-message:/) >= 0, `${who}: user, room, household and message leases are all taken (${keys.join(",")})`);
-    ok(at(/^kakao_first_record_lifecycle_v22928:/) < at(/^kakao-group-lifecycle:/) && at(/^kakao-group-lifecycle:/) < at(/^household-settings-rmw:/), `${who}: lease order stays users -> rooms -> households`);
+    eq(keys.length, 1, `${who}: established room takes exactly one lease`);
+    eq(keys[0], `kakao-message:writer:${ledger}:${userIdOf(f, key)}`, `${who}: only the writer lease is taken`);
     eq(f.calls.filter((c) => c.method === "POST" && ["/rest/v1/households", "/rest/v1/household_members"].includes(c.path)).length, 0, `${who}: no preparation or membership writes`);
   }
 });
 
-// 2. 순차 깊이: 호출마다 100ms 지연일 때 구성원의 방 기록은 1.8초, 참여는 3.1초 안에 끝난다(V22.9.43: 2.0초·3.4초).
+// 2. 100ms/호출에서 답 전 깊이: 구성원 기록 700ms, 참여 2300ms 이하. 뒤 작업은 따로 마친다.
 await withFixture(async (f) => {
   const owner = `${f.key}-owner`, member = `${f.key}-member`;
   await (await skill(f, "@말해가계부 점심 5만원", { key: owner })).settle();
@@ -85,13 +89,13 @@ await withFixture(async (f) => {
   let started = Date.now();
   const joined = await skill(f, "@말해가계부 커피 4500", { key: member });
   await joined.settle();
-  const joinMs = Date.now() - started;
-  ok(joinMs < 3100, `join finishes within 31 sequential calls at 100ms each (${joinMs}ms)`);
+  const joinMs = joined.answeredMs;
+  ok(joinMs <= 2300, `join answers within 23 sequential calls at 100ms each (${joinMs}ms)`);
   started = Date.now();
   const reply = await skill(f, "@말해가계부 우유 3300", { key: member });
   await reply.settle();
-  const recordMs = Date.now() - started;
-  ok(recordMs < 1800, `member room record finishes within 18 sequential calls at 100ms each (${recordMs}ms)`);
+  const recordMs = reply.answeredMs;
+  ok(recordMs <= 700, `member room record answers within seven sequential calls at 100ms each (${recordMs}ms)`);
   ok(reply.text.includes("저장했어요"), "slow-network member record still saves normally");
 });
 
@@ -134,7 +138,7 @@ await withFixture(async (f) => {
   const room = readFileSync(new URL("../src/modules/kakao/group-links-first-record.js", import.meta.url), "utf8");
   ok(handler.includes("boundedRuntimeNumber(env.KAKAO_RESPONSE_BUDGET_MS, 4000, 200, 4700)"), "response budget defaults to 4000ms within 200..4700");
   ok(handler.includes("ctx.waitUntil(work.then("), "deferred work continues under waitUntil");
-  const unmergedStart = room.indexOf("const userUnmerged = kakaoClaimUserUnmerged(env, user.id);");
+  const unmergedStart = room.indexOf("const userUnmerged = kakaoClaimUserUnmerged(env, user.id,");
   const unmergedAwait = room.indexOf("if (!(await userUnmerged)) throw new Error(\"kakao_group_identity_scope_changed\");");
   const firstWrite = room.indexOf("marker = parseKakaoGroupFirstMarker(await insertKakaoGroupFirstSetting(");
   ok(unmergedStart > 0 && unmergedAwait > unmergedStart && firstWrite > unmergedAwait, "identity merge check is awaited before the first room write");

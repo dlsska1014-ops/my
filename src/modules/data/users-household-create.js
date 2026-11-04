@@ -5,9 +5,13 @@ import {
   withSettingsRmwLease,
 } from "../runtime/leases.js";
 import { sha256Hex } from "../auth/crypto-admin-session.js";
-import { bestRoleFromRows, fetchRowsByPlainIds, roleRank } from "./households-members-rows.js";
+import {
+  bestRoleFromRows, dedupeMemberRowsByKey, fetchHouseholdMembers, fetchRowsByPlainIds, roleRank,
+} from "./households-members-rows.js";
 import { isDefiniteStorageFailure, isUncertainStorageWrite } from "../kakao/response-builders.js";
+import { postgrestQuotedValueV22979 } from "../kakao/edit-session-v4.js";
 import { getHouseholdById } from "../kakao/household-budget-commands.js";
+import { strictKakaoGroupMembershipRows } from "../kakao/group-links-first-record.js";
 import { markKakaoChatFirstHistory } from "../kakao/identity-chat-first.js";
 import { supabase } from "./supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
@@ -93,7 +97,44 @@ async function fetchUserHouseholds(env, userId) {
   }).filter(Boolean);
 }
 
-async function withKakaoUserLifecycleLease(env, userIds, task) {
+// K-1: one request-local membership snapshot supplies routing, authority and
+// reply names. A rejected combined embedding falls back to the established reads.
+async function fetchRoomMembershipSnapshot(env, userId, householdId, aliasesPromise) {
+  if (AB_POSTGREST_EMBED_SUPPORT.household_members_or_embed !== false) {
+    const params = new URLSearchParams({
+      or: `(user_id.eq.${postgrestQuotedValueV22979(userId)},household_id.eq.${postgrestQuotedValueV22979(householdId)})`,
+      select: "household_id,user_id,role,created_at,households(id,name,invite_code,created_at),users(id,nickname,kakao_user_key,created_at)",
+      order: "created_at.asc",
+    });
+    try {
+      const rows = await supabase(env, `/rest/v1/household_members?${params}`, { method: "GET" });
+      strictKakaoGroupMembershipRows(rows, true);
+      const own = dedupeMemberRowsByKey(rows.filter(row => String(row.user_id) === String(userId)), "household_id").sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+      const households = own.map(row => row.households?.id ? { ...row.households, role: row.role, joined_at: row.created_at } : null).filter(Boolean);
+      const roomRows = rows.filter(row => String(row.household_id) === String(householdId));
+      return { households, roomRows, household: roomRows.find(row => row.households?.id === householdId)?.households || null };
+    } catch (err) {
+      if (!isPostgrestEmbedRejection(err)) throw err;
+      AB_POSTGREST_EMBED_SUPPORT.household_members_or_embed = false;
+      rememberOpsEvent({ kind: "postgrest_embed_unavailable", severity: "warn", path: "/rest/v1/household_members", method: "GET", detail: `household_members_or_embed: ${safeError(err)}` });
+    }
+  }
+  const [households, members] = await Promise.all([fetchUserHouseholds(env, userId), fetchHouseholdMembers(env, householdId, { aliasesPromise })]);
+  return { households, members, household: households.find(row => String(row.id) === String(householdId)) || null,
+    roomRows: members.map(row => ({ ...row, household_id: householdId })) };
+}
+
+function kakaoRoomMembersFromSnapshot(snapshot, aliases = {}) {
+  if (snapshot.members) return snapshot.members;
+  return dedupeMemberRowsByKey(snapshot.roomRows || [], "user_id").map(row => {
+    const user = row.users || {};
+    const alias = aliases[row.user_id] || "";
+    return { user_id: row.user_id, role: row.role, nickname: alias || user.nickname || (row.role === "owner" ? "관리자" : "구성원"),
+      base_nickname: user.nickname || "", display_alias: alias, kakao_user_key: user.kakao_user_key || "", created_at: row.created_at || user.created_at || "" };
+  });
+}
+
+async function withKakaoUserLifecycleLease(env, userIds, task, options = {}) {
   const ids = [...new Set((Array.isArray(userIds) ? userIds : [userIds]).map((id) => String(id || "").trim()).filter(Boolean))].sort();
   if (!ids.length) throw new Error("missing_household_lifecycle_user");
   const guards = [];
@@ -102,7 +143,7 @@ async function withKakaoUserLifecycleLease(env, userIds, task) {
     return withSettingsRmwLease(env, `kakao_first_record_lifecycle_v22928:${ids[index]}`, async ({ assertFresh }) => {
       guards.push(assertFresh);
       return run(index + 1);
-    });
+    }, options);
   };
   return run(0);
 }
@@ -190,8 +231,8 @@ async function withHouseholdCreateLock(env, userId = "", name = "", task) {
 }
 // @build:exports-start
 export {
-  createUserHousehold, ensureOwnerMembership, fetchRawHouseholdMembers, fetchUserById,
-  fetchUserHouseholds, supabaseWithEmbedFallback, withHouseholdCreateLock,
-  withKakaoUserLifecycleLease,
+  createUserHousehold, ensureOwnerMembership, fetchRawHouseholdMembers, fetchRoomMembershipSnapshot,
+  fetchUserById, fetchUserHouseholds, kakaoRoomMembersFromSnapshot, supabaseWithEmbedFallback,
+  withHouseholdCreateLock, withKakaoUserLifecycleLease,
 };
 // @build:exports-end
