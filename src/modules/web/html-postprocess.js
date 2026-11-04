@@ -13,6 +13,8 @@ import {
   attachAccessibleControlNames, deferHeavyBrowserTools, guidedUiUxClientMain,
   inlineActionResultClientMain, mobileShellUiClientMain, mobileUiUxClientMain, v2285NavStyleFor,
 } from "../client/legacy-ui-runtime.js";
+import { getCookie, redirectResponse } from "../runtime/http.js";
+import { sha256Hex } from "../auth/crypto-admin-session.js";
 import { renderUnifiedNav } from "./unified-nav.js";
 import {
   AB_UIUX_CSS_ASSET_PATH, ACCOUNTBOOK_SHELL_CSS_ASSET_PATH, ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH,
@@ -92,15 +94,15 @@ function normalizeUserFacingUi(html = "") {
   }
 
   if (/프리미엄|유료 전환/.test(source)) {
-    source = source.replace(/프리미엄 1차 베타|프리미엄 베타/g, "무료 스마트 도구");
-    source = source.replace(/<p>([^<]*?) · 현재 결제 기능은 연결하지 않았습니다\. 실제 데이터에서 가치와 정확도를 검증한 뒤 유료 전환합니다\.<\/p>/, "<p>$1 · 초기 서비스에서는 모든 스마트 기능을 무료로 사용할 수 있습니다.</p>");
+    source = source.replace(/프리미엄 1차 베타|프리미엄 베타/g, "스마트 도구");
+    source = source.replace(/<p>([^<]*?) · 현재 결제 기능은 연결하지 않았습니다\. 실제 데이터에서 가치와 정확도를 검증한 뒤 유료 전환합니다\.<\/p>/, "<p>$1 · 현재 기록을 바탕으로 스마트 기능을 사용할 수 있습니다.</p>");
     source = source.replace(/<span>월말 예상 지출<\/span><b>([\d,]+)원<\/b>/, function(_, amount) { return "<span>월말 예상 지출</span><b>" + approximateWonLabel(amount) + "</b>"; });
     source = source.replace(/<span>절약 후보<\/span><b>([\d,]+)원<\/b>/, function(_, amount) { return "<span>절약 후보</span><b>" + approximateWonLabel(amount) + "</b>"; });
-    source = source.replace("프리미엄 1차 개발 예정", "무료 스마트 기능");
+    source = source.replace("프리미엄 1차 개발 예정", "스마트 기능");
     source = source.replace(/<p class="notice"><b>운영 원칙<\/b><br\/>밈카드와 카드 실적 기능은[\s\S]*?<\/p>/, "");
     const today = nowKstDate();
     const basis = (today.getMonth() + 1) + "/" + today.getDate();
-    source = source.replace('</section><section class="card"><h2>현재 동작하는 무료 스마트 도구</h2>', '</section><p class="metricBasis">' + basis + ' 기준 · 월말 예상은 오늘까지 기록에 남은 고정지출·정기지출과 남은 날 예상(변동 지출의 하루 평균)을 더한 값이며 실제 지출에 따라 달라질 수 있습니다.</p><section class="card"><h2>현재 동작하는 스마트 분석</h2>');
+    source = source.replace('</section><section class="card"><h2>현재 동작하는 스마트 도구</h2>', '</section><p class="metricBasis">' + basis + ' 기준 · 월말 예상은 오늘까지 기록에 남은 고정지출·정기지출과 남은 날 예상(변동 지출의 하루 평균)을 더한 값이며 실제 지출에 따라 달라질 수 있습니다.</p><section class="card"><h2>현재 동작하는 스마트 분석</h2>');
   }
 
   source = source.replace("일반 사용자가 매일 쓰는 메뉴만 모았습니다. 운영/점검/배포/진단 메뉴는 이 화면에 노출하지 않고 운영센터에서만 관리합니다.", "기록, 정산, 가계부 관리와 개인 설정을 한곳에서 찾을 수 있습니다.");
@@ -177,9 +179,9 @@ function normalizeUserFacingUi(html = "") {
   source = promoteLegacyUserLayoutToV5(source);
   source = normalizeUiV5RemainingPages(source);
   source = source.replace(/\/my\/premium/g, "/smart-tools");
-  source = source.replace(/프리미엄 1차 개발 순서|프리미엄 1차 개발 예정/g, "무료 스마트 기능");
-  source = source.replace(/프리미엄 1차 베타|프리미엄 베타|프리미엄/g, "무료 스마트 도구");
-  source = source.replace(/실제 데이터에서 가치와 정확도를 검증한 뒤 유료 전환합니다\./g, "초기 서비스에서는 모든 기능을 무료로 제공합니다.");
+  source = source.replace(/프리미엄 1차 개발 순서|프리미엄 1차 개발 예정/g, "스마트 기능");
+  source = source.replace(/프리미엄 1차 베타|프리미엄 베타|프리미엄/g, "스마트 도구");
+  source = source.replace(/실제 데이터에서 가치와 정확도를 검증한 뒤 유료 전환합니다\./g, "현재 기록을 바탕으로 기능을 사용할 수 있습니다.");
   source = source.replace('<span class="abNavLogo">💛</span>', '<span class="abNavLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span>');
   source = source.replace(/<div class="abNavMobileTop"><a([^>]*)>💛\s*/i, '<div class="abNavMobileTop"><a$1><span class="abBrandMark" aria-hidden="true"><i></i><i></i><i></i></span>');
   source = source.replace("🌱 시작가이드", "처음 사용 가이드");
@@ -219,8 +221,8 @@ function normalizeUserFacingUi(html = "") {
   if (source.includes("시작가이드</title>")) bodyClasses.push("abPageGuide");
   if (source.includes('id="keywordBulkForm"')) bodyClasses.push("abPageKeywords");
   if (source.includes(" · 백업/가져오기</title>")) bodyClasses.push("abPageBackup");
-  if (source.includes(" · 무료 리포트</title>")) bodyClasses.push("abPageReports");
-  if (source.includes(" · 무료 스마트 도구</title>")) bodyClasses.push("abPageSmartTools");
+  if (source.includes(" · 생활비 리포트</title>")) bodyClasses.push("abPageReports");
+  if (source.includes(" · 스마트 도구</title>")) bodyClasses.push("abPageSmartTools");
   if (source.includes(" · 분류 설정</title>")) bodyClasses.push("abPageCategories");
   if (source.includes(" · 단톡방 연결</title>")) bodyClasses.push("abPageGroups");
   if (source.includes("abV5RemainingPage")) bodyClasses.push("abV5RemainingPage");
@@ -285,8 +287,8 @@ function legacyUiV5ActiveKey(source = "") {
   if (/참여자[·/]초대|가계부·참여자/.test(title)) return "members";
   if (/백업\/가져오기|가져오기 (?:미리보기|결과)/.test(title)) return "backup";
   if (/단톡방 연결/.test(title)) return "groups";
-  if (/무료 스마트 도구/.test(title)) return "smart-tools";
-  if (/무료 리포트/.test(title)) return "reports";
+  if (/스마트 도구/.test(title)) return "smart-tools";
+  if (/생활비 리포트/.test(title)) return "reports";
   if (/수입·예산 설정|·\s*설정$/.test(title)) return "budgets";
   if (/종합 리포트| · 분석/.test(title)) return "analysis";
   if (/시작가이드/.test(title)) return "guide";
@@ -335,7 +337,7 @@ function promoteLegacyUserLayoutToV5(html = "") {
 
 function normalizeUiV5RemainingPages(html = "") {
   let source = String(html || "");
-  const remainingPage = /(?:무료 리포트|무료 스마트 도구|수입·예산|가계부 전환·관리|참여자[·/]초대|백업\/가져오기|분류 설정|단톡방 연결|종합 리포트|내 계정·보안)<\/title>/.test(source)
+  const remainingPage = /(?:생활비 리포트|스마트 도구|수입·예산|가계부 전환·관리|참여자[·/]초대|백업\/가져오기|분류 설정|단톡방 연결|종합 리포트|내 계정·보안)<\/title>/.test(source)
     || source.includes("가계부·참여자</title>")
     || source.includes("<title>자산·결제수단</title>")
     || source.includes("<title>정기 수입·지출</title>")
@@ -359,7 +361,7 @@ function normalizeUiV5RemainingPages(html = "") {
   source = source.replace(/class="(toolbar|filters)(?![^"]*abV5ControlBar)([^"]*)"/gi, 'class="$1$2 abV5ControlBar"');
   source = source.replace(/class="(metricGrid|summaryGrid)(?![^"]*abV5KpiGrid)([^"]*)"/gi, 'class="$1$2 abV5KpiGrid"');
   source = source.replace('class="grid metricGrid"', 'class="grid metricGrid abV5KpiGrid"');
-  if (/무료 리포트|종합 리포트/.test(source)) source = source.replace('<section class="grid">', '<section class="grid abV5KpiGrid">');
+  if (/<title>[^<]*(?:생활비 리포트|종합 리포트)<\/title>/.test(source)) source = source.replace('<section class="grid">', '<section class="grid abV5KpiGrid">');
   return source;
 }
 
@@ -541,13 +543,13 @@ function attachUiUxRuntime(html = "", options = {}) {
   return opaque.restore(renameLegacyDocumentTitleV22983(source));
 }
 
-// V22.9.83: 브라우저 탭 제목에 남은 옛 이름을 화면 이름으로 바꾼다 — 홈이 PC 에서도 "모바일", 생활비 리포트가 "무료 리포트",
-// 스마트 도구가 "무료 스마트 도구", 정산이 "고급 정산"으로 떴다. 위 후처리 규칙 여럿이 이 제목 글자를 화면 표식으로 읽으므로
-// (" · 무료 리포트</title>" 등) 모든 규칙이 끝난 맨 마지막에, 문서의 첫 </title> 바로 앞 글자만 바꾼다.
+// V22.9.83: 브라우저 탭 제목에 남은 옛 이름을 화면 이름으로 바꾼다 — 홈이 PC 에서도 "모바일", 생활비 리포트가 "생활비 리포트",
+// 스마트 도구가 "스마트 도구", 정산이 "고급 정산"으로 떴다. 위 후처리 규칙 여럿이 이 제목 글자를 화면 표식으로 읽으므로
+// (" · 생활비 리포트</title>" 등) 모든 규칙이 끝난 맨 마지막에, 문서의 첫 </title> 바로 앞 글자만 바꾼다.
 const LEGACY_DOCUMENT_TITLES_V22983 = [
   [" · 모바일</title>", " · 홈</title>"],
-  [" · 무료 리포트</title>", " · 생활비 리포트</title>"],
-  [" · 무료 스마트 도구</title>", " · 스마트 도구</title>"],
+  [" · 생활비 리포트</title>", " · 생활비 리포트</title>"],
+  [" · 스마트 도구</title>", " · 스마트 도구</title>"],
   [" · 고급 정산</title>", " · 정산</title>"],
 ];
 function renameLegacyDocumentTitleV22983(source = "") {
@@ -561,10 +563,10 @@ function renameLegacyDocumentTitleV22983(source = "") {
 }
 
 // V22.9.95 공지 띠: 운영 변수 NOTICE_TEXT 가 있으면 /my·/app 셸과 공개 문서 화면(pubHeader) 맨 위(본문 바로가기 다음)에 한 줄 띠를 붙인다.
-// 변수가 없으면 아무것도 붙이지 않는다(빈 요소도 없다). 읽어 주는 프로그램이 바로 읽도록 role="status", 닫기 단추는 없다(지침).
+// 변수가 없으면 아무것도 붙이지 않는다(빈 요소도 없다). role="status"를 유지하고 V22.9.99부터 POST 폼으로 하루 동안 숨길 수 있다.
 // NOTICE_LINK 는 우리 화면 주소(‘/…’) 또는 https 주소만 받아 글 끝에 ‘자세히’ 를 단다. 색은 주의 톤(노랑)이고 다크(앱 설정)에서도 대비 4.5 이상이다.
 // 응답 마무리(worker/router.js fetch)에서 env 와 주소를 함께 아는 한 곳에서 부른다. 1년 캐시 자산은 건드리지 않는다(인라인 style 한 덩어리).
-const AB_NOTICE_BAND_STYLE_V22995 = '<style id="abNoticeBandStyle">.abNoticeBand{margin:0;padding:10px 16px;background:#fff4cc;color:#4a3800;border-bottom:1px solid #e9c868;font-size:14px;line-height:1.5;text-align:center;word-break:keep-all;overflow-wrap:anywhere}.abNoticeBand p{margin:0 auto;max-width:960px}.abNoticeBand a{color:#4a3800;font-weight:700;text-decoration:underline;text-underline-offset:2px;margin-left:6px}.abNoticeBand a:focus-visible{outline:2px solid currentColor;outline-offset:2px}html[data-ab-resolved-theme="dark"] .abNoticeBand{background:#3a2f0b;color:#ffe9a8;border-bottom-color:#6b5a1d}html[data-ab-resolved-theme="dark"] .abNoticeBand a{color:#ffe9a8}</style>';
+const AB_NOTICE_BAND_STYLE_V22995 = '<style id="abNoticeBandStyle">.abNoticeBand{margin:0;padding:10px 16px;background:#fff4cc;color:#4a3800;border-bottom:1px solid #e9c868;font-size:14px;line-height:1.5;text-align:center;word-break:keep-all;overflow-wrap:anywhere}.abNoticeBand p{display:inline;margin:0 auto;max-width:960px}.abNoticeBand a{color:#4a3800;font-weight:700;text-decoration:underline;text-underline-offset:2px;margin-left:6px}.abNoticeBand a:focus-visible{outline:2px solid currentColor;outline-offset:2px}.abNoticeBand .abNoticeHide{display:inline-block;margin:0 0 0 12px}.abNoticeBand .abNoticeHide button{min-height:44px;padding:8px 4px;border:0!important;background:transparent!important;color:inherit!important;box-shadow:none!important;font:inherit;font-size:12px;text-decoration:underline;cursor:pointer}.abNoticeHide button:focus-visible{outline:2px solid currentColor;outline-offset:2px}html[data-ab-resolved-theme="dark"] .abNoticeBand{background:#3a2f0b;color:#ffe9a8;border-bottom-color:#6b5a1d}html[data-ab-resolved-theme="dark"] .abNoticeBand a{color:#ffe9a8}</style>';
 function abNoticeBandParts(env = {}) {
   const text = String(env?.NOTICE_TEXT || "").replace(/\s+/g, " ").trim().slice(0, 200);
   if (!text) return null;
@@ -572,14 +574,46 @@ function abNoticeBandParts(env = {}) {
   const safeLink = /^\/(?!\/)[^\s"'<>]*$/.test(link) || /^https:\/\/[^\s"'<>]+$/.test(link) ? link : "";
   return { text, link: safeLink };
 }
-function attachNoticeBand(html = "", env = {}, pathname = "") {
+function noticeReturnPathV22999(raw = "") {
+  const value = typeof raw === "string" ? raw : "";
+  if (!value.startsWith("/") || value.startsWith("//") || value.length > 2048 || /[\\\x00-\x20\x7f]/.test(value)) return "/";
+  try {
+    const parsed = new URL(value, "https://accountbook.local");
+    const decodedPath = decodeURIComponent(parsed.pathname);
+    if (parsed.origin !== "https://accountbook.local" || decodedPath.startsWith("//") || /[\\\x00-\x20\x7f]/.test(decodedPath)) return "/";
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch (_) { return "/"; }
+}
+async function noticeHashV22999(env = {}) {
+  return (await sha256Hex(String(env.NOTICE_TEXT || "") + String(env.NOTICE_LINK || ""))).slice(0, 16);
+}
+async function handleNoticeHideV22999(request, env = {}) {
+  if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405, headers: { allow: "POST", "cache-control": "no-store" } });
+  let form;
+  try { form = await request.formData(); }
+  catch (_) { return new Response("Bad Request", { status: 400, headers: { "cache-control": "no-store" } }); }
+  const back = noticeReturnPathV22999(form.get("back"));
+  if (!abNoticeBandParts(env)) return redirectResponse(back);
+  return redirectResponse(back, { "set-cookie": `ab_notice_hide=${await noticeHashV22999(env)}; Path=/; Max-Age=86400; HttpOnly; Secure; SameSite=Lax` });
+}
+function noticeResponseHeadersV22999(response) {
+  const headers = new Headers(response.headers);
+  const vary = (headers.get("vary") || "").split(",").map((value) => value.trim()).filter(Boolean);
+  if (!vary.some((value) => /^(cookie|\*)$/i.test(value))) vary.push("Cookie");
+  headers.set("vary", vary.join(", "));
+  // 공지 표시 여부는 브라우저 쿠키별로 다르므로 공유 캐시에 저장하지 않는다. 개인 화면의 no-store는 유지한다.
+  if (/\bpublic\b/i.test(headers.get("cache-control") || "")) headers.set("cache-control", "private, max-age=300");
+  headers.delete("content-length");
+  return headers;
+}
+function attachNoticeBand(html = "", env = {}, pathname = "", back = pathname) {
   const parts = abNoticeBandParts(env);
   const source = String(html || "");
   if (!parts || !source || source.includes('class="abNoticeBand"')) return source;
   const appShell = pathname === "/app" || pathname === "/my" || pathname.startsWith("/my/");
   if (!appShell && !/class=["'][^"']*\bpubHeader\b/i.test(source)) return source;
   if (!/<body\b[^>]*>/i.test(source)) return source;
-  const band = '<div class="abNoticeBand" role="status"><p>' + escapeHtml(parts.text) + (parts.link ? ' <a href="' + escapeHtml(parts.link) + '">자세히</a>' : "") + "</p></div>";
+  const band = '<div class="abNoticeBand" role="status"><p>' + escapeHtml(parts.text) + (parts.link ? ' <a href="' + escapeHtml(parts.link) + '">자세히</a>' : "") + '</p><form class="abNoticeHide" method="post" action="/notice/hide"><input type="hidden" name="back" value="' + escapeHtml(noticeReturnPathV22999(back)) + '"/><button class="secondary" type="submit">오늘 하루 안 보기</button></form></div>';
   // 스타일은 </head> 앞에 둔다. 머리가 없는 조각 화면이면 띠 바로 앞에 둔다.
   const inline = source.includes("</head>") ? "" : AB_NOTICE_BAND_STYLE_V22995;
   const withStyle = inline ? source : source.replace("</head>", AB_NOTICE_BAND_STYLE_V22995 + "</head>");
@@ -587,16 +621,16 @@ function attachNoticeBand(html = "", env = {}, pathname = "") {
   return skip.test(withStyle) ? withStyle.replace(skip, (full) => full + inline + band) : withStyle.replace(/<body\b[^>]*>/i, (full) => full + inline + band);
 }
 async function noticeBandResponse(request, env = {}, response) {
-  if (!abNoticeBandParts(env) || !(response instanceof Response) || response.status !== 200 || String(request?.method || "GET").toUpperCase() !== "GET") return response;
+  if (!abNoticeBandParts(env) || !(response instanceof Response) || response.status !== 200 || !["GET", "HEAD"].includes(request?.method)) return response;
   if (!/^text\/html\b/i.test(response.headers.get("content-type") || "")) return response;
-  let pathname = "";
-  try { pathname = new URL(request.url).pathname; } catch (_) { return response; }
+  if (request.method === "HEAD") return new Response(null, { status: response.status, statusText: response.statusText, headers: noticeResponseHeadersV22999(response) });
+  let url;
+  try { url = new URL(request.url); } catch (_) { return response; }
   const html = await response.clone().text();
-  const changed = attachNoticeBand(html, env, pathname);
+  const changed = attachNoticeBand(html, env, url.pathname, url.pathname + url.search);
   if (changed === html) return response;
-  const headers = new Headers(response.headers);
-  headers.delete("content-length");
-  return new Response(changed, { status: response.status, statusText: response.statusText, headers });
+  const hidden = getCookie(request, "ab_notice_hide") === await noticeHashV22999(env);
+  return new Response(hidden ? html : changed, { status: response.status, statusText: response.statusText, headers: noticeResponseHeadersV22999(response) });
 }
 
 function attachBusinessInfoFooter(html = "") {
@@ -613,5 +647,8 @@ function attachBusinessInfoFooter(html = "") {
   return source;
 }
 // @build:exports-start
-export { attachBusinessInfoFooter, attachUiUxRuntime, noticeBandResponse, shellResponseHints };
+export {
+  attachBusinessInfoFooter, attachUiUxRuntime, handleNoticeHideV22999, noticeBandResponse,
+  shellResponseHints,
+};
 // @build:exports-end

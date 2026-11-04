@@ -542,3 +542,8 @@ V22.9.81 의 U-26(연결 끝까지 읽기)·U-27(완료 달 표식)은 꺼진 �
 | V97:H-13 | P3 | /demo·/group-accountbook·/faq 안내 수정일 2026-11-03 고정 | 결함 아님 | - | - | 배포일로 옮기려면 validate-v22997-demo 의 REVISION 과 validate-demo-tour-v22992 의 날짜 두 곳을 함께 바꾼다 |
 | V97:H-14 | P3 | tools.malhaebook.com 얇은 양식 페이지 121쪽의 noindex 여부(애드센스 같은 사이트) | 결정 필요 | - | - | 사용자 결정(애드센스 재검토 전). 다른 저장소(everyday-tools) |
 | V97:H-15 | P3 | 애드센스 콘솔 ads.txt ‘찾을 수 없음’ 표시 | 결함 아님 | - | - | 2026-11-03 확인 apex·http·tools 200, www 308 → apex, 내용 일치. 구글: 요청 적은 사이트는 최대 한 달 지연, Sites ‘업데이트 확인’ 으로 재확인 요청(사용자 지목 뒤) |
+| V99:I-1 | P2 | 화면에 남은 무료 선언과 미래 기능 약속 | 고침 | V22.9.99 | validation/validate-support-wording-v22999.mjs | 화면 문구와 후처리 이름을 함께 정리하고 현재 이용료 설명은 FAQ에 남겼다. |
+| V99:I-2 | P3 | 후원 안내의 서버·저장소 비용 설명 | 고침 | V22.9.99 | validation/validate-support-wording-v22999.mjs | 외부 저장소·서버·도메인·장애 감시를 설명하며 방침의 회사명은 보존했다. |
+| V99:I-3 | P3 | 공지 하루 숨김과 안전한 원래 화면 복귀 | 고침 | V22.9.99 | validation/validate-support-wording-v22999.mjs | POST·24시간 쿠키·공지 변경 시 다시 표시·정규화 뒤 외부 이동 차단을 검사한다. |
+| V99:I-4 | P2 | 공지 쿠키별 응답의 공유 캐시 혼합 위험 | 고침 | V22.9.99 | validation/validate-support-wording-v22999.mjs | 표시·숨김·HEAD에 Vary Cookie와 private 캐시를 적용하고 no-store를 보존한다. |
+| V99:I-5 | P3 | 카카오 자동 계정·가계부 생성과 후원 보상 추가 | 결정 필요 | - | - | B·C 묶음의 사용자 선택 뒤 진행한다. 로그인 반복은 재현 화면·운영 이벤트가 필요하다. |

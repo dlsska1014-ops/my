@@ -385,7 +385,7 @@ try {
   const faqLive = policy["/faq"].live;
   ok(faqLive.includes("읽는 화면에 Google 광고를 표시하며") && faqLive.includes("카드사 실적이나 금융상품 안내와도 관계가 없습니다") && faqLive.includes("https://adssettings.google.com") && !faqLive.includes("현재 공개 페이지에는 Google 광고를 실행하지 않습니다"), "live FAQ 는 광고 표시·추천 아님·해제 방법을 답한다");
   const faqStructured = JSON.parse(faqLive.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
-  ok(faqStructured.mainEntity.some((q) => q.name === "무료인가요? 광고가 나오나요?" && q.acceptedAnswer.text.includes("Google 광고를 표시하며")), "live FAQ 구조화 데이터의 답이 화면 문장과 같다");
+  ok(faqStructured.mainEntity.some((q) => q.name === "이용료가 있나요? 광고가 나오나요?" && q.acceptedAnswer.text.includes("Google 광고를 표시하며")), "live FAQ 구조화 데이터의 답이 화면 문장과 같다");
   same(policy["/terms"].live, policy["/terms"].review, "이용약관의 광고 조항은 두 모드에서 같다(이미 광고 표시 가능성을 적고 있다)");
 
   // ── 7. /ready 의 ads_mode, /health 는 그대로 ─────────────────────────────

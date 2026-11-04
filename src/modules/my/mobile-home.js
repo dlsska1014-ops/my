@@ -527,7 +527,7 @@ function renderMobileV81Html({ title, month, households, selectedHousehold, memb
     add: `<a href="#add"><b>입력</b><span>바로 기록</span></a>`,
     budgets: `<a href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><b>예산</b><span>남은 돈</span></a>`,
     "reserve-plans": `<a href="/reserve-plans?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><b>정기 수입·지출</b><span>세금·보험</span></a>`,
-    "smart-tools": `<a href="/smart-tools?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><b>스마트</b><span>무료 도구</span></a>`,
+    "smart-tools": `<a href="/smart-tools?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><b>스마트</b><span>스마트 도구</span></a>`,
     categories: `<a href="/categories?household_id=${encodeURIComponent(householdId)}"><b>분류</b><span>키워드</span></a>`,
     menu: `<a href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><b>전체</b><span>메뉴</span></a>`,
   };
