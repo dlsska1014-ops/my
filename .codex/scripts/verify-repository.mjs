@@ -372,8 +372,9 @@ function run(command, args, label) {
 // V22.9.97: 새 검사 3개(후원 진입점·지표 50, 생활비 글 8편 768, 모임 정산 둘러보기 70)·추적표 V97 15건과 옛 검사 갱신(후원 경유 주소·ops-usage 호출 수·홈 탭 정지 상한·관제 판 1.6.0·공개 글 40편과 sitemap 60·둘러보기 7단계·D1 시험 147·판 이름과 후원 조각 때문에 환불 지문 12개 재채취). 두 모드 실측: 일반 61,083 · 분류 표 부재 61,080(V22.9.97 수익화 준비; 하한은 그 아래 61,078 로 둔다).
 // V22.9.98: related article links 583 checks and findings ledger +2; minimum fixture count 61,665.
 // V22.9.99: wording, notice hide and findings; measured 61,894 present / 61,891 absent.
-// V22.9.100: preserve the previous floor until original F passes; raise it from both complete measured runs.
-const EXPECTED_MINIMUM_CHECKS = 61891;
+// V22.9.100: K-1 139 checks; F-1/F-2 user-confirmed split. Closing K-1 removes one open-item ledger assertion.
+// Both complete runs measured 62,052 present / 62,049 absent (61,914/61,911 + 139 - 1).
+const EXPECTED_MINIMUM_CHECKS = 62049;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

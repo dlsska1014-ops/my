@@ -6,7 +6,9 @@ import { claimOperationLease, deferKakaoAfterReply, releaseOperationLease, runKa
 
 const t = counter("PASS: V22.9.100 room record DB calls, cleanup and snapshot safety");
 const measurements = {};
-const caps = { A: [30, 40], B: [10, 12], C: [10, 12], D: [25, 32], E: [10, 12], F: [14, 17], G: [6, 6], H: [11, 14], I: [11, 13], J: [11, 13], K: [11, 13] };
+// User-confirmed F-1/F-2 split: first alias registration remains synchronous in K-1.
+// B-0 에서 ≤ 10 으로 내린다
+const caps = { A: [30, 40], B: [10, 12], "B-ordinary": [10, 12], C: [10, 12], D: [25, 32], E: [10, 12], "F-1": [14, 17], "F-1-ordinary": [14, 17], "F-2-strong": [17, 19], "F-2-ordinary": [22, 24], G: [6, 6], H: [11, 14], I: [11, 13], J: [11, 13], K: [11, 13] };
 const textOf = body => (body.template?.outputs || []).map(output => output.simpleText?.text || output.textCard?.description || "").join("\n");
 const pathIs = (call, suffix, method) => call.url.pathname.endsWith(suffix) && call.method === method;
 const pendingWrite = call => pathIs(call, "/accountbook_settings", "POST") && JSON.stringify(call.body).includes(":pending_write:") ||
@@ -107,11 +109,6 @@ await fixture(async fx => {
   lifecycleOrder(d, "D"); storedBeforeReply(d, "D");
   const e = await fx.say("저녁 15000", { key: fx.member }); recordScene("E", e);
   t.ok(e.text.includes("02번"), "E: numbering belongs to the member");
-  const f = await fx.say("빵 2500", { properties: { appUserId: "123456789" } }); recordScene("F", f);
-  t.ok(f.text.includes("저장했어요"), "F: original new-appUserId payload saves");
-  const established = await fx.say("빵 2600", { properties: { appUserId: "123456789" } });
-  measurements.establishedAliasOriginal = { before: established.before, total: established.total, waves: established.waves };
-  t.ok(established.text.includes("저장했어요") && established.before <= 14 && established.total <= 17, "established alias keeps the original ordinary-input shape within its separate bound");
   const g = await fx.say("물 1000", { key: fx.member, room: "" }); recordScene("G", g);
   t.ok(g.text.includes("가계부를 선택"), "G: direct-message selection precedes saving");
   putSetting(fx, `kakao_selected_household_v2251:${fx.uid(fx.member)}`, hid);
@@ -138,6 +135,36 @@ await fixture(async fx => {
   t.eq(k.calls.filter(call => pathIs(call, "/transactions", "GET") && call.url.searchParams.has("id")).length, 1, "K: one fixed-ID recovery read");
   t.ok(k.calls.some(call => pendingWrite(call) && call.method === "PATCH"), "K: replaces retained marker by CAS");
   t.eq(activeLeases(fx), 0, "all message and lifecycle leases are released");
+});
+
+await fixture(async fx => {
+  await fx.say("점심 12000");
+  const result = await fx.say("빵 2500"); recordScene("B-ordinary", result);
+  t.ok(result.text.includes("저장했어요") && result.text.includes("02번"), "B-ordinary: original input without appUserId saves and keeps its number");
+  storedBeforeReply(result, "B-ordinary");
+});
+
+await fixture(async fx => {
+  await fx.say("점심 12000");
+  const properties = { appUserId: String(980000000 + sequence) };
+  await fx.say("별칭준비 39001원", { properties });
+  t.ok(String(settingValue(fx, "user_identity_links")).includes(properties.appUserId), "F-1: setup persists the alias through the real skill route");
+  for (const [name, utterance] of [["F-1", "커피 2500원"], ["F-1-ordinary", "빵 2500"]]) {
+    const result = await fx.say(utterance, { properties }); recordScene(name, result);
+    t.ok(result.text.includes("저장했어요"), `${name}: established alias saves`);
+    t.eq(result.calls.filter(call => pathIs(call, "/accountbook_settings", "POST") && call.body?.key === "user_identity_links").length, 0, `${name}: established alias is not registered again`);
+  }
+});
+
+// Each first-alias variant gets a separate fixture and a unique appUserId.
+for (const [name, utterance] of [["F-2-strong", "커피 2500원"], ["F-2-ordinary", "빵 2500"]]) await fixture(async fx => {
+  await fx.say("점심 12000");
+  const properties = { appUserId: String(980000000 + sequence) };
+  t.ok(!String(settingValue(fx, "user_identity_links")).includes(properties.appUserId), `${name}: no alias exists before this first delivery`);
+  const result = await fx.say(utterance, { properties }); recordScene(name, result);
+  t.ok(result.text.includes("저장했어요"), `${name}: first alias and record save`);
+  t.eq(result.calls.filter(call => pathIs(call, "/accountbook_settings", "POST") && call.body?.key === "user_identity_links").length, 1, `${name}: this request really registers its first alias`);
+  t.ok(String(settingValue(fx, "user_identity_links")).includes(properties.appUserId), `${name}: alias is present after completion`);
 });
 
 // The cold combined-or rejection is two fallback reads (+2 from a 9-call B).
