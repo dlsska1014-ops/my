@@ -7,7 +7,7 @@ V22.9.76 작성(감사 G-15). 값은 적지 않는다. 이름과 빠졌을 때�
 
 | 이름 | 쓰는 곳 |
 |---|---|
-| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | 모든 DB 요청 |
+| `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | 모든 DB 요청. 2026-11-05 19:09 부터 서울 프로젝트 `jqzmpzdqvmzkxznnylkp` 값(두 값을 한 version 에 담아 승격 — `review-artifacts/supabase-seoul-migration/30-upload-secrets-version.mjs`) |
 | `ADMIN_SESSION_SECRET` | 관리자 로그인 세션 서명 |
 | `USER_SESSION_SECRET` | 사용자 로그인 세션 서명 |
 | `ADMIN_API_TOKEN` | 관리자 API Bearer. **`/cron/*` 도 이 Bearer 로 통과한다** |
