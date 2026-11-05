@@ -74,6 +74,8 @@
 // 후원 조각 3종(사이드바 abNavSupport 링크·홈 abHomeSupport 줄·홈 datalist 의 빈 option 끝 태그 생략)만 다름(같음 42·판 이름만 6·그 밖 48 모두 그 조각, review-artifacts/v97-monetization-prep-2026-11-02/work/compare-v96-v97.txt)을
 // 확인한 뒤 --print-golden 으로 다시 얻었다. 바뀐 값 12개(home·homeTrend·homePrev·budgets·budgetAlerts·reports·reportsWeek·analysis·backupPage·backupFull·backupMonth·candidate), 그대로 13개(apiBatch 는 JSON 본문이라 값 자체가 같다).
 // 옛 코드에서 무엇이 깨지는지 보려면 V22980_SOFT=1 로 돌린다(실패를 모두 적고 끝낸다).
+// V22.9.103(2026-11-05): 방침 8절 리전 문구(시드니 → 서울)와 판 이름만 바뀐다. 판 이름을 V22.9.102 값으로 잠시 되돌린 같은 번들에서 옛 값 그대로 268개가
+// 모두 통과함을 먼저 확인한 뒤 --print-golden 으로 다시 얻었고, 바뀐 값은 analysis·backupFull·backupMonth 셋(판 이름이 들어가는 화면·백업)이다.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -92,15 +94,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 fef72cab327c9203e1d1d3b7",
   "reportsWeek": "200 428380c89484611de8943026",
-  "analysis": "200 3f5efbe5292e2a72153a2f6e",
+  "analysis": "200 41342ea603513174f4d33c1f",
   "backupPage": "200 b9a026f5decec130db68d757",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 8102c952a78e1084ca7f72b6",
-  "backupMonth": "200 6c542416ce951e0e98236d58",
+  "backupFull": "200 112f53c5ed15ec4c5ae15aec",
+  "backupMonth": "200 99090cda4de98c35095887b4",
   "candidate": "200 500f881e0ca7f01cb92e917a",
   "legacyErr": "200 8483371f87264a4e90af381d",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

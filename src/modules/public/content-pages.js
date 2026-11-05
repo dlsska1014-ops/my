@@ -38,10 +38,12 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
   const adfit = adsPolicyNetwork(env) === "adfit";
   // V22.9.95 R-9: 개인정보처리방침 보강(처리 항목 표·보호책임자·위탁과 국외 이전·만 14세·파기·구제·변경 고지). 개정일은 POLICY_REVISION_DATE 한 곳이다.
   // 항목은 코드로 확인한 것만 적는다. Supabase 리전은 V22.9.95 배포 전에 운영 프로젝트 DB 호스트(db.<ref>.supabase.co)의 주소를 AWS 공식 IP 범위와
-  // 대조해 ap-southeast-2(호주 시드니)로 확인했다(E-19). 개정은 공고일에 알리고 공고일 + 7일에 시행한다(E-17). 두 날짜는 site-config.js 상수뿐이다.
+  // 대조해 ap-southeast-2(호주 시드니)로 확인했다(E-19). 2026-11-05 19:09 KST 에 운영 DB 를 서울 프로젝트(ref jqzmpzdqvmzkxznnylkp, AWS ap-northeast-2)로
+  // 옮겼으므로(docs/deployments/V22_9_102_2026_11_05.md 의 서울 전환 절) V22.9.103 부터 아래 리전 문구는 서울이다. 개정은 공고일에 알리고
+  // 공고일 + 7일에 시행한다(E-17). 두 날짜는 site-config.js 상수뿐이다.
   const revision = `시행일 2026년 7월 13일 · 개정 공고 ${policyDateLabel(POLICY_NOTICE_DATE)} · 개정 시행 ${policyDateLabel(POLICY_REVISION_DATE)}`;
   const supportEmail = BUSINESS_FOOTER_INFO.email;
-  const databaseRegion = "호주 시드니 리전(AWS ap-southeast-2)의 데이터센터";
+  const databaseRegion = "대한민국 서울 리전(AWS ap-northeast-2)의 데이터센터";
   const catalog = {
     ...publicGuidePages(env),
     ...publicLivingCostArticlesV22974(),

@@ -382,7 +382,7 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
     ["보호책임자", "성명 백인남(대표), 이메일 admin@malhaebook.com"],
     ["답변 기한", "요구를 받은 날부터 10일 안에 결과를 알립니다"],
     ["거부 방법", "국외 이전을 원하지 않으면 가입하지 않거나 7절의 이메일로 개인정보 삭제를 요청할 수 있습니다"],
-    ["데이터센터 리전(E-19, 운영 DB 호스트 주소 → AWS ap-southeast-2)", "호주 시드니 리전(AWS ap-southeast-2)의 데이터센터"],
+    ["데이터센터 리전(E-19 → 2026-11-05 서울 전환: 운영 DB = Supabase 서울 프로젝트, AWS ap-northeast-2; V22.9.103)", "대한민국 서울 리전(AWS ap-northeast-2)의 데이터센터"],
     ["받는 자 연락처: Cloudflare(E-19)", "privacyquestions@cloudflare.com"],
     ["받는 자 연락처: Supabase(E-19)", "privacy@supabase.com"],
     ["메일 전달 위탁(E-19)", "문의 메일(admin@malhaebook.com) 전달(Email Routing)"],

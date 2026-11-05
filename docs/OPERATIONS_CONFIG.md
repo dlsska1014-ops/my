@@ -47,6 +47,8 @@ TEST 앱 1508592 는 연결하지 않는다(다른 회원번호가 와 남의 �
 `OPS_MONITOR`(관제 Worker 서비스 연결), `OPS_MONITOR_TOKEN`(공유 Bearer), `OPS_MONITOR_PUBLIC_ORIGIN`(관제 화면 주소).
 둘 중 하나라도 없으면 앱은 표본을 보내지 않고 그대로 동작한다. 관제 쪽 설정은 `monitoring/README.md`.
 
+- 관제 wrangler.jsonc 의 `SUPABASE_PROJECT_REF` 는 관제 코드가 읽지 않는 값이다(요금제·사용량은 `SUPABASE_ORG_ID` 조직 단위). 2026-11-05 서울 전환 뒤 wrangler.jsonc 는 `jqzmpzdqvmzkxznnylkp`(V22.9.103), 대시보드 변수는 옛 ref 그대로이며 다음 관제 배포 때 맞춘다.
+
 ## 광고
 
 `ADS_MODE` 는 정확히 `live` 일 때만 광고 코드를 넣고 그 밖에는 `review`. `ADS_SLOT_CONTENT` 는 숫자 8~12자리만 쓴다(`src/modules/public/site-config.js`).

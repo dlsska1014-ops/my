@@ -1,3 +1,11 @@
+## V22.9.103 서울 문구 검사
+
+- `node validation/validate-v22995-legal.mjs`(148개): 8절 Supabase 행 ‘대한민국 서울 리전(AWS ap-northeast-2)의 데이터센터’, 받는 자·연락처·거부 방법 문구 그대로. `validate-version-single-source-v22915` 9개.
+- `validate-refund-links-v22980` 골든 3개 재채취(analysis·backupFull·backupMonth = 판 이름). 판 이름을 V22.9.102 로 되돌린 같은 번들에서 옛 값 268개 통과를 먼저 확인했다(방침 문구는 환불 검사 화면에 없다). v22979 251·v22981 83 그대로.
+- 전체 하네스 두 모드 62,667/62,664(하한 62,664; 새 검사 0, 환불 지문 3개 재채취), manifest `BUNDLE_FILE_CHECKSUMS_V22_9_103.sha256`(780), 번들 9,678,290 B·sha256 d5e71acb6711….
+- 운영 반영 뒤 확인: /health 판 이름 V22.9.103-SEOUL-WORDING, /privacy 8절 Supabase 행에 ‘대한민국 서울 리전(AWS ap-northeast-2)’, /ready 200·missing 0, 공개 검사 123, 1년 캐시 자산 주소 변화 없음(expect102 그대로), 관제 1.7.0.
+- 사람 확인: 없음(문구 한 곳). 관제 대시보드 변수 `SUPABASE_PROJECT_REF` 는 다음 관제 배포 때 새 ref 로(코드는 읽지 않음).
+
 ## V22.9.102 UI 수정 검사
 
 - `npm run validate:ui-fixes-v229102`(174개, J-13 9절 15개 포함): 필터 낱말·금액·이름 10장면, 보안 화면 단계·카카오 칸 세 갈래·오류 말, 기본 설정 판정(자동 이름 8꼴·별칭·자리 표시)·띠(홈 읽기 0회·쿠키 세 상태·화면 7곳·공지 띠 아래)·/my/setup·이름/내 이름 저장·권한·로그아웃 쿠키, 초대코드 표기, 단톡방 목록, 정기 지출자 규칙, 관제 1.7.0 재사용 8장면.

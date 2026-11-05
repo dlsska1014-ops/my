@@ -17,7 +17,8 @@
     "APP_ORIGIN": "https://malhaebook.com",
     "CF_ACCOUNT_ID": "58e7954ad3d92f0d39a7492ad4689165",
     "APP_WORKER_NAME": "kakao-accountbook",
-    "SUPABASE_PROJECT_REF": "hlftopwrwmpskbdaognv",
+    // 2026-11-05 Supabase 서울 전환 뒤 새 프로젝트 ref. 관제 코드는 이 값을 읽지 않는다(요금제·사용량은 조직 단위). 대시보드 변수는 다음 관제 배포 때 맞춘다.
+    "SUPABASE_PROJECT_REF": "jqzmpzdqvmzkxznnylkp",
     "SUPABASE_ORG_ID": "psyrhahxemnxoixfndcn",
     // 1.1.0: 요금제 확인 기록이 만료돼도 마지막 확인 요금제의 한도로 비교한다. 유료 전환 뒤에는 paid/pro 로 바꾼다.
     "CF_PLAN": "free",

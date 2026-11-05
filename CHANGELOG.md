@@ -1,3 +1,9 @@
+## V22.9.103-SEOUL-WORDING · 2026-11-05 · 방침 8절 리전 문구(서울)
+
+운영 DB 가 2026-11-05 19:09:48 KST 부터 Supabase 서울 프로젝트 `jqzmpzdqvmzkxznnylkp`(AWS ap-northeast-2)이므로 /privacy 8절 Supabase 행의 보관 장소를 ‘호주 시드니 리전(AWS ap-southeast-2)의 데이터센터’ 에서 ‘대한민국 서울 리전(AWS ap-northeast-2)의 데이터센터’ 로 바꿨다(`src/modules/public/content-pages.js` databaseRegion 한 곳. 받는 자·국외 이전 문단·연락처·거부 방법은 그대로). `validation/validate-v22995-legal.mjs` 의 기대 문구를 같이 바꿨고(148개 통과), 관제 `monitoring/wrangler.jsonc` 의 `SUPABASE_PROJECT_REF` 를 새 ref 로 적었다(관제 코드는 이 값을 읽지 않고 요금제·사용량은 조직 단위다. 대시보드 변수는 다음 관제 배포 때 맞춘다). 판 이름이 들어가는 환불 검사 지문 3개(analysis·backupFull·backupMonth)는 판 이름을 V22.9.102 로 되돌린 같은 번들에서 옛 값 268개가 모두 통과함을 확인한 뒤 다시 얻었다. SQL·Secret·환경변수·바인딩 33·1년 캐시 자산·관제 판(1.7.0)은 바꾸지 않는다. 번들 9,678,290 B·sha256 d5e71acb6711…. 기록 PR #131(서울 전환 기록) 위 브랜치 `claude/v229103-seoul-wording`.
+
+사용자 결정(2026-11-05 저녁): Supabase Pro(11-10 무렵 예정이던 것) 같은 유료 전환은 사용자 추이를 본 뒤 정한다(앞서 배포된 챗봇들의 일 방문 사용자 10~100명 안팎, 아직 수익 없음). 관제의 요금제 확인 만료 주의와 CF_PLAN·SUPABASE_PLAN=free 는 그대로 둔다. 같은 날 Kakao Developers 앱 1489689 를 채널 @말해가계부 에 다시 연결했다(Aside, 연결 전 ‘연결된 채널 없음’ → 뒤 ‘활성’; TEST 앱·개발 채널은 건드리지 않음). 이로써 방 요청에 appUserId 가 실리고, `KAKAO_ACCOUNT_LINK_ENABLED` 는 아직 없음(= 꺼짐, probe 행만 남김)이라 별칭·계정 합치기는 사용자 지목 뒤 켠다.
+
 ## V22.9.102-UI-FIXES · 2026-11-05 · 사용자 의견 6건·Codex 검토
 
 **Supabase 서울 전환(2026-11-05 19:09:48 KST)**: 운영 DB 를 시드니 프로젝트에서 서울 프로젝트 `jqzmpzdqvmzkxznnylkp`(ap-northeast-2)로 옮겼다. 코드는 그대로이고 Secret 두 개(SUPABASE_URL·SUPABASE_SERVICE_ROLE_KEY)만 바뀐 version `ac5f2a4b-de71-46a5-94cc-92b1743a3d8b`(#333)·deployment `d27cba28-f8c6-4730-8eb4-c1da82a47216`. 새 프로젝트 권한은 옛 프로젝트와 같게 맞췄다(복원 직후 anon·authenticated 권한이 넓었음). 방침 8절 리전 문구는 다음 판에서 고친다. 기록 docs/deployments/V22_9_102_2026_11_05.md.
