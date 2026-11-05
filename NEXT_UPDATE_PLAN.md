@@ -1,8 +1,15 @@
+## V22.9.103 다음 단계
+
+1. 방침 8절 서울 문구 판(V22.9.103-SEOUL-WORDING, 기록 PR #131 위): PR → CI 4/4 → 사용자 지목 뒤 #131·V103 병합 → 사용자가 새 토큰으로 `tools/deploy-worker-version.mjs` 업로드·승격(바인딩 33 inherit, 되돌리기 대상 ac5f2a4b…). 승격 뒤 /privacy 8절·/health·/ready·공개 검사.
+2. 단톡방 식별: Kakao Developers 앱 1489689 ↔ @말해가계부 연결 끝(11-05 저녁). 사용자 방 기록 1건 뒤 새 DB `accountbook_settings` 의 `kakao_app_user_id_probe_v22991:present:group`(판 이름 V22.9.102) 과 답 지연 없음을 확인 → 사용자가 `KAKAO_ACCOUNT_LINK_ENABLED=1` 켜기를 지목하면 Aside 가 변수 추가·배포(바인딩 34, 새 version) → 운영자 계정 /identity-audit 확인.
+3. 유료 전환은 사용자 추이 뒤(사용자 결정 11-05 저녁: 일 방문 10~100명 안팎, 수익 없음). 11-10 Supabase Pro 예정은 접는다. Workers Paid(출시 직전) 결정은 따로 다시 묻는다. 옛 Supabase 프로젝트 `hlftopwrwmpskbdaognv` 는 11-12 무렵 일시 중지(사용자 지목). 관제 `SUPABASE_PROJECT_REF` 대시보드 값은 다음 관제 판 배포 때.
+4. Codex: V102:J-9 수정 경쟁(RPC/SQL) → A-1·A-2·A-4 → B → C. #127 은 Codex 리베이스 뒤. 지시문 ‘2026-11-05 저녁 추가 2’(8절 문구)는 이 판이 대신 처리했다.
+
 ## V22.9.102 다음 단계
 
 1. 끝(2026-11-05): #128 → #129 → #130 병합(main e8f0aa4), 관제 1.7.0 15:28:10, 앱 V22.9.102 승격 17:32(`tools/deploy-worker-version.mjs`, 사용자 토큰). 남은 것은 #127(Codex 리베이스 뒤)과 기록 PR.
 2. V102:J-9 기록 수정 경쟁: 검토용 SQL(저장 조건 ‘현재 지출자 = 요청자’) + 앱의 조건부 PATCH + 충돌 답 — Codex 다음 판.
-3. Supabase 서울 전환 끝(11-05 19:09, version ac5f2a4b… #333·deployment d27cba28…; 권한 정렬·재적재·두 Secret 한 version 교체, 앱이 새 DB 에 쓰는 것 확인). 남은 것: 관제 `SUPABASE_PROJECT_REF`(사용자 지목), 방침 8절 리전 문구 + validate-v22995-legal(코드, 다음 판), 옛 프로젝트 1주 뒤 일시 중지, 11-10 무렵 Pro. Cloudflare 배치는 11-05 승격으로 이미 기본값(다시 켜지 않음). 관제 1.7.0 뒤 Supabase API 요청 수를 대시보드로 확인한다. 실제 방 기록 뒤 관제 표본으로 K-1·B-0 를 실측한다.
+3. Supabase 서울 전환 끝(11-05 19:09, version ac5f2a4b… #333·deployment d27cba28…; 권한 정렬·재적재·두 Secret 한 version 교체, 앱이 새 DB 에 쓰는 것 확인). 남은 것: 관제 `SUPABASE_PROJECT_REF`(사용자 지목), 방침 8절 리전 문구 + validate-v22995-legal(→ V22.9.103), 옛 프로젝트 1주 뒤 일시 중지, Pro 는 사용자 추이 뒤(11-05 저녁 결정). Cloudflare 배치는 11-05 승격으로 이미 기본값(다시 켜지 않음). 관제 1.7.0 뒤 Supabase API 요청 수를 대시보드로 확인한다. 실제 방 기록 뒤 관제 표본으로 K-1·B-0 를 실측한다.
 
 ## V22.9.101 다음 단계
 

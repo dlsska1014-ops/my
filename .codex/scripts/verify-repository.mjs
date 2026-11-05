@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_102.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_103.sha256",
 );
 const validationScripts = [
   ["V22.9.102 UI 수정(필터 낱말·금액·이름, 보안 화면 순서, 가계부 기본 설정 띠·/my/setup, 초대코드, 단톡방 목록, 정기 지출자, 관제 1.7.0 /ready 30분)", "validation/validate-ui-fixes-v229102.mjs"],

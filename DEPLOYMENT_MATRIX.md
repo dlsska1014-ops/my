@@ -1,3 +1,12 @@
+## V22.9.103 배포 판단
+
+- V22.9.103-SEOUL-WORDING 은 앱 Worker 만 바꾼다(방침 8절 Supabase 행의 보관 장소 문구 한 곳 + 판 이름). SQL·Secret·환경변수·바인딩 33개·cron·Kakao Developers·OpenBuilder·1년 캐시 자산 주소·관제 판(1.7.0)은 바꾸지 않는다. 번들 9,678,290 B·sha256 d5e71acb6711…. 배포 대조는 바인딩 33·금지 변수 열하나 그대로(`KAKAO_ACCOUNT_LINK_ENABLED` 를 켜기 전까지).
+- 배포 길: 번들이 9.6 MB 라 Quick Editor 는 못 받는다 → `tools/deploy-worker-version.mjs`(업로드·대조 → 승격)를 사용자가 새 토큰으로 자기 PowerShell 에서 실행한다(V102 와 같은 길, `review-artifacts/v102-ui-fixes-2026-11-05/deploy/USER-DEPLOY-APP.md` 꼴). 도구는 배치(placement)를 옮기지 않는데 운영이 이미 기본값이라 차이 없다. 서울 Secret 두 개는 inherit 로 따라온다(상속 기준 = 활성 version ac5f2a4b…).
+- 되돌리기 대상(기록만): 앱 version `ac5f2a4b-de71-46a5-94cc-92b1743a3d8b`(#333, V22.9.102 코드 + 서울 Secret). 06848d5e…(#332)로는 내리지 않는다(옛 시드니 DB 를 가리킨다).
+- 관제 대시보드 변수 `SUPABASE_PROJECT_REF`(지금 옛 ref)는 코드가 읽지 않으므로 이 판에서 관제 배포를 하지 않는다. wrangler.jsonc 만 새 ref 로 적어 두었고 다음 관제 판 배포 때 대시보드 값을 맞춘다.
+- 사용자 결정(2026-11-05 저녁): 유료 전환(Supabase Pro 11-10 무렵)은 사용자 추이(일 방문 10~100명 안팎, 수익 없음)를 본 뒤. 관제 CF_PLAN·SUPABASE_PLAN=free 그대로. Workers Paid(출시 직전) 결정은 따로 다시 묻는다.
+- 배포 직후 확인: /health 판 이름, /privacy 8절 ‘대한민국 서울 리전(AWS ap-northeast-2)’, /ready 200·missing 0, 공개 검사 123, 1년 캐시 expect102 그대로(새 자산 없음), 관제 1.7.0.
+
 ## V22.9.102 배포 판단
 
 - **운영 반영 끝(2026-11-05)**: 병합 #128 c35f75c 14:26 → #129 e96eb16 14:41 → #130 e8f0aa4 14:50(모두 main CI 4/4) → 관제 1.7.0 15:28:10(version 288e20cc… #18, deployment 05e6dc85…) → 앱 승격 17:32 KST(version 06848d5e… #332, deployment 306f95fe…; Quick Editor 가 9.68 MB 를 받지 못해 `tools/deploy-worker-version.mjs` 를 사용자가 토큰으로 실행, 바인딩 33 inherit·runtime 복사·named 120 차이 0). 활성이던 66db5997(#331)의 배치 설정(ap-southeast-2)은 새 version 에 옮겨지지 않아 **배치는 기본값**이 됐고 서울 DB 전환 전제로 다시 켜지 않는다. 직후 확인 통과(공개 검사는 승격 도구 실행 때 /terms 1회 시간 초과 121/122 → 재실행 123/123). 되돌리기 대상 앱 66db5997…(배치 설정 포함)·관제 1.6.0 ce046034…. 기록 docs/deployments/V22_9_102_2026_11_05.md.

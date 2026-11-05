@@ -1,3 +1,10 @@
+## V22.9.103 현재 상태
+
+- 방침 8절 리전 문구는 이 판에서 서울로 바뀐다(코드). 운영에 나가기 전까지 /privacy 는 ‘호주 시드니’ 를 보인다(운영 DB 는 11-05 19:09 부터 서울). 이 판 승격이 곧 고침이다.
+- 관제 대시보드 변수 `SUPABASE_PROJECT_REF` 는 옛 ref 그대로다. 관제 코드는 이 값을 읽지 않아(요금제·사용량은 조직 단위) 화면에 영향이 없고, wrangler.jsonc 만 새 ref 로 고쳤다(다음 관제 배포 때 대시보드 값도).
+- Kakao Developers 앱 1489689 ↔ 채널 @말해가계부 연결(2026-11-05 저녁, Aside) 뒤 방 요청에 appUserId 가 실린다. `KAKAO_ACCOUNT_LINK_ENABLED` 는 없음(= 꺼짐) → 별칭·계정 합치기는 하지 않고 probe 행(`kakao_app_user_id_probe_v22991:*`)만 남긴다. 켜기는 사용자 지목 뒤(바인딩 33 → 34). 11-04 연결 때의 지연은 DB 호출 수(K-1·B-0 로 고침, V102 운영)였고 appUserId 자체가 아니었다.
+- 유료 전환(Supabase Pro)은 사용자 결정(11-05 저녁)으로 추이를 본 뒤다. Supabase Free 에는 자동 백업이 없어 백업은 `review-artifacts/supabase-seoul-migration/11-dump-auto.ps1` 수동 덤프뿐이다(R-8 열림).
+
 ## V22.9.102 현재 상태
 
 - 가계부 기본 설정 띠의 ‘로그인 비밀번호’ 항목은 쿠키 ab_bk(1 있음·0 없음·없으면 모름)로만 판정한다. 이 판 전에 로그인해 둔 세션은 다음 카카오 로그인, /my/setup, 내 계정·보안 화면을 열 때까지 그 항목을 보지 못한다(모름은 띄우지 않는다, V102:J-11). 이름·내 이름 항목은 홈이 행으로 바로 판정한다.
@@ -5,7 +12,7 @@
 - 기록 수정 경쟁(V102:J-9): 구성원이 자기 기록을 고치는 사이 관리자가 지출자를 바꾸면 덮어쓸 수 있다. RPC/SQL 저장 조건이 필요해 다음 판이다.
 - 홈 HTML 35 KiB 예산은 띠가 없는 홈(설정이 끝났거나 비밀번호 유무를 모름) 기준이다. 띠가 붙으면 약 570 B(세 항목 약 620 B) 더 내려간다 — 공지 띠와 같은 성격이고 새 검사가 띠 크기를 본다.
 - 운영은 V22.9.102(2026-11-05 17:32 KST, version 06848d5e… #332)다. V100 K-1·V101 B-0 도 이 승격으로 처음 운영에 나갔다. #127(V99 기록)은 Codex 리베이스 뒤. 배치(placement)는 승격으로 기본값이 됐고(API 도구가 옮기지 않음) 11-05 19:09 Supabase 서울 전환(version ac5f2a4b… #333, 코드 같음, 두 Secret 만 교체) 뒤 /ready 는 2.5초대(이 PC → Cloudflare LAX → 서울 DB; 전환 전 4.2초)다. 방 기록은 K-1 상한(답 전 ≤ 10회)으로 예산 안이지만 실제 방 기록 표본으로 확인할 것.
-- **방침 8절 리전 문구(열림, 다음 앱 판)**: 운영 DB 는 11-05 19:09 부터 서울(ap-northeast-2)인데 /privacy 8절은 아직 ‘호주 시드니 리전(AWS ap-southeast-2)’ 이다(`src/modules/public/content-pages.js` databaseRegion, `validation/validate-v22995-legal.mjs` 385줄 함께 고침). 관제 변수 `SUPABASE_PROJECT_REF` 도 옛 ref 라 요금제·사용량 카드가 옛 프로젝트를 본다(사용자 지목 뒤 교체).
+- 방침 8절 리전 문구: V22.9.103 에서 서울로 고쳤다(코드; 운영 반영은 V103 승격 뒤, 그때까지 /privacy 는 ‘호주 시드니’ 를 보인다). 관제 변수 `SUPABASE_PROJECT_REF` 는 코드가 읽지 않는 값이라 wrangler.jsonc 만 새 ref 로 고쳤다(V22.9.103 절).
 - **운영 V99 의 카카오 로그인 멈춤(P1, V102:J-13)은 2026-11-05 17:32 V102 승격으로 닫혔다**: 11-02 18:17~11-05 17:32 사이 Chrome·Edge·Android 웹뷰(카카오톡 인앱)의 웹 카카오 로그인이 ‘로그인 중입니다’ 에서 멈췄다(V22.9.95 R-9 의 GET 폼 + CSP form-action 'self'; Firefox·iOS Safari 는 됐음). 승격 직후 운영 /my 에서 headless Chrome 클릭 → kauth → accounts.kakao.com, CSP 위반 0. 실제 계정으로 끝까지 로그인은 사람 확인. 남은 P3: Cloudflare beacon script-src 콘솔 오류, manifest share_target enctype 경고.
 
 ## V22.9.101 현재 상태
