@@ -107,8 +107,19 @@ async function runKakaoAfterReply(env) {
     const { job, cost, critical } = queue.shift();
     const reserved = queue.reduce((sum, item) => sum + (item.critical ? item.cost : 0), 0);
     if (!hasDatabaseRoom(env, cost + (critical ? 0 : reserved))) continue;
+    const budget = env?.__AB_DB_BUDGET;
+    if (budget && !critical) {
+      budget.reserved = Number(budget.reserved || 0) + reserved;
+      budget.afterReplyDepth = Number(budget.afterReplyDepth || 0) + 1;
+    }
     try { await job(); }
     catch (err) { rememberOpsEvent({ kind: "kakao_after_reply_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) }); }
+    finally {
+      if (budget && !critical) {
+        budget.reserved -= reserved;
+        budget.afterReplyDepth -= 1;
+      }
+    }
   }
 }
 
@@ -168,13 +179,15 @@ async function withSettingsRmwLease(env, lockKey = "", task, options = {}) {
   const key = String(lockKey || "").trim().slice(0, 180);
   if (!key) throw new Error("settings_rmw_key_required");
   const runWithDatabaseLease = async () => {
-    const lease = await claimOperationLease(env, {
-      key,
-      owner: operationLeaseOwner("settings-rmw"),
-      leaseSeconds: 90,
-    });
-    if (!lease.acquired) throw new Error("settings_rmw_busy");
+    const budget = env?.__AB_DB_BUDGET;
+    // Optional background work must protect this lease's release as well as
+    // releases already queued by the response path. Nested leases add one each.
+    const reserveRelease = Number(budget?.afterReplyDepth || 0) > 0 && options.releaseMode !== "defer";
+    if (reserveRelease) budget.reserved = Number(budget.reserved || 0) + 1;
+    let lease;
     try {
+      lease = await claimOperationLease(env, { key, owner: operationLeaseOwner("settings-rmw"), leaseSeconds: 90 });
+      if (!lease.acquired) throw new Error("settings_rmw_busy");
       assertSettingsLeaseFresh(lease);
       const hid = String(options.householdId || "").trim();
       if (hid && !(await householdExistsForSettingsMutation(env, hid))) {
@@ -183,8 +196,13 @@ async function withSettingsRmwLease(env, lockKey = "", task, options = {}) {
       }
       return await task({ lease, assertFresh: () => assertSettingsLeaseFresh(lease) });
     } finally {
-      if (options.releaseMode === "defer") await deferKakaoAfterReply(env, () => releaseOperationLease(env, lease), { cost: 1, critical: true });
-      else await releaseOperationLease(env, lease);
+      // Return only this scope's slot before dispatching its release. Generic
+      // release RPCs have no exemption from other scopes' reservations.
+      if (reserveRelease) budget.reserved -= 1;
+      if (lease?.acquired) {
+        if (options.releaseMode === "defer") await deferKakaoAfterReply(env, () => releaseOperationLease(env, lease), { cost: 1, critical: true });
+        else if (!(await releaseOperationLease(env, lease)) && reserveRelease) throw new Error("settings_rmw_release_failed");
+      }
     }
   };
   const mutexOptions = options.releaseMode === "defer" && env?.__AB_KAKAO_REQUEST?.enabled

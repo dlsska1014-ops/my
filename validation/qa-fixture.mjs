@@ -126,7 +126,7 @@ function matchesFilter(row, key, expression) {
     const values = expected.replace(/^\(|\)$/g, "").split(",").map((value) => value.replace(/^"|"$/g, ""));
     return values.includes(actual);
   }
-  if (operator === "is") return expected === "null" ? row?.[key] == null : actual === expected;
+  if (operator === "is") return expected === "null" ? row?.[key] == null || (Array.isArray(row?.[key]) && row[key].length === 0) : actual === expected;
   // V22.9.88 Y-6: not.<연산자>. SQL 처럼 값이 NULL 이면 not.like 등은 맞지 않는다(not.is.null 만 NULL 이 아닌 값에 맞는다).
   if (operator === "not") return expected.startsWith("is.") ? !matchesFilter(row, key, expected) : row?.[key] != null && !matchesFilter(row, key, expected);
   return true;
@@ -134,10 +134,13 @@ function matchesFilter(row, key, expression) {
 
 function filteredRows(db, table, url) {
   let rows = clone(db[table] || []);
+  const embeddedIdentities = table === "users" && String(url.searchParams.get("select") || "").includes("accountbook_user_identities(");
+  if (embeddedIdentities) rows = embedRelatedRows(db, rows, url.searchParams.get("select"), url);
   matchesFilter.permissiveLogic = Boolean(db.__permissive_logic_filters);
   const ignored = new Set(["select", "order", "limit", "offset", "on_conflict"]);
   for (const key of new Set(url.searchParams.keys())) {
     if (ignored.has(key)) continue;
+    if (embeddedIdentities && key.startsWith("accountbook_user_identities.")) continue;
     const expressions = url.searchParams.getAll(key);
     rows = rows.filter((row) => expressions.every((expression) => matchesFilter(row, key, expression)));
   }
@@ -163,12 +166,19 @@ function filteredRows(db, table, url) {
 // `<단수>_id` 로 상대 표의 한 행을 찾아 붙인다. 없으면 null — 실제 PostgREST 와 같다.
 // 서버는 외래키가 없을 때 두 단계 조회로 돌아가므로, 픽스처의 `db.__embed_unsupported = true`
 // 로 그 길도 검사할 수 있다(그때는 실제 PostgREST 처럼 400 을 돌려준다).
-function embedRelatedRows(db, rows, select = "") {
+function embedRelatedRows(db, rows, select = "", url = null) {
   const embeds = [...String(select || "").matchAll(/([a-z_]+)\(([^)]*)\)/g)];
   if (!embeds.length) return rows;
   return rows.map((row) => {
     const out = { ...row };
     for (const [, table, columns] of embeds) {
+      if (table === "accountbook_user_identities") {
+        const wanted = columns.split(",").map(column => column.trim()).filter(Boolean);
+        const filters = [...(url?.searchParams || [])].filter(([key]) => key.startsWith(`${table}.`));
+        out[table] = (db[table] || []).filter(item => String(item.user_id) === String(row.id) && filters.every(([key, expression]) => matchesFilter(item, key.slice(table.length + 1), expression)))
+          .map(item => Object.fromEntries(wanted.map(column => [column, item[column]])));
+        continue;
+      }
       if (table === "accountbook_user_security") {
         out[table] = (db[table] || []).filter(item => String(item.user_id) === String(row.id)).map(item => ({session_version:item.session_version}));
         continue;
@@ -589,7 +599,7 @@ export async function createV2265QaFixture(options = {}) {
       if ((table === "accountbook_user_security" || String(url.searchParams.get("select") || "").includes("accountbook_user_security(")) && db.__fail_user_security_reads) {
         return new Response(JSON.stringify({ code: "QA_USER_SECURITY_UNAVAILABLE", message: "simulated session security read failure" }), { status: 503, headers: { "content-type": "application/json" } });
       }
-      const selectedRows = embedRelatedRows(db, filteredRows(db, table, url), url.searchParams.get("select"));
+      const selectedRows = embedRelatedRows(db, filteredRows(db, table, url), url.searchParams.get("select"), url);
       const headers = { "content-type": "application/json" };
       let status = 200;
       if (/count=exact/i.test(new Headers(init.headers || {}).get("prefer") || "")) {

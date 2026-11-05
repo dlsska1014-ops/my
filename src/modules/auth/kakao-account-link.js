@@ -1,7 +1,9 @@
 // @build:imports-start
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { APP_VERSION, appName, envFlagEnabled } from "../public/site-config.js";
-import { parseStrictSettingsObject, safeError, withSettingsRmwLease } from "../runtime/leases.js";
+import {
+  deferKakaoAfterReply, parseStrictSettingsObject, safeError, withSettingsRmwLease,
+} from "../runtime/leases.js";
 import {
   getCookie, htmlResponse, redirectResponse, redirectResponseWithCookies,
 } from "../runtime/http.js";
@@ -13,7 +15,9 @@ import { safeObject } from "../admin/backup-compare.js";
 import {
   inspectKakaoLoginConfig, makeUserSession, resolveEffectiveUserId, verifyUserSession,
 } from "./user-session.js";
-import { lookupKakaoLoginOwner, readPurposeToken, signedPurposeToken } from "./identity-reauth.js";
+import {
+  fetchUserIdentityLinks, lookupKakaoLoginOwner, readPurposeToken, signedPurposeToken,
+} from "./identity-reauth.js";
 import { saveSettingValue } from "../my/reports-premium.js";
 import { MY_ACCESS_STATUS_CSS } from "../my/access-control.js";
 import { addQueryToUrl } from "./local-login-pages.js";
@@ -21,6 +25,7 @@ import { kakaoClaimUserUnmerged } from "./kakao-web-claim.js";
 import { isDefiniteStorageFailure } from "../kakao/response-builders.js";
 import { getKakaoBotGroupKey } from "../kakao/group-links-first-record.js";
 import { performIdentityMerge } from "../admin/identity-merge.js";
+import { persistIdentityAliases } from "../kakao/identity-chat-first.js";
 import { supabase } from "../data/supabase-client.js";
 import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -34,7 +39,7 @@ import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 //     (identity-chat-first.js). 합치기는 같은 카카오 계정으로 방금 로그인한 브라우저에서만 한다. 남의 세션 쿠키만으로는 못 합친다.
 //     한쪽에 가계부·기록이 없으면 확인 없이 잇고, 둘 다 있으면 /my/account-link 에서 확인을 받은 뒤 잇는다.
 //  3) appUserId 도착 진단. 콘솔에서 웹 로그인 앱(1489689)을 그룹 챗봇에 연결한 뒤 실제로 오는지 관리자 화면(/identity-audit)에서 본다.
-// 2)의 합치기(안내·확인 화면·합치기 표)는 KAKAO_ACCOUNT_LINK_ENABLED=1 일 때만 한다(기본 꺼짐, kakaoAccountLinkEnabled). 1)·3)과 제안 남기기는 꺼져 있어도 한다.
+// 2)의 합치기와 제안은 KAKAO_ACCOUNT_LINK_ENABLED=1 일 때만 한다(기본 꺼짐). 꺼짐의 기존 채팅 사용자는 3) 진단만 남긴다.
 const KAKAO_AUTO_LOGIN_COOKIE = "ab_kakao_auto";
 // try: 자동 로그인을 보낸 뒤 돌아올 때까지(되풀이 막기). skip: 비회원·오류(하루 동안 다시 보내지 않음). off: 직접 로그아웃(30일).
 const KAKAO_AUTO_LOGIN_COOKIE_AGES = { try: 600, skip: 86400, off: 2592000 };
@@ -200,14 +205,98 @@ function kakaoAccountLinkOfferForUser(offers = {}, userId = "") {
 // 채팅 요청(identity-chat-first.js)은 제안을 바로 쓰지 않고 요청 안에 모아 둔다. 답 처리가 끝난 뒤 afterKakaoSkillIdentityWork 가
 // 이 요청의 DB 호출 여유가 있을 때만 쓴다. 단톡방 첫 기록처럼 호출이 많은 요청을 50회 한도 쪽으로 밀지 않기 위해서다.
 function queueKakaoAccountLinkOffer(env, offer = {}) {
-  if (!env || typeof env !== "object") return;
+  if (!env || typeof env !== "object" || !kakaoAccountLinkEnabled(env)) return;
   const queue = Array.isArray(env.__AB_PENDING_ACCOUNT_LINK_OFFERS) ? env.__AB_PENDING_ACCOUNT_LINK_OFFERS : (env.__AB_PENDING_ACCOUNT_LINK_OFFERS = []);
   if (queue.length < 4) queue.push({ chatUserId: String(offer.chatUserId || ""), loginUserId: String(offer.loginUserId || ""), kakaoId: String(offer.kakaoId || "") });
 }
 
+// B-0: completion is only an optimization. It never chooses or authorizes a
+// user. Failed/skipped jobs leave no entry and can be retried by the next request.
+const AB_KAKAO_IDENTITY_WORK_DONE = globalThis.__AB_KAKAO_IDENTITY_WORK_DONE || (globalThis.__AB_KAKAO_IDENTITY_WORK_DONE = new Map());
+const AB_KAKAO_IDENTITY_PENDING = globalThis.__AB_KAKAO_IDENTITY_PENDING || (globalThis.__AB_KAKAO_IDENTITY_PENDING = new Map());
+const AB_KAKAO_IDENTITY_RESOLVING = globalThis.__AB_KAKAO_IDENTITY_RESOLVING || (globalThis.__AB_KAKAO_IDENTITY_RESOLVING = new Map());
+async function waitKakaoSkillIdentityAliases(env, rawKey) {
+  const pending = AB_KAKAO_IDENTITY_PENDING.get(rawKey);
+  if (pending && pending.scope !== env.__AB_KAKAO_REQUEST) await pending.promise;
+}
+async function withKakaoSkillIdentityResolution(env, rawKey, task) {
+  // Serialize from the first read, not only the eventual alias write. Seed
+  // rechecks in the same request reenter; other bots retain full concurrency.
+  while (true) {
+    const previous = AB_KAKAO_IDENTITY_RESOLVING.get(rawKey);
+    if (previous?.scope === env.__AB_KAKAO_REQUEST) return await task();
+    if (previous) { await previous.promise; continue; }
+    await waitKakaoSkillIdentityAliases(env, rawKey);
+    if (AB_KAKAO_IDENTITY_RESOLVING.has(rawKey)) continue;
+    let release;
+    const pending = { scope: env.__AB_KAKAO_REQUEST, promise: new Promise(resolve => { release = resolve; }) };
+    AB_KAKAO_IDENTITY_RESOLVING.set(rawKey, pending);
+    try { return await task(); }
+    finally {
+      release();
+      if (AB_KAKAO_IDENTITY_RESOLVING.get(rawKey) === pending) AB_KAKAO_IDENTITY_RESOLVING.delete(rawKey);
+    }
+  }
+}
+async function queueKakaoSkillIdentityAliases(env, { rawKey, user, aliases = [], appAlias = "", newIdentity = false }) {
+  const enabled = kakaoAccountLinkEnabled(env);
+  const cacheKey = `${rawKey}\n${appAlias}`;
+  const done = AB_KAKAO_IDENTITY_WORK_DONE.get(cacheKey);
+  const hit = !!appAlias && done?.userId === String(user.id) &&
+    (done.kind === "verified" || done.enabled === enabled) && Date.now() - done.at < (done.kind === "verified" ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000);
+  if (enabled && hit) env.__AB_KAKAO_IDENTITY_SKIP_PROBE = true;
+  const appWork = !!appAlias && !hit && (newIdentity || inspectKakaoLoginConfig(env).ready);
+  const wanted = [...new Set([...aliases, ...(appWork ? [appAlias] : [])])];
+  if (!wanted.length) return;
+  let release;
+  const pending = { scope: env.__AB_KAKAO_REQUEST, promise: new Promise(resolve => { release = resolve; }) };
+  AB_KAKAO_IDENTITY_PENDING.set(rawKey, pending);
+  await deferKakaoAfterReply(env, async () => {
+    const options = { trustedKakaoCaller: true, afterReplyStrict: true, conflictedAliases: new Set() };
+    let verified = false;
+    if (appWork && !newIdentity) {
+      const links = await fetchUserIdentityLinks(env);
+      // This read only avoids redundant work; it does not select a user or
+      // authorize a write. Mutations always re-read ownership under the lease.
+      verified = wanted.every(alias => String(safeObject(links[alias]).user_id || "") === String(user.id));
+    }
+    if (!verified) {
+      if (!hasDatabaseRoom(env, 5)) return;
+      await persistIdentityAliases(env, wanted, user.id, "skill", options);
+    }
+    if (appWork) {
+      if (!(await flushKakaoAccountLinkOffers(env))) return;
+      AB_KAKAO_IDENTITY_WORK_DONE.set(cacheKey, { userId: String(user.id), at: Date.now(), kind: options.conflictedAliases.has(appAlias) ? "conflict" : "verified", enabled });
+      for (const [key, value] of AB_KAKAO_IDENTITY_WORK_DONE) if (Date.now() - value.at >= (value.kind === "verified" ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000)) AB_KAKAO_IDENTITY_WORK_DONE.delete(key);
+      while (AB_KAKAO_IDENTITY_WORK_DONE.size > 2000) AB_KAKAO_IDENTITY_WORK_DONE.delete(AB_KAKAO_IDENTITY_WORK_DONE.keys().next().value);
+    }
+  }, { cost: appWork && !newIdentity ? 1 : 5 });
+  // This zero-cost gate must run even when budget pressure skips the optional
+  // persistence job, otherwise the isolate would block this bot indefinitely.
+  await deferKakaoAfterReply(env, () => {
+    release();
+    if (AB_KAKAO_IDENTITY_PENDING.get(rawKey) === pending) AB_KAKAO_IDENTITY_PENDING.delete(rawKey);
+  }, { cost: 0, critical: true });
+}
+
+async function flushKakaoAccountLinkOffers(env) {
+  const queue = Array.isArray(env?.__AB_PENDING_ACCOUNT_LINK_OFFERS) ? env.__AB_PENDING_ACCOUNT_LINK_OFFERS.splice(0) : [];
+  if (!kakaoAccountLinkEnabled(env)) return true;
+  let complete = true;
+  for (const offer of queue) {
+    if (!hasDatabaseRoom(env, 4)) { complete = false; continue; }
+    try { await rememberKakaoAccountLinkOffer(env, offer); }
+    catch (err) {
+      complete = false;
+      rememberOpsEvent({ kind: "kakao_account_link_offer_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) });
+    }
+  }
+  return complete;
+}
+
 function hasDatabaseRoom(env, reserve = 0) {
   const budget = env?.__AB_DB_BUDGET;
-  return !budget || Number(budget.used || 0) + reserve <= Number(budget.limit || 50);
+  return !budget || Number(budget.used || 0) + reserve + Number(budget.reserved || 0) <= Number(budget.limit || 50);
 }
 
 // appUserId 가 실제로 오는지(콘솔에서 앱 1489689 를 봇에 연결한 뒤) 관리자 화면에서 보려고 남긴다. 받은 값은 적지 않고 왔는지·안 왔는지와
@@ -234,21 +323,9 @@ async function noteKakaoAppUserIdProbe(env, payload = {}) {
 // skill-handler.js 가 답 처리(work)가 끝난 뒤 waitUntil 로 부른다. 실패해도 답에는 영향이 없다.
 // 웹 카카오 로그인이 꺼진 곳에서는 이을 수 없으니 제안도 진단도 남기지 않는다.
 async function afterKakaoSkillIdentityWork(env, payload = {}, trustedKakaoCaller = false) {
-  const queue = Array.isArray(env?.__AB_PENDING_ACCOUNT_LINK_OFFERS) ? env.__AB_PENDING_ACCOUNT_LINK_OFFERS.splice(0) : [];
   if (!inspectKakaoLoginConfig(env).ready) return;
-  for (const offer of queue) {
-    if (!hasDatabaseRoom(env, 8)) {
-      // 같은 두 계정의 충돌은 isolate 마다 10분에 한 번 남기므로(identity-chat-first.js) 그 뒤 요청이 다시 남긴다.
-      rememberOpsEvent({ kind: "kakao_account_link_offer_deferred", severity: "info", path: "/skill", method: "POST", detail: "DB 호출 여유가 없어 이번 요청에서는 쓰지 않음" });
-      break;
-    }
-    try {
-      await rememberKakaoAccountLinkOffer(env, offer);
-    } catch (err) {
-      rememberOpsEvent({ kind: "kakao_account_link_offer_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) });
-    }
-  }
-  if (trustedKakaoCaller && hasDatabaseRoom(env, 4)) await noteKakaoAppUserIdProbe(env, payload);
+  await flushKakaoAccountLinkOffers(env);
+  if (trustedKakaoCaller && !env.__AB_KAKAO_IDENTITY_SKIP_PROBE && hasDatabaseRoom(env, 1)) await noteKakaoAppUserIdProbe(env, payload);
 }
 
 // 합치기 방향과 가능 여부. 계정 잇기의 합치기는 performIdentityMerge 의 잠금 안에서 이것을 다시 부른다.
@@ -536,14 +613,16 @@ async function renderKakaoAccountLinkDiagnostics(env) {
   const offerCount = offers ? Object.keys(offers).length : null;
   const switchState = kakaoAccountLinkEnabled(env)
     ? "켜짐 — 제안이 있는 사람에게 /my 에서 잇기를 묻습니다."
-    : "꺼짐 — 제안과 진단만 남기고 잇기는 묻지 않습니다. 운영자 계정으로 appUserId 옴과 제안을 확인한 뒤 KAKAO_ACCOUNT_LINK_ENABLED=1 로 켭니다.";
+    : "꺼짐 — 진단만 남기고 제안과 잇기는 만들지 않습니다. 활성화 검사를 확인한 뒤 KAKAO_ACCOUNT_LINK_ENABLED=1 로 켭니다.";
   return `<section class="card"><h2>카카오 로그인 연결 진단</h2><p>그룹 챗봇에 웹 로그인 앱을 연결하면 카카오가 방 메시지에 appUserId 를 실어 보냅니다. 받은 값은 적지 않고 마지막으로 온 때와 안 온 때만 적습니다(isolate 마다 한 시간에 한 번).</p><div class="tableWrap"><table><thead><tr><th>대화</th><th>appUserId 옴</th><th>appUserId 안 옴</th></tr></thead><tbody>${probeRows}</tbody></table></div><p>계정 잇기: ${escapeHtml(switchState)}</p><p>남은 계정 잇기 제안: ${offerCount === null ? "읽지 못함" : `${numberWithCommas(offerCount)}건`} · 웹에서 이은 뒤 사라집니다.</p></section>`;
 }
 // @build:exports-start
 export {
   afterKakaoSkillIdentityWork, handleMyAccountLinkPage, handleMyAccountLinkRun,
-  handleMyAccountLinkStart, hasDatabaseRoom, isKakaoTalkInAppBrowser, kakaoAccountLinkPrompt,
-  kakaoAccountLinkProofAfterKakao, kakaoAutoLoginCookie, kakaoAutoLoginFallbackLocation,
-  kakaoInAppAutoLoginResponse, queueKakaoAccountLinkOffer, renderKakaoAccountLinkDiagnostics,
+  handleMyAccountLinkStart, hasDatabaseRoom, isKakaoTalkInAppBrowser, kakaoAccountLinkEnabled,
+  kakaoAccountLinkPrompt, kakaoAccountLinkProofAfterKakao, kakaoAutoLoginCookie,
+  kakaoAutoLoginFallbackLocation, kakaoInAppAutoLoginResponse, queueKakaoAccountLinkOffer,
+  queueKakaoSkillIdentityAliases, renderKakaoAccountLinkDiagnostics, waitKakaoSkillIdentityAliases,
+  withKakaoSkillIdentityResolution,
 };
 // @build:exports-end

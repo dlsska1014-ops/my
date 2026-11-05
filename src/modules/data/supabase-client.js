@@ -68,8 +68,10 @@ async function supabase(env, path, init = {}) {
     if (upstreamSignal?.aborted) throw new Error("supabase_request_cancelled_before_dispatch");
     const execute = async (signal) => {
       if (env.__AB_DB_BUDGET) {
-        if (env.__AB_DB_BUDGET.used >= env.__AB_DB_BUDGET.limit) throw Object.assign(new Error("supabase_subrequest_budget_before_dispatch"), {code:"supabase_subrequest_budget_before_dispatch"});
-        env.__AB_DB_BUDGET.used++;
+        const budget = env.__AB_DB_BUDGET;
+        const reserved = Math.max(0, Number(budget.reserved || 0));
+        if (budget.used >= budget.limit - reserved) throw Object.assign(new Error("supabase_subrequest_budget_before_dispatch"), {code:"supabase_subrequest_budget_before_dispatch"});
+        budget.used++;
       }
       dispatched = true;
       const res = await fetch(`${base}${path}`, { ...fetchInit, headers, signal });
