@@ -1,12 +1,13 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.101",
+  "version": "22.9.102",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=22 <23"
   },
   "scripts": {
+    "validate:ui-fixes-v229102": "node validation/validate-ui-fixes-v229102.mjs",
     "validate:skill-db-calls": "node validation/validate-skill-db-calls-v229100.mjs",
     "validate:skill-identity-defer": "node validation/validate-skill-identity-defer-v229101.mjs",
     "validate:skill-identity-enabled-gate": "node validation/validate-skill-identity-defer-v229101.mjs --enabled-gate",

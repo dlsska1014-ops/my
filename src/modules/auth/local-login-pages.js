@@ -6,7 +6,7 @@ import {
 import { POLICY_REVISION_DATE, appName, kakaoLoginButtonHtml } from "../public/site-config.js";
 import { passwordMatchFeedbackClientMain } from "../client/legacy-ui-runtime.js";
 import { safeError } from "../runtime/leases.js";
-import { htmlResponse, redirectResponse } from "../runtime/http.js";
+import { htmlResponse, redirectResponse, redirectResponseWithCookies } from "../runtime/http.js";
 import {
   PASSWORD_KDF_ITERATIONS, newPasswordSalt, pbkdf2PasswordHash, recordAuthAttempt, trafficClientIp,
 } from "./crypto-admin-session.js";
@@ -17,11 +17,12 @@ import {
 } from "./user-session.js";
 import {
   fetchStrongIdentityForUser, fetchUserIdentityLinks, findUserByLocalLoginIdentity,
-  hasBackupLoginIdentity, normalizeLocalLoginName, replaceLocalLoginForUser, verifyCredentialProof,
-  verifyPasswordReauth,
+  hasBackupLoginIdentity, hasKakaoLoginIdentity, normalizeLocalLoginName, replaceLocalLoginForUser,
+  verifyCredentialProof, verifyPasswordReauth,
 } from "./identity-reauth.js";
 import { handleMyLogout } from "./kakao-oauth.js";
 import { fetchUserById } from "../data/users-household-create.js";
+import { backupLoginKnownCookie } from "../my/setup-page.js";
 import { householdJoinFeedback } from "../my/households-lifecycle.js";
 import { renderKakaoClaimForm } from "./kakao-web-claim.js";
 import { renderUserLoginHtml } from "../web/login-page-side-nav.js";
@@ -163,9 +164,11 @@ async function handleMyLocalLogin(request, env) {
         : `/my/households?err=${encodeURIComponent("초대코드를 찾지 못했습니다. 로그인은 완료되었습니다.")}`;
     }
     const session = await makeUserSession(env, user.id);
-    return redirectResponse(location, {
-      "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
-    });
+    // V22.9.102: 로그인 이름으로 들어왔으면 내 계정 로그인 비밀번호가 있는 계정이다(가계부 기본 설정 띠의 비밀번호 항목 쿠키).
+    return redirectResponseWithCookies(location, [
+      `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
+      backupLoginKnownCookie(),
+    ]);
   } catch (err) {
     await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"subject-client",key:clientSubject});
     await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"account",key:accountKey});
@@ -258,10 +261,15 @@ async function handleMyBackupLoginPage(request, env, url) {
   const user = await fetchUserById(env, userId);
   if (!user) return handleMyLogout();
   const first = url.searchParams.get("first") === "1";
-  const hasBackup = await hasBackupLoginIdentity(env, user);
-  const identity = await fetchStrongIdentityForUser(env, "local", user.id);
+  // V22.9.102: 카카오 연결 칸은 카카오 로그인 계정이 이미 있으면 ‘연결됨’으로만 보이고, 없을 때만 본인 확인 칸을 그린다.
+  const [hasBackup, hasKakao, identity] = await Promise.all([
+    hasBackupLoginIdentity(env, user),
+    hasKakaoLoginIdentity(env, user).catch(() => false),
+    fetchStrongIdentityForUser(env, "local", user.id),
+  ]);
   const returnTo = safeUserReturnPath(url.searchParams.get("return_to") || "", first ? "/my/households" : "/my/households");
-  return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName: identity?.login_name || identity?.provider_subject || user.nickname || "", first, hasBackup, returnTo, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
+  // V22.9.102: 이 화면은 비밀번호 유무를 실제로 확인했으니 기본 설정 띠가 보는 쿠키(ab_bk=1/0)를 함께 적는다.
+  return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName: identity?.login_name || identity?.provider_subject || user.nickname || "", first, hasBackup, hasKakao, returnTo, msg: url.searchParams.get("msg") || "", err: backupLoginErrorText(url.searchParams.get("err") || "") }), 200, { "set-cookie": backupLoginKnownCookie(hasBackup) });
 }
 
 async function handleMyBackupLoginSave(request, env) {
@@ -309,18 +317,41 @@ async function handleMyBackupLoginSave(request, env) {
       "set-cookie": "ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
     });
   }
-  return redirectResponse(addQueryToUrl(returnTo, { msg: "backup_login_saved" }), {
-    "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
-  });
+  return redirectResponseWithCookies(addQueryToUrl(returnTo, { msg: "backup_login_saved" }), [
+    `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
+    backupLoginKnownCookie(),
+  ]);
 }
 
-function renderMyBackupLoginHtml({ env, user, loginName = "", first = false, hasBackup = false, returnTo = "/my/households", msg = "", err = "" }) {
+// V22.9.102: 주소의 오류 코드(account_reauth_required 등)를 그대로 보여 주지 않고 사람 말로 바꾼다. 모르는 코드는 일반 문장이다.
+function backupLoginErrorText(code = "") {
+  const known = {
+    account_reauth_required: "현재 로그인 비밀번호가 맞지 않거나 본인 확인이 아직이에요. 현재 비밀번호를 다시 입력하거나 원래 연결한 카카오 계정으로 본인 확인을 해 주세요.",
+    credential_reauth_required: "로그인 이름·비밀번호를 바꾸려면 먼저 본인 확인이 필요해요. 현재 비밀번호를 입력하거나 원래 연결한 카카오 계정으로 확인해 주세요.",
+    kakao_link_failed: "카카오 계정을 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
+  };
+  const key = String(code || "").trim();
+  if (!key) return "";
+  return known[key] || "요청을 처리하지 못했어요. 다시 시도해 주세요.";
+}
+
+function renderMyBackupLoginHtml({ env, user, loginName = "", first = false, hasBackup = false, hasKakao = false, returnTo = "/my/households", msg = "", err = "" }) {
   const title = escapeHtml(appName(env));
   const userName = escapeHtml(user?.nickname || "사용자");
+  const safeReturn = escapeHtml(safeUserReturnPath(returnTo, "/my/households"));
+  const reauthVerified = msg === "account_reauth_verified";
+  // V22.9.102(사용자 2026-11-05 “카카오 연결 전 현재 비밀번호 확인 입력란 배치 엉망”): 한 장에 흩어져 있던 칸을 ‘1 본인 확인 → 2 로그인 이름·비밀번호’
+  // 두 단계 묶음으로 바꾸고, 카카오 연결은 따로 한 칸이다 — 카카오 로그인 계정이 있으면 ‘연결됨’, 없으면 현재 비밀번호 칸(.field)과 단추, 본인 확인이 끝난
+  // 뒤(5분)에는 연결 단추만 보인다. 주소의 오류 코드는 backupLoginErrorText 가 사람 말로 바꾼다.
+  const kakaoCard = hasKakao
+    ? `<div class="ok"><b>카카오 계정이 연결되어 있어요.</b><br/>카카오 로그인으로도 이 계정에 들어올 수 있습니다.</div>`
+    : reauthVerified
+      ? `<div class="ok"><b>본인 확인이 끝났어요.</b><br/>5분 안에 아래 단추로 카카오 계정을 연결하세요.</div><p><a class="btn" href="/my/kakao-link">카카오 로그인 연결하기</a></p>`
+      : `<p class="muted">카카오 계정을 연결하면 다음부터 카카오 로그인으로 바로 들어올 수 있어요. 먼저 현재 로그인 비밀번호로 본인 확인을 합니다.</p><form method="post" action="/my/account-reauth"><div class="field"><label for="kakaoLinkPassword">현재 로그인 비밀번호</label><input id="kakaoLinkPassword" name="current_password" type="password" autocomplete="current-password" required/></div><button type="submit">본인 확인 후 카카오 연결</button></form>`;
   // V22.9.79 F-4: "현재 표시 이름" 상자(.identity)가 줄바꿈 없는 긴 영문 닉네임(글자 끝 R=492 @360px)을 상자 밖으로 흘렸다 → overflow-wrap:anywhere.
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 내 계정·보안</title><style>
-*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 52%,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:0 auto;padding:18px 18px 110px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{font-size:28px;letter-spacing:-.05em}.muted{color:#667085;line-height:1.65}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:13px;font-weight:1000;color:#475467}.field input{width:100%;height:50px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:14px;background:#111827;color:#fff!important;font-weight:1000;padding:0 16px;text-decoration:none;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:16px;padding:13px;line-height:1.6}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:16px;padding:13px;line-height:1.6}.guide{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.65}.identity{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:13px;color:#475467;line-height:1.6;overflow-wrap:anywhere}.credentialFeedback{min-height:20px;margin:-4px 0 12px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}@media(max-width:620px){.wrap{padding:12px 12px 110px}.hero,.card{padding:18px;border-radius:20px}.hero h1{font-size:24px}}
-</style></head><body><main class="wrap"><section class="hero"><span class="badge">${title}</span><h1>내 계정·보안</h1><p class="muted">이 비밀번호는 가계부마다 만드는 비밀번호가 아닙니다. 모든 가계부에 공통인 내 계정 로그인·복구 수단이며 다른 참여자와 공유하지 않습니다.</p>${hasBackup ? `<div class="ok">내 계정 로그인 비밀번호가 설정되어 있습니다. 새로 저장하면 이전 비밀번호는 사용할 수 없게 바뀝니다.</div>` : ""}${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}</section><section class="card"><div class="identity"><b>현재 표시 이름</b><br/>${userName}<br/><span class="muted">표시 이름은 내 프로필에서 별도로 변경합니다. 여기서 정하는 로그인 이름과는 다릅니다.</span></div><form method="post" action="/my/backup-login"><input type="hidden" name="return_to" value="${escapeHtml(safeUserReturnPath(returnTo, "/my/households"))}"/><div class="field"><label for="currentPassword">현재 로그인 비밀번호</label><input id="currentPassword" name="current_password" type="password" autocomplete="current-password"/></div><p><a href="/auth/kakao/start?reauth=credential-change&amp;return_to=%2Fmy%2Fbackup-login">원래 연결한 카카오 계정으로 본인 확인</a></p><div class="field"><label for="backupLoginName">로그인 이름</label><input id="backupLoginName" name="login_name" value="${escapeHtml(loginName || user?.nickname || "")}" placeholder="로그인할 때 사용할 이름" autocomplete="username" minlength="2" required/></div><div class="field"><label for="backupPassword">내 계정 로그인 비밀번호</label><input id="backupPassword" name="access_code" type="password" minlength="8" autocomplete="new-password" placeholder="8자리 이상" aria-describedby="backupPasswordStatus" required/></div><div class="field"><label for="backupPasswordConfirm">내 계정 로그인 비밀번호 확인</label><input id="backupPasswordConfirm" name="access_code_confirm" type="password" minlength="8" autocomplete="new-password" placeholder="같은 비밀번호를 한 번 더 입력" aria-describedby="backupPasswordStatus" required/></div><div id="backupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><button id="backupPasswordSubmit" type="submit">저장하고 이전 화면으로</button></form><p><a class="btn secondary" href="${escapeHtml(safeUserReturnPath(returnTo, "/my/households"))}">취소하고 이전 화면으로</a></p><form method="post" action="/my/account-reauth"><label>카카오 연결 전 현재 비밀번호 확인<input name="current_password" type="password" autocomplete="current-password" required/></label><button type="submit">본인 확인</button></form><p><a href="/my/kakao-link">카카오 로그인 연결</a></p></section><section class="guide"><b>이탈 방지 안내</b><br/>저장하면 현재 세션을 새 보안 버전으로 갱신한 뒤 지금 보던 화면으로 자동 복귀합니다.</section><section class="card"><h2>카카오 챗봇 기록 계정</h2>${renderKakaoClaimForm("", false)}</section><section class="card" aria-labelledby="logoutTitle"><h2 id="logoutTitle">로그아웃</h2><p class="muted">이 기기에서 로그인을 끝냅니다. 여러 사람이 쓰는 PC 라면 사용 뒤 꼭 로그아웃하세요.</p><form method="post" action="/my/logout"><button type="submit" class="secondary">로그아웃</button></form></section></main><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"backupPassword",confirmationId:"backupPasswordConfirm",statusId:"backupPasswordStatus",buttonId:"backupPasswordSubmit"});</script></body></html>`;
+*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 52%,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:0 auto;padding:18px 18px 110px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{font-size:28px;letter-spacing:-.05em}.muted{color:#667085;line-height:1.65}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:13px;font-weight:1000;color:#475467}.field input{width:100%;height:50px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:14px;background:#111827;color:#fff!important;font-weight:1000;padding:0 16px;text-decoration:none;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:16px;padding:13px;line-height:1.6}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:16px;padding:13px;line-height:1.6}.guide{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.65}.identity{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:13px;color:#475467;line-height:1.6;overflow-wrap:anywhere}.credentialFeedback{min-height:20px;margin:-4px 0 12px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}.step{border:1px solid #e8edf4;border-radius:18px;padding:6px 14px 14px;margin:14px 0;min-width:0}.step legend{display:flex;align-items:center;gap:8px;padding:0 6px;font-weight:1000}.stepNo{display:inline-flex;width:24px;height:24px;border-radius:50%;background:#111827;color:#fff;font-size:13px;align-items:center;justify-content:center}.step .muted{margin:8px 0 0}.step .btn{margin-top:8px}.card h2{margin:0 0 8px}@media(max-width:620px){.wrap{padding:12px 12px 110px}.hero,.card{padding:18px;border-radius:20px}.hero h1{font-size:24px}}
+</style></head><body><main class="wrap"><section class="hero"><span class="badge">${title}</span><h1>내 계정·보안</h1><p class="muted">이 비밀번호는 가계부마다 만드는 비밀번호가 아닙니다. 모든 가계부에 공통인 내 계정 로그인·복구 수단이며 다른 참여자와 공유하지 않습니다.</p>${hasBackup ? `<div class="ok">내 계정 로그인 비밀번호가 설정되어 있습니다. 새로 저장하면 이전 비밀번호는 사용할 수 없게 바뀝니다.</div>` : ""}${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}</section><section class="card"><h2>로그인 이름·비밀번호</h2><div class="identity"><b>현재 표시 이름</b><br/>${userName}<br/><span class="muted">표시 이름은 내 프로필에서 별도로 변경합니다. 여기서 정하는 로그인 이름과는 다릅니다.</span></div><form method="post" action="/my/backup-login"><input type="hidden" name="return_to" value="${safeReturn}"/><fieldset class="step"><legend><span class="stepNo">1</span>본인 확인</legend><p class="muted">${hasBackup ? "바꾸려면 현재 로그인 비밀번호를 적거나, 원래 연결한 카카오 계정으로 본인 확인을 합니다." : "처음 정할 때는 원래 연결한 카카오 계정으로 본인 확인을 합니다. 현재 비밀번호 칸은 비워 두세요."}</p><div class="field"><label for="currentPassword">현재 로그인 비밀번호</label><input id="currentPassword" name="current_password" type="password" autocomplete="current-password"/></div><a class="btn secondary" href="/auth/kakao/start?reauth=credential-change&amp;return_to=%2Fmy%2Fbackup-login">원래 연결한 카카오 계정으로 본인 확인</a></fieldset><fieldset class="step"><legend><span class="stepNo">2</span>로그인 이름·비밀번호</legend><div class="field"><label for="backupLoginName">로그인 이름</label><input id="backupLoginName" name="login_name" value="${escapeHtml(loginName || user?.nickname || "")}" placeholder="로그인할 때 사용할 이름" autocomplete="username" minlength="2" required/></div><div class="field"><label for="backupPassword">내 계정 로그인 비밀번호</label><input id="backupPassword" name="access_code" type="password" minlength="8" autocomplete="new-password" placeholder="8자리 이상" aria-describedby="backupPasswordStatus" required/></div><div class="field"><label for="backupPasswordConfirm">내 계정 로그인 비밀번호 확인</label><input id="backupPasswordConfirm" name="access_code_confirm" type="password" minlength="8" autocomplete="new-password" placeholder="같은 비밀번호를 한 번 더 입력" aria-describedby="backupPasswordStatus" required/></div><div id="backupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><button id="backupPasswordSubmit" type="submit">저장하고 이전 화면으로</button></fieldset></form><p><a class="btn secondary" href="${safeReturn}">취소하고 이전 화면으로</a></p></section><section class="card"><h2>카카오 로그인 연결</h2>${kakaoCard}</section><section class="guide"><b>이탈 방지 안내</b><br/>저장하면 현재 세션을 새 보안 버전으로 갱신한 뒤 지금 보던 화면으로 자동 복귀합니다.</section><section class="card"><h2>카카오 챗봇 기록 계정</h2>${renderKakaoClaimForm("", false)}</section><section class="card" aria-labelledby="logoutTitle"><h2 id="logoutTitle">로그아웃</h2><p class="muted">이 기기에서 로그인을 끝냅니다. 여러 사람이 쓰는 PC 라면 사용 뒤 꼭 로그아웃하세요.</p><form method="post" action="/my/logout"><button type="submit" class="secondary">로그아웃</button></form></section></main><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"backupPassword",confirmationId:"backupPasswordConfirm",statusId:"backupPasswordStatus",buttonId:"backupPasswordSubmit"});</script></body></html>`;
 }
 
 function renderKakaoLoginCheckHtml(env, url) {

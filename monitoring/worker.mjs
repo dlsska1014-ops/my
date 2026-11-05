@@ -129,19 +129,47 @@ async function collectD1(env,now) {
   return {rows_read:rowsRead,rows_written:rowsWritten,storage_bytes:storagePending?null:sizes.reduce((a,b)=>a+b,0),day:now.toISOString().slice(0,10),scope:"account",storage_measure:"sum_of_daily_database_maxima",sampled:true,...(usagePending?{usage_pending:true}:{}),...(storagePending?{storage_pending:true}:{})};
 }
 
+// 1.7.0(V22.9.102, Codex 검토 2026-11-05: Supabase API 요청의 대부분이 5분마다 도는 /ready 였다 — 앱 /ready 는 표 13개·RPC 18개를 매번 묻는다):
+// /ready 는 30분에 한 번만 묻고 그 사이 실행은 마지막 정상 답을 그대로 적는다(reused:true, probed_at 은 실제로 물은 시각). 실패한 답은 재사용하지 않고,
+// 마지막 실패(ready_failed_at)에서 1시간이 지나기 전까지는 예전처럼 5분마다 묻는다 — 깜빡임 판정(G-3)과 해소 판정(정상 3번 연속)이 실제로 물은 답으로만
+// 서게 하려고. /health 는 예전처럼 5분마다 묻는다. 조용한 동안 생긴 /ready 실패는 다음 30분 확인에서 보인다(최대 30분 늦게).
+const READY_REUSE_MS=27.5*60000;
+const READY_PROBE_AFTER_FAILURE_MS=60*60000;
+async function previousReadyState(env,now) {
+  const none={check:null,failedAt:null};
+  try {
+    const row=await env.MONITOR_DB.prepare("SELECT payload FROM collector_state WHERE name='uptime' AND status='ok'").first();
+    if(!row?.payload) return none;
+    const payload=JSON.parse(row.payload)||{};
+    const failedAt=typeof payload.ready_failed_at==="string"&&Number.isFinite(Date.parse(payload.ready_failed_at))?payload.ready_failed_at:null;
+    const check=(payload.checks||[]).find(c=>c&&c.path==="/ready");
+    if(!check||check.ok!==true||typeof check.probed_at!=="string") return {check:null,failedAt};
+    const age=now.getTime()-Date.parse(check.probed_at);
+    if(!(age>=0&&age<READY_REUSE_MS)) return {check:null,failedAt};
+    if(failedAt&&!(now.getTime()-Date.parse(failedAt)>=READY_PROBE_AFTER_FAILURE_MS)) return {check:null,failedAt};
+    return {check:{...check,reused:true},failedAt};
+  } catch(_) { return none; }
+}
+
 export async function collectUptime(env,now) {
   const origin=new URL(env.APP_ORIGIN);
   if(origin.protocol!=="https:") throw new Error("invalid_origin");
-  const checks=await Promise.all(["/health","/ready"].map(async path=>{
+  const previous=env.MONITOR_DB?await previousReadyState(env,now):{check:null,failedAt:null};
+  const reused=previous.check;
+  const probedAt=now.toISOString();
+  const checks=await Promise.all((reused?["/health"]:["/health","/ready"]).map(async path=>{
     const start=Date.now();
     try {
       const response=await fetch(origin.origin+path,{signal:AbortSignal.timeout(7000),redirect:"manual"});
-      if(!response.ok) return {path,status:response.status,duration_ms:Date.now()-start,ok:false,error_code:`http_${response.status}`};
+      if(!response.ok) return {path,status:response.status,duration_ms:Date.now()-start,ok:false,error_code:`http_${response.status}`,probed_at:probedAt};
       const body=JSON.parse(await readBounded(response,32768));
-      return {path,status:response.status,duration_ms:Date.now()-start,ok:response.ok&&(path==="/ready"?body.ready===true:body.alive===true),version:typeof body.version==="string"?body.version.slice(0,60):null};
-    } catch(error) {return {path,status:null,duration_ms:Date.now()-start,ok:false,error_code:failureCode(error)};}
+      return {path,status:response.status,duration_ms:Date.now()-start,ok:response.ok&&(path==="/ready"?body.ready===true:body.alive===true),version:typeof body.version==="string"?body.version.slice(0,60):null,probed_at:probedAt};
+    } catch(error) {return {path,status:null,duration_ms:Date.now()-start,ok:false,error_code:failureCode(error),probed_at:probedAt};}
   }));
-  return { checks, checked_at:now.toISOString(), same_provider:true };
+  if(reused) checks.push(reused);
+  const ready=checks.find(c=>c.path==="/ready");
+  const readyFailedAt=ready&&ready.ok!==true&&!ready.reused?probedAt:previous.failedAt;
+  return { checks, checked_at:now.toISOString(), same_provider:true, ready_reused:!!reused, ready_failed_at:readyFailedAt };
 }
 
 // 1.3.0(V79:T-43): DB 수집 요청에 왕복 확인 id 를 x-ab-monitor-roundtrip 머리로 싣는다. V22.9.81 앱은 그 id 로 사용자 요청 표본과 같은

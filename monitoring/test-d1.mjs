@@ -34,7 +34,7 @@ const eq=(value,expected,message)=>{assert.deepEqual(value,expected,message);che
 const now=new Date();
 const env={MONITOR_DB:db,OPS_MONITOR_TOKEN:"sqlite-test-secret",CF_ANALYTICS_TOKEN:"only-a-test",CF_ACCOUNT_ID:"test-account",APP_WORKER_NAME:"test-app",APP_ORIGIN:"https://app.example",SUPABASE_ORG_ID:"test-org",CF_PLAN:"free",SUPABASE_PLAN:"free",PLAN_VERIFIED_AT:now.toISOString(),ACCOUNTBOOK:{async fetch(){return new Response(JSON.stringify({ok:true,metrics:{database_bytes:30*1024**2,connections:5,max_connections:60,cpu_counter:{total:100,idle:80}}}));}}};
 const originalFetch=globalThis.fetch;
-let graphFails=false, uptimeFails=false, webhookFails=false, tokenExpiresInDays=null, appErrors=0, d1Reply=null;
+let graphFails=false, uptimeFails=false, webhookFails=false, tokenExpiresInDays=null, appErrors=0, d1Reply=null, readyProbes=0;
 const hooks=[];
 globalThis.fetch=async(input,init)=>{
   const url=new URL(typeof input==="string"?input:input.url);
@@ -45,6 +45,7 @@ globalThis.fetch=async(input,init)=>{
     if(graphFails)return new Response('{"errors":[{"message":"test failure"}]}');
     return new Response(JSON.stringify({data:{viewer:{accounts:[{today:[{sum:{requests:20000,errors:0,subrequests:20},dimensions:{status:"success"}}],hour:[{sum:{requests:100,errors:0,subrequests:1}}],app:[{sum:{requests:19000,errors:appErrors,subrequests:19}}]}]}}}));
   }
+  if(url.pathname==="/ready") readyProbes++;
   return new Response(JSON.stringify(url.pathname==="/ready"?{ready:!uptimeFails}:{alive:true,version:"fixture"}));
 };
 const req=(path,init={})=>new Request("https://monitor.example"+path,{...init,headers:{authorization:"Bearer sqlite-test-secret","content-type":"application/json",...init.headers}});
@@ -457,9 +458,47 @@ try {
     want(badSupport.length===0,`V22.9.97 후원: 모양이 틀린 support 칸은 그 칸만 버리고 이용 현황은 정상으로 받는다: ${badSupport.join(" | ")}`);
     usageExtra={};
     const health=await (await worker.fetch(new Request("https://monitor.example/health"),r4Env,{})).json();
-    want(health.version==="1.6.0",`관제 판은 1.6.0 이다(V22.9.97 후원 줄): ${health.version}`);
+    want(health.version==="1.7.0",`관제 판은 1.7.0 이다(V22.9.102 /ready 30분 간격): ${health.version}`);
     r4.store.close();
-    assert.equal(misses.length,0,`V22.9.94·V22.9.97 관제(C-6·R-4·후원 줄) 검사 실패 ${misses.length}건:\n- ${misses.join("\n- ")}`);
+    // ── 1.7.0(V22.9.102): /ready 는 30분에 한 번만 묻고 그 사이는 마지막 정상 답을 재사용한다 ─────────────────
+    {
+      const r5=freshDb();
+      const r5Env={...env,MONITOR_DB:r5.db};
+      const t0=new Date(now.getTime()+40*3600000); t0.setUTCMinutes(10,0,0);
+      const at=i=>new Date(t0.getTime()+i*300000);
+      const stored=()=>JSON.parse(r5.store.prepare("SELECT payload FROM collector_state WHERE name='uptime'").get().payload);
+      const readyRow=()=>stored().checks.find(c=>c.path==="/ready");
+      readyProbes=0; uptimeFails=false;
+      await collect(r5Env,at(0));
+      want(readyProbes===1&&readyRow()?.ok===true&&!readyRow()?.reused&&readyRow()?.probed_at===at(0).toISOString(),"1.7.0 첫 실행은 /ready 를 실제로 묻고 물은 시각을 적는다");
+      for(let i=1;i<=5;i++) await collect(r5Env,at(i));
+      want(readyProbes===1,`1.7.0 그 뒤 5분 실행 다섯 번은 /ready 를 다시 묻지 않는다(물은 횟수 ${readyProbes})`);
+      want(readyRow()?.reused===true&&readyRow()?.ok===true&&readyRow()?.probed_at===at(0).toISOString()&&stored().ready_reused===true,"1.7.0 재사용한 /ready 줄은 reused 표시와 처음 물은 시각을 그대로 갖는다");
+      want(stored().checks.filter(c=>c.path==="/health").every(c=>!c.reused&&c.probed_at===at(5).toISOString()),"1.7.0 /health 는 매번 새로 묻는다");
+      await collect(r5Env,at(6));
+      want(readyProbes===2&&readyRow()?.reused!==true&&readyRow()?.probed_at===at(6).toISOString(),"1.7.0 30분이 지난 실행은 /ready 를 다시 묻는다");
+      uptimeFails=true;
+      await collect(r5Env,at(7));
+      want(readyProbes===2&&readyRow()?.ok===true&&readyRow()?.reused===true,"1.7.0 그 사이 생긴 /ready 실패는 다음 30분 확인까지 보이지 않는다(정상 답 재사용)");
+      await collect(r5Env,at(12));
+      want(readyProbes===3&&readyRow()?.ok===false&&readyRow()?.reused!==true,"1.7.0 30분 확인에서 /ready 실패를 본다");
+      await collect(r5Env,at(13));
+      want(readyProbes===4&&readyRow()?.ok===false,"1.7.0 실패한 /ready 답은 재사용하지 않고 5분 뒤 다시 묻는다");
+      uptimeFails=false;
+      await collect(r5Env,at(14));
+      want(readyProbes===5&&readyRow()?.ok===true&&readyRow()?.reused!==true,"1.7.0 실패 뒤 첫 정상은 실제로 물은 답이다");
+      await collect(r5Env,at(15));
+      await collect(r5Env,at(16));
+      want(readyProbes===7&&readyRow()?.reused!==true&&stored().ready_failed_at===at(13).toISOString(),"1.7.0 마지막 실패 뒤 1시간은 정상 답이 5분밖에 안 됐어도 5분마다 다시 묻는다(깜빡임·해소 판정은 실제로 물은 답으로만)");
+      await collect(r5Env,at(24));
+      want(readyProbes===8&&readyRow()?.reused!==true,"1.7.0 실패 55분 뒤도 아직 묻는다");
+      await collect(r5Env,at(25));
+      want(readyProbes===8&&readyRow()?.ok===true&&readyRow()?.reused===true&&readyRow()?.probed_at===at(24).toISOString()&&stored().ready_failed_at===at(13).toISOString(),"1.7.0 실패 1시간 뒤부터 다시 재사용한다(마지막 실패 시각은 그대로 남는다)");
+      const dash=renderDash(await summary(r5Env,at(25).getTime()));
+      want(/\/ready · 정상 · [0-9,]+ ms · 30분마다 확인\(마지막 /.test(dash),"1.7.0 화면의 접속 검사 줄에 ‘30분마다 확인(마지막 …)’ 이 붙는다");
+      r5.store.close();
+    }
+    assert.equal(misses.length,0,`V22.9.94·V22.9.97·V22.9.102 관제(C-6·R-4·후원 줄·/ready 30분) 검사 실패 ${misses.length}건:\n- ${misses.join("\n- ")}`);
   }
   console.log(`PASS: monitor D1 integration (${checks} checks)`);
 } finally {globalThis.fetch=originalFetch;globalThis.Date=RealDate;sqlite.close();}

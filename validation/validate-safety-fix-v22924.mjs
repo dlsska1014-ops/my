@@ -139,7 +139,7 @@ try {
   ok((await response.text()).includes(`action="${monitorOrigin}/session"`), "SSO form uses the permitted origin");
   ok(policy.includes("frame-ancestors 'none'") && policy.includes("object-src 'none'"), "SSO retains the other security restrictions");
   const login = await app.fetch(new Request("https://malhaebook.com/my"), fixture.env, {});
-  ok(login.headers.get("content-security-policy").includes("form-action 'self';"), "ordinary pages keep self-only form actions");
+  ok(login.headers.get("content-security-policy").includes("form-action 'self' https://kauth.kakao.com https://accounts.kakao.com;"), "ordinary pages allow form actions only to self and the Kakao login hosts (V22.9.102 J-13)");
   for (const origin of ["http://fixture-monitor.workers.dev", "https://monitor.example", "https://workers.dev.attacker.example"]) {
     fixture.env.OPS_MONITOR_PUBLIC_ORIGIN = origin;
     eq((await open()).status, 503, "invalid monitor origin is rejected");

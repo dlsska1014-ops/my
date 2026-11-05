@@ -57,6 +57,7 @@ auth/kakao-oauth.js
 data/users-household-create.js
 import/csv-duplicates.js
 my/members-page.js
+my/setup-page.js
 my/supporters.js
 my/card-import-guide.js
 client/lucian-d-import.js

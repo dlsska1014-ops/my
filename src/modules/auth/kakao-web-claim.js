@@ -129,12 +129,14 @@ async function issueKakaoWebClaim(env, userId = "") {
 
 async function kakaoPrivateWebLinkReply(request, env, payload, kakaoUserKey, nickname, origin) {
   const generic = linkText(origin);
-  if (getKakaoBotGroupKey(payload) || !trustedChatFirstSkillCaller(request, env) || !hasChatFirstKakaoIdentity(payload, kakaoUserKey)) return generic;
+  // V22.9.102 J-12: 단톡방에서는 코드를 주지 않는다(방에 노출). 대신 코드를 받는 곳(1:1 채팅)을 한 줄 알린다.
+  if (getKakaoBotGroupKey(payload)) return `${generic}\n단톡방에서 기록한 같은 계정으로 웹을 이어 열려면 말해가계부 1:1 채팅에서 ‘웹 가계부 열기’ 를 보내 웹 연결 코드를 받으세요.`;
+  if (!trustedChatFirstSkillCaller(request, env) || !hasChatFirstKakaoIdentity(payload, kakaoUserKey)) return generic;
   try {
     const user = await ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { create: false });
     if (!user?.id) return generic;
     const code = await issueKakaoWebClaim(env, user.id);
-    return `${generic}\n\n카카오에 기록한 같은 계정으로 웹을 이어 열려면 아래 ‘웹 연결 코드’를 붙여 넣어 주세요.\n${code}\n10분 동안 1회만 사용할 수 있어요. 새 코드를 받으면 이전 코드는 만료됩니다.\n이 코드는 내 계정 접근용이므로 다른 사람이나 단톡방에 공유하지 마세요.\n웹에서 이름·예산을 마무리하고 ‘내 계정·보안’에서 이후 로그인 방법을 연결할 수 있어요.`;
+    return `${generic}\n\n카카오에 기록한 같은 계정으로 웹을 이어 열려면 아래 ‘웹 연결 코드’(8자 네 묶음, 32자)를 네 묶음 모두 복사해 붙여 넣어 주세요.\n${code}\n받은 뒤 10분 안에 1회만 사용할 수 있어요. 새 코드를 받으면 이전 코드는 만료됩니다.\n이 코드는 내 계정 접근용이므로 다른 사람이나 단톡방에 공유하지 마세요.\n웹에서 이름·예산을 마무리하고 ‘내 계정·보안’에서 이후 로그인 방법을 연결할 수 있어요.`;
   } catch (err) {
     rememberOpsEvent({ kind: "kakao_web_claim_issue_failed", severity: "error", path: "/skill", method: "POST", detail: safeError(err) });
     return `${generic}\n\n같은 카카오 기록을 여는 웹 연결 코드를 지금 준비하지 못했어요. 1:1 채팅에서 잠시 후 다시 ‘웹 가계부 열기’를 보내 주세요.`;
@@ -145,7 +147,10 @@ async function handleMyKakaoClaim(request, env) {
   const form = await request.formData();
   const returnTo = safeUserReturnPath(String(form.get("return_to") || ""), "");
   const fail = (message, status = 401, headers = {}) => htmlResponse(renderUserLoginHtml(env, message, returnTo, "kakao_claim"), status, headers);
-  const code = normalizeKakaoWebClaimCode(form.get("kakao_claim_code"));
+  const rawCode = String(form.get("kakao_claim_code") || "").trim();
+  const code = normalizeKakaoWebClaimCode(rawCode);
+  // V22.9.102 J-12: 네 묶음 가운데 한 묶음(8자)만 넣은 경우가 실제로 있었다. 빈 칸과 꼴이 다른 입력을 나눠 안내한다.
+  if (!code && rawCode) return fail("웹 연결 코드는 8자 네 묶음(32자)이에요. 1:1 채팅 메시지의 코드 네 묶음을 모두 붙여 넣어 주세요(받은 뒤 10분 안에 1회).", 400);
   if (!code) return fail("카카오 1:1 채팅에서 받은 웹 연결 코드를 그대로 붙여 넣어 주세요.", 400);
   const hash = await sha256Hex(`kakao-web-claim:v1:${code}`);
   // V22.9.37 감사 H12: IP 단위(20회)와 IP+UA 단위로만 세어 같은 IP 뒤의 사용자(회사·학교 망)가 모두 막혔다.
@@ -198,7 +203,7 @@ async function handleMyKakaoClaim(request, env) {
 }
 
 function renderKakaoClaimForm(backField = "", open = false) {
-  return `<details class="loginOptional" id="kakao-claim-start"${open ? " open" : ""}><summary style="min-height:44px;display:flex;align-items:center">카카오에서 기록한 가계부 이어 열기</summary><p class="muted">카카오 1:1 채팅에서 ‘웹 가계부 열기’를 보내고 받은 웹 연결 코드를 붙여 넣으세요. 초대코드와는 다르며, 같은 기록 계정으로 접속합니다. 현재 웹 계정이 있다면 이 카카오 기록 계정으로 전환하며 계정을 합치지는 않습니다.</p><form method="post" action="/my/kakao-claim">${backField}<div class="field"><label for="kakaoClaimCode">웹 연결 코드</label><input id="kakaoClaimCode" name="kakao_claim_code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="64" enterkeyhint="go" placeholder="1:1 채팅에서 받은 코드 붙여 넣기" required/></div><button type="submit" class="secondary">카카오 기록 이어 열기</button></form><p class="hint">10분 동안 1회 사용합니다. 다른 사람에게 공유하지 마세요. 접속 후 내 계정·보안에서 이후 로그인 방법을 설정할 수 있습니다.</p></details>`;
+  return `<details class="loginOptional" id="kakao-claim-start"${open ? " open" : ""}><summary style="min-height:44px;display:flex;align-items:center">카카오에서 기록한 가계부 이어 열기</summary><p class="muted">카카오 1:1 채팅에서 ‘웹 가계부 열기’를 보내고 받은 웹 연결 코드(8자 네 묶음, 32자)를 네 묶음 모두 붙여 넣으세요. 받은 뒤 10분 안에 1회만 쓸 수 있어요. 초대코드와는 다르며, 같은 기록 계정으로 접속합니다. 현재 웹 계정이 있다면 이 카카오 기록 계정으로 전환하며 계정을 합치지는 않습니다.</p><form method="post" action="/my/kakao-claim">${backField}<div class="field"><label for="kakaoClaimCode">웹 연결 코드</label><input id="kakaoClaimCode" name="kakao_claim_code" autocomplete="one-time-code" autocapitalize="characters" spellcheck="false" maxlength="64" enterkeyhint="go" placeholder="1:1 채팅에서 받은 코드 붙여 넣기" required/></div><button type="submit" class="secondary">카카오 기록 이어 열기</button></form><p class="hint">10분 동안 1회 사용합니다. 다른 사람에게 공유하지 마세요. 접속 후 내 계정·보안에서 이후 로그인 방법을 설정할 수 있습니다.</p></details>`;
 }
 
 function loginEntryAnchorClientMain() {

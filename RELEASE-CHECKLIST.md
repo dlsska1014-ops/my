@@ -1,3 +1,13 @@
+## V22.9.102 UI 수정 검사
+
+- `npm run validate:ui-fixes-v229102`(174개, J-13 9절 15개 포함): 필터 낱말·금액·이름 10장면, 보안 화면 단계·카카오 칸 세 갈래·오류 말, 기본 설정 판정(자동 이름 8꼴·별칭·자리 표시)·띠(홈 읽기 0회·쿠키 세 상태·화면 7곳·공지 띠 아래)·/my/setup·이름/내 이름 저장·권한·로그아웃 쿠키, 초대코드 표기, 단톡방 목록, 정기 지출자 규칙, 관제 1.7.0 재사용 8장면.
+- J-13: validate-ui-fixes-v229102 9절(CSP form-action 두 호스트·로그인 화면 인라인 스크립트의 location.assign)·validate-safety-fix-v22924(일반 화면 form-action = self + 두 호스트, SSO 화면 = self + 관제 origin)·validate-ads-gate-v22940(CSP 정본 두 종). 실제 브라우저 증거는 이 PC 의 headless Chrome(운영 V99 재현 실패 → 고친 번들 로컬 서버 통과) `review-artifacts/v102-ui-fixes-2026-11-05/claude-checks.md` J-13 절.
+- `node monitoring/test-d1.mjs` 160개(1.7.0 /ready 장면 12개 추가), 관제 검사 5개의 판 핀 1.7.0.
+- `validate-refund-links-v22980` 골든 6개 재채취(home·homeTrend·homePrev = 필터 머리·검색 칸·빠른 검색 칸, analysis·backupFull·backupMonth = 판 이름). 화면 원문 대조 `review-artifacts/v102-ui-fixes-2026-11-05/refund-compare.txt`(세 화면 모두 뺀 조각 6·더한 조각 5, 전부 필터 블록).
+- 홈 35 KiB 예산 검사 10개는 띠 없는 홈(픽스처 기본 = 비밀번호 모름)으로 그대로 통과한다. 띠 크기는 새 검사가 본다(한 항목 < 1 KiB).
+- 전체 하네스 두 모드 62,667/62,664(하한 62,664; V101 머리 7273ad0 를 합친 트리, 합치기 전 V102 단독 62,335/62,332), manifest `BUNDLE_FILE_CHECKSUMS_V22_9_102.sha256`(778, V101 manifest 위에 V102 추가 파일), 번들 9,678,029 B·sha256 f28af78e8275….
+- 사람 확인(운영 반영 뒤): 휴대폰에서 띠 → /my/setup → 이름·내 이름 저장 → 내 계정·보안에서 비밀번호 저장 → 띠 사라짐; 필터 ‘카페 라떼’·금액·이름; 단톡방 연결 목록의 이름; 관제 화면 ‘30분마다 확인’ 줄. Chrome 에서 /my 의 ‘카카오 로그인’ 이 카카오 화면으로 넘어가는지(J-13).
+
 ## V22.9.101 B-0 별칭 후처리 검사
 
 - 신규 검사 289개는 R-1~R-4, 최초 실패·예산 생략·캐시 초기화 후 재시도, B-7 동기 실패와 app 없는 다음 기록, 꺼짐 충돌·플래그 전환·제안 실패, 소유권 변경·동시 주장·발견 중 요청 겹침을 확인한다.

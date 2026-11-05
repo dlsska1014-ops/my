@@ -1,3 +1,11 @@
+## V22.9.102 배포 판단
+
+- V22.9.102-UI-FIXES 는 앱과 관제 1.7.0 두 Worker 를 바꾼다(V101 B-0 포함, 번들 9,678,029 B·f28af78e8275…). SQL·Secret·환경변수·바인딩 33개·cron·Kakao Developers·OpenBuilder·1년 캐시 자산 주소는 바꾸지 않는다(새 화면 /my/setup 과 띠 스타일은 인라인). 새 경로 GET /my/setup, POST /my/setup/name, POST /my/setup/me.
+- J-13(P1): 운영 V99 는 Chromium 에서 카카오 로그인이 멈추므로 V102 앱 배포를 서두른다. 고침은 CSP 응답 머리(form-action 에 kauth.kakao.com·accounts.kakao.com)와 로그인 화면 인라인 스크립트뿐이라 바인딩·변수·자산 주소는 그대로다.
+- 병합·배포는 사용자 지목 뒤. 순서는 #128 → #129(base 를 main 으로 바꿔 병합, merge-tree = 머리 트리) → #130. #130 은 V101 머리 7273ad0 를 합쳐 두었으므로(merge commit) #129 병합 뒤 base 를 main 으로 바꾸면 그대로 들어간다. #127(V99 기록, 문서만)은 먼저 넣으면 #128 과 AGENTS.md·docs/STATUS.md 가 충돌해 Codex 리베이스 뒤에 넣는다. 앱 배포 대조(바인딩 33·금지 변수 열하나·번들 바이트·SHA-256)는 병합 뒤 main 트리에서 다시 잰다. 되돌리기 대상은 그때 활성인 version(지금은 V99 a0a169e7… #330).
+- 관제 1.7.0 은 앞 판과 같은 길로 앱과 별도로 배포한다. 되돌리기 대상 1.6.0 ce046034…. 1.6.0 으로 내리면 다시 5분마다 /ready 를 묻는다(저장된 probed_at·ready_failed_at 은 무시된다).
+- 배포 직후 확인: /health 판 이름, 로그인 뒤 /my/setup 200, 비밀번호 없는 계정의 홈 띠, 필터 ‘카페 라떼’·금액, 관제 /health 1.7.0 과 30분 뒤 화면의 ‘30분마다 확인’ 줄, 하루 뒤 Supabase API 요청 수 감소. Chrome 에서 /my 동의 → ‘카카오 로그인’ → kauth.kakao.com(또는 accounts.kakao.com) 화면으로 넘어감(J-13), 응답 머리 content-security-policy 의 form-action 에 두 호스트.
+
 ## V22.9.101 B-0 배포 판단
 
 - B-0은 K-1 PR #128의 `0fa07a0` 위에 별도 PR로 제출하고 CI4/4까지 확인한다. 결정 2의 최초 저장 실패 복구와 발견 주인 동기 예외를 구현했다. 운영은 V99이며 이번 작업에 병합·승격은 포함하지 않는다.

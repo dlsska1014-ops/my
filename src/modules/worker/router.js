@@ -118,6 +118,9 @@ import {
   kakaoAccountLinkAuthorizeResponse,
 } from "../auth/kakao-oauth.js";
 import { handleMyMemberPolicySave, handleMyMembersPage } from "../my/members-page.js";
+import {
+  handleMySetupMeSave, handleMySetupNameSave, handleMySetupPage, setupBandResponse,
+} from "../my/setup-page.js";
 import { handleMyBackupCsv, handleMyBackupPage, handleMyImport } from "../my/backup-import.js";
 import {
   AUDIT_RETENTION_CALLS_V22995, SCHEDULED_RUN_LOG_CALLS, cleanupTransactionAuditRetentionV22995,
@@ -288,7 +291,8 @@ const ACCOUNTBOOK_WORKER = {
     const routed = rememberedHouseholdRequest(request);
     try {
       // V22.9.95 공지 띠: NOTICE_TEXT 가 있을 때만 HTML 을 다시 쓴다(없으면 응답 그대로). html-postprocess.js attachNoticeBand 참고.
-      const response = await noticeBandResponse(routed.request, env, await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx));
+      // V22.9.102 가계부 기본 설정 띠: 홈이 적은 쿠키(ab_setup)만 보고 주요 화면에 붙인다(DB 읽기 없음). my/setup-page.js 참고.
+      const response = await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx)));
       abMonitorCompleted(requestEnv, ctx, response);
       return withRememberedHouseholdCookie(routed, response);
     } catch (error) {
@@ -415,6 +419,16 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/my/households" && request.method === "GET") {
         return safeHtmlRoute(request, url, async () => handleMyHouseholdsPage(request, env, url), "가계부 전환·생성·참여");
+      }
+      // V22.9.102: 자동으로 만들어진 가계부의 기본 설정(가계부 이름·내 이름·로그인 비밀번호) 안내와 저장.
+      if (url.pathname === "/my/setup" && request.method === "GET") {
+        return safeHtmlRoute(request, url, async () => handleMySetupPage(request, env, url), "가계부 기본 설정");
+      }
+      if (url.pathname === "/my/setup/name" && request.method === "POST") {
+        return await handleMySetupNameSave(request, env);
+      }
+      if (url.pathname === "/my/setup/me" && request.method === "POST") {
+        return await handleMySetupMeSave(request, env);
       }
 
       if (url.pathname === "/my/local-login" && request.method === "POST") {
