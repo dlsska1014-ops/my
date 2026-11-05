@@ -881,6 +881,9 @@ const KAKAO_LOGIN_PROGRESS_TIPS = [
 // V22.9.95 R-9: 카카오 로그인 단추가 동의 칸이 있는 GET 폼(form.kakaoStart)의 제출 단추가 됐다. 대기 화면은 링크 클릭 대신 폼 제출(submit)에 띄운다.
 // submit 은 브라우저 검사(동의 칸 required)를 통과해야 오므로 동의 칸을 비운 채 누르면 덮지 않는다. 보조키·가운데 단추로 누른 제출(새 창)은
 // 덮지 않는다(V22.9.26 링크 때와 같은 뜻). window.stop 이 없는 브라우저는 그냥 숨긴다. 뒤로 가기로 돌아오면(pageshow persisted) 대기 화면을 거둔다.
+// V22.9.102 J-13: 폼 제출은 Chromium 의 CSP form-action 검사를 리다이렉트(/auth/kakao/start → kauth.kakao.com)에도 받아 ‘로그인 중입니다’ 에서 멈췄다
+// (운영 재현 2026-11-05). 스크립트가 있으면 submit 을 막고 같은 주소(폼 action + 칸 값)로 location.assign 으로 이동한다(스크립트 이동은 form-action 검사가
+// 없다). URLSearchParams·FormData 가 없거나 action 이 다르면 그대로 폼 제출로 두고, 그 길은 CSP 의 kauth·accounts 허용(config-readiness.js)이 받친다.
 // toString 으로 화면에 들어가므로 설명은 함수 밖에 둔다.
 function kakaoLoginProgressClientMain(config) {
   var form = document.querySelector('form.kakaoStart[action="/auth/kakao/start"]');
@@ -895,6 +898,14 @@ function kakaoLoginProgressClientMain(config) {
   var slowTimer = 0;
   var index = 0;
   var modified = false;
+
+  function startUrl() {
+    try {
+      if (!window.URLSearchParams || !window.FormData || form.getAttribute("action") !== "/auth/kakao/start") return "";
+      var query = new URLSearchParams(new FormData(form)).toString();
+      return "/auth/kakao/start" + (query ? "?" + query : "");
+    } catch (err) { return ""; }
+  }
 
   function showTip() {
     tipEl.textContent = tips[index % tips.length] || "";
@@ -927,6 +938,8 @@ function kakaoLoginProgressClientMain(config) {
     tipTimer = setInterval(showTip, 3600);
     clearTimeout(slowTimer);
     slowTimer = setTimeout(function () { if (slowEl) slowEl.hidden = false; }, 9000);
+    var target = startUrl();
+    if (target && event) { event.preventDefault(); window.location.assign(target); }
   });
 
   if (cancel) {

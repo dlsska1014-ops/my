@@ -112,7 +112,10 @@ const HTML_HEADERS = {
   "x-frame-options": "DENY",
   "strict-transport-security": "max-age=31536000; includeSubDomains",
   "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=()",
-  "content-security-policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'unsafe-inline' https://cdn.sheetjs.com https://cdn.jsdelivr.net https://developers.kakao.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com https://kauth.kakao.com https://kapi.kakao.com; worker-src 'self' blob: https://cdn.jsdelivr.net",
+  // V22.9.102 J-13: 카카오 로그인은 GET 폼(/auth/kakao/start) → 303 kauth.kakao.com → 302 accounts.kakao.com 이다. Chromium 은 폼 제출의 리다이렉트에도
+  // form-action 을 적용하므로 'self' 만 있으면 ‘로그인 중입니다’ 에서 멈춘다(V22.9.95 R-9 뒤 운영 재현, 2026-11-05). 그 두 호스트만 더 허용한다.
+  // 관제 SSO 화면은 ops-monitor.js 가 이 지시문을 self + 관제 origin 으로 통째로 바꾼다.
+  "content-security-policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https://kauth.kakao.com https://accounts.kakao.com; script-src 'self' 'unsafe-inline' https://cdn.sheetjs.com https://cdn.jsdelivr.net https://developers.kakao.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com https://kauth.kakao.com https://kapi.kakao.com; worker-src 'self' blob: https://cdn.jsdelivr.net",
 };
 
 const CORS_HEADERS = {

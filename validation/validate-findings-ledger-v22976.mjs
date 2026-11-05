@@ -12,7 +12,7 @@ const ok = (condition, message) => { checks += 1; if (!condition) failures.push(
 
 // 출처 문서마다 항목 ID 를 뽑는 규칙. 새 감사 문서를 쓰면 여기에 한 줄을 더한다.
 const SOURCES = [
-  { key: "V102", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_102.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(J-[0-9]+)(?=[ *]|$)/gm, expected: 12 },
+  { key: "V102", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_102.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(J-[0-9]+)(?=[ *]|$)/gm, expected: 13 },
   { key: "V100", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_100.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(K-[0-9]+)(?=[ *]|$)/gm, expected: 1 },
   { key: "V99", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_99.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(I-[0-9]+)(?=[ *]|$)/gm, expected: 5 },
   { key: "V44", path: "docs/codex/AUDIT_FINDINGS_V22_9_44.md", pattern: /^(###|[ ]*-) +(?:[*][*])?([A-G]-[0-9]+)(?=[ *]|$)/gm, expected: 105 },

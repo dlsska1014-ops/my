@@ -272,7 +272,7 @@ async function handleComprehensiveMonitor(request, env, url) {
     const origin = new URL(env.OPS_MONITOR_PUBLIC_ORIGIN || "");
     if (origin.protocol !== "https:" || !origin.hostname.endsWith(".workers.dev") || !/^[a-f0-9-]{36}$/.test(result.ticket || "")) return jsonResponse({ ok: false, error: "monitor_origin_required" }, 503);
     return htmlResponse(`<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>별도 관제 열기</title><body><p>관리자 인증을 확인했습니다. 별도 관제를 열고 있습니다.</p><form method="post" action="${escapeHtml(origin.origin)}/session" id="monitorLogin"><input type="hidden" name="ticket" value="${escapeHtml(result.ticket)}"><button type="submit">관제 열기</button></form><script>document.getElementById('monitorLogin').submit()</script></body></html>`, 200, {
-      "content-security-policy": HTML_HEADERS["content-security-policy"].replace("form-action 'self'", `form-action 'self' ${origin.origin}`),
+      "content-security-policy": HTML_HEADERS["content-security-policy"].replace(/form-action [^;]*/, `form-action 'self' ${origin.origin}`), // V22.9.102 J-13: SSO 화면은 카카오 호스트 없이 self + 관제 origin 만
     });
   } catch (_) { return jsonResponse({ ok: false, error: "monitor_unavailable" }, 503); }
 }

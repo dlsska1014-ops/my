@@ -1429,7 +1429,10 @@ const HTML_HEADERS = {
   "x-frame-options": "DENY",
   "strict-transport-security": "max-age=31536000; includeSubDomains",
   "permissions-policy": "camera=(self), microphone=(), geolocation=(), payment=()",
-  "content-security-policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; script-src 'self' 'unsafe-inline' https://cdn.sheetjs.com https://cdn.jsdelivr.net https://developers.kakao.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com https://kauth.kakao.com https://kapi.kakao.com; worker-src 'self' blob: https://cdn.jsdelivr.net",
+  // V22.9.102 J-13: 카카오 로그인은 GET 폼(/auth/kakao/start) → 303 kauth.kakao.com → 302 accounts.kakao.com 이다. Chromium 은 폼 제출의 리다이렉트에도
+  // form-action 을 적용하므로 'self' 만 있으면 ‘로그인 중입니다’ 에서 멈춘다(V22.9.95 R-9 뒤 운영 재현, 2026-11-05). 그 두 호스트만 더 허용한다.
+  // 관제 SSO 화면은 ops-monitor.js 가 이 지시문을 self + 관제 origin 으로 통째로 바꾼다.
+  "content-security-policy": "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https://kauth.kakao.com https://accounts.kakao.com; script-src 'self' 'unsafe-inline' https://cdn.sheetjs.com https://cdn.jsdelivr.net https://developers.kakao.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com https://kauth.kakao.com https://kapi.kakao.com; worker-src 'self' blob: https://cdn.jsdelivr.net",
 };
 
 const CORS_HEADERS = {
@@ -1815,7 +1818,7 @@ async function handleComprehensiveMonitor(request, env, url) {
     const origin = new URL(env.OPS_MONITOR_PUBLIC_ORIGIN || "");
     if (origin.protocol !== "https:" || !origin.hostname.endsWith(".workers.dev") || !/^[a-f0-9-]{36}$/.test(result.ticket || "")) return jsonResponse({ ok: false, error: "monitor_origin_required" }, 503);
     return htmlResponse(`<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="referrer" content="no-referrer"><title>별도 관제 열기</title><body><p>관리자 인증을 확인했습니다. 별도 관제를 열고 있습니다.</p><form method="post" action="${escapeHtml(origin.origin)}/session" id="monitorLogin"><input type="hidden" name="ticket" value="${escapeHtml(result.ticket)}"><button type="submit">관제 열기</button></form><script>document.getElementById('monitorLogin').submit()</script></body></html>`, 200, {
-      "content-security-policy": HTML_HEADERS["content-security-policy"].replace("form-action 'self'", `form-action 'self' ${origin.origin}`),
+      "content-security-policy": HTML_HEADERS["content-security-policy"].replace(/form-action [^;]*/, `form-action 'self' ${origin.origin}`), // V22.9.102 J-13: SSO 화면은 카카오 호스트 없이 self + 관제 origin 만
     });
   } catch (_) { return jsonResponse({ ok: false, error: "monitor_unavailable" }, 503); }
 }
@@ -12112,6 +12115,9 @@ const KAKAO_LOGIN_PROGRESS_TIPS = [
 // V22.9.95 R-9: 카카오 로그인 단추가 동의 칸이 있는 GET 폼(form.kakaoStart)의 제출 단추가 됐다. 대기 화면은 링크 클릭 대신 폼 제출(submit)에 띄운다.
 // submit 은 브라우저 검사(동의 칸 required)를 통과해야 오므로 동의 칸을 비운 채 누르면 덮지 않는다. 보조키·가운데 단추로 누른 제출(새 창)은
 // 덮지 않는다(V22.9.26 링크 때와 같은 뜻). window.stop 이 없는 브라우저는 그냥 숨긴다. 뒤로 가기로 돌아오면(pageshow persisted) 대기 화면을 거둔다.
+// V22.9.102 J-13: 폼 제출은 Chromium 의 CSP form-action 검사를 리다이렉트(/auth/kakao/start → kauth.kakao.com)에도 받아 ‘로그인 중입니다’ 에서 멈췄다
+// (운영 재현 2026-11-05). 스크립트가 있으면 submit 을 막고 같은 주소(폼 action + 칸 값)로 location.assign 으로 이동한다(스크립트 이동은 form-action 검사가
+// 없다). URLSearchParams·FormData 가 없거나 action 이 다르면 그대로 폼 제출로 두고, 그 길은 CSP 의 kauth·accounts 허용(config-readiness.js)이 받친다.
 // toString 으로 화면에 들어가므로 설명은 함수 밖에 둔다.
 function kakaoLoginProgressClientMain(config) {
   var form = document.querySelector('form.kakaoStart[action="/auth/kakao/start"]');
@@ -12126,6 +12132,14 @@ function kakaoLoginProgressClientMain(config) {
   var slowTimer = 0;
   var index = 0;
   var modified = false;
+
+  function startUrl() {
+    try {
+      if (!window.URLSearchParams || !window.FormData || form.getAttribute("action") !== "/auth/kakao/start") return "";
+      var query = new URLSearchParams(new FormData(form)).toString();
+      return "/auth/kakao/start" + (query ? "?" + query : "");
+    } catch (err) { return ""; }
+  }
 
   function showTip() {
     tipEl.textContent = tips[index % tips.length] || "";
@@ -12158,6 +12172,8 @@ function kakaoLoginProgressClientMain(config) {
     tipTimer = setInterval(showTip, 3600);
     clearTimeout(slowTimer);
     slowTimer = setTimeout(function () { if (slowEl) slowEl.hidden = false; }, 9000);
+    var target = startUrl();
+    if (target && event) { event.preventDefault(); window.location.assign(target); }
   });
 
   if (cancel) {

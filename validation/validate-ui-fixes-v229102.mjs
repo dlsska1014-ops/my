@@ -308,6 +308,41 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
     const dashed = await post(fx, "/my/kakao-claim", { kakao_claim_code: "7ljzltmf-7LJZLTMF 7LJZLTMF-7LJZLTMF" }, { cookie: "" });
     ok(dashed.status === 401 && dashed.text.includes("만료되었거나 이미 사용되었어요"), "소문자·띄어쓰기·붙임표가 섞인 32자는 정규화돼 조회까지 간다(없는 코드 = 만료 안내)");
   }
+
+  // ── 9. 카카오 로그인 CSP(J-13) ──────────────────────────────────────────────────
+  // V22.9.95 R-9 뒤 Chromium 이 GET 폼 제출의 303 리다이렉트(kauth.kakao.com)를 form-action 'self' 로 막아 ‘로그인 중입니다’ 에서 멈췄다(운영 V99 재현 2026-11-05).
+  // 응답 머리의 form-action 허용 호스트와, 로그인 화면 인라인 스크립트가 폼 제출 대신 같은 주소로 이동하는지를 본다. 실제 브라우저 동작은 headless Chrome 증거(claude-checks.md J-13).
+  {
+    const want = "form-action 'self' https://kauth.kakao.com https://accounts.kakao.com";
+    const header = async (path, cookie) => {
+      const response = await app.fetch(new Request(`${BASE}${path}`, { headers: { accept: "text/html", ...(cookie ? { cookie } : {}) } }), fx.env, ctx);
+      const policy = response.headers.get("content-security-policy") || "";
+      return { status: response.status, policy, directive: policy.split(";").map((part) => part.trim()).find((part) => part.startsWith("form-action ")) || "" };
+    };
+    Object.assign(fx.env, { KAKAO_LOGIN_ENABLED: "1", KAKAO_REST_API_KEY: "test-key", PUBLIC_BASE_URL: BASE, KAKAO_REDIRECT_URI: `${BASE}/auth/kakao/callback` });
+    const login = await header("/my", "");
+    eq(login.status, 200, "로그인 화면 200");
+    eq(login.directive, want, "로그인 화면 CSP form-action = self + kauth.kakao.com + accounts.kakao.com");
+    const homeCsp = await header(`/app?${M}&${H}`, fx.cookie);
+    eq(homeCsp.status, 200, "홈 200");
+    eq(homeCsp.directive, want, "로그인 뒤 화면도 같은 form-action");
+    const pub = await header("/", "");
+    eq(pub.status, 200, "공개 첫 화면 200");
+    eq(pub.directive, want, "공개 화면도 같은 form-action");
+    const start = await app.fetch(new Request(`${BASE}/auth/kakao/start?consent=1`, { headers: { accept: "text/html" } }), fx.env, ctx);
+    eq(start.status, 303, "동의 있는 카카오 시작은 303");
+    const startOrigin = (() => { try { return new URL(start.headers.get("location") || "").origin; } catch { return ""; } })();
+    eq(startOrigin, "https://kauth.kakao.com", "303 은 kauth.kakao.com 으로 간다");
+    ok(want.split(" ").includes(startOrigin), "303 대상 origin 이 form-action 허용 목록 안에 있다");
+    const loginHtml = (await page(fx, "/my", { cookie: "" })).html;
+    ok(loginHtml.includes('<form class="kakaoStart" method="get" action="/auth/kakao/start">'), "카카오 로그인은 여전히 동의 칸이 있는 GET 폼");
+    ok(loginHtml.includes("new URLSearchParams(new FormData(form))") && loginHtml.includes("window.location.assign(target)") && loginHtml.includes("event.preventDefault()"), "로그인 화면 인라인 스크립트가 폼 제출 대신 같은 주소로 이동한다");
+    const runtime = read("src/modules/client/legacy-ui-runtime.js");
+    ok(runtime.includes('form.getAttribute("action") !== "/auth/kakao/start") return "";'), "startUrl 은 action 이 /auth/kakao/start 일 때만 값을 준다");
+    ok(runtime.includes("if (target && event) { event.preventDefault(); window.location.assign(target); }"), "submit 에서 target 이 있으면 preventDefault + location.assign");
+    ok(read("src/modules/runtime/config-readiness.js").includes(`${want};`), "HTML_HEADERS 정본에 두 호스트");
+    ok(read("src/modules/runtime/ops-monitor.js").includes(".replace(/form-action [^;]*/, `form-action 'self' ${origin.origin}`)"), "관제 SSO 화면은 form-action 지시문을 통째로 self + 관제 origin 으로 바꾼다(값은 validate-safety-fix-v22924)");
+  }
 }));
 
 done();
