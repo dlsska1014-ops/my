@@ -4,6 +4,8 @@
 
 사용자 결정(2026-11-05 저녁): Supabase Pro(11-10 무렵 예정이던 것) 같은 유료 전환은 사용자 추이를 본 뒤 정한다(앞서 배포된 챗봇들의 일 방문 사용자 10~100명 안팎, 아직 수익 없음). 관제의 요금제 확인 만료 주의와 CF_PLAN·SUPABASE_PLAN=free 는 그대로 둔다. 같은 날 Kakao Developers 앱 1489689 를 채널 @말해가계부 에 다시 연결했다(Aside, 연결 전 ‘연결된 채널 없음’ → 뒤 ‘활성’; TEST 앱·개발 채널은 건드리지 않음). 이로써 방 요청에 appUserId 가 실리고, `KAKAO_ACCOUNT_LINK_ENABLED` 는 아직 없음(= 꺼짐, probe 행만 남김)이라 별칭·계정 합치기는 사용자 지목 뒤 켠다.
 
+운영 반영(2026-11-06 00:01:19 KST, docs/deployments/V22_9_103_2026_11_06.md): 사용자 11-05 22:3x "PR #131, #132 병합" → main 415d8d4·0048cf4, "KAKAO_ACCOUNT_LINK_ENABLED 켜기" → 11-05 22:42:57 version 3d00c670(#334, 바인딩 34) → V22.9.103 업로드·승격(version d96aba94 #335, deployment abf5d899, 사용자 토큰 도구). 전제: 사용자 방 기록(22:27)으로 새 DB probe `present:group` V22.9.102·답 지연 없음 확인. 직후 확인 통과(/privacy 8절 서울, 캐시 57/45, sitemap 60, 관제 1.7.0). 되돌리기 대상(기록만) 3d00c670.
+
 ## V22.9.102-UI-FIXES · 2026-11-05 · 사용자 의견 6건·Codex 검토
 
 **Supabase 서울 전환(2026-11-05 19:09:48 KST)**: 운영 DB 를 시드니 프로젝트에서 서울 프로젝트 `jqzmpzdqvmzkxznnylkp`(ap-northeast-2)로 옮겼다. 코드는 그대로이고 Secret 두 개(SUPABASE_URL·SUPABASE_SERVICE_ROLE_KEY)만 바뀐 version `ac5f2a4b-de71-46a5-94cc-92b1743a3d8b`(#333)·deployment `d27cba28-f8c6-4730-8eb4-c1da82a47216`. 새 프로젝트 권한은 옛 프로젝트와 같게 맞췄다(복원 직후 anon·authenticated 권한이 넓었음). 방침 8절 리전 문구는 다음 판에서 고친다. 기록 docs/deployments/V22_9_102_2026_11_05.md.
