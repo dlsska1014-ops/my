@@ -13127,8 +13127,19 @@ async function runKakaoAfterReply(env) {
     const { job, cost, critical } = queue.shift();
     const reserved = queue.reduce((sum, item) => sum + (item.critical ? item.cost : 0), 0);
     if (!hasDatabaseRoom(env, cost + (critical ? 0 : reserved))) continue;
+    const budget = env?.__AB_DB_BUDGET;
+    if (budget && !critical) {
+      budget.reserved = Number(budget.reserved || 0) + reserved;
+      budget.afterReplyDepth = Number(budget.afterReplyDepth || 0) + 1;
+    }
     try { await job(); }
     catch (err) { rememberOpsEvent({ kind: "kakao_after_reply_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) }); }
+    finally {
+      if (budget && !critical) {
+        budget.reserved -= reserved;
+        budget.afterReplyDepth -= 1;
+      }
+    }
   }
 }
 
@@ -13188,13 +13199,15 @@ async function withSettingsRmwLease(env, lockKey = "", task, options = {}) {
   const key = String(lockKey || "").trim().slice(0, 180);
   if (!key) throw new Error("settings_rmw_key_required");
   const runWithDatabaseLease = async () => {
-    const lease = await claimOperationLease(env, {
-      key,
-      owner: operationLeaseOwner("settings-rmw"),
-      leaseSeconds: 90,
-    });
-    if (!lease.acquired) throw new Error("settings_rmw_busy");
+    const budget = env?.__AB_DB_BUDGET;
+    // Optional background work must protect this lease's release as well as
+    // releases already queued by the response path. Nested leases add one each.
+    const reserveRelease = Number(budget?.afterReplyDepth || 0) > 0 && options.releaseMode !== "defer";
+    if (reserveRelease) budget.reserved = Number(budget.reserved || 0) + 1;
+    let lease;
     try {
+      lease = await claimOperationLease(env, { key, owner: operationLeaseOwner("settings-rmw"), leaseSeconds: 90 });
+      if (!lease.acquired) throw new Error("settings_rmw_busy");
       assertSettingsLeaseFresh(lease);
       const hid = String(options.householdId || "").trim();
       if (hid && !(await householdExistsForSettingsMutation(env, hid))) {
@@ -13203,8 +13216,13 @@ async function withSettingsRmwLease(env, lockKey = "", task, options = {}) {
       }
       return await task({ lease, assertFresh: () => assertSettingsLeaseFresh(lease) });
     } finally {
-      if (options.releaseMode === "defer") await deferKakaoAfterReply(env, () => releaseOperationLease(env, lease), { cost: 1, critical: true });
-      else await releaseOperationLease(env, lease);
+      // Return only this scope's slot before dispatching its release. Generic
+      // release RPCs have no exemption from other scopes' reservations.
+      if (reserveRelease) budget.reserved -= 1;
+      if (lease?.acquired) {
+        if (options.releaseMode === "defer") await deferKakaoAfterReply(env, () => releaseOperationLease(env, lease), { cost: 1, critical: true });
+        else if (!(await releaseOperationLease(env, lease)) && reserveRelease) throw new Error("settings_rmw_release_failed");
+      }
     }
   };
   const mutexOptions = options.releaseMode === "defer" && env?.__AB_KAKAO_REQUEST?.enabled
@@ -44964,7 +44982,7 @@ async function kakaoClaimUserUnmerged(env, userId = "", snapshot = {}) {
   const user = reuse ? snapshot.userRow : await fetchUserById(env, userId);
   if (!user || String(user.kakao_user_key || "").startsWith("merged:") || /\(통합됨\)\s*$/.test(String(user.nickname || ""))) return false;
   // Do not use the process-local effective-user cache for bearer-credential decisions.
-  const redirect = reuse && Object.prototype.hasOwnProperty.call(snapshot, "redirectValue") ? snapshot.redirectValue : await getSettingValueStrict(env, identityMergeRedirectSettingsKey(userId));
+  const redirect = (reuse || snapshot.redirectUnderLease === true) && Object.prototype.hasOwnProperty.call(snapshot, "redirectValue") ? snapshot.redirectValue : await getSettingValueStrict(env, identityMergeRedirectSettingsKey(userId));
   return !redirect;
 }
 
@@ -45137,7 +45155,7 @@ function authErrorJumpClientMain(ids) {
 //     (identity-chat-first.js). 합치기는 같은 카카오 계정으로 방금 로그인한 브라우저에서만 한다. 남의 세션 쿠키만으로는 못 합친다.
 //     한쪽에 가계부·기록이 없으면 확인 없이 잇고, 둘 다 있으면 /my/account-link 에서 확인을 받은 뒤 잇는다.
 //  3) appUserId 도착 진단. 콘솔에서 웹 로그인 앱(1489689)을 그룹 챗봇에 연결한 뒤 실제로 오는지 관리자 화면(/identity-audit)에서 본다.
-// 2)의 합치기(안내·확인 화면·합치기 표)는 KAKAO_ACCOUNT_LINK_ENABLED=1 일 때만 한다(기본 꺼짐, kakaoAccountLinkEnabled). 1)·3)과 제안 남기기는 꺼져 있어도 한다.
+// 2)의 합치기와 제안은 KAKAO_ACCOUNT_LINK_ENABLED=1 일 때만 한다(기본 꺼짐). 꺼짐의 기존 채팅 사용자는 3) 진단만 남긴다.
 const KAKAO_AUTO_LOGIN_COOKIE = "ab_kakao_auto";
 // try: 자동 로그인을 보낸 뒤 돌아올 때까지(되풀이 막기). skip: 비회원·오류(하루 동안 다시 보내지 않음). off: 직접 로그아웃(30일).
 const KAKAO_AUTO_LOGIN_COOKIE_AGES = { try: 600, skip: 86400, off: 2592000 };
@@ -45303,14 +45321,98 @@ function kakaoAccountLinkOfferForUser(offers = {}, userId = "") {
 // 채팅 요청(identity-chat-first.js)은 제안을 바로 쓰지 않고 요청 안에 모아 둔다. 답 처리가 끝난 뒤 afterKakaoSkillIdentityWork 가
 // 이 요청의 DB 호출 여유가 있을 때만 쓴다. 단톡방 첫 기록처럼 호출이 많은 요청을 50회 한도 쪽으로 밀지 않기 위해서다.
 function queueKakaoAccountLinkOffer(env, offer = {}) {
-  if (!env || typeof env !== "object") return;
+  if (!env || typeof env !== "object" || !kakaoAccountLinkEnabled(env)) return;
   const queue = Array.isArray(env.__AB_PENDING_ACCOUNT_LINK_OFFERS) ? env.__AB_PENDING_ACCOUNT_LINK_OFFERS : (env.__AB_PENDING_ACCOUNT_LINK_OFFERS = []);
   if (queue.length < 4) queue.push({ chatUserId: String(offer.chatUserId || ""), loginUserId: String(offer.loginUserId || ""), kakaoId: String(offer.kakaoId || "") });
 }
 
+// B-0: completion is only an optimization. It never chooses or authorizes a
+// user. Failed/skipped jobs leave no entry and can be retried by the next request.
+const AB_KAKAO_IDENTITY_WORK_DONE = globalThis.__AB_KAKAO_IDENTITY_WORK_DONE || (globalThis.__AB_KAKAO_IDENTITY_WORK_DONE = new Map());
+const AB_KAKAO_IDENTITY_PENDING = globalThis.__AB_KAKAO_IDENTITY_PENDING || (globalThis.__AB_KAKAO_IDENTITY_PENDING = new Map());
+const AB_KAKAO_IDENTITY_RESOLVING = globalThis.__AB_KAKAO_IDENTITY_RESOLVING || (globalThis.__AB_KAKAO_IDENTITY_RESOLVING = new Map());
+async function waitKakaoSkillIdentityAliases(env, rawKey) {
+  const pending = AB_KAKAO_IDENTITY_PENDING.get(rawKey);
+  if (pending && pending.scope !== env.__AB_KAKAO_REQUEST) await pending.promise;
+}
+async function withKakaoSkillIdentityResolution(env, rawKey, task) {
+  // Serialize from the first read, not only the eventual alias write. Seed
+  // rechecks in the same request reenter; other bots retain full concurrency.
+  while (true) {
+    const previous = AB_KAKAO_IDENTITY_RESOLVING.get(rawKey);
+    if (previous?.scope === env.__AB_KAKAO_REQUEST) return await task();
+    if (previous) { await previous.promise; continue; }
+    await waitKakaoSkillIdentityAliases(env, rawKey);
+    if (AB_KAKAO_IDENTITY_RESOLVING.has(rawKey)) continue;
+    let release;
+    const pending = { scope: env.__AB_KAKAO_REQUEST, promise: new Promise(resolve => { release = resolve; }) };
+    AB_KAKAO_IDENTITY_RESOLVING.set(rawKey, pending);
+    try { return await task(); }
+    finally {
+      release();
+      if (AB_KAKAO_IDENTITY_RESOLVING.get(rawKey) === pending) AB_KAKAO_IDENTITY_RESOLVING.delete(rawKey);
+    }
+  }
+}
+async function queueKakaoSkillIdentityAliases(env, { rawKey, user, aliases = [], appAlias = "", newIdentity = false }) {
+  const enabled = kakaoAccountLinkEnabled(env);
+  const cacheKey = `${rawKey}\n${appAlias}`;
+  const done = AB_KAKAO_IDENTITY_WORK_DONE.get(cacheKey);
+  const hit = !!appAlias && done?.userId === String(user.id) &&
+    (done.kind === "verified" || done.enabled === enabled) && Date.now() - done.at < (done.kind === "verified" ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000);
+  if (enabled && hit) env.__AB_KAKAO_IDENTITY_SKIP_PROBE = true;
+  const appWork = !!appAlias && !hit && (newIdentity || inspectKakaoLoginConfig(env).ready);
+  const wanted = [...new Set([...aliases, ...(appWork ? [appAlias] : [])])];
+  if (!wanted.length) return;
+  let release;
+  const pending = { scope: env.__AB_KAKAO_REQUEST, promise: new Promise(resolve => { release = resolve; }) };
+  AB_KAKAO_IDENTITY_PENDING.set(rawKey, pending);
+  await deferKakaoAfterReply(env, async () => {
+    const options = { trustedKakaoCaller: true, afterReplyStrict: true, conflictedAliases: new Set() };
+    let verified = false;
+    if (appWork && !newIdentity) {
+      const links = await fetchUserIdentityLinks(env);
+      // This read only avoids redundant work; it does not select a user or
+      // authorize a write. Mutations always re-read ownership under the lease.
+      verified = wanted.every(alias => String(safeObject(links[alias]).user_id || "") === String(user.id));
+    }
+    if (!verified) {
+      if (!hasDatabaseRoom(env, 5)) return;
+      await persistIdentityAliases(env, wanted, user.id, "skill", options);
+    }
+    if (appWork) {
+      if (!(await flushKakaoAccountLinkOffers(env))) return;
+      AB_KAKAO_IDENTITY_WORK_DONE.set(cacheKey, { userId: String(user.id), at: Date.now(), kind: options.conflictedAliases.has(appAlias) ? "conflict" : "verified", enabled });
+      for (const [key, value] of AB_KAKAO_IDENTITY_WORK_DONE) if (Date.now() - value.at >= (value.kind === "verified" ? 24 * 60 * 60 * 1000 : 10 * 60 * 1000)) AB_KAKAO_IDENTITY_WORK_DONE.delete(key);
+      while (AB_KAKAO_IDENTITY_WORK_DONE.size > 2000) AB_KAKAO_IDENTITY_WORK_DONE.delete(AB_KAKAO_IDENTITY_WORK_DONE.keys().next().value);
+    }
+  }, { cost: appWork && !newIdentity ? 1 : 5 });
+  // This zero-cost gate must run even when budget pressure skips the optional
+  // persistence job, otherwise the isolate would block this bot indefinitely.
+  await deferKakaoAfterReply(env, () => {
+    release();
+    if (AB_KAKAO_IDENTITY_PENDING.get(rawKey) === pending) AB_KAKAO_IDENTITY_PENDING.delete(rawKey);
+  }, { cost: 0, critical: true });
+}
+
+async function flushKakaoAccountLinkOffers(env) {
+  const queue = Array.isArray(env?.__AB_PENDING_ACCOUNT_LINK_OFFERS) ? env.__AB_PENDING_ACCOUNT_LINK_OFFERS.splice(0) : [];
+  if (!kakaoAccountLinkEnabled(env)) return true;
+  let complete = true;
+  for (const offer of queue) {
+    if (!hasDatabaseRoom(env, 4)) { complete = false; continue; }
+    try { await rememberKakaoAccountLinkOffer(env, offer); }
+    catch (err) {
+      complete = false;
+      rememberOpsEvent({ kind: "kakao_account_link_offer_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) });
+    }
+  }
+  return complete;
+}
+
 function hasDatabaseRoom(env, reserve = 0) {
   const budget = env?.__AB_DB_BUDGET;
-  return !budget || Number(budget.used || 0) + reserve <= Number(budget.limit || 50);
+  return !budget || Number(budget.used || 0) + reserve + Number(budget.reserved || 0) <= Number(budget.limit || 50);
 }
 
 // appUserId 가 실제로 오는지(콘솔에서 앱 1489689 를 봇에 연결한 뒤) 관리자 화면에서 보려고 남긴다. 받은 값은 적지 않고 왔는지·안 왔는지와
@@ -45337,21 +45439,9 @@ async function noteKakaoAppUserIdProbe(env, payload = {}) {
 // skill-handler.js 가 답 처리(work)가 끝난 뒤 waitUntil 로 부른다. 실패해도 답에는 영향이 없다.
 // 웹 카카오 로그인이 꺼진 곳에서는 이을 수 없으니 제안도 진단도 남기지 않는다.
 async function afterKakaoSkillIdentityWork(env, payload = {}, trustedKakaoCaller = false) {
-  const queue = Array.isArray(env?.__AB_PENDING_ACCOUNT_LINK_OFFERS) ? env.__AB_PENDING_ACCOUNT_LINK_OFFERS.splice(0) : [];
   if (!inspectKakaoLoginConfig(env).ready) return;
-  for (const offer of queue) {
-    if (!hasDatabaseRoom(env, 8)) {
-      // 같은 두 계정의 충돌은 isolate 마다 10분에 한 번 남기므로(identity-chat-first.js) 그 뒤 요청이 다시 남긴다.
-      rememberOpsEvent({ kind: "kakao_account_link_offer_deferred", severity: "info", path: "/skill", method: "POST", detail: "DB 호출 여유가 없어 이번 요청에서는 쓰지 않음" });
-      break;
-    }
-    try {
-      await rememberKakaoAccountLinkOffer(env, offer);
-    } catch (err) {
-      rememberOpsEvent({ kind: "kakao_account_link_offer_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) });
-    }
-  }
-  if (trustedKakaoCaller && hasDatabaseRoom(env, 4)) await noteKakaoAppUserIdProbe(env, payload);
+  await flushKakaoAccountLinkOffers(env);
+  if (trustedKakaoCaller && !env.__AB_KAKAO_IDENTITY_SKIP_PROBE && hasDatabaseRoom(env, 1)) await noteKakaoAppUserIdProbe(env, payload);
 }
 
 // 합치기 방향과 가능 여부. 계정 잇기의 합치기는 performIdentityMerge 의 잠금 안에서 이것을 다시 부른다.
@@ -45639,7 +45729,7 @@ async function renderKakaoAccountLinkDiagnostics(env) {
   const offerCount = offers ? Object.keys(offers).length : null;
   const switchState = kakaoAccountLinkEnabled(env)
     ? "켜짐 — 제안이 있는 사람에게 /my 에서 잇기를 묻습니다."
-    : "꺼짐 — 제안과 진단만 남기고 잇기는 묻지 않습니다. 운영자 계정으로 appUserId 옴과 제안을 확인한 뒤 KAKAO_ACCOUNT_LINK_ENABLED=1 로 켭니다.";
+    : "꺼짐 — 진단만 남기고 제안과 잇기는 만들지 않습니다. 활성화 검사를 확인한 뒤 KAKAO_ACCOUNT_LINK_ENABLED=1 로 켭니다.";
   return `<section class="card"><h2>카카오 로그인 연결 진단</h2><p>그룹 챗봇에 웹 로그인 앱을 연결하면 카카오가 방 메시지에 appUserId 를 실어 보냅니다. 받은 값은 적지 않고 마지막으로 온 때와 안 온 때만 적습니다(isolate 마다 한 시간에 한 번).</p><div class="tableWrap"><table><thead><tr><th>대화</th><th>appUserId 옴</th><th>appUserId 안 옴</th></tr></thead><tbody>${probeRows}</tbody></table></div><p>계정 잇기: ${escapeHtml(switchState)}</p><p>남은 계정 잇기 제안: ${offerCount === null ? "읽지 못함" : `${numberWithCommas(offerCount)}건`} · 웹에서 이은 뒤 사라집니다.</p></section>`;
 }
 
@@ -54306,7 +54396,7 @@ function parseKakaoGroupDepartures(value) {
 async function readKakaoGroupFirstSnapshot(env, groupKey, userId = "") {
   const keys = await kakaoGroupFirstKeys(groupKey, userId);
   const primaryKey = kakaoGroupLinkItemSettingsKey(groupKey);
-  const wanted = [keys.marker, keys.done, keys.retired, primaryKey, kakaoGroupLinksSettingsKey(), keys.departure, keys.member].filter(Boolean);
+  const wanted = [keys.marker, keys.done, keys.retired, primaryKey, kakaoGroupLinksSettingsKey(), keys.departure, keys.member, userId ? identityMergeRedirectSettingsKey(userId) : ""].filter(Boolean);
   return parseKakaoGroupFirstSnapshot(await readKakaoSettingsSnapshot(env, wanted), keys, groupKey, userId);
 }
 
@@ -54325,7 +54415,7 @@ function parseKakaoGroupFirstSnapshot(values, keys, groupKey, userId = "") {
   const marker = parseKakaoGroupFirstMarker(value(keys.marker), groupKey);
   const done = parseKakaoGroupFirstMarker(value(keys.done), groupKey, true);
   if (marker && done && (marker.candidate_id !== done.candidate_id || marker.owner_id !== done.owner_id)) throw settingsDataError("kakao_group_first", "completion_conflict");
-  return { keys, marker, done, retired: !!Object.keys(retired).length, link: primary || legacy, departures: parseKakaoGroupDepartures(value(keys.departure)), member };
+  return { keys, marker, done, retired: !!Object.keys(retired).length, link: primary || legacy, departures: parseKakaoGroupDepartures(value(keys.departure)), member, redirectValue: userId ? value(identityMergeRedirectSettingsKey(userId)) : undefined };
 }
 
 async function kakaoGroupCandidateId(groupKey) {
@@ -54480,12 +54570,13 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
       env.__AB_REQUEST_USER_ROWS?.delete(String(user.id));
       // V22.9.44: 계정 통합 확인(DB 읽기 2번)은 방 잠금 획득·재조회와 겹쳐 돌리고, 첫 쓰기 전에 결과를 본다. 이 경로의 순차 왕복이
       // 카카오 5초 제한을 넘겼다(2026-10-13 운영, 최대 5.69초). 잠금 순서와 쓰기 순서는 그대로다.
-      const userUnmerged = kakaoClaimUserUnmerged(env, user.id, { userRow: user, ...(Object.prototype.hasOwnProperty.call(context, "redirectValue") ? { redirectValue: context.redirectValue } : {}) });
-      userUnmerged.catch(() => {});
+      const userRead = env.__AB_KAKAO_REQUEST?.createdUsers.has(String(user.id)) ? Promise.resolve(user) : fetchUserById(env, user.id);
+      userRead.catch(() => {});
       return withKakaoGroupLifecycleLease(env, groupKey, async ({ assertFresh: roomFresh }) => {
         const roomGuard = () => { userFresh(); roomFresh(); };
         let snapshot = await readKakaoGroupFirstSnapshot(env, groupKey, user.id);
-        if (!(await userUnmerged)) throw new Error("kakao_group_identity_scope_changed");
+        await userRead;
+        if (!(await kakaoClaimUserUnmerged(env, user.id, { userRow: user, redirectValue: snapshot.redirectValue, redirectUnderLease: true }))) throw new Error("kakao_group_identity_scope_changed");
         let marker = snapshot.done || snapshot.marker;
         let firstNotice = "";
         let roomCreatedNow = false; // V22.9.79 감사 N-4: 이 요청이 방 가계부를 막 준비했다 — 구성원은 첫 입력자 한 명뿐이다
@@ -55531,7 +55622,10 @@ async function resolveLinkedIdentityUser(env, aliasKeys = [], options = {}) {
     const linkedUserId = String(safeObject(links[String(alias || "")]).user_id || "");
     if (!linkedUserId) continue;
     const linked = await fetchUserById(env, linkedUserId);
-    if (linked) return linked;
+    if (linked) {
+      options.identityAliasesLinked = aliasKeys.every(key => String(safeObject(links[key]).user_id || "") === linkedUserId);
+      return linked;
+    }
   }
   // V22.9.77 감사 B-7: 웹(카카오 로그인)으로 먼저 가입한 사람은 링크 표에 kakao_login 별칭이 없고 강한 식별·사용자 행에만 있다.
   // 링크 표로 아무도 찾지 못했을 때만, 새 사용자를 만들기 전에 웹 로그인과 같은 순서로 그 계정을 찾아 쓴다. 예전에는 이름이
@@ -55540,6 +55634,32 @@ async function resolveLinkedIdentityUser(env, aliasKeys = [], options = {}) {
   // Secret 으로 확인된 카카오 요청(trustedKakaoCaller)에서만 찾는다. 확인되지 않은 요청의 appUserId 는 누구나 적어 보낼 수 있어,
   // 이 조회를 열어 두면 남의 카카오 로그인 id 만으로 그 웹 계정을 채팅으로 열 수 있다.
   if (options.trustedKakaoCaller !== true) return null;
+  if (options.deferredAppAlias) {
+    options.discoveredKakaoOwner = true;
+    const alias = options.deferredAppAlias;
+    const linkedUid = String(safeObject(links[alias]).user_id || "").trim();
+    if (linkedUid) {
+      const user = await fetchUserById(env, linkedUid);
+      if (user) return user;
+    }
+    const kid = kakaoLoginIdFromAlias(alias);
+    const scope = env.__AB_IDENTITY_CONFIRMED;
+    let cache = scope instanceof Map ? AB_KAKAO_LOGIN_OWNER_LOOKUPS.get(scope) : null;
+    if (!cache && scope instanceof Map) { cache = new Map(); AB_KAKAO_LOGIN_OWNER_LOOKUPS.set(scope, cache); }
+    const cacheKey = `skill-discovery:${kid}`;
+    if (cache && !cache.has(cacheKey)) {
+      const pending = lookupNewKakaoSkillOwner(env, kid, undefined, links);
+      pending.catch(() => { if (cache.get(cacheKey) === pending) cache.delete(cacheKey); });
+      cache.set(cacheKey, pending);
+    }
+    const owner = await (cache ? cache.get(cacheKey) : lookupNewKakaoSkillOwner(env, kid, undefined, links));
+    if (owner?.merged) throw new Error("kakao_login_owner_merged_unresolved");
+    if (owner?.user) {
+      env.__AB_REQUEST_USER_ROWS?.set(String(owner.user.id), owner.user);
+      return owner.user;
+    }
+    return null;
+  }
   for (const alias of aliasKeys) {
     const kakaoId = kakaoLoginIdFromAlias(alias);
     if (!kakaoId) continue;
@@ -55556,6 +55676,8 @@ const AB_KAKAO_LOGIN_CONFLICT_TRACED = globalThis.__AB_KAKAO_LOGIN_CONFLICT_TRAC
 // V22.9.91 계정 잇기: 같은 충돌을 남길 때 그 둘을 ‘잇기 제안’으로도 요청 안에 모아 둔다. 답 처리가 끝난 뒤 skill-handler.js 가
 // DB 호출 여유가 있을 때 쓴다(auth/kakao-account-link.js). 카카오 로그인 id 는 제안 표에 해시로만 남고 운영 이벤트에는 쓰지 않는다.
 function traceKakaoLoginAliasConflict(env, chatUid = "", ownerUid = "", source = "", kakaoId = "") {
+  // Offer retries follow durable completion, not the diagnostic log throttle.
+  if (kakaoAccountLinkEnabled(env)) queueKakaoAccountLinkOffer(env, { chatUserId: chatUid, loginUserId: ownerUid, kakaoId });
   const key = `${chatUid}|${ownerUid}`;
   const now = Date.now();
   if (now - Number(AB_KAKAO_LOGIN_CONFLICT_TRACED.get(key) || 0) < 10 * 60 * 1000) return;
@@ -55565,28 +55687,67 @@ function traceKakaoLoginAliasConflict(env, chatUid = "", ownerUid = "", source =
     kind: "kakao_login_alias_conflict", severity: "warn", path: "/skill", method: "POST", label: "채팅 계정과 카카오 로그인 계정이 다름",
     detail: `자동 병합 안 함·지금 연결 유지 · 채팅 ${String(chatUid).slice(0, 8)} · 카카오 로그인 ${String(ownerUid).slice(0, 8)} · 근거 ${source || "-"}`,
   });
-  queueKakaoAccountLinkOffer(env, { chatUserId: chatUid, loginUserId: ownerUid, kakaoId });
+}
+
+// B-0: one discovery read only after raw/bot aliases were absent. Filtered
+// one-to-many embedding matches strong OR legacy owners, with strong priority.
+async function lookupNewKakaoSkillOwner(env, kakaoId, legacyUser, links = {}) {
+  if (legacyUser === undefined) {
+    const alias = `kakao_login:${kakaoId}`;
+    if (AB_POSTGREST_EMBED_SUPPORT.kakao_owner_discovery !== false) {
+      try {
+        const rows = await supabase(env, `/rest/v1/users?select=id,kakao_user_key,nickname,accountbook_user_identities(user_id,provider,provider_subject)&accountbook_user_identities.provider=eq.kakao&accountbook_user_identities.provider_subject=eq.${encodeURIComponent(kakaoId)}&or=(kakao_user_key.eq.${encodeURIComponent(postgrestQuotedValueV22979(alias))},accountbook_user_identities.not.is.null)&limit=3`, { method: "GET" });
+        if (!Array.isArray(rows) || rows.some(row => !row?.id || typeof row.kakao_user_key !== "string" || !Array.isArray(row.accountbook_user_identities))) throw new Error("identity_owner_invalid");
+        const strong = rows.filter(row => row.accountbook_user_identities.length);
+        const legacy = rows.filter(row => row.kakao_user_key === alias);
+        if (strong.length > 1 || legacy.length > 1 || rows.length > 2 || rows.some(row => row.accountbook_user_identities.some(item => String(item.user_id) !== String(row.id) || item.provider !== "kakao" || item.provider_subject !== kakaoId) || row.accountbook_user_identities.length > 1 || (!row.accountbook_user_identities.length && row.kakao_user_key !== alias))) throw new Error("identity_owner_ambiguous");
+        const found = strong[0] || legacy[0];
+        if (!found) return null;
+        const user = { id: found.id, kakao_user_key: found.kakao_user_key, nickname: found.nickname };
+        return effectiveKakaoLoginOwner(env, { user, source: strong.length ? "strong" : "user_key" });
+      } catch (err) {
+        if (!isPostgrestEmbedRejection(err)) throw err;
+        AB_POSTGREST_EMBED_SUPPORT.kakao_owner_discovery = false;
+      }
+    }
+    return lookupKakaoLoginOwner(env, kakaoId, { links });
+  }
+  const path = `/rest/v1/accountbook_user_identities?provider=eq.kakao&provider_subject=eq.${encodeURIComponent(kakaoId)}`;
+  const { rows, embedded } = await supabaseWithEmbedFallback(env, "kakao_identity_users", `${path}&select=user_id,users(id,kakao_user_key,nickname)&limit=2`, `${path}&select=user_id&limit=2`);
+  if (!Array.isArray(rows) || rows.length > 1 || rows.some(row => !row?.user_id)) throw new Error("identity_owner_invalid");
+  let user = null;
+  if (rows[0]) {
+    user = embedded ? rows[0].users : await fetchUserById(env, rows[0].user_id);
+    if (!user?.id || String(user.id) !== String(rows[0].user_id) || typeof user.kakao_user_key !== "string") throw new Error("identity_owner_invalid");
+  }
+  if (!user) user = legacyUser || null;
+  return user ? effectiveKakaoLoginOwner(env, { user, source: rows.length ? "strong" : "user_key" }) : null;
 }
 
 // V22.9.77 감사 B-7: kakao_login:<appUserId> 별칭의 주인이 이 사용자가 아닌 다른 계정인지 본다(링크 표에 있으면 그 사람,
 // 없으면 강한 식별·사용자 행 — 웹 로그인과 같은 순서). 다른 계정이면 { ownerUid, source, explicit }, 주인이 없거나 같은 사람이면 null.
 // 주인이 따로 있는 별칭은 누구의 요청이든 이 사용자에게 묶지 않는다 — 옛 웹 계정의 로그인이 채팅 계정으로 바뀌던 길이다.
 // explicit 은 링크 표에서 이미 다른 사람에게 묶여 있다는 뜻이다(예전에도 충돌 오류였던 경우).
-async function foreignKakaoLoginOwner(env, alias = "", canonicalUid = "", links = {}) {
+async function foreignKakaoLoginOwner(env, alias = "", canonicalUid = "", links = {}, options = {}) {
   const kakaoId = kakaoLoginIdFromAlias(alias);
   if (!kakaoId || !canonicalUid) return null;
   const linkedUid = String(safeObject(links[alias]).user_id || "").trim();
   let ownerUid = linkedUid;
   let source = "link";
   if (!ownerUid) {
-    const owner = await lookupKakaoLoginOwnerOnce(env, kakaoId, links);
+    const owner = options.lockedRows
+      ? options.lockedRows.owners ? await effectiveKakaoLoginOwner(env, options.lockedRows.owners.get(alias)) : await lookupNewKakaoSkillOwner(env, kakaoId, options.lockedRows.legacy.get(alias) || null)
+      : await (options.fresh ? lookupKakaoLoginOwner(env, kakaoId, { links }) : lookupKakaoLoginOwnerOnce(env, kakaoId, links));
+    if (owner?.merged) throw new Error("kakao_login_owner_merged_unresolved");
+    if (options.lockedRows && owner?.user) env.__AB_REQUEST_USER_ROWS?.set(String(owner.user.id), owner.user);
     ownerUid = String(owner?.user?.id || "").trim();
     source = owner?.source || "";
   }
   if (!ownerUid || ownerUid === canonicalUid) return null;
   // V22.9.91 독립 검토: 주인이 통합된 계정이면 주 계정을 주인으로 본다. 잇기 제안이 통합된 계정에 묶이면 확인 화면이 곧바로
   // ‘지난 제안’으로 지우고 다음 대화가 다시 남기기를 되풀이했고, 정작 주 계정에는 제안이 가지 않았다.
-  const effectiveOwnerUid = await resolveEffectiveUserId(env, ownerUid) || ownerUid;
+  if (options.fresh && !options.lockedRows) env.__AB_REQUEST_USER_ROWS?.delete(ownerUid);
+  const effectiveOwnerUid = await resolveEffectiveUserId(env, ownerUid, { fresh: options.fresh === true }) || ownerUid;
   if (effectiveOwnerUid === canonicalUid) return null;
   return { ownerUid: effectiveOwnerUid, source, explicit: !!linkedUid };
 }
@@ -55601,6 +55762,54 @@ function identityAliasPersistenceError(error) {
 
 function isSettingsRmwBusyError(error) {
   return /settings_rmw_busy/.test(safeError(error));
+}
+
+async function readLockedKakaoIdentityRows(env, requestedUid, aliases, links) {
+  const ids = [...new Set([requestedUid, ...aliases.map(alias => String(safeObject(links[alias]).user_id || "")).filter(Boolean)])];
+  const loginAliases = aliases.filter(alias => kakaoLoginIdFromAlias(alias));
+  const list = values => values.map(value => encodeURIComponent(postgrestQuotedValueV22979(value))).join(",");
+  const idFilter = `id=in.(${list(ids)})`;
+  const select = "select=id,kakao_user_key,nickname";
+  let rows, owners = null;
+  if (loginAliases.length && AB_POSTGREST_EMBED_SUPPORT.kakao_owner_locked !== false) {
+    const subjects = loginAliases.map(kakaoLoginIdFromAlias);
+    try {
+      rows = await supabase(env, `/rest/v1/users?${select},accountbook_user_identities(user_id,provider,provider_subject)&accountbook_user_identities.provider=eq.kakao&accountbook_user_identities.provider_subject=in.(${list(subjects)})&or=(id.in.(${list(ids)}),kakao_user_key.in.(${list(loginAliases)}),accountbook_user_identities.not.is.null)`, { method: "GET" });
+      if (!Array.isArray(rows) || rows.some(row => !row?.id || typeof row.kakao_user_key !== "string" || !Array.isArray(row.accountbook_user_identities) || row.accountbook_user_identities.some(identity => String(identity.user_id) !== String(row.id) || identity.provider !== "kakao" || !subjects.includes(identity.provider_subject)) || (!ids.includes(String(row.id)) && !loginAliases.includes(row.kakao_user_key) && !row.accountbook_user_identities.length))) throw new Error("identity_owner_invalid");
+      owners = new Map();
+      for (const alias of loginAliases) {
+        const strong = rows.flatMap(row => row.accountbook_user_identities.filter(identity => identity.provider_subject === kakaoLoginIdFromAlias(alias)).map(() => row));
+        const legacy = rows.filter(row => row.kakao_user_key === alias);
+        if (strong.length > 1 || legacy.length > 1) throw new Error("identity_owner_ambiguous");
+        const user = strong[0] || legacy[0];
+        owners.set(alias, user ? { user, source: strong.length ? "strong" : "user_key" } : null);
+      }
+    } catch (err) {
+      if (!isPostgrestEmbedRejection(err)) throw err;
+      AB_POSTGREST_EMBED_SUPPORT.kakao_owner_locked = false;
+      rows = undefined;
+    }
+  }
+  if (!rows && !loginAliases.length) rows = await supabase(env, `/rest/v1/users?${idFilter}&${select}`, { method: "GET" });
+  else if (!rows) {
+    try { rows = await supabase(env, `/rest/v1/users?or=(id.in.(${list(ids)}),kakao_user_key.in.(${list(loginAliases)}))&${select}`, { method: "GET" }); }
+    catch (err) {
+      if (!isPostgrestEmbedRejection(err)) throw err;
+      const own = await supabase(env, `/rest/v1/users?${idFilter}&${select}`, { method: "GET" });
+      const legacy = await supabase(env, `/rest/v1/users?kakao_user_key=in.(${list(loginAliases)})&${select}`, { method: "GET" });
+      if (!Array.isArray(own) || !Array.isArray(legacy)) throw new Error("identity_owner_invalid");
+      rows = [...new Map([...own, ...legacy].map(row => [String(row.id), row])).values()];
+    }
+  }
+  if (!Array.isArray(rows) || rows.some(row => !row?.id || typeof row.kakao_user_key !== "string") || new Set(rows.map(row => String(row.id))).size !== rows.length) throw new Error("identity_owner_invalid");
+  for (const id of ids) env.__AB_REQUEST_USER_ROWS?.set(id, rows.find(row => String(row.id) === id) || null);
+  const legacy = new Map();
+  for (const alias of loginAliases) {
+    const found = rows.filter(row => row.kakao_user_key === alias);
+    if (found.length > 1) throw new Error("identity_owner_ambiguous");
+    legacy.set(alias, found[0] || null);
+  }
+  return { legacy, owners };
 }
 
 async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider = "skill", options = {}) {
@@ -55639,6 +55848,7 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
   // settings_rmw_busy 로 끝나 기록이 저장되지 않았다(동시 8건 중 4건). 읽기만 하고, 바꿀 것이 있거나 읽지 못하면
   // 예전 잠금 경로가 다시 읽고 판단한다(충돌·대상 없음 오류도 그 경로가 그대로 낸다).
   try {
+    if (options.afterReplyStrict) throw new Error("identity_preflight_deferred");
     const canonicalUid = await resolveEffectiveUserId(env, requestedUid);
     const links = canonicalUid ? await fetchUserIdentityLinks(env) : null;
     if (links) await dropForeignKakaoLogin(canonicalUid, links);
@@ -55657,24 +55867,36 @@ async function persistIdentityAliases(env, aliasKeys = [], userId = "", provider
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       return await withGlobalIdentitySettingsRmw(env, async ({ assertFresh }) => {
-        const canonicalUid = await resolveEffectiveUserId(env, requestedUid);
+        const lockedLinks = options.afterReplyStrict ? await fetchUserIdentityLinks(env) : null;
+        const lockedRows = lockedLinks ? await readLockedKakaoIdentityRows(env, requestedUid, aliases, lockedLinks) : null;
+        const canonicalUid = await resolveEffectiveUserId(env, requestedUid, { fresh: options.afterReplyStrict === true });
         const canonicalUser = canonicalUid ? await fetchUserById(env, canonicalUid) : null;
         if (!canonicalUser) throw new Error("identity_alias_target_missing");
-        const links = await fetchUserIdentityLinks(env);
+        const links = lockedLinks || await fetchUserIdentityLinks(env);
+        if (options.discoveredAppAlias) {
+          const alias = options.discoveredAppAlias;
+          const linkedUid = String(safeObject(links[alias]).user_id || "");
+          const owner = linkedUid ? await effectiveKakaoLoginOwner(env, { user: await fetchUserById(env, linkedUid), source: "link" })
+            : lockedRows?.owners ? await effectiveKakaoLoginOwner(env, lockedRows.owners.get(alias))
+              : await lookupNewKakaoSkillOwner(env, kakaoLoginIdFromAlias(alias), lockedRows?.legacy.get(alias) || null);
+          if (!owner?.user || owner.merged || String(owner.user.id) !== canonicalUid) throw new Error("kakao_discovered_owner_changed");
+        }
         let changed = false;
         for (const key of aliases) {
           const existingUid = String(safeObject(links[key]).user_id || "").trim();
           // V22.9.77 감사 B-7: 다른 사람에게 묶였거나 주인이 따로 있는 kakao_login 별칭은 절대 이 사용자에게 옮기지 않는다.
           // 확인된 카카오 요청은 그 별칭만 건너뛰고, 그 밖의 호출은 링크 표 충돌이면 오류, 아니면 건너뛴다(위 설명).
+          // Deferred work never trusts pre-response ownership or negative caches.
           const foreign = kakaoLoginIdFromAlias(key) && (existingUid || !kakaoLoginChecked.has(key))
-            ? await foreignKakaoLoginOwner(env, key, canonicalUid, links) : null;
+            ? await foreignKakaoLoginOwner(env, key, canonicalUid, links, { fresh: options.afterReplyStrict === true, lockedRows }) : null;
           if (foreign) {
+            options.conflictedAliases?.add(key);
             if (!keepCurrentOnConflict && foreign.explicit) throw new Error("identity_alias_conflict");
             if (keepCurrentOnConflict) traceKakaoLoginAliasConflict(env, canonicalUid, foreign.ownerUid, foreign.source, kakaoLoginIdFromAlias(key));
             continue;
           }
           if (existingUid) {
-            const existingCanonicalUid = await resolveEffectiveUserId(env, existingUid);
+            const existingCanonicalUid = await resolveEffectiveUserId(env, existingUid, { fresh: options.afterReplyStrict === true });
             if (existingCanonicalUid && existingCanonicalUid !== canonicalUid) throw new Error("identity_alias_conflict");
           }
           if (existingUid === canonicalUid) continue;
@@ -55802,7 +56024,7 @@ async function tryKakaoChatFirstRecord(env, context = {}) {
       if (!marker || marker.state !== "pending" || (marker.user_id && marker.user_id !== String(user.id))) return null;
       // Finish identity-map work before taking the user lifecycle lease.
       // 이 길은 Secret 으로 확인된 1:1 첫 기록(seedChatFirst)에서만 온다.
-      await persistIdentityAliases(env, getKakaoIdentityAliases(payload, kakaoUserKey), user.id, "skill", { trustedKakaoCaller: true });
+      if (!env.__AB_KAKAO_REQUEST?.enabled) await persistIdentityAliases(env, getKakaoIdentityAliases(payload, kakaoUserKey), user.id, "skill", { trustedKakaoCaller: true });
       markerFresh();
       return withKakaoUserLifecycleLease(env, user.id, async ({ assertFresh: lifecycleFresh }) => {
         const assertFresh = () => { markerFresh(); lifecycleFresh(); };
@@ -55861,40 +56083,60 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
   const rawKey = String(kakaoUserKey || "").trim();
   if (!rawKey) throw new Error("missing_kakao_user_identity");
   const key = encodeURIComponent(rawKey);
-  const aliases = [...new Set([`skill_identity:${rawKey}`, ...safeArray(aliasKeys)].filter(Boolean))];
+  const allAliases = [...new Set([`skill_identity:${rawKey}`, ...safeArray(aliasKeys)].filter(Boolean))];
+  const deferred = options.trustedKakaoCaller === true && env.__AB_KAKAO_REQUEST?.enabled === true;
+  if (deferred && !options.identityResolutionHeld) {
+    return await withKakaoSkillIdentityResolution(env, rawKey, () => ensureUser(env, kakaoUserKey, nickname, aliasKeys, { ...options, identityResolutionHeld: true }));
+  }
+  if (deferred) await waitKakaoSkillIdentityAliases(env, rawKey);
+  const aliases = deferred ? allAliases.filter(alias => !kakaoLoginIdFromAlias(alias)) : allAliases;
+  const appAlias = deferred ? allAliases.find(alias => kakaoLoginIdFromAlias(alias)) : "";
+  const finishIdentity = async (user, persist = true, newIdentity = false) => {
+    if (!deferred) { if (persist) await persistIdentityAliases(env, aliases, user.id, "skill", trust); return user; }
+    await queueKakaoSkillIdentityAliases(env, { rawKey, user, aliases: persist ? aliases : [], appAlias, newIdentity });
+    return user;
+  };
   // V22.9.77 감사 B-7: Secret 으로 확인된 카카오 요청일 때만 appUserId 로 기존 웹(카카오 로그인) 계정을 찾고, 그 별칭이 다른
   // 계정의 것이면 별칭만 빼고 지금 계정으로 계속한다. 그 밖의 호출은 예전 계약(찾지 않음, 충돌이면 실패)을 그대로 쓴다.
   const trust = { trustedKakaoCaller: options.trustedKakaoCaller === true };
   const existing = options.absenceConfirmed ? [] : await supabase(env, `/rest/v1/users?kakao_user_key=eq.${key}&select=id,kakao_user_key,nickname&limit=1`, { method: "GET" });
-  if (existing?.[0]) {
-    const rawUser = existing[0];
+  if (!Array.isArray(existing) || existing.some(row => !row?.id || typeof row.kakao_user_key !== "string")) throw new Error("user_source_invalid");
+  const rawRows = existing.filter(row => row.kakao_user_key === rawKey);
+  if (rawRows.length > 1) throw new Error("user_source_ambiguous");
+  if (rawRows[0]) {
+    const rawUser = rawRows[0];
     const primaryAlias = `skill_identity:${rawKey}`;
     const hasAlternateAlias = aliases.some((alias) => alias !== primaryAlias);
     const mergedLooking = String(rawUser.kakao_user_key || "").startsWith("merged:") || /\(통합됨\)\s*$/.test(String(rawUser.nickname || ""));
     // A current, non-merged raw key with no distinct alias is already authoritative. Avoid a
     // second users read on a cold isolate, but keep merged-looking or reconciliation paths strict.
-    if (!mergedLooking && !hasAlternateAlias) return rawUser;
+    if (!mergedLooking && !hasAlternateAlias) return finishIdentity(rawUser, false);
     const effectiveId = await resolveEffectiveUserId(env, rawUser.id);
     const effective = effectiveId === String(rawUser.id) ? rawUser : await fetchUserById(env, effectiveId);
     if (!effective) throw new Error("effective_user_missing");
-    await persistIdentityAliases(env, aliases, effective.id, "skill", trust);
-    return effective;
+    return finishIdentity(effective);
   }
 
-  const linked = options.absenceConfirmed ? null : await resolveLinkedIdentityUser(env, aliases, trust);
+  const resolveOptions = { ...trust, ...(appAlias ? { deferredAppAlias: appAlias } : {}) };
+  const linked = options.absenceConfirmed ? null : await resolveLinkedIdentityUser(env, aliases, resolveOptions);
   if (linked) {
     const effectiveId = await resolveEffectiveUserId(env, linked.id);
     const effective = effectiveId === String(linked.id) ? linked : await fetchUserById(env, effectiveId);
     if (!effective) throw new Error("effective_user_missing");
-    await persistIdentityAliases(env, aliases, effective.id, "skill", trust);
-    return effective;
+    if (deferred && resolveOptions.discoveredKakaoOwner === true) {
+      // A discovered web owner has no durable bot identity yet. Commit both
+      // aliases before records, and fail if ownership changed under the lock.
+      await persistIdentityAliases(env, allAliases, effective.id, "skill", { ...trust, afterReplyStrict: true, discoveredAppAlias: appAlias });
+      return effective;
+    }
+    return finishIdentity(effective, !resolveOptions.identityAliasesLinked || String(effective.id) !== String(linked.id), resolveOptions.discoveredKakaoOwner === true);
   }
 
   if (options.create === false) return null;
   // Only a confirmed absence of every existing identity may seed first-use eligibility.
   // The durable marker precedes the user insert so an interrupted first request can resume.
   if (options.seedChatFirst === true && options.bootstrapSeeded !== true) {
-    return await seedKakaoChatFirstUser(env, rawKey, nickname, aliases, trust);
+    return await seedKakaoChatFirstUser(env, rawKey, nickname, allAliases, trust);
   }
 
   let user = null, returnedByCreate = false;
@@ -55937,8 +56179,7 @@ async function ensureUser(env, kakaoUserKey, nickname, aliasKeys = [], options =
     const effectiveId = await resolveEffectiveUserId(env, user.id);
     const effective = effectiveId === String(user.id) ? user : await fetchUserById(env, effectiveId);
     if (!effective) throw new Error("effective_user_missing");
-    await persistIdentityAliases(env, aliases, effective.id, "skill", trust);
-    return effective;
+    return finishIdentity(effective, true, true);
   }
   return user;
 }
@@ -56170,8 +56411,10 @@ async function supabase(env, path, init = {}) {
     if (upstreamSignal?.aborted) throw new Error("supabase_request_cancelled_before_dispatch");
     const execute = async (signal) => {
       if (env.__AB_DB_BUDGET) {
-        if (env.__AB_DB_BUDGET.used >= env.__AB_DB_BUDGET.limit) throw Object.assign(new Error("supabase_subrequest_budget_before_dispatch"), {code:"supabase_subrequest_budget_before_dispatch"});
-        env.__AB_DB_BUDGET.used++;
+        const budget = env.__AB_DB_BUDGET;
+        const reserved = Math.max(0, Number(budget.reserved || 0));
+        if (budget.used >= budget.limit - reserved) throw Object.assign(new Error("supabase_subrequest_budget_before_dispatch"), {code:"supabase_subrequest_budget_before_dispatch"});
+        budget.used++;
       }
       dispatched = true;
       const res = await fetch(`${base}${path}`, { ...fetchInit, headers, signal });

@@ -30,12 +30,20 @@ async function withFixture(test) {
   f.agent = `v28-in-memory-qa-${fixtureNumber}`;
   try { await test(f); } finally { f.restore(); }
 }
-async function skill(f, utterance, { key = f.key, properties = {}, group = "", auth = true, type = "botUserKey" } = {}) {
+async function skill(f, utterance, { key = f.key, properties = {}, group = "", auth = true, type = "botUserKey", noContext = false } = {}) {
   const user = { id: key, type, properties: { ...properties, ...(group ? { botGroupKey: group } : {}) } };
   const headers = { "content-type": "application/json", "user-agent": f.agent };
   if (auth) headers["x-kakao-skill-secret"] = f.env.KAKAO_SKILL_SECRET;
-  const response = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers, body: JSON.stringify({ userRequest: { utterance, user } }) }), f.env, { waitUntil() {} });
-  return { response, body: await response.json() };
+  const jobs = [];
+  const response = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers, body: JSON.stringify({ userRequest: { utterance, user } }) }), f.env, noContext ? undefined : { waitUntil(job) { jobs.push(job); } });
+  const body = await response.json();
+  // Durable-state assertions wait for the callable after-reply queue. The B-0
+  // validator separately measures the actual response boundary and DB costs.
+  for (let offset = 0; offset < jobs.length;) {
+    const batch = jobs.slice(offset); offset = jobs.length;
+    await Promise.all(batch);
+  }
+  return { response, body };
 }
 async function web(f, method, path, { code = "", cookie = "", extra = {}, origin = BASE } = {}) {
   const headers = { accept: "text/html", "user-agent": f.agent };
@@ -158,7 +166,7 @@ await withFixture(async (f) => {
 });
 
 // Failure recovery reuses the server-generated candidate rather than creating another ledger.
-for (const failure of ["membership", "membership-definite", "transaction", "network-after-commit", "aliases"]) {
+for (const failure of ["membership", "membership-definite", "transaction", "network-after-commit", "aliases", "aliases-sync"]) {
   await withFixture(async (f) => {
     const original = globalThis.fetch;
     let failed = false;
@@ -169,7 +177,7 @@ for (const failure of ["membership", "membership-definite", "transaction", "netw
       const method = String(init.method || "GET");
       if (method === "POST" && parsed.pathname === "/rest/v1/households") postedHouseholds.push(body.id);
       const target = failure.startsWith("membership") ? parsed.pathname === "/rest/v1/household_members" :
-        failure === "aliases" ? parsed.pathname === "/rest/v1/accountbook_settings" && body.key === "user_identity_links" : parsed.pathname === "/rest/v1/transactions";
+        failure.startsWith("aliases") ? parsed.pathname === "/rest/v1/accountbook_settings" && body.key === "user_identity_links" : parsed.pathname === "/rest/v1/transactions";
       if (!failed && method === "POST" && target) {
         failed = true;
         if (failure === "network-after-commit") { await original(url, init); throw new TypeError("Synthetic network lost after commit"); }
@@ -178,9 +186,10 @@ for (const failure of ["membership", "membership-definite", "transaction", "netw
       return original(url, init);
     };
     const before = f.db.households.length;
-    const first = await skill(f, "점심 만원");
+    const first = await skill(f, "점심 만원", { noContext: failure === "aliases-sync" });
     // V22.9.34 감사 B13: 저장은 됐는데 응답만 잃은 경우는 기록 id 로 다시 읽어 확인한다. 실제로 저장됐으니 저장했다고 답한다.
     if (failure === "network-after-commit") ok(textOf(first.body).includes("저장했어요") && f.db.transactions.filter((row) => row.source_user_key === f.key).length === 1, `${failure}: a lost response after commit is confirmed by id and reported as saved once`);
+    else if (failure === "aliases") ok(failed && textOf(first.body).includes("저장했어요") && f.db.transactions.filter((row) => row.source_user_key === f.key).length === 1, "after-reply alias failure preserves the confirmed record (B-0 R-1)");
     else ok(!textOf(first.body).includes("저장했어요"), `${failure}: failure never falsely claims save success`);
     if (failure === "membership") eq(f.db.households.length, before + 1, "unknown owner assignment retains the stable candidate and never compensates a possible late commit");
     if (failure === "membership-definite") eq(f.db.households.length, before, "definite rejected owner assignment compensates only a strictly confirmed empty household");

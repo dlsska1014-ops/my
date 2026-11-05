@@ -60,7 +60,7 @@ async function kakaoClaimUserUnmerged(env, userId = "", snapshot = {}) {
   const user = reuse ? snapshot.userRow : await fetchUserById(env, userId);
   if (!user || String(user.kakao_user_key || "").startsWith("merged:") || /\(통합됨\)\s*$/.test(String(user.nickname || ""))) return false;
   // Do not use the process-local effective-user cache for bearer-credential decisions.
-  const redirect = reuse && Object.prototype.hasOwnProperty.call(snapshot, "redirectValue") ? snapshot.redirectValue : await getSettingValueStrict(env, identityMergeRedirectSettingsKey(userId));
+  const redirect = (reuse || snapshot.redirectUnderLease === true) && Object.prototype.hasOwnProperty.call(snapshot, "redirectValue") ? snapshot.redirectValue : await getSettingValueStrict(env, identityMergeRedirectSettingsKey(userId));
   return !redirect;
 }
 

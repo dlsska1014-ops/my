@@ -9,6 +9,8 @@
   "scripts": {
     "validate:ui-fixes-v229102": "node validation/validate-ui-fixes-v229102.mjs",
     "validate:skill-db-calls": "node validation/validate-skill-db-calls-v229100.mjs",
+    "validate:skill-identity-defer": "node validation/validate-skill-identity-defer-v229101.mjs",
+    "validate:skill-identity-enabled-gate": "node validation/validate-skill-identity-defer-v229101.mjs --enabled-gate",
     "validate:flow-loop-guard": "node validation/validate-flow-loop-guard-v22967.mjs",
     "validate:manual-guides": "node validation/validate-manual-guides-v22965.mjs",
     "validate:group-entry-copy": "node validation/validate-group-entry-copy-v22964.mjs",

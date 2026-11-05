@@ -2,6 +2,8 @@
 // ‘검색 적용’ → ‘필터 적용’, ‘필터 초기화’ → ‘초기화’, 세부 접기 이름), 분석·백업 둘은 판 이름만 바뀐다. 같은 픽스처·시계로 base(0fa07a0) 번들과 현재 번들의
 // 세 화면을 조각 단위로 대조해 뺀 6·더한 5 조각이 모두 필터 블록임을 확인한 뒤(review-artifacts/v102-ui-fixes-2026-11-05/refund-compare.txt)
 // --print-golden 으로 home·homeTrend·homePrev·analysis·backupFull·backupMonth 를 다시 얻었다. 나머지 값은 그대로다.
+// V22.9.101: replacing only APP_VERSION in hash inputs with V100 passes all 268 checks.
+// Evidence: review-artifacts/v101-b0-identity-defer-2026-11-04/refund-version-control.log.
 // V22.9.100: replacing only APP_VERSION in hash inputs with V99 passes all 268 checks.
 // Evidence: review-artifacts/v100-k1-db-calls-2026-11-04/refund-version-control.log.
 // V22.9.80 환불 연결 후속 검사(기능 플래그 REFUND_LINKS_ENABLED, 기본 꺼짐).
