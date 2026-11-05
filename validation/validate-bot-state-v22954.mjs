@@ -4,11 +4,12 @@ const {ok,eq,deepEq,done}=counter("BOT confirmation state V22.9.54");
 globalThis.fetch=async()=>{throw new Error("External fetch forbidden");};
 // V22.9.72: 단톡방 지연 답은 확인 버튼이 붙은 textCard 로 나가므로 description 도 읽는다.
 const textOf=body=>(body.template?.outputs||[]).map(o=>o.simpleText?.text||o.textCard?.description||"").join("\n");
-async function say(fx,text,{user="kakao_login:2265",room="",context}={}) {
+async function say(fx,text,{user="kakao_login:2265",room="",context,settle=true}={}) {
   const jobs=[];
   const payload={bot:{id:"synthetic-bot"},userRequest:{utterance:text,user:{id:user,type:"botUserKey",properties:{botUserKey:user,...(room?{botGroupKey:room}:{})}},...(room?{chat:{type:"botGroupKey",id:room,properties:{botGroupKey:room}}}:{})}};
   const response=await app.fetch(new Request(BASE+"/skill",{method:"POST",headers:{"content-type":"application/json","x-kakao-skill-secret":fx.env.KAKAO_SKILL_SECRET||""},body:JSON.stringify(payload)}),fx.env,context||{waitUntil:job=>jobs.push(job)});
   const body=await response.json();
+  if(settle && response.headers.get("x-accountbook-nlu-result")!=="deferred") for(let offset=0;offset<jobs.length;) {const batch=jobs.slice(offset);offset+=batch.length;await Promise.allSettled(batch);}
   return {response,body,text:textOf(body),jobs};
 }
 const stateRow=fx=>fx.db.accountbook_settings.find(row=>row.key.includes(":separate:"));
@@ -228,12 +229,12 @@ for (const outcome of ["success","failure"]) await setup(async fx=>{
     if(url.pathname.endsWith("accountbook_settings") && method==="GET" && String(url.searchParams.get("key")).includes("pending_write:")) prepared=true;
   });
   try {
-    const result=await say(fx,"첫구매 7560원 현금",{user:"synthetic-first-history-"+outcome,room:"first-history-room-"+outcome});
-    ok(historyStarted && !prepared,"first-use history must succeed before writer preparation");
-    eq(fx.db.transactions.length,0,"no transaction before required history succeeds");
-    eq(fx.db.accountbook_settings.filter(row=>row.key.includes(":pending_write:")).length,0,"no pending marker before required history succeeds");
+    const result=await say(fx,"첫구매 7560원 현금",{user:"synthetic-first-history-"+outcome,room:"first-history-room-"+outcome,settle:false});
+    ok(!historyStarted && prepared,"first-use history starts after the confirmed response");
+    eq(fx.db.transactions.length,1,"confirmed record does not wait for optional first-use history");
+    eq(fx.db.accountbook_settings.filter(row=>row.key.includes(":pending_write:")).length,1,"confirmed pending marker remains protected until after-reply cleanup");
     release();await Promise.allSettled(result.jobs);
-    eq(fx.db.transactions.length,outcome==="success"?1:0,"history outcome gates first record: "+outcome);
+    eq(fx.db.transactions.length,1,"history outcome never repeats or removes the confirmed record: "+outcome);
   } finally {release();undo();}
 });
 await setup(async fx=>{

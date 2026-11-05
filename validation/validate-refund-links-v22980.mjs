@@ -1,4 +1,5 @@
-// V22.9.98: the previous APP_VERSION control passes all 268 checks; only the analysis and backup version digests change.
+// V22.9.100: replacing only APP_VERSION in hash inputs with V99 passes all 268 checks.
+// Evidence: review-artifacts/v100-k1-db-calls-2026-11-04/refund-version-control.log.
 // V22.9.80 환불 연결 후속 검사(기능 플래그 REFUND_LINKS_ENABLED, 기본 꺼짐).
 //   T-11  가계부를 지우면 ‘수입으로 두기’ 목록(accountbook_settings 'refund_review_kept:<가계부>')도 지우는 트리거를 검토용 적용 SQL 에 더했다.
 //   T-12  연결 보호 트리거(refund_link_guard_v22979)에 막힌 수정: 카카오·웹·관리자·API 가 이유(종류·금액·환급 분류·날짜)를 알리고,
@@ -85,15 +86,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 fef72cab327c9203e1d1d3b7",
   "reportsWeek": "200 428380c89484611de8943026",
-  "analysis": "200 92546550c340f7e1eb36d0c8",
+  "analysis": "200 3672cc6bcbfa88bfff4c4c9d",
   "backupPage": "200 b9a026f5decec130db68d757",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 ff32352e69690af431d96c03",
-  "backupMonth": "200 9e3b4960a019e07918182f17",
+  "backupFull": "200 07b3ffeaf2f75242f09dbbd2",
+  "backupMonth": "200 7940d5d58b12e3458303f73b",
   "candidate": "200 500f881e0ca7f01cb92e917a",
   "legacyErr": "200 8483371f87264a4e90af381d",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

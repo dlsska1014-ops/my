@@ -140,12 +140,12 @@ await section("D-9", async () => {
     const stop = intercept(({ url, method }) => { log.push(`${method} ${url.pathname}`); });
     try {
       const saved = await kakaoRecord(fx, "헬로모바일 33900원");
-      eq(log.length, 12, "카카오 한 건 저장의 Supabase 요청 수는 12회 그대로다");
+      eq(log.length, 11, "K-1 일일 기록 재사용으로 카카오 한 건 저장의 전체 Supabase 요청은 11회다");
       eq(log.filter((line) => line.startsWith("GET") && line.includes("accountbook_settings")).length, 2, "카카오 한 건 저장의 설정 읽기는 2회 그대로다");
       eq(saved.label, "expense/통신", "왕복 측정용 카카오 기록이 통신으로 저장된다");
       log.length = 0;
       const category = await classify(fx, "expense", "헬로모바일");
-      eq(log.length, 5, "홈 빠른 입력 분류 API의 Supabase 요청 수는 5회 그대로다");
+      eq(log.length, process.env.AB_QA_CATEGORIES_ABSENT === "1" ? 4 : 5, "홈 빠른 입력 분류 API는 5회이며 분류 표 부재 캐시가 있으면 4회다");
       eq(category, "통신", "왕복 측정용 분류 API가 통신을 돌려준다");
     } finally {
       stop();

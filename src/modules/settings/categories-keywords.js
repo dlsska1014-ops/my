@@ -444,6 +444,16 @@ function categoriesTableAbsent(err) {
   return /^Supabase 404:/.test(message) && /PGRST205/.test(message);
 }
 
+async function readOptionalCategoryTable(env, path) {
+  if (Number(globalThis.__AB_CATEGORY_TABLE_ABSENT_UNTIL || 0) > Date.now()) return null;
+  try { return await supabase(env, path, { method: "GET", optionalTable: "accountbook_categories" }); }
+  catch (err) {
+    if (!categoriesTableAbsent(err)) throw err;
+    globalThis.__AB_CATEGORY_TABLE_ABSENT_UNTIL = Date.now() + 10 * 60 * 1000;
+    return null;
+  }
+}
+
 async function fetchCustomCategories(env, householdId = "", options = {}) {
   // V22.9.16: 키워드 설정과 분류 표는 서로 필요 없는 조회다. 직렬로 두 번 기다리던 것을 함께 던진다.
   // V22.9.77 N-15: options.strict(백업)는 읽기 실패를 빈 목록으로 바꾸지 않는다. 설정 조회가 실패하면 기본 분류만 든 백업이
@@ -458,7 +468,7 @@ async function fetchCustomCategories(env, householdId = "", options = {}) {
   // Read both fallback settings together so absence does not add a serial database round trip.
   const keys = [categoryKeywordsSettingsKey(householdId), categorySettingsKey(householdId)];
   const [rows, settings] = await Promise.all([
-    supabase(env, `/rest/v1/accountbook_categories?${params.toString()}`, { method: "GET", optionalTable: "accountbook_categories" }).catch((err) => {
+    readOptionalCategoryTable(env, `/rest/v1/accountbook_categories?${params.toString()}`).catch((err) => {
       if (strict && !categoriesTableAbsent(err)) throw err;
       return null;
     }),
@@ -485,7 +495,7 @@ export {
   categoryKeywordsSettingsKey, categorySettingsKey, defaultCategoryKeywordRows,
   deleteSettingsCategory, fetchCategoryKeywordMap, fetchCustomCategories,
   keywordCardClassificationRows, keywordEditorCardKeywords, keywordEditorCss,
-  normalizeCategoryKeywords, normalizeStoredCategoryList, renderKeywordBulkEditor, sameKeywordList,
-  saveCategoryKeywordMap, setCategoryKeywords,
+  normalizeCategoryKeywords, normalizeStoredCategoryList, readOptionalCategoryTable,
+  renderKeywordBulkEditor, sameKeywordList, saveCategoryKeywordMap, setCategoryKeywords,
 };
 // @build:exports-end

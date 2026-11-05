@@ -55,11 +55,12 @@ function activeKakaoWebClaims(claims = {}, now = Date.now()) {
   return Object.fromEntries(Object.entries(claims).filter(([, record]) => Date.parse(record.expires_at) > now));
 }
 
-async function kakaoClaimUserUnmerged(env, userId = "") {
-  const user = await fetchUserById(env, userId);
+async function kakaoClaimUserUnmerged(env, userId = "", snapshot = {}) {
+  const reuse = env.__AB_KAKAO_REQUEST?.createdUsers.has(String(userId)) && String(snapshot.userRow?.id) === String(userId);
+  const user = reuse ? snapshot.userRow : await fetchUserById(env, userId);
   if (!user || String(user.kakao_user_key || "").startsWith("merged:") || /\(통합됨\)\s*$/.test(String(user.nickname || ""))) return false;
   // Do not use the process-local effective-user cache for bearer-credential decisions.
-  const redirect = await getSettingValueStrict(env, identityMergeRedirectSettingsKey(userId));
+  const redirect = reuse && Object.prototype.hasOwnProperty.call(snapshot, "redirectValue") ? snapshot.redirectValue : await getSettingValueStrict(env, identityMergeRedirectSettingsKey(userId));
   return !redirect;
 }
 

@@ -542,7 +542,7 @@ async function renderKakaoAccountLinkDiagnostics(env) {
 // @build:exports-start
 export {
   afterKakaoSkillIdentityWork, handleMyAccountLinkPage, handleMyAccountLinkRun,
-  handleMyAccountLinkStart, isKakaoTalkInAppBrowser, kakaoAccountLinkPrompt,
+  handleMyAccountLinkStart, hasDatabaseRoom, isKakaoTalkInAppBrowser, kakaoAccountLinkPrompt,
   kakaoAccountLinkProofAfterKakao, kakaoAutoLoginCookie, kakaoAutoLoginFallbackLocation,
   kakaoInAppAutoLoginResponse, queueKakaoAccountLinkOffer, renderKakaoAccountLinkDiagnostics,
 };

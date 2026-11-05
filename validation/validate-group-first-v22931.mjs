@@ -332,14 +332,21 @@ await withFixture(async f => {
   ok(f.db.transactions.some(tx => tx.household_id === old), "old records are never migrated to new target");
 });
 
-// Strict bundled settings/member reads fail closed, including existing financial scope.
+// Strict recovery-path settings/member reads fail closed, including existing financial scope.
+// K-1's established-member HM failure is covered in validate-skill-db-calls-v229100.
 for (const failure of ["settings", "membership", "malformed-household", "null-household", "malformed-role", "malformed-marker", "malformed-departure"]) {
   await withFixture(async f => {
     await skill(f, "점심 10000");
     const state = await auto(f), before = f.db.transactions.length;
+    // An incomplete preparation stays on the lifecycle-protected slow path.
+    f.db.accountbook_settings = f.db.accountbook_settings.filter(item => item.key !== state.keys.done);
     if (failure === "malformed-marker") put(f, state.keys.marker, "{broken");
     if (failure === "malformed-departure") put(f, `kakao_group_departed_v22931:${digest(state.done.owner_id)}`, "[]");
-    f.intercept = call => {
+    f.intercept = async (call, input, init, memoryFetch) => {
+      if (["malformed-household", "null-household"].includes(failure) && call.method === "GET" && call.url.pathname === "/rest/v1/household_members" && call.url.searchParams.has("or")) {
+        const rows = await (await memoryFetch(input, init)).json();
+        return new Response(JSON.stringify(rows.map(item => ({ ...item, households: null }))), { status: 200 });
+      }
       if (failure === "malformed-household" && call.method === "GET" && call.url.pathname === "/rest/v1/households") return new Response(JSON.stringify({ incomplete: true }), { status: 200 });
       if (failure === "null-household" && call.method === "GET" && call.url.pathname === "/rest/v1/households") return new Response("null", { status: 200 });
       if (failure === "malformed-role" && call.method === "GET" && call.url.pathname === "/rest/v1/household_members" && call.url.searchParams.has("household_id")) return new Response("[{}]", { status: 200 });
@@ -380,7 +387,8 @@ await withFixture(async f => {
   eq(f.db.transactions.length, before + 2, "same-message identical entries are two legitimate rows");
 });
 
-// A collaborating bind/unbind/leave/purge waits until the in-flight record is committed.
+// A collaborating bind/unbind/leave/purge waits for a slow recovery-path record.
+// Established-member fast records intentionally retain the documented lifecycle race.
 for (const mutation of ["bind", "unbind", "leave", "purge"]) {
   await withFixture(async f => {
     await skill(f, "커피 4500");
@@ -388,6 +396,7 @@ for (const mutation of ["bind", "unbind", "leave", "purge"]) {
     let actor = f.key, actorId = owner;
     if (mutation === "bind") f.db.household_members.push({ household_id: "house-trip", user_id: owner, role: "admin" });
     if (mutation === "leave") { actor += "-member"; await skill(f, "점심 10000", { key: actor }); actorId = f.db.transactions.at(-1).user_id; }
+    f.db.accountbook_settings = f.db.accountbook_settings.filter(item => item.key !== state.keys.done);
     let entered, resume;
     const enteredPromise = new Promise(resolve => { entered = resolve; });
     const resumePromise = new Promise(resolve => { resume = resolve; });

@@ -2,6 +2,7 @@
 import { AB_OPERATION_MUTEXES } from "./global-state.js";
 import { boundedRuntimeNumber, rememberOpsEvent } from "./ops-telemetry.js";
 import { randomHex } from "../auth/crypto-admin-session.js";
+import { hasDatabaseRoom } from "../auth/kakao-account-link.js";
 import { supabase } from "../data/supabase-client.js";
 // @build:imports-end
 
@@ -31,7 +32,7 @@ function isOperationLockRpcUnavailable(err) {
   return /(?:Supabase\s+404|\bPGRST202\b|\b42883\b|schema cache|function\s+.*accountbook_(?:claim|release)_operation.*does not exist|could not find.*accountbook_(?:claim|release)_operation)/i.test(safeError(err));
 }
 
-async function withOperationMutex(rawKey, task) {
+async function withOperationMutex(rawKey, task, options = {}) {
   const key = String(rawKey || "operation").slice(0, 300);
   const previous = AB_OPERATION_MUTEXES.get(key) || Promise.resolve();
   let releaseGate;
@@ -42,8 +43,9 @@ async function withOperationMutex(rawKey, task) {
   try {
     return await task();
   } finally {
-    releaseGate();
-    if (AB_OPERATION_MUTEXES.get(key) === tail) AB_OPERATION_MUTEXES.delete(key);
+    const release = () => { releaseGate(); if (AB_OPERATION_MUTEXES.get(key) === tail) AB_OPERATION_MUTEXES.delete(key); };
+    if (options.deferRelease) await options.deferRelease(release);
+    else release();
   }
 }
 
@@ -85,6 +87,38 @@ async function releaseOperationLease(env, lease = {}) {
   } catch (err) {
     rememberOpsEvent({ kind: "operation_lock_release_failed", severity: "warn", path: "/rest/v1/rpc/accountbook_release_operation", method: "POST", detail: `${lease.key}:${safeError(err)}` });
     return false;
+  }
+}
+
+// V22.9.100 K-1: enqueue callables, never already-started database promises.
+// Synchronous callers retain the old cleanup-before-return contract.
+async function deferKakaoAfterReply(env, job, { cost = 3, critical = false } = {}) {
+  const request = env?.__AB_KAKAO_REQUEST;
+  if (request?.enabled) { request.afterReply.push({ job, cost, critical }); return; }
+  await job();
+}
+
+async function runKakaoAfterReply(env) {
+  // A task turn lets the response travel through the router before any cleanup
+  // fetch starts; Promise.resolve() alone only adds another microtask.
+  await new Promise(resolve => setTimeout(resolve, 0));
+  const queue = env?.__AB_KAKAO_REQUEST?.afterReply || [];
+  while (queue.length) {
+    const { job, cost, critical } = queue.shift();
+    const reserved = queue.reduce((sum, item) => sum + (item.critical ? item.cost : 0), 0);
+    if (!hasDatabaseRoom(env, cost + (critical ? 0 : reserved))) continue;
+    try { await job(); }
+    catch (err) { rememberOpsEvent({ kind: "kakao_after_reply_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) }); }
+  }
+}
+
+async function finishKakaoMessageLeases(env) {
+  const leases = env?.__AB_KAKAO_REQUEST?.messageLeases || [];
+  for (const pending of leases.splice(0)) {
+    await deferKakaoAfterReply(env, async () => {
+      const lease = await pending.catch(() => null);
+      if (lease?.acquired) await releaseOperationLease(env, lease);
+    }, { cost: 1, critical: true });
   }
 }
 
@@ -149,10 +183,13 @@ async function withSettingsRmwLease(env, lockKey = "", task, options = {}) {
       }
       return await task({ lease, assertFresh: () => assertSettingsLeaseFresh(lease) });
     } finally {
-      await releaseOperationLease(env, lease);
+      if (options.releaseMode === "defer") await deferKakaoAfterReply(env, () => releaseOperationLease(env, lease), { cost: 1, critical: true });
+      else await releaseOperationLease(env, lease);
     }
   };
-  return options.localMutex === false ? runWithDatabaseLease() : withOperationMutex(key, runWithDatabaseLease);
+  const mutexOptions = options.releaseMode === "defer" && env?.__AB_KAKAO_REQUEST?.enabled
+    ? { deferRelease: release => deferKakaoAfterReply(env, release, { cost: 0, critical: true }) } : {};
+  return options.localMutex === false ? runWithDatabaseLease() : withOperationMutex(key, runWithDatabaseLease, mutexOptions);
 }
 
 function withHouseholdDatabaseLease(env, householdId = "", task, options = {}) {
@@ -172,9 +209,10 @@ function withGlobalIdentitySettingsRmw(env, task) {
 }
 // @build:exports-start
 export {
-  assertSettingsLeaseFresh, claimOperationLease, isUniqueConstraintError, logWorkerError,
-  operationLeaseOwner, parseStrictSettingsArray, parseStrictSettingsObject, releaseOperationLease,
-  safeError, settingsDataError, withGlobalIdentitySettingsRmw, withHouseholdDatabaseLease,
+  assertSettingsLeaseFresh, claimOperationLease, deferKakaoAfterReply, finishKakaoMessageLeases,
+  isUniqueConstraintError, logWorkerError, operationLeaseOwner, parseStrictSettingsArray,
+  parseStrictSettingsObject, releaseOperationLease, runKakaoAfterReply, safeError,
+  settingsDataError, withGlobalIdentitySettingsRmw, withHouseholdDatabaseLease,
   withHouseholdSettingsRmw, withOperationMutex, withSettingsRmwLease,
 };
 // @build:exports-end

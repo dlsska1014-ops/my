@@ -50,9 +50,12 @@ globalThis.fetch = async (input, init = {}) => {
 
 async function measureWith(worker, request) {
   trace = { calls: 0, maxDepth: 0, maxCompleted: 0 };
-  const response = await worker.fetch(request, fixture.env, { waitUntil() {}, passThroughOnException() {} });
+  const jobs = [];
+  const response = await worker.fetch(request, fixture.env, { waitUntil(job) { jobs.push(job); }, passThroughOnException() {} });
   const text = await response.text();
   const result = { status: response.status, text, calls: trace.calls, depth: trace.maxDepth };
+  for (let offset = 0; offset < jobs.length;) { const batch = jobs.slice(offset); offset += batch.length; await Promise.allSettled(batch); }
+  result.totalCalls = trace.calls;
   trace = null;
   return result;
 }
@@ -142,13 +145,15 @@ ok(/선택했어요/.test(chosen.text), "카카오에서 가계부를 골랐다"
     body: JSON.stringify({ userRequest: { utterance, user: { id: kakaoKey, type: "botUserKey", properties: { botUserKey: kakaoKey } } }, bot: { id: "bot" }, action: { name: "fallback", params: {} } }),
   });
   const cold = await measureWith(coldWorker, coldRequest("콜드아이솔레이트커피 4511"));
+  console.log(`K-1 cold calls=${cold.calls}/${cold.totalCalls} depth=${cold.depth}`);
   ok(cold.status === 200 && /저장했어요/.test(cold.text), "fresh-isolate Kakao record succeeds through the actual worker");
-  ok(cold.calls === 12, `fresh-isolate Kakao record keeps exactly 12 DB calls (${cold.calls})`);
-  ok(cold.depth === 6, `fresh-isolate Kakao record keeps exactly depth 6 (${cold.depth})`);
+  const expectedCalls = process.env.AB_QA_CATEGORIES_ABSENT === "1" ? 8 : 9;
+  ok(cold.calls === expectedCalls && cold.totalCalls === expectedCalls + 2, `fresh-isolate Kakao record keeps exact reply/total DB calls (${cold.calls}/${cold.totalCalls})`);
+  ok(cold.depth === 5, `fresh-isolate Kakao record keeps exactly reply depth 5 (${cold.depth})`);
   const warm = await measureWith(coldWorker, coldRequest("웜아이솔레이트커피 4512"));
   ok(warm.status === 200 && /저장했어요/.test(warm.text), "same-isolate warm Kakao record succeeds");
-  ok(warm.calls === 12, `same-isolate warm Kakao record keeps exactly 12 DB calls (${warm.calls})`);
-  ok(warm.depth === 6, `same-isolate warm Kakao record keeps exactly depth 6 (${warm.depth})`);
+  ok(warm.calls === expectedCalls && warm.totalCalls === expectedCalls + 2, `same-isolate warm Kakao record keeps exact reply/total calls (${warm.calls}/${warm.totalCalls})`);
+  ok(warm.depth === 5, `same-isolate warm Kakao record keeps exactly reply depth 5 (${warm.depth})`);
 }
 
 // 상한은 V22.9.16 에서 잰 값이다(V22.9.15 는 기록 14회/12단계, 수정 21회/18단계).

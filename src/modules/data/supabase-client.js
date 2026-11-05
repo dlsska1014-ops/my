@@ -39,6 +39,7 @@ async function supabase(env, path, init = {}) {
   const method = String(fetchInit.method || "GET").toUpperCase();
   const readOnly = ["GET", "HEAD", "OPTIONS"].includes(method);
   if (!readOnly && !/\/rpc\/accountbook_(?:auth_attempt|claim_operation|release_operation)/.test(path)) env.__AB_REQUEST_USER_ROWS?.clear();
+  if (!readOnly && /^\/rest\/v1\/accountbook_settings(?:\?|$)/.test(path)) env.__AB_KAKAO_REQUEST?.settings.clear();
   const headers = new Headers(fetchInit.headers || {});
   headers.set("apikey", env.SUPABASE_SERVICE_ROLE_KEY);
   headers.set("authorization", `Bearer ${env.SUPABASE_SERVICE_ROLE_KEY}`);

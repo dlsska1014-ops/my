@@ -55,7 +55,8 @@ async function kakao(task) {
   });
 }
 const markers = (fx) => fx.db.accountbook_settings.filter((row) => String(row.key).includes(":pending_write:"));
-const dedupeScan = ({ url, method }) => method === "GET" && url.pathname.endsWith("/transactions") && String(url.searchParams.get("amount") || "").startsWith("in.") && String(url.searchParams.get("created_at") || "").startsWith("gte.");
+const dedupeScan = ({ url, method }) => method === "GET" && url.pathname.endsWith("/transactions") &&
+  (String(url.searchParams.get("transaction_date") || "").startsWith("eq.") || String(url.searchParams.get("amount") || "").startsWith("in.") && String(url.searchParams.get("created_at") || "").startsWith("gte."));
 const transactionPost = ({ url, method }) => method === "POST" && url.pathname.endsWith("/transactions");
 
 // Y-1-A 중복 조회가 실패하면(거래 전송 전) 이 요청이 쓴 표식을 지운다 → 다음의 다른 문장이 저장된다.
