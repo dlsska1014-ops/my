@@ -217,7 +217,8 @@ async function handleMyRecurringSave(request, env) {
       if (!recurringSpenderEligible(await fetchRawHouseholdMembers(env, selected.id), requestedSpender)) return redirectResponse(mySettingsLocation(month, selected.id, { err: "recurring_spender_ineligible" }));
       row.user_id = requestedSpender;
     }
-    if (!ruleId) await markRecurringAppliedIfRecordedThisMonth(env, selected.id, row);
+    const applied = {};
+    if (!ruleId) await markRecurringAppliedIfRecordedThisMonth(env, selected.id, row, null, applied);
     await withHouseholdDatabaseLease(env, selected.id, async ({ assertFresh }) => {
       const existing = ruleId ? await fetchRecurringRuleByIdStrict(env, ruleId) : null;
       if (ruleId && (!existing || String(existing.household_id) !== String(selected.id))) throw new Error("recurring_scope_invalid");
@@ -231,7 +232,7 @@ async function handleMyRecurringSave(request, env) {
         body: JSON.stringify(row),
       });
     });
-    return redirectResponse(mySettingsLocation(month, selected.id, { msg: "recurring_saved" }));
+    return redirectResponse(mySettingsLocation(month, selected.id, { msg: applied.otherMemberRecorded ? "recurring_saved_other_recorded" : "recurring_saved" }));
   } catch (err) {
     // V22.9.76 감사 D-25: 두 번 누른 저장의 두 번째 요청은 첫 요청이 쓰는 동안 잠금을 못 얻는다. 저장 공간 장애로 안내하지 않는다.
     return redirectResponse(mySettingsLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : /settings_rmw_busy/.test(safeError(err)) ? "recurring_busy" : "recurring_table_required" }));
@@ -265,14 +266,20 @@ async function handleMyRecurringDelete(request, env) {
 
 // V22.9.34 감사 T3: 새 정기 규칙을 만들 때 이번 달에 같은 지출(같은 금액·내용)을 이미 기록했으면
 // last_applied_month 를 이번 달로 채운다. 그러지 않으면 자동·수동 반영이 이번 달에 한 번 더 넣었다.
-async function markRecurringAppliedIfRecordedThisMonth(env, householdId, row, rowsHint = null) {
+// V22.9.102(Codex 검토 P2): 같은 금액·내용이라도 다른 참여자 이름으로 기록된 것은 ‘이미 반영됨’으로 치지 않는다. 예전에는 B 가 적은 ‘월세 650,000’
+// 때문에 A 가 만든 월세 규칙이 이번 달을 건너뛰어 A 의 몫이 빠졌다. 규칙의 지출자(user_id)가 있으면 그 사람의 기록만 세고, 없으면 예전처럼 누구 것이든 센다.
+// 다른 참여자의 같은 기록만 있으면 info.otherMemberRecorded 로 알려 저장 안내에 적는다(중복이면 사용자가 그 기록이나 규칙의 지출자를 고친다).
+async function markRecurringAppliedIfRecordedThisMonth(env, householdId, row, rowsHint = null, info = null) {
   const thisMonth = currentMonthKst();
   const memoKey = normalizeText(row.memo || "");
   if (!memoKey || !(Number(row.amount) > 0)) return false;
   // V22.9.37: 부르는 쪽이 이번 달 같은 종류의 기록을 이미 읽어 두었으면(rowsHint) 다시 읽지 않는다.
   const rows = Array.isArray(rowsHint) ? rowsHint : await fetchAdminRows(env, { month: thisMonth, householdId, type: row.type === "income" ? "income" : "expense" });
-  const recorded = safeArray(rows).some((item) => Number(item.amount) === Number(row.amount)
+  const spender = String(row.user_id || "");
+  const same = safeArray(rows).filter((item) => Number(item.amount) === Number(row.amount)
     && (normalizeText(item.memo || "") === memoKey || normalizeText(item.raw_text || "").includes(memoKey)));
+  const recorded = same.some((item) => !spender || String(item.user_id || "") === spender);
+  if (info && typeof info === "object") info.otherMemberRecorded = !recorded && same.length > 0;
   if (recorded) row.last_applied_month = thisMonth;
   return recorded;
 }

@@ -55,6 +55,9 @@ function formatMessageText(msg) {
     personal_password_short: "내 계정 로그인 비밀번호는 8자리 이상으로 입력해 주세요.",
     preference_saved: "설정을 저장했습니다.",
     recurring_exists: "같은 반복 항목이 이미 등록되어 있어 중복 저장하지 않았습니다.",
+    // V22.9.102: 다른 참여자 이름의 같은 기록은 ‘이미 반영됨’이 아니다(규칙 지출자의 기록만 센다). 중복이면 사용자가 고른다.
+    recurring_saved_other_recorded: "정기 항목을 저장했어요. 이번 달 같은 금액·내용의 기록이 다른 참여자 이름으로 있어 이번 달 자동 반영은 그대로 진행돼요. 같은 지출이면 그 기록이나 이 항목의 지출자를 맞춰 주세요.",
+    account_reauth_verified: "본인 확인이 끝났어요. 5분 안에 카카오 로그인 연결을 진행해 주세요.",
     recurring_registered: "반복 항목을 등록했습니다.",
     recurring_save_failed: "반복 항목을 저장하지 못했습니다. 기존 데이터는 유지됩니다.",
     recurring_not_found: "삭제할 반복 항목을 찾지 못했습니다. 이미 지워졌거나 이 가계부의 항목이 아닙니다.",

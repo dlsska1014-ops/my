@@ -142,7 +142,7 @@ const AB_HOUSEHOLD_MEMORY_PATHS = new Set([
   "/payment-methods", "/goals", "/savings-goals", "/annual", "/annual-report",
   "/settlement-summary", "/split-summary", "/meeting-settlement", "/budget-alerts", "/today-budget",
   "/monthly-forecast", "/smart-tools", "/my/premium", "/keyword-guide", "/my/members", "/my/backup",
-  "/my/groups", "/my/households",
+  "/my/groups", "/my/households", "/my/setup",
 ]);
 
 function isRememberableHouseholdId(value = "") {

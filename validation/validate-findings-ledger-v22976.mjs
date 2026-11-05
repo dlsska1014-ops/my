@@ -12,6 +12,7 @@ const ok = (condition, message) => { checks += 1; if (!condition) failures.push(
 
 // 출처 문서마다 항목 ID 를 뽑는 규칙. 새 감사 문서를 쓰면 여기에 한 줄을 더한다.
 const SOURCES = [
+  { key: "V102", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_102.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(J-[0-9]+)(?=[ *]|$)/gm, expected: 11 },
   { key: "V100", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_100.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(K-[0-9]+)(?=[ *]|$)/gm, expected: 1 },
   { key: "V99", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_99.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(I-[0-9]+)(?=[ *]|$)/gm, expected: 5 },
   { key: "V44", path: "docs/codex/AUDIT_FINDINGS_V22_9_44.md", pattern: /^(###|[ ]*-) +(?:[*][*])?([A-G]-[0-9]+)(?=[ *]|$)/gm, expected: 105 },
@@ -54,7 +55,7 @@ const ledger = read("docs/codex/FINDINGS_LEDGER.md");
 const harness = read(".codex/scripts/verify-repository.mjs");
 const rows = [];
 for (const line of ledger.split("\n")) {
-  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100):[A-Z]-[0-9]+) *[|]/.exec(line);
+  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V102):[A-Z]-[0-9]+) *[|]/.exec(line);
   if (!match) continue;
   const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
   const [id, severity, title, status, fixedIn, check, note] = cells;

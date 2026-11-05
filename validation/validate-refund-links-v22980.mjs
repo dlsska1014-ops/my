@@ -1,3 +1,7 @@
+// V22.9.102(2026-11-05, UI 수정): 꺼짐 화면의 홈 셋은 필터 블록만(머리 ‘찾기·거르기’ → ‘필터’, 검색 칸 안내·aria-label, 빠른 검색 칸 #v8Search 제거,
+// ‘검색 적용’ → ‘필터 적용’, ‘필터 초기화’ → ‘초기화’, 세부 접기 이름), 분석·백업 둘은 판 이름만 바뀐다. 같은 픽스처·시계로 base(0fa07a0) 번들과 현재 번들의
+// 세 화면을 조각 단위로 대조해 뺀 6·더한 5 조각이 모두 필터 블록임을 확인한 뒤(review-artifacts/v102-ui-fixes-2026-11-05/refund-compare.txt)
+// --print-golden 으로 home·homeTrend·homePrev·analysis·backupFull·backupMonth 를 다시 얻었다. 나머지 값은 그대로다.
 // V22.9.100: replacing only APP_VERSION in hash inputs with V99 passes all 268 checks.
 // Evidence: review-artifacts/v100-k1-db-calls-2026-11-04/refund-version-control.log.
 // V22.9.80 환불 연결 후속 검사(기능 플래그 REFUND_LINKS_ENABLED, 기본 꺼짐).
@@ -78,23 +82,23 @@ const SOFT = process.env.V22980_SOFT === "1";
 // V22.9.99: 96 raw hash inputs compared with V98. Only version and authorized copy/title changes remain.
 // Evidence: review-artifacts/v99-support-wording-2026-11-04/refund-normalized-comparison.json.
 const FLAG_OFF_GOLDEN = {
-  "home": "200 6102bc4636a8a2cab4984d97",
-  "homeTrend": "200 e94b798ea28058746d83ed40",
-  "homePrev": "200 a8385ede6c84ba16f2933388",
+  "home": "200 20f9536878db26ac79a3a548",
+  "homeTrend": "200 02f7bd6b777077dce5ad5119",
+  "homePrev": "200 43ad9302fc2ce7cd55d3baad",
   "budgets": "200 9842980d5244618b7f76489b",
   "budgetAlerts": "200 f180af377b9648a700cce48a",
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 fef72cab327c9203e1d1d3b7",
   "reportsWeek": "200 428380c89484611de8943026",
-  "analysis": "200 3672cc6bcbfa88bfff4c4c9d",
+  "analysis": "200 3f5efbe5292e2a72153a2f6e",
   "backupPage": "200 b9a026f5decec130db68d757",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 07b3ffeaf2f75242f09dbbd2",
-  "backupMonth": "200 7940d5d58b12e3458303f73b",
+  "backupFull": "200 8102c952a78e1084ca7f72b6",
+  "backupMonth": "200 6c542416ce951e0e98236d58",
   "candidate": "200 500f881e0ca7f01cb92e917a",
   "legacyErr": "200 8483371f87264a4e90af381d",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

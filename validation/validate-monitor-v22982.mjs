@@ -169,8 +169,8 @@ globalThis.fetch = async (input) => { const url = typeof input === "string" ? in
 try {
   // ── 0. 관제 판 ─────────────────────────────────────────────────────────────
   await section("0 관제 판", async () => {
-    eq(model.MONITOR_VERSION, "1.6.0", "관제 판은 1.6.0 이다(1.5.0 → 1.6.0, V22.9.97 이용 현황 후원 줄. 1.5.0 은 V22.9.94 예약 실행 경보·빈 사용량)");
-    eq((await (await monitor.fetch(new Request("https://monitor.example/health"), {}, {})).json()).version, "1.6.0", "/health 가 1.6.0 을 알린다");
+    eq(model.MONITOR_VERSION, "1.7.0", "관제 판은 1.7.0 이다(1.6.0 → 1.7.0, V22.9.102 /ready 30분 간격. 1.6.0 은 V22.9.97 이용 현황 후원 줄, 1.5.0 은 V22.9.94 예약 실행 경보·빈 사용량)");
+    eq((await (await monitor.fetch(new Request("https://monitor.example/health"), {}, {})).json()).version, "1.7.0", "/health 가 1.7.0 을 알린다");
   });
 
   // ── 1. 관제 모델: 나눗셈 값·변화율·기능 이름·간격·달 ─────────────────────────────

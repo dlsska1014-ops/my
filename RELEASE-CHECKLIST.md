@@ -1,3 +1,12 @@
+## V22.9.102 UI 수정 검사
+
+- `npm run validate:ui-fixes-v229102`(150개): 필터 낱말·금액·이름 10장면, 보안 화면 단계·카카오 칸 세 갈래·오류 말, 기본 설정 판정(자동 이름 8꼴·별칭·자리 표시)·띠(홈 읽기 0회·쿠키 세 상태·화면 7곳·공지 띠 아래)·/my/setup·이름/내 이름 저장·권한·로그아웃 쿠키, 초대코드 표기, 단톡방 목록, 정기 지출자 규칙, 관제 1.7.0 재사용 8장면.
+- `node monitoring/test-d1.mjs` 160개(1.7.0 /ready 장면 12개 추가), 관제 검사 5개의 판 핀 1.7.0.
+- `validate-refund-links-v22980` 골든 6개 재채취(home·homeTrend·homePrev = 필터 머리·검색 칸·빠른 검색 칸, analysis·backupFull·backupMonth = 판 이름). 화면 원문 대조 `review-artifacts/v102-ui-fixes-2026-11-05/refund-compare.txt`(세 화면 모두 뺀 조각 6·더한 조각 5, 전부 필터 블록).
+- 홈 35 KiB 예산 검사 10개는 띠 없는 홈(픽스처 기본 = 비밀번호 모름)으로 그대로 통과한다. 띠 크기는 새 검사가 본다(한 항목 < 1 KiB).
+- 전체 하네스 두 모드 __HARNESS_NORMAL__/__HARNESS_ABSENT__(하한 __HARNESS_FLOOR__), manifest `BUNDLE_FILE_CHECKSUMS_V22_9_102.sha256`.
+- 사람 확인(운영 반영 뒤): 휴대폰에서 띠 → /my/setup → 이름·내 이름 저장 → 내 계정·보안에서 비밀번호 저장 → 띠 사라짐; 필터 ‘카페 라떼’·금액·이름; 단톡방 연결 목록의 이름; 관제 화면 ‘30분마다 확인’ 줄.
+
 ## V22.9.100 K-1 방 기록 검사
 
 - `npm run validate:skill-db-calls`는 장면 A~K의 답 전·전체 호출 수와 B 파동, 표식·거래 순서, 생애주기 잠금 순서, 답 뒤 cleanup을 검사한다. 추가 장면은 합성 or 폴백·모든 embedding 부재·source_user_key 소유권·500건 경계·느린 길 재연결·waitUntil 부재·조회 실패의 잠금 해제를 확인한다.

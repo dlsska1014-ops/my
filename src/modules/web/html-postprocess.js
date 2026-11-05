@@ -337,7 +337,8 @@ function promoteLegacyUserLayoutToV5(html = "") {
 
 function normalizeUiV5RemainingPages(html = "") {
   let source = String(html || "");
-  const remainingPage = /(?:생활비 리포트|스마트 도구|수입·예산|가계부 전환·관리|참여자[·/]초대|백업\/가져오기|분류 설정|단톡방 연결|종합 리포트|내 계정·보안)<\/title>/.test(source)
+  // V22.9.102: 가계부 기본 설정(/my/setup)도 단톡방 연결과 같은 옛 사이드바 화면이라 같은 머리말·카드 처리를 받는다.
+  const remainingPage = /(?:생활비 리포트|스마트 도구|수입·예산|가계부 전환·관리|참여자[·/]초대|백업\/가져오기|분류 설정|단톡방 연결|종합 리포트|내 계정·보안|가계부 기본 설정)<\/title>/.test(source)
     || source.includes("가계부·참여자</title>")
     || source.includes("<title>자산·결제수단</title>")
     || source.includes("<title>정기 수입·지출</title>")

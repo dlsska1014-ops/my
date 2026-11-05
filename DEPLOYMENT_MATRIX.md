@@ -1,3 +1,10 @@
+## V22.9.102 배포 판단
+
+- V22.9.102-UI-FIXES 는 앱과 관제 1.7.0 두 Worker 를 바꾼다. SQL·Secret·환경변수·바인딩 33개·cron·Kakao Developers·OpenBuilder·1년 캐시 자산 주소는 바꾸지 않는다(새 화면 /my/setup 과 띠 스타일은 인라인). 새 경로 GET /my/setup, POST /my/setup/name, POST /my/setup/me.
+- 병합·배포는 사용자 지목 뒤. 순서(V100 #128 → V101 B-0(Codex) → V102, 또는 V102 먼저)는 사용자가 정하고 나중에 병합하는 쪽이 판 이름·manifest·docs 를 다시 맞춘다. 앱 배포 대조(바인딩 33·금지 변수 열하나·번들 바이트·SHA-256)는 병합 뒤 main 트리에서 다시 잰다. 되돌리기 대상은 그때 활성인 version(지금은 V99 a0a169e7… #330).
+- 관제 1.7.0 은 앞 판과 같은 길로 앱과 별도로 배포한다. 되돌리기 대상 1.6.0 ce046034…. 1.6.0 으로 내리면 다시 5분마다 /ready 를 묻는다(저장된 probed_at·ready_failed_at 은 무시된다).
+- 배포 직후 확인: /health 판 이름, 로그인 뒤 /my/setup 200, 비밀번호 없는 계정의 홈 띠, 필터 ‘카페 라떼’·금액, 관제 /health 1.7.0 과 30분 뒤 화면의 ‘30분마다 확인’ 줄, 하루 뒤 Supabase API 요청 수 감소.
+
 ## V22.9.100 배포 판단
 
 - V22.9.100-KAKAO-DB-CALLS는 K-1 구현 PR과 CI 4/4까지 준비하며 이번 작업에서는 병합하거나 운영에 배포하지 않는다. 운영은 V99 version `a0a169e7-6390-4a5b-8061-e2bcc88dbfad`(#330)이고 기록 PR은 #127이다.

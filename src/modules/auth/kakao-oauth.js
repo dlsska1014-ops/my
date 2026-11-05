@@ -13,12 +13,13 @@ import {
   verifyUserSession,
 } from "./user-session.js";
 import {
-  ensureKakaoLoginUser, findUserByKakaoLoginId, hasKakaoLoginIdentity,
+  ensureKakaoLoginUser, findUserByKakaoLoginId, hasBackupLoginIdentity, hasKakaoLoginIdentity,
   householdDeleteReauthCookieName, isPlaceholderUserNickname, kakaoLoginIdentityMatchesUser,
   linkKakaoLoginToUser, makeCredentialProof, makeHouseholdDeleteReauthToken, readPurposeToken,
   signedPurposeToken, verifyCredentialProof,
 } from "./identity-reauth.js";
 import { fetchUserById, fetchUserHouseholds } from "../data/users-household-create.js";
+import { backupLoginKnownCookie, clearSetupCookies } from "../my/setup-page.js";
 import {
   SIGNUP_CONSENT_REQUIRED_MESSAGE, addQueryToUrl, recordSignupConsent,
 } from "./local-login-pages.js";
@@ -376,6 +377,9 @@ async function handleKakaoLoginCallback(request, env, url) {
       ...clearOauthCookies,
       `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
     ];
+    // V22.9.102 가계부 기본 설정 띠: 내 계정 로그인 비밀번호 유무를 로그인 때 한 번 확인해 쿠키(ab_bk=1/0, 14일)에 적는다. 홈은 이 쿠키만 보고
+    // ‘로그인 비밀번호’ 항목을 띄운다(DB 읽기 0회). 확인에 실패하면 쿠키를 적지 않는다(모름 = 띄우지 않음).
+    try { cookies.push(backupLoginKnownCookie(await hasBackupLoginIdentity(env, user))); } catch (_) {}
     // 다시 카카오로 로그인했으니 자동 로그인 멈춤(로그아웃 off·비회원 skip)을 푼다. 쿠키가 있을 때만 지운다.
     // 자동 로그인은 되풀이 막기(try, 10분)를 남긴다(V22.9.91 독립 검토). 세션이 붙지 않거나 확인에서 거절되면 다음 화면이 자동 로그인을
     // 다시 보내지 않고 로그인 화면을 보인다. 예전에는 여기서 지워 같은 자리를 되풀이할 수 있었다.
@@ -395,7 +399,8 @@ async function handleKakaoLoginCallback(request, env, url) {
 // V22.9.91: 직접 누른 로그아웃(POST /my/logout)은 이 브라우저의 카카오톡 자동 로그인을 30일 멈춘다. 그러지 않으면 인앱 브라우저에서
 // 로그아웃하자마자 /my 가 다시 자동 로그인한다. 다시 카카오로 로그인하면 풀린다. 세션이 풀려 부르는 다른 곳은 멈추지 않는다.
 function handleMyLogout({ explicit = false } = {}) {
-  const cookies = ["ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax"];
+  // V22.9.102: 가계부 기본 설정 띠의 판정 쿠키(ab_setup·ab_bk)도 함께 지운다(다음 사람의 로그인에 남지 않게).
+  const cookies = ["ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax", ...clearSetupCookies()];
   if (explicit) cookies.push(kakaoAutoLoginCookie("off"));
   return redirectResponseWithCookies("/my", cookies);
 }
