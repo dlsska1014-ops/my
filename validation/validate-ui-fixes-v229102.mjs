@@ -291,6 +291,23 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
       globalThis.fetch = previousFetch;
     }
   }
+
+  // ── 8. 웹 연결 코드 안내(J-12) ──────────────────────────────────────────────────────────────
+  {
+    const claim = read("src/modules/auth/kakao-web-claim.js");
+    ok(claim.includes("단톡방에서 기록한 같은 계정으로 웹을 이어 열려면 말해가계부 1:1 채팅에서 ‘웹 가계부 열기’ 를 보내 웹 연결 코드를 받으세요."), "단톡방 ‘홈페이지’ 답에 코드를 받는 곳(1:1 채팅) 한 줄");
+    ok(!/getKakaoBotGroupKey\(payload\)\)[^\n]*issueKakaoWebClaim/.test(claim) && /if \(getKakaoBotGroupKey\(payload\)\) return `\$\{generic\}\\n/.test(claim), "단톡방에서는 여전히 코드를 발급하지 않는다");
+    ok(claim.includes("(8자 네 묶음, 32자)를 네 묶음 모두 복사해 붙여 넣어 주세요") && claim.includes("받은 뒤 10분 안에 1회만 사용할 수 있어요"), "1:1 답이 네 묶음·10분·1회를 말한다");
+    ok(claim.includes("웹 연결 코드(8자 네 묶음, 32자)를 네 묶음 모두 붙여 넣으세요. 받은 뒤 10분 안에 1회만 쓸 수 있어요."), "로그인 화면 이어 열기 칸의 안내");
+    const partial = await post(fx, "/my/kakao-claim", { kakao_claim_code: "7LJZLTMF" }, { cookie: "" });
+    eq(partial.status, 400, "한 묶음(8자)만 넣으면 400");
+    ok(partial.text.includes("웹 연결 코드는 8자 네 묶음(32자)이에요"), "한 묶음만 넣으면 네 묶음 안내");
+    const empty = await post(fx, "/my/kakao-claim", { kakao_claim_code: "" }, { cookie: "" });
+    eq(empty.status, 400, "빈 칸은 400");
+    ok(empty.text.includes("그대로 붙여 넣어 주세요") && !empty.text.includes("8자 네 묶음(32자)이에요"), "빈 칸은 원래 안내");
+    const dashed = await post(fx, "/my/kakao-claim", { kakao_claim_code: "7ljzltmf-7LJZLTMF 7LJZLTMF-7LJZLTMF" }, { cookie: "" });
+    ok(dashed.status === 401 && dashed.text.includes("만료되었거나 이미 사용되었어요"), "소문자·띄어쓰기·붙임표가 섞인 32자는 정규화돼 조회까지 간다(없는 코드 = 만료 안내)");
+  }
 }));
 
 done();
