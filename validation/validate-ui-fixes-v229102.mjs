@@ -256,7 +256,7 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
     globalThis.fetch = async (input) => {
       const url = new URL(typeof input === "string" ? input : input.url);
       probes.push(url.pathname);
-      return new Response(JSON.stringify(url.pathname === "/ready" ? { ready: readyOk } : { alive: true, version: "V22.9.102-UI-FIXES" }), { headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify(url.pathname === "/ready" ? { ready: readyOk } : { alive: true, version: "V-MOCK" }), { headers: { "content-type": "application/json" } });
     };
     try {
       const now = new Date("2026-11-05T03:10:00.000Z");

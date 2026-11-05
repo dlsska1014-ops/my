@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_100.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_102.sha256",
 );
 const validationScripts = [
   ["V22.9.102 UI 수정(필터 낱말·금액·이름, 보안 화면 순서, 가계부 기본 설정 띠·/my/setup, 초대코드, 단톡방 목록, 정기 지출자, 관제 1.7.0 /ready 30분)", "validation/validate-ui-fixes-v229102.mjs"],
@@ -375,7 +375,7 @@ function run(command, args, label) {
 // V22.9.99: wording, notice hide and findings; measured 61,894 present / 61,891 absent.
 // V22.9.100: K-1 139 checks; F-1/F-2 user-confirmed split. Closing K-1 removes one open-item ledger assertion.
 // Both complete runs measured 62,052 present / 62,049 absent (61,914/61,911 + 139 - 1).
-const EXPECTED_MINIMUM_CHECKS = 62049;
+const EXPECTED_MINIMUM_CHECKS = 62313;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
