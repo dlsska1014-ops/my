@@ -215,6 +215,7 @@ await section("B-7", async () => {
     fx.env.KAKAO_SKILL_SECRET = SECRET;
     resetConflictTrace();
     const bot = "bot-b7-chat-first";
+    Object.assign(fx.env, { KAKAO_LOGIN_ENABLED: "1", KAKAO_REST_API_KEY: "qa-rest-api-key", PUBLIC_BASE_URL: BASE, KAKAO_REDIRECT_URI: `${BASE}/auth/kakao/callback`, KAKAO_ACCOUNT_LINK_ENABLED: "1" });
     await say(fx, "커피 4100", { user: bot });
     const chatUser = userByKey(fx, bot)?.id;
     ok(chatUser && newest(fx).user_id === chatUser, "B-7 충돌 준비: 봇 키만으로 채팅 계정이 생기고 첫 기록이 저장됐다");
@@ -258,6 +259,7 @@ await section("B-7", async () => {
     fx.env.KAKAO_SKILL_SECRET = SECRET;
     resetConflictTrace();
     const bot = "bot-b7-linked";
+    Object.assign(fx.env, { KAKAO_LOGIN_ENABLED: "1", KAKAO_REST_API_KEY: "qa-rest-api-key", PUBLIC_BASE_URL: BASE, KAKAO_REDIRECT_URI: `${BASE}/auth/kakao/callback`, KAKAO_ACCOUNT_LINK_ENABLED: "1" });
     await say(fx, "커피 4400", { user: bot });
     const chatUser = userByKey(fx, bot)?.id;
     const map = links(fx);

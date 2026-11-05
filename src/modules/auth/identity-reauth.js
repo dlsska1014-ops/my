@@ -418,8 +418,8 @@ async function ensureKakaoLoginUser(env, kakaoId, nickname, { allowCreate = true
 }
 // @build:exports-start
 export {
-  boundedFormRequest, clearHouseholdDeleteReauthCookie, ensureKakaoLoginUser,
-  fetchStrongIdentityForUser, fetchUserIdentityLinks, findUserByKakaoLoginId,
+  boundedFormRequest, clearHouseholdDeleteReauthCookie, effectiveKakaoLoginOwner,
+  ensureKakaoLoginUser, fetchStrongIdentityForUser, fetchUserIdentityLinks, findUserByKakaoLoginId,
   findUserByLocalLoginIdentity, handleAccountReauth, hasBackupLoginIdentity, hasKakaoLoginIdentity,
   householdDeleteReauthCookieName, isPlaceholderUserNickname, kakaoLoginIdentityMatchesUser,
   linkKakaoLoginToUser, lookupKakaoLoginOwner, makeCredentialProof, makeDeleteRestoreTicket,

@@ -1,3 +1,8 @@
+## V22.9.101 SQL 판단
+
+- SQL·표·RPC·RLS·인덱스 변경과 실행이 없다. 기존 `accountbook_user_identities.user_id → users.id` 외래키로 잠금 안 사용자·legacy·강한 식별을 함께 조회한다. 포함 조회 거절은 기존 분리 조회로 돌아가며 실제 dispatch에서 cleanup 예산을 보호한다.
+- 별칭과 제안의 전역/설정 잠금을 유지했다. 별칭별 행(`identity_alias:<alias>`)으로 전역 잠금을 없애는 K-3는 후속 검토 후보이며 이번에는 구현하지 않았다.
+
 ## V22.9.100 SQL 판단
 
 - SQL·스키마·RPC 계약 변경과 실행이 없다. K-1은 기존 조회·메시지 잠금·표식 CAS를 재배치한다. 저장 RPC 통합 K-2는 별도 SQL 승인과 운영 검증이 필요한 후속 작업이다.

@@ -231,8 +231,9 @@ async function withHouseholdCreateLock(env, userId = "", name = "", task) {
 }
 // @build:exports-start
 export {
-  createUserHousehold, ensureOwnerMembership, fetchRawHouseholdMembers, fetchRoomMembershipSnapshot,
-  fetchUserById, fetchUserHouseholds, kakaoRoomMembersFromSnapshot, supabaseWithEmbedFallback,
-  withHouseholdCreateLock, withKakaoUserLifecycleLease,
+  AB_POSTGREST_EMBED_SUPPORT, createUserHousehold, ensureOwnerMembership, fetchRawHouseholdMembers,
+  fetchRoomMembershipSnapshot, fetchUserById, fetchUserHouseholds, isPostgrestEmbedRejection,
+  kakaoRoomMembersFromSnapshot, supabaseWithEmbedFallback, withHouseholdCreateLock,
+  withKakaoUserLifecycleLease,
 };
 // @build:exports-end

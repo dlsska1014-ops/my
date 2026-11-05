@@ -17,13 +17,15 @@ const t = counter("V22.9.76 카카오 점검 잔여 결함(B-2·A-04·B-4·B-3·
 const HH = "house-home";
 const DAY = "2026-08-05";
 
-async function say(fx, utterance, { user = "kakao_login:2265", appUserId = "" } = {}) {
+async function say(fx, utterance, { user = "kakao_login:2265", appUserId = "", noContext = false } = {}) {
+  const jobs = [];
   const userRequest = { timezone: "Asia/Seoul", params: {}, block: { id: "b1", name: "블록" }, utterance, lang: "kr", user: { id: user, type: "botUserKey", properties: { botUserKey: user, ...(appUserId ? { appUserId } : {}) } } };
   const response = await app.fetch(new Request(`${BASE}/skill`, {
     method: "POST", headers: { "content-type": "application/json", ...(fx.env.KAKAO_SKILL_SECRET ? { "x-kakao-skill-secret": fx.env.KAKAO_SKILL_SECRET } : {}) },
     body: JSON.stringify({ intent: { id: "i1", name: "블록" }, userRequest, bot: { id: "bot1", name: "말해가계부" }, action: { id: "a1", name: "스킬", params: {}, detailParams: {}, clientExtra: {} }, contexts: [] }),
-  }), fx.env, ctx);
+  }), fx.env, noContext ? undefined : { waitUntil(job) { jobs.push(job); } });
   const data = JSON.parse(await response.text());
+  await Promise.allSettled(jobs);
   const outputs = data?.template?.outputs || [];
   const text = outputs.map((o) => o?.simpleText?.text || [o?.textCard?.title, o?.textCard?.description].filter(Boolean).join("\n")).join("\n");
   const quickReplies = (data?.template?.quickReplies || []).map((q) => [q.label, q.messageText]);
@@ -260,7 +262,7 @@ await scenario(async (fx) => {
     const saved = await say(fx, "점심 8000", { appUserId: "2265" });
     t.ok(count(fx) === before + 1 && newest(fx).amount === 8000 && saved.text.includes("💸 지출 저장했어요"), "B-6 이미 연결된 별칭이면 잠금이 바빠도 기록한다(예전: 일반 안내로 끝나고 저장 안 됨)");
     t.eq(identityClaims, 0, "B-6 이미 연결된 별칭은 전역 식별 잠금을 잡지 않는다");
-    const busy = await say(fx, "저녁 9000", { user: "kakao_login:2266", appUserId: "2266" });
+    const busy = await say(fx, "저녁 9000", { user: "kakao_login:2266", appUserId: "2266", noContext: true });
     t.eq(count(fx), before + 1, "B-6 처음 연결해야 하는 별칭인데 잠금이 바쁘면 저장하지 않는다(예전과 같음)");
     t.ok(busy.text.includes("요청이 한꺼번에 몰려 이번 내용은 저장하지 못했어요") && !busy.text.includes("잠시 처리 흐름을 정리하고 있어요"), "B-6 그때는 저장하지 않았다고 분명히 말한다(예전: ‘처리 흐름을 정리하고 있어요’ 일반 안내)");
   } finally {

@@ -14,8 +14,8 @@ import { safeObject } from "../admin/backup-compare.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { identityMergeRedirectSettingsKey } from "../auth/user-session.js";
 import {
-  fetchRawHouseholdMembers, fetchRoomMembershipSnapshot, kakaoRoomMembersFromSnapshot,
-  withKakaoUserLifecycleLease,
+  fetchRawHouseholdMembers, fetchRoomMembershipSnapshot, fetchUserById,
+  kakaoRoomMembersFromSnapshot, withKakaoUserLifecycleLease,
 } from "../data/users-household-create.js";
 import { saveSettingValue } from "../my/reports-premium.js";
 import {
@@ -117,7 +117,7 @@ function parseKakaoGroupDepartures(value) {
 async function readKakaoGroupFirstSnapshot(env, groupKey, userId = "") {
   const keys = await kakaoGroupFirstKeys(groupKey, userId);
   const primaryKey = kakaoGroupLinkItemSettingsKey(groupKey);
-  const wanted = [keys.marker, keys.done, keys.retired, primaryKey, kakaoGroupLinksSettingsKey(), keys.departure, keys.member].filter(Boolean);
+  const wanted = [keys.marker, keys.done, keys.retired, primaryKey, kakaoGroupLinksSettingsKey(), keys.departure, keys.member, userId ? identityMergeRedirectSettingsKey(userId) : ""].filter(Boolean);
   return parseKakaoGroupFirstSnapshot(await readKakaoSettingsSnapshot(env, wanted), keys, groupKey, userId);
 }
 
@@ -136,7 +136,7 @@ function parseKakaoGroupFirstSnapshot(values, keys, groupKey, userId = "") {
   const marker = parseKakaoGroupFirstMarker(value(keys.marker), groupKey);
   const done = parseKakaoGroupFirstMarker(value(keys.done), groupKey, true);
   if (marker && done && (marker.candidate_id !== done.candidate_id || marker.owner_id !== done.owner_id)) throw settingsDataError("kakao_group_first", "completion_conflict");
-  return { keys, marker, done, retired: !!Object.keys(retired).length, link: primary || legacy, departures: parseKakaoGroupDepartures(value(keys.departure)), member };
+  return { keys, marker, done, retired: !!Object.keys(retired).length, link: primary || legacy, departures: parseKakaoGroupDepartures(value(keys.departure)), member, redirectValue: userId ? value(identityMergeRedirectSettingsKey(userId)) : undefined };
 }
 
 async function kakaoGroupCandidateId(groupKey) {
@@ -291,12 +291,13 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
       env.__AB_REQUEST_USER_ROWS?.delete(String(user.id));
       // V22.9.44: 계정 통합 확인(DB 읽기 2번)은 방 잠금 획득·재조회와 겹쳐 돌리고, 첫 쓰기 전에 결과를 본다. 이 경로의 순차 왕복이
       // 카카오 5초 제한을 넘겼다(2026-10-13 운영, 최대 5.69초). 잠금 순서와 쓰기 순서는 그대로다.
-      const userUnmerged = kakaoClaimUserUnmerged(env, user.id, { userRow: user, ...(Object.prototype.hasOwnProperty.call(context, "redirectValue") ? { redirectValue: context.redirectValue } : {}) });
-      userUnmerged.catch(() => {});
+      const userRead = env.__AB_KAKAO_REQUEST?.createdUsers.has(String(user.id)) ? Promise.resolve(user) : fetchUserById(env, user.id);
+      userRead.catch(() => {});
       return withKakaoGroupLifecycleLease(env, groupKey, async ({ assertFresh: roomFresh }) => {
         const roomGuard = () => { userFresh(); roomFresh(); };
         let snapshot = await readKakaoGroupFirstSnapshot(env, groupKey, user.id);
-        if (!(await userUnmerged)) throw new Error("kakao_group_identity_scope_changed");
+        await userRead;
+        if (!(await kakaoClaimUserUnmerged(env, user.id, { userRow: user, redirectValue: snapshot.redirectValue, redirectUnderLease: true }))) throw new Error("kakao_group_identity_scope_changed");
         let marker = snapshot.done || snapshot.marker;
         let firstNotice = "";
         let roomCreatedNow = false; // V22.9.79 감사 N-4: 이 요청이 방 가계부를 막 준비했다 — 구성원은 첫 입력자 한 명뿐이다

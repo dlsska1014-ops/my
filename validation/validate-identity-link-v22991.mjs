@@ -379,7 +379,7 @@ await linkFixture(async (fx) => {
   await chatAccount(fx, "bot-v91-nologin");
   const before = events("kakao_login_alias_conflict").length;
   await say(fx, "점심 8300", { user: "bot-v91-nologin", appUserId: "2265" });
-  ok(events("kakao_login_alias_conflict").length > before, "4 웹 카카오 로그인이 꺼져도 충돌 이벤트는 그대로다");
+  eq(events("kakao_login_alias_conflict").length, before, "4 웹 카카오 로그인이 꺼지면 기존 사용자의 app 소유권을 조회하지 않는다");
   ok(!settingValue(fx, OFFERS_KEY) && !fx.db.accountbook_settings.some((row) => row.key.startsWith("kakao_app_user_id_probe_v22991:")), "4 웹 카카오 로그인이 꺼진 곳은 제안·진단을 남기지 않는다");
 }, { kakao: false });
 
@@ -738,7 +738,7 @@ await linkFixture(async (fx, server) => {
 await linkFixture(async (fx, server) => {
   const chat = await chatAccount(fx, "bot-v91-switch");
   await say(fx, "점심 8100", { user: "bot-v91-switch", appUserId: "2265" });
-  eq(offers(fx)["user-bin"]?.chat_user_id, chat, "15 스위치가 꺼져도 잇기 제안은 남긴다(켜기 전 확인 근거)");
+  ok(!offers(fx)["user-bin"], "15 스위치가 꺼지면 잇기 제안 큐를 만들지 않는다");
   ok(settingValue(fx, "kakao_app_user_id_probe_v22991:present:direct"), "15 스위치가 꺼져도 appUserId 진단을 남긴다");
   const jar = new Jar();
   const login = await kakaoLogin(fx, jar, server, "2265", { ua: CHROME });
@@ -748,6 +748,7 @@ await linkFixture(async (fx, server) => {
   eq((await go(fx, jar, "/my/account-link", { method: "POST", form: {}, ua: CHROME })).location, "/my", "15 잇기 확인 요청도 카카오로 보내지 않고 가계부로 돌려보낸다");
   fx.env.KAKAO_ACCOUNT_LINK_ENABLED = "1";
   const onJar = new Jar();
+  await say(fx, "저녁 8101", { user: "bot-v91-switch", appUserId: "2265" });
   await kakaoLogin(fx, onJar, server, "2265", { ua: CHROME });
   ok(onJar.has("ab_account_link"), "15 준비: 켜진 동안에는 합치기 표를 받는다");
   delete fx.env.KAKAO_ACCOUNT_LINK_ENABLED;

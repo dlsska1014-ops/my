@@ -6,9 +6,9 @@ import { claimOperationLease, deferKakaoAfterReply, releaseOperationLease, runKa
 
 const t = counter("PASS: V22.9.100 room record DB calls, cleanup and snapshot safety");
 const measurements = {};
-// User-confirmed F-1/F-2 split: first alias registration remains synchronous in K-1.
+// K-1 historical split retained; V101 now tests first alias registration after reply.
 // B-0 에서 ≤ 10 으로 내린다
-const caps = { A: [30, 40], B: [10, 12], "B-ordinary": [10, 12], C: [10, 12], D: [25, 32], E: [10, 12], "F-1": [14, 17], "F-1-ordinary": [14, 17], "F-2-strong": [17, 19], "F-2-ordinary": [22, 24], G: [6, 6], H: [11, 14], I: [11, 13], J: [11, 13], K: [11, 13] };
+const caps = { A: [25, 40], B: [10, 12], "B-ordinary": [10, 12], C: [10, 12], D: [20, 32], E: [10, 12], "F-1": [10, 17], "F-1-ordinary": [10, 17], "F-2-strong": [10, 19], "F-2-ordinary": [10, 24], G: [6, 6], H: [11, 14], I: [11, 13], J: [11, 13], K: [11, 13] };
 const textOf = body => (body.template?.outputs || []).map(output => output.simpleText?.text || output.textCard?.description || "").join("\n");
 const pathIs = (call, suffix, method) => call.url.pathname.endsWith(suffix) && call.method === method;
 const pendingWrite = call => pathIs(call, "/accountbook_settings", "POST") && JSON.stringify(call.body).includes(":pending_write:") ||
@@ -147,6 +147,7 @@ await fixture(async fx => {
 await fixture(async fx => {
   await fx.say("점심 12000");
   const properties = { appUserId: String(980000000 + sequence) };
+  Object.assign(fx.env, { KAKAO_LOGIN_ENABLED: "1", KAKAO_REST_API_KEY: "qa-rest-api-key", PUBLIC_BASE_URL: BASE, KAKAO_REDIRECT_URI: `${BASE}/auth/kakao/callback`, KAKAO_ACCOUNT_LINK_ENABLED: "1" });
   await fx.say("별칭준비 39001원", { properties });
   t.ok(String(settingValue(fx, "user_identity_links")).includes(properties.appUserId), "F-1: setup persists the alias through the real skill route");
   for (const [name, utterance] of [["F-1", "커피 2500원"], ["F-1-ordinary", "빵 2500"]]) {
@@ -159,6 +160,7 @@ await fixture(async fx => {
 // Each first-alias variant gets a separate fixture and a unique appUserId.
 for (const [name, utterance] of [["F-2-strong", "커피 2500원"], ["F-2-ordinary", "빵 2500"]]) await fixture(async fx => {
   await fx.say("점심 12000");
+  Object.assign(fx.env, { KAKAO_LOGIN_ENABLED: "1", KAKAO_REST_API_KEY: "qa-rest-api-key", PUBLIC_BASE_URL: BASE, KAKAO_REDIRECT_URI: `${BASE}/auth/kakao/callback`, KAKAO_ACCOUNT_LINK_ENABLED: "1" });
   const properties = { appUserId: String(980000000 + sequence) };
   t.ok(!String(settingValue(fx, "user_identity_links")).includes(properties.appUserId), `${name}: no alias exists before this first delivery`);
   const result = await fx.say(utterance, { properties }); recordScene(name, result);

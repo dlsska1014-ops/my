@@ -138,10 +138,11 @@ await withFixture(async (f) => {
   const room = readFileSync(new URL("../src/modules/kakao/group-links-first-record.js", import.meta.url), "utf8");
   ok(handler.includes("boundedRuntimeNumber(env.KAKAO_RESPONSE_BUDGET_MS, 4000, 200, 4700)"), "response budget defaults to 4000ms within 200..4700");
   ok(handler.includes("ctx.waitUntil(work.then("), "deferred work continues under waitUntil");
-  const unmergedStart = room.indexOf("const userUnmerged = kakaoClaimUserUnmerged(env, user.id,");
-  const unmergedAwait = room.indexOf("if (!(await userUnmerged)) throw new Error(\"kakao_group_identity_scope_changed\");");
+  const unmergedStart = room.indexOf("const userRead = env.__AB_KAKAO_REQUEST?.createdUsers.has(String(user.id))");
+  const lockedSnapshot = room.indexOf("let snapshot = await readKakaoGroupFirstSnapshot(env, groupKey, user.id);", unmergedStart);
+  const unmergedAwait = room.indexOf("if (!(await kakaoClaimUserUnmerged(env, user.id, { userRow: user, redirectValue: snapshot.redirectValue, redirectUnderLease: true })))");
   const firstWrite = room.indexOf("marker = parseKakaoGroupFirstMarker(await insertKakaoGroupFirstSetting(");
-  ok(unmergedStart > 0 && unmergedAwait > unmergedStart && firstWrite > unmergedAwait, "identity merge check is awaited before the first room write");
+  ok(unmergedStart > 0 && lockedSnapshot > unmergedStart && unmergedAwait > lockedSnapshot && firstWrite > unmergedAwait, "identity merge check uses the locked redirect snapshot and is awaited before the first room write");
   ok(room.includes("preparing ? Promise.resolve(null) : supabase(env, roleRowsPath, { method: \"GET\" })"), "household and role are read together only when not preparing");
   ok(room.includes("let roleRows = initialRoleRows || await supabase(env, roleRowsPath, { method: \"GET\" });"), "role is re-read after preparation");
 }
