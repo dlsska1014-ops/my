@@ -1,5 +1,7 @@
 ## V22.9.102-UI-FIXES · 2026-11-05 · 사용자 의견 6건·Codex 검토
 
+**Supabase 서울 전환(2026-11-05 19:09:48 KST)**: 운영 DB 를 시드니 프로젝트에서 서울 프로젝트 `jqzmpzdqvmzkxznnylkp`(ap-northeast-2)로 옮겼다. 코드는 그대로이고 Secret 두 개(SUPABASE_URL·SUPABASE_SERVICE_ROLE_KEY)만 바뀐 version `ac5f2a4b-de71-46a5-94cc-92b1743a3d8b`(#333)·deployment `d27cba28-f8c6-4730-8eb4-c1da82a47216`. 새 프로젝트 권한은 옛 프로젝트와 같게 맞췄다(복원 직후 anon·authenticated 권한이 넓었음). 방침 8절 리전 문구는 다음 판에서 고친다. 기록 docs/deployments/V22_9_102_2026_11_05.md.
+
 운영 반영 2026-11-05 17:32 KST(앱 version 06848d5e… #332, deployment 306f95fe…, `tools/deploy-worker-version.mjs` 를 사용자가 토큰으로 실행 — Quick Editor 가 9.68 MB 를 받지 못함; 바인딩 33 그대로, 배치(placement) 설정은 새 version 에 옮겨지지 않아 기본값), 관제 1.7.0 2026-11-05 15:28:10(version 288e20cc… #18). main e8f0aa4(PR #128 c35f75c → #129 e96eb16 → #130, 11-05 14:26~14:50). V100 K-1·V101 B-0 도 이 승격으로 처음 운영에 나갔다. 기록 docs/deployments/V22_9_102_2026_11_05.md.
 
 V100 K-1 PR #128 머리(0fa07a0) 위에서 만들었고 11-05 저녁 V101(B-0) 머리 7273ad0 를 합쳤다. 홈·기록 탭 필터는 검색어를 낱말마다 내용·분류·결제수단·원문·지출자 이름에 대고 숫자 낱말은 금액에도 댄다(‘카페 라떼’·‘4500’·‘WIFI’). 최근 내역 머리는 ‘필터 · 전체/적용 중 N건’, 단추는 ‘필터 적용·초기화’, 홈의 중복 빠른 검색 칸은 뺐다.
