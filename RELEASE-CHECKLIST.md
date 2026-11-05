@@ -5,8 +5,9 @@
 - `node monitoring/test-d1.mjs` 160개(1.7.0 /ready 장면 12개 추가), 관제 검사 5개의 판 핀 1.7.0.
 - `validate-refund-links-v22980` 골든 6개 재채취(home·homeTrend·homePrev = 필터 머리·검색 칸·빠른 검색 칸, analysis·backupFull·backupMonth = 판 이름). 화면 원문 대조 `review-artifacts/v102-ui-fixes-2026-11-05/refund-compare.txt`(세 화면 모두 뺀 조각 6·더한 조각 5, 전부 필터 블록).
 - 홈 35 KiB 예산 검사 10개는 띠 없는 홈(픽스처 기본 = 비밀번호 모름)으로 그대로 통과한다. 띠 크기는 새 검사가 본다(한 항목 < 1 KiB).
-- 전체 하네스 두 모드 62,667/62,664(하한 62,664; V101 머리 7273ad0 를 합친 트리, 합치기 전 V102 단독 62,335/62,332), manifest `BUNDLE_FILE_CHECKSUMS_V22_9_102.sha256`(778, V101 manifest 위에 V102 추가 파일), 번들 9,678,029 B·sha256 f28af78e8275….
-- 사람 확인(운영 반영 뒤): 휴대폰에서 띠 → /my/setup → 이름·내 이름 저장 → 내 계정·보안에서 비밀번호 저장 → 띠 사라짐; 필터 ‘카페 라떼’·금액·이름; 단톡방 연결 목록의 이름; 관제 화면 ‘30분마다 확인’ 줄. Chrome 에서 /my 의 ‘카카오 로그인’ 이 카카오 화면으로 넘어가는지(J-13).
+- 전체 하네스 두 모드 62,667/62,664(하한 62,664; V101 머리 7273ad0 를 합친 트리, 합치기 전 V102 단독 62,335/62,332), manifest `BUNDLE_FILE_CHECKSUMS_V22_9_102.sha256`(779, V101 manifest 위에 V102 추가 파일 + 배포 기록), 번들 9,678,029 B·sha256 f28af78e8275….
+- 사람 확인(운영 반영 뒤): 휴대폰에서 띠 → /my/setup → 이름·내 이름 저장 → 내 계정·보안에서 비밀번호 저장 → 띠 사라짐; 필터 ‘카페 라떼’·금액·이름; 단톡방 연결 목록의 이름; 관제 화면 ‘30분마다 확인’ 줄. Chrome 에서 /my 의 ‘카카오 로그인’ 이 카카오 화면으로 넘어가는지(J-13; headless 클릭은 통과, 실제 계정 로그인 끝까지는 사람).
+- 운영 반영 뒤 확인(Claude, 2026-11-05 17:32~17:40, 읽기만): /health ×3 V22.9.102·missing 0, /ready 13·19·실패 없음·금지 칸 없음, /my CSP form-action 두 호스트·cf-placement 없음(배치 기본값), 공지 띠·/support·/support/go/openchat 302·sitemap 60, 1년 캐시 57/45 기대대로, 공개 123/123(승격 도구 실행 때는 /terms 1회 시간 초과 121/122 → 재실행 통과), 운영 headless Chrome ‘카카오 로그인’ 클릭 → accounts.kakao.com(J-13 닫힘), 관제 /health 1.7.0. 증거 review-artifacts/v102-ui-fixes-2026-11-05/deploy/post-checks-claude.md.
 
 ## V22.9.101 B-0 별칭 후처리 검사
 
