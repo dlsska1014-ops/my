@@ -246,7 +246,7 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   t.deepEq(Object.keys(payload), ["r", "h", "u", "f", "purpose", "exp"], "T-16 표 칸은 기록·가계부·사용자·지문과 용도 표의 용도·끝나는 때");
   t.ok(payload.purpose === "quick-undo" && payload.r === saved.rid && payload.h === HH && payload.u === "user-bin", "T-16 표는 이 로그인 사용자·가계부·방금 만든 기록 번호를 담은 quick-undo 용도 표다");
   t.ok(payload.exp - nowSeconds >= 59 && payload.exp - nowSeconds <= 61, "T-16 표는 60초 뒤 끝난다");
-  t.ok(/^[0-9a-f]{32}$/.test(payload.f) && !saved.ticket.includes("점심") && !Buffer.from(saved.ticket.split(".")[0], "base64url").toString("utf8").includes("점심") && !JSON.stringify(payload).includes("7000"),
+  t.ok(/^[0-9a-f]{32}$/.test(payload.f) && !saved.ticket.includes("점심") && !Buffer.from(saved.ticket.split(".")[0], "base64url").toString("utf8").includes("점심") && !Object.values(payload).some((v) => String(v) === "7000" || String(v).includes("점심")),
     "T-16 표에는 기록 내용 대신 지문(32자)만 있다 — 주소에 금액·메모가 남지 않는다");
   t.eq(signTicket(secret, payload), saved.ticket, "T-16 검사의 서명 재현이 서버와 같다(아래 꾸민 표 검사의 전제)");
   t.eq(payload.f, await quickUndoFingerprint(rowOf(fx, saved.rid)), "T-16 지문은 저장된 행에서 다시 계산한 값과 같다");
