@@ -11,13 +11,16 @@
 // 2) 메모리 픽스처(DB·서버 없음)의 실제 /skill 로 단톡방·1:1 명령을 두루 보내, 어느 답의 글에도 주소가 없고 링크 버튼은 우리 주소만
 //    여는지 본다. 예전 코드에서는 ‘(예전: …)’ 의 결과가 나온다.
 // 사용: node validation/validate-kakao-link-buttons-v22988.mjs
+import { createHash } from "node:crypto";
 import { kakaoGroupCompatibleResponse, kakaoText } from "../src/modules/kakao/response-builders.js";
 import { KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS } from "../src/modules/public/site-config.js";
 import { app, BASE, counter, fixture } from "./lib-audit-v22934.mjs";
 
 const t = counter("V22.9.88 Y-7 카카오 답 링크 버튼(글에 주소 없음·버튼으로 열기)");
 const URL_TEXT = /https?:\/\//i;
-const ROOM = "link-buttons-room";
+// V22.9.105 R-10: 단톡방 링크 열기는 카카오 식별값 모양(16진 32~128자)만 받는다. 시험 값도 그 모양으로 만든다(안내서 예시 66자).
+const hexKey = (label) => createHash("sha256").update(label).digest("hex") + "ab";
+const ROOM = hexKey("link-buttons-room");
 const groupPayload = { userRequest: { utterance: "x", user: { id: "u", type: "botUserKey", properties: { botUserKey: "u" } }, chat: { id: ROOM, type: "botGroupKey", properties: { botGroupKey: ROOM } } } };
 const directPayload = { userRequest: { utterance: "x", user: { id: "u", type: "botUserKey", properties: { botUserKey: "u" } } } };
 const finish = async (response, payload) => (await kakaoGroupCompatibleResponse(response, payload, BASE)).json();
@@ -168,7 +171,7 @@ await fixture(async (fx) => {
     t.ok(cards(body).every((card) => (card.buttons || []).length <= 5) && (body.template?.outputs || []).length <= 3, `${label}: 카드당 버튼 5개·말풍선 3개 이하`);
   };
 
-  const OWNER = "link-buttons-owner";
+  const OWNER = hexKey("link-buttons-owner");
   await say("@말해가계부 점심 5만원", OWNER);
   t.ok(fx.db.transactions.some((tx) => tx.source_user_key === OWNER), "준비: 첫 기록으로 방 가계부가 생긴다");
 
@@ -179,12 +182,22 @@ await fixture(async (fx) => {
     t.deepEq(links(body).map((button) => [button.label, button.webLinkUrl]), [["웹 가계부 열기", `${BASE}/my`]], `단톡방 ${utterance}: ‘웹 가계부 열기’ 버튼 하나가 /my 를 연다 (예전: 주소 글)`);
     t.eq(cards(body)[0]?.title, "웹 가계부", `단톡방 ${utterance}: 제목 ‘웹 가계부’ 카드`);
   }
-  // 버튼을 누르면 카카오가 주소 뒤에 식별값을 붙인다. 웹은 그것으로 로그인하지 않고, 로그인돼 있으면 그 사람의 가계부로 바로 간다.
-  const landing = (cookie) => app.fetch(new Request(`${BASE}/my?botUserKey=${OWNER}&appUserId=&botGroupKey=${ROOM}`, { headers: { accept: "text/html", ...(cookie ? { cookie } : {}) } }), fx.env, { waitUntil() {}, passThroughOnException() {} });
+  // 버튼을 누르면 카카오가 주소 뒤에 식별값을 붙인다. V22.9.105 R-1(사용자 2026-11-06 "별도 화면없이 바로 가계부 홈"): 누른 사람이 이 방 가계부
+  // 구성원이면 그 값으로 로그인 화면 없이 이 방 가계부 홈으로 간다(auth/kakao-room-open.js, 자세한 검사는 validate-room-open-v229105).
+  // 구성원이 아니면 예전처럼 로그인 화면이다(카카오 값은 주소에서 지운다).
+  const landing = (cookie, key = OWNER) => app.fetch(new Request(`${BASE}/my?botUserKey=${key}&appUserId=&botGroupKey=${ROOM}`, { headers: { accept: "text/html", "sec-fetch-site": "none", ...(cookie ? { cookie } : {}) } }), fx.env, { waitUntil() {}, passThroughOnException() {} });
+  const sessionOf = (response) => decodeURIComponent((response.headers.getSetCookie?.() || []).find((line) => line.startsWith("ab_user="))?.split(";")[0].slice(8) || "").split("|")[0];
+  const ownerId = fx.db.users.find((user) => user.kakao_user_key === OWNER)?.id || "";
   const anonymous = await landing("");
-  t.ok(anonymous.status === 200 && !anonymous.headers.get("set-cookie")?.includes("ab_user=") && (await anonymous.text()).includes("로그인"), "링크 도착(로그인 전): 카카오가 붙인 botUserKey 로 로그인하지 않고 로그인 화면을 보인다");
+  t.ok(anonymous.status === 303 && /^\/app\?household_id=/.test(anonymous.headers.get("location") || "") && sessionOf(anonymous) === ownerId && ownerId, "링크 도착(로그인 전, 방 구성원): 로그인 화면 없이 누른 사람 세션으로 이 방 가계부 홈에 간다(V22.9.105)");
+  t.ok(!/botUserKey|botGroupKey/.test(anonymous.headers.get("location") || ""), "링크 도착(로그인 전, 방 구성원): 카카오가 붙인 값은 따라가지 않는다");
+  const stranger = await landing("", hexKey("link-buttons-stranger"));
+  t.ok(stranger.status === 303 && stranger.headers.get("location") === "/my" && !sessionOf(stranger), "링크 도착(로그인 전, 구성원 아님): 세션 없이 카카오 값만 뺀 /my 로");
+  const strangerPage = await app.fetch(new Request(`${BASE}/my`, { headers: { accept: "text/html" } }), fx.env, { waitUntil() {}, passThroughOnException() {} });
+  t.ok(strangerPage.status === 200 && (await strangerPage.text()).includes("로그인"), "링크 도착(로그인 전, 구성원 아님): 그 다음은 예전처럼 로그인 화면");
   const member = await landing(fx.cookie);
-  t.ok(member.status === 303 && /^\/app\?/.test(member.headers.get("location") || "") && !/botUserKey|botGroupKey/.test(member.headers.get("location") || ""), "링크 도착(로그인 뒤): 내 가계부 화면으로 바로 가고 카카오가 붙인 값은 따라가지 않는다");
+  t.ok(member.status === 303 && /^\/app\?/.test(member.headers.get("location") || "") && !/botUserKey|botGroupKey/.test(member.headers.get("location") || ""), "링크 도착(로그인 뒤): 가계부 화면으로 바로 가고 카카오가 붙인 값은 따라가지 않는다");
+  t.ok(sessionOf(member) === ownerId, "링크 도착(이 방 가계부를 못 읽는 다른 계정 세션, 앱에서 바로 연 이동): 누른 사람(방 구성원) 세션으로 바꾼다(V22.9.105)");
   const managed = await say("@말해가계부 웹관리하기", OWNER);
   inspect(managed, "단톡방 웹관리하기");
   t.deepEq(buttonsOf(managed)[0], { label: "웹가계부", action: "webLink", webLinkUrl: `${BASE}/my` }, "단톡방 웹관리하기: 첫 버튼 ‘웹가계부’ 는 바로 열리는 링크");

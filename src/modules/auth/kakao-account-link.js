@@ -621,8 +621,8 @@ export {
   afterKakaoSkillIdentityWork, handleMyAccountLinkPage, handleMyAccountLinkRun,
   handleMyAccountLinkStart, hasDatabaseRoom, isKakaoTalkInAppBrowser, kakaoAccountLinkEnabled,
   kakaoAccountLinkPrompt, kakaoAccountLinkProofAfterKakao, kakaoAutoLoginCookie,
-  kakaoAutoLoginFallbackLocation, kakaoInAppAutoLoginResponse, queueKakaoAccountLinkOffer,
-  queueKakaoSkillIdentityAliases, renderKakaoAccountLinkDiagnostics, waitKakaoSkillIdentityAliases,
-  withKakaoSkillIdentityResolution,
+  kakaoAutoLoginFallbackLocation, kakaoAutoLoginPath, kakaoInAppAutoLoginResponse,
+  queueKakaoAccountLinkOffer, queueKakaoSkillIdentityAliases, renderKakaoAccountLinkDiagnostics,
+  waitKakaoSkillIdentityAliases, withKakaoSkillIdentityResolution,
 };
 // @build:exports-end

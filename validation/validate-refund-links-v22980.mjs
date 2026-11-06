@@ -78,6 +78,8 @@
 // 모두 통과함을 먼저 확인한 뒤 --print-golden 으로 다시 얻었고, 바뀐 값은 analysis·backupFull·backupMonth 셋(판 이름이 들어가는 화면·백업)이다.
 // V22.9.104(2026-11-06): 카카오톡 인앱 시작 화면·동의 팝업·첫 가계부·수정 경쟁·공지 띠 ×·글 고침을 넣은 같은 번들에서 판 이름만 V22.9.103 으로 두면 옛 값
 // 그대로 268개가 모두 통과함을 먼저 확인한 뒤 판 이름을 올려 다시 얻었다. 바뀐 값은 같은 셋(analysis·backupFull·backupMonth)뿐이다.
+// V22.9.105(2026-11-06): 단톡방 링크 바로 열기(auth/kakao-room-open.js)를 넣은 같은 번들에서 판 이름만 V22.9.104 로 두면 옛 값 그대로 268개가
+// 모두 통과함을 먼저 확인한 뒤 판 이름을 올려 다시 얻었다. 바뀐 값은 같은 셋(analysis·backupFull·backupMonth)뿐이다.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -96,15 +98,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 fef72cab327c9203e1d1d3b7",
   "reportsWeek": "200 428380c89484611de8943026",
-  "analysis": "200 7cf3d72c9f8334d4fb645547",
+  "analysis": "200 254eea4783f5737a3fe6c6bc",
   "backupPage": "200 b9a026f5decec130db68d757",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 94fda4c703cf7523be8fcf8c",
-  "backupMonth": "200 acdc0aac78e7f62257b11039",
+  "backupFull": "200 55df0620439ccd31b710dd68",
+  "backupMonth": "200 3da0c62669cf82be10dff09d",
   "candidate": "200 500f881e0ca7f01cb92e917a",
   "legacyErr": "200 8483371f87264a4e90af381d",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

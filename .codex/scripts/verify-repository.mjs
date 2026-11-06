@@ -12,9 +12,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_104.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_105.sha256",
 );
 const validationScripts = [
+  ["V22.9.105 R-1 단톡방 링크 단추로 바로 열기(카카오가 붙인 botUserKey·botGroupKey + 방 가계부 구성원 → 로그인 화면 없이 그 방 가계부 홈 + 동의 팝업, 안 맞으면 V22.9.104 그대로)", "validation/validate-room-open-v229105.mjs"],
   ["V22.9.104 J-9 기록 수정·삭제 경쟁(구성원 저장·삭제는 ‘지출자 = 나’ 조건, 웹·카카오 충돌 안내, 소유자·관리자 그대로, 요청 수 그대로)", "validation/validate-edit-race-v229104.mjs"],
   ["V22.9.104 출시 전 글·첫 화면·공지 띠(A-1 닫기 ×, A-2 첫 화면 최근 글, A-4 세무 글 8편 사실 확인 고침)", "validation/validate-prelaunch-content-v229104.mjs"],
   ["V22.9.104 카카오톡 인앱 시작 화면(홈 미리보기 위 동의 팝업)·첫 카카오 로그인 기본 가계부·홈 동의 팝업(ab_cs)·POST /my/consent", "validation/validate-kakao-home-v229104.mjs"],
@@ -379,7 +380,7 @@ function run(command, args, label) {
 // V22.9.99: wording, notice hide and findings; measured 61,894 present / 61,891 absent.
 // V22.9.100: K-1 139 checks; F-1/F-2 user-confirmed split. Closing K-1 removes one open-item ledger assertion.
 // Both complete runs measured 62,052 present / 62,049 absent (61,914/61,911 + 139 - 1).
-const EXPECTED_MINIMUM_CHECKS = 63571;
+const EXPECTED_MINIMUM_CHECKS = 63977;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
