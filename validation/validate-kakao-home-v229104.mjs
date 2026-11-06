@@ -31,7 +31,8 @@ const KAKAO_ENV = { KAKAO_LOGIN_ENABLED: "1", KAKAO_REST_API_KEY: "qa-rest-api-k
 const OFFERS_KEY = "kakao_login_link_offers_v22991";
 const APP_NOV = "/app?month=2026-11";
 const HOME = "/app?month=2026-07&household_id=house-home";
-const CONSENT_MESSAGE = "이용약관 동의와 개인정보처리방침 확인(만 14세 이상)이 필요해요";
+// V22.9.104 L-2(커밋 B): 오류 문구에서 ‘(만 14세 이상)’을 뺐다.
+const CONSENT_MESSAGE = "이용약관 동의와 개인정보처리방침 확인이 필요해요";
 const CODE = /[A-HJ-NP-Z2-9]{8}(?:-[A-HJ-NP-Z2-9]{8}){3}/;
 const siteConfig = read("src/modules/public/site-config.js");
 const REVISION = siteConfig.match(/const POLICY_REVISION_DATE = "(\d{4}-\d{2}-\d{2})";/)?.[1] || "";
@@ -551,7 +552,7 @@ await homeFixture(async (fx) => {
   eq(accepted.location, HOME, "11 돌아갈 곳(같은 사이트)으로 간다");
   eq(cookieLine(accepted.cookies, "ab_cs"), CS_ON, "11 ab_cs=1(HttpOnly·Secure·SameSite=Lax·14일)");
   const record = consentRecord(fx, "user-bin");
-  ok(record && record.version === REVISION && record.via === "popup" && record.age14 === true && Number.isFinite(Date.parse(record.at)), `11 동의 기록(consent:user-bin, via popup) ${JSON.stringify(record)}`);
+  ok(record && record.version === REVISION && record.via === "popup" && !("age14" in record) && Number.isFinite(Date.parse(record.at)), `11 동의 기록(consent:user-bin, via popup) ${JSON.stringify(record)}`);
   ok(events("consent_popup_accepted").some((event) => event.detail === "recorded"), "11 운영 이벤트 consent_popup_accepted");
   const home = await go(fx, jar, HOME, { ua: CHROME });
   ok(home.status === 200 && !home.html.includes("abConsentPop"), "11 돌아간 홈에는 팝업이 없다");

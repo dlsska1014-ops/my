@@ -1,9 +1,9 @@
 ## V22.9.104 카카오 홈 검사
 
 - `node validation/validate-kakao-home-v229104.mjs`(185): 시작 화면 조건(자동 로그인 먼저·쿠키 skip/off/try·auto=0·login=1·관리자·인앱 아님), 동의 없는 시작·카카오 취소, 인앱 새 계정 + ‘내 가계부’, 기록 없던 기존 계정의 체크 로그인 → 기록(via kakao)·ab_cs=1, 자동 로그인은 기록 없음·ab_cs=0, 단톡방 먼저 계정(별칭) → 기록한 가계부 홈·새 계정 없음, 잇기 제안 → 합치기, 잇기 확인 실패 → 만들지 않음, 되풀이 없음, 웹 연결 코드, 홈 팝업(ab_cs=0 만, 그 밖 바이트 그대로), POST /my/consent(세션·같은 출처·칸·저장 실패·이미 기록·return_to), 가입·로그인 이름 로그인·로그아웃 쿠키, 독립 검토 장면 13(꾸민 auto=1&consent=1 은 기록 없음·빈 계정은 시작 화면, 인앱 아닌 새 계정은 첫 가계부 화면, household_id 뺀 첫 홈 200, 읽기 실패 /my/consent 503·기록 그대로, /m → /app, 읽기 실패 로그인은 ab_cs 지움).
-- `validate-edit-race-v229104`(104, 옛 코드에서 51 실패), `validate-prelaunch-content-v229104`(393: 띠 × · 최근 글 · 글 사실 고침). 추적표 555건 통과. 환불 골든 3개 재채취(판 이름만; 같은 번들에서 판 이름을 V22.9.103 으로 두면 옛 값 268 통과를 먼저 확인).
+- `validate-v22995-legal`(157: 동의 칸·오류 문구에 만 14세 없음, 새 기록 age14 없음, 방침 9절 5문장·약관 2절, 6절 쿠키 이름 목록 = 코드, 12절 이번 개정 문장, 공고일 = 시행일 상수). `validate-edit-race-v229104`(104, 옛 코드에서 51 실패), `validate-prelaunch-content-v229104`(393: 띠 × · 최근 글 · 글 사실 고침). 추적표 555건 통과. 환불 골든 3개 재채취(판 이름만; 같은 번들에서 판 이름을 V22.9.103 으로 두면 옛 값 268 통과를 먼저 확인).
 - 헤드리스 Chrome(`review-artifacts/v104-kakao-home-2026-11-06/kakao/kakao-home-chrome.mjs`, 통합 트리): 6가지(시작 화면 JS·JS 없음·어둡게, 홈 동의 팝업 JS·JS 없음·어둡게) 모두 통과 — 체크 없이 누르면 막힘, 체크 → ‘카카오로 계속하기’ → kauth.kakao.com 인가까지 약 0.3초(prompt 없음·state 있음), 팝업 체크 → POST /my/consent → 같은 홈(팝업 없음), 밑 화면 inert, CSP 위반 0. 화면 `review-artifacts/v104-kakao-home-2026-11-06/kakao/out-integrated/`.
-- 전체 하네스 두 모드 63,564/63,561(하한 63,561), manifest `BUNDLE_FILE_CHECKSUMS_V22_9_104.sha256`(787), 번들 9,733,645 B·sha256 cd5c52d6b7fb….
+- 전체 하네스 두 모드 63,574/63,571(하한 63,571), manifest `BUNDLE_FILE_CHECKSUMS_V22_9_104.sha256`(787), 번들 9,736,257 B·sha256 f5945f5a46c7….
 - 사람 확인: 휴대폰 카카오톡(iPhone·Android) 방 기록 → ‘가계부 열기’ → 홈, 동의 팝업 한 번.
 
 ## V22.9.103 서울 문구 검사

@@ -52,11 +52,13 @@ function renderMyStartChoiceHtml({ env, user, msg = "", err = "" }) {
 
 // V22.9.95 R-9: 가입 폼과 카카오 로그인이 같이 쓰는 동의 오류 문구(맨 위 요약과 칸 아래에 같은 말).
 // V22.9.104 L-2: 동의 칸 문구(이용약관 동의 + 개인정보처리방침 확인)와 같은 말로 맞춘다. 홈 동의 팝업(POST /my/consent)도 이 말을 쓴다.
-const SIGNUP_CONSENT_REQUIRED_MESSAGE = "이용약관 동의와 개인정보처리방침 확인(만 14세 이상)이 필요해요";
+// V22.9.104 L-2(커밋 B): 동의 칸이 나이를 묻지 않으므로 ‘(만 14세 이상)’을 뺐다.
+const SIGNUP_CONSENT_REQUIRED_MESSAGE = "이용약관 동의와 개인정보처리방침 확인이 필요해요";
 
 // V22.9.95 R-9: 새 계정이 만들어질 때만(로컬 가입 성공, 카카오 콜백의 새 사용자) 동의 기록을 설정 표 consent:<user_id> 에 남긴다.
-// version 은 방침 개정일, age14 는 동의 칸이 만 14세 이상 확인을 함께 묻기 때문이다. 기록이 실패해도 가입은 막지 않고 운영 이벤트(warn)만 남긴다.
+// version 은 방침 개정일이다(V22.9.95~103 의 기록에는 동의 칸이 만 14세 이상 확인을 함께 물어 age14 가 있다). 기록이 실패해도 가입은 막지 않고 운영 이벤트(warn)만 남긴다.
 // V22.9.104 L-3: 홈 동의 팝업(POST /my/consent)도 같은 기록을 남긴다(via "popup"). 가입 때 기록이 없던 계정(단톡방에서 먼저 생긴 계정 등)이다.
+// V22.9.104 L-2(커밋 B): 동의 칸이 나이를 묻지 않아 새 기록에는 age14 를 적지 않는다. 예전 기록의 age14 는 그대로 두며 읽는 곳은 없다.
 async function recordSignupConsent(env, userId = "", via = "local") {
   const id = String(userId || "").trim();
   if (!id) return false;
@@ -66,7 +68,7 @@ async function recordSignupConsent(env, userId = "", via = "local") {
     await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ key: `consent:${id}`.slice(0, 180), value: JSON.stringify({ version: POLICY_REVISION_DATE, at: new Date(qaFixedNowMs()).toISOString(), via: kakao ? "kakao" : popup ? "popup" : "local", age14: true }) }),
+      body: JSON.stringify({ key: `consent:${id}`.slice(0, 180), value: JSON.stringify({ version: POLICY_REVISION_DATE, at: new Date(qaFixedNowMs()).toISOString(), via: kakao ? "kakao" : popup ? "popup" : "local" }) }),
     });
     return true;
   } catch (err) {

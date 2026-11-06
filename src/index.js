@@ -3371,8 +3371,10 @@ const BUSINESS_FOOTER_INFO = Object.freeze({
 // V22.9.95 R-9: 개인정보처리방침·이용약관의 개정 시행일이자 가입 동의 기록(consent:<user_id>)의 version 이다. 공고일(POLICY_NOTICE_DATE)은 개정
 // 내용을 화면에 올린 날(= V22.9.95 배포일)이다. V22.9.96(E-17 재결정, 사용자 2026-11-02 "개정 공고랑 시행 지금 바로"): 이번 개정은 동의 절차·보호 조치를 더하고
 // 처리 내용을 더 자세히 적은, 이용자에게 불리하지 않은 변경이라 시행일 = 공고일(알린 날부터 적용). 검사는 시행일이 공고일과 같거나 + 7일인지 본다. 날짜는 이 두 줄만 바꾼다.
-const POLICY_NOTICE_DATE = "2026-11-02";
-const POLICY_REVISION_DATE = "2026-11-02";
+// V22.9.104 L-5·L-6(사용자 2026-11-06 "14세 문구 빼고 PR 올려줘"): 만 14세 미만 이용(방침 9절·약관 2절)과 6절 쿠키 목록을 고친 개정도 이용자에게
+// 불리하지 않은 변경이라 공고일 = 시행일 = 배포일이다. 배포가 다른 날로 넘어가면 두 줄을 그날로 바꾼다(동의 기록 version 도 따라간다. 읽는 곳은 기록 유무만 본다).
+const POLICY_NOTICE_DATE = "2026-11-06";
+const POLICY_REVISION_DATE = "2026-11-06";
 
 // "2026-07-13" → "2026년 7월 13일"(방침 머리의 시행·공고·개정일 표기).
 function policyDateLabel(ymd = POLICY_REVISION_DATE) {
@@ -3689,9 +3691,11 @@ function kakaoLoginButtonHtml(returnTo = "", { consentError = "" } = {}) {
 // 칸에 aria-invalid 와 칸 아래 문구(.fieldError)를 붙인다. 미리 체크해 두지 않는다(동의는 사용자가 직접 표시한다).
 // V22.9.104 L-2: 필수 칸임을 앞에 적고, 개인정보처리방침은 ‘동의’가 아니라 ‘확인’으로 적는다(서비스 제공에 필요한 처리라 별도 동의를 받지 않는다).
 // 카카오톡 시작 화면·홈 동의 팝업·로그인 화면·가입 폼이 모두 이 칸을 쓴다. 서버는 여전히 consent=1 을 받아야 진행하고 동의 기록을 남긴다.
+// V22.9.104 L-2(커밋 B): ‘만 14세 이상이에요’를 뺐다. 법정대리인 동의는 아동의 개인정보를 동의를 근거로 처리할 때만 필요하고(개인정보 보호법
+// 제22조의2제1항), 가계부는 서비스 제공에 필요한 처리(제15조제1항제4호)만 한다. 만 14세 미만의 처리는 처리방침 9절에 적었다.
 function signupConsentFieldHtml(id = "signupConsent", error = "") {
   const note = error ? ` aria-invalid="true" aria-describedby="${id}Error"` : "";
-  return `<label class="consentRow"><input id="${id}" name="consent" type="checkbox" value="1" required${note}/><span>[필수] <a href="/terms" target="_blank">이용약관</a>에 동의하고 <a href="/privacy" target="_blank">개인정보처리방침</a>을 확인했어요. 만 14세 이상이에요</span></label>${error ? `<p class="fieldError" id="${id}Error">${escapeHtml(error)}</p>` : ""}`;
+  return `<label class="consentRow"><input id="${id}" name="consent" type="checkbox" value="1" required${note}/><span>[필수] <a href="/terms" target="_blank">이용약관</a>에 동의하고 <a href="/privacy" target="_blank">개인정보처리방침</a>을 확인했어요</span></label>${error ? `<p class="fieldError" id="${id}Error">${escapeHtml(error)}</p>` : ""}`;
 }
 
 function publicSiteNav(active = "home") {
@@ -9818,7 +9822,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
           ["거래 변경 이력", "고치거나 지운 거래의 바뀌기 전·후 내용, 변경한 사용자, 변경 시각", "거래를 고치거나 지울 때", "최대 180일"],
           ["접속·보안 기록", "IP 주소, 브라우저 정보(User-Agent), 요청 경로와 시각", "서비스에 접속할 때 자동으로 생성", "요청 횟수 제한에 쓰는 값은 서버 인스턴스 메모리에만 잠시 두고 저장하지 않습니다. 로그인·가입 시도 제한에는 IP 주소 등을 복원할 수 없게 변환한 값과 시도 횟수만 데이터베이스에 저장하고, 로그인에 성공하면 그 기록을 지웁니다."],
           ["쿠키", "아래 쿠키 목록", "로그인·본인 확인·가계부 선택 때", "아래 쿠키 목록"],
-        ] }, bullets: ["ab_user: 로그인 유지(세션), 14일", "ab_hh: 마지막으로 연 가계부 기억, 1년", "kakao_oauth_state·kakao_oauth_link_user·kakao_oauth_reauth_household·kakao_oauth_return_to: 카카오 로그인 요청 확인, 10분", "ab_credential_reauth·ab_household_delete_reauth·ab_account_link: 본인 확인과 계정 잇기 확인, 5분", "ab_kakao_auto: 카카오톡 안 자동 로그인 시도 상태, 10분~30일(직접 로그아웃하면 30일 동안 멈춤)", "ab_account_link_later·ab_account_link_pause: 계정 잇기 안내 미루기, 7일·10분", "ab_admin: 운영자 관리 화면 로그인(운영자만), 12시간", "모든 쿠키는 HTTPS 연결에서만 보내고(Secure) 화면의 스크립트가 읽지 못하게(HttpOnly) 설정합니다. 광고 쿠키는 4절을 따릅니다."] },
+        ] }, bullets: ["ab_user: 로그인 유지(세션), 14일", "ab_hh: 마지막으로 연 가계부 기억, 1년", "ab_cs: 이용약관 동의 기록 확인 결과(동의 안내 팝업을 띄울지), 14일", "ab_bk·ab_setup: 가계부 기본 설정 안내 띠를 띄울지(로그인 비밀번호 설정 여부·가계부 설정 확인 결과), 14일·1시간", "ab_notice_hide: 공지 띠 ‘오늘 하루 안 보기’, 24시간", "kakao_oauth_state·kakao_oauth_link_user·kakao_oauth_reauth_household·kakao_oauth_return_to: 카카오 로그인 요청 확인, 10분", "ab_credential_reauth·ab_household_delete_reauth·ab_account_link: 본인 확인과 계정 잇기 확인, 5분", "ab_kakao_auto: 카카오톡 안 자동 로그인 시도 상태, 10분~30일(직접 로그아웃하면 30일 동안 멈춤)", "ab_account_link_later·ab_account_link_pause: 계정 잇기 안내 미루기, 7일·10분", "ab_admin: 운영자 관리 화면 로그인(운영자만), 12시간", "모든 쿠키는 HTTPS 연결에서만 보내고(Secure) 화면의 스크립트가 읽지 못하게(HttpOnly) 설정합니다. 광고 쿠키는 4절을 따릅니다."] },
         { title: "7. 개인정보 보호책임자", paragraphs: [`개인정보 처리 업무를 총괄하고 이용자의 불만 처리와 피해 구제를 맡는 개인정보 보호책임자는 다음과 같습니다. 성명 ${BUSINESS_FOOTER_INFO.representative}(대표), 이메일 ${supportEmail}.`, "개인정보의 열람·정정·삭제·처리정지 요구와 개인정보 관련 문의는 위 이메일로 보내 주세요. 본인임을 확인한 뒤 처리하며, 요구를 받은 날부터 10일 안에 결과를 알립니다. 그 안에 처리하기 어려우면 이유와 처리할 날짜를 알립니다. 이메일에 계정 비밀번호나 연결 코드는 적지 마세요."], links: [["개인정보 보호책임자에게 이메일 보내기", `mailto:${supportEmail}`]] },
         { title: "8. 개인정보 처리 위탁과 국외 이전", paragraphs: ["말해가계부는 서비스를 제공하려고 아래 사업자에게 개인정보 처리 업무를 맡깁니다. 미국 법인에 맡기는 처리는 개인정보의 국외 이전에 해당하며, 서비스 제공 계약을 이행하는 데 필요한 처리 위탁과 보관이므로 이 방침에 알리고 이전합니다. 맡긴 업무 밖으로 개인정보를 쓰지 않도록 관리합니다."], table: { caption: "개인정보 처리 위탁과 국외 이전", headers: ["받는 자(국가)", "맡기는 업무", "이전되는 항목", "이전 시점과 방법", "보유·이용 기간"], rows: [
           ["Cloudflare, Inc.(미국)", "서비스 실행(Workers), 네트워크 전송과 보안, 문의 메일(admin@malhaebook.com) 전달(Email Routing)", "서비스를 이용하며 주고받는 정보(접속 기록 포함), 문의 메일의 내용과 보낸 주소", "이용할 때마다 암호화 통신(HTTPS)으로 전송. 문의 메일은 보낼 때 전달", "위탁 계약이 끝날 때까지(Cloudflare 개인정보처리방침에 따름)"],
@@ -9826,10 +9830,12 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
           ["주식회사 카카오(대한민국)", "카카오 로그인, 카카오톡 챗봇 메시지 전달", "카카오 회원번호·닉네임, 챗봇 식별키·보낸 문장과 답", "로그인하거나 챗봇을 쓸 때 카카오 서버를 거쳐 전달", "카카오 개인정보처리방침에 따름"],
           ["네이버 주식회사(대한민국)", "문의 메일(admin@malhaebook.com) 수신함 제공", "문의 메일의 내용과 보낸 주소", "문의 메일을 보낼 때 Cloudflare Email Routing 을 거쳐 운영자 메일함으로 전달", "문의 처리 뒤 삭제하거나 메일 서비스 이용이 끝날 때까지"],
         ] }, note: "국외 이전을 원하지 않으면 가입하지 않거나 7절의 이메일로 개인정보 삭제를 요청할 수 있습니다. 이 이전은 서비스를 제공하는 데 꼭 필요하므로, 거부하면 서비스를 이용할 수 없습니다. 받는 자의 연락처: Cloudflare, Inc. 는 privacyquestions@cloudflare.com(101 Townsend St., San Francisco, CA 94107, 미국), Supabase 는 privacy@supabase.com, 주식회사 카카오와 네이버 주식회사는 각 회사 개인정보처리방침에 적힌 고객센터입니다.", links: [["Cloudflare 개인정보처리방침", "https://www.cloudflare.com/privacypolicy/"], ["Supabase 개인정보처리방침", "https://supabase.com/privacy"], ["카카오 개인정보처리방침", "https://www.kakao.com/policy/privacy?lang=ko"], ["네이버 개인정보처리방침", "https://privacy.naver.com/"]] },
-        { title: "9. 만 14세 미만 아동의 개인정보", paragraphs: ["만 14세 미만 아동은 가입하거나 서비스를 이용할 수 없습니다. 웹에서 새 계정을 만들거나 카카오 로그인을 할 때 만 14세 이상인지 확인합니다.", "만 14세 미만 아동의 계정이나 개인정보임을 알게 되면 지체 없이 삭제합니다."] },
+        // V22.9.104 L-2(커밋 B): 만 14세 미만도 쓸 수 있다. 서비스 제공에 필요한 처리(제15조제1항제4호)만 하고 동의를 근거로 하는 처리는 하지 않으며,
+        // 알리는 글은 쉬운 말로 쓴다(제22조의2제3항). 법정대리인의 열람·정정·삭제·처리정지 요청은 7절 보호책임자 연락처로 받는다.
+        { title: "9. 만 14세 미만 아동의 개인정보", paragraphs: ["만 14세 미만 아동도 말해가계부를 쓸 수 있습니다. 가계부 기록과 로그인처럼 서비스를 쓰는 데 꼭 필요한 개인정보만 처리합니다. 이 처리는 서비스 이용 계약을 지키는 데 필요한 처리(개인정보 보호법 제15조제1항제4호)라서 따로 동의를 받지 않습니다.", "만 14세 미만 아동의 개인정보로는 꼭 필요하지 않은 정보를 모으거나 이름을 공개하는 일처럼 동의를 받아야 하는 처리를 하지 않습니다. 그런 처리가 필요하면 그 처리에서만 나이를 확인하고 법정대리인(부모 등 보호자)의 동의를 받습니다.", "아동에게 알리는 내용은 알기 쉬운 말로 씁니다(개인정보 보호법 제22조의2제3항).", "법정대리인은 아동의 개인정보를 보거나, 고치거나, 지우거나, 처리를 멈추라고 요청할 수 있습니다. 7절의 개인정보 보호책임자 이메일로 요청하면 법정대리인인지 확인한 뒤 지체 없이 처리합니다."] },
         { title: "10. 개인정보의 파기 절차와 방법", paragraphs: ["보유기간이 끝나거나 처리 목적을 이룬 개인정보는 지체 없이 파기합니다. 다른 법령에 따라 보존해야 하면 다른 정보와 분리해 그 기간 동안만 보관합니다.", "파기 절차: 파기할 개인정보를 정하고 개인정보 보호책임자의 확인을 거쳐 파기합니다. 파기 방법: 전자 파일은 복구할 수 없도록 데이터베이스에서 삭제합니다. 개인정보를 종이로 출력해 두지 않으며, 출력한 것이 있으면 분쇄하거나 소각합니다.", "거래 변경 이력(고치거나 지운 거래의 바뀌기 전 내용)은 실행 취소와 복구를 위해 보관하며, 180일이 지나면 자동으로 삭제합니다.", "사용자가 내려받은 백업 파일은 사용자 기기에 저장되므로 사용자가 직접 지워야 합니다. 장애에 대비해 데이터베이스 사본을 만드는 경우 운영자만 접근하게 하고, 원본에서 지운 정보는 사본의 보관 기간이 끝날 때 함께 지웁니다."] },
         { title: "11. 권익침해 구제 방법", paragraphs: ["개인정보 침해에 대한 신고나 상담이 필요하면 아래 기관에 문의할 수 있습니다."], bullets: ["개인정보침해신고센터(한국인터넷진흥원): privacy.kisa.or.kr, 국번 없이 118", "개인정보분쟁조정위원회: www.kopico.go.kr, 1833-6972", "대검찰청 사이버수사과: www.spo.go.kr, 국번 없이 1301", "경찰청 사이버수사국: ecrm.police.go.kr, 국번 없이 182"] },
-        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다. 동의 절차나 보호 조치를 더하거나 처리 내용을 더 자세히 적는 것처럼 이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다.", POLICY_NOTICE_DATE === POLICY_REVISION_DATE ? `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 같은 날부터 시행합니다. 이번 개정은 동의 절차와 보호 조치를 더하고 처리 내용을 더 자세히 적은 것이어서 이용자에게 불리하지 않은 변경입니다.` : `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
+        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다. 동의 절차나 보호 조치를 더하거나 처리 내용을 더 자세히 적는 것처럼 이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다.", POLICY_NOTICE_DATE === POLICY_REVISION_DATE ? `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 같은 날부터 시행합니다. 이번 개정은 만 14세 미만 아동도 이용할 수 있게 하면서 그 개인정보를 처리하는 기준을 9절에 적고, 6절의 쿠키 목록을 실제로 쓰는 쿠키와 맞춘 것이어서 이용자에게 불리하지 않은 변경입니다.` : `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
         { title: "13. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
       ],
     },
@@ -9840,7 +9846,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
       intro: "본 약관은 말해가계부를 이용할 때 서비스와 사용자 사이의 기본 기준을 설명합니다. 사용자는 최신 약관과 개인정보처리방침을 확인한 뒤 서비스를 이용합니다.",
       sections: [
         { title: "1. 서비스 목적", paragraphs: ["말해가계부는 사용자가 직접 입력한 생활 수입·지출을 개인 또는 공동 가계부 단위로 기록하고 예산·요약·분석·백업 기능을 제공하는 서비스입니다.", "금융상품, 투자, 세무, 법률 자문을 제공하지 않으며 서비스의 계산값은 생활 기록을 돕는 참고자료입니다."] },
-        { title: "2. 사용자 책임", paragraphs: ["사용자는 입력한 금액, 날짜, 결제수단, 메모와 분류의 정확성을 확인해야 합니다. 계정, 초대코드와 접근 수단을 안전하게 관리하고 다른 사람의 정보를 권한 없이 입력해서는 안 됩니다.", "말해가계부는 만 14세 이상만 이용할 수 있습니다. 웹에서 새 계정을 만들거나 카카오 로그인을 할 때 이용약관과 개인정보처리방침에 동의하고 만 14세 이상임을 확인하는 절차를 거칩니다."] },
+        { title: "2. 사용자 책임", paragraphs: ["사용자는 입력한 금액, 날짜, 결제수단, 메모와 분류의 정확성을 확인해야 합니다. 계정, 초대코드와 접근 수단을 안전하게 관리하고 다른 사람의 정보를 권한 없이 입력해서는 안 됩니다.", "웹에서 새 계정을 만들거나 카카오 로그인을 할 때 이용약관에 동의하고 개인정보처리방침을 확인하는 절차를 거칩니다. 만 14세 미만도 이용할 수 있으며, 아동의 개인정보는 개인정보처리방침 9절에 따라 처리합니다."] },
         { title: "3. 공동 가계부와 권한", paragraphs: ["가계부 소유자와 관리자는 참여자 초대, 승인, 역할과 표시 이름을 관리할 수 있습니다. 참여자는 부여된 권한 범위에서 조회·기록·수정 기능을 사용합니다.", "새 미연결 단톡방에서는 봇에게 명확한 첫 거래를 보내면 공동 가계부를 준비하고 첫 기록자가 소유자가 됩니다. 기존 가계부를 연결하려면 해당 가계부의 소유자 또는 관리자 권한이 필요합니다. 연결을 변경할 때에는 현재 연결된 가계부의 관리 권한도 확인합니다. 기록 전 가계부 이름과 공유 범위를 확인해야 합니다."] },
         { title: "4. 데이터 수정·삭제와 백업", paragraphs: ["사용자는 거래와 설정을 수정·삭제할 수 있으며 중요한 변경 전 백업을 권장합니다. 가져오기, 일괄 수정, 삭제와 복구는 확인 절차를 제공하지만 모든 실수를 자동 복원한다고 보장하지 않습니다."] },
         { title: "5. 서비스 제한과 장애", paragraphs: ["보안, 과도 요청, 점검, 외부 서비스 장애 또는 법적 필요가 있는 경우 일부 기능을 일시 제한할 수 있습니다. 중복 저장과 데이터 손상을 줄이는 것을 우선하며 장애가 발생하면 안전 안내와 재시도 방법을 제공합니다."] },
@@ -44805,11 +44811,13 @@ function renderMyStartChoiceHtml({ env, user, msg = "", err = "" }) {
 
 // V22.9.95 R-9: 가입 폼과 카카오 로그인이 같이 쓰는 동의 오류 문구(맨 위 요약과 칸 아래에 같은 말).
 // V22.9.104 L-2: 동의 칸 문구(이용약관 동의 + 개인정보처리방침 확인)와 같은 말로 맞춘다. 홈 동의 팝업(POST /my/consent)도 이 말을 쓴다.
-const SIGNUP_CONSENT_REQUIRED_MESSAGE = "이용약관 동의와 개인정보처리방침 확인(만 14세 이상)이 필요해요";
+// V22.9.104 L-2(커밋 B): 동의 칸이 나이를 묻지 않으므로 ‘(만 14세 이상)’을 뺐다.
+const SIGNUP_CONSENT_REQUIRED_MESSAGE = "이용약관 동의와 개인정보처리방침 확인이 필요해요";
 
 // V22.9.95 R-9: 새 계정이 만들어질 때만(로컬 가입 성공, 카카오 콜백의 새 사용자) 동의 기록을 설정 표 consent:<user_id> 에 남긴다.
-// version 은 방침 개정일, age14 는 동의 칸이 만 14세 이상 확인을 함께 묻기 때문이다. 기록이 실패해도 가입은 막지 않고 운영 이벤트(warn)만 남긴다.
+// version 은 방침 개정일이다(V22.9.95~103 의 기록에는 동의 칸이 만 14세 이상 확인을 함께 물어 age14 가 있다). 기록이 실패해도 가입은 막지 않고 운영 이벤트(warn)만 남긴다.
 // V22.9.104 L-3: 홈 동의 팝업(POST /my/consent)도 같은 기록을 남긴다(via "popup"). 가입 때 기록이 없던 계정(단톡방에서 먼저 생긴 계정 등)이다.
+// V22.9.104 L-2(커밋 B): 동의 칸이 나이를 묻지 않아 새 기록에는 age14 를 적지 않는다. 예전 기록의 age14 는 그대로 두며 읽는 곳은 없다.
 async function recordSignupConsent(env, userId = "", via = "local") {
   const id = String(userId || "").trim();
   if (!id) return false;
@@ -44819,7 +44827,7 @@ async function recordSignupConsent(env, userId = "", via = "local") {
     await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ key: `consent:${id}`.slice(0, 180), value: JSON.stringify({ version: POLICY_REVISION_DATE, at: new Date(qaFixedNowMs()).toISOString(), via: kakao ? "kakao" : popup ? "popup" : "local", age14: true }) }),
+      body: JSON.stringify({ key: `consent:${id}`.slice(0, 180), value: JSON.stringify({ version: POLICY_REVISION_DATE, at: new Date(qaFixedNowMs()).toISOString(), via: kakao ? "kakao" : popup ? "popup" : "local" }) }),
     });
     return true;
   } catch (err) {

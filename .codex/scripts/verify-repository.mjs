@@ -379,7 +379,7 @@ function run(command, args, label) {
 // V22.9.99: wording, notice hide and findings; measured 61,894 present / 61,891 absent.
 // V22.9.100: K-1 139 checks; F-1/F-2 user-confirmed split. Closing K-1 removes one open-item ledger assertion.
 // Both complete runs measured 62,052 present / 62,049 absent (61,914/61,911 + 139 - 1).
-const EXPECTED_MINIMUM_CHECKS = 63561;
+const EXPECTED_MINIMUM_CHECKS = 63571;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
