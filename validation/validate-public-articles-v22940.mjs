@@ -182,8 +182,9 @@ try {
   // 5. 허브·홈·소개 연결.
   const recent = sectionByTitle(pages.get("/"), "최근 글");
   // V22.9.74: 홈 최근 글은 가장 새 글(V22.9.74 묶음 포함)을 가리키고 전체 목록은 /articles 허브다.
+  // V22.9.104 A-2: 홈 최근 글은 글 목록(작성일 최신 → 같은 날이면 제목순) 앞 8편이다.
   const recentLinks = [...recent.matchAll(/href="([^"]+)"/g)].map((m) => m[1]).filter((href) => publicPaths.includes(href) && !LEGACY.includes(href) && href !== "/articles");
-  ok(recentLinks.length >= 3 && recentLinks.length <= 4, `home "최근 글" links three or four articles (${recentLinks.length})`);
+  ok(recentLinks.length >= 3 && recentLinks.length <= 8, `home "최근 글" links three to eight articles (${recentLinks.length})`);
   ok(recent.includes('href="/articles"'), "home \"최근 글\" points to the full list");
   eq(sectionsOf(pages.get("/")).filter((s) => s.startsWith("<h2>최근 글</h2>")).length, 1, "home adds a single recent-articles section");
   const hub = sectionByTitle(pages.get("/guides"), "생활비 가이드 글");

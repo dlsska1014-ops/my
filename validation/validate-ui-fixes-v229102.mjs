@@ -151,8 +151,10 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   fx.env.NOTICE_TEXT = "점검 안내";
   fx.env.NOTICE_LINK = "/privacy";
   for (const [label, result] of [["설정 화면", await withFlag(`/my/settings?${M}&${H}`)], ["홈", await noPassword()]]) {
-    const noticeAt = result.html.indexOf("오늘 하루 안 보기</button></form></div>");
-    const noticeEnd = noticeAt + "오늘 하루 안 보기</button></form></div>".length;
+    // V22.9.104 A-1: 공지 띠 폼은 ‘오늘 하루 안 보기’ 뒤에 닫기 ‘×’ 단추로 끝난다(띠 끝 = 띠 시작 뒤 첫 ‘</form></div>’).
+    const noticeTail = '오늘 하루 안 보기</button><button class="abNoticeClose" type="submit" aria-label="공지 닫기">×</button></form></div>';
+    const noticeAt = result.html.indexOf(noticeTail);
+    const noticeEnd = noticeAt + noticeTail.length;
     ok(noticeAt > 0 && result.html.indexOf('class="abNoticeBand"') < noticeAt && result.html.slice(noticeEnd).startsWith('<style id="abSetupBandStyle">'), `${label}: 공지 띠가 있으면 기본 설정 띠는 공지 띠 바로 아래`);
   }
   delete fx.env.NOTICE_TEXT;

@@ -186,7 +186,9 @@ try {
 
   // 6. 홈 최근 글·소개의 작성자와 검토 방식·사용 가이드 허브·사이트맵 연결.
   const recent = (pages.get("/").match(/<section class="pubSection" id="section-\d+"><h2>최근 글<\/h2>[\s\S]*?<\/section>/) || [""])[0];
-  ok([...recent.matchAll(/href="([^"]+)"/g)].map((m) => m[1]).filter((href) => ARTICLES.includes(href)).length >= 3, "home recent articles link at least three V22.9.74 articles");
+  // V22.9.104 A-2: 홈 최근 글은 글 목록(작성일 최신 순) 앞 8편이라 V22.9.74 글 대신 가장 새 글을 가리킨다. 모두 허브에 카드가 있는 글이다.
+  const recentArticles = [...recent.matchAll(/href="([^"]+)"/g)].map((m) => m[1]).filter((href) => href !== "/articles");
+  ok(recentArticles.length >= 3 && recentArticles.every((href) => cardLinks.includes(href)), "home recent articles link at least three hub articles");
   ok(recent.includes('href="/articles"'), "home recent articles link the hub");
   const editorial = (pages.get("/about").match(/<h2>글을 쓰는 사람과 검토 방식<\/h2>([\s\S]*?)<\/section>/) || [])[1] || "";
   const editorialText = textOf(editorial);

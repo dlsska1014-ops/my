@@ -8,6 +8,7 @@
   },
   "scripts": {
     "validate:edit-race-v229104": "node validation/validate-edit-race-v229104.mjs",
+    "validate:prelaunch-content-v229104": "node validation/validate-prelaunch-content-v229104.mjs",
     "validate:ui-fixes-v229102": "node validation/validate-ui-fixes-v229102.mjs",
     "validate:skill-db-calls": "node validation/validate-skill-db-calls-v229100.mjs",
     "validate:skill-identity-defer": "node validation/validate-skill-identity-defer-v229101.mjs",

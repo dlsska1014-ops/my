@@ -130,8 +130,11 @@ function attachSetupBand(html = "", band = "") {
   const source = String(html || "");
   if (!band || !source || source.includes('class="abSetupBand"')) return source;
   if (!/<body\b[^>]*>/i.test(source)) return source;
-  const noticeEnd = "오늘 하루 안 보기</button></form></div>";
-  const noticeAt = source.indexOf('class="abNoticeBand"') >= 0 ? source.indexOf(noticeEnd) : -1;
+  // V22.9.104 A-1: 공지 띠 폼 끝에 닫기 ‘×’ 단추가 붙어 띠의 끝 글자가 바뀌었다. 띠 시작부터 처음 나오는 ‘</form></div>’ 가 띠의 끝이다
+  // (띠 글과 링크는 이스케이프되어 그 글자를 만들 수 없다).
+  const noticeEnd = "</form></div>";
+  const noticeStart = source.indexOf('<div class="abNoticeBand"');
+  const noticeAt = noticeStart >= 0 ? source.indexOf(noticeEnd, noticeStart) : -1;
   if (noticeAt >= 0) return source.slice(0, noticeAt + noticeEnd.length) + band + source.slice(noticeAt + noticeEnd.length);
   const skip = /<a class="abSkipLink" href="[^"]*">본문 바로가기<\/a>/;
   if (skip.test(source)) return source.replace(skip, (full) => full + band);
