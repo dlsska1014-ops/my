@@ -46,7 +46,8 @@ function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login",
   const fieldError = loginMode && error === "로그인 이름을 입력하세요." ? "loginName" : loginMode && error === "비밀번호를 4자리 이상 입력하세요." ? "loginPassword" : "";
   const fieldNote = (id) => (fieldError === id ? fieldMessages[id] : "");
   const invalid = (id) => (fieldError === id ? ' aria-invalid="true"' : "");
-  const localOpen = !kakaoPart.includes('class="kakaoBtn"') || (loginMode && Boolean(error)) ? " open" : "";
+  // V22.9.104 L-1: login_local(카카오톡 시작 화면의 ‘로그인 이름으로 로그인’)은 로그인 이름 칸을 처음부터 연다. 그 밖은 보통 로그인과 같다.
+  const localOpen = !kakaoPart.includes('class="kakaoBtn"') || (loginMode && Boolean(error)) || authMode === "login_local" ? " open" : "";
   const icon = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
   // V22.9.95 R-9: 동의 칸(.consentRow)은 좁은 폭에서 글이 줄바꿈되고(min-width:0) 체크 칸은 줄지 않는다. 카카오 단추가 <button> 이 되어 셸의 단추 최소 높이(44px)가
   // 54px 을 덮지 않게 한다. 화면 끝에 이용약관·개인정보처리방침·문의 줄(.loginLegal)을 둔다(로그인 화면에 방침 링크가 없었다).

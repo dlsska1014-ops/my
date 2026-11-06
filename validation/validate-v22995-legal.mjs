@@ -42,8 +42,9 @@ const NOTICE = siteConfig.match(/const POLICY_NOTICE_DATE = "(\d{4}-\d{2}-\d{2})
 const [NY, NM, ND] = NOTICE.split("-").map(Number);
 const NOTICE_LABEL = `${NY}년 ${NM}월 ${ND}일`;
 const SCENE_AT = new Date(Date.parse(`${REVISION}T12:00:00+09:00`)).toISOString();
-const MESSAGE = "약관·개인정보처리방침 동의와 만 14세 이상 확인이 필요해요";
-const LABEL = "이용약관과 개인정보처리방침에 동의하며, 만 14세 이상입니다";
+// V22.9.104 L-2: 동의 칸은 ‘[필수] 이용약관 동의 + 개인정보처리방침 확인’ 으로 바꿨다(오류 문구도 같은 말). 서버는 여전히 consent=1 을 받아야 진행한다.
+const MESSAGE = "이용약관 동의와 개인정보처리방침 확인(만 14세 이상)이 필요해요";
+const LABEL = "[필수] 이용약관에 동의하고 개인정보처리방침을 확인했어요. 만 14세 이상이에요";
 const EMAIL = "admin@malhaebook.com";
 const PHONE = /01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}/;
 const INAPP = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 KAKAOTALK 10.8.0";
@@ -222,7 +223,7 @@ await section("2 로컬 가입", () => scene(async (fx) => {
     const users = fx.db.users.length;
     const missing = await post(fx, "/my/local-signup", SIGNUP, { cookie: "" });
     eq(missing.status, 400, "2 동의 없이 보낸 가입은 400 이다");
-    ok(/<a class="authErrorSummary" href="#signupConsent" role="alert"[^>]*>[\s\S]*?약관·개인정보처리방침 동의와 만 14세 이상 확인이 필요해요/.test(missing.text), "2 맨 위 오류 요약이 동의 문구를 말하고 동의 칸을 가리킨다");
+    ok(/<a class="authErrorSummary" href="#signupConsent" role="alert"[^>]*>[\s\S]*?이용약관 동의와 개인정보처리방침 확인\(만 14세 이상\)이 필요해요/.test(missing.text), "2 맨 위 오류 요약이 동의 문구를 말하고 동의 칸을 가리킨다");
     ok(missing.text.includes('<input id="signupConsent" name="consent" type="checkbox" value="1" required aria-invalid="true" aria-describedby="signupConsentError"/>'), "2 동의 칸에 aria-invalid·aria-describedby 가 붙는다");
     const again = formFields(missing.text, "/my/local-signup");
     ok(again.form.includes(`<p class="fieldError" id="signupConsentError">${MESSAGE}</p>`), "2 가입 폼 안, 칸 아래에 같은 짧은 문구가 있다");
@@ -268,7 +269,7 @@ await section("3 카카오 시작", () => scene(async (fx) => {
   eq(plain.status, 400, "3 동의 없이 시작한 보통 로그인은 로그인 화면(400)으로 돌아간다");
   eq(plain.location, "", "3 카카오 인가로 보내지 않는다");
   ok(!plain.cookies.some((pair) => pair.startsWith("kakao_oauth_state=")), "3 로그인 상태 쿠키를 만들지 않는다");
-  ok(/<a class="authErrorSummary" href="#kakaoConsent" role="alert"[^>]*>[\s\S]*?약관·개인정보처리방침 동의와 만 14세 이상 확인이 필요해요[\s\S]*?카카오 로그인으로 이동/.test(plain.html), "3 맨 위 오류 요약이 카카오 동의 칸을 가리킨다");
+  ok(/<a class="authErrorSummary" href="#kakaoConsent" role="alert"[^>]*>[\s\S]*?이용약관 동의와 개인정보처리방침 확인\(만 14세 이상\)이 필요해요[\s\S]*?카카오 로그인으로 이동/.test(plain.html), "3 맨 위 오류 요약이 카카오 동의 칸을 가리킨다");
   ok(plain.html.includes('<input id="kakaoConsent" name="consent" type="checkbox" value="1" required aria-invalid="true" aria-describedby="kakaoConsentError"/>') && plain.html.includes(`<p class="fieldError" id="kakaoConsentError">${MESSAGE}</p>`), "3 카카오 동의 칸에 오류 표시와 칸 아래 문구가 있다");
   ok(events("kakao_login_consent_missing").some((event) => event.detail === "start" && event.severity === "info"), "3 동의 없는 시작은 운영 이벤트(info)로 남는다");
   const kept = await go(fx, "/auth/kakao/start?return_to=%2Fmy%2Fanalysis");
