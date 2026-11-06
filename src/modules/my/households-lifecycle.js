@@ -259,6 +259,16 @@ function formatDateKorean(value = "") {
   return /^20\d{2}-\d{2}-\d{2}$/.test(v) ? v : "참여일 미상";
 }
 
+// V22.9.104 L-1: 가계부 만들기 한 덩어리(같은 이름 잠금 → 같은 이름 기존 가계부면 그것 → 없으면 새로 만듦). /my/create 폼과
+// 카카오 첫 로그인의 기본 가계부(auth/kakao-oauth.js)가 같은 순서를 쓴다. 새 SQL 없음.
+async function createHouseholdForUserV229104(env, userId, name, displayName) {
+  return withHouseholdCreateLock(env, userId, name, async (lifecycleOptions) => {
+    const existing = await findExistingKakaoHouseholdByNameV2254(env, userId, name);
+    if (existing) return { household: existing, existed: true };
+    return { household: await createUserHousehold(env, userId, name, displayName, lifecycleOptions), existed: false };
+  });
+}
+
 async function handleMyCreate(request, env) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
@@ -272,11 +282,7 @@ async function handleMyCreate(request, env) {
   if (!name) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=household_name_invalid&household_name=${encodeURIComponent(attemptedName)}#create`);
   if (!displayName) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=display_name_required#create`);
   try {
-    const result = await withHouseholdCreateLock(env, userId, name, async (lifecycleOptions) => {
-      const existing = await findExistingKakaoHouseholdByNameV2254(env, userId, name);
-      if (existing) return { household: existing, existed: true };
-      return { household: await createUserHousehold(env, userId, name, displayName, lifecycleOptions), existed: false };
-    });
+    const result = await createHouseholdForUserV229104(env, userId, name, displayName);
     const household = result.household;
     // V22.9.37 감사 H14: 폼의 "이 가계부에서 보일 내 이름"은 새 가계부의 내 이름표(member_aliases)다. 계정 전체 닉네임
     // (users.nickname)과 다른 가계부의 이름표는 바꾸지 않는다. 이름표 저장 실패는 생성 결과를 뒤집지 않는다.
@@ -684,7 +690,8 @@ async function handleMyJoin(request, env) {
 
 async function handleMyPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
-  if (!userId) return htmlResponse(renderUserLoginHtml(env, "", safeUserReturnPath(url.searchParams.get("return_to") || "", "")));
+  // V22.9.104 L-1: 시작 화면의 ‘로그인 이름으로 로그인’(login=1)은 로그인 이름 칸을 연 전체 로그인 화면이다.
+  if (!userId) return htmlResponse(renderUserLoginHtml(env, "", safeUserReturnPath(url.searchParams.get("return_to") || "", ""), url.searchParams.get("login") === "1" ? "login_local" : "login"));
   // V22.9.91 계정 잇기: 이 사람의 카카오톡 방 기록 계정과 웹 계정이 갈라져 있으면(잇기 제안) 가계부보다 확인 화면을 먼저 보인다.
   // ‘나중에’를 골랐거나 방금 이은 뒤(msg=account_linked)는 묻지 않는다.
   if (url.searchParams.get("msg") !== "account_linked") {
@@ -733,8 +740,8 @@ async function handleMyPage(request, env, url) {
 }
 // @build:exports-start
 export {
-  handleMyCreate, handleMyHouseholdDelete, handleMyHouseholdLeave, handleMyHouseholdUpdate,
-  handleMyHouseholdsPage, handleMyJoin, handleMyPage, householdJoinFeedback, householdPageMessage,
-  purgeHouseholdData, removeMemberAlias,
+  createHouseholdForUserV229104, handleMyCreate, handleMyHouseholdDelete, handleMyHouseholdLeave,
+  handleMyHouseholdUpdate, handleMyHouseholdsPage, handleMyJoin, handleMyPage,
+  householdJoinFeedback, householdPageMessage, purgeHouseholdData, removeMemberAlias,
 };
 // @build:exports-end

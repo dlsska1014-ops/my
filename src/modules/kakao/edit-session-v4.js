@@ -6,6 +6,7 @@ import { parseStrictSettingsObject, safeError, withSettingsRmwLease } from "../r
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { refundLinkCountForRow } from "../features/settlement-refund-links.js";
+import { canManageMyHousehold } from "../my/access-control.js";
 import { isDefiniteStorageFailure, isUncertainStorageWrite } from "./response-builders.js";
 import {
   KAKAO_DELETE_WORD_V4, KAKAO_EDIT_AMOUNT_V4, KAKAO_EDIT_JOSA_VERB_V4, KAKAO_EDIT_ORDER_VERB_V4,
@@ -20,7 +21,9 @@ import { stableShortHash } from "./identity-chat-first.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { formatDate, nowKstDate } from "../nlu/date-payment.js";
-import { deleteTransactionWithAudit, numberWithCommas } from "../domain/transactions-core.js";
+import {
+  deleteTransactionIfUnchanged, deleteTransactionWithAudit, numberWithCommas,
+} from "../domain/transactions-core.js";
 // @build:imports-end
 
 function kakaoEditConversationScope(payload = {}) {
@@ -127,7 +130,12 @@ async function writeKakaoEditUndoItemsV4(env, kakaoUserKey = "", payload = {}, i
 
 // S1: 잠금 안에서 버퍼에 먼저 담고, 담긴 것을 확인한 뒤에만 지운다. 버퍼를 읽거나 쓰지 못하면 지우지 않는다.
 // DELETE 단계의 오류에는 kakaoDeletePhase 를 달아 "결과 모름"과 "지우지 않음"을 호출부가 구분하게 한다.
-async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, householdId = "", householdName = "", userId = "" } = {}, row = {}, seq = 0) {
+// V22.9.104 J-9(Codex 검토 V102): role 은 지우는 사람의 지금 가계부 역할이다. 소유자·관리자가 아니고 카카오 기록 표시(source_user_key)가 없는
+// 기록(웹에서 만든 내 기록 — 지출자로 내 기록을 가린다)은 위에서 읽은 일곱 칸(지출자 포함)이 그대로일 때만 지운다(조건부 삭제 함수, DB 요청 수 같음).
+// 읽은 뒤 관리자가 지출자를 바꿨거나 다른 사람이 고쳤으면 지우지 않고, 버퍼를 앞의 값으로 되돌린 뒤 kakaoDeleteConflict 오류를 올린다.
+// 카카오로 쓴 기록(source_user_key 있음)은 지출자가 바뀌어도 쓴 사람의 기록이라(isKakaoRowOwnedByRequesterV2254) 예전처럼 감사 삭제 함수로 지운다.
+// role 을 모르면(빈 값) 구성원처럼 조건부로 지운다.
+async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, householdId = "", householdName = "", userId = "", role = "" } = {}, row = {}, seq = 0) {
   return withKakaoEditUndoLeaseV4(env, kakaoUserKey, payload, async ({ assertFresh }) => {
     // V22.9.80 T-13: 환불 연결이 켜져 있으면 지우기 전에 이 기록의 연결 수를 함께 읽어 버퍼에 적는다(같은 단계라 왕복이 늘지 않는다).
     // 지우면 연결은 함께 지워지고 복구해도 되살아나지 않으므로 삭제·복구 답장이 그 사실을 말한다. 플래그가 꺼져 있으면 칸이 없다.
@@ -141,12 +149,24 @@ async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, 
     assertFresh();
     await writeKakaoEditUndoItemsV4(env, kakaoUserKey, payload, items);
     assertFresh();
+    const guardSpender = !canManageMyHousehold(role) && !String(row.source_user_key || "").trim();
+    let outcome = "deleted";
     try {
       // V22.9.37 감사 NEW-4: 직접 DELETE 대신 웹과 같은 감사 RPC 로 지운다. accountbook_transaction_audit 에 지운 행과
       // 행위자가 남는다. RPC 도 실제 DELETE 이므로 복구는 예전처럼 버퍼의 행을 같은 id 로 다시 넣는다.
-      await deleteTransactionWithAudit(env, row.id, String(row.household_id || householdId), { actorUserId: userId || null, actorKind: KAKAO_AUDIT_ACTOR_KIND });
+      if (guardSpender) outcome = await deleteTransactionIfUnchanged(env, row, String(row.household_id || householdId), { actorUserId: userId || null, actorKind: KAKAO_AUDIT_ACTOR_KIND });
+      else await deleteTransactionWithAudit(env, row.id, String(row.household_id || householdId), { actorUserId: userId || null, actorKind: KAKAO_AUDIT_ACTOR_KIND });
     } catch (err) {
       throw Object.assign(new Error(`kakao_delete_failed: ${safeError(err)}`, { cause: err }), { kakaoDeletePhase: true });
+    }
+    if (outcome === "changed") {
+      // V22.9.104 J-9: 지우지 않은 기록을 복구 목록에 남기지 않는다(‘복구’가 지금 기록을 옛 값으로 되돌리지 않게). 되돌리지 못해도 기록은 그대로다.
+      try {
+        assertFresh();
+        await writeKakaoEditUndoItemsV4(env, kakaoUserKey, payload, previous);
+      } catch (_) {}
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/skill", method: "POST", detail: "kakao_delete_changed" });
+      throw Object.assign(new Error("kakao_delete_conflict"), { kakaoDeleteConflict: true });
     }
     return entry;
   });
@@ -196,6 +216,8 @@ function kakaoRefundLinkUndoNoteV4(refundLinks = undefined, phase = "delete") {
 // T2·S1: DELETE 결과를 모르면 다시 보내라고 하지 않는다. 다시 보내면 밀린 다음 번호가 지워진다.
 function kakaoEditDeleteFailedTextV4(err, row = {}, seq = 0) {
   const listCommand = `${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기`;
+  // V22.9.104 J-9: 읽은 뒤 다른 사람이 이 기록을 바꿔(지출자 바뀜 포함) 지우지 않았다. 지워진 것이 없으니 ‘복구’ 를 권하지 않는다.
+  if (err?.kakaoDeleteConflict) return `다른 사람이 이 기록을 먼저 바꿔서 지우지 않았어요.\n${kakaoRowLabel(row, seq)}\n‘${listCommand}’로 지금 기록을 확인해 주세요.`;
   if (err?.kakaoDeletePhase && isUncertainStorageWrite(err)) {
     return `삭제 결과를 확인하지 못했어요.\n${kakaoRowLabel(row, seq)}\n같은 명령을 다시 보내면 다른 기록이 지워질 수 있어요. ‘${listCommand}’로 먼저 확인해 주세요.\n지워져 있으면 ‘${Number(seq) >= 1 ? `복구 ${twoDigitSeq(seq)}번` : "복구"}’로 되돌릴 수 있어요.`;
   }

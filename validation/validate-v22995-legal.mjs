@@ -7,7 +7,8 @@
 //   3 카카오 시작: 동의 없이 보통 로그인을 시작하면 로그인 화면(400, 오류)이다. consent=1 이면 카카오 인가로 가고 서명된 상태에 consent:1 이 실린다.
 //     인앱 자동 로그인(auto=1)·연결(link)·본인 확인(reauth)·로그인 세션이 있는 사람은 예전처럼 카카오로 간다.
 //   4 카카오 콜백: 동의한 로그인에서만 새 계정을 만들고 consent:<id>(via kakao)를 남긴다. 동의 없는 상태로 온 새 카카오 계정은 만들지 않고
-//     로그인 화면(오류)으로 돌려보낸다. 기존 계정은 동의 표시 없이도 들어오고 동의 기록을 새로 쓰지 않는다.
+//     로그인 화면(오류)으로 돌려보낸다. 기존 계정은 동의 표시 없이도 들어오고, V22.9.104(L-4)부터는 기록이 없던 기존 계정이
+//     동의하고 누른 로그인이면 consent:<id>(via kakao)를 한 번 남긴다(이미 있으면 다시 쓰지 않음, 동의 없는 로그인은 쓰지 않음).
 //   5 /privacy 1~13절(표 2개·보호책임자·위탁과 국외 이전·만 14세·파기·구제기관·변경 고지), 적은 쿠키 이름이 코드에 있는지, /terms 2절, 개정일 상수.
 //   6 공개 꼬리말의 대표·문의 이메일(전화번호 없음), /menu 의 이용약관·개인정보처리방침, 카카오 ‘개인정보’ 답이 방침의 문의 경로를 가리킨다.
 //   7 공개 첫 화면의 카카오 띠도 같은 동의 폼이다. 8 로그인 대기 화면 스크립트는 폼 제출에만 뜬다(동의 칸을 비우면 뜨지 않는다).
@@ -42,8 +43,10 @@ const NOTICE = siteConfig.match(/const POLICY_NOTICE_DATE = "(\d{4}-\d{2}-\d{2})
 const [NY, NM, ND] = NOTICE.split("-").map(Number);
 const NOTICE_LABEL = `${NY}년 ${NM}월 ${ND}일`;
 const SCENE_AT = new Date(Date.parse(`${REVISION}T12:00:00+09:00`)).toISOString();
-const MESSAGE = "약관·개인정보처리방침 동의와 만 14세 이상 확인이 필요해요";
-const LABEL = "이용약관과 개인정보처리방침에 동의하며, 만 14세 이상입니다";
+// V22.9.104 L-2: 동의 칸은 ‘[필수] 이용약관 동의 + 개인정보처리방침 확인’ 으로 바꿨다(오류 문구도 같은 말). 서버는 여전히 consent=1 을 받아야 진행한다.
+// V22.9.104 L-2(커밋 B): 동의 칸·오류 문구에서 만 14세 확인을 뺐다(처리방침 9절: 만 14세 미만도 쓸 수 있다).
+const MESSAGE = "이용약관 동의와 개인정보처리방침 확인이 필요해요";
+const LABEL = "[필수] 이용약관에 동의하고 개인정보처리방침을 확인했어요";
 const EMAIL = "admin@malhaebook.com";
 const PHONE = /01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}/;
 const INAPP = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 KAKAOTALK 10.8.0";
@@ -222,7 +225,7 @@ await section("2 로컬 가입", () => scene(async (fx) => {
     const users = fx.db.users.length;
     const missing = await post(fx, "/my/local-signup", SIGNUP, { cookie: "" });
     eq(missing.status, 400, "2 동의 없이 보낸 가입은 400 이다");
-    ok(/<a class="authErrorSummary" href="#signupConsent" role="alert"[^>]*>[\s\S]*?약관·개인정보처리방침 동의와 만 14세 이상 확인이 필요해요/.test(missing.text), "2 맨 위 오류 요약이 동의 문구를 말하고 동의 칸을 가리킨다");
+    ok(/<a class="authErrorSummary" href="#signupConsent" role="alert"[^>]*>[\s\S]*?이용약관 동의와 개인정보처리방침 확인이 필요해요/.test(missing.text), "2 맨 위 오류 요약이 동의 문구를 말하고 동의 칸을 가리킨다");
     ok(missing.text.includes('<input id="signupConsent" name="consent" type="checkbox" value="1" required aria-invalid="true" aria-describedby="signupConsentError"/>'), "2 동의 칸에 aria-invalid·aria-describedby 가 붙는다");
     const again = formFields(missing.text, "/my/local-signup");
     ok(again.form.includes(`<p class="fieldError" id="signupConsentError">${MESSAGE}</p>`), "2 가입 폼 안, 칸 아래에 같은 짧은 문구가 있다");
@@ -239,7 +242,7 @@ await section("2 로컬 가입", () => scene(async (fx) => {
     eq(done.status, 303, "2 동의하고 보내면 가입된다(303)");
     eq(fx.db.users.length, users + 1, "2 계정이 하나 생긴다");
     const created = fx.db.users[fx.db.users.length - 1];
-    eq(parse(settingValue(fx, `consent:${created?.id}`)), { version: REVISION, at: SCENE_AT, via: "local", age14: true }, "2 설정 표 consent:<user_id> 에 동의 기록(개정일·시각·local·만 14세)이 있다");
+    eq(parse(settingValue(fx, `consent:${created?.id}`)), { version: REVISION, at: SCENE_AT, via: "local" }, "2 설정 표 consent:<user_id> 에 동의 기록(개정일·시각·local)이 있다");
     eq(calls.consentWrites.map((write) => write.key), [`consent:${created?.id}`], "2 동의 기록은 새 계정에 한 번 쓴다");
     ok(calls.consentWrites[0]?.search === "?on_conflict=key" && /resolution=merge-duplicates/.test(calls.consentWrites[0]?.prefer || ""), `2 동의 기록은 설정 표 upsert(on_conflict=key·merge-duplicates)다 ${show(calls.consentWrites[0])}`);
     ok(done.setCookie.includes("ab_user=") && /Max-Age=1209600/.test(done.setCookie), "2 로그인 세션 쿠키는 14일(1209600초)이다(방침의 쿠키 목록과 같다)");
@@ -268,7 +271,7 @@ await section("3 카카오 시작", () => scene(async (fx) => {
   eq(plain.status, 400, "3 동의 없이 시작한 보통 로그인은 로그인 화면(400)으로 돌아간다");
   eq(plain.location, "", "3 카카오 인가로 보내지 않는다");
   ok(!plain.cookies.some((pair) => pair.startsWith("kakao_oauth_state=")), "3 로그인 상태 쿠키를 만들지 않는다");
-  ok(/<a class="authErrorSummary" href="#kakaoConsent" role="alert"[^>]*>[\s\S]*?약관·개인정보처리방침 동의와 만 14세 이상 확인이 필요해요[\s\S]*?카카오 로그인으로 이동/.test(plain.html), "3 맨 위 오류 요약이 카카오 동의 칸을 가리킨다");
+  ok(/<a class="authErrorSummary" href="#kakaoConsent" role="alert"[^>]*>[\s\S]*?이용약관 동의와 개인정보처리방침 확인이 필요해요[\s\S]*?카카오 로그인으로 이동/.test(plain.html), "3 맨 위 오류 요약이 카카오 동의 칸을 가리킨다");
   ok(plain.html.includes('<input id="kakaoConsent" name="consent" type="checkbox" value="1" required aria-invalid="true" aria-describedby="kakaoConsentError"/>') && plain.html.includes(`<p class="fieldError" id="kakaoConsentError">${MESSAGE}</p>`), "3 카카오 동의 칸에 오류 표시와 칸 아래 문구가 있다");
   ok(events("kakao_login_consent_missing").some((event) => event.detail === "start" && event.severity === "info"), "3 동의 없는 시작은 운영 이벤트(info)로 남는다");
   const kept = await go(fx, "/auth/kakao/start?return_to=%2Fmy%2Fanalysis");
@@ -311,7 +314,7 @@ await section("4 카카오 콜백", () => scene(async (fx) => {
     eq(fx.db.users.length, users + 1, "4 새 계정이 하나 생긴다");
     const created = fx.db.users.find((user) => user.kakao_user_key === "kakao_login:8801");
     ok(created && fresh.userId === created.id, `4 세션은 새 계정이다 (${fresh.userId})`);
-    eq(parse(settingValue(fx, `consent:${created?.id}`)), { version: REVISION, at: SCENE_AT, via: "kakao", age14: true }, "4 새 카카오 계정의 동의 기록(via kakao)");
+    eq(parse(settingValue(fx, `consent:${created?.id}`)), { version: REVISION, at: SCENE_AT, via: "kakao" }, "4 새 카카오 계정의 동의 기록(via kakao)");
     eq(Object.keys(server.links[0] || {}).sort(), ["p_kakao_id", "p_nickname", "p_user_id"], "4 카카오 식별 연결은 회원번호·닉네임만 저장한다(방침 6절과 같다)");
 
     // 세션이 있던 사람이 시작한 로그인(상태에 동의 없음)으로 온 새 카카오 계정은 만들지 않는다.
@@ -325,14 +328,24 @@ await section("4 카카오 콜백", () => scene(async (fx) => {
     ok(noConsent.callback.lines.some((line) => /^kakao_oauth_state=;/.test(line) && /Max-Age=0/.test(line)), "4 로그인 상태 쿠키를 지운다");
     ok(events("kakao_login_consent_missing").some((event) => /^new_account/.test(event.detail)), "4 운영 이벤트(new_account)를 남긴다");
 
-    // 기존 계정은 동의 표시 없이도 들어온다(이번 판은 기존 사용자에게 다시 묻지 않는다). 동의 기록을 새로 쓰지 않는다.
+    // 기존 계정은 동의 표시 없이도 들어온다(이번 판은 기존 사용자에게 다시 묻지 않는다). 동의 표시 없는 로그인은 동의 기록을 새로 쓰지 않는다.
+    // V22.9.104 L-4: 기록이 없는 기존 계정이 동의 칸을 체크하고(서명된 consent=1) 로그인하면 그 동의를 기록한다(via kakao). 예전에는 기록하지 않아
+    // 방금 체크한 사람이 홈 동의 팝업(L-3)을 또 봤다. 기록이 이미 있으면 다시 쓰지 않는다(처음 기록의 시각을 지킨다).
     fx.db.users.push({ id: "user-v22995-old", kakao_user_key: "kakao_login:8803", nickname: "기존 사용자", created_at: "2026-08-01T00:00:00Z" });
     const keys = consentKeys(fx).length;
     const old = await kakaoLogin(fx, server, "8803", { start: "/auth/kakao/start", cookie: fx.cookie });
     ok(old.callback.status === 303 && old.userId === "user-v22995-old", `4 기존 카카오 계정은 동의 표시 없는 상태로도 로그인된다 (${old.callback.status} ${old.userId})`);
+    eq(consentKeys(fx).length, keys, "4 기존 계정의 동의 표시 없는 로그인은 동의 기록을 새로 쓰지 않는다");
     const oldAgain = await kakaoLogin(fx, server, "8803");
     ok(oldAgain.callback.status === 303 && oldAgain.userId === "user-v22995-old", `4 기존 계정이 동의하고 로그인해도 같은 계정이다 (${oldAgain.userId})`);
-    eq(consentKeys(fx).length, keys, "4 기존 계정의 로그인은 동의 기록을 새로 쓰지 않는다");
+    eq(consentKeys(fx).length, keys + 1, "4 기록이 없던 기존 계정이 동의하고 로그인하면 그 동의를 기록한다(V22.9.104 L-4)");
+    const oldRecord = parse(settingValue(fx, "consent:user-v22995-old"));
+    eq(oldRecord, { version: REVISION, at: SCENE_AT, via: "kakao" }, "4 그 기록은 via kakao 다(V22.9.104 커밋 B 부터 age14 없음)");
+    const earlier = JSON.stringify({ ...oldRecord, at: "2026-11-02T03:00:00.000Z" });
+    const oldRow = fx.db.accountbook_settings.find((row) => row.key === "consent:user-v22995-old");
+    if (oldRow) oldRow.value = earlier;
+    const oldThird = await kakaoLogin(fx, server, "8803");
+    ok(oldThird.callback.status === 303 && consentKeys(fx).length === keys + 1 && settingValue(fx, "consent:user-v22995-old") === earlier, "4 기록이 있으면 다시 동의하고 로그인해도 다시 쓰지 않는다(처음 기록의 시각 그대로)");
 
     // 자동 로그인은 동의와 상관없이 새 계정을 만들지 않는다(V22.9.91).
     const auto = await kakaoLogin(fx, server, "8804", { start: "/auth/kakao/start?auto=1", ua: INAPP });
@@ -387,8 +400,12 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
     ["받는 자 연락처: Supabase(E-19)", "privacy@supabase.com"],
     ["메일 전달 위탁(E-19)", "문의 메일(admin@malhaebook.com) 전달(Email Routing)"],
     ["메일함 위탁(E-19)", "문의 메일(admin@malhaebook.com) 수신함 제공"],
-    ["만 14세 미만", "만 14세 미만 아동은 가입하거나 서비스를 이용할 수 없습니다"],
-    ["만 14세 미만 삭제", "만 14세 미만 아동의 계정이나 개인정보임을 알게 되면 지체 없이 삭제합니다"],
+    // V22.9.104 L-2(커밋 B): 9절 = 만 14세 미만도 이용, 계약 이행 근거, 동의 근거 처리 없음, 쉬운 말, 법정대리인 요청 창구.
+    ["만 14세 미만 이용", "만 14세 미만 아동도 말해가계부를 쓸 수 있습니다"],
+    ["계약 이행 근거", "서비스 이용 계약을 지키는 데 필요한 처리(개인정보 보호법 제15조제1항제4호)라서 따로 동의를 받지 않습니다"],
+    ["동의 근거 처리 없음", "그런 처리가 필요하면 그 처리에서만 나이를 확인하고 법정대리인(부모 등 보호자)의 동의를 받습니다"],
+    ["쉬운 말", "알기 쉬운 말로 씁니다(개인정보 보호법 제22조의2제3항)"],
+    ["법정대리인 요청", "7절의 개인정보 보호책임자 이메일로 요청하면 법정대리인인지 확인한 뒤 지체 없이 처리합니다"],
     ["감사 기록 파기", "180일이 지나면 자동으로 삭제합니다"],
     ["개인정보침해신고센터", "privacy.kisa.or.kr, 국번 없이 118"],
     ["개인정보분쟁조정위원회", "www.kopico.go.kr, 1833-6972"],
@@ -398,7 +415,10 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
     ["중요한 변경 30일", "이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다"],
     ["시행 문장(E-17)", NOTICE === REVISION ? `이 개정 방침은 ${NOTICE_LABEL}에 알리고 같은 날부터 시행합니다` : `이 개정 방침은 ${NOTICE_LABEL}에 알리고 ${REVISION_LABEL}부터 시행합니다`],
     ["불리하지 않은 변경(V22.9.96)", "이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다"],
-    ...(NOTICE === REVISION ? [["이번 개정 성격(V22.9.96)", "이번 개정은 동의 절차와 보호 조치를 더하고 처리 내용을 더 자세히 적은 것이어서 이용자에게 불리하지 않은 변경입니다"]] : []),
+    ...(NOTICE === REVISION ? [["이번 개정 성격(V22.9.104 L-5·L-6)", "이번 개정은 만 14세 미만 아동도 이용할 수 있게 하면서 그 개인정보를 처리하는 기준을 9절에 적고, 6절의 쿠키 목록을 실제로 쓰는 쿠키와 맞춘 것이어서 이용자에게 불리하지 않은 변경입니다"]] : []),
+    ["6절 쿠키 ab_cs(V22.9.104 L-6)", "ab_cs: 이용약관 동의 기록 확인 결과(동의 안내 팝업을 띄울지), 14일"],
+    ["6절 쿠키 ab_bk·ab_setup(V22.9.104 L-6)", "ab_bk·ab_setup: 가계부 기본 설정 안내 띠를 띄울지(로그인 비밀번호 설정 여부·가계부 설정 확인 결과), 14일·1시간"],
+    ["6절 쿠키 ab_notice_hide(V22.9.104 L-6)", "ab_notice_hide: 공지 띠 ‘오늘 하루 안 보기’, 24시간"],
     ["3절 문의 경로", "문의 경로는 7절의 개인정보 보호책임자 이메일(admin@malhaebook.com)입니다"],
     ["3절 탈퇴 기능 없음(V22.9.94 R-7 문장)", "계정 자체를 탈퇴·삭제하는 온라인 기능은 제공하지 않으며 개인정보 삭제 요청은 서비스 문의 경로로 확인합니다"],
   ]) ok(body.includes(words), `5 /privacy ${label}: ‘${words}’`);
@@ -406,7 +426,7 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
   ok(!PHONE.test(body), "5 방침에 휴대전화 번호가 없다(사업자 전화번호는 공개하지 않는다)");
   const sixth = html.slice(html.indexOf('id="section-6"'), html.indexOf('id="section-7"'));
   const names = [...new Set(text(sixth).match(/\b(?:ab|kakao)_[a-z_]+/g) || [])].sort();
-  eq(names, ["ab_account_link", "ab_account_link_later", "ab_account_link_pause", "ab_admin", "ab_credential_reauth", "ab_hh", "ab_household_delete_reauth", "ab_kakao_auto", "ab_user", "kakao_oauth_link_user", "kakao_oauth_reauth_household", "kakao_oauth_return_to", "kakao_oauth_state"], "5 6절 쿠키 목록");
+  eq(names, ["ab_account_link", "ab_account_link_later", "ab_account_link_pause", "ab_admin", "ab_bk", "ab_credential_reauth", "ab_cs", "ab_hh", "ab_household_delete_reauth", "ab_kakao_auto", "ab_notice_hide", "ab_setup", "ab_user", "kakao_oauth_link_user", "kakao_oauth_reauth_household", "kakao_oauth_return_to", "kakao_oauth_state"], "5 6절 쿠키 목록");
   const sources = moduleSources();
   const code = sources.filter((item) => item.name !== "content-pages.js").map((item) => item.source);
   eq(names.filter((name) => !code.some((source) => source.includes(`"${name}"`) || source.includes(`${name}=`))), [], "5 방침에 적은 쿠키 이름은 모두 코드가 실제로 쓰는 이름이다(방침 글 밖의 코드)");
@@ -414,7 +434,7 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
   const terms = await page(fx, "/terms", { cookie: "" });
   ok(terms.status === 200 && terms.html.includes(`시행일 2026년 7월 13일 · 개정 공고 ${NOTICE_LABEL} · 개정 시행 ${REVISION_LABEL}`) && terms.html.includes(`"dateModified":"${NOTICE}"`), "5 /terms 머리가 공고·시행일이고 수정일이 공고일이다");
   const second = text(terms.html.slice(terms.html.indexOf('id="section-2"'), terms.html.indexOf('id="section-3"')));
-  ok(second.includes("말해가계부는 만 14세 이상만 이용할 수 있습니다") && second.includes("이용약관과 개인정보처리방침에 동의하고 만 14세 이상임을 확인하는 절차를 거칩니다"), "5 이용약관 2절에 만 14세 이상과 동의 절차가 있다");
+  ok(second.includes("이용약관에 동의하고 개인정보처리방침을 확인하는 절차를 거칩니다") && second.includes("만 14세 미만도 이용할 수 있으며, 아동의 개인정보는 개인정보처리방침 9절에 따라 처리합니다") && !second.includes("만 14세 이상만"), "5 이용약관 2절에 동의 절차와 만 14세 미만 이용(방침 9절)이 있다");
   const pagesSource = read("../src/modules/public/content-pages.js");
   ok(!pagesSource.includes(REVISION) && !pagesSource.includes(REVISION_LABEL) && pagesSource.includes("policyDateLabel(POLICY_REVISION_DATE)"), "5 방침·약관은 개정일을 상수(POLICY_REVISION_DATE)로만 쓴다");
   ok(!pagesSource.includes(NOTICE) && !pagesSource.includes(NOTICE_LABEL) && pagesSource.includes("policyDateLabel(POLICY_NOTICE_DATE)"), "5 방침·약관은 공고일을 상수(POLICY_NOTICE_DATE)로만 쓴다");

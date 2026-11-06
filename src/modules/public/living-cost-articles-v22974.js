@@ -4604,10 +4604,17 @@ function publicArticlesHubPage(index = []) {
 function publicArticleSiteMapLinks(index = []) {
   return [["생활비 가이드 글 전체 목록", "/articles"], ...index.map((item) => [item.title, item.path])];
 }
+
+// V22.9.104 A-2: 첫 화면(/) ‘최근 글’ 은 정적 목록 대신 이 글 목록(작성일 최신 → 같은 날이면 제목순)의 앞 8편이다.
+// 새 글을 올리면 첫 화면도 따라 바뀐다. 링크와 첫 화면 수정일은 content-pages.js publicContentCatalog 가 채운다.
+const PUBLIC_HOME_RECENT_ARTICLE_COUNT_V229104 = 8;
+function publicArticleRecent(index = []) {
+  return index.slice(0, PUBLIC_HOME_RECENT_ARTICLE_COUNT_V229104);
+}
 // @build:exports-start
 export {
   publicArticleHangul, publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes,
-  publicArticleSiteMapLinks, publicArticlesHubPage, publicLivingCostArticlesV22974,
-  publicNormalizeLivingArticles,
+  publicArticleRecent, publicArticleSiteMapLinks, publicArticlesHubPage,
+  publicLivingCostArticlesV22974, publicNormalizeLivingArticles,
 };
 // @build:exports-end

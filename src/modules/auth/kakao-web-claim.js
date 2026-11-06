@@ -15,6 +15,7 @@ import { makeCredentialProof } from "./identity-reauth.js";
 import { fetchUserById } from "../data/users-household-create.js";
 import { saveSettingValue } from "../my/reports-premium.js";
 import { renderUserLoginHtml } from "../web/login-page-side-nav.js";
+import { consentStateCookieFor } from "./kakao-start-screen.js";
 import { getKakaoBotGroupKey } from "../kakao/group-links-first-record.js";
 import {
   getKakaoIdentityAliases, hasChatFirstKakaoIdentity, trustedChatFirstSkillCaller,
@@ -195,6 +196,9 @@ async function handleMyKakaoClaim(request, env) {
     const userId = session.slice(0,session.lastIndexOf(".")).split("|")[0];
     const proof = await makeCredentialProof(env,userId);
     response.headers.append("set-cookie", `ab_credential_reauth=${encodeURIComponent(proof)}; Path=/; Max-Age=300; HttpOnly; Secure; SameSite=Lax`);
+    // V22.9.104 L-3: 웹 연결 코드로 들어온 계정(대개 단톡방에서 먼저 생겨 동의 기록이 없다)도 동의 기록을 한 번 읽어 홈 동의 팝업 쿠키를 적는다.
+    const consentCookie = await consentStateCookieFor(env, userId);
+    if (consentCookie) response.headers.append("set-cookie", consentCookie);
     return response;
   } catch (err) {
     rememberOpsEvent({ kind: "kakao_web_claim_redeem_failed", severity: "error", path: "/my/kakao-claim", method: "POST", detail: safeError(err) });

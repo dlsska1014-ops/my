@@ -1981,6 +1981,10 @@ const ACCOUNTBOOK_WORKER = {
       // 회원이면 화면 없이 로그인되고, 아니면 지금처럼 로그인 화면이 나온다(auth/kakao-account-link.js).
       const kakaoAutoLogin = await kakaoInAppAutoLoginResponse(request, env, url);
       if (kakaoAutoLogin) return kakaoAutoLogin;
+      // V22.9.104 L-1: 자동 로그인을 보내지 않은(이미 해 봤거나 auto=0·할 수 없는) 인앱 브라우저의 세션 없는 /my·/app·/m 은 긴 로그인 화면 대신
+      // 홈 모양 미리보기 위의 ‘카카오 계정으로 가계부 열기’ 팝업을 그린다(auth/kakao-start-screen.js). login=1·관리자 쿠키·인앱 아닌 브라우저는 예전 그대로다.
+      const kakaoStart = await kakaoInAppStartResponse(request, env, url);
+      if (kakaoStart) return kakaoStart;
 
       if (request.method === "HEAD" && url.pathname === "/" && !isExplicitAdminUrl(url) && url.searchParams.get("legacy") !== "1") {
         return headOnlyResponse(await handlePublicContentPage(request, env, url, "home"));
@@ -2220,6 +2224,11 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/my/logout" && request.method === "POST") {
         return await handleMyLogout({ explicit: true });
+      }
+
+      // V22.9.104 L-3: 동의 기록이 없는 로그인 사용자가 홈 팝업에서 누르는 ‘동의하고 계속’(같은 출처 검사는 위의 csrfOriginAllowed 가 먼저 한다).
+      if (url.pathname === "/my/consent" && request.method === "POST") {
+        return await handleMyConsent(request, env);
       }
 
       // V22.9.91 계정 잇기: 확인 화면(GET), 카카오로 다시 확인(POST), 합치기(GET, 카카오 확인 뒤 콜백이 준 5분짜리 표가 있어야 한다).
@@ -3198,7 +3207,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.103-SEOUL-WORDING";
+const APP_VERSION = "V22.9.104-KAKAO-HOME";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3362,8 +3371,10 @@ const BUSINESS_FOOTER_INFO = Object.freeze({
 // V22.9.95 R-9: 개인정보처리방침·이용약관의 개정 시행일이자 가입 동의 기록(consent:<user_id>)의 version 이다. 공고일(POLICY_NOTICE_DATE)은 개정
 // 내용을 화면에 올린 날(= V22.9.95 배포일)이다. V22.9.96(E-17 재결정, 사용자 2026-11-02 "개정 공고랑 시행 지금 바로"): 이번 개정은 동의 절차·보호 조치를 더하고
 // 처리 내용을 더 자세히 적은, 이용자에게 불리하지 않은 변경이라 시행일 = 공고일(알린 날부터 적용). 검사는 시행일이 공고일과 같거나 + 7일인지 본다. 날짜는 이 두 줄만 바꾼다.
-const POLICY_NOTICE_DATE = "2026-11-02";
-const POLICY_REVISION_DATE = "2026-11-02";
+// V22.9.104 L-5·L-6(사용자 2026-11-06 "14세 문구 빼고 PR 올려줘"): 만 14세 미만 이용(방침 9절·약관 2절)과 6절 쿠키 목록을 고친 개정도 이용자에게
+// 불리하지 않은 변경이라 공고일 = 시행일 = 배포일이다. 배포가 다른 날로 넘어가면 두 줄을 그날로 바꾼다(동의 기록 version 도 따라간다. 읽는 곳은 기록 유무만 본다).
+const POLICY_NOTICE_DATE = "2026-11-06";
+const POLICY_REVISION_DATE = "2026-11-06";
 
 // "2026-07-13" → "2026년 7월 13일"(방침 머리의 시행·공고·개정일 표기).
 function policyDateLabel(ymd = POLICY_REVISION_DATE) {
@@ -3678,9 +3689,13 @@ function kakaoLoginButtonHtml(returnTo = "", { consentError = "" } = {}) {
 
 // V22.9.95 R-9: 가입 폼과 카카오 로그인 폼이 같이 쓰는 동의 칸. 두 링크는 새 탭으로 연다(같은 사이트라 opener 위험이 없다). 서버 오류가 있을 때만
 // 칸에 aria-invalid 와 칸 아래 문구(.fieldError)를 붙인다. 미리 체크해 두지 않는다(동의는 사용자가 직접 표시한다).
+// V22.9.104 L-2: 필수 칸임을 앞에 적고, 개인정보처리방침은 ‘동의’가 아니라 ‘확인’으로 적는다(서비스 제공에 필요한 처리라 별도 동의를 받지 않는다).
+// 카카오톡 시작 화면·홈 동의 팝업·로그인 화면·가입 폼이 모두 이 칸을 쓴다. 서버는 여전히 consent=1 을 받아야 진행하고 동의 기록을 남긴다.
+// V22.9.104 L-2(커밋 B): ‘만 14세 이상이에요’를 뺐다. 법정대리인 동의는 아동의 개인정보를 동의를 근거로 처리할 때만 필요하고(개인정보 보호법
+// 제22조의2제1항), 가계부는 서비스 제공에 필요한 처리(제15조제1항제4호)만 한다. 만 14세 미만의 처리는 처리방침 9절에 적었다.
 function signupConsentFieldHtml(id = "signupConsent", error = "") {
   const note = error ? ` aria-invalid="true" aria-describedby="${id}Error"` : "";
-  return `<label class="consentRow"><input id="${id}" name="consent" type="checkbox" value="1" required${note}/><span><a href="/terms" target="_blank">이용약관</a>과 <a href="/privacy" target="_blank">개인정보처리방침</a>에 동의하며, 만 14세 이상입니다</span></label>${error ? `<p class="fieldError" id="${id}Error">${escapeHtml(error)}</p>` : ""}`;
+  return `<label class="consentRow"><input id="${id}" name="consent" type="checkbox" value="1" required${note}/><span>[필수] <a href="/terms" target="_blank">이용약관</a>에 동의하고 <a href="/privacy" target="_blank">개인정보처리방침</a>을 확인했어요</span></label>${error ? `<p class="fieldError" id="${id}Error">${escapeHtml(error)}</p>` : ""}`;
 }
 
 function publicSiteNav(active = "home") {
@@ -3713,7 +3728,8 @@ function publicGuidePages(env = {}) {
       { title: "내게 맞는 시작 방법", table: { caption: "개인 기록과 공동 기록의 시작 방법", headers: ["사용할 곳", "첫 행동", "확인할 결과"], rows: [["카카오톡 1:1", "점심 만원", "웹 로그인 없이 개인 가계부의 첫 기록을 준비합니다."], ["새 단톡방", "봇을 호출하고 점심 12000원", "그 방의 공동 가계부를 준비합니다. 첫 기록자는 소유자가 됩니다."], ["기존 가계부", "오늘 기록 보기", "현재 연결된 가계부의 기록을 확인합니다."]] }, note: "봇 추가만으로 거래를 만들지는 않습니다. 명확한 기록 요청이 있어야 하며, 기존 권한 제한이나 삭제·연결 해제 이력은 그대로 적용됩니다.", links: [["처음 기록하는 순서", "/how-it-works"]] },
       { title: "전체 지출과 남은 예산이 다른 이유", paragraphs: ["식비와 교통에만 예산을 세웠다면 의료비는 전체 지출에 포함되지만 예산 비교에서는 따로 봅니다. 무엇을 예산에 포함했는지 알아야 남은 금액도 정확히 읽을 수 있습니다."], links: [["255,000원 지출 예제로 직접 확인", "/demo"], ["분류별 예산 계산 방법", "/budget-guide"]] },
       { title: "기록 이후에 필요한 도구", links: [["주간·월간 생활비 리포트 읽기", "/report-guide"], ["카드 내역 가져오기와 CSV 백업", "/import-guide"], ["기능별로 할 수 있는 일", "/service-guide"]] },
-      { title: "최근 글", paragraphs: ["앱을 쓰지 않아도 생활비를 계획하고 점검할 때 참고할 수 있는 글을 도담 네트워크 운영팀이 쓰고 있습니다. 예산·고정비·공동 생활비·기록 습관·카드와 세금·통계까지 주제별로 모았고, 글마다 작성일과 수정일, 참고한 공식 자료를 표시합니다. 숫자 예시는 설명을 위해 구성한 가정입니다."], links: [["가계동향조사로 보는 월평균 소비지출: 통계와 우리 집 가계부를 비교하는 순서", "/household-spending-statistics"], ["카드 소득공제 구조: 문턱 금액과 결제수단 배분의 손익", "/card-income-deduction-basics"], ["연간 비정기 지출 적립표: 자동차세·명절·경조사를 월 적립액으로 바꾸기", "/sinking-fund-annual-expenses"], ["월말 결산 60분 루틴: 미기록 복구부터 다음 달 조정까지", "/monthly-closing-routine"], ["생활비 가이드 글 전체 목록 보기", "/articles"]] },
+      // V22.9.104 A-2: 글 링크는 정적 목록이 아니라 content-pages.js 가 글 목록(작성일 최신 순) 앞 8편으로 채운다. 여기에는 전체 목록 링크만 둔다.
+      { title: "최근 글", paragraphs: ["앱을 쓰지 않아도 생활비를 계획하고 점검할 때 참고할 수 있는 글을 도담 네트워크 운영팀이 쓰고 있습니다. 예산·고정비·공동 생활비·기록 습관·카드와 세금·통계까지 주제별로 모았고, 글마다 작성일과 수정일, 참고한 공식 자료를 표시합니다. 숫자 예시는 설명을 위해 구성한 가정입니다. 아래 목록은 작성일이 가장 최근인 글부터 보여 줍니다."], links: [["생활비 가이드 글 전체 목록 보기", "/articles"]] },
     // V22.9.87 T-21: 랜딩 순서(content-pages.js publicLandingHtml). ‘함께 쓴 돈…’ 절은 공동 가계부·정산 묶음으로, ‘기록 이후에 필요한 도구’의
     // 독립 서비스 문장은 ‘알아 둘 점’으로 옮겼다(문장 그대로). 주 버튼은 ‘내 가계부 시작하기’, 보조는 ‘가상 가계부 둘러보기’다.
     ], { type: "SoftwareApplication", primary: ["내 가계부 시작하기", "/my"], secondary: ["가상 가계부 둘러보기", "/demo"], updated: "2026-10-29", landing: true }),
@@ -8642,11 +8658,25 @@ function publicArticlesHubPage(index = []) {
 function publicArticleSiteMapLinks(index = []) {
   return [["생활비 가이드 글 전체 목록", "/articles"], ...index.map((item) => [item.title, item.path])];
 }
+
+// V22.9.104 A-2: 첫 화면(/) ‘최근 글’ 은 정적 목록 대신 이 글 목록(작성일 최신 → 같은 날이면 제목순)의 앞 8편이다.
+// 새 글을 올리면 첫 화면도 따라 바뀐다. 링크와 첫 화면 수정일은 content-pages.js publicContentCatalog 가 채운다.
+const PUBLIC_HOME_RECENT_ARTICLE_COUNT_V229104 = 8;
+function publicArticleRecent(index = []) {
+  return index.slice(0, PUBLIC_HOME_RECENT_ARTICLE_COUNT_V229104);
+}
 // V22.9.97 생활비 글: 연말정산·절세 시즌 생활비 가이드 글 8편(카드·세금 7편, 저축·비상금·부채 1편).
 // 애드센스 재검토 전에 시즌 글을 보강한다. 글 데이터는 정적 객체이고 바깥 요청이 없다. 화면 구성(요약·작성일·
 // 참고 자료·함께 읽을 글)과 허브·사이트맵 묶음은 V22.9.74 글과 같은 코드(public/content-pages.js)가 그린다.
 // 공제율·한도·문턱·일정은 국가법령정보센터 조문과 국세청 안내에서 2026-11-03 에 확인한 숫자만 쓴다.
 // 적용 연도를 확인하지 못한 개정 조항은 숫자 대신 ‘국세청 안내로 확인’ 으로 적었다. 검사: validation/validate-v22997-articles.mjs.
+
+// V22.9.104 A-4: H-10 사실 확인 보고(review-artifacts/article-review-2026-11-04/H10-ARTICLE-FACTCHECK.md, 2026-11-04)의 P2 6건·P3 9건을
+// 반영했다. 글마다 머리에 기준 한 줄(2026년 귀속·확인한 법령 시점)을 달고, 2026년 지출분부터 적용되는 개정 조항(자녀별 카드 한도·
+// 가족 교육비 소득요건 폐지·초등 저학년 예체능 학원비·고향사랑기부금 구간)은 보고가 조문으로 확인한 숫자로 적었다.
+// 작성일(published)은 그대로 두고 수정일(updated → 화면 ‘수정’·JSON-LD dateModified·사이트맵 lastmod)은 아래 상수 하나로 바꾼다.
+const PUBLIC_TAX_ARTICLES_UPDATED_V229104 = "2026-11-06";
+const PUBLIC_TAX_ARTICLE_BASIS_V229104 = "이 글은 2026년 지출(2026년 귀속, 2027년 1~2월 정산) 기준이며 숫자는 2026년 11월 3일 시행 중인 소득세법·조세특례제한법으로 확인했습니다.";
 
 function publicLivingCostArticlesV22997() {
   return {
@@ -8657,7 +8687,8 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "11월이 되면 올해 남은 두 달의 지출이 연말정산 결과를 바꿀 수 있는 마지막 구간이 됩니다. 정해진 일정과 근로자가 할 일을 달마다 나눠 두면 1월에 서류를 몰아서 찾는 일이 줄어듭니다.",
       "published": "2026-11-03",
-      "updated": "2026-11-03",
+      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
         "연말정산은 회사가 다음 해 2월분 급여를 줄 때 한 해 세금을 다시 계산하는 절차이고, 근로자가 준비할 일은 11월부터 시작됩니다.",
@@ -8757,7 +8788,8 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "올해 카드 사용액이 문턱 근처에 있거나 이미 넘었다면, 11월과 12월에 같은 돈을 어떤 수단으로 내느냐에 따라 공제 금액이 달라집니다. 얼마나 달라지는지 숫자로 확인하고, 바꿔도 결과가 거의 같은 경우도 함께 살펴봅니다.",
       "published": "2026-11-03",
-      "updated": "2026-11-03",
+      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
         "카드 소득공제는 총급여의 25%를 넘게 쓴 금액부터 계산하고, 그 문턱은 공제율이 가장 낮은 신용카드 사용액부터 채웁니다.",
@@ -8801,8 +8833,8 @@ function publicLivingCostArticlesV22997() {
             "결제수단을 바꿀지 정하기 전에 공제가 더 늘어날 수 있는 상태인지부터 봅니다. 아래 조건에 걸리면 바꿔도 결과가 거의 같거나 다른 손익이 더 클 수 있습니다."
           ],
           "bullets": [
-            "기본 한도: 총급여 7천만원 이하는 연 300만원, 넘으면 연 250만원입니다. 공제액이 이미 한도 가까이 있다면 결제수단을 바꿔도 늘어날 여지가 작습니다.",
-            "자녀 등이 있는 경우: 2025년 12월 개정 법문은 자녀 등 수에 따라 한도를 높였습니다(총급여 7천만원 이하라면 1명 350만원, 2명 이상 400만원). 어느 해 사용분부터 적용되는지는 국세청 안내로 확인합니다.",
+            "기본 한도: 자녀 등이 없으면 총급여 7천만원 이하는 연 300만원, 넘으면 연 250만원입니다. 공제액이 이미 한도 가까이 있다면 결제수단을 바꿔도 늘어날 여지가 작습니다.",
+            "자녀 등이 있는 경우: 자녀·손자녀 등 대통령령으로 정하는 부양가족이 있으면 2026년 사용분부터 한도가 커집니다. 총급여 7천만원 이하는 1명 350만원·2명 이상 400만원, 7천만원 초과는 1명 275만원·2명 이상 300만원입니다(조세특례제한법 제126조의2 제10항). 이 글이 다루는 올해 사용분의 연말정산에 바로 적용됩니다.",
             "추가 한도: 전통시장과 대중교통 사용분은 기본 한도와 별도로 연 200만원까지 더 공제되고, 총급여 7천만원 이하라면 문화체육 사용분을 포함해 연 300만원까지 더 공제됩니다.",
             "문화체육 사용분: 도서·신문·공연, 박물관·미술관, 영화관, 수영장·체력단련장 이용료가 해당하고 총급여 7천만원 이하에만 30%가 적용됩니다. 새로 더해진 항목은 적용 시작일이 따로 있습니다.",
             "해외에서 쓴 금액은 공제 대상 사용액에 들어가지 않습니다.",
@@ -8829,7 +8861,7 @@ function publicLivingCostArticlesV22997() {
             "공제 차이가 몇만원 수준이라면 결제수단을 바꾸는 수고와 견주어 볼 만합니다. 신용카드 결제일에 맞춰 생활비 흐름이 짜여 있거나, 체크카드로 바꾸면 통장 잔액 관리가 빠듯해지는 가계라면 공제 몇만원보다 현금 흐름이 더 중요할 수 있습니다. 반대로 공제 차이가 크고 체크카드 사용에 무리가 없다면 남은 두 달만 바꾸는 방법도 있습니다.",
             "바꾸는 시점도 결과에 영향을 줍니다. 11월 초에 바꾸면 두 달 치 지출이 모두 계산에 들어가지만, 12월 중순에 알아차리면 남은 금액이 작아 차이도 줄어듭니다. 할부로 결제한 금액이 어느 달 사용액으로 잡히는지도 카드사 내역에서 확인해 두면 연말 합계가 예상과 달라지는 일을 줄일 수 있습니다."
           ],
-          "note": "표의 숫자는 올해 9월 시행 중인 조세특례제한법 조문으로 계산한 가정 사례입니다. 실제 공제액은 총급여, 부양가족, 다른 공제에 따라 달라지므로 국세청 안내와 예상세액 계산으로 확인합니다."
+          "note": "표의 숫자는 2026년 9월 18일 시행 조세특례제한법 제126조의2로 계산한 가정 사례입니다. 실제 공제액은 총급여, 부양가족, 다른 공제에 따라 달라지므로 국세청 안내와 예상세액 계산으로 확인합니다."
         }
       ],
       "faqs": [
@@ -8840,7 +8872,7 @@ function publicLivingCostArticlesV22997() {
       "sources": [
         ["조세특례제한법 제126조의2(신용카드 등 사용금액에 대한 소득공제)", "https://www.law.go.kr/법령/조세특례제한법/제126조의2"],
         ["조세특례제한법 시행령 제121조의2(신용카드 등 사용금액에 대한 소득공제)", "https://www.law.go.kr/법령/조세특례제한법시행령/제121조의2"],
-        ["국세청 종합소득세 세율 안내", "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?mi=2229&cntntsId=7667"]
+        ["국세청 종합소득세 세율 안내", "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?mi=2227&cntntsId=7667"]
       ],
       "related": [
         ["카드 소득공제 구조와 결제수단 배분", "/card-income-deduction-basics"],
@@ -8855,7 +8887,8 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "병원비 영수증을 모아 두었는데 공제가 생각보다 적었다면 문턱이나 대상 기준을 살펴볼 차례입니다. 세 가지 세액공제에서 자주 헷갈리는 질문을 차례로 짚고, 1년 동안 영수증을 어떻게 모으면 좋은지 정리했습니다.",
       "published": "2026-11-03",
-      "updated": "2026-11-03",
+      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
         "의료비 세액공제는 총급여의 3%를 넘게 쓴 금액에 15%를 적용하며, 본인·65세 이상·6세 이하·장애인 등을 위한 의료비는 연 700만원 한도를 받지 않습니다.",
@@ -8896,7 +8929,7 @@ function publicLivingCostArticlesV22997() {
         {
           "title": "교육비는 누구의 어떤 비용인가요?",
           "paragraphs": [
-            "교육비 세액공제율은 15%입니다. 배우자·자녀·형제자매처럼 기본공제대상자인 가족을 위해 낸 교육비는 1명당 취학 전 아동과 초·중·고등학생 연 300만원, 대학생 연 900만원까지이고 대학원 교육비는 들어가지 않습니다. 본인 교육비는 한도가 없고 대학원, 직업능력개발훈련 수강료, 학자금 대출 원리금 상환액도 대상입니다. 부모님 같은 직계존속을 위한 일반 교육비는 공제되지 않습니다. 2025년 12월 법 개정으로 초등학교 저학년 자녀의 예체능 학원·체육시설 비용을 넣는 규정이 생겼으니 대상 나이와 적용되는 해는 국세청 안내로 확인합니다."
+            "교육비 세액공제율은 15%입니다. 배우자·자녀·형제자매 등 가족을 위해 낸 교육비는 1명당 취학 전 아동과 초·중·고등학생 연 300만원, 대학생 연 900만원까지이고 대학원 교육비는 들어가지 않습니다. 가족 교육비는 가족의 나이와 소득을 따지지 않습니다(2026년 지출분부터, 소득세법 제59조의4 제3항). 그 전 해까지는 가족의 연간 소득금액이 100만원을 넘으면 대상이 아니었습니다. 본인 교육비는 한도가 없고 대학원, 직업능력개발훈련 수강료, 학자금 대출 원리금 상환액도 대상입니다. 부모님 같은 직계존속을 위한 일반 교육비는 공제되지 않습니다. 2026년 지출분부터는 과세기간 종료일 현재 9세 미만 또는 초등학교 2학년 이하인 자녀의 예능 학원(음악·미술 등)과 체육시설 수강료도 교육비에 들어갑니다(월 단위로 주 1회 이상 다니는 과정, 1명당 연 300만원 한도 안)."
           ],
           "table": {
             "caption": "학교에 다니는 자녀 교육비에서 확인할 항목",
@@ -8917,7 +8950,7 @@ function publicLivingCostArticlesV22997() {
             "기부금 세액공제는 기부한 금액의 15%, 1천만원을 넘는 부분은 30%가 기본입니다. 다만 종류별로 공제 대상 금액의 한도가 달라서, 종교단체에 낸 기부금이 있으면 일반기부금 한도가 소득금액의 10%를 기준으로 계산되고 종교단체 기부금이 없으면 30%까지 인정됩니다. 기본공제대상자인 가족이 낸 기부금은 나이와 상관없이 합칠 수 있지만, 다른 사람의 기본공제를 받는 가족 몫은 넣지 않습니다."
           ],
           "bullets": [
-            "고향사랑기부금은 10만원 이하 금액에 대해 110분의 100을 세액공제합니다. 10만원을 넘는 부분의 공제율은 최근 개정으로 구간이 나뉘었으므로 국세청 안내를 확인합니다.",
+            "고향사랑기부금은 10만원 이하 금액에 110분의 100, 10만원 초과 20만원 이하에 40%, 20만원을 넘어 2천만원까지는 15%(특별재난지역은 30%)를 세액공제합니다(2026년 기부분부터, 조세특례제한법 제58조).",
             "정치자금기부금도 10만원까지는 110분의 100, 넘는 부분은 15%(3천만원 초과분 25%)를 적용합니다.",
             "기부금 영수증은 기부한 단체에서 받습니다. 간소화 자료에 보이지 않는 기부금은 영수증을 따로 냅니다.",
             "종교단체 기부금과 다른 일반기부금이 함께 있으면 한도 계산이 달라지므로, 영수증을 받을 때 단체의 종류를 함께 적어 둡니다."
@@ -8947,7 +8980,7 @@ function publicLivingCostArticlesV22997() {
         ["소득세법 제59조의4(특별세액공제)", "https://www.law.go.kr/법령/소득세법/제59조의4"],
         ["소득세법 시행령 제118조의5(의료비 세액공제)", "https://www.law.go.kr/법령/소득세법시행령/제118조의5"],
         ["소득세법 시행령 제118조의6(교육비 세액공제)", "https://www.law.go.kr/법령/소득세법시행령/제118조의6"],
-        ["국세청 기부금 세액공제 안내", "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?mi=40978&cntntsId=239040"]
+        ["국세청 기부금 세액공제 안내(2025년 귀속 기준)", "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?mi=40978&cntntsId=239040"]
       ],
       "related": [
         ["연말정산 전에 지출 기록으로 공제 항목 점검", "/year-end-tax-expense-check"],
@@ -8962,7 +8995,8 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "부부가 모두 일하면 같은 지출을 누구 이름으로 공제받느냐가 집 전체의 환급액을 바꿉니다. 법이 귀속을 정해 둬서 옮길 수 없는 항목과, 부부가 고를 수 있는 항목을 나눠서 살펴봅니다.",
       "published": "2026-11-03",
-      "updated": "2026-11-03",
+      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
         "부양가족 기본공제는 한 사람만 받을 수 있고, 맞벌이 배우자의 의료비는 실제로 낸 사람이 공제받는 등 항목마다 귀속 규칙이 다릅니다.",
@@ -9052,7 +9086,7 @@ function publicLivingCostArticlesV22997() {
         ["소득세법 제50조(기본공제)", "https://www.law.go.kr/법령/소득세법/제50조"],
         ["조세특례제한법 시행령 제121조의2(신용카드 등 사용금액에 대한 소득공제)", "https://www.law.go.kr/법령/조세특례제한법시행령/제121조의2"],
         ["국세청 국세상담센터 연말정산 의료비 상담 사례", "https://call.nts.go.kr/call/qna/selectQnaInfo.do?mi=1318&ctgId=CTG11909"],
-        ["국세청 종합소득세 세율 안내", "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?mi=2229&cntntsId=7667"]
+        ["국세청 종합소득세 세율 안내", "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?mi=2227&cntntsId=7667"]
       ],
       "related": [
         ["의료비·교육비·기부금 공제 기준과 영수증 정리", "/medical-education-donation-deductions"],
@@ -9067,7 +9101,8 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "노후를 위해 연금계좌에 넣은 돈의 일부를 세금에서 돌려받는 제도가 연금계좌 세액공제입니다. 얼마까지 넣으면 공제가 되고 소득에 따라 몇 %를 돌려받는지 표 하나로 정리한 뒤, 연말에 확인할 점을 짚습니다.",
       "published": "2026-11-03",
-      "updated": "2026-11-03",
+      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
         "연금저축계좌는 연 600만원, 개인형퇴직연금(IRP)을 포함한 연금계좌 합계는 연 900만원까지 세액공제 대상입니다.",
@@ -9109,7 +9144,7 @@ function publicLivingCostArticlesV22997() {
             "올해 연금저축계좌와 퇴직연금계좌에 각각 얼마를 넣었는지 확인합니다. 회사가 부담해 넣는 퇴직연금 부담금은 내가 낸 금액과 따로 적어 둡니다.",
             "입금이 다음 해 날짜로 처리되면 올해 납입으로 잡히지 않을 수 있으니, 금융회사의 연말 처리 마감 시각을 미리 알아 둡니다.",
             "공제액이 그해 낼 세금보다 크면 넘는 부분은 돌려받지 못합니다. 다른 세액공제가 많은 해라면 900만원을 다 채워도 효과가 줄어들 수 있습니다.",
-            "연금계좌는 연금으로 받는 것을 전제로 한 제도라서, 중간에 연금 외 방식으로 찾으면 공제받은 혜택만큼 세금을 다시 낼 수 있습니다. 찾는 조건은 국세청 안내로 확인합니다.",
+            "연금계좌는 연금으로 받는 것을 전제로 한 제도라서, 중간에 연금 외 방식으로 찾으면 세액공제를 받은 납입액과 운용수익에 기타소득세 15%(지방소득세 별도)가 붙어, 돌려받은 세액보다 더 낼 수도 있습니다. 찾는 조건은 국세청 안내로 확인합니다.",
             "퇴직연금계좌를 처음 만드는 해라면 회사 퇴직연금과 내가 연 개인형퇴직연금 계좌를 헷갈리지 않도록 계좌 이름을 가계부에 그대로 적어 둡니다."
           ]
         },
@@ -9160,7 +9195,8 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "부양가족이 없으면 연말정산에서 챙길 것이 별로 없다고 생각하기 쉽지만, 혼자 사는 사람에게 맞는 공제도 있습니다. 월세와 청약처럼 매달 나가는 고정비가 공제와 이어지는 항목이 있어, 가계부의 고정비 기록이 그대로 준비 자료가 됩니다.",
       "published": "2026-11-03",
-      "updated": "2026-11-03",
+      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
         "1인 가구는 부양가족 공제가 없으므로 월세 세액공제와 주택청약 소득공제처럼 무주택 세대주에게 열린 공제의 비중이 큽니다.",
@@ -9178,7 +9214,7 @@ function publicLivingCostArticlesV22997() {
             "caption": "혼자 사는 근로자가 확인할 공제 항목과 요건",
             "headers": ["항목", "주요 요건", "공제 방식"],
             "rows": [
-              ["월세 세액공제", "과세기간 종료일 현재 무주택 세대주, 총급여 8천만원 이하", "연 월세 1천만원 한도로 15% 또는 17%"],
+              ["월세 세액공제", "과세기간 종료일 현재 무주택 세대주, 총급여 8천만원 이하, 국민주택규모(85㎡) 이하 또는 기준시가 4억원 이하 주택(오피스텔·고시원 포함), 계약서 주소와 주민등록 주소가 같을 것", "연 월세 1천만원 한도로 15% 또는 17%"],
               ["주택청약종합저축 소득공제", "그해 무주택 세대주, 총급여 7천만원 이하", "연 납입 300만원 한도로 40%"],
               ["보장성 보험료 세액공제", "본인을 피보험자로 한 보장성 보험", "연 100만원 한도로 12%"],
               ["의료비 세액공제", "총급여 3%를 넘는 의료비", "15%, 본인 의료비는 연 700만원 한도 없음"],
@@ -9189,7 +9225,7 @@ function publicLivingCostArticlesV22997() {
         {
           "title": "월세가 가장 큰 항목일 때",
           "paragraphs": [
-            "월세 세액공제는 무주택 세대의 세대주가 총급여 8천만원 이하이고 종합소득금액이 7천만원 이하일 때 받을 수 있습니다. 한 해 월세액 1천만원까지 15%를 공제하고, 총급여 5,500만원 이하이면서 종합소득금액 4,500만원 이하이면 17%를 적용합니다.",
+            "월세 세액공제는 무주택 세대의 세대주가 총급여 8천만원 이하이고 종합소득금액이 7천만원 이하일 때 받을 수 있습니다. 빌린 집은 국민주택규모(전용 85㎡) 이하이거나 기준시가 4억원 이하여야 하고(주거용 오피스텔·고시원 포함), 임대차계약서의 주소와 주민등록 주소가 같아야 합니다. 한 해 월세액 1천만원까지 15%를 공제하고, 총급여 5,500만원 이하이면서 종합소득금액 4,500만원 이하이면 17%를 적용합니다.",
             "월세 50만원을 1년 동안 낸 사람은 월세액이 600만원이고, 17%가 적용되면 계산상 공제액은 102만원입니다. 다만 세액공제는 그해 근로소득으로 낼 세금 안에서만 돌려받으므로, 소득이 적어 낼 세금이 작으면 실제로 줄어드는 세금은 이보다 작을 수 있습니다. 계약서와 이체 기록을 갖추는 방법은 월세 세액공제 기록 글에서 따로 다뤘습니다.",
             "관리비를 월세와 함께 보내는 경우에는 가계부에 금액을 나눠 적어 둡니다. 계약서에 적힌 월세액과 관리비를 구분해 두어야 연말에 공제 대상 금액을 정확히 계산할 수 있습니다."
           ]
@@ -9230,7 +9266,7 @@ function publicLivingCostArticlesV22997() {
           "title": "이사·결혼으로 세대가 바뀌는 해",
           "paragraphs": [
             "연중에 이사하거나 결혼해 세대 구성이 바뀌면 공제 요건을 다시 봐야 합니다. 월세 세액공제와 전세대출·주택담보대출 관련 공제는 과세기간 종료일 현재 상태를 기준으로 보고, 청약 소득공제는 과세기간 중 무주택이었는지를 봅니다. 같은 해라도 항목마다 따지는 시점이 다릅니다.",
-            "결혼으로 배우자가 생기면 배우자의 연간 소득금액이 100만원(근로소득만 있으면 총급여 500만원) 이하인지에 따라 배우자 기본공제를 받을 수 있습니다. 혼자 살던 기간의 기록과 함께 사는 기간의 기록을 나눠 두면 연말에 요건을 따지기 쉽습니다.",
+            "결혼으로 배우자가 생기면 배우자의 연간 소득금액이 100만원(근로소득만 있으면 총급여 500만원) 이하인지에 따라 배우자 기본공제를 받을 수 있습니다. 2024~2026년에 혼인신고를 했다면 결혼세액공제(1인 50만원, 생애 한 번)도 확인합니다. 혼자 살던 기간의 기록과 함께 사는 기간의 기록을 나눠 두면 연말에 요건을 따지기 쉽습니다.",
             "혼자 살다가 다른 가족과 합가하는 경우도 마찬가지입니다. 부모님 세대에 들어가면 세대주 요건이 바뀌어 월세나 청약 공제가 막힐 수 있으므로, 합가 시점과 공제 요건을 함께 따져 봅니다."
           ],
           "note": "이사했다면 전입신고와 세대주 등록이 연말 전에 끝났는지 확인해 둡니다. 서류상 세대가 바뀌지 않으면 실제로 따로 살아도 세대주 요건을 채우지 못할 수 있습니다."
@@ -9260,7 +9296,8 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 저축·비상금·부채",
       "intro": "2월이나 3월 급여에 평소보다 큰 금액이 들어오면 그 돈은 어디로 가야 할까요? 환급금은 보너스처럼 느껴지지만, 미리 쓸 곳을 정해 두지 않으면 생활비에 섞여 어디에 썼는지 모르게 사라지기 쉽습니다.",
       "published": "2026-11-03",
-      "updated": "2026-11-03",
+      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
         "환급금은 회사가 2월분 급여를 줄 때 한 해 세금을 다시 계산해 돌려주는 돈이고, 공제 신고서를 낸 뒤 예상세액을 계산해 보면 미리 가늠할 수 있습니다.",
@@ -9334,7 +9371,7 @@ function publicLivingCostArticlesV22997() {
       ],
       "faqs": [
         ["환급금은 언제 들어오나요?", "회사가 2월분 급여를 지급할 때 정산하므로, 급여를 주는 날에 따라 2월이나 3월 급여와 함께 들어옵니다. 급여명세서에 환급액이 어떻게 표시되는지는 회사마다 다릅니다."],
-        ["대출이 있으면 빚부터 갚는 게 맞나요?", "금리가 높은 빚은 갚을수록 이자가 확실히 줄어 우선순위가 높습니다. 다만 비상금이 전혀 없는 상태에서 환급금을 모두 상환에 쓰면 급한 지출이 생겼을 때 다시 빚을 지게 되므로, 이 글은 비상금을 먼저 일부 채우는 순서를 예로 들었습니다."],
+        ["대출이 있으면 빚부터 갚는 게 맞나요?", "금리가 높은 빚은 갚은 원금만큼 이자가 줄어 우선순위가 높습니다. 다만 비상금이 전혀 없는 상태에서 환급금을 모두 상환에 쓰면 급한 지출이 생겼을 때 다시 빚을 지게 되므로, 이 글은 비상금을 먼저 일부 채우는 순서를 예로 들었습니다."],
         ["환급금이 작년보다 줄었는데 이유가 뭘까요?", "공제 대상 지출이 줄었거나, 급여가 늘어 세율 구간이 올라갔거나, 매달 미리 떼는 세금이 줄어든 경우 등이 있습니다. 원천징수영수증의 결정세액과 기납부세액을 작년 것과 나란히 놓고 비교하면 원인을 찾을 수 있습니다."]
       ],
       "sources": [
@@ -9354,7 +9391,8 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "집과 관련된 공제는 네 가지이고, 이름은 비슷해도 요건과 한도, 세대주를 판정하는 시점이 서로 다릅니다. 같은 해에 둘 이상 받을 때는 합쳐서 계산하는 한도도 있어서, 표로 나란히 놓고 보면 이해가 빠릅니다.",
       "published": "2026-11-03",
-      "updated": "2026-11-03",
+      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
         "주택청약과 전세대출 원리금 상환 공제는 합쳐서 연 400만원, 주택담보대출 이자 공제는 앞의 두 공제를 포함한 합계로 상환 조건에 따라 연 600만~2,000만원의 한도를 받습니다.",
@@ -9374,8 +9412,8 @@ function publicLivingCostArticlesV22997() {
             "rows": [
               ["주택청약종합저축 소득공제", "총급여 7천만원 이하, 그해 무주택 세대의 세대주(또는 그 배우자)", "연 납입 300만원까지 40%"],
               ["주택임차차입금 원리금 상환 공제", "과세기간 종료일 현재 무주택 세대주(세대원도 일부 가능)", "원리금 상환액의 40%, 청약 공제와 합쳐 연 400만원"],
-              ["장기주택저당차입금 이자 공제", "무주택 또는 1주택 세대주, 취득 당시 기준시가 6억원 이하 주택", "이자 상환액, 상환 조건별 연 600만~2,000만원(앞의 두 공제 포함)"],
-              ["월세 세액공제", "총급여 8천만원 이하, 과세기간 종료일 현재 무주택 세대주", "월세액 1천만원까지 15% 또는 17% 세액공제"]
+              ["장기주택저당차입금 이자 공제", "무주택 또는 1주택 세대주, 취득 당시 기준시가 6억원 이하 주택(2024년 이후 취득분 기준)", "이자 상환액, 상환 조건별 연 600만~2,000만원(앞의 두 공제 포함)"],
+              ["월세 세액공제", "총급여 8천만원 이하, 과세기간 종료일 현재 무주택 세대주, 국민주택규모 또는 기준시가 4억원 이하 주택", "월세액 1천만원까지 15% 또는 17% 세액공제"]
             ]
           }
         },
@@ -9389,7 +9427,7 @@ function publicLivingCostArticlesV22997() {
         {
           "title": "주택담보대출 이자 공제의 상환 조건별 한도",
           "paragraphs": [
-            "장기주택저당차입금 이자 공제는 대출 기간과 상환 방식에 따라 한도가 달라집니다. 주택을 취득할 당시 기준시가가 6억원 이하여야 하고, 과세기간 종료일 현재 무주택이거나 1주택인 세대주여야 하며 2주택 이상이면 대상이 아닙니다. 세대주는 그 집에 실제로 살지 않아도 되지만, 세대원이 공제받을 때는 실제로 거주해야 합니다.",
+            "장기주택저당차입금 이자 공제는 대출 기간과 상환 방식에 따라 한도가 달라집니다. 2024년 1월 1일 이후 취득한 주택은 취득 당시 기준시가가 6억원 이하여야 하고, 그 전에 취득한 주택은 취득 시점의 기준시가 기준(예: 2019~2023년 취득 5억원)을 따릅니다. 자세한 연도별 기준은 국세청 안내로 확인합니다. 과세기간 종료일 현재 무주택이거나 1주택인 세대주여야 하며 2주택 이상이면 대상이 아닙니다. 세대주는 그 집에 실제로 살지 않아도 되지만, 세대원이 공제받을 때는 실제로 거주해야 합니다.",
             "한도 차이가 크기 때문에 대출을 새로 받을 때 상환 방식이 공제에도 영향을 줍니다. 같은 이자를 내더라도 거치 기간이 있거나 변동금리이면 낮은 한도가 적용될 수 있으므로, 계약 조건을 가계부 메모에 남겨 두면 해마다 한도를 다시 찾지 않아도 됩니다. 다만 공제만을 이유로 대출 조건을 정하기보다 전체 이자 부담을 먼저 비교합니다."
           ],
           "bullets": [
@@ -9397,7 +9435,8 @@ function publicLivingCostArticlesV22997() {
             "상환 기간 15년 이상, 고정금리나 비거치식 분할상환 가운데 하나: 연 1,800만원",
             "상환 기간 15년 이상, 위 두 조건이 모두 없는 경우: 연 800만원",
             "상환 기간 10년 이상, 고정금리나 비거치식 분할상환 가운데 하나: 연 600만원"
-          ]
+          ],
+          "note": "위 한도는 2024년 이후 이자 상환분부터 차입 시기와 관계없이 적용되고, 2012년 전에 받은 대출은 종전 규정이 유리하면 그쪽을 쓸 수 있습니다."
         },
         {
           "title": "세대주를 따지는 시점",
@@ -9429,7 +9468,7 @@ function publicLivingCostArticlesV22997() {
         {
           "title": "월세 세액공제는 따로 본다",
           "paragraphs": [
-            "월세 세액공제는 세액에서 바로 빼는 공제이고 위의 합산 한도와도 별개입니다. 총급여 8천만원 이하인 무주택 세대주가 대상이며, 한 해 월세액 1천만원까지 15%를 공제합니다. 총급여 5,500만원 이하이고 종합소득금액도 4,500만원 이하인 사람은 17%입니다. 월세 세액공제를 신청하면 표준세액공제는 받을 수 없다는 점도 함께 기억해 둡니다."
+            "월세 세액공제는 세액에서 바로 빼는 공제이고 위의 합산 한도와도 별개입니다. 총급여 8천만원 이하인 무주택 세대주가 대상이며, 한 해 월세액 1천만원까지 15%를 공제합니다. 월세로 사는 집은 국민주택규모 이하이거나 기준시가가 4억원을 넘지 않아야 하고, 주민등록상 주소가 임대차계약서 주소와 같아야 합니다. 총급여 5,500만원 이하이고 종합소득금액도 4,500만원 이하인 사람은 17%입니다. 2026년부터는 주소지의 시·군·자치구가 서로 다른 무주택 주말부부가 각각 공제받을 수 있고(합계 1천만원 한도), 자녀·손자녀가 3명 이상이면 100㎡ 이하 주택까지 대상이 넓어집니다. 월세 세액공제를 신청하면 표준세액공제는 받을 수 없다는 점도 함께 기억해 둡니다."
           ],
           "note": "세대원으로서 공제를 받으려 하거나 부부가 각각 계약한 경우처럼 요건이 복잡하면 국세청 안내에서 해당 공제의 세부 조건을 확인합니다."
         }
@@ -9783,7 +9822,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
           ["거래 변경 이력", "고치거나 지운 거래의 바뀌기 전·후 내용, 변경한 사용자, 변경 시각", "거래를 고치거나 지울 때", "최대 180일"],
           ["접속·보안 기록", "IP 주소, 브라우저 정보(User-Agent), 요청 경로와 시각", "서비스에 접속할 때 자동으로 생성", "요청 횟수 제한에 쓰는 값은 서버 인스턴스 메모리에만 잠시 두고 저장하지 않습니다. 로그인·가입 시도 제한에는 IP 주소 등을 복원할 수 없게 변환한 값과 시도 횟수만 데이터베이스에 저장하고, 로그인에 성공하면 그 기록을 지웁니다."],
           ["쿠키", "아래 쿠키 목록", "로그인·본인 확인·가계부 선택 때", "아래 쿠키 목록"],
-        ] }, bullets: ["ab_user: 로그인 유지(세션), 14일", "ab_hh: 마지막으로 연 가계부 기억, 1년", "kakao_oauth_state·kakao_oauth_link_user·kakao_oauth_reauth_household·kakao_oauth_return_to: 카카오 로그인 요청 확인, 10분", "ab_credential_reauth·ab_household_delete_reauth·ab_account_link: 본인 확인과 계정 잇기 확인, 5분", "ab_kakao_auto: 카카오톡 안 자동 로그인 시도 상태, 10분~30일(직접 로그아웃하면 30일 동안 멈춤)", "ab_account_link_later·ab_account_link_pause: 계정 잇기 안내 미루기, 7일·10분", "ab_admin: 운영자 관리 화면 로그인(운영자만), 12시간", "모든 쿠키는 HTTPS 연결에서만 보내고(Secure) 화면의 스크립트가 읽지 못하게(HttpOnly) 설정합니다. 광고 쿠키는 4절을 따릅니다."] },
+        ] }, bullets: ["ab_user: 로그인 유지(세션), 14일", "ab_hh: 마지막으로 연 가계부 기억, 1년", "ab_cs: 이용약관 동의 기록 확인 결과(동의 안내 팝업을 띄울지), 14일", "ab_bk·ab_setup: 가계부 기본 설정 안내 띠를 띄울지(로그인 비밀번호 설정 여부·가계부 설정 확인 결과), 14일·1시간", "ab_notice_hide: 공지 띠 ‘오늘 하루 안 보기’, 24시간", "kakao_oauth_state·kakao_oauth_link_user·kakao_oauth_reauth_household·kakao_oauth_return_to: 카카오 로그인 요청 확인, 10분", "ab_credential_reauth·ab_household_delete_reauth·ab_account_link: 본인 확인과 계정 잇기 확인, 5분", "ab_kakao_auto: 카카오톡 안 자동 로그인 시도 상태, 10분~30일(직접 로그아웃하면 30일 동안 멈춤)", "ab_account_link_later·ab_account_link_pause: 계정 잇기 안내 미루기, 7일·10분", "ab_admin: 운영자 관리 화면 로그인(운영자만), 12시간", "모든 쿠키는 HTTPS 연결에서만 보내고(Secure) 화면의 스크립트가 읽지 못하게(HttpOnly) 설정합니다. 광고 쿠키는 4절을 따릅니다."] },
         { title: "7. 개인정보 보호책임자", paragraphs: [`개인정보 처리 업무를 총괄하고 이용자의 불만 처리와 피해 구제를 맡는 개인정보 보호책임자는 다음과 같습니다. 성명 ${BUSINESS_FOOTER_INFO.representative}(대표), 이메일 ${supportEmail}.`, "개인정보의 열람·정정·삭제·처리정지 요구와 개인정보 관련 문의는 위 이메일로 보내 주세요. 본인임을 확인한 뒤 처리하며, 요구를 받은 날부터 10일 안에 결과를 알립니다. 그 안에 처리하기 어려우면 이유와 처리할 날짜를 알립니다. 이메일에 계정 비밀번호나 연결 코드는 적지 마세요."], links: [["개인정보 보호책임자에게 이메일 보내기", `mailto:${supportEmail}`]] },
         { title: "8. 개인정보 처리 위탁과 국외 이전", paragraphs: ["말해가계부는 서비스를 제공하려고 아래 사업자에게 개인정보 처리 업무를 맡깁니다. 미국 법인에 맡기는 처리는 개인정보의 국외 이전에 해당하며, 서비스 제공 계약을 이행하는 데 필요한 처리 위탁과 보관이므로 이 방침에 알리고 이전합니다. 맡긴 업무 밖으로 개인정보를 쓰지 않도록 관리합니다."], table: { caption: "개인정보 처리 위탁과 국외 이전", headers: ["받는 자(국가)", "맡기는 업무", "이전되는 항목", "이전 시점과 방법", "보유·이용 기간"], rows: [
           ["Cloudflare, Inc.(미국)", "서비스 실행(Workers), 네트워크 전송과 보안, 문의 메일(admin@malhaebook.com) 전달(Email Routing)", "서비스를 이용하며 주고받는 정보(접속 기록 포함), 문의 메일의 내용과 보낸 주소", "이용할 때마다 암호화 통신(HTTPS)으로 전송. 문의 메일은 보낼 때 전달", "위탁 계약이 끝날 때까지(Cloudflare 개인정보처리방침에 따름)"],
@@ -9791,10 +9830,12 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
           ["주식회사 카카오(대한민국)", "카카오 로그인, 카카오톡 챗봇 메시지 전달", "카카오 회원번호·닉네임, 챗봇 식별키·보낸 문장과 답", "로그인하거나 챗봇을 쓸 때 카카오 서버를 거쳐 전달", "카카오 개인정보처리방침에 따름"],
           ["네이버 주식회사(대한민국)", "문의 메일(admin@malhaebook.com) 수신함 제공", "문의 메일의 내용과 보낸 주소", "문의 메일을 보낼 때 Cloudflare Email Routing 을 거쳐 운영자 메일함으로 전달", "문의 처리 뒤 삭제하거나 메일 서비스 이용이 끝날 때까지"],
         ] }, note: "국외 이전을 원하지 않으면 가입하지 않거나 7절의 이메일로 개인정보 삭제를 요청할 수 있습니다. 이 이전은 서비스를 제공하는 데 꼭 필요하므로, 거부하면 서비스를 이용할 수 없습니다. 받는 자의 연락처: Cloudflare, Inc. 는 privacyquestions@cloudflare.com(101 Townsend St., San Francisco, CA 94107, 미국), Supabase 는 privacy@supabase.com, 주식회사 카카오와 네이버 주식회사는 각 회사 개인정보처리방침에 적힌 고객센터입니다.", links: [["Cloudflare 개인정보처리방침", "https://www.cloudflare.com/privacypolicy/"], ["Supabase 개인정보처리방침", "https://supabase.com/privacy"], ["카카오 개인정보처리방침", "https://www.kakao.com/policy/privacy?lang=ko"], ["네이버 개인정보처리방침", "https://privacy.naver.com/"]] },
-        { title: "9. 만 14세 미만 아동의 개인정보", paragraphs: ["만 14세 미만 아동은 가입하거나 서비스를 이용할 수 없습니다. 웹에서 새 계정을 만들거나 카카오 로그인을 할 때 만 14세 이상인지 확인합니다.", "만 14세 미만 아동의 계정이나 개인정보임을 알게 되면 지체 없이 삭제합니다."] },
+        // V22.9.104 L-2(커밋 B): 만 14세 미만도 쓸 수 있다. 서비스 제공에 필요한 처리(제15조제1항제4호)만 하고 동의를 근거로 하는 처리는 하지 않으며,
+        // 알리는 글은 쉬운 말로 쓴다(제22조의2제3항). 법정대리인의 열람·정정·삭제·처리정지 요청은 7절 보호책임자 연락처로 받는다.
+        { title: "9. 만 14세 미만 아동의 개인정보", paragraphs: ["만 14세 미만 아동도 말해가계부를 쓸 수 있습니다. 가계부 기록과 로그인처럼 서비스를 쓰는 데 꼭 필요한 개인정보만 처리합니다. 이 처리는 서비스 이용 계약을 지키는 데 필요한 처리(개인정보 보호법 제15조제1항제4호)라서 따로 동의를 받지 않습니다.", "만 14세 미만 아동의 개인정보로는 꼭 필요하지 않은 정보를 모으거나 이름을 공개하는 일처럼 동의를 받아야 하는 처리를 하지 않습니다. 그런 처리가 필요하면 그 처리에서만 나이를 확인하고 법정대리인(부모 등 보호자)의 동의를 받습니다.", "아동에게 알리는 내용은 알기 쉬운 말로 씁니다(개인정보 보호법 제22조의2제3항).", "법정대리인은 아동의 개인정보를 보거나, 고치거나, 지우거나, 처리를 멈추라고 요청할 수 있습니다. 7절의 개인정보 보호책임자 이메일로 요청하면 법정대리인인지 확인한 뒤 지체 없이 처리합니다."] },
         { title: "10. 개인정보의 파기 절차와 방법", paragraphs: ["보유기간이 끝나거나 처리 목적을 이룬 개인정보는 지체 없이 파기합니다. 다른 법령에 따라 보존해야 하면 다른 정보와 분리해 그 기간 동안만 보관합니다.", "파기 절차: 파기할 개인정보를 정하고 개인정보 보호책임자의 확인을 거쳐 파기합니다. 파기 방법: 전자 파일은 복구할 수 없도록 데이터베이스에서 삭제합니다. 개인정보를 종이로 출력해 두지 않으며, 출력한 것이 있으면 분쇄하거나 소각합니다.", "거래 변경 이력(고치거나 지운 거래의 바뀌기 전 내용)은 실행 취소와 복구를 위해 보관하며, 180일이 지나면 자동으로 삭제합니다.", "사용자가 내려받은 백업 파일은 사용자 기기에 저장되므로 사용자가 직접 지워야 합니다. 장애에 대비해 데이터베이스 사본을 만드는 경우 운영자만 접근하게 하고, 원본에서 지운 정보는 사본의 보관 기간이 끝날 때 함께 지웁니다."] },
         { title: "11. 권익침해 구제 방법", paragraphs: ["개인정보 침해에 대한 신고나 상담이 필요하면 아래 기관에 문의할 수 있습니다."], bullets: ["개인정보침해신고센터(한국인터넷진흥원): privacy.kisa.or.kr, 국번 없이 118", "개인정보분쟁조정위원회: www.kopico.go.kr, 1833-6972", "대검찰청 사이버수사과: www.spo.go.kr, 국번 없이 1301", "경찰청 사이버수사국: ecrm.police.go.kr, 국번 없이 182"] },
-        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다. 동의 절차나 보호 조치를 더하거나 처리 내용을 더 자세히 적는 것처럼 이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다.", POLICY_NOTICE_DATE === POLICY_REVISION_DATE ? `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 같은 날부터 시행합니다. 이번 개정은 동의 절차와 보호 조치를 더하고 처리 내용을 더 자세히 적은 것이어서 이용자에게 불리하지 않은 변경입니다.` : `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
+        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다. 동의 절차나 보호 조치를 더하거나 처리 내용을 더 자세히 적는 것처럼 이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다.", POLICY_NOTICE_DATE === POLICY_REVISION_DATE ? `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 같은 날부터 시행합니다. 이번 개정은 만 14세 미만 아동도 이용할 수 있게 하면서 그 개인정보를 처리하는 기준을 9절에 적고, 6절의 쿠키 목록을 실제로 쓰는 쿠키와 맞춘 것이어서 이용자에게 불리하지 않은 변경입니다.` : `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
         { title: "13. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
       ],
     },
@@ -9805,7 +9846,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
       intro: "본 약관은 말해가계부를 이용할 때 서비스와 사용자 사이의 기본 기준을 설명합니다. 사용자는 최신 약관과 개인정보처리방침을 확인한 뒤 서비스를 이용합니다.",
       sections: [
         { title: "1. 서비스 목적", paragraphs: ["말해가계부는 사용자가 직접 입력한 생활 수입·지출을 개인 또는 공동 가계부 단위로 기록하고 예산·요약·분석·백업 기능을 제공하는 서비스입니다.", "금융상품, 투자, 세무, 법률 자문을 제공하지 않으며 서비스의 계산값은 생활 기록을 돕는 참고자료입니다."] },
-        { title: "2. 사용자 책임", paragraphs: ["사용자는 입력한 금액, 날짜, 결제수단, 메모와 분류의 정확성을 확인해야 합니다. 계정, 초대코드와 접근 수단을 안전하게 관리하고 다른 사람의 정보를 권한 없이 입력해서는 안 됩니다.", "말해가계부는 만 14세 이상만 이용할 수 있습니다. 웹에서 새 계정을 만들거나 카카오 로그인을 할 때 이용약관과 개인정보처리방침에 동의하고 만 14세 이상임을 확인하는 절차를 거칩니다."] },
+        { title: "2. 사용자 책임", paragraphs: ["사용자는 입력한 금액, 날짜, 결제수단, 메모와 분류의 정확성을 확인해야 합니다. 계정, 초대코드와 접근 수단을 안전하게 관리하고 다른 사람의 정보를 권한 없이 입력해서는 안 됩니다.", "웹에서 새 계정을 만들거나 카카오 로그인을 할 때 이용약관에 동의하고 개인정보처리방침을 확인하는 절차를 거칩니다. 만 14세 미만도 이용할 수 있으며, 아동의 개인정보는 개인정보처리방침 9절에 따라 처리합니다."] },
         { title: "3. 공동 가계부와 권한", paragraphs: ["가계부 소유자와 관리자는 참여자 초대, 승인, 역할과 표시 이름을 관리할 수 있습니다. 참여자는 부여된 권한 범위에서 조회·기록·수정 기능을 사용합니다.", "새 미연결 단톡방에서는 봇에게 명확한 첫 거래를 보내면 공동 가계부를 준비하고 첫 기록자가 소유자가 됩니다. 기존 가계부를 연결하려면 해당 가계부의 소유자 또는 관리자 권한이 필요합니다. 연결을 변경할 때에는 현재 연결된 가계부의 관리 권한도 확인합니다. 기록 전 가계부 이름과 공유 범위를 확인해야 합니다."] },
         { title: "4. 데이터 수정·삭제와 백업", paragraphs: ["사용자는 거래와 설정을 수정·삭제할 수 있으며 중요한 변경 전 백업을 권장합니다. 가져오기, 일괄 수정, 삭제와 복구는 확인 절차를 제공하지만 모든 실수를 자동 복원한다고 보장하지 않습니다."] },
         { title: "5. 서비스 제한과 장애", paragraphs: ["보안, 과도 요청, 점검, 외부 서비스 장애 또는 법적 필요가 있는 경우 일부 기능을 일시 제한할 수 있습니다. 중복 저장과 데이터 손상을 줄이는 것을 우선하며 장애가 발생하면 안전 안내와 재시도 방법을 제공합니다."] },
@@ -9840,6 +9881,14 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
   // V22.9.74: 생활비 가이드 글(12편 + 20편)에 분류·작성일을 붙이고, 글 목록 허브와 사이트맵 절을 그 목록으로 만든다.
   publicNormalizeLivingArticles(catalog);
   const articleIndex = publicArticleIndex(catalog);
+  // V22.9.104 A-2: 첫 화면 ‘최근 글’ 은 글 목록 앞 8편(작성일 최신 순) + 전체 목록 링크다. 첫 화면 수정일(화면·JSON-LD·사이트맵 lastmod)은
+  // 그 글들의 가장 늦은 수정일보다 이르지 않게 올린다(새 글을 올리거나 글을 고치면 첫 화면 목록도 바뀌므로).
+  const homeRecent = safeArray(catalog.home?.sections).find((section) => section.title === "최근 글");
+  if (homeRecent) {
+    const recent = publicArticleRecent(articleIndex);
+    homeRecent.links = [...recent.map((item) => [item.title, item.path]), ["생활비 가이드 글 전체 목록 보기", "/articles"]];
+    catalog.home.updated = recent.reduce((latest, item) => (item.updated > latest ? item.updated : latest), catalog.home.updated);
+  }
   catalog.articles = publicArticlesHubPage(articleIndex);
   const siteMapArticles = safeArray(catalog["site-map"]?.sections).find((section) => section.title === "생활비 가이드 글");
   if (siteMapArticles) siteMapArticles.links = publicArticleSiteMapLinks(articleIndex);
@@ -10070,8 +10119,10 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   const metaLine = living
     ? `작성·관리: <a href="/about">${escapeHtml(BUSINESS_FOOTER_INFO.company)} 운영팀</a> · 수정 <time datetime="${page.updated}">${page.updated}</time> · 작성 <time class="pubPublished" datetime="${page.published}">${page.published}</time> · 읽는 시간 약 ${publicArticleReadingMinutes(page)}분`
     : `${type === "Article" ? "작성·관리" : "운영"}: <a href="/about">${escapeHtml(BUSINESS_FOOTER_INFO.company)}${type === "Article" ? " 운영팀" : ""}</a> · 안내 수정 <time datetime="${page.updated}">${page.updated}</time>`;
+  // V22.9.104 A-4: 글에 기준 한 줄(basis, 세무 글 8편의 귀속연도·확인한 법령 시점)이 있으면 작성·수정일 줄 바로 아래에 같은 모양(pubMeta)으로
+  // 단다. 머리(pubHero) 안이라 본문 분량·40자 창 검사에는 들어가지 않고, 새 CSS 가 없어 다른 화면의 바이트는 그대로다.
   const readingNext = living ? `<a href="/articles">생활비 가이드 글 전체 목록 보기 →</a>` : `<a href="/guides">다른 사용 가이드 찾아보기 →</a>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/><meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${faqLinkCss}${page.landing || page.demo ? publicPreviewStyles(!!page.demo) : ""}${page.landing ? publicLandingStyles() : ""}${page.demo ? publicTourStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml(true) : ""}<p class="pubMeta">${metaLine}</p><div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.landing ? publicLandingHtml() : ""}${page.demo ? publicTourHtml() : ""}${extras.summary}${toc}${sections}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}</main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/><meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${faqLinkCss}${page.landing || page.demo ? publicPreviewStyles(!!page.demo) : ""}${page.landing ? publicLandingStyles() : ""}${page.demo ? publicTourStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml(true) : ""}<p class="pubMeta">${metaLine}</p>${page.basis ? `<p class="pubMeta pubBasis">${escapeHtml(page.basis)}</p>` : ""}<div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.landing ? publicLandingHtml() : ""}${page.demo ? publicTourHtml() : ""}${extras.summary}${toc}${sections}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}</main></body></html>`;
 }
 
 // V22.9.40 (B): 광고 게이트가 쓰는 화면 키는 정본 경로다. 정책·신원 페이지는 게이트의 허용 목록에 없다.
@@ -12947,7 +12998,14 @@ function renameLegacyDocumentTitleV22983(source = "") {
 // 변수가 없으면 아무것도 붙이지 않는다(빈 요소도 없다). role="status"를 유지하고 V22.9.99부터 POST 폼으로 하루 동안 숨길 수 있다.
 // NOTICE_LINK 는 우리 화면 주소(‘/…’) 또는 https 주소만 받아 글 끝에 ‘자세히’ 를 단다. 색은 주의 톤(노랑)이고 다크(앱 설정)에서도 대비 4.5 이상이다.
 // 응답 마무리(worker/router.js fetch)에서 env 와 주소를 함께 아는 한 곳에서 부른다. 1년 캐시 자산은 건드리지 않는다(인라인 style 한 덩어리).
-const AB_NOTICE_BAND_STYLE_V22995 = '<style id="abNoticeBandStyle">.abNoticeBand{margin:0;padding:10px 16px;background:#fff4cc;color:#4a3800;border-bottom:1px solid #e9c868;font-size:14px;line-height:1.5;text-align:center;word-break:keep-all;overflow-wrap:anywhere}.abNoticeBand p{display:inline;margin:0 auto;max-width:960px}.abNoticeBand a{color:#4a3800;font-weight:700;text-decoration:underline;text-underline-offset:2px;margin-left:6px}.abNoticeBand a:focus-visible{outline:2px solid currentColor;outline-offset:2px}.abNoticeBand .abNoticeHide{display:inline-block;margin:0 0 0 12px}.abNoticeBand .abNoticeHide button{min-height:44px;padding:8px 4px;border:0!important;background:transparent!important;color:inherit!important;box-shadow:none!important;font:inherit;font-size:12px;text-decoration:underline;cursor:pointer}.abNoticeHide button:focus-visible{outline:2px solid currentColor;outline-offset:2px}html[data-ab-resolved-theme="dark"] .abNoticeBand{background:#3a2f0b;color:#ffe9a8;border-bottom-color:#6b5a1d}html[data-ab-resolved-theme="dark"] .abNoticeBand a{color:#ffe9a8}</style>';
+// V22.9.104 A-1: 띠 오른쪽 끝에 닫기 ‘×’(aria-label "공지 닫기")를 더한다. 같은 폼의 둘째 제출 단추라 새 주소·스크립트가 없고,
+// 두 단추 모두 name 이 없어 브라우저가 보내는 값(back 하나)이 같다 → 같은 쿠키·같은 24시간(오늘 하루 안 보기와 똑같이 숨김).
+// 띠는 position:relative 이고 × 는 오른쪽 끝에 44×44 로 띄운다(폼은 position:static 이라 띠 기준). 오른쪽 여백 52px 은 × 자리다.
+// DOM 순서는 글 → ‘자세히’ → ‘오늘 하루 안 보기’ → ‘×’ 로 보이는 순서와 같다(탭 순서도 같다).
+// × 는 class="secondary" 가 아니라서 화면 테마의 제출 단추 규칙(.abV2281 button[type="submit"]:not(.danger):not(.delBtn):not(.secondary),
+// 특이도 0,5,1, !important 파랑 바탕·흰 글자)에 걸린다. 그래서 × 규칙은 특이도 0,5,3(div·form·button + 클래스 셋 + 속성 둘)으로
+// 바탕 투명·글자색 띠 따라가기를 !important 로 지킨다(공개·로그인·앱 화면 모두 같은 모양).
+const AB_NOTICE_BAND_STYLE_V22995 = '<style id="abNoticeBandStyle">.abNoticeBand{position:relative;margin:0;padding:10px 52px 10px 16px;background:#fff4cc;color:#4a3800;border-bottom:1px solid #e9c868;font-size:14px;line-height:1.5;text-align:center;word-break:keep-all;overflow-wrap:anywhere}.abNoticeBand p{display:inline;margin:0 auto;max-width:960px}.abNoticeBand a{color:#4a3800;font-weight:700;text-decoration:underline;text-underline-offset:2px;margin-left:6px}.abNoticeBand a:focus-visible{outline:2px solid currentColor;outline-offset:2px}.abNoticeBand .abNoticeHide{position:static;display:inline-block;margin:0 0 0 12px}.abNoticeBand .abNoticeHide button{min-height:44px;padding:8px 4px;border:0!important;background:transparent!important;color:inherit!important;box-shadow:none!important;font:inherit;font-size:12px;text-decoration:underline;cursor:pointer}div.abNoticeBand form.abNoticeHide button.abNoticeClose[type="submit"][aria-label]{position:absolute;top:calc(50% - 22px);right:4px;width:44px;height:44px;min-width:44px;margin:0;padding:0;border:0!important;background:transparent!important;color:inherit!important;box-shadow:none!important;font-size:24px;line-height:1;text-decoration:none}.abNoticeHide button:focus-visible{outline:2px solid currentColor;outline-offset:2px}html[data-ab-resolved-theme="dark"] .abNoticeBand{background:#3a2f0b;color:#ffe9a8;border-bottom-color:#6b5a1d}html[data-ab-resolved-theme="dark"] .abNoticeBand a{color:#ffe9a8}</style>';
 function abNoticeBandParts(env = {}) {
   const text = String(env?.NOTICE_TEXT || "").replace(/\s+/g, " ").trim().slice(0, 200);
   if (!text) return null;
@@ -12994,7 +13052,7 @@ function attachNoticeBand(html = "", env = {}, pathname = "", back = pathname) {
   const appShell = pathname === "/app" || pathname === "/my" || pathname.startsWith("/my/");
   if (!appShell && !/class=["'][^"']*\bpubHeader\b/i.test(source)) return source;
   if (!/<body\b[^>]*>/i.test(source)) return source;
-  const band = '<div class="abNoticeBand" role="status"><p>' + escapeHtml(parts.text) + (parts.link ? ' <a href="' + escapeHtml(parts.link) + '">자세히</a>' : "") + '</p><form class="abNoticeHide" method="post" action="/notice/hide"><input type="hidden" name="back" value="' + escapeHtml(noticeReturnPathV22999(back)) + '"/><button class="secondary" type="submit">오늘 하루 안 보기</button></form></div>';
+  const band = '<div class="abNoticeBand" role="status"><p>' + escapeHtml(parts.text) + (parts.link ? ' <a href="' + escapeHtml(parts.link) + '">자세히</a>' : "") + '</p><form class="abNoticeHide" method="post" action="/notice/hide"><input type="hidden" name="back" value="' + escapeHtml(noticeReturnPathV22999(back)) + '"/><button class="secondary" type="submit">오늘 하루 안 보기</button><button class="abNoticeClose" type="submit" aria-label="공지 닫기">×</button></form></div>';
   // 스타일은 </head> 앞에 둔다. 머리가 없는 조각 화면이면 띠 바로 앞에 둔다.
   const inline = source.includes("</head>") ? "" : AB_NOTICE_BAND_STYLE_V22995;
   const withStyle = inline ? source : source.replace("</head>", AB_NOTICE_BAND_STYLE_V22995 + "</head>");
@@ -13943,11 +14001,15 @@ function transactionDenialCode(access = {}, { row, householdId = "" } = {}) {
   return "not_my_record";
 }
 
-async function fetchTransactionRowById(env, id) {
+async function fetchTransactionRowById(env, id, select = "id,household_id,user_id") {
   if (!id) return null;
-  const rows = await supabase(env, `/rest/v1/transactions?id=eq.${encodeURIComponent(id)}&select=id,household_id,user_id&limit=1`, { method: "GET" }) || [];
+  const rows = await supabase(env, `/rest/v1/transactions?id=eq.${encodeURIComponent(id)}&select=${select}&limit=1`, { method: "GET" }) || [];
   return rows[0] || null;
 }
+
+// V22.9.104 J-9: 웹 삭제(/admin/delete)는 권한을 보는 첫 읽기에서 조건부 삭제(accountbook_delete_transaction_if_v22988)가 견줄 일곱 칸도 함께 읽는다
+// (같은 요청 한 번 — 칸만 늘었다). 구성원 삭제가 이 값으로 ‘읽은 뒤 지출자·내용이 바뀐 기록’을 지우지 않는다.
+const TX_DELETE_GUARD_SELECT_V229104 = "id,household_id,user_id,type,amount,transaction_date,category,memo,payment_method";
 
 async function fetchTransactionRowsByIds(env, ids = []) {
   const clean = [...new Set(safeArray(ids).map((id) => String(id || "").trim()).filter((id) => /^[0-9a-fA-F-]{20,80}$/.test(id)))];
@@ -14084,7 +14146,7 @@ async function handleAdminDeleteTransaction(request, env) {
   if (wantsJson && (!id || !householdId || id.length > 120 || householdId.length > 120)) {
     return jsonResponse({ ok: false, error: "invalid_scope", message: "가계부와 거래 ID를 확인해 주세요." }, 400);
   }
-  const targetRow = await fetchTransactionRowById(env, id);
+  const targetRow = await fetchTransactionRowById(env, id, TX_DELETE_GUARD_SELECT_V229104);
   const rowHousehold = String(targetRow?.household_id || householdId || "");
   const access = await resolveTransactionAccess(request, env, rowHousehold);
   const isManager = access.admin || ["owner", "admin"].includes(access.role);
@@ -14111,7 +14173,16 @@ async function handleAdminDeleteTransaction(request, env) {
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: validationError }), { err: validationError }));
   }
   try {
-    const result = await deleteTransactionWithAudit(env, id, rowHousehold, { actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user" });
+    // V22.9.104 J-9: 구성원 삭제는 위에서 읽은 일곱 칸(지출자 포함)이 그대로일 때만 지운다(조건부 삭제 함수, 감사 삭제 함수 대신 — DB 요청 수 같음).
+    // 그 사이 관리자가 지출자를 바꾸거나 다른 사람이 고쳤으면 지우지 않고 충돌로 알린다. 소유자·관리자·관리자 세션은 예전 그대로다.
+    const result = isManager
+      ? await deleteTransactionWithAudit(env, id, rowHousehold, { actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user" })
+      : await deleteTransactionIfUnchangedResultV229104(env, targetRow, rowHousehold, { actorUserId: access.userId || null, actorKind: "user" });
+    if (!isManager && result?.changed === true && result?.deleted !== true) {
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/admin/delete", method: "POST", detail: "delete_changed" });
+      if (wantsJson) return jsonResponse({ ok: false, error: "record_delete_failed", conflict: "record_edit_conflict", message: RECORD_EDIT_CONFLICT_MESSAGE_V229104 }, 409);
+      return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "record_edit_conflict" }), { err: "record_edit_conflict" }));
+    }
     if (!result || result.deleted !== true || String(result.id || "") !== id) {
       const error = new Error("transaction_delete_confirmation_missing");
       error.uncertain_write = true;
@@ -14278,6 +14349,17 @@ async function handleAdminUpdateTransaction(request, env) {
     // 저장(updateTransactionIfUnchangedV22994)이다. 0행이면 지금 값으로 다시 계획한다: 같은 칸이 다르게 바뀌었으면 충돌 화면(409), 다른 칸만 바뀌었거나
     // 같은 값이 됐으면 내 칸만 다시 저장한다(세 번까지, 그래도 엇갈리면 edit_conflict). 기준 값은 폼의 orig_* 이고, 없는 칸은 처음 읽은 값이다.
     const baseline = { ...Object.fromEntries(AB_EDIT_FIELDS.map((key) => [key, String(current[key] ?? "")])), ...(original || {}) };
+    // V22.9.104 J-9(Codex 검토 V102): 구성원(소유자·관리자 아님)은 자기 기록만 고친다. 권한은 맨 위 첫 읽기(targetRow)로 봤고 구성원은 지출자 칸을 바꾸지
+    // 않으므로, 그 뒤 이 읽기까지 또는 아래 저장 전에 관리자가 지출자를 바꾸면 구성원의 금액·메모가 이제 남의 기록이 된 행에 들어갔다. 이 읽기로 다시 보고,
+    // 저장에도 ‘지출자 = 나’ 조건을 건다(requireUserId — 같은 PATCH 의 조건이라 요청 수는 그대로). 바뀌었으면 저장하지 않고, 수정 폼 대신 입력한 값을 글로
+    // 남긴 안내(409)를 보인다(이제 남의 기록이라 다시 고칠 폼을 주지 않는다).
+    const requireUserId = isManager ? "" : String(access.userId || "");
+    const spenderChanged = (row) => {
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/admin/update", method: "POST", detail: "spender_changed" });
+      const backTo = safeUserReturnPath(String(form.get("return_to") || ""), `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(rowHousehold)}`);
+      return htmlResponse(renderTransactionSpenderChangedHtmlV229104(env, row, abEditTypedChangesV229104(submitted, baseline), backTo), 409);
+    };
+    if (requireUserId && String(current.user_id || "") !== requireUserId) return spenderChanged(current);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const plan = planTransactionEdit(current, submitted, baseline);
       if (plan.conflicts.length) {
@@ -14286,9 +14368,10 @@ async function handleAdminUpdateTransaction(request, env) {
         return htmlResponse(renderTransactionEditConflictHtml(env, current, plan.conflicts, backTo, members, isManager), 409);
       }
       if (!Object.keys(plan.patch).length) return back({ msg: "updated" });
-      const outcome = await updateTransactionIfUnchangedV22994(env, id, plan.patch, current, { householdId: rowHousehold, actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user", path: "/admin/update" });
+      const outcome = await updateTransactionIfUnchangedV22994(env, id, plan.patch, current, { householdId: rowHousehold, actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user", path: "/admin/update", requireUserId });
       if (outcome.status === "updated") return back({ msg: "updated" });
       if (outcome.status === "missing") return back({ err: "record_not_found" });
+      if (outcome.status === "spender_changed") return spenderChanged(outcome.row);
       current = outcome.row;
     }
     return back({ err: "edit_conflict" });
@@ -14328,6 +14411,23 @@ function planTransactionEdit(current = {}, submitted = {}, original = null) {
     }
   }
   return { patch, conflicts };
+}
+
+// V22.9.104 J-9: 구성원이 이 폼으로 바꾸려던 칸(기준 값과 다른 칸)과 입력한 값. 지출자가 바뀌어 저장하지 못했을 때 안내에 글로 남긴다.
+function abEditTypedChangesV229104(submitted = {}, baseline = {}) {
+  return AB_EDIT_FIELDS
+    .filter((field) => Object.hasOwn(submitted, field) && abEditValue(field, submitted[field]) !== abEditValue(field, baseline[field]))
+    .map((field) => ({ field, label: AB_EDIT_LABELS[field], next: abEditValue(field, submitted[field]) }));
+}
+
+// V22.9.104 J-9: 저장 전에 지출자가 바뀐 기록(이제 남의 기록)의 안내. 수정 폼은 주지 않고(고칠 권한이 없다), 입력한 값은 잃지 않게 글로 보인다.
+function renderTransactionSpenderChangedHtmlV229104(env, row = {}, typed = [], backTo = "/app") {
+  const shown = (c) => c.field === "amount" ? `${numberWithCommas(c.next)}원` : c.field === "type" ? (c.next === "income" ? "수입" : "지출") : (c.next || "(비어 있음)");
+  const person = row?.type === "income" ? "수입자" : "지출자";
+  const kept = typed.length
+    ? `<p>내가 입력한 값은 저장하지 않았어요. 필요하면 아래 값을 옮겨 적어 주세요.</p><ul>${typed.map((c) => `<li><b>${escapeHtml(c.label)}</b> ${escapeHtml(shown(c))}</li>`).join("")}</ul>`
+    : "";
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>기록 수정 · ${escapeHtml(appName(env))}</title></head><body><main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><div class="error" role="alert" data-ab-edit-conflict="spender_changed"><b>다른 사람이 이 기록을 먼저 바꿨어요.</b> 새로고침한 뒤 다시 확인해 주세요.<p>그 사이 이 기록의 ${person}가 바뀌어 이제 내 기록이 아니라서 저장하지 않았어요.</p>${kept}</div></section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`;
 }
 
 function abEditOriginalFields(t = {}) {
@@ -26991,6 +27091,21 @@ async function ensureKakaoLoginUser(env, kakaoId, nickname, { allowCreate = true
   return user;
 }
 
+// V22.9.104 L-1: 카카오 첫 로그인에 만드는 기본 가계부 이름(가계부 기본 설정 띠가 ‘아직 안 정한 이름’으로 보는 꼴이라 띠가 이름을 정하게 한다).
+const KAKAO_FIRST_HOUSEHOLD_NAME = "내 가계부";
+
+// V22.9.104 독립 검토 P3-1: 방금 만든 첫 가계부로 보낼 때 돌아갈 곳(safeUserReturnPath 를 거친 같은 사이트 주소)의 household_id 를 뺀다.
+function withoutHouseholdIdV229104(path = "") {
+  if (!path) return "";
+  try {
+    const parsed = new URL(path, "https://accountbook.local");
+    parsed.searchParams.delete("household_id");
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch (_) {
+    return "";
+  }
+}
+
 async function handleKakaoLoginStart(request, env, url) {
   const reauthPurpose = ["household-delete", "credential-change"].includes(url.searchParams.get("reauth")) ? url.searchParams.get("reauth") : "";
   const reauthMode = !!reauthPurpose;
@@ -27019,7 +27134,8 @@ async function handleKakaoLoginStart(request, env, url) {
   const consentGiven = url.searchParams.get("consent") === "1";
   if (!linkMode && !autoMode && !consentGiven && !(await verifyUserSession(request, env))) {
     rememberOpsEvent({ kind: "kakao_login_consent_missing", severity: "info", path: "/auth/kakao/start", method: "GET", detail: "start" });
-    return htmlResponse(renderUserLoginHtml(env, SIGNUP_CONSENT_REQUIRED_MESSAGE, safeUserReturnPath(url.searchParams.get("return_to") || "", ""), "kakao_consent"), 400);
+    // V22.9.104 L-1: 카카오톡 인앱 브라우저는 긴 로그인 화면 대신 시작 화면(같은 동의 칸 오류)으로 되돌린다. 그 밖의 브라우저는 예전 그대로다.
+    return htmlResponse(kakaoStartOrLoginHtml(request, env, { error: SIGNUP_CONSENT_REQUIRED_MESSAGE, returnTo: safeUserReturnPath(url.searchParams.get("return_to") || "", ""), authMode: "kakao_consent" }), 400);
   }
   const currentUserId = linkMode ? await verifyUserSession(request, env) : "";
   if (linkMode && !currentUserId) return redirectResponse(reauthMode ? addQueryToUrl(reauthReturnTo, { err: "login_required" }) : "/my?err=login_required");
@@ -27170,10 +27286,15 @@ async function handleKakaoLoginCallback(request, env, url) {
     "kakao_oauth_return_to=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
   ];
   const traceId = kakaoLoginTraceId();
+  // V22.9.104 L-1: 카카오톡 인앱 브라우저에서 보통 로그인(서명된 상태의 mode login)이 실패·취소되면 긴 로그인 화면 대신 시작 화면에 같은 말을 띄우고
+  // 돌아갈 곳(next)을 그대로 싣는다. 인앱이 아니거나 연결·본인 확인 흐름이면 예전 로그인 화면 그대로다.
+  const callbackErrorHtml = (message) => (flowProof?.mode === "login" && isKakaoTalkInAppBrowser(request)
+    ? kakaoStartOrLoginHtml(request, env, { error: message, returnTo: safeUserReturnPath(String(flowProof?.next || ""), "") })
+    : renderUserLoginHtml(env, message));
   const errorResponse = (stage, status = 500) => reauthRequested
     ? redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { err: stage === "cancelled" ? "kakao_reauth_cancelled" : "kakao_reauth_failed" }), clearOauthCookies)
     : htmlResponseWithCookies(
-      renderUserLoginHtml(env, kakaoCallbackErrorMessage(stage, ["cancelled", "state", "config", "busy"].includes(stage) ? "" : traceId)),
+      callbackErrorHtml(kakaoCallbackErrorMessage(stage, ["cancelled", "state", "config", "busy"].includes(stage) ? "" : traceId)),
       status,
       clearOauthCookies
     );
@@ -27299,9 +27420,10 @@ async function handleKakaoLoginCallback(request, env, url) {
     }
     if (!user?.id && !loginConsent) {
       rememberOpsEvent({ kind: "kakao_login_consent_missing", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `new_account;trace=${traceId}` });
-      return htmlResponseWithCookies(renderUserLoginHtml(env, SIGNUP_CONSENT_REQUIRED_MESSAGE, stateProof.mode === "login" ? safeUserReturnPath(String(stateProof.next || ""), "") : "", "kakao_consent"), 400, clearOauthCookies);
+      return htmlResponseWithCookies(kakaoStartOrLoginHtml(request, env, { error: SIGNUP_CONSENT_REQUIRED_MESSAGE, returnTo: stateProof.mode === "login" ? safeUserReturnPath(String(stateProof.next || ""), "") : "", authMode: "kakao_consent" }), 400, clearOauthCookies);
     }
-    if (createdUser?.id) await recordSignupConsent(env, createdUser.id, "kakao");
+    // V22.9.104 L-3: 방금 남긴 동의 기록은 쿠키 ab_cs=1 로 이어진다(기록이 실패하면 쿠키를 적지 않는다 — 다음 로그인이 다시 읽는다).
+    const consentRecorded = createdUser?.id ? await recordSignupConsent(env, createdUser.id, "kakao") : false;
     if (!user?.id) throw kakaoStageError("account", "Kakao user provisioning failed");
     // V22.9.81 U-23: 프로필 이름 끝의 ‘(통합됨)’은 계정 통합 표식이라 떼고 쓴다(사용자를 만들 때와 같다). 그대로 쓰면 세션 확인이
     // 통합된 계정으로 보고 로그인을 거절했고, 다음 로그인에는 저장된 이름이 자리표시가 아니라서 풀리지 않았다.
@@ -27314,9 +27436,19 @@ async function handleKakaoLoginCallback(request, env, url) {
       });
       user = { ...user, nickname: profileName };
     }
-    const existingHouseholds = await fetchUserHouseholds(env, user.id);
+    // V22.9.104 L-3: 세션을 만들 때 동의 기록을 한 번 읽어(새 계정은 방금 남긴 결과) 홈 팝업 쿠키(ab_cs)를 적는다. 가계부 목록과 함께 읽는다.
+    const [existingHouseholds, consentRead] = await Promise.all([
+      fetchUserHouseholds(env, user.id),
+      createdUser?.id ? (consentRecorded ? true : null) : readSignupConsentState(env, user.id),
+    ]);
+    // V22.9.104 통합 검토: 동의 칸을 체크하고 누른 로그인(loginConsent)인데 이미 있던 계정에 기록이 없으면(V22.9.95 전에 만든 계정, 단톡방에서 먼저 써
+    // 봇이 만든 계정) 여기서 남긴다. 남기지 않으면 시작 화면에서 방금 체크한 사람이 홈에서 같은 팝업을 또 본다. 저장에 실패하면 ab_cs=0(팝업이 다시 받는다).
+    // 체크 없이 들어온 자동 로그인(auto)은 남기지 않는다(홈 팝업이 받는다). 주소를 꾸며 auto=1 에 consent=1 을 함께 붙여도(서명된 상태에 둘 다 실린다)
+    // 화면 없는 카카오 로그인이라 사람이 체크한 것이 아니므로 남기지 않는다(독립 검토 P2-1).
+    const consentState = consentRead === false && loginConsent && !autoMode && !createdUser?.id
+      ? await recordSignupConsent(env, user.id, "kakao")
+      : consentRead;
     const loginNext = stateProof.mode === "login" ? safeUserReturnPath(String(stateProof.next || ""), "") : "";
-    const next = !existingHouseholds.length ? "/my/households?first=1#create" : (loginNext || "/my");
     // V22.9.91 계정 잇기: 이 카카오 계정의 단톡방 기록 계정이 따로 있으면(잇기 제안) 합치기 단계(/my/account-link/run)로 보낸다.
     // 제안 표는 이 카카오 id 로 방금 확인했을 때만 합치기 표를 준다. 읽지 못하면 지금처럼 가계부로 간다.
     let linkProof = null;
@@ -27327,10 +27459,35 @@ async function handleKakaoLoginCallback(request, env, url) {
     }
     // V22.9.91 독립 검토: 자동 로그인은 가계부가 있거나 이을 계정이 있는 사람만 들인다. 빈 웹 계정에 말없이 들이면 첫 가계부 만들기
     // 화면이 나와, 단톡방 가계부가 따로 있는 사람이 거기서 새 가계부를 만들어 기록이 갈라질 수 있다. 그런 사람은 지금처럼 로그인 화면을 본다.
-    if (autoMode && !existingHouseholds.length && !linkProof?.ok) {
+    // V22.9.104 L-1: 다만 동의 기록이 있는 빈 계정(이을 계정 없음)은 기본 가계부를 만들어 들인다. 동의 기록이 없거나 읽지 못하면 지금처럼 시작 화면으로 간다.
+    // ‘이을 계정 없음’은 잇기 확인이 끝나 제안이 없었거나(no_offer) 스위치가 꺼진(disabled) 때만이다. 확인이 실패했거나(제안 표 읽기 오류) 다른 결과
+    // (카카오 계정 불일치)면 이을 계정이 있을 수 있어 가계부를 만들지 않고 예전처럼 첫 가계부 화면(자동 로그인은 시작 화면)으로 간다.
+    const emptyAccount = !existingHouseholds.length && !linkProof?.ok;
+    const noLinkOffer = ["no_offer", "disabled"].includes(String(linkProof?.reason || ""));
+    if (autoMode && emptyAccount && (consentState !== true || !noLinkOffer)) {
       rememberOpsEvent({ kind: "kakao_auto_login_empty_account", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId}` });
       return autoFallback();
     }
+    // V22.9.104 L-1(사용자 2026-11-06 "바로 가계부 홈이 나와야"): 동의하고 누른 카카오 로그인(또는 동의 기록이 있는 자동 로그인)인데 가계부가 없고 이을 계정도
+    // 없으면 첫 가계부 만들기 화면(/my/households?first=1#create)으로 보내지 않고 ‘내 가계부’ 하나를 이 사람 소유로 만든 뒤 돌아갈 곳(없으면 /app)으로 간다.
+    // 만들기는 /my/create 폼과 같은 순서(createHouseholdForUserV229104, 새 SQL 없음)다. 잇기 제안이 있으면(linkProof.ok) 만들지 않고 합치기 단계로 간다.
+    // 만들지 못하면 예전처럼 첫 가계부 화면으로 가고(자동 로그인은 시작 화면), 운영 이벤트(warn)를 남긴다. 이름은 가계부 기본 설정 띠(V22.9.102)가 정하게 한다.
+    // 카카오톡 인앱 브라우저에서만 만든다(독립 검토 P2-2: 사용자 결정 B-1 은 인앱 동의 한 번 → 기본 가계부. 인앱이 아닌 브라우저는 예전처럼 첫 가계부 화면에서
+    // 만들기·초대코드 참여를 고른다 — 데스크톱에서 초대코드로 참여하려고 온 사람에게 빈 가계부를 만들지 않으려고).
+    let firstHousehold = null;
+    if (emptyAccount && noLinkOffer && (loginConsent || autoMode) && isKakaoTalkInAppBrowser(request)) {
+      try {
+        const made = await createHouseholdForUserV229104(env, user.id, KAKAO_FIRST_HOUSEHOLD_NAME, mergedMarkerFreeName(user.nickname || "", 40) || "내");
+        firstHousehold = made?.household?.id ? made.household : null;
+        if (firstHousehold) rememberOpsEvent({ kind: "kakao_first_household", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `${made.existed ? "existed" : createdUser?.id ? "new_account" : "empty_account"};${autoMode ? "auto" : "login"};trace=${traceId}` });
+      } catch (householdErr) {
+        rememberOpsEvent({ kind: "kakao_first_household_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: `${safeError(householdErr)};trace=${traceId}` });
+      }
+      if (autoMode && !firstHousehold) return autoFallback();
+    }
+    // 방금 만든 첫 가계부로 갈 때는 돌아갈 곳의 household_id 를 뺀다(그 가계부의 참여자가 아니라 404 화면이 나온다, 독립 검토 P3-1).
+    const firstNext = firstHousehold ? withoutHouseholdIdV229104(loginNext) : "";
+    const next = existingHouseholds.length ? (loginNext || "/my") : firstHousehold ? (firstNext && firstNext !== "/my" ? firstNext : "/app") : "/my/households?first=1#create";
     const session = await makeUserSession(env, user.id);
     const cookies = [
       ...clearOauthCookies,
@@ -27339,6 +27496,8 @@ async function handleKakaoLoginCallback(request, env, url) {
     // V22.9.102 가계부 기본 설정 띠: 내 계정 로그인 비밀번호 유무를 로그인 때 한 번 확인해 쿠키(ab_bk=1/0, 14일)에 적는다. 홈은 이 쿠키만 보고
     // ‘로그인 비밀번호’ 항목을 띄운다(DB 읽기 0회). 확인에 실패하면 쿠키를 적지 않는다(모름 = 띄우지 않음).
     try { cookies.push(backupLoginKnownCookie(await hasBackupLoginIdentity(env, user))); } catch (_) {}
+    // 동의 기록을 읽지 못했으면(모름) 이 브라우저에 남은 앞 사람의 ab_cs 를 지운다(모름 = 팝업 없음, 독립 검토 P3-4).
+    cookies.push(consentState === null ? clearConsentStateCookie() : consentStateCookie(consentState));
     // 다시 카카오로 로그인했으니 자동 로그인 멈춤(로그아웃 off·비회원 skip)을 푼다. 쿠키가 있을 때만 지운다.
     // 자동 로그인은 되풀이 막기(try, 10분)를 남긴다(V22.9.91 독립 검토). 세션이 붙지 않거나 확인에서 거절되면 다음 화면이 자동 로그인을
     // 다시 보내지 않고 로그인 화면을 보인다. 예전에는 여기서 지워 같은 자리를 되풀이할 수 있었다.
@@ -27359,7 +27518,8 @@ async function handleKakaoLoginCallback(request, env, url) {
 // 로그아웃하자마자 /my 가 다시 자동 로그인한다. 다시 카카오로 로그인하면 풀린다. 세션이 풀려 부르는 다른 곳은 멈추지 않는다.
 function handleMyLogout({ explicit = false } = {}) {
   // V22.9.102: 가계부 기본 설정 띠의 판정 쿠키(ab_setup·ab_bk)도 함께 지운다(다음 사람의 로그인에 남지 않게).
-  const cookies = ["ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax", ...clearSetupCookies()];
+  // V22.9.104 L-3: 동의 팝업 쿠키(ab_cs)도 지운다.
+  const cookies = ["ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax", ...clearSetupCookies(), clearConsentStateCookie()];
   if (explicit) cookies.push(kakaoAutoLoginCookie("off"));
   return redirectResponseWithCookies("/my", cookies);
 }
@@ -27901,8 +28061,11 @@ function attachSetupBand(html = "", band = "") {
   const source = String(html || "");
   if (!band || !source || source.includes('class="abSetupBand"')) return source;
   if (!/<body\b[^>]*>/i.test(source)) return source;
-  const noticeEnd = "오늘 하루 안 보기</button></form></div>";
-  const noticeAt = source.indexOf('class="abNoticeBand"') >= 0 ? source.indexOf(noticeEnd) : -1;
+  // V22.9.104 A-1: 공지 띠 폼 끝에 닫기 ‘×’ 단추가 붙어 띠의 끝 글자가 바뀌었다. 띠 시작부터 처음 나오는 ‘</form></div>’ 가 띠의 끝이다
+  // (띠 글과 링크는 이스케이프되어 그 글자를 만들 수 없다).
+  const noticeEnd = "</form></div>";
+  const noticeStart = source.indexOf('<div class="abNoticeBand"');
+  const noticeAt = noticeStart >= 0 ? source.indexOf(noticeEnd, noticeStart) : -1;
   if (noticeAt >= 0) return source.slice(0, noticeAt + noticeEnd.length) + band + source.slice(noticeAt + noticeEnd.length);
   const skip = /<a class="abSkipLink" href="[^"]*">본문 바로가기<\/a>/;
   if (skip.test(source)) return source.replace(skip, (full) => full + band);
@@ -34844,8 +35007,15 @@ async function handleMyUpdateTransaction(request, env) {
     // V22.9.94 C-9(외부 검토): 위에서 읽은 행(row)과 저장 사이에 다른 곳(카카오 수정·홈 수정·관리 API)이 저장하면 예전에는 일곱 칸을 모두 이 폼 값으로
     // 덮어썼다. 이제 읽은 값을 건 조건부 저장이라, 그 사이 바뀐 기록은 저장하지 않고 충돌(edit_conflict)을, 지워진 기록은 record_not_found 를 알린다.
     // 이 경로의 폼에는 원래 값(orig_*)이 없어, 읽기 전에 이미 바뀐 기록(옛 화면에서 보낸 값)은 가려내지 못한다 — 화면의 수정 폼은 /admin/update 를 쓴다.
-    const outcome = await updateTransactionIfUnchangedV22994(env, id, patch, row, { householdId: selected.id, actorUserId: userId, actorKind: "user", path: "/my/update" });
+    // V22.9.104 J-9: 구성원 저장에는 ‘지출자 = 나’ 조건도 건다(requireUserId, 같은 PATCH). 읽은 뒤 관리자가 지출자를 바꿨으면 저장하지 않고
+    // record_edit_conflict 로 알린다. 소유자·관리자는 예전 그대로다.
+    const requireUserId = canManageAllRecords(selected.role) ? "" : userId;
+    const outcome = await updateTransactionIfUnchangedV22994(env, id, patch, row, { householdId: selected.id, actorUserId: userId, actorKind: "user", path: "/my/update", requireUserId });
     if (outcome.status === "missing") return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
+    if (outcome.status === "spender_changed") {
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/my/update", method: "POST", detail: "spender_changed" });
+      return redirectResponse(myReturnLocation(month, selected.id, { err: "record_edit_conflict" }));
+    }
     if (outcome.status === "changed") return redirectResponse(myReturnLocation(month, selected.id, { err: "edit_conflict" }));
     try {
       await appendTransactionEditHistory(env, selected.id, id, row, { ...row, ...patch }, userId, members);
@@ -34882,7 +35052,14 @@ async function handleMyDeleteTransaction(request, env) {
   const policyError = await memberRecordChangeError(env, selected.role, selected.id);
   if (policyError) return redirectResponse(myReturnLocation(month, selected.id, { err: policyError }));
   try {
-    await deleteTransactionWithAudit(env, id, selected.id, { actorUserId: userId, actorKind: "user" });
+    // V22.9.104 J-9: 구성원 삭제는 위에서 읽은 일곱 칸(지출자 포함)이 그대로일 때만 지운다(조건부 삭제 함수 — 감사 삭제 함수 대신이라 DB 요청 수 같음).
+    // 읽은 뒤 관리자가 지출자를 바꿨거나 다른 사람이 고쳤으면 지우지 않고 record_edit_conflict 로 알린다. 소유자·관리자는 예전 그대로다.
+    if (canManageAllRecords(selected.role)) {
+      await deleteTransactionWithAudit(env, id, selected.id, { actorUserId: userId, actorKind: "user" });
+    } else if (await deleteTransactionIfUnchanged(env, row, selected.id, { actorUserId: userId, actorKind: "user" }) === "changed") {
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/my/delete", method: "POST", detail: "delete_changed" });
+      return redirectResponse(myReturnLocation(month, selected.id, { err: "record_edit_conflict" }));
+    }
     return redirectResponse(myReturnLocation(month, selected.id, { msg: "deleted" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_record_delete_failed", severity: "warn", path: "/my/delete", method: "POST", detail: safeError(err) });
@@ -35164,6 +35341,16 @@ function formatDateKorean(value = "") {
   return /^20\d{2}-\d{2}-\d{2}$/.test(v) ? v : "참여일 미상";
 }
 
+// V22.9.104 L-1: 가계부 만들기 한 덩어리(같은 이름 잠금 → 같은 이름 기존 가계부면 그것 → 없으면 새로 만듦). /my/create 폼과
+// 카카오 첫 로그인의 기본 가계부(auth/kakao-oauth.js)가 같은 순서를 쓴다. 새 SQL 없음.
+async function createHouseholdForUserV229104(env, userId, name, displayName) {
+  return withHouseholdCreateLock(env, userId, name, async (lifecycleOptions) => {
+    const existing = await findExistingKakaoHouseholdByNameV2254(env, userId, name);
+    if (existing) return { household: existing, existed: true };
+    return { household: await createUserHousehold(env, userId, name, displayName, lifecycleOptions), existed: false };
+  });
+}
+
 async function handleMyCreate(request, env) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
@@ -35177,11 +35364,7 @@ async function handleMyCreate(request, env) {
   if (!name) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=household_name_invalid&household_name=${encodeURIComponent(attemptedName)}#create`);
   if (!displayName) return redirectResponse(`/my/households?month=${encodeURIComponent(month)}&err=display_name_required#create`);
   try {
-    const result = await withHouseholdCreateLock(env, userId, name, async (lifecycleOptions) => {
-      const existing = await findExistingKakaoHouseholdByNameV2254(env, userId, name);
-      if (existing) return { household: existing, existed: true };
-      return { household: await createUserHousehold(env, userId, name, displayName, lifecycleOptions), existed: false };
-    });
+    const result = await createHouseholdForUserV229104(env, userId, name, displayName);
     const household = result.household;
     // V22.9.37 감사 H14: 폼의 "이 가계부에서 보일 내 이름"은 새 가계부의 내 이름표(member_aliases)다. 계정 전체 닉네임
     // (users.nickname)과 다른 가계부의 이름표는 바꾸지 않는다. 이름표 저장 실패는 생성 결과를 뒤집지 않는다.
@@ -35589,7 +35772,8 @@ async function handleMyJoin(request, env) {
 
 async function handleMyPage(request, env, url) {
   const userId = await verifyUserSession(request, env);
-  if (!userId) return htmlResponse(renderUserLoginHtml(env, "", safeUserReturnPath(url.searchParams.get("return_to") || "", "")));
+  // V22.9.104 L-1: 시작 화면의 ‘로그인 이름으로 로그인’(login=1)은 로그인 이름 칸을 연 전체 로그인 화면이다.
+  if (!userId) return htmlResponse(renderUserLoginHtml(env, "", safeUserReturnPath(url.searchParams.get("return_to") || "", ""), url.searchParams.get("login") === "1" ? "login_local" : "login"));
   // V22.9.91 계정 잇기: 이 사람의 카카오톡 방 기록 계정과 웹 계정이 갈라져 있으면(잇기 제안) 가계부보다 확인 화면을 먼저 보인다.
   // ‘나중에’를 골랐거나 방금 이은 뒤(msg=account_linked)는 묻지 않는다.
   if (url.searchParams.get("msg") !== "account_linked") {
@@ -43718,7 +43902,8 @@ async function handleMobileV8Page(request, env, url) {
   const setupStatus = userId && selectedHousehold ? householdSetupStatus({ household: selectedHousehold, members, userId, backupKnown: backupLoginKnown(request) }) : null;
   const setupBand = setupStatus && !setupStatus.done ? setupBandHtml({ householdId, missing: setupStatus.missing, month }) : "";
   const setupHeaders = setupStatus ? { "set-cookie": setupStatusCookie(householdId, setupStatus) } : {};
-  return htmlResponse(abEchoQuickRequestId(url, err, renderMobileV81Html({ title, setupBand, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, supporter: homeSupporterKey ? activeSupporterFlag(homeSettings.extra?.get(homeSupporterKey)) : null, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed, quickUndo, deleteRestore })), 200, setupHeaders);
+  // V22.9.104 L-3: 동의 기록이 없다고 확인된 사용자(쿠키 ab_cs=0)만 홈 위에 동의 팝업을 붙인다(DB 읽기 0회, 관리자 세션 제외).
+  return htmlResponse(withConsentPopupV229104(request, url, !!userId && !adminOk, abEchoQuickRequestId(url, err, renderMobileV81Html({ title, setupBand, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, supporter: homeSupporterKey ? activeSupporterFlag(homeSettings.extra?.get(homeSupporterKey)) : null, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed, quickUndo, deleteRestore }))), 200, setupHeaders);
 }
 
 async function handleBudgetSave(request, env) {
@@ -44625,23 +44810,28 @@ function renderMyStartChoiceHtml({ env, user, msg = "", err = "" }) {
 }
 
 // V22.9.95 R-9: 가입 폼과 카카오 로그인이 같이 쓰는 동의 오류 문구(맨 위 요약과 칸 아래에 같은 말).
-const SIGNUP_CONSENT_REQUIRED_MESSAGE = "약관·개인정보처리방침 동의와 만 14세 이상 확인이 필요해요";
+// V22.9.104 L-2: 동의 칸 문구(이용약관 동의 + 개인정보처리방침 확인)와 같은 말로 맞춘다. 홈 동의 팝업(POST /my/consent)도 이 말을 쓴다.
+// V22.9.104 L-2(커밋 B): 동의 칸이 나이를 묻지 않으므로 ‘(만 14세 이상)’을 뺐다.
+const SIGNUP_CONSENT_REQUIRED_MESSAGE = "이용약관 동의와 개인정보처리방침 확인이 필요해요";
 
 // V22.9.95 R-9: 새 계정이 만들어질 때만(로컬 가입 성공, 카카오 콜백의 새 사용자) 동의 기록을 설정 표 consent:<user_id> 에 남긴다.
-// version 은 방침 개정일, age14 는 동의 칸이 만 14세 이상 확인을 함께 묻기 때문이다. 기록이 실패해도 가입은 막지 않고 운영 이벤트(warn)만 남긴다.
+// version 은 방침 개정일이다(V22.9.95~103 의 기록에는 동의 칸이 만 14세 이상 확인을 함께 물어 age14 가 있다). 기록이 실패해도 가입은 막지 않고 운영 이벤트(warn)만 남긴다.
+// V22.9.104 L-3: 홈 동의 팝업(POST /my/consent)도 같은 기록을 남긴다(via "popup"). 가입 때 기록이 없던 계정(단톡방에서 먼저 생긴 계정 등)이다.
+// V22.9.104 L-2(커밋 B): 동의 칸이 나이를 묻지 않아 새 기록에는 age14 를 적지 않는다. 예전 기록의 age14 는 그대로 두며 읽는 곳은 없다.
 async function recordSignupConsent(env, userId = "", via = "local") {
   const id = String(userId || "").trim();
   if (!id) return false;
   const kakao = via === "kakao";
+  const popup = via === "popup";
   try {
     await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ key: `consent:${id}`.slice(0, 180), value: JSON.stringify({ version: POLICY_REVISION_DATE, at: new Date(qaFixedNowMs()).toISOString(), via: kakao ? "kakao" : "local", age14: true }) }),
+      body: JSON.stringify({ key: `consent:${id}`.slice(0, 180), value: JSON.stringify({ version: POLICY_REVISION_DATE, at: new Date(qaFixedNowMs()).toISOString(), via: kakao ? "kakao" : popup ? "popup" : "local" }) }),
     });
     return true;
   } catch (err) {
-    rememberOpsEvent({ kind: "consent_record_failed", severity: "warn", path: kakao ? "/auth/kakao/callback" : "/my/local-signup", method: kakao ? "GET" : "POST", detail: safeError(err) });
+    rememberOpsEvent({ kind: "consent_record_failed", severity: "warn", path: kakao ? "/auth/kakao/callback" : popup ? "/my/consent" : "/my/local-signup", method: kakao ? "GET" : "POST", detail: safeError(err) });
     return false;
   }
 }
@@ -44740,9 +44930,11 @@ async function handleMyLocalLogin(request, env) {
     }
     const session = await makeUserSession(env, user.id);
     // V22.9.102: 로그인 이름으로 들어왔으면 내 계정 로그인 비밀번호가 있는 계정이다(가계부 기본 설정 띠의 비밀번호 항목 쿠키).
+    // V22.9.104 L-3: 동의 기록을 한 번 읽어 홈 동의 팝업 쿠키(ab_cs=1/0)를 적는다. 읽지 못하면 남은 ab_cs 를 지운다(모름 = 팝업 없음).
     return redirectResponseWithCookies(location, [
       `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
       backupLoginKnownCookie(),
+      await consentStateCookieFor(env, user.id),
     ]);
   } catch (err) {
     await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"subject-client",key:clientSubject});
@@ -44789,7 +44981,7 @@ async function handleMyLocalSignup(request, env) {
     return htmlResponse(renderUserLoginHtml(env, classified.message, "", "signup", keep), classified.status);
   }
 
-  await recordSignupConsent(env, user.id, "local");
+  const consentRecorded = await recordSignupConsent(env, user.id, "local");
 
   let session = "";
   try {
@@ -44811,9 +45003,11 @@ async function handleMyLocalSignup(request, env) {
       location = isUncertainStorageWrite(err) ? "/my/households?first=1&err=db_write_unknown" : `/my/households?first=1&err=${encodeURIComponent("계정은 생성되었지만 초대 참여를 완료하지 못했습니다. 가계부 전환·추가에서 다시 참여해 주세요.")}`;
     }
   }
-  return redirectResponse(location, {
-    "set-cookie": `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
-  });
+  // V22.9.104 L-3: 방금 남긴 동의 기록은 홈 동의 팝업 쿠키 ab_cs=1 로 이어진다(기록이 실패하면 적지 않는다).
+  return redirectResponseWithCookies(location, [
+    `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
+    consentRecorded ? consentStateCookie(true) : "",
+  ]);
 }
 
 function kakaoLoginStatusBlock(env, returnTo = "", { consentError = "" } = {}) {
@@ -45119,6 +45313,9 @@ async function handleMyKakaoClaim(request, env) {
     const userId = session.slice(0,session.lastIndexOf(".")).split("|")[0];
     const proof = await makeCredentialProof(env,userId);
     response.headers.append("set-cookie", `ab_credential_reauth=${encodeURIComponent(proof)}; Path=/; Max-Age=300; HttpOnly; Secure; SameSite=Lax`);
+    // V22.9.104 L-3: 웹 연결 코드로 들어온 계정(대개 단톡방에서 먼저 생겨 동의 기록이 없다)도 동의 기록을 한 번 읽어 홈 동의 팝업 쿠키를 적는다.
+    const consentCookie = await consentStateCookieFor(env, userId);
+    if (consentCookie) response.headers.append("set-cookie", consentCookie);
     return response;
   } catch (err) {
     rememberOpsEvent({ kind: "kakao_web_claim_redeem_failed", severity: "error", path: "/my/kakao-claim", method: "POST", detail: safeError(err) });
@@ -45767,7 +45964,8 @@ function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login",
   const fieldError = loginMode && error === "로그인 이름을 입력하세요." ? "loginName" : loginMode && error === "비밀번호를 4자리 이상 입력하세요." ? "loginPassword" : "";
   const fieldNote = (id) => (fieldError === id ? fieldMessages[id] : "");
   const invalid = (id) => (fieldError === id ? ' aria-invalid="true"' : "");
-  const localOpen = !kakaoPart.includes('class="kakaoBtn"') || (loginMode && Boolean(error)) ? " open" : "";
+  // V22.9.104 L-1: login_local(카카오톡 시작 화면의 ‘로그인 이름으로 로그인’)은 로그인 이름 칸을 처음부터 연다. 그 밖은 보통 로그인과 같다.
+  const localOpen = !kakaoPart.includes('class="kakaoBtn"') || (loginMode && Boolean(error)) || authMode === "login_local" ? " open" : "";
   const icon = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg>`;
   // V22.9.95 R-9: 동의 칸(.consentRow)은 좁은 폭에서 글이 줄바꿈되고(min-width:0) 체크 칸은 줄지 않는다. 카카오 단추가 <button> 이 되어 셸의 단추 최소 높이(44px)가
   // 54px 을 덮지 않게 한다. 화면 끝에 이용약관·개인정보처리방침·문의 줄(.loginLegal)을 둔다(로그인 화면에 방침 링크가 없었다).
@@ -45833,6 +46031,193 @@ function renderMySideNav(selectedHousehold, role = "", month = currentMonthKst()
 
 function renderMemberOptions(members = [], selected = "") {
   return safeArray(members).filter((m) => m.user_id && !["blocked","pending"].includes(String(m.role || ""))).map((m) => `<option value="${escapeHtml(m.user_id)}"${String(selected || "") === String(m.user_id) ? " selected" : ""}>${escapeHtml(m.nickname || "구성원")} · ${escapeHtml(m.role || "member")}</option>`).join("");
+}
+
+// V22.9.104 L-1 카카오톡 인앱 시작 화면(사용자 2026-11-06 "카카오에서 기록하고 가계부 열면 … 이어열기 누르면 개인정보 관련해서 체크하고 로그인하라고
+// 나와. 내가 원하는건 바로 가계부 홈이 나와야하고 개인정보 관련이나 체크 필요한것들은 팝업으로 나와야해").
+//  · 카카오톡 인앱 브라우저에서 세션 없이 /my·/app·/m 을 열면 화면 없는 자동 로그인(V22.9.91, kakaoInAppAutoLoginResponse)을 먼저 해 보고, 그게 안 됐거나
+//    (주소 auto=0, 쿠키 ab_kakao_auto) 할 수 없을 때 예전의 긴 로그인 화면 대신 이 시작 화면을 그린다. 홈처럼 보이는 빈 미리보기(머리·요약 칸·하단 탭, 데이터 없음)
+//    위에 서버가 그린 팝업(스크립트 없이 열린 상태)이 있고, 팝업 안에 동의 칸(필수, 미리 체크 없음)과 ‘카카오로 계속하기’(GET /auth/kakao/start, 동의 칸이 consent=1
+//    을 싣는다, 화면 있는 보통 로그인) 단추가 있다. 시작 화면은 스스로 다른 곳으로 보내지 않는다(되풀이 없음). 자동 로그인 규칙(try·skip·off·auto=0)은 그대로다.
+//  · 다른 길: ‘로그인 이름으로 로그인’ = /my?auto=0&login=1(긴 로그인 화면, 로그인 이름 칸을 열어 둔다), ‘웹 연결 코드로 열기’ = /my/kakao-claim?auto=0(1:1 채팅의
+//    ‘웹 가계부 열기’ 코드 칸을 열어 둔 긴 로그인 화면). 1:1 채팅이 보내는 주소(/my)는 그대로이고, 그 주소에서 시작 화면 → 이 링크로 코드 칸에 닿는다.
+//  · 관리자 쿠키(ab_admin)가 있는 브라우저, 인앱이 아닌 브라우저, 카카오 로그인 설정이 준비되지 않은 서버, login=1 은 예전 로그인 화면 그대로다.
+// V22.9.104 L-3 동의 팝업: 로그인한 사람 가운데 동의 기록(consent:<user_id>)이 없는 사람은 홈 위에 같은 모양의 팝업을 본다. 홈은 DB 를 더 읽지 않고 쿠키
+// ab_cs(1 = 기록 있음, 0 = 없음, 없음 = 모름 → 띄우지 않음, 14일)만 본다. 쿠키는 세션을 만들 때(카카오 로그인 콜백·로그인 이름 로그인·웹 연결 코드·가입) 한 번
+// 읽어 적는다(V22.9.102 ab_bk 와 같은 방식). 읽기에 실패하면 적지 않는다. 팝업의 ‘동의하고 계속’ 은 POST /my/consent(라우터의 같은 출처 검사를 받는다)다.
+const CONSENT_STATE_COOKIE = "ab_cs";
+const CONSENT_STATE_COOKIE_TAIL = "; Path=/; HttpOnly; Secure; SameSite=Lax";
+const KAKAO_START_PATHS = new Set(["/my", "/app", "/m"]);
+const CONSENT_POPUP_DROP_PARAMS = ["msg", "err", "balert", "saved_rid", "saved_qd", "undo", "restore", "quick", "day_detail", "rid"];
+const KAKAO_START_NOTICE = "카카오톡에서 기록한 가계부를 바로 열어요.";
+const CONSENT_POPUP_RECORD_FAILED = "동의 기록을 저장하지 못했어요. 잠시 후 다시 눌러 주세요.";
+
+function consentStateCookie(known = true) {
+  return `${CONSENT_STATE_COOKIE}=${known ? "1" : "0"}; Max-Age=1209600${CONSENT_STATE_COOKIE_TAIL}`;
+}
+
+function clearConsentStateCookie() {
+  return `${CONSENT_STATE_COOKIE}=; Max-Age=0${CONSENT_STATE_COOKIE_TAIL}`;
+}
+
+// true = 기록 있음, false = 없음(팝업), null = 모름(쿠키 없음·다른 값, 팝업 없음 — 이 판 전에 로그인해 둔 사람).
+function consentStateKnown(request) {
+  const value = String(getCookie(request, CONSENT_STATE_COOKIE) || "");
+  return value === "1" ? true : value === "0" ? false : null;
+}
+
+// 동의 기록 한 번 읽기. 있음 true, 없음 false, 읽지 못함 null(쿠키를 적지 않는다).
+async function readSignupConsentState(env, userId = "") {
+  const id = String(userId || "").trim();
+  if (!id) return null;
+  try {
+    return Boolean(await getSettingValueStrict(env, `consent:${id}`.slice(0, 180)));
+  } catch (err) {
+    rememberOpsEvent({ kind: "consent_state_read_failed", severity: "warn", path: "", method: "", detail: safeError(err) });
+    return null;
+  }
+}
+
+// 읽지 못하면(모름) 이 브라우저에 남은 앞 사람의 ab_cs 를 지우는 쿠키를 준다(모름 = 팝업 없음, 독립 검토 P3-4).
+async function consentStateCookieFor(env, userId = "") {
+  const state = await readSignupConsentState(env, userId);
+  return state === null ? clearConsentStateCookie() : consentStateCookie(state);
+}
+
+// 홈·시작 화면이 같이 쓰는 팝업 모양. 스크립트 없이 열린 상태로 그리고(고정 덮개), 아래 화면은 눌리지 않는다. 카카오 단추·동의 칸 모양은 로그인 화면과 같다.
+// 카드 칸(#abStartCard, 한 화면에 팝업은 하나)의 id 로 범위를 잡아 홈·셸 CSS 의 단추 규칙(.abV2281 button[type=submit] … !important, 파란 채움)과
+// 다크 모드 글씨 규칙을 이긴다(카카오 단추는 카카오 노랑). 덮개는 홈의 축하 효과·안내 시트(z-index 11901·12000)보다 위다.
+// 주 단추·체크 색은 컬러톤 토큰 var(--ab12-action) 을 따른다(V22.9.14 검사: 주 색 리터럴 금지, 옛 값은 폴백으로만).
+const AB_START_MODAL_STYLE = '<style id="abStartModalStyle">.abStartModal{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:18px;background:rgba(15,23,42,.58);overflow:auto}#abStartCard{width:min(100%,400px);margin:auto;background:#fff!important;color:#101828!important;border:0!important;border-radius:22px!important;padding:24px 20px 18px;box-shadow:0 24px 60px rgba(15,23,42,.32);text-align:left;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.02em;color-scheme:light}#abStartCard h2{margin:0 0 6px;font-size:21px!important;font-weight:800!important;line-height:1.35;color:#101828!important}#abStartCard .abStartLead{margin:0 0 16px;color:#475467!important;font-size:15px;line-height:1.55}#abStartCard .abStartAlert{margin:0 0 14px;padding:10px 12px;border-radius:12px;background:#fef2f2!important;border:1px solid #fecaca;color:#991b1b!important;font-size:14px;line-height:1.5}#abStartCard form{margin:0;padding:0;border:0;background:none;box-shadow:none}#abStartCard .consentRow{display:flex;align-items:flex-start;gap:9px;margin:0 0 12px;font-size:14px;line-height:1.55;cursor:pointer}#abStartCard .consentRow input{flex:none;width:20px;height:20px;min-height:0!important;margin:2px 0 0;accent-color:var(--ab12-action,#2457d6)}#abStartCard .consentRow span{min-width:0;overflow-wrap:anywhere;color:#334155!important}#abStartCard .consentRow a{color:#1d4ed8!important;font-weight:700}#abStartCard .fieldError{margin:-6px 0 12px 29px;color:#c0362c!important;font-size:12.5px;font-weight:600}#abStartCard .kakaoBtn,#abStartCard .abStartGo{display:flex!important;align-items:center;justify-content:center;gap:10px;width:100%!important;min-height:54px!important;margin:0;padding:0 16px!important;border:0!important;border-radius:12px!important;font:inherit;font-size:16px!important;font-weight:800!important;cursor:pointer;box-shadow:none!important;transform:none!important}#abStartCard .kakaoBtn{background:#fee500!important;color:rgba(0,0,0,.85)!important}#abStartCard .kakaoBtn svg{width:22px;height:22px;fill:#000}#abStartCard .abStartGo{background:var(--ab12-action,#2457d6)!important;color:#fff!important}#abStartCard .abStartAlt{display:flex;flex-wrap:wrap;justify-content:center;gap:2px 18px;margin-top:10px}#abStartCard .abStartAlt a,#abStartCard .abStartAlt button{display:inline-flex!important;align-items:center;width:auto!important;min-height:44px!important;padding:0 2px!important;border:0!important;border-radius:0!important;background:none!important;color:#344054!important;font:inherit;font-size:14px!important;font-weight:700!important;text-decoration:underline!important;box-shadow:none!important;transform:none!important;cursor:pointer}html:has(.abStartModal) body{overflow:hidden}</style>';
+
+// 시작 화면 바탕: 홈 CSS 자산(1년 캐시, 로그인 뒤 홈이 그대로 다시 쓴다)의 홈 칸 이름으로 그린 빈 미리보기. 데이터·링크·입력 칸이 없고(초점이 가지 않는다)
+// 화면 읽기에서도 빠진다(aria-hidden·inert).
+function kakaoStartPreviewHtml() {
+  // 탭은 홈과 같은 모양(a.tab > i + span)이되 주소(href)가 없어 링크가 아니다.
+  const tab = (icon, label, extra = "") => `<a class="tab${extra}"><i>${icon}</i><span>${label}</span></a>`;
+  return '<div class="abStartPreview" aria-hidden="true" inert><header class="appTop"><div class="topLine"><h1>가계부</h1></div></header><main class="wrap"><section class="homeBudget"><div class="homeBudgetTop"><span>이번 달 남은 예산</span></div><div class="homeBudgetAmount"><b>-</b></div><div class="homeProgress"><i style="width:0%"></i></div><div class="homeBudgetFoot"><span>예산 -</span><span>쓴 돈 -</span></div></section><section class="homeMetrics"><div class="homeMetric"><span>들어온 돈</span><b class="income">-</b></div><div class="homeMetric"><span>나간 돈</span><b class="expense">-</b></div></section><section class="panel"><h2>최근 내역</h2><div class="empty">로그인하면 기록이 보여요</div></section></main><nav class="bottom">'
+    + tab("🏠", "홈", " active") + tab("📄", "기록") + tab("＋", "입력", " tabAdd") + tab("📊", "예산") + tab("☰", "전체") + "</nav></div>";
+}
+
+// 카카오 로그인 대기 화면(로그인 화면과 같은 id·스크립트, V22.9.102 J-13 의 location.assign 이동 포함). 스크립트가 없으면 폼 제출 그대로다.
+function kakaoStartProgressHtml() {
+  return '<style>.kakaoProgress{position:fixed;inset:0;z-index:2147483600;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.62)}.kakaoProgress[hidden]{display:none}.kakaoProgressCard{width:min(100%,380px);background:#fff;color:#101828;border-radius:22px;padding:24px 18px;text-align:center;box-shadow:0 24px 60px rgba(15,23,42,.35)}.kakaoProgressCard h2{margin:14px 0 6px;font-size:20px}.kakaoProgressCard p{margin:0;color:#667085;line-height:1.55;font-size:14px}.kakaoSpinner{width:44px;height:44px;margin:0 auto;border-radius:50%;border:4px solid #fde68a;border-top-color:#f59e0b;animation:kakaoSpin .9s linear infinite}@keyframes kakaoSpin{to{transform:rotate(360deg)}}@media (prefers-reduced-motion:reduce){.kakaoSpinner{animation-duration:2.4s}}.kakaoTip{margin-top:18px;background:#fffbea;border:1px solid #fde68a;border-radius:14px;padding:13px;text-align:left}.kakaoTip b{display:block;font-size:12px;color:#92400e;margin-bottom:4px}.kakaoTip span{display:block;font-size:14px;line-height:1.55;color:#3f3f46;min-height:44px}.kakaoSlow{margin-top:14px}.kakaoSlow button{min-height:42px;padding:0 16px;margin-top:8px;border:1px solid #d0d5dd;border-radius:12px;background:#fff;color:#101828;font:inherit;font-weight:700}.kakaoProgressOpen body{overflow:hidden}</style>'
+    + '<div id="kakaoLoginProgress" class="kakaoProgress" role="alertdialog" aria-modal="true" aria-labelledby="kakaoProgressTitle" aria-describedby="kakaoProgressTip" hidden><div class="kakaoProgressCard"><div class="kakaoSpinner" aria-hidden="true"></div><h2 id="kakaoProgressTitle">로그인 중입니다</h2><p>카카오 인증 화면으로 이동하고 있어요. 잠시만 기다려 주세요.</p><div class="kakaoTip" aria-live="polite"><b>가계부 사용 팁</b><span id="kakaoProgressTip"></span></div><div id="kakaoProgressSlow" class="kakaoSlow" hidden><p>평소보다 오래 걸리고 있어요. 네트워크 상태에 따라 10초 이상 걸릴 수 있습니다.</p><button id="kakaoProgressCancel" type="button">취소하고 다른 방법 선택</button></div></div></div>'
+    + `<script id="kakaoLoginProgressRuntime">(${kakaoLoginProgressClientMain.toString()})({overlayId:"kakaoLoginProgress",tipId:"kakaoProgressTip",slowId:"kakaoProgressSlow",cancelId:"kakaoProgressCancel",tips:${JSON.stringify(KAKAO_LOGIN_PROGRESS_TIPS)}});</script>`;
+}
+
+// 팝업이 열려 있는 동안 아래 화면(같은 body 의 다른 칸: 미리보기·홈·공지 띠)은 초점·누르기가 가지 않게 inert 로 둔다. 카카오 로그인 대기 화면은 그대로 둔다
+// (취소 단추). 팝업 뒤에 붙는 칸까지 잡으려고 문서를 다 읽은 뒤 한 번 돈다. 스크립트가 없어도 덮개가 화면을 가린다.
+function modalInertScript(id = "") {
+  return `<script>(function(){function f(){var p=document.getElementById(${JSON.stringify(String(id))});if(!p||!p.parentNode)return;for(var n=p.parentNode.firstElementChild;n;n=n.nextElementSibling){if(n!==p&&n.id!=="kakaoLoginProgress"&&n.tagName!=="SCRIPT"&&n.tagName!=="STYLE")n.inert=true;}}if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",f);else f();})();</script>`;
+}
+
+function kakaoStartShellHtml(env, { title = "가계부 열기", body = "" } = {}) {
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><meta name="theme-color" content="#3182f6"/><title>${escapeHtml(appName(env))} · ${escapeHtml(title)}</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/>${AB_START_MODAL_STYLE}</head><body class="abKakaoStart">${kakaoStartPreviewHtml()}${body}</body></html>`;
+}
+
+function kakaoStartQuery(returnTo = "", extra = {}) {
+  const qs = new URLSearchParams({ auto: "0", ...extra });
+  if (returnTo) qs.set("return_to", returnTo);
+  return qs.toString();
+}
+
+// 시작 화면. error 가 동의 칸 오류(SIGNUP_CONSENT_REQUIRED_MESSAGE)면 칸 아래에, 그 밖(카카오 취소·오류)은 팝업 위에 알린다.
+// 카카오 폼은 로그인 화면과 같은 모양(form.kakaoStart, 숨은 return_to 가 먼저, 동의 칸 id kakaoConsent)이라 대기 화면 스크립트가 그대로 붙는다.
+function renderKakaoStartHtml(env, { returnTo = "", error = "" } = {}) {
+  const back = safeUserReturnPath(returnTo || "", "");
+  const consentError = error === SIGNUP_CONSENT_REQUIRED_MESSAGE ? error : "";
+  const alert = error && !consentError ? `<p class="abStartAlert" role="alert">${escapeHtml(error)}</p>` : "";
+  const hidden = back ? `<input type="hidden" name="return_to" value="${escapeHtml(back)}"/>` : "";
+  const form = '<form class="kakaoStart" method="get" action="/auth/kakao/start">' + hidden + signupConsentFieldHtml("kakaoConsent", consentError)
+    + '<button class="kakaoBtn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466 0 2.66 1.77 4.995 4.432 6.316l-.9 3.296a.35.35 0 0 0 .532.383l3.917-2.598c.5.06 1.007.09 1.519.09 5.247 0 9.5-3.343 9.5-7.487C21.5 6.843 17.247 3.5 12 3.5Z"/></svg>카카오로 계속하기</button></form>';
+  const alt = `<div class="abStartAlt"><a href="${escapeHtml(`/my?${kakaoStartQuery(back, { login: "1" })}#login-local`)}">로그인 이름으로 로그인</a><a href="${escapeHtml(`/my/kakao-claim?${kakaoStartQuery(back)}#kakao-claim-start`)}">웹 연결 코드로 열기</a></div>`;
+  const modal = `<div class="abStartModal" id="abKakaoStart" role="dialog" aria-modal="true" aria-labelledby="abKakaoStartTitle" aria-describedby="abKakaoStartLead"><div class="abStartCard" id="abStartCard"><h2 id="abKakaoStartTitle">카카오 계정으로 가계부 열기</h2><p class="abStartLead" id="abKakaoStartLead">${KAKAO_START_NOTICE}</p>${alert}${form}${alt}</div></div>`;
+  return kakaoStartShellHtml(env, { title: "가계부 열기", body: modal + modalInertScript("abKakaoStart") + kakaoStartProgressHtml() });
+}
+
+// 시작 화면을 그릴 요청인가: GET /my·/app·/m, 인앱 브라우저, login=1 아님, 관리자 쿠키 없음, 카카오 로그인 준비됨, 로그인 세션 없음.
+function kakaoInAppStartEligible(request, env, url) {
+  if (String(request?.method || "GET").toUpperCase() !== "GET" || !url || !KAKAO_START_PATHS.has(url.pathname)) return false;
+  if (url.searchParams.get("login") === "1" || !isKakaoTalkInAppBrowser(request) || getCookie(request, "ab_admin")) return false;
+  return inspectKakaoLoginConfig(env).ready;
+}
+
+// /my 는 return_to 를, /app·/m 은 지금 주소(auto·login 뺀)를 돌아갈 곳으로 싣는다(자동 로그인과 같은 512자 한도).
+function kakaoStartReturnPath(url) {
+  if (url.pathname === "/my") return safeUserReturnPath(url.searchParams.get("return_to") || "", "");
+  const qs = new URLSearchParams(url.search);
+  qs.delete("auto");
+  qs.delete("login");
+  const query = qs.toString();
+  // /m 은 돌아갈 곳 허용 목록(safeUserReturnPath)에 없어 같은 홈을 그리는 /app 으로 돌아간다(독립 검토 P3-3).
+  const path = url.pathname === "/m" ? "/app" : url.pathname;
+  const back = safeUserReturnPath(`${path}${query ? `?${query}` : ""}`, "");
+  return back.length <= 512 ? back : "";
+}
+
+// 라우터가 자동 로그인(kakaoInAppAutoLoginResponse) 바로 다음에 부른다. 자동 로그인을 보낸 요청은 여기 오지 않는다.
+async function kakaoInAppStartResponse(request, env, url) {
+  if (!kakaoInAppStartEligible(request, env, url)) return null;
+  if (await verifyUserSession(request, env)) return null;
+  const autoCookie = String(getCookie(request, "ab_kakao_auto") || "");
+  rememberOpsEvent({ kind: "kakao_inapp_start_shown", severity: "info", path: url.pathname, method: "GET", detail: url.searchParams.get("auto") === "0" ? "auto=0" : autoCookie ? `cookie=${autoCookie.slice(0, 8)}` : "other" });
+  return htmlResponse(renderKakaoStartHtml(env, { returnTo: kakaoStartReturnPath(url) }));
+}
+
+// 카카오 로그인 시작·콜백이 로그인 화면으로 되돌리던 자리(동의 칸 오류·카카오 취소·오류). 인앱 브라우저이고 카카오 로그인이 준비된 서버면 시작 화면에
+// 같은 말을 띄운다. 그 밖은 예전 로그인 화면 그대로다.
+function kakaoStartOrLoginHtml(request, env, { error = "", returnTo = "", authMode = "login" } = {}) {
+  if (isKakaoTalkInAppBrowser(request) && inspectKakaoLoginConfig(env).ready) return renderKakaoStartHtml(env, { returnTo, error });
+  return renderUserLoginHtml(env, error, returnTo, authMode);
+}
+
+// 로그인한 사람의 동의 팝업(홈 위, 그리고 POST /my/consent 가 다시 그리는 화면). 동의 칸은 로그인 화면과 같은 말이다.
+function consentPopupHtml({ returnTo = "", error = "", withStyle = true } = {}) {
+  const back = safeUserReturnPath(returnTo || "", "/app");
+  const consentError = error === SIGNUP_CONSENT_REQUIRED_MESSAGE ? error : "";
+  const alert = error && !consentError ? `<p class="abStartAlert" role="alert">${escapeHtml(error)}</p>` : "";
+  return `${withStyle ? AB_START_MODAL_STYLE : ""}<div class="abStartModal" id="abConsentPop" role="dialog" aria-modal="true" aria-labelledby="abConsentPopTitle" aria-describedby="abConsentPopLead"><div class="abStartCard" id="abStartCard"><h2 id="abConsentPopTitle">이용약관을 확인해 주세요</h2><p class="abStartLead" id="abConsentPopLead">가계부를 계속 쓰려면 아래 칸을 체크해 주세요. 한 번만 확인하면 돼요.</p>${alert}<form method="post" action="/my/consent"><input type="hidden" name="return_to" value="${escapeHtml(back)}"/>${signupConsentFieldHtml("consentPopup", consentError)}<button class="abStartGo" type="submit">동의하고 계속</button></form><form class="abStartAlt" method="post" action="/my/logout"><button type="submit">로그아웃</button></form></div></div>`
+    + modalInertScript("abConsentPop");
+}
+
+function renderConsentPopupPageHtml(env, { returnTo = "", error = "" } = {}) {
+  return kakaoStartShellHtml(env, { title: "이용약관 확인", body: consentPopupHtml({ returnTo, error, withStyle: false }) });
+}
+
+// 홈 응답 마무리(my/mobile-home.js): 로그인 사용자(관리자 세션 아님)이고 쿠키 ab_cs=0 일 때만 팝업을 </body> 앞에 붙인다. 그 밖은 바이트 하나 바꾸지 않는다
+// (홈 HTML 예산). 돌아갈 곳은 지금 홈 주소에서 한 번만 쓰는 알림 값(msg·err·되돌리기 표 등)을 뺀 것이다.
+function withConsentPopupV229104(request, url, eligible, html) {
+  if (!eligible || consentStateKnown(request) !== false) return html;
+  const source = String(html || "");
+  const at = source.lastIndexOf("</body>");
+  if (at < 0 || source.includes('id="abConsentPop"')) return source;
+  const qs = new URLSearchParams(url.search);
+  for (const key of CONSENT_POPUP_DROP_PARAMS) qs.delete(key);
+  const query = qs.toString();
+  const path = url.pathname === "/m" ? "/app" : url.pathname;
+  const back = safeUserReturnPath(`${path}${query ? `?${query}` : ""}`, "/app");
+  return source.slice(0, at) + consentPopupHtml({ returnTo: back }) + source.slice(at);
+}
+
+// POST /my/consent: 로그인 세션이 있어야 하고(없으면 /my), 같은 출처 검사는 라우터가 모든 POST 에 먼저 한다. 칸이 없으면 400 으로 팝업을 다시 그린다.
+// 기록이 이미 있으면 다시 쓰지 않는다(처음 기록의 시각·경로를 지키려고). 저장하면 ab_cs=1 을 적고 돌아갈 곳(같은 사이트 주소만)으로 303.
+async function handleMyConsent(request, env) {
+  const userId = await verifyUserSession(request, env);
+  if (!userId) return redirectResponse("/my");
+  const form = await request.formData();
+  const rawBack = safeUserReturnPath(String(form.get("return_to") || ""), "/app");
+  const back = rawBack.startsWith("/my/consent") ? "/app" : rawBack;
+  if (String(form.get("consent") || "") !== "1") {
+    return htmlResponse(renderConsentPopupPageHtml(env, { returnTo: back, error: SIGNUP_CONSENT_REQUIRED_MESSAGE }), 400);
+  }
+  const existing = await readSignupConsentState(env, userId);
+  // 기록을 읽지 못했으면(null) 쓰지 않고 다시 누르게 한다. 저장은 덮어쓰기(merge-duplicates)라 있던 처음 기록을 덮을 수 있어서다(독립 검토 P3-2).
+  if (existing === null) return htmlResponse(renderConsentPopupPageHtml(env, { returnTo: back, error: CONSENT_POPUP_RECORD_FAILED }), 503);
+  const recorded = existing === true ? true : await recordSignupConsent(env, userId, "popup");
+  if (!recorded) return htmlResponse(renderConsentPopupPageHtml(env, { returnTo: back, error: CONSENT_POPUP_RECORD_FAILED }), 503);
+  rememberOpsEvent({ kind: "consent_popup_accepted", severity: "info", path: "/my/consent", method: "POST", detail: existing === true ? "already" : "recorded" });
+  return redirectResponseWithCookies(back, [consentStateCookie(true)]);
 }
 
 function addMonthsYm(month, delta) {
@@ -46789,6 +47174,8 @@ function formatMessageText(msg) {
     category_keywords_unchanged: "바뀐 키워드가 없어 저장하지 않았습니다.",
     ambiguous_field: "같은 항목에 서로 다른 값이 함께 와서 저장하지 않았습니다. 화면을 새로고침한 뒤 다시 저장해 주세요.",
     edit_conflict: "다른 곳에서 이 기록이 먼저 바뀌어 저장하지 않았습니다. 지금 값을 확인하고 다시 저장해 주세요.",
+    // V22.9.104 J-9: 구성원이 고치거나 지우는 사이 다른 사람이 그 기록을 먼저 바꿈(지출자 바뀜 포함) — 저장·삭제하지 않았다.
+    record_edit_conflict: RECORD_EDIT_CONFLICT_MESSAGE_V229104,
     record_not_found: "기록을 찾지 못했습니다. 이미 삭제됐을 수 있으니 목록을 새로고침해 주세요.",
     amount_unit_required: "금액이 단위 없는 한 자리 숫자로만 읽혀 저장하지 않았습니다. 정말 그 금액이면 \"7원\"처럼 원을 붙이거나 금액 칸을 직접 고쳐 주세요.",
     backup_too_large: "기록이 많아 이 범위를 한 파일로 내려받을 수 없습니다. 일부만 담긴 파일을 내려보내지 않았습니다. 월별 CSV로 나눠 내려받아 주세요.",
@@ -48296,7 +48683,12 @@ async function writeKakaoEditUndoItemsV4(env, kakaoUserKey = "", payload = {}, i
 
 // S1: 잠금 안에서 버퍼에 먼저 담고, 담긴 것을 확인한 뒤에만 지운다. 버퍼를 읽거나 쓰지 못하면 지우지 않는다.
 // DELETE 단계의 오류에는 kakaoDeletePhase 를 달아 "결과 모름"과 "지우지 않음"을 호출부가 구분하게 한다.
-async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, householdId = "", householdName = "", userId = "" } = {}, row = {}, seq = 0) {
+// V22.9.104 J-9(Codex 검토 V102): role 은 지우는 사람의 지금 가계부 역할이다. 소유자·관리자가 아니고 카카오 기록 표시(source_user_key)가 없는
+// 기록(웹에서 만든 내 기록 — 지출자로 내 기록을 가린다)은 위에서 읽은 일곱 칸(지출자 포함)이 그대로일 때만 지운다(조건부 삭제 함수, DB 요청 수 같음).
+// 읽은 뒤 관리자가 지출자를 바꿨거나 다른 사람이 고쳤으면 지우지 않고, 버퍼를 앞의 값으로 되돌린 뒤 kakaoDeleteConflict 오류를 올린다.
+// 카카오로 쓴 기록(source_user_key 있음)은 지출자가 바뀌어도 쓴 사람의 기록이라(isKakaoRowOwnedByRequesterV2254) 예전처럼 감사 삭제 함수로 지운다.
+// role 을 모르면(빈 값) 구성원처럼 조건부로 지운다.
+async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, householdId = "", householdName = "", userId = "", role = "" } = {}, row = {}, seq = 0) {
   return withKakaoEditUndoLeaseV4(env, kakaoUserKey, payload, async ({ assertFresh }) => {
     // V22.9.80 T-13: 환불 연결이 켜져 있으면 지우기 전에 이 기록의 연결 수를 함께 읽어 버퍼에 적는다(같은 단계라 왕복이 늘지 않는다).
     // 지우면 연결은 함께 지워지고 복구해도 되살아나지 않으므로 삭제·복구 답장이 그 사실을 말한다. 플래그가 꺼져 있으면 칸이 없다.
@@ -48310,12 +48702,24 @@ async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, 
     assertFresh();
     await writeKakaoEditUndoItemsV4(env, kakaoUserKey, payload, items);
     assertFresh();
+    const guardSpender = !canManageMyHousehold(role) && !String(row.source_user_key || "").trim();
+    let outcome = "deleted";
     try {
       // V22.9.37 감사 NEW-4: 직접 DELETE 대신 웹과 같은 감사 RPC 로 지운다. accountbook_transaction_audit 에 지운 행과
       // 행위자가 남는다. RPC 도 실제 DELETE 이므로 복구는 예전처럼 버퍼의 행을 같은 id 로 다시 넣는다.
-      await deleteTransactionWithAudit(env, row.id, String(row.household_id || householdId), { actorUserId: userId || null, actorKind: KAKAO_AUDIT_ACTOR_KIND });
+      if (guardSpender) outcome = await deleteTransactionIfUnchanged(env, row, String(row.household_id || householdId), { actorUserId: userId || null, actorKind: KAKAO_AUDIT_ACTOR_KIND });
+      else await deleteTransactionWithAudit(env, row.id, String(row.household_id || householdId), { actorUserId: userId || null, actorKind: KAKAO_AUDIT_ACTOR_KIND });
     } catch (err) {
       throw Object.assign(new Error(`kakao_delete_failed: ${safeError(err)}`, { cause: err }), { kakaoDeletePhase: true });
+    }
+    if (outcome === "changed") {
+      // V22.9.104 J-9: 지우지 않은 기록을 복구 목록에 남기지 않는다(‘복구’가 지금 기록을 옛 값으로 되돌리지 않게). 되돌리지 못해도 기록은 그대로다.
+      try {
+        assertFresh();
+        await writeKakaoEditUndoItemsV4(env, kakaoUserKey, payload, previous);
+      } catch (_) {}
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/skill", method: "POST", detail: "kakao_delete_changed" });
+      throw Object.assign(new Error("kakao_delete_conflict"), { kakaoDeleteConflict: true });
     }
     return entry;
   });
@@ -48365,6 +48769,8 @@ function kakaoRefundLinkUndoNoteV4(refundLinks = undefined, phase = "delete") {
 // T2·S1: DELETE 결과를 모르면 다시 보내라고 하지 않는다. 다시 보내면 밀린 다음 번호가 지워진다.
 function kakaoEditDeleteFailedTextV4(err, row = {}, seq = 0) {
   const listCommand = `${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기`;
+  // V22.9.104 J-9: 읽은 뒤 다른 사람이 이 기록을 바꿔(지출자 바뀜 포함) 지우지 않았다. 지워진 것이 없으니 ‘복구’ 를 권하지 않는다.
+  if (err?.kakaoDeleteConflict) return `다른 사람이 이 기록을 먼저 바꿔서 지우지 않았어요.\n${kakaoRowLabel(row, seq)}\n‘${listCommand}’로 지금 기록을 확인해 주세요.`;
   if (err?.kakaoDeletePhase && isUncertainStorageWrite(err)) {
     return `삭제 결과를 확인하지 못했어요.\n${kakaoRowLabel(row, seq)}\n같은 명령을 다시 보내면 다른 기록이 지워질 수 있어요. ‘${listCommand}’로 먼저 확인해 주세요.\n지워져 있으면 ‘${Number(seq) >= 1 ? `복구 ${twoDigitSeq(seq)}번` : "복구"}’로 되돌릴 수 있어요.`;
   }
@@ -49833,9 +50239,25 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     return { reply: moduleReply, nextSession: null };
   }
   try {
-    // 행은 이미 이 가계부에서 찾았다. householdId 를 넘기면 RPC 전 행 조회 한 번이 빠진다.
-    // V22.9.37 감사 NEW-9: 웹 수정처럼 행위자(요청한 사용자)와 종류를 감사 기록에 남긴다. 예전에는 행위자 없는 system 이었다.
-    await updateTransaction(env, session.entryId, patch, { householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND });
+    // V22.9.104 J-9(Codex 검토 V102): 구성원(소유자·관리자 아님)이 카카오 기록 표시(source_user_key) 없는 기록(웹에서 만든 내 기록 — 지출자로 내 기록을
+    // 가린다)을 고칠 때, 위에서 읽은 뒤 관리자가 지출자를 바꾸면 예전에는 조건 없는 감사 RPC 가 이제 남의 기록이 된 행에 저장했다. 이제는 웹 수정과 같은
+    // 조건부 저장(바꾸는 칸의 읽은 값 + ‘지출자 = 나’)이고, 0행이면 바꾸지 않고 충돌로 답한다. 감사 한 줄은 답장 뒤로 미룬다(답 전 DB 요청 수는 감사 RPC 때와 같다).
+    // 카카오로 쓴 기록(source_user_key 있음)은 지출자가 바뀌어도 쓴 사람의 기록이라(isKakaoRowOwnedByRequesterV2254) 예전 그대로다. 소유자·관리자도 그대로다.
+    if (!canManageMyHousehold(role) && !String(row.source_user_key || "").trim()) {
+      const outcome = await updateTransactionIfUnchangedV22994(env, session.entryId, patch, row, {
+        householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND, path: "/skill", requireUserId: session.userId,
+        auditRunner: (job) => deferKakaoAfterReply(env, job, { cost: 1, critical: true }),
+      });
+      if (outcome.status === "missing") return { reply: `수정하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘기록’로 번호를 다시 확인해 주세요.`, nextSession: null };
+      if (outcome.status !== "updated") {
+        rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/skill", method: "POST", detail: outcome.status === "spender_changed" ? "kakao_edit_spender_changed" : "kakao_edit_changed" });
+        return { reply: kakaoEditConflictTextV229104(session.entryNo, row, outcome.status), nextSession: null };
+      }
+    } else {
+      // 행은 이미 이 가계부에서 찾았다. householdId 를 넘기면 RPC 전 행 조회 한 번이 빠진다.
+      // V22.9.37 감사 NEW-9: 웹 수정처럼 행위자(요청한 사용자)와 종류를 감사 기록에 남긴다. 예전에는 행위자 없는 system 이었다.
+      await updateTransaction(env, session.entryId, patch, { householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND });
+    }
   } catch (err) {
     // T2: 결과를 모르면 다시 보내라고 하지 않는다. 날짜 수정은 번호를 옮겨, 다시 보내면 다른 기록이 바뀐다.
     if (isUncertainStorageWrite(err)) {
@@ -49847,6 +50269,12 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     return { reply: `${session.entryNo}번 기록을 바꾸지 못했어요. 기록은 그대로예요.\n잠시 후 다시 보내 주세요.`, nextSession: null };
   }
   return { reply: `${reply}\n${kakaoEditRecordLineV4({ ...row, ...patch })}`, nextSession: null };
+}
+
+// V22.9.104 J-9: 고치려던 사이 다른 사람이 이 기록을 먼저 바꿨다(지출자 바뀜은 spender_changed). 아무것도 바꾸지 않았다. 답 글에 주소는 넣지 않는다.
+function kakaoEditConflictTextV229104(entryNo = "", row = {}, status = "changed") {
+  if (status === "spender_changed") return `다른 사람이 ${entryNo}번 기록을 먼저 바꿔서 수정하지 않았어요.\n그 사이 ${row.type === "income" ? "수입자" : "지출자"}가 바뀌어 이제 내 기록이 아니에요.`;
+  return `다른 사람이 ${entryNo}번 기록을 먼저 바꿔서 수정하지 않았어요.\n‘${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기’로 지금 기록을 확인해 주세요.`;
 }
 
 // 3장 표: handleEditMessage 반환 action별 Worker 처리. 다른 해석 금지.
@@ -49890,7 +50318,7 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     const seq = Number(session.entryNo) || 0;
     let deleted = null;
     try {
-      deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: session.householdId, householdName: session.householdName || "", userId: session.userId }, row, seq);
+      deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: session.householdId, householdName: session.householdName || "", userId: session.userId, role: currentRole }, row, seq);
     } catch (err) {
       return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeleteFailedTextV4(err, row, seq), null);
     }
@@ -50230,7 +50658,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
     if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit));
     let deleted = null;
     try {
-      deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id }, row, seq);
+      deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id, role: ctx.role }, row, seq);
     } catch (err) {
       return kakaoText(kakaoEditDeleteFailedTextV4(err, row, seq));
     }
@@ -57669,6 +58097,15 @@ async function deleteTransactionWithAudit(env, id, householdId, options = {}) {
 // 읽은 값과 다시 견주고, 같을 때만 감사 기록과 함께 지운다. 돌려주는 값은 "deleted" 또는 "changed"(그대로 둠)다. 함수가 아직 없으면(SQL 적용 전,
 // PGRST202) 예전처럼 감사 삭제 함수로 지운다 — 그때는 틈이 남고, migrations/V22_9_88_UNDO_DELETE_IF_UNCHANGED_APPLY_REVIEW_ONLY.sql 적용 뒤 닫힌다.
 async function deleteTransactionIfUnchanged(env, row = {}, householdId = "", options = {}) {
+  const outcome = await deleteTransactionIfUnchangedResultV229104(env, row, householdId, options);
+  return outcome?.changed === true && outcome?.deleted !== true ? "changed" : "deleted";
+}
+
+// V22.9.104 J-9: 위 조건부 삭제의 답을 그대로 돌려준다 — 지웠으면 { deleted: true, id }, 일곱 칸이 달라 그대로 뒀으면 { deleted: false, changed: true, id }.
+// 함수가 없으면(PGRST202) 예전 감사 삭제 함수의 답이다(그때는 V22.9.88 과 같이 틈이 남는다). 구성원 웹 삭제(/admin/delete)는 지운 기록 번호까지
+// 확인해야 해서(결과 모름 판정) 문자열이 아니라 이 답을 쓴다. 일곱 칸에 지출자(user_id)가 들어 있으므로, 같은 요청에서 읽은 행을 넘기면
+// ‘읽은 뒤 지출자가 바뀐 기록’은 지우지 않는다(관리자가 그 사이 지출자를 바꾼 경우).
+async function deleteTransactionIfUnchangedResultV229104(env, row = {}, householdId = "", options = {}) {
   const expected = Object.fromEntries(["type", "amount", "transaction_date", "category", "memo", "payment_method", "user_id"].map((key) => [key, row[key] ?? null]));
   try {
     const result = await supabase(env, "/rest/v1/rpc/accountbook_delete_transaction_if_v22988", {
@@ -57683,14 +58120,12 @@ async function deleteTransactionIfUnchanged(env, row = {}, householdId = "", opt
       }),
     });
     const outcome = Array.isArray(result) ? result[0] : result;
-    if (outcome?.deleted === true) return "deleted";
-    if (outcome?.changed === true) return "changed";
+    if (outcome?.deleted === true || outcome?.changed === true) return outcome;
     throw new Error("transaction_conditional_delete_invalid");
   } catch (err) {
     if (!/PGRST202|Could not find the function/i.test(safeError(err))) throw err;
   }
-  await deleteTransactionWithAudit(env, row.id, householdId, options);
-  return "deleted";
+  return deleteTransactionWithAudit(env, row.id, householdId, options);
 }
 
 // V22.9.90 웹 ‘되돌리기’: 지운 행은 지우는 DB 함수(accountbook_delete_transaction_v227·_if_v22988)가 감사 기록(before_value = 지운 행 전체)에 남긴다.
@@ -57748,7 +58183,17 @@ async function fetchDeleteAuditIdV22994(env, { transactionId = "", householdId =
 // 이 한 줄이 실패해도 수정은 이미 저장됐으므로 성공으로 답하고 운영 이벤트만 남긴다. 결과를 모르는 PATCH(응답 없음·5xx)는 supabase() 가 결과 불확실로
 // 던진다. 지출자 바꾸기는 부르는 곳이 같은 요청에서 받은 참여자 목록으로 먼저 확인한다(RPC 는 잠근 채 한 번 더 확인했다). 환불 연결 보호 트리거
 // (refund_link_guard_v22979, BEFORE UPDATE)는 PATCH 에도 그대로 걸린다.
+// V22.9.104 J-9(Codex 검토 V102): 구성원은 자기 기록(지출자 = 나)만 고친다. 그런데 바꾸지 않는 칸은 조건에 걸지 않으므로, 구성원이 금액만 고치는 사이
+// 관리자가 그 기록의 지출자를 바꾸면 구성원의 저장이 이제 남의 기록이 된 행에 들어갔다. options.requireUserId(구성원 본인 id)를 주면 지출자 칸을
+// 바꾸지 않아도 PATCH 에 user_id=eq.<그 id> 조건을 함께 건다(같은 PATCH 의 조건 하나라 DB 요청은 늘지 않는다). 0행이면 다시 읽어 지출자가 다르면
+// { status: "spender_changed", row: 지금 행 } 이다 — 부르는 곳이 충돌을 알리고 아무것도 바꾸지 않는다. 이때 ‘조건 불일치 대비’도 감사 RPC(조건 없음)가 아니라
+// 지출자 조건만 건 PATCH 로 저장한다. 소유자·관리자(requireUserId 없음)는 예전 그대로다. options.auditRunner 는 감사 한 줄을 남기는 일을 받아 돌린다
+// (기본은 바로 돌림, 카카오 수정은 답장 뒤로 미룬다 — 답 전 DB 요청 수를 감사 RPC 때와 같게 둔다).
 const TX_CONDITIONAL_EDIT_COLUMNS_V22994 = ["type", "amount", "transaction_date", "category", "memo", "payment_method", "user_id"];
+
+// V22.9.104 J-9: 구성원이 고치거나 지우려던 기록을 그 사이 다른 사람이 먼저 바꿨을 때(지출자 바뀜 포함) 웹에 보이는 말.
+// 웹 수정·삭제의 err=record_edit_conflict 문구(formatMessageText)와 /admin/delete JSON 의 message 가 이 값을 쓴다.
+const RECORD_EDIT_CONFLICT_MESSAGE_V229104 = "다른 사람이 이 기록을 먼저 바꿨어요. 새로고침한 뒤 다시 확인해 주세요.";
 
 function txConditionalEditFilterV22994(key, value) {
   if (value === null || value === undefined) return "is.null";
@@ -57770,35 +58215,58 @@ async function updateTransactionIfUnchangedV22994(env, id, body, expected = {}, 
   const keys = Object.keys(patch);
   if (!keys.length) return { status: "updated", row: expected };
   const actorKind = String(options.actorKind || "system").slice(0, 30);
-  const params = new URLSearchParams();
-  params.set("id", `eq.${transactionId}`);
-  params.set("household_id", `eq.${householdId}`);
-  for (const key of keys) params.set(key, txConditionalEditFilterV22994(key, expected?.[key]));
-  const updated = await supabase(env, `/rest/v1/transactions?${params.toString()}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=representation" },
-    body: JSON.stringify(patch),
-  });
-  if (!Array.isArray(updated)) throw Object.assign(new Error("transaction_conditional_update_invalid"), { uncertain_write: true });
-  const after = updated[0];
-  if (after) {
-    const before = { ...after };
-    for (const key of keys) before[key] = expected?.[key] ?? null;
-    try {
-      await supabase(env, "/rest/v1/accountbook_transaction_audit", {
-        method: "POST",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ transaction_id: transactionId, household_id: householdId, actor_user_id: options.actorUserId || null, actor_kind: actorKind, action: "update", before_value: before, after_value: after }),
-      });
-    } catch (auditError) {
-      rememberOpsEvent({ kind: "transaction_update_audit_failed", severity: "warn", path: String(options.path || ""), method: "POST", detail: safeError(auditError) });
-    }
+  const requireUserId = String(options.requireUserId || "").trim();
+  const runAudit = typeof options.auditRunner === "function" ? options.auditRunner : (job) => job();
+  const scope = () => {
+    const params = new URLSearchParams();
+    params.set("id", `eq.${transactionId}`);
+    params.set("household_id", `eq.${householdId}`);
+    return params;
+  };
+  const patchWhere = async (params) => {
+    // V22.9.104 J-9: 구성원 저장은 지출자 칸을 바꾸지 않아도 ‘지출자 = 나’ 조건을 건다(바꾸는 칸의 조건 뒤에 두어 같은 칸이면 이 값이 남는다).
+    if (requireUserId) params.set("user_id", `eq.${requireUserId}`);
+    const updated = await supabase(env, `/rest/v1/transactions?${params.toString()}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify(patch),
+    });
+    if (!Array.isArray(updated)) throw Object.assign(new Error("transaction_conditional_update_invalid"), { uncertain_write: true });
+    return updated[0] || null;
+  };
+  const audited = async (after) => {
+    await runAudit(async () => {
+      const before = { ...after };
+      for (const key of keys) before[key] = expected?.[key] ?? null;
+      try {
+        await supabase(env, "/rest/v1/accountbook_transaction_audit", {
+          method: "POST",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ transaction_id: transactionId, household_id: householdId, actor_user_id: options.actorUserId || null, actor_kind: actorKind, action: "update", before_value: before, after_value: after }),
+        });
+      } catch (auditError) {
+        rememberOpsEvent({ kind: "transaction_update_audit_failed", severity: "warn", path: String(options.path || ""), method: "POST", detail: safeError(auditError) });
+      }
+    });
     return { status: "updated", row: after };
-  }
+  };
+  const conditioned = scope();
+  for (const key of keys) conditioned.set(key, txConditionalEditFilterV22994(key, expected?.[key]));
+  const after = await patchWhere(conditioned);
+  if (after) return audited(after);
   const fresh = await txConditionalEditRowV22994(env, transactionId, householdId);
   if (!fresh) return { status: "missing", row: null };
+  if (requireUserId && String(fresh.user_id ?? "") !== requireUserId) return { status: "spender_changed", row: fresh };
   if (keys.some((key) => !txConditionalEditSameV22994(key, fresh[key], expected?.[key]))) return { status: "changed", row: fresh };
   rememberOpsEvent({ kind: "transaction_conditional_update_filter_mismatch", severity: "warn", path: String(options.path || ""), method: "PATCH", detail: keys.join(",") });
+  if (requireUserId) {
+    // V22.9.104 J-9: 값은 그대로인데 0행이었다(eq 비교 어긋남). 감사 RPC 는 지출자 조건을 걸 수 없어 지출자 조건만 건 PATCH 로 저장한다.
+    const saved = await patchWhere(scope());
+    if (saved) return audited(saved);
+    const latest = await txConditionalEditRowV22994(env, transactionId, householdId);
+    if (!latest) return { status: "missing", row: null };
+    return { status: String(latest.user_id ?? "") !== requireUserId ? "spender_changed" : "changed", row: latest };
+  }
   const viaRpc = await updateTransaction(env, transactionId, patch, { householdId, actorUserId: options.actorUserId || null, actorKind });
   return { status: "updated", row: viaRpc || fresh };
 }

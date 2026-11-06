@@ -8,7 +8,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.103-SEOUL-WORDING";
+const APP_VERSION = "V22.9.104-KAKAO-HOME";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -172,8 +172,10 @@ const BUSINESS_FOOTER_INFO = Object.freeze({
 // V22.9.95 R-9: 개인정보처리방침·이용약관의 개정 시행일이자 가입 동의 기록(consent:<user_id>)의 version 이다. 공고일(POLICY_NOTICE_DATE)은 개정
 // 내용을 화면에 올린 날(= V22.9.95 배포일)이다. V22.9.96(E-17 재결정, 사용자 2026-11-02 "개정 공고랑 시행 지금 바로"): 이번 개정은 동의 절차·보호 조치를 더하고
 // 처리 내용을 더 자세히 적은, 이용자에게 불리하지 않은 변경이라 시행일 = 공고일(알린 날부터 적용). 검사는 시행일이 공고일과 같거나 + 7일인지 본다. 날짜는 이 두 줄만 바꾼다.
-const POLICY_NOTICE_DATE = "2026-11-02";
-const POLICY_REVISION_DATE = "2026-11-02";
+// V22.9.104 L-5·L-6(사용자 2026-11-06 "14세 문구 빼고 PR 올려줘"): 만 14세 미만 이용(방침 9절·약관 2절)과 6절 쿠키 목록을 고친 개정도 이용자에게
+// 불리하지 않은 변경이라 공고일 = 시행일 = 배포일이다. 배포가 다른 날로 넘어가면 두 줄을 그날로 바꾼다(동의 기록 version 도 따라간다. 읽는 곳은 기록 유무만 본다).
+const POLICY_NOTICE_DATE = "2026-11-06";
+const POLICY_REVISION_DATE = "2026-11-06";
 
 // "2026-07-13" → "2026년 7월 13일"(방침 머리의 시행·공고·개정일 표기).
 function policyDateLabel(ymd = POLICY_REVISION_DATE) {
@@ -488,9 +490,13 @@ function kakaoLoginButtonHtml(returnTo = "", { consentError = "" } = {}) {
 
 // V22.9.95 R-9: 가입 폼과 카카오 로그인 폼이 같이 쓰는 동의 칸. 두 링크는 새 탭으로 연다(같은 사이트라 opener 위험이 없다). 서버 오류가 있을 때만
 // 칸에 aria-invalid 와 칸 아래 문구(.fieldError)를 붙인다. 미리 체크해 두지 않는다(동의는 사용자가 직접 표시한다).
+// V22.9.104 L-2: 필수 칸임을 앞에 적고, 개인정보처리방침은 ‘동의’가 아니라 ‘확인’으로 적는다(서비스 제공에 필요한 처리라 별도 동의를 받지 않는다).
+// 카카오톡 시작 화면·홈 동의 팝업·로그인 화면·가입 폼이 모두 이 칸을 쓴다. 서버는 여전히 consent=1 을 받아야 진행하고 동의 기록을 남긴다.
+// V22.9.104 L-2(커밋 B): ‘만 14세 이상이에요’를 뺐다. 법정대리인 동의는 아동의 개인정보를 동의를 근거로 처리할 때만 필요하고(개인정보 보호법
+// 제22조의2제1항), 가계부는 서비스 제공에 필요한 처리(제15조제1항제4호)만 한다. 만 14세 미만의 처리는 처리방침 9절에 적었다.
 function signupConsentFieldHtml(id = "signupConsent", error = "") {
   const note = error ? ` aria-invalid="true" aria-describedby="${id}Error"` : "";
-  return `<label class="consentRow"><input id="${id}" name="consent" type="checkbox" value="1" required${note}/><span><a href="/terms" target="_blank">이용약관</a>과 <a href="/privacy" target="_blank">개인정보처리방침</a>에 동의하며, 만 14세 이상입니다</span></label>${error ? `<p class="fieldError" id="${id}Error">${escapeHtml(error)}</p>` : ""}`;
+  return `<label class="consentRow"><input id="${id}" name="consent" type="checkbox" value="1" required${note}/><span>[필수] <a href="/terms" target="_blank">이용약관</a>에 동의하고 <a href="/privacy" target="_blank">개인정보처리방침</a>을 확인했어요</span></label>${error ? `<p class="fieldError" id="${id}Error">${escapeHtml(error)}</p>` : ""}`;
 }
 
 function publicSiteNav(active = "home") {

@@ -1,6 +1,6 @@
 // @build:imports-start
-import { scheduleNluOpsPersistence } from "../runtime/ops-telemetry.js";
-import { isUniqueConstraintError, safeError } from "../runtime/leases.js";
+import { rememberOpsEvent, scheduleNluOpsPersistence } from "../runtime/ops-telemetry.js";
+import { deferKakaoAfterReply, isUniqueConstraintError, safeError } from "../runtime/leases.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { fetchCustomCategories } from "../settings/categories-keywords.js";
 import {
@@ -44,7 +44,9 @@ import { parseMultipleTransactions } from "../nlu/transaction-parser.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { extractDate, formatDate, nowKstDate } from "../nlu/date-payment.js";
 import { CATEGORY_RULES, LEGACY_CATEGORY_SPLITS } from "../nlu/category-rules.js";
-import { numberWithCommas, updateTransaction } from "../domain/transactions-core.js";
+import {
+  numberWithCommas, updateTransaction, updateTransactionIfUnchangedV22994,
+} from "../domain/transactions-core.js";
 // @build:imports-end
 
 // =====================================================================
@@ -311,9 +313,25 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     return { reply: moduleReply, nextSession: null };
   }
   try {
-    // 행은 이미 이 가계부에서 찾았다. householdId 를 넘기면 RPC 전 행 조회 한 번이 빠진다.
-    // V22.9.37 감사 NEW-9: 웹 수정처럼 행위자(요청한 사용자)와 종류를 감사 기록에 남긴다. 예전에는 행위자 없는 system 이었다.
-    await updateTransaction(env, session.entryId, patch, { householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND });
+    // V22.9.104 J-9(Codex 검토 V102): 구성원(소유자·관리자 아님)이 카카오 기록 표시(source_user_key) 없는 기록(웹에서 만든 내 기록 — 지출자로 내 기록을
+    // 가린다)을 고칠 때, 위에서 읽은 뒤 관리자가 지출자를 바꾸면 예전에는 조건 없는 감사 RPC 가 이제 남의 기록이 된 행에 저장했다. 이제는 웹 수정과 같은
+    // 조건부 저장(바꾸는 칸의 읽은 값 + ‘지출자 = 나’)이고, 0행이면 바꾸지 않고 충돌로 답한다. 감사 한 줄은 답장 뒤로 미룬다(답 전 DB 요청 수는 감사 RPC 때와 같다).
+    // 카카오로 쓴 기록(source_user_key 있음)은 지출자가 바뀌어도 쓴 사람의 기록이라(isKakaoRowOwnedByRequesterV2254) 예전 그대로다. 소유자·관리자도 그대로다.
+    if (!canManageMyHousehold(role) && !String(row.source_user_key || "").trim()) {
+      const outcome = await updateTransactionIfUnchangedV22994(env, session.entryId, patch, row, {
+        householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND, path: "/skill", requireUserId: session.userId,
+        auditRunner: (job) => deferKakaoAfterReply(env, job, { cost: 1, critical: true }),
+      });
+      if (outcome.status === "missing") return { reply: `수정하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘기록’로 번호를 다시 확인해 주세요.`, nextSession: null };
+      if (outcome.status !== "updated") {
+        rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/skill", method: "POST", detail: outcome.status === "spender_changed" ? "kakao_edit_spender_changed" : "kakao_edit_changed" });
+        return { reply: kakaoEditConflictTextV229104(session.entryNo, row, outcome.status), nextSession: null };
+      }
+    } else {
+      // 행은 이미 이 가계부에서 찾았다. householdId 를 넘기면 RPC 전 행 조회 한 번이 빠진다.
+      // V22.9.37 감사 NEW-9: 웹 수정처럼 행위자(요청한 사용자)와 종류를 감사 기록에 남긴다. 예전에는 행위자 없는 system 이었다.
+      await updateTransaction(env, session.entryId, patch, { householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND });
+    }
   } catch (err) {
     // T2: 결과를 모르면 다시 보내라고 하지 않는다. 날짜 수정은 번호를 옮겨, 다시 보내면 다른 기록이 바뀐다.
     if (isUncertainStorageWrite(err)) {
@@ -325,6 +343,12 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     return { reply: `${session.entryNo}번 기록을 바꾸지 못했어요. 기록은 그대로예요.\n잠시 후 다시 보내 주세요.`, nextSession: null };
   }
   return { reply: `${reply}\n${kakaoEditRecordLineV4({ ...row, ...patch })}`, nextSession: null };
+}
+
+// V22.9.104 J-9: 고치려던 사이 다른 사람이 이 기록을 먼저 바꿨다(지출자 바뀜은 spender_changed). 아무것도 바꾸지 않았다. 답 글에 주소는 넣지 않는다.
+function kakaoEditConflictTextV229104(entryNo = "", row = {}, status = "changed") {
+  if (status === "spender_changed") return `다른 사람이 ${entryNo}번 기록을 먼저 바꿔서 수정하지 않았어요.\n그 사이 ${row.type === "income" ? "수입자" : "지출자"}가 바뀌어 이제 내 기록이 아니에요.`;
+  return `다른 사람이 ${entryNo}번 기록을 먼저 바꿔서 수정하지 않았어요.\n‘${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기’로 지금 기록을 확인해 주세요.`;
 }
 
 // 3장 표: handleEditMessage 반환 action별 Worker 처리. 다른 해석 금지.
@@ -368,7 +392,7 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     const seq = Number(session.entryNo) || 0;
     let deleted = null;
     try {
-      deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: session.householdId, householdName: session.householdName || "", userId: session.userId }, row, seq);
+      deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: session.householdId, householdName: session.householdName || "", userId: session.userId, role: currentRole }, row, seq);
     } catch (err) {
       return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeleteFailedTextV4(err, row, seq), null);
     }
@@ -708,7 +732,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
     if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit));
     let deleted = null;
     try {
-      deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id }, row, seq);
+      deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id, role: ctx.role }, row, seq);
     } catch (err) {
       return kakaoText(kakaoEditDeleteFailedTextV4(err, row, seq));
     }

@@ -702,7 +702,11 @@ await linkFixture(async (fx, server) => {
   ok(events("kakao_auto_login_empty_account").length > 0, "13 빈 계정 자동 로그인을 건너뛴 것을 운영 이벤트로 남긴다");
   const manual = new Jar();
   const direct = await kakaoLogin(fx, manual, server, "9910", { ua: INAPP });
-  ok(direct.callback.location === "/my/households?first=1#create" && manual.user() === "user-empty-web", `13 로그인 화면에서 누른 카카오 로그인은 예전처럼 들어가 첫 가계부 화면으로 간다 (${direct.callback.location})`);
+  // V22.9.104 L-1(사용자 2026-11-06 "바로 가계부 홈이 나와야"): 동의하고 누른 카카오 로그인은 예전의 첫 가계부 화면(/my/households?first=1#create)
+  // 대신 ‘내 가계부’ 하나를 이 계정 소유로 만들고 홈(/app)으로 간다. 이을 계정이 없을 때만이다(있으면 만들지 않고 합치기 단계로 간다).
+  const owned = memberships(fx, "user-empty-web").filter((row) => row.role === "owner").map((row) => fx.db.households.find((item) => item.id === row.household_id));
+  ok(direct.callback.location === "/app" && manual.user() === "user-empty-web" && owned.length === 1 && owned[0]?.name === "내 가계부", `13 로그인 화면에서 누른 카카오 로그인은 들어가 기본 가계부(내 가계부)를 만들고 홈으로 간다 (${direct.callback.location}, 가계부 ${owned.length})`);
+  ok(events("kakao_first_household").length > 0, "13 기본 가계부를 만든 것을 운영 이벤트(info)로 남긴다");
 });
 
 // ── 14. 독립 검토 6: 자동 로그인은 콜백 한도를 따로 센다 ─────────────────────

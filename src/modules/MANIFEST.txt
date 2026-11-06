@@ -105,6 +105,7 @@ auth/local-login-pages.js
 auth/kakao-web-claim.js
 auth/kakao-account-link.js
 web/login-page-side-nav.js
+auth/kakao-start-screen.js
 domain/analytics.js
 features/meme-engine-premium.js
 admin/dashboard-fragments.js
