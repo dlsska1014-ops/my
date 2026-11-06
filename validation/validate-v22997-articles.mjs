@@ -14,6 +14,9 @@ const origin = "https://malhaebook.com";
 const get = (path, method = "GET", env = {}) => app.fetch(new Request(`${origin}${path}`, { method }), env, {});
 const decode = (text) => text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "'");
 const REVISION = "2026-11-03";
+// V22.9.104 A-4: H-10 사실 확인 고침으로 8편의 수정일만 2026-11-06 이 됐다(작성일 REVISION 은 그대로).
+// 원본 상수 living-cost-articles-v22997.js PUBLIC_TAX_ARTICLES_UPDATED_V229104 와 같은 값이다.
+const UPDATED = "2026-11-06";
 const HUB = "/articles";
 // 새 글 8편과 분류. 새 분류는 만들지 않는다.
 const NEW = {
@@ -42,7 +45,8 @@ const AD_RUNTIME = /adsbygoogle|googlesyndication|googleadservices|doubleclick|p
 // 2026-11-03 에 열어 본문(조문·안내)을 확인한 공식 출처. 글의 참고 자료는 이 안에서만 고른다. 새 출처는 먼저 열어 보고 더한다.
 const VERIFIED_SOURCES = new Set([
   "https://www.nts.go.kr/nts/na/ntt/selectNttInfo.do?mi=2201&bbsId=1028&nttSn=1347979",
-  "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?mi=2229&cntntsId=7667",
+  // V22.9.104 A-4(P3-8): 세율 안내는 메뉴 번호 mi=2227 로 열어야 머리말이 ‘세율’ 이다(H-10 보고 2026-11-04 확인).
+  "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?mi=2227&cntntsId=7667",
   "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?mi=40978&cntntsId=239040",
   "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?mi=40609&cntntsId=239021",
   "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?mi=2305&cntntsId=7706",
@@ -70,8 +74,8 @@ try {
   const xml = await (await get("/sitemap.xml")).text();
   const entries = [...xml.matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)].map((m) => ({ path: new URL(m[1]).pathname, lastmod: m[2] }));
   eq(entries.length, 60, "사이트맵은 공개 정본 60개다(52 + 새 글 8)");
-  for (const path of NEW_PATHS) eq(entries.find((e) => e.path === path)?.lastmod, REVISION, `${path}: 사이트맵에 있고 lastmod 가 작성일이다`);
-  eq(entries.find((e) => e.path === HUB)?.lastmod, REVISION, "허브 lastmod 가 새 글 작성일로 올라간다");
+  for (const path of NEW_PATHS) eq(entries.find((e) => e.path === path)?.lastmod, UPDATED, `${path}: 사이트맵에 있고 lastmod 가 수정일이다`);
+  eq(entries.find((e) => e.path === HUB)?.lastmod, UPDATED, "허브 lastmod 가 새 글 수정일로 올라간다");
 
   // 2. 공개 정본을 모두 그린다(함께 읽을 글·본문 링크가 실제 정본인지, 40자 창 비교에 쓴다).
   const pages = new Map();
@@ -127,7 +131,7 @@ try {
     ok(bodyHangul >= 2400 && bodyHangul <= 5200, `${path}: 글 전체 한글 ${bodyHangul}자 (V22.9.74 기준 2,400~5,200)`);
     ok(/<aside class="pubSummary" aria-label="핵심 요약"><b>핵심 요약<\/b><ul>(<li>[^<]+<\/li>){3}<\/ul><\/aside>/.test(html), `${path}: 핵심 요약 세 줄`);
     const meta = (html.match(/<p class="pubMeta">([\s\S]*?)<\/p>/) || [])[1] || "";
-    ok(meta.includes(`수정 <time datetime="${REVISION}">${REVISION}</time>`) && meta.includes(`작성 <time class="pubPublished" datetime="${REVISION}">${REVISION}</time>`), `${path}: 작성일·수정일 ${REVISION}`);
+    ok(meta.includes(`수정 <time datetime="${UPDATED}">${UPDATED}</time>`) && meta.includes(`작성 <time class="pubPublished" datetime="${REVISION}">${REVISION}</time>`), `${path}: 작성일 ${REVISION}·수정일 ${UPDATED}`);
     ok(meta.includes('작성·관리: <a href="/about">도담 네트워크 운영팀</a>'), `${path}: 작성자 줄이 소개 페이지로 이어진다`);
     ok(/읽는 시간 약 \d+분/.test(meta), `${path}: 읽는 시간`);
     ok(html.includes('<a href="/articles">생활비 가이드 글</a> / '), `${path}: 이동 경로가 허브를 지난다`);
@@ -136,7 +140,7 @@ try {
     eq(structured["@type"], "Article", `${path}: JSON-LD Article`);
     eq(structured.headline, h1, `${path}: JSON-LD 제목`);
     eq(structured.datePublished, REVISION, `${path}: JSON-LD 작성일`);
-    eq(structured.dateModified, REVISION, `${path}: JSON-LD 수정일`);
+    eq(structured.dateModified, UPDATED, `${path}: JSON-LD 수정일`);
     eq(structured.articleSection, NEW[path], `${path}: JSON-LD 분류`);
     eq(structured.author?.url, `${origin}/about`, `${path}: 책임 작성자 페이지`);
     eq(structured.isAccessibleForFree, true, `${path}: 무료 글`);
