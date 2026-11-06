@@ -39,6 +39,18 @@ import { supabase } from "../data/supabase-client.js";
 // V22.9.104 L-1: 카카오 첫 로그인에 만드는 기본 가계부 이름(가계부 기본 설정 띠가 ‘아직 안 정한 이름’으로 보는 꼴이라 띠가 이름을 정하게 한다).
 const KAKAO_FIRST_HOUSEHOLD_NAME = "내 가계부";
 
+// V22.9.104 독립 검토 P3-1: 방금 만든 첫 가계부로 보낼 때 돌아갈 곳(safeUserReturnPath 를 거친 같은 사이트 주소)의 household_id 를 뺀다.
+function withoutHouseholdIdV229104(path = "") {
+  if (!path) return "";
+  try {
+    const parsed = new URL(path, "https://accountbook.local");
+    parsed.searchParams.delete("household_id");
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch (_) {
+    return "";
+  }
+}
+
 async function handleKakaoLoginStart(request, env, url) {
   const reauthPurpose = ["household-delete", "credential-change"].includes(url.searchParams.get("reauth")) ? url.searchParams.get("reauth") : "";
   const reauthMode = !!reauthPurpose;
@@ -370,10 +382,17 @@ async function handleKakaoLoginCallback(request, env, url) {
       user = { ...user, nickname: profileName };
     }
     // V22.9.104 L-3: 세션을 만들 때 동의 기록을 한 번 읽어(새 계정은 방금 남긴 결과) 홈 팝업 쿠키(ab_cs)를 적는다. 가계부 목록과 함께 읽는다.
-    const [existingHouseholds, consentState] = await Promise.all([
+    const [existingHouseholds, consentRead] = await Promise.all([
       fetchUserHouseholds(env, user.id),
       createdUser?.id ? (consentRecorded ? true : null) : readSignupConsentState(env, user.id),
     ]);
+    // V22.9.104 통합 검토: 동의 칸을 체크하고 누른 로그인(loginConsent)인데 이미 있던 계정에 기록이 없으면(V22.9.95 전에 만든 계정, 단톡방에서 먼저 써
+    // 봇이 만든 계정) 여기서 남긴다. 남기지 않으면 시작 화면에서 방금 체크한 사람이 홈에서 같은 팝업을 또 본다. 저장에 실패하면 ab_cs=0(팝업이 다시 받는다).
+    // 체크 없이 들어온 자동 로그인(auto)은 남기지 않는다(홈 팝업이 받는다). 주소를 꾸며 auto=1 에 consent=1 을 함께 붙여도(서명된 상태에 둘 다 실린다)
+    // 화면 없는 카카오 로그인이라 사람이 체크한 것이 아니므로 남기지 않는다(독립 검토 P2-1).
+    const consentState = consentRead === false && loginConsent && !autoMode && !createdUser?.id
+      ? await recordSignupConsent(env, user.id, "kakao")
+      : consentRead;
     const loginNext = stateProof.mode === "login" ? safeUserReturnPath(String(stateProof.next || ""), "") : "";
     // V22.9.91 계정 잇기: 이 카카오 계정의 단톡방 기록 계정이 따로 있으면(잇기 제안) 합치기 단계(/my/account-link/run)로 보낸다.
     // 제안 표는 이 카카오 id 로 방금 확인했을 때만 합치기 표를 준다. 읽지 못하면 지금처럼 가계부로 간다.
@@ -398,8 +417,10 @@ async function handleKakaoLoginCallback(request, env, url) {
     // 없으면 첫 가계부 만들기 화면(/my/households?first=1#create)으로 보내지 않고 ‘내 가계부’ 하나를 이 사람 소유로 만든 뒤 돌아갈 곳(없으면 /app)으로 간다.
     // 만들기는 /my/create 폼과 같은 순서(createHouseholdForUserV229104, 새 SQL 없음)다. 잇기 제안이 있으면(linkProof.ok) 만들지 않고 합치기 단계로 간다.
     // 만들지 못하면 예전처럼 첫 가계부 화면으로 가고(자동 로그인은 시작 화면), 운영 이벤트(warn)를 남긴다. 이름은 가계부 기본 설정 띠(V22.9.102)가 정하게 한다.
+    // 카카오톡 인앱 브라우저에서만 만든다(독립 검토 P2-2: 사용자 결정 B-1 은 인앱 동의 한 번 → 기본 가계부. 인앱이 아닌 브라우저는 예전처럼 첫 가계부 화면에서
+    // 만들기·초대코드 참여를 고른다 — 데스크톱에서 초대코드로 참여하려고 온 사람에게 빈 가계부를 만들지 않으려고).
     let firstHousehold = null;
-    if (emptyAccount && noLinkOffer && (loginConsent || autoMode)) {
+    if (emptyAccount && noLinkOffer && (loginConsent || autoMode) && isKakaoTalkInAppBrowser(request)) {
       try {
         const made = await createHouseholdForUserV229104(env, user.id, KAKAO_FIRST_HOUSEHOLD_NAME, mergedMarkerFreeName(user.nickname || "", 40) || "내");
         firstHousehold = made?.household?.id ? made.household : null;
@@ -409,7 +430,9 @@ async function handleKakaoLoginCallback(request, env, url) {
       }
       if (autoMode && !firstHousehold) return autoFallback();
     }
-    const next = existingHouseholds.length ? (loginNext || "/my") : firstHousehold ? (loginNext && loginNext !== "/my" ? loginNext : "/app") : "/my/households?first=1#create";
+    // 방금 만든 첫 가계부로 갈 때는 돌아갈 곳의 household_id 를 뺀다(그 가계부의 참여자가 아니라 404 화면이 나온다, 독립 검토 P3-1).
+    const firstNext = firstHousehold ? withoutHouseholdIdV229104(loginNext) : "";
+    const next = existingHouseholds.length ? (loginNext || "/my") : firstHousehold ? (firstNext && firstNext !== "/my" ? firstNext : "/app") : "/my/households?first=1#create";
     const session = await makeUserSession(env, user.id);
     const cookies = [
       ...clearOauthCookies,
@@ -418,7 +441,8 @@ async function handleKakaoLoginCallback(request, env, url) {
     // V22.9.102 가계부 기본 설정 띠: 내 계정 로그인 비밀번호 유무를 로그인 때 한 번 확인해 쿠키(ab_bk=1/0, 14일)에 적는다. 홈은 이 쿠키만 보고
     // ‘로그인 비밀번호’ 항목을 띄운다(DB 읽기 0회). 확인에 실패하면 쿠키를 적지 않는다(모름 = 띄우지 않음).
     try { cookies.push(backupLoginKnownCookie(await hasBackupLoginIdentity(env, user))); } catch (_) {}
-    if (consentState !== null) cookies.push(consentStateCookie(consentState));
+    // 동의 기록을 읽지 못했으면(모름) 이 브라우저에 남은 앞 사람의 ab_cs 를 지운다(모름 = 팝업 없음, 독립 검토 P3-4).
+    cookies.push(consentState === null ? clearConsentStateCookie() : consentStateCookie(consentState));
     // 다시 카카오로 로그인했으니 자동 로그인 멈춤(로그아웃 off·비회원 skip)을 푼다. 쿠키가 있을 때만 지운다.
     // 자동 로그인은 되풀이 막기(try, 10분)를 남긴다(V22.9.91 독립 검토). 세션이 붙지 않거나 확인에서 거절되면 다음 화면이 자동 로그인을
     // 다시 보내지 않고 로그인 화면을 보인다. 예전에는 여기서 지워 같은 자리를 되풀이할 수 있었다.

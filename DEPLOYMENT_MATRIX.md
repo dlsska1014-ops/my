@@ -1,3 +1,12 @@
+## V22.9.104 배포 판단
+
+- V22.9.104-KAKAO-HOME 은 앱 Worker 만 바꾼다. SQL·Secret·환경변수·바인딩 34·cron·Kakao Developers·OpenBuilder·1년 캐시 자산 주소·관제 판(1.7.0)은 그대로다. 새 쿠키 ab_cs(HttpOnly·Secure·SameSite=Lax·14일)와 새 POST 경로 /my/consent 가 생긴다. 새 설정 행 종류는 없다(동의 기록 consent:<user_id> 는 V22.9.95 부터, via 값에 popup 이 더해짐). 번들 9,733,645 B·sha256 cd5c52d6b7fb…. 배포 대조는 바인딩 34·금지 변수 열 그대로.
+- 배포 길: 번들이 9.7 MB 라 `tools/deploy-worker-version.mjs`(업로드·대조 → 승격)를 사용자가 새 토큰으로 자기 PowerShell 에서 실행한다(V102·V103 과 같은 길).
+- 되돌리기 대상(기록만): 앱 version `d96aba94-8375-4f7e-b0a9-e99f8e04092d`(#335, V22.9.103). 되돌리면 시작 화면·동의 팝업·수정 조건이 사라지고, 그동안 만든 ‘내 가계부’ 와 동의 기록(via kakao·popup)은 남는다(옛 코드는 ab_cs 를 읽지 않는다). DB 구조 영향은 없다.
+- 만 14세 문구 삭제(V104:L-5)를 넣기로 하면 이 판에 커밋 72cf6fa 를 더하고 방침 개정일·공고일을 그날로, 공지 띠 변수 NOTICE_TEXT 를 새 개정 안내로 바꾼다(변수는 사용자 지목 뒤 Aside). 넣지 않으면 이대로 배포한다.
+- 배포 직후 확인: /health 판 이름, /ready 200·missing 0, 인앱 UA·세션 없음 /app 은 쿠키 없으면 303 /auth/kakao/start?auto=1(그대로)·자동 로그인 쿠키 skip 이면 200 시작 화면(`id="abKakaoStart"`), 인앱 아닌 /my·인앱 /my?login=1 은 긴 로그인 화면, POST /my/consent 다른 출처 403, 첫 화면 최근 글 8편, 글 8편 기준 줄, sitemap 60, 1년 캐시 expect103 그대로(유지 57·정리 45), 공개 검사 123, 운영 헤드리스 Chrome 으로 시작 화면 체크 → ‘카카오로 계속하기’ → kauth.kakao.com/accounts.kakao.com.
+- 사람 확인: 휴대폰 카카오톡에서 방 기록 → ‘가계부 열기’ → (시작 화면이면) 체크 → 카카오 → 홈, 동의 기록 없는 계정의 홈 팝업 → ‘동의하고 계속’.
+
 ## V22.9.103 배포 판단
 
 - V22.9.103-SEOUL-WORDING 은 앱 Worker 만 바꾼다(방침 8절 Supabase 행의 보관 장소 문구 한 곳 + 판 이름). SQL·Secret·환경변수·바인딩 33개·cron·Kakao Developers·OpenBuilder·1년 캐시 자산 주소·관제 판(1.7.0)은 바꾸지 않는다. 번들 9,678,290 B·sha256 d5e71acb6711…. 배포 대조는 바인딩 33·금지 변수 열하나 그대로(`KAKAO_ACCOUNT_LINK_ENABLED` 를 켜기 전까지).

@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_103.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_104.sha256",
 );
 const validationScripts = [
   ["V22.9.104 J-9 기록 수정·삭제 경쟁(구성원 저장·삭제는 ‘지출자 = 나’ 조건, 웹·카카오 충돌 안내, 소유자·관리자 그대로, 요청 수 그대로)", "validation/validate-edit-race-v229104.mjs"],
@@ -379,7 +379,7 @@ function run(command, args, label) {
 // V22.9.99: wording, notice hide and findings; measured 61,894 present / 61,891 absent.
 // V22.9.100: K-1 139 checks; F-1/F-2 user-confirmed split. Closing K-1 removes one open-item ledger assertion.
 // Both complete runs measured 62,052 present / 62,049 absent (61,914/61,911 + 139 - 1).
-const EXPECTED_MINIMUM_CHECKS = 62664;
+const EXPECTED_MINIMUM_CHECKS = 63561;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

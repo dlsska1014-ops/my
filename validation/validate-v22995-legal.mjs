@@ -7,7 +7,8 @@
 //   3 카카오 시작: 동의 없이 보통 로그인을 시작하면 로그인 화면(400, 오류)이다. consent=1 이면 카카오 인가로 가고 서명된 상태에 consent:1 이 실린다.
 //     인앱 자동 로그인(auto=1)·연결(link)·본인 확인(reauth)·로그인 세션이 있는 사람은 예전처럼 카카오로 간다.
 //   4 카카오 콜백: 동의한 로그인에서만 새 계정을 만들고 consent:<id>(via kakao)를 남긴다. 동의 없는 상태로 온 새 카카오 계정은 만들지 않고
-//     로그인 화면(오류)으로 돌려보낸다. 기존 계정은 동의 표시 없이도 들어오고 동의 기록을 새로 쓰지 않는다.
+//     로그인 화면(오류)으로 돌려보낸다. 기존 계정은 동의 표시 없이도 들어오고, V22.9.104(L-4)부터는 기록이 없던 기존 계정이
+//     동의하고 누른 로그인이면 consent:<id>(via kakao)를 한 번 남긴다(이미 있으면 다시 쓰지 않음, 동의 없는 로그인은 쓰지 않음).
 //   5 /privacy 1~13절(표 2개·보호책임자·위탁과 국외 이전·만 14세·파기·구제기관·변경 고지), 적은 쿠키 이름이 코드에 있는지, /terms 2절, 개정일 상수.
 //   6 공개 꼬리말의 대표·문의 이메일(전화번호 없음), /menu 의 이용약관·개인정보처리방침, 카카오 ‘개인정보’ 답이 방침의 문의 경로를 가리킨다.
 //   7 공개 첫 화면의 카카오 띠도 같은 동의 폼이다. 8 로그인 대기 화면 스크립트는 폼 제출에만 뜬다(동의 칸을 비우면 뜨지 않는다).
@@ -326,14 +327,24 @@ await section("4 카카오 콜백", () => scene(async (fx) => {
     ok(noConsent.callback.lines.some((line) => /^kakao_oauth_state=;/.test(line) && /Max-Age=0/.test(line)), "4 로그인 상태 쿠키를 지운다");
     ok(events("kakao_login_consent_missing").some((event) => /^new_account/.test(event.detail)), "4 운영 이벤트(new_account)를 남긴다");
 
-    // 기존 계정은 동의 표시 없이도 들어온다(이번 판은 기존 사용자에게 다시 묻지 않는다). 동의 기록을 새로 쓰지 않는다.
+    // 기존 계정은 동의 표시 없이도 들어온다(이번 판은 기존 사용자에게 다시 묻지 않는다). 동의 표시 없는 로그인은 동의 기록을 새로 쓰지 않는다.
+    // V22.9.104 L-4: 기록이 없는 기존 계정이 동의 칸을 체크하고(서명된 consent=1) 로그인하면 그 동의를 기록한다(via kakao). 예전에는 기록하지 않아
+    // 방금 체크한 사람이 홈 동의 팝업(L-3)을 또 봤다. 기록이 이미 있으면 다시 쓰지 않는다(처음 기록의 시각을 지킨다).
     fx.db.users.push({ id: "user-v22995-old", kakao_user_key: "kakao_login:8803", nickname: "기존 사용자", created_at: "2026-08-01T00:00:00Z" });
     const keys = consentKeys(fx).length;
     const old = await kakaoLogin(fx, server, "8803", { start: "/auth/kakao/start", cookie: fx.cookie });
     ok(old.callback.status === 303 && old.userId === "user-v22995-old", `4 기존 카카오 계정은 동의 표시 없는 상태로도 로그인된다 (${old.callback.status} ${old.userId})`);
+    eq(consentKeys(fx).length, keys, "4 기존 계정의 동의 표시 없는 로그인은 동의 기록을 새로 쓰지 않는다");
     const oldAgain = await kakaoLogin(fx, server, "8803");
     ok(oldAgain.callback.status === 303 && oldAgain.userId === "user-v22995-old", `4 기존 계정이 동의하고 로그인해도 같은 계정이다 (${oldAgain.userId})`);
-    eq(consentKeys(fx).length, keys, "4 기존 계정의 로그인은 동의 기록을 새로 쓰지 않는다");
+    eq(consentKeys(fx).length, keys + 1, "4 기록이 없던 기존 계정이 동의하고 로그인하면 그 동의를 기록한다(V22.9.104 L-4)");
+    const oldRecord = parse(settingValue(fx, "consent:user-v22995-old"));
+    eq(oldRecord, { version: REVISION, at: SCENE_AT, via: "kakao", age14: true }, "4 그 기록은 via kakao 다");
+    const earlier = JSON.stringify({ ...oldRecord, at: "2026-11-02T03:00:00.000Z" });
+    const oldRow = fx.db.accountbook_settings.find((row) => row.key === "consent:user-v22995-old");
+    if (oldRow) oldRow.value = earlier;
+    const oldThird = await kakaoLogin(fx, server, "8803");
+    ok(oldThird.callback.status === 303 && consentKeys(fx).length === keys + 1 && settingValue(fx, "consent:user-v22995-old") === earlier, "4 기록이 있으면 다시 동의하고 로그인해도 다시 쓰지 않는다(처음 기록의 시각 그대로)");
 
     // 자동 로그인은 동의와 상관없이 새 계정을 만들지 않는다(V22.9.91).
     const auto = await kakaoLogin(fx, server, "8804", { start: "/auth/kakao/start?auto=1", ua: INAPP });

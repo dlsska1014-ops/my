@@ -63,9 +63,10 @@ async function readSignupConsentState(env, userId = "") {
   }
 }
 
+// 읽지 못하면(모름) 이 브라우저에 남은 앞 사람의 ab_cs 를 지우는 쿠키를 준다(모름 = 팝업 없음, 독립 검토 P3-4).
 async function consentStateCookieFor(env, userId = "") {
   const state = await readSignupConsentState(env, userId);
-  return state === null ? "" : consentStateCookie(state);
+  return state === null ? clearConsentStateCookie() : consentStateCookie(state);
 }
 
 // 홈·시작 화면이 같이 쓰는 팝업 모양. 스크립트 없이 열린 상태로 그리고(고정 덮개), 아래 화면은 눌리지 않는다. 카카오 단추·동의 칸 모양은 로그인 화면과 같다.
@@ -134,7 +135,9 @@ function kakaoStartReturnPath(url) {
   qs.delete("auto");
   qs.delete("login");
   const query = qs.toString();
-  const back = safeUserReturnPath(`${url.pathname}${query ? `?${query}` : ""}`, "");
+  // /m 은 돌아갈 곳 허용 목록(safeUserReturnPath)에 없어 같은 홈을 그리는 /app 으로 돌아간다(독립 검토 P3-3).
+  const path = url.pathname === "/m" ? "/app" : url.pathname;
+  const back = safeUserReturnPath(`${path}${query ? `?${query}` : ""}`, "");
   return back.length <= 512 ? back : "";
 }
 
@@ -177,7 +180,8 @@ function withConsentPopupV229104(request, url, eligible, html) {
   const qs = new URLSearchParams(url.search);
   for (const key of CONSENT_POPUP_DROP_PARAMS) qs.delete(key);
   const query = qs.toString();
-  const back = safeUserReturnPath(`${url.pathname}${query ? `?${query}` : ""}`, "/app");
+  const path = url.pathname === "/m" ? "/app" : url.pathname;
+  const back = safeUserReturnPath(`${path}${query ? `?${query}` : ""}`, "/app");
   return source.slice(0, at) + consentPopupHtml({ returnTo: back }) + source.slice(at);
 }
 
@@ -193,6 +197,8 @@ async function handleMyConsent(request, env) {
     return htmlResponse(renderConsentPopupPageHtml(env, { returnTo: back, error: SIGNUP_CONSENT_REQUIRED_MESSAGE }), 400);
   }
   const existing = await readSignupConsentState(env, userId);
+  // 기록을 읽지 못했으면(null) 쓰지 않고 다시 누르게 한다. 저장은 덮어쓰기(merge-duplicates)라 있던 처음 기록을 덮을 수 있어서다(독립 검토 P3-2).
+  if (existing === null) return htmlResponse(renderConsentPopupPageHtml(env, { returnTo: back, error: CONSENT_POPUP_RECORD_FAILED }), 503);
   const recorded = existing === true ? true : await recordSignupConsent(env, userId, "popup");
   if (!recorded) return htmlResponse(renderConsentPopupPageHtml(env, { returnTo: back, error: CONSENT_POPUP_RECORD_FAILED }), 503);
   rememberOpsEvent({ kind: "consent_popup_accepted", severity: "info", path: "/my/consent", method: "POST", detail: existing === true ? "already" : "recorded" });

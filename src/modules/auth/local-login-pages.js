@@ -169,7 +169,7 @@ async function handleMyLocalLogin(request, env) {
     }
     const session = await makeUserSession(env, user.id);
     // V22.9.102: 로그인 이름으로 들어왔으면 내 계정 로그인 비밀번호가 있는 계정이다(가계부 기본 설정 띠의 비밀번호 항목 쿠키).
-    // V22.9.104 L-3: 동의 기록을 한 번 읽어 홈 동의 팝업 쿠키(ab_cs=1/0)를 적는다. 읽지 못하면 적지 않는다(모름 = 팝업 없음).
+    // V22.9.104 L-3: 동의 기록을 한 번 읽어 홈 동의 팝업 쿠키(ab_cs=1/0)를 적는다. 읽지 못하면 남은 ab_cs 를 지운다(모름 = 팝업 없음).
     return redirectResponseWithCookies(location, [
       `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
       backupLoginKnownCookie(),
