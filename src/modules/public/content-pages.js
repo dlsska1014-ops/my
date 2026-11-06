@@ -11,8 +11,8 @@ import {
 } from "./guide-content.js";
 import {
   publicArticleHangul, publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes,
-  publicArticleSiteMapLinks, publicArticlesHubPage, publicLivingCostArticlesV22974,
-  publicNormalizeLivingArticles,
+  publicArticleRecent, publicArticleSiteMapLinks, publicArticlesHubPage,
+  publicLivingCostArticlesV22974, publicNormalizeLivingArticles,
 } from "./living-cost-articles-v22974.js";
 import { publicLivingCostArticlesV22997 } from "./living-cost-articles-v22997.js";
 import { publicSupportPageV22995, withSupportVisitScriptV22997 } from "./support-page.js";
@@ -124,6 +124,14 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
   // V22.9.74: 생활비 가이드 글(12편 + 20편)에 분류·작성일을 붙이고, 글 목록 허브와 사이트맵 절을 그 목록으로 만든다.
   publicNormalizeLivingArticles(catalog);
   const articleIndex = publicArticleIndex(catalog);
+  // V22.9.104 A-2: 첫 화면 ‘최근 글’ 은 글 목록 앞 8편(작성일 최신 순) + 전체 목록 링크다. 첫 화면 수정일(화면·JSON-LD·사이트맵 lastmod)은
+  // 그 글들의 가장 늦은 수정일보다 이르지 않게 올린다(새 글을 올리거나 글을 고치면 첫 화면 목록도 바뀌므로).
+  const homeRecent = safeArray(catalog.home?.sections).find((section) => section.title === "최근 글");
+  if (homeRecent) {
+    const recent = publicArticleRecent(articleIndex);
+    homeRecent.links = [...recent.map((item) => [item.title, item.path]), ["생활비 가이드 글 전체 목록 보기", "/articles"]];
+    catalog.home.updated = recent.reduce((latest, item) => (item.updated > latest ? item.updated : latest), catalog.home.updated);
+  }
   catalog.articles = publicArticlesHubPage(articleIndex);
   const siteMapArticles = safeArray(catalog["site-map"]?.sections).find((section) => section.title === "생활비 가이드 글");
   if (siteMapArticles) siteMapArticles.links = publicArticleSiteMapLinks(articleIndex);
