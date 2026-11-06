@@ -47,7 +47,8 @@ import {
   currentMonthKst, extractDate, formatDate, nowKstDate, validMonth,
 } from "../nlu/date-payment.js";
 import {
-  abTransactionRequestId, createManualTransaction, deleteTransactionWithAudit, escapeHtml,
+  RECORD_EDIT_CONFLICT_MESSAGE_V229104, abTransactionRequestId, createManualTransaction,
+  deleteTransactionIfUnchangedResultV229104, deleteTransactionWithAudit, escapeHtml,
   fetchDeleteAuditIdV22994, makeInviteCode, numberWithCommas, updateTransactionIfUnchangedV22994,
 } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -226,11 +227,15 @@ function transactionDenialCode(access = {}, { row, householdId = "" } = {}) {
   return "not_my_record";
 }
 
-async function fetchTransactionRowById(env, id) {
+async function fetchTransactionRowById(env, id, select = "id,household_id,user_id") {
   if (!id) return null;
-  const rows = await supabase(env, `/rest/v1/transactions?id=eq.${encodeURIComponent(id)}&select=id,household_id,user_id&limit=1`, { method: "GET" }) || [];
+  const rows = await supabase(env, `/rest/v1/transactions?id=eq.${encodeURIComponent(id)}&select=${select}&limit=1`, { method: "GET" }) || [];
   return rows[0] || null;
 }
+
+// V22.9.104 J-9: 웹 삭제(/admin/delete)는 권한을 보는 첫 읽기에서 조건부 삭제(accountbook_delete_transaction_if_v22988)가 견줄 일곱 칸도 함께 읽는다
+// (같은 요청 한 번 — 칸만 늘었다). 구성원 삭제가 이 값으로 ‘읽은 뒤 지출자·내용이 바뀐 기록’을 지우지 않는다.
+const TX_DELETE_GUARD_SELECT_V229104 = "id,household_id,user_id,type,amount,transaction_date,category,memo,payment_method";
 
 async function fetchTransactionRowsByIds(env, ids = []) {
   const clean = [...new Set(safeArray(ids).map((id) => String(id || "").trim()).filter((id) => /^[0-9a-fA-F-]{20,80}$/.test(id)))];
@@ -367,7 +372,7 @@ async function handleAdminDeleteTransaction(request, env) {
   if (wantsJson && (!id || !householdId || id.length > 120 || householdId.length > 120)) {
     return jsonResponse({ ok: false, error: "invalid_scope", message: "가계부와 거래 ID를 확인해 주세요." }, 400);
   }
-  const targetRow = await fetchTransactionRowById(env, id);
+  const targetRow = await fetchTransactionRowById(env, id, TX_DELETE_GUARD_SELECT_V229104);
   const rowHousehold = String(targetRow?.household_id || householdId || "");
   const access = await resolveTransactionAccess(request, env, rowHousehold);
   const isManager = access.admin || ["owner", "admin"].includes(access.role);
@@ -394,7 +399,16 @@ async function handleAdminDeleteTransaction(request, env) {
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: validationError }), { err: validationError }));
   }
   try {
-    const result = await deleteTransactionWithAudit(env, id, rowHousehold, { actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user" });
+    // V22.9.104 J-9: 구성원 삭제는 위에서 읽은 일곱 칸(지출자 포함)이 그대로일 때만 지운다(조건부 삭제 함수, 감사 삭제 함수 대신 — DB 요청 수 같음).
+    // 그 사이 관리자가 지출자를 바꾸거나 다른 사람이 고쳤으면 지우지 않고 충돌로 알린다. 소유자·관리자·관리자 세션은 예전 그대로다.
+    const result = isManager
+      ? await deleteTransactionWithAudit(env, id, rowHousehold, { actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user" })
+      : await deleteTransactionIfUnchangedResultV229104(env, targetRow, rowHousehold, { actorUserId: access.userId || null, actorKind: "user" });
+    if (!isManager && result?.changed === true && result?.deleted !== true) {
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/admin/delete", method: "POST", detail: "delete_changed" });
+      if (wantsJson) return jsonResponse({ ok: false, error: "record_delete_failed", conflict: "record_edit_conflict", message: RECORD_EDIT_CONFLICT_MESSAGE_V229104 }, 409);
+      return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "record_edit_conflict" }), { err: "record_edit_conflict" }));
+    }
     if (!result || result.deleted !== true || String(result.id || "") !== id) {
       const error = new Error("transaction_delete_confirmation_missing");
       error.uncertain_write = true;
@@ -561,6 +575,17 @@ async function handleAdminUpdateTransaction(request, env) {
     // 저장(updateTransactionIfUnchangedV22994)이다. 0행이면 지금 값으로 다시 계획한다: 같은 칸이 다르게 바뀌었으면 충돌 화면(409), 다른 칸만 바뀌었거나
     // 같은 값이 됐으면 내 칸만 다시 저장한다(세 번까지, 그래도 엇갈리면 edit_conflict). 기준 값은 폼의 orig_* 이고, 없는 칸은 처음 읽은 값이다.
     const baseline = { ...Object.fromEntries(AB_EDIT_FIELDS.map((key) => [key, String(current[key] ?? "")])), ...(original || {}) };
+    // V22.9.104 J-9(Codex 검토 V102): 구성원(소유자·관리자 아님)은 자기 기록만 고친다. 권한은 맨 위 첫 읽기(targetRow)로 봤고 구성원은 지출자 칸을 바꾸지
+    // 않으므로, 그 뒤 이 읽기까지 또는 아래 저장 전에 관리자가 지출자를 바꾸면 구성원의 금액·메모가 이제 남의 기록이 된 행에 들어갔다. 이 읽기로 다시 보고,
+    // 저장에도 ‘지출자 = 나’ 조건을 건다(requireUserId — 같은 PATCH 의 조건이라 요청 수는 그대로). 바뀌었으면 저장하지 않고, 수정 폼 대신 입력한 값을 글로
+    // 남긴 안내(409)를 보인다(이제 남의 기록이라 다시 고칠 폼을 주지 않는다).
+    const requireUserId = isManager ? "" : String(access.userId || "");
+    const spenderChanged = (row) => {
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/admin/update", method: "POST", detail: "spender_changed" });
+      const backTo = safeUserReturnPath(String(form.get("return_to") || ""), `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(rowHousehold)}`);
+      return htmlResponse(renderTransactionSpenderChangedHtmlV229104(env, row, abEditTypedChangesV229104(submitted, baseline), backTo), 409);
+    };
+    if (requireUserId && String(current.user_id || "") !== requireUserId) return spenderChanged(current);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const plan = planTransactionEdit(current, submitted, baseline);
       if (plan.conflicts.length) {
@@ -569,9 +594,10 @@ async function handleAdminUpdateTransaction(request, env) {
         return htmlResponse(renderTransactionEditConflictHtml(env, current, plan.conflicts, backTo, members, isManager), 409);
       }
       if (!Object.keys(plan.patch).length) return back({ msg: "updated" });
-      const outcome = await updateTransactionIfUnchangedV22994(env, id, plan.patch, current, { householdId: rowHousehold, actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user", path: "/admin/update" });
+      const outcome = await updateTransactionIfUnchangedV22994(env, id, plan.patch, current, { householdId: rowHousehold, actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user", path: "/admin/update", requireUserId });
       if (outcome.status === "updated") return back({ msg: "updated" });
       if (outcome.status === "missing") return back({ err: "record_not_found" });
+      if (outcome.status === "spender_changed") return spenderChanged(outcome.row);
       current = outcome.row;
     }
     return back({ err: "edit_conflict" });
@@ -611,6 +637,23 @@ function planTransactionEdit(current = {}, submitted = {}, original = null) {
     }
   }
   return { patch, conflicts };
+}
+
+// V22.9.104 J-9: 구성원이 이 폼으로 바꾸려던 칸(기준 값과 다른 칸)과 입력한 값. 지출자가 바뀌어 저장하지 못했을 때 안내에 글로 남긴다.
+function abEditTypedChangesV229104(submitted = {}, baseline = {}) {
+  return AB_EDIT_FIELDS
+    .filter((field) => Object.hasOwn(submitted, field) && abEditValue(field, submitted[field]) !== abEditValue(field, baseline[field]))
+    .map((field) => ({ field, label: AB_EDIT_LABELS[field], next: abEditValue(field, submitted[field]) }));
+}
+
+// V22.9.104 J-9: 저장 전에 지출자가 바뀐 기록(이제 남의 기록)의 안내. 수정 폼은 주지 않고(고칠 권한이 없다), 입력한 값은 잃지 않게 글로 보인다.
+function renderTransactionSpenderChangedHtmlV229104(env, row = {}, typed = [], backTo = "/app") {
+  const shown = (c) => c.field === "amount" ? `${numberWithCommas(c.next)}원` : c.field === "type" ? (c.next === "income" ? "수입" : "지출") : (c.next || "(비어 있음)");
+  const person = row?.type === "income" ? "수입자" : "지출자";
+  const kept = typed.length
+    ? `<p>내가 입력한 값은 저장하지 않았어요. 필요하면 아래 값을 옮겨 적어 주세요.</p><ul>${typed.map((c) => `<li><b>${escapeHtml(c.label)}</b> ${escapeHtml(shown(c))}</li>`).join("")}</ul>`
+    : "";
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>기록 수정 · ${escapeHtml(appName(env))}</title></head><body><main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><div class="error" role="alert" data-ab-edit-conflict="spender_changed"><b>다른 사람이 이 기록을 먼저 바꿨어요.</b> 새로고침한 뒤 다시 확인해 주세요.<p>그 사이 이 기록의 ${person}가 바뀌어 이제 내 기록이 아니라서 저장하지 않았어요.</p>${kept}</div></section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`;
 }
 
 function abEditOriginalFields(t = {}) {

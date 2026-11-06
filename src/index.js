@@ -13943,11 +13943,15 @@ function transactionDenialCode(access = {}, { row, householdId = "" } = {}) {
   return "not_my_record";
 }
 
-async function fetchTransactionRowById(env, id) {
+async function fetchTransactionRowById(env, id, select = "id,household_id,user_id") {
   if (!id) return null;
-  const rows = await supabase(env, `/rest/v1/transactions?id=eq.${encodeURIComponent(id)}&select=id,household_id,user_id&limit=1`, { method: "GET" }) || [];
+  const rows = await supabase(env, `/rest/v1/transactions?id=eq.${encodeURIComponent(id)}&select=${select}&limit=1`, { method: "GET" }) || [];
   return rows[0] || null;
 }
+
+// V22.9.104 J-9: 웹 삭제(/admin/delete)는 권한을 보는 첫 읽기에서 조건부 삭제(accountbook_delete_transaction_if_v22988)가 견줄 일곱 칸도 함께 읽는다
+// (같은 요청 한 번 — 칸만 늘었다). 구성원 삭제가 이 값으로 ‘읽은 뒤 지출자·내용이 바뀐 기록’을 지우지 않는다.
+const TX_DELETE_GUARD_SELECT_V229104 = "id,household_id,user_id,type,amount,transaction_date,category,memo,payment_method";
 
 async function fetchTransactionRowsByIds(env, ids = []) {
   const clean = [...new Set(safeArray(ids).map((id) => String(id || "").trim()).filter((id) => /^[0-9a-fA-F-]{20,80}$/.test(id)))];
@@ -14084,7 +14088,7 @@ async function handleAdminDeleteTransaction(request, env) {
   if (wantsJson && (!id || !householdId || id.length > 120 || householdId.length > 120)) {
     return jsonResponse({ ok: false, error: "invalid_scope", message: "가계부와 거래 ID를 확인해 주세요." }, 400);
   }
-  const targetRow = await fetchTransactionRowById(env, id);
+  const targetRow = await fetchTransactionRowById(env, id, TX_DELETE_GUARD_SELECT_V229104);
   const rowHousehold = String(targetRow?.household_id || householdId || "");
   const access = await resolveTransactionAccess(request, env, rowHousehold);
   const isManager = access.admin || ["owner", "admin"].includes(access.role);
@@ -14111,7 +14115,16 @@ async function handleAdminDeleteTransaction(request, env) {
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: validationError }), { err: validationError }));
   }
   try {
-    const result = await deleteTransactionWithAudit(env, id, rowHousehold, { actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user" });
+    // V22.9.104 J-9: 구성원 삭제는 위에서 읽은 일곱 칸(지출자 포함)이 그대로일 때만 지운다(조건부 삭제 함수, 감사 삭제 함수 대신 — DB 요청 수 같음).
+    // 그 사이 관리자가 지출자를 바꾸거나 다른 사람이 고쳤으면 지우지 않고 충돌로 알린다. 소유자·관리자·관리자 세션은 예전 그대로다.
+    const result = isManager
+      ? await deleteTransactionWithAudit(env, id, rowHousehold, { actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user" })
+      : await deleteTransactionIfUnchangedResultV229104(env, targetRow, rowHousehold, { actorUserId: access.userId || null, actorKind: "user" });
+    if (!isManager && result?.changed === true && result?.deleted !== true) {
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/admin/delete", method: "POST", detail: "delete_changed" });
+      if (wantsJson) return jsonResponse({ ok: false, error: "record_delete_failed", conflict: "record_edit_conflict", message: RECORD_EDIT_CONFLICT_MESSAGE_V229104 }, 409);
+      return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: "record_edit_conflict" }), { err: "record_edit_conflict" }));
+    }
     if (!result || result.deleted !== true || String(result.id || "") !== id) {
       const error = new Error("transaction_delete_confirmation_missing");
       error.uncertain_write = true;
@@ -14278,6 +14291,17 @@ async function handleAdminUpdateTransaction(request, env) {
     // 저장(updateTransactionIfUnchangedV22994)이다. 0행이면 지금 값으로 다시 계획한다: 같은 칸이 다르게 바뀌었으면 충돌 화면(409), 다른 칸만 바뀌었거나
     // 같은 값이 됐으면 내 칸만 다시 저장한다(세 번까지, 그래도 엇갈리면 edit_conflict). 기준 값은 폼의 orig_* 이고, 없는 칸은 처음 읽은 값이다.
     const baseline = { ...Object.fromEntries(AB_EDIT_FIELDS.map((key) => [key, String(current[key] ?? "")])), ...(original || {}) };
+    // V22.9.104 J-9(Codex 검토 V102): 구성원(소유자·관리자 아님)은 자기 기록만 고친다. 권한은 맨 위 첫 읽기(targetRow)로 봤고 구성원은 지출자 칸을 바꾸지
+    // 않으므로, 그 뒤 이 읽기까지 또는 아래 저장 전에 관리자가 지출자를 바꾸면 구성원의 금액·메모가 이제 남의 기록이 된 행에 들어갔다. 이 읽기로 다시 보고,
+    // 저장에도 ‘지출자 = 나’ 조건을 건다(requireUserId — 같은 PATCH 의 조건이라 요청 수는 그대로). 바뀌었으면 저장하지 않고, 수정 폼 대신 입력한 값을 글로
+    // 남긴 안내(409)를 보인다(이제 남의 기록이라 다시 고칠 폼을 주지 않는다).
+    const requireUserId = isManager ? "" : String(access.userId || "");
+    const spenderChanged = (row) => {
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/admin/update", method: "POST", detail: "spender_changed" });
+      const backTo = safeUserReturnPath(String(form.get("return_to") || ""), `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(rowHousehold)}`);
+      return htmlResponse(renderTransactionSpenderChangedHtmlV229104(env, row, abEditTypedChangesV229104(submitted, baseline), backTo), 409);
+    };
+    if (requireUserId && String(current.user_id || "") !== requireUserId) return spenderChanged(current);
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const plan = planTransactionEdit(current, submitted, baseline);
       if (plan.conflicts.length) {
@@ -14286,9 +14310,10 @@ async function handleAdminUpdateTransaction(request, env) {
         return htmlResponse(renderTransactionEditConflictHtml(env, current, plan.conflicts, backTo, members, isManager), 409);
       }
       if (!Object.keys(plan.patch).length) return back({ msg: "updated" });
-      const outcome = await updateTransactionIfUnchangedV22994(env, id, plan.patch, current, { householdId: rowHousehold, actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user", path: "/admin/update" });
+      const outcome = await updateTransactionIfUnchangedV22994(env, id, plan.patch, current, { householdId: rowHousehold, actorUserId: access.userId || null, actorKind: access.admin ? "admin" : "user", path: "/admin/update", requireUserId });
       if (outcome.status === "updated") return back({ msg: "updated" });
       if (outcome.status === "missing") return back({ err: "record_not_found" });
+      if (outcome.status === "spender_changed") return spenderChanged(outcome.row);
       current = outcome.row;
     }
     return back({ err: "edit_conflict" });
@@ -14328,6 +14353,23 @@ function planTransactionEdit(current = {}, submitted = {}, original = null) {
     }
   }
   return { patch, conflicts };
+}
+
+// V22.9.104 J-9: 구성원이 이 폼으로 바꾸려던 칸(기준 값과 다른 칸)과 입력한 값. 지출자가 바뀌어 저장하지 못했을 때 안내에 글로 남긴다.
+function abEditTypedChangesV229104(submitted = {}, baseline = {}) {
+  return AB_EDIT_FIELDS
+    .filter((field) => Object.hasOwn(submitted, field) && abEditValue(field, submitted[field]) !== abEditValue(field, baseline[field]))
+    .map((field) => ({ field, label: AB_EDIT_LABELS[field], next: abEditValue(field, submitted[field]) }));
+}
+
+// V22.9.104 J-9: 저장 전에 지출자가 바뀐 기록(이제 남의 기록)의 안내. 수정 폼은 주지 않고(고칠 권한이 없다), 입력한 값은 잃지 않게 글로 보인다.
+function renderTransactionSpenderChangedHtmlV229104(env, row = {}, typed = [], backTo = "/app") {
+  const shown = (c) => c.field === "amount" ? `${numberWithCommas(c.next)}원` : c.field === "type" ? (c.next === "income" ? "수입" : "지출") : (c.next || "(비어 있음)");
+  const person = row?.type === "income" ? "수입자" : "지출자";
+  const kept = typed.length
+    ? `<p>내가 입력한 값은 저장하지 않았어요. 필요하면 아래 값을 옮겨 적어 주세요.</p><ul>${typed.map((c) => `<li><b>${escapeHtml(c.label)}</b> ${escapeHtml(shown(c))}</li>`).join("")}</ul>`
+    : "";
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>기록 수정 · ${escapeHtml(appName(env))}</title></head><body><main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><div class="error" role="alert" data-ab-edit-conflict="spender_changed"><b>다른 사람이 이 기록을 먼저 바꿨어요.</b> 새로고침한 뒤 다시 확인해 주세요.<p>그 사이 이 기록의 ${person}가 바뀌어 이제 내 기록이 아니라서 저장하지 않았어요.</p>${kept}</div></section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`;
 }
 
 function abEditOriginalFields(t = {}) {
@@ -34844,8 +34886,15 @@ async function handleMyUpdateTransaction(request, env) {
     // V22.9.94 C-9(외부 검토): 위에서 읽은 행(row)과 저장 사이에 다른 곳(카카오 수정·홈 수정·관리 API)이 저장하면 예전에는 일곱 칸을 모두 이 폼 값으로
     // 덮어썼다. 이제 읽은 값을 건 조건부 저장이라, 그 사이 바뀐 기록은 저장하지 않고 충돌(edit_conflict)을, 지워진 기록은 record_not_found 를 알린다.
     // 이 경로의 폼에는 원래 값(orig_*)이 없어, 읽기 전에 이미 바뀐 기록(옛 화면에서 보낸 값)은 가려내지 못한다 — 화면의 수정 폼은 /admin/update 를 쓴다.
-    const outcome = await updateTransactionIfUnchangedV22994(env, id, patch, row, { householdId: selected.id, actorUserId: userId, actorKind: "user", path: "/my/update" });
+    // V22.9.104 J-9: 구성원 저장에는 ‘지출자 = 나’ 조건도 건다(requireUserId, 같은 PATCH). 읽은 뒤 관리자가 지출자를 바꿨으면 저장하지 않고
+    // record_edit_conflict 로 알린다. 소유자·관리자는 예전 그대로다.
+    const requireUserId = canManageAllRecords(selected.role) ? "" : userId;
+    const outcome = await updateTransactionIfUnchangedV22994(env, id, patch, row, { householdId: selected.id, actorUserId: userId, actorKind: "user", path: "/my/update", requireUserId });
     if (outcome.status === "missing") return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
+    if (outcome.status === "spender_changed") {
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/my/update", method: "POST", detail: "spender_changed" });
+      return redirectResponse(myReturnLocation(month, selected.id, { err: "record_edit_conflict" }));
+    }
     if (outcome.status === "changed") return redirectResponse(myReturnLocation(month, selected.id, { err: "edit_conflict" }));
     try {
       await appendTransactionEditHistory(env, selected.id, id, row, { ...row, ...patch }, userId, members);
@@ -34882,7 +34931,14 @@ async function handleMyDeleteTransaction(request, env) {
   const policyError = await memberRecordChangeError(env, selected.role, selected.id);
   if (policyError) return redirectResponse(myReturnLocation(month, selected.id, { err: policyError }));
   try {
-    await deleteTransactionWithAudit(env, id, selected.id, { actorUserId: userId, actorKind: "user" });
+    // V22.9.104 J-9: 구성원 삭제는 위에서 읽은 일곱 칸(지출자 포함)이 그대로일 때만 지운다(조건부 삭제 함수 — 감사 삭제 함수 대신이라 DB 요청 수 같음).
+    // 읽은 뒤 관리자가 지출자를 바꿨거나 다른 사람이 고쳤으면 지우지 않고 record_edit_conflict 로 알린다. 소유자·관리자는 예전 그대로다.
+    if (canManageAllRecords(selected.role)) {
+      await deleteTransactionWithAudit(env, id, selected.id, { actorUserId: userId, actorKind: "user" });
+    } else if (await deleteTransactionIfUnchanged(env, row, selected.id, { actorUserId: userId, actorKind: "user" }) === "changed") {
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/my/delete", method: "POST", detail: "delete_changed" });
+      return redirectResponse(myReturnLocation(month, selected.id, { err: "record_edit_conflict" }));
+    }
     return redirectResponse(myReturnLocation(month, selected.id, { msg: "deleted" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_record_delete_failed", severity: "warn", path: "/my/delete", method: "POST", detail: safeError(err) });
@@ -46789,6 +46845,8 @@ function formatMessageText(msg) {
     category_keywords_unchanged: "바뀐 키워드가 없어 저장하지 않았습니다.",
     ambiguous_field: "같은 항목에 서로 다른 값이 함께 와서 저장하지 않았습니다. 화면을 새로고침한 뒤 다시 저장해 주세요.",
     edit_conflict: "다른 곳에서 이 기록이 먼저 바뀌어 저장하지 않았습니다. 지금 값을 확인하고 다시 저장해 주세요.",
+    // V22.9.104 J-9: 구성원이 고치거나 지우는 사이 다른 사람이 그 기록을 먼저 바꿈(지출자 바뀜 포함) — 저장·삭제하지 않았다.
+    record_edit_conflict: RECORD_EDIT_CONFLICT_MESSAGE_V229104,
     record_not_found: "기록을 찾지 못했습니다. 이미 삭제됐을 수 있으니 목록을 새로고침해 주세요.",
     amount_unit_required: "금액이 단위 없는 한 자리 숫자로만 읽혀 저장하지 않았습니다. 정말 그 금액이면 \"7원\"처럼 원을 붙이거나 금액 칸을 직접 고쳐 주세요.",
     backup_too_large: "기록이 많아 이 범위를 한 파일로 내려받을 수 없습니다. 일부만 담긴 파일을 내려보내지 않았습니다. 월별 CSV로 나눠 내려받아 주세요.",
@@ -48296,7 +48354,12 @@ async function writeKakaoEditUndoItemsV4(env, kakaoUserKey = "", payload = {}, i
 
 // S1: 잠금 안에서 버퍼에 먼저 담고, 담긴 것을 확인한 뒤에만 지운다. 버퍼를 읽거나 쓰지 못하면 지우지 않는다.
 // DELETE 단계의 오류에는 kakaoDeletePhase 를 달아 "결과 모름"과 "지우지 않음"을 호출부가 구분하게 한다.
-async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, householdId = "", householdName = "", userId = "" } = {}, row = {}, seq = 0) {
+// V22.9.104 J-9(Codex 검토 V102): role 은 지우는 사람의 지금 가계부 역할이다. 소유자·관리자가 아니고 카카오 기록 표시(source_user_key)가 없는
+// 기록(웹에서 만든 내 기록 — 지출자로 내 기록을 가린다)은 위에서 읽은 일곱 칸(지출자 포함)이 그대로일 때만 지운다(조건부 삭제 함수, DB 요청 수 같음).
+// 읽은 뒤 관리자가 지출자를 바꿨거나 다른 사람이 고쳤으면 지우지 않고, 버퍼를 앞의 값으로 되돌린 뒤 kakaoDeleteConflict 오류를 올린다.
+// 카카오로 쓴 기록(source_user_key 있음)은 지출자가 바뀌어도 쓴 사람의 기록이라(isKakaoRowOwnedByRequesterV2254) 예전처럼 감사 삭제 함수로 지운다.
+// role 을 모르면(빈 값) 구성원처럼 조건부로 지운다.
+async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, householdId = "", householdName = "", userId = "", role = "" } = {}, row = {}, seq = 0) {
   return withKakaoEditUndoLeaseV4(env, kakaoUserKey, payload, async ({ assertFresh }) => {
     // V22.9.80 T-13: 환불 연결이 켜져 있으면 지우기 전에 이 기록의 연결 수를 함께 읽어 버퍼에 적는다(같은 단계라 왕복이 늘지 않는다).
     // 지우면 연결은 함께 지워지고 복구해도 되살아나지 않으므로 삭제·복구 답장이 그 사실을 말한다. 플래그가 꺼져 있으면 칸이 없다.
@@ -48310,12 +48373,24 @@ async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, 
     assertFresh();
     await writeKakaoEditUndoItemsV4(env, kakaoUserKey, payload, items);
     assertFresh();
+    const guardSpender = !canManageMyHousehold(role) && !String(row.source_user_key || "").trim();
+    let outcome = "deleted";
     try {
       // V22.9.37 감사 NEW-4: 직접 DELETE 대신 웹과 같은 감사 RPC 로 지운다. accountbook_transaction_audit 에 지운 행과
       // 행위자가 남는다. RPC 도 실제 DELETE 이므로 복구는 예전처럼 버퍼의 행을 같은 id 로 다시 넣는다.
-      await deleteTransactionWithAudit(env, row.id, String(row.household_id || householdId), { actorUserId: userId || null, actorKind: KAKAO_AUDIT_ACTOR_KIND });
+      if (guardSpender) outcome = await deleteTransactionIfUnchanged(env, row, String(row.household_id || householdId), { actorUserId: userId || null, actorKind: KAKAO_AUDIT_ACTOR_KIND });
+      else await deleteTransactionWithAudit(env, row.id, String(row.household_id || householdId), { actorUserId: userId || null, actorKind: KAKAO_AUDIT_ACTOR_KIND });
     } catch (err) {
       throw Object.assign(new Error(`kakao_delete_failed: ${safeError(err)}`, { cause: err }), { kakaoDeletePhase: true });
+    }
+    if (outcome === "changed") {
+      // V22.9.104 J-9: 지우지 않은 기록을 복구 목록에 남기지 않는다(‘복구’가 지금 기록을 옛 값으로 되돌리지 않게). 되돌리지 못해도 기록은 그대로다.
+      try {
+        assertFresh();
+        await writeKakaoEditUndoItemsV4(env, kakaoUserKey, payload, previous);
+      } catch (_) {}
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/skill", method: "POST", detail: "kakao_delete_changed" });
+      throw Object.assign(new Error("kakao_delete_conflict"), { kakaoDeleteConflict: true });
     }
     return entry;
   });
@@ -48365,6 +48440,8 @@ function kakaoRefundLinkUndoNoteV4(refundLinks = undefined, phase = "delete") {
 // T2·S1: DELETE 결과를 모르면 다시 보내라고 하지 않는다. 다시 보내면 밀린 다음 번호가 지워진다.
 function kakaoEditDeleteFailedTextV4(err, row = {}, seq = 0) {
   const listCommand = `${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기`;
+  // V22.9.104 J-9: 읽은 뒤 다른 사람이 이 기록을 바꿔(지출자 바뀜 포함) 지우지 않았다. 지워진 것이 없으니 ‘복구’ 를 권하지 않는다.
+  if (err?.kakaoDeleteConflict) return `다른 사람이 이 기록을 먼저 바꿔서 지우지 않았어요.\n${kakaoRowLabel(row, seq)}\n‘${listCommand}’로 지금 기록을 확인해 주세요.`;
   if (err?.kakaoDeletePhase && isUncertainStorageWrite(err)) {
     return `삭제 결과를 확인하지 못했어요.\n${kakaoRowLabel(row, seq)}\n같은 명령을 다시 보내면 다른 기록이 지워질 수 있어요. ‘${listCommand}’로 먼저 확인해 주세요.\n지워져 있으면 ‘${Number(seq) >= 1 ? `복구 ${twoDigitSeq(seq)}번` : "복구"}’로 되돌릴 수 있어요.`;
   }
@@ -49833,9 +49910,25 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     return { reply: moduleReply, nextSession: null };
   }
   try {
-    // 행은 이미 이 가계부에서 찾았다. householdId 를 넘기면 RPC 전 행 조회 한 번이 빠진다.
-    // V22.9.37 감사 NEW-9: 웹 수정처럼 행위자(요청한 사용자)와 종류를 감사 기록에 남긴다. 예전에는 행위자 없는 system 이었다.
-    await updateTransaction(env, session.entryId, patch, { householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND });
+    // V22.9.104 J-9(Codex 검토 V102): 구성원(소유자·관리자 아님)이 카카오 기록 표시(source_user_key) 없는 기록(웹에서 만든 내 기록 — 지출자로 내 기록을
+    // 가린다)을 고칠 때, 위에서 읽은 뒤 관리자가 지출자를 바꾸면 예전에는 조건 없는 감사 RPC 가 이제 남의 기록이 된 행에 저장했다. 이제는 웹 수정과 같은
+    // 조건부 저장(바꾸는 칸의 읽은 값 + ‘지출자 = 나’)이고, 0행이면 바꾸지 않고 충돌로 답한다. 감사 한 줄은 답장 뒤로 미룬다(답 전 DB 요청 수는 감사 RPC 때와 같다).
+    // 카카오로 쓴 기록(source_user_key 있음)은 지출자가 바뀌어도 쓴 사람의 기록이라(isKakaoRowOwnedByRequesterV2254) 예전 그대로다. 소유자·관리자도 그대로다.
+    if (!canManageMyHousehold(role) && !String(row.source_user_key || "").trim()) {
+      const outcome = await updateTransactionIfUnchangedV22994(env, session.entryId, patch, row, {
+        householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND, path: "/skill", requireUserId: session.userId,
+        auditRunner: (job) => deferKakaoAfterReply(env, job, { cost: 1, critical: true }),
+      });
+      if (outcome.status === "missing") return { reply: `수정하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘기록’로 번호를 다시 확인해 주세요.`, nextSession: null };
+      if (outcome.status !== "updated") {
+        rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/skill", method: "POST", detail: outcome.status === "spender_changed" ? "kakao_edit_spender_changed" : "kakao_edit_changed" });
+        return { reply: kakaoEditConflictTextV229104(session.entryNo, row, outcome.status), nextSession: null };
+      }
+    } else {
+      // 행은 이미 이 가계부에서 찾았다. householdId 를 넘기면 RPC 전 행 조회 한 번이 빠진다.
+      // V22.9.37 감사 NEW-9: 웹 수정처럼 행위자(요청한 사용자)와 종류를 감사 기록에 남긴다. 예전에는 행위자 없는 system 이었다.
+      await updateTransaction(env, session.entryId, patch, { householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND });
+    }
   } catch (err) {
     // T2: 결과를 모르면 다시 보내라고 하지 않는다. 날짜 수정은 번호를 옮겨, 다시 보내면 다른 기록이 바뀐다.
     if (isUncertainStorageWrite(err)) {
@@ -49847,6 +49940,12 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     return { reply: `${session.entryNo}번 기록을 바꾸지 못했어요. 기록은 그대로예요.\n잠시 후 다시 보내 주세요.`, nextSession: null };
   }
   return { reply: `${reply}\n${kakaoEditRecordLineV4({ ...row, ...patch })}`, nextSession: null };
+}
+
+// V22.9.104 J-9: 고치려던 사이 다른 사람이 이 기록을 먼저 바꿨다(지출자 바뀜은 spender_changed). 아무것도 바꾸지 않았다. 답 글에 주소는 넣지 않는다.
+function kakaoEditConflictTextV229104(entryNo = "", row = {}, status = "changed") {
+  if (status === "spender_changed") return `다른 사람이 ${entryNo}번 기록을 먼저 바꿔서 수정하지 않았어요.\n그 사이 ${row.type === "income" ? "수입자" : "지출자"}가 바뀌어 이제 내 기록이 아니에요.`;
+  return `다른 사람이 ${entryNo}번 기록을 먼저 바꿔서 수정하지 않았어요.\n‘${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기’로 지금 기록을 확인해 주세요.`;
 }
 
 // 3장 표: handleEditMessage 반환 action별 Worker 처리. 다른 해석 금지.
@@ -49890,7 +49989,7 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     const seq = Number(session.entryNo) || 0;
     let deleted = null;
     try {
-      deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: session.householdId, householdName: session.householdName || "", userId: session.userId }, row, seq);
+      deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: session.householdId, householdName: session.householdName || "", userId: session.userId, role: currentRole }, row, seq);
     } catch (err) {
       return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeleteFailedTextV4(err, row, seq), null);
     }
@@ -50230,7 +50329,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
     if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit));
     let deleted = null;
     try {
-      deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id }, row, seq);
+      deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id, role: ctx.role }, row, seq);
     } catch (err) {
       return kakaoText(kakaoEditDeleteFailedTextV4(err, row, seq));
     }
@@ -57669,6 +57768,15 @@ async function deleteTransactionWithAudit(env, id, householdId, options = {}) {
 // 읽은 값과 다시 견주고, 같을 때만 감사 기록과 함께 지운다. 돌려주는 값은 "deleted" 또는 "changed"(그대로 둠)다. 함수가 아직 없으면(SQL 적용 전,
 // PGRST202) 예전처럼 감사 삭제 함수로 지운다 — 그때는 틈이 남고, migrations/V22_9_88_UNDO_DELETE_IF_UNCHANGED_APPLY_REVIEW_ONLY.sql 적용 뒤 닫힌다.
 async function deleteTransactionIfUnchanged(env, row = {}, householdId = "", options = {}) {
+  const outcome = await deleteTransactionIfUnchangedResultV229104(env, row, householdId, options);
+  return outcome?.changed === true && outcome?.deleted !== true ? "changed" : "deleted";
+}
+
+// V22.9.104 J-9: 위 조건부 삭제의 답을 그대로 돌려준다 — 지웠으면 { deleted: true, id }, 일곱 칸이 달라 그대로 뒀으면 { deleted: false, changed: true, id }.
+// 함수가 없으면(PGRST202) 예전 감사 삭제 함수의 답이다(그때는 V22.9.88 과 같이 틈이 남는다). 구성원 웹 삭제(/admin/delete)는 지운 기록 번호까지
+// 확인해야 해서(결과 모름 판정) 문자열이 아니라 이 답을 쓴다. 일곱 칸에 지출자(user_id)가 들어 있으므로, 같은 요청에서 읽은 행을 넘기면
+// ‘읽은 뒤 지출자가 바뀐 기록’은 지우지 않는다(관리자가 그 사이 지출자를 바꾼 경우).
+async function deleteTransactionIfUnchangedResultV229104(env, row = {}, householdId = "", options = {}) {
   const expected = Object.fromEntries(["type", "amount", "transaction_date", "category", "memo", "payment_method", "user_id"].map((key) => [key, row[key] ?? null]));
   try {
     const result = await supabase(env, "/rest/v1/rpc/accountbook_delete_transaction_if_v22988", {
@@ -57683,14 +57791,12 @@ async function deleteTransactionIfUnchanged(env, row = {}, householdId = "", opt
       }),
     });
     const outcome = Array.isArray(result) ? result[0] : result;
-    if (outcome?.deleted === true) return "deleted";
-    if (outcome?.changed === true) return "changed";
+    if (outcome?.deleted === true || outcome?.changed === true) return outcome;
     throw new Error("transaction_conditional_delete_invalid");
   } catch (err) {
     if (!/PGRST202|Could not find the function/i.test(safeError(err))) throw err;
   }
-  await deleteTransactionWithAudit(env, row.id, householdId, options);
-  return "deleted";
+  return deleteTransactionWithAudit(env, row.id, householdId, options);
 }
 
 // V22.9.90 웹 ‘되돌리기’: 지운 행은 지우는 DB 함수(accountbook_delete_transaction_v227·_if_v22988)가 감사 기록(before_value = 지운 행 전체)에 남긴다.
@@ -57748,7 +57854,17 @@ async function fetchDeleteAuditIdV22994(env, { transactionId = "", householdId =
 // 이 한 줄이 실패해도 수정은 이미 저장됐으므로 성공으로 답하고 운영 이벤트만 남긴다. 결과를 모르는 PATCH(응답 없음·5xx)는 supabase() 가 결과 불확실로
 // 던진다. 지출자 바꾸기는 부르는 곳이 같은 요청에서 받은 참여자 목록으로 먼저 확인한다(RPC 는 잠근 채 한 번 더 확인했다). 환불 연결 보호 트리거
 // (refund_link_guard_v22979, BEFORE UPDATE)는 PATCH 에도 그대로 걸린다.
+// V22.9.104 J-9(Codex 검토 V102): 구성원은 자기 기록(지출자 = 나)만 고친다. 그런데 바꾸지 않는 칸은 조건에 걸지 않으므로, 구성원이 금액만 고치는 사이
+// 관리자가 그 기록의 지출자를 바꾸면 구성원의 저장이 이제 남의 기록이 된 행에 들어갔다. options.requireUserId(구성원 본인 id)를 주면 지출자 칸을
+// 바꾸지 않아도 PATCH 에 user_id=eq.<그 id> 조건을 함께 건다(같은 PATCH 의 조건 하나라 DB 요청은 늘지 않는다). 0행이면 다시 읽어 지출자가 다르면
+// { status: "spender_changed", row: 지금 행 } 이다 — 부르는 곳이 충돌을 알리고 아무것도 바꾸지 않는다. 이때 ‘조건 불일치 대비’도 감사 RPC(조건 없음)가 아니라
+// 지출자 조건만 건 PATCH 로 저장한다. 소유자·관리자(requireUserId 없음)는 예전 그대로다. options.auditRunner 는 감사 한 줄을 남기는 일을 받아 돌린다
+// (기본은 바로 돌림, 카카오 수정은 답장 뒤로 미룬다 — 답 전 DB 요청 수를 감사 RPC 때와 같게 둔다).
 const TX_CONDITIONAL_EDIT_COLUMNS_V22994 = ["type", "amount", "transaction_date", "category", "memo", "payment_method", "user_id"];
+
+// V22.9.104 J-9: 구성원이 고치거나 지우려던 기록을 그 사이 다른 사람이 먼저 바꿨을 때(지출자 바뀜 포함) 웹에 보이는 말.
+// 웹 수정·삭제의 err=record_edit_conflict 문구(formatMessageText)와 /admin/delete JSON 의 message 가 이 값을 쓴다.
+const RECORD_EDIT_CONFLICT_MESSAGE_V229104 = "다른 사람이 이 기록을 먼저 바꿨어요. 새로고침한 뒤 다시 확인해 주세요.";
 
 function txConditionalEditFilterV22994(key, value) {
   if (value === null || value === undefined) return "is.null";
@@ -57770,35 +57886,58 @@ async function updateTransactionIfUnchangedV22994(env, id, body, expected = {}, 
   const keys = Object.keys(patch);
   if (!keys.length) return { status: "updated", row: expected };
   const actorKind = String(options.actorKind || "system").slice(0, 30);
-  const params = new URLSearchParams();
-  params.set("id", `eq.${transactionId}`);
-  params.set("household_id", `eq.${householdId}`);
-  for (const key of keys) params.set(key, txConditionalEditFilterV22994(key, expected?.[key]));
-  const updated = await supabase(env, `/rest/v1/transactions?${params.toString()}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=representation" },
-    body: JSON.stringify(patch),
-  });
-  if (!Array.isArray(updated)) throw Object.assign(new Error("transaction_conditional_update_invalid"), { uncertain_write: true });
-  const after = updated[0];
-  if (after) {
-    const before = { ...after };
-    for (const key of keys) before[key] = expected?.[key] ?? null;
-    try {
-      await supabase(env, "/rest/v1/accountbook_transaction_audit", {
-        method: "POST",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ transaction_id: transactionId, household_id: householdId, actor_user_id: options.actorUserId || null, actor_kind: actorKind, action: "update", before_value: before, after_value: after }),
-      });
-    } catch (auditError) {
-      rememberOpsEvent({ kind: "transaction_update_audit_failed", severity: "warn", path: String(options.path || ""), method: "POST", detail: safeError(auditError) });
-    }
+  const requireUserId = String(options.requireUserId || "").trim();
+  const runAudit = typeof options.auditRunner === "function" ? options.auditRunner : (job) => job();
+  const scope = () => {
+    const params = new URLSearchParams();
+    params.set("id", `eq.${transactionId}`);
+    params.set("household_id", `eq.${householdId}`);
+    return params;
+  };
+  const patchWhere = async (params) => {
+    // V22.9.104 J-9: 구성원 저장은 지출자 칸을 바꾸지 않아도 ‘지출자 = 나’ 조건을 건다(바꾸는 칸의 조건 뒤에 두어 같은 칸이면 이 값이 남는다).
+    if (requireUserId) params.set("user_id", `eq.${requireUserId}`);
+    const updated = await supabase(env, `/rest/v1/transactions?${params.toString()}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify(patch),
+    });
+    if (!Array.isArray(updated)) throw Object.assign(new Error("transaction_conditional_update_invalid"), { uncertain_write: true });
+    return updated[0] || null;
+  };
+  const audited = async (after) => {
+    await runAudit(async () => {
+      const before = { ...after };
+      for (const key of keys) before[key] = expected?.[key] ?? null;
+      try {
+        await supabase(env, "/rest/v1/accountbook_transaction_audit", {
+          method: "POST",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ transaction_id: transactionId, household_id: householdId, actor_user_id: options.actorUserId || null, actor_kind: actorKind, action: "update", before_value: before, after_value: after }),
+        });
+      } catch (auditError) {
+        rememberOpsEvent({ kind: "transaction_update_audit_failed", severity: "warn", path: String(options.path || ""), method: "POST", detail: safeError(auditError) });
+      }
+    });
     return { status: "updated", row: after };
-  }
+  };
+  const conditioned = scope();
+  for (const key of keys) conditioned.set(key, txConditionalEditFilterV22994(key, expected?.[key]));
+  const after = await patchWhere(conditioned);
+  if (after) return audited(after);
   const fresh = await txConditionalEditRowV22994(env, transactionId, householdId);
   if (!fresh) return { status: "missing", row: null };
+  if (requireUserId && String(fresh.user_id ?? "") !== requireUserId) return { status: "spender_changed", row: fresh };
   if (keys.some((key) => !txConditionalEditSameV22994(key, fresh[key], expected?.[key]))) return { status: "changed", row: fresh };
   rememberOpsEvent({ kind: "transaction_conditional_update_filter_mismatch", severity: "warn", path: String(options.path || ""), method: "PATCH", detail: keys.join(",") });
+  if (requireUserId) {
+    // V22.9.104 J-9: 값은 그대로인데 0행이었다(eq 비교 어긋남). 감사 RPC 는 지출자 조건을 걸 수 없어 지출자 조건만 건 PATCH 로 저장한다.
+    const saved = await patchWhere(scope());
+    if (saved) return audited(saved);
+    const latest = await txConditionalEditRowV22994(env, transactionId, householdId);
+    if (!latest) return { status: "missing", row: null };
+    return { status: String(latest.user_id ?? "") !== requireUserId ? "spender_changed" : "changed", row: latest };
+  }
   const viaRpc = await updateTransaction(env, transactionId, patch, { householdId, actorUserId: options.actorUserId || null, actorKind });
   return { status: "updated", row: viaRpc || fresh };
 }

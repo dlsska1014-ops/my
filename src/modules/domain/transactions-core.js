@@ -261,6 +261,15 @@ async function deleteTransactionWithAudit(env, id, householdId, options = {}) {
 // 읽은 값과 다시 견주고, 같을 때만 감사 기록과 함께 지운다. 돌려주는 값은 "deleted" 또는 "changed"(그대로 둠)다. 함수가 아직 없으면(SQL 적용 전,
 // PGRST202) 예전처럼 감사 삭제 함수로 지운다 — 그때는 틈이 남고, migrations/V22_9_88_UNDO_DELETE_IF_UNCHANGED_APPLY_REVIEW_ONLY.sql 적용 뒤 닫힌다.
 async function deleteTransactionIfUnchanged(env, row = {}, householdId = "", options = {}) {
+  const outcome = await deleteTransactionIfUnchangedResultV229104(env, row, householdId, options);
+  return outcome?.changed === true && outcome?.deleted !== true ? "changed" : "deleted";
+}
+
+// V22.9.104 J-9: 위 조건부 삭제의 답을 그대로 돌려준다 — 지웠으면 { deleted: true, id }, 일곱 칸이 달라 그대로 뒀으면 { deleted: false, changed: true, id }.
+// 함수가 없으면(PGRST202) 예전 감사 삭제 함수의 답이다(그때는 V22.9.88 과 같이 틈이 남는다). 구성원 웹 삭제(/admin/delete)는 지운 기록 번호까지
+// 확인해야 해서(결과 모름 판정) 문자열이 아니라 이 답을 쓴다. 일곱 칸에 지출자(user_id)가 들어 있으므로, 같은 요청에서 읽은 행을 넘기면
+// ‘읽은 뒤 지출자가 바뀐 기록’은 지우지 않는다(관리자가 그 사이 지출자를 바꾼 경우).
+async function deleteTransactionIfUnchangedResultV229104(env, row = {}, householdId = "", options = {}) {
   const expected = Object.fromEntries(["type", "amount", "transaction_date", "category", "memo", "payment_method", "user_id"].map((key) => [key, row[key] ?? null]));
   try {
     const result = await supabase(env, "/rest/v1/rpc/accountbook_delete_transaction_if_v22988", {
@@ -275,14 +284,12 @@ async function deleteTransactionIfUnchanged(env, row = {}, householdId = "", opt
       }),
     });
     const outcome = Array.isArray(result) ? result[0] : result;
-    if (outcome?.deleted === true) return "deleted";
-    if (outcome?.changed === true) return "changed";
+    if (outcome?.deleted === true || outcome?.changed === true) return outcome;
     throw new Error("transaction_conditional_delete_invalid");
   } catch (err) {
     if (!/PGRST202|Could not find the function/i.test(safeError(err))) throw err;
   }
-  await deleteTransactionWithAudit(env, row.id, householdId, options);
-  return "deleted";
+  return deleteTransactionWithAudit(env, row.id, householdId, options);
 }
 
 // V22.9.90 웹 ‘되돌리기’: 지운 행은 지우는 DB 함수(accountbook_delete_transaction_v227·_if_v22988)가 감사 기록(before_value = 지운 행 전체)에 남긴다.
@@ -340,7 +347,17 @@ async function fetchDeleteAuditIdV22994(env, { transactionId = "", householdId =
 // 이 한 줄이 실패해도 수정은 이미 저장됐으므로 성공으로 답하고 운영 이벤트만 남긴다. 결과를 모르는 PATCH(응답 없음·5xx)는 supabase() 가 결과 불확실로
 // 던진다. 지출자 바꾸기는 부르는 곳이 같은 요청에서 받은 참여자 목록으로 먼저 확인한다(RPC 는 잠근 채 한 번 더 확인했다). 환불 연결 보호 트리거
 // (refund_link_guard_v22979, BEFORE UPDATE)는 PATCH 에도 그대로 걸린다.
+// V22.9.104 J-9(Codex 검토 V102): 구성원은 자기 기록(지출자 = 나)만 고친다. 그런데 바꾸지 않는 칸은 조건에 걸지 않으므로, 구성원이 금액만 고치는 사이
+// 관리자가 그 기록의 지출자를 바꾸면 구성원의 저장이 이제 남의 기록이 된 행에 들어갔다. options.requireUserId(구성원 본인 id)를 주면 지출자 칸을
+// 바꾸지 않아도 PATCH 에 user_id=eq.<그 id> 조건을 함께 건다(같은 PATCH 의 조건 하나라 DB 요청은 늘지 않는다). 0행이면 다시 읽어 지출자가 다르면
+// { status: "spender_changed", row: 지금 행 } 이다 — 부르는 곳이 충돌을 알리고 아무것도 바꾸지 않는다. 이때 ‘조건 불일치 대비’도 감사 RPC(조건 없음)가 아니라
+// 지출자 조건만 건 PATCH 로 저장한다. 소유자·관리자(requireUserId 없음)는 예전 그대로다. options.auditRunner 는 감사 한 줄을 남기는 일을 받아 돌린다
+// (기본은 바로 돌림, 카카오 수정은 답장 뒤로 미룬다 — 답 전 DB 요청 수를 감사 RPC 때와 같게 둔다).
 const TX_CONDITIONAL_EDIT_COLUMNS_V22994 = ["type", "amount", "transaction_date", "category", "memo", "payment_method", "user_id"];
+
+// V22.9.104 J-9: 구성원이 고치거나 지우려던 기록을 그 사이 다른 사람이 먼저 바꿨을 때(지출자 바뀜 포함) 웹에 보이는 말.
+// 웹 수정·삭제의 err=record_edit_conflict 문구(formatMessageText)와 /admin/delete JSON 의 message 가 이 값을 쓴다.
+const RECORD_EDIT_CONFLICT_MESSAGE_V229104 = "다른 사람이 이 기록을 먼저 바꿨어요. 새로고침한 뒤 다시 확인해 주세요.";
 
 function txConditionalEditFilterV22994(key, value) {
   if (value === null || value === undefined) return "is.null";
@@ -362,35 +379,58 @@ async function updateTransactionIfUnchangedV22994(env, id, body, expected = {}, 
   const keys = Object.keys(patch);
   if (!keys.length) return { status: "updated", row: expected };
   const actorKind = String(options.actorKind || "system").slice(0, 30);
-  const params = new URLSearchParams();
-  params.set("id", `eq.${transactionId}`);
-  params.set("household_id", `eq.${householdId}`);
-  for (const key of keys) params.set(key, txConditionalEditFilterV22994(key, expected?.[key]));
-  const updated = await supabase(env, `/rest/v1/transactions?${params.toString()}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=representation" },
-    body: JSON.stringify(patch),
-  });
-  if (!Array.isArray(updated)) throw Object.assign(new Error("transaction_conditional_update_invalid"), { uncertain_write: true });
-  const after = updated[0];
-  if (after) {
-    const before = { ...after };
-    for (const key of keys) before[key] = expected?.[key] ?? null;
-    try {
-      await supabase(env, "/rest/v1/accountbook_transaction_audit", {
-        method: "POST",
-        headers: { Prefer: "return=minimal" },
-        body: JSON.stringify({ transaction_id: transactionId, household_id: householdId, actor_user_id: options.actorUserId || null, actor_kind: actorKind, action: "update", before_value: before, after_value: after }),
-      });
-    } catch (auditError) {
-      rememberOpsEvent({ kind: "transaction_update_audit_failed", severity: "warn", path: String(options.path || ""), method: "POST", detail: safeError(auditError) });
-    }
+  const requireUserId = String(options.requireUserId || "").trim();
+  const runAudit = typeof options.auditRunner === "function" ? options.auditRunner : (job) => job();
+  const scope = () => {
+    const params = new URLSearchParams();
+    params.set("id", `eq.${transactionId}`);
+    params.set("household_id", `eq.${householdId}`);
+    return params;
+  };
+  const patchWhere = async (params) => {
+    // V22.9.104 J-9: 구성원 저장은 지출자 칸을 바꾸지 않아도 ‘지출자 = 나’ 조건을 건다(바꾸는 칸의 조건 뒤에 두어 같은 칸이면 이 값이 남는다).
+    if (requireUserId) params.set("user_id", `eq.${requireUserId}`);
+    const updated = await supabase(env, `/rest/v1/transactions?${params.toString()}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=representation" },
+      body: JSON.stringify(patch),
+    });
+    if (!Array.isArray(updated)) throw Object.assign(new Error("transaction_conditional_update_invalid"), { uncertain_write: true });
+    return updated[0] || null;
+  };
+  const audited = async (after) => {
+    await runAudit(async () => {
+      const before = { ...after };
+      for (const key of keys) before[key] = expected?.[key] ?? null;
+      try {
+        await supabase(env, "/rest/v1/accountbook_transaction_audit", {
+          method: "POST",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ transaction_id: transactionId, household_id: householdId, actor_user_id: options.actorUserId || null, actor_kind: actorKind, action: "update", before_value: before, after_value: after }),
+        });
+      } catch (auditError) {
+        rememberOpsEvent({ kind: "transaction_update_audit_failed", severity: "warn", path: String(options.path || ""), method: "POST", detail: safeError(auditError) });
+      }
+    });
     return { status: "updated", row: after };
-  }
+  };
+  const conditioned = scope();
+  for (const key of keys) conditioned.set(key, txConditionalEditFilterV22994(key, expected?.[key]));
+  const after = await patchWhere(conditioned);
+  if (after) return audited(after);
   const fresh = await txConditionalEditRowV22994(env, transactionId, householdId);
   if (!fresh) return { status: "missing", row: null };
+  if (requireUserId && String(fresh.user_id ?? "") !== requireUserId) return { status: "spender_changed", row: fresh };
   if (keys.some((key) => !txConditionalEditSameV22994(key, fresh[key], expected?.[key]))) return { status: "changed", row: fresh };
   rememberOpsEvent({ kind: "transaction_conditional_update_filter_mismatch", severity: "warn", path: String(options.path || ""), method: "PATCH", detail: keys.join(",") });
+  if (requireUserId) {
+    // V22.9.104 J-9: 값은 그대로인데 0행이었다(eq 비교 어긋남). 감사 RPC 는 지출자 조건을 걸 수 없어 지출자 조건만 건 PATCH 로 저장한다.
+    const saved = await patchWhere(scope());
+    if (saved) return audited(saved);
+    const latest = await txConditionalEditRowV22994(env, transactionId, householdId);
+    if (!latest) return { status: "missing", row: null };
+    return { status: String(latest.user_id ?? "") !== requireUserId ? "spender_changed" : "changed", row: latest };
+  }
   const viaRpc = await updateTransaction(env, transactionId, patch, { householdId, actorUserId: options.actorUserId || null, actorKind });
   return { status: "updated", row: viaRpc || fresh };
 }
@@ -618,8 +658,9 @@ function escapeHtml(s) {
 }
 // @build:exports-start
 export {
-  abTransactionRequestId, bulkTransactionsAtomic, calculateStats, calendarDaysFromRows,
-  createManualTransaction, deleteTransactionIfUnchanged, deleteTransactionWithAudit, escapeHtml,
+  RECORD_EDIT_CONFLICT_MESSAGE_V229104, abTransactionRequestId, bulkTransactionsAtomic,
+  calculateStats, calendarDaysFromRows, createManualTransaction, deleteTransactionIfUnchanged,
+  deleteTransactionIfUnchangedResultV229104, deleteTransactionWithAudit, escapeHtml,
   fetchDeleteAuditIdV22994, fetchDeletedTransactionAudit, findTransactionForRequest,
   formatRecentTransactions, formatSummary, getCalendar, getMonthSummary, getStats, helpText,
   jsonForInlineScript, linkText, listTransactions, makeInviteCode, nextMonthStart, numberWithCommas,
