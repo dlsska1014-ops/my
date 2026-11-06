@@ -177,6 +177,7 @@ import {
   kakaoInAppAutoLoginResponse,
 } from "../auth/kakao-account-link.js";
 import { renderUserLoginHtml } from "../web/login-page-side-nav.js";
+import { handleMyConsent, kakaoInAppStartResponse } from "../auth/kakao-start-screen.js";
 import { renderPublicShareCardHtml } from "../admin/dashboard-fragments.js";
 import {
   detectKakaoAmbiguity, formatMessage, kakaoSkillSafeFallbackText,
@@ -365,6 +366,10 @@ const ACCOUNTBOOK_WORKER = {
       // 회원이면 화면 없이 로그인되고, 아니면 지금처럼 로그인 화면이 나온다(auth/kakao-account-link.js).
       const kakaoAutoLogin = await kakaoInAppAutoLoginResponse(request, env, url);
       if (kakaoAutoLogin) return kakaoAutoLogin;
+      // V22.9.104 L-1: 자동 로그인을 보내지 않은(이미 해 봤거나 auto=0·할 수 없는) 인앱 브라우저의 세션 없는 /my·/app·/m 은 긴 로그인 화면 대신
+      // 홈 모양 미리보기 위의 ‘카카오 계정으로 가계부 열기’ 팝업을 그린다(auth/kakao-start-screen.js). login=1·관리자 쿠키·인앱 아닌 브라우저는 예전 그대로다.
+      const kakaoStart = await kakaoInAppStartResponse(request, env, url);
+      if (kakaoStart) return kakaoStart;
 
       if (request.method === "HEAD" && url.pathname === "/" && !isExplicitAdminUrl(url) && url.searchParams.get("legacy") !== "1") {
         return headOnlyResponse(await handlePublicContentPage(request, env, url, "home"));
@@ -604,6 +609,11 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/my/logout" && request.method === "POST") {
         return await handleMyLogout({ explicit: true });
+      }
+
+      // V22.9.104 L-3: 동의 기록이 없는 로그인 사용자가 홈 팝업에서 누르는 ‘동의하고 계속’(같은 출처 검사는 위의 csrfOriginAllowed 가 먼저 한다).
+      if (url.pathname === "/my/consent" && request.method === "POST") {
+        return await handleMyConsent(request, env);
       }
 
       // V22.9.91 계정 잇기: 확인 화면(GET), 카카오로 다시 확인(POST), 합치기(GET, 카카오 확인 뒤 콜백이 준 5분짜리 표가 있어야 한다).

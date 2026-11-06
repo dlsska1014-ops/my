@@ -15,6 +15,7 @@ const checksumManifest = resolve(
   "BUNDLE_FILE_CHECKSUMS_V22_9_103.sha256",
 );
 const validationScripts = [
+  ["V22.9.104 카카오톡 인앱 시작 화면(홈 미리보기 위 동의 팝업)·첫 카카오 로그인 기본 가계부·홈 동의 팝업(ab_cs)·POST /my/consent", "validation/validate-kakao-home-v229104.mjs"],
   ["V22.9.102 UI 수정(필터 낱말·금액·이름, 보안 화면 순서, 가계부 기본 설정 띠·/my/setup, 초대코드, 단톡방 목록, 정기 지출자, 관제 1.7.0 /ready 30분)", "validation/validate-ui-fixes-v229102.mjs"],
   ["V22.9.100 방 기록 답 전 DB 호출 상한(장면별 답 전·전체·파동)", "validation/validate-skill-db-calls-v229100.mjs"],
   ["V22.9.101 B-0 답 뒤 식별 처리·기본/완료 캐시 경계·소유권", "validation/validate-skill-identity-defer-v229101.mjs"],
