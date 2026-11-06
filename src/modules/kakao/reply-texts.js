@@ -3,7 +3,7 @@ import { appName } from "../public/site-config.js";
 import { detectKakaoNaturalIntent, normalizeKakaoIntentText } from "./intent-nlu.js";
 import { stripKakaoBotMention } from "./request-guards.js";
 import { normalizeText } from "../nlu/amount-parser.js";
-import { escapeHtml } from "../domain/transactions-core.js";
+import { RECORD_EDIT_CONFLICT_MESSAGE_V229104, escapeHtml } from "../domain/transactions-core.js";
 // @build:imports-end
 
 function mergedOptions(base, extra) {
@@ -82,6 +82,8 @@ function formatMessageText(msg) {
     category_keywords_unchanged: "바뀐 키워드가 없어 저장하지 않았습니다.",
     ambiguous_field: "같은 항목에 서로 다른 값이 함께 와서 저장하지 않았습니다. 화면을 새로고침한 뒤 다시 저장해 주세요.",
     edit_conflict: "다른 곳에서 이 기록이 먼저 바뀌어 저장하지 않았습니다. 지금 값을 확인하고 다시 저장해 주세요.",
+    // V22.9.104 J-9: 구성원이 고치거나 지우는 사이 다른 사람이 그 기록을 먼저 바꿈(지출자 바뀜 포함) — 저장·삭제하지 않았다.
+    record_edit_conflict: RECORD_EDIT_CONFLICT_MESSAGE_V229104,
     record_not_found: "기록을 찾지 못했습니다. 이미 삭제됐을 수 있으니 목록을 새로고침해 주세요.",
     amount_unit_required: "금액이 단위 없는 한 자리 숫자로만 읽혀 저장하지 않았습니다. 정말 그 금액이면 \"7원\"처럼 원을 붙이거나 금액 칸을 직접 고쳐 주세요.",
     backup_too_large: "기록이 많아 이 범위를 한 파일로 내려받을 수 없습니다. 일부만 담긴 파일을 내려보내지 않았습니다. 월별 CSV로 나눠 내려받아 주세요.",

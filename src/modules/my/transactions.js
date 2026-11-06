@@ -223,8 +223,15 @@ async function handleMyUpdateTransaction(request, env) {
     // V22.9.94 C-9(외부 검토): 위에서 읽은 행(row)과 저장 사이에 다른 곳(카카오 수정·홈 수정·관리 API)이 저장하면 예전에는 일곱 칸을 모두 이 폼 값으로
     // 덮어썼다. 이제 읽은 값을 건 조건부 저장이라, 그 사이 바뀐 기록은 저장하지 않고 충돌(edit_conflict)을, 지워진 기록은 record_not_found 를 알린다.
     // 이 경로의 폼에는 원래 값(orig_*)이 없어, 읽기 전에 이미 바뀐 기록(옛 화면에서 보낸 값)은 가려내지 못한다 — 화면의 수정 폼은 /admin/update 를 쓴다.
-    const outcome = await updateTransactionIfUnchangedV22994(env, id, patch, row, { householdId: selected.id, actorUserId: userId, actorKind: "user", path: "/my/update" });
+    // V22.9.104 J-9: 구성원 저장에는 ‘지출자 = 나’ 조건도 건다(requireUserId, 같은 PATCH). 읽은 뒤 관리자가 지출자를 바꿨으면 저장하지 않고
+    // record_edit_conflict 로 알린다. 소유자·관리자는 예전 그대로다.
+    const requireUserId = canManageAllRecords(selected.role) ? "" : userId;
+    const outcome = await updateTransactionIfUnchangedV22994(env, id, patch, row, { householdId: selected.id, actorUserId: userId, actorKind: "user", path: "/my/update", requireUserId });
     if (outcome.status === "missing") return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
+    if (outcome.status === "spender_changed") {
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/my/update", method: "POST", detail: "spender_changed" });
+      return redirectResponse(myReturnLocation(month, selected.id, { err: "record_edit_conflict" }));
+    }
     if (outcome.status === "changed") return redirectResponse(myReturnLocation(month, selected.id, { err: "edit_conflict" }));
     try {
       await appendTransactionEditHistory(env, selected.id, id, row, { ...row, ...patch }, userId, members);
@@ -261,7 +268,14 @@ async function handleMyDeleteTransaction(request, env) {
   const policyError = await memberRecordChangeError(env, selected.role, selected.id);
   if (policyError) return redirectResponse(myReturnLocation(month, selected.id, { err: policyError }));
   try {
-    await deleteTransactionWithAudit(env, id, selected.id, { actorUserId: userId, actorKind: "user" });
+    // V22.9.104 J-9: 구성원 삭제는 위에서 읽은 일곱 칸(지출자 포함)이 그대로일 때만 지운다(조건부 삭제 함수 — 감사 삭제 함수 대신이라 DB 요청 수 같음).
+    // 읽은 뒤 관리자가 지출자를 바꿨거나 다른 사람이 고쳤으면 지우지 않고 record_edit_conflict 로 알린다. 소유자·관리자는 예전 그대로다.
+    if (canManageAllRecords(selected.role)) {
+      await deleteTransactionWithAudit(env, id, selected.id, { actorUserId: userId, actorKind: "user" });
+    } else if (await deleteTransactionIfUnchanged(env, row, selected.id, { actorUserId: userId, actorKind: "user" }) === "changed") {
+      rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/my/delete", method: "POST", detail: "delete_changed" });
+      return redirectResponse(myReturnLocation(month, selected.id, { err: "record_edit_conflict" }));
+    }
     return redirectResponse(myReturnLocation(month, selected.id, { msg: "deleted" }));
   } catch (err) {
     rememberOpsEvent({ kind: "my_record_delete_failed", severity: "warn", path: "/my/delete", method: "POST", detail: safeError(err) });
