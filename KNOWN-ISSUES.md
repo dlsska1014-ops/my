@@ -1,8 +1,8 @@
 ## V22.9.103 현재 상태
 
-- 방침 8절 리전 문구는 이 판에서 서울로 바뀐다(코드). 운영에 나가기 전까지 /privacy 는 ‘호주 시드니’ 를 보인다(운영 DB 는 11-05 19:09 부터 서울). 이 판 승격이 곧 고침이다.
+- 방침 8절 리전 문구는 2026-11-06 00:01 KST 운영 반영으로 서울이 됐다(/privacy 확인: ‘대한민국 서울 리전(AWS ap-northeast-2)’ 1곳, ‘호주 시드니’ 0). 운영 DB 는 11-05 19:09 부터 서울. 닫힘.
 - 관제 대시보드 변수 `SUPABASE_PROJECT_REF` 는 옛 ref 그대로다. 관제 코드는 이 값을 읽지 않아(요금제·사용량은 조직 단위) 화면에 영향이 없고, wrangler.jsonc 만 새 ref 로 고쳤다(다음 관제 배포 때 대시보드 값도).
-- Kakao Developers 앱 1489689 ↔ 채널 @말해가계부 연결(2026-11-05 저녁, Aside) 뒤 방 요청에 appUserId 가 실린다. `KAKAO_ACCOUNT_LINK_ENABLED` 는 없음(= 꺼짐) → 별칭·계정 합치기는 하지 않고 probe 행(`kakao_app_user_id_probe_v22991:*`)만 남긴다. 켜기는 사용자 지목 뒤(바인딩 33 → 34). 11-04 연결 때의 지연은 DB 호출 수(K-1·B-0 로 고침, V102 운영)였고 appUserId 자체가 아니었다.
+- Kakao Developers 앱 1489689 ↔ 채널 @말해가계부 연결(2026-11-05 저녁, Aside) 뒤 방 요청에 appUserId 가 실린다: 사용자 방 기록(22:27:42)으로 새 DB probe `present:group` 22:27:49·V22.9.102 확인, 답 지연 없음(사용자). **`KAKAO_ACCOUNT_LINK_ENABLED=1` 은 11-05 22:42:57 부터 켜짐(version 3d00c670 #334, 바인딩 34)** → 방 요청의 appUserId 가 웹 카카오 로그인 id 와 같으면 잇기 제안을 남기고, 합치기는 같은 카카오 계정으로 로그인한 브라우저에서만(/my/account-link). 실제 제안·합치기 동작은 아직 사람 확인 전(켠 직후 offers 키 없음). 11-04 연결 때의 지연은 DB 호출 수(K-1·B-0 로 고침, V102 운영)였고 appUserId 자체가 아니었다.
 - 유료 전환(Supabase Pro)은 사용자 결정(11-05 저녁)으로 추이를 본 뒤다. Supabase Free 에는 자동 백업이 없어 백업은 `review-artifacts/supabase-seoul-migration/11-dump-auto.ps1` 수동 덤프뿐이다(R-8 열림).
 
 ## V22.9.102 현재 상태

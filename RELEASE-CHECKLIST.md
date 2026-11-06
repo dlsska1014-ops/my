@@ -5,6 +5,7 @@
 - 전체 하네스 두 모드 62,667/62,664(하한 62,664; 새 검사 0, 환불 지문 3개 재채취), manifest `BUNDLE_FILE_CHECKSUMS_V22_9_103.sha256`(780), 번들 9,678,290 B·sha256 d5e71acb6711….
 - 운영 반영 뒤 확인: /health 판 이름 V22.9.103-SEOUL-WORDING, /privacy 8절 Supabase 행에 ‘대한민국 서울 리전(AWS ap-northeast-2)’, /ready 200·missing 0, 공개 검사 123, 1년 캐시 자산 주소 변화 없음(expect102 그대로), 관제 1.7.0.
 - 사람 확인: 없음(문구 한 곳). 관제 대시보드 변수 `SUPABASE_PROJECT_REF` 는 다음 관제 배포 때 새 ref 로(코드는 읽지 않음).
+- 운영 반영 뒤 확인 결과(2026-11-06 00:01 승격, Claude 00:03~00:15 KST): /health ×3 V22.9.103-SEOUL-WORDING·missing 0, /ready 200·필수 13·RPC 19·missing 0, /privacy 8절 서울 1·시드니 0, 1년 캐시 pinned 57 = 운영 200·해시 동일, 정리 45 = 404, sitemap 60, 공개 검사 사용자 도구 123/123(Claude 재실행 3회는 LAX 경로 시간 초과가 매번 다른 1~2건(ready·AdSense owner·자산·manifest), 직접 재요청은 모두 200), 관제 /health 1.7.0, 바인딩 34(스위치 포함). 상세 docs/deployments/V22_9_103_2026_11_06.md. 기록 PR 은 문서만: manifest 재해시(781), 하네스 두 모드 62,667/62,664.
 
 ## V22.9.102 UI 수정 검사
 

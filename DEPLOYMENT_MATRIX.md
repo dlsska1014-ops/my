@@ -6,6 +6,8 @@
 - 관제 대시보드 변수 `SUPABASE_PROJECT_REF`(지금 옛 ref)는 코드가 읽지 않으므로 이 판에서 관제 배포를 하지 않는다. wrangler.jsonc 만 새 ref 로 적어 두었고 다음 관제 판 배포 때 대시보드 값을 맞춘다.
 - 사용자 결정(2026-11-05 저녁): 유료 전환(Supabase Pro 11-10 무렵)은 사용자 추이(일 방문 10~100명 안팎, 수익 없음)를 본 뒤. 관제 CF_PLAN·SUPABASE_PLAN=free 그대로. Workers Paid(출시 직전) 결정은 따로 다시 묻는다.
 - 배포 직후 확인: /health 판 이름, /privacy 8절 ‘대한민국 서울 리전(AWS ap-northeast-2)’, /ready 200·missing 0, 공개 검사 123, 1년 캐시 expect102 그대로(새 자산 없음), 관제 1.7.0.
+- **운영 반영 끝(2026-11-06 00:01:19 KST)**: 사용자 11-05 22:3x "PR #131, #132 병합" → Aside 병합 #131 415d8d4(22:34:48)·#132 0048cf4(22:38:28, merge-tree = 11a59e0 트리) → 사용자 "KAKAO_ACCOUNT_LINK_ENABLED 켜기" → Aside 가 Text 변수 =1 추가·배포 version `3d00c670-22f2-40d5-b09c-baeeb5347256`(#334, 22:42:57, **바인딩 34**) → 사용자 토큰 도구 업로드 version `d96aba94-8375-4f7e-b0a9-e99f8e04092d`(#335, 23:50:37, 34 inherit 차이 0) → 승격 deployment `abf5d899-3099-465c-a145-0a7f3f26100d`(00:01:19). 도구 health 5/5·공개 123/123, Claude 직후 확인 통과(docs/deployments/V22_9_103_2026_11_06.md). 위 ‘바인딩 33·금지 변수 열하나’ 는 스위치를 켜기 전 값이다 → **다음 배포 대조는 바인딩 34·금지 변수 열**(KAKAO_ACCOUNT_LINK_ENABLED 는 이제 허용).
+- 되돌리기 대상 갱신(기록만): 앱 `3d00c670…`(#334, 스위치 포함). 스위치까지 끄려면 `ac5f2a4b…`(#333). 06848d5e·66db5997 은 시드니 DB.
 
 ## V22.9.102 배포 판단
 

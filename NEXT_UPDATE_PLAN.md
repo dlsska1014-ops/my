@@ -1,9 +1,9 @@
 ## V22.9.103 다음 단계
 
-1. 방침 8절 서울 문구 판(V22.9.103-SEOUL-WORDING, 기록 PR #131 위): PR → CI 4/4 → 사용자 지목 뒤 #131·V103 병합 → 사용자가 새 토큰으로 `tools/deploy-worker-version.mjs` 업로드·승격(바인딩 33 inherit, 되돌리기 대상 ac5f2a4b…). 승격 뒤 /privacy 8절·/health·/ready·공개 검사.
-2. 단톡방 식별: Kakao Developers 앱 1489689 ↔ @말해가계부 연결 끝(11-05 저녁). 사용자 방 기록 1건 뒤 새 DB `accountbook_settings` 의 `kakao_app_user_id_probe_v22991:present:group`(판 이름 V22.9.102) 과 답 지연 없음을 확인 → 사용자가 `KAKAO_ACCOUNT_LINK_ENABLED=1` 켜기를 지목하면 Aside 가 변수 추가·배포(바인딩 34, 새 version) → 운영자 계정 /identity-audit 확인.
-3. 유료 전환은 사용자 추이 뒤(사용자 결정 11-05 저녁: 일 방문 10~100명 안팎, 수익 없음). 11-10 Supabase Pro 예정은 접는다. Workers Paid(출시 직전) 결정은 따로 다시 묻는다. 옛 Supabase 프로젝트 `hlftopwrwmpskbdaognv` 는 11-12 무렵 일시 중지(사용자 지목). 관제 `SUPABASE_PROJECT_REF` 대시보드 값은 다음 관제 판 배포 때.
-4. Codex: V102:J-9 수정 경쟁(RPC/SQL) → A-1·A-2·A-4 → B → C. #127 은 Codex 리베이스 뒤. 지시문 ‘2026-11-05 저녁 추가 2’(8절 문구)는 이 판이 대신 처리했다.
+1. ~~방침 8절 서울 문구 판~~ 끝: PR #131·#132 병합(11-05 22:34·22:38) → V22.9.103 승격 2026-11-06 00:01:19 KST(version d96aba94 #335, deployment abf5d899, 바인딩 34 inherit, 되돌리기 대상 3d00c670 #334). 직후 확인 통과(docs/deployments/V22_9_103_2026_11_06.md). 남은 것: 다음 관제 판 배포 때 대시보드 `SUPABASE_PROJECT_REF`.
+2. ~~단톡방 식별~~ 켜짐: 앱 1489689 연결(11-05 저녁) → 사용자 방 기록 1건(22:27)으로 새 DB probe `present:group` V22.9.102·답 지연 없음 확인 → 사용자 지목으로 `KAKAO_ACCOUNT_LINK_ENABLED=1`(22:42:57, version 3d00c670 #334, 바인딩 34). 남은 것: 잇기 제안 실제 동작 사람 확인(다음 방 기록 뒤 같은 카카오 계정의 웹 /my·/my/account-link, 운영자 /identity-audit), 새 DB offers 키는 Claude 읽기만.
+3. 유료 전환은 사용자 추이 뒤(사용자 결정 11-05 저녁: 일 방문 10~100명 안팎, 수익 없음). 11-10 Supabase Pro 예정은 접는다. Workers Paid(출시 직전) 결정은 따로 다시 묻는다. 옛 Supabase 프로젝트 `hlftopwrwmpskbdaognv` 는 추천대로 11-12 무렵 일시 중지(사용자 11-05 "4. 추천으로 진행해줘"; 실행 전 그날 다시 지목). 관제 `SUPABASE_PROJECT_REF` 대시보드 값은 다음 관제 판 배포 때.
+4. Codex: 다음 판 V22.9.104 는 origin/main 0048cf4(V103) 에서 새 워크트리. V102:J-9 수정 경쟁(RPC/SQL) → A-1·A-2·A-4 → B → C. #127 은 Codex 리베이스 뒤. 지시문 ‘2026-11-05 저녁 추가 2’(8절 문구)는 V103 이 대신 처리했다. 배포 대조 기준은 바인딩 34·금지 변수 열.
 
 ## V22.9.102 다음 단계
 
