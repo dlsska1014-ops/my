@@ -1,3 +1,6 @@
+// V22.9.106: the final public-content/worksheet changes passed all 268 checks with APP_VERSION V105.
+// Bumping only APP_VERSION changes analysis, backupFull and backupMonth; the other 22 goldens remain identical.
+// Evidence: ads-approval-audit-2026-11-05/app-refund-before-version.log and app-refund-version106-golden.log.
 // V22.9.102(2026-11-05, UI 수정): 꺼짐 화면의 홈 셋은 필터 블록만(머리 ‘찾기·거르기’ → ‘필터’, 검색 칸 안내·aria-label, 빠른 검색 칸 #v8Search 제거,
 // ‘검색 적용’ → ‘필터 적용’, ‘필터 초기화’ → ‘초기화’, 세부 접기 이름), 분석·백업 둘은 판 이름만 바뀐다. 같은 픽스처·시계로 base(0fa07a0) 번들과 현재 번들의
 // 세 화면을 조각 단위로 대조해 뺀 6·더한 5 조각이 모두 필터 블록임을 확인한 뒤(review-artifacts/v102-ui-fixes-2026-11-05/refund-compare.txt)
@@ -98,15 +101,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 fef72cab327c9203e1d1d3b7",
   "reportsWeek": "200 428380c89484611de8943026",
-  "analysis": "200 254eea4783f5737a3fe6c6bc",
+  "analysis": "200 589cc552e19e1c0fa630c724",
   "backupPage": "200 b9a026f5decec130db68d757",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 55df0620439ccd31b710dd68",
-  "backupMonth": "200 3da0c62669cf82be10dff09d",
+  "backupFull": "200 88158070937d64f8e5a3483e",
+  "backupMonth": "200 1df9880686fea3abe9c1e069",
   "candidate": "200 500f881e0ca7f01cb92e917a",
   "legacyErr": "200 8483371f87264a4e90af381d",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

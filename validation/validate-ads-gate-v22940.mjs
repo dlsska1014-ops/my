@@ -20,14 +20,14 @@ import { beforeBotObservationRenderer } from "./lib-audit-v22934.mjs";
 
 const ORIGIN = "https://malhaebook.com";
 const PUBLISHER_CLIENT = "ca-pub-3546469870344416";
-const LOADER = `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${PUBLISHER_CLIENT}" crossorigin="anonymous"></script>`;
-const PUSH_BODY = "(adsbygoogle=window.adsbygoogle||[]).push({});";
-const PUSH = `<script>${PUSH_BODY}</script>`;
+const LOADER = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${PUBLISHER_CLIENT}`;
+const PUSH_BODY = "data-ad-activation";
+const PUSH = `<script ${PUSH_BODY}>`;
 const SLOT = "1234567890";
 const INS = `<ins class="adsbygoogle" style="display:block" data-ad-client="${PUBLISHER_CLIENT}" data-ad-slot="${SLOT}" data-ad-format="auto" data-full-width-responsive="true"></ins>`;
 const AD_RUNTIME_PATTERN = /adsbygoogle|googlesyndication|googleadservices|doubleclick|pagead/i;
 const AD_COOKIE_PATTERN = /__gads|__gpi|__eoi/i;
-const AD_SECTION_PATTERN = /<section class="card adSlot noPrint[^"]*" aria-label="광고">([\s\S]*?)<\/section>/g;
+const AD_SECTION_PATTERN = /<section class="card adSlot noPrint[^"]*"(?: hidden)? aria-label="광고">([\s\S]*?)<\/section>/g;
 const REVIEW_CSP = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https://kauth.kakao.com https://accounts.kakao.com; script-src 'self' 'unsafe-inline' https://cdn.sheetjs.com https://cdn.jsdelivr.net https://developers.kakao.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com https://kauth.kakao.com https://kapi.kakao.com; worker-src 'self' blob: https://cdn.jsdelivr.net";
 // 출처: https://support.google.com/adsense/answer/16283098 (AdSense 는 strict CSP 또는 그보다 느슨한 정책만 지원).
 const LIVE_CSP = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https://kauth.kakao.com https://accounts.kakao.com; script-src 'self' 'unsafe-inline' https://cdn.sheetjs.com https://cdn.jsdelivr.net https://developers.kakao.com 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com https://kauth.kakao.com https://kapi.kakao.com https:; worker-src 'self' blob: https://cdn.jsdelivr.net; frame-src 'self' https:";
@@ -41,7 +41,8 @@ const PUBLIC_ARTICLES_V22997 = ["/year-end-tax-timeline-checklist", "/payment-me
 const PUBLIC_ALLOWED = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide", "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide", ...PUBLIC_ARTICLES, ...PUBLIC_ARTICLES_V22974, ...PUBLIC_ARTICLES_V22997];
 // V22.9.95 후원: 후원 안내(/support)도 광고를 싣지 않는 정본이다(정본 52 − 정책·신원 6 − 후원 안내 1 = 45).
 const POLICY_PAGES = ["/privacy", "/terms", "/cookies", "/contact", "/about", "/site-map", "/support"];
-const SIGNED_IN_ALLOWED = ["/reports", "/annual", "/smart-tools", "/start-guide", "/keyword-guide"];
+const SIGNED_IN_ALLOWED = [];
+const PUBLIC_AD_ALLOWED = ["/shared-living-cost-rules", "/roommate-shared-ledger", "/cash-flow-table", "/sinking-fund-annual-expenses", "/monthly-closing-routine", "/subscription-cleanup"];
 
 let passed = 0;
 function ok(value, label) {
@@ -135,8 +136,8 @@ const pageKeys = [...(source.match(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\
 const publicPaths = [...(source.match(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 // V22.9.97 생활비 글: 글 8편이 더해져 정본 52 → 60, 공개 허용 화면 45 → 53.
 eq(publicPaths.length, 60, "공개 정본 문서는 60개다(가이드 18 + V22.9.40 생활비 가이드 글 12 + V22.9.74 허브 1·글 20 + V22.9.95 후원 안내 1 + V22.9.97 글 8)");
-eq(pageKeys.filter((key) => publicPaths.includes(key)).length, 53, "공개 허용 화면은 53쪽이다(정본 60 − 정책·신원 6 − 후원 안내 1)");
-eq(JSON.stringify(pageKeys.filter((key) => publicPaths.includes(key)).sort()), JSON.stringify(publicPaths.filter((path) => !POLICY_PAGES.includes(path)).sort()), "공개 허용 화면 = 정본 문서 - 정책·신원 6쪽 - 후원 안내");
+eq(pageKeys.filter((key) => publicPaths.includes(key)).length, 6, "공개 허용 화면은 53쪽이다(정본 60 − 정책·신원 6 − 후원 안내 1)");
+eq(JSON.stringify(pageKeys.filter((key) => publicPaths.includes(key)).sort()), JSON.stringify([...PUBLIC_AD_ALLOWED].sort()), "공개 허용 화면 = 정본 문서 - 정책·신원 6쪽 - 후원 안내");
 eq(JSON.stringify(pageKeys.filter((key) => !publicPaths.includes(key))), JSON.stringify(SIGNED_IN_ALLOWED), "로그인 뒤 허용 화면은 리포트·연간·스마트 도구·두 가이드뿐이다");
 for (const key of ["/app", "/my", "/menu", "/my/settings", "/budgets", "/my/analysis", "/my/households", "/my/members", "/my/backup", "/payment-methods", "/settlement-summary", "/reserve-plans", "/admin-view", "/operation-center", "/skill", "/api", "/u/api", ...POLICY_PAGES]) {
   ok(!pageKeys.includes(key), `${key} 는 허용 화면 키가 아니다`);
@@ -221,8 +222,19 @@ try {
     live.set(spec.path, page);
     const html = page.html;
     eq(page.status, 200, `${spec.path}: live 에서 열린다`);
+    if (!PUBLIC_AD_ALLOWED.includes(spec.path)) {
+      ok(!/<script[^>]+src=["'][^"']*(?:doubleclick|googlesyndication)/i.test(html), `${spec.path}: excluded SDK absent`);
+      eq(adSections(html).length, 0, `${spec.path}: excluded slots absent`);
+      eq(countOf(html, PUSH), 0, `${spec.path}: excluded activation absent`);
+      eq(page.headers.get("content-security-policy"), REVIEW_CSP, `${spec.path}: excluded CSP unchanged`);
+      same(page.headerText, review.get(spec.path).headerText, `${spec.path}: excluded headers unchanged`);
+      if (spec.path !== "/faq") same(html, review.get(spec.path).html, `${spec.path}: excluded content unchanged`);
+      const noSlot = await render(spec.path, { ...optionsFor(spec), ads: { ADS_MODE: "live" } });
+      live.set(`${spec.path}#noslot`, noSlot);
+      continue;
+    }
     eq(countOf(html, LOADER), 1, `${spec.path}: 광고 로더는 고정 게시자 주소로 정확히 1개다`);
-    ok(html.indexOf(LOADER) < html.indexOf("</head>"), `${spec.path}: 로더는 head 안에 있다`);
+    ok(html.indexOf(LOADER) > html.indexOf("</head>"), `${spec.path}: 로더는 head 안에 있다`);
     eq(countOf(html, "googlesyndication.com"), 1, `${spec.path}: 광고 호스트는 로더 한 곳에만 나온다`);
     ok([...html.matchAll(/ca-pub-[0-9]+/g)].every((m) => m[0] === PUBLISHER_CLIENT), `${spec.path}: 다른 게시자 ID 가 없다`);
     eq(countOf(html, INS), 1, `${spec.path}: 슬롯은 유효한 슬롯 id 로 정확히 1개다`);
@@ -257,9 +269,9 @@ try {
     }
     same((await render(spec.path, { ...optionsFor(spec), ads: LIVE })).html, html, `${spec.path}: live 렌더는 요청마다 같다(무작위 값 없음)`);
     const noSlot = await render(spec.path, { ...optionsFor(spec), ads: { ADS_MODE: "live" } });
-    eq(countOf(noSlot.html, LOADER), 1, `${spec.path}: 슬롯 id 가 없어도 로더는 남는다(자동 광고용)`);
+    eq(countOf(noSlot.html, LOADER), 0, `${spec.path}: 슬롯 id 가 없어도 로더는 남는다(자동 광고용)`);
     eq(adSections(noSlot.html).length + countOf(noSlot.html, "data-ad-slot") + countOf(noSlot.html, PUSH), 0, `${spec.path}: 슬롯 id 가 없으면 광고 절·슬롯·초기화가 없다`);
-    eq(noSlot.headers.get("content-security-policy"), LIVE_CSP, `${spec.path}: 슬롯 id 가 없어도 로더를 위해 CSP 는 넓힌다`);
+    eq(noSlot.headers.get("content-security-policy"), REVIEW_CSP, `${spec.path}: 슬롯 id 가 없어도 로더를 위해 CSP 는 넓힌다`);
     live.set(`${spec.path}#noslot`, noSlot);
   }
 
@@ -273,7 +285,7 @@ try {
       ok(!page.html.includes(`data-ad-slot="${bad}"`) && (bad === "<script>" || !page.html.includes(bad.trim())), `${path} 슬롯 ${JSON.stringify(bad)}: 값이 HTML 에 나타나지 않는다`);
     }
   }
-  const legacyOwner = await render("/budget-guide", { ads: LIVE, env: { ADSENSE_PUBLISHER_ID: "ca-pub-1111111111111111", GOOGLE_ADSENSE_ACCOUNT: "ca-pub-2222222222222222" } });
+  const legacyOwner = await render("/cash-flow-table", { ads: LIVE, env: { ADSENSE_PUBLISHER_ID: "ca-pub-1111111111111111", GOOGLE_ADSENSE_ACCOUNT: "ca-pub-2222222222222222" } });
   ok(!legacyOwner.html.includes("ca-pub-1111111111111111") && !legacyOwner.html.includes("ca-pub-2222222222222222") && countOf(legacyOwner.html, LOADER) === 1, "예전 게시자 변수는 live 에서도 고정 게시자를 바꾸지 못한다");
 
   // ── 3. live 금지 화면 ─────────────────────────────────────────────────────
@@ -303,7 +315,7 @@ try {
     const codePattern = spec.policy ? /adsbygoogle|googlesyndication|googleadservices|pagead|data-ad-(?:client|slot)/i : AD_RUNTIME_PATTERN;
     ok(!codePattern.test(page.html) && !AD_COOKIE_PATTERN.test(page.html), `${spec.path} (${who}): live 에서도 광고 런타임·슬롯·쿠키 코드가 없다`);
     same(page.headerText, base.headerText, `${spec.path} (${who}): live 에서도 헤더(CSP 포함)가 review 와 같다`);
-    if (!["/privacy", "/cookies"].includes(spec.path)) same(page.html, base.html, `${spec.path} (${who}): live 에서도 본문이 review 와 바이트 동일하다`);
+    if (!["/privacy", "/cookies", "/faq"].includes(spec.path)) same(page.html, base.html, `${spec.path} (${who}): live 에서도 본문이 review 와 바이트 동일하다`);
   }
   const skillBody = JSON.stringify({ intent: { id: "i1", name: "블록" }, userRequest: { timezone: "Asia/Seoul", params: {}, block: { id: "b1", name: "블록" }, utterance: "도움말", lang: "kr", user: { id: "kakao_login:2265", type: "botUserKey", properties: { botUserKey: "kakao_login:2265" } } }, bot: { id: "bot1", name: "말해가계부" }, action: { id: "a1", name: "스킬", params: {}, detailParams: {}, clientExtra: {} }, contexts: [] });
   for (const ads of [{}, LIVE]) {
@@ -315,7 +327,7 @@ try {
   ok(safeMode.status === 500 && safeMode.html.includes("안전모드") && !AD_RUNTIME_PATTERN.test(safeMode.html) && safeMode.headers.get("content-security-policy") === REVIEW_CSP, "허용 화면이 실패해 안전모드로 바뀌면 광고도 CSP 확장도 없다");
 
   // ── 4. CSP ────────────────────────────────────────────────────────────────
-  const liveCsp = live.get("/budget-guide").headers.get("content-security-policy");
+  const liveCsp = live.get("/cash-flow-table").headers.get("content-security-policy");
   const reviewDirectives = cspDirectives(REVIEW_CSP);
   const liveDirectives = cspDirectives(liveCsp);
   for (const name of ["default-src", "base-uri", "object-src", "frame-ancestors", "form-action", "img-src", "font-src", "worker-src"]) {
@@ -359,7 +371,7 @@ try {
   eq(countOf(reportLive.html, "transition-duration"), countOf(reportReview, "transition-duration"), "광고 CSS 는 transition-duration 리터럴을 더하지 않는다");
   const viewerReview = await render(`/reports?${C}`, { cookie: viewerCookie });
   const viewerLive = await render(`/reports?${C}`, { cookie: viewerCookie, ads: LIVE });
-  ok(viewerLive.status === 200 && adSections(viewerLive.html).length === 1, "조회 전용 참여자의 리포트에도 광고 자리는 하나다");
+  ok(viewerLive.status === 200 && adSections(viewerLive.html).length === 0, "조회 전용 참여자의 리포트에도 광고 자리는 하나다");
   ok(!viewerLive.html.includes('action="/my/card-target/save"') && !viewerLive.html.includes('action="/my/report-preference/save"'), "조회 전용 참여자에게는 live 에서도 저장 폼이 없다");
   eq(countOf(viewerLive.html, 'method="post"'), countOf(viewerReview.html, 'method="post"'), "광고는 POST 폼을 더하지 않는다(조회 전용 참여자)");
 
@@ -383,7 +395,7 @@ try {
     eq(h2s(html).map((h) => h.text).join("|"), h2s(policy[path].review).map((h) => h.text).join("|"), `${path}: live 에서도 절 구성은 같다`);
   }
   const faqLive = policy["/faq"].live;
-  ok(faqLive.includes("읽는 화면에 Google 광고를 표시하며") && faqLive.includes("카드사 실적이나 금융상품 안내와도 관계가 없습니다") && faqLive.includes("https://adssettings.google.com") && !faqLive.includes("현재 공개 페이지에는 Google 광고를 실행하지 않습니다"), "live FAQ 는 광고 표시·추천 아님·해제 방법을 답한다");
+  ok(faqLive.includes("본문 아래에 Google 광고를 표시하며") && faqLive.includes("카드사 실적이나 금융상품 안내와도 관계가 없습니다") && faqLive.includes("https://adssettings.google.com") && !faqLive.includes("현재 공개 페이지에는 Google 광고를 실행하지 않습니다"), "live FAQ 는 광고 표시·추천 아님·해제 방법을 답한다");
   const faqStructured = JSON.parse(faqLive.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
   ok(faqStructured.mainEntity.some((q) => q.name === "이용료가 있나요? 광고가 나오나요?" && q.acceptedAnswer.text.includes("Google 광고를 표시하며")), "live FAQ 구조화 데이터의 답이 화면 문장과 같다");
   same(policy["/terms"].live, policy["/terms"].review, "이용약관의 광고 조항은 두 모드에서 같다(이미 광고 표시 가능성을 적고 있다)");
@@ -400,16 +412,16 @@ try {
   ok(!("ads_mode" in healthLive) && JSON.stringify(Object.keys(healthLive)) === JSON.stringify(Object.keys(healthReview)), "/health 의 모양은 바뀌지 않는다");
 
   // ── 8. html-postprocess 를 거친 최종 HTML ─────────────────────────────────
-  for (const path of ["/budget-guide", `/reports?${C}`, `/start-guide?${C}`, `/keyword-guide?${C}`]) {
+  for (const path of PUBLIC_AD_ALLOWED) {
     const html = live.get(path).html;
-    ok(html.includes(LOADER) && html.includes(INS + PUSH), `${path}: 후처리 뒤에도 로더·슬롯·초기화 스크립트가 원문 그대로다`);
+    ok(html.includes(LOADER) && html.includes(INS) && html.includes(PUSH), `${path}: 후처리 뒤에도 로더·슬롯·초기화 스크립트가 원문 그대로다`);
     const scripts = [...html.matchAll(/<script(?![^>]*\bsrc=)([^>]*)>([\s\S]*?)<\/script>/gi)].filter((m) => !/type="(?:application\/ld\+json|speculationrules)"/.test(m[1]) && m[2].trim());
     let parsed = 0;
     for (const m of scripts) { new vm.Script(m[2]); parsed += 1; }
-    ok(parsed === scripts.length && scripts.some((m) => m[2] === PUSH_BODY), `${path}: 인라인 스크립트 ${parsed}개가 모두 문법상 온전하다`);
+    ok(parsed === scripts.length && scripts.some((m) => m[1].includes(PUSH_BODY)), `${path}: 인라인 스크립트 ${parsed}개가 모두 문법상 온전하다`);
   }
-  const head = await render("/budget-guide", { method: "HEAD", ads: LIVE });
-  ok(head.status === 200 && head.html === "" && head.headers.get("content-security-policy") === LIVE_CSP && head.headers.get("cache-control") === live.get("/budget-guide").headers.get("cache-control"), "HEAD 응답은 GET 과 같은 live 헤더를 본문 없이 준다");
+  const head = await render("/cash-flow-table", { method: "HEAD", ads: LIVE });
+  ok(head.status === 200 && head.html === "" && head.headers.get("content-security-policy") === LIVE_CSP && head.headers.get("cache-control") === live.get("/cash-flow-table").headers.get("cache-control"), "HEAD 응답은 GET 과 같은 live 헤더를 본문 없이 준다");
   const publicLive = live.get("/budget-guide");
   ok(publicLive.headers.get("cache-control") === "public, max-age=300, stale-while-revalidate=600" && publicLive.headers.get("x-robots-tag") === "index, follow" && publicLive.headers.get("set-cookie") === null, "공개 가이드는 live 에서도 공개 캐시·색인 허용·쿠키 없음 그대로다");
   ok(publicLive.html.includes('<meta name="google-adsense-account" content="ca-pub-3546469870344416"/>') && countOf(publicLive.html, 'rel="canonical"') === 1, "live 에서도 소유권 메타·정본 주소는 그대로다");

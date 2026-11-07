@@ -7,6 +7,8 @@ const ok = (value, message) => { checks++; if (!value) failures.push(message); }
 const eq = (actual, expected, message) => ok(actual === expected, `${message}: expected ${expected}, got ${actual}`);
 const origin = "https://malhaebook.com";
 const revision = "2026-11-03";
+// V106 edits six of these source articles; unedited source articles retain the earlier date.
+const revisedSources = new Set(['/card-income-deduction-basics','/year-end-tax-expense-check','/rent-tax-credit-records','/childcare-cost-planning','/couple-account-structure','/debt-repayment-order']);
 const pairs = [
   ["card-income-deduction-basics", "payment-method-switch-nov-dec"],
   ["year-end-tax-expense-check", "year-end-tax-timeline-checklist"],
@@ -52,10 +54,11 @@ try {
     ok(linksOf(relatedOf(page.html)).some((link) => link.path === to), `${from} directly recommends ${to}`);
     eq(linksOf(relatedOf(page.html)).length, 3, `${from} keeps the three-link limit`);
     const data = jsonLdOf(page.html);
+    const modified = revisedSources.has(from) ? "2026-11-07" : revision;
     eq(data.datePublished, "2026-10-21", `${from} preserves its publication date`);
-    eq(data.dateModified, revision, `${from} records the link revision date`);
-    ok(page.html.includes(`수정 <time datetime="${revision}">${revision}</time>`), `${from} displays the revision date`);
-    eq(entries.find((entry) => entry.path === from)?.lastmod, revision, `${from} has the same sitemap lastmod`);
+    eq(data.dateModified, modified, `${from} records the link revision date`);
+    ok(page.html.includes(`수정 <time datetime="${modified}">${modified}</time>`), `${from} displays the revision date`);
+    eq(entries.find((entry) => entry.path === from)?.lastmod, modified, `${from} has the same sitemap lastmod`);
     const target = pages.get(to);
     eq(target.headers.get("x-robots-tag"), "index, follow", `${to} allows indexing`);
     eq(target.headers.get("set-cookie"), null, `${to} does not require a session`);

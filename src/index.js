@@ -3213,7 +3213,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.105-ROOM-OPEN";
+const APP_VERSION = "V22.9.106-PUBLIC-VALUE";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3339,17 +3339,18 @@ function renderSkillGetHealthHtml(env = {}, url = null) {
 
 function canonicalRedirectResponse(request, env = {}, url = null) {
   try {
-    if (!url || String(request?.method || "GET").toUpperCase() !== "GET") return null;
+    if (!url || !["GET", "HEAD"].includes(String(request?.method || "GET").toUpperCase())) return null;
     if (["/health", "/ops-snapshot.json", "/meme-card-catalog.json"].includes(url.pathname)) return null;
     const targetBase = publicBaseUrl(env, url);
     const currentBase = currentRequestBaseUrl(url);
     if (!targetBase || !currentBase || targetBase === currentBase) return null;
     const currentHost = new URL(currentBase).host;
     const targetHost = new URL(targetBase).host;
-    if (!currentHost || !targetHost || currentHost === targetHost) return null;
+    if (!currentHost || !targetHost) return null;
+    if (currentHost === targetHost && new URL(currentBase).protocol !== "http:") return null;
     // V22.9.40: www.<정본 호스트>는 CANONICAL_REDIRECT 설정과 무관하게 정본으로 보낸다. 운영 www 가 같은 문서를 200 으로
     // 내보내 한 문서가 두 주소로 색인될 수 있었다. 옛 도메인·workers.dev 같은 다른 호스트는 예전처럼 변수가 "1" 일 때만 옮긴다.
-    if (currentHost !== `www.${targetHost}` && String(env.CANONICAL_REDIRECT || "").trim() !== "1") return null;
+    if (currentHost !== targetHost && currentHost !== `www.${targetHost}` && String(env.CANONICAL_REDIRECT || "").trim() !== "1") return null;
     const next = new URL(url.pathname + url.search + url.hash, targetBase);
     return new Response(null, { status: 308, headers: { location: next.toString(), "cache-control": "no-store" } });
   } catch (err) {
@@ -3455,31 +3456,10 @@ function adsMode(env = {}) {
   return value === "live" ? "live" : value === "adfit" ? "adfit" : "review";
 }
 
-// 광고를 둘 수 있는 화면(라이브에서만). 공개 정본 가이드에서 정책·신원 화면(privacy·terms·cookies·
-// contact·about·site-map)을 뺀 53쪽(가이드 12쪽 + V22.9.40 생활비 가이드 글 12편 + V22.9.74 허브 1쪽·글 20편 + V22.9.97 글 8편)과 로그인 뒤 읽는 화면 5개다. 이 목록에 없는 화면(/app 의 모든 보기,
-// 로그인·가입, 설정·예산·참여자·백업, /my/analysis, 관리자·운영, API·/skill, 404·안전모드)은 키를
-// 받지 않으므로 구조적으로 광고가 붙지 않는다. 새 공개 문서는 일부러 여기에 적어야만 광고가 붙는다.
-// V22.9.92: 애드핏(ADS_MODE=adfit)은 이 목록 가운데 공개 정본 문서만 쓴다(로그인 뒤 화면 5개는 빼고, adsPageLive).
+// Public launch scope: six editorial articles only. Worksheets and signed-in pages are excluded.
 const AD_PAGE_KEYS = Object.freeze([
-  "/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide",
-  "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide",
-  // V22.9.40 (D 병합): 생활비 가이드 글 12편. 긴 읽을거리라 광고 자리로 가장 알맞다.
-  "/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup",
-  "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit",
-  "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics",
-  "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table",
-  // V22.9.74: 글 목록 허브와 생활비 가이드 글 20편(public/living-cost-articles-v22974.js).
-  "/articles", "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark",
-  "/utility-bills-seasonality", "/inflation-budget-update", "/card-income-deduction-basics",
-  "/year-end-tax-expense-check", "/rent-tax-credit-records", "/apartment-maintenance-fee",
-  "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order",
-  "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning",
-  "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
-  // V22.9.97 생활비 글: 연말정산·절세 시즌 글 8편도 긴 읽을거리라 광고 자리로 둔다(애드핏은 공개 정본이라 함께 쓴다).
-  "/year-end-tax-timeline-checklist", "/payment-method-switch-nov-dec", "/medical-education-donation-deductions",
-  "/dual-income-deduction-allocation", "/pension-savings-irp-tax-credit", "/single-household-year-end-tax",
-  "/tax-refund-money-plan", "/housing-deductions-overview",
-  "/reports", "/annual", "/smart-tools", "/start-guide", "/keyword-guide",
+  "/shared-living-cost-rules", "/roommate-shared-ledger", "/cash-flow-table",
+  "/sinking-fund-annual-expenses", "/monthly-closing-routine", "/subscription-cleanup",
 ]);
 
 function adsSlotId(env = {}) {
@@ -3515,14 +3495,14 @@ function adsPageLive(env = {}, pageKey = "") {
   if (mode === "review" || !AD_PAGE_KEYS.includes(pageKey)) return false;
   // V22.9.92: 애드핏은 로그인한 사람만 보는 화면에 광고를 둘 수 없다(애드핏 운영정책 5.2 "허용된 방문자(예: 멤버십 로그인 등)만
   // 조회/열람이 가능한 경우"). 그래서 누구나 여는 공개 정본 문서(PUBLIC_CONTENT_PATHS)에만 둔다. 로그인 뒤 읽는 화면 5개
-  // (/reports·/annual·/smart-tools·/start-guide·/keyword-guide)는 AdSense 에서만 허용 화면이다. 광고 단위가 없으면 어디에도 두지 않는다.
+  // 로그인 뒤 화면은 두 네트워크 모두 제외한다. 광고 단위가 없으면 어디에도 두지 않는다.
   if (mode === "adfit") return PUBLIC_CONTENT_PATHS.includes(pageKey) && !!adfitUnit(env);
-  return true;
+  return mode === "live" && !!adsSlotId(env);
 }
 
 // 광고 자리는 광고가 늦게 와도 화면이 밀리지 않게 높이를 먼저 잡는다. 주변 버튼·링크와 16px 넘게
 // 띄우고(공통 셸의 카드 여백 12px!important 보다 앞서도록 선택자를 높였다), 인쇄에서는 뺀다.
-const ADS_SLOT_CSS = `.adSlot{display:block;min-height:120px;margin:24px 0;padding:12px 16px 16px;background:var(--ab12-surface,#fff);border:1px solid var(--ab12-line,#e5e9f0);border-radius:var(--ab12-radius,20px)}.adSlot::before{content:"광고";content:"광고"/"";display:block;margin:0 0 8px;color:var(--ab12-muted,#667085);font-size:12px;font-weight:700;line-height:1.4}html body .adSlot.adSlot.adSlot{margin-top:24px!important;margin-bottom:24px!important}@media print{.adSlot{display:none!important}}`;
+const ADS_SLOT_CSS = `.adSlot{display:block;min-height:120px;margin:24px 0;padding:12px 16px 16px;background:var(--ab12-surface,#fff);border:1px solid var(--ab12-line,#e5e9f0);border-radius:var(--ab12-radius,20px)}.adSlot[hidden]{display:none!important}.adSlot::before{content:"광고";content:"광고"/"";display:block;margin:0 0 8px;color:var(--ab12-muted,#667085);font-size:12px;font-weight:700;line-height:1.4}html body .adSlot.adSlot.adSlot{margin-top:24px!important;margin-bottom:24px!important}@media print{.adSlot{display:none!important}}`;
 
 // V22.9.92: 애드핏 SDK 주소(공식 SDK 안내의 설치 코드). 광고 자리 바로 뒤에 한 번 싣는다.
 const ADFIT_SDK_URL = "https://t1.kakaocdn.net/kas/static/ba.min.js";
@@ -3544,12 +3524,51 @@ function adfitSpeculationRulesJson() {
   return JSON.stringify({ prefetch: JSON.parse(AB_SPECULATION_RULES_JSON).prerender });
 }
 
+// The publisher runtime is fetched only after activation, on an exact canonical URL.
+// The SDK itself and the issued unit attributes are never modified.
+function adsActivationV229106(sdk, canonical, googleStart) {
+  let started = false;
+  function activate() {
+    if (started || document.prerendering || document.visibilityState !== "visible" || document.readyState === "loading") return;
+    if (window.location.href !== canonical) return;
+    const slot = document.querySelector(".adSlot");
+    if (!slot) return;
+    started = true;
+    slot.hidden = false;
+    const loader = document.createElement("script"); loader.async = true; loader.src = sdk;
+    if (googleStart) loader.crossOrigin = "anonymous";
+    else { loader.type = "text/javascript"; loader.charset = "utf-8"; }
+    loader.addEventListener("error", () => { slot.style.display = "none"; }, { once: true });
+    slot.appendChild(loader);
+    if (googleStart) googleStart();
+    document.removeEventListener("prerenderingchange", activate);
+    document.removeEventListener("visibilitychange", activate);
+    document.removeEventListener("DOMContentLoaded", activate);
+  }
+  document.addEventListener("prerenderingchange", activate);
+  document.addEventListener("visibilitychange", activate);
+  document.addEventListener("DOMContentLoaded", activate);
+  activate();
+}
+
+function adsActivationMarkupV229106(env, pageKey) {
+  const network = adsMode(env) === "adfit" ? "adfit" : "adsense";
+  const sdk = network === "adfit" ? ADFIT_SDK_URL : `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adsensePublisherId(env)}`;
+  const args = [sdk, publicBaseUrl(env) + pageKey].map((value) => JSON.stringify(value).replace(/</g, "\\u003c")).join(",");
+  const queue = network === "adsense" ? 'function(){(window.adsbygoogle=window.adsbygoogle||[]).push({});}' : "null";
+  return `<script data-ad-activation>(${adsActivationV229106.toString()})(${args},${queue});</script>`;
+}
+
+function adsPublicRequestKeyV229106(env, url, key) {
+  if (!url || url.origin !== publicBaseUrl(env) || url.protocol !== "https:" || url.search || url.hash || url.pathname !== key) return "";
+  return key;
+}
+
 function adsHeadMarkup(env = {}, pageKey = "") {
   if (!adsPageLive(env, pageKey)) return "";
   // 애드핏은 공식 안내대로 SDK 를 본문 아래쪽(광고 자리 바로 뒤)에 두므로 머리에는 자리 CSS 와 미리 받기 규칙만 넣는다.
   if (adsMode(env) === "adfit") return `<style>${ADS_SLOT_CSS}${adfitSlotCss(adfitUnit(env))}</style><script type="speculationrules">${adfitSpeculationRulesJson()}</script>`;
-  const client = escapeHtml(adsensePublisherId(env));
-  return `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}" crossorigin="anonymous"></script><style>${ADS_SLOT_CSS}</style>`;
+  return `<style>${ADS_SLOT_CSS}</style>`;
 }
 
 function adSlotMarkup(env = {}, pageKey = "") {
@@ -3559,31 +3578,31 @@ function adSlotMarkup(env = {}, pageKey = "") {
   if (adsMode(env) === "adfit") {
     const unit = adfitUnit(env);
     if (!adsPageLive(env, pageKey) || !unit) return "";
-    return `<section class="card adSlot noPrint adfitSlot" style="min-height:${Number(unit.height) + 56}px" aria-label="광고"><ins class="kakao_ad_area" style="display:none;width:100%;" data-ad-unit="${unit.id}" data-ad-width="${unit.width}" data-ad-height="${unit.height}" data-ad-onfail="malhaeAdfitNoAd"></ins><script>function malhaeAdfitNoAd(el){var slot=el&&el.closest?el.closest(".adSlot"):null;if(slot)slot.style.display="none";}addEventListener("error",function(e){var t=e.target;if(t&&t.tagName==="SCRIPT")malhaeAdfitNoAd(t);},true);</script><script async type="text/javascript" charset="utf-8" src="${ADFIT_SDK_URL}"></script></section>`;
+    return `<section class="card adSlot noPrint adfitSlot" style="min-height:${Number(unit.height) + 56}px" hidden aria-label="광고"><ins class="kakao_ad_area" style="display:none;width:100%;" data-ad-unit="${unit.id}" data-ad-width="${unit.width}" data-ad-height="${unit.height}" data-ad-onfail="malhaeAdfitNoAd"></ins><script>function malhaeAdfitNoAd(el){var slot=el&&el.closest?el.closest(".adSlot"):null;if(slot)slot.style.display="none";}addEventListener("error",function(e){var t=e.target;if(t&&t.tagName==="SCRIPT")malhaeAdfitNoAd(t);},true);</script>${adsActivationMarkupV229106(env, pageKey)}</section>`;
   }
   const slot = adsSlotId(env);
-  // 슬롯 id 가 없으면 자리를 만들지 않는다. 머리의 로더만 남으므로 대시보드에서 자동 광고를 켠 경우에만 광고가 나온다.
+  // A valid explicit slot is required; no loader-only or automatic-ads path.
   if (!adsPageLive(env, pageKey) || !slot) return "";
   const client = escapeHtml(adsensePublisherId(env));
-  return `<section class="card adSlot noPrint" aria-label="광고"><ins class="adsbygoogle" style="display:block" data-ad-client="${client}" data-ad-slot="${slot}" data-ad-format="auto" data-full-width-responsive="true"></ins><script>(adsbygoogle=window.adsbygoogle||[]).push({});</script></section>`;
+  return `<section class="card adSlot noPrint" hidden aria-label="광고"><ins class="adsbygoogle" style="display:block" data-ad-client="${client}" data-ad-slot="${slot}" data-ad-format="auto" data-full-width-responsive="true"></ins>${adsActivationMarkupV229106(env, pageKey)}</section>`;
 }
 
 // 광고를 켜면 개인정보처리방침·쿠키 안내·FAQ 의 "현재 광고를 실행하지 않습니다" 문장을 AdSense 필수 고지(제3자
 // 광고 쿠키, Google 광고 쿠키, 맞춤 광고 해제 방법)로 바꾼다. review 에서는 빈 값을 돌려주고 부르는 쪽이 지금
 // 문장을 그대로 쓴다.
 const ADS_POLICY_TEXT = Object.freeze({
-  privacy: "말해가계부는 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시합니다. Google을 포함한 제3자 광고 사업자는 쿠키를 사용해 사용자가 이 사이트나 다른 사이트를 방문한 기록을 바탕으로 광고를 제공하고 성과를 측정합니다. Google은 광고 쿠키(DoubleClick 쿠키 등)를 사용해 Google과 파트너가 이 사이트와 다른 사이트 방문 기록을 바탕으로 광고를 제공할 수 있게 합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있으며, Google이 광고에 정보를 이용하는 방식은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다.",
-  cookies: "말해가계부는 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시합니다. 광고가 표시되는 화면에서는 Google과 파트너가 광고 쿠키(DoubleClick 쿠키 등)와 유사 기술을 사용해 광고를 제공하고 성과를 측정합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있고, 자세한 내용은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
-  faq: "지금은 가입비나 이용료 없이 쓸 수 있어요. 서비스 운영을 위해 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시하며, 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있습니다.",
+  privacy: "말해가계부는 선정한 공개 생활비 글 6편의 본문 아래에 Google 광고를 표시합니다. Google을 포함한 제3자 광고 사업자는 쿠키를 사용해 사용자가 이 사이트나 다른 사이트를 방문한 기록을 바탕으로 광고를 제공하고 성과를 측정합니다. Google은 광고 쿠키(DoubleClick 쿠키 등)를 사용해 Google과 파트너가 이 사이트와 다른 사이트 방문 기록을 바탕으로 광고를 제공할 수 있게 합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있으며, Google이 광고에 정보를 이용하는 방식은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다.",
+  cookies: "말해가계부는 선정한 공개 생활비 글 6편의 본문 아래에 Google 광고를 표시합니다. 광고가 표시되는 화면에서는 Google과 파트너가 광고 쿠키(DoubleClick 쿠키 등)와 유사 기술을 사용해 광고를 제공하고 성과를 측정합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있고, 자세한 내용은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
+  faq: "지금은 가입비나 이용료 없이 쓸 수 있어요. 서비스 운영을 위해 선정한 공개 생활비 글 6편의 본문 아래에 Google 광고를 표시하며, 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있습니다.",
 });
 
 // V22.9.92: 애드핏을 켠 서버의 고지. 광고 사업자(주식회사 카카오)와 수집하는 행태정보, 광고를 두지 않는 화면, 끄는 방법을 적는다.
 // 끄는 곳은 카카오 개인정보처리방침이 맞춤형 광고 거부 방법으로 잇는 ‘카카오 맞춤형 광고 안내’(info.ds.kakao.com/optout.do,
 // 2026-10-30 확인)이고, 그 안내대로 쿠키를 지우면 거부 설정도 지워질 수 있다고 적는다. -control 은 정책 화면의 둘째 문단이다.
 const ADFIT_POLICY_TEXT = Object.freeze({
-  privacy: "말해가계부는 공개 가이드와 생활비 글처럼 로그인 없이 누구나 읽는 화면에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 광고 사업자인 주식회사 카카오가 쿠키와 광고 식별자 같은 기술로 이 사이트와 다른 사이트를 방문한 기록(행태정보)을 수집해 맞춤형 광고를 제공하고 광고 성과를 측정할 수 있습니다. 카카오가 수집하는 정보의 항목·보유기간과 처리 방식은 카카오 개인정보처리방침을 따릅니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고를 두지 않습니다.",
+  privacy: "말해가계부는 선정한 공개 생활비 글 6편의 본문 아래에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 광고 사업자인 주식회사 카카오가 쿠키와 광고 식별자 같은 기술로 이 사이트와 다른 사이트를 방문한 기록(행태정보)을 수집해 맞춤형 광고를 제공하고 광고 성과를 측정할 수 있습니다. 카카오가 수집하는 정보의 항목·보유기간과 처리 방식은 카카오 개인정보처리방침을 따릅니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고를 두지 않습니다.",
   "privacy-control": "말해가계부는 광고를 누른 방문자의 개인정보를 따로 수집하지 않고, 거래 내용·예산·가계부 구성원 정보와 사용자 발화 원문을 광고 사업자나 광고주에게 제공하거나 판매하지 않습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내 화면에서 끌 수 있고, 브라우저 설정에서 쿠키를 차단해 거부할 수도 있습니다. 쿠키를 지우면 거부 설정도 함께 지워질 수 있습니다.",
-  cookies: "말해가계부는 공개 가이드와 생활비 글처럼 로그인 없이 누구나 읽는 화면에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 주식회사 카카오가 광고 쿠키와 유사 기술을 사용해 맞춤형 광고를 제공하고 성과를 측정할 수 있습니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
+  cookies: "말해가계부는 선정한 공개 생활비 글 6편의 본문 아래에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 주식회사 카카오가 광고 쿠키와 유사 기술을 사용해 맞춤형 광고를 제공하고 성과를 측정할 수 있습니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
   "cookies-control": "사용자는 카카오 맞춤형 광고 안내 화면과 브라우저의 사이트별 쿠키 설정으로 맞춤형 광고와 저장된 쿠키를 관리할 수 있습니다. 쿠키를 지우면 맞춤형 광고 거부 설정도 함께 지워질 수 있습니다.",
   faq: "지금은 가입비나 이용료 없이 쓸 수 있어요. 서비스 운영을 위해 공개 가이드와 생활비 글처럼 로그인 없이 읽는 화면에 카카오 애드핏 광고를 표시하며, 로그인한 사람만 보는 화면·거래를 입력·저장하는 화면·로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내(https://info.ds.kakao.com/optout.do)에서 끌 수 있습니다.",
 });
@@ -3592,7 +3611,7 @@ const ADFIT_POLICY_TEXT = Object.freeze({
 // 단위가 없으면 광고가 나가지 않으므로 지금 문장을 그대로 둔다.
 function adsPolicyNetwork(env = {}) {
   const mode = adsMode(env);
-  if (mode === "live") return "adsense";
+  if (mode === "live" && adsSlotId(env)) return "adsense";
   return mode === "adfit" && adfitUnit(env) ? "adfit" : "";
 }
 
@@ -3763,7 +3782,7 @@ function publicGuidePages(env = {}) {
       { title: "기록과 예산을 구분하는 말", table: { caption: "입력 예시와 처리 의미", headers: ["보내는 문장", "의미", "확인할 것"], rows: [["점심 12000원 국민카드", "12,000원 지출 기록", "금액·내용·결제수단"], ["어제 병원 15000원", "어제 날짜의 지출 기록", "저장된 날짜"], ["월급 250만원", "2,500,000원 수입 기록", "수입 구분"], ["식비 50만원", "500,000원 지출 기록", "예산 설정이 아닙니다."], ["식비 예산 50만원", "식비 예산 설정", "소유자·관리자 권한"], ["예산", "설정·조회 선택 안내", "하려는 작업 선택"]] }, paragraphs: ["‘/기록’은 필수가 아닙니다. 내용과 금액을 바로 입력할 수 있습니다. 설정이 목적이면 ‘예산’을 명시하고, 저장 뒤에는 결과를 확인하세요."] },
       // V22.9.95 R-14: 픽스처로 카카오 1:1·단톡방 두 경로의 실제 결과를 확인한 문장만 적는다(validate-v22995-guide 가 같은 문장을 두 경로로 다시 보내 본다).
       // 결과가 바뀌면 이 표도 함께 고친다. ‘월급 300’ 과 줄마다 다른 ‘N일’ 은 운영 동작 그대로라는 것을 밝힌다(추정해 넓히지 않는다).
-      { title: "잘 읽히는 문장과 다시 묻는 말", paragraphs: ["아래 결과는 1:1 채팅과 단톡방에서 직접 보내 확인한 것입니다. ⏎ 는 줄바꿈입니다. 저장 뒤에는 답에 나온 날짜·금액·내용을 한 번 더 확인하세요."], table: { caption: "보내는 문장과 실제 결과", headers: ["보내는 문장", "결과", "왜"], rows: [
+      { title: "잘 읽히는 문장과 다시 묻는 말", paragraphs: ["아래 표는 1:1 채팅과 단톡방의 요청을 본뜬 가상 입력을 검증 환경에서 처리한 결과입니다. 실제 사용자의 이용 기록이나 후기는 아닙니다. ⏎ 는 줄바꿈입니다. 저장 뒤에는 답에 나온 날짜·금액·내용을 한 번 더 확인하세요."], table: { caption: "검증용 가상 문장과 처리 결과", headers: ["보내는 문장", "결과", "왜"], rows: [
         ["점심 12000원", "지출 12,000원 1건(외식)", "내용과 금액이 한 문장에 있어요."],
         ["커피 4500, 택시 8000", "지출 2건(4,500원·8,000원)", "쉼표로 나눈 조각마다 한 건씩 저장해요."],
         ["어제 병원 15000", "어제 날짜로 15,000원 1건", "‘어제’·‘7월 3일’ 같은 날짜 말을 읽어요."],
@@ -4052,7 +4071,7 @@ function publicLivingCostArticles() {
       { title: "가상 사례: 7월 한 달의 현금흐름표", paragraphs: ["가상 가정의 7월입니다. 급여 3,000,000원에 부수입 200,000원이 더해져 들어온 돈은 3,200,000원이었습니다. 고정 지출 1,150,000원, 변동 지출 1,020,000원, 비정기 지출 180,000원을 쓰고 저축과 비상금으로 600,000원을 떼어 두었습니다.", "남은 돈은 3,200,000원에서 네 줄을 모두 뺀 250,000원입니다. 들어온 돈 가운데 고정 지출이 약 36%, 변동 지출이 약 32%를 차지했습니다. 비율도 함께 적어 두면 소득이 바뀐 달에도 다른 달과 견주기 쉽습니다. 남은 250,000원은 다음 달로 넘기거나 비상금에 더할 수 있는데, 어디로 보낼지는 절반은 비상금, 절반은 다음 달 생활비처럼 미리 정해 둔 규칙을 따릅니다."], table: { caption: "가상 가정의 7월 현금흐름표, 단위 원", headers: ["줄", "금액", "들어온 돈 대비"], rows: [["들어온 돈", "3,200,000", "100.0%"], ["고정 지출", "1,150,000", "35.9%"], ["변동 지출", "1,020,000", "31.9%"], ["비정기 지출", "180,000", "5.6%"], ["저축과 비상금", "600,000", "18.8%"], ["남은 돈", "250,000", "7.8%"]] }, note: "직접 구성한 가상 가계입니다. 비율은 소수 둘째 자리에서 반올림해 첫째 자리까지 적었으며, 어느 비율이 바람직하다는 기준을 제시하는 것이 아닙니다." },
       { title: "석 달을 이어 보면 보이는 것", paragraphs: ["한 달 치 표만으로는 그달이 평범한 달이었는지 알기 어렵습니다. 같은 가정의 7월부터 9월까지를 나란히 놓으면 흐름이 보입니다. 8월에는 부수입이 없고 휴가로 변동 지출이 늘어 남은 돈이 10,000원에 그쳤고, 9월에는 명절 지출 450,000원이 비정기 지출로 잡혀 210,000원이 모자랐습니다.", "석 달을 합치면 남은 돈은 250,000원 + 10,000원 − 210,000원 = 50,000원입니다. 9월이 모자랐던 이유는 생활이 흐트러져서가 아니라 해마다 오는 명절이 한 달에 몰렸기 때문입니다. 명절 비용을 미리 예비비로 나눠 모았다면 9월도 모자라지 않았을 것입니다."], table: { caption: "가상 가정의 석 달 현금흐름, 단위 원", headers: ["줄", "7월", "8월", "9월"], rows: [["들어온 돈", "3,200,000", "3,000,000", "3,000,000"], ["고정 지출", "1,150,000", "1,150,000", "1,180,000"], ["변동 지출", "1,020,000", "1,240,000", "980,000"], ["비정기 지출", "180,000", "0", "450,000"], ["저축과 비상금", "600,000", "600,000", "600,000"], ["남은 돈", "250,000", "10,000", "−210,000"]] } },
       { title: "남는 돈과 모자란 달을 읽는 순서", paragraphs: ["숫자를 보며 무엇부터 확인할지 순서를 정해 두면 매달 같은 방식으로 비교할 수 있습니다. 표를 만든 사람과 함께 사는 사람이 같은 순서로 읽으면 대화도 짧아집니다."], steps: ["남은 돈의 부호부터 봅니다. 음수라면 모자란 금액을 지난달에 남은 돈으로 메웠는지 비상금에서 꺼냈는지 확인합니다.", "평소와 가장 크게 달라진 줄을 찾습니다. 가상 사례의 8월은 변동 지출, 9월은 비정기 지출이었습니다.", "비정기 지출이 원인이라면 예비비로 미리 나눠 모을 수 있었는지 봅니다. 해마다 오는 지출이라면 다음 해 계획에 넣습니다.", "고정 지출이 조금씩 늘고 있다면 다음 고정비 점검 때 그 항목부터 봅니다. 9월의 30,000원 증가는 관리비 인상 때문이었습니다.", "변동 지출이 석 달 연속 늘었다면 그때 예산 배분을 다시 봅니다."] },
-      { title: "현금흐름표를 만들 때 자주 하는 실수", bullets: ["카드 대금이 빠져나간 금액과 이번 달 카드 사용액을 섞어, 같은 지출을 두 번 세거나 한 번도 세지 않습니다. 한 가지 기준을 정해 계속 씁니다.", "내 통장 사이의 이체를 지출로 계산해 나간 돈이 실제보다 커 보입니다.", "저축을 남은 돈에서 빼지 않아 생활비로 쓸 수 있는 돈이 많아 보입니다.", "비정기 지출을 변동 지출에 섞어, 명절이 있는 달마다 생활이 흐트러진 것처럼 보입니다.", "통장에서 나간 돈을 기준으로 적으면서 할부로 산 물건만 산 달에 전액으로 넣어, 그달은 지출이 커 보이고 다음 달부터는 작아 보입니다.", "물건값을 돌려받은 환불을 들어온 돈 줄에 넣어 소득이 늘어난 것처럼 보이게 합니다. 환불은 원래 지출에서 빼야 흐름이 정확합니다."] },
+      { title: "현금흐름표를 만들 때 자주 하는 실수", bullets: ["카드 대금이 빠져나간 금액과 이번 달 카드 사용액을 섞어, 같은 지출을 두 번 세거나 한 번도 세지 않습니다. 한 가지 기준을 정해 계속 씁니다.", "먼저 포함할 계좌와 기간, 기초 잔액을 정합니다. 포함 계좌 사이의 이체는 순현금흐름이 0원입니다. 범위 밖 저축계좌로 보낸 금액은 저축 유출로 적고, 기말 잔액이 기초 잔액에 순현금흐름을 더한 금액인지 확인합니다.", "저축을 남은 돈에서 빼지 않아 생활비로 쓸 수 있는 돈이 많아 보입니다.", "비정기 지출을 변동 지출에 섞어, 명절이 있는 달마다 생활이 흐트러진 것처럼 보입니다.", "통장에서 나간 돈을 기준으로 적으면서 할부로 산 물건만 산 달에 전액으로 넣어, 그달은 지출이 커 보이고 다음 달부터는 작아 보입니다.", "현금 기준 표에서는 환불을 실제 입금일의 유입으로 적되 급여와 구분합니다. 소비 금액을 비교할 때는 원래 지출에서 환불을 빼는 별도 표를 씁니다. 두 기준을 한 표에 섞거나 같은 환불을 두 번 반영하지 않습니다."] },
       { title: "말해가계부에서는", paragraphs: ["말해가계부의 월간 생활비 리포트는 기간 요약에서 그달의 지출과 수입 합계를 보여 주므로 현금흐름표의 들어온 돈과 지출 줄을 채우는 데 쓸 수 있습니다. ‘적금’처럼 저축/투자 분류로 기록한 금액은 지출 합계에 함께 들어가므로 저축 줄로 옮겨 적습니다. 정기 수입·지출 화면에서는 이번 달 나갈 정기지출과 정기수입, 그 순액을 함께 확인할 수 있습니다. 더 자세히 나누고 싶다면 선택한 달의 거래를 CSV로 내려받아 표 계산 프로그램에서 분류별로 더하면 됩니다."] },
       { title: "다음에 읽을 글", links: [["생활비 예산 비율을 세 묶음으로 정하기", "/budget-ratio-guide"], ["명절 같은 비정기 지출을 위한 예비비", "/emergency-fund-basics"], ["거래 CSV 백업과 파일 가져오기", "/import-guide"]] },
     ]),
@@ -4097,7 +4116,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 통계로 보는 생활비",
       "intro": "전체 가구의 월평균 소비지출이 약 294만원이라는 기사를 보면 우리 집이 많이 쓰는 편인지 궁금해집니다. 가계동향조사 숫자가 어떻게 만들어지는지, 우리 집 분류를 12대 항목에 맞춰 공정하게 비교하는 방법을 순서대로 정리했습니다.",
       "published": "2026-10-21",
-      "updated": "2026-10-21",
+      "updated": "2026-11-07",
       "type": "Article",
       "summary": [
         "가계동향조사는 분기마다 가구당 월평균 소득·지출을 공표하며, 소비지출은 지출 목적에 따라 12대 항목으로 나뉩니다.",
@@ -4207,7 +4226,7 @@ function publicLivingCostArticlesV22974() {
           "paragraphs": [
             "첫째는 가구원 수입니다. 전체 가구 평균에는 1인 가구부터 대가족까지 섞여 있습니다. 2025 통계로 보는 1인가구에 따르면 2024년 1인 가구의 월평균 소비지출은 168만 9천원으로 전체 가구 289만원의 58.4% 수준이었습니다. 2인 가구가 전체 평균보다 적게 쓰는 것은 당연하고, 4인 가구가 평균보다 많이 쓰는 것도 당연합니다. 비교는 같은 가구원 수의 평균과 하거나, 적어도 금액 대신 비중으로 해야 합니다.",
             "둘째는 소득 분위입니다. 2026년 1/4분기에 소득 1분위 가구의 월평균 소비지출은 145만 7천원, 5분위는 556만 6천원으로 3.8배 차이가 났습니다. 구조도 다릅니다. 1분위는 주거·수도·광열 21.7%, 식료품·비주류음료 20.8%가 가장 컸고, 5분위는 교통·운송 14.7%, 음식·숙박 14.1% 순이었습니다. 소득이 낮을수록 꼭 써야 하는 항목의 비중이 커지므로, 전체 평균 비중과 다르다고 해서 문제로 볼 이유는 없습니다.",
-            "셋째는 조사 시점과 지역입니다. 주거·수도·광열은 2025년 3/4분기 33만 4천원에서 2026년 1/4분기 42만 6천원으로 9만 2천원 늘었는데, 난방 때문이지 가구들의 습관이 바뀐 것은 아닙니다. 또 기본 공표치는 전국 평균이어서 수도권 월세 가구와 지방 자가 가구의 주거비 차이가 묻힙니다. 겨울 한 달의 가스비를 연간 평균과 비교하거나, 월세 가구의 주거비를 자가 가구가 섞인 평균과 비교하는 일은 피해야 합니다."
+            "셋째는 조사 시점과 지역입니다. 주거·수도·광열은 2025년 3/4분기 33만 4천원에서 2026년 1/4분기 42만 6천원으로 9만 2천원 늘었는데, 난방 등 계절 요인과 가격·가구 구성의 차이가 함께 작용할 수 있습니다. 이 금액만으로 증가 원인을 확정하지 않습니다. 또 기본 공표치는 전국 평균이어서 수도권 월세 가구와 지방 자가 가구의 주거비 차이가 묻힙니다. 겨울 한 달의 가스비를 연간 평균과 비교하거나, 월세 가구의 주거비를 자가 가구가 섞인 평균과 비교하는 일은 피해야 합니다."
           ]
         },
         {
@@ -4588,7 +4607,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 통계로 보는 생활비",
       "intro": "식비가 많은지 적은지는 월 합계 금액으로는 알 수 없고, 한 끼에 얼마를 쓰는지로 판단해야 합니다. 2주 기록만으로 우리 집 끼니 단가와 외식 비중을 계산해, 매달 지킬 수 있는 식비 기준선을 세우는 방법입니다.",
       "published": "2026-10-21",
-      "updated": "2026-10-21",
+      "updated": "2026-11-07",
       "type": "Article",
       "summary": [
         "식비는 장보기·외식·배달 세 갈래로 나눠 적어야 어디서 늘었는지 보이고, 조정 규칙도 갈래마다 다르게 둘 수 있습니다.",
@@ -4599,8 +4618,8 @@ function publicLivingCostArticlesV22974() {
         {
           "title": "식비를 세 갈래로 나누는 기준",
           "paragraphs": [
-            "국가데이터처 가계동향조사에서도 식비는 둘로 나뉩니다. 조리 전 재료인 식료품·비주류음료와 완성된 음식을 사는 음식·숙박입니다. 2025년 연간 전체 가구 월평균은 식료품·비주류음료 44만 9천원, 음식·숙박 46만 5천원으로 둘을 합치면 91만 4천원, 소비지출 293만 9천원의 31.1%였습니다. 외식에 쓰는 돈이 장보기보다 많아진 구조에서 식비를 한 줄로 적으면 어디서 늘었는지 알 수 없습니다.",
-            "가계부에서는 음식·숙박을 한 번 더 외식과 배달로 쪼갭니다. 둘은 단가와 늘어나는 이유가 다르기 때문입니다. 외식은 약속과 이동이 있는 날 늘고, 배달은 피곤한 평일 밤에 늘며 배달비와 최소 주문 금액 때문에 한 끼 단가가 가장 높습니다. 경계 규칙은 세 줄로 충분합니다."
+            "국가데이터처 가계동향조사의 식료품·비주류음료는 주로 장보기 지출을, 음식·숙박은 음식서비스와 숙박서비스를 포함합니다. 음식·숙박 금액 전체를 외식비로 보거나 장보기 금액과 합친 값을 식비 기준선으로 쓰면 숙박비까지 섞입니다. 식비를 비교할 때는 음식서비스를 따로 확인하고, 우리 집에서는 장보기·외식·배달을 나누어 기록합니다.",
+            "가계부에서는 숙박비를 식비에서 분리하고, 음식에 쓴 돈을 장보기·외식·배달로 구분합니다. 배달비와 최소 주문 조건, 메뉴와 매장에 따라 한 끼 비용이 달라지므로 어느 방식이 늘 비싸다고 가정하지 않고 실제 금액을 비교합니다."
           ],
           "bullets": [
             "장보기: 집에서 조리하거나 그대로 먹는 재료와 음료. 편의점에서 산 우유와 과일도 여기에 넣습니다.",
@@ -4696,7 +4715,7 @@ function publicLivingCostArticlesV22974() {
             "rows": [
               [
                 "외식·배달 비중이 50%를 넘음",
-                "끼니의 절반 이상을 밖에서 해결",
+                "식비 지출액의 절반 이상이 외식·배달에 쓰임",
                 "다음 2주 동안 배달 끼니 수를 절반으로 줄이고 장보기 1회를 추가"
               ],
               [
@@ -4711,7 +4730,7 @@ function publicLivingCostArticlesV22974() {
               ],
               [
                 "끼니 수는 같은데 단가만 오름",
-                "횟수 문제가 아닌 물가 영향",
+                "가격 또는 메뉴·매장 구성 변화 가능성",
                 "기준선을 상승률만큼 올리되 외식 끼니 수는 유지"
               ],
               [
@@ -4773,7 +4792,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 고정비·구독",
       "intro": "지난 12개월 전기·가스·수도 고지서를 모두 꺼내 놓는 것이 이 글의 준비물입니다. 공과금을 매달 다른 금액으로 쫓아가는 대신 1년 단위로 평균을 내어 고정 예산으로 바꾸고, 겨울 피크를 미리 적립하는 계산을 보여 드립니다.",
       "published": "2026-10-21",
-      "updated": "2026-10-21",
+      "updated": "2026-11-07",
       "type": "Article",
       "summary": [
         "공과금은 월 단위가 아니라 연 단위 지출이어서, 12개월 고지서 합계를 12로 나눈 연평균 월 예산이 기준이 됩니다.",
@@ -4784,7 +4803,7 @@ function publicLivingCostArticlesV22974() {
         {
           "title": "공과금이 월 예산을 흔드는 구조",
           "paragraphs": [
-            "공과금은 같은 집에 같은 사람이 살아도 달마다 크게 다릅니다. 국가데이터처 가계동향조사에서 전체 가구의 주거·수도·광열 월평균은 2025년 3/4분기 33만 4천원이었고 2026년 1/4분기에는 42만 6천원이었습니다. 난방이 있는 분기와 없는 분기의 차이가 9만 2천원, 비율로 약 28%입니다. 월세와 관리비는 거의 그대로이니 이 차이의 대부분은 가스와 전기에서 나옵니다.",
+            "공과금은 같은 집에 같은 사람이 살아도 달마다 크게 다릅니다. 국가데이터처 가계동향조사에서 전체 가구의 주거·수도·광열 월평균은 2025년 3/4분기 33만 4천원이었고 2026년 1/4분기에는 42만 6천원이었습니다. 두 분기의 차이는 월평균 9만 2천원으로, 2025년 3분기보다 약 28% 많았습니다. 이 통계에는 임차료 등도 포함되므로 차액 전체를 공과금 증가로 해석할 수는 없습니다. 우리 집 공과금 예산은 실제 12개월 고지서로 계산합니다.",
             "전기요금은 여름에 한 번, 가스요금은 겨울에 한 번 봉우리를 만듭니다. 주택용 전기요금표는 사용량 구간별로 전력량 요금 단가가 정해져 있고 구간이 올라갈수록 단가가 높아지는 누진 구조입니다. 구간 경계와 단가, 여름철 적용 방식은 조정될 수 있으므로 금액은 공공데이터포털에 공개된 요금표나 현재 고지서의 요금표로 확인해야 합니다. 중요한 것은 구조입니다. 냉방으로 사용량이 다음 구간으로 넘어가는 달은 사용량 증가분보다 요금이 더 크게 뜁니다.",
             "도시가스는 난방 사용량 자체가 겨울에 몰려 11월부터 3월까지의 고지액이 연간 합계의 대부분을 차지합니다. 수도 요금은 계절 변동이 작지만 지자체마다 요금표가 다르고 보통 2개월에 한 번 고지되어 가계부 월 합계를 들쭉날쭉하게 만듭니다. 세 요금을 각각 월 단위로 쫓아가면 어떤 달은 예산이 남고 어떤 달은 모자라는데, 그 차이는 습관이 아니라 날씨가 만든 것이라 월 예산을 고쳐도 해결되지 않습니다."
           ],
@@ -5072,7 +5091,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 예산 세우기",
       "intro": "물가가 1년 전보다 2.9% 올랐다는데 왜 내 장바구니는 그보다 훨씬 오른 것처럼 느껴질까요. 소비자물가지수 발표문을 혼자 읽는 법과, 항목별 상승률을 우리 집 예산에 옮겨 분기마다 예산을 다시 짜는 순서를 설명합니다.",
       "published": "2026-10-21",
-      "updated": "2026-10-21",
+      "updated": "2026-11-07",
       "type": "Article",
       "summary": [
         "2026년 9월 소비자물가지수는 120.43(2020년=100)으로 1년 전보다 2.9% 올랐고, 생활물가지수는 2.5% 올랐습니다.",
@@ -5248,15 +5267,15 @@ function publicLivingCostArticlesV22974() {
         {
           "title": "분기별 예산 리셋 절차와 예시 재배분 표",
           "paragraphs": [
-            "분기 리셋은 1월·4월·7월·10월 첫 주에 합니다. 직전 분기 세 달의 실제 지출 평균을 보고, 가장 최근 발표된 지출목적별 상승률을 참고해 다음 세 달 예산을 다시 적습니다. 예시: 월 예산 3,000,000원인 가구가 2026년 9월 공표 상승률을 다섯 항목에 그대로 적용하면 가격 반영만으로 59,800원이 더 필요합니다. 예시에서는 교통과 식료품은 올린 금액을 받아들이고, 외식·여가·기타는 수량을 줄여 금액을 유지하는 쪽을 택했습니다. 그 결과 추가로 필요한 돈은 27,600원으로 줄고, 이 금액은 예비비에서 가져옵니다."
+            "분기마다 직전 세 달의 실제 지출을 확인하고 최근 고지서의 단가와 앞으로 구매할 수량을 기준으로 다음 세 달 예산을 정합니다. 전년동월비는 지난해 같은 달과의 가격 차이이므로 현재 예산에 일괄적으로 다시 곱하지 않습니다. 아래는 2025년 9월의 가상 예산에 2026년 9월 항목별 전년동월비를 적용한 계산 연습입니다. 구매 구성과 수량이 같고 해당 가구의 가격도 공표 상승률과 같은 폭으로 변했다고 가정했습니다. 가격만 반영한 증가액은 59,800원이며 외식·여가·기타의 수량을 줄여 기존 금액을 유지하면 추가액은 27,600원입니다. 다음 분기 지출을 예측한 결과는 아닙니다."
           ],
           "table": {
-            "caption": "예시: 월 예산 3,000,000원 가구의 분기 재배분(2026년 9월 공표 상승률 적용 가정)",
+            "caption": "예시: 2025년 9월 가상 예산을 2026년 9월 물가상승률로 환산하기",
             "headers": [
               "항목",
-              "현재 예산",
+              "2025년 9월 기준 예산(가정)",
               "적용 상승률",
-              "가격만 반영한 예산",
+              "2026년 9월 환산액(가정)",
               "결정"
             ],
             "rows": [
@@ -5309,7 +5328,7 @@ function publicLivingCostArticlesV22974() {
       "faqs": [
         [
           "예산을 올릴 때 총지수 2.9%를 그냥 적용하면 안 되나요?",
-          "급하면 그렇게 해도 되지만 항목별 차이가 큽니다. 2026년 9월 기준 교통은 7.7%, 식료품은 1.0%였으므로 모든 항목을 2.9%씩 올리면 교통 예산은 모자라고 식료품 예산은 남습니다. 항목별 상승률을 쓰고, 우리 집 기록의 증가율로 한 번 더 보정하는 것이 맞습니다."
+          "총지수나 항목별 전년동월비를 현재 예산에 그대로 곱해 다음 분기 지출을 예측하기는 어렵습니다. 우리 집의 품목 구성, 구매량과 실제 단가가 지수와 다르기 때문입니다. 공표 상승률은 지난해 같은 시기와 비교하는 참고 자료로 쓰고 다음 분기 예산은 최근 영수증과 고지서, 예정된 구매량으로 계산합니다."
         ],
         [
           "물가가 내리면 예산도 내려야 하나요?",
@@ -5368,7 +5387,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "카드를 많이 쓸수록 세금이 줄어든다는 말은 절반만 맞습니다. 총급여의 25%를 넘긴 뒤부터 공제가 시작되는 구조, 결제수단별 공제율과 한도, 그리고 결제수단을 어떻게 나눌지 숫자로 판단하는 예시를 법령 조문을 바탕으로 정리했습니다.",
       "published": "2026-10-21",
-      "updated": "2026-11-03",
+      "updated": "2026-11-07",
       "type": "Article",
       "summary": [
         "총급여의 25%까지는 어떤 수단으로 결제해도 공제액이 같고, 그 위부터 결제수단별 공제율 차이가 생깁니다.",
@@ -5437,12 +5456,12 @@ function publicLivingCostArticlesV22974() {
         {
           "title": "공제 한도의 구조",
           "bullets": [
-            "기본 한도는 연 250만원이고, 총급여 7,000만원 이하는 연 300만원입니다(법 제126조의2 제10항).",
+            "해당 자녀 등이 없는 경우 기본 한도는 연 250만원이고, 총급여 7,000만원 이하는 연 300만원입니다(법 제126조의2 제10항).",
             "추가 한도로 전통시장·대중교통 사용분 공제액이 연 200만원까지 기본 한도 위에 더해지며, 총급여 7,000만원 이하는 문화체육 사용분을 합쳐 연 300만원까지입니다(제11항).",
-            "2025년 12월 개정으로 자녀·손자녀 등 부양가족이 있는 근로자의 기본 한도를 올리는 조항이 신설되었습니다. 어느 귀속연도부터 적용되는지는 국세청 안내로 확인합니다."
+            "2026년 사용분부터 해당 자녀 등이 1명이면 기본 한도는 총급여 7,000만원 이하 350만원·초과 275만원, 2명 이상이면 각각 400만원·300만원입니다. 해당 자녀 등은 소득 요건과 20세 이하 요건, 다른 거주자의 기본공제를 받지 않는 요건을 충족해야 하며 장애인은 연령 제한의 예외가 있습니다."
           ],
           "paragraphs": [
-            "한도는 공제율을 곱한 뒤의 금액에 적용됩니다. 가정으로 총급여 4,000만원인 사람의 기본 한도는 300만원인데, 신용카드만으로 이 한도를 채우려면 문턱 위로 2,000만원을 더 써야 합니다. 한도에 닿을 만큼 쓰는 가구는 드물기 때문에, 대부분의 가구에서 공제액을 좌우하는 것은 한도가 아니라 문턱 위 사용액의 결제수단 구성입니다."
+            "한도는 공제율을 곱한 뒤의 금액에 적용됩니다. 가정으로 총급여 4,000만원인 사람의 기본 한도는 300만원인데, 신용카드만으로 이 한도를 채우려면 문턱 위로 2,000만원을 더 써야 합니다. 자녀 등에 따른 본인 한도와 문턱 위 사용액의 결제수단 구성을 함께 비교합니다."
           ]
         },
         {
@@ -5450,7 +5469,7 @@ function publicLivingCostArticlesV22974() {
           "bullets": [
             "국세·지방세, 전기료·수도료·가스료·전화료(인터넷 이용료 포함), 아파트관리비, 텔레비전 시청료, 도로통행료",
             "국민건강보험·장기요양보험·고용보험 보험료, 국민연금 보험료, 보장성 보험의 보험료·공제료",
-            "학교·어린이집에 내는 수업료·입학금·보육비용 등 공납금과 교육비 세액공제 대상 교육비",
+            "학교·어린이집의 수업료·입학금·보육비용 등 공납금, 법령에서 정한 평생교육시설·직업능력개발훈련 비용. 교육비 전체가 제외되는 것은 아니며 취학 전 아동 학원비와 교복 구입비 등 중복 적용이 가능한 항목을 구분합니다.",
             "상품권 등 유가증권 구입비, 리스료(자동차 대여료 포함), 취득세·등록면허세가 부과되는 재산의 구입비",
             "차입금 이자, 금융·보험 수수료와 보증료, 가상자산 거래 대가, 면세점 물품 구입비",
             "세액공제를 받은 정치자금·고향사랑 기부금, 월세 세액공제를 받은 월세액, 사업 관련 비용과 해외 사용액"
@@ -5570,7 +5589,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "연말정산 서류를 1월에 한 번에 모으면 빠지는 것이 생깁니다. 가계부 기록을 공제 항목별로 묶어 영수증과 대조하고, 간소화 자료에 없는 지출을 미리 찾아내는 순서를 월별 점검 달력과 함께 안내합니다.",
       "published": "2026-10-21",
-      "updated": "2026-11-03",
+      "updated": "2026-11-07",
       "type": "Article",
       "summary": [
         "가계부의 의료·교육·기부·주거·보험·연금 분류가 그대로 연말정산 점검표가 됩니다.",
@@ -5597,8 +5616,8 @@ function publicLivingCostArticlesV22974() {
           "steps": [
             "가계부에서 의료, 교육, 기부, 주거, 보험, 연금 여섯 분류의 1월부터 현재까지 합계를 뽑고 가족 구성원별로 나눕니다.",
             "각 합계 옆에 증빙의 종류를 적습니다. 간소화 조회 예정, 기관 발급 영수증, 계약서·이체 내역의 세 가지로 나누면 충분합니다.",
-            "병원·학원·단체 이름별로 월 결제 횟수와 가계부 기록 횟수를 맞춥니다. 횟수가 다르면 누락이나 중복 기록입니다.",
-            "카드 결제분은 신용카드 소득공제와 겹치는지 확인합니다. 교육비·보험료는 카드로 냈어도 카드 공제 대상에서 빠지므로 중복 걱정 없이 세액공제 서류를 준비합니다.",
+            "병원·학원·단체 이름별로 월 결제 횟수와 가계부 기록 횟수를 맞춥니다. 횟수가 다르면 누락·중복뿐 아니라 환불·분할 기록·집계 기간의 차이가 있는지 금액과 함께 확인합니다.",
+            "카드 결제분은 신용카드 소득공제와 겹치는지 확인합니다. 보험료와 학교 수업료 등은 카드 공제에서 제외되지만 취학 전 아동 학원비와 교복 구입비 등은 교육비 세액공제와 카드 소득공제를 함께 적용할 수 있습니다. 항목별 요건을 확인한 뒤 서류를 준비합니다.",
             "증빙을 받을 수 없는 지출은 공제 불가로 표시하고, 내년부터 결제 방식을 바꿀지 메모합니다.",
             "연초 간소화 서비스가 열리면 분류별 합계와 간소화 금액을 비교하고 차이 항목만 기관에 영수증을 요청합니다."
           ]
@@ -5661,7 +5680,7 @@ function publicLivingCostArticlesV22974() {
           "paragraphs": [
             "연말정산 간소화 서비스는 병원, 학교, 금융기관, 기부금 단체 등이 국세청에 제출한 자료를 모아 보여 줍니다. 국세청의 기부금 세액공제 안내는 간소화에서 조회되지 않는 기부금은 단체에서 영수증을 발급받을 수 있다고 설명합니다. 즉 자료 제출 의무가 없거나 제출하지 않은 곳에 낸 돈은 서비스에 보이지 않을 수 있습니다.",
             "월세는 간소화로 해결되지 않는 대표적인 항목입니다. 국세청 안내는 주민등록표등본, 임대차계약증서 사본, 계좌이체 영수증 등 월세 지급 증빙을 근로자가 직접 회사에 내도록 하고 있습니다. 교육비도 납입증명서를 간소화에서 조회할 수 있지만, 조회되지 않으면 교육기관에 직접 요청합니다.",
-            "가계부에서는 '간소화 조회 예정'과 '직접 증빙' 두 꼬리표만 붙여도 1월 작업량이 절반으로 줄어듭니다. 직접 증빙이 필요한 지출은 결제 직후 영수증 사진을 가계부 기록에 붙여 두면 연말에 다시 찾아다니지 않아도 됩니다."
+            "메모에 간소화 조회 예정인지 직접 증빙이 필요한지 적습니다. 영수증 사진 등록 기능은 현재 제공하지 않으므로 사진과 서류는 별도 폴더에 보관하고 가계부 메모에는 보관 위치·결제일·금액을 남깁니다."
           ],
           "note": "어느 항목이 간소화에 포함되는지는 해마다 조금씩 넓어지므로, 지난해 직접 챙겼던 항목이 올해는 조회될 수도 있습니다. 매년 국세청 안내의 간소화 제공 항목 목록을 한 번 읽어 두는 것이 가장 확실합니다."
         },
@@ -5685,7 +5704,7 @@ function publicLivingCostArticlesV22974() {
             "rows": [
               [
                 "매월 말",
-                "여섯 분류의 월 합계 확인, 직접 증빙 지출의 영수증 사진 첨부",
+                "여섯 분류의 월 합계 확인, 직접 증빙 서류를 별도 보관하고 메모에 위치 기록",
                 "분류별 월간 합계"
               ],
               [
@@ -5778,7 +5797,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "매달 월세를 이체하면서도 연말에 공제를 놓치는 이유는 서류와 기록이 서로 맞지 않기 때문입니다. 공제 요건을 스스로 점검하는 표와, 계약서·이체 내역·주민등록을 한 줄로 맞춰 두는 방법, 일수 비례 계산의 주의점을 다룹니다.",
       "published": "2026-10-21",
-      "updated": "2026-11-03",
+      "updated": "2026-11-07",
       "type": "Article",
       "summary": [
         "요건은 무주택 세대주(또는 세대원), 총급여 8,000만원 이하, 국민주택규모나 기준시가 4억원 이하 주택, 주소지 일치입니다.",
@@ -5789,7 +5808,7 @@ function publicLivingCostArticlesV22974() {
         {
           "title": "월세 이체만으로는 공제가 끝나지 않는다",
           "paragraphs": [
-            "가정해 봅니다. 직장인 A는 2년 동안 월세 60만원을 꼬박꼬박 이체했지만 연말정산에서 월세 공제를 받지 못했습니다. 이유는 세 가지였습니다. 전입신고를 미뤄 주민등록 주소가 계약서와 달랐고, 계약서는 부모 명의였으며, 이체 내역에 월세라는 표시가 없어 회사 담당자가 증빙으로 인정하기 어려웠습니다.",
+            "가상 사례로 직장인 A가 월세를 이체했더라도 전입신고를 미뤄 주민등록 주소와 계약서 주소가 다르면 주소 요건을 충족하지 못할 수 있습니다. 계약자는 본인 또는 본인의 기본공제대상자여야 하므로 부모 명의라는 이유만으로 일괄 제외하지 않습니다. 이체 메모에 ‘월세’라는 단어가 있어야 한다는 법정 요건은 없으며 계약서·등본·계좌 이체 내역 등으로 실제 지급 사실을 확인합니다.",
             "월세 세액공제는 조세특례제한법 제95조의2에 따라 근로자가 신청해야 적용되는 제도입니다. 공제율이 높은 편이어서 요건을 갖춘 사람에게는 한 해 100만원 넘게 세금이 줄어들 수 있지만, 요건 하나가 어긋나면 전액이 사라집니다. 그래서 이 공제는 얼마를 냈는가보다 요건과 서류가 맞는가를 먼저 봅니다."
           ]
         },
@@ -5815,7 +5834,7 @@ function publicLivingCostArticlesV22974() {
               ],
               [
                 "주택 기준",
-                "국민주택규모(85㎡) 또는 기준시가 4억원 이하. 오피스텔·고시원 포함. 기본공제 대상 자녀·손자녀가 3명 이상이면 주거전용면적 100㎡ 이하",
+                "국민주택규모(전용 85㎡, 수도권 밖 도시지역이 아닌 읍·면은 100㎡) 또는 기준시가 4억원 이하. 오피스텔·고시원 포함. 기본공제 대상 자녀·손자녀가 3명 이상이면 주거전용면적 100㎡ 이하",
                 "계약서의 면적, 기준시가 조회 결과"
               ],
               [
@@ -5928,7 +5947,7 @@ function publicLivingCostArticlesV22974() {
         ],
         [
           "월세 세액공제와 현금영수증 소득공제 중 무엇이 유리한가요?",
-          "요건을 갖췄다면 세액공제가 거의 언제나 큽니다. 예시로 월세 720만원이면 17% 세액공제는 122만 4,000원인데, 같은 금액을 현금영수증(30%) 소득공제로 넣으면 공제액이 최대 216만원이고 여기에 본인 세율을 곱한 만큼만 세금이 줄기 때문입니다. 세액공제 요건이 안 되는 경우에만 현금영수증 소득공제를 씁니다."
+          "월세 세액공제액과 현금영수증 소득공제로 줄어드는 세금을 각각 계산해 비교합니다. 연간 월세, 카드 사용액의 총급여 25% 문턱과 남은 한도, 적용 세율, 다른 공제 후 남은 세액에 따라 결과가 달라집니다. 특별소득·특별세액공제 등을 신청하지 않을 때의 표준세액공제 13만원도 함께 확인합니다. 같은 월세액에 두 공제를 중복 적용할 수 없습니다."
         ]
       ],
       "sources": [
@@ -6601,7 +6620,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 저축·비상금·부채",
       "intro": "두 건 이상의 빚이 있다면 어느 것을 먼저 갚을지에 따라 총 이자가 달라집니다. 빚 목록표를 만드는 법, 금리 우선과 잔액 우선 두 순서를 같은 숫자로 비교한 결과, 그리고 자기 상황에 맞는 순서를 고르는 기준을 정리했습니다.",
       "published": "2026-10-21",
-      "updated": "2026-11-03",
+      "updated": "2026-11-07",
       "type": "Article",
       "summary": [
         "빚은 종류·잔액·금리·만기·월 상환액·중도상환수수료 여섯 칸으로 한 표에 모아야 순서를 정할 수 있습니다.",
@@ -6718,7 +6737,7 @@ function publicLivingCostArticlesV22974() {
           "paragraphs": [
             "같은 돈을 같은 기간 넣었는데 총 이자는 96,577원 차이가 납니다. 잔액 우선 방식이 낸 이자 497,199원의 약 19%에 해당합니다. 두 금리 차이가 10%포인트로 큰 예시라 차이가 뚜렷하지만, 금리가 비슷하면 차이는 몇천 원 수준으로 줄어듭니다.",
             "그 대신 잔액 우선 방식은 4개월째에 대출 A가 사라져 관리할 건수가 하나 줄고, 매달 내야 하는 최소 상환액도 50,000원 줄어듭니다. 상환 기간이 길어질수록 중간에 포기하는 일이 잦다면, 이 '한 건 완납'의 경험이 총 이자 차이보다 값질 수 있습니다.",
-            "판단 규칙은 이렇게 정리할 수 있습니다. 금리 차이가 5%포인트 이상이면 금리 우선을 기본으로 하고, 금리 차이가 작고 건수가 세 건 이상이면 잔액 우선으로 건수를 먼저 줄입니다. 중도상환수수료가 붙는 대출은 수수료 금액을 그 대출의 이자에 더해 비교합니다."
+            "두 방식의 총 이자와 중도상환수수료, 매달 감당할 수 있는 상환액을 먼저 계산합니다. 금리 차이 5%포인트 같은 수치를 공통 판단 기준으로 쓰지 않습니다. 완납 건수를 줄이는 편의와 비용 차이를 본인의 상환 계획에 맞춰 비교합니다."
           ]
         },
         {
@@ -7528,7 +7547,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 생활 영역별 지출",
       "intro": "육아비는 카시트를 사는 달과 아무 일 없는 달의 차이가 커서 한 덩어리로 적으면 예산이 서지 않습니다. 고정·변동·일회성 세 묶음으로 나눠 월 예산을 세우고, 아이가 자라며 바뀌는 지출을 미리 반영하며, 정부 지원 제도를 어디서 확인하는지 정리했습니다.",
       "published": "2026-10-21",
-      "updated": "2026-11-03",
+      "updated": "2026-11-07",
       "type": "Article",
       "summary": [
         "육아비는 고정·변동·일회성 세 묶음으로 나누고 묶음마다 예산을 따로 둡니다.",
@@ -7644,7 +7663,7 @@ function publicLivingCostArticlesV22974() {
         {
           "title": "정부 지원은 어디서 확인하나",
           "paragraphs": [
-            "영유아 지원 제도는 보건복지부가 정책을 정하고, 신청과 조회는 복지로와 읍면동 주민센터에서 이뤄집니다. 보건복지부 정책 페이지의 부모급여와 아동수당 안내는 모두 읍면동 주민센터 방문 또는 복지로 온라인 신청을 신청 방법으로 적고 있습니다.",
+            "영유아 지원 제도는 제도에 따라 교육부·보건복지부 등 담당 부처가 다르며, 신청과 조회는 복지로와 읍면동 주민센터에서 이뤄집니다. 보건복지부 정책 페이지의 부모급여와 아동수당 안내는 모두 읍면동 주민센터 방문 또는 복지로 온라인 신청을 신청 방법으로 적고 있습니다.",
             "아래 표는 2026년 10월에 공식 페이지에서 확인한 내용만 옮겼습니다. 금액과 대상은 해마다 바뀌고 지역에 따라 다르므로, 신청 전에 같은 페이지를 다시 열어 확인하는 절차를 예산 루틴에 넣어 두는 편이 안전합니다."
           ],
           "table": {
@@ -7667,7 +7686,7 @@ function publicLivingCostArticlesV22974() {
               ],
               [
                 "첫만남이용권",
-                "2024년 1월 1일 이후 출생아는 첫째 200만 원, 둘째 이상 300만 원. 주민등록상 생년월일로부터 2년 안에 신청·사용.",
+                "2024년 1월 1일 이후 출생아는 첫째 200만 원, 둘째 이상 300만 원을 지원합니다. 사용기한은 주민등록상 출생일부터 2년이며 신청일부터 2년이 아닙니다. 지급 결정과 카드 발급에 걸리는 시간을 고려해 출생신고 후 미리 신청합니다.",
                 "정부24 서비스 안내 페이지(방문·온라인 신청)."
               ],
               [
@@ -7677,7 +7696,7 @@ function publicLivingCostArticlesV22974() {
               ],
               [
                 "가정양육수당",
-                "어린이집·유치원·종일제 아이돌봄을 이용하지 않는 24개월 이상~86개월 미만 아동. 월령별 월 10만~20만 원 정액.",
+                "어린이집·유치원·종일제 아이돌봄을 이용하지 않는 24개월 이상~86개월 미만 아동. 일반 가정양육수당은 월 10만원이며, 장애아동·농어촌 아동은 별도 지원 기준을 확인합니다.",
                 "중앙육아종합지원센터, 복지로, 읍면동 주민센터."
               ]
             ]
@@ -7738,6 +7757,7 @@ function publicLivingCostArticlesV22974() {
         ]
       ],
       "sources": [
+        ["복지로 가정양육수당 안내", "https://www.bokjiro.go.kr/ssis-tbu/twataa/wlfareInfo/moveTWAT52011M.do?wlfareInfoId=WLF00003253"],
         [
           "보건복지부 부모급여(영아수당) 지급 안내",
           "https://www.mohw.go.kr/menu.es?mid=a10711030600"
@@ -7785,7 +7805,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 공동 생활비",
       "intro": "두 사람의 수입과 성향에 맞는 통장 구조는 하나가 아닙니다. 세 가지 구조를 한 표로 비교하고, 각 구조에서 가계부를 어떻게 적을지, 나중에 구조를 바꿀 때 무엇을 정산해야 하는지를 예시 숫자로 설명합니다.",
       "published": "2026-10-21",
-      "updated": "2026-11-03",
+      "updated": "2026-11-07",
       "type": "Article",
       "summary": [
         "전부 공동, 공동 생활비와 개인 용돈, 소득 비율 분담은 투명성과 자율성의 균형이 다릅니다.",
@@ -7947,7 +7967,7 @@ function publicLivingCostArticlesV22974() {
         ],
         [
           "한 사람이 집을 소유하고 있으면 주거비는 어떻게 넣나요?",
-          "소유자가 갚는 원리금은 그 사람의 자산을 늘리는 돈이므로 공동 생활비에 그대로 넣기보다, 두 사람이 세를 살았다면 냈을 금액을 가정해 그 범위 안에서 주거비를 정하는 방식이 자주 쓰입니다. 이 부분은 두 사람의 사정에 크게 좌우되므로 금액보다 원칙을 먼저 글로 적어 두는 편이 안전합니다."
+          "대출 원금 상환은 소유자의 부채를 줄이고 이자는 금융비용입니다. 두 금액을 구분한 뒤 공동 생활비에 그대로 넣기보다, 두 사람이 세를 살았다면 냈을 금액을 가정해 그 범위 안에서 주거비를 정하는 방식이 자주 쓰입니다. 이 부분은 두 사람의 사정에 크게 좌우되므로 금액보다 원칙을 먼저 글로 적어 두는 편이 안전합니다."
         ]
       ],
       "sources": [],
@@ -8222,7 +8242,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 기록 습관",
       "intro": "월말 결산은 길게 할수록 미루게 됩니다. 60분만 비워 지난달 기록을 닫고, 예산과 비교해 다음 달 숫자를 고치고, 결과를 한 줄로 남기는 여섯 단계 시간표를 소개합니다. 혼자서 매달 반복할 수 있게 준비물과 막히는 지점도 적었습니다.",
       "published": "2026-10-21",
-      "updated": "2026-10-21",
+      "updated": "2026-11-07",
       "type": "Article",
       "summary": [
         "결산은 미기록 복구, 분류 정리, 고정비 대조, 예산 대비, 다음 달 조정, 보관의 순서로 60분에 끝냅니다.",
@@ -8256,7 +8276,7 @@ function publicLivingCostArticlesV22974() {
                 "1",
                 "미기록 복구",
                 "10분",
-                "카드·계좌 내역의 건수와 가계부 건수가 같아짐."
+                "같은 기간·계좌의 금액과 거래를 대조하고, 이체·환불·분할 기록으로 생긴 차이를 설명함."
               ],
               [
                 "2",
@@ -8294,7 +8314,7 @@ function publicLivingCostArticlesV22974() {
         {
           "title": "단계별 체크리스트와 흔한 막힘",
           "steps": [
-            "미기록 복구(10분): 카드 내역을 위에서부터 내려가며 가계부에 없는 건만 추가합니다. 막히는 곳은 가맹점 이름만 보고 무엇을 샀는지 기억나지 않는 건입니다. 결제 시각과 금액으로 추정해 '불명'으로 적고 넘어가고, 10분 안에 못 찾은 현금 지출은 '현금 미확인' 한 건으로 합쳐 적습니다.",
+            "미기록 복구(10분): 같은 기간과 계좌 범위에서 카드·계좌 내역을 가계부와 대조합니다. 거래 식별자, 결제일, 금액을 함께 보고 누락된 확정 거래를 추가합니다. 출금만으로 사용처를 알 수 없는 현금은 지출로 확정하지 않고 미확인 목록에 남깁니다. 확인 시간은 작업 배분 예시이며 끝나지 않은 항목은 다음 점검으로 넘깁니다.",
             "분류 정리(10분): 미분류 건을 분류하고, 같은 가맹점이 두 분류에 흩어져 있으면 하나로 통일합니다. 막히는 곳은 한 번 결제에 여러 성격이 섞인 건입니다. 영수증이 있으면 금액을 둘로 나누고, 없으면 금액이 큰 쪽 분류에 넣고 메모를 남깁니다.",
             "고정비 대조(10분): 월세·관리비·통신·보험·구독처럼 매달 나가는 항목을 목록으로 두고 지난달 금액과 나란히 봅니다. 막히는 곳은 금액이 달라진 항목입니다. 요금 변동인지 사용량 변동인지 고지서로 확인하고, 두 달 연속 오른 항목만 다음 달 조정 후보로 올립니다.",
             "예산 대비(15분): 분류별로 예산과 실제를 적고 차이를 금액으로 씁니다. 막히는 곳은 초과 원인을 찾느라 지출 하나하나를 뒤지는 일입니다. 초과 분류에서 금액이 큰 건 세 개만 보고 원인을 한 줄로 적습니다. 가정 예시로 식비 예산 500,000원에 실제 580,000원이면 '+80,000원, 주말 배달 3회'처럼 적습니다.",
@@ -8693,7 +8713,7 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "11월이 되면 올해 남은 두 달의 지출이 연말정산 결과를 바꿀 수 있는 마지막 구간이 됩니다. 정해진 일정과 근로자가 할 일을 달마다 나눠 두면 1월에 서류를 몰아서 찾는 일이 줄어듭니다.",
       "published": "2026-11-03",
-      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "updated": "2026-11-07",
       "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
@@ -8730,7 +8750,7 @@ function publicLivingCostArticlesV22997() {
           "title": "11월: 열 달 기록으로 어림하기",
           "paragraphs": [
             "11월 초에는 1월부터 10월까지의 기록만으로도 올해 연말정산의 윤곽을 잡을 수 있습니다. 정확한 세액을 내려는 것이 아니라 문턱과 한도에 비해 지금 어디쯤 와 있는지를 보는 것이 목적입니다.",
-            "어림 계산에서 자주 틀리는 것은 총급여입니다. 총급여는 세전 급여에서 비과세 수당 등을 뺀 금액이라 통장에 들어오는 실수령액과 다르므로, 급여명세서의 세전 금액을 기준으로 잡습니다. 연말 상여나 성과급이 남아 있다면 지급 예정액을 더해 두어야 25% 문턱도 맞게 나옵니다. 작년 원천징수영수증의 총급여를 출발점으로 삼고 올해 달라진 급여만 반영하면 계산이 빨라집니다."
+            "어림 계산에서 자주 틀리는 것은 총급여입니다. 총급여는 세전 급여에서 비과세 수당 등을 뺀 금액이라 통장에 들어오는 실수령액과 다르므로, 급여명세서의 과세 급여와 비과세 수당을 구분하여 연간 과세 급여를 합산합니다. 연말 상여나 성과급이 남아 있다면 지급 예정액을 더해 두어야 25% 문턱도 맞게 나옵니다. 작년 원천징수영수증의 총급여를 출발점으로 삼고 올해 달라진 급여만 반영하면 계산이 빨라집니다."
           ],
           "steps": [
             "올해 급여명세서를 모아 총급여를 어림합니다. 남은 두 달 급여와 연말 상여가 있으면 더합니다.",
@@ -8893,7 +8913,7 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "병원비 영수증을 모아 두었는데 공제가 생각보다 적었다면 문턱이나 대상 기준을 살펴볼 차례입니다. 세 가지 세액공제에서 자주 헷갈리는 질문을 차례로 짚고, 1년 동안 영수증을 어떻게 모으면 좋은지 정리했습니다.",
       "published": "2026-11-03",
-      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "updated": "2026-11-07",
       "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
@@ -8965,7 +8985,7 @@ function publicLivingCostArticlesV22997() {
         {
           "title": "영수증과 가계부 분류를 맞추는 법",
           "paragraphs": [
-            "세 항목 모두 누구를 위해 썼는지가 공제 여부를 가릅니다. 같은 병원비라도 기본공제대상자의 몫이면 들어가고 그렇지 않으면 빠지며, 같은 학원비라도 취학 전 아동인지 학생인지에 따라 결과가 다릅니다. 그래서 금액만 적는 가계부보다 대상자와 목적을 함께 적은 가계부가 1월에 훨씬 빨리 정리됩니다."
+            "세 항목 모두 누구를 위해 썼는지가 공제 여부를 가릅니다. 의료비는 기본공제대상 가족의 나이·소득 요건에 예외가 있으므로 단순히 기본공제를 받았는지만으로 제외하지 않고 실제 부담자와 대상자 요건을 확인합니다.  같은 학원비라도 취학 전 아동인지 학생인지에 따라 결과가 다릅니다. 그래서 금액만 적는 가계부보다 대상자와 목적을 함께 적은 가계부가 1월에 훨씬 빨리 정리됩니다."
           ],
           "steps": [
             "가계부에 의료·교육·기부 분류를 따로 두고, 결제할 때 누구를 위한 지출인지 메모에 적습니다. 본인·배우자·자녀·부모님 구분이 공제 계산을 바꿉니다.",
@@ -9001,7 +9021,7 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "부부가 모두 일하면 같은 지출을 누구 이름으로 공제받느냐가 집 전체의 환급액을 바꿉니다. 법이 귀속을 정해 둬서 옮길 수 없는 항목과, 부부가 고를 수 있는 항목을 나눠서 살펴봅니다.",
       "published": "2026-11-03",
-      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "updated": "2026-11-07",
       "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
@@ -9064,7 +9084,7 @@ function publicLivingCostArticlesV22997() {
         {
           "title": "몰아줄 때 확인할 함정",
           "paragraphs": [
-            "세액공제는 낼 세금이 있어야 돌려받습니다. 보험료·의료비·교육비 세액공제와 월세 세액공제의 합계가 근로소득 산출세액보다 크면 넘는 부분은 없어지고, 연금계좌·기부금 세액공제도 종합소득 산출세액을 넘으면 마찬가지입니다. 총급여가 적은 쪽에 의료비와 교육비를 몰았다가 그 사람의 산출세액을 넘기면, 소득이 높은 쪽에 두었을 때보다 오히려 덜 돌려받을 수 있습니다.",
+            "세액공제는 낼 세금이 있어야 돌려받습니다. 보험료·의료비·교육비와 월세 세액공제에는 근로소득 산출세액 기준의 한도가 있고, 연금계좌·기부금에도 종합소득 산출세액 한도가 적용됩니다. 다만 특별·일반기부금 중 공제받지 못한 금액에는 10년 이월공제 규정이 있으므로 정치자금·고향사랑·우리사주조합 기부금과 구분합니다. 연금계좌의 미공제 납입액은 금융회사에 신청하는 납입연도 전환 제도를 별도로 확인합니다. 총급여가 적은 쪽에 의료비와 교육비를 몰았다가 그 사람의 산출세액을 넘기면, 소득이 높은 쪽에 두었을 때보다 오히려 덜 돌려받을 수 있습니다.",
             "예를 들어 아내의 산출세액이 크지 않은데 자녀와 부모님을 모두 아내의 기본공제로 넣으면, 그 가족의 의료비·교육비까지 아내 쪽에 모여 계산상 공제액은 커져도 실제로 돌려받는 금액은 아내가 낼 세금에서 멈춥니다. 일부 부양가족을 남편 쪽으로 옮기면 두 사람의 공제가 모두 쓰일 수 있습니다."
           ],
           "note": "국세청 홈택스의 맞벌이 근로자 절세 안내 화면은 배우자가 자료 제공에 동의한 뒤에 두 사람의 자료를 함께 불러와 공제 배분을 비교해 볼 수 있게 합니다."
@@ -9089,6 +9109,7 @@ function publicLivingCostArticlesV22997() {
         ["소득이 비슷한 부부도 한쪽에 몰아야 하나요?", "두 사람의 세율 구간이 같고 문턱 차이도 작다면 어느 쪽에 두어도 결과가 비슷합니다. 이때는 자녀 학교나 병원 결제를 주로 하는 사람처럼 서류를 모으기 쉬운 쪽에 두면 정리가 편합니다."]
       ],
       "sources": [
+        ["소득세법 제61조(세액공제액의 감면 등)", "https://www.law.go.kr/법령/소득세법/제61조"],
         ["소득세법 제50조(기본공제)", "https://www.law.go.kr/법령/소득세법/제50조"],
         ["조세특례제한법 시행령 제121조의2(신용카드 등 사용금액에 대한 소득공제)", "https://www.law.go.kr/법령/조세특례제한법시행령/제121조의2"],
         ["국세청 국세상담센터 연말정산 의료비 상담 사례", "https://call.nts.go.kr/call/qna/selectQnaInfo.do?mi=1318&ctgId=CTG11909"],
@@ -9107,7 +9128,7 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "노후를 위해 연금계좌에 넣은 돈의 일부를 세금에서 돌려받는 제도가 연금계좌 세액공제입니다. 얼마까지 넣으면 공제가 되고 소득에 따라 몇 %를 돌려받는지 표 하나로 정리한 뒤, 연말에 확인할 점을 짚습니다.",
       "published": "2026-11-03",
-      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "updated": "2026-11-07",
       "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
@@ -9120,7 +9141,7 @@ function publicLivingCostArticlesV22997() {
           "title": "두 가지 계좌와 합계 한도",
           "paragraphs": [
             "세법에서 연금계좌는 연금저축계좌와 퇴직연금계좌를 말하고, 근로자가 스스로 여는 개인형퇴직연금(IRP) 계좌는 퇴직연금계좌에 들어갑니다. 한 해 동안 연금계좌에 넣은 돈 가운데 연금저축계좌 납입액은 600만원까지, 연금저축과 퇴직연금을 합친 금액은 900만원까지가 세액공제 대상입니다. 연금저축에 600만원을 넘게 넣었다면 넘는 부분은 공제 대상이 아니고, 남은 300만원은 퇴직연금계좌 납입액으로 채워야 900만원이 됩니다.",
-            "모든 납입액이 대상인 것은 아닙니다. 퇴직금을 과세를 미룬 채 옮겨 넣은 금액이나 다른 연금계좌에서 옮겨 온 금액은 새로 낸 돈이 아니라서 공제 대상에서 빠집니다. 반대로 만기가 된 개인종합자산관리계좌(ISA)의 돈을 연금계좌로 옮기면 옮긴 금액의 10%와 300만원 가운데 적은 금액만큼 공제 대상 납입액에 더해집니다.",
+            "모든 납입액이 대상인 것은 아닙니다. 퇴직금을 과세를 미룬 채 옮겨 넣은 금액이나 다른 연금계좌에서 옮겨 온 금액은 새로 낸 돈이 아니라서 공제 대상에서 빠집니다. 반대로 만기가 된 개인종합자산관리계좌(ISA)의 돈을 만기일부터 60일 이내에 연금계좌로 옮기면 옮긴 금액의 10%와 300만원 가운데 적은 금액만큼 공제 대상 납입액에 더해집니다.",
             "두 계좌는 성격도 다릅니다. 연금저축계좌는 개인이 스스로 여는 연금 계좌이고, 개인형퇴직연금 계좌는 퇴직금을 옮겨 받거나 근로자가 직접 더 넣을 수 있는 퇴직연금계좌입니다. 한도를 계산할 때는 두 계좌의 납입액을 합치되 연금저축 몫은 600만원에서 잘린다는 점만 기억하면 됩니다. 어느 계좌에 얼마를 넣을지는 운용 방식과 인출 조건이 서로 다르므로 공제 금액만 보고 정하지 않습니다."
           ]
         },
@@ -9128,7 +9149,7 @@ function publicLivingCostArticlesV22997() {
           "title": "납입액별로 돌려받는 금액",
           "paragraphs": [
             "공제율은 12%이고 소득이 일정 수준 이하이면 15%입니다. 15%가 적용되는 기준은 종합소득금액 4,500만원 이하이거나, 근로소득만 있으면서 총급여가 5,500만원 이하인 경우입니다.",
-            "아래 표에서 보듯 같은 900만원을 넣어도 공제율에 따라 27만원 차이가 납니다. 근로소득만 있는 사람은 총급여 5,500만원이 15%와 12%를 가르므로, 그 근처라면 성과급이나 연말 상여가 들어오는지에 따라 공제율이 바뀔 수 있습니다. 공제액이 그해 낼 세금보다 많으면 넘는 부분은 없어지므로, 연중에 입사했거나 소득이 적은 해에는 표의 금액을 다 돌려받지 못할 수도 있습니다. 아래 표는 지방소득세를 빼고 소득세만 계산한 금액입니다."
+            "아래 표에서 보듯 같은 900만원을 넣어도 공제율에 따라 27만원 차이가 납니다. 근로소득만 있는 사람은 총급여 5,500만원이 15%와 12%를 가르므로, 그 근처라면 성과급이나 연말 상여가 들어오는지에 따라 공제율이 바뀔 수 있습니다. 그해 낼 세금보다 공제액이 많으면 초과분을 당년에 환급받지는 못합니다. 이전 과세기간의 납입액 중 세액공제를 받지 않은 금액은 금융회사에 신청하여 신청한 해의 납입액으로 전환할 수 있습니다. 해당 연도의 납입 요건과 공제 한도가 적용되므로 미공제 금액과 전환 가능액을 확인합니다. 아래 표는 지방소득세를 빼고 소득세만 계산한 금액입니다."
           ],
           "table": {
             "caption": "연금계좌 납입액과 공제율에 따른 연간 세액공제액(소득세 기준)",
@@ -9150,7 +9171,7 @@ function publicLivingCostArticlesV22997() {
             "올해 연금저축계좌와 퇴직연금계좌에 각각 얼마를 넣었는지 확인합니다. 회사가 부담해 넣는 퇴직연금 부담금은 내가 낸 금액과 따로 적어 둡니다.",
             "입금이 다음 해 날짜로 처리되면 올해 납입으로 잡히지 않을 수 있으니, 금융회사의 연말 처리 마감 시각을 미리 알아 둡니다.",
             "공제액이 그해 낼 세금보다 크면 넘는 부분은 돌려받지 못합니다. 다른 세액공제가 많은 해라면 900만원을 다 채워도 효과가 줄어들 수 있습니다.",
-            "연금계좌는 연금으로 받는 것을 전제로 한 제도라서, 중간에 연금 외 방식으로 찾으면 세액공제를 받은 납입액과 운용수익에 기타소득세 15%(지방소득세 별도)가 붙어, 돌려받은 세액보다 더 낼 수도 있습니다. 찾는 조건은 국세청 안내로 확인합니다.",
+            "일반적인 연금 외 수령에서는 세액공제를 받은 납입액과 운용수익에 기타소득세 15%(지방소득세 별도)가 적용됩니다. 세액공제를 받지 않은 납입 원금과 이연퇴직소득은 구분해서 과세하며, 의료 목적이나 법에서 정한 부득이한 사유로 인출하면 별도 규정이 적용될 수 있습니다. 인출 전에 금융회사에 해당 사유, 제출 서류와 기한을 확인합니다.",
             "퇴직연금계좌를 처음 만드는 해라면 회사 퇴직연금과 내가 연 개인형퇴직연금 계좌를 헷갈리지 않도록 계좌 이름을 가계부에 그대로 적어 둡니다."
           ]
         },
@@ -9184,6 +9205,8 @@ function publicLivingCostArticlesV22997() {
         ["총급여가 5,500만원 근처인데 공제율이 달라지나요?", "근로소득만 있다면 총급여 5,500만원 이하일 때 15%, 넘으면 12%입니다. 연말 상여금으로 기준을 넘는 경우도 있으므로 12월 급여까지 포함한 총급여로 확인합니다."]
       ],
       "sources": [
+        ["국세청 연금소득 안내", "https://www.nts.go.kr/nts/cm/cntnts/cntntsView.do?cntntsId=7885&mi=6605"],
+        ["소득세법 시행령 제118조의3(연금계좌세액공제)", "https://www.law.go.kr/법령/소득세법시행령/제118조의3"],
         ["소득세법 제59조의3(연금계좌세액공제)", "https://www.law.go.kr/법령/소득세법/제59조의3"],
         ["소득세법 시행령 제40조의2(연금계좌 등)", "https://www.law.go.kr/법령/소득세법시행령/제40조의2"],
         ["소득세법 제61조(세액감면액 및 세액공제액의 산출세액 초과 시의 적용방법 등)", "https://www.law.go.kr/법령/소득세법/제61조"]
@@ -9201,7 +9224,7 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "부양가족이 없으면 연말정산에서 챙길 것이 별로 없다고 생각하기 쉽지만, 혼자 사는 사람에게 맞는 공제도 있습니다. 월세와 청약처럼 매달 나가는 고정비가 공제와 이어지는 항목이 있어, 가계부의 고정비 기록이 그대로 준비 자료가 됩니다.",
       "published": "2026-11-03",
-      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "updated": "2026-11-07",
       "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
@@ -9220,7 +9243,7 @@ function publicLivingCostArticlesV22997() {
             "caption": "혼자 사는 근로자가 확인할 공제 항목과 요건",
             "headers": ["항목", "주요 요건", "공제 방식"],
             "rows": [
-              ["월세 세액공제", "과세기간 종료일 현재 무주택 세대주, 총급여 8천만원 이하, 국민주택규모(85㎡) 이하 또는 기준시가 4억원 이하 주택(오피스텔·고시원 포함), 계약서 주소와 주민등록 주소가 같을 것", "연 월세 1천만원 한도로 15% 또는 17%"],
+              ["월세 세액공제", "과세기간 종료일 현재 무주택 세대주, 총급여 8천만원 이하, 국민주택규모(전용면적 기준 85㎡, 다만 수도권 밖의 읍·면 중 도시지역이 아닌 곳은 100㎡) 이하 또는 기준시가 4억원 이하 주택(오피스텔·고시원 포함), 계약서 주소와 주민등록 주소가 같을 것", "연 월세 1천만원 한도로 15% 또는 17%"],
               ["주택청약종합저축 소득공제", "그해 무주택 세대주, 총급여 7천만원 이하", "연 납입 300만원 한도로 40%"],
               ["보장성 보험료 세액공제", "본인을 피보험자로 한 보장성 보험", "연 100만원 한도로 12%"],
               ["의료비 세액공제", "총급여 3%를 넘는 의료비", "15%, 본인 의료비는 연 700만원 한도 없음"],
@@ -9231,7 +9254,7 @@ function publicLivingCostArticlesV22997() {
         {
           "title": "월세가 가장 큰 항목일 때",
           "paragraphs": [
-            "월세 세액공제는 무주택 세대의 세대주가 총급여 8천만원 이하이고 종합소득금액이 7천만원 이하일 때 받을 수 있습니다. 빌린 집은 국민주택규모(전용 85㎡) 이하이거나 기준시가 4억원 이하여야 하고(주거용 오피스텔·고시원 포함), 임대차계약서의 주소와 주민등록 주소가 같아야 합니다. 한 해 월세액 1천만원까지 15%를 공제하고, 총급여 5,500만원 이하이면서 종합소득금액 4,500만원 이하이면 17%를 적용합니다.",
+            "월세 세액공제는 무주택 세대의 세대주가 총급여 8천만원 이하이고 종합소득금액이 7천만원 이하일 때 받을 수 있습니다. 빌린 집은 국민주택규모(전용면적 기준 85㎡, 다만 수도권 밖의 읍·면 중 도시지역이 아닌 곳은 100㎡) 이하이거나 기준시가 4억원 이하여야 하고(주거용 오피스텔·고시원 포함), 임대차계약서의 주소와 주민등록 주소가 같아야 합니다. 한 해 월세액 1천만원까지 15%를 공제하고, 총급여 5,500만원 이하이면서 종합소득금액 4,500만원 이하이면 17%를 적용합니다.",
             "월세 50만원을 1년 동안 낸 사람은 월세액이 600만원이고, 17%가 적용되면 계산상 공제액은 102만원입니다. 다만 세액공제는 그해 근로소득으로 낼 세금 안에서만 돌려받으므로, 소득이 적어 낼 세금이 작으면 실제로 줄어드는 세금은 이보다 작을 수 있습니다. 계약서와 이체 기록을 갖추는 방법은 월세 세액공제 기록 글에서 따로 다뤘습니다.",
             "관리비를 월세와 함께 보내는 경우에는 가계부에 금액을 나눠 적어 둡니다. 계약서에 적힌 월세액과 관리비를 구분해 두어야 연말에 공제 대상 금액을 정확히 계산할 수 있습니다."
           ]
@@ -9239,7 +9262,7 @@ function publicLivingCostArticlesV22997() {
         {
           "title": "청약 납입과 세대주 요건",
           "paragraphs": [
-            "주택청약종합저축 납입액은 총급여 7천만원 이하인 무주택 세대주가 연 300만원까지 넣은 금액의 40%를 소득에서 빼 줍니다. 한 해 최대 공제액은 120만원이고, 2028년 12월 31일까지 낸 금액에 적용되도록 정해져 있습니다.",
+            "주택청약종합저축 납입액은 총급여 7천만원 이하인 무주택 세대주가 연 300만원까지 넣은 금액의 40%를 소득에서 빼 줍니다. 한 해 최대 공제액은 120만원이고, 2028년 12월 31일까지 낸 금액에 적용되도록 정해져 있습니다. 공제를 적용받으려면 다음 해 2월 말까지 금융기관에 무주택확인서를 제출합니다.",
             "청약 공제의 효과는 공제액 자체가 아니라 그 금액에 붙는 세율만큼입니다. 세율이 낮은 해에는 같은 금액을 넣어도 줄어드는 세금이 작으므로, 납입액은 공제보다 주택 마련 계획에 맞춰 정하는 편이 자연스럽습니다."
           ],
           "bullets": [
@@ -9302,7 +9325,7 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 저축·비상금·부채",
       "intro": "2월이나 3월 급여에 평소보다 큰 금액이 들어오면 그 돈은 어디로 가야 할까요? 환급금은 보너스처럼 느껴지지만, 미리 쓸 곳을 정해 두지 않으면 생활비에 섞여 어디에 썼는지 모르게 사라지기 쉽습니다.",
       "published": "2026-11-03",
-      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "updated": "2026-11-07",
       "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
@@ -9368,7 +9391,7 @@ function publicLivingCostArticlesV22997() {
         {
           "title": "가계부에 환급금 적는 법",
           "paragraphs": [
-            "환급금을 급여와 같은 수입으로 적으면 그달 수입이 부풀어 보여 지출 비교가 흐려집니다. 수입 분류 안에 세금 환급 항목을 따로 두고, 배정한 곳으로 옮길 때는 지출이 아니라 이체로 적습니다. 비상금 계좌나 적립 계좌로 옮긴 돈은 저축으로, 빚 상환은 원금 상환으로 기록하면 연말에 환급금이 어디로 갔는지 한 줄씩 따라갈 수 있습니다. 해마다 환급액과 배정 결과를 같은 표에 적어 두면 공제 계획이 실제로 얼마나 효과가 있었는지도 보입니다.",
+            "환급금은 실제 입금일의 현금 유입이지만 반복되는 급여와 분리해 비교합니다. 급여 입금액에 환급금이 포함되어 있다면 급여와 환급금으로 나누어 적고 두 금액의 합계가 실제 입금액과 일치하도록 합니다. 수입 분류 안에 세금 환급 항목을 따로 두고, 배정한 곳으로 옮길 때는 지출이 아니라 이체로 적습니다. 비상금 계좌나 적립 계좌로 옮긴 돈은 저축으로, 빚 상환은 원금 상환으로 기록하면 연말에 환급금이 어디로 갔는지 한 줄씩 따라갈 수 있습니다. 해마다 환급액과 배정 결과를 같은 표에 적어 두면 공제 계획이 실제로 얼마나 효과가 있었는지도 보입니다.",
             "환급금을 따로 관리하기 어렵다면 들어오는 날 바로 배정 계좌로 옮기도록 예약 이체를 걸어 두는 방법도 있습니다. 금액이 확정되지 않았다면 예상 금액의 일부를 먼저 옮기고, 나머지는 급여명세서를 확인한 뒤 옮기면 됩니다. 기록과 이체를 같은 날 끝내면 가계부에도 빠진 기록이 생기지 않습니다.",
             "환급금이 해마다 비슷하게 나온다면 그 금액을 연간 계획의 한 줄로 적어 두되, 실제로 들어온 뒤에만 배정합니다. 기대보다 적게 들어온 해에도 계획이 흔들리지 않도록 배정 순서의 앞쪽 단계부터 채우는 원칙을 지킵니다."
           ],
@@ -9397,7 +9420,7 @@ function publicLivingCostArticlesV22997() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "집과 관련된 공제는 네 가지이고, 이름은 비슷해도 요건과 한도, 세대주를 판정하는 시점이 서로 다릅니다. 같은 해에 둘 이상 받을 때는 합쳐서 계산하는 한도도 있어서, 표로 나란히 놓고 보면 이해가 빠릅니다.",
       "published": "2026-11-03",
-      "updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,
+      "updated": "2026-11-07",
       "basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,
       "type": "Article",
       "summary": [
@@ -9433,7 +9456,7 @@ function publicLivingCostArticlesV22997() {
         {
           "title": "주택담보대출 이자 공제의 상환 조건별 한도",
           "paragraphs": [
-            "장기주택저당차입금 이자 공제는 대출 기간과 상환 방식에 따라 한도가 달라집니다. 2024년 1월 1일 이후 취득한 주택은 취득 당시 기준시가가 6억원 이하여야 하고, 그 전에 취득한 주택은 취득 시점의 기준시가 기준(예: 2019~2023년 취득 5억원)을 따릅니다. 자세한 연도별 기준은 국세청 안내로 확인합니다. 과세기간 종료일 현재 무주택이거나 1주택인 세대주여야 하며 2주택 이상이면 대상이 아닙니다. 세대주는 그 집에 실제로 살지 않아도 되지만, 세대원이 공제받을 때는 실제로 거주해야 합니다.",
+            "장기주택저당차입금 이자 공제는 대출 기간과 상환 방식에 따라 한도가 달라집니다. 2024년 1월 1일 이후 취득한 주택은 취득 당시 기준시가가 6억원 이하여야 하고, 그 전에 취득한 주택은 취득 시점의 기준시가 기준(예: 2019~2023년 취득 5억원)을 따릅니다. 일반적으로 소유권 이전등기 또는 보존등기일부터 3개월 이내에 차입하고 대출 채무자와 담보 주택 소유자가 같아야 합니다. 대환·채무 인수와 자세한 연도별 기준은 국세청 안내로 확인합니다. 과세기간 종료일 현재 무주택이거나 1주택인 세대주여야 하며 2주택 이상이면 대상이 아닙니다. 세대주는 그 집에 실제로 살지 않아도 되지만, 세대원이 공제받을 때는 실제로 거주해야 합니다.",
             "한도 차이가 크기 때문에 대출을 새로 받을 때 상환 방식이 공제에도 영향을 줍니다. 같은 이자를 내더라도 거치 기간이 있거나 변동금리이면 낮은 한도가 적용될 수 있으므로, 계약 조건을 가계부 메모에 남겨 두면 해마다 한도를 다시 찾지 않아도 됩니다. 다만 공제만을 이유로 대출 조건을 정하기보다 전체 이자 부담을 먼저 비교합니다."
           ],
           "bullets": [
@@ -9442,7 +9465,7 @@ function publicLivingCostArticlesV22997() {
             "상환 기간 15년 이상, 위 두 조건이 모두 없는 경우: 연 800만원",
             "상환 기간 10년 이상, 고정금리나 비거치식 분할상환 가운데 하나: 연 600만원"
           ],
-          "note": "위 한도는 2024년 이후 이자 상환분부터 차입 시기와 관계없이 적용되고, 2012년 전에 받은 대출은 종전 규정이 유리하면 그쪽을 쓸 수 있습니다."
+          "note": "위 표는 일반적인 현행 한도를 정리한 것입니다. 과거 차입금의 경과규정은 차입일과 상환 조건에 따라 다르므로 해당 연도의 국세청 안내와 대출 증명서로 확인합니다. 전세대출 공제도 국민주택규모, 차입 시점, 금융기관에서 임대인에게 직접 입금했는지 등의 요건을 별도로 확인해야 합니다."
         },
         {
           "title": "세대주를 따지는 시점",
@@ -9474,7 +9497,7 @@ function publicLivingCostArticlesV22997() {
         {
           "title": "월세 세액공제는 따로 본다",
           "paragraphs": [
-            "월세 세액공제는 세액에서 바로 빼는 공제이고 위의 합산 한도와도 별개입니다. 총급여 8천만원 이하인 무주택 세대주가 대상이며, 한 해 월세액 1천만원까지 15%를 공제합니다. 월세로 사는 집은 국민주택규모 이하이거나 기준시가가 4억원을 넘지 않아야 하고, 주민등록상 주소가 임대차계약서 주소와 같아야 합니다. 총급여 5,500만원 이하이고 종합소득금액도 4,500만원 이하인 사람은 17%입니다. 2026년부터는 주소지의 시·군·자치구가 서로 다른 무주택 주말부부가 각각 공제받을 수 있고(합계 1천만원 한도), 자녀·손자녀가 3명 이상이면 100㎡ 이하 주택까지 대상이 넓어집니다. 월세 세액공제를 신청하면 표준세액공제는 받을 수 없다는 점도 함께 기억해 둡니다."
+            "월세 세액공제는 세액에서 바로 빼는 공제이고 위의 합산 한도와도 별개입니다. 총급여 8천만원 이하이고 종합소득금액이 7천만원 이하인 무주택 세대의 근로자가 대상이며 세대주 또는 법에서 정한 세대원 요건을 확인합니다.  한 해 월세액 1천만원까지 15%를 공제합니다. 월세로 사는 집은 국민주택규모 이하이거나 기준시가가 4억원을 넘지 않아야 하고, 주민등록상 주소가 임대차계약서 주소와 같아야 합니다. 총급여 5,500만원 이하이고 종합소득금액도 4,500만원 이하인 사람은 17%입니다. 2026년부터는 주소지의 시·군·자치구가 서로 다르고 배우자와 같은 주소에 거주하는 해당 가족도 무주택인 등 법정 요건을 충족한 주말부부가 각각 공제받을 수 있고(합계 1천만원 한도), 해당 근로자의 기본공제대상자인 자녀(입양자·위탁아동 포함) 및 손자녀가 3명 이상이면 100㎡ 이하 주택까지 대상이 넓어집니다. 월세 세액공제를 신청하면 표준세액공제는 받을 수 없다는 점도 함께 기억해 둡니다."
           ],
           "note": "세대원으로서 공제를 받으려 하거나 부부가 각각 계약한 경우처럼 요건이 복잡하면 국세청 안내에서 해당 공제의 세부 조건을 확인합니다."
         }
@@ -9792,6 +9815,377 @@ async function supportUsageSummaryV22997(env) {
     as_of: today,
   };
 }
+// Pure calculations shared by the public examples, offline worksheets and validation.
+// Keep this function self-contained: the downloadable HTML serializes it.
+function worksheetComputeV229106(slug, input) {
+  const fail = (message) => { throw new Error(message); };
+  const number = (value, signed = false) => {
+    const text = String(value ?? "").trim();
+    if (!(signed ? /^-?\d+$/ : /^\d+$/).test(text)) fail("금액과 비율은 빈칸 없이 정수로 입력해 주세요.");
+    const result = Number(text);
+    if (!Number.isSafeInteger(result) || Math.abs(result) > 1e12) fail("입력값은 1조 이하의 정수여야 합니다.");
+    return result;
+  };
+  const sum = (values) => {
+    const result = values.reduce((a, b) => a + b, 0);
+    if (!Number.isSafeInteger(result)) fail("합계가 계산 가능한 범위를 넘었습니다.");
+    return result;
+  };
+  const date = (value) => {
+    const text = String(value ?? "");
+    if (!/^20\d{2}-\d{2}-\d{2}$/.test(text)) fail("날짜는 2000~2099년의 실제 날짜로 입력해 주세요.");
+    const ms = Date.parse(text + "T00:00:00Z");
+    if (!Number.isFinite(ms) || new Date(ms).toISOString().slice(0, 10) !== text) fail("달력에 없는 날짜가 있습니다.");
+    return ms / 86400000;
+  };
+  const list = (name, max = 100) => {
+    const rows = input[name];
+    if (!Array.isArray(rows) || !rows.length || rows.length > max) fail(`입력 행은 1~${max}개로 작성해 주세요.`);
+    return rows;
+  };
+  const nameOf = (value) => {
+    const name = String(value ?? "").trim();
+    if (!name || name.length > 60 || /[,\r\n]/.test(name)) fail("이름과 식별자는 쉼표 없이 1~60자로 입력해 주세요.");
+    return name;
+  };
+  const allocate = (total, weights) => {
+    if (weights.some((n) => !Number.isSafeInteger(n) || n < 0)) fail("배분 비율을 확인해 주세요.");
+    const denom = weights.reduce((a, b) => a + BigInt(b), 0n);
+    if (!denom) fail("참여자의 비율 합계는 0보다 커야 합니다.");
+    const parts = weights.map((w, i) => ({ i, value: Number(BigInt(total) * BigInt(w) / denom), rest: BigInt(total) * BigInt(w) % denom }));
+    let left = total - sum(parts.map((p) => p.value));
+    const order = [...parts].sort((a, b) => a.rest === b.rest ? a.i - b.i : a.rest > b.rest ? -1 : 1);
+    for (let i = 0; i < left; i++) order[i].value++;
+    return parts.map((p) => p.value);
+  };
+  const table = (caption, headers, rows) => ({ caption, headers, rows });
+  const setting = input.settings || {};
+  if (slug === "shared-living-cost-rules") {
+    const people = list("people", 12);
+    const names = people.map((p) => nameOf(p.name));
+    if (new Set(names).size !== names.length) fail("참여자 이름이 중복됩니다.");
+    const paid = names.map(() => 0);
+    const groups = new Map();
+    for (const row of list("transactions")) {
+      const payer = names.indexOf(nameOf(row.payer));
+      if (payer < 0) fail("결제자를 참여자 목록에 먼저 추가해 주세요.");
+      const amount = number(row.amount);
+      const selected = String(row.participants ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+      if (!selected.length || new Set(selected).size !== selected.length || selected.some((n) => !names.includes(n))) fail("각 지출의 참여자를 중복 없이 쉼표로 구분해 적어 주세요.");
+      const ids = selected.map((n) => names.indexOf(n)).sort((a, b) => a - b);
+      const key = ids.join(",");
+      const group = groups.get(key) || { ids, amount: 0 };
+      group.amount = sum([group.amount, amount]); groups.set(key, group);
+      paid[payer] = sum([paid[payer], amount]);
+    }
+    const methods = [["균등 분담", "equal"], ["소득 비율", "income"], ["이용량 비율", "use"], ["합의 비율", "agreed"]];
+    const methodsOut = methods.map(([label, field]) => {
+      const shares = names.map(() => 0);
+      for (const { ids, amount } of groups.values()) {
+        const values = allocate(amount, ids.map((i) => field === "equal" ? 1 : number(people[i][field])));
+        ids.forEach((id, i) => { shares[id] = sum([shares[id], values[i]]); });
+      }
+      const net = paid.map((value, i) => value - shares[i]);
+      const transfers = [];
+      const balances = [...net];
+      for (let from = 0; from < names.length; from++) for (let to = 0; to < names.length && balances[from] < 0; to++) {
+        if (balances[to] <= 0) continue;
+        const amount = Math.min(-balances[from], balances[to]);
+        transfers.push([names[from], names[to], amount]); balances[from] += amount; balances[to] -= amount;
+      }
+      return { label, shares, net, transfers };
+    });
+    return { total: sum(paid), methods: methodsOut, tables: methodsOut.flatMap((m) => [table(m.label + " (원)", ["참여자", "결제액", "부담액", "받을 돈(+)/보낼 돈(-)"], names.map((n, i) => [n, paid[i], m.shares[i], m.net[i]])), table(m.label + " 송금 제안 (원)", ["보내는 사람", "받는 사람", "금액"], m.transfers.length ? m.transfers : [["추가 송금 없음", "", 0]])]), notes: ["참여자가 같은 지출을 합친 뒤 비율을 적용했습니다. 원 미만을 버리고 소수 부분이 큰 순서로 남은 원을 배정하며, 동률이면 참여자 입력 순서를 따릅니다.", "이는 합의용 계산표입니다. 실제 가계부의 자동 정산이나 송금을 실행하지 않으며, 환불은 원거래와 별도로 합의해 반영해 주세요."] };
+  }
+  if (slug === "roommate-shared-ledger") {
+    const start = date(setting.start), end = date(setting.end), cost = number(setting.cost);
+    if (end <= start || end - start > 366) fail("비용 기간은 시작일 이상·종료일 미만이며 1~366일이어야 합니다.");
+    const people = list("people", 12).map((p) => ({ name: nameOf(p.name), start: date(p.start), end: date(p.end) }));
+    if (new Set(people.map((p) => p.name)).size !== people.length) fail("거주자 이름이 중복됩니다.");
+    if (people.some((p) => p.end <= p.start)) fail("퇴거일은 입주일보다 뒤여야 합니다. 퇴거일 당일은 제외합니다.");
+    const gcd = (a, b) => b ? gcd(b, a % b) : a;
+    let scale = 1;
+    for (let i = 1; i <= people.length; i++) scale = scale * i / gcd(scale, i);
+    const weights = people.map(() => 0).concat(0), days = people.map(() => 0);
+    let vacantDays = 0;
+    for (let d = start; d < end; d++) {
+      const active = people.map((p, i) => p.start <= d && d < p.end ? i : -1).filter((i) => i >= 0);
+      if (!active.length) { weights[people.length] += scale; vacantDays++; }
+      for (const i of active) { weights[i] += scale / active.length; days[i]++; }
+    }
+    const daily = allocate(cost, weights);
+    const personDays = sum(days) ? allocate(cost, days) : people.map(() => 0);
+    return { daily: daily.slice(0, people.length), personDays, unassigned: daily[people.length], vacantDays, tables: [table("두 합의 방식 비교 (원)", ["거주자", "기간 안 거주 일수", "날짜별 분담", "거주 인일 비례"], people.map((p, i) => [p.name, days[i], daily[i], personDays[i]]).concat([["별도 합의가 필요한 비용", vacantDays, daily[people.length], sum(days) ? 0 : cost]]))], notes: ["입주일을 포함하고 퇴거일을 제외합니다. 날짜별 방식은 그날 거주자끼리 비용을 나누고, 인일 방식은 전체 비용을 총 거주 일수 비율로 나눕니다.", "보증금은 월 비용에 넣지 않습니다. 거주자가 없는 날의 날짜별 비용은 미배정으로 남깁니다. 두 방식 중 하나를 합의한 뒤 사용하세요."] };
+  }
+  if (slug === "cash-flow-table") {
+    const accounts = String(setting.accounts || "").split(",").map((v) => v.trim()).filter(Boolean);
+    if (!accounts.length || new Set(accounts).size !== accounts.length) fail("관리 계좌를 중복 없이 쉼표로 구분해 입력해 주세요.");
+    const beginning = number(setting.beginning, true), ids = new Set();
+    let cashIn = 0, livingOut = 0, savingOut = 0;
+    const trace = list("transactions").map((r) => {
+      const id = nameOf(r.id); if (ids.has(id)) fail("현금흐름표의 거래 ID가 중복됩니다."); ids.add(id);
+      const amount = number(r.amount), from = String(r.from || "").trim(), to = String(r.to || "").trim();
+      if (!from && !to) fail("보낸 계좌 또는 받은 계좌를 적어 주세요. 범위 밖 거래처는 ‘외부’로 적을 수 있습니다.");
+      if (from && from === to) fail("보낸 계좌와 받은 계좌가 같습니다.");
+      if (!["income", "living", "saving", "refund"].includes(r.kind)) fail("거래 구분을 선택해 주세요.");
+      const out = accounts.includes(from), into = accounts.includes(to);
+      let action = "범위 밖 거래", effect = 0;
+      if (out && into) action = "내부 이체: 합산 효과 0";
+      else if (into) { cashIn = sum([cashIn, amount]); effect = amount; action = r.kind === "refund" ? "환불 현금 유입(근로소득 아님)" : "현금 유입"; }
+      else if (out) { effect = -amount; if (r.kind === "saving") { savingOut = sum([savingOut, amount]); action = "저축 이동 출금"; } else { livingOut = sum([livingOut, amount]); action = "생활 관련 출금"; } }
+      return [id, from || "외부", to || "외부", amount, action, effect];
+    });
+    const net = cashIn - livingOut - savingOut, ending = sum([beginning, net]);
+    return { beginning, cashIn, livingOut, savingOut, net, ending, tables: [table("현금흐름 여섯 줄 (원)", ["항목", "금액"], [["기초잔액", beginning], ["현금 유입", cashIn], ["생활 관련 출금", livingOut], ["저축 이동 출금", savingOut], ["순현금 증감", net], ["기말잔액", ending]]), table("원본에서 결과까지 (원)", ["거래 ID", "보낸 계좌", "받은 계좌", "금액", "판정", "증감"], trace)], notes: ["한 행은 확인된 입출금 또는 연결된 이체 한 건입니다. 이체의 출금·입금 내역을 각각 새 거래로 넣지 마세요. 양쪽 계좌와 금액을 확인한 뒤 한 행에 묶습니다.", "새 계좌를 범위에 포함하면 그 계좌의 기초잔액도 합산해야 합니다. 카드 구매액과 실제 카드대금 출금을 중복 입력하지 마세요. 환불 입금은 현금 유입이며 소비 분석의 순지출과 구별합니다."] };
+  }
+  if (slug === "sinking-fund-annual-expenses") {
+    const target = number(setting.target), saved = number(setting.saved), basis = date(setting.basis), due = date(setting.due);
+    if (!["saving", "paid"].includes(setting.status)) fail("납부 상태를 선택해 주세요.");
+    const need = setting.status === "paid" ? 0 : Math.max(0, target - saved);
+    if (!Array.isArray(input.dates) || input.dates.length > 100) fail("적립일은 100개 이하로 입력해 주세요.");
+    const dates = input.dates.map((r) => date(r.date));
+    if (new Set(dates).size !== dates.length) fail("같은 적립일이 두 번 입력되어 있습니다.");
+    const eligible = dates.filter((d) => d >= basis && d <= due).sort((a, b) => a - b);
+    const amounts = eligible.length ? allocate(need, eligible.map(() => 1)) : [];
+    const shortage = eligible.length || !need ? 0 : need;
+    return { need, shortage, excess: Math.max(0, saved - target), amounts, tables: [table("납부일까지 가능한 적립 (원)", ["적립일", "금액"], eligible.map((d, i) => [new Date(d * 86400000).toISOString().slice(0, 10), amounts[i]])), table("계획 상태 (원)", ["항목", "값"], [["추가 필요액", need], ["기한 안 적립일이 없어 남는 부족액", shortage], ["초과 적립액", Math.max(0, saved - target)]])], notes: [shortage ? "납부일까지 적립 가능한 날짜가 없습니다. 부족액을 해결할 방법과 일정을 다시 정해야 합니다." : "기준일부터 납부일까지 실제로 입금할 수 있다고 입력한 날짜만 계산했습니다. 납부 당일 적립은 출금 시각 전에 입금할 수 있을 때만 포함하세요.", "이 계획은 가상 배분이며 실제 이체나 납부를 실행하지 않습니다. 납부 완료 상태는 추가 적립을 요구하지 않습니다. 날짜가 지나면 기준일을 바꿔 다시 계산하세요."] };
+  }
+  if (slug === "monthly-closing-routine") {
+    const beginning = number(setting.beginning, true), start = date(setting.start), end = date(setting.end);
+    if (end <= start) fail("마감 종료일은 시작일보다 뒤여야 합니다.");
+    let before = beginning, after = beginning; const seen = new Map(), trace = [];
+    for (const row of list("transactions")) {
+      const id = nameOf(row.id), day = date(row.date), amount = number(row.amount, true);
+      if (!["yes", "no"].includes(row.recorded) || !["confirmed", "pending"].includes(row.status)) fail("기록 여부와 확정 상태를 선택해 주세요.");
+      let reason = "반영";
+      if (day < start || day >= end) reason = "기간 밖: 제외";
+      else if (row.status !== "confirmed") reason = "미확정: 제외";
+      else {
+        if (row.recorded === "yes") before = sum([before, amount]);
+        if (seen.has(id)) {
+          const previous = seen.get(id);
+          if (previous.day !== day || previous.amount !== amount) fail("같은 원거래 ID에 서로 다른 날짜나 금액이 있습니다. 원자료를 확인해 주세요.");
+          reason = "같은 원거래 ID의 중복: 한 번만 반영";
+        } else { seen.set(id, { day, amount }); after = sum([after, amount]); if (row.recorded === "no") reason = "확인한 누락: 추가"; }
+      }
+      trace.push([id, row.date, amount, reason]);
+    }
+    return { before, after, difference: after - before, tables: [table("수정 전후 잔액 (원)", ["단계", "잔액"], [["수정 전", before], ["수정 후", after], ["차이", after - before]]), table("거래별 판단 근거 (원)", ["원거래 ID", "날짜", "금액", "처리"], trace)], notes: ["원자료에서 같은 거래임을 확인한 경우에만 같은 ID를 사용하세요. 날짜와 금액이 같아도 ID가 다르면 별도 거래로 유지합니다.", "환불 입금은 별도 ID의 양수 거래입니다. 취소 표시만으로 입금액을 추가하지 마세요. 미확인 현금과 임시 승인은 확정 지출로 합산하지 않습니다."] };
+  }
+  if (slug === "subscription-cleanup") {
+    const start = date(setting.basis), end = start + 30;
+    let before = 0, after = 0;
+    const rows = list("subscriptions").map((row) => {
+      const name = nameOf(row.name), amount = number(row.amount), next = date(row.next);
+      if (!["monthly", "annual"].includes(row.cycle) || !["active", "requested", "confirmed"].includes(row.cancel)) fail("결제 주기와 해지 상태를 선택해 주세요.");
+      if (row.cancel !== "confirmed" && next < start) fail("유지 중이거나 해지를 요청한 구독의 다음 결제일이 지났습니다. 실제 다음 청구일을 확인해 입력해 주세요.");
+      const confirmed = row.confirmed ? date(row.confirmed) : null;
+      const until = row.until ? date(row.until) : null;
+      if (row.cancel === "confirmed" && (confirmed === null || until === null || confirmed > start || until < confirmed)) fail("해지 완료일과 이용 종료일을 확인해 주세요. 기준일 뒤의 완료를 미리 반영할 수 없습니다.");
+      const planned = next >= start && next < end ? amount : 0;
+      const cancelled = row.cancel === "confirmed" && confirmed < next;
+      before = sum([before, planned]); after = sum([after, cancelled ? 0 : planned]);
+      return [name, row.cycle === "annual" ? amount / 12 : amount, planned, cancelled ? 0 : planned, row.cancel === "requested" ? "요청만 함: 청구 유지" : cancelled ? "갱신 해지 확인" : "다음 결제 확인", row.until || "미확인", number(row.refund)];
+    });
+    return { before, after, reduction: before - after, tables: [table("구독별 비교 (원)", ["구독", "월 환산 비용", "해지 반영 전 30일", "확인 반영 후 30일", "상태", "이용 종료일", "실제 환불 입금"], rows), table("30일 구간 합계 (원)", ["항목", "금액"], [["해지 반영 전 예정액", before], ["확인 반영 후 예정액", after], ["예정 결제 감소액", before - after]])], notes: ["기준일을 포함한 30일이며 마지막 날은 제외합니다. 각 구독의 입력한 다음 결제 한 건만 비교하므로, 구간 안에 두 번 청구되는 상품은 각각 별도 행으로 확인하세요.", "해지 요청만으로 예정액을 지우지 않습니다. 해지 완료와 다음 갱신 차단이 확인된 조건을 입력하세요. 결제일 당일 해지는 이미 청구됐을 수 있어 자동 제외하지 않습니다. 월 환산액·예정 감소액·실제 환불은 서로 다른 값입니다."] };
+  }
+  fail("지원하지 않는 계산표입니다.");
+}
+
+
+const PUBLIC_WORKSHEETS_V229106 = {
+  "shared-living-cost-rules": {
+    title: "공동 생활비 네 가지 분담 계산표",
+    outcome: "각 지출에 참여한 사람을 먼저 정한 뒤 그 안에서 균등·소득·이용량·합의 비율을 비교합니다.",
+    instruction: "참여자 이름은 쉼표 없이 적고 각 지출의 참여자는 A,B,C처럼 적습니다. 본문의 전체 금액 동일 분배를 재현하려면 모든 지출에 전체 참여자를 선택합니다. 품목별 분배를 재현하려면 그 품목을 함께 쓴 사람만 선택한 뒤 균등 결과를 봅니다. 소득·이용량·합의 칸은 선택한 사람 사이의 비율이며, 인원수 기준은 해당 인원수를 비율로 입력할 수 있습니다. 같은 참여자의 지출을 합친 뒤 원 단위로 배분합니다.",
+    fields: [],
+    groups: [
+      { key: "people", label: "참여자와 비율", max: 12, columns: [["name", "이름", "text"], ["income", "소득 비율", "number"], ["use", "이용량 비율", "number"], ["agreed", "합의 비율", "number"]] },
+      { key: "transactions", label: "원본 지출", columns: [["payer", "결제자", "text"], ["amount", "금액(원)", "number"], ["participants", "참여자(쉼표로 구분)", "text"]] },
+    ],
+    example: { settings: {}, people: [{ name: "A", income: 3, use: 1, agreed: 40 }, { name: "B", income: 2, use: 2, agreed: 35 }, { name: "C", income: 1, use: 3, agreed: 25 }], transactions: [{ payer: "A", amount: 60001, participants: "A,B,C" }, { payer: "B", amount: 40000, participants: "A,B,C" }, { payer: "C", amount: 20000, participants: "A,B,C" }] },
+    checks: ["균등 분담은 40,001원·40,000원·40,000원이며 C가 A에게 20,000원을 보냅니다.", "A가 12,000원을 낸 지출에 A,B만 참여하도록 추가하면 C는 그 항목을 부담하지 않습니다.", "참여자가 없거나 비율의 합이 0이면 완료 결과 대신 수정 안내가 나옵니다."],
+  },
+  "roommate-shared-ledger": {
+    title: "중도 입퇴거 공동 비용 계산표",
+    outcome: "같은 월 비용을 날짜별 거주자 분담과 총 거주 인일 비례로 비교합니다. 거주자가 없는 날의 비용을 따로 남깁니다.",
+    instruction: "시작일과 입주일은 포함하고 종료일과 퇴거일은 제외합니다. 11월 전체는 11월 1일부터 12월 1일 전까지입니다. 보증금과 별도 합의한 비용은 이 계산에 섞지 않습니다.",
+    fields: [["start", "비용 시작일(포함)", "date"], ["end", "비용 종료일(제외)", "date"], ["cost", "공동 비용(원)", "number"]],
+    groups: [{ key: "people", label: "거주 기간", max: 12, columns: [["name", "이름", "text"], ["start", "입주일(포함)", "date"], ["end", "퇴거일(제외)", "date"]] }],
+    example: { settings: { start: "2026-11-01", end: "2026-12-01", cost: 90000 }, people: [{ name: "A", start: "2026-11-01", end: "2026-12-01" }, { name: "B", start: "2026-11-11", end: "2026-12-01" }] },
+    checks: ["날짜별 분담은 A 60,000원·B 30,000원, 인일 비례는 A 54,000원·B 36,000원입니다.", "이 차이는 계산 오류가 아니라 합의 방식의 차이입니다. 임대차법상 유일한 기준으로 제시하지 않습니다.", "28·29·31일인 달과 중도 퇴거도 날짜를 바꿔 확인할 수 있습니다."],
+  },
+  "cash-flow-table": {
+    title: "계좌 범위를 정하는 현금흐름 계산표",
+    outcome: "원본 입출금에서 현금흐름 여섯 줄과 기말잔액을 만들고, 거래마다 포함하거나 제외한 이유를 확인합니다.",
+    instruction: "관리 계좌는 A,B처럼 적습니다. 범위 밖 거래처는 외부로 표시하고, 확인된 내부 이체는 출금·입금을 한 행에 묶습니다. 금액은 양수로 적고 보낸 계좌와 받은 계좌로 방향을 구분합니다.",
+    fields: [["accounts", "관리 계좌(쉼표로 구분)", "text"], ["beginning", "관리 계좌 합산 기초잔액(원)", "number"]],
+    groups: [{ key: "transactions", label: "입출금과 확인한 이체", columns: [["id", "거래 ID", "text"], ["from", "보낸 계좌", "text"], ["to", "받은 계좌", "text"], ["amount", "금액(원)", "number"], ["kind", "구분", "select", [["income", "입금"], ["living", "생활 출금"], ["saving", "저축 이동"], ["refund", "환불 입금"]]]] }],
+    example: { settings: { accounts: "A,B", beginning: 1000000 }, transactions: [{ id: "급여", from: "외부", to: "A", amount: 3000000, kind: "income" }, { id: "월세", from: "A", to: "외부", amount: 700000, kind: "living" }, { id: "식비", from: "A", to: "외부", amount: 300000, kind: "living" }, { id: "지난달 카드대금", from: "A", to: "외부", amount: 400000, kind: "living" }, { id: "확인한 이체", from: "A", to: "B", amount: 200000, kind: "living" }, { id: "적금 이동", from: "A", to: "S", amount: 500000, kind: "saving" }, { id: "환불", from: "외부", to: "B", amount: 50000, kind: "refund" }] },
+    checks: ["기초잔액 1,000,000원 + 유입 3,050,000원 − 생활 출금 1,400,000원 − 저축 이동 500,000원 = 기말잔액 2,150,000원입니다.", "기초잔액이 0원인 S 계좌를 범위에 추가하면 적금 이동이 내부 이체가 되어 합산 기말잔액은 2,650,000원입니다.", "환불은 입금된 날의 현금 유입이며 근로소득이나 실제 절약 성과로 부르지 않습니다."],
+  },
+  "sinking-fund-annual-expenses": {
+    title: "납부일에 맞춘 비정기 지출 적립표",
+    outcome: "이미 모은 금액과 납부일까지 가능한 적립일을 반영해 회차별 금액과 부족액을 계산합니다.",
+    instruction: "기준일 이후 실제로 입금할 수 있는 날짜를 적습니다. 납부 당일은 출금 전에 입금할 수 있을 때만 포함하세요. 이미 지난 적립일은 남은 회차에서 제외합니다.",
+    fields: [["basis", "기준일", "date"], ["due", "납부일", "date"], ["target", "목표액(원)", "number"], ["saved", "기적립액(원)", "number"], ["status", "납부 상태", "select", [["saving", "적립 중"], ["paid", "납부 완료"]]]],
+    groups: [{ key: "dates", label: "가능한 적립일", columns: [["date", "입금 가능한 날짜", "date"]] }],
+    example: { settings: { basis: "2026-09-15", due: "2026-11-30", target: 1200000, saved: 300000, status: "saving" }, dates: [{ date: "2026-09-25" }, { date: "2026-10-25" }, { date: "2026-11-25" }] },
+    checks: ["남은 900,000원을 세 날짜에 300,000원씩 배분합니다.", "100,000원을 세 번 나누면 빠른 날짜부터 33,334원·33,333원·33,333원입니다.", "기한 안에 적립일이 없으면 부족액을 남기며, 이미 납부했거나 충분히 모았으면 추가 필요액은 0원입니다."],
+  },
+  "monthly-closing-routine": {
+    title: "근거를 남기는 월 마감 대조표",
+    outcome: "원거래 ID로 중복을 구별하고 확인한 누락을 반영해 수정 전후 잔액과 차이를 설명합니다.",
+    instruction: "지출은 음수, 입금은 양수로 적습니다. 은행·카드 원자료에서 같은 거래임을 확인했을 때만 같은 ID를 붙입니다. 실제 입금되지 않은 취소는 환불 입금으로 추가하지 마세요.",
+    fields: [["beginning", "기초잔액(원)", "number"], ["start", "시작일(포함)", "date"], ["end", "종료일(제외)", "date"]],
+    groups: [{ key: "transactions", label: "확인할 거래", columns: [["id", "원거래 ID", "text"], ["date", "날짜", "date"], ["amount", "증감액(지출은 음수)", "number"], ["recorded", "기존 기록 여부", "select", [["yes", "기록됨"], ["no", "누락 확인"]]], ["status", "확정 상태", "select", [["confirmed", "확정"], ["pending", "미확정"]]]] }],
+    example: { settings: { beginning: 500000, start: "2026-11-01", end: "2026-12-01" }, transactions: [{ id: "식비-001", date: "2026-11-02", amount: -80000, recorded: "yes", status: "confirmed" }, { id: "식비-001", date: "2026-11-02", amount: -80000, recorded: "yes", status: "confirmed" }, { id: "교통-002", date: "2026-11-03", amount: -20000, recorded: "yes", status: "confirmed" }, { id: "구독-003", date: "2026-11-04", amount: -10000, recorded: "yes", status: "confirmed" }, { id: "구독환불-004", date: "2026-11-05", amount: 10000, recorded: "yes", status: "confirmed" }, { id: "월세-005", date: "2026-11-01", amount: -120000, recorded: "no", status: "confirmed" }, { id: "임시승인-006", date: "2026-11-07", amount: -15000, recorded: "yes", status: "pending" }, { id: "다음달-007", date: "2026-12-01", amount: -5000, recorded: "yes", status: "confirmed" }] },
+    checks: ["수정 전 잔액은 320,000원입니다. 중복 80,000원을 제거하고 누락 월세 120,000원을 반영하면 280,000원입니다.", "수정 전후 차이는 −40,000원입니다. 미확정 승인과 다음 달 거래는 별도로 제외 이유를 남깁니다.", "같은 날짜·금액이라도 다른 ID이면 삭제하지 않습니다. 같은 ID의 금액이 다르면 원자료를 먼저 확인하도록 안내합니다."],
+  },
+  "subscription-cleanup": {
+    title: "다음 결제와 해지 확인을 나누는 구독표",
+    outcome: "월 환산 비용, 향후 30일의 다음 결제, 이용 종료, 실제 환불을 구별합니다.",
+    instruction: "아래 상품과 약관은 모두 가상입니다. 해지 완료는 다음 갱신이 취소됐다는 확인을 받은 경우에만 선택하세요. 다음 결제일이 기준일 이전이면 실제 다음 청구가 없는지 확인해야 합니다.",
+    fields: [["basis", "기준일(30일 구간의 첫날)", "date"]],
+    groups: [{ key: "subscriptions", label: "구독과 확인 결과", columns: [["name", "구독 이름", "text"], ["amount", "1회 결제액(원)", "number"], ["cycle", "주기", "select", [["monthly", "월 구독"], ["annual", "연 구독"]]], ["next", "다음 결제일/마지막 예정일", "date"], ["cancel", "해지 상태", "select", [["active", "유지"], ["requested", "해지 요청"], ["confirmed", "갱신 해지 확인"]]], ["confirmed", "해지 완료일(선택)", "date"], ["until", "이용 종료일(선택)", "date"], ["refund", "실제 환불 입금액(원)", "number"]] }],
+    example: { settings: { basis: "2026-11-05" }, subscriptions: [{ name: "A 월 구독", amount: 9900, cycle: "monthly", next: "2026-11-20", cancel: "confirmed", confirmed: "2026-11-05", until: "2026-11-19", refund: 0 }, { name: "B 연 구독", amount: 120000, cycle: "annual", next: "2027-09-01", cancel: "confirmed", confirmed: "2026-11-05", until: "2027-08-31", refund: 0 }, { name: "C 이미 해지", amount: 6900, cycle: "monthly", next: "2026-10-25", cancel: "confirmed", confirmed: "2026-10-25", until: "2026-11-09", refund: 0 }] },
+    checks: ["11월 5일 이상 12월 5일 미만 구간의 다음 결제는 A의 9,900원입니다. 갱신 해지를 확인한 뒤 예정액은 0원입니다.", "B의 월 환산 비용은 10,000원이지만 이 구간의 출금과 환불 입금은 모두 0원입니다.", "A를 ‘해지 요청’으로 바꾸면 청구 예정액 9,900원이 남습니다. 실제 환불과 예정 결제 감소를 혼동하지 않습니다."],
+  },
+};
+
+function publicWorksheetPathV229106(slug) { return `/assets/living-worksheet-v229106-${slug}.html`; }
+
+function enrichPublicWorksheetsV229106(catalog) {
+  for (const [slug, spec] of Object.entries(PUBLIC_WORKSHEETS_V229106)) {
+    const page = catalog[slug]; if (!page) continue;
+    const result = worksheetComputeV229106(slug, spec.example);
+    page.updated = "2026-11-07";
+    page.primary = ["입력값을 바꿔 계산하기", publicWorksheetPathV229106(slug)];
+    page.secondary = ["계산표 파일 저장", publicWorksheetPathV229106(slug) + "?download=1"];
+    page.sections = [
+      { title: "이 글에서 완성할 결과", paragraphs: [spec.outcome, spec.instruction], ...(spec.fields.length ? { table: { caption: "예제의 계산 조건", headers: ["조건", "입력값"], rows: spec.fields.map((c) => [c[1], c[2] === "select" ? c[3].find((o) => o[0] === spec.example.settings[c[0]])?.[1] || spec.example.settings[c[0]] : String(spec.example.settings[c[0]] ?? "")]) } } : {}), note: "운영팀이 작성한 편집용 가상 예제입니다. 실제 고객 사례나 제품의 자동 처리 기능이 아닙니다. 별도 계산표는 브라우저에서만 작동하며 입력값을 서버로 보내지 않습니다." },
+      ...spec.groups.map((group) => ({ title: group.label + " 예제", table: { caption: group.label + " 원본(가상 데이터)", headers: group.columns.map((c) => c[1]), rows: spec.example[group.key].map((row) => group.columns.map((c) => c[2] === "select" ? c[3].find((o) => o[0] === row[c[0]])?.[1] || row[c[0]] : String(row[c[0]] ?? ""))) } })),
+      { title: "예제의 조건과 검산", bullets: spec.checks, paragraphs: result.notes, table: result.tables[0], links: [page.primary, page.secondary] },
+      ...page.sections,
+    ];
+  }
+  const links = Object.entries(PUBLIC_WORKSHEETS_V229106).map(([slug, spec]) => [spec.title, `/${slug}`]);
+  catalog.home.sections.splice(1, 0, { title: "직접 계산하며 읽는 생활비 자료", paragraphs: ["공동 비용의 분담, 계좌 범위에 따른 잔액, 납부일까지의 적립과 월 마감을 가상 원본으로 확인하고 자신의 조건으로 바꿔 볼 수 있습니다."], links });
+  catalog.home.updated = "2026-11-07";
+}
+
+
+function worksheetClientV229106(slug, spec, calculate) {
+  const form = document.getElementById("worksheet-form");
+  const output = document.getElementById("worksheet-result");
+  const status = document.getElementById("worksheet-status");
+  const exportButton = document.getElementById("worksheet-export");
+  let last = null;
+  const element = (tag, text) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; return node; };
+  const field = (schema, value, prefix) => {
+    const [key, title, type, options] = schema;
+    const label = element("label");
+    label.append(element("span", title));
+    const node = element(type === "select" ? "select" : "input");
+    if (type !== "select") { node.type = type; if (type === "number") node.step = "1"; if (type === "text") node.maxLength = 500; }
+    else for (const [v, title] of options) { const option = element("option", title); option.value = v; node.append(option); }
+    node.name = key; node.id = prefix + "-" + key; node.value = String(value ?? "");
+    label.htmlFor = node.id; label.append(node); return label;
+  };
+  const invalidate = () => { last = null; exportButton.disabled = true; output.replaceChildren(); status.textContent = "입력값이 바뀌었습니다. ‘결과 계산’을 눌러 다시 확인해 주세요."; };
+  let sequence = 0;
+  const addRow = (group, holder, row = {}) => {
+    if (holder.children.length >= (group.max || 100)) { status.textContent = `최대 ${group.max || 100}행까지 입력할 수 있습니다.`; return; }
+    const box = element("fieldset"); box.dataset.row = "true";
+    box.append(element("legend", group.label + " 입력"));
+    const grid = element("div"); grid.className = "fields";
+    for (const column of group.columns) grid.append(field(column, row[column[0]] ?? (column[2] === "select" ? column[3][0][0] : ""), "row-" + sequence));
+    sequence++;
+    const remove = element("button", "이 행 삭제"); remove.type = "button"; remove.className = "secondary";
+    remove.addEventListener("click", () => { box.remove(); invalidate(); });
+    box.append(grid, remove); holder.append(box);
+  };
+  const read = () => {
+    const input = { settings: Object.create(null) };
+    for (const node of form.querySelectorAll("#worksheet-settings input, #worksheet-settings select")) input.settings[node.name] = node.value;
+    for (const group of spec.groups) input[group.key] = [...form.querySelector(`[data-group="${group.key}"]`).children].map((box) => {
+      const row = Object.create(null); for (const node of box.querySelectorAll("input,select")) row[node.name] = node.value; return row;
+    });
+    return input;
+  };
+  const run = () => {
+    output.replaceChildren(); last = null; exportButton.disabled = true;
+    try {
+      const input = read(), result = calculate(slug, input);
+      for (const data of result.tables) {
+        const region = element("div"); region.className = "table-scroll"; region.tabIndex = 0; region.setAttribute("role", "region"); region.setAttribute("aria-label", data.caption);
+        const table = element("table"); table.append(element("caption", data.caption));
+        const head = element("thead"), row = element("tr"); for (const title of data.headers) { const th = element("th", title); th.scope = "col"; row.append(th); } head.append(row); table.append(head);
+        const body = element("tbody");
+        for (const values of data.rows) { const tr = element("tr"); values.forEach((value, i) => { const cell = element(i ? "td" : "th", typeof value === "number" ? value.toLocaleString("ko-KR", { maximumFractionDigits: 2 }) : String(value)); if (!i) cell.scope = "row"; tr.append(cell); }); body.append(tr); }
+        table.append(body); region.append(table); output.append(region);
+      }
+      for (const note of result.notes) output.append(element("p", note));
+      last = { input, result }; exportButton.disabled = false;
+      status.textContent = "계산했습니다. 결과와 처리 이유를 확인하고 필요한 경우 CSV로 저장하세요.";
+    } catch (error) { status.textContent = error.message || "입력값을 확인해 주세요."; }
+  };
+  const reset = () => {
+    form.replaceChildren();
+    const settings = element("div"); settings.id = "worksheet-settings"; settings.className = "fields";
+    for (const schema of spec.fields) settings.append(field(schema, spec.example.settings[schema[0]], "setting"));
+    form.append(settings);
+    for (const group of spec.groups) {
+      const section = element("section"); section.append(element("h2", group.label));
+      const holder = element("div"); holder.dataset.group = group.key;
+      for (const row of spec.example[group.key]) addRow(group, holder, row);
+      const add = element("button", "행 추가"); add.type = "button"; add.className = "secondary";
+      add.addEventListener("click", () => { addRow(group, holder); invalidate(); });
+      section.append(holder, add); form.append(section);
+    }
+    const submit = element("button", "결과 계산"); submit.type = "submit"; form.append(submit); run();
+  };
+  form.addEventListener("submit", (event) => { event.preventDefault(); run(); });
+  form.addEventListener("input", invalidate);
+  form.addEventListener("change", invalidate);
+  document.getElementById("worksheet-reset").addEventListener("click", reset);
+  document.getElementById("worksheet-print").addEventListener("click", () => window.print());
+  exportButton.addEventListener("click", () => {
+    if (!last) return;
+    const exportValue = (schema, value) => schema[2] === "select" ? schema[3].find((option) => option[0] === value)?.[1] || value : schema[2] === "number" && value !== "" ? Number(value) : value;
+    const rows = [[spec.title], ["가상 예제를 바꿔 계산한 결과입니다. 입력과 계산 조건을 함께 보관하세요."], ["설정", "입력값"], ...spec.fields.map((schema) => [schema[1], exportValue(schema, last.input.settings[schema[0]])])];
+    for (const group of spec.groups) rows.push([], [group.label], group.columns.map((c) => c[1]), ...last.input[group.key].map((r) => group.columns.map((c) => exportValue(c, r[c[0]]))));
+    for (const table of last.result.tables) rows.push([], [table.caption], table.headers, ...table.rows);
+    rows.push([], ...last.result.notes.map((n) => [n]));
+    const cell = (value) => { let text = String(value ?? ""); if (typeof value !== "number" && /^[\s]*[=+@-]/.test(text)) text = "'" + text; return '"' + text.replace(/"/g, '""') + '"'; };
+    const url = URL.createObjectURL(new Blob(["\ufeff", rows.map((r) => r.map(cell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }));
+    const a = element("a"); a.href = url; a.download = slug + "-result.csv"; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  reset();
+}
+
+function renderPublicWorksheetV229106(slug, spec) {
+  const json = (value) => JSON.stringify(value).replace(/</g, "\\u003c");
+  const title = escapeHtml(spec.title);
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,follow"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'"><title>${title} · 말해가계부</title><style>
+  :root{color-scheme:light dark;--bg:#f6f7f9;--surface:#fff;--text:#172337;--muted:#4d596a;--line:#cbd2dc;--accent:#1d4e9e}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:17px/1.7 system-ui,-apple-system,sans-serif}main{max-width:980px;margin:auto;padding:28px 20px 70px}h1{font-size:clamp(1.7rem,5vw,2.5rem);line-height:1.3;margin:26px 0 18px;word-break:keep-all}h2{font-size:1.3rem;margin:36px 0 16px}p{max-width:72ch}a{color:var(--accent);text-underline-offset:4px}.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:16px}fieldset{min-width:0;margin:14px 0;padding:16px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}legend{padding:0 6px;font-weight:650}label{display:flex;flex-direction:column;gap:6px;font-size:15px}input,select{font:inherit;font-size:17px;color:var(--text);background:var(--surface);min-height:46px;width:100%;border:1px solid var(--line);border-radius:6px;padding:8px;caret-color:var(--accent)}button{font:inherit;font-weight:650;min-height:46px;padding:9px 17px;margin:14px 8px 0 0;border:1px solid var(--accent);border-radius:7px;background:var(--accent);color:#fff;cursor:pointer}button.secondary{background:var(--surface);color:var(--accent)}button:disabled{opacity:.55;cursor:not-allowed}button:hover:not(:disabled){filter:brightness(.92)}:focus-visible{outline:3px solid var(--accent);outline-offset:3px}::selection{background:#c9dbff;color:#102b58}.table-scroll{overflow:auto;max-width:100%;margin:24px 0}table{border-collapse:collapse;width:100%;background:var(--surface);font-variant-numeric:tabular-nums}caption{text-align:left;font-weight:700;margin:0 0 12px}th,td{border-bottom:1px solid var(--line);padding:10px 14px;text-align:left;vertical-align:top;min-width:100px}th{font-weight:650}#worksheet-status{font-weight:650;min-height:2em;margin-top:24px}.meta{color:var(--muted);font-size:15px}.actions{display:flex;flex-wrap:wrap;gap:4px}details{margin:24px 0}summary{cursor:pointer;font-weight:650}@media(prefers-color-scheme:dark){:root{--bg:#141922;--surface:#1c2430;--text:#edf1f7;--muted:#c0cad8;--line:#566276;--accent:#9bc1ff}button{color:#101b2e}button.secondary{color:var(--accent)}}@media print{:root{color-scheme:light;--bg:#fff;--surface:#fff;--text:#000;--muted:#333;--line:#777;--accent:#000}body{background:#fff;color:#000}button,.actions{display:none}fieldset{break-inside:avoid}.fields{grid-template-columns:repeat(2,minmax(0,1fr))}input,select{border:0;padding:0;min-height:0;background:#fff;color:#000}main{max-width:none;padding:0}.table-scroll{overflow:visible}table{font-size:10pt}th,td{min-width:0;padding:5px}a{color:#000}}
+  </style></head><body><main><a href="https://malhaebook.com/${slug}">설명 글과 계산 근거로 돌아가기</a><h1>${title}</h1><p>${escapeHtml(spec.outcome)}</p><p>${escapeHtml(spec.instruction)}</p><p class="meta">편집용 가상 예제 · 2026-11-07 작성 · 도담 네트워크 운영팀<br>계산표는 이 브라우저 안에서만 작동합니다. 입력값은 서버 전송·광고·방문 분석·브라우저 저장소에 사용하지 않습니다. 새로고침하면 입력이 초기화되므로 필요한 결과는 CSV로 보관하세요.</p><details><summary>예제 결과와 확인할 예외</summary><ul>${spec.checks.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details><noscript><p>계산하려면 JavaScript가 필요합니다. 위 설명 글에서 원본 예제와 결과 표를 읽을 수 있습니다.</p></noscript><form id="worksheet-form" action="#" novalidate></form><p id="worksheet-status" role="status" aria-live="polite"></p><h2>계산 결과</h2><div id="worksheet-result"></div><div class="actions"><button type="button" id="worksheet-export" disabled>입력과 결과 CSV 저장</button><button type="button" class="secondary" id="worksheet-print">결과 인쇄</button><button type="button" class="secondary" id="worksheet-reset">가상 예제로 되돌리기</button></div><p class="meta">이 자료는 합의와 검산을 돕는 별도 계산표입니다. 실제 거래 저장·송금·가입·구독 해지를 실행하지 않습니다. CSV에는 입력한 내용이 포함됩니다.</p></main><script>(${worksheetClientV229106.toString()})(${json(slug)},${json(spec)},${worksheetComputeV229106.toString()});</script></body></html>`;
+}
+
+function publicWorksheetResponseV229106(request, url) {
+  if (!["GET", "HEAD"].includes(request.method)) return null;
+  const slug = Object.keys(PUBLIC_WORKSHEETS_V229106).find((key) => publicWorksheetPathV229106(key) === url.pathname);
+  if (!slug) return null;
+  const download = url.searchParams.get("download") === "1";
+  return new Response(request.method === "HEAD" ? null : renderPublicWorksheetV229106(slug, PUBLIC_WORKSHEETS_V229106[slug]), { headers: {
+    "content-type": "text/html; charset=utf-8", "x-content-type-options": "nosniff", "x-robots-tag": "noindex, follow", "referrer-policy": "no-referrer",
+    "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "cache-control": download ? "no-store" : "public, max-age=31536000, immutable",
+    ...(download ? { "content-disposition": `attachment; filename="${slug}.html"` } : {}),
+  } });
+}
+
 
 function publicPageCatalog(env = {}, url = null, extra = {}) {
   // V22.9.92: 카카오 애드핏으로 광고를 내는 서버(adsPolicyNetwork 가 "adfit")에서는 개인정보처리방침·쿠키 안내의 광고 절을
@@ -9886,6 +10280,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
   catalog.terms.updated = POLICY_NOTICE_DATE;
   // V22.9.74: 생활비 가이드 글(12편 + 20편)에 분류·작성일을 붙이고, 글 목록 허브와 사이트맵 절을 그 목록으로 만든다.
   publicNormalizeLivingArticles(catalog);
+  enrichPublicWorksheetsV229106(catalog);
   const articleIndex = publicArticleIndex(catalog);
   // V22.9.104 A-2: 첫 화면 ‘최근 글’ 은 글 목록 앞 8편(작성일 최신 순) + 전체 목록 링크다. 첫 화면 수정일(화면·JSON-LD·사이트맵 lastmod)은
   // 그 글들의 가장 늦은 수정일보다 이르지 않게 올린다(새 글을 올리거나 글을 고치면 첫 화면 목록도 바뀌므로).
@@ -10095,7 +10490,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   const page = Object.hasOwn(catalog, key) ? catalog[key] : catalog.home;
   const origin = publicBaseUrl(env, url);
   const canonical = `${origin}${key === "home" ? "/" : `/${key}`}`;
-  const adKey = publicContentAdKey(key);
+  const adKey = adsPublicRequestKeyV229106(env, url, publicContentAdKey(key));
   const pageTitle = `${page.title} · ${appName(env)}`;
   const sectionList = safeArray(page.sections);
   const living = publicArticleIsLiving(page);
@@ -10111,7 +10506,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
     description: page.description, url: canonical, inLanguage: "ko-KR", dateModified: page.updated,
     publisher: { "@type": "Organization", name: BUSINESS_FOOTER_INFO.company, url: origin },
     ...(type === "Article" ? { headline: page.title, author: { "@type": "Organization", name: BUSINESS_FOOTER_INFO.company, url: `${origin}/about` }, mainEntityOfPage: canonical } : {}),
-    ...(living ? { datePublished: page.published || page.updated, articleSection: page.category, isAccessibleForFree: true, wordCount: publicArticleHangul(page) } : {}),
+    ...(living ? { datePublished: page.published || page.updated, articleSection: page.category, isAccessibleForFree: true } : {}),
     ...(type === "SoftwareApplication" ? { applicationCategory: "FinanceApplication", operatingSystem: "Web" } : {}),
     ...(type === "FAQPage" ? { mainEntity: page.faqs.map(([q, a]) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })) } : {}),
   }).replace(/</g, "\\u003c");
@@ -10142,10 +10537,12 @@ async function handlePublicContentPage(request, env, url, key = "home") {
   // V22.9.97 후원 지표: /support 에는 화면이 실제로 보일 때 방문 신호(POST /support/visit)를 보내는 작은 스크립트를 붙인다.
   // GET 응답에서는 세지 않는다(미리 렌더링 규칙과 GET 무변경 약속, public/support-page.js).
   const html = renderPublicContentPage(env, url, key, extra);
-  return htmlResponse(key === "support" ? withSupportVisitScriptV22997(html) : html, 200, adsHeaders(env, publicContentAdKey(key), { "cache-control": "public, max-age=300, stale-while-revalidate=600", "x-robots-tag": "index, follow" }));
+  return htmlResponse(key === "support" ? withSupportVisitScriptV22997(html) : html, 200, adsHeaders(env, adsPublicRequestKeyV229106(env, url, publicContentAdKey(key)), { "cache-control": "public, max-age=300, stale-while-revalidate=600", "x-robots-tag": "index, follow" }));
 }
 
 async function publicDocumentResponse(request, env, url) {
+  const worksheet = publicWorksheetResponseV229106(request, url);
+  if (worksheet) return worksheet;
   if (!["GET", "HEAD"].includes(request.method) || url.pathname === "/") return null;
   const aliases = [
     ["/sitemap", "/site-map"], ["/service", "/service-guide"],

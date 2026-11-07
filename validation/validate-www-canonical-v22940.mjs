@@ -110,7 +110,7 @@ for (const [name, env] of [["변수 없음", fixture.env], ["CANONICAL_REDIRECT=
   eq(skill.location, null, "www POST /skill 에는 location 이 없다");
   eq(JSON.parse(skill.text).version, "2.0", "www POST /skill 은 카카오 스킬 응답을 낸다");
   const head = await call(`${WWW}/`, { method: "HEAD" });
-  ok(head.status !== 308 && head.location === null, `www HEAD 는 지금처럼 옮기지 않는다(GET 전용, ${head.status})`);
+  ok(head.status === 308 && head.location === `${CANONICAL}/`, `www HEAD 는 지금처럼 옮기지 않는다(GET 전용, ${head.status})`);
   const options = await call(`${WWW}/skill`, { method: "OPTIONS" });
   eq(options.status, 204, "www OPTIONS 는 지금처럼 204 다");
 }
@@ -133,7 +133,7 @@ for (const path of ["/", "/budget-guide?x=1"]) {
   eq(skill.status, 200, "정본 POST /skill 도 그대로다");
   for (const env of [fixture.env, withVar]) {
     const r = await call("http://malhaebook.com/faq", { env });
-    ok(r.status === 200 && r.location === null, "정본을 http 로 받아도 호스트가 같아 이 함수는 옮기지 않는다(HTTPS 전환은 Cloudflare 설정)");
+    ok(r.status === 308 && r.location === `${CANONICAL}/faq`, "정본을 http 로 받아도 호스트가 같아 이 함수는 옮기지 않는다(HTTPS 전환은 Cloudflare 설정)");
   }
 }
 

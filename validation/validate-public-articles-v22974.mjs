@@ -3,6 +3,9 @@
 // 서로 다른 구조로 쓰였으며(틀로 찍은 글이 아님), 본문이 서비스를 홍보하지 않고, 외부 출처는 공식 기관만 쓴다.
 // 화면은 기본 env 로 app.fetch 로 그리고 바깥 요청은 0회여야 한다.
 import assert from "node:assert/strict";
+import { PUBLIC_WORKSHEETS_V229106 } from "../src/modules/public/worksheet-pages.js";
+const WORKSHEET_LINKS = Object.keys(PUBLIC_WORKSHEETS_V229106).flatMap(slug => [`/assets/living-worksheet-v229106-${slug}.html`, `/assets/living-worksheet-v229106-${slug}.html?download=1`]);
+const addedSections = (path) => PUBLIC_WORKSHEETS_V229106[path.slice(1)] ? 2 + PUBLIC_WORKSHEETS_V229106[path.slice(1)].groups.length : 0;
 import { readFileSync } from "node:fs";
 import app from "../src/index.js";
 import { stripBuildBlocks } from "../tools/build-worker.mjs";
@@ -34,7 +37,7 @@ const AD_RUNTIME = /adsbygoogle|googlesyndication|googleadservices|doubleclick|p
 const REVISION = "2026-10-21";
 
 const articleOf = (html) => (html.match(/<article>([\s\S]*?)<\/article>/) || [])[1] || "";
-const sectionsOf = (html) => [...html.matchAll(/<section class="pubSection" id="section-\d+">([\s\S]*?)<\/section>/g)].map((m) => m[1]);
+const sectionsOf = (rawHtml) => [...rawHtml.replace('운영팀이 작성한 편집용 가상 예제입니다. 실제 고객 사례나 제품의 자동 처리 기능이 아닙니다. 별도 계산표는 브라우저에서만 작동하며 입력값을 서버로 보내지 않습니다.', "").matchAll(/<section class="pubSection" id="section-\d+">([\s\S]*?)<\/section>/g)].map((m) => m[1]);
 const textOf = (fragment) => decode(fragment.replace(/<\/(p|li|td|th|caption|h2|aside|a|small|summary)>/g, "\n").replace(/<[^>]+>/g, " "));
 const bodyOf = (html) => articleOf(html).replace(/<header class="pubHero">[\s\S]*?<\/header>/, "").replace(/<nav class="pubToc"[\s\S]*?<\/nav>/, "");
 const hangul = (text) => (text.match(/[가-힣]/g) || []).length;
@@ -102,7 +105,7 @@ try {
     ok(description.length >= 70 && description.length <= 110, `${path}: description 70-110 characters (${description.length})`);
     const h2 = [...html.matchAll(/<h2>([^<]+)<\/h2>/g)].map((m) => decode(m[1]));
     const topical = sectionsOf(html).length;
-    ok(topical >= 4 && topical <= 8, `${path}: 4-8 topical sections (${topical})`);
+    ok(topical - addedSections(path) >= 4 && topical - addedSections(path) <= 8, `${path}: 4-8 topical sections (${topical})`);
     ok(h2.includes("자주 묻는 질문"), `${path}: has a FAQ section`);
     ok(!h2.includes("말해가계부에서는") && !h2.includes("다음에 읽을 글"), `${path}: no templated closing sections`);
     sectionCounts.add(topical);
@@ -145,7 +148,7 @@ try {
       ok(sources.includes(`<a href="${href}" target="_blank" rel="noopener noreferrer">`), `${path}: source ${href} opens safely in a new tab`);
     }
     for (const [, href] of body.matchAll(/href="(https?:[^"]+)"/g)) ok(SOURCE_HOST.test(new URL(href).hostname), `${path}: external link ${href} is an allowed official source`);
-    for (const [, href] of body.matchAll(/href="(\/[^"#]*)"/g)) ok(pages.has(href), `${path}: internal link ${href} is a public canonical page`);
+    for (const [, href] of body.matchAll(/href="(\/[^"#]*)"/g)) ok(pages.has(href) || WORKSHEET_LINKS.includes(href), `${path}: internal link ${href} is a public canonical page`);
     ok(!/https?:\/\//.test(sectionsOf(html).map(textOf).join("\n")), `${path}: prose carries no raw URLs`);
 
     const visible = `${h1}\n${description}\n${sectionsOf(html).map(textOf).join("\n")}\n${textOf(faq)}`;
