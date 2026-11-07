@@ -3213,7 +3213,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.106-PUBLIC-VALUE";
+const APP_VERSION = "V22.9.107-ADS-REVIEW-FIXES";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3526,11 +3526,13 @@ function adfitSpeculationRulesJson() {
 
 // The publisher runtime is fetched only after activation, on an exact canonical URL.
 // The SDK itself and the issued unit attributes are never modified.
+// V22.9.107 D-1: 정본은 출처 + 경로다. 목차 앵커(#section-n)나 유입 표시(?utm_source=…)가 붙어도 같은 문서이므로 광고를 시작한다
+// (V106 은 href 전체를 비교해 앵커로 연 화면·외부 링크 유입 화면에서 광고가 시작되지 않았다). 다른 호스트·다른 경로는 그대로 시작하지 않는다.
 function adsActivationV229106(sdk, canonical, googleStart) {
   let started = false;
   function activate() {
     if (started || document.prerendering || document.visibilityState !== "visible" || document.readyState === "loading") return;
-    if (window.location.href !== canonical) return;
+    if (window.location.origin + window.location.pathname !== canonical) return;
     const slot = document.querySelector(".adSlot");
     if (!slot) return;
     started = true;
@@ -3559,8 +3561,10 @@ function adsActivationMarkupV229106(env, pageKey) {
   return `<script data-ad-activation>(${adsActivationV229106.toString()})(${args},${queue});</script>`;
 }
 
+// V22.9.107 D-1: 광고 자리·CSP 는 정본 출처(https)와 정확한 경로로 판정한다. 검색 매개변수(?utm_source 같은 유입 표시)는 같은 문서이므로
+// 빼지 않는다(V106 은 빼서 외부 링크로 들어온 화면에 광고 자리가 없었다). 프래그먼트는 서버에 오지 않으므로 보지 않는다.
 function adsPublicRequestKeyV229106(env, url, key) {
-  if (!url || url.origin !== publicBaseUrl(env) || url.protocol !== "https:" || url.search || url.hash || url.pathname !== key) return "";
+  if (!url || url.origin !== publicBaseUrl(env) || url.protocol !== "https:" || url.pathname !== key) return "";
   return key;
 }
 
@@ -3604,7 +3608,7 @@ const ADFIT_POLICY_TEXT = Object.freeze({
   "privacy-control": "말해가계부는 광고를 누른 방문자의 개인정보를 따로 수집하지 않고, 거래 내용·예산·가계부 구성원 정보와 사용자 발화 원문을 광고 사업자나 광고주에게 제공하거나 판매하지 않습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내 화면에서 끌 수 있고, 브라우저 설정에서 쿠키를 차단해 거부할 수도 있습니다. 쿠키를 지우면 거부 설정도 함께 지워질 수 있습니다.",
   cookies: "말해가계부는 선정한 공개 생활비 글 6편의 본문 아래에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 주식회사 카카오가 광고 쿠키와 유사 기술을 사용해 맞춤형 광고를 제공하고 성과를 측정할 수 있습니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
   "cookies-control": "사용자는 카카오 맞춤형 광고 안내 화면과 브라우저의 사이트별 쿠키 설정으로 맞춤형 광고와 저장된 쿠키를 관리할 수 있습니다. 쿠키를 지우면 맞춤형 광고 거부 설정도 함께 지워질 수 있습니다.",
-  faq: "지금은 가입비나 이용료 없이 쓸 수 있어요. 서비스 운영을 위해 공개 가이드와 생활비 글처럼 로그인 없이 읽는 화면에 카카오 애드핏 광고를 표시하며, 로그인한 사람만 보는 화면·거래를 입력·저장하는 화면·로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내(https://info.ds.kakao.com/optout.do)에서 끌 수 있습니다.",
+  faq: "지금은 가입비나 이용료 없이 쓸 수 있어요. 서비스 운영을 위해 선정한 공개 생활비 글 6편의 본문 아래에 카카오 애드핏 광고를 표시하며, 로그인한 사람만 보는 화면·거래를 입력·저장하는 화면·로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내(https://info.ds.kakao.com/optout.do)에서 끌 수 있습니다.",
 });
 
 // V22.9.92: 정책 화면이 쓸 광고 사업자 — 실제로 광고를 낼 수 있을 때만 "adsense"(live)·"adfit", 아니면 ""(지금 문장). 애드핏 광고
@@ -8629,6 +8633,8 @@ function publicArticleIndex(catalog = {}) {
     .map(([key, page]) => ({
       key, path: `/${key}`, title: page.title, description: page.description, category: page.category,
       published: page.published || page.updated, updated: page.updated,
+      // V22.9.107 D-7: 계산표가 붙은 글(worksheet-pages.js 가 표시)은 글 목록 카드에 ‘계산표 포함’ 을 적는다.
+      worksheet: page.worksheet === true,
     }))
     .sort((a, b) => (a.published < b.published ? 1 : a.published > b.published ? -1 : a.title.localeCompare(b.title, "ko")));
 }
@@ -10053,20 +10059,29 @@ const PUBLIC_WORKSHEETS_V229106 = {
   },
 };
 
-function publicWorksheetPathV229106(slug) { return `/assets/living-worksheet-v229106-${slug}.html`; }
+// V22.9.107 D-4~D-6: 계산표 자산 주소는 1년 캐시(immutable)라 계산표 화면(worksheet-runtime.js)이 바뀌면 여기 판을 올린다.
+// 바로 앞 판 주소는 다음 판까지 같은 내용을 낸다(글을 5분 캐시로 받은 브라우저가 옛 주소를 누를 수 있다). 두 판 전 주소는 404 다.
+const PUBLIC_WORKSHEET_ASSET_VERSION_V229107 = "v229107";
+const PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107 = Object.freeze(["v229106"]);
+function publicWorksheetPathV229106(slug, version = PUBLIC_WORKSHEET_ASSET_VERSION_V229107) { return `/assets/living-worksheet-${version}-${slug}.html`; }
 
 function enrichPublicWorksheetsV229106(catalog) {
+  const optionLabel = (column, value) => column[2] === "select" ? column[3].find((option) => option[0] === value)?.[1] || value : String(value ?? "");
   for (const [slug, spec] of Object.entries(PUBLIC_WORKSHEETS_V229106)) {
     const page = catalog[slug]; if (!page) continue;
     const result = worksheetComputeV229106(slug, spec.example);
     page.updated = "2026-11-07";
+    page.worksheet = true;
     page.primary = ["입력값을 바꿔 계산하기", publicWorksheetPathV229106(slug)];
     page.secondary = ["계산표 파일 저장", publicWorksheetPathV229106(slug) + "?download=1"];
+    // V22.9.107 D-3: 글의 원래 절(서사)을 먼저 두고, 예제 원본 표·검산·계산표 열기는 글 끝에 둔다. V106 은 예제 표 4~5절이 본문 앞에 와
+    // 첫 화면이 길고 서사보다 원본 데이터가 먼저 나왔다. 절 수는 같다(검사의 addedSections = 2 + 묶음 수 + 조건 표 1).
     page.sections = [
-      { title: "이 글에서 완성할 결과", paragraphs: [spec.outcome, spec.instruction], ...(spec.fields.length ? { table: { caption: "예제의 계산 조건", headers: ["조건", "입력값"], rows: spec.fields.map((c) => [c[1], c[2] === "select" ? c[3].find((o) => o[0] === spec.example.settings[c[0]])?.[1] || spec.example.settings[c[0]] : String(spec.example.settings[c[0]] ?? "")]) } } : {}), note: "운영팀이 작성한 편집용 가상 예제입니다. 실제 고객 사례나 제품의 자동 처리 기능이 아닙니다. 별도 계산표는 브라우저에서만 작동하며 입력값을 서버로 보내지 않습니다." },
-      ...spec.groups.map((group) => ({ title: group.label + " 예제", table: { caption: group.label + " 원본(가상 데이터)", headers: group.columns.map((c) => c[1]), rows: spec.example[group.key].map((row) => group.columns.map((c) => c[2] === "select" ? c[3].find((o) => o[0] === row[c[0]])?.[1] || row[c[0]] : String(row[c[0]] ?? ""))) } })),
-      { title: "예제의 조건과 검산", bullets: spec.checks, paragraphs: result.notes, table: result.tables[0], links: [page.primary, page.secondary] },
+      { title: "이 글에서 완성할 결과", paragraphs: [spec.outcome] },
       ...page.sections,
+      ...(spec.fields.length ? [{ title: "예제의 계산 조건", table: { caption: "예제의 계산 조건", headers: ["조건", "입력값"], rows: spec.fields.map((c) => [c[1], optionLabel(c, spec.example.settings[c[0]])]) } }] : []),
+      ...spec.groups.map((group) => ({ title: group.label + " 예제", table: { caption: group.label + " 원본(가상 데이터)", headers: group.columns.map((c) => c[1]), rows: spec.example[group.key].map((row) => group.columns.map((c) => optionLabel(c, row[c[0]]))) } })),
+      { title: "예제 검산과 계산표 열기", paragraphs: [spec.instruction, ...result.notes], table: result.tables[0], bullets: spec.checks, note: "운영팀이 작성한 편집용 가상 예제입니다. 실제 고객 사례나 제품의 자동 처리 기능이 아닙니다. 별도 계산표는 브라우저에서만 작동하며 입력값을 서버로 보내지 않습니다.", links: [page.primary, page.secondary] },
     ];
   }
   const links = Object.entries(PUBLIC_WORKSHEETS_V229106).map(([slug, spec]) => [spec.title, `/${slug}`]);
@@ -10092,7 +10107,8 @@ function worksheetClientV229106(slug, spec, calculate) {
     node.name = key; node.id = prefix + "-" + key; node.value = String(value ?? "");
     label.htmlFor = node.id; label.append(node); return label;
   };
-  const invalidate = () => { last = null; exportButton.disabled = true; output.replaceChildren(); status.textContent = "입력값이 바뀌었습니다. ‘결과 계산’을 눌러 다시 확인해 주세요."; };
+  // V22.9.107 D-4: 입력을 고치면 이전 결과를 지우지 않고 ‘변경 전 결과’ 로 흐리게 남긴다(숫자를 조정하며 비교할 수 있게). CSV 저장은 다시 계산할 때까지 막는다.
+  const invalidate = () => { last = null; exportButton.disabled = true; if (output.childElementCount) output.dataset.stale = "1"; status.textContent = "입력값이 바뀌었습니다. 아래 결과는 바꾸기 전 값입니다. ‘결과 계산’을 눌러 다시 확인해 주세요."; };
   let sequence = 0;
   const addRow = (group, holder, row = {}) => {
     if (holder.children.length >= (group.max || 100)) { status.textContent = `최대 ${group.max || 100}행까지 입력할 수 있습니다.`; return; }
@@ -10114,7 +10130,7 @@ function worksheetClientV229106(slug, spec, calculate) {
     return input;
   };
   const run = () => {
-    output.replaceChildren(); last = null; exportButton.disabled = true;
+    output.replaceChildren(); delete output.dataset.stale; last = null; exportButton.disabled = true;
     try {
       const input = read(), result = calculate(slug, input);
       for (const data of result.tables) {
@@ -10169,13 +10185,15 @@ function renderPublicWorksheetV229106(slug, spec) {
   const json = (value) => JSON.stringify(value).replace(/</g, "\\u003c");
   const title = escapeHtml(spec.title);
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex,follow"><meta name="referrer" content="no-referrer"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'"><title>${title} · 말해가계부</title><style>
-  :root{color-scheme:light dark;--bg:#f6f7f9;--surface:#fff;--text:#172337;--muted:#4d596a;--line:#cbd2dc;--accent:#1d4e9e}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:17px/1.7 system-ui,-apple-system,sans-serif}main{max-width:980px;margin:auto;padding:28px 20px 70px}h1{font-size:clamp(1.7rem,5vw,2.5rem);line-height:1.3;margin:26px 0 18px;word-break:keep-all}h2{font-size:1.3rem;margin:36px 0 16px}p{max-width:72ch}a{color:var(--accent);text-underline-offset:4px}.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:16px}fieldset{min-width:0;margin:14px 0;padding:16px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}legend{padding:0 6px;font-weight:650}label{display:flex;flex-direction:column;gap:6px;font-size:15px}input,select{font:inherit;font-size:17px;color:var(--text);background:var(--surface);min-height:46px;width:100%;border:1px solid var(--line);border-radius:6px;padding:8px;caret-color:var(--accent)}button{font:inherit;font-weight:650;min-height:46px;padding:9px 17px;margin:14px 8px 0 0;border:1px solid var(--accent);border-radius:7px;background:var(--accent);color:#fff;cursor:pointer}button.secondary{background:var(--surface);color:var(--accent)}button:disabled{opacity:.55;cursor:not-allowed}button:hover:not(:disabled){filter:brightness(.92)}:focus-visible{outline:3px solid var(--accent);outline-offset:3px}::selection{background:#c9dbff;color:#102b58}.table-scroll{overflow:auto;max-width:100%;margin:24px 0}table{border-collapse:collapse;width:100%;background:var(--surface);font-variant-numeric:tabular-nums}caption{text-align:left;font-weight:700;margin:0 0 12px}th,td{border-bottom:1px solid var(--line);padding:10px 14px;text-align:left;vertical-align:top;min-width:100px}th{font-weight:650}#worksheet-status{font-weight:650;min-height:2em;margin-top:24px}.meta{color:var(--muted);font-size:15px}.actions{display:flex;flex-wrap:wrap;gap:4px}details{margin:24px 0}summary{cursor:pointer;font-weight:650}@media(prefers-color-scheme:dark){:root{--bg:#141922;--surface:#1c2430;--text:#edf1f7;--muted:#c0cad8;--line:#566276;--accent:#9bc1ff}button{color:#101b2e}button.secondary{color:var(--accent)}}@media print{:root{color-scheme:light;--bg:#fff;--surface:#fff;--text:#000;--muted:#333;--line:#777;--accent:#000}body{background:#fff;color:#000}button,.actions{display:none}fieldset{break-inside:avoid}.fields{grid-template-columns:repeat(2,minmax(0,1fr))}input,select{border:0;padding:0;min-height:0;background:#fff;color:#000}main{max-width:none;padding:0}.table-scroll{overflow:visible}table{font-size:10pt}th,td{min-width:0;padding:5px}a{color:#000}}
-  </style></head><body><main><a href="https://malhaebook.com/${slug}">설명 글과 계산 근거로 돌아가기</a><h1>${title}</h1><p>${escapeHtml(spec.outcome)}</p><p>${escapeHtml(spec.instruction)}</p><p class="meta">편집용 가상 예제 · 2026-11-07 작성 · 도담 네트워크 운영팀<br>계산표는 이 브라우저 안에서만 작동합니다. 입력값은 서버 전송·광고·방문 분석·브라우저 저장소에 사용하지 않습니다. 새로고침하면 입력이 초기화되므로 필요한 결과는 CSV로 보관하세요.</p><details><summary>예제 결과와 확인할 예외</summary><ul>${spec.checks.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details><noscript><p>계산하려면 JavaScript가 필요합니다. 위 설명 글에서 원본 예제와 결과 표를 읽을 수 있습니다.</p></noscript><form id="worksheet-form" action="#" novalidate></form><p id="worksheet-status" role="status" aria-live="polite"></p><h2>계산 결과</h2><div id="worksheet-result"></div><div class="actions"><button type="button" id="worksheet-export" disabled>입력과 결과 CSV 저장</button><button type="button" class="secondary" id="worksheet-print">결과 인쇄</button><button type="button" class="secondary" id="worksheet-reset">가상 예제로 되돌리기</button></div><p class="meta">이 자료는 합의와 검산을 돕는 별도 계산표입니다. 실제 거래 저장·송금·가입·구독 해지를 실행하지 않습니다. CSV에는 입력한 내용이 포함됩니다.</p></main><script>(${worksheetClientV229106.toString()})(${json(slug)},${json(spec)},${worksheetComputeV229106.toString()});</script></body></html>`;
+  :root{color-scheme:light dark;--bg:#f6f7f9;--surface:#fff;--text:#172337;--muted:#4d596a;--line:#cbd2dc;--accent:#1d4e9e}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:17px/1.7 system-ui,-apple-system,sans-serif}main{max-width:980px;margin:auto;padding:28px 20px 70px}h1{font-size:clamp(1.7rem,5vw,2.5rem);line-height:1.3;margin:26px 0 18px;word-break:keep-all}h2{font-size:1.3rem;margin:36px 0 16px}p{max-width:72ch}a{color:var(--accent);text-underline-offset:4px}.fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(220px,100%),1fr));gap:16px}fieldset{min-width:0;margin:14px 0;padding:16px;border:1px solid var(--line);border-radius:8px;background:var(--surface)}legend{padding:0 6px;font-weight:650}label{display:flex;flex-direction:column;gap:6px;font-size:15px}input,select{font:inherit;font-size:17px;color:var(--text);background:var(--surface);min-height:46px;width:100%;border:1px solid var(--line);border-radius:6px;padding:8px;caret-color:var(--accent)}button{font:inherit;font-weight:650;min-height:46px;padding:9px 17px;margin:14px 8px 0 0;border:1px solid var(--accent);border-radius:7px;background:var(--accent);color:#fff;cursor:pointer}button.secondary{background:var(--surface);color:var(--accent)}button:disabled{opacity:.55;cursor:not-allowed}button:hover:not(:disabled){filter:brightness(.92)}:focus-visible{outline:3px solid var(--accent);outline-offset:3px}::selection{background:#c9dbff;color:#102b58}.table-scroll{overflow:auto;max-width:100%;margin:24px 0}table{border-collapse:collapse;width:100%;background:var(--surface);font-variant-numeric:tabular-nums}caption{text-align:left;font-weight:700;margin:0 0 12px}th,td{border-bottom:1px solid var(--line);padding:10px 14px;text-align:left;vertical-align:top;min-width:100px}th{font-weight:650}#worksheet-status{font-weight:650;min-height:2em;margin-top:24px}#worksheet-result[data-stale="1"]::before{content:"입력값을 바꾸기 전 결과입니다. ‘결과 계산’을 누르면 새 결과로 바뀝니다.";display:block;font-weight:650;color:var(--muted);margin:0 0 8px}#worksheet-result[data-stale="1"] .table-scroll,#worksheet-result[data-stale="1"] p{opacity:.55}.meta{color:var(--muted);font-size:15px}.top{font-size:15px;color:var(--muted);word-break:keep-all}.foot{margin-top:44px;padding-top:16px;border-top:1px solid var(--line);font-size:14px;color:var(--muted);word-break:keep-all}.actions{display:flex;flex-wrap:wrap;gap:4px}details{margin:24px 0}summary{cursor:pointer;font-weight:650}@media(max-width:640px){.fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}fieldset{padding:12px}label{font-size:14px}input,select{font-size:16px;padding:8px 6px}th,td{min-width:72px;padding:8px 10px}}@media(prefers-color-scheme:dark){:root{--bg:#141922;--surface:#1c2430;--text:#edf1f7;--muted:#c0cad8;--line:#566276;--accent:#9bc1ff}button{color:#101b2e}button.secondary{color:var(--accent)}}@media print{:root{color-scheme:light;--bg:#fff;--surface:#fff;--text:#000;--muted:#333;--line:#777;--accent:#000}body{background:#fff;color:#000}button,.actions,.foot{display:none}#worksheet-result[data-stale="1"] .table-scroll,#worksheet-result[data-stale="1"] p{opacity:1}fieldset{break-inside:avoid}.fields{grid-template-columns:repeat(2,minmax(0,1fr))}input,select{border:0;padding:0;min-height:0;background:#fff;color:#000}main{max-width:none;padding:0}.table-scroll{overflow:visible}table{font-size:10pt}th,td{min-width:0;padding:5px}a{color:#000}}
+  </style></head><body><main><nav class="top" aria-label="현재 위치"><a href="https://malhaebook.com/">말해가계부</a> › <a href="https://malhaebook.com/articles">생활비 가이드 글</a> › <a href="https://malhaebook.com/${slug}">설명 글과 계산 근거로 돌아가기</a></nav><h1>${title}</h1><p>${escapeHtml(spec.outcome)}</p><p>${escapeHtml(spec.instruction)}</p><p class="meta">편집용 가상 예제 · 2026-11-07 작성 · 도담 네트워크 운영팀<br>계산표는 이 브라우저 안에서만 작동합니다. 입력값은 서버 전송·광고·방문 분석·브라우저 저장소에 사용하지 않습니다. 새로고침하면 입력이 초기화되므로 필요한 결과는 CSV로 보관하세요.</p><details><summary>예제 결과와 확인할 예외</summary><ul>${spec.checks.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details><noscript><p>계산하려면 JavaScript가 필요합니다. 위 설명 글에서 원본 예제와 결과 표를 읽을 수 있습니다.</p></noscript><form id="worksheet-form" action="#" novalidate></form><p id="worksheet-status" role="status" aria-live="polite"></p><h2>계산 결과</h2><div id="worksheet-result"></div><div class="actions"><button type="button" id="worksheet-export" disabled>입력과 결과 CSV 저장</button><button type="button" class="secondary" id="worksheet-print">결과 인쇄</button><button type="button" class="secondary" id="worksheet-reset">가상 예제로 되돌리기</button></div><p class="meta">이 자료는 합의와 검산을 돕는 별도 계산표입니다. 실제 거래 저장·송금·가입·구독 해지를 실행하지 않습니다. CSV에는 입력한 내용이 포함됩니다.</p><footer class="foot"><a href="https://malhaebook.com/${slug}">설명 글로 돌아가기</a> · <a href="https://malhaebook.com/articles">다른 생활비 글</a> · <a href="https://malhaebook.com/privacy">개인정보처리방침</a> · <a href="https://malhaebook.com/terms">이용약관</a> · <a href="https://malhaebook.com/contact">문의</a></footer></main><script>(${worksheetClientV229106.toString()})(${json(slug)},${json(spec)},${worksheetComputeV229106.toString()});</script></body></html>`;
 }
 
 function publicWorksheetResponseV229106(request, url) {
   if (!["GET", "HEAD"].includes(request.method)) return null;
-  const slug = Object.keys(PUBLIC_WORKSHEETS_V229106).find((key) => publicWorksheetPathV229106(key) === url.pathname);
+  // V22.9.107: 현재 판 주소와 바로 앞 판 주소(옛 글 캐시의 링크)를 같은 내용으로 낸다. 두 판 전 주소는 맞지 않아 404 다.
+  const versions = [PUBLIC_WORKSHEET_ASSET_VERSION_V229107, ...PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107];
+  const slug = Object.keys(PUBLIC_WORKSHEETS_V229106).find((key) => versions.some((version) => publicWorksheetPathV229106(key, version) === url.pathname));
   if (!slug) return null;
   const download = url.searchParams.get("download") === "1";
   return new Response(request.method === "HEAD" ? null : renderPublicWorksheetV229106(slug, PUBLIC_WORKSHEETS_V229106[slug]), { headers: {
@@ -10299,7 +10317,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
 }
 
 function publicArticleCards(cards = []) {
-  return `<ul class="pubCards">${safeArray(cards).map((item) => `<li><a href="${escapeHtml(item.path)}">${escapeHtml(item.title)}</a><p>${escapeHtml(item.description)}</p><small>작성 ${escapeHtml(item.published)}${item.updated !== item.published ? ` · 수정 ${escapeHtml(item.updated)}` : ""}</small></li>`).join("")}</ul>`;
+  return `<ul class="pubCards">${safeArray(cards).map((item) => `<li><a href="${escapeHtml(item.path)}">${escapeHtml(item.title)}</a><p>${escapeHtml(item.description)}</p><small>작성 ${escapeHtml(item.published)}${item.updated !== item.published ? ` · 수정 ${escapeHtml(item.updated)}` : ""}${item.worksheet ? " · 계산표 포함" : ""}</small></li>`).join("")}</ul>`;
 }
 
 function publicArticleExtras(page = {}, living = false) {

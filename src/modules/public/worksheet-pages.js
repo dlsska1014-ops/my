@@ -62,20 +62,29 @@ const PUBLIC_WORKSHEETS_V229106 = {
   },
 };
 
-function publicWorksheetPathV229106(slug) { return `/assets/living-worksheet-v229106-${slug}.html`; }
+// V22.9.107 D-4~D-6: 계산표 자산 주소는 1년 캐시(immutable)라 계산표 화면(worksheet-runtime.js)이 바뀌면 여기 판을 올린다.
+// 바로 앞 판 주소는 다음 판까지 같은 내용을 낸다(글을 5분 캐시로 받은 브라우저가 옛 주소를 누를 수 있다). 두 판 전 주소는 404 다.
+const PUBLIC_WORKSHEET_ASSET_VERSION_V229107 = "v229107";
+const PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107 = Object.freeze(["v229106"]);
+function publicWorksheetPathV229106(slug, version = PUBLIC_WORKSHEET_ASSET_VERSION_V229107) { return `/assets/living-worksheet-${version}-${slug}.html`; }
 
 function enrichPublicWorksheetsV229106(catalog) {
+  const optionLabel = (column, value) => column[2] === "select" ? column[3].find((option) => option[0] === value)?.[1] || value : String(value ?? "");
   for (const [slug, spec] of Object.entries(PUBLIC_WORKSHEETS_V229106)) {
     const page = catalog[slug]; if (!page) continue;
     const result = worksheetComputeV229106(slug, spec.example);
     page.updated = "2026-11-07";
+    page.worksheet = true;
     page.primary = ["입력값을 바꿔 계산하기", publicWorksheetPathV229106(slug)];
     page.secondary = ["계산표 파일 저장", publicWorksheetPathV229106(slug) + "?download=1"];
+    // V22.9.107 D-3: 글의 원래 절(서사)을 먼저 두고, 예제 원본 표·검산·계산표 열기는 글 끝에 둔다. V106 은 예제 표 4~5절이 본문 앞에 와
+    // 첫 화면이 길고 서사보다 원본 데이터가 먼저 나왔다. 절 수는 같다(검사의 addedSections = 2 + 묶음 수 + 조건 표 1).
     page.sections = [
-      { title: "이 글에서 완성할 결과", paragraphs: [spec.outcome, spec.instruction], ...(spec.fields.length ? { table: { caption: "예제의 계산 조건", headers: ["조건", "입력값"], rows: spec.fields.map((c) => [c[1], c[2] === "select" ? c[3].find((o) => o[0] === spec.example.settings[c[0]])?.[1] || spec.example.settings[c[0]] : String(spec.example.settings[c[0]] ?? "")]) } } : {}), note: "운영팀이 작성한 편집용 가상 예제입니다. 실제 고객 사례나 제품의 자동 처리 기능이 아닙니다. 별도 계산표는 브라우저에서만 작동하며 입력값을 서버로 보내지 않습니다." },
-      ...spec.groups.map((group) => ({ title: group.label + " 예제", table: { caption: group.label + " 원본(가상 데이터)", headers: group.columns.map((c) => c[1]), rows: spec.example[group.key].map((row) => group.columns.map((c) => c[2] === "select" ? c[3].find((o) => o[0] === row[c[0]])?.[1] || row[c[0]] : String(row[c[0]] ?? ""))) } })),
-      { title: "예제의 조건과 검산", bullets: spec.checks, paragraphs: result.notes, table: result.tables[0], links: [page.primary, page.secondary] },
+      { title: "이 글에서 완성할 결과", paragraphs: [spec.outcome] },
       ...page.sections,
+      ...(spec.fields.length ? [{ title: "예제의 계산 조건", table: { caption: "예제의 계산 조건", headers: ["조건", "입력값"], rows: spec.fields.map((c) => [c[1], optionLabel(c, spec.example.settings[c[0]])]) } }] : []),
+      ...spec.groups.map((group) => ({ title: group.label + " 예제", table: { caption: group.label + " 원본(가상 데이터)", headers: group.columns.map((c) => c[1]), rows: spec.example[group.key].map((row) => group.columns.map((c) => optionLabel(c, row[c[0]]))) } })),
+      { title: "예제 검산과 계산표 열기", paragraphs: [spec.instruction, ...result.notes], table: result.tables[0], bullets: spec.checks, note: "운영팀이 작성한 편집용 가상 예제입니다. 실제 고객 사례나 제품의 자동 처리 기능이 아닙니다. 별도 계산표는 브라우저에서만 작동하며 입력값을 서버로 보내지 않습니다.", links: [page.primary, page.secondary] },
     ];
   }
   const links = Object.entries(PUBLIC_WORKSHEETS_V229106).map(([slug, spec]) => [spec.title, `/${slug}`]);
@@ -84,5 +93,8 @@ function enrichPublicWorksheetsV229106(catalog) {
 }
 
 // @build:exports-start
-export { PUBLIC_WORKSHEETS_V229106, enrichPublicWorksheetsV229106, publicWorksheetPathV229106 };
+export {
+  PUBLIC_WORKSHEETS_V229106, PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107,
+  PUBLIC_WORKSHEET_ASSET_VERSION_V229107, enrichPublicWorksheetsV229106, publicWorksheetPathV229106,
+};
 // @build:exports-end

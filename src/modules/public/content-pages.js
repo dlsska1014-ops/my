@@ -146,7 +146,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
 }
 
 function publicArticleCards(cards = []) {
-  return `<ul class="pubCards">${safeArray(cards).map((item) => `<li><a href="${escapeHtml(item.path)}">${escapeHtml(item.title)}</a><p>${escapeHtml(item.description)}</p><small>작성 ${escapeHtml(item.published)}${item.updated !== item.published ? ` · 수정 ${escapeHtml(item.updated)}` : ""}</small></li>`).join("")}</ul>`;
+  return `<ul class="pubCards">${safeArray(cards).map((item) => `<li><a href="${escapeHtml(item.path)}">${escapeHtml(item.title)}</a><p>${escapeHtml(item.description)}</p><small>작성 ${escapeHtml(item.published)}${item.updated !== item.published ? ` · 수정 ${escapeHtml(item.updated)}` : ""}${item.worksheet ? " · 계산표 포함" : ""}</small></li>`).join("")}</ul>`;
 }
 
 function publicArticleExtras(page = {}, living = false) {

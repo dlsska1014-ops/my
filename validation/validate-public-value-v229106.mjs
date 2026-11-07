@@ -118,16 +118,24 @@ try {
    const body=active.match(/<script data-ad-activation>([\s\S]*?)<\/script>/)?.[1];ok(body,'activation script exists');
    const listeners=new Map();const loaded=[];const slot={hidden:true,style:{},appendChild(el){loaded.push(el);}};
    const doc={prerendering:true,visibilityState:'hidden',readyState:'complete',querySelector:()=>slot,createElement:()=>({addEventListener(){}}),addEventListener(k,fn){listeners.set(k,fn);},removeEventListener(k){listeners.delete(k);}};
-   const win={location:{href:origin+'/'+slug}};vm.runInNewContext(body,{document:doc,window:win});eq(loaded.length,0,'prerender no SDK');eq(slot.hidden,true,'prerender ad box stays hidden');eq(win.adsbygoogle?.length??0,0,'prerender no queue');
+   const location=(href)=>{const u=new URL(href);return {href,origin:u.origin,pathname:u.pathname};};
+   const win={location:location(origin+'/'+slug)};vm.runInNewContext(body,{document:doc,window:win});eq(loaded.length,0,'prerender no SDK');eq(slot.hidden,true,'prerender ad box stays hidden');eq(win.adsbygoogle?.length??0,0,'prerender no queue');
    doc.prerendering=false;listeners.get('prerenderingchange')?.();eq(loaded.length,0,'hidden no SDK');doc.visibilityState='visible';listeners.get('visibilitychange')?.();eq(loaded.length,1,'visible one SDK');eq(slot.hidden,false,'active ad box becomes visible');
    listeners.get('visibilitychange')?.();eq(loaded.length,1,'no duplicate SDK');eq(win.adsbygoogle?.length??0,env.ADS_MODE==='live'?1:0,'one selected-network queue');
-   for (const href of [origin+'/'+slug+'#synthetic', 'https://preview.example.test/'+slug]) {
+   // V22.9.107 D-1: 같은 출처·경로면 앵커(#)·유입 표시(?utm_…)가 붙어도 같은 문서라 SDK 를 시작한다. 다른 호스트·다른 경로는 시작하지 않는다.
+   for (const href of [origin+'/'+slug+'#synthetic', origin+'/'+slug+'?utm_source=synthetic&fbclid=1']) {
+    let sameLoads=0;const shownSlot={hidden:true,style:{},appendChild(){sameLoads++;}};
+    const visibleDoc={...doc,prerendering:false,visibilityState:'visible',querySelector:()=>shownSlot};
+    vm.runInNewContext(body,{document:visibleDoc,window:{location:location(href)}});
+    eq(sameLoads,1,'fragment and inbound query are the same canonical document (V22.9.107)');eq(shownSlot.hidden,false,'same document shows the ad box');
+   }
+   for (const href of ['https://preview.example.test/'+slug, origin+'/'+slug+'/', 'http://malhaebook.com/'+slug]) {
     let extraLoads=0;const hiddenSlot={hidden:true,style:{},appendChild(){extraLoads++;}};
     const visibleDoc={...doc,prerendering:false,visibilityState:'visible',querySelector:()=>hiddenSlot};
-    vm.runInNewContext(body,{document:visibleDoc,window:{location:{href}}});
-    eq(extraLoads,0,'fragment and preview host cannot start SDK');eq(hiddenSlot.hidden,true,'excluded URL keeps ad box hidden');
+    vm.runInNewContext(body,{document:visibleDoc,window:{location:location(href)}});
+    eq(extraLoads,0,'other host, other path and http cannot start SDK');eq(hiddenSlot.hidden,true,'excluded URL keeps ad box hidden');
    }
-   const query=await(await request('/'+slug+'?email=synthetic%40example.test',env)).text();ok(!query.includes('data-ad-activation')&&!query.includes('class="adsbygoogle"')&&!query.includes('class="kakao_ad_area"'),'input query excludes ads');
+   const query=await(await request('/'+slug+'?utm_source=synthetic&fbclid=1',env)).text();eq(query,active,'inbound query keeps the same ad markup as the canonical response (V22.9.107)');
    const offline=await(await request(path,env)).text();eq(offline,html,'worksheet independent of ad mode');
   }
  }
