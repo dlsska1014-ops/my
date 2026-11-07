@@ -12,6 +12,8 @@ const ok = (condition, message) => { checks += 1; if (!condition) failures.push(
 
 // 출처 문서마다 항목 ID 를 뽑는 규칙. 새 감사 문서를 쓰면 여기에 한 줄을 더한다.
 const SOURCES = [
+  // V22.9.108: Gemini 핵심 앱 검토(결함·UX·기능 공백·수익화)를 코드와 대조한 판정(G-). 코드 변경 없음.
+  { key: "V108", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_108.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(G-[0-9]+)(?=[ *]|$)/gm, expected: 17 },
   // V22.9.107: V22.9.106 광고 승인 준비(Codex)와 Gemini 검토서를 대조해 고치거나 남긴 항목(D-).
   { key: "V107", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_107.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(D-[0-9]+)(?=[ *]|$)/gm, expected: 17 },
   // V22.9.105: 단톡방 링크 단추로 바로 열기(R-, 사용자 요청·앱 승인 담당자 요구)와 그 남은 것.
@@ -62,7 +64,7 @@ const ledger = read("docs/codex/FINDINGS_LEDGER.md");
 const harness = read(".codex/scripts/verify-repository.mjs");
 const rows = [];
 for (const line of ledger.split("\n")) {
-  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107):[A-Z]-[0-9]+) *[|]/.exec(line);
+  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108):[A-Z]-[0-9]+) *[|]/.exec(line);
   if (!match) continue;
   const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
   const [id, severity, title, status, fixedIn, check, note] = cells;

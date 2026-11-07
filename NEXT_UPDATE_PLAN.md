@@ -1,3 +1,10 @@
+## V22.9.108 다음 단계
+
+1. PR CI 4/4 뒤 사용자 지목으로 병합(Aside) → 사용자 토큰 배포(`review-artifacts/v108-ads-scope-2026-11-07/USER-DEPLOY-APP.md`; V107 과 함께 나감) → Claude postcheck-v108 78/78 → 기록 PR(docs/deployments/V22_9_108_*.md).
+2. 재심사 순서(V107:D-17): 배포 → Search Console 색인 요청 → 48~72시간 → 사용자가 AdSense ‘검토 요청’. 승인 뒤 `ADS_MODE=live`·`ADS_SLOT_CONTENT` 변수 추가(사용자 지목).
+3. Gemini 핵심 앱 검토 대조(`docs/codex/FOLLOWUP_FINDINGS_V22_9_108.md`)에서 ‘고칠 것’ 으로 판단한 항목은 출시(11-13) 전 결함 수정 범위 안에서만 다음 판에 넣는다. 수익화 구조 변경(방 단위 유료·제휴 CPA)은 사용자 결정 뒤.
+4. V107 의 다음 판 후보(D-9·D-10·D-14·D-15)와 v229106 계산표 주소 정리는 그대로다.
+
 ## V22.9.107 다음 단계
 
 1. PR CI 4/4 뒤 사용자 지목으로 병합(Aside) → 사용자 토큰 배포(`review-artifacts/v107-ads-review-fixes-2026-11-07/USER-DEPLOY-APP.md`) → Claude 직후 확인 → 기록 PR(docs/deployments/V22_9_107_*.md).

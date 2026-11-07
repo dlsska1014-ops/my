@@ -1,3 +1,11 @@
+## V22.9.108 배포 판단
+
+- 대상: 앱만(`kakao-accountbook`). 관제·DB·Secret·Kakao Developers·OpenBuilder 변경 없음. 새 운영 변수 없음 → 바인딩 32(Text 21·Secret 10·service 1)·금지 변수 열 그대로. V22.9.107(PR #138)은 병합만 되고 승격되지 않았으므로 이 배포가 V107 과 V108 을 함께 내보낸다(V107 의 토큰 배포 대조 = V107:D-13 확인도 여기서).
+- 바꾼 것: 광고 허용 목록 53쪽(review 모드에서는 효과 없음), FAQ 문항·답, 방침·쿠키·FAQ 범위 문장 + V107 의 광고 게이트·계산표 글 절 순서·계산표 자산 v229107(옛 v229106 유지, v229105 없음)·글 목록 ‘계산표 포함’. CSS·JS 1년 캐시 자산은 그대로다.
+- 되돌리기 대상(기록만): 앱 V22.9.106 활성 version `17afa8c1-853d-4bd4-950b-a8794244d975`. 되돌리면 FAQ 에 ‘가입비나 이용료’ 문장이 돌아오고, 광고 게이트가 정본 주소 전체 비교로 돌아가며(매개변수 붙은 화면 광고 없음) v229107 계산표 주소가 404 가 된다. DB 영향 없음.
+- 배포 방법: 사용자가 자기 PowerShell 에서 `tools/deploy-worker-version.mjs`(업로드·대조) → `--promote`(지시문 `review-artifacts/v108-ads-scope-2026-11-07/USER-DEPLOY-APP.md`). 승격 직후 Claude 확인은 `review-artifacts/v108-ads-scope-2026-11-07/deploy/postcheck-v108.mjs`(78개: health·ready·V107 항목·/faq 새 문항·‘가입비나 이용료’ 없음·/privacy·/cookies ‘글 6편’ 없음·sitemap 60·ads.txt) + 공개 점검.
+- 승인 뒤 `ADS_MODE=live`·`ADS_SLOT_CONTENT` 추가는 별도 지목(바인딩 32 → 34). 그때 53쪽에서 광고 자리·CSP 가 나온다(오프라인 검사로 확인됨).
+
 ## V22.9.107 배포 판단
 
 - 대상: 앱만(`kakao-accountbook`). 관제·DB·Secret·Kakao Developers·OpenBuilder 변경 없음. 새 운영 변수 없음 → 바인딩 32(Text 21·Secret 10·service 1)·금지 변수 열 그대로. V106 은 대시보드 업로드라 바인딩을 API 로 대조하지 못했으므로(V107:D-13) 이번 토큰 배포의 업로드 대조(상속 32·차이 0)가 그 확인을 겸한다.
