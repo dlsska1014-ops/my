@@ -3,9 +3,10 @@
 // 서로 다른 구조로 쓰였으며(틀로 찍은 글이 아님), 본문이 서비스를 홍보하지 않고, 외부 출처는 공식 기관만 쓴다.
 // 화면은 기본 env 로 app.fetch 로 그리고 바깥 요청은 0회여야 한다.
 import assert from "node:assert/strict";
-import { PUBLIC_WORKSHEETS_V229106 } from "../src/modules/public/worksheet-pages.js";
-const WORKSHEET_LINKS = Object.keys(PUBLIC_WORKSHEETS_V229106).flatMap(slug => [`/assets/living-worksheet-v229106-${slug}.html`, `/assets/living-worksheet-v229106-${slug}.html?download=1`]);
-const addedSections = (path) => PUBLIC_WORKSHEETS_V229106[path.slice(1)] ? 2 + PUBLIC_WORKSHEETS_V229106[path.slice(1)].groups.length : 0;
+import { PUBLIC_WORKSHEETS_V229106, publicWorksheetPathV229106 } from "../src/modules/public/worksheet-pages.js";
+// V22.9.107: 계산표 주소는 판이 붙은 helper 로 만들고(1년 캐시 주소 판 올림), 더한 절은 결과 1 + 조건 표 1(조건이 있는 글) + 묶음 표 + 검산 1 이다.
+const WORKSHEET_LINKS = Object.keys(PUBLIC_WORKSHEETS_V229106).flatMap(slug => [publicWorksheetPathV229106(slug), publicWorksheetPathV229106(slug) + "?download=1"]);
+const addedSections = (path) => PUBLIC_WORKSHEETS_V229106[path.slice(1)] ? 2 + PUBLIC_WORKSHEETS_V229106[path.slice(1)].groups.length + (PUBLIC_WORKSHEETS_V229106[path.slice(1)].fields.length ? 1 : 0) : 0;
 import { readFileSync } from "node:fs";
 import app from "../src/index.js";
 import { stripBuildBlocks } from "../tools/build-worker.mjs";

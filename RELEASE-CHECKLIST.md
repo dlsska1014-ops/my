@@ -1,3 +1,11 @@
+## V22.9.107 광고 검토 후속 검사
+
+- 자동: `npm run validate:ads-review-fixes-v229107`(437개: 판 이름, 광고 게이트의 정본·매개변수·앵커·다른 호스트·http, 계산표 글 절 순서·링크, 계산표 12개 주소·캐시·noindex·CSP·머리꼬리·변경 전 결과 CSS·휴대폰 CSS·클라이언트 스크립트, 두 네트워크 정책 문구, 글 목록 표시, 바깥 요청 0). 함께 `validate-public-value-v229106`(매개변수·앵커 장면 추가)·`validate-public-articles-v22940/v22974`(더한 절 수 보정)·환불 지문 268. `node .codex/scripts/verify-repository.mjs`와 `npm run validate:categories-absent` 두 모드.
+- 기존 보호: 생성 Worker 동일성·클라이언트 직렬화·HTML 성능 예산·환불 지문(판 이름만 바뀐 3개는 V106 이름에서 268개 통과 뒤 갱신).
+- 배포 직후(Claude): /health 판 이름, /ready, 정본 글 6편의 광고 자리 = 매개변수 붙은 응답(본문·CSP 같음), http → 308, 계산표 v229107 6개 200·immutable·noindex + v229106 6개 같은 바이트 + v229105 404, /articles ‘계산표 포함’ 6·첫 화면 0, sitemap 60, 1년 캐시 자산 기대대로, 공개 검사 `tools/verify-deployment-v22920.mjs`. 업로드 대조에서 바인딩 32·차이 0(D-13 확인).
+- 사람 확인: 휴대폰(390px)에서 계산표 입력 2열·변경 전 결과 띠·머리꼬리 링크, 데스크톱에서 글 6편 절 순서(결과 → 글 → 조건·예제 → 검산), /articles 표시. V106 절의 CSV·인쇄·보조기술 확인은 그대로 남는다.
+- 재검토 순서(D-17): 배포 → Search Console 색인 요청(글 6편·/·/articles) → 48~72시간 뒤 수집·ads.txt 확인 → 사용자가 AdSense ‘검토 요청’. 애드핏 재문의는 그 뒤.
+
 ## V22.9.106 공개 가치·광고 준비 검사
 
 - 자동: `npm run validate:public-value-v229106`, 광고 두 네트워크의 허용/비허용·정본 GET/HEAD·40편 콘텐츠 검사를 실행한다. `node .codex/scripts/verify-repository.mjs`와 `npm run validate:categories-absent`를 각각 실행하고 `node monitoring/test-d1.mjs`를 별도로 실행한다.

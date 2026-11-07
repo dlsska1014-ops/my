@@ -8,7 +8,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.106-PUBLIC-VALUE";
+const APP_VERSION = "V22.9.107-ADS-REVIEW-FIXES";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -321,11 +321,13 @@ function adfitSpeculationRulesJson() {
 
 // The publisher runtime is fetched only after activation, on an exact canonical URL.
 // The SDK itself and the issued unit attributes are never modified.
+// V22.9.107 D-1: 정본은 출처 + 경로다. 목차 앵커(#section-n)나 유입 표시(?utm_source=…)가 붙어도 같은 문서이므로 광고를 시작한다
+// (V106 은 href 전체를 비교해 앵커로 연 화면·외부 링크 유입 화면에서 광고가 시작되지 않았다). 다른 호스트·다른 경로는 그대로 시작하지 않는다.
 function adsActivationV229106(sdk, canonical, googleStart) {
   let started = false;
   function activate() {
     if (started || document.prerendering || document.visibilityState !== "visible" || document.readyState === "loading") return;
-    if (window.location.href !== canonical) return;
+    if (window.location.origin + window.location.pathname !== canonical) return;
     const slot = document.querySelector(".adSlot");
     if (!slot) return;
     started = true;
@@ -354,8 +356,10 @@ function adsActivationMarkupV229106(env, pageKey) {
   return `<script data-ad-activation>(${adsActivationV229106.toString()})(${args},${queue});</script>`;
 }
 
+// V22.9.107 D-1: 광고 자리·CSP 는 정본 출처(https)와 정확한 경로로 판정한다. 검색 매개변수(?utm_source 같은 유입 표시)는 같은 문서이므로
+// 빼지 않는다(V106 은 빼서 외부 링크로 들어온 화면에 광고 자리가 없었다). 프래그먼트는 서버에 오지 않으므로 보지 않는다.
 function adsPublicRequestKeyV229106(env, url, key) {
-  if (!url || url.origin !== publicBaseUrl(env) || url.protocol !== "https:" || url.search || url.hash || url.pathname !== key) return "";
+  if (!url || url.origin !== publicBaseUrl(env) || url.protocol !== "https:" || url.pathname !== key) return "";
   return key;
 }
 
@@ -399,7 +403,7 @@ const ADFIT_POLICY_TEXT = Object.freeze({
   "privacy-control": "말해가계부는 광고를 누른 방문자의 개인정보를 따로 수집하지 않고, 거래 내용·예산·가계부 구성원 정보와 사용자 발화 원문을 광고 사업자나 광고주에게 제공하거나 판매하지 않습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내 화면에서 끌 수 있고, 브라우저 설정에서 쿠키를 차단해 거부할 수도 있습니다. 쿠키를 지우면 거부 설정도 함께 지워질 수 있습니다.",
   cookies: "말해가계부는 선정한 공개 생활비 글 6편의 본문 아래에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 주식회사 카카오가 광고 쿠키와 유사 기술을 사용해 맞춤형 광고를 제공하고 성과를 측정할 수 있습니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
   "cookies-control": "사용자는 카카오 맞춤형 광고 안내 화면과 브라우저의 사이트별 쿠키 설정으로 맞춤형 광고와 저장된 쿠키를 관리할 수 있습니다. 쿠키를 지우면 맞춤형 광고 거부 설정도 함께 지워질 수 있습니다.",
-  faq: "지금은 가입비나 이용료 없이 쓸 수 있어요. 서비스 운영을 위해 공개 가이드와 생활비 글처럼 로그인 없이 읽는 화면에 카카오 애드핏 광고를 표시하며, 로그인한 사람만 보는 화면·거래를 입력·저장하는 화면·로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내(https://info.ds.kakao.com/optout.do)에서 끌 수 있습니다.",
+  faq: "지금은 가입비나 이용료 없이 쓸 수 있어요. 서비스 운영을 위해 선정한 공개 생활비 글 6편의 본문 아래에 카카오 애드핏 광고를 표시하며, 로그인한 사람만 보는 화면·거래를 입력·저장하는 화면·로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내(https://info.ds.kakao.com/optout.do)에서 끌 수 있습니다.",
 });
 
 // V22.9.92: 정책 화면이 쓸 광고 사업자 — 실제로 광고를 낼 수 있을 때만 "adsense"(live)·"adfit", 아니면 ""(지금 문장). 애드핏 광고

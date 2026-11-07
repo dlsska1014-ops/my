@@ -3,9 +3,10 @@
 // 지키는지 본다. 화면은 QA 픽스처 없이(기본 env) app.fetch 로 그리고, 바깥 요청은 0회여야 한다.
 // 마지막에 QA 픽스처 env 로도 한 번 더 그려 광고 실행 코드가 없는지 확인한다.
 import assert from "node:assert/strict";
-import { PUBLIC_WORKSHEETS_V229106 } from "../src/modules/public/worksheet-pages.js";
-const WORKSHEET_LINKS = Object.keys(PUBLIC_WORKSHEETS_V229106).flatMap(slug => [`/assets/living-worksheet-v229106-${slug}.html`, `/assets/living-worksheet-v229106-${slug}.html?download=1`]);
-const addedSections = (path) => PUBLIC_WORKSHEETS_V229106[path.slice(1)] ? 2 + PUBLIC_WORKSHEETS_V229106[path.slice(1)].groups.length : 0;
+import { PUBLIC_WORKSHEETS_V229106, publicWorksheetPathV229106 } from "../src/modules/public/worksheet-pages.js";
+// V22.9.107: 계산표 주소는 판이 붙은 helper 로 만들고(1년 캐시 주소 판 올림), 더한 절은 결과 1 + 조건 표 1(조건이 있는 글) + 묶음 표 + 검산 1 이다.
+const WORKSHEET_LINKS = Object.keys(PUBLIC_WORKSHEETS_V229106).flatMap(slug => [publicWorksheetPathV229106(slug), publicWorksheetPathV229106(slug) + "?download=1"]);
+const addedSections = (path) => PUBLIC_WORKSHEETS_V229106[path.slice(1)] ? 2 + PUBLIC_WORKSHEETS_V229106[path.slice(1)].groups.length + (PUBLIC_WORKSHEETS_V229106[path.slice(1)].fields.length ? 1 : 0) : 0;
 import { readFileSync } from "node:fs";
 import app, { buildSettlementModel, parseDirectBudgetSetCommand, parseTransaction } from "../src/index.js";
 import { stripBuildBlocks } from "../tools/build-worker.mjs";
