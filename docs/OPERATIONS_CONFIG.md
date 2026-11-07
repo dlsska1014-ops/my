@@ -32,6 +32,8 @@ V22.9.76 작성(감사 G-15). 값은 적지 않는다. 이름과 빠졌을 때�
 
 `KAKAO_ACCOUNT_LINK_ENABLED`(V22.9.91, 없으면 끔): 단톡방 기록 계정과 웹 계정 잇기(/my 의 안내, /my/account-link 확인 화면, 합치기)를 켠다. `1` 이면 켠다. **운영: 2026-11-05 22:42:57 KST 부터 `1`**(사용자 지목 뒤 Aside 가 대시보드에서 추가, version 3d00c670 #334; 앱 1489689 ↔ 채널 연결 + 방 기록 probe 확인 뒤). 이로써 바인딩 34, 금지 변수 목록에서 빠짐.
 꺼져 있어도 잇기 제안(`kakao_login_link_offers_v22991`)과 appUserId 진단은 남는다. 켜는 것은 설정 변경이라 사용자 승인 뒤에 한다.
+
+단톡방 링크로 바로 열기(V22.9.105, 변수 없음·늘 켜짐): 카카오가 팀채팅방 링크 단추에 붙이는 `botUserKey`·`botGroupKey` 가 둘 다 있고(16진 32~128자, 각각 한 번) 그 사람의 원래 채팅 계정이 그 방 가계부 구성원이면 로그인 화면 없이 세션을 만들어 그 방 가계부 홈으로 보낸다(`src/modules/auth/kakao-room-open.js`). 웹 계정에 이어진 사람은 세션 없이 그 방 가계부 주소로만 보내고, 로그인 뒤 화면이 아닌 주소는 값만 지운다(운영 이벤트 kakao_room_values_stripped, DB 없음). 시도 제한은 `accountbook_auth_attempt` 의 경로 키 `/my/room-open-admission`(IP 마다 15분 60번, 창은 `AUTH_RATE_WINDOW_SECONDS`). 결과는 설정 표 `kakao_room_open_probe_v229105:<결과>`(ok·switched·same_session·member_session·linked_account·linked_other_session·session_kept·no_user·not_member·no_room_household·bad_key_shape·duplicate_values·no_user_key·no_group_key·admin_browser·crawler·rate_limited·limiter_unavailable·lookup_failed; 값은 시각·판만, isolate 마다 결과별 10분에 한 번)와 운영 이벤트 kakao_room_open 에 남는다. 끄려면 V22.9.104 version 으로 되돌린다(사용자 지목).
 켜기 전 확인(DEPLOYMENT_MATRIX V22.9.91 절): 카카오 콘솔에서 웹 로그인 앱 1489689 를 그룹 챗봇에 연결하고, 운영자 자신의 갈라진 계정으로 관리자 /identity-audit 의 ‘appUserId 옴’과 잇기 제안을 본다.
 TEST 앱 1508592 는 연결하지 않는다(다른 회원번호가 와 남의 웹 계정을 가리킬 수 있다). 관리자 진단 칸이 이 값의 켜짐·꺼짐을 보인다.
 
@@ -72,6 +74,7 @@ V22.9.97 후원 지표(변수 없음, 새 SQL 없음): 송금·오픈채팅 단�
 
 공지 띠: `NOTICE_TEXT`(200자, 이스케이프)와 `NOTICE_LINK`(같은 사이트 경로 `/…` 또는 따옴표·꺾쇠 없는 https 주소만). 있으면 /app·/my·/my/*·공개 문서의 머리말 위에 띠가 붙고, 없으면 띠가 없다.
   - 방침 개정 안내(E-17, V22.9.96 재결정으로 공고일 = 시행일 2026-11-02): 개정을 알리는 띠를 켜려면 `NOTICE_TEXT` = `개인정보처리방침과 이용약관을 11월 2일에 개정해 바로 적용하고 있어요.`, `NOTICE_LINK` = `/privacy`. 변수를 더하면 Worker 바인딩이 30 → 32 가 되므로 다음 배포 대조(지시문의 바인딩 수)를 그 값으로 바꾼다. 변수 추가·삭제는 그 자체가 새 버전·배포다. 출시(11-13) 뒤 일주일쯤 지나면 두 변수를 지운다. V22.9.95 배포(11-02 18:17)에는 넣지 않았고, V22.9.96 배포 직후 사용자 지시("개정 공고 … 지금 바로")로 넣는다.
+  - **운영: 2026-11-06 17:12:37 KST 사용자 요청("공지 띠 없애줘, 필요없을 것 같아")으로 두 변수를 지웠다**(version `00820703-7985-4fcd-a3be-edfbeee90712`, 바인딩 34 → 32). 지금 운영에는 띠가 없다. 띠 코드(‘×’·POST /notice/hide·쿠키 ab_notice_hide)는 남아 있어 두 변수를 다시 넣으면 다시 보인다(변수 추가 = 새 배포, 바인딩 32 → 34).
 
 법무: 약관·개인정보처리방침의 개정일은 환경변수가 아니라 코드 상수 `POLICY_REVISION_DATE`(`src/modules/public/site-config.js`)다. 동의 기록 `consent:<user_id>` 의 version 도 이 값이다.
 배포 전에 사용자가 정한 날짜로 바꾸고 하네스·manifest 를 다시 만든다.

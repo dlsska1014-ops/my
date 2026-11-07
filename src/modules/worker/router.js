@@ -178,6 +178,7 @@ import {
 } from "../auth/kakao-account-link.js";
 import { renderUserLoginHtml } from "../web/login-page-side-nav.js";
 import { handleMyConsent, kakaoInAppStartResponse } from "../auth/kakao-start-screen.js";
+import { kakaoRoomOpenResponse } from "../auth/kakao-room-open.js";
 import { renderPublicShareCardHtml } from "../admin/dashboard-fragments.js";
 import {
   detectKakaoAmbiguity, formatMessage, kakaoSkillSafeFallbackText,
@@ -346,6 +347,12 @@ const ACCOUNTBOOK_WORKER = {
         rememberOpsEvent({ kind: "csrf_blocked", severity: "warn", path: url.pathname, method: request.method, detail: csrfSignalSummary(request, url) });
         return csrfRejectedResponse(url, request);
       }
+
+      // V22.9.105 R-1: 단톡방 링크 단추를 누르면 카카오가 누른 사람의 botUserKey 와 방 botGroupKey 를 주소에 붙인다. 그 사람의 원래 채팅 계정이 그 방
+      // 가계부 구성원이면 로그인 화면 없이 바로 그 방 가계부 홈으로 보낸다(auth/kakao-room-open.js). 안 맞으면 카카오 값을 뺀 같은 주소로 보내고, 그 뒤는
+      // 아래 자동 로그인·시작 팝업 그대로다. 로그인 뒤 화면이 아닌 주소(공개 문서 등)는 값만 지우므로 숨긴 기능·공지·후원·공개 문서보다 먼저 부른다.
+      const kakaoRoomOpen = await kakaoRoomOpenResponse(request, env, url, ctx);
+      if (kakaoRoomOpen) return kakaoRoomOpen;
 
       const hiddenFeature = hiddenIncompleteFeatureResponse(request, env, url);
       if (hiddenFeature) return hiddenFeature;

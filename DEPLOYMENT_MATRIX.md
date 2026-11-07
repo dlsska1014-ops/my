@@ -1,3 +1,11 @@
+## V22.9.105 배포 판단
+
+- V22.9.105-ROOM-OPEN 은 앱 Worker 만 바꾼다. SQL·Secret·환경변수·바인딩 32(이름)·cron·Kakao Developers·OpenBuilder·1년 캐시 자산 주소·관제 판(1.7.0)은 그대로다. 새 설정 행 종류 `kakao_room_open_probe_v229105:<결과>`(시각·판만), 시도 제한 표(accountbook_auth_attempt)의 새 경로 키 `/my/room-open-admission`. 번들 9,751,637 B·sha256 2b3ea2f6f489…. 배포 대조는 바인딩 32(Secret 10·Text 21·service 1)·금지 변수 열 그대로(NOTICE_TEXT·NOTICE_LINK 는 이제 없음).
+- 배포 길: 번들이 9.7 MB 라 `tools/deploy-worker-version.mjs`(업로드·대조 → 승격)를 사용자가 새 토큰으로 자기 PowerShell 에서 실행한다(V102~V104 와 같은 길).
+- 되돌리기 대상(기록만): 앱 version `00820703-7985-4fcd-a3be-edfbeee90712`(V22.9.104 코드, 공지 띠 없음, 바인딩 32). 되돌리면 단톡방 링크가 다시 자동 로그인 → 시작 팝업 흐름이 된다. 그동안 만든 세션(ab_user 14일)은 서명이 같아 그대로 유효하고 결과 행은 남되 읽는 곳이 없다. DB 구조 영향은 없다.
+- 배포 직후 확인: /health 판 이름, /ready 200·missing 0, 공개 검사 123, 1년 캐시 expect104 그대로(유지 57·정리 45), sitemap 60, 공지 띠 없음, 단톡방 링크 흉내 — 구성원이 아닌 66자 값으로 인앱 UA GET /app?month=… → 303 값 뺀 주소·Set-Cookie 없음·Referrer-Policy no-referrer, 모양 다른 값(내부 키·QA 키) → 같은 303, 공개 주소(/privacy·/)에 값 → 303 값 뺀 주소·쿠키 없음, ‘웹가계부’ 카드 문구(방). 흉내 요청은 결과 행(no_room_household 등) 하나를 남기므로 시각을 적는다.
+- 사람 확인: 휴대폰 카카오톡 방에서 기록 → ‘웹가계부’ → 홈(그 방 가계부) + 동의 기록이 없으면 팝업. 그 뒤 사용자 지목으로 결과 행(ok·switched·no_user·not_member·bad_key_shape)을 읽어 R-4 를 닫는다.
+
 ## V22.9.104 배포 판단
 
 - V22.9.104-KAKAO-HOME 은 앱 Worker 만 바꾼다. SQL·Secret·바인딩 34(이름)·cron·Kakao Developers·OpenBuilder·1년 캐시 자산 주소·관제 판(1.7.0)은 그대로이고, 환경변수는 승격 직후 NOTICE_TEXT 값 하나만 바꾼다. 새 쿠키 ab_cs(HttpOnly·Secure·SameSite=Lax·14일)와 새 POST 경로 /my/consent 가 생긴다. 새 설정 행 종류는 없다(동의 기록 consent:<user_id> 는 V22.9.95 부터, via 값에 popup 이 더해짐). 번들 9,736,257 B·sha256 f5945f5a46c7…. 배포 대조는 바인딩 34·금지 변수 열 그대로.

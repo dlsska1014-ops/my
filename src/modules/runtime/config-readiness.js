@@ -238,8 +238,9 @@ async function withRememberedHouseholdCookie(routed, response) {
 }
 // @build:exports-start
 export {
-  CORS_HEADERS, HTML_HEADERS, JSON_HEADERS, READINESS_ALTERNATIVE_RPC_GROUPS, READINESS_CORE_RPCS,
-  READINESS_OPTIONAL_TABLES, READINESS_REQUIRED_TABLES, READINESS_RPC_PROBE_BODIES,
-  missingRuntimeConfiguration, rememberedHouseholdRequest, withRememberedHouseholdCookie,
+  AB_HOUSEHOLD_MEMORY_HEADER, CORS_HEADERS, HTML_HEADERS, JSON_HEADERS,
+  READINESS_ALTERNATIVE_RPC_GROUPS, READINESS_CORE_RPCS, READINESS_OPTIONAL_TABLES,
+  READINESS_REQUIRED_TABLES, READINESS_RPC_PROBE_BODIES, missingRuntimeConfiguration,
+  rememberedHouseholdRequest, withRememberedHouseholdCookie,
 };
 // @build:exports-end

@@ -245,7 +245,8 @@ function kakaoPlaceLeftLinks(outputs = [], links = [], { convertText = true } = 
 // 열리게 한다. 우리 사이트 주소는 링크 버튼(webLink)으로 옮긴다(주소만 있는 줄 바로 앞의 짧은 줄이 버튼 이름). 다른 곳 주소(사용자가
 // 쓴 메모 등)는 버튼으로 만들지 않고 글에서 ‘(링크)’로 바꾼다. 단톡방의 ‘웹가계부’ 메시지 버튼도 바로 열리는 링크 버튼으로 바꾼다
 // (1:1 의 ‘웹가계부’ 답은 웹 연결 코드를 주므로 메시지 버튼으로 둔다).
-// 버튼을 누르면 카카오가 주소 뒤에 botUserKey·appUserId·botGroupKey 를 붙인다. 웹은 그 값으로 로그인하거나 권한을 정하지 않는다.
+// 버튼을 누르면 카카오가 주소 뒤에 botUserKey·appUserId·botGroupKey 를 붙인다. V22.9.105 R-1 부터 웹은 botUserKey·botGroupKey 가 둘 다 있고 그 사람이
+// 그 방 가계부 구성원일 때만 그 값으로 로그인 화면 없이 그 방 가계부를 연다(auth/kakao-room-open.js). appUserId 로는 열지 않는다.
 // 주소는 주소에 쓰는 ASCII 글자까지만 본다. 한글이 바로 붙어도(‘…/my에서’) 주소에 넣지 않아 버튼 주소가 깨지지 않는다.
 const KAKAO_TEXT_URL = /https?:\/\/[A-Za-z0-9._~:/?#@!$&'()*+,;=%[\]-]+/gi;
 const KAKAO_URL_TRAILING = /[)\].,;:!?'"]+$/;
@@ -272,10 +273,18 @@ function kakaoLinkDefaultLabel(pathname = "") {
   return "웹에서 보기";
 }
 
+// V22.9.105 R-9: 카카오는 방에서 링크 버튼을 누른 사람의 값(botUserKey·appUserId·botGroupKey)을 주소 뒤에 붙인다. 답 글에 이미 그 값이 적힌 우리 주소가
+// 있으면(남의 기록 메모를 되풀이한 글 등) 버튼 주소에서 지워, 누른 사람의 값만 남게 한다(웹은 같은 이름의 값이 두 번 오면 열지 않는다).
+const KAKAO_LINK_BUTTON_STRIP_PARAMS = ["botUserKey", "appUserId", "botGroupKey"];
+
 function kakaoOwnLinkUrl(raw = "", origin = "") {
   try {
     const url = new URL(String(raw).replace(KAKAO_URL_TRAILING, ""));
-    return origin && url.origin === new URL(origin).origin ? url : null;
+    if (!origin || url.origin !== new URL(origin).origin) return null;
+    if (KAKAO_LINK_BUTTON_STRIP_PARAMS.some((name) => url.searchParams.has(name))) {
+      for (const name of KAKAO_LINK_BUTTON_STRIP_PARAMS) url.searchParams.delete(name);
+    }
+    return url;
   } catch (_) {
     return null;
   }
@@ -412,8 +421,8 @@ async function kakaoDirectLinkResponse(response, origin = "") {
   }
 }
 
-// V22.9.88(Y-7): ‘웹가계부’ 답(단톡방). 주소 글 대신 웹 가계부를 여는 버튼 하나를 단다. 로그인돼 있으면 바로 열리고, 아니면
-// 로그인 화면이 먼저 나온다(웹은 카카오가 붙이는 값으로 로그인하지 않는다).
+// V22.9.88(Y-7): ‘웹가계부’ 답(단톡방). 주소 글 대신 웹 가계부를 여는 버튼 하나를 단다. V22.9.105 R-1: 이 방 가계부 구성원이 누르면 카카오가 붙인
+// botUserKey·botGroupKey 로 로그인 화면 없이 바로 이 방 가계부 홈이 열린다. 구성원이 아니면 예전처럼 로그인(인앱은 자동 로그인 → 시작 팝업)이다.
 // 이 방 가계부 번호(household_id)는 넣지 않는다. 단톡방 기록 계정과 웹 로그인 계정은 아직 이어지지 않아(챗봇에 앱이 연결되지 않아
 // appUserId 가 없다), 웹 계정이 그 가계부 구성원이 아니면 /my?household_id= 는 ‘가계부를 찾을 수 없어요’(404)가 된다.
 function kakaoWebLedgerReply(origin = "") {
@@ -424,7 +433,7 @@ function kakaoWebLedgerReply(origin = "") {
       outputs: [{
         textCard: {
           title: "웹 가계부",
-          description: "전체 기록과 분석을 웹에서 크게 볼 수 있어요.\n아래 버튼을 누르면 바로 열려요(처음에는 로그인).",
+          description: "전체 기록과 분석을 웹에서 크게 볼 수 있어요.\n아래 버튼을 누르면 이 방 가계부가 열려요.",
           buttons: [kakaoLinkButton("웹 가계부 열기", `${origin}/my`)],
           buttonLayout: "vertical",
         },

@@ -106,6 +106,7 @@ auth/kakao-web-claim.js
 auth/kakao-account-link.js
 web/login-page-side-nav.js
 auth/kakao-start-screen.js
+auth/kakao-room-open.js
 domain/analytics.js
 features/meme-engine-premium.js
 admin/dashboard-fragments.js
