@@ -31,7 +31,8 @@ await fixture(async (fx) => {
   for (const mode of ["review", "live", "adfit"]) {
     fx.env.ADS_MODE = mode;
     const faq = (await page(fx, "/faq")).html;
-    ok(faq.includes("이용료가 있나요? 광고가 나오나요?") && faq.includes("지금은 가입비나 이용료 없이 쓸 수 있어요."), `${mode}: current fee wording`);
+    // V22.9.108(사용자 결정 2026-11-07): ‘지금은 가입비나 이용료 없이 쓸 수 있어요’ 문장을 뺐다. 문항은 운영 비용 마련 방법으로 바꿨다.
+    ok(faq.includes("광고가 나오나요? 운영 비용은 어떻게 마련하나요?") && faq.includes("서비스 운영 비용은 후원") && !faq.includes("가입비나 이용료") && !faq.includes("이용료가 있나요"), `${mode}: fee wording removed (V22.9.108)`);
   }
   delete fx.env.ADS_MODE;
   const noNotice = await get(fx, "/faq");

@@ -3213,7 +3213,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.107-ADS-REVIEW-FIXES";
+const APP_VERSION = "V22.9.108-ADS-SCOPE";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3456,10 +3456,28 @@ function adsMode(env = {}) {
   return value === "live" ? "live" : value === "adfit" ? "adfit" : "review";
 }
 
-// Public launch scope: six editorial articles only. Worksheets and signed-in pages are excluded.
+// V22.9.108(사용자 결정 2026-11-07): 광고 허용 화면 = 로그인 없이 읽는 공개 정본 53쪽(안내 12 + 생활비 글 40 + 글 목록 1).
+// 정책·신원 6쪽(/about·/contact·/privacy·/terms·/cookies·/site-map)과 후원 안내(/support), 계산표 자산, 로그인 뒤 화면은 넣지 않는다.
+// V22.9.106 은 심사 준비로 대표 글 6편만 뒀고, 승인 뒤 나머지 글에 광고가 없는 것을 사용자가 넓히기로 했다(추적표 V107:D-11).
 const AD_PAGE_KEYS = Object.freeze([
-  "/shared-living-cost-rules", "/roommate-shared-ledger", "/cash-flow-table",
-  "/sinking-fund-annual-expenses", "/monthly-closing-routine", "/subscription-cleanup",
+  "/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide",
+  "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide",
+  // 생활비 가이드 글 12편(V22.9.40).
+  "/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup",
+  "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit",
+  "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics",
+  "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table",
+  // 글 목록 허브와 생활비 가이드 글 20편(V22.9.74).
+  "/articles", "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark",
+  "/utility-bills-seasonality", "/inflation-budget-update", "/card-income-deduction-basics",
+  "/year-end-tax-expense-check", "/rent-tax-credit-records", "/apartment-maintenance-fee",
+  "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order",
+  "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning",
+  "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
+  // 연말정산·절세 글 8편(V22.9.97).
+  "/year-end-tax-timeline-checklist", "/payment-method-switch-nov-dec", "/medical-education-donation-deductions",
+  "/dual-income-deduction-allocation", "/pension-savings-irp-tax-credit", "/single-household-year-end-tax",
+  "/tax-refund-money-plan", "/housing-deductions-overview",
 ]);
 
 function adsSlotId(env = {}) {
@@ -3595,20 +3613,20 @@ function adSlotMarkup(env = {}, pageKey = "") {
 // 광고 쿠키, Google 광고 쿠키, 맞춤 광고 해제 방법)로 바꾼다. review 에서는 빈 값을 돌려주고 부르는 쪽이 지금
 // 문장을 그대로 쓴다.
 const ADS_POLICY_TEXT = Object.freeze({
-  privacy: "말해가계부는 선정한 공개 생활비 글 6편의 본문 아래에 Google 광고를 표시합니다. Google을 포함한 제3자 광고 사업자는 쿠키를 사용해 사용자가 이 사이트나 다른 사이트를 방문한 기록을 바탕으로 광고를 제공하고 성과를 측정합니다. Google은 광고 쿠키(DoubleClick 쿠키 등)를 사용해 Google과 파트너가 이 사이트와 다른 사이트 방문 기록을 바탕으로 광고를 제공할 수 있게 합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있으며, Google이 광고에 정보를 이용하는 방식은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다.",
-  cookies: "말해가계부는 선정한 공개 생활비 글 6편의 본문 아래에 Google 광고를 표시합니다. 광고가 표시되는 화면에서는 Google과 파트너가 광고 쿠키(DoubleClick 쿠키 등)와 유사 기술을 사용해 광고를 제공하고 성과를 측정합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있고, 자세한 내용은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
-  faq: "지금은 가입비나 이용료 없이 쓸 수 있어요. 서비스 운영을 위해 선정한 공개 생활비 글 6편의 본문 아래에 Google 광고를 표시하며, 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있습니다.",
+  privacy: "말해가계부는 로그인 없이 읽는 공개 안내·생활비 글 화면(개인정보처리방침·약관·쿠키 안내·문의·소개·사이트맵·후원 안내 제외)의 본문 아래에 Google 광고를 표시합니다. Google을 포함한 제3자 광고 사업자는 쿠키를 사용해 사용자가 이 사이트나 다른 사이트를 방문한 기록을 바탕으로 광고를 제공하고 성과를 측정합니다. Google은 광고 쿠키(DoubleClick 쿠키 등)를 사용해 Google과 파트너가 이 사이트와 다른 사이트 방문 기록을 바탕으로 광고를 제공할 수 있게 합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있으며, Google이 광고에 정보를 이용하는 방식은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다.",
+  cookies: "말해가계부는 로그인 없이 읽는 공개 안내·생활비 글 화면(개인정보처리방침·약관·쿠키 안내·문의·소개·사이트맵·후원 안내 제외)의 본문 아래에 Google 광고를 표시합니다. 광고가 표시되는 화면에서는 Google과 파트너가 광고 쿠키(DoubleClick 쿠키 등)와 유사 기술을 사용해 광고를 제공하고 성과를 측정합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있고, 자세한 내용은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
+  faq: "서비스 운영 비용은 후원과 공개 화면의 광고로 마련합니다. 로그인 없이 읽는 공개 안내·생활비 글 화면(개인정보처리방침·약관·쿠키 안내·문의·소개·사이트맵·후원 안내 제외)의 본문 아래에 Google 광고를 표시하며, 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있습니다.",
 });
 
 // V22.9.92: 애드핏을 켠 서버의 고지. 광고 사업자(주식회사 카카오)와 수집하는 행태정보, 광고를 두지 않는 화면, 끄는 방법을 적는다.
 // 끄는 곳은 카카오 개인정보처리방침이 맞춤형 광고 거부 방법으로 잇는 ‘카카오 맞춤형 광고 안내’(info.ds.kakao.com/optout.do,
 // 2026-10-30 확인)이고, 그 안내대로 쿠키를 지우면 거부 설정도 지워질 수 있다고 적는다. -control 은 정책 화면의 둘째 문단이다.
 const ADFIT_POLICY_TEXT = Object.freeze({
-  privacy: "말해가계부는 선정한 공개 생활비 글 6편의 본문 아래에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 광고 사업자인 주식회사 카카오가 쿠키와 광고 식별자 같은 기술로 이 사이트와 다른 사이트를 방문한 기록(행태정보)을 수집해 맞춤형 광고를 제공하고 광고 성과를 측정할 수 있습니다. 카카오가 수집하는 정보의 항목·보유기간과 처리 방식은 카카오 개인정보처리방침을 따릅니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고를 두지 않습니다.",
+  privacy: "말해가계부는 로그인 없이 읽는 공개 안내·생활비 글 화면(개인정보처리방침·약관·쿠키 안내·문의·소개·사이트맵·후원 안내 제외)의 본문 아래에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 광고 사업자인 주식회사 카카오가 쿠키와 광고 식별자 같은 기술로 이 사이트와 다른 사이트를 방문한 기록(행태정보)을 수집해 맞춤형 광고를 제공하고 광고 성과를 측정할 수 있습니다. 카카오가 수집하는 정보의 항목·보유기간과 처리 방식은 카카오 개인정보처리방침을 따릅니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고를 두지 않습니다.",
   "privacy-control": "말해가계부는 광고를 누른 방문자의 개인정보를 따로 수집하지 않고, 거래 내용·예산·가계부 구성원 정보와 사용자 발화 원문을 광고 사업자나 광고주에게 제공하거나 판매하지 않습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내 화면에서 끌 수 있고, 브라우저 설정에서 쿠키를 차단해 거부할 수도 있습니다. 쿠키를 지우면 거부 설정도 함께 지워질 수 있습니다.",
-  cookies: "말해가계부는 선정한 공개 생활비 글 6편의 본문 아래에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 주식회사 카카오가 광고 쿠키와 유사 기술을 사용해 맞춤형 광고를 제공하고 성과를 측정할 수 있습니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
+  cookies: "말해가계부는 로그인 없이 읽는 공개 안내·생활비 글 화면(개인정보처리방침·약관·쿠키 안내·문의·소개·사이트맵·후원 안내 제외)의 본문 아래에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 주식회사 카카오가 광고 쿠키와 유사 기술을 사용해 맞춤형 광고를 제공하고 성과를 측정할 수 있습니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
   "cookies-control": "사용자는 카카오 맞춤형 광고 안내 화면과 브라우저의 사이트별 쿠키 설정으로 맞춤형 광고와 저장된 쿠키를 관리할 수 있습니다. 쿠키를 지우면 맞춤형 광고 거부 설정도 함께 지워질 수 있습니다.",
-  faq: "지금은 가입비나 이용료 없이 쓸 수 있어요. 서비스 운영을 위해 선정한 공개 생활비 글 6편의 본문 아래에 카카오 애드핏 광고를 표시하며, 로그인한 사람만 보는 화면·거래를 입력·저장하는 화면·로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내(https://info.ds.kakao.com/optout.do)에서 끌 수 있습니다.",
+  faq: "서비스 운영 비용은 후원과 공개 화면의 광고로 마련합니다. 로그인 없이 읽는 공개 안내·생활비 글 화면(개인정보처리방침·약관·쿠키 안내·문의·소개·사이트맵·후원 안내 제외)의 본문 아래에 카카오 애드핏 광고를 표시하며, 로그인한 사람만 보는 화면·거래를 입력·저장하는 화면·로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내(https://info.ds.kakao.com/optout.do)에서 끌 수 있습니다.",
 });
 
 // V22.9.92: 정책 화면이 쓸 광고 사업자 — 실제로 광고를 낼 수 있을 때만 "adsense"(live)·"adfit", 아니면 ""(지금 문장). 애드핏 광고
@@ -3873,7 +3891,7 @@ function publicGuidePages(env = {}) {
       ["참여했는데 예산이나 다른 사람의 거래를 바꿀 수 없어요.", "구성원은 자신의 기록을 수정·삭제합니다. 다만 소유자가 구성원 권한을 ‘기록만’으로 정한 가계부에서는 새 기록만 남길 수 있습니다. 예산과 참여자 관리에는 소유자·관리자 권한이 필요합니다. 조회 전용이나 승인 대기 상태는 초대코드 재입력만으로 바뀌지 않습니다."],
       ["카드별 사용액이 카드사 실적과 달라요.", "말해가계부는 입력한 결제수단 기준으로 합산합니다. 실시간 카드사 데이터가 아니며 누락·취소·혜택 제외 항목이 다를 수 있습니다. 공식 명세서와 혜택 조건을 대조하세요."],
       ["CSV만 있으면 계정 전체를 복구할 수 있나요?", "일반 CSV 백업은 거래 목록입니다. 계정 로그인, 참여 권한, 예산과 모든 설정을 통째로 복원하지 않습니다. 가져오기 미리보기에서 행을 확인한 뒤 거래를 등록합니다."],
-      ["이용료가 있나요? 광고가 나오나요?", adsPolicyText(env, "faq") || "지금은 가입비나 이용료 없이 쓸 수 있어요. 현재 공개 페이지에는 Google 광고를 실행하지 않습니다. 광고 기능을 도입할 때에는 관련 안내와 필요한 절차를 갖춘 뒤 운영합니다."],
+      ["광고가 나오나요? 운영 비용은 어떻게 마련하나요?", adsPolicyText(env, "faq") || "서비스 운영 비용은 후원으로 마련하며, 현재 공개 페이지에는 Google 광고를 실행하지 않습니다. 광고 기능을 도입할 때에는 관련 안내와 필요한 절차를 갖춘 뒤 운영합니다."],
       ["단톡방 전체 대화나 입력 문장을 AI 학습에 쓰나요?", "단톡방 전체 대화를 임의로 읽지 않고 봇에 전달된 요청을 처리합니다. 거래 입력 원문과 일부 마스킹 오류 기록은 서비스 운영을 위해 보관될 수 있으나 외부 AI 모델 학습에 자동 전송하지 않습니다."],
     ] }),
     about: page("말해가계부와 콘텐츠 운영 원칙", "도담 네트워크가 운영하는 독립 가계부 서비스의 목적, 안내 작성 기준, 가상 사례와 수정 원칙을 설명합니다.", "서비스를 만드는 기준", "말해가계부는 도담 네트워크가 운영하는 생활비 기록 서비스입니다. 카카오톡에서 남긴 짧은 기록을 웹의 예산·분석·공동 정산으로 이어 확인하도록 구성했습니다.", [

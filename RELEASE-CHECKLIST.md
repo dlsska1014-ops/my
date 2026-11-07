@@ -1,3 +1,10 @@
+## V22.9.108 광고 허용 목록·FAQ 검사
+
+- 자동: `validate-ads-gate-v22940`(공개 허용 53·로그인 뒤 허용 0·정책 7쪽 제외·FAQ 구조화 문항 새 이름), `validate-adfit-gate-v22992`(애드핏 허용 53), `validate-v22997-articles`(세무 글 8편 허용 목록 포함), `validate-ads-review-fixes-v229107`(D-2 범위 문장 두 네트워크, 판 이름 ≥ V22.9.107), `validate-support-wording-v22999`(새 문항 + ‘가입비나 이용료’·옛 문항 부재), `validate-public-value-v229106`, 환불 지문 268(V107 이름에서 통과 확인 뒤 3개 갱신).
+- 기존 보호: 생성 Worker 동일성·클라이언트 직렬화·HTML 성능 예산·판 번호 정본(검사 파일에 판 이름 글자 없음).
+- 배포 직후(Claude): `review-artifacts/v108-ads-scope-2026-11-07/deploy/postcheck-v108.mjs` 78개(/health 판 이름 ×3, /ready, V107 항목 — 글 6편 정본 = 매개변수 응답·CSP 같음·http → https·계산표 v229107/v229106/v229105·/articles ‘계산표 포함’ 6 — /faq 새 문항·review 기본 문장·‘가입비나 이용료’ 없음·/privacy·/cookies ‘글 6편’ 없음·sitemap 60·ads.txt) + 공개 점검 + 1년 캐시 자산.
+- 사람 확인: /faq 문항 읽기, 휴대폰 계산표(V107 절). 승인 뒤 live 전환 때 첫 화면·글 목록·세무 글에서 광고 자리 확인.
+
 ## V22.9.107 광고 검토 후속 검사
 
 - 자동: `npm run validate:ads-review-fixes-v229107`(437개: 판 이름, 광고 게이트의 정본·매개변수·앵커·다른 호스트·http, 계산표 글 절 순서·링크, 계산표 12개 주소·캐시·noindex·CSP·머리꼬리·변경 전 결과 CSS·휴대폰 CSS·클라이언트 스크립트, 두 네트워크 정책 문구, 글 목록 표시, 바깥 요청 0). 함께 `validate-public-value-v229106`(매개변수·앵커 장면 추가)·`validate-public-articles-v22940/v22974`(더한 절 수 보정)·환불 지문 268. `node .codex/scripts/verify-repository.mjs`와 `npm run validate:categories-absent` 두 모드.

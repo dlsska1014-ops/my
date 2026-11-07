@@ -108,7 +108,7 @@ const pageKeys = [...(source.match(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\
 const publicPaths = [...(source.match(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 const PUBLIC_ALLOWED = pageKeys.filter((key) => publicPaths.includes(key));
 // V22.9.97 생활비 글: 연말정산·절세 글 8편이 공개 정본·광고 화면 목록에 함께 더해져 45 → 53쪽이다.
-eq(PUBLIC_ALLOWED.length, 6, "애드핏 허용 화면은 대표 공개 글 6편이다(AD_PAGE_KEYS ∩ PUBLIC_CONTENT_PATHS)");
+eq(PUBLIC_ALLOWED.length, 53, "애드핏 허용 화면은 공개 정본 53쪽이다(AD_PAGE_KEYS ∩ PUBLIC_CONTENT_PATHS, V22.9.108)");
 eq(JSON.stringify(pageKeys.filter((key) => !publicPaths.includes(key))), JSON.stringify([]), "애드핏에서 빠지는 화면은 로그인 뒤 읽는 5개뿐이다");
 
 // ── 렌더 준비 ─────────────────────────────────────────────────────────────

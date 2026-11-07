@@ -1,6 +1,6 @@
 // V22.9.107 광고 승인 준비(V22.9.106) 검토 뒤 고침 검사(D-1~D-7, docs/codex/FOLLOWUP_FINDINGS_V22_9_107.md).
 // D-1 광고 자리·CSP·SDK 시작은 정본 출처 + 정확한 경로로 판정한다(유입 매개변수·앵커가 붙어도 같은 문서, 다른 호스트·경로·http 는 아님).
-// D-2 애드핏 FAQ 문구가 방침·쿠키 문구(글 6편)와 같다. D-3 계산표 글은 서사 절이 먼저, 예제 표·검산·계산표 열기가 글 끝이다.
+// D-2 애드핏 FAQ 문구가 방침·쿠키 문구와 같다(V22.9.108 부터 공개 정본 53쪽 범위 문장). D-3 계산표 글은 서사 절이 먼저, 예제 표·검산·계산표 열기가 글 끝이다.
 // D-4~D-6 계산표 화면: 입력을 고치면 이전 결과를 ‘변경 전 결과’ 로 남김, 휴대폰 폭 2열, 머리·꼬리 링크. 주소 판은 v229107(옛 v229106 은 같은 내용, 두 판 전은 404).
 // D-7 글 목록 카드에 ‘계산표 포함’. 화면은 기본 env 로 app.fetch 로 그리고 바깥 요청은 0회여야 한다.
 import assert from "node:assert/strict";
@@ -18,7 +18,8 @@ const eq = (actual, expected, message) => { assert.deepEqual(actual, expected, m
 const origin = "https://malhaebook.com";
 // 판 이름은 VERSION.txt 에서 읽는다(판 번호 정본 검사가 APP_VERSION 과 같게 유지). 이 판의 앞머리만 글자로 둔다.
 const VERSION = readFileSync(new URL("../VERSION.txt", import.meta.url), "utf8").trim();
-assert.ok(VERSION.startsWith("V22.9.107-"), "VERSION.txt 가 V22.9.107 판이다");
+const VERSION_NUMBER = Number((/^V22\.9\.(\d+)-/.exec(VERSION) || [])[1]);
+assert.ok(VERSION_NUMBER >= 107, "VERSION.txt 가 V22.9.107 또는 그 뒤 판이다");
 const LIVE = { ADS_MODE: "live", ADS_SLOT_CONTENT: "1234567890" };
 const ADFIT = { ADS_MODE: "adfit", ADFIT_UNIT_CONTENT: "DAN-test123456", ADFIT_UNIT_SIZE: "320x100" };
 const request = async (target, env = {}, method = "GET") => {
@@ -105,11 +106,11 @@ try {
     ok(!/\b(?:fetch|localStorage|sessionStorage|XMLHttpRequest)\b/.test(client), `${slug}: 입력을 보내거나 저장하지 않는다`);
   }
 
-  // D-2 문구: 두 네트워크 모두 방침·쿠키·FAQ 가 ‘선정한 공개 생활비 글 6편의 본문 아래에’ 로 같다.
+  // D-2 문구: 두 네트워크 모두 방침·쿠키·FAQ 가 같은 범위 문장을 쓴다(V22.9.108 부터 공개 정본 53쪽 문구).
   for (const [label, env, network] of [["adsense", LIVE, "Google 광고"], ["adfit", ADFIT, "카카오 애드핏 광고"]]) {
     for (const path of ["/privacy", "/cookies", "/faq"]) {
       const html = (await request(path, env)).html;
-      ok(html.includes(`선정한 공개 생활비 글 6편의 본문 아래에 ${network}를 표시`), `${path} ${label}: 광고 화면 범위 문구가 글 6편이다`);
+      ok(html.includes(`로그인 없이 읽는 공개 안내·생활비 글 화면(개인정보처리방침·약관·쿠키 안내·문의·소개·사이트맵·후원 안내 제외)의 본문 아래에 ${network}를 표시`), `${path} ${label}: 광고 화면 범위 문구가 글 6편이다`);
       ok(!html.includes("공개 가이드와 생활비 글처럼 로그인 없이 읽는 화면에") && !html.includes("생활비 리포트와 공개 가이드처럼 읽는 화면에"), `${path} ${label}: 옛 범위 문구가 없다`);
     }
   }

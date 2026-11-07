@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_107.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_108.sha256",
 );
 const validationScripts = [
   ["V22.9.107 광고 검토 후속(D-1 유입 매개변수·앵커가 붙어도 정본 문서면 광고, D-2 애드핏 FAQ 문구, D-3 계산표 글 절 순서, D-4~D-6 계산표 변경 전 결과·휴대폰 2열·머리꼬리·주소 판, D-7 글 목록 ‘계산표 포함’)", "validation/validate-ads-review-fixes-v229107.mjs"],
@@ -382,7 +382,7 @@ function run(command, args, label) {
 // V22.9.99: wording, notice hide and findings; measured 61,894 present / 61,891 absent.
 // V22.9.100: K-1 139 checks; F-1/F-2 user-confirmed split. Closing K-1 removes one open-item ledger assertion.
 // Both complete runs measured 62,052 present / 62,049 absent (61,914/61,911 + 139 - 1).
-const EXPECTED_MINIMUM_CHECKS = 73696;
+const EXPECTED_MINIMUM_CHECKS = 76478;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

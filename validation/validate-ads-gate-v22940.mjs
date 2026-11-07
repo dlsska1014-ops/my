@@ -42,7 +42,8 @@ const PUBLIC_ALLOWED = ["/", "/service-guide", "/how-it-works", "/kakao-guide", 
 // V22.9.95 후원: 후원 안내(/support)도 광고를 싣지 않는 정본이다(정본 52 − 정책·신원 6 − 후원 안내 1 = 45).
 const POLICY_PAGES = ["/privacy", "/terms", "/cookies", "/contact", "/about", "/site-map", "/support"];
 const SIGNED_IN_ALLOWED = [];
-const PUBLIC_AD_ALLOWED = ["/shared-living-cost-rules", "/roommate-shared-ledger", "/cash-flow-table", "/sinking-fund-annual-expenses", "/monthly-closing-routine", "/subscription-cleanup"];
+// V22.9.108: 사용자 결정으로 공개 정본 53쪽 전부가 다시 허용 화면이다(V22.9.106 의 대표 글 6편 → 53).
+const PUBLIC_AD_ALLOWED = [...PUBLIC_ALLOWED];
 
 let passed = 0;
 function ok(value, label) {
@@ -136,7 +137,7 @@ const pageKeys = [...(source.match(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\
 const publicPaths = [...(source.match(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 // V22.9.97 생활비 글: 글 8편이 더해져 정본 52 → 60, 공개 허용 화면 45 → 53.
 eq(publicPaths.length, 60, "공개 정본 문서는 60개다(가이드 18 + V22.9.40 생활비 가이드 글 12 + V22.9.74 허브 1·글 20 + V22.9.95 후원 안내 1 + V22.9.97 글 8)");
-eq(pageKeys.filter((key) => publicPaths.includes(key)).length, 6, "공개 허용 화면은 53쪽이다(정본 60 − 정책·신원 6 − 후원 안내 1)");
+eq(pageKeys.filter((key) => publicPaths.includes(key)).length, 53, "공개 허용 화면은 53쪽이다(정본 60 − 정책·신원 6 − 후원 안내 1, V22.9.108)");
 eq(JSON.stringify(pageKeys.filter((key) => publicPaths.includes(key)).sort()), JSON.stringify([...PUBLIC_AD_ALLOWED].sort()), "공개 허용 화면 = 정본 문서 - 정책·신원 6쪽 - 후원 안내");
 eq(JSON.stringify(pageKeys.filter((key) => !publicPaths.includes(key))), JSON.stringify(SIGNED_IN_ALLOWED), "로그인 뒤 허용 화면은 리포트·연간·스마트 도구·두 가이드뿐이다");
 for (const key of ["/app", "/my", "/menu", "/my/settings", "/budgets", "/my/analysis", "/my/households", "/my/members", "/my/backup", "/payment-methods", "/settlement-summary", "/reserve-plans", "/admin-view", "/operation-center", "/skill", "/api", "/u/api", ...POLICY_PAGES]) {
@@ -397,7 +398,7 @@ try {
   const faqLive = policy["/faq"].live;
   ok(faqLive.includes("본문 아래에 Google 광고를 표시하며") && faqLive.includes("카드사 실적이나 금융상품 안내와도 관계가 없습니다") && faqLive.includes("https://adssettings.google.com") && !faqLive.includes("현재 공개 페이지에는 Google 광고를 실행하지 않습니다"), "live FAQ 는 광고 표시·추천 아님·해제 방법을 답한다");
   const faqStructured = JSON.parse(faqLive.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
-  ok(faqStructured.mainEntity.some((q) => q.name === "이용료가 있나요? 광고가 나오나요?" && q.acceptedAnswer.text.includes("Google 광고를 표시하며")), "live FAQ 구조화 데이터의 답이 화면 문장과 같다");
+  ok(faqStructured.mainEntity.some((q) => q.name === "광고가 나오나요? 운영 비용은 어떻게 마련하나요?" && q.acceptedAnswer.text.includes("Google 광고를 표시하며")), "live FAQ 구조화 데이터의 답이 화면 문장과 같다");
   same(policy["/terms"].live, policy["/terms"].review, "이용약관의 광고 조항은 두 모드에서 같다(이미 광고 표시 가능성을 적고 있다)");
 
   // ── 7. /ready 의 ads_mode, /health 는 그대로 ─────────────────────────────

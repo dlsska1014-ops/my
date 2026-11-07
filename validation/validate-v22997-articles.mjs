@@ -213,16 +213,16 @@ try {
   // V22.9.104 A-2(H-9 결정): 첫 화면 ‘최근 글’ 이 글 목록 앞 8편이 되어 이 판의 새 글 8편을 모두 가리킨다.
   ok(NEW_PATHS.every((p) => (pages.get("/") || "").includes(`href="${p}"`)), "첫 화면(/) 최근 글이 새 글 8편을 모두 가리킨다(V22.9.104 A-2)");
 
-  // V106: seasonal tax articles stay public but are excluded from both advertising allowlists.
+  // V22.9.108: 세무 글 8편도 다시 광고 허용 목록에 있다(V22.9.106 은 대표 글 6편만, 사용자 결정으로 공개 정본 53쪽).
   const siteConfig = stripBuildBlocks(readFileSync(new URL("../src/modules/public/site-config.js", import.meta.url), "utf8"));
   const listOf = (pattern) => [...((siteConfig.match(pattern) || ["", ""])[1]).matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   const adKeys = listOf(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\S]*?)\]\);/);
   const publicPaths = listOf(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/);
   eq(publicPaths.length, 60, "공개 정본 목록은 60개다");
-  eq(adKeys.filter((key) => publicPaths.includes(key)).length, 6, "공개 광고 후보는 대표 생활비 글 6편이다");
+  eq(adKeys.filter((key) => publicPaths.includes(key)).length, 53, "공개 광고 후보는 공개 정본 53쪽이다(V22.9.108)");
   for (const path of NEW_PATHS) {
     ok(publicPaths.includes(path), `${path}: 공개 정본 목록에 있다`);
-    ok(!adKeys.includes(path), `${path}: 세무 글은 광고 허용 목록에서 제외된다`);
+    ok(adKeys.includes(path), `${path}: 세무 글도 광고 허용 목록에 있다(V22.9.108)`);
   }
 
   // 8. 원본: 새 모듈·빌드 목록·카탈로그 연결.
