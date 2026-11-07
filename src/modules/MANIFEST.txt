@@ -15,6 +15,9 @@ public/guide-content.js
 public/living-cost-articles-v22974.js
 public/living-cost-articles-v22997.js
 public/support-page.js
+public/worksheet-calculations.js
+public/worksheet-pages.js
+public/worksheet-runtime.js
 public/content-pages.js
 client/shared-input-parsers.js
 client/shared-input-nlu.js

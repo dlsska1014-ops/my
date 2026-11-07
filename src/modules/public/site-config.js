@@ -8,7 +8,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.105-ROOM-OPEN";
+const APP_VERSION = "V22.9.106-PUBLIC-VALUE";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -134,17 +134,18 @@ function renderSkillGetHealthHtml(env = {}, url = null) {
 
 function canonicalRedirectResponse(request, env = {}, url = null) {
   try {
-    if (!url || String(request?.method || "GET").toUpperCase() !== "GET") return null;
+    if (!url || !["GET", "HEAD"].includes(String(request?.method || "GET").toUpperCase())) return null;
     if (["/health", "/ops-snapshot.json", "/meme-card-catalog.json"].includes(url.pathname)) return null;
     const targetBase = publicBaseUrl(env, url);
     const currentBase = currentRequestBaseUrl(url);
     if (!targetBase || !currentBase || targetBase === currentBase) return null;
     const currentHost = new URL(currentBase).host;
     const targetHost = new URL(targetBase).host;
-    if (!currentHost || !targetHost || currentHost === targetHost) return null;
+    if (!currentHost || !targetHost) return null;
+    if (currentHost === targetHost && new URL(currentBase).protocol !== "http:") return null;
     // V22.9.40: www.<정본 호스트>는 CANONICAL_REDIRECT 설정과 무관하게 정본으로 보낸다. 운영 www 가 같은 문서를 200 으로
     // 내보내 한 문서가 두 주소로 색인될 수 있었다. 옛 도메인·workers.dev 같은 다른 호스트는 예전처럼 변수가 "1" 일 때만 옮긴다.
-    if (currentHost !== `www.${targetHost}` && String(env.CANONICAL_REDIRECT || "").trim() !== "1") return null;
+    if (currentHost !== targetHost && currentHost !== `www.${targetHost}` && String(env.CANONICAL_REDIRECT || "").trim() !== "1") return null;
     const next = new URL(url.pathname + url.search + url.hash, targetBase);
     return new Response(null, { status: 308, headers: { location: next.toString(), "cache-control": "no-store" } });
   } catch (err) {
@@ -250,31 +251,10 @@ function adsMode(env = {}) {
   return value === "live" ? "live" : value === "adfit" ? "adfit" : "review";
 }
 
-// 광고를 둘 수 있는 화면(라이브에서만). 공개 정본 가이드에서 정책·신원 화면(privacy·terms·cookies·
-// contact·about·site-map)을 뺀 53쪽(가이드 12쪽 + V22.9.40 생활비 가이드 글 12편 + V22.9.74 허브 1쪽·글 20편 + V22.9.97 글 8편)과 로그인 뒤 읽는 화면 5개다. 이 목록에 없는 화면(/app 의 모든 보기,
-// 로그인·가입, 설정·예산·참여자·백업, /my/analysis, 관리자·운영, API·/skill, 404·안전모드)은 키를
-// 받지 않으므로 구조적으로 광고가 붙지 않는다. 새 공개 문서는 일부러 여기에 적어야만 광고가 붙는다.
-// V22.9.92: 애드핏(ADS_MODE=adfit)은 이 목록 가운데 공개 정본 문서만 쓴다(로그인 뒤 화면 5개는 빼고, adsPageLive).
+// Public launch scope: six editorial articles only. Worksheets and signed-in pages are excluded.
 const AD_PAGE_KEYS = Object.freeze([
-  "/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide",
-  "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide",
-  // V22.9.40 (D 병합): 생활비 가이드 글 12편. 긴 읽을거리라 광고 자리로 가장 알맞다.
-  "/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup",
-  "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit",
-  "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics",
-  "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table",
-  // V22.9.74: 글 목록 허브와 생활비 가이드 글 20편(public/living-cost-articles-v22974.js).
-  "/articles", "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark",
-  "/utility-bills-seasonality", "/inflation-budget-update", "/card-income-deduction-basics",
-  "/year-end-tax-expense-check", "/rent-tax-credit-records", "/apartment-maintenance-fee",
-  "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order",
-  "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning",
-  "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
-  // V22.9.97 생활비 글: 연말정산·절세 시즌 글 8편도 긴 읽을거리라 광고 자리로 둔다(애드핏은 공개 정본이라 함께 쓴다).
-  "/year-end-tax-timeline-checklist", "/payment-method-switch-nov-dec", "/medical-education-donation-deductions",
-  "/dual-income-deduction-allocation", "/pension-savings-irp-tax-credit", "/single-household-year-end-tax",
-  "/tax-refund-money-plan", "/housing-deductions-overview",
-  "/reports", "/annual", "/smart-tools", "/start-guide", "/keyword-guide",
+  "/shared-living-cost-rules", "/roommate-shared-ledger", "/cash-flow-table",
+  "/sinking-fund-annual-expenses", "/monthly-closing-routine", "/subscription-cleanup",
 ]);
 
 function adsSlotId(env = {}) {
@@ -310,14 +290,14 @@ function adsPageLive(env = {}, pageKey = "") {
   if (mode === "review" || !AD_PAGE_KEYS.includes(pageKey)) return false;
   // V22.9.92: 애드핏은 로그인한 사람만 보는 화면에 광고를 둘 수 없다(애드핏 운영정책 5.2 "허용된 방문자(예: 멤버십 로그인 등)만
   // 조회/열람이 가능한 경우"). 그래서 누구나 여는 공개 정본 문서(PUBLIC_CONTENT_PATHS)에만 둔다. 로그인 뒤 읽는 화면 5개
-  // (/reports·/annual·/smart-tools·/start-guide·/keyword-guide)는 AdSense 에서만 허용 화면이다. 광고 단위가 없으면 어디에도 두지 않는다.
+  // 로그인 뒤 화면은 두 네트워크 모두 제외한다. 광고 단위가 없으면 어디에도 두지 않는다.
   if (mode === "adfit") return PUBLIC_CONTENT_PATHS.includes(pageKey) && !!adfitUnit(env);
-  return true;
+  return mode === "live" && !!adsSlotId(env);
 }
 
 // 광고 자리는 광고가 늦게 와도 화면이 밀리지 않게 높이를 먼저 잡는다. 주변 버튼·링크와 16px 넘게
 // 띄우고(공통 셸의 카드 여백 12px!important 보다 앞서도록 선택자를 높였다), 인쇄에서는 뺀다.
-const ADS_SLOT_CSS = `.adSlot{display:block;min-height:120px;margin:24px 0;padding:12px 16px 16px;background:var(--ab12-surface,#fff);border:1px solid var(--ab12-line,#e5e9f0);border-radius:var(--ab12-radius,20px)}.adSlot::before{content:"광고";content:"광고"/"";display:block;margin:0 0 8px;color:var(--ab12-muted,#667085);font-size:12px;font-weight:700;line-height:1.4}html body .adSlot.adSlot.adSlot{margin-top:24px!important;margin-bottom:24px!important}@media print{.adSlot{display:none!important}}`;
+const ADS_SLOT_CSS = `.adSlot{display:block;min-height:120px;margin:24px 0;padding:12px 16px 16px;background:var(--ab12-surface,#fff);border:1px solid var(--ab12-line,#e5e9f0);border-radius:var(--ab12-radius,20px)}.adSlot[hidden]{display:none!important}.adSlot::before{content:"광고";content:"광고"/"";display:block;margin:0 0 8px;color:var(--ab12-muted,#667085);font-size:12px;font-weight:700;line-height:1.4}html body .adSlot.adSlot.adSlot{margin-top:24px!important;margin-bottom:24px!important}@media print{.adSlot{display:none!important}}`;
 
 // V22.9.92: 애드핏 SDK 주소(공식 SDK 안내의 설치 코드). 광고 자리 바로 뒤에 한 번 싣는다.
 const ADFIT_SDK_URL = "https://t1.kakaocdn.net/kas/static/ba.min.js";
@@ -339,12 +319,51 @@ function adfitSpeculationRulesJson() {
   return JSON.stringify({ prefetch: JSON.parse(AB_SPECULATION_RULES_JSON).prerender });
 }
 
+// The publisher runtime is fetched only after activation, on an exact canonical URL.
+// The SDK itself and the issued unit attributes are never modified.
+function adsActivationV229106(sdk, canonical, googleStart) {
+  let started = false;
+  function activate() {
+    if (started || document.prerendering || document.visibilityState !== "visible" || document.readyState === "loading") return;
+    if (window.location.href !== canonical) return;
+    const slot = document.querySelector(".adSlot");
+    if (!slot) return;
+    started = true;
+    slot.hidden = false;
+    const loader = document.createElement("script"); loader.async = true; loader.src = sdk;
+    if (googleStart) loader.crossOrigin = "anonymous";
+    else { loader.type = "text/javascript"; loader.charset = "utf-8"; }
+    loader.addEventListener("error", () => { slot.style.display = "none"; }, { once: true });
+    slot.appendChild(loader);
+    if (googleStart) googleStart();
+    document.removeEventListener("prerenderingchange", activate);
+    document.removeEventListener("visibilitychange", activate);
+    document.removeEventListener("DOMContentLoaded", activate);
+  }
+  document.addEventListener("prerenderingchange", activate);
+  document.addEventListener("visibilitychange", activate);
+  document.addEventListener("DOMContentLoaded", activate);
+  activate();
+}
+
+function adsActivationMarkupV229106(env, pageKey) {
+  const network = adsMode(env) === "adfit" ? "adfit" : "adsense";
+  const sdk = network === "adfit" ? ADFIT_SDK_URL : `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${adsensePublisherId(env)}`;
+  const args = [sdk, publicBaseUrl(env) + pageKey].map((value) => JSON.stringify(value).replace(/</g, "\\u003c")).join(",");
+  const queue = network === "adsense" ? 'function(){(window.adsbygoogle=window.adsbygoogle||[]).push({});}' : "null";
+  return `<script data-ad-activation>(${adsActivationV229106.toString()})(${args},${queue});</script>`;
+}
+
+function adsPublicRequestKeyV229106(env, url, key) {
+  if (!url || url.origin !== publicBaseUrl(env) || url.protocol !== "https:" || url.search || url.hash || url.pathname !== key) return "";
+  return key;
+}
+
 function adsHeadMarkup(env = {}, pageKey = "") {
   if (!adsPageLive(env, pageKey)) return "";
   // 애드핏은 공식 안내대로 SDK 를 본문 아래쪽(광고 자리 바로 뒤)에 두므로 머리에는 자리 CSS 와 미리 받기 규칙만 넣는다.
   if (adsMode(env) === "adfit") return `<style>${ADS_SLOT_CSS}${adfitSlotCss(adfitUnit(env))}</style><script type="speculationrules">${adfitSpeculationRulesJson()}</script>`;
-  const client = escapeHtml(adsensePublisherId(env));
-  return `<script async src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${client}" crossorigin="anonymous"></script><style>${ADS_SLOT_CSS}</style>`;
+  return `<style>${ADS_SLOT_CSS}</style>`;
 }
 
 function adSlotMarkup(env = {}, pageKey = "") {
@@ -354,31 +373,31 @@ function adSlotMarkup(env = {}, pageKey = "") {
   if (adsMode(env) === "adfit") {
     const unit = adfitUnit(env);
     if (!adsPageLive(env, pageKey) || !unit) return "";
-    return `<section class="card adSlot noPrint adfitSlot" style="min-height:${Number(unit.height) + 56}px" aria-label="광고"><ins class="kakao_ad_area" style="display:none;width:100%;" data-ad-unit="${unit.id}" data-ad-width="${unit.width}" data-ad-height="${unit.height}" data-ad-onfail="malhaeAdfitNoAd"></ins><script>function malhaeAdfitNoAd(el){var slot=el&&el.closest?el.closest(".adSlot"):null;if(slot)slot.style.display="none";}addEventListener("error",function(e){var t=e.target;if(t&&t.tagName==="SCRIPT")malhaeAdfitNoAd(t);},true);</script><script async type="text/javascript" charset="utf-8" src="${ADFIT_SDK_URL}"></script></section>`;
+    return `<section class="card adSlot noPrint adfitSlot" style="min-height:${Number(unit.height) + 56}px" hidden aria-label="광고"><ins class="kakao_ad_area" style="display:none;width:100%;" data-ad-unit="${unit.id}" data-ad-width="${unit.width}" data-ad-height="${unit.height}" data-ad-onfail="malhaeAdfitNoAd"></ins><script>function malhaeAdfitNoAd(el){var slot=el&&el.closest?el.closest(".adSlot"):null;if(slot)slot.style.display="none";}addEventListener("error",function(e){var t=e.target;if(t&&t.tagName==="SCRIPT")malhaeAdfitNoAd(t);},true);</script>${adsActivationMarkupV229106(env, pageKey)}</section>`;
   }
   const slot = adsSlotId(env);
-  // 슬롯 id 가 없으면 자리를 만들지 않는다. 머리의 로더만 남으므로 대시보드에서 자동 광고를 켠 경우에만 광고가 나온다.
+  // A valid explicit slot is required; no loader-only or automatic-ads path.
   if (!adsPageLive(env, pageKey) || !slot) return "";
   const client = escapeHtml(adsensePublisherId(env));
-  return `<section class="card adSlot noPrint" aria-label="광고"><ins class="adsbygoogle" style="display:block" data-ad-client="${client}" data-ad-slot="${slot}" data-ad-format="auto" data-full-width-responsive="true"></ins><script>(adsbygoogle=window.adsbygoogle||[]).push({});</script></section>`;
+  return `<section class="card adSlot noPrint" hidden aria-label="광고"><ins class="adsbygoogle" style="display:block" data-ad-client="${client}" data-ad-slot="${slot}" data-ad-format="auto" data-full-width-responsive="true"></ins>${adsActivationMarkupV229106(env, pageKey)}</section>`;
 }
 
 // 광고를 켜면 개인정보처리방침·쿠키 안내·FAQ 의 "현재 광고를 실행하지 않습니다" 문장을 AdSense 필수 고지(제3자
 // 광고 쿠키, Google 광고 쿠키, 맞춤 광고 해제 방법)로 바꾼다. review 에서는 빈 값을 돌려주고 부르는 쪽이 지금
 // 문장을 그대로 쓴다.
 const ADS_POLICY_TEXT = Object.freeze({
-  privacy: "말해가계부는 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시합니다. Google을 포함한 제3자 광고 사업자는 쿠키를 사용해 사용자가 이 사이트나 다른 사이트를 방문한 기록을 바탕으로 광고를 제공하고 성과를 측정합니다. Google은 광고 쿠키(DoubleClick 쿠키 등)를 사용해 Google과 파트너가 이 사이트와 다른 사이트 방문 기록을 바탕으로 광고를 제공할 수 있게 합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있으며, Google이 광고에 정보를 이용하는 방식은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다.",
-  cookies: "말해가계부는 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시합니다. 광고가 표시되는 화면에서는 Google과 파트너가 광고 쿠키(DoubleClick 쿠키 등)와 유사 기술을 사용해 광고를 제공하고 성과를 측정합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있고, 자세한 내용은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
-  faq: "지금은 가입비나 이용료 없이 쓸 수 있어요. 서비스 운영을 위해 생활비 리포트와 공개 가이드처럼 읽는 화면에 Google 광고를 표시하며, 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있습니다.",
+  privacy: "말해가계부는 선정한 공개 생활비 글 6편의 본문 아래에 Google 광고를 표시합니다. Google을 포함한 제3자 광고 사업자는 쿠키를 사용해 사용자가 이 사이트나 다른 사이트를 방문한 기록을 바탕으로 광고를 제공하고 성과를 측정합니다. Google은 광고 쿠키(DoubleClick 쿠키 등)를 사용해 Google과 파트너가 이 사이트와 다른 사이트 방문 기록을 바탕으로 광고를 제공할 수 있게 합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있으며, Google이 광고에 정보를 이용하는 방식은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다.",
+  cookies: "말해가계부는 선정한 공개 생활비 글 6편의 본문 아래에 Google 광고를 표시합니다. 광고가 표시되는 화면에서는 Google과 파트너가 광고 쿠키(DoubleClick 쿠키 등)와 유사 기술을 사용해 광고를 제공하고 성과를 측정합니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있고, 자세한 내용은 https://policies.google.com/technologies/ads 에서 확인할 수 있습니다. 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
+  faq: "지금은 가입비나 이용료 없이 쓸 수 있어요. 서비스 운영을 위해 선정한 공개 생활비 글 6편의 본문 아래에 Google 광고를 표시하며, 거래를 입력·저장하는 화면과 로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤 광고는 Google 광고 설정(https://adssettings.google.com)에서 해제할 수 있습니다.",
 });
 
 // V22.9.92: 애드핏을 켠 서버의 고지. 광고 사업자(주식회사 카카오)와 수집하는 행태정보, 광고를 두지 않는 화면, 끄는 방법을 적는다.
 // 끄는 곳은 카카오 개인정보처리방침이 맞춤형 광고 거부 방법으로 잇는 ‘카카오 맞춤형 광고 안내’(info.ds.kakao.com/optout.do,
 // 2026-10-30 확인)이고, 그 안내대로 쿠키를 지우면 거부 설정도 지워질 수 있다고 적는다. -control 은 정책 화면의 둘째 문단이다.
 const ADFIT_POLICY_TEXT = Object.freeze({
-  privacy: "말해가계부는 공개 가이드와 생활비 글처럼 로그인 없이 누구나 읽는 화면에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 광고 사업자인 주식회사 카카오가 쿠키와 광고 식별자 같은 기술로 이 사이트와 다른 사이트를 방문한 기록(행태정보)을 수집해 맞춤형 광고를 제공하고 광고 성과를 측정할 수 있습니다. 카카오가 수집하는 정보의 항목·보유기간과 처리 방식은 카카오 개인정보처리방침을 따릅니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고를 두지 않습니다.",
+  privacy: "말해가계부는 선정한 공개 생활비 글 6편의 본문 아래에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 광고 사업자인 주식회사 카카오가 쿠키와 광고 식별자 같은 기술로 이 사이트와 다른 사이트를 방문한 기록(행태정보)을 수집해 맞춤형 광고를 제공하고 광고 성과를 측정할 수 있습니다. 카카오가 수집하는 정보의 항목·보유기간과 처리 방식은 카카오 개인정보처리방침을 따릅니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고를 두지 않습니다.",
   "privacy-control": "말해가계부는 광고를 누른 방문자의 개인정보를 따로 수집하지 않고, 거래 내용·예산·가계부 구성원 정보와 사용자 발화 원문을 광고 사업자나 광고주에게 제공하거나 판매하지 않습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내 화면에서 끌 수 있고, 브라우저 설정에서 쿠키를 차단해 거부할 수도 있습니다. 쿠키를 지우면 거부 설정도 함께 지워질 수 있습니다.",
-  cookies: "말해가계부는 공개 가이드와 생활비 글처럼 로그인 없이 누구나 읽는 화면에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 주식회사 카카오가 광고 쿠키와 유사 기술을 사용해 맞춤형 광고를 제공하고 성과를 측정할 수 있습니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
+  cookies: "말해가계부는 선정한 공개 생활비 글 6편의 본문 아래에 카카오 애드핏 광고를 표시합니다. 광고가 표시되는 화면에서는 주식회사 카카오가 광고 쿠키와 유사 기술을 사용해 맞춤형 광고를 제공하고 성과를 측정할 수 있습니다. 로그인한 사람만 보는 화면, 거래를 입력·저장하는 화면, 로그인·가입 화면에는 광고 코드를 넣지 않습니다.",
   "cookies-control": "사용자는 카카오 맞춤형 광고 안내 화면과 브라우저의 사이트별 쿠키 설정으로 맞춤형 광고와 저장된 쿠키를 관리할 수 있습니다. 쿠키를 지우면 맞춤형 광고 거부 설정도 함께 지워질 수 있습니다.",
   faq: "지금은 가입비나 이용료 없이 쓸 수 있어요. 서비스 운영을 위해 공개 가이드와 생활비 글처럼 로그인 없이 읽는 화면에 카카오 애드핏 광고를 표시하며, 로그인한 사람만 보는 화면·거래를 입력·저장하는 화면·로그인·가입 화면에는 광고를 두지 않습니다. 광고는 말해가계부의 추천이 아니며 카드사 실적이나 금융상품 안내와도 관계가 없습니다. 맞춤형 광고는 카카오 맞춤형 광고 안내(https://info.ds.kakao.com/optout.do)에서 끌 수 있습니다.",
 });
@@ -387,7 +406,7 @@ const ADFIT_POLICY_TEXT = Object.freeze({
 // 단위가 없으면 광고가 나가지 않으므로 지금 문장을 그대로 둔다.
 function adsPolicyNetwork(env = {}) {
   const mode = adsMode(env);
-  if (mode === "live") return "adsense";
+  if (mode === "live" && adsSlotId(env)) return "adsense";
   return mode === "adfit" && adfitUnit(env) ? "adfit" : "";
 }
 
@@ -523,12 +542,13 @@ export {
   APP_MODE, APP_VERSION, BUSINESS_FOOTER_INFO, DEFAULT_PUBLIC_BASE_URL,
   KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS, POLICY_NOTICE_DATE, POLICY_REVISION_DATE,
   PUBLIC_CONTENT_PATHS, adSlotMarkup, adfitUnitStatus, adsHeadMarkup, adsHeaders, adsMode,
-  adsPolicyLinks, adsPolicyNetwork, adsPolicyText, adsensePublisherIdForTxt, appName,
-  canonicalRedirectResponse, cardPerformanceEnabled, currentRequestBaseUrl, envFlagEnabled,
-  handleKakaoCommandSystemPage, hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled,
-  kakaoChatCommandCatalog, kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg,
-  memeCardsEnabled, normalizeBaseUrl, pageNotFoundResponse, policyDateLabel, premiumBetaEnabled,
-  publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav, publicSupportEmail,
-  renderBusinessInfoFooter, renderSkillGetHealthHtml, signupConsentFieldHtml,
+  adsPolicyLinks, adsPolicyNetwork, adsPolicyText, adsPublicRequestKeyV229106,
+  adsensePublisherIdForTxt, appName, canonicalRedirectResponse, cardPerformanceEnabled,
+  currentRequestBaseUrl, envFlagEnabled, handleKakaoCommandSystemPage,
+  hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled, kakaoChatCommandCatalog,
+  kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg, memeCardsEnabled,
+  normalizeBaseUrl, pageNotFoundResponse, policyDateLabel, premiumBetaEnabled, publicAdsenseHead,
+  publicBaseUrl, publicSiteFooter, publicSiteNav, publicSupportEmail, renderBusinessInfoFooter,
+  renderSkillGetHealthHtml, signupConsentFieldHtml,
 };
 // @build:exports-end

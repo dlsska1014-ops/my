@@ -1,3 +1,11 @@
+## V22.9.106 배포 판단
+
+- 앱 Worker: `V22.9.106-PUBLIC-VALUE`의 검증된 `src/index.js` 전체를 배포 대상으로 준비한다. 기준 main은 `9a782953dc7f100a94711835d64f3341c89e33b1`이다. 이번 작업에서 업로드·승격은 실행하지 않았다.
+- SQL·DB 스키마·RLS·RPC·Secrets·Kakao Developers·OpenBuilder·관제: 변경하지 않는다. 기존 운영 설정은 보존한다.
+- 광고: 이번 코드 반영과 광고 활성화를 분리한다. 모드·발급 슬롯·자동 광고·개인정보 및 동의 설정·허용 URL의 실제 일치를 확인하기 전 임의로 켜지 않는다.
+- tools 사이트는 별도 저장소 `everyday-tools`의 `codex/ads-approval-20261107` 변경이다. 앱 Worker 배포만으로 tools 변경이 반영되지 않는다.
+- 배포 전에 당시 활성 version과 바인딩을 기록하고, 배포 뒤 공개 60개 문서·계산표 6개·다운로드·홈·개인 화면 회귀를 확인한다. 실제 기기·브라우저와 제출 자료 확인은 별도로 남는다.
+
 ## V22.9.105 배포 판단
 
 - V22.9.105-ROOM-OPEN 은 앱 Worker 만 바꾼다. SQL·Secret·환경변수·바인딩 32(이름)·cron·Kakao Developers·OpenBuilder·1년 캐시 자산 주소·관제 판(1.7.0)은 그대로다. 새 설정 행 종류 `kakao_room_open_probe_v229105:<결과>`(시각·판만), 시도 제한 표(accountbook_auth_attempt)의 새 경로 키 `/my/room-open-admission`. 번들 9,751,637 B·sha256 2b3ea2f6f489…. 배포 대조는 바인딩 32(Secret 10·Text 21·service 1)·금지 변수 열 그대로(NOTICE_TEXT·NOTICE_LINK 는 이제 없음).

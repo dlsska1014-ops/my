@@ -153,9 +153,9 @@ await withClock(TODAY, () => fixture(async (fx) => {
     const ready = await withEnv(fx, SUPPORT_VARS, () => page(fx, "/ready", { cookie: admin }));
     ok([health.html, ready.html].every((text) => !VAR_NAMES.some((name) => text.includes(name)) && !Object.values(SUPPORT_VARS).some((value) => text.includes(value))), "2-k /health·/ready 에 후원 변수 이름·값이 없다");
     for (const [label, vars] of [["애드핏", { ADS_MODE: "adfit", ADFIT_UNIT_CONTENT: "DAN-qaAdfit95Unit01", ADFIT_UNIT_SIZE: "320x100" }], ["AdSense live", { ADS_MODE: "live", ADS_SLOT_CONTENT: "1234567890" }]]) {
-      const [own, guide] = await withEnv(fx, vars, async () => [await page(fx, "/support", { cookie: "" }), await page(fx, "/budget-guide", { cookie: "" })]);
+      const [own, guide] = await withEnv(fx, vars, async () => [await page(fx, "/support", { cookie: "" }), await page(fx, "/cash-flow-table", { cookie: "" })]);
       const pattern = /kakao_ad_area|data-ad-unit|adsbygoogle|data-ad-slot/;
-      ok(!pattern.test(own.html) && pattern.test(guide.html), `2-l ${label} 모드에서 /support 에는 광고가 없다(같은 모드의 /budget-guide 에는 있다)`);
+      ok(!pattern.test(own.html) && pattern.test(guide.html), `2-l ${label} 모드에서 /support 에는 광고가 없다(같은 모드의 대표 글 /cash-flow-table 에는 있다)`);
     }
   });
 

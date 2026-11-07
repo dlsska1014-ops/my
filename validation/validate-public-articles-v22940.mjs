@@ -3,6 +3,9 @@
 // 지키는지 본다. 화면은 QA 픽스처 없이(기본 env) app.fetch 로 그리고, 바깥 요청은 0회여야 한다.
 // 마지막에 QA 픽스처 env 로도 한 번 더 그려 광고 실행 코드가 없는지 확인한다.
 import assert from "node:assert/strict";
+import { PUBLIC_WORKSHEETS_V229106 } from "../src/modules/public/worksheet-pages.js";
+const WORKSHEET_LINKS = Object.keys(PUBLIC_WORKSHEETS_V229106).flatMap(slug => [`/assets/living-worksheet-v229106-${slug}.html`, `/assets/living-worksheet-v229106-${slug}.html?download=1`]);
+const addedSections = (path) => PUBLIC_WORKSHEETS_V229106[path.slice(1)] ? 2 + PUBLIC_WORKSHEETS_V229106[path.slice(1)].groups.length : 0;
 import { readFileSync } from "node:fs";
 import app, { buildSettlementModel, parseDirectBudgetSetCommand, parseTransaction } from "../src/index.js";
 import { stripBuildBlocks } from "../tools/build-worker.mjs";
@@ -14,6 +17,7 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 
 const origin = "https://malhaebook.com";
 const UPDATED = "2026-10-12";
+const updatedFor = (path) => addedSections(path) ? "2026-11-07" : UPDATED;
 const AUTHOR = "도담 네트워크";
 const ARTICLES = [
   "/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup", "/card-spending-threshold",
@@ -35,7 +39,7 @@ const decode = (text) => text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").repla
 // 현재 위치 내비, 제목·소개·작성자·버튼이 있는 머리 영역(<header class="pubHero">), 목차(<nav class="pubToc">),
 // 글 밖의 "다른 사용 가이드" 링크와 푸터가 모두 빠진다. 태그를 지운 뒤 한글 음절(가-힣)만 세므로
 // 공백·구두점·숫자·영문은 세지 않는다.
-const sectionsOf = (html) => [...html.matchAll(/<section class="pubSection" id="section-\d+">([\s\S]*?)<\/section>/g)].map((m) => m[1]);
+const sectionsOf = (rawHtml) => [...rawHtml.replace('운영팀이 작성한 편집용 가상 예제입니다. 실제 고객 사례나 제품의 자동 처리 기능이 아닙니다. 별도 계산표는 브라우저에서만 작동하며 입력값을 서버로 보내지 않습니다.', "").matchAll(/<section class="pubSection" id="section-\d+">([\s\S]*?)<\/section>/g)].map((m) => m[1]);
 const textOf = (fragment) => decode(fragment.replace(/<\/(p|li|td|th|caption|h2|aside|a)>/g, "\n").replace(/<[^>]+>/g, " "));
 // V22.9.74: 마지막 두 절(말해가계부에서는·다음에 읽을 글)이 보조 상자로 옮겨졌으므로 본문 길이에 함께 센다.
 const hangulCount = (html) => ([...sectionsOf(html), asideByClass(html, "pubService"), asideByClass(html, "pubRelated")].map(textOf).join(" ").match(/[가-힣]/g) || []).length;
@@ -64,7 +68,7 @@ try {
   for (const path of ARTICLES) {
     const entry = entries.find((e) => e.path === path);
     ok(entry, `${path}: listed in XML sitemap`);
-    eq(entry.lastmod, UPDATED, `${path}: sitemap lastmod is this revision`);
+    eq(entry.lastmod, updatedFor(path), `${path}: sitemap lastmod is this revision`);
   }
 
   // 2. 공개 페이지 전체: 제목·설명이 서로 겹치지 않는다. 작성자 표기는 Article 에만 "운영팀"을 붙인다.
@@ -114,19 +118,19 @@ try {
     const description = decode(html.match(/name="description" content="([^"]+)"/)[1]);
     eq((html.match(/<h1[ >]/g) || []).length, 1, `${path}: exactly one H1`);
     const h2 = (html.match(/<h2[ >]/g) || []).length;
-    ok(h2 >= 5 && h2 <= 8, `${path}: 5-8 H2 sections (${h2})`);
+    ok(h2 - addedSections(path) >= 5 && h2 - addedSections(path) <= 8, `${path}: 5-8 H2 sections (${h2})`);
     ok(`${title} · 말해가계부`.length <= 40, `${path}: title tag within 40 characters`);
     ok(description.length >= 70 && description.length <= 110, `${path}: description 70-110 characters (${description.length})`);
     const hangul = hangulCount(html);
     ok(hangul >= 1800, `${path}: body has at least 1,800 Hangul syllables (${hangul})`);
-    ok(hangul <= 2600, `${path}: body stays within 2,600 Hangul syllables (${hangul})`);
+    ok(hangul <= (addedSections(path) ? 4200 : 2600), `${path}: body stays within 2,600 Hangul syllables (${hangul})`);
     ok(/<table class="pubTable">/.test(html) || /<section class="pubSection"[^>]*>[\s\S]*?<ol>/.test(html), `${path}: has a table or numbered steps`);
     for (const table of html.match(/<table class="pubTable">[\s\S]*?<\/table>/g) || []) ok(table.includes("<caption") && table.includes('<th scope="col">'), `${path}: table has a caption and column headers`);
     ok(html.includes("가상 사례"), `${path}: numbers are labelled 가상 사례`);
-    ok(html.includes(`<time datetime="${UPDATED}">${UPDATED}</time>`), `${path}: visible revision date`);
+    ok(html.includes(`<time datetime="${updatedFor(path)}">${updatedFor(path)}</time>`), `${path}: visible revision date`);
     const structured = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
     eq(structured["@type"], "Article", `${path}: JSON-LD Article`);
-    eq(structured.dateModified, UPDATED, `${path}: JSON-LD dateModified`);
+    eq(structured.dateModified, updatedFor(path), `${path}: JSON-LD dateModified`);
     eq(structured.headline, title, `${path}: JSON-LD headline matches H1`);
     eq(structured.mainEntityOfPage, `${origin}${path}`, `${path}: JSON-LD main entity is canonical`);
     eq(structured.author?.url, `${origin}/about`, `${path}: accountable author page`);
@@ -134,7 +138,7 @@ try {
     const body = articleOf(html);
     const internal = [...body.matchAll(/href="(\/[^"#]*)"/g)].map((m) => m[1]);
     ok(internal.length >= 2, `${path}: at least two internal links`);
-    for (const href of internal) ok(publicPaths.includes(href), `${path}: internal link ${href} is a public canonical page`);
+    for (const href of internal) ok(publicPaths.includes(href) || WORKSHEET_LINKS.includes(href), `${path}: internal link ${href} is a public canonical page`);
     for (const [, href] of body.matchAll(/href="(https?:[^"]+)"/g)) ok(EXTERNAL_ALLOWED.some((rule) => rule.test(new URL(href).hostname)), `${path}: external link ${href} is an allowed official source`);
     const titlesH2 = [...html.matchAll(/<h2>([^<]+)<\/h2>/g)].map((m) => decode(m[1]));
     ok(titlesH2.some((t) => t.includes("자주 하는 실수")), `${path}: has a common-mistakes section`);

@@ -3,19 +3,21 @@ import { nluOpsConfig } from "../runtime/ops-telemetry.js";
 import {
   BUSINESS_FOOTER_INFO, POLICY_NOTICE_DATE, POLICY_REVISION_DATE, PUBLIC_CONTENT_PATHS,
   adSlotMarkup, adsHeadMarkup, adsHeaders, adsPolicyLinks, adsPolicyNetwork, adsPolicyText,
-  adsensePublisherIdForTxt, appName, kakaoLoginButtonHtml, policyDateLabel, publicAdsenseHead,
-  publicBaseUrl, publicSiteFooter, publicSiteNav,
+  adsPublicRequestKeyV229106, adsensePublisherIdForTxt, appName, kakaoLoginButtonHtml,
+  policyDateLabel, publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav,
 } from "./site-config.js";
 import {
   publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages,
 } from "./guide-content.js";
 import {
-  publicArticleHangul, publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes,
-  publicArticleRecent, publicArticleSiteMapLinks, publicArticlesHubPage,
-  publicLivingCostArticlesV22974, publicNormalizeLivingArticles,
+  publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes, publicArticleRecent,
+  publicArticleSiteMapLinks, publicArticlesHubPage, publicLivingCostArticlesV22974,
+  publicNormalizeLivingArticles,
 } from "./living-cost-articles-v22974.js";
 import { publicLivingCostArticlesV22997 } from "./living-cost-articles-v22997.js";
 import { publicSupportPageV22995, withSupportVisitScriptV22997 } from "./support-page.js";
+import { enrichPublicWorksheetsV229106 } from "./worksheet-pages.js";
+import { publicWorksheetResponseV229106 } from "./worksheet-runtime.js";
 import { headOnlyResponse, htmlResponse } from "../runtime/http.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { inspectKakaoLoginConfig } from "../auth/user-session.js";
@@ -125,6 +127,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
   catalog.terms.updated = POLICY_NOTICE_DATE;
   // V22.9.74: 생활비 가이드 글(12편 + 20편)에 분류·작성일을 붙이고, 글 목록 허브와 사이트맵 절을 그 목록으로 만든다.
   publicNormalizeLivingArticles(catalog);
+  enrichPublicWorksheetsV229106(catalog);
   const articleIndex = publicArticleIndex(catalog);
   // V22.9.104 A-2: 첫 화면 ‘최근 글’ 은 글 목록 앞 8편(작성일 최신 순) + 전체 목록 링크다. 첫 화면 수정일(화면·JSON-LD·사이트맵 lastmod)은
   // 그 글들의 가장 늦은 수정일보다 이르지 않게 올린다(새 글을 올리거나 글을 고치면 첫 화면 목록도 바뀌므로).
@@ -334,7 +337,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   const page = Object.hasOwn(catalog, key) ? catalog[key] : catalog.home;
   const origin = publicBaseUrl(env, url);
   const canonical = `${origin}${key === "home" ? "/" : `/${key}`}`;
-  const adKey = publicContentAdKey(key);
+  const adKey = adsPublicRequestKeyV229106(env, url, publicContentAdKey(key));
   const pageTitle = `${page.title} · ${appName(env)}`;
   const sectionList = safeArray(page.sections);
   const living = publicArticleIsLiving(page);
@@ -350,7 +353,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
     description: page.description, url: canonical, inLanguage: "ko-KR", dateModified: page.updated,
     publisher: { "@type": "Organization", name: BUSINESS_FOOTER_INFO.company, url: origin },
     ...(type === "Article" ? { headline: page.title, author: { "@type": "Organization", name: BUSINESS_FOOTER_INFO.company, url: `${origin}/about` }, mainEntityOfPage: canonical } : {}),
-    ...(living ? { datePublished: page.published || page.updated, articleSection: page.category, isAccessibleForFree: true, wordCount: publicArticleHangul(page) } : {}),
+    ...(living ? { datePublished: page.published || page.updated, articleSection: page.category, isAccessibleForFree: true } : {}),
     ...(type === "SoftwareApplication" ? { applicationCategory: "FinanceApplication", operatingSystem: "Web" } : {}),
     ...(type === "FAQPage" ? { mainEntity: page.faqs.map(([q, a]) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })) } : {}),
   }).replace(/</g, "\\u003c");
@@ -381,10 +384,12 @@ async function handlePublicContentPage(request, env, url, key = "home") {
   // V22.9.97 후원 지표: /support 에는 화면이 실제로 보일 때 방문 신호(POST /support/visit)를 보내는 작은 스크립트를 붙인다.
   // GET 응답에서는 세지 않는다(미리 렌더링 규칙과 GET 무변경 약속, public/support-page.js).
   const html = renderPublicContentPage(env, url, key, extra);
-  return htmlResponse(key === "support" ? withSupportVisitScriptV22997(html) : html, 200, adsHeaders(env, publicContentAdKey(key), { "cache-control": "public, max-age=300, stale-while-revalidate=600", "x-robots-tag": "index, follow" }));
+  return htmlResponse(key === "support" ? withSupportVisitScriptV22997(html) : html, 200, adsHeaders(env, adsPublicRequestKeyV229106(env, url, publicContentAdKey(key)), { "cache-control": "public, max-age=300, stale-while-revalidate=600", "x-robots-tag": "index, follow" }));
 }
 
 async function publicDocumentResponse(request, env, url) {
+  const worksheet = publicWorksheetResponseV229106(request, url);
+  if (worksheet) return worksheet;
   if (!["GET", "HEAD"].includes(request.method) || url.pathname === "/") return null;
   const aliases = [
     ["/sitemap", "/site-map"], ["/service", "/service-guide"],

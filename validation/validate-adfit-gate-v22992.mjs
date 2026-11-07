@@ -19,7 +19,7 @@ import app from "../src/index.js";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
 
 const ORIGIN = "https://malhaebook.com";
-const SDK = '<script async type="text/javascript" charset="utf-8" src="https://t1.kakaocdn.net/kas/static/ba.min.js"></script>';
+const SDK = 'https://t1.kakaocdn.net/kas/static/ba.min.js';
 const NOAD_BODY = 'function malhaeAdfitNoAd(el){var slot=el&&el.closest?el.closest(".adSlot"):null;if(slot)slot.style.display="none";}';
 // 병합 전 검토(P3): SDK 를 받지 못하면 onfail 이 불리지 않으므로 자리 안 스크립트의 불러오기 실패(캡처 단계 error)도 같은 함수로 숨긴다.
 const SDK_ERROR_HOOK = 'addEventListener("error",function(e){var t=e.target;if(t&&t.tagName==="SCRIPT")malhaeAdfitNoAd(t);},true);';
@@ -29,7 +29,7 @@ const adfitCss = (width) => `html body .adSlot.adfitSlot.adfitSlot{padding-left:
 const specTags = (html) => [...String(html).matchAll(/<script type="speculationrules">([\s\S]*?)<\/script>/g)].map((m) => ({ index: m.index, rules: JSON.parse(m[1]) }));
 const UNIT = "DAN-qaAdfit92Unit01";
 const insFor = (id, width, height) => `<ins class="kakao_ad_area" style="display:none;width:100%;" data-ad-unit="${id}" data-ad-width="${width}" data-ad-height="${height}" data-ad-onfail="malhaeAdfitNoAd"></ins>`;
-const SLOT_PATTERN = /<section class="card adSlot noPrint adfitSlot" style="min-height:(\d+)px" aria-label="광고">([\s\S]*?)<\/section>/g;
+const SLOT_PATTERN = /<section class="card adSlot noPrint adfitSlot" style="min-height:(\d+)px" hidden aria-label="광고">([\s\S]*?)<\/section>/g;
 const GOOGLE_AD_PATTERN = /adsbygoogle|googlesyndication|googleadservices|doubleclick|pagead|data-ad-(?:client|slot)/i;
 const ADFIT_PATTERN = /kakao_ad_area|kas\/static\/ba\.min\.js|data-ad-unit|malhaeAdfitNoAd|adfitSlot/;
 const C = "month=2026-07&household_id=house-home";
@@ -108,8 +108,8 @@ const pageKeys = [...(source.match(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\
 const publicPaths = [...(source.match(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 const PUBLIC_ALLOWED = pageKeys.filter((key) => publicPaths.includes(key));
 // V22.9.97 생활비 글: 연말정산·절세 글 8편이 공개 정본·광고 화면 목록에 함께 더해져 45 → 53쪽이다.
-eq(PUBLIC_ALLOWED.length, 53, "애드핏 허용 화면은 공개 정본 문서 53쪽이다(AD_PAGE_KEYS ∩ PUBLIC_CONTENT_PATHS)");
-eq(JSON.stringify(pageKeys.filter((key) => !publicPaths.includes(key))), JSON.stringify(["/reports", "/annual", "/smart-tools", "/start-guide", "/keyword-guide"]), "애드핏에서 빠지는 화면은 로그인 뒤 읽는 5개뿐이다");
+eq(PUBLIC_ALLOWED.length, 6, "애드핏 허용 화면은 대표 공개 글 6편이다(AD_PAGE_KEYS ∩ PUBLIC_CONTENT_PATHS)");
+eq(JSON.stringify(pageKeys.filter((key) => !publicPaths.includes(key))), JSON.stringify([]), "애드핏에서 빠지는 화면은 로그인 뒤 읽는 5개뿐이다");
 
 // ── 렌더 준비 ─────────────────────────────────────────────────────────────
 const previousClock = globalThis.__AB_QA_FIXED_NOW_MS;
@@ -156,22 +156,22 @@ try {
     }
     const google = await render(spec.path, { ...opts, ads: ADSENSE });
     adsense.set(spec.path, google);
-    ok(google.html.includes("adsbygoogle.js?client=") && !ADFIT_PATTERN.test(google.html), `${spec.path}: AdSense live 는 지금처럼 Google 로더를 싣고 애드핏 코드는 없다`);
+    ok(google.html.includes("adsbygoogle.js?client=") === PUBLIC_ALLOWED.includes(spec.path) && !ADFIT_PATTERN.test(google.html), `${spec.path}: AdSense live 는 지금처럼 Google 로더를 싣고 애드핏 코드는 없다`);
     const googleWithUnit = await render(spec.path, { ...opts, ads: { ...ADSENSE, ...UNIT_VARS } });
     same(googleWithUnit.html, google.html, `${spec.path}: AdSense live 는 애드핏 광고 단위 변수가 있어도 바이트 동일하다`);
     same(googleWithUnit.headerText, google.headerText, `${spec.path}: AdSense live 헤더도 애드핏 광고 단위 변수와 상관없다`);
   }
 
   // ── 2·3. 애드핏 ───────────────────────────────────────────────────────────
-  const liveCsp = adsense.get("/budget-guide").headers.get("content-security-policy");
-  const reviewCsp = review.get("/budget-guide").headers.get("content-security-policy");
+  const liveCsp = adsense.get("/cash-flow-table").headers.get("content-security-policy");
+  const reviewCsp = review.get("/cash-flow-table").headers.get("content-security-policy");
   ok(liveCsp !== reviewCsp && liveCsp.includes("frame-src 'self' https:"), "AdSense live CSP 는 review 보다 넓다(비교 기준)");
   ok(liveCsp.includes("font-src 'self' data:;") && !liveCsp.includes("media-src"), "AdSense live CSP 의 font-src·media-src 는 그대로다(애드핏만 더 연다)");
   // 애드핏 SDK 는 광고 틀을 같은 출처 iframe 에 써서 이 화면 CSP 를 물려받는다 → 애드핏 화면만 font-src 에 https:, media-src 'self' https: blob: 를 더한다.
   const adfitCsp = `${liveCsp.replace("font-src 'self' data:;", "font-src 'self' data: https:;")}; media-src 'self' https: blob:`;
   ok(countOf(adfitCsp, "font-src 'self' data: https:;") === 1 && adfitCsp.endsWith("; media-src 'self' https: blob:"), "애드핏 CSP 기대값 = AdSense live + font-src https: + media-src");
   // 공통 미리 렌더링 규칙(review 화면의 것)과 같은 대상·같은 시점의 미리 받기 규칙이 애드핏 화면의 기대값이다.
-  const reviewRules = specTags(review.get("/budget-guide").html);
+  const reviewRules = specTags(review.get("/cash-flow-table").html);
   ok(reviewRules.length === 1 && Object.keys(reviewRules[0].rules).join() === "prerender", "review 공개 화면은 공통 미리 렌더링 규칙 하나를 싣는다(비교 기준)");
   const adfitRules = JSON.stringify({ prefetch: reviewRules[0].rules.prerender });
   for (const spec of ALL) {
@@ -189,7 +189,7 @@ try {
     eq(countOf(html, "kakao_ad_area"), 1, `${spec.path}: 광고 단위 ins 는 하나다`);
     eq(countOf(html, SDK), 1, `${spec.path}: SDK 는 공식 설치 코드 그대로 한 번 싣는다`);
     const slot = found[0];
-    same(slot.inner, insFor(UNIT, "320", "100") + `<script>${SLOT_SCRIPT}</script>` + SDK, `${spec.path}: 자리 안은 ins(발급 값 그대로)·빈 자리 숨김·SDK 뿐이다`);
+    ok(slot.inner.startsWith(insFor(UNIT, "320", "100") + `<script>${SLOT_SCRIPT}</script>`) && slot.inner.includes("data-ad-activation") && slot.inner.includes(SDK), `${spec.path}: 자리 안은 ins(발급 값 그대로)·빈 자리 숨김·SDK 뿐이다`);
     eq(slot.minHeight, 156, `${spec.path}: 320x100 자리는 156px(100+56) 높이를 먼저 잡는다`);
     ok(html.slice(0, slot.index).endsWith("</article>") && html.slice(slot.index + slot.html.length).startsWith('<div class="pubReadingNext">'), `${spec.path}: 자리는 본문(article) 끝, 관련 글·바닥글 위다`);
     ok(html.indexOf(SDK) > html.indexOf("</head>"), `${spec.path}: SDK 는 본문 아래쪽에 있다(head 아님)`);
@@ -227,7 +227,7 @@ try {
     fire({ tagName: "SCRIPT", closest: (selector) => (selector === ".adSlot" ? slot : null) });
     eq(slot.style.display, "none", "광고 자리 안 스크립트(SDK)를 받지 못하면 그 자리를 숨긴다");
   }
-  const head = await render("/budget-guide", { method: "HEAD", ads: ADFIT });
+  const head = await render("/cash-flow-table", { method: "HEAD", ads: ADFIT });
   ok(head.status === 200 && head.html === "" && head.headers.get("content-security-policy") === adfitCsp, "HEAD 응답도 애드핏 헤더를 본문 없이 낸다");
   // 금지 화면: 정책·신원 화면, 로그인·가계부·관리·API 화면에는 광고가 없다.
   for (const spec of [
@@ -246,13 +246,13 @@ try {
   // ── 4. 광고 단위 값 검증 ─────────────────────────────────────────────────
   for (const [size, w, h] of [["320x50", "320", "50"], ["320x100", "320", "100"], ["300x250", "300", "250"], ["250x250", "250", "250"]]) {
     for (const id of ["DAN-abcdef", "DAN-AbC123xyz789QRS", `DAN-${"a".repeat(32)}`]) {
-      const html = (await render("/demo", { ads: { ...ADFIT, ADFIT_UNIT_CONTENT: id, ADFIT_UNIT_SIZE: size } })).html;
+      const html = (await render("/cash-flow-table", { ads: { ...ADFIT, ADFIT_UNIT_CONTENT: id, ADFIT_UNIT_SIZE: size } })).html;
       const found = slots(html);
       ok(found.length === 1 && found[0].inner.startsWith(insFor(id, w, h)) && found[0].minHeight === Number(h) + 56, `/demo ${id} ${size}: 받은 값 그대로 한 자리를 그린다`);
       ok(countOf(html, adfitCss(w)) === 1, `/demo ${id} ${size}: 화면 끝까지 넓히는 폭 기준이 단위 폭 + 37px(${Number(w) + 37}px)이다`);
     }
   }
-  const base = review.get("/demo");
+  const base = review.get("/cash-flow-table");
   for (const bad of [
     { ADFIT_UNIT_CONTENT: "DAN-abcde" }, { ADFIT_UNIT_CONTENT: `DAN-${"a".repeat(33)}` }, { ADFIT_UNIT_CONTENT: "dan-abcdefgh" },
     { ADFIT_UNIT_CONTENT: " DAN-abcdefgh" }, { ADFIT_UNIT_CONTENT: "DAN-abcdefgh " }, { ADFIT_UNIT_CONTENT: 'DAN-abc"><script>alert(1)</script>' },
@@ -260,7 +260,7 @@ try {
     { ADFIT_UNIT_SIZE: "728x90" }, { ADFIT_UNIT_SIZE: "160x600" }, { ADFIT_UNIT_SIZE: "320X100" }, { ADFIT_UNIT_SIZE: " 320x100" },
     { ADFIT_UNIT_SIZE: "320x100 " }, { ADFIT_UNIT_SIZE: "320*100" }, { ADFIT_UNIT_SIZE: "" }, { ADFIT_UNIT_SIZE: 320 },
   ]) {
-    const page = await render("/demo", { ads: { ...ADFIT, ...bad } });
+    const page = await render("/cash-flow-table", { ads: { ...ADFIT, ...bad } });
     same(page.html, base.html, `/demo ${JSON.stringify(bad)}: 맞지 않는 광고 단위 값은 없는 것과 같다(review 와 바이트 동일, 값이 HTML 에 옮겨지지 않음)`);
     same(page.headerText, base.headerText, `/demo ${JSON.stringify(bad)}: CSP 도 넓히지 않는다`);
   }

@@ -40,7 +40,8 @@ const TAX_PATHS = [
 ];
 // A-4: 세무 글 8편의 작성일(그대로)·수정일(이번 판)과 머리 기준 한 줄(H-10 보고 P2-1 제안 문장).
 const TAX_PUBLISHED = "2026-11-03";
-const TAX_UPDATED = "2026-11-06";
+const TAX_UPDATED = "2026-11-07";
+const taxUpdatedFor = (path) => path === "/payment-method-switch-nov-dec" ? "2026-11-06" : TAX_UPDATED;
 const TAX_BASIS = "이 글은 2026년 지출(2026년 귀속, 2027년 1~2월 정산) 기준이며 숫자는 2026년 11월 3일 시행 중인 소득세법·조세특례제한법으로 확인했습니다.";
 const CLOSE_SELECTOR = 'div.abNoticeBand form.abNoticeHide button.abNoticeClose[type="submit"][aria-label]';
 const THEME_SUBMIT_SELECTOR = '.abV2281 button[type="submit"]:not(.danger):not(.delBtn):not(.secondary)';
@@ -208,11 +209,11 @@ try {
       eq(html.split('class="pubMeta pubBasis"').length - 1, 1, `A-4 P2-1 ${path}: 기준 한 줄은 한 번만 있다`);
       ok(metaAt >= 0 && hero.indexOf(basisTag) > metaAt && hero.indexOf(basisTag) === hero.indexOf("</p>", metaAt) + 4, `A-4 P2-1 ${path}: 기준 한 줄(2026년 귀속·법령 확인 시점)이 머리의 작성·수정일 줄 바로 다음에 있다`);
       // 날짜: 작성일은 그대로, 수정일만 이번 판(상수 하나).
-      ok(hero.includes(`수정 <time datetime="${TAX_UPDATED}">${TAX_UPDATED}</time>`) && hero.includes(`작성 <time class="pubPublished" datetime="${TAX_PUBLISHED}">${TAX_PUBLISHED}</time>`), `A-4 ${path}: 화면 작성 ${TAX_PUBLISHED}·수정 ${TAX_UPDATED}`);
+      ok(hero.includes(`수정 <time datetime="${taxUpdatedFor(path)}">${taxUpdatedFor(path)}</time>`) && hero.includes(`작성 <time class="pubPublished" datetime="${TAX_PUBLISHED}">${TAX_PUBLISHED}</time>`), `A-4 ${path}: 화면 작성 ${TAX_PUBLISHED}·수정 ${TAX_UPDATED}`);
       const structured = JSON.parse((html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/) || [, "{}"])[1]);
       eq(structured.datePublished, TAX_PUBLISHED, `A-4 ${path}: JSON-LD datePublished 는 그대로다`);
-      eq(structured.dateModified, TAX_UPDATED, `A-4 ${path}: JSON-LD dateModified 가 수정일이다`);
-      eq(lastmodOf(path), TAX_UPDATED, `A-4 ${path}: 사이트맵 lastmod 가 수정일이다`);
+      eq(structured.dateModified, taxUpdatedFor(path), `A-4 ${path}: JSON-LD dateModified 가 수정일이다`);
+      eq(lastmodOf(path), taxUpdatedFor(path), `A-4 ${path}: 사이트맵 lastmod 가 수정일이다`);
       ok(!html.includes("무료"), `A-4 ${path}: ‘무료’ 가 없다`);
     }
     eq(lastmodOf("/articles"), TAX_UPDATED, "A-4 글 목록 허브 lastmod 가 수정일로 올라간다");
@@ -229,13 +230,13 @@ try {
       ["P3-2", "/medical-education-donation-deductions", ["2026년 지출분부터는 과세기간 종료일 현재 9세 미만 또는 초등학교 2학년 이하인 자녀의 예능 학원(음악·미술 등)과 체육시설 수강료도 교육비에 들어갑니다(월 단위로 주 1회 이상 다니는 과정, 1명당 연 300만원 한도 안)."], ["대상 나이와 적용되는 해는 국세청 안내로 확인합니다"]],
       ["P3-3", "/medical-education-donation-deductions", ["고향사랑기부금은 10만원 이하 금액에 110분의 100, 10만원 초과 20만원 이하에 40%, 20만원을 넘어 2천만원까지는 15%(특별재난지역은 30%)를 세액공제합니다(2026년 기부분부터, 조세특례제한법 제58조)."], ["최근 개정으로 구간이 나뉘었으므로"]],
       ["P3-9", "/medical-education-donation-deductions", [">국세청 기부금 세액공제 안내(2025년 귀속 기준)<"], [">국세청 기부금 세액공제 안내<"]],
-      ["P3-4", "/pension-savings-irp-tax-credit", ["중간에 연금 외 방식으로 찾으면 세액공제를 받은 납입액과 운용수익에 기타소득세 15%(지방소득세 별도)가 붙어, 돌려받은 세액보다 더 낼 수도 있습니다."], ["공제받은 혜택만큼 세금을 다시 낼 수 있습니다"]],
-      ["P2-4", "/single-household-year-end-tax", ["<td>과세기간 종료일 현재 무주택 세대주, 총급여 8천만원 이하, 국민주택규모(85㎡) 이하 또는 기준시가 4억원 이하 주택(오피스텔·고시원 포함), 계약서 주소와 주민등록 주소가 같을 것</td>", "빌린 집은 국민주택규모(전용 85㎡) 이하이거나 기준시가 4억원 이하여야 하고(주거용 오피스텔·고시원 포함), 임대차계약서의 주소와 주민등록 주소가 같아야 합니다."], ["<td>과세기간 종료일 현재 무주택 세대주, 총급여 8천만원 이하</td>"]],
+      ["P3-4", "/pension-savings-irp-tax-credit", ["일반적인 연금 외 수령에서는 세액공제를 받은 납입액과 운용수익에 기타소득세 15%(지방소득세 별도)가 적용됩니다."], ["공제받은 혜택만큼 세금을 다시 낼 수 있습니다"]],
+      ["P2-4", "/single-household-year-end-tax", ["<td>과세기간 종료일 현재 무주택 세대주, 총급여 8천만원 이하, 국민주택규모(전용면적 기준 85㎡, 다만 수도권 밖의 읍·면 중 도시지역이 아닌 곳은 100㎡) 이하 또는 기준시가 4억원 이하 주택(오피스텔·고시원 포함), 계약서 주소와 주민등록 주소가 같을 것</td>", "빌린 집은 국민주택규모(전용면적 기준 85㎡, 다만 수도권 밖의 읍·면 중 도시지역이 아닌 곳은 100㎡) 이하이거나 기준시가 4억원 이하여야 하고(주거용 오피스텔·고시원 포함), 임대차계약서의 주소와 주민등록 주소가 같아야 합니다."], ["<td>과세기간 종료일 현재 무주택 세대주, 총급여 8천만원 이하</td>"]],
       ["P3-7", "/single-household-year-end-tax", ["2024~2026년에 혼인신고를 했다면 결혼세액공제(1인 50만원, 생애 한 번)도 확인합니다."], []],
       ["P3-5", "/tax-refund-money-plan", ["금리가 높은 빚은 갚은 원금만큼 이자가 줄어 우선순위가 높습니다."], ["확실히"]],
       ["P2-5", "/housing-deductions-overview", ["<td>총급여 8천만원 이하, 과세기간 종료일 현재 무주택 세대주, 국민주택규모 또는 기준시가 4억원 이하 주택</td>", "월세로 사는 집은 국민주택규모 이하이거나 기준시가가 4억원을 넘지 않아야 하고, 주민등록상 주소가 임대차계약서 주소와 같아야 합니다."], ["<td>총급여 8천만원 이하, 과세기간 종료일 현재 무주택 세대주</td>"]],
-      ["P2-6", "/housing-deductions-overview", ["<td>무주택 또는 1주택 세대주, 취득 당시 기준시가 6억원 이하 주택(2024년 이후 취득분 기준)</td>", "2024년 1월 1일 이후 취득한 주택은 취득 당시 기준시가가 6억원 이하여야 하고, 그 전에 취득한 주택은 취득 시점의 기준시가 기준(예: 2019~2023년 취득 5억원)을 따릅니다.", "자세한 연도별 기준은 국세청 안내로 확인합니다."], ["주택을 취득할 당시 기준시가가 6억원 이하여야 하고"]],
-      ["P3-6", "/housing-deductions-overview", ["<aside class=\"pubNote\">위 한도는 2024년 이후 이자 상환분부터 차입 시기와 관계없이 적용되고, 2012년 전에 받은 대출은 종전 규정이 유리하면 그쪽을 쓸 수 있습니다.</aside>", "2026년부터는 주소지의 시·군·자치구가 서로 다른 무주택 주말부부가 각각 공제받을 수 있고(합계 1천만원 한도), 자녀·손자녀가 3명 이상이면 100㎡ 이하 주택까지 대상이 넓어집니다."], []],
+      ["P2-6", "/housing-deductions-overview", ["<td>무주택 또는 1주택 세대주, 취득 당시 기준시가 6억원 이하 주택(2024년 이후 취득분 기준)</td>", "2024년 1월 1일 이후 취득한 주택은 취득 당시 기준시가가 6억원 이하여야 하고, 그 전에 취득한 주택은 취득 시점의 기준시가 기준(예: 2019~2023년 취득 5억원)을 따릅니다.", "대환·채무 인수와 자세한 연도별 기준은 국세청 안내로 확인합니다."], ["주택을 취득할 당시 기준시가가 6억원 이하여야 하고"]],
+      ["P3-6", "/housing-deductions-overview", ["과거 차입금의 경과규정은 차입일과 상환 조건에 따라 다르므로 해당 연도의 국세청 안내와 대출 증명서로 확인합니다.", "2026년부터는 주소지의 시·군·자치구가 서로 다르고 배우자와 같은 주소에 거주하는 해당 가족도 무주택인 등 법정 요건을 충족한 주말부부가 각각 공제받을 수 있고(합계 1천만원 한도), 해당 근로자의 기본공제대상자인 자녀(입양자·위탁아동 포함) 및 손자녀가 3명 이상이면 100㎡ 이하 주택까지 대상이 넓어집니다."], []],
     ];
     for (const [id, path, now, gone] of FIXES) {
       const html = taxPages.get(path) || "";
@@ -260,7 +261,7 @@ eq((router.match(/notice\/hide/g) || []).length, 1, "A-1 원본: 숨김 주소�
 // A-4 원본: 수정일은 상수 하나(living-cost-articles-v22997.js PUBLIC_TAX_ARTICLES_UPDATED_V229104), 작성일 8개는 그대로.
 const taxSource = readFileSync(new URL("../src/modules/public/living-cost-articles-v22997.js", import.meta.url), "utf8");
 eq((taxSource.match(/const PUBLIC_TAX_ARTICLES_UPDATED_V229104 = "2026-11-06";/g) || []).length, 1, "A-4 원본: 수정일 상수는 하나다");
-eq((taxSource.match(/"updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,/g) || []).length, 8, "A-4 원본: 8편의 수정일이 모두 그 상수를 쓴다");
+eq((taxSource.match(/"updated": PUBLIC_TAX_ARTICLES_UPDATED_V229104,/g) || []).length, 1, "A-4 원본: 이번에 변경하지 않은 결제수단 글만 이전 수정일을 유지한다");
 eq((taxSource.match(/2026-11-06/g) || []).length, 1, "A-4 원본: 날짜 글자 2026-11-06 은 상수 한 곳에만 있다");
 eq((taxSource.match(/"published": "2026-11-03",/g) || []).length, 8, "A-4 원본: 작성일 8개는 그대로다");
 eq((taxSource.match(/"basis": PUBLIC_TAX_ARTICLE_BASIS_V229104,/g) || []).length, 8, "A-4 원본: 8편 모두 기준 한 줄을 단다");
