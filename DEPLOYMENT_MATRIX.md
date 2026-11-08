@@ -1,4 +1,14 @@
+## V22.9.111 배포 판단
+
+- 대상: 앱만(`kakao-accountbook`). 관제·DB·Secret·Kakao Developers·OpenBuilder·공개 화면·1년 캐시 자산 변경 없음. 새 운영 변수 없음 → 바인딩 32 그대로, 금지 변수 12개 열.
+- 바꾼 것: 홈 요약이 피드 필터에 영향받지 않게(#9), 분석 세그먼트 고른 탭 대비(F-A), 가계부 활성 카드 구분. 로그인 사용자 화면만. 숫자·집계·저장 로직 변경 없음.
+- 되돌리기 대상(기록만): V111 배포 때 직전 운영 version. (지금 운영은 V22.9.109 `4b27b6fa` #342 — V110·V111 은 아직 미배포.)
+- 배포 방법: 병합 뒤 사용자 토큰 `tools/deploy-worker-version.mjs` 업로드·대조(바인딩 32) → `--promote` → postcheck. V110 과 함께 또는 뒤에 나간다.
+- 병합·승격은 사용자 지목. PR 번호·CI·하네스 수는 review-artifacts/CURRENT_HANDOFF.txt 맨 위 줄.
+
 ## V22.9.110 배포 판단
+
+- **운영 반영 끝(2026-11-08)**: PR #143 병합(main af6d894) → 사용자 토큰 업로드(differences []·바인딩 32) → 승격 version `d087d0f3-b984-48fb-adc4-b75515b0ded1` #343, deployment `6c5b7cc1-d9af-42cd-880d-dd5a89809199`, 이전 ff08e45e. /health 5회·공개 123/123·Claude postcheck 통과. 되돌리기 대상(기록만) 4b27b6fa #342.
 
 - 대상: 앱만(`kakao-accountbook`). 관제·DB·Secret·Kakao Developers·OpenBuilder·공개 화면·1년 캐시 자산 변경 없음. 새 운영 변수 없음 → 바인딩 32(Text 21·Secret 10·service 1) 그대로, 금지 변수 12개 열.
 - 바꾼 것: 홈 최근 피드 빈 상태 문구(필터·검색 0건일 때, #10), 설정 정기 항목 '일자' 라벨(F-B). 로그인 사용자 화면만. 숫자·집계·저장 로직 변경 없음.

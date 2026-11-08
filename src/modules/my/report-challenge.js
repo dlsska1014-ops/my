@@ -272,7 +272,10 @@ function reportMonthPickerClientMain() {
 // 단추로 건너갔다. 사이드바에도 둘이 따로(통계·분석) 있어서 같은 주소의 두 보기가 서로 다른 메뉴처럼 보였다.
 // qs 는 호출부가 만든 month·household_id 질의(이미 encodeURIComponent 됨)다.
 function renderAnalysisViewTabs(view = "summary", qs = "") {
-  const tab = (key, label, href) => `<a href="${escapeHtml(href)}"${view === key ? ' aria-current="true"' : ""}>${label}</a>`;
+  // V22.9.111 F-A: 고른 탭이 흰 면·그림자뿐이라 트랙과 대비가 1.08 이었다. 공용 셸 CSS(1년 캐시 자산)를 건드리지 않으려고
+  // 고른 탭에만 인라인으로 강조색 면·글자·안쪽 1px 테두리(box-shadow 라 자리 안 밀림)를 준다. 다른 세그먼트 컨트롤과 같은 꼴.
+  const selStyle = ' aria-current="true" style="background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-accent,#1d4ed8);box-shadow:inset 0 0 0 1px var(--ab12-accent,#1d4ed8);font-weight:900"';
+  const tab = (key, label, href) => `<a href="${escapeHtml(href)}"${view === key ? selStyle : ""}>${label}</a>`;
   return `<div class="lrSeg abAnalysisViews" role="group" aria-label="소비 분석 보기">${tab("summary", "한눈에 보기", `/my/analysis?${qs}`)}${tab("report", "종합 리포트", `/my/analysis?view=report&${qs}`)}</div>`;
 }
 
