@@ -1,6 +1,6 @@
 ## V22.9.109 다음 단계
 
-1. PR·CI → 병합(사용자 지목, Aside) → 사용자 토큰 배포(`review-artifacts/v109-prelaunch-fixes-2026-11-08/USER-DEPLOY-APP.md`, 바인딩 32 대조, 되돌리기 대상 48bffc19… #341 기록만) → Claude postcheck-v109 → 기록 PR.
+1. 끝: PR #141 CI 4/4 → 병합(14:30:26, main d700b538, Aside) → 사용자 토큰 배포(업로드 16:09:16 · 승격 16:12:51, version 4b27b6fa… #342, 바인딩 32 차이 0) → Claude postcheck-v109 28/28 → 기록 PR(`docs/deployments/V22_9_109_2026_11_08.md`). 사람 확인(홈 상단 검색·카드별 사용액·/menu)은 사용자.
 2. 재심사 순서(V107:D-17): 색인 요청은 2026-11-08 끝(sitemap 60 재제출 + 세무 글 8편 요청 접수) → 48~72시간 → 사용자가 AdSense ‘검토 요청’(11-10~11 무렵) → 승인 뒤 `ADS_MODE=live`·`ADS_SLOT_CONTENT` 변수 추가(사용자 지목, 바인딩 32 → 34).
 3. 출시(11-13) 전 남은 운영 일: 11-10 무렵 수동 DB 덤프(Free 자동 백업 없음), 출시 직전 Workers Paid(+ 관제 CF_PLAN·/ops-monitor 요금제 확인 저장), 옛 Supabase 시드니 프로젝트 일시 중지(11-12 무렵, 그날 지목), Codex PR #127 리베이스. 11-11 부터는 결함 수정만.
 4. 출시 뒤 후보: G-11(시트 닫기 뒤 빠른 입력 복원, 1년 캐시 자산 판 올림), G-1 범위(기간 제한 또는 서버 ilike), G-6·G-8·G-12·G-14~G-16, V107 D-9·D-10·D-14·D-15, 기록 탭 #v8Search 규칙 통일.
