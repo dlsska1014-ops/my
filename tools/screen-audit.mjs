@@ -72,6 +72,23 @@ const ALL_PAGES = {
   settings: `/my/settings?${H}`,
   reserve: `/reserve-plans?${H}`,
   menu: `/menu?${H}`,
+  // V22.9.110: 출시 전 전체 화면 점검 — 그동안 목록에 없던 로그인 화면.
+  paymentMethods: `/payment-methods?${H}`,
+  members: `/my/members?${H}`,
+  goals: `/goals?${H}`,
+  households: "/my/households",
+  profile: `/my/profile?${H}`,
+  backup: `/my/backup?${H}`,
+  groups: `/my/groups?${H}`,
+  smartTools: `/smart-tools?${H}`,
+  keywordGuide: `/keyword-guide?${H}`,
+  quickInputHelp: `/quick-input-help?${H}`,
+  kakaoGuide: `/kakao-guide?${H}`,
+  settlement: `/split-summary?${H}`,
+  todayBudget: `/today-budget?${H}`,
+  travel: `/travel-households?${H}`,
+  setup: `/my/setup?${H}`,
+  support: "/support",
   // V22.9.37 감사 U4·U9: 로그아웃 시작(로그인) 화면과 시작 안내. login 은 쿠키 없이 그린다(로그아웃 상태의 다크 대비를 잰다).
   login: "/my",
   startGuide: `/start-guide?month=2026-07&${H}`,
@@ -79,7 +96,7 @@ const ALL_PAGES = {
   demo: "/demo",
   landing: "/",
 };
-const LOGGED_OUT_PAGES = new Set(["login", "demo", "landing"]);
+const LOGGED_OUT_PAGES = new Set(["login", "demo", "landing", "support"]);
 const PAGES = flag("pages", Object.keys(ALL_PAGES).join(",")).split(",").filter((name) => ALL_PAGES[name]);
 
 function findChrome() {

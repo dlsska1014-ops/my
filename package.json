@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.109",
+  "version": "22.9.110",
   "private": true,
   "type": "module",
   "engines": {
@@ -12,6 +12,7 @@
     "validate:edit-race-v229104": "node validation/validate-edit-race-v229104.mjs",
     "validate:prelaunch-content-v229104": "node validation/validate-prelaunch-content-v229104.mjs",
     "validate:kakao-home-v229104": "node validation/validate-kakao-home-v229104.mjs",
+    "validate:ui-review-fixes-v229110": "node validation/validate-ui-review-fixes-v229110.mjs",
     "validate:prelaunch-fixes-v229109": "node validation/validate-prelaunch-fixes-v229109.mjs",
     "validate:ui-fixes-v229102": "node validation/validate-ui-fixes-v229102.mjs",
     "validate:skill-db-calls": "node validation/validate-skill-db-calls-v229100.mjs",

@@ -1,3 +1,11 @@
+## V22.9.110 배포 판단
+
+- 대상: 앱만(`kakao-accountbook`). 관제·DB·Secret·Kakao Developers·OpenBuilder·공개 화면·1년 캐시 자산 변경 없음. 새 운영 변수 없음 → 바인딩 32(Text 21·Secret 10·service 1) 그대로, 금지 변수 12개 열.
+- 바꾼 것: 홈 최근 피드 빈 상태 문구(필터·검색 0건일 때, #10), 설정 정기 항목 '일자' 라벨(F-B). 로그인 사용자 화면만. 숫자·집계·저장 로직 변경 없음.
+- 되돌리기 대상(기록만): 앱 V22.9.109 활성 version `4b27b6fa-a69a-46c8-85b2-126d567d1ac7`(#342). 되돌리면 홈 필터 빈 상태가 다시 '첫 거래를 기록' 으로, 정기 '일자' 라벨이 사라진다. DB 영향 없음.
+- 배포 방법: 병합 뒤 사용자가 자기 PowerShell 에서 `tools/deploy-worker-version.mjs`(업로드·대조, 바인딩 32) → `--promote`. 승격 뒤 postcheck(판 이름 ×3·/ready·공개·1년 캐시).
+- 병합·승격은 사용자 지목 뒤(Aside 병합, 승격은 사용자 토큰). PR 번호·CI·하네스 수는 review-artifacts/CURRENT_HANDOFF.txt 맨 위 줄.
+
 ## V22.9.109 배포 판단
 
 - **운영 반영 끝(2026-11-08 16:12:51 KST)**: PR #141 병합(14:30:26, main d700b538) → 사용자가 자기 PowerShell 에서 `tools/deploy-worker-version.mjs` 업로드(16:09:16, version `4b27b6fa-a69a-46c8-85b2-126d567d1ac7`(#342), commit d700b538, 바인딩 32 inherit 차이 0·금지 변수 없음, Claude 대조 `review-artifacts/v109-prelaunch-fixes-2026-11-08/deploy/upload-compare-claude.md`) → `--promote`(deployment `ff08e45e-5a41-422f-98ec-ac172cc37bf4`, 도구 소스 해시 일치·/health 5/5·공개 123/123) → Claude 직후 확인 통과(postcheck-v109 28/28·1년 캐시 57/45/12/6·공개 123/123 재실행). 기록 `docs/deployments/V22_9_109_2026_11_08.md`. 되돌리기 대상(기록만) `48bffc19…`(#341).
