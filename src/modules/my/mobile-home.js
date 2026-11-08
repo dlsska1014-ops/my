@@ -68,7 +68,8 @@ import {
   currentMonthKst, formatDate, nowKstDate, qaFixedNowMs, validMonth,
 } from "../nlu/date-payment.js";
 import {
-  calculateStats, escapeHtml, nextMonthStart, numberWithCommas,
+  calculateStats, escapeHtml, filterNeedleTokens, filterRowMatchesToken, nextMonthStart,
+  numberWithCommas,
 } from "../domain/transactions-core.js";
 // @build:imports-end
 
@@ -746,17 +747,7 @@ async function fetchMonthAmountRows(env, month, householdId, { withDate = false 
 // V22.9.102(사용자 2026-11-05 “거래 검색 완전 엉망”): 홈·기록 탭의 필터 검색어는 띄어쓰기로 나눈 낱말마다 맞춘다(모두 맞아야 한다).
 // 낱말은 내용·분류·결제수단·원문에 더해 지출자 이름(attachSpenderNames 의 spender_name)과 금액 숫자(‘4500’·‘4,500’·‘4500원’)에도 맞는다.
 // 예전에는 검색어 전체를 한 덩어리로 내용·분류·결제수단·원문에만 대었다 — ‘카페 라떼’처럼 띄어 적거나 금액·이름을 적으면 0건이었다.
-function filterNeedleTokens(q = "") {
-  return String(q || "").trim().toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
-}
-
-function filterRowMatchesToken(row, token) {
-  const hay = `${row.memo || ""} ${row.category || ""} ${row.payment_method || ""} ${row.raw_text || ""} ${row.spender_name || ""}`.toLowerCase();
-  if (hay.includes(token)) return true;
-  const digits = token.replace(/,/g, "").replace(/원$/, "");
-  if (digits && /^\d+$/.test(digits)) return String(Math.round(Number(row.amount) || 0)) === digits;
-  return false;
-}
+// V22.9.109 G-1·G-7: 낱말 규칙(filterNeedleTokens·filterRowMatchesToken)은 domain/transactions-core.js 로 옮겨 상단 통합 검색과 같이 쓴다.
 
 function filterMobileTransactionRows(rows = [], filters = {}) {
   const type = filters.type === "income" ? "income" : filters.type === "expense" ? "expense" : "all";

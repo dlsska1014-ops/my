@@ -3213,7 +3213,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.108-ADS-SCOPE";
+const APP_VERSION = "V22.9.109-PRELAUNCH-FIXES";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -21405,6 +21405,15 @@ function paymentAssetFreshness(a = {}) {
   return { label: `${Math.floor(days / 30)}달 전 업데이트`, stale: true };
 }
 
+function cardUsageMatchScore(pm, card) {
+  const nm = normalizeText(card?.name || "");
+  const issuer = normalizeText(card?.issuer || "");
+  if (nm && pm === nm) return 3000 + nm.length;
+  if (nm && pm.includes(nm)) return 2000 + nm.length;
+  if (issuer && issuer.length >= 2 && pm.includes(issuer) && /카드/.test(pm)) return 1000 + issuer.length;
+  return 0;
+}
+
 function computeCardUsageMap(assets = [], rows = []) {
   const cards = safeArray(assets).filter((a) => paymentAssetKindMeta(a.kind).group === "card");
   const usage = Object.create(null);
@@ -21414,13 +21423,14 @@ function computeCardUsageMap(assets = [], rows = []) {
     if (String(r.type) === "income") continue;
     const pm = normalizeText(r.payment_method || "");
     if (!pm) continue;
+    // V22.9.109 G-4(Gemini ④): 어떻게 맞았는지를 먼저 본다 — 이름 일치 > 이름 포함 > 발급사(2자 이상 + ‘카드’) 순. 같은 단계 안에서는 더 긴
+    // 이름(더 구체적인 카드)이 이기고 그것도 같으면 목록 앞 카드다. 예전에는 단계와 무관하게 이름 길이만 비교해(`nm.length >= bestLen`) 이름으로
+    // 정확히 맞은 ‘신한카드 Mr.Life’ 가 발급사로만 맞은 더 긴 이름의 ‘신한카드 Deep Dream’ 에 졌고, 길이가 같으면 목록 뒤 카드가 가져갔다.
     let best = null;
-    let bestLen = 0;
+    let bestScore = 0;
     for (const c of cards) {
-      const nm = normalizeText(c.name);
-      const issuer = normalizeText(c.issuer || "");
-      const hit = (nm && (pm === nm || pm.includes(nm))) || (issuer && issuer.length >= 2 && pm.includes(issuer) && /카드/.test(pm));
-      if (hit && nm.length >= bestLen) { best = c; bestLen = nm.length; }
+      const score = cardUsageMatchScore(pm, c);
+      if (score > bestScore) { best = c; bestScore = score; }
     }
     if (best) {
       usage[best.id].count += 1;
@@ -26662,7 +26672,7 @@ async function handleUnifiedMenuPage(request, env, url) {
   ];
   const more = [
     ["처음 시작", `/start-guide?${monthQs}`, "초보자 체크리스트", "check"],
-    ["스마트 입력 도움말", "/quick-input-help", "한 줄·여러 줄 입력 예시", "chat"],
+    ["스마트 입력 도움말", "/quick-input-help", "한 줄 입력 예시(한 번에 한 건)", "chat"],
     ["카카오 명령어", "/kakao-commands", "챗봇 대표 발화", "chat"],
     // V22.9.95 R-9: 가입 동의 칸과 같은 이름(이용약관·개인정보처리방침)으로 보인다. 개인정보처리방침은 표준 명칭을 쓴다.
     ["이용약관", "/terms", "서비스 이용 기준", "file"],
@@ -44129,17 +44139,7 @@ async function fetchMonthAmountRows(env, month, householdId, { withDate = false 
 // V22.9.102(사용자 2026-11-05 “거래 검색 완전 엉망”): 홈·기록 탭의 필터 검색어는 띄어쓰기로 나눈 낱말마다 맞춘다(모두 맞아야 한다).
 // 낱말은 내용·분류·결제수단·원문에 더해 지출자 이름(attachSpenderNames 의 spender_name)과 금액 숫자(‘4500’·‘4,500’·‘4500원’)에도 맞는다.
 // 예전에는 검색어 전체를 한 덩어리로 내용·분류·결제수단·원문에만 대었다 — ‘카페 라떼’처럼 띄어 적거나 금액·이름을 적으면 0건이었다.
-function filterNeedleTokens(q = "") {
-  return String(q || "").trim().toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
-}
-
-function filterRowMatchesToken(row, token) {
-  const hay = `${row.memo || ""} ${row.category || ""} ${row.payment_method || ""} ${row.raw_text || ""} ${row.spender_name || ""}`.toLowerCase();
-  if (hay.includes(token)) return true;
-  const digits = token.replace(/,/g, "").replace(/원$/, "");
-  if (digits && /^\d+$/.test(digits)) return String(Math.round(Number(row.amount) || 0)) === digits;
-  return false;
-}
+// V22.9.109 G-1·G-7: 낱말 규칙(filterNeedleTokens·filterRowMatchesToken)은 domain/transactions-core.js 로 옮겨 상단 통합 검색과 같이 쓴다.
 
 function filterMobileTransactionRows(rows = [], filters = {}) {
   const type = filters.type === "income" ? "income" : filters.type === "expense" ? "expense" : "all";
@@ -54583,14 +54583,14 @@ async function handleUserTxSearch(request, env, url) {
   }
   // V22.9.37 감사 H11: 나간 사람의 기록도 기록 당시 이름으로 보여 준다.
   const rows = await attachSpenderNamesWithHistory(env, rowsRaw, members);
-  const needle = q.toLowerCase();
-  const digits = q.replace(/[^0-9]/g, "");
+  // V22.9.109 G-1·G-7(Gemini ①): 홈·기록 탭 필터와 같은 낱말 규칙(domain/transactions-core.js) — 띄어쓰기 낱말(최대 8개)마다 맞추고 모두 맞아야 하며,
+  // 숫자 낱말은 금액 완전 일치다. 예전에는 검색어 전체를 한 덩어리로 대고 숫자를 이어 붙여 금액 부분 일치를 OR 로 더해 ‘점심 12000’ 이
+  // 112,000원 거래까지 돌려줬다. 읽는 범위(전체 기간, 40,000행 상한)와 결과 50건 상한은 그대로다.
+  const tokens = filterNeedleTokens(q);
   const matched = [];
   let hasMore = false;
   for (const t of rows) {
-    const hay = `${t.memo || ""} ${t.category || ""} ${t.payment_method || ""} ${t.raw_text || ""} ${t.spender_name || ""}`.toLowerCase();
-    const hit = hay.includes(needle) || (digits.length >= 2 && String(t.amount || "").includes(digits));
-    if (!hit) continue;
+    if (!tokens.length || !tokens.every((token) => filterRowMatchesToken(t, token))) continue;
     if (matched.length >= 50) { hasMore = true; break; }
     matched.push({
       id: t.id,
@@ -59099,6 +59099,23 @@ function jsonForInlineScript(value) {
 
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>'"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[ch]));
+}
+
+// V22.9.109 G-1·G-7(Gemini ①): 홈·기록 탭 필터(V22.9.102 J-1, my/mobile-home.js)와 상단 통합 검색(/u/api/tx/search, api/user-api.js)이
+// 같은 낱말 규칙을 쓴다. 검색어는 띄어쓰기로 나눈 낱말(최대 8개)마다 맞추고 모두 맞아야 한다. 낱말은 내용·분류·결제수단·원문·지출자 이름의
+// 부분 일치이고, 숫자 낱말(‘4500’·‘4,500’·‘4500원’)은 금액 완전 일치다. 예전 상단 검색은 검색어 전체를 한 덩어리로 대고(‘카페 라떼’ 0건)
+// 검색어의 숫자를 모두 이어 붙여 금액 부분 일치를 OR 로 더해 ‘점심 12000’ 이 112,000원 거래까지, ‘커피 4500 택시 8000’ 은 ‘45008000’ 으로 아무것도 못 찾았다.
+// 정의는 빌드 도구가 관리하는 exports 블록 앞에 둔다(블록 안은 빌드 때 다시 생성된다).
+function filterNeedleTokens(q = "") {
+  return String(q || "").trim().toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
+}
+
+function filterRowMatchesToken(row, token) {
+  const hay = `${row.memo || ""} ${row.category || ""} ${row.payment_method || ""} ${row.raw_text || ""} ${row.spender_name || ""}`.toLowerCase();
+  if (hay.includes(token)) return true;
+  const digits = token.replace(/,/g, "").replace(/원$/, "");
+  if (digits && /^\d+$/.test(digits)) return String(Math.round(Number(row.amount) || 0)) === digits;
+  return false;
 }
 
 // V22.9.37 감사 묶음 D(N7·N13·SIM-7 의 공용 기반): 폼·관리자 API·파일에서 들어온 금액·월·날짜·일자를 엄격하게 읽는
