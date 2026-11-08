@@ -4,6 +4,7 @@
 - 기존 보호: 생성 Worker 동일성·클라이언트 직렬화·HTML 성능 예산·판 번호 정본(검사 파일에 판 이름 글자 없음).
 - 배포 직후(Claude): `review-artifacts/v108-ads-scope-2026-11-07/deploy/postcheck-v108.mjs` 78개(/health 판 이름 ×3, /ready, V107 항목 — 글 6편 정본 = 매개변수 응답·CSP 같음·http → https·계산표 v229107/v229106/v229105·/articles ‘계산표 포함’ 6 — /faq 새 문항·review 기본 문장·‘가입비나 이용료’ 없음·/privacy·/cookies ‘글 6편’ 없음·sitemap 60·ads.txt) + 공개 점검 + 1년 캐시 자산.
 - 사람 확인: /faq 문항 읽기, 휴대폰 계산표(V107 절). 승인 뒤 live 전환 때 첫 화면·글 목록·세무 글에서 광고 자리 확인.
+- 배포 뒤 결과(2026-11-07 22:30 KST): 도구 소스 해시 일치·/health 5/5·공개 123/123, Claude postcheck-v108 78/78(2차; 1차 72/78 은 Cloudflare beacon 삽입을 검사가 몰라서 검사를 고침), 1년 캐시 유지 57·정리 45·계산표 12·v229105 404 6, 공개 123/123. 사람 확인은 남음.
 
 ## V22.9.107 광고 검토 후속 검사
 
