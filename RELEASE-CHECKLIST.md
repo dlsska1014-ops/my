@@ -4,7 +4,7 @@
 - 기존 보호: 생성 Worker 동일성·클라이언트 직렬화·HTML 성능 예산·판 번호 정본(검사 파일에 판 이름 글자 없음)·proto-safety.
 - 배포 직후(Claude): `review-artifacts/v109-prelaunch-fixes-2026-11-08/deploy/postcheck-v109.mjs`(/health 판 이름 ×3, /ready, 공개 화면, sitemap 60, ads.txt, 1년 캐시 새 0·유지 57·정리 45) + 공개 점검 123.
 - 사람 확인: /payment-methods 카드별 사용액(이름이 겹치는 같은 발급사 카드 2장 이상인 가계부), 홈 상단 검색 ‘점심 12000’ 꼴, /menu 스마트 입력 도움말 설명.
-- 배포 뒤 결과: 승격 뒤 기록 PR 에 적는다.
+- 배포 뒤 결과(2026-11-08 16:12 KST): 도구 소스 해시 일치·/health 5/5·공개 123/123, Claude postcheck-v109 28/28(1차에 통과; 운영 V108 예행 25/28 은 판 이름 3개만), 1년 캐시 유지 57·정리 45·계산표 12·v229105 404 6, 공개 123/123 재실행, /ready 2.6 s. 기록 `docs/deployments/V22_9_109_2026_11_08.md`.
 
 ## V22.9.108 광고 허용 목록·FAQ 검사
 

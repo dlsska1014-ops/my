@@ -1,5 +1,6 @@
 ## V22.9.109 배포 판단
 
+- **운영 반영 끝(2026-11-08 16:12:51 KST)**: PR #141 병합(14:30:26, main d700b538) → 사용자가 자기 PowerShell 에서 `tools/deploy-worker-version.mjs` 업로드(16:09:16, version `4b27b6fa-a69a-46c8-85b2-126d567d1ac7`(#342), commit d700b538, 바인딩 32 inherit 차이 0·금지 변수 없음, Claude 대조 `review-artifacts/v109-prelaunch-fixes-2026-11-08/deploy/upload-compare-claude.md`) → `--promote`(deployment `ff08e45e-5a41-422f-98ec-ac172cc37bf4`, 도구 소스 해시 일치·/health 5/5·공개 123/123) → Claude 직후 확인 통과(postcheck-v109 28/28·1년 캐시 57/45/12/6·공개 123/123 재실행). 기록 `docs/deployments/V22_9_109_2026_11_08.md`. 되돌리기 대상(기록만) `48bffc19…`(#341).
 - 대상: 앱만(`kakao-accountbook`). 관제·DB·Secret·Kakao Developers·OpenBuilder 변경 없음. 새 운영 변수 없음 → 바인딩 32(Text 21·Secret 10·service 1)·금지 변수 열 그대로. 1년 캐시 자산 주소 변경 없음(새 0·유지 57·정리 45 그대로).
 - 바꾼 것: 카드 사용액 매칭 우선순위(/payment-methods·/reports 카드 실적), 상단 통합 검색 `/u/api/tx/search` 의 낱말 규칙(홈 필터와 통일), /menu 설명 한 줄. 공개(로그인 없는) 화면의 HTML 은 바뀌지 않는다(AdSense 재심사 중).
 - 되돌리기 대상(기록만): 앱 V22.9.108 활성 version `48bffc19-e4e0-450e-bac8-64db42cb72b5`(#341). 되돌리면 카드 매칭이 이름 길이 규칙으로, 상단 검색이 덩어리 부분 일치 + 숫자 OR 로 돌아간다. DB 영향 없음.
