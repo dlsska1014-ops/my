@@ -9,6 +9,7 @@ import { safeObject } from "../admin/backup-compare.js";
 import { makeUserSession, resolveEffectiveUserId, verifyUserSession } from "./user-session.js";
 import { fetchUserIdentityLinks } from "./identity-reauth.js";
 import { fetchUserById } from "../data/users-household-create.js";
+import { clearSetupCookies } from "../my/setup-page.js";
 import { saveSettingValue } from "../my/reports-premium.js";
 import { canReadMyHousehold } from "../my/access-control.js";
 import { kakaoAutoLoginPath } from "./kakao-account-link.js";
@@ -168,6 +169,8 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     const cookies = [
       `ab_user=${encodeURIComponent(token)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
       "ab_hh=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+      // V22.9.112 ⑳b: 다른 계정으로 세션이 바뀔 때 이전 계정의 설정 띠 판정 쿠키(ab_setup·ab_bk)도 지운다(로그아웃과 같게). 안 지우면 바뀐 계정 홈에 이전 계정의 설정/백업 로그인 띠 상태가 잘못 남는다.
+      ...clearSetupCookies(),
     ];
     const consentCookie = await consentStateCookieFor(env, identity.userId);
     if (consentCookie) cookies.push(consentCookie);

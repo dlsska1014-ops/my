@@ -3213,7 +3213,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.111-UI-IMPROVEMENTS";
+const APP_VERSION = "V22.9.112-GEMINI-FIXES";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -15056,6 +15056,14 @@ async function handleAdminMemberRemove(request, env) {
       method: "DELETE",
       headers: { Prefer: "return=minimal" },
     });
+    // V22.9.112 ⑲: 강제 내보내기도 자진 탈퇴(handleMyHouseholdLeave)와 같이 별칭·카카오 선택 가계부를 정리한다. 예전에는 둘 다 빠져 추방된 사용자의 별칭·선택 키가 고아로 남았다.
+    try {
+      const selectedId = await getKakaoSelectedHouseholdId(env, userId);
+      if (String(selectedId) === householdId) await clearKakaoSelectedHousehold(env, userId);
+      await removeMemberAlias(env, householdId, userId);
+    } catch (cleanupErr) {
+      rememberOpsEvent({ kind: "member_remove_cleanup_pending", severity: "warn", path: "/admin/member/remove", method: "POST", detail: "selection or alias cleanup pending" });
+    }
     return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { msg: "member_removed" }));
     }));
   } catch (err) {
@@ -31614,7 +31622,8 @@ function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}, 
     if (row.type === "income" || !(Number(row.amount || 0) > 0)) continue;
     const date = String(row.transaction_date || "").slice(0, 10);
     if (date < settings.startDate || date > evaluationEnd) continue;
-    if (settings.type === "category_spend_limit_days" && String(row.category || "").trim() !== settings.category) continue;
+    // V22.9.112 ⑪: 분류 챌린지는 정확 일치가 아니라 예산과 같은 상·하위 분류 매칭을 쓴다('카페' → '카페/간식'도 포함). 예전에는 placeholder '카페'대로 적으면 0건이 돼 늘 달성으로 보였다.
+    if (settings.type === "category_spend_limit_days" && !budgetCategoryMatches(settings.category, row.category)) continue;
     expenseByDay.set(date, Number(expenseByDay.get(date) || 0) + Number(row.amount || 0));
   }
   const failedDays = new Set();
@@ -32263,7 +32272,8 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
               // 기간 기록이 한도를 넘으면 일부만으로 스냅숏을 저장하지 않고 이 기간만 건너뛴다(QA B05).
               totals.failed++; event("free_report_row_limit", `${item.householdId}:${job.kind}:${job.period}`); continue;
             }
-            totals.failed++; event("free_report_generate_failed", `${item.householdId}:${job.kind}:${safeError(err)}`); stop = "error"; break;
+            // V22.9.112 ⑬: 한 가계부·기간의 생성 실패는 기록만 하고 다음으로 넘어간다(행수 초과와 같은 처리). 예전에는 stop="error"; break 로 커서가 이 가계부 앞에 멈춰, 사전순 앞의 한 곳이 계속 실패하면 그 뒤 모든 가계부의 자동 리포트가 영구 중단됐다(머리 막힘).
+            totals.failed++; event("free_report_generate_failed", `${item.householdId}:${job.kind}:${safeError(err)}`); continue;
           }
         }
         // 멈춘 가계부는 다음 실행이 처음부터 다시 본다(커서는 이 가계부 앞에 둔다).
@@ -46814,6 +46824,8 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     const cookies = [
       `ab_user=${encodeURIComponent(token)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
       "ab_hh=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+      // V22.9.112 ⑳b: 다른 계정으로 세션이 바뀔 때 이전 계정의 설정 띠 판정 쿠키(ab_setup·ab_bk)도 지운다(로그아웃과 같게). 안 지우면 바뀐 계정 홈에 이전 계정의 설정/백업 로그인 띠 상태가 잘못 남는다.
+      ...clearSetupCookies(),
     ];
     const consentCookie = await consentStateCookieFor(env, identity.userId);
     if (consentCookie) cookies.push(consentCookie);
@@ -57749,7 +57761,7 @@ function parseMultipleTransactions(text, payload) {
     else if (clause !== extractLeadingDateHint(clause) && /\d|[십백천만억]\s*원/.test(clause)) (out.unread ||= []).push(clause);
   }
   // V22.9.93 Q-87: 앞 건들의 합을 적은 끝말(‘커피 4000 택시 8000 총 12000원’)이 한 건 더 저장돼 합계가 두 배가 됐다. 합이 정확히 맞을 때만 뺀다(‘카드 총 5000 현금 총 5000’ 은 앞 건도 총이라 두 건이다). ‘전체’·‘모두’ 는 품목일 수 있어 앞 건이 둘 이상일 때만 합이다(‘부분 염색 5만원 전체 5만원’).
-  const totalWord = /^(?:총|합|합계|총합|총액|총계|총금액|총합계|총비용|도합|토탈)$/, allWord = /^(?:전체|모두|전부|합쳐서|다\s*해서)$/;
+  const totalWord = /^(?:총|합|합계|총합|총액|총계|총금액|총합계|총비용|도합|토탈)(?:은|는|이|가|을|를)?$/, allWord = /^(?:전체|모두|전부|합쳐서|다\s*해서)$/;
   const last = out[out.length - 1];
   const before = out.slice(0, -1);
   if (before.length && (totalWord.test(last.memo) || (before.length > 1 && allWord.test(last.memo))) && !before.some((row) => totalWord.test(row.memo) || allWord.test(row.memo)) && last.amount === before.reduce((sum, row) => sum + row.amount, 0)) out.pop();

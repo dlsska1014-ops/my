@@ -49,7 +49,7 @@ function parseMultipleTransactions(text, payload) {
     else if (clause !== extractLeadingDateHint(clause) && /\d|[십백천만억]\s*원/.test(clause)) (out.unread ||= []).push(clause);
   }
   // V22.9.93 Q-87: 앞 건들의 합을 적은 끝말(‘커피 4000 택시 8000 총 12000원’)이 한 건 더 저장돼 합계가 두 배가 됐다. 합이 정확히 맞을 때만 뺀다(‘카드 총 5000 현금 총 5000’ 은 앞 건도 총이라 두 건이다). ‘전체’·‘모두’ 는 품목일 수 있어 앞 건이 둘 이상일 때만 합이다(‘부분 염색 5만원 전체 5만원’).
-  const totalWord = /^(?:총|합|합계|총합|총액|총계|총금액|총합계|총비용|도합|토탈)$/, allWord = /^(?:전체|모두|전부|합쳐서|다\s*해서)$/;
+  const totalWord = /^(?:총|합|합계|총합|총액|총계|총금액|총합계|총비용|도합|토탈)(?:은|는|이|가|을|를)?$/, allWord = /^(?:전체|모두|전부|합쳐서|다\s*해서)$/;
   const last = out[out.length - 1];
   const before = out.slice(0, -1);
   if (before.length && (totalWord.test(last.memo) || (before.length > 1 && allWord.test(last.memo))) && !before.some((row) => totalWord.test(row.memo) || allWord.test(row.memo)) && last.amount === before.reduce((sum, row) => sum + row.amount, 0)) out.pop();
