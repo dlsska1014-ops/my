@@ -36,7 +36,9 @@ import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { readJson } from "./admin-api.js";
 import { supabase } from "../data/supabase-client.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
-import { nextMonthStart, numberWithCommas } from "../domain/transactions-core.js";
+import {
+  filterNeedleTokens, filterRowMatchesToken, nextMonthStart, numberWithCommas,
+} from "../domain/transactions-core.js";
 // @build:imports-end
 
 async function handleUserQuickInputClassification(request, env) {
@@ -99,14 +101,14 @@ async function handleUserTxSearch(request, env, url) {
   }
   // V22.9.37 감사 H11: 나간 사람의 기록도 기록 당시 이름으로 보여 준다.
   const rows = await attachSpenderNamesWithHistory(env, rowsRaw, members);
-  const needle = q.toLowerCase();
-  const digits = q.replace(/[^0-9]/g, "");
+  // V22.9.109 G-1·G-7(Gemini ①): 홈·기록 탭 필터와 같은 낱말 규칙(domain/transactions-core.js) — 띄어쓰기 낱말(최대 8개)마다 맞추고 모두 맞아야 하며,
+  // 숫자 낱말은 금액 완전 일치다. 예전에는 검색어 전체를 한 덩어리로 대고 숫자를 이어 붙여 금액 부분 일치를 OR 로 더해 ‘점심 12000’ 이
+  // 112,000원 거래까지 돌려줬다. 읽는 범위(전체 기간, 40,000행 상한)와 결과 50건 상한은 그대로다.
+  const tokens = filterNeedleTokens(q);
   const matched = [];
   let hasMore = false;
   for (const t of rows) {
-    const hay = `${t.memo || ""} ${t.category || ""} ${t.payment_method || ""} ${t.raw_text || ""} ${t.spender_name || ""}`.toLowerCase();
-    const hit = hay.includes(needle) || (digits.length >= 2 && String(t.amount || "").includes(digits));
-    if (!hit) continue;
+    if (!tokens.length || !tokens.every((token) => filterRowMatchesToken(t, token))) continue;
     if (matched.length >= 50) { hasMore = true; break; }
     matched.push({
       id: t.id,

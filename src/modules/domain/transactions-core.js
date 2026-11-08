@@ -656,15 +656,32 @@ function jsonForInlineScript(value) {
 function escapeHtml(s) {
   return String(s ?? "").replace(/[&<>'"]/g, (ch) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;" }[ch]));
 }
+
+// V22.9.109 G-1·G-7(Gemini ①): 홈·기록 탭 필터(V22.9.102 J-1, my/mobile-home.js)와 상단 통합 검색(/u/api/tx/search, api/user-api.js)이
+// 같은 낱말 규칙을 쓴다. 검색어는 띄어쓰기로 나눈 낱말(최대 8개)마다 맞추고 모두 맞아야 한다. 낱말은 내용·분류·결제수단·원문·지출자 이름의
+// 부분 일치이고, 숫자 낱말(‘4500’·‘4,500’·‘4500원’)은 금액 완전 일치다. 예전 상단 검색은 검색어 전체를 한 덩어리로 대고(‘카페 라떼’ 0건)
+// 검색어의 숫자를 모두 이어 붙여 금액 부분 일치를 OR 로 더해 ‘점심 12000’ 이 112,000원 거래까지, ‘커피 4500 택시 8000’ 은 ‘45008000’ 으로 아무것도 못 찾았다.
+// 정의는 빌드 도구가 관리하는 exports 블록 앞에 둔다(블록 안은 빌드 때 다시 생성된다).
+function filterNeedleTokens(q = "") {
+  return String(q || "").trim().toLowerCase().split(/\s+/).filter(Boolean).slice(0, 8);
+}
+
+function filterRowMatchesToken(row, token) {
+  const hay = `${row.memo || ""} ${row.category || ""} ${row.payment_method || ""} ${row.raw_text || ""} ${row.spender_name || ""}`.toLowerCase();
+  if (hay.includes(token)) return true;
+  const digits = token.replace(/,/g, "").replace(/원$/, "");
+  if (digits && /^\d+$/.test(digits)) return String(Math.round(Number(row.amount) || 0)) === digits;
+  return false;
+}
 // @build:exports-start
 export {
   RECORD_EDIT_CONFLICT_MESSAGE_V229104, abTransactionRequestId, bulkTransactionsAtomic,
   calculateStats, calendarDaysFromRows, createManualTransaction, deleteTransactionIfUnchanged,
   deleteTransactionIfUnchangedResultV229104, deleteTransactionWithAudit, escapeHtml,
-  fetchDeleteAuditIdV22994, fetchDeletedTransactionAudit, findTransactionForRequest,
-  formatRecentTransactions, formatSummary, getCalendar, getMonthSummary, getStats, helpText,
-  jsonForInlineScript, linkText, listTransactions, makeInviteCode, nextMonthStart, numberWithCommas,
-  reinsertDeletedTransaction, sameTransactionCore, sanitizeTransactionBody, updateTransaction,
-  updateTransactionIfUnchangedV22994,
+  fetchDeleteAuditIdV22994, fetchDeletedTransactionAudit, filterNeedleTokens, filterRowMatchesToken,
+  findTransactionForRequest, formatRecentTransactions, formatSummary, getCalendar, getMonthSummary,
+  getStats, helpText, jsonForInlineScript, linkText, listTransactions, makeInviteCode,
+  nextMonthStart, numberWithCommas, reinsertDeletedTransaction, sameTransactionCore,
+  sanitizeTransactionBody, updateTransaction, updateTransactionIfUnchangedV22994,
 };
 // @build:exports-end

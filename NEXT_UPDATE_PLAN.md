@@ -1,3 +1,11 @@
+## V22.9.109 다음 단계
+
+1. PR·CI → 병합(사용자 지목, Aside) → 사용자 토큰 배포(`review-artifacts/v109-prelaunch-fixes-2026-11-08/USER-DEPLOY-APP.md`, 바인딩 32 대조, 되돌리기 대상 48bffc19… #341 기록만) → Claude postcheck-v109 → 기록 PR.
+2. 재심사 순서(V107:D-17): 색인 요청은 2026-11-08 끝(sitemap 60 재제출 + 세무 글 8편 요청 접수) → 48~72시간 → 사용자가 AdSense ‘검토 요청’(11-10~11 무렵) → 승인 뒤 `ADS_MODE=live`·`ADS_SLOT_CONTENT` 변수 추가(사용자 지목, 바인딩 32 → 34).
+3. 출시(11-13) 전 남은 운영 일: 11-10 무렵 수동 DB 덤프(Free 자동 백업 없음), 출시 직전 Workers Paid(+ 관제 CF_PLAN·/ops-monitor 요금제 확인 저장), 옛 Supabase 시드니 프로젝트 일시 중지(11-12 무렵, 그날 지목), Codex PR #127 리베이스. 11-11 부터는 결함 수정만.
+4. 출시 뒤 후보: G-11(시트 닫기 뒤 빠른 입력 복원, 1년 캐시 자산 판 올림), G-1 범위(기간 제한 또는 서버 ilike), G-6·G-8·G-12·G-14~G-16, V107 D-9·D-10·D-14·D-15, 기록 탭 #v8Search 규칙 통일.
+5. 수익화(코드 없음): 11-08 Codex+Gemini ‘운영 패스’ 의견 검토 `review-artifacts/monetization-2026-11-08/REVIEW-CODEX-GEMINI-PASS.md` — 기존 기능 회수 없음·행동 기준·총무가 켜는 체험(‘정산 완료 2회 또는 60일’)·선결제와 공금 구분·선톡 보류·연간 코드, 회비 납부 체크표는 정산과 분리, 카드 혜택 금융 제휴 처방 반대. 결정은 12월 중순, 법무 먼저.
+
 ## V22.9.108 다음 단계
 
 1. 끝: PR #139 병합(16:55:48, main 0d962d7) → 사용자 토큰 배포(업로드 21:59:57 · 승격 22:30:31, version 48bffc19… #341) → Claude postcheck-v108 78/78 → 기록 PR(`docs/deployments/V22_9_108_2026_11_07.md`).

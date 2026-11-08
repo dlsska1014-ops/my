@@ -1,3 +1,11 @@
+## V22.9.109 출시 전 결함 수정 검사
+
+- 자동: `validate-prelaunch-fixes-v229109`(59개: 카드 매칭 18경우 — 이름 일치 > 포함 > 발급사·같은 단계 긴 이름·동률 앞 카드·수입 제외·빈 결제수단·카드 아닌 자산 — 낱말 규칙 단위 12개, `/u/api/tx/search` 13경우 + 401, /menu 문구, 소스·번들의 정규식 이스케이프 회귀), `validate-ui-fixes-v229102`(174, 홈 필터 회귀 없음), 환불 지문 251/268/83(V108 이름에서 통과 확인 뒤 3개 갱신), 추적표 `validate-findings-ledger-v22976`(V108:G-1 일부 고침·G-2·G-4·G-7 고침 행이 새 검사를 가리킴).
+- 기존 보호: 생성 Worker 동일성·클라이언트 직렬화·HTML 성능 예산·판 번호 정본(검사 파일에 판 이름 글자 없음)·proto-safety.
+- 배포 직후(Claude): `review-artifacts/v109-prelaunch-fixes-2026-11-08/deploy/postcheck-v109.mjs`(/health 판 이름 ×3, /ready, 공개 화면, sitemap 60, ads.txt, 1년 캐시 새 0·유지 57·정리 45) + 공개 점검 123.
+- 사람 확인: /payment-methods 카드별 사용액(이름이 겹치는 같은 발급사 카드 2장 이상인 가계부), 홈 상단 검색 ‘점심 12000’ 꼴, /menu 스마트 입력 도움말 설명.
+- 배포 뒤 결과: 승격 뒤 기록 PR 에 적는다.
+
 ## V22.9.108 광고 허용 목록·FAQ 검사
 
 - 자동: `validate-ads-gate-v22940`(공개 허용 53·로그인 뒤 허용 0·정책 7쪽 제외·FAQ 구조화 문항 새 이름), `validate-adfit-gate-v22992`(애드핏 허용 53), `validate-v22997-articles`(세무 글 8편 허용 목록 포함), `validate-ads-review-fixes-v229107`(D-2 범위 문장 두 네트워크, 판 이름 ≥ V22.9.107), `validate-support-wording-v22999`(새 문항 + ‘가입비나 이용료’·옛 문항 부재), `validate-public-value-v229106`, 환불 지문 268(V107 이름에서 통과 확인 뒤 3개 갱신).

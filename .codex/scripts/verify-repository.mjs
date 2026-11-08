@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_108.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_109.sha256",
 );
 const validationScripts = [
   ["V22.9.107 광고 검토 후속(D-1 유입 매개변수·앵커가 붙어도 정본 문서면 광고, D-2 애드핏 FAQ 문구, D-3 계산표 글 절 순서, D-4~D-6 계산표 변경 전 결과·휴대폰 2열·머리꼬리·주소 판, D-7 글 목록 ‘계산표 포함’)", "validation/validate-ads-review-fixes-v229107.mjs"],
@@ -21,6 +21,7 @@ const validationScripts = [
   ["V22.9.104 J-9 기록 수정·삭제 경쟁(구성원 저장·삭제는 ‘지출자 = 나’ 조건, 웹·카카오 충돌 안내, 소유자·관리자 그대로, 요청 수 그대로)", "validation/validate-edit-race-v229104.mjs"],
   ["V22.9.104 출시 전 글·첫 화면·공지 띠(A-1 닫기 ×, A-2 첫 화면 최근 글, A-4 세무 글 8편 사실 확인 고침)", "validation/validate-prelaunch-content-v229104.mjs"],
   ["V22.9.104 카카오톡 인앱 시작 화면(홈 미리보기 위 동의 팝업)·첫 카카오 로그인 기본 가계부·홈 동의 팝업(ab_cs)·POST /my/consent", "validation/validate-kakao-home-v229104.mjs"],
+  ["V22.9.109 출시 전 결함 수정(카드 매칭 우선순위, 상단 검색 낱말 규칙, 메뉴 문구)", "validation/validate-prelaunch-fixes-v229109.mjs"],
   ["V22.9.102 UI 수정(필터 낱말·금액·이름, 보안 화면 순서, 가계부 기본 설정 띠·/my/setup, 초대코드, 단톡방 목록, 정기 지출자, 관제 1.7.0 /ready 30분)", "validation/validate-ui-fixes-v229102.mjs"],
   ["V22.9.100 방 기록 답 전 DB 호출 상한(장면별 답 전·전체·파동)", "validation/validate-skill-db-calls-v229100.mjs"],
   ["V22.9.101 B-0 답 뒤 식별 처리·기본/완료 캐시 경계·소유권", "validation/validate-skill-identity-defer-v229101.mjs"],
@@ -382,7 +383,7 @@ function run(command, args, label) {
 // V22.9.99: wording, notice hide and findings; measured 61,894 present / 61,891 absent.
 // V22.9.100: K-1 139 checks; F-1/F-2 user-confirmed split. Closing K-1 removes one open-item ledger assertion.
 // Both complete runs measured 62,052 present / 62,049 absent (61,914/61,911 + 139 - 1).
-const EXPECTED_MINIMUM_CHECKS = 76478;
+const EXPECTED_MINIMUM_CHECKS = 76546;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

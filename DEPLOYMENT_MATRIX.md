@@ -1,3 +1,11 @@
+## V22.9.109 배포 판단
+
+- 대상: 앱만(`kakao-accountbook`). 관제·DB·Secret·Kakao Developers·OpenBuilder 변경 없음. 새 운영 변수 없음 → 바인딩 32(Text 21·Secret 10·service 1)·금지 변수 열 그대로. 1년 캐시 자산 주소 변경 없음(새 0·유지 57·정리 45 그대로).
+- 바꾼 것: 카드 사용액 매칭 우선순위(/payment-methods·/reports 카드 실적), 상단 통합 검색 `/u/api/tx/search` 의 낱말 규칙(홈 필터와 통일), /menu 설명 한 줄. 공개(로그인 없는) 화면의 HTML 은 바뀌지 않는다(AdSense 재심사 중).
+- 되돌리기 대상(기록만): 앱 V22.9.108 활성 version `48bffc19-e4e0-450e-bac8-64db42cb72b5`(#341). 되돌리면 카드 매칭이 이름 길이 규칙으로, 상단 검색이 덩어리 부분 일치 + 숫자 OR 로 돌아간다. DB 영향 없음.
+- 배포 방법: 병합 뒤 사용자가 자기 PowerShell 에서 `tools/deploy-worker-version.mjs`(업로드·대조, 바인딩 32) → `--promote`(지시문 `review-artifacts/v109-prelaunch-fixes-2026-11-08/USER-DEPLOY-APP.md`). 승격 직후 Claude 확인은 같은 폴더 `deploy/postcheck-v109.mjs`(health 판 이름·/ready·공개 화면·sitemap 60·ads.txt·1년 캐시) + 공개 점검 123. 출시(11-13) 전 결함 수정 범위이고 말일·1일·2일 규칙과 무관한 날이다.
+- 병합·승격은 사용자 지목 뒤(Aside 병합, 승격은 사용자 토큰). PR 번호·CI·하네스 수는 review-artifacts/CURRENT_HANDOFF.txt 맨 위 줄.
+
 ## V22.9.108 배포 판단
 
 - **운영 반영 끝(2026-11-07 22:30:31 KST)**: 사용자가 자기 PowerShell 에서 `tools/deploy-worker-version.mjs` 업로드(21:59:57, version `48bffc19-e4e0-450e-bac8-64db42cb72b5` #341, commit 0d962d7, 바인딩 32 inherit 차이 0 — V107:D-13 결함 아님) → `--promote`(deployment `1eff9856-025d-4df7-9f1e-68817defc37e`, 이전 17afa8c1). 도구 확인 소스 해시 일치·/health 5/5·공개 123/123, Claude 직후 확인 postcheck-v108 78/78(2차; 1차 72/78 은 Cloudflare beacon 삽입을 검사가 몰라서)·1년 캐시(유지 57·정리 45·계산표 12·v229105 404 6)·공개 123/123 통과. 기록 `docs/deployments/V22_9_108_2026_11_07.md`. 되돌리기 대상(기록만) `17afa8c1-853d-4bd4-950b-a8794244d975`(#340).

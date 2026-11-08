@@ -47,6 +47,15 @@ function paymentAssetFreshness(a = {}) {
   return { label: `${Math.floor(days / 30)}달 전 업데이트`, stale: true };
 }
 
+function cardUsageMatchScore(pm, card) {
+  const nm = normalizeText(card?.name || "");
+  const issuer = normalizeText(card?.issuer || "");
+  if (nm && pm === nm) return 3000 + nm.length;
+  if (nm && pm.includes(nm)) return 2000 + nm.length;
+  if (issuer && issuer.length >= 2 && pm.includes(issuer) && /카드/.test(pm)) return 1000 + issuer.length;
+  return 0;
+}
+
 function computeCardUsageMap(assets = [], rows = []) {
   const cards = safeArray(assets).filter((a) => paymentAssetKindMeta(a.kind).group === "card");
   const usage = Object.create(null);
@@ -56,13 +65,14 @@ function computeCardUsageMap(assets = [], rows = []) {
     if (String(r.type) === "income") continue;
     const pm = normalizeText(r.payment_method || "");
     if (!pm) continue;
+    // V22.9.109 G-4(Gemini ④): 어떻게 맞았는지를 먼저 본다 — 이름 일치 > 이름 포함 > 발급사(2자 이상 + ‘카드’) 순. 같은 단계 안에서는 더 긴
+    // 이름(더 구체적인 카드)이 이기고 그것도 같으면 목록 앞 카드다. 예전에는 단계와 무관하게 이름 길이만 비교해(`nm.length >= bestLen`) 이름으로
+    // 정확히 맞은 ‘신한카드 Mr.Life’ 가 발급사로만 맞은 더 긴 이름의 ‘신한카드 Deep Dream’ 에 졌고, 길이가 같으면 목록 뒤 카드가 가져갔다.
     let best = null;
-    let bestLen = 0;
+    let bestScore = 0;
     for (const c of cards) {
-      const nm = normalizeText(c.name);
-      const issuer = normalizeText(c.issuer || "");
-      const hit = (nm && (pm === nm || pm.includes(nm))) || (issuer && issuer.length >= 2 && pm.includes(issuer) && /카드/.test(pm));
-      if (hit && nm.length >= bestLen) { best = c; bestLen = nm.length; }
+      const score = cardUsageMatchScore(pm, c);
+      if (score > bestScore) { best = c; bestScore = score; }
     }
     if (best) {
       usage[best.id].count += 1;
