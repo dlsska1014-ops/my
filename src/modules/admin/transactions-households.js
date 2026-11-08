@@ -33,10 +33,13 @@ import {
   canWriteMyHousehold, memberRecordChangeError, memberRecordChangeMessage,
 } from "../my/access-control.js";
 import { activeSpenderExists, getTransactionForUserEdit } from "../my/transactions.js";
-import { purgeHouseholdData } from "../my/households-lifecycle.js";
+import { purgeHouseholdData, removeMemberAlias } from "../my/households-lifecycle.js";
 import { budgetAlertText, fetchBudgets } from "../domain/budgets.js";
 import { renderTxEditSuggestionLists, renderV8TxEditForm } from "../my/home-sections.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
+import {
+  clearKakaoSelectedHousehold, getKakaoSelectedHouseholdId,
+} from "../kakao/household-budget-commands.js";
 import { markKakaoGroupDeparture } from "../kakao/group-links-first-record.js";
 import { markKakaoChatFirstHistory } from "../kakao/identity-chat-first.js";
 import {
@@ -843,6 +846,14 @@ async function handleAdminMemberRemove(request, env) {
       method: "DELETE",
       headers: { Prefer: "return=minimal" },
     });
+    // V22.9.112 ⑲: 강제 내보내기도 자진 탈퇴(handleMyHouseholdLeave)와 같이 별칭·카카오 선택 가계부를 정리한다. 예전에는 둘 다 빠져 추방된 사용자의 별칭·선택 키가 고아로 남았다.
+    try {
+      const selectedId = await getKakaoSelectedHouseholdId(env, userId);
+      if (String(selectedId) === householdId) await clearKakaoSelectedHousehold(env, userId);
+      await removeMemberAlias(env, householdId, userId);
+    } catch (cleanupErr) {
+      rememberOpsEvent({ kind: "member_remove_cleanup_pending", severity: "warn", path: "/admin/member/remove", method: "POST", detail: "selection or alias cleanup pending" });
+    }
     return redirectResponse(returnLocation(form, `/households?household_id=${encodeURIComponent(householdId)}`, { msg: "member_removed" }));
     }));
   } catch (err) {

@@ -542,9 +542,10 @@ function budgetPlanMessage(code = "") {
 }
 // @build:exports-start
 export {
-  budgetAlertText, budgetCategoryScope, budgetCenterSummary, budgetFeedbackLine,
-  budgetPlanFingerprint, budgetPlanMessage, budgetStageInfo, budgetStatusLabel, budgetSummary,
-  fetchBudgets, fetchMobileHomeSettings, fetchObservationMonthRows, fetchRecurringMarkerRows,
-  fetchRecurringRuleByIdStrict, fetchRecurringStrict, kakaoBudgetStatusParts, optionalSupabase,
+  budgetAlertText, budgetCategoryMatches, budgetCategoryScope, budgetCenterSummary,
+  budgetFeedbackLine, budgetPlanFingerprint, budgetPlanMessage, budgetStageInfo, budgetStatusLabel,
+  budgetSummary, fetchBudgets, fetchMobileHomeSettings, fetchObservationMonthRows,
+  fetchRecurringMarkerRows, fetchRecurringRuleByIdStrict, fetchRecurringStrict,
+  kakaoBudgetStatusParts, optionalSupabase,
 };
 // @build:exports-end

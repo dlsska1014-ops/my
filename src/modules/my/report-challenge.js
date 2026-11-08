@@ -24,7 +24,8 @@ import {
   myAccessStatusResponse,
 } from "./access-control.js";
 import {
-  budgetSummary, fetchBudgets, fetchObservationMonthRows, fetchRecurringStrict,
+  budgetCategoryMatches, budgetSummary, fetchBudgets, fetchObservationMonthRows,
+  fetchRecurringStrict,
 } from "../domain/budgets.js";
 import { isRecurringSourceRow, monthSpendingOutlook } from "../domain/spending-outlook.js";
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
@@ -139,7 +140,8 @@ function buildReportChallenge(rows = [], month = currentMonthKst(), value = {}, 
     if (row.type === "income" || !(Number(row.amount || 0) > 0)) continue;
     const date = String(row.transaction_date || "").slice(0, 10);
     if (date < settings.startDate || date > evaluationEnd) continue;
-    if (settings.type === "category_spend_limit_days" && String(row.category || "").trim() !== settings.category) continue;
+    // V22.9.112 ⑪: 분류 챌린지는 정확 일치가 아니라 예산과 같은 상·하위 분류 매칭을 쓴다('카페' → '카페/간식'도 포함). 예전에는 placeholder '카페'대로 적으면 0건이 돼 늘 달성으로 보였다.
+    if (settings.type === "category_spend_limit_days" && !budgetCategoryMatches(settings.category, row.category)) continue;
     expenseByDay.set(date, Number(expenseByDay.get(date) || 0) + Number(row.amount || 0));
   }
   const failedDays = new Set();

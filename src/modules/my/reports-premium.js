@@ -373,7 +373,8 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
               // 기간 기록이 한도를 넘으면 일부만으로 스냅숏을 저장하지 않고 이 기간만 건너뛴다(QA B05).
               totals.failed++; event("free_report_row_limit", `${item.householdId}:${job.kind}:${job.period}`); continue;
             }
-            totals.failed++; event("free_report_generate_failed", `${item.householdId}:${job.kind}:${safeError(err)}`); stop = "error"; break;
+            // V22.9.112 ⑬: 한 가계부·기간의 생성 실패는 기록만 하고 다음으로 넘어간다(행수 초과와 같은 처리). 예전에는 stop="error"; break 로 커서가 이 가계부 앞에 멈춰, 사전순 앞의 한 곳이 계속 실패하면 그 뒤 모든 가계부의 자동 리포트가 영구 중단됐다(머리 막힘).
+            totals.failed++; event("free_report_generate_failed", `${item.householdId}:${job.kind}:${safeError(err)}`); continue;
           }
         }
         // 멈춘 가계부는 다음 실행이 처음부터 다시 본다(커서는 이 가계부 앞에 둔다).

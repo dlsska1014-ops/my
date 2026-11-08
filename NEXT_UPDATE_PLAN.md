@@ -1,3 +1,11 @@
+## V22.9.112 다음 단계
+
+1. PR CI 4/4 → 병합(사용자 지목) → 사용자 토큰 배포(V110·V111 과 함께/뒤) → postcheck → 기록 PR.
+2. 다음 판 후보(숫자 신뢰·독립 검토): ① 예산 명령이 일반 지출 가로채기(parseDirectBudgetSetCommand 조기 반환), ④ 공백 연월일, ⑦⑧⑨ 정산·리포트 집계.
+3. Codex 영역: ⑰·⑱ 계정 통합 때 supporter·favorites·consent 이전.
+4. 인프라: ⑭ 잠금 해제 RPC 예산 우회(supabase bypass 옵션).
+5. 공개 동결 해제 뒤: ⑫ 계산표 반올림. 그 밖: AdSense 검토 요청, 11-10 DB 덤프, Workers Paid, 옛 Supabase 중지(11-12).
+
 ## V22.9.111 다음 단계
 
 1. PR CI 4/4 → 병합(사용자 지목, Aside) → 사용자 토큰 배포(V110 과 함께/뒤) → postcheck → 기록 PR.
