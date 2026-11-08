@@ -297,8 +297,11 @@ function renderHomeReportCards(options = {}) {
   return `<section class="homeReports" aria-labelledby="homeReportsTitle"><div class="homeReportsHead"><h2 id="homeReportsTitle">${escapeHtml(heading)}</h2>${edit}</div><div class="homeReportGrid">${cards}</div></section>`;
 }
 
-function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members = [], canEditSpender = false) {
-  if (!rows.length) return `<div class="v8-empty">아직 기록이 없습니다. 아래 입력 버튼으로 첫 거래를 기록해보세요.</div>`;
+function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members = [], canEditSpender = false, { filtered = false } = {}) {
+  // V22.9.110 #10: 기록이 있는데 필터·검색으로 비면 '첫 거래를 기록' 안내는 틀린다 — 거래 탭과 같은 '조건에 맞는 기록이 없습니다'를 쓴다.
+  if (!rows.length) return filtered
+    ? `<div class="v8-empty">조건에 맞는 기록이 없습니다. 필터·검색을 해제하면 다시 볼 수 있어요.</div>`
+    : `<div class="v8-empty">아직 기록이 없습니다. 아래 입력 버튼으로 첫 거래를 기록해보세요.</div>`;
   if (!members.length) members = safeArray(rows[0]?.__spenderMembers);
   const names = memberNameMap(members);
   return rows.slice(0, 80).map((t) => {
