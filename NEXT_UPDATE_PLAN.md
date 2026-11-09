@@ -1,6 +1,6 @@
 ## V22.9.115 다음 단계
 
-1. PR(base main 33a6388) → CI 4/4 → 병합(사용자 지목) → 사용자 토큰 배포(`review-artifacts/v115-room-join-2026-11-09/USER-DEPLOY-APP.md`, 바인딩 32; V114 가 승격 전이면 V115 승격이 V114 를 포함) → Claude 직후 확인 → 기록 PR.
+1. 끝(2026-11-09): PR #149 → CI 4/4 → 병합 15:54(main 9878773) → 사용자 토큰 승격 17:00:45(version `8e9668e8-5d72-49a8-8b93-4912d37deb46` #348, deployment `73ce33e1-ea30-461a-b5a6-276dece8dce9`, V114 포함) → Claude 직후 확인 통과 → 기록 PR(브랜치 `claude/v229115-deployment-records`). 남은 것 = 기록 PR 병합(사용자 지목, 배포 없음) → 워크트리 정리. 다음 판은 origin/main 에서 새 워크트리.
 2. 사람 확인(사용자, 휴대폰): 기록 없는 참여자 ‘시작’·‘웹가계부’ → 자동 참여·홈; 새 방 첫 호출자 = 소유자; 웹 ‘참여자·초대’ 소유자 양도.
 3. 출시 뒤 후보: 카카오 멤버 API(`GET /v2/bots/{botId}/group-chat-rooms/{botGroupKey}/members`)로 방 구성원 검증(위조 키 보강), 들이기 한 줄 문구 다듬기, 잘못 들어온 사람 정리 지름길(카카오 ‘구성원 권한’ 명령에서 조회 전용 바꾸기), Gemini 실재 결함(④·⑦⑧⑨·⑰⑱·⑭), ⑫ 공개 계산표(AdSense 동결 해제 뒤).
 4. 운영 일: AdSense 검토 요청(11-10~11), 11-10 무렵 수동 DB 덤프, 출시 직전 Workers Paid, 옛 Supabase 중지(11-12).
