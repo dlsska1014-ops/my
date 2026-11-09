@@ -117,7 +117,9 @@ import {
   handleKakaoLoginCallback, handleKakaoLoginStart, handleMyLogout,
   kakaoAccountLinkAuthorizeResponse,
 } from "../auth/kakao-oauth.js";
-import { handleMyMemberPolicySave, handleMyMembersPage } from "../my/members-page.js";
+import {
+  handleMyMemberPolicySave, handleMyMembersPage, handleMyOwnerTransfer,
+} from "../my/members-page.js";
 import {
   handleMySetupMeSave, handleMySetupNameSave, handleMySetupPage, setupBandResponse,
 } from "../my/setup-page.js";
@@ -485,6 +487,11 @@ const ACCOUNTBOOK_WORKER = {
       // V22.9.43: 소유자가 정하는 구성원 권한(기록만/기록·수정).
       if (url.pathname === "/my/member-policy/save" && request.method === "POST") {
         return await handleMyMemberPolicySave(request, env);
+      }
+
+      // V22.9.115: 소유자 양도(참여자·초대 화면). 소유자만, 대상은 관리자·구성원.
+      if (url.pathname === "/my/household/transfer-owner" && request.method === "POST") {
+        return await handleMyOwnerTransfer(request, env);
       }
 
       if (url.pathname === "/my/transactions" && request.method === "POST") {

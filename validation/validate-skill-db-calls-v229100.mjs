@@ -8,7 +8,7 @@ const t = counter("PASS: V22.9.100 room record DB calls, cleanup and snapshot sa
 const measurements = {};
 // K-1 historical split retained; V101 now tests first alias registration after reply.
 // B-0 에서 ≤ 10 으로 내린다
-const caps = { A: [25, 40], B: [10, 12], "B-ordinary": [10, 12], C: [10, 12], D: [20, 32], E: [10, 12], "F-1": [10, 17], "F-1-ordinary": [10, 17], "F-2-strong": [10, 19], "F-2-ordinary": [10, 24], G: [6, 6], H: [11, 14], I: [11, 13], J: [11, 13], K: [11, 13] };
+const caps = { A: [25, 40], B: [10, 12], "B-ordinary": [10, 12], C: [10, 12], D: [20, 32], E: [10, 12], "F-1": [10, 17], "F-1-ordinary": [10, 17], "F-2-strong": [10, 19], "F-2-ordinary": [10, 24], G: [6, 6], H: [11, 14], I: [11, 13], J: [11, 13], K: [11, 13], "V115-J": [38, 48], "V115-K": [28, 38], "V115-L": [30, 40], "V115-M": [12, 14] };
 const textOf = body => (body.template?.outputs || []).map(output => output.simpleText?.text || output.textCard?.description || "").join("\n");
 const pathIs = (call, suffix, method) => call.url.pathname.endsWith(suffix) && call.method === method;
 const pendingWrite = call => pathIs(call, "/accountbook_settings", "POST") && JSON.stringify(call.body).includes(":pending_write:") ||
@@ -312,14 +312,22 @@ for (const outcome of ["failed", "skipped"]) await fixture(async fx => {
 
 await fixture(async fx => {
   const before = fx.db.households.length;
-  const result = await fx.say("빵 2800");
-  t.ok(!result.text.includes("저장했어요"), "ordinary parsed input does not gain new-room onboarding eligibility");
-  t.eq(fx.db.households.length, before, "ordinary parsed input does not create a room ledger");
+  // V22.9.115: 가계부 없는 방에서는 어떤 확인된 호출이든 첫 호출자를 소유자로 공동 가계부를 준비하고(기록 경로와 같은 잠금·표식·고정 ID, 잠금은 그 자리에서 해제),
+  // 같은 말을 그 가계부 명령으로 잇는다. 그 뒤 처음 부르는 사람은 호출 한 번에 구성원이 된다. 상한은 한 방의 첫 호출(J)·첫 참여(K·L)·구성원(M) 별 고정값.
+  const result = await fx.say("빵 2800"); recordScene("V115-J", result);
+  t.ok(result.text.startsWith("이 방의 공동 가계부를 준비했어요. 첫 호출자인 내가 소유자예요.\n") && result.text.includes("저장했어요"), "V115-J: a guessed record in a new room provisions the room for the caller and then records");
+  t.eq(fx.db.households.length, before + 1, "V115-J: the call-join path creates exactly one room ledger");
+  t.eq(fx.db.household_members.filter(row => row.household_id === fx.db.households.at(-1).id).map(row => row.role).join(","), "owner", "V115-J: the first caller is the only member and the owner");
   await fx.say("연결준비 28001");
   const members = fx.db.household_members.length;
-  const unjoined = await fx.say("빵 2900", { key: fx.member });
-  t.ok(!unjoined.text.includes("저장했어요"), "ordinary input by a nonmember preserves the existing join guide");
-  t.eq(fx.db.household_members.length, members, "ordinary input does not grant first-record autojoin eligibility");
+  const joined = await fx.say("빵 2900", { key: fx.member }); recordScene("V115-K", joined);
+  t.ok(joined.text.startsWith("이 방 가계부 ‘이 방의 공동 가계부’에 참여했어요.\n") && joined.text.includes("저장했어요"), "V115-K: a nonmember's record joins without approval and records");
+  t.eq(fx.db.household_members.length, members + 1, "V115-K: one membership row for the caller");
+  const query = await fx.say("이번 달 요약", { key: `${fx.prefix}-third` }); recordScene("V115-L", query);
+  t.ok(query.text.startsWith("이 방 가계부 ‘이 방의 공동 가계부’에 참여했어요.\n") && query.text.includes("이번 달 요약"), "V115-L: a nonmember's query joins and answers");
+  t.eq(fx.db.household_members.length, members + 2, "V115-L: the query caller has a membership row");
+  const again = await fx.say("이번 달 요약", { key: `${fx.prefix}-third` }); recordScene("V115-M", again);
+  t.ok(!again.text.includes("참여했어요") && again.text.includes("이번 달 요약"), "V115-M: a member's query adds no join work");
 });
 
 // Always exercise the same assertions in both category modes. Only measured

@@ -185,11 +185,12 @@ await withFixture(async (f) => {
 
   const outsiderKey = `${f.key}-outsider`;
   const summary = await skill(f, "이번 달 요약", { key: outsiderKey });
-  ok(summary.text.includes("기록을 한 번 보내면 바로 참여돼요"), "non-member query explains joining by recording");
-  ok(!roleOf(f, userIdOf(f, outsiderKey), "house-home"), "a query alone never joins");
+  // V22.9.115: 봇을 부르기만 해도(조회 포함) 승인 없이 구성원이 된다. 답 맨 앞에 참여 한 줄이 붙고 그 명령은 그대로 처리된다.
+  ok(summary.text.startsWith("이 방 가계부 ‘우리집 생활비’에 참여했어요.") && summary.text.includes("이번 달 요약"), `non-member query joins on the call and still answers (${summary.text.slice(0, 80)})`);
+  eq(roleOf(f, userIdOf(f, outsiderKey), "house-home"), "member", "a trusted room call alone joins without approval (V22.9.115)");
   const start = await skill(f, "시작", { key: outsiderKey });
-  // V22.9.68: 시작은 버튼형 설명서 첫 화면이며, 상태 줄에 기록 한 번으로 참여한다고 알린다.
-  ok(start.text.includes("자동으로 참여") && !start.text.includes("승인 대기"), "start shows the not-yet-joined state instead of pending");
+  // V22.9.68: 시작은 버튼형 설명서 첫 화면. V22.9.115: 이미 구성원이므로 상태 줄은 내 권한만 말한다.
+  ok(start.text.includes("내 권한: 구성원") && !start.text.includes("승인 대기") && !start.text.includes("방금"), `start shows the member state after the call join (${start.text.slice(0, 80)})`);
   const info = await skill(f, "단톡방 연결 상태", { key: outsiderKey });
   ok(!info.text.includes("내 권한: member") && !info.text.includes("내 권한: owner"), "room info never shows raw role codes");
 

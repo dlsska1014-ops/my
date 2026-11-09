@@ -282,6 +282,13 @@ function kakaoGroupPhaseRetryable(marker = null, phase = "") {
 
 async function tryKakaoGroupFirstRecord(env, context = {}) {
   const { user, groupKey, parsedList } = context;
+  // V22.9.115: joinOnly — 기록 없이 들이기만 한다(단톡방에서 봇을 부르기만 해도 자동 구성원, 가계부 없는 방은 첫 호출자가 소유자). 저장 대신
+  // 결과 객체 { ok, skipped, reason, role, household, joinedNow, roomCreatedNow, firstNotice } 를 돌려주고, 거절·실패도 글 대신 객체로 알린다.
+  // 잠금·표식·고정 ID·단계 복구는 기록 경로와 같아서, 기록과 호출이 겹쳐도 소유자는 한 명이고 같은 요청을 다시 보내도 중복이 생기지 않는다.
+  const joinOnly = !!context.joinOnly;
+  // V22.9.115: joinOnly 는 들인 뒤 같은 요청이 그 가계부 명령(별도 구매 확인·예산 설정 등)으로 이어져 같은 가계부 잠금을 다시 잡으므로, 잠금 해제를 답 뒤로 미루지 않고 그 자리에서 푼다(미루면 같은 요청 안에서 자기 잠금을 기다리는 교착 → 4초 지연 답 + 잠금 누수). 기록 경로는 K-1 대로 답 뒤 해제.
+  const leaseOptions = joinOnly ? {} : { releaseMode: "defer" };
+  const rejected = (reason, text, extra = {}) => joinOnly ? { ok: false, skipped: true, reason, role: "", household: null, joinedNow: false, roomCreatedNow: false, firstNotice: "", text, ...extra } : kakaoText(text);
   let recordSaved = false;
   try {
     const observed = context.observed || await readKakaoGroupFirstSnapshot(env, groupKey, user.id);
@@ -303,7 +310,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
         let roomCreatedNow = false; // V22.9.79 감사 N-4: 이 요청이 방 가계부를 막 준비했다 — 구성원은 첫 입력자 한 명뿐이다
         let reservedNow = false, createdHouseholdNow = false, verifiedOwnerRows = null;
         if (!snapshot.link && (snapshot.retired || snapshot.done || marker?.phase === "complete")) {
-          return kakaoText("이 단톡방의 이전 연결이 해제되거나 가계부가 삭제되어 자동으로 다시 준비하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 소유자 또는 관리자가 사용할 가계부를 직접 연결해 주세요.");
+          return rejected("retired", "이 단톡방의 이전 연결이 해제되거나 가계부가 삭제되어 자동으로 다시 준비하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 소유자 또는 관리자가 사용할 가계부를 직접 연결해 주세요.");
         }
         if (!snapshot.link && !marker) {
           // A namespace-derived UUID stays fixed even if the reservation response is lost.
@@ -412,7 +419,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
           if (!household) {
             assertFresh();
             await markKakaoGroupRetired(env, groupKey, assertFresh);
-            return kakaoText("이 단톡방에 연결된 가계부가 없어 기록을 어디에도 저장하지 않았어요. 소유자 또는 관리자가 사용할 가계부를 직접 연결해 주세요.");
+            return rejected("household_missing", "이 단톡방에 연결된 가계부가 없어 기록을 어디에도 저장하지 않았어요. 소유자 또는 관리자가 사용할 가계부를 직접 연결해 주세요.");
           }
           // Recover a confirmed link_sent write by its fixed ledger, never by repeating POST.
           if (!snapshot.retired && !snapshot.done && marker && snapshot.link.household_id === marker.candidate_id && marker.phase === "link_sent") {
@@ -426,7 +433,8 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             snapshot.done = parseKakaoGroupFirstMarker(await insertKakaoGroupFirstSetting(env, snapshot.keys.done, { ...marker, phase: "complete" }), groupKey, true);
             await deferKakaoAfterReply(env, () => phase("complete"));
             if (marker.owner_id === String(user.id)) roomCreatedNow = true;
-            if (marker.owner_id === String(user.id)) firstNotice = "웹 로그인 없이 이 방의 공동 가계부를 준비했어요.\n이 방에서 기록하는 참여자들이 함께 사용하며, 첫 입력자인 내가 소유자예요.\n이름·예산은 나중에 같은 가계부에서 설정할 수 있어요.\n참여자 권한: 기록·수정 (기록만 허용하려면 ‘구성원 권한 기록만’)\n\n";
+            // V22.9.115: 기록이든 호출이든 이 방에서 봇을 처음 부른 사람이 소유자다. 소유자는 웹 ‘참여자·초대’에서 다른 참여자에게 양도할 수 있다.
+            if (marker.owner_id === String(user.id)) firstNotice = "웹 로그인 없이 이 방의 공동 가계부를 준비했어요.\n이 방에서 봇을 부르거나 기록하는 참여자들이 함께 사용하며, 첫 호출자인 내가 소유자예요(웹 ‘참여자·초대’에서 양도할 수 있어요).\n이름·예산은 나중에 같은 가계부에서 설정할 수 있어요.\n참여자 권한: 기록·수정 (기록만 허용하려면 ‘구성원 권한 기록만’)\n\n";
           }
           // V22.9.44: 준비 중이 아니었으면 잠금 첫머리에서 가계부와 함께 읽은 역할을 쓰고, 준비 중이었으면 소유자 행을 만든 뒤 다시 읽는다.
           let roleRows = initialRoleRows || await supabase(env, roleRowsPath, { method: "GET" });
@@ -438,7 +446,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
           // 구성원이 기록을 고치고 지울 수 있는지는 소유자가 정한 구성원 권한(기록만/기록·수정)이 정한다.
           const departed = !!snapshot.departures.households[await sha256Hex(householdId)];
           let joinedNow = false;
-          if (!role && departed) return kakaoText("이 가계부에서 나간 이력이 있어 자동으로 다시 참여하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 다시 참여하려면 개인 대화에서 초대코드를 사용해 주세요.");
+          if (!role && departed) return rejected("departed", "이 가계부에서 나간 이력이 있어 자동으로 다시 참여하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 다시 참여하려면 개인 대화에서 초대코드를 사용해 주세요.");
           if (!role) {
             // 결과를 모르는 참여 POST 는 다시 보내지 않는다. 표식은 방·사용자·가계부마다 하나라 방을 다른 가계부로 다시 연결해도 막히지 않는다.
             // V22.9.31 표식(방·사용자마다 하나)이 같은 가계부를 가리키면 예전처럼 결과를 모르는 상태로 본다.
@@ -475,7 +483,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             joinedNow = role === "member";
           }
           if (!role) throw new Error("kakao_group_member_missing");
-          if (!["owner", "admin", "member"].includes(role)) return kakaoText(roleBlockedMessage(role, household.name));
+          if (!["owner", "admin", "member"].includes(role)) return rejected("role_blocked", roleBlockedMessage(role, household.name), { role });
           if (firstNotice || joinedNow) {
             assertFresh();
             // V22.9.44: 참여 안내에 쓸 구성원 권한 조회와 첫 사용 표시 저장을 함께 돌린다.
@@ -494,18 +502,46 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             const prior = saveContext.members.find(row => String(row.user_id) === String(user.id));
             saveContext.members = prior ? saveContext.members.map(row => row === prior ? { ...row, role } : row) : [...saveContext.members, current];
           }
+          if (joinOnly) return { ok: true, skipped: false, reason: roomCreatedNow ? "created" : joinedNow ? "joined" : "already_member", role, household: { ...household, role, from_group_link: true, bot_group_key: groupKey }, joinedNow, roomCreatedNow, firstNotice };
           return await saveKakaoParsedTransactionsReply(env, { ...saveContext, household: { ...household, role, from_group_link: true, bot_group_key: groupKey }, firstNotice: `${context.editSessionNotice || ""}${firstNotice}`, soleMember: roomCreatedNow, assertFresh, onSaved: async () => { recordSaved = true; } });
-        }, { releaseMode: "defer" });
-      }, { releaseMode: "defer" });
-    }, { releaseMode: "defer" });
+        }, leaseOptions);
+      }, leaseOptions);
+    }, leaseOptions);
   } catch (err) {
-    rememberOpsEvent({ kind: "kakao_group_first_record_failed", severity: "error", path: "/skill", method: "POST", detail: safeError(err) });
+    rememberOpsEvent({ kind: joinOnly ? "kakao_room_join_failed" : "kakao_group_first_record_failed", severity: joinOnly ? "warn" : "error", path: "/skill", method: "POST", detail: safeError(err) });
+    if (joinOnly) return { ok: false, skipped: false, reason: "failed", role: "", household: null, joinedNow: false, roomCreatedNow: false, firstNotice: "", error: safeError(err) };
     if (recordSaved) return kakaoText("공동 가계부에 기록 저장은 완료되었지만 결과 안내가 지연됐어요. ‘오늘기록’에서 확인해 주세요.");
     if (/kakao_group_identity_scope_changed/.test(safeError(err))) return kakaoText("계정 통합으로 사용자 정보가 바뀌어 이 요청의 기록은 어디에도 저장하지 않았어요. 봇을 다시 호출해 주세요.");
     if (isUncertainStorageWrite(err)) return kakaoText("공동 가계부 준비 결과를 아직 확정하지 못했어요. 이 요청의 거래 기록은 아직 보내지 않았어요. 같은 준비 요청을 반복하지 않고 고정된 가계부의 결과를 확인합니다. 잠시 후 ‘시작’으로 연결 상태를 확인해 주세요.");
     return kakaoText(/settings_rmw_busy|scope_changed/.test(safeError(err))
       ? "이 방의 공동 가계부를 준비하거나 변경하는 요청이 처리 중이에요. 이 요청의 기록은 아직 저장하지 않았어요. 잠시 후 다시 보내 주세요."
       : "이 방의 공동 가계부를 확인하지 못했어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 잠시 후 연결 상태를 확인해 주세요.");
+  }
+}
+
+// V22.9.115(사용자 결정 2026-11-09 "자동 구성원으로 들이고 첫 호출자를 소유자로 보고 소유자는 양도 가능하도록"): 단톡방에서 봇을 부르기만 해도(설명서·웹가계부·
+// 시작·도움말·조회·명령·빈 멘션) 이 방 가계부의 구성원으로 들이고, 가계부가 없는 방(never/preparing)이면 첫 호출자를 소유자로 공동 가계부를 준비한다. 기록 경로
+// (tryKakaoGroupFirstRecord)와 같은 잠금·표식·고정 ID 를 쓰므로(joinOnly) 기록과 호출이 겹쳐도 소유자는 한 명이고 같은 요청을 다시 보내도 중복이 없다. 부르는 쪽이
+// 이미 아는 역할(role)을 주면 구성원(소유자·관리자·구성원·조회 전용·이용 제한)은 읽기 없이 건너뛴다. 해제·삭제된 방(retired)·나간 이력·조회 전용·이용 제한은
+// 들이지 않는다(결과 객체로 알림). Secret 으로 확인된 요청 + 명시된 botGroupKey 인지는 부르는 쪽(skill-handler.js roomJoinEligible)이 본다.
+async function joinKakaoRoomOnCallV229115(env, context = {}) {
+  const { user, groupKey } = context;
+  const skipped = (reason, extra = {}) => ({ ok: false, skipped: true, reason, role: "", household: null, joinedNow: false, roomCreatedNow: false, firstNotice: "", ...extra });
+  if (!user?.id || !groupKey) return skipped("no_identity");
+  try {
+    let role = context.role === undefined || context.role === null ? null : String(context.role || "").toLowerCase();
+    if (role && role !== "pending") return skipped("already_member", { ok: true, role });
+    const snapshot = context.observed || await readKakaoGroupFirstSnapshot(env, groupKey, user.id);
+    const phase = kakaoRoomPhaseOf(snapshot);
+    if (phase === "retired") return skipped("retired");
+    if (phase === "linked" && role === null) {
+      role = String(await getHouseholdMemberRole(env, user.id, snapshot.link.household_id) || "").toLowerCase();
+      if (role && role !== "pending") return skipped("already_member", { ok: true, role });
+    }
+    return await tryKakaoGroupFirstRecord(env, { ...context, observed: snapshot, parsedList: [], joinOnly: true });
+  } catch (err) {
+    rememberOpsEvent({ kind: "kakao_room_join_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) });
+    return { ok: false, skipped: false, reason: "failed", role: "", household: null, joinedNow: false, roomCreatedNow: false, firstNotice: "", error: safeError(err) };
   }
 }
 
@@ -815,9 +851,9 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
   const roleLine = lookup.failed ? "내 권한: 확인하지 못했어요 · 잠시 후 다시 확인해 주세요"
     : !role
     ? (departed ? "내 권한: 아직 참여 전 · 나간 이력이 있어 이 방에서 기록해도 자동으로 참여하지 않아요. 개인 대화에서 초대코드로 참여해 주세요"
-      : "내 권한: 아직 참여 전 · 이 방에서 거래를 한 번 보내면 자동으로 참여해요")
+      : "내 권한: 아직 참여 전 · 이 방에서 봇을 부르거나 거래를 보내면 자동으로 참여해요")
     : role === "pending"
-      ? `내 권한: ${userHouseholdRoleLabel(role)} · ${departed ? "나간 이력이 있어 소유자·관리자가 승인해야 참여해요" : "이 방에서 거래를 한 번 보내면 바로 참여해요"}`
+      ? `내 권한: ${userHouseholdRoleLabel(role)} · ${departed ? "나간 이력이 있어 소유자·관리자가 승인해야 참여해요" : "이 방에서 봇을 부르거나 거래를 보내면 바로 참여해요"}`
       : `내 권한: ${userHouseholdRoleLabel(role)}`;
   return [
     "👥 단톡방 연결 상태",
@@ -830,10 +866,10 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
   ].filter(Boolean).join("\n");
 }
 
-// V22.9.43: 방 연결은 이제 그 방에서 거래를 보내는 참여자 모두에게 가계부를 여는 일이다. 연결을 확인할 때와
+// V22.9.43: 방 연결은 이제 그 방에서 거래를 보내는 참여자 모두에게 가계부를 여는 일이다(V22.9.115 부터는 봇을 부르기만 해도). 연결을 확인할 때와
 // 마쳤을 때 그 사실과 현재 구성원 권한을 함께 알린다.
 function kakaoRoomBindConfirmLine(householdName = "") {
-  return `연결하면 이 방에서 거래를 보내는 참여자는 승인 없이 ‘${householdName || "이 가계부"}’ 구성원이 돼요.`;
+  return `연결하면 이 방에서 봇을 부르거나 거래를 보내는 참여자는 승인 없이 ‘${householdName || "이 가계부"}’ 구성원이 돼요.`;
 }
 
 async function kakaoRoomBindDoneText(env, household = {}) {
@@ -843,7 +879,7 @@ async function kakaoRoomBindDoneText(env, household = {}) {
     "✅ 단톡방 연결 완료",
     `가계부: ${household?.name || "가계부"}`,
     "",
-    "이제 이 방의 기록은 이 가계부에만 저장되고, 이 방에서 거래를 보내는 참여자는 승인 없이 구성원이 돼요.",
+    "이제 이 방의 기록은 이 가계부에만 저장되고, 이 방에서 봇을 부르거나 거래를 보내는 참여자는 승인 없이 구성원이 돼요.",
     ...(policy ? [`구성원 권한: ${memberPolicyLabel(policy)} · 소유자가 ‘구성원 권한’으로 바꿀 수 있어요`] : []),
   ].join("\n");
 }
@@ -851,9 +887,9 @@ async function kakaoRoomBindDoneText(env, household = {}) {
 export {
   bindKakaoGroupByInviteCode, fetchKakaoGroupLinkMap, fetchLegacyKakaoGroupLinkMap,
   getExplicitKakaoBotGroupKey, getKakaoBotGroupKey, getLinkedKakaoGroupHousehold,
-  kakaoGroupFirstKeys, kakaoGroupInfoText, kakaoGroupLinkItemSettingsKey,
-  kakaoGroupLinksSettingsKey, kakaoRoomBindConfirmLine, kakaoRoomBindDoneText,
-  kakaoRoomDepartedFromHousehold, kakaoRoomPhaseOf, markKakaoGroupDeparture,
+  joinKakaoRoomOnCallV229115, kakaoGroupFirstKeys, kakaoGroupInfoText,
+  kakaoGroupLinkItemSettingsKey, kakaoGroupLinksSettingsKey, kakaoRoomBindConfirmLine,
+  kakaoRoomBindDoneText, kakaoRoomDepartedFromHousehold, kakaoRoomPhaseOf, markKakaoGroupDeparture,
   normalizeKakaoGroupLinkItem, parseKakaoGroupFirstMarker, preserveKakaoGroupDeparturesForMerge,
   readKakaoGroupFirstSnapshot, readKakaoRoomRoutingSnapshot, reassignKakaoGroupLinkOwner,
   removeKakaoGroupLink, startKakaoRoomRecordSnapshot, strictKakaoGroupMembershipRows,

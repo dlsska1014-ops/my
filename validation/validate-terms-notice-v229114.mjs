@@ -197,7 +197,9 @@ async function scene(task, { kakao = true } = {}) {
   const pkg = JSON.parse(read("package.json"));
   ok(pkg.scripts?.["validate:terms-notice-v229114"] === "node validation/validate-terms-notice-v229114.mjs", "A package.json 에 검사가 등록돼 있다");
   const harness = read(".codex/scripts/verify-repository.mjs");
-  ok(harness.includes("validation/validate-terms-notice-v229114.mjs") && harness.includes('"BUNDLE_FILE_CHECKSUMS_V22_9_114.sha256"'), "A 하네스에 검사와 이 판 manifest 이름이 있다");
+  // V22.9.115 부터: manifest 이름은 판마다 바뀌므로 ‘이 판 또는 뒤 판’ 을 받는다(하네스는 현재 판 manifest 하나만 이름 짓는다).
+  const manifestMinors = [...harness.matchAll(/"BUNDLE_FILE_CHECKSUMS_V22_9_([0-9]+)[.]sha256"/g)].map((m) => Number(m[1]));
+  ok(harness.includes("validation/validate-terms-notice-v229114.mjs") && manifestMinors.length > 0 && Math.max(...manifestMinors) >= 114, `A 하네스에 검사와 이 판 또는 뒤 판의 manifest 이름이 있다 (V22_9_${Math.max(...manifestMinors)})`);
   const tool = read("tools/verify-deployment-v22920.mjs");
   ok(tool.includes("Kakao start without a consent box goes straight to Kakao (303, V22.9.114)") && !tool.includes("shows the consent screen (400)"), "A 공개 점검 도구도 동의 없는 시작 = 303 을 기대한다");
   ok(!read("validation/validate-kakao-home-v229104.mjs").includes('"/auth/kakao/start?consent=1"') && read("validation/validate-room-open-v229105.mjs").includes("const isBand") && read("validation/validate-v22995-legal.mjs").includes("const NOTE = "), "A 옛 검사(V104·V105·V95 법무)도 띠 모델로 고쳤다");

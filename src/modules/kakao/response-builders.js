@@ -425,12 +425,14 @@ async function kakaoDirectLinkResponse(response, origin = "") {
 // botUserKey·botGroupKey 로 로그인 화면 없이 바로 이 방 가계부 홈이 열린다. 구성원이 아니면 예전처럼 로그인(인앱은 자동 로그인 → 시작 팝업)이다.
 // 이 방 가계부 번호(household_id)는 넣지 않는다. 단톡방 기록 계정과 웹 로그인 계정은 아직 이어지지 않아(챗봇에 앱이 연결되지 않아
 // appUserId 가 없다), 웹 계정이 그 가계부 구성원이 아니면 /my?household_id= 는 ‘가계부를 찾을 수 없어요’(404)가 된다.
-function kakaoWebLedgerReply(origin = "") {
+// V22.9.115: 방금 이 방 가계부에 들였으면(또는 첫 호출자로 준비했으면) 카드 앞에 한 줄(notice)로 알린다. 카드 글은 그대로 둔다.
+function kakaoWebLedgerReply(origin = "", notice = "") {
   if (!origin) return kakaoText("웹 가계부는 말해가계부 웹사이트에서 로그인한 뒤 볼 수 있어요.");
+  const lead = String(notice || "").trim();
   return jsonResponse({
     version: "2.0",
     template: {
-      outputs: [{
+      outputs: [...(lead ? [{ simpleText: { text: lead } }] : []), {
         textCard: {
           title: "웹 가계부",
           description: "전체 기록과 분석을 웹에서 크게 볼 수 있어요.\n아래 버튼을 누르면 이 방 가계부가 열려요.",
