@@ -58,32 +58,39 @@ const assertNextStepRecord = (r, label, extra = []) => {
 
 try {
   // 1. 빈 멘션 카드: 도움말 보기(메시지) → 기록하기(멘션) 순서, 옛 이름 없음.
-  const empty = await skill("@말해가계부", MINA);
+  // V22.9.115: 봇을 부르기만 해도(빈 멘션 포함, 답 뒤에) 이 방 가계부에 들인다. 가계부가 없던 방이라 첫 호출자(OWNER)가 소유자다.
+  const empty = await skill("@말해가계부", OWNER);
   eq(empty.title, "안녕하세요 😊 말해가계부예요", "빈 멘션 카드 제목 유지");
   eq(JSON.stringify(empty.labels), JSON.stringify(["도움말 보기", "기록하기"]), "빈 멘션 버튼: 도움말 보기 → 기록하기(맨 아래)");
   eq(empty.buttons[0].action, "message", "도움말 보기는 메시지 버튼");
   eq(empty.buttons[0].messageText, "도움말 보기", "도움말 보기 버튼이 보내는 문장");
   eq(empty.buttons[1].action, "mention", "기록하기는 멘션 플러그인");
   ok(!JSON.stringify(empty.body).includes("챗봇 멘션하기") && !JSON.stringify(empty.body).includes("사용 설명서"), "옛 버튼 이름(챗봇 멘션하기·사용 설명서) 없음");
+  const roomHousehold = f.db.households.find((h) => h.name === "이 방의 공동 가계부");
+  const idOf = (key) => f.db.users.find((u) => u.kakao_user_key === key)?.id;
+  const roleOf = (key) => f.db.household_members.find((m) => m.household_id === roomHousehold?.id && m.user_id === idOf(key))?.role;
+  ok(roomHousehold && roleOf(OWNER) === "owner", "빈 멘션만으로 방 가계부가 준비되고 첫 호출자가 소유자(V22.9.115)");
 
-  // 2. 방 준비 뒤 참여 전 조회: 세 줄 안내 + 기록하기 멘션 버튼.
+  // 2. 소유자의 첫 기록은 보통 저장(가계부는 이미 호출 때 준비됨). 다른 사람의 첫 호출은 참여 한 줄 + 그 명령의 답.
   const first = await skill("@말해가계부 점심 5만원", OWNER);
-  // 첫 기록은 이 검사의 준비 단계다. 느린 windows-latest 러너에서는 4초 예산을 넘겨 지연 답이 먼저 나가고, 같은 처리가
-  // 뒤에서 방 가계부를 준비한다(skill() 이 waitUntil 작업을 기다린다). 오류 답이나 저장되지 않은 기록은 여전히 실패다.
+  // 느린 windows-latest 러너에서는 4초 예산을 넘겨 지연 답이 먼저 나가고 같은 처리가 뒤에서 저장한다(skill() 이 waitUntil 작업을 기다린다).
   const ownerSaved = f.db.transactions.some((row) => row.source_user_key === OWNER);
-  ok((first.text.includes("공동 가계부를 준비했어요") || first.result === "deferred") && ownerSaved, `소유자 첫 기록이 방 가계부를 준비 (${first.result}: ${first.text.slice(0, 40)})`);
-  for (const command of ["오늘기록", "이번달요약", "남은예산", "정산", "오늘 기록 보기", "이번 달 요약"]) {
+  ok((first.text.includes("저장했어요") || first.result === "deferred") && ownerSaved && !first.text.includes("참여했어요"), `소유자 첫 기록 저장 (${first.result}: ${first.text.slice(0, 40)})`);
+  const firstCall = await skill("@말해가계부 오늘기록", MINA);
+  eq(firstCall.result, "ok", "MINA 첫 호출 오늘기록: 정상 응답");
+  ok(firstCall.text.startsWith("이 방 가계부 ‘이 방의 공동 가계부’에 참여했어요.\n") && firstCall.text.includes("아직 기록이 없어요") && roleOf(MINA) === "member", `MINA 첫 호출: 참여 한 줄 + 내 기록 없음 안내, 구성원 (${firstCall.text.slice(0, 80)})`);
+  assertNextStepRecord(firstCall, "MINA 첫 호출 오늘기록");
+  for (const command of ["이번달요약", "남은예산", "정산", "오늘 기록 보기", "이번 달 요약"]) {
     const r = await skill(`@말해가계부 ${command}`, MINA);
-    eq(r.result, "ok", `참여 전 ${command}: 정상 응답`);
-    eq(r.text, "아직 이 방 가계부에 참여 전이에요.\n기록을 한 번 보내면 바로 참여돼요.\n예) @말해가계부 커피 4500원", `참여 전 ${command}: 세 줄 안내`);
-    assertNextStepRecord(r, `참여 전 ${command}`);
+    eq(r.result, "ok", `구성원 ${command}: 정상 응답`);
+    ok(!r.text.includes("참여 전") && !r.text.includes("참여했어요") && !r.text.includes("기록을 한 번 보내면"), `구성원 ${command}: 참여 전 안내 없음`);
   }
-  // 참여 전에도 설명서는 열린다(읽기 전용).
-  assertHub(await skill("@말해가계부 도움말 보기", MINA), "참여 전 도움말 보기");
+  // 설명서는 누구에게나 열린다(읽기 전용).
+  assertHub(await skill("@말해가계부 도움말 보기", MINA), "구성원 도움말 보기");
 
-  // 3. 참여(첫 기록) 뒤 짧은 이름 → 긴 명령과 같은 길.
+  // 3. 구성원의 첫 기록 → 저장(참여는 호출 때 이미). 짧은 이름 → 긴 명령과 같은 길.
   const joined = await skill("@말해가계부 점심 오천원", MINA);
-  ok(joined.text.includes("참여했어요") && joined.text.includes("저장했어요"), "구성원 첫 기록으로 참여·저장");
+  ok(joined.text.includes("저장했어요") && !joined.text.includes("참여했어요"), "구성원 첫 기록 저장(참여 한 줄은 호출 때 한 번뿐)");
   for (const [label, legacy] of [["오늘기록", "오늘 기록 보기"], ["이번달요약", "이번 달 요약"], ["남은예산", "남은 예산"], ["단톡방연결", "단톡방 연결"], ["기록방법", "기록 방법"]]) {
     const a = await skill(`@말해가계부 ${label}`, MINA);
     const b = await skill(`@말해가계부 ${legacy}`, MINA);

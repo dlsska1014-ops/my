@@ -127,7 +127,14 @@ function householdPageMessage(code = "") {
     household_delete_failed: "가계부 삭제를 완료하지 못했습니다. 데이터는 임의로 숨기지 않았습니다.",
     // V22.9.76 감사 G-2: 연결된 단톡방이 아주 많으면 한 요청의 저장소 호출 한도(50회) 안에 끝낼 수 없어 시작하지 않는다.
     household_delete_too_large: "연결된 단톡방이나 정리할 항목이 많아 한 번에 삭제할 수 없습니다. 아무것도 지우지 않았습니다. 운영자에게 알려 주시면 정리를 도와드릴게요.",
-    household_leave_owner_blocked: "소유자는 바로 나갈 수 없습니다. 소유권 이전 기능이 준비되기 전에는 가계부를 삭제하거나 고객지원에 요청해 주세요.",
+    household_leave_owner_blocked: "소유자는 바로 나갈 수 없습니다. 참여자·초대 화면에서 다른 참여자에게 소유자를 양도한 뒤 나가거나, 가계부를 삭제해 주세요.",
+    // V22.9.115: 소유자 양도(참여자·초대 화면 POST /my/household/transfer-owner).
+    owner_transferred: "소유자를 양도했습니다. 나는 이제 이 가계부의 관리자입니다.",
+    owner_transfer_not_owner: "소유자 양도는 가계부 소유자만 할 수 있습니다.",
+    owner_transfer_target_invalid: "양도할 참여자를 찾지 못했거나 관리자·구성원이 아닙니다. 승인 대기·조회 전용·이용 제한인 참여자는 먼저 권한을 바꿔 주세요.",
+    owner_transfer_self: "나 자신에게는 소유자를 양도할 수 없습니다.",
+    owner_transfer_partial: "상대를 소유자로 올렸지만 내 권한을 관리자로 바꾸지 못해 소유자가 둘인 상태입니다. 같은 참여자에게 ‘소유자 양도’를 한 번 더 누르면 내 권한만 관리자로 바뀝니다.",
+    owner_transfer_failed: "소유자를 양도하지 못했습니다. 권한은 그대로입니다. 잠시 후 다시 시도하세요.",
     household_leave_not_member: "현재 이 가계부의 참여자가 아닙니다.",
     household_leave_ack_required: "가계부에서 나가기 전 확인 항목에 동의해 주세요.",
     household_leave_failed: "가계부에서 나오지 못했습니다. 참여 상태는 그대로 유지됩니다.",

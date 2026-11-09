@@ -158,7 +158,8 @@ await scenario("A-18 단톡방", async (fx) => {
   const reply = (await said("오늘 뭐 썼어", member)).text;
   ok(reply.includes(`🧾 ${DAY} 기록`) && reply.includes("01번 - 커피") && listedLines(reply).length === 1 && !/점심|택시|최근 입력 내역/.test(reply), `A-18 단톡방: 그 방 가계부의 오늘 내 기록만 (${reply.slice(0, 200)})`);
   const none = (await said("오늘 뭐 썼어", "bot-a18-newcomer")).text;
-  eq(none, "아직 이 방 가계부에 참여 전이에요.\n기록을 한 번 보내면 바로 참여돼요.\n예) @말해가계부 커피 4500원", "A-18 단톡방: 아직 참여하지 않은 사람에게는 이 방 기록을 보이지 않고 참여 전 안내만 한다");
+  // V22.9.115: 부르기만 해도 그 자리에서 참여한다. 그래도 남의 기록은 보이지 않고(내 기록만), 참여 한 줄 뒤 빈 내 기록 안내다.
+  ok(none.startsWith("이 방 가계부 ‘이 방의 공동 가계부’에 참여했어요.\n") && none.includes("아직 기록이 없어요") && !/점심|택시|01번/.test(none), `A-18 단톡방: 처음 부른 사람은 참여하고 남의 기록은 보지 않는다 (${none.slice(0, 160)})`);
 }, { secret: true, selections: [] });
 
 // ── B-8. 복구가 끝나지 않았을 때의 안내: 잠금 충돌이면 먼저 확인, 번호를 붙인 복구는 번호 그대로 ───────────────
@@ -262,17 +263,21 @@ await scenario("B-10 연결된 방의 승인 대기·참여 전", async (fx) => 
   const outsiderDepartedId = person("bot-b10-outsider-departed", "나간사람");
   putSetting(fx, `kakao_group_departed_v22931:${sha(outsiderDepartedId)}`, JSON.stringify(departedMarker(hid)));
 
-  // 승인 대기: 이 방 가계부는 승인 없이 기록 한 번이면 참여한다 — 안내가 그렇게 말하고, 실제로 그렇게 된다.
-  for (const command of ["이번 달 요약", "오늘 기록 보기", "남은 예산"]) {
+  // V22.9.115: 승인 대기인 사람도 부르기만 하면 구성원이 된다 — 첫 호출에 참여 한 줄이 붙고 그 명령이 처리된다. "관리자가 승인해야"는 말하지 않는다.
+  const firstPending = (await said("이번 달 요약", "bot-b10-pending")).text;
+  ok(/^이 방 가계부 ‘.+’에 참여했어요\.\n/.test(firstPending) && firstPending.includes("이번 달 요약") && !firstPending.includes("승인해야") && !firstPending.includes("승인 대기 중입니다"), `B-10 승인 대기 사람의 첫 호출은 참여 한 줄 + 그 명령의 답 (${firstPending.slice(0, 160)})`);
+  eq(roleOf(fx, pendingId, hid), "member", "B-10 승인 대기는 호출 한 번에 구성원이 된다(V22.9.115)");
+  ok(!firstPending.includes("7월 제주여행"), "B-10 방과 관계없는 가계부(내가 승인 대기 중인 다른 가계부)의 이름을 방에 보이지 않는다: 첫 호출");
+  for (const command of ["오늘 기록 보기", "남은 예산"]) {
     const reply = (await said(command, "bot-b10-pending")).text;
-    ok(!reply.includes("승인해야") && !reply.includes("승인 대기 중입니다") && reply.includes("승인 없이 기록을 한 번 보내면 바로 참여돼요"), `B-10 승인 대기 사람에게 "관리자가 승인해야"라고 하지 않는다: ‘${command}’ (${reply.slice(0, 160)})`);
-    ok(!reply.includes("7월 제주여행"), `B-10 방과 관계없는 가계부(내가 승인 대기 중인 다른 가계부)의 이름을 방에 보이지 않는다: ‘${command}’`);
+    ok(!reply.includes("승인해야") && !reply.includes("승인 대기 중입니다") && !reply.includes("참여했어요") && !reply.includes("참여 전"), `B-10 구성원이 된 뒤 ‘${command}’ 는 보통 답 (${reply.slice(0, 160)})`);
+    ok(!reply.includes("7월 제주여행"), `B-10 방과 관계없는 가계부의 이름을 방에 보이지 않는다: ‘${command}’`);
   }
   const info = (await said("단톡방 정보", "bot-b10-pending")).text;
-  ok(info.includes("내 권한: 승인대기") && info.includes("이 방에서 거래를 한 번 보내면 바로 참여해요"), `B-10 ‘단톡방 정보’도 승인 대기 사람에게 기록 한 번으로 참여한다고 말한다 (${info.slice(0, 200)})`);
+  ok(info.includes("내 권한: 구성원") && !info.includes("승인대기"), `B-10 ‘단톡방 정보’도 구성원이라고 말한다 (${info.slice(0, 200)})`);
   const joined = (await said("음료 1500", "bot-b10-pending")).text;
-  eq(roleOf(fx, pendingId, hid), "member", "B-10 안내한 대로 기록 한 번에 구성원이 된다");
-  ok(joined.includes("참여했어요") && joined.includes("음료"), "B-10 그 기록도 저장된다");
+  eq(roleOf(fx, pendingId, hid), "member", "B-10 기록해도 구성원 그대로");
+  ok(joined.includes("음료") && joined.includes("저장했어요") && !joined.includes("참여했어요"), `B-10 그 기록은 저장되고 참여 한 줄은 다시 붙지 않는다 (${joined.slice(0, 120)})`);
 
   // 나간 이력이 있는 승인 대기: 자동 참여가 없으니 승인을 기다려야 한다고 말하고, 실제로 참여되지 않는다.
   const departedPending = (await said("이번 달 요약", "bot-b10-pending-departed")).text;
@@ -281,9 +286,10 @@ await scenario("B-10 연결된 방의 승인 대기·참여 전", async (fx) => 
   await said("음료 1600", "bot-b10-pending-departed");
   ok(roleOf(fx, pendingDepartedId, hid) === "pending" && fx.db.transactions.length === countBefore, "B-10 그 말대로 기록해도 참여되지 않고 저장되지 않는다");
 
-  // 참여 전: 일반은 예전 문구 그대로, 나간 이력이 있으면 자동 참여가 없다고 말한다.
+  // 참여 전(V22.9.115): 처음 온 사람은 부르기만 해도 참여하고 그 명령의 답을 받는다. 나간 이력이 있으면 자동 참여가 없다고 말한다.
   const stranger = (await said("이번 달 요약", "bot-b10-stranger")).text;
-  eq(stranger, "아직 이 방 가계부에 참여 전이에요.\n기록을 한 번 보내면 바로 참여돼요.\n예) @말해가계부 커피 4500원", "B-10 처음 온 사람의 안내는 예전과 같다");
+  ok(/^이 방 가계부 ‘.+’에 참여했어요\.\n/.test(stranger) && stranger.includes("이번 달 요약") && !stranger.includes("참여 전"), `B-10 처음 온 사람은 호출 한 번에 참여하고 요약을 받는다 (${stranger.slice(0, 160)})`);
+  eq(roleOf(fx, fx.db.users.find((u) => u.kakao_user_key === "bot-b10-stranger")?.id, hid), "member", "B-10 처음 온 사람이 구성원 행을 갖는다");
   const departedOutsider = (await said("이번 달 요약", "bot-b10-outsider-departed")).text;
   ok(departedOutsider.includes("나간 이력") && departedOutsider.includes("자동으로 참여하지 않아요") && !departedOutsider.includes("바로 참여돼요"), `B-10 나간 이력이 있는 사람에게 "기록을 보내면 바로 참여돼요"라고 하지 않는다 (${departedOutsider.slice(0, 200)})`);
   const infoDeparted = (await said("단톡방 정보", "bot-b10-outsider-departed")).text;
@@ -305,7 +311,8 @@ await scenario("B-10 연결 없는 방의 상태", async (fx) => {
   };
   const never = await asks("room-b10-never");
   for (const [command, text] of Object.entries(never)) ok(!text.includes("어디에도 저장하지 않았어요") && !text.includes("삭제됐거나") && !text.includes("만드는 중"), `B-10 한 번도 연결된 적 없는 방: ‘${command}’ 답이 기록을 저장하지 않았다거나 삭제·해제·만드는 중이라고 하지 않는다`);
-  ok(never["오늘 기록 보기"].includes("기록하면 이 방 가계부가 바로 만들어져요") && never["시작"].includes("첫 기록을 보내면 바로 만들어져요"), "B-10 한 번도 연결된 적 없는 방은 기록하면 만들어진다고 말한다(예전과 같음)");
+  // V22.9.115: 한 번도 연결된 적 없는 방은 첫 호출(조회여도)로 만들어지고 첫 호출자가 소유자다. 그 뒤 ‘단톡방 정보’·‘시작’은 연결된 방의 상태를 말한다.
+  ok(never["오늘 기록 보기"].startsWith("이 방의 공동 가계부를 준비했어요. 첫 호출자인 내가 소유자예요.") && never["시작"].includes("내 권한: 소유자") && !never["시작"].includes("바로 만들어져요"), `B-10 한 번도 연결된 적 없는 방은 첫 호출로 만들어지고 첫 호출자가 소유자다 (${never["단톡방 정보"].slice(0, 120)})`);
   const preparing = await asks("room-b10-preparing");
   for (const [command, text] of Object.entries(preparing)) ok(text.includes("만드는 중") && !text.includes("바로 만들어져요") && !text.includes("삭제됐거나"), `B-10 가계부를 만드는 중인 방: ‘${command}’ 답이 만드는 중이라고 말한다 (${text.slice(0, 120)})`);
   const retired = await asks("room-b10-retired");

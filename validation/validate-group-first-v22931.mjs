@@ -194,12 +194,15 @@ for (const options of [{ group: "" }, { group: "", requestFields: { chat: { id: 
     }
   });
 }
+// V22.9.115: 확인된 요청 + 명시된 방 키이면 어떤 호출(인사·도움말·시작·조회·설정·숫자·잡담·웹 열기)이든 첫 호출자를 소유자로 공동 가계부를 준비한다
+// (설명서·빈 멘션은 답 뒤에서). 위조·추정 키·확인되지 않은 요청은 위 반복문대로 만들지 못한다.
 for (const utterance of ["안녕", "도움말", "시작", "이번 달 요약", "오늘 기록 보기", "예산 설정", "5000", "내일 보자", "웹 가계부 열기"]) {
   await withFixture(async f => {
     const before = f.db.households.length, members = f.db.household_members.length;
     const result = await skill(f, utterance);
-    eq(f.db.households.length, before, `${utterance}: no preparation without an explicit transaction`);
-    eq(f.db.household_members.length, members, `${utterance}: no automatic membership`);
+    eq(f.db.households.length, before + 1, `${utterance}: a trusted room call prepares the ledger (V22.9.115)`);
+    eq(f.db.household_members.length, members + 1, `${utterance}: exactly one membership row for the first caller`);
+    eq(f.db.household_members.at(-1).role, "owner", `${utterance}: the first caller is the owner`);
     ok(!codePattern.test(textOf(result.body)), `${utterance}: group contains no private web code`);
   });
 }
@@ -360,13 +363,14 @@ for (const failure of ["settings", "membership", "malformed-household", "null-ho
   });
 }
 
-// A query/help invocation by a new participant does not itself grant room membership.
+// V22.9.115: a query/help invocation by a new participant joins them on that call (no approval, member not owner); reading still never records anything.
 await withFixture(async f => {
   await skill(f, "커피 4500");
   const before = f.db.household_members.length, count = f.db.transactions.length;
   for (const utterance of ["시작", "도움말", "이번 달 요약", "오늘 기록 보기", "웹 가계부 열기"]) {
     const result = await skill(f, utterance, { key: `${f.key}-observer` });
-    eq(f.db.household_members.length, before, `${utterance}: no automatic participation from reading`);
+    eq(f.db.household_members.length, before + 1, `${utterance}: the observer joins once on the first call (V22.9.115)`);
+    eq(f.db.household_members.at(-1).role, "member", `${utterance}: the observer is a member, not an owner`);
     eq(f.db.transactions.length, count, `${utterance}: no recording from reading`);
     ok(!codePattern.test(textOf(result.body)), `${utterance}: no observer web credential`);
   }

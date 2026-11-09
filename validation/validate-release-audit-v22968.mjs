@@ -109,13 +109,14 @@ await withFixture("g1", async (f) => {
 // ---------- 단톡방 2: unlinked-room text follows the room state ----------
 await withFixture("g2", async (f) => {
   const fresh = await say(f, "안녕");
-  ok(fresh.text.includes("‘커피 4500원’처럼 기록하면 이 방 가계부가 바로 만들어져요."), "g2: a non-record in a new room promises auto-provisioning");
+  // V22.9.115: 가계부 없는 방에서 봇을 부르기만 해도(기록이 아니어도) 첫 호출자를 소유자로 공동 가계부가 준비된다.
+  ok(fresh.text.startsWith("이 방의 공동 가계부를 준비했어요. 첫 호출자인 내가 소유자예요."), `g2: a non-record in a new room provisions the room for the first caller (${fresh.text.slice(0, 80)})`);
   ok(!/방금 (?:입력한 )?기록은 어디에도 저장하지 않았어요/.test(fresh.text), "g2: a non-record is not described as a rejected record");
   ok(!/다시 만들지 않/.test(fresh.text), "g2: a new room is not described as retired");
   const start = await say(f, "시작");
-  ok(start.text.includes("바로 만들어져요"), "g2: 시작 in a new room promises auto-provisioning");
+  ok(start.text.includes("내 권한: 소유자") && !start.text.includes("바로 만들어져요"), `g2: 시작 after the first call shows the owner state (${start.text.slice(0, 80)})`);
   const first = await say(f, "커피 4500원");
-  ok(first.text.includes("공동 가계부를 준비했어요"), "g2: the promised record provisions the room");
+  ok(first.text.includes("저장했어요") && first.text.includes("가계부: 이 방의 공동 가계부") && !first.text.includes("공동 가계부를 준비했어요"), "g2: the first record lands in the already provisioned room");
 
   // retired room: seed the retired marker for another room and ask around
   const keys = await runtime.kakaoGroupFirstKeys("room-g2-retired");

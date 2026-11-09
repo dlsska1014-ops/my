@@ -135,20 +135,19 @@ await section("1 /demo 일곱째 단계", async () => {
     const total = records.reduce((sum, r) => sum + amountOf(r.text), 0);
     ok(real.includes(`총 지출: ${won(total)}`) && real.includes(`참여자: ${records.length}명`) && real.includes(`1인 기준: ${won(total / records.length)}`) && real.includes("송금 제안"), "1-t 답의 총 지출·참여자·1인 기준이 네 기록의 합·4명·4분의 1이고 송금 제안이 있다");
 
-    // ── 2-가. 같은 방으로 본 절의 사실: 참여 전·초대코드 승인·지출자 바꾸기·웹 정산 ──
+    // ── 2-가. 같은 방으로 본 절의 사실(V22.9.115): 봇을 한 번도 부르지 않은 사람은 참여 전, 부르면 승인 없이 구성원, 조회 전용으로 바꾸면 빠짐 ──
     const harin = keyOf("하린");
-    const outsider = await roomSay(fx, room, harin, "@말해가계부 정산");
-    ok(outsider.includes("아직 이 방 가계부에 참여 전이에요") && !roleOf(fx, household?.id, harin), "2-a 기록을 한 번도 보내지 않은 사람은 ‘참여 전’ 안내를 받고 가계부 참여자가 아니다(절: 참여 전이라 빠집니다)");
-    const joined = await roomSay(fx, room, harin, `@말해가계부 가계부 참여 ${household?.invite_code}`);
-    ok(joined.includes("승인 대기") && roleOf(fx, household?.id, harin) === "pending", "2-b 초대코드로 참여를 요청하면 승인 대기다(절: 초대코드로 참여를 요청)");
-    ok((await roomSay(fx, room, keyOf(ME), "@말해가계부 정산")).split("\n").includes("참여자: 4명"), "2-c 승인 대기인 사람은 정산에서 빠진다(참여자 4명 그대로)");
+    ok(!userIdOf(fx, harin) && (await roomSay(fx, room, keyOf(ME), "@말해가계부 정산")).split("\n").includes("참여자: 4명"), "2-a 봇을 한 번도 부르지 않은 사람은 참여 전이라 정산에서 빠진다(참여자 4명)(절: 참여 전이라 빠집니다)");
+    const called = (await roomSay(fx, room, harin, "@말해가계부 정산")).split("\n");
+    ok(called[0] === "이 방 가계부 ‘이 방의 공동 가계부’에 참여했어요." && roleOf(fx, household?.id, harin) === "member", `2-b 낸 돈이 없는 사람도 방에서 봇을 한 번 부르면 승인 없이 바로 구성원이 된다(절: 봇을 한 번 부르면 … 바로 구성원) (${called[0]})`);
+    ok(called.includes("참여자: 5명") && called.includes(`1인 기준: ${won(total / 5)}`), "2-c 그 ‘정산’ 답부터 함께 나눈다(5명, 1인 기준 80,000원)(절: 함께 나눕니다)");
     const ownerCookie = await fx.cookieFor(userIdOf(fx, keyOf(ME)));
     const members = await page(fx, `/my/members?household_id=${encodeURIComponent(household?.id)}`, { cookie: ownerCookie });
-    ok(members.status === 200 && members.html.includes(`name="user_id" value="${userIdOf(fx, harin)}"`) && members.html.includes('<option value="pending" selected>승인 대기</option>') && members.html.includes('<option value="member">구성원 · 기록 가능</option>'), "2-d 소유자의 웹 ‘참여자·초대’(/my/members)에 그 사람의 권한 칸(승인 대기 → 구성원)이 있다");
-    const promoted = await post(fx, "/admin/member/update", { household_id: household?.id, user_id: userIdOf(fx, harin), role: "member", return_to: `/my/members?household_id=${household?.id}` }, { cookie: ownerCookie });
-    ok(promoted.status === 303 && roleOf(fx, household?.id, harin) === "member", "2-e 소유자가 권한을 구성원으로 바꾼다");
-    const five = (await roomSay(fx, room, keyOf(ME), "@말해가계부 정산")).split("\n");
-    ok(five.includes("참여자: 5명") && five.includes(`1인 기준: ${won(total / 5)}`), "2-f 구성원이 되면 낸 돈이 없어도 함께 나눈다(5명, 1인 기준 80,000원)(절: 구성원으로 바꾸면 함께 나눕니다)");
+    ok(members.status === 200 && members.html.includes(`name="user_id" value="${userIdOf(fx, harin)}"`) && members.html.includes('<option value="member" selected>구성원 · 기록 가능</option><option value="viewer">조회 전용</option>'), "2-d 소유자의 웹 ‘참여자·초대’(/my/members)에 그 사람의 권한 칸(구성원 → 조회 전용)이 있다");
+    const demoted = await post(fx, "/admin/member/update", { household_id: household?.id, user_id: userIdOf(fx, harin), role: "viewer", return_to: `/my/members?household_id=${household?.id}` }, { cookie: ownerCookie });
+    ok(demoted.status === 303 && roleOf(fx, household?.id, harin) === "viewer", "2-e 소유자가 권한을 조회 전용으로 바꾼다");
+    const four = (await roomSay(fx, room, keyOf(ME), "@말해가계부 정산")).split("\n");
+    ok(four.includes("참여자: 4명") && four.includes(`1인 기준: ${won(total / 4)}`), "2-f 조회 전용은 나누는 사람에서 빠진다(4명)(절: 조회 전용으로 바꿔 나누는 사람에서 뺄 수 있습니다)");
 
     const txOf = (name) => fx.db.transactions.find((row) => row.household_id === household?.id && row.user_id === userIdOf(fx, keyOf(name)));
     const coffee = txOf("도윤"), rental = txOf("서연");
@@ -180,7 +179,7 @@ await section("2 /group-accountbook 모임 총무로 쓰기", async () => {
     "‘@말해가계부 숙소 200000원’처럼 한 줄씩 보내면", "보낸 사람이 지출자가 됩니다", "소유자·관리자가 웹 거래 내역에서 지출자를 바꿉니다",
     "‘정산’이라고 보냅니다", "‘내 이름 민지’처럼 정해 둔 이름", "‘카카오사용자 1’처럼 번호가 붙습니다",
     "‘회비 30000원 입금’처럼 수입으로", "‘이번 달 요약’에서 수입과 지출을 함께 봅니다", "수입은 넣지 않습니다", "자기 돈을 낸 것처럼 계산되므로",
-    "참여 전이라 빠집니다", "초대코드로 참여를 요청하고", "권한을 구성원으로 바꾸면 함께 나눕니다",
+    "참여 전이라 빠집니다", "봇을 한 번 부르면", "승인 없이 바로 구성원이 되어 함께 나눕니다", "조회 전용으로 바꿔 나누는 사람에서 뺄 수 있습니다",
     "이번 달 지출을 똑같이 나누고", "각각 8개까지", "달과 방식을 골라", "정산은 달 단위입니다", "송금은 자동으로 하지 않습니다", "완료 이력을 남길 수 있습니다",
   ];
   eq(claims.filter((claim) => !groupText.includes(claim)), [], "2-p 절이 아래에서 앱과 대조하는 문장들을 그대로 적는다");

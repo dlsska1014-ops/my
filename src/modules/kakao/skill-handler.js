@@ -1,13 +1,17 @@
 // @build:imports-start
 import {
   boundedRuntimeNumber, checkSkillRateLimit, nluOutcomeFromKakaoResponse, rateLimitedKakaoText,
-  rememberDuplicateEvent, rememberNluRuntimeEvent, rememberSkillEvent, scheduleNluOpsPersistence,
+  rememberDuplicateEvent, rememberNluRuntimeEvent, rememberOpsEvent, rememberSkillEvent,
+  scheduleNluOpsPersistence,
 } from "../runtime/ops-telemetry.js";
 import { abMonitorOutcome } from "../runtime/ops-monitor.js";
 import { APP_VERSION, publicBaseUrl } from "../public/site-config.js";
 import { moneyTokenSpans } from "../client/shared-input-parsers.js";
 import { foreignCurrencyAmountIn } from "../client/shared-input-nlu.js";
-import { finishKakaoMessageLeases, runKakaoAfterReply, safeError } from "../runtime/leases.js";
+import {
+  deferKakaoAfterReply, finishKakaoMessageLeases, runKakaoAfterReply, safeError,
+} from "../runtime/leases.js";
+import { jsonResponse } from "../runtime/http.js";
 import {
   kakaoSkillCallerAuthorized, randomEntityId, rememberSkillLatency, sha256Hex,
 } from "../auth/crypto-admin-session.js";
@@ -74,9 +78,10 @@ import {
 import { readJson } from "../api/admin-api.js";
 import {
   bindKakaoGroupByInviteCode, getExplicitKakaoBotGroupKey, getKakaoBotGroupKey,
-  getLinkedKakaoGroupHousehold, kakaoGroupInfoText, kakaoRoomBindConfirmLine, kakaoRoomBindDoneText,
-  kakaoRoomDepartedFromHousehold, kakaoRoomPhaseOf, readKakaoGroupFirstSnapshot,
-  readKakaoRoomRoutingSnapshot, startKakaoRoomRecordSnapshot, tryKakaoGroupFirstRecord,
+  getLinkedKakaoGroupHousehold, joinKakaoRoomOnCallV229115, kakaoGroupInfoText,
+  kakaoRoomBindConfirmLine, kakaoRoomBindDoneText, kakaoRoomDepartedFromHousehold, kakaoRoomPhaseOf,
+  readKakaoGroupFirstSnapshot, readKakaoRoomRoutingSnapshot, startKakaoRoomRecordSnapshot,
+  tryKakaoGroupFirstRecord,
 } from "./group-links-first-record.js";
 import {
   getKakaoIdentityAliases, getKakaoNickname, getKakaoUserKey, hasChatFirstKakaoIdentity,
@@ -209,6 +214,8 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     let response;
     try { response = await handleKakaoSkill(cloned, env, { canDeferSave, usage }); }
     finally { await finishKakaoMessageLeases(env); }
+    // V22.9.115: 방 명령을 처리하다 그 자리에서 이 방 가계부에 들였으면(또는 첫 호출자로 공동 가계부를 준비했으면) 답 맨 앞에 한 줄로 알린다(답 모양과 무관).
+    response = await prependKakaoRoomJoinNoticeV229115(response, env);
     const normalizedResponse = await normalizeKakaoSkillResponse(response, origin);
     const safeResponse = await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin);
     const latencyMs = Date.now() - skillStartedAt;
@@ -270,6 +277,21 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   deferredHeaders.set("x-accountbook-request-id", requestId);
   deferredHeaders.set("x-accountbook-latency-ms", String(Date.now() - skillStartedAt));
   return new Response(deferred.body, { status: deferred.status, statusText: deferred.statusText, headers: deferredHeaders });
+}
+
+// V22.9.115: 방 명령 처리 중 들인 사실(skill-handler 본문이 env.__AB_KAKAO_REQUEST.roomJoinNotice 에 적음)을 답 맨 앞 simpleText 한 줄로 끼운다.
+// 출력이 이미 셋(카카오 상한)이거나 JSON 답이 아니면 그대로 둔다. 시작·도움말·웹가계부는 자기 답에 상태를 넣으므로 이 줄을 쓰지 않는다.
+async function prependKakaoRoomJoinNoticeV229115(response, env) {
+  const notice = String(env?.__AB_KAKAO_REQUEST?.roomJoinNotice || "").trim();
+  if (!notice || !response || response.status !== 200) return response;
+  try {
+    const body = await response.clone().json();
+    const outputs = body?.template?.outputs;
+    if (!Array.isArray(outputs) || !outputs.length || outputs.length >= 3) return response;
+    return jsonResponse({ ...body, template: { ...body.template, outputs: [{ simpleText: { text: notice } }, ...outputs] } }, 200);
+  } catch (_) {
+    return response;
+  }
 }
 
 // V22.9.67: 단톡방 메시지 버튼은 messageText 가 아니라 버튼 이름을 그대로 보낸다(2026-10-19 운영 확인).
@@ -371,11 +393,43 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   const firstRecordInput = strongTransactionInput || isKakaoFirstRecordInput(commandText, preParsedList);
   const kakaoUserKey = getKakaoUserKey(payload);
   const nickname = getKakaoNickname(payload);
+  const skillConfigured = !!(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
+  const botGroupKey = getKakaoBotGroupKey(payload);
+  // V22.9.77 감사 B-7: Secret 으로 확인된 요청만 appUserId 로 기존 웹 계정을 찾는다(ensureUser 의 trustedKakaoCaller).
+  const trustedKakaoCaller = trustedChatFirstSkillCaller(request, env);
+  const trustedIdentity = trustedKakaoCaller && hasChatFirstKakaoIdentity(payload, kakaoUserKey);
+  // V22.9.115(사용자 결정 2026-11-09): 단톡방에서 봇을 부르기만 해도 이 방 가계부의 구성원으로 들이고, 가계부가 없는 방이면 첫 호출자를 소유자로 공동 가계부를
+  // 준비한다(group-links-first-record.js joinKakaoRoomOnCallV229115). Secret 으로 확인된 요청 + 명시된 botGroupKey 일 때만(위조·추정 키 제외, 기록 경로와 같은 조건).
+  // 설명서·빈 멘션은 답을 늦추지 않도록 답 뒤(deferKakaoAfterReply)에서, 웹가계부·시작·도움말·그 밖의 명령은 답 내용이 달라지므로 그 자리에서 들인다.
+  // 들이지 않는 경우(나간 이력·해제된 방·조회 전용·이용 제한·실패)는 예전 안내가 그대로 답한다. 기록(groupFirstRecord)은 예전 경로 그대로다.
+  const roomJoinEligible = skillConfigured && !!botGroupKey && trustedIdentity && getExplicitKakaoBotGroupKey(payload) === botGroupKey;
+  const joinRoomOnCallSync = async ({ user: knownUser = null, role, source = "command" } = {}) => {
+    if (!roomJoinEligible) return null;
+    try {
+      const joiner = knownUser || await ensureUser(env, kakaoUserKey, nickname, getKakaoIdentityAliases(payload, kakaoUserKey), { seedChatFirst: false, create: trustedKakaoCaller, trustedKakaoCaller });
+      if (!joiner?.id) return null;
+      return await joinKakaoRoomOnCallV229115(env, { payload, user: joiner, kakaoUserKey, nickname, origin, utterance, groupKey: botGroupKey, role, source });
+    } catch (err) {
+      rememberOpsEvent({ kind: "kakao_room_join_failed", severity: "warn", path: "/skill", method: "POST", detail: `${source}:${safeError(err)}` });
+      return null;
+    }
+  };
+  const deferRoomJoinOnCall = async (source) => {
+    if (!roomJoinEligible) return;
+    await deferKakaoAfterReply(env, () => joinRoomOnCallSync({ source }), { cost: 26 });
+  };
+  const roomJoinNoticeLine = (joined) => !joined?.ok || joined.skipped ? ""
+    : joined.roomCreatedNow ? "이 방의 공동 가계부를 준비했어요. 첫 호출자인 내가 소유자예요."
+    : joined.joinedNow ? `이 방 가계부 ‘${joined.household?.name || "가계부"}’에 참여했어요.` : "";
+  const roomJoinStatusLine = (joined) => joined.roomCreatedNow ? "첫 호출자인 내가 소유자예요. 이 방에서 봇을 부르는 참여자는 자동으로 구성원이 돼요."
+    : joined.joinedNow ? `내 권한: ${userHouseholdRoleLabel(joined.role)} · 방금 이 방 가계부에 참여했어요.`
+    : `내 권한: ${userHouseholdRoleLabel(joined.role)}`;
+  const roomJoinedResult = (joined) => !!(joined?.ok && !joined.skipped && joined.household?.id);
 
   if (!utterance) {
     if (hasKakaoImageAttachment(payload)) return kakaoText(kakaoImageNotSupportedText(origin));
-    // 단톡방에서 봇만 멘션한 빈 발화: 짧은 안내 + 도움말·챗봇 멘션하기 버튼으로 다음 발화를 유도한다.
-    if (getKakaoBotGroupKey(payload)) return kakaoGroupEmptyMentionReply();
+    // 단톡방에서 봇만 멘션한 빈 발화: 짧은 안내 + 도움말·챗봇 멘션하기 버튼으로 다음 발화를 유도한다. V22.9.115: 부른 사람을 답 뒤에 이 방 가계부에 들인다.
+    if (botGroupKey) { await deferRoomJoinOnCall("mention"); return kakaoGroupEmptyMentionReply(); }
     return kakaoManualReply("home", { group: false });
   }
 
@@ -385,17 +439,13 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   const rawManualUtterance = String(payload?.userRequest?.utterance || payload?.utterance || "");
   const manualTopic = strongTransactionInput ? ""
     : kakaoManualTopic(rawManualUtterance) || kakaoManualTopic(utterance) || (isInputExampleCommand(utterance) ? "record" : "");
-  if (manualTopic) return kakaoManualReply(manualTopic, { group: !!getKakaoBotGroupKey(payload) });
+  // V22.9.115: 설명서를 부른 사람도 답 뒤에 이 방 가계부에 들인다(답은 예전처럼 바로).
+  if (manualTopic) { await deferRoomJoinOnCall("manual"); return kakaoManualReply(manualTopic, { group: !!botGroupKey }); }
 
   const bypassPublic = !!separatePurchaseCommand || isKakaoStartCommand(utterance) || isHelpCommand(utterance) || isCommandMenuCommand(utterance) ||
     isKakaoCreateFlowCommand(utterance) || isKakaoJoinFlowCommand(utterance) || isKakaoBudgetSetupCommand(utterance) ||
     isKakaoMemberAliasCommand(utterance) || !!parseKakaoSummaryRange(utterance) || !!parseKakaoMemberPolicyCommand(utterance);
   const earlyReply = strongTransactionInput || bypassPublic ? "" : kakaoPublicCommandReply(utterance, origin, env);
-  const skillConfigured = !!(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
-  const botGroupKey = getKakaoBotGroupKey(payload);
-  // V22.9.77 감사 B-7: Secret 으로 확인된 요청만 appUserId 로 기존 웹 계정을 찾는다(ensureUser 의 trustedKakaoCaller).
-  const trustedKakaoCaller = trustedChatFirstSkillCaller(request, env);
-  const trustedIdentity = trustedKakaoCaller && hasChatFirstKakaoIdentity(payload, kakaoUserKey);
   const seedChatFirst = !botGroupKey && trustedIdentity;
   const groupFirstRecord = !!botGroupKey && trustedIdentity && firstRecordInput && getExplicitKakaoBotGroupKey(payload) === botGroupKey;
   const roomRecordRead = !!botGroupKey && trustedIdentity && preParsedList.length > 0 && !earlyReply && getExplicitKakaoBotGroupKey(payload) === botGroupKey;
@@ -449,7 +499,10 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
 
   if (earlyReply) {
     // V22.9.88(Y-7): 단톡방 ‘웹가계부’는 웹 가계부를 바로 여는 링크 버튼 카드로 답한다(카카오 심사: 답 글에 주소를 넣지 않는다).
-    if (skillConfigured && botGroupKey && isLinkCommand(utterance)) return kakaoWebLedgerReply(origin);
+    if (skillConfigured && botGroupKey && isLinkCommand(utterance)) {
+      // V22.9.115: 누르기 전에 이 방 가계부 구성원으로 들인다(가계부 없는 방은 첫 호출자가 소유자). 그래야 단추가 로그인 화면 없이 이 방 가계부 홈을 연다(V22.9.105 R-1).
+      return kakaoWebLedgerReply(origin, roomJoinNoticeLine(await joinRoomOnCallSync({ source: "link" })));
+    }
     if (skillConfigured && isLinkCommand(utterance)) return kakaoText(await kakaoPrivateWebLinkReply(request, env, payload, kakaoUserKey, nickname, origin));
     return kakaoText(earlyReply);
   }
@@ -516,6 +569,12 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     ]);
     const active = kakaoActiveHouseholds(households);
     if (botGroupKey) {
+      // V22.9.115: 시작을 부른 사람도 이 방 가계부에 들인다(가계부 없는 방은 첫 호출자가 소유자로 준비). 들였으면 그 상태를 한 줄로 말하고, 못 들인 경우(나간 이력·해제된 방·실패)는 예전 안내.
+      const startRole = linkedGroupHousehold?.id ? String(households.find((h) => String(h.id) === String(linkedGroupHousehold.id))?.role || "") : "";
+      const startJoined = !linkedGroupHousehold?.id || !startRole || startRole === "pending" ? await joinRoomOnCallSync({ user, role: linkedGroupHousehold?.id ? startRole : undefined, source: "start" }) : null;
+      if (roomJoinedResult(startJoined)) {
+        return kakaoManualReply("home", { group: true, statusLine: [`이 방 가계부: ${startJoined.household.name}`, roomJoinStatusLine(startJoined)].join("\n") });
+      }
       // V22.9.68: 시작은 버튼형 사용 설명서 첫 화면으로 답하고, 지금 상태를 한 줄로 알려 준다.
       if (!linkedGroupHousehold?.id) {
         return kakaoManualReply("home", { group: true, statusLine: unlinkedRoomStatusLine(await unlinkedRoomTextOptions(false)) });
@@ -547,6 +606,14 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     ]);
     const active = kakaoActiveHouseholds(households);
     // V22.9.65: 도움말·사용법은 버튼형 사용 설명서 첫 화면으로 답하고, 지금 상태를 한 줄로 알려 준다.
+    if (botGroupKey) {
+      // V22.9.115: 도움말을 부른 사람도 이 방 가계부에 들인다(시작과 같다).
+      const helpRole = linkedGroupHousehold?.id ? String(households.find((h) => String(h.id) === String(linkedGroupHousehold.id))?.role || "") : "";
+      const helpJoined = !linkedGroupHousehold?.id || !helpRole || helpRole === "pending" ? await joinRoomOnCallSync({ user, role: linkedGroupHousehold?.id ? helpRole : undefined, source: "help" }) : null;
+      if (roomJoinedResult(helpJoined)) {
+        return kakaoManualReply("home", { group: true, statusLine: [`이 방 가계부: ${helpJoined.household.name}`, roomJoinStatusLine(helpJoined)].join("\n") });
+      }
+    }
     if (botGroupKey && !linkedGroupHousehold?.id) {
       // V22.9.68 감사(단톡방 2): 해제·삭제된 방에는 "첫 기록을 보내면 만들어져요"라고 하지 않는다.
       return kakaoManualReply("home", { group: true, statusLine: unlinkedRoomStatusLine(await unlinkedRoomTextOptions(false)) });
@@ -691,6 +758,21 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
       return kakaoText(`‘${pendingRows[0].name}’ 참여 요청 취소 결과를 확인하지 못했어요. ‘시작’으로 현재 상태를 먼저 확인해 주세요.`);
     }
     return kakaoText(`✅ ‘${pendingRows[0].name}’ 참여 요청을 취소했어요.\n다시 참여하려면 초대코드를 다시 보내 주세요.`);
+  }
+  // V22.9.115: 단톡방에서 봇을 부르기만 해도 이 방 가계부의 구성원으로 들이고(승인 대기도 구성원으로), 가계부가 없는 방이면 첫 호출자를 소유자로 공동 가계부를 준비해
+  // 그 가계부로 명령을 잇는다(답 맨 앞 한 줄은 래퍼 prependKakaoRoomJoinNoticeV229115). ‘초대’(초대코드 보기·구성원 초대)는 가계부 없는 방에서만 예전처럼 둔다(그 사람은 자기 가계부를 이 방에 연결하려는 것일 수 있다); 연결된 방에서는 들인 뒤 처리한다. 나간 이력·해제된 방·
+  // 조회 전용·이용 제한·실패는 아래 예전 안내가 그대로 답한다.
+  if (roomJoinEligible && (linkedGroupHousehold?.id || !isInviteCommand(utterance))) {
+    const roomRole = linkedGroupHousehold?.id ? String(households.find((h) => String(h.id) === String(linkedGroupHousehold.id))?.role || "") : "";
+    if (!linkedGroupHousehold?.id || !roomRole || roomRole === "pending") {
+      const joined = await joinRoomOnCallSync({ user, role: linkedGroupHousehold?.id ? roomRole : undefined, source: "command" });
+      if (roomJoinedResult(joined)) {
+        linkedGroupHousehold = joined.household;
+        households = [...households.filter((h) => String(h.id) !== String(joined.household.id)), { ...joined.household, role: joined.role }];
+        activeHouseholds = households.filter((h) => !["pending", "blocked"].includes(String(h.role || "member")));
+        if (env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.roomJoinNotice = roomJoinNoticeLine(joined);
+      }
+    }
   }
   if (botGroupKey && !linkedGroupHousehold?.id && !isInviteCommand(utterance)) {
     return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, await unlinkedRoomTextOptions(strongTransactionInput)), dedupeQuickReplies([["가계부전환", "가계부전환"], ["단톡방연결", "단톡방연결"], ["가계부만들기", "가계부만들기"]]));

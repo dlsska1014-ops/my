@@ -106,7 +106,7 @@ await withFixture("v1", async (f) => {
   const created = await createTrip(f);
   ok(created.text.includes(`이 단톡방의 기록은 아직 ‘${SHARED}’ 가계부에 저장돼요.`), "v1: creation reply states where room records currently go");
   ok(created.text.includes(CREATE_PROMPT), "v1: creation reply asks to switch the room");
-  ok(created.text.includes(`연결하면 이 방에서 거래를 보내는 참여자는 승인 없이 ‘${TRIP}’ 구성원이 돼요.`), "v1: creation reply repeats the auto-join consequence");
+  ok(created.text.includes(`연결하면 이 방에서 봇을 부르거나 거래를 보내는 참여자는 승인 없이 ‘${TRIP}’ 구성원이 돼요.`), "v1: creation reply repeats the auto-join consequence");
   ok(buttonsOf(created.body).includes("연결하기") && buttonsOf(created.body).includes("아니요"), "v1: group reply offers the two answers as buttons");
   ok(!created.text.includes("자동 연결되지는 않아요") && !created.text.includes("‘단톡방 연결’을 진행"), "v1: old dead-end guidance is gone");
   const pending = flowStates(f).find((s) => s.flow === "household_choice" && s.step === "confirm_bind");
