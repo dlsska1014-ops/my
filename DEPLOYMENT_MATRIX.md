@@ -1,3 +1,11 @@
+## V22.9.114 배포 판단
+
+- 대상: 앱만. 관제·DB·Secret·Kakao 콘솔·1년 캐시 자산 변경 없음. 새 운영 변수 없음 → 바인딩 32, 금지 변수 12개 열. 공개 화면 HTML 은 세 곳 바뀜(`/` 카카오 띠 안내 한 줄, `/privacy` 6·12절, `/terms` 2절) — 광고 게이트·글·계산표는 그대로.
+- 바꾼 것: 카카오 로그인 동의 체크 칸·홈 동의 팝업 → 안내 한 줄·홈 안내 띠(`#abTermsBand`, POST /my/consent via band). `/auth/kakao/start` 는 consent 없이 303. 화면 있는 로그인은 새 계정 + 기록(via kakao). 자동 로그인·빈 계정 규칙·로그인 이름 가입 동의 칸은 그대로. 개정 공고 = 시행 = 2026-11-09(배포가 밀리면 상수 둘 올림).
+- 되돌리기 대상(기록만): V22.9.113 version `7c190e6f-a0b7-4964-8389-5b28fdd3fcf4`(#346, V22.9.113-BUDGET-COMMAND-FIX, 배포 `2ed8c94f-0c73-4a29-9b79-de39b27efb83`). 되돌리면 동의 체크 칸·홈 팝업이 돌아오고 `/auth/kakao/start` 가 consent 없이는 400 이 된다. 이 판이 남긴 via band 기록은 옛 코드에서도 ‘기록 있음’ 으로 읽힌다(팝업 안 뜸). DB 영향 없음.
+- 배포: 병합(사용자 지목) 뒤 사용자 토큰 업로드·대조(바인딩 32·differences []·해시 606b707c…) → 승격 → Claude 직후 확인(/health·/ready·공개 123/123·sitemap 60·`/`·`/privacy`·`/terms` 새 문구) → 기록 PR. 사람 확인은 CHECKLIST.
+- 번들 9,813,367 B · SHA-256 `606b707c17ef764da5c1eb2a2daa607a0860ba361494e132ad9ae3de980ec19e`(146 모듈). 절차 `review-artifacts/v114-terms-notice-2026-11-09/USER-DEPLOY-APP.md`.
+
 ## V22.9.113 배포 판단
 
 - 대상: 앱만. 관제·DB·Secret·Kakao·공개 화면·1년 캐시 자산 변경 없음. 새 운영 변수 없음 → 바인딩 32, 금지 변수 12개 열.

@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 // V22.9.95 법무 검사(R-9) — 약관·개인정보처리방침 동의와 만 14세 확인, 개인정보처리방침 보강, 이용약관, 사업자 표시.
-//   1 로그인 화면: 가입 폼과 카카오 로그인 폼에 동의 칸이 하나씩(필수·미리 체크 없음·두 링크 새 탭), 화면 끝 이용약관·개인정보처리방침 줄,
+//   1 로그인 화면: 가입 폼에만 동의 칸(필수·미리 체크 없음·두 링크 새 탭), 카카오 로그인 폼은 단추 아래 ‘계속하면 이용약관에 동의한 것으로 봅니다’ 한 줄(V22.9.114),
+//     화면 끝 이용약관·개인정보처리방침 줄,
 //     좁은 폭(360px)·다크 모드에서 칸 글이 잘리지 않는 CSS.
 //   2 로컬 가입: 동의가 없으면 400(맨 위 요약 + 칸 아래 문구)이고 계정·가입 RPC·시도 기록이 없으며 입력값을 되살린다. 동의하면 303 이고
 //     설정 표에 consent:<user_id> 를 upsert 한다. 기록이 실패해도 가입은 되고 consent_record_failed(warn) 가 남는다.
-//   3 카카오 시작: 동의 없이 보통 로그인을 시작하면 로그인 화면(400, 오류)이다. consent=1 이면 카카오 인가로 가고 서명된 상태에 consent:1 이 실린다.
+//   3 카카오 시작: 보통 로그인은 동의 칸 없이 바로 카카오 인가로 간다(V22.9.114; 옛 consent 값은 읽지 않고 서명된 상태에도 없다).
 //     인앱 자동 로그인(auto=1)·연결(link)·본인 확인(reauth)·로그인 세션이 있는 사람은 예전처럼 카카오로 간다.
-//   4 카카오 콜백: 동의한 로그인에서만 새 계정을 만들고 consent:<id>(via kakao)를 남긴다. 동의 없는 상태로 온 새 카카오 계정은 만들지 않고
-//     로그인 화면(오류)으로 돌려보낸다. 기존 계정은 동의 표시 없이도 들어오고, V22.9.104(L-4)부터는 기록이 없던 기존 계정이
-//     동의하고 누른 로그인이면 consent:<id>(via kakao)를 한 번 남긴다(이미 있으면 다시 쓰지 않음, 동의 없는 로그인은 쓰지 않음).
+//   4 카카오 콜백: 화면 있는 로그인은 새 계정을 만들고 consent:<id>(via kakao, 안내 확인 기록)를 남긴다(V22.9.114). 기록이 없던 기존 계정도 화면 있는
+//     로그인이면 한 번 남긴다(이미 있으면 다시 쓰지 않음). 화면 없는 자동 로그인(auto=1)은 계정을 만들지도 기록을 남기지도 않는다.
 //   5 /privacy 1~13절(표 2개·보호책임자·위탁과 국외 이전·만 14세·파기·구제기관·변경 고지), 적은 쿠키 이름이 코드에 있는지, /terms 2절, 개정일 상수.
 //   6 공개 꼬리말의 대표·문의 이메일(전화번호 없음), /menu 의 이용약관·개인정보처리방침, 카카오 ‘개인정보’ 답이 방침의 문의 경로를 가리킨다.
-//   7 공개 첫 화면의 카카오 띠도 같은 동의 폼이다. 8 로그인 대기 화면 스크립트는 폼 제출에만 뜬다(동의 칸을 비우면 뜨지 않는다).
+//   7 공개 첫 화면의 카카오 띠도 같은 폼 + 안내 한 줄이다. 8 로그인 대기 화면 스크립트는 폼 제출에만 뜬다(제출이 막히면 뜨지 않는다).
 // 실제 번들(src/index.js)의 app.fetch 와 QA 픽스처로 본다. DB·네트워크 없음. 장면 시계는 개정일 12:00 KST 로 고정한다.
 //   node validation/validate-v22995-legal.mjs
 import { readdirSync, readFileSync, statSync } from "node:fs";
@@ -47,6 +47,8 @@ const SCENE_AT = new Date(Date.parse(`${REVISION}T12:00:00+09:00`)).toISOString(
 // V22.9.104 L-2(커밋 B): 동의 칸·오류 문구에서 만 14세 확인을 뺐다(처리방침 9절: 만 14세 미만도 쓸 수 있다).
 const MESSAGE = "이용약관 동의와 개인정보처리방침 확인이 필요해요";
 const LABEL = "[필수] 이용약관에 동의하고 개인정보처리방침을 확인했어요";
+// V22.9.114: 카카오 로그인 폼은 동의 칸 대신 단추 아래 이 한 줄이다(site-config termsNoticeLineHtml).
+const NOTE = '<p class="termsNote">계속하면 <a href="/terms" target="_blank">이용약관</a>에 동의한 것으로 봅니다 · <a href="/privacy" target="_blank">개인정보처리방침</a></p>';
 const EMAIL = "admin@malhaebook.com";
 const PHONE = /01[016789][-.\s]?\d{3,4}[-.\s]?\d{4}/;
 const INAPP = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Mobile/15E148 KAKAOTALK 10.8.0";
@@ -121,7 +123,7 @@ function kakaoServer(fx) {
   });
   return server;
 }
-async function kakaoLogin(fx, server, kakaoId, { start = "/auth/kakao/start?consent=1", ua = CHROME, cookie = "" } = {}) {
+async function kakaoLogin(fx, server, kakaoId, { start = "/auth/kakao/start", ua = CHROME, cookie = "" } = {}) {
   server.id = String(kakaoId);
   const begin = await go(fx, start, { ua, cookie });
   const state = begin.location.startsWith("https://kauth.kakao.com/") ? new URL(begin.location).searchParams.get("state") || "" : "";
@@ -171,13 +173,13 @@ await section("1 로그인 화면", () => scene(async (fx) => {
 
   const kakaoForm = html.match(/<form class="kakaoStart" method="get" action="\/auth\/kakao\/start">([\s\S]*?)<\/form>/)?.[1] || "";
   ok(kakaoForm, "1 카카오 로그인은 /auth/kakao/start 로 가는 GET 폼이다(스크립트 없이 동작)");
-  ok(kakaoForm.includes('<input id="kakaoConsent" name="consent" type="checkbox" value="1" required/>'), "1 카카오 로그인 폼에 필수 동의 칸이 있다");
-  eq(text(kakaoForm.match(/<label class="consentRow">[\s\S]*?<\/label>/)?.[0]).trim(), LABEL, "1 카카오 동의 칸 문구는 가입 폼과 같다");
-  ok(kakaoForm.indexOf('id="kakaoConsent"') >= 0 && kakaoForm.indexOf('id="kakaoConsent"') < kakaoForm.indexOf('<button class="kakaoBtn" type="submit">'), "1 동의 칸은 카카오 로그인 단추 위에 있다");
+  ok(!kakaoForm.includes('name="consent"') && !kakaoForm.includes("consentRow") && !kakaoForm.includes("kakaoConsent"), "1 카카오 로그인 폼에 동의 칸이 없다(V22.9.114)");
+  ok(kakaoForm.startsWith('<button class="kakaoBtn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true">') && html.includes(`</svg>카카오 로그인</button></form>${NOTE}`), "1 카카오 단추 바로 아래 ‘계속하면 이용약관에 동의한 것으로 봅니다’ 한 줄(두 링크 새 탭)");
   ok(!kakaoForm.includes('name="return_to"'), "1 돌아갈 곳이 없으면 숨은 return_to 칸도 없다");
   eq((html.match(/class="kakaoBtn"/g) || []).length, 1, "1 카카오 단추는 하나다");
-  eq((html.match(/name="consent"/g) || []).length, 2, "1 동의 칸은 가입 폼과 카카오 폼에 하나씩이다");
-  ok(!/name="consent"[^>]*\bchecked\b/.test(html), "1 어느 동의 칸도 미리 체크하지 않는다");
+  eq((html.match(/name="consent"/g) || []).length, 1, "1 동의 칸은 가입 폼에만 하나다(V22.9.114)");
+  eq((html.match(/class="termsNote"/g) || []).length, 1, "1 안내 한 줄은 카카오 폼 아래 하나다");
+  ok(!/name="consent"[^>]*\bchecked\b/.test(html), "1 가입 동의 칸은 미리 체크하지 않는다");
   const legal = html.match(/<p class="loginLegal">([\s\S]*?)<\/p>/)?.[1] || "";
   ok(legal.includes('<a href="/terms">이용약관</a>') && legal.includes('<a href="/privacy"><b>개인정보처리방침</b></a>') && legal.includes('<a href="/contact">문의</a>'), "1 화면 끝에 이용약관·개인정보처리방침(굵게)·문의 줄이 있다");
   const back = await page(fx, "/my?return_to=%2Fmy%2Fanalysis", { cookie: "" });
@@ -192,6 +194,7 @@ await section("1 로그인 화면", () => scene(async (fx) => {
   ok(rules.length >= 4 && !rules.some((rule) => /nowrap|overflow:hidden|text-overflow|line-clamp/.test(rule)), `1 동의 칸 규칙에 글을 자르는 값이 없다 (규칙 ${rules.length}개)`);
   const size = Number(css.match(/\.consentRow\{[^}]*font-size:([\d.]+)px/)?.[1] || 0);
   ok(size >= 13, `1 동의 글은 13px 이상이다 (${size}px)`);
+  ok(css.includes(".termsNote{margin:8px 0 0;color:#5f6b7a;font-size:12.5px;line-height:1.5;text-align:center;overflow-wrap:anywhere}.termsNote a{font-weight:700;text-decoration:underline}"), "1 안내 한 줄 CSS: 12.5px·가운데·줄바꿈·링크 밑줄(V22.9.114)");
   ok(css.includes("body.abPageLogin .kakaoStart button.kakaoBtn{min-height:54px!important;"), "1 카카오 단추는 <button> 이 되어도 54px 높이다(셸의 단추 최소 44px 를 덮는다)");
   const bodyClass = html.match(/<body class="([^"]*)"/)?.[1] || "";
   ok(/\babV22812Shell\b/.test(bodyClass) && /\babPageLogin\b/.test(bodyClass), `1 로그인 화면 body 는 셸 다크 규칙 대상이다 (${bodyClass})`);
@@ -267,41 +270,41 @@ await section("2 로컬 가입", () => scene(async (fx) => {
 
 // ── 3. 카카오 로그인 시작 ────────────────────────────────────────────────────
 await section("3 카카오 시작", () => scene(async (fx) => {
+  // V22.9.114: 동의 칸이 없어 보통 로그인도 바로 카카오 인가로 간다. 주소에 consent 가 붙어 와도 읽지 않는다.
   const plain = await go(fx, "/auth/kakao/start");
-  eq(plain.status, 400, "3 동의 없이 시작한 보통 로그인은 로그인 화면(400)으로 돌아간다");
-  eq(plain.location, "", "3 카카오 인가로 보내지 않는다");
-  ok(!plain.cookies.some((pair) => pair.startsWith("kakao_oauth_state=")), "3 로그인 상태 쿠키를 만들지 않는다");
-  ok(/<a class="authErrorSummary" href="#kakaoConsent" role="alert"[^>]*>[\s\S]*?이용약관 동의와 개인정보처리방침 확인이 필요해요[\s\S]*?카카오 로그인으로 이동/.test(plain.html), "3 맨 위 오류 요약이 카카오 동의 칸을 가리킨다");
-  ok(plain.html.includes('<input id="kakaoConsent" name="consent" type="checkbox" value="1" required aria-invalid="true" aria-describedby="kakaoConsentError"/>') && plain.html.includes(`<p class="fieldError" id="kakaoConsentError">${MESSAGE}</p>`), "3 카카오 동의 칸에 오류 표시와 칸 아래 문구가 있다");
-  ok(events("kakao_login_consent_missing").some((event) => event.detail === "start" && event.severity === "info"), "3 동의 없는 시작은 운영 이벤트(info)로 남는다");
+  eq(plain.status, 303, "3 동의 칸 없이 시작한 보통 로그인은 바로 카카오 인가로 간다(V22.9.114, 400 아님)");
+  const plainUrl = new URL(plain.location || `${BASE}/`);
+  eq(plainUrl.origin + plainUrl.pathname, "https://kauth.kakao.com/oauth/authorize", "3 카카오 인가 주소");
+  ok(!plainUrl.searchParams.has("prompt") && !plainUrl.searchParams.has("scope"), "3 보통 로그인은 prompt 가 없고 동의 항목(scope)을 더 받지 않는다");
+  ok(!plain.html.includes(MESSAGE) && !events("kakao_login_consent_missing").length, "3 동의 오류 화면·kakao_login_consent_missing 이벤트가 없다");
+  const plainState = await stateOf(fx, plain.location);
+  ok(plainState?.mode === "login" && plainState.consent === undefined && plainState.next === undefined && plainState.auto === undefined, `3 서명된 상태에 동의 표시가 없다(mode login) ${show(plainState)}`);
+  ok(plain.lines.some((line) => line.startsWith("kakao_oauth_state=") && /Max-Age=600/.test(line)), "3 로그인 상태 쿠키는 10분(600초)이다(방침의 쿠키 목록과 같다)");
   const kept = await go(fx, "/auth/kakao/start?return_to=%2Fmy%2Fanalysis");
-  ok(kept.status === 400 && kept.html.includes('<input type="hidden" name="return_to" value="/my/analysis"/>'), "3 되돌린 화면의 카카오 폼은 돌아갈 곳을 그대로 싣는다");
+  const keptState = await stateOf(fx, kept.location);
+  ok(kept.status === 303 && keptState?.next === "/my/analysis", `3 돌아갈 곳은 서명된 상태(next)에 실린다 ${show(keptState)}`);
   const evil = await go(fx, "/auth/kakao/start?return_to=https%3A%2F%2Fevil.example%2F");
-  ok(evil.status === 400 && !evil.html.includes("evil.example"), "3 바깥 주소는 돌아갈 곳으로 싣지 않는다");
-  eq((await go(fx, "/auth/kakao/start?consent=yes")).status, 400, "3 consent 값이 1 이 아니면 동의로 보지 않는다");
-
-  const agreed = await go(fx, "/auth/kakao/start?consent=1&return_to=%2Fmy%2Fanalysis");
-  eq(agreed.status, 303, "3 동의하고 시작하면 카카오 인가로 간다");
-  const authorize = new URL(agreed.location || `${BASE}/`);
-  eq(authorize.origin + authorize.pathname, "https://kauth.kakao.com/oauth/authorize", "3 카카오 인가 주소");
-  ok(!authorize.searchParams.has("prompt") && !authorize.searchParams.has("scope"), "3 보통 로그인은 prompt 가 없고 동의 항목(scope)을 더 받지 않는다");
-  const state = await stateOf(fx, agreed.location);
-  ok(state?.mode === "login" && state.consent === 1 && state.next === "/my/analysis" && state.auto === undefined, `3 서명된 상태에 동의(consent:1)와 돌아갈 곳이 있다 ${show(state)}`);
-  ok(agreed.lines.some((line) => line.startsWith("kakao_oauth_state=") && /Max-Age=600/.test(line)), "3 로그인 상태 쿠키는 10분(600초)이다(방침의 쿠키 목록과 같다)");
+  ok(evil.status === 303 && (await stateOf(fx, evil.location))?.next === undefined, "3 바깥 주소는 돌아갈 곳으로 싣지 않는다");
+  for (const legacy of ["/auth/kakao/start?consent=1&return_to=%2Fmy%2Fanalysis", "/auth/kakao/start?consent=yes"]) {
+    const response = await go(fx, legacy);
+    const state = await stateOf(fx, response.location);
+    ok(response.status === 303 && state?.mode === "login" && state.consent === undefined, `3 옛 consent 값이 붙어 와도 읽지 않는다(${legacy.split("?")[1]}) ${show(state)}`);
+  }
 
   const auto = await go(fx, "/auth/kakao/start?auto=1", { ua: INAPP });
-  ok(auto.status === 303 && auto.location.startsWith("https://kauth.kakao.com/oauth/authorize") && new URL(auto.location).searchParams.get("prompt") === "none", `3 인앱 자동 로그인(auto=1)은 동의 없이도 예전처럼 prompt=none 으로 간다 (${auto.status})`);
+  ok(auto.status === 303 && auto.location.startsWith("https://kauth.kakao.com/oauth/authorize") && new URL(auto.location).searchParams.get("prompt") === "none", `3 인앱 자동 로그인(auto=1)은 예전처럼 prompt=none 으로 간다 (${auto.status})`);
   const autoState = await stateOf(fx, auto.location);
-  ok(autoState?.auto === 1 && autoState.consent === undefined, `3 자동 로그인 상태에는 동의 표시가 없다(새 계정을 만들지 않는 길) ${show(autoState)}`);
-  eq((await go(fx, "/auth/kakao/start?auto=1")).status, 400, "3 인앱이 아닌 브라우저의 auto=1 은 보통 로그인이라 동의가 필요하다");
+  ok(autoState?.auto === 1 && autoState.consent === undefined, `3 자동 로그인 상태에는 auto 표시만 있다(새 계정을 만들지 않는 길) ${show(autoState)}`);
+  const outsideAuto = await go(fx, "/auth/kakao/start?auto=1");
+  ok(outsideAuto.status === 303 && new URL(outsideAuto.location).searchParams.get("prompt") !== "none" && (await stateOf(fx, outsideAuto.location))?.auto === undefined, "3 인앱이 아닌 브라우저의 auto=1 은 보통 로그인(화면 있음)으로 간다");
   const link = await go(fx, "/auth/kakao/start?link=1", { cookie: fx.cookie });
-  // 연결은 동의 검사 앞에서 갈린다(예전과 같은 흐름: 이 픽스처 사용자는 먼저 본인 확인으로 간다).
-  ok(link.status === 303 && link.location && !link.html.includes(MESSAGE) && !link.location.startsWith("/auth/kakao/start"), `3 로그인한 사람의 카카오 연결(link=1)은 동의 화면 없이 예전 연결 흐름으로 간다 (${link.status} ${link.location.slice(0, 60)})`);
+  // 연결은 로그인과 다른 흐름이다(이 픽스처 사용자는 먼저 본인 확인으로 간다).
+  ok(link.status === 303 && link.location && !link.html.includes(MESSAGE) && !link.location.startsWith("/auth/kakao/start"), `3 로그인한 사람의 카카오 연결(link=1)은 예전 연결 흐름으로 간다 (${link.status} ${link.location.slice(0, 60)})`);
   const reauth = await go(fx, "/auth/kakao/start?reauth=credential-change", { cookie: fx.cookie });
-  ok(reauth.status === 303 && reauth.location.startsWith("https://kauth.kakao.com/oauth/authorize") && !reauth.html.includes(MESSAGE), `3 본인 확인(reauth)은 동의 요구 없이 예전처럼 간다 (${reauth.status})`);
+  ok(reauth.status === 303 && reauth.location.startsWith("https://kauth.kakao.com/oauth/authorize") && !reauth.html.includes(MESSAGE), `3 본인 확인(reauth)은 예전처럼 간다 (${reauth.status})`);
   const signedIn = await go(fx, "/auth/kakao/start", { cookie: fx.cookie });
   const signedState = await stateOf(fx, signedIn.location);
-  ok(signedIn.status === 303 && signedState?.mode === "login" && signedState.consent === undefined, `3 로그인 세션이 있는 사람은 막지 않되 상태에 동의가 없다 ${show(signedState)}`);
+  ok(signedIn.status === 303 && signedState?.mode === "login" && signedState.consent === undefined, `3 로그인 세션이 있는 사람도 같은 보통 로그인이다 ${show(signedState)}`);
 }));
 
 // ── 4. 카카오 로그인 콜백 ────────────────────────────────────────────────────
@@ -317,35 +320,30 @@ await section("4 카카오 콜백", () => scene(async (fx) => {
     eq(parse(settingValue(fx, `consent:${created?.id}`)), { version: REVISION, at: SCENE_AT, via: "kakao" }, "4 새 카카오 계정의 동의 기록(via kakao)");
     eq(Object.keys(server.links[0] || {}).sort(), ["p_kakao_id", "p_nickname", "p_user_id"], "4 카카오 식별 연결은 회원번호·닉네임만 저장한다(방침 6절과 같다)");
 
-    // 세션이 있던 사람이 시작한 로그인(상태에 동의 없음)으로 온 새 카카오 계정은 만들지 않는다.
+    // V22.9.114: 상태에 동의 표시가 없어도(이제 동의 칸이 없다) 화면 있는 로그인이면 새 계정을 만들고 기록(via kakao)을 남긴다. 세션이 있던 사람이 시작해도 같다.
     clearEvents();
     const before = fx.db.users.length;
-    const noConsent = await kakaoLogin(fx, server, "8802", { start: "/auth/kakao/start", cookie: fx.cookie });
-    eq(noConsent.callback.status, 400, "4 동의 없는 상태로 온 새 카카오 계정은 로그인 화면(400)으로 돌려보낸다");
-    ok(noConsent.callback.html.includes(`<p class="fieldError" id="kakaoConsentError">${MESSAGE}</p>`), "4 돌려보낸 화면은 카카오 동의 칸 오류를 보인다");
-    eq(fx.db.users.length, before, "4 그 계정은 만들지 않는다");
-    ok(!fx.db.users.some((user) => user.kakao_user_key === "kakao_login:8802") && !server.links.some((body) => String(body.p_kakao_id) === "8802"), "4 카카오 식별 연결도 하지 않는다");
-    ok(noConsent.callback.lines.some((line) => /^kakao_oauth_state=;/.test(line) && /Max-Age=0/.test(line)), "4 로그인 상태 쿠키를 지운다");
-    ok(events("kakao_login_consent_missing").some((event) => /^new_account/.test(event.detail)), "4 운영 이벤트(new_account)를 남긴다");
+    const second = await kakaoLogin(fx, server, "8802", { start: "/auth/kakao/start", cookie: fx.cookie });
+    eq(second.callback.status, 303, "4 동의 표시 없는 상태로 온 새 카카오 계정도 만들고 로그인한다(V22.9.114)");
+    const secondUser = fx.db.users.find((user) => user.kakao_user_key === "kakao_login:8802");
+    ok(fx.db.users.length === before + 1 && secondUser && second.userId === secondUser.id, `4 그 계정이 생기고 세션이 붙는다 (${second.userId})`);
+    eq(parse(settingValue(fx, `consent:${secondUser?.id}`)), { version: REVISION, at: SCENE_AT, via: "kakao" }, "4 안내 확인 기록(via kakao)을 남긴다");
+    ok(server.links.some((body) => String(body.p_kakao_id) === "8802"), "4 카카오 식별 연결도 한다");
+    ok(!events("kakao_login_consent_missing").length && !second.callback.html.includes(MESSAGE) && !second.callback.html.includes("kakaoConsentError"), "4 동의 오류 화면·kakao_login_consent_missing 이벤트가 없다");
 
-    // 기존 계정은 동의 표시 없이도 들어온다(이번 판은 기존 사용자에게 다시 묻지 않는다). 동의 표시 없는 로그인은 동의 기록을 새로 쓰지 않는다.
-    // V22.9.104 L-4: 기록이 없는 기존 계정이 동의 칸을 체크하고(서명된 consent=1) 로그인하면 그 동의를 기록한다(via kakao). 예전에는 기록하지 않아
-    // 방금 체크한 사람이 홈 동의 팝업(L-3)을 또 봤다. 기록이 이미 있으면 다시 쓰지 않는다(처음 기록의 시각을 지킨다).
+    // 기존 계정(V22.9.95 전 계정 등, 기록 없음): 화면 있는 로그인이면 한 번 기록한다(V22.9.104 L-4 → V22.9.114 는 체크 조건 없이). 이미 있으면 다시 쓰지 않는다.
     fx.db.users.push({ id: "user-v22995-old", kakao_user_key: "kakao_login:8803", nickname: "기존 사용자", created_at: "2026-08-01T00:00:00Z" });
     const keys = consentKeys(fx).length;
     const old = await kakaoLogin(fx, server, "8803", { start: "/auth/kakao/start", cookie: fx.cookie });
-    ok(old.callback.status === 303 && old.userId === "user-v22995-old", `4 기존 카카오 계정은 동의 표시 없는 상태로도 로그인된다 (${old.callback.status} ${old.userId})`);
-    eq(consentKeys(fx).length, keys, "4 기존 계정의 동의 표시 없는 로그인은 동의 기록을 새로 쓰지 않는다");
-    const oldAgain = await kakaoLogin(fx, server, "8803");
-    ok(oldAgain.callback.status === 303 && oldAgain.userId === "user-v22995-old", `4 기존 계정이 동의하고 로그인해도 같은 계정이다 (${oldAgain.userId})`);
-    eq(consentKeys(fx).length, keys + 1, "4 기록이 없던 기존 계정이 동의하고 로그인하면 그 동의를 기록한다(V22.9.104 L-4)");
+    ok(old.callback.status === 303 && old.userId === "user-v22995-old", `4 기존 카카오 계정은 같은 계정으로 로그인된다 (${old.callback.status} ${old.userId})`);
+    eq(consentKeys(fx).length, keys + 1, "4 기록이 없던 기존 계정이 화면 있는 로그인을 하면 그 안내 확인을 기록한다(V22.9.104 L-4 → V22.9.114)");
     const oldRecord = parse(settingValue(fx, "consent:user-v22995-old"));
-    eq(oldRecord, { version: REVISION, at: SCENE_AT, via: "kakao" }, "4 그 기록은 via kakao 다(V22.9.104 커밋 B 부터 age14 없음)");
+    eq(oldRecord, { version: REVISION, at: SCENE_AT, via: "kakao" }, "4 그 기록은 via kakao 다(age14 없음)");
     const earlier = JSON.stringify({ ...oldRecord, at: "2026-11-02T03:00:00.000Z" });
     const oldRow = fx.db.accountbook_settings.find((row) => row.key === "consent:user-v22995-old");
     if (oldRow) oldRow.value = earlier;
-    const oldThird = await kakaoLogin(fx, server, "8803");
-    ok(oldThird.callback.status === 303 && consentKeys(fx).length === keys + 1 && settingValue(fx, "consent:user-v22995-old") === earlier, "4 기록이 있으면 다시 동의하고 로그인해도 다시 쓰지 않는다(처음 기록의 시각 그대로)");
+    const oldAgain = await kakaoLogin(fx, server, "8803");
+    ok(oldAgain.callback.status === 303 && oldAgain.userId === "user-v22995-old" && consentKeys(fx).length === keys + 1 && settingValue(fx, "consent:user-v22995-old") === earlier, "4 기록이 있으면 다시 로그인해도 다시 쓰지 않는다(처음 기록의 시각 그대로)");
 
     // 자동 로그인은 동의와 상관없이 새 계정을 만들지 않는다(V22.9.91).
     const auto = await kakaoLogin(fx, server, "8804", { start: "/auth/kakao/start?auto=1", ua: INAPP });
@@ -415,8 +413,8 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
     ["중요한 변경 30일", "이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다"],
     ["시행 문장(E-17)", NOTICE === REVISION ? `이 개정 방침은 ${NOTICE_LABEL}에 알리고 같은 날부터 시행합니다` : `이 개정 방침은 ${NOTICE_LABEL}에 알리고 ${REVISION_LABEL}부터 시행합니다`],
     ["불리하지 않은 변경(V22.9.96)", "이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다"],
-    ...(NOTICE === REVISION ? [["이번 개정 성격(V22.9.104 L-5·L-6)", "이번 개정은 만 14세 미만 아동도 이용할 수 있게 하면서 그 개인정보를 처리하는 기준을 9절에 적고, 6절의 쿠키 목록을 실제로 쓰는 쿠키와 맞춘 것이어서 이용자에게 불리하지 않은 변경입니다"]] : []),
-    ["6절 쿠키 ab_cs(V22.9.104 L-6)", "ab_cs: 이용약관 동의 기록 확인 결과(동의 안내 팝업을 띄울지), 14일"],
+    ...(NOTICE === REVISION ? [["이번 개정 성격(V22.9.114)", "이번 개정은 카카오 로그인과 가계부 홈에서 이용약관 동의를 체크하던 칸을 ‘이용하면 이용약관에 동의한 것으로 봅니다’ 안내 줄로 바꾸고 6절의 쿠키 설명을 그에 맞춘 것이어서, 처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다"]] : []),
+    ["6절 쿠키 ab_cs(V22.9.104 L-6 → V22.9.114 띠)", "ab_cs: 이용약관 안내 확인 기록을 읽은 결과(가계부 홈의 안내 띠를 띄울지), 14일"],
     ["6절 쿠키 ab_bk·ab_setup(V22.9.104 L-6)", "ab_bk·ab_setup: 가계부 기본 설정 안내 띠를 띄울지(로그인 비밀번호 설정 여부·가계부 설정 확인 결과), 14일·1시간"],
     ["6절 쿠키 ab_notice_hide(V22.9.104 L-6)", "ab_notice_hide: 공지 띠 ‘오늘 하루 안 보기’, 24시간"],
     ["3절 문의 경로", "문의 경로는 7절의 개인정보 보호책임자 이메일(admin@malhaebook.com)입니다"],
@@ -434,7 +432,7 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
   const terms = await page(fx, "/terms", { cookie: "" });
   ok(terms.status === 200 && terms.html.includes(`시행일 2026년 7월 13일 · 개정 공고 ${NOTICE_LABEL} · 개정 시행 ${REVISION_LABEL}`) && terms.html.includes(`"dateModified":"${NOTICE}"`), "5 /terms 머리가 공고·시행일이고 수정일이 공고일이다");
   const second = text(terms.html.slice(terms.html.indexOf('id="section-2"'), terms.html.indexOf('id="section-3"')));
-  ok(second.includes("이용약관에 동의하고 개인정보처리방침을 확인하는 절차를 거칩니다") && second.includes("만 14세 미만도 이용할 수 있으며, 아동의 개인정보는 개인정보처리방침 9절에 따라 처리합니다") && !second.includes("만 14세 이상만"), "5 이용약관 2절에 동의 절차와 만 14세 미만 이용(방침 9절)이 있다");
+  ok(second.includes("로그인 이름으로 새 계정을 만들 때는 이용약관 동의 칸을 체크합니다") && second.includes("카카오 로그인과 카카오톡에서 여는 가계부는 서비스를 이용하면 이용약관에 동의한 것으로 보며, 로그인 화면과 가계부 홈의 안내 줄에서 이용약관과 개인정보처리방침을 볼 수 있습니다") && second.includes("만 14세 미만도 이용할 수 있으며, 아동의 개인정보는 개인정보처리방침 9절에 따라 처리합니다") && !second.includes("만 14세 이상만") && !second.includes("확인하는 절차를 거칩니다"), "5 이용약관 2절에 가입 동의 칸·카카오 이용 간주 안내·만 14세 미만 이용(방침 9절)이 있다(V22.9.114)");
   const pagesSource = read("../src/modules/public/content-pages.js");
   ok(!pagesSource.includes(REVISION) && !pagesSource.includes(REVISION_LABEL) && pagesSource.includes("policyDateLabel(POLICY_REVISION_DATE)"), "5 방침·약관은 개정일을 상수(POLICY_REVISION_DATE)로만 쓴다");
   ok(!pagesSource.includes(NOTICE) && !pagesSource.includes(NOTICE_LABEL) && pagesSource.includes("policyDateLabel(POLICY_NOTICE_DATE)"), "5 방침·약관은 공고일을 상수(POLICY_NOTICE_DATE)로만 쓴다");
@@ -463,9 +461,9 @@ await section("6 꼬리말·메뉴·카카오 답", () => scene(async (fx) => {
 await section("7 공개 첫 화면 띠", () => scene(async (fx) => {
   const view = await page(fx, "/", { cookie: "" });
   const band = view.html.match(/<section class="pubBand"[\s\S]*?<\/section>/)?.[0] || "";
-  ok(band.includes('<form class="kakaoStart" method="get" action="/auth/kakao/start"><label class="consentRow"><input id="kakaoConsent" name="consent" type="checkbox" value="1" required/>'), "7 공개 첫 화면 카카오 띠도 동의 칸이 있는 폼이다");
+  ok(band.includes('<form class="kakaoStart" method="get" action="/auth/kakao/start"><button class="kakaoBtn" type="submit">') && band.includes(`</svg>카카오 로그인</button></form>${NOTE}`) && !band.includes('name="consent"'), "7 공개 첫 화면 카카오 띠도 동의 칸 없는 폼 + 안내 한 줄이다(V22.9.114)");
   const css = styles(view.html);
-  ok(css.includes("button.kakaoBtn{width:100%;border:0;font:inherit;") && /\.consentRow\{display:flex;align-items:flex-start;[^}]*text-align:left/.test(css) && css.includes(".consentRow span{min-width:0}"), "7 띠의 동의 칸은 가운데 정렬 띠 안에서 왼쪽 정렬·줄바꿈이고 단추는 폭을 채운다");
+  ok(css.includes("button.kakaoBtn{width:100%;border:0;font:inherit;") && css.includes(".pubBand .termsNote{margin:8px 0 0;color:#5f6b7a;font-size:12.5px;line-height:1.5;text-align:center;overflow-wrap:anywhere}") && css.includes(".pubBand .termsNote a{color:#1d4ed8;font-weight:700;text-decoration:underline}") && !css.includes(".consentRow"), "7 띠의 단추는 폭을 채우고 안내 한 줄은 가운데 정렬·줄바꿈·링크 밑줄이다(동의 칸 CSS 없음)");
 }));
 await section("7 공개 첫 화면 띠(카카오 꺼짐)", () => scene(async (fx) => {
   const band = (await page(fx, "/", { cookie: "" })).html.match(/<section class="pubBand"[\s\S]*?<\/section>/)?.[0] || "";
@@ -479,7 +477,7 @@ await section("8 대기 화면 스크립트", () => scene(async (fx) => {
   ok(source.includes('form.kakaoStart[action="/auth/kakao/start"]') && !source.includes("a.kakaoBtn"), "8 대기 화면 스크립트는 카카오 폼을 찾는다(예전 링크 선택자 없음)");
   const run = progressSandbox(source);
   run.fire("button:click", { button: 0 });
-  ok(run.nodes.kakaoLoginProgress.hidden === true, "8 단추를 눌러도 폼이 제출되지 않으면(동의 칸 비움) 대기 화면을 띄우지 않는다");
+  ok(run.nodes.kakaoLoginProgress.hidden === true, "8 단추를 눌러도 폼이 제출되지 않으면(브라우저가 제출을 막음) 대기 화면을 띄우지 않는다");
   run.fire("form:submit", { defaultPrevented: false });
   ok(run.nodes.kakaoLoginProgress.hidden === false && run.attrs.get("aria-busy") === "true" && run.classes.has("kakaoProgressOpen") && run.nodes.kakaoProgressTip.textContent.length > 0, "8 폼이 제출되면 대기 화면과 팁을 띄운다");
   run.fire("cancel:click");

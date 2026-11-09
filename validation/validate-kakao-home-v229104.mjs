@@ -1,4 +1,4 @@
-// V22.9.104 L-1·L-3 — 카카오톡 인앱 시작 화면, 첫 카카오 로그인의 기본 가계부, 홈 동의 팝업 검사.
+// V22.9.104 L-1·L-3 — 카카오톡 인앱 시작 화면, 첫 카카오 로그인의 기본 가계부, 홈 동의 팝업(→ V22.9.114 약관 안내 띠) 검사.
 //
 // ── 이 파일이 왜 생겼는지 ──
 // 사용자(2026-11-06): "카카오에서 기록하고 가계부 열면 https://malhaebook.com/app?month=2026-11 화면나오고 이어열기 누르면 개인정보 관련해서 체크하고
@@ -9,6 +9,9 @@
 //   L-1 기본 가계부: 동의하고 누른 카카오 로그인(또는 동의 기록이 있는 자동 로그인)인데 가계부가 없고 이을 계정도 없으면 ‘내 가계부’ 를 만들고 홈으로 간다.
 //       잇기 제안이 있으면 만들지 않고 합치기 단계로 간다. 동의 기록이 없는 빈 계정의 자동 로그인은 지금처럼 시작 화면으로 간다.
 //   L-3 동의 팝업: 세션을 만들 때 동의 기록을 한 번 읽어 쿠키 ab_cs(1/0)를 적고, 홈은 ab_cs=0 일 때만 팝업을 붙인다(DB 읽기 0회). 팝업은 POST /my/consent.
+//   V22.9.114(사용자 2026-11-09, 앱 심사 담당자 요청): 동의 체크 칸과 홈 동의 팝업을 뺐다. 시작 화면·로그인 화면의 카카오 폼은 단추 아래 ‘계속하면 이용약관에
+//       동의한 것으로 봅니다’ 한 줄(.termsNote)이고 /auth/kakao/start 는 consent 없이 바로 카카오로 간다. 홈은 ab_cs=0 일 때 맨 위에 약관 안내 띠(#abTermsBand,
+//       ‘확인’ = POST /my/consent, 기록 via band)를 붙인다. 화면 있는 카카오 로그인은 새 계정을 만들고 기록(via kakao)을 남기며, 자동 로그인은 그대로 남기지 않는다.
 // 실제 요청(/app·/my·/m·/auth/kakao/start·callback·/my/kakao-claim·/my/consent·/my/logout·/my/local-signup·/my/local-login·/skill)과 저장된 행으로 본다.
 // 가짜는 카카오 서버 두 곳(토큰·프로필)과 픽스처 DB 뿐이다.
 //
@@ -17,7 +20,7 @@
 import { readFileSync } from "node:fs";
 import { app, BASE, counter, failure, fixture, intercept, settingValue, withClock } from "./lib-audit-v22934.mjs";
 
-const t = counter("PASS: V22.9.104 kakao in-app start screen + first household + consent popup");
+const t = counter("PASS: V22.9.104 kakao in-app start screen + first household + terms notice band (V22.9.114)");
 const ok = (value, message) => t.ok(!!value, message);
 const eq = (actual, expected, message) => t.ok(actual === expected, `${message} (실제 ${JSON.stringify(actual)}, 기대 ${JSON.stringify(expected)})`);
 const read = (path) => readFileSync(new URL(`../${path}`, import.meta.url), "utf8");
@@ -138,7 +141,7 @@ function kakaoServer(fx) {
 }
 
 // 카카오 로그인 시작 → (카카오 화면 대신) 콜백. 콜백 응답까지 돌려준다(따라가지 않는다). kakaoAnswer 가 있으면 카카오가 그 오류로 돌려보낸 것이다.
-async function kakaoLogin(fx, jar, server, kakaoId, { ua = INAPP, start = "/auth/kakao/start?consent=1", kakaoAnswer = "" } = {}) {
+async function kakaoLogin(fx, jar, server, kakaoId, { ua = INAPP, start = "/auth/kakao/start", kakaoAnswer = "" } = {}) {
   server.id = String(kakaoId);
   const begin = await go(fx, jar, start, { ua });
   const authorize = new URL(begin.location || `${BASE}/`);
@@ -226,9 +229,10 @@ await homeFixture(async (fx) => {
   ok(html.includes('<h2 id="abKakaoStartTitle">카카오 계정으로 가계부 열기</h2>'), "2 팝업 제목");
   ok(html.includes(">카카오톡에서 기록한 가계부를 바로 열어요.</p>"), "2 팝업 안내 한 줄");
   ok(html.includes('<div class="abStartModal" id="abKakaoStart" role="dialog" aria-modal="true"'), "2 팝업은 서버가 열린 상태로 그린다(스크립트 없이 보임, hidden 없음)");
-  ok(html.includes(`<form class="kakaoStart" method="get" action="/auth/kakao/start"><input type="hidden" name="return_to" value="${APP_NOV}"/><label class="consentRow"><input id="kakaoConsent" name="consent" type="checkbox" value="1" required/>`), "2 GET 폼: 숨은 돌아갈 곳 + 필수 동의 칸(미리 체크 없음)");
-  ok(!/id="kakaoConsent"[^>]*checked/.test(html), "2 동의 칸은 미리 체크돼 있지 않다");
-  ok(html.includes("[필수] <a href=\"/terms\" target=\"_blank\">이용약관</a>에 동의하고 <a href=\"/privacy\" target=\"_blank\">개인정보처리방침</a>을 확인했어요"), "2 동의 칸 문구와 새 탭 링크 두 개");
+  ok(html.includes(`<form class="kakaoStart" method="get" action="/auth/kakao/start"><input type="hidden" name="return_to" value="${APP_NOV}"/><button class="kakaoBtn" type="submit">`), "2 GET 폼: 숨은 돌아갈 곳 + 단추(동의 칸 없음, V22.9.114)");
+  ok(!html.includes('name="consent"') && !html.includes("consentRow") && !html.includes("kakaoConsent"), "2 시작 화면에 동의 체크 칸이 없다(V22.9.114)");
+  ok(html.includes('</form><p class="termsNote">계속하면 <a href="/terms" target="_blank">이용약관</a>에 동의한 것으로 봅니다 · <a href="/privacy" target="_blank">개인정보처리방침</a></p>'), "2 폼 바로 아래 ‘계속하면 이용약관에 동의한 것으로 봅니다’ 한 줄과 새 탭 링크 두 개(V22.9.114)");
+  ok(html.includes("#abStartCard .termsNote{margin:10px 0 0;color:#475467!important;font-size:12.5px;") && html.includes("#abStartCard .termsNote a{color:#1d4ed8!important;font-weight:700;text-decoration:underline}"), "2 안내 한 줄은 카드 id 범위의 규칙으로 꾸민다(12.5px·링크 밑줄)");
   ok(/<button class="kakaoBtn" type="submit"><svg[^>]*>[\s\S]*?<\/svg>카카오로 계속하기<\/button><\/form>/.test(html), "2 ‘카카오로 계속하기’ 단추");
   ok(html.includes(`href="/my?auto=0&amp;login=1&amp;return_to=${encodeURIComponent(APP_NOV)}#login-local">로그인 이름으로 로그인</a>`), "2 ‘로그인 이름으로 로그인’ 은 auto=0·login=1 긴 로그인 화면");
   ok(html.includes(`href="/my/kakao-claim?auto=0&amp;return_to=${encodeURIComponent(APP_NOV)}#kakao-claim-start">웹 연결 코드로 열기</a>`), "2 ‘웹 연결 코드로 열기’ 는 1:1 코드 칸");
@@ -241,7 +245,7 @@ await homeFixture(async (fx) => {
   ok(events("kakao_inapp_start_shown").some((event) => event.severity === "info" && event.detail === "cookie=skip"), "2 운영 이벤트 kakao_inapp_start_shown(info)를 남긴다");
 
   const my = await go(fx, new Jar("ab_kakao_auto=skip"), "/my", { ua: INAPP });
-  ok(my.status === 200 && isStart(my.html) && my.html.includes('<form class="kakaoStart" method="get" action="/auth/kakao/start"><label class="consentRow">'), "2 /my(1:1 링크 주소)도 시작 화면, 돌아갈 곳 없음");
+  ok(my.status === 200 && isStart(my.html) && my.html.includes('<form class="kakaoStart" method="get" action="/auth/kakao/start"><button class="kakaoBtn" type="submit">'), "2 /my(1:1 링크 주소)도 시작 화면, 돌아갈 곳 없음(숨은 칸 없음)");
   const mobile = await go(fx, new Jar("ab_kakao_auto=off"), "/m", { ua: INAPP });
   ok(mobile.status === 200 && isStart(mobile.html), "2 /m 도 시작 화면");
   const deep = await go(fx, new Jar("ab_kakao_auto=skip"), "/my?return_to=%2Fbudgets%3Fmonth%3D2026-11", { ua: INAPP });
@@ -258,7 +262,7 @@ await homeFixture(async (fx) => {
 
   const outside = await go(fx, new Jar(), "/my", { ua: CHROME });
   ok(outside.status === 200 && isFullLogin(outside.html) && !isStart(outside.html), "2 인앱이 아닌 브라우저의 /my 는 예전 로그인 화면이다");
-  ok(outside.html.includes("[필수] <a href=\"/terms\" target=\"_blank\">이용약관</a>에 동의하고") && noFree(outside.html), "2 바깥 브라우저는 동의 칸 문구만 바뀐다");
+  ok(outside.html.includes("[필수] <a href=\"/terms\" target=\"_blank\">이용약관</a>에 동의하고") && outside.html.includes('</form><p class="termsNote">계속하면 <a href="/terms" target="_blank">이용약관</a>에 동의한 것으로 봅니다 · <a href="/privacy" target="_blank">개인정보처리방침</a></p>') && noFree(outside.html), "2 바깥 브라우저의 로그인 화면: 가입 폼의 동의 칸은 그대로, 카카오 폼은 안내 한 줄(V22.9.114)");
   const outsideApp = await go(fx, new Jar(), APP_NOV, { ua: CHROME });
   ok(outsideApp.status === 303 && outsideApp.location === "/my", "2 바깥 브라우저의 세션 없는 /app 은 예전처럼 /my 로 간다");
   const admin = await go(fx, new Jar("ab_admin=qa; ab_kakao_auto=skip"), "/my", { ua: INAPP });
@@ -268,26 +272,27 @@ await homeFixture(async (fx) => {
   const evil2 = await go(fx, new Jar("ab_kakao_auto=skip"), "/my?return_to=%2F%2Fevil.example%2Fx", { ua: INAPP });
   ok(isStart(evil2.html) && !evil2.html.includes("evil.example"), "2 //로 시작하는 return_to 도 싣지 않는다");
   const signedIn = await go(fx, new Jar(`${fx.cookie}; ab_kakao_auto=skip`), HOME, { ua: INAPP });
-  ok(signedIn.status === 200 && !isStart(signedIn.html) && !signedIn.html.includes('id="abConsentPop"'), "2 세션이 있으면 홈이다(동의 쿠키가 없으면 팝업도 없음)");
+  ok(signedIn.status === 200 && !isStart(signedIn.html) && !signedIn.html.includes('id="abTermsBand"') && !signedIn.html.includes("abConsentPop"), "2 세션이 있으면 홈이다(ab_cs 쿠키가 없으면 띠도 없음)");
 });
 await homeFixture(async (fx) => {
   const off = await go(fx, new Jar("ab_kakao_auto=skip"), "/my", { ua: INAPP });
   ok(off.status === 200 && !isStart(off.html), "2 카카오 로그인이 준비되지 않은 서버는 시작 화면을 그리지 않는다");
 }, { kakao: false });
 
-// ── 3. 동의 없이 누른 카카오 시작·카카오 취소 ─────────────────────────────────────
+// ── 3. 동의 칸 없이 누른 카카오 시작(V22.9.114)·카카오 취소 ──────────────────────────
 await homeFixture(async (fx, server) => {
   const plain = await go(fx, new Jar(), `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}`, { ua: INAPP });
-  eq(plain.status, 400, "3 동의 칸 없이 시작하면 400");
-  ok(isStart(plain.html) && plain.html.includes(`<p class="fieldError" id="kakaoConsentError">${CONSENT_MESSAGE}</p>`) && plain.html.includes(`value="${APP_NOV}"`), "3 인앱은 시작 화면의 동의 칸 아래에 오류를 적는다(돌아갈 곳 유지)");
+  const plainAuthorize = new URL(plain.location || `${BASE}/`);
+  ok(plain.status === 303 && plainAuthorize.origin === "https://kauth.kakao.com" && plainAuthorize.pathname === "/oauth/authorize", `3 V22.9.114: 동의 칸 없이 눌러도 바로 카카오 인가 화면으로 간다(400 아님) (${plain.status})`);
+  ok(!plain.html.includes(CONSENT_MESSAGE) && !plain.html.includes("kakaoConsentError") && !events("kakao_login_consent_missing").length, "3 동의 오류 화면·kakao_login_consent_missing 이벤트가 없다");
   const outside = await go(fx, new Jar(), "/auth/kakao/start", { ua: CHROME });
-  ok(outside.status === 400 && isFullLogin(outside.html) && !isStart(outside.html), "3 바깥 브라우저는 예전 로그인 화면(동의 칸 오류)이다");
-  const begin = await go(fx, new Jar(), `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}&consent=1`, { ua: INAPP });
+  ok(outside.status === 303 && new URL(outside.location || `${BASE}/`).origin === "https://kauth.kakao.com", "3 바깥 브라우저도 바로 카카오로 간다(400 아님)");
+  const begin = await go(fx, new Jar(), `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}`, { ua: INAPP });
   const authorize = new URL(begin.location || `${BASE}/`);
-  ok(begin.status === 303 && authorize.origin === "https://kauth.kakao.com" && authorize.pathname === "/oauth/authorize", "3 동의하고 누르면 카카오 인가 화면으로 간다");
+  ok(begin.status === 303 && authorize.origin === "https://kauth.kakao.com" && authorize.pathname === "/oauth/authorize", "3 그냥 누르면 카카오 인가 화면으로 간다(돌아갈 곳 포함)");
   ok(authorize.searchParams.get("prompt") !== "none", "3 화면 있는 보통 로그인이다(prompt=none 아님)");
   const jar = new Jar();
-  const cancelled = await kakaoLogin(fx, jar, server, "7799", { start: `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}&consent=1`, kakaoAnswer: "access_denied" });
+  const cancelled = await kakaoLogin(fx, jar, server, "7799", { start: `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}`, kakaoAnswer: "access_denied" });
   ok(cancelled.callback.status < 500 && isStart(cancelled.callback.html) && cancelled.callback.html.includes('role="alert"') && cancelled.callback.html.includes(`value="${APP_NOV}"`), "3 인앱에서 카카오를 취소하면 시작 화면에 알림과 돌아갈 곳을 다시 보인다");
   ok(!jar.has("ab_user") && !fx.db.users.some((user) => user.kakao_user_key === "kakao_login:7799"), "3 취소는 계정을 만들지 않는다");
 });
@@ -297,7 +302,7 @@ await homeFixture(async (fx, server) => {
   const users = fx.db.users.length;
   const households = fx.db.households.length;
   const jar = new Jar();
-  const login = await kakaoLogin(fx, jar, server, "7701", { start: `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}&consent=1` });
+  const login = await kakaoLogin(fx, jar, server, "7701", { start: `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}` });
   eq(login.callback.status, 303, "4 동의한 새 카카오 사용자는 로그인된다");
   eq(login.callback.location, APP_NOV, "4 첫 가계부 화면이 아니라 돌아갈 곳(홈)으로 간다");
   const created = userByKey(fx, "kakao_login:7701");
@@ -308,7 +313,7 @@ await homeFixture(async (fx, server) => {
   eq(consentRecord(fx, created?.id)?.via, "kakao", "4 동의 기록(via kakao)을 남긴다");
   ok(events("kakao_first_household").some((event) => event.severity === "info" && /^new_account;login;trace=/.test(event.detail)), "4 운영 이벤트 kakao_first_household(info)");
   const home = await go(fx, jar, login.callback.location, { ua: INAPP });
-  ok(home.status === 200 && !isStart(home.html) && !home.html.includes('id="abConsentPop"') && home.html.includes("내 가계부"), "4 홈이 바로 나온다(팝업 없음)");
+  ok(home.status === 200 && !isStart(home.html) && !home.html.includes('id="abTermsBand"') && !home.html.includes("abConsentPop") && home.html.includes("내 가계부"), "4 홈이 바로 나온다(띠·팝업 없음)");
 
   const plainJar = new Jar();
   const plain = await kakaoLogin(fx, plainJar, server, "7702");
@@ -318,10 +323,10 @@ await homeFixture(async (fx, server) => {
   eq(again.callback.location, "/my", "4 다시 로그인하면 이미 있는 가계부로 간다(돌아갈 곳 없으면 /my, 예전과 같다)");
   eq(ownedHouseholds(fx, userByKey(fx, "kakao_login:7702")?.id).length, 1, "4 다시 로그인해도 가계부를 더 만들지 않는다");
 
-  const existing = await kakaoLogin(fx, new Jar(), server, "2265", { start: `/auth/kakao/start?return_to=${encodeURIComponent(HOME)}&consent=1` });
+  const existing = await kakaoLogin(fx, new Jar(), server, "2265", { start: `/auth/kakao/start?return_to=${encodeURIComponent(HOME)}` });
   eq(existing.callback.location, HOME, "4 가계부가 있는 기존 계정은 돌아갈 곳으로 간다");
-  // 통합 검토: 체크하고 누른 로그인이면 기록이 없던 기존 계정에도 기록을 남긴다(방금 체크한 사람이 홈 팝업을 또 보지 않게).
-  eq(cookieLine(existing.callback.cookies, "ab_cs"), CS_ON, "4 동의 기록이 없던 기존 계정도 체크하고 누른 로그인이면 ab_cs=1");
+  // 통합 검토 → V22.9.114: 화면 있는 로그인(안내 한 줄을 본 로그인)이면 기록이 없던 기존 계정에도 기록을 남긴다(방금 로그인한 사람이 홈 띠를 또 보지 않게).
+  eq(cookieLine(existing.callback.cookies, "ab_cs"), CS_ON, "4 기록이 없던 기존 계정도 화면 있는 로그인이면 ab_cs=1(V22.9.114: 체크 조건 없이)");
   ok(consentRecord(fx, "user-bin")?.via === "kakao" && consentRecord(fx, "user-bin")?.version === REVISION, "4 그 동의를 기록한다(via kakao)");
   fx.db.accountbook_settings = fx.db.accountbook_settings.filter((row) => row.key !== "consent:user-bin");
   eq(ownedHouseholds(fx, "user-bin").length, 2, "4 기존 계정에는 가계부를 만들지 않는다");
@@ -331,20 +336,20 @@ await homeFixture(async (fx, server) => {
   const restore = consentReadFails(fx, "user-bin");
   let unread;
   try { unread = await kakaoLogin(fx, new Jar(), server, "2265"); } finally { restore(); }
-  ok(unread.callback.status === 303 && unread.callback.location === "/my" && cookieLine(unread.callback.cookies, "ab_cs") === CS_CLEAR, "4 동의 기록을 읽지 못하면 로그인은 되고 남은 ab_cs 를 지운다(모름 = 팝업 없음, 독립 검토 P3-4)");
+  ok(unread.callback.status === 303 && unread.callback.location === "/my" && cookieLine(unread.callback.cookies, "ab_cs") === CS_CLEAR, "4 동의 기록을 읽지 못하면 로그인은 되고 남은 ab_cs 를 지운다(모름 = 띠 없음, 독립 검토 P3-4)");
 });
 
 // ── 4b. 이미 있던 계정의 동의 기록(통합 검토) ─────────────────────────────────────
-// 시작 화면에서 체크하고 누른 로그인은 기록이 없던 계정(V22.9.95 전 계정, 단톡방에서 먼저 써 봇이 만든 계정)에도 기록을 남긴다.
-// 체크 없이 들어온 자동 로그인은 남기지 않는다(홈 팝업이 받는다).
+// 시작 화면에서 누른(화면 있는) 로그인은 기록이 없던 계정(V22.9.95 전 계정, 단톡방에서 먼저 써 봇이 만든 계정)에도 기록을 남긴다(V22.9.114: 체크 조건 없이).
+// 화면 없는 자동 로그인은 남기지 않는다(홈 띠가 받는다).
 await homeFixture(async (fx, server) => {
   const autoJar = new Jar();
   const auto = await kakaoLogin(fx, autoJar, server, "2265", { start: `/auth/kakao/start?auto=1&return_to=${encodeURIComponent(HOME)}` });
   ok(auto.callback.status === 303 && auto.callback.location === HOME && autoJar.user() === "user-bin", "4b 가계부가 있는 계정의 자동 로그인은 그대로 들인다");
-  eq(cookieLine(auto.callback.cookies, "ab_cs"), CS_OFF, "4b 체크 없이 들어온 자동 로그인은 ab_cs=0");
+  eq(cookieLine(auto.callback.cookies, "ab_cs"), CS_OFF, "4b 화면 없이 들어온 자동 로그인은 ab_cs=0");
   ok(!consentRecord(fx, "user-bin"), "4b 자동 로그인은 동의 기록을 남기지 않는다");
   const autoHome = await go(fx, autoJar, HOME, { ua: INAPP });
-  ok(autoHome.status === 200 && autoHome.html.includes('id="abConsentPop"'), "4b 그 홈에는 동의 팝업");
+  ok(autoHome.status === 200 && autoHome.html.includes('id="abTermsBand"') && !autoHome.html.includes("abConsentPop"), "4b 그 홈에는 약관 안내 띠(팝업 아님)");
 
   await say(fx, "커피 4100", { user: "bot-v104-first", appUserId: "4400" });
   const chat = userByKey(fx, "bot-v104-first")?.id;
@@ -352,19 +357,19 @@ await homeFixture(async (fx, server) => {
   const households = fx.db.households.length;
   const users = fx.db.users.length;
   const jar = new Jar();
-  const login = await kakaoLogin(fx, jar, server, "4400", { start: `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}&consent=1` });
+  const login = await kakaoLogin(fx, jar, server, "4400", { start: `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}` });
   eq(login.callback.location, APP_NOV, "4b 단톡방에서 먼저 쓴 사람은 돌아갈 곳(기록한 가계부 홈)으로 간다");
   ok(jar.user() === chat && fx.db.households.length === households && fx.db.users.length === users, "4b 봇이 만든 계정에 세션이 붙고 새 계정·가계부를 만들지 않는다");
-  eq(cookieLine(login.callback.cookies, "ab_cs"), CS_ON, "4b 시작 화면에서 체크한 동의는 ab_cs=1");
+  eq(cookieLine(login.callback.cookies, "ab_cs"), CS_ON, "4b 시작 화면에서 누른 로그인은 ab_cs=1");
   eq(consentRecord(fx, chat)?.via, "kakao", "4b 동의 기록(via kakao)을 남긴다");
   const home = await go(fx, jar, login.callback.location, { ua: INAPP });
-  ok(home.status === 200 && !home.html.includes('id="abConsentPop"') && !isStart(home.html), "4b 홈이 바로 나온다(팝업 없음)");
+  ok(home.status === 200 && !home.html.includes('id="abTermsBand"') && !isStart(home.html), "4b 홈이 바로 나온다(띠 없음)");
 
   fx.db.accountbook_settings = fx.db.accountbook_settings.filter((row) => row.key !== `consent:${chat}`);
   const refuse = intercept(async ({ url, method, init }) => (method === "POST" && url.pathname === "/rest/v1/accountbook_settings" && String(init?.body || "").includes('"key":"consent:') ? failure(503) : null));
   let failed;
-  try { failed = await kakaoLogin(fx, new Jar(), server, "4400", { start: `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}&consent=1` }); } finally { refuse(); }
-  ok(failed.callback.status === 303 && failed.callback.location === APP_NOV && cookieLine(failed.callback.cookies, "ab_cs") === CS_OFF && !consentRecord(fx, chat), "4b 기록 저장이 실패하면 로그인은 되고 ab_cs=0(팝업이 다시 받는다)");
+  try { failed = await kakaoLogin(fx, new Jar(), server, "4400", { start: `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}` }); } finally { refuse(); }
+  ok(failed.callback.status === 303 && failed.callback.location === APP_NOV && cookieLine(failed.callback.cookies, "ab_cs") === CS_OFF && !consentRecord(fx, chat), "4b 기록 저장이 실패하면 로그인은 되고 ab_cs=0(띠가 다시 받는다)");
 });
 
 // ── 5. 잇기 제안이 있으면 가계부를 만들지 않고 합치기 단계 ──────────────────────────
@@ -378,7 +383,7 @@ await homeFixture(async (fx, server) => {
   ok(JSON.parse(settingValue(fx, OFFERS_KEY) || "{}")["user-web-v104"]?.chat_user_id === chat, "5 준비: 빈 웹 계정 → 채팅 계정 잇기 제안");
   const households = fx.db.households.length;
   const jar = new Jar();
-  const login = await kakaoLogin(fx, jar, server, "3300", { start: `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}&consent=1` });
+  const login = await kakaoLogin(fx, jar, server, "3300", { start: `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}` });
   eq(login.callback.location, "/my/account-link/run", "5 잇기 제안이 있으면 합치기 단계로 간다");
   ok(memberships(fx, "user-web-v104").length === 0 && fx.db.households.length === households, "5 기본 가계부를 만들지 않는다(기록이 갈라지지 않게)");
   ok(!events("kakao_first_household").length, "5 기본 가계부 이벤트가 없다");
@@ -503,64 +508,66 @@ await homeFixture(async (fx) => {
   eq(cookieLine(redeem.cookies, "ab_cs"), CS_OFF, "9 동의 기록이 없는 계정이라 ab_cs=0");
   ok(redeem.cookies[0]?.startsWith("ab_user="), "9 첫 쿠키는 여전히 세션(ab_user)이다");
   const home = await go(fx, jar, "/app", { ua: INAPP });
-  ok(home.status === 200 && home.html.includes('id="abConsentPop"') && !isStart(home.html), "9 홈이 나오고 그 위에 동의 팝업이 뜬다");
-  const accepted = await go(fx, jar, "/my/consent", { ua: INAPP, method: "POST", form: { consent: "1", return_to: "/app" } });
-  ok(accepted.status === 303 && accepted.location === "/app" && consentRecord(fx, chat)?.via === "popup", "9 팝업에서 동의하면 기록(via popup)을 남기고 홈으로 돌아간다");
+  ok(home.status === 200 && home.html.includes('id="abTermsBand"') && !home.html.includes("abConsentPop") && !isStart(home.html), "9 홈이 나오고 맨 위에 약관 안내 띠가 붙는다(팝업 아님)");
+  const accepted = await go(fx, jar, "/my/consent", { ua: INAPP, method: "POST", form: { return_to: "/app" } });
+  ok(accepted.status === 303 && accepted.location === "/app" && consentRecord(fx, chat)?.via === "band", "9 띠의 ‘확인’ 은 기록(via band)을 남기고 홈으로 돌아간다");
   const after = await go(fx, jar, "/app", { ua: INAPP });
-  ok(after.status === 200 && !after.html.includes('id="abConsentPop"'), "9 다음 홈에는 팝업이 없다");
+  ok(after.status === 200 && !after.html.includes('id="abTermsBand"'), "9 다음 홈에는 띠가 없다");
 });
 
-// ── 10. 홈 동의 팝업 ─────────────────────────────────────────────────────────
+// ── 10. 홈 약관 안내 띠(V22.9.114, 동의 팝업 대신) ─────────────────────────────────
 await homeFixture(async (fx) => {
   const off = await go(fx, new Jar(`${fx.cookie}; ab_cs=0`), HOME, { ua: CHROME });
-  ok(off.status === 200 && off.html.includes('<div class="abStartModal" id="abConsentPop" role="dialog" aria-modal="true"'), "10 ab_cs=0 이면 홈 위에 동의 팝업");
-  ok(off.html.includes('<h2 id="abConsentPopTitle">이용약관을 확인해 주세요</h2>'), "10 팝업 제목");
-  ok(off.html.includes(`<form method="post" action="/my/consent"><input type="hidden" name="return_to" value="${HOME.replace("&", "&amp;")}"/><label class="consentRow"><input id="consentPopup" name="consent" type="checkbox" value="1" required/>`), "10 POST 폼: 돌아갈 곳 + 미리 체크 없는 필수 칸");
-  ok(off.html.includes('<button class="abStartGo" type="submit">동의하고 계속</button></form><form class="abStartAlt" method="post" action="/my/logout"><button type="submit">로그아웃</button></form>'), "10 ‘동의하고 계속’ 과 작은 로그아웃");
-  ok(off.html.indexOf('id="abConsentPop"') > off.html.indexOf('<nav class="bottom"') || off.html.indexOf('id="abConsentPop"') > off.html.lastIndexOf("<main"), "10 팝업은 홈 뒤(</body> 앞)에 붙는다");
-  ok(noFree(off.html.slice(off.html.indexOf('id="abConsentPop"'))), "10 팝업에 ‘무료’ 가 없다");
+  ok(off.status === 200 && off.html.includes('<div class="abTermsBand" id="abTermsBand" role="region" aria-label="이용약관 안내">'), "10 ab_cs=0 이면 홈 맨 위에 약관 안내 띠(팝업 아님)");
+  ok(!off.html.includes("abConsentPop") && !off.html.includes("동의하고 계속") && !off.html.includes('name="consent"'), "10 동의 팝업·‘동의하고 계속’·체크 칸이 없다");
+  ok(off.html.includes('<p>서비스를 이용하면 <a href="/terms">이용약관</a>에 동의한 것으로 봅니다. <a href="/privacy">개인정보처리방침</a>도 확인해 주세요.</p>'), "10 띠 문구와 이용약관·개인정보처리방침 링크(같은 탭)");
+  ok(off.html.includes(`<form method="post" action="/my/consent"><input type="hidden" name="return_to" value="${HOME.replace("&", "&amp;")}"/><button class="secondary" type="submit" aria-label="이용약관 안내 확인하고 닫기">확인</button></form></div>`), "10 ‘확인’ POST 폼: 돌아갈 곳 + 보조 단추(셸의 파란 제출 규칙을 피하는 class=secondary)");
+  const bandAt = off.html.indexOf('id="abTermsBand"');
+  ok(bandAt > off.html.indexOf("<body") && bandAt < off.html.indexOf("<main"), "10 띠는 본문(<main>) 앞, 화면 맨 위에 붙는다");
+  ok(off.html.split('id="abTermsBandStyle"').length === 2 && off.html.split('class="abTermsBand"').length === 2, "10 띠와 그 스타일은 한 번씩만 실린다");
+  ok(off.html.includes(".abTermsBand button.secondary{display:inline-flex!important;") && off.html.includes('html[data-ab-resolved-theme="dark"] .abTermsBand{'), "10 띠 CSS 에 단추 규칙과 다크 모드 규칙이 있다");
+  ok(noFree(off.html.slice(bandAt, bandAt + 1200)), "10 띠에 ‘무료’ 가 없다");
   const msg = await go(fx, new Jar(`${fx.cookie}; ab_cs=0`), `${HOME}&msg=saved&saved_rid=r1&undo=t1`, { ua: CHROME });
   ok(msg.html.includes(`name="return_to" value="${HOME.replace("&", "&amp;")}"/>`), "10 돌아갈 곳에서 한 번 쓰는 알림 값(msg·saved_rid·undo)은 뺀다");
   const missing = await go(fx, new Jar(fx.cookie), HOME, { ua: CHROME });
   const on = await go(fx, new Jar(`${fx.cookie}; ab_cs=1`), HOME, { ua: CHROME });
-  ok(!missing.html.includes("abConsentPop") && !on.html.includes("abConsentPop"), "10 ab_cs 가 없거나(모름) 1 이면 팝업이 없다");
-  eq(on.html.length, missing.html.length, "10 팝업이 없을 때 홈 HTML 은 한 바이트도 늘지 않는다");
+  ok(!missing.html.includes("abTermsBand") && !on.html.includes("abTermsBand"), "10 ab_cs 가 없거나(모름) 1 이면 띠가 없다");
+  eq(on.html.length, missing.html.length, "10 띠가 없을 때 홈 HTML 은 한 바이트도 늘지 않는다");
   const strange = await go(fx, new Jar(`${fx.cookie}; ab_cs=yes`), HOME, { ua: CHROME });
-  ok(!strange.html.includes("abConsentPop"), "10 다른 값은 모름(팝업 없음)");
+  ok(!strange.html.includes("abTermsBand"), "10 다른 값은 모름(띠 없음)");
   const admin = await go(fx, new Jar(`${fx.cookie}; ab_cs=0`), HOME, { ua: CHROME, headers: { authorization: `Bearer ${fx.env.ADMIN_API_TOKEN}` } });
-  ok(admin.status === 200 && !admin.html.includes("abConsentPop"), "10 관리자 세션에는 팝업이 없다");
-  console.log(`홈 HTML: 팝업 없음 ${Buffer.byteLength(missing.html)} B, 팝업 있음 ${Buffer.byteLength(off.html)} B (+${Buffer.byteLength(off.html) - Buffer.byteLength(missing.html)} B, ab_cs=0 일 때만)`);
+  ok(admin.status === 200 && !admin.html.includes("abTermsBand"), "10 관리자 세션에는 띠가 없다");
+  console.log(`홈 HTML: 띠 없음 ${Buffer.byteLength(missing.html)} B, 띠 있음 ${Buffer.byteLength(off.html)} B (+${Buffer.byteLength(off.html) - Buffer.byteLength(missing.html)} B, ab_cs=0 일 때만)`);
 });
 
-// ── 11. POST /my/consent ─────────────────────────────────────────────────────
+// ── 11. POST /my/consent(띠의 ‘확인’, 체크 칸 없음 — V22.9.114) ──────────────────────
 await homeFixture(async (fx) => {
-  const anonymous = await go(fx, new Jar(), "/my/consent", { method: "POST", form: { consent: "1", return_to: HOME } });
+  const anonymous = await go(fx, new Jar(), "/my/consent", { method: "POST", form: { return_to: HOME } });
   ok(anonymous.status === 303 && anonymous.location === "/my" && !consentRecord(fx, "user-bin"), "11 세션이 없으면 /my 로 보내고 아무것도 남기지 않는다");
-  const cross = await go(fx, new Jar(fx.cookie), "/my/consent", { method: "POST", form: { consent: "1", return_to: HOME }, origin: "https://evil.example" });
+  const cross = await go(fx, new Jar(fx.cookie), "/my/consent", { method: "POST", form: { return_to: HOME }, origin: "https://evil.example" });
   ok(cross.status === 403 && !consentRecord(fx, "user-bin") && !cookieLine(cross.cookies, "ab_cs"), `11 다른 사이트에서 보낸 요청은 막는다 (${cross.status})`);
-  const box = await go(fx, new Jar(fx.cookie), "/my/consent", { method: "POST", form: { return_to: HOME } });
-  ok(box.status === 400 && box.html.includes('id="abConsentPop"') && box.html.includes(`<p class="fieldError" id="consentPopupError">${CONSENT_MESSAGE}</p>`) && box.html.includes(`value="${HOME.replace("&", "&amp;")}"`), "11 칸을 체크하지 않으면 400 으로 팝업을 다시 그린다(칸 아래 오류, 돌아갈 곳 유지)");
-  ok(!consentRecord(fx, "user-bin") && !cookieLine(box.cookies, "ab_cs"), "11 칸 없는 요청은 기록·쿠키를 남기지 않는다");
-  ok(box.html.split('id="abStartModalStyle"').length === 2 && noFree(box.html), "11 다시 그린 화면: 스타일 한 번, ‘무료’ 없음");
   const failed = intercept(async ({ url, method }) => (method === "POST" && url.pathname === "/rest/v1/accountbook_settings" ? failure(503) : null));
   let refused;
-  try { refused = await go(fx, new Jar(fx.cookie), "/my/consent", { method: "POST", form: { consent: "1", return_to: HOME } }); } finally { failed(); }
-  ok(refused.status === 503 && refused.html.includes("동의 기록을 저장하지 못했어요") && !cookieLine(refused.cookies, "ab_cs"), "11 기록을 저장하지 못하면 503 으로 다시 그리고 쿠키를 적지 않는다");
+  try { refused = await go(fx, new Jar(`${fx.cookie}; ab_cs=0`), "/my/consent", { method: "POST", form: { return_to: HOME } }); } finally { failed(); }
+  ok(refused.status === 303 && refused.location === HOME && cookieLine(refused.cookies, "ab_cs") === CS_ON && !consentRecord(fx, "user-bin"), "11 기록을 저장하지 못해도 띠는 닫힌다(303·ab_cs=1 — 안내라 사람을 막지 않고, 다음 세션이 다시 읽어 띠를 다시 보인다)");
+  ok(events("terms_notice_closed").some((event) => event.severity === "warn" && event.detail === "unrecorded") && events("consent_record_failed").some((event) => event.path === "/my/consent"), "11 저장 실패는 terms_notice_closed(warn, unrecorded) + consent_record_failed(/my/consent) 로 남는다");
   const jar = new Jar(`${fx.cookie}; ab_cs=0`);
-  const accepted = await go(fx, jar, "/my/consent", { method: "POST", form: { consent: "1", return_to: HOME } });
-  eq(accepted.status, 303, "11 동의하면 303");
+  const accepted = await go(fx, jar, "/my/consent", { method: "POST", form: { return_to: HOME } });
+  eq(accepted.status, 303, "11 ‘확인’ 은 303");
   eq(accepted.location, HOME, "11 돌아갈 곳(같은 사이트)으로 간다");
   eq(cookieLine(accepted.cookies, "ab_cs"), CS_ON, "11 ab_cs=1(HttpOnly·Secure·SameSite=Lax·14일)");
   const record = consentRecord(fx, "user-bin");
-  ok(record && record.version === REVISION && record.via === "popup" && !("age14" in record) && Number.isFinite(Date.parse(record.at)), `11 동의 기록(consent:user-bin, via popup) ${JSON.stringify(record)}`);
-  ok(events("consent_popup_accepted").some((event) => event.detail === "recorded"), "11 운영 이벤트 consent_popup_accepted");
+  ok(record && record.version === REVISION && record.via === "band" && !("age14" in record) && Number.isFinite(Date.parse(record.at)), `11 안내 확인 기록(consent:user-bin, via band) ${JSON.stringify(record)}`);
+  ok(events("terms_notice_closed").some((event) => event.severity === "info" && event.detail === "recorded"), "11 운영 이벤트 terms_notice_closed(info, recorded)");
+  ok(!events("consent_popup_accepted").length, "11 옛 이벤트 consent_popup_accepted 는 더 없다");
   const home = await go(fx, jar, HOME, { ua: CHROME });
-  ok(home.status === 200 && !home.html.includes("abConsentPop"), "11 돌아간 홈에는 팝업이 없다");
+  ok(home.status === 200 && !home.html.includes("abTermsBand"), "11 돌아간 홈에는 띠가 없다");
   const firstAt = record?.at;
   const twice = await go(fx, new Jar(fx.cookie), "/my/consent", { method: "POST", form: { consent: "1", return_to: HOME } });
-  ok(twice.status === 303 && consentRecord(fx, "user-bin")?.at === firstAt && cookieLine(twice.cookies, "ab_cs") === CS_ON, "11 이미 기록이 있으면 다시 쓰지 않고 쿠키만 맞춘다");
+  ok(twice.status === 303 && consentRecord(fx, "user-bin")?.at === firstAt && cookieLine(twice.cookies, "ab_cs") === CS_ON, "11 이미 기록이 있으면 다시 쓰지 않고 쿠키만 맞춘다(옛 팝업의 consent=1 이 붙어 와도 같다)");
+  ok(events("terms_notice_closed").some((event) => event.detail === "already"), "11 이미 기록이 있으면 terms_notice_closed(already)");
   for (const [raw, label] of [["https://evil.example/x", "바깥 주소"], ["//evil.example/x", "//"], ["/my/consent", "/my/consent"], ["/support", "허용 목록 밖"], ["", "빈 값"]]) {
-    const response = await go(fx, new Jar(fx.cookie), "/my/consent", { method: "POST", form: { consent: "1", return_to: raw } });
+    const response = await go(fx, new Jar(fx.cookie), "/my/consent", { method: "POST", form: { return_to: raw } });
     eq(response.location, "/app", `11 return_to ${label} 은 /app 으로 간다`);
   }
 });
@@ -598,7 +605,7 @@ await homeFixture(async (fx, server) => {
   const crafted = `/auth/kakao/start?auto=1&consent=1&return_to=${encodeURIComponent(HOME)}`;
   const withBooks = await kakaoLogin(fx, new Jar(), server, "2265", { start: crafted });
   ok(withBooks.authorize.searchParams.get("prompt") === "none", "13 꾸민 auto=1&consent=1 도 화면 없는 카카오 로그인이다(prompt=none)");
-  ok(withBooks.callback.status === 303 && withBooks.callback.location === HOME && cookieLine(withBooks.callback.cookies, "ab_cs") === CS_OFF && !consentRecord(fx, "user-bin"), "13 P2-1 가계부가 있는 계정: 들어오지만 동의를 기록하지 않는다(ab_cs=0, 홈 팝업이 받는다)");
+  ok(withBooks.callback.status === 303 && withBooks.callback.location === HOME && cookieLine(withBooks.callback.cookies, "ab_cs") === CS_OFF && !consentRecord(fx, "user-bin"), "13 P2-1 가계부가 있는 계정: 들어오지만 기록하지 않는다(ab_cs=0, 홈 띠가 받는다; 꾸민 consent=1 은 V22.9.114 부터 아무 뜻이 없다)");
   fx.db.users.push({ id: "user-empty-13", kakao_user_key: "kakao_login:9913", nickname: "빈웹", created_at: "2026-10-01T00:00:00.000Z" });
   fx.db.accountbook_user_identities.push({ user_id: "user-empty-13", provider: "kakao", provider_subject: "9913", login_name: "", credential_version: 2 });
   const emptyJar = new Jar();
@@ -606,14 +613,14 @@ await homeFixture(async (fx, server) => {
   ok(empty.callback.location.startsWith("/my?auto=0") && !emptyJar.has("ab_user") && !consentRecord(fx, "user-empty-13") && memberships(fx, "user-empty-13").length === 0, `13 P2-1 빈 계정: 기록·가계부·세션 없이 시작 화면으로 돌려보낸다 (${empty.callback.location})`);
 
   const chromeJar = new Jar();
-  const chrome = await kakaoLogin(fx, chromeJar, server, "7799", { ua: CHROME, start: `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}&consent=1` });
+  const chrome = await kakaoLogin(fx, chromeJar, server, "7799", { ua: CHROME, start: `/auth/kakao/start?return_to=${encodeURIComponent(APP_NOV)}` });
   const chromeUser = userByKey(fx, "kakao_login:7799");
   eq(chrome.callback.location, "/my/households?first=1#create", "13 P2-2 인앱이 아닌 브라우저의 새 계정은 예전처럼 첫 가계부 화면(만들기·초대코드 참여)으로 간다");
   ok(chromeUser && chromeJar.user() === chromeUser.id && memberships(fx, chromeUser.id).length === 0, "13 P2-2 그 계정에는 가계부를 만들지 않는다");
   ok(consentRecord(fx, chromeUser?.id)?.via === "kakao" && cookieLine(chrome.callback.cookies, "ab_cs") === CS_ON, "13 P2-2 새 계정의 동의 기록과 ab_cs=1 은 그대로다");
 
   const deepJar = new Jar();
-  const deep = await kakaoLogin(fx, deepJar, server, "7798", { start: `/auth/kakao/start?return_to=${encodeURIComponent(HOME)}&consent=1` });
+  const deep = await kakaoLogin(fx, deepJar, server, "7798", { start: `/auth/kakao/start?return_to=${encodeURIComponent(HOME)}` });
   const deepUser = userByKey(fx, "kakao_login:7798");
   eq(deep.callback.location, "/app?month=2026-07", "13 P3-1 방금 만든 첫 가계부로 갈 때 남의 가계부 household_id 를 뺀다");
   ok(ownedHouseholds(fx, deepUser?.id).length === 1, "13 P3-1 그 계정은 ‘내 가계부’ 하나");
@@ -624,13 +631,14 @@ await homeFixture(async (fx, server) => {
   const before = settingValue(fx, "consent:user-bin");
   const restore = consentReadFails(fx, "user-bin");
   let unreadable;
-  try { unreadable = await go(fx, new Jar(fx.cookie), "/my/consent", { method: "POST", form: { consent: "1", return_to: HOME } }); } finally { restore(); }
-  ok(unreadable.status === 503 && unreadable.html.includes("동의 기록을 저장하지 못했어요") && settingValue(fx, "consent:user-bin") === before && !cookieLine(unreadable.cookies, "ab_cs"), "13 P3-2 기록을 읽지 못하면 쓰지 않고(처음 기록 그대로) 503 으로 다시 누르게 한다");
+  try { unreadable = await go(fx, new Jar(fx.cookie), "/my/consent", { method: "POST", form: { return_to: HOME } }); } finally { restore(); }
+  ok(unreadable.status === 303 && unreadable.location === HOME && settingValue(fx, "consent:user-bin") === before && cookieLine(unreadable.cookies, "ab_cs") === CS_ON, "13 P3-2 기록을 읽지 못하면 쓰지 않고(처음 기록 그대로) 띠만 닫는다(303·ab_cs=1, V22.9.114)");
+  ok(events("terms_notice_closed").some((event) => event.severity === "warn" && event.detail === "unread"), "13 P3-2 읽기 실패는 terms_notice_closed(warn, unread)로 남는다");
 
   const mobile = await go(fx, new Jar("ab_kakao_auto=skip"), "/m?month=2026-11", { ua: INAPP });
   ok(mobile.status === 200 && isStart(mobile.html) && mobile.html.includes('<input type="hidden" name="return_to" value="/app?month=2026-11"/>'), "13 P3-3 /m 시작 화면은 /app(같은 달)으로 돌아간다");
   const mobilePop = await go(fx, new Jar(`${fx.cookie}; ab_cs=0`), "/m?month=2026-07&household_id=house-home", { ua: CHROME });
-  ok(mobilePop.status === 200 && mobilePop.html.includes('name="return_to" value="/app?month=2026-07&amp;household_id=house-home"/>'), "13 P3-3 /m 홈 팝업도 /app(같은 달·가계부)으로 돌아간다");
+  ok(mobilePop.status === 200 && mobilePop.html.includes('id="abTermsBand"') && mobilePop.html.includes('name="return_to" value="/app?month=2026-07&amp;household_id=house-home"/>'), "13 P3-3 /m 홈 띠도 /app(같은 달·가계부)으로 돌아간다");
 });
 
 t.done();

@@ -386,7 +386,7 @@ async function findUserByKakaoLoginId(env, kakaoId = "") {
   return found.user;
 }
 
-// V22.9.95 R-9: allowCreate 가 false 면(약관·방침 동의를 받지 않은 로그인) 새 계정을 만들지 않고 null 을 돌려준다. onCreated 는 새 계정을 만들고
+// V22.9.95 R-9: allowCreate 가 false 면(새 계정을 만들지 않는 길) 새 계정을 만들지 않고 null 을 돌려준다(V22.9.114 부터 카카오 보통 로그인은 늘 true). onCreated 는 새 계정을 만들고
 // 카카오 식별 연결까지 끝났을 때만 그 사용자로 부른다(동의 기록용). 두 값을 주지 않는 예전 호출은 예전과 같다.
 async function ensureKakaoLoginUser(env, kakaoId, nickname, { allowCreate = true, onCreated = null } = {}) {
   const found = await findUserByKakaoLoginId(env, kakaoId);

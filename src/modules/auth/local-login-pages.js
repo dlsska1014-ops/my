@@ -50,29 +50,31 @@ function renderMyStartChoiceHtml({ env, user, msg = "", err = "" }) {
   *,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9 0%,#f8fafc 48%,#eef2f7 100%);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1000px;margin:0 auto;padding:18px}.hero{background:#fff;border:1px solid #e8edf4;border-radius:32px;box-shadow:0 22px 54px rgba(15,23,42,.09);padding:26px;margin:16px 0}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{margin:14px 0 10px;font-size:32px;letter-spacing:-.06em}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;box-shadow:0 14px 34px rgba(15,23,42,.055)}.card h2{margin:0 0 8px;font-size:22px}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:12px;font-weight:1000;color:#475467}.field input{height:48px;border:1px solid #d0d5dd;background:#fff;border-radius:16px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;border:0;border-radius:16px;background:#111827;color:#fff;font-weight:1000;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.criteria{background:#f8fafc;border:1px solid #edf1f7;border-radius:18px;padding:13px;margin:12px 0}.criteria b{display:block}.criteria span{display:block;color:#667085;font-size:13px;line-height:1.5;margin-top:4px}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:11px;margin:10px 0}.foot{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:20px;padding:14px;margin:14px 0;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.grid{grid-template-columns:1fr}.hero h1{font-size:26px}}</style></head><body><main class="wrap"><section class="hero"><span class="badge">가계부 시작</span><h1>${userName}님,<br/>새로 만들까요? 참여할까요?</h1><p class="muted">아래에서 현재 상황에 맞는 것을 선택하세요. 잘못 선택해도 나중에 다른 가계부를 추가하거나 초대코드로 다시 참여할 수 있습니다.</p>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}</section>${renderAccountbookEmptyState()}<section class="grid"><div class="card"><h2>새 가계부 만들기</h2><p class="muted">아직 가계부가 없거나, 내가 우리집/모임 가계부의 시작자가 되는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>내가 가계부를 만들고 구성원을 초대한 뒤 첫 기록부터 시작할 때</span></div><form method="post" action="/my/create"><div class="field"><label>가계부 이름</label><input name="household_name" placeholder="예: 우리집 가계부" value="우리집 가계부"/></div><button type="submit">새 가계부 만들기</button></form></div><div class="card"><h2>초대코드로 참여하기</h2><p class="muted">가족, 배우자, 모임장이 이미 만든 가계부가 있는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>이미 받은 초대코드가 있고 같은 가계부에 내 기록을 함께 남길 때</span></div><form method="post" action="/my/join"><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: 38NDLPNR" required/></div><button class="secondary" type="submit">초대코드로 참여하기</button></form></div><div class="card" id="kakao-record-link" style="grid-column:1/-1"><h2>카카오톡에서 이미 기록하고 있었나요?</h2><p class="muted">단톡방이나 봇과의 1:1 채팅에서 남긴 기록은 이 웹 계정이 아니라 카카오 기록 계정에 있어요. 새 가계부를 만들지 말고 같은 기록을 이어 여세요.</p><div class="criteria"><b>이럴 때 선택</b><span>단톡방의 ‘웹가계부’ 버튼으로 들어왔는데 가계부가 비어 있을 때</span></div><ol class="muted" style="margin:10px 0 14px;padding-left:20px;line-height:1.7"><li>카카오톡에서 봇과의 1:1 채팅을 열고 <b>웹 가계부 열기</b>라고 보냅니다.</li><li>받은 웹 연결 코드를 아래 버튼을 눌러 붙여 넣습니다(10분 동안 1회).</li></ol><a class="btn secondary" href="/my/kakao-claim">카카오 기록 이어 열기</a></div></section><div class="foot"><b>다음 단계</b><br/>가계부 생성 또는 참여 → 구성원 초대·승인 → 단톡방 연결(선택) → 기록 방법 확인 → 첫 기록 순서로 진행하세요. 예산과 분류는 첫 기록 후 필요할 때 설정해도 됩니다.</div></main></body></html>`;
 }
 
-// V22.9.95 R-9: 가입 폼과 카카오 로그인이 같이 쓰는 동의 오류 문구(맨 위 요약과 칸 아래에 같은 말).
-// V22.9.104 L-2: 동의 칸 문구(이용약관 동의 + 개인정보처리방침 확인)와 같은 말로 맞춘다. 홈 동의 팝업(POST /my/consent)도 이 말을 쓴다.
+// V22.9.95 R-9: 가입 폼의 동의 오류 문구(맨 위 요약과 칸 아래에 같은 말).
+// V22.9.104 L-2: 동의 칸 문구(이용약관 동의 + 개인정보처리방침 확인)와 같은 말로 맞춘다.
+// V22.9.114: 카카오 로그인·홈 팝업은 더 이상 이 문구를 쓰지 않는다(안내 줄·안내 띠로 바꿈). 로그인 이름 가입 폼만 쓴다.
 // V22.9.104 L-2(커밋 B): 동의 칸이 나이를 묻지 않으므로 ‘(만 14세 이상)’을 뺐다.
 const SIGNUP_CONSENT_REQUIRED_MESSAGE = "이용약관 동의와 개인정보처리방침 확인이 필요해요";
 
 // V22.9.95 R-9: 새 계정이 만들어질 때만(로컬 가입 성공, 카카오 콜백의 새 사용자) 동의 기록을 설정 표 consent:<user_id> 에 남긴다.
 // version 은 방침 개정일이다(V22.9.95~103 의 기록에는 동의 칸이 만 14세 이상 확인을 함께 물어 age14 가 있다). 기록이 실패해도 가입은 막지 않고 운영 이벤트(warn)만 남긴다.
-// V22.9.104 L-3: 홈 동의 팝업(POST /my/consent)도 같은 기록을 남긴다(via "popup"). 가입 때 기록이 없던 계정(단톡방에서 먼저 생긴 계정 등)이다.
+// V22.9.104 L-3: 홈 동의 팝업(POST /my/consent)도 같은 기록을 남겼다(via "popup", V22.9.104~113). V22.9.114 부터 같은 주소는 약관 안내 띠의 ‘확인’ 이라
+// via "band" 로 남긴다(기록의 뜻 = 안내를 본 시각). 가입 때 기록이 없던 계정(단톡방에서 먼저 생긴 계정 등)이다.
 // V22.9.104 L-2(커밋 B): 동의 칸이 나이를 묻지 않아 새 기록에는 age14 를 적지 않는다. 예전 기록의 age14 는 그대로 두며 읽는 곳은 없다.
 async function recordSignupConsent(env, userId = "", via = "local") {
   const id = String(userId || "").trim();
   if (!id) return false;
-  const kakao = via === "kakao";
-  const popup = via === "popup";
+  const label = ["kakao", "popup", "band"].includes(via) ? via : "local";
+  const kakao = label === "kakao";
   try {
     await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ key: `consent:${id}`.slice(0, 180), value: JSON.stringify({ version: POLICY_REVISION_DATE, at: new Date(qaFixedNowMs()).toISOString(), via: kakao ? "kakao" : popup ? "popup" : "local" }) }),
+      body: JSON.stringify({ key: `consent:${id}`.slice(0, 180), value: JSON.stringify({ version: POLICY_REVISION_DATE, at: new Date(qaFixedNowMs()).toISOString(), via: label }) }),
     });
     return true;
   } catch (err) {
-    rememberOpsEvent({ kind: "consent_record_failed", severity: "warn", path: kakao ? "/auth/kakao/callback" : popup ? "/my/consent" : "/my/local-signup", method: kakao ? "GET" : "POST", detail: safeError(err) });
+    rememberOpsEvent({ kind: "consent_record_failed", severity: "warn", path: kakao ? "/auth/kakao/callback" : label === "local" ? "/my/local-signup" : "/my/consent", method: kakao ? "GET" : "POST", detail: safeError(err) });
     return false;
   }
 }
@@ -171,7 +173,7 @@ async function handleMyLocalLogin(request, env) {
     }
     const session = await makeUserSession(env, user.id);
     // V22.9.102: 로그인 이름으로 들어왔으면 내 계정 로그인 비밀번호가 있는 계정이다(가계부 기본 설정 띠의 비밀번호 항목 쿠키).
-    // V22.9.104 L-3: 동의 기록을 한 번 읽어 홈 동의 팝업 쿠키(ab_cs=1/0)를 적는다. 읽지 못하면 남은 ab_cs 를 지운다(모름 = 팝업 없음).
+    // V22.9.104 L-3: 안내 확인 기록을 한 번 읽어 홈 띠 쿠키(ab_cs=1/0)를 적는다. 읽지 못하면 남은 ab_cs 를 지운다(모름 = 띠 없음).
     return redirectResponseWithCookies(location, [
       `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
       backupLoginKnownCookie(),
@@ -244,20 +246,20 @@ async function handleMyLocalSignup(request, env) {
       location = isUncertainStorageWrite(err) ? "/my/households?first=1&err=db_write_unknown" : `/my/households?first=1&err=${encodeURIComponent("계정은 생성되었지만 초대 참여를 완료하지 못했습니다. 가계부 전환·추가에서 다시 참여해 주세요.")}`;
     }
   }
-  // V22.9.104 L-3: 방금 남긴 동의 기록은 홈 동의 팝업 쿠키 ab_cs=1 로 이어진다(기록이 실패하면 적지 않는다).
+  // V22.9.104 L-3: 방금 남긴 동의 기록은 홈 띠 쿠키 ab_cs=1 로 이어진다(기록이 실패하면 적지 않는다).
   return redirectResponseWithCookies(location, [
     `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
     consentRecorded ? consentStateCookie(true) : "",
   ]);
 }
 
-function kakaoLoginStatusBlock(env, returnTo = "", { consentError = "" } = {}) {
+function kakaoLoginStatusBlock(env, returnTo = "") {
   const config = inspectKakaoLoginConfig(env);
   if (config.ready) {
     // V22.9.87 T-20: 카카오 로그인 버튼(§3-4: #FEE500 면, 검은 말풍선 심볼, 라벨 ‘카카오 로그인’). 시작 화면에서 첫 화면의 유일한 채운 버튼이다.
     // 예전 ‘가장 간편한 방법’ 안내 상자와 ‘다른 방법으로 접속’ 구분선은 없앴다. 로그인 이름 칸은 바로 아래 접힌 칸(로그인 이름으로 로그인)이다.
-    // V22.9.95 R-9: 단추 위 동의 칸과 함께 그린다. 서버가 동의 없는 시작을 되돌린 화면이면 칸 아래에 오류를 적는다.
-    return kakaoLoginButtonHtml(returnTo, { consentError });
+    // V22.9.114: 단추 아래 약관 안내 한 줄과 함께 그린다(V22.9.95 R-9 의 동의 칸은 뺐다).
+    return kakaoLoginButtonHtml(returnTo);
   }
   if (!config.enabled) {
     return `<div class="warn"><b>카카오 로그인을 잠시 사용할 수 없어요</b><br/>기존 로그인 이름과 내 계정 로그인 비밀번호로 접속할 수 있습니다.</div><div class="mobileAccessHelp"><b>PC에서는 이미 사용 중인가요?</b><br/>PC의 전체 메뉴 → 내 계정·보안에서 한 번 설정한 뒤, 모바일에서 같은 로그인 이름과 비밀번호를 입력하세요.</div>`;

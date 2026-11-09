@@ -232,7 +232,7 @@ await fixture(async (fx) => {
   const independent = "말해가계부는 사용자가 입력한 생활비를 정리하는 독립 서비스입니다. 은행·카드사 계정을 자동으로 연결하거나 투자·세무 판단을 대신하지 않습니다. 카카오가 직접 제공하는 공식 가계부 서비스는 아닙니다.";
   t.ok(between(home, '<section class="pubLand pubLandNote"', "</section>").includes(independent) && count(home, independent) === 1, "알아 둘 점은 지금 문구(은행·카드 자동 연결 안 함, 카카오 공식 아님) 그대로이고 한 번만 나온다");
   const band = between(home, '<section class="pubBand"', "</section>");
-  t.ok(band.includes('<form class="kakaoStart" method="get" action="/auth/kakao/start"><label class="consentRow">') && band.includes('<button class="kakaoBtn" type="submit">') && band.includes('<a class="pubBtn secondary" href="/demo">가상 가계부 둘러보기</a>'), "카카오 로그인 띠: 카카오 로그인(설정된 서버) + 가상 가계부 둘러보기");
+  t.ok(band.includes('<form class="kakaoStart" method="get" action="/auth/kakao/start"><button class="kakaoBtn" type="submit">') && band.includes('</form><p class="termsNote">계속하면 ') && band.includes('<a class="pubBtn secondary" href="/demo">가상 가계부 둘러보기</a>'), "카카오 로그인 띠: 카카오 로그인(설정된 서버) + 가상 가계부 둘러보기");
   const heroActions = between(home, '<div class="pubHeroActions">', "</div>");
   t.eq(count(heroActions, 'class="pubBtn"'), 1, "히어로의 채운 주 버튼은 하나다");
 

@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_113.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_114.sha256",
 );
 const validationScripts = [
   ["V22.9.107 광고 검토 후속(D-1 유입 매개변수·앵커가 붙어도 정본 문서면 광고, D-2 애드핏 FAQ 문구, D-3 계산표 글 절 순서, D-4~D-6 계산표 변경 전 결과·휴대폰 2열·머리꼬리·주소 판, D-7 글 목록 ‘계산표 포함’)", "validation/validate-ads-review-fixes-v229107.mjs"],
@@ -21,6 +21,7 @@ const validationScripts = [
   ["V22.9.104 J-9 기록 수정·삭제 경쟁(구성원 저장·삭제는 ‘지출자 = 나’ 조건, 웹·카카오 충돌 안내, 소유자·관리자 그대로, 요청 수 그대로)", "validation/validate-edit-race-v229104.mjs"],
   ["V22.9.104 출시 전 글·첫 화면·공지 띠(A-1 닫기 ×, A-2 첫 화면 최근 글, A-4 세무 글 8편 사실 확인 고침)", "validation/validate-prelaunch-content-v229104.mjs"],
   ["V22.9.104 카카오톡 인앱 시작 화면(홈 미리보기 위 동의 팝업)·첫 카카오 로그인 기본 가계부·홈 동의 팝업(ab_cs)·POST /my/consent", "validation/validate-kakao-home-v229104.mjs"],
+  ["V22.9.114 약관 안내(동의 체크 칸·홈 동의 팝업 → 카카오 폼 아래 ‘계속하면 이용약관에 동의한 것으로 봅니다’ 한 줄 + 홈 안내 띠 #abTermsBand·POST /my/consent via band, 보통 로그인은 바로 카카오 303, 가입 폼 동의 칸 유지, 방침 6·12절·약관 2절)", "validation/validate-terms-notice-v229114.mjs"],
   ["V22.9.113 예산 명령 되묻기 설계 유지(Gemini ① 결함 아님)·모호한 말 안내 한 줄·‘월 예산’ 전체 예산", "validation/validate-budget-command-fix-v229113.mjs"],
   ["V22.9.112 Gemini 후속 수정(합계 조사, 분류 챌린지, Cron 머리막힘, 강제 내보내기 정리, 방 열기 쿠키)", "validation/validate-gemini-fixes-v229112.mjs"],
   ["V22.9.111 UI 개선(홈 요약 필터 범위, 분석 탭 대비, 가계부 활성 카드)", "validation/validate-ui-improvements-v229111.mjs"],
@@ -387,7 +388,7 @@ function run(command, args, label) {
 // V22.9.99: wording, notice hide and findings; measured 61,894 present / 61,891 absent.
 // V22.9.100: K-1 139 checks; F-1/F-2 user-confirmed split. Closing K-1 removes one open-item ledger assertion.
 // Both complete runs measured 62,052 present / 62,049 absent (61,914/61,911 + 139 - 1).
-const EXPECTED_MINIMUM_CHECKS = 76661;
+const EXPECTED_MINIMUM_CHECKS = 76765;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

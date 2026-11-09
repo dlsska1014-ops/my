@@ -8,7 +8,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.113-BUDGET-COMMAND-FIX";
+const APP_VERSION = "V22.9.114-TERMS-NOTICE";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -175,8 +175,10 @@ const BUSINESS_FOOTER_INFO = Object.freeze({
 // 처리 내용을 더 자세히 적은, 이용자에게 불리하지 않은 변경이라 시행일 = 공고일(알린 날부터 적용). 검사는 시행일이 공고일과 같거나 + 7일인지 본다. 날짜는 이 두 줄만 바꾼다.
 // V22.9.104 L-5·L-6(사용자 2026-11-06 "14세 문구 빼고 PR 올려줘"): 만 14세 미만 이용(방침 9절·약관 2절)과 6절 쿠키 목록을 고친 개정도 이용자에게
 // 불리하지 않은 변경이라 공고일 = 시행일 = 배포일이다. 배포가 다른 날로 넘어가면 두 줄을 그날로 바꾼다(동의 기록 version 도 따라간다. 읽는 곳은 기록 유무만 본다).
-const POLICY_NOTICE_DATE = "2026-11-06";
-const POLICY_REVISION_DATE = "2026-11-06";
+// V22.9.114(사용자 2026-11-09 "팝업을 없애고 안내 띠로 바꿔줘", 앱 심사 담당자 요청): 카카오 로그인·홈의 이용약관 동의 체크 칸을 안내 줄로 바꾸고 약관 2절·방침 6절
+// 쿠키 설명·12절을 그에 맞춘 개정. 처리 항목·목적이 그대로라 불리하지 않은 변경 → 공고일 = 시행일 = 배포일. 배포가 다른 날로 넘어가면 두 줄을 그날로 바꾼다.
+const POLICY_NOTICE_DATE = "2026-11-09";
+const POLICY_REVISION_DATE = "2026-11-09";
 
 // "2026-07-13" → "2026년 7월 13일"(방침 머리의 시행·공고·개정일 표기).
 function policyDateLabel(ymd = POLICY_REVISION_DATE) {
@@ -521,20 +523,26 @@ function ledgerMarkSvg() {
 // V22.9.87 T-20·T-21: 카카오 로그인 버튼(§3-4: #FEE500 면, 검은 말풍선 심볼, 라벨 ‘카카오 로그인’). /my 시작 화면과 공개 첫 화면의
 // 카카오 로그인 띠가 같은 마크업을 쓴다. 색·크기는 각 화면 CSS 의 .kakaoBtn 이 정한다. 설정이 준비된 서버에서만 부른다.
 // V22.9.91: 로그인이 풀려 /my?return_to=… 로 온 사람은 카카오 로그인 뒤에도 보던 화면으로 돌아간다(주소는 safeUserReturnPath 를 거친 값만 받는다).
-// V22.9.95 R-9: 카카오 로그인으로 새 계정이 생길 수 있어 단추 위에 동의 칸(약관·개인정보처리방침 동의 + 만 14세 이상, 필수)을 둔다. 링크였던 단추를
-// GET 폼(/auth/kakao/start)의 제출 단추로 바꿨다. 스크립트가 없어도 브라우저 required 가 막고, 서버도 consent=1 이 없으면 로그인 화면으로 되돌린다.
-// 돌아갈 곳(return_to)은 숨은 칸으로 싣는다(서버가 읽는 이름과 값은 예전 주소와 같다). consentError 는 서버가 되돌린 화면의 칸 아래 문구다.
-function kakaoLoginButtonHtml(returnTo = "", { consentError = "" } = {}) {
+// V22.9.95 R-9: 링크였던 단추를 GET 폼(/auth/kakao/start)의 제출 단추로 바꿨다. 돌아갈 곳(return_to)은 숨은 칸으로 싣는다(서버가 읽는 이름과 값은 예전 주소와 같다).
+// V22.9.114: 단추 위 동의 체크 칸(V22.9.95 R-9)을 뺐다. 대신 단추 아래에 ‘계속하면 이용약관에 동의한 것으로 봅니다’ 한 줄(termsNoticeLineHtml)을 둔다.
+// 서버도 consent=1 을 더 요구하지 않는다(개인정보는 계약 이행 근거 처리라 동의 대상이 아니고, 약관은 명시 의무만 있다 — 방침 9절·약관 2절).
+function kakaoLoginButtonHtml(returnTo = "") {
   const back = returnTo ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/>` : "";
-  return '<form class="kakaoStart" method="get" action="/auth/kakao/start">' + back + signupConsentFieldHtml("kakaoConsent", consentError) + '<button class="kakaoBtn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466 0 2.66 1.77 4.995 4.432 6.316l-.9 3.296a.35.35 0 0 0 .532.383l3.917-2.598c.5.06 1.007.09 1.519.09 5.247 0 9.5-3.343 9.5-7.487C21.5 6.843 17.247 3.5 12 3.5Z"/></svg>카카오 로그인</button></form>';
+  return '<form class="kakaoStart" method="get" action="/auth/kakao/start">' + back + '<button class="kakaoBtn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466 0 2.66 1.77 4.995 4.432 6.316l-.9 3.296a.35.35 0 0 0 .532.383l3.917-2.598c.5.06 1.007.09 1.519.09 5.247 0 9.5-3.343 9.5-7.487C21.5 6.843 17.247 3.5 12 3.5Z"/></svg>카카오 로그인</button></form>' + termsNoticeLineHtml();
 }
 
 // V22.9.95 R-9: 가입 폼과 카카오 로그인 폼이 같이 쓰는 동의 칸. 두 링크는 새 탭으로 연다(같은 사이트라 opener 위험이 없다). 서버 오류가 있을 때만
 // 칸에 aria-invalid 와 칸 아래 문구(.fieldError)를 붙인다. 미리 체크해 두지 않는다(동의는 사용자가 직접 표시한다).
 // V22.9.104 L-2: 필수 칸임을 앞에 적고, 개인정보처리방침은 ‘동의’가 아니라 ‘확인’으로 적는다(서비스 제공에 필요한 처리라 별도 동의를 받지 않는다).
-// 카카오톡 시작 화면·홈 동의 팝업·로그인 화면·가입 폼이 모두 이 칸을 쓴다. 서버는 여전히 consent=1 을 받아야 진행하고 동의 기록을 남긴다.
+// V22.9.114: 이 칸은 로그인 이름·비밀번호 가입 폼(POST /my/local-signup)만 쓴다. 카카오 로그인·카카오톡 시작 화면·홈은 안내 줄(termsNoticeLineHtml·홈 띠)로 바꿨다.
 // V22.9.104 L-2(커밋 B): ‘만 14세 이상이에요’를 뺐다. 법정대리인 동의는 아동의 개인정보를 동의를 근거로 처리할 때만 필요하고(개인정보 보호법
 // 제22조의2제1항), 가계부는 서비스 제공에 필요한 처리(제15조제1항제4호)만 한다. 만 14세 미만의 처리는 처리방침 9절에 적었다.
+// V22.9.114: 카카오 로그인 단추 아래 안내 한 줄(동의 체크 칸 대신). 두 링크는 새 탭(같은 사이트라 opener 위험 없음). 글은 각 화면 CSS 의 .termsNote 가 꾸민다.
+const TERMS_NOTICE_SENTENCE = "계속하면 이용약관에 동의한 것으로 봅니다";
+function termsNoticeLineHtml() {
+  return `<p class="termsNote">계속하면 <a href="/terms" target="_blank">이용약관</a>에 동의한 것으로 봅니다 · <a href="/privacy" target="_blank">개인정보처리방침</a></p>`;
+}
+
 function signupConsentFieldHtml(id = "signupConsent", error = "") {
   const note = error ? ` aria-invalid="true" aria-describedby="${id}Error"` : "";
   return `<label class="consentRow"><input id="${id}" name="consent" type="checkbox" value="1" required${note}/><span>[필수] <a href="/terms" target="_blank">이용약관</a>에 동의하고 <a href="/privacy" target="_blank">개인정보처리방침</a>을 확인했어요</span></label>${error ? `<p class="fieldError" id="${id}Error">${escapeHtml(error)}</p>` : ""}`;
@@ -571,6 +579,6 @@ export {
   kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg, memeCardsEnabled,
   normalizeBaseUrl, pageNotFoundResponse, policyDateLabel, premiumBetaEnabled, publicAdsenseHead,
   publicBaseUrl, publicSiteFooter, publicSiteNav, publicSupportEmail, renderBusinessInfoFooter,
-  renderSkillGetHealthHtml, signupConsentFieldHtml,
+  renderSkillGetHealthHtml, signupConsentFieldHtml, termsNoticeLineHtml,
 };
 // @build:exports-end

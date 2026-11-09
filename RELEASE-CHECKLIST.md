@@ -1,3 +1,10 @@
+## V22.9.114 약관 안내(동의 칸·팝업 → 안내 한 줄·홈 띠) 검사
+
+- 자동: 새 검사 `validate-terms-notice-v229114` 106 · 고친 검사 `validate-kakao-home-v229104` 189(전 199)·`validate-v22995-legal` 151(전 157)·`validate-room-open-v229105` 274·`validate-public-brand-v22987` 227 · 환불 지문 251/268/83(V113 이름으로 먼저 전부 통과 확인 뒤 analysis·backupFull·backupMonth 3개 재채취 = 판 이름만) · 공개 점검 도구 `tools/verify-deployment-v22920.mjs` 카카오 시작 = 303 기대(123개 그대로). 하네스 두 모드 76,768(일반)/76,765(분류 표 부재), 하한 76,765, manifest `BUNDLE_FILE_CHECKSUMS_V22_9_114.sha256` 822개 경로.
+- 기존 보호: `validate-identity-link-v22991`(221, 검사 13 ‘빈 계정 자동 로그인은 계정을 만들지 않는다’ — 이 판의 첫 WIP 가 깨뜨려 V104 조건으로 되돌림)·`validate-kakao-home-v229104`(자동 로그인·첫 가계부·P2-1·P3-2 그대로)·`validate-brand-rename-v22920`·`validate-ui-fixes-v229102`·`validate-data-v22981`·`validate-web-ui-v22979`·`validate-identity-v22977`·`validate-signup-kdf-v22935`·생성 Worker 동일성·판 번호 정본·1년 캐시 자산 불변.
+- 배포 직후(Claude): /health 판 이름 ×3·/ready·공개 123/123(도구가 카카오 시작 303 을 기대)·sitemap 60·`/` 띠에 `.termsNote` 와 `name="consent"` 없음·`/privacy` 12절 새 문장·`/terms` 2절 새 문장. 앱만·바인딩 32.
+- 사람 확인: 카카오톡 인앱 ‘웹가계부’ → 홈 맨 위 띠 → ‘확인’ 뒤 사라짐(다시 열어도 없음); 로그인 화면 카카오 단추 아래 안내 한 줄(동의 칸 없음) → 카카오 로그인 바로 진행; 로그인 이름 가입은 동의 칸 체크 없이 400 그대로; 휴대폰 360px·다크 모드에서 띠 글자 잘림 없음.
+
 ## V22.9.113 예산 명령 되묻기·안내 문구·월 예산 검사
 
 - 자동: `validate-budget-command-fix-v229113`(63: 파서 — 예산 명령 그대로, ‘예산’ 든 말을 null 로 넘기지 않음, ‘월 예산’ 전체; 카카오 스킬 끝단 소유자·구성원 — 모호한 말 저장 0 + 안내 한 줄, 예산 말 4종이 지출로 저장되지 않음, 두 낱말 별칭·사용자 분류·월 예산 설정, 한 낱말 답 불변; 소스 대조·v22876 설계 검사 존재). 환불 지문 268(판 이름만).

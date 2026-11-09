@@ -5,7 +5,7 @@
 // 바로 안나오는거야 앱 승인 담당자가 별도 화면없이 바로 가계부 홈 화면 나와야 한다고 했다고 몇번 말하니".
 // 카카오 그룹 챗봇 안내서: 팀채팅방에서 챗봇 링크 단추를 누르면 카카오가 누른 사람의 botUserKey·appUserId 와 방 botGroupKey 를 주소 뒤에 붙인다.
 // 웹(auth/kakao-room-open.js)은 두 값(botUserKey·botGroupKey)이 다 있고 그 사람의 원래 채팅 계정이 그 방 가계부 구성원이면 세션을 만들어 그 방 가계부
-// 홈으로 보낸다. 동의 기록이 없으면 홈 위에 동의 팝업(V22.9.104 L-3)이 뜬다. 안 맞으면 카카오 값을 뺀 같은 주소로 보내고 그 뒤는 V22.9.104 그대로다.
+// 홈으로 보낸다. 안내 확인 기록이 없으면 홈 맨 위에 약관 안내 띠(V22.9.104 L-3 동의 팝업 → V22.9.114 띠)가 붙는다. 안 맞으면 카카오 값을 뺀 같은 주소로 보내고 그 뒤는 V22.9.104 그대로다.
 // 독립 보안 검토(2026-11-06)로 더한 것: 웹 계정에 이어진 사람은 세션 없이 넘기기(R-6), 로그인 뒤 화면이 아닌 주소는 값만 지우기(R-7), 기억한 가계부
 // 무시(R-8), 같은 값 두 번·다른 계정 세션 바꾸기 조건·답 단추 주소의 값 지우기(R-9), 16진 키 모양(R-10), 링크 미리보기 수집기 제외(R-11).
 // 실제 요청(/skill·/my·/app·/m·/my/*·/my/consent·공개 문서)과 저장된 행으로 본다. 가짜는 픽스처 DB 와 일부 실패 흉내뿐이다.
@@ -93,7 +93,7 @@ const events = (kind) => (globalThis.__AB_OPS_EVENTS || []).filter((event) => ev
 const lastRoomOpen = () => events("kakao_room_open").at(-1)?.detail || "";
 const noKakaoValues = (location) => !/botUserKey|botGroupKey|appUserId/.test(location);
 const isStart = (html) => html.includes('id="abKakaoStart"');
-const isPopup = (html) => html.includes('id="abConsentPop"');
+const isBand = (html) => html.includes('id="abTermsBand"'); // V22.9.114: 동의 팝업(abConsentPop) → 약관 안내 띠
 const probeRows = (fx) => fx.db.accountbook_settings.filter((row) => String(row.key).startsWith(PROBE)).length;
 
 function putSetting(fx, key, value) {
@@ -159,7 +159,7 @@ async function roomFixture(task) {
   ok(builders.includes('const KAKAO_LINK_BUTTON_STRIP_PARAMS = ["botUserKey", "appUserId", "botGroupKey"];'), "0 답 단추 주소에서 카카오 값을 지운다(R-9)");
 }
 
-// ── 1. 첫 기록 → ‘웹가계부’ 단추 → 바로 그 방 가계부 홈 + 동의 팝업 ─────────────────
+// ── 1. 첫 기록 → ‘웹가계부’ 단추 → 바로 그 방 가계부 홈 + 약관 안내 띠(V22.9.114) ────────
 await roomFixture(async (fx, { u1, u2, u3, household }) => {
   ok(u1?.id && u2?.id && u3?.id && household?.id, "1 준비: 방 첫 기록으로 방 가계부·소유자(U1)가 생기고, U2 는 같은 방, U3 은 다른 방 사람이다");
   ok(fx.db.household_members.some((row) => row.user_id === u2.id && row.household_id === household.id), "1 준비: U2 는 방 가계부 구성원이다");
@@ -179,13 +179,13 @@ await roomFixture(async (fx, { u1, u2, u3, household }) => {
     eq(sessionUser(first.cookies), u1.id, `1 ${name}: 누른 사람(U1)의 채팅 계정 세션이다`);
     ok(/^ab_user=[^;]+; Path=\/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax$/.test(cookieLine(first.cookies, "ab_user")), `1 ${name}: 세션 쿠키 모양은 다른 로그인과 같다(14일·HttpOnly·Secure·Lax)`);
     eq(cookieLine(first.cookies, "ab_hh"), "ab_hh=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax", `1 ${name}: 옛 가계부 선택 쿠키는 지운다`);
-    ok(cookieLine(first.cookies, "ab_cs").startsWith("ab_cs=0;"), `1 ${name}: 동의 기록이 없어 ab_cs=0(홈 팝업)`);
+    ok(cookieLine(first.cookies, "ab_cs").startsWith("ab_cs=0;"), `1 ${name}: 안내 확인 기록이 없어 ab_cs=0(홈 띠)`);
     ok(!cookieLine(first.cookies, "ab_credential_reauth"), `1 ${name}: 본인 확인 표는 주지 않는다`);
     const home = await go(fx, first.location, { ua, cookie: jarOf(first.cookies) });
     eq(home.status, 200, `1 ${name}: 홈이 바로 열린다`);
     ok(!isStart(home.html) && !home.html.includes('class="landingPage"'), `1 ${name}: 시작 팝업·로그인 화면이 아니다`);
     ok(home.html.includes(ROOM_HOUSEHOLD_NAME) && home.html.includes("12,000"), `1 ${name}: 그 방 가계부(이름·첫 기록 12,000원)가 보인다`);
-    ok(isPopup(home.html), `1 ${name}: 홈 위에 개인정보 동의 팝업이 뜬다`);
+    ok(isBand(home.html) && !home.html.includes('id="abConsentPop"'), `1 ${name}: 홈 맨 위에 약관 안내 띠가 붙는다(동의 팝업 없음, V22.9.114)`);
   }
   ok(/^ok$/.test(lastRoomOpen()), "1 운영 이벤트 kakao_room_open = ok");
   const probe = JSON.parse(settingValue(fx, `${PROBE}ok`) || "{}");
@@ -193,13 +193,13 @@ await roomFixture(async (fx, { u1, u2, u3, household }) => {
   eq(Object.keys(probe).sort().join(","), "app_version,at,version", "1 진단 기록에는 식별자를 남기지 않는다");
   ok(!fx.db.accountbook_settings.some((row) => row.key.startsWith(PROBE) && (String(row.value).includes(U1) || String(row.key).includes(U1))), "1 진단 기록 어디에도 botUserKey 가 없다");
 
-  // 팝업에서 동의 → 다음부터 팝업 없음. 같은 사람이 다시 누르면 세션을 바꾸지 않고 홈으로만 보낸다.
+  // 띠의 ‘확인’(체크 칸 없음) → 다음부터 띠 없음. 같은 사람이 다시 누르면 세션을 바꾸지 않고 홈으로만 보낸다.
   const first = await go(fx, tapped("/my"));
   const jar = jarOf(first.cookies);
-  const agreed = await go(fx, "/my/consent", { method: "POST", cookie: jar, headers: { "content-type": "application/x-www-form-urlencoded", origin: BASE, "sec-fetch-site": "same-origin" }, body: new URLSearchParams({ consent: "1", return_to: first.location }).toString() });
-  eq(agreed.status, 303, "1b 팝업 ‘동의’ 는 홈으로 돌아간다");
-  ok(cookieLine(agreed.cookies, "ab_cs").startsWith("ab_cs=1;"), "1b 동의 뒤 ab_cs=1");
-  ok(JSON.parse(settingValue(fx, `consent:${u1.id}`) || "{}").via === "popup", "1b 동의 기록이 남는다(via popup)");
+  const agreed = await go(fx, "/my/consent", { method: "POST", cookie: jar, headers: { "content-type": "application/x-www-form-urlencoded", origin: BASE, "sec-fetch-site": "same-origin" }, body: new URLSearchParams({ return_to: first.location }).toString() });
+  eq(agreed.status, 303, "1b 띠의 ‘확인’ 은 홈으로 돌아간다");
+  ok(cookieLine(agreed.cookies, "ab_cs").startsWith("ab_cs=1;"), "1b 확인 뒤 ab_cs=1");
+  ok(JSON.parse(settingValue(fx, `consent:${u1.id}`) || "{}").via === "band", "1b 안내 확인 기록이 남는다(via band)");
   const jar2 = `${jar.replace(/ab_cs=0/, "ab_cs=1")}`;
   const again = await go(fx, tapped("/my"), { cookie: jar2 });
   eq(again.status, 303, "1b 같은 사람이 다시 누르면 넘긴다");
@@ -207,7 +207,7 @@ await roomFixture(async (fx, { u1, u2, u3, household }) => {
   ok(!cookieLine(again.cookies, "ab_user"), "1b 이미 같은 사람 세션이면 세션을 새로 만들지 않는다");
   ok(/^same_session$/.test(lastRoomOpen()), "1b 운영 이벤트 = same_session");
   const homeAfter = await go(fx, again.location, { cookie: jar2 });
-  ok(homeAfter.status === 200 && !isPopup(homeAfter.html) && homeAfter.html.includes(ROOM_HOUSEHOLD_NAME), "1b 동의한 뒤의 홈에는 팝업이 없다");
+  ok(homeAfter.status === 200 && !isBand(homeAfter.html) && homeAfter.html.includes(ROOM_HOUSEHOLD_NAME), "1b 확인한 뒤의 홈에는 띠가 없다");
 });
 
 // ── 2. 주소 모양: /app·/m·/my/*, 로그인 뒤 화면이 아닌 주소는 값만 지운다(R-7) ─────────────

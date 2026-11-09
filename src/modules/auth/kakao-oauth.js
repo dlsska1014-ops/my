@@ -21,9 +21,7 @@ import {
 import { fetchUserById, fetchUserHouseholds } from "../data/users-household-create.js";
 import { backupLoginKnownCookie, clearSetupCookies } from "../my/setup-page.js";
 import { createHouseholdForUserV229104 } from "../my/households-lifecycle.js";
-import {
-  SIGNUP_CONSENT_REQUIRED_MESSAGE, addQueryToUrl, recordSignupConsent,
-} from "./local-login-pages.js";
+import { addQueryToUrl, recordSignupConsent } from "./local-login-pages.js";
 import {
   isKakaoTalkInAppBrowser, kakaoAccountLinkProofAfterKakao, kakaoAutoLoginCookie,
   kakaoAutoLoginFallbackLocation,
@@ -73,15 +71,8 @@ async function handleKakaoLoginStart(request, env, url) {
     return redirectResponse(`${config.publicOrigin}/auth/kakao/start${url.search}`);
   }
   const linkMode = url.searchParams.get("link") === "1" || reauthMode;
-  // V22.9.95 R-9: 보통 로그인(login)은 새 계정이 생길 수 있는 길이라 약관·개인정보처리방침 동의와 만 14세 확인(consent=1)을 받아야 시작한다.
-  // 없고 로그인 세션도 없으면 카카오로 보내지 않고 로그인 화면(동의 칸 오류)으로 되돌린다. 인앱 자동 로그인(auto, 기존 계정만)·연결(link)·
-  // 본인 확인(reauth)은 새 계정을 만들지 않으므로 예전과 같다. 세션이 있는 사람은 막지 않되 상태에 동의가 없어 콜백이 새 계정을 만들지 않는다.
-  const consentGiven = url.searchParams.get("consent") === "1";
-  if (!linkMode && !autoMode && !consentGiven && !(await verifyUserSession(request, env))) {
-    rememberOpsEvent({ kind: "kakao_login_consent_missing", severity: "info", path: "/auth/kakao/start", method: "GET", detail: "start" });
-    // V22.9.104 L-1: 카카오톡 인앱 브라우저는 긴 로그인 화면 대신 시작 화면(같은 동의 칸 오류)으로 되돌린다. 그 밖의 브라우저는 예전 그대로다.
-    return htmlResponse(kakaoStartOrLoginHtml(request, env, { error: SIGNUP_CONSENT_REQUIRED_MESSAGE, returnTo: safeUserReturnPath(url.searchParams.get("return_to") || "", ""), authMode: "kakao_consent" }), 400);
-  }
+  // V22.9.95 R-9 의 동의 체크 칸(consent=1 없으면 400)은 V22.9.114 에서 뺐다(사용자 2026-11-09, 앱 심사 담당자 요청). 보통 로그인(login)도 바로 카카오로
+  // 보낸다. 약관 안내는 단추 아래 한 줄(계속하면 동의한 것으로 봄)과 홈의 안내 띠가 맡는다. 주소에 consent 가 붙어 와도 읽지 않는다.
   const currentUserId = linkMode ? await verifyUserSession(request, env) : "";
   if (linkMode && !currentUserId) return redirectResponse(reauthMode ? addQueryToUrl(reauthReturnTo, { err: "login_required" }) : "/my?err=login_required");
   if (reauthMode && /KAKAOTALK/i.test(request.headers.get("user-agent") || "")) return htmlResponse("<p>본인 확인은 Chrome 또는 Safari에서 이 주소를 열어 진행해 주세요.</p>", 403);
@@ -102,7 +93,6 @@ async function handleKakaoLoginStart(request, env, url) {
     const loginNext = safeUserReturnPath(url.searchParams.get("return_to") || "", "");
     if (loginNext) statePayload.next = loginNext;
     if (autoMode) statePayload.auto = 1;
-    if (consentGiven) statePayload.consent = 1;
   }
   const state = await signedPurposeToken(env, "kakao-oauth", statePayload, 600);
   const cookies = [
@@ -354,20 +344,16 @@ async function handleKakaoLoginCallback(request, env, url) {
       return redirectResponseWithCookies("/my?msg=kakao_linked", clearOauthCookies);
     }
     // V22.9.91 독립 검토: 자동 로그인(auto)은 새 계정을 만들지 않는다. 이 카카오 계정의 웹 계정이 이미 있을 때만 들인다.
-    // V22.9.95 R-9: 새 계정은 시작할 때 동의(consent=1)를 받은 로그인에서만 만든다(서명된 상태에 실린 값). 동의가 없으면(세션이 있던 사람, 배포 직전에
-    // 시작한 로그인 등) 기존 계정만 들이고, 새 계정이 필요하면 만들지 않고 로그인 화면(동의 칸 오류)으로 돌려보낸다. 만들었으면 동의 기록을 남긴다.
-    const loginConsent = stateProof.mode === "login" && stateProof.consent === 1;
+    // V22.9.114: 화면 있는 보통 로그인(login, auto 아님)은 새 계정을 만든다(V22.9.95 R-9 의 동의 체크 조건을 뺐다 — 로그인 화면·시작 화면의 단추 아래
+    // ‘계속하면 이용약관에 동의한 것으로 봅니다’ 한 줄을 보고 누른 로그인이다). 만들었으면 안내 확인 기록(consent:<id>, via kakao)을 남긴다.
+    const screenLogin = stateProof.mode === "login" && !autoMode;
     let createdUser = null;
-    let user = autoMode ? await findUserByKakaoLoginId(env, profile.kakaoId) : await ensureKakaoLoginUser(env, profile.kakaoId, profile.nickname, { allowCreate: loginConsent, onCreated: (created) => { createdUser = created; } });
+    let user = autoMode ? await findUserByKakaoLoginId(env, profile.kakaoId) : await ensureKakaoLoginUser(env, profile.kakaoId, profile.nickname, { allowCreate: true, onCreated: (created) => { createdUser = created; } });
     if (autoMode && !user?.id) {
       rememberOpsEvent({ kind: "kakao_auto_login_no_account", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId}` });
       return autoFallback();
     }
-    if (!user?.id && !loginConsent) {
-      rememberOpsEvent({ kind: "kakao_login_consent_missing", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `new_account;trace=${traceId}` });
-      return htmlResponseWithCookies(kakaoStartOrLoginHtml(request, env, { error: SIGNUP_CONSENT_REQUIRED_MESSAGE, returnTo: stateProof.mode === "login" ? safeUserReturnPath(String(stateProof.next || ""), "") : "", authMode: "kakao_consent" }), 400, clearOauthCookies);
-    }
-    // V22.9.104 L-3: 방금 남긴 동의 기록은 쿠키 ab_cs=1 로 이어진다(기록이 실패하면 쿠키를 적지 않는다 — 다음 로그인이 다시 읽는다).
+    // V22.9.104 L-3: 방금 남긴 안내 확인 기록은 쿠키 ab_cs=1 로 이어진다(기록이 실패하면 쿠키를 적지 않는다 — 다음 로그인이 다시 읽는다).
     const consentRecorded = createdUser?.id ? await recordSignupConsent(env, createdUser.id, "kakao") : false;
     if (!user?.id) throw kakaoStageError("account", "Kakao user provisioning failed");
     // V22.9.81 U-23: 프로필 이름 끝의 ‘(통합됨)’은 계정 통합 표식이라 떼고 쓴다(사용자를 만들 때와 같다). 그대로 쓰면 세션 확인이
@@ -381,16 +367,15 @@ async function handleKakaoLoginCallback(request, env, url) {
       });
       user = { ...user, nickname: profileName };
     }
-    // V22.9.104 L-3: 세션을 만들 때 동의 기록을 한 번 읽어(새 계정은 방금 남긴 결과) 홈 팝업 쿠키(ab_cs)를 적는다. 가계부 목록과 함께 읽는다.
+    // V22.9.104 L-3: 세션을 만들 때 안내 확인 기록을 한 번 읽어(새 계정은 방금 남긴 결과) 홈 띠 쿠키(ab_cs)를 적는다. 가계부 목록과 함께 읽는다.
     const [existingHouseholds, consentRead] = await Promise.all([
       fetchUserHouseholds(env, user.id),
       createdUser?.id ? (consentRecorded ? true : null) : readSignupConsentState(env, user.id),
     ]);
-    // V22.9.104 통합 검토: 동의 칸을 체크하고 누른 로그인(loginConsent)인데 이미 있던 계정에 기록이 없으면(V22.9.95 전에 만든 계정, 단톡방에서 먼저 써
-    // 봇이 만든 계정) 여기서 남긴다. 남기지 않으면 시작 화면에서 방금 체크한 사람이 홈에서 같은 팝업을 또 본다. 저장에 실패하면 ab_cs=0(팝업이 다시 받는다).
-    // 체크 없이 들어온 자동 로그인(auto)은 남기지 않는다(홈 팝업이 받는다). 주소를 꾸며 auto=1 에 consent=1 을 함께 붙여도(서명된 상태에 둘 다 실린다)
-    // 화면 없는 카카오 로그인이라 사람이 체크한 것이 아니므로 남기지 않는다(독립 검토 P2-1).
-    const consentState = consentRead === false && loginConsent && !autoMode && !createdUser?.id
+    // V22.9.104 통합 검토 → V22.9.114: 화면 있는 로그인(screenLogin, 안내 한 줄을 본 로그인)인데 이미 있던 계정에 기록이 없으면(V22.9.95 전에 만든 계정,
+    // 단톡방에서 먼저 써 봇이 만든 계정) 여기서 남긴다. 남기지 않으면 홈에서 안내 띠를 또 본다. 저장에 실패하면 ab_cs=0(띠가 다시 받는다).
+    // 화면 없는 자동 로그인(auto)은 남기지 않는다(홈 띠가 받는다). 주소를 꾸며 auto=1 에 무엇을 붙여도 화면 없는 로그인이라 남기지 않는다(독립 검토 P2-1).
+    const consentState = consentRead === false && screenLogin && !createdUser?.id
       ? await recordSignupConsent(env, user.id, "kakao")
       : consentRead;
     const loginNext = stateProof.mode === "login" ? safeUserReturnPath(String(stateProof.next || ""), "") : "";
@@ -404,7 +389,8 @@ async function handleKakaoLoginCallback(request, env, url) {
     }
     // V22.9.91 독립 검토: 자동 로그인은 가계부가 있거나 이을 계정이 있는 사람만 들인다. 빈 웹 계정에 말없이 들이면 첫 가계부 만들기
     // 화면이 나와, 단톡방 가계부가 따로 있는 사람이 거기서 새 가계부를 만들어 기록이 갈라질 수 있다. 그런 사람은 지금처럼 로그인 화면을 본다.
-    // V22.9.104 L-1: 다만 동의 기록이 있는 빈 계정(이을 계정 없음)은 기본 가계부를 만들어 들인다. 동의 기록이 없거나 읽지 못하면 지금처럼 시작 화면으로 간다.
+    // V22.9.104 L-1: 다만 안내 확인 기록이 있는 빈 계정(이을 계정 없음)은 기본 가계부를 만들어 들인다. 기록이 없거나 읽지 못하면 지금처럼 시작 화면으로 간다
+    // (V22.9.114 에서도 유지 — 화면 없는 로그인으로 빈 계정을 조용히 활성화하지 않는다. 시작 화면의 ‘카카오로 계속하기’ 가 화면 있는 로그인이다).
     // ‘이을 계정 없음’은 잇기 확인이 끝나 제안이 없었거나(no_offer) 스위치가 꺼진(disabled) 때만이다. 확인이 실패했거나(제안 표 읽기 오류) 다른 결과
     // (카카오 계정 불일치)면 이을 계정이 있을 수 있어 가계부를 만들지 않고 예전처럼 첫 가계부 화면(자동 로그인은 시작 화면)으로 간다.
     const emptyAccount = !existingHouseholds.length && !linkProof?.ok;
@@ -413,14 +399,14 @@ async function handleKakaoLoginCallback(request, env, url) {
       rememberOpsEvent({ kind: "kakao_auto_login_empty_account", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId}` });
       return autoFallback();
     }
-    // V22.9.104 L-1(사용자 2026-11-06 "바로 가계부 홈이 나와야"): 동의하고 누른 카카오 로그인(또는 동의 기록이 있는 자동 로그인)인데 가계부가 없고 이을 계정도
+    // V22.9.104 L-1(사용자 2026-11-06 "바로 가계부 홈이 나와야"): 카카오 로그인(화면 있는 로그인이든 자동 로그인이든)인데 가계부가 없고 이을 계정도
     // 없으면 첫 가계부 만들기 화면(/my/households?first=1#create)으로 보내지 않고 ‘내 가계부’ 하나를 이 사람 소유로 만든 뒤 돌아갈 곳(없으면 /app)으로 간다.
     // 만들기는 /my/create 폼과 같은 순서(createHouseholdForUserV229104, 새 SQL 없음)다. 잇기 제안이 있으면(linkProof.ok) 만들지 않고 합치기 단계로 간다.
     // 만들지 못하면 예전처럼 첫 가계부 화면으로 가고(자동 로그인은 시작 화면), 운영 이벤트(warn)를 남긴다. 이름은 가계부 기본 설정 띠(V22.9.102)가 정하게 한다.
     // 카카오톡 인앱 브라우저에서만 만든다(독립 검토 P2-2: 사용자 결정 B-1 은 인앱 동의 한 번 → 기본 가계부. 인앱이 아닌 브라우저는 예전처럼 첫 가계부 화면에서
     // 만들기·초대코드 참여를 고른다 — 데스크톱에서 초대코드로 참여하려고 온 사람에게 빈 가계부를 만들지 않으려고).
     let firstHousehold = null;
-    if (emptyAccount && noLinkOffer && (loginConsent || autoMode) && isKakaoTalkInAppBrowser(request)) {
+    if (emptyAccount && noLinkOffer && isKakaoTalkInAppBrowser(request)) {
       try {
         const made = await createHouseholdForUserV229104(env, user.id, KAKAO_FIRST_HOUSEHOLD_NAME, mergedMarkerFreeName(user.nickname || "", 40) || "내");
         firstHousehold = made?.household?.id ? made.household : null;
