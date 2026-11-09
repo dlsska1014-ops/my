@@ -120,11 +120,11 @@ const tasks = [
     }
   }],
   ["kakao login", async () => {
-    // V22.9.95 R-9: 동의 없는 시작은 새 계정을 만들 수 있는 길이라 303 대신 동의 안내 화면(400)이다. 동의(consent=1)가 있어야 카카오로 보낸다.
+    // V22.9.95 R-9 의 동의 칸(동의 없는 시작 = 400)은 V22.9.114 에서 뺐다: 보통 로그인은 바로 카카오로 간다(303). 옛 consent=1 이 붙어도 같다.
     const bare = await request("/auth/kakao/start");
-    check(bare.status === 400 && (await bare.text()).includes("동의"), "Kakao start without consent shows the consent screen (400)");
+    check(bare.status === 303 && (bare.headers.get("location") || "").startsWith("https://kauth.kakao.com/"), "Kakao start without a consent box goes straight to Kakao (303, V22.9.114)");
     const r = await request("/auth/kakao/start?consent=1");
-    check(r.status === 303, "Kakao login configuration ready");
+    check(r.status === 303, "Kakao login configuration ready (legacy consent=1 ignored)");
     const location = r.headers.get("location");
     if (!location) return check(false, "Kakao authorization location present");
     const url = new URL(location);

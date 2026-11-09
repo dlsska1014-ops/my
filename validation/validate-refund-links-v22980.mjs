@@ -1,3 +1,6 @@
+// V22.9.114(2026-11-09, 동의 체크 칸·홈 동의 팝업 → 약관 안내 한 줄·홈 안내 띠): 로그인·시작 화면·공개 띠·홈 띠·방침 문구를 바꾼 번들에서 판 이름을 V22.9.113 으로 두면
+// 옛 값 그대로 251/268/83 이 모두 통과함을 먼저 확인했고(review-artifacts/v114-terms-notice-2026-11-09/claude-checks.md; 환불 지문 화면은 ab_cs 쿠키가 없어 띠가 붙지 않는다),
+// 그 뒤 --print-golden 으로 판 이름만 바뀐 analysis·backupFull·backupMonth 세 값을 다시 얻었다. 나머지 22개는 그대로다.
 // V22.9.108(2026-11-07, 광고 허용 목록 53쪽·FAQ 이용료 문장 삭제): 공개 문구·허용 목록만 바꾼 번들에서 판 이름을 V22.9.107 로 두면 옛 값 그대로 268개가 모두 통과함을 먼저 확인했고
 // (review-artifacts/v108-ads-scope-2026-11-07/claude-checks.md), 그 뒤 --print-golden 으로 판 이름만 바뀐 analysis·backupFull·backupMonth 세 값을 다시 얻었다. 나머지 22개는 그대로다.
 // V22.9.107(2026-11-07, 광고 검토 후속): 공개 글·계산표·광고 게이트만 바꾼 번들에서 판 이름을 V22.9.106 으로 두면 옛 값 그대로 268개가 모두 통과함을 먼저 확인했고
@@ -105,15 +108,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 fef72cab327c9203e1d1d3b7",
   "reportsWeek": "200 428380c89484611de8943026",
-  "analysis": "200 dcfbe3b9421303a2b05f487d",
+  "analysis": "200 cb6f50bf60ff1d635287a75b",
   "backupPage": "200 b9a026f5decec130db68d757",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 fe9f5c125c982a94b0bc376f",
-  "backupMonth": "200 9eae92a7d3ea05270bd5961b",
+  "backupFull": "200 27bfc50d88eab042b7cd487e",
+  "backupMonth": "200 6e4f6c12537161e3261eb368",
   "candidate": "200 500f881e0ca7f01cb92e917a",
   "legacyErr": "200 8483371f87264a4e90af381d",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

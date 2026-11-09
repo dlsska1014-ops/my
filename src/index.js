@@ -2232,7 +2232,7 @@ const ACCOUNTBOOK_WORKER = {
         return await handleMyLogout({ explicit: true });
       }
 
-      // V22.9.104 L-3: 동의 기록이 없는 로그인 사용자가 홈 팝업에서 누르는 ‘동의하고 계속’(같은 출처 검사는 위의 csrfOriginAllowed 가 먼저 한다).
+      // V22.9.104 L-3 → V22.9.114: 안내 확인 기록이 없는 로그인 사용자가 홈 약관 안내 띠에서 누르는 ‘확인’(같은 출처 검사는 위의 csrfOriginAllowed 가 먼저 한다).
       if (url.pathname === "/my/consent" && request.method === "POST") {
         return await handleMyConsent(request, env);
       }
@@ -3213,7 +3213,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.113-BUDGET-COMMAND-FIX";
+const APP_VERSION = "V22.9.114-TERMS-NOTICE";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3380,8 +3380,10 @@ const BUSINESS_FOOTER_INFO = Object.freeze({
 // 처리 내용을 더 자세히 적은, 이용자에게 불리하지 않은 변경이라 시행일 = 공고일(알린 날부터 적용). 검사는 시행일이 공고일과 같거나 + 7일인지 본다. 날짜는 이 두 줄만 바꾼다.
 // V22.9.104 L-5·L-6(사용자 2026-11-06 "14세 문구 빼고 PR 올려줘"): 만 14세 미만 이용(방침 9절·약관 2절)과 6절 쿠키 목록을 고친 개정도 이용자에게
 // 불리하지 않은 변경이라 공고일 = 시행일 = 배포일이다. 배포가 다른 날로 넘어가면 두 줄을 그날로 바꾼다(동의 기록 version 도 따라간다. 읽는 곳은 기록 유무만 본다).
-const POLICY_NOTICE_DATE = "2026-11-06";
-const POLICY_REVISION_DATE = "2026-11-06";
+// V22.9.114(사용자 2026-11-09 "팝업을 없애고 안내 띠로 바꿔줘", 앱 심사 담당자 요청): 카카오 로그인·홈의 이용약관 동의 체크 칸을 안내 줄로 바꾸고 약관 2절·방침 6절
+// 쿠키 설명·12절을 그에 맞춘 개정. 처리 항목·목적이 그대로라 불리하지 않은 변경 → 공고일 = 시행일 = 배포일. 배포가 다른 날로 넘어가면 두 줄을 그날로 바꾼다.
+const POLICY_NOTICE_DATE = "2026-11-09";
+const POLICY_REVISION_DATE = "2026-11-09";
 
 // "2026-07-13" → "2026년 7월 13일"(방침 머리의 시행·공고·개정일 표기).
 function policyDateLabel(ymd = POLICY_REVISION_DATE) {
@@ -3726,20 +3728,26 @@ function ledgerMarkSvg() {
 // V22.9.87 T-20·T-21: 카카오 로그인 버튼(§3-4: #FEE500 면, 검은 말풍선 심볼, 라벨 ‘카카오 로그인’). /my 시작 화면과 공개 첫 화면의
 // 카카오 로그인 띠가 같은 마크업을 쓴다. 색·크기는 각 화면 CSS 의 .kakaoBtn 이 정한다. 설정이 준비된 서버에서만 부른다.
 // V22.9.91: 로그인이 풀려 /my?return_to=… 로 온 사람은 카카오 로그인 뒤에도 보던 화면으로 돌아간다(주소는 safeUserReturnPath 를 거친 값만 받는다).
-// V22.9.95 R-9: 카카오 로그인으로 새 계정이 생길 수 있어 단추 위에 동의 칸(약관·개인정보처리방침 동의 + 만 14세 이상, 필수)을 둔다. 링크였던 단추를
-// GET 폼(/auth/kakao/start)의 제출 단추로 바꿨다. 스크립트가 없어도 브라우저 required 가 막고, 서버도 consent=1 이 없으면 로그인 화면으로 되돌린다.
-// 돌아갈 곳(return_to)은 숨은 칸으로 싣는다(서버가 읽는 이름과 값은 예전 주소와 같다). consentError 는 서버가 되돌린 화면의 칸 아래 문구다.
-function kakaoLoginButtonHtml(returnTo = "", { consentError = "" } = {}) {
+// V22.9.95 R-9: 링크였던 단추를 GET 폼(/auth/kakao/start)의 제출 단추로 바꿨다. 돌아갈 곳(return_to)은 숨은 칸으로 싣는다(서버가 읽는 이름과 값은 예전 주소와 같다).
+// V22.9.114: 단추 위 동의 체크 칸(V22.9.95 R-9)을 뺐다. 대신 단추 아래에 ‘계속하면 이용약관에 동의한 것으로 봅니다’ 한 줄(termsNoticeLineHtml)을 둔다.
+// 서버도 consent=1 을 더 요구하지 않는다(개인정보는 계약 이행 근거 처리라 동의 대상이 아니고, 약관은 명시 의무만 있다 — 방침 9절·약관 2절).
+function kakaoLoginButtonHtml(returnTo = "") {
   const back = returnTo ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/>` : "";
-  return '<form class="kakaoStart" method="get" action="/auth/kakao/start">' + back + signupConsentFieldHtml("kakaoConsent", consentError) + '<button class="kakaoBtn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466 0 2.66 1.77 4.995 4.432 6.316l-.9 3.296a.35.35 0 0 0 .532.383l3.917-2.598c.5.06 1.007.09 1.519.09 5.247 0 9.5-3.343 9.5-7.487C21.5 6.843 17.247 3.5 12 3.5Z"/></svg>카카오 로그인</button></form>';
+  return '<form class="kakaoStart" method="get" action="/auth/kakao/start">' + back + '<button class="kakaoBtn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466 0 2.66 1.77 4.995 4.432 6.316l-.9 3.296a.35.35 0 0 0 .532.383l3.917-2.598c.5.06 1.007.09 1.519.09 5.247 0 9.5-3.343 9.5-7.487C21.5 6.843 17.247 3.5 12 3.5Z"/></svg>카카오 로그인</button></form>' + termsNoticeLineHtml();
 }
 
 // V22.9.95 R-9: 가입 폼과 카카오 로그인 폼이 같이 쓰는 동의 칸. 두 링크는 새 탭으로 연다(같은 사이트라 opener 위험이 없다). 서버 오류가 있을 때만
 // 칸에 aria-invalid 와 칸 아래 문구(.fieldError)를 붙인다. 미리 체크해 두지 않는다(동의는 사용자가 직접 표시한다).
 // V22.9.104 L-2: 필수 칸임을 앞에 적고, 개인정보처리방침은 ‘동의’가 아니라 ‘확인’으로 적는다(서비스 제공에 필요한 처리라 별도 동의를 받지 않는다).
-// 카카오톡 시작 화면·홈 동의 팝업·로그인 화면·가입 폼이 모두 이 칸을 쓴다. 서버는 여전히 consent=1 을 받아야 진행하고 동의 기록을 남긴다.
+// V22.9.114: 이 칸은 로그인 이름·비밀번호 가입 폼(POST /my/local-signup)만 쓴다. 카카오 로그인·카카오톡 시작 화면·홈은 안내 줄(termsNoticeLineHtml·홈 띠)로 바꿨다.
 // V22.9.104 L-2(커밋 B): ‘만 14세 이상이에요’를 뺐다. 법정대리인 동의는 아동의 개인정보를 동의를 근거로 처리할 때만 필요하고(개인정보 보호법
 // 제22조의2제1항), 가계부는 서비스 제공에 필요한 처리(제15조제1항제4호)만 한다. 만 14세 미만의 처리는 처리방침 9절에 적었다.
+// V22.9.114: 카카오 로그인 단추 아래 안내 한 줄(동의 체크 칸 대신). 두 링크는 새 탭(같은 사이트라 opener 위험 없음). 글은 각 화면 CSS 의 .termsNote 가 꾸민다.
+const TERMS_NOTICE_SENTENCE = "계속하면 이용약관에 동의한 것으로 봅니다";
+function termsNoticeLineHtml() {
+  return `<p class="termsNote">계속하면 <a href="/terms" target="_blank">이용약관</a>에 동의한 것으로 봅니다 · <a href="/privacy" target="_blank">개인정보처리방침</a></p>`;
+}
+
 function signupConsentFieldHtml(id = "signupConsent", error = "") {
   const note = error ? ` aria-invalid="true" aria-describedby="${id}Error"` : "";
   return `<label class="consentRow"><input id="${id}" name="consent" type="checkbox" value="1" required${note}/><span>[필수] <a href="/terms" target="_blank">이용약관</a>에 동의하고 <a href="/privacy" target="_blank">개인정보처리방침</a>을 확인했어요</span></label>${error ? `<p class="fieldError" id="${id}Error">${escapeHtml(error)}</p>` : ""}`;
@@ -10228,6 +10236,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
   // 카카오 기준 문장과 링크로 바꾼다(Google 안내·지역별 동의 절은 Google 광고에만 맞는 말이라 뺀다). 그 밖(심사 모드·AdSense)은 지금 그대로다.
   const adfit = adsPolicyNetwork(env) === "adfit";
   // V22.9.95 R-9: 개인정보처리방침 보강(처리 항목 표·보호책임자·위탁과 국외 이전·만 14세·파기·구제·변경 고지). 개정일은 POLICY_REVISION_DATE 한 곳이다.
+  // V22.9.114: 이용약관 동의 체크 칸(카카오 로그인·홈 팝업)을 안내 줄·띠로 바꾼 개정 — 약관 2절, 6절 ab_cs 쿠키 설명, 12절 이번 개정 성격.
   // 항목은 코드로 확인한 것만 적는다. Supabase 리전은 V22.9.95 배포 전에 운영 프로젝트 DB 호스트(db.<ref>.supabase.co)의 주소를 AWS 공식 IP 범위와
   // 대조해 ap-southeast-2(호주 시드니)로 확인했다(E-19). 2026-11-05 19:09 KST 에 운영 DB 를 서울 프로젝트(ref jqzmpzdqvmzkxznnylkp, AWS ap-northeast-2)로
   // 옮겼으므로(docs/deployments/V22_9_102_2026_11_05.md 의 서울 전환 절) V22.9.103 부터 아래 리전 문구는 서울이다. 개정은 공고일에 알리고
@@ -10258,7 +10267,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
           ["거래 변경 이력", "고치거나 지운 거래의 바뀌기 전·후 내용, 변경한 사용자, 변경 시각", "거래를 고치거나 지울 때", "최대 180일"],
           ["접속·보안 기록", "IP 주소, 브라우저 정보(User-Agent), 요청 경로와 시각", "서비스에 접속할 때 자동으로 생성", "요청 횟수 제한에 쓰는 값은 서버 인스턴스 메모리에만 잠시 두고 저장하지 않습니다. 로그인·가입 시도 제한에는 IP 주소 등을 복원할 수 없게 변환한 값과 시도 횟수만 데이터베이스에 저장하고, 로그인에 성공하면 그 기록을 지웁니다."],
           ["쿠키", "아래 쿠키 목록", "로그인·본인 확인·가계부 선택 때", "아래 쿠키 목록"],
-        ] }, bullets: ["ab_user: 로그인 유지(세션), 14일", "ab_hh: 마지막으로 연 가계부 기억, 1년", "ab_cs: 이용약관 동의 기록 확인 결과(동의 안내 팝업을 띄울지), 14일", "ab_bk·ab_setup: 가계부 기본 설정 안내 띠를 띄울지(로그인 비밀번호 설정 여부·가계부 설정 확인 결과), 14일·1시간", "ab_notice_hide: 공지 띠 ‘오늘 하루 안 보기’, 24시간", "kakao_oauth_state·kakao_oauth_link_user·kakao_oauth_reauth_household·kakao_oauth_return_to: 카카오 로그인 요청 확인, 10분", "ab_credential_reauth·ab_household_delete_reauth·ab_account_link: 본인 확인과 계정 잇기 확인, 5분", "ab_kakao_auto: 카카오톡 안 자동 로그인 시도 상태, 10분~30일(직접 로그아웃하면 30일 동안 멈춤)", "ab_account_link_later·ab_account_link_pause: 계정 잇기 안내 미루기, 7일·10분", "ab_admin: 운영자 관리 화면 로그인(운영자만), 12시간", "모든 쿠키는 HTTPS 연결에서만 보내고(Secure) 화면의 스크립트가 읽지 못하게(HttpOnly) 설정합니다. 광고 쿠키는 4절을 따릅니다."] },
+        ] }, bullets: ["ab_user: 로그인 유지(세션), 14일", "ab_hh: 마지막으로 연 가계부 기억, 1년", "ab_cs: 이용약관 안내 확인 기록을 읽은 결과(가계부 홈의 안내 띠를 띄울지), 14일", "ab_bk·ab_setup: 가계부 기본 설정 안내 띠를 띄울지(로그인 비밀번호 설정 여부·가계부 설정 확인 결과), 14일·1시간", "ab_notice_hide: 공지 띠 ‘오늘 하루 안 보기’, 24시간", "kakao_oauth_state·kakao_oauth_link_user·kakao_oauth_reauth_household·kakao_oauth_return_to: 카카오 로그인 요청 확인, 10분", "ab_credential_reauth·ab_household_delete_reauth·ab_account_link: 본인 확인과 계정 잇기 확인, 5분", "ab_kakao_auto: 카카오톡 안 자동 로그인 시도 상태, 10분~30일(직접 로그아웃하면 30일 동안 멈춤)", "ab_account_link_later·ab_account_link_pause: 계정 잇기 안내 미루기, 7일·10분", "ab_admin: 운영자 관리 화면 로그인(운영자만), 12시간", "모든 쿠키는 HTTPS 연결에서만 보내고(Secure) 화면의 스크립트가 읽지 못하게(HttpOnly) 설정합니다. 광고 쿠키는 4절을 따릅니다."] },
         { title: "7. 개인정보 보호책임자", paragraphs: [`개인정보 처리 업무를 총괄하고 이용자의 불만 처리와 피해 구제를 맡는 개인정보 보호책임자는 다음과 같습니다. 성명 ${BUSINESS_FOOTER_INFO.representative}(대표), 이메일 ${supportEmail}.`, "개인정보의 열람·정정·삭제·처리정지 요구와 개인정보 관련 문의는 위 이메일로 보내 주세요. 본인임을 확인한 뒤 처리하며, 요구를 받은 날부터 10일 안에 결과를 알립니다. 그 안에 처리하기 어려우면 이유와 처리할 날짜를 알립니다. 이메일에 계정 비밀번호나 연결 코드는 적지 마세요."], links: [["개인정보 보호책임자에게 이메일 보내기", `mailto:${supportEmail}`]] },
         { title: "8. 개인정보 처리 위탁과 국외 이전", paragraphs: ["말해가계부는 서비스를 제공하려고 아래 사업자에게 개인정보 처리 업무를 맡깁니다. 미국 법인에 맡기는 처리는 개인정보의 국외 이전에 해당하며, 서비스 제공 계약을 이행하는 데 필요한 처리 위탁과 보관이므로 이 방침에 알리고 이전합니다. 맡긴 업무 밖으로 개인정보를 쓰지 않도록 관리합니다."], table: { caption: "개인정보 처리 위탁과 국외 이전", headers: ["받는 자(국가)", "맡기는 업무", "이전되는 항목", "이전 시점과 방법", "보유·이용 기간"], rows: [
           ["Cloudflare, Inc.(미국)", "서비스 실행(Workers), 네트워크 전송과 보안, 문의 메일(admin@malhaebook.com) 전달(Email Routing)", "서비스를 이용하며 주고받는 정보(접속 기록 포함), 문의 메일의 내용과 보낸 주소", "이용할 때마다 암호화 통신(HTTPS)으로 전송. 문의 메일은 보낼 때 전달", "위탁 계약이 끝날 때까지(Cloudflare 개인정보처리방침에 따름)"],
@@ -10271,7 +10280,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
         { title: "9. 만 14세 미만 아동의 개인정보", paragraphs: ["만 14세 미만 아동도 말해가계부를 쓸 수 있습니다. 가계부 기록과 로그인처럼 서비스를 쓰는 데 꼭 필요한 개인정보만 처리합니다. 이 처리는 서비스 이용 계약을 지키는 데 필요한 처리(개인정보 보호법 제15조제1항제4호)라서 따로 동의를 받지 않습니다.", "만 14세 미만 아동의 개인정보로는 꼭 필요하지 않은 정보를 모으거나 이름을 공개하는 일처럼 동의를 받아야 하는 처리를 하지 않습니다. 그런 처리가 필요하면 그 처리에서만 나이를 확인하고 법정대리인(부모 등 보호자)의 동의를 받습니다.", "아동에게 알리는 내용은 알기 쉬운 말로 씁니다(개인정보 보호법 제22조의2제3항).", "법정대리인은 아동의 개인정보를 보거나, 고치거나, 지우거나, 처리를 멈추라고 요청할 수 있습니다. 7절의 개인정보 보호책임자 이메일로 요청하면 법정대리인인지 확인한 뒤 지체 없이 처리합니다."] },
         { title: "10. 개인정보의 파기 절차와 방법", paragraphs: ["보유기간이 끝나거나 처리 목적을 이룬 개인정보는 지체 없이 파기합니다. 다른 법령에 따라 보존해야 하면 다른 정보와 분리해 그 기간 동안만 보관합니다.", "파기 절차: 파기할 개인정보를 정하고 개인정보 보호책임자의 확인을 거쳐 파기합니다. 파기 방법: 전자 파일은 복구할 수 없도록 데이터베이스에서 삭제합니다. 개인정보를 종이로 출력해 두지 않으며, 출력한 것이 있으면 분쇄하거나 소각합니다.", "거래 변경 이력(고치거나 지운 거래의 바뀌기 전 내용)은 실행 취소와 복구를 위해 보관하며, 180일이 지나면 자동으로 삭제합니다.", "사용자가 내려받은 백업 파일은 사용자 기기에 저장되므로 사용자가 직접 지워야 합니다. 장애에 대비해 데이터베이스 사본을 만드는 경우 운영자만 접근하게 하고, 원본에서 지운 정보는 사본의 보관 기간이 끝날 때 함께 지웁니다."] },
         { title: "11. 권익침해 구제 방법", paragraphs: ["개인정보 침해에 대한 신고나 상담이 필요하면 아래 기관에 문의할 수 있습니다."], bullets: ["개인정보침해신고센터(한국인터넷진흥원): privacy.kisa.or.kr, 국번 없이 118", "개인정보분쟁조정위원회: www.kopico.go.kr, 1833-6972", "대검찰청 사이버수사과: www.spo.go.kr, 국번 없이 1301", "경찰청 사이버수사국: ecrm.police.go.kr, 국번 없이 182"] },
-        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다. 동의 절차나 보호 조치를 더하거나 처리 내용을 더 자세히 적는 것처럼 이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다.", POLICY_NOTICE_DATE === POLICY_REVISION_DATE ? `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 같은 날부터 시행합니다. 이번 개정은 만 14세 미만 아동도 이용할 수 있게 하면서 그 개인정보를 처리하는 기준을 9절에 적고, 6절의 쿠키 목록을 실제로 쓰는 쿠키와 맞춘 것이어서 이용자에게 불리하지 않은 변경입니다.` : `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
+        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다. 동의 절차나 보호 조치를 더하거나 처리 내용을 더 자세히 적는 것처럼 이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다.", POLICY_NOTICE_DATE === POLICY_REVISION_DATE ? `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 같은 날부터 시행합니다. 이번 개정은 카카오 로그인과 가계부 홈에서 이용약관 동의를 체크하던 칸을 ‘이용하면 이용약관에 동의한 것으로 봅니다’ 안내 줄로 바꾸고 6절의 쿠키 설명을 그에 맞춘 것이어서, 처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다.` : `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
         { title: "13. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
       ],
     },
@@ -10282,7 +10291,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
       intro: "본 약관은 말해가계부를 이용할 때 서비스와 사용자 사이의 기본 기준을 설명합니다. 사용자는 최신 약관과 개인정보처리방침을 확인한 뒤 서비스를 이용합니다.",
       sections: [
         { title: "1. 서비스 목적", paragraphs: ["말해가계부는 사용자가 직접 입력한 생활 수입·지출을 개인 또는 공동 가계부 단위로 기록하고 예산·요약·분석·백업 기능을 제공하는 서비스입니다.", "금융상품, 투자, 세무, 법률 자문을 제공하지 않으며 서비스의 계산값은 생활 기록을 돕는 참고자료입니다."] },
-        { title: "2. 사용자 책임", paragraphs: ["사용자는 입력한 금액, 날짜, 결제수단, 메모와 분류의 정확성을 확인해야 합니다. 계정, 초대코드와 접근 수단을 안전하게 관리하고 다른 사람의 정보를 권한 없이 입력해서는 안 됩니다.", "웹에서 새 계정을 만들거나 카카오 로그인을 할 때 이용약관에 동의하고 개인정보처리방침을 확인하는 절차를 거칩니다. 만 14세 미만도 이용할 수 있으며, 아동의 개인정보는 개인정보처리방침 9절에 따라 처리합니다."] },
+        { title: "2. 사용자 책임", paragraphs: ["사용자는 입력한 금액, 날짜, 결제수단, 메모와 분류의 정확성을 확인해야 합니다. 계정, 초대코드와 접근 수단을 안전하게 관리하고 다른 사람의 정보를 권한 없이 입력해서는 안 됩니다.", "로그인 이름으로 새 계정을 만들 때는 이용약관 동의 칸을 체크합니다. 카카오 로그인과 카카오톡에서 여는 가계부는 서비스를 이용하면 이용약관에 동의한 것으로 보며, 로그인 화면과 가계부 홈의 안내 줄에서 이용약관과 개인정보처리방침을 볼 수 있습니다. 만 14세 미만도 이용할 수 있으며, 아동의 개인정보는 개인정보처리방침 9절에 따라 처리합니다."] },
         { title: "3. 공동 가계부와 권한", paragraphs: ["가계부 소유자와 관리자는 참여자 초대, 승인, 역할과 표시 이름을 관리할 수 있습니다. 참여자는 부여된 권한 범위에서 조회·기록·수정 기능을 사용합니다.", "새 미연결 단톡방에서는 봇에게 명확한 첫 거래를 보내면 공동 가계부를 준비하고 첫 기록자가 소유자가 됩니다. 기존 가계부를 연결하려면 해당 가계부의 소유자 또는 관리자 권한이 필요합니다. 연결을 변경할 때에는 현재 연결된 가계부의 관리 권한도 확인합니다. 기록 전 가계부 이름과 공유 범위를 확인해야 합니다."] },
         { title: "4. 데이터 수정·삭제와 백업", paragraphs: ["사용자는 거래와 설정을 수정·삭제할 수 있으며 중요한 변경 전 백업을 권장합니다. 가져오기, 일괄 수정, 삭제와 복구는 확인 절차를 제공하지만 모든 실수를 자동 복원한다고 보장하지 않습니다."] },
         { title: "5. 서비스 제한과 장애", paragraphs: ["보안, 과도 요청, 점검, 외부 서비스 장애 또는 법적 필요가 있는 경우 일부 기능을 일시 제한할 수 있습니다. 중복 저장과 데이터 손상을 줄이는 것을 우선하며 장애가 발생하면 안전 안내와 재시도 방법을 제공합니다."] },
@@ -10503,8 +10512,8 @@ function publicLandingStyles() {
     + `.pubLandNote{display:flex;gap:14px;align-items:flex-start}.pubLandNote .pubIco{width:40px;height:40px;border-radius:12px}.pubHome .pubLandNote h2{margin:0 0 6px;font-size:18px}.pubLandNote p{max-width:760px;margin:0;color:#43516a;font-size:15px;line-height:1.8}`
     + `.pubBand{margin:12px 0 4px;padding:26px 20px;border-radius:24px;background:#e8f3ff;text-align:center}.pubHome .pubBand h2{margin:0 0 16px;font-size:21px}.pubBandActions{display:grid;gap:10px;max-width:420px;margin:0 auto}.pubBand .pubBtn{min-height:54px}.pubBand .pubBtn.secondary{background:#fff!important}`
     + `.kakaoBtn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:54px;border-radius:12px;background:#fee500;color:rgba(0,0,0,.85);font-size:16px;font-weight:800;text-decoration:none}.kakaoBtn svg{width:22px;height:22px;fill:#000}`
-    // V22.9.95 R-9: 띠의 카카오 로그인은 동의 칸이 있는 GET 폼이다(로그인 화면과 같은 마크업). 제출 단추가 글꼴을 물려받고 칸 글은 왼쪽 정렬이다.
-    + `button.kakaoBtn{width:100%;border:0;font:inherit;font-size:16px;font-weight:800;cursor:pointer}.consentRow{display:flex;align-items:flex-start;gap:9px;margin:0 0 10px;color:#334155;font-size:13.5px;line-height:1.55;text-align:left;cursor:pointer}.consentRow input{flex:none;width:20px;height:20px;margin:1px 0 0;accent-color:#1d4ed8}.consentRow span{min-width:0}.consentRow a{font-weight:700}`
+    // V22.9.95 R-9: 띠의 카카오 로그인은 GET 폼이다(로그인 화면과 같은 마크업). 제출 단추가 글꼴을 물려받는다. V22.9.114: 동의 칸 대신 폼 아래 약관 안내 한 줄(.termsNote).
+    + `button.kakaoBtn{width:100%;border:0;font:inherit;font-size:16px;font-weight:800;cursor:pointer}.pubBand .termsNote{margin:8px 0 0;color:#5f6b7a;font-size:12.5px;line-height:1.5;text-align:center;overflow-wrap:anywhere}.pubBand .termsNote a{color:#1d4ed8;font-weight:700;text-decoration:underline}`
     + `@media(min-width:760px){.pubSteps{grid-template-columns:repeat(3,minmax(0,1fr))}.pubSteps li{flex-direction:column}}@media(min-width:860px){.pubLandPreview{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,440px);grid-template-rows:auto auto 1fr;column-gap:48px;align-items:start}.pubLandPreview>*{grid-column:1}.pubLandPreview>.pubPreview{grid-column:2;grid-row:1/-1}.pubLandHead{justify-content:flex-start}}@media(max-width:600px){.pubHome .pubHeroActions{flex-direction:column}.pubHome .pubHero h1{font-size:30px}}`;
 }
 
@@ -27517,7 +27526,7 @@ async function findUserByKakaoLoginId(env, kakaoId = "") {
   return found.user;
 }
 
-// V22.9.95 R-9: allowCreate 가 false 면(약관·방침 동의를 받지 않은 로그인) 새 계정을 만들지 않고 null 을 돌려준다. onCreated 는 새 계정을 만들고
+// V22.9.95 R-9: allowCreate 가 false 면(새 계정을 만들지 않는 길) 새 계정을 만들지 않고 null 을 돌려준다(V22.9.114 부터 카카오 보통 로그인은 늘 true). onCreated 는 새 계정을 만들고
 // 카카오 식별 연결까지 끝났을 때만 그 사용자로 부른다(동의 기록용). 두 값을 주지 않는 예전 호출은 예전과 같다.
 async function ensureKakaoLoginUser(env, kakaoId, nickname, { allowCreate = true, onCreated = null } = {}) {
   const found = await findUserByKakaoLoginId(env, kakaoId);
@@ -27585,15 +27594,8 @@ async function handleKakaoLoginStart(request, env, url) {
     return redirectResponse(`${config.publicOrigin}/auth/kakao/start${url.search}`);
   }
   const linkMode = url.searchParams.get("link") === "1" || reauthMode;
-  // V22.9.95 R-9: 보통 로그인(login)은 새 계정이 생길 수 있는 길이라 약관·개인정보처리방침 동의와 만 14세 확인(consent=1)을 받아야 시작한다.
-  // 없고 로그인 세션도 없으면 카카오로 보내지 않고 로그인 화면(동의 칸 오류)으로 되돌린다. 인앱 자동 로그인(auto, 기존 계정만)·연결(link)·
-  // 본인 확인(reauth)은 새 계정을 만들지 않으므로 예전과 같다. 세션이 있는 사람은 막지 않되 상태에 동의가 없어 콜백이 새 계정을 만들지 않는다.
-  const consentGiven = url.searchParams.get("consent") === "1";
-  if (!linkMode && !autoMode && !consentGiven && !(await verifyUserSession(request, env))) {
-    rememberOpsEvent({ kind: "kakao_login_consent_missing", severity: "info", path: "/auth/kakao/start", method: "GET", detail: "start" });
-    // V22.9.104 L-1: 카카오톡 인앱 브라우저는 긴 로그인 화면 대신 시작 화면(같은 동의 칸 오류)으로 되돌린다. 그 밖의 브라우저는 예전 그대로다.
-    return htmlResponse(kakaoStartOrLoginHtml(request, env, { error: SIGNUP_CONSENT_REQUIRED_MESSAGE, returnTo: safeUserReturnPath(url.searchParams.get("return_to") || "", ""), authMode: "kakao_consent" }), 400);
-  }
+  // V22.9.95 R-9 의 동의 체크 칸(consent=1 없으면 400)은 V22.9.114 에서 뺐다(사용자 2026-11-09, 앱 심사 담당자 요청). 보통 로그인(login)도 바로 카카오로
+  // 보낸다. 약관 안내는 단추 아래 한 줄(계속하면 동의한 것으로 봄)과 홈의 안내 띠가 맡는다. 주소에 consent 가 붙어 와도 읽지 않는다.
   const currentUserId = linkMode ? await verifyUserSession(request, env) : "";
   if (linkMode && !currentUserId) return redirectResponse(reauthMode ? addQueryToUrl(reauthReturnTo, { err: "login_required" }) : "/my?err=login_required");
   if (reauthMode && /KAKAOTALK/i.test(request.headers.get("user-agent") || "")) return htmlResponse("<p>본인 확인은 Chrome 또는 Safari에서 이 주소를 열어 진행해 주세요.</p>", 403);
@@ -27614,7 +27616,6 @@ async function handleKakaoLoginStart(request, env, url) {
     const loginNext = safeUserReturnPath(url.searchParams.get("return_to") || "", "");
     if (loginNext) statePayload.next = loginNext;
     if (autoMode) statePayload.auto = 1;
-    if (consentGiven) statePayload.consent = 1;
   }
   const state = await signedPurposeToken(env, "kakao-oauth", statePayload, 600);
   const cookies = [
@@ -27866,20 +27867,16 @@ async function handleKakaoLoginCallback(request, env, url) {
       return redirectResponseWithCookies("/my?msg=kakao_linked", clearOauthCookies);
     }
     // V22.9.91 독립 검토: 자동 로그인(auto)은 새 계정을 만들지 않는다. 이 카카오 계정의 웹 계정이 이미 있을 때만 들인다.
-    // V22.9.95 R-9: 새 계정은 시작할 때 동의(consent=1)를 받은 로그인에서만 만든다(서명된 상태에 실린 값). 동의가 없으면(세션이 있던 사람, 배포 직전에
-    // 시작한 로그인 등) 기존 계정만 들이고, 새 계정이 필요하면 만들지 않고 로그인 화면(동의 칸 오류)으로 돌려보낸다. 만들었으면 동의 기록을 남긴다.
-    const loginConsent = stateProof.mode === "login" && stateProof.consent === 1;
+    // V22.9.114: 화면 있는 보통 로그인(login, auto 아님)은 새 계정을 만든다(V22.9.95 R-9 의 동의 체크 조건을 뺐다 — 로그인 화면·시작 화면의 단추 아래
+    // ‘계속하면 이용약관에 동의한 것으로 봅니다’ 한 줄을 보고 누른 로그인이다). 만들었으면 안내 확인 기록(consent:<id>, via kakao)을 남긴다.
+    const screenLogin = stateProof.mode === "login" && !autoMode;
     let createdUser = null;
-    let user = autoMode ? await findUserByKakaoLoginId(env, profile.kakaoId) : await ensureKakaoLoginUser(env, profile.kakaoId, profile.nickname, { allowCreate: loginConsent, onCreated: (created) => { createdUser = created; } });
+    let user = autoMode ? await findUserByKakaoLoginId(env, profile.kakaoId) : await ensureKakaoLoginUser(env, profile.kakaoId, profile.nickname, { allowCreate: true, onCreated: (created) => { createdUser = created; } });
     if (autoMode && !user?.id) {
       rememberOpsEvent({ kind: "kakao_auto_login_no_account", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId}` });
       return autoFallback();
     }
-    if (!user?.id && !loginConsent) {
-      rememberOpsEvent({ kind: "kakao_login_consent_missing", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `new_account;trace=${traceId}` });
-      return htmlResponseWithCookies(kakaoStartOrLoginHtml(request, env, { error: SIGNUP_CONSENT_REQUIRED_MESSAGE, returnTo: stateProof.mode === "login" ? safeUserReturnPath(String(stateProof.next || ""), "") : "", authMode: "kakao_consent" }), 400, clearOauthCookies);
-    }
-    // V22.9.104 L-3: 방금 남긴 동의 기록은 쿠키 ab_cs=1 로 이어진다(기록이 실패하면 쿠키를 적지 않는다 — 다음 로그인이 다시 읽는다).
+    // V22.9.104 L-3: 방금 남긴 안내 확인 기록은 쿠키 ab_cs=1 로 이어진다(기록이 실패하면 쿠키를 적지 않는다 — 다음 로그인이 다시 읽는다).
     const consentRecorded = createdUser?.id ? await recordSignupConsent(env, createdUser.id, "kakao") : false;
     if (!user?.id) throw kakaoStageError("account", "Kakao user provisioning failed");
     // V22.9.81 U-23: 프로필 이름 끝의 ‘(통합됨)’은 계정 통합 표식이라 떼고 쓴다(사용자를 만들 때와 같다). 그대로 쓰면 세션 확인이
@@ -27893,16 +27890,15 @@ async function handleKakaoLoginCallback(request, env, url) {
       });
       user = { ...user, nickname: profileName };
     }
-    // V22.9.104 L-3: 세션을 만들 때 동의 기록을 한 번 읽어(새 계정은 방금 남긴 결과) 홈 팝업 쿠키(ab_cs)를 적는다. 가계부 목록과 함께 읽는다.
+    // V22.9.104 L-3: 세션을 만들 때 안내 확인 기록을 한 번 읽어(새 계정은 방금 남긴 결과) 홈 띠 쿠키(ab_cs)를 적는다. 가계부 목록과 함께 읽는다.
     const [existingHouseholds, consentRead] = await Promise.all([
       fetchUserHouseholds(env, user.id),
       createdUser?.id ? (consentRecorded ? true : null) : readSignupConsentState(env, user.id),
     ]);
-    // V22.9.104 통합 검토: 동의 칸을 체크하고 누른 로그인(loginConsent)인데 이미 있던 계정에 기록이 없으면(V22.9.95 전에 만든 계정, 단톡방에서 먼저 써
-    // 봇이 만든 계정) 여기서 남긴다. 남기지 않으면 시작 화면에서 방금 체크한 사람이 홈에서 같은 팝업을 또 본다. 저장에 실패하면 ab_cs=0(팝업이 다시 받는다).
-    // 체크 없이 들어온 자동 로그인(auto)은 남기지 않는다(홈 팝업이 받는다). 주소를 꾸며 auto=1 에 consent=1 을 함께 붙여도(서명된 상태에 둘 다 실린다)
-    // 화면 없는 카카오 로그인이라 사람이 체크한 것이 아니므로 남기지 않는다(독립 검토 P2-1).
-    const consentState = consentRead === false && loginConsent && !autoMode && !createdUser?.id
+    // V22.9.104 통합 검토 → V22.9.114: 화면 있는 로그인(screenLogin, 안내 한 줄을 본 로그인)인데 이미 있던 계정에 기록이 없으면(V22.9.95 전에 만든 계정,
+    // 단톡방에서 먼저 써 봇이 만든 계정) 여기서 남긴다. 남기지 않으면 홈에서 안내 띠를 또 본다. 저장에 실패하면 ab_cs=0(띠가 다시 받는다).
+    // 화면 없는 자동 로그인(auto)은 남기지 않는다(홈 띠가 받는다). 주소를 꾸며 auto=1 에 무엇을 붙여도 화면 없는 로그인이라 남기지 않는다(독립 검토 P2-1).
+    const consentState = consentRead === false && screenLogin && !createdUser?.id
       ? await recordSignupConsent(env, user.id, "kakao")
       : consentRead;
     const loginNext = stateProof.mode === "login" ? safeUserReturnPath(String(stateProof.next || ""), "") : "";
@@ -27916,7 +27912,8 @@ async function handleKakaoLoginCallback(request, env, url) {
     }
     // V22.9.91 독립 검토: 자동 로그인은 가계부가 있거나 이을 계정이 있는 사람만 들인다. 빈 웹 계정에 말없이 들이면 첫 가계부 만들기
     // 화면이 나와, 단톡방 가계부가 따로 있는 사람이 거기서 새 가계부를 만들어 기록이 갈라질 수 있다. 그런 사람은 지금처럼 로그인 화면을 본다.
-    // V22.9.104 L-1: 다만 동의 기록이 있는 빈 계정(이을 계정 없음)은 기본 가계부를 만들어 들인다. 동의 기록이 없거나 읽지 못하면 지금처럼 시작 화면으로 간다.
+    // V22.9.104 L-1: 다만 안내 확인 기록이 있는 빈 계정(이을 계정 없음)은 기본 가계부를 만들어 들인다. 기록이 없거나 읽지 못하면 지금처럼 시작 화면으로 간다
+    // (V22.9.114 에서도 유지 — 화면 없는 로그인으로 빈 계정을 조용히 활성화하지 않는다. 시작 화면의 ‘카카오로 계속하기’ 가 화면 있는 로그인이다).
     // ‘이을 계정 없음’은 잇기 확인이 끝나 제안이 없었거나(no_offer) 스위치가 꺼진(disabled) 때만이다. 확인이 실패했거나(제안 표 읽기 오류) 다른 결과
     // (카카오 계정 불일치)면 이을 계정이 있을 수 있어 가계부를 만들지 않고 예전처럼 첫 가계부 화면(자동 로그인은 시작 화면)으로 간다.
     const emptyAccount = !existingHouseholds.length && !linkProof?.ok;
@@ -27925,14 +27922,14 @@ async function handleKakaoLoginCallback(request, env, url) {
       rememberOpsEvent({ kind: "kakao_auto_login_empty_account", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId}` });
       return autoFallback();
     }
-    // V22.9.104 L-1(사용자 2026-11-06 "바로 가계부 홈이 나와야"): 동의하고 누른 카카오 로그인(또는 동의 기록이 있는 자동 로그인)인데 가계부가 없고 이을 계정도
+    // V22.9.104 L-1(사용자 2026-11-06 "바로 가계부 홈이 나와야"): 카카오 로그인(화면 있는 로그인이든 자동 로그인이든)인데 가계부가 없고 이을 계정도
     // 없으면 첫 가계부 만들기 화면(/my/households?first=1#create)으로 보내지 않고 ‘내 가계부’ 하나를 이 사람 소유로 만든 뒤 돌아갈 곳(없으면 /app)으로 간다.
     // 만들기는 /my/create 폼과 같은 순서(createHouseholdForUserV229104, 새 SQL 없음)다. 잇기 제안이 있으면(linkProof.ok) 만들지 않고 합치기 단계로 간다.
     // 만들지 못하면 예전처럼 첫 가계부 화면으로 가고(자동 로그인은 시작 화면), 운영 이벤트(warn)를 남긴다. 이름은 가계부 기본 설정 띠(V22.9.102)가 정하게 한다.
     // 카카오톡 인앱 브라우저에서만 만든다(독립 검토 P2-2: 사용자 결정 B-1 은 인앱 동의 한 번 → 기본 가계부. 인앱이 아닌 브라우저는 예전처럼 첫 가계부 화면에서
     // 만들기·초대코드 참여를 고른다 — 데스크톱에서 초대코드로 참여하려고 온 사람에게 빈 가계부를 만들지 않으려고).
     let firstHousehold = null;
-    if (emptyAccount && noLinkOffer && (loginConsent || autoMode) && isKakaoTalkInAppBrowser(request)) {
+    if (emptyAccount && noLinkOffer && isKakaoTalkInAppBrowser(request)) {
       try {
         const made = await createHouseholdForUserV229104(env, user.id, KAKAO_FIRST_HOUSEHOLD_NAME, mergedMarkerFreeName(user.nickname || "", 40) || "내");
         firstHousehold = made?.household?.id ? made.household : null;
@@ -44357,7 +44354,7 @@ async function handleMobileV8Page(request, env, url) {
   const setupBand = setupStatus && !setupStatus.done ? setupBandHtml({ householdId, missing: setupStatus.missing, month }) : "";
   const setupHeaders = setupStatus ? { "set-cookie": setupStatusCookie(householdId, setupStatus) } : {};
   // V22.9.104 L-3: 동의 기록이 없다고 확인된 사용자(쿠키 ab_cs=0)만 홈 위에 동의 팝업을 붙인다(DB 읽기 0회, 관리자 세션 제외).
-  return htmlResponse(withConsentPopupV229104(request, url, !!userId && !adminOk, abEchoQuickRequestId(url, err, renderMobileV81Html({ title, setupBand, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, supporter: homeSupporterKey ? activeSupporterFlag(homeSettings.extra?.get(homeSupporterKey)) : null, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed, quickUndo, deleteRestore }))), 200, setupHeaders);
+  return htmlResponse(withTermsNoticeBandV229114(request, url, !!userId && !adminOk, abEchoQuickRequestId(url, err, renderMobileV81Html({ title, setupBand, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, supporter: homeSupporterKey ? activeSupporterFlag(homeSettings.extra?.get(homeSupporterKey)) : null, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed, quickUndo, deleteRestore }))), 200, setupHeaders);
 }
 
 async function handleBudgetSave(request, env) {
@@ -45263,29 +45260,31 @@ function renderMyStartChoiceHtml({ env, user, msg = "", err = "" }) {
   *,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9 0%,#f8fafc 48%,#eef2f7 100%);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1000px;margin:0 auto;padding:18px}.hero{background:#fff;border:1px solid #e8edf4;border-radius:32px;box-shadow:0 22px 54px rgba(15,23,42,.09);padding:26px;margin:16px 0}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{margin:14px 0 10px;font-size:32px;letter-spacing:-.06em}.muted{color:#667085;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.card{background:#fff;border:1px solid #e8edf4;border-radius:28px;padding:22px;box-shadow:0 14px 34px rgba(15,23,42,.055)}.card h2{margin:0 0 8px;font-size:22px}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:12px;font-weight:1000;color:#475467}.field input{height:48px;border:1px solid #d0d5dd;background:#fff;border-radius:16px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:48px;border:0;border-radius:16px;background:#111827;color:#fff;font-weight:1000;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.criteria{background:#f8fafc;border:1px solid #edf1f7;border-radius:18px;padding:13px;margin:12px 0}.criteria b{display:block}.criteria span{display:block;color:#667085;font-size:13px;line-height:1.5;margin-top:4px}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:14px;padding:11px;margin:10px 0}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:14px;padding:11px;margin:10px 0}.foot{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:20px;padding:14px;margin:14px 0;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.grid{grid-template-columns:1fr}.hero h1{font-size:26px}}</style></head><body><main class="wrap"><section class="hero"><span class="badge">가계부 시작</span><h1>${userName}님,<br/>새로 만들까요? 참여할까요?</h1><p class="muted">아래에서 현재 상황에 맞는 것을 선택하세요. 잘못 선택해도 나중에 다른 가계부를 추가하거나 초대코드로 다시 참여할 수 있습니다.</p>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}</section>${renderAccountbookEmptyState()}<section class="grid"><div class="card"><h2>새 가계부 만들기</h2><p class="muted">아직 가계부가 없거나, 내가 우리집/모임 가계부의 시작자가 되는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>내가 가계부를 만들고 구성원을 초대한 뒤 첫 기록부터 시작할 때</span></div><form method="post" action="/my/create"><div class="field"><label>가계부 이름</label><input name="household_name" placeholder="예: 우리집 가계부" value="우리집 가계부"/></div><button type="submit">새 가계부 만들기</button></form></div><div class="card"><h2>초대코드로 참여하기</h2><p class="muted">가족, 배우자, 모임장이 이미 만든 가계부가 있는 경우입니다.</p><div class="criteria"><b>이럴 때 선택</b><span>이미 받은 초대코드가 있고 같은 가계부에 내 기록을 함께 남길 때</span></div><form method="post" action="/my/join"><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: 38NDLPNR" required/></div><button class="secondary" type="submit">초대코드로 참여하기</button></form></div><div class="card" id="kakao-record-link" style="grid-column:1/-1"><h2>카카오톡에서 이미 기록하고 있었나요?</h2><p class="muted">단톡방이나 봇과의 1:1 채팅에서 남긴 기록은 이 웹 계정이 아니라 카카오 기록 계정에 있어요. 새 가계부를 만들지 말고 같은 기록을 이어 여세요.</p><div class="criteria"><b>이럴 때 선택</b><span>단톡방의 ‘웹가계부’ 버튼으로 들어왔는데 가계부가 비어 있을 때</span></div><ol class="muted" style="margin:10px 0 14px;padding-left:20px;line-height:1.7"><li>카카오톡에서 봇과의 1:1 채팅을 열고 <b>웹 가계부 열기</b>라고 보냅니다.</li><li>받은 웹 연결 코드를 아래 버튼을 눌러 붙여 넣습니다(10분 동안 1회).</li></ol><a class="btn secondary" href="/my/kakao-claim">카카오 기록 이어 열기</a></div></section><div class="foot"><b>다음 단계</b><br/>가계부 생성 또는 참여 → 구성원 초대·승인 → 단톡방 연결(선택) → 기록 방법 확인 → 첫 기록 순서로 진행하세요. 예산과 분류는 첫 기록 후 필요할 때 설정해도 됩니다.</div></main></body></html>`;
 }
 
-// V22.9.95 R-9: 가입 폼과 카카오 로그인이 같이 쓰는 동의 오류 문구(맨 위 요약과 칸 아래에 같은 말).
-// V22.9.104 L-2: 동의 칸 문구(이용약관 동의 + 개인정보처리방침 확인)와 같은 말로 맞춘다. 홈 동의 팝업(POST /my/consent)도 이 말을 쓴다.
+// V22.9.95 R-9: 가입 폼의 동의 오류 문구(맨 위 요약과 칸 아래에 같은 말).
+// V22.9.104 L-2: 동의 칸 문구(이용약관 동의 + 개인정보처리방침 확인)와 같은 말로 맞춘다.
+// V22.9.114: 카카오 로그인·홈 팝업은 더 이상 이 문구를 쓰지 않는다(안내 줄·안내 띠로 바꿈). 로그인 이름 가입 폼만 쓴다.
 // V22.9.104 L-2(커밋 B): 동의 칸이 나이를 묻지 않으므로 ‘(만 14세 이상)’을 뺐다.
 const SIGNUP_CONSENT_REQUIRED_MESSAGE = "이용약관 동의와 개인정보처리방침 확인이 필요해요";
 
 // V22.9.95 R-9: 새 계정이 만들어질 때만(로컬 가입 성공, 카카오 콜백의 새 사용자) 동의 기록을 설정 표 consent:<user_id> 에 남긴다.
 // version 은 방침 개정일이다(V22.9.95~103 의 기록에는 동의 칸이 만 14세 이상 확인을 함께 물어 age14 가 있다). 기록이 실패해도 가입은 막지 않고 운영 이벤트(warn)만 남긴다.
-// V22.9.104 L-3: 홈 동의 팝업(POST /my/consent)도 같은 기록을 남긴다(via "popup"). 가입 때 기록이 없던 계정(단톡방에서 먼저 생긴 계정 등)이다.
+// V22.9.104 L-3: 홈 동의 팝업(POST /my/consent)도 같은 기록을 남겼다(via "popup", V22.9.104~113). V22.9.114 부터 같은 주소는 약관 안내 띠의 ‘확인’ 이라
+// via "band" 로 남긴다(기록의 뜻 = 안내를 본 시각). 가입 때 기록이 없던 계정(단톡방에서 먼저 생긴 계정 등)이다.
 // V22.9.104 L-2(커밋 B): 동의 칸이 나이를 묻지 않아 새 기록에는 age14 를 적지 않는다. 예전 기록의 age14 는 그대로 두며 읽는 곳은 없다.
 async function recordSignupConsent(env, userId = "", via = "local") {
   const id = String(userId || "").trim();
   if (!id) return false;
-  const kakao = via === "kakao";
-  const popup = via === "popup";
+  const label = ["kakao", "popup", "band"].includes(via) ? via : "local";
+  const kakao = label === "kakao";
   try {
     await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
       method: "POST",
       headers: { Prefer: "resolution=merge-duplicates,return=minimal" },
-      body: JSON.stringify({ key: `consent:${id}`.slice(0, 180), value: JSON.stringify({ version: POLICY_REVISION_DATE, at: new Date(qaFixedNowMs()).toISOString(), via: kakao ? "kakao" : popup ? "popup" : "local" }) }),
+      body: JSON.stringify({ key: `consent:${id}`.slice(0, 180), value: JSON.stringify({ version: POLICY_REVISION_DATE, at: new Date(qaFixedNowMs()).toISOString(), via: label }) }),
     });
     return true;
   } catch (err) {
-    rememberOpsEvent({ kind: "consent_record_failed", severity: "warn", path: kakao ? "/auth/kakao/callback" : popup ? "/my/consent" : "/my/local-signup", method: kakao ? "GET" : "POST", detail: safeError(err) });
+    rememberOpsEvent({ kind: "consent_record_failed", severity: "warn", path: kakao ? "/auth/kakao/callback" : label === "local" ? "/my/local-signup" : "/my/consent", method: kakao ? "GET" : "POST", detail: safeError(err) });
     return false;
   }
 }
@@ -45384,7 +45383,7 @@ async function handleMyLocalLogin(request, env) {
     }
     const session = await makeUserSession(env, user.id);
     // V22.9.102: 로그인 이름으로 들어왔으면 내 계정 로그인 비밀번호가 있는 계정이다(가계부 기본 설정 띠의 비밀번호 항목 쿠키).
-    // V22.9.104 L-3: 동의 기록을 한 번 읽어 홈 동의 팝업 쿠키(ab_cs=1/0)를 적는다. 읽지 못하면 남은 ab_cs 를 지운다(모름 = 팝업 없음).
+    // V22.9.104 L-3: 안내 확인 기록을 한 번 읽어 홈 띠 쿠키(ab_cs=1/0)를 적는다. 읽지 못하면 남은 ab_cs 를 지운다(모름 = 띠 없음).
     return redirectResponseWithCookies(location, [
       `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
       backupLoginKnownCookie(),
@@ -45457,20 +45456,20 @@ async function handleMyLocalSignup(request, env) {
       location = isUncertainStorageWrite(err) ? "/my/households?first=1&err=db_write_unknown" : `/my/households?first=1&err=${encodeURIComponent("계정은 생성되었지만 초대 참여를 완료하지 못했습니다. 가계부 전환·추가에서 다시 참여해 주세요.")}`;
     }
   }
-  // V22.9.104 L-3: 방금 남긴 동의 기록은 홈 동의 팝업 쿠키 ab_cs=1 로 이어진다(기록이 실패하면 적지 않는다).
+  // V22.9.104 L-3: 방금 남긴 동의 기록은 홈 띠 쿠키 ab_cs=1 로 이어진다(기록이 실패하면 적지 않는다).
   return redirectResponseWithCookies(location, [
     `ab_user=${encodeURIComponent(session)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
     consentRecorded ? consentStateCookie(true) : "",
   ]);
 }
 
-function kakaoLoginStatusBlock(env, returnTo = "", { consentError = "" } = {}) {
+function kakaoLoginStatusBlock(env, returnTo = "") {
   const config = inspectKakaoLoginConfig(env);
   if (config.ready) {
     // V22.9.87 T-20: 카카오 로그인 버튼(§3-4: #FEE500 면, 검은 말풍선 심볼, 라벨 ‘카카오 로그인’). 시작 화면에서 첫 화면의 유일한 채운 버튼이다.
     // 예전 ‘가장 간편한 방법’ 안내 상자와 ‘다른 방법으로 접속’ 구분선은 없앴다. 로그인 이름 칸은 바로 아래 접힌 칸(로그인 이름으로 로그인)이다.
-    // V22.9.95 R-9: 단추 위 동의 칸과 함께 그린다. 서버가 동의 없는 시작을 되돌린 화면이면 칸 아래에 오류를 적는다.
-    return kakaoLoginButtonHtml(returnTo, { consentError });
+    // V22.9.114: 단추 아래 약관 안내 한 줄과 함께 그린다(V22.9.95 R-9 의 동의 칸은 뺐다).
+    return kakaoLoginButtonHtml(returnTo);
   }
   if (!config.enabled) {
     return `<div class="warn"><b>카카오 로그인을 잠시 사용할 수 없어요</b><br/>기존 로그인 이름과 내 계정 로그인 비밀번호로 접속할 수 있습니다.</div><div class="mobileAccessHelp"><b>PC에서는 이미 사용 중인가요?</b><br/>PC의 전체 메뉴 → 내 계정·보안에서 한 번 설정한 뒤, 모바일에서 같은 로그인 이름과 비밀번호를 입력하세요.</div>`;
@@ -46393,19 +46392,17 @@ function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login",
   const title = escapeHtml(appName(env));
   const signupMode = authMode === "signup";
   const claimMode = authMode === "kakao_claim";
-  // V22.9.95 R-9: kakao_consent 는 동의 칸을 체크하지 않고 카카오 로그인을 시작해 서버가 되돌린 화면이다. 오류 요약이 카카오 동의 칸을 가리키고
-  // 그 칸 아래에도 같은 말을 적는다. 로그인 이름 칸은 열지 않는다(그 칸의 오류가 아니다). 가입 폼의 동의 오류도 칸 아래에 적는다.
-  const consentMode = authMode === "kakao_consent";
+  // V22.9.95 R-9 의 kakao_consent(동의 칸 없이 시작한 카카오 로그인을 되돌린 화면)는 V22.9.114 에서 없앴다(동의 칸 자체를 뺌). 가입 폼의 동의 오류는 칸 아래에 적는다.
   const signupConsentError = signupMode && error === SIGNUP_CONSENT_REQUIRED_MESSAGE ? error : "";
-  const kakaoPart = kakaoLoginStatusBlock(env, returnTo, { consentError: consentMode ? error : "" });
-  const authTarget = consentMode ? "kakaoConsent" : claimMode ? "kakaoClaimCode" : signupMode ? (signupConsentError ? "signupConsent" : "signupName") : "loginName";
+  const kakaoPart = kakaoLoginStatusBlock(env, returnTo);
+  const authTarget = claimMode ? "kakaoClaimCode" : signupMode ? (signupConsentError ? "signupConsent" : "signupName") : "loginName";
   // V22.9.79 V44 F-9: 오류로 다시 그린 화면은 폼이 소개·미리보기 아래 멀리 있어 오류만 보이고 입력할 곳은 화면 밖이었다. 오류가 있을 때만
   // 입력할 첫 빈 칸(가입이면 채워 둔 이름 칸 다음의 비밀번호)으로 스크롤하고 초점을 준다. 오류 문구는 가입이면 가입 카드 안에 함께 둔다.
-  const jumpFields = consentMode ? ["kakaoConsent"] : claimMode ? ["kakaoClaimCode"] : signupMode ? ["signupName", "signupDisplay", "signupPassword", "signupPasswordConfirm"] : ["loginName", "loginPassword"];
+  const jumpFields = claimMode ? ["kakaoClaimCode"] : signupMode ? ["signupName", "signupDisplay", "signupPassword", "signupPasswordConfirm"] : ["loginName", "loginPassword"];
   // V22.9.80 T-32: 다크 모드의 오류 요약(.authErrorSummary)은 연분홍 바탕(#fef2f2)이 그대로인데 셸 다크 규칙이 b·strong 글씨를 밝은 --ab12-text(#edeff3)로 강제해
   // 1.05:1 이었다. 셸의 .error 와 같은 다크 값(#3f1d2a 바탕·#fecaca 글씨·#7f3545 선)으로 바꾸고, 셸이 !important 로 읽는 --ab12-text·--ab12-accent 를 이 상자
   // 안에서만 같은 밝은 분홍으로 덮어 b·strong·링크 글씨가 따라오게 한다(!important 싸움 없이).
-  const errorSummary = error ? `<a class="authErrorSummary" href="#${authTarget}" role="alert" autofocus><b>입력 내용을 확인해 주세요.</b><span>${escapeHtml(error)}</span><strong>${consentMode ? "카카오 로그인으로 이동" : claimMode ? "카카오 기록 연결로 이동" : signupMode ? "새 계정 만들기로 이동" : "로그인으로 이동"}</strong></a>` : "";
+  const errorSummary = error ? `<a class="authErrorSummary" href="#${authTarget}" role="alert" autofocus><b>입력 내용을 확인해 주세요.</b><span>${escapeHtml(error)}</span><strong>${claimMode ? "카카오 기록 연결로 이동" : signupMode ? "새 계정 만들기로 이동" : "로그인으로 이동"}</strong></a>` : "";
   // 로그인이 풀려 튕겨 나온 사람은 원래 보던 화면으로 돌아가야 한다.
   const backField = returnTo ? `<input type="hidden" name="return_to" value="${escapeHtml(returnTo)}"/>` : "";
   // V22.9.87 T-20: 시작 화면은 로그인이 먼저다(머리 → 제목·한 줄 → 카카오 로그인 → 로그인 이름 칸 → 새 계정·둘러보기 → 예시 카드 → 가입 → 기능 미리보기).
@@ -46413,7 +46410,7 @@ function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login",
   // 로그인 오류로 다시 그린 화면은 그 칸을 열어 둔다. 서버 검증·문구는 그대로이고(맨 위 오류 요약), 칸에 해당하는 두 서버 오류만 칸 아래에도 짧게 보인다.
   // 비밀번호 칸 아래 문구는 지시서의 ‘8자리 이상’이 아니라 서버 기준(4자리, 예전 접속코드)과 같은 4자리다. 8자리로 막으면 4자리 접속코드로는 들어올 수 없다.
   // 카톡 말풍선(예시 카드 .exBubble·기존 기능 미리보기 .chatBubble.user)은 결정 D-2(카카오 노랑은 카카오 로그인 버튼에만)대로 브랜드 옅은 면(--ab12-accent-soft)이다. 노랑은 이 화면에서 카카오 버튼 한 곳이다.
-  const loginMode = !signupMode && !claimMode && !consentMode;
+  const loginMode = !signupMode && !claimMode;
   const fieldMessages = { loginName: "로그인 이름을 입력해 주세요", loginPassword: "비밀번호는 4자리 이상이에요" };
   const fieldError = loginMode && error === "로그인 이름을 입력하세요." ? "loginName" : loginMode && error === "비밀번호를 4자리 이상 입력하세요." ? "loginPassword" : "";
   const fieldNote = (id) => (fieldError === id ? fieldMessages[id] : "");
@@ -46424,7 +46421,7 @@ function renderUserLoginHtml(env, error = "", returnTo = "", authMode = "login",
   // V22.9.95 R-9: 동의 칸(.consentRow)은 좁은 폭에서 글이 줄바꿈되고(min-width:0) 체크 칸은 줄지 않는다. 카카오 단추가 <button> 이 되어 셸의 단추 최소 높이(44px)가
   // 54px 을 덮지 않게 한다. 화면 끝에 이용약관·개인정보처리방침·문의 줄(.loginLegal)을 둔다(로그인 화면에 방침 링크가 없었다).
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><meta name="theme-color" content="#3182f6"/><title>${title} · 시작</title><style>
-  *,*:before,*:after{box-sizing:border-box}:root{color-scheme:light}html{scroll-behavior:smooth}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#172033;letter-spacing:-.025em}.skipLink{position:absolute;left:12px;top:-80px;z-index:10000;background:#111827;color:#fff!important;padding:12px 16px;border-radius:12px;font-weight:800}.skipLink:focus{top:12px}.eyebrow{display:inline-flex;align-items:center;min-height:30px;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:850;letter-spacing:-.01em;background:#e7efff;color:#20479f}.previewSection{scroll-margin-top:18px;padding:32px 0 24px}.sectionHead{display:flex;justify-content:space-between;align-items:end;gap:20px;margin-bottom:18px}.sectionHead h2{margin:8px 0 0;font-size:clamp(28px,3.2vw,42px);letter-spacing:-.06em}.sectionHead p{max-width:520px;margin:0;color:#586579;line-height:1.65}.sampleNotice{margin:0 0 18px;border:1px solid #eadb92;background:#fffbea;color:#66520b;border-radius:16px;padding:12px 14px;line-height:1.55;font-size:14px}.demoPanel,.sampleCard{background:#fff;border:1px solid #dfe5ed;box-shadow:0 12px 34px rgba(27,45,78,.055)}.demoPanel{border-radius:24px;padding:22px}.demoPanel h3,.sampleCard h3{margin:0 0 14px;font-size:18px}.chatStack{display:grid;gap:12px}.chatBubble{max-width:88%;border-radius:18px;padding:13px 15px;line-height:1.55}.chatBubble.user{justify-self:end;background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-text,#191f28);border-bottom-right-radius:6px;font-weight:750}.chatBubble.bot{justify-self:start;background:#eff3f8;color:#364152;border-bottom-left-radius:6px}.chatCaption{margin:14px 0 0;color:#667085;font-size:13px;line-height:1.5}.sampleGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.sampleGrid>.demoPanel{grid-column:1/-1}.chatStack{max-width:640px}.sampleCard{border-radius:22px;padding:20px;min-width:0}.cardKicker{display:block;color:#68758a;font-size:12px;font-weight:800;margin-bottom:6px}.metricLine{display:flex;justify-content:space-between;align-items:end;gap:12px}.metricLine strong{font-size:25px;letter-spacing:-.045em}.metricLine span{color:#586579;font-size:13px}.progressTrack{height:10px;border-radius:999px;background:#e9eef5;overflow:hidden;margin:16px 0 10px}.progressTrack i{display:block;width:70%;height:100%;background:var(--ab12-action,#2457d6);border-radius:inherit}.sampleMeta{display:flex;justify-content:space-between;gap:12px;color:#5e6b7f;font-size:13px}.summaryList{display:grid;gap:9px;margin-top:12px}.summaryList div{display:flex;justify-content:space-between;gap:12px;border-top:1px solid #edf0f4;padding-top:9px}.summaryList span{color:#657187}.settlementFlow{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;margin:14px 0}.person{background:#f2f5f9;border-radius:14px;padding:12px;text-align:center;font-weight:800}.flowArrow{color:var(--ab12-action,#2457d6);font-weight:900}.settlementAmount{border-radius:14px;background:#eaf8f1;color:#0c6344;padding:11px;text-align:center;font-weight:850}.muted{color:#667085;line-height:1.65}.field{display:grid;gap:7px;margin:11px 0}.field input{width:100%;height:50px;padding:0 13px;font:inherit}button{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:12px;background:#172033;color:#fff!important;font-weight:800;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}button:disabled{cursor:not-allowed;opacity:.55}.secondary{border:1px solid}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.authErrorSummary{display:grid;gap:5px;margin:0 auto 18px;max-width:460px;padding:15px 17px;border:1px solid #fecaca;border-radius:16px;background:#fef2f2;color:#991b1b;text-decoration:none;line-height:1.5;box-shadow:0 10px 28px rgba(127,29,29,.08)}.authErrorSummary:focus{outline:3px solid #991b1b;outline-offset:3px}.authErrorSummary span{color:#7f1d1d}.authErrorSummary strong{font-size:13px;text-decoration:underline}html[data-ab-resolved-theme="dark"] .authErrorSummary{background:#3f1d2a;border-color:#7f3545;color:#fecaca;box-shadow:none;--ab12-text:#fecaca;--ab12-accent:#fecaca}html[data-ab-resolved-theme="dark"] .authErrorSummary span{color:#fecaca}html[data-ab-resolved-theme="dark"] .authErrorSummary:focus{outline-color:#fecaca}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:13px;padding:12px;margin:10px 0}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}form+.hint{margin-top:8px}.loginOptional summary,.signupCard>summary{cursor:pointer;min-height:44px}.signupCard>summary{display:grid;gap:4px}.signupCard>summary span{color:#667085;font-size:13px;font-weight:500}.signupBody{padding-top:10px}.credentialFeedback{min-height:20px;margin:-3px 0 10px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}.kakaoProgress{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.62);backdrop-filter:blur(3px)}.kakaoProgress[hidden]{display:none}.kakaoProgressCard{width:min(100%,380px);background:#fff;color:#101828;border-radius:22px;padding:26px 22px;text-align:center;box-shadow:0 24px 60px rgba(15,23,42,.35)}.kakaoProgressCard h2{margin:14px 0 6px;font-size:20px}.kakaoProgressCard p{margin:0;color:#667085;line-height:1.55;font-size:14px}.kakaoSpinner{width:44px;height:44px;margin:0 auto;border-radius:50%;border:4px solid #fde68a;border-top-color:#f59e0b;animation:kakaoSpin .9s linear infinite}.kakaoTip{margin-top:18px;background:#fffbea;border:1px solid #fde68a;border-radius:14px;padding:13px;text-align:left}.kakaoTip b{display:block;font-size:12px;color:#92400e;margin-bottom:4px}.kakaoTip span{display:block;font-size:14px;line-height:1.55;color:#3f3f46;min-height:44px}.kakaoSlow{margin-top:14px}.kakaoSlow button{min-height:42px;width:auto;padding:0 16px;margin-top:8px}html.kakaoProgressOpen body{overflow:hidden}@keyframes kakaoSpin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.kakaoSpinner{animation-duration:2.4s}}.loginTop{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:1180px;min-height:60px;margin:0 auto;padding:0 20px}.loginBrand{display:inline-flex;align-items:center;gap:8px;min-height:44px;font-size:17px;text-decoration:none}.loginBrand b{color:var(--ab12-text,#191f28);font-weight:800}.loginMark{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:var(--ab12-brand,#3182f6)}.loginMark svg{width:19px;height:19px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}body.abPageLogin .loginTop .loginAbout,body.abPageLogin .loginNext .loginTour{display:inline-flex;align-items:center;min-height:44px;color:var(--ab12-muted,#5f6b7a)!important;font-size:14px;font-weight:700;text-decoration:none}.landingPage{max-width:1180px;margin:0 auto;padding:4px 20px 96px}.landingHero{display:grid;gap:12px;max-width:460px;margin:0 auto;padding:8px 0 20px}.landingHero h1{margin:0;font-size:27px;line-height:1.32;letter-spacing:-.035em}.landingHero h1 strong{color:var(--ab12-accent,#1d4ed8)}.heroLead{margin:-4px 0 6px;color:var(--ab12-muted,#5f6b7a);font-size:15px;line-height:1.6}.kakaoBtn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:54px;border-radius:12px;background:#fee500!important;color:rgba(0,0,0,.85)!important;font-size:16px;font-weight:800;text-decoration:none}.kakaoBtn svg{width:22px;height:22px;fill:#000}body.abPageLogin .loginLocal>summary{display:flex;align-items:center;justify-content:center;gap:8px;min-height:52px;border:1px solid var(--ab12-line,#e9ebee);border-radius:12px;background:var(--ab12-surface,#fff);font-size:15px;font-weight:700;list-style:none;cursor:pointer}.loginLocal>summary::-webkit-details-marker{display:none}body.abPageLogin .landingHero .loginLocal[open]>summary{border-color:var(--ab12-accent,#1d4ed8);background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-accent,#1d4ed8)!important}.loginLocal svg,.pwToggle svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}body.abPageLogin .landingHero .loginCard{margin:10px 0 0!important}.fieldError{display:flex;align-items:center;gap:6px;margin:0;color:var(--neg,#c0362c);font-size:12.5px;font-weight:600}.fieldError:before{content:"!";display:grid;place-items:center;flex:none;width:16px;height:16px;border-radius:50%;background:currentColor;color:var(--ab12-surface,#fff);font-size:11px;font-weight:900}.fieldError:empty,.pwToggle[hidden]{display:none}body.abPageLogin .field input[aria-invalid="true"]{border-color:var(--neg,#c0362c)!important}.pwWrap{position:relative}.field .pwWrap input{padding-right:52px}.pwToggle{position:absolute;top:50%;right:3px;transform:translateY(-50%);width:44px;min-height:44px;padding:0;background:none;color:var(--ab12-muted,#5f6b7a)!important}.pwToggle[aria-pressed="true"]{color:var(--ab12-accent,#1d4ed8)!important}body.abPageLogin .loginOptional{border-color:var(--ab12-line,#edf0f4)}.loginNext{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 12px;margin:0;color:var(--ab12-muted,#5f6b7a);font-size:14px}.loginNext a{display:inline-flex;align-items:center;min-height:44px;font-weight:700}body.abPageLogin .landingPage .signupCard{max-width:460px;margin:0 auto 16px!important}.loginExample{display:grid;gap:10px;max-width:460px;margin:0 auto 16px;padding:18px;border:1px solid var(--ab12-line,#e9ebee);border-radius:20px;background:var(--ab12-surface,#fff);box-shadow:var(--ab12-shadow,0 4px 16px rgba(15,23,42,.045))}.loginExample p{margin:0}.exLabel{color:var(--ab12-muted,#5f6b7a);font-size:13px;font-weight:700}.exBubble{justify-self:end;max-width:85%;padding:10px 14px;border-radius:16px 16px 4px 16px;background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-text,#191f28);font-size:15px;font-weight:600}.exRow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px;border-radius:14px;background:var(--ab12-surface-raised,#f4f6f8)}.exRow small{display:block;color:var(--ab12-muted,#5f6b7a);font-size:12.5px}.exRow strong{font-size:15px}@media(min-width:760px){.landingPage{padding-top:20px}.landingHero h1{font-size:32px}}@media(max-width:900px){.sampleGrid{grid-template-columns:1fr 1fr}.sampleCard:last-child{grid-column:1/-1}.sectionHead{align-items:start;flex-direction:column}}@media(max-width:680px){.loginTop{padding:0 16px}.landingPage{padding:4px 16px 90px}.previewSection{padding-top:22px}.sampleGrid{grid-template-columns:1fr}.sampleCard:last-child{grid-column:auto}.demoPanel,.sampleCard{padding:18px;border-radius:19px}.field input{font-size:16px}.kakaoProgressCard{padding:24px 18px}}.consentRow{display:flex;align-items:flex-start;gap:9px;margin:0 0 10px;font-size:13.5px;line-height:1.55;text-align:left;cursor:pointer}.consentRow input{flex:none;width:20px;height:20px;margin:1px 0 0;accent-color:var(--ab12-action,#2457d6)}.consentRow span{min-width:0;overflow-wrap:anywhere}.consentRow a{font-weight:700}.consentRow+.fieldError{margin:-4px 0 10px 29px}body.abPageLogin .kakaoStart button.kakaoBtn{min-height:54px!important;font-family:inherit;letter-spacing:inherit}.loginLegal{display:flex;flex-wrap:wrap;justify-content:center;gap:0 18px;margin:28px 0 0;font-size:13px}.loginLegal a{display:inline-flex;align-items:center;min-height:44px;color:var(--ab12-muted,#5f6b7a)!important}
+  *,*:before,*:after{box-sizing:border-box}:root{color-scheme:light}html{scroll-behavior:smooth}body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;color:#172033;letter-spacing:-.025em}.skipLink{position:absolute;left:12px;top:-80px;z-index:10000;background:#111827;color:#fff!important;padding:12px 16px;border-radius:12px;font-weight:800}.skipLink:focus{top:12px}.eyebrow{display:inline-flex;align-items:center;min-height:30px;border-radius:999px;padding:5px 10px;font-size:12px;font-weight:850;letter-spacing:-.01em;background:#e7efff;color:#20479f}.previewSection{scroll-margin-top:18px;padding:32px 0 24px}.sectionHead{display:flex;justify-content:space-between;align-items:end;gap:20px;margin-bottom:18px}.sectionHead h2{margin:8px 0 0;font-size:clamp(28px,3.2vw,42px);letter-spacing:-.06em}.sectionHead p{max-width:520px;margin:0;color:#586579;line-height:1.65}.sampleNotice{margin:0 0 18px;border:1px solid #eadb92;background:#fffbea;color:#66520b;border-radius:16px;padding:12px 14px;line-height:1.55;font-size:14px}.demoPanel,.sampleCard{background:#fff;border:1px solid #dfe5ed;box-shadow:0 12px 34px rgba(27,45,78,.055)}.demoPanel{border-radius:24px;padding:22px}.demoPanel h3,.sampleCard h3{margin:0 0 14px;font-size:18px}.chatStack{display:grid;gap:12px}.chatBubble{max-width:88%;border-radius:18px;padding:13px 15px;line-height:1.55}.chatBubble.user{justify-self:end;background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-text,#191f28);border-bottom-right-radius:6px;font-weight:750}.chatBubble.bot{justify-self:start;background:#eff3f8;color:#364152;border-bottom-left-radius:6px}.chatCaption{margin:14px 0 0;color:#667085;font-size:13px;line-height:1.5}.sampleGrid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.sampleGrid>.demoPanel{grid-column:1/-1}.chatStack{max-width:640px}.sampleCard{border-radius:22px;padding:20px;min-width:0}.cardKicker{display:block;color:#68758a;font-size:12px;font-weight:800;margin-bottom:6px}.metricLine{display:flex;justify-content:space-between;align-items:end;gap:12px}.metricLine strong{font-size:25px;letter-spacing:-.045em}.metricLine span{color:#586579;font-size:13px}.progressTrack{height:10px;border-radius:999px;background:#e9eef5;overflow:hidden;margin:16px 0 10px}.progressTrack i{display:block;width:70%;height:100%;background:var(--ab12-action,#2457d6);border-radius:inherit}.sampleMeta{display:flex;justify-content:space-between;gap:12px;color:#5e6b7f;font-size:13px}.summaryList{display:grid;gap:9px;margin-top:12px}.summaryList div{display:flex;justify-content:space-between;gap:12px;border-top:1px solid #edf0f4;padding-top:9px}.summaryList span{color:#657187}.settlementFlow{display:grid;grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);align-items:center;gap:8px;margin:14px 0}.person{background:#f2f5f9;border-radius:14px;padding:12px;text-align:center;font-weight:800}.flowArrow{color:var(--ab12-action,#2457d6);font-weight:900}.settlementAmount{border-radius:14px;background:#eaf8f1;color:#0c6344;padding:11px;text-align:center;font-weight:850}.muted{color:#667085;line-height:1.65}.field{display:grid;gap:7px;margin:11px 0}.field input{width:100%;height:50px;padding:0 13px;font:inherit}button{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:12px;background:#172033;color:#fff!important;font-weight:800;padding:0 16px;text-decoration:none;cursor:pointer;width:100%}button:disabled{cursor:not-allowed;opacity:.55}.secondary{border:1px solid}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px;line-height:1.55;margin:10px 0}.authErrorSummary{display:grid;gap:5px;margin:0 auto 18px;max-width:460px;padding:15px 17px;border:1px solid #fecaca;border-radius:16px;background:#fef2f2;color:#991b1b;text-decoration:none;line-height:1.5;box-shadow:0 10px 28px rgba(127,29,29,.08)}.authErrorSummary:focus{outline:3px solid #991b1b;outline-offset:3px}.authErrorSummary span{color:#7f1d1d}.authErrorSummary strong{font-size:13px;text-decoration:underline}html[data-ab-resolved-theme="dark"] .authErrorSummary{background:#3f1d2a;border-color:#7f3545;color:#fecaca;box-shadow:none;--ab12-text:#fecaca;--ab12-accent:#fecaca}html[data-ab-resolved-theme="dark"] .authErrorSummary span{color:#fecaca}html[data-ab-resolved-theme="dark"] .authErrorSummary:focus{outline-color:#fecaca}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:13px;padding:12px;margin:10px 0}.hint{font-size:12px;color:#667085;line-height:1.5;margin-top:-4px}form+.hint{margin-top:8px}.loginOptional summary,.signupCard>summary{cursor:pointer;min-height:44px}.signupCard>summary{display:grid;gap:4px}.signupCard>summary span{color:#667085;font-size:13px;font-weight:500}.signupBody{padding-top:10px}.credentialFeedback{min-height:20px;margin:-3px 0 10px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}.kakaoProgress{position:fixed;inset:0;z-index:9999;display:grid;place-items:center;padding:20px;background:rgba(15,23,42,.62);backdrop-filter:blur(3px)}.kakaoProgress[hidden]{display:none}.kakaoProgressCard{width:min(100%,380px);background:#fff;color:#101828;border-radius:22px;padding:26px 22px;text-align:center;box-shadow:0 24px 60px rgba(15,23,42,.35)}.kakaoProgressCard h2{margin:14px 0 6px;font-size:20px}.kakaoProgressCard p{margin:0;color:#667085;line-height:1.55;font-size:14px}.kakaoSpinner{width:44px;height:44px;margin:0 auto;border-radius:50%;border:4px solid #fde68a;border-top-color:#f59e0b;animation:kakaoSpin .9s linear infinite}.kakaoTip{margin-top:18px;background:#fffbea;border:1px solid #fde68a;border-radius:14px;padding:13px;text-align:left}.kakaoTip b{display:block;font-size:12px;color:#92400e;margin-bottom:4px}.kakaoTip span{display:block;font-size:14px;line-height:1.55;color:#3f3f46;min-height:44px}.kakaoSlow{margin-top:14px}.kakaoSlow button{min-height:42px;width:auto;padding:0 16px;margin-top:8px}html.kakaoProgressOpen body{overflow:hidden}@keyframes kakaoSpin{to{transform:rotate(360deg)}}@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}.kakaoSpinner{animation-duration:2.4s}}.loginTop{display:flex;align-items:center;justify-content:space-between;gap:12px;max-width:1180px;min-height:60px;margin:0 auto;padding:0 20px}.loginBrand{display:inline-flex;align-items:center;gap:8px;min-height:44px;font-size:17px;text-decoration:none}.loginBrand b{color:var(--ab12-text,#191f28);font-weight:800}.loginMark{display:grid;place-items:center;width:32px;height:32px;border-radius:10px;background:var(--ab12-brand,#3182f6)}.loginMark svg{width:19px;height:19px;fill:none;stroke:#fff;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}body.abPageLogin .loginTop .loginAbout,body.abPageLogin .loginNext .loginTour{display:inline-flex;align-items:center;min-height:44px;color:var(--ab12-muted,#5f6b7a)!important;font-size:14px;font-weight:700;text-decoration:none}.landingPage{max-width:1180px;margin:0 auto;padding:4px 20px 96px}.landingHero{display:grid;gap:12px;max-width:460px;margin:0 auto;padding:8px 0 20px}.landingHero h1{margin:0;font-size:27px;line-height:1.32;letter-spacing:-.035em}.landingHero h1 strong{color:var(--ab12-accent,#1d4ed8)}.heroLead{margin:-4px 0 6px;color:var(--ab12-muted,#5f6b7a);font-size:15px;line-height:1.6}.kakaoBtn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:54px;border-radius:12px;background:#fee500!important;color:rgba(0,0,0,.85)!important;font-size:16px;font-weight:800;text-decoration:none}.kakaoBtn svg{width:22px;height:22px;fill:#000}body.abPageLogin .loginLocal>summary{display:flex;align-items:center;justify-content:center;gap:8px;min-height:52px;border:1px solid var(--ab12-line,#e9ebee);border-radius:12px;background:var(--ab12-surface,#fff);font-size:15px;font-weight:700;list-style:none;cursor:pointer}.loginLocal>summary::-webkit-details-marker{display:none}body.abPageLogin .landingHero .loginLocal[open]>summary{border-color:var(--ab12-accent,#1d4ed8);background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-accent,#1d4ed8)!important}.loginLocal svg,.pwToggle svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}body.abPageLogin .landingHero .loginCard{margin:10px 0 0!important}.fieldError{display:flex;align-items:center;gap:6px;margin:0;color:var(--neg,#c0362c);font-size:12.5px;font-weight:600}.fieldError:before{content:"!";display:grid;place-items:center;flex:none;width:16px;height:16px;border-radius:50%;background:currentColor;color:var(--ab12-surface,#fff);font-size:11px;font-weight:900}.fieldError:empty,.pwToggle[hidden]{display:none}body.abPageLogin .field input[aria-invalid="true"]{border-color:var(--neg,#c0362c)!important}.pwWrap{position:relative}.field .pwWrap input{padding-right:52px}.pwToggle{position:absolute;top:50%;right:3px;transform:translateY(-50%);width:44px;min-height:44px;padding:0;background:none;color:var(--ab12-muted,#5f6b7a)!important}.pwToggle[aria-pressed="true"]{color:var(--ab12-accent,#1d4ed8)!important}body.abPageLogin .loginOptional{border-color:var(--ab12-line,#edf0f4)}.loginNext{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:0 12px;margin:0;color:var(--ab12-muted,#5f6b7a);font-size:14px}.loginNext a{display:inline-flex;align-items:center;min-height:44px;font-weight:700}body.abPageLogin .landingPage .signupCard{max-width:460px;margin:0 auto 16px!important}.loginExample{display:grid;gap:10px;max-width:460px;margin:0 auto 16px;padding:18px;border:1px solid var(--ab12-line,#e9ebee);border-radius:20px;background:var(--ab12-surface,#fff);box-shadow:var(--ab12-shadow,0 4px 16px rgba(15,23,42,.045))}.loginExample p{margin:0}.exLabel{color:var(--ab12-muted,#5f6b7a);font-size:13px;font-weight:700}.exBubble{justify-self:end;max-width:85%;padding:10px 14px;border-radius:16px 16px 4px 16px;background:var(--ab12-accent-soft,#e8f3ff);color:var(--ab12-text,#191f28);font-size:15px;font-weight:600}.exRow{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:12px;padding:12px;border-radius:14px;background:var(--ab12-surface-raised,#f4f6f8)}.exRow small{display:block;color:var(--ab12-muted,#5f6b7a);font-size:12.5px}.exRow strong{font-size:15px}@media(min-width:760px){.landingPage{padding-top:20px}.landingHero h1{font-size:32px}}@media(max-width:900px){.sampleGrid{grid-template-columns:1fr 1fr}.sampleCard:last-child{grid-column:1/-1}.sectionHead{align-items:start;flex-direction:column}}@media(max-width:680px){.loginTop{padding:0 16px}.landingPage{padding:4px 16px 90px}.previewSection{padding-top:22px}.sampleGrid{grid-template-columns:1fr}.sampleCard:last-child{grid-column:auto}.demoPanel,.sampleCard{padding:18px;border-radius:19px}.field input{font-size:16px}.kakaoProgressCard{padding:24px 18px}}.consentRow{display:flex;align-items:flex-start;gap:9px;margin:0 0 10px;font-size:13.5px;line-height:1.55;text-align:left;cursor:pointer}.consentRow input{flex:none;width:20px;height:20px;margin:1px 0 0;accent-color:var(--ab12-action,#2457d6)}.consentRow span{min-width:0;overflow-wrap:anywhere}.consentRow a{font-weight:700}.consentRow+.fieldError{margin:-4px 0 10px 29px}.termsNote{margin:8px 0 0;color:#5f6b7a;font-size:12.5px;line-height:1.5;text-align:center;overflow-wrap:anywhere}.termsNote a{font-weight:700;text-decoration:underline}body.abPageLogin .kakaoStart button.kakaoBtn{min-height:54px!important;font-family:inherit;letter-spacing:inherit}.loginLegal{display:flex;flex-wrap:wrap;justify-content:center;gap:0 18px;margin:28px 0 0;font-size:13px}.loginLegal a{display:inline-flex;align-items:center;min-height:44px;color:var(--ab12-muted,#5f6b7a)!important}
   </style></head><body><a class="skipLink" href="#feature-preview">기능 미리보기로 건너뛰기</a><header class="loginTop"><a class="loginBrand" href="/"><span class="loginMark">${ledgerMarkSvg()}</span><b>${title}</b></a><a class="loginAbout" href="/">서비스 소개</a></header><main class="landingPage">${errorSummary}<section id="login-start" class="landingHero" aria-labelledby="landingTitle"><h1 id="landingTitle">말하듯 기록하고,<br/><strong>숫자로 바로 이해하세요.</strong></h1><p class="heroLead">카카오톡에서 한 줄로 적고, 웹에서 예산과 정산까지 확인해요.</p><div class="loginMethods">${kakaoPart}</div><details class="loginLocal" id="login-local"${localOpen}><summary>${icon("M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2M8 7a4 4 0 1 0 8 0a4 4 0 1 0-8 0")}로그인 이름으로 로그인</summary><div class="card loginCard">${loginMode && error && !fieldError ? `<div class="error">${escapeHtml(error)}</div>` : ""}<form method="post" action="/my/local-login">${backField}<div class="field"><label for="loginName">로그인 이름</label><input id="loginName" name="login_name" autocomplete="username" autocapitalize="none" spellcheck="false" enterkeyhint="next" placeholder="PC에서 쓰던 로그인 이름" aria-describedby="loginNameError" required${invalid("loginName")}/><p class="fieldError" id="loginNameError">${fieldNote("loginName")}</p></div><div class="field"><label for="loginPassword">비밀번호</label><div class="pwWrap"><input id="loginPassword" name="access_code" type="password" autocomplete="current-password" minlength="4" enterkeyhint="go" placeholder="계정 로그인 비밀번호" aria-describedby="loginPasswordError" required${invalid("loginPassword")}/><button class="pwToggle" id="loginPasswordToggle" type="button" aria-controls="loginPassword" aria-pressed="false" aria-label="비밀번호 보기" hidden>${icon("M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0M9 12a3 3 0 1 0 6 0a3 3 0 1 0-6 0")}</button></div><p class="fieldError" id="loginPasswordError">${fieldNote("loginPassword")}</p></div><details class="loginOptional"><summary>초대코드도 함께 입력</summary><div class="field"><label for="loginInvite">초대코드 (선택)</label><input id="loginInvite" name="invite_code" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="로그인과 동시에 참여할 때만 입력"/></div></details><button type="submit">로그인</button></form><p class="hint legacyHelp"><b>기존 4자리 접속코드도 사용할 수 있습니다.</b> 정상 로그인하면 새 보안 방식으로 자동 전환됩니다.</p></div></details>${claimMode && error ? `<div class="error">${escapeHtml(error)}</div>` : ""}${renderKakaoClaimForm(backField, claimMode)}<p class="loginNext"><span>처음이신가요? <a href="#signup-start" data-signup-entry>새 계정 만들기</a></span><a class="loginTour" href="/demo">먼저 둘러보기 →</a></p></section><section class="loginExample" aria-label="이렇게 기록돼요"><p class="exLabel">카카오톡에 이렇게 보내면</p><p class="exBubble">점심 12000 국민카드</p><p class="exLabel"><span aria-hidden="true">↓ </span>웹 가계부에 이렇게 정리돼요</p><div class="exRow"><span class="abCat" data-ck="food" aria-hidden="true"><i class="abCatIcon"></i></span><div><b>점심</b><small>식비 · 국민카드 · 오늘</small></div><strong>-12,000원</strong></div><p class="hint">예시 화면이에요. 실제 기록은 로그인한 계정의 가계부에만 저장돼요.</p></section><details class="card signupCard" id="signup-start"${signupMode ? " open" : ""}><summary><b>처음이라면 새 계정 만들기</b><span>가입 후 가계부 생성·참여로 이어집니다.</span></summary><div class="signupBody">${signupMode && error && !signupConsentError ? `<div class="error">${escapeHtml(error)}</div>` : ""}<form method="post" action="/my/local-signup"><div class="field"><label for="signupName">로그인 이름</label><input id="signupName" name="login_name" value="${keep("login_name")}" autocomplete="username" autocapitalize="none" spellcheck="false" minlength="2" placeholder="계속 사용할 로그인 이름" required/></div><div class="hint">표시 이름을 나중에 바꿔도 로그인 이름은 유지됩니다.</div><div class="field"><label for="signupDisplay">가계부에 표시할 이름</label><input id="signupDisplay" name="display_name" value="${keep("display_name")}" autocomplete="nickname" placeholder="예: Bin, 엄마, 아빠" required/></div><div class="field"><label for="signupPassword">새 비밀번호</label><input id="signupPassword" name="access_code" type="password" autocomplete="new-password" minlength="8" placeholder="8자리 이상" aria-describedby="signupPasswordStatus" required/></div><div class="field"><label for="signupPasswordConfirm">새 비밀번호 확인</label><input id="signupPasswordConfirm" name="access_code_confirm" type="password" autocomplete="new-password" minlength="8" placeholder="같은 비밀번호를 다시 입력" aria-describedby="signupPasswordStatus" required/></div><div id="signupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><div class="field"><label for="signupInvite">초대코드 (선택)</label><input id="signupInvite" name="invite_code" value="${keep("invite_code")}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="받은 코드가 있으면 입력"/></div>${signupConsentFieldHtml("signupConsent", signupConsentError)}<button id="signupPasswordSubmit" class="secondary" type="submit">새 계정 만들기</button></form></div></details><section id="feature-preview" class="previewSection" aria-labelledby="previewTitle"><div class="sectionHead"><div><span class="eyebrow">로그인 전 기능 미리보기</span><h2 id="previewTitle">한 줄 입력이 가계부 정보로 정리됩니다.</h2></div><p>대화 입력부터 예산 확인과 공동 정산까지, 실제 사용 흐름을 가상 예시로 먼저 살펴보세요.</p></div><p class="sampleNotice"><b>예시 데이터 · 실제 저장 아님</b><br/>이 영역의 이름, 금액, 기록은 모두 설명용으로 만든 가상 정보입니다. 버튼 제출, 네트워크 요청, 쿠키나 브라우저 저장소 사용이 없습니다.</p><div class="sampleGrid"><article class="demoPanel"><h3>카카오톡 대화 예시</h3><div class="chatStack" aria-label="가상 대화 기록 예시"><div class="chatBubble user">점심 12000원 국민카드</div><div class="chatBubble bot"><b>지출 12,000원 기록 예시</b><br/>오늘 · 식비 · 국민카드</div><div class="chatBubble user">어제 택시 18000원</div><div class="chatBubble bot"><b>지출 18,000원 기록 예시</b><br/>어제 · 교통 · 결제수단 미지정</div></div><p class="chatCaption">실제 카카오톡에서는 챗봇을 호출한 뒤 명령을 보냅니다. 새 사용자는 웹 로그인 없이 첫 개인 기록을 시작할 수 있습니다. <b>웹 가계부 열기</b>는 나중에 이름·예산을 설정하고 분석을 볼 때 사용하세요.</p></article><article class="sampleCard"><span class="cardKicker">가상 예산 카드</span><h3>식비 예산</h3><div class="metricLine"><strong>420,000원</strong><span>600,000원 중</span></div><div class="progressTrack" role="progressbar" aria-label="가상 식비 예산 사용률" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70"><i></i></div><div class="sampleMeta"><span>사용률 70%</span><b>180,000원 남음</b></div></article><article class="sampleCard"><span class="cardKicker">가상 월간 리포트</span><h3>10월 리포트</h3><div class="summaryList"><div><span>수입</span><b>3,200,000원</b></div><div><span>지출</span><b>1,286,000원</b></div><div><span>남은 금액</span><b>1,914,000원</b></div></div></article><article class="sampleCard"><span class="cardKicker">가상 정산 카드</span><h3>함께 쓴 비용 정산</h3><div class="settlementFlow"><div class="person">민지</div><span class="flowArrow" aria-hidden="true">→</span><div class="person">준호</div></div><div class="settlementAmount">42,500원 보내기 예시</div></article></div></section><p class="loginLegal"><a href="/terms">이용약관</a><a href="/privacy"><b>개인정보처리방침</b></a><a href="/contact">문의</a></p></main><div id="kakaoLoginProgress" class="kakaoProgress" role="alertdialog" aria-modal="true" aria-labelledby="kakaoProgressTitle" aria-describedby="kakaoProgressTip" hidden><div class="kakaoProgressCard"><div class="kakaoSpinner" aria-hidden="true"></div><h2 id="kakaoProgressTitle">로그인 중입니다</h2><p>카카오 인증 화면으로 이동하고 있어요. 잠시만 기다려 주세요.</p><div class="kakaoTip" aria-live="polite"><b>가계부 사용 팁</b><span id="kakaoProgressTip"></span></div><div id="kakaoProgressSlow" class="kakaoSlow" hidden><p>평소보다 오래 걸리고 있어요. 네트워크 상태에 따라 10초 이상 걸릴 수 있습니다.</p><button id="kakaoProgressCancel" type="button" class="secondary">취소하고 다른 방법 선택</button></div></div></div><script id="kakaoLoginProgressRuntime">(${kakaoLoginProgressClientMain.toString()})({overlayId:"kakaoLoginProgress",tipId:"kakaoProgressTip",slowId:"kakaoProgressSlow",cancelId:"kakaoProgressCancel",tips:${JSON.stringify(KAKAO_LOGIN_PROGRESS_TIPS)}});</script><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"signupPassword",confirmationId:"signupPasswordConfirm",statusId:"signupPasswordStatus",buttonId:"signupPasswordSubmit"});</script><script id="loginEntryAnchorRuntime">(${loginEntryAnchorClientMain.toString()})();</script><script id="loginFieldRuntime">(${loginFieldClientMain.toString()})({nameId:"loginName",passwordId:"loginPassword",toggleId:"loginPasswordToggle",min:4,nameMsg:${JSON.stringify(fieldMessages.loginName)},passwordMsg:${JSON.stringify(fieldMessages.loginPassword)}});</script>${error ? `<script id="authErrorJumpRuntime">(${authErrorJumpClientMain.toString()})(${JSON.stringify(jumpFields)});</script>` : ""}</body></html>`;
 }
 // V22.9.87 T-20: 로그인 이름 칸 아래 오류(aria-invalid·aria-describedby)와 비밀번호 보기 버튼. 스크립트가 없으면 required·minlength 기본 검사가 그대로 막고
@@ -46491,20 +46488,21 @@ function renderMemberOptions(members = [], selected = "") {
 // 나와. 내가 원하는건 바로 가계부 홈이 나와야하고 개인정보 관련이나 체크 필요한것들은 팝업으로 나와야해").
 //  · 카카오톡 인앱 브라우저에서 세션 없이 /my·/app·/m 을 열면 화면 없는 자동 로그인(V22.9.91, kakaoInAppAutoLoginResponse)을 먼저 해 보고, 그게 안 됐거나
 //    (주소 auto=0, 쿠키 ab_kakao_auto) 할 수 없을 때 예전의 긴 로그인 화면 대신 이 시작 화면을 그린다. 홈처럼 보이는 빈 미리보기(머리·요약 칸·하단 탭, 데이터 없음)
-//    위에 서버가 그린 팝업(스크립트 없이 열린 상태)이 있고, 팝업 안에 동의 칸(필수, 미리 체크 없음)과 ‘카카오로 계속하기’(GET /auth/kakao/start, 동의 칸이 consent=1
-//    을 싣는다, 화면 있는 보통 로그인) 단추가 있다. 시작 화면은 스스로 다른 곳으로 보내지 않는다(되풀이 없음). 자동 로그인 규칙(try·skip·off·auto=0)은 그대로다.
+//    위에 서버가 그린 팝업(스크립트 없이 열린 상태)이 있고, 팝업 안에 ‘카카오로 계속하기’(GET /auth/kakao/start, 화면 있는 보통 로그인) 단추와 그 아래 약관 안내
+//    한 줄(V22.9.114, 예전의 동의 체크 칸 자리)이 있다. 시작 화면은 스스로 다른 곳으로 보내지 않는다(되풀이 없음). 자동 로그인 규칙(try·skip·off·auto=0)은 그대로다.
 //  · 다른 길: ‘로그인 이름으로 로그인’ = /my?auto=0&login=1(긴 로그인 화면, 로그인 이름 칸을 열어 둔다), ‘웹 연결 코드로 열기’ = /my/kakao-claim?auto=0(1:1 채팅의
 //    ‘웹 가계부 열기’ 코드 칸을 열어 둔 긴 로그인 화면). 1:1 채팅이 보내는 주소(/my)는 그대로이고, 그 주소에서 시작 화면 → 이 링크로 코드 칸에 닿는다.
 //  · 관리자 쿠키(ab_admin)가 있는 브라우저, 인앱이 아닌 브라우저, 카카오 로그인 설정이 준비되지 않은 서버, login=1 은 예전 로그인 화면 그대로다.
-// V22.9.104 L-3 동의 팝업: 로그인한 사람 가운데 동의 기록(consent:<user_id>)이 없는 사람은 홈 위에 같은 모양의 팝업을 본다. 홈은 DB 를 더 읽지 않고 쿠키
-// ab_cs(1 = 기록 있음, 0 = 없음, 없음 = 모름 → 띄우지 않음, 14일)만 본다. 쿠키는 세션을 만들 때(카카오 로그인 콜백·로그인 이름 로그인·웹 연결 코드·가입) 한 번
-// 읽어 적는다(V22.9.102 ab_bk 와 같은 방식). 읽기에 실패하면 적지 않는다. 팝업의 ‘동의하고 계속’ 은 POST /my/consent(라우터의 같은 출처 검사를 받는다)다.
+// V22.9.104 L-3 → V22.9.114 약관 안내 띠(사용자 2026-11-09 "팝업을 없애고 안내 띠로 바꿔줘", 앱 심사 담당자 요청): 로그인한 사람 가운데 안내 확인 기록
+// (consent:<user_id>, V22.9.95~113 의 동의 기록과 같은 행)이 없는 사람은 홈 맨 위에 닫을 수 있는 얇은 띠를 본다(가리는 팝업 아님). 홈은 DB 를 더 읽지 않고 쿠키
+// ab_cs(1 = 기록 있음, 0 = 없음, 없음 = 모름 → 띄우지 않음, 14일)만 본다. 쿠키는 세션을 만들 때(카카오 로그인 콜백·로그인 이름 로그인·웹 연결 코드·가입·단톡방 열기)
+// 한 번 읽어 적는다(V22.9.102 ab_bk 와 같은 방식). 읽기에 실패하면 적지 않는다. 띠의 ‘확인’ 은 POST /my/consent(라우터의 같은 출처 검사를 받는다)로 기록을 남기고 띠를 닫는다.
+// 법적 성격: 개인정보는 계약 이행 근거(방침 9절) 처리라 동의 대상이 아니고, 약관은 명시 의무만 있어 체크 칸을 강제하지 않는다. 기록은 ‘안내를 본 시각’ 이다.
 const CONSENT_STATE_COOKIE = "ab_cs";
 const CONSENT_STATE_COOKIE_TAIL = "; Path=/; HttpOnly; Secure; SameSite=Lax";
 const KAKAO_START_PATHS = new Set(["/my", "/app", "/m"]);
-const CONSENT_POPUP_DROP_PARAMS = ["msg", "err", "balert", "saved_rid", "saved_qd", "undo", "restore", "quick", "day_detail", "rid"];
+const TERMS_BAND_DROP_PARAMS = ["msg", "err", "balert", "saved_rid", "saved_qd", "undo", "restore", "quick", "day_detail", "rid"];
 const KAKAO_START_NOTICE = "카카오톡에서 기록한 가계부를 바로 열어요.";
-const CONSENT_POPUP_RECORD_FAILED = "동의 기록을 저장하지 못했어요. 잠시 후 다시 눌러 주세요.";
 
 function consentStateCookie(known = true) {
   return `${CONSENT_STATE_COOKIE}=${known ? "1" : "0"}; Max-Age=1209600${CONSENT_STATE_COOKIE_TAIL}`;
@@ -46514,13 +46512,13 @@ function clearConsentStateCookie() {
   return `${CONSENT_STATE_COOKIE}=; Max-Age=0${CONSENT_STATE_COOKIE_TAIL}`;
 }
 
-// true = 기록 있음, false = 없음(팝업), null = 모름(쿠키 없음·다른 값, 팝업 없음 — 이 판 전에 로그인해 둔 사람).
+// true = 기록 있음, false = 없음(띠), null = 모름(쿠키 없음·다른 값, 띠 없음 — 이 판 전에 로그인해 둔 사람).
 function consentStateKnown(request) {
   const value = String(getCookie(request, CONSENT_STATE_COOKIE) || "");
   return value === "1" ? true : value === "0" ? false : null;
 }
 
-// 동의 기록 한 번 읽기. 있음 true, 없음 false, 읽지 못함 null(쿠키를 적지 않는다).
+// 안내 확인(동의) 기록 한 번 읽기. 있음 true, 없음 false, 읽지 못함 null(쿠키를 적지 않는다).
 async function readSignupConsentState(env, userId = "") {
   const id = String(userId || "").trim();
   if (!id) return null;
@@ -46532,17 +46530,17 @@ async function readSignupConsentState(env, userId = "") {
   }
 }
 
-// 읽지 못하면(모름) 이 브라우저에 남은 앞 사람의 ab_cs 를 지우는 쿠키를 준다(모름 = 팝업 없음, 독립 검토 P3-4).
+// 읽지 못하면(모름) 이 브라우저에 남은 앞 사람의 ab_cs 를 지우는 쿠키를 준다(모름 = 띠 없음, 독립 검토 P3-4).
 async function consentStateCookieFor(env, userId = "") {
   const state = await readSignupConsentState(env, userId);
   return state === null ? clearConsentStateCookie() : consentStateCookie(state);
 }
 
-// 홈·시작 화면이 같이 쓰는 팝업 모양. 스크립트 없이 열린 상태로 그리고(고정 덮개), 아래 화면은 눌리지 않는다. 카카오 단추·동의 칸 모양은 로그인 화면과 같다.
+// 시작 화면의 팝업 모양. 스크립트 없이 열린 상태로 그리고(고정 덮개), 아래 화면은 눌리지 않는다. 카카오 단추·안내 줄 모양은 로그인 화면과 같다.
 // 카드 칸(#abStartCard, 한 화면에 팝업은 하나)의 id 로 범위를 잡아 홈·셸 CSS 의 단추 규칙(.abV2281 button[type=submit] … !important, 파란 채움)과
 // 다크 모드 글씨 규칙을 이긴다(카카오 단추는 카카오 노랑). 덮개는 홈의 축하 효과·안내 시트(z-index 11901·12000)보다 위다.
 // 주 단추·체크 색은 컬러톤 토큰 var(--ab12-action) 을 따른다(V22.9.14 검사: 주 색 리터럴 금지, 옛 값은 폴백으로만).
-const AB_START_MODAL_STYLE = '<style id="abStartModalStyle">.abStartModal{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:18px;background:rgba(15,23,42,.58);overflow:auto}#abStartCard{width:min(100%,400px);margin:auto;background:#fff!important;color:#101828!important;border:0!important;border-radius:22px!important;padding:24px 20px 18px;box-shadow:0 24px 60px rgba(15,23,42,.32);text-align:left;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.02em;color-scheme:light}#abStartCard h2{margin:0 0 6px;font-size:21px!important;font-weight:800!important;line-height:1.35;color:#101828!important}#abStartCard .abStartLead{margin:0 0 16px;color:#475467!important;font-size:15px;line-height:1.55}#abStartCard .abStartAlert{margin:0 0 14px;padding:10px 12px;border-radius:12px;background:#fef2f2!important;border:1px solid #fecaca;color:#991b1b!important;font-size:14px;line-height:1.5}#abStartCard form{margin:0;padding:0;border:0;background:none;box-shadow:none}#abStartCard .consentRow{display:flex;align-items:flex-start;gap:9px;margin:0 0 12px;font-size:14px;line-height:1.55;cursor:pointer}#abStartCard .consentRow input{flex:none;width:20px;height:20px;min-height:0!important;margin:2px 0 0;accent-color:var(--ab12-action,#2457d6)}#abStartCard .consentRow span{min-width:0;overflow-wrap:anywhere;color:#334155!important}#abStartCard .consentRow a{color:#1d4ed8!important;font-weight:700}#abStartCard .fieldError{margin:-6px 0 12px 29px;color:#c0362c!important;font-size:12.5px;font-weight:600}#abStartCard .kakaoBtn,#abStartCard .abStartGo{display:flex!important;align-items:center;justify-content:center;gap:10px;width:100%!important;min-height:54px!important;margin:0;padding:0 16px!important;border:0!important;border-radius:12px!important;font:inherit;font-size:16px!important;font-weight:800!important;cursor:pointer;box-shadow:none!important;transform:none!important}#abStartCard .kakaoBtn{background:#fee500!important;color:rgba(0,0,0,.85)!important}#abStartCard .kakaoBtn svg{width:22px;height:22px;fill:#000}#abStartCard .abStartGo{background:var(--ab12-action,#2457d6)!important;color:#fff!important}#abStartCard .abStartAlt{display:flex;flex-wrap:wrap;justify-content:center;gap:2px 18px;margin-top:10px}#abStartCard .abStartAlt a,#abStartCard .abStartAlt button{display:inline-flex!important;align-items:center;width:auto!important;min-height:44px!important;padding:0 2px!important;border:0!important;border-radius:0!important;background:none!important;color:#344054!important;font:inherit;font-size:14px!important;font-weight:700!important;text-decoration:underline!important;box-shadow:none!important;transform:none!important;cursor:pointer}html:has(.abStartModal) body{overflow:hidden}</style>';
+const AB_START_MODAL_STYLE = '<style id="abStartModalStyle">.abStartModal{position:fixed;inset:0;z-index:2147483000;display:grid;place-items:center;padding:18px;background:rgba(15,23,42,.58);overflow:auto}#abStartCard{width:min(100%,400px);margin:auto;background:#fff!important;color:#101828!important;border:0!important;border-radius:22px!important;padding:24px 20px 18px;box-shadow:0 24px 60px rgba(15,23,42,.32);text-align:left;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.02em;color-scheme:light}#abStartCard h2{margin:0 0 6px;font-size:21px!important;font-weight:800!important;line-height:1.35;color:#101828!important}#abStartCard .abStartLead{margin:0 0 16px;color:#475467!important;font-size:15px;line-height:1.55}#abStartCard .abStartAlert{margin:0 0 14px;padding:10px 12px;border-radius:12px;background:#fef2f2!important;border:1px solid #fecaca;color:#991b1b!important;font-size:14px;line-height:1.5}#abStartCard form{margin:0;padding:0;border:0;background:none;box-shadow:none}#abStartCard .termsNote{margin:10px 0 0;color:#475467!important;font-size:12.5px;line-height:1.5;text-align:center;overflow-wrap:anywhere}#abStartCard .termsNote a{color:#1d4ed8!important;font-weight:700;text-decoration:underline}#abStartCard .kakaoBtn,#abStartCard .abStartGo{display:flex!important;align-items:center;justify-content:center;gap:10px;width:100%!important;min-height:54px!important;margin:0;padding:0 16px!important;border:0!important;border-radius:12px!important;font:inherit;font-size:16px!important;font-weight:800!important;cursor:pointer;box-shadow:none!important;transform:none!important}#abStartCard .kakaoBtn{background:#fee500!important;color:rgba(0,0,0,.85)!important}#abStartCard .kakaoBtn svg{width:22px;height:22px;fill:#000}#abStartCard .abStartGo{background:var(--ab12-action,#2457d6)!important;color:#fff!important}#abStartCard .abStartAlt{display:flex;flex-wrap:wrap;justify-content:center;gap:2px 18px;margin-top:10px}#abStartCard .abStartAlt a,#abStartCard .abStartAlt button{display:inline-flex!important;align-items:center;width:auto!important;min-height:44px!important;padding:0 2px!important;border:0!important;border-radius:0!important;background:none!important;color:#344054!important;font:inherit;font-size:14px!important;font-weight:700!important;text-decoration:underline!important;box-shadow:none!important;transform:none!important;cursor:pointer}html:has(.abStartModal) body{overflow:hidden}</style>';
 
 // 시작 화면 바탕: 홈 CSS 자산(1년 캐시, 로그인 뒤 홈이 그대로 다시 쓴다)의 홈 칸 이름으로 그린 빈 미리보기. 데이터·링크·입력 칸이 없고(초점이 가지 않는다)
 // 화면 읽기에서도 빠진다(aria-hidden·inert).
@@ -46576,15 +46574,14 @@ function kakaoStartQuery(returnTo = "", extra = {}) {
   return qs.toString();
 }
 
-// 시작 화면. error 가 동의 칸 오류(SIGNUP_CONSENT_REQUIRED_MESSAGE)면 칸 아래에, 그 밖(카카오 취소·오류)은 팝업 위에 알린다.
-// 카카오 폼은 로그인 화면과 같은 모양(form.kakaoStart, 숨은 return_to 가 먼저, 동의 칸 id kakaoConsent)이라 대기 화면 스크립트가 그대로 붙는다.
+// 시작 화면. error(카카오 취소·오류)는 팝업 위에 알린다. 카카오 폼은 로그인 화면과 같은 모양(form.kakaoStart, 숨은 return_to 가 먼저)이라 대기 화면 스크립트가
+// 그대로 붙고, 폼 뒤에 약관 안내 한 줄(V22.9.114)이 온다.
 function renderKakaoStartHtml(env, { returnTo = "", error = "" } = {}) {
   const back = safeUserReturnPath(returnTo || "", "");
-  const consentError = error === SIGNUP_CONSENT_REQUIRED_MESSAGE ? error : "";
-  const alert = error && !consentError ? `<p class="abStartAlert" role="alert">${escapeHtml(error)}</p>` : "";
+  const alert = error ? `<p class="abStartAlert" role="alert">${escapeHtml(error)}</p>` : "";
   const hidden = back ? `<input type="hidden" name="return_to" value="${escapeHtml(back)}"/>` : "";
-  const form = '<form class="kakaoStart" method="get" action="/auth/kakao/start">' + hidden + signupConsentFieldHtml("kakaoConsent", consentError)
-    + '<button class="kakaoBtn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466 0 2.66 1.77 4.995 4.432 6.316l-.9 3.296a.35.35 0 0 0 .532.383l3.917-2.598c.5.06 1.007.09 1.519.09 5.247 0 9.5-3.343 9.5-7.487C21.5 6.843 17.247 3.5 12 3.5Z"/></svg>카카오로 계속하기</button></form>';
+  const form = '<form class="kakaoStart" method="get" action="/auth/kakao/start">' + hidden
+    + '<button class="kakaoBtn" type="submit"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5c-5.247 0-9.5 3.343-9.5 7.466 0 2.66 1.77 4.995 4.432 6.316l-.9 3.296a.35.35 0 0 0 .532.383l3.917-2.598c.5.06 1.007.09 1.519.09 5.247 0 9.5-3.343 9.5-7.487C21.5 6.843 17.247 3.5 12 3.5Z"/></svg>카카오로 계속하기</button></form>' + termsNoticeLineHtml();
   const alt = `<div class="abStartAlt"><a href="${escapeHtml(`/my?${kakaoStartQuery(back, { login: "1" })}#login-local`)}">로그인 이름으로 로그인</a><a href="${escapeHtml(`/my/kakao-claim?${kakaoStartQuery(back)}#kakao-claim-start`)}">웹 연결 코드로 열기</a></div>`;
   const modal = `<div class="abStartModal" id="abKakaoStart" role="dialog" aria-modal="true" aria-labelledby="abKakaoStartTitle" aria-describedby="abKakaoStartLead"><div class="abStartCard" id="abStartCard"><h2 id="abKakaoStartTitle">카카오 계정으로 가계부 열기</h2><p class="abStartLead" id="abKakaoStartLead">${KAKAO_START_NOTICE}</p>${alert}${form}${alt}</div></div>`;
   return kakaoStartShellHtml(env, { title: "가계부 열기", body: modal + modalInertScript("abKakaoStart") + kakaoStartProgressHtml() });
@@ -46619,58 +46616,55 @@ async function kakaoInAppStartResponse(request, env, url) {
   return htmlResponse(renderKakaoStartHtml(env, { returnTo: kakaoStartReturnPath(url) }));
 }
 
-// 카카오 로그인 시작·콜백이 로그인 화면으로 되돌리던 자리(동의 칸 오류·카카오 취소·오류). 인앱 브라우저이고 카카오 로그인이 준비된 서버면 시작 화면에
+// 카카오 로그인 시작·콜백이 로그인 화면으로 되돌리던 자리(카카오 취소·오류). 인앱 브라우저이고 카카오 로그인이 준비된 서버면 시작 화면에
 // 같은 말을 띄운다. 그 밖은 예전 로그인 화면 그대로다.
 function kakaoStartOrLoginHtml(request, env, { error = "", returnTo = "", authMode = "login" } = {}) {
   if (isKakaoTalkInAppBrowser(request) && inspectKakaoLoginConfig(env).ready) return renderKakaoStartHtml(env, { returnTo, error });
   return renderUserLoginHtml(env, error, returnTo, authMode);
 }
 
-// 로그인한 사람의 동의 팝업(홈 위, 그리고 POST /my/consent 가 다시 그리는 화면). 동의 칸은 로그인 화면과 같은 말이다.
-function consentPopupHtml({ returnTo = "", error = "", withStyle = true } = {}) {
+// V22.9.114 약관 안내 띠(홈 맨 위, 팝업 대신). 스타일은 띠와 함께 한 번만 실린다(1년 캐시 자산을 건드리지 않는다, 공지·설정 띠와 같은 방식). 닫기 단추는
+// class="secondary" 라 셸의 파란 제출 단추 규칙(.abV2281 button[type=submit]:not(.secondary) …)에 걸리지 않고, 띠 자신의 규칙이 모양을 정한다.
+const AB_TERMS_BAND_STYLE = '<style id="abTermsBandStyle">.abTermsBand{display:flex;align-items:center;justify-content:center;gap:6px 12px;flex-wrap:wrap;margin:0;padding:9px 16px;background:#eef4ff;color:#1e3a8a;border-bottom:1px solid #c7d7fe;font-size:13.5px;line-height:1.45;text-align:center;word-break:keep-all;overflow-wrap:anywhere}.abTermsBand p{margin:0}.abTermsBand a{color:inherit;font-weight:700;text-decoration:underline;text-underline-offset:2px}.abTermsBand a:focus-visible,.abTermsBand button:focus-visible{outline:2px solid currentColor;outline-offset:2px}.abTermsBand form{display:inline-block;margin:0;padding:0;border:0;background:none;box-shadow:none}.abTermsBand button.secondary{display:inline-flex!important;align-items:center;min-height:34px!important;margin:0;padding:4px 14px!important;border:1px solid #93b4fd!important;border-radius:999px!important;background:#fff!important;color:#1e3a8a!important;font:inherit;font-size:13px!important;font-weight:700!important;box-shadow:none!important;transform:none!important;cursor:pointer}html[data-ab-resolved-theme="dark"] .abTermsBand{background:#172554;color:#dbe4ff;border-bottom-color:#2f4a8a}html[data-ab-resolved-theme="dark"] .abTermsBand button.secondary{background:#1e3a8a!important;color:#fff!important;border-color:#3b5bb5!important}</style>';
+
+// 띠 한 조각. 돌아갈 곳은 같은 사이트 주소만(safeUserReturnPath). 링크는 같은 탭(홈으로 돌아오면 띠는 그대로 있다가 ‘확인’ 으로 닫는다).
+function termsNoticeBandHtml(returnTo = "") {
   const back = safeUserReturnPath(returnTo || "", "/app");
-  const consentError = error === SIGNUP_CONSENT_REQUIRED_MESSAGE ? error : "";
-  const alert = error && !consentError ? `<p class="abStartAlert" role="alert">${escapeHtml(error)}</p>` : "";
-  return `${withStyle ? AB_START_MODAL_STYLE : ""}<div class="abStartModal" id="abConsentPop" role="dialog" aria-modal="true" aria-labelledby="abConsentPopTitle" aria-describedby="abConsentPopLead"><div class="abStartCard" id="abStartCard"><h2 id="abConsentPopTitle">이용약관을 확인해 주세요</h2><p class="abStartLead" id="abConsentPopLead">가계부를 계속 쓰려면 아래 칸을 체크해 주세요. 한 번만 확인하면 돼요.</p>${alert}<form method="post" action="/my/consent"><input type="hidden" name="return_to" value="${escapeHtml(back)}"/>${signupConsentFieldHtml("consentPopup", consentError)}<button class="abStartGo" type="submit">동의하고 계속</button></form><form class="abStartAlt" method="post" action="/my/logout"><button type="submit">로그아웃</button></form></div></div>`
-    + modalInertScript("abConsentPop");
+  return AB_TERMS_BAND_STYLE + '<div class="abTermsBand" id="abTermsBand" role="region" aria-label="이용약관 안내"><p>서비스를 이용하면 <a href="/terms">이용약관</a>에 동의한 것으로 봅니다. <a href="/privacy">개인정보처리방침</a>도 확인해 주세요.</p>'
+    + `<form method="post" action="/my/consent"><input type="hidden" name="return_to" value="${escapeHtml(back)}"/><button class="secondary" type="submit" aria-label="이용약관 안내 확인하고 닫기">확인</button></form></div>`;
 }
 
-function renderConsentPopupPageHtml(env, { returnTo = "", error = "" } = {}) {
-  return kakaoStartShellHtml(env, { title: "이용약관 확인", body: consentPopupHtml({ returnTo, error, withStyle: false }) });
-}
-
-// 홈 응답 마무리(my/mobile-home.js): 로그인 사용자(관리자 세션 아님)이고 쿠키 ab_cs=0 일 때만 팝업을 </body> 앞에 붙인다. 그 밖은 바이트 하나 바꾸지 않는다
-// (홈 HTML 예산). 돌아갈 곳은 지금 홈 주소에서 한 번만 쓰는 알림 값(msg·err·되돌리기 표 등)을 뺀 것이다.
-function withConsentPopupV229104(request, url, eligible, html) {
+// 홈 응답 마무리(my/mobile-home.js): 로그인 사용자(관리자 세션 아님)이고 쿠키 ab_cs=0 일 때만 띠를 붙인다. 그 밖은 바이트 하나 바꾸지 않는다(홈 HTML 예산).
+// 자리: 본문 바로가기 링크 뒤, 없으면 <body> 바로 뒤(공지 띠·설정 띠는 응답 마무리 단계에서 그 앞에 끼어든다 → 공지 → 설정 → 약관 순).
+// 돌아갈 곳은 지금 홈 주소에서 한 번만 쓰는 알림 값(msg·err·되돌리기 표 등)을 뺀 것이다.
+function withTermsNoticeBandV229114(request, url, eligible, html) {
   if (!eligible || consentStateKnown(request) !== false) return html;
   const source = String(html || "");
-  const at = source.lastIndexOf("</body>");
-  if (at < 0 || source.includes('id="abConsentPop"')) return source;
+  if (!source || source.includes('class="abTermsBand"') || !/<body\b[^>]*>/i.test(source)) return source;
   const qs = new URLSearchParams(url.search);
-  for (const key of CONSENT_POPUP_DROP_PARAMS) qs.delete(key);
+  for (const key of TERMS_BAND_DROP_PARAMS) qs.delete(key);
   const query = qs.toString();
   const path = url.pathname === "/m" ? "/app" : url.pathname;
-  const back = safeUserReturnPath(`${path}${query ? `?${query}` : ""}`, "/app");
-  return source.slice(0, at) + consentPopupHtml({ returnTo: back }) + source.slice(at);
+  const band = termsNoticeBandHtml(safeUserReturnPath(`${path}${query ? `?${query}` : ""}`, "/app"));
+  const skip = /<a class="abSkipLink" href="[^"]*">본문 바로가기<\/a>/;
+  if (skip.test(source)) return source.replace(skip, (full) => full + band);
+  return source.replace(/<body\b[^>]*>/i, (full) => full + band);
 }
 
-// POST /my/consent: 로그인 세션이 있어야 하고(없으면 /my), 같은 출처 검사는 라우터가 모든 POST 에 먼저 한다. 칸이 없으면 400 으로 팝업을 다시 그린다.
-// 기록이 이미 있으면 다시 쓰지 않는다(처음 기록의 시각·경로를 지키려고). 저장하면 ab_cs=1 을 적고 돌아갈 곳(같은 사이트 주소만)으로 303.
+// POST /my/consent(띠의 ‘확인’): 로그인 세션이 있어야 하고(없으면 /my), 같은 출처 검사는 라우터가 모든 POST 에 먼저 한다. 체크 칸은 없다(V22.9.114).
+// 기록이 이미 있으면 다시 쓰지 않는다(처음 기록의 시각·경로를 지키려고). 기록을 읽지 못했으면(null) 쓰지 않는다(덮어쓰기 저장이라, 독립 검토 P3-2).
+// 어느 경우든 ab_cs=1 을 적어 이 브라우저의 띠를 닫고 돌아갈 곳(같은 사이트 주소만)으로 303 — 띠는 안내라 저장 실패가 사람을 막지 않는다.
+// 기록이 없거나 못 썼으면 다음 세션을 만들 때 다시 읽어 쿠키를 새로 적으므로 띠가 다시 보인다.
 async function handleMyConsent(request, env) {
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
   const form = await request.formData();
   const rawBack = safeUserReturnPath(String(form.get("return_to") || ""), "/app");
   const back = rawBack.startsWith("/my/consent") ? "/app" : rawBack;
-  if (String(form.get("consent") || "") !== "1") {
-    return htmlResponse(renderConsentPopupPageHtml(env, { returnTo: back, error: SIGNUP_CONSENT_REQUIRED_MESSAGE }), 400);
-  }
   const existing = await readSignupConsentState(env, userId);
-  // 기록을 읽지 못했으면(null) 쓰지 않고 다시 누르게 한다. 저장은 덮어쓰기(merge-duplicates)라 있던 처음 기록을 덮을 수 있어서다(독립 검토 P3-2).
-  if (existing === null) return htmlResponse(renderConsentPopupPageHtml(env, { returnTo: back, error: CONSENT_POPUP_RECORD_FAILED }), 503);
-  const recorded = existing === true ? true : await recordSignupConsent(env, userId, "popup");
-  if (!recorded) return htmlResponse(renderConsentPopupPageHtml(env, { returnTo: back, error: CONSENT_POPUP_RECORD_FAILED }), 503);
-  rememberOpsEvent({ kind: "consent_popup_accepted", severity: "info", path: "/my/consent", method: "POST", detail: existing === true ? "already" : "recorded" });
+  const recorded = existing === true ? true : existing === false ? await recordSignupConsent(env, userId, "band") : false;
+  const detail = existing === true ? "already" : recorded ? "recorded" : existing === null ? "unread" : "unrecorded";
+  rememberOpsEvent({ kind: "terms_notice_closed", severity: recorded ? "info" : "warn", path: "/my/consent", method: "POST", detail });
   return redirectResponseWithCookies(back, [consentStateCookie(true)]);
 }
 
@@ -46685,7 +46679,7 @@ async function handleMyConsent(request, env) {
 // 지금은 이렇게 연다(로그인 뒤 화면 /my·/app·/m·/my/* 의 GET 페이지 이동):
 //  · botUserKey·botGroupKey 가 둘 다 있고, 그 방에 이어진 가계부가 있고, botUserKey 의 ‘원래 채팅 계정’(users.kakao_user_key 가 그대로 같고 통합되지
 //    않은 행)이 그 가계부를 읽을 수 있는 구성원이면 로그인 화면 없이 그 계정 세션을 만들고 그 방 가계부 홈(/app?household_id=…)으로 보낸다. 승인 대기면
-//    /my 상태 화면이다. 동의 기록이 없으면 ab_cs=0 이라 홈 위에 동의 팝업이 뜬다(V22.9.104 L-3).
+//    /my 상태 화면이다. 안내 확인 기록이 없으면 ab_cs=0 이라 홈 맨 위에 약관 안내 띠가 뜬다(V22.9.104 L-3 팝업 → V22.9.114 띠).
 //  · 웹 계정에 이어진 사람(별칭 skill_identity: 나 계정 통합으로 찾은 계정)에게는 주소 값으로 세션을 주지 않는다(독립 검토 P2-1: 만료·폐기 없는 값이
 //    웹 계정의 다른 가계부·관리자 권한까지 여는 일을 막는다). 세션이 없으면 그 방 가계부 주소로만 보내 인앱 자동 로그인(V22.9.91, 화면 없음)이 그
 //    계정으로 로그인하게 한다.

@@ -618,7 +618,7 @@ const ACCOUNTBOOK_WORKER = {
         return await handleMyLogout({ explicit: true });
       }
 
-      // V22.9.104 L-3: 동의 기록이 없는 로그인 사용자가 홈 팝업에서 누르는 ‘동의하고 계속’(같은 출처 검사는 위의 csrfOriginAllowed 가 먼저 한다).
+      // V22.9.104 L-3 → V22.9.114: 안내 확인 기록이 없는 로그인 사용자가 홈 약관 안내 띠에서 누르는 ‘확인’(같은 출처 검사는 위의 csrfOriginAllowed 가 먼저 한다).
       if (url.pathname === "/my/consent" && request.method === "POST") {
         return await handleMyConsent(request, env);
       }
