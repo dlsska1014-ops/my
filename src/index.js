@@ -3213,7 +3213,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.112-GEMINI-FIXES";
+const APP_VERSION = "V22.9.113-BUDGET-COMMAND-FIX";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -52311,11 +52311,16 @@ function parseBudgetMonthHint(text = "") {
 }
 
 function parseDirectBudgetSetCommand(text = "") {
-  // V22.9.93 Q-2: ‘식비 예산 300.000원’이 300원이 됐다. 거래 입구와 같은 접기를 지난다.
+  // V22.9.93 Q-2: ‘식비 예산 300.000원’이 300원이 됐다 — 거래 입구와 같은 접기를 지난다.
   const t = normalizeText(foldInputWidth(text));
+  // V22.9.113: ‘월 예산 200만원’이 분류 ‘월’로 읽혀 ‘등록된 카테고리를 찾지 못했어요’가 됐다(아래 bareTotal 이 전체 예산으로 받아야 할 말을
+  // 이 조기 반환이 먼저 가로챔). 월·전체·총도 떼어 내 전체 예산(__total)으로 본다.
+  // ‘동아리 예산 회식 50000원’처럼 ‘예산’이 가운데 든 말을 지출로 넘기는 가드(Gemini ①)는 넣지 않는다: 같은 꼴의 예산 말
+  // (‘식비 예산 다음달부터 30만원’, ‘예산 카페 간식 5만원’, 사용자 분류 ‘예산 아이 학원 30만원’)이 30만원 지출로 저장되는 회귀를
+  // 픽스처 대조로 확인했다. 모호한 말은 저장하지 않고 다시 묻는다(validate-kakao-intent-skill-auth-v22876; 안내 문구는 skill-handler).
   const span = moneyTokenSpans(t)[0];
   if (span && /(?:^|\s)예산(?=\s|$)/.test(t)) {
-    const withoutAmount = (t.slice(0,span.start) + " " + t.slice(span.end)).replace(/^(?:이번\s*달|다음\s*달|지지난\s*달|저저번\s*달|지난\s*달|저번\s*달|(?:20\d{2}년\s*)?\d{1,2}월)\s*/, "").replace(/(?:^|\s)(?:예산|설정|저장|등록|변경|수정)(?=\s|$)/g," ").replace(/\s+/g," ").trim();
+    const withoutAmount = (t.slice(0,span.start) + " " + t.slice(span.end)).replace(/^(?:이번\s*달|다음\s*달|지지난\s*달|저저번\s*달|지난\s*달|저번\s*달|(?:20\d{2}년\s*)?\d{1,2}월)\s*/, "").replace(/(?:^|\s)(?:예산|설정|저장|등록|변경|수정|월|전체|총)(?=\s|$)/g," ").replace(/\s+/g," ").trim();
     return {month:parseBudgetMonthHint(t), category:withoutAmount ? normalizeBudgetCategoryInput(withoutAmount) : "__total", amount:span.amount};
   }
   // V22.9.81: 앞의 ‘지지난달·저저번달’도 달 말로 떼어 낸다(예전에는 분류 이름이 ‘지지난달’·‘지지난달 식비’가 됐다).
@@ -53846,11 +53851,15 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
 
   const directBudget = parseDirectBudgetSetCommand(utterance);
   if (directBudget) {
-    if (!["owner","admin"].includes(accessRole)) return kakaoText("예산은 가계부 소유자 또는 관리자만 설정할 수 있어요.");
+    // V22.9.113(Gemini ① 재확인 안내): ‘동아리 예산 회식 50000원’처럼 ‘예산’ 앞뒤에 말이 더 붙어 분류가 두 낱말 이상이면 지출을 적으려던 말일 수 있다.
+    // 설계대로 저장하지 않되(지출로 짐작해 저장하면 ‘식비 예산 매달 30만원’이 30만원 지출이 된다 — 픽스처 대조) 되돌아갈 길을 한 줄 덧붙인다.
+    // 분류가 한 낱말이면(‘식비 예산 30만원’) 답은 예전과 같다.
+    const expenseRetryHint = /\s/.test(String(directBudget.category || "")) ? "\n지출을 기록하려던 거라면 ‘예산’ 말을 빼고 ‘점심 12000원’처럼 보내 주세요." : "";
+    if (!["owner","admin"].includes(accessRole)) return kakaoText(`예산은 가계부 소유자 또는 관리자만 설정할 수 있어요.${expenseRetryHint}`);
     // V22.9.37 감사 NEW-8: "예산 50억"도 웹 예산 저장과 같은 20억 상한에서 거절한다.
     if (directBudget.amount > MAX_TRANSACTION_AMOUNT) return kakaoText(kakaoBudgetAmountTooLargeText(directBudget.amount));
     const category = await resolveBudgetCategoryName(env, household.id, directBudget.category);
-    if (!category) return kakaoText("등록된 카테고리를 찾지 못했어요.\n‘예산설정’을 입력해 단계별로 선택해 주세요.", [["예산설정", "예산설정"]]);
+    if (!category) return kakaoText(`등록된 카테고리를 찾지 못했어요.${expenseRetryHint}\n‘예산설정’을 입력해 단계별로 선택해 주세요.`, [["예산설정", "예산설정"]]);
     await saveKakaoBudget(env, household.id, directBudget.month, category, directBudget.amount);
     const totalNote = category === "__total" ? await kakaoTotalBudgetNote(env, household.id, directBudget.month) : "";
     return kakaoText(`✅ ${directBudget.month} ${category === "__total" ? "전체 월" : category} 예산을 설정했어요.\n\n설정 금액: ${numberWithCommas(directBudget.amount)}원${totalNote}`, [["남은예산", "남은예산"], ["예산설정", "예산설정"]]);
@@ -53858,6 +53867,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
 
   // V22.8.16 지침서 3장 1·2단계: "수정 NN번"·"삭제 NN번"·"복구"·기록 조회.
   // isStrongKakaoTransactionInput이 수정 명령 패턴을 이미 제외하므로 게이트 불필요.
+  // V22.9.113: 이 백스톱은 넓은 그대로 둔다(‘예산’+금액인데 파서가 못 받은 말은 저장하지 않고 안내). ‘예산 바로 뒤 숫자’로 좁히는 안(Gemini ①)은
+  // ‘식비 예산 매달 30만원’ 같은 예산 말이 30만원 지출로 저장되는 회귀가 있어 넣지 않았다(픽스처 대조).
   if (!directBudget && moneyTokenSpans(utterance).length && /(?:^|\s)예산(?=\s|$)/.test(utterance)) return kakaoText(kakaoBudgetGuideText(origin));
   // V22.9.79 감사 A-18: 하루를 가리킨 ‘뭐 썼어’류 조회는 그날의 번호 있는 기록 목록으로 답한다(아래 최근 5건 답은 날짜 없는 ‘최근’용).
   const kakaoEditCommandReply = strongTransactionInput ? null : await handleKakaoEditCommandV4(env, { utterance: kakaoRecentDayListUtterance(utterance) || commandText || utterance, household, user, kakaoUserKey, payload, origin, role: accessRole });
