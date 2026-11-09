@@ -420,14 +420,15 @@ function parseBudgetMonthHint(text = "") {
 function parseDirectBudgetSetCommand(text = "") {
   // V22.9.93 Q-2: ‘식비 예산 300.000원’이 300원이 됐다 — 거래 입구와 같은 접기를 지난다.
   const t = normalizeText(foldInputWidth(text));
-  // V22.9.113 ①(Gemini): 예전에는 금액 span + ‘예산’ 단어만 있으면 바로 예산 명령으로 반환해, 메모에 ‘예산’이 든 일반 지출
-  // (‘동아리 예산 회식 50000원’)까지 가로챘다. 이제 금액·예산·월/전체/총·설정류를 뺀 분류가 ‘두 낱말 이상’이면(메모에 묻힌 지출)
-  // 받지 않고 지출로 넘긴다. 한 낱말 이하면(‘예산 식비 300000’·‘식비 예산 30만원’·‘월 예산 200만원’→전체) 그대로 예산 명령이다.
-  // moneyTokenSpans 가 ‘300.000원→300000’ 을 바로 읽어 Q-2 회귀 없음. 호출부 백스톱(skill-handler)도 budget-shape 로 좁혔다.
+  // V22.9.113: ‘월 예산 200만원’이 분류 ‘월’로 읽혀 ‘등록된 카테고리를 찾지 못했어요’가 됐다(아래 bareTotal 이 전체 예산으로 받아야 할 말을
+  // 이 조기 반환이 먼저 가로챔). 월·전체·총도 떼어 내 전체 예산(__total)으로 본다.
+  // ‘동아리 예산 회식 50000원’처럼 ‘예산’이 가운데 든 말을 지출로 넘기는 가드(Gemini ①)는 넣지 않는다: 같은 꼴의 예산 말
+  // (‘식비 예산 다음달부터 30만원’, ‘예산 카페 간식 5만원’, 사용자 분류 ‘예산 아이 학원 30만원’)이 30만원 지출로 저장되는 회귀를
+  // 픽스처 대조로 확인했다. 모호한 말은 저장하지 않고 다시 묻는다(validate-kakao-intent-skill-auth-v22876; 안내 문구는 skill-handler).
   const span = moneyTokenSpans(t)[0];
   if (span && /(?:^|\s)예산(?=\s|$)/.test(t)) {
     const withoutAmount = (t.slice(0,span.start) + " " + t.slice(span.end)).replace(/^(?:이번\s*달|다음\s*달|지지난\s*달|저저번\s*달|지난\s*달|저번\s*달|(?:20\d{2}년\s*)?\d{1,2}월)\s*/, "").replace(/(?:^|\s)(?:예산|설정|저장|등록|변경|수정|월|전체|총)(?=\s|$)/g," ").replace(/\s+/g," ").trim();
-    if (!/\s/.test(withoutAmount)) return {month:parseBudgetMonthHint(t), category:withoutAmount ? normalizeBudgetCategoryInput(withoutAmount) : "__total", amount:span.amount};
+    return {month:parseBudgetMonthHint(t), category:withoutAmount ? normalizeBudgetCategoryInput(withoutAmount) : "__total", amount:span.amount};
   }
   // V22.9.81: 앞의 ‘지지난달·저저번달’도 달 말로 떼어 낸다(예전에는 분류 이름이 ‘지지난달’·‘지지난달 식비’가 됐다).
   const monthHint = "(이번달|이번 달|다음달|다음 달|지지난달|지지난 달|저저번달|저저번 달|지난달|지난 달|저번달|저번 달|(?:20\\d{2}년\\s*)?\\d{1,2}월)";
