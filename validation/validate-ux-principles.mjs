@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import app from "../src/index.js";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
-import { beforeBotObservationRenderer } from "./lib-audit-v22934.mjs";
+import { beforeBotObservationRenderer, beforePrelaunchP1V229116 } from "./lib-audit-v22934.mjs";
 
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
@@ -17,7 +17,7 @@ function functionBlockHash(marker) {
   const end = source.indexOf("\nfunction ", start + marker.length);
   assert.ok(end > start, `${marker} source block has an end marker`);
   const block = source.slice(start, end);
-  return createHash("sha256").update(marker === "function renderMyAnalysisHtml(" ? beforeBotObservationRenderer(block) : block).digest("hex");
+  return createHash("sha256").update(marker === "function renderMyAnalysisHtml(" ? beforeBotObservationRenderer(block) : marker === "function insightClientMain(" ? beforePrelaunchP1V229116(block) : block).digest("hex");
 }
 
 // V22.9.7: type 이 자바스크립트가 아닌 <script> 도 생겼다(speculation rules 는 JSON).
@@ -184,6 +184,7 @@ ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime repor
 // V22.9.57 explicitly authorizes observed KPI/insight periods, the C pace model,
 // focus and unreceived-range display guards. The C suite separately pins 37 V56
 // declarations; report renderer/BOT-09 protection below remains unchanged.
+// V22.9.116: 무지출 칩 한 규칙(P-2·P-3, 사용자 2026-11-10 "결함 개선 진행하자")만 lib-audit-v22934 의 beforePrelaunchP1V229116 으로 되돌려 같은 해시를 잰다(V2 §8 R3).
 eq(functionBlockHash("function insightClientMain("), "754e8bb457aa52aabf5bb8f8b4e1f8d0c250056d761a68908395094b7fd0caad", "analysis client matches the authorized C/observed-period baseline with separate V56 declaration guards");
 // V22.8.83: 다시 한 번 바뀐다 — 히어로 그라디언트 한 줄이 `var(--ab12-action,#7c3aed)`
 // 를 읽는다. 함수 안의 다른 변경은 없다(그라디언트만 정규화하면 이전 본문과 동일함을

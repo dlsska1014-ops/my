@@ -16,7 +16,7 @@ import { createHash } from "node:crypto";
 import vm from "node:vm";
 import app from "../src/index.js";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
-import { beforeBotObservationRenderer } from "./lib-audit-v22934.mjs";
+import { beforeBotObservationRenderer, beforePrelaunchP1V229116 } from "./lib-audit-v22934.mjs";
 
 const ORIGIN = "https://malhaebook.com";
 const PUBLISHER_CLIENT = "ca-pub-3546469870344416";
@@ -103,7 +103,7 @@ function functionBlockHash(marker) {
   const start = source.indexOf(marker);
   const end = source.indexOf("\nfunction ", start + marker.length);
   const block = source.slice(start, end);
-  return createHash("sha256").update(marker === "function renderMyAnalysisHtml(" ? beforeBotObservationRenderer(block) : block).digest("hex");
+  return createHash("sha256").update(marker === "function renderMyAnalysisHtml(" ? beforeBotObservationRenderer(block) : marker === "function insightClientMain(" ? beforePrelaunchP1V229116(block) : block).digest("hex");
 }
 
 // ── 0. 소스 ────────────────────────────────────────────────────────────────
@@ -146,6 +146,7 @@ for (const key of ["/app", "/my", "/menu", "/my/settings", "/budgets", "/my/anal
 // V22.9.40 통합: 패키지 A(U10)가 578·687행 aria-label 에 비율을 더해 해시가 c2b199d2…4dc8a 에서 바뀌었다(두 줄을 되돌리면 이전 해시와 같음 — validate-polish-v22940 이 확인). 광고 게이트는 이 클라이언트를 바꾸지 않는다.
 // Authorized C/observed-period changes only; 37 unaffected V56 declarations are
 // protected by validate-lucian-c-comparison, independent of this whole hash.
+// V22.9.116: 무지출 칩 한 규칙(P-2·P-3, 사용자 2026-11-10 "결함 개선 진행하자")만 lib-audit-v22934 의 beforePrelaunchP1V229116 으로 되돌려 같은 해시를 잰다(V2 §8 R3).
 eq(functionBlockHash("function insightClientMain("), "754e8bb457aa52aabf5bb8f8b4e1f8d0c250056d761a68908395094b7fd0caad", "광고 게이트는 승인된 C·관측 기간 기준과 비대상 분석 보호를 유지합니다.");
 eq(functionBlockHash("function renderMyAnalysisHtml("), "db2edc2887985b44fd9456a38b7b5f014c4a8739bc5e0c4bca2ba21626ff4bfd", "BOT-09 관측 표시 두 곳만 되돌리면 기존 분석 렌더러와 같다");
 for (const path of ["wrangler.toml", "wrangler.json", "wrangler.jsonc", "monitoring/wrangler.jsonc"]) {

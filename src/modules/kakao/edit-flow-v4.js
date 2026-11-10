@@ -477,15 +477,30 @@ function kakaoEditExpiredTextV4(session = {}, utterance = "") {
 
 async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey }, target = {}) {
   if (target.latest) {
-    const recent = await getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1);
+    // V22.9.116 (V110 카카오 점검 P1, 11-07·11-08 운영 재확인): ‘방금’ 은 마지막으로 저장한 기록이었다. ‘수정 01번 금액 2000’ 으로 다른 기록을
+    // 고친 직후 ‘방금 거 지워줘’ 가 고친 기록이 아니라 마지막에 저장한 기록을 묻지 않고 지웠다. 마지막으로 바뀐 기록(updated_at 순)을 같은
+    // 단계에서 함께 읽어(직렬 깊이 그대로) 마지막 저장 뒤에 내 다른 기록이 바뀌었으면 어느 쪽도 고르지 않고 두 기록을 번호로 묻는다.
+    // 삭제·‘방금 거 5000원으로’·번호 없는 지출자 변경이 모두 이 길이다. 바뀐 시각이 없는 줄(예전 검사 픽스처)은 예전처럼 마지막 저장 기록이다.
+    const [recent, touchedRows] = await Promise.all([
+      getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1),
+      getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1, { touched: true }),
+    ]);
     const row = recent[0] || null;
     if (!row) return { row: null, seq: 0 };
     // V22.9.81 U-13: 그날 목록(가계부 기록 앞의 500건)에 없으면 번호를 모른다(0). 예전에는 ‘01번’으로 적어 그날 01번(다른 기록)을 가리켰다.
     const rows = await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, row.transaction_date || formatDate(nowKstDate()));
+    const seqIn = (list, item) => list.findIndex((other) => String(other.id) === String(item.id)) + 1;
     // V22.9.93 Q-50: 한 말로 저장한 여러 건은 저장 시각이 같아 ‘방금’ 이 어느 건인지 정할 수 없다(번호도 임의 id 순서다). 아무 건이나 고치거나 지우지 않고 번호로 묻는다.
     const sameSave = rows.flatMap((item, index) => (item.created_at === row.created_at ? [{ item, seq: index + 1 }] : []));
+    const touched = touchedRows[0] || null;
+    if (touched && String(touched.id) !== String(row.id) && kakaoChangedAfterV229116(touched.updated_at, row.created_at)) {
+      const touchedDay = String(touched.transaction_date || "");
+      const touchedList = touchedDay === String(row.transaction_date || "") ? rows : await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, touchedDay || formatDate(nowKstDate()));
+      const saved = sameSave.length > 1 ? sameSave : [{ item: row, seq: seqIn(rows, row) }];
+      return { row: null, seq: 0, dailyLimit: Number(rows.dailyLimit || 0), ambiguousText: kakaoEditTouchedAmbiguousTextV229116({ item: touched, seq: seqIn(touchedList, touched) }, saved) };
+    }
     if (sameSave.length > 1) return { row: null, seq: 0, dailyLimit: Number(rows.dailyLimit || 0), ambiguousText: kakaoEditAmbiguousLatestTextV4(sameSave) };
-    return { row, seq: rows.findIndex((item) => String(item.id) === String(row.id)) + 1, dailyLimit: Number(rows.dailyLimit || 0) };
+    return { row, seq: seqIn(rows, row), dailyLimit: Number(rows.dailyLimit || 0) };
   }
   const found = await findDailyKakaoRowBySeq(env, household.id, user.id, kakaoUserKey, target.date, target.seq);
   return { row: found.row, seq: Number(target.seq || 0), dailyLimit: Number(found.rows?.dailyLimit || 0) };
@@ -523,6 +538,41 @@ function kakaoEditAmbiguousLatestTextV4(sameSave = []) {
   const shown = twoDigitSeq(sameSave[0].seq);
   const more = sameSave.length > 6 ? [`외 ${sameSave.length - 6}건은 ‘${prefix || "오늘"}기록’에서 볼 수 있어요.`] : [];
   return [`방금 한 번에 저장한 기록이 ${sameSave.length}건이라 어느 기록인지 정하지 못했어요. 아무것도 바꾸지 않았어요.`, ...sameSave.slice(0, 6).map(({ item, seq }) => kakaoRowLabel(item, seq)), ...more, `번호로 보내 주세요. 예: ${prefix}수정 ${shown}번 금액 13000 / ${prefix}삭제 ${shown}번`].join("\n");
+}
+
+// V22.9.116: PostgREST 의 timestamptz(‘2026-11-08T05:23:45.123456+00:00’, 소수 자릿수는 바뀐다)를 마이크로초까지 견준다. 같은 말로 저장한
+// 기록은 created_at 과 updated_at 이 같은 값이라 ‘뒤에 바뀜’ 이 아니다. 바뀐 시각이 없으면(예전 검사 픽스처) 아니라고 보고, 둘 다 있는데
+// 읽지 못하는 꼴이면 같은 글자가 아닌 한 바뀐 것으로 본다 — 그때는 고르지 않고 묻는다.
+function kakaoTimestampMicrosV229116(value = "") {
+  const m = String(value || "").trim().match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}(?::?\d{2})?)?$/);
+  if (!m) return NaN;
+  const zone = !m[4] || m[4] === "Z" ? "Z" : /^[+-]\d{2}$/.test(m[4]) ? `${m[4]}:00` : m[4].length === 5 ? `${m[4].slice(0, 3)}:${m[4].slice(3)}` : m[4];
+  const ms = Date.parse(`${m[1]}T${m[2]}${zone}`);
+  return Number.isFinite(ms) ? ms * 1000 + Number(String(m[3] || "").padEnd(6, "0").slice(0, 6)) : NaN;
+}
+function kakaoChangedAfterV229116(changedAt = "", savedAt = "") {
+  const changed = String(changedAt || "").trim(), saved = String(savedAt || "").trim();
+  if (!changed || !saved) return false;
+  const a = kakaoTimestampMicrosV229116(changed), b = kakaoTimestampMicrosV229116(saved);
+  return Number.isFinite(a) && Number.isFinite(b) ? a > b : changed !== saved;
+}
+
+// V22.9.116: 마지막 저장 뒤에 다른 기록을 고쳤을 때의 ‘방금’ 답. 고친 기록과 마지막에 저장한 기록(한 말로 여러 건이면 그 기록들)을 날짜·번호와 함께 보이고
+// 아무것도 바꾸지 않는다. 예시는 고친 기록의 번호로 적는다(번호를 모르면 저장한 기록, 둘 다 모르면 목록 보기 안내).
+function kakaoEditTouchedAmbiguousTextV229116(touched = {}, saved = []) {
+  const line = ({ item, seq }) => `${kakaoEditDayPrefixV4(item.transaction_date)}${kakaoRowLabel(item, seq)}`;
+  const pick = Number(touched.seq) >= 1 ? touched : saved.find((entry) => Number(entry.seq) >= 1) || null;
+  const prefix = pick ? kakaoEditDayPrefixV4(pick.item.transaction_date) : "";
+  const shown = pick ? twoDigitSeq(pick.seq) : "";
+  const more = saved.length > 6 ? [`외 ${saved.length - 6}건은 ‘${kakaoEditDayPrefixV4(saved[0].item.transaction_date) || "오늘"}기록’에서 볼 수 있어요.`] : [];
+  return [
+    "마지막에 저장한 뒤에 다른 기록을 고쳐서 ‘방금’이 어느 기록인지 정하지 못했어요. 아무것도 바꾸지 않았어요.",
+    `마지막에 고친 기록: ${line(touched)}`,
+    saved.length > 1 ? `마지막에 한 번에 저장한 기록 ${saved.length}건:` : `마지막에 저장한 기록: ${line(saved[0])}`,
+    ...(saved.length > 1 ? saved.slice(0, 6).map(line) : []),
+    ...more,
+    pick ? `번호로 보내 주세요. 예: ${prefix}수정 ${shown}번 금액 13000 / ${prefix}삭제 ${shown}번` : "‘오늘기록’(다른 날 기록은 ‘어제 기록 보기’처럼)으로 번호를 확인해 보내 주세요.",
+  ].join("\n");
 }
 
 function kakaoEditRowNotFoundTextV4(target = {}, dailyLimit = 0) {

@@ -332,13 +332,15 @@ function kakaoOwnerFilterV22979(userId = "", kakaoUserKey = "") {
 // "삭제할 최근 기록이 없어요"가 나왔다. 이제 내 기록만 서버가 거르고 limit 이 그 위에 걸린다 — 조회는 한 번 그대로이고 읽는 줄은 더 적다.
 // 서버가 조건을 거절하면(4xx — 운영 PostgREST 에서 이 문법을 실제로 돌려 본 적이 없다) 운영 이벤트를 남기고 예전 조회로 한 번 더 읽는다.
 // 어느 쪽이든 마지막에 같은 규칙으로 한 번 더 거른다(서버 조건과 어긋난 줄이 있어도 남의 기록이 나가지 않는다).
-async function getRecentKakaoOwnedTransactionsV2254(env, householdId, userId, kakaoUserKey, limit = 5) {
+// V22.9.116: touched = true 이면 저장 순서가 아니라 마지막으로 바뀐 순서(updated_at — 운영 DB 의 set_transactions_updated_at 트리거가
+// 고칠 때마다 now() 로 적는다)로 읽고 그 칸을 함께 받는다. ‘방금’ 이 가리키는 기록을 정할 때만 쓴다(edit-flow-v4 resolveKakaoEditTargetRowV4).
+async function getRecentKakaoOwnedTransactionsV2254(env, householdId, userId, kakaoUserKey, limit = 5, { touched = false } = {}) {
   const wanted = Math.max(1, Number(limit || 5));
   const query = (extra) => {
     const params = new URLSearchParams();
-    params.set("select", KAKAO_TX_SELECT_V4);
+    params.set("select", touched ? `${KAKAO_TX_SELECT_V4},updated_at` : KAKAO_TX_SELECT_V4);
     params.set("household_id", `eq.${householdId}`);
-    params.set("order", "created_at.desc");
+    params.set("order", touched ? "updated_at.desc" : "created_at.desc");
     if (extra) params.set(extra[0], extra[1]);
     params.set("limit", String(extra ? wanted : Math.max(20, wanted * 10)));
     return `/rest/v1/transactions?${params.toString()}`;

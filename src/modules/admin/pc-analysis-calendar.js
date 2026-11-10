@@ -22,7 +22,7 @@ import { spendingOutlookCaption } from "../domain/spending-outlook.js";
 import { addQueryToUrl } from "../auth/local-login-pages.js";
 import {
   addMonthsYm, calculateDashboardAnalysis, calculateExtendedAnalytics, consumptionSignalLabel,
-  deltaClass, formatChangeAgainst, percentChange, renderCategoryCompareTable,
+  deltaClass, formatChangeAgainst, householdStartYmd, percentChange, renderCategoryCompareTable,
   renderMonthlyTrendTable, renderObservedMoney, renderStrategyCards,
 } from "../domain/analytics.js";
 import { readHouseholdRoleOrFailure } from "../domain/users-households.js";
@@ -314,7 +314,8 @@ function renderWeeklyReportCard(weekly) {
 
 function renderPcAnalysisHtml({ month, households, selectedHousehold, rows, stats, budgets, budget, calendar, extended = null, recurringCandidates = [], anomalies = [], weeklyReport = null }) {
   const selected = selectedHousehold || {};
-  const analysis = calculateDashboardAnalysis(rows, rows, calendar, month);
+  // V22.9.116 (V110 #8): 무지출일을 가계부를 시작한 날부터 센다(생활비 리포트·소비 분석·종합 리포트와 같은 셈). 예전에는 그 달 1일부터 셌다.
+  const analysis = calculateDashboardAnalysis(rows, rows, calendar, month, { startedOn: householdStartYmd(selected, rows) });
   const center = budgetCenterSummary(rows, budgets);
   const ext = extended || calculateExtendedAnalytics({ month, allRows: rows, prevRows: [], historyRows: [], yearRows: [], rowsBase: rows });
   const incomeMoMRate = percentChange(stats.totals.income, ext.prev.totals.income);

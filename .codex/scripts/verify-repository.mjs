@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_115.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_116.sha256",
 );
 const validationScripts = [
   ["V22.9.107 광고 검토 후속(D-1 유입 매개변수·앵커가 붙어도 정본 문서면 광고, D-2 애드핏 FAQ 문구, D-3 계산표 글 절 순서, D-4~D-6 계산표 변경 전 결과·휴대폰 2열·머리꼬리·주소 판, D-7 글 목록 ‘계산표 포함’)", "validation/validate-ads-review-fixes-v229107.mjs"],
@@ -23,6 +23,7 @@ const validationScripts = [
   ["V22.9.104 카카오톡 인앱 시작 화면(홈 미리보기 위 동의 팝업)·첫 카카오 로그인 기본 가계부·홈 동의 팝업(ab_cs)·POST /my/consent", "validation/validate-kakao-home-v229104.mjs"],
   ["V22.9.114 약관 안내(동의 체크 칸·홈 동의 팝업 → 카카오 폼 아래 ‘계속하면 이용약관에 동의한 것으로 봅니다’ 한 줄 + 홈 안내 띠 #abTermsBand·POST /my/consent via band, 보통 로그인은 바로 카카오 303, 가입 폼 동의 칸 유지, 방침 6·12절·약관 2절)", "validation/validate-terms-notice-v229114.mjs"],
   ["V22.9.115 단톡방 호출 참여(확인된 요청이면 봇을 부르기만 해도 승인 없이 구성원, 가계부 없는 방은 첫 호출자가 소유자로 공동 가계부 준비, 나간 이력·해제된 방·조회 전용·추정 키·미확인 요청 제외, 웹 ‘참여자·초대’ 소유자 양도 POST /my/household/transfer-owner)", "validation/validate-room-join-v229115.mjs"],
+  ["V22.9.116 출시 전 P1 둘(카카오 ‘방금’ 이 가리키는 기록 — 마지막 저장 뒤 다른 기록을 고쳤으면 되묻고 아무것도 안 바꿈, 무지출일 한 규칙 — 가계부 만든 날부터·직접 적은 기록 없는 기간은 셈 안 함·필터 건 분석에서는 숨김, 리포트·종합 리포트·소비 분석·관리자 화면 같은 값)", "validation/validate-prelaunch-p1-v229116.mjs"],
   ["V22.9.113 예산 명령 되묻기 설계 유지(Gemini ① 결함 아님)·모호한 말 안내 한 줄·‘월 예산’ 전체 예산", "validation/validate-budget-command-fix-v229113.mjs"],
   ["V22.9.112 Gemini 후속 수정(합계 조사, 분류 챌린지, Cron 머리막힘, 강제 내보내기 정리, 방 열기 쿠키)", "validation/validate-gemini-fixes-v229112.mjs"],
   ["V22.9.111 UI 개선(홈 요약 필터 범위, 분석 탭 대비, 가계부 활성 카드)", "validation/validate-ui-improvements-v229111.mjs"],
@@ -389,7 +390,8 @@ function run(command, args, label) {
 // V22.9.99: wording, notice hide and findings; measured 61,894 present / 61,891 absent.
 // V22.9.100: K-1 139 checks; F-1/F-2 user-confirmed split. Closing K-1 removes one open-item ledger assertion.
 // Both complete runs measured 62,052 present / 62,049 absent (61,914/61,911 + 139 - 1).
-const EXPECTED_MINIMUM_CHECKS = 76905;
+// V22.9.116: 출시 전 P1(새 검사 118·kakao-replies +1·추적표 V116 3건)과 소비 분석 보호 해시 역변환; 병렬 사전 실행 77,062 present / 77,059 absent.
+const EXPECTED_MINIMUM_CHECKS = 77059;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

@@ -17,7 +17,7 @@ import { renderHouseholdNotFoundHtml } from "../my/access-control.js";
 import { lastNonEmptyParam } from "../my/mobile-home.js";
 import {
   addMonthsYm, calculateDashboardAnalysis, calculateExtendedAnalytics, formatChangeAgainst,
-  renderCategoryCompareTable, renderCategoryTrendTable, renderMonthlyTrendMini,
+  householdStartYmd, renderCategoryCompareTable, renderCategoryTrendTable, renderMonthlyTrendMini,
   renderMonthlyTrendTable, renderObservedMoney, renderStrategyCards, renderWeekdayStats,
   renderYearlyMonthSummary,
 } from "../domain/analytics.js";
@@ -375,7 +375,8 @@ async function renderServerDashboardHtml(env, url) {
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, [...customCategoryRows.map((c) => c.name).filter(Boolean), ...allRows.map((r) => r.category).filter(Boolean)]);
   const paymentOptions = mergedOptions(DEFAULT_PAYMENTS, [...paymentAssetRows.map((p) => p.name).filter(Boolean), ...allRows.map((r) => r.payment_method).filter(Boolean)]);
   const spenderOptionsHtml = renderSpenderOptions(householdMembers, "", "지출자 선택");
-  const analysis = calculateDashboardAnalysis(allRows, rows, calendar, month);
+  // V22.9.116 (V110 #8): 무지출일을 가계부를 시작한 날부터 센다(다른 화면과 같은 셈). 예전에는 그 달 1일부터 셌다.
+  const analysis = calculateDashboardAnalysis(allRows, rows, calendar, month, { startedOn: householdStartYmd(selectedHousehold, allRows) });
   const extended = calculateExtendedAnalytics({ month, allRows, prevRows, historyRows, yearRows, rowsBase });
   extended.historyTruncated = historyResult.truncated || yearResult.truncated;
   const customStats = buildCustomStats(rows, groupBy);

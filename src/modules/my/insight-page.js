@@ -29,7 +29,7 @@ import {
 import {
   budgetSummary, fetchBudgets, fetchObservationMonthRows, fetchRecurringStrict,
 } from "../domain/budgets.js";
-import { monthSpendingOutlook } from "../domain/spending-outlook.js";
+import { isRecurringSourceRow, monthSpendingOutlook } from "../domain/spending-outlook.js";
 import {
   buildWeeklyReport, detectRecurringCandidates, findAnomalousExpenses,
 } from "../admin/pc-analysis-calendar.js";
@@ -140,11 +140,15 @@ function renderMyInsightHtml({ env, month, selected, rows, currentRows = [], bud
     String(r.payment_method || "").slice(0, 40),
     String(r.memo || r.raw_text || "").slice(0, 90),
     String(r.spender_name || "").slice(0, 30),
+    // V22.9.116: 정기 자동 기록은 8번째 칸 1(아니면 칸 없음). 무지출일의 ‘직접 적은 기록’ 판정에 쓴다(생활비 리포트·종합 리포트와 같은 셈).
+    ...(isRecurringSourceRow(r) ? [1] : []),
   ]);
   const payload = {
     month,
     start: dataStart,
     today: formatDate(nowKstDate()),
+    // V22.9.116: 가계부를 만든 날(KST). 무지출일은 이 날(그 기간에 더 앞선 기록이 있으면 그 날)부터 센다 — 생활비 리포트와 같은 값(householdStartYmd 행 없이).
+    started: householdStartYmd(selected),
     name: String(selected.name || ""),
     hid: String(selected.id || ""),
     budget: {
