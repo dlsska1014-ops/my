@@ -553,12 +553,13 @@ function emulateOwnerFilter(fx, trace = []) {
     const household = String(url.searchParams.get("household_id") || "").replace(/^eq\./, "");
     const rows = fx.db.transactions
       .filter((row) => row.household_id === household && (orSource ? tree.some((node) => logicMatches(node, row)) : tree.every((node) => logicMatches(node, row))))
-      .sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")))
+      // V22.9.116: ‘방금’ 이 함께 읽는 마지막으로 바뀐 기록(order=updated_at.desc)은 그 칸으로 줄 세운다.
+      .sort((a, b) => { const key = url.searchParams.get("order") === "updated_at.desc" ? "updated_at" : "created_at"; return String(b[key] || "").localeCompare(String(a[key] || "")); })
       .slice(0, Number(url.searchParams.get("limit")));
     return new Response(JSON.stringify(JSON.parse(JSON.stringify(rows))), { status: 200, headers: { "content-type": "application/json" } });
   });
   const log = intercept(async ({ url, method }) => {
-    if (method === "GET" && url.pathname.endsWith("/rest/v1/transactions")) trace.push({ limit: url.searchParams.get("limit"), or: url.searchParams.get("or"), and: url.searchParams.get("and"), date: url.searchParams.get("transaction_date"), id: url.searchParams.get("id") });
+    if (method === "GET" && url.pathname.endsWith("/rest/v1/transactions")) trace.push({ limit: url.searchParams.get("limit"), or: url.searchParams.get("or"), and: url.searchParams.get("and"), date: url.searchParams.get("transaction_date"), id: url.searchParams.get("id"), order: url.searchParams.get("order") });
     return null;
   });
   return () => { log(); emulate(); };
@@ -592,7 +593,9 @@ await scenario("P2 최근 기록 창", async (fx) => {
     // 방금 고치기·지우기도 내 가장 최근 기록을 찾는다.
     trace.length = 0;
     const edit = await say(fx, "방금 금액 7000");
-    eq(trace.filter((entry) => !entry.date && !entry.id).length, 1, "P2 ‘방금 금액’의 최근 기록 조회도 한 번이다");
+    eq(trace.filter((entry) => !entry.date && !entry.id && entry.order !== "updated_at.desc").length, 1, "P2 ‘방금 금액’의 최근 기록 조회(저장 순)도 한 번이다");
+    // V22.9.116 P-1: ‘방금’ 은 마지막 저장 뒤에 다른 기록을 고쳤는지 보려고 마지막으로 바뀐 기록을 같은 단계에서 한 번 더 읽는다(limit 1, 내 기록 조건 그대로).
+    eq(trace.filter((entry) => entry.order === "updated_at.desc").map((entry) => `${entry.limit}|${entry.or}`).join(","), `1|${OWNER_FILTER}`, "P2 ‘방금 금액’의 마지막으로 바뀐 기록 조회는 한 번이고 내 기록에만 limit 1");
     ok(fx.db.transactions.find((row) => row.id === "p2-b3")?.amount === 7000 && fx.db.transactions.find((row) => row.id === "p2-w59")?.amount === 1100, `P2 ‘방금 금액 7000’은 남이 60건 더 저장한 뒤에도 내 가장 최근 기록(내커피3)만 고친다 (${edit.text.slice(0, 160)})`);
     trace.length = 0;
     const deleted = await say(fx, "방금 삭제");

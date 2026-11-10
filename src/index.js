@@ -3218,7 +3218,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.115-ROOM-JOIN";
+const APP_VERSION = "V22.9.116-PRELAUNCH-P1";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -19283,7 +19283,8 @@ async function renderServerDashboardHtml(env, url) {
   const categoryOptions = mergedOptions(DEFAULT_CATEGORIES, [...customCategoryRows.map((c) => c.name).filter(Boolean), ...allRows.map((r) => r.category).filter(Boolean)]);
   const paymentOptions = mergedOptions(DEFAULT_PAYMENTS, [...paymentAssetRows.map((p) => p.name).filter(Boolean), ...allRows.map((r) => r.payment_method).filter(Boolean)]);
   const spenderOptionsHtml = renderSpenderOptions(householdMembers, "", "지출자 선택");
-  const analysis = calculateDashboardAnalysis(allRows, rows, calendar, month);
+  // V22.9.116 (V110 #8): 무지출일을 가계부를 시작한 날부터 센다(다른 화면과 같은 셈). 예전에는 그 달 1일부터 셌다.
+  const analysis = calculateDashboardAnalysis(allRows, rows, calendar, month, { startedOn: householdStartYmd(selectedHousehold, allRows) });
   const extended = calculateExtendedAnalytics({ month, allRows, prevRows, historyRows, yearRows, rowsBase });
   extended.historyTruncated = historyResult.truncated || yearResult.truncated;
   const customStats = buildCustomStats(rows, groupBy);
@@ -33044,11 +33045,15 @@ function renderMyInsightHtml({ env, month, selected, rows, currentRows = [], bud
     String(r.payment_method || "").slice(0, 40),
     String(r.memo || r.raw_text || "").slice(0, 90),
     String(r.spender_name || "").slice(0, 30),
+    // V22.9.116: 정기 자동 기록은 8번째 칸 1(아니면 칸 없음). 무지출일의 ‘직접 적은 기록’ 판정에 쓴다(생활비 리포트·종합 리포트와 같은 셈).
+    ...(isRecurringSourceRow(r) ? [1] : []),
   ]);
   const payload = {
     month,
     start: dataStart,
     today: formatDate(nowKstDate()),
+    // V22.9.116: 가계부를 만든 날(KST). 무지출일은 이 날(그 기간에 더 앞선 기록이 있으면 그 날)부터 센다 — 생활비 리포트와 같은 값(householdStartYmd 행 없이).
+    started: householdStartYmd(selected),
     name: String(selected.name || ""),
     hid: String(selected.id || ""),
     budget: {
@@ -33377,6 +33382,11 @@ function insightClientMain() {
     };
   }).filter(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.amount > 0; });
   ROWS.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  // V22.9.116: 무지출일(noSpendDaysIn)의 ‘기록이 있는가’·‘가장 이른 기록’ 은 금액과 상관없이 받은 기록 전부로 본다(생활비 리포트와 같다).
+  // 8번째 칸 1 = 정기 자동 기록. STARTED = 가계부를 만든 날(KST, 모르면 빈 값 — 그때는 기간 첫날부터 센다).
+  var MARKS = (DATA.rows || []).map(function (a) { return { date: String(a[0] || ""), auto: a[7] === 1 }; })
+    .filter(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(r.date); });
+  var STARTED = /^\d{4}-\d{2}-\d{2}$/.test(String(DATA.started || "")) ? String(DATA.started) : "";
 
   var MONTH = String(DATA.month || "").slice(0, 7) || new Date(Date.now() + 32400000).toISOString().slice(0, 7);
     var TODAY = /^\d{4}-\d{2}-\d{2}$/.test(String(DATA.today || "")) ? DATA.today : new Date(Date.now()+32400000).toISOString().slice(0, 10);
@@ -33656,14 +33666,36 @@ function insightClientMain() {
     comp.forEach(function (r) { byDay[r.date] = (byDay[r.date] || 0) + r.amount; });
     var maxDay = Object.keys(byDay).sort(function (a, b) { return byDay[b] - byDay[a]; })[0];
     if (maxDay) box.appendChild(el("span", "iChip", "최대 " + compLabel() + "일 " + fmtMD(maxDay) + " · " + shortWon(byDay[maxDay]) + "원"));
-    if (state.type !== "income" && model.observed.status === "complete" && span <= 62) {
+    // V22.9.116 (V110 #8): 무지출일은 생활비 리포트·종합 리포트와 같은 셈이다(noSpendDaysIn). 분류·결제수단·사람·금액·검색으로 좁힌 화면에서는
+    // ‘그 조건의 지출이 없던 날’ 이 되어 무지출일과 뜻이 다르므로 이 칩을 보이지 않는다.
+    if (state.type !== "income" && model.observed.status === "complete" && span <= 62 && !rowFilterActive()) {
       var endCount = state.end > TODAY ? TODAY : state.end;
-      if (endCount >= state.start) {
-        var days = dayDiff(state.start, endCount) + 1;
-        var noSpend = days - Object.keys(byDay).filter(function (d2) { return d2 <= endCount; }).length;
-        if (noSpend > 0) box.appendChild(el("span", "iChip", "무지출 " + noSpend + "일 (" + state.start + " ~ " + endCount + ")"));
-      }
+      var noSpend = noSpendDaysIn(state.start, endCount);
+      if (noSpend && noSpend.days > 0) box.appendChild(el("span", "iChip", "무지출 " + noSpend.days + "일 (" + noSpend.from + " ~ " + endCount + ")"));
     }
+  }
+  function rowFilterActive() {
+    return !!(state.cats.length || state.pays.length || state.whos.length || state.min != null || state.max != null || state.q);
+  }
+  // V22.9.116 (V110 #8): 무지출일 = 기록을 시작한 날부터 그 기간 끝(오늘을 넘지 않음)까지 지출 기록 없이 지난 날. 시작한 날은 가계부를 만든 날이고,
+  // 그 기간에 그보다 앞선 기록이 있으면 그 날이다. 그 기간에 직접 적은 기록(정기 자동 기록 제외)이 하나도 없으면 세지 않는다(null).
+  // 생활비 리포트(buildLivingReport)·종합 리포트(noSpendDaysFrom)와 같은 규칙이다. 예전에는 기간 첫날부터 세어 11월 6일에 만든 가계부가
+  // 같은 11월을 리포트 1일·소비 분석 5일로 달리 보였고, 정기 자동 기록만 있는 달도 무지출로 셌다.
+  function noSpendDaysIn(start, end) {
+    if (!(end >= start)) return null;
+    var own = false, first = "";
+    MARKS.forEach(function (r) {
+      if (r.date < start || r.date > end) return;
+      if (!r.auto) own = true;
+      if (!first || r.date < first) first = r.date;
+    });
+    if (!own) return null;
+    var startDay = STARTED && first && first < STARTED ? first : STARTED;
+    var from = startDay && startDay > start ? startDay : start;
+    if (from > end) return { days: 0, from: from };
+    var spent = Object.create(null);
+    ROWS.forEach(function (r) { if (!r.income && r.date >= from && r.date <= end) spent[r.date] = 1; });
+    return { days: dayDiff(from, end) + 1 - Object.keys(spent).length, from: from };
   }
 
   // ---------- 흐름 차트
@@ -44704,7 +44736,8 @@ function renderWeeklyReportCard(weekly) {
 
 function renderPcAnalysisHtml({ month, households, selectedHousehold, rows, stats, budgets, budget, calendar, extended = null, recurringCandidates = [], anomalies = [], weeklyReport = null }) {
   const selected = selectedHousehold || {};
-  const analysis = calculateDashboardAnalysis(rows, rows, calendar, month);
+  // V22.9.116 (V110 #8): 무지출일을 가계부를 시작한 날부터 센다(생활비 리포트·소비 분석·종합 리포트와 같은 셈). 예전에는 그 달 1일부터 셌다.
+  const analysis = calculateDashboardAnalysis(rows, rows, calendar, month, { startedOn: householdStartYmd(selected, rows) });
   const center = budgetCenterSummary(rows, budgets);
   const ext = extended || calculateExtendedAnalytics({ month, allRows: rows, prevRows: [], historyRows: [], yearRows: [], rowsBase: rows });
   const incomeMoMRate = percentChange(stats.totals.income, ext.prev.totals.income);
@@ -49574,13 +49607,15 @@ function kakaoOwnerFilterV22979(userId = "", kakaoUserKey = "") {
 // "삭제할 최근 기록이 없어요"가 나왔다. 이제 내 기록만 서버가 거르고 limit 이 그 위에 걸린다 — 조회는 한 번 그대로이고 읽는 줄은 더 적다.
 // 서버가 조건을 거절하면(4xx — 운영 PostgREST 에서 이 문법을 실제로 돌려 본 적이 없다) 운영 이벤트를 남기고 예전 조회로 한 번 더 읽는다.
 // 어느 쪽이든 마지막에 같은 규칙으로 한 번 더 거른다(서버 조건과 어긋난 줄이 있어도 남의 기록이 나가지 않는다).
-async function getRecentKakaoOwnedTransactionsV2254(env, householdId, userId, kakaoUserKey, limit = 5) {
+// V22.9.116: touched = true 이면 저장 순서가 아니라 마지막으로 바뀐 순서(updated_at — 운영 DB 의 set_transactions_updated_at 트리거가
+// 고칠 때마다 now() 로 적는다)로 읽고 그 칸을 함께 받는다. ‘방금’ 이 가리키는 기록을 정할 때만 쓴다(edit-flow-v4 resolveKakaoEditTargetRowV4).
+async function getRecentKakaoOwnedTransactionsV2254(env, householdId, userId, kakaoUserKey, limit = 5, { touched = false } = {}) {
   const wanted = Math.max(1, Number(limit || 5));
   const query = (extra) => {
     const params = new URLSearchParams();
-    params.set("select", KAKAO_TX_SELECT_V4);
+    params.set("select", touched ? `${KAKAO_TX_SELECT_V4},updated_at` : KAKAO_TX_SELECT_V4);
     params.set("household_id", `eq.${householdId}`);
-    params.set("order", "created_at.desc");
+    params.set("order", touched ? "updated_at.desc" : "created_at.desc");
     if (extra) params.set(extra[0], extra[1]);
     params.set("limit", String(extra ? wanted : Math.max(20, wanted * 10)));
     return `/rest/v1/transactions?${params.toString()}`;
@@ -51092,15 +51127,30 @@ function kakaoEditExpiredTextV4(session = {}, utterance = "") {
 
 async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey }, target = {}) {
   if (target.latest) {
-    const recent = await getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1);
+    // V22.9.116 (V110 카카오 점검 P1, 11-07·11-08 운영 재확인): ‘방금’ 은 마지막으로 저장한 기록이었다. ‘수정 01번 금액 2000’ 으로 다른 기록을
+    // 고친 직후 ‘방금 거 지워줘’ 가 고친 기록이 아니라 마지막에 저장한 기록을 묻지 않고 지웠다. 마지막으로 바뀐 기록(updated_at 순)을 같은
+    // 단계에서 함께 읽어(직렬 깊이 그대로) 마지막 저장 뒤에 내 다른 기록이 바뀌었으면 어느 쪽도 고르지 않고 두 기록을 번호로 묻는다.
+    // 삭제·‘방금 거 5000원으로’·번호 없는 지출자 변경이 모두 이 길이다. 바뀐 시각이 없는 줄(예전 검사 픽스처)은 예전처럼 마지막 저장 기록이다.
+    const [recent, touchedRows] = await Promise.all([
+      getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1),
+      getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1, { touched: true }),
+    ]);
     const row = recent[0] || null;
     if (!row) return { row: null, seq: 0 };
     // V22.9.81 U-13: 그날 목록(가계부 기록 앞의 500건)에 없으면 번호를 모른다(0). 예전에는 ‘01번’으로 적어 그날 01번(다른 기록)을 가리켰다.
     const rows = await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, row.transaction_date || formatDate(nowKstDate()));
+    const seqIn = (list, item) => list.findIndex((other) => String(other.id) === String(item.id)) + 1;
     // V22.9.93 Q-50: 한 말로 저장한 여러 건은 저장 시각이 같아 ‘방금’ 이 어느 건인지 정할 수 없다(번호도 임의 id 순서다). 아무 건이나 고치거나 지우지 않고 번호로 묻는다.
     const sameSave = rows.flatMap((item, index) => (item.created_at === row.created_at ? [{ item, seq: index + 1 }] : []));
+    const touched = touchedRows[0] || null;
+    if (touched && String(touched.id) !== String(row.id) && kakaoChangedAfterV229116(touched.updated_at, row.created_at)) {
+      const touchedDay = String(touched.transaction_date || "");
+      const touchedList = touchedDay === String(row.transaction_date || "") ? rows : await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, touchedDay || formatDate(nowKstDate()));
+      const saved = sameSave.length > 1 ? sameSave : [{ item: row, seq: seqIn(rows, row) }];
+      return { row: null, seq: 0, dailyLimit: Number(rows.dailyLimit || 0), ambiguousText: kakaoEditTouchedAmbiguousTextV229116({ item: touched, seq: seqIn(touchedList, touched) }, saved) };
+    }
     if (sameSave.length > 1) return { row: null, seq: 0, dailyLimit: Number(rows.dailyLimit || 0), ambiguousText: kakaoEditAmbiguousLatestTextV4(sameSave) };
-    return { row, seq: rows.findIndex((item) => String(item.id) === String(row.id)) + 1, dailyLimit: Number(rows.dailyLimit || 0) };
+    return { row, seq: seqIn(rows, row), dailyLimit: Number(rows.dailyLimit || 0) };
   }
   const found = await findDailyKakaoRowBySeq(env, household.id, user.id, kakaoUserKey, target.date, target.seq);
   return { row: found.row, seq: Number(target.seq || 0), dailyLimit: Number(found.rows?.dailyLimit || 0) };
@@ -51138,6 +51188,41 @@ function kakaoEditAmbiguousLatestTextV4(sameSave = []) {
   const shown = twoDigitSeq(sameSave[0].seq);
   const more = sameSave.length > 6 ? [`외 ${sameSave.length - 6}건은 ‘${prefix || "오늘"}기록’에서 볼 수 있어요.`] : [];
   return [`방금 한 번에 저장한 기록이 ${sameSave.length}건이라 어느 기록인지 정하지 못했어요. 아무것도 바꾸지 않았어요.`, ...sameSave.slice(0, 6).map(({ item, seq }) => kakaoRowLabel(item, seq)), ...more, `번호로 보내 주세요. 예: ${prefix}수정 ${shown}번 금액 13000 / ${prefix}삭제 ${shown}번`].join("\n");
+}
+
+// V22.9.116: PostgREST 의 timestamptz(‘2026-11-08T05:23:45.123456+00:00’, 소수 자릿수는 바뀐다)를 마이크로초까지 견준다. 같은 말로 저장한
+// 기록은 created_at 과 updated_at 이 같은 값이라 ‘뒤에 바뀜’ 이 아니다. 바뀐 시각이 없으면(예전 검사 픽스처) 아니라고 보고, 둘 다 있는데
+// 읽지 못하는 꼴이면 같은 글자가 아닌 한 바뀐 것으로 본다 — 그때는 고르지 않고 묻는다.
+function kakaoTimestampMicrosV229116(value = "") {
+  const m = String(value || "").trim().match(/^(\d{4}-\d{2}-\d{2})[T ](\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}(?::?\d{2})?)?$/);
+  if (!m) return NaN;
+  const zone = !m[4] || m[4] === "Z" ? "Z" : /^[+-]\d{2}$/.test(m[4]) ? `${m[4]}:00` : m[4].length === 5 ? `${m[4].slice(0, 3)}:${m[4].slice(3)}` : m[4];
+  const ms = Date.parse(`${m[1]}T${m[2]}${zone}`);
+  return Number.isFinite(ms) ? ms * 1000 + Number(String(m[3] || "").padEnd(6, "0").slice(0, 6)) : NaN;
+}
+function kakaoChangedAfterV229116(changedAt = "", savedAt = "") {
+  const changed = String(changedAt || "").trim(), saved = String(savedAt || "").trim();
+  if (!changed || !saved) return false;
+  const a = kakaoTimestampMicrosV229116(changed), b = kakaoTimestampMicrosV229116(saved);
+  return Number.isFinite(a) && Number.isFinite(b) ? a > b : changed !== saved;
+}
+
+// V22.9.116: 마지막 저장 뒤에 다른 기록을 고쳤을 때의 ‘방금’ 답. 고친 기록과 마지막에 저장한 기록(한 말로 여러 건이면 그 기록들)을 날짜·번호와 함께 보이고
+// 아무것도 바꾸지 않는다. 예시는 고친 기록의 번호로 적는다(번호를 모르면 저장한 기록, 둘 다 모르면 목록 보기 안내).
+function kakaoEditTouchedAmbiguousTextV229116(touched = {}, saved = []) {
+  const line = ({ item, seq }) => `${kakaoEditDayPrefixV4(item.transaction_date)}${kakaoRowLabel(item, seq)}`;
+  const pick = Number(touched.seq) >= 1 ? touched : saved.find((entry) => Number(entry.seq) >= 1) || null;
+  const prefix = pick ? kakaoEditDayPrefixV4(pick.item.transaction_date) : "";
+  const shown = pick ? twoDigitSeq(pick.seq) : "";
+  const more = saved.length > 6 ? [`외 ${saved.length - 6}건은 ‘${kakaoEditDayPrefixV4(saved[0].item.transaction_date) || "오늘"}기록’에서 볼 수 있어요.`] : [];
+  return [
+    "마지막에 저장한 뒤에 다른 기록을 고쳐서 ‘방금’이 어느 기록인지 정하지 못했어요. 아무것도 바꾸지 않았어요.",
+    `마지막에 고친 기록: ${line(touched)}`,
+    saved.length > 1 ? `마지막에 한 번에 저장한 기록 ${saved.length}건:` : `마지막에 저장한 기록: ${line(saved[0])}`,
+    ...(saved.length > 1 ? saved.slice(0, 6).map(line) : []),
+    ...more,
+    pick ? `번호로 보내 주세요. 예: ${prefix}수정 ${shown}번 금액 13000 / ${prefix}삭제 ${shown}번` : "‘오늘기록’(다른 날 기록은 ‘어제 기록 보기’처럼)으로 번호를 확인해 보내 주세요.",
+  ].join("\n");
 }
 
 function kakaoEditRowNotFoundTextV4(target = {}, dailyLimit = 0) {

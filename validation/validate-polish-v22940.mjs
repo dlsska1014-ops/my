@@ -4,7 +4,7 @@
 // (validation/qa-fixture.mjs)와 app.fetch 로 확인한다. 네트워크를 쓰지 않는다.
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { BASE, api, app, beforeBotObservationRenderer, counter, ctx, failure, fixture, intercept, page, withClock } from "./lib-audit-v22934.mjs";
+import { BASE, api, app, beforeBotObservationRenderer, beforePrelaunchP1V229116, counter, ctx, failure, fixture, intercept, page, withClock } from "./lib-audit-v22934.mjs";
 
 // AB_AUDIT_SOFT=1 로 돌리면 실패를 모아 보고만 하고 멈추지 않는다(고치기 전 빌드의 재현 기록용). 기본은 첫 실패에서 멈춘다.
 const LABEL = "V22.9.40 패키지 A 화면 다듬기 검사 통과";
@@ -108,7 +108,8 @@ await fixture(async (fx) => {
   const marker = "function insightClientMain(";
   const start = source.indexOf(marker);
   const block = source.slice(start, source.indexOf("\nfunction ", start + marker.length));
-  const reverted = block
+  // V22.9.116: 무지출 칩 한 규칙(P-2·P-3, 사용자 2026-11-10 "결함 개선 진행하자")만 lib-audit-v22934 의 beforePrelaunchP1V229116 으로 되돌려 같은 해시를 잰다(V2 §8 R3).
+  const reverted = beforePrelaunchP1V229116(block)
     .replace(legendLabel, 'row.setAttribute("aria-label", s.name + " " + won(s.amt) + ", 누르면 이 분류만 필터");')
     .replace(barLabel, 'row.setAttribute("aria-label", it.name + " " + won(it.amt) + ", 누르면 필터 적용");');
   // Keep the historical two-label normalization, now relative to the expressly

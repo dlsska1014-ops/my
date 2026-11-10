@@ -129,6 +129,11 @@ function insightClientMain() {
     };
   }).filter(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(r.date) && r.amount > 0; });
   ROWS.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+  // V22.9.116: 무지출일(noSpendDaysIn)의 ‘기록이 있는가’·‘가장 이른 기록’ 은 금액과 상관없이 받은 기록 전부로 본다(생활비 리포트와 같다).
+  // 8번째 칸 1 = 정기 자동 기록. STARTED = 가계부를 만든 날(KST, 모르면 빈 값 — 그때는 기간 첫날부터 센다).
+  var MARKS = (DATA.rows || []).map(function (a) { return { date: String(a[0] || ""), auto: a[7] === 1 }; })
+    .filter(function (r) { return /^\d{4}-\d{2}-\d{2}$/.test(r.date); });
+  var STARTED = /^\d{4}-\d{2}-\d{2}$/.test(String(DATA.started || "")) ? String(DATA.started) : "";
 
   var MONTH = String(DATA.month || "").slice(0, 7) || new Date(Date.now() + 32400000).toISOString().slice(0, 7);
     var TODAY = /^\d{4}-\d{2}-\d{2}$/.test(String(DATA.today || "")) ? DATA.today : new Date(Date.now()+32400000).toISOString().slice(0, 10);
@@ -408,14 +413,36 @@ function insightClientMain() {
     comp.forEach(function (r) { byDay[r.date] = (byDay[r.date] || 0) + r.amount; });
     var maxDay = Object.keys(byDay).sort(function (a, b) { return byDay[b] - byDay[a]; })[0];
     if (maxDay) box.appendChild(el("span", "iChip", "최대 " + compLabel() + "일 " + fmtMD(maxDay) + " · " + shortWon(byDay[maxDay]) + "원"));
-    if (state.type !== "income" && model.observed.status === "complete" && span <= 62) {
+    // V22.9.116 (V110 #8): 무지출일은 생활비 리포트·종합 리포트와 같은 셈이다(noSpendDaysIn). 분류·결제수단·사람·금액·검색으로 좁힌 화면에서는
+    // ‘그 조건의 지출이 없던 날’ 이 되어 무지출일과 뜻이 다르므로 이 칩을 보이지 않는다.
+    if (state.type !== "income" && model.observed.status === "complete" && span <= 62 && !rowFilterActive()) {
       var endCount = state.end > TODAY ? TODAY : state.end;
-      if (endCount >= state.start) {
-        var days = dayDiff(state.start, endCount) + 1;
-        var noSpend = days - Object.keys(byDay).filter(function (d2) { return d2 <= endCount; }).length;
-        if (noSpend > 0) box.appendChild(el("span", "iChip", "무지출 " + noSpend + "일 (" + state.start + " ~ " + endCount + ")"));
-      }
+      var noSpend = noSpendDaysIn(state.start, endCount);
+      if (noSpend && noSpend.days > 0) box.appendChild(el("span", "iChip", "무지출 " + noSpend.days + "일 (" + noSpend.from + " ~ " + endCount + ")"));
     }
+  }
+  function rowFilterActive() {
+    return !!(state.cats.length || state.pays.length || state.whos.length || state.min != null || state.max != null || state.q);
+  }
+  // V22.9.116 (V110 #8): 무지출일 = 기록을 시작한 날부터 그 기간 끝(오늘을 넘지 않음)까지 지출 기록 없이 지난 날. 시작한 날은 가계부를 만든 날이고,
+  // 그 기간에 그보다 앞선 기록이 있으면 그 날이다. 그 기간에 직접 적은 기록(정기 자동 기록 제외)이 하나도 없으면 세지 않는다(null).
+  // 생활비 리포트(buildLivingReport)·종합 리포트(noSpendDaysFrom)와 같은 규칙이다. 예전에는 기간 첫날부터 세어 11월 6일에 만든 가계부가
+  // 같은 11월을 리포트 1일·소비 분석 5일로 달리 보였고, 정기 자동 기록만 있는 달도 무지출로 셌다.
+  function noSpendDaysIn(start, end) {
+    if (!(end >= start)) return null;
+    var own = false, first = "";
+    MARKS.forEach(function (r) {
+      if (r.date < start || r.date > end) return;
+      if (!r.auto) own = true;
+      if (!first || r.date < first) first = r.date;
+    });
+    if (!own) return null;
+    var startDay = STARTED && first && first < STARTED ? first : STARTED;
+    var from = startDay && startDay > start ? startDay : start;
+    if (from > end) return { days: 0, from: from };
+    var spent = Object.create(null);
+    ROWS.forEach(function (r) { if (!r.income && r.date >= from && r.date <= end) spent[r.date] = 1; });
+    return { days: dayDiff(from, end) + 1 - Object.keys(spent).length, from: from };
   }
 
   // ---------- 흐름 차트
