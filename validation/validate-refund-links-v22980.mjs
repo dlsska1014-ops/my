@@ -1,3 +1,5 @@
+// V22.9.117(2026-11-10, 계정 잇기 확인·확인 화면 배치): 지문 화면에는 판 이름만 바뀌었다. 해시 입력에서 판 이름을 V22.9.116 으로 되돌리면 옛 값 그대로
+// 268개가 모두 통과함을 먼저 확인했고(review-artifacts/v117-account-link-2026-11-10/claude-checks.md), 그 뒤 analysis·backupFull·backupMonth 세 값을 다시 얻었다.
 // V22.9.116(2026-11-10, 카카오 ‘방금’ 대상·무지출일 한 규칙): 소비 분석 자료에 가계부 만든 날 칸("started")과 정기 자동 기록 줄의 8번째 칸이 더해졌다. 해시 입력에서
 // 판 이름을 V22.9.115 로 되돌리고 그 새 칸을 빼면 옛 값 그대로 268개가 모두 통과함을 먼저 확인했고(started 5번 뺌, 이 픽스처 달에는 정기 자동 기록 줄이 없어 8번째 칸 0번;
 // review-artifacts/v116-prelaunch-p1-2026-11-10/claude-checks.md), 그 뒤 --print-golden 으로 analysis·backupFull·backupMonth 세 값을 다시 얻었다. 나머지 22개는 그대로다.
@@ -113,15 +115,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 fef72cab327c9203e1d1d3b7",
   "reportsWeek": "200 428380c89484611de8943026",
-  "analysis": "200 15b39d1928d0cb134abea151",
+  "analysis": "200 9e142b8556c94e9b16b4b7f3",
   "backupPage": "200 b9a026f5decec130db68d757",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 b452567d7ff54776f1673114",
-  "backupMonth": "200 9c598cd96c06a5f9bf165b1b",
+  "backupFull": "200 5e0e3fd640dca235098d7e25",
+  "backupMonth": "200 718b21cf11a70ad7fbb8db6f",
   "candidate": "200 500f881e0ca7f01cb92e917a",
   "legacyErr": "200 8483371f87264a4e90af381d",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

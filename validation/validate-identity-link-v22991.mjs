@@ -463,7 +463,8 @@ await linkFixture(async (fx, server) => {
   eq(ask.location, "/my/account-link", "7 /my 는 제안이 있으면 확인 화면을 먼저 보인다");
   const confirm = await go(fx, jar, "/my/account-link", { ua: CHROME });
   ok(confirm.status === 200 && confirm.html.includes("카카오톡 방 가계부와 웹 계정을 이을까요?") && confirm.html.includes('<form method="post" action="/my/account-link"'), "7 확인 화면에 잇기 단추가 있다");
-  const counts = [...confirm.html.matchAll(/<li><b>(방|웹)<\/b><span>([^<]+)<\/span><\/li>/g)].map((m) => `${m[1]}:${m[2]}`);
+  // V22.9.117: 두 계정 줄은 이름(strong)과 숫자(small)를 두 줄로 그린다(사용자 2026-11-10 "ui 배치도 좀 엉망이고"). 읽는 값은 예전과 같은 한 줄로 이어 본다.
+  const counts = [...confirm.html.matchAll(/<li><b>(방|웹)<\/b><span><strong>([^<]+)<\/strong><small>([^<]+)<\/small><\/span><\/li>/g)].map((m) => `${m[1]}:${m[2]} · ${m[3]}`);
   ok(counts[0] === "방:카카오톡 방 기록 계정 · 가계부 1개 · 내가 쓴 기록 2건" && /^웹:웹 로그인 계정 · 가계부 2개 · 내가 쓴 기록 \d+건$/.test(counts[1] || ""), `7 두 계정의 가계부·기록 수를 보인다 (${counts.join(" / ")})`);
   ok(confirm.html.includes('name="robots" content="noindex,nofollow"'), "7 확인 화면은 검색에 싣지 않는다");
 
@@ -482,7 +483,8 @@ await linkFixture(async (fx, server) => {
   const mismatch = await go(fx, jar, `/auth/kakao/callback?code=qa-code&state=${encodeURIComponent(authorize.searchParams.get("state"))}`, { ua: CHROME });
   eq(mismatch.location, "/my/account-link?err=kakao_account_mismatch", "7 다른 카카오 계정이면 잇지 않고 이유를 보인다");
   eq(server.merges.length, 0, "7 다른 카카오 계정으로는 합치지 않는다");
-  ok((await go(fx, jar, "/my/account-link?err=kakao_account_mismatch", { ua: CHROME })).html.includes("확인한 카카오 계정이 이 가계부의 카카오 계정과 달라요"), "7 확인 화면이 그 이유를 보인다");
+  // V22.9.117: 문구를 사실대로 고쳤다(예전 ‘이 가계부의 카카오 계정과 달라요’). 같은 웹 계정의 다른 카카오 로그인은 이제 받는다(validate-account-link-v229117).
+  ok((await go(fx, jar, "/my/account-link?err=kakao_account_mismatch", { ua: CHROME })).html.includes("확인한 카카오 계정은 이 웹 계정에 연결된 카카오 계정이 아니에요"), "7 확인 화면이 그 이유를 보인다");
   const expired = await go(fx, jar, "/my/account-link/run", { ua: CHROME });
   eq(expired.location, "/my/account-link?err=expired", "7 합치기 표 없이 합치기 단계를 열면 확인 화면으로");
 

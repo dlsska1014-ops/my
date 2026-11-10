@@ -126,16 +126,19 @@ function kakaoAuthorizeLocation(env, config, state, { reauth = false, quiet = fa
 // V22.9.91 계정 잇기 확인(/my/account-link 의 POST, auth/kakao-account-link.js handleMyAccountLinkStart). 지금 로그인한 사람이 잇기 제안의
 // 카카오 계정을 가졌는지 카카오 로그인으로 다시 확인한다. 연결 모드처럼 세션 사용자를 상태와 쿠키에 묶는다. 인앱 브라우저는 화면 없이(prompt=none)
 // 지나가고, 그게 안 되면 확인 화면이 interactive 로 다시 보낸다. 설정이 준비되지 않았으면 null(확인 화면이 안내한다).
-async function kakaoAccountLinkAuthorizeResponse(request, env, { userId = "", offerUserId = "", interactive = false } = {}) {
+// V22.9.117: relogin 은 ‘다른 카카오 계정’ 화면의 다시 확인이다. 보통 브라우저에서만 카카오 로그인 화면을 새로 띄워(prompt=login) 브라우저에 로그인된
+// 다른 카카오 계정 대신 고를 수 있게 한다. 인앱 브라우저는 카카오톡 계정 그대로라 전과 같다(카카오 문서: 인앱은 prompt=login 없음).
+async function kakaoAccountLinkAuthorizeResponse(request, env, { userId = "", offerUserId = "", interactive = false, relogin = false } = {}) {
   const config = inspectKakaoLoginConfig(env);
   if (!config.ready || !userId || !offerUserId) return null;
   const origin = new URL(request.url).origin;
   if (config.publicOrigin && origin !== config.publicOrigin) return redirectResponse(`${config.publicOrigin}/my/account-link`);
-  const quiet = !interactive && isKakaoTalkInAppBrowser(request);
+  const inApp = isKakaoTalkInAppBrowser(request);
+  const quiet = !interactive && inApp;
   const payload = { nonce: randomState(), user_id: userId, mode: "account-link", household_id: "", return_to: "/my", offer: offerUserId };
   if (quiet) payload.auto = 1;
   const state = await signedPurposeToken(env, "kakao-oauth", payload, 600);
-  return redirectResponseWithCookies(kakaoAuthorizeLocation(env, config, state, { quiet }), [
+  return redirectResponseWithCookies(kakaoAuthorizeLocation(env, config, state, { quiet, reauth: !!relogin && !inApp }), [
     `kakao_oauth_state=${encodeURIComponent(state)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`,
     `kakao_oauth_link_user=${encodeURIComponent(userId)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`,
     "kakao_oauth_reauth_household=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
@@ -336,7 +339,9 @@ async function handleKakaoLoginCallback(request, env, url) {
       const linkProof = await kakaoAccountLinkProofAfterKakao(env, { userId: currentUserId, kakaoId: profile.kakaoId, offerUserId: String(stateProof.offer || ""), mode: "confirm", next: "/my" });
       if (linkProof.ok) return redirectResponseWithCookies("/my/account-link/run", [...clearOauthCookies, linkProof.cookie]);
       rememberOpsEvent({ kind: "kakao_account_link_check_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: `${linkProof.reason};trace=${traceId}` });
-      return linkProof.reason === "kakao_account_mismatch" ? accountLinkError("kakao_account_mismatch") : redirectResponseWithCookies("/my", clearOauthCookies);
+      // V22.9.117: 확인한 카카오 계정이 이 웹 계정 것이 아니거나(kakao_account_mismatch), 제안의 카카오 계정을 이 웹 계정 것으로 확인하지 못했으면
+      // (kakao_offer_unverified) 이유를 보인다.
+      return ["kakao_account_mismatch", "kakao_offer_unverified"].includes(linkProof.reason) ? accountLinkError(linkProof.reason) : redirectResponseWithCookies("/my", clearOauthCookies);
     }
     if (linkUserId && currentUserId && linkUserId === currentUserId) {
       if (stateProof.mode !== "link" || !(await verifyCredentialProof(request, env, currentUserId))) return errorResponse("state", 403);
@@ -381,6 +386,7 @@ async function handleKakaoLoginCallback(request, env, url) {
     const loginNext = stateProof.mode === "login" ? safeUserReturnPath(String(stateProof.next || ""), "") : "";
     // V22.9.91 계정 잇기: 이 카카오 계정의 단톡방 기록 계정이 따로 있으면(잇기 제안) 합치기 단계(/my/account-link/run)로 보낸다.
     // 제안 표는 이 카카오 id 로 방금 확인했을 때만 합치기 표를 준다. 읽지 못하면 지금처럼 가계부로 간다.
+    // V22.9.117: 같은 웹 계정의 다른 카카오 로그인이면 표를 주지 않는다(other_login_needs_confirm) — /my 의 확인 화면에서 단추를 눌러야 잇는다.
     let linkProof = null;
     try {
       linkProof = await kakaoAccountLinkProofAfterKakao(env, { userId: user.id, kakaoId: profile.kakaoId, offerUserId: user.id, mode: "login", next: loginNext || "/my" });

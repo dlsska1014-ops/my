@@ -3218,7 +3218,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.116-PRELAUNCH-P1";
+const APP_VERSION = "V22.9.117-ACCOUNT-LINK";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -27655,16 +27655,19 @@ function kakaoAuthorizeLocation(env, config, state, { reauth = false, quiet = fa
 // V22.9.91 계정 잇기 확인(/my/account-link 의 POST, auth/kakao-account-link.js handleMyAccountLinkStart). 지금 로그인한 사람이 잇기 제안의
 // 카카오 계정을 가졌는지 카카오 로그인으로 다시 확인한다. 연결 모드처럼 세션 사용자를 상태와 쿠키에 묶는다. 인앱 브라우저는 화면 없이(prompt=none)
 // 지나가고, 그게 안 되면 확인 화면이 interactive 로 다시 보낸다. 설정이 준비되지 않았으면 null(확인 화면이 안내한다).
-async function kakaoAccountLinkAuthorizeResponse(request, env, { userId = "", offerUserId = "", interactive = false } = {}) {
+// V22.9.117: relogin 은 ‘다른 카카오 계정’ 화면의 다시 확인이다. 보통 브라우저에서만 카카오 로그인 화면을 새로 띄워(prompt=login) 브라우저에 로그인된
+// 다른 카카오 계정 대신 고를 수 있게 한다. 인앱 브라우저는 카카오톡 계정 그대로라 전과 같다(카카오 문서: 인앱은 prompt=login 없음).
+async function kakaoAccountLinkAuthorizeResponse(request, env, { userId = "", offerUserId = "", interactive = false, relogin = false } = {}) {
   const config = inspectKakaoLoginConfig(env);
   if (!config.ready || !userId || !offerUserId) return null;
   const origin = new URL(request.url).origin;
   if (config.publicOrigin && origin !== config.publicOrigin) return redirectResponse(`${config.publicOrigin}/my/account-link`);
-  const quiet = !interactive && isKakaoTalkInAppBrowser(request);
+  const inApp = isKakaoTalkInAppBrowser(request);
+  const quiet = !interactive && inApp;
   const payload = { nonce: randomState(), user_id: userId, mode: "account-link", household_id: "", return_to: "/my", offer: offerUserId };
   if (quiet) payload.auto = 1;
   const state = await signedPurposeToken(env, "kakao-oauth", payload, 600);
-  return redirectResponseWithCookies(kakaoAuthorizeLocation(env, config, state, { quiet }), [
+  return redirectResponseWithCookies(kakaoAuthorizeLocation(env, config, state, { quiet, reauth: !!relogin && !inApp }), [
     `kakao_oauth_state=${encodeURIComponent(state)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`,
     `kakao_oauth_link_user=${encodeURIComponent(userId)}; Path=/; Max-Age=600; HttpOnly; Secure; SameSite=Lax`,
     "kakao_oauth_reauth_household=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
@@ -27865,7 +27868,9 @@ async function handleKakaoLoginCallback(request, env, url) {
       const linkProof = await kakaoAccountLinkProofAfterKakao(env, { userId: currentUserId, kakaoId: profile.kakaoId, offerUserId: String(stateProof.offer || ""), mode: "confirm", next: "/my" });
       if (linkProof.ok) return redirectResponseWithCookies("/my/account-link/run", [...clearOauthCookies, linkProof.cookie]);
       rememberOpsEvent({ kind: "kakao_account_link_check_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: `${linkProof.reason};trace=${traceId}` });
-      return linkProof.reason === "kakao_account_mismatch" ? accountLinkError("kakao_account_mismatch") : redirectResponseWithCookies("/my", clearOauthCookies);
+      // V22.9.117: 확인한 카카오 계정이 이 웹 계정 것이 아니거나(kakao_account_mismatch), 제안의 카카오 계정을 이 웹 계정 것으로 확인하지 못했으면
+      // (kakao_offer_unverified) 이유를 보인다.
+      return ["kakao_account_mismatch", "kakao_offer_unverified"].includes(linkProof.reason) ? accountLinkError(linkProof.reason) : redirectResponseWithCookies("/my", clearOauthCookies);
     }
     if (linkUserId && currentUserId && linkUserId === currentUserId) {
       if (stateProof.mode !== "link" || !(await verifyCredentialProof(request, env, currentUserId))) return errorResponse("state", 403);
@@ -27910,6 +27915,7 @@ async function handleKakaoLoginCallback(request, env, url) {
     const loginNext = stateProof.mode === "login" ? safeUserReturnPath(String(stateProof.next || ""), "") : "";
     // V22.9.91 계정 잇기: 이 카카오 계정의 단톡방 기록 계정이 따로 있으면(잇기 제안) 합치기 단계(/my/account-link/run)로 보낸다.
     // 제안 표는 이 카카오 id 로 방금 확인했을 때만 합치기 표를 준다. 읽지 못하면 지금처럼 가계부로 간다.
+    // V22.9.117: 같은 웹 계정의 다른 카카오 로그인이면 표를 주지 않는다(other_login_needs_confirm) — /my 의 확인 화면에서 단추를 눌러야 잇는다.
     let linkProof = null;
     try {
       linkProof = await kakaoAccountLinkProofAfterKakao(env, { userId: user.id, kakaoId: profile.kakaoId, offerUserId: user.id, mode: "login", next: loginNext || "/my" });
@@ -45905,8 +45911,11 @@ function authErrorJumpClientMain(ids) {
 //     ‘카카오톡에서 자동 로그인’). 회원이면 화면 없이 로그인되고, 비회원(consent_required)·오류면 지금처럼 로그인 화면이 나온다.
 //  2) 갈라진 계정 잇기. 단톡방 기록 계정(봇 사용자 키)과 웹 카카오 로그인 계정이 따로 있을 수 있다. Secret 으로 확인된 카카오 요청의
 //     appUserId 가 그 웹 계정의 카카오 로그인 id 와 같으면 같은 사람이다. 채팅 요청은 계정을 합치지 않고 ‘잇기 제안’만 남긴다
-//     (identity-chat-first.js). 합치기는 같은 카카오 계정으로 방금 로그인한 브라우저에서만 한다. 남의 세션 쿠키만으로는 못 합친다.
-//     한쪽에 가계부·기록이 없으면 확인 없이 잇고, 둘 다 있으면 /my/account-link 에서 확인을 받은 뒤 잇는다.
+//     (identity-chat-first.js). 합치기는 카카오로 방금 확인한 브라우저에서만 한다. 남의 세션 쿠키만으로는 못 합친다.
+//     확인한 카카오 계정이 제안의 것과 같으면, 한쪽에 가계부·기록이 없을 때 확인 없이 잇고, 둘 다 있으면 /my/account-link 에서 확인을 받은 뒤 잇는다.
+//     V22.9.117: 같은 웹 계정에 붙은 다른 카카오 로그인으로 확인해도 잇는다. 다만 방금 확인한 카카오 계정과 제안의 카카오 계정이 둘 다 그 웹 계정의
+//     강한 식별이거나 옛 웹 카카오 로그인이 쓴 별칭일 때만이고(단톡방 요청·관리자 통합·계정 잇기가 쓴 별칭과 사용자 키는 믿지 않는다), 로그인만으로는
+//     잇지 않고 확인 화면에서 단추를 누른 뒤에만 잇는다.
 //  3) appUserId 도착 진단. 콘솔에서 웹 로그인 앱(1489689)을 그룹 챗봇에 연결한 뒤 실제로 오는지 관리자 화면(/identity-audit)에서 본다.
 // 2)의 합치기와 제안은 KAKAO_ACCOUNT_LINK_ENABLED=1 일 때만 한다(기본 꺼짐). 꺼짐의 기존 채팅 사용자는 3) 진단만 남긴다.
 const KAKAO_AUTO_LOGIN_COOKIE = "ab_kakao_auto";
@@ -46241,8 +46250,64 @@ async function kakaoAccountLinkPlan(env, { chatUserId = "", loginUserId = "", co
   return { status: "confirm", primaryId: chat, secondaryId: login, secondaryHouseholdIds: households(login), ...summary };
 }
 
-// 방금 카카오 로그인으로 확인한 카카오 id 가 제안의 그것과 같을 때만 합치기 표(5분, 이 브라우저의 세션 사용자에게 묶임)를 준다.
-// mode login: 로그인 콜백. 빈 쪽이 있을 때만 합치고, 둘 다 있으면 확인 화면으로 보낸다. mode confirm: 확인 화면에서 누른 뒤.
+// 카카오 로그인 주인(lookupKakaoLoginOwner 의 결과)이 이 웹 계정인지. 통합된 계정을 가리키면 주 계정으로 따라가 본다.
+async function kakaoLoginOwnerIsUserV229117(env, owner, loginUserId = "") {
+  const ownerId = String(owner?.user?.id || "");
+  return !!ownerId && (ownerId === loginUserId || await resolveEffectiveUserId(env, ownerId) === loginUserId);
+}
+
+// V22.9.117(사용자 2026-11-10 "로그아웃하고 구글에서 검색해서 들어가려면 … 이렇게 나오는데 왜그러는거야 ui 배치도 좀 엉망이고"): 한 웹 계정에
+// 카카오 로그인이 둘 이상 붙을 수 있다(관리자 통합으로 옮겨 온 옛 웹 가입자의 kakao_login:<id>, 계정 잇기). 제안의 카카오 id 는 단톡방 요청의
+// appUserId 라 그중 하나뿐이다. 예전에는 방금 확인한 카카오 id 가 꼭 그것이어야 해서, 같은 웹 계정의 다른 카카오 로그인으로 확인하면 늘
+// ‘다른 카카오 계정’ 이었다(운영자 계정: 7월에 웹 카카오 로그인 둘을 관리자 통합으로 한 계정에 모았고, 방은 둘째 것을 쓴다).
+// 방금 확인한 카카오 id 와 제안의 카카오 id 가 둘 다 이 웹 계정의 ‘믿는 카카오 로그인’ 인지 본다. 믿는 카카오 로그인은 이 웹 계정의 강한 식별과,
+// 링크 표에서 이 계정을 가리키는 kakao_login 별칭 가운데 옛 웹 카카오 로그인이 쓴 것(provider kakao_login)이다. 제안에는 해시만
+// 있으므로 해시가 같은 id 를 찾고, 그 id 의 주인을 로그인과 같은 순서(lookupKakaoLoginOwner)로 다시 읽는다. 아니면 false(kakao_offer_unverified, 제안은
+// 지우지 않는다 — 그 카카오 계정으로 직접 확인하면 된다).
+// 독립 보안 검토(2026-11-10)와 그 뒤 재시험: Secret 이 새거나 확인 모드(observe)면 위조 요청이 둘을 만들 수 있다.
+//  - 단톡방 요청이 쓰는 별칭(provider skill)에 남의 카카오 id 를 심는다(검토 P2, 검사 7번).
+//  - 봇 키를 웹 로그인 사용자 키 꼴(kakao_login:<남의 카카오 id>)로 보내 그 사용자 키를 가진 새 채팅 계정을 만든다(Secret 이 샌 경우; 확인 모드의
+//    미확인 요청은 새 계정을 못 만든다. 검사 9번, 봇 키 모양 검사는 V117:L-10 남음).
+//  - 그 위조 키 계정을 자기 웹 계정과 V22.9.91 잇기(같은 카카오로 확인)로 합치면, 합치기(performIdentityMerge, 관리자 통합과 같은 함수)가 두 사용자 키를
+//    provider identity_merge 별칭으로 남긴다. 위조 키가 ‘관리자 통합 별칭’ 이 된다(검사 9b).
+// 그것만으로 받으면, 피해자의 다음 방 기록이 공격자 계정 앞으로 만든 제안을 공격자가 자기 카카오 로그인으로 확인해 피해자의 방 기록 계정을 이을 수
+// 있었다(예전 규칙은 제안의 카카오 계정으로 직접 로그인해야 해서 쓸모없었다). 그래서 사용자 키와 provider skill·identity_merge 별칭은 믿지 않는다.
+// provider kakao_login 별칭은 옛 웹 카카오 로그인만 썼고 지금 코드는 쓰지 않는다(관리자 통합은 provider 를 그대로 옮긴다). 방금 확인한 카카오 id 도
+// 믿는 카카오 로그인이어야 한다. 한 계정의 강한 식별은 하나뿐이라, 위조로 만든 계정은 피해자가 웹에서 그 계정으로 로그인해 강한 식별을 가져가도
+// 두 카카오 id 를 다 믿는 자리에 둘 수 없다. 운영 계정의 둘째 카카오 로그인 별칭은 provider kakao_login(7월 웹 로그인)이고, 첫째는 강한 식별이다.
+// 관리자 통합만으로 붙은 카카오 로그인(identity_merge)은 이 길로 받지 않는다 — 확인 화면의 다시 확인 단추로 그 카카오 계정에 직접 로그인하면 된다.
+const KAKAO_LOGIN_LINK_TRUSTED_PROVIDERS_V229117 = new Set(["kakao_login"]);
+async function kakaoAccountLinkOtherLoginTrustedV229117(env, loginUserId = "", offerHash = "", verifiedKakaoId = "") {
+  const login = String(loginUserId || "").trim();
+  const verified = String(verifiedKakaoId || "").trim();
+  if (!login || !verified || !/^[a-f0-9]{64}$/.test(String(offerHash || ""))) return false;
+  const [links, strong] = await Promise.all([
+    fetchUserIdentityLinks(env),
+    fetchStrongIdentityForUser(env, "kakao", login),
+  ]);
+  const prefix = kakaoLoginUserKey("");
+  const trusted = new Set();
+  if (strong?.provider_subject) trusted.add(String(strong.provider_subject).trim());
+  for (const [key, value] of Object.entries(links)) {
+    const entry = safeObject(value);
+    if (!key.startsWith(prefix) || String(entry.user_id || "") !== login || !KAKAO_LOGIN_LINK_TRUSTED_PROVIDERS_V229117.has(String(entry.provider || ""))) continue;
+    trusted.add(key.slice(prefix.length).trim());
+  }
+  if (!trusted.has(verified)) return false;
+  for (const kakaoId of trusted) {
+    if (!kakaoId || await kakaoAccountLinkOfferHash(kakaoId) !== offerHash) continue;
+    return kakaoLoginOwnerIsUserV229117(env, await lookupKakaoLoginOwner(env, kakaoId, { links }), login);
+  }
+  return false;
+}
+
+// 방금 카카오 로그인으로 확인했을 때만 합치기 표(5분, 이 브라우저의 세션 사용자에게 묶임)를 준다. 받는 경우는 둘이다.
+//  - 확인한 카카오 id 가 제안의 그것과 같다(예전부터).
+//  - V22.9.117: 확인 화면에서 단추를 누른 뒤(mode confirm), 확인한 카카오 id 의 주인이 제안의 웹 계정이고, 확인한 카카오 id 와 제안의 카카오 id 가 둘 다
+//    그 웹 계정의 믿는 카카오 로그인이다(강한 식별, 옛 웹 카카오 로그인이 쓴 별칭). 그 웹 계정이 이미 두 카카오 로그인을 자기 것으로 갖고 있어 같은 사람이 같은 두 계정을
+//    잇는다. 로그인 콜백(mode login)은 다른 카카오 로그인이면 표를 주지 않는다(빈 쪽이 있어도 말없이 잇지 않는다). 남의 세션 쿠키만으로는 여전히 못 한다.
+// 표의 h 는 제안의 해시, c 는 제안의 방 기록 계정이다(합치기 단계는 그 사이 제안이 바뀌지 않았는지 본다).
+// mode login: 로그인 콜백(같은 카카오 id 일 때만). 빈 쪽이 있을 때만 합치고, 둘 다 있으면 확인 화면으로 보낸다. mode confirm: 확인 화면에서 누른 뒤.
 async function kakaoAccountLinkProofAfterKakao(env, { userId = "", kakaoId = "", offerUserId = "", mode = "login", next = "/my" } = {}) {
   const uid = String(userId || "").trim();
   const offerKey = String(offerUserId || "").trim();
@@ -46251,16 +46316,19 @@ async function kakaoAccountLinkProofAfterKakao(env, { userId = "", kakaoId = "",
   const offers = await readKakaoAccountLinkOffers(env, { fresh: true });
   const offer = offers[offerKey];
   if (!offer || ![offerKey, offer.chat_user_id].includes(uid)) return { ok: false, reason: "no_offer" };
-  const hash = await kakaoAccountLinkOfferHash(kakaoId);
-  if (offer.kakao_hash !== hash) return { ok: false, reason: "kakao_account_mismatch" };
+  const sameKakao = offer.kakao_hash === await kakaoAccountLinkOfferHash(kakaoId);
+  // V22.9.117 독립 보안 검토: 다른 카카오 로그인이면 로그인만으로는 잇지 않는다(빈 쪽이 있어도). 로그인 콜백은 지금처럼 가계부로 가고 /my 가 확인 화면을
+  // 보인다. 같은 웹 계정을 두 사람이 쓰는 경우에도 남의 방 기록 계정을 말없이 잇지 않게, 단추를 눌러 다시 확인한 뒤(mode confirm)에만 아래를 본다.
+  if (!sameKakao && mode !== "confirm") return { ok: false, reason: "other_login_needs_confirm" };
   if (mode === "confirm") {
     // 확인 화면에서 온 요청은 로그인한 사람이 채팅 계정일 수도 있다. 카카오 id 의 주인이 제안의 웹 계정인지 다시 본다.
-    const owner = await lookupKakaoLoginOwner(env, kakaoId);
-    const ownerId = String(owner?.user?.id || "");
-    if (!ownerId || (ownerId !== offerKey && await resolveEffectiveUserId(env, ownerId) !== offerKey)) return { ok: false, reason: "kakao_account_mismatch" };
+    if (!(await kakaoLoginOwnerIsUserV229117(env, await lookupKakaoLoginOwner(env, kakaoId), offerKey))) return { ok: false, reason: "kakao_account_mismatch" };
   }
-  const token = await signedPurposeToken(env, "account-link", { u: uid, b: offerKey, h: hash, m: mode === "confirm" ? "confirm" : "login", n: safeUserReturnPath(next || "/my", "/my") }, 300);
-  return { ok: true, cookie: kakaoAccountLinkProofCookie(token) };
+  // 확인한 카카오 계정의 주인은 이 웹 계정인데, 두 카카오 id 를 이 웹 계정의 믿는 카카오 로그인으로 확인하지 못했다(별칭이 옮겨졌거나, 단톡방 요청·
+  // 관리자 통합·계정 잇기가 쓴 별칭이나 사용자 키뿐) — 다른 이유로 알린다.
+  if (!sameKakao && !(await kakaoAccountLinkOtherLoginTrustedV229117(env, offerKey, offer.kakao_hash, kakaoId))) return { ok: false, reason: "kakao_offer_unverified" };
+  const token = await signedPurposeToken(env, "account-link", { u: uid, b: offerKey, c: String(offer.chat_user_id || ""), h: offer.kakao_hash, m: mode === "confirm" ? "confirm" : "login", n: safeUserReturnPath(next || "/my", "/my") }, 300);
+  return { ok: true, cookie: kakaoAccountLinkProofCookie(token), via: sameKakao ? "same_kakao" : "other_login" };
 }
 
 function kakaoAccountLinkProofCookie(token = "") {
@@ -46309,7 +46377,13 @@ const KAKAO_ACCOUNT_LINK_ERRORS = {
   unavailable: "지금 계정 정보를 확인하지 못했어요. 잠시 후 다시 시도해 주세요.",
   failed: "계정을 잇지 못했어요. 두 계정의 가계부와 기록은 바뀌지 않았어요. 잠시 후 다시 시도해 주세요.",
   result_unknown: "잇기 결과를 아직 확인하지 못했어요. 같은 버튼을 다시 누르지 말고 잠시 뒤 가계부 화면에서 결과를 확인해 주세요.",
-  kakao_account_mismatch: "확인한 카카오 계정이 이 가계부의 카카오 계정과 달라요. 카카오톡 방에서 쓰는 카카오 계정으로 확인해 주세요.",
+  // V22.9.117: 같은 웹 계정의 다른 카카오 로그인은 이제 받는다. 이 말이 나오면 확인한 카카오 계정이 이 웹 계정의 것이 아니다(예전 문구 ‘이 가계부의
+  // 카카오 계정과 달라요’ 는 자기 카카오 계정으로 로그인한 사람에게 틀린 말이었다). 보통 브라우저에서는 아래 RELOGIN 안내와 다시 로그인 단추가,
+  // 카카오톡 인앱에서는 인터넷 브라우저 안내가 붙는다.
+  kakao_account_mismatch: "확인한 카카오 계정은 이 웹 계정에 연결된 카카오 계정이 아니에요. 계정은 잇지 않았고 가계부와 기록은 그대로예요.",
+  // V22.9.117 독립 보안 검토: 확인한 카카오 계정은 이 웹 계정 것인데, 제안의 카카오 계정을 이 웹 계정 것으로 확인하지 못했다(웹 로그인·관리자 통합이 쓴 별칭이
+  // 아니거나 주인이 바뀜). 그 카카오 계정으로 직접 확인하면 된다(같은 안내·다시 로그인 단추가 붙는다).
+  kakao_offer_unverified: "이 잇기 제안의 카카오 계정이 이 웹 계정에 연결돼 있는지 확인하지 못했어요. 계정은 잇지 않았고 가계부와 기록은 그대로예요.",
   session: "로그인 상태가 바뀌었어요. 가계부를 다시 연 뒤 시도해 주세요.",
   kakao_unavailable: "카카오 확인을 지금 쓸 수 없어요. 잠시 후 다시 시도해 주세요.",
   kakao_retry: "카카오 확인을 화면 없이 끝내지 못했어요. 아래 버튼을 다시 누르면 카카오 확인 화면이 열려요.",
@@ -46318,7 +46392,28 @@ const KAKAO_ACCOUNT_LINK_ERRORS = {
   in_progress: "다른 창이나 카카오톡 방의 요청이 이 계정을 쓰고 있어 이번에는 바꾼 것이 없어요. 잠시 뒤 가계부 화면에서 결과를 확인하고, 아직 이어지지 않았으면 다시 시도해 주세요.",
 };
 
-function renderKakaoAccountLinkHtml(env, { plan, err = "" } = {}) {
+// V22.9.117: 보통 브라우저에서 ‘다른 카카오 계정’ 이면, 브라우저에 로그인된 카카오 계정이 카카오톡 계정과 다른 경우가 많다. 다시 누르는 단추는
+// 카카오 로그인 화면을 새로 띄워(prompt=login) 계정을 바꿔 확인하게 한다. 카카오톡 인앱 브라우저는 카카오 계정을 바꿀 수 없어(카카오 문서: 인앱은 prompt=login
+// 없음) 붙이지 않는다.
+const KAKAO_ACCOUNT_LINK_RELOGIN_HINT = "아래 단추로 카카오톡에서 쓰는 카카오 계정에 다시 로그인해 주세요.";
+// V22.9.117 독립 보안 검토 P3: 카카오톡 인앱에서는 계정을 바꿀 수 없어 같은 말만 되풀이됐다. 바꿀 길(인터넷 브라우저)을 알려 준다.
+const KAKAO_ACCOUNT_LINK_INAPP_HINT = "카카오톡 안에서는 카카오 계정을 바꿀 수 없어요. 인터넷 브라우저(크롬·사파리 등)로 다시 들어와 그 방에서 쓰는 카카오 계정으로 확인해 주세요.";
+
+// V22.9.117 화면 배치(사용자 2026-11-10 "ui 배치도 좀 엉망이고"): 휴대폰 폭에서 한글이 낱말 가운데서 끊기고(keep-all 없음), 안내 상자와 단추가 붙어 있었고,
+// 오류가 설명 뒤 가운데에 있었고, 첫 단추만 글자가 가늘었다(button 의 font:inherit 가 .btn 의 굵기를 덮음). 두 계정 줄은 이름과 숫자를 두 줄로 나눈다.
+// 다크 값은 공용 화면(MY_ACCESS_STATUS_CSS)처럼 !important 이고, 테마 스크립트를 싣는다(V22.9.93 접근 제한 화면과 같다).
+const KAKAO_ACCOUNT_LINK_PAGE_CSS = 'html{min-height:100%}.linkCard{word-break:keep-all;overflow-wrap:break-word}.linkCard h1{line-height:1.3}.linkCard .sub{margin:0}'
+  + '.linkError{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:14px;padding:12px 14px;line-height:1.6;margin:0 0 14px}'
+  + '.linkRows li span{display:grid;gap:2px;min-width:0}.linkRows li strong{font-size:15px;line-height:1.45}.linkRows li small{color:#64748b;font-size:14px;line-height:1.5}'
+  + '.linkCard .guide{margin:0 0 16px}button.btn{border:0;font:inherit;font-weight:1000;cursor:pointer}.linkCard .note{color:#64748b;font-size:14px;line-height:1.6;margin:14px 0 0}'
+  + 'html[data-ab-resolved-theme="dark"] .linkError{background:#3b1518!important;border-color:#7f1d1d!important;color:#fecaca!important}'
+  + 'html[data-ab-resolved-theme="dark"] :is(.linkRows small,.linkCard .note){color:#aeb6c4!important}';
+
+function kakaoAccountLinkRowHtml(mark = "", label = "", side = {}) {
+  return `<li><b>${escapeHtml(mark)}</b><span><strong>${escapeHtml(label)}</strong><small>가계부 ${numberWithCommas(side.households)}개 · 내가 쓴 기록 ${numberWithCommas(side.records)}건</small></span></li>`;
+}
+
+function renderKakaoAccountLinkHtml(env, { plan, err = "", inApp = false } = {}) {
   const title = escapeHtml(appName(env));
   const status = plan?.status || "";
   const heading = status === "blocked" ? "두 계정을 자동으로 이을 수 없어요"
@@ -46328,15 +46423,23 @@ function renderKakaoAccountLinkHtml(env, { plan, err = "" } = {}) {
     : status === "auto"
       ? "같은 카카오 계정으로 쓰는 계정이 둘로 나뉘어 있고, 한쪽은 아직 비어 있어요. 카카오로 한 번 확인하면 카카오톡 방 가계부가 바로 열려요."
       : "같은 카카오 계정으로 쓰는 계정이 둘로 나뉘어 있어요. 이으면 카카오톡 방에서 기록한 가계부와 웹 가계부를 한 계정에서 봐요.";
-  const rows = plan && plan.chat && plan.login ? `<ol><li><b>방</b><span>카카오톡 방 기록 계정 · 가계부 ${numberWithCommas(plan.chat.households)}개 · 내가 쓴 기록 ${numberWithCommas(plan.chat.records)}건</span></li><li><b>웹</b><span>웹 로그인 계정 · 가계부 ${numberWithCommas(plan.login.households)}개 · 내가 쓴 기록 ${numberWithCommas(plan.login.records)}건</span></li></ol>` : "";
+  const rows = plan && plan.chat && plan.login ? `<ol class="linkRows">${kakaoAccountLinkRowHtml("방", "카카오톡 방 기록 계정", plan.chat)}${kakaoAccountLinkRowHtml("웹", "웹 로그인 계정", plan.login)}</ol>` : "";
   const guide = status === "blocked"
     ? "가계부와 기록은 그대로 두었어요. 계정을 하나로 합치려면 관리자에게 문의해 주세요."
     : "가계부·기록·초대코드는 지우지 않고 한 계정으로 옮겨요. 이은 뒤에는 카카오톡과 웹 어디서든 같은 가계부가 열려요. 잇기는 되돌릴 수 없어요.";
-  const error = KAKAO_ACCOUNT_LINK_ERRORS[err] ? `<p class="linkError" role="alert">${escapeHtml(KAKAO_ACCOUNT_LINK_ERRORS[err])}</p>` : "";
+  // 카카오 계정이 맞지 않았다는 두 오류에는 바꿀 길을 붙인다: 보통 브라우저는 다시 로그인 단추(relogin), 카카오톡 인앱은 인터넷 브라우저 안내.
+  const kakaoMismatch = status !== "blocked" && (err === "kakao_account_mismatch" || err === "kakao_offer_unverified");
+  const relogin = kakaoMismatch && !inApp;
+  const hint = kakaoMismatch ? (inApp ? KAKAO_ACCOUNT_LINK_INAPP_HINT : KAKAO_ACCOUNT_LINK_RELOGIN_HINT) : "";
+  // 오류 이름은 표에 있는 것만 받는다(독립 보안 검토 P3: ?err=constructor 가 Object 의 함수 글자를 보였다 — 이스케이프돼 주입은 아님).
+  const errorText = Object.hasOwn(KAKAO_ACCOUNT_LINK_ERRORS, err) ? `${KAKAO_ACCOUNT_LINK_ERRORS[err]}${hint ? ` ${hint}` : ""}` : "";
+  // 오류는 제목 바로 아래에 둔다(무엇이 안 됐는지를 먼저 읽게).
+  const error = errorText ? `<p class="linkError" role="alert">${escapeHtml(errorText)}</p>` : "";
+  const hidden = err === "kakao_retry" ? '<input type="hidden" name="interactive" value="1"/>' : relogin ? '<input type="hidden" name="relogin" value="1"/>' : "";
   const actions = status === "blocked"
     ? `<div class="actions"><a class="btn" href="/my/account-link?later=blocked">가계부로 가기</a></div>`
-    : `<form method="post" action="/my/account-link" class="actions">${err === "kakao_retry" ? '<input type="hidden" name="interactive" value="1"/>' : ""}<button class="btn" type="submit">카카오로 확인하고 잇기</button><a class="btn soft" href="/my/account-link?later=1">나중에 하기</a></form><p class="sub">카카오톡 안에서는 확인 화면 없이 바로 지나가요. 다른 브라우저에서는 카카오 로그인 화면이 한 번 나올 수 있어요.</p>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 계정 잇기</title><style>${MY_ACCESS_STATUS_CSS}button.btn{border:0;font:inherit;cursor:pointer}.linkError{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:14px;padding:12px;line-height:1.6}</style></head><body><main class="wrap"><section class="card"><span class="badge">계정 잇기</span><h1>${heading}</h1><p class="sub">${escapeHtml(sub)}</p>${error}${rows}<div class="guide">${escapeHtml(guide)}</div>${actions}</section></main></body></html>`;
+    : `<form method="post" action="/my/account-link" class="actions">${hidden}<button class="btn" type="submit">${relogin ? "다른 카카오 계정으로 확인하고 잇기" : "카카오로 확인하고 잇기"}</button><a class="btn soft" href="/my/account-link?later=1">나중에 하기</a></form><p class="note">카카오톡 안에서는 확인 화면 없이 바로 지나가요. 다른 브라우저에서는 카카오 로그인 화면이 한 번 나올 수 있어요.</p>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 계정 잇기</title><style>${MY_ACCESS_STATUS_CSS}${KAKAO_ACCOUNT_LINK_PAGE_CSS}</style><script src="${ACCOUNTBOOK_THEME_JS_ASSET_PATH}"></script></head><body><main class="wrap"><section class="card linkCard"><span class="badge">계정 잇기</span><h1>${heading}</h1>${error}<p class="sub">${escapeHtml(sub)}</p>${rows}<div class="guide">${escapeHtml(guide)}</div>${actions}</section></main></body></html>`;
 }
 
 // 화면을 그리지 않고 가계부로 돌려보낼 때는 멈춤 쿠키를 함께 준다(V22.9.91 독립 검토). 계정을 읽지 못하면 오류 화면 대신 지금처럼
@@ -46371,17 +46474,23 @@ async function handleMyAccountLinkPage(request, env, url) {
     try { await forgetKakaoAccountLinkOffer(env, offer.loginUserId); } catch (_) {}
     return backToBook();
   }
-  return htmlResponse(renderKakaoAccountLinkHtml(env, { plan, err: String(url.searchParams.get("err") || "") }));
+  return htmlResponse(renderKakaoAccountLinkHtml(env, { plan, err: String(url.searchParams.get("err") || ""), inApp: isKakaoTalkInAppBrowser(request) }));
 }
 
 // 확인 화면의 ‘카카오로 확인하고 잇기’(POST, 라우터의 CSRF 출처 확인을 거친다). 카카오 로그인(account-link 모드)으로 보낸다.
 // interactive=1 은 인앱 브라우저에서 화면 없는 확인(prompt=none)이 안 됐을 때 확인 화면이 넣는다. 그때는 카카오 화면을 띄운다.
+// V22.9.117: relogin=1 은 보통 브라우저의 ‘다른 카카오 계정’ 화면이 넣는다. 카카오 로그인 화면을 새로 띄운다(prompt=login, 인앱은 무시).
 async function handleMyAccountLinkStart(request, env, startKakao) {
   if (!kakaoAccountLinkEnabled(env)) return redirectResponse("/my");
   const userId = await verifyUserSession(request, env);
   if (!userId) return redirectResponse("/my");
   let interactive = false;
-  try { interactive = String((await request.formData()).get("interactive") || "") === "1"; } catch (_) { interactive = false; }
+  let relogin = false;
+  try {
+    const form = await request.formData();
+    interactive = String(form.get("interactive") || "") === "1";
+    relogin = String(form.get("relogin") || "") === "1";
+  } catch (_) { interactive = false; relogin = false; }
   let offer = null;
   try {
     offer = kakaoAccountLinkOfferForUser(await readKakaoAccountLinkOffers(env, { fresh: true }), userId);
@@ -46389,7 +46498,7 @@ async function handleMyAccountLinkStart(request, env, startKakao) {
     return redirectResponse("/my/account-link?err=unavailable");
   }
   if (!offer) return redirectResponse("/my");
-  const response = await startKakao(request, env, { userId, offerUserId: offer.loginUserId, interactive });
+  const response = await startKakao(request, env, { userId, offerUserId: offer.loginUserId, interactive, relogin });
   return response || redirectResponse("/my/account-link?err=kakao_unavailable");
 }
 
@@ -46410,7 +46519,8 @@ async function handleMyAccountLinkRun(request, env) {
     return redirectResponseWithCookies("/my/account-link?err=unavailable", [clearProof]);
   }
   const offer = offers[proof.b];
-  if (!offer || offer.kakao_hash !== proof.h || ![proof.b, offer.chat_user_id].includes(userId)) return redirectResponseWithCookies(next, [clearProof]);
+  // V22.9.117 독립 보안 검토 P3: 표의 c(제안의 방 기록 계정)도 같아야 한다. 확인한 뒤 5분 사이 제안이 다른 방 기록 계정으로 바뀌었으면 합치지 않는다.
+  if (!offer || offer.kakao_hash !== proof.h || String(offer.chat_user_id || "") !== String(proof.c || "") || ![proof.b, offer.chat_user_id].includes(userId)) return redirectResponseWithCookies(next, [clearProof]);
   let plan = null;
   let merged = null;
   const cookies = [clearProof, kakaoAccountLinkLaterCookie(null)];
