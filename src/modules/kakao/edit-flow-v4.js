@@ -344,7 +344,7 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     // (‘수정 01번 날짜 어제’ 처럼 전날 같은 문장이 있을 때). 기록은 그대로이고 다시 보내도 같으므로 ‘잠시 후 다시’ 라고 하지 않는다.
     if (isKakaoRequestUniqueConflictV229119(err)) {
       rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: `edit:${field}` });
-      return { reply: kakaoEditSameTextTextV229119(session.entryNo, row, patch), nextSession: null };
+      return { reply: kakaoEditSameTextTextV229119(session.entryNo, row, patch, { today: env?.__AB_KAKAO_REQUEST?.todayV229120 || "" }), nextSession: null };
     }
     // V22.9.80 T-12: 환불과 연결된 기록은 연결 보호 트리거가 막는다. 다시 보내도 같으므로 이유와 풀 곳을 알린다.
     const lockedReason = refundLinkLockedReason(err);

@@ -49255,15 +49255,19 @@ const KAKAO_SAME_TEXT_LONG_V229119 = 290;
 function kakaoSameTextLongV229119(rows = []) {
   return (Array.isArray(rows) ? rows : [rows]).some((row) => String(row?.raw_text ?? "").length >= KAKAO_SAME_TEXT_LONG_V229119);
 }
-function kakaoExampleParsesAsV229119(example = "", item = {}) {
+// V22.9.120 통합 수정: 예시는 파서 확인에 더해 저장 직전 안전망(kakaoRecordGuardV229120)도 통과할 때만 보인다 — 그대로 보내면 저장된다는 위 약속을
+// 안전망이 생긴 뒤에도 지킨다(메모에 ‘며칠 전에’·‘몇 월 며칠’ 같은 말이 남은 기록의 날짜 수정 예시가 되묻기로 막혔다). 걸리면 예시 없이 사실만(아래 세 답의 빈 예시 길).
+// today = 예시를 만드는 그 요청의 오늘(skill-handler 가 안전망을 판정할 때 남긴 날) — 자정 근처에서 저장 지점 판정과 어긋나지 않게. 없으면 지금 날짜.
+// 판정은 저장소를 읽지 않는다. request-guards 와 서로 가져오지만 두 모듈 모두 모듈을 읽을 때(최상위)는 서로의 값을 쓰지 않고 함수 안에서만 부른다.
+function kakaoExampleParsesAsV229119(example = "", item = {}, today = "") {
   let parsed = null;
   try { parsed = parseMultipleTransactions(example, {}); } catch (_) { return false; }
   const one = Array.isArray(parsed) && !parsed.blocked && parsed.length === 1 ? parsed[0] : null;
   const kind = (value) => (value === "income" ? "income" : "expense");
   return !!one && String(one.transaction_date || "") === String(item?.transaction_date || "") && Number(one.amount) === Number(item?.amount)
-    && kind(one.type) === kind(item?.type);
+    && kind(one.type) === kind(item?.type) && !kakaoRecordGuardV229120(example, parsed, String(today || "") || formatDate(nowKstDate()));
 }
-function kakaoSameTextExampleV229119(item = {}) {
+function kakaoSameTextExampleV229119(item = {}, today = "") {
   const base = String(item?.raw_text ?? "").replace(/\s+/g, " ").trim();
   if (!base || /:\/\/|www\./i.test(base)) return "";
   const ordinal = base.match(/^(.*\S)\s+(두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*번째$/);
@@ -49271,20 +49275,20 @@ function kakaoSameTextExampleV229119(item = {}) {
   if (!next) return "";
   const example = `${ordinal ? ordinal[1] : base} ${next} 번째`;
   if (example.length > KAKAO_SAME_TEXT_EXAMPLE_MAX_V229119) return "";
-  return kakaoExampleParsesAsV229119(example, item) ? example : "";
+  return kakaoExampleParsesAsV229119(example, item, today) ? example : "";
 }
 
 // 후속 2(재검토 P2): 날짜 수정 예시는 원문이 아니라 기록 칸(메모·금액·구분)과 바꿀 날짜로 만든다(‘11월 10일 버스 1500원 두 번째’). 원문에 ‘어제’ 같은
 // 날짜 말이 있으면 앞에 날짜를 붙여도 파서가 그 말을 먼저 읽어 다른 날로 저장됐다. 위와 같은 파서가 한 건·그 날짜·그 금액·그 구분으로 읽을 때만
 // 쓴다(수입은 ‘받음’ 을 넣은 꼴도 본다). 못 만들면 빈 값 — 답은 방법 문장 없이 사실만 말한다.
-function kakaoDateEditExampleV229119(row = {}, date = "") {
+function kakaoDateEditExampleV229119(row = {}, date = "", today = "") {
   const amount = Number(row?.amount);
   if (!date || !Number.isSafeInteger(amount) || amount <= 0) return "";
   const memo = String(row?.memo ?? "").replace(/\s+/g, " ").trim().replace(/(?:^|\s+)(?:두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*번째$/, "");
   const base = `${kakaoEditDayPrefixV4(date)}${memo ? `${memo} ` : ""}${amount}원`;
   for (const example of row?.type === "income" ? [`${base} 두 번째`, `${base} 받음 두 번째`] : [`${base} 두 번째`]) {
     if (example.length > KAKAO_SAME_TEXT_EXAMPLE_MAX_V229119 || /:\/\/|www\./i.test(example)) continue;
-    if (kakaoExampleParsesAsV229119(example, { transaction_date: date, amount, type: row?.type })) return example;
+    if (kakaoExampleParsesAsV229119(example, { transaction_date: date, amount, type: row?.type }, today)) return example;
   }
   return "";
 }
@@ -49304,7 +49308,7 @@ function kakaoSameTextExistsTextV229119(items = [], total = 1, skipped = [], opt
   const word = kinds.size === 1 ? (kinds.has("income") ? "수입" : "지출") : "기록";
   const long = options?.long === true || kakaoSameTextLongV229119(list);
   const where = long ? "앞에" : "끝에";
-  const example = list.length && !long ? kakaoSameTextExampleV229119(list[0]) : "";
+  const example = list.length && !long ? kakaoSameTextExampleV229119(list[0], options?.today) : "";
   const exampleText = example ? ` 예: ‘${example}’` : "";
   const day = (date) => kakaoEditDayPrefixV4(date).trim();
   if (total <= 1 && !skippedList.length) {
@@ -49339,7 +49343,7 @@ function kakaoSameTextExistsTextV229119(items = [], total = 1, skipped = [], opt
 // 후속(독립 검토 E): 날짜 수정이면 다시 보낼 문장에 그 날짜가 있어야 한다(날짜 없이 보내면 오늘로 저장된다). 금액·구분 수정은 예전 문장 그대로다.
 // 후속 2(재검토 P2): 날짜 수정 예시는 기록 칸으로 만든 문장(kakaoDateEditExampleV229119)이고, 그 문장을 보내라고 직접 말한다. 예시를 못 만들면
 // 방법 문장(예전: ‘날짜를 넣고 문장 끝에 낱말을 …’ — 원문에 ‘어제’ 가 있으면 따라 보낸 문장이 다른 날로 저장됐다)을 내지 않고 사실 두 줄만 말한다.
-function kakaoEditSameTextTextV229119(entryNo = "", row = {}, patch = {}) {
+function kakaoEditSameTextTextV229119(entryNo = "", row = {}, patch = {}, options = {}) {
   const date = String(patch?.transaction_date || row?.transaction_date || "");
   const day = kakaoEditDayPrefixV4(date).trim();
   const word = String(patch?.type || row?.type || "") === "income" ? "수입" : "지출";
@@ -49350,17 +49354,17 @@ function kakaoEditSameTextTextV229119(entryNo = "", row = {}, patch = {}) {
     `${day ? `${day} 기록 중에` : "오늘"} 같은 문장·같은 금액으로 저장한 기록이 이미 있어서 바꿀 수 없어요.`,
   ];
   if (!dateEdit) return [...facts, `서로 다른 ${word}이라면 이 기록을 지우고 문장을 조금 바꿔 다시 보내 주세요.`].join("\n");
-  const example = kakaoDateEditExampleV229119(row, date);
+  const example = kakaoDateEditExampleV229119(row, date, options?.today);
   return (example ? [...facts, `서로 다른 ${word}이라면 이 기록을 지우고 이 문장으로 다시 보내 주세요: ‘${example}’`] : facts).join("\n");
 }
 
 // V22.9.119 O-1 후속(독립 검토 B): 120초 중복 답이 권하는 ‘별도 구매 추가 <원문>’ 은 원래 기록과 같은 날·같은 문장으로 넣으므로, 인덱스가 있는 동안
 // 확정(INSERT)이 늘 23505 로 거절된다. 예전 답(‘저장소가 요청을 거절해 … 같은 확인 식별자로만 다시 시도해 주세요’)은 다시 해도 같은 길을 권했다.
 // 후속 2(재검토 P2): 290자 이상 문장은 위 규칙대로 ‘문장 앞에’, 예시 없음.
-function kakaoSeparateSameTextTextV229119(row = {}) {
+function kakaoSeparateSameTextTextV229119(row = {}, options = {}) {
   const income = row?.type === "income";
   const long = kakaoSameTextLongV229119([row]);
-  const example = long ? "" : kakaoSameTextExampleV229119(row);
+  const example = long ? "" : kakaoSameTextExampleV229119(row, options?.today);
   return [
     `별도 ${income ? "기록을" : "구매를"} 추가하지 않았어요. 새 기록은 저장하지 않았어요.`,
     "같은 날 같은 문장은 한 번 더 저장되지 않아요.",
@@ -51833,7 +51837,7 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     // (‘수정 01번 날짜 어제’ 처럼 전날 같은 문장이 있을 때). 기록은 그대로이고 다시 보내도 같으므로 ‘잠시 후 다시’ 라고 하지 않는다.
     if (isKakaoRequestUniqueConflictV229119(err)) {
       rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: `edit:${field}` });
-      return { reply: kakaoEditSameTextTextV229119(session.entryNo, row, patch), nextSession: null };
+      return { reply: kakaoEditSameTextTextV229119(session.entryNo, row, patch, { today: env?.__AB_KAKAO_REQUEST?.todayV229120 || "" }), nextSession: null };
     }
     // V22.9.80 T-12: 환불과 연결된 기록은 연결 보호 트리거가 막는다. 다시 보내도 같으므로 이유와 풀 곳을 알린다.
     const lockedReason = refundLinkLockedReason(err);
@@ -54914,7 +54918,10 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   if (foreignCurrencyAmountIn(utterance)) return kakaoText(kakaoForeignAmountText(origin));
   const strongTransactionInput = isStrongKakaoTransactionInput(commandText, preParsedList);
   // V22.9.120: 저장 직전 안전망(request-guards.js kakaoRecordGuardV229120). DB 를 읽지 않는 판정이라 여기서 한 번 보고, 아래 저장 직전 세 곳에서만 쓴다.
-  const recordGuard = !separatePurchaseCommand ? kakaoRecordGuardV229120(utterance, preParsedList) : null;
+  // V22.9.120 통합 수정: 판정한 오늘을 이 요청에 남겨, 같은 요청의 거절 답 예시(V22.9.119, response-builders.js)를 안전망으로 다시 볼 때 같은 날을 쓴다.
+  const guardTodayV229120 = formatDate(nowKstDate());
+  if (env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.todayV229120 = guardTodayV229120;
+  const recordGuard = !separatePurchaseCommand ? kakaoRecordGuardV229120(utterance, preParsedList, guardTodayV229120) : null;
   // V22.9.63 감사(1:1 2): 가계부가 없는 사람의 첫 기록은 "밥 4500원"처럼 한 글자 내용도 받는다. 아래 두 자동 준비 길에만 쓴다.
   const firstRecordInput = strongTransactionInput || isKakaoFirstRecordInput(commandText, preParsedList);
   const kakaoUserKey = getKakaoUserKey(payload);
@@ -55633,7 +55640,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     if (err?.kakao_same_text_exists === true) {
       const skippedItems = err.kakao_same_text_skipped || [];
       rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: `items:${err.kakao_same_text_items.length}/${limitedParsedList.length} skipped:${skippedItems.length}` });
-      return kakaoText(kakaoSameTextExistsTextV229119(err.kakao_same_text_items, limitedParsedList.length, skippedItems, { long: err.kakao_same_text_long === true }));
+      return kakaoText(kakaoSameTextExistsTextV229119(err.kakao_same_text_items, limitedParsedList.length, skippedItems, { long: err.kakao_same_text_long === true, today: env?.__AB_KAKAO_REQUEST?.todayV229120 || "" }));
     }
     // V22.9.26: 저장소가 분명한 실패(4xx·5xx)를 돌려줬으면 저장된 것이 없다. 그때는 "다시 보내지
     // 말라"가 아니라 다시 보내 달라고 해야 기록이 사라지지 않는다. 응답 없이 끊긴 경우(시간
@@ -56185,7 +56192,7 @@ async function handleKakaoSeparatePurchase(env, context) {
           // V22.9.119 O-1 후속(독립 검토 B): 운영 유니크 인덱스(같은 날·같은 문장)가 거절했으면 같은 확인으로 다시 해도 같다. 사실과 보낼 문장을 말한다.
           if (state.state === "failed" && isKakaoRequestUniqueConflictV229119(error)) {
             rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: "separate" });
-            return kakaoText(kakaoSeparateSameTextTextV229119(state.row));
+            return kakaoText(kakaoSeparateSameTextTextV229119(state.row, { today: env?.__AB_KAKAO_REQUEST?.todayV229120 || "" }));
           }
           if (state.state === "failed") return kakaoText("저장소가 요청을 거절해 별도 구매를 추가하지 못했어요. 같은 확인 식별자로만 다시 시도해 주세요.");
         }

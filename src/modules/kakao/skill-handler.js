@@ -101,7 +101,7 @@ import {
 } from "./simple-commands.js";
 import { parseMultipleTransactions, parseTransaction } from "../nlu/transaction-parser.js";
 import { normalizeText } from "../nlu/amount-parser.js";
-import { currentMonthKst } from "../nlu/date-payment.js";
+import { currentMonthKst, formatDate, nowKstDate } from "../nlu/date-payment.js";
 import {
   formatRecentTransactions, formatSummary, getMonthSummary, linkText, nextMonthStart,
   numberWithCommas,
@@ -398,7 +398,10 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   if (foreignCurrencyAmountIn(utterance)) return kakaoText(kakaoForeignAmountText(origin));
   const strongTransactionInput = isStrongKakaoTransactionInput(commandText, preParsedList);
   // V22.9.120: 저장 직전 안전망(request-guards.js kakaoRecordGuardV229120). DB 를 읽지 않는 판정이라 여기서 한 번 보고, 아래 저장 직전 세 곳에서만 쓴다.
-  const recordGuard = !separatePurchaseCommand ? kakaoRecordGuardV229120(utterance, preParsedList) : null;
+  // V22.9.120 통합 수정: 판정한 오늘을 이 요청에 남겨, 같은 요청의 거절 답 예시(V22.9.119, response-builders.js)를 안전망으로 다시 볼 때 같은 날을 쓴다.
+  const guardTodayV229120 = formatDate(nowKstDate());
+  if (env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.todayV229120 = guardTodayV229120;
+  const recordGuard = !separatePurchaseCommand ? kakaoRecordGuardV229120(utterance, preParsedList, guardTodayV229120) : null;
   // V22.9.63 감사(1:1 2): 가계부가 없는 사람의 첫 기록은 "밥 4500원"처럼 한 글자 내용도 받는다. 아래 두 자동 준비 길에만 쓴다.
   const firstRecordInput = strongTransactionInput || isKakaoFirstRecordInput(commandText, preParsedList);
   const kakaoUserKey = getKakaoUserKey(payload);
