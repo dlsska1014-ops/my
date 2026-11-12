@@ -266,7 +266,10 @@ async function getAdminSecurityState(env) {
 }
 
 // V22.9.26: 클라이언트 키(IP+UA)만 세던 제한은 User-Agent 만 바꾸면 비껴갔다. 범위를 고를 수
-// 있게 한다 — client(기존 키), ip(UA 제외), account(로그인 이름), global(관리자 비밀번호 단일 계정).
+// 있게 한다 — client(기존 키), ip(UA 제외), 그 밖(subject-client·account·global)은 부르는 쪽이 준 키.
+// V22.9.118 S-1: ip 범위와 로그인 화면의 ‘IP|계정’ 키는 authAttemptNetwork 로 센다(IPv4 는 주소 그대로, IPv6 는 /64 하나).
+// IPv6 는 한 가입자가 /64 를 통째로 받아 그 안에서 주소를 마음대로 바꿀 수 있어, 주소마다 세면 바꿀 때마다 새로 셌다.
+// 주소 하나로 세던 로그인 이름·관리자 횟수가 IP 와 무관하지 않던 것은 recordAuthAccountWideAttempt 로 따로 센다.
 function trafficClientIp(request) {
   try {
     const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "unknown";
@@ -276,10 +279,56 @@ function trafficClientIp(request) {
   }
 }
 
+// V22.9.118 S-1: 로그인 시도 제한용 주소 묶음. IPv4·"unknown" 은 trafficClientIp 그대로다(예전 키와 같은 지문).
+// IPv6 는 앞 64비트(/64)를 "2001:db8:77:1::/64" 꼴로 돌려준다. ::ffff:1.2.3.4 꼴(IPv4 를 담은 주소)은 그 IPv4 로 본다.
+// 모양을 읽지 못한 값은 주소 그대로 둔다(서로 다른 사람을 한 묶음으로 합치지 않는다).
+function authAttemptNetwork(request) {
+  const ip = trafficClientIp(request);
+  if (!ip.includes(":")) return ip;
+  const text = ip.toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
+  const mapped = text.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (mapped) return mapped[1];
+  const halves = text.split("::");
+  if (halves.length > 2) return ip;
+  const groups = (part) => {
+    if (!part) return [];
+    const out = [];
+    for (const piece of part.split(":")) {
+      if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(piece)) out.push("0", "0"); // 끝 32비트의 IPv4 는 /64 에 들어가지 않는다
+      else if (/^[0-9a-f]{1,4}$/.test(piece)) out.push(piece);
+      else return null;
+    }
+    return out;
+  };
+  const head = groups(halves[0]);
+  const tail = halves.length === 2 ? groups(halves[1]) : [];
+  if (!head || !tail) return ip;
+  const fill = 8 - head.length - tail.length;
+  if (halves.length === 2 ? fill < 1 : fill !== 0) return ip;
+  const full = [...head, ...Array(fill).fill("0"), ...tail];
+  return `${full.slice(0, 4).map((group) => group.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
+
+// V22.9.118 S-1: IP 와 무관한 계정 전체 횟수(관리자 비밀번호 하나, 로그인 이름 하나마다). 예전 ‘계정 단위’ 키는 IP 를 품어서(IP|admin,
+// IP|로그인 이름) 주소를 바꾸면 새로 8~10번씩 허용됐다(점검 2026-11-12: 같은 /64 안에서 관리자 120번 연속 401, 잠금 없음).
+// 이 횟수는 남이 일부러 채워 그 계정을 잠그는 데도 쓰일 수 있어, 한도는 정상 사용자가 걸리지 않을 만큼 넉넉히 둔다:
+// AUTH_ACCOUNT_GLOBAL_RATE_LIMIT(기본 50, 10~50) 번 / AUTH_RATE_WINDOW_SECONDS(기본 900초) — 운영 함수 accountbook_auth_attempt 가
+// 한도를 3~50 으로 자르므로 50 이 위 끝이다. IP 단위 제한(입장·IP·IP|계정) 다음에 세므로, 한 주소(/64)가 이 횟수를 채우는 속도는 그 제한에 묶인다.
+// 차면 429(기존 문구)이고, 그 창에서 처음 막힌 시도(한도 + 1번째)에만 운영 이벤트 한 건을 남긴다(로그인 이름·IP 는 넣지 않는다).
+// 근본 대책은 Cloudflare 요청 제한 규칙과 관리자 경로 접근 제한이다(코드 밖).
+async function recordAuthAccountWideAttempt(env, request, path = "", key = "", success = false, label = "") {
+  const limit = Math.round(boundedRuntimeNumber(env?.AUTH_ACCOUNT_GLOBAL_RATE_LIMIT, 50, 10, 50));
+  const result = await recordAuthAttempt(env, request, path, success, { scope: "global", key, limit });
+  if (!success && !result.allowed && !result.unavailable && Number(result.attempts) === limit + 1) {
+    rememberOpsEvent({ kind: "auth_account_limit_reached", severity: "warn", path: String(path), method: "POST", label: String(label || ""), detail: `limit ${limit}, window ${boundedRuntimeNumber(env?.AUTH_RATE_WINDOW_SECONDS, 900, 60, 86400)}s` });
+  }
+  return result;
+}
+
 async function recordAuthAttempt(env, request, path = "login", success = false, options = {}) {
   const scope = String(options.scope || "ip");
   const rawKey = scope === "client" ? trafficClientKey(request)
-    : scope === "ip" ? trafficClientIp(request)
+    : scope === "ip" ? authAttemptNetwork(request)
     : String(options.key || "").trim().toLowerCase().slice(0, 160);
   if (!rawKey) return { allowed: true, attempts: 0, blocked_until: "" };
   const fingerprint = await sha256Hex(scope === "client" ? `auth|${String(path)}|${rawKey}` : `auth|${scope}|${String(path)}|${rawKey}`);
@@ -325,11 +374,11 @@ function adminLoginLocation(url) {
 }
 // @build:exports-start
 export {
-  PASSWORD_KDF_ITERATIONS, adminLoginLocation, checkAdminPassword, getAdminSecurityState,
-  hmacSha256, kakaoSkillAuthSnapshot, kakaoSkillCallerAuthorized, kakaoSkillSecretMatches,
-  makeAdminSession, makeMyImportPreviewToken, newPasswordSalt, pbkdf2PasswordHash, randomEntityId,
-  randomHex, recordAuthAttempt, rememberSkillLatency, requiredSecret, safeAdminReturnPath,
-  sha256Hex, skillLatencySnapshot, trafficClientIp, verifyAdminSession, verifyCronExecutionAuth,
-  verifyMyImportPreviewToken,
+  PASSWORD_KDF_ITERATIONS, adminLoginLocation, authAttemptNetwork, checkAdminPassword,
+  getAdminSecurityState, hmacSha256, kakaoSkillAuthSnapshot, kakaoSkillCallerAuthorized,
+  kakaoSkillSecretMatches, makeAdminSession, makeMyImportPreviewToken, newPasswordSalt,
+  pbkdf2PasswordHash, randomEntityId, randomHex, recordAuthAccountWideAttempt, recordAuthAttempt,
+  rememberSkillLatency, requiredSecret, safeAdminReturnPath, sha256Hex, skillLatencySnapshot,
+  trafficClientIp, verifyAdminSession, verifyCronExecutionAuth, verifyMyImportPreviewToken,
 };
 // @build:exports-end

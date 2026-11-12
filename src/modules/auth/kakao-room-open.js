@@ -29,11 +29,15 @@ import { supabase } from "../data/supabase-client.js";
 //
 // 지금은 이렇게 연다(로그인 뒤 화면 /my·/app·/m·/my/* 의 GET 페이지 이동):
 //  · botUserKey·botGroupKey 가 둘 다 있고, 그 방에 이어진 가계부가 있고, botUserKey 의 ‘원래 채팅 계정’(users.kakao_user_key 가 그대로 같고 통합되지
-//    않은 행)이 그 가계부를 읽을 수 있는 구성원이면 로그인 화면 없이 그 계정 세션을 만들고 그 방 가계부 홈(/app?household_id=…)으로 보낸다. 승인 대기면
+//    않은 행)이 그 가계부를 읽을 수 있는 구성원이고 강한 식별(카카오 로그인·로그인 이름 비밀번호)이 붙지 않은 계정이면 로그인 화면 없이 그 계정 세션을
+//    만들고 그 방 가계부 홈(/app?household_id=…)으로 보낸다. 승인 대기면
 //    /my 상태 화면이다. 안내 확인 기록이 없으면 ab_cs=0 이라 홈 맨 위에 약관 안내 띠가 뜬다(V22.9.104 L-3 팝업 → V22.9.114 띠).
 //  · 웹 계정에 이어진 사람(별칭 skill_identity: 나 계정 통합으로 찾은 계정)에게는 주소 값으로 세션을 주지 않는다(독립 검토 P2-1: 만료·폐기 없는 값이
 //    웹 계정의 다른 가계부·관리자 권한까지 여는 일을 막는다). 세션이 없으면 그 방 가계부 주소로만 보내 인앱 자동 로그인(V22.9.91, 화면 없음)이 그
 //    계정으로 로그인하게 한다.
+//  · V22.9.118 S-2: 원래 채팅 행이라도 강한 식별(accountbook_user_identities 행 — 카카오 로그인·로그인 이름 비밀번호)이 붙은 계정은 웹 계정과 같아
+//    위와 똑같이 한다(결과 strong_account·strong_other_session). 계정 잇기(V22.9.91·117)는 방 기록 계정을 주 계정으로 합치고 강한 식별 행을 그쪽으로
+//    옮긴다(운영 함수 accountbook_merge_users_v227) — raw 만 보면 잇기를 마친 사람의 주소 값이 만료 없이 그 사람의 모든 가계부를 열었다(점검 2026-11-12).
 //  · 하나라도 안 맞으면 카카오 값을 뺀 같은 주소로 보내고, 그 뒤는 V22.9.104 그대로(인앱 자동 로그인 → 시작 팝업)다.
 //  · 로그인 뒤 화면이 아닌 곳(공개 문서·글·안내·로그아웃·계정 잇기)은 값만 지운다(검토 P2-2: 값이 붙은 주소가 화면에 남아 복사·공유되지 않게).
 //    라우터가 공개 문서·후원·공지 처리보다 먼저 부른다.
@@ -55,7 +59,7 @@ const KAKAO_ROOM_OPEN_CRAWLER = /kakaotalk-scrap|facebookexternalhit|facebot|twi
 const KAKAO_ROOM_OPEN_ADMISSION_LIMIT = 60;
 const KAKAO_ROOM_OPEN_PROBE_PREFIX = "kakao_room_open_probe_v229105:";
 const KAKAO_ROOM_OPEN_PROBE_MS = 10 * 60 * 1000;
-const KAKAO_ROOM_OPEN_OK = new Set(["ok", "switched", "same_session", "member_session", "linked_account"]);
+const KAKAO_ROOM_OPEN_OK = new Set(["ok", "switched", "same_session", "member_session", "linked_account", "strong_account"]);
 const KAKAO_ROOM_OPEN_HEADERS = { "referrer-policy": "no-referrer" };
 const AB_KAKAO_ROOM_OPEN_PROBE = globalThis.__AB_KAKAO_ROOM_OPEN_PROBE || (globalThis.__AB_KAKAO_ROOM_OPEN_PROBE = new Map());
 
@@ -98,6 +102,18 @@ async function kakaoRoomOpenIdentity(env, botUserKey = "") {
   const user = raw.length && effectiveId === sourceId ? raw[0] : await fetchUserById(env, effectiveId);
   if (!user?.id || kakaoRoomOpenMergedLooking(user)) return null;
   return { userId: String(user.id), raw: raw.length === 1 && effectiveId === sourceId };
+}
+
+// V22.9.118 S-2: 이 계정에 강한 식별(카카오 로그인·로그인 이름 비밀번호)이 붙어 있는지(읽기 한 번). 읽지 못하면 던져서 열지 않는다(lookup_failed).
+// 옛 링크 표 별칭(kakao_login:·local_web:)만 붙은 계정은 보지 않는다 — 전역 링크 표(사용자마다 커지는 한 줄 JSON)를 단추를 누를 때마다 읽게 되어서다.
+// kakao_login: 별칭은 그 카카오 계정으로 웹에 처음 로그인할 때 강한 식별 행이 되고(findUserByKakaoLoginId), local_web: 별칭으로는 지금 로그인할 수
+// 없다(로그인 이름 로그인은 강한 식별만 본다). 남는 틈은 별칭만 있고 아직 웹으로 한 번도 로그인하지 않은 계정이다.
+async function kakaoRoomOpenHasStrongIdentity(env, userId = "") {
+  const uid = String(userId || "").trim();
+  if (!uid) throw new Error("room_open_identity_missing");
+  const rows = await supabase(env, `/rest/v1/accountbook_user_identities?user_id=eq.${encodeURIComponent(uid)}&select=provider&limit=1`, { method: "GET" });
+  if (!Array.isArray(rows)) throw new Error("room_open_identity_invalid");
+  return rows.length > 0;
 }
 
 function kakaoRoomOpenProbe(env, ctx, result = "", detail = "") {
@@ -165,6 +181,9 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     if (!identity.raw) return current ? finish("linked_other_session", plain) : finish("linked_account", home);
     // 다른 계정 세션을 누른 사람으로 바꾸는 것은 앱에서 바로 연 이동(Sec-Fetch-Site: none)일 때만이다.
     if (current && String(request.headers.get("sec-fetch-site") || "").toLowerCase() !== "none") return finish("session_kept", plain);
+    // V22.9.118 S-2: 강한 식별이 붙은 채팅 계정도 웹 계정에 이어진 사람과 같이 세션을 주지 않는다(R-6 의 뜻). 세션이 없으면 그 방 가계부 주소로만
+    // 보내 인앱 자동 로그인이 그 카카오 계정으로 로그인하게 하고, 다른 계정 세션이면 그대로 둔다.
+    if (await kakaoRoomOpenHasStrongIdentity(env, identity.userId)) return current ? finish("strong_other_session", plain) : finish("strong_account", home);
     const token = await makeUserSession(env, identity.userId);
     const cookies = [
       `ab_user=${encodeURIComponent(token)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,

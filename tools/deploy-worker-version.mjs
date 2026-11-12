@@ -10,7 +10,7 @@
 //
 // Options: --script <name> (kakao-accountbook), --origin <https origin> (https://malhaebook.com),
 // --legacy-origin <https origin> (passed to the public checks), --out-dir <dir> (output/deploy),
-// --skip-public-checks.
+// --skip-public-checks, --allow-pre-seoul-db (rollback only: see the rollback floor below).
 // Environment, never written to files or logs: CLOUDFLARE_API_TOKEN (Workers Scripts Write, this
 // account only, with an expiry) and CLOUDFLARE_ACCOUNT_ID or CF_ACCOUNT_ID.
 //
@@ -36,8 +36,17 @@
 // - After promotion the active deployment must be that version at 100%, the deployed script
 //   (content/v2) must hash to the local SHA-256, and /health must report APP_VERSION in
 //   HEALTH_CONSECUTIVE responses in a row (a mismatch restarts the count). Only then do the public
-//   checks (tools/verify-deployment-v22920.mjs) run, and they must pass. A failure prints the
-//   rollback command; the script never rolls back, retries a write or uses force on its own.
+//   checks (tools/verify-deployment-v22920.mjs) run, and they must pass. The output names the
+//   version that was live before only as a record ("되돌리기 대상(기록만): <id>"), never as a runnable
+//   rollback command (rule since the 2026-10-19 incident, where a printed example was run as is);
+//   the script never rolls back, retries a write or uses force on its own.
+// - --rollback refuses a target older than the Seoul database cutover of this Worker (ROLLBACK_FLOORS:
+//   version #333 ac5f2a4b…, created 2026-11-05 19:07 KST). Older versions carry the Secrets of the old
+//   Sydney Supabase project, which is being paused, so deploying one takes the whole service down. The
+//   version number and created_on from GET /versions/<id> decide; if neither can be read the rollback is
+//   refused too. --allow-pre-seoul-db overrides this on purpose. After a rollback /health must stay
+//   alive and /ready must answer ok READY_CONSECUTIVE times in a row (it checks the tables and
+//   functions, which /health does not).
 // - Snapshots go to <out-dir>/<APP_VERSION>/ (untracked). Binding fields other than identifiers
 //   are stored as SHA-256 digests; the API never returns Secret values.
 import { spawnSync } from "node:child_process";
@@ -55,9 +64,17 @@ export const MAIN_MODULE = "index.js";
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const ACCOUNT_ID = /^[0-9a-f]{32}$/;
 const USAGE = [
-  "usage: node tools/deploy-worker-version.mjs [--dry-run [--state <file>] | --promote <version-id> | --rollback <version-id>]",
+  "usage: node tools/deploy-worker-version.mjs [--dry-run [--state <file>] | --promote <version-id> | --rollback <version-id> [--allow-pre-seoul-db]]",
   "         [--script <name>] [--origin <https-origin>] [--legacy-origin <https-origin>] [--out-dir <dir>] [--skip-public-checks]",
 ].join("\n");
+
+// V22.9.118 O-4: 되돌리기 하한. 이 Worker 의 서울 DB 전환 버전(2026-11-05 19:07 KST 업로드, 새 Supabase Secret 두 개)보다 앞선 버전은
+// 옛(시드니) Supabase 프로젝트의 Secret 을 담고 있다. 옛 프로젝트를 멈춘 뒤 그 버전으로 내리면 모든 DB 요청이 실패한다(전면 장애).
+// created_on 은 실제 업로드 기록(review-artifacts/supabase-seoul-migration/cutover-2026-11-05/upload-ac5f2a4b-….json)의 값이다.
+export const ROLLBACK_FLOOR_OVERRIDE = "--allow-pre-seoul-db";
+export const ROLLBACK_FLOORS = Object.freeze({
+  "kakao-accountbook": Object.freeze({ versionId: "ac5f2a4b-de71-46a5-94cc-92b1743a3d8b", number: 333, createdOn: "2026-11-05T10:07:18.932265Z", label: "서울 DB 전환 버전(#333, 2026-11-05 19:07 KST)" }),
+});
 
 export class UsageError extends Error {}
 
@@ -71,7 +88,7 @@ function httpsOrigin(value, name) {
 }
 
 export function parseArgs(argv) {
-  const options = { mode: "upload", versionId: null, state: null, script: DEFAULT_SCRIPT, origin: DEFAULT_ORIGIN, legacyOrigin: null, outDir: DEFAULT_OUT_DIR, publicChecks: true };
+  const options = { mode: "upload", versionId: null, state: null, script: DEFAULT_SCRIPT, origin: DEFAULT_ORIGIN, legacyOrigin: null, outDir: DEFAULT_OUT_DIR, publicChecks: true, allowPreSeoulDb: false };
   const modes = [];
   const valueAt = (i) => {
     const next = argv[i + 1];
@@ -82,6 +99,7 @@ export function parseArgs(argv) {
     const arg = argv[i];
     if (arg === "--dry-run") modes.push("dry-run");
     else if (arg === "--skip-public-checks") options.publicChecks = false;
+    else if (arg === ROLLBACK_FLOOR_OVERRIDE) options.allowPreSeoulDb = true;
     else if (arg === "--promote" || arg === "--rollback") { modes.push(arg.slice(2)); options.versionId = valueAt(i); i += 1; }
     else if (arg === "--state") { options.state = valueAt(i); i += 1; }
     else if (arg === "--script") { options.script = valueAt(i); i += 1; }
@@ -93,6 +111,7 @@ export function parseArgs(argv) {
   if (modes.length > 1) throw new UsageError(`--dry-run, --promote, --rollback 중 하나만 씁니다\n${USAGE}`);
   if (modes.length === 1) options.mode = modes[0];
   if (options.state && options.mode !== "dry-run") throw new UsageError("--state 는 --dry-run 에서만 씁니다");
+  if (options.allowPreSeoulDb && options.mode !== "rollback") throw new UsageError(`${ROLLBACK_FLOOR_OVERRIDE} 는 --rollback 에서만 씁니다`);
   if (options.versionId && !UUID.test(options.versionId)) throw new UsageError(`버전 ID 형식이 아닙니다: ${options.versionId}`);
   if (!/^[a-z0-9-]+$/.test(options.script)) throw new UsageError(`Worker 이름 형식이 아닙니다: ${options.script}`);
   options.origin = httpsOrigin(options.origin, "--origin");
@@ -321,6 +340,59 @@ export async function checkHealth({ fetch, origin, expectedVersion, sleep, attem
   return { ok: false, attempts, consecutive: streak, first_match_attempt: firstMatch, mismatches, ...last };
 }
 
+// V22.9.118 O-4: 되돌린 뒤의 /ready. /health 는 DB 를 보지 않아 옛 Supabase 를 가리키는 버전도 살아 있다고 답한다. /ready 는 필수 표·함수를
+// 점검해 준비되면 200·ok:true, 아니면 503 이다. 인스턴스마다 결과를 60초 다시 쓰고(cached), 전파 중에는 이전 버전 인스턴스가 답할 수 있어
+// READY_CONSECUTIVE 번 연속 ok 를 본다. 한 번에 몇 초 걸릴 수 있어 시간 제한은 /health 보다 길다.
+export const READY_CONSECUTIVE = 2;
+export const READY_MAX_ATTEMPTS = 6;
+
+export async function checkReady({ fetch, origin, sleep, attempts = READY_MAX_ATTEMPTS, delayMs = HEALTH_DELAY_MS, consecutive = READY_CONSECUTIVE }) {
+  let last = {};
+  let streak = 0;
+  let notOk = 0;
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    let passed = false;
+    try {
+      const response = await fetch(`${origin}/ready`, { headers: { accept: "application/json", "cache-control": "no-cache", "user-agent": "MalhaebookDeploy" }, signal: AbortSignal.timeout(30000) });
+      const data = await response.json();
+      last = { status: response.status, ready: data?.ready, body_ok: data?.ok, version: data?.version, failed_tables: Array.isArray(data?.failed_tables) ? data.failed_tables.length : null, missing_rpcs: Array.isArray(data?.missing_rpcs) ? data.missing_rpcs.length : null, cached: data?.cached === true };
+      passed = response.status === 200 && data?.ok === true;
+    } catch (error) {
+      last = { error: error.message };
+    }
+    if (passed) {
+      streak += 1;
+      if (streak >= consecutive) return { ...last, ok: true, attempts: attempt, consecutive: streak, not_ok: notOk };
+    } else {
+      streak = 0;
+      notOk += 1;
+    }
+    if (attempt < attempts) await sleep(delayMs);
+  }
+  return { ...last, ok: false, attempts, consecutive: streak, not_ok: notOk };
+}
+
+// created_on 은 마이크로초까지 온다(2026-11-05T10:07:18.932265Z). 밀리초 세 자리로 잘라 읽는다.
+function versionCreatedMs(value) {
+  const text = String(value ?? "").trim().replace(/(\.\d{3})\d+/, "$1");
+  return text ? Date.parse(text) : NaN;
+}
+
+// V22.9.118 O-4: 되돌릴 버전이 이 Worker 의 하한(ROLLBACK_FLOORS)보다 앞서면 그 이유를, 아니면 null 을 돌려준다. 하한 버전 자신은 된다.
+// 버전 번호와 만든 시각(created_on) 중 하나라도 하한보다 앞이면 앞선 버전이다. 둘 다 읽지 못하면 확인하지 못한 것이라 거절 쪽이다.
+// 하한이 없는 Worker(다른 --script)는 보지 않는다.
+export function rollbackFloorProblem({ script, versionId, version }) {
+  const floor = ROLLBACK_FLOORS[script];
+  if (!floor || versionId === floor.versionId) return null;
+  const rawNumber = version?.number;
+  const number = rawNumber === null || rawNumber === undefined || rawNumber === "" ? NaN : Number(rawNumber);
+  const created = versionCreatedMs(version?.metadata?.created_on);
+  if (Number.isFinite(number) && number < floor.number) return `되돌릴 버전 ${versionId} 는 ${floor.label}보다 앞선 버전입니다(번호 ${number} < ${floor.number})`;
+  if (Number.isFinite(created) && created < versionCreatedMs(floor.createdOn)) return `되돌릴 버전 ${versionId} 는 ${floor.label}보다 앞선 버전입니다(만든 시각 ${version.metadata.created_on})`;
+  if (!Number.isFinite(number) && !Number.isFinite(created)) return `되돌릴 버전 ${versionId} 의 번호·만든 시각을 읽지 못해 ${floor.label} 뒤의 버전인지 확인하지 못했습니다`;
+  return null;
+}
+
 const IDENTIFIER_FIELDS = new Set(["name", "type", "service", "environment", "entrypoint", "namespace_id", "database_id", "id", "bucket_name", "jurisdiction", "queue_name", "class_name", "script_name", "dataset", "index_name", "workflow_name", "store_id", "secret_name", "certificate_id", "namespace", "pipeline", "format", "algorithm", "usages"]);
 
 export function redactVersion(version) {
@@ -435,7 +507,7 @@ async function runUpload(options, deps, client) {
   return 0;
 }
 
-async function deployAndVerify(options, deps, client, { targetId, previousId, expectedVersion, expectedSha256, message, runPublic }) {
+async function deployAndVerify(options, deps, client, { targetId, previousId, expectedVersion, expectedSha256, message, runPublic, runReady = false }) {
   const deployment = await client.createDeployment({ strategy: "percentage", versions: [{ version_id: targetId, percentage: 100 }], annotations: { "workers/message": message } });
   deps.log(`배포 ${deployment?.id ?? "?"}: 버전 ${targetId} 100%`);
   const checks = { deployment_id: deployment?.id ?? null, previous_version_id: previousId };
@@ -450,6 +522,12 @@ async function deployAndVerify(options, deps, client, { targetId, previousId, ex
   const healthSummary = `시도 ${checks.health.attempts}회, 불일치 ${checks.health.mismatches}회, 마지막 ${checks.health.version ?? checks.health.error ?? checks.health.status}`;
   if (checks.health.ok) deps.log(`/health: ${expectedVersion ?? "alive"} ${checks.health.consecutive}번 연속 확인 (${healthSummary})`);
   else failures.push(`/health 가 ${HEALTH_CONSECUTIVE}번 연속 ${expectedVersion ?? "alive"} 를 알리지 않습니다 (${healthSummary}, 마지막 연속 ${checks.health.consecutive}번)`);
+  if (runReady && !failures.length) {
+    checks.ready = await checkReady({ fetch: deps.fetch, origin: options.origin, sleep: deps.sleep });
+    const readySummary = `시도 ${checks.ready.attempts}회, ok 아님 ${checks.ready.not_ok}회, 마지막 ${checks.ready.error ?? `HTTP ${checks.ready.status} ready=${checks.ready.ready}`}${checks.ready.failed_tables ? ` · 실패 표 ${checks.ready.failed_tables}개` : ""}${checks.ready.missing_rpcs ? ` · 없는 함수 ${checks.ready.missing_rpcs}개` : ""}`;
+    if (checks.ready.ok) deps.log(`/ready: ok ${checks.ready.consecutive}번 연속 확인 (${readySummary})`);
+    else failures.push(`/ready 가 ${READY_CONSECUTIVE}번 연속 ok 가 아닙니다 (${readySummary}) — DB 를 쓸 수 없는 버전일 수 있습니다`);
+  }
   if (runPublic && !failures.length) {
     checks.public_checks_exit = deps.runPublicChecks({ origin: options.origin, legacyOrigin: options.legacyOrigin, appVersion: expectedVersion });
     if (checks.public_checks_exit !== 0) failures.push(`공개 검사 실패 (종료 코드 ${checks.public_checks_exit})`);
@@ -493,24 +571,35 @@ async function runRollback(options, deps, client) {
   if (live.versionId === options.versionId) { deps.error(`버전 ${options.versionId} 는 이미 100% 배포돼 있습니다`); return 1; }
   const liveVersion = await client.getVersion(live.versionId);
   const target = await client.getVersion(options.versionId);
+  // V22.9.118 O-4: 서울 DB 전환보다 앞선 버전(옛 시드니 Secret)으로는 내리지 않는다. 넘기려면 --allow-pre-seoul-db 를 일부러 함께 쓴다.
+  const floorProblem = rollbackFloorProblem({ script: options.script, versionId: options.versionId, version: target });
+  if (floorProblem && !options.allowPreSeoulDb) {
+    deps.error(`되돌리지 않습니다 — ${floorProblem}. 그 버전은 옛(시드니) Supabase Secret 을 담고 있어, 옛 프로젝트를 멈춘 뒤에는 모든 DB 요청이 실패합니다. 서울 전환 뒤 버전을 고르세요(Secret 을 먼저 확인했다면 ${ROLLBACK_FLOOR_OVERRIDE} 로만 넘길 수 있습니다)`);
+    return 1;
+  }
+  if (floorProblem) deps.error(`경고: ${ROLLBACK_FLOOR_OVERRIDE} — 하한을 일부러 넘깁니다: ${floorProblem}`);
   const refuse = compareVersionResources(liveVersion, target);
   if (refuse.length) { deps.error(`되돌릴 버전의 바인딩·런타임이 현재와 다릅니다 — 대시보드에서 확인하세요:\n- ${refuse.join("\n- ")}`); return 1; }
   const directory = releaseDirectory(deps, options, "rollback");
   writeRecord(deps, directory, `live-${live.versionId}.json`, liveSnapshot(deps, options, live, liveVersion));
   // The public checks compare the site with the local release, which is the code being rolled
-  // back, so after a rollback only the deployment and /health liveness are verified.
-  const { checks, failures } = await deployAndVerify(options, deps, client, { targetId: options.versionId, previousId: live.versionId, expectedVersion: null, expectedSha256: null, message: `rollback to ${options.versionId} (이전 ${live.versionId})`, runPublic: false });
-  const path = writeRecord(deps, directory, `rollback-${options.versionId}.json`, { mode: "rollback", at: deps.now().toISOString(), script: options.script, version_id: options.versionId, ...checks, failures });
-  return finish(deps, failures, path, live.versionId, `버전 ${options.versionId} 로 되돌림 (/health 판 ${checks.health.version ?? "?"})`);
+  // back, so after a rollback the deployment, /health liveness and /ready (V22.9.118 O-4) are verified.
+  const { checks, failures } = await deployAndVerify(options, deps, client, { targetId: options.versionId, previousId: live.versionId, expectedVersion: null, expectedSha256: null, message: `rollback to ${options.versionId} (이전 ${live.versionId})`, runPublic: false, runReady: true });
+  const floor = floorProblem ? { ok: false, overridden: true, problem: floorProblem } : { ok: true, number: target?.number ?? null, created_on: target?.metadata?.created_on ?? null };
+  const path = writeRecord(deps, directory, `rollback-${options.versionId}.json`, { mode: "rollback", at: deps.now().toISOString(), script: options.script, version_id: options.versionId, floor, ...checks, failures });
+  return finish(deps, failures, path, live.versionId, `버전 ${options.versionId} 로 되돌림 (/health 판 ${checks.health.version ?? "?"}, /ready ok)`, "되돌리기 전 배포 버전");
 }
 
-function finish(deps, failures, path, previousId, success) {
+// V22.9.118 O-4: 실행할 수 있는 되돌리기 명령 줄을 출력하지 않는다(2026-10-19 사고 뒤 규칙: 출력·문서의 예시가 그대로 실행됐다).
+// 그 전 배포 버전은 id 만 기록으로 적는다. 되돌릴지는 사람이 정하고, 명령은 사람이 직접 쓴다.
+function finish(deps, failures, path, previousId, success, previousLabel = "되돌리기 대상") {
+  const previous = `${previousLabel}(기록만): ${previousId}`;
   if (failures.length) {
-    deps.error(`배포 후 확인 실패:\n- ${failures.join("\n- ")}\n기록: ${path}\n되돌리기(승인 후): node tools/deploy-worker-version.mjs --rollback ${previousId}`);
+    deps.error(`배포 후 확인 실패:\n- ${failures.join("\n- ")}\n기록: ${path}\n${previous}`);
     return 1;
   }
   deps.log(`${success}. 기록: ${path}`);
-  deps.log(`문제가 생기면(승인 후): node tools/deploy-worker-version.mjs --rollback ${previousId}`);
+  deps.log(previous);
   return 0;
 }
 

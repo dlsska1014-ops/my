@@ -14240,7 +14240,10 @@ async function getAdminSecurityState(env) {
 }
 
 // V22.9.26: 클라이언트 키(IP+UA)만 세던 제한은 User-Agent 만 바꾸면 비껴갔다. 범위를 고를 수
-// 있게 한다 — client(기존 키), ip(UA 제외), account(로그인 이름), global(관리자 비밀번호 단일 계정).
+// 있게 한다 — client(기존 키), ip(UA 제외), 그 밖(subject-client·account·global)은 부르는 쪽이 준 키.
+// V22.9.118 S-1: ip 범위와 로그인 화면의 ‘IP|계정’ 키는 authAttemptNetwork 로 센다(IPv4 는 주소 그대로, IPv6 는 /64 하나).
+// IPv6 는 한 가입자가 /64 를 통째로 받아 그 안에서 주소를 마음대로 바꿀 수 있어, 주소마다 세면 바꿀 때마다 새로 셌다.
+// 주소 하나로 세던 로그인 이름·관리자 횟수가 IP 와 무관하지 않던 것은 recordAuthAccountWideAttempt 로 따로 센다.
 function trafficClientIp(request) {
   try {
     const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "unknown";
@@ -14250,10 +14253,56 @@ function trafficClientIp(request) {
   }
 }
 
+// V22.9.118 S-1: 로그인 시도 제한용 주소 묶음. IPv4·"unknown" 은 trafficClientIp 그대로다(예전 키와 같은 지문).
+// IPv6 는 앞 64비트(/64)를 "2001:db8:77:1::/64" 꼴로 돌려준다. ::ffff:1.2.3.4 꼴(IPv4 를 담은 주소)은 그 IPv4 로 본다.
+// 모양을 읽지 못한 값은 주소 그대로 둔다(서로 다른 사람을 한 묶음으로 합치지 않는다).
+function authAttemptNetwork(request) {
+  const ip = trafficClientIp(request);
+  if (!ip.includes(":")) return ip;
+  const text = ip.toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
+  const mapped = text.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (mapped) return mapped[1];
+  const halves = text.split("::");
+  if (halves.length > 2) return ip;
+  const groups = (part) => {
+    if (!part) return [];
+    const out = [];
+    for (const piece of part.split(":")) {
+      if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(piece)) out.push("0", "0"); // 끝 32비트의 IPv4 는 /64 에 들어가지 않는다
+      else if (/^[0-9a-f]{1,4}$/.test(piece)) out.push(piece);
+      else return null;
+    }
+    return out;
+  };
+  const head = groups(halves[0]);
+  const tail = halves.length === 2 ? groups(halves[1]) : [];
+  if (!head || !tail) return ip;
+  const fill = 8 - head.length - tail.length;
+  if (halves.length === 2 ? fill < 1 : fill !== 0) return ip;
+  const full = [...head, ...Array(fill).fill("0"), ...tail];
+  return `${full.slice(0, 4).map((group) => group.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
+
+// V22.9.118 S-1: IP 와 무관한 계정 전체 횟수(관리자 비밀번호 하나, 로그인 이름 하나마다). 예전 ‘계정 단위’ 키는 IP 를 품어서(IP|admin,
+// IP|로그인 이름) 주소를 바꾸면 새로 8~10번씩 허용됐다(점검 2026-11-12: 같은 /64 안에서 관리자 120번 연속 401, 잠금 없음).
+// 이 횟수는 남이 일부러 채워 그 계정을 잠그는 데도 쓰일 수 있어, 한도는 정상 사용자가 걸리지 않을 만큼 넉넉히 둔다:
+// AUTH_ACCOUNT_GLOBAL_RATE_LIMIT(기본 50, 10~50) 번 / AUTH_RATE_WINDOW_SECONDS(기본 900초) — 운영 함수 accountbook_auth_attempt 가
+// 한도를 3~50 으로 자르므로 50 이 위 끝이다. IP 단위 제한(입장·IP·IP|계정) 다음에 세므로, 한 주소(/64)가 이 횟수를 채우는 속도는 그 제한에 묶인다.
+// 차면 429(기존 문구)이고, 그 창에서 처음 막힌 시도(한도 + 1번째)에만 운영 이벤트 한 건을 남긴다(로그인 이름·IP 는 넣지 않는다).
+// 근본 대책은 Cloudflare 요청 제한 규칙과 관리자 경로 접근 제한이다(코드 밖).
+async function recordAuthAccountWideAttempt(env, request, path = "", key = "", success = false, label = "") {
+  const limit = Math.round(boundedRuntimeNumber(env?.AUTH_ACCOUNT_GLOBAL_RATE_LIMIT, 50, 10, 50));
+  const result = await recordAuthAttempt(env, request, path, success, { scope: "global", key, limit });
+  if (!success && !result.allowed && !result.unavailable && Number(result.attempts) === limit + 1) {
+    rememberOpsEvent({ kind: "auth_account_limit_reached", severity: "warn", path: String(path), method: "POST", label: String(label || ""), detail: `limit ${limit}, window ${boundedRuntimeNumber(env?.AUTH_RATE_WINDOW_SECONDS, 900, 60, 86400)}s` });
+  }
+  return result;
+}
+
 async function recordAuthAttempt(env, request, path = "login", success = false, options = {}) {
   const scope = String(options.scope || "ip");
   const rawKey = scope === "client" ? trafficClientKey(request)
-    : scope === "ip" ? trafficClientIp(request)
+    : scope === "ip" ? authAttemptNetwork(request)
     : String(options.key || "").trim().toLowerCase().slice(0, 160);
   if (!rawKey) return { allowed: true, attempts: 0, blocked_until: "" };
   const fingerprint = await sha256Hex(scope === "client" ? `auth|${String(path)}|${rawKey}` : `auth|${scope}|${String(path)}|${rawKey}`);
@@ -14309,10 +14358,19 @@ async function handleAdminLogin(request, env) {
   if (!attempt.allowed) {
     return htmlResponse(renderServerLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", returnTo), 429, { "retry-after": "900" });
   }
-  // V22.9.26: 관리자 비밀번호는 계정이 하나라 클라이언트와 무관한 전체 횟수도 센다.
-  const adminAttempt = await recordAuthAttempt(env, request, "/login", false, { scope: "account", key: trafficClientIp(request) + "|admin", limit: boundedRuntimeNumber(env.AUTH_ACCOUNT_RATE_LIMIT, 30, 5, 200) });
+  // V22.9.26: 관리자 비밀번호는 계정이 하나다. 이 키는 주소(V22.9.118: IPv6 는 /64)마다 관리자 비밀번호를 센다 — 키에 IP 가 들어 있어
+  // 예전 주석의 ‘클라이언트와 무관한 전체 횟수’ 가 아니었다(V22.9.118 S-1). 전체 횟수는 바로 아래에서 따로 센다.
+  const adminIpKey = authAttemptNetwork(request) + "|admin";
+  const adminAttempt = await recordAuthAttempt(env, request, "/login", false, { scope: "account", key: adminIpKey, limit: boundedRuntimeNumber(env.AUTH_ACCOUNT_RATE_LIMIT, 30, 5, 200) });
   if (adminAttempt.unavailable) return htmlResponse(renderServerLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", returnTo), 503);
   if (!adminAttempt.allowed) {
+    return htmlResponse(renderServerLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", returnTo), 429, { "retry-after": "900" });
+  }
+  // V22.9.118 S-1: IP 와 무관한 관리자 비밀번호 전체 횟수(한도·이벤트는 recordAuthAccountWideAttempt). 주소를 바꿔 가며 맞혀 보는 것을 막는다.
+  // 남이 이 횟수를 채우면 그동안 관리자도 로그인 화면에서 막힌다(이미 로그인한 관리자 세션 12시간은 그대로) — 한도를 넉넉히 둔 까닭이다.
+  const adminWide = await recordAuthAccountWideAttempt(env, request, "/login", "admin", false, "관리자 로그인");
+  if (adminWide.unavailable) return htmlResponse(renderServerLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", returnTo), 503);
+  if (!adminWide.allowed) {
     return htmlResponse(renderServerLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", returnTo), 429, { "retry-after": "900" });
   }
   let passwordOk = false;
@@ -14327,7 +14385,8 @@ async function handleAdminLogin(request, env) {
     return htmlResponse(renderServerLoginHtml(env, "비밀번호가 맞지 않습니다.", returnTo), 401);
   }
   await recordAuthAttempt(env, request, "/login", true);
-  await recordAuthAttempt(env, request, "/login", true, { scope: "account", key: trafficClientIp(request) + "|admin" });
+  await recordAuthAttempt(env, request, "/login", true, { scope: "account", key: adminIpKey });
+  await recordAuthAccountWideAttempt(env, request, "/login", "admin", true);
   try {
     const session = await makeAdminSession(env);
     return redirectResponse(returnTo, {
@@ -45555,17 +45614,24 @@ async function handleMyLocalLogin(request, env) {
   const attempt = await recordAuthAttempt(env, request, "/my/local-login", false, {scope:"subject-client",key:clientSubject});
   if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
   if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
-  // V22.9.26: 로그인 이름 단위로도 센다. 클라이언트 키는 User-Agent 를 바꾸면 비껴가지만
-  // 계정 단위 횟수는 어디서 보내든 같은 계정이면 함께 줄어든다.
-  const accountKey = trafficClientIp(request) + "|" + normalizeLocalLoginName(nickname);
+  // V22.9.26: 로그인 이름 단위로도 센다. 클라이언트 키는 User-Agent 를 바꾸면 비껴간다. 이 키는 주소(V22.9.118: IPv6 는 /64)와
+  // 로그인 이름의 묶음이라 주소를 바꾸면 새로 센다 — 예전 주석의 ‘어디서 보내든 같은 계정이면 함께 줄어든다’ 는 바로 아래 횟수가 한다(V22.9.118 S-1).
+  const accountKey = authAttemptNetwork(request) + "|" + normalizeLocalLoginName(nickname);
   const accountAttempt = await recordAuthAttempt(env, request, "/my/local-login", false, { scope: "account", key: accountKey, limit: boundedRuntimeNumber(env.AUTH_ACCOUNT_RATE_LIMIT, 10, 3, 50) });
   if (accountAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
   if (!accountAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "이 로그인 이름으로 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
+  // V22.9.118 S-1: IP 와 무관한 로그인 이름 전체 횟수(한도·이벤트는 recordAuthAccountWideAttempt). 다른 로그인 이름의 횟수와는 섞이지 않는다.
+  // 남이 채우면 그 이름의 비밀번호 로그인만 잠시 막힌다(카카오 로그인은 그대로).
+  const loginName = normalizeLocalLoginName(nickname);
+  const nameAttempt = await recordAuthAccountWideAttempt(env, request, "/my/local-login", loginName, false, "로그인 이름");
+  if (nameAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
+  if (!nameAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "이 로그인 이름으로 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
   try {
     const user = await ensureLocalLoginUser(env, nickname, accessCode);
     if (!user?.id) return htmlResponse(renderUserLoginHtml(env, "로그인 이름 또는 비밀번호가 맞지 않습니다. 처음이라면 새 계정 만들기를 이용하세요.", loginReturnTo), 401);
     await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"subject-client",key:clientSubject});
     await recordAuthAttempt(env, request, "/my/local-login", true, { scope: "account", key: accountKey });
+    await recordAuthAccountWideAttempt(env, request, "/my/local-login", loginName, true);
     let location = loginReturnTo || "/my";
     if (inviteCode) {
       const joined = await joinHouseholdByCode(env, user.id, inviteCode);
@@ -45582,6 +45648,8 @@ async function handleMyLocalLogin(request, env) {
       await consentStateCookieFor(env, user.id),
     ]);
   } catch (err) {
+    // 처리 오류는 틀린 비밀번호로 세지 않으려고 이 주소의 횟수를 지운다. IP 와 무관한 전체 횟수(V22.9.118 S-1)는 지우지 않는다 —
+    // 오류를 일으킬 수 있는 사람이 모든 주소의 횟수를 지우지 못하게(차려면 한도(기본 50)만큼 틀려야 해서 정상 사용자에게는 영향이 없다).
     await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"subject-client",key:clientSubject});
     await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"account",key:accountKey});
     const missingSecret = /USER_SESSION_SECRET/.test(safeError(err));
@@ -46974,11 +47042,15 @@ async function handleMyConsent(request, env) {
 //
 // 지금은 이렇게 연다(로그인 뒤 화면 /my·/app·/m·/my/* 의 GET 페이지 이동):
 //  · botUserKey·botGroupKey 가 둘 다 있고, 그 방에 이어진 가계부가 있고, botUserKey 의 ‘원래 채팅 계정’(users.kakao_user_key 가 그대로 같고 통합되지
-//    않은 행)이 그 가계부를 읽을 수 있는 구성원이면 로그인 화면 없이 그 계정 세션을 만들고 그 방 가계부 홈(/app?household_id=…)으로 보낸다. 승인 대기면
+//    않은 행)이 그 가계부를 읽을 수 있는 구성원이고 강한 식별(카카오 로그인·로그인 이름 비밀번호)이 붙지 않은 계정이면 로그인 화면 없이 그 계정 세션을
+//    만들고 그 방 가계부 홈(/app?household_id=…)으로 보낸다. 승인 대기면
 //    /my 상태 화면이다. 안내 확인 기록이 없으면 ab_cs=0 이라 홈 맨 위에 약관 안내 띠가 뜬다(V22.9.104 L-3 팝업 → V22.9.114 띠).
 //  · 웹 계정에 이어진 사람(별칭 skill_identity: 나 계정 통합으로 찾은 계정)에게는 주소 값으로 세션을 주지 않는다(독립 검토 P2-1: 만료·폐기 없는 값이
 //    웹 계정의 다른 가계부·관리자 권한까지 여는 일을 막는다). 세션이 없으면 그 방 가계부 주소로만 보내 인앱 자동 로그인(V22.9.91, 화면 없음)이 그
 //    계정으로 로그인하게 한다.
+//  · V22.9.118 S-2: 원래 채팅 행이라도 강한 식별(accountbook_user_identities 행 — 카카오 로그인·로그인 이름 비밀번호)이 붙은 계정은 웹 계정과 같아
+//    위와 똑같이 한다(결과 strong_account·strong_other_session). 계정 잇기(V22.9.91·117)는 방 기록 계정을 주 계정으로 합치고 강한 식별 행을 그쪽으로
+//    옮긴다(운영 함수 accountbook_merge_users_v227) — raw 만 보면 잇기를 마친 사람의 주소 값이 만료 없이 그 사람의 모든 가계부를 열었다(점검 2026-11-12).
 //  · 하나라도 안 맞으면 카카오 값을 뺀 같은 주소로 보내고, 그 뒤는 V22.9.104 그대로(인앱 자동 로그인 → 시작 팝업)다.
 //  · 로그인 뒤 화면이 아닌 곳(공개 문서·글·안내·로그아웃·계정 잇기)은 값만 지운다(검토 P2-2: 값이 붙은 주소가 화면에 남아 복사·공유되지 않게).
 //    라우터가 공개 문서·후원·공지 처리보다 먼저 부른다.
@@ -47000,7 +47072,7 @@ const KAKAO_ROOM_OPEN_CRAWLER = /kakaotalk-scrap|facebookexternalhit|facebot|twi
 const KAKAO_ROOM_OPEN_ADMISSION_LIMIT = 60;
 const KAKAO_ROOM_OPEN_PROBE_PREFIX = "kakao_room_open_probe_v229105:";
 const KAKAO_ROOM_OPEN_PROBE_MS = 10 * 60 * 1000;
-const KAKAO_ROOM_OPEN_OK = new Set(["ok", "switched", "same_session", "member_session", "linked_account"]);
+const KAKAO_ROOM_OPEN_OK = new Set(["ok", "switched", "same_session", "member_session", "linked_account", "strong_account"]);
 const KAKAO_ROOM_OPEN_HEADERS = { "referrer-policy": "no-referrer" };
 const AB_KAKAO_ROOM_OPEN_PROBE = globalThis.__AB_KAKAO_ROOM_OPEN_PROBE || (globalThis.__AB_KAKAO_ROOM_OPEN_PROBE = new Map());
 
@@ -47043,6 +47115,18 @@ async function kakaoRoomOpenIdentity(env, botUserKey = "") {
   const user = raw.length && effectiveId === sourceId ? raw[0] : await fetchUserById(env, effectiveId);
   if (!user?.id || kakaoRoomOpenMergedLooking(user)) return null;
   return { userId: String(user.id), raw: raw.length === 1 && effectiveId === sourceId };
+}
+
+// V22.9.118 S-2: 이 계정에 강한 식별(카카오 로그인·로그인 이름 비밀번호)이 붙어 있는지(읽기 한 번). 읽지 못하면 던져서 열지 않는다(lookup_failed).
+// 옛 링크 표 별칭(kakao_login:·local_web:)만 붙은 계정은 보지 않는다 — 전역 링크 표(사용자마다 커지는 한 줄 JSON)를 단추를 누를 때마다 읽게 되어서다.
+// kakao_login: 별칭은 그 카카오 계정으로 웹에 처음 로그인할 때 강한 식별 행이 되고(findUserByKakaoLoginId), local_web: 별칭으로는 지금 로그인할 수
+// 없다(로그인 이름 로그인은 강한 식별만 본다). 남는 틈은 별칭만 있고 아직 웹으로 한 번도 로그인하지 않은 계정이다.
+async function kakaoRoomOpenHasStrongIdentity(env, userId = "") {
+  const uid = String(userId || "").trim();
+  if (!uid) throw new Error("room_open_identity_missing");
+  const rows = await supabase(env, `/rest/v1/accountbook_user_identities?user_id=eq.${encodeURIComponent(uid)}&select=provider&limit=1`, { method: "GET" });
+  if (!Array.isArray(rows)) throw new Error("room_open_identity_invalid");
+  return rows.length > 0;
 }
 
 function kakaoRoomOpenProbe(env, ctx, result = "", detail = "") {
@@ -47110,6 +47194,9 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     if (!identity.raw) return current ? finish("linked_other_session", plain) : finish("linked_account", home);
     // 다른 계정 세션을 누른 사람으로 바꾸는 것은 앱에서 바로 연 이동(Sec-Fetch-Site: none)일 때만이다.
     if (current && String(request.headers.get("sec-fetch-site") || "").toLowerCase() !== "none") return finish("session_kept", plain);
+    // V22.9.118 S-2: 강한 식별이 붙은 채팅 계정도 웹 계정에 이어진 사람과 같이 세션을 주지 않는다(R-6 의 뜻). 세션이 없으면 그 방 가계부 주소로만
+    // 보내 인앱 자동 로그인이 그 카카오 계정으로 로그인하게 하고, 다른 계정 세션이면 그대로 둔다.
+    if (await kakaoRoomOpenHasStrongIdentity(env, identity.userId)) return current ? finish("strong_other_session", plain) : finish("strong_account", home);
     const token = await makeUserSession(env, identity.userId);
     const cookies = [
       `ab_user=${encodeURIComponent(token)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
