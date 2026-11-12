@@ -36,7 +36,9 @@ import { activeSpenderExists, getTransactionForUserEdit } from "../my/transactio
 import { purgeHouseholdData, removeMemberAlias } from "../my/households-lifecycle.js";
 import { budgetAlertText, fetchBudgets } from "../domain/budgets.js";
 import { renderTxEditSuggestionLists, renderV8TxEditForm } from "../my/home-sections.js";
-import { isUncertainStorageWrite } from "../kakao/response-builders.js";
+import {
+  isKakaoRequestUniqueConflictV229119, isUncertainStorageWrite,
+} from "../kakao/response-builders.js";
 import {
   clearKakaoSelectedHousehold, getKakaoSelectedHouseholdId,
 } from "../kakao/household-budget-commands.js";
@@ -618,7 +620,8 @@ async function handleAdminUpdateTransaction(request, env) {
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_update_failed", severity: "warn", path: "/admin/transactions/update", method: "POST", detail: safeError(err) });
     // V22.9.80 T-12: 환불 연결 보호 트리거가 막은 수정은 ‘수정하지 못했다’가 아니라 이유별 코드로 돌려보낸다(formatMessage 표).
-    const message = isUncertainStorageWrite(err) ? "edit_unknown" : refundLinkLockedCode(err) || "record_update_failed";
+    // V22.9.119 O-1 후속(독립 검토 G): 운영 유니크 인덱스(같은 날·같은 문장·같은 금액의 내 카카오 기록)가 거절한 수정은 다시 해도 같다.
+    const message = isUncertainStorageWrite(err) ? "edit_unknown" : refundLinkLockedCode(err) || (isKakaoRequestUniqueConflictV229119(err) ? "record_same_kakao_text" : "record_update_failed");
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: message }), { err: message }));
   } finally {
     if (lease) await releaseOperationLease(env, lease);

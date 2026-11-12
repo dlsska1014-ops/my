@@ -24,7 +24,9 @@ import {
   canManageMyRecord, canWriteMyHousehold, getMySelectedHousehold, memberRecordChangeError,
   myReturnLocation,
 } from "./access-control.js";
-import { isUncertainStorageWrite } from "../kakao/response-builders.js";
+import {
+  isKakaoRequestUniqueConflictV229119, isUncertainStorageWrite,
+} from "../kakao/response-builders.js";
 import { KAKAO_TX_SELECT_V4 } from "../kakao/edit-session-v4.js";
 import { supabase } from "../data/supabase-client.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
@@ -247,7 +249,9 @@ async function handleMyUpdateTransaction(request, env) {
     // V22.9.79 D-5: 환불과 연결된 기록의 종류·금액·환급 분류·날짜를 바꾸면 DB 트리거(refund_link_guard_v22979)가 막는다.
     // V22.9.80 T-12: 트리거가 알려 준 이유(종류·금액·환급 분류·날짜)별 코드로 돌려보낸다. 이유를 모르면 refund_link_locked.
     const refundLocked = refundLinkLockedCode(err);
-    return redirectResponse(myReturnLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : refundLocked || "record_update_failed" }));
+    // V22.9.119 O-1 후속(독립 검토 G): 카카오 기록의 날짜·금액·구분을 바꿔 같은 날·같은 문장·같은 금액의 내 카카오 기록이 둘이 되면 운영 유니크
+    // 인덱스가 거절한다. 다시 해도 같으므로 ‘새로고침 후 다시 시도’(record_update_failed) 대신 그 사실을 알린다.
+    return redirectResponse(myReturnLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : refundLocked || (isKakaoRequestUniqueConflictV229119(err) ? "record_same_kakao_text" : "record_update_failed") }));
   }
 }
 

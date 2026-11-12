@@ -188,6 +188,13 @@ const REPORT_CRON_PAGE_V22994 = 20;
 const REPORT_CRON_ROW_BUDGET_V22994 = 2000;
 const REPORT_CRON_CATCHUP_DAYS_V22994 = 7;
 
+// V22.9.119 O-3: 한 실행 예산을 50 보다 크게 잡으면(라우터가 __AB_DB_BUDGET_BASE_V229119 에 적는다) 한 실행에 읽는 기록 행 상한(2000)을 같은 비율로
+// 키운다. 가계부 수는 이미 저장소 호출 예산(hardLimit − 3)으로 정해져 예산을 따라 커진다. 표식이 없으면(기본 50) 1 이라 지금 값 그대로다.
+function reportCronScaleV229119(env = {}) {
+  const base = Number(env?.__AB_DB_BUDGET_BASE_V229119);
+  return Number.isFinite(base) && base > 50 && base <= 900 ? base / 50 : 1;
+}
+
 function reportNowIsoV22994() { return new Date(qaFixedNowMs()).toISOString(); }
 function reportIsWeekEndV22994(ymd = "") { return weekdayIndexOfYmd(ymd) === 0; }
 function reportIsMonthEndV22994(ymd = "") { return ymdShift(ymd, 1).slice(8, 10) === "01"; }
@@ -310,6 +317,7 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
   const hardLimit = Number(budget.limit);
   const softLimit = hardLimit - REPORT_CRON_RESERVE_V22994;
   const room = (calls) => Number(budget.used || 0) + calls <= softLimit;
+  const rowBudget = Math.floor(REPORT_CRON_ROW_BUDGET_V22994 * reportCronScaleV229119(env));
   const runnable = (scope) => (scope.final === true ? scope.date < invocationDate : scope.date <= invocationDate);
   const totals = { scanned: 0, generated: 0, skipped: 0, invalid: 0, failed: 0 };
   const event = (kind, detail) => rememberOpsEvent({ kind, severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail });
@@ -355,7 +363,7 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
         if (item.disabled) { totals.skipped++; scope.after = item.key; continue; }
         const work = final ? item.jobs.filter((job) => !reportSnapshotFinalV22994(values.get(job.key), scope.date)) : item.jobs;
         if (work.length) {
-          if (touched && rows >= REPORT_CRON_ROW_BUDGET_V22994) { stop = "rows"; return false; }
+          if (touched && rows >= rowBudget) { stop = "rows"; return false; }
           if (!room(work.length * 2)) { stop = "budget"; return false; }
         }
         let skipped = item.jobs.length ? item.jobs.length - work.length : 1;

@@ -347,7 +347,8 @@ await fixture(async (fx) => {
 
 // ── N-18-A: 실행 기록은 최근 14번, 새것이 앞, 정해진 칸과 짧은 코드만, 가계부 id·사람·금액이 없다 ──────────────
 const ALLOWED = {
-  entry: ["started_at", "finished_at", "status", "version", "recurring", "reports", "cleanup", "errors"],
+  // V22.9.119 후속 2: 그 실행이 쓴 DB 호출 상한 db_budget(CRON_DB_CALL_BUDGET, 없거나 50~900 정수 밖이면 50) 한 칸이 더해졌다(validate-ops-hardening-v229119 가 값을 본다).
+  entry: ["started_at", "finished_at", "status", "version", "db_budget", "recurring", "reports", "cleanup", "errors"],
   recurring: ["households", "rules_seen", "scanned", "applied", "deduplicated", "skipped", "failed", "remaining", "pages", "report_rebuilt", "report_rebuild_pending", "report_rebuild_deferred", "partial", "more", "skipped_run", "partial_reason", "checked_date", "error"],
   reports: ["scanned", "generated", "skipped", "invalid", "failed", "pending_scopes", "partial", "skipped_run", "error"],
   // V22.9.95 R-12: 정리 단계에 감사 기록 정리 칸 셋(지운 수·묶음 수·더 남았는지)이 더해졌다(validate-v22995-data 가 값을 본다).

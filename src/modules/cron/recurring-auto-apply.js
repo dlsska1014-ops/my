@@ -213,6 +213,14 @@ const RECURRING_CRON_SELECT = "id,household_id,type,amount,category,memo,payment
 const RECURRING_REPORT_REBUILDS = 2;
 const RECURRING_REPORT_QUEUE_MAX = 300;
 
+// V22.9.119 O-3: 한 실행 예산을 50 보다 크게 잡으면(CRON_DB_CALL_BUDGET·DB_CALL_BUDGET → 라우터가 __AB_DB_BUDGET_BASE_V229119 에 적는다) 이 단계의
+// 한 실행 상한(저장소 호출 몫 30·읽는 쪽 4·스냅숏 다시 만들기 2)을 같은 비율로 키운다. 표식이 없으면(기본 50) 1 이라 지금 값 그대로다.
+// 쪽 크기·묶음 크기·다음 쪽을 읽을 여유(5)·잠금·커서·재개 방식은 그대로다.
+function recurringCronScaleV229119(env = {}) {
+  const base = Number(env?.__AB_DB_BUDGET_BASE_V229119);
+  return Number.isFinite(base) && base > 50 && base <= 900 ? base / 50 : 1;
+}
+
 function recurringCronLastDay(month = "") {
   return new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
 }
@@ -483,7 +491,11 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   const previousMonth = addMonthsYm(currentMonth, -1);
   const previousMonthEnd = recurringDateForMonth(previousMonth, 31);
   const used = () => Number(env.__AB_DB_BUDGET?.used || 0);
-  const room = (calls) => used() + calls <= RECURRING_CRON_DB_CAP;
+  const scale = recurringCronScaleV229119(env);
+  const dbCap = Math.floor(RECURRING_CRON_DB_CAP * scale);
+  const pageCap = Math.floor(RECURRING_CRON_PAGES * scale);
+  const rebuildCap = Math.floor(RECURRING_REPORT_REBUILDS * scale);
+  const room = (calls) => used() + calls <= dbCap;
   const stats = { scanned: 0, applied: 0, deduplicated: 0, skipped: 0, failed: 0 };
   const touched = new Set();
   const members = new Map();
@@ -729,7 +741,7 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
       if (!full) { phase.end = true; break; }
       // 꽉 찬 쪽인데 자리 뒤 규칙이 없으면 저장소가 자리를 무시한 것이다. 같은 쪽을 되풀이해 읽지 않는다.
       if (!items.length) { phase.stop = "error"; stats.failed++; report(`${phase.month}:page_not_advanced`, "recurring_page_failed"); break; }
-      if (pagesRead >= RECURRING_CRON_PAGES) { phase.stop = "page_cap"; break; }
+      if (pagesRead >= pageCap) { phase.stop = "page_cap"; break; }
       if (!room(RECURRING_CRON_PAGE_ROOM)) { phase.stop = "budget"; break; }
       after = phase.lastKey;
       try {
@@ -762,7 +774,7 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     const reserve = 2;
     // V22.9.94 C-10: 예약 실행은 확인한 스냅숏이 그대로일 때만 바꾼다(conditional). 기록을 읽은 뒤 실행 밖 요청이 그 자리에서 새로
     // 만들었으면 덮지 않고 그 항목을 대기에 남긴다. 예전에는 먼저 읽은 옛 기록으로 덮었다.
-    const outcome = await rebuildMonthlyReportSnapshots(env, recurringReportEntries(reportQueue), { limit: RECURRING_REPORT_REBUILDS, canSpend: (calls) => room(calls + reserve), conditional: true });
+    const outcome = await rebuildMonthlyReportSnapshots(env, recurringReportEntries(reportQueue), { limit: rebuildCap, canSpend: (calls) => room(calls + reserve), conditional: true });
     stats.failed += outcome.failed;
     reportRebuilt = outcome.rebuilt;
     const before = reportQueue;
@@ -1043,10 +1055,13 @@ function normalizeScheduledRun(entry = {}) {
   if (reports && !reports.error && entry.reports.pending_scopes == null) delete reports.pending_scopes;
   const cleanup = scheduledRunCleanupStageV22995(entry.cleanup);
   const version = typeof entry.version === "string" && /^V[0-9A-Za-z._-]{1,47}$/.test(entry.version) ? entry.version : "";
+  // V22.9.119 O-3 후속 2: 그 실행이 쓴 DB 호출 상한(CRON_DB_CALL_BUDGET, 없거나 잘못된 값이면 50). 이 칸이 없던 예전 기록은 그대로(칸 없음).
+  const dbBudget = scheduledRunCount(entry.db_budget);
   return {
     started_at: startedAt, finished_at: time(entry.finished_at) || startedAt,
     status: ["ok", "partial", "error"].includes(entry.status) ? entry.status : "error",
     ...(version ? { version } : {}),
+    ...(dbBudget ? { db_budget: dbBudget } : {}),
     ...(recurring ? { recurring } : {}), ...(reports ? { reports } : {}), ...(cleanup ? { cleanup } : {}),
     errors: safeArray(entry.errors).slice(0, 6).map(scheduledRunCode),
   };

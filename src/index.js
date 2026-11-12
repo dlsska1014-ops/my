@@ -1901,11 +1901,38 @@ async function opsUsageWithCronV22994(request, env) {
   return jsonResponse({ ...body, cron }, response.status);
 }
 
+// V22.9.119 O-3·O-5: 요청 한 번(DB_CALL_BUDGET)·예약 실행 한 번(CRON_DB_CALL_BUDGET)의 저장소 호출 예산. 변수가 없거나 50~900 의 정수가 아니면
+// 50 이다(지금까지의 고정값 = Workers Free 의 한 실행 하위 요청 한도). boundedRuntimeNumber 만 쓰면 범위 밖 값이 끝값(5000 → 900, 10 → 50)으로
+// 당겨지는데, 잘못 넣은 값이 큰 예산이 되지 않게 범위 밖은 기본값 50 으로 둔다. Workers Paid 로 바꾼 뒤에만 올린다(Free 에서 50 을 넘기면 하위
+// 요청이 플랫폼 한도에서 실패한다). 50 이 아니면 __AB_DB_BUDGET_BASE_V229119 에 예산을 적어 예약 실행 단계의 한 실행 상한이 같은 비율로 커진다.
+// 후속(독립 검토 D): 변수가 있는데 잘못된 값(범위 밖·정수 아님)이면 50 으로 두되 조용히 넘어가지 않고 운영 이벤트 db_call_budget_invalid(warn)를
+// 격리 공간마다 변수·값 한 쌍에 한 번 남긴다(감사 보존 일수 audit_retention_days_invalid 와 같은 방식, 값은 40자까지). 없거나 빈 글자는 기본값이라 알리지 않는다.
+const DB_CALL_BUDGET_DEFAULT_V229119 = 50;
+const DB_CALL_BUDGET_MAX_V229119 = 900;
+const DB_CALL_BUDGET_INVALID_SEEN_V229119 = new Set();
+function dbCallBudgetV229119(value, name = "DB_CALL_BUDGET") {
+  const raw = value === undefined || value === null ? "" : String(value).trim();
+  if (!raw) return DB_CALL_BUDGET_DEFAULT_V229119;
+  const parsed = /^\d{1,4}$/.test(raw) ? Number(raw) : NaN;
+  if (parsed >= DB_CALL_BUDGET_DEFAULT_V229119 && parsed <= DB_CALL_BUDGET_MAX_V229119) return parsed;
+  const seen = `${name}=${raw.slice(0, 40)}`;
+  if (!DB_CALL_BUDGET_INVALID_SEEN_V229119.has(seen)) {
+    DB_CALL_BUDGET_INVALID_SEEN_V229119.add(seen);
+    rememberOpsEvent({ kind: "db_call_budget_invalid", severity: "warn", path: "/config", method: name === "CRON_DB_CALL_BUDGET" ? "SCHEDULED" : "FETCH", detail: `${seen} default:${DB_CALL_BUDGET_DEFAULT_V229119}` });
+  }
+  return DB_CALL_BUDGET_DEFAULT_V229119;
+}
+
+function dbCallBudgetBaseV229119(budget) {
+  return budget === DB_CALL_BUDGET_DEFAULT_V229119 ? {} : { __AB_DB_BUDGET_BASE_V229119: budget };
+}
+
 const ACCOUNTBOOK_WORKER = {
   async fetch(request, env, ctx) {
     scrubPrototypePollution("fetch:start");
     const monitoring = abMonitorRequestContext(request, env);
-    const requestEnv = { ...env, ...(monitoring ? { __AB_MONITOR_REQUEST: monitoring } : {}), __AB_REQUEST_USER_ROWS: new Map(), __AB_IDENTITY_CONFIRMED: new Map(), __AB_MEMBER_POLICY: new Map(), __AB_DB_BUDGET: {used: 0, limit: 50} };
+    const requestDbBudget = dbCallBudgetV229119(env?.DB_CALL_BUDGET, "DB_CALL_BUDGET");
+    const requestEnv = { ...env, ...(monitoring ? { __AB_MONITOR_REQUEST: monitoring } : {}), __AB_REQUEST_USER_ROWS: new Map(), __AB_IDENTITY_CONFIRMED: new Map(), __AB_MEMBER_POLICY: new Map(), __AB_DB_BUDGET: {used: 0, limit: requestDbBudget}, ...dbCallBudgetBaseV229119(requestDbBudget) };
     if (new URL(request.url).pathname === "/skill") requestEnv.__AB_KAKAO_REQUEST = { settings: new Map(), afterReply: [], messageLeases: [], createdUsers: new Set(), enabled: false };
     const routed = rememberedHouseholdRequest(request);
     try {
@@ -3169,11 +3196,14 @@ const ACCOUNTBOOK_WORKER = {
     scrubPrototypePollution("scheduled:start");
     // V22.9.78 N-18: 실행 요약 기록(읽기·저장 SCHEDULED_RUN_LOG_CALLS 회) 몫을 남겨 두고 세 단계를 돈다. 기록은 마지막에 50회 한도로 쓴다.
     // V22.9.95 R-12: 감사 기록 정리 몫(AUDIT_RETENTION_CALLS_V22995)도 처음부터 떼어 두었다가 정리 단계에서 푼다(리포트 단계가 다 쓰지 않게).
-    env = { ...env, __AB_DB_BUDGET: { used: 0, limit: 50 - SCHEDULED_RUN_LOG_CALLS - AUDIT_RETENTION_CALLS_V22995 } };
+    // V22.9.119 O-3: 한 실행 예산은 CRON_DB_CALL_BUDGET(없거나 범위 밖이면 50 = 지금 그대로). 떼어 두는 몫·푸는 순서는 같다.
+    const cronBudget = dbCallBudgetV229119(env?.CRON_DB_CALL_BUDGET, "CRON_DB_CALL_BUDGET");
+    env = { ...env, __AB_DB_BUDGET: { used: 0, limit: cronBudget - SCHEDULED_RUN_LOG_CALLS - AUDIT_RETENTION_CALLS_V22995 }, ...dbCallBudgetBaseV229119(cronBudget) };
     ctx.waitUntil((async () => {
       // V22.9.26: 세 단계를 각각 격리한다. 예전에는 정기지출 단계(가계부 목록 조회)가 던지면
       // 자동 리포트와 NLU 보존 정리가 통째로 건너뛰었다. 오류는 모두 실행한 뒤 다시 던진다.
-      const run = { started_at: new Date(qaFixedNowMs()).toISOString(), errors: [] };
+      // V22.9.119 O-3 후속 2(재검토 P3): 이 실행이 쓴 DB 호출 상한을 실행 기록에 남긴다(db_budget) — 변수를 넣은 다음 날 기록에서 값이 먹었는지 본다.
+      const run = { started_at: new Date(qaFixedNowMs()).toISOString(), db_budget: cronBudget, errors: [] };
       let firstError = null;
       try {
         const recurringResult = await runRecurringAutoApply(env);
@@ -3201,14 +3231,14 @@ const ACCOUNTBOOK_WORKER = {
         rememberOpsEvent({ kind: "nlu_retention_error", severity: "warn", path: "/cron/nlu-retention", method: "SCHEDULED", detail: safeError(nluErr) });
       }
       // V22.9.95 R-12: 같은 정리 단계에서 오래된 거래 변경 감사 기록을 지운다. 떼어 둔 몫을 풀고 부른다. 던지지 않고, 실패는 정리 오류(partial)다.
-      env.__AB_DB_BUDGET.limit = 50 - SCHEDULED_RUN_LOG_CALLS;
+      env.__AB_DB_BUDGET.limit = cronBudget - SCHEDULED_RUN_LOG_CALLS;
       const auditCleanup = await cleanupTransactionAuditRetentionV22995(env);
       run.cleanup = mergeScheduledCleanupV22995(run.cleanup, auditCleanup);
       if (auditCleanup.error) run.errors.push(`cleanup:${auditCleanup.error}`);
       rememberOpsEvent({ kind: "scheduled", severity: "info", path: "/cron/recurring/apply", method: "SCHEDULED", detail: firstError ? "recurring auto apply + free reports + nlu retention completed with errors" : "recurring auto apply + free reports + nlu retention completed" });
       // N-18: 아래에서 던질 실행은 error, 단계 하나라도 덜 끝났거나 정리가 실패하면 partial. 기록 저장은 실패해도 던지지 않는다.
       run.status = firstError ? "error" : (run.recurring?.ok === false || run.reports?.ok === false || run.cleanup?.error) ? "partial" : "ok";
-      env.__AB_DB_BUDGET.limit = 50;
+      env.__AB_DB_BUDGET.limit = cronBudget;
       await recordScheduledRun(env, run);
       // V22.9.37(관제): 가계부 5개·구독 2개 단위의 부분 처리(partial)는 정상 동작이라 던지지 않는다(매일 "실패"로 보이던 소음).
       // 내부에서 잡아 failed 로 집계한 저장소 오류와 실제 예외는 Workers Logs 에 남기고 다시 던진다.
@@ -14969,7 +14999,8 @@ async function handleAdminUpdateTransaction(request, env) {
   } catch (err) {
     rememberOpsEvent({ kind: "transaction_update_failed", severity: "warn", path: "/admin/transactions/update", method: "POST", detail: safeError(err) });
     // V22.9.80 T-12: 환불 연결 보호 트리거가 막은 수정은 ‘수정하지 못했다’가 아니라 이유별 코드로 돌려보낸다(formatMessage 표).
-    const message = isUncertainStorageWrite(err) ? "edit_unknown" : refundLinkLockedCode(err) || "record_update_failed";
+    // V22.9.119 O-1 후속(독립 검토 G): 운영 유니크 인덱스(같은 날·같은 문장·같은 금액의 내 카카오 기록)가 거절한 수정은 다시 해도 같다.
+    const message = isUncertainStorageWrite(err) ? "edit_unknown" : refundLinkLockedCode(err) || (isKakaoRequestUniqueConflictV229119(err) ? "record_same_kakao_text" : "record_update_failed");
     return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: message }), { err: message }));
   } finally {
     if (lease) await releaseOperationLease(env, lease);
@@ -30563,6 +30594,14 @@ const RECURRING_CRON_SELECT = "id,household_id,type,amount,category,memo,payment
 const RECURRING_REPORT_REBUILDS = 2;
 const RECURRING_REPORT_QUEUE_MAX = 300;
 
+// V22.9.119 O-3: 한 실행 예산을 50 보다 크게 잡으면(CRON_DB_CALL_BUDGET·DB_CALL_BUDGET → 라우터가 __AB_DB_BUDGET_BASE_V229119 에 적는다) 이 단계의
+// 한 실행 상한(저장소 호출 몫 30·읽는 쪽 4·스냅숏 다시 만들기 2)을 같은 비율로 키운다. 표식이 없으면(기본 50) 1 이라 지금 값 그대로다.
+// 쪽 크기·묶음 크기·다음 쪽을 읽을 여유(5)·잠금·커서·재개 방식은 그대로다.
+function recurringCronScaleV229119(env = {}) {
+  const base = Number(env?.__AB_DB_BUDGET_BASE_V229119);
+  return Number.isFinite(base) && base > 50 && base <= 900 ? base / 50 : 1;
+}
+
 function recurringCronLastDay(month = "") {
   return new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)), 0).getDate();
 }
@@ -30833,7 +30872,11 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
   const previousMonth = addMonthsYm(currentMonth, -1);
   const previousMonthEnd = recurringDateForMonth(previousMonth, 31);
   const used = () => Number(env.__AB_DB_BUDGET?.used || 0);
-  const room = (calls) => used() + calls <= RECURRING_CRON_DB_CAP;
+  const scale = recurringCronScaleV229119(env);
+  const dbCap = Math.floor(RECURRING_CRON_DB_CAP * scale);
+  const pageCap = Math.floor(RECURRING_CRON_PAGES * scale);
+  const rebuildCap = Math.floor(RECURRING_REPORT_REBUILDS * scale);
+  const room = (calls) => used() + calls <= dbCap;
   const stats = { scanned: 0, applied: 0, deduplicated: 0, skipped: 0, failed: 0 };
   const touched = new Set();
   const members = new Map();
@@ -31079,7 +31122,7 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
       if (!full) { phase.end = true; break; }
       // 꽉 찬 쪽인데 자리 뒤 규칙이 없으면 저장소가 자리를 무시한 것이다. 같은 쪽을 되풀이해 읽지 않는다.
       if (!items.length) { phase.stop = "error"; stats.failed++; report(`${phase.month}:page_not_advanced`, "recurring_page_failed"); break; }
-      if (pagesRead >= RECURRING_CRON_PAGES) { phase.stop = "page_cap"; break; }
+      if (pagesRead >= pageCap) { phase.stop = "page_cap"; break; }
       if (!room(RECURRING_CRON_PAGE_ROOM)) { phase.stop = "budget"; break; }
       after = phase.lastKey;
       try {
@@ -31112,7 +31155,7 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     const reserve = 2;
     // V22.9.94 C-10: 예약 실행은 확인한 스냅숏이 그대로일 때만 바꾼다(conditional). 기록을 읽은 뒤 실행 밖 요청이 그 자리에서 새로
     // 만들었으면 덮지 않고 그 항목을 대기에 남긴다. 예전에는 먼저 읽은 옛 기록으로 덮었다.
-    const outcome = await rebuildMonthlyReportSnapshots(env, recurringReportEntries(reportQueue), { limit: RECURRING_REPORT_REBUILDS, canSpend: (calls) => room(calls + reserve), conditional: true });
+    const outcome = await rebuildMonthlyReportSnapshots(env, recurringReportEntries(reportQueue), { limit: rebuildCap, canSpend: (calls) => room(calls + reserve), conditional: true });
     stats.failed += outcome.failed;
     reportRebuilt = outcome.rebuilt;
     const before = reportQueue;
@@ -31393,10 +31436,13 @@ function normalizeScheduledRun(entry = {}) {
   if (reports && !reports.error && entry.reports.pending_scopes == null) delete reports.pending_scopes;
   const cleanup = scheduledRunCleanupStageV22995(entry.cleanup);
   const version = typeof entry.version === "string" && /^V[0-9A-Za-z._-]{1,47}$/.test(entry.version) ? entry.version : "";
+  // V22.9.119 O-3 후속 2: 그 실행이 쓴 DB 호출 상한(CRON_DB_CALL_BUDGET, 없거나 잘못된 값이면 50). 이 칸이 없던 예전 기록은 그대로(칸 없음).
+  const dbBudget = scheduledRunCount(entry.db_budget);
   return {
     started_at: startedAt, finished_at: time(entry.finished_at) || startedAt,
     status: ["ok", "partial", "error"].includes(entry.status) ? entry.status : "error",
     ...(version ? { version } : {}),
+    ...(dbBudget ? { db_budget: dbBudget } : {}),
     ...(recurring ? { recurring } : {}), ...(reports ? { reports } : {}), ...(cleanup ? { cleanup } : {}),
     errors: safeArray(entry.errors).slice(0, 6).map(scheduledRunCode),
   };
@@ -32307,6 +32353,13 @@ const REPORT_CRON_PAGE_V22994 = 20;
 const REPORT_CRON_ROW_BUDGET_V22994 = 2000;
 const REPORT_CRON_CATCHUP_DAYS_V22994 = 7;
 
+// V22.9.119 O-3: 한 실행 예산을 50 보다 크게 잡으면(라우터가 __AB_DB_BUDGET_BASE_V229119 에 적는다) 한 실행에 읽는 기록 행 상한(2000)을 같은 비율로
+// 키운다. 가계부 수는 이미 저장소 호출 예산(hardLimit − 3)으로 정해져 예산을 따라 커진다. 표식이 없으면(기본 50) 1 이라 지금 값 그대로다.
+function reportCronScaleV229119(env = {}) {
+  const base = Number(env?.__AB_DB_BUDGET_BASE_V229119);
+  return Number.isFinite(base) && base > 50 && base <= 900 ? base / 50 : 1;
+}
+
 function reportNowIsoV22994() { return new Date(qaFixedNowMs()).toISOString(); }
 function reportIsWeekEndV22994(ymd = "") { return weekdayIndexOfYmd(ymd) === 0; }
 function reportIsMonthEndV22994(ymd = "") { return ymdShift(ymd, 1).slice(8, 10) === "01"; }
@@ -32429,6 +32482,7 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
   const hardLimit = Number(budget.limit);
   const softLimit = hardLimit - REPORT_CRON_RESERVE_V22994;
   const room = (calls) => Number(budget.used || 0) + calls <= softLimit;
+  const rowBudget = Math.floor(REPORT_CRON_ROW_BUDGET_V22994 * reportCronScaleV229119(env));
   const runnable = (scope) => (scope.final === true ? scope.date < invocationDate : scope.date <= invocationDate);
   const totals = { scanned: 0, generated: 0, skipped: 0, invalid: 0, failed: 0 };
   const event = (kind, detail) => rememberOpsEvent({ kind, severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail });
@@ -32474,7 +32528,7 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
         if (item.disabled) { totals.skipped++; scope.after = item.key; continue; }
         const work = final ? item.jobs.filter((job) => !reportSnapshotFinalV22994(values.get(job.key), scope.date)) : item.jobs;
         if (work.length) {
-          if (touched && rows >= REPORT_CRON_ROW_BUDGET_V22994) { stop = "rows"; return false; }
+          if (touched && rows >= rowBudget) { stop = "rows"; return false; }
           if (!room(work.length * 2)) { stop = "budget"; return false; }
         }
         let skipped = item.jobs.length ? item.jobs.length - work.length : 1;
@@ -35849,7 +35903,9 @@ async function handleMyUpdateTransaction(request, env) {
     // V22.9.79 D-5: 환불과 연결된 기록의 종류·금액·환급 분류·날짜를 바꾸면 DB 트리거(refund_link_guard_v22979)가 막는다.
     // V22.9.80 T-12: 트리거가 알려 준 이유(종류·금액·환급 분류·날짜)별 코드로 돌려보낸다. 이유를 모르면 refund_link_locked.
     const refundLocked = refundLinkLockedCode(err);
-    return redirectResponse(myReturnLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : refundLocked || "record_update_failed" }));
+    // V22.9.119 O-1 후속(독립 검토 G): 카카오 기록의 날짜·금액·구분을 바꿔 같은 날·같은 문장·같은 금액의 내 카카오 기록이 둘이 되면 운영 유니크
+    // 인덱스가 거절한다. 다시 해도 같으므로 ‘새로고침 후 다시 시도’(record_update_failed) 대신 그 사실을 알린다.
+    return redirectResponse(myReturnLocation(month, selected.id, { err: isUncertainStorageWrite(err) ? "db_write_unknown" : refundLocked || (isKakaoRequestUniqueConflictV229119(err) ? "record_same_kakao_text" : "record_update_failed") }));
   }
 }
 
@@ -48397,6 +48453,8 @@ function formatMessageText(msg) {
     household_role_check_failed: "권한을 확인하지 못해 아무것도 바꾸지 않았습니다. 잠시 후 다시 시도해 주세요.",
     // V22.9.80 T-34: 기록 입력·수정·삭제 거절의 이유(역할별)와 홈 구성·표시 설정의 가계부 범위 거절. 예전에는 자유 문장을 주소에 실어 보내
     // 이 표가 모르는 글이라 ‘입력값을 확인한 뒤 다시 시도해 주세요’로 닫혔다(조회 전용·이용 제한이 입력 오류처럼 보였다).
+    // V22.9.119 O-1 후속(독립 검토 G): 웹 수정이 운영 유니크 인덱스(같은 날·같은 문장·같은 금액의 내 카카오 기록)에 걸렸을 때. 다시 해도 같다.
+    record_same_kakao_text: "같은 날·같은 문장·같은 금액의 카카오 기록이 이미 있어 바꾸지 못했습니다. 기존 기록은 그대로입니다.",
     write_denied_viewer: "조회 전용 권한이라 기록을 추가·수정·삭제할 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.",
     write_denied_pending: "참여 승인을 기다리는 중이라 기록을 바꿀 수 없습니다. 관리자가 승인하면 사용할 수 있어요.",
     write_denied_blocked: "이 가계부의 이용이 제한되어 기록을 바꿀 수 없습니다. 소유자에게 확인해 주세요.",
@@ -49167,6 +49225,146 @@ function kakaoSaveFailedText(origin = "") {
     "",
     "가계부 저장소가 요청을 거절해 이번 내용은 기록되지 않았어요.",
     "잠시 후 같은 내용을 다시 보내 주세요.",
+  ].join("\n");
+}
+
+// V22.9.119 O-1: 운영 DB 에만 있는 유니크 인덱스 transactions_kakao_request_unique_idx(같은 가계부·같은 카카오 사용자 키·같은 날·같은 구분·같은 금액·
+// 같은 문장, source='kakao_skill'; 2026-11-10 운영 스키마 덤프)가 저장·수정을 거절했는가. 이 거절은 그날 몇 번 다시 보내도 같아서 ‘잠시 후 다시’ 가 틀린
+// 안내다. PostgREST 오류 JSON 은 값이 든 details 가 인덱스 이름이 든 message 보다 앞이라, 문장이 길면 supabase() 가 자른 오류 글에서 이름이 빠질 수
+// 있다. 그래서 details 앞쪽의 칸 목록으로도 알아본다(운영 스키마에서 이 칸 목록의 유니크 인덱스는 이것 하나다). 인덱스를 지우면(검토용 SQL
+// migrations/V22_9_119_DROP_KAKAO_REQUEST_UNIQUE_REVIEW_ONLY.sql) 이 거절은 생기지 않고 둘째 기록이 저장된다.
+const KAKAO_REQUEST_UNIQUE_INDEX_V229119 = "transactions_kakao_request_unique_idx";
+const KAKAO_REQUEST_UNIQUE_COLUMNS_V229119 = "(household_id, source_user_key, transaction_date, type, amount, raw_text)=(";
+function isKakaoRequestUniqueConflictV229119(err) {
+  for (let current = err, depth = 0; current && depth < 8; current = current.cause, depth += 1) {
+    const text = String(current?.message || "");
+    if (/^Supabase 409\b/.test(text) && /\b23505\b/.test(text)
+      && (text.includes(KAKAO_REQUEST_UNIQUE_INDEX_V229119) || text.includes(KAKAO_REQUEST_UNIQUE_COLUMNS_V229119))) return true;
+  }
+  return false;
+}
+
+// V22.9.119 O-1 후속(독립 검토 C·E): 다시 보낼 예시는 고정 문장이 아니라 걸린 그 문장 끝에 ‘두 번째’ 를 붙여 만든다(이미 ‘두 번째’·‘세 번째’ …
+// 로 끝나면 다음 차례, ‘열 번째’ 다음은 예시 없음). 예시를 저장 경로와 같은 파서로 한 번 읽어(DB 요청 없음) 한 건·같은 날짜·같은 금액·같은
+// 구분일 때만 보인다 — 그대로 보내면 그 기록이 저장된다는 뜻이다. 60자를 넘거나 주소 꼴이 든 문장은 예시 없이 방법만 말한다.
+const KAKAO_SAME_TEXT_ORDINALS_V229119 = ["두", "세", "네", "다섯", "여섯", "일곱", "여덟", "아홉", "열"];
+const KAKAO_SAME_TEXT_EXAMPLE_MAX_V229119 = 60;
+// 후속 2(재검토 P2): 저장하는 원문(raw_text)은 300자에서 잘린다(카카오 저장·별도 구매). 290자 이상 문장은 끝에 덧붙인 말이 잘려 같은 문장이 되므로
+// (그대로 따르면 다시 거절) 문장 앞에 덧붙이라고 하고, 끝에 ‘두 번째’ 를 붙인 예시는 내지 않는다.
+const KAKAO_SAME_TEXT_LONG_V229119 = 290;
+function kakaoSameTextLongV229119(rows = []) {
+  return (Array.isArray(rows) ? rows : [rows]).some((row) => String(row?.raw_text ?? "").length >= KAKAO_SAME_TEXT_LONG_V229119);
+}
+function kakaoExampleParsesAsV229119(example = "", item = {}) {
+  let parsed = null;
+  try { parsed = parseMultipleTransactions(example, {}); } catch (_) { return false; }
+  const one = Array.isArray(parsed) && !parsed.blocked && parsed.length === 1 ? parsed[0] : null;
+  const kind = (value) => (value === "income" ? "income" : "expense");
+  return !!one && String(one.transaction_date || "") === String(item?.transaction_date || "") && Number(one.amount) === Number(item?.amount)
+    && kind(one.type) === kind(item?.type);
+}
+function kakaoSameTextExampleV229119(item = {}) {
+  const base = String(item?.raw_text ?? "").replace(/\s+/g, " ").trim();
+  if (!base || /:\/\/|www\./i.test(base)) return "";
+  const ordinal = base.match(/^(.*\S)\s+(두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*번째$/);
+  const next = ordinal ? KAKAO_SAME_TEXT_ORDINALS_V229119[KAKAO_SAME_TEXT_ORDINALS_V229119.indexOf(ordinal[2]) + 1] : "두";
+  if (!next) return "";
+  const example = `${ordinal ? ordinal[1] : base} ${next} 번째`;
+  if (example.length > KAKAO_SAME_TEXT_EXAMPLE_MAX_V229119) return "";
+  return kakaoExampleParsesAsV229119(example, item) ? example : "";
+}
+
+// 후속 2(재검토 P2): 날짜 수정 예시는 원문이 아니라 기록 칸(메모·금액·구분)과 바꿀 날짜로 만든다(‘11월 10일 버스 1500원 두 번째’). 원문에 ‘어제’ 같은
+// 날짜 말이 있으면 앞에 날짜를 붙여도 파서가 그 말을 먼저 읽어 다른 날로 저장됐다. 위와 같은 파서가 한 건·그 날짜·그 금액·그 구분으로 읽을 때만
+// 쓴다(수입은 ‘받음’ 을 넣은 꼴도 본다). 못 만들면 빈 값 — 답은 방법 문장 없이 사실만 말한다.
+function kakaoDateEditExampleV229119(row = {}, date = "") {
+  const amount = Number(row?.amount);
+  if (!date || !Number.isSafeInteger(amount) || amount <= 0) return "";
+  const memo = String(row?.memo ?? "").replace(/\s+/g, " ").trim().replace(/(?:^|\s+)(?:두|세|네|다섯|여섯|일곱|여덟|아홉|열)\s*번째$/, "");
+  const base = `${kakaoEditDayPrefixV4(date)}${memo ? `${memo} ` : ""}${amount}원`;
+  for (const example of row?.type === "income" ? [`${base} 두 번째`, `${base} 받음 두 번째`] : [`${base} 두 번째`]) {
+    if (example.length > KAKAO_SAME_TEXT_EXAMPLE_MAX_V229119 || /:\/\/|www\./i.test(example)) continue;
+    if (kakaoExampleParsesAsV229119(example, { transaction_date: date, amount, type: row?.type })) return example;
+  }
+  return "";
+}
+
+// V22.9.119 O-1: 그 인덱스 때문에 저장하지 않았을 때의 답. 아무것도 새로 저장하지 않았고(여러 건이면 한 건도) 대기 표식·잠금도 남기지 않았다.
+// items: [{ transaction_date, type, amount, raw_text, existing, repeated }] — 입력 순서, 같은 문장은 한 번. existing = 이미 저장된 같은 기록이 있음,
+// repeated = 이번에 보낸 글 안에 같은 문장이 두 번 이상. 답 글에 주소를 넣지 않는다.
+// 후속(독립 검토 A): skipped = 같은 글 안에서 120초 중복으로 건너뛴 내용(이미 가계부에 있다, 이번 요청은 그 행을 건드리지 않았다). 예전 답은 이것을
+// 말하지 않고 ‘N건은 하나도 저장하지 않았어요 … 문장을 바꿔 전체를 다시’ 라고 해, 따르면 건너뛴 기록이 두 번 저장됐다. 이제 건너뛴 내용을 따로
+// 적고 ‘새로 저장한 것은 없어요’ 로 시작하며, 다시 보낼 때 건너뛴 내용은 빼라고 한다.
+// 후속 2(재검토 P2·P3): long = 걸린 문장(모르면 이번에 보낸 문장) 가운데 290자 이상이 있음 → ‘문장 앞에’, 예시 없음. 걸린 문장이 둘 이상이면
+// ‘걸린 문장마다’, 한 글 안에서 같은 문장을 두 번 쓴 것이면 ‘둘 중 하나에만’(예전 ‘그 문장 끝에’ 는 어느 문장·몇 줄을 바꿀지 몰라 따르면 다시 거절됐다).
+function kakaoSameTextExistsTextV229119(items = [], total = 1, skipped = [], options = {}) {
+  const list = Array.isArray(items) ? items : [];
+  const skippedList = Array.isArray(skipped) ? skipped : [];
+  const kinds = new Set(list.map((item) => (item?.type === "income" ? "income" : "expense")));
+  const word = kinds.size === 1 ? (kinds.has("income") ? "수입" : "지출") : "기록";
+  const long = options?.long === true || kakaoSameTextLongV229119(list);
+  const where = long ? "앞에" : "끝에";
+  const example = list.length && !long ? kakaoSameTextExampleV229119(list[0]) : "";
+  const exampleText = example ? ` 예: ‘${example}’` : "";
+  const day = (date) => kakaoEditDayPrefixV4(date).trim();
+  if (total <= 1 && !skippedList.length) {
+    const date = list[0]?.transaction_date || "";
+    return [
+      "이번 내용은 저장하지 않았어요.",
+      day(date) ? `${day(date)} 기록 중에 같은 문장으로 저장한 기록이 이미 있어요.` : "오늘 같은 문장으로 저장한 기록이 이미 있어요.",
+      `같은 ${word}이 한 번 더 있었다면 문장 ${where} 낱말을 하나 덧붙여 다시 보내 주세요.${exampleText}`,
+    ].join("\n");
+  }
+  // 보낸 문장 그대로 인용한다(‘어제 커피 4500’ 처럼 날짜 말이 문장에 들어 있어 날짜를 앞에 더 붙이지 않는다).
+  const quote = (item) => `‘${String(item?.raw_text || "").replace(/\s+/g, " ").trim().slice(0, 30)}’`;
+  const listed = (rows) => `${rows.slice(0, 3).map(quote).join(", ")}${rows.length > 3 ? ` 외 ${rows.length - 3}개` : ""}`;
+  const existing = list.filter((item) => item?.existing);
+  const repeated = list.filter((item) => !item?.existing && item?.repeated);
+  const target = existing.length + repeated.length >= 2
+    ? `걸린 문장마다${repeated.length ? "(같은 문장이 두 번이면 둘 중 하나에만)" : ""} ${where}`
+    : repeated.length ? `같은 문장 둘 중 하나에만, 문장 ${where}` : `그 문장 ${where}`;
+  return [
+    skippedList.length ? "이번에 새로 저장한 것은 없어요." : `이번에 보낸 ${total}건은 하나도 저장하지 않았어요.`,
+    ...(skippedList.length ? [`이미 저장돼 있어 건너뛴 내용: ${listed(skippedList)}`] : []),
+    ...(existing.length ? [`같은 날 같은 문장으로 이미 저장한 기록이 있는 내용: ${listed(existing)}`] : []),
+    ...(repeated.length ? [`이번에 보낸 글 안에 같은 문장이 두 번 있는 내용: ${listed(repeated)}`] : []),
+    ...(!existing.length && !repeated.length ? [`${skippedList.length ? "나머지 중에" : "그중에"} 같은 날 같은 문장으로 이미 저장한 기록이 있는 내용이 있어요.`] : []),
+    skippedList.length
+      ? `같은 ${word}이 한 번 더 있었다면 건너뛴 내용은 빼고, ${target} 낱말을 하나 덧붙여 다시 보내 주세요.${exampleText}`
+      : `같은 ${word}이 한 번 더 있었다면 ${target} 낱말을 하나 덧붙여 전체를 다시 보내 주세요.${exampleText}`,
+  ].join("\n");
+}
+
+// V22.9.119 O-1: 카카오 수정(날짜·금액·구분을 바꾸는 수정)이 같은 인덱스에 걸렸을 때. 기록은 그대로다(DB 가 UPDATE 를 거절했다).
+// 후속(독립 검토 E): 날짜 수정이면 다시 보낼 문장에 그 날짜가 있어야 한다(날짜 없이 보내면 오늘로 저장된다). 금액·구분 수정은 예전 문장 그대로다.
+// 후속 2(재검토 P2): 날짜 수정 예시는 기록 칸으로 만든 문장(kakaoDateEditExampleV229119)이고, 그 문장을 보내라고 직접 말한다. 예시를 못 만들면
+// 방법 문장(예전: ‘날짜를 넣고 문장 끝에 낱말을 …’ — 원문에 ‘어제’ 가 있으면 따라 보낸 문장이 다른 날로 저장됐다)을 내지 않고 사실 두 줄만 말한다.
+function kakaoEditSameTextTextV229119(entryNo = "", row = {}, patch = {}) {
+  const date = String(patch?.transaction_date || row?.transaction_date || "");
+  const day = kakaoEditDayPrefixV4(date).trim();
+  const word = String(patch?.type || row?.type || "") === "income" ? "수입" : "지출";
+  const dateEdit = !!patch?.transaction_date && String(patch.transaction_date) !== String(row?.transaction_date || "")
+    && patch?.amount === undefined && patch?.type === undefined;
+  const facts = [
+    `${entryNo}번 기록을 바꾸지 않았어요. 기록은 그대로예요.`,
+    `${day ? `${day} 기록 중에` : "오늘"} 같은 문장·같은 금액으로 저장한 기록이 이미 있어서 바꿀 수 없어요.`,
+  ];
+  if (!dateEdit) return [...facts, `서로 다른 ${word}이라면 이 기록을 지우고 문장을 조금 바꿔 다시 보내 주세요.`].join("\n");
+  const example = kakaoDateEditExampleV229119(row, date);
+  return (example ? [...facts, `서로 다른 ${word}이라면 이 기록을 지우고 이 문장으로 다시 보내 주세요: ‘${example}’`] : facts).join("\n");
+}
+
+// V22.9.119 O-1 후속(독립 검토 B): 120초 중복 답이 권하는 ‘별도 구매 추가 <원문>’ 은 원래 기록과 같은 날·같은 문장으로 넣으므로, 인덱스가 있는 동안
+// 확정(INSERT)이 늘 23505 로 거절된다. 예전 답(‘저장소가 요청을 거절해 … 같은 확인 식별자로만 다시 시도해 주세요’)은 다시 해도 같은 길을 권했다.
+// 후속 2(재검토 P2): 290자 이상 문장은 위 규칙대로 ‘문장 앞에’, 예시 없음.
+function kakaoSeparateSameTextTextV229119(row = {}) {
+  const income = row?.type === "income";
+  const long = kakaoSameTextLongV229119([row]);
+  const example = long ? "" : kakaoSameTextExampleV229119(row);
+  return [
+    `별도 ${income ? "기록을" : "구매를"} 추가하지 않았어요. 새 기록은 저장하지 않았어요.`,
+    "같은 날 같은 문장은 한 번 더 저장되지 않아요.",
+    `${income ? "따로 들어온 돈이라면" : "서로 다른 구매라면"} ‘별도 ${income ? "기록" : "구매"} 추가’ 없이 문장 ${long ? "앞에" : "끝에"} 낱말을 하나 덧붙여 보내 주세요.${example ? ` 예: ‘${example}’` : ""}`,
   ].join("\n");
 }
 
@@ -51631,6 +51829,12 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     if (isUncertainStorageWrite(err)) {
       return { reply: `수정 결과를 확인하지 못했어요.\n같은 명령을 다시 보내기 전에 ‘${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기’로 바뀌었는지 먼저 확인해 주세요.`, nextSession: null };
     }
+    // V22.9.119 O-1: 날짜·금액·구분을 바꾸면 그 날짜에 같은 문장·같은 금액의 내 카카오 기록이 둘이 되어 운영 DB 의 유니크 인덱스가 거절했다
+    // (‘수정 01번 날짜 어제’ 처럼 전날 같은 문장이 있을 때). 기록은 그대로이고 다시 보내도 같으므로 ‘잠시 후 다시’ 라고 하지 않는다.
+    if (isKakaoRequestUniqueConflictV229119(err)) {
+      rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: `edit:${field}` });
+      return { reply: kakaoEditSameTextTextV229119(session.entryNo, row, patch), nextSession: null };
+    }
     // V22.9.80 T-12: 환불과 연결된 기록은 연결 보호 트리거가 막는다. 다시 보내도 같으므로 이유와 풀 곳을 알린다.
     const lockedReason = refundLinkLockedReason(err);
     if (lockedReason) return { reply: refundLinkLockedKakaoText(session.entryNo, lockedReason), nextSession: null };
@@ -52031,6 +52235,17 @@ async function handleKakaoEditCommandV4(env, ctx) {
             // T4: 결과를 모르거나 같은 id 가 이미 있으면 다시 넣지 않고 id 로 확인한다. id 를 뺀 재삽입은 중복을 만든다.
             if (!body.id || (!isUncertainStorageWrite(err) && !isUniqueConstraintError(err))) return { kind: "failed", undo, error: err };
             restored = await getKakaoRowById(env, targetHouseholdId, user.id, kakaoUserKey, body.id);
+            // V22.9.119 O-1 후속(독립 검토 B): 같은 id 가 아니라 같은 날·같은 문장·같은 금액의 다른 내 카카오 기록 때문에 운영 유니크 인덱스가 거절했다.
+            // 다시 보내도 같으므로 ‘잠시 후 다시’ 가 아니라 그 사실을 답한다(복구 목록은 그대로 둔다).
+            // 후속 2(재검토 P3): 이 기록이 목록에 남아 번호 없는 ‘복구’ 는 늘 이 기록을 고른다. 번호를 붙이면 다른 기록이 골라지는 번호(위 고르기 규칙으로
+            // 그 번호의 첫 기록이 이 가계부의 다른 기록인 것, 최대 셋)를 답에 알린다. 같은 번호의 앞 기록이 이 기록이면 그 번호는 알리지 않는다.
+            if (!restored && isKakaoRequestUniqueConflictV229119(err)) {
+              const seqs = [...new Set(items.map((item) => Number(item?.seq || 0)).filter((seq) => seq >= 1))].filter((seq) => {
+                const pick = items.filter((item) => Number(item?.seq || 0) === seq).find(ownHousehold);
+                return !!pick && pick !== undo;
+              });
+              return { kind: "same_text_exists", undo, error: err, otherSeqs: seqs.slice(0, 3) };
+            }
             if (!restored) return { kind: "failed", undo, error: err };
           }
         }
@@ -52053,6 +52268,16 @@ async function handleKakaoEditCommandV4(env, ctx) {
       const ownHint = outcome.ownSeq ? `\n지금 가계부에서 지운 기록은 ‘복구 ${twoDigitSeq(outcome.ownSeq)}번’으로 되살릴 수 있어요.` : "";
       // V22.9.81 U-13: 번호 없이 지운 기록(번호를 몰랐던 ‘방금 삭제’)은 ‘복구 00번’이 아니라 ‘복구’로 안내한다.
       return kakaoText(`이 기록은 ‘${outcome.undo.household_name || "다른 가계부"}’에서 지웠어요. 지금 가계부(‘${household.name || "가계부"}’)에는 되살리지 않았어요.\n그 가계부에서 다시 ‘${Number(outcome.undo.seq || 0) >= 1 ? `복구 ${twoDigitSeq(Number(outcome.undo.seq))}번` : "복구"}’을 보내 주세요.${ownHint}`);
+    }
+    if (outcome.kind === "same_text_exists") {
+      rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: "restore" });
+      const otherSeqs = Array.isArray(outcome.otherSeqs) ? outcome.otherSeqs : [];
+      return kakaoText([
+        "같은 내용의 기록이 이미 있어 복구하지 않았어요.",
+        `복구하려던 기록: ${kakaoRowLabel(outcome.undo.row, outcome.undo.seq)}`,
+        `‘${kakaoEditDayPrefixV4(outcome.undo.row?.transaction_date) || "오늘 "}기록 보기’로 같은 내용의 기록을 확인해 주세요.`,
+        ...(otherSeqs.length ? [`이 기록은 복구 목록에 남아 있어요. 다른 삭제 기록은 ${otherSeqs.map((seq) => `‘복구 ${twoDigitSeq(seq)}번’`).join("·")}으로 되살릴 수 있어요.`] : []),
+      ].join("\n"));
     }
     if (outcome.kind !== "restored") {
       const lastError = outcome.error;
@@ -54933,6 +55158,13 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   } : undefined;
   try { savedRows = await insertKakaoTransactions(env, rowsToInsert, { messageLeaseHeld:true, fingerprint: messageKey, pendingWrite, pendingWriteExists, pendingWriteEmptyValue, readCandidates, assertFresh:()=>{assertFresh?.();assertSettingsLeaseFresh(messageLease);}, onConfirmed:cleanup => deferKakaoAfterReply(env, cleanup) }); }
   catch (err) {
+    // V22.9.119 O-1: 같은 날 같은 문장의 내 기록이 이미 있어 운영 DB 의 유니크 인덱스가 거절했다. 저장소 오류가 아니라 그날은 다시 보내도 같으므로
+    // ‘잠시 후 다시’ 대신 무엇을 저장하지 않았고 어느 내용이 이미 있는지, 어떻게 보내면 저장되는지 답한다(운영 이벤트도 오류가 아닌 안내로 남긴다).
+    if (err?.kakao_same_text_exists === true) {
+      const skippedItems = err.kakao_same_text_skipped || [];
+      rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: `items:${err.kakao_same_text_items.length}/${limitedParsedList.length} skipped:${skippedItems.length}` });
+      return kakaoText(kakaoSameTextExistsTextV229119(err.kakao_same_text_items, limitedParsedList.length, skippedItems, { long: err.kakao_same_text_long === true }));
+    }
     // V22.9.26: 저장소가 분명한 실패(4xx·5xx)를 돌려줬으면 저장된 것이 없다. 그때는 "다시 보내지
     // 말라"가 아니라 다시 보내 달라고 해야 기록이 사라지지 않는다. 응답 없이 끊긴 경우(시간
     // 초과·네트워크)만 저장 여부가 불확실하므로 예전 안내를 유지한다.
@@ -55186,6 +55418,13 @@ async function insertKakaoTransactions(env, rows, options = {}) {
       if (/_before_dispatch\b/.test(`${err?.code || ""} ${err?.message || ""}`)) throw await unsent(err);
       if (!isUncertainStorageWrite(err)) {
         if (isDefiniteStorageFailure(err)) await clearKakaoConfirmedPendingWrite(env,cleanRows[0].household_id,cleanRows[0].user_id,finalMarker).catch(()=>{});
+        // V22.9.119 O-1: 운영 유니크 인덱스(같은 날·같은 문장)가 거절했다. 확실히 저장되지 않았다(문장 전체가 실패, 표식은 위에서 지웠다).
+        // ‘결과 불확실’ 도 ‘저장소 오류’ 도 아니므로 어느 내용이 이미 있는지 담은 오류로 바꿔 올린다(답은 saveKakaoParsedTransactionsReply).
+        // 후속(독립 검토 A): 같은 글 안에서 120초 중복으로 건너뛴 내용(이미 저장된 행)도 입력 문장으로 함께 싣는다(DB 요청 없음).
+        if (isKakaoRequestUniqueConflictV229119(err)) {
+          const skipped = resolved.flatMap((row, index) => (row.__duplicate_skipped ? [{ raw_text: cleanRows[index].raw_text, transaction_date: cleanRows[index].transaction_date, type: cleanRows[index].type, amount: cleanRows[index].amount }] : []));
+          throw await kakaoSameTextConflictErrorV229119(env, err, fresh, skipped);
+        }
         throw err;
       }
       let found = [];
@@ -55214,6 +55453,43 @@ async function insertKakaoTransactions(env, rows, options = {}) {
     const actual = byId.get(String(row.id)) || row;
     return actual.__duplicate_skipped ? { ...actual, __input_raw_text: cleanRows[index].raw_text } : actual;
   });
+}
+
+// V22.9.119 O-1: 운영 유니크 인덱스(household_id, source_user_key, transaction_date, type, amount, raw_text)가 INSERT 를 거절했을 때, 이번에 보낸 행 가운데
+// 어느 것이 걸렸는지 정리한다. 한 건이면 그 한 건이 이미 있는 기록과 겹친 것이다(조회 없음). 여러 건이면 DB 는 처음 걸린 하나만 알려 주므로, 같은 날짜의
+// 내 카카오 기록을 한 번 읽어(이 실패 경로에서만 +1회) 겹친 것을 모두 찾고, 이번 글 안에서 같은 문장이 두 번 나온 것도 따로 표시한다. 읽기에 실패하면
+// 글 안의 겹침만 표시한다(답은 ‘그중에 이미 있는 내용이 있어요’). 저장 동작(건별로 나눠 넣기 등)은 바꾸지 않는다 — 이번 요청은 아무것도 저장하지 않았다.
+// skipped(후속, 독립 검토 A): 120초 중복으로 건너뛴 입력 — 답이 ‘이미 저장돼 있어 건너뛴 내용’ 으로 따로 적는다.
+async function kakaoSameTextConflictErrorV229119(env, err, fresh = [], skipped = []) {
+  const keyOf = (row) => JSON.stringify([String(row.transaction_date), row.type === "income" ? "income" : "expense", Number(row.amount), String(row.raw_text ?? "")]);
+  const counts = new Map();
+  for (const row of fresh) counts.set(keyOf(row), (counts.get(keyOf(row)) || 0) + 1);
+  let stored = null;
+  if (fresh.length === 1) stored = new Set([keyOf(fresh[0])]);
+  else if (fresh.length > 1) {
+    try {
+      const params = new URLSearchParams({
+        select: "transaction_date,type,amount,raw_text", household_id: `eq.${fresh[0].household_id}`, source: "eq.kakao_skill",
+        source_user_key: `eq.${fresh[0].source_user_key}`, transaction_date: `in.(${[...new Set(fresh.map((row) => row.transaction_date))].join(",")})`, limit: "1000",
+      });
+      const rows = await supabase(env, `/rest/v1/transactions?${params}`, { method: "GET" });
+      if (Array.isArray(rows)) stored = new Set(rows.map(keyOf));
+    } catch (_) { stored = null; }
+  }
+  const items = [];
+  const listed = new Set();
+  for (const row of fresh) {
+    const key = keyOf(row);
+    if (listed.has(key)) continue;
+    const existing = !!stored && stored.has(key);
+    const repeated = (counts.get(key) || 0) > 1;
+    if (!existing && !repeated) continue;
+    listed.add(key);
+    items.push({ transaction_date: row.transaction_date, type: row.type, amount: row.amount, raw_text: row.raw_text, existing, repeated });
+  }
+  // 후속 2(재검토 P2): 걸린 문장 가운데 290자 이상이 있으면(조회 실패로 어느 문장인지 모르면 이번에 보낸 문장 가운데) 답이 ‘문장 앞에’ 라고 한다.
+  const long = kakaoSameTextLongV229119(stored ? items : fresh);
+  return Object.assign(new Error(`kakao_same_text_exists: ${safeError(err)}`, { cause: err }), { kakao_same_text_exists: true, kakao_same_text_items: items, kakao_same_text_skipped: Array.isArray(skipped) ? skipped : [], kakao_same_text_long: long });
 }
 
 function kakaoPendingWriteKey(householdId, userId) {
@@ -55436,6 +55712,11 @@ async function handleKakaoSeparatePurchase(env, context) {
         } catch (error) {
           state.state=isDefiniteStorageFailure(error)?"failed":"unknown";
           await saveKakaoSeparateState(env,key,state,assertFresh).catch(()=>{});
+          // V22.9.119 O-1 후속(독립 검토 B): 운영 유니크 인덱스(같은 날·같은 문장)가 거절했으면 같은 확인으로 다시 해도 같다. 사실과 보낼 문장을 말한다.
+          if (state.state === "failed" && isKakaoRequestUniqueConflictV229119(error)) {
+            rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: "separate" });
+            return kakaoText(kakaoSeparateSameTextTextV229119(state.row));
+          }
           if (state.state === "failed") return kakaoText("저장소가 요청을 거절해 별도 구매를 추가하지 못했어요. 같은 확인 식별자로만 다시 시도해 주세요.");
         }
         const saved=await findTransactionForRequest(env,state.row);
@@ -56098,6 +56379,15 @@ async function handleUserGoals(request, env, url) {
   }
 }
 
+// V22.9.119 O-1 후속 2(재검토 P3): 카카오 기록의 날짜·금액·구분을 바꿔 같은 날·같은 문장·같은 금액의 내 카카오 기록이 둘이 되면 운영 유니크 인덱스
+// (transactions_kakao_request_unique_idx)가 거절한다(일괄 수정 함수는 한 트랜잭션이라 아무것도 바뀌지 않는다). 예전에는 처리하지 못한 오류(500 ‘잠시 후
+// 다시 시도해 주세요’)로 나갔다 — 다시 해도 같으므로 웹 수정(/my/update)과 같은 코드·문장(record_same_kakao_text)의 409 로 답한다. 다른 오류는 그대로 던진다.
+function adminApiSameKakaoTextV229119(err, detail = "") {
+  if (!isKakaoRequestUniqueConflictV229119(err)) return null;
+  rememberOpsEvent({ kind: "transaction_update_failed", severity: "warn", path: "/api/transactions", method: "PATCH", detail: `record_same_kakao_text:${detail}` });
+  return jsonResponse({ ok: false, error: "record_same_kakao_text", reason: "record_same_kakao_text", message: formatMessageText("record_same_kakao_text") }, 409);
+}
+
 async function handleApi(request, env, url) {
   if (!isAdmin(request, env) && !(await verifyAdminSession(request, env))) {
     return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
@@ -56155,7 +56445,7 @@ async function handleApi(request, env, url) {
       outcome = await bulkUpdateSkippingRefundLocks(env, ids, householdIds[0], patch, { actorKind: "admin_api_bulk" });
     } catch (err) {
       const reason = refundLinkLockedReason(err);
-      if (!reason) throw err;
+      if (!reason) { const same = adminApiSameKakaoTextV229119(err, "batch"); if (same) return same; throw err; }
       return jsonResponse({ ok: false, error: "refund_link_locked", reason, message: "환불과 연결된 기록이 있어 아무것도 바꾸지 않았습니다. 연결은 정산 화면의 ‘환불·환급’에서 먼저 풀어 주세요.", ...(err.refundLinkSkipped ? { skipped: err.refundLinkSkipped } : {}) }, 409);
     }
     if (outcome.skipped.length) {
@@ -56184,7 +56474,7 @@ async function handleApi(request, env, url) {
     } catch (err) {
       // V22.9.80 T-12: 환불 연결 보호 트리거가 막은 수정은 일반 오류(500)가 아니라 이유와 함께 409 로 답한다.
       const reason = refundLinkLockedReason(err);
-      if (!reason) throw err;
+      if (!reason) { const same = adminApiSameKakaoTextV229119(err, "single"); if (same) return same; throw err; }
       return jsonResponse({ ok: false, error: "refund_link_locked", reason, message: "환불과 연결된 기록이라 이 변경은 저장하지 않았습니다. 정산 화면의 ‘환불·환급’에서 연결을 먼저 풀어 주세요." }, 409);
     }
     return jsonResponse({ ok: true, item: updated });
