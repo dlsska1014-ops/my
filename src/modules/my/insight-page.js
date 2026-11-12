@@ -65,7 +65,8 @@ async function handleMyAnalysisPage(request, env, url) {
   const historyRows = historyRaw.slice(0, 9000);
   const yearPrefix = `${month.slice(0, 4)}-`;
   const yearRows = historyRows.filter((row) => String(row.transaction_date || "").startsWith(yearPrefix));
-  const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows, rowsBase: ctx.rows });
+  // V22.9.119 N-2·N-6·N-9: 종합 리포트만 reportBasis 를 켠다 — 진행 중인 달의 ‘전월 대비’ 칸·분류 변화 표를 위 총 지출 카드와 같은 기간으로 견준다.
+  const extended = calculateExtendedAnalytics({ month, allRows: ctx.rows, prevRows, historyRows, yearRows, rowsBase: ctx.rows, reportBasis: true });
   extended.fairMoM = computeFairMoM(month, ctx.rows, prevRows);
   // V22.9.79: 정기 항목 목록을 못 읽으면 이미 등록한 항목까지 반복 후보로 보이므로 후보를 고르지 않는다(null: '확인 불가').
   const recurringCandidates = registeredRecurring ? detectRecurringCandidates(historyRows, month, registeredRecurring) : null;

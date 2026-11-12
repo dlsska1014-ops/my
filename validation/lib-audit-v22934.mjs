@@ -144,11 +144,40 @@ export function beforePrelaunchP1V229116(block) {
   return block;
 }
 
+// V22.9.119 (사용자 2026-11-12 전체 점검 개선 승인 — 리포트·분석 숫자와 문장 맞추기 N-1·N-2·N-4·N-9·N-13) changes renderMyAnalysisHtml
+// (종합 리포트, V2 §8 R3 보호 화면) in exactly seven places — sentences and expressions only, no layout (칸·순서·탭·필터·차트 그대로):
+// one local declaration (reportText = reportSectionText(...)), the two basis captions after the 총 지출·총 수입 deltas (N-1, 미리 적은 금액이 있을 때만),
+// the donut title/summary month name (N-13), the category-change section title/description/table call (N-2·N-9·N-13), the anomaly call options
+// (N-9·N-13) and the ‘고정비 점검’ tip renamed to match the ‘주거·통신·보험·구독’ cells (N-4). Reversing them keeps the whole-renderer hashes
+// (validate-ux-principles·validate-ads-gate-v22940·validate-polish-v22940·validate-d3-refund-guidance-v22958) guarding every other byte.
+export function beforeReportNumbersV229119(block) {
+  const reversals = [
+    ["  const reportText = reportSectionText(ext, fair, month, analysis);\n", ""],
+    ["${reportText.expenseBasis}", ""],
+    ["${reportText.incomeBasis}", ""],
+    [
+      "<summary>${escapeHtml(reportText.monthLabel)} 지출 구성 (도넛 차트)</summary><div><h2>${escapeHtml(reportText.monthLabel)} 지출 구성</h2>",
+      "<summary>이번 달 지출 구성 (도넛 차트)</summary><div><h2>이번 달 지출 구성</h2>",
+    ],
+    [
+      "<summary>${escapeHtml(reportText.compareTitle)}</summary><div><h2>${escapeHtml(reportText.compareTitle)}</h2><p class=\"muted\">${escapeHtml(reportText.compareDesc)}</p>${renderCategoryCompareTable(reportText.compareItems, true, reportText.compareLabels)}",
+      "<summary>전월 대비 분류 변화 TOP</summary><div><h2>전월 대비 분류 변화 TOP</h2><p class=\"muted\">지난달보다 크게 늘거나 줄어든 분류입니다.</p>${renderCategoryCompareTable(ext.categoryCompare, true)}",
+    ],
+    ["${renderAnomalyList(anomalies, reportText.anomaly)}", "${renderAnomalyList(anomalies)}"],
+    ["<div><b>주거·통신·보험·구독 점검</b><br/>", "<div><b>고정비 점검</b><br/>"],
+  ];
+  for (const [current, previous] of reversals) {
+    assert.equal(block.split(current).length - 1, 1, "V22.9.119 renderer exception must occur exactly once: " + current.slice(0, 80));
+    block = block.replace(current, () => previous);
+  }
+  return block;
+}
+
 // V22.9.54 changes only these two money expressions in renderMyAnalysisHtml.
 // Reversing them lets existing whole-renderer hashes keep guarding all other
 // bytes. Actual future-month output is covered by validate-bot-observation.
 export function beforeBotObservationRenderer(block) {
-  block = beforeDarkBudgetTable(beforeUiClarityV22983(beforeNumbersTrustV22989(block)));
+  block = beforeDarkBudgetTable(beforeUiClarityV22983(beforeNumbersTrustV22989(beforeReportNumbersV229119(block))));
   // V22.9.58 authorizes exactly two comparison spans and one local declaration.
   const reversals = [
     [

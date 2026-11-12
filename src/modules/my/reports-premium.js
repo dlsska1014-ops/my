@@ -43,7 +43,8 @@ import {
   buildWeeklyReport, detectRecurringCandidates, findAnomalousExpenses, renderAnomalyList,
 } from "../admin/pc-analysis-calendar.js";
 import {
-  addMonthsYm, calculateExtendedAnalytics, householdStartYmd, renderObservedMoney,
+  addMonthsYm, calculateExtendedAnalytics, householdStartYmd, livingReportBucket,
+  renderObservedMoney,
 } from "../domain/analytics.js";
 import { buildPremiumState } from "../features/meme-engine-premium.js";
 import { supabase } from "../data/supabase-client.js";
@@ -507,13 +508,8 @@ async function handleAutomaticReportCron(request, env, url) {
 const LIVING_REPORT_RANGES = new Set(["month", "week"]);
 const LIVING_REPORT_WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const LIVING_REPORT_SUBSCRIPTION = /구독|넷플릭스|유튜브|쿠팡와우|멜론|티빙|웨이브|디즈니|스포티파이|멤버십/;
-const LIVING_REPORT_GROCERY = /마트|장보기|시장|코스트코|트레이더스|이마트|홈플러스|식자재|슈퍼/;
-const LIVING_REPORT_BUCKETS = [
-  ["배달", /배달|배민|요기요|쿠팡이츠|치킨|피자|야식|족발|닭발/],
-  ["카페·간식", /카페|간식|커피|스타벅스|스벅|투썸|이디야|빽다방|메가커피|컴포즈|디저트/],
-  ["외식", /외식|식당|점심|저녁|아침|밥|분식|국밥|고기|회식|술|맥주|소주/],
-  ["쇼핑", /쇼핑|쿠팡|네이버쇼핑|무신사|올리브영|택배|구매|주문|옷|의류|신발|가방|화장품/],
-];
+// V22.9.119: 생활 패턴 묶음 규칙(livingReportBucket·LIVING_REPORT_BUCKETS·LIVING_REPORT_GROCERY)은 domain/analytics.js 로 옮겼다(규칙 그대로 —
+// 종합 리포트 ‘배달/외식’ 칸도 같은 함수를 쓰고, 모듈이 돌지 않게).
 
 function cardTargetsKey(householdId = "") {
   return `card_targets:${String(householdId || "").trim()}`.slice(0, 180);
@@ -624,16 +620,6 @@ function livingReportWeeks(month = currentMonthKst(), today = "") {
     weeks.push({ start, end, current: today >= start && today <= end, future: start > today });
   }
   return weeks;
-}
-
-function livingReportBucket(row = {}) {
-  const text = `${row.category || ""} ${row.memo || ""} ${row.raw_text || ""}`;
-  if (LIVING_REPORT_BUCKETS[0][1].test(text)) return "배달";
-  if (LIVING_REPORT_BUCKETS[1][1].test(text)) return "카페·간식";
-  if (LIVING_REPORT_GROCERY.test(text)) return "장보기";
-  if (LIVING_REPORT_BUCKETS[2][1].test(text)) return "외식";
-  if (LIVING_REPORT_BUCKETS[3][1].test(text)) return "쇼핑";
-  return "";
 }
 
 function buildLivingReport({ month = currentMonthKst(), range = "month", week = "", startedOn = "", historyRows = [], recurring = [], assets = [], targets = Object.create(null), reservePlans = [], historyAvailable = true, recurringAvailable = true, settingsAvailable = true, today = formatDate(nowKstDate()), refundDeductions = [], refundFailed = false } = {}) {

@@ -1,3 +1,6 @@
+// V22.9.119(2026-11-12, 리포트 숫자·문장 맞추기 N-13): 지난달 홈(homePrev, 9월)의 ‘가장 많이 쓴 곳이고 이번 달 지출의’ 가 ‘9월 지출의’ 로 바뀌었다. 해시 입력에서
+// 그 말만 되돌리면 옛 값 43ad9302… 그대로임을 먼저 확인했고, 그 뒤 --print-golden 으로 homePrev 한 값만 다시 얻었다. 나머지 24개는 그대로다.
+// M-7 소비 분석 요약 칸 라벨은 그릴 때의 오늘 기준이 되어, 그 줄만 시계를 이 장면의 오늘(TODAY)로 고정하고 예전 단언(‘이번 달 지출 · …’) 그대로 둔다.
 // V22.9.118 통합(2026-11-12, copy·ui·security 를 모으고 판 이름을 올림): 바탕 9a646eb 의 이 검사(옛 지문)를 해시 입력에서 판 이름만 앞 판으로 되돌리고, 통합 번들에서 위 ui 네 변경만
 // 옛 모양으로 되돌려 돌리면 251·268개가 모두 통과함을 먼저 확인했고(review-artifacts/v118-site-review-fixes-2026-11-12/claude-checks.md, 화면 원문 전후 대조 refund-textdiff.txt),
 // 그 뒤 --print-golden 으로 판 이름이 들어가는 analysis·backupFull·backupMonth 세 값만 다시 얻었다. copy·security 변경은 지문 화면에 닿지 않는다.
@@ -115,7 +118,7 @@ const SOFT = process.env.V22980_SOFT === "1";
 const FLAG_OFF_GOLDEN = {
   "home": "200 20f9536878db26ac79a3a548",
   "homeTrend": "200 02f7bd6b777077dce5ad5119",
-  "homePrev": "200 43ad9302fc2ce7cd55d3baad",
+  "homePrev": "200 e3a3b463296fe2dda9a8fd8f",
   "budgets": "200 180151a99b7d8b0d1484a608",
   "budgetAlerts": "200 7826103ec78c78e7869bbc37",
   "notifications": "200 df9761ab7204d02ba148aa42",
@@ -476,7 +479,9 @@ const digestScreens = (screens) => Object.fromEntries(Object.entries(screens).ma
   // M-7: 소비 분석 요약(지출·수입·예산 속도)
   const dashboard = await callAsync(challengeMod, "buildReportDashboardSummary", octRows, net || {}, MONTH, { outlook, refundDeductions: deductions });
   t.deepEq([dashboard?.expense, dashboard?.income, dashboard?.refund?.applied], [82000, 2000000, 60000], "M-7 소비 분석 요약: 지출·수입에서 연결한 환불을 뺀다");
-  const dashHtml = call(challengeMod, "renderReportDashboard", dashboard || {});
+  // V22.9.119 N-13: 요약 칸 이름은 그릴 때의 오늘 기준이다(보는 달이 오늘의 달이면 ‘이번 달 지출’, 아니면 ‘10월 지출’). 시계를 이 장면의 오늘(TODAY = 10월)로
+  // 고정해 그리므로 라벨 하나만 단언한다.
+  const dashHtml = await withClock(TODAY, () => call(challengeMod, "renderReportDashboard", dashboard || {}));
   t.has(dashHtml, "이번 달 지출 · 환불 차감 60,000원 반영", "M-7 소비 분석 요약 칸에 반영 문구");
   const dashPlain = await callAsync(challengeMod, "buildReportDashboardSummary", octRows, base || {}, MONTH, { outlook: plainOutlook });
   t.ok(dashPlain && !("refund" in dashPlain), "M-7 소비 분석 요약: 차감이 없으면 refund 칸이 없다");
