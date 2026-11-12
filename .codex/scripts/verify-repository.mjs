@@ -25,9 +25,9 @@ const validationScripts = [
   ["V22.9.115 단톡방 호출 참여(확인된 요청이면 봇을 부르기만 해도 승인 없이 구성원, 가계부 없는 방은 첫 호출자가 소유자로 공동 가계부 준비, 나간 이력·해제된 방·조회 전용·추정 키·미확인 요청 제외, 웹 ‘참여자·초대’ 소유자 양도 POST /my/household/transfer-owner)", "validation/validate-room-join-v229115.mjs"],
   ["V22.9.116 출시 전 P1 둘(카카오 ‘방금’ 이 가리키는 기록 — 마지막 저장 뒤 다른 기록을 고쳤으면 되묻고 아무것도 안 바꿈, 무지출일 한 규칙 — 가계부 만든 날부터·직접 적은 기록 없는 기간은 셈 안 함·필터 건 분석에서는 숨김, 리포트·종합 리포트·소비 분석·관리자 화면 같은 값)", "validation/validate-prelaunch-p1-v229116.mjs"],
   ["V22.9.117 계정 잇기 확인(같은 웹 계정의 다른 카카오 로그인으로 확인해도 잇기 — 제안의 카카오 id 가 아직 그 웹 계정 것일 때만, 다른 사람 카카오 계정은 그대로 거절, 보통 브라우저의 다시 확인은 카카오 로그인 화면 새로(prompt=login)) + 확인 화면 배치(keep-all·간격·오류 위치·두 줄 계정 줄·단추 굵기·테마)", "validation/validate-account-link-v229117.mjs"],
-  ["V22.9.118 문구·약관(약관 3·4절과 안내 5곳을 V115 동작에 맞춤 — 봇을 처음 부른 사람이 소유자, 부르기만 해도 승인 없이 구성원, 기록 한 건은 바로 삭제와 ‘복구 01번’; 개정 공고·시행일과 안내 수정일, /support 미래 약속 문구 삭제, 챗봇 첫 계정·첫 참여 답의 약관 안내 한 줄과 링크 단추, 계정 잇기 안내, robots /support/go/)", "validation/validate-copy-fixes-v229118.mjs"],
-  ["V22.9.118 화면(다크 대비 6화면, /meeting-households 단추 겹침, 같은 이름 가계부 선택지 구분 ‘ · M/D’, 좁은 화면 입력칸 16px, 정산 공유 문구 초대코드 삭제, ‘매월 반복’ 체크 숨김, 백업·메뉴·목표·정산 방식·만들기 단추 문구, 홈 ‘N월 보는 중’)", "validation/validate-ui-fixes-v229118.mjs"],
-  ["V22.9.118 보안(로그인 시도 제한에 IP 와 무관한 계정 전체 횟수와 IPv6 /64 묶기, 강한 식별 계정은 방 단추 주소 값으로 세션을 주지 않음, 배포 도구 되돌리기 — 명령 줄 대신 id 만·서울 DB 전환 앞 버전 거절·되돌린 뒤 /ready)", "validation/validate-security-fixes-v229118.mjs"],
+  ["V22.9.118 문구·약관(약관 3·4절과 안내 5곳을 V115 동작에 맞춤 — 방 가계부를 처음 준비한 사람이 소유자, 부르기만 해도 승인 없이 구성원, 기록 한 건은 바로 삭제와 ‘복구 01번’; 개정 공고·시행일과 안내 수정일, /support 미래 약속 문구 삭제, 챗봇 첫 기록·첫 참여 답(저장·참여 뒤)과 단톡방 빈 멘션 인사·설명서 첫 화면의 약관 안내, 계정 잇기 안내, robots /support/go/)", "validation/validate-copy-fixes-v229118.mjs"],
+  ["V22.9.118 화면(다크 대비 6화면, /meeting-households 단추 겹침, 같은 이름 가계부 이름표 ‘ · M/D’(선택기·머리줄·사이드바·표, 해가 다르면 ‘25/11/8’), 좁은 화면 입력칸 16px, 정산 공유 문구 초대코드 삭제, ‘매월 반복’ 체크 숨김, 백업·메뉴·목표·정산 방식·만들기 단추 문구, 홈 ‘N월 보는 중’)", "validation/validate-ui-fixes-v229118.mjs"],
+  ["V22.9.118 보안(로그인 시도 제한에 IP 와 무관한 계정 전체 횟수(끄기·모르는 값 규칙)와 비밀번호 대조 길의 IPv6 /64 묶기, 강한 식별(kakao·local) 계정은 방 단추 주소 값으로 세션을 주지 않음, 배포 도구 되돌리기 — 명령 줄 대신 id 만·서울 DB 전환 앞 버전 거절·되돌린 판 응답만 세는 /health·/ready·같은 판 경고)", "validation/validate-security-fixes-v229118.mjs"],
   ["V22.9.113 예산 명령 되묻기 설계 유지(Gemini ① 결함 아님)·모호한 말 안내 한 줄·‘월 예산’ 전체 예산", "validation/validate-budget-command-fix-v229113.mjs"],
   ["V22.9.112 Gemini 후속 수정(합계 조사, 분류 챌린지, Cron 머리막힘, 강제 내보내기 정리, 방 열기 쿠키)", "validation/validate-gemini-fixes-v229112.mjs"],
   ["V22.9.111 UI 개선(홈 요약 필터 범위, 분석 탭 대비, 가계부 활성 카드)", "validation/validate-ui-improvements-v229111.mjs"],
@@ -396,8 +396,8 @@ function run(command, args, label) {
 // Both complete runs measured 62,052 present / 62,049 absent (61,914/61,911 + 139 - 1).
 // V22.9.116: 출시 전 P1(새 검사 118·kakao-replies +1·추적표 V116 3건)과 소비 분석 보호 해시 역변환; 병렬 사전 실행 77,062 present / 77,059 absent.
 // V22.9.117: 계정 잇기 확인(새 검사 206 — 보안 검토·재시험 장면 7~10 포함·추적표 V117 12건); 병렬 사전 실행 77,386 present / 77,383 absent.
-// V22.9.118: 2026-11-12 전체 점검의 좁은 수정(새 검사 셋 — 문구 130·화면 205·보안 172, 추적표 V118 100건·V97:H-4 고침); 하네스 두 모드 실측 78,808 present / 78,805 absent.
-const EXPECTED_MINIMUM_CHECKS = 78805;
+// V22.9.118: 2026-11-12 전체 점검의 좁은 수정(새 검사 셋 — 문구 292·화면 278·보안 291, 배포 도구 305, 추적표 V118 100건·V97:H-4 고침; 담당마다 독립 검토 반영); 하네스 두 모드 실측 79,227 present / 79,224 absent.
+const EXPECTED_MINIMUM_CHECKS = 79224;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
