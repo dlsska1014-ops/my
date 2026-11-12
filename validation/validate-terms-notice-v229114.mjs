@@ -183,7 +183,8 @@ async function scene(task, { kakao = true } = {}) {
   const side = read("src/modules/web/login-page-side-nav.js");
   ok(!side.includes("\"kakao_consent\"") && !side.includes("consentMode") && !side.includes("kakaoConsentError") && side.includes(".termsNote{margin:8px 0 0;color:#5f6b7a;font-size:12.5px;line-height:1.5;text-align:center;overflow-wrap:anywhere}"), "A 로그인 화면은 카카오 동의 오류 모드가 없고 안내 한 줄 CSS 가 있다");
   const pages = read("src/modules/public/content-pages.js");
-  ok(pages.includes("ab_cs: 이용약관 안내 확인 기록을 읽은 결과(가계부 홈의 안내 띠를 띄울지), 14일") && pages.includes("이번 개정은 카카오 로그인과 가계부 홈에서 이용약관 동의를 체크하던 칸을 ‘이용하면 이용약관에 동의한 것으로 봅니다’ 안내 줄로 바꾸고") && pages.includes("카카오 로그인과 카카오톡에서 여는 가계부는 서비스를 이용하면 이용약관에 동의한 것으로 보며") && pages.includes(".pubBand .termsNote{"), "A 방침 6·12절·약관 2절·공개 띠 CSS 가 새 모델이다");
+  // V22.9.118: 12절의 ‘이번 개정’ 한 줄은 최신 개정(V22.9.118 단톡방 연결키·챗봇 첫 답 약관 안내)으로 바뀌었다 — 그 한 줄이 불리하지 않은 변경임을 말하는지만 본다.
+  ok(pages.includes("ab_cs: 이용약관 안내 확인 기록을 읽은 결과(가계부 홈의 안내 띠를 띄울지), 14일") && /이번 개정은 [^`]+이용자에게 불리하지 않은 변경입니다/.test(pages) && pages.includes("카카오 로그인과 카카오톡에서 여는 가계부는 서비스를 이용하면 이용약관에 동의한 것으로 보며") && pages.includes(".pubBand .termsNote{"), "A 방침 6·12절·약관 2절·공개 띠 CSS 가 새 모델이다");
   const router = read("src/modules/worker/router.js");
   ok(router.includes('if (url.pathname === "/my/consent" && request.method === "POST") {') && router.includes("return await handleMyConsent(request, env);"), "A POST /my/consent 경로는 그대로다(같은 출처 검사 뒤)");
   const sources = moduleSources();
@@ -232,12 +233,14 @@ await scene(async (fx) => {
   const privacy = await go(fx, new Jar(), "/privacy", { ua: CHROME });
   const body = text(privacy.html);
   ok(body.includes("ab_cs: 이용약관 안내 확인 기록을 읽은 결과(가계부 홈의 안내 띠를 띄울지), 14일"), "B 방침 6절 ab_cs 설명이 띠 모델이다");
-  ok(body.includes("이번 개정은 카카오 로그인과 가계부 홈에서 이용약관 동의를 체크하던 칸을 ‘이용하면 이용약관에 동의한 것으로 봅니다’ 안내 줄로 바꾸고 6절의 쿠키 설명을 그에 맞춘 것이어서, 처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다"), "B 방침 12절이 이번 개정의 성격(불리하지 않은 변경)을 적는다");
+  // V22.9.118: 12절의 ‘이번 개정’ 한 줄이 최신 개정 내용으로 바뀌었다 — 그 한 줄이 불리하지 않은 변경임을 적는지만 본다.
+  ok(/이번 개정은 [^\n]+처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다/.test(body), "B 방침 12절이 이번 개정의 성격(불리하지 않은 변경)을 적는다");
   ok(body.includes(`이 개정 방침은 ${label(NOTICE)}에 알리고 같은 날부터 시행합니다`) && privacy.html.includes(`개정 공고 ${label(NOTICE)} · 개정 시행 ${label(REVISION)}`), "B 방침 머리와 12절의 공고일·시행일");
   ok(body.includes("서비스 이용 계약을 지키는 데 필요한 처리(개인정보 보호법 제15조제1항제4호)라서 따로 동의를 받지 않습니다"), "B 방침 9절의 계약 이행 근거(동의 대상 아님)는 그대로다");
   const terms = await go(fx, new Jar(), "/terms", { ua: CHROME });
   const second = text(terms.html.slice(terms.html.indexOf('id="section-2"'), terms.html.indexOf('id="section-3"')));
-  ok(second.includes("로그인 이름으로 새 계정을 만들 때는 이용약관 동의 칸을 체크합니다. 카카오 로그인과 카카오톡에서 여는 가계부는 서비스를 이용하면 이용약관에 동의한 것으로 보며, 로그인 화면과 가계부 홈의 안내 줄에서 이용약관과 개인정보처리방침을 볼 수 있습니다."), "B 약관 2절: 가입 동의 칸 + 카카오 이용 간주 안내");
+  // V22.9.118: 2절 안내 줄 문장에 챗봇 첫 답(괄호 안 범위)을 더했다 — 앞뒤 그대로인 부분만 보고, 전체 문장은 validate-copy-fixes-v229118 이 본다.
+  ok(second.includes("로그인 이름으로 새 계정을 만들 때는 이용약관 동의 칸을 체크합니다. 카카오 로그인과 카카오톡에서 여는 가계부는 서비스를 이용하면 이용약관에 동의한 것으로 보며, 로그인 화면과 가계부 홈의 안내 줄") && second.includes("에서 이용약관과 개인정보처리방침을 볼 수 있습니다."), "B 약관 2절: 가입 동의 칸 + 카카오 이용 간주 안내");
   ok(terms.html.includes(`개정 공고 ${label(NOTICE)} · 개정 시행 ${label(REVISION)}`), "B 약관 머리의 공고일·시행일");
 });
 

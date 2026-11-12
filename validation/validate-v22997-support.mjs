@@ -182,7 +182,8 @@ await withClock(TODAY, () => fixture(async (fx) => {
       `2-l 송금 창구 변수가 없고 소통 오픈채팅만 있으면 ‘후원하는 방법’ 은 ‘준비 중’ 대신 오픈채팅 안내 + 경유 링크(방법 절·이야기하는 곳 절 각 하나 = 2), 송금 경유 주소·원래 주소 없음: ${chatOnly.status} · 링크 ${chatLinks}`);
     setVars(fx, {});
     const noneAtAll = await open(fx, "/support", { ua: "" });
-    ok(noneAtAll.status === 200 && noneAtAll.html.includes("후원 창구를 준비하고 있어요(출시 뒤 안내).") && !noneAtAll.html.includes("/support/go/openchat"), "2-m 오픈채팅도 없으면 종전처럼 ‘준비 중’ 한 줄");
+    // V22.9.118 P-2: 없는 창구를 ‘준비 중’ 으로 약속하지 않는다 — 지금 사실 한 줄로 기대값 갱신.
+    ok(noneAtAll.status === 200 && noneAtAll.html.includes("지금은 열려 있는 후원 창구가 없어요.") && !noneAtAll.html.includes("/support/go/openchat"), "2-m 오픈채팅도 없으면 ‘열려 있는 창구 없음’ 한 줄");
     setVars(fx, VARS);
   });
 

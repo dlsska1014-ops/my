@@ -332,9 +332,10 @@ const AB_DUPLICATE_EVENTS = globalThis.__AB_DUPLICATE_EVENTS || (globalThis.__AB
 const AB_KAKAO_REPEAT_GUARD = globalThis.__AB_KAKAO_REPEAT_GUARD || (globalThis.__AB_KAKAO_REPEAT_GUARD = new Map());
 const AB_KAKAO_INFLIGHT = globalThis.__AB_KAKAO_INFLIGHT || (globalThis.__AB_KAKAO_INFLIGHT = new Map());
 
+// V22.9.118 재검토 P3: 남긴 항목을 돌려준다(약관 안내 빠짐 이벤트가 같은 요청 안에서 이유를 고쳐 쓸 때만 쓴다 — 다른 호출은 반환값을 쓰지 않는다). 실패하면 null.
 function rememberOpsEvent(event = {}) {
   try {
-    AB_OPS_EVENTS.push({
+    const entry = {
       at: new Date().toISOString(),
       kind: String(event.kind || "info").slice(0, 40),
       severity: String(event.severity || "info").slice(0, 20),
@@ -342,9 +343,11 @@ function rememberOpsEvent(event = {}) {
       method: String(event.method || "").slice(0, 12),
       label: String(event.label || "").slice(0, 80),
       detail: redactOpsDetail(event.detail || ""),
-    });
+    };
+    AB_OPS_EVENTS.push(entry);
     while (AB_OPS_EVENTS.length > 220) AB_OPS_EVENTS.shift();
-  } catch (err) {}
+    return entry;
+  } catch (err) { return null; }
 }
 
 function getOpsEventsSnapshot() {

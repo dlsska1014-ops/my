@@ -43,10 +43,13 @@ async function skill(utterance, key, { group = true } = {}) {
 }
 const HUB_BUTTONS = ["리포트보기", "예산정하기", "함께쓰기", "웹관리하기", "기록하기"];
 const LONG_LABELS = /^(오늘 기록 보기|이번 달 요약|남은 예산|예산 설정|웹 가계부 열기|새 가계부 만들기|초대코드로 참여|가계부 전환|내 이름 설정|단톡방 연결|사용 설명서|지금 기록하기|챗봇 멘션하기)$/;
+// V22.9.118 독립 검토 P2: 단톡방 설명서 첫 화면 답은 끝에 약관 안내 카드(이용약관·개인정보처리방침 링크 단추)를 늘 단다 — 첫 화면 카드의 단추는 그대로 본다.
 const assertHub = (r, label) => {
+  const hub = r.body?.template?.outputs?.[0]?.textCard?.buttons || [];
   eq(r.title, "말해가계부 도움말", `${label}: 설명서 첫 화면 제목은 ‘말해가계부 도움말’`);
-  eq(JSON.stringify(r.labels), JSON.stringify(HUB_BUTTONS), `${label}: 첫 화면 버튼 순서(기록하기 맨 아래)`);
-  eq(r.buttons.at(-1)?.action, "mention", `${label}: 맨 아래 기록하기는 멘션 플러그인`);
+  eq(JSON.stringify(hub.map((b) => b.label)), JSON.stringify(HUB_BUTTONS), `${label}: 첫 화면 버튼 순서(기록하기 맨 아래)`);
+  eq(hub.at(-1)?.action, "mention", `${label}: 맨 아래 기록하기는 멘션 플러그인`);
+  eq(JSON.stringify(r.labels.slice(HUB_BUTTONS.length)), JSON.stringify(["이용약관", "개인정보처리방침"]), `${label}: 끝 카드는 약관 안내 단추 둘`);
   ok(r.text.includes("@말해가계부 점심 12000원"), `${label}: 첫 화면에 기록 예시`);
 };
 const assertNextStepRecord = (r, label, extra = []) => {
@@ -61,10 +64,13 @@ try {
   // V22.9.115: 봇을 부르기만 해도(빈 멘션 포함, 답 뒤에) 이 방 가계부에 들인다. 가계부가 없던 방이라 첫 호출자(OWNER)가 소유자다.
   const empty = await skill("@말해가계부", OWNER);
   eq(empty.title, "안녕하세요 😊 말해가계부예요", "빈 멘션 카드 제목 유지");
-  eq(JSON.stringify(empty.labels), JSON.stringify(["도움말 보기", "기록하기"]), "빈 멘션 버튼: 도움말 보기 → 기록하기(맨 아래)");
+  // V22.9.118(조정자 결정 2026-11-12): 단톡방 빈 멘션 답은 말풍선 하나 — 인사 카드 안에 약관 안내 한 줄 + ‘기록하기’ 바로 위 ‘이용약관’ 링크 단추.
+  eq(empty.body.template.outputs.length, 1, "빈 멘션 답은 말풍선 하나(약관 안내도 인사 카드 안)");
+  eq(JSON.stringify(empty.labels), JSON.stringify(["도움말 보기", "이용약관", "기록하기"]), "빈 멘션 버튼: 도움말 보기 → 이용약관(링크) → 기록하기(맨 아래)");
   eq(empty.buttons[0].action, "message", "도움말 보기는 메시지 버튼");
   eq(empty.buttons[0].messageText, "도움말 보기", "도움말 보기 버튼이 보내는 문장");
-  eq(empty.buttons[1].action, "mention", "기록하기는 멘션 플러그인");
+  ok(empty.buttons[1]?.action === "webLink" && /\/terms$/.test(empty.buttons[1]?.webLinkUrl || ""), "이용약관은 /terms 링크 단추");
+  eq(empty.buttons[2].action, "mention", "기록하기는 멘션 플러그인");
   ok(!JSON.stringify(empty.body).includes("챗봇 멘션하기") && !JSON.stringify(empty.body).includes("사용 설명서"), "옛 버튼 이름(챗봇 멘션하기·사용 설명서) 없음");
   const roomHousehold = f.db.households.find((h) => h.name === "이 방의 공동 가계부");
   const idOf = (key) => f.db.users.find((u) => u.kakao_user_key === key)?.id;
@@ -79,7 +85,8 @@ try {
   const firstCall = await skill("@말해가계부 오늘기록", MINA);
   eq(firstCall.result, "ok", "MINA 첫 호출 오늘기록: 정상 응답");
   ok(firstCall.text.startsWith("이 방 가계부 ‘이 방의 공동 가계부’에 참여했어요.\n") && firstCall.text.includes("아직 기록이 없어요") && roleOf(MINA) === "member", `MINA 첫 호출: 참여 한 줄 + 내 기록 없음 안내, 구성원 (${firstCall.text.slice(0, 80)})`);
-  assertNextStepRecord(firstCall, "MINA 첫 호출 오늘기록");
+  // V22.9.118 P-3: 처음 이 방 가계부에 들어간 답은 참여 한 줄 말풍선에 약관 안내 + 이용약관·개인정보처리방침 링크 단추가 붙는다(기록하기는 그대로 맨 아래).
+  assertNextStepRecord(firstCall, "MINA 첫 호출 오늘기록", ["이용약관", "개인정보처리방침"]);
   for (const command of ["이번달요약", "남은예산", "정산", "오늘 기록 보기", "이번 달 요약"]) {
     const r = await skill(`@말해가계부 ${command}`, MINA);
     eq(r.result, "ok", `구성원 ${command}: 정상 응답`);

@@ -55,26 +55,30 @@ try {
     const result = await callSkill(payloadFor({ userKey: `qa-entry-copy-${checks}`, groupKey: "qa-group-entry-copy-v22964", utterance }));
     eq(result.response.status, 200, `${utterance}: 응답 성공`);
     const outputs = result.data?.template?.outputs || [];
-    eq(outputs.length, 1, `${utterance}: 말풍선 하나`);
+    // V22.9.118(조정자 결정 2026-11-12): 약관 안내를 따로 말풍선으로 붙이지 않고 인사 카드 안에 담는다 — 말풍선 하나, 글 끝 한 줄 + 셋째 단추 ‘이용약관’ 링크.
+    eq(outputs.length, 1, `${utterance}: 말풍선 하나(약관 안내도 인사 카드 안)`);
     const card = outputs[0]?.textCard;
     ok(card && typeof card === "object", `${utterance}: textCard 로 응답`);
     eq(card.title, "안녕하세요 😊 말해가계부예요", `${utterance}: 인사 제목 유지`);
-    eq(card.description, "친구와 함께 말 한마디로 간단히 기록하는 가계부 챗봇이에요.\n예) @말해가계부 점심 12000원", `${utterance}: 새 소개 문구`);
+    eq(card.description, "친구와 함께 말 한마디로 간단히 기록하는 가계부 챗봇이에요.\n예) @말해가계부 점심 12000원\n이용하면 이용약관에 동의한 것으로 봐요.", `${utterance}: 새 소개 문구 + 끝 줄 약관 안내`);
     const text = `${card.title}\n${card.description}`;
     ok(!text.includes("카카오톡에서"), `${utterance}: '카카오톡에서' 자기 지칭 문구 없음`);
     ok(!text.includes("아래 버튼으로") && !text.includes("도움말에서 사용법"), `${utterance}: 버튼 설명 문구 없음`);
     ok(!/https?:\/\//.test(text), `${utterance}: URL 없음`);
-    ok(text.length <= 80, `${utterance}: 짧은 안내 유지 (${text.length}자)`);
+    // V22.9.118: 약관 안내 한 줄(22자)이 더해져 80자 → 예전 시작 안내의 절반(96자) 이하로 본다(validate-kakao-group 의 ‘절반 이하’ 와 같은 기준).
+    ok(text.length <= 96, `${utterance}: 짧은 안내 유지 (${text.length}자)`);
     const buttons = Array.isArray(card.buttons) ? card.buttons : [];
-    eq(buttons.length, 2, `${utterance}: 버튼 두 개`);
+    eq(buttons.length, 3, `${utterance}: 버튼 세 개`);
     // V22.9.68: 도움말은 버튼형 사용 설명서를 여는 메시지 버튼이다(버튼 이름 = 보낼 명령).
     // V22.9.72: 디자이너 피드백(2026-10-20) — ‘도움말 보기’가 먼저, ‘기록하기’(멘션)는 맨 아래. 단톡방 ‘도움말’ 그대로는
     // OpenBuilder 기본 도움말 블록이 가로채므로 버튼 이름은 ‘도움말 보기’.
+    // V22.9.118(조정자 결정 2026-11-12): ‘도움말 보기’와 맨 아래 ‘기록하기’ 사이에 ‘이용약관’ 링크 단추(링크는 멘션 앞 — kakaoPlaceLeftLinks 와 같은 순서).
     eq(buttons[0]?.action, "message", `${utterance}: 첫 버튼은 설명서 메시지`);
     eq(buttons[0]?.messageText, "도움말 보기", `${utterance}: 설명서 버튼이 보낼 명령`);
     eq(buttons[0]?.label, "도움말 보기", `${utterance}: 첫 버튼 이름`);
-    eq(buttons[1]?.action, "mention", `${utterance}: 맨 아래 버튼은 바로 행동하는 기록하기 멘션`);
-    eq(buttons[1]?.label, "기록하기", `${utterance}: 맨 아래 버튼 이름`);
+    ok(buttons[1]?.label === "이용약관" && buttons[1]?.action === "webLink" && buttons[1]?.webLinkUrl === "https://malhaebook.com/terms", `${utterance}: 둘째 버튼은 이용약관 링크(주소는 단추에만)`);
+    eq(buttons[2]?.action, "mention", `${utterance}: 맨 아래 버튼은 바로 행동하는 기록하기 멘션`);
+    eq(buttons[2]?.label, "기록하기", `${utterance}: 맨 아래 버튼 이름`);
     ok(!buttons.some((b) => b.label === "챗봇 멘션하기" || b.label === "사용 설명서"), `${utterance}: 옛 버튼 이름 없음`);
     ok(!Object.hasOwn(result.data.template, "quickReplies"), `${utterance}: 단톡방 응답에 quickReplies 없음`);
   }

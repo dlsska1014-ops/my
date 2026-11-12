@@ -12,8 +12,8 @@ import {
   htmlResponse, jsonResponse, redirectResponse, wantsTransactionDeleteJson,
 } from "../runtime/http.js";
 import {
-  checkAdminPassword, makeAdminSession, recordAuthAttempt, safeAdminReturnPath, trafficClientIp,
-  verifyAdminSession,
+  authAttemptNetwork, checkAdminPassword, makeAdminSession, recordAuthAccountWideAttempt,
+  recordAuthAttempt, safeAdminReturnPath, verifyAdminSession,
 } from "../auth/crypto-admin-session.js";
 import { resolveManualInputClassification } from "../settings/payment-assets.js";
 import { returnLocation, safeUserReturnPath } from "./bulk-and-return-paths.js";
@@ -60,17 +60,27 @@ async function handleAdminLogin(request, env) {
   const form = await request.formData();
   const password = String(form.get("password") || "").trim();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", "/?legacy=1");
-  const admission = await recordAuthAttempt(env, request, "/login-admission", false, {limit:40});
+  // V22.9.118 S-1: 비밀번호를 대조하는 길이라 IP 단위 제한은 IPv6 를 /64 로 묶어 센다(groupIpv6, 성공 뒤 지우기도 같은 키).
+  const admission = await recordAuthAttempt(env, request, "/login-admission", false, { limit: 40, groupIpv6: true });
   if (!admission.allowed) return htmlResponse(renderServerLoginHtml(env, "로그인 요청이 잠시 제한되었습니다.", returnTo), admission.unavailable ? 503 : 429);
-  const attempt = await recordAuthAttempt(env, request, "/login", false);
+  const attempt = await recordAuthAttempt(env, request, "/login", false, { groupIpv6: true });
   if (attempt.unavailable) return htmlResponse(renderServerLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", returnTo), 503);
   if (!attempt.allowed) {
     return htmlResponse(renderServerLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", returnTo), 429, { "retry-after": "900" });
   }
-  // V22.9.26: 관리자 비밀번호는 계정이 하나라 클라이언트와 무관한 전체 횟수도 센다.
-  const adminAttempt = await recordAuthAttempt(env, request, "/login", false, { scope: "account", key: trafficClientIp(request) + "|admin", limit: boundedRuntimeNumber(env.AUTH_ACCOUNT_RATE_LIMIT, 30, 5, 200) });
+  // V22.9.26: 관리자 비밀번호는 계정이 하나다. 이 키는 주소(V22.9.118: IPv6 는 /64)마다 관리자 비밀번호를 센다 — 키에 IP 가 들어 있어
+  // 예전 주석의 ‘클라이언트와 무관한 전체 횟수’ 가 아니었다(V22.9.118 S-1). 전체 횟수는 바로 아래에서 따로 센다.
+  const adminIpKey = authAttemptNetwork(request) + "|admin";
+  const adminAttempt = await recordAuthAttempt(env, request, "/login", false, { scope: "account", key: adminIpKey, limit: boundedRuntimeNumber(env.AUTH_ACCOUNT_RATE_LIMIT, 30, 5, 200) });
   if (adminAttempt.unavailable) return htmlResponse(renderServerLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", returnTo), 503);
   if (!adminAttempt.allowed) {
+    return htmlResponse(renderServerLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", returnTo), 429, { "retry-after": "900" });
+  }
+  // V22.9.118 S-1: IP 와 무관한 관리자 비밀번호 전체 횟수(한도·이벤트는 recordAuthAccountWideAttempt). 주소를 바꿔 가며 맞혀 보는 것을 막는다.
+  // 남이 이 횟수를 채우면 그동안 관리자도 로그인 화면에서 막힌다(이미 로그인한 관리자 세션 12시간은 그대로) — 한도를 넉넉히 둔 까닭이다.
+  const adminWide = await recordAuthAccountWideAttempt(env, request, "/login", "admin", false, "관리자 로그인");
+  if (adminWide.unavailable) return htmlResponse(renderServerLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", returnTo), 503);
+  if (!adminWide.allowed) {
     return htmlResponse(renderServerLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", returnTo), 429, { "retry-after": "900" });
   }
   let passwordOk = false;
@@ -84,8 +94,9 @@ async function handleAdminLogin(request, env) {
   if (!passwordOk) {
     return htmlResponse(renderServerLoginHtml(env, "비밀번호가 맞지 않습니다.", returnTo), 401);
   }
-  await recordAuthAttempt(env, request, "/login", true);
-  await recordAuthAttempt(env, request, "/login", true, { scope: "account", key: trafficClientIp(request) + "|admin" });
+  await recordAuthAttempt(env, request, "/login", true, { groupIpv6: true });
+  await recordAuthAttempt(env, request, "/login", true, { scope: "account", key: adminIpKey });
+  await recordAuthAccountWideAttempt(env, request, "/login", "admin", true);
   try {
     const session = await makeAdminSession(env);
     return redirectResponse(returnTo, {

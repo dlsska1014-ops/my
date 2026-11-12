@@ -8,7 +8,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.117-ACCOUNT-LINK";
+const APP_VERSION = "V22.9.118-SITE-REVIEW-FIXES";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -177,8 +177,15 @@ const BUSINESS_FOOTER_INFO = Object.freeze({
 // 불리하지 않은 변경이라 공고일 = 시행일 = 배포일이다. 배포가 다른 날로 넘어가면 두 줄을 그날로 바꾼다(동의 기록 version 도 따라간다. 읽는 곳은 기록 유무만 본다).
 // V22.9.114(사용자 2026-11-09 "팝업을 없애고 안내 띠로 바꿔줘", 앱 심사 담당자 요청): 카카오 로그인·홈의 이용약관 동의 체크 칸을 안내 줄로 바꾸고 약관 2절·방침 6절
 // 쿠키 설명·12절을 그에 맞춘 개정. 처리 항목·목적이 그대로라 불리하지 않은 변경 → 공고일 = 시행일 = 배포일. 배포가 다른 날로 넘어가면 두 줄을 그날로 바꾼다.
-const POLICY_NOTICE_DATE = "2026-11-09";
-const POLICY_REVISION_DATE = "2026-11-09";
+// V22.9.118(2026-11-12 전체 점검 P-1·P-3): 약관 3절(단톡방 가계부가 준비되는 호출을 처음 한 사람이 소유자, 부르기만 해도 구성원(어느 가계부를 쓸지 정하는 명령·일부 안내 명령 제외), 소유자 양도)·4절(한 건 삭제는 바로 + 되살리기,
+// 가계부 영구 삭제는 본인 확인)·방침 1절(단톡방 연결키)·12절을 V22.9.115 동작에 맞추고, 챗봇 첫 사용 답에 약관 안내를 더한 개정. 처리 항목·목적이 그대로라 불리하지 않은
+// 변경 → 공고일 = 시행일 = 배포일(2026-11-13 예정). 배포가 다른 날로 넘어가면 두 줄을 그날로 바꾼다.
+const POLICY_NOTICE_DATE = "2026-11-13";
+const POLICY_REVISION_DATE = "2026-11-13";
+// V22.9.118 독립 검토: 이 개정과 함께 고친 안내 쪽(첫 화면·/how-it-works·/kakao-guide·/group-accountbook·/faq·/support)의 수정일(화면·구조화 데이터·사이트맵)은
+// 개정 공고일과 같은 날이다. 날짜를 쪽마다 따로 적지 않고 이 상수를 쓴다 — 배포일이 바뀌면 위 두 줄만 고친다. 다음 개정에서 약관·방침 날짜만 바꾸고
+// 이 쪽들은 그대로 둘 때는 이 줄을 그 전 날짜 글자로 고정한다(쪽 수정일이 내용 변경 없이 따라 바뀌지 않게).
+const PUBLIC_COPY_REVISION_DATE = POLICY_NOTICE_DATE;
 
 // "2026-07-13" → "2026년 7월 13일"(방침 머리의 시행·공고·개정일 표기).
 function policyDateLabel(ymd = POLICY_REVISION_DATE) {
@@ -571,8 +578,8 @@ function publicSiteFooter() {
 export {
   APP_MODE, APP_VERSION, BUSINESS_FOOTER_INFO, DEFAULT_PUBLIC_BASE_URL,
   KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS, POLICY_NOTICE_DATE, POLICY_REVISION_DATE,
-  PUBLIC_CONTENT_PATHS, adSlotMarkup, adfitUnitStatus, adsHeadMarkup, adsHeaders, adsMode,
-  adsPolicyLinks, adsPolicyNetwork, adsPolicyText, adsPublicRequestKeyV229106,
+  PUBLIC_CONTENT_PATHS, PUBLIC_COPY_REVISION_DATE, adSlotMarkup, adfitUnitStatus, adsHeadMarkup,
+  adsHeaders, adsMode, adsPolicyLinks, adsPolicyNetwork, adsPolicyText, adsPublicRequestKeyV229106,
   adsensePublisherIdForTxt, appName, canonicalRedirectResponse, cardPerformanceEnabled,
   currentRequestBaseUrl, envFlagEnabled, handleKakaoCommandSystemPage,
   hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled, kakaoChatCommandCatalog,

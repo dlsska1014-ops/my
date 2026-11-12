@@ -81,7 +81,8 @@ const supported = new Set(["simpleText", "simpleImage", "textCard", "basicCard",
 ok(group.data.template.outputs.every((output) => Object.keys(output).length === 1 && supported.has(Object.keys(output)[0])), "group response only uses group-manual output components");
 const groupText = group.data.template.outputs.map((output) => output?.simpleText?.text || "").join("\n");
 // V22.9.65: 그룹에서 quickReplies 는 글자 목록이 아니라 textCard 세로 메시지 버튼으로 바뀐다.
-const choiceButtons = group.data.template.outputs.flatMap((output) => output?.textCard?.buttons || []);
+// V22.9.118 독립 검토 P2: 단톡방 첫 화면 끝의 약관 안내 카드(이용약관·개인정보처리방침 링크 단추)는 선택지가 아니라서 빼고 센다.
+const choiceButtons = group.data.template.outputs.filter((output) => output?.textCard?.description !== "말해가계부를 이용하면 이용약관에 동의한 것으로 봐요.").flatMap((output) => output?.textCard?.buttons || []);
 ok(!groupText.includes("선택하려면 아래 문구를 그대로 입력해 주세요."), "quick replies no longer become a typed-choice list");
 // V22.9.72: 맨 아래 ‘기록하기’는 멘션 플러그인(messageText 없음)이라 메시지 버튼만 센다.
 const choiceMessageButtons = choiceButtons.filter((b) => b.action === "message");
@@ -101,11 +102,15 @@ const groupEmpty = await callSkill(emptyMentionPayload({ userKey: "qa-group-empt
 eq(groupEmpty.response.status, 200, "group empty mention succeeds");
 eq(groupEmpty.data.version, "2.0", "group empty mention keeps Kakao version 2.0");
 ok(!Object.hasOwn(groupEmpty.data.template || {}, "quickReplies"), "group empty mention never emits quickReplies");
-eq(groupEmpty.data.template?.outputs?.length, 1, "group empty mention is a single bubble");
+// V22.9.118(조정자 결정 2026-11-12): 약관 안내는 따로 말풍선으로 붙이지 않고 인사 카드 안에 둔다 — 말풍선 하나, 글 끝 한 줄 + ‘이용약관’ 링크 단추(맨 아래 ‘기록하기’ 앞)
+// (글 길이 규칙은 아래 ‘절반 이하’ 단언 그대로 인사 카드 글 전체로 본다).
+eq(groupEmpty.data.template?.outputs?.length, 1, "group empty mention is a single greeting bubble (the terms notice lives inside it)");
 const emptyCard = groupEmpty.data.template.outputs[0]?.textCard;
 ok(emptyCard && typeof emptyCard === "object", "group empty mention uses a textCard so plugin buttons can be attached");
+ok(String(emptyCard?.description || "").split("\n").at(-1) === "이용하면 이용약관에 동의한 것으로 봐요.", "group empty mention ends its text with the one-line terms notice");
 const emptyButtons = Array.isArray(emptyCard?.buttons) ? emptyCard.buttons : [];
-eq(emptyButtons.length, 2, "group empty mention offers exactly two buttons");
+eq(emptyButtons.length, 3, "group empty mention offers exactly three buttons");
+ok(emptyButtons[1]?.label === "이용약관" && emptyButtons[1]?.action === "webLink" && /\/terms$/.test(emptyButtons[1]?.webLinkUrl || "") && emptyButtons.at(-1)?.action === "mention", "group empty mention puts the 이용약관 link right above the bottom 기록하기 mention (no URL in text)");
 // V22.9.68: 도움말은 버튼형 사용 설명서를 여는 메시지 버튼이다(단톡방은 버튼 이름을 그대로 보낸다).
 ok(emptyButtons.some((b) => b.action === "message" && b.label === "도움말 보기" && b.messageText === "도움말 보기"), "group empty mention has the 도움말 보기 message button that opens the manual");
 ok(emptyButtons.some((b) => b.action === "mention" && b.label === "기록하기"), "group empty mention has the mention (챗봇 멘션하기) action button");

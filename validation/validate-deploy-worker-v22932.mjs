@@ -11,7 +11,13 @@
 //     아니면 올리지 않는다. 가짜 API 도 실제처럼 버전 ID 를 거부하고 최신 버전에서 이어받는다.
 //   - 저장된 버전의 바인딩·script_runtime·handlers 가 현재와 다르면 승격하지 않는다.
 //   - 승격은 업로드 기록·현재 소스·HEAD·etag 가 맞을 때만 하고, 승격 뒤 배포 상태·소스 해시·
-//     /health·공개 검사를 확인한다. 실패하면 되돌리기 명령만 알리고 스스로 되돌리지 않는다.
+//     /health·공개 검사를 확인한다. 실패하면 되돌리기 대상 버전 id 만 기록으로 알리고(V22.9.118 O-4: 실행할 수 있는
+//     되돌리기 명령 줄은 출력하지 않는다) 스스로 되돌리지 않는다.
+//   - V22.9.118 O-4: 되돌리기는 서울 DB 전환 버전(#333)보다 앞선 버전을 거절하고(--allow-pre-seoul-db 로만 넘김),
+//     되돌린 뒤 /health 에 더해 /ready 가 연속으로 ok 여야 통과다. 되돌리기 전 /health 의 판을 적어 두고 그 판의 응답은
+//     세지 않으며, 인스턴스가 다시 쓴 /ready(cached:true)도 세지 않는다(독립 검토 P3-4).
+//   - 재검토(2026-11-12): 다시 쓴 /ready 는 ok 가 아니면 ‘준비 안 됨’, ok 면 checked_at 이 배포 요청 뒤일 때만 센다. 되돌린 뒤에도 /health 가
+//     배포 전 판만 알리면(판 이름이 같은 버전) 실패가 아니라 경고이고, 판 제외 없이 /health·/ready 로 종료 코드를 정한다. 승격 경로는 그대로다.
 //   - 토큰은 로그·기록 파일에 남지 않고, 바인딩 값은 해시로만 저장한다.
 
 import assert from "node:assert/strict";
@@ -19,7 +25,7 @@ import { readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sha256 } from "../tools/build-worker.mjs";
-import { HEALTH_CONSECUTIVE, HEALTH_DELAY_MS, HEALTH_MAX_ATTEMPTS, canonical, compareVersionResources, deployedScriptSha256, liveVersionOf, parseArgs, runDeploy } from "../tools/deploy-worker-version.mjs";
+import { HEALTH_CONSECUTIVE, HEALTH_DELAY_MS, HEALTH_MAX_ATTEMPTS, READY_CACHE_WAIT_MS, READY_CONSECUTIVE, READY_MAX_ATTEMPTS, ROLLBACK_FLOORS, ROLLBACK_FLOOR_OVERRIDE, canonical, compareVersionResources, deployedScriptSha256, liveVersionOf, parseArgs, rollbackFloorProblem, runDeploy } from "../tools/deploy-worker-version.mjs";
 
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
@@ -58,10 +64,12 @@ function fakeCloudflare(options = {}) {
   const calls = [];
   let counter = 0;
   let healthCalls = 0;
+  let readyCalls = 0;
+  // V22.9.118 O-4: 되돌리기 하한(서울 DB 전환 #333, 2026-11-05) 뒤의 번호·시각으로 둔다(예전 40·2026-10-07 은 하한보다 앞이라 되돌리기 장면이 거절된다).
   versions.set(LIVE_ID, {
     id: LIVE_ID,
-    number: 40,
-    metadata: { created_on: "2026-10-07T00:00:00Z", source: "dash" },
+    number: 349,
+    metadata: { created_on: "2026-11-10T06:15:19Z", source: "dash" },
     resources: {
       bindings: options.liveBindings ?? structuredClone(LIVE_BINDINGS),
       script: { etag: "etag-live", handlers: ["fetch", "scheduled"], named_handlers: [] },
@@ -73,7 +81,7 @@ function fakeCloudflare(options = {}) {
     // 대시보드에서 저장만 하고 배포하지 않은 더 새 버전 — inherit latest 의 출처가 현재 배포 버전이 아니게 된다
     const newer = structuredClone(versions.get(LIVE_ID));
     newer.id = OTHER_ID;
-    newer.number = 41;
+    newer.number = 350;
     newer.resources.bindings.find((b) => b.name === "APP_NAME").text = "NEWER-UNDEPLOYED";
     versions.set(OTHER_ID, newer);
   }
@@ -99,10 +107,31 @@ function fakeCloudflare(options = {}) {
       // healthSequence: 배포가 퍼지는 동안처럼 이전 판("old")과 새 판("new")이 섞여 나오는 응답 순서
       const scripted = options.healthSequence?.[healthCalls];
       healthCalls += 1;
+      // V22.9.118 O-4: healthFailFirst 는 첫 /health 를 읽을 수 없는 답(500, JSON 아님)으로 — 되돌리기 전 판을 못 읽는 장면.
+      if (options.healthFailFirst && healthCalls === 1) return new Response("worker error", { status: 500, headers: { "content-type": "text/plain" } });
       const current = deployments[0].versions[0].version_id === LIVE_ID ? "V-OLD" : APP_VERSION;
       const version = scripted ? (scripted === "old" ? "V-OLD" : APP_VERSION) : options.healthVersion ?? current;
       call.version = version;
       return json(200, { alive: true, version, missing_count: 0 });
+    }
+    if (target.origin === ORIGIN && target.pathname === "/ready") {
+      // V22.9.118 O-4: readySequence 는 "ok"·"down"·"cached"(인스턴스가 다시 쓴 ok)·"old"(이전 판 인스턴스의 ok) 순서(없으면 options.readyDown 이면
+      // 늘 503, 아니면 늘 200). 판은 /health 처럼 지금 배포된 버전의 것이고, "old" 만 이전 판(V-OLD)이다.
+      // 재검토: "fresh"(배포 요청 뒤 점검을 다시 쓴 ok)·"cdown"(다시 쓴 503)·"nostamp"(점검 시각 칸 없는 다시 쓴 ok). "cached" 의 checked_at 은
+      // 하네스 now(배포 요청 시각)와 같아 뒤가 아니다. healthVersion 을 주면 /ready 도 그 판을 알린다(판 이름이 같은 버전 장면).
+      const scripted = options.readySequence?.[readyCalls];
+      readyCalls += 1;
+      const down = scripted ? scripted === "down" || scripted === "cdown" : !!options.readyDown;
+      const current = deployments[0].versions[0].version_id === LIVE_ID ? "V-OLD" : APP_VERSION;
+      const version = scripted === "old" ? "V-OLD" : options.healthVersion ?? current;
+      const reuse = scripted === "cached" ? { cached: true, checked_at: "2026-10-08T00:00:00.000Z" }
+        : scripted === "fresh" || scripted === "cdown" ? { cached: true, checked_at: "2026-10-08T00:00:03.000Z" }
+        : scripted === "nostamp" ? { cached: true } : {};
+      call.ready = !down;
+      call.version = version;
+      return down
+        ? json(503, { ok: false, ready: false, version, failed_tables: ["users", "transactions"], missing_rpcs: [], ...reuse })
+        : json(200, { ok: true, ready: true, version, failed_tables: [], missing_rpcs: [], ...reuse });
     }
     if (!isApi) throw new Error(`fake: unexpected request ${request.method} ${target.href}`);
     if (call.authorization !== `Bearer ${TOKEN}`) return failure(403, 10000, "Authentication error");
@@ -140,8 +169,8 @@ function fakeCloudflare(options = {}) {
       const id = `${String(counter).padStart(8, "0")}-0000-4000-8000-000000000000`;
       const created = {
         id,
-        number: 40 + counter,
-        metadata: { created_on: "2026-10-08T00:00:00Z", source: "api" },
+        number: 349 + counter,
+        metadata: { created_on: "2026-11-11T00:00:00Z", source: "api" },
         startup_time_ms: 41,
         resources: {
           bindings,
@@ -177,6 +206,7 @@ function harness({ fake = null, env = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_
   const logs = [];
   const publicRuns = [];
   const network = [];
+  const sleeps = [];
   const deps = {
     root,
     env,
@@ -193,12 +223,12 @@ function harness({ fake = null, env = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_
     mkdir: () => {},
     listDirectories: (directory) => [...new Set([...files.keys()].filter((path) => path.startsWith(directory + sep)).map((path) => path.slice(directory.length + 1).split(sep)[0]))],
     now: () => new Date("2026-10-08T00:00:00.000Z"),
-    sleep: async () => {},
+    sleep: async (ms) => { sleeps.push(ms); },
     log: (line) => logs.push(String(line)),
     error: (line) => logs.push(String(line)),
     runPublicChecks: (args) => { publicRuns.push(args); return publicExit; },
   };
-  const h = { deps, files, logs, publicRuns, network, output: () => logs.join("\n") };
+  const h = { deps, files, logs, publicRuns, network, sleeps, output: () => logs.join("\n") };
   everyText.push(() => [h.output(), ...[...files.values()].map(String)].join("\n"));
   return h;
 }
@@ -415,7 +445,9 @@ for (const [label, mutate, pattern] of [
   eq(h.publicRuns[0].appVersion, APP_VERSION, "공개 검사에 로컬 판을 넘긴다");
   const record = recordOf(h, `promote-${newId}`);
   ok(record && record.data.failures.length === 0 && record.data.content.sha256 === SOURCE_SHA, "승격 기록에 배포된 소스 해시와 실패 없음이 남는다");
-  ok(h.output().includes(`--rollback ${LIVE_ID}`), "되돌릴 이전 버전을 알려 준다");
+  // V22.9.118 O-4: 예전에는 ‘문제가 생기면(승인 후): node … --rollback <id>’ 를 출력했다. 실행할 수 있는 되돌리기 명령 줄은 없애고 id 만 기록으로 적는다.
+  ok(h.output().includes(`되돌리기 대상(기록만): ${LIVE_ID}`), "되돌릴 이전 버전 id 를 기록으로 알려 준다");
+  ok(!/--rollback [0-9a-f]{8}-/.test(h.output()), "승격 출력에 실행할 수 있는 되돌리기 명령 줄이 없다");
   eq(await runDeploy(["--promote", newId], h.deps), 1, "이미 100% 인 버전은 다시 승격하지 않는다");
   eq(posts(fake, "/deployments"), 1, "두 번째 승격 시도는 배포 요청을 보내지 않는다");
   const rollbackFrom = fake.calls.length;
@@ -425,6 +457,188 @@ for (const [label, mutate, pattern] of [
   ok(!rollbackCalls.some((c) => c.path === "/content/v2"), "되돌림은 로컬 소스와 비교하지 않는다");
   eq(h.publicRuns.length, 1, "되돌림 뒤에는 로컬 판 기준 공개 검사를 실행하지 않는다");
   eq(fake.deployments[0].versions[0].version_id, LIVE_ID, "이전 버전이 다시 100% 다");
+  // V22.9.118 O-4: 되돌린 뒤 /health 에 더해 /ready 를 본다. 출력에는 되돌리기 전 버전 id 만 기록으로 남는다.
+  ok(rollbackCalls.filter((c) => c.path === "/ready").length >= READY_CONSECUTIVE && rollbackCalls.findIndex((c) => c.path === "/ready") > rollbackCalls.findIndex((c) => c.path === "/health"), "되돌린 뒤 /health 다음에 /ready 를 연속으로 확인한다");
+  const rollbackRecord = recordOf(h, `rollback-${LIVE_ID}`);
+  ok(rollbackRecord?.data.ready?.ok === true && rollbackRecord.data.floor?.ok === true && rollbackRecord.data.failures.length === 0, "되돌리기 기록에 /ready 결과와 하한 통과가 남는다");
+  ok(!/--rollback [0-9a-f]{8}-/.test(h.output()), "되돌리기 출력에도 실행할 수 있는 되돌리기 명령 줄이 없다");
+}
+
+// ---------------------------------------------------------------------------
+// 5-1. 되돌리기 하한과 /ready (V22.9.118 O-4)
+//      서울 DB 전환 버전(#333)보다 앞선 버전은 옛 시드니 Supabase Secret 을 담고 있다. 옛 프로젝트를 멈춘 뒤 그 버전으로 내리면
+//      전면 장애인데 도구에 막는 장치가 없었다(점검 2026-11-12). 되돌린 뒤에는 /health(살아 있음)만 봐서 DB 를 못 쓰는 것도 몰랐다.
+// ---------------------------------------------------------------------------
+const FLOOR = ROLLBACK_FLOORS[SCRIPT];
+eq(`${FLOOR.versionId}|${FLOOR.number}|${FLOOR.createdOn}`, "ac5f2a4b-de71-46a5-94cc-92b1743a3d8b|333|2026-11-05T10:07:18.932265Z", "하한은 서울 DB 전환 버전 #333(만든 시각은 실제 업로드 기록의 값)이다");
+eq(ROLLBACK_FLOOR_OVERRIDE, "--allow-pre-seoul-db", "하한을 일부러 넘기는 플래그 이름");
+eq(parseArgs(["--rollback", LIVE_ID, ROLLBACK_FLOOR_OVERRIDE]).allowPreSeoulDb, true, "플래그는 --rollback 과 함께 받는다");
+eq(parseArgs(["--rollback", LIVE_ID]).allowPreSeoulDb, false, "플래그가 없으면 하한을 지킨다");
+throwsLike(() => parseArgs(["--promote", LIVE_ID, ROLLBACK_FLOOR_OVERRIDE]), /--rollback 에서만/, "플래그는 승격에서 받지 않는다");
+throwsLike(() => parseArgs([ROLLBACK_FLOOR_OVERRIDE]), /--rollback 에서만/, "플래그만 따로 쓰면(업로드) 거부한다");
+{
+  const floorOf = (version, versionId = OTHER_ID, script = SCRIPT) => rollbackFloorProblem({ script, versionId, version });
+  ok(/앞선 버전/.test(floorOf({ number: 332, metadata: { created_on: "2026-11-05T08:28:20.123456Z" } }) || ""), "#332(서울 전환 직전, 시드니 Secret)는 앞선 버전이다");
+  ok(/앞선 버전/.test(floorOf({ number: 340, metadata: { created_on: "2026-11-01T00:00:00Z" } }) || ""), "번호가 커도 만든 시각이 하한보다 앞이면 앞선 버전이다");
+  ok(/앞선 버전/.test(floorOf({ number: 120, metadata: {} }) || ""), "번호만 읽혀도 하한보다 작으면 앞선 버전이다");
+  ok(/앞선 버전/.test(floorOf({ metadata: { created_on: "2026-11-05T10:07:18.000Z" } }) || ""), "만든 시각만 읽혀도 하한(19:07:18.93 KST)보다 앞이면 앞선 버전이다");
+  eq(floorOf({ number: 333, metadata: { created_on: FLOOR.createdOn } }, FLOOR.versionId), null, "하한 버전 자신은 된다");
+  eq(floorOf({ number: 334, metadata: { created_on: "2026-11-05T15:01:19.000001Z" } }), null, "하한 뒤 버전은 된다(마이크로초 시각도 읽는다)");
+  eq(floorOf({ number: "349", metadata: { created_on: "2026-11-10T06:15:19Z" } }), null, "번호가 글자로 와도 읽는다");
+  ok(/확인하지 못했습니다/.test(floorOf({ number: null, metadata: { created_on: "unknown" } }) || ""), "번호·만든 시각을 둘 다 읽지 못하면 확인하지 못한 것으로 거절한다");
+  ok(/확인하지 못했습니다/.test(floorOf(null) || ""), "버전 정보가 없으면 거절한다");
+  eq(floorOf({ number: 18, metadata: { created_on: "2026-11-05T06:28:10Z" } }, OTHER_ID, "malhaebook-monitor"), null, "하한은 이 Worker 에만 있다(다른 Worker 는 번호 체계가 다르다)");
+}
+async function rollbackTo(target, { argv = [], fakeOptions = {} } = {}) {
+  const fake = fakeCloudflare(fakeOptions);
+  const version = { ...structuredClone(fake.versions.get(LIVE_ID)), ...target };
+  fake.versions.set(version.id, version);
+  const h = harness({ fake });
+  const code = await runDeploy(["--rollback", version.id, ...argv], h.deps);
+  return { fake, h, code, id: version.id };
+}
+const PRE_SEOUL = { id: "06848d5e-296f-46a0-9fee-929377547227", number: 332, metadata: { created_on: "2026-11-05T08:28:20.551000Z", source: "api" } };
+{
+  const ctx = await rollbackTo(PRE_SEOUL);
+  eq(ctx.code, 1, "서울 전환 전 버전(#332)으로는 되돌리지 않는다(종료 코드 1)");
+  eq(posts(ctx.fake, "/deployments"), 0, "서울 전환 전 버전: 배포 요청을 보내지 않는다");
+  ok(/서울 DB 전환 버전/.test(ctx.h.output()) && /시드니/.test(ctx.h.output()) && ctx.h.output().includes(ROLLBACK_FLOOR_OVERRIDE), "서울 전환 전 버전: 이유(옛 시드니 Secret)와 넘기는 플래그 이름을 알린다");
+  ok(!recordOf(ctx.h, "rollback-"), "서울 전환 전 버전: 되돌리기 기록을 만들지 않는다");
+  ok(!/--rollback [0-9a-f]{8}-/.test(ctx.h.output()), "거절 출력에도 실행할 수 있는 되돌리기 명령 줄이 없다");
+}
+{
+  const ctx = await rollbackTo({ id: "33333333-3333-4333-8333-333333333333", number: undefined, metadata: {} });
+  eq(ctx.code, 1, "번호·만든 시각을 못 읽는 버전으로는 되돌리지 않는다");
+  eq(posts(ctx.fake, "/deployments"), 0, "번호·만든 시각을 못 읽는 버전: 배포 요청을 보내지 않는다");
+}
+{
+  const ctx = await rollbackTo({ id: FLOOR.versionId, number: 333, metadata: { created_on: FLOOR.createdOn, source: "api" } });
+  eq(ctx.code, 0, "서울 전환 버전(#333) 자신으로는 되돌린다");
+  eq(ctx.fake.deployments[0].versions[0].version_id, FLOOR.versionId, "서울 전환 버전이 100% 다");
+}
+{
+  const ctx = await rollbackTo(PRE_SEOUL, { argv: [ROLLBACK_FLOOR_OVERRIDE] });
+  eq(ctx.code, 0, "플래그를 일부러 쓰면 하한을 넘겨 되돌린다");
+  ok(/경고: --allow-pre-seoul-db/.test(ctx.h.output()), "플래그로 넘길 때는 경고를 남긴다");
+  const record = recordOf(ctx.h, `rollback-${PRE_SEOUL.id}`);
+  ok(record?.data.floor?.overridden === true && /앞선 버전/.test(record.data.floor.problem || ""), "플래그로 넘긴 일이 되돌리기 기록에 남는다");
+}
+{
+  // 옛 Supabase 를 가리키는 버전처럼 /ready 가 503 이면, /health 가 살아 있어도 실패로 알린다.
+  const ctx = await rollbackTo(PRE_SEOUL, { argv: [ROLLBACK_FLOOR_OVERRIDE], fakeOptions: { readyDown: true } });
+  eq(ctx.code, 1, "되돌린 뒤 /ready 가 ok 가 아니면 실패다(종료 코드 1)");
+  ok(/[/]ready 가 2번 연속 ok 가 아닙니다/.test(ctx.h.output()) && /실패 표 2개/.test(ctx.h.output()), "무엇이 실패했는지(/ready·실패 표 수) 알린다");
+  ok(ctx.h.output().includes(`되돌리기 전 배포 버전(기록만): ${LIVE_ID}`) && !/--rollback [0-9a-f]{8}-/.test(ctx.h.output()), "실패해도 이전 버전은 id 만 기록으로 적는다");
+  eq(posts(ctx.fake, "/deployments"), 1, "실패해도 스스로 다시 배포하지 않는다");
+  eq(ctx.fake.calls.filter((c) => c.path === "/ready").length, READY_MAX_ATTEMPTS, `/ready 는 ${READY_MAX_ATTEMPTS}번까지 다시 본다`);
+  ok(recordOf(ctx.h, `rollback-${PRE_SEOUL.id}`)?.data.ready?.ok === false, "되돌리기 기록에 /ready 실패가 남는다");
+}
+{
+  const ctx = await rollbackTo({ id: OTHER_ID, number: 345, metadata: { created_on: "2026-11-09T01:21:28Z" } }, { fakeOptions: { readySequence: ["down", "ok", "down", "ok", "ok"] } });
+  eq(ctx.code, 0, "전파 중 /ready 가 섞여도 2번 연속 ok 면 통과다");
+  eq(ctx.fake.calls.filter((c) => c.path === "/ready").length, 5, "첫 ok 에서 멈추지 않고 연속 ok 까지 본다");
+}
+{
+  const ctx = await rollbackTo({ id: OTHER_ID, number: 345, metadata: { created_on: "2026-11-09T01:21:28Z" } }, { fakeOptions: { readySequence: ["ok", "down", "ok", "down", "ok", "down"] } });
+  eq(ctx.code, 1, "/ready 가 번갈아 나오기만 하면 실패로 센다");
+}
+// V22.9.118 O-4(독립 검토 P3-4): 되돌린 버전이 직접 점검한 /ready 만 센다. 배포 전 판(V-OLD)을 알리는 응답과 인스턴스가 다시 쓴 응답(cached)은 세지 않는다.
+const SEOUL_LATER = { id: OTHER_ID, number: 345, metadata: { created_on: "2026-11-09T01:21:28Z" } };
+{
+  const ctx = await rollbackTo(SEOUL_LATER);
+  const record = recordOf(ctx.h, `rollback-${OTHER_ID}`);
+  eq(ctx.code, 0, "판 확인: 되돌리기 통과");
+  eq(record?.data.before?.version, "V-OLD", "되돌리기 전 /health 의 판을 기록에 남긴다");
+  const order = ctx.fake.calls.map((c) => `${c.method} ${c.path}`);
+  ok(order.indexOf("GET /health") >= 0 && order.indexOf("GET /health") < order.indexOf("POST /deployments"), "배포 요청 전에 /health 의 판을 한 번 읽는다");
+  ok(ctx.fake.calls.filter((c) => c.path === "/health" && order.indexOf("POST /deployments") < ctx.fake.calls.indexOf(c)).every((c) => c.version === APP_VERSION), "되돌린 뒤 센 /health 는 모두 되돌린 버전의 판이다");
+}
+{
+  const ctx = await rollbackTo(SEOUL_LATER, { fakeOptions: { readySequence: ["old", "old", "ok", "ok"] } });
+  eq(ctx.code, 0, "이전 판 인스턴스의 /ready 가 섞여도 되돌린 판의 연속 ok 면 통과다");
+  eq(ctx.fake.calls.filter((c) => c.path === "/ready").length, 4, "이전 판(V-OLD)의 ok 응답은 세지 않는다(예전에는 둘째에서 통과)");
+  ok(recordOf(ctx.h, `rollback-${OTHER_ID}`)?.data.ready?.previous_version === 2, "기록에 이전 판 응답 수가 남는다");
+}
+{
+  const ctx = await rollbackTo(SEOUL_LATER, { fakeOptions: { readySequence: ["ok", "old", "ok", "ok"] } });
+  eq(ctx.code, 0, "이전 판 응답은 연속을 끊는다(그 뒤 연속 둘이면 통과)");
+  eq(ctx.fake.calls.filter((c) => c.path === "/ready").length, 4, "이전 판 응답 뒤로 다시 둘을 센다");
+}
+{
+  const ctx = await rollbackTo(SEOUL_LATER, { fakeOptions: { readySequence: ["ok", "cached", "ok"] } });
+  eq(ctx.code, 0, "배포 요청 뒤가 아닌 점검을 다시 쓴 응답은 세지도 끊지도 않는다");
+  eq(ctx.fake.calls.filter((c) => c.path === "/ready").length, 3, "배포 요청 뒤가 아닌 다시 쓴(cached) ok 는 세지 않는다(예전에는 둘째에서 통과)");
+  const readyRecord = recordOf(ctx.h, `rollback-${OTHER_ID}`)?.data.ready;
+  ok(readyRecord?.ok === true && readyRecord?.cached_skipped === 1, "기록에 세지 않은 다시 쓴 응답 수가 남는다");
+  ok(ctx.h.sleeps.includes(READY_CACHE_WAIT_MS) && READY_CACHE_WAIT_MS > 60000, "다시 쓴 응답 뒤에는 인스턴스의 다시 쓰기(60초)가 끝날 만큼 기다렸다 다시 본다");
+  eq(recordOf(ctx.h, `rollback-${OTHER_ID}`)?.data.deploy_requested_at, "2026-10-08T00:00:00.000Z", "되돌리기 기록에 배포 요청 시각(다시 쓴 응답의 기준)이 남는다");
+}
+{
+  // 재검토 P3: 다시 쓴 /ready — 배포 요청 뒤 점검이면 ok 로 세고, ok 가 아니면 ‘준비 안 됨’, 점검 시각 칸이 없으면 예전처럼 기다린다.
+  const fresh = await rollbackTo(SEOUL_LATER, { fakeOptions: { readySequence: ["ok", "fresh"] } });
+  eq(fresh.code, 0, "배포 요청 뒤 점검을 다시 쓴 ok 는 센다");
+  eq(fresh.fake.calls.filter((c) => c.path === "/ready").length, 2, "그 응답으로 연속 둘을 채운다(예전에는 60초 기다려 셋째)");
+  ok(recordOf(fresh.h, `rollback-${OTHER_ID}`)?.data.ready?.cached_counted === 1 && !fresh.h.sleeps.includes(READY_CACHE_WAIT_MS), "기록에 센 다시 쓴 응답 수가 남고 60초를 기다리지 않는다");
+  const downCached = await rollbackTo(SEOUL_LATER, { fakeOptions: { readySequence: ["ok", "cdown", "ok", "ok"] } });
+  eq(downCached.code, 0, "다시 쓴 503 뒤 연속 ok 둘이면 통과");
+  eq(downCached.fake.calls.filter((c) => c.path === "/ready").length, 4, "다시 쓴 503 은 연속을 끊는다(예전에는 세지도 끊지도 않아 셋째에서 통과)");
+  const downRecord = recordOf(downCached.h, `rollback-${OTHER_ID}`)?.data.ready;
+  ok(downRecord?.not_ok === 1 && downRecord?.cached_not_ok === 1, "다시 쓴 503 은 ‘준비 안 됨’으로 기록에 남는다");
+  const onlyDown = await rollbackTo(SEOUL_LATER, { fakeOptions: { readySequence: Array(READY_MAX_ATTEMPTS).fill("cdown") } });
+  ok(onlyDown.code === 1 && /DB 를 쓸 수 없는 버전일 수 있습니다/.test(onlyDown.h.output()) && /그중 다시 쓴 응답 \d+회/.test(onlyDown.h.output()), "다시 쓴 503 만 오면 준비 안 됨으로 실패를 알린다");
+  const noStamp = await rollbackTo(SEOUL_LATER, { fakeOptions: { readySequence: ["ok", "nostamp", "ok"] } });
+  eq(noStamp.code, 0, "점검 시각 칸이 없는 다시 쓴 ok 뒤 직접 ok 면 통과");
+  ok(noStamp.fake.calls.filter((c) => c.path === "/ready").length === 3 && noStamp.h.sleeps.includes(READY_CACHE_WAIT_MS) && recordOf(noStamp.h, `rollback-${OTHER_ID}`)?.data.ready?.cached_skipped === 1, "점검 시각 칸이 없으면 세지 않고 기다렸다 다시 본다");
+}
+{
+  const ctx = await rollbackTo(SEOUL_LATER, { fakeOptions: { readySequence: Array(READY_MAX_ATTEMPTS).fill("cached") } });
+  eq(ctx.code, 1, "다시 쓴 응답만 오면 통과로 보지 않는다");
+  ok(/다시 쓴 응답\(세지 않음\) \d+회/.test(ctx.h.output()) && /직접 점검한 응답을 받지 못했습니다/.test(ctx.h.output()), "다시 쓴 응답만 왔다고 알린다");
+}
+{
+  const ctx = await rollbackTo(SEOUL_LATER, { fakeOptions: { readySequence: Array(READY_MAX_ATTEMPTS).fill("old") } });
+  eq(ctx.code, 1, "이전 판의 /ready 만 오면 통과로 보지 않는다");
+  ok(/배포 전 판 응답 \d+회/.test(ctx.h.output()) && /배포 전 판의 응답이 이어집니다/.test(ctx.h.output()), "이전 판 응답만 왔다고 알린다");
+}
+{
+  // 판 이름이 배포 전과 같은 버전(설정만 바꾼 버전)은 응답으로 가릴 수 없다.
+  // 재검토 P2 로 기대값을 바꿨다: 예전 ‘실패(종료 코드 1)·/ready 0번’ 은 변수·Secret 만 바꾼 버전 사이의 되돌리기에서 DB 준비 여부를 전혀 보고하지 않았다.
+  const ctx = await rollbackTo(SEOUL_LATER, { fakeOptions: { healthVersion: "V-OLD" } });
+  eq(ctx.code, 0, "판 이름이 같은 버전으로 되돌려도 /health 가 살아 있고 /ready 가 ok 면 통과(경고와 함께)");
+  ok(/경고: 판 이름이 같아 응답만으로는 되돌린 버전인지 가릴 수 없습니다/.test(ctx.h.output()) && /배포 기록의 활성 version id 로 확인하세요/.test(ctx.h.output()), "판 이름이 같으면 경고하고 활성 version id 로 확인하라고 알린다");
+  ok(ctx.h.output().includes(`배포 API 의 활성 버전은 ${OTHER_ID} 100% 로 확인했습니다`), "경고 옆에 배포 API 로 확인한 활성 version id 를 적는다");
+  eq(ctx.fake.calls.filter((c) => c.path === "/health").length, 1 + HEALTH_MAX_ATTEMPTS + HEALTH_CONSECUTIVE, "/health 는 배포 전 한 번, 판으로 가린 확인, 판 제외 연속 확인만큼 부른다");
+  eq(ctx.fake.calls.filter((c) => c.path === "/ready").length, READY_CONSECUTIVE, "판 제외 없이 /ready 를 연속으로 본다");
+  const record = recordOf(ctx.h, `rollback-${OTHER_ID}`)?.data;
+  ok(record?.warnings?.length === 1 && record?.health_version_filtered?.ok === false && record?.health_version_filtered?.previous_version === HEALTH_MAX_ATTEMPTS && record?.health?.ok === true && record?.ready?.ok === true, "기록에 경고·판으로 가린 확인(실패)·판 제외 확인·/ready 결과가 남는다");
+  ok(/경고 1건/.test(ctx.h.output()) && !/--rollback [0-9a-f]{8}-/.test(ctx.h.output()), "끝 줄에도 경고를 적고, 되돌리기 명령 줄은 없다");
+  eq(posts(ctx.fake, "/deployments"), 1, "스스로 다시 배포하지 않는다");
+}
+{
+  const ctx = await rollbackTo(SEOUL_LATER, { fakeOptions: { healthVersion: "V-OLD", readyDown: true } });
+  eq(ctx.code, 1, "판 이름이 같은 버전이라도 /ready 가 준비 안 됨이면 실패다");
+  ok(/경고: 판 이름이 같아/.test(ctx.h.output()) && /[/]ready 가 2번 연속 ok 가 아닙니다/.test(ctx.h.output()) && /DB 를 쓸 수 없는 버전일 수 있습니다/.test(ctx.h.output()), "경고와 /ready 실패(503)를 그대로 알린다");
+}
+{
+  const ctx = await rollbackTo(SEOUL_LATER, { fakeOptions: { healthVersion: "V-OLD", ignoreDeploy: true } });
+  eq(ctx.code, 1, "배포 API 의 활성 버전이 대상이 아니면 판 이름이 같아도 실패다");
+  ok(/배포 API 의 활성 버전이 \S+ 100% 가 아닙니다/.test(ctx.h.output()) && /현재 배포가 \S+ 100% 가 아닙니다/.test(ctx.h.output()), "경고에 활성 버전이 대상이 아니라고 적고 실패로 알린다");
+  eq(ctx.fake.calls.filter((c) => c.path === "/ready").length, 0, "앞선 확인이 실패하면 /ready 로 넘어가지 않는다");
+}
+{
+  // 되돌린 판이 한 번이라도 보였으면 판 이름이 같은 버전이 아니다(전파가 늦어 섞임) — 경고로 넘기지 않고 실패로 알린다.
+  const mixed = ["old", ...Array.from({ length: HEALTH_MAX_ATTEMPTS }, (_, i) => (i % 2 ? "old" : "new"))];
+  const ctx = await rollbackTo(SEOUL_LATER, { fakeOptions: { healthSequence: mixed } });
+  eq(ctx.code, 1, "이전 판과 되돌린 판이 번갈아 나오기만 하면 실패다");
+  ok(/배포 전 판의 응답이 섞여 나옵니다/.test(ctx.h.output()) && !/경고: 판 이름이 같아/.test(ctx.h.output()), "섞여 나온다고 알리고, 판 이름이 같다는 경고는 하지 않는다");
+}
+{
+  // 지금 버전이 망가져 배포 전 /health 를 못 읽어도 되돌리기는 한다(판으로 가리지 않고 경고를 남긴다).
+  const ctx = await rollbackTo(SEOUL_LATER, { fakeOptions: { healthFailFirst: true } });
+  eq(ctx.code, 0, "배포 전 판을 못 읽어도 되돌린다");
+  ok(/경고: 되돌리기 전 \/health 의 판을 읽지 못했습니다/.test(ctx.h.output()), "판을 못 읽었다고 경고한다");
+  const record = recordOf(ctx.h, `rollback-${OTHER_ID}`);
+  ok(record?.data.before?.version === null && typeof record?.data.before?.error === "string", "기록에 판을 못 읽은 것이 남는다");
 }
 {
   const fake = fakeCloudflare();
@@ -441,7 +655,7 @@ for (const [label, tamper, pattern] of [
   ["업로드 뒤 대시보드에서 Secret 을 바꿈(새 버전 배포)", (ctx) => {
     const rotated = structuredClone(ctx.fake.versions.get(LIVE_ID));
     rotated.id = "33333333-3333-4333-8333-333333333333";
-    rotated.number = 42;
+    rotated.number = 352;
     ctx.fake.versions.set(rotated.id, rotated);
     ctx.fake.deployments.unshift({ id: "deployment-secret", created_on: "2026-10-21T00:00:00Z", source: "dash", strategy: "percentage", versions: [{ version_id: rotated.id, percentage: 100 }] });
   }, /업로드 뒤 현재 배포가 바뀌었습니다/],
@@ -454,7 +668,7 @@ for (const [label, tamper, pattern] of [
 }
 
 // ---------------------------------------------------------------------------
-// 6. 승격 뒤 확인 실패 — 성공으로 세지 않고, 되돌리기 명령만 알린다
+// 6. 승격 뒤 확인 실패 — 성공으로 세지 않고, 되돌리기 대상 id 만 기록으로 알린다(V22.9.118 O-4: 명령 줄 없음)
 // ---------------------------------------------------------------------------
 for (const [label, fakeOptions, harnessOptions, pattern, publicRuns] of [
   ["배포된 소스가 다름", { contentMode: "mismatch" }, {}, /SHA-256 과 같음을 확인하지 못했습니다/, 0],
@@ -466,7 +680,8 @@ for (const [label, fakeOptions, harnessOptions, pattern, publicRuns] of [
   const ctx = await upload(fakeOptions, harnessOptions);
   eq(await runDeploy(["--promote", ctx.newId], ctx.h.deps), 1, `${label}: 종료 코드 1`);
   ok(pattern.test(ctx.h.output()), `${label}: 무엇이 실패했는지 알린다`);
-  ok(ctx.h.output().includes(`--rollback ${LIVE_ID}`), `${label}: 되돌리기 명령을 알린다`);
+  // V22.9.118 O-4: 예전 기대값은 실행할 수 있는 ‘--rollback <id>’ 명령 줄이었다. id 만 기록으로 적는다.
+  ok(ctx.h.output().includes(`되돌리기 대상(기록만): ${LIVE_ID}`) && !/--rollback [0-9a-f]{8}-/.test(ctx.h.output()), `${label}: 되돌리기 대상 id 만 기록으로 알린다(명령 줄 없음)`);
   eq(posts(ctx.fake, "/deployments"), 1, `${label}: 스스로 되돌리거나 다시 배포하지 않는다`);
   eq(ctx.h.publicRuns.length, publicRuns, `${label}: 앞선 확인이 실패하면 공개 검사로 넘어가지 않는다`);
 }
@@ -493,12 +708,21 @@ eq(`${HEALTH_CONSECUTIVE}/${HEALTH_MAX_ATTEMPTS}/${HEALTH_DELAY_MS}`, "5/40/2000
   ok(/5번 연속 확인 [(]시도 8회, 불일치 2회/.test(ctx.h.output()), "몇 번 만에 안정됐는지 알린다");
 }
 {
+  // V22.9.118 재검토 반영 뒤에도 승격 경로는 그대로다(되돌리기 전용 칸·/ready 없음).
+  const ctx = await upload();
+  eq(await runDeploy(["--promote", ctx.newId], ctx.h.deps), 0, "승격은 예전처럼 끝난다");
+  const record = recordOf(ctx.h, `promote-${ctx.newId}`)?.data;
+  ok(record && !("deploy_requested_at" in record) && !("warnings" in record) && !("health_version_filtered" in record) && !("ready" in record) && !("previous_version" in record.health), "승격 기록에 되돌리기 전용 칸(배포 요청 시각·경고·판으로 가린 확인·/ready·배포 전 판 수)이 없다");
+  eq(ctx.fake.calls.filter((c) => c.path === "/ready").length, 0, "승격은 /ready 를 부르지 않는다");
+}
+{
   const flapping = Array.from({ length: 60 }, (_, i) => (i % 2 ? "new" : "old"));
   const ctx = await upload({ healthSequence: flapping });
   eq(await runDeploy(["--promote", ctx.newId], ctx.h.deps), 1, "새 판과 이전 판이 번갈아 나오기만 하면 실패로 센다");
   eq(ctx.fake.calls.filter((c) => c.path === "/health").length, HEALTH_MAX_ATTEMPTS, `안정되지 않으면 /health 를 ${HEALTH_MAX_ATTEMPTS}번까지만 본다`);
   eq(ctx.h.publicRuns.length, 0, "안정되지 않으면 공개 검사로 넘어가지 않는다");
-  ok(/5번 연속/.test(ctx.h.output()) && ctx.h.output().includes(`--rollback ${LIVE_ID}`), "안정되지 않은 이유와 되돌리기 명령을 알린다");
+  // V22.9.118 O-4: 되돌리기 명령 줄 대신 id 만 기록으로 적는다.
+  ok(/5번 연속/.test(ctx.h.output()) && ctx.h.output().includes(`되돌리기 대상(기록만): ${LIVE_ID}`) && !/--rollback [0-9a-f]{8}-/.test(ctx.h.output()), "안정되지 않은 이유와 되돌리기 대상 id 를 알린다(명령 줄 없음)");
 }
 
 // ---------------------------------------------------------------------------

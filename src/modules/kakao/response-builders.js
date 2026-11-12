@@ -1,7 +1,9 @@
 // @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { safeError } from "../runtime/leases.js";
 import { jsonResponse } from "../runtime/http.js";
 import { kakaoSkillSafeFallbackText } from "./reply-texts.js";
+import { KAKAO_MANUAL_HOME_TITLE } from "./manual-guides.js";
 import { getKakaoBotGroupKey } from "./group-links-first-record.js";
 // @build:imports-end
 
@@ -106,13 +108,19 @@ function kakaoText(text, quickReplies = null, status = 200) {
 // 카카오 심사 요청: 문구는 기본 시작 안내의 절반 이하로 줄이고, 자세한 설명은
 // 관리자센터 '도움말 블록'에 둔다. 버튼은 그룹 챗봇 스킬 응답 플러그인 액션
 // guide(도움말 하단 창)와 mention(입력창에 챗봇 멘션 자동 입력)을 사용한다.
+// V22.9.118(조정자 결정 2026-11-12): 가장 자주 나오고 방 사람 모두가 보는 답이라 약관 안내를 따로 말풍선으로 붙이지 않고 이 카드 안에 둔다 —
+// 글 끝 짧은 한 줄(KAKAO_GROUP_EMPTY_MENTION_TERMS_LINE_V229118)과 ‘기록하기’ 바로 위 단추 ‘이용약관’(/terms 링크). 답은 말풍선 하나이고 글 전체(제목 + 설명)는
+// 예전 시작 안내의 절반(96자) 이하, 글에 주소 없음. 상태·저장소를 읽지 않고 늘 같다(답 전 저장소 호출 0회). 개인정보처리방침 단추는 넣지 않는다
+// (설명서 첫 화면의 약관 안내 카드와 ‘개인정보’ 답에 있다). kakaoTermsNoticeResponseV229118 은 이 카드 뒤에 카드를 더하지 않는다.
 const KAKAO_GROUP_EMPTY_MENTION_TITLE = "안녕하세요 😊 말해가계부예요";
+const KAKAO_GROUP_EMPTY_MENTION_TERMS_LINE_V229118 = "이용하면 이용약관에 동의한 것으로 봐요.";
 const KAKAO_GROUP_EMPTY_MENTION_DESCRIPTION = [
   "친구와 함께 말 한마디로 간단히 기록하는 가계부 챗봇이에요.",
   "예) @말해가계부 점심 12000원",
+  KAKAO_GROUP_EMPTY_MENTION_TERMS_LINE_V229118,
 ].join("\n");
 
-function kakaoGroupEmptyMentionReply() {
+function kakaoGroupEmptyMentionReply(origin = "") {
   return jsonResponse({
     version: "2.0",
     template: {
@@ -126,8 +134,13 @@ function kakaoGroupEmptyMentionReply() {
               // 버튼형 설명서는 ‘도움말 보기’로 연다(단톡방은 버튼 이름을 그대로 보낸다 → 스킬이 ‘도움말’로 읽는다).
               // V22.9.72: 디자이너 피드백(2026-10-20) — ‘챗봇 멘션하기’는 ‘기록하기’로, 맨 아래에 둔다.
               { label: KAKAO_MANUAL_HOME_GROUP_LABEL, action: "message", messageText: KAKAO_MANUAL_HOME_GROUP_LABEL },
+              // V22.9.118: 이용약관 링크(글 끝 안내 줄과 짝)는 ‘기록하기’ 앞에 둔다 — V22.9.72 규칙(‘기록하기’ 맨 아래)과 링크를 멘션 앞에 끼우는
+              // kakaoPlaceLeftLinks 와 같은 순서(조정자 결정 2026-11-12). 주소는 단추에만 둔다(V22.9.88 Y-7).
+              ...(origin ? [kakaoLinkButton("이용약관", `${origin}/terms`)] : []),
               { ...KAKAO_RECORD_MENTION_BUTTON },
             ],
+            // V22.9.118: 단추가 셋이라 세로 배열을 적어 둔다 — 그룹 챗봇 안내서: 가로(horizontal)는 단추 2개까지만, 세로(vertical)는 5개까지 보인다.
+            buttonLayout: "vertical",
           },
         },
       ],
@@ -444,6 +457,76 @@ function kakaoWebLedgerReply(origin = "", notice = "") {
   }, 200);
 }
 
+// V22.9.118 P-3(V95:E-1): 챗봇만 쓰는 사람은 약관·방침을 볼 기회 없이 사용자 행·가계부가 생겼다(V22.9.115 뒤로는 방에서 조회만 불러도 구성원).
+// 처음 개인 가계부가 만들어지는 답(1:1 첫 기록)과 처음 그 방 가계부에 들어가는 답(방 첫 기록·첫 호출·참여)에만 한 줄 + 링크 단추 둘(이용약관·개인정보처리방침)을 단다.
+// 그 자리(identity-chat-first·group-links-first-record)가 env.__AB_KAKAO_REQUEST.termsNoticeV229118 을 켜고, skill-handler 가 응답 마무리(글 속 주소 → 단추) 뒤의
+// 최종 답(지연 답 포함)에 이 함수를 쓴다. 글에는 주소를 넣지 않고(V22.9.88 Y-7) 있던 단추는 건드리지 않는다: 답 맨 앞 말풍선이 참여 한 줄이면 그 말풍선을 한 줄과
+// 단추를 단 카드로 바꾸고, 아니면 말풍선이 셋 미만일 때 끝에 카드를 하나 더한다. 셋이 다 찼으면 단추 없이 글 말풍선 끝에 한 줄만 붙인다. 저장소 호출은 없다.
+// V22.9.118 독립 검토 P2: 단톡방에서 가장 흔한 첫 호출(봇만 부른 빈 멘션·설명서 첫 화면 = 시작·도움말·설명서·메뉴)은 답 뒤에 들이거나 상태가 답마다 달라
+// 안내를 못 보고 구성원이 됐다(‘메뉴’·‘명령어’ 는 같은 첫 화면으로 답하지만 들이지는 않는다 — 안내는 똑같이 단다). 설명서 첫 화면 답(단톡방)에는 표시와 상관없이 늘 같은 한 줄 + 단추를 단다 — 답 카드의 제목으로 알아보며 상태·저장소를 읽지 않는다.
+// 기존 카드의 글·단추는 그대로 두고 끝에 카드를 하나 더한다(말풍선이 하나라 늘 자리가 있다). 이미 안내가 있으면 두 번 달지 않는다.
+// 빈 멘션 인사는 조정자 결정(2026-11-12)으로 카드 안에 짧은 줄과 ‘이용약관’ 단추를 담으므로(kakaoGroupEmptyMentionReply) 여기서는 아무것도 더하지 않는다.
+const KAKAO_TERMS_NOTICE_LINE_V229118 = "말해가계부를 이용하면 이용약관에 동의한 것으로 봐요.";
+
+// V22.9.118 독립 검토 P3: 첫 사용 답에 안내를 달지 못하고 지나가면(말풍선 셋이 다 차 자리가 없음·4초 뒤 지연 답·첫 사용 뒤 기록 저장 실패·답 뒤에 처음 들임)
+// 다음 답은 첫 사용이 아니라 다시 오지 않는다. 동작은 그대로 두고 얼마나 자주인지 보려고 운영 이벤트를 요청마다 한 건만 남긴다(info, 이유 낱말만 — 사용자·방 정보 없음).
+// 재검토 P3: 지연 답이 나간 요청은 버려지는 최종 답이 먼저 남긴 이유(no_room·not_saved)보다 늦은 답(deferred)이 실제 이유다 — 같은 이벤트의 이유만
+// ‘deferred’ 로 고쳐 쓴다(요청마다 한 건은 그대로, 그 뒤 다른 이유는 무시).
+function noteKakaoTermsNoticeDroppedV229118(env, reason = "") {
+  const state = env?.__AB_KAKAO_REQUEST;
+  const why = String(reason || "unknown");
+  if (state?.termsNoticeDroppedV229118) {
+    if (why === "deferred" && state.termsNoticeDroppedV229118 !== why) {
+      state.termsNoticeDroppedV229118 = why;
+      if (state.termsNoticeDroppedEventV229118) state.termsNoticeDroppedEventV229118.detail = why;
+    }
+    return;
+  }
+  const event = rememberOpsEvent({ kind: "kakao_terms_notice_dropped", severity: "info", path: "/skill", method: "POST", detail: why });
+  if (state) {
+    state.termsNoticeDroppedV229118 = why;
+    state.termsNoticeDroppedEventV229118 = event || null;
+  }
+}
+
+async function kakaoTermsNoticeResponseV229118(response, env = {}, origin = "", payload = {}) {
+  const state = env?.__AB_KAKAO_REQUEST;
+  const group = !!getKakaoBotGroupKey(payload);
+  if ((!state?.termsNoticeV229118 && !group) || !origin || !response || response.status !== 200) return response;
+  try {
+    const data = JSON.parse(await response.clone().text() || "{}");
+    const template = data?.template && typeof data.template === "object" ? data.template : null;
+    const outputs = Array.isArray(template?.outputs) ? [...template.outputs] : [];
+    if (!outputs.length) return response;
+    // 빈 멘션 인사 카드는 안내를 자기 안에 담는다 — 첫 사용 표시가 켜진 경우(답 전에 들이는 실행)에도 말풍선을 늘리지 않는다.
+    if (group && outputs.some((output) => output?.textCard?.title === KAKAO_GROUP_EMPTY_MENTION_TITLE)) return response;
+    const always = group && outputs.some((output) => output?.textCard?.title === KAKAO_MANUAL_HOME_TITLE);
+    if (!state?.termsNoticeV229118 && !always) return response;
+    const line = KAKAO_TERMS_NOTICE_LINE_V229118;
+    if (JSON.stringify(outputs).includes(line)) return response;
+    const buttons = [kakaoLinkButton("이용약관", `${origin}/terms`), kakaoLinkButton("개인정보처리방침", `${origin}/privacy`)];
+    const lead = String(state?.roomJoinNotice || state?.termsNoticeLeadV229118 || "").trim();
+    const first = outputs[0]?.simpleText?.text;
+    if (lead && typeof first === "string" && first.trim() === lead && lead.length + 1 + line.length <= KAKAO_GROUP_CARD_TEXT_MAX) {
+      outputs[0] = { textCard: { description: `${lead}\n${line}`, buttons, buttonLayout: "vertical" } };
+    } else if (outputs.length < 3) {
+      outputs.push({ textCard: { description: line, buttons, buttonLayout: "vertical" } });
+    } else {
+      const at = outputs.findIndex((output) => typeof output?.simpleText?.text === "string" && output.simpleText.text.length + 2 + line.length <= KAKAO_SIMPLE_TEXT_SAFE_MAX);
+      if (at < 0) {
+        if (state?.termsNoticeV229118) noteKakaoTermsNoticeDroppedV229118(env, "no_room");
+        return response;
+      }
+      outputs[at] = { simpleText: { ...outputs[at].simpleText, text: `${outputs[at].simpleText.text}\n\n${line}` } };
+    }
+    const headers = new Headers(response.headers || {});
+    headers.set("content-type", "application/json; charset=utf-8");
+    return new Response(JSON.stringify({ ...data, template: { ...template, outputs } }), { status: response.status, statusText: response.statusText, headers });
+  } catch (_) {
+    return response;
+  }
+}
+
 async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "") {
   if (!getKakaoBotGroupKey(payload)) return kakaoDirectLinkResponse(response, origin);
   try {
@@ -490,8 +573,10 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
 }
 // @build:exports-start
 export {
-  dedupeQuickReplies, isDefiniteStorageFailure, isUncertainStorageWrite, kakaoDefaultQuickReplies,
-  kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoNextStepReply, kakaoQr,
-  kakaoSaveFailedText, kakaoText, kakaoWebLedgerReply,
+  KAKAO_TERMS_NOTICE_LINE_V229118, dedupeQuickReplies, isDefiniteStorageFailure,
+  isUncertainStorageWrite, kakaoDefaultQuickReplies, kakaoGroupCompatibleResponse,
+  kakaoGroupEmptyMentionReply, kakaoNextStepReply, kakaoQr, kakaoSaveFailedText,
+  kakaoTermsNoticeResponseV229118, kakaoText, kakaoWebLedgerReply,
+  noteKakaoTermsNoticeDroppedV229118,
 };
 // @build:exports-end

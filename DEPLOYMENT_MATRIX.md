@@ -1,3 +1,13 @@
+## V22.9.118 배포 판단
+
+- 대상: 앱만(+ 저장소 배포 도구 `tools/deploy-worker-version.mjs`). 관제·DB·Secret·Kakao 콘솔·OpenBuilder·1년 캐시 자산 변경 없음. 새 선택 변수 `AUTH_ACCOUNT_GLOBAL_RATE_LIMIT`(없으면 50)은 넣지 않는다 → 바인딩 32, 금지 변수 12개 열.
+- 바뀐 것: 약관·방침·공개 안내 문구와 개정 공고·시행일, /support 후원자 오픈채팅 줄(변수 있을 때만), 챗봇 약관 안내(단톡방 빈 멘션 인사 끝 줄·‘이용약관’ 단추, 설명서 첫 화면 끝 약관 카드, 첫 기록·첫 참여 답의 한 줄·링크 단추 — 저장·참여 뒤), robots.txt 한 줄, 화면(다크 대비·단추 겹침·같은 이름 가계부 이름표·좁은 화면 입력칸 16px·문구·이름), 로그인 시도 제한(계정 전체 횟수·비밀번호 대조 길의 IPv6 /64), 방 단추 바로 열기 범위(강한 식별 계정 제외, 로그인 이름만 붙은 계정은 로그인 화면), 배포 도구 되돌리기 안전장치(같은 판 경고·/ready 판정). 담당마다 독립 검토(1차·재검토)를 반영했다. 발견 기록 `docs/codex/FOLLOWUP_FINDINGS_V22_9_118.md`.
+- 공개 HTML: 바뀐다(/terms·/privacy·첫 화면·/how-it-works·/kakao-guide·/group-accountbook·/faq·/support·robots.txt·sitemap lastmod). 광고 게이트·광고 목록(AD_PAGE_KEYS) 그대로.
+- 약관 개정일: **약관·방침 개정 공고 = 시행 = 2026-11-13**(공고 = 시행 = 배포일 규칙, 배포 예정일과 같아 지금은 바꿀 것 없음). 배포일이 바뀌면 `src/modules/public/site-config.js` 의 `POLICY_NOTICE_DATE`·`POLICY_REVISION_DATE` 두 줄만 그날로 바꾸고(안내 쪽 수정일·dateModified·lastmod 는 `PUBLIC_COPY_REVISION_DATE` 로 따라간다) 새 검사의 ‘이번 판 2026-11-13’ 단언 한 줄을 같이 고쳐 다시 빌드한다(RELEASE-CHECKLIST V22.9.118 절).
+- 되돌리기 대상(기록만): 승격 시점의 활성 version(지금 `d12b7f82-2951-43ba-a07f-8424c896b46f`(#349, V22.9.116-PRELAUNCH-P1, 배포 `be9efa46-1f87-478d-98b1-513c88e28bdf`, 2026-11-10 15:19:20 KST 승격); V22.9.117 을 먼저 승격하면 그 id). 되돌리면 이 판(과 함께 실린 V22.9.117)의 수정이 빠지고 약관 화면이 앞 개정(2026-11-09)으로 돌아간다. DB 새 칸·표 없음.
+- 배포: 독립 검토 반영 끝 → PR(base `claude/v229117-account-link`) → CI → 병합(사용자 지목) 뒤 사용자 토큰 업로드·대조(바인딩 32·differences []·소스 해시 f277c7e9…) → 승격 → Claude 직후 확인 → 기록 PR. 이 판의 배포 도구는 끝에 ‘되돌리기 대상(기록만): <id>’ 만 적는다.
+- 번들 9,907,618 B · SHA-256 `f277c7e9fbb80cca61917d64103c550bd9781f328e17c93a5100226fb0dc7303`(146 모듈). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_118.sha256`(839) · 하네스 두 모드 79,227/79,224(하한 79,224). 절차 `review-artifacts/v118-site-review-fixes-2026-11-12/USER-DEPLOY-APP.md`.
+
 ## V22.9.117 배포 판단
 
 - 대상: 앱만. 관제·DB·Secret·Kakao 콘솔·OpenBuilder·1년 캐시 자산 변경 없음. 새 운영 변수 없음 → 바인딩 32, 금지 변수 12개 열. 공개(로그인 없는) 화면 HTML 은 판 이름 밖 변화 없음.

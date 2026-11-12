@@ -34,8 +34,9 @@ import {
   kakaoImageNotSupportedText, kakaoPublicCommandReply, parseCreateHouseholdCommand,
 } from "./intent-nlu.js";
 import {
-  dedupeQuickReplies, kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoNextStepReply,
-  kakaoText, kakaoWebLedgerReply,
+  KAKAO_TERMS_NOTICE_LINE_V229118, dedupeQuickReplies, kakaoGroupCompatibleResponse,
+  kakaoGroupEmptyMentionReply, kakaoNextStepReply, kakaoTermsNoticeResponseV229118, kakaoText,
+  kakaoWebLedgerReply, noteKakaoTermsNoticeDroppedV229118,
 } from "./response-builders.js";
 import { kakaoManualReply, kakaoManualTopic } from "./manual-guides.js";
 import {
@@ -217,7 +218,9 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     // V22.9.115: 방 명령을 처리하다 그 자리에서 이 방 가계부에 들였으면(또는 첫 호출자로 공동 가계부를 준비했으면) 답 맨 앞에 한 줄로 알린다(답 모양과 무관).
     response = await prependKakaoRoomJoinNoticeV229115(response, env);
     const normalizedResponse = await normalizeKakaoSkillResponse(response, origin);
-    const safeResponse = await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin);
+    // V22.9.118 P-3: 처음 계정(개인 가계부)이 만들어지거나 처음 이 방 가계부에 들어간 답이면 약관 안내 한 줄 + 링크 단추(response-builders.js). 그 밖의 답은 그대로.
+    // 독립 검토 P2: 단톡방의 빈 멘션·설명서 첫 화면 답에는 늘 단다(payload 로 단톡방인지 본다).
+    const safeResponse = await kakaoTermsNoticeResponseV229118(await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin), env, origin, payload);
     const latencyMs = Date.now() - skillStartedAt;
     const responsePreview = await safeResponse.clone().text();
     const outcome = nluOutcomeFromKakaoResponse(responsePreview);
@@ -269,7 +272,11 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   abMonitorOutcome(env, "deferred", work); // V22.9.77(G-5): 뒤 작업이 끝나면 관제에 최종 결과 표본을 한 번 더 보낸다.
   rememberSkillEvent({ kind: "deferred", user_key: userKey, utterance, detail: `request_id=${requestId}; budget_ms=${budgetMs}` });
   // V22.9.72: 짧은 안내 + 다시 묻는 버튼(기록이면 ‘오늘기록’ 확인, 조회·명령이면 같은 명령). 2026-10-20 디자이너 피드백.
-  const deferred = await kakaoGroupCompatibleResponse(kakaoDeferredReply(utterance, payload), payload, origin);
+  // V22.9.118 P-3: 지연 답도 그때까지 첫 사용(계정·참여)이 정해졌으면 같은 약관 안내를 단다(정해지기 전에 4초가 지나면 이 답에는 없다).
+  const deferred = await kakaoTermsNoticeResponseV229118(await kakaoGroupCompatibleResponse(kakaoDeferredReply(utterance, payload), payload, origin), env, origin, payload);
+  // V22.9.118 독립 검토 P3: 4초 뒤에 첫 사용이 정해져 이 지연 답에 안내가 없었으면 다음 답에도 오지 않는다 — 동작은 그대로 두고 운영 이벤트 한 건만 남긴다.
+  const noticeInDeferred = (await deferred.clone().text()).includes(KAKAO_TERMS_NOTICE_LINE_V229118);
+  if (!noticeInDeferred) ctx.waitUntil(work.then(() => { if (env.__AB_KAKAO_REQUEST?.termsNoticeV229118) noteKakaoTermsNoticeDroppedV229118(env, "deferred"); }, () => {}));
   const deferredHeaders = new Headers(deferred.headers || {});
   deferredHeaders.set("x-accountbook-version", APP_VERSION);
   deferredHeaders.set("x-accountbook-intent", metricIntent());
@@ -414,9 +421,16 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
       return null;
     }
   };
-  const deferRoomJoinOnCall = async (source) => {
+  // V22.9.118 독립 검토: 빈 멘션·설명서 첫 화면 답은 약관 안내를 늘 달지만(noticeShown), 설명서의 다른 화면(기록하는 법·예산정하기 …)으로 처음 불러 답 뒤에
+  // 들인 사람은 그 답에 안내가 없었다 — 동작은 그대로 두고 운영 이벤트 한 건만 남긴다(답 뒤에 도는 경우만; ctx 없는 실행은 들인 뒤 답하므로 안내가 붙는다).
+  const deferRoomJoinOnCall = async (source, { noticeShown = false } = {}) => {
     if (!roomJoinEligible) return;
-    await deferKakaoAfterReply(env, () => joinRoomOnCallSync({ source }), { cost: 26 });
+    const afterReply = !!env.__AB_KAKAO_REQUEST?.enabled;
+    await deferKakaoAfterReply(env, async () => {
+      const joined = await joinRoomOnCallSync({ source });
+      if (afterReply && !noticeShown && (joined?.joinedNow || joined?.roomCreatedNow)) noteKakaoTermsNoticeDroppedV229118(env, "after_reply");
+      return joined;
+    }, { cost: 26 });
   };
   const roomJoinNoticeLine = (joined) => !joined?.ok || joined.skipped ? ""
     : joined.roomCreatedNow ? "이 방의 공동 가계부를 준비했어요. 첫 호출자인 내가 소유자예요."
@@ -429,7 +443,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   if (!utterance) {
     if (hasKakaoImageAttachment(payload)) return kakaoText(kakaoImageNotSupportedText(origin));
     // 단톡방에서 봇만 멘션한 빈 발화: 짧은 안내 + 도움말·챗봇 멘션하기 버튼으로 다음 발화를 유도한다. V22.9.115: 부른 사람을 답 뒤에 이 방 가계부에 들인다.
-    if (botGroupKey) { await deferRoomJoinOnCall("mention"); return kakaoGroupEmptyMentionReply(); }
+    // V22.9.118: 인사 카드 안에 약관 안내 한 줄과 ‘이용약관’ 링크 단추를 담는다(말풍선 하나, origin 은 단추 주소에만).
+    if (botGroupKey) { await deferRoomJoinOnCall("mention", { noticeShown: true }); return kakaoGroupEmptyMentionReply(origin); }
     return kakaoManualReply("home", { group: false });
   }
 
@@ -440,7 +455,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   const manualTopic = strongTransactionInput ? ""
     : kakaoManualTopic(rawManualUtterance) || kakaoManualTopic(utterance) || (isInputExampleCommand(utterance) ? "record" : "");
   // V22.9.115: 설명서를 부른 사람도 답 뒤에 이 방 가계부에 들인다(답은 예전처럼 바로).
-  if (manualTopic) { await deferRoomJoinOnCall("manual"); return kakaoManualReply(manualTopic, { group: !!botGroupKey }); }
+  if (manualTopic) { await deferRoomJoinOnCall("manual", { noticeShown: manualTopic === "home" }); return kakaoManualReply(manualTopic, { group: !!botGroupKey }); }
 
   const bypassPublic = !!separatePurchaseCommand || isKakaoStartCommand(utterance) || isHelpCommand(utterance) || isCommandMenuCommand(utterance) ||
     isKakaoCreateFlowCommand(utterance) || isKakaoJoinFlowCommand(utterance) || isKakaoBudgetSetupCommand(utterance) ||
@@ -501,7 +516,10 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     // V22.9.88(Y-7): 단톡방 ‘웹가계부’는 웹 가계부를 바로 여는 링크 버튼 카드로 답한다(카카오 심사: 답 글에 주소를 넣지 않는다).
     if (skillConfigured && botGroupKey && isLinkCommand(utterance)) {
       // V22.9.115: 누르기 전에 이 방 가계부 구성원으로 들인다(가계부 없는 방은 첫 호출자가 소유자). 그래야 단추가 로그인 화면 없이 이 방 가계부 홈을 연다(V22.9.105 R-1).
-      return kakaoWebLedgerReply(origin, roomJoinNoticeLine(await joinRoomOnCallSync({ source: "link" })));
+      const lead = roomJoinNoticeLine(await joinRoomOnCallSync({ source: "link" }));
+      // V22.9.118 P-3: 참여 한 줄이 있으면 약관 안내를 그 말풍선에 합치도록 알려 둔다(kakaoTermsNoticeResponseV229118).
+      if (lead && env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.termsNoticeLeadV229118 = lead;
+      return kakaoWebLedgerReply(origin, lead);
     }
     if (skillConfigured && isLinkCommand(utterance)) return kakaoText(await kakaoPrivateWebLinkReply(request, env, payload, kakaoUserKey, nickname, origin));
     return kakaoText(earlyReply);

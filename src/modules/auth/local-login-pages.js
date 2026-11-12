@@ -8,7 +8,8 @@ import { passwordMatchFeedbackClientMain } from "../client/legacy-ui-runtime.js"
 import { safeError } from "../runtime/leases.js";
 import { htmlResponse, redirectResponse, redirectResponseWithCookies } from "../runtime/http.js";
 import {
-  PASSWORD_KDF_ITERATIONS, newPasswordSalt, pbkdf2PasswordHash, recordAuthAttempt, trafficClientIp,
+  PASSWORD_KDF_ITERATIONS, authAttemptNetwork, newPasswordSalt, pbkdf2PasswordHash,
+  recordAuthAccountWideAttempt, recordAuthAttempt, trafficClientIp,
 } from "./crypto-admin-session.js";
 import { safeUserReturnPath } from "../admin/bulk-and-return-paths.js";
 import { safeObject } from "../admin/backup-compare.js";
@@ -147,23 +148,31 @@ async function handleMyLocalLogin(request, env) {
   const loginReturnTo = safeUserReturnPath(String(form.get("return_to") || ""), "");
   if (!nickname) return htmlResponse(renderUserLoginHtml(env, "로그인 이름을 입력하세요.", loginReturnTo), 400);
   if (accessCode.length < 4) return htmlResponse(renderUserLoginHtml(env, "비밀번호를 4자리 이상 입력하세요.", loginReturnTo), 400);
-  const admission = await recordAuthAttempt(env, request, "/my/local-login-admission", false, {limit:40});
+  // V22.9.118 S-1: 비밀번호를 대조하는 길이라 IP 입장 제한은 IPv6 를 /64 로 묶어 센다(가입·그 밖의 IP 단위 제한은 주소 그대로).
+  const admission = await recordAuthAttempt(env, request, "/my/local-login-admission", false, { limit: 40, groupIpv6: true });
   if (!admission.allowed) return htmlResponse(renderUserLoginHtml(env, "로그인 요청이 잠시 제한되었습니다.", loginReturnTo), admission.unavailable ? 503 : 429);
   const clientSubject = trafficClientIp(request) + "|" + normalizeLocalLoginName(nickname) + "|" + trafficClientKey(request);
   const attempt = await recordAuthAttempt(env, request, "/my/local-login", false, {scope:"subject-client",key:clientSubject});
   if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
   if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
-  // V22.9.26: 로그인 이름 단위로도 센다. 클라이언트 키는 User-Agent 를 바꾸면 비껴가지만
-  // 계정 단위 횟수는 어디서 보내든 같은 계정이면 함께 줄어든다.
-  const accountKey = trafficClientIp(request) + "|" + normalizeLocalLoginName(nickname);
+  // V22.9.26: 로그인 이름 단위로도 센다. 클라이언트 키는 User-Agent 를 바꾸면 비껴간다. 이 키는 주소(V22.9.118: IPv6 는 /64)와
+  // 로그인 이름의 묶음이라 주소를 바꾸면 새로 센다 — 예전 주석의 ‘어디서 보내든 같은 계정이면 함께 줄어든다’ 는 바로 아래 횟수가 한다(V22.9.118 S-1).
+  const accountKey = authAttemptNetwork(request) + "|" + normalizeLocalLoginName(nickname);
   const accountAttempt = await recordAuthAttempt(env, request, "/my/local-login", false, { scope: "account", key: accountKey, limit: boundedRuntimeNumber(env.AUTH_ACCOUNT_RATE_LIMIT, 10, 3, 50) });
   if (accountAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
   if (!accountAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "이 로그인 이름으로 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
+  // V22.9.118 S-1: IP 와 무관한 로그인 이름 전체 횟수(한도·이벤트는 recordAuthAccountWideAttempt). 다른 로그인 이름의 횟수와는 섞이지 않는다.
+  // 남이 채우면 그 이름의 비밀번호 로그인만 잠시 막힌다(카카오 로그인은 그대로).
+  const loginName = normalizeLocalLoginName(nickname);
+  const nameAttempt = await recordAuthAccountWideAttempt(env, request, "/my/local-login", loginName, false, "로그인 이름");
+  if (nameAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
+  if (!nameAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "이 로그인 이름으로 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
   try {
     const user = await ensureLocalLoginUser(env, nickname, accessCode);
     if (!user?.id) return htmlResponse(renderUserLoginHtml(env, "로그인 이름 또는 비밀번호가 맞지 않습니다. 처음이라면 새 계정 만들기를 이용하세요.", loginReturnTo), 401);
     await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"subject-client",key:clientSubject});
     await recordAuthAttempt(env, request, "/my/local-login", true, { scope: "account", key: accountKey });
+    await recordAuthAccountWideAttempt(env, request, "/my/local-login", loginName, true);
     let location = loginReturnTo || "/my";
     if (inviteCode) {
       const joined = await joinHouseholdByCode(env, user.id, inviteCode);
@@ -180,6 +189,8 @@ async function handleMyLocalLogin(request, env) {
       await consentStateCookieFor(env, user.id),
     ]);
   } catch (err) {
+    // 처리 오류는 틀린 비밀번호로 세지 않으려고 이 주소의 횟수를 지운다. IP 와 무관한 전체 횟수(V22.9.118 S-1)는 지우지 않는다 —
+    // 오류를 일으킬 수 있는 사람이 모든 주소의 횟수를 지우지 못하게(차려면 한도(기본 50)만큼 틀려야 해서 정상 사용자에게는 영향이 없다).
     await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"subject-client",key:clientSubject});
     await recordAuthAttempt(env, request, "/my/local-login", true, {scope:"account",key:accountKey});
     const missingSecret = /USER_SESSION_SECRET/.test(safeError(err));

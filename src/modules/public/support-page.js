@@ -1,5 +1,6 @@
 // @build:imports-start
 import { HTML_HEADERS } from "../runtime/config-readiness.js";
+import { PUBLIC_COPY_REVISION_DATE } from "./site-config.js";
 import { verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { verifyUserSession } from "../auth/user-session.js";
@@ -62,7 +63,8 @@ function publicSupportWaysSectionV22995(config, email) {
         links: [["말해가계부 오픈채팅 들어가기", "/support/go/openchat"]],
       };
     }
-    return { title: "후원하는 방법", paragraphs: ["후원 창구를 준비하고 있어요(출시 뒤 안내)."] };
+    // V22.9.118 P-2: 아직 없는 것을 약속하지 않는다(사용자 원칙 — ‘준비’·‘출시 뒤’ 같은 미래 약속 금지). 지금 사실만 적는다.
+    return { title: "후원하는 방법", paragraphs: ["지금은 열려 있는 후원 창구가 없어요."] };
   }
   // V22.9.97 후원 지표: 송금 단추는 변수 주소를 바로 싣지 않고 경유 주소(/support/go/<kind>)로 간다. 누른 수를 센 뒤 같은 주소로 302 한다.
   const links = [config.kakaopay ? ["카카오페이로 송금하기", "/support/go/kakaopay"] : null, config.toss ? ["토스로 송금하기", "/support/go/toss"] : null].filter(Boolean);
@@ -94,19 +96,20 @@ function publicSupportPageV22995(env = {}, supporters = []) {
     publicSupportWaysSectionV22995(config, email),
     {
       title: "후원자에게 드리는 것",
-      bullets: ["웹 가계부에 보이는 ‘후원자’ 배지", "후원자만 고를 수 있는 포인트 색 3가지(코랄·민트·라벤더)", "후원자 오픈채팅방 초대(운영 소식을 먼저 듣고 의견을 나누는 곳)", "이 페이지 후원자 명단에 이름 올리기(원하는 분만, 원하는 이름으로)"],
-      note: "보상은 보이는 표시와 이야기 나누는 곳이에요.",
+      // V22.9.118 P-2: 후원자 오픈채팅방(SUPPORTER_OPENCHAT_URL)이 없으면 그 보상 줄과 ‘이야기 나누는 곳’ 말을 빼고, 변수가 생기면 예전처럼 보인다.
+      bullets: ["웹 가계부에 보이는 ‘후원자’ 배지", "후원자만 고를 수 있는 포인트 색 3가지(코랄·민트·라벤더)", config.supporterChat ? "후원자 오픈채팅방 초대(운영 소식을 먼저 듣고 의견을 나누는 곳)" : "", "이 페이지 후원자 명단에 이름 올리기(원하는 분만, 원하는 이름으로)"].filter(Boolean),
+      note: config.supporterChat ? "보상은 보이는 표시와 이야기 나누는 곳이에요." : "보상은 화면에 보이는 표시예요.",
     },
     {
       title: "함께 이야기하는 곳",
       paragraphs: [
         config.community
           ? "누구나 들어올 수 있는 말해가계부 오픈채팅방이 있어요. 쓰는 방법을 묻거나 고쳐 줬으면 하는 점을 나눠 주세요."
-          : `누구나 들어올 수 있는 오픈채팅방을 준비하고 있어요. 그동안은 ${email} 로 의견을 보내 주세요.`,
+          : `지금은 열려 있는 오픈채팅방이 없어요. 의견은 ${email} 로 보내 주세요.`,
         config.supporterChat
           ? "후원자 오픈채팅방은 후원을 확인한 분께 웹 가계부 ‘전체 메뉴’ 의 화면 설정에서 들어가는 단추로 안내해요."
-          : "후원자 오픈채팅방도 준비하고 있어요. 열리면 후원자께 웹 가계부에서 안내해 드려요.",
-      ],
+          : "",
+      ].filter(Boolean),
       ...(config.community ? { links: [["말해가계부 오픈채팅 들어가기", "/support/go/openchat"]] } : {}),
     },
     ...(names.length ? [{
@@ -126,7 +129,7 @@ function publicSupportPageV22995(env = {}, supporters = []) {
     intro: "후원은 선택이에요. 보내 주시는 후원은 카카오톡으로 묻고 답하는 서버와 기록을 안전하게 보관하는 저장소, 그리고 유지보수·업데이트에 쓰여 서비스를 더 오래 안정적으로 운영하는 데 큰 도움이 됩니다.",
     sections,
     type: "WebPage",
-    updated: "2026-11-04",
+    updated: PUBLIC_COPY_REVISION_DATE,
     primary: ["후원하는 방법 보기", "#section-3"],
     secondary: ["문의 안내", "/contact"],
   };
@@ -248,7 +251,7 @@ async function supportViewerIsSupporterV22997(request, env) {
   }
 }
 
-const SUPPORT_GO_MISSING_HTML_V22997 = `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>후원 링크를 찾을 수 없어요</title></head><body><main style="max-width:620px;margin:70px auto;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;color:#172033"><h1>후원 링크를 찾을 수 없어요.</h1><p style="color:#475569;line-height:1.65">이 후원 창구는 아직 준비 중이거나 지금은 열 수 없어요. 후원 안내에서 다른 방법을 확인해 주세요.</p><p><a href="/support" style="display:inline-flex;align-items:center;min-height:44px;color:#1d4ed8">후원 안내로 돌아가기</a></p></main></body></html>`;
+const SUPPORT_GO_MISSING_HTML_V22997 = `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>후원 링크를 찾을 수 없어요</title></head><body><main style="max-width:620px;margin:70px auto;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;color:#172033"><h1>후원 링크를 찾을 수 없어요.</h1><p style="color:#475569;line-height:1.65">이 후원 창구는 지금 열려 있지 않아요. 후원 안내에서 다른 방법을 확인해 주세요.</p><p><a href="/support" style="display:inline-flex;align-items:center;min-height:44px;color:#1d4ed8">후원 안내로 돌아가기</a></p></main></body></html>`;
 
 function supportGoMissingResponseV22997(method = "GET") {
   return new Response(method === "HEAD" ? null : SUPPORT_GO_MISSING_HTML_V22997, { status: 404, headers: { ...HTML_HEADERS, "x-robots-tag": "noindex, nofollow" } });

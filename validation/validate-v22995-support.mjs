@@ -112,9 +112,11 @@ await withClock(TODAY, () => fixture(async (fx) => {
     ok(!/달러|요금제|4만 5천|한 달 운영 비용/.test(support.html), "1-e′ 페이지 어디에도 요금제·달러·예정 금액이 없다(E-18)");
     ok(secs[1]?.body.includes("외부 저장소 비용") && !/계속 무료|후원하지 않아도/.test(support.html), "1-f 서버·저장소 비용 안내, 미래 이용료 약속 없음");
     const ways = secs[2]?.body || "";
-    ok(ways.includes("후원 창구를 준비하고 있어요(출시 뒤 안내).") && hrefs(ways).length === 0 && !/<ul>/.test(ways), "1-g 변수가 없으면 ‘준비 중’ 한 줄만, 링크 0");
+    // V22.9.118 P-2: 없는 창구를 ‘준비 중(출시 뒤 안내)’ 으로 약속하지 않는다 — 지금 사실 한 줄로 기대값 갱신.
+    ok(ways.includes("지금은 열려 있는 후원 창구가 없어요.") && hrefs(ways).length === 0 && !/<ul>/.test(ways), "1-g 변수가 없으면 ‘열려 있는 창구 없음’ 한 줄만, 링크 0");
     ok(!/kakaopay|toss\.me|open\.kakao\.com/.test(support.html), "1-h 변수가 없으면 송금·오픈채팅 주소가 페이지 어디에도 없다");
-    ok(secs[3]?.body.includes("‘후원자’ 배지") && secs[3]?.body.includes("코랄·민트·라벤더") && secs[3]?.body.includes("후원자 오픈채팅방 초대") && secs[3]?.body.includes("원하는 분만"), "1-i 후원자에게 드리는 것: 배지·포인트 색·후원자 방·명단(원하는 분만)");
+    // V22.9.118 P-2: 후원자 오픈채팅방(SUPPORTER_OPENCHAT_URL)이 없으면 그 보상 줄을 뺀다(있으면 보인다 — validate-copy-fixes-v229118).
+    ok(secs[3]?.body.includes("‘후원자’ 배지") && secs[3]?.body.includes("코랄·민트·라벤더") && !secs[3]?.body.includes("후원자 오픈채팅방 초대") && secs[3]?.body.includes("원하는 분만"), "1-i 후원자에게 드리는 것: 배지·포인트 색·명단(원하는 분만), 후원자 방 변수가 없으면 그 줄 없음");
     ok(hrefs(secs[5]?.body).includes("mailto:admin@malhaebook.com") && hrefs(secs[5]?.body).includes("/contact"), "1-j 문의: admin@malhaebook.com 메일과 문의 안내 링크");
     ok(!support.html.includes("기부"), "1-k ‘기부’ 라는 말을 쓰지 않는다");
     ok(support.html.includes("729-24-02288") && /<footer class="pubFooter">[\s\S]*<a href="\/support">후원하기<\/a>[\s\S]*<\/footer>/.test(support.html), "1-l 사업자 정보 꼬리말과 꼬리말 ‘후원하기’ 링크");
@@ -144,7 +146,8 @@ await withClock(TODAY, () => fixture(async (fx) => {
     ok(/<a href="\/support\/go\/kakaopay" target="_blank" rel="noopener noreferrer">/.test(ways), "2-g 바깥 송금 링크는 새 창 + noopener(경유 주소도 바깥 링크로 표시, V22.9.97)");
     const bad = await withEnv(fx, { SUPPORT_KAKAOPAY_URL: "javascript:alert(1)", SUPPORT_TOSS_URL: "ftp://toss.me/x", COMMUNITY_OPENCHAT_URL: "open.kakao.com/o/noScheme", SUPPORTER_OPENCHAT_URL: "https://open.kakao.com/o/x\"onmouseover=\"1", SUPPORT_BANK_ACCOUNT: "   " }, () => page(fx, "/support", { cookie: "" }));
     const badWays = sectionsOf(bad.html).find((s) => s.title === "후원하는 방법")?.body || "";
-    ok(badWays.includes("후원 창구를 준비하고 있어요(출시 뒤 안내).") && hrefs(badWays).length === 0, "2-h http(s) 가 아닌 값·빈 계좌는 없는 것으로 본다(준비 중)");
+    // V22.9.118 P-2: ‘준비 중’ 대신 지금 사실 한 줄로 기대값 갱신.
+    ok(badWays.includes("지금은 열려 있는 후원 창구가 없어요.") && hrefs(badWays).length === 0, "2-h http(s) 가 아닌 값·빈 계좌는 없는 것으로 본다(열려 있는 창구 없음)");
     ok(!/javascript:|ftp:|noScheme|onmouseover/.test(bad.html), "2-i 무시한 값은 페이지 어디에도 나오지 않는다");
     const bankOnly = await withEnv(fx, { SUPPORT_BANK_ACCOUNT: SUPPORT_VARS.SUPPORT_BANK_ACCOUNT }, () => page(fx, "/support", { cookie: "" }));
     const bankWays = sectionsOf(bankOnly.html).find((s) => s.title === "후원하는 방법")?.body || "";

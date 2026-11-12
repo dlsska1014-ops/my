@@ -266,7 +266,12 @@ async function getAdminSecurityState(env) {
 }
 
 // V22.9.26: 클라이언트 키(IP+UA)만 세던 제한은 User-Agent 만 바꾸면 비껴갔다. 범위를 고를 수
-// 있게 한다 — client(기존 키), ip(UA 제외), account(로그인 이름), global(관리자 비밀번호 단일 계정).
+// 있게 한다 — client(기존 키), ip(UA 제외), 그 밖(subject-client·account·global)은 부르는 쪽이 준 키.
+// V22.9.118 S-1: 비밀번호를 대조하는 길(관리자 로그인, 로그인 이름 로그인, 비밀번호 재확인)만 ip 범위를 groupIpv6 로 부르고 ‘IP|계정’ 키를
+// authAttemptNetwork 로 만든다(IPv4 는 주소 그대로, IPv6 는 /64 하나). IPv6 는 한 가입자가 /64 를 통째로 받아 그 안에서 주소를 마음대로
+// 바꿀 수 있어, 주소마다 세면 바꿀 때마다 새로 셌다. 그 밖의 ip 범위 제한(가입, 방 단추 입장, 웹 연결 코드 입장, 카카오 로그인 콜백)은
+// 예전처럼 주소 그대로 센다(독립 검토 P3-1: 같은 /64 뒤의 여러 사람을 한 묶음으로 막지 않게).
+// 주소 하나로 세던 로그인 이름·관리자 횟수가 IP 와 무관하지 않던 것은 recordAuthAccountWideAttempt 로 따로 센다.
 function trafficClientIp(request) {
   try {
     const ip = request.headers.get("cf-connecting-ip") || request.headers.get("x-forwarded-for") || "unknown";
@@ -276,10 +281,104 @@ function trafficClientIp(request) {
   }
 }
 
+// V22.9.118 S-1: 비밀번호를 대조하는 길의 시도 제한용 주소 묶음(위 설명). IPv4·"unknown" 은 trafficClientIp 그대로다(예전 키와 같은 지문).
+// IPv6 는 앞 64비트(/64)를 "2001:db8:77:1::/64" 꼴로 돌려준다. ::ffff:1.2.3.4 꼴(IPv4 를 담은 주소)은 그 IPv4 로 본다.
+// 모양을 읽지 못한 값은 주소 그대로 둔다(서로 다른 사람을 한 묶음으로 합치지 않는다).
+function authAttemptNetwork(request) {
+  const ip = trafficClientIp(request);
+  if (!ip.includes(":")) return ip;
+  const text = ip.toLowerCase().replace(/^\[|\]$/g, "").split("%")[0];
+  const mapped = text.match(/^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/);
+  if (mapped) return mapped[1];
+  const halves = text.split("::");
+  if (halves.length > 2) return ip;
+  const groups = (part) => {
+    if (!part) return [];
+    const out = [];
+    for (const piece of part.split(":")) {
+      if (/^\d{1,3}(?:\.\d{1,3}){3}$/.test(piece)) out.push("0", "0"); // 끝 32비트의 IPv4 는 /64 에 들어가지 않는다
+      else if (/^[0-9a-f]{1,4}$/.test(piece)) out.push(piece);
+      else return null;
+    }
+    return out;
+  };
+  const head = groups(halves[0]);
+  const tail = halves.length === 2 ? groups(halves[1]) : [];
+  if (!head || !tail) return ip;
+  const fill = 8 - head.length - tail.length;
+  if (halves.length === 2 ? fill < 1 : fill !== 0) return ip;
+  const full = [...head, ...Array(fill).fill("0"), ...tail];
+  return `${full.slice(0, 4).map((group) => group.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
+
+// V22.9.118 S-1: IP 와 무관한 계정 전체 횟수(관리자 비밀번호 하나, 로그인 이름 하나마다). 예전 ‘계정 단위’ 키는 IP 를 품어서(IP|admin,
+// IP|로그인 이름) 주소를 바꾸면 새로 8~10번씩 허용됐다(점검 2026-11-12: 같은 /64 안에서 관리자 120번 연속 401, 잠금 없음).
+// 이 횟수는 남이 일부러 채워 그 계정을 잠그는 데도 쓰일 수 있어(독립 검토 P2-2), 한도는 정상 사용자가 걸리지 않을 만큼 넉넉히 두고
+// 운영자가 바로 끌 수 있게 한다. 변수 AUTH_ACCOUNT_GLOBAL_RATE_LIMIT:
+//  · 없거나 비면 50, 0 보다 큰 숫자는 10~50(반올림, 1~9 는 10) 번 / AUTH_RATE_WINDOW_SECONDS(기본 900초) — 운영 함수
+//    accountbook_auth_attempt 가 한도를 3~50 으로 자르므로 50 이 위 끝이다. 차면 429(기존 문구).
+//  · 끔: off·false·no·none·disabled(대소문자·앞뒤 빈칸 무시), 또는 숫자로 읽어 0 이하인 값(0·00·0.0·-0·음수). 그대로 세고(한도 50)
+//    운영 이벤트도 남기지만 막지는 않는다(이 횟수를 읽지 못해도 막지 않는다). 재검토(2026-11-12): 예전에는 "00"·"0.0"·"-0" 이 숫자 0 으로
+//    읽혀 하한 10(가장 엄한 한도)이 됐다.
+//  · 그 밖의 글자(숫자로 읽히지 않는 값)는 기본 50 으로 막고, 운영 이벤트 auth_account_limit_value_unknown(warn)을 isolate 당 한 번 남긴다
+//    (값 원문 40자까지, 변수 값은 버전마다 고정이라 isolate 하나에는 값 하나다).
+// 막힌 계정을 푸는 법: 변수를 off(또는 0)로 바꿔 배포하거나, 마지막으로 막힌 시도 뒤 창(기본 15분)이 지나기를 기다린다 — 운영 함수는 막힌 뒤
+// 시도가 올 때마다 막힘을 창만큼 늘린다. 끈 동안 맞는 비밀번호로 로그인하면 그 횟수는 지워진다.
+// IP 단위 제한(입장·IP·IP|계정) 다음에 세므로, 한 주소(/64)가 이 횟수를 채우는 속도는 그 제한에 묶인다.
+// 근본 대책은 Cloudflare 요청 제한 규칙과 관리자 경로 접근 제한이다(코드 밖).
+const AUTH_ACCOUNT_WIDE_OFF_WORDS = new Set(["off", "false", "no", "none", "disabled"]);
+
+function authAccountWideLimitSetting(env, path = "") {
+  const original = String(env?.AUTH_ACCOUNT_GLOBAL_RATE_LIMIT ?? "");
+  const raw = original.trim().toLowerCase();
+  if (raw === "") return { enforce: true, limit: 50 };
+  if (AUTH_ACCOUNT_WIDE_OFF_WORDS.has(raw)) return { enforce: false, limit: 50 };
+  const number = Number(raw);
+  if (Number.isFinite(number)) return number <= 0 ? { enforce: false, limit: 50 } : { enforce: true, limit: Math.round(boundedRuntimeNumber(number, 50, 10, 50)) };
+  if (globalThis.__AB_AUTH_WIDE_SETTING_WARNED === undefined) {
+    globalThis.__AB_AUTH_WIDE_SETTING_WARNED = original.slice(0, 40);
+    rememberOpsEvent({ kind: "auth_account_limit_value_unknown", severity: "warn", path: String(path), method: "POST", label: "AUTH_ACCOUNT_GLOBAL_RATE_LIMIT", detail: `value ${JSON.stringify(original.slice(0, 40))} not understood, limit 50 (blocking)` });
+  }
+  return { enforce: true, limit: 50 };
+}
+
+// 운영 이벤트는 허용에서 막힘으로 바뀐 첫 응답에 한 번만 남긴다(독립 검토 P3-2: 운영 함수가 막힌 뒤 횟수를 어떻게 돌려주든). 처음 막힌 때를
+// isolate 메모리에만 기억하고(키 = 경로|계정 키, 어디에도 쓰지 않는다), 허용·성공을 보면 지운다. 막힘이 창보다 오래 이어지면 창마다 한 번 남긴다.
+// isolate 가 여럿이면 isolate 마다 한 번일 수 있다(운영 이벤트 칸도 isolate 메모리다).
+const AB_AUTH_WIDE_BLOCKED = globalThis.__AB_AUTH_WIDE_BLOCKED || (globalThis.__AB_AUTH_WIDE_BLOCKED = new Map());
+const AUTH_WIDE_BLOCKED_CAPACITY = 500;
+
+function authAccountWideBlockStarted(slot, blocked, windowMs, now = Date.now()) {
+  if (!blocked) {
+    AB_AUTH_WIDE_BLOCKED.delete(slot);
+    return false;
+  }
+  const since = Number(AB_AUTH_WIDE_BLOCKED.get(slot) || 0);
+  if (since && now >= since && now - since < windowMs) return false;
+  AB_AUTH_WIDE_BLOCKED.delete(slot);
+  AB_AUTH_WIDE_BLOCKED.set(slot, now);
+  while (AB_AUTH_WIDE_BLOCKED.size > AUTH_WIDE_BLOCKED_CAPACITY) AB_AUTH_WIDE_BLOCKED.delete(AB_AUTH_WIDE_BLOCKED.keys().next().value);
+  return true;
+}
+
+async function recordAuthAccountWideAttempt(env, request, path = "", key = "", success = false, label = "") {
+  const setting = authAccountWideLimitSetting(env, path);
+  const windowSeconds = boundedRuntimeNumber(env?.AUTH_RATE_WINDOW_SECONDS, 900, 60, 86400);
+  const result = await recordAuthAttempt(env, request, path, success, { scope: "global", key, limit: setting.limit });
+  const slot = `${String(path)}|${String(key || "").trim().toLowerCase().slice(0, 160)}`;
+  if (success) {
+    AB_AUTH_WIDE_BLOCKED.delete(slot);
+  } else if (!result.unavailable && authAccountWideBlockStarted(slot, !result.allowed, windowSeconds * 1000)) {
+    rememberOpsEvent({ kind: "auth_account_limit_reached", severity: "warn", path: String(path), method: "POST", label: String(label || ""), detail: `limit ${setting.limit}, window ${windowSeconds}s${setting.enforce ? "" : ", off (not blocking)"}` });
+  }
+  if (!setting.enforce) return { ...result, allowed: true, unavailable: false };
+  return result;
+}
+
 async function recordAuthAttempt(env, request, path = "login", success = false, options = {}) {
   const scope = String(options.scope || "ip");
   const rawKey = scope === "client" ? trafficClientKey(request)
-    : scope === "ip" ? trafficClientIp(request)
+    : scope === "ip" ? (options.groupIpv6 ? authAttemptNetwork(request) : trafficClientIp(request))
     : String(options.key || "").trim().toLowerCase().slice(0, 160);
   if (!rawKey) return { allowed: true, attempts: 0, blocked_until: "" };
   const fingerprint = await sha256Hex(scope === "client" ? `auth|${String(path)}|${rawKey}` : `auth|${scope}|${String(path)}|${rawKey}`);
@@ -325,11 +424,11 @@ function adminLoginLocation(url) {
 }
 // @build:exports-start
 export {
-  PASSWORD_KDF_ITERATIONS, adminLoginLocation, checkAdminPassword, getAdminSecurityState,
-  hmacSha256, kakaoSkillAuthSnapshot, kakaoSkillCallerAuthorized, kakaoSkillSecretMatches,
-  makeAdminSession, makeMyImportPreviewToken, newPasswordSalt, pbkdf2PasswordHash, randomEntityId,
-  randomHex, recordAuthAttempt, rememberSkillLatency, requiredSecret, safeAdminReturnPath,
-  sha256Hex, skillLatencySnapshot, trafficClientIp, verifyAdminSession, verifyCronExecutionAuth,
-  verifyMyImportPreviewToken,
+  PASSWORD_KDF_ITERATIONS, adminLoginLocation, authAttemptNetwork, checkAdminPassword,
+  getAdminSecurityState, hmacSha256, kakaoSkillAuthSnapshot, kakaoSkillCallerAuthorized,
+  kakaoSkillSecretMatches, makeAdminSession, makeMyImportPreviewToken, newPasswordSalt,
+  pbkdf2PasswordHash, randomEntityId, randomHex, recordAuthAccountWideAttempt, recordAuthAttempt,
+  rememberSkillLatency, requiredSecret, safeAdminReturnPath, sha256Hex, skillLatencySnapshot,
+  trafficClientIp, verifyAdminSession, verifyCronExecutionAuth, verifyMyImportPreviewToken,
 };
 // @build:exports-end

@@ -77,7 +77,10 @@ try {
       const outputs = data.template?.outputs || [];
       ok(outputs.length >= 1 && outputs.length <= 3, `${where} ${topic}: 말풍선 1~3개`);
       ok(outputs.every((o) => Object.keys(o).length === 1 && o.textCard), `${where} ${topic}: 모두 textCard`);
-      for (const { textCard: card } of outputs) {
+      // V22.9.118 독립 검토 P2: 단톡방 첫 화면(home) 답은 끝에 약관 안내 카드(제목 없음, 이용약관·개인정보처리방침 링크 단추)를 늘 단다 — 그 카드는 따로 보고 아래 규칙은 설명서 카드만 본다.
+      const termsCard = group && topic === "home" ? outputs.at(-1)?.textCard : null;
+      if (termsCard) ok(outputs.length === 2 && termsCard.description === "말해가계부를 이용하면 이용약관에 동의한 것으로 봐요." && JSON.stringify((termsCard.buttons || []).map((b) => [b.label, b.action, b.webLinkUrl])) === JSON.stringify([["이용약관", "webLink", "https://malhaebook.com/terms"], ["개인정보처리방침", "webLink", "https://malhaebook.com/privacy"]]), `${where} ${topic}: 끝 말풍선은 약관 안내 카드`);
+      for (const { textCard: card } of termsCard ? outputs.slice(0, -1) : outputs) {
         ok(card.title && card.title.length <= 50, `${where} ${topic}: 제목 50자 이하`);
         ok(String(card.description || "").length <= KAKAO_MANUAL_CARD_DESCRIPTION_MAX, `${where} ${topic}: 설명 400자 이하`);
         ok(!/https?:\/\//.test(`${card.title}\n${card.description}`), `${where} ${topic}: 본문에 URL 없음`);
@@ -163,7 +166,8 @@ try {
         ok(!PICTO.test(b.label), `${topic}: 버튼 이름에 이모지 없음 (${b.label})`);
       }
     }
-    eq(data.template.outputs.length, 1, `${topic}: 말풍선 하나`);
+    // V22.9.118 독립 검토 P2: 단톡방 첫 화면(home)만 끝에 약관 안내 카드가 붙어 말풍선이 둘이다(다른 화면은 하나 그대로).
+    eq(data.template.outputs.length, topic === "home" ? 2 : 1, `${topic}: 말풍선 ${topic === "home" ? "둘(설명서 + 약관 안내)" : "하나"}`);
   }
   // 예전 말풍선의 이모지 버튼 이름과 짧은 선택지 이름도 원래 화면·명령으로 이어진다.
   // V22.9.72: 화면 제목도 짧은 버튼 이름(예산정하기·리포트보기·정기지출)으로 바뀌었다.
@@ -175,7 +179,9 @@ try {
   // 단톡방 선택지는 글과 버튼을 한 말풍선에 담고, 버튼 이름은 보낼 명령과 같다.
   {
     const start = (await callSkill("시작", true)).data.template.outputs;
-    eq(start.length, 1, "단톡방 시작: 글과 버튼을 한 말풍선에");
+    // V22.9.118 독립 검토 P2: 설명서 글과 버튼은 그대로 한 말풍선이고, 그 뒤에 약관 안내 카드가 하나 붙는다.
+    eq(start.length, 2, "단톡방 시작: 글과 버튼을 한 말풍선에(+ 약관 안내 카드)");
+    eq(start[1]?.textCard?.description, "말해가계부를 이용하면 이용약관에 동의한 것으로 봐요.", "단톡방 시작: 둘째 말풍선은 약관 안내");
     ok(start[0].textCard && start[0].textCard.description && start[0].textCard.buttons.length >= 3, "단톡방 시작: textCard 설명 + 버튼");
     // V22.9.72: 맨 아래 ‘기록하기’는 멘션 플러그인이라 messageText 가 없다. 메시지 버튼만 본다.
     ok(start[0].textCard.buttons.filter((b) => b.action === "message").every((b) => b.label === b.messageText), "단톡방 시작: 버튼 이름 = 명령");
@@ -191,7 +197,8 @@ try {
   const start = await callSkill("시작", true);
   const startOutputs = start.data.template.outputs;
   ok(startOutputs.length <= 3, "단톡방 시작: 말풍선 3개 이내");
-  const startButtons = startOutputs.flatMap((o) => o.textCard?.buttons || []);
+  // V22.9.118 독립 검토 P2: 끝의 약관 안내 카드(이용약관·개인정보처리방침 링크 단추)는 선택지가 아니라서 빼고 센다.
+  const startButtons = startOutputs.filter((o) => o.textCard?.description !== "말해가계부를 이용하면 이용약관에 동의한 것으로 봐요.").flatMap((o) => o.textCard?.buttons || []);
   const startMessageButtons = startButtons.filter((b) => b.action === "message");
   ok(startMessageButtons.length >= 3 && startMessageButtons.every((b) => b.messageText) && startButtons.every((b) => b.action === "message" || GROUP_PLUGINS.has(b.action)), "단톡방 시작: 선택지가 메시지 버튼으로 바뀐다");
   ok(!startOutputs.some((o) => String(o.simpleText?.text || "").includes("선택하려면 아래 문구를 그대로 입력해 주세요.")), "단톡방 시작: 글자 선택 목록 없음");

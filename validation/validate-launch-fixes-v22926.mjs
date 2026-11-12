@@ -166,8 +166,10 @@ try {
   response = await form("/my/local-login", { login_name: "launchfam", access_code: "pass-word-2026" }, "");
   eq(response.status, 303, "로그인이 된다");
   const loginKeys = [...new Set(rpcCalls.filter((c) => c.p_success !== true).map((c) => c.p_key))];
-  eq(loginKeys.length, 3, "login uses persistent IP admission plus subject/caller failure limits");
-  eq(rpcCalls.filter((c) => c.p_success === true).length, 2, "로그인 성공은 두 범위 모두 지운다");
+  // V22.9.118 S-1: IP 와 무관한 로그인 이름 전체 횟수(넷째 키)가 더해졌다(3 → 4). 셋째 키(IP|로그인 이름)는 그대로라 아래 차단 장면은 같다.
+  eq(loginKeys.length, 4, "login uses persistent IP admission plus subject/caller failure limits and the login-name-wide count");
+  // V22.9.118 S-1: 성공은 그 전체 횟수도 지운다(2 → 3). 입장 제한은 여전히 지우지 않는다.
+  eq(rpcCalls.filter((c) => c.p_success === true).length, 3, "로그인 성공은 세 범위 모두 지운다");
   hooks.denyAuthKey = loginKeys[2];
   response = await form("/my/local-login", { login_name: "LaunchFam", access_code: "pass-word-2026" }, "", { "user-agent": "rotated-agent/1.0" });
   eq(response.status, 429, "계정 단위 횟수가 차면 User-Agent 를 바꿔도 429 다");
@@ -176,7 +178,8 @@ try {
 
   rpcCalls.length = 0;
   response = await form("/login", { password: "wrong-admin-password" }, "");
-  ok(rpcCalls.length >= 3 && new Set(rpcCalls.map((c) => c.p_key)).size === 3, "admin admission and caller failures use independent scopes");
+  // V22.9.118 S-1: 관리자 비밀번호 전체 횟수(IP 와 무관한 넷째 키)가 더해졌다(3 → 4).
+  ok(rpcCalls.length >= 4 && new Set(rpcCalls.map((c) => c.p_key)).size === 4, "admin admission, caller failures and the admin-wide count use independent scopes");
 
   const launchCookie = await fixture.cookieFor(newUser.id);
   response = await form("/my/profile", { nickname: "출시 (통합됨) (통합됨)" }, launchCookie);

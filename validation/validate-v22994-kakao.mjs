@@ -300,7 +300,8 @@ for (const [path, run] of bothPaths) {
 {
   const text = kakaoDataPolicyText("https://malhaebook.com");
   ok(!/탈퇴하면/.test(text), "R-7 없는 회원 탈퇴를 약속하지 않는다");
-  for (const words of ["웹에서 직접 삭제", "영구 삭제", "가계부에서 나가도 함께 쓴 기록은 남습니다", "계정 탈퇴 기능은 아직 없습니다", "개인정보처리방침에 적힌 문의 경로로 요청해 주세요"]) ok(text.includes(words), `R-7 개인정보 답에 ‘${words}’ 가 있다`);
+  // V22.9.118 P-14: 답에서 ‘아직’ 을 뺐다(미래 약속 금지) — 기대 문구를 지금 사실 문장으로 갱신.
+  for (const words of ["웹에서 직접 삭제", "영구 삭제", "가계부에서 나가도 함께 쓴 기록은 남습니다", "계정 탈퇴 기능은 없습니다", "개인정보처리방침에 적힌 문의 경로로 요청해 주세요"]) ok(text.includes(words), `R-7 개인정보 답에 ‘${words}’ 가 있다`);
   // 공개 개인정보처리방침(3절 보유기간과 삭제)과 가계부 삭제 화면이 말하는 길과 같다.
   const pages = readFileSync(new URL("../src/modules/public/content-pages.js", import.meta.url), "utf8");
   const privacy = pages.slice(pages.indexOf("privacy: {"), pages.indexOf("terms: {"));
@@ -310,7 +311,8 @@ for (const [path, run] of bothPaths) {
 }
 for (const [path, send] of [["직접", (fx) => skill(fx, "개인정보")], ["방", (fx) => { fx.env.KAKAO_SKILL_SECRET = "validate-v22994-secret"; return roomSkill(fx, "개인정보"); }]]) {
   const reply = await withClock(TODAY, () => fixture(async (fx) => { clearGuards(); return send(fx); }));
-  ok(reply.includes("계정 탈퇴 기능은 아직 없습니다") && !reply.includes("탈퇴하면"), `R-7 ${path} ‘개인정보’ 답: ${reply.slice(0, 200)}`);
+  // V22.9.118 P-14: 답에서 ‘아직’ 을 뺐다(미래 약속 금지) — 기대 문구를 지금 사실 문장으로 갱신.
+  ok(reply.includes("계정 탈퇴 기능은 없습니다") && !reply.includes("탈퇴하면"), `R-7 ${path} ‘개인정보’ 답: ${reply.slice(0, 200)}`);
 }
 
 if (failures.length) {
