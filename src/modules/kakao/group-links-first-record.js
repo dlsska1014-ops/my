@@ -485,6 +485,9 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
           if (!role) throw new Error("kakao_group_member_missing");
           if (!["owner", "admin", "member"].includes(role)) return rejected("role_blocked", roleBlockedMessage(role, household.name), { role });
           if (firstNotice || joinedNow) {
+            // V22.9.118 P-3: 처음 이 방 가계부에 들어가는(첫 호출자로 준비한) 답에 약관 안내 한 줄 + 단추를 단다(skill-handler → kakaoTermsNoticeResponseV229118).
+            // 저장소 호출 없음. 답 뒤에 들인 경우(설명서·빈 멘션)는 답이 이미 나갔으므로 아무것도 바꾸지 않는다.
+            if (env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.termsNoticeV229118 = true;
             assertFresh();
             // V22.9.44: 참여 안내에 쓸 구성원 권한 조회와 첫 사용 표시 저장을 함께 돌린다.
             const [policy] = await Promise.all([

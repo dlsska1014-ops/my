@@ -89,7 +89,8 @@ function enrichPublicWorksheetsV229106(catalog) {
   }
   const links = Object.entries(PUBLIC_WORKSHEETS_V229106).map(([slug, spec]) => [spec.title, `/${slug}`]);
   catalog.home.sections.splice(1, 0, { title: "직접 계산하며 읽는 생활비 자료", paragraphs: ["공동 비용의 분담, 계좌 범위에 따른 잔액, 납부일까지의 적립과 월 마감을 가상 원본으로 확인하고 자신의 조건으로 바꿔 볼 수 있습니다."], links });
-  catalog.home.updated = "2026-11-07";
+  // V22.9.118 P-8: 첫 화면 수정일을 낮추지 않는다(첫 화면 안내 표를 고친 판의 날짜가 더 늦으면 그 날짜를 둔다).
+  if (!(String(catalog.home.updated || "") > "2026-11-07")) catalog.home.updated = "2026-11-07";
 }
 
 // @build:exports-start

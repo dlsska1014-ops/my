@@ -79,7 +79,8 @@ try {
   const firstCall = await skill("@말해가계부 오늘기록", MINA);
   eq(firstCall.result, "ok", "MINA 첫 호출 오늘기록: 정상 응답");
   ok(firstCall.text.startsWith("이 방 가계부 ‘이 방의 공동 가계부’에 참여했어요.\n") && firstCall.text.includes("아직 기록이 없어요") && roleOf(MINA) === "member", `MINA 첫 호출: 참여 한 줄 + 내 기록 없음 안내, 구성원 (${firstCall.text.slice(0, 80)})`);
-  assertNextStepRecord(firstCall, "MINA 첫 호출 오늘기록");
+  // V22.9.118 P-3: 처음 이 방 가계부에 들어간 답은 참여 한 줄 말풍선에 약관 안내 + 이용약관·개인정보처리방침 링크 단추가 붙는다(기록하기는 그대로 맨 아래).
+  assertNextStepRecord(firstCall, "MINA 첫 호출 오늘기록", ["이용약관", "개인정보처리방침"]);
   for (const command of ["이번달요약", "남은예산", "정산", "오늘 기록 보기", "이번 달 요약"]) {
     const r = await skill(`@말해가계부 ${command}`, MINA);
     eq(r.result, "ok", `구성원 ${command}: 정상 응답`);

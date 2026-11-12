@@ -179,7 +179,9 @@ await roomFixture(async (fx) => {
   const card = await say(fx, "웹가계부", { user: U.u3, room: ROOM });
   const u3 = userByKey(fx, U.u3);
   eq(roleOf(fx, u3?.id, household?.id), "member", "3 ‘웹가계부’ 를 부른 사람은 구성원이 된다");
-  eq(card.outputs[0]?.simpleText?.text, `이 방 가계부 ‘${ROOM_HOUSEHOLD_NAME}’에 참여했어요.`, "3 카드 앞에 참여 한 줄");
+  // V22.9.118 P-3: 처음 들어간 답의 참여 한 줄 말풍선은 약관 안내 한 줄 + 이용약관·개인정보처리방침 단추를 단 카드가 된다(말풍선 수는 그대로).
+  eq(card.outputs[0]?.textCard?.description, `이 방 가계부 ‘${ROOM_HOUSEHOLD_NAME}’에 참여했어요.
+말해가계부를 이용하면 이용약관에 동의한 것으로 봐요.`, "3 카드 앞에 참여 한 줄");
   const button = card.outputs[1]?.textCard?.buttons?.[0] || {};
   ok(button.action === "webLink" && button.webLinkUrl === `${BASE}/my` && card.outputs[1]?.textCard?.description?.includes("아래 버튼을 누르면 이 방 가계부가 열려요"), "3 카드 글·단추(/my)는 예전 그대로다");
   const opened = await go(fx, tapped("/my", { user: U.u3 }));
@@ -211,7 +213,9 @@ await roomFixture(async (fx) => {
   // 6. 조회 명령 → 들이고 그 명령을 그대로 처리(답 앞 한 줄)
   const summary = await say(fx, "이번 달 요약", { user: U.u7, room: ROOM });
   eq(roleOf(fx, userByKey(fx, U.u7)?.id, household?.id), "member", "6 ‘이번 달 요약’ 을 부른 사람은 구성원이 된다");
-  eq(summary.outputs[0]?.simpleText?.text, `이 방 가계부 ‘${ROOM_HOUSEHOLD_NAME}’에 참여했어요.`, "6 답 맨 앞에 참여 한 줄");
+  // V22.9.118 P-3: 참여 한 줄 말풍선에 약관 안내 한 줄 + 링크 단추가 붙는다(말풍선 수는 그대로 2).
+  eq(summary.outputs[0]?.textCard?.description, `이 방 가계부 ‘${ROOM_HOUSEHOLD_NAME}’에 참여했어요.
+말해가계부를 이용하면 이용약관에 동의한 것으로 봐요.`, "6 답 맨 앞에 참여 한 줄");
   ok(summary.outputs.length === 2 && !summary.text.includes("참여 전") && !summary.text.includes("기록을 한 번 보내면"), `6 그 뒤에 요약 답이 이어진다(‘참여 전’ 안내가 아님) (${summary.text.split("\n")[1] || ""})`);
   const summaryAgain = await say(fx, "이번 달 요약", { user: U.u7, room: ROOM });
   ok(summaryAgain.outputs.length === 1 && !summaryAgain.text.includes("참여했어요"), "6-b 구성원의 같은 명령에는 한 줄이 없다");
@@ -242,7 +246,9 @@ await roomFixture(async (fx) => {
   fx.db.household_members.push({ household_id: household.id, user_id: u9, role: "pending", created_at: `${DAY}T01:00:00.000Z` });
   const pendingReply = await say(fx, "남은 예산", { user: U.u9, room: ROOM });
   eq(roleOf(fx, u9, household.id), "member", "9 승인 대기인 사람은 호출 한 번으로 구성원이 된다");
-  eq(pendingReply.outputs[0]?.simpleText?.text, `이 방 가계부 ‘${ROOM_HOUSEHOLD_NAME}’에 참여했어요.`, "9 답 앞에 참여 한 줄");
+  // V22.9.118 P-3: 승인 대기에서 구성원이 된 첫 답에도 약관 안내 한 줄 + 링크 단추가 붙는다.
+  eq(pendingReply.outputs[0]?.textCard?.description, `이 방 가계부 ‘${ROOM_HOUSEHOLD_NAME}’에 참여했어요.
+말해가계부를 이용하면 이용약관에 동의한 것으로 봐요.`, "9 답 앞에 참여 한 줄");
   ok(!pendingReply.text.includes("승인"), "9 ‘승인해야’ 류 안내가 없다");
 
   // 10. 조회 전용·이용 제한은 그대로

@@ -251,8 +251,10 @@ await section("3 /faq 새 문항", async () => {
 await section("4 수정일·사이트맵·첫 화면", async () => {
   const xml = (await publicPage("/sitemap.xml")).html;
   const lastmodOf = (path) => ((xml.split(`<loc>${BASE}${path}</loc>`)[1] || "").match(/^\s*<lastmod>([^<]+)<\/lastmod>/) || [])[1];
-  for (const [path, html] of [["/demo", demo.html], ["/group-accountbook", group.html], ["/faq", faq.html]]) {
-    ok(html.includes(`안내 수정 <time datetime="${REVISION}">${REVISION}</time>`) && structuredOf(html).dateModified === REVISION && lastmodOf(path) === REVISION, `4-a ${path} 의 안내 수정일·구조화 데이터·사이트맵 lastmod 가 내용을 바꾼 ${REVISION} 이다`);
+  // V22.9.118 P-1·P-8: /group-accountbook·/faq 는 단톡방 참여 규칙 문장을 고친 2026-11-13 이 수정일이다(/demo 는 그대로 2026-11-03).
+  const COPY_REVISION_V229118 = "2026-11-13";
+  for (const [path, html, revision] of [["/demo", demo.html, REVISION], ["/group-accountbook", group.html, COPY_REVISION_V229118], ["/faq", faq.html, COPY_REVISION_V229118]]) {
+    ok(html.includes(`안내 수정 <time datetime="${revision}">${revision}</time>`) && structuredOf(html).dateModified === revision && lastmodOf(path) === revision, `4-a ${path} 의 안내 수정일·구조화 데이터·사이트맵 lastmod 가 내용을 바꾼 ${revision} 이다`);
   }
   const locs = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);
   ok(locs.length > 0 && !locs.some((loc) => loc.includes("#")) && ["/demo", "/group-accountbook", "/faq"].every((path) => countOf(xml, `<loc>${BASE}${path}</loc>`) === 1), "4-b 사이트맵에 조각 주소가 없고 세 화면은 한 번씩이다(새 페이지 없음)");

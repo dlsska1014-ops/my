@@ -444,6 +444,42 @@ function kakaoWebLedgerReply(origin = "", notice = "") {
   }, 200);
 }
 
+// V22.9.118 P-3(V95:E-1): 챗봇만 쓰는 사람은 약관·방침을 볼 기회 없이 사용자 행·가계부가 생겼다(V22.9.115 뒤로는 방에서 조회만 불러도 구성원).
+// 처음 개인 가계부가 만들어지는 답(1:1 첫 기록)과 처음 그 방 가계부에 들어가는 답(방 첫 기록·첫 호출·참여)에만 한 줄 + 링크 단추 둘(이용약관·개인정보처리방침)을 단다.
+// 그 자리(identity-chat-first·group-links-first-record)가 env.__AB_KAKAO_REQUEST.termsNoticeV229118 을 켜고, skill-handler 가 응답 마무리(글 속 주소 → 단추) 뒤의
+// 최종 답(지연 답 포함)에 이 함수를 쓴다. 글에는 주소를 넣지 않고(V22.9.88 Y-7) 있던 단추는 건드리지 않는다: 답 맨 앞 말풍선이 참여 한 줄이면 그 말풍선을 한 줄과
+// 단추를 단 카드로 바꾸고, 아니면 말풍선이 셋 미만일 때 끝에 카드를 하나 더한다. 셋이 다 찼으면 단추 없이 글 말풍선 끝에 한 줄만 붙인다. 저장소 호출은 없다.
+const KAKAO_TERMS_NOTICE_LINE_V229118 = "말해가계부를 이용하면 이용약관에 동의한 것으로 봐요.";
+
+async function kakaoTermsNoticeResponseV229118(response, env = {}, origin = "") {
+  const state = env?.__AB_KAKAO_REQUEST;
+  if (!state?.termsNoticeV229118 || !origin || !response || response.status !== 200) return response;
+  try {
+    const data = JSON.parse(await response.clone().text() || "{}");
+    const template = data?.template && typeof data.template === "object" ? data.template : null;
+    const outputs = Array.isArray(template?.outputs) ? [...template.outputs] : [];
+    if (!outputs.length) return response;
+    const line = KAKAO_TERMS_NOTICE_LINE_V229118;
+    const buttons = [kakaoLinkButton("이용약관", `${origin}/terms`), kakaoLinkButton("개인정보처리방침", `${origin}/privacy`)];
+    const lead = String(state.roomJoinNotice || state.termsNoticeLeadV229118 || "").trim();
+    const first = outputs[0]?.simpleText?.text;
+    if (lead && typeof first === "string" && first.trim() === lead && lead.length + 1 + line.length <= KAKAO_GROUP_CARD_TEXT_MAX) {
+      outputs[0] = { textCard: { description: `${lead}\n${line}`, buttons, buttonLayout: "vertical" } };
+    } else if (outputs.length < 3) {
+      outputs.push({ textCard: { description: line, buttons, buttonLayout: "vertical" } });
+    } else {
+      const at = outputs.findIndex((output) => typeof output?.simpleText?.text === "string" && output.simpleText.text.length + 2 + line.length <= KAKAO_SIMPLE_TEXT_SAFE_MAX);
+      if (at < 0) return response;
+      outputs[at] = { simpleText: { ...outputs[at].simpleText, text: `${outputs[at].simpleText.text}\n\n${line}` } };
+    }
+    const headers = new Headers(response.headers || {});
+    headers.set("content-type", "application/json; charset=utf-8");
+    return new Response(JSON.stringify({ ...data, template: { ...template, outputs } }), { status: response.status, statusText: response.statusText, headers });
+  } catch (_) {
+    return response;
+  }
+}
+
 async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "") {
   if (!getKakaoBotGroupKey(payload)) return kakaoDirectLinkResponse(response, origin);
   try {
@@ -492,6 +528,6 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
 export {
   dedupeQuickReplies, isDefiniteStorageFailure, isUncertainStorageWrite, kakaoDefaultQuickReplies,
   kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoNextStepReply, kakaoQr,
-  kakaoSaveFailedText, kakaoText, kakaoWebLedgerReply,
+  kakaoSaveFailedText, kakaoTermsNoticeResponseV229118, kakaoText, kakaoWebLedgerReply,
 };
 // @build:exports-end

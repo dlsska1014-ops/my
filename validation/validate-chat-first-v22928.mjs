@@ -592,8 +592,10 @@ await withFixture(async (f) => {
     ok(!html.includes("단톡방을 연결하고, 짧은 기록 연습을 거쳐 첫 기록") && !html.includes("처음 사용자는 새 가계부를 만들거나 받은 초대코드로 참여합니다"), `${path} removes obsolete mandatory shared setup before first record`);
     if (path === "/how-it-works") guide = html;
   }
-  ok(guide.includes("10분") && guide.includes("카카오에서 기록한 가계부 이어 열기") && guide.includes("다른 계정과 자동 병합하지 않습니다"), "manual explains optional one-time web continuation without account merging");
-  ok(guide.includes("공동 가계부를 준비") && guide.includes("처음 기록한 사람이 소유자"), "manual explains the released group-first shared book behavior");
+  // V22.9.118 P-11: ‘다른 계정과 자동 병합하지 않습니다’ 를 실제 잇기 규칙 한 문장으로 바꿨다 — 연결 코드가 계정을 합치지 않는다는 뜻은 그대로 본다.
+  ok(guide.includes("10분") && guide.includes("카카오에서 기록한 가계부 이어 열기") && guide.includes("연결 코드는 계정을 합치지 않고"), "manual explains optional one-time web continuation without account merging");
+  // V22.9.118 P-1: V22.9.115 뒤로 소유자는 ‘처음 기록한 사람’ 이 아니라 ‘봇을 처음 부른 사람’ 이다 — 안내 문장을 실제 동작으로 고쳐 기대값 갱신.
+  ok(guide.includes("공동 가계부를 준비") && guide.includes("봇을 처음 부른 사람이 소유자"), "manual explains the released group-first shared book behavior");
   ok(guide.includes("단톡방에서는 개인 가계부를 자동 생성하지 않습니다") && guide.includes("웹 연결 코드는 단톡방에 제공하지 않습니다"), "manual keeps personal data and web codes out of groups");
   for (const [key, count] of Object.entries(before)) eq(f.db[key].length, count, `public manual read does not provision ${key}`);
 });

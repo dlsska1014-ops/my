@@ -3387,8 +3387,11 @@ const BUSINESS_FOOTER_INFO = Object.freeze({
 // 불리하지 않은 변경이라 공고일 = 시행일 = 배포일이다. 배포가 다른 날로 넘어가면 두 줄을 그날로 바꾼다(동의 기록 version 도 따라간다. 읽는 곳은 기록 유무만 본다).
 // V22.9.114(사용자 2026-11-09 "팝업을 없애고 안내 띠로 바꿔줘", 앱 심사 담당자 요청): 카카오 로그인·홈의 이용약관 동의 체크 칸을 안내 줄로 바꾸고 약관 2절·방침 6절
 // 쿠키 설명·12절을 그에 맞춘 개정. 처리 항목·목적이 그대로라 불리하지 않은 변경 → 공고일 = 시행일 = 배포일. 배포가 다른 날로 넘어가면 두 줄을 그날로 바꾼다.
-const POLICY_NOTICE_DATE = "2026-11-09";
-const POLICY_REVISION_DATE = "2026-11-09";
+// V22.9.118(2026-11-12 전체 점검 P-1·P-3): 약관 3절(단톡방에서 봇을 처음 부른 사람이 소유자, 부르기만 해도 구성원, 소유자 양도)·4절(한 건 삭제는 바로 + 되살리기,
+// 가계부 영구 삭제는 본인 확인)·방침 1절(단톡방 연결키)·12절을 V22.9.115 동작에 맞추고, 챗봇 첫 사용 답에 약관 안내를 더한 개정. 처리 항목·목적이 그대로라 불리하지 않은
+// 변경 → 공고일 = 시행일 = 배포일(2026-11-13 예정). 배포가 다른 날로 넘어가면 두 줄을 그날로 바꾼다.
+const POLICY_NOTICE_DATE = "2026-11-13";
+const POLICY_REVISION_DATE = "2026-11-13";
 
 // "2026-07-13" → "2026년 7월 13일"(방침 머리의 시행·공고·개정일 표기).
 function policyDateLabel(ymd = POLICY_REVISION_DATE) {
@@ -3785,14 +3788,14 @@ function publicGuidePages(env = {}) {
   });
   return {
     home: page("말한 기록이, 함께 보는 생활비가 됩니다", "카카오톡에서 수입과 지출을 기록하고 웹에서 예산·생활비·정산을 확인하세요. 가입 전 가상 예제로 계산 방법을 살펴볼 수 있습니다.", "카카오톡으로 기록하는 말해가계부", "점심값은 채팅으로 남기고, 한 달 생활비는 웹에서 확인하세요. 개인 가계부와 방마다 나누는 공동 가계부를 사용할 수 있습니다. 먼저 가상 예제로 기록이 어떻게 합계와 예산으로 이어지는지 살펴보세요.", [
-      { title: "내게 맞는 시작 방법", table: { caption: "개인 기록과 공동 기록의 시작 방법", headers: ["사용할 곳", "첫 행동", "확인할 결과"], rows: [["카카오톡 1:1", "점심 만원", "웹 로그인 없이 개인 가계부의 첫 기록을 준비합니다."], ["새 단톡방", "봇을 호출하고 점심 12000원", "그 방의 공동 가계부를 준비합니다. 첫 기록자는 소유자가 됩니다."], ["기존 가계부", "오늘 기록 보기", "현재 연결된 가계부의 기록을 확인합니다."]] }, note: "봇 추가만으로 거래를 만들지는 않습니다. 명확한 기록 요청이 있어야 하며, 기존 권한 제한이나 삭제·연결 해제 이력은 그대로 적용됩니다.", links: [["처음 기록하는 순서", "/how-it-works"]] },
+      { title: "내게 맞는 시작 방법", table: { caption: "개인 기록과 공동 기록의 시작 방법", headers: ["사용할 곳", "첫 행동", "확인할 결과"], rows: [["카카오톡 1:1", "점심 만원", "웹 로그인 없이 개인 가계부의 첫 기록을 준비합니다."], ["새 단톡방", "봇을 호출하고 점심 12000원", "그 방의 공동 가계부를 준비합니다. 봇을 처음 부른 사람이 소유자가 되고, 그 뒤 봇을 부른 참여자는 구성원이 됩니다."], ["기존 가계부", "오늘 기록 보기", "현재 연결된 가계부의 기록을 확인합니다."]] }, note: "봇 추가만으로 거래를 만들지는 않습니다. 명확한 기록 요청이 있어야 하며, 기존 권한 제한이나 삭제·연결 해제 이력은 그대로 적용됩니다.", links: [["처음 기록하는 순서", "/how-it-works"]] },
       { title: "전체 지출과 남은 예산이 다른 이유", paragraphs: ["식비와 교통에만 예산을 세웠다면 의료비는 전체 지출에 포함되지만 예산 비교에서는 따로 봅니다. 무엇을 예산에 포함했는지 알아야 남은 금액도 정확히 읽을 수 있습니다."], links: [["255,000원 지출 예제로 직접 확인", "/demo"], ["분류별 예산 계산 방법", "/budget-guide"]] },
       { title: "기록 이후에 필요한 도구", links: [["주간·월간 생활비 리포트 읽기", "/report-guide"], ["카드 내역 가져오기와 CSV 백업", "/import-guide"], ["기능별로 할 수 있는 일", "/service-guide"]] },
       // V22.9.104 A-2: 글 링크는 정적 목록이 아니라 content-pages.js 가 글 목록(작성일 최신 순) 앞 8편으로 채운다. 여기에는 전체 목록 링크만 둔다.
       { title: "최근 글", paragraphs: ["앱을 쓰지 않아도 생활비를 계획하고 점검할 때 참고할 수 있는 글을 도담 네트워크 운영팀이 쓰고 있습니다. 예산·고정비·공동 생활비·기록 습관·카드와 세금·통계까지 주제별로 모았고, 글마다 작성일과 수정일, 참고한 공식 자료를 표시합니다. 숫자 예시는 설명을 위해 구성한 가정입니다. 아래 목록은 작성일이 가장 최근인 글부터 보여 줍니다."], links: [["생활비 가이드 글 전체 목록 보기", "/articles"]] },
     // V22.9.87 T-21: 랜딩 순서(content-pages.js publicLandingHtml). ‘함께 쓴 돈…’ 절은 공동 가계부·정산 묶음으로, ‘기록 이후에 필요한 도구’의
     // 독립 서비스 문장은 ‘알아 둘 점’으로 옮겼다(문장 그대로). 주 버튼은 ‘내 가계부 시작하기’, 보조는 ‘가상 가계부 둘러보기’다.
-    ], { type: "SoftwareApplication", primary: ["내 가계부 시작하기", "/my"], secondary: ["가상 가계부 둘러보기", "/demo"], updated: "2026-10-29", landing: true }),
+    ], { type: "SoftwareApplication", primary: ["내 가계부 시작하기", "/my"], secondary: ["가상 가계부 둘러보기", "/demo"], updated: "2026-11-13", landing: true }),
     guides: page("기록에서 월말 점검까지, 사용 가이드", "처음 기록하기, 카카오 명령, 예산 계산, 공동 정산, 생활비 리포트와 파일 가져오기, 생활비 가이드 글을 목적별로 찾아보세요.", "필요한 순간에 찾아보는 안내", "지금 하려는 일에 맞는 글을 고르세요. 각 가이드는 말해가계부의 실제 동작과 직접 구성한 가상 사례를 기준으로 설명합니다. 예제에는 실제 사용자의 거래나 이용 후기를 사용하지 않습니다.", [
       { title: "처음 사용하는 날", paragraphs: ["개인 채팅과 단톡방의 시작 방식부터 구분합니다. 이어서 기록 문장과 저장 결과를 맞춰 보고, 필요할 때 같은 가계부를 웹으로 이어 여세요."], links: [["첫 기록과 웹 이어 열기", "/how-it-works"], ["카카오 입력·수정·오류 대응", "/kakao-guide"], ["가상 가계부 체험", "/demo"]] },
       { title: "생활비를 점검하는 날", paragraphs: ["분류별 예산을 설정했다면 예산 밖 지출을 함께 확인하세요. 리포트에서는 이번 달 전체와 지난달 일부를 섞어 비교하지 않는 것이 중요합니다."], links: [["예산 적용 사용액 계산", "/budget-guide"], ["주간·월간 리포트 해석", "/report-guide"], ["가족·여행비 공동 정산", "/group-accountbook"]] },
@@ -3808,11 +3811,12 @@ function publicGuidePages(env = {}) {
     ]),
     "how-it-works": page("첫 기록을 남기고 같은 가계부를 웹에서 열기", "카카오 1:1 첫 기록, 새 단톡방의 공동 기록, 10분 연결 코드로 웹에서 이어 여는 방법을 단계별로 설명합니다.", "처음 사용하는 날", "개인 기록은 1:1 채팅에서 시작하세요. 여러 사람이 같은 내역을 보려면 단톡방에서 봇을 호출해 기록합니다. 웹은 상세 확인이나 파일 작업이 필요할 때 이어 열 수 있습니다.", [
       { title: "1:1 채팅에서 개인 첫 기록", steps: ["말해가계부와의 1:1 채팅에 ‘점심 만원’을 보냅니다.", "처음 사용하는 계정이라면 웹 로그인 없이 개인 가계부와 첫 기록을 준비합니다.", "저장 응답에서 10,000원과 내용을 확인하고 ‘오늘 기록 보기’로 다시 확인합니다.", "이름과 예산은 필요할 때 설정합니다. 시작부터 모든 설정을 마칠 필요는 없습니다."], note: "이미 사용한 계정, 삭제·나가기 이력이 있는 계정, 승인 대기·조회 전용·이용 제한 계정은 기존 가계부와 권한 절차를 따릅니다." },
-      { title: "새 단톡방에서 공동 첫 기록", paragraphs: ["처음 사용하는 미연결 단톡방에서는 봇을 호출하고 ‘점심 12000원’처럼 명확한 거래를 보냅니다. 해당 방의 공동 가계부를 준비하며 처음 기록한 사람이 소유자가 됩니다. 같은 방에서 기록하는 다른 참여자도 기존 제한이 없으면 구성원으로 함께 참여합니다.", "도움말을 보거나 봇을 추가한 것만으로는 가계부를 만들지 않습니다. 기존 가계부를 연결한 방에서도 거래를 보낸 참여자는 승인 없이 구성원이 됩니다. 조회 전용·이용 제한, 나가기·내보내기 이력, 삭제·연결 해제 이력은 자동 참여로 우회하지 않습니다.", "단톡방에서는 개인 가계부를 자동 생성하지 않습니다. 웹 연결 코드는 단톡방에 제공하지 않습니다."], links: [["기존 가계부 연결과 공동 권한", "/group-accountbook"]] },
-      { title: "같은 기록을 웹에서 이어 열기", steps: ["봇과의 1:1 채팅에서 ‘웹 가계부 열기’를 요청합니다.", "안내받은 웹 주소를 열고 ‘카카오에서 기록한 가계부 이어 열기’를 선택합니다.", "10분 동안 한 번 사용할 수 있는 연결 코드를 입력합니다.", "가계부 이름과 기록을 확인합니다. 코드가 만료되었다면 1:1 채팅에서 다시 요청합니다."], paragraphs: ["다른 계정과 자동 병합하지 않습니다. 현재 웹에 다른 계정이 열려 있다면 전환 안내를 확인한 뒤 진행하세요. 연결 코드는 내 계정에 접근하기 위한 수단이며 공동 참여용 초대코드와 다릅니다. 코드와 코드가 보이는 화면을 공유하지 마세요."] },
+      { title: "새 단톡방에서 공동 첫 기록", paragraphs: ["처음 사용하는 미연결 단톡방에서는 봇을 호출하고 ‘점심 12000원’처럼 명확한 거래를 보냅니다. 기록이 아니라 조회나 설명서 보기로 불러도 해당 방의 공동 가계부를 준비하며, 봇을 처음 부른 사람이 소유자가 됩니다. 같은 방에서 봇을 부르거나 기록하는 다른 참여자도 기존 제한이 없으면 승인 없이 구성원으로 함께 참여합니다. 소유자는 웹 ‘참여자·초대’에서 관리자·구성원에게 소유자를 넘길 수 있습니다.", "봇을 방에 추가한 것만으로는 가계부를 만들지 않고, 거래는 명확한 기록을 보낼 때만 저장합니다. 기존 가계부를 연결한 방에서도 봇을 부르거나 거래를 보낸 참여자는 승인 없이 구성원이 됩니다. 조회 전용·이용 제한, 나가기·내보내기 이력, 삭제·연결 해제 이력은 자동 참여로 우회하지 않습니다.", "단톡방에서는 개인 가계부를 자동 생성하지 않습니다. 웹 연결 코드는 단톡방에 제공하지 않습니다."], links: [["기존 가계부 연결과 공동 권한", "/group-accountbook"]] },
+      { title: "같은 기록을 웹에서 이어 열기", steps: ["봇과의 1:1 채팅에서 ‘웹 가계부 열기’를 요청합니다.", "안내받은 웹 주소를 열고 ‘카카오에서 기록한 가계부 이어 열기’를 선택합니다.", "10분 동안 한 번 사용할 수 있는 연결 코드를 입력합니다.", "가계부 이름과 기록을 확인합니다. 코드가 만료되었다면 1:1 채팅에서 다시 요청합니다."], paragraphs: ["연결 코드는 계정을 합치지 않고 카카오에서 기록한 계정을 웹에서 열며, 단톡방에서 기록한 계정과 웹 계정은 웹에서 카카오로 로그인해 같은 사람의 카카오 계정임을 확인한 뒤에만 하나로 잇습니다(두 계정 모두 기록이 있으면 확인 화면에서 단추를 눌러야 잇습니다). 현재 웹에 다른 계정이 열려 있다면 전환 안내를 확인한 뒤 진행하세요. 연결 코드는 내 계정에 접근하기 위한 수단이며 공동 참여용 초대코드와 다릅니다. 코드와 코드가 보이는 화면을 공유하지 마세요."] },
       { title: "웹에서 처음 시작한다면", paragraphs: ["가계부 시작하기에서 계정 로그인 또는 새 계정 만들기를 선택합니다. 카카오에 이미 기록이 있다면 새 계정을 추가로 만들기 전에 위의 이어 열기를 확인하세요. 서로 다른 계정으로 시작하면 같은 사람이더라도 가계부가 다르게 보일 수 있습니다."], links: [["가계부 시작하기", "/my"], ["기록이 보이지 않을 때", "/faq"]] },
+      // V22.9.118 P-1·P-8: 단톡방 참여·소유자 규칙과 계정 잇기 문장을 실제 동작에 맞춘 날을 수정일(화면·JSON-LD·사이트맵 lastmod)로 적는다.
       { title: "첫날 확인할 세 가지", bullets: ["개인 기록인지 공동 기록인지, 가계부 이름을 확인합니다.", "오늘 기록에서 날짜와 금액이 의도대로 저장되었는지 확인합니다.", "예산을 설정하려면 문장에 ‘예산’을 넣습니다. ‘식비 50만원’은 지출입니다."], links: [["기록과 예산 명령 구분", "/kakao-guide"]] },
-    ]),
+    ], { updated: "2026-11-13" }),
     "kakao-guide": page("카카오톡 입력 문장과 저장 결과 확인하기", "기록과 예산 명령의 차이, 날짜·금액 입력, 거래 수정과 삭제, 응답 지연 시 확인 순서를 안내합니다.", "입력 문장 실전 안내", "같은 금액이라도 ‘예산’이라는 말이 있는지에 따라 작업이 달라집니다. 아래 문장은 설명용 예시이며, 채팅에 보내면 실제로 저장되거나 설정이 바뀔 수 있습니다.", [
       { title: "기록과 예산을 구분하는 말", table: { caption: "입력 예시와 처리 의미", headers: ["보내는 문장", "의미", "확인할 것"], rows: [["점심 12000원 국민카드", "12,000원 지출 기록", "금액·내용·결제수단"], ["어제 병원 15000원", "어제 날짜의 지출 기록", "저장된 날짜"], ["월급 250만원", "2,500,000원 수입 기록", "수입 구분"], ["식비 50만원", "500,000원 지출 기록", "예산 설정이 아닙니다."], ["식비 예산 50만원", "식비 예산 설정", "소유자·관리자 권한"], ["예산", "설정·조회 선택 안내", "하려는 작업 선택"]] }, paragraphs: ["‘/기록’은 필수가 아닙니다. 내용과 금액을 바로 입력할 수 있습니다. 설정이 목적이면 ‘예산’을 명시하고, 저장 뒤에는 결과를 확인하세요."] },
       // V22.9.95 R-14: 픽스처로 카카오 1:1·단톡방 두 경로의 실제 결과를 확인한 문장만 적는다(validate-v22995-guide 가 같은 문장을 두 경로로 다시 보내 본다).
@@ -3823,7 +3827,7 @@ function publicGuidePages(env = {}) {
         ["어제 병원 15000", "어제 날짜로 15,000원 1건", "‘어제’·‘7월 3일’ 같은 날짜 말을 읽어요."],
         ["신한카드 1234 결제 5000", "5,000원 1건, 결제수단 신한카드", "카드 이름 바로 뒤 네 자리는 카드 끝자리로 보고 금액에서 빼요."],
         ["수정 01번 금액 13000", "오늘 01번 기록의 금액을 13,000원으로 고쳐요", "번호는 ‘오늘기록’ 에서 확인해요. 새 기록은 생기지 않아요."],
-        ["방금 거 지워줘", "가장 최근 기록을 지워요", "답에 나온 ‘복구 01번’ 처럼 보내면 되돌릴 수 있어요."],
+        ["방금 거 지워줘", "가장 최근 기록을 지워요", "답에 나온 ‘복구 01번’ 처럼 보내면 되돌릴 수 있어요. 마지막 기록을 저장한 뒤 다른 기록을 고쳤다면 지우지 않고 두 기록을 번호와 함께 다시 물어요."],
         ["예산 식비 300000", "이번 달 식비 예산 300,000원 설정(기록 아님)", "‘예산’ 이 들어가면 예산 명령이에요. 소유자·관리자만 할 수 있어요."],
         ["커피 $100", "저장하지 않고 다시 물어요", "외화는 원화로 바꿔 적어 주세요(예: 커피 130000원)."],
         ["월급 300", "수입 300원으로 저장돼요", "단위가 없으면 원으로 읽어요. 300만 원이면 ‘월급 300만원’ 처럼 단위를 적어 주세요."],
@@ -3833,7 +3837,7 @@ function publicGuidePages(env = {}) {
       { title: "잘못 저장한 기록 수정하기", steps: ["‘오늘 기록 보기’로 현재 거래 번호와 내용을 확인합니다.", "예를 들어 금액만 고치려면 ‘수정 01번 금액 13000원’처럼 보냅니다.", "수정 응답 뒤에 목록에서 결과를 확인합니다.", "이전 날짜의 기록이나 여러 항목을 함께 고칠 때는 웹에서 해당 거래를 찾아 수정합니다."], note: "01번은 예시입니다. 실제 목록에서 확인한 번호를 사용하세요. 구성원은 자신의 기록만 수정·삭제할 수 있습니다." },
       { title: "단톡방에서 호출할 때", paragraphs: ["단톡방에서는 봇을 선택하거나 멘션한 뒤 요청을 보냅니다. 같은 사람이 여러 방에서 사용해도 각 방의 연결 가계부가 기준입니다. 1:1에서 선택한 개인 가계부와 단톡방 가계부를 혼동하지 마세요.", "채팅 응답에 개인 계정의 웹 연결 코드를 요구하지 마세요. 개인 웹 연결은 1:1에서 ‘웹 가계부 열기’로 진행합니다."], links: [["방별 연결과 참여 방법", "/group-accountbook"]] },
       { title: "응답이 늦거나 저장 확인이 지연될 때", steps: ["같은 문장을 연속으로 보내지 않습니다.", "‘오늘 기록 보기’ 또는 웹 거래 목록에서 이미 저장되었는지 확인합니다.", "이미 있다면 다시 입력하지 않습니다. 없다면 오류 안내에 따라 다시 시도합니다.", "계속 실패하면 발생 시각과 오류 문구를 적어 문의합니다. 연결 코드와 거래 원문은 가립니다."], links: [["문의에 필요한 정보", "/contact"]] },
-    ], { updated: "2026-11-02" }),
+    ], { updated: "2026-11-13" }),
     "budget-guide": page("분류별 예산과 전체 지출을 정확히 비교하기", "식비·교통·의료 예제로 예산 400,000원, 적용 사용액 225,000원, 예산 밖 지출 30,000원이 계산되는 과정을 설명합니다.", "계산 근거가 있는 예산 안내", "말해가계부에서 분류별 예산을 정하면 그 분류들의 합계를 월 예산으로 사용합니다. 전체 지출을 무조건 예산으로 나누면 화면과 다른 결과가 나올 수 있습니다. 아래 가상 사례로 기준부터 확인하세요.", [
       { title: "가상 사례: 식비와 교통에만 예산을 정한 달", table: { caption: "직접 구성한 가상 예산과 지출, 단위 원", headers: ["분류", "예산", "기록한 지출", "예산 비교에 포함"], rows: [["식비", "300,000", "180,000", "포함"], ["교통", "100,000", "45,000", "포함"], ["의료", "설정하지 않음", "30,000", "예산 밖으로 구분"]] }, note: "실제 사용자의 지출이나 권장 생활비가 아닙니다. 계산 방식을 설명하기 위한 가상 데이터입니다." },
       { title: "계산 순서", steps: ["월 예산: 식비 300,000원 + 교통 100,000원 = 400,000원입니다.", "예산 적용 사용액: 식비 180,000원 + 교통 45,000원 = 225,000원입니다.", "사용률: 225,000 ÷ 400,000 × 100 = 56.25%이며 화면에서는 반올림한 56%로 표시합니다.", "남은 예산: 400,000원 − 225,000원 = 175,000원입니다.", "전체 지출: 225,000원 + 의료 30,000원 = 255,000원이며 예산 밖 지출은 30,000원입니다."], links: [["예산을 바꿔 직접 계산해 보기", "/demo"]] },
@@ -3842,7 +3846,7 @@ function publicGuidePages(env = {}) {
       { title: "설정과 점검 순서", steps: ["소유자 또는 관리자 계정으로 현재 가계부와 월을 확인합니다.", "웹 예산 화면에서 분류별 금액을 정하거나 ‘식비 예산 30만원’처럼 입력합니다.", "‘남은 예산’에서 설정액과 적용 사용액을 확인합니다.", "분류가 잘못된 기록이 있다면 거래를 수정한 뒤 다시 확인합니다."], links: [["카카오 문장 구분", "/kakao-guide"]] },
     ]),
     "group-accountbook": page("방별 공동 가계부와 세 사람의 정산 사례", "단톡방 첫 기록과 기존 가계부 연결의 차이, 역할별 권한, 세 사람의 120,000원 여행비 정산 계산과 모임 총무로 쓰는 법을 설명합니다.", "함께 쓰는 돈의 기록", "누가 결제했는지와 누가 비용을 부담하는지는 서로 다릅니다. 공동 가계부를 시작하는 방법을 확인한 뒤, 같은 금액을 나누는 정산 사례를 살펴보세요.", [
-      { title: "새 방과 기존 가계부는 시작 방식이 다릅니다", table: { caption: "단톡방을 사용하는 두 가지 방법", headers: ["상황", "시작 방법", "기록이 저장될 곳"], rows: [["처음 사용하는 미연결 방", "봇을 호출하고 명확한 첫 거래를 입력", "그 방에 새로 준비한 공동 가계부"], ["이미 사용하던 가계부를 연결", "가계부 소유자·관리자가 단톡방 연결 초대코드 입력", "초대코드에 해당하는 기존 가계부"], ["다른 가계부로 연결 변경", "현재 연결과 새 가계부의 관리 권한 확인", "새로 연결한 가계부, 이전 기록은 이동하지 않음"]] }, paragraphs: ["새 방에서는 첫 기록자가 소유자가 됩니다. 새 방이든 기존 가계부를 연결한 방이든, 그 방에서 거래를 보내는 사람은 기존 제한이 없으면 승인 없이 구성원으로 참여합니다. 일반 대화와 조회만으로는 자동 참여하지 않습니다. 삭제·연결 해제 이력이 있는 방은 자동으로 다시 만들지 않으며, 나갔거나 내보내진 구성원은 초대코드로 다시 참여를 요청하고 소유자·관리자의 승인을 받아야 합니다."] },
+      { title: "새 방과 기존 가계부는 시작 방식이 다릅니다", table: { caption: "단톡방을 사용하는 두 가지 방법", headers: ["상황", "시작 방법", "기록이 저장될 곳"], rows: [["처음 사용하는 미연결 방", "봇을 호출(기록·조회·설명서 보기 모두)", "그 방에 새로 준비한 공동 가계부"], ["이미 사용하던 가계부를 연결", "가계부 소유자·관리자가 단톡방 연결 초대코드 입력", "초대코드에 해당하는 기존 가계부"], ["다른 가계부로 연결 변경", "현재 연결과 새 가계부의 관리 권한 확인", "새로 연결한 가계부, 이전 기록은 이동하지 않음"]] }, paragraphs: ["새 방에서는 봇을 처음 부른 사람이 소유자가 되고, 소유자는 웹 ‘참여자·초대’에서 관리자·구성원에게 소유자를 넘길 수 있습니다. 새 방이든 기존 가계부를 연결한 방이든, 그 방에서 봇을 부르거나 거래를 보내는 사람은 기존 제한이 없으면 승인 없이 구성원으로 참여합니다. 조회나 설명서 보기로 불러도 참여하며, 봇을 부르지 않은 단톡방 대화로는 참여하지 않습니다. 삭제·연결 해제 이력이 있는 방은 자동으로 다시 만들지 않으며, 나갔거나 내보내진 구성원은 초대코드로 다시 참여를 요청하고 소유자·관리자의 승인을 받아야 합니다."] },
       { title: "가상 사례: 여행비 120,000원을 세 사람이 나누기", table: { caption: "세 사람 모두 같은 비용에 참여한 가상 사례, 단위 원", headers: ["참여자", "먼저 낸 돈", "각자 부담할 돈", "정산 후 받을 돈 또는 보낼 돈"], rows: [["가", "90,000", "40,000", "50,000 받음"], ["나", "30,000", "40,000", "10,000 보냄"], ["다", "0", "40,000", "40,000 보냄"]] }, paragraphs: ["합계는 90,000원 + 30,000원 = 120,000원입니다. 세 사람이 똑같이 부담하면 120,000 ÷ 3 = 40,000원입니다. 나가 가에게 10,000원, 다가 가에게 40,000원을 보내면 각자의 최종 부담이 40,000원이 됩니다."], note: "계산용 가상 사례입니다. 정산 제안은 자동 송금이 아니며, 실제 송금 여부와 완료 이력은 직접 확인해야 합니다." },
       { title: "모든 항목을 똑같이 나누지 않는다면", paragraphs: ["한 사람이 식사에 참여하지 않았거나 숙박비를 다른 비율로 나누기로 했다면 총액을 단순히 인원수로 나누면 안 됩니다. 웹 정산에서 동일 분배, 비율, 인원수 또는 품목별 참여자 방식을 고르고 합의한 조건과 맞는지 확인하세요.", "정산 전에 기간·가계부·참여자·결제자를 확인합니다. 표시 이름을 바꾸는 것은 카카오 닉네임을 바꾸거나 실제 결제자를 다른 사람으로 바꾸는 작업이 아닙니다."] },
       { title: "함께 사용할 때 정해둘 원칙", bullets: ["개인 지출과 공동 지출을 어느 가계부에 남길지 먼저 정합니다.", "초대코드와 개인 웹 연결 코드를 구분하고 공개 게시물에 올리지 않습니다.", "구성원은 자신의 거래를 수정·삭제하며, 타인 기록과 예산 관리는 관리 권한이 필요합니다. 소유자는 구성원 권한을 ‘기록만’으로 바꿔 구성원이 새 기록만 남기게 할 수 있습니다.", "가계부 나가기는 공동 거래를 전부 지우는 작업이 아닙니다.", "CSV를 공유하면 파일을 받은 사람이 내용을 볼 수 있으므로 전달 범위를 확인합니다."], links: [["역할별 기능 표", "/service-guide"], ["데이터 보호 안내", "/security"]] },
@@ -3859,7 +3863,7 @@ function publicGuidePages(env = {}) {
         "정산은 달 단위입니다. 여행이 월말에서 다음 달 초로 이어지면 두 달의 정산을 따로 확인합니다.",
         "송금은 자동으로 하지 않습니다. 보낸 뒤에는 서로 확인하고, 소유자·관리자는 웹 정산 화면에 완료 이력을 남길 수 있습니다.",
       ], links: [["모임 정산 예시 둘러보기", "/demo#tour-settle"], ["카카오 입력·수정 방법", "/kakao-guide"]] },
-    ], { updated: "2026-11-03" }),
+    ], { updated: "2026-11-13" }),
     "report-guide": page("주간·월간 리포트에서 먼저 볼 숫자", "같은 기간 비교, 월을 넘는 주, 정기 지출과 카드 사용액의 의미를 가상 수치로 해설합니다.", "기록을 생활비 점검으로", "생활비 리포트는 같은 거래를 주간 또는 월간으로 읽는 화면입니다. 금액부터 판단하기 전에 선택한 가계부와 기간, 아직 들어오지 않은 기록이 있는지를 확인하세요.", [
       { title: "진행 중인 달은 같은 날짜 범위끼리 비교합니다", table: { caption: "9월 12일에 확인한다고 가정한 가상 비교, 단위 원", headers: ["기간", "지출", "비교에 사용"], rows: [["9월 1~12일", "255,000", "이번 달 현재까지"], ["8월 1~12일", "300,000", "지난달 같은 범위"], ["8월 전체", "720,000", "위 비교에는 사용하지 않음"]] }, paragraphs: ["같은 날짜 범위의 차이는 255,000원 − 300,000원 = −45,000원입니다. 변화율은 −45,000 ÷ 300,000 × 100 = −15%입니다. 이번 달 일부와 지난달 전체를 비교해 큰 절약으로 해석하면 안 됩니다.", "비교 기간에 데이터가 없거나 읽지 못했다면 절약을 확정할 수 없습니다. 이전 금액이 0원이면 증가율을 무리하게 계산하기보다 현재 금액과 기록 유무를 확인합니다."] },
       { title: "월을 넘는 주의 합계", paragraphs: ["주간 리포트는 월요일부터 일요일까지의 주를 기준으로 봅니다. 예를 들어 8월 31일부터 9월 6일까지의 주에는 8월 31일 기록도 포함됩니다. 9월 월간 합계와 그 주의 합계가 같은 범위라고 생각하면 차이를 오해할 수 있습니다.", "필요한 기간의 기록을 전부 읽지 못했다는 안내가 있으면 일부 합계를 완전한 기간 합계로 간주하지 마세요. 조회 실패와 0원은 다른 상태입니다."] },
@@ -3893,9 +3897,9 @@ function publicGuidePages(env = {}) {
       { title: "나가기·삭제·로그아웃을 구분하세요", paragraphs: ["가계부 나가기는 참여 권한을 종료하는 작업이며 공동 거래 이력을 모두 지우지는 않습니다. 소유자의 가계부 영구 삭제는 더 넓은 범위에 영향을 주므로 표시된 대상과 본인 확인 안내를 읽고 진행해야 합니다.", "현재 계정 자체를 탈퇴·삭제하는 온라인 기능은 제공하지 않습니다. 관련 요청은 문의 경로로 접수하세요. 공용 기기에서는 로그아웃하고 내려받은 파일과 코드가 남아 있지 않은지 확인합니다."], links: [["문의 안내", "/contact"]] },
       { title: "백업과 공유 전에 확인할 것", bullets: ["선택한 가계부와 내 역할이 맞는지 확인합니다.", "CSV와 리포트에 들어가는 이름·금액·메모를 확인합니다.", "가계부를 옮길 때 CSV가 거래 목록만 담는다는 점을 확인합니다.", "저장 결과가 불명확하면 새 입력보다 기존 목록 확인을 먼저 합니다."], links: [["파일 가져오기와 백업 범위", "/import-guide"], ["공동 사용 권한", "/service-guide"]] },
     ]),
-    faq: page("기록이 보이지 않거나 숫자가 다를 때", "가계부 선택, 권한, 모임 정산, 저장 지연, 예산 비교, 카드 사용액, 백업과 광고 상태에 관한 문제 해결 답변입니다.", "문제 해결 FAQ", "먼저 가계부 이름과 조회 기간을 확인하세요. 같은 계정이라도 개인 채팅과 단톡방에서 사용 중인 가계부가 다를 수 있습니다.", [], { type: "FAQPage", updated: "2026-11-03", faqs: [
-      ["카카오에서 기록했는데 웹에 보이지 않아요.", "웹의 계정과 가계부, 선택한 날짜를 확인하세요. 카카오와 다른 웹 계정을 만든 경우 1:1의 ‘웹 가계부 열기’에서 받은 코드로 같은 계정에 이어 열 수 있습니다. 서로 다른 계정을 자동 병합하지는 않습니다."],
-      ["단톡방에 봇만 추가하면 바로 기록되나요?", "봇 추가만으로 거래가 생기지는 않습니다. 새 미연결 방에서 봇을 호출해 명확한 첫 거래를 보내면 공동 가계부를 준비합니다. 기존 연결과 권한 제한, 삭제·연결 해제 이력은 그대로 적용됩니다."],
+    faq: page("기록이 보이지 않거나 숫자가 다를 때", "가계부 선택, 권한, 모임 정산, 저장 지연, 예산 비교, 카드 사용액, 백업과 광고 상태에 관한 문제 해결 답변입니다.", "문제 해결 FAQ", "먼저 가계부 이름과 조회 기간을 확인하세요. 같은 계정이라도 개인 채팅과 단톡방에서 사용 중인 가계부가 다를 수 있습니다.", [], { type: "FAQPage", updated: "2026-11-13", faqs: [
+      ["카카오에서 기록했는데 웹에 보이지 않아요.", "웹의 계정과 가계부, 선택한 날짜를 확인하세요. 카카오와 다른 웹 계정을 만든 경우 1:1의 ‘웹 가계부 열기’에서 받은 코드로 같은 계정에 이어 열 수 있습니다. 서로 다른 두 계정은 웹에서 카카오로 로그인해 같은 사람의 카카오 계정임을 확인한 뒤에만 하나로 잇고, 두 계정 모두 기록이 있으면 확인 화면에서 단추를 눌러야 잇습니다."],
+      ["단톡방에 봇만 추가하면 바로 기록되나요?", "봇 추가만으로 거래가 생기지는 않습니다. 거래는 ‘점심 12000원’처럼 명확한 기록을 보낼 때만 저장합니다. 새 미연결 방에서는 봇을 처음 부른 사람이 기록·조회·설명서 보기 중 무엇으로 불렀든 공동 가계부를 준비해 소유자가 되고, 그 뒤 봇을 부르거나 기록한 사람은 승인 없이 구성원이 됩니다. 기존 연결과 권한 제한, 나가기·삭제·연결 해제 이력은 그대로 적용됩니다."],
       // V22.9.97 모임 정산: 모임 회비·여행 경비 문항. 셋째 값은 답 아래 링크(둘러보기 일곱째 단계)이고 구조화 데이터 답에는 넣지 않는다.
       ["모임 회비나 여행 경비 정산에도 쓸 수 있나요?", "네. 모임 단톡방에서 봇을 부르고 각자 낸 돈을 기록하면 그 방의 공동 가계부에 모이고, 기록한 사람이 지출자가 됩니다. ‘정산’을 보내면 이번 달 지출의 1인 기준과 사람별로 받을 돈·보낼 돈, 송금 제안을 답합니다. 다른 사람이 낸 돈을 대신 적었다면 소유자·관리자가 웹 거래 내역에서 지출자를 바꾸고, 비율·인원수로 나누거나 품목마다 함께 부담할 사람을 고르려면 웹 정산 화면을 씁니다. 걷은 회비처럼 수입으로 적은 돈은 정산에 넣지 않으며, 송금은 직접 합니다.", ["모임 정산 예시 둘러보기", "/demo#tour-settle"]],
       ["식비 50만원이라고 입력하면 어떻게 되나요?", "지출 기록으로 처리합니다. 예산을 설정하려면 ‘식비 예산 50만원’처럼 예산이라는 말을 함께 적으세요. 소유자·관리자만 예산을 설정할 수 있습니다."],
@@ -9613,7 +9617,8 @@ function publicSupportWaysSectionV22995(config, email) {
         links: [["말해가계부 오픈채팅 들어가기", "/support/go/openchat"]],
       };
     }
-    return { title: "후원하는 방법", paragraphs: ["후원 창구를 준비하고 있어요(출시 뒤 안내)."] };
+    // V22.9.118 P-2: 아직 없는 것을 약속하지 않는다(사용자 원칙 — ‘준비’·‘출시 뒤’ 같은 미래 약속 금지). 지금 사실만 적는다.
+    return { title: "후원하는 방법", paragraphs: ["지금은 열려 있는 후원 창구가 없어요."] };
   }
   // V22.9.97 후원 지표: 송금 단추는 변수 주소를 바로 싣지 않고 경유 주소(/support/go/<kind>)로 간다. 누른 수를 센 뒤 같은 주소로 302 한다.
   const links = [config.kakaopay ? ["카카오페이로 송금하기", "/support/go/kakaopay"] : null, config.toss ? ["토스로 송금하기", "/support/go/toss"] : null].filter(Boolean);
@@ -9645,19 +9650,20 @@ function publicSupportPageV22995(env = {}, supporters = []) {
     publicSupportWaysSectionV22995(config, email),
     {
       title: "후원자에게 드리는 것",
-      bullets: ["웹 가계부에 보이는 ‘후원자’ 배지", "후원자만 고를 수 있는 포인트 색 3가지(코랄·민트·라벤더)", "후원자 오픈채팅방 초대(운영 소식을 먼저 듣고 의견을 나누는 곳)", "이 페이지 후원자 명단에 이름 올리기(원하는 분만, 원하는 이름으로)"],
-      note: "보상은 보이는 표시와 이야기 나누는 곳이에요.",
+      // V22.9.118 P-2: 후원자 오픈채팅방(SUPPORTER_OPENCHAT_URL)이 없으면 그 보상 줄과 ‘이야기 나누는 곳’ 말을 빼고, 변수가 생기면 예전처럼 보인다.
+      bullets: ["웹 가계부에 보이는 ‘후원자’ 배지", "후원자만 고를 수 있는 포인트 색 3가지(코랄·민트·라벤더)", config.supporterChat ? "후원자 오픈채팅방 초대(운영 소식을 먼저 듣고 의견을 나누는 곳)" : "", "이 페이지 후원자 명단에 이름 올리기(원하는 분만, 원하는 이름으로)"].filter(Boolean),
+      note: config.supporterChat ? "보상은 보이는 표시와 이야기 나누는 곳이에요." : "보상은 화면에 보이는 표시예요.",
     },
     {
       title: "함께 이야기하는 곳",
       paragraphs: [
         config.community
           ? "누구나 들어올 수 있는 말해가계부 오픈채팅방이 있어요. 쓰는 방법을 묻거나 고쳐 줬으면 하는 점을 나눠 주세요."
-          : `누구나 들어올 수 있는 오픈채팅방을 준비하고 있어요. 그동안은 ${email} 로 의견을 보내 주세요.`,
+          : `지금은 열려 있는 오픈채팅방이 없어요. 의견은 ${email} 로 보내 주세요.`,
         config.supporterChat
           ? "후원자 오픈채팅방은 후원을 확인한 분께 웹 가계부 ‘전체 메뉴’ 의 화면 설정에서 들어가는 단추로 안내해요."
-          : "후원자 오픈채팅방도 준비하고 있어요. 열리면 후원자께 웹 가계부에서 안내해 드려요.",
-      ],
+          : "",
+      ].filter(Boolean),
       ...(config.community ? { links: [["말해가계부 오픈채팅 들어가기", "/support/go/openchat"]] } : {}),
     },
     ...(names.length ? [{
@@ -9677,7 +9683,7 @@ function publicSupportPageV22995(env = {}, supporters = []) {
     intro: "후원은 선택이에요. 보내 주시는 후원은 카카오톡으로 묻고 답하는 서버와 기록을 안전하게 보관하는 저장소, 그리고 유지보수·업데이트에 쓰여 서비스를 더 오래 안정적으로 운영하는 데 큰 도움이 됩니다.",
     sections,
     type: "WebPage",
-    updated: "2026-11-04",
+    updated: "2026-11-13",
     primary: ["후원하는 방법 보기", "#section-3"],
     secondary: ["문의 안내", "/contact"],
   };
@@ -9799,7 +9805,7 @@ async function supportViewerIsSupporterV22997(request, env) {
   }
 }
 
-const SUPPORT_GO_MISSING_HTML_V22997 = `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>후원 링크를 찾을 수 없어요</title></head><body><main style="max-width:620px;margin:70px auto;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;color:#172033"><h1>후원 링크를 찾을 수 없어요.</h1><p style="color:#475569;line-height:1.65">이 후원 창구는 아직 준비 중이거나 지금은 열 수 없어요. 후원 안내에서 다른 방법을 확인해 주세요.</p><p><a href="/support" style="display:inline-flex;align-items:center;min-height:44px;color:#1d4ed8">후원 안내로 돌아가기</a></p></main></body></html>`;
+const SUPPORT_GO_MISSING_HTML_V22997 = `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>후원 링크를 찾을 수 없어요</title></head><body><main style="max-width:620px;margin:70px auto;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;color:#172033"><h1>후원 링크를 찾을 수 없어요.</h1><p style="color:#475569;line-height:1.65">이 후원 창구는 지금 열려 있지 않아요. 후원 안내에서 다른 방법을 확인해 주세요.</p><p><a href="/support" style="display:inline-flex;align-items:center;min-height:44px;color:#1d4ed8">후원 안내로 돌아가기</a></p></main></body></html>`;
 
 function supportGoMissingResponseV22997(method = "GET") {
   return new Response(method === "HEAD" ? null : SUPPORT_GO_MISSING_HTML_V22997, { status: 404, headers: { ...HTML_HEADERS, "x-robots-tag": "noindex, nofollow" } });
@@ -10117,7 +10123,8 @@ function enrichPublicWorksheetsV229106(catalog) {
   }
   const links = Object.entries(PUBLIC_WORKSHEETS_V229106).map(([slug, spec]) => [spec.title, `/${slug}`]);
   catalog.home.sections.splice(1, 0, { title: "직접 계산하며 읽는 생활비 자료", paragraphs: ["공동 비용의 분담, 계좌 범위에 따른 잔액, 납부일까지의 적립과 월 마감을 가상 원본으로 확인하고 자신의 조건으로 바꿔 볼 수 있습니다."], links });
-  catalog.home.updated = "2026-11-07";
+  // V22.9.118 P-8: 첫 화면 수정일을 낮추지 않는다(첫 화면 안내 표를 고친 판의 날짜가 더 늦으면 그 날짜를 둔다).
+  if (!(String(catalog.home.updated || "") > "2026-11-07")) catalog.home.updated = "2026-11-07";
 }
 
 
@@ -10259,7 +10266,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
       eyebrow: revision,
       intro: "말해가계부는 서비스 제공에 필요한 범위에서 사용자와 가계부 데이터를 처리합니다. 처리 목적과 보유기간을 벗어나 임의로 이용하지 않으며, 사용자 발화를 AI 모델 학습에 자동 활용하지 않습니다.",
       sections: [
-        { title: "1. 처리하는 항목과 목적", paragraphs: ["사용자 식별키와 로그인 정보는 사용자 구분과 세션 유지에 사용합니다. 가계부 이름, 참여자 권한, 초대코드, 표시 이름은 공동 가계부 운영에 사용합니다.", "수입·지출, 날짜, 분류, 결제수단, 메모, 예산과 설정값은 기록·조회·분석·백업 기능을 제공하기 위해 처리합니다. 카카오 거래 입력 원문은 거래 데이터와 함께 보관될 수 있습니다. 단톡방 연결키는 첫 기록으로 준비하거나 직접 연결한 공동 가계부와 해당 방을 구분하는 데 사용합니다."], bullets: ["회원 및 세션 관리", "가계부 생성·참여·권한 관리", "거래 기록·예산·요약·정산 제공", "중복 저장 방지와 장애 대응", "법적 의무와 분쟁 대응"] },
+        { title: "1. 처리하는 항목과 목적", paragraphs: ["사용자 식별키와 로그인 정보는 사용자 구분과 세션 유지에 사용합니다. 가계부 이름, 참여자 권한, 초대코드, 표시 이름은 공동 가계부 운영에 사용합니다.", "수입·지출, 날짜, 분류, 결제수단, 메모, 예산과 설정값은 기록·조회·분석·백업 기능을 제공하기 위해 처리합니다. 카카오 거래 입력 원문은 거래 데이터와 함께 보관될 수 있습니다. 단톡방 연결키는 봇을 처음 불렀을 때 준비하거나 직접 연결한 공동 가계부와 해당 방을 구분하는 데 사용합니다."], bullets: ["회원 및 세션 관리", "가계부 생성·참여·권한 관리", "거래 기록·예산·요약·정산 제공", "중복 저장 방지와 장애 대응", "법적 의무와 분쟁 대응"] },
         { title: "2. 사용자 발화와 자연어 운영 로그", paragraphs: ["사용자 발화는 요청을 이해하고 응답하기 위해 사용합니다. 발화를 외부 AI 모델의 학습 데이터로 자동 전송하거나 자동 학습 데이터로 등록하지 않습니다.", "운영 통계는 의도, 처리 결과, 지연시간과 배포 버전을 집계합니다. 실패한 요청의 일부 문장은 URL·이메일·전화번호·코드·긴 숫자 등을 마스킹하여 임시 메모리에 보관할 수 있습니다. 마스킹이 모든 개인정보를 완전히 제거한다고 보장하지는 않습니다. 별도 실패 사례 저장은 운영 설정에 따르며 거래 데이터의 보관과 구분합니다."] },
         { title: "3. 보유기간과 삭제", paragraphs: [`가계부 거래와 설정은 사용자가 서비스를 이용하는 동안 보관하며 웹에서 직접 수정·삭제할 수 있습니다. 가계부 소유자가 영구 삭제를 완료하면 해당 가계부의 거래와 관련 설정을 삭제합니다. 가계부 나가기는 참여 권한을 종료하며 공동 거래 이력은 보존합니다. 현재 계정 자체를 탈퇴·삭제하는 온라인 기능은 제공하지 않으며 개인정보 삭제 요청은 서비스 문의 경로로 확인합니다. 문의 경로는 7절의 개인정보 보호책임자 이메일(${supportEmail})입니다.`, "세션과 운영 로그는 목적에 필요한 기간만 보관합니다. 법령상 보존 의무가 있는 경우 해당 기간 동안 분리 보관할 수 있습니다."] },
         adfit ? { title: "4. 제3자 광고와 쿠키", paragraphs: [adsPolicyText(env, "privacy"), adsPolicyText(env, "privacy-control")], links: adsPolicyLinks(env) } : { title: "4. 제3자 광고와 쿠키", paragraphs: [adsPolicyText(env, "privacy") || "현재 공개 페이지에서는 Google 광고를 실행하지 않습니다. 향후 광고 기능이 활성화되면 Google을 포함한 제3자 광고 사업자가 쿠키를 사용해 사용자의 이전 방문 정보 등을 바탕으로 광고를 제공하고 성과를 측정할 수 있습니다.", "제3자는 광고 제공 과정에서 브라우저의 쿠키를 저장·조회하거나 웹 비콘과 IP 주소 같은 기술을 사용할 수 있습니다. 말해가계부는 거래 내용, 예산, 가계부 구성원 정보와 사용자 발화 원문을 광고주에게 판매하지 않습니다. 사용자는 Google 광고 설정과 브라우저 설정을 통해 광고 개인화와 쿠키를 관리할 수 있습니다."], links: [...adsPolicyLinks(env), ["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 파트너 사이트 정보 이용 안내", "https://policies.google.com/technologies/partner-sites?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
@@ -10285,7 +10292,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
         { title: "9. 만 14세 미만 아동의 개인정보", paragraphs: ["만 14세 미만 아동도 말해가계부를 쓸 수 있습니다. 가계부 기록과 로그인처럼 서비스를 쓰는 데 꼭 필요한 개인정보만 처리합니다. 이 처리는 서비스 이용 계약을 지키는 데 필요한 처리(개인정보 보호법 제15조제1항제4호)라서 따로 동의를 받지 않습니다.", "만 14세 미만 아동의 개인정보로는 꼭 필요하지 않은 정보를 모으거나 이름을 공개하는 일처럼 동의를 받아야 하는 처리를 하지 않습니다. 그런 처리가 필요하면 그 처리에서만 나이를 확인하고 법정대리인(부모 등 보호자)의 동의를 받습니다.", "아동에게 알리는 내용은 알기 쉬운 말로 씁니다(개인정보 보호법 제22조의2제3항).", "법정대리인은 아동의 개인정보를 보거나, 고치거나, 지우거나, 처리를 멈추라고 요청할 수 있습니다. 7절의 개인정보 보호책임자 이메일로 요청하면 법정대리인인지 확인한 뒤 지체 없이 처리합니다."] },
         { title: "10. 개인정보의 파기 절차와 방법", paragraphs: ["보유기간이 끝나거나 처리 목적을 이룬 개인정보는 지체 없이 파기합니다. 다른 법령에 따라 보존해야 하면 다른 정보와 분리해 그 기간 동안만 보관합니다.", "파기 절차: 파기할 개인정보를 정하고 개인정보 보호책임자의 확인을 거쳐 파기합니다. 파기 방법: 전자 파일은 복구할 수 없도록 데이터베이스에서 삭제합니다. 개인정보를 종이로 출력해 두지 않으며, 출력한 것이 있으면 분쇄하거나 소각합니다.", "거래 변경 이력(고치거나 지운 거래의 바뀌기 전 내용)은 실행 취소와 복구를 위해 보관하며, 180일이 지나면 자동으로 삭제합니다.", "사용자가 내려받은 백업 파일은 사용자 기기에 저장되므로 사용자가 직접 지워야 합니다. 장애에 대비해 데이터베이스 사본을 만드는 경우 운영자만 접근하게 하고, 원본에서 지운 정보는 사본의 보관 기간이 끝날 때 함께 지웁니다."] },
         { title: "11. 권익침해 구제 방법", paragraphs: ["개인정보 침해에 대한 신고나 상담이 필요하면 아래 기관에 문의할 수 있습니다."], bullets: ["개인정보침해신고센터(한국인터넷진흥원): privacy.kisa.or.kr, 국번 없이 118", "개인정보분쟁조정위원회: www.kopico.go.kr, 1833-6972", "대검찰청 사이버수사과: www.spo.go.kr, 국번 없이 1301", "경찰청 사이버수사국: ecrm.police.go.kr, 국번 없이 182"] },
-        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다. 동의 절차나 보호 조치를 더하거나 처리 내용을 더 자세히 적는 것처럼 이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다.", POLICY_NOTICE_DATE === POLICY_REVISION_DATE ? `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 같은 날부터 시행합니다. 이번 개정은 카카오 로그인과 가계부 홈에서 이용약관 동의를 체크하던 칸을 ‘이용하면 이용약관에 동의한 것으로 봅니다’ 안내 줄로 바꾸고 6절의 쿠키 설명을 그에 맞춘 것이어서, 처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다.` : `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
+        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다. 동의 절차나 보호 조치를 더하거나 처리 내용을 더 자세히 적는 것처럼 이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다.", POLICY_NOTICE_DATE === POLICY_REVISION_DATE ? `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 같은 날부터 시행합니다. 이번 개정은 단톡방에서 봇을 처음 부른 사람이 그 방의 공동 가계부를 준비하는 지금의 동작에 맞춰 1절의 단톡방 연결키 설명을 고치고, 카카오톡 챗봇을 처음 쓰는 답에 이용약관·개인정보처리방침 안내를 더한 것이어서, 처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다.` : `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
         { title: "13. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
       ],
     },
@@ -10297,8 +10304,8 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
       sections: [
         { title: "1. 서비스 목적", paragraphs: ["말해가계부는 사용자가 직접 입력한 생활 수입·지출을 개인 또는 공동 가계부 단위로 기록하고 예산·요약·분석·백업 기능을 제공하는 서비스입니다.", "금융상품, 투자, 세무, 법률 자문을 제공하지 않으며 서비스의 계산값은 생활 기록을 돕는 참고자료입니다."] },
         { title: "2. 사용자 책임", paragraphs: ["사용자는 입력한 금액, 날짜, 결제수단, 메모와 분류의 정확성을 확인해야 합니다. 계정, 초대코드와 접근 수단을 안전하게 관리하고 다른 사람의 정보를 권한 없이 입력해서는 안 됩니다.", "로그인 이름으로 새 계정을 만들 때는 이용약관 동의 칸을 체크합니다. 카카오 로그인과 카카오톡에서 여는 가계부는 서비스를 이용하면 이용약관에 동의한 것으로 보며, 로그인 화면과 가계부 홈의 안내 줄에서 이용약관과 개인정보처리방침을 볼 수 있습니다. 만 14세 미만도 이용할 수 있으며, 아동의 개인정보는 개인정보처리방침 9절에 따라 처리합니다."] },
-        { title: "3. 공동 가계부와 권한", paragraphs: ["가계부 소유자와 관리자는 참여자 초대, 승인, 역할과 표시 이름을 관리할 수 있습니다. 참여자는 부여된 권한 범위에서 조회·기록·수정 기능을 사용합니다.", "새 미연결 단톡방에서는 봇에게 명확한 첫 거래를 보내면 공동 가계부를 준비하고 첫 기록자가 소유자가 됩니다. 기존 가계부를 연결하려면 해당 가계부의 소유자 또는 관리자 권한이 필요합니다. 연결을 변경할 때에는 현재 연결된 가계부의 관리 권한도 확인합니다. 기록 전 가계부 이름과 공유 범위를 확인해야 합니다."] },
-        { title: "4. 데이터 수정·삭제와 백업", paragraphs: ["사용자는 거래와 설정을 수정·삭제할 수 있으며 중요한 변경 전 백업을 권장합니다. 가져오기, 일괄 수정, 삭제와 복구는 확인 절차를 제공하지만 모든 실수를 자동 복원한다고 보장하지 않습니다."] },
+        { title: "3. 공동 가계부와 권한", paragraphs: ["가계부 소유자와 관리자는 참여자 초대, 승인, 역할과 표시 이름을 관리할 수 있습니다. 참여자는 부여된 권한 범위에서 조회·기록·수정 기능을 사용합니다.", "가계부가 연결되지 않은 단톡방에서 봇을 처음 부른 사람은 기록·조회·설명서 보기 중 무엇으로 불렀든 그 방의 공동 가계부를 준비하고 소유자가 됩니다. 그 뒤 같은 방에서 봇을 부르거나 기록한 사람은 승인 없이 구성원이 됩니다. 다만 그 가계부에서 나갔거나 내보내진 사람은 자동으로 다시 참여하지 않으며, 조회 전용·이용 제한 권한은 봇을 불러도 바뀌지 않습니다. 소유자는 웹 ‘참여자·초대’에서 관리자·구성원에게 소유자를 넘길 수 있습니다. 기존 가계부를 연결하려면 해당 가계부의 소유자 또는 관리자 권한이 필요합니다. 연결을 변경할 때에는 현재 연결된 가계부의 관리 권한도 확인합니다. 기록 전 가계부 이름과 공유 범위를 확인해야 합니다."] },
+        { title: "4. 데이터 수정·삭제와 백업", paragraphs: ["사용자는 거래와 설정을 수정·삭제할 수 있으며 중요한 변경 전 백업을 권장합니다. 웹과 카카오톡에서 기록 한 건을 지우면 확인 단계 없이 바로 지워지며, 일정 시간 안에는 웹 화면의 ‘되돌리기’나 카카오톡 답에 나온 ‘복구 01번’ 같은 말로 되살릴 수 있습니다. 가계부를 영구 삭제할 때는 본인 확인을 거칩니다. 가져오기와 일괄 수정은 확인 절차를 제공하지만 모든 실수를 자동 복원한다고 보장하지 않습니다."] },
         { title: "5. 서비스 제한과 장애", paragraphs: ["보안, 과도 요청, 점검, 외부 서비스 장애 또는 법적 필요가 있는 경우 일부 기능을 일시 제한할 수 있습니다. 중복 저장과 데이터 손상을 줄이는 것을 우선하며 장애가 발생하면 안전 안내와 재시도 방법을 제공합니다."] },
         { title: "6. 광고와 외부 링크", paragraphs: ["서비스 운영 과정에서 광고 또는 외부 링크가 표시될 수 있으며 광고는 서비스 콘텐츠와 구분합니다.", "외부 사이트의 내용과 거래에는 해당 제공자의 정책이 적용됩니다."] },
         { title: "7. 약관 변경", paragraphs: ["서비스 운영이나 법령 변경에 따라 약관을 변경할 수 있으며 중요한 변경은 적용 전에 서비스 화면을 통해 안내합니다."] },
@@ -10646,6 +10653,8 @@ function handlePublicRobots(env = {}, url = null) {
     "Disallow: /identity-audit",
     "Disallow: /kakao-recent",
     "Disallow: /kakao-login-check",
+    // V22.9.118 P-13: 후원 경유 주소(누른 수를 센 뒤 302)는 색인할 쪽이 아니다.
+    "Disallow: /support/go/",
     `Sitemap: ${origin}/sitemap.xml`,
     "",
   ].join("\n");
@@ -16775,7 +16784,8 @@ async function handleChatbotEditGuidePage(request, env, url) {
     ["분류 수정", "01번 분류 카페/간식", "번호 기록의 분류를 바꿉니다."],
     ["결제수단 수정", "01번 현금", "번호 기록의 결제수단을 바꿉니다."],
     ["날짜 수정", "01번 날짜 어제", "기록 날짜를 바꿉니다."],
-    ["삭제", "01번 삭제", "삭제 확인을 한 번 더 받습니다."],
+    // V22.9.118 P-4: 실제로는 확인 없이 바로 지우고 답에 되살리는 말을 준다(오프라인 실행으로 확인, validate-copy-fixes-v229118).
+    ["삭제", "01번 삭제", "확인 없이 바로 지웁니다. 답에 나온 ‘복구 01번’을 보내면 되살릴 수 있습니다."],
     ["오늘 목록", "오늘 기록", "오늘 00시부터 저장된 기록을 번호로 봅니다."],
   ].map(([a,b,c]) => `<div class="ex"><span>${escapeHtml(a)}</span><b>${escapeHtml(b)}</b><p>${escapeHtml(c)}</p></div>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>챗봇 수정가이드</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#f8fafc,#f3f6fb);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c3aed));color:#fff;border-radius:30px;padding:24px;margin:12px 0;box-shadow:0 22px 54px rgba(15,23,42,.2)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.55;color:#e5e7eb}.note,.publicNote{background:#fffdf3;border:1px solid #fde68a;color:#854d0e;border-radius:20px;padding:15px;margin:12px 0;line-height:1.55}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}.ex{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:18px;box-shadow:0 14px 34px rgba(15,23,42,.055)}.ex span{display:block;color:#667085;font-size:13px;font-weight:900}.ex b{display:block;margin-top:6px;font-size:17px}.ex p{color:#667085;line-height:1.45;font-size:13px;margin:8px 0 0}.flow{background:#fff;border:1px solid #e8edf4;border-radius:24px;padding:18px;box-shadow:0 14px 34px rgba(15,23,42,.055);margin:12px 0;line-height:1.7}.flow code{background:#eef2ff;color:#3730a3;border-radius:999px;padding:4px 8px;font-family:inherit;font-weight:900}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${adminOk ? renderUnifiedNav("chatbot-edit-guide", { month, householdId }) : ""}<main class="wrap"><section class="hero"><h1>챗봇 수정가이드</h1><p>카카오톡에 저장한 기록은 매일 00시 기준으로 01번부터 번호가 붙습니다. 번호를 말하면 챗봇에서 바로 수정하거나 삭제할 수 있습니다.</p></section><section class="note"><b>핵심 규칙</b><br/>번호는 날짜별로 다시 시작합니다. 오늘 기록은 오늘 00시 이후 저장된 순서대로 01번, 02번, 03번이 됩니다. 어제 기록을 고치려면 “어제 01번 금액 13000원”처럼 날짜를 같이 말하면 됩니다.</section><section class="flow"><b>예시 흐름</b><br/><code>점심 12000원 국민카드</code><br/>→ 저장했어요 😊<br/>→ 01번 - 점심 / 12,000원 / 국민카드 / 식비<br/><br/><code>01번 내용 수정해줘</code><br/>→ 무엇을 바꿀까요?<br/>1. 금액 2. 분류 3. 결제수단 4. 내용 5. 날짜 6. 삭제</section><section class="grid">${examples}</section><section class="note">가계부를 시작하려면 <a href="/my">가계부 시작하기</a>를 열어주세요.</section></main></body></html>`);
@@ -22791,7 +22801,7 @@ async function handleKakaoCommandsPage(request, env, url) {
   // `body.abV2281{color:var(--ab-text)!important;background:var(--ab-bg)!important}` 가 이 화면의 `html[...dark] body` 규칙(!important 없음)을 이겨
   // 글자는 어두운 #172033 으로 남고 카드만 어두워졌다. 이 화면은 셸(abV22812Shell)이 아니라 다크 규칙을 셸이 대신 주지 않으므로,
   // 다크일 때 그 변수를 직접 바꾸고(명시도 0,1,1 > :root 0,1,0) 가이드 스타일의 흰 표·표 머리를 다크 값으로 덮는다.
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 챗봇 명령어</title><script src="${ACCOUNTBOOK_THEME_JS_ASSET_PATH}"></script><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:980px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:21px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#0b1739,#153878);color:#fff}.hero p{color:#dbeafe;line-height:1.65}.skill{background:#111827;color:#fff;border-radius:16px;padding:13px;word-break:break-all;font-weight:1000}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e7eb;padding:11px;text-align:left;vertical-align:top}code{white-space:pre-wrap;background:#f1f5f9;border-radius:10px;padding:6px 8px;font-family:inherit;font-weight:900;color:#111827}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{background:#eef2ff;color:#3730a3;border-radius:999px;padding:8px 11px;font-size:12px;font-weight:1000}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}@media(max-width:760px){.wrap{padding:12px}table{font-size:13px}}html[data-ab-resolved-theme="dark"] body{background:#141519;color:#edeff3}html[data-ab-resolved-theme="dark"] .card{background:#1e2026;border-color:#3b475a}html[data-ab-resolved-theme="dark"] :is(td,th){border-color:#3b475a}html[data-ab-resolved-theme="dark"] code{background:#282b33;color:#edeff3}html[data-ab-resolved-theme="dark"] .chips span{background:#1e2a5a;color:#dbeafe}html[data-ab-resolved-theme="dark"]{--ab-bg:#141519;--ab-text:#edeff3;--ab-muted:#b3bdc9;--ab-line:#3b475a}html[data-ab-resolved-theme="dark"] body.abV2281 table{background:transparent!important}html[data-ab-resolved-theme="dark"] body.abV2281 :is(td,th){border-color:#3b475a!important}html[data-ab-resolved-theme="dark"] body.abV2281 th{background:#282b33;color:#b3bdc9!important}</style></head><body><main class="wrap"><section class="hero"><h1>카카오 챗봇 명령어</h1><p>베타 운영에서는 사용자가 가장 많이 쓰는 문장과 오입력 안내를 먼저 안정화합니다.</p><div class="skill">Skill URL: ${escapeHtml(origin)}/skill</div>${adminOk ? `<p><a class="btn" href="/openbuilder-guide">오픈빌더 설정</a><a class="btn" href="/beta-start">베타 시작</a></p>` : ""}</section><section class="card"><h2>대표 발화</h2><table><thead><tr><th>발화</th><th>동작</th></tr></thead><tbody>${rows}</tbody></table></section><section class="card"><h2>OpenBuilder 연결 기준</h2><div class="chips">${openbuilder}</div><p>폴백 블록까지 /skill로 연결되어야 “이해하기 어려워요” 대신 서비스 안내와 입력 예시가 표시됩니다.</p></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 챗봇 명령어</title><script src="${ACCOUNTBOOK_THEME_JS_ASSET_PATH}"></script><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:980px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:21px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#0b1739,#153878);color:#fff}.hero p{color:#dbeafe;line-height:1.65}.skill{background:#111827;color:#fff;border-radius:16px;padding:13px;word-break:break-all;font-weight:1000}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e7eb;padding:11px;text-align:left;vertical-align:top}code{white-space:pre-wrap;background:#f1f5f9;border-radius:10px;padding:6px 8px;font-family:inherit;font-weight:900;color:#111827}.chips{display:flex;gap:8px;flex-wrap:wrap}.chips span{background:#eef2ff;color:#3730a3;border-radius:999px;padding:8px 11px;font-size:12px;font-weight:1000}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}@media(max-width:760px){.wrap{padding:12px}table{font-size:13px}}html[data-ab-resolved-theme="dark"] body{background:#141519;color:#edeff3}html[data-ab-resolved-theme="dark"] .card{background:#1e2026;border-color:#3b475a}html[data-ab-resolved-theme="dark"] :is(td,th){border-color:#3b475a}html[data-ab-resolved-theme="dark"] code{background:#282b33;color:#edeff3}html[data-ab-resolved-theme="dark"] .chips span{background:#1e2a5a;color:#dbeafe}html[data-ab-resolved-theme="dark"]{--ab-bg:#141519;--ab-text:#edeff3;--ab-muted:#b3bdc9;--ab-line:#3b475a}html[data-ab-resolved-theme="dark"] body.abV2281 table{background:transparent!important}html[data-ab-resolved-theme="dark"] body.abV2281 :is(td,th){border-color:#3b475a!important}html[data-ab-resolved-theme="dark"] body.abV2281 th{background:#282b33;color:#b3bdc9!important}</style></head><body><main class="wrap"><section class="hero"><h1>카카오 챗봇 명령어</h1><p>카카오톡에서 자주 쓰는 문장과 처리 결과입니다.</p><div class="skill">Skill URL: ${escapeHtml(origin)}/skill</div>${adminOk ? `<p><a class="btn" href="/openbuilder-guide">오픈빌더 설정</a><a class="btn" href="/beta-start">베타 시작</a></p>` : ""}</section><section class="card"><h2>대표 발화</h2><table><thead><tr><th>발화</th><th>동작</th></tr></thead><tbody>${rows}</tbody></table></section><section class="card"><h2>OpenBuilder 연결 기준</h2><div class="chips">${openbuilder}</div><p>폴백 블록까지 /skill로 연결되어야 “이해하기 어려워요” 대신 서비스 안내와 입력 예시가 표시됩니다.</p></section></main></body></html>`);
 }
 
 async function handleOpsSnapshotJson(request, env, url) {
@@ -48369,7 +48379,8 @@ function kakaoDataPolicyText(origin = "") {
     // 적고 개인정보 처리방침(/privacy 3절)과 같게 쓴다.
     "• 기록은 웹에서 직접 삭제할 수 있고, 가계부 소유자가 가계부를 영구 삭제하면 그 가계부의 기록도 삭제합니다.",
     "• 가계부에서 나가도 함께 쓴 기록은 남습니다.",
-    "• 계정 탈퇴 기능은 아직 없습니다. 개인정보 삭제는 개인정보처리방침에 적힌 문의 경로로 요청해 주세요.",
+    // V22.9.118 P-14: ‘아직’ 은 생길 것이라는 약속으로 읽혀(사용자 원칙: 미래 약속 금지) 지금 사실만 적는다.
+    "• 화면에서 바로 하는 계정 탈퇴 기능은 없습니다. 개인정보 삭제는 개인정보처리방침에 적힌 문의 경로로 요청해 주세요.",
     "",
     origin ? `자세히 보기\n${origin}/privacy` : "",
   ].filter(Boolean).join("\n");
@@ -49133,6 +49144,42 @@ function kakaoWebLedgerReply(origin = "", notice = "") {
       }],
     },
   }, 200);
+}
+
+// V22.9.118 P-3(V95:E-1): 챗봇만 쓰는 사람은 약관·방침을 볼 기회 없이 사용자 행·가계부가 생겼다(V22.9.115 뒤로는 방에서 조회만 불러도 구성원).
+// 처음 개인 가계부가 만들어지는 답(1:1 첫 기록)과 처음 그 방 가계부에 들어가는 답(방 첫 기록·첫 호출·참여)에만 한 줄 + 링크 단추 둘(이용약관·개인정보처리방침)을 단다.
+// 그 자리(identity-chat-first·group-links-first-record)가 env.__AB_KAKAO_REQUEST.termsNoticeV229118 을 켜고, skill-handler 가 응답 마무리(글 속 주소 → 단추) 뒤의
+// 최종 답(지연 답 포함)에 이 함수를 쓴다. 글에는 주소를 넣지 않고(V22.9.88 Y-7) 있던 단추는 건드리지 않는다: 답 맨 앞 말풍선이 참여 한 줄이면 그 말풍선을 한 줄과
+// 단추를 단 카드로 바꾸고, 아니면 말풍선이 셋 미만일 때 끝에 카드를 하나 더한다. 셋이 다 찼으면 단추 없이 글 말풍선 끝에 한 줄만 붙인다. 저장소 호출은 없다.
+const KAKAO_TERMS_NOTICE_LINE_V229118 = "말해가계부를 이용하면 이용약관에 동의한 것으로 봐요.";
+
+async function kakaoTermsNoticeResponseV229118(response, env = {}, origin = "") {
+  const state = env?.__AB_KAKAO_REQUEST;
+  if (!state?.termsNoticeV229118 || !origin || !response || response.status !== 200) return response;
+  try {
+    const data = JSON.parse(await response.clone().text() || "{}");
+    const template = data?.template && typeof data.template === "object" ? data.template : null;
+    const outputs = Array.isArray(template?.outputs) ? [...template.outputs] : [];
+    if (!outputs.length) return response;
+    const line = KAKAO_TERMS_NOTICE_LINE_V229118;
+    const buttons = [kakaoLinkButton("이용약관", `${origin}/terms`), kakaoLinkButton("개인정보처리방침", `${origin}/privacy`)];
+    const lead = String(state.roomJoinNotice || state.termsNoticeLeadV229118 || "").trim();
+    const first = outputs[0]?.simpleText?.text;
+    if (lead && typeof first === "string" && first.trim() === lead && lead.length + 1 + line.length <= KAKAO_GROUP_CARD_TEXT_MAX) {
+      outputs[0] = { textCard: { description: `${lead}\n${line}`, buttons, buttonLayout: "vertical" } };
+    } else if (outputs.length < 3) {
+      outputs.push({ textCard: { description: line, buttons, buttonLayout: "vertical" } });
+    } else {
+      const at = outputs.findIndex((output) => typeof output?.simpleText?.text === "string" && output.simpleText.text.length + 2 + line.length <= KAKAO_SIMPLE_TEXT_SAFE_MAX);
+      if (at < 0) return response;
+      outputs[at] = { simpleText: { ...outputs[at].simpleText, text: `${outputs[at].simpleText.text}\n\n${line}` } };
+    }
+    const headers = new Headers(response.headers || {});
+    headers.set("content-type", "application/json; charset=utf-8");
+    return new Response(JSON.stringify({ ...data, template: { ...template, outputs } }), { status: response.status, statusText: response.statusText, headers });
+  } catch (_) {
+    return response;
+  }
 }
 
 async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "") {
@@ -53514,7 +53561,8 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     // V22.9.115: 방 명령을 처리하다 그 자리에서 이 방 가계부에 들였으면(또는 첫 호출자로 공동 가계부를 준비했으면) 답 맨 앞에 한 줄로 알린다(답 모양과 무관).
     response = await prependKakaoRoomJoinNoticeV229115(response, env);
     const normalizedResponse = await normalizeKakaoSkillResponse(response, origin);
-    const safeResponse = await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin);
+    // V22.9.118 P-3: 처음 계정(개인 가계부)이 만들어지거나 처음 이 방 가계부에 들어간 답이면 약관 안내 한 줄 + 링크 단추(response-builders.js). 그 밖의 답은 그대로.
+    const safeResponse = await kakaoTermsNoticeResponseV229118(await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin), env, origin);
     const latencyMs = Date.now() - skillStartedAt;
     const responsePreview = await safeResponse.clone().text();
     const outcome = nluOutcomeFromKakaoResponse(responsePreview);
@@ -53566,7 +53614,8 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   abMonitorOutcome(env, "deferred", work); // V22.9.77(G-5): 뒤 작업이 끝나면 관제에 최종 결과 표본을 한 번 더 보낸다.
   rememberSkillEvent({ kind: "deferred", user_key: userKey, utterance, detail: `request_id=${requestId}; budget_ms=${budgetMs}` });
   // V22.9.72: 짧은 안내 + 다시 묻는 버튼(기록이면 ‘오늘기록’ 확인, 조회·명령이면 같은 명령). 2026-10-20 디자이너 피드백.
-  const deferred = await kakaoGroupCompatibleResponse(kakaoDeferredReply(utterance, payload), payload, origin);
+  // V22.9.118 P-3: 지연 답도 그때까지 첫 사용(계정·참여)이 정해졌으면 같은 약관 안내를 단다(정해지기 전에 4초가 지나면 이 답에는 없다).
+  const deferred = await kakaoTermsNoticeResponseV229118(await kakaoGroupCompatibleResponse(kakaoDeferredReply(utterance, payload), payload, origin), env, origin);
   const deferredHeaders = new Headers(deferred.headers || {});
   deferredHeaders.set("x-accountbook-version", APP_VERSION);
   deferredHeaders.set("x-accountbook-intent", metricIntent());
@@ -53798,7 +53847,10 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     // V22.9.88(Y-7): 단톡방 ‘웹가계부’는 웹 가계부를 바로 여는 링크 버튼 카드로 답한다(카카오 심사: 답 글에 주소를 넣지 않는다).
     if (skillConfigured && botGroupKey && isLinkCommand(utterance)) {
       // V22.9.115: 누르기 전에 이 방 가계부 구성원으로 들인다(가계부 없는 방은 첫 호출자가 소유자). 그래야 단추가 로그인 화면 없이 이 방 가계부 홈을 연다(V22.9.105 R-1).
-      return kakaoWebLedgerReply(origin, roomJoinNoticeLine(await joinRoomOnCallSync({ source: "link" })));
+      const lead = roomJoinNoticeLine(await joinRoomOnCallSync({ source: "link" }));
+      // V22.9.118 P-3: 참여 한 줄이 있으면 약관 안내를 그 말풍선에 합치도록 알려 둔다(kakaoTermsNoticeResponseV229118).
+      if (lead && env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.termsNoticeLeadV229118 = lead;
+      return kakaoWebLedgerReply(origin, lead);
     }
     if (skillConfigured && isLinkCommand(utterance)) return kakaoText(await kakaoPrivateWebLinkReply(request, env, payload, kakaoUserKey, nickname, origin));
     return kakaoText(earlyReply);
@@ -56166,6 +56218,9 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
           if (!role) throw new Error("kakao_group_member_missing");
           if (!["owner", "admin", "member"].includes(role)) return rejected("role_blocked", roleBlockedMessage(role, household.name), { role });
           if (firstNotice || joinedNow) {
+            // V22.9.118 P-3: 처음 이 방 가계부에 들어가는(첫 호출자로 준비한) 답에 약관 안내 한 줄 + 단추를 단다(skill-handler → kakaoTermsNoticeResponseV229118).
+            // 저장소 호출 없음. 답 뒤에 들인 경우(설명서·빈 멘션)는 답이 이미 나갔으므로 아무것도 바꾸지 않는다.
+            if (env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.termsNoticeV229118 = true;
             assertFresh();
             // V22.9.44: 참여 안내에 쓸 구성원 권한 조회와 첫 사용 표시 저장을 함께 돌린다.
             const [policy] = await Promise.all([
@@ -57487,6 +57542,8 @@ async function tryKakaoChatFirstRecord(env, context = {}) {
         const role = createdHere ? "owner" : await ensureOwnerMembership(env, user.id, household.id, { explicitHouseholdCreation: true });
         if (role !== "owner") throw new Error("kakao_first_record_owner_required");
         const firstNotice = "웹 로그인 없이 내 개인 가계부를 준비했어요.\n이름·예산은 나중에 웹에서 설정할 수 있어요.\n\n";
+        // V22.9.118 P-3: 처음 개인 가계부가 만들어지는 답에 약관 안내 한 줄 + 단추를 단다(skill-handler → kakaoTermsNoticeResponseV229118). 저장소 호출 없음.
+        if (env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.termsNoticeV229118 = true;
         return await saveKakaoParsedTransactionsReply(env, {
           household: { ...household, role: "owner" }, user, kakaoUserKey, nickname, origin, utterance, parsedList, handlerStartedAt, canDeferSave,
           firstNotice, assertFresh,

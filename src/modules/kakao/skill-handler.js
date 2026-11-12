@@ -35,7 +35,7 @@ import {
 } from "./intent-nlu.js";
 import {
   dedupeQuickReplies, kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoNextStepReply,
-  kakaoText, kakaoWebLedgerReply,
+  kakaoTermsNoticeResponseV229118, kakaoText, kakaoWebLedgerReply,
 } from "./response-builders.js";
 import { kakaoManualReply, kakaoManualTopic } from "./manual-guides.js";
 import {
@@ -217,7 +217,8 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     // V22.9.115: 방 명령을 처리하다 그 자리에서 이 방 가계부에 들였으면(또는 첫 호출자로 공동 가계부를 준비했으면) 답 맨 앞에 한 줄로 알린다(답 모양과 무관).
     response = await prependKakaoRoomJoinNoticeV229115(response, env);
     const normalizedResponse = await normalizeKakaoSkillResponse(response, origin);
-    const safeResponse = await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin);
+    // V22.9.118 P-3: 처음 계정(개인 가계부)이 만들어지거나 처음 이 방 가계부에 들어간 답이면 약관 안내 한 줄 + 링크 단추(response-builders.js). 그 밖의 답은 그대로.
+    const safeResponse = await kakaoTermsNoticeResponseV229118(await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin), env, origin);
     const latencyMs = Date.now() - skillStartedAt;
     const responsePreview = await safeResponse.clone().text();
     const outcome = nluOutcomeFromKakaoResponse(responsePreview);
@@ -269,7 +270,8 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   abMonitorOutcome(env, "deferred", work); // V22.9.77(G-5): 뒤 작업이 끝나면 관제에 최종 결과 표본을 한 번 더 보낸다.
   rememberSkillEvent({ kind: "deferred", user_key: userKey, utterance, detail: `request_id=${requestId}; budget_ms=${budgetMs}` });
   // V22.9.72: 짧은 안내 + 다시 묻는 버튼(기록이면 ‘오늘기록’ 확인, 조회·명령이면 같은 명령). 2026-10-20 디자이너 피드백.
-  const deferred = await kakaoGroupCompatibleResponse(kakaoDeferredReply(utterance, payload), payload, origin);
+  // V22.9.118 P-3: 지연 답도 그때까지 첫 사용(계정·참여)이 정해졌으면 같은 약관 안내를 단다(정해지기 전에 4초가 지나면 이 답에는 없다).
+  const deferred = await kakaoTermsNoticeResponseV229118(await kakaoGroupCompatibleResponse(kakaoDeferredReply(utterance, payload), payload, origin), env, origin);
   const deferredHeaders = new Headers(deferred.headers || {});
   deferredHeaders.set("x-accountbook-version", APP_VERSION);
   deferredHeaders.set("x-accountbook-intent", metricIntent());
@@ -501,7 +503,10 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     // V22.9.88(Y-7): 단톡방 ‘웹가계부’는 웹 가계부를 바로 여는 링크 버튼 카드로 답한다(카카오 심사: 답 글에 주소를 넣지 않는다).
     if (skillConfigured && botGroupKey && isLinkCommand(utterance)) {
       // V22.9.115: 누르기 전에 이 방 가계부 구성원으로 들인다(가계부 없는 방은 첫 호출자가 소유자). 그래야 단추가 로그인 화면 없이 이 방 가계부 홈을 연다(V22.9.105 R-1).
-      return kakaoWebLedgerReply(origin, roomJoinNoticeLine(await joinRoomOnCallSync({ source: "link" })));
+      const lead = roomJoinNoticeLine(await joinRoomOnCallSync({ source: "link" }));
+      // V22.9.118 P-3: 참여 한 줄이 있으면 약관 안내를 그 말풍선에 합치도록 알려 둔다(kakaoTermsNoticeResponseV229118).
+      if (lead && env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.termsNoticeLeadV229118 = lead;
+      return kakaoWebLedgerReply(origin, lead);
     }
     if (skillConfigured && isLinkCommand(utterance)) return kakaoText(await kakaoPrivateWebLinkReply(request, env, payload, kakaoUserKey, nickname, origin));
     return kakaoText(earlyReply);
