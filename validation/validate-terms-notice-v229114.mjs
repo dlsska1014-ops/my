@@ -239,7 +239,8 @@ await scene(async (fx) => {
   ok(body.includes("서비스 이용 계약을 지키는 데 필요한 처리(개인정보 보호법 제15조제1항제4호)라서 따로 동의를 받지 않습니다"), "B 방침 9절의 계약 이행 근거(동의 대상 아님)는 그대로다");
   const terms = await go(fx, new Jar(), "/terms", { ua: CHROME });
   const second = text(terms.html.slice(terms.html.indexOf('id="section-2"'), terms.html.indexOf('id="section-3"')));
-  ok(second.includes("로그인 이름으로 새 계정을 만들 때는 이용약관 동의 칸을 체크합니다. 카카오 로그인과 카카오톡에서 여는 가계부는 서비스를 이용하면 이용약관에 동의한 것으로 보며, 로그인 화면과 가계부 홈의 안내 줄에서 이용약관과 개인정보처리방침을 볼 수 있습니다."), "B 약관 2절: 가입 동의 칸 + 카카오 이용 간주 안내");
+  // V22.9.118: 2절 안내 줄 문장에 챗봇 첫 답(괄호 안 범위)을 더했다 — 앞뒤 그대로인 부분만 보고, 전체 문장은 validate-copy-fixes-v229118 이 본다.
+  ok(second.includes("로그인 이름으로 새 계정을 만들 때는 이용약관 동의 칸을 체크합니다. 카카오 로그인과 카카오톡에서 여는 가계부는 서비스를 이용하면 이용약관에 동의한 것으로 보며, 로그인 화면과 가계부 홈의 안내 줄") && second.includes("에서 이용약관과 개인정보처리방침을 볼 수 있습니다."), "B 약관 2절: 가입 동의 칸 + 카카오 이용 간주 안내");
   ok(terms.html.includes(`개정 공고 ${label(NOTICE)} · 개정 시행 ${label(REVISION)}`), "B 약관 머리의 공고일·시행일");
 });
 

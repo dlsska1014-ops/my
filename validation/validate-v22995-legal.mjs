@@ -413,8 +413,10 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
     ["중요한 변경 30일", "이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다"],
     ["시행 문장(E-17)", NOTICE === REVISION ? `이 개정 방침은 ${NOTICE_LABEL}에 알리고 같은 날부터 시행합니다` : `이 개정 방침은 ${NOTICE_LABEL}에 알리고 ${REVISION_LABEL}부터 시행합니다`],
     ["불리하지 않은 변경(V22.9.96)", "이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다"],
-    // V22.9.118: 12절의 ‘이번 개정’ 한 줄을 최신 개정(1절 단톡방 연결키·챗봇 첫 답 약관 안내) 내용으로 바꿨다.
-    ...(NOTICE === REVISION ? [["이번 개정 성격(V22.9.118)", "이번 개정은 단톡방에서 봇을 처음 부른 사람이 그 방의 공동 가계부를 준비하는 지금의 동작에 맞춰 1절의 단톡방 연결키 설명을 고치고, 카카오톡 챗봇을 처음 쓰는 답에 이용약관·개인정보처리방침 안내를 더한 것이어서, 처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다"]] : []),
+    // V22.9.118: 12절의 ‘이번 개정’ 한 줄을 최신 개정(1절 단톡방 연결키·챗봇 첫 답 약관 안내 — 실제로 안내가 붙는 답만) 내용으로 바꿨다.
+    // 단톡방 빈 멘션 인사에는 이용약관 안내만 있다(조정자 결정 2026-11-12) — ‘(인사에는 이용약관 안내만)’.
+    // V22.9.118 재검토 P3: 늘 두는 곳(단톡방 설명서 첫 화면·인사)과 처음 쓸 때의 답(늦은 답 등 일부에는 없다)을 나눈 문장으로 기대값 갱신.
+    ...(NOTICE === REVISION ? [["이번 개정 성격(V22.9.118)", "이번 개정은 단톡방에서 기록뿐 아니라 조회나 설명서 보기로 봇을 불러도 그 방의 공동 가계부를 준비하는 지금의 동작에 맞춰 1절의 단톡방 연결키 설명을 고치고, 이용약관·개인정보처리방침 안내를 단톡방의 설명서 첫 화면과 봇만 불렀을 때의 인사(인사에는 이용약관 안내만)에 늘 두고 카카오톡 챗봇을 처음 쓸 때의 답(1:1 첫 기록으로 개인 가계부를 준비하는 답, 단톡방 가계부를 준비하거나 그 가계부에 들어가는 답)에도 붙인 것이어서, 처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다. 다만 처음 쓸 때의 답이 늦어지는 등 일부 답에는 안내가 붙지 않을 수 있습니다"]] : []),
     ["6절 쿠키 ab_cs(V22.9.104 L-6 → V22.9.114 띠)", "ab_cs: 이용약관 안내 확인 기록을 읽은 결과(가계부 홈의 안내 띠를 띄울지), 14일"],
     ["6절 쿠키 ab_bk·ab_setup(V22.9.104 L-6)", "ab_bk·ab_setup: 가계부 기본 설정 안내 띠를 띄울지(로그인 비밀번호 설정 여부·가계부 설정 확인 결과), 14일·1시간"],
     ["6절 쿠키 ab_notice_hide(V22.9.104 L-6)", "ab_notice_hide: 공지 띠 ‘오늘 하루 안 보기’, 24시간"],
@@ -433,7 +435,8 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
   const terms = await page(fx, "/terms", { cookie: "" });
   ok(terms.status === 200 && terms.html.includes(`시행일 2026년 7월 13일 · 개정 공고 ${NOTICE_LABEL} · 개정 시행 ${REVISION_LABEL}`) && terms.html.includes(`"dateModified":"${NOTICE}"`), "5 /terms 머리가 공고·시행일이고 수정일이 공고일이다");
   const second = text(terms.html.slice(terms.html.indexOf('id="section-2"'), terms.html.indexOf('id="section-3"')));
-  ok(second.includes("로그인 이름으로 새 계정을 만들 때는 이용약관 동의 칸을 체크합니다") && second.includes("카카오 로그인과 카카오톡에서 여는 가계부는 서비스를 이용하면 이용약관에 동의한 것으로 보며, 로그인 화면과 가계부 홈의 안내 줄에서 이용약관과 개인정보처리방침을 볼 수 있습니다") && second.includes("만 14세 미만도 이용할 수 있으며, 아동의 개인정보는 개인정보처리방침 9절에 따라 처리합니다") && !second.includes("만 14세 이상만") && !second.includes("확인하는 절차를 거칩니다"), "5 이용약관 2절에 가입 동의 칸·카카오 이용 간주 안내·만 14세 미만 이용(방침 9절)이 있다(V22.9.114)");
+  // V22.9.118: 2절 안내 줄 문장에 챗봇 첫 답(괄호 안 범위)을 더했다 — 앞뒤 그대로인 부분만 보고, 전체 문장은 validate-copy-fixes-v229118 이 본다.
+  ok(second.includes("로그인 이름으로 새 계정을 만들 때는 이용약관 동의 칸을 체크합니다") && second.includes("카카오 로그인과 카카오톡에서 여는 가계부는 서비스를 이용하면 이용약관에 동의한 것으로 보며, 로그인 화면과 가계부 홈의 안내 줄") && second.includes("에서 이용약관과 개인정보처리방침을 볼 수 있습니다") && second.includes("만 14세 미만도 이용할 수 있으며, 아동의 개인정보는 개인정보처리방침 9절에 따라 처리합니다") && !second.includes("만 14세 이상만") && !second.includes("확인하는 절차를 거칩니다"), "5 이용약관 2절에 가입 동의 칸·카카오 이용 간주 안내·만 14세 미만 이용(방침 9절)이 있다(V22.9.114)");
   const pagesSource = read("../src/modules/public/content-pages.js");
   ok(!pagesSource.includes(REVISION) && !pagesSource.includes(REVISION_LABEL) && pagesSource.includes("policyDateLabel(POLICY_REVISION_DATE)"), "5 방침·약관은 개정일을 상수(POLICY_REVISION_DATE)로만 쓴다");
   ok(!pagesSource.includes(NOTICE) && !pagesSource.includes(NOTICE_LABEL) && pagesSource.includes("policyDateLabel(POLICY_NOTICE_DATE)"), "5 방침·약관은 공고일을 상수(POLICY_NOTICE_DATE)로만 쓴다");

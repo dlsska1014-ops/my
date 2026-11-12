@@ -1,5 +1,6 @@
 // @build:imports-start
 import { HTML_HEADERS } from "../runtime/config-readiness.js";
+import { PUBLIC_COPY_REVISION_DATE } from "./site-config.js";
 import { verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { verifyUserSession } from "../auth/user-session.js";
@@ -128,7 +129,7 @@ function publicSupportPageV22995(env = {}, supporters = []) {
     intro: "후원은 선택이에요. 보내 주시는 후원은 카카오톡으로 묻고 답하는 서버와 기록을 안전하게 보관하는 저장소, 그리고 유지보수·업데이트에 쓰여 서비스를 더 오래 안정적으로 운영하는 데 큰 도움이 됩니다.",
     sections,
     type: "WebPage",
-    updated: "2026-11-13",
+    updated: PUBLIC_COPY_REVISION_DATE,
     primary: ["후원하는 방법 보기", "#section-3"],
     secondary: ["문의 안내", "/contact"],
   };

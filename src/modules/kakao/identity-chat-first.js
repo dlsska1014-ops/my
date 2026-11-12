@@ -545,13 +545,14 @@ async function tryKakaoChatFirstRecord(env, context = {}) {
         const role = createdHere ? "owner" : await ensureOwnerMembership(env, user.id, household.id, { explicitHouseholdCreation: true });
         if (role !== "owner") throw new Error("kakao_first_record_owner_required");
         const firstNotice = "웹 로그인 없이 내 개인 가계부를 준비했어요.\n이름·예산은 나중에 웹에서 설정할 수 있어요.\n\n";
-        // V22.9.118 P-3: 처음 개인 가계부가 만들어지는 답에 약관 안내 한 줄 + 단추를 단다(skill-handler → kakaoTermsNoticeResponseV229118). 저장소 호출 없음.
-        if (env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.termsNoticeV229118 = true;
         return await saveKakaoParsedTransactionsReply(env, {
           household: { ...household, role: "owner" }, user, kakaoUserKey, nickname, origin, utterance, parsedList, handlerStartedAt, canDeferSave,
           firstNotice, assertFresh,
           onSaved: async () => {
             recordSaved = true;
+            // V22.9.118 P-3: 처음 개인 가계부가 만들어지는 답에 약관 안내 한 줄 + 단추를 단다(skill-handler → kakaoTermsNoticeResponseV229118). 저장소 호출 없음.
+            // 독립 검토 P3: 기록이 저장된 뒤에만 켠다 — 저장 실패 답(‘저장하지 않았어요’)에는 달지 않는다(다시 보내면 첫 기록 길을 다시 타서 그때 붙는다).
+            if (env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.termsNoticeV229118 = true;
             // Publish the selection only after saving. Parallel first requests cannot enter
             // the normal selected-household write path while the first save is outstanding.
             assertFresh();

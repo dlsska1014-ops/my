@@ -82,10 +82,12 @@ function kakaoManualButtons(items = [], { group = false } = {}) {
 // V22.9.72: 디자이너 피드백(2026-10-20) — 버튼 이름은 띄어쓰기 없는 짧은 명령(리포트보기·예산정하기·함께쓰기·웹관리하기·
 // 오늘기록·이번달요약·남은예산·예산설정·웹가계부…)으로 맞추고, ‘기록하기’는 각 화면의 맨 아래 버튼으로 둔다.
 // 버튼 이름이 곧 발화이므로 새 이름은 KAKAO_MANUAL_TRIGGERS 또는 skill-handler 의 KAKAO_LEGACY_BUTTON_LABELS 로 읽힌다.
+// V22.9.118 독립 검토: 단톡방에서는 이 제목의 첫 화면 답에 약관 안내 카드를 늘 단다(response-builders.js kakaoTermsNoticeResponseV229118 가 제목으로 알아본다).
+const KAKAO_MANUAL_HOME_TITLE = "말해가계부 도움말";
 const KAKAO_MANUAL_PAGES = Object.freeze({
   home: {
     // V22.9.68: 시작·도움말·메뉴가 모두 이 화면으로 온다. 버튼 두 번이면 모든 기능에 닿는다.
-    title: "말해가계부 도움말",
+    title: KAKAO_MANUAL_HOME_TITLE,
     description: [
       "하고 싶은 것을 눌러 보세요.",
       "기록은 @말해가계부 점심 12000원 처럼 보내면 돼요.",
@@ -221,5 +223,5 @@ function kakaoManualReply(topic = "home", options = {}) {
 }
 
 // @build:exports-start
-export { kakaoManualReply, kakaoManualTopic };
+export { KAKAO_MANUAL_HOME_TITLE, kakaoManualReply, kakaoManualTopic };
 // @build:exports-end

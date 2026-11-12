@@ -25,7 +25,7 @@ import {
 import { optionalSupabase } from "../domain/budgets.js";
 import { kakaoClaimUserUnmerged } from "../auth/kakao-web-claim.js";
 import {
-  isDefiniteStorageFailure, isUncertainStorageWrite, kakaoText,
+  isDefiniteStorageFailure, isUncertainStorageWrite, kakaoText, noteKakaoTermsNoticeDroppedV229118,
 } from "./response-builders.js";
 import { kakaoEditSessionKeyV4 } from "./edit-session-v4.js";
 import { kakaoFlowStateKey } from "./guided-flow-state.js";
@@ -290,6 +290,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
   const leaseOptions = joinOnly ? {} : { releaseMode: "defer" };
   const rejected = (reason, text, extra = {}) => joinOnly ? { ok: false, skipped: true, reason, role: "", household: null, joinedNow: false, roomCreatedNow: false, firstNotice: "", text, ...extra } : kakaoText(text);
   let recordSaved = false;
+  let termsFirstUse = false; // V22.9.118: 이 요청이 처음 이 방 가계부에 들어갔(준비했)는지(약관 안내 표시·빠짐 이벤트)
   try {
     const observed = context.observed || await readKakaoGroupFirstSnapshot(env, groupKey, user.id);
     const userIds = [...new Set([String(user.id), ...(!observed.done && observed.marker ? [observed.marker.owner_id] : [])])].sort();
@@ -484,10 +485,12 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
           }
           if (!role) throw new Error("kakao_group_member_missing");
           if (!["owner", "admin", "member"].includes(role)) return rejected("role_blocked", roleBlockedMessage(role, household.name), { role });
+          // V22.9.118 P-3: 처음 이 방 가계부에 들어가는(첫 호출자로 준비한) 답에 약관 안내 한 줄 + 단추를 단다(skill-handler → kakaoTermsNoticeResponseV229118).
+          // 저장소 호출 없음. 독립 검토 P3: 표시는 성공이 정해진 뒤에만 켠다 — 참여만 하는 길(joinOnly)은 결과를 돌려주기 직전, 기록 길은 기록이 저장된 뒤(onSaved).
+          // 답 뒤에 들인 경우(설명서·빈 멘션)는 답이 이미 나갔으므로 아무것도 바꾸지 않는다.
+          termsFirstUse = !!firstNotice || joinedNow;
+          const markTermsNotice = () => { if (termsFirstUse && env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.termsNoticeV229118 = true; };
           if (firstNotice || joinedNow) {
-            // V22.9.118 P-3: 처음 이 방 가계부에 들어가는(첫 호출자로 준비한) 답에 약관 안내 한 줄 + 단추를 단다(skill-handler → kakaoTermsNoticeResponseV229118).
-            // 저장소 호출 없음. 답 뒤에 들인 경우(설명서·빈 멘션)는 답이 이미 나갔으므로 아무것도 바꾸지 않는다.
-            if (env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.termsNoticeV229118 = true;
             assertFresh();
             // V22.9.44: 참여 안내에 쓸 구성원 권한 조회와 첫 사용 표시 저장을 함께 돌린다.
             const [policy] = await Promise.all([
@@ -505,14 +508,21 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
             const prior = saveContext.members.find(row => String(row.user_id) === String(user.id));
             saveContext.members = prior ? saveContext.members.map(row => row === prior ? { ...row, role } : row) : [...saveContext.members, current];
           }
-          if (joinOnly) return { ok: true, skipped: false, reason: roomCreatedNow ? "created" : joinedNow ? "joined" : "already_member", role, household: { ...household, role, from_group_link: true, bot_group_key: groupKey }, joinedNow, roomCreatedNow, firstNotice };
-          return await saveKakaoParsedTransactionsReply(env, { ...saveContext, household: { ...household, role, from_group_link: true, bot_group_key: groupKey }, firstNotice: `${context.editSessionNotice || ""}${firstNotice}`, soleMember: roomCreatedNow, assertFresh, onSaved: async () => { recordSaved = true; } });
+          if (joinOnly) {
+            markTermsNotice();
+            return { ok: true, skipped: false, reason: roomCreatedNow ? "created" : joinedNow ? "joined" : "already_member", role, household: { ...household, role, from_group_link: true, bot_group_key: groupKey }, joinedNow, roomCreatedNow, firstNotice };
+          }
+          const saved = await saveKakaoParsedTransactionsReply(env, { ...saveContext, household: { ...household, role, from_group_link: true, bot_group_key: groupKey }, firstNotice: `${context.editSessionNotice || ""}${firstNotice}`, soleMember: roomCreatedNow, assertFresh, onSaved: async () => { recordSaved = true; markTermsNotice(); } });
+          // 방에 들어간(준비한) 뒤 기록 저장이 안 되면 이 답에도 안내가 없고, 다음 답은 첫 사용이 아니다 — 운영 이벤트 한 건만 남긴다.
+          if (termsFirstUse && !recordSaved) noteKakaoTermsNoticeDroppedV229118(env, "not_saved");
+          return saved;
         }, leaseOptions);
       }, leaseOptions);
     }, leaseOptions);
   } catch (err) {
     rememberOpsEvent({ kind: joinOnly ? "kakao_room_join_failed" : "kakao_group_first_record_failed", severity: joinOnly ? "warn" : "error", path: "/skill", method: "POST", detail: safeError(err) });
     if (joinOnly) return { ok: false, skipped: false, reason: "failed", role: "", household: null, joinedNow: false, roomCreatedNow: false, firstNotice: "", error: safeError(err) };
+    if (termsFirstUse && !recordSaved) noteKakaoTermsNoticeDroppedV229118(env, "not_saved");
     if (recordSaved) return kakaoText("공동 가계부에 기록 저장은 완료되었지만 결과 안내가 지연됐어요. ‘오늘기록’에서 확인해 주세요.");
     if (/kakao_group_identity_scope_changed/.test(safeError(err))) return kakaoText("계정 통합으로 사용자 정보가 바뀌어 이 요청의 기록은 어디에도 저장하지 않았어요. 봇을 다시 호출해 주세요.");
     if (isUncertainStorageWrite(err)) return kakaoText("공동 가계부 준비 결과를 아직 확정하지 못했어요. 이 요청의 거래 기록은 아직 보내지 않았어요. 같은 준비 요청을 반복하지 않고 고정된 가계부의 결과를 확인합니다. 잠시 후 ‘시작’으로 연결 상태를 확인해 주세요.");

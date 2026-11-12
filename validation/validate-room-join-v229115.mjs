@@ -116,10 +116,12 @@ async function roomFixture(task) {
   const guide = read("src/modules/public/guide-content.js");
   const bundle = read("src/index.js");
   ok(links.includes("async function joinKakaoRoomOnCallV229115(env, context = {}) {") && /export \{[^}]*\bjoinKakaoRoomOnCallV229115\b[^}]*\}/.test(links), "0 들이기 도우미가 있고 내보낸다");
-  ok(links.includes("const joinOnly = !!context.joinOnly;") && links.includes('if (joinOnly) return { ok: true, skipped: false, reason: roomCreatedNow ? "created" : joinedNow ? "joined" : "already_member", role,'), "0 기록 경로(tryKakaoGroupFirstRecord)가 joinOnly 로 저장 대신 결과 객체를 돌려준다(같은 잠금·표식·고정 ID)");
+  // V22.9.118 독립 검토 P3: joinOnly 는 결과를 돌려주기 직전에 약관 안내 표시를 켜려고 블록이 됐다(돌려주는 객체는 그대로).
+  ok(links.includes("const joinOnly = !!context.joinOnly;") && links.includes('if (joinOnly) {\n            markTermsNotice();\n            return { ok: true, skipped: false, reason: roomCreatedNow ? "created" : joinedNow ? "joined" : "already_member", role,'), "0 기록 경로(tryKakaoGroupFirstRecord)가 joinOnly 로 저장 대신 결과 객체를 돌려준다(같은 잠금·표식·고정 ID)");
   ok(links.includes('return rejected("retired",') && links.includes('return rejected("departed",') && links.includes('return rejected("role_blocked",') && links.includes('return rejected("household_missing",'), "0 해제된 방·나간 이력·조회 전용/이용 제한·가계부 없음은 joinOnly 에서도 거절(객체)이다");
   ok(skill.includes("const roomJoinEligible = skillConfigured && !!botGroupKey && trustedIdentity && getExplicitKakaoBotGroupKey(payload) === botGroupKey;"), "0 들이기 조건 = Secret 확인 + 명시된 botGroupKey(기록 경로와 같은 조건)");
-  ok(skill.includes('await deferRoomJoinOnCall("manual");') && skill.includes('await deferRoomJoinOnCall("mention");') && skill.includes('deferKakaoAfterReply(env, () => joinRoomOnCallSync({ source }), { cost: 26 })'), "0 설명서·빈 멘션은 답 뒤(deferKakaoAfterReply)에서 들인다");
+  // V22.9.118 독립 검토: 빈 멘션·설명서 첫 화면은 약관 안내를 늘 달고(noticeShown), 답 뒤에 처음 들인 다른 화면은 운영 이벤트를 남기려고 감쌌다(들이는 일·비용은 그대로).
+  ok(skill.includes('await deferRoomJoinOnCall("manual", { noticeShown: manualTopic === "home" });') && skill.includes('await deferRoomJoinOnCall("mention", { noticeShown: true });') && skill.includes('await deferKakaoAfterReply(env, async () => {\n      const joined = await joinRoomOnCallSync({ source });') && skill.includes('}, { cost: 26 });'), "0 설명서·빈 멘션은 답 뒤(deferKakaoAfterReply)에서 들인다");
   ok(skill.includes('joinRoomOnCallSync({ source: "link" })') && skill.includes('source: "start"') && skill.includes('source: "help"') && skill.includes('source: "command"'), "0 웹가계부·시작·도움말·그 밖의 명령은 그 자리에서 들인다");
   ok(skill.includes("response = await prependKakaoRoomJoinNoticeV229115(response, env);") && skill.includes("async function prependKakaoRoomJoinNoticeV229115(response, env) {"), "0 래퍼가 들인 사실을 답 맨 앞 한 줄로 끼운다");
   ok(builders.includes('function kakaoWebLedgerReply(origin = "", notice = "") {') && builders.includes('description: "전체 기록과 분석을 웹에서 크게 볼 수 있어요.\\n아래 버튼을 누르면 이 방 가계부가 열려요."'), "0 ‘웹가계부’ 카드는 글을 그대로 두고 앞에 한 줄만 더한다");
@@ -196,7 +198,8 @@ await roomFixture(async (fx) => {
   const manual = await say(fx, "사용설명서", { user: U.u4, room: ROOM });
   const u4 = userByKey(fx, U.u4);
   eq(roleOf(fx, u4?.id, household?.id), "member", "4 ‘사용설명서’ 를 부른 사람도 답 뒤에 구성원이 된다");
-  ok(manual.outputs[0]?.textCard?.title === "말해가계부 도움말" && manual.outputs.length === 1, "4 설명서 답은 예전 그대로(한 줄 없음, 답 뒤 처리)");
+  // V22.9.118 독립 검토 P2: 단톡방 설명서 첫 화면 답은 끝에 약관 안내 카드(한 줄 + 이용약관·개인정보처리방침 단추)를 늘 단다 — 설명서 카드와 참여 한 줄 없음은 그대로.
+  ok(manual.outputs[0]?.textCard?.title === "말해가계부 도움말" && manual.outputs.length === 2 && manual.outputs[1]?.textCard?.description === "말해가계부를 이용하면 이용약관에 동의한 것으로 봐요." && !manual.text.includes("참여했어요"), "4 설명서 답은 예전 그대로(한 줄 없음, 답 뒤 처리) + 끝에 약관 안내 카드");
   eq(manual.before, 0, "4 설명서 답 전에는 저장소를 부르지 않는다(답을 늦추지 않음)");
   ok(manual.total <= 40, `4 설명서 뒤 들이기 전체 호출 ${manual.total} ≤ 40`);
   fx.measure.manualDeferred = { before: manual.before, total: manual.total };
@@ -208,7 +211,8 @@ await roomFixture(async (fx) => {
   const mention = await say(fx, "", { user: U.u6, room: ROOM });
   eq(roleOf(fx, userByKey(fx, U.u6)?.id, household?.id), "member", "5 봇만 멘션한 사람도 답 뒤에 구성원이 된다");
   eq(mention.before, 0, "5 빈 멘션 답 전에는 저장소를 부르지 않는다");
-  ok(mention.outputs.length === 1 && mention.outputs[0]?.textCard, "5 빈 멘션 답은 예전 카드 그대로");
+  // V22.9.118(조정자 결정 2026-11-12): 단톡방 빈 멘션 답은 말풍선 하나 그대로 — 약관 안내 한 줄과 ‘이용약관’ 링크 단추는 인사 카드 안에 있다.
+  ok(mention.outputs.length === 1 && mention.outputs[0]?.textCard?.title === "안녕하세요 😊 말해가계부예요" && String(mention.outputs[0]?.textCard?.description || "").endsWith("\n이용하면 이용약관에 동의한 것으로 봐요."), "5 빈 멘션 답은 말풍선 하나(인사 카드 안에 약관 안내)");
 
   // 6. 조회 명령 → 들이고 그 명령을 그대로 처리(답 앞 한 줄)
   const summary = await say(fx, "이번 달 요약", { user: U.u7, room: ROOM });
