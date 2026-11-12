@@ -622,7 +622,8 @@ function renderMobileV81Html({ title, setupBand = "", month, households, selecte
   // V22.9.37 감사 D12: 이번 달은 지난달 같은 기간(1일~오늘)과 견준 값이므로 비교 대상을 "지난달 1~N일"로 적는다.
   // 홈 HTML 바이트 예산(35KiB)이 꽉 차 있어 괄호 설명 대신 문장 안에 넣는다.
   const deltaToday = formatDate(nowKstDate());
-  const prevLabel = month === deltaToday.slice(0, 7) ? `지난달 1~${Number(deltaToday.slice(8, 10))}일` : "지난달";
+  // V22.9.119 N-14: 지난달이 더 짧으면(3월 31일 → 2월) 견준 날은 지난달 말일까지라 ‘지난달 1~28일’ 이라고 적는다(예전 ‘지난달 1~31일’). 글자 수는 같다.
+  const prevLabel = month === deltaToday.slice(0, 7) ? `지난달 1~${Math.min(Number(deltaToday.slice(8, 10)), new Date(Number(month.slice(0, 4)), Number(month.slice(5, 7)) - 1, 0).getDate())}일` : "지난달";
   // V22.9.76: 지난 기간 지출 기록이 없으면 0원과 견주지 않는다(생활비 리포트의 "기록이 없어 비교하지 않아요"와 같은 말).
   // 첫 달 사용자는 늘 "지난달 1~N일보다 (이번 달 지출 전부)원 더 썼어요"를 봤다.
   const noPreviousExpense = !!prevStats && previousExpense === 0 && Number(stats.totals.expense || 0) > 0;

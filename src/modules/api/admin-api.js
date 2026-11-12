@@ -1,4 +1,5 @@
 // @build:imports-start
+import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { appName } from "../public/site-config.js";
 import { constantTimeTextEqual, jsonResponse } from "../runtime/http.js";
 import { verifyAdminSession } from "../auth/crypto-admin-session.js";
@@ -10,6 +11,8 @@ import { fetchHouseholdMembers } from "../data/households-members-rows.js";
 import { refundLinkLockedReason } from "../domain/refund-links.js";
 import { bulkUpdateSkippingRefundLocks } from "../features/settlement-refund-links.js";
 import { activeSpenderExists } from "../my/transactions.js";
+import { formatMessageText } from "../kakao/reply-texts.js";
+import { isKakaoRequestUniqueConflictV229119 } from "../kakao/response-builders.js";
 import { supabase } from "../data/supabase-client.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import {
@@ -18,6 +21,15 @@ import {
 } from "../domain/transactions-core.js";
 import { parseStrictAmount } from "../domain/strict-input.js";
 // @build:imports-end
+
+// V22.9.119 O-1 후속 2(재검토 P3): 카카오 기록의 날짜·금액·구분을 바꿔 같은 날·같은 문장·같은 금액의 내 카카오 기록이 둘이 되면 운영 유니크 인덱스
+// (transactions_kakao_request_unique_idx)가 거절한다(일괄 수정 함수는 한 트랜잭션이라 아무것도 바뀌지 않는다). 예전에는 처리하지 못한 오류(500 ‘잠시 후
+// 다시 시도해 주세요’)로 나갔다 — 다시 해도 같으므로 웹 수정(/my/update)과 같은 코드·문장(record_same_kakao_text)의 409 로 답한다. 다른 오류는 그대로 던진다.
+function adminApiSameKakaoTextV229119(err, detail = "") {
+  if (!isKakaoRequestUniqueConflictV229119(err)) return null;
+  rememberOpsEvent({ kind: "transaction_update_failed", severity: "warn", path: "/api/transactions", method: "PATCH", detail: `record_same_kakao_text:${detail}` });
+  return jsonResponse({ ok: false, error: "record_same_kakao_text", reason: "record_same_kakao_text", message: formatMessageText("record_same_kakao_text") }, 409);
+}
 
 async function handleApi(request, env, url) {
   if (!isAdmin(request, env) && !(await verifyAdminSession(request, env))) {
@@ -76,7 +88,7 @@ async function handleApi(request, env, url) {
       outcome = await bulkUpdateSkippingRefundLocks(env, ids, householdIds[0], patch, { actorKind: "admin_api_bulk" });
     } catch (err) {
       const reason = refundLinkLockedReason(err);
-      if (!reason) throw err;
+      if (!reason) { const same = adminApiSameKakaoTextV229119(err, "batch"); if (same) return same; throw err; }
       return jsonResponse({ ok: false, error: "refund_link_locked", reason, message: "환불과 연결된 기록이 있어 아무것도 바꾸지 않았습니다. 연결은 정산 화면의 ‘환불·환급’에서 먼저 풀어 주세요.", ...(err.refundLinkSkipped ? { skipped: err.refundLinkSkipped } : {}) }, 409);
     }
     if (outcome.skipped.length) {
@@ -105,7 +117,7 @@ async function handleApi(request, env, url) {
     } catch (err) {
       // V22.9.80 T-12: 환불 연결 보호 트리거가 막은 수정은 일반 오류(500)가 아니라 이유와 함께 409 로 답한다.
       const reason = refundLinkLockedReason(err);
-      if (!reason) throw err;
+      if (!reason) { const same = adminApiSameKakaoTextV229119(err, "single"); if (same) return same; throw err; }
       return jsonResponse({ ok: false, error: "refund_link_locked", reason, message: "환불과 연결된 기록이라 이 변경은 저장하지 않았습니다. 정산 화면의 ‘환불·환급’에서 연결을 먼저 풀어 주세요." }, 409);
     }
     return jsonResponse({ ok: true, item: updated });

@@ -553,9 +553,12 @@ async function getStats(env, householdId, month) {
   return calculateStats(rows);
 }
 
+// V22.9.119 N-5: 카카오 ‘얼마 썼어’ 요약(이번 달)은 홈과 같은 등록액이다. 오늘 뒤 날짜로 미리 적은 금액(ahead)을 함께 돌려줘 답에 ‘(오늘 뒤 날짜 N원 포함)’ 을 붙인다.
 async function getMonthSummary(env, householdId, month) {
   const rows = await fetchMonthRows(env, householdId, month);
-  return calculateStats(rows);
+  const today = formatDate(nowKstDate());
+  const aheadRows = month === today.slice(0, 7) ? (rows || []).filter((r) => String(r.transaction_date || "") > today) : [];
+  return { ...calculateStats(rows), ahead: { expense: aheadRows.filter((r) => r.type !== "income").reduce((s, r) => s + Number(r.amount || 0), 0), income: aheadRows.filter((r) => r.type === "income").reduce((s, r) => s + Number(r.amount || 0), 0) } };
 }
 
 async function fetchMonthRows(env, householdId, month) {
@@ -631,11 +634,15 @@ function formatSummary(summary, month) {
     .map((c, i) => `${i + 1}. ${c.category}: ${numberWithCommas(c.expense)}원`)
     .join("\n");
 
+  // V22.9.119 N-5: 오늘 뒤 날짜로 미리 적은 금액이 있으면(getMonthSummary 의 ahead) 그 줄에 ‘(오늘 뒤 날짜 N원 포함)’ 을 붙인다.
+  const aheadExpense = Number(summary.ahead?.expense || 0);
+  const aheadIncome = Number(summary.ahead?.income || 0);
+  const expenseNotes = [aheadExpense ? `오늘 뒤 날짜 ${numberWithCommas(aheadExpense)}원 포함` : "", Number(summary.refund?.applied || 0) > 0 ? `환불 차감 ${numberWithCommas(summary.refund.applied)}원 반영` : ""].filter(Boolean);
   return [
     `📊 ${month} 요약`,
-    `수입: ${numberWithCommas(summary.totals.income)}원`,
+    `수입: ${numberWithCommas(summary.totals.income)}원${aheadIncome ? ` (오늘 뒤 날짜 ${numberWithCommas(aheadIncome)}원 포함)` : ""}`,
     // V22.9.80 V76 M-7: 연결한 환불을 뺀 요약(refundAdjustedStats)이면 지출 줄에 반영한 금액을 적는다.
-    `지출: ${numberWithCommas(summary.totals.expense)}원${Number(summary.refund?.applied || 0) > 0 ? ` (환불 차감 ${numberWithCommas(summary.refund.applied)}원 반영)` : ""}`,
+    `지출: ${numberWithCommas(summary.totals.expense)}원${expenseNotes.length ? ` (${expenseNotes.join(" · ")})` : ""}`,
     `잔액: ${numberWithCommas(summary.totals.balance)}원`,
     topExpenses ? "\n상위 지출:" : "",
     topExpenses,

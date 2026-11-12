@@ -17,6 +17,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import app from "../src/index.js";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
+import { withClock } from "./lib-audit-v22934.mjs";
 
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
@@ -192,7 +193,9 @@ try {
   eq(missing.text.includes('<details class="txFilterMore" open>'), true, "조건이 걸리면 상세 폼이 펼쳐진다");
 
   // --- 7.5 예산 화면 --------------------------------------------------------
-  const budget = await call(fixture, `/budgets?${q}`, fixture.cookie);
+  // V22.9.119 N-13: P0 이름은 그릴 때의 오늘 기준이다(보는 달이 오늘의 달이면 ‘이번 달 남은 예산’, 아니면 ‘7월 남은 예산’). 시계를 보는 달(2026-07) 안으로
+  // 고정해 그리므로 라벨 하나만 단언한다(남은 예산 계산은 오늘과 무관하다).
+  const budget = await withClock(`${month}-15`, () => call(fixture, `/budgets?${q}`, fixture.cookie));
   eq(budget.status, 200, "예산 화면이 열린다");
   const p0 = (budget.text.match(/<section class="budgetP0"[\s\S]*?<\/section>/) || [""])[0];
   ok(p0.length > 0, "예산 화면에 P0 가 있다");

@@ -286,11 +286,38 @@ async function opsUsageWithCronV22994(request, env) {
   return jsonResponse({ ...body, cron }, response.status);
 }
 
+// V22.9.119 O-3·O-5: 요청 한 번(DB_CALL_BUDGET)·예약 실행 한 번(CRON_DB_CALL_BUDGET)의 저장소 호출 예산. 변수가 없거나 50~900 의 정수가 아니면
+// 50 이다(지금까지의 고정값 = Workers Free 의 한 실행 하위 요청 한도). boundedRuntimeNumber 만 쓰면 범위 밖 값이 끝값(5000 → 900, 10 → 50)으로
+// 당겨지는데, 잘못 넣은 값이 큰 예산이 되지 않게 범위 밖은 기본값 50 으로 둔다. Workers Paid 로 바꾼 뒤에만 올린다(Free 에서 50 을 넘기면 하위
+// 요청이 플랫폼 한도에서 실패한다). 50 이 아니면 __AB_DB_BUDGET_BASE_V229119 에 예산을 적어 예약 실행 단계의 한 실행 상한이 같은 비율로 커진다.
+// 후속(독립 검토 D): 변수가 있는데 잘못된 값(범위 밖·정수 아님)이면 50 으로 두되 조용히 넘어가지 않고 운영 이벤트 db_call_budget_invalid(warn)를
+// 격리 공간마다 변수·값 한 쌍에 한 번 남긴다(감사 보존 일수 audit_retention_days_invalid 와 같은 방식, 값은 40자까지). 없거나 빈 글자는 기본값이라 알리지 않는다.
+const DB_CALL_BUDGET_DEFAULT_V229119 = 50;
+const DB_CALL_BUDGET_MAX_V229119 = 900;
+const DB_CALL_BUDGET_INVALID_SEEN_V229119 = new Set();
+function dbCallBudgetV229119(value, name = "DB_CALL_BUDGET") {
+  const raw = value === undefined || value === null ? "" : String(value).trim();
+  if (!raw) return DB_CALL_BUDGET_DEFAULT_V229119;
+  const parsed = /^\d{1,4}$/.test(raw) ? Number(raw) : NaN;
+  if (parsed >= DB_CALL_BUDGET_DEFAULT_V229119 && parsed <= DB_CALL_BUDGET_MAX_V229119) return parsed;
+  const seen = `${name}=${raw.slice(0, 40)}`;
+  if (!DB_CALL_BUDGET_INVALID_SEEN_V229119.has(seen)) {
+    DB_CALL_BUDGET_INVALID_SEEN_V229119.add(seen);
+    rememberOpsEvent({ kind: "db_call_budget_invalid", severity: "warn", path: "/config", method: name === "CRON_DB_CALL_BUDGET" ? "SCHEDULED" : "FETCH", detail: `${seen} default:${DB_CALL_BUDGET_DEFAULT_V229119}` });
+  }
+  return DB_CALL_BUDGET_DEFAULT_V229119;
+}
+
+function dbCallBudgetBaseV229119(budget) {
+  return budget === DB_CALL_BUDGET_DEFAULT_V229119 ? {} : { __AB_DB_BUDGET_BASE_V229119: budget };
+}
+
 const ACCOUNTBOOK_WORKER = {
   async fetch(request, env, ctx) {
     scrubPrototypePollution("fetch:start");
     const monitoring = abMonitorRequestContext(request, env);
-    const requestEnv = { ...env, ...(monitoring ? { __AB_MONITOR_REQUEST: monitoring } : {}), __AB_REQUEST_USER_ROWS: new Map(), __AB_IDENTITY_CONFIRMED: new Map(), __AB_MEMBER_POLICY: new Map(), __AB_DB_BUDGET: {used: 0, limit: 50} };
+    const requestDbBudget = dbCallBudgetV229119(env?.DB_CALL_BUDGET, "DB_CALL_BUDGET");
+    const requestEnv = { ...env, ...(monitoring ? { __AB_MONITOR_REQUEST: monitoring } : {}), __AB_REQUEST_USER_ROWS: new Map(), __AB_IDENTITY_CONFIRMED: new Map(), __AB_MEMBER_POLICY: new Map(), __AB_DB_BUDGET: {used: 0, limit: requestDbBudget}, ...dbCallBudgetBaseV229119(requestDbBudget) };
     if (new URL(request.url).pathname === "/skill") requestEnv.__AB_KAKAO_REQUEST = { settings: new Map(), afterReply: [], messageLeases: [], createdUsers: new Set(), enabled: false };
     const routed = rememberedHouseholdRequest(request);
     try {
@@ -1554,11 +1581,14 @@ const ACCOUNTBOOK_WORKER = {
     scrubPrototypePollution("scheduled:start");
     // V22.9.78 N-18: 실행 요약 기록(읽기·저장 SCHEDULED_RUN_LOG_CALLS 회) 몫을 남겨 두고 세 단계를 돈다. 기록은 마지막에 50회 한도로 쓴다.
     // V22.9.95 R-12: 감사 기록 정리 몫(AUDIT_RETENTION_CALLS_V22995)도 처음부터 떼어 두었다가 정리 단계에서 푼다(리포트 단계가 다 쓰지 않게).
-    env = { ...env, __AB_DB_BUDGET: { used: 0, limit: 50 - SCHEDULED_RUN_LOG_CALLS - AUDIT_RETENTION_CALLS_V22995 } };
+    // V22.9.119 O-3: 한 실행 예산은 CRON_DB_CALL_BUDGET(없거나 범위 밖이면 50 = 지금 그대로). 떼어 두는 몫·푸는 순서는 같다.
+    const cronBudget = dbCallBudgetV229119(env?.CRON_DB_CALL_BUDGET, "CRON_DB_CALL_BUDGET");
+    env = { ...env, __AB_DB_BUDGET: { used: 0, limit: cronBudget - SCHEDULED_RUN_LOG_CALLS - AUDIT_RETENTION_CALLS_V22995 }, ...dbCallBudgetBaseV229119(cronBudget) };
     ctx.waitUntil((async () => {
       // V22.9.26: 세 단계를 각각 격리한다. 예전에는 정기지출 단계(가계부 목록 조회)가 던지면
       // 자동 리포트와 NLU 보존 정리가 통째로 건너뛰었다. 오류는 모두 실행한 뒤 다시 던진다.
-      const run = { started_at: new Date(qaFixedNowMs()).toISOString(), errors: [] };
+      // V22.9.119 O-3 후속 2(재검토 P3): 이 실행이 쓴 DB 호출 상한을 실행 기록에 남긴다(db_budget) — 변수를 넣은 다음 날 기록에서 값이 먹었는지 본다.
+      const run = { started_at: new Date(qaFixedNowMs()).toISOString(), db_budget: cronBudget, errors: [] };
       let firstError = null;
       try {
         const recurringResult = await runRecurringAutoApply(env);
@@ -1586,14 +1616,14 @@ const ACCOUNTBOOK_WORKER = {
         rememberOpsEvent({ kind: "nlu_retention_error", severity: "warn", path: "/cron/nlu-retention", method: "SCHEDULED", detail: safeError(nluErr) });
       }
       // V22.9.95 R-12: 같은 정리 단계에서 오래된 거래 변경 감사 기록을 지운다. 떼어 둔 몫을 풀고 부른다. 던지지 않고, 실패는 정리 오류(partial)다.
-      env.__AB_DB_BUDGET.limit = 50 - SCHEDULED_RUN_LOG_CALLS;
+      env.__AB_DB_BUDGET.limit = cronBudget - SCHEDULED_RUN_LOG_CALLS;
       const auditCleanup = await cleanupTransactionAuditRetentionV22995(env);
       run.cleanup = mergeScheduledCleanupV22995(run.cleanup, auditCleanup);
       if (auditCleanup.error) run.errors.push(`cleanup:${auditCleanup.error}`);
       rememberOpsEvent({ kind: "scheduled", severity: "info", path: "/cron/recurring/apply", method: "SCHEDULED", detail: firstError ? "recurring auto apply + free reports + nlu retention completed with errors" : "recurring auto apply + free reports + nlu retention completed" });
       // N-18: 아래에서 던질 실행은 error, 단계 하나라도 덜 끝났거나 정리가 실패하면 partial. 기록 저장은 실패해도 던지지 않는다.
       run.status = firstError ? "error" : (run.recurring?.ok === false || run.reports?.ok === false || run.cleanup?.error) ? "partial" : "ok";
-      env.__AB_DB_BUDGET.limit = 50;
+      env.__AB_DB_BUDGET.limit = cronBudget;
       await recordScheduledRun(env, run);
       // V22.9.37(관제): 가계부 5개·구독 2개 단위의 부분 처리(partial)는 정상 동작이라 던지지 않는다(매일 "실패"로 보이던 소음).
       // 내부에서 잡아 failed 로 집계한 저장소 오류와 실제 예외는 Workers Logs 에 남기고 다시 던진다.

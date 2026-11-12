@@ -17,7 +17,10 @@ import {
   canChangeMyHouseholdRecords, canManageMyHousehold, canWriteMyHousehold,
   memberRecordOnlyRefusalText, myReturnLocation,
 } from "../my/access-control.js";
-import { isUncertainStorageWrite, kakaoNextStepReply, kakaoText } from "./response-builders.js";
+import {
+  isKakaoRequestUniqueConflictV229119, isUncertainStorageWrite, kakaoEditSameTextTextV229119,
+  kakaoNextStepReply, kakaoText,
+} from "./response-builders.js";
 import { KAKAO_EDIT_AMOUNT_V4 } from "./edit-vocabulary.js";
 import {
   KAKAO_AUDIT_ACTOR_KIND, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq,
@@ -336,6 +339,12 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     // T2: 결과를 모르면 다시 보내라고 하지 않는다. 날짜 수정은 번호를 옮겨, 다시 보내면 다른 기록이 바뀐다.
     if (isUncertainStorageWrite(err)) {
       return { reply: `수정 결과를 확인하지 못했어요.\n같은 명령을 다시 보내기 전에 ‘${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기’로 바뀌었는지 먼저 확인해 주세요.`, nextSession: null };
+    }
+    // V22.9.119 O-1: 날짜·금액·구분을 바꾸면 그 날짜에 같은 문장·같은 금액의 내 카카오 기록이 둘이 되어 운영 DB 의 유니크 인덱스가 거절했다
+    // (‘수정 01번 날짜 어제’ 처럼 전날 같은 문장이 있을 때). 기록은 그대로이고 다시 보내도 같으므로 ‘잠시 후 다시’ 라고 하지 않는다.
+    if (isKakaoRequestUniqueConflictV229119(err)) {
+      rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: `edit:${field}` });
+      return { reply: kakaoEditSameTextTextV229119(session.entryNo, row, patch), nextSession: null };
     }
     // V22.9.80 T-12: 환불과 연결된 기록은 연결 보호 트리거가 막는다. 다시 보내도 같으므로 이유와 풀 곳을 알린다.
     const lockedReason = refundLinkLockedReason(err);
@@ -737,6 +746,17 @@ async function handleKakaoEditCommandV4(env, ctx) {
             // T4: 결과를 모르거나 같은 id 가 이미 있으면 다시 넣지 않고 id 로 확인한다. id 를 뺀 재삽입은 중복을 만든다.
             if (!body.id || (!isUncertainStorageWrite(err) && !isUniqueConstraintError(err))) return { kind: "failed", undo, error: err };
             restored = await getKakaoRowById(env, targetHouseholdId, user.id, kakaoUserKey, body.id);
+            // V22.9.119 O-1 후속(독립 검토 B): 같은 id 가 아니라 같은 날·같은 문장·같은 금액의 다른 내 카카오 기록 때문에 운영 유니크 인덱스가 거절했다.
+            // 다시 보내도 같으므로 ‘잠시 후 다시’ 가 아니라 그 사실을 답한다(복구 목록은 그대로 둔다).
+            // 후속 2(재검토 P3): 이 기록이 목록에 남아 번호 없는 ‘복구’ 는 늘 이 기록을 고른다. 번호를 붙이면 다른 기록이 골라지는 번호(위 고르기 규칙으로
+            // 그 번호의 첫 기록이 이 가계부의 다른 기록인 것, 최대 셋)를 답에 알린다. 같은 번호의 앞 기록이 이 기록이면 그 번호는 알리지 않는다.
+            if (!restored && isKakaoRequestUniqueConflictV229119(err)) {
+              const seqs = [...new Set(items.map((item) => Number(item?.seq || 0)).filter((seq) => seq >= 1))].filter((seq) => {
+                const pick = items.filter((item) => Number(item?.seq || 0) === seq).find(ownHousehold);
+                return !!pick && pick !== undo;
+              });
+              return { kind: "same_text_exists", undo, error: err, otherSeqs: seqs.slice(0, 3) };
+            }
             if (!restored) return { kind: "failed", undo, error: err };
           }
         }
@@ -759,6 +779,16 @@ async function handleKakaoEditCommandV4(env, ctx) {
       const ownHint = outcome.ownSeq ? `\n지금 가계부에서 지운 기록은 ‘복구 ${twoDigitSeq(outcome.ownSeq)}번’으로 되살릴 수 있어요.` : "";
       // V22.9.81 U-13: 번호 없이 지운 기록(번호를 몰랐던 ‘방금 삭제’)은 ‘복구 00번’이 아니라 ‘복구’로 안내한다.
       return kakaoText(`이 기록은 ‘${outcome.undo.household_name || "다른 가계부"}’에서 지웠어요. 지금 가계부(‘${household.name || "가계부"}’)에는 되살리지 않았어요.\n그 가계부에서 다시 ‘${Number(outcome.undo.seq || 0) >= 1 ? `복구 ${twoDigitSeq(Number(outcome.undo.seq))}번` : "복구"}’을 보내 주세요.${ownHint}`);
+    }
+    if (outcome.kind === "same_text_exists") {
+      rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: "restore" });
+      const otherSeqs = Array.isArray(outcome.otherSeqs) ? outcome.otherSeqs : [];
+      return kakaoText([
+        "같은 내용의 기록이 이미 있어 복구하지 않았어요.",
+        `복구하려던 기록: ${kakaoRowLabel(outcome.undo.row, outcome.undo.seq)}`,
+        `‘${kakaoEditDayPrefixV4(outcome.undo.row?.transaction_date) || "오늘 "}기록 보기’로 같은 내용의 기록을 확인해 주세요.`,
+        ...(otherSeqs.length ? [`이 기록은 복구 목록에 남아 있어요. 다른 삭제 기록은 ${otherSeqs.map((seq) => `‘복구 ${twoDigitSeq(seq)}번’`).join("·")}으로 되살릴 수 있어요.`] : []),
+      ].join("\n"));
     }
     if (outcome.kind !== "restored") {
       const lastError = outcome.error;

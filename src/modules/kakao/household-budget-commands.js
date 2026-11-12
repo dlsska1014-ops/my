@@ -34,7 +34,7 @@ import { normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
 import {
   addDays, currentMonthKst, formatDate, nowKstDate, validMonth,
 } from "../nlu/date-payment.js";
-import { numberWithCommas } from "../domain/transactions-core.js";
+import { nextMonthStart, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
 
 // -----------------------------------------------------------------------------
@@ -652,8 +652,19 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
     // 일부 기록만으로 합계를 말하지 않는다(QA B05).
     return { empty: false, text: "이 기간에는 기록이 너무 많아 합계를 정확히 계산하지 못했어요. 기간을 줄여(예: 이번주, 9월) 다시 물어봐 주세요." };
   }
+  // V22.9.119 N-5: ‘이번 주’ 요약(‘이번 주 얼마 썼어’ 포함)은 웹 주간 숫자(종합 리포트 주간 리포트·홈)처럼 월요일~오늘만 더한다. 오늘 뒤 날짜로 미리 적은 기록은 빼고
+  //   한 줄로 알린다(예전에는 일요일까지 더해 웹 46,000원 ↔ 카카오 166,000원). ‘이번 달’(이번 달을 가리키는 ‘N월 요약’ 포함)은 홈과 같은 등록액 그대로 두고
+  //   오늘 뒤 날짜 금액이 있으면 지출·수입 줄에 ‘(오늘 뒤 날짜 N원 포함)’ 을 붙인다. 지난 주·지난달 같은 끝난 기간은 그대로다.
+  const todayYmd = formatDate(nowKstDate());
+  const weekToDate = range.label === "이번 주";
+  const wholeThisMonth = range.start === `${todayYmd.slice(0, 7)}-01` && range.end === nextMonthStart(todayYmd.slice(0, 7));
+  const aheadRows = weekToDate || wholeThisMonth ? rows.filter((r) => String(r.transaction_date || "") > todayYmd) : [];
+  const aheadExpense = aheadRows.filter((r) => r.type !== "income").reduce((a, r) => a + Number(r.amount || 0), 0);
+  const aheadIncome = aheadRows.filter((r) => r.type === "income").reduce((a, r) => a + Number(r.amount || 0), 0);
+  const cutLine = weekToDate && (aheadExpense || aheadIncome) ? `오늘 뒤 날짜 ${[aheadExpense ? `지출 ${numberWithCommas(aheadExpense)}원` : "", aheadIncome ? `수입 ${numberWithCommas(aheadIncome)}원` : ""].filter(Boolean).join("·")}은 뺐어요.` : "";
+  if (weekToDate) rows = rows.filter((r) => String(r.transaction_date || "") <= todayYmd);
   if (!rows.length) {
-    return { empty: true, text: [`📊 ${range.label} 요약`, `가계부: ${household.name || "가계부"}`, "", `아직 ${range.label} 기록이 없어요.`, "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n") };
+    return { empty: true, text: [`📊 ${range.label} 요약`, `가계부: ${household.name || "가계부"}`, "", `아직 ${range.label} 기록이 없어요.`, ...(cutLine ? [cutLine] : []), "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n") };
   }
   // V22.9.76: 이번 달 요약에는 다가오는 정기 수입·지출(최대 3건)을 붙인다. 요약 요청은 이 함수가 먼저 받아서
   //   skill-handler 의 정기 알림 줄(kakaoReserveAlert)에 닿지 못했다 — 카카오에서는 정기 알림이 한 번도 나가지 않았다.
@@ -664,7 +675,10 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
     range.label === "이번 달" ? kakaoReserveAlert(env, household.id) : "",
     loadRefundDeductions(env, { householdId: household.id, start: range.start, end: range.end }),
   ]);
-  const refundEntries = safeArray(refund.entries);
+  // V22.9.119 N-5: 오늘까지로 자른 ‘이번 주’ 는 차감도 환급 날짜가 오늘까지인 것만 둔다(오늘 뒤 날짜로 미리 적은 환급의 차감은 뺀다). 차감은 원지출이 아니라
+  //   환급 날짜 기준이고(생활비 리포트 주간과 같은 규칙), 원지출은 환급 날짜보다 늦을 수 없다(refund_link_date_order·DB 트리거). 종합 리포트 ‘주간 리포트’
+  //   (buildWeeklyReport)는 환불을 빼지 않으므로 연결한 환불이 있는 주에는 이 금액과 다르다.
+  const refundEntries = safeArray(refund.entries).filter((entry) => !weekToDate || !entry?.transaction_date || String(entry.transaction_date) <= todayYmd);
   const incomes = rows.filter((r) => r.type === "income");
   const grossIncome = incomes.reduce((a, r) => a + Number(r.amount || 0), 0);
   const expenses = rows.filter((r) => r.type !== "income");
@@ -702,13 +716,15 @@ async function kakaoDateSummaryParts(env, household = {}, user = {}, range = nul
   const refundNote = refundDeductionNote(refundApplied, { failed: !!refund.failed });
   const refundLines = refund.failed ? ["환불 차감은 확인하지 못해 기록 그대로예요."]
     : refundApplied.surplus > 0 ? [`연결한 환불 ${numberWithCommas(refundApplied.surplus)}원은 이 기간 지출보다 많아 수입으로 남겼어요.`] : [];
+  const expenseNotes = [wholeThisMonth && aheadExpense ? `오늘 뒤 날짜 ${numberWithCommas(aheadExpense)}원 포함` : "", refundNote && !refund.failed ? refundNote : ""].filter(Boolean);
   const cta = await maybeKakaoCta(env, user.id, household.id, origin, "analysis", `${origin}/my/analysis?household_id=${encodeURIComponent(household.id)}&month=${encodeURIComponent(range.month)}`);
   return { empty: false, text: [
     `📊 ${range.label} 요약`,
     `가계부: ${household.name || "가계부"}`,
     "",
-    `지출: ${numberWithCommas(expense)}원 · ${expenses.length}건${refundNote && !refund.failed ? ` (${refundNote})` : ""}`,
-    `수입: ${numberWithCommas(income)}원${incomeFocus ? ` · ${incomes.length}건` : ""}`,
+    `지출: ${numberWithCommas(expense)}원 · ${expenses.length}건${expenseNotes.length ? ` (${expenseNotes.join(" · ")})` : ""}`,
+    `수입: ${numberWithCommas(income)}원${incomeFocus ? ` · ${incomes.length}건` : ""}${wholeThisMonth && aheadIncome ? ` (오늘 뒤 날짜 ${numberWithCommas(aheadIncome)}원 포함)` : ""}`,
+    ...(cutLine ? [cutLine] : []),
     ...refundLines,
     incomeCategories.length ? "수입 분류" : "", ...incomeCategories,
     incomeFocus && !incomes.length ? `아직 ${range.label} 수입 기록이 없어요.` : "",

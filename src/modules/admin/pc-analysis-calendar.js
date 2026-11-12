@@ -20,7 +20,7 @@ import {
 import {
   budgetCenterSummary, budgetSummary, fetchBudgets, fetchRecurringStrict,
 } from "../domain/budgets.js";
-import { spendingOutlookCaption } from "../domain/spending-outlook.js";
+import { isRecurringSourceRow, spendingOutlookCaption } from "../domain/spending-outlook.js";
 import { addQueryToUrl } from "../auth/local-login-pages.js";
 import {
   addMonthsYm, calculateDashboardAnalysis, calculateExtendedAnalytics, consumptionSignalLabel,
@@ -243,9 +243,12 @@ function findAnomalousExpenses(rows = [], historyRows = [], month = currentMonth
   }).filter(Boolean).sort((a, b) => Number(b.amount) - Number(a.amount)).slice(0, 3);
 }
 
-function renderAnomalyList(items = []) {
-  if (!items.length) return `<p class="muted">평소 흐름에서 크게 벗어난 지출이 없습니다. 안정적인 소비 흐름이에요.</p>`;
-  return `<ul class="insightList">${items.map((r) => `<li><b>${escapeHtml(r.memo || r.raw_text || r.category || "지출")}</b><span>${escapeHtml(String(r.transaction_date || ""))} · ${escapeHtml(r.category || "미분류")}${r.avg && r.vsAvg >= 3 ? ` · 평소 ${numberWithCommas(r.avg)}원의 ${r.vsAvg}배` : ` · 이번 달 지출의 ${r.share}%`}</span><strong>${numberWithCommas(r.amount)}원</strong></li>`).join("")}</ul>`;
+// V22.9.119 종합 리포트는 { monthLabel, noExpense, noOwn } 를 넘긴다 — N-13 지난 달을 보면 ‘이번 달 지출의 N%’ 대신 ‘10월 지출의 N%’,
+// N-9 그 달 지출 기록이 하나도 없거나 견준 기간에 직접 적은 기록이 없으면(정기 자동 기록만) 빈 목록을 ‘안정적인 소비 흐름이에요’ 라고 판정하지 않는다.
+// 넘기지 않는 화면(관리자 PC 분석·스마트 도구)은 예전 그대로다.
+function renderAnomalyList(items = [], { monthLabel = "이번 달", noExpense = false, noOwn = false } = {}) {
+  if (!items.length) return noExpense ? `<p class="muted">${escapeHtml(monthLabel)} 지출 기록이 없어요.</p>` : noOwn ? `<p class="muted">직접 적은 기록이 없어 판정하지 않아요.</p>` : `<p class="muted">평소 흐름에서 크게 벗어난 지출이 없습니다. 안정적인 소비 흐름이에요.</p>`;
+  return `<ul class="insightList">${items.map((r) => `<li><b>${escapeHtml(r.memo || r.raw_text || r.category || "지출")}</b><span>${escapeHtml(String(r.transaction_date || ""))} · ${escapeHtml(r.category || "미분류")}${r.avg && r.vsAvg >= 3 ? ` · 평소 ${numberWithCommas(r.avg)}원의 ${r.vsAvg}배` : ` · ${escapeHtml(monthLabel)} 지출의 ${r.share}%`}</span><strong>${numberWithCommas(r.amount)}원</strong></li>`).join("")}</ul>`;
 }
 
 function buildWeeklyReport(historyRows = [], month = currentMonthKst()) {
@@ -276,7 +279,10 @@ function buildWeeklyReport(historyRows = [], month = currentMonthKst()) {
     if (inRange(d, lastWeekStart, lastWeekEnd)) lastWeekTotal += amount;
   }
   const topEntry = Object.entries(catMap).sort((a, b) => b[1] - a[1])[0] || null;
+  // V22.9.119 N-9: 이번 주(월요일~오늘)에 직접 적은 기록(정기 자동 기록 제외, 수입 포함)이 있는가 — 생활비 리포트의 비교 가드와 같은 판정이다.
+  const ownRecorded = safeArray(historyRows).some((r) => inRange(String(r.transaction_date || ""), thisWeekStart, todayStr) && !isRecurringSourceRow(r));
   return {
+    ownRecorded,
     thisWeekStart,
     todayStr,
     lastWeekStart,
@@ -308,10 +314,13 @@ function renderWeeklyReportCard(weekly) {
     : "이번 주(월요일~오늘) 지출을 지난주 같은 시점까지의 지출과 비교합니다.";
   // V22.9.79 감사 V44 D-13: 지난주 같은 시점이 0원이면 +100% 를 지어내지 않는다(비교 기록 없음, 빠르다·아낀다 판단도 하지 않음).
   const compared = Number(weekly.lastWeekToPoint || 0) > 0;
-  const cls = !compared ? "deltaFlat" : weekly.rate > 10 ? "deltaUp" : weekly.rate < -10 ? "deltaDown" : "deltaFlat";
-  const message = !compared ? (Number(weekly.thisWeek || 0) ? "지난주 같은 시점까지 지출 기록이 없어 속도를 비교하지 않아요." : "지난주와 비슷한 속도로 쓰고 있어요.") : weekly.rate > 10 ? "지난주보다 소비 속도가 빨라요. 남은 요일을 조금 아껴보세요." : weekly.rate < -10 ? "지난주보다 잘 아끼고 있어요. 이 흐름을 유지해보세요." : "지난주와 비슷한 속도로 쓰고 있어요.";
+  // V22.9.119 N-9: 이번 주에 직접 적은 기록이 없으면(기록 0건·정기 자동 기록만) 증감률과 ‘잘 아끼고 있어요’·‘비슷한 속도’ 판정을 내지 않는다.
+  // 이 카드를 쓰는 두 화면(종합 리포트·관리자 PC 분석) 모두 일부러 같은 규칙이다 — 같은 이번 주 값에 화면마다 다른 판정을 내지 않는다.
+  const noOwn = weekly.ownRecorded === false;
+  const cls = noOwn || !compared ? "deltaFlat" : weekly.rate > 10 ? "deltaUp" : weekly.rate < -10 ? "deltaDown" : "deltaFlat";
+  const message = noOwn ? "이번 주에 직접 적은 기록이 없어 지난주와 비교하지 않아요." : !compared ? (Number(weekly.thisWeek || 0) ? "지난주 같은 시점까지 지출 기록이 없어 속도를 비교하지 않아요." : "지난주와 비슷한 속도로 쓰고 있어요.") : weekly.rate > 10 ? "지난주보다 소비 속도가 빨라요. 남은 요일을 조금 아껴보세요." : weekly.rate < -10 ? "지난주보다 잘 아끼고 있어요. 이 흐름을 유지해보세요." : "지난주와 비슷한 속도로 쓰고 있어요.";
   const max = Math.max(1, weekly.thisWeek, weekly.lastWeekTotal);
-  return `<section class="card"><h2>주간 리포트</h2><p class="muted">${escapeHtml(basis)}</p><div class="weeklyHead"><b>${numberWithCommas(weekly.thisWeek)}원</b><span class="${cls}">${formatChangeAgainst("지난주 같은 시점", weekly.thisWeek, weekly.lastWeekToPoint)}</span></div><div class="trendBars"><div class="trendLine"><div class="trendLabel">이번 주</div><div class="bar"><span style="width:${Math.round(weekly.thisWeek / max * 100)}%"></span></div><div class="trendValue">${numberWithCommas(weekly.thisWeek)}원</div></div><div class="trendLine"><div class="trendLabel">지난주 전체</div><div class="bar"><span style="width:${Math.round(weekly.lastWeekTotal / max * 100)}%"></span></div><div class="trendValue">${numberWithCommas(weekly.lastWeekTotal)}원</div></div></div><p class="muted">${escapeHtml(message)}${weekly.topCategory ? ` 이번 주는 <b>${escapeHtml(weekly.topCategory.name)}</b>에 ${numberWithCommas(weekly.topCategory.amount)}원을 가장 많이 썼어요.` : ""}</p></section>`;
+  return `<section class="card"><h2>주간 리포트</h2><p class="muted">${escapeHtml(basis)}</p><div class="weeklyHead"><b>${numberWithCommas(weekly.thisWeek)}원</b><span class="${cls}">${noOwn ? "지난주와 비교하지 않음" : formatChangeAgainst("지난주 같은 시점", weekly.thisWeek, weekly.lastWeekToPoint)}</span></div><div class="trendBars"><div class="trendLine"><div class="trendLabel">이번 주</div><div class="bar"><span style="width:${Math.round(weekly.thisWeek / max * 100)}%"></span></div><div class="trendValue">${numberWithCommas(weekly.thisWeek)}원</div></div><div class="trendLine"><div class="trendLabel">지난주 전체</div><div class="bar"><span style="width:${Math.round(weekly.lastWeekTotal / max * 100)}%"></span></div><div class="trendValue">${numberWithCommas(weekly.lastWeekTotal)}원</div></div></div><p class="muted">${escapeHtml(message)}${weekly.topCategory ? ` 이번 주는 <b>${escapeHtml(weekly.topCategory.name)}</b>에 ${numberWithCommas(weekly.topCategory.amount)}원을 가장 많이 썼어요.` : ""}</p></section>`;
 }
 
 function renderPcAnalysisHtml({ month, households, selectedHousehold, rows, stats, budgets, budget, calendar, extended = null, recurringCandidates = [], anomalies = [], weeklyReport = null }) {

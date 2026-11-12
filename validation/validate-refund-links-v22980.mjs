@@ -1,3 +1,10 @@
+// V22.9.119 통합(2026-11-12, numbers·ops 를 V22.9.118 위에 모으고 판 이름을 올림): 지금 이 검사(지문 = V22.9.118 값 + 아래 homePrev)를 해시 입력에서 판 이름만 앞 판으로
+// 되돌려 돌리면 251·268개가 모두 통과하고, 판 이름과 아래 N-13 말을 함께 되돌리면 homePrev 도 V22.9.118 값 43ad9302… 그대로임을 먼저 확인했다
+// (review-artifacts/v119-report-numbers-2026-11-12/claude-checks.md). 그 뒤 --print-golden 으로 판 이름이 들어가는 analysis·backupFull·backupMonth 세 값만 다시 얻었다.
+// ops 변경(카카오 답·DB 호출 예산·예약 실행 기록)은 지문 화면에 닿지 않는다.
+// V22.9.119(2026-11-12, 리포트 숫자·문장 맞추기 N-13): 지난달 홈(homePrev, 9월)의 ‘가장 많이 쓴 곳이고 이번 달 지출의’ 가 ‘9월 지출의’ 로 바뀌었다. 해시 입력에서
+// 그 말만 되돌리면 옛 값 43ad9302… 그대로임을 먼저 확인했고, 그 뒤 --print-golden 으로 homePrev 한 값만 다시 얻었다. 나머지 24개는 그대로다.
+// M-7 소비 분석 요약 칸 라벨은 그릴 때의 오늘 기준이 되어, 그 줄만 시계를 이 장면의 오늘(TODAY)로 고정하고 예전 단언(‘이번 달 지출 · …’) 그대로 둔다.
 // V22.9.118 통합(2026-11-12, copy·ui·security 를 모으고 판 이름을 올림): 바탕 9a646eb 의 이 검사(옛 지문)를 해시 입력에서 판 이름만 앞 판으로 되돌리고, 통합 번들에서 위 ui 네 변경만
 // 옛 모양으로 되돌려 돌리면 251·268개가 모두 통과함을 먼저 확인했고(review-artifacts/v118-site-review-fixes-2026-11-12/claude-checks.md, 화면 원문 전후 대조 refund-textdiff.txt),
 // 그 뒤 --print-golden 으로 판 이름이 들어가는 analysis·backupFull·backupMonth 세 값만 다시 얻었다. copy·security 변경은 지문 화면에 닿지 않는다.
@@ -115,21 +122,21 @@ const SOFT = process.env.V22980_SOFT === "1";
 const FLAG_OFF_GOLDEN = {
   "home": "200 20f9536878db26ac79a3a548",
   "homeTrend": "200 02f7bd6b777077dce5ad5119",
-  "homePrev": "200 43ad9302fc2ce7cd55d3baad",
+  "homePrev": "200 e3a3b463296fe2dda9a8fd8f",
   "budgets": "200 180151a99b7d8b0d1484a608",
   "budgetAlerts": "200 7826103ec78c78e7869bbc37",
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 323fd864cf7e343efe6dc40d",
   "reportsWeek": "200 14de653d7544b8f2e096f67f",
-  "analysis": "200 1762527e7b8b5f6944337df4",
+  "analysis": "200 b349052ffa18091a4a98db41",
   "backupPage": "200 6262b0957469ecc4f141ae06",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 89103d2be9bec1bd9843126e",
-  "backupMonth": "200 7369227c0b29b88e16345596",
+  "backupFull": "200 13e017b638b7787274270997",
+  "backupMonth": "200 1faea35a58006b42a6d42b06",
   "candidate": "200 1571a22a5da825caeb45c8ac",
   "legacyErr": "200 8483371f87264a4e90af381d",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
@@ -476,7 +483,9 @@ const digestScreens = (screens) => Object.fromEntries(Object.entries(screens).ma
   // M-7: 소비 분석 요약(지출·수입·예산 속도)
   const dashboard = await callAsync(challengeMod, "buildReportDashboardSummary", octRows, net || {}, MONTH, { outlook, refundDeductions: deductions });
   t.deepEq([dashboard?.expense, dashboard?.income, dashboard?.refund?.applied], [82000, 2000000, 60000], "M-7 소비 분석 요약: 지출·수입에서 연결한 환불을 뺀다");
-  const dashHtml = call(challengeMod, "renderReportDashboard", dashboard || {});
+  // V22.9.119 N-13: 요약 칸 이름은 그릴 때의 오늘 기준이다(보는 달이 오늘의 달이면 ‘이번 달 지출’, 아니면 ‘10월 지출’). 시계를 이 장면의 오늘(TODAY = 10월)로
+  // 고정해 그리므로 라벨 하나만 단언한다.
+  const dashHtml = await withClock(TODAY, () => call(challengeMod, "renderReportDashboard", dashboard || {}));
   t.has(dashHtml, "이번 달 지출 · 환불 차감 60,000원 반영", "M-7 소비 분석 요약 칸에 반영 문구");
   const dashPlain = await callAsync(challengeMod, "buildReportDashboardSummary", octRows, base || {}, MONTH, { outlook: plainOutlook });
   t.ok(dashPlain && !("refund" in dashPlain), "M-7 소비 분석 요약: 차감이 없으면 refund 칸이 없다");

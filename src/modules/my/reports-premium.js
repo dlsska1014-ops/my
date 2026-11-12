@@ -43,7 +43,8 @@ import {
   buildWeeklyReport, detectRecurringCandidates, findAnomalousExpenses, renderAnomalyList,
 } from "../admin/pc-analysis-calendar.js";
 import {
-  addMonthsYm, calculateExtendedAnalytics, householdStartYmd, renderObservedMoney,
+  addMonthsYm, calculateExtendedAnalytics, householdStartYmd, livingReportBucket,
+  renderObservedMoney,
 } from "../domain/analytics.js";
 import { buildPremiumState } from "../features/meme-engine-premium.js";
 import { supabase } from "../data/supabase-client.js";
@@ -187,6 +188,13 @@ const REPORT_CRON_PAGE_V22994 = 20;
 const REPORT_CRON_ROW_BUDGET_V22994 = 2000;
 const REPORT_CRON_CATCHUP_DAYS_V22994 = 7;
 
+// V22.9.119 O-3: 한 실행 예산을 50 보다 크게 잡으면(라우터가 __AB_DB_BUDGET_BASE_V229119 에 적는다) 한 실행에 읽는 기록 행 상한(2000)을 같은 비율로
+// 키운다. 가계부 수는 이미 저장소 호출 예산(hardLimit − 3)으로 정해져 예산을 따라 커진다. 표식이 없으면(기본 50) 1 이라 지금 값 그대로다.
+function reportCronScaleV229119(env = {}) {
+  const base = Number(env?.__AB_DB_BUDGET_BASE_V229119);
+  return Number.isFinite(base) && base > 50 && base <= 900 ? base / 50 : 1;
+}
+
 function reportNowIsoV22994() { return new Date(qaFixedNowMs()).toISOString(); }
 function reportIsWeekEndV22994(ymd = "") { return weekdayIndexOfYmd(ymd) === 0; }
 function reportIsMonthEndV22994(ymd = "") { return ymdShift(ymd, 1).slice(8, 10) === "01"; }
@@ -309,6 +317,7 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
   const hardLimit = Number(budget.limit);
   const softLimit = hardLimit - REPORT_CRON_RESERVE_V22994;
   const room = (calls) => Number(budget.used || 0) + calls <= softLimit;
+  const rowBudget = Math.floor(REPORT_CRON_ROW_BUDGET_V22994 * reportCronScaleV229119(env));
   const runnable = (scope) => (scope.final === true ? scope.date < invocationDate : scope.date <= invocationDate);
   const totals = { scanned: 0, generated: 0, skipped: 0, invalid: 0, failed: 0 };
   const event = (kind, detail) => rememberOpsEvent({ kind, severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail });
@@ -354,7 +363,7 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
         if (item.disabled) { totals.skipped++; scope.after = item.key; continue; }
         const work = final ? item.jobs.filter((job) => !reportSnapshotFinalV22994(values.get(job.key), scope.date)) : item.jobs;
         if (work.length) {
-          if (touched && rows >= REPORT_CRON_ROW_BUDGET_V22994) { stop = "rows"; return false; }
+          if (touched && rows >= rowBudget) { stop = "rows"; return false; }
           if (!room(work.length * 2)) { stop = "budget"; return false; }
         }
         let skipped = item.jobs.length ? item.jobs.length - work.length : 1;
@@ -507,13 +516,8 @@ async function handleAutomaticReportCron(request, env, url) {
 const LIVING_REPORT_RANGES = new Set(["month", "week"]);
 const LIVING_REPORT_WEEKDAYS = ["일", "월", "화", "수", "목", "금", "토"];
 const LIVING_REPORT_SUBSCRIPTION = /구독|넷플릭스|유튜브|쿠팡와우|멜론|티빙|웨이브|디즈니|스포티파이|멤버십/;
-const LIVING_REPORT_GROCERY = /마트|장보기|시장|코스트코|트레이더스|이마트|홈플러스|식자재|슈퍼/;
-const LIVING_REPORT_BUCKETS = [
-  ["배달", /배달|배민|요기요|쿠팡이츠|치킨|피자|야식|족발|닭발/],
-  ["카페·간식", /카페|간식|커피|스타벅스|스벅|투썸|이디야|빽다방|메가커피|컴포즈|디저트/],
-  ["외식", /외식|식당|점심|저녁|아침|밥|분식|국밥|고기|회식|술|맥주|소주/],
-  ["쇼핑", /쇼핑|쿠팡|네이버쇼핑|무신사|올리브영|택배|구매|주문|옷|의류|신발|가방|화장품/],
-];
+// V22.9.119: 생활 패턴 묶음 규칙(livingReportBucket·LIVING_REPORT_BUCKETS·LIVING_REPORT_GROCERY)은 domain/analytics.js 로 옮겼다(규칙 그대로 —
+// 종합 리포트 ‘배달/외식’ 칸도 같은 함수를 쓰고, 모듈이 돌지 않게).
 
 function cardTargetsKey(householdId = "") {
   return `card_targets:${String(householdId || "").trim()}`.slice(0, 180);
@@ -624,16 +628,6 @@ function livingReportWeeks(month = currentMonthKst(), today = "") {
     weeks.push({ start, end, current: today >= start && today <= end, future: start > today });
   }
   return weeks;
-}
-
-function livingReportBucket(row = {}) {
-  const text = `${row.category || ""} ${row.memo || ""} ${row.raw_text || ""}`;
-  if (LIVING_REPORT_BUCKETS[0][1].test(text)) return "배달";
-  if (LIVING_REPORT_BUCKETS[1][1].test(text)) return "카페·간식";
-  if (LIVING_REPORT_GROCERY.test(text)) return "장보기";
-  if (LIVING_REPORT_BUCKETS[2][1].test(text)) return "외식";
-  if (LIVING_REPORT_BUCKETS[3][1].test(text)) return "쇼핑";
-  return "";
 }
 
 function buildLivingReport({ month = currentMonthKst(), range = "month", week = "", startedOn = "", historyRows = [], recurring = [], assets = [], targets = Object.create(null), reservePlans = [], historyAvailable = true, recurringAvailable = true, settingsAvailable = true, today = formatDate(nowKstDate()), refundDeductions = [], refundFailed = false } = {}) {

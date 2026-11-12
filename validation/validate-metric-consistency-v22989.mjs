@@ -99,7 +99,8 @@ await withClock("2026-10-29", async () => {
     const report = text((await page(fx, `/my/analysis?view=report&${Q}`)).html);
     t.ok(has(report, "무지출일 22일"), "§3 #21 종합 리포트 무지출일 22일(생활비 리포트와 같은 값)");
     t.ok(has(report, "정리할 기록 깔끔해요") && !has(report, "분석 신뢰도") && !has(report, "분류 누락"), "Astra 7 ‘분석 신뢰도 0건’·‘분류 누락’ → ‘정리할 기록’(0이면 깔끔해요)");
-    t.ok(/소비 신호 안정 \d+점 · 고정비, 쏠림, 미정리, 월말 예상치를 합친 점수예요\. 45점부터 주의, 70점부터 넘침 위험이에요\./.test(report) && !has(report, "가계부 경보") && !has(report, "정상 범위"),
+    // V22.9.119 N-4: 종합 리포트는 점수에 들어가는 그 값(fixedRate)을 같은 화면 칸 이름 ‘주거·통신·보험·구독 비중’ 으로 부른다(관리자 PC 분석은 ‘고정비’ 그대로).
+    t.ok(/소비 신호 안정 \d+점 · 주거·통신·보험·구독 비중, 쏠림, 미정리, 월말 예상치를 합친 점수예요\. 45점부터 주의, 70점부터 넘침 위험이에요\./.test(report) && !has(report, "가계부 경보") && !has(report, "정상 범위"),
       "Astra 7 ‘가계부 경보 N점’ → 소비 신호(안정·주의·넘침 위험), 점수와 경계(45·70)를 설명하고 ‘정상 범위’(70 미만)를 쓰지 않는다");
     for (const [name, body] of [["홈", home], ["생활비 리포트", reports], ["연간 리포트", annual], ["정기 수입·지출", reserve]]) {
       const found = RETIRED.filter((label) => has(body, label));
@@ -282,7 +283,8 @@ await withClock("2026-10-29", async () => {
   await fixture(async (fx) => {
     seedV2(fx, [...V2_ROWS, tx("nov-ahead", "2026-11-03", "expense", 900000, "주거/관리", "미리 적은 이사 비용", "계좌이체")]);
     const cockpit = text((await page(fx, "/my/analysis?month=2026-11&household_id=house-home")).html);
-    t.ok(has(cockpit, "이번 달 지출 · 미리 적은 900,000원 포함 900,000원"), "독립 검토 6 다음 달을 보면 그 달 지출이 모두 미리 적은 것임을 적는다");
+    // V22.9.119 N-13: 보는 달(11월)이 오늘의 달이 아니면 라벨이 ‘이번 달 지출’ 이 아니라 ‘11월 지출’ 이다(미리 적은 표시는 그대로).
+    t.ok(has(cockpit, "11월 지출 · 미리 적은 900,000원 포함 900,000원"), "독립 검토 6 다음 달을 보면 그 달 지출이 모두 미리 적은 것임을 적는다");
   });
 });
 

@@ -27,7 +27,8 @@ import {
 import { kakaoNoMatchGuide } from "./reply-texts.js";
 import { kakaoSaveDelayText } from "./intent-nlu.js";
 import {
-  isDefiniteStorageFailure, isUncertainStorageWrite, kakaoSaveFailedText, kakaoText,
+  isDefiniteStorageFailure, isKakaoRequestUniqueConflictV229119, isUncertainStorageWrite,
+  kakaoSameTextExistsTextV229119, kakaoSameTextLongV229119, kakaoSaveFailedText, kakaoText,
 } from "./response-builders.js";
 import {
   KAKAO_DAILY_ROW_LIMIT_V22980, dailySeqForKakaoRow, getDailyKakaoRawRows, kakaoDailySeqFromRows,
@@ -124,6 +125,13 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   } : undefined;
   try { savedRows = await insertKakaoTransactions(env, rowsToInsert, { messageLeaseHeld:true, fingerprint: messageKey, pendingWrite, pendingWriteExists, pendingWriteEmptyValue, readCandidates, assertFresh:()=>{assertFresh?.();assertSettingsLeaseFresh(messageLease);}, onConfirmed:cleanup => deferKakaoAfterReply(env, cleanup) }); }
   catch (err) {
+    // V22.9.119 O-1: 같은 날 같은 문장의 내 기록이 이미 있어 운영 DB 의 유니크 인덱스가 거절했다. 저장소 오류가 아니라 그날은 다시 보내도 같으므로
+    // ‘잠시 후 다시’ 대신 무엇을 저장하지 않았고 어느 내용이 이미 있는지, 어떻게 보내면 저장되는지 답한다(운영 이벤트도 오류가 아닌 안내로 남긴다).
+    if (err?.kakao_same_text_exists === true) {
+      const skippedItems = err.kakao_same_text_skipped || [];
+      rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: `items:${err.kakao_same_text_items.length}/${limitedParsedList.length} skipped:${skippedItems.length}` });
+      return kakaoText(kakaoSameTextExistsTextV229119(err.kakao_same_text_items, limitedParsedList.length, skippedItems, { long: err.kakao_same_text_long === true }));
+    }
     // V22.9.26: 저장소가 분명한 실패(4xx·5xx)를 돌려줬으면 저장된 것이 없다. 그때는 "다시 보내지
     // 말라"가 아니라 다시 보내 달라고 해야 기록이 사라지지 않는다. 응답 없이 끊긴 경우(시간
     // 초과·네트워크)만 저장 여부가 불확실하므로 예전 안내를 유지한다.
@@ -377,6 +385,13 @@ async function insertKakaoTransactions(env, rows, options = {}) {
       if (/_before_dispatch\b/.test(`${err?.code || ""} ${err?.message || ""}`)) throw await unsent(err);
       if (!isUncertainStorageWrite(err)) {
         if (isDefiniteStorageFailure(err)) await clearKakaoConfirmedPendingWrite(env,cleanRows[0].household_id,cleanRows[0].user_id,finalMarker).catch(()=>{});
+        // V22.9.119 O-1: 운영 유니크 인덱스(같은 날·같은 문장)가 거절했다. 확실히 저장되지 않았다(문장 전체가 실패, 표식은 위에서 지웠다).
+        // ‘결과 불확실’ 도 ‘저장소 오류’ 도 아니므로 어느 내용이 이미 있는지 담은 오류로 바꿔 올린다(답은 saveKakaoParsedTransactionsReply).
+        // 후속(독립 검토 A): 같은 글 안에서 120초 중복으로 건너뛴 내용(이미 저장된 행)도 입력 문장으로 함께 싣는다(DB 요청 없음).
+        if (isKakaoRequestUniqueConflictV229119(err)) {
+          const skipped = resolved.flatMap((row, index) => (row.__duplicate_skipped ? [{ raw_text: cleanRows[index].raw_text, transaction_date: cleanRows[index].transaction_date, type: cleanRows[index].type, amount: cleanRows[index].amount }] : []));
+          throw await kakaoSameTextConflictErrorV229119(env, err, fresh, skipped);
+        }
         throw err;
       }
       let found = [];
@@ -405,6 +420,43 @@ async function insertKakaoTransactions(env, rows, options = {}) {
     const actual = byId.get(String(row.id)) || row;
     return actual.__duplicate_skipped ? { ...actual, __input_raw_text: cleanRows[index].raw_text } : actual;
   });
+}
+
+// V22.9.119 O-1: 운영 유니크 인덱스(household_id, source_user_key, transaction_date, type, amount, raw_text)가 INSERT 를 거절했을 때, 이번에 보낸 행 가운데
+// 어느 것이 걸렸는지 정리한다. 한 건이면 그 한 건이 이미 있는 기록과 겹친 것이다(조회 없음). 여러 건이면 DB 는 처음 걸린 하나만 알려 주므로, 같은 날짜의
+// 내 카카오 기록을 한 번 읽어(이 실패 경로에서만 +1회) 겹친 것을 모두 찾고, 이번 글 안에서 같은 문장이 두 번 나온 것도 따로 표시한다. 읽기에 실패하면
+// 글 안의 겹침만 표시한다(답은 ‘그중에 이미 있는 내용이 있어요’). 저장 동작(건별로 나눠 넣기 등)은 바꾸지 않는다 — 이번 요청은 아무것도 저장하지 않았다.
+// skipped(후속, 독립 검토 A): 120초 중복으로 건너뛴 입력 — 답이 ‘이미 저장돼 있어 건너뛴 내용’ 으로 따로 적는다.
+async function kakaoSameTextConflictErrorV229119(env, err, fresh = [], skipped = []) {
+  const keyOf = (row) => JSON.stringify([String(row.transaction_date), row.type === "income" ? "income" : "expense", Number(row.amount), String(row.raw_text ?? "")]);
+  const counts = new Map();
+  for (const row of fresh) counts.set(keyOf(row), (counts.get(keyOf(row)) || 0) + 1);
+  let stored = null;
+  if (fresh.length === 1) stored = new Set([keyOf(fresh[0])]);
+  else if (fresh.length > 1) {
+    try {
+      const params = new URLSearchParams({
+        select: "transaction_date,type,amount,raw_text", household_id: `eq.${fresh[0].household_id}`, source: "eq.kakao_skill",
+        source_user_key: `eq.${fresh[0].source_user_key}`, transaction_date: `in.(${[...new Set(fresh.map((row) => row.transaction_date))].join(",")})`, limit: "1000",
+      });
+      const rows = await supabase(env, `/rest/v1/transactions?${params}`, { method: "GET" });
+      if (Array.isArray(rows)) stored = new Set(rows.map(keyOf));
+    } catch (_) { stored = null; }
+  }
+  const items = [];
+  const listed = new Set();
+  for (const row of fresh) {
+    const key = keyOf(row);
+    if (listed.has(key)) continue;
+    const existing = !!stored && stored.has(key);
+    const repeated = (counts.get(key) || 0) > 1;
+    if (!existing && !repeated) continue;
+    listed.add(key);
+    items.push({ transaction_date: row.transaction_date, type: row.type, amount: row.amount, raw_text: row.raw_text, existing, repeated });
+  }
+  // 후속 2(재검토 P2): 걸린 문장 가운데 290자 이상이 있으면(조회 실패로 어느 문장인지 모르면 이번에 보낸 문장 가운데) 답이 ‘문장 앞에’ 라고 한다.
+  const long = kakaoSameTextLongV229119(stored ? items : fresh);
+  return Object.assign(new Error(`kakao_same_text_exists: ${safeError(err)}`, { cause: err }), { kakao_same_text_exists: true, kakao_same_text_items: items, kakao_same_text_skipped: Array.isArray(skipped) ? skipped : [], kakao_same_text_long: long });
 }
 
 function kakaoPendingWriteKey(householdId, userId) {

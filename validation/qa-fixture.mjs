@@ -252,6 +252,41 @@ function transactionUniqueConflict(rows = [], item = {}) {
   return false;
 }
 
+// V22.9.119 O-1: 운영 DB 에만 있는 유니크 인덱스(2026-11-10 운영 스키마 덤프, 저장소 SQL 에는 없음)를 흉내 낸다. 기본은 꺼짐(인덱스를 지운 뒤의
+// 목표 상태 = 지금까지 검사들의 동작)이고, db.__kakao_request_unique = true 일 때만 실제 PostgREST 처럼 409/23505 로 거절한다.
+//   CREATE UNIQUE INDEX transactions_kakao_request_unique_idx ON public.transactions (household_id, source_user_key, transaction_date, type, amount, raw_text)
+//   WHERE source = 'kakao_skill' AND source_user_key IS NOT NULL AND raw_text IS NOT NULL;
+// 칸 값이 NULL 이면 실제 색인처럼 서로 다르게 본다(충돌 없음). 지우는 검토용 SQL: migrations/V22_9_119_DROP_KAKAO_REQUEST_UNIQUE_REVIEW_ONLY.sql.
+const KAKAO_REQUEST_UNIQUE_INDEX_V229119 = "transactions_kakao_request_unique_idx";
+function kakaoRequestUniqueKeyV229119(row = {}) {
+  if (!row || row.source !== "kakao_skill" || row.source_user_key == null || row.raw_text == null) return null;
+  if ([row.household_id, row.transaction_date, row.type, row.amount].some((value) => value == null)) return null;
+  return JSON.stringify([String(row.household_id), String(row.source_user_key), String(row.transaction_date), String(row.type), Number(row.amount), String(row.raw_text)]);
+}
+
+function kakaoRequestUniqueResponseV229119(row = {}) {
+  const values = [row.household_id, row.source_user_key, row.transaction_date, row.type, row.amount, row.raw_text].map((value) => String(value)).join(", ");
+  return new Response(JSON.stringify({
+    code: "23505",
+    details: `Key (household_id, source_user_key, transaction_date, type, amount, raw_text)=(${values}) already exists.`,
+    hint: null,
+    message: `duplicate key value violates unique constraint "${KAKAO_REQUEST_UNIQUE_INDEX_V229119}"`,
+  }), { status: 409, headers: { "content-type": "application/json" } });
+}
+
+// 한 문장(INSERT 하나·UPDATE 하나)이 끝난 뒤의 행들(finalRows)이 그 인덱스를 어기면 처음 걸린 행을 돌려준다. 바뀌지 않는 행(otherRows)과도 견준다.
+// 실제 DB 처럼 문장 전체가 실패한다(일부만 저장되지 않는다).
+function kakaoRequestUniqueViolationV229119(otherRows = [], finalRows = []) {
+  const seen = new Set(otherRows.map(kakaoRequestUniqueKeyV229119).filter(Boolean));
+  for (const row of finalRows) {
+    const key = kakaoRequestUniqueKeyV229119(row);
+    if (!key) continue;
+    if (seen.has(key)) return row;
+    seen.add(key);
+  }
+  return null;
+}
+
 async function signedSessionCookie(userId, secret) {
   const expires = Math.floor(Date.now() / 1000) + 3600;
   const data = `${userId}|${expires}`;
@@ -548,6 +583,11 @@ export async function createV2265QaFixture(options = {}) {
         const patch = data?.p_patch && typeof data.p_patch === "object" ? data.p_patch : {};
         const row = db.transactions.find((item) => String(item.id) === transactionId && String(item.household_id) === householdId);
         if (!row) return new Response("[]", { status: 200, headers: { "content-type": "application/json" } });
+        // V22.9.119 O-1: 함수 안의 UPDATE 도 같은 유니크 인덱스에 걸린다(켰을 때만). PostgREST 는 함수 호출의 23505 도 409 로 돌려준다.
+        if (db.__kakao_request_unique === true) {
+          const clash = kakaoRequestUniqueViolationV229119(db.transactions.filter((item) => item !== row), [{ ...row, ...patch }]);
+          if (clash) return kakaoRequestUniqueResponseV229119(clash);
+        }
         Object.assign(row, patch);
         return new Response(JSON.stringify([clone(row)]), { status: 200, headers: { "content-type": "application/json" } });
       }
@@ -643,6 +683,21 @@ export async function createV2265QaFixture(options = {}) {
       if (table === "transactions" && items.some((item) => transactionUniqueConflict(db.transactions, item))) {
         return new Response(JSON.stringify({ code: "23505", message: "duplicate key value violates unique constraint" }), { status: 409, headers: { "content-type": "application/json" } });
       }
+      // V22.9.119 O-1: 운영 유니크 인덱스 흉내(켰을 때만). ON CONFLICT (id) DO NOTHING(ignore-duplicates)은 id 가 이미 있는 행만 건너뛰고
+      // 다른 유니크 인덱스 위반은 그대로 23505 다. 한 번에 보낸 행끼리 같아도 걸리고, 그때는 아무 행도 저장되지 않는다.
+      if (table === "transactions" && db.__kakao_request_unique === true) {
+        const ignoreExisting = (new Headers(init.headers || {}).get("Prefer") || "").includes("resolution=ignore-duplicates");
+        const replaced = new Set();
+        const finalRows = [];
+        for (const item of items) {
+          const existing = item?.id != null ? db.transactions.find((row) => String(row.id) === String(item.id)) : null;
+          if (existing && ignoreExisting) continue;
+          if (existing) { replaced.add(existing); finalRows.push({ ...existing, ...item }); continue; }
+          finalRows.push(item);
+        }
+        const clash = kakaoRequestUniqueViolationV229119(db.transactions.filter((row) => !replaced.has(row)), finalRows);
+        if (clash) return kakaoRequestUniqueResponseV229119(clash);
+      }
       const ignoreDuplicates = new Headers(init.headers || {}).get("Prefer")?.includes("resolution=ignore-duplicates");
       // 실제 DB 는 한 번에 넣은 행의 created_at(기본값 now())이 모두 같다. 행마다 시계를 읽으면 밀리초 경계에서 값이 갈린다.
       const statementAt = new Date().toISOString();
@@ -664,6 +719,11 @@ export async function createV2265QaFixture(options = {}) {
     if (method === "PATCH") {
       const matches = filteredRows(db, table, url);
       const ids = new Set(matches.map((row) => row.id || `${row.household_id}|${row.user_id}`));
+      // V22.9.119 O-1: 고친 뒤의 행이 운영 유니크 인덱스를 어기면 아무 행도 바꾸지 않고 409/23505(켰을 때만).
+      if (table === "transactions" && db.__kakao_request_unique === true && matches.length) {
+        const clash = kakaoRequestUniqueViolationV229119(db.transactions.filter((row) => !ids.has(row.id || `${row.household_id}|${row.user_id}`)), matches.map((row) => ({ ...row, ...data })));
+        if (clash) return kakaoRequestUniqueResponseV229119(clash);
+      }
       db[table] = db[table].map((row) => ids.has(row.id || `${row.household_id}|${row.user_id}`) ? { ...row, ...data } : row);
       return new Response(JSON.stringify(matches.map((row) => ({ ...row, ...data }))), { status: 200, headers: { "content-type": "application/json" } });
     }

@@ -92,7 +92,8 @@ await withClock("2026-10-15",async()=>{
   fx.env.ADMIN_PASSWORD="synthetic-d3-password";fx.env.ADMIN_SESSION_SECRET="synthetic-d3-admin";const login=await post(fx,"/login",{password:fx.env.ADMIN_PASSWORD},{cookie:""});
   const pc=await page(fx,"/analysis"+qs+"&legacy=1",{cookie:fx.cookie+"; "+login.setCookie.match(/ab_admin=[^;]+/)[0]});eq(pc.status,200,"PC real HTTP");ok(pc.html.includes("지난달 대비 +50%"),"PC retains full-month comparison");
  });
- for(const type of ["expense","income"])for(const [a,b,expected]of [[0,0,"변동 없음 (양쪽 0원)"],[500,0,"500원 증가 (지난달 0원)"],[0,500,"지난달 같은 기간 대비 -100%"]])await fixture(async fx=>{
+ // V22.9.119 N-9: 이번 달 기록이 0건인 0/500 은 ‘-100%’ 대신 ‘직접 적은 기록이 없어 … 비교하지 않아요’(생활비 리포트·홈과 같은 가드). computeFairMoM 의 kind·rate·difference 계약(위 검사)은 그대로다.
+ for(const type of ["expense","income"])for(const [a,b,expected]of [[0,0,"변동 없음 (양쪽 0원)"],[500,0,"500원 증가 (지난달 0원)"],[0,500,"직접 적은 기록이 없어 지난달 같은 기간과 비교하지 않아요"]])await fixture(async fx=>{
   seed(fx,[...(a?[tx("2026-10-01",a,{type})]:[]),...(b?[tx("2026-09-01",b,{type})]:[])]);const result=await page(fx,"/my/analysis?view=report"+qs.replace("?","&"));ok(result.html.includes(expected),type+" actual zero comparison "+a+"/"+b);ok(!result.html.includes("지난달 같은 기간 대비 +100%"),"no fabricated percentage");
  });
  await fixture(async fx=>{

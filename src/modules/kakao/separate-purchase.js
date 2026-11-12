@@ -15,7 +15,8 @@ import {
 import { canWriteMyHousehold } from "../my/access-control.js";
 import { kakaoClaimUserUnmerged } from "../auth/kakao-web-claim.js";
 import {
-  isDefiniteStorageFailure, isUncertainStorageWrite, kakaoText,
+  isDefiniteStorageFailure, isKakaoRequestUniqueConflictV229119, isUncertainStorageWrite,
+  kakaoSeparateSameTextTextV229119, kakaoText,
 } from "./response-builders.js";
 import { isStrongKakaoTransactionInput, stripLeadingCommand } from "./request-guards.js";
 import { getKakaoSelectedHouseholdId } from "./household-budget-commands.js";
@@ -188,6 +189,11 @@ async function handleKakaoSeparatePurchase(env, context) {
         } catch (error) {
           state.state=isDefiniteStorageFailure(error)?"failed":"unknown";
           await saveKakaoSeparateState(env,key,state,assertFresh).catch(()=>{});
+          // V22.9.119 O-1 후속(독립 검토 B): 운영 유니크 인덱스(같은 날·같은 문장)가 거절했으면 같은 확인으로 다시 해도 같다. 사실과 보낼 문장을 말한다.
+          if (state.state === "failed" && isKakaoRequestUniqueConflictV229119(error)) {
+            rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: "separate" });
+            return kakaoText(kakaoSeparateSameTextTextV229119(state.row));
+          }
           if (state.state === "failed") return kakaoText("저장소가 요청을 거절해 별도 구매를 추가하지 못했어요. 같은 확인 식별자로만 다시 시도해 주세요.");
         }
         const saved=await findTransactionForRequest(env,state.row);

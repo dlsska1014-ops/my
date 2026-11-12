@@ -43,6 +43,8 @@ TEST 앱 1508592 는 연결하지 않는다(다른 회원번호가 와 남의 �
 - 수동 실행 경로 `POST /cron/recurring/apply`, `POST /cron/reports/generate` 는 `CRON_SECRET`(`x-cron-secret` 또는 `Bearer`) 이나 `ADMIN_API_TOKEN` Bearer 로 통과한다.
 - 임대 시간: `CRON_RECURRING_LEASE_SECONDS`, `CRON_REPORT_LEASE_SECONDS`(기본 900초).
 - 감사 기록 보존(V22.9.95): `AUDIT_RETENTION_DAYS`(기본 180, 30~3650 밖이면 180 으로 돌고 운영 이벤트 `audit_retention_days_invalid`). 매일 예약 실행의 정리 단계가 이 일수를 넘은 `accountbook_transaction_audit` 행을 오래된 것부터 500행 × 2묶음까지 지운다(더 남으면 다음 실행). 개인정보처리방침 9절의 ‘거래 변경 이력 180일’ 이 이 기본값에 기대므로 값을 바꾸면 방침 문구도 바꾼다.
+- DB 호출 예산(V22.9.119): 예약 실행 한 번의 DB 호출 상한은 `CRON_DB_CALL_BUDGET`(없거나 50~900 정수 밖이면 50, 값 규칙은 아래 조정용 절).
+- 예약 실행 기록(accountbook_settings 키 cron_run_log_v22978)의 실행마다 db_budget(그 실행이 쓴 DB 호출 상한 — CRON_DB_CALL_BUDGET 이 없거나 50~900 정수 밖이면 50) 칸이 있다. 11-19 변수를 넣은 다음 날 09:10 실행 기록의 db_budget 이 넣은 값인지 본다(/ops-dashboard 표에는 나오지 않는다).
 
 ## 관제
 
@@ -87,7 +89,8 @@ V22.9.97 후원 지표(변수 없음, 새 SQL 없음): 송금·오픈채팅 단�
 
 요청 제한 `SKILL_RATE_LIMIT`·`SKILL_RATE_WINDOW_MS`·`SKILL_IP_GUARD_LIMIT`·`TRAFFIC_GUARD_LIMIT`·`TRAFFIC_GUARD_WINDOW_MS`·`AUTH_RATE_LIMIT`·`AUTH_ACCOUNT_RATE_LIMIT`·`AUTH_ACCOUNT_GLOBAL_RATE_LIMIT`,
 카카오 `KAKAO_BULK_LIMIT`·`KAKAO_RESPONSE_BUDGET_MS`·`KAKAO_RETRY_DEDUP_SECONDS`·`KAKAO_REPEAT_GUARD_SECONDS`·`DUPLICATE_GUARD_SECONDS`·`KAKAO_DEFAULT_HOUSEHOLD_ID`,
-DB `SUPABASE_READ_ATTEMPT_MS`·`SUPABASE_WRITE_TIMEOUT_MS`, 가져오기 `MY_IMPORT_LIMIT`·`MY_IMPORT_MAX_BYTES`, 자산 `PAYMENT_ASSET_LEASE_SECONDS`,
+DB `SUPABASE_READ_ATTEMPT_MS`·`SUPABASE_WRITE_TIMEOUT_MS`·`DB_CALL_BUDGET`·`CRON_DB_CALL_BUDGET`, 가져오기 `MY_IMPORT_LIMIT`·`MY_IMPORT_MAX_BYTES`, 자산 `PAYMENT_ASSET_LEASE_SECONDS`,
 NLU 기록 `NLU_*`.
 `AUTH_ACCOUNT_GLOBAL_RATE_LIMIT`(V22.9.118, 선택): 관리자 로그인·로그인 이름 로그인의 IP 와 무관한 계정 전체 실패 횟수 한도. 없거나 비면 50. 0 보다 큰 숫자는 반올림해 10~50(1~9 는 10, 50 넘으면 50). `off`·`false`·`no`·`none`·`disabled`(대소문자·앞뒤 빈칸 무시)나 0 이하 숫자(`0`·`00`·`-0`·음수)는 끈다 — 횟수는 세고 운영 이벤트도 남기지만 막지 않는다. 그 밖의 글자(`on`·`true`·`50%`·`1,000` 같은 값)는 알아듣지 못한 값으로 보고 50 으로 막으며 운영 이벤트 `auth_account_limit_value_unknown`(warn, 값 원문 40자까지)을 isolate 마다 한 번 남긴다. 창은 `AUTH_RATE_WINDOW_SECONDS`(기본 900초), 로그인에 성공하면 지운다. 허용에서 막힘으로 바뀐 첫 응답에 운영 이벤트 `auth_account_limit_reached`(warn, 식별자 없음)를 한 번 남긴다(isolate 마다). 운영은 넣지 않는다(바인딩 32). 막힌 계정 푸는 법: 이 변수를 `off` 로 넣고 배포한다(그 뒤 맞는 비밀번호로 로그인하면 횟수도 지워져 다시 켜도 막히지 않음; 바인딩이 하나 늘어남, 사용자 지목). 또는 마지막 막힌 시도 뒤 창이 지나기를 기다린다(막힌 시도도 횟수를 늘리므로 누가 계속 두드리면 앞 방법만 통함). 같은 판부터 비밀번호를 대조하는 세 길(관리자 로그인·로그인 이름 로그인·비밀번호 재확인)의 IP 단위 시도 제한은 IPv6 을 /64 로 묶어 센다(IPv4 와 그 밖의 경로는 주소 그대로).
+`DB_CALL_BUDGET`·`CRON_DB_CALL_BUDGET`(V22.9.119, 선택 — 요청 한 번·예약 실행 한 번의 DB 호출 상한): 없으면 50(지금 그대로)이다. Workers Paid 로 바꾼 뒤에만, 요청당 CPU 한도를 확인하고 올린다. 예약 실행의 한 실행 상한(리포트가 읽는 기록 행, 정기 규칙 쪽 수, 다시 만들기 수)도 같은 비율로 커진다. 50~900 정수만 받는다. 범위 밖이거나 정수가 아니면 50 으로 쓰고 운영 이벤트 db_call_budget_invalid(warn, 격리 공간마다 이름=값 한 번)를 남긴다. 빈 값은 없음과 같다. 50 은 지금까지의 고정값(= Workers Free 의 한 호출 하위 요청 한도)이고, Free 에서 올리면 50번째 뒤 하위 요청이 플랫폼에서 실패한다. `CRON_DB_CALL_BUDGET` 을 올리면 예약 실행의 한 실행 상한이 같은 비율(예산 ÷ 50)로 커진다: 정기 반영의 저장소 호출 몫 30·읽는 쪽 4·스냅숏 다시 만들기 2, 자동 리포트가 읽는 기록 행 2000. 실행 요약·감사 정리 몫을 떼어 두는 순서는 그대로다. 변수 하나마다 바인딩이 하나 는다. 운영은 넣지 않는다(바인딩 32) — 11-19 Workers Paid 전환 뒤 사용자 지목 때.
 전체 목록은 `grep -rhoE "env[.?]+[A-Z][A-Z0-9_]+" src/modules | sort -u` 로 본다.

@@ -238,8 +238,9 @@ await section("5 예산", async () => {
     ok(!run.events.some((event) => /subrequest_budget/.test(`${event.kind} ${event.detail}`)), "5-e 어느 단계도 호출 한도에 걸려 보내기 전에 멈추지 않았다");
   });
   const router = read("../src/modules/worker/router.js");
-  ok(router.includes("limit: 50 - SCHEDULED_RUN_LOG_CALLS - AUDIT_RETENTION_CALLS_V22995 }")
-    && /env\.__AB_DB_BUDGET\.limit = 50 - SCHEDULED_RUN_LOG_CALLS;\n\s+const auditCleanup = await cleanupTransactionAuditRetentionV22995\(env\);/.test(router)
+  // V22.9.119 O-3: 한 실행 예산이 고정 50 에서 cronBudget(CRON_DB_CALL_BUDGET, 없거나 범위 밖이면 50)으로 바뀌어 글자 대조를 그 이름으로 고쳤다. 떼고 푸는 순서는 같다.
+  ok(router.includes("limit: cronBudget - SCHEDULED_RUN_LOG_CALLS - AUDIT_RETENTION_CALLS_V22995 }")
+    && /env\.__AB_DB_BUDGET\.limit = cronBudget - SCHEDULED_RUN_LOG_CALLS;\n\s+const auditCleanup = await cleanupTransactionAuditRetentionV22995\(env\);/.test(router)
     && router.indexOf("cleanupTransactionAuditRetentionV22995(env)") > router.indexOf("await cleanupNluOpsRetention(env)")
     && router.indexOf("cleanupTransactionAuditRetentionV22995(env)") < router.indexOf("await recordScheduledRun(env, run)"), "5-f 라우터는 감사 정리 몫을 처음에 떼고 NLU 정리 뒤·실행 기록 앞에서 푼다");
   const cron = read("../src/modules/cron/recurring-auto-apply.js");

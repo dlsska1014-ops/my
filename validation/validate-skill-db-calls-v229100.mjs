@@ -8,7 +8,7 @@ const t = counter("PASS: V22.9.100 room record DB calls, cleanup and snapshot sa
 const measurements = {};
 // K-1 historical split retained; V101 now tests first alias registration after reply.
 // B-0 에서 ≤ 10 으로 내린다
-const caps = { A: [25, 40], B: [10, 12], "B-ordinary": [10, 12], C: [10, 12], D: [20, 32], E: [10, 12], "F-1": [10, 17], "F-1-ordinary": [10, 17], "F-2-strong": [10, 19], "F-2-ordinary": [10, 24], G: [6, 6], H: [11, 14], I: [11, 13], J: [11, 13], K: [11, 13], "V115-J": [38, 48], "V115-K": [28, 38], "V115-L": [30, 40], "V115-M": [12, 14] };
+const caps = { A: [25, 40], B: [10, 12], "B-ordinary": [10, 12], C: [10, 12], D: [20, 32], E: [10, 12], "F-1": [10, 17], "F-1-ordinary": [10, 17], "F-2-strong": [10, 19], "F-2-ordinary": [10, 24], G: [6, 6], H: [11, 14], I: [11, 13], J: [11, 13], K: [11, 13], "V115-J": [38, 48], "V115-K": [28, 38], "V115-L": [30, 40], "V115-M": [12, 14], "V119-direct-first": [42, 49], "V119-web-room-first": [39, 43] };
 const textOf = body => (body.template?.outputs || []).map(output => output.simpleText?.text || output.textCard?.description || "").join("\n");
 const pathIs = (call, suffix, method) => call.url.pathname.endsWith(suffix) && call.method === method;
 const pendingWrite = call => pathIs(call, "/accountbook_settings", "POST") && JSON.stringify(call.body).includes(":pending_write:") ||
@@ -328,6 +328,33 @@ await fixture(async fx => {
   t.eq(fx.db.household_members.length, members + 2, "V115-L: the query caller has a membership row");
   const again = await fx.say("이번 달 요약", { key: `${fx.prefix}-third` }); recordScene("V115-M", again);
   t.ok(!again.text.includes("참여했어요") && again.text.includes("이번 달 요약"), "V115-M: a member's query adds no join work");
+});
+
+// V22.9.119 O-10: 운영 꼴 설정(Secret 강제·카카오 로그인·계정 잇기 스위치·NLU 집계)에서 한 요청 DB 호출 예산(기본 50)에 가장 가까운 두 장면.
+// 1:1 에서 처음 보는 사람의 첫 기록, 웹 계정(kakao_login:2265)이 있는 사람이 새 봇 키로 새 방에서 처음 부름. 상한은 이 판의 실측값으로 고정한다.
+const prodLikeEnv = fx => Object.assign(fx.env, { KAKAO_SKILL_AUTH_REQUIRED: "1", KAKAO_LOGIN_ENABLED: "1", KAKAO_REST_API_KEY: "qa-rest-api-key", PUBLIC_BASE_URL: BASE, KAKAO_REDIRECT_URI: `${BASE}/auth/kakao/callback`, KAKAO_ACCOUNT_LINK_ENABLED: "1", NLU_METRICS_ENABLED: "1" });
+const measureScene = (name, result) => {
+  measurements[name] = { before: result.before, total: result.total, waves: result.waves };
+  t.eq(result.status, 200, `${name}: HTTP 200`);
+};
+
+await fixture(async fx => {
+  prodLikeEnv(fx);
+  const key = `${fx.prefix}-direct`;
+  const result = await fx.say("점심 12000", { key, room: "", properties: { appUserId: String(980000000 + sequence) } }); measureScene("V119-direct-first", result);
+  t.ok(result.text.includes("저장했어요"), "V119-direct-first: an unseen person's first direct-message record saves");
+  t.eq(fx.db.transactions.filter(row => row.source_user_key === key).length, 1, "V119-direct-first: exactly one record");
+  t.eq(activeLeases(fx), 0, "V119-direct-first: every lease is released inside the request budget");
+});
+
+await fixture(async fx => {
+  prodLikeEnv(fx);
+  const key = `${fx.prefix}-bot-of-bin`;
+  const result = await fx.say("빵 2800", { key, properties: { appUserId: "2265" } }); measureScene("V119-web-room-first", result);
+  t.ok(result.text.includes("저장했어요"), "V119-web-room-first: a web-account person's first call in a new room records");
+  t.eq(fx.db.transactions.filter(row => row.source_user_key === key).length, 1, "V119-web-room-first: exactly one record");
+  t.eq(fx.db.transactions.filter(row => row.source_user_key === key)[0]?.user_id, "user-bin", "V119-web-room-first: the record belongs to the existing web account");
+  t.eq(activeLeases(fx), 0, "V119-web-room-first: every lease is released inside the request budget");
 });
 
 // Always exercise the same assertions in both category modes. Only measured
