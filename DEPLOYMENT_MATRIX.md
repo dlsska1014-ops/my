@@ -1,3 +1,15 @@
+## V22.9.119 배포 판단
+
+- 대상: 앱만. 관제·Secret·Kakao 콘솔·OpenBuilder·1년 캐시 자산 변경 없음. 새 선택 변수 `DB_CALL_BUDGET`(요청 한 번)·`CRON_DB_CALL_BUDGET`(예약 실행 한 번)은 넣지 않는다(없거나 50~900 정수가 아니면 50 = 지금 동작) → 바인딩 32. 값은 11-19 Workers Paid 전환 뒤 사용자가 지목할 때 넣는다(하나마다 바인딩 하나). 금지 변수 12개 열.
+- DB: 검토용 SQL `migrations/V22_9_119_DROP_KAKAO_REQUEST_UNIQUE_REVIEW_ONLY.sql`(운영에만 있는 유니크 인덱스 `transactions_kakao_request_unique_idx` 제거)은 실행하지 않는다(BEGIN 뒤 `RAISE EXCEPTION` 가드). 적용은 V22.9.119 배포 뒤 사용자가 그 일을 직접 지목했을 때만 한다(순서·적용 전 확인·적용 뒤 확인은 파일 주석). 인덱스가 남아 있는 동안: 같은 날 같은 문장의 둘째 카카오 기록은 저장되지 않고, 답이 그렇게 말한다(‘이번 내용은 저장하지 않았어요.’ + 같은 문장 기록이 이미 있다는 줄 + ‘같은 지출이 한 번 더 있었다면 문장 끝에 낱말을 하나 덧붙여 다시 보내 주세요. 예: ‘버스 1500 두 번째’’ — 예시대로 보내면 저장된다). 인덱스를 지운 뒤: 같은 문장을 121초 뒤 다시 보내면 둘째 기록이 저장된다(120초 안 재전송은 ‘중복 저장 안 함’ 그대로).
+- 바뀐 것: 리포트·분석 숫자와 문장(V118:N-1~N-9·N-13·N-14 — 종합 리포트·소비 분석·한눈에 보기·예산 화면·휴대폰 홈·카카오 요약 답·관리자 PC 분석 주간 카드), 같은 날 같은 문장 카카오 기록 거절을 사실대로 답함(O-1 앱 쪽 — 웹·관리자 API 수정은 409 `record_same_kakao_text`), DB 호출 예산 변수 읽기와 예약 실행 기록 `db_budget`(O-3·O-5), 백업 런북(O-2), DB 호출 장면 검사(O-10). 담당마다 독립 검토를 반영했다. 발견 기록 `docs/codex/FOLLOWUP_FINDINGS_V22_9_118.md`.
+- R3 예외: 이번 판은 N-1~N-9·N-13·N-14 의 문장·계산식만(사용자 2026-11-12 “결정이 필요한건 추천으로 진행”에 따른 조정자 결정). 소비 분석 보호 화면의 보호 해시는 `validation/lib-audit-v22934.mjs` 의 되돌림 `beforeReportNumbersV229119`(7쌍, 쌍마다 정확히 1번)로 그대로다(보호 해시 검사 넷 통과).
+- 공개 HTML: 바뀌지 않는다(sitemap 60 + 공개 주소 8 을 V22.9.118 번들과 견주어 판 이름 말고 같음). 광고 게이트·광고 목록 그대로.
+- 약관 개정일: 약관·방침 날짜는 이 판에서 바꾸지 않았다 — V22.9.118 의 **개정 공고 = 시행 = 2026-11-13** 을 그대로 싣는다. V22.9.118 을 따로 승격하지 않고 이 판으로 함께 싣는데 승격일이 2026-11-13 이 아니면, 배포 전에 RELEASE-CHECKLIST V22.9.118 절의 날짜 절차(`src/modules/public/site-config.js` 의 `POLICY_NOTICE_DATE`·`POLICY_REVISION_DATE` 두 줄 + `validation/validate-copy-fixes-v229118.mjs` 의 ‘이번 판 2026-11-13’ 단언 한 줄)대로 고치고 다시 빌드·등록 검사·manifest·하네스 두 모드를 돈다.
+- 되돌리기 대상(기록만): 승격 시점의 활성 version(지금 `d12b7f82-2951-43ba-a07f-8424c896b46f`(#349, V22.9.116-PRELAUNCH-P1, 배포 `be9efa46-1f87-478d-98b1-513c88e28bdf`, 2026-11-10 15:19:20 KST 승격); V22.9.117·V22.9.118 을 먼저 승격하면 그 id). 되돌리면 이 판(과 함께 실린 V22.9.117·V22.9.118)의 수정이 빠진다. DB 새 칸·표 없음.
+- 배포: PR(base `claude/v229118-site-review-fixes`) → CI → 병합(사용자 지목, #153 → #154 → 이 판 순) 뒤 사용자 토큰 업로드·대조(바인딩 32·differences []·소스 해시 72fd0e6b…) → 승격 → Claude 직후 확인 → 기록 PR. 검토용 SQL 적용과 예산 변수는 배포와 따로, 각각 사용자 지목 때.
+- 번들 9,961,032 B · SHA-256 `72fd0e6b5c25e1fb99f7c1d98622ecad888ceb92445df12919efab4d0fc38001`(146 모듈). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_119.sha256`(844) · 하네스 두 모드 79,701/79,698(하한 79,698). 절차 `review-artifacts/v119-report-numbers-2026-11-12/USER-DEPLOY-APP.md`.
+
 ## V22.9.118 배포 판단
 
 - 대상: 앱만(+ 저장소 배포 도구 `tools/deploy-worker-version.mjs`). 관제·DB·Secret·Kakao 콘솔·OpenBuilder·1년 캐시 자산 변경 없음. 새 선택 변수 `AUTH_ACCOUNT_GLOBAL_RATE_LIMIT`(없으면 50)은 넣지 않는다 → 바인딩 32, 금지 변수 12개 열.

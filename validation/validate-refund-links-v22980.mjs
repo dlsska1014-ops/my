@@ -1,3 +1,7 @@
+// V22.9.119 통합(2026-11-12, numbers·ops 를 V22.9.118 위에 모으고 판 이름을 올림): 지금 이 검사(지문 = V22.9.118 값 + 아래 homePrev)를 해시 입력에서 판 이름만 앞 판으로
+// 되돌려 돌리면 251·268개가 모두 통과하고, 판 이름과 아래 N-13 말을 함께 되돌리면 homePrev 도 V22.9.118 값 43ad9302… 그대로임을 먼저 확인했다
+// (review-artifacts/v119-report-numbers-2026-11-12/claude-checks.md). 그 뒤 --print-golden 으로 판 이름이 들어가는 analysis·backupFull·backupMonth 세 값만 다시 얻었다.
+// ops 변경(카카오 답·DB 호출 예산·예약 실행 기록)은 지문 화면에 닿지 않는다.
 // V22.9.119(2026-11-12, 리포트 숫자·문장 맞추기 N-13): 지난달 홈(homePrev, 9월)의 ‘가장 많이 쓴 곳이고 이번 달 지출의’ 가 ‘9월 지출의’ 로 바뀌었다. 해시 입력에서
 // 그 말만 되돌리면 옛 값 43ad9302… 그대로임을 먼저 확인했고, 그 뒤 --print-golden 으로 homePrev 한 값만 다시 얻었다. 나머지 24개는 그대로다.
 // M-7 소비 분석 요약 칸 라벨은 그릴 때의 오늘 기준이 되어, 그 줄만 시계를 이 장면의 오늘(TODAY)로 고정하고 예전 단언(‘이번 달 지출 · …’) 그대로 둔다.
@@ -124,15 +128,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 323fd864cf7e343efe6dc40d",
   "reportsWeek": "200 14de653d7544b8f2e096f67f",
-  "analysis": "200 1762527e7b8b5f6944337df4",
+  "analysis": "200 b349052ffa18091a4a98db41",
   "backupPage": "200 6262b0957469ecc4f141ae06",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 89103d2be9bec1bd9843126e",
-  "backupMonth": "200 7369227c0b29b88e16345596",
+  "backupFull": "200 13e017b638b7787274270997",
+  "backupMonth": "200 1faea35a58006b42a6d42b06",
   "candidate": "200 1571a22a5da825caeb45c8ac",
   "legacyErr": "200 8483371f87264a4e90af381d",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
