@@ -55278,8 +55278,16 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
       if (["viewer", "blocked"].includes(role)) return tooLarge ? tooLargeReply() : kakaoText(roleBlockedMessage(role, room.membership.household.name));
     }
     // V22.9.120: 저장하지 않고 되묻는 말도 이 방을 부른 것이므로 V22.9.115 처럼 답 뒤에 이 방 가계부에 들인다(설명서·빈 멘션과 같은 길).
+    // 통합(V22.9.118 과 합침): 답 뒤에 처음 들인 사람은 이 답에 약관 안내가 없다 — 설명서 화면(deferRoomJoinOnCall)처럼 운영 이벤트 한 건(after_reply)만 남긴다.
     if (recordGuard) {
-      if (roomJoinEligible) await deferKakaoAfterReply(env, () => joinRoomOnCallSync({ user, source: "record_guard" }), { cost: 26 });
+      if (roomJoinEligible) {
+        const afterReply = !!env.__AB_KAKAO_REQUEST?.enabled;
+        await deferKakaoAfterReply(env, async () => {
+          const joined = await joinRoomOnCallSync({ user, source: "record_guard" });
+          if (afterReply && (joined?.joinedNow || joined?.roomCreatedNow)) noteKakaoTermsNoticeDroppedV229118(env, "after_reply");
+          return joined;
+        }, { cost: 26 });
+      }
       return kakaoRecordGuardReplyV229120(recordGuard, editSessionNotice);
     }
     if (tooLarge) return tooLargeReply();
