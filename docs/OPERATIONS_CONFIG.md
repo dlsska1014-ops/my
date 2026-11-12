@@ -33,7 +33,7 @@ V22.9.76 작성(감사 G-15). 값은 적지 않는다. 이름과 빠졌을 때�
 `KAKAO_ACCOUNT_LINK_ENABLED`(V22.9.91, 없으면 끔): 단톡방 기록 계정과 웹 계정 잇기(/my 의 안내, /my/account-link 확인 화면, 합치기)를 켠다. `1` 이면 켠다. **운영: 2026-11-05 22:42:57 KST 부터 `1`**(사용자 지목 뒤 Aside 가 대시보드에서 추가, version 3d00c670 #334; 앱 1489689 ↔ 채널 연결 + 방 기록 probe 확인 뒤). 이로써 바인딩 34, 금지 변수 목록에서 빠짐.
 꺼져 있어도 잇기 제안(`kakao_login_link_offers_v22991`)과 appUserId 진단은 남는다. 켜는 것은 설정 변경이라 사용자 승인 뒤에 한다.
 
-단톡방 링크로 바로 열기(V22.9.105, 변수 없음·늘 켜짐): 카카오가 팀채팅방 링크 단추에 붙이는 `botUserKey`·`botGroupKey` 가 둘 다 있고(16진 32~128자, 각각 한 번) 그 사람의 원래 채팅 계정이 그 방 가계부 구성원이면 로그인 화면 없이 세션을 만들어 그 방 가계부 홈으로 보낸다(`src/modules/auth/kakao-room-open.js`). 웹 계정에 이어진 사람은 세션 없이 그 방 가계부 주소로만 보내고, 로그인 뒤 화면이 아닌 주소는 값만 지운다(운영 이벤트 kakao_room_values_stripped, DB 없음). 시도 제한은 `accountbook_auth_attempt` 의 경로 키 `/my/room-open-admission`(IP 마다 15분 60번, 창은 `AUTH_RATE_WINDOW_SECONDS`). 결과는 설정 표 `kakao_room_open_probe_v229105:<결과>`(ok·switched·same_session·member_session·linked_account·linked_other_session·session_kept·no_user·not_member·no_room_household·bad_key_shape·duplicate_values·no_user_key·no_group_key·admin_browser·crawler·rate_limited·limiter_unavailable·lookup_failed; 값은 시각·판만, isolate 마다 결과별 10분에 한 번)와 운영 이벤트 kakao_room_open 에 남는다. 끄려면 V22.9.104 version 으로 되돌린다(사용자 지목).
+단톡방 링크로 바로 열기(V22.9.105, 변수 없음·늘 켜짐): 카카오가 팀채팅방 링크 단추에 붙이는 `botUserKey`·`botGroupKey` 가 둘 다 있고(16진 32~128자, 각각 한 번) 그 사람의 원래 채팅 계정이 그 방 가계부 구성원이면 로그인 화면 없이 세션을 만들어 그 방 가계부 홈으로 보낸다(`src/modules/auth/kakao-room-open.js`). 웹 계정에 이어진 사람은 세션 없이 그 방 가계부 주소로만 보내고(V22.9.118 부터는 원래 채팅 계정이라도 강한 식별 — 카카오 로그인 또는 로그인 이름·비밀번호 — 이 붙었으면 같은 길: 결과 strong_account, 다른 세션이 있으면 strong_other_session), 로그인 뒤 화면이 아닌 주소는 값만 지운다(운영 이벤트 kakao_room_values_stripped, DB 없음). 시도 제한은 `accountbook_auth_attempt` 의 경로 키 `/my/room-open-admission`(IP 마다 15분 60번, 창은 `AUTH_RATE_WINDOW_SECONDS`). 결과는 설정 표 `kakao_room_open_probe_v229105:<결과>`(ok·switched·same_session·member_session·linked_account·linked_other_session·strong_account·strong_other_session·session_kept·no_user·not_member·no_room_household·bad_key_shape·duplicate_values·no_user_key·no_group_key·admin_browser·crawler·rate_limited·limiter_unavailable·lookup_failed; 값은 시각·판만, isolate 마다 결과별 10분에 한 번)와 운영 이벤트 kakao_room_open 에 남는다. 끄려면 V22.9.104 version 으로 되돌린다(사용자 지목).
 켜기 전 확인(DEPLOYMENT_MATRIX V22.9.91 절): 카카오 콘솔에서 웹 로그인 앱 1489689 를 그룹 챗봇에 연결하고, 운영자 자신의 갈라진 계정으로 관리자 /identity-audit 의 ‘appUserId 옴’과 잇기 제안을 본다.
 TEST 앱 1508592 는 연결하지 않는다(다른 회원번호가 와 남의 웹 계정을 가리킬 수 있다). 관리자 진단 칸이 이 값의 켜짐·꺼짐을 보인다.
 
@@ -85,7 +85,9 @@ V22.9.97 후원 지표(변수 없음, 새 SQL 없음): 송금·오픈채팅 단�
 
 ## 조정용 (없으면 코드 기본값)
 
-요청 제한 `SKILL_RATE_LIMIT`·`SKILL_RATE_WINDOW_MS`·`SKILL_IP_GUARD_LIMIT`·`TRAFFIC_GUARD_LIMIT`·`TRAFFIC_GUARD_WINDOW_MS`·`AUTH_RATE_LIMIT`·`AUTH_ACCOUNT_RATE_LIMIT`,
+요청 제한 `SKILL_RATE_LIMIT`·`SKILL_RATE_WINDOW_MS`·`SKILL_IP_GUARD_LIMIT`·`TRAFFIC_GUARD_LIMIT`·`TRAFFIC_GUARD_WINDOW_MS`·`AUTH_RATE_LIMIT`·`AUTH_ACCOUNT_RATE_LIMIT`·`AUTH_ACCOUNT_GLOBAL_RATE_LIMIT`,
 카카오 `KAKAO_BULK_LIMIT`·`KAKAO_RESPONSE_BUDGET_MS`·`KAKAO_RETRY_DEDUP_SECONDS`·`KAKAO_REPEAT_GUARD_SECONDS`·`DUPLICATE_GUARD_SECONDS`·`KAKAO_DEFAULT_HOUSEHOLD_ID`,
 DB `SUPABASE_READ_ATTEMPT_MS`·`SUPABASE_WRITE_TIMEOUT_MS`, 가져오기 `MY_IMPORT_LIMIT`·`MY_IMPORT_MAX_BYTES`, 자산 `PAYMENT_ASSET_LEASE_SECONDS`,
-NLU 기록 `NLU_*`. 전체 목록은 `grep -rhoE "env[.?]+[A-Z][A-Z0-9_]+" src/modules | sort -u` 로 본다.
+NLU 기록 `NLU_*`.
+`AUTH_ACCOUNT_GLOBAL_RATE_LIMIT`(V22.9.118, 선택, 기본 50, 10~50 밖은 끝값으로): 관리자 로그인·로그인 이름 로그인의 IP 와 무관한 계정 전체 실패 횟수 한도. 창은 `AUTH_RATE_WINDOW_SECONDS`(기본 900초), 성공하면 지운다. 처음 막힌 시도에 운영 이벤트 `auth_account_limit_reached`(warn, 식별자 없음) 한 건. 운영은 넣지 않는다(바인딩 32). 같은 판부터 IP 단위 시도 제한은 IPv6 을 /64 로 묶어 센다(IPv4 그대로).
+전체 목록은 `grep -rhoE "env[.?]+[A-Z][A-Z0-9_]+" src/modules | sort -u` 로 본다.
