@@ -48,7 +48,8 @@ import { startsWithKakaoEditField } from "./edit-state-machine.js";
 import { handleKakaoEditCommandV4, handleKakaoEditSessionMessageV4 } from "./edit-flow-v4.js";
 import {
   armKakaoRepeatGuard, checkKakaoRepeatGuard, clearKakaoInFlight, isKakaoFirstRecordInput,
-  isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoDeferredReply, kakaoQaRequestAllowed,
+  isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoChangeRequestReply, kakaoDeferredReply,
+  kakaoQaRequestAllowed, kakaoRecordGuardReplyV229120, kakaoRecordGuardV229120,
   kakaoRepeatGuardText, looksLikeKakaoChangeRequest, looksLikeKakaoEditCommandV4,
   normalizeKakaoSkillResponse, stripLeadingCommand,
 } from "./request-guards.js";
@@ -396,6 +397,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // 숫자가 원화로 저장됐다(100원). 고치는 말·예산 말도 같다. 열린 수정 세션·단계 흐름은 그대로 두므로 원화로 다시 보내면 이어진다.
   if (foreignCurrencyAmountIn(utterance)) return kakaoText(kakaoForeignAmountText(origin));
   const strongTransactionInput = isStrongKakaoTransactionInput(commandText, preParsedList);
+  // V22.9.120: 저장 직전 안전망(request-guards.js kakaoRecordGuardV229120). DB 를 읽지 않는 판정이라 여기서 한 번 보고, 아래 저장 직전 세 곳에서만 쓴다.
+  const recordGuard = !separatePurchaseCommand ? kakaoRecordGuardV229120(utterance, preParsedList) : null;
   // V22.9.63 감사(1:1 2): 가계부가 없는 사람의 첫 기록은 "밥 4500원"처럼 한 글자 내용도 받는다. 아래 두 자동 준비 길에만 쓴다.
   const firstRecordInput = strongTransactionInput || isKakaoFirstRecordInput(commandText, preParsedList);
   const kakaoUserKey = getKakaoUserKey(payload);
@@ -739,19 +742,31 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   if (groupFirstRecord) {
     const limit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
     if (preParsedList.length > limit) return kakaoText(`한 번에 ${limit}건까지 입력할 수 있어요. ${preParsedList.length}건 모두 저장하지 않았어요. 내용을 나눠 다시 보내 주세요.`);
+    // V22.9.120 후속(독립 검토 P3): 금액 상한 검사를 안전망 뒤로 옮겨 세 저장 지점(방·1:1 첫 기록·1:1)이 같은 순서(안전망 → 금액 상한)로 답한다
+    // (‘올해 목표 30억 모으기’ 는 어디서나 계획 안내). 방 정보는 위에서 이미 읽기 시작했으므로 DB 호출은 늘지 않는다. 조회 전용·이용 제한은 예전처럼 금액 상한을 먼저 알린다.
     const tooLarge = preParsedList.find((parsed) => Number(parsed.amount || 0) > MAX_TRANSACTION_AMOUNT);
-    if (tooLarge) return kakaoText(`금액이 너무 커서 저장하지 않았어요.\n입력 금액: ${numberWithCommas(tooLarge.amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 기록할 수 있어요. 금액을 확인해 다시 보내 주세요.`);
+    const tooLargeReply = () => kakaoText(`금액이 너무 커서 저장하지 않았어요.\n입력 금액: ${numberWithCommas(tooLarge.amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 기록할 수 있어요. 금액을 확인해 다시 보내 주세요.`);
+    // V22.9.120 후속 3(재검토 P3): 안전망에 걸리지 않은 말의 금액 상한 안내는 방 정보 읽기를 기다리지 않는다(예전처럼 읽기 전에 답하므로 읽기가 실패해도 상한 안내).
+    if (!recordGuard && tooLarge) return tooLargeReply();
     // V22.9.79 감사 N-5: 방 기록의 저장 답장도 같은 이름 가계부를 구별한다 — 이미 던져 둔 내 가계부 목록을 답장 만들 때 쓰도록 넘긴다(조회는 늘지 않는다).
     const room = roomContext ? await roomContext.ready : null;
     const common = { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, groupKey: botGroupKey, editSessionNotice, householdRowsPromise: householdsPromise.then((result) => result.value || null), ...(room || {}) };
     if (room?.observed.link && (room.observed.done || !room.observed.marker) && room.membership.household && !room.redirectValue && !String(user.kakao_user_key || "").startsWith("merged:") && !/\(통합됨\)\s*$/.test(String(user.nickname || ""))) {
       const role = bestRoleFromRows(room.membership.roomRows.filter(row => String(row.user_id) === String(user.id)));
       if (["owner", "admin", "member"].includes(role)) {
+        if (recordGuard) return kakaoRecordGuardReplyV229120(recordGuard, editSessionNotice);
+        if (tooLarge) return tooLargeReply();
         const household = { ...room.membership.household, role, from_group_link: true, bot_group_key: botGroupKey };
         return await saveKakaoParsedTransactionsReply(env, { ...common, household, householdLabel: kakaoHouseholdReplyName(household, room.membership.households), firstNotice: editSessionNotice });
       }
-      if (["viewer", "blocked"].includes(role)) return kakaoText(roleBlockedMessage(role, room.membership.household.name));
+      if (["viewer", "blocked"].includes(role)) return tooLarge ? tooLargeReply() : kakaoText(roleBlockedMessage(role, room.membership.household.name));
     }
+    // V22.9.120: 저장하지 않고 되묻는 말도 이 방을 부른 것이므로 V22.9.115 처럼 답 뒤에 이 방 가계부에 들인다(설명서·빈 멘션과 같은 길).
+    if (recordGuard) {
+      if (roomJoinEligible) await deferKakaoAfterReply(env, () => joinRoomOnCallSync({ user, source: "record_guard" }), { cost: 26 });
+      return kakaoRecordGuardReplyV229120(recordGuard, editSessionNotice);
+    }
+    if (tooLarge) return tooLargeReply();
     return await tryKakaoGroupFirstRecord(env, common);
   }
 
@@ -802,6 +817,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   }
   if (!botGroupKey && seedChatFirst && firstRecordInput && !selectedHouseholdId &&
       (!households.length || (households.length === 1 && households[0].role === "owner"))) {
+    if (recordGuard) return kakaoRecordGuardReplyV229120(recordGuard, editSessionNotice); // V22.9.120 후속: 안전망 → 금액 상한(세 저장 지점 같은 순서)
     const tooLarge = preParsedList.slice(0, boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80)).find((parsed) => Number(parsed.amount || 0) > MAX_TRANSACTION_AMOUNT);
     if (tooLarge) return kakaoText(`금액이 너무 커서 저장하지 않았어요.\n입력 금액: ${numberWithCommas(tooLarge.amount)}원\n최대 ${numberWithCommas(MAX_TRANSACTION_AMOUNT)}원까지 기록할 수 있어요. 금액을 확인해 다시 보내 주세요.`);
     const firstReply = await tryKakaoChatFirstRecord(env, { payload, user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, selectedHouseholdId });
@@ -996,9 +1012,10 @@ ${formatRecentTransactions(rows)}`);
   }
   // D3: 날짜를 읽지 못한 수정·삭제 명령("지난주 금요일 01번 금액 5000")이 여기까지 오면 새 기록으로 저장하지 않는다.
   if (looksLikeKakaoEditCommandV4(commandText)) return kakaoText("수정·삭제 명령으로 보여서 새 기록으로 저장하지 않았어요.\n날짜는 이렇게 붙여 주세요.\n어제 수정 01번 금액 13000\n7월 10일 삭제 01번");
-  if (looksLikeKakaoChangeRequest(commandText)) return kakaoText("기록을 고치거나 지우려는 말로 보여서 새 기록으로 저장하지 않았어요.\n‘오늘기록’으로 번호를 본 뒤 이렇게 보내 주세요.\n수정 01번 금액 5000\n삭제 01번\n방금 기록이라면 ‘방금 5000원으로 바꿔줘’·‘방금 삭제’로 돼요.\n\n새로 적는 거라면 ‘커피 5000원’처럼 보내 주세요.", [["오늘기록", "오늘기록"]]);
+  if (looksLikeKakaoChangeRequest(commandText)) return kakaoChangeRequestReply();
   // T-44: 조회 전용은 위 판정에서 막는다. 조회 판정이 넓어져도 새 기록 저장에는 닿지 않게 저장 바로 앞에서 한 번 더 본다.
   if (accessRole === "viewer") return kakaoText(roleBlockedMessage(accessRole, household.name));
+  if (recordGuard) return kakaoRecordGuardReplyV229120(recordGuard, editSessionNotice);
   // V22.9.43: 단톡방 연결 가계부에는 역할이 실려 있지 않다. 저장 안내가 구성원 권한(기록만)을 알 수 있게 실제 역할을 붙인다.
   // V22.9.77 감사 D-6: 같은 이름의 가계부가 내 목록에 또 있으면 답장의 ‘가계부:’ 줄에 역할·만든 날을 붙인다(이미 읽은 목록이라 조회는 늘지 않는다).
   const savedHousehold = household.role ? household : { ...household, role: accessRole };
