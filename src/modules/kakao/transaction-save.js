@@ -130,7 +130,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     if (err?.kakao_same_text_exists === true) {
       const skippedItems = err.kakao_same_text_skipped || [];
       rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: `items:${err.kakao_same_text_items.length}/${limitedParsedList.length} skipped:${skippedItems.length}` });
-      return kakaoText(kakaoSameTextExistsTextV229119(err.kakao_same_text_items, limitedParsedList.length, skippedItems, { long: err.kakao_same_text_long === true }));
+      return kakaoText(kakaoSameTextExistsTextV229119(err.kakao_same_text_items, limitedParsedList.length, skippedItems, { long: err.kakao_same_text_long === true, today: env?.__AB_KAKAO_REQUEST?.todayV229120 || "" }));
     }
     // V22.9.26: 저장소가 분명한 실패(4xx·5xx)를 돌려줬으면 저장된 것이 없다. 그때는 "다시 보내지
     // 말라"가 아니라 다시 보내 달라고 해야 기록이 사라지지 않는다. 응답 없이 끊긴 경우(시간

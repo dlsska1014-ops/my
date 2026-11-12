@@ -192,7 +192,7 @@ async function handleKakaoSeparatePurchase(env, context) {
           // V22.9.119 O-1 후속(독립 검토 B): 운영 유니크 인덱스(같은 날·같은 문장)가 거절했으면 같은 확인으로 다시 해도 같다. 사실과 보낼 문장을 말한다.
           if (state.state === "failed" && isKakaoRequestUniqueConflictV229119(error)) {
             rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: "separate" });
-            return kakaoText(kakaoSeparateSameTextTextV229119(state.row));
+            return kakaoText(kakaoSeparateSameTextTextV229119(state.row, { today: env?.__AB_KAKAO_REQUEST?.todayV229120 || "" }));
           }
           if (state.state === "failed") return kakaoText("저장소가 요청을 거절해 별도 구매를 추가하지 못했어요. 같은 확인 식별자로만 다시 시도해 주세요.");
         }
