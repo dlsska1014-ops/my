@@ -12,6 +12,18 @@
 //        사용자의 ‘방 단추 → 로그인 화면 없이 방 가계부 홈’(카카오 심사 요구)은 그대로다.
 //  O-4 배포 도구가 승격 뒤 실행할 수 있는 되돌리기 명령 줄을 출력했고(2026-10-19 사고 뒤 규칙과 어긋남), 서울 DB 전환 버전(#333)보다 앞선
 //      버전(옛 시드니 Secret)으로 내리는 것을 막지 않았고, 되돌린 뒤 /ready 를 보지 않았다.
+// 후속(독립 검토 반영, 2026-11-12):
+//  P2-1 방 단추의 강한 식별은 계정 잇기·본인 확인과 같은 두 종류(provider kakao·local)만 센다 — 다른 종류의 행만 있는 채팅 계정은 지금처럼 바로 열린다.
+//  P2-2 계정 전체 횟수는 AUTH_ACCOUNT_GLOBAL_RATE_LIMIT=off(또는 0)로 끌 수 있다(세고 이벤트는 남기되 막지 않는다).
+//  P3-1 IPv6 /64 묶기는 비밀번호를 대조하는 길(관리자 로그인·로그인 이름 로그인·비밀번호 재확인)에만 — 가입·방 단추·웹 연결 코드는 주소 그대로.
+//  P3-2 운영 이벤트는 허용에서 막힘으로 바뀐 첫 응답에 한 번(운영 함수가 돌려주는 횟수에 기대지 않는다).
+//  P3-3 로그인 이름 비밀번호만 붙은 채팅 계정은 카카오 자동 로그인이 아니라 로그인 이름 칸을 연 보통 로그인 화면으로 간다.
+//  P3-4 되돌린 뒤 /health·/ready 는 배포 전 판의 응답과 다시 쓴 /ready(cached)를 세지 않는다.
+// 재검토(같은 날, 후속 커밋 검토):
+//  P2  판 이름이 같은 버전으로 되돌리면 늘 실패하고 /ready 를 보지 않았다 → 경고로 남기고(배포 API 로 확인한 활성 version id 를 함께) 판 제외 없이
+//      /health 연속 확인과 /ready 로 종료 코드를 정한다.
+//  P3  다시 쓴 /ready 는 ok 가 아니면 ‘준비 안 됨’, ok 면 checked_at 이 배포 요청 뒤일 때만 센다(칸이 없으면 예전처럼 기다린다).
+//  P3  끄기 값: off·false·no·none·disabled 또는 0 이하 숫자(00·0.0·-0·음수)는 끔, 그 밖의 숫자 아닌 글자는 기본 50 + 운영 이벤트 warn(isolate 당 한 번).
 // 실제 요청(/login·/my/local-login·/my·/app)과 픽스처 DB(시도 횟수 흉내 __enforce_auth_rate)로 본다. 배포 도구는 가짜 Cloudflare API 로 돌린다.
 // 장면(section)마다 따로 잡아, 옛 코드에서는 어느 항목이 실패하는지 한 번에 보인다. 하나라도 실패하면 끝에서 실패로 끝난다.
 //
@@ -51,17 +63,19 @@ const UA = "QA-Login/118";
 const v6 = (block, host = 1) => `2001:db8:${block.toString(16)}:1::${host.toString(16)}`;
 const attemptsOf = (fx, key) => fx.db.__auth_attempts?.get(key);
 
-function freshLimiter(fx) {
-  fx.db.__enforce_auth_rate = true;
+function freshLimiter(fx, { enforce = true } = {}) {
+  fx.db.__enforce_auth_rate = enforce;
   fx.db.__auth_attempts = new Map();
   globalThis.__AB_TRAFFIC_BUCKETS?.clear?.();
+  globalThis.__AB_AUTH_WIDE_BLOCKED?.clear?.();
+  delete globalThis.__AB_AUTH_WIDE_SETTING_WARNED;
   if (Array.isArray(globalThis.__AB_OPS_EVENTS)) globalThis.__AB_OPS_EVENTS.length = 0;
 }
 
-async function formPost(fx, path, values, { ip = "", ua = UA } = {}) {
+async function formPost(fx, path, values, { ip = "", ua = UA, cookie = "" } = {}) {
   const response = await app.fetch(new Request(`${BASE}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/x-www-form-urlencoded", origin: BASE, "sec-fetch-site": "same-origin", accept: "text/html", "user-agent": ua, ...(ip ? { "cf-connecting-ip": ip } : {}) },
+    headers: { "content-type": "application/x-www-form-urlencoded", origin: BASE, "sec-fetch-site": "same-origin", accept: "text/html", "user-agent": ua, ...(ip ? { "cf-connecting-ip": ip } : {}), ...(cookie ? { cookie } : {}) },
     body: new URLSearchParams(values).toString(),
   }), fx.env, ctx);
   return { status: response.status, retryAfter: response.headers.get("retry-after") || "", setCookie: response.headers.get("set-cookie") || "", location: response.headers.get("location") || "", html: await response.text() };
@@ -73,14 +87,17 @@ async function signup(fx, name, password) {
   ok(response.status === 303, `S-1 준비: 로그인 이름 ‘${name}’ 계정을 만든다`);
 }
 
-// 시도 제한 RPC 요청 본문을 모은다. failKey 가 주어지면 그 키의 요청만 실패(503)시킨다.
-async function captureAuthCalls(task, { failKey = "" } = {}) {
+// 시도 제한 RPC 요청 본문을 모은다. failKey 가 주어지면 그 키의 요청만 실패(503)시킨다. answer(body) 가 값을 돌려주면 그 키의 응답을 그 값으로 바꾼다.
+const rpcAnswer = (value) => new Response(JSON.stringify(value), { status: 200, headers: { "content-type": "application/json" } });
+async function captureAuthCalls(task, { failKey = "", answer = null } = {}) {
   const bodies = [];
   const restore = intercept(async ({ url, method, init }) => {
     if (method !== "POST" || url.pathname !== "/rest/v1/rpc/accountbook_auth_attempt") return null;
     const body = JSON.parse(String(init?.body || "{}"));
     bodies.push(body);
-    return failKey && body.p_key === failKey ? failure(503) : null;
+    if (failKey && body.p_key === failKey) return failure(503);
+    const replaced = answer ? answer(body) : null;
+    return replaced ? rpcAnswer(replaced) : null;
   });
   try {
     return { result: await task(), bodies };
@@ -98,8 +115,20 @@ await section("S-1 소스", async () => {
   ok(!loginSource.includes("계정 단위 횟수는 어디서 보내든 같은 계정이면 함께 줄어든다."), "S-1 0 로그인 이름 단위의 옛 주석(‘어디서 보내든 함께 줄어든다’, 실제로는 주소|이름 키)을 고쳤다");
   ok(/recordAuthAccountWideAttempt\(env, request, "\/login", "admin", false,/.test(adminSource), "S-1 0 관리자 로그인이 IP 와 무관한 관리자 전체 횟수를 센다");
   ok(/recordAuthAccountWideAttempt\(env, request, "\/my\/local-login", loginName, false,/.test(loginSource), "S-1 0 로그인 이름 로그인이 IP 와 무관한 이름 전체 횟수를 센다");
-  ok(/boundedRuntimeNumber\(env\?\.AUTH_ACCOUNT_GLOBAL_RATE_LIMIT, 50, 10, 50\)/.test(cryptoSource), "S-1 0 전체 횟수 한도는 변수로 바꿀 수 있다(기본 50, 10~50 — 운영 함수가 50 위를 자른다)");
-  ok(/scope === "ip" \? authAttemptNetwork\(request\)/.test(cryptoSource), "S-1 0 ip 범위 시도 제한은 IPv6 를 /64 로 묶어 센다");
+  ok(/String\(env\?\.AUTH_ACCOUNT_GLOBAL_RATE_LIMIT \?\? ""\)/.test(cryptoSource) && /boundedRuntimeNumber\(number, 50, 10, 50\)/.test(cryptoSource), "S-1 0 전체 횟수 한도는 변수로 바꿀 수 있다(기본 50, 10~50 — 운영 함수가 50 위를 자른다)");
+  ok(/new Set\(\["off", "false", "no", "none", "disabled"\]\)/.test(cryptoSource) && /number <= 0 \? \{ enforce: false/.test(cryptoSource), "S-1 0 끄기는 off·false·no·none·disabled 또는 0 이하 숫자(독립 검토 P2-2, 재검토 P3)");
+  ok(/scope === "ip" \? \(options\.groupIpv6 \? authAttemptNetwork\(request\) : trafficClientIp\(request\)\)/.test(cryptoSource), "S-1 0 ip 범위는 groupIpv6 로 부를 때만 IPv6 를 /64 로 묶는다(그 밖은 주소 그대로, 독립 검토 P3-1)");
+  ok(!/Number\(result\.attempts\) === limit \+ 1/.test(cryptoSource), "S-1 0 운영 이벤트가 운영 함수가 돌려준 횟수(한도 + 1)에 기대지 않는다(독립 검토 P3-2)");
+  // /64 묶기를 쓰는 곳은 비밀번호를 대조하는 세 길뿐이다.
+  const reauthSource = read("src/modules/auth/identity-reauth.js");
+  const grouped = (source) => (source.match(/groupIpv6: true/g) || []).length;
+  eq(grouped(adminSource), 3, "S-1 0 관리자 로그인: 입장·IP 횟수·성공 뒤 지우기 셋이 /64 묶기");
+  eq(grouped(reauthSource), 4, "S-1 0 비밀번호 재확인: 입장·IP 횟수·지우기 둘이 /64 묶기");
+  ok(/"\/my\/local-login-admission", false, \{ limit: 40, groupIpv6: true \}/.test(loginSource), "S-1 0 로그인 이름 로그인: 입장 제한이 /64 묶기");
+  ok(/"\/my\/local-signup", false, \{ scope: "ip", limit: boundedRuntimeNumber\(env\.AUTH_SIGNUP_IP_LIMIT, 20, 5, 200\) \}\)/.test(loginSource), "S-1 0 가입의 IP 상한은 예전 그대로(주소 그대로)");
+  for (const path of ["src/modules/auth/kakao-room-open.js", "src/modules/auth/kakao-web-claim.js", "src/modules/auth/kakao-oauth.js"]) {
+    ok(!read(path).includes("groupIpv6"), `S-1 0 ${path.split("/").pop()}: IP 단위 제한은 주소 그대로(/64 로 묶지 않는다)`);
+  }
 });
 
 // ── S-1 1. IPv6 /64 묶기 ──────────────────────────────────────────────────────────
@@ -293,6 +322,139 @@ await section("S-1 새 키", () => fixture(async (fx) => {
   }
 }));
 
+// ── S-1 8. IPv6 /64 묶기는 비밀번호를 대조하는 길에만(독립 검토 P3-1) ─────────────────────────
+const V6_RAW = "2001:db8:5a5:1::77";
+const V6_NET = "2001:db8:5a5:1::/64";
+await section("S-1 /64 는 비밀번호 길만", () => fixture(async (fx) => {
+  Object.assign(fx.env, ADMIN_ENV);
+  await signup(fx, "v229118net", "pass-word-118g");
+  freshLimiter(fx, { enforce: false });
+  const keysOf = (bodies) => new Set(bodies.map((body) => body.p_key));
+  // 비밀번호를 대조하는 길: /64 하나로 센다.
+  const admin = keysOf((await captureAuthCalls(() => adminLogin(fx, "wrong", V6_RAW))).bodies);
+  ok(admin.has(fingerprint(`auth|ip|/login-admission|${V6_NET}`)) && admin.has(fingerprint(`auth|ip|/login|${V6_NET}`)), "S-1 8 관리자 로그인: 입장·IP 횟수는 /64 하나로 센다");
+  const local = keysOf((await captureAuthCalls(() => localLogin(fx, "v229118net", "wrong-pass-118", V6_RAW))).bodies);
+  ok(local.has(fingerprint(`auth|ip|/my/local-login-admission|${V6_NET}`)) && local.has(fingerprint(`auth|account|/my/local-login|${V6_NET}|v229118net`)), "S-1 8 로그인 이름 로그인: 입장·‘주소|이름’ 은 /64 하나로 센다");
+  const reauth = await captureAuthCalls(() => formPost(fx, "/my/account-reauth", { current_password: "wrong-pass-118" }, { ip: V6_RAW, cookie: fx.cookie }));
+  const reauthKeys = keysOf(reauth.bodies);
+  ok(reauth.result.status === 303 && reauthKeys.has(fingerprint(`auth|ip|/my/password-reauth-admission|${V6_NET}`)) && reauthKeys.has(fingerprint(`auth|ip|/my/password-reauth|${V6_NET}`)), "S-1 8 비밀번호 재확인: 입장·IP 횟수는 /64 하나로 센다");
+  // 그 밖의 IP 단위 제한: 예전처럼 주소 그대로(같은 /64 뒤의 다른 사람과 묶지 않는다).
+  const signupRun = await captureAuthCalls(() => formPost(fx, "/my/local-signup", { login_name: "v229118net2", display_name: "넷", access_code: "pass-word-118h", access_code_confirm: "pass-word-118h", consent: "1" }, { ip: V6_RAW }));
+  const signupKeys = keysOf(signupRun.bodies);
+  ok(signupRun.result.status === 303 && signupKeys.has(fingerprint(`auth|ip|/my/local-signup|${V6_RAW}`)) && !signupKeys.has(fingerprint(`auth|ip|/my/local-signup|${V6_NET}`)), "S-1 8 가입의 IP 상한은 주소 그대로 센다");
+  const claimRun = await captureAuthCalls(() => formPost(fx, "/my/kakao-claim", { kakao_claim_code: "ABCDEFGH".repeat(4) }, { ip: V6_RAW }));
+  const claimKeys = keysOf(claimRun.bodies);
+  ok(claimKeys.has(fingerprint(`auth|ip|/my/kakao-claim-admission|${V6_RAW}`)) && !claimKeys.has(fingerprint(`auth|ip|/my/kakao-claim-admission|${V6_NET}`)), "S-1 8 웹 연결 코드 입장 제한은 주소 그대로 센다");
+}));
+
+// ── S-1 9. 계정 전체 횟수 끄기(독립 검토 P2-2: 남이 일부러 채워 잠근 계정을 운영자가 바로 푼다) ─────────
+await section("S-1 전체 횟수 끄기", () => fixture(async (fx) => {
+  Object.assign(fx.env, ADMIN_ENV);
+  fx.env.AUTH_ACCOUNT_GLOBAL_RATE_LIMIT = "off";
+  freshLimiter(fx);
+  const statuses = [];
+  const run = await captureAuthCalls(async () => {
+    for (let n = 1; n <= 52; n += 1) {
+      const block = 0x400 + Math.floor((n - 1) / 8);
+      statuses.push((await adminLogin(fx, `wrong-password-${n}`, v6(block, ((n - 1) % 8) + 1))).status);
+    }
+  });
+  ok(statuses.every((status) => status === 401), "S-1 9 off: 전체 50번을 넘겨도 막지 않는다(틀린 비밀번호는 401 그대로)");
+  eq(attemptsOf(fx, ADMIN_WIDE), 52, "S-1 9 off: 전체 횟수는 그대로 센다");
+  ok(run.bodies.filter((body) => body.p_key === ADMIN_WIDE).every((body) => body.p_limit === 50), "S-1 9 off: 세는 한도는 50");
+  const reached = events("auth_account_limit_reached");
+  eq(reached.length, 1, "S-1 9 off: 막힐 자리에 운영 이벤트는 한 번 남긴다");
+  eq(reached[0]?.detail, "limit 50, window 900s, off (not blocking)", "S-1 9 off: 이벤트에 끈 상태가 보인다");
+  const right = await adminLogin(fx, ADMIN_PASSWORD, v6(0x4ff, 1));
+  ok(right.status === 303 && right.setCookie.startsWith("ab_admin="), "S-1 9 off: 차 있어도 맞는 비밀번호로 들어간다(막힌 계정을 푸는 길)");
+  eq(attemptsOf(fx, ADMIN_WIDE), 0, "S-1 9 off: 로그인 성공은 전체 횟수를 지운다(다시 켜도 막혀 있지 않다)");
+  // "0" 과 대문자·빈칸도 끔이다. 운영 함수가 막힘을 돌려주거나 읽지 못해도 막지 않는다.
+  for (const value of ["0", " OFF "]) {
+    fx.env.AUTH_ACCOUNT_GLOBAL_RATE_LIMIT = value;
+    freshLimiter(fx, { enforce: false });
+    const blocked = await captureAuthCalls(() => adminLogin(fx, ADMIN_PASSWORD, "198.51.100.60"), { answer: (body) => (body.p_key === ADMIN_WIDE && !body.p_success ? { allowed: false, attempts: 77, blocked_until: "2026-11-12T03:15:00Z" } : null) });
+    ok(blocked.result.status === 303 && blocked.result.setCookie.startsWith("ab_admin="), `S-1 9 ${JSON.stringify(value)}: 운영 함수가 막힘을 돌려줘도 막지 않는다`);
+    freshLimiter(fx, { enforce: false });
+    const failed = await captureAuthCalls(() => adminLogin(fx, ADMIN_PASSWORD, "198.51.100.61"), { failKey: ADMIN_WIDE });
+    ok(failed.result.status === 303, `S-1 9 ${JSON.stringify(value)}: 끈 동안은 전체 횟수를 읽지 못해도 막지 않는다`);
+  }
+  // 켜 두면(기본) 같은 막힘 응답은 429 다.
+  delete fx.env.AUTH_ACCOUNT_GLOBAL_RATE_LIMIT;
+  freshLimiter(fx, { enforce: false });
+  const on = await captureAuthCalls(() => adminLogin(fx, ADMIN_PASSWORD, "198.51.100.62"), { answer: (body) => (body.p_key === ADMIN_WIDE && !body.p_success ? { allowed: false, attempts: 77, blocked_until: "2026-11-12T03:15:00Z" } : null) });
+  eq(on.result.status, 429, "S-1 9 켜 두면(변수 없음) 같은 막힘 응답은 429");
+}));
+
+// ── S-1 10. 운영 이벤트는 허용 → 막힘으로 바뀐 첫 응답에 한 번(독립 검토 P3-2) ──────────────────────
+await section("S-1 이벤트는 바뀔 때 한 번", () => fixture(async (fx) => {
+  Object.assign(fx.env, ADMIN_ENV);
+  freshLimiter(fx, { enforce: false });
+  // 운영 함수가 막힌 뒤 횟수를 늘리지 않고(50) 또는 0 으로 돌려줘도 처음 막힐 때 한 번 남긴다.
+  let state = { allowed: false, attempts: 50 };
+  const answer = (body) => (body.p_key === ADMIN_WIDE && !body.p_success ? { ...state, blocked_until: "2026-11-12T03:15:00Z" } : null);
+  const tries = async (count) => {
+    const out = [];
+    for (let n = 0; n < count; n += 1) out.push((await captureAuthCalls(() => adminLogin(fx, "wrong", `198.51.100.${70 + n}`), { answer })).result.status);
+    return out;
+  };
+  eq((await tries(3)).join(","), "429,429,429", "S-1 10 막힘 응답이면 429");
+  eq(events("auth_account_limit_reached").length, 1, "S-1 10 횟수가 그대로(50)여도 처음 막힐 때 이벤트 한 건(예전에는 한도 + 1 일 때만)");
+  state = { allowed: true, attempts: 3 };
+  eq((await tries(1)).join(","), "401", "S-1 10 허용 응답이면 예전처럼 비밀번호를 본다");
+  state = { allowed: false, attempts: 0 };
+  await tries(2);
+  eq(events("auth_account_limit_reached").length, 2, "S-1 10 허용 뒤 다시 막히면 한 건 더(횟수 0 으로 돌려줘도)");
+  // 막힘이 창(900초)보다 오래 이어지면 창마다 한 번.
+  const memory = globalThis.__AB_AUTH_WIDE_BLOCKED;
+  ok(memory instanceof Map && memory.size === 1 && [...memory.keys()].every((key) => key === "/login|admin"), "S-1 10 처음 막힌 때는 isolate 메모리에만(경로|계정 키)");
+  for (const key of memory.keys()) memory.set(key, Date.now() - 901 * 1000);
+  await tries(1);
+  eq(events("auth_account_limit_reached").length, 3, "S-1 10 같은 막힘이 창보다 오래 이어지면 다시 한 건");
+  await tries(1);
+  eq(events("auth_account_limit_reached").length, 3, "S-1 10 그 창 안에서는 더 남기지 않는다");
+  // 성공은 기억을 지운다.
+  state = { allowed: true, attempts: 0 };
+  const right = await captureAuthCalls(() => adminLogin(fx, ADMIN_PASSWORD, "198.51.100.90"), { answer });
+  ok(right.result.status === 303 && memory.size === 0, "S-1 10 로그인 성공은 처음 막힌 때 기억을 지운다");
+}));
+
+// ── S-1 11. 끄기 값 읽기(재검토 P3: "00"·"0.0"·"-0" 이 숫자 0 으로 읽혀 하한 10 — 가장 엄한 한도 — 이 되던 것) ─────────────
+await section("S-1 끄기 값", () => fixture(async (fx) => {
+  Object.assign(fx.env, ADMIN_ENV);
+  const blocked = (body) => (body.p_key === ADMIN_WIDE && !body.p_success ? { allowed: false, attempts: 77, blocked_until: "2026-11-12T03:15:00Z" } : null);
+  let host = 120;
+  const tryAs = async (value, password) => {
+    fx.env.AUTH_ACCOUNT_GLOBAL_RATE_LIMIT = value;
+    freshLimiter(fx, { enforce: false });
+    const run = await captureAuthCalls(() => adminLogin(fx, password, `198.51.100.${host++}`), { answer: blocked });
+    return { status: run.result.status, limit: run.bodies.find((body) => body.p_key === ADMIN_WIDE)?.p_limit, unknown: events("auth_account_limit_value_unknown") };
+  };
+  // 끔: 운영 함수가 막힘을 돌려줘도 맞는 비밀번호로 들어가고, 세는 한도는 50, 모르는 값 이벤트는 없다.
+  for (const value of ["00", "0.0", "-0", "-5", " -0.5 ", "0e0", "off", " OFF ", "false", "False", "no", " No ", "none", "NONE", "disabled", " Disabled "]) {
+    const run = await tryAs(value, ADMIN_PASSWORD);
+    ok(run.status === 303 && run.limit === 50 && run.unknown.length === 0, `S-1 11 ${JSON.stringify(value)} 는 끔: 막힘 응답에도 막지 않는다(세는 한도 50)`);
+  }
+  // 켬: 0 보다 큰 숫자는 10~50(반올림, 1~9 는 예전처럼 10), 빈칸만이면 기본 50.
+  for (const [value, expected] of [["1", 10], ["9", 10], ["0.4", 10], ["10", 10], ["12.6", 13], ["50", 50], ["500", 50], ["   ", 50]]) {
+    const run = await tryAs(value, ADMIN_PASSWORD);
+    ok(run.status === 429 && run.limit === expected && run.unknown.length === 0, `S-1 11 ${JSON.stringify(value)} 는 켬: 한도 ${expected}, 막힘 응답이면 429`);
+  }
+  // 그 밖의 글자: 기본 50 으로 막고 운영 이벤트 warn 을 남긴다.
+  for (const value of ["on", "true", "yes", "50%", "1,000", "Infinity"]) {
+    const run = await tryAs(value, ADMIN_PASSWORD);
+    ok(run.status === 429 && run.limit === 50 && run.unknown.length === 1, `S-1 11 ${JSON.stringify(value)} 는 모르는 값: 기본 50 으로 막고 운영 이벤트 한 건`);
+  }
+  const longValue = `maybe-later-${"z".repeat(48)}`;
+  const first = await tryAs(longValue, "wrong-password-118");
+  const warned = first.unknown[0];
+  ok(first.status === 429 && warned?.severity === "warn" && warned?.label === "AUTH_ACCOUNT_GLOBAL_RATE_LIMIT" && warned?.path === "/login", "S-1 11 모르는 값 이벤트는 warn·변수 이름·읽은 경로");
+  ok(String(warned?.detail).includes(JSON.stringify(longValue.slice(0, 40))) && String(warned?.detail).includes("limit 50"), "S-1 11 이벤트에 값 원문은 40자까지");
+  // 같은 isolate 에서는 다시 남기지 않는다(관리자·로그인 이름 어느 쪽에서 읽어도).
+  await captureAuthCalls(() => adminLogin(fx, "wrong", `198.51.100.${host++}`));
+  await captureAuthCalls(() => localLogin(fx, "nobody-v229118", "wrong-pass-118", `198.51.100.${host++}`));
+  eq(events("auth_account_limit_value_unknown").length, 1, "S-1 11 같은 isolate 에서는 모르는 값 이벤트를 한 번만 남긴다");
+}));
+
 // ═════════════════════════════════════════════════════════════════════════════════════
 // S-2 방 단추 바로 열기(V105)의 세션 범위
 // ═════════════════════════════════════════════════════════════════════════════════════
@@ -404,10 +566,12 @@ await section("S-2 소스", async () => {
   const code = mod.split("\n").filter((line) => !line.trim().startsWith("//")).join("\n");
   const rawAt = code.indexOf("if (!identity.raw)");
   const keptAt = code.indexOf('finish("session_kept", plain)');
-  const strongAt = code.indexOf("await kakaoRoomOpenHasStrongIdentity(env, identity.userId)");
+  const strongAt = code.indexOf("await kakaoRoomOpenStrongIdentity(env, identity.userId)");
   const sessionAt = code.indexOf("makeUserSession(env, identity.userId)");
   ok(rawAt > 0 && keptAt > rawAt && strongAt > keptAt && sessionAt > strongAt, "S-2 0 강한 식별 확인은 세션을 만들 길에서만, 세션 만들기 바로 앞에서 한다");
-  ok(/accountbook_user_identities\?user_id=eq\.\$\{encodeURIComponent\(uid\)\}&select=provider&limit=1/.test(code), "S-2 0 강한 식별 표를 그 계정 한 줄만 읽는다");
+  ok(/accountbook_user_identities\?user_id=eq\.\$\{encodeURIComponent\(uid\)\}&provider=in\.\(\$\{KAKAO_ROOM_OPEN_STRONG_PROVIDERS\.join\(","\)\}\)&select=provider&limit=2/.test(code), "S-2 0 강한 식별 표를 그 계정의 두 종류(kakao·local) 줄만 읽는다(독립 검토 P2-1)");
+  ok(/const KAKAO_ROOM_OPEN_STRONG_PROVIDERS = \["kakao", "local"\];/.test(code), "S-2 0 세는 종류는 계정 잇기·본인 확인(fetchStrongIdentityForUser)과 같은 kakao·local");
+  ok(/provider === "kakao" \? "kakao" : "local"/.test(read("src/modules/auth/identity-reauth.js")), "S-2 0 (대조) 본인 확인이 믿는 강한 식별도 kakao·local 두 종류다");
   ok(!/ensureUser\(|persistIdentityAliases|createUser|method: "(?:POST|PATCH|DELETE)"/.test(code), "S-2 0 새 확인은 읽기만 한다(사용자·별칭을 만들거나 쓰지 않는다)");
 });
 
@@ -443,15 +607,64 @@ await section("S-2 카카오 로그인 계정", () => roomFixture(async (fx, { u
   ok(!JSON.stringify(globalThis.__AB_OPS_EVENTS || []).includes(U1), "S-2 2 운영 이벤트에 botUserKey 가 없다");
 }));
 
-// ── S-2 3. 로그인 이름·비밀번호가 붙은 채팅 계정도 같다. 같은 방의 보통 계정은 그대로 ───────────
+// ── S-2 3. 로그인 이름·비밀번호만 붙은 채팅 계정: 세션을 주지 않고, 카카오 자동 로그인이 아니라 로그인 이름 칸을 연 로그인 화면으로 ──
+// (독립 검토 P3-3: 카카오 자동 로그인은 휴대폰의 카카오 계정으로 들어가 다른 계정에 닿을 수 있다.) 같은 방의 보통 계정은 그대로.
+const ROOM_LOGIN_NAME = "v229118room";
+const ROOM_LOGIN_PASSWORD = "room-pass-118";
+async function realLocalIdentity(userId) {
+  const salt = authCrypto.newPasswordSalt();
+  const hash = await authCrypto.pbkdf2PasswordHash(ROOM_LOGIN_PASSWORD, salt, 100000);
+  return { ...strongIdentity(userId, "local"), provider_subject: ROOM_LOGIN_NAME, login_name: ROOM_LOGIN_NAME, credential_hash: hash, credential_salt: salt, credential_iterations: 100000 };
+}
 await section("S-2 비밀번호 계정", () => roomFixture(async (fx, { u1, u2, hh }) => {
-  fx.db.accountbook_user_identities.push(strongIdentity(u2.id, "local"));
+  fx.db.accountbook_user_identities.push(await realLocalIdentity(u2.id));
+  const roomHome = `/app?household_id=${hh}`;
+  const loginScreen = `/my?${new URLSearchParams({ auto: "0", login: "1", return_to: decodeURIComponent(roomHome) }).toString()}#login-local`;
   const tap = await go(fx, tapped("/my", { user: U2 }));
-  ok(tap.status === 303 && tap.location === `/app?household_id=${hh}` && tap.cookies.length === 0, "S-2 3 비밀번호 로그인이 있는 계정은 세션 없이 방 가계부 주소로");
-  eq(lastRoomOpen(), "strong_account", "S-2 3 결과 strong_account");
+  ok(tap.status === 303 && tap.cookies.length === 0, "S-2 3 비밀번호 로그인만 있는 계정은 주소 값으로 세션을 주지 않는다");
+  eq(tap.location, loginScreen, "S-2 3 자동 로그인을 끈(auto=0) 로그인 화면의 로그인 이름 칸으로, 돌아갈 곳은 그 방 가계부 홈");
+  eq(lastRoomOpen(), "strong_local_account", "S-2 3 결과 strong_local_account");
+  // 그 주소는 인앱 브라우저에서도 카카오 자동 로그인·시작 팝업이 아니라 로그인 이름 칸이 열린 로그인 화면이다.
+  const screen = await go(fx, tap.location.split("#")[0]);
+  ok(screen.status === 200 && !screen.location && !screen.html.includes('id="abKakaoStart"'), "S-2 3 인앱 브라우저에서도 자동 로그인으로 넘기지 않고 로그인 화면을 그린다");
+  ok(screen.html.includes('action="/my/local-login"') && screen.html.includes(decodeURIComponent(roomHome).replace(/&/g, "&amp;")), "S-2 3 로그인 이름 폼과 돌아갈 곳(그 방 가계부 홈)이 있다");
+  // 로그인 이름·비밀번호로 들어가면 그 방 가계부 홈으로 돌아간다.
+  const login = await formPost(fx, "/my/local-login", { login_name: ROOM_LOGIN_NAME, access_code: ROOM_LOGIN_PASSWORD, return_to: decodeURIComponent(roomHome) }, { ua: INAPP });
+  ok(login.status === 303 && login.location === decodeURIComponent(roomHome), "S-2 3 로그인하면 그 방 가계부 홈으로 돌아간다");
+  const loginCookies = login.setCookie.split(/,(?=\s*ab_)/).map((line) => line.trim());
+  eq(sessionUser(loginCookies), u2.id, "S-2 3 그 채팅 계정(U2)으로 로그인된다");
+  const home = await go(fx, login.location, { cookie: jarOf(loginCookies) });
+  ok(home.status === 200 && home.html.includes(ROOM_HOUSEHOLD_NAME), "S-2 3 그 방 가계부 홈이 열린다");
+  const pc = await go(fx, tapped("/my", { user: U2 }), { ua: PC });
+  ok(pc.location === loginScreen && pc.cookies.length === 0 && lastRoomOpen() === "strong_local_account", "S-2 3 PC 브라우저에서도 같은 로그인 화면으로");
+  const probe = JSON.parse(settingValue(fx, `${PROBE}strong_local_account`) || "{}");
+  eq(Object.keys(probe).sort().join(","), "app_version,at,version", "S-2 3 진단 기록 칸 strong_local_account 에는 시각·판만 남는다");
+  // 카카오 로그인도 붙어 있으면 예전처럼 인앱 자동 로그인 길(strong_account)이다.
+  fx.db.accountbook_user_identities.push({ ...strongIdentity(u2.id, "kakao"), id: "ident-v229118-u2-kakao", provider_subject: "9118002" });
+  const both = await go(fx, tapped("/my", { user: U2 }));
+  ok(both.location === roomHome && both.cookies.length === 0 && lastRoomOpen() === "strong_account", "S-2 3 카카오 로그인도 있으면 그 방 가계부 주소로(인앱 자동 로그인)");
   const plain = await go(fx, tapped("/my", { user: U1 }));
   eq(sessionUser(plain.cookies), u1.id, "S-2 3 같은 방의 보통 채팅 계정(U1)은 그대로 바로 열린다");
   eq(lastRoomOpen(), "ok", "S-2 3 U1 결과 ok");
+}));
+
+// ── S-2 3b. 다른 종류의 식별 행만 있는 채팅 계정은 지금처럼 바로 열린다(독립 검토 P2-1) ────────────────
+await section("S-2 다른 종류 행", () => roomFixture(async (fx, { u1, hh }) => {
+  fx.db.accountbook_user_identities.push({ ...strongIdentity(u1.id, "kakao"), provider: "apple", provider_subject: "apple-v229118" });
+  const reads = [];
+  const restore = intercept(async ({ url, method }) => {
+    if (method === "GET" && url.pathname === "/rest/v1/accountbook_user_identities") reads.push(decodeURIComponent(url.search));
+    return null;
+  });
+  let tap;
+  try {
+    tap = await go(fx, tapped("/my"));
+  } finally {
+    restore();
+  }
+  ok(tap.location === `/app?household_id=${hh}` && sessionUser(tap.cookies) === u1.id, "S-2 3b 카카오·비밀번호가 아닌 종류의 행만 있으면 보통 채팅 계정처럼 바로 열린다");
+  eq(lastRoomOpen(), "ok", "S-2 3b 결과 ok");
+  ok(reads.length === 1 && reads[0].includes("provider=in.(kakao,local)"), "S-2 3b 강한 식별 읽기는 kakao·local 두 종류로 거른다");
 }));
 
 // ── S-2 4. 이미 세션이 있을 때 ─────────────────────────────────────────────────────
@@ -519,6 +732,19 @@ await section("S-2 DB 호출·기존 차단", () => roomFixture(async (fx, { u1,
   eq(blockedMember.seen.filter((line) => line === IDENTITY_READ).length, 0, "S-2 6 이용 제한 구성원: 강한 식별을 읽지 않는다");
 }));
 
+// ── S-2 7. 방 단추 입장 제한은 IPv6 도 주소 그대로(독립 검토 P3-1), 비밀번호 계정 길의 DB 호출 ─────────────
+await section("S-2 입장 제한 주소", () => roomFixture(async (fx, { u1, u2 }) => {
+  const run = await captureAuthCalls(() => go(fx, tapped("/my"), { headers: { "cf-connecting-ip": V6_RAW } }));
+  const keys = new Set(run.bodies.map((body) => body.p_key));
+  ok(keys.has(fingerprint(`auth|ip|/my/room-open-admission|${V6_RAW}`)) && !keys.has(fingerprint(`auth|ip|/my/room-open-admission|${V6_NET}`)), "S-2 7 방 단추 입장 제한은 IPv6 도 주소 그대로 센다(/64 로 묶지 않는다)");
+  eq(sessionUser(run.result.cookies), u1.id, "S-2 7 보통 계정은 그대로 열린다");
+  fx.db.accountbook_user_identities.push(strongIdentity(u2.id, "local"));
+  resetIsolateState();
+  const local = await countedGo(fx, tapped("/my", { user: U2 }));
+  ok(lastRoomOpen() === "strong_local_account" && local.seen.filter((line) => line === IDENTITY_READ).length === 1, "S-2 7 비밀번호 계정: 강한 식별 읽기는 한 번");
+  ok(local.seen.length <= ROOM_OPEN_DB_CAP, `S-2 7 비밀번호 계정 한 번 누름의 DB 호출 ${local.seen.length}회 ≤ ${ROOM_OPEN_DB_CAP}`);
+}));
+
 // ═════════════════════════════════════════════════════════════════════════════════════
 // O-4 배포 도구 되돌리기 안전장치
 // ═════════════════════════════════════════════════════════════════════════════════════
@@ -532,8 +758,12 @@ const PRE_SEOUL_ID = "33333333-3333-4333-8333-333333333332"; // 서울 전환 �
 const LATER_ID = "44444444-4444-4444-8444-444444444346"; // 서울 전환 뒤 버전처럼(#346)
 const RUNNABLE_ROLLBACK = /--rollback\s+[0-9a-f]{8}-[0-9a-f]{4}-/;
 
-function rollbackFake(target, { ready = "ok" } = {}) {
+// /health·/ready 의 판은 지금 배포된 버전의 것이다(배포 전 = V-LIVE, 되돌린 뒤 = V-TARGET). ready 는 "ok"·"down" 이거나 순서 배열이다:
+// "ok"(되돌린 버전이 직접 점검), "down"(503), "cached"(인스턴스가 다시 쓴 ok — 점검 시각이 배포 요청 전), "live"(이전 버전 인스턴스의 ok),
+// "fresh"(배포 요청 뒤 점검을 다시 쓴 ok), "cdown"(다시 쓴 503). 배포 요청 시각 = 아래 deps.now() = 2026-11-12T03:00:00Z.
+function rollbackFake(target, { ready = "ok", sameVersion = false } = {}) {
   const calls = [];
+  let readyCalls = 0;
   const resources = {
     bindings: [{ name: "APP_NAME", type: "plain_text", text: "말해가계부" }, { name: "SUPABASE_SERVICE_ROLE_KEY", type: "secret_text" }],
     script: { etag: "etag-qa", handlers: ["fetch", "scheduled"], named_handlers: [] },
@@ -549,10 +779,16 @@ function rollbackFake(target, { ready = "ok" } = {}) {
   async function fetch(url, init = {}) {
     const address = new URL(String(url));
     const method = String(init.method || "GET").toUpperCase();
-    calls.push({ method, origin: address.origin, path: address.pathname });
-    if (address.origin === DEPLOY_ORIGIN && address.pathname === "/health") return reply(200, { alive: true, version: "V-QA", missing_count: 0 });
+    const activeVersion = deployments[0].versions[0].version_id === LIVE_ID || sameVersion ? "V-LIVE" : "V-TARGET";
+    calls.push({ method, origin: address.origin, path: address.pathname, version: activeVersion });
+    if (address.origin === DEPLOY_ORIGIN && address.pathname === "/health") return reply(200, { alive: true, version: activeVersion, missing_count: 0 });
     if (address.origin === DEPLOY_ORIGIN && address.pathname === "/ready") {
-      return ready === "ok" ? reply(200, { ok: true, ready: true, failed_tables: [], missing_rpcs: [] }) : reply(503, { ok: false, ready: false, failed_tables: ["users", "transactions"], missing_rpcs: [] });
+      const step = Array.isArray(ready) ? ready[readyCalls] ?? "down" : ready;
+      readyCalls += 1;
+      if (step === "down") return reply(503, { ok: false, ready: false, version: activeVersion, failed_tables: ["users", "transactions"], missing_rpcs: [] });
+      if (step === "cdown") return reply(503, { ok: false, ready: false, version: activeVersion, failed_tables: ["users", "transactions"], missing_rpcs: [], cached: true, checked_at: "2026-11-12T03:00:05.000Z" });
+      const reuse = step === "cached" ? { cached: true, checked_at: "2026-11-12T02:59:30.000Z" } : step === "fresh" ? { cached: true, checked_at: "2026-11-12T03:00:05.000Z" } : {};
+      return reply(200, { ok: true, ready: true, version: step === "live" ? "V-LIVE" : activeVersion, failed_tables: [], missing_rpcs: [], ...reuse });
     }
     if (address.origin !== "https://api.cloudflare.com" || !address.pathname.startsWith(CF_PREFIX)) throw new Error(`가짜 API: 예상 밖 요청 ${method} ${address.href}`);
     const path = address.pathname.slice(CF_PREFIX.length);
@@ -572,16 +808,17 @@ function rollbackFake(target, { ready = "ok" } = {}) {
   return { fetch, calls };
 }
 
-async function rollback(target, { extra = [], ready = "ok" } = {}) {
-  const fake = rollbackFake(target, { ready });
+async function rollback(target, { extra = [], ready = "ok", sameVersion = false } = {}) {
+  const fake = rollbackFake(target, { ready, sameVersion });
   const logs = [];
   const files = new Map();
+  const sleeps = [];
   const deps = {
     root: process.cwd(),
     env: { CLOUDFLARE_API_TOKEN: CF_TOKEN, CLOUDFLARE_ACCOUNT_ID: CF_ACCOUNT },
     fetch: fake.fetch,
     now: () => new Date("2026-11-12T03:00:00.000Z"),
-    sleep: async () => {},
+    sleep: async (ms) => { sleeps.push(ms); },
     log: (line) => logs.push(String(line)),
     error: (line) => logs.push(String(line)),
     mkdir: () => {},
@@ -595,7 +832,7 @@ async function rollback(target, { extra = [], ready = "ok" } = {}) {
   };
   const code = await deployTool.runDeploy(["--rollback", target.id, "--origin", DEPLOY_ORIGIN, ...extra], deps);
   const record = [...files.entries()].find(([path]) => path.includes(`rollback-${target.id}`));
-  return { code, output: logs.join("\n"), calls: fake.calls, record: record ? JSON.parse(record[1]) : null };
+  return { code, output: logs.join("\n"), calls: fake.calls, sleeps, record: record ? JSON.parse(record[1]) : null };
 }
 const PRE_SEOUL = { id: PRE_SEOUL_ID, number: 332, metadata: { created_on: "2026-11-05T08:28:20.551000Z", source: "api" } };
 const LATER = { id: LATER_ID, number: 346, metadata: { created_on: "2026-11-09T01:02:43.120000Z", source: "api" } };
@@ -643,6 +880,68 @@ await section("O-4 /ready 와 출력", async () => {
   ok(!RUNNABLE_ROLLBACK.test(down.output) && down.output.includes(`되돌리기 전 배포 버전(기록만): ${LIVE_ID}`), "O-4 3 실패해도 명령 줄 없이 id 만 적는다");
   ok(down.record?.ready?.ok === false && down.record?.failures?.length === 1, "O-4 3 되돌리기 기록에 /ready 실패가 남는다");
   eq(down.calls.filter((call) => call.method === "POST").length, 1, "O-4 3 실패해도 스스로 다시 배포하지 않는다");
+});
+
+// ── O-4 4. 되돌린 버전이 직접 점검한 /ready 만 센다(독립 검토 P3-4) ─────────────────────────────────
+await section("O-4 되돌린 버전의 응답만", async () => {
+  const done = await rollback(LATER);
+  const deployAt = done.calls.findIndex((call) => call.method === "POST");
+  const firstHealth = done.calls.findIndex((call) => call.origin === DEPLOY_ORIGIN && call.path === "/health");
+  ok(firstHealth >= 0 && firstHealth < deployAt, "O-4 4 배포 요청 전에 /health 의 판을 한 번 읽는다");
+  eq(done.record?.before?.version, "V-LIVE", "O-4 4 되돌리기 기록에 배포 전 판이 남는다");
+  ok(done.calls.slice(deployAt).filter((call) => call.origin === DEPLOY_ORIGIN).every((call) => call.version === "V-TARGET"), "O-4 4 되돌린 뒤 센 /health·/ready 는 되돌린 버전의 판이다");
+  // 이전 버전 인스턴스의 ok 는 세지 않고 연속을 끊는다.
+  const live = await rollback(LATER, { ready: ["live", "ok", "live", "ok", "ok"] });
+  eq(live.code, 0, "O-4 4 이전 판 응답이 섞여도 되돌린 판의 연속 ok 면 통과");
+  eq(live.calls.filter((call) => call.path === "/ready").length, 5, "O-4 4 이전 판(V-LIVE)의 ok 는 세지 않는다(예전에는 둘째에서 통과)");
+  eq(live.record?.ready?.previous_version, 2, "O-4 4 기록에 이전 판 응답 수");
+  const onlyLive = await rollback(LATER, { ready: Array(6).fill("live") });
+  ok(onlyLive.code === 1 && /배포 전 판의 응답이 이어집니다/.test(onlyLive.output), "O-4 4 이전 판의 ok 만 오면 실패로 알린다");
+  // 다시 쓴 응답(cached:true)은 세지도 끊지도 않고, 다시 쓰기(60초)가 끝날 만큼 기다렸다 다시 본다.
+  const cached = await rollback(LATER, { ready: ["ok", "cached", "ok"] });
+  eq(cached.code, 0, "O-4 4 다시 쓴 응답 뒤 되돌린 버전의 ok 가 하나 더 오면 통과");
+  eq(cached.calls.filter((call) => call.path === "/ready").length, 3, "O-4 4 다시 쓴 ok 는 세지 않는다(예전에는 둘째에서 통과)");
+  ok(cached.record?.ready?.cached_skipped === 1 && cached.sleeps.some((ms) => ms > 60000), "O-4 4 다시 쓴 응답 수가 기록에 남고, 그 뒤로는 60초 넘게 기다린다");
+  const onlyCached = await rollback(LATER, { ready: Array(6).fill("cached") });
+  ok(onlyCached.code === 1 && /직접 점검한 응답을 받지 못했습니다/.test(onlyCached.output), "O-4 4 다시 쓴 응답만 오면 실패로 알린다");
+  // 판 이름이 같은 버전(설정만 바꾼 버전)은 응답으로 가릴 수 없다. 재검토 P2 로 기대값을 바꿨다: 예전 ‘실패·/ready 0번’ 은 DB 준비 여부를 전혀
+  // 보고하지 않아, 지금은 경고를 남기고 판 제외 없이 /health·/ready 로 종료 코드를 정한다(자세한 장면은 ‘O-4 같은 판 되돌리기’).
+  const same = await rollback(LATER, { sameVersion: true });
+  ok(same.code === 0 && /경고: 판 이름이 같아 응답만으로는 되돌린 버전인지 가릴 수 없습니다/.test(same.output) && same.calls.filter((call) => call.path === "/ready").length === (deployTool.READY_CONSECUTIVE ?? -1), "O-4 4 판 이름이 같은 버전이면 경고하고, 판 제외 없이 /ready 까지 보고 통과");
+  ok(!RUNNABLE_ROLLBACK.test(same.output + onlyCached.output + onlyLive.output), "O-4 4 실패·경고 출력에도 되돌리기 명령 줄이 없다");
+});
+
+// ── O-4 5. 판 이름이 같은 버전으로 되돌리기(재검토 P2) ───────────────────────────────────────────
+await section("O-4 같은 판 되돌리기", async () => {
+  const same = await rollback(LATER, { sameVersion: true });
+  eq(same.code, 0, "O-4 5 판 이름이 같은 버전: /health 가 살아 있고 /ready 가 ok 면 통과(예전에는 늘 실패)");
+  ok(/배포 기록의 활성 version id 로 확인하세요/.test(same.output) && same.output.includes(`배포 API 의 활성 버전은 ${LATER_ID} 100% 로 확인했습니다`), "O-4 5 경고 옆에 배포 API 로 확인한 활성 version id 를 적는다");
+  eq(same.calls.filter((call) => call.path === "/ready").length, deployTool.READY_CONSECUTIVE ?? -1, "O-4 5 판 제외 없이 /ready 를 연속으로 본다(예전에는 0번)");
+  ok(same.record?.warnings?.length === 1 && same.record?.health_version_filtered?.ok === false && same.record?.health?.ok === true && same.record?.ready?.ok === true, "O-4 5 기록에 경고·판으로 가린 확인(실패)·판 제외 확인·/ready 결과가 남는다");
+  ok(/경고 1건/.test(same.output) && same.output.includes(`되돌리기 전 배포 버전(기록만): ${LIVE_ID}`), "O-4 5 끝 줄에 경고가 있고, 이전 버전은 id 만 기록으로 적는다");
+  const sameDown = await rollback(LATER, { sameVersion: true, ready: "down" });
+  eq(sameDown.code, 1, "O-4 5 판 이름이 같아도 /ready 가 준비 안 됨(503)이면 실패");
+  ok(/경고: 판 이름이 같아/.test(sameDown.output) && /DB 를 쓸 수 없는 버전일 수 있습니다/.test(sameDown.output) && sameDown.record?.ready?.ok === false, "O-4 5 경고와 /ready 503 을 그대로 보고한다");
+  ok(!RUNNABLE_ROLLBACK.test(same.output + sameDown.output), "O-4 5 출력에 되돌리기 명령 줄이 없다");
+  // 판이 다른 보통 되돌리기에는 경고가 없다.
+  const plain = await rollback(LATER);
+  ok(plain.code === 0 && !/경고/.test(plain.output) && !plain.record?.warnings, "O-4 5 판이 다른 되돌리기에는 경고가 없다");
+});
+
+// ── O-4 6. 다시 쓴 /ready(재검토 P3) ───────────────────────────────────────────────────────────
+await section("O-4 다시 쓴 /ready", async () => {
+  const fresh = await rollback(LATER, { ready: ["ok", "fresh"] });
+  ok(fresh.code === 0 && fresh.calls.filter((call) => call.path === "/ready").length === 2 && fresh.record?.ready?.cached_counted === 1, "O-4 6 배포 요청 뒤 점검(checked_at)을 다시 쓴 ok 는 센다");
+  ok(!fresh.sleeps.some((ms) => ms > 60000), "O-4 6 그때는 60초를 기다리지 않는다");
+  eq(fresh.record?.deploy_requested_at, "2026-11-12T03:00:00.000Z", "O-4 6 기록에 배포 요청 시각이 남는다");
+  const stale = await rollback(LATER, { ready: ["ok", "cached", "ok"] });
+  ok(stale.code === 0 && stale.calls.filter((call) => call.path === "/ready").length === 3 && stale.record?.ready?.cached_skipped === 1, "O-4 6 배포 요청 전 점검을 다시 쓴 ok 는 세지 않고 기다렸다 다시 본다");
+  const cdown = await rollback(LATER, { ready: ["ok", "cdown", "ok", "ok"] });
+  ok(cdown.code === 0 && cdown.calls.filter((call) => call.path === "/ready").length === 4 && cdown.record?.ready?.not_ok === 1 && cdown.record?.ready?.cached_not_ok === 1, "O-4 6 다시 쓴 503 은 ‘준비 안 됨’으로 세고 연속을 끊는다");
+  const between = await rollback(LATER, { ready: ["ok", "cdown", "ok"] });
+  eq(between.code, 1, "O-4 6 ok → 다시 쓴 503 → ok 는 통과가 아니다(재검토가 짚은 순서, 예전에는 셋째에서 통과)");
+  const onlyCdown = await rollback(LATER, { ready: Array(6).fill("cdown") });
+  ok(onlyCdown.code === 1 && /DB 를 쓸 수 없는 버전일 수 있습니다/.test(onlyCdown.output) && onlyCdown.record?.ready?.cached_not_ok === 6, "O-4 6 다시 쓴 503 만 오면 준비 안 됨으로 실패");
 });
 
 if (failedSections.length) {

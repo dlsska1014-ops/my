@@ -276,16 +276,17 @@ async function verifyCredentialProof(request, env, userId) {
   return !!proof && proof.user_id === userId && Number(proof.version) >= 1 && Number(proof.version) === Number(await getUserSessionVersion(env, userId));
 }
 
+// V22.9.118 S-1: 비밀번호를 대조하는 길이라 IP 단위 제한은 IPv6 를 /64 로 묶어 센다(groupIpv6, 지우기도 같은 키).
 async function verifyPasswordReauth(request, env, userId, password) {
-  const admission = await recordAuthAttempt(env, request, "/my/password-reauth-admission", false, {limit:30});
+  const admission = await recordAuthAttempt(env, request, "/my/password-reauth-admission", false, { limit: 30, groupIpv6: true });
   if (!admission.allowed) return false;
-  const attempt = await recordAuthAttempt(env, request, "/my/password-reauth", false);
+  const attempt = await recordAuthAttempt(env, request, "/my/password-reauth", false, { groupIpv6: true });
   if (!attempt.allowed) return false;
   try {
     const valid = await verifyLocalLoginForUser(env, userId, password);
-    if (valid) await recordAuthAttempt(env, request, "/my/password-reauth", true);
+    if (valid) await recordAuthAttempt(env, request, "/my/password-reauth", true, { groupIpv6: true });
     return valid;
-  } catch (error) { await recordAuthAttempt(env, request, "/my/password-reauth", true); throw error; }
+  } catch (error) { await recordAuthAttempt(env, request, "/my/password-reauth", true, { groupIpv6: true }); throw error; }
 }
 
 async function handleAccountReauth(request, env) {

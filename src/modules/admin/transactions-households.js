@@ -60,9 +60,10 @@ async function handleAdminLogin(request, env) {
   const form = await request.formData();
   const password = String(form.get("password") || "").trim();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", "/?legacy=1");
-  const admission = await recordAuthAttempt(env, request, "/login-admission", false, {limit:40});
+  // V22.9.118 S-1: 비밀번호를 대조하는 길이라 IP 단위 제한은 IPv6 를 /64 로 묶어 센다(groupIpv6, 성공 뒤 지우기도 같은 키).
+  const admission = await recordAuthAttempt(env, request, "/login-admission", false, { limit: 40, groupIpv6: true });
   if (!admission.allowed) return htmlResponse(renderServerLoginHtml(env, "로그인 요청이 잠시 제한되었습니다.", returnTo), admission.unavailable ? 503 : 429);
-  const attempt = await recordAuthAttempt(env, request, "/login", false);
+  const attempt = await recordAuthAttempt(env, request, "/login", false, { groupIpv6: true });
   if (attempt.unavailable) return htmlResponse(renderServerLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", returnTo), 503);
   if (!attempt.allowed) {
     return htmlResponse(renderServerLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", returnTo), 429, { "retry-after": "900" });
@@ -93,7 +94,7 @@ async function handleAdminLogin(request, env) {
   if (!passwordOk) {
     return htmlResponse(renderServerLoginHtml(env, "비밀번호가 맞지 않습니다.", returnTo), 401);
   }
-  await recordAuthAttempt(env, request, "/login", true);
+  await recordAuthAttempt(env, request, "/login", true, { groupIpv6: true });
   await recordAuthAttempt(env, request, "/login", true, { scope: "account", key: adminIpKey });
   await recordAuthAccountWideAttempt(env, request, "/login", "admin", true);
   try {

@@ -5,6 +5,7 @@ import { APP_VERSION } from "../public/site-config.js";
 import { safeError } from "../runtime/leases.js";
 import { getCookie, redirectResponse, redirectResponseWithCookies } from "../runtime/http.js";
 import { recordAuthAttempt } from "./crypto-admin-session.js";
+import { safeUserReturnPath } from "../admin/bulk-and-return-paths.js";
 import { safeObject } from "../admin/backup-compare.js";
 import { makeUserSession, resolveEffectiveUserId, verifyUserSession } from "./user-session.js";
 import { fetchUserIdentityLinks } from "./identity-reauth.js";
@@ -35,9 +36,12 @@ import { supabase } from "../data/supabase-client.js";
 //  · 웹 계정에 이어진 사람(별칭 skill_identity: 나 계정 통합으로 찾은 계정)에게는 주소 값으로 세션을 주지 않는다(독립 검토 P2-1: 만료·폐기 없는 값이
 //    웹 계정의 다른 가계부·관리자 권한까지 여는 일을 막는다). 세션이 없으면 그 방 가계부 주소로만 보내 인앱 자동 로그인(V22.9.91, 화면 없음)이 그
 //    계정으로 로그인하게 한다.
-//  · V22.9.118 S-2: 원래 채팅 행이라도 강한 식별(accountbook_user_identities 행 — 카카오 로그인·로그인 이름 비밀번호)이 붙은 계정은 웹 계정과 같아
-//    위와 똑같이 한다(결과 strong_account·strong_other_session). 계정 잇기(V22.9.91·117)는 방 기록 계정을 주 계정으로 합치고 강한 식별 행을 그쪽으로
-//    옮긴다(운영 함수 accountbook_merge_users_v227) — raw 만 보면 잇기를 마친 사람의 주소 값이 만료 없이 그 사람의 모든 가계부를 열었다(점검 2026-11-12).
+//  · V22.9.118 S-2: 원래 채팅 행이라도 강한 식별(accountbook_user_identities 의 provider kakao·local 행 — 카카오 로그인·로그인 이름 비밀번호)이
+//    붙은 계정은 웹 계정과 같아 주소 값으로 세션을 주지 않는다(결과 strong_account·strong_local_account·strong_other_session). 계정 잇기(V22.9.91·117)는
+//    방 기록 계정을 주 계정으로 합치고 강한 식별 행을 그쪽으로 옮긴다(운영 함수 accountbook_merge_users_v227) — raw 만 보면 잇기를 마친 사람의 주소
+//    값이 만료 없이 그 사람의 모든 가계부를 열었다(점검 2026-11-12). 세션이 없으면 카카오 로그인이 붙은 계정은 위처럼 그 방 가계부 주소로(인앱
+//    자동 로그인), 로그인 이름 비밀번호만 붙은 계정은 자동 로그인을 끈 보통 로그인 화면(로그인 이름 칸)으로 보낸다(독립 검토 P3-3: 카카오 자동
+//    로그인은 휴대폰의 카카오 계정으로 들어가 다른 계정에 닿을 수 있다). 로그인하면 그 방 가계부 주소로 돌아간다.
 //  · 하나라도 안 맞으면 카카오 값을 뺀 같은 주소로 보내고, 그 뒤는 V22.9.104 그대로(인앱 자동 로그인 → 시작 팝업)다.
 //  · 로그인 뒤 화면이 아닌 곳(공개 문서·글·안내·로그아웃·계정 잇기)은 값만 지운다(검토 P2-2: 값이 붙은 주소가 화면에 남아 복사·공유되지 않게).
 //    라우터가 공개 문서·후원·공지 처리보다 먼저 부른다.
@@ -51,7 +55,8 @@ import { supabase } from "../data/supabase-client.js";
 //    (Sec-Fetch-Site: none)일 때만 누른 사람으로 바꾼다(검토 P3: 다른 사이트의 링크로 세션을 갈아 끼우지 못하게; 머리가 없으면 바꾸지 않는다).
 //  · 이용 제한(blocked) 구성원은 열지 않는다. 라우터가 기억한 가계부(ab_hh)로 채운 household_id 는 지우고 계산한다(검토 P2-3: 기억이 방
 //    가계부를 이기거나 404 가 되지 않게).
-//  · 시도는 IP 마다 15분 60번(두 값이 다 있는 시도만 센다). 관리자 쿠키 브라우저와 링크 미리보기 수집기(UA)는 열지 않는다.
+//  · 시도는 IP 마다 15분 60번(두 값이 다 있는 시도만 센다; IPv6 도 주소 그대로 — /64 로 묶는 것은 비밀번호를 대조하는 길만, V22.9.118).
+//    관리자 쿠키 브라우저와 링크 미리보기 수집기(UA)는 열지 않는다.
 //  · 결과는 설정 표 kakao_room_open_probe_v229105:<결과> 에 시각·판만 남긴다(식별자 없음, isolate 마다 결과별 10분에 한 번).
 const KAKAO_ROOM_OPEN_PARAMS = ["botUserKey", "appUserId", "botGroupKey"];
 const KAKAO_ROOM_OPEN_KEY_SHAPE = /^[0-9A-Fa-f]{32,128}$/;
@@ -59,7 +64,9 @@ const KAKAO_ROOM_OPEN_CRAWLER = /kakaotalk-scrap|facebookexternalhit|facebot|twi
 const KAKAO_ROOM_OPEN_ADMISSION_LIMIT = 60;
 const KAKAO_ROOM_OPEN_PROBE_PREFIX = "kakao_room_open_probe_v229105:";
 const KAKAO_ROOM_OPEN_PROBE_MS = 10 * 60 * 1000;
-const KAKAO_ROOM_OPEN_OK = new Set(["ok", "switched", "same_session", "member_session", "linked_account", "strong_account"]);
+const KAKAO_ROOM_OPEN_OK = new Set(["ok", "switched", "same_session", "member_session", "linked_account", "strong_account", "strong_local_account"]);
+// V22.9.118 S-2: 강한 식별로 세는 종류. 계정 잇기(V22.9.117)·본인 확인이 믿는 것(identity-reauth.js fetchStrongIdentityForUser 의 kakao·local)과 같다.
+const KAKAO_ROOM_OPEN_STRONG_PROVIDERS = ["kakao", "local"];
 const KAKAO_ROOM_OPEN_HEADERS = { "referrer-policy": "no-referrer" };
 const AB_KAKAO_ROOM_OPEN_PROBE = globalThis.__AB_KAKAO_ROOM_OPEN_PROBE || (globalThis.__AB_KAKAO_ROOM_OPEN_PROBE = new Map());
 
@@ -104,16 +111,29 @@ async function kakaoRoomOpenIdentity(env, botUserKey = "") {
   return { userId: String(user.id), raw: raw.length === 1 && effectiveId === sourceId };
 }
 
-// V22.9.118 S-2: 이 계정에 강한 식별(카카오 로그인·로그인 이름 비밀번호)이 붙어 있는지(읽기 한 번). 읽지 못하면 던져서 열지 않는다(lookup_failed).
+// V22.9.118 S-2: 이 계정에 강한 식별(카카오 로그인·로그인 이름 비밀번호)이 붙어 있는지(읽기 한 번). 돌려주는 값: "kakao"(카카오 로그인이 있다) ·
+// "local"(로그인 이름 비밀번호만) · ""(없음). 읽지 못하면 던져서 열지 않는다(lookup_failed).
+// kakao·local 두 종류만 센다(독립 검토 P2-1: 표에 다른 종류의 행이 생겨도 — 지금은 표의 CHECK 가 두 종류만 받는다 — 보통 채팅 사용자의 바로
+// 열기가 깨지지 않게). 한 계정에 종류마다 한 줄뿐이라(UNIQUE provider·user_id) 두 줄까지 읽는다.
 // 옛 링크 표 별칭(kakao_login:·local_web:)만 붙은 계정은 보지 않는다 — 전역 링크 표(사용자마다 커지는 한 줄 JSON)를 단추를 누를 때마다 읽게 되어서다.
 // kakao_login: 별칭은 그 카카오 계정으로 웹에 처음 로그인할 때 강한 식별 행이 되고(findUserByKakaoLoginId), local_web: 별칭으로는 지금 로그인할 수
 // 없다(로그인 이름 로그인은 강한 식별만 본다). 남는 틈은 별칭만 있고 아직 웹으로 한 번도 로그인하지 않은 계정이다.
-async function kakaoRoomOpenHasStrongIdentity(env, userId = "") {
+async function kakaoRoomOpenStrongIdentity(env, userId = "") {
   const uid = String(userId || "").trim();
   if (!uid) throw new Error("room_open_identity_missing");
-  const rows = await supabase(env, `/rest/v1/accountbook_user_identities?user_id=eq.${encodeURIComponent(uid)}&select=provider&limit=1`, { method: "GET" });
+  const rows = await supabase(env, `/rest/v1/accountbook_user_identities?user_id=eq.${encodeURIComponent(uid)}&provider=in.(${KAKAO_ROOM_OPEN_STRONG_PROVIDERS.join(",")})&select=provider&limit=2`, { method: "GET" });
   if (!Array.isArray(rows)) throw new Error("room_open_identity_invalid");
-  return rows.length > 0;
+  const providers = new Set(rows.map((row) => String(row?.provider || "")));
+  return providers.has("kakao") ? "kakao" : providers.has("local") ? "local" : "";
+}
+
+// V22.9.118 S-2: 로그인 이름 비밀번호만 붙은 계정이 갈 곳. 자동 로그인을 끈(auto=0) 보통 로그인 화면에 로그인 이름 칸을 열어 두고(login=1, 시작
+// 화면의 ‘로그인 이름으로 로그인’ 과 같은 주소), 로그인하면 그 방 가계부 주소(return_to)로 돌아간다.
+function kakaoRoomOpenLoginNameLocation(home = "") {
+  const back = safeUserReturnPath(home, "");
+  const query = new URLSearchParams({ auto: "0", login: "1" });
+  if (back && back !== "/my" && back.length <= 512) query.set("return_to", back);
+  return `/my?${query.toString()}#login-local`;
 }
 
 function kakaoRoomOpenProbe(env, ctx, result = "", detail = "") {
@@ -181,9 +201,14 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     if (!identity.raw) return current ? finish("linked_other_session", plain) : finish("linked_account", home);
     // 다른 계정 세션을 누른 사람으로 바꾸는 것은 앱에서 바로 연 이동(Sec-Fetch-Site: none)일 때만이다.
     if (current && String(request.headers.get("sec-fetch-site") || "").toLowerCase() !== "none") return finish("session_kept", plain);
-    // V22.9.118 S-2: 강한 식별이 붙은 채팅 계정도 웹 계정에 이어진 사람과 같이 세션을 주지 않는다(R-6 의 뜻). 세션이 없으면 그 방 가계부 주소로만
-    // 보내 인앱 자동 로그인이 그 카카오 계정으로 로그인하게 하고, 다른 계정 세션이면 그대로 둔다.
-    if (await kakaoRoomOpenHasStrongIdentity(env, identity.userId)) return current ? finish("strong_other_session", plain) : finish("strong_account", home);
+    // V22.9.118 S-2: 강한 식별이 붙은 채팅 계정도 웹 계정에 이어진 사람과 같이 세션을 주지 않는다(R-6 의 뜻). 다른 계정 세션이면 그대로 둔다.
+    // 세션이 없으면 카카오 로그인이 붙은 계정은 그 방 가계부 주소로만 보내 인앱 자동 로그인이 그 카카오 계정으로 로그인하게 하고, 로그인 이름
+    // 비밀번호만 붙은 계정은 자동 로그인 없이 로그인 이름 칸을 연 로그인 화면으로 보낸다(카카오 자동 로그인은 이 계정에 닿지 않는다).
+    const strong = await kakaoRoomOpenStrongIdentity(env, identity.userId);
+    if (strong) {
+      if (current) return finish("strong_other_session", plain);
+      return strong === "kakao" ? finish("strong_account", home) : finish("strong_local_account", kakaoRoomOpenLoginNameLocation(home));
+    }
     const token = await makeUserSession(env, identity.userId);
     const cookies = [
       `ab_user=${encodeURIComponent(token)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,

@@ -148,7 +148,8 @@ async function handleMyLocalLogin(request, env) {
   const loginReturnTo = safeUserReturnPath(String(form.get("return_to") || ""), "");
   if (!nickname) return htmlResponse(renderUserLoginHtml(env, "로그인 이름을 입력하세요.", loginReturnTo), 400);
   if (accessCode.length < 4) return htmlResponse(renderUserLoginHtml(env, "비밀번호를 4자리 이상 입력하세요.", loginReturnTo), 400);
-  const admission = await recordAuthAttempt(env, request, "/my/local-login-admission", false, {limit:40});
+  // V22.9.118 S-1: 비밀번호를 대조하는 길이라 IP 입장 제한은 IPv6 를 /64 로 묶어 센다(가입·그 밖의 IP 단위 제한은 주소 그대로).
+  const admission = await recordAuthAttempt(env, request, "/my/local-login-admission", false, { limit: 40, groupIpv6: true });
   if (!admission.allowed) return htmlResponse(renderUserLoginHtml(env, "로그인 요청이 잠시 제한되었습니다.", loginReturnTo), admission.unavailable ? 503 : 429);
   const clientSubject = trafficClientIp(request) + "|" + normalizeLocalLoginName(nickname) + "|" + trafficClientKey(request);
   const attempt = await recordAuthAttempt(env, request, "/my/local-login", false, {scope:"subject-client",key:clientSubject});

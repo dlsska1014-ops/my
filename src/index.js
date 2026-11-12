@@ -14251,8 +14251,10 @@ async function getAdminSecurityState(env) {
 
 // V22.9.26: 클라이언트 키(IP+UA)만 세던 제한은 User-Agent 만 바꾸면 비껴갔다. 범위를 고를 수
 // 있게 한다 — client(기존 키), ip(UA 제외), 그 밖(subject-client·account·global)은 부르는 쪽이 준 키.
-// V22.9.118 S-1: ip 범위와 로그인 화면의 ‘IP|계정’ 키는 authAttemptNetwork 로 센다(IPv4 는 주소 그대로, IPv6 는 /64 하나).
-// IPv6 는 한 가입자가 /64 를 통째로 받아 그 안에서 주소를 마음대로 바꿀 수 있어, 주소마다 세면 바꿀 때마다 새로 셌다.
+// V22.9.118 S-1: 비밀번호를 대조하는 길(관리자 로그인, 로그인 이름 로그인, 비밀번호 재확인)만 ip 범위를 groupIpv6 로 부르고 ‘IP|계정’ 키를
+// authAttemptNetwork 로 만든다(IPv4 는 주소 그대로, IPv6 는 /64 하나). IPv6 는 한 가입자가 /64 를 통째로 받아 그 안에서 주소를 마음대로
+// 바꿀 수 있어, 주소마다 세면 바꿀 때마다 새로 셌다. 그 밖의 ip 범위 제한(가입, 방 단추 입장, 웹 연결 코드 입장, 카카오 로그인 콜백)은
+// 예전처럼 주소 그대로 센다(독립 검토 P3-1: 같은 /64 뒤의 여러 사람을 한 묶음으로 막지 않게).
 // 주소 하나로 세던 로그인 이름·관리자 횟수가 IP 와 무관하지 않던 것은 recordAuthAccountWideAttempt 로 따로 센다.
 function trafficClientIp(request) {
   try {
@@ -14263,7 +14265,7 @@ function trafficClientIp(request) {
   }
 }
 
-// V22.9.118 S-1: 로그인 시도 제한용 주소 묶음. IPv4·"unknown" 은 trafficClientIp 그대로다(예전 키와 같은 지문).
+// V22.9.118 S-1: 비밀번호를 대조하는 길의 시도 제한용 주소 묶음(위 설명). IPv4·"unknown" 은 trafficClientIp 그대로다(예전 키와 같은 지문).
 // IPv6 는 앞 64비트(/64)를 "2001:db8:77:1::/64" 꼴로 돌려준다. ::ffff:1.2.3.4 꼴(IPv4 를 담은 주소)은 그 IPv4 로 본다.
 // 모양을 읽지 못한 값은 주소 그대로 둔다(서로 다른 사람을 한 묶음으로 합치지 않는다).
 function authAttemptNetwork(request) {
@@ -14295,24 +14297,72 @@ function authAttemptNetwork(request) {
 
 // V22.9.118 S-1: IP 와 무관한 계정 전체 횟수(관리자 비밀번호 하나, 로그인 이름 하나마다). 예전 ‘계정 단위’ 키는 IP 를 품어서(IP|admin,
 // IP|로그인 이름) 주소를 바꾸면 새로 8~10번씩 허용됐다(점검 2026-11-12: 같은 /64 안에서 관리자 120번 연속 401, 잠금 없음).
-// 이 횟수는 남이 일부러 채워 그 계정을 잠그는 데도 쓰일 수 있어, 한도는 정상 사용자가 걸리지 않을 만큼 넉넉히 둔다:
-// AUTH_ACCOUNT_GLOBAL_RATE_LIMIT(기본 50, 10~50) 번 / AUTH_RATE_WINDOW_SECONDS(기본 900초) — 운영 함수 accountbook_auth_attempt 가
-// 한도를 3~50 으로 자르므로 50 이 위 끝이다. IP 단위 제한(입장·IP·IP|계정) 다음에 세므로, 한 주소(/64)가 이 횟수를 채우는 속도는 그 제한에 묶인다.
-// 차면 429(기존 문구)이고, 그 창에서 처음 막힌 시도(한도 + 1번째)에만 운영 이벤트 한 건을 남긴다(로그인 이름·IP 는 넣지 않는다).
+// 이 횟수는 남이 일부러 채워 그 계정을 잠그는 데도 쓰일 수 있어(독립 검토 P2-2), 한도는 정상 사용자가 걸리지 않을 만큼 넉넉히 두고
+// 운영자가 바로 끌 수 있게 한다. 변수 AUTH_ACCOUNT_GLOBAL_RATE_LIMIT:
+//  · 없거나 비면 50, 0 보다 큰 숫자는 10~50(반올림, 1~9 는 10) 번 / AUTH_RATE_WINDOW_SECONDS(기본 900초) — 운영 함수
+//    accountbook_auth_attempt 가 한도를 3~50 으로 자르므로 50 이 위 끝이다. 차면 429(기존 문구).
+//  · 끔: off·false·no·none·disabled(대소문자·앞뒤 빈칸 무시), 또는 숫자로 읽어 0 이하인 값(0·00·0.0·-0·음수). 그대로 세고(한도 50)
+//    운영 이벤트도 남기지만 막지는 않는다(이 횟수를 읽지 못해도 막지 않는다). 재검토(2026-11-12): 예전에는 "00"·"0.0"·"-0" 이 숫자 0 으로
+//    읽혀 하한 10(가장 엄한 한도)이 됐다.
+//  · 그 밖의 글자(숫자로 읽히지 않는 값)는 기본 50 으로 막고, 운영 이벤트 auth_account_limit_value_unknown(warn)을 isolate 당 한 번 남긴다
+//    (값 원문 40자까지, 변수 값은 버전마다 고정이라 isolate 하나에는 값 하나다).
+// 막힌 계정을 푸는 법: 변수를 off(또는 0)로 바꿔 배포하거나, 마지막으로 막힌 시도 뒤 창(기본 15분)이 지나기를 기다린다 — 운영 함수는 막힌 뒤
+// 시도가 올 때마다 막힘을 창만큼 늘린다. 끈 동안 맞는 비밀번호로 로그인하면 그 횟수는 지워진다.
+// IP 단위 제한(입장·IP·IP|계정) 다음에 세므로, 한 주소(/64)가 이 횟수를 채우는 속도는 그 제한에 묶인다.
 // 근본 대책은 Cloudflare 요청 제한 규칙과 관리자 경로 접근 제한이다(코드 밖).
-async function recordAuthAccountWideAttempt(env, request, path = "", key = "", success = false, label = "") {
-  const limit = Math.round(boundedRuntimeNumber(env?.AUTH_ACCOUNT_GLOBAL_RATE_LIMIT, 50, 10, 50));
-  const result = await recordAuthAttempt(env, request, path, success, { scope: "global", key, limit });
-  if (!success && !result.allowed && !result.unavailable && Number(result.attempts) === limit + 1) {
-    rememberOpsEvent({ kind: "auth_account_limit_reached", severity: "warn", path: String(path), method: "POST", label: String(label || ""), detail: `limit ${limit}, window ${boundedRuntimeNumber(env?.AUTH_RATE_WINDOW_SECONDS, 900, 60, 86400)}s` });
+const AUTH_ACCOUNT_WIDE_OFF_WORDS = new Set(["off", "false", "no", "none", "disabled"]);
+
+function authAccountWideLimitSetting(env, path = "") {
+  const original = String(env?.AUTH_ACCOUNT_GLOBAL_RATE_LIMIT ?? "");
+  const raw = original.trim().toLowerCase();
+  if (raw === "") return { enforce: true, limit: 50 };
+  if (AUTH_ACCOUNT_WIDE_OFF_WORDS.has(raw)) return { enforce: false, limit: 50 };
+  const number = Number(raw);
+  if (Number.isFinite(number)) return number <= 0 ? { enforce: false, limit: 50 } : { enforce: true, limit: Math.round(boundedRuntimeNumber(number, 50, 10, 50)) };
+  if (globalThis.__AB_AUTH_WIDE_SETTING_WARNED === undefined) {
+    globalThis.__AB_AUTH_WIDE_SETTING_WARNED = original.slice(0, 40);
+    rememberOpsEvent({ kind: "auth_account_limit_value_unknown", severity: "warn", path: String(path), method: "POST", label: "AUTH_ACCOUNT_GLOBAL_RATE_LIMIT", detail: `value ${JSON.stringify(original.slice(0, 40))} not understood, limit 50 (blocking)` });
   }
+  return { enforce: true, limit: 50 };
+}
+
+// 운영 이벤트는 허용에서 막힘으로 바뀐 첫 응답에 한 번만 남긴다(독립 검토 P3-2: 운영 함수가 막힌 뒤 횟수를 어떻게 돌려주든). 처음 막힌 때를
+// isolate 메모리에만 기억하고(키 = 경로|계정 키, 어디에도 쓰지 않는다), 허용·성공을 보면 지운다. 막힘이 창보다 오래 이어지면 창마다 한 번 남긴다.
+// isolate 가 여럿이면 isolate 마다 한 번일 수 있다(운영 이벤트 칸도 isolate 메모리다).
+const AB_AUTH_WIDE_BLOCKED = globalThis.__AB_AUTH_WIDE_BLOCKED || (globalThis.__AB_AUTH_WIDE_BLOCKED = new Map());
+const AUTH_WIDE_BLOCKED_CAPACITY = 500;
+
+function authAccountWideBlockStarted(slot, blocked, windowMs, now = Date.now()) {
+  if (!blocked) {
+    AB_AUTH_WIDE_BLOCKED.delete(slot);
+    return false;
+  }
+  const since = Number(AB_AUTH_WIDE_BLOCKED.get(slot) || 0);
+  if (since && now >= since && now - since < windowMs) return false;
+  AB_AUTH_WIDE_BLOCKED.delete(slot);
+  AB_AUTH_WIDE_BLOCKED.set(slot, now);
+  while (AB_AUTH_WIDE_BLOCKED.size > AUTH_WIDE_BLOCKED_CAPACITY) AB_AUTH_WIDE_BLOCKED.delete(AB_AUTH_WIDE_BLOCKED.keys().next().value);
+  return true;
+}
+
+async function recordAuthAccountWideAttempt(env, request, path = "", key = "", success = false, label = "") {
+  const setting = authAccountWideLimitSetting(env, path);
+  const windowSeconds = boundedRuntimeNumber(env?.AUTH_RATE_WINDOW_SECONDS, 900, 60, 86400);
+  const result = await recordAuthAttempt(env, request, path, success, { scope: "global", key, limit: setting.limit });
+  const slot = `${String(path)}|${String(key || "").trim().toLowerCase().slice(0, 160)}`;
+  if (success) {
+    AB_AUTH_WIDE_BLOCKED.delete(slot);
+  } else if (!result.unavailable && authAccountWideBlockStarted(slot, !result.allowed, windowSeconds * 1000)) {
+    rememberOpsEvent({ kind: "auth_account_limit_reached", severity: "warn", path: String(path), method: "POST", label: String(label || ""), detail: `limit ${setting.limit}, window ${windowSeconds}s${setting.enforce ? "" : ", off (not blocking)"}` });
+  }
+  if (!setting.enforce) return { ...result, allowed: true, unavailable: false };
   return result;
 }
 
 async function recordAuthAttempt(env, request, path = "login", success = false, options = {}) {
   const scope = String(options.scope || "ip");
   const rawKey = scope === "client" ? trafficClientKey(request)
-    : scope === "ip" ? authAttemptNetwork(request)
+    : scope === "ip" ? (options.groupIpv6 ? authAttemptNetwork(request) : trafficClientIp(request))
     : String(options.key || "").trim().toLowerCase().slice(0, 160);
   if (!rawKey) return { allowed: true, attempts: 0, blocked_until: "" };
   const fingerprint = await sha256Hex(scope === "client" ? `auth|${String(path)}|${rawKey}` : `auth|${scope}|${String(path)}|${rawKey}`);
@@ -14361,9 +14411,10 @@ async function handleAdminLogin(request, env) {
   const form = await request.formData();
   const password = String(form.get("password") || "").trim();
   const returnTo = safeAdminReturnPath(form.get("return_to") || "", "/?legacy=1");
-  const admission = await recordAuthAttempt(env, request, "/login-admission", false, {limit:40});
+  // V22.9.118 S-1: 비밀번호를 대조하는 길이라 IP 단위 제한은 IPv6 를 /64 로 묶어 센다(groupIpv6, 성공 뒤 지우기도 같은 키).
+  const admission = await recordAuthAttempt(env, request, "/login-admission", false, { limit: 40, groupIpv6: true });
   if (!admission.allowed) return htmlResponse(renderServerLoginHtml(env, "로그인 요청이 잠시 제한되었습니다.", returnTo), admission.unavailable ? 503 : 429);
-  const attempt = await recordAuthAttempt(env, request, "/login", false);
+  const attempt = await recordAuthAttempt(env, request, "/login", false, { groupIpv6: true });
   if (attempt.unavailable) return htmlResponse(renderServerLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", returnTo), 503);
   if (!attempt.allowed) {
     return htmlResponse(renderServerLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", returnTo), 429, { "retry-after": "900" });
@@ -14394,7 +14445,7 @@ async function handleAdminLogin(request, env) {
   if (!passwordOk) {
     return htmlResponse(renderServerLoginHtml(env, "비밀번호가 맞지 않습니다.", returnTo), 401);
   }
-  await recordAuthAttempt(env, request, "/login", true);
+  await recordAuthAttempt(env, request, "/login", true, { groupIpv6: true });
   await recordAuthAttempt(env, request, "/login", true, { scope: "account", key: adminIpKey });
   await recordAuthAccountWideAttempt(env, request, "/login", "admin", true);
   try {
@@ -27522,16 +27573,17 @@ async function verifyCredentialProof(request, env, userId) {
   return !!proof && proof.user_id === userId && Number(proof.version) >= 1 && Number(proof.version) === Number(await getUserSessionVersion(env, userId));
 }
 
+// V22.9.118 S-1: 비밀번호를 대조하는 길이라 IP 단위 제한은 IPv6 를 /64 로 묶어 센다(groupIpv6, 지우기도 같은 키).
 async function verifyPasswordReauth(request, env, userId, password) {
-  const admission = await recordAuthAttempt(env, request, "/my/password-reauth-admission", false, {limit:30});
+  const admission = await recordAuthAttempt(env, request, "/my/password-reauth-admission", false, { limit: 30, groupIpv6: true });
   if (!admission.allowed) return false;
-  const attempt = await recordAuthAttempt(env, request, "/my/password-reauth", false);
+  const attempt = await recordAuthAttempt(env, request, "/my/password-reauth", false, { groupIpv6: true });
   if (!attempt.allowed) return false;
   try {
     const valid = await verifyLocalLoginForUser(env, userId, password);
-    if (valid) await recordAuthAttempt(env, request, "/my/password-reauth", true);
+    if (valid) await recordAuthAttempt(env, request, "/my/password-reauth", true, { groupIpv6: true });
     return valid;
-  } catch (error) { await recordAuthAttempt(env, request, "/my/password-reauth", true); throw error; }
+  } catch (error) { await recordAuthAttempt(env, request, "/my/password-reauth", true, { groupIpv6: true }); throw error; }
 }
 
 async function handleAccountReauth(request, env) {
@@ -45637,7 +45689,8 @@ async function handleMyLocalLogin(request, env) {
   const loginReturnTo = safeUserReturnPath(String(form.get("return_to") || ""), "");
   if (!nickname) return htmlResponse(renderUserLoginHtml(env, "로그인 이름을 입력하세요.", loginReturnTo), 400);
   if (accessCode.length < 4) return htmlResponse(renderUserLoginHtml(env, "비밀번호를 4자리 이상 입력하세요.", loginReturnTo), 400);
-  const admission = await recordAuthAttempt(env, request, "/my/local-login-admission", false, {limit:40});
+  // V22.9.118 S-1: 비밀번호를 대조하는 길이라 IP 입장 제한은 IPv6 를 /64 로 묶어 센다(가입·그 밖의 IP 단위 제한은 주소 그대로).
+  const admission = await recordAuthAttempt(env, request, "/my/local-login-admission", false, { limit: 40, groupIpv6: true });
   if (!admission.allowed) return htmlResponse(renderUserLoginHtml(env, "로그인 요청이 잠시 제한되었습니다.", loginReturnTo), admission.unavailable ? 503 : 429);
   const clientSubject = trafficClientIp(request) + "|" + normalizeLocalLoginName(nickname) + "|" + trafficClientKey(request);
   const attempt = await recordAuthAttempt(env, request, "/my/local-login", false, {scope:"subject-client",key:clientSubject});
@@ -47077,9 +47130,12 @@ async function handleMyConsent(request, env) {
 //  · 웹 계정에 이어진 사람(별칭 skill_identity: 나 계정 통합으로 찾은 계정)에게는 주소 값으로 세션을 주지 않는다(독립 검토 P2-1: 만료·폐기 없는 값이
 //    웹 계정의 다른 가계부·관리자 권한까지 여는 일을 막는다). 세션이 없으면 그 방 가계부 주소로만 보내 인앱 자동 로그인(V22.9.91, 화면 없음)이 그
 //    계정으로 로그인하게 한다.
-//  · V22.9.118 S-2: 원래 채팅 행이라도 강한 식별(accountbook_user_identities 행 — 카카오 로그인·로그인 이름 비밀번호)이 붙은 계정은 웹 계정과 같아
-//    위와 똑같이 한다(결과 strong_account·strong_other_session). 계정 잇기(V22.9.91·117)는 방 기록 계정을 주 계정으로 합치고 강한 식별 행을 그쪽으로
-//    옮긴다(운영 함수 accountbook_merge_users_v227) — raw 만 보면 잇기를 마친 사람의 주소 값이 만료 없이 그 사람의 모든 가계부를 열었다(점검 2026-11-12).
+//  · V22.9.118 S-2: 원래 채팅 행이라도 강한 식별(accountbook_user_identities 의 provider kakao·local 행 — 카카오 로그인·로그인 이름 비밀번호)이
+//    붙은 계정은 웹 계정과 같아 주소 값으로 세션을 주지 않는다(결과 strong_account·strong_local_account·strong_other_session). 계정 잇기(V22.9.91·117)는
+//    방 기록 계정을 주 계정으로 합치고 강한 식별 행을 그쪽으로 옮긴다(운영 함수 accountbook_merge_users_v227) — raw 만 보면 잇기를 마친 사람의 주소
+//    값이 만료 없이 그 사람의 모든 가계부를 열었다(점검 2026-11-12). 세션이 없으면 카카오 로그인이 붙은 계정은 위처럼 그 방 가계부 주소로(인앱
+//    자동 로그인), 로그인 이름 비밀번호만 붙은 계정은 자동 로그인을 끈 보통 로그인 화면(로그인 이름 칸)으로 보낸다(독립 검토 P3-3: 카카오 자동
+//    로그인은 휴대폰의 카카오 계정으로 들어가 다른 계정에 닿을 수 있다). 로그인하면 그 방 가계부 주소로 돌아간다.
 //  · 하나라도 안 맞으면 카카오 값을 뺀 같은 주소로 보내고, 그 뒤는 V22.9.104 그대로(인앱 자동 로그인 → 시작 팝업)다.
 //  · 로그인 뒤 화면이 아닌 곳(공개 문서·글·안내·로그아웃·계정 잇기)은 값만 지운다(검토 P2-2: 값이 붙은 주소가 화면에 남아 복사·공유되지 않게).
 //    라우터가 공개 문서·후원·공지 처리보다 먼저 부른다.
@@ -47093,7 +47149,8 @@ async function handleMyConsent(request, env) {
 //    (Sec-Fetch-Site: none)일 때만 누른 사람으로 바꾼다(검토 P3: 다른 사이트의 링크로 세션을 갈아 끼우지 못하게; 머리가 없으면 바꾸지 않는다).
 //  · 이용 제한(blocked) 구성원은 열지 않는다. 라우터가 기억한 가계부(ab_hh)로 채운 household_id 는 지우고 계산한다(검토 P2-3: 기억이 방
 //    가계부를 이기거나 404 가 되지 않게).
-//  · 시도는 IP 마다 15분 60번(두 값이 다 있는 시도만 센다). 관리자 쿠키 브라우저와 링크 미리보기 수집기(UA)는 열지 않는다.
+//  · 시도는 IP 마다 15분 60번(두 값이 다 있는 시도만 센다; IPv6 도 주소 그대로 — /64 로 묶는 것은 비밀번호를 대조하는 길만, V22.9.118).
+//    관리자 쿠키 브라우저와 링크 미리보기 수집기(UA)는 열지 않는다.
 //  · 결과는 설정 표 kakao_room_open_probe_v229105:<결과> 에 시각·판만 남긴다(식별자 없음, isolate 마다 결과별 10분에 한 번).
 const KAKAO_ROOM_OPEN_PARAMS = ["botUserKey", "appUserId", "botGroupKey"];
 const KAKAO_ROOM_OPEN_KEY_SHAPE = /^[0-9A-Fa-f]{32,128}$/;
@@ -47101,7 +47158,9 @@ const KAKAO_ROOM_OPEN_CRAWLER = /kakaotalk-scrap|facebookexternalhit|facebot|twi
 const KAKAO_ROOM_OPEN_ADMISSION_LIMIT = 60;
 const KAKAO_ROOM_OPEN_PROBE_PREFIX = "kakao_room_open_probe_v229105:";
 const KAKAO_ROOM_OPEN_PROBE_MS = 10 * 60 * 1000;
-const KAKAO_ROOM_OPEN_OK = new Set(["ok", "switched", "same_session", "member_session", "linked_account", "strong_account"]);
+const KAKAO_ROOM_OPEN_OK = new Set(["ok", "switched", "same_session", "member_session", "linked_account", "strong_account", "strong_local_account"]);
+// V22.9.118 S-2: 강한 식별로 세는 종류. 계정 잇기(V22.9.117)·본인 확인이 믿는 것(identity-reauth.js fetchStrongIdentityForUser 의 kakao·local)과 같다.
+const KAKAO_ROOM_OPEN_STRONG_PROVIDERS = ["kakao", "local"];
 const KAKAO_ROOM_OPEN_HEADERS = { "referrer-policy": "no-referrer" };
 const AB_KAKAO_ROOM_OPEN_PROBE = globalThis.__AB_KAKAO_ROOM_OPEN_PROBE || (globalThis.__AB_KAKAO_ROOM_OPEN_PROBE = new Map());
 
@@ -47146,16 +47205,29 @@ async function kakaoRoomOpenIdentity(env, botUserKey = "") {
   return { userId: String(user.id), raw: raw.length === 1 && effectiveId === sourceId };
 }
 
-// V22.9.118 S-2: 이 계정에 강한 식별(카카오 로그인·로그인 이름 비밀번호)이 붙어 있는지(읽기 한 번). 읽지 못하면 던져서 열지 않는다(lookup_failed).
+// V22.9.118 S-2: 이 계정에 강한 식별(카카오 로그인·로그인 이름 비밀번호)이 붙어 있는지(읽기 한 번). 돌려주는 값: "kakao"(카카오 로그인이 있다) ·
+// "local"(로그인 이름 비밀번호만) · ""(없음). 읽지 못하면 던져서 열지 않는다(lookup_failed).
+// kakao·local 두 종류만 센다(독립 검토 P2-1: 표에 다른 종류의 행이 생겨도 — 지금은 표의 CHECK 가 두 종류만 받는다 — 보통 채팅 사용자의 바로
+// 열기가 깨지지 않게). 한 계정에 종류마다 한 줄뿐이라(UNIQUE provider·user_id) 두 줄까지 읽는다.
 // 옛 링크 표 별칭(kakao_login:·local_web:)만 붙은 계정은 보지 않는다 — 전역 링크 표(사용자마다 커지는 한 줄 JSON)를 단추를 누를 때마다 읽게 되어서다.
 // kakao_login: 별칭은 그 카카오 계정으로 웹에 처음 로그인할 때 강한 식별 행이 되고(findUserByKakaoLoginId), local_web: 별칭으로는 지금 로그인할 수
 // 없다(로그인 이름 로그인은 강한 식별만 본다). 남는 틈은 별칭만 있고 아직 웹으로 한 번도 로그인하지 않은 계정이다.
-async function kakaoRoomOpenHasStrongIdentity(env, userId = "") {
+async function kakaoRoomOpenStrongIdentity(env, userId = "") {
   const uid = String(userId || "").trim();
   if (!uid) throw new Error("room_open_identity_missing");
-  const rows = await supabase(env, `/rest/v1/accountbook_user_identities?user_id=eq.${encodeURIComponent(uid)}&select=provider&limit=1`, { method: "GET" });
+  const rows = await supabase(env, `/rest/v1/accountbook_user_identities?user_id=eq.${encodeURIComponent(uid)}&provider=in.(${KAKAO_ROOM_OPEN_STRONG_PROVIDERS.join(",")})&select=provider&limit=2`, { method: "GET" });
   if (!Array.isArray(rows)) throw new Error("room_open_identity_invalid");
-  return rows.length > 0;
+  const providers = new Set(rows.map((row) => String(row?.provider || "")));
+  return providers.has("kakao") ? "kakao" : providers.has("local") ? "local" : "";
+}
+
+// V22.9.118 S-2: 로그인 이름 비밀번호만 붙은 계정이 갈 곳. 자동 로그인을 끈(auto=0) 보통 로그인 화면에 로그인 이름 칸을 열어 두고(login=1, 시작
+// 화면의 ‘로그인 이름으로 로그인’ 과 같은 주소), 로그인하면 그 방 가계부 주소(return_to)로 돌아간다.
+function kakaoRoomOpenLoginNameLocation(home = "") {
+  const back = safeUserReturnPath(home, "");
+  const query = new URLSearchParams({ auto: "0", login: "1" });
+  if (back && back !== "/my" && back.length <= 512) query.set("return_to", back);
+  return `/my?${query.toString()}#login-local`;
 }
 
 function kakaoRoomOpenProbe(env, ctx, result = "", detail = "") {
@@ -47223,9 +47295,14 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     if (!identity.raw) return current ? finish("linked_other_session", plain) : finish("linked_account", home);
     // 다른 계정 세션을 누른 사람으로 바꾸는 것은 앱에서 바로 연 이동(Sec-Fetch-Site: none)일 때만이다.
     if (current && String(request.headers.get("sec-fetch-site") || "").toLowerCase() !== "none") return finish("session_kept", plain);
-    // V22.9.118 S-2: 강한 식별이 붙은 채팅 계정도 웹 계정에 이어진 사람과 같이 세션을 주지 않는다(R-6 의 뜻). 세션이 없으면 그 방 가계부 주소로만
-    // 보내 인앱 자동 로그인이 그 카카오 계정으로 로그인하게 하고, 다른 계정 세션이면 그대로 둔다.
-    if (await kakaoRoomOpenHasStrongIdentity(env, identity.userId)) return current ? finish("strong_other_session", plain) : finish("strong_account", home);
+    // V22.9.118 S-2: 강한 식별이 붙은 채팅 계정도 웹 계정에 이어진 사람과 같이 세션을 주지 않는다(R-6 의 뜻). 다른 계정 세션이면 그대로 둔다.
+    // 세션이 없으면 카카오 로그인이 붙은 계정은 그 방 가계부 주소로만 보내 인앱 자동 로그인이 그 카카오 계정으로 로그인하게 하고, 로그인 이름
+    // 비밀번호만 붙은 계정은 자동 로그인 없이 로그인 이름 칸을 연 로그인 화면으로 보낸다(카카오 자동 로그인은 이 계정에 닿지 않는다).
+    const strong = await kakaoRoomOpenStrongIdentity(env, identity.userId);
+    if (strong) {
+      if (current) return finish("strong_other_session", plain);
+      return strong === "kakao" ? finish("strong_account", home) : finish("strong_local_account", kakaoRoomOpenLoginNameLocation(home));
+    }
     const token = await makeUserSession(env, identity.userId);
     const cookies = [
       `ab_user=${encodeURIComponent(token)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
