@@ -12,6 +12,9 @@ const ok = (condition, message) => { checks += 1; if (!condition) failures.push(
 
 // 출처 문서마다 항목 ID 를 뽑는 규칙. 새 감사 문서를 쓰면 여기에 한 줄을 더한다.
 const SOURCES = [
+  // V22.9.117: 사용자가 본 계정 잇기 확인 화면 — 같은 웹 계정의 다른 카카오 로그인으로 확인하면 늘 ‘다른 카카오 계정’ 이던 것과 화면 배치·문구·계정 바꾸기,
+  // 그리고 PR 전 독립 보안 검토·재시험에서 나온 것(L-5~L-12).
+  { key: "V117", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_117.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(L-[0-9]+)(?=[ *]|$)/gm, expected: 12 },
   // V22.9.116: 출시 연기(11-20)로 출시 뒤에서 당긴 P1 둘(카카오 ‘방금’ 대상·무지출일 한 규칙)과 고치며 찾은 P3 하나(P-).
   { key: "V116", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_116.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(P-[0-9]+)(?=[ *]|$)/gm, expected: 3 },
   // V22.9.108: Gemini 핵심 앱 검토(결함·UX·기능 공백·수익화)를 코드와 대조한 판정(G-). 코드 변경 없음.
@@ -66,7 +69,7 @@ const ledger = read("docs/codex/FINDINGS_LEDGER.md");
 const harness = read(".codex/scripts/verify-repository.mjs");
 const rows = [];
 for (const line of ledger.split("\n")) {
-  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108|V116):[A-Z]-[0-9]+) *[|]/.exec(line);
+  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108|V116|V117):[A-Z]-[0-9]+) *[|]/.exec(line);
   if (!match) continue;
   const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
   const [id, severity, title, status, fixedIn, check, note] = cells;

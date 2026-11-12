@@ -1,3 +1,13 @@
+## V22.9.117 계정 잇기 확인(다른 카카오 로그인)·확인 화면 배치·보안 검토 검사
+
+- 자동: 새 검사 `validate-account-link-v229117` 206(같은 검사를 고치기 전 운영 V22.9.116 번들에 돌리면 46 실패, 보안 검토 전 초안 번들은 35 실패 — 초안은 7·9·9b 장면에서 위조 요청으로 남의 방 기록 계정을 이었다) · 고친 검사 `validate-identity-link-v22991` 221(두 계정 줄 모양·‘다른 카카오 계정’ 문구)·`validate-findings-ledger-v22976` 6,019(V117 출처 12건, 617건) · 환불 지문 `validate-refund-links-v22980` 268(해시 입력에서 판 이름만 V22.9.116 으로 되돌리면 옛 값 그대로 268 통과 → analysis·backupFull·backupMonth 세 값 재채취). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_117.sha256`(833) · 하네스 두 모드 77,386/77,383(하한 77,383).
+- 재현(Claude, 오프라인): 새 검사 1번 장면이 운영자 계정 모양(관리자 통합으로 카카오 로그인 둘을 가진 웹 계정, 두 별칭 모두 옛 웹 로그인 provider kakao_login, 방은 둘째 카카오 계정)을 따른다. 고치기 전 번들에서는 사용자가 본 `?err=kakao_account_mismatch` 를 그대로 낸다. 원인 대조: 운영 DB 덤프(2026-11-10 13:44 KST, 저장소 밖)를 해시로만 대조했다(카카오 id·이름·키 원문은 보지 않음). 잇기 제안 1건(웹 계정 가계부 6·기록 72 ↔ 카카오톡 방 기록 계정 가계부 2·기록 62, 2026-11-08 방 기록에서 생김). 그 웹 계정의 카카오 로그인은 둘이다(둘 다 2026-07-05 웹 카카오 로그인, 2026-07-13 관리자 통합 — 첫째 = 강한 식별, 둘 다 링크 표의 옛 웹 로그인 별칭(provider kakao_login)이 그 웹 계정을 직접 가리킴). 제안의 카카오 해시는 둘째이고 브라우저는 첫째로 로그인돼 있었다. 제안 해시의 주인은 링크 표의 그 웹 계정 하나뿐이다(강한 식별·사용자 키에는 없음).
+- 보안(오프라인): 7·9·9b 장면은 확인 모드(observe)·Secret 유출 때의 위조 요청 모양이다. 보안 검토 전 초안 번들에서는 공격자 브라우저가 피해자의 방 기록 계정 세션을 받았고, 이 판에서는 합치지 않는다. 운영 V22.9.116 번들도 합치지 않는다(오류 이름만 다름). 재현 스크립트 `review-artifacts/v117-account-link-2026-11-10/tools/`(forged-*.mjs·botkey-shape.mjs).
+- 기존 보호(이 판에서 다시 돌려 통과): `validate-identity-link-v22991`(계정 잇기·인앱 자동 로그인)·`validate-room-open-v229105`·`validate-kakao-home-v229104`·`validate-terms-notice-v229114`·`validate-room-join-v229115` 등 등록 검사 전부(두 모드).
+- 화면: 헤드리스 Chrome 390(모바일 흉내)·1280 전후 화면 `review-artifacts/v117-account-link-2026-11-10/screens/`.
+- 배포 직후(Claude): /health 판 이름 ×3·/ready·공개 123/123·sitemap 60. 확인 화면은 로그인 뒤 화면이라 직후 확인은 공개 점검까지. 앱만·바인딩 32.
+- 사람 확인(사용자): PC 보통 브라우저에서 카카오로 로그인 → /my 가 확인 화면을 보이면 배치(휴대폰 폭 포함)를 본다 → 잇기로 정했다면 ‘카카오로 확인하고 잇기’ → /my 에 두 쪽 가계부. 잇기는 되돌릴 수 없다.
+
 ## V22.9.116 출시 전 P1(카카오 ‘방금’ 대상·무지출일 한 규칙) 검사
 
 - 자동: 새 검사 `validate-prelaunch-p1-v229116` 118(같은 검사를 고치기 전 코드에 돌리면 72 실패) · 고친 검사 `validate-kakao-replies-v22979` 237(‘방금’ 은 저장 순 최근 기록 조회 1 + 마지막으로 바뀐 기록 조회 1, 내 기록 조건·limit 1)·`validate-ux-principles`·`validate-ads-gate-v22940` 2,948·`validate-polish-v22940` 75(소비 분석 클라이언트 보호 해시 754e8bb…·e11b22ab… — `validation/lib-audit-v22934.mjs` 의 beforePrelaunchP1V229116 으로 이번 변경 세 곳만 되돌려 잰다, V2 §8 R3)·`validate-findings-ledger-v22976` 5,901(V116 출처, 605건) · 환불 지문 `validate-refund-links-v22980` 268(해시 입력에서 판 이름과 새 자료 칸 started 만 되돌리면 옛 값 그대로 268 통과 → analysis·backupFull·backupMonth 세 값 재채취). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_116.sha256`(829) · 하네스 두 모드 77,062/77,059(하한 77,059).
