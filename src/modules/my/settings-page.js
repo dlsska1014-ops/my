@@ -25,8 +25,8 @@ import {
   keywordEditorLocation, mySettingsLocation, recurringSummary, sumBudgetAmounts,
 } from "./groups-budget-bulk.js";
 import {
-  canManageMyHousehold, getMySelectedHousehold, householdIdWasRemembered, householdNotFoundResponse,
-  myAccessStatusResponse,
+  canManageMyHousehold, getMySelectedHousehold, householdChoiceLabelV229118,
+  householdIdWasRemembered, householdNotFoundResponse, myAccessStatusResponse,
 } from "./access-control.js";
 import { budgetDraftRows, renderBudgetPlanPreview } from "../client/lucian-d-budget.js";
 import {
@@ -390,7 +390,7 @@ function mostFrequentValue(values = []) {
 function renderMySettingsHtml({ env, url, user, month, households, selected, rows = [], budgets, budget, customCategories, recurring, budgetReadFailed = false, planFingerprint = "", budgetDraft = null, msg = "", err = "" }) {
   const title = escapeHtml(appName(env));
   const hh = `household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}`;
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(h.name)} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "가계부")}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(householdChoiceLabelV229118(h, households) || h.name)} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
   const incomeRows = budgetDraft ? budgetDraftRows(budgetDraft, "income") : incomeBudgetRows(budgets).filter((r) => r.stored || Number(r.amount || 0) > 0);
   while (!budgetDraft && incomeRows.length < 2) incomeRows.push({ name: defaultIncomeBudgetNames()[incomeRows.length] || "기타수입", amount: 0 });
   const expenseAllRows = expenseBudgetRows(budgets, customCategories);

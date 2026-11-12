@@ -47,8 +47,9 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   const hh = await page(fx, "/my/households");
   eq(hh.status, 200, "가계부 전환·추가 200");
   const activeTag = (hh.html.match(/<article class="hhCard[^"]*active[^"]*"[^>]*>/) || [])[0] || "";
-  ok(activeTag.includes("border-color:#0f766e!important"), "활성 가계부 카드가 강조 테두리 인라인(!important)으로 가려진다(디자인 토큰 CSS override 를 이김)");
-  ok(activeTag.includes("box-shadow:inset 0 0 0 2px #0f766e!important"), "활성 카드에 안쪽 2px 강조 링이 있다");
+  // V22.9.118 U-1a: 다크에서 바꿀 수 있게 인라인 값을 같은 밝은 색(#0f766e)을 기본값으로 둔 변수로 바꿨다(밝은 모드 색·!important 는 그대로).
+  ok(activeTag.includes("border-color:var(--abHhActiveLine,#0f766e)!important"), "활성 가계부 카드가 강조 테두리 인라인(!important)으로 가려진다(디자인 토큰 CSS override 를 이김)");
+  ok(activeTag.includes("box-shadow:inset 0 0 0 2px var(--abHhActiveLine,#0f766e)!important"), "활성 카드에 안쪽 2px 강조 링이 있다");
   // 비활성 카드에는 이 인라인이 없다.
   ok(/<article class="hhCard ">/.test(hh.html) || /<article class="hhCard">/.test(hh.html) || hh.html.split("hhCard").length > 2, "비활성 가계부 카드도 렌더된다");
 }));

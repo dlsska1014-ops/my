@@ -26,7 +26,8 @@ ok(source.includes("const backToCurrentMonthPath = `/app?${backToCurrentMonthPar
 ok(source.includes("const monthAwayHtml = isCurrentMonth\n    ? \"\""), "the badge is hidden while viewing the current month");
 
 // 4. 과거/미래를 구분해 문구를 고른다.
-ok(source.includes('const monthAwayLabel = month < appCurrentMonth ? "지난달 보는 중" : "다음 달 보는 중"'), "past and future months get distinct badge copy");
+// V22.9.118 U-18: ‘지난달/다음 달’ 은 바로 앞·뒤 달에만 쓰고, 그 밖의 달은 달 이름(해가 다르면 해까지)으로 적도록 바뀌어 기대 문장을 새 식으로 고쳤다.
+ok(source.includes('const monthAwayLabel = !Number.isFinite(monthGap) || Math.abs(monthGap) === 1\n    ? (month < appCurrentMonth ? "지난달 보는 중" : "다음 달 보는 중")\n    : (viewYear === nowYear ? `${viewMonthNo}월 보는 중` : `${viewYear}년 ${viewMonthNo}월 보는 중`);'), "past and future months get distinct badge copy");
 
 // 5. 배지와 이동 링크가 모두 그려진다.
 ok(source.includes('class="appMonthAwayBadge"'), "the away badge is rendered");

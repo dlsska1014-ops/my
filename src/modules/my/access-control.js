@@ -240,15 +240,58 @@ async function getMySelectedHousehold(env, userId, householdId = "") {
   const selected = (requested && canReadMyHousehold(requested.role) ? requested : null) || households[0] || null;
   return { households, memberships, selected, restricted: null, invalidRequested: "" };
 }
+
+// V22.9.118 U-3: 한 사용자의 가계부 여러 개가 같은 이름(자동으로 만든 방 가계부 ‘이 방의 공동 가계부’ 등)이면 가계부 선택기에서 구분이 안 됐다.
+// 같은 이름이 둘 이상일 때만 그 항목들에 만든 날(한국 날짜)을 붙여 ‘이 방의 공동 가계부 · 11/8’ 처럼 보이고, 만든 날까지 같으면 만든 순서로
+// ‘· 11/8 ②’ 처럼 순번을 더한다. 이름이 하나뿐인 가계부는 빈 문자열을 돌려 부르는 쪽이 원래 글자(h.name …)를 그대로 쓰게 한다(출력 바이트 그대로).
+// 보이는 이름만 바꾼다 — option 값(가계부 id)·정렬·선택·저장되는 이름은 그대로다. 같은 목록은 한 번만 센다.
+const householdChoiceLabelCacheV229118 = new WeakMap();
+function householdCreatedDayV229118(value) {
+  const text = String(value || "");
+  const ms = /(?:[zZ]|[+-][0-9]{2}:?[0-9]{2})$/.test(text) ? Date.parse(text) : NaN;
+  const day = Number.isFinite(ms) ? new Date(ms + 32400000).toISOString().slice(0, 10) : text.slice(0, 10);
+  const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(day);
+  return m ? `${Number(m[1])}/${Number(m[2])}` : "";
+}
+function householdChoiceLabelV229118(household, households) {
+  const id = String(household?.id ?? "");
+  if (!id || !Array.isArray(households) || households.length < 2) return "";
+  let labels = householdChoiceLabelCacheV229118.get(households);
+  if (!labels) {
+    labels = new Map();
+    const groups = new Map();
+    for (const h of households) {
+      const name = String(h?.name || "").trim();
+      if (!name || h?.id == null) continue;
+      if (!groups.has(name)) groups.set(name, []);
+      groups.get(name).push(h);
+    }
+    for (const [name, same] of groups) {
+      if (same.length < 2) continue;
+      const ordered = [...same].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")) || String(a.id).localeCompare(String(b.id)));
+      const seen = new Map();
+      for (const h of ordered) {
+        const day = householdCreatedDayV229118(h.created_at);
+        const base = day ? `${name} · ${day}` : name;
+        const count = (seen.get(base) || 0) + 1;
+        seen.set(base, count);
+        labels.set(String(h.id), count === 1 ? base : `${base} ${count <= 20 ? String.fromCharCode(0x2460 + count - 1) : `(${count})`}`);
+      }
+    }
+    householdChoiceLabelCacheV229118.set(households, labels);
+  }
+  return labels.get(id) || "";
+}
 // @build:exports-start
 export {
   MEMBER_POLICY_RECORD_EDIT, MEMBER_POLICY_RECORD_ONLY, MY_ACCESS_STATUS_CSS,
   canChangeMyHouseholdRecords, canChangeMyHouseholdRecordsForView, canManageMyHousehold,
   canManageMyRecord, canReadMyHousehold, canWriteMyHousehold, fetchHouseholdMemberPolicy,
-  getMySelectedHousehold, homeMemberPolicyValue, householdIdWasRemembered,
-  householdNotFoundResponse, memberPolicyDescription, memberPolicyJoinLine, memberPolicyLabel,
-  memberPolicySettingsKey, memberRecordChangeError, memberRecordChangeMessage,
-  memberRecordOnlyRefusalText, myAccessStatusResponse, myReturnLocation, parseMemberPolicyValue,
-  renderHouseholdNotFoundHtml, renderMyAccessStatusHtml, saveHouseholdMemberPolicy,
+  getMySelectedHousehold, homeMemberPolicyValue, householdChoiceLabelV229118,
+  householdIdWasRemembered, householdNotFoundResponse, memberPolicyDescription,
+  memberPolicyJoinLine, memberPolicyLabel, memberPolicySettingsKey, memberRecordChangeError,
+  memberRecordChangeMessage, memberRecordOnlyRefusalText, myAccessStatusResponse, myReturnLocation,
+  parseMemberPolicyValue, renderHouseholdNotFoundHtml, renderMyAccessStatusHtml,
+  saveHouseholdMemberPolicy,
 };
 // @build:exports-end

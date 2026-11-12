@@ -21,6 +21,7 @@ import { fetchUserIdentityLinks, saveUserIdentityLinks } from "../auth/identity-
 import {
   fetchRawHouseholdMembers, fetchUserById, withKakaoUserLifecycleLease,
 } from "../data/users-household-create.js";
+import { householdChoiceLabelV229118 } from "../my/access-control.js";
 import { kakaoClaimUserUnmerged } from "../auth/kakao-web-claim.js";
 import { renderKakaoAccountLinkDiagnostics } from "../auth/kakao-account-link.js";
 import { isDefiniteStorageFailure } from "../kakao/response-builders.js";
@@ -70,7 +71,7 @@ async function handleIdentityAuditPage(request, env, url) {
   const selected = audit.selected;
   const msg = String(url.searchParams.get("msg") || "");
   const err = String(url.searchParams.get("err") || "");
-  const householdOptions = audit.households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${selected?.id === h.id ? " selected" : ""}>${escapeHtml(h.name || h.id)}</option>`).join("");
+  const householdOptions = audit.households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(householdChoiceLabelV229118(h, audit.households) || h.name || "가계부")}"${selected?.id === h.id ? " selected" : ""}>${escapeHtml(householdChoiceLabelV229118(h, audit.households) || h.name || h.id)}</option>`).join("");
   const memberOptions = audit.members.map((m) => `<option value="${escapeHtml(m.user_id)}">${escapeHtml(m.nickname || "구성원")} · ${escapeHtml(identityTypeLabel(m.kakao_user_key))} · 거래 ${numberWithCommas(m.transaction_count)}건</option>`).join("");
   const tableRows = audit.members.map((m) => `<tr><td><b>${escapeHtml(m.nickname || "구성원")}</b><br/><span>${escapeHtml(m.base_nickname || "")}</span></td><td>${escapeHtml(userHouseholdRoleLabel(m.role))}</td><td>${escapeHtml(identityTypeLabel(m.kakao_user_key))}<br/><code>${escapeHtml(maskIdentityKey(m.kakao_user_key))}</code></td><td>${numberWithCommas(m.transaction_count)}건</td><td>${escapeHtml(String(m.created_at || "").slice(0, 19).replace("T", " "))}</td></tr>`).join("") || `<tr><td colspan="5">참여자가 없습니다.</td></tr>`;
   const linkDiagnostics = await renderKakaoAccountLinkDiagnostics(env);

@@ -267,6 +267,13 @@ function normalizeUserFacingUi(html = "") {
     if (!source.includes(`href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"`)) {
       source = source.replace("</head>", `${shellLink}</head>`);
     }
+    // V22.9.118 U-6: iOS 는 16px 미만 글자 입력칸을 누르면 화면을 확대한다(뷰포트 배율은 막지 않는다 — 확대 접근성).
+    // 1년 캐시 셸 CSS 대신 이 인라인 규칙 하나로 좁은 화면의 글자 입력칸·select·textarea 만 16px. 휴대폰 홈(35 KiB 예산)과 소비 분석(R3)은 뺀다.
+    // 로그아웃 시작 화면(50 KiB 예산)도 뺀다 — 그 화면 입력칸은 이미 자기 규칙(.field input{font-size:16px})으로 16px 이다.
+    const skipInputZoomStyle = source.includes('id="smartInput"') || bodyClasses.includes("abPageInsight") || bodyClasses.includes("abPageAnalysisReport") || bodyClasses.includes("abPageLogin");
+    if (!skipInputZoomStyle && !source.includes('id="abInputZoomStyle"')) {
+      source = source.replace("</head>", `${AB_INPUT_ZOOM_STYLE_V229118}</head>`);
+    }
   }
   if (useV22812Shell && source.includes("</body>") && !source.includes(ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH)) {
     // V22.8.34: 검색·알림·행즐겨찾기를 단일 immutable 번들로 주입(오버레이 마크업은 번들 JS가 생성).
@@ -563,6 +570,8 @@ function renameLegacyDocumentTitleV22983(source = "") {
   return source;
 }
 
+// V22.9.118 U-6: 버튼 꼴(button·submit·reset·image)·체크박스·라디오·파일·range·색은 크기를 바꾸지 않는다. 데스크톱 폭은 그대로.
+const AB_INPUT_ZOOM_STYLE_V229118 = '<style id="abInputZoomStyle">@media (max-width:700px){input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=hidden]):not([type=button]):not([type=submit]):not([type=reset]):not([type=image]):not([type=color]),select,textarea{font-size:16px!important}}</style>';
 // V22.9.95 공지 띠: 운영 변수 NOTICE_TEXT 가 있으면 /my·/app 셸과 공개 문서 화면(pubHeader) 맨 위(본문 바로가기 다음)에 한 줄 띠를 붙인다.
 // 변수가 없으면 아무것도 붙이지 않는다(빈 요소도 없다). role="status"를 유지하고 V22.9.99부터 POST 폼으로 하루 동안 숨길 수 있다.
 // NOTICE_LINK 는 우리 화면 주소(‘/…’) 또는 https 주소만 받아 글 끝에 ‘자세히’ 를 단다. 색은 주의 톤(노랑)이고 다크(앱 설정)에서도 대비 4.5 이상이다.

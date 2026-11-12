@@ -27,7 +27,9 @@ import {
 import {
   findRecentDuplicateRecurringRule, markRecurringAppliedIfRecordedThisMonth, recurringFormProblem,
 } from "../my/settings-page.js";
-import { getMySelectedHousehold, myAccessStatusResponse } from "../my/access-control.js";
+import {
+  getMySelectedHousehold, householdChoiceLabelV229118, myAccessStatusResponse,
+} from "../my/access-control.js";
 import { householdPageMessage } from "../my/households-lifecycle.js";
 import { budgetDraftRows, renderBudgetPlanPreview } from "../client/lucian-d-budget.js";
 import {
@@ -116,7 +118,7 @@ async function handleBudgetCenterPage(request, env, url, budgetDraft = null) {
     return `<article class="usageCard${usageState}"><div><b>${escapeHtml(row.name)}</b><span>${usageLabel}</span></div><dl><div><dt>예산</dt><dd>${numberWithCommas(row.amount)}원</dd></div><div><dt>사용</dt><dd>${numberWithCommas(usage.spent)}원</dd></div><div><dt>남음</dt><dd>${numberWithCommas(remain)}원</dd></div></dl><div class="miniBar"><i style="width:${Math.min(100, Math.max(0, usage.rate || 0))}%"></i></div><small>사용률 ${numberWithCommas(usage.rate || 0)}%</small></article>`;
   }).join("") : `<div class="empty">지출 분류별 한도를 저장하면 사용 현황이 표시됩니다.</div>`;
   const legacyTotal = budgets.find((b) => String(b.category || "") === "__total") || null;
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${String(h.id) === String(householdId) ? " selected" : ""}>${escapeHtml(h.name || "가계부")}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "가계부")}"${String(h.id) === String(householdId) ? " selected" : ""}>${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "가계부")}</option>`).join("");
   const msg = url.searchParams.get("msg") || "";
   const err = url.searchParams.get("err") || "";
   const planForm = canManage && userId && !budgetRead.ok && !budgetDraft ? `<section class="card" id="plan"><h2>예상 수입과 지출 예산</h2><p class="warn" role="alert">예산을 불러오지 못해 지금은 편집할 수 없습니다. 저장된 예산은 그대로이니 잠시 뒤 새로고침해 주세요.</p></section>` : canManage && userId ? `<section class="card" id="plan"><div class="sectionHead"><div><span class="eyebrow">종류·분류별 입력</span><h2>예상 수입과 지출 예산</h2></div><b>월 총액 직접입력 없음</b></div><p class="muted">급여·부수입 같은 수입 종류와 외식·교통 같은 지출 분류를 입력하면 각각 자동 합산됩니다. 0원이나 빈 행은 저장하지 않습니다.</p><form method="post" action="/my/budget-bulk/save" id="budgetPlanForm"><input type="hidden" name="household_id" value="${escapeHtml(householdId)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="plan_fingerprint" value="${escapeHtml(budgetDraft ? budgetDraft.fingerprint : planFingerprint)}"/><div class="planGrid"><div><h3>예상 수입 종류</h3><div id="incomeRows">${incomeInputs}</div><button type="button" class="addLine" data-add="income">+ 수입 종류 추가</button><p class="guide">실제 수입은 기록에서 자동 집계됩니다. 여기는 앞으로 들어올 예상 금액만 입력합니다.</p></div><div><h3>지출 분류별 한도</h3><div id="expenseRows">${expenseInputs}</div><button type="button" class="addLine" data-add="expense">+ 지출 분류 추가</button><p class="guide">분류별 금액의 합계가 이번 달 전체 지출 예산이 됩니다.</p></div></div>${renderBudgetPlanPreview(editIncomes, editExpenses, budgets, budgetDraft?.error || "", "/budgets?month=" + encodeURIComponent(month) + "&household_id=" + encodeURIComponent(householdId))}<button class="savePlan" type="submit">종류별 수입·분류별 예산 저장</button></form></section>` : `<section class="card"><h2>예산 설정</h2><p class="muted">${canManage ? "관리자 세션에서는 사용자 계정으로 가계부를 연 뒤 종류·분류별 계획을 편집하세요." : "가계부 소유자 또는 관리자만 계획을 변경할 수 있습니다."}</p></section>`;

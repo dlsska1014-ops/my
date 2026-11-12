@@ -22,7 +22,8 @@ import {
   supporterHeadHtml, supporterHtmlAttr, supporterSettingsKey, supporterThanksHtml,
 } from "../my/supporters.js";
 import {
-  canManageMyHousehold, getMySelectedHousehold, householdNotFoundResponse, myAccessStatusResponse,
+  canManageMyHousehold, getMySelectedHousehold, householdChoiceLabelV229118,
+  householdNotFoundResponse, myAccessStatusResponse,
 } from "../my/access-control.js";
 import { fetchBudgets } from "../domain/budgets.js";
 import { cursorPrefKey } from "../my/money-plan-home-layout.js";
@@ -183,7 +184,7 @@ async function handleBeginnerGuidePage(request, env, url) {
   ];
   const doneCount = steps.filter((s) => s.done).length;
   const percent = Math.round((doneCount / steps.length) * 100);
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(householdChoiceLabelV229118(h, households) || h.name)}</option>`).join("");
   const cards = steps.map((step) => `<div class="stepCard ${step.done ? "done" : ""}"><div class="stepNo">${step.done ? "✓" : step.no}</div><div class="stepBody"><h3>${escapeHtml(step.title)}</h3><p>${escapeHtml(step.body)}</p><a href="${escapeHtml(step.href)}">${escapeHtml(step.action)}</a></div></div>`).join("");
   const examples = [["지출 입력", "점심 12000원 국민카드"], ["수입 입력", "월급 250만원"], ["키워드 분류", "스타벅스 커피 5000원"], ["정기지출", "자동차보험 120만원 8월"], ["요약 확인", "요약"]].map(([a,b]) => `<div class="ex"><span>${escapeHtml(a)}</span><b>${escapeHtml(b)}</b></div>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>시작가이드</title><style>*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1120px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#10b981));color:#fff;border-radius:30px;padding:26px;margin:12px 0;box-shadow:0 18px 46px rgba(15,23,42,.2)}.hero h1{margin:0;font-size:31px;letter-spacing:-.04em}.hero p{line-height:1.6;opacity:.94}.filters{display:grid;grid-template-columns:1fr auto auto;gap:8px;margin-top:14px}.filters select,.filters input,.filters button{height:44px;border:1px solid rgba(255,255,255,.35);border-radius:14px;padding:0 12px;font:inherit}.filters button{background:#FEE500;color:#111827;font-weight:1000;border:0}.progress{background:rgba(255,255,255,.16);height:12px;border-radius:999px;overflow:hidden;margin-top:14px}.progress i{display:block;height:100%;background:#FEE500;border-radius:999px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}.stepCard{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:16px;display:flex;gap:13px;box-shadow:0 10px 28px rgba(15,23,42,.055)}.stepCard.done{border-color:#a7f3d0;background:#f0fdf4}.stepNo{width:38px;height:38px;border-radius:15px;background:#111827;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:1000;flex:0 0 38px}.stepCard.done .stepNo{background:#10b981}.stepBody h3{margin:0;font-size:17px}.stepBody p{margin:6px 0 12px;color:#64748b;font-size:13px;line-height:1.5}.stepBody a{display:inline-flex;min-height:34px;align-items:center;text-decoration:none;background:#111827;color:#fff;border-radius:12px;padding:0 11px;font-weight:1000;font-size:13px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.ex{display:flex;justify-content:space-between;gap:10px;border-bottom:1px solid #f1f5f9;padding:11px 0}.ex:last-child{border-bottom:0}.ex span{color:#64748b;font-size:13px;font-weight:800}.ex b{font-size:14px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:25px}.filters{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("start-guide", { month, householdId, role: "admin" })}<main class="wrap"><section class="hero"><h1>처음이라면 이 순서대로 시작하세요</h1><p>가계부 앱들이 공통으로 잘하는 장점은 복잡한 기능보다 “처음 설정 순서”를 쉽게 보여주는 것입니다. 아래 순서대로 설정하면 카톡 입력, 예산, 정기지출, 분석이 자연스럽게 연결됩니다.</p><form class="filters" method="get" action="/start-guide"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form><div class="progress"><i style="width:${percent}%"></i></div><p><b>${doneCount}/${steps.length}단계 완료</b> · 완료한 항목은 초록색으로 표시됩니다.</p></section><section class="grid">${cards}</section><section class="card"><h2>카톡 입력 예시</h2>${examples}</section></main></body></html>`);
@@ -223,7 +224,7 @@ async function handleUnifiedMenuPage(request, env, url) {
   // V22.9.37 감사 U14: 일반 참여자(member·viewer)에게는 관리자 전용 메뉴임을 미리 말한다(누르면 403 화면이었다).
   const adminOnlyNote = userId && selectedHousehold && !canManageMyHousehold(selectedHousehold.role) ? "관리자 전용 · " : "";
   const householdOptions = households.length
-    ? households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(h.name)}</option>`).join("")
+    ? households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(householdChoiceLabelV229118(h, households) || h.name)}</option>`).join("")
     : `<option value="">가계부 없음</option>`;
   // V22.9.83 (화면 정리 1차): 전체 메뉴도 사이드바와 같은 묶음(기록·분석·예산·자산·함께·설정)으로 나눈다.
   // 위 네 칸은 하단 탭(내역·입력·분석·예산)과 같은 이름을 쓴다.
@@ -258,7 +259,8 @@ async function handleUnifiedMenuPage(request, env, url) {
     ["설정", "가계부와 분류, 계정", [
       ["가계부 전환·추가", `/my/households?${monthQs}`, "새 가계부와 초대코드 참여", "switch"],
       ["분류·키워드", `/keyword-guide?${monthQs}`, "자동분류 기준 관리", "tag"],
-      ["백업·복구", `/my/backup?${monthQs}&mode=backup`, "CSV·JSON으로 보관", "backup"],
+      // V22.9.118 U-10: 백업 화면은 CSV 로 내려받고 CSV·엑셀 등을 가져온다(JSON 내려받기는 없다).
+      ["백업·복구", `/my/backup?${monthQs}&mode=backup`, "CSV 내려받기, CSV·엑셀 가져오기", "backup"],
       ["내 계정·보안", `/my/backup-login?return_to=${encodeURIComponent(`/menu?${monthQs}`)}`, "계정 로그인·복구", "shield"],
     ]],
   ];
@@ -361,7 +363,7 @@ function renderGuideTab({ month, household, origin = "", skillUrl = "" }) {
 function renderImportTab({ month, households = [], household, defaultHouseholdId = "", members = [] }) {
   const effectiveHouseholdId = household?.id || defaultHouseholdId || households[0]?.id || "";
   const selectedHousehold = households.find((h) => h.id === effectiveHouseholdId) || household || households[0] || null;
-  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(h.name || "가계부")}"${h.id === effectiveHouseholdId ? " selected" : ""}>${escapeHtml(h.name || "이름 없는 가계부")}</option>`).join("");
+  const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "가계부")}"${h.id === effectiveHouseholdId ? " selected" : ""}>${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "이름 없는 가계부")}</option>`).join("");
   const importSpenderOptions = renderSpenderOptions(members, "", "업로드 기본 지출자 선택");
   if (!households.length) {
     return `<section class="onboardHero"><h3>📥 엑셀/CSV 가져오기</h3><p class="muted">업로드하려면 먼저 가계부가 필요합니다.</p><div class="onboardActions"><a href="/households">가계부 만들기</a></div></section>`;
