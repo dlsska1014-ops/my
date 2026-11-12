@@ -242,16 +242,26 @@ async function getMySelectedHousehold(env, userId, householdId = "") {
 }
 
 // V22.9.118 U-3: 한 사용자의 가계부 여러 개가 같은 이름(자동으로 만든 방 가계부 ‘이 방의 공동 가계부’ 등)이면 가계부 선택기에서 구분이 안 됐다.
-// 같은 이름이 둘 이상일 때만 그 항목들에 만든 날(한국 날짜)을 붙여 ‘이 방의 공동 가계부 · 11/8’ 처럼 보이고, 만든 날까지 같으면 만든 순서로
-// ‘· 11/8 ②’ 처럼 순번을 더한다. 이름이 하나뿐인 가계부는 빈 문자열을 돌려 부르는 쪽이 원래 글자(h.name …)를 그대로 쓰게 한다(출력 바이트 그대로).
+// 같은 이름이 둘 이상일 때만 그 항목들에 만든 날(한국 날짜)을 붙여 ‘이 방의 공동 가계부 · 11/8’ 처럼 보이고(그 이름들의 만든 해가 둘 이상이면
+// ‘· 25/11/8’ 처럼 해도), 만든 날까지 같으면 만든 순서로 ‘· 11/8 ②’ 처럼 순번을 더한다. 이름이 하나뿐인 가계부는 빈 문자열을 돌려 부르는 쪽이 원래 글자(h.name …)를 그대로 쓰게 한다(출력 바이트 그대로).
 // 보이는 이름만 바꾼다 — option 값(가계부 id)·정렬·선택·저장되는 이름은 그대로다. 같은 목록은 한 번만 센다.
+// 만든 날은 가계부 표의 created_at(가계부를 만든 시각, 참여 시각은 joined_at)이다. PostgREST 시각 꼴(‘Z’, ‘+00:00’, ‘+0000’, ‘+00’, 날짜와 시각 사이 빈칸,
+// 오프셋 없음)을 모두 읽고, 오프셋이 없으면 UTC 로 본 뒤 한국 날짜(+9시간)로 적는다(독립 검토 P3).
 const householdChoiceLabelCacheV229118 = new WeakMap();
-function householdCreatedDayV229118(value) {
-  const text = String(value || "");
-  const ms = /(?:[zZ]|[+-][0-9]{2}:?[0-9]{2})$/.test(text) ? Date.parse(text) : NaN;
-  const day = Number.isFinite(ms) ? new Date(ms + 32400000).toISOString().slice(0, 10) : text.slice(0, 10);
-  const m = /^\d{4}-(\d{2})-(\d{2})$/.exec(day);
-  return m ? `${Number(m[1])}/${Number(m[2])}` : "";
+function householdCreatedMsV229118(value) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.\d+)?)?)?\s*([zZ]|[+-]\d{2}(?::?\d{2})?)?$/.exec(String(value || "").trim());
+  if (!m) return NaN;
+  const zone = m[7] || "";
+  const offsetMinutes = !zone || /^[zZ]$/.test(zone) ? 0 : (zone[0] === "-" ? -1 : 1) * (Number(zone.slice(1, 3)) * 60 + Number(zone.slice(1).replace(":", "").slice(2, 4) || 0));
+  const utcMs = Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), Number(m[4] || 0), Number(m[5] || 0), Number(m[6] || 0)) - offsetMinutes * 60000;
+  return utcMs;
+}
+function householdCreatedDayV229118(value, withYear = false) {
+  const ms = householdCreatedMsV229118(value);
+  if (!Number.isFinite(ms)) return "";
+  const kst = new Date(ms + 32400000);
+  const day = `${kst.getUTCMonth() + 1}/${kst.getUTCDate()}`;
+  return withYear ? `${String(kst.getUTCFullYear() % 100).padStart(2, "0")}/${day}` : day;
 }
 function householdChoiceLabelV229118(household, households) {
   const id = String(household?.id ?? "");
@@ -260,21 +270,30 @@ function householdChoiceLabelV229118(household, households) {
   if (!labels) {
     labels = new Map();
     const groups = new Map();
+    // 이름 비교는 연속 공백을 한 칸으로 접어 견준다(브라우저가 선택지 글자의 연속 공백을 접어 같게 보이므로). 보이는 글자는 각자의 이름 그대로다.
     for (const h of households) {
-      const name = String(h?.name || "").trim();
-      if (!name || h?.id == null) continue;
-      if (!groups.has(name)) groups.set(name, []);
-      groups.get(name).push(h);
+      const key = String(h?.name || "").trim().replace(/\s+/g, " ");
+      if (!key || h?.id == null) continue;
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key).push(h);
     }
-    for (const [name, same] of groups) {
+    for (const [key, same] of groups) {
       if (same.length < 2) continue;
-      const ordered = [...same].sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")) || String(a.id).localeCompare(String(b.id)));
+      // 만든 순서는 읽은 시각(UTC)으로 견준다(꼴이 섞여도 같게). 시각을 못 읽으면 뒤로, 같으면 id 순.
+      const createdMs = (h) => { const ms = householdCreatedMsV229118(h.created_at); return Number.isFinite(ms) ? ms : Infinity; };
+      const ordered = [...same].sort((a, b) => (createdMs(a) - createdMs(b)) || String(a.id).localeCompare(String(b.id)));
+      // 재검토 P3: 묶음 안에 만든 해(한국 날짜)가 둘 이상이면 날짜에 해 두 자리를 붙인다(‘25/11/8’) — 해만 다른 같은 월·일이 같은 날 순번
+      // (‘11/8 ②’)으로 읽히지 않게. 해는 묶음마다 따로 보고, 해가 하나뿐이면 지금 글자(‘11/8’) 그대로다. 순번 키에는 늘 해까지 넣는다.
+      const yearOf = (h) => { const ms = createdMs(h); return Number.isFinite(ms) ? new Date(ms + 32400000).getUTCFullYear() : ""; };
+      const withYear = new Set(same.map(yearOf).filter((year) => year !== "")).size > 1;
       const seen = new Map();
       for (const h of ordered) {
-        const day = householdCreatedDayV229118(h.created_at);
+        const day = householdCreatedDayV229118(h.created_at, withYear);
+        const name = String(h.name).trim();
         const base = day ? `${name} · ${day}` : name;
-        const count = (seen.get(base) || 0) + 1;
-        seen.set(base, count);
+        const seenKey = `${key}\u0000${yearOf(h)}\u0000${day}`;
+        const count = (seen.get(seenKey) || 0) + 1;
+        seen.set(seenKey, count);
         labels.set(String(h.id), count === 1 ? base : `${base} ${count <= 20 ? String.fromCharCode(0x2460 + count - 1) : `(${count})`}`);
       }
     }

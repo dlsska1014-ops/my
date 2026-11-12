@@ -17,11 +17,16 @@
 //   U-14 /meeting-households 만들기 단추 글자를 다음 화면(이름만 묻는다)과 맞춘다.
 //   U-18 홈 ‘지난달/다음 달 보는 중’ 은 바로 앞·뒤 달에만, 그 밖에는 ‘N월 보는 중’(해가 다르면 ‘YYYY년 N월 보는 중’).
 // 실제 글자 크기·겹침·대비는 헤드리스 Chrome 화면 감사로 따로 쟀다(review-artifacts/v118-v119-improvements-2026-11-12/scratch/ui/).
+// 독립 검토 후속(2026-11-12): U-3 을 내비 가계부 이름(사이드바·휴대폰 위 띠·숨은 제목)·두 표·/households 카드로 넓히고, 연속 공백·PostgREST 시각 꼴을
+// 단언한다. U-4 는 수정 폼의 숨긴 값이 저장 뒤 그대로인지 실제 저장 경로로, U-5 는 공유 문구 내용으로, U-6 은 빠른 입력칸 없는 홈(거래 탭·조회 전용)과
+// 35 KiB 예산으로 본다.
+// 재검토 후속(2026-11-12): U-3 시각 꼴 장면에 판별력(한국 자정 경계·같은 순간의 두 꼴·소속 행 시각을 다른 날·역순으로)을 주고, 같은 이름 묶음에
+// 만든 해가 둘 이상이면 날짜에 해를 붙이는지(‘25/11/8’) 장면 하나로 본다.
 //
 // ── 실행 ──
 //   node validation/validate-ui-fixes-v229118.mjs
 //   V229118_UI_SOFT=1 은 옛 번들에 이 검사를 돌려 실패 수를 셀 때만 쓴다(실패를 모아 끝에 센다).
-import { counter, fixture, page, withClock } from "./lib-audit-v22934.mjs";
+import { counter, fixture, page, post, settingValue, withClock } from "./lib-audit-v22934.mjs";
 
 const t = counter("PASS: V22.9.118 ui fixes");
 const SOFT = process.env.V229118_UI_SOFT === "1";
@@ -120,6 +125,81 @@ await scene("U-3 duplicate", () => fixture(async (fx) => {
     const selectedValues = [...new Set(options.filter((row) => row.selected).map((row) => row.value))];
     ok(selectedValues.length === 1 && selectedValues[0] === "house-home", `U-3 ${path} 고른 가계부(house-home)가 그대로 선택돼 있다 (실제 ${JSON.stringify(selectedValues)})`);
   }
+  // 독립 검토 P2: 데스크톱 머리줄·사이드바·화면 제목(내비 가계부 이름, 휴대폰 위 띠, 숨은 제목)도 같은 구분 글자를 쓴다. 거래 탭도 같다.
+  const DESKTOP = { "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/141.0 Safari/537.36" };
+  const plainNames = (html) => [...html.matchAll(/우리집 생활비(?! · \d)/g)].length;
+  const navBrand = '<span class="abNavBrandText" title="우리집 생활비 · 7/1">우리집 생활비 · 7/1<small>';
+  for (const path of [`/app?month=2026-07&${H}`, `/app?month=2026-07&${H}&tab=transactions`]) {
+    const html = (await page(fx, path, { headers: DESKTOP })).html;
+    eq(plainNames(html), 0, `U-3 ${path} 데스크톱: 구분 글자 없이 나오는 같은 이름이 없다`);
+    ok(html.includes(navBrand), `U-3 ${path} 사이드바 가계부 이름에 구분 글자`);
+  }
+  // 내비 이름은 화면마다 renderUnifiedNav 호출에서 넘긴다(21곳). /home-layout 은 첫 수정에서 블록 밖 변수를 써 500 이 났던 곳이라 함께 본다.
+  for (const path of [`/reports?month=2026-07&${H}`, `/smart-tools?${H}`, `/budgets?month=2026-07&${H}`, `/goals?${H}`, `/reserve-plans?${H}`, `/payment-methods?${H}`, `/home-layout?${H}`, `/annual?${H}`, `/budget-alerts?month=2026-07&${H}`, `/households?${H}`, `/keyword-guide?${H}`, `/menu?${H}`, `/settlement-summary?month=2026-07&${H}`, `/my/households?${H}`]) {
+    const res = await page(fx, path, { headers: DESKTOP });
+    ok(res.status === 200 && res.html.includes(navBrand), `U-3 ${path} 화면이 열리고 내비 가계부 이름에 구분 글자 (${res.status})`);
+  }
+  // `/households`(가계부·참여자) 의 가계부 카드는 가계부를 고르는 링크인데 이름 말고는 구분할 글자가 없다 → 같은 이름표.
+  const householdCards = [...(await page(fx, `/households?${H}`)).html.matchAll(/<a class="hhCard[^"]*" href="[^"]*household_id=([^"&]+)"><b>([^<]*)<\/b>/g)].map((m) => `${m[1]}=${m[2]}`);
+  ok(["house-home=우리집 생활비 · 7/1", "house-dupb=우리집 생활비 · 11/8", "house-dupa=우리집 생활비 · 11/8 ②", "house-trip=7월 제주여행"].every((card) => householdCards.includes(card)), `U-3 /households 가계부 카드 이름도 구분 (실제 ${JSON.stringify(householdCards)})`);
+  // 독립 검토 P3: /meeting-households ‘내가 참여한 가계부’ 표와 가계부 만들기·참여 안내 표의 가계부 줄.
+  for (const path of [`/meeting-households?${H}`, "/household-create-join"]) {
+    const rows = [...(await page(fx, path)).html.matchAll(/<tr><td>([^<]*)<\/td>/g)].map((m) => m[1]);
+    ok(["우리집 생활비 · 7/1", "우리집 생활비 · 11/8", "우리집 생활비 · 11/8 ②", "7월 제주여행"].every((label) => rows.includes(label)), `U-3 ${path} 표의 가계부 줄도 구분 (실제 ${JSON.stringify(rows)})`);
+  }
+}));
+await scene("U-3 formats", () => fixture(async (fx) => {
+  // 독립 검토 P3: 연속 공백만 다른 이름도 같은 이름으로 묶고(보이는 글자는 각자 그대로), PostgREST 시각 꼴(‘+00’·빈칸·오프셋 없음·‘+09:00’)을
+  // 한국 날짜로 읽는다(오프셋이 없으면 UTC). 만든 순서도 읽은 시각으로 센다.
+  // 재검토 P3(판별력): 오프셋 없는 꼴은 한국 자정 경계 양쪽(UTC 14:59:59 → 11/7 23:59:59, 15:00:00 → 11/8 00:00)에 두고, ‘+00’ 꼴과 ‘+09:00’ 꼴은
+  // 같은 순간(한국 11/7 23:30)에 둔다 — ‘+09:00’ 을 UTC 로 잘못 읽으면 11/8, 오프셋 없는 꼴을 한국 시각으로 잘못 읽으면 15:00:00 도 11/7 이 된다.
+  // 소속 행(household_members)의 시각은 가계부를 만든 시각과 다른 날(한국 12/1)·역순(늦게 만든 가계부일수록 먼저 참여)이라, 이름표가 소속 시각을
+  // 쓰면 날짜(12/1)와 순번이 모두 달라진다.
+  fx.db.households.find((row) => row.id === "house-home").name = "이 방의 공동 가계부";
+  fx.db.households.push(
+    { id: "house-fa", name: "이 방의  공동 가계부", invite_code: "FA2265", created_at: "2026-11-07 14:30:00+00" },
+    { id: "house-fb", name: "이 방의 공동 가계부", invite_code: "FB2265", created_at: "2026-11-07T23:30:00+09:00" },
+    { id: "house-fc", name: "이 방의 공동 가계부", invite_code: "FC2265", created_at: "2026-11-07T14:59:59" },
+    { id: "house-fd", name: "이 방의 공동 가계부", invite_code: "FD2265", created_at: "2026-11-07T15:00:00" },
+  );
+  const joinedAt = { "house-fa": "2026-12-01T04:00:00.000Z", "house-fb": "2026-12-01T03:00:00.000Z", "house-fc": "2026-12-01T02:00:00.000Z", "house-fd": "2026-12-01T01:00:00.000Z" };
+  for (const [id, at] of Object.entries(joinedAt)) fx.db.household_members.push({ household_id: id, user_id: "user-bin", role: "owner", created_at: at });
+  const options = householdOptions((await page(fx, `/budgets?month=2026-07&${H}`)).html);
+  const text = (id) => options.find((row) => row.value === id)?.text;
+  eq(text("house-home"), "이 방의 공동 가계부 · 7/1", "U-3 같은 이름 다섯 가운데 가장 먼저 만든 것");
+  eq(text("house-fa"), "이 방의  공동 가계부 · 11/7", "U-3 공백 두 칸 이름도 같은 이름으로 묶고 글자는 그대로, ‘+00’ 빈칸 꼴 14:30 은 한국 11/7 23:30");
+  eq(text("house-fb"), "이 방의 공동 가계부 · 11/7 ②", "U-3 ‘+09:00’ 꼴 23:30 은 ‘+00’ 14:30 과 같은 순간이라 같은 한국 11/7(시각이 같으면 id 순으로 둘째)");
+  eq(text("house-fc"), "이 방의 공동 가계부 · 11/7 ③", "U-3 오프셋 없는 14:59:59 는 UTC 로 보고 한국 11/7 23:59:59(같은 날 셋째)");
+  eq(text("house-fd"), "이 방의 공동 가계부 · 11/8", "U-3 오프셋 없는 15:00:00 은 UTC 로 보고 한국 11/8 00:00(자정 경계 다음 날)");
+  ok(options.length > 0 && !options.some((row) => row.text.includes("12/1")), `U-3 이름표는 소속 행 시각(한국 12/1)을 쓰지 않는다 (실제 ${JSON.stringify(options.map((row) => row.text))})`);
+}));
+await scene("U-3 years", () => fixture(async (fx) => {
+  // 재검토 P3: 같은 이름 묶음 안에 만든 해(한국 날짜)가 둘 이상이면 날짜에 해 두 자리를 붙이고(‘25/11/8’), 순번은 해까지 같은 날끼리만 센다.
+  // 해는 묶음마다 따로 본다 — 해가 하나뿐인 다른 묶음(우리집 생활비)은 지금 글자 그대로다. 해도 한국 날짜로 센다(UTC 2025-12-31 15:00 = 한국 2026-01-01).
+  fx.db.households.push(
+    { id: "house-ya", name: "동창 모임", invite_code: "YA2265", created_at: "2026-11-08T01:00:00.000Z" },
+    { id: "house-yb", name: "동창 모임", invite_code: "YB2265", created_at: "2025-11-08T01:00:00.000Z" },
+    { id: "house-yc", name: "동창 모임", invite_code: "YC2265", created_at: "2026-11-08 02:00:00+00" },
+    { id: "house-yd", name: "동창 모임", invite_code: "YD2265", created_at: "2025-12-31T15:00:00Z" },
+    { id: "house-hb", name: "우리집 생활비", invite_code: "HB2265", created_at: "2026-08-15T03:00:00.000Z" },
+  );
+  for (const [index, id] of ["house-ya", "house-yb", "house-yc", "house-yd", "house-hb"].entries()) fx.db.household_members.push({ household_id: id, user_id: "user-bin", role: "owner", created_at: `2026-12-0${index + 1}T00:00:00.000Z` });
+  const expected = {
+    "house-yb": "동창 모임 · 25/11/8",
+    "house-yd": "동창 모임 · 26/1/1",
+    "house-ya": "동창 모임 · 26/11/8",
+    "house-yc": "동창 모임 · 26/11/8 ②",
+    "house-home": "우리집 생활비 · 7/1",
+    "house-hb": "우리집 생활비 · 8/15",
+    "house-trip": "7월 제주여행",
+  };
+  for (const path of [`/budgets?month=2026-07&${H}`, `/app?month=2026-07&${H}`]) {
+    const options = householdOptions((await page(fx, path)).html);
+    for (const [id, label] of Object.entries(expected)) {
+      const rows = options.filter((row) => row.value === id);
+      ok(rows.length > 0 && rows.every((row) => row.text === label), `U-3 ${path} ${id} 선택지 글자 ${JSON.stringify(label)} (실제 ${JSON.stringify(rows.map((row) => row.text))})`);
+    }
+  }
 }));
 
 // ── U-4 정기 일정 ‘매월 반복’ ──
@@ -128,16 +208,66 @@ await scene("U-4", () => fixture(async (fx) => {
   ok(reserve.includes(".reserveRepeat{display:none!important}") && !reserve.includes(".reserveRepeat{flex-direction:row!important"), "U-4 반복주기 ‘매월’과 같은 뜻인 ‘매월 반복’ 체크 칸은 화면에서 숨긴다");
   ok(reserve.includes('<label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"/><span>매월 반복</span></label>'), "U-4 추가 폼은 체크 칸을 그대로 두어 보내는 값(꺼짐)이 전과 같다");
   ok(/<select name="recurrence" class="jsRecurrence">/.test(reserve), "U-4 반복주기 선택은 그대로 보인다");
+  // 독립 검토 P3 확인(실행): 수정 폼의 숨긴 체크 칸도 브라우저는 보이던 때와 같이 보낸다(체크돼 있으면 is_recurring=1, 아니면 안 보냄).
+  // 켜 둔 값은 켜진 채, 꺼 둔 값은 꺼진 채 저장되는지 실제 수정 저장 경로로 본다.
+  const key = "reserve_plans:house-home";
+  fx.db.accountbook_settings.find((row) => row.key === key).value = JSON.stringify([
+    { id: "reserve-on", name: "연 1회 켜 둔 일정", amount: 1200000, due_months: [8], recurrence: "annual", is_recurring: true },
+    { id: "reserve-off", name: "매월 꺼 둔 일정", amount: 50000, recurrence: "monthly", is_recurring: false },
+  ]);
+  const editPage = (await page(fx, `/reserve-plans?${H}`)).html;
+  const editForms = [...editPage.matchAll(/<form class="formGrid reserveEditForm"[\s\S]*?<\/form>/g)].map((m) => m[0]);
+  for (const id of ["reserve-on", "reserve-off"]) {
+    const form = editForms.find((html) => html.includes(`name="id" value="${id}"`)) || "";
+    ok(form.includes('<label class="reserveRepeat"><input type="checkbox" name="is_recurring" value="1"'), `U-4 ${id} 수정 폼에도 숨긴 체크 칸이 있다`);
+    // 이름만 바꿔 저장한다 — 저장이 실제로 일어났는지(이름이 바뀜)와 숨긴 칸 값이 그대로인지를 함께 본다.
+    const fields = browserFields(form);
+    fields.set("name", `${fields.get("name")} 수정`);
+    const res = await post(fx, "/admin/reserve-plan/update", fields);
+    ok([302, 303].includes(res.status) && /msg=reserve_updated/.test(res.location), `U-4 ${id} 수정 저장이 처리된다 (${res.status} ${res.decoded})`);
+  }
+  const raw = settingValue(fx, key);
+  const parsed = typeof raw === "string" ? JSON.parse(raw) : raw;
+  const saved = Array.isArray(parsed) ? parsed : (parsed?.items || []);
+  const plan = (id) => saved.find((row) => row.id === id) || {};
+  ok(plan("reserve-on").name === "연 1회 켜 둔 일정 수정" && plan("reserve-off").name === "매월 꺼 둔 일정 수정", `U-4 두 일정 모두 수정 저장됐다 (실제 ${JSON.stringify(saved.map((row) => row.name))})`);
+  eq(plan("reserve-on").is_recurring, true, "U-4 수정 저장 뒤에도 켜 둔 ‘매월 반복’ 값은 켜진 채");
+  eq(plan("reserve-off").is_recurring, false, "U-4 수정 저장 뒤에도 꺼 둔 값은 꺼진 채");
+  eq(plan("reserve-on").recurrence, "annual", "U-4 반복주기(연 1회)도 그대로");
+  eq(plan("reserve-off").recurrence, "monthly", "U-4 반복주기(매월)도 그대로");
 }));
+// 브라우저가 폼을 보내는 대로 값을 모은다(체크박스·라디오는 체크된 것만, CSS 로 숨긴 칸도 그대로 보낸다).
+function browserFields(form) {
+  const fields = new URLSearchParams();
+  const decode = (value) => value.replace(/&quot;/g, "\"").replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&amp;/g, "&");
+  for (const m of form.matchAll(/<input\b([^>]*)>/g)) {
+    const tag = m[1];
+    const name = tag.match(/\bname="([^"]+)"/)?.[1];
+    if (!name || /\bdisabled\b/.test(tag)) continue;
+    const type = (tag.match(/\btype="([^"]+)"/)?.[1] || "text").toLowerCase();
+    if ((type === "checkbox" || type === "radio") && !/\bchecked\b/.test(tag)) continue;
+    if (["submit", "button", "reset", "image", "file"].includes(type)) continue;
+    fields.append(name, decode(tag.match(/\bvalue="([^"]*)"/)?.[1] ?? (type === "checkbox" ? "on" : "")));
+  }
+  for (const m of form.matchAll(/<select\b[^>]*\bname="([^"]+)"[^>]*>([\s\S]*?)<\/select>/g)) {
+    const selected = m[2].match(/<option\b[^>]*value="([^"]*)"[^>]*\bselected\b/)?.[1] ?? m[2].match(/<option\b[^>]*value="([^"]*)"/)?.[1] ?? "";
+    fields.append(m[1], decode(selected));
+  }
+  for (const m of form.matchAll(/<textarea\b[^>]*\bname="([^"]+)"[^>]*>([\s\S]*?)<\/textarea>/g)) fields.append(m[1], decode(m[2]));
+  return fields;
+}
 
 // ── U-5·U-13 정산 화면 ──
 await scene("U-5", () => fixture(async (fx) => {
   const settlement = (await page(fx, `/settlement-summary?month=2026-07&${H}`)).html;
   const copyStart = settlement.indexOf('id="settlementCopy"');
   ok(copyStart > 0, "U-5 정산 공유 문구 상자가 있다");
-  const copyBlock = settlement.slice(copyStart, settlement.indexOf("</", copyStart + 20) + 200);
+  // 독립 검토 P3: 길이 단언은 늘 참이었다 — 공유 문구 상자(div) 한 칸만 잘라 실제 내용(제목·총 지출·참여자·송금 줄)이 남고 초대 줄이 없는지 본다.
+  const copyBlock = settlement.slice(copyStart, settlement.indexOf("</div>", copyStart));
   ok(!settlement.includes("초대/참여 문구"), "U-5 공유 문구에 초대코드(‘초대/참여 문구’) 줄이 없다");
-  ok(copyBlock.length > 30, "U-5 공유 문구 본문은 남아 있다");
+  ok(copyBlock.includes("우리집 생활비 2026-07 정산") && copyBlock.includes("총 지출: 248,600원") && copyBlock.includes("참여자: 2명"), "U-5 공유 문구에 제목·총 지출·참여자 줄이 남아 있다");
+  ok(copyBlock.endsWith("<br/>Bin → WIFI♥ 23,700원"), `U-5 공유 문구 끝은 송금 줄이다(초대 줄 없이) (끝 ${JSON.stringify(copyBlock.slice(-60))})`);
+  ok(!/초대|참여 문구|HOME2265/.test(copyBlock), "U-5 공유 문구 상자에 초대코드·초대 문구가 없다");
   ok(settlement.includes('<select name="mode" aria-label="정산 방식">'), "U-13 정산 방식 select 에 이름(정산 방식)");
   const payment = (await page(fx, `/payment-methods?${H}`)).html;
   ok(payment.includes('<i aria-hidden="true">'), "U-13 결제수단 장식 첫 글자는 화면 읽기에서 뺀다(V22.9.32 부터 있음)");
@@ -146,8 +276,11 @@ await scene("U-5", () => fixture(async (fx) => {
 // ── U-6 입력칸 16px ──
 const ZOOM_RULE = '<style id="abInputZoomStyle">@media (max-width:700px){input:not([type=checkbox]):not([type=radio]):not([type=file]):not([type=range]):not([type=hidden]):not([type=button]):not([type=submit]):not([type=reset]):not([type=image]):not([type=color]),select,textarea{font-size:16px!important}}</style>';
 await scene("U-6", () => fixture(async (fx) => {
-  for (const path of [`/budgets?month=2026-07&${H}`, `/reserve-plans?${H}`, "/my/households", `/payment-methods?${H}`, `/menu?${H}`, `/my/settings?${H}`, `/my/members?${H}`, `/goals?${H}`, `/my/backup?${H}`, `/my/groups?${H}`, `/my/setup?${H}`, `/settlement-summary?month=2026-07&${H}`]) {
-    const html = (await page(fx, path)).html;
+  // `/households`(셸 밖 가계부 관리 화면)도 넣는다(독립 검토 확인 요청 — 390 폭 화면 감사에서 입력칸 6개 모두 16px).
+  for (const path of [`/budgets?month=2026-07&${H}`, `/reserve-plans?${H}`, "/my/households", `/households?${H}`, `/payment-methods?${H}`, `/menu?${H}`, `/my/settings?${H}`, `/my/members?${H}`, `/goals?${H}`, `/my/backup?${H}`, `/my/groups?${H}`, `/my/setup?${H}`, `/settlement-summary?month=2026-07&${H}`]) {
+    const res = await page(fx, path);
+    const html = res.html;
+    eq(res.status, 200, `U-6 ${path} 화면이 열린다`);
     ok(headOf(html).includes(ZOOM_RULE), `U-6 ${path} 머리말에 좁은 화면 입력칸 16px 규칙 하나`);
     ok(html.split('id="abInputZoomStyle"').length === 2, `U-6 ${path} 규칙은 한 번만`);
     const viewport = html.match(/<meta name="viewport" content="([^"]*)"/)?.[1] || "";
@@ -157,6 +290,17 @@ await scene("U-6", () => fixture(async (fx) => {
   ok(home.includes('id="smartInput"') && !home.includes("abInputZoomStyle"), "U-6 휴대폰 홈(35 KiB 예산)에는 붙이지 않는다");
   const analysis = (await page(fx, `/my/analysis?month=2026-07&${H}`)).html;
   ok(analysis.length > 1000 && !analysis.includes("abInputZoomStyle"), "U-6 소비 분석(R3 보호 화면)에는 붙이지 않는다");
+  // 독립 검토 P2: 홈 판정은 빠른 입력칸 유무가 아니라 홈 응답 표식으로 한다 — 빠른 입력칸이 없는 거래 탭·조회 전용 홈에도 붙지 않고 35 KiB 예산 안이다.
+  const IPHONE = { "user-agent": "Mozilla/5.0 (iPhone)" };
+  const txTab = await page(fx, `/app?${H}&tab=transactions`, { headers: IPHONE });
+  ok(txTab.status === 200 && !txTab.html.includes('id="smartInput"') && !txTab.html.includes("abInputZoomStyle"), "U-6 거래 탭 홈(빠른 입력칸 없음)에도 규칙이 없다");
+  ok(Buffer.byteLength(txTab.html) < 35 * 1024, `U-6 거래 탭 홈 HTML 35 KiB 예산 안 (${Buffer.byteLength(txTab.html)} B)`);
+  const homeIphone = await page(fx, `/app?${H}`, { headers: IPHONE });
+  ok(Buffer.byteLength(homeIphone.html) < 35 * 1024 && !homeIphone.html.includes("abInputZoomStyle"), `U-6 홈 HTML 35 KiB 예산 안·규칙 없음 (${Buffer.byteLength(homeIphone.html)} B)`);
+  fx.db.household_members.find((row) => row.household_id === "house-home" && row.user_id === "user-bin").role = "viewer";
+  const viewerHome = await page(fx, `/app?${H}`, { headers: IPHONE });
+  ok(viewerHome.status === 200 && !viewerHome.html.includes('id="smartInput"') && !viewerHome.html.includes("abInputZoomStyle"), "U-6 조회 전용 홈(빠른 입력칸 없음)에도 규칙이 없다");
+  ok(Buffer.byteLength(viewerHome.html) < 35 * 1024, `U-6 조회 전용 홈 HTML 35 KiB 예산 안 (${Buffer.byteLength(viewerHome.html)} B)`);
 }));
 
 // ── U-9·U-10·U-12 글자·라벨 ──

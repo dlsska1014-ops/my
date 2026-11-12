@@ -270,7 +270,10 @@ function normalizeUserFacingUi(html = "") {
     // V22.9.118 U-6: iOS 는 16px 미만 글자 입력칸을 누르면 화면을 확대한다(뷰포트 배율은 막지 않는다 — 확대 접근성).
     // 1년 캐시 셸 CSS 대신 이 인라인 규칙 하나로 좁은 화면의 글자 입력칸·select·textarea 만 16px. 휴대폰 홈(35 KiB 예산)과 소비 분석(R3)은 뺀다.
     // 로그아웃 시작 화면(50 KiB 예산)도 뺀다 — 그 화면 입력칸은 이미 자기 규칙(.field input{font-size:16px})으로 16px 이다.
-    const skipInputZoomStyle = source.includes('id="smartInput"') || bodyClasses.includes("abPageInsight") || bodyClasses.includes("abPageAnalysisReport") || bodyClasses.includes("abPageLogin");
+    // 홈 판정은 빠른 입력칸(smartInput) 유무가 아니라 홈 응답의 제목 표식(‘ · 모바일’, 맨 끝에 ‘ · 홈’ 으로 바뀜)으로 한다 — 거래 탭(tab=transactions)·조회 전용 홈에는
+    // 빠른 입력칸이 없어 규칙이 붙던 것을 막는다(독립 검토 P2).
+    const isMobileHomeResponse = source.includes(" · 모바일</title>") || source.includes('id="smartInput"');
+    const skipInputZoomStyle = isMobileHomeResponse || bodyClasses.includes("abPageInsight") || bodyClasses.includes("abPageAnalysisReport") || bodyClasses.includes("abPageLogin");
     if (!skipInputZoomStyle && !source.includes('id="abInputZoomStyle"')) {
       source = source.replace("</head>", `${AB_INPUT_ZOOM_STYLE_V229118}</head>`);
     }
