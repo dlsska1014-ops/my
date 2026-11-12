@@ -1,3 +1,7 @@
+// V22.9.120 통합(2026-11-12, 카카오 입력 안전망을 V22.9.119 위에 모으고 판 이름을 올림): 지금 이 검사(지문 = V22.9.119 값)를 해시 입력에서 판 이름만 앞 판으로
+// 되돌려 돌리면 251·268개가 모두 통과함을 먼저 확인했다(review-artifacts/v120-kakao-input-guards-2026-11-12/claude-checks.md).
+// 그 뒤 --print-golden 으로 판 이름이 들어가는 analysis·backupFull·backupMonth 세 값만 다시 얻었다. 나머지 22개는 그대로다.
+// 카카오 안전망·거절 답 예시·방 참여 이벤트 변경은 지문 화면에 닿지 않는다.
 // V22.9.119 통합(2026-11-12, numbers·ops 를 V22.9.118 위에 모으고 판 이름을 올림): 지금 이 검사(지문 = V22.9.118 값 + 아래 homePrev)를 해시 입력에서 판 이름만 앞 판으로
 // 되돌려 돌리면 251·268개가 모두 통과하고, 판 이름과 아래 N-13 말을 함께 되돌리면 homePrev 도 V22.9.118 값 43ad9302… 그대로임을 먼저 확인했다
 // (review-artifacts/v119-report-numbers-2026-11-12/claude-checks.md). 그 뒤 --print-golden 으로 판 이름이 들어가는 analysis·backupFull·backupMonth 세 값만 다시 얻었다.
@@ -128,15 +132,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 323fd864cf7e343efe6dc40d",
   "reportsWeek": "200 14de653d7544b8f2e096f67f",
-  "analysis": "200 b349052ffa18091a4a98db41",
+  "analysis": "200 cd5741bb7e1ff631eab60610",
   "backupPage": "200 6262b0957469ecc4f141ae06",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 13e017b638b7787274270997",
-  "backupMonth": "200 1faea35a58006b42a6d42b06",
+  "backupFull": "200 0439e70f6b6216580060537a",
+  "backupMonth": "200 d31b00f0bcb57e61163a957b",
   "candidate": "200 1571a22a5da825caeb45c8ac",
   "legacyErr": "200 8483371f87264a4e90af381d",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

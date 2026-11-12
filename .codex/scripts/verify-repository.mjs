@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_119.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_120.sha256",
 );
 const validationScripts = [
   ["V22.9.107 광고 검토 후속(D-1 유입 매개변수·앵커가 붙어도 정본 문서면 광고, D-2 애드핏 FAQ 문구, D-3 계산표 글 절 순서, D-4~D-6 계산표 변경 전 결과·휴대폰 2열·머리꼬리·주소 판, D-7 글 목록 ‘계산표 포함’)", "validation/validate-ads-review-fixes-v229107.mjs"],
@@ -30,6 +30,8 @@ const validationScripts = [
   ["V22.9.118 보안(로그인 시도 제한에 IP 와 무관한 계정 전체 횟수(끄기·모르는 값 규칙)와 비밀번호 대조 길의 IPv6 /64 묶기, 강한 식별(kakao·local) 계정은 방 단추 주소 값으로 세션을 주지 않음, 배포 도구 되돌리기 — 명령 줄 대신 id 만·서울 DB 전환 앞 버전 거절·되돌린 판 응답만 세는 /health·/ready·같은 판 경고)", "validation/validate-security-fixes-v229118.mjs"],
   ["V22.9.119 리포트·분석 숫자와 문장(진행 중인 달 총 지출·총 수입 기준 줄, 지난달 같은 기간 비교와 색, 배달/외식 = 생활비 리포트 배달+외식 묶음, ‘주거·통신·보험·구독’ 이름, 카카오 ‘이번 주’ 는 오늘까지, 최근 3개월 평균, 예산 미설정, 수입 없으면 저축률 ‘-’, 직접 적은 기록이 없는 기간은 판정 안 함, 지난 달 보기 ‘N월’, 홈 지난달 말일까지; 소비 분석 보호 해시 그대로)", "validation/validate-report-numbers-v229119.mjs"],
   ["V22.9.119 운영 견고화(같은 날 같은 문장 카카오 기록이 유일 인덱스에 걸리면 사실대로 답하고 표식·잠금을 남기지 않음, 웹·관리자 수정 409 record_same_kakao_text, DB 호출 예산 변수 50~900 과 잘못된 값 이벤트, 예약 실행 기록 db_budget, 백업 절차 문서, 검토용 인덱스 제거 SQL 의 RAISE 가드)", "validation/validate-ops-hardening-v229119.mjs"],
+  ["V22.9.120 카카오 기록 저장 직전 안전망(고치는 말·묻는 말·읽지 못한 날짜 말·달 없는 앞날 N일·계획·전해 들은 말은 저장하지 않고 되묻기, 1,500자를 넘는 글은 판정 안 함, 늦은 답도 같은 판정, 세 저장 지점 모두 안전망 → 금액 상한 순서, 방에서 되묻는 말도 답 뒤 참여, 파서는 그대로)", "validation/validate-kakao-input-guards-v229120.mjs"],
+  ["V22.9.120 통합 수정(V22.9.119 거절 답의 다시 보낼 예시는 안전망도 통과할 때만 · 판정 날짜는 그 요청의 오늘, 방에서 안전망이 되묻고 답 뒤에 처음 들인 사람의 약관 안내 빠짐 이벤트 after_reply)", "validation/validate-kakao-guard-examples-v229120.mjs"],
   ["V22.9.113 예산 명령 되묻기 설계 유지(Gemini ① 결함 아님)·모호한 말 안내 한 줄·‘월 예산’ 전체 예산", "validation/validate-budget-command-fix-v229113.mjs"],
   ["V22.9.112 Gemini 후속 수정(합계 조사, 분류 챌린지, Cron 머리막힘, 강제 내보내기 정리, 방 열기 쿠키)", "validation/validate-gemini-fixes-v229112.mjs"],
   ["V22.9.111 UI 개선(홈 요약 필터 범위, 분석 탭 대비, 가계부 활성 카드)", "validation/validate-ui-improvements-v229111.mjs"],
@@ -400,7 +402,8 @@ function run(command, args, label) {
 // V22.9.117: 계정 잇기 확인(새 검사 206 — 보안 검토·재시험 장면 7~10 포함·추적표 V117 12건); 병렬 사전 실행 77,386 present / 77,383 absent.
 // V22.9.118: 2026-11-12 전체 점검의 좁은 수정(새 검사 셋 — 문구 292·화면 278·보안 291, 배포 도구 305, 추적표 V118 100건·V97:H-4 고침; 담당마다 독립 검토 반영); 하네스 두 모드 실측 79,227 present / 79,224 absent.
 // V22.9.119: 리포트·분석 숫자와 문장(새 검사 182)·운영 견고화(새 검사 241, DB 호출 장면 +13)·추적표 V118 출처 상태 갱신(+38); 하네스 두 모드 실측 79,701 present / 79,698 absent.
-const EXPECTED_MINIMUM_CHECKS = 79698;
+// V22.9.120: 카카오 기록 저장 직전 안전망(새 검사 1,968)·통합 수정(새 검사 82)·추적표 V120 출처 15행(+137)·A-12 기대값 갱신(+2); 하네스 두 모드 실측 81,890 present / 81,887 absent.
+const EXPECTED_MINIMUM_CHECKS = 81887;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

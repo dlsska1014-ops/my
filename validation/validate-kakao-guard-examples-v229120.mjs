@@ -7,6 +7,8 @@
 //  3. 장면(1:1·단톡방): 메모에 ‘몇 월 며칠’·‘며칠 전에’ 가 남은 기록의 날짜 수정이 같은 문장에 걸리면 사실 두 줄만, 기록 그대로
 //  4. 장면(1:1·단톡방): 평범한 예시 ‘커피 4500 두 번째’(같은 문장)·‘11월 10일 버스 1500원 두 번째’(날짜 수정)는 그대로 나오고 그대로 보내면 저장된다
 //  5. 소스: skill-handler 가 안전망 판정한 오늘을 요청에 남기고, 세 답의 호출 지점이 그 날을 넘긴다
+//  6. 통합(V22.9.118 과 합침): 방에서 안전망이 되묻고 답 뒤에 처음 들인 사람 → 약관 안내 빠짐 운영 이벤트 한 건(after_reply), 1:1·이미 구성원은 0
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { app, BASE, counter, withClock } from "./lib-audit-v22934.mjs";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
@@ -14,7 +16,7 @@ import { kakaoEditSameTextTextV229119, kakaoSameTextExistsTextV229119, kakaoSepa
 import { kakaoRecordGuardV229120 } from "../src/modules/kakao/request-guards.js";
 import { parseMultipleTransactions } from "../src/modules/nlu/transaction-parser.js";
 
-const c = counter("V22.9.120 통합 수정: 거절 답의 예시는 안전망도 통과할 때만(같은 문장·날짜 수정·별도 구매)");
+const c = counter("V22.9.120 통합 수정: 거절 답의 예시는 안전망도 통과할 때만(같은 문장·날짜 수정·별도 구매)·방 안전망 답 뒤 참여 빠짐 이벤트");
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const DAY = "2026-11-12";
 const SECRET = "validate-kakao-guard-examples-secret";
@@ -171,6 +173,65 @@ await withClock(DAY, async () => {
   const guards = read("../src/modules/kakao/request-guards.js");
   const topLevel = (source) => source.split("\n").filter((line) => /^(?:const|let|var)\s/.test(line));
   c.ok(!topLevel(builders).some((line) => /kakaoRecordGuardV229120|formatDate|nowKstDate/.test(line)) && !topLevel(guards).some((line) => /\bkakaoText\b/.test(line)), "5 response-builders ↔ request-guards: 최상위에서 서로의 값을 쓰지 않는다");
+}
+
+// ── 6. 통합(V22.9.118 과 합침): 방에서 안전망이 되묻고 답 뒤에 처음 들인 사람 → 약관 안내 빠짐 운영 이벤트 한 건(after_reply) ──
+// V22.9.118 은 답 뒤에 처음 들이는 길(설명서 화면)에 이 이벤트를 남겼다. 안전망 WIP 는 그 전 바탕이라 새 길(되묻는 말 → 답 뒤 참여)에 없었다.
+{
+  const hex66 = (label) => createHash("sha256").update(label).digest("hex") + "ab";
+  const ROOM_SECRET = "validate-kakao-guard-examples-room";
+  const LINE = "말해가계부를 이용하면 이용약관에 동의한 것으로 봐요.";
+  const KAKAO_ENV = { KAKAO_LOGIN_ENABLED: "1", KAKAO_REST_API_KEY: "qa-rest-api-key", PUBLIC_BASE_URL: BASE, KAKAO_REDIRECT_URI: `${BASE}/auth/kakao/callback`, KAKAO_ACCOUNT_LINK_ENABLED: "1" };
+  const resetIsolate = () => { for (const name of ["__AB_KAKAO_ROOM_OPEN_PROBE", "__AB_KAKAO_APP_USER_ID_PROBE", "__AB_EFFECTIVE_USER_CACHE", "__AB_KAKAO_INFLIGHT", "__AB_KAKAO_REPEAT_GUARD"]) globalThis[name]?.clear?.(); };
+  const payloadOf = (utterance, user, room) => {
+    const userRequest = { timezone: "Asia/Seoul", params: {}, block: { id: "b1", name: "폴백 블록" }, utterance, lang: "ko", user: { id: user, type: "botUserKey", properties: { botUserKey: user } } };
+    if (room) userRequest.chat = { id: room, type: "botGroupKey", properties: { botGroupKey: room } };
+    return { bot: { id: "bot1", name: "말해가계부" }, intent: { id: "i1", name: "폴백 블록" }, userRequest, action: { id: "a1", name: "스킬", params: {}, detailParams: {}, clientExtra: {} }, contexts: [] };
+  };
+  const ask = async (fx, utterance, user, room = "") => {
+    resetIsolate();
+    const jobs = [];
+    const mark = new Set(globalThis.__AB_OPS_EVENTS || []);
+    const response = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers: { "content-type": "application/json", "x-kakao-skill-secret": ROOM_SECRET }, body: JSON.stringify(payloadOf(utterance, user, room)) }), fx.env, { waitUntil(job) { jobs.push(job); }, passThroughOnException() {} });
+    const body = JSON.parse(await response.text());
+    for (let round = 0; round < 8 && jobs.length; round += 1) await Promise.allSettled(jobs.splice(0));
+    const text = (body?.template?.outputs || []).flatMap((o) => [o.simpleText?.text, o.textCard?.title, o.textCard?.description]).filter((t) => typeof t === "string").join("\n");
+    const dropped = (globalThis.__AB_OPS_EVENTS || []).filter((e) => !mark.has(e) && e.kind === "kakao_terms_notice_dropped").map((e) => `${e.severity}:${e.detail}`);
+    return { text, dropped };
+  };
+  await withClock(DAY, async () => {
+    const fx = await createV2265QaFixture();
+    Object.assign(fx.env, { SKILL_RATE_LIMIT: "100000", KAKAO_SKILL_SECRET: ROOM_SECRET }, KAKAO_ENV);
+    const fixtureFetch = globalThis.fetch;
+    const external = [];
+    globalThis.fetch = async (input, init = {}) => {
+      const url = new URL(typeof input === "string" ? input : input.url);
+      if (url.hostname !== "mock.supabase.co") { external.push(url.hostname); throw new Error(`external request blocked: ${url.hostname}`); }
+      return fixtureFetch(input, init);
+    };
+    try {
+      const userOf = (key) => fx.db.users.find((row) => row.kakao_user_key === key);
+      const txOf = (key) => { const user = userOf(key); return user ? fx.db.transactions.filter((row) => String(row.user_id) === String(user.id)) : []; };
+      const rolesOf = (key) => { const user = userOf(key); return user ? fx.db.household_members.filter((row) => String(row.user_id) === String(user.id)).map((row) => row.role) : []; };
+      const NEW_ROOM = hex66("guard-examples-room-new"), U1 = hex66("guard-examples-u1");
+      const first = await ask(fx, "지난주 금욜 택시 12000", U1, NEW_ROOM);
+      c.ok(first.text.startsWith("날짜로 보이는 ‘") && !first.text.includes(LINE) && txOf(U1).length === 0, "6 가계부 없는 방의 첫 호출이 안전망에 걸리면 날짜 안내, 약관 안내 없음, 기록 없음");
+      c.ok(rolesOf(U1).includes("owner"), "6 답 뒤에 첫 호출자를 소유자로 방 가계부를 준비한다(V22.9.115)");
+      c.eq(JSON.stringify(first.dropped), JSON.stringify(["info:after_reply"]), "6 답 뒤에 처음 들였으니 약관 안내 빠짐 이벤트 한 건(info, after_reply)");
+      const ROOM = hex66("guard-examples-room"), OWNER = hex66("guard-examples-owner"), U2 = hex66("guard-examples-u2");
+      const saved = await ask(fx, "점심 12000원", OWNER, ROOM);
+      c.ok(saved.text.includes(LINE) && saved.dropped.length === 0 && txOf(OWNER).length === 1, "6 대조: 방 첫 기록은 저장 + 약관 안내(이벤트 없음)");
+      const joined = await ask(fx, "25일 미용실 3만원", U2, ROOM);
+      c.ok(joined.text.startsWith("‘25일’이 이번 달 25일") && !joined.text.includes(LINE) && txOf(U2).length === 0 && rolesOf(U2).includes("member"), "6 가계부 있는 방의 새 사람: 앞날 안내, 기록 없음, 답 뒤 구성원");
+      c.eq(JSON.stringify(joined.dropped), JSON.stringify(["info:after_reply"]), "6 그 사람도 빠짐 이벤트 한 건(after_reply)");
+      const again = await ask(fx, "다음 달에 냉장고 120만원 살 예정", U2, ROOM);
+      c.ok(again.text.startsWith("앞으로의 계획·목표로 보여서") && again.dropped.length === 0 && txOf(U2).length === 0, "6 이미 구성원이면 이벤트 없음(계획 안내, 기록 없음)");
+      const U3 = hex66("guard-examples-u3");
+      const direct = await ask(fx, "지난주 금욜 택시 12000", U3);
+      c.ok(direct.text.startsWith("날짜로 보이는 ‘") && direct.dropped.length === 0 && rolesOf(U3).length === 0 && txOf(U3).length === 0, "6 1:1 첫 말이 안전망에 걸리면 가계부를 만들지 않고 이벤트도 없다");
+    } finally { resetIsolate(); globalThis.fetch = fixtureFetch; fx.restore?.(); }
+    c.eq(external.join(","), "", "6 바깥 요청 0");
+  });
 }
 
 c.done();
