@@ -129,6 +129,8 @@ function supporterAdminStateV22995(flag, today) {
 // V22.9.121: 목록 찾기 칸(q). 회원 번호 꼴(구분 기호를 뺀 길이 10 + MB 머리, 또는 ‘XXXX-XXXX’ 처럼 넷째 글자 뒤 구분 기호)이면 그 번호 한 명,
 // 아니면 표시 이름 일부(ilike), 그리고 16진수 4~32자리(줄표 포함 36자 이내)면 user_id 앞자리도 함께 본다. 머리도 구분 기호도 없는 8글자는
 // 번호로 보지 않는다(흔한 이름·id 앞자리와 겹친다 — 그런 번호는 아래 찾기 폼의 ‘회원 번호’ 방법이 받는다).
+// 번호 꼴인데 번호로 읽히지 않으면(‘MBTI ENFP 좋아’ 처럼 MB 로 시작하는 이름, 줄표로 이은 이름) 표시 이름으로 찾고 안내를 한 줄 붙인다
+// (독립 검토 V22.9.121 2차 P3 — 전에는 안내만 보이고 목록을 읽지 않았다).
 function supporterAdminUserQueryV229121(raw = "") {
   const text = String(raw ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
   if (!text) return { text: "", kind: "all", code: "", idPrefix: "" };
@@ -136,13 +138,11 @@ function supporterAdminUserQueryV229121(raw = "") {
   const compact = folded.toUpperCase().replace(SUPPORTER_ADMIN_SEPARATORS_V229121, "");
   // 머리(MB) 없는 꼴은 줄표 계열 구분 기호만 받는다 — ‘Kate Moss’ 처럼 네 글자 이름 둘은 이름으로 찾는다(독립 검토 V22.9.121 1차 P3).
   const codeShaped = (compact.length === 10 && compact.startsWith("MB")) || /^[0-9A-Za-z]{4}[\-_.\u2010-\u2015\u2212][0-9A-Za-z]{4}$/.test(folded);
-  if (codeShaped) {
-    const code = normalizeMemberCodeV229121(folded);
-    return code ? { text, kind: "code", code, idPrefix: "" } : { text, kind: "badcode", code: "", idPrefix: "" };
-  }
+  const code = codeShaped ? normalizeMemberCodeV229121(folded) : "";
+  if (code) return { text, kind: "code", code, idPrefix: "" };
   const hex = text.toLowerCase().replace(/-/g, "");
   const idPrefix = text.length <= 36 && /^[0-9a-f-]+$/i.test(text) && /^[0-9a-f]{4,32}$/.test(hex) ? hex : "";
-  return { text, kind: "text", code: "", idPrefix };
+  return { text, kind: "text", code: "", idPrefix, notCode: codeShaped };
 }
 
 // V22.9.121: user_id(uuid) 앞자리 → 범위 [앞자리 + 0…, 앞자리 + f…]. uuid 는 16진 글자 순서와 같은 순서로 비교된다.
@@ -152,10 +152,11 @@ function supporterAdminUuidRangeV229121(hexPrefix = "") {
 }
 
 // V22.9.121: 표시 이름 부분 일치(ilike) + user_id 앞자리 논리식. 이름 값은 큰따옴표로 감싸고(논리식 안 쉼표·괄호·점), 와일드카드·따옴표·역슬래시
-// (* % _ " \)는 ‘아무 글자’(*)로 바꾼다.
+// (* % _ " \)는 ‘아무 글자’(%)로 바꾼다. 와일드카드는 PostgREST 의 * 별칭 대신 SQL 의 % 를 그대로 보낸다 — 논리식의 큰따옴표 안에서도 * 가 % 로
+// 바뀌는지 공식 문서로 확인되지 않아서다(독립 검토 V22.9.121 2차의 확인할 가정; supabase-js 의 ilike 도 % 를 보낸다).
 function supporterAdminUserFilterV229121(query) {
   if (query?.kind !== "text" || !query.text) return "";
-  const pattern = `*${query.text.replace(/[*%_"\\]/g, "*")}*`.replace(/\*{2,}/g, "*");
+  const pattern = `%${query.text.replace(/[*%_"\\]/g, "%")}%`.replace(/%{2,}/g, "%");
   const parts = [`nickname.ilike."${pattern}"`];
   if (query.idPrefix) {
     const [low, high] = supporterAdminUuidRangeV229121(query.idPrefix);
@@ -283,9 +284,9 @@ async function handleSupportersAdminPage(request, env, url) {
           ? `<a href="/admin/supporters?user_id=${encodeURIComponent(id)}#edit">고치기</a>`
           : `<a href="/admin/supporters?add=${encodeURIComponent(id)}#edit">후원자 추가</a>`;
       return `<tr><td>${codeHtml(id)}</td><td>${escapeHtml(user.nickname || "(이름 없음)")}${merged ? ` <span class="state merged">통합됨</span>` : ""}</td><td>${escapeHtml(supporterAdminAccountTypeV229121(user))}</td><td>${escapeHtml(supporterAdminKstDateV229121(user.created_at))}</td><td><code>${escapeHtml(id.slice(0, 8))}</code></td><td><span class="state ${stateKey}">${escapeHtml(stateLabel)}</span></td><td>${action}</td></tr>`;
-    }).join("") || `<tr><td colspan="7">${query.kind === "all" ? "아직 사용자가 없어요." : "찾는 사용자가 없어요."}</td></tr>`;
+    }).join("") || `<tr><td colspan="7">${listMode && pageNo > 1 ? `이 쪽에는 사용자가 없어요. <a href="${escapeHtml(supporterAdminUserListLinkV229121(query, 1))}">첫 쪽으로</a>` : query.kind === "all" ? "아직 사용자가 없어요." : "찾는 사용자가 없어요."}</td></tr>`;
   let lookupNote = "";
-  if (query.kind === "badcode") lookupNote = `<p class="error" role="alert">${escapeHtml(SUPPORTER_ADMIN_ERRORS_V22995.member_code_invalid)}</p>`;
+  if (query.notCode) lookupNote = `<p class="warn" role="status">회원 번호로 읽히지 않아 표시 이름으로 찾았어요. ${escapeHtml(SUPPORTER_ADMIN_ERRORS_V22995.member_code_invalid)}</p>`;
   else if (query.kind === "code" && lookup?.available === false) lookupNote = `<p class="error" role="alert">${escapeHtml(SUPPORTER_ADMIN_ERRORS_V22995.member_code_unavailable)}</p>`;
   else if (query.kind === "code" && foundId && !pageUsers.length) lookupNote = `<p class="warn" role="status">회원 번호 ${escapeHtml(query.code)} 의 사용자 줄을 읽지 못했어요. 잠시 뒤 다시 찾아 주세요.</p>`;
   else if (query.kind === "code" && !foundId) lookupNote = `<p class="warn" role="status">회원 번호 ${escapeHtml(query.code)} 와 맞는 사용자가 없어요. 번호를 다시 확인해 주세요.</p>`;

@@ -309,7 +309,8 @@ await section("2 계정 통합", async () => {
     const carryAt = run.log.indexOf(carryRead);
     const rpcAt = run.log.findIndex((r) => r.path.startsWith("/rest/v1/rpc/accountbook_merge_users_v227"));
     const lastLinksAt = run.log.map((r, i) => (r.decoded.includes("user_identity_links") ? i : -1)).filter((i) => i >= 0).at(-1) ?? -1;
-    ok(rpcAt >= 0 && carryAt > rpcAt && lastLinksAt > carryAt, "2-f 옮기기는 합치기 RPC 뒤, 링크 표 정리 앞");
+    const lastOtherAt = run.log.map((r, i) => (run.carry.includes(r) ? -1 : i)).filter((i) => i >= 0).at(-1) ?? -1;
+    ok(rpcAt >= 0 && lastLinksAt > rpcAt && carryAt > lastLinksAt && carryAt > lastOtherAt, `2-f 옮기기는 맨 끝(합치기 RPC·링크 표 정리·다른 뒤처리 다음): 옮기기 읽기 ${carryAt} · 링크 표 ${lastLinksAt} · 다른 마지막 ${lastOtherAt}`);
 
     // 옮긴 표시가 실제로 쓰인다: 주 계정의 전체 메뉴에 배지·포인트 색, 쿠키 ab_sp 를 받는다.
     const menu = await get(fx, MENU, fx.cookie);
@@ -394,25 +395,38 @@ await section("2 계정 통합", async () => {
   });
 });
 
-// ── 2c. 링크 표 정리 몫 예약(독립 검토 V22.9.121 1차 P2) ─────────────────────
-// 합치기 뒤 남은 호출이 옮기기(읽기 1 + 쓰기 3)와 링크 표 정리(4)를 다 받지 못하면, 옮기기를 미루고 링크 표 정리를 한다 — 링크 표가 밀리면
-// 강한 식별 없는 옛 가입자가 다음 웹 로그인에서 빈 새 계정을 만들 수 있다(V22.9.91). performIdentityMerge 를 모듈에서 바로 부르고
-// 요청 예산(__AB_DB_BUDGET)을 옮기기 직전 사용량 + 7 로 둔다(읽기 1 뒤 쓰기 3 + 링크 표 4 = 7 은 남지 않고, 링크 표 4 는 남는다).
-// 예약이 없던 초안은 이 예산에서 옮기기를 하고 링크 표 정리를 미뤘다.
-await section("2c 링크 표 몫 예약", async () => {
+// ── 2c. 옮기기는 맨 끝 — 기존 뒤처리는 옮길 줄과 무관(독립 검토 V22.9.121 1차·2차 P2) ─────────────────────
+// 옮기기(읽기 1 + 쓰기 3)는 performIdentityMerge 의 맨 끝에서 남은 호출로만 한다. 그래서 세션·링크 표·방 연결·가계부별 표시 별명 정리는
+// 옮길 줄이 있든 없든 같은 호출·같은 운영 이벤트로 돈다(V22.9.120 과 같은 예산). 첫 초안(옮기기를 링크 표 앞에서)은 빠듯한 예산에서 링크 표
+// 정리를 밀었고, 1차 반영(링크 표 몫 4회만 남김)은 방 연결·별명 정리 몫을 먼저 썼다. performIdentityMerge 를 모듈에서 바로 부르고 요청 예산
+// (__AB_DB_BUDGET)을 여러 값으로 두어, 옮길 줄이 있을 때와 없을 때의 옮기기 밖 호출 순서와 정리 이벤트(identity_…)를 견준다. 보조 계정이
+// 방 연결 주인이고(방 연결 정리) 가계부 표시 별명도 있는(별명 정리) 장면이다.
+await section("2c 옮기기는 맨 끝", async () => {
   const { performIdentityMerge } = await import("../src/modules/admin/identity-merge.js");
-  const setup = (fx) => {
+  const { kakaoGroupLinkItemSettingsKey } = await import("../src/modules/kakao/group-links-first-record.js");
+  const ROOM = "qa-room-v229121-carry";
+  const roomKey = kakaoGroupLinkItemSettingsKey(ROOM);
+  const seed = (fx, rows) => {
+    putSetting(fx, roomKey, JSON.stringify({ group_key: ROOM, household_id: "house-home", household_name: "우리집", invite_code: "", linked_by: "user-wifi", linked_at: "2026-07-01T00:00:00.000Z" }));
+    if (!rows) return;
     putSetting(fx, "supporter:user-wifi", flag("2026-06-01", null, "QA 송금", "와이파이"));
     putSetting(fx, "consent:user-wifi", CONSENT);
   };
-  const runMerge = async (fx, limit) => {
+  const isCarry = (row) => /(supporter|consent):user-(bin|wifi)/.test(row.decoded) || /"key":"(supporter|consent):/.test(row.body);
+  // 잠금 토큰·시각은 실행마다 다르다 — 호출 모양(방법·경로·쓰는 키)만 견준다.
+  const shape = (row) => {
+    let key = "";
+    try { key = String(JSON.parse(row.body || "{}")?.key || ""); } catch (_) { key = ""; }
+    return `${row.method} ${row.decoded.replace(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi, "<uuid>").replace(/\d{4}-\d{2}-\d{2}T[\d:.]+Z/g, "<t>")}${key ? ` ${key}` : ""}`;
+  };
+  const runMerge = (limit, rows) => mergeFixture(async (fx) => {
+    seed(fx, rows);
     const env = { ...fx.env, __AB_DB_BUDGET: { used: 0, limit } };
-    let usedAtCarryRead = -1;
+    const log = [];
     const mark = opsMark();
-    const restore = intercept(({ url }) => {
-      const key = url.searchParams.get("key") || "";
-      if (usedAtCarryRead < 0 && url.hostname.endsWith("supabase.co") && url.pathname === "/rest/v1/accountbook_settings" && key.startsWith("in.(") && key.includes("supporter:user-wifi")) {
-        usedAtCarryRead = env.__AB_DB_BUDGET.used;
+    const restore = intercept(({ url, method, init }) => {
+      if (url.hostname.endsWith("supabase.co")) {
+        log.push({ method, decoded: decodeURIComponent(`${url.pathname}${url.search}`), body: typeof init?.body === "string" ? init.body : "", used: env.__AB_DB_BUDGET.used });
       }
       return null;
     });
@@ -421,31 +435,68 @@ await section("2c 링크 표 몫 예약", async () => {
       await performIdentityMerge(env, { primaryId: "user-bin", secondaryId: "user-wifi", householdId: "house-home", path: "/admin/identity/merge" });
     } catch (err) { threw = err; } finally { restore(); }
     const events = eventsSince(mark);
-    return { threw, usedAtCarryRead, events, kinds: events.map((entry) => entry.kind), used: env.__AB_DB_BUDGET.used };
-  };
-  let before = -1;
-  await mergeFixture(async (fx) => {
-    setup(fx);
-    const wide = await runMerge(fx, 900);
-    ok(!wide.threw && wide.usedAtCarryRead > 0, `2c-a 넉넉한 예산: 합치기가 끝나고 옮기기 읽기를 보았다(${wide.threw?.message || "ok"}, 읽기 때 사용량 ${wide.usedAtCarryRead})`);
-    ok(!wide.kinds.some((kind) => /^merge_settings_carry_|^identity_legacy_link_cleanup_/.test(kind)) && settingValue(fx, "supporter:user-bin") !== undefined,
-      `2c-a 넉넉한 예산: 옮기기와 링크 표 정리가 모두 된다(${show(wide.kinds)})`);
-    before = wide.usedAtCarryRead - 1; // 읽기 요청이 보일 때는 그 읽기 몫이 이미 더해져 있다.
-  });
-  await mergeFixture(async (fx) => {
-    setup(fx);
-    const tight = await runMerge(fx, before + 7);
-    ok(!tight.threw && tight.usedAtCarryRead === before + 1,
-      `2c-b 빠듯한 예산(옮기기 직전 ${before} + 7)에서도 합치기는 끝나고 옮기기 읽기는 같은 자리에서 한다: ${tight.threw?.message || "ok"} · 읽기 때 ${tight.usedAtCarryRead}`);
-    ok(tight.kinds.includes("merge_settings_carry_deferred") && !tight.kinds.includes("identity_legacy_link_cleanup_deferred") && !tight.kinds.includes("identity_legacy_link_cleanup_failed"),
-      `2c-b 옮기기는 미루고(운영 이벤트) 링크 표 정리는 한다: ${show(tight.kinds)}`);
-    ok(/no database budget \(3 write\(s\)\)/.test(tight.events.find((entry) => entry.kind === "merge_settings_carry_deferred")?.detail || ""),
-      "2c-b 미룬 단계는 쓰기 3회(링크 표 4회를 남기려고) — 읽기는 했다");
-    ok(settingValue(fx, "supporter:user-bin") === undefined && JSON.parse(settingValue(fx, "supporter:user-wifi") || "null")?.since === "2026-06-01",
-      "2c-c 미룬 옮기기는 아무것도 쓰지 않는다(보조 줄이 그대로 남아 관리자가 다시 켤 수 있다)");
     const links = JSON.parse(settingValue(fx, "user_identity_links") || "{}");
-    ok(Object.values(links).some((value) => value?.user_id === "user-bin" && value?.provider === "identity_merge"), "2c-d 링크 표는 주 계정을 가리키게 고쳐졌다");
+    const aliases = JSON.parse(settingValue(fx, "member_aliases:house-home") || "{}");
+    const carryRows = log.filter(isCarry);
+    return {
+      threw, used: env.__AB_DB_BUDGET.used,
+      kinds: events.map((entry) => entry.kind),
+      cleanupKinds: events.map((entry) => entry.kind).filter((kind) => /^identity_/.test(kind)),
+      carryEvents: events.filter((entry) => /^merge_settings_carry_/.test(entry.kind)),
+      others: log.filter((row) => !isCarry(row)).map(shape),
+      carry: carryRows,
+      firstCarryAt: log.findIndex(isCarry),
+      lastOtherAt: log.map((row, i) => (isCarry(row) ? -1 : i)).filter((i) => i >= 0).at(-1) ?? -1,
+      supporterBin: settingValue(fx, "supporter:user-bin"), supporterWifi: settingValue(fx, "supporter:user-wifi"),
+      linksFixed: Object.values(links).some((value) => value?.user_id === "user-bin" && value?.provider === "identity_merge"),
+      roomOwner: JSON.parse(settingValue(fx, roomKey) || "{}").linked_by,
+      aliasMoved: aliases["user-bin"] !== undefined && !Object.prototype.hasOwnProperty.call(aliases, "user-wifi"),
+    };
   });
+
+  const wide = await runMerge(900, true);
+  const wideAbsent = await runMerge(900, false);
+  if (process.env.V121_DEBUG_2C) console.log(JSON.stringify({ used: wide.used, usedAbsent: wideAbsent.used, kinds: wide.kinds, others: wide.others, carry: wide.carry.map((row) => `${row.method} ${row.used}`) }, null, 1));
+  ok(!wide.threw && !wide.cleanupKinds.length && !wide.carryEvents.length && wide.supporterBin !== undefined && wide.supporterWifi === undefined
+    && wide.linksFixed && wide.roomOwner === "user-bin" && wide.aliasMoved,
+    `2c-a 넉넉한 예산: 옮기기와 기존 뒤처리(링크 표·방 연결·별명)가 모두 된다: ${wide.threw?.message || "ok"} · ${show(wide.kinds)} · 방 ${wide.roomOwner} · 별명 ${wide.aliasMoved}`);
+  ok(wide.carry.length === 4 && wide.firstCarryAt > wide.lastOtherAt,
+    `2c-a 옮기기 호출 4회는 다른 뒤처리 호출이 다 끝난 뒤(맨 끝): 옮기기 ${wide.carry.length}회, 첫 호출 ${wide.firstCarryAt} · 다른 마지막 호출 ${wide.lastOtherAt}`);
+  eq(wide.others, wideAbsent.others, "2c-a 넉넉한 예산: 옮길 줄이 있든 없든 옮기기 밖 호출은 같다");
+
+  // 옮기기 읽기 직전 사용량(= 다른 호출을 다 쓴 수) + 3: 읽기는 하고 쓰기 3회는 미룬다. 기존 뒤처리는 다 됐다.
+  const before = wide.carry[0].used - 1;
+  const tight = await runMerge(before + 3, true);
+  ok(!tight.threw && tight.carry.length === 1 && tight.carry[0].method === "GET" && !tight.cleanupKinds.length && tight.linksFixed && tight.roomOwner === "user-bin" && tight.aliasMoved,
+    `2c-b 남은 호출 3(옮기기 직전 ${before} + 3): 기존 뒤처리는 다 되고 옮기기는 읽기만 했다: ${tight.threw?.message || "ok"} · ${show(tight.kinds)} · 옮기기 ${tight.carry.length}회`);
+  ok(tight.carryEvents.length === 1 && tight.carryEvents[0].kind === "merge_settings_carry_deferred" && /no database budget \(3 write\(s\)\)/.test(tight.carryEvents[0].detail || ""),
+    `2c-b 쓰기 3회가 모자라 옮기기를 미룬다(운영 이벤트 하나): ${show(tight.carryEvents.map((entry) => `${entry.kind} ${entry.detail}`))}`);
+  ok(tight.supporterBin === undefined && JSON.parse(tight.supporterWifi || "null")?.since === "2026-06-01",
+    "2c-c 미룬 옮기기는 아무것도 쓰지 않는다(보조 줄이 그대로 남아 관리자가 주 계정에 다시 켤 수 있다)");
+
+  // 예산을 줄여 가며(넉넉한 예산에서 옮길 줄 없이 쓴 호출 수 N 의 N-14 … N+4): 옮길 줄이 있든 없든 옮기기 밖 호출과 정리 이벤트가 같다.
+  const N = wideAbsent.used;
+  const diffs = [];
+  let carryDeferred = 0;
+  let carryDone = 0;
+  let cleanupDeferred = 0;
+  let wroteWhileDeferred = 0;
+  for (let limit = N - 14; limit <= N + 4; limit += 1) {
+    const present = await runMerge(limit, true);
+    const absent = await runMerge(limit, false);
+    if (!isDeepStrictEqual(present.others, absent.others) || !isDeepStrictEqual(present.cleanupKinds, absent.cleanupKinds) || Boolean(present.threw) !== Boolean(absent.threw)) {
+      diffs.push(`${limit}: ${show(present.cleanupKinds)} vs ${show(absent.cleanupKinds)} · 호출 ${present.others.length} vs ${absent.others.length}`);
+    }
+    if (absent.cleanupKinds.length) cleanupDeferred += 1;
+    if (present.carryEvents.some((entry) => entry.kind === "merge_settings_carry_deferred")) {
+      carryDeferred += 1;
+      if (present.supporterBin !== undefined || present.supporterWifi === undefined) wroteWhileDeferred += 1;
+    }
+    if (present.supporterBin !== undefined && present.supporterWifi === undefined && !present.carryEvents.length) carryDone += 1;
+  }
+  eq(diffs, [], `2c-d 예산 ${N - 14}…${N + 4}: 옮길 줄이 있든 없든 옮기기 밖 호출 순서·정리 이벤트(identity_…)가 같다`);
+  ok(cleanupDeferred > 0 && carryDeferred > 0 && carryDone > 0, `2c-d 그 범위에 기존 정리가 밀리는 예산·옮기기만 미루는 예산·다 되는 예산이 모두 있다(정리 밀림 ${cleanupDeferred} · 옮기기 미룸 ${carryDeferred} · 다 됨 ${carryDone})`);
+  eq(wroteWhileDeferred, 0, "2c-e 옮기기를 미룬 예산에서는 설정 줄을 하나도 쓰지 않는다(반쯤 옮긴 상태 없음)");
 });
 
 // ── 3·4·5. 포인트 색 쿠키와 응답 마무리 ──────────────────────────────────────
@@ -724,8 +775,9 @@ await section("6 소스", async () => {
   const merge = read("../src/modules/admin/identity-merge.js");
   eq(count(merge, "carryUserSettingsAfterMergeV229121(env, primaryId, secondaryId"), 1, "6-b performIdentityMerge 가 옮기기를 한 번 부른다");
   const callAt = merge.indexOf("await carryUserSettingsAfterMergeV229121(");
-  ok(callAt > merge.indexOf("await options.afterMerge(") && callAt < merge.indexOf("withGlobalIdentitySettingsRmw(env") && callAt > merge.indexOf("rpc/accountbook_merge_users_v227"), "6-b 자리: 합치기 RPC·세션(afterMerge) 뒤, 링크 표 정리 앞");
-  ok(/carryUserSettingsAfterMergeV229121\(env, primaryId, secondaryId, \{ path, hasRoom: \(calls\) => dbRoom\(calls \+ 4\) \}\)/.test(merge), "6-b 남은 호출을 넘기되 바로 뒤 링크 표 정리 몫(4회)은 남긴다(독립 검토 1차 P2)");
+  ok(callAt > merge.indexOf("await options.afterMerge(") && callAt > merge.indexOf("withGlobalIdentitySettingsRmw(env") && callAt > merge.indexOf("reassignKakaoGroupLinkOwner(env") && callAt > merge.lastIndexOf("identity_alias_cleanup_failed") && callAt > merge.indexOf("rpc/accountbook_merge_users_v227"), "6-b 자리: 합치기 RPC·세션·링크 표·방 연결·별명 정리 다음(맨 끝)");
+  ok(merge.includes("  await carryUserSettingsAfterMergeV229121(env, primaryId, secondaryId, { path, hasRoom: dbRoom });\n  return { summary, primaryId, secondaryId };\n}"), "6-b 남은 호출(dbRoom)만 넘기고 바로 뒤가 함수 끝이다 — 옮기기 뒤에 DB 를 부르는 정리가 없다(독립 검토 1차·2차 P2)");
+  ok(!/dbRoom\(calls \+ \d\)/.test(merge), "6-b 다른 정리 몫을 따로 남기는 셈(dbRoom(calls + n))이 없다 — 옮기기가 맨 끝이라 필요 없다");
   const carry = read("../src/modules/my/merge-carry.js");
   ok(carry.includes("saveSettingValue(env, keys.supporterPrimary") && carry.includes("saveSettingValue(env, keys.consentPrimary") && carry.includes("merge_settings_carry_failed"), "6-c 쓰기는 설정 upsert 도우미 · 실패 이벤트 이름");
   const accent = read("../src/modules/my/supporter-accent.js");

@@ -476,8 +476,14 @@ await withClock(DAY, () => fixture(async (fx) => {
     ok(rowsOf(dashed.result.html).length === 1 && rowsOf(dashed.result.html)[0].text[0] === codeOf(A), "4-q3 머리 없는 꼴도 줄표 계열(–)이면 번호로 찾는다");
     const missing = await view("MB-0000-0000");
     ok(missing.result.html.includes("회원 번호 MB-0000-0000 와 맞는 사용자가 없어요.") && missing.log.length <= 5 && scans(missing.log).length === 1, "4-s 맞는 사람이 없는 번호는 안내 한 줄(훑기 한 번)");
+    // 독립 검토 2차 P3: 번호 꼴인데 번호로 읽히지 않으면(틀린 글자 U, ‘MB’ 로 시작하는 10글자 이름) 안내 한 줄과 함께 표시 이름으로 찾는다.
+    const NOT_CODE_NOTE = '<p class="warn" role="status">회원 번호로 읽히지 않아 표시 이름으로 찾았어요. 회원 번호는 MB-XXXX-XXXX 꼴이에요.</p>';
     const badCode = await view("MB-ABCD-EFGU");
-    ok(badCode.result.html.includes('<p class="error" role="alert">회원 번호는 MB-XXXX-XXXX 꼴이에요.</p>') && !badCode.log.some((row) => row.decoded.startsWith("/rest/v1/users?select=id,nickname") && row.decoded.includes("&order=")), "4-t 번호 꼴인데 틀린 글자(U)는 오류 한 줄이고 목록을 읽지 않는다");
+    const badCodeList = badCode.log.find((row) => row.url.pathname === "/rest/v1/users" && row.url.searchParams.get("order"));
+    ok(badCode.result.html.includes(NOT_CODE_NOTE) && !badCode.result.html.includes('role="alert"') && scans(badCode.log).length === 0 && badCodeList?.url.searchParams.get("or") === '(nickname.ilike."%MB-ABCD-EFGU%")', `4-t 번호 꼴인데 틀린 글자(U)면 안내 한 줄과 함께 표시 이름으로 찾는다(훑지 않음): ${show(badCode.log.map((row) => row.decoded))}`);
+    fx.db.users.push({ id: "c1d2e3f4-0000-4000-8000-0000000000a2", kakao_user_key: "kakao_login:9012", nickname: "MBTI ENFP 좋아", created_at: "2026-11-03T02:00:00Z" });
+    const mbName = await view("MBTI ENFP 좋아");
+    ok(rowsOf(mbName.result.html).some((row) => row.text[1] === "MBTI ENFP 좋아") && mbName.result.html.includes(NOT_CODE_NOTE) && scans(mbName.log).length === 0, "4-t2 ‘MB’ 로 시작하는 10글자 이름(‘MBTI ENFP 좋아’)도 그 이름으로 찾는다");
     putSetting(fx, `member_code:${codeOf(B)}`, JSON.stringify({ user_id: B }));
     const cachedView = await view(codeOf(B));
     ok(rowsOf(cachedView.result.html).length === 1 && scans(cachedView.log).length === 0 && cachedView.log.length <= 5, "4-u 기억 줄이 있으면 번호 찾기 화면도 훑지 않는다");
@@ -486,7 +492,7 @@ await withClock(DAY, () => fixture(async (fx) => {
     const byPrefixDash = await view("a1b2c3d4-0000");
     eq(rowsOf(byPrefixDash.result.html).map((row) => row.text[0]), [codeOf(A)], "4-w 줄표가 든 앞자리도 받는다");
     const orFilter = byPrefix.log.find((row) => row.url.pathname === "/rest/v1/users" && row.url.searchParams.get("or"));
-    eq(orFilter?.url.searchParams.get("or"), '(nickname.ilike."*a1b2c3*",and(id.gte.a1b2c300-0000-0000-0000-000000000000,id.lte.a1b2c3ff-ffff-ffff-ffff-ffffffffffff))', "4-x 찾기 논리식: 이름 부분 일치 + id 범위");
+    eq(orFilter?.url.searchParams.get("or"), '(nickname.ilike."%a1b2c3%",and(id.gte.a1b2c300-0000-0000-0000-000000000000,id.lte.a1b2c3ff-ffff-ffff-ffff-ffffffffffff))', "4-x 찾기 논리식: 이름 부분 일치(SQL % — PostgREST * 별칭을 따옴표 안에서 믿지 않는다) + id 범위");
 
     // 쪽 넘기기(50명씩).
     for (let index = 0; index < 60; index += 1) fx.db.users.push({ id: uuidOf(`v229121-page-${index}`), kakao_user_key: hex66(`v229121-page-${index}`), nickname: `쪽 사용자 ${String(index).padStart(2, "0")}`, created_at: `2026-11-12T00:${String(index).padStart(2, "0")}:00Z` });
@@ -497,6 +503,11 @@ await withClock(DAY, () => fixture(async (fx) => {
     const second = await withDb(() => page(fx, `/admin/supporters?q=${encodeURIComponent("쪽 사용자")}&page=2`, { cookie: admin }));
     const secondRows = rowsOf(second.result.html);
     ok(secondRows.length === 10 && secondRows[0].text[1] === "쪽 사용자 09" && second.result.html.includes(">이전 50명</a>") && !second.result.html.includes("다음 50명") && second.result.html.includes("51–60번째"), "4-aa 둘째 쪽은 나머지 10명과 ‘이전 50명’");
+    // 독립 검토 2차 P3: 마지막 쪽 뒤의 빈 쪽은 ‘찾는 사용자가 없어요’ 가 아니라 ‘이 쪽에는 사용자가 없어요’ 와 첫 쪽 링크(이전 50명도 그대로).
+    const past = await withDb(() => page(fx, `/admin/supporters?q=${encodeURIComponent("쪽 사용자")}&page=3`, { cookie: admin }));
+    ok(rowsOf(past.result.html).every((row) => !row.cells.length) && past.result.html.includes('<tr><td colspan="7">이 쪽에는 사용자가 없어요. <a href="/admin/supporters?q=%EC%AA%BD+%EC%82%AC%EC%9A%A9%EC%9E%90#users">첫 쪽으로</a></td></tr>') && !past.result.html.includes("찾는 사용자가 없어요.") && past.result.html.includes(">이전 50명</a>"), "4-aa2 마지막 쪽 뒤의 빈 쪽은 ‘이 쪽에는 사용자가 없어요’ 와 첫 쪽 링크");
+    const nobody = await view("없는 이름 v229121");
+    ok(nobody.result.html.includes('<tr><td colspan="7">찾는 사용자가 없어요.</td></tr>') && !nobody.result.html.includes("첫 쪽으로"), "4-aa3 첫 쪽에서 아무도 없으면 예전처럼 ‘찾는 사용자가 없어요’");
     const allPage2 = await withDb(() => page(fx, "/admin/supporters?page=2", { cookie: admin }));
     ok(allPage2.log.length <= 5, `4-ab 후원자가 그 쪽에 없어도(이름을 따로 읽음) DB 호출 5번 이하: ${allPage2.log.length}`);
     ok(allPage2.result.html.includes("<td>Bin</td>") || allPage2.result.html.includes(">Bin<"), "4-ac 그 쪽에 없는 후원자의 표시 이름도 후원자 목록에 보인다");
@@ -562,8 +573,8 @@ await section("6 /privacy", async () => {
   await withClock(DAY, () => fixture(async (fx) => {
     const privacy = await page(fx, "/privacy", { cookie: "" });
     ok(privacy.status === 200, "6-a /privacy 200");
-    ok(privacy.html.includes("<tr><th scope=\"row\">후원(원하는 분만)</th><td>후원자 표시 기간, 확인 메모(보낸 분 이름·보낸 날짜처럼 후원 확인에 쓴 내용), 공개 명단에 올릴 이름(원하는 분만)</td><td>후원 사실을 메일이나 오픈채팅으로 알려 주실 때(보낸 분 이름·보낸 날짜·회원 번호로 확인하고, 후원자 표시와 공개 명단에만 씁니다)</td><td>후원자 표시를 지울 때까지(요청하면 바로 지움). 알려 주신 메일은 8절의 문의 메일 기준을 따릅니다.</td></tr>"), "6-b 6절 후원 줄: 저장하는 것(표시 기간·확인 메모·명단 이름), 확인에 쓰는 것, 보관(메일은 8절 기준)");
-    ok(privacy.html.includes("<tr><th scope=\"row\">회원 번호</th><td>회원 번호(MB- 로 시작, 계정마다 이미 있는 내부 식별값으로 만든 번호)와 그 번호가 가리키는 계정</td><td>‘내 계정·보안’ 화면을 열 때(운영자가 후원 확인이나 문의 때 번호로 계정을 찾는 데만 씁니다)</td><td>회원 이용 기간(삭제 요청 시까지)</td></tr>"), "6-b2 6절 회원 번호 줄(번호와 번호가 가리키는 계정 기억, 회원 이용 기간)");
+    ok(privacy.html.includes("<tr><th scope=\"row\">후원(원하는 분만)</th><td>후원자 표시 기간, 확인 메모(보낸 분 이름·보낸 날짜처럼 후원 확인에 쓴 내용), 공개 명단에 올릴 이름(원하는 분만)</td><td>후원 사실을 메일이나 오픈채팅으로 알려 주실 때(보낸 분 이름·보낸 날짜·회원 번호로 확인하고, 후원자 표시와 공개 명단에만 씁니다)</td><td>후원자 표시를 지울 때까지(요청하면 바로 지움). 알려 주신 메일은 8절의 문의 메일 기준을 따르고, 오픈채팅으로 알려 주신 내용은 그 대화방(카카오톡 오픈채팅)에 남아 카카오톡의 대화 보관 방식을 따릅니다.</td></tr>"), "6-b 6절 후원 줄: 저장하는 것(표시 기간·확인 메모·명단 이름), 확인에 쓰는 것, 보관(메일은 8절 기준·오픈채팅은 그 대화방)");
+    ok(privacy.html.includes("<tr><th scope=\"row\">회원 번호</th><td>회원 번호(MB- 로 시작, 계정마다 이미 있는 내부 식별값으로 만든 번호)와 그 번호가 가리키는 계정</td><td>‘내 계정·보안’ 화면을 열 때나 운영자가 후원 확인·문의 때 그 번호로 계정을 찾을 때(번호로 계정을 찾는 데만 씁니다)</td><td>회원 이용 기간(삭제 요청 시까지)</td></tr>"), "6-b2 6절 회원 번호 줄(번호와 번호가 가리키는 계정 기억 — 운영자가 번호로 찾을 때도 기억한다, 회원 이용 기간)");
     ok(privacy.html.includes("<li>ab_sp: 후원자가 고른 포인트 색을 웹 가계부의 다른 화면에도 보이게 하는 표시(값 1, 개인정보 없음), 1일</li>"), "6-c 6절 쿠키 목록에 ab_sp");
     const v121 = "같은 날 개정에는 후원 확인 방법도 들어 있습니다. 후원을 확인할 때 로그인 이름 대신 ‘내 계정·보안’ 에 보이는 회원 번호를 받도록 하면서 회원 번호와 그 번호가 가리키는 계정을 6절 표에 더하고, 후원 확인 때 받는 정보와 보관 기간을 6절 표에 적고, 후원자 포인트 색 쿠키(ab_sp)를 쿠키 목록에 더했습니다. 회원 번호는 계정마다 이미 있는 내부 식별값으로 만든 번호이고 이용자에게서 새로 받는 정보가 없으며 쓰는 곳도 후원 확인과 문의뿐이어서, 이것도 이용자에게 불리하지 않은 변경입니다.";
     const twelfth = privacy.html.slice(privacy.html.indexOf("<h2>12. 개인정보처리방침의 변경</h2>"));

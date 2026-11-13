@@ -10,7 +10,7 @@ import { supabase } from "../data/supabase-client.js";
 // performIdentityMerge(admin/identity-merge.js) → 합치기 RPC(accountbook_merge_users_v227)로 가계부 참여·기록·정기 규칙·로그인 연결을
 // 주 계정으로 옮기지만, 설정 표의 사용자 줄은 옮기지 않는다. 그래서 보조 계정 쪽에 있던 후원자 표시(supporter:<id>)가 남아
 // 계정을 이은 후원자가 배지·포인트 색·공개 명단 줄을 잃었고, 주 계정에 안내 확인 기록(consent:<id>)이 없을 수 있었다.
-// 합치기 RPC 가 끝난 뒤 이 둘만 옮긴다.
+// performIdentityMerge 의 맨 끝(합치기 RPC 와 기존 뒤처리 — 세션·링크 표·방 연결·가계부별 표시 별명 — 다음)에서 이 둘만 옮긴다.
 //  · 읽기: 네 줄(supporter:주·보조, consent:주·보조)을 key=in.(…) 한 번으로 읽는다.
 //  · 후원자 표시: 보조 계정 값이 맞는 표시(normalizeSupporterFlag)이고 주 계정에 맞는 표시가 없으면 그대로 주 계정에 적고, 둘 다 있으면
 //    시작일은 이른 날, 끝나는 날은 한쪽이라도 없으면 없음(계속) · 둘 다 있으면 늦은 날, 메모는 주 계정 것 우선(둘 다 있고 다르면 ‘주 / 보조’,

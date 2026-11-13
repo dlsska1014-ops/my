@@ -10324,11 +10324,11 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
         { title: "6. 처리하는 개인정보 항목과 보유기간", paragraphs: ["말해가계부는 아래 항목만 처리합니다. 카카오 로그인으로는 카카오 회원번호와 닉네임만 저장하며 프로필 사진·이메일·전화번호는 저장하지 않습니다."], table: { caption: "처리하는 개인정보 항목, 수집 시점과 보유기간", headers: ["구분", "처리 항목", "수집 시점", "보유기간"], rows: [
           ["카카오 로그인", "카카오 회원번호, 카카오 닉네임", "카카오 로그인으로 가입하거나 로그인할 때", "회원 이용 기간(삭제 요청 시까지)"],
           ["로그인 이름 계정", "로그인 이름, 표시 이름, 비밀번호(복원할 수 없게 변환한 값만 저장)", "새 계정을 만들거나 로그인 정보를 바꿀 때", "회원 이용 기간(삭제 요청 시까지)"],
-          ["회원 번호", "회원 번호(MB- 로 시작, 계정마다 이미 있는 내부 식별값으로 만든 번호)와 그 번호가 가리키는 계정", "‘내 계정·보안’ 화면을 열 때(운영자가 후원 확인이나 문의 때 번호로 계정을 찾는 데만 씁니다)", "회원 이용 기간(삭제 요청 시까지)"],
+          ["회원 번호", "회원 번호(MB- 로 시작, 계정마다 이미 있는 내부 식별값으로 만든 번호)와 그 번호가 가리키는 계정", "‘내 계정·보안’ 화면을 열 때나 운영자가 후원 확인·문의 때 그 번호로 계정을 찾을 때(번호로 계정을 찾는 데만 씁니다)", "회원 이용 기간(삭제 요청 시까지)"],
           ["카카오톡 챗봇", "카카오가 보내는 챗봇 사용자 식별키(botUserKey 등), 단톡방 식별키(botGroupKey), 보낸 문장 원문", "챗봇에 문장을 보낼 때", "회원 이용 기간. 문장 원문은 그 문장으로 저장한 거래와 함께 보관합니다."],
           ["가계부 데이터", "수입·지출 내역(금액·날짜·분류·결제수단·메모), 예산, 정기 규칙, 가계부 이름, 참여자와 권한, 초대코드, 설정값", "사용자가 입력하거나 설정할 때", "가계부를 영구 삭제할 때까지"],
           ["거래 변경 이력", "고치거나 지운 거래의 바뀌기 전·후 내용, 변경한 사용자, 변경 시각", "거래를 고치거나 지울 때", "최대 180일"],
-          ["후원(원하는 분만)", "후원자 표시 기간, 확인 메모(보낸 분 이름·보낸 날짜처럼 후원 확인에 쓴 내용), 공개 명단에 올릴 이름(원하는 분만)", "후원 사실을 메일이나 오픈채팅으로 알려 주실 때(보낸 분 이름·보낸 날짜·회원 번호로 확인하고, 후원자 표시와 공개 명단에만 씁니다)", "후원자 표시를 지울 때까지(요청하면 바로 지움). 알려 주신 메일은 8절의 문의 메일 기준을 따릅니다."],
+          ["후원(원하는 분만)", "후원자 표시 기간, 확인 메모(보낸 분 이름·보낸 날짜처럼 후원 확인에 쓴 내용), 공개 명단에 올릴 이름(원하는 분만)", "후원 사실을 메일이나 오픈채팅으로 알려 주실 때(보낸 분 이름·보낸 날짜·회원 번호로 확인하고, 후원자 표시와 공개 명단에만 씁니다)", "후원자 표시를 지울 때까지(요청하면 바로 지움). 알려 주신 메일은 8절의 문의 메일 기준을 따르고, 오픈채팅으로 알려 주신 내용은 그 대화방(카카오톡 오픈채팅)에 남아 카카오톡의 대화 보관 방식을 따릅니다."],
           ["접속·보안 기록", "IP 주소, 브라우저 정보(User-Agent), 요청 경로와 시각", "서비스에 접속할 때 자동으로 생성", "요청 횟수 제한에 쓰는 값은 서버 인스턴스 메모리에만 잠시 두고 저장하지 않습니다. 로그인·가입 시도 제한에는 IP 주소 등을 복원할 수 없게 변환한 값과 시도 횟수만 데이터베이스에 저장하고, 로그인에 성공하면 그 기록을 지웁니다."],
           ["쿠키", "아래 쿠키 목록", "로그인·본인 확인·가계부 선택 때", "아래 쿠키 목록"],
         ] }, bullets: ["ab_user: 로그인 유지(세션), 14일", "ab_hh: 마지막으로 연 가계부 기억, 1년", "ab_cs: 이용약관 안내 확인 기록을 읽은 결과(가계부 홈의 안내 띠를 띄울지), 14일", "ab_bk·ab_setup: 가계부 기본 설정 안내 띠를 띄울지(로그인 비밀번호 설정 여부·가계부 설정 확인 결과), 14일·1시간", "ab_notice_hide: 공지 띠 ‘오늘 하루 안 보기’, 24시간", "ab_sp: 후원자가 고른 포인트 색을 웹 가계부의 다른 화면에도 보이게 하는 표시(값 1, 개인정보 없음), 1일","kakao_oauth_state·kakao_oauth_link_user·kakao_oauth_reauth_household·kakao_oauth_return_to: 카카오 로그인 요청 확인, 10분", "ab_credential_reauth·ab_household_delete_reauth·ab_account_link: 본인 확인과 계정 잇기 확인, 5분", "ab_kakao_auto: 카카오톡 안 자동 로그인 시도 상태, 10분~30일(직접 로그아웃하면 30일 동안 멈춤)", "ab_account_link_later·ab_account_link_pause: 계정 잇기 안내 미루기, 7일·10분", "ab_admin: 운영자 관리 화면 로그인(운영자만), 12시간", "모든 쿠키는 HTTPS 연결에서만 보내고(Secure) 화면의 스크립트가 읽지 못하게(HttpOnly) 설정합니다. 광고 쿠키는 4절을 따릅니다."] },
@@ -45756,7 +45756,7 @@ async function supporterAccentResponseV229121(request, env, response) {
 // performIdentityMerge(admin/identity-merge.js) → 합치기 RPC(accountbook_merge_users_v227)로 가계부 참여·기록·정기 규칙·로그인 연결을
 // 주 계정으로 옮기지만, 설정 표의 사용자 줄은 옮기지 않는다. 그래서 보조 계정 쪽에 있던 후원자 표시(supporter:<id>)가 남아
 // 계정을 이은 후원자가 배지·포인트 색·공개 명단 줄을 잃었고, 주 계정에 안내 확인 기록(consent:<id>)이 없을 수 있었다.
-// 합치기 RPC 가 끝난 뒤 이 둘만 옮긴다.
+// performIdentityMerge 의 맨 끝(합치기 RPC 와 기존 뒤처리 — 세션·링크 표·방 연결·가계부별 표시 별명 — 다음)에서 이 둘만 옮긴다.
 //  · 읽기: 네 줄(supporter:주·보조, consent:주·보조)을 key=in.(…) 한 번으로 읽는다.
 //  · 후원자 표시: 보조 계정 값이 맞는 표시(normalizeSupporterFlag)이고 주 계정에 맞는 표시가 없으면 그대로 주 계정에 적고, 둘 다 있으면
 //    시작일은 이른 날, 끝나는 날은 한쪽이라도 없으면 없음(계속) · 둘 다 있으면 늦은 날, 메모는 주 계정 것 우선(둘 다 있고 다르면 ‘주 / 보조’,
@@ -58579,7 +58579,7 @@ async function performIdentityMerge(env, options = {}) {
 
   rewireEffectiveUserCache(secondaryId, primaryId);
   // V22.9.91: 뒤처리는 모두 실패해도 합치기를 되돌리지 않는다. 한 요청의 DB 호출 한도(50회) 안에서 부르는 쪽의 뒤처리(afterMerge)부터
-  // 하고 (V22.9.121 설정 줄 →) 링크 표 → 방 연결 → 가계부별 표시 별명 순서로 한다. 잠금을 잡고 못 풀면 90초 남으므로, 남은 호출이 모자라면 시작하지 않고
+  // 하고 링크 표 → 방 연결 → 가계부별 표시 별명 → (V22.9.121) 설정 줄 옮기기 순서로 한다. 잠금을 잡고 못 풀면 90초 남으므로, 남은 호출이 모자라면 시작하지 않고
   // 운영 이벤트(…_deferred)로 남긴다. 남겨도 로그인·기록은 통합 리다이렉트로 주 계정을 찾는다.
   const dbRoom = (calls) => {
     const budget = env.__AB_DB_BUDGET;
@@ -58592,11 +58592,6 @@ async function performIdentityMerge(env, options = {}) {
       rememberOpsEvent({ kind: "identity_merge_after_failed", severity: "warn", path, method: "POST", detail: safeError(err) });
     }
   }
-  // V22.9.121: 설정 표의 후원자 표시(supporter:<id>)와 안내 확인 기록(consent:<id>)은 합치기 RPC 가 옮기지 않는다. 세션(afterMerge) 다음,
-  // 링크 표 정리 앞에서 주 계정으로 옮긴다(읽기 1회 + 쓰기 많아야 3회, 남은 호출이 모자라면 남기고 운영 이벤트). 모든 오류를 그 안에서 받으므로
-  // 합치기 결과·응답은 그대로다(my/merge-carry.js). 바로 뒤 링크 표 정리 몫(4회)은 남겨 둔다 — 그 정리가 밀리면 강한 식별 없는 옛 가입자가
-  // 다음 웹 로그인에서 빈 새 계정을 만들 수 있어 설정 줄보다 무겁다(독립 검토 V22.9.121 1차 P2). 남은 호출이 모자라 옮기기가 밀리면 운영 이벤트.
-  await carryUserSettingsAfterMergeV229121(env, primaryId, secondaryId, { path, hasRoom: (calls) => dbRoom(calls + 4) });
   // 링크 표: 잠금·읽기·쓰기·풀기 4회.
   try {
     if (!dbRoom(4)) throw Object.assign(new Error("legacy identity cleanup pending: no database budget"), { deferred: true });
@@ -58671,6 +58666,12 @@ async function performIdentityMerge(env, options = {}) {
       rememberOpsEvent({ kind: "identity_alias_cleanup_failed", severity: "warn", path, method: "POST", detail: "alias cleanup pending" });
     }
   }
+  // V22.9.121: 설정 표의 후원자 표시(supporter:<id>)와 안내 확인 기록(consent:<id>)은 합치기 RPC 가 옮기지 않는다. 기존 뒤처리(세션 → 링크 표 →
+  // 방 연결 → 가계부별 표시 별명)가 다 끝난 뒤 맨 끝에서, 남은 호출로만 주 계정에 옮긴다(읽기 1회 + 쓰기 많아야 3회). 그래서 기존 뒤처리의 예산과 순서는
+  // V22.9.120 과 같다 — 앞에 두면 링크 표·방 연결·별명 정리 몫을 먼저 썼다(독립 검토 V22.9.121 1차·2차 P2). 남은 호출이 모자라면 쓰지 않고 운영 이벤트
+  // (merge_settings_carry_deferred)만 남긴다. 그때는 관리자가 주 계정에 후원자 표시를 다시 켜고, 약관 안내 띠는 한 번 더 뜬 뒤 닫으면 끝난다.
+  // 모든 오류를 그 안에서 받으므로 합치기 결과·응답은 그대로다(my/merge-carry.js). 부르는 쪽(관리자 통합·계정 잇기)은 이 뒤에 DB 를 쓰지 않는다.
+  await carryUserSettingsAfterMergeV229121(env, primaryId, secondaryId, { path, hasRoom: dbRoom });
   return { summary, primaryId, secondaryId };
 }
 
@@ -58809,6 +58810,8 @@ function supporterAdminStateV22995(flag, today) {
 // V22.9.121: 목록 찾기 칸(q). 회원 번호 꼴(구분 기호를 뺀 길이 10 + MB 머리, 또는 ‘XXXX-XXXX’ 처럼 넷째 글자 뒤 구분 기호)이면 그 번호 한 명,
 // 아니면 표시 이름 일부(ilike), 그리고 16진수 4~32자리(줄표 포함 36자 이내)면 user_id 앞자리도 함께 본다. 머리도 구분 기호도 없는 8글자는
 // 번호로 보지 않는다(흔한 이름·id 앞자리와 겹친다 — 그런 번호는 아래 찾기 폼의 ‘회원 번호’ 방법이 받는다).
+// 번호 꼴인데 번호로 읽히지 않으면(‘MBTI ENFP 좋아’ 처럼 MB 로 시작하는 이름, 줄표로 이은 이름) 표시 이름으로 찾고 안내를 한 줄 붙인다
+// (독립 검토 V22.9.121 2차 P3 — 전에는 안내만 보이고 목록을 읽지 않았다).
 function supporterAdminUserQueryV229121(raw = "") {
   const text = String(raw ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
   if (!text) return { text: "", kind: "all", code: "", idPrefix: "" };
@@ -58816,13 +58819,11 @@ function supporterAdminUserQueryV229121(raw = "") {
   const compact = folded.toUpperCase().replace(SUPPORTER_ADMIN_SEPARATORS_V229121, "");
   // 머리(MB) 없는 꼴은 줄표 계열 구분 기호만 받는다 — ‘Kate Moss’ 처럼 네 글자 이름 둘은 이름으로 찾는다(독립 검토 V22.9.121 1차 P3).
   const codeShaped = (compact.length === 10 && compact.startsWith("MB")) || /^[0-9A-Za-z]{4}[\-_.\u2010-\u2015\u2212][0-9A-Za-z]{4}$/.test(folded);
-  if (codeShaped) {
-    const code = normalizeMemberCodeV229121(folded);
-    return code ? { text, kind: "code", code, idPrefix: "" } : { text, kind: "badcode", code: "", idPrefix: "" };
-  }
+  const code = codeShaped ? normalizeMemberCodeV229121(folded) : "";
+  if (code) return { text, kind: "code", code, idPrefix: "" };
   const hex = text.toLowerCase().replace(/-/g, "");
   const idPrefix = text.length <= 36 && /^[0-9a-f-]+$/i.test(text) && /^[0-9a-f]{4,32}$/.test(hex) ? hex : "";
-  return { text, kind: "text", code: "", idPrefix };
+  return { text, kind: "text", code: "", idPrefix, notCode: codeShaped };
 }
 
 // V22.9.121: user_id(uuid) 앞자리 → 범위 [앞자리 + 0…, 앞자리 + f…]. uuid 는 16진 글자 순서와 같은 순서로 비교된다.
@@ -58832,10 +58833,11 @@ function supporterAdminUuidRangeV229121(hexPrefix = "") {
 }
 
 // V22.9.121: 표시 이름 부분 일치(ilike) + user_id 앞자리 논리식. 이름 값은 큰따옴표로 감싸고(논리식 안 쉼표·괄호·점), 와일드카드·따옴표·역슬래시
-// (* % _ " \)는 ‘아무 글자’(*)로 바꾼다.
+// (* % _ " \)는 ‘아무 글자’(%)로 바꾼다. 와일드카드는 PostgREST 의 * 별칭 대신 SQL 의 % 를 그대로 보낸다 — 논리식의 큰따옴표 안에서도 * 가 % 로
+// 바뀌는지 공식 문서로 확인되지 않아서다(독립 검토 V22.9.121 2차의 확인할 가정; supabase-js 의 ilike 도 % 를 보낸다).
 function supporterAdminUserFilterV229121(query) {
   if (query?.kind !== "text" || !query.text) return "";
-  const pattern = `*${query.text.replace(/[*%_"\\]/g, "*")}*`.replace(/\*{2,}/g, "*");
+  const pattern = `%${query.text.replace(/[*%_"\\]/g, "%")}%`.replace(/%{2,}/g, "%");
   const parts = [`nickname.ilike."${pattern}"`];
   if (query.idPrefix) {
     const [low, high] = supporterAdminUuidRangeV229121(query.idPrefix);
@@ -58963,9 +58965,9 @@ async function handleSupportersAdminPage(request, env, url) {
           ? `<a href="/admin/supporters?user_id=${encodeURIComponent(id)}#edit">고치기</a>`
           : `<a href="/admin/supporters?add=${encodeURIComponent(id)}#edit">후원자 추가</a>`;
       return `<tr><td>${codeHtml(id)}</td><td>${escapeHtml(user.nickname || "(이름 없음)")}${merged ? ` <span class="state merged">통합됨</span>` : ""}</td><td>${escapeHtml(supporterAdminAccountTypeV229121(user))}</td><td>${escapeHtml(supporterAdminKstDateV229121(user.created_at))}</td><td><code>${escapeHtml(id.slice(0, 8))}</code></td><td><span class="state ${stateKey}">${escapeHtml(stateLabel)}</span></td><td>${action}</td></tr>`;
-    }).join("") || `<tr><td colspan="7">${query.kind === "all" ? "아직 사용자가 없어요." : "찾는 사용자가 없어요."}</td></tr>`;
+    }).join("") || `<tr><td colspan="7">${listMode && pageNo > 1 ? `이 쪽에는 사용자가 없어요. <a href="${escapeHtml(supporterAdminUserListLinkV229121(query, 1))}">첫 쪽으로</a>` : query.kind === "all" ? "아직 사용자가 없어요." : "찾는 사용자가 없어요."}</td></tr>`;
   let lookupNote = "";
-  if (query.kind === "badcode") lookupNote = `<p class="error" role="alert">${escapeHtml(SUPPORTER_ADMIN_ERRORS_V22995.member_code_invalid)}</p>`;
+  if (query.notCode) lookupNote = `<p class="warn" role="status">회원 번호로 읽히지 않아 표시 이름으로 찾았어요. ${escapeHtml(SUPPORTER_ADMIN_ERRORS_V22995.member_code_invalid)}</p>`;
   else if (query.kind === "code" && lookup?.available === false) lookupNote = `<p class="error" role="alert">${escapeHtml(SUPPORTER_ADMIN_ERRORS_V22995.member_code_unavailable)}</p>`;
   else if (query.kind === "code" && foundId && !pageUsers.length) lookupNote = `<p class="warn" role="status">회원 번호 ${escapeHtml(query.code)} 의 사용자 줄을 읽지 못했어요. 잠시 뒤 다시 찾아 주세요.</p>`;
   else if (query.kind === "code" && !foundId) lookupNote = `<p class="warn" role="status">회원 번호 ${escapeHtml(query.code)} 와 맞는 사용자가 없어요. 번호를 다시 확인해 주세요.</p>`;
