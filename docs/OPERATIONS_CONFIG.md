@@ -9,7 +9,7 @@ V22.9.76 작성(감사 G-15). 값은 적지 않는다. 이름과 빠졌을 때�
 |---|---|
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | 모든 DB 요청. 2026-11-05 19:09 부터 서울 프로젝트 `jqzmpzdqvmzkxznnylkp` 값(두 값을 한 version 에 담아 승격 — `review-artifacts/supabase-seoul-migration/30-upload-secrets-version.mjs`) |
 | `ADMIN_SESSION_SECRET` | 관리자 로그인 세션 서명 |
-| `USER_SESSION_SECRET` | 사용자 로그인 세션 서명 |
+| `USER_SESSION_SECRET` | 사용자 로그인 세션 서명. V22.9.121 부터 회원 번호(`MB-XXXX-XXXX`, 내 계정·보안·관리자 후원자 찾기)도 이 값으로 만든다 — 바꾸면 모든 로그인 세션과 함께 모든 회원 번호가 바뀐다(설정 표 기억 줄 `member_code:` 는 다시 계산해 맞지 않으면 버림) |
 | `ADMIN_API_TOKEN` | 관리자 API Bearer. **`/cron/*` 도 이 Bearer 로 통과한다** |
 | `MY_IMPORT_TOKEN_SECRET` | 웹 가져오기 토큰 서명 |
 

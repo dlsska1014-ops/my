@@ -1,3 +1,8 @@
+## V22.9.121 SQL 판단
+
+- 이 판은 SQL 이 없다. 앱은 스키마·RPC·RLS·권한·인덱스를 바꾸지 않는다. 새 설정 줄 `member_code:<MB-XXXX-XXXX>`(값 { user_id, at }, 회원 번호 기억)는 기존 `accountbook_settings` 표에 앱이 쓴다. 계정 합치기 뒤 `supporter:`·`consent:` 줄 옮기기도 같은 표의 앱 쓰기다.
+- **V22.9.119 검토용 SQL 운영 적용(2026-11-13 09:12:23 KST)**: 사용자가 Claude 의 질문에 ‘지금 적용’ 을 골라, Aside(세션 lN6YBfZF9hfKNe4p)가 Supabase 서울 프로젝트(`jqzmpzdqvmzkxznnylkp`) SQL 편집기 새 쿼리 탭에서 `migrations/V22_9_119_DROP_KAKAO_REQUEST_UNIQUE_REVIEW_ONLY.sql` 의 삭제 문 하나(가드 `RAISE EXCEPTION` 줄을 뺀 것)를 실행했다. 적용 전 확인: 인덱스 `transactions_kakao_request_unique_idx` 정의 = 파일 주석의 기대값. 결과 ‘Success. No rows returned’(09:12:28). 적용 뒤 확인: 그 인덱스 0개, 남은 유니크 인덱스 = `transactions_pkey`·`transactions_receipt_fingerprint_unique_v2268`·`transactions_recurring_cloud_unique_idx`·`transactions_recurring_identity_unique_v2268`. 앱·변수 변화 없음(운영 V22.9.120). 이제 같은 날 같은 문장을 121초 넘게 띄워 다시 보내면 둘째 기록도 저장된다(120초 안 재전송은 ‘중복 저장 안 함’ 그대로; 사람 확인은 사용자). 파일은 그대로 둔다 — `validate-ops-hardening-v229119` 가 첫 줄 ‘실행 금지’·가드 순서를 고정하고, 다시 만드는 문은 파일 주석에 있다(사용자 지목 없이 실행하지 않음).
+
 ## V22.9.119 SQL 판단
 
 - 앱은 운영 DB 를 바꾸지 않는다(스키마·RPC·RLS·권한·인덱스 변경과 운영 DB 쓰기 없음). 검토용 SQL `migrations/V22_9_119_DROP_KAKAO_REQUEST_UNIQUE_REVIEW_ONLY.sql` 을 더했다(실행 금지, BEGIN 뒤 `RAISE EXCEPTION` 가드). 운영에만 있는 `transactions_kakao_request_unique_idx`(같은 날 같은 문장의 둘째 카카오 기록을 23505 로 거절)를 지운다. 적용은 V22.9.119 배포 뒤 사용자가 그 일을 직접 지목했을 때만 한다. 확인 질의와 되돌리기 CREATE 문(2026-11-10 운영 schema.sql 정의)은 파일 주석에 있다.

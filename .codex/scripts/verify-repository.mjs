@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_120.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_121.sha256",
 );
 const validationScripts = [
   ["V22.9.107 광고 검토 후속(D-1 유입 매개변수·앵커가 붙어도 정본 문서면 광고, D-2 애드핏 FAQ 문구, D-3 계산표 글 절 순서, D-4~D-6 계산표 변경 전 결과·휴대폰 2열·머리꼬리·주소 판, D-7 글 목록 ‘계산표 포함’)", "validation/validate-ads-review-fixes-v229107.mjs"],
@@ -405,7 +405,8 @@ function run(command, args, label) {
 // V22.9.118: 2026-11-12 전체 점검의 좁은 수정(새 검사 셋 — 문구 292·화면 278·보안 291, 배포 도구 305, 추적표 V118 100건·V97:H-4 고침; 담당마다 독립 검토 반영); 하네스 두 모드 실측 79,227 present / 79,224 absent.
 // V22.9.119: 리포트·분석 숫자와 문장(새 검사 182)·운영 견고화(새 검사 241, DB 호출 장면 +13)·추적표 V118 출처 상태 갱신(+38); 하네스 두 모드 실측 79,701 present / 79,698 absent.
 // V22.9.120: 카카오 기록 저장 직전 안전망(새 검사 1,968)·통합 수정(새 검사 82)·추적표 V120 출처 15행(+137)·A-12 기대값 갱신(+2); 하네스 두 모드 실측 81,890 present / 81,887 absent.
-const EXPECTED_MINIMUM_CHECKS = 81887;
+// V22.9.121: 후원자 식별 회원 번호(새 검사 128)·합치기 옮기기와 포인트 색(새 검사 348)·추적표 V121 출처 6행(+61)·방침 기대 문구(+4)·새 모듈 셋(모듈 문법 +3·실명 검사 +3·미리보기 +1); 하네스 두 모드 실측 82,438 present / 82,435 absent.
+const EXPECTED_MINIMUM_CHECKS = 82435;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
