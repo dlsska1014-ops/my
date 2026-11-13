@@ -58821,9 +58821,15 @@ function supporterAdminUserQueryV229121(raw = "") {
   const codeShaped = (compact.length === 10 && compact.startsWith("MB")) || /^[0-9A-Za-z]{4}[\-_.\u2010-\u2015\u2212][0-9A-Za-z]{4}$/.test(folded);
   const code = codeShaped ? normalizeMemberCodeV229121(folded) : "";
   if (code) return { text, kind: "code", code, idPrefix: "" };
+  return supporterAdminTextQueryV229121(text, codeShaped);
+}
+
+// V22.9.121: 찾는 말을 표시 이름 일부·user_id 앞자리로 읽은 꼴. 번호로 읽지 않은 말과, 번호로 읽었지만 맞는 사람이 없는 말(독립 검토 3차 P3)이
+// 같이 쓴다.
+function supporterAdminTextQueryV229121(text = "", notCode = false) {
   const hex = text.toLowerCase().replace(/-/g, "");
   const idPrefix = text.length <= 36 && /^[0-9a-f-]+$/i.test(text) && /^[0-9a-f]{4,32}$/.test(hex) ? hex : "";
-  return { text, kind: "text", code: "", idPrefix, notCode: codeShaped };
+  return { text, kind: "text", code: "", idPrefix, notCode };
 }
 
 // V22.9.121: user_id(uuid) 앞자리 → 범위 [앞자리 + 0…, 앞자리 + f…]. uuid 는 16진 글자 순서와 같은 순서로 비교된다.
@@ -58913,8 +58919,14 @@ async function handleSupportersAdminPage(request, env, url) {
   const known = new Map();
   for (const row of safeArray(listRows)) if (row?.id) known.set(String(row.id), row);
   const foundId = String(lookup?.userId || "");
-  // 그 쪽에 없는 사용자(후원자 이름·추가할 사람·회원 번호로 찾은 사람)는 한 번에 읽는다.
-  const usersById = await supporterAdminUsersByIdV229121(env, [...safeArray(rows).map((row) => row.user_id), addId, foundId], known);
+  // V22.9.121 독립 검토 3차 P3: 번호로 읽혔지만 맞는 사람이 없으면 같은 말을 표시 이름으로도 찾는다(첫 쪽만). ‘Kate-Moss’·‘MBTI INFJ01’ 처럼
+  // 크록퍼드 글자로만 된 이름도 번호 꼴로 읽히기 때문이다. 번호 찾기를 쓸 수 없을 때(available false)는 그 오류 안내만 한다.
+  const nameFallback = query.kind === "code" && lookup?.available !== false && !foundId;
+  // 그 쪽에 없는 사용자(후원자 이름·추가할 사람·회원 번호로 찾은 사람)는 한 번에 읽는다(이름으로도 찾을 때는 그 읽기와 나란히).
+  const [usersById, fallbackRows] = await Promise.all([
+    supporterAdminUsersByIdV229121(env, [...safeArray(rows).map((row) => row.user_id), addId, foundId], known),
+    nameFallback ? supporterAdminUserPageV229121(env, supporterAdminTextQueryV229121(query.text), 1) : Promise.resolve(null),
+  ]);
   const nameOf = (id) => String(usersById.get(id)?.nickname || "");
   const today = supporterTodayV22995();
   const msg = SUPPORTER_ADMIN_MESSAGES_V22995[String(url.searchParams.get("msg") || "")] || "";
@@ -58933,7 +58945,7 @@ async function handleSupportersAdminPage(request, env, url) {
   }
   const editFlag = editing?.flag || null;
   const pageUsers = query.kind === "code"
-    ? (foundId && usersById.get(foundId) ? [usersById.get(foundId)] : [])
+    ? (foundId && usersById.get(foundId) ? [usersById.get(foundId)] : safeArray(fallbackRows).slice(0, SUPPORTER_ADMIN_USER_PAGE_SIZE_V229121))
     : safeArray(listRows).slice(0, SUPPORTER_ADMIN_USER_PAGE_SIZE_V229121);
   const hasNext = listMode && safeArray(listRows).length > SUPPORTER_ADMIN_USER_PAGE_SIZE_V229121;
   const codes = await memberCodesForUsersV229121(env, [...pageUsers.map((user) => user.id), addUser?.id || "", editing?.user_id || ""]);
@@ -58952,7 +58964,7 @@ async function handleSupportersAdminPage(request, env, url) {
       ? `<input type="hidden" name="user_id" value="${escapeHtml(addUser.id)}"/><p>추가할 사용자: 회원 번호 ${codeHtml(addUser.id)} · ${escapeHtml(addUser.nickname || "(이름 없음)")} · user_id 앞 8자 <code>${escapeHtml(String(addUser.id).slice(0, 8))}</code> <a href="/admin/supporters#edit">다른 사용자 찾기</a></p>`
       : `${addNote ? `<p class="warn" role="alert">${escapeHtml(addNote)}</p>` : ""}<div class="grid"><label class="field">찾는 방법<select name="by"><option value="member_code">회원 번호(MB-XXXX-XXXX)</option><option value="user_id">user_id</option><option value="login">로그인 이름(아이디)</option><option value="nickname">표시 이름(한 명일 때만)</option></select></label><label class="field">사용자<input name="who" required maxlength="120" autocomplete="off" placeholder="MB-XXXX-XXXX"/></label></div>`;
   // V22.9.121 전체 사용자 목록 칸.
-  const userRows = listMode && listRows === null
+  const userRows = (listMode && listRows === null) || (nameFallback && fallbackRows === null)
     ? `<tr><td colspan="7">사용자 목록을 불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.</td></tr>`
     : pageUsers.map((user) => {
       const id = String(user.id || "");
@@ -58970,7 +58982,7 @@ async function handleSupportersAdminPage(request, env, url) {
   if (query.notCode) lookupNote = `<p class="warn" role="status">회원 번호로 읽히지 않아 표시 이름으로 찾았어요. ${escapeHtml(SUPPORTER_ADMIN_ERRORS_V22995.member_code_invalid)}</p>`;
   else if (query.kind === "code" && lookup?.available === false) lookupNote = `<p class="error" role="alert">${escapeHtml(SUPPORTER_ADMIN_ERRORS_V22995.member_code_unavailable)}</p>`;
   else if (query.kind === "code" && foundId && !pageUsers.length) lookupNote = `<p class="warn" role="status">회원 번호 ${escapeHtml(query.code)} 의 사용자 줄을 읽지 못했어요. 잠시 뒤 다시 찾아 주세요.</p>`;
-  else if (query.kind === "code" && !foundId) lookupNote = `<p class="warn" role="status">회원 번호 ${escapeHtml(query.code)} 와 맞는 사용자가 없어요. 번호를 다시 확인해 주세요.</p>`;
+  else if (query.kind === "code" && !foundId) lookupNote = `<p class="warn" role="status">회원 번호 ${escapeHtml(query.code)} 와 맞는 사용자가 없어요. 같은 말을 표시 이름으로도 찾았어요(최근 가입 순 50명까지). 번호를 찾던 중이면 번호를 다시 확인해 주세요.</p>`;
   const first = (pageNo - 1) * SUPPORTER_ADMIN_USER_PAGE_SIZE_V229121 + 1;
   const range = listMode && pageUsers.length ? `<p class="muted">${first}–${first + pageUsers.length - 1}번째</p>` : "";
   const pager = listMode && (pageNo > 1 || hasNext)

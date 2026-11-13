@@ -596,6 +596,52 @@ await linkFixture(async (fx, server) => {
   ok(server.merges.length === base + 1 && server.merges.at(-1)?.p_primary_user_id === chat && server.merges.at(-1)?.p_secondary_user_id === "user-bin", "10 주 계정 = 방 기록 계정");
 });
 
+// ── 11. (V22.9.121) 계정 잇기로 합칠 때도 설정 줄(후원자 표시·안내 확인 기록) 옮기기는 합치기 뒤처리의 맨 끝이고, 잇기 경로는 합친 뒤 DB 를 쓰지
+// 않는다(독립 검토 V22.9.121 3차 P3: 관리자 통합 경로에만 검사가 있었다). 옮기기는 요청 예산의 남은 호출만 쓰므로, 부르는 쪽이 그 뒤에 DB 를 쓰면
+// 그 호출이 예산에 밀릴 수 있다. 답 뒤 일(waitUntil)까지 잡아 순서를 본다. 빈 방 기록 계정(보조)에 후원자 표시·확인 기록이 있는 장면.
+await linkFixture(async (fx, server) => {
+  const base = await twoKakaoLoginWebAccount(fx, server, "11");
+  const chat = await roomAccountWithOffer(fx, "bot-v121-carry", "11", { empty: true });
+  const supporter = JSON.stringify({ since: "2026-06-01", until: null, note: "QA 송금", public_name: "방 기록" });
+  const consent = JSON.stringify({ version: "2026-11-13", at: "2026-07-02T00:00:00.000Z", via: "kakao" });
+  putSetting(fx, `supporter:${chat}`, supporter);
+  putSetting(fx, `consent:${chat}`, consent);
+  const consentBefore = settingValue(fx, "consent:user-bin");
+  const jar = new Jar();
+  await kakaoLogin(fx, jar, server, "2265", { ua: CHROME });
+  const { callback } = await confirmWith(fx, jar, server, "2265");
+  eq(callback.location, "/my/account-link/run", "11 확인 화면에서 2265 로 확인하면 받는다");
+  const origin = new URL(fx.env.SUPABASE_URL).origin;
+  const log = [];
+  const restore = intercept(async ({ url, method, init }) => {
+    if (url.origin === origin) log.push({ method, decoded: decodeURIComponent(`${url.pathname}${url.search}`), body: typeof init?.body === "string" ? init.body : "" });
+    return null;
+  });
+  let run;
+  try {
+    run = await go(fx, jar, "/my/account-link/run", { ua: CHROME });
+    for (let round = 0; round < 10; round += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  } finally {
+    restore();
+  }
+  eq(run.location, "/my?msg=account_linked", "11 합치고 가계부로 간다");
+  ok(server.merges.length === base + 1 && server.merges.at(-1)?.p_primary_user_id === "user-bin" && server.merges.at(-1)?.p_secondary_user_id === chat, "11 빈 방 기록 계정(보조)을 웹 계정(주)으로 합친다");
+  eq(jar.user(), "user-bin", "11 이 브라우저의 세션은 웹 계정 그대로(잇기 응답의 쿠키, 4번 장면과 같음)");
+  const carryKey = new RegExp(`(supporter|consent):(user-bin|${chat})`);
+  const isCarry = (row) => carryKey.test(row.decoded) || /"key":"(supporter|consent):/.test(row.body);
+  const mergeAt = log.findIndex((row) => row.decoded.startsWith("/rest/v1/rpc/accountbook_merge_users_v227"));
+  const firstCarryAt = log.findIndex(isCarry);
+  const lastOtherAt = log.map((row, index) => (isCarry(row) ? -1 : index)).filter((index) => index >= 0).at(-1) ?? -1;
+  const carry = log.filter(isCarry);
+  ok(mergeAt >= 0 && firstCarryAt > mergeAt && firstCarryAt > lastOtherAt && carry.length >= 3 && carry[0].method === "GET",
+    `11 설정 줄 옮기기 호출은 합치기 RPC 와 다른 모든 DB 호출 뒤(맨 끝)다 — 잇기 경로는 합친 뒤 DB 를 쓰지 않는다: 합치기 ${mergeAt} · 옮기기 첫 호출 ${firstCarryAt} · 다른 마지막 호출 ${lastOtherAt} · 옮기기 ${carry.length}회`);
+  ok(log.length <= 50, `11 잇기 한 요청의 DB 호출은 한도(50) 안이다 (${log.length}회)`);
+  ok(JSON.parse(settingValue(fx, "supporter:user-bin") || "null")?.since === "2026-06-01" && settingValue(fx, `supporter:${chat}`) === undefined,
+    "11 후원자 표시가 웹 계정(주)으로 옮겨지고 방 기록 계정 줄은 지워진다");
+  ok(consentBefore ? settingValue(fx, "consent:user-bin") === consentBefore : settingValue(fx, "consent:user-bin") === consent,
+    `11 안내 확인 기록은 웹 계정에 없을 때만 옮긴다(웹 계정에 ${consentBefore ? "있었음" : "없었음"})`);
+});
+
 if (SOFT) {
   console.log(`soft failures: ${softFailures.length}`);
   for (const item of softFailures) console.log(`✗ ${item}`);

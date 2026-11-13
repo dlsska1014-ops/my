@@ -475,7 +475,13 @@ await withClock(DAY, () => fixture(async (fx) => {
     const dashed = await view(codeOf(A).slice(3).replace("-", "–"));
     ok(rowsOf(dashed.result.html).length === 1 && rowsOf(dashed.result.html)[0].text[0] === codeOf(A), "4-q3 머리 없는 꼴도 줄표 계열(–)이면 번호로 찾는다");
     const missing = await view("MB-0000-0000");
-    ok(missing.result.html.includes("회원 번호 MB-0000-0000 와 맞는 사용자가 없어요.") && missing.log.length <= 5 && scans(missing.log).length === 1, "4-s 맞는 사람이 없는 번호는 안내 한 줄(훑기 한 번)");
+    ok(missing.result.html.includes("회원 번호 MB-0000-0000 와 맞는 사용자가 없어요.") && missing.log.length <= 6 && scans(missing.log).length === 1, "4-s 맞는 사람이 없는 번호는 안내 한 줄(훑기 한 번, 이름으로도 찾아 DB 호출 6번 이하 — 관리자 세션 확인 1·후원자 줄 1·기억 줄 1·훑기 1·이름 찾기 1·후원자 이름 1)");
+    // 독립 검토 3차 P3: 번호로 못 찾으면 같은 말을 표시 이름으로도 찾는다(아무도 없으면 ‘찾는 사용자가 없어요’).
+    const missingName = missing.log.find((row) => row.url.pathname === "/rest/v1/users" && row.url.searchParams.get("order") && row.url.searchParams.get("or"));
+    ok(missingName?.url.searchParams.get("or") === '(nickname.ilike."%MB-0000-0000%")' && missingName?.url.searchParams.get("offset") === "0"
+      && rowsOf(missing.result.html).some((row) => row.raw.includes("찾는 사용자가 없어요.")) && missing.result.html.includes("같은 말을 표시 이름으로도 찾았어요")
+      && !missing.log.some((row) => row.method !== "GET"),
+      `4-s2 번호로 못 찾으면 같은 말을 표시 이름으로도 찾는다(첫 쪽, 아무것도 쓰지 않음): ${show(missing.log.map((row) => row.decoded))}`);
     // 독립 검토 2차 P3: 번호 꼴인데 번호로 읽히지 않으면(틀린 글자 U, ‘MB’ 로 시작하는 10글자 이름) 안내 한 줄과 함께 표시 이름으로 찾는다.
     const NOT_CODE_NOTE = '<p class="warn" role="status">회원 번호로 읽히지 않아 표시 이름으로 찾았어요. 회원 번호는 MB-XXXX-XXXX 꼴이에요.</p>';
     const badCode = await view("MB-ABCD-EFGU");
@@ -484,6 +490,22 @@ await withClock(DAY, () => fixture(async (fx) => {
     fx.db.users.push({ id: "c1d2e3f4-0000-4000-8000-0000000000a2", kakao_user_key: "kakao_login:9012", nickname: "MBTI ENFP 좋아", created_at: "2026-11-03T02:00:00Z" });
     const mbName = await view("MBTI ENFP 좋아");
     ok(rowsOf(mbName.result.html).some((row) => row.text[1] === "MBTI ENFP 좋아") && mbName.result.html.includes(NOT_CODE_NOTE) && scans(mbName.log).length === 0, "4-t2 ‘MB’ 로 시작하는 10글자 이름(‘MBTI ENFP 좋아’)도 그 이름으로 찾는다");
+    // 독립 검토 3차 P3: 크록퍼드 글자로만 된 이름은 번호로 읽힌다(‘Kate-Moss’ → MB-KATE-M0SS, ‘MBTI INFJ01’ → MB-T11N-FJ01). 번호로 맞는 사람이
+    // 없으면 같은 말을 표시 이름으로도 찾아 그 사람을 보여 준다(훑기 한 번, DB 호출 6번 이하, 아무것도 쓰지 않음).
+    fx.db.users.push({ id: "c1d2e3f4-0000-4000-8000-0000000000a3", kakao_user_key: "kakao_login:9013", nickname: "Kate-Moss", created_at: "2026-11-03T03:00:00Z" });
+    fx.db.users.push({ id: "c1d2e3f4-0000-4000-8000-0000000000a4", kakao_user_key: "kakao_login:9014", nickname: "MBTI INFJ01", created_at: "2026-11-03T04:00:00Z" });
+    for (const [name, code, id] of [["Kate-Moss", "MB-KATE-M0SS", "c1d2e3f4-0000-4000-8000-0000000000a3"], ["MBTI INFJ01", "MB-T11N-FJ01", "c1d2e3f4-0000-4000-8000-0000000000a4"]]) {
+      const named = await view(name);
+      const list = rowsOf(named.result.html);
+      ok(named.result.html.includes(`회원 번호 ${code} 와 맞는 사용자가 없어요. 같은 말을 표시 이름으로도 찾았어요`) && list.length === 1 && list[0].text[1] === name && list[0].text[0] === codeOf(id)
+        && !named.result.html.includes("회원 번호로 읽히지 않아") && scans(named.log).length === 1 && named.log.length <= 6 && !named.log.some((row) => row.method !== "GET"),
+        `4-t3 번호로 읽히는 이름(‘${name}’ → ${code})은 번호로 맞는 사람이 없으면 표시 이름으로도 찾는다: ${show(list.map((row) => row.text[1]))} · ${show(named.log.map((row) => row.decoded))}`);
+    }
+    const failingName = intercept(({ url }) => (url.pathname === "/rest/v1/users" && url.searchParams.get("or") === '(nickname.ilike."%Kate-Moss%")' ? new Response(JSON.stringify({ message: "QA" }), { status: 503 }) : null));
+    let brokenName;
+    try { brokenName = await view("Kate-Moss"); } finally { failingName(); }
+    ok(brokenName.result.status === 200 && brokenName.result.html.includes("사용자 목록을 불러오지 못했어요.") && !rowsOf(brokenName.result.html).some((row) => row.text[1] === "Kate-Moss"),
+      "4-t4 이름으로도 찾는 읽기가 실패하면 그 칸만 안내한다(화면은 200)");
     putSetting(fx, `member_code:${codeOf(B)}`, JSON.stringify({ user_id: B }));
     const cachedView = await view(codeOf(B));
     ok(rowsOf(cachedView.result.html).length === 1 && scans(cachedView.log).length === 0 && cachedView.log.length <= 5, "4-u 기억 줄이 있으면 번호 찾기 화면도 훑지 않는다");
