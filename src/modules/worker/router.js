@@ -166,6 +166,7 @@ import {
 import {
   handleCursorPreference, handleCursorPreferenceSave, handleHomeLayoutPage, handleHomeLayoutSave,
 } from "../my/money-plan-home-layout.js";
+import { supporterAccentResponseV229121 } from "../my/supporter-accent.js";
 import {
   handleBudgetCenterPage, handleRecurringApply, handleRecurringDelete, handleRecurringSave,
 } from "../admin/budget-center-recurring.js";
@@ -323,7 +324,9 @@ const ACCOUNTBOOK_WORKER = {
     try {
       // V22.9.95 공지 띠: NOTICE_TEXT 가 있을 때만 HTML 을 다시 쓴다(없으면 응답 그대로). html-postprocess.js attachNoticeBand 참고.
       // V22.9.102 가계부 기본 설정 띠: 홈이 적은 쿠키(ab_setup)만 보고 주요 화면에 붙인다(DB 읽기 없음). my/setup-page.js 참고.
-      const response = await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx)));
+      // V22.9.121 후원자 포인트 색: 홈·전체 메뉴·참여자가 적은 쿠키(ab_sp)만 보고 다른 셸 화면에도 붙인다(DB 읽기 없음, 쿠키가 없으면 응답 그대로).
+      // my/supporter-accent.js 참고.
+      const response = await supporterAccentResponseV229121(routed.request, env, await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx))));
       abMonitorCompleted(requestEnv, ctx, response);
       return withRememberedHouseholdCookie(routed, response);
     } catch (error) {

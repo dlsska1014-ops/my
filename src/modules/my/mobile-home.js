@@ -54,6 +54,7 @@ import {
 } from "./home-sections.js";
 import { MOBILE_HOME_CSS_ASSET_PATH } from "../assets/asset-registry.js";
 import { renderMonthlySeriesChart } from "../admin/pc-analysis-calendar.js";
+import { withSupporterAccentCookieV229121 } from "./supporter-accent.js";
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
 import { withTermsNoticeBandV229114 } from "../auth/kakao-start-screen.js";
 import { addMonthsYm, householdStartYmd, percentChange } from "../domain/analytics.js";
@@ -956,8 +957,11 @@ async function handleMobileV8Page(request, env, url) {
   const setupStatus = userId && selectedHousehold ? householdSetupStatus({ household: selectedHousehold, members, userId, backupKnown: backupLoginKnown(request) }) : null;
   const setupBand = setupStatus && !setupStatus.done ? setupBandHtml({ householdId, missing: setupStatus.missing, month }) : "";
   const setupHeaders = setupStatus ? { "set-cookie": setupStatusCookie(householdId, setupStatus) } : {};
+  // V22.9.121: 보는 사람의 후원자 표시(위 설정 조회 한 번에 얹어 읽은 값). 홈 그리기와 포인트 색 쿠키(ab_sp)가 같은 값을 쓴다(추가 조회 없음).
+  // 관리자 세션은 표시를 읽지 않으므로 쿠키도 그대로 둔다(my/supporter-accent.js).
+  const homeSupporter = homeSupporterKey ? activeSupporterFlag(homeSettings.extra?.get(homeSupporterKey)) : null;
   // V22.9.104 L-3: 동의 기록이 없다고 확인된 사용자(쿠키 ab_cs=0)만 홈 위에 동의 팝업을 붙인다(DB 읽기 0회, 관리자 세션 제외).
-  return htmlResponse(withTermsNoticeBandV229114(request, url, !!userId && !adminOk, abEchoQuickRequestId(url, err, renderMobileV81Html({ title, setupBand, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, supporter: homeSupporterKey ? activeSupporterFlag(homeSettings.extra?.get(homeSupporterKey)) : null, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed, quickUndo, deleteRestore }))), 200, setupHeaders);
+  return withSupporterAccentCookieV229121(request, htmlResponse(withTermsNoticeBandV229114(request, url, !!userId && !adminOk, abEchoQuickRequestId(url, err, renderMobileV81Html({ title, setupBand, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, supporter: homeSupporter, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed, quickUndo, deleteRestore }))), 200, setupHeaders), homeSupporterKey ? !!homeSupporter : null);
 }
 // @build:exports-start
 export { handleMobileV8Page, lastNonEmptyParam, renderMobileV81Html };

@@ -103,6 +103,8 @@ assets/asset-responses.js
 my/mobile-home.js
 admin/pc-analysis-calendar.js
 my/money-plan-home-layout.js
+my/supporter-accent.js
+my/merge-carry.js
 admin/budget-center-recurring.js
 auth/local-login-pages.js
 auth/kakao-web-claim.js

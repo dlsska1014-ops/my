@@ -1938,7 +1938,9 @@ const ACCOUNTBOOK_WORKER = {
     try {
       // V22.9.95 공지 띠: NOTICE_TEXT 가 있을 때만 HTML 을 다시 쓴다(없으면 응답 그대로). html-postprocess.js attachNoticeBand 참고.
       // V22.9.102 가계부 기본 설정 띠: 홈이 적은 쿠키(ab_setup)만 보고 주요 화면에 붙인다(DB 읽기 없음). my/setup-page.js 참고.
-      const response = await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx)));
+      // V22.9.121 후원자 포인트 색: 홈·전체 메뉴·참여자가 적은 쿠키(ab_sp)만 보고 다른 셸 화면에도 붙인다(DB 읽기 없음, 쿠키가 없으면 응답 그대로).
+      // my/supporter-accent.js 참고.
+      const response = await supporterAccentResponseV229121(routed.request, env, await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx))));
       abMonitorCompleted(requestEnv, ctx, response);
       return withRememberedHouseholdCookie(routed, response);
     } catch (error) {
@@ -14489,9 +14491,11 @@ async function handleAdminLogin(request, env) {
 }
 
 function handleAdminLogout() {
-  return redirectResponse("/", {
-    "set-cookie": "ab_admin=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
-  });
+  // V22.9.121: 후원자 포인트 색 쿠키(ab_sp, my/supporter-accent.js)도 함께 지운다.
+  return redirectResponseWithCookies("/", [
+    "ab_admin=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+    supporterAccentCookieV229121(false),
+  ]);
 }
 
 async function handleAdminPage(request, env, url) {
@@ -26907,7 +26911,8 @@ async function handleUnifiedMenuPage(request, env, url) {
   // V22.9.34 감사 U1: 일반 사용자 화면에 로그아웃이 없어 공용 PC 에서 14일 세션이 남았다.
   // 관리자 세션은 운영 화면의 로그아웃을 쓴다.
   const logoutHtml = userId ? `<form class="menuLogout" method="post" action="/my/logout"><button class="secondary" type="submit">로그아웃</button><p>이 기기에서 로그인을 끝냅니다. 여러 사람이 쓰는 PC 라면 사용 뒤 꼭 로그아웃하세요.</p></form>` : "";
-  return htmlResponse(`<!doctype html><html lang="ko"${supporterHtmlAttr(!!menuSupporter)}><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title>${supporterHeadHtml({ viewer: !!menuSupporter })}<style>.menuLogout{margin:22px 0 6px;display:grid;justify-items:center;gap:8px;text-align:center}.menuLogout button{appearance:none;width:100%;max-width:340px;min-height:46px;border:1px solid currentColor;border-radius:14px;background:transparent;color:inherit;font:inherit;font-weight:800;cursor:pointer}.menuLogout p{margin:0;font-size:12.5px;line-height:1.5;opacity:.75}.menuPage .menuLogout button{width:auto!important;min-width:150px;max-width:240px;min-height:40px!important;padding:0 18px!important;border:1px solid currentColor!important;border-radius:12px!important;background:transparent!important;color:inherit!important;opacity:.78;box-shadow:none!important;font-weight:700!important}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:var(--ab12-action,#2457d6);color:#fff;border-color:var(--ab12-action,#2457d6);font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: householdChoiceLabelV229118(selectedHousehold, households) || selectedHousehold?.name || "", role: userId ? String(selectedHousehold?.role || "") : "" })}<main class="wrap menuPage"><header class="menuHeader"><div><h1>전체 메뉴</h1>${menuSupporter ? supporterThanksHtml() : ""}</div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header>${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${appearanceHtml}${logoutHtml}</main></body></html>`);
+  // V22.9.121: 위에서 읽은 보는 사람의 후원자 표시로 포인트 색 쿠키(ab_sp)도 맞춘다(추가 조회 없음). 관리자 세션은 읽지 않으므로 그대로 둔다.
+  return withSupporterAccentCookieV229121(request, htmlResponse(`<!doctype html><html lang="ko"${supporterHtmlAttr(!!menuSupporter)}><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>전체 메뉴</title>${supporterHeadHtml({ viewer: !!menuSupporter })}<style>.menuLogout{margin:22px 0 6px;display:grid;justify-items:center;gap:8px;text-align:center}.menuLogout button{appearance:none;width:100%;max-width:340px;min-height:46px;border:1px solid currentColor;border-radius:14px;background:transparent;color:inherit;font:inherit;font-weight:800;cursor:pointer}.menuLogout p{margin:0;font-size:12.5px;line-height:1.5;opacity:.75}.menuPage .menuLogout button{width:auto!important;min-width:150px;max-width:240px;min-height:40px!important;padding:0 18px!important;border:1px solid currentColor!important;border-radius:12px!important;background:transparent!important;color:inherit!important;opacity:.78;box-shadow:none!important;font-weight:700!important}*,*::before,*::after{box-sizing:border-box}body{margin:0;background:#fff;color:#172033;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;overflow-x:hidden}.menuPage select,.menuPage input,.menuPage button{border:1px solid #cfd6e1;border-radius:11px;background:#fff;color:#172033;padding:0 12px;font:inherit}.menuPage button{background:var(--ab12-action,#2457d6);color:#fff;border-color:var(--ab12-action,#2457d6);font-weight:700;cursor:pointer}.adminNote{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:13px;padding:12px 14px;line-height:1.55}</style></head><body>${renderUnifiedNav("menu", { month, householdId: hid, householdName: householdChoiceLabelV229118(selectedHousehold, households) || selectedHousehold?.name || "", role: userId ? String(selectedHousehold?.role || "") : "" })}<main class="wrap menuPage"><header class="menuHeader"><div><h1>전체 메뉴</h1>${menuSupporter ? supporterThanksHtml() : ""}</div><form class="menuContext" method="get" action="/menu"><select name="household_id" aria-label="가계부">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}" aria-label="기준 월"/><button type="submit">기준 변경</button></form></header>${adminOk ? `<p class="adminNote">관리자로 접속 중입니다. 운영·점검 기능은 운영센터에서 별도로 관리합니다.</p>` : ""}<section class="menuSection featuredSection"><div class="menuSectionHead"><h2>매일 쓰는 기능</h2><span>가장 자주 찾는 4개</span></div><div class="featuredGrid">${featuredHtml}</div></section><div class="menuSecondary">${sectionHtml}${moreHtml}</div><nav class="menuJourney" aria-label="처음 사용 순서"><div class="journeyStep"><span class="journeyNum">1</span><span class="journeyCopy"><b>가계부 선택</b><span>쓸 가계부가 맞는지 확인</span></span></div><div class="journeyStep"><span class="journeyNum">2</span><span class="journeyCopy"><b>첫 기록</b><span>금액과 내용만 입력</span></span></div><div class="journeyStep"><span class="journeyNum">3</span><span class="journeyCopy"><b>결과 확인</b><span>월 지출 확인</span></span></div></nav>${appearanceHtml}${logoutHtml}</main></body></html>`), menuSupporterKey ? !!menuSupporter : null);
 }
 
 function renderPcSidebar(active, month, householdId, householdName = "") {
@@ -28168,7 +28173,8 @@ async function handleKakaoLoginCallback(request, env, url) {
 function handleMyLogout({ explicit = false } = {}) {
   // V22.9.102: 가계부 기본 설정 띠의 판정 쿠키(ab_setup·ab_bk)도 함께 지운다(다음 사람의 로그인에 남지 않게).
   // V22.9.104 L-3: 동의 팝업 쿠키(ab_cs)도 지운다.
-  const cookies = ["ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax", ...clearSetupCookies(), clearConsentStateCookie()];
+  // V22.9.121: 후원자 포인트 색 쿠키(ab_sp, my/supporter-accent.js)도 지운다(다음 사람의 화면에 색이 남지 않게).
+  const cookies = ["ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax", ...clearSetupCookies(), clearConsentStateCookie(), supporterAccentCookieV229121(false)];
   if (explicit) cookies.push(kakaoAutoLoginCookie("off"));
   return redirectResponseWithCookies("/my", cookies);
 }
@@ -28543,7 +28549,10 @@ async function handleMyMembersPage(request, env, url) {
     fetchHouseholdMembers(env, selected.id).then(async (rows) => [rows, await fetchSupporterFlags(env, safeArray(rows).map((m) => m.user_id)).catch(() => new Map())]),
     fetchHouseholdMemberPolicy(env, selected.id).catch(() => ""),
   ]);
-  return htmlResponse(renderMyMembersHtml({ env, user, month, households, selected, members, memberPolicy, supporterFlags, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
+  // V22.9.121: 보는 사람도 구성원이라 위 조회에 들어 있다 → 포인트 색 쿠키(ab_sp)도 맞춘다(추가 조회 없음). 구성원이 50명을 넘어
+  // 보는 사람의 표시를 읽지 않았으면(fetchSupporterFlags 는 앞 50명만 읽는다) 쿠키를 그대로 둔다.
+  const viewerFlagRead = [...new Set(safeArray(members).map((m) => String(m?.user_id || "").trim()).filter(Boolean))].slice(0, 50).includes(String(userId));
+  return withSupporterAccentCookieV229121(request, htmlResponse(renderMyMembersHtml({ env, user, month, households, selected, members, memberPolicy, supporterFlags, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" })), viewerFlagRead ? supporterFlags instanceof Map && supporterFlags.has(String(userId)) : null);
 }
 
 // V22.9.43: 구성원 권한(기록만/기록·수정) 저장. 소유자만 바꾸며, 결과는 참여자 화면의 같은 칸으로 돌아가 알린다.
@@ -44786,8 +44795,11 @@ async function handleMobileV8Page(request, env, url) {
   const setupStatus = userId && selectedHousehold ? householdSetupStatus({ household: selectedHousehold, members, userId, backupKnown: backupLoginKnown(request) }) : null;
   const setupBand = setupStatus && !setupStatus.done ? setupBandHtml({ householdId, missing: setupStatus.missing, month }) : "";
   const setupHeaders = setupStatus ? { "set-cookie": setupStatusCookie(householdId, setupStatus) } : {};
+  // V22.9.121: 보는 사람의 후원자 표시(위 설정 조회 한 번에 얹어 읽은 값). 홈 그리기와 포인트 색 쿠키(ab_sp)가 같은 값을 쓴다(추가 조회 없음).
+  // 관리자 세션은 표시를 읽지 않으므로 쿠키도 그대로 둔다(my/supporter-accent.js).
+  const homeSupporter = homeSupporterKey ? activeSupporterFlag(homeSettings.extra?.get(homeSupporterKey)) : null;
   // V22.9.104 L-3: 동의 기록이 없다고 확인된 사용자(쿠키 ab_cs=0)만 홈 위에 동의 팝업을 붙인다(DB 읽기 0회, 관리자 세션 제외).
-  return htmlResponse(withTermsNoticeBandV229114(request, url, !!userId && !adminOk, abEchoQuickRequestId(url, err, renderMobileV81Html({ title, setupBand, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, supporter: homeSupporterKey ? activeSupporterFlag(homeSettings.extra?.get(homeSupporterKey)) : null, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed, quickUndo, deleteRestore }))), 200, setupHeaders);
+  return withSupporterAccentCookieV229121(request, htmlResponse(withTermsNoticeBandV229114(request, url, !!userId && !adminOk, abEchoQuickRequestId(url, err, renderMobileV81Html({ title, setupBand, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, supporter: homeSupporter, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed, quickUndo, deleteRestore }))), 200, setupHeaders), homeSupporterKey ? !!homeSupporter : null);
 }
 
 async function handleBudgetSave(request, env) {
@@ -45382,6 +45394,246 @@ async function handleHomeLayoutSave(request, env) {
   const layout = normalizeHomeLayout(next);
   await saveSettingValue(env, homeLayoutKey(householdId, userId || "shared"), JSON.stringify(layout));
   return redirectResponse(`${back}&msg=saved`);
+}
+// V22.9.121 후원자 포인트 색을 모든 웹 가계부 화면에(DB 조회를 늘리지 않고).
+// 포인트 색(셸 CSS 변수 넷을 덮는 CSS · 이 브라우저에 저장한 색을 붙이는 작은 스크립트 · <html data-supporter="1">, my/supporters.js)은
+// 지금까지 보는 사람의 후원자 표시를 읽는 세 화면 — 홈(/app·/m)·전체 메뉴(/menu)·참여자(/my/members) — 에만 그렸다. 다른 셸 화면
+// (body.abV22812Shell)은 컬러톤만 보여, 전체 메뉴의 ‘고르면 컬러톤보다 먼저 보여요’ 가 그 화면들에서는 맞지 않았다.
+//  · 쿠키 ab_sp(1일): 세 화면은 이미 보는 사람의 표시를 읽는다. 지금 켜진 후원자인데 요청에 ab_sp=1 이 없으면 쿠키를 주고, 후원자가 아닌데
+//    ab_sp 가 있으면 지운다. 이번 요청에서 표시를 읽지 않았으면(관리자 세션의 홈·전체 메뉴, 구성원 50명 밖의 참여자 화면) 그대로 둔다.
+//    로그아웃(/logout·/my/logout)도 지운다. 세 화면의 DB 호출 수는 그대로다.
+//    로그인 세션(ab_user)을 새로 주거나 지우는 응답(다른 계정 로그인·방 바로 열기·계정 잇기 등)도 ab_sp 를 지운다 — 같은 브라우저의 다음
+//    사람 화면에 앞사람의 색이 남지 않게(가계부 기억 쿠키 ab_hh 의 H4 와 같은 자리). 후원자는 다음 홈·전체 메뉴·참여자에서 다시 받는다.
+//  · 응답 마무리(worker/router.js fetch): 로그인 쿠키(ab_user)와 ab_sp=1 이 함께 온 GET 의 200 HTML 가운데 셸 화면이고 <html> 에
+//    data-supporter 가 아직 없는 것에만 data-supporter="1" 과 supporterHeadHtml({ viewer: true })(배지 CSS·포인트 색 CSS·스크립트)를 붙인다.
+//    세 화면은 스스로 정하므로 건드리지 않고, 공개 화면(pubHeader)·관리자 화면·로그인 화면·HTML 이 아닌 응답은 붙이지 않는다.
+//    쿠키가 없으면 응답을 그대로 돌려준다 — 비후원자 화면은 바이트 그대로다(홈 35 KiB 예산).
+//  · 이 쿠키는 보기만 바꾼다. 위조한 쿠키는 위조한 사람 자기 화면의 색만 바꾸고, 다른 사람이 보는 ‘후원자’ 배지·공개 명단은 서버가 설정 표의
+//    후원자 표시(supporter:<user_id>)로만 그린다. 그래서 서명하지 않는다.
+const SUPPORTER_ACCENT_COOKIE_V229121 = "ab_sp";
+const SUPPORTER_ACCENT_SET_COOKIE_V229121 = "ab_sp=1; Path=/; Max-Age=86400; SameSite=Lax; Secure; HttpOnly";
+const SUPPORTER_ACCENT_CLEAR_COOKIE_V229121 = "ab_sp=; Path=/; Max-Age=0; SameSite=Lax; Secure; HttpOnly";
+// 보는 사람의 표시를 스스로 읽어 그리는 화면. 응답 마무리는 이 화면들에 덧붙이지 않는다(후원이 끝난 사람의 홈에 남은 쿠키로 색을 칠하지 않게).
+const SUPPORTER_ACCENT_SELF_PATHS_V229121 = new Set(["/app", "/m", "/menu", "/my/members"]);
+// 운영·관리자 화면은 셸이 아니지만(운영 내비) 주소로도 한 번 더 뺀다.
+const SUPPORTER_ACCENT_ADMIN_PATH_V229121 = /^\/(?:admin(?:[/-]|$)|ops(?:[/-]|$)|identity-audit(?:\/|$))/;
+
+function supporterAccentCookieV229121(on = true) {
+  return on ? SUPPORTER_ACCENT_SET_COOKIE_V229121 : SUPPORTER_ACCENT_CLEAR_COOKIE_V229121;
+}
+
+// 세 화면의 응답에 쿠키를 맞춘다. viewerIsSupporter: true = 지금 켜진 후원자, false = 아님(읽지 못해 화면도 색 없이 그렸을 때 포함),
+// 그 밖(null) = 이번 요청에서 읽지 않음 → 그대로. 쿠키가 이미 맞으면 응답을 그대로 돌려준다.
+function withSupporterAccentCookieV229121(request, response, viewerIsSupporter = null) {
+  try {
+    if (viewerIsSupporter !== true && viewerIsSupporter !== false) return response;
+    if (!(response instanceof Response) || response.status !== 200) return response;
+    const current = getCookie(request, SUPPORTER_ACCENT_COOKIE_V229121);
+    if (viewerIsSupporter ? current === "1" : !current) return response;
+    return withSetCookie(response, supporterAccentCookieV229121(viewerIsSupporter));
+  } catch (_) {
+    return response;
+  }
+}
+
+function setCookieLinesV229121(response) {
+  return typeof response.headers.getSetCookie === "function"
+    ? response.headers.getSetCookie()
+    : String(response.headers.get("set-cookie") || "").split(/,(?=\s*[A-Za-z0-9_-]+=)/);
+}
+
+// 응답이 이미 ab_sp 를 정했는지(세 화면·로그아웃).
+function setsSupporterAccentCookieV229121(response) {
+  return setCookieLinesV229121(response).some((line) => /^\s*ab_sp=/.test(line));
+}
+
+// 응답이 로그인 세션(ab_user)을 새로 주거나 지우는지.
+function changesUserSessionV229121(response) {
+  return setCookieLinesV229121(response).some((line) => /^\s*ab_user=/.test(line));
+}
+
+// 셸 화면 HTML 에 포인트 색을 붙인다. 붙일 화면이 아니면 받은 글을 그대로 돌려준다.
+function attachSupporterAccentV229121(html = "") {
+  const source = String(html || "");
+  const htmlTag = source.match(/<html\b[^>]*>/i);
+  const bodyTag = source.match(/<body\b[^>]*>/i);
+  const headEnd = source.indexOf("</head>");
+  if (!htmlTag || !bodyTag || headEnd < 0 || headEnd > bodyTag.index) return source;
+  if (/\sdata-supporter\s*=/i.test(htmlTag[0]) || source.includes('id="abSupporterAccent"')) return source;
+  if (!/\bclass\s*=\s*["'][^"']*\babV22812Shell\b/i.test(bodyTag[0])) return source;
+  // 셸이 붙는 로그인 화면(로그인 이름 로그인·가입 폼)·공개 화면·운영 내비 화면은 뺀다.
+  if (/\babPageLogin\b/.test(bodyTag[0]) || source.includes('action="/my/local-login"') || source.includes('action="/my/local-signup"')
+    || /class=["'][^"']*\bpubHeader\b/i.test(source) || /data-nav-scope="(?:ops|admin)"/.test(source)) return source;
+  // 세 화면처럼 셸 CSS 링크 앞에 둔다(셸 링크가 머리의 마지막 스타일로 남는다). 링크가 없으면 </head> 앞.
+  const shellLink = `<link rel="stylesheet" href="${ACCOUNTBOOK_SHELL_CSS_ASSET_PATH}"/>`;
+  const linkAt = source.indexOf(shellLink);
+  const at = linkAt >= 0 && linkAt < headEnd ? linkAt : headEnd;
+  const withHead = source.slice(0, at) + supporterHeadHtml({ viewer: true }) + source.slice(at);
+  return withHead.replace(/<html\b[^>]*>/i, (tag) => `${tag.slice(0, -1)} data-supporter="1">`);
+}
+
+// 응답 마무리(worker/router.js fetch). 쿠키가 없거나 붙일 화면이 아니면 받은 응답 그대로다.
+async function supporterAccentResponseV229121(request, env, response) {
+  try {
+    if (!(response instanceof Response)) return response;
+    const accentCookie = getCookie(request, SUPPORTER_ACCENT_COOKIE_V229121);
+    if (!accentCookie) return response;
+    // 세션이 바뀌는 응답: 앞사람의 색 쿠키를 지운다(응답이 ab_sp 를 스스로 정했으면 그대로).
+    if (changesUserSessionV229121(response)) {
+      return setsSupporterAccentCookieV229121(response) ? response : withSetCookie(response, supporterAccentCookieV229121(false));
+    }
+    if (response.status !== 200 || request?.method !== "GET") return response;
+    if (accentCookie !== "1" || !getCookie(request, "ab_user")) return response;
+    if (!/^text\/html\b/i.test(response.headers.get("content-type") || "")) return response;
+    const url = new URL(request.url);
+    if (SUPPORTER_ACCENT_SELF_PATHS_V229121.has(url.pathname) || SUPPORTER_ACCENT_ADMIN_PATH_V229121.test(url.pathname)) return response;
+    if (setsSupporterAccentCookieV229121(response)) return response;
+    const html = await response.clone().text();
+    const changed = attachSupporterAccentV229121(html);
+    if (changed === html) return response;
+    const headers = new Headers(response.headers);
+    headers.delete("content-length");
+    const vary = (headers.get("vary") || "").split(",").map((value) => value.trim()).filter(Boolean);
+    if (!vary.some((value) => /^(cookie|\*)$/i.test(value))) vary.push("Cookie");
+    headers.set("vary", vary.join(", "));
+    return new Response(changed, { status: response.status, statusText: response.statusText, headers });
+  } catch (err) {
+    rememberOpsEvent({ kind: "supporter_accent_attach_failed", severity: "warn", path: "", method: "GET", detail: safeError(err) });
+    return response;
+  }
+}
+// V22.9.121 계정 합치기 뒤 설정 줄 옮기기. 관리자 통합(/admin/identity/merge)과 계정 잇기(/my/account-link/run)는 모두
+// performIdentityMerge(admin/identity-merge.js) → 합치기 RPC(accountbook_merge_users_v227)로 가계부 참여·기록·정기 규칙·로그인 연결을
+// 주 계정으로 옮기지만, 설정 표의 사용자 줄은 옮기지 않는다. 그래서 보조 계정 쪽에 있던 후원자 표시(supporter:<id>)가 남아
+// 계정을 이은 후원자가 배지·포인트 색·공개 명단 줄을 잃었고, 주 계정에 안내 확인 기록(consent:<id>)이 없을 수 있었다.
+// 합치기 RPC 가 끝난 뒤 이 둘만 옮긴다.
+//  · 읽기: 네 줄(supporter:주·보조, consent:주·보조)을 key=in.(…) 한 번으로 읽는다.
+//  · 후원자 표시: 보조 계정 값이 맞는 표시(normalizeSupporterFlag)이고 주 계정에 맞는 표시가 없으면 그대로 주 계정에 적고, 둘 다 있으면
+//    시작일은 이른 날, 끝나는 날은 한쪽이라도 없으면 없음(계속) · 둘 다 있으면 늦은 날, 메모는 주 계정 것 우선(둘 다 있고 다르면 ‘주 / 보조’,
+//    200자), 명단 이름은 주 계정 것 우선으로 합쳐 적는다. 그다음 보조 계정 줄을 지운다(남으면 관리자 목록·공개 명단에 같은 분이 두 번 보인다).
+//    보조 계정 값이 맞지 않으면(값 오류) 아무것도 바꾸지 않는다.
+//  · 안내 확인 기록: 주 계정에 없고 보조 계정에 있으면 같은 값을 주 계정에 적는다(보조 계정 줄은 남긴다 — 그 사람이 안내를 본 기록이다).
+//  · DB 호출은 읽기 1회 + 쓰기 많아야 3회(후원자 쓰기·보조 줄 지우기·안내 기록 쓰기). 부르는 쪽의 남은 호출(hasRoom)이 모자라면 시작하지 않거나
+//    아무것도 쓰지 않고 운영 이벤트(merge_settings_carry_deferred)로 남긴다(반쯤 옮긴 상태를 만들지 않는다).
+//  · 실패해도 합치기 결과·응답은 그대로다(모든 오류를 여기서 받고 운영 이벤트 merge_settings_carry_failed 만 남긴다 — 값·키는 적지 않는다).
+
+function mergeCarryConsentKeyV229121(userId = "") {
+  const id = String(userId || "").trim();
+  // 동의 기록을 쓰고 읽는 곳(auth/local-login-pages.js recordSignupConsent·auth/kakao-start-screen.js)과 같은 키 모양이다.
+  return id ? `consent:${id}`.slice(0, 180) : "";
+}
+
+// 두 후원자 표시(둘 다 normalizeSupporterFlag 를 지난 값)를 하나로 합친다.
+function mergeSupporterFlagsV229121(primary, secondary) {
+  const since = primary.since <= secondary.since ? primary.since : secondary.since;
+  const until = !primary.until || !secondary.until ? null : (primary.until >= secondary.until ? primary.until : secondary.until);
+  const notes = [primary.note, secondary.note].filter(Boolean);
+  const note = notes.length === 2 && notes[0] !== notes[1] ? supporterTextV22995(`${notes[0]} / ${notes[1]}`, 200) : (notes[0] || "");
+  return { since, until, note, public_name: primary.public_name || secondary.public_name || null };
+}
+
+// 운영 이벤트에 붙일 짧은 이유(오류 글의 본문·키·값은 싣지 않는다).
+function mergeCarryFailureCodeV229121(err) {
+  const code = String(err?.code || "");
+  if (/^[A-Za-z0-9_.-]{1,60}$/.test(code)) return code;
+  const status = String(err?.message || "").match(/^Supabase (\d{3})\b/);
+  return status ? `http_${status[1]}` : "error";
+}
+
+// 합친 뒤 한 번 부른다. 무엇을 옮겼는지 돌려주지만 performIdentityMerge 는 이 값을 쓰지 않는다(합치기 결과는 그대로).
+async function carryUserSettingsAfterMergeV229121(env, primaryId, secondaryId, options = {}) {
+  const outcome = { read: false, supporter: "none", consent: false, deferred: false, failed: [] };
+  const path = String(options?.path || "/admin/identity/merge");
+  const event = (kind, detail) => rememberOpsEvent({ kind, severity: "warn", path, method: "POST", detail });
+  const failed = (stage, err) => {
+    outcome.failed.push(stage);
+    event("merge_settings_carry_failed", `settings carry pending (${stage}): ${mergeCarryFailureCodeV229121(err)}`);
+  };
+  try {
+    const primary = String(primaryId || "").trim();
+    const secondary = String(secondaryId || "").trim();
+    if (!primary || !secondary || primary === secondary) return outcome;
+    const hasRoom = typeof options?.hasRoom === "function" ? options.hasRoom : () => true;
+    const keys = {
+      supporterPrimary: supporterSettingsKey(primary),
+      supporterSecondary: supporterSettingsKey(secondary),
+      consentPrimary: mergeCarryConsentKeyV229121(primary),
+      consentSecondary: mergeCarryConsentKeyV229121(secondary),
+    };
+    if (!hasRoom(1)) {
+      outcome.deferred = true;
+      event("merge_settings_carry_deferred", "settings carry pending: no database budget (read)");
+      return outcome;
+    }
+    let rows;
+    try {
+      const params = new URLSearchParams();
+      params.set("key", `in.(${Object.values(keys).map(supporterInValueV22995).join(",")})`);
+      params.set("select", "key,value");
+      params.set("limit", "4");
+      rows = await supabase(env, `/rest/v1/accountbook_settings?${params.toString()}`, { method: "GET" });
+      if (!Array.isArray(rows)) throw new Error("merge_settings_carry_read_invalid");
+    } catch (err) {
+      failed("read", err);
+      return outcome;
+    }
+    outcome.read = true;
+    const found = new Map(rows.map((row) => [String(row?.key || ""), row?.value]));
+    const present = (key) => found.has(key) && found.get(key) !== null && found.get(key) !== undefined && found.get(key) !== "";
+    let supporterValue = null;
+    if (present(keys.supporterSecondary)) {
+      const secondaryFlag = normalizeSupporterFlag(found.get(keys.supporterSecondary));
+      if (secondaryFlag) {
+        const primaryFlag = normalizeSupporterFlag(found.get(keys.supporterPrimary));
+        supporterValue = primaryFlag ? mergeSupporterFlagsV229121(primaryFlag, secondaryFlag) : secondaryFlag;
+        outcome.supporter = primaryFlag ? "merged" : "moved";
+      } else {
+        outcome.supporter = "invalid";
+      }
+    }
+    const consentValue = !present(keys.consentPrimary) && present(keys.consentSecondary) ? found.get(keys.consentSecondary) : null;
+    const writes = (supporterValue ? 2 : 0) + (consentValue !== null ? 1 : 0);
+    if (!writes) return outcome;
+    if (!hasRoom(writes)) {
+      outcome.deferred = true;
+      if (supporterValue) outcome.supporter = "deferred";
+      event("merge_settings_carry_deferred", `settings carry pending: no database budget (${writes} write(s))`);
+      return outcome;
+    }
+    const steps = [];
+    if (supporterValue) {
+      steps.push((async () => {
+        try {
+          await saveSettingValue(env, keys.supporterPrimary, supporterValue);
+        } catch (err) {
+          outcome.supporter = "failed";
+          failed("supporter", err);
+          return;
+        }
+        try {
+          await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(keys.supporterSecondary)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } });
+        } catch (err) {
+          // 주 계정에는 이미 적었다. 보조 계정 줄만 남는다(관리자 목록에서 지울 수 있다).
+          failed("supporter_cleanup", err);
+        }
+      })());
+    }
+    if (consentValue !== null) {
+      steps.push((async () => {
+        try {
+          await saveSettingValue(env, keys.consentPrimary, consentValue);
+          outcome.consent = true;
+        } catch (err) {
+          failed("consent", err);
+        }
+      })());
+    }
+    await Promise.all(steps);
+    return outcome;
+  } catch (err) {
+    failed("unexpected", err);
+    return outcome;
+  }
 }
 
 // V22.9.119 N-13: 지난 달을 보면 ‘이번 달 남은 예산’·‘이번 달 지출’·계획 폼 안내의 ‘이번 달 전체 지출 예산’ 대신 그 달 이름(‘10월 남은 예산’)이다(budgetMonthLabel).
@@ -58061,7 +58313,7 @@ async function performIdentityMerge(env, options = {}) {
 
   rewireEffectiveUserCache(secondaryId, primaryId);
   // V22.9.91: 뒤처리는 모두 실패해도 합치기를 되돌리지 않는다. 한 요청의 DB 호출 한도(50회) 안에서 부르는 쪽의 뒤처리(afterMerge)부터
-  // 하고 링크 표 → 방 연결 → 가계부별 표시 별명 순서로 한다. 잠금을 잡고 못 풀면 90초 남으므로, 남은 호출이 모자라면 시작하지 않고
+  // 하고 (V22.9.121 설정 줄 →) 링크 표 → 방 연결 → 가계부별 표시 별명 순서로 한다. 잠금을 잡고 못 풀면 90초 남으므로, 남은 호출이 모자라면 시작하지 않고
   // 운영 이벤트(…_deferred)로 남긴다. 남겨도 로그인·기록은 통합 리다이렉트로 주 계정을 찾는다.
   const dbRoom = (calls) => {
     const budget = env.__AB_DB_BUDGET;
@@ -58074,6 +58326,10 @@ async function performIdentityMerge(env, options = {}) {
       rememberOpsEvent({ kind: "identity_merge_after_failed", severity: "warn", path, method: "POST", detail: safeError(err) });
     }
   }
+  // V22.9.121: 설정 표의 후원자 표시(supporter:<id>)와 안내 확인 기록(consent:<id>)은 합치기 RPC 가 옮기지 않는다. 세션(afterMerge) 다음,
+  // 링크 표 정리 앞에서 주 계정으로 옮긴다(읽기 1회 + 쓰기 많아야 3회, 남은 호출이 모자라면 남기고 운영 이벤트). 모든 오류를 그 안에서 받으므로
+  // 합치기 결과·응답은 그대로다(my/merge-carry.js).
+  await carryUserSettingsAfterMergeV229121(env, primaryId, secondaryId, { path, hasRoom: dbRoom });
   // 링크 표: 잠금·읽기·쓰기·풀기 4회.
   try {
     if (!dbRoom(4)) throw Object.assign(new Error("legacy identity cleanup pending: no database budget"), { deferred: true });

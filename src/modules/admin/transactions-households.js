@@ -9,7 +9,8 @@ import {
   withHouseholdDatabaseLease,
 } from "../runtime/leases.js";
 import {
-  htmlResponse, jsonResponse, redirectResponse, wantsTransactionDeleteJson,
+  htmlResponse, jsonResponse, redirectResponse, redirectResponseWithCookies,
+  wantsTransactionDeleteJson,
 } from "../runtime/http.js";
 import {
   authAttemptNetwork, checkAdminPassword, makeAdminSession, recordAuthAccountWideAttempt,
@@ -36,6 +37,7 @@ import { activeSpenderExists, getTransactionForUserEdit } from "../my/transactio
 import { purgeHouseholdData, removeMemberAlias } from "../my/households-lifecycle.js";
 import { budgetAlertText, fetchBudgets } from "../domain/budgets.js";
 import { renderTxEditSuggestionLists, renderV8TxEditForm } from "../my/home-sections.js";
+import { supporterAccentCookieV229121 } from "../my/supporter-accent.js";
 import {
   isKakaoRequestUniqueConflictV229119, isUncertainStorageWrite,
 } from "../kakao/response-builders.js";
@@ -110,9 +112,11 @@ async function handleAdminLogin(request, env) {
 }
 
 function handleAdminLogout() {
-  return redirectResponse("/", {
-    "set-cookie": "ab_admin=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
-  });
+  // V22.9.121: 후원자 포인트 색 쿠키(ab_sp, my/supporter-accent.js)도 함께 지운다.
+  return redirectResponseWithCookies("/", [
+    "ab_admin=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+    supporterAccentCookieV229121(false),
+  ]);
 }
 
 async function handleAdminPage(request, env, url) {

@@ -21,6 +21,7 @@ import {
 import { fetchUserById, fetchUserHouseholds } from "../data/users-household-create.js";
 import { backupLoginKnownCookie, clearSetupCookies } from "../my/setup-page.js";
 import { createHouseholdForUserV229104 } from "../my/households-lifecycle.js";
+import { supporterAccentCookieV229121 } from "../my/supporter-accent.js";
 import { addQueryToUrl, recordSignupConsent } from "./local-login-pages.js";
 import {
   isKakaoTalkInAppBrowser, kakaoAccountLinkProofAfterKakao, kakaoAutoLoginCookie,
@@ -456,7 +457,8 @@ async function handleKakaoLoginCallback(request, env, url) {
 function handleMyLogout({ explicit = false } = {}) {
   // V22.9.102: 가계부 기본 설정 띠의 판정 쿠키(ab_setup·ab_bk)도 함께 지운다(다음 사람의 로그인에 남지 않게).
   // V22.9.104 L-3: 동의 팝업 쿠키(ab_cs)도 지운다.
-  const cookies = ["ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax", ...clearSetupCookies(), clearConsentStateCookie()];
+  // V22.9.121: 후원자 포인트 색 쿠키(ab_sp, my/supporter-accent.js)도 지운다(다음 사람의 화면에 색이 남지 않게).
+  const cookies = ["ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax", ...clearSetupCookies(), clearConsentStateCookie(), supporterAccentCookieV229121(false)];
   if (explicit) cookies.push(kakaoAutoLoginCookie("off"));
   return redirectResponseWithCookies("/my", cookies);
 }
