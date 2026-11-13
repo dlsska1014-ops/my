@@ -98,6 +98,15 @@ function matchesPostgrestLogicV22994(row, operator, expression) {
   return operator === "or" ? results.some(Boolean) : results.every(Boolean);
 }
 
+// V22.9.121: 고치기(PATCH)·지우기(DELETE)가 줄을 가리는 열쇠. 설정 표(accountbook_settings)는 운영처럼 key 가 기본 키다 — 예전에는 id·household_id·
+// user_id 가 없는 설정 줄이 모두 같은 열쇠(undefined|undefined)가 되어, 설정 줄 하나를 지우거나 고치면 설정 표의 다른 줄도 함께 지워지거나 바뀌었다
+// (V22.9.121 독립 검토 4차 반영 때 계정 잇기 검사 11b 가 찾음 — 운영 코드 결함 아님, 픽스처만).
+function fixtureRowIdentityV229121(table, row) {
+  if (row?.id) return row.id;
+  if (table === "accountbook_settings") return `key:${row?.key}`;
+  return `${row?.household_id}|${row?.user_id}`;
+}
+
 function matchesFilter(row, key, expression) {
   if (key === "or" || key === "and") return matchesFilter.permissiveLogic ? true : matchesPostgrestLogicV22994(row, key, expression);
   if (key === "not.or" || key === "not.and") return matchesFilter.permissiveLogic ? true : !matchesPostgrestLogicV22994(row, key.slice(4), expression);
@@ -718,19 +727,19 @@ export async function createV2265QaFixture(options = {}) {
     }
     if (method === "PATCH") {
       const matches = filteredRows(db, table, url);
-      const ids = new Set(matches.map((row) => row.id || `${row.household_id}|${row.user_id}`));
+      const ids = new Set(matches.map((row) => fixtureRowIdentityV229121(table, row)));
       // V22.9.119 O-1: 고친 뒤의 행이 운영 유니크 인덱스를 어기면 아무 행도 바꾸지 않고 409/23505(켰을 때만).
       if (table === "transactions" && db.__kakao_request_unique === true && matches.length) {
-        const clash = kakaoRequestUniqueViolationV229119(db.transactions.filter((row) => !ids.has(row.id || `${row.household_id}|${row.user_id}`)), matches.map((row) => ({ ...row, ...data })));
+        const clash = kakaoRequestUniqueViolationV229119(db.transactions.filter((row) => !ids.has(fixtureRowIdentityV229121(table, row))), matches.map((row) => ({ ...row, ...data })));
         if (clash) return kakaoRequestUniqueResponseV229119(clash);
       }
-      db[table] = db[table].map((row) => ids.has(row.id || `${row.household_id}|${row.user_id}`) ? { ...row, ...data } : row);
+      db[table] = db[table].map((row) => ids.has(fixtureRowIdentityV229121(table, row)) ? { ...row, ...data } : row);
       return new Response(JSON.stringify(matches.map((row) => ({ ...row, ...data }))), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (method === "DELETE") {
       const matches = filteredRows(db, table, url);
-      const ids = new Set(matches.map((row) => row.id || `${row.household_id}|${row.user_id}`));
-      db[table] = db[table].filter((row) => !ids.has(row.id || `${row.household_id}|${row.user_id}`));
+      const ids = new Set(matches.map((row) => fixtureRowIdentityV229121(table, row)));
+      db[table] = db[table].filter((row) => !ids.has(fixtureRowIdentityV229121(table, row)));
       const representation = new Headers(init.headers || {}).get("Prefer")?.includes("return=representation");
       return new Response(JSON.stringify(representation ? matches : []), { status: 200, headers: { "content-type": "application/json" } });
     }

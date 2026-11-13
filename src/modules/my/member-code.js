@@ -158,6 +158,8 @@ function scheduleMemberCodeRememberV229121(env, ctx, code = "", userId = "", opt
 
 // 번호 → 사용자. 돌려주는 값: { userId, via: "cache"|"scan"|"", cacheStale, available }. DB 호출은 기억 줄 읽기 1 + (없거나 틀리면) 훑기 1,
 // 그리고 remember 일 때 훑어서 찾으면 기억 줄 넣기 1(ctx 가 있으면 답 뒤). 관리자 화면 GET 은 remember:false 로 부른다(화면 한 번 호출 상한).
+// 훑기 읽기가 실패하면(오류·배열 아님) scanFailed: true 를 더한다 — ‘맞는 사람 없음’ 과 가른다(독립 검토 V22.9.121 4차 P3: 운영자가 후원자에게
+// 번호가 틀렸다고 답하지 않게).
 async function lookupMemberCodeV229121(env, code = "", { remember = true, ctx = null } = {}) {
   const canonical = normalizeMemberCodeV229121(code);
   const result = { userId: "", via: "", cacheStale: false, available: memberCodeAvailableV229121(env) };
@@ -179,9 +181,9 @@ async function lookupMemberCodeV229121(env, code = "", { remember = true, ctx = 
   try {
     users = await supabase(env, `/rest/v1/users?select=id&order=created_at.desc,id.desc&limit=${MEMBER_CODE_SCAN_LIMIT_V229121}`, { method: "GET" });
   } catch (_) {
-    return result;
+    return { ...result, scanFailed: true };
   }
-  if (!Array.isArray(users)) return result;
+  if (!Array.isArray(users)) return { ...result, scanFailed: true };
   const ids = users.map((row) => String(row?.id ?? "").trim());
   for (let start = 0; start < ids.length && !result.userId; start += MEMBER_CODE_SCAN_CHUNK_V229121) {
     const chunk = ids.slice(start, start + MEMBER_CODE_SCAN_CHUNK_V229121);
@@ -199,10 +201,6 @@ async function lookupMemberCodeV229121(env, code = "", { remember = true, ctx = 
   return result;
 }
 
-// 관리자 찾기가 쓰는 짧은 길: 번호 → user_id 또는 "".
-async function findUserIdByMemberCodeV229121(env, code = "", options = {}) {
-  return (await lookupMemberCodeV229121(env, code, { remember: options.remember !== false, ctx: options.ctx || null })).userId;
-}
 // V22.9.121: 기억 줄은 화면 GET 에서 쓰지 않는다. 모든 화면의 미리 렌더링 규칙(conservative)이 ‘내 계정·보안’ 을 누르기 시작할 때 미리 열고
 // 누르면 그 화면을 그대로 쓴다 — GET 에서 쓰면 ‘링크된 주소를 GET 으로 열어도 데이터가 바뀌지 않는다’ 는 약속(validate-speculation-rules-v2297)이
 // 깨지고, 미리 렌더링을 빼면 크롬 계열의 앱 안 방문이 빠진다. 그래서 /support 방문 신호(V22.9.97)처럼 화면이 실제로 보일 때(미리 렌더링된 화면은
@@ -241,8 +239,8 @@ async function memberCodeSeenResponseV229121(request, env, url, ctx = null) {
 }
 // @build:exports-start
 export {
-  MEMBER_CODE_SEEN_SCRIPT_V229121, findUserIdByMemberCodeV229121, lookupMemberCodeV229121,
-  memberCodeAvailableV229121, memberCodeForUserV229121, memberCodeSeenResponseV229121,
-  memberCodesForUsersV229121, normalizeMemberCodeV229121,
+  MEMBER_CODE_SEEN_SCRIPT_V229121, lookupMemberCodeV229121, memberCodeAvailableV229121,
+  memberCodeForUserV229121, memberCodeSeenResponseV229121, memberCodesForUsersV229121,
+  normalizeMemberCodeV229121,
 };
 // @build:exports-end

@@ -29283,6 +29283,8 @@ function scheduleMemberCodeRememberV229121(env, ctx, code = "", userId = "", opt
 
 // 번호 → 사용자. 돌려주는 값: { userId, via: "cache"|"scan"|"", cacheStale, available }. DB 호출은 기억 줄 읽기 1 + (없거나 틀리면) 훑기 1,
 // 그리고 remember 일 때 훑어서 찾으면 기억 줄 넣기 1(ctx 가 있으면 답 뒤). 관리자 화면 GET 은 remember:false 로 부른다(화면 한 번 호출 상한).
+// 훑기 읽기가 실패하면(오류·배열 아님) scanFailed: true 를 더한다 — ‘맞는 사람 없음’ 과 가른다(독립 검토 V22.9.121 4차 P3: 운영자가 후원자에게
+// 번호가 틀렸다고 답하지 않게).
 async function lookupMemberCodeV229121(env, code = "", { remember = true, ctx = null } = {}) {
   const canonical = normalizeMemberCodeV229121(code);
   const result = { userId: "", via: "", cacheStale: false, available: memberCodeAvailableV229121(env) };
@@ -29304,9 +29306,9 @@ async function lookupMemberCodeV229121(env, code = "", { remember = true, ctx = 
   try {
     users = await supabase(env, `/rest/v1/users?select=id&order=created_at.desc,id.desc&limit=${MEMBER_CODE_SCAN_LIMIT_V229121}`, { method: "GET" });
   } catch (_) {
-    return result;
+    return { ...result, scanFailed: true };
   }
-  if (!Array.isArray(users)) return result;
+  if (!Array.isArray(users)) return { ...result, scanFailed: true };
   const ids = users.map((row) => String(row?.id ?? "").trim());
   for (let start = 0; start < ids.length && !result.userId; start += MEMBER_CODE_SCAN_CHUNK_V229121) {
     const chunk = ids.slice(start, start + MEMBER_CODE_SCAN_CHUNK_V229121);
@@ -29324,10 +29326,6 @@ async function lookupMemberCodeV229121(env, code = "", { remember = true, ctx = 
   return result;
 }
 
-// 관리자 찾기가 쓰는 짧은 길: 번호 → user_id 또는 "".
-async function findUserIdByMemberCodeV229121(env, code = "", options = {}) {
-  return (await lookupMemberCodeV229121(env, code, { remember: options.remember !== false, ctx: options.ctx || null })).userId;
-}
 // V22.9.121: 기억 줄은 화면 GET 에서 쓰지 않는다. 모든 화면의 미리 렌더링 규칙(conservative)이 ‘내 계정·보안’ 을 누르기 시작할 때 미리 열고
 // 누르면 그 화면을 그대로 쓴다 — GET 에서 쓰면 ‘링크된 주소를 GET 으로 열어도 데이터가 바뀌지 않는다’ 는 약속(validate-speculation-rules-v2297)이
 // 깨지고, 미리 렌더링을 빼면 크롬 계열의 앱 안 방문이 빠진다. 그래서 /support 방문 신호(V22.9.97)처럼 화면이 실제로 보일 때(미리 렌더링된 화면은
@@ -58710,6 +58708,7 @@ async function handleIdentityMerge(request, env) {
 // ‘통합됨’ 표시만 하고 추가 링크가 없으며, 새로 켜는 저장도 받지 않는다(이미 있는 줄 고치기·제거는 그대로).
 // 화면 한 번에 DB 호출은 많아야 5번이다: 관리자 세션 · 후원자 줄 · 사용자 한 쪽(또는 회원 번호 기억 줄 + 없거나 틀릴 때 훑기) · 그 쪽에 없는
 // 사용자 줄(후원자 이름·추가할 사람·회원 번호로 찾은 사람). 사용자 줄은 로그인 수단(강한 식별)을 같은 호출에 포함해 읽는다 — 줄마다 읽지 않는다.
+// 번호 꼴로 읽히는 이름(정식 MB-XXXX-XXXX 꼴이 아닌 말)을 번호로 못 찾아 같은 말을 표시 이름으로도 찾을 때만 6번이다(독립 검토 V22.9.121 3차·4차).
 // 화면 GET 에서 훑어 찾은 번호는 기억 줄을 쓰지 않는다(쓰기는 내 계정·보안 화면이 보이면 보내는 신호 POST /my/member-code/seen 과
 // 아래 찾기 POST 가 한다).
 const SUPPORTER_ADMIN_MESSAGES_V22995 = Object.freeze({
@@ -58723,6 +58722,7 @@ const SUPPORTER_ADMIN_ERRORS_V22995 = Object.freeze({
   user_ambiguous: "같은 표시 이름이 여러 명이에요. 회원 번호나 로그인 이름으로 찾아 주세요.",
   member_code_invalid: "회원 번호는 MB-XXXX-XXXX 꼴이에요.",
   member_code_unavailable: "회원 번호를 계산할 수 없어요. 운영 설정을 확인해 주세요.",
+  member_code_lookup_failed: "회원 번호로 찾다가 사용자 목록을 읽지 못했어요. 잠시 뒤 다시 시도해 주세요.",
   user_merged: "다른 계정으로 합쳐진 계정이라 새로 켤 수 없어요. 전체 사용자 목록에서 ‘통합됨’ 이 없는 계정을 골라 주세요.",
   since_invalid: "시작일은 YYYY-MM-DD 꼴로 적어 주세요.",
   until_invalid: "끝나는 날은 YYYY-MM-DD 꼴로 적거나 비워 두세요.",
@@ -58735,6 +58735,10 @@ const SUPPORTER_ADMIN_USER_PAGE_SIZE_V229121 = 50;
 // 사용자 줄 + 그 사람의 강한 식별(로그인 수단). kakao/identity-chat-first.js 가 쓰는 것과 같은 users → accountbook_user_identities 포함.
 const SUPPORTER_ADMIN_USER_SELECT_V229121 = "id,nickname,created_at,kakao_user_key,accountbook_user_identities(provider)";
 const SUPPORTER_ADMIN_SEPARATORS_V229121 = /[\s\-_.\u2010-\u2015\u2212]/g;
+
+// V22.9.121 독립 검토 4차 P3: ‘내 계정·보안’ 복사 단추가 주는 정식 꼴(MB-XXXX-XXXX, 크록퍼드 글자)로 적은 말은 번호를 찾는 말로만 본다 —
+// 맞는 사람이 없어도 표시 이름으로 찾지 않는다(표시 이름을 번호처럼 지은 다른 사람이 번호 찾기 결과에 끼지 않게).
+const SUPPORTER_ADMIN_EXACT_CODE_V229121 = /^MB-[0-9A-HJKMNP-TV-Z]{4}-[0-9A-HJKMNP-TV-Z]{4}$/i;
 
 function supporterAdminRedirectV22995(params = {}) {
   const search = new URLSearchParams(Object.entries(params).filter(([, value]) => value));
@@ -58756,7 +58760,10 @@ async function supporterAdminFindUserV22995(env, who = "", by = "user_id", ctx =
     const code = normalizeMemberCodeV229121(text);
     if (!code) return { error: "member_code_invalid" };
     if (!memberCodeAvailableV229121(env)) return { error: "member_code_unavailable" };
-    const userId = await findUserIdByMemberCodeV229121(env, code, { ctx });
+    const found = await lookupMemberCodeV229121(env, code, { ctx });
+    // 훑기 읽기가 실패하면 ‘못 찾음’ 이 아니라 다시 시도 안내(독립 검토 V22.9.121 4차 P3 — 운영자가 후원자에게 번호가 틀렸다고 답하지 않게).
+    if (found.scanFailed) return { error: "member_code_lookup_failed" };
+    const userId = found.userId;
     if (!userId) return { error: "user_not_found" };
     const user = await fetchUserById(env, userId).catch(() => null);
     return user?.id ? { user } : { error: "user_not_found" };
@@ -58820,7 +58827,7 @@ function supporterAdminUserQueryV229121(raw = "") {
   // 머리(MB) 없는 꼴은 줄표 계열 구분 기호만 받는다 — ‘Kate Moss’ 처럼 네 글자 이름 둘은 이름으로 찾는다(독립 검토 V22.9.121 1차 P3).
   const codeShaped = (compact.length === 10 && compact.startsWith("MB")) || /^[0-9A-Za-z]{4}[\-_.\u2010-\u2015\u2212][0-9A-Za-z]{4}$/.test(folded);
   const code = codeShaped ? normalizeMemberCodeV229121(folded) : "";
-  if (code) return { text, kind: "code", code, idPrefix: "" };
+  if (code) return { text, kind: "code", code, idPrefix: "", exact: SUPPORTER_ADMIN_EXACT_CODE_V229121.test(folded) };
   return supporterAdminTextQueryV229121(text, codeShaped);
 }
 
@@ -58921,7 +58928,8 @@ async function handleSupportersAdminPage(request, env, url) {
   const foundId = String(lookup?.userId || "");
   // V22.9.121 독립 검토 3차 P3: 번호로 읽혔지만 맞는 사람이 없으면 같은 말을 표시 이름으로도 찾는다(첫 쪽만). ‘Kate-Moss’·‘MBTI INFJ01’ 처럼
   // 크록퍼드 글자로만 된 이름도 번호 꼴로 읽히기 때문이다. 번호 찾기를 쓸 수 없을 때(available false)는 그 오류 안내만 한다.
-  const nameFallback = query.kind === "code" && lookup?.available !== false && !foundId;
+  // 정식 꼴(MB-XXXX-XXXX)로 적은 말과 훑기 읽기가 실패한 때는 이름으로 찾지 않는다(4차 P3).
+  const nameFallback = query.kind === "code" && !query.exact && lookup?.available !== false && !lookup?.scanFailed && !foundId;
   // 그 쪽에 없는 사용자(후원자 이름·추가할 사람·회원 번호로 찾은 사람)는 한 번에 읽는다(이름으로도 찾을 때는 그 읽기와 나란히).
   const [usersById, fallbackRows] = await Promise.all([
     supporterAdminUsersByIdV229121(env, [...safeArray(rows).map((row) => row.user_id), addId, foundId], known),
@@ -58964,7 +58972,7 @@ async function handleSupportersAdminPage(request, env, url) {
       ? `<input type="hidden" name="user_id" value="${escapeHtml(addUser.id)}"/><p>추가할 사용자: 회원 번호 ${codeHtml(addUser.id)} · ${escapeHtml(addUser.nickname || "(이름 없음)")} · user_id 앞 8자 <code>${escapeHtml(String(addUser.id).slice(0, 8))}</code> <a href="/admin/supporters#edit">다른 사용자 찾기</a></p>`
       : `${addNote ? `<p class="warn" role="alert">${escapeHtml(addNote)}</p>` : ""}<div class="grid"><label class="field">찾는 방법<select name="by"><option value="member_code">회원 번호(MB-XXXX-XXXX)</option><option value="user_id">user_id</option><option value="login">로그인 이름(아이디)</option><option value="nickname">표시 이름(한 명일 때만)</option></select></label><label class="field">사용자<input name="who" required maxlength="120" autocomplete="off" placeholder="MB-XXXX-XXXX"/></label></div>`;
   // V22.9.121 전체 사용자 목록 칸.
-  const userRows = (listMode && listRows === null) || (nameFallback && fallbackRows === null)
+  const userRows = (listMode && listRows === null) || (nameFallback && fallbackRows === null) || (query.kind === "code" && lookup?.scanFailed)
     ? `<tr><td colspan="7">사용자 목록을 불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.</td></tr>`
     : pageUsers.map((user) => {
       const id = String(user.id || "");
@@ -58981,8 +58989,11 @@ async function handleSupportersAdminPage(request, env, url) {
   let lookupNote = "";
   if (query.notCode) lookupNote = `<p class="warn" role="status">회원 번호로 읽히지 않아 표시 이름으로 찾았어요. ${escapeHtml(SUPPORTER_ADMIN_ERRORS_V22995.member_code_invalid)}</p>`;
   else if (query.kind === "code" && lookup?.available === false) lookupNote = `<p class="error" role="alert">${escapeHtml(SUPPORTER_ADMIN_ERRORS_V22995.member_code_unavailable)}</p>`;
+  else if (query.kind === "code" && lookup?.scanFailed) lookupNote = `<p class="error" role="alert">${escapeHtml(SUPPORTER_ADMIN_ERRORS_V22995.member_code_lookup_failed)}</p>`;
   else if (query.kind === "code" && foundId && !pageUsers.length) lookupNote = `<p class="warn" role="status">회원 번호 ${escapeHtml(query.code)} 의 사용자 줄을 읽지 못했어요. 잠시 뒤 다시 찾아 주세요.</p>`;
-  else if (query.kind === "code" && !foundId) lookupNote = `<p class="warn" role="status">회원 번호 ${escapeHtml(query.code)} 와 맞는 사용자가 없어요. 같은 말을 표시 이름으로도 찾았어요(최근 가입 순 50명까지). 번호를 찾던 중이면 번호를 다시 확인해 주세요.</p>`;
+  else if (nameFallback && fallbackRows === null) lookupNote = `<p class="warn" role="status">회원 번호 ${escapeHtml(query.code)} 와 맞는 사용자가 없어요. 같은 말을 표시 이름으로도 찾으려 했지만 목록을 읽지 못했어요. 잠시 뒤 다시 찾아 주세요.</p>`;
+  else if (nameFallback) lookupNote = `<p class="warn" role="status">회원 번호 ${escapeHtml(query.code)} 와 맞는 사용자가 없어요. 같은 말을 표시 이름으로도 찾았어요(최근 가입 순 50명까지). 번호를 찾던 중이면 번호를 다시 확인해 주세요.</p>`;
+  else if (query.kind === "code" && !foundId) lookupNote = `<p class="warn" role="status">회원 번호 ${escapeHtml(query.code)} 와 맞는 사용자가 없어요. 번호를 다시 확인해 주세요.</p>`;
   const first = (pageNo - 1) * SUPPORTER_ADMIN_USER_PAGE_SIZE_V229121 + 1;
   const range = listMode && pageUsers.length ? `<p class="muted">${first}–${first + pageUsers.length - 1}번째</p>` : "";
   const pager = listMode && (pageNo > 1 || hasNext)

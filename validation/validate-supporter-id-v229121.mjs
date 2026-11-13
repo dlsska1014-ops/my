@@ -19,7 +19,7 @@ import { createHash, createHmac } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { isDeepStrictEqual } from "node:util";
 import {
-  findUserIdByMemberCodeV229121, lookupMemberCodeV229121, memberCodeAvailableV229121,
+  lookupMemberCodeV229121, memberCodeAvailableV229121,
   memberCodeForUserV229121, memberCodesForUsersV229121, normalizeMemberCodeV229121,
 } from "../src/modules/my/member-code.js";
 import { app, BASE, fixture, intercept, page, post, settingValue, withClock } from "./lib-audit-v22934.mjs";
@@ -380,6 +380,22 @@ await withClock(DAY, () => fixture(async (fx) => {
     let unavailable;
     try { unavailable = await post(fx, "/admin/supporters/save", form(codeOf("user-bin")), { cookie: admin }); } finally { fx.env.USER_SESSION_SECRET = secret; }
     ok(unavailable.location === "/admin/supporters?err=member_code_unavailable", `3-j 번호를 계산할 수 없으면 member_code_unavailable: ${unavailable.location}`);
+    // 독립 검토 4차 P3: 훑기 읽기가 실패하면 user_not_found(‘…다시 확인해 주세요’)가 아니라 다시 시도 안내다 — 운영자가 후원자에게 번호가 틀렸다고
+    // 답하지 않게. 기억 줄이 없는 사람(이 검사만 쓰는 user-scan-121)의 번호로 본다.
+    resetMemo();
+    fx.db.users.push({ id: "user-scan-121", kakao_user_key: "kakao_login:9121", nickname: "훑기 실패 확인", created_at: "2026-10-02T00:00:00Z" });
+    const failingScan = intercept(({ url, method }) => (method === "GET" && decodeURIComponent(`${url.pathname}${url.search}`) === SCAN_PATH ? new Response(JSON.stringify({ message: "QA" }), { status: 503 }) : null));
+    let scanBroken;
+    try { scanBroken = await withDb(() => post(fx, "/admin/supporters/save", form(codeOf("user-scan-121")), { cookie: admin })); } finally { failingScan(); }
+    await settle();
+    ok(scanBroken.result.location === "/admin/supporters?err=member_code_lookup_failed" && memberCodeWrites(scanBroken.log).length === 0 && scans(scanBroken.log).length >= 1 && !settingValue(fx, "supporter:user-scan-121"),
+      `3-j2 훑기 읽기가 실패하면 user_not_found 가 아니라 member_code_lookup_failed(다시 시도 안내)이고 아무것도 쓰지 않는다: ${scanBroken.result.location}`);
+    const lookupFailedShown = await page(fx, "/admin/supporters?err=member_code_lookup_failed", { cookie: admin });
+    ok(lookupFailedShown.html.includes('<p class="error" role="alert">회원 번호로 찾다가 사용자 목록을 읽지 못했어요. 잠시 뒤 다시 시도해 주세요.</p>'), "3-j3 오류 문구: ‘회원 번호로 찾다가 사용자 목록을 읽지 못했어요. 잠시 뒤 다시 시도해 주세요.’");
+    const scanAgain = await post(fx, "/admin/supporters/save", form(codeOf("user-scan-121")), { cookie: admin });
+    ok(scanAgain.location === "/admin/supporters?msg=saved" && !!settingValue(fx, "supporter:user-scan-121"), "3-j4 훑기가 다시 되면 같은 번호로 켜진다(번호는 맞았다)");
+    dropSettings(fx, "supporter:user-scan-121");
+    fx.db.users = fx.db.users.filter((row) => row.id !== "user-scan-121");
 
     // 합쳐진 계정에는 새로 켜지 않는다(이미 있는 줄 고치기는 그대로).
     resetMemo();
@@ -475,13 +491,17 @@ await withClock(DAY, () => fixture(async (fx) => {
     const dashed = await view(codeOf(A).slice(3).replace("-", "–"));
     ok(rowsOf(dashed.result.html).length === 1 && rowsOf(dashed.result.html)[0].text[0] === codeOf(A), "4-q3 머리 없는 꼴도 줄표 계열(–)이면 번호로 찾는다");
     const missing = await view("MB-0000-0000");
-    ok(missing.result.html.includes("회원 번호 MB-0000-0000 와 맞는 사용자가 없어요.") && missing.log.length <= 6 && scans(missing.log).length === 1, "4-s 맞는 사람이 없는 번호는 안내 한 줄(훑기 한 번, 이름으로도 찾아 DB 호출 6번 이하 — 관리자 세션 확인 1·후원자 줄 1·기억 줄 1·훑기 1·이름 찾기 1·후원자 이름 1)");
-    // 독립 검토 3차 P3: 번호로 못 찾으면 같은 말을 표시 이름으로도 찾는다(아무도 없으면 ‘찾는 사용자가 없어요’).
-    const missingName = missing.log.find((row) => row.url.pathname === "/rest/v1/users" && row.url.searchParams.get("order") && row.url.searchParams.get("or"));
-    ok(missingName?.url.searchParams.get("or") === '(nickname.ilike."%MB-0000-0000%")' && missingName?.url.searchParams.get("offset") === "0"
-      && rowsOf(missing.result.html).some((row) => row.raw.includes("찾는 사용자가 없어요.")) && missing.result.html.includes("같은 말을 표시 이름으로도 찾았어요")
-      && !missing.log.some((row) => row.method !== "GET"),
-      `4-s2 번호로 못 찾으면 같은 말을 표시 이름으로도 찾는다(첫 쪽, 아무것도 쓰지 않음): ${show(missing.log.map((row) => row.decoded))}`);
+    ok(missing.result.html.includes("회원 번호 MB-0000-0000 와 맞는 사용자가 없어요.") && missing.log.length <= 5 && scans(missing.log).length === 1, `4-s 맞는 사람이 없는 정식 꼴 번호는 안내 한 줄(훑기 한 번, DB 호출 5번 이하 — 관리자 세션 확인 1·후원자 줄 1·기억 줄 1·훑기 1·후원자 이름 1): ${show(missing.log.map((row) => row.decoded))}`);
+    // 독립 검토 4차 P3: 정식 꼴(MB-XXXX-XXXX)로 적은 번호는 맞는 사람이 없어도 표시 이름으로 찾지 않는다 — 표시 이름을 번호처럼 지은 다른 사람이
+    // 번호 찾기 결과에 끼지 않게(3차 반영의 ‘이름으로도 찾기’ 는 번호 꼴로 읽히는 이름에만).
+    const nameSearch = (log) => log.find((row) => row.url.pathname === "/rest/v1/users" && row.url.searchParams.get("order") && row.url.searchParams.get("or"));
+    ok(!nameSearch(missing.log) && missing.result.html.includes("회원 번호 MB-0000-0000 와 맞는 사용자가 없어요. 번호를 다시 확인해 주세요.") && !missing.result.html.includes("표시 이름으로도")
+      && rowsOf(missing.result.html).some((row) => row.raw.includes("찾는 사용자가 없어요.")) && !missing.log.some((row) => row.method !== "GET"),
+      `4-s2 정식 꼴 번호는 맞는 사람이 없어도 표시 이름으로 찾지 않는다(아무것도 쓰지 않음): ${show(missing.log.map((row) => row.decoded))}`);
+    fx.db.users.push({ id: "c1d2e3f4-0000-4000-8000-0000000000a5", kakao_user_key: "kakao_login:9015", nickname: "MB-ABCD-1234", created_at: "2026-11-03T05:00:00Z" });
+    const lookalike = await view("MB-ABCD-1234");
+    ok(!rowsOf(lookalike.result.html).some((row) => row.text[1] === "MB-ABCD-1234") && !nameSearch(lookalike.log) && lookalike.result.html.includes("회원 번호 MB-ABCD-1234 와 맞는 사용자가 없어요. 번호를 다시 확인해 주세요."),
+      "4-s3 표시 이름을 번호처럼 지은 사람(‘MB-ABCD-1234’)은 그 번호를 찾아도 결과에 끼지 않는다");
     // 독립 검토 2차 P3: 번호 꼴인데 번호로 읽히지 않으면(틀린 글자 U, ‘MB’ 로 시작하는 10글자 이름) 안내 한 줄과 함께 표시 이름으로 찾는다.
     const NOT_CODE_NOTE = '<p class="warn" role="status">회원 번호로 읽히지 않아 표시 이름으로 찾았어요. 회원 번호는 MB-XXXX-XXXX 꼴이에요.</p>';
     const badCode = await view("MB-ABCD-EFGU");
@@ -504,8 +524,23 @@ await withClock(DAY, () => fixture(async (fx) => {
     const failingName = intercept(({ url }) => (url.pathname === "/rest/v1/users" && url.searchParams.get("or") === '(nickname.ilike."%Kate-Moss%")' ? new Response(JSON.stringify({ message: "QA" }), { status: 503 }) : null));
     let brokenName;
     try { brokenName = await view("Kate-Moss"); } finally { failingName(); }
-    ok(brokenName.result.status === 200 && brokenName.result.html.includes("사용자 목록을 불러오지 못했어요.") && !rowsOf(brokenName.result.html).some((row) => row.text[1] === "Kate-Moss"),
-      "4-t4 이름으로도 찾는 읽기가 실패하면 그 칸만 안내한다(화면은 200)");
+    ok(brokenName.result.status === 200 && brokenName.result.html.includes("사용자 목록을 불러오지 못했어요.") && !rowsOf(brokenName.result.html).some((row) => row.text[1] === "Kate-Moss")
+      && brokenName.result.html.includes("같은 말을 표시 이름으로도 찾으려 했지만 목록을 읽지 못했어요.") && !brokenName.result.html.includes("같은 말을 표시 이름으로도 찾았어요"),
+      "4-t4 이름으로도 찾는 읽기가 실패하면 안내 줄과 목록 칸이 둘 다 ‘읽지 못했어요’ 다(화면은 200, 독립 검토 4차 P3)");
+    // 독립 검토 4차 P3: 비밀값이 없으면(번호 찾기를 쓸 수 없음) 번호 꼴로 읽히는 이름도 그 오류 안내만 하고 이름으로 찾지 않는다(호출 고정).
+    const keptSecret = fx.env.USER_SESSION_SECRET;
+    delete fx.env.USER_SESSION_SECRET;
+    let noSecret;
+    try { noSecret = await view("Kate-Moss"); } finally { fx.env.USER_SESSION_SECRET = keptSecret; }
+    ok(noSecret.result.status === 200 && noSecret.result.html.includes('<p class="error" role="alert">회원 번호를 계산할 수 없어요. 운영 설정을 확인해 주세요.</p>') && !nameSearch(noSecret.log) && scans(noSecret.log).length === 0 && noSecret.log.length <= 4,
+      `4-t5 비밀값이 없으면 번호 꼴 이름도 계산할 수 없다는 안내만(이름 찾기·훑기 없음): ${show(noSecret.log.map((row) => row.decoded))}`);
+    // 독립 검토 4차 P3: 훑기 읽기가 실패하면 ‘맞는 사용자가 없어요’ 가 아니라 다시 시도 안내다(번호 꼴로 읽히는 말이어도 이름으로 찾지 않음).
+    const failingScanView = intercept(({ url, method }) => (method === "GET" && decodeURIComponent(`${url.pathname}${url.search}`) === SCAN_PATH ? new Response(JSON.stringify({ message: "QA" }), { status: 503 }) : null));
+    let scanBrokenView;
+    try { scanBrokenView = await view(codeOf(D).toLowerCase().replace(/-/g, "")); } finally { failingScanView(); }
+    ok(scanBrokenView.result.status === 200 && scanBrokenView.result.html.includes('<p class="error" role="alert">회원 번호로 찾다가 사용자 목록을 읽지 못했어요. 잠시 뒤 다시 시도해 주세요.</p>')
+      && !scanBrokenView.result.html.includes("와 맞는 사용자가 없어요") && scanBrokenView.result.html.includes("사용자 목록을 불러오지 못했어요.") && !nameSearch(scanBrokenView.log) && scans(scanBrokenView.log).length >= 1,
+      `4-t6 훑기 읽기가 실패하면 ‘맞는 사용자가 없어요’ 가 아니라 다시 시도 안내이고 이름으로도 찾지 않는다: ${show(scanBrokenView.log.map((row) => row.decoded))}`);
     putSetting(fx, `member_code:${codeOf(B)}`, JSON.stringify({ user_id: B }));
     const cachedView = await view(codeOf(B));
     ok(rowsOf(cachedView.result.html).length === 1 && scans(cachedView.log).length === 0 && cachedView.log.length <= 5, "4-u 기억 줄이 있으면 번호 찾기 화면도 훑지 않는다");
@@ -626,10 +661,25 @@ await section("7 소스", async () => {
   const pkg = JSON.parse(read("package.json"));
   ok(pkg.scripts?.["validate:supporter-id-v229121"] === "node validation/validate-supporter-id-v229121.mjs", "7-g package.json 에 검사가 등록돼 있다");
   ok(read(".codex/scripts/verify-repository.mjs").includes("validation/validate-supporter-id-v229121.mjs"), "7-h 하네스에 검사가 등록돼 있다");
-  const lookupEnv = { USER_SESSION_SECRET: QA_SECRET };
-  const offline = await lookupMemberCodeV229121(lookupEnv, "not-a-code");
-  eq(offline, { userId: "", via: "", cacheStale: false, available: true }, "7-i 꼴이 아닌 번호는 DB 를 읽지 않고 빈 결과");
-  eq(await findUserIdByMemberCodeV229121({}, codeOf("user-bin")), "", "7-j 비밀값이 없으면 찾지 않는다(\"\")");
+  // 독립 검토 4차 반영 때 고침: 예전 입력 ‘not-a-code’ 는 구분 기호를 빼면 8글자(N0TA-C0DE)라 번호 꼴로 읽혀 DB 를 읽으려 했다(비밀값만 있는
+  // 환경이라 읽기가 실패해 빈 결과로 보였을 뿐). 정말 꼴이 아닌 말로 보고, 나가는 요청 수를 센다.
+  const lookupEnv = { USER_SESSION_SECRET: QA_SECRET, SUPABASE_URL: "https://qa-v229121.supabase.co", SUPABASE_SERVICE_ROLE_KEY: "qa-v229121" };
+  ok(normalizeMemberCodeV229121("not-a-code") === "MB-N0TA-C0DE", "7-i0 ‘not-a-code’ 는 번호 꼴로 읽힌다(O → 0, 구분 기호 무시) — 그래서 꼴이 아닌 예로 쓰지 않는다");
+  let lookupCalls = 0;
+  const failAll = intercept(() => { lookupCalls += 1; return new Response(JSON.stringify({ message: "QA" }), { status: 503 }); });
+  let offline;
+  let offlineCalls = -1;
+  let scanBroken;
+  try {
+    offline = await Promise.all(["MB-12", "MB-ABCD-EFGU", "회원번호"].map((input) => lookupMemberCodeV229121(lookupEnv, input)));
+    offlineCalls = lookupCalls;
+    scanBroken = await lookupMemberCodeV229121(lookupEnv, codeOf("user-bin"), { remember: false });
+  } finally { failAll(); }
+  ok(offline.every((row) => JSON.stringify(row) === JSON.stringify({ userId: "", via: "", cacheStale: false, available: true })) && offlineCalls === 0, `7-i 꼴이 아닌 번호(‘MB-12’·틀린 글자 U·한글)는 DB 를 읽지 않고 빈 결과: 요청 ${offlineCalls}회`);
+  eq(scanBroken, { userId: "", via: "", cacheStale: false, available: true, scanFailed: true }, "7-i2 DB 를 읽지 못하면(기억 줄·훑기 둘 다 503) scanFailed: true 로 ‘맞는 사람 없음’ 과 가른다(독립 검토 4차 P3)");
+  eq(await lookupMemberCodeV229121({}, codeOf("user-bin")), { userId: "", via: "", cacheStale: false, available: false }, "7-j 비밀값이 없으면 찾지 않는다(DB 를 읽지 않고 available false)");
+  const adminSource = read("src/modules/admin/supporters-admin.js");
+  ok(adminSource.includes("const found = await lookupMemberCodeV229121(env, code, { ctx });") && adminSource.includes("if (found.scanFailed) return { error: \"member_code_lookup_failed\" };") && !/findUserIdByMemberCode/.test(adminSource + mod), "7-k 관리자 저장은 훑기 실패(scanFailed)를 ‘못 찾음’ 과 가른다(독립 검토 4차 P3)");
 });
 
 if (failures.length) for (const line of failures) console.error(`실패: ${line}`);
