@@ -52,11 +52,13 @@ function publicSupportWaysSectionV22995(config, email) {
   if (!ways.length) {
     // V22.9.97 사용자(2026-11-03) "후원은 카톡방 전용 링크로 접속한 사람한테 내가 안내할께": 송금 창구 변수가 없고 소통 오픈채팅(COMMUNITY_OPENCHAT_URL)만 있으면
     // ‘준비 중’ 대신 오픈채팅에서 운영자가 직접 안내한다는 문장과 경유 링크(/support/go/openchat, 누른 수를 센다)를 둔다. 오픈채팅도 없으면 종전처럼 준비 중 한 줄.
+    // V22.9.121: 후원자 표시는 계정 하나에 켠다 — 어느 계정인지 알 수 있게 ‘내 계정·보안’ 의 회원 번호(my/member-code.js)를 함께 알려 달라고 한다.
     if (config.community) {
       return {
         title: "후원하는 방법",
         paragraphs: [
           "후원 방법은 말해가계부 오픈채팅방에서 운영자가 직접 안내해 드려요. 아래 ‘말해가계부 오픈채팅 들어가기’ 로 들어와 ‘후원하고 싶어요’ 라고 말씀해 주세요.",
+          "후원자 표시를 켜 드리려면 어느 계정인지 알아야 해요. 웹 가계부 ‘전체 메뉴 → 내 계정·보안’ 에 있는 회원 번호(MB- 로 시작)를 함께 알려 주세요.",
           `오픈채팅이 어려우면 ${email} 로 알려 주셔도 돼요.`,
         ],
         note: "말해가계부 후원은 연말정산 공제 대상이 아니고 영수증을 발행하지 않아요.",
@@ -70,7 +72,8 @@ function publicSupportWaysSectionV22995(config, email) {
   const links = [config.kakaopay ? ["카카오페이로 송금하기", "/support/go/kakaopay"] : null, config.toss ? ["토스로 송금하기", "/support/go/toss"] : null].filter(Boolean);
   return {
     title: "후원하는 방법",
-    paragraphs: [`정해진 금액은 없어요. 편한 방법으로 보내 주신 뒤 보낸 분 이름·보낸 날짜·말해가계부 로그인 이름을 ${email} 로 알려 주시면 확인하고 후원자 표시를 켜 드려요.`],
+    // V22.9.121: 로그인 이름은 카카오 로그인만 쓰는 분에게 없다 → 누구에게나 있는 회원 번호를 알려 달라고 한다.
+    paragraphs: [`정해진 금액은 없어요. 편한 방법으로 보내 주신 뒤 보낸 분 이름·보낸 날짜·회원 번호(웹 가계부 ‘전체 메뉴 → 내 계정·보안’)를 ${email} 로 알려 주시면 확인하고 후원자 표시를 켜 드려요.`],
     bullets: ways,
     note: "말해가계부 후원은 연말정산 공제 대상이 아니고 영수증을 발행하지 않아요. 잘못 보냈다면 같은 이메일로 알려 주세요.",
     ...(links.length ? { links } : {}),
@@ -118,7 +121,7 @@ function publicSupportPageV22995(env = {}, supporters = []) {
     }] : []),
     {
       title: "문의",
-      paragraphs: [`후원 확인, 후원자 표시, 명단 이름 바꾸기와 빼기는 ${email} 로 알려 주세요. 보낸 분 이름·보낸 날짜·로그인 이름을 함께 적어 주시면 빨리 확인할 수 있어요.`],
+      paragraphs: [`후원 확인, 후원자 표시, 명단 이름 바꾸기와 빼기는 ${email} 로 알려 주세요. 보낸 분 이름·보낸 날짜·회원 번호를 함께 적어 주시면 빨리 확인할 수 있어요.`],
       links: [[`${email} 로 메일 보내기`, `mailto:${email}`], ["문의 안내", "/contact"]],
     },
   ];

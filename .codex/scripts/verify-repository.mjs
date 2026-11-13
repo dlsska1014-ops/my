@@ -32,6 +32,7 @@ const validationScripts = [
   ["V22.9.119 운영 견고화(같은 날 같은 문장 카카오 기록이 유일 인덱스에 걸리면 사실대로 답하고 표식·잠금을 남기지 않음, 웹·관리자 수정 409 record_same_kakao_text, DB 호출 예산 변수 50~900 과 잘못된 값 이벤트, 예약 실행 기록 db_budget, 백업 절차 문서, 검토용 인덱스 제거 SQL 의 RAISE 가드)", "validation/validate-ops-hardening-v229119.mjs"],
   ["V22.9.120 카카오 기록 저장 직전 안전망(고치는 말·묻는 말·읽지 못한 날짜 말·달 없는 앞날 N일·계획·전해 들은 말은 저장하지 않고 되묻기, 1,500자를 넘는 글은 판정 안 함, 늦은 답도 같은 판정, 세 저장 지점 모두 안전망 → 금액 상한 순서, 방에서 되묻는 말도 답 뒤 참여, 파서는 그대로)", "validation/validate-kakao-input-guards-v229120.mjs"],
   ["V22.9.120 통합 수정(V22.9.119 거절 답의 다시 보낼 예시는 안전망도 통과할 때만 · 판정 날짜는 그 요청의 오늘, 방에서 안전망이 되묻고 답 뒤에 처음 들인 사람의 약관 안내 빠짐 이벤트 after_reply)", "validation/validate-kakao-guard-examples-v229120.mjs"],
+  ["V22.9.121 회원 번호(MB-XXXX-XXXX: 세션 비밀값 HMAC 앞 40비트, 내 계정·보안 카드와 복사 단추, 사용자 id 는 화면에 없음, 화면 GET 은 쓰지 않고 기억 줄은 화면이 보일 때의 신호 POST /my/member-code/seen 이 답 뒤 한 번 ignore-duplicates; 관리자 회원 번호 찾기·틀린 기억 줄 바로잡기·전체 사용자 목록(이름·번호·id 앞자리 찾기, 50명씩, 계정 유형·가입일·후원 상태, 통합됨, 화면 한 번 DB 5번 이하); /support 는 로그인 이름 대신 회원 번호; 방침 6절 후원 줄·ab_sp·12절 한 문단)", "validation/validate-supporter-id-v229121.mjs"],
   ["V22.9.113 예산 명령 되묻기 설계 유지(Gemini ① 결함 아님)·모호한 말 안내 한 줄·‘월 예산’ 전체 예산", "validation/validate-budget-command-fix-v229113.mjs"],
   ["V22.9.112 Gemini 후속 수정(합계 조사, 분류 챌린지, Cron 머리막힘, 강제 내보내기 정리, 방 열기 쿠키)", "validation/validate-gemini-fixes-v229112.mjs"],
   ["V22.9.111 UI 개선(홈 요약 필터 범위, 분석 탭 대비, 가계부 활성 카드)", "validation/validate-ui-improvements-v229111.mjs"],

@@ -62,6 +62,7 @@ import/csv-duplicates.js
 my/members-page.js
 my/setup-page.js
 my/supporters.js
+my/member-code.js
 my/card-import-guide.js
 client/lucian-d-import.js
 my/backup-import.js

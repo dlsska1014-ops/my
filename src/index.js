@@ -2426,7 +2426,7 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if (url.pathname === "/admin/supporters/save" && request.method === "POST") {
-        return await handleSupportersAdminSave(request, env);
+        return await handleSupportersAdminSave(request, env, ctx);
       }
 
       if (url.pathname === "/admin/supporters/remove" && request.method === "POST") {
@@ -2480,6 +2480,11 @@ const ACCOUNTBOOK_WORKER = {
       if (url.pathname === "/my/profile" && request.method === "POST") {
         return await handleMyProfileUpdate(request, env);
       }
+
+      // V22.9.121: 회원 번호를 보인 ‘내 계정·보안’ 화면이 실제로 보일 때 보내는 신호(POST, 늘 204) — 관리자가 번호로 바로 찾도록 기억 줄을
+      // 없을 때만 넣는다. 화면 GET 은 쓰지 않는다(미리 렌더링 규칙과 GET 무변경 약속, my/member-code.js).
+      const memberCodeSeen = await memberCodeSeenResponseV229121(request, env, url, ctx);
+      if (memberCodeSeen) return memberCodeSeen;
 
       if (url.pathname === "/my/backup-login" && request.method === "GET") {
         return await handleMyBackupLoginPage(request, env, url);
@@ -9643,11 +9648,13 @@ function publicSupportWaysSectionV22995(config, email) {
   if (!ways.length) {
     // V22.9.97 사용자(2026-11-03) "후원은 카톡방 전용 링크로 접속한 사람한테 내가 안내할께": 송금 창구 변수가 없고 소통 오픈채팅(COMMUNITY_OPENCHAT_URL)만 있으면
     // ‘준비 중’ 대신 오픈채팅에서 운영자가 직접 안내한다는 문장과 경유 링크(/support/go/openchat, 누른 수를 센다)를 둔다. 오픈채팅도 없으면 종전처럼 준비 중 한 줄.
+    // V22.9.121: 후원자 표시는 계정 하나에 켠다 — 어느 계정인지 알 수 있게 ‘내 계정·보안’ 의 회원 번호(my/member-code.js)를 함께 알려 달라고 한다.
     if (config.community) {
       return {
         title: "후원하는 방법",
         paragraphs: [
           "후원 방법은 말해가계부 오픈채팅방에서 운영자가 직접 안내해 드려요. 아래 ‘말해가계부 오픈채팅 들어가기’ 로 들어와 ‘후원하고 싶어요’ 라고 말씀해 주세요.",
+          "후원자 표시를 켜 드리려면 어느 계정인지 알아야 해요. 웹 가계부 ‘전체 메뉴 → 내 계정·보안’ 에 있는 회원 번호(MB- 로 시작)를 함께 알려 주세요.",
           `오픈채팅이 어려우면 ${email} 로 알려 주셔도 돼요.`,
         ],
         note: "말해가계부 후원은 연말정산 공제 대상이 아니고 영수증을 발행하지 않아요.",
@@ -9661,7 +9668,8 @@ function publicSupportWaysSectionV22995(config, email) {
   const links = [config.kakaopay ? ["카카오페이로 송금하기", "/support/go/kakaopay"] : null, config.toss ? ["토스로 송금하기", "/support/go/toss"] : null].filter(Boolean);
   return {
     title: "후원하는 방법",
-    paragraphs: [`정해진 금액은 없어요. 편한 방법으로 보내 주신 뒤 보낸 분 이름·보낸 날짜·말해가계부 로그인 이름을 ${email} 로 알려 주시면 확인하고 후원자 표시를 켜 드려요.`],
+    // V22.9.121: 로그인 이름은 카카오 로그인만 쓰는 분에게 없다 → 누구에게나 있는 회원 번호를 알려 달라고 한다.
+    paragraphs: [`정해진 금액은 없어요. 편한 방법으로 보내 주신 뒤 보낸 분 이름·보낸 날짜·회원 번호(웹 가계부 ‘전체 메뉴 → 내 계정·보안’)를 ${email} 로 알려 주시면 확인하고 후원자 표시를 켜 드려요.`],
     bullets: ways,
     note: "말해가계부 후원은 연말정산 공제 대상이 아니고 영수증을 발행하지 않아요. 잘못 보냈다면 같은 이메일로 알려 주세요.",
     ...(links.length ? { links } : {}),
@@ -9709,7 +9717,7 @@ function publicSupportPageV22995(env = {}, supporters = []) {
     }] : []),
     {
       title: "문의",
-      paragraphs: [`후원 확인, 후원자 표시, 명단 이름 바꾸기와 빼기는 ${email} 로 알려 주세요. 보낸 분 이름·보낸 날짜·로그인 이름을 함께 적어 주시면 빨리 확인할 수 있어요.`],
+      paragraphs: [`후원 확인, 후원자 표시, 명단 이름 바꾸기와 빼기는 ${email} 로 알려 주세요. 보낸 분 이름·보낸 날짜·회원 번호를 함께 적어 주시면 빨리 확인할 수 있어요.`],
       links: [[`${email} 로 메일 보내기`, `mailto:${email}`], ["문의 안내", "/contact"]],
     },
   ];
@@ -10286,6 +10294,9 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
   const adfit = adsPolicyNetwork(env) === "adfit";
   // V22.9.95 R-9: 개인정보처리방침 보강(처리 항목 표·보호책임자·위탁과 국외 이전·만 14세·파기·구제·변경 고지). 개정일은 POLICY_REVISION_DATE 한 곳이다.
   // V22.9.114: 이용약관 동의 체크 칸(카카오 로그인·홈 팝업)을 안내 줄·띠로 바꾼 개정 — 약관 2절, 6절 ab_cs 쿠키 설명, 12절 이번 개정 성격.
+  // V22.9.121: 후원 확인 때 받아 온 정보(회원 번호 = my/member-code.js·보낸 분 이름·보낸 날짜)와 후원자 표시 기간·공개 명단 이름을 6절 표 ‘후원(원하는
+  // 분만)’ 줄로, 후원자 포인트 색 쿠키 ab_sp 를 쿠키 목록에 적고, 12절에 그 개정의 성격(새로 받는 항목이 아니라 더 자세히 적은 것) 한 문단을 더했다.
+  // V22.9.118 의 12절 설명 문단은 그대로 둔다.
   // 항목은 코드로 확인한 것만 적는다. Supabase 리전은 V22.9.95 배포 전에 운영 프로젝트 DB 호스트(db.<ref>.supabase.co)의 주소를 AWS 공식 IP 범위와
   // 대조해 ap-southeast-2(호주 시드니)로 확인했다(E-19). 2026-11-05 19:09 KST 에 운영 DB 를 서울 프로젝트(ref jqzmpzdqvmzkxznnylkp, AWS ap-northeast-2)로
   // 옮겼으므로(docs/deployments/V22_9_102_2026_11_05.md 의 서울 전환 절) V22.9.103 부터 아래 리전 문구는 서울이다. 개정은 공고일에 알리고
@@ -10314,9 +10325,10 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
           ["카카오톡 챗봇", "카카오가 보내는 챗봇 사용자 식별키(botUserKey 등), 단톡방 식별키(botGroupKey), 보낸 문장 원문", "챗봇에 문장을 보낼 때", "회원 이용 기간. 문장 원문은 그 문장으로 저장한 거래와 함께 보관합니다."],
           ["가계부 데이터", "수입·지출 내역(금액·날짜·분류·결제수단·메모), 예산, 정기 규칙, 가계부 이름, 참여자와 권한, 초대코드, 설정값", "사용자가 입력하거나 설정할 때", "가계부를 영구 삭제할 때까지"],
           ["거래 변경 이력", "고치거나 지운 거래의 바뀌기 전·후 내용, 변경한 사용자, 변경 시각", "거래를 고치거나 지울 때", "최대 180일"],
+          ["후원(원하는 분만)", "후원 확인을 위해 알려 주신 회원 번호·보낸 분 이름·보낸 날짜, 후원자 표시 기간, 공개 명단에 올릴 이름(원하는 분만)", "후원 사실을 알려 주실 때(후원 확인, 후원자 표시와 공개 명단에만 씁니다)", "후원자 표시를 지울 때까지(요청하면 바로 지움)"],
           ["접속·보안 기록", "IP 주소, 브라우저 정보(User-Agent), 요청 경로와 시각", "서비스에 접속할 때 자동으로 생성", "요청 횟수 제한에 쓰는 값은 서버 인스턴스 메모리에만 잠시 두고 저장하지 않습니다. 로그인·가입 시도 제한에는 IP 주소 등을 복원할 수 없게 변환한 값과 시도 횟수만 데이터베이스에 저장하고, 로그인에 성공하면 그 기록을 지웁니다."],
           ["쿠키", "아래 쿠키 목록", "로그인·본인 확인·가계부 선택 때", "아래 쿠키 목록"],
-        ] }, bullets: ["ab_user: 로그인 유지(세션), 14일", "ab_hh: 마지막으로 연 가계부 기억, 1년", "ab_cs: 이용약관 안내 확인 기록을 읽은 결과(가계부 홈의 안내 띠를 띄울지), 14일", "ab_bk·ab_setup: 가계부 기본 설정 안내 띠를 띄울지(로그인 비밀번호 설정 여부·가계부 설정 확인 결과), 14일·1시간", "ab_notice_hide: 공지 띠 ‘오늘 하루 안 보기’, 24시간", "kakao_oauth_state·kakao_oauth_link_user·kakao_oauth_reauth_household·kakao_oauth_return_to: 카카오 로그인 요청 확인, 10분", "ab_credential_reauth·ab_household_delete_reauth·ab_account_link: 본인 확인과 계정 잇기 확인, 5분", "ab_kakao_auto: 카카오톡 안 자동 로그인 시도 상태, 10분~30일(직접 로그아웃하면 30일 동안 멈춤)", "ab_account_link_later·ab_account_link_pause: 계정 잇기 안내 미루기, 7일·10분", "ab_admin: 운영자 관리 화면 로그인(운영자만), 12시간", "모든 쿠키는 HTTPS 연결에서만 보내고(Secure) 화면의 스크립트가 읽지 못하게(HttpOnly) 설정합니다. 광고 쿠키는 4절을 따릅니다."] },
+        ] }, bullets: ["ab_user: 로그인 유지(세션), 14일", "ab_hh: 마지막으로 연 가계부 기억, 1년", "ab_cs: 이용약관 안내 확인 기록을 읽은 결과(가계부 홈의 안내 띠를 띄울지), 14일", "ab_bk·ab_setup: 가계부 기본 설정 안내 띠를 띄울지(로그인 비밀번호 설정 여부·가계부 설정 확인 결과), 14일·1시간", "ab_notice_hide: 공지 띠 ‘오늘 하루 안 보기’, 24시간", "ab_sp: 후원자가 고른 포인트 색을 웹 가계부의 다른 화면에도 보이게 하는 표시(값 1, 개인정보 없음), 1일","kakao_oauth_state·kakao_oauth_link_user·kakao_oauth_reauth_household·kakao_oauth_return_to: 카카오 로그인 요청 확인, 10분", "ab_credential_reauth·ab_household_delete_reauth·ab_account_link: 본인 확인과 계정 잇기 확인, 5분", "ab_kakao_auto: 카카오톡 안 자동 로그인 시도 상태, 10분~30일(직접 로그아웃하면 30일 동안 멈춤)", "ab_account_link_later·ab_account_link_pause: 계정 잇기 안내 미루기, 7일·10분", "ab_admin: 운영자 관리 화면 로그인(운영자만), 12시간", "모든 쿠키는 HTTPS 연결에서만 보내고(Secure) 화면의 스크립트가 읽지 못하게(HttpOnly) 설정합니다. 광고 쿠키는 4절을 따릅니다."] },
         { title: "7. 개인정보 보호책임자", paragraphs: [`개인정보 처리 업무를 총괄하고 이용자의 불만 처리와 피해 구제를 맡는 개인정보 보호책임자는 다음과 같습니다. 성명 ${BUSINESS_FOOTER_INFO.representative}(대표), 이메일 ${supportEmail}.`, "개인정보의 열람·정정·삭제·처리정지 요구와 개인정보 관련 문의는 위 이메일로 보내 주세요. 본인임을 확인한 뒤 처리하며, 요구를 받은 날부터 10일 안에 결과를 알립니다. 그 안에 처리하기 어려우면 이유와 처리할 날짜를 알립니다. 이메일에 계정 비밀번호나 연결 코드는 적지 마세요."], links: [["개인정보 보호책임자에게 이메일 보내기", `mailto:${supportEmail}`]] },
         { title: "8. 개인정보 처리 위탁과 국외 이전", paragraphs: ["말해가계부는 서비스를 제공하려고 아래 사업자에게 개인정보 처리 업무를 맡깁니다. 미국 법인에 맡기는 처리는 개인정보의 국외 이전에 해당하며, 서비스 제공 계약을 이행하는 데 필요한 처리 위탁과 보관이므로 이 방침에 알리고 이전합니다. 맡긴 업무 밖으로 개인정보를 쓰지 않도록 관리합니다."], table: { caption: "개인정보 처리 위탁과 국외 이전", headers: ["받는 자(국가)", "맡기는 업무", "이전되는 항목", "이전 시점과 방법", "보유·이용 기간"], rows: [
           ["Cloudflare, Inc.(미국)", "서비스 실행(Workers), 네트워크 전송과 보안, 문의 메일(admin@malhaebook.com) 전달(Email Routing)", "서비스를 이용하며 주고받는 정보(접속 기록 포함), 문의 메일의 내용과 보낸 주소", "이용할 때마다 암호화 통신(HTTPS)으로 전송. 문의 메일은 보낼 때 전달", "위탁 계약이 끝날 때까지(Cloudflare 개인정보처리방침에 따름)"],
@@ -10329,7 +10341,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
         { title: "9. 만 14세 미만 아동의 개인정보", paragraphs: ["만 14세 미만 아동도 말해가계부를 쓸 수 있습니다. 가계부 기록과 로그인처럼 서비스를 쓰는 데 꼭 필요한 개인정보만 처리합니다. 이 처리는 서비스 이용 계약을 지키는 데 필요한 처리(개인정보 보호법 제15조제1항제4호)라서 따로 동의를 받지 않습니다.", "만 14세 미만 아동의 개인정보로는 꼭 필요하지 않은 정보를 모으거나 이름을 공개하는 일처럼 동의를 받아야 하는 처리를 하지 않습니다. 그런 처리가 필요하면 그 처리에서만 나이를 확인하고 법정대리인(부모 등 보호자)의 동의를 받습니다.", "아동에게 알리는 내용은 알기 쉬운 말로 씁니다(개인정보 보호법 제22조의2제3항).", "법정대리인은 아동의 개인정보를 보거나, 고치거나, 지우거나, 처리를 멈추라고 요청할 수 있습니다. 7절의 개인정보 보호책임자 이메일로 요청하면 법정대리인인지 확인한 뒤 지체 없이 처리합니다."] },
         { title: "10. 개인정보의 파기 절차와 방법", paragraphs: ["보유기간이 끝나거나 처리 목적을 이룬 개인정보는 지체 없이 파기합니다. 다른 법령에 따라 보존해야 하면 다른 정보와 분리해 그 기간 동안만 보관합니다.", "파기 절차: 파기할 개인정보를 정하고 개인정보 보호책임자의 확인을 거쳐 파기합니다. 파기 방법: 전자 파일은 복구할 수 없도록 데이터베이스에서 삭제합니다. 개인정보를 종이로 출력해 두지 않으며, 출력한 것이 있으면 분쇄하거나 소각합니다.", "거래 변경 이력(고치거나 지운 거래의 바뀌기 전 내용)은 실행 취소와 복구를 위해 보관하며, 180일이 지나면 자동으로 삭제합니다.", "사용자가 내려받은 백업 파일은 사용자 기기에 저장되므로 사용자가 직접 지워야 합니다. 장애에 대비해 데이터베이스 사본을 만드는 경우 운영자만 접근하게 하고, 원본에서 지운 정보는 사본의 보관 기간이 끝날 때 함께 지웁니다."] },
         { title: "11. 권익침해 구제 방법", paragraphs: ["개인정보 침해에 대한 신고나 상담이 필요하면 아래 기관에 문의할 수 있습니다."], bullets: ["개인정보침해신고센터(한국인터넷진흥원): privacy.kisa.or.kr, 국번 없이 118", "개인정보분쟁조정위원회: www.kopico.go.kr, 1833-6972", "대검찰청 사이버수사과: www.spo.go.kr, 국번 없이 1301", "경찰청 사이버수사국: ecrm.police.go.kr, 국번 없이 182"] },
-        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다. 동의 절차나 보호 조치를 더하거나 처리 내용을 더 자세히 적는 것처럼 이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다.", POLICY_NOTICE_DATE === POLICY_REVISION_DATE ? `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 같은 날부터 시행합니다. 이번 개정은 단톡방에서 기록뿐 아니라 조회나 설명서 보기로 봇을 불러도 그 방의 공동 가계부를 준비하는 지금의 동작에 맞춰 1절의 단톡방 연결키 설명을 고치고, 이용약관·개인정보처리방침 안내를 단톡방의 설명서 첫 화면과 봇만 불렀을 때의 인사(인사에는 이용약관 안내만)에 늘 두고 카카오톡 챗봇을 처음 쓸 때의 답(1:1 첫 기록으로 개인 가계부를 준비하는 답, 단톡방 가계부를 준비하거나 그 가계부에 들어가는 답)에도 붙인 것이어서, 처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다. 다만 처음 쓸 때의 답이 늦어지는 등 일부 답에는 안내가 붙지 않을 수 있습니다.` : `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
+        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다. 동의 절차나 보호 조치를 더하거나 처리 내용을 더 자세히 적는 것처럼 이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다.", POLICY_NOTICE_DATE === POLICY_REVISION_DATE ? `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 같은 날부터 시행합니다. 이번 개정은 단톡방에서 기록뿐 아니라 조회나 설명서 보기로 봇을 불러도 그 방의 공동 가계부를 준비하는 지금의 동작에 맞춰 1절의 단톡방 연결키 설명을 고치고, 이용약관·개인정보처리방침 안내를 단톡방의 설명서 첫 화면과 봇만 불렀을 때의 인사(인사에는 이용약관 안내만)에 늘 두고 카카오톡 챗봇을 처음 쓸 때의 답(1:1 첫 기록으로 개인 가계부를 준비하는 답, 단톡방 가계부를 준비하거나 그 가계부에 들어가는 답)에도 붙인 것이어서, 처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다. 다만 처음 쓸 때의 답이 늦어지는 등 일부 답에는 안내가 붙지 않을 수 있습니다.` : `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`, "이번 개정은 후원 확인 때 이미 받아 온 정보(회원 번호·보낸 분 이름·보낸 날짜)와 후원자 표시·공개 명단 이름을 6절 표에 적고, 후원자 포인트 색 쿠키(ab_sp)를 쿠키 목록에 더한 것입니다. 후원은 원하는 분만 하고 새로 받는 항목이 아니라 처리 내용을 더 자세히 적은 것이어서 이용자에게 불리하지 않은 변경입니다."] },
         { title: "13. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
       ],
     },
@@ -29105,6 +29117,243 @@ function supporterAccentChoicesHtml({ supporterChatUrl = "" } = {}) {
   const chat = supporterChatUrl ? `<p><a class="abSupporterChat" href="${escapeHtml(supporterChatUrl)}" target="_blank" rel="noopener noreferrer">후원자 오픈채팅 들어가기</a></p>` : "";
   return `<div class="abAccentRow" data-ab-supporter-accent style="grid-column:1/-1"><b>포인트 색 ${supporterBadgeHtml()}</b><div class="abAppearanceChoices" role="group" aria-label="포인트 색"><button type="button" data-ab-accent-choice="" aria-pressed="true">기본</button>${choices}</div><p id="abAccentStatus" class="abAppearanceStatus" aria-live="polite">포인트 색: 기본</p><p class="abAppearanceStatus">후원자만 고를 수 있는 색이에요. 이 브라우저에 저장되고, 고르면 컬러톤보다 먼저 보여요.</p>${chat}</div>`;
 }
+// V22.9.121 회원 번호(MB-XXXX-XXXX): 후원 확인이나 문의 때 사용자가 운영자에게 알려 주는 번호. 사용자 id(uuid)는 사용자 화면에 싣지 않는다.
+// 사용자 결정(2026-11-04): "누구든 내 계정 보안 탭에서 나의 고유 아이디 혹은 로그인 아이디를 확인할 수 있고, 그걸 나한테 알려주면 내 관리자
+// 화면에는 리스트가 있어서 적용" → 2026-11-13 범위 결정(내 계정·보안 카드 + 관리자 회원 번호 찾기·전체 사용자 목록 + /support·방침 문구).
+// 왜: 후원자 표시는 설정 표 한 줄 supporter:<user_id> 인데, /support 는 ‘로그인 이름’ 을 알려 달라고 했고 대부분은 카카오 로그인만 써서 로그인
+// 이름이 없다. 운영자가 송금한 분이 어느 계정인지 알 길이 없었다.
+// 만드는 법: 사용자 세션에 서명하는 기존 비밀값(USER_SESSION_SECRET, 새 변수 없음)으로 "malhaebook:member-code:v1:<user_id>" 를 HMAC-SHA256 하고
+// 앞 40비트를 크록퍼드 base32(0-9, I·L·O·U 를 뺀 A-Z) 8글자로 보인다. 같은 사용자는 늘 같은 번호다. 비밀값 없이는 번호를 만들 수도, 번호에서
+// 사용자 id 를 거꾸로 알 수도 없다. 로그인에는 쓰이지 않는다(번호를 알아도 열리는 것이 없다). 비밀값을 바꾸면 모든 번호가 바뀐다.
+// 비밀값이 없으면 "" 이다(내 계정·보안 카드는 숨고, 관리자 화면은 계산할 수 없다고 알린다). 어떤 경우에도 던지지 않는다.
+// 번호 → 사용자: 설정 표 기억 줄 member_code:<번호> → { user_id, at } 를 읽고 그 사용자의 번호를 다시 계산해 같을 때만 믿는다(오래되거나 꾸민
+// 줄을 거른다). 없거나 틀리면 최근 가입한 users id 를 많아야 500개 읽어 하나씩 계산한다(키는 한 번만 만들고 50개씩 서명, 처음 맞는 사람에서 멈춘다).
+// 기억 줄은 사용자가 내 계정·보안 화면을 실제로 볼 때 그 화면이 보내는 신호(POST /my/member-code/seen, 아래)로 없을 때만 넣는다(on_conflict=key,
+// ignore-duplicates — 있는 줄은 그대로, 한 번 호출, 답 뒤 ctx.waitUntil). 화면 GET 에서는 쓰지 않는다(미리 렌더링 규칙과 ‘GET 무변경’ 약속).
+// 관리자가 번호를 넣어 저장할 때 훑어서 찾으면 그때도 넣는다(기억 줄이 틀렸던 경우에만 덮어쓴다). 같은 isolate 에서 같은 번호를 다시 넣지 않는다.
+// 40비트라 사용자 1만 명이면 같은 번호가 하나라도 생길 확률이 약 0.005%다(생일 문제 N²/2⁴¹). 그때는 먼저 기억된 사람이 찾힌다 — 관리자 화면은
+// 번호와 함께 표시 이름·가입일을 보여 준다.
+const MEMBER_CODE_PREFIX_V229121 = "MB";
+const MEMBER_CODE_MESSAGE_PREFIX_V229121 = "malhaebook:member-code:v1:";
+// 크록퍼드 base32: 헷갈리는 I·L·O 와 U 를 뺀 32글자.
+const MEMBER_CODE_ALPHABET_V229121 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+const MEMBER_CODE_SETTINGS_PREFIX_V229121 = "member_code:";
+const MEMBER_CODE_SCAN_LIMIT_V229121 = 500;
+const MEMBER_CODE_SCAN_CHUNK_V229121 = 50;
+// 같은 isolate 에서 이미 기억 줄을 넣은 번호(번호 → user_id). 많아야 1,000개, 넘으면 비운다.
+const AB_MEMBER_CODE_REMEMBERED_V229121 = globalThis.__AB_MEMBER_CODE_REMEMBERED_V229121 || (globalThis.__AB_MEMBER_CODE_REMEMBERED_V229121 = new Map());
+
+function memberCodeSecretV229121(env = {}) {
+  return String(env?.USER_SESSION_SECRET || "").trim();
+}
+
+// 번호를 계산할 수 있는지(비밀값이 있는지). 관리자 화면이 ‘계산할 수 없음’ 을 알릴 때 쓴다.
+function memberCodeAvailableV229121(env = {}) {
+  return !!memberCodeSecretV229121(env);
+}
+
+async function memberCodeKeyV229121(env = {}) {
+  const secret = memberCodeSecretV229121(env);
+  if (!secret) return null;
+  try {
+    return await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  } catch (_) {
+    return null;
+  }
+}
+
+// HMAC 앞 5바이트(40비트)를 5비트씩 8글자로 바꿔 MB-XXXX-XXXX 꼴로 묶는다.
+function memberCodeFromBytesV229121(bytes) {
+  let out = "";
+  let buffer = 0;
+  let bits = 0;
+  for (let index = 0; index < 5; index += 1) {
+    buffer = (buffer << 8) | (bytes[index] & 255);
+    bits += 8;
+    while (bits >= 5) {
+      out += MEMBER_CODE_ALPHABET_V229121[(buffer >>> (bits - 5)) & 31];
+      bits -= 5;
+    }
+    buffer &= (1 << bits) - 1;
+  }
+  return `${MEMBER_CODE_PREFIX_V229121}-${out.slice(0, 4)}-${out.slice(4, 8)}`;
+}
+
+async function memberCodeWithKeyV229121(key, userId = "") {
+  const id = String(userId ?? "").trim();
+  if (!key || !id) return "";
+  const signature = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${MEMBER_CODE_MESSAGE_PREFIX_V229121}${id}`));
+  return memberCodeFromBytesV229121(new Uint8Array(signature));
+}
+
+// 한 사용자의 회원 번호. 비밀값이 없거나 계산하지 못하면 "".
+async function memberCodeForUserV229121(env, userId = "") {
+  try {
+    const key = await memberCodeKeyV229121(env);
+    return key ? await memberCodeWithKeyV229121(key, userId) : "";
+  } catch (_) {
+    return "";
+  }
+}
+
+// 여러 사용자(관리자 목록 한 쪽): 키는 한 번만 만든다. Map(user_id → 번호), 계산하지 못하면 빈 Map.
+async function memberCodesForUsersV229121(env, userIds = []) {
+  const out = new Map();
+  const ids = [...new Set((Array.isArray(userIds) ? userIds : []).map((id) => String(id ?? "").trim()).filter(Boolean))];
+  if (!ids.length) return out;
+  try {
+    const key = await memberCodeKeyV229121(env);
+    if (!key) return out;
+    const codes = await Promise.all(ids.map((id) => memberCodeWithKeyV229121(key, id)));
+    ids.forEach((id, index) => { if (codes[index]) out.set(id, codes[index]); });
+  } catch (_) {
+    return new Map();
+  }
+  return out;
+}
+
+// 사람이 적은 번호를 MB-XXXX-XXXX 로 맞춘다. 소문자·띄어쓰기·빠진 줄표·빠진 MB 머리를 받고, 크록퍼드 바꿔 읽기(O→0, I·L→1)를 한다.
+// 머리(MB)는 구분 기호를 뺀 길이가 10일 때만 뗀다 — 본문 8글자가 MB 로 시작해도 헷갈리지 않는다. 그 밖의 꼴은 "".
+function normalizeMemberCodeV229121(text = "") {
+  let value = String(text ?? "").normalize("NFKC").toUpperCase().replace(/[\s\-_.\u2010-\u2015\u2212]/g, "");
+  if (value.length === 10 && value.startsWith(MEMBER_CODE_PREFIX_V229121)) value = value.slice(MEMBER_CODE_PREFIX_V229121.length);
+  if (value.length !== 8) return "";
+  value = value.replace(/O/g, "0").replace(/[IL]/g, "1");
+  for (const ch of value) if (!MEMBER_CODE_ALPHABET_V229121.includes(ch)) return "";
+  return `${MEMBER_CODE_PREFIX_V229121}-${value.slice(0, 4)}-${value.slice(4)}`;
+}
+
+// 기억 줄 키 member_code:<MB-XXXX-XXXX>. 번호 꼴이 아니면 "".
+function memberCodeSettingsKeyV229121(code = "") {
+  const canonical = normalizeMemberCodeV229121(code);
+  return canonical ? `${MEMBER_CODE_SETTINGS_PREFIX_V229121}${canonical}` : "";
+}
+
+// 기억 줄 값(JSON 글 또는 jsonb 객체)의 user_id. 모양이 틀리면 "".
+function memberCodeCachedUserIdV229121(value) {
+  let raw = value;
+  if (typeof raw === "string") {
+    try { raw = JSON.parse(raw); } catch (_) { return ""; }
+  }
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return "";
+  const id = String(raw.user_id ?? "").trim();
+  return id && id.length <= 64 ? id : "";
+}
+
+// 기억 줄 넣기(호출 한 번). 기본은 없을 때만 넣는다(ignore-duplicates). replace=true 는 기억 줄이 틀렸다고 확인한 뒤에만(merge-duplicates).
+// 실패해도 던지지 않는다(false). 화면은 답 뒤에 부른다(scheduleMemberCodeRememberV229121).
+async function rememberMemberCodeV229121(env, code = "", userId = "", { replace = false } = {}) {
+  const canonical = normalizeMemberCodeV229121(code);
+  const id = String(userId ?? "").trim();
+  if (!canonical || !id) return false;
+  if (!replace && AB_MEMBER_CODE_REMEMBERED_V229121.get(canonical) === id) return true;
+  try {
+    await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
+      method: "POST",
+      headers: { Prefer: `${replace ? "resolution=merge-duplicates" : "resolution=ignore-duplicates"},return=minimal` },
+      body: JSON.stringify({ key: memberCodeSettingsKeyV229121(canonical), value: JSON.stringify({ user_id: id, at: new Date().toISOString() }) }),
+    });
+  } catch (_) {
+    return false;
+  }
+  if (AB_MEMBER_CODE_REMEMBERED_V229121.size >= 1000) AB_MEMBER_CODE_REMEMBERED_V229121.clear();
+  AB_MEMBER_CODE_REMEMBERED_V229121.set(canonical, id);
+  return true;
+}
+
+// 답 뒤에 기억 줄을 넣는다. ctx 가 있으면 ctx.waitUntil 에 맡기고 null, 없으면 그 일(Promise)을 돌려준다(부르는 쪽이 기다린다).
+function scheduleMemberCodeRememberV229121(env, ctx, code = "", userId = "", options = {}) {
+  const task = rememberMemberCodeV229121(env, code, userId, options);
+  if (ctx && typeof ctx.waitUntil === "function") {
+    ctx.waitUntil(task);
+    return null;
+  }
+  return task;
+}
+
+// 번호 → 사용자. 돌려주는 값: { userId, via: "cache"|"scan"|"", cacheStale, available }. DB 호출은 기억 줄 읽기 1 + (없거나 틀리면) 훑기 1,
+// 그리고 remember 일 때 훑어서 찾으면 기억 줄 넣기 1(ctx 가 있으면 답 뒤). 관리자 화면 GET 은 remember:false 로 부른다(화면 한 번 호출 상한).
+async function lookupMemberCodeV229121(env, code = "", { remember = true, ctx = null } = {}) {
+  const canonical = normalizeMemberCodeV229121(code);
+  const result = { userId: "", via: "", cacheStale: false, available: memberCodeAvailableV229121(env) };
+  if (!canonical || !result.available) return result;
+  const key = await memberCodeKeyV229121(env);
+  if (!key) return { ...result, available: false };
+  let cached = "";
+  try {
+    const rows = await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(memberCodeSettingsKeyV229121(canonical))}&select=value&limit=1`, { method: "GET" });
+    cached = memberCodeCachedUserIdV229121(Array.isArray(rows) ? rows[0]?.value : null);
+  } catch (_) {
+    cached = "";
+  }
+  if (cached) {
+    if (await memberCodeWithKeyV229121(key, cached) === canonical) return { ...result, userId: cached, via: "cache" };
+    result.cacheStale = true;
+  }
+  let users;
+  try {
+    users = await supabase(env, `/rest/v1/users?select=id&order=created_at.desc,id.desc&limit=${MEMBER_CODE_SCAN_LIMIT_V229121}`, { method: "GET" });
+  } catch (_) {
+    return result;
+  }
+  if (!Array.isArray(users)) return result;
+  const ids = users.map((row) => String(row?.id ?? "").trim());
+  for (let start = 0; start < ids.length && !result.userId; start += MEMBER_CODE_SCAN_CHUNK_V229121) {
+    const chunk = ids.slice(start, start + MEMBER_CODE_SCAN_CHUNK_V229121);
+    const codes = await Promise.all(chunk.map((id) => (id ? memberCodeWithKeyV229121(key, id) : "")));
+    const hit = codes.indexOf(canonical);
+    if (hit >= 0) result.userId = chunk[hit];
+  }
+  if (result.userId) {
+    result.via = "scan";
+    if (remember) {
+      const task = scheduleMemberCodeRememberV229121(env, ctx, canonical, result.userId, { replace: result.cacheStale });
+      if (task) await task;
+    }
+  }
+  return result;
+}
+
+// 관리자 찾기가 쓰는 짧은 길: 번호 → user_id 또는 "".
+async function findUserIdByMemberCodeV229121(env, code = "", options = {}) {
+  return (await lookupMemberCodeV229121(env, code, { remember: options.remember !== false, ctx: options.ctx || null })).userId;
+}
+// V22.9.121: 기억 줄은 화면 GET 에서 쓰지 않는다. 모든 화면의 미리 렌더링 규칙(conservative)이 ‘내 계정·보안’ 을 누르기 시작할 때 미리 열고
+// 누르면 그 화면을 그대로 쓴다 — GET 에서 쓰면 ‘링크된 주소를 GET 으로 열어도 데이터가 바뀌지 않는다’ 는 약속(validate-speculation-rules-v2297)이
+// 깨지고, 미리 렌더링을 빼면 크롬 계열의 앱 안 방문이 빠진다. 그래서 /support 방문 신호(V22.9.97)처럼 화면이 실제로 보일 때(미리 렌더링된 화면은
+// prerenderingchange 때) 그 화면이 POST 신호를 한 번 보낸다. 스크립트가 꺼진 브라우저에서는 기억 줄이 없고, 관리자 찾기는 최근 500명 훑기로 찾는다.
+const MEMBER_CODE_SEEN_PATH_V229121 = "/my/member-code/seen";
+const MEMBER_CODE_SEEN_SCRIPT_V229121 = `<script id="memberCodeSeenRuntime">(function(){var d=document;function v(){try{navigator.sendBeacon("${MEMBER_CODE_SEEN_PATH_V229121}")}catch(e){}}if(d.prerendering){d.addEventListener("prerenderingchange",v,{once:true})}else{v()}})();</script>`;
+
+// 같은 출처 화면이 보낸 신호만 받는다(Sec-Fetch-Site 머리가 없는 옛 브라우저는 받는다. 다른 출처 POST 는 라우터의 csrfOriginAllowed 가 먼저 막는다).
+// 미리 받기·미리 렌더링 요청은 뺀다.
+function memberCodeSeenRequestOkV229121(request) {
+  const headers = request?.headers;
+  if (!headers || typeof headers.get !== "function") return false;
+  const site = String(headers.get("sec-fetch-site") || "").toLowerCase();
+  if (site && site !== "same-origin") return false;
+  return !/prefetch|prerender/i.test(`${headers.get("sec-purpose") || ""} ${headers.get("purpose") || ""}`);
+}
+
+// POST /my/member-code/seen: 늘 204(몸 없음·캐시 없음)라 무엇을 했는지 알리지 않는다. 세션이 맞을 때만(합쳐진 계정은 verifyUserSession 이 "")
+// 그 사용자의 기억 줄을 없을 때만 넣는다 — 세션 확인 1 + 넣기 0~1(같은 isolate 에서 넣은 번호는 건너뜀), 넣기는 답 뒤. 다른 사람의 번호는 넣을 수
+// 없다(번호와 사용자를 모두 세션에서 정한다). POST 밖은 다루지 않는다(라우터의 다음 경로).
+async function memberCodeSeenResponseV229121(request, env, url, ctx = null) {
+  if (String(url?.pathname || "") !== MEMBER_CODE_SEEN_PATH_V229121 || String(request?.method || "").toUpperCase() !== "POST") return null;
+  try {
+    if (memberCodeSeenRequestOkV229121(request)) {
+      const userId = await verifyUserSession(request, env);
+      const code = userId ? await memberCodeForUserV229121(env, userId) : "";
+      if (code) {
+        const task = scheduleMemberCodeRememberV229121(env, ctx, code, userId);
+        if (task) await task;
+      }
+    }
+  } catch (_) {
+    // 신호는 늘 204 다.
+  }
+  return new Response(null, { status: 204, headers: { "cache-control": "no-store", "x-robots-tag": "noindex, nofollow" } });
+}
 
 // 카드사별 사용내역 가져오기 안내. 그림은 실제 화면 캡처가 아니라 클릭 위치를 설명하는 도식이다.
 // 카드사 개편으로 메뉴 이름이 바뀔 수 있어 화면에도 그 점을 밝혀 둔다.
@@ -45941,14 +46190,16 @@ async function handleMyBackupLoginPage(request, env, url) {
   if (!user) return handleMyLogout();
   const first = url.searchParams.get("first") === "1";
   // V22.9.102: 카카오 연결 칸은 카카오 로그인 계정이 이미 있으면 ‘연결됨’으로만 보이고, 없을 때만 본인 확인 칸을 그린다.
-  const [hasBackup, hasKakao, identity] = await Promise.all([
+  // V22.9.121: 회원 번호(후원 확인·문의 때 운영자에게 알려 주는 번호, my/member-code.js)도 함께 계산한다(DB 없음, 서명 한 번).
+  const [hasBackup, hasKakao, identity, memberCode] = await Promise.all([
     hasBackupLoginIdentity(env, user),
     hasKakaoLoginIdentity(env, user).catch(() => false),
     fetchStrongIdentityForUser(env, "local", user.id),
+    memberCodeForUserV229121(env, user.id),
   ]);
   const returnTo = safeUserReturnPath(url.searchParams.get("return_to") || "", first ? "/my/households" : "/my/households");
   // V22.9.102: 이 화면은 비밀번호 유무를 실제로 확인했으니 기본 설정 띠가 보는 쿠키(ab_bk=1/0)를 함께 적는다.
-  return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName: identity?.login_name || identity?.provider_subject || user.nickname || "", first, hasBackup, hasKakao, returnTo, msg: url.searchParams.get("msg") || "", err: backupLoginErrorText(url.searchParams.get("err") || "") }), 200, { "set-cookie": backupLoginKnownCookie(hasBackup) });
+  return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName: identity?.login_name || identity?.provider_subject || user.nickname || "", first, hasBackup, hasKakao, returnTo, msg: url.searchParams.get("msg") || "", err: backupLoginErrorText(url.searchParams.get("err") || ""), memberCode }), 200, { "set-cookie": backupLoginKnownCookie(hasBackup) });
 }
 
 async function handleMyBackupLoginSave(request, env) {
@@ -46014,7 +46265,7 @@ function backupLoginErrorText(code = "") {
   return known[key] || "요청을 처리하지 못했어요. 다시 시도해 주세요.";
 }
 
-function renderMyBackupLoginHtml({ env, user, loginName = "", first = false, hasBackup = false, hasKakao = false, returnTo = "/my/households", msg = "", err = "" }) {
+function renderMyBackupLoginHtml({ env, user, loginName = "", first = false, hasBackup = false, hasKakao = false, returnTo = "/my/households", msg = "", err = "", memberCode = "" }) {
   const title = escapeHtml(appName(env));
   const userName = escapeHtml(user?.nickname || "사용자");
   const safeReturn = escapeHtml(safeUserReturnPath(returnTo, "/my/households"));
@@ -46027,10 +46278,22 @@ function renderMyBackupLoginHtml({ env, user, loginName = "", first = false, has
     : reauthVerified
       ? `<div class="ok"><b>본인 확인이 끝났어요.</b><br/>5분 안에 아래 단추로 카카오 계정을 연결하세요.</div><p><a class="btn" href="/my/kakao-link">카카오 로그인 연결하기</a></p>`
       : `<p class="muted">카카오 계정을 연결하면 다음부터 카카오 로그인으로 바로 들어올 수 있어요. 먼저 현재 로그인 비밀번호로 본인 확인을 합니다.</p><form method="post" action="/my/account-reauth"><div class="field"><label for="kakaoLinkPassword">현재 로그인 비밀번호</label><input id="kakaoLinkPassword" name="current_password" type="password" autocomplete="current-password" required/></div><button type="submit">본인 확인 후 카카오 연결</button></form>`;
+  // V22.9.121 회원 번호 카드(맨 위 안내 바로 아래): 후원 확인이나 문의 때 운영자에게 알려 주는 번호(MB-XXXX-XXXX)와 복사 단추. 사용자 id 는 화면에
+  // 싣지 않는다. 카카오 로그인만 쓰는 계정·단톡방 단추로 들어온 채팅 계정도 같은 카드를 본다. 번호를 계산할 수 없으면(비밀값 없음) 카드를 숨긴다.
+  // 복사는 다른 화면의 복사 단추(가계부 초대코드)처럼 navigator.clipboard, 안 되면 직접 복사 창. 다크 모드에서도 번호 글자·바탕을 따로 맞춘다.
+  // 관리자가 번호로 바로 찾게 하는 기억 줄은 이 GET 에서 쓰지 않고, 화면이 실제로 보일 때 보내는 신호(POST /my/member-code/seen,
+  // MEMBER_CODE_SEEN_SCRIPT_V229121)로 넣는다 — 미리 렌더링 규칙과 ‘GET 무변경’ 약속(validate-speculation-rules-v2297), my/member-code.js.
+  const memberCodeText = escapeHtml(memberCode || "");
+  const memberCodeCard = memberCode
+    ? `<section class="card memberCodeCard" aria-labelledby="memberCodeTitle"><h2 id="memberCodeTitle">회원 번호</h2><div class="memberCodeRow"><code class="memberCode" id="memberCode">${memberCodeText}</code><button type="button" class="secondary memberCodeCopy" id="memberCodeCopy" data-copy="${memberCodeText}">복사</button></div><span class="memberCodeStatus" id="memberCodeStatus" role="status" aria-live="polite"></span><p class="muted">후원 확인이나 문의 때 운영자에게 알려 주는 번호예요. 로그인에는 쓰이지 않아요.</p></section>`
+    : "";
+  const memberCodeScript = memberCode
+    ? `<script id="memberCodeCopyRuntime">(function(){var b=document.getElementById("memberCodeCopy"),s=document.getElementById("memberCodeStatus");if(!b)return;b.addEventListener("click",function(){var t=b.getAttribute("data-copy")||"";var done=function(){b.textContent="복사됨";if(s)s.textContent="회원 번호를 복사했어요.";setTimeout(function(){b.textContent="복사";},1400)};var ask=function(){window.prompt("복사하세요",t)};if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(t).then(done).catch(ask)}else{ask()}})})();</script>` + MEMBER_CODE_SEEN_SCRIPT_V229121
+    : "";
   // V22.9.79 F-4: "현재 표시 이름" 상자(.identity)가 줄바꿈 없는 긴 영문 닉네임(글자 끝 R=492 @360px)을 상자 밖으로 흘렸다 → overflow-wrap:anywhere.
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 내 계정·보안</title><style>
-*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 52%,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:0 auto;padding:18px 18px 110px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{font-size:28px;letter-spacing:-.05em}.muted{color:#667085;line-height:1.65}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:13px;font-weight:1000;color:#475467}.field input{width:100%;height:50px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:14px;background:#111827;color:#fff!important;font-weight:1000;padding:0 16px;text-decoration:none;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:16px;padding:13px;line-height:1.6}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:16px;padding:13px;line-height:1.6}.guide{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.65}.identity{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:13px;color:#475467;line-height:1.6;overflow-wrap:anywhere}.credentialFeedback{min-height:20px;margin:-4px 0 12px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}.step{border:1px solid #e8edf4;border-radius:18px;padding:6px 14px 14px;margin:14px 0;min-width:0}.step legend{display:flex;align-items:center;gap:8px;padding:0 6px;font-weight:1000}.stepNo{display:inline-flex;width:24px;height:24px;border-radius:50%;background:#111827;color:#fff;font-size:13px;align-items:center;justify-content:center}.step .muted{margin:8px 0 0}.step .btn{margin-top:8px}.card h2{margin:0 0 8px}@media(max-width:620px){.wrap{padding:12px 12px 110px}.hero,.card{padding:18px;border-radius:20px}.hero h1{font-size:24px}}
-</style></head><body><main class="wrap"><section class="hero"><span class="badge">${title}</span><h1>내 계정·보안</h1><p class="muted">이 비밀번호는 가계부마다 만드는 비밀번호가 아닙니다. 모든 가계부에 공통인 내 계정 로그인·복구 수단이며 다른 참여자와 공유하지 않습니다.</p>${hasBackup ? `<div class="ok">내 계정 로그인 비밀번호가 설정되어 있습니다. 새로 저장하면 이전 비밀번호는 사용할 수 없게 바뀝니다.</div>` : ""}${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}</section><section class="card"><h2>로그인 이름·비밀번호</h2><div class="identity"><b>현재 표시 이름</b><br/>${userName}<br/><span class="muted">표시 이름은 내 프로필에서 별도로 변경합니다. 여기서 정하는 로그인 이름과는 다릅니다.</span></div><form method="post" action="/my/backup-login"><input type="hidden" name="return_to" value="${safeReturn}"/><fieldset class="step"><legend><span class="stepNo">1</span>본인 확인</legend><p class="muted">${hasBackup ? "바꾸려면 현재 로그인 비밀번호를 적거나, 원래 연결한 카카오 계정으로 본인 확인을 합니다." : "처음 정할 때는 원래 연결한 카카오 계정으로 본인 확인을 합니다. 현재 비밀번호 칸은 비워 두세요."}</p><div class="field"><label for="currentPassword">현재 로그인 비밀번호</label><input id="currentPassword" name="current_password" type="password" autocomplete="current-password"/></div><a class="btn secondary" href="/auth/kakao/start?reauth=credential-change&amp;return_to=%2Fmy%2Fbackup-login">원래 연결한 카카오 계정으로 본인 확인</a></fieldset><fieldset class="step"><legend><span class="stepNo">2</span>로그인 이름·비밀번호</legend><div class="field"><label for="backupLoginName">로그인 이름</label><input id="backupLoginName" name="login_name" value="${escapeHtml(loginName || user?.nickname || "")}" placeholder="로그인할 때 사용할 이름" autocomplete="username" minlength="2" required/></div><div class="field"><label for="backupPassword">내 계정 로그인 비밀번호</label><input id="backupPassword" name="access_code" type="password" minlength="8" autocomplete="new-password" placeholder="8자리 이상" aria-describedby="backupPasswordStatus" required/></div><div class="field"><label for="backupPasswordConfirm">내 계정 로그인 비밀번호 확인</label><input id="backupPasswordConfirm" name="access_code_confirm" type="password" minlength="8" autocomplete="new-password" placeholder="같은 비밀번호를 한 번 더 입력" aria-describedby="backupPasswordStatus" required/></div><div id="backupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><button id="backupPasswordSubmit" type="submit">저장하고 이전 화면으로</button></fieldset></form><p><a class="btn secondary" href="${safeReturn}">취소하고 이전 화면으로</a></p></section><section class="card"><h2>카카오 로그인 연결</h2>${kakaoCard}</section><section class="guide"><b>이탈 방지 안내</b><br/>저장하면 현재 세션을 새 보안 버전으로 갱신한 뒤 지금 보던 화면으로 자동 복귀합니다.</section><section class="card"><h2>카카오 챗봇 기록 계정</h2>${renderKakaoClaimForm("", false)}</section><section class="card" aria-labelledby="logoutTitle"><h2 id="logoutTitle">로그아웃</h2><p class="muted">이 기기에서 로그인을 끝냅니다. 여러 사람이 쓰는 PC 라면 사용 뒤 꼭 로그아웃하세요.</p><form method="post" action="/my/logout"><button type="submit" class="secondary">로그아웃</button></form></section></main><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"backupPassword",confirmationId:"backupPasswordConfirm",statusId:"backupPasswordStatus",buttonId:"backupPasswordSubmit"});</script></body></html>`;
+*,*:before,*:after{box-sizing:border-box}body{margin:0;background:linear-gradient(180deg,#fff9d9,#f8fafc 52%,#eef2f7);color:#101828;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:0 auto;padding:18px 18px 110px}.hero,.card{background:#fff;border:1px solid #e8edf4;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 44px rgba(15,23,42,.075)}.badge{display:inline-flex;background:#FEE500;color:#191919;border-radius:999px;padding:7px 11px;font-size:13px;font-weight:1000}.hero h1{font-size:28px;letter-spacing:-.05em}.muted{color:#667085;line-height:1.65}.field{display:grid;gap:7px;margin:14px 0}.field label{font-size:13px;font-weight:1000;color:#475467}.field input{width:100%;height:50px;border:1px solid #d0d5dd;border-radius:14px;padding:0 13px;font:inherit}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:50px;border:0;border-radius:14px;background:#111827;color:#fff!important;font-weight:1000;padding:0 16px;text-decoration:none;width:100%}.btn:disabled,button:disabled{cursor:not-allowed;opacity:.55}.secondary{background:#eef2f7!important;color:#111827!important;border:1px solid #d8dee8}.ok{background:#ecfdf5;color:#166534;border:1px solid #bbf7d0;border-radius:16px;padding:13px;line-height:1.6}.error{background:#fef2f2;color:#b91c1c;border:1px solid #fecaca;border-radius:16px;padding:13px;line-height:1.6}.guide{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:18px;padding:14px;line-height:1.65}.identity{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:13px;color:#475467;line-height:1.6;overflow-wrap:anywhere}.credentialFeedback{min-height:20px;margin:-4px 0 12px;color:#667085;font-size:13px;line-height:1.45}.credentialFeedback[data-state="error"]{color:#b42318}.credentialFeedback[data-state="success"]{color:#067647;font-weight:800}.step{border:1px solid #e8edf4;border-radius:18px;padding:6px 14px 14px;margin:14px 0;min-width:0}.step legend{display:flex;align-items:center;gap:8px;padding:0 6px;font-weight:1000}.stepNo{display:inline-flex;width:24px;height:24px;border-radius:50%;background:#111827;color:#fff;font-size:13px;align-items:center;justify-content:center}.step .muted{margin:8px 0 0}.step .btn{margin-top:8px}.card h2{margin:0 0 8px}.memberCodeRow{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:6px 0 4px}.memberCode{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace;font-size:26px;font-weight:800;letter-spacing:.06em;color:#101828;background:#f8fafc;border:1px solid #e2e8f0;border-radius:14px;padding:8px 14px;white-space:nowrap;user-select:all;-webkit-user-select:all}.memberCodeCopy{width:auto!important;flex:none;padding:0 20px}.memberCodeStatus{display:block;min-height:18px;font-size:13px;font-weight:800;color:#067647}html[data-ab-resolved-theme="dark"] .memberCode{background:var(--ab12-surface-raised,#1f2937)!important;color:var(--ab12-text,#f8fafc)!important;border-color:var(--ab12-line,#374151)!important}html[data-ab-resolved-theme="dark"] .memberCodeStatus{color:#6ee7b7!important}@media(max-width:380px){.memberCode{font-size:22px}}@media(max-width:620px){.wrap{padding:12px 12px 110px}.hero,.card{padding:18px;border-radius:20px}.hero h1{font-size:24px}}
+</style></head><body><main class="wrap"><section class="hero"><span class="badge">${title}</span><h1>내 계정·보안</h1><p class="muted">이 비밀번호는 가계부마다 만드는 비밀번호가 아닙니다. 모든 가계부에 공통인 내 계정 로그인·복구 수단이며 다른 참여자와 공유하지 않습니다.</p>${hasBackup ? `<div class="ok">내 계정 로그인 비밀번호가 설정되어 있습니다. 새로 저장하면 이전 비밀번호는 사용할 수 없게 바뀝니다.</div>` : ""}${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${escapeHtml(err)}</div>` : ""}</section>${memberCodeCard}<section class="card"><h2>로그인 이름·비밀번호</h2><div class="identity"><b>현재 표시 이름</b><br/>${userName}<br/><span class="muted">표시 이름은 내 프로필에서 별도로 변경합니다. 여기서 정하는 로그인 이름과는 다릅니다.</span></div><form method="post" action="/my/backup-login"><input type="hidden" name="return_to" value="${safeReturn}"/><fieldset class="step"><legend><span class="stepNo">1</span>본인 확인</legend><p class="muted">${hasBackup ? "바꾸려면 현재 로그인 비밀번호를 적거나, 원래 연결한 카카오 계정으로 본인 확인을 합니다." : "처음 정할 때는 원래 연결한 카카오 계정으로 본인 확인을 합니다. 현재 비밀번호 칸은 비워 두세요."}</p><div class="field"><label for="currentPassword">현재 로그인 비밀번호</label><input id="currentPassword" name="current_password" type="password" autocomplete="current-password"/></div><a class="btn secondary" href="/auth/kakao/start?reauth=credential-change&amp;return_to=%2Fmy%2Fbackup-login">원래 연결한 카카오 계정으로 본인 확인</a></fieldset><fieldset class="step"><legend><span class="stepNo">2</span>로그인 이름·비밀번호</legend><div class="field"><label for="backupLoginName">로그인 이름</label><input id="backupLoginName" name="login_name" value="${escapeHtml(loginName || user?.nickname || "")}" placeholder="로그인할 때 사용할 이름" autocomplete="username" minlength="2" required/></div><div class="field"><label for="backupPassword">내 계정 로그인 비밀번호</label><input id="backupPassword" name="access_code" type="password" minlength="8" autocomplete="new-password" placeholder="8자리 이상" aria-describedby="backupPasswordStatus" required/></div><div class="field"><label for="backupPasswordConfirm">내 계정 로그인 비밀번호 확인</label><input id="backupPasswordConfirm" name="access_code_confirm" type="password" minlength="8" autocomplete="new-password" placeholder="같은 비밀번호를 한 번 더 입력" aria-describedby="backupPasswordStatus" required/></div><div id="backupPasswordStatus" class="credentialFeedback" data-state="hint" role="status" aria-live="polite">비밀번호는 8자리 이상 입력해 주세요.</div><button id="backupPasswordSubmit" type="submit">저장하고 이전 화면으로</button></fieldset></form><p><a class="btn secondary" href="${safeReturn}">취소하고 이전 화면으로</a></p></section><section class="card"><h2>카카오 로그인 연결</h2>${kakaoCard}</section><section class="guide"><b>이탈 방지 안내</b><br/>저장하면 현재 세션을 새 보안 버전으로 갱신한 뒤 지금 보던 화면으로 자동 복귀합니다.</section><section class="card"><h2>카카오 챗봇 기록 계정</h2>${renderKakaoClaimForm("", false)}</section><section class="card" aria-labelledby="logoutTitle"><h2 id="logoutTitle">로그아웃</h2><p class="muted">이 기기에서 로그인을 끝냅니다. 여러 사람이 쓰는 PC 라면 사용 뒤 꼭 로그아웃하세요.</p><form method="post" action="/my/logout"><button type="submit" class="secondary">로그아웃</button></form></section></main><script id="credentialMatchRuntime">(${passwordMatchFeedbackClientMain.toString()})({passwordId:"backupPassword",confirmationId:"backupPasswordConfirm",statusId:"backupPasswordStatus",buttonId:"backupPasswordSubmit"});</script>${memberCodeScript}</body></html>`;
 }
 
 function renderKakaoLoginCheckHtml(env, url) {
@@ -58179,6 +58442,15 @@ async function handleIdentityMerge(request, env) {
 // V22.9.95 후원: 관리자 후원자 설정(/admin/supporters). 운영자가 송금을 확인한 뒤 사용자 한 명에게 후원자 표시를 켜고(설정 표 한 줄
 // supporter:<user_id>), 끝나는 날·메모·공개 명단 이름을 고치거나 지운다. 새 표·SQL 없음. 금액·계좌 같은 결제 정보는 받지 않는다.
 // CSRF 는 다른 관리자 폼처럼 라우터의 전역 확인(같은 출처 POST 만 통과)에 맡기고, 세션은 verifyAdminSession 으로 본다.
+// V22.9.121: 후원한 분이 알려 주는 회원 번호(MB-XXXX-XXXX, my/member-code.js — 내 계정·보안 화면에 보인다)로 찾는다(찾는 방법 ‘회원 번호’, 기본값).
+// 그리고 ‘전체 사용자 목록’ 칸: 표시 이름 일부·회원 번호·user_id 앞자리로 걸러 최근 가입 순 50명씩, 줄마다 회원 번호·표시 이름·계정 유형(카카오
+// 로그인/로그인 이름/채팅 전용)·가입일(KST)·user_id 앞 8자·후원 상태와 ‘후원자 추가’(이미 있으면 ‘고치기’) 링크. 추가 링크는 아래 폼을 그 사용자로
+// 채운다(?add=<user_id>#edit, 숨은 user_id — 저장은 예전처럼 user_id 를 받은 길). 다른 계정으로 합쳐진 계정(키 merged: 또는 이름 끝 ‘(통합됨)’)은
+// ‘통합됨’ 표시만 하고 추가 링크가 없으며, 새로 켜는 저장도 받지 않는다(이미 있는 줄 고치기·제거는 그대로).
+// 화면 한 번에 DB 호출은 많아야 5번이다: 관리자 세션 · 후원자 줄 · 사용자 한 쪽(또는 회원 번호 기억 줄 + 없거나 틀릴 때 훑기) · 그 쪽에 없는
+// 사용자 줄(후원자 이름·추가할 사람·회원 번호로 찾은 사람). 사용자 줄은 로그인 수단(강한 식별)을 같은 호출에 포함해 읽는다 — 줄마다 읽지 않는다.
+// 화면 GET 에서 훑어 찾은 번호는 기억 줄을 쓰지 않는다(쓰기는 내 계정·보안 화면이 보이면 보내는 신호 POST /my/member-code/seen 과
+// 아래 찾기 POST 가 한다).
 const SUPPORTER_ADMIN_MESSAGES_V22995 = Object.freeze({
   saved: "후원자 표시를 저장했어요.",
   removed: "후원자 표시를 지웠어요.",
@@ -58186,8 +58458,11 @@ const SUPPORTER_ADMIN_MESSAGES_V22995 = Object.freeze({
 const SUPPORTER_ADMIN_ERRORS_V22995 = Object.freeze({
   form: "입력을 읽지 못했어요. 다시 시도해 주세요.",
   user_required: "찾을 사용자를 적어 주세요.",
-  user_not_found: "그 사용자를 찾지 못했어요. user_id 나 로그인 이름을 다시 확인해 주세요.",
-  user_ambiguous: "같은 표시 이름이 여러 명이에요. user_id 나 로그인 이름으로 찾아 주세요.",
+  user_not_found: "그 사용자를 찾지 못했어요. 회원 번호·user_id·로그인 이름을 다시 확인해 주세요.",
+  user_ambiguous: "같은 표시 이름이 여러 명이에요. 회원 번호나 로그인 이름으로 찾아 주세요.",
+  member_code_invalid: "회원 번호는 MB-XXXX-XXXX 꼴이에요.",
+  member_code_unavailable: "회원 번호를 계산할 수 없어요. 운영 설정을 확인해 주세요.",
+  user_merged: "다른 계정으로 합쳐진 계정이라 새로 켤 수 없어요. 전체 사용자 목록에서 ‘통합됨’ 이 없는 계정을 골라 주세요.",
   since_invalid: "시작일은 YYYY-MM-DD 꼴로 적어 주세요.",
   until_invalid: "끝나는 날은 YYYY-MM-DD 꼴로 적거나 비워 두세요.",
   until_before_since: "끝나는 날이 시작일보다 빨라요.",
@@ -58195,6 +58470,10 @@ const SUPPORTER_ADMIN_ERRORS_V22995 = Object.freeze({
   save_failed: "저장하지 못했어요. 잠시 뒤 다시 시도해 주세요.",
   remove_failed: "지우지 못했어요. 잠시 뒤 다시 시도해 주세요.",
 });
+const SUPPORTER_ADMIN_USER_PAGE_SIZE_V229121 = 50;
+// 사용자 줄 + 그 사람의 강한 식별(로그인 수단). kakao/identity-chat-first.js 가 쓰는 것과 같은 users → accountbook_user_identities 포함.
+const SUPPORTER_ADMIN_USER_SELECT_V229121 = "id,nickname,created_at,kakao_user_key,accountbook_user_identities(provider)";
+const SUPPORTER_ADMIN_SEPARATORS_V229121 = /[\s\-_.\u2010-\u2015\u2212]/g;
 
 function supporterAdminRedirectV22995(params = {}) {
   const search = new URLSearchParams(Object.entries(params).filter(([, value]) => value));
@@ -58202,10 +58481,25 @@ function supporterAdminRedirectV22995(params = {}) {
   return redirectResponse(`/admin/supporters${query ? `?${query}` : ""}`);
 }
 
-// 사용자 찾기: user_id(그대로), 로그인 이름(로컬 로그인 아이디), 표시 이름(정확히 한 명일 때만) 가운데 관리자가 고른 방법 하나.
-async function supporterAdminFindUserV22995(env, who = "", by = "user_id") {
+// V22.9.121: 다른 계정으로 합쳐진 계정(합치기가 키를 merged: 로 바꾸고 이름 끝에 ‘(통합됨)’ 을 붙인다 — 세션도 받지 않는다).
+function supporterAdminMergedV229121(user) {
+  return String(user?.kakao_user_key || "").startsWith("merged:") || /\(통합됨\)\s*$/.test(String(user?.nickname || ""));
+}
+
+// 사용자 찾기: 회원 번호(V22.9.121), user_id(그대로), 로그인 이름(로컬 로그인 아이디), 표시 이름(정확히 한 명일 때만) 가운데 관리자가 고른 방법 하나.
+async function supporterAdminFindUserV22995(env, who = "", by = "user_id", ctx = null) {
   const text = String(who || "").trim().slice(0, 120);
   if (!text) return { error: "user_required" };
+  if (by === "member_code") {
+    // V22.9.121: 기억 줄 → 다시 계산해 확인, 없으면 훑기(최근 가입 500명). 훑어 찾으면 기억 줄을 답 뒤에 넣는다.
+    const code = normalizeMemberCodeV229121(text);
+    if (!code) return { error: "member_code_invalid" };
+    if (!memberCodeAvailableV229121(env)) return { error: "member_code_unavailable" };
+    const userId = await findUserIdByMemberCodeV229121(env, code, { ctx });
+    if (!userId) return { error: "user_not_found" };
+    const user = await fetchUserById(env, userId).catch(() => null);
+    return user?.id ? { user } : { error: "user_not_found" };
+  }
   if (by === "login") {
     const login = normalizeLocalLoginName(text);
     if (!login) return { error: "user_not_found" };
@@ -58216,7 +58510,7 @@ async function supporterAdminFindUserV22995(env, who = "", by = "user_id") {
     return user?.id ? { user } : { error: "user_not_found" };
   }
   if (by === "nickname") {
-    const rows = await supabase(env, `/rest/v1/users?nickname=eq.${encodeURIComponent(text)}&select=id,nickname&limit=2`, { method: "GET" }).catch(() => []);
+    const rows = await supabase(env, `/rest/v1/users?nickname=eq.${encodeURIComponent(text)}&select=id,nickname,kakao_user_key&limit=2`, { method: "GET" }).catch(() => []);
     const list = safeArray(rows).filter((row) => row?.id);
     if (list.length === 1) return { user: list[0] };
     return { error: list.length > 1 ? "user_ambiguous" : "user_not_found" };
@@ -58225,17 +58519,25 @@ async function supporterAdminFindUserV22995(env, who = "", by = "user_id") {
   return user?.id ? { user } : { error: "user_not_found" };
 }
 
-async function supporterAdminNamesV22995(env, ids = []) {
-  const list = [...new Set(safeArray(ids).filter(Boolean))].slice(0, 100);
-  const names = new Map();
-  if (!list.length) return names;
+// V22.9.121: 사용자 줄 읽기 공통 칸(줄 + 강한 식별 kakao·local 만 포함).
+function supporterAdminUserParamsV229121() {
   const params = new URLSearchParams();
-  params.set("id", `in.(${list.map(supporterInValueV22995).join(",")})`);
-  params.set("select", "id,nickname");
-  params.set("limit", String(list.length));
+  params.set("select", SUPPORTER_ADMIN_USER_SELECT_V229121);
+  params.set("accountbook_user_identities.provider", "in.(kakao,local)");
+  return params;
+}
+
+// V22.9.121: id 로 사용자 줄을 모은다. known(이미 읽은 줄 — 목록 한 쪽)에 없는 id 만 한 번(id=in.)에 읽는다. 읽지 못하면 아는 줄만.
+async function supporterAdminUsersByIdV229121(env, ids = [], known = new Map()) {
+  const out = new Map(known);
+  const missing = [...new Set(safeArray(ids).map((id) => String(id || "").trim()).filter(Boolean))].filter((id) => !out.has(id)).slice(0, 600);
+  if (!missing.length) return out;
+  const params = supporterAdminUserParamsV229121();
+  params.set("id", `in.(${missing.map(supporterInValueV22995).join(",")})`);
+  params.set("limit", String(missing.length));
   const rows = await optionalSupabase(env, `/rest/v1/users?${params.toString()}`, { method: "GET" }, []);
-  for (const row of safeArray(rows)) names.set(String(row?.id || ""), String(row?.nickname || ""));
-  return names;
+  for (const row of safeArray(rows)) if (row?.id) out.set(String(row.id), row);
+  return out;
 }
 
 function supporterAdminStateV22995(flag, today) {
@@ -58244,31 +58546,178 @@ function supporterAdminStateV22995(flag, today) {
   return supporterFlagActive(flag, today) ? ["켜짐", "on"] : ["끝남", "off"];
 }
 
+// V22.9.121: 목록 찾기 칸(q). 회원 번호 꼴(구분 기호를 뺀 길이 10 + MB 머리, 또는 ‘XXXX-XXXX’ 처럼 넷째 글자 뒤 구분 기호)이면 그 번호 한 명,
+// 아니면 표시 이름 일부(ilike), 그리고 16진수 4~32자리(줄표 포함 36자 이내)면 user_id 앞자리도 함께 본다. 머리도 구분 기호도 없는 8글자는
+// 번호로 보지 않는다(흔한 이름·id 앞자리와 겹친다 — 그런 번호는 아래 찾기 폼의 ‘회원 번호’ 방법이 받는다).
+function supporterAdminUserQueryV229121(raw = "") {
+  const text = String(raw ?? "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 60);
+  if (!text) return { text: "", kind: "all", code: "", idPrefix: "" };
+  const folded = text.normalize("NFKC");
+  const compact = folded.toUpperCase().replace(SUPPORTER_ADMIN_SEPARATORS_V229121, "");
+  const codeShaped = (compact.length === 10 && compact.startsWith("MB")) || /^[0-9A-Za-z]{4}[\s\-_.\u2010-\u2015\u2212][0-9A-Za-z]{4}$/.test(folded);
+  if (codeShaped) {
+    const code = normalizeMemberCodeV229121(folded);
+    return code ? { text, kind: "code", code, idPrefix: "" } : { text, kind: "badcode", code: "", idPrefix: "" };
+  }
+  const hex = text.toLowerCase().replace(/-/g, "");
+  const idPrefix = text.length <= 36 && /^[0-9a-f-]+$/i.test(text) && /^[0-9a-f]{4,32}$/.test(hex) ? hex : "";
+  return { text, kind: "text", code: "", idPrefix };
+}
+
+// V22.9.121: user_id(uuid) 앞자리 → 범위 [앞자리 + 0…, 앞자리 + f…]. uuid 는 16진 글자 순서와 같은 순서로 비교된다.
+function supporterAdminUuidRangeV229121(hexPrefix = "") {
+  const shape = (hex) => `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20, 32)}`;
+  return [shape(hexPrefix.padEnd(32, "0")), shape(hexPrefix.padEnd(32, "f"))];
+}
+
+// V22.9.121: 표시 이름 부분 일치(ilike) + user_id 앞자리 논리식. 이름 값은 큰따옴표로 감싸고(논리식 안 쉼표·괄호·점), 와일드카드·따옴표·역슬래시
+// (* % _ " \)는 ‘아무 글자’(*)로 바꾼다.
+function supporterAdminUserFilterV229121(query) {
+  if (query?.kind !== "text" || !query.text) return "";
+  const pattern = `*${query.text.replace(/[*%_"\\]/g, "*")}*`.replace(/\*{2,}/g, "*");
+  const parts = [`nickname.ilike."${pattern}"`];
+  if (query.idPrefix) {
+    const [low, high] = supporterAdminUuidRangeV229121(query.idPrefix);
+    parts.push(`and(id.gte.${low},id.lte.${high})`);
+  }
+  return `(${parts.join(",")})`;
+}
+
+// V22.9.121: 사용자 한 쪽(최근 가입 순, 50명 + 다음 쪽이 있는지 보려고 한 명 더). 읽지 못하면 null.
+async function supporterAdminUserPageV229121(env, query, pageNo = 1) {
+  const params = supporterAdminUserParamsV229121();
+  params.set("order", "created_at.desc,id.desc");
+  params.set("limit", String(SUPPORTER_ADMIN_USER_PAGE_SIZE_V229121 + 1));
+  params.set("offset", String((pageNo - 1) * SUPPORTER_ADMIN_USER_PAGE_SIZE_V229121));
+  const filter = supporterAdminUserFilterV229121(query);
+  if (filter) params.set("or", filter);
+  try {
+    const rows = await supabase(env, `/rest/v1/users?${params.toString()}`, { method: "GET" });
+    return Array.isArray(rows) ? rows : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// V22.9.121: 계정 유형. 강한 식별 행이 먼저다(카카오 로그인·로그인 이름 — 둘 다면 둘 다). 없으면 사용자 줄의 키로 본다: 옛 웹 로그인 별칭
+// kakao_login:(카카오 로그인)·local_web:/local_account:(로그인 이름 계정), 그 밖은 카카오톡 채팅에서만 생긴 계정(채팅 전용).
+function supporterAdminAccountTypeV229121(user) {
+  const providers = new Set(safeArray(user?.accountbook_user_identities).map((row) => String(row?.provider || "")));
+  const kinds = [];
+  if (providers.has("kakao")) kinds.push("카카오 로그인");
+  if (providers.has("local")) kinds.push("로그인 이름");
+  if (kinds.length) return kinds.join(" · ");
+  const key = String(user?.kakao_user_key || "");
+  if (key.startsWith("kakao_login:")) return "카카오 로그인";
+  if (key.startsWith("local_web:") || key.startsWith("local_account:")) return "로그인 이름";
+  return "채팅 전용";
+}
+
+// V22.9.121: 가입일(KST 날짜). 모양이 틀리면 ‘-’.
+function supporterAdminKstDateV229121(value) {
+  const ms = Date.parse(String(value || ""));
+  if (!Number.isFinite(ms)) return "-";
+  return new Date(ms + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+// V22.9.121: ?add= 값(사용자 id 모양만 받는다 — 그 밖은 무시).
+function supporterAdminIdParamV229121(value) {
+  const id = String(value || "").trim();
+  return /^[0-9A-Za-z][0-9A-Za-z_-]{1,63}$/.test(id) ? id : "";
+}
+
+function supporterAdminUserListLinkV229121(query, pageNo) {
+  const search = new URLSearchParams();
+  if (query.text) search.set("q", query.text);
+  if (pageNo > 1) search.set("page", String(pageNo));
+  const text = search.toString();
+  return `/admin/supporters${text ? `?${text}` : ""}#users`;
+}
+
 async function handleSupportersAdminPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse(adminLoginLocation(url));
-  const rows = await fetchSupporterRows(env, 500);
-  const names = await supporterAdminNamesV22995(env, safeArray(rows).map((row) => row.user_id));
+  const query = supporterAdminUserQueryV229121(url.searchParams.get("q"));
+  const listMode = query.kind === "all" || query.kind === "text";
+  const pageNo = listMode ? Math.min(1000, Math.max(1, Math.floor(Number(url.searchParams.get("page")) || 1))) : 1;
+  const addId = supporterAdminIdParamV229121(url.searchParams.get("add"));
+  const editId = String(url.searchParams.get("user_id") || "").trim();
+  // 후원자 줄과 사용자 한 쪽(또는 회원 번호 찾기)을 나란히 읽는다. 화면 GET 은 기억 줄을 쓰지 않는다(remember:false).
+  const [rows, listRows, lookup] = await Promise.all([
+    fetchSupporterRows(env, 500),
+    listMode ? supporterAdminUserPageV229121(env, query, pageNo) : Promise.resolve(null),
+    query.kind === "code" ? lookupMemberCodeV229121(env, query.code, { remember: false }) : Promise.resolve(null),
+  ]);
+  const known = new Map();
+  for (const row of safeArray(listRows)) if (row?.id) known.set(String(row.id), row);
+  const foundId = String(lookup?.userId || "");
+  // 그 쪽에 없는 사용자(후원자 이름·추가할 사람·회원 번호로 찾은 사람)는 한 번에 읽는다.
+  const usersById = await supporterAdminUsersByIdV229121(env, [...safeArray(rows).map((row) => row.user_id), addId, foundId], known);
+  const nameOf = (id) => String(usersById.get(id)?.nickname || "");
   const today = supporterTodayV22995();
   const msg = SUPPORTER_ADMIN_MESSAGES_V22995[String(url.searchParams.get("msg") || "")] || "";
   const err = SUPPORTER_ADMIN_ERRORS_V22995[String(url.searchParams.get("err") || "")] || "";
-  const editId = String(url.searchParams.get("user_id") || "").trim();
-  const editing = editId ? safeArray(rows).find((row) => row.user_id === editId) || null : null;
+  let editing = editId ? safeArray(rows).find((row) => row.user_id === editId) || null : null;
+  // V22.9.121: ‘후원자 추가’ 링크(?add=). 이미 후원자 줄이 있으면 고치기로 연다. 합쳐진 계정·없는 사용자는 찾기 폼과 안내 한 줄.
+  let addUser = null;
+  let addNote = "";
+  if (!editing && addId) {
+    const existing = safeArray(rows).find((row) => row.user_id === addId) || null;
+    const user = usersById.get(addId) || null;
+    if (existing) editing = existing;
+    else if (!user) addNote = "추가할 사용자를 찾지 못했어요. 전체 사용자 목록에서 다시 골라 주세요.";
+    else if (supporterAdminMergedV229121(user)) addNote = SUPPORTER_ADMIN_ERRORS_V22995.user_merged;
+    else addUser = user;
+  }
   const editFlag = editing?.flag || null;
+  const pageUsers = query.kind === "code"
+    ? (foundId && usersById.get(foundId) ? [usersById.get(foundId)] : [])
+    : safeArray(listRows).slice(0, SUPPORTER_ADMIN_USER_PAGE_SIZE_V229121);
+  const hasNext = listMode && safeArray(listRows).length > SUPPORTER_ADMIN_USER_PAGE_SIZE_V229121;
+  const codes = await memberCodesForUsersV229121(env, [...pageUsers.map((user) => user.id), addUser?.id || "", editing?.user_id || ""]);
+  const codeHtml = (id) => (codes.get(String(id || "")) ? `<code>${escapeHtml(codes.get(String(id)))}</code>` : `<span class="muted">-</span>`);
   const tableRows = rows === null
     ? `<tr><td colspan="9">후원자 목록을 불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.</td></tr>`
     : rows.map((row) => {
       const [stateLabel, stateKey] = supporterAdminStateV22995(row.flag, today);
       const id = escapeHtml(row.user_id);
-      return `<tr><td><code>${id}</code></td><td>${escapeHtml(names.get(row.user_id) || "(이름 없음)")}</td><td><span class="state ${stateKey}">${stateLabel}</span></td><td>${escapeHtml(row.flag?.since || "-")}</td><td>${escapeHtml(row.flag?.until || "없음")}</td><td>${escapeHtml(row.flag?.note || "")}</td><td>${escapeHtml(row.flag?.public_name || "(명단에 안 보임)")}</td><td><a href="/admin/supporters?user_id=${encodeURIComponent(row.user_id)}#edit">고치기</a></td><td><form method="post" action="/admin/supporters/remove" class="inline"><input type="hidden" name="user_id" value="${id}"/><label>확인 문구 <input name="confirm_text" placeholder="제거" autocomplete="off" required/></label><button type="submit" class="danger">제거</button></form></td></tr>`;
+      return `<tr><td><code>${id}</code></td><td>${escapeHtml(nameOf(row.user_id) || "(이름 없음)")}</td><td><span class="state ${stateKey}">${stateLabel}</span></td><td>${escapeHtml(row.flag?.since || "-")}</td><td>${escapeHtml(row.flag?.until || "없음")}</td><td>${escapeHtml(row.flag?.note || "")}</td><td>${escapeHtml(row.flag?.public_name || "(명단에 안 보임)")}</td><td><a href="/admin/supporters?user_id=${encodeURIComponent(row.user_id)}#edit">고치기</a></td><td><form method="post" action="/admin/supporters/remove" class="inline"><input type="hidden" name="user_id" value="${id}"/><label>확인 문구 <input name="confirm_text" placeholder="제거" autocomplete="off" required/></label><button type="submit" class="danger">제거</button></form></td></tr>`;
     }).join("") || `<tr><td colspan="9">아직 후원자 표시가 없어요.</td></tr>`;
   const value = (key) => escapeHtml(editFlag?.[key] || "");
   const finder = editing
-    ? `<input type="hidden" name="user_id" value="${escapeHtml(editing.user_id)}"/><p>고치는 사용자: <code>${escapeHtml(editing.user_id)}</code> · ${escapeHtml(names.get(editing.user_id) || "(이름 없음)")} <a href="/admin/supporters#edit">새로 추가하기</a></p>`
-    : `<div class="grid"><label class="field">찾는 방법<select name="by"><option value="user_id">user_id</option><option value="login">로그인 이름(아이디)</option><option value="nickname">표시 이름(한 명일 때만)</option></select></label><label class="field">사용자<input name="who" required maxlength="120" autocomplete="off"/></label></div>`;
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>후원자 관리</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 28px rgba(15,23,42,.06)}.hero{background:#111827;color:#fff}.hero p{color:#ede9fe;line-height:1.6}.hero a{color:#fff}.ok,.error,.warn{border-radius:15px;padding:12px;line-height:1.55}.ok{background:#ecfdf5;border:1px solid #86efac;color:#166534}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.warn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:grid;gap:6px;margin:10px 0;font-weight:700}.field input,.field select{height:44px;border:1px solid #d0d5dd;border-radius:12px;padding:0 12px;font:inherit;font-weight:400}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th,td{border-top:1px solid #e5e7eb;padding:10px 8px;text-align:left;vertical-align:top}code{font-size:12px;word-break:break-all}button{min-height:44px;border:0;border-radius:12px;padding:0 16px;font:inherit;font-weight:800;background:#111827;color:#fff;cursor:pointer}button.danger{background:#b42318}.inline{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.inline input{height:36px;width:72px;border:1px solid #d0d5dd;border-radius:10px;padding:0 8px}.state{display:inline-block;border-radius:999px;padding:2px 8px;font-weight:800;font-size:12px}.state.on{background:#dcfce7;color:#166534}.state.off{background:#f2f4f7;color:#475467}.state.wait{background:#eff6ff;color:#1d4ed8}.state.bad{background:#fef2f2;color:#991b1b}@media(max-width:720px){.grid{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("identity-audit", { scope: "admin" })}<main class="wrap"><section class="hero"><h1>후원자 관리</h1><p>송금을 확인한 사용자에게 후원자 배지와 포인트 색을 켜요. 기능은 후원과 관계없이 같아요. 오늘(KST) ${escapeHtml(today)} 기준으로 끝나는 날이 지나면 저절로 꺼져요.</p><p><a href="/ops-dashboard">운영 대시보드</a> · <a href="/support">공개 후원 안내</a></p></section>${msg ? `<p class="ok" role="status">${escapeHtml(msg)}</p>` : ""}${err ? `<p class="error" role="alert">${escapeHtml(err)}</p>` : ""}<section class="card"><h2>후원자 목록</h2><div class="tableWrap"><table><thead><tr><th scope="col">user_id</th><th scope="col">표시 이름</th><th scope="col">상태</th><th scope="col">시작일(since)</th><th scope="col">끝나는 날(until)</th><th scope="col">메모(note)</th><th scope="col">명단 이름(public_name)</th><th scope="col">고치기</th><th scope="col">제거</th></tr></thead><tbody>${tableRows}</tbody></table></div></section><section class="card" id="edit"><h2>${editing ? "후원자 표시 고치기" : "후원자 표시 추가"}</h2><form method="post" action="/admin/supporters/save">${finder}<div class="grid"><label class="field">시작일(비우면 ${editing ? "그대로" : "오늘"})<input name="since" placeholder="YYYY-MM-DD" value="${value("since")}" inputmode="numeric" maxlength="10"/></label><label class="field">끝나는 날(비우면 끝없음)<input name="until" placeholder="YYYY-MM-DD" value="${value("until")}" inputmode="numeric" maxlength="10"/></label><label class="field">메모(관리자만 봐요, 200자)<input name="note" value="${value("note")}" maxlength="200" autocomplete="off"/></label><label class="field">명단 이름(공개 /support 에 보임, 비우면 안 보임, 30자)<input name="public_name" value="${value("public_name")}" maxlength="30" autocomplete="off"/></label></div><p class="warn">명단 이름은 본인이 공개해도 된다고 한 이름만 적어요. 메모에는 계좌번호·금액 같은 결제 정보를 적지 않아요.</p><button type="submit">저장</button></form></section></main></body></html>`);
+    ? `<input type="hidden" name="user_id" value="${escapeHtml(editing.user_id)}"/><p>고치는 사용자: <code>${escapeHtml(editing.user_id)}</code> · ${escapeHtml(nameOf(editing.user_id) || "(이름 없음)")} · 회원 번호 ${codeHtml(editing.user_id)} <a href="/admin/supporters#edit">새로 추가하기</a></p>`
+    : addUser
+      ? `<input type="hidden" name="user_id" value="${escapeHtml(addUser.id)}"/><p>추가할 사용자: 회원 번호 ${codeHtml(addUser.id)} · ${escapeHtml(addUser.nickname || "(이름 없음)")} · user_id 앞 8자 <code>${escapeHtml(String(addUser.id).slice(0, 8))}</code> <a href="/admin/supporters#edit">다른 사용자 찾기</a></p>`
+      : `${addNote ? `<p class="warn" role="alert">${escapeHtml(addNote)}</p>` : ""}<div class="grid"><label class="field">찾는 방법<select name="by"><option value="member_code">회원 번호(MB-XXXX-XXXX)</option><option value="user_id">user_id</option><option value="login">로그인 이름(아이디)</option><option value="nickname">표시 이름(한 명일 때만)</option></select></label><label class="field">사용자<input name="who" required maxlength="120" autocomplete="off" placeholder="MB-XXXX-XXXX"/></label></div>`;
+  // V22.9.121 전체 사용자 목록 칸.
+  const userRows = listMode && listRows === null
+    ? `<tr><td colspan="7">사용자 목록을 불러오지 못했어요. 잠시 뒤 새로 고쳐 주세요.</td></tr>`
+    : pageUsers.map((user) => {
+      const id = String(user.id || "");
+      const merged = supporterAdminMergedV229121(user);
+      const supporter = rows === null ? null : safeArray(rows).find((row) => row.user_id === id) || null;
+      const [stateLabel, stateKey] = rows === null ? ["확인 못 함", "bad"] : supporter ? supporterAdminStateV22995(supporter.flag, today) : ["없음", "none"];
+      const action = merged
+        ? `<span class="muted">-</span>`
+        : supporter
+          ? `<a href="/admin/supporters?user_id=${encodeURIComponent(id)}#edit">고치기</a>`
+          : `<a href="/admin/supporters?add=${encodeURIComponent(id)}#edit">후원자 추가</a>`;
+      return `<tr><td>${codeHtml(id)}</td><td>${escapeHtml(user.nickname || "(이름 없음)")}${merged ? ` <span class="state merged">통합됨</span>` : ""}</td><td>${escapeHtml(supporterAdminAccountTypeV229121(user))}</td><td>${escapeHtml(supporterAdminKstDateV229121(user.created_at))}</td><td><code>${escapeHtml(id.slice(0, 8))}</code></td><td><span class="state ${stateKey}">${escapeHtml(stateLabel)}</span></td><td>${action}</td></tr>`;
+    }).join("") || `<tr><td colspan="7">${query.kind === "all" ? "아직 사용자가 없어요." : "찾는 사용자가 없어요."}</td></tr>`;
+  let lookupNote = "";
+  if (query.kind === "badcode") lookupNote = `<p class="error" role="alert">${escapeHtml(SUPPORTER_ADMIN_ERRORS_V22995.member_code_invalid)}</p>`;
+  else if (query.kind === "code" && lookup?.available === false) lookupNote = `<p class="error" role="alert">${escapeHtml(SUPPORTER_ADMIN_ERRORS_V22995.member_code_unavailable)}</p>`;
+  else if (query.kind === "code" && foundId && !pageUsers.length) lookupNote = `<p class="warn" role="status">회원 번호 ${escapeHtml(query.code)} 의 사용자 줄을 읽지 못했어요. 잠시 뒤 다시 찾아 주세요.</p>`;
+  else if (query.kind === "code" && !foundId) lookupNote = `<p class="warn" role="status">회원 번호 ${escapeHtml(query.code)} 와 맞는 사용자가 없어요. 번호를 다시 확인해 주세요.</p>`;
+  const first = (pageNo - 1) * SUPPORTER_ADMIN_USER_PAGE_SIZE_V229121 + 1;
+  const range = listMode && pageUsers.length ? `<p class="muted">${first}–${first + pageUsers.length - 1}번째</p>` : "";
+  const pager = listMode && (pageNo > 1 || hasNext)
+    ? `<nav class="pager" aria-label="사용자 목록 쪽">${pageNo > 1 ? `<a href="${escapeHtml(supporterAdminUserListLinkV229121(query, pageNo - 1))}">이전 50명</a>` : ""}${hasNext ? `<a href="${escapeHtml(supporterAdminUserListLinkV229121(query, pageNo + 1))}">다음 50명</a>` : ""}</nav>`
+    : "";
+  const userList = `<section class="card" id="users"><h2>전체 사용자 목록</h2><p class="muted">최근에 가입한 순서로 50명씩 보여요. 표시 이름 일부, 회원 번호(MB-XXXX-XXXX), user_id 앞자리(4자 이상)로 찾을 수 있어요.</p><form method="get" action="/admin/supporters#users" class="userFilter"><label class="field">찾기<input name="q" value="${escapeHtml(query.text)}" maxlength="60" autocomplete="off" placeholder="이름 · MB-XXXX-XXXX · user_id 앞자리"/></label><button type="submit">찾기</button>${query.text ? `<a href="/admin/supporters#users">전체 보기</a>` : ""}</form>${lookupNote}${range}<div class="tableWrap"><table><thead><tr><th scope="col">회원 번호</th><th scope="col">표시 이름</th><th scope="col">계정 유형</th><th scope="col">가입일(KST)</th><th scope="col">user_id 앞 8자</th><th scope="col">후원 상태</th><th scope="col">후원자 표시</th></tr></thead><tbody>${userRows}</tbody></table></div>${pager}</section>`;
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>후원자 관리</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:12px 0;box-shadow:0 12px 28px rgba(15,23,42,.06)}.hero{background:#111827;color:#fff}.hero p{color:#ede9fe;line-height:1.6}.hero a{color:#fff}.ok,.error,.warn{border-radius:15px;padding:12px;line-height:1.55}.ok{background:#ecfdf5;border:1px solid #86efac;color:#166534}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.warn{background:#fff7ed;border:1px solid #fdba74;color:#9a3412}.muted{color:#475467;line-height:1.55}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.field{display:grid;gap:6px;margin:10px 0;font-weight:700}.field input,.field select{height:44px;border:1px solid #d0d5dd;border-radius:12px;padding:0 12px;font:inherit;font-weight:400}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;font-size:14px}th,td{border-top:1px solid #e5e7eb;padding:10px 8px;text-align:left;vertical-align:top}code{font-size:12px;word-break:break-all}button{min-height:44px;border:0;border-radius:12px;padding:0 16px;font:inherit;font-weight:800;background:#111827;color:#fff;cursor:pointer}button.danger{background:#b42318}.inline{display:flex;gap:6px;align-items:center;flex-wrap:wrap}.inline input{height:36px;width:72px;border:1px solid #d0d5dd;border-radius:10px;padding:0 8px}.state{display:inline-block;border-radius:999px;padding:2px 8px;font-weight:800;font-size:12px}.state.on{background:#dcfce7;color:#166534}.state.off,.state.none{background:#f2f4f7;color:#475467}.state.wait{background:#eff6ff;color:#1d4ed8}.state.bad{background:#fef2f2;color:#991b1b}.state.merged{background:#fef3c7;color:#92400e}.userFilter{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap}.userFilter .field{flex:1 1 280px;margin:0}.userFilter a,.pager a{font-weight:800;color:#1d4ed8}.pager{display:flex;gap:16px;justify-content:flex-end;margin:12px 0 0}@media(max-width:720px){.grid{grid-template-columns:1fr}}</style></head><body>${renderUnifiedNav("identity-audit", { scope: "admin" })}<main class="wrap"><section class="hero"><h1>후원자 관리</h1><p>송금을 확인한 사용자에게 후원자 배지와 포인트 색을 켜요. 기능은 후원과 관계없이 같아요. 오늘(KST) ${escapeHtml(today)} 기준으로 끝나는 날이 지나면 저절로 꺼져요.</p><p>후원한 분이 알려 준 회원 번호(MB-XXXX-XXXX, 웹 가계부 ‘전체 메뉴 → 내 계정·보안’ 에 보여요)로 찾거나, 아래 전체 사용자 목록에서 골라 주세요.</p><p><a href="/ops-dashboard">운영 대시보드</a> · <a href="/support">공개 후원 안내</a></p></section>${msg ? `<p class="ok" role="status">${escapeHtml(msg)}</p>` : ""}${err ? `<p class="error" role="alert">${escapeHtml(err)}</p>` : ""}<section class="card"><h2>후원자 목록</h2><div class="tableWrap"><table><thead><tr><th scope="col">user_id</th><th scope="col">표시 이름</th><th scope="col">상태</th><th scope="col">시작일(since)</th><th scope="col">끝나는 날(until)</th><th scope="col">메모(note)</th><th scope="col">명단 이름(public_name)</th><th scope="col">고치기</th><th scope="col">제거</th></tr></thead><tbody>${tableRows}</tbody></table></div></section><section class="card" id="edit"><h2>${editing ? "후원자 표시 고치기" : "후원자 표시 추가"}</h2><form method="post" action="/admin/supporters/save">${finder}<div class="grid"><label class="field">시작일(비우면 ${editing ? "그대로" : "오늘"})<input name="since" placeholder="YYYY-MM-DD" value="${value("since")}" inputmode="numeric" maxlength="10"/></label><label class="field">끝나는 날(비우면 끝없음)<input name="until" placeholder="YYYY-MM-DD" value="${value("until")}" inputmode="numeric" maxlength="10"/></label><label class="field">메모(관리자만 봐요, 200자)<input name="note" value="${value("note")}" maxlength="200" autocomplete="off"/></label><label class="field">명단 이름(공개 /support 에 보임, 비우면 안 보임, 30자)<input name="public_name" value="${value("public_name")}" maxlength="30" autocomplete="off"/></label></div><p class="warn">명단 이름은 본인이 공개해도 된다고 한 이름만 적어요. 메모에는 계좌번호·금액 같은 결제 정보를 적지 않아요.</p><button type="submit">저장</button></form></section>${userList}</main></body></html>`);
 }
 
-async function handleSupportersAdminSave(request, env) {
+async function handleSupportersAdminSave(request, env, ctx = null) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/admin-view?return_to=%2Fadmin%2Fsupporters");
   const form = await request.formData().catch(() => null);
   if (!form) return supporterAdminRedirectV22995({ err: "form" });
@@ -58279,25 +58728,30 @@ async function handleSupportersAdminSave(request, env) {
     user = await fetchUserById(env, fixedId).catch(() => null);
     if (!user?.id) return supporterAdminRedirectV22995({ err: "user_not_found" });
   } else {
-    const by = ["user_id", "login", "nickname"].includes(field("by")) ? field("by") : "user_id";
-    const found = await supporterAdminFindUserV22995(env, field("who"), by);
+    // V22.9.121: 찾는 방법에 ‘회원 번호’(member_code)를 더했다. 값이 없거나 모르는 방법이면 예전처럼 user_id.
+    const by = ["member_code", "user_id", "login", "nickname"].includes(field("by")) ? field("by") : "user_id";
+    const found = await supporterAdminFindUserV22995(env, field("who"), by, ctx);
     if (found.error) return supporterAdminRedirectV22995({ err: found.error });
     user = found.user;
   }
   const userId = String(user.id);
   const existing = await fetchSupporterFlag(env, userId).catch(() => null);
+  // V22.9.121: 오류로 돌아갈 때 고치기(이미 있는 줄)는 user_id, 목록의 ‘후원자 추가’(아직 없는 줄)는 add 로 같은 폼을 다시 연다.
+  const back = fixedId ? (existing ? { user_id: fixedId } : { add: fixedId }) : {};
+  // V22.9.121: 다른 계정으로 합쳐진 계정에는 새로 켜지 않는다(이미 있는 줄을 고치거나 지우는 것은 그대로).
+  if (!existing && supporterAdminMergedV229121(user)) return supporterAdminRedirectV22995({ err: "user_merged" });
   const sinceRaw = field("since");
   const since = sinceRaw ? supporterDateV22995(sinceRaw) : existing?.since || supporterTodayV22995();
-  if (!since) return supporterAdminRedirectV22995({ err: "since_invalid", user_id: fixedId });
+  if (!since) return supporterAdminRedirectV22995({ err: "since_invalid", ...back });
   const untilRaw = field("until");
   const until = untilRaw ? supporterDateV22995(untilRaw) : null;
-  if (untilRaw && !until) return supporterAdminRedirectV22995({ err: "until_invalid", user_id: fixedId });
-  if (until && until < since) return supporterAdminRedirectV22995({ err: "until_before_since", user_id: fixedId });
+  if (untilRaw && !until) return supporterAdminRedirectV22995({ err: "until_invalid", ...back });
+  if (until && until < since) return supporterAdminRedirectV22995({ err: "until_before_since", ...back });
   const flag = { since, until, note: supporterTextV22995(field("note"), 200), public_name: supporterTextV22995(field("public_name"), 30) || null };
   try {
     await saveSettingValue(env, supporterSettingsKey(userId), flag);
   } catch (_) {
-    return supporterAdminRedirectV22995({ err: "save_failed", user_id: fixedId });
+    return supporterAdminRedirectV22995({ err: "save_failed", ...back });
   }
   rememberOpsEvent({ kind: "supporter_flag_saved", severity: "info", path: "/admin/supporters/save", method: "POST", detail: `user=${userId}` });
   return supporterAdminRedirectV22995({ msg: "saved" });

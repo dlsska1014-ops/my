@@ -123,6 +123,7 @@ import {
 import {
   handleMySetupMeSave, handleMySetupNameSave, handleMySetupPage, setupBandResponse,
 } from "../my/setup-page.js";
+import { memberCodeSeenResponseV229121 } from "../my/member-code.js";
 import { handleMyBackupCsv, handleMyBackupPage, handleMyImport } from "../my/backup-import.js";
 import {
   AUDIT_RETENTION_CALLS_V22995, SCHEDULED_RUN_LOG_CALLS, cleanupTransactionAuditRetentionV22995,
@@ -811,7 +812,7 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if (url.pathname === "/admin/supporters/save" && request.method === "POST") {
-        return await handleSupportersAdminSave(request, env);
+        return await handleSupportersAdminSave(request, env, ctx);
       }
 
       if (url.pathname === "/admin/supporters/remove" && request.method === "POST") {
@@ -865,6 +866,11 @@ const ACCOUNTBOOK_WORKER = {
       if (url.pathname === "/my/profile" && request.method === "POST") {
         return await handleMyProfileUpdate(request, env);
       }
+
+      // V22.9.121: 회원 번호를 보인 ‘내 계정·보안’ 화면이 실제로 보일 때 보내는 신호(POST, 늘 204) — 관리자가 번호로 바로 찾도록 기억 줄을
+      // 없을 때만 넣는다. 화면 GET 은 쓰지 않는다(미리 렌더링 규칙과 GET 무변경 약속, my/member-code.js).
+      const memberCodeSeen = await memberCodeSeenResponseV229121(request, env, url, ctx);
+      if (memberCodeSeen) return memberCodeSeen;
 
       if (url.pathname === "/my/backup-login" && request.method === "GET") {
         return await handleMyBackupLoginPage(request, env, url);

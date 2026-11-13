@@ -383,7 +383,8 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
   const rowHeads = (m) => [...(m?.[3] || "").matchAll(/<tr><th scope="row">([^<]*)<\/th>/g)].map((x) => x[1]);
   const items = table("처리하는 개인정보 항목, 수집 시점과 보유기간");
   eq(heads(items), ["구분", "처리 항목", "수집 시점", "보유기간"], "5 처리 항목 표의 열(구분·항목·수집 시점·보유기간)");
-  eq(rowHeads(items), ["카카오 로그인", "로그인 이름 계정", "카카오톡 챗봇", "가계부 데이터", "거래 변경 이력", "접속·보안 기록", "쿠키"], "5 처리 항목 표의 구분");
+  // V22.9.121: 후원 확인 때 받는 정보(회원 번호·보낸 분 이름·보낸 날짜)와 후원자 표시·공개 명단 이름 줄 ‘후원(원하는 분만)’ 을 더했다.
+  eq(rowHeads(items), ["카카오 로그인", "로그인 이름 계정", "카카오톡 챗봇", "가계부 데이터", "거래 변경 이력", "후원(원하는 분만)", "접속·보안 기록", "쿠키"], "5 처리 항목 표의 구분");
   const transfer = table("개인정보 처리 위탁과 국외 이전");
   eq(heads(transfer), ["받는 자(국가)", "맡기는 업무", "이전되는 항목", "이전 시점과 방법", "보유·이용 기간"], "5 위탁·국외 이전 표의 열");
   eq(rowHeads(transfer), ["Cloudflare, Inc.(미국)", "Supabase, Inc.(미국 법인)", "주식회사 카카오(대한민국)", "네이버 주식회사(대한민국)"], "5 위탁·국외 이전 표의 받는 자(E-19: 문의 메일함 네이버 포함)");
@@ -420,6 +421,11 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
     ["6절 쿠키 ab_cs(V22.9.104 L-6 → V22.9.114 띠)", "ab_cs: 이용약관 안내 확인 기록을 읽은 결과(가계부 홈의 안내 띠를 띄울지), 14일"],
     ["6절 쿠키 ab_bk·ab_setup(V22.9.104 L-6)", "ab_bk·ab_setup: 가계부 기본 설정 안내 띠를 띄울지(로그인 비밀번호 설정 여부·가계부 설정 확인 결과), 14일·1시간"],
     ["6절 쿠키 ab_notice_hide(V22.9.104 L-6)", "ab_notice_hide: 공지 띠 ‘오늘 하루 안 보기’, 24시간"],
+    // V22.9.121: 후원 줄·ab_sp 쿠키·12절 이번 개정 성격 한 문단(V22.9.118 문단은 그대로).
+    ["6절 후원 줄(V22.9.121)", "후원 확인을 위해 알려 주신 회원 번호·보낸 분 이름·보낸 날짜, 후원자 표시 기간, 공개 명단에 올릴 이름(원하는 분만)"],
+    ["6절 후원 줄 보유기간(V22.9.121)", "후원자 표시를 지울 때까지(요청하면 바로 지움)"],
+    ["6절 쿠키 ab_sp(V22.9.121)", "ab_sp: 후원자가 고른 포인트 색을 웹 가계부의 다른 화면에도 보이게 하는 표시(값 1, 개인정보 없음), 1일"],
+    ["12절 이번 개정 성격(V22.9.121)", "이번 개정은 후원 확인 때 이미 받아 온 정보(회원 번호·보낸 분 이름·보낸 날짜)와 후원자 표시·공개 명단 이름을 6절 표에 적고, 후원자 포인트 색 쿠키(ab_sp)를 쿠키 목록에 더한 것입니다. 후원은 원하는 분만 하고 새로 받는 항목이 아니라 처리 내용을 더 자세히 적은 것이어서 이용자에게 불리하지 않은 변경입니다."],
     ["3절 문의 경로", "문의 경로는 7절의 개인정보 보호책임자 이메일(admin@malhaebook.com)입니다"],
     ["3절 탈퇴 기능 없음(V22.9.94 R-7 문장)", "계정 자체를 탈퇴·삭제하는 온라인 기능은 제공하지 않으며 개인정보 삭제 요청은 서비스 문의 경로로 확인합니다"],
   ]) ok(body.includes(words), `5 /privacy ${label}: ‘${words}’`);
@@ -427,7 +433,8 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
   ok(!PHONE.test(body), "5 방침에 휴대전화 번호가 없다(사업자 전화번호는 공개하지 않는다)");
   const sixth = html.slice(html.indexOf('id="section-6"'), html.indexOf('id="section-7"'));
   const names = [...new Set(text(sixth).match(/\b(?:ab|kakao)_[a-z_]+/g) || [])].sort();
-  eq(names, ["ab_account_link", "ab_account_link_later", "ab_account_link_pause", "ab_admin", "ab_bk", "ab_credential_reauth", "ab_cs", "ab_hh", "ab_household_delete_reauth", "ab_kakao_auto", "ab_notice_hide", "ab_setup", "ab_user", "kakao_oauth_link_user", "kakao_oauth_reauth_household", "kakao_oauth_return_to", "kakao_oauth_state"], "5 6절 쿠키 목록");
+  // V22.9.121: 후원자 포인트 색 쿠키 ab_sp 를 목록에 더했다(쓰는 코드는 같은 판의 후원자 표시 작업 — 아래 ‘코드가 실제로 쓰는 이름’ 검사가 함께 본다).
+  eq(names, ["ab_account_link", "ab_account_link_later", "ab_account_link_pause", "ab_admin", "ab_bk", "ab_credential_reauth", "ab_cs", "ab_hh", "ab_household_delete_reauth", "ab_kakao_auto", "ab_notice_hide", "ab_setup", "ab_sp", "ab_user", "kakao_oauth_link_user", "kakao_oauth_reauth_household", "kakao_oauth_return_to", "kakao_oauth_state"], "5 6절 쿠키 목록");
   const sources = moduleSources();
   const code = sources.filter((item) => item.name !== "content-pages.js").map((item) => item.source);
   eq(names.filter((name) => !code.some((source) => source.includes(`"${name}"`) || source.includes(`${name}=`))), [], "5 방침에 적은 쿠키 이름은 모두 코드가 실제로 쓰는 이름이다(방침 글 밖의 코드)");

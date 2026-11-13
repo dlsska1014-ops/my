@@ -23,6 +23,7 @@
     "validate:ops-hardening-v229119": "node validation/validate-ops-hardening-v229119.mjs",
     "validate:kakao-input-guards-v229120": "node validation/validate-kakao-input-guards-v229120.mjs",
     "validate:kakao-guard-examples-v229120": "node validation/validate-kakao-guard-examples-v229120.mjs",
+    "validate:supporter-id-v229121": "node validation/validate-supporter-id-v229121.mjs",
     "validate:budget-command-fix-v229113": "node validation/validate-budget-command-fix-v229113.mjs",
     "validate:gemini-fixes-v229112": "node validation/validate-gemini-fixes-v229112.mjs",
     "validate:ui-improvements-v229111": "node validation/validate-ui-improvements-v229111.mjs",
