@@ -62,6 +62,7 @@ import/csv-duplicates.js
 my/members-page.js
 my/setup-page.js
 my/supporters.js
+my/member-code.js
 my/card-import-guide.js
 client/lucian-d-import.js
 my/backup-import.js
@@ -103,6 +104,8 @@ assets/asset-responses.js
 my/mobile-home.js
 admin/pc-analysis-calendar.js
 my/money-plan-home-layout.js
+my/supporter-accent.js
+my/merge-carry.js
 admin/budget-center-recurring.js
 auth/local-login-pages.js
 auth/kakao-web-claim.js

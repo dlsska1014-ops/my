@@ -114,7 +114,7 @@ class Jar {
   }
 }
 
-async function go(fx, jar, path, { method = "GET", ua = CHROME, form = null, headers = {} } = {}) {
+async function go(fx, jar, path, { method = "GET", ua = CHROME, form = null, headers = {}, ctx = null } = {}) {
   const url = new URL(path, BASE);
   const requestHeaders = { "user-agent": ua, accept: "text/html", "sec-fetch-mode": "navigate", ...headers };
   const cookie = jar ? jar.header(url.pathname) : "";
@@ -124,7 +124,7 @@ async function go(fx, jar, path, { method = "GET", ua = CHROME, form = null, hea
     Object.assign(requestHeaders, { "content-type": "application/x-www-form-urlencoded", origin: BASE, "sec-fetch-site": "same-origin" });
     init.body = new URLSearchParams(form).toString();
   }
-  const response = await app.fetch(new Request(url.href, init), fx.env, { waitUntil() {}, passThroughOnException() {} });
+  const response = await app.fetch(new Request(url.href, init), fx.env, ctx || { waitUntil() {}, passThroughOnException() {} });
   const cookies = jar ? jar.take(response) : (typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie() : []);
   return { status: response.status, location: response.headers.get("location") || "", headers: response.headers, cookies, html: await response.text() };
 }
@@ -595,6 +595,82 @@ await linkFixture(async (fx, server) => {
   eq(run.location, "/my?msg=account_linked", "10 합친다");
   ok(server.merges.length === base + 1 && server.merges.at(-1)?.p_primary_user_id === chat && server.merges.at(-1)?.p_secondary_user_id === "user-bin", "10 주 계정 = 방 기록 계정");
 });
+
+// ── 11. (V22.9.121) 계정 잇기로 합칠 때도 설정 줄(후원자 표시·안내 확인 기록) 옮기기는 합치기 뒤처리의 맨 끝이고, 잇기 경로는 합친 뒤 DB 를 쓰지
+// 않는다(독립 검토 V22.9.121 3차 P3: 관리자 통합 경로에만 검사가 있었다). 옮기기는 요청 예산의 남은 호출만 쓰므로, 부르는 쪽이 그 뒤에 DB 를 쓰면
+// 그 호출이 예산에 밀릴 수 있다. 답 뒤 일(waitUntil)은 약속을 모아 다 끝날 때까지 기다리고, waitUntil 에 맡기지 않은 호출도 잡히게 20ms 더 기다린 뒤
+// 가로채기를 푼다. 푼 뒤 20ms 동안 오는 요청도 센다(4차·5차 P3). 옮기기 안의 순서(주 계정 쓰기 → 보조 지우기)도 본다(5차 P3). 옮기기 호출은 네 키를 한 번에
+// 읽는 줄과 예상한 키의 쓰기로만 고른다 — 그 밖의 설정 읽기·쓰기는 ‘다른 호출’ 로 센다(4차 P3). 빈 방 기록 계정(보조)에 후원자 표시·확인 기록이
+// 있고, 웹 계정(주)에 확인 기록이 없을 때(옮김, 11a)와 있을 때(그대로, 11b) 둘 다 본다.
+for (const primaryConsent of [false, true]) {
+  const label = primaryConsent ? "11b" : "11a";
+  await linkFixture(async (fx, server) => {
+    const base = await twoKakaoLoginWebAccount(fx, server, label);
+    const chat = await roomAccountWithOffer(fx, `bot-v121-carry-${label}`, label, { empty: true });
+    const jar = new Jar();
+    await kakaoLogin(fx, jar, server, "2265", { ua: CHROME });
+    const { callback } = await confirmWith(fx, jar, server, "2265");
+    eq(callback.location, "/my/account-link/run", `${label} 확인 화면에서 2265 로 확인하면 받는다`);
+    // 설정 줄은 잇기 직전에 둔다(앞의 로그인·확인 단계가 건드리지 않게).
+    const supporter = JSON.stringify({ since: "2026-06-01", until: null, note: "QA 송금", public_name: "방 기록" });
+    const consent = JSON.stringify({ version: "2026-11-13", at: "2026-07-02T00:00:00.000Z", via: "kakao" });
+    const primaryConsentValue = JSON.stringify({ version: "2026-11-13", at: "2026-07-05T00:00:00.000Z", via: "web" });
+    putSetting(fx, `supporter:${chat}`, supporter);
+    putSetting(fx, `consent:${chat}`, consent);
+    const kept = fx.db.accountbook_settings.findIndex((row) => row.key === "consent:user-bin");
+    if (kept >= 0) fx.db.accountbook_settings.splice(kept, 1);
+    if (primaryConsent) putSetting(fx, "consent:user-bin", primaryConsentValue);
+    const origin = new URL(fx.env.SUPABASE_URL).origin;
+    const log = [];
+    const pending = [];
+    const ctx = { waitUntil(promise) { pending.push(Promise.resolve(promise).catch(() => {})); }, passThroughOnException() {} };
+    const restore = intercept(async ({ url, method, init }) => {
+      if (url.origin === origin) log.push({ method, decoded: decodeURIComponent(`${url.pathname}${url.search}`), body: typeof init?.body === "string" ? init.body : "" });
+      return null;
+    });
+    let run;
+    try {
+      run = await go(fx, jar, "/my/account-link/run", { ua: CHROME, ctx });
+      for (let round = 0; round < 5; round += 1) {
+        const seen = pending.length;
+        await Promise.allSettled(pending);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (pending.length === seen) break;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } finally {
+      restore();
+    }
+    let late = 0;
+    const lateCount = intercept(async ({ url }) => { if (url.origin === origin) late += 1; return null; });
+    try { await new Promise((resolve) => setTimeout(resolve, 20)); } finally { lateCount(); }
+    eq(run.location, "/my?msg=account_linked", `${label} 합치고 가계부로 간다`);
+    ok(server.merges.length === base + 1 && server.merges.at(-1)?.p_primary_user_id === "user-bin" && server.merges.at(-1)?.p_secondary_user_id === chat, `${label} 빈 방 기록 계정(보조)을 웹 계정(주)으로 합친다`);
+    eq(jar.user(), "user-bin", `${label} 이 브라우저의 세션은 웹 계정 그대로(잇기 응답의 쿠키, 4번 장면과 같음)`);
+    const carryKeys = ["supporter:user-bin", `supporter:${chat}`, "consent:user-bin", `consent:${chat}`];
+    const writeKeys = primaryConsent ? ["supporter:user-bin"] : ["supporter:user-bin", "consent:user-bin"];
+    const bodyKey = (row) => { try { return String(JSON.parse(row.body || "{}")?.key || ""); } catch (_) { return ""; } };
+    const isCarry = (row) => (row.method === "GET" && row.decoded.startsWith("/rest/v1/accountbook_settings?key=in.(") && carryKeys.every((key) => row.decoded.includes(key)))
+      || (row.method === "POST" && row.decoded === "/rest/v1/accountbook_settings?on_conflict=key" && writeKeys.includes(bodyKey(row)))
+      || (row.method === "DELETE" && row.decoded === `/rest/v1/accountbook_settings?key=eq.supporter:${chat}`);
+    const mergeAt = log.findIndex((row) => row.decoded.startsWith("/rest/v1/rpc/accountbook_merge_users_v227"));
+    const firstCarryAt = log.findIndex(isCarry);
+    const lastOtherAt = log.map((row, index) => (isCarry(row) ? -1 : index)).filter((index) => index >= 0).at(-1) ?? -1;
+    const carry = log.filter(isCarry);
+    const expected = 1 + writeKeys.length + 1;
+    ok(mergeAt >= 0 && firstCarryAt > mergeAt && firstCarryAt > lastOtherAt && carry.length === expected && carry[0].method === "GET",
+      `${label} 설정 줄 옮기기 호출(읽기 1 + 쓰기 ${expected - 1})은 합치기 RPC 와 다른 모든 DB 호출 뒤(맨 끝)다 — 잇기 경로는 합친 뒤 답 뒤 일까지 DB 를 쓰지 않는다: 합치기 ${mergeAt} · 옮기기 첫 호출 ${firstCarryAt} · 다른 마지막 호출 ${lastOtherAt} · 옮기기 ${carry.length}회`);
+    ok(log.length <= 50, `${label} 잇기 한 요청의 DB 호출은 한도(50) 안이다 (${log.length}회)`);
+    ok(late === 0, `${label} 가로채기를 푼 뒤(20ms)에는 DB 요청이 오지 않는다 — ‘맨 끝’ 판정이 이 요청의 호출을 다 봤다 (${late}회)`);
+    const supporterWriteAt = carry.findIndex((row) => row.method === "POST" && bodyKey(row) === "supporter:user-bin");
+    const supporterDeleteAt = carry.findIndex((row) => row.method === "DELETE");
+    ok(supporterWriteAt > 0 && supporterDeleteAt > supporterWriteAt, `${label} 옮기기 안의 순서: 주 계정 후원자 줄 쓰기 → 보조 줄 지우기(지우기가 먼저면 둘 사이에서 실패할 때 후원자 표시가 사라진다): 쓰기 ${supporterWriteAt} · 지우기 ${supporterDeleteAt}`);
+    ok(JSON.parse(settingValue(fx, "supporter:user-bin") || "null")?.since === "2026-06-01" && settingValue(fx, `supporter:${chat}`) === undefined,
+      `${label} 후원자 표시가 웹 계정(주)으로 옮겨지고 방 기록 계정 줄은 지워진다`);
+    ok(primaryConsent ? settingValue(fx, "consent:user-bin") === primaryConsentValue && settingValue(fx, `consent:${chat}`) === consent : settingValue(fx, "consent:user-bin") === consent,
+      `${label} 안내 확인 기록은 웹 계정에 없을 때만 옮긴다(웹 계정에 ${primaryConsent ? "있음 → 그대로, 방 기록 계정 줄도 그대로" : "없음 → 옮김"}): 주 ${settingValue(fx, "consent:user-bin")} · 보조 ${settingValue(fx, `consent:${chat}`)} · 옮기기 ${carry.map((row) => `${row.method} ${row.decoded.slice(0, 60)}`).join(" | ")}`);
+  });
+}
 
 if (SOFT) {
   console.log(`soft failures: ${softFailures.length}`);

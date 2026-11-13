@@ -12,6 +12,8 @@ const ok = (condition, message) => { checks += 1; if (!condition) failures.push(
 
 // 출처 문서마다 항목 ID 를 뽑는 규칙. 새 감사 문서를 쓰면 여기에 한 줄을 더한다.
 const SOURCES = [
+  // V22.9.121: 2026-11-13 후원자 점검(운영 V22.9.120 기준)의 빈틈 S-1~S-4·남은 혜택 S-5 와 계정 잇기 진단 중 본 I-1.
+  { key: "V121", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_121.md", pattern: /^(###|[ ]*-) +(?:[*][*])?([SI]-[0-9]+)(?=[ *]|$)/gm, expected: 6 },
   // V22.9.120: 2026-11-10 합성 문장 대량 검사(운영 V22.9.116 기준)의 카카오 입력 해석 결함 묶음 ①~⑪ 과 제품 결정 1~4(C-, 저장 직전 안전망으로 ①②③·결정 1 일부 고침).
   { key: "V120", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_120.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(C-[0-9]+)(?=[ *]|$)/gm, expected: 15 },
   // V22.9.118: 2026-11-12 전체 점검(운영 V22.9.116 기준)의 모든 항목 — 운영(O-)·리포트 숫자(N-)·공개·법무(P-)·화면(U-, U-1 은 U-1a~U-1h 처럼 끝에 소문자)·보안(S-)·구조(K-).
@@ -73,7 +75,7 @@ const ledger = read("docs/codex/FINDINGS_LEDGER.md");
 const harness = read(".codex/scripts/verify-repository.mjs");
 const rows = [];
 for (const line of ledger.split("\n")) {
-  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108|V116|V117|V118|V120):[A-Z]-[0-9]+[a-z]?) *[|]/.exec(line);
+  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108|V116|V117|V118|V120|V121):[A-Z]-[0-9]+[a-z]?) *[|]/.exec(line);
   if (!match) continue;
   const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
   const [id, severity, title, status, fixedIn, check, note] = cells;

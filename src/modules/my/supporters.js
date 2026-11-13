@@ -174,9 +174,9 @@ function supporterAccentChoicesHtml({ supporterChatUrl = "" } = {}) {
 // @build:exports-start
 export {
   activeSupporterFlag, fetchPublicSupporterNames, fetchSettingValuesByKeysV22995,
-  fetchSupporterFlag, fetchSupporterFlags, fetchSupporterRows, supporterAccentChoicesHtml,
-  supporterBadgeHtml, supporterDateV22995, supporterFlagActive, supporterHeadHtml,
-  supporterHtmlAttr, supporterInValueV22995, supporterSettingsKey, supporterTextV22995,
-  supporterThanksHtml, supporterTodayV22995,
+  fetchSupporterFlag, fetchSupporterFlags, fetchSupporterRows, normalizeSupporterFlag,
+  supporterAccentChoicesHtml, supporterBadgeHtml, supporterDateV22995, supporterFlagActive,
+  supporterHeadHtml, supporterHtmlAttr, supporterInValueV22995, supporterSettingsKey,
+  supporterTextV22995, supporterThanksHtml, supporterTodayV22995,
 };
 // @build:exports-end

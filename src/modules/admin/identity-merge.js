@@ -22,6 +22,7 @@ import {
   fetchRawHouseholdMembers, fetchUserById, withKakaoUserLifecycleLease,
 } from "../data/users-household-create.js";
 import { householdChoiceLabelV229118 } from "../my/access-control.js";
+import { carryUserSettingsAfterMergeV229121 } from "../my/merge-carry.js";
 import { kakaoClaimUserUnmerged } from "../auth/kakao-web-claim.js";
 import { renderKakaoAccountLinkDiagnostics } from "../auth/kakao-account-link.js";
 import { isDefiniteStorageFailure } from "../kakao/response-builders.js";
@@ -183,7 +184,7 @@ async function performIdentityMerge(env, options = {}) {
 
   rewireEffectiveUserCache(secondaryId, primaryId);
   // V22.9.91: 뒤처리는 모두 실패해도 합치기를 되돌리지 않는다. 한 요청의 DB 호출 한도(50회) 안에서 부르는 쪽의 뒤처리(afterMerge)부터
-  // 하고 링크 표 → 방 연결 → 가계부별 표시 별명 순서로 한다. 잠금을 잡고 못 풀면 90초 남으므로, 남은 호출이 모자라면 시작하지 않고
+  // 하고 링크 표 → 방 연결 → 가계부별 표시 별명 → (V22.9.121) 설정 줄 옮기기 순서로 한다. 잠금을 잡고 못 풀면 90초 남으므로, 남은 호출이 모자라면 시작하지 않고
   // 운영 이벤트(…_deferred)로 남긴다. 남겨도 로그인·기록은 통합 리다이렉트로 주 계정을 찾는다.
   const dbRoom = (calls) => {
     const budget = env.__AB_DB_BUDGET;
@@ -270,6 +271,12 @@ async function performIdentityMerge(env, options = {}) {
       rememberOpsEvent({ kind: "identity_alias_cleanup_failed", severity: "warn", path, method: "POST", detail: "alias cleanup pending" });
     }
   }
+  // V22.9.121: 설정 표의 후원자 표시(supporter:<id>)와 안내 확인 기록(consent:<id>)은 합치기 RPC 가 옮기지 않는다. 기존 뒤처리(세션 → 링크 표 →
+  // 방 연결 → 가계부별 표시 별명)가 다 끝난 뒤 맨 끝에서, 남은 호출로만 주 계정에 옮긴다(읽기 1회 + 쓰기 많아야 3회). 그래서 기존 뒤처리의 예산과 순서는
+  // V22.9.120 과 같다 — 앞에 두면 링크 표·방 연결·별명 정리 몫을 먼저 썼다(독립 검토 V22.9.121 1차·2차 P2). 남은 호출이 모자라면 쓰지 않고 운영 이벤트
+  // (merge_settings_carry_deferred)만 남긴다. 그때는 관리자가 주 계정에 후원자 표시를 다시 켜고, 약관 안내 띠는 한 번 더 뜬 뒤 닫으면 끝난다.
+  // 모든 오류를 그 안에서 받으므로 합치기 결과·응답은 그대로다(my/merge-carry.js). 부르는 쪽(관리자 통합·계정 잇기)은 이 뒤에 DB 를 쓰지 않는다.
+  await carryUserSettingsAfterMergeV229121(env, primaryId, secondaryId, { path, hasRoom: dbRoom });
   return { summary, primaryId, secondaryId };
 }
 
