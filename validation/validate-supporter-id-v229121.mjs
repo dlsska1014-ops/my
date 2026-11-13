@@ -10,9 +10,10 @@
 //      보일 때 보내는 신호(POST /my/member-code/seen, 늘 204)로 답 뒤(waitUntil) 한 번(ignore-duplicates) — 답이 그 쓰기를 기다리지 않고, 같은 isolate
 //      에서 다시 쓰지 않으며, 세션 없음·다른 출처·같은 사이트·미리 받기·합쳐진 계정·GET 은 쓰지 않는다.
 //   3. 관리자 찾기(POST /admin/supporters/save, by=member_code): 기억 줄 → 다시 계산해 확인, 없으면 훑기 + 기억 줄, 틀린 기억 줄은 버리고 바로잡음,
-//      꼴이 틀리면 member_code_invalid, 비밀값이 없으면 member_code_unavailable, 합쳐진 계정은 user_merged.
+//      꼴이 틀리면 member_code_invalid, 비밀값이 없으면 member_code_unavailable, 훑기 읽기가 실패하면 member_code_lookup_failed, 합쳐진 계정은 user_merged.
 //   4. 관리자 전체 사용자 목록(GET /admin/supporters): 줄·계정 유형·가입일(KST)·id 앞 8자·후원 상태·추가/고치기 링크, 이름·번호·id 앞자리 찾기,
-//      쪽 넘기기, 통합됨 표시, 이름 이스케이프, 관리자만, 화면 한 번 DB 호출 5번 이하·줄마다 읽지 않음, 추가 링크 → 폼 → 저장.
+//      쪽 넘기기, 통합됨 표시, 이름 이스케이프, 관리자만, 화면 한 번 DB 호출 5번 이하(정식 꼴이 아닌 번호 꼴을 번호로 못 찾아 표시 이름으로도 찾을
+//      때만 6번)·줄마다 읽지 않음, 정식 꼴 번호는 이름으로 찾지 않음, 훑기 읽기 실패는 다시 시도 안내, 추가 링크 → 폼 → 저장.
 //   5. /support 문구(오픈채팅 길·송금 길·문의)와 ‘내 계정·보안’ 메뉴 이름, 6. 개인정보처리방침 6절 표 줄·ab_sp·12절 한 문단, 7. 소스·등록.
 // 실제 번들(src/index.js)의 app.fetch 와 QA 픽스처로 본다. DB·네트워크 없음.
 import { createHash, createHmac } from "node:crypto";
@@ -395,6 +396,7 @@ await withClock(DAY, () => fixture(async (fx) => {
     const scanAgain = await post(fx, "/admin/supporters/save", form(codeOf("user-scan-121")), { cookie: admin });
     ok(scanAgain.location === "/admin/supporters?msg=saved" && !!settingValue(fx, "supporter:user-scan-121"), "3-j4 훑기가 다시 되면 같은 번호로 켜진다(번호는 맞았다)");
     dropSettings(fx, "supporter:user-scan-121");
+    dropSettings(fx, `member_code:${codeOf("user-scan-121")}`);
     fx.db.users = fx.db.users.filter((row) => row.id !== "user-scan-121");
 
     // 합쳐진 계정에는 새로 켜지 않는다(이미 있는 줄 고치기는 그대로).

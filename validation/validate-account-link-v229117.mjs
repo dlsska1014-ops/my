@@ -598,7 +598,8 @@ await linkFixture(async (fx, server) => {
 
 // ── 11. (V22.9.121) 계정 잇기로 합칠 때도 설정 줄(후원자 표시·안내 확인 기록) 옮기기는 합치기 뒤처리의 맨 끝이고, 잇기 경로는 합친 뒤 DB 를 쓰지
 // 않는다(독립 검토 V22.9.121 3차 P3: 관리자 통합 경로에만 검사가 있었다). 옮기기는 요청 예산의 남은 호출만 쓰므로, 부르는 쪽이 그 뒤에 DB 를 쓰면
-// 그 호출이 예산에 밀릴 수 있다. 답 뒤 일(waitUntil)은 약속을 모아 다 끝날 때까지 기다린 뒤 가로채기를 푼다(4차 P3). 옮기기 호출은 네 키를 한 번에
+// 그 호출이 예산에 밀릴 수 있다. 답 뒤 일(waitUntil)은 약속을 모아 다 끝날 때까지 기다리고, waitUntil 에 맡기지 않은 호출도 잡히게 20ms 더 기다린 뒤
+// 가로채기를 푼다. 푼 뒤 20ms 동안 오는 요청도 센다(4차·5차 P3). 옮기기 안의 순서(주 계정 쓰기 → 보조 지우기)도 본다(5차 P3). 옮기기 호출은 네 키를 한 번에
 // 읽는 줄과 예상한 키의 쓰기로만 고른다 — 그 밖의 설정 읽기·쓰기는 ‘다른 호출’ 로 센다(4차 P3). 빈 방 기록 계정(보조)에 후원자 표시·확인 기록이
 // 있고, 웹 계정(주)에 확인 기록이 없을 때(옮김, 11a)와 있을 때(그대로, 11b) 둘 다 본다.
 for (const primaryConsent of [false, true]) {
@@ -636,9 +637,13 @@ for (const primaryConsent of [false, true]) {
         await new Promise((resolve) => setTimeout(resolve, 0));
         if (pending.length === seen) break;
       }
+      await new Promise((resolve) => setTimeout(resolve, 20));
     } finally {
       restore();
     }
+    let late = 0;
+    const lateCount = intercept(async ({ url }) => { if (url.origin === origin) late += 1; return null; });
+    try { await new Promise((resolve) => setTimeout(resolve, 20)); } finally { lateCount(); }
     eq(run.location, "/my?msg=account_linked", `${label} 합치고 가계부로 간다`);
     ok(server.merges.length === base + 1 && server.merges.at(-1)?.p_primary_user_id === "user-bin" && server.merges.at(-1)?.p_secondary_user_id === chat, `${label} 빈 방 기록 계정(보조)을 웹 계정(주)으로 합친다`);
     eq(jar.user(), "user-bin", `${label} 이 브라우저의 세션은 웹 계정 그대로(잇기 응답의 쿠키, 4번 장면과 같음)`);
@@ -656,6 +661,10 @@ for (const primaryConsent of [false, true]) {
     ok(mergeAt >= 0 && firstCarryAt > mergeAt && firstCarryAt > lastOtherAt && carry.length === expected && carry[0].method === "GET",
       `${label} 설정 줄 옮기기 호출(읽기 1 + 쓰기 ${expected - 1})은 합치기 RPC 와 다른 모든 DB 호출 뒤(맨 끝)다 — 잇기 경로는 합친 뒤 답 뒤 일까지 DB 를 쓰지 않는다: 합치기 ${mergeAt} · 옮기기 첫 호출 ${firstCarryAt} · 다른 마지막 호출 ${lastOtherAt} · 옮기기 ${carry.length}회`);
     ok(log.length <= 50, `${label} 잇기 한 요청의 DB 호출은 한도(50) 안이다 (${log.length}회)`);
+    ok(late === 0, `${label} 가로채기를 푼 뒤(20ms)에는 DB 요청이 오지 않는다 — ‘맨 끝’ 판정이 이 요청의 호출을 다 봤다 (${late}회)`);
+    const supporterWriteAt = carry.findIndex((row) => row.method === "POST" && bodyKey(row) === "supporter:user-bin");
+    const supporterDeleteAt = carry.findIndex((row) => row.method === "DELETE");
+    ok(supporterWriteAt > 0 && supporterDeleteAt > supporterWriteAt, `${label} 옮기기 안의 순서: 주 계정 후원자 줄 쓰기 → 보조 줄 지우기(지우기가 먼저면 둘 사이에서 실패할 때 후원자 표시가 사라진다): 쓰기 ${supporterWriteAt} · 지우기 ${supporterDeleteAt}`);
     ok(JSON.parse(settingValue(fx, "supporter:user-bin") || "null")?.since === "2026-06-01" && settingValue(fx, `supporter:${chat}`) === undefined,
       `${label} 후원자 표시가 웹 계정(주)으로 옮겨지고 방 기록 계정 줄은 지워진다`);
     ok(primaryConsent ? settingValue(fx, "consent:user-bin") === primaryConsentValue && settingValue(fx, `consent:${chat}`) === consent : settingValue(fx, "consent:user-bin") === consent,
