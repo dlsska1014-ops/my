@@ -22,6 +22,7 @@ import {
   fetchRawHouseholdMembers, fetchUserById, withKakaoUserLifecycleLease,
 } from "../data/users-household-create.js";
 import { householdChoiceLabelV229118 } from "../my/access-control.js";
+import { carryUserSettingsAfterMergeV229121 } from "../my/merge-carry.js";
 import { kakaoClaimUserUnmerged } from "../auth/kakao-web-claim.js";
 import { renderKakaoAccountLinkDiagnostics } from "../auth/kakao-account-link.js";
 import { isDefiniteStorageFailure } from "../kakao/response-builders.js";
@@ -183,7 +184,7 @@ async function performIdentityMerge(env, options = {}) {
 
   rewireEffectiveUserCache(secondaryId, primaryId);
   // V22.9.91: 뒤처리는 모두 실패해도 합치기를 되돌리지 않는다. 한 요청의 DB 호출 한도(50회) 안에서 부르는 쪽의 뒤처리(afterMerge)부터
-  // 하고 링크 표 → 방 연결 → 가계부별 표시 별명 순서로 한다. 잠금을 잡고 못 풀면 90초 남으므로, 남은 호출이 모자라면 시작하지 않고
+  // 하고 (V22.9.121 설정 줄 →) 링크 표 → 방 연결 → 가계부별 표시 별명 순서로 한다. 잠금을 잡고 못 풀면 90초 남으므로, 남은 호출이 모자라면 시작하지 않고
   // 운영 이벤트(…_deferred)로 남긴다. 남겨도 로그인·기록은 통합 리다이렉트로 주 계정을 찾는다.
   const dbRoom = (calls) => {
     const budget = env.__AB_DB_BUDGET;
@@ -196,6 +197,10 @@ async function performIdentityMerge(env, options = {}) {
       rememberOpsEvent({ kind: "identity_merge_after_failed", severity: "warn", path, method: "POST", detail: safeError(err) });
     }
   }
+  // V22.9.121: 설정 표의 후원자 표시(supporter:<id>)와 안내 확인 기록(consent:<id>)은 합치기 RPC 가 옮기지 않는다. 세션(afterMerge) 다음,
+  // 링크 표 정리 앞에서 주 계정으로 옮긴다(읽기 1회 + 쓰기 많아야 3회, 남은 호출이 모자라면 남기고 운영 이벤트). 모든 오류를 그 안에서 받으므로
+  // 합치기 결과·응답은 그대로다(my/merge-carry.js).
+  await carryUserSettingsAfterMergeV229121(env, primaryId, secondaryId, { path, hasRoom: dbRoom });
   // 링크 표: 잠금·읽기·쓰기·풀기 4회.
   try {
     if (!dbRoom(4)) throw Object.assign(new Error("legacy identity cleanup pending: no database budget"), { deferred: true });

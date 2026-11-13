@@ -18,6 +18,7 @@ import {
   myAccessStatusResponse, saveHouseholdMemberPolicy,
 } from "./access-control.js";
 import { householdPageMessage } from "./households-lifecycle.js";
+import { withSupporterAccentCookieV229121 } from "./supporter-accent.js";
 import { renderMyStartChoiceHtml } from "../auth/local-login-pages.js";
 import { myNavCss, renderMySideNav } from "../web/login-page-side-nav.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
@@ -46,7 +47,10 @@ async function handleMyMembersPage(request, env, url) {
     fetchHouseholdMembers(env, selected.id).then(async (rows) => [rows, await fetchSupporterFlags(env, safeArray(rows).map((m) => m.user_id)).catch(() => new Map())]),
     fetchHouseholdMemberPolicy(env, selected.id).catch(() => ""),
   ]);
-  return htmlResponse(renderMyMembersHtml({ env, user, month, households, selected, members, memberPolicy, supporterFlags, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" }));
+  // V22.9.121: 보는 사람도 구성원이라 위 조회에 들어 있다 → 포인트 색 쿠키(ab_sp)도 맞춘다(추가 조회 없음). 구성원이 50명을 넘어
+  // 보는 사람의 표시를 읽지 않았으면(fetchSupporterFlags 는 앞 50명만 읽는다) 쿠키를 그대로 둔다.
+  const viewerFlagRead = [...new Set(safeArray(members).map((m) => String(m?.user_id || "").trim()).filter(Boolean))].slice(0, 50).includes(String(userId));
+  return withSupporterAccentCookieV229121(request, htmlResponse(renderMyMembersHtml({ env, user, month, households, selected, members, memberPolicy, supporterFlags, msg: url.searchParams.get("msg") || "", err: url.searchParams.get("err") || "" })), viewerFlagRead ? supporterFlags instanceof Map && supporterFlags.has(String(userId)) : null);
 }
 
 // V22.9.43: 구성원 권한(기록만/기록·수정) 저장. 소유자만 바꾸며, 결과는 참여자 화면의 같은 칸으로 돌아가 알린다.
