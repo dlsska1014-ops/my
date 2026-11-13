@@ -10324,10 +10324,11 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
         { title: "6. 처리하는 개인정보 항목과 보유기간", paragraphs: ["말해가계부는 아래 항목만 처리합니다. 카카오 로그인으로는 카카오 회원번호와 닉네임만 저장하며 프로필 사진·이메일·전화번호는 저장하지 않습니다."], table: { caption: "처리하는 개인정보 항목, 수집 시점과 보유기간", headers: ["구분", "처리 항목", "수집 시점", "보유기간"], rows: [
           ["카카오 로그인", "카카오 회원번호, 카카오 닉네임", "카카오 로그인으로 가입하거나 로그인할 때", "회원 이용 기간(삭제 요청 시까지)"],
           ["로그인 이름 계정", "로그인 이름, 표시 이름, 비밀번호(복원할 수 없게 변환한 값만 저장)", "새 계정을 만들거나 로그인 정보를 바꿀 때", "회원 이용 기간(삭제 요청 시까지)"],
+          ["회원 번호", "회원 번호(MB- 로 시작, 계정마다 이미 있는 내부 식별값으로 만든 번호)와 그 번호가 가리키는 계정", "‘내 계정·보안’ 화면을 열 때(운영자가 후원 확인이나 문의 때 번호로 계정을 찾는 데만 씁니다)", "회원 이용 기간(삭제 요청 시까지)"],
           ["카카오톡 챗봇", "카카오가 보내는 챗봇 사용자 식별키(botUserKey 등), 단톡방 식별키(botGroupKey), 보낸 문장 원문", "챗봇에 문장을 보낼 때", "회원 이용 기간. 문장 원문은 그 문장으로 저장한 거래와 함께 보관합니다."],
           ["가계부 데이터", "수입·지출 내역(금액·날짜·분류·결제수단·메모), 예산, 정기 규칙, 가계부 이름, 참여자와 권한, 초대코드, 설정값", "사용자가 입력하거나 설정할 때", "가계부를 영구 삭제할 때까지"],
           ["거래 변경 이력", "고치거나 지운 거래의 바뀌기 전·후 내용, 변경한 사용자, 변경 시각", "거래를 고치거나 지울 때", "최대 180일"],
-          ["후원(원하는 분만)", "후원 확인을 위해 알려 주신 말해가계부 회원 번호(MB- 로 시작)·보낸 분 이름·보낸 날짜, 후원자 표시 기간, 공개 명단에 올릴 이름(원하는 분만)", "후원 사실을 알려 주실 때(후원 확인, 후원자 표시와 공개 명단에만 씁니다)", "후원자 표시를 지울 때까지(요청하면 바로 지움)"],
+          ["후원(원하는 분만)", "후원자 표시 기간, 확인 메모(보낸 분 이름·보낸 날짜처럼 후원 확인에 쓴 내용), 공개 명단에 올릴 이름(원하는 분만)", "후원 사실을 메일이나 오픈채팅으로 알려 주실 때(보낸 분 이름·보낸 날짜·회원 번호로 확인하고, 후원자 표시와 공개 명단에만 씁니다)", "후원자 표시를 지울 때까지(요청하면 바로 지움). 알려 주신 메일은 8절의 문의 메일 기준을 따릅니다."],
           ["접속·보안 기록", "IP 주소, 브라우저 정보(User-Agent), 요청 경로와 시각", "서비스에 접속할 때 자동으로 생성", "요청 횟수 제한에 쓰는 값은 서버 인스턴스 메모리에만 잠시 두고 저장하지 않습니다. 로그인·가입 시도 제한에는 IP 주소 등을 복원할 수 없게 변환한 값과 시도 횟수만 데이터베이스에 저장하고, 로그인에 성공하면 그 기록을 지웁니다."],
           ["쿠키", "아래 쿠키 목록", "로그인·본인 확인·가계부 선택 때", "아래 쿠키 목록"],
         ] }, bullets: ["ab_user: 로그인 유지(세션), 14일", "ab_hh: 마지막으로 연 가계부 기억, 1년", "ab_cs: 이용약관 안내 확인 기록을 읽은 결과(가계부 홈의 안내 띠를 띄울지), 14일", "ab_bk·ab_setup: 가계부 기본 설정 안내 띠를 띄울지(로그인 비밀번호 설정 여부·가계부 설정 확인 결과), 14일·1시간", "ab_notice_hide: 공지 띠 ‘오늘 하루 안 보기’, 24시간", "ab_sp: 후원자가 고른 포인트 색을 웹 가계부의 다른 화면에도 보이게 하는 표시(값 1, 개인정보 없음), 1일","kakao_oauth_state·kakao_oauth_link_user·kakao_oauth_reauth_household·kakao_oauth_return_to: 카카오 로그인 요청 확인, 10분", "ab_credential_reauth·ab_household_delete_reauth·ab_account_link: 본인 확인과 계정 잇기 확인, 5분", "ab_kakao_auto: 카카오톡 안 자동 로그인 시도 상태, 10분~30일(직접 로그아웃하면 30일 동안 멈춤)", "ab_account_link_later·ab_account_link_pause: 계정 잇기 안내 미루기, 7일·10분", "ab_admin: 운영자 관리 화면 로그인(운영자만), 12시간", "모든 쿠키는 HTTPS 연결에서만 보내고(Secure) 화면의 스크립트가 읽지 못하게(HttpOnly) 설정합니다. 광고 쿠키는 4절을 따릅니다."] },
@@ -10343,7 +10344,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
         { title: "9. 만 14세 미만 아동의 개인정보", paragraphs: ["만 14세 미만 아동도 말해가계부를 쓸 수 있습니다. 가계부 기록과 로그인처럼 서비스를 쓰는 데 꼭 필요한 개인정보만 처리합니다. 이 처리는 서비스 이용 계약을 지키는 데 필요한 처리(개인정보 보호법 제15조제1항제4호)라서 따로 동의를 받지 않습니다.", "만 14세 미만 아동의 개인정보로는 꼭 필요하지 않은 정보를 모으거나 이름을 공개하는 일처럼 동의를 받아야 하는 처리를 하지 않습니다. 그런 처리가 필요하면 그 처리에서만 나이를 확인하고 법정대리인(부모 등 보호자)의 동의를 받습니다.", "아동에게 알리는 내용은 알기 쉬운 말로 씁니다(개인정보 보호법 제22조의2제3항).", "법정대리인은 아동의 개인정보를 보거나, 고치거나, 지우거나, 처리를 멈추라고 요청할 수 있습니다. 7절의 개인정보 보호책임자 이메일로 요청하면 법정대리인인지 확인한 뒤 지체 없이 처리합니다."] },
         { title: "10. 개인정보의 파기 절차와 방법", paragraphs: ["보유기간이 끝나거나 처리 목적을 이룬 개인정보는 지체 없이 파기합니다. 다른 법령에 따라 보존해야 하면 다른 정보와 분리해 그 기간 동안만 보관합니다.", "파기 절차: 파기할 개인정보를 정하고 개인정보 보호책임자의 확인을 거쳐 파기합니다. 파기 방법: 전자 파일은 복구할 수 없도록 데이터베이스에서 삭제합니다. 개인정보를 종이로 출력해 두지 않으며, 출력한 것이 있으면 분쇄하거나 소각합니다.", "거래 변경 이력(고치거나 지운 거래의 바뀌기 전 내용)은 실행 취소와 복구를 위해 보관하며, 180일이 지나면 자동으로 삭제합니다.", "사용자가 내려받은 백업 파일은 사용자 기기에 저장되므로 사용자가 직접 지워야 합니다. 장애에 대비해 데이터베이스 사본을 만드는 경우 운영자만 접근하게 하고, 원본에서 지운 정보는 사본의 보관 기간이 끝날 때 함께 지웁니다."] },
         { title: "11. 권익침해 구제 방법", paragraphs: ["개인정보 침해에 대한 신고나 상담이 필요하면 아래 기관에 문의할 수 있습니다."], bullets: ["개인정보침해신고센터(한국인터넷진흥원): privacy.kisa.or.kr, 국번 없이 118", "개인정보분쟁조정위원회: www.kopico.go.kr, 1833-6972", "대검찰청 사이버수사과: www.spo.go.kr, 국번 없이 1301", "경찰청 사이버수사국: ecrm.police.go.kr, 국번 없이 182"] },
-        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다. 동의 절차나 보호 조치를 더하거나 처리 내용을 더 자세히 적는 것처럼 이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다.", POLICY_NOTICE_DATE === POLICY_REVISION_DATE ? `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 같은 날부터 시행합니다. 이번 개정은 단톡방에서 기록뿐 아니라 조회나 설명서 보기로 봇을 불러도 그 방의 공동 가계부를 준비하는 지금의 동작에 맞춰 1절의 단톡방 연결키 설명을 고치고, 이용약관·개인정보처리방침 안내를 단톡방의 설명서 첫 화면과 봇만 불렀을 때의 인사(인사에는 이용약관 안내만)에 늘 두고 카카오톡 챗봇을 처음 쓸 때의 답(1:1 첫 기록으로 개인 가계부를 준비하는 답, 단톡방 가계부를 준비하거나 그 가계부에 들어가는 답)에도 붙인 것이어서, 처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다. 다만 처음 쓸 때의 답이 늦어지는 등 일부 답에는 안내가 붙지 않을 수 있습니다.` : `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`, "같은 날 개정에는 후원 확인 때 이미 받아 온 정보(말해가계부 회원 번호·보낸 분 이름·보낸 날짜)와 후원자 표시 기간·공개 명단 이름을 6절 표에 적고 후원자 포인트 색 쿠키(ab_sp)를 쿠키 목록에 더한 것도 들어 있습니다. 후원은 원하는 분만 하고, 새로 받는 항목이 아니라 처리 내용을 더 자세히 적은 것이어서 이것도 이용자에게 불리하지 않은 변경입니다."] },
+        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다. 동의 절차나 보호 조치를 더하거나 처리 내용을 더 자세히 적는 것처럼 이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다.", POLICY_NOTICE_DATE === POLICY_REVISION_DATE ? `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 같은 날부터 시행합니다. 이번 개정은 단톡방에서 기록뿐 아니라 조회나 설명서 보기로 봇을 불러도 그 방의 공동 가계부를 준비하는 지금의 동작에 맞춰 1절의 단톡방 연결키 설명을 고치고, 이용약관·개인정보처리방침 안내를 단톡방의 설명서 첫 화면과 봇만 불렀을 때의 인사(인사에는 이용약관 안내만)에 늘 두고 카카오톡 챗봇을 처음 쓸 때의 답(1:1 첫 기록으로 개인 가계부를 준비하는 답, 단톡방 가계부를 준비하거나 그 가계부에 들어가는 답)에도 붙인 것이어서, 처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다. 다만 처음 쓸 때의 답이 늦어지는 등 일부 답에는 안내가 붙지 않을 수 있습니다. 같은 날 개정에는 후원 확인 방법도 들어 있습니다. 후원을 확인할 때 로그인 이름 대신 ‘내 계정·보안’ 에 보이는 회원 번호를 받도록 하면서 회원 번호와 그 번호가 가리키는 계정을 6절 표에 더하고, 후원 확인 때 받는 정보와 보관 기간을 6절 표에 적고, 후원자 포인트 색 쿠키(ab_sp)를 쿠키 목록에 더했습니다. 회원 번호는 계정마다 이미 있는 내부 식별값으로 만든 번호이고 이용자에게서 새로 받는 정보가 없으며 쓰는 곳도 후원 확인과 문의뿐이어서, 이것도 이용자에게 불리하지 않은 변경입니다.` : `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
         { title: "13. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
       ],
     },
@@ -29135,7 +29136,7 @@ function supporterAccentChoicesHtml({ supporterChatUrl = "" } = {}) {
 // 앞 40비트를 크록퍼드 base32(0-9, I·L·O·U 를 뺀 A-Z) 8글자로 보인다. 같은 사용자는 늘 같은 번호다. 비밀값 없이는 번호를 만들 수도, 번호에서
 // 사용자 id 를 거꾸로 알 수도 없다. 로그인에는 쓰이지 않는다(번호를 알아도 열리는 것이 없다). 비밀값을 바꾸면 모든 번호가 바뀐다.
 // 비밀값이 없으면 "" 이다(내 계정·보안 카드는 숨고, 관리자 화면은 계산할 수 없다고 알린다). 어떤 경우에도 던지지 않는다.
-// 번호 → 사용자: 설정 표 기억 줄 member_code:<번호> → { user_id, at } 를 읽고 그 사용자의 번호를 다시 계산해 같을 때만 믿는다(오래되거나 꾸민
+// 번호 → 사용자: 설정 표 기억 줄 member_code:<번호> → { user_id } 를 읽고 그 사용자의 번호를 다시 계산해 같을 때만 믿는다(오래되거나 꾸민
 // 줄을 거른다). 없거나 틀리면 최근 가입한 users id 를 많아야 500개 읽어 하나씩 계산한다(키는 한 번만 만들고 50개씩 서명, 처음 맞는 사람에서 멈춘다).
 // 기억 줄은 사용자가 내 계정·보안 화면을 실제로 볼 때 그 화면이 보내는 신호(POST /my/member-code/seen, 아래)로 없을 때만 넣는다(on_conflict=key,
 // ignore-duplicates — 있는 줄은 그대로, 한 번 호출, 답 뒤 ctx.waitUntil). 화면 GET 에서는 쓰지 않는다(미리 렌더링 규칙과 ‘GET 무변경’ 약속).
@@ -29260,7 +29261,7 @@ async function rememberMemberCodeV229121(env, code = "", userId = "", { replace 
     await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
       method: "POST",
       headers: { Prefer: `${replace ? "resolution=merge-duplicates" : "resolution=ignore-duplicates"},return=minimal` },
-      body: JSON.stringify({ key: memberCodeSettingsKeyV229121(canonical), value: JSON.stringify({ user_id: id, at: new Date().toISOString() }) }),
+      body: JSON.stringify({ key: memberCodeSettingsKeyV229121(canonical), value: JSON.stringify({ user_id: id }) }),
     });
   } catch (_) {
     return false;
@@ -46470,12 +46471,14 @@ async function handleMyBackupLoginSave(request, env) {
   const accessCode = String(form.get("access_code") || "").trim();
   const accessCode2 = String(form.get("access_code_confirm") || "").trim();
   const returnTo = safeUserReturnPath(form.get("return_to") || "", "/my/households");
-  if (normalizeLocalLoginName(loginName).length < 2) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup: false, returnTo, err: "로그인 이름은 2자 이상 입력하세요." }), 400);
-  if (accessCode.length < 8) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup: false, returnTo, err: "내 계정 로그인 비밀번호는 8자리 이상으로 입력하세요." }), 400);
-  if (accessCode !== accessCode2) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup: false, returnTo, err: "확인 입력이 일치하지 않습니다." }), 400);
+  // V22.9.121: 저장 오류·저장 뒤 같은 화면을 다시 그릴 때도 맨 위 회원 번호 카드를 둔다(번호 계산은 DB 없음).
+  const memberCode = await memberCodeForUserV229121(env, user.id).catch(() => "");
+  if (normalizeLocalLoginName(loginName).length < 2) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, first: true, hasBackup: false, returnTo, err: "로그인 이름은 2자 이상 입력하세요." }), 400);
+  if (accessCode.length < 8) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, first: true, hasBackup: false, returnTo, err: "내 계정 로그인 비밀번호는 8자리 이상으로 입력하세요." }), 400);
+  if (accessCode !== accessCode2) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, first: true, hasBackup: false, returnTo, err: "확인 입력이 일치하지 않습니다." }), 400);
   const currentPassword = String(form.get("current_password") || "");
   const reauthenticated = await verifyCredentialProof(request, env, userId) || (currentPassword && await verifyPasswordReauth(request, env, userId, currentPassword));
-  if (!reauthenticated) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, hasBackup, returnTo, err: "현재 로그인 비밀번호 또는 원래 연결한 카카오 계정으로 먼저 본인 확인을 완료하세요." }), 403);
+  if (!reauthenticated) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, hasBackup, returnTo, err: "현재 로그인 비밀번호 또는 원래 연결한 카카오 계정으로 먼저 본인 확인을 완료하세요." }), 403);
   try {
     await replaceLocalLoginForUser(env, loginName, accessCode, userId, { revokeSessions: true });
   } catch (err) {
@@ -46484,10 +46487,10 @@ async function handleMyBackupLoginSave(request, env) {
     // ‘저장하지 못했습니다’라고 해 바뀐 비밀번호를 모르는 채 예전 비밀번호로 로그인하다 막혔다.
     if (isUncertainStorageWrite(err)) {
       rememberOpsEvent({ kind: "backup_login_save_unknown", severity: "warn", path: "/my/backup-login", method: "POST", detail });
-      return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup, returnTo, err: "비밀번호 변경 결과를 확인하지 못했습니다. 이미 바뀌었을 수 있어요. 이 화면을 다시 열어 로그인 화면이 나오면 새 비밀번호로 로그인하고, 그대로 열리면 바뀌지 않은 것이니 다시 저장해 주세요." }), 503);
+      return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, first: true, hasBackup, returnTo, err: "비밀번호 변경 결과를 확인하지 못했습니다. 이미 바뀌었을 수 있어요. 이 화면을 다시 열어 로그인 화면이 나오면 새 비밀번호로 로그인하고, 그대로 열리면 바뀌지 않은 것이니 다시 저장해 주세요." }), 503);
     }
     const message = /login_name_in_use|duplicate key|409/i.test(detail) ? "이미 사용 중인 로그인 이름입니다." : "내 계정 로그인 비밀번호를 저장하지 못했습니다. V22.7 인증 마이그레이션 적용 상태를 확인하세요.";
-    return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup, returnTo, err: message }), 409);
+    return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, first: true, hasBackup, returnTo, err: message }), 409);
   }
   // V22.9.88 Y-3: 여기서부터 비밀번호는 바뀌었고 예전 로그인은 모두 끊겼다. 이 기기의 새 로그인을 만들지 못하면(세션 판 조회 실패 등) 저장 실패가
   // 아니라 ‘바꿨으니 새 비밀번호로 다시 로그인’이라고 안내하고, 끊긴 쿠키를 지운다.
@@ -46495,7 +46498,7 @@ async function handleMyBackupLoginSave(request, env) {
   try { session = await makeUserSession(env, userId); }
   catch (err) {
     rememberOpsEvent({ kind: "backup_login_session_reissue_failed", severity: "warn", path: "/my/backup-login", method: "POST", detail: safeError(err) });
-    return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, hasBackup: true, returnTo, msg: "backup_login_saved_relogin" }), 200, {
+    return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, hasBackup: true, returnTo, msg: "backup_login_saved_relogin" }), 200, {
       "set-cookie": "ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
     });
   }
@@ -58591,8 +58594,9 @@ async function performIdentityMerge(env, options = {}) {
   }
   // V22.9.121: 설정 표의 후원자 표시(supporter:<id>)와 안내 확인 기록(consent:<id>)은 합치기 RPC 가 옮기지 않는다. 세션(afterMerge) 다음,
   // 링크 표 정리 앞에서 주 계정으로 옮긴다(읽기 1회 + 쓰기 많아야 3회, 남은 호출이 모자라면 남기고 운영 이벤트). 모든 오류를 그 안에서 받으므로
-  // 합치기 결과·응답은 그대로다(my/merge-carry.js).
-  await carryUserSettingsAfterMergeV229121(env, primaryId, secondaryId, { path, hasRoom: dbRoom });
+  // 합치기 결과·응답은 그대로다(my/merge-carry.js). 바로 뒤 링크 표 정리 몫(4회)은 남겨 둔다 — 그 정리가 밀리면 강한 식별 없는 옛 가입자가
+  // 다음 웹 로그인에서 빈 새 계정을 만들 수 있어 설정 줄보다 무겁다(독립 검토 V22.9.121 1차 P2). 남은 호출이 모자라 옮기기가 밀리면 운영 이벤트.
+  await carryUserSettingsAfterMergeV229121(env, primaryId, secondaryId, { path, hasRoom: (calls) => dbRoom(calls + 4) });
   // 링크 표: 잠금·읽기·쓰기·풀기 4회.
   try {
     if (!dbRoom(4)) throw Object.assign(new Error("legacy identity cleanup pending: no database budget"), { deferred: true });
@@ -58810,7 +58814,8 @@ function supporterAdminUserQueryV229121(raw = "") {
   if (!text) return { text: "", kind: "all", code: "", idPrefix: "" };
   const folded = text.normalize("NFKC");
   const compact = folded.toUpperCase().replace(SUPPORTER_ADMIN_SEPARATORS_V229121, "");
-  const codeShaped = (compact.length === 10 && compact.startsWith("MB")) || /^[0-9A-Za-z]{4}[\s\-_.\u2010-\u2015\u2212][0-9A-Za-z]{4}$/.test(folded);
+  // 머리(MB) 없는 꼴은 줄표 계열 구분 기호만 받는다 — ‘Kate Moss’ 처럼 네 글자 이름 둘은 이름으로 찾는다(독립 검토 V22.9.121 1차 P3).
+  const codeShaped = (compact.length === 10 && compact.startsWith("MB")) || /^[0-9A-Za-z]{4}[\-_.\u2010-\u2015\u2212][0-9A-Za-z]{4}$/.test(folded);
   if (codeShaped) {
     const code = normalizeMemberCodeV229121(folded);
     return code ? { text, kind: "code", code, idPrefix: "" } : { text, kind: "badcode", code: "", idPrefix: "" };

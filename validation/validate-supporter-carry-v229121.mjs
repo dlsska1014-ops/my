@@ -394,6 +394,60 @@ await section("2 계정 통합", async () => {
   });
 });
 
+// ── 2c. 링크 표 정리 몫 예약(독립 검토 V22.9.121 1차 P2) ─────────────────────
+// 합치기 뒤 남은 호출이 옮기기(읽기 1 + 쓰기 3)와 링크 표 정리(4)를 다 받지 못하면, 옮기기를 미루고 링크 표 정리를 한다 — 링크 표가 밀리면
+// 강한 식별 없는 옛 가입자가 다음 웹 로그인에서 빈 새 계정을 만들 수 있다(V22.9.91). performIdentityMerge 를 모듈에서 바로 부르고
+// 요청 예산(__AB_DB_BUDGET)을 옮기기 직전 사용량 + 7 로 둔다(읽기 1 뒤 쓰기 3 + 링크 표 4 = 7 은 남지 않고, 링크 표 4 는 남는다).
+// 예약이 없던 초안은 이 예산에서 옮기기를 하고 링크 표 정리를 미뤘다.
+await section("2c 링크 표 몫 예약", async () => {
+  const { performIdentityMerge } = await import("../src/modules/admin/identity-merge.js");
+  const setup = (fx) => {
+    putSetting(fx, "supporter:user-wifi", flag("2026-06-01", null, "QA 송금", "와이파이"));
+    putSetting(fx, "consent:user-wifi", CONSENT);
+  };
+  const runMerge = async (fx, limit) => {
+    const env = { ...fx.env, __AB_DB_BUDGET: { used: 0, limit } };
+    let usedAtCarryRead = -1;
+    const mark = opsMark();
+    const restore = intercept(({ url }) => {
+      const key = url.searchParams.get("key") || "";
+      if (usedAtCarryRead < 0 && url.hostname.endsWith("supabase.co") && url.pathname === "/rest/v1/accountbook_settings" && key.startsWith("in.(") && key.includes("supporter:user-wifi")) {
+        usedAtCarryRead = env.__AB_DB_BUDGET.used;
+      }
+      return null;
+    });
+    let threw = null;
+    try {
+      await performIdentityMerge(env, { primaryId: "user-bin", secondaryId: "user-wifi", householdId: "house-home", path: "/admin/identity/merge" });
+    } catch (err) { threw = err; } finally { restore(); }
+    const events = eventsSince(mark);
+    return { threw, usedAtCarryRead, events, kinds: events.map((entry) => entry.kind), used: env.__AB_DB_BUDGET.used };
+  };
+  let before = -1;
+  await mergeFixture(async (fx) => {
+    setup(fx);
+    const wide = await runMerge(fx, 900);
+    ok(!wide.threw && wide.usedAtCarryRead > 0, `2c-a 넉넉한 예산: 합치기가 끝나고 옮기기 읽기를 보았다(${wide.threw?.message || "ok"}, 읽기 때 사용량 ${wide.usedAtCarryRead})`);
+    ok(!wide.kinds.some((kind) => /^merge_settings_carry_|^identity_legacy_link_cleanup_/.test(kind)) && settingValue(fx, "supporter:user-bin") !== undefined,
+      `2c-a 넉넉한 예산: 옮기기와 링크 표 정리가 모두 된다(${show(wide.kinds)})`);
+    before = wide.usedAtCarryRead - 1; // 읽기 요청이 보일 때는 그 읽기 몫이 이미 더해져 있다.
+  });
+  await mergeFixture(async (fx) => {
+    setup(fx);
+    const tight = await runMerge(fx, before + 7);
+    ok(!tight.threw && tight.usedAtCarryRead === before + 1,
+      `2c-b 빠듯한 예산(옮기기 직전 ${before} + 7)에서도 합치기는 끝나고 옮기기 읽기는 같은 자리에서 한다: ${tight.threw?.message || "ok"} · 읽기 때 ${tight.usedAtCarryRead}`);
+    ok(tight.kinds.includes("merge_settings_carry_deferred") && !tight.kinds.includes("identity_legacy_link_cleanup_deferred") && !tight.kinds.includes("identity_legacy_link_cleanup_failed"),
+      `2c-b 옮기기는 미루고(운영 이벤트) 링크 표 정리는 한다: ${show(tight.kinds)}`);
+    ok(/no database budget \(3 write\(s\)\)/.test(tight.events.find((entry) => entry.kind === "merge_settings_carry_deferred")?.detail || ""),
+      "2c-b 미룬 단계는 쓰기 3회(링크 표 4회를 남기려고) — 읽기는 했다");
+    ok(settingValue(fx, "supporter:user-bin") === undefined && JSON.parse(settingValue(fx, "supporter:user-wifi") || "null")?.since === "2026-06-01",
+      "2c-c 미룬 옮기기는 아무것도 쓰지 않는다(보조 줄이 그대로 남아 관리자가 다시 켤 수 있다)");
+    const links = JSON.parse(settingValue(fx, "user_identity_links") || "{}");
+    ok(Object.values(links).some((value) => value?.user_id === "user-bin" && value?.provider === "identity_merge"), "2c-d 링크 표는 주 계정을 가리키게 고쳐졌다");
+  });
+});
+
 // ── 3·4·5. 포인트 색 쿠키와 응답 마무리 ──────────────────────────────────────
 await withClock(TODAY, () => fixture(async (fx) => {
   fx.env.ADMIN_PASSWORD = ADMIN_PASSWORD;
@@ -671,7 +725,7 @@ await section("6 소스", async () => {
   eq(count(merge, "carryUserSettingsAfterMergeV229121(env, primaryId, secondaryId"), 1, "6-b performIdentityMerge 가 옮기기를 한 번 부른다");
   const callAt = merge.indexOf("await carryUserSettingsAfterMergeV229121(");
   ok(callAt > merge.indexOf("await options.afterMerge(") && callAt < merge.indexOf("withGlobalIdentitySettingsRmw(env") && callAt > merge.indexOf("rpc/accountbook_merge_users_v227"), "6-b 자리: 합치기 RPC·세션(afterMerge) 뒤, 링크 표 정리 앞");
-  ok(/carryUserSettingsAfterMergeV229121\(env, primaryId, secondaryId, \{ path, hasRoom: dbRoom \}\)/.test(merge), "6-b 남은 호출(dbRoom)을 넘긴다");
+  ok(/carryUserSettingsAfterMergeV229121\(env, primaryId, secondaryId, \{ path, hasRoom: \(calls\) => dbRoom\(calls \+ 4\) \}\)/.test(merge), "6-b 남은 호출을 넘기되 바로 뒤 링크 표 정리 몫(4회)은 남긴다(독립 검토 1차 P2)");
   const carry = read("../src/modules/my/merge-carry.js");
   ok(carry.includes("saveSettingValue(env, keys.supporterPrimary") && carry.includes("saveSettingValue(env, keys.consentPrimary") && carry.includes("merge_settings_carry_failed"), "6-c 쓰기는 설정 upsert 도우미 · 실패 이벤트 이름");
   const accent = read("../src/modules/my/supporter-accent.js");

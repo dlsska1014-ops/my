@@ -1,14 +1,14 @@
 ## V22.9.121 배포 판단
 
 - 대상: 앱만. 관제·Secret·Kakao 콘솔·OpenBuilder·1년 캐시 자산 변경 없음. 새 변수·Secret 없음(회원 번호는 기존 `USER_SESSION_SECRET` 으로 만든다) → 바인딩 32·금지 변수 12개 그대로.
-- DB: 이 판은 SQL 이 없다(스키마·RPC·RLS·권한·인덱스 변경 없음). 새 설정 표 줄 `member_code:<번호>`(값 { user_id, at })는 기존 `accountbook_settings` 표에 앱이 쓰는 줄이다. V22.9.119 검토용 SQL(운영 전용 유니크 인덱스 삭제)은 이 판과 따로 2026-11-13 09:12:23 KST 에 적용했다(SQL_HISTORY V22.9.121 절).
-- 바뀐 것: 회원 번호(내 계정·보안 카드·보인 뒤 기억 신호), 관리자 회원 번호 찾기·전체 사용자 목록, 계정 합치기 뒤 후원자 표시·안내 확인 기록 옮기기, 방침 6절 후원 줄·쿠키 `ab_sp`·12절 문단, `/support` 후원 확인 문구, 후원자 포인트 색을 모든 셸 화면에. 발견 기록 `docs/codex/FOLLOWUP_FINDINGS_V22_9_121.md`.
+- DB: 이 판은 SQL 이 없다(스키마·RPC·RLS·권한·인덱스 변경 없음). 새 설정 표 줄 `member_code:<번호>`(값 { user_id })는 기존 `accountbook_settings` 표에 앱이 쓰는 줄이다. V22.9.119 검토용 SQL(운영 전용 유니크 인덱스 삭제)은 이 판과 따로 2026-11-13 09:12:23 KST 에 적용했다(SQL_HISTORY V22.9.121 절).
+- 바뀐 것: 회원 번호(내 계정·보안 카드·보인 뒤 기억 신호), 관리자 회원 번호 찾기·전체 사용자 목록, 계정 합치기 뒤 후원자 표시·안내 확인 기록 옮기기, 방침 6절 회원 번호·후원 줄·쿠키 `ab_sp`·12절 문장, `/support` 후원 확인 문구, 후원자 포인트 색을 모든 셸 화면에. 발견 기록 `docs/codex/FOLLOWUP_FINDINGS_V22_9_121.md`.
 - 공개 HTML: `/privacy`·`/support` 두 곳만 바뀐다(sitemap 60 + 공개 주소 8 을 V22.9.120 번들과 견줌). 둘 다 광고 목록 밖, 광고 게이트·광고 목록 그대로.
 - 새 경로·쿠키·이벤트: `POST /my/member-code/seen`(같은 출처 확인 뒤, 늘 204), 쿠키 `ab_sp`(1일, HttpOnly·Secure·SameSite=Lax), 운영 이벤트 `merge_settings_carry_deferred`·`merge_settings_carry_failed`.
-- 약관 개정일: 약관·방침 날짜는 이 판에서 바꾸지 않았다 — 개정 공고 = 시행 = **2026-11-13**(V22.9.118 부터, 운영 V22.9.120 이 이미 보임). 12절의 이 판 문단은 ‘같은 날 개정에는 …’ 이라 **2026-11-13 안에 승격해야 글이 맞다.** 승격이 2026-11-14 이후로 밀리면 배포 전에: `src/modules/public/site-config.js` 의 `POLICY_NOTICE_DATE`·`POLICY_REVISION_DATE` 를 승격일로(가입 동의 기록 version 도 이 값), 12절의 V22.9.118 문단을 지난 개정(2026-11-13) 설명으로·이 판 문단을 새 날짜의 개정 설명으로 고치고, 그 글을 고정한 검사(`validate-supporter-id-v229121`·`validate-v22995-legal`·`validate-copy-fixes-v229118` 의 ‘이번 판 2026-11-13’ 단언)를 함께 고친 뒤 다시 빌드·등록 검사·manifest·하네스 두 모드(V22.9.118 RELEASE-CHECKLIST 날짜 절차와 같은 길).
-- 되돌리기 대상(기록만) = 승격 시점의 활성 version(지금 `c5b93817-9224-470e-8780-17a9b7a87bfd`(#350, V22.9.120-KAKAO-INPUT-GUARDS, 배포 `90737824-9800-4f38-95ff-1c345221d141`, 2026-11-12 22:51:42 KST 승격)). 되돌리면 회원 번호 카드·관리자 번호 찾기·목록이 없어지고(기억 줄 `member_code:` 는 남되 쓰이지 않음), 합치기 때 옮기기가 빠지며(이미 옮긴 줄은 그대로), `ab_sp` 쿠키는 무시되고, 방침 6절 후원 줄·12절 문단이 V22.9.120 글로 돌아간다. DB 새 칸·표 없음.
-- 배포: PR(base main cafa226) → CI → 병합(사용자 지목) → 사용자 토큰 업로드·대조(바인딩 32·differences []·소스 해시 186df1df…) → 승격 → Claude 직후 확인 → 기록 PR.
-- 번들 10,066,503 B · SHA-256 `186df1df09359b38e0358d3db9abd31755d9717d50e4f16b8c1540f698c20118`(149 모듈, 새 모듈 3). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_121.sha256`(857) · 하네스 두 모드 82,438/82,435(하한 82,435). 절차 `review-artifacts/v121-supporter-id-2026-11-13/USER-DEPLOY-APP.md`.
+- 약관 개정일: 약관·방침 날짜는 이 판에서 바꾸지 않았다 — 개정 공고 = 시행 = **2026-11-13**(V22.9.118 부터, 운영 V22.9.120 이 이미 보임). 12절의 이 판 문장(V22.9.118 문단 끝)은 ‘같은 날 개정에는 …’ 이라 **2026-11-13 안에 승격해야 글이 맞다.** 승격이 2026-11-14 이후로 밀리면 배포 전에: `src/modules/public/site-config.js` 의 `POLICY_NOTICE_DATE`·`POLICY_REVISION_DATE` 를 승격일로(가입 동의 기록 version 도 이 값), 12절의 V22.9.118 문단을 지난 개정(2026-11-13) 설명으로 바꾸고 그 끝의 이 판 문장을 떼어 새 날짜의 개정 설명으로 고치고, 그 글을 고정한 검사(`validate-supporter-id-v229121`·`validate-v22995-legal`·`validate-copy-fixes-v229118` 의 ‘이번 판 2026-11-13’ 단언)를 함께 고친 뒤 다시 빌드·등록 검사·manifest·하네스 두 모드(V22.9.118 RELEASE-CHECKLIST 날짜 절차와 같은 길).
+- 되돌리기 대상(기록만) = 승격 시점의 활성 version(지금 `c5b93817-9224-470e-8780-17a9b7a87bfd`(#350, V22.9.120-KAKAO-INPUT-GUARDS, 배포 `90737824-9800-4f38-95ff-1c345221d141`, 2026-11-12 22:51:42 KST 승격)). 되돌리면 회원 번호 카드·관리자 번호 찾기·목록이 없어지고(기억 줄 `member_code:` 는 남되 쓰이지 않음), 합치기 때 옮기기가 빠지며(이미 옮긴 줄은 그대로), `ab_sp` 쿠키는 무시되고, 방침 6절 회원 번호·후원 줄·12절 문장이 V22.9.120 글로 돌아간다. DB 새 칸·표 없음.
+- 배포: PR(base main cafa226) → CI → 병합(사용자 지목) → 사용자 토큰 업로드·대조(바인딩 32·differences []·소스 해시 0115bb0d…) → 승격 → Claude 직후 확인 → 기록 PR.
+- 번들 10,067,957 B · SHA-256 `0115bb0daa24973f20bb400bfe55776ce0c3177705dab7431f73ca6cf9b2fa96`(149 모듈, 새 모듈 3). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_121.sha256`(857) · 하네스 두 모드 82,453/82,450(하한 82,450). 절차 `review-artifacts/v121-supporter-id-2026-11-13/USER-DEPLOY-APP.md`.
 
 ## V22.9.120 배포 판단
 

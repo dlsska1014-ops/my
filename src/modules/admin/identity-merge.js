@@ -199,8 +199,9 @@ async function performIdentityMerge(env, options = {}) {
   }
   // V22.9.121: 설정 표의 후원자 표시(supporter:<id>)와 안내 확인 기록(consent:<id>)은 합치기 RPC 가 옮기지 않는다. 세션(afterMerge) 다음,
   // 링크 표 정리 앞에서 주 계정으로 옮긴다(읽기 1회 + 쓰기 많아야 3회, 남은 호출이 모자라면 남기고 운영 이벤트). 모든 오류를 그 안에서 받으므로
-  // 합치기 결과·응답은 그대로다(my/merge-carry.js).
-  await carryUserSettingsAfterMergeV229121(env, primaryId, secondaryId, { path, hasRoom: dbRoom });
+  // 합치기 결과·응답은 그대로다(my/merge-carry.js). 바로 뒤 링크 표 정리 몫(4회)은 남겨 둔다 — 그 정리가 밀리면 강한 식별 없는 옛 가입자가
+  // 다음 웹 로그인에서 빈 새 계정을 만들 수 있어 설정 줄보다 무겁다(독립 검토 V22.9.121 1차 P2). 남은 호출이 모자라 옮기기가 밀리면 운영 이벤트.
+  await carryUserSettingsAfterMergeV229121(env, primaryId, secondaryId, { path, hasRoom: (calls) => dbRoom(calls + 4) });
   // 링크 표: 잠금·읽기·쓰기·풀기 4회.
   try {
     if (!dbRoom(4)) throw Object.assign(new Error("legacy identity cleanup pending: no database budget"), { deferred: true });

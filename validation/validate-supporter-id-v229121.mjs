@@ -161,7 +161,7 @@ await section("2 내 계정·보안", async () => {
     ok(beacon.includes(`navigator.sendBeacon("${SEEN_PATH}")`) && /d\.prerendering\)\{d\.addEventListener\("prerenderingchange",v,\{once:true\}\)\}else\{v\(\)\}/.test(beacon), "2-j 화면은 실제로 보일 때(미리 렌더링이면 prerenderingchange 때) 신호를 한 번 보낸다");
     ok(view.html.indexOf('<script id="memberCodeSeenRuntime">') > view.html.indexOf('<script id="memberCodeCopyRuntime">'), "2-k 신호 스크립트는 복사 스크립트 뒤(본문 끝)에 있다");
 
-    // 신호: 답은 늘 204, 쓰기는 한 번(ignore-duplicates), 값은 { user_id, at }.
+    // 신호: 답은 늘 204, 쓰기는 한 번(ignore-duplicates), 값은 { user_id } 만(본 시각은 남기지 않는다 — 독립 검토 1차 P2).
     const first = await withDb(() => seen(fx));
     await settle();
     ok(first.result.status === 204 && first.result.body === "" && /no-store/.test(first.result.cacheControl), `2-l 신호 답은 몸 없는 204·no-store 다(${first.result.status})`);
@@ -172,7 +172,7 @@ await section("2 내 계정·보안", async () => {
     try { body = JSON.parse(writes[0]?.body || "null"); } catch (_) { body = null; }
     ok(writes[0]?.prefer === "resolution=ignore-duplicates,return=minimal" && body?.key === `member_code:${code}`, `2-o 쓰기는 on_conflict=key + ignore-duplicates(있는 줄은 그대로), 키 member_code:<번호>: ${show(writes[0]?.prefer)}`);
     const stored = JSON.parse(settingValue(fx, `member_code:${code}`) || "{}");
-    ok(stored.user_id === "user-bin" && Number.isFinite(Date.parse(stored.at || "")) && isDeepStrictEqual(Object.keys(stored).sort(), ["at", "user_id"]), `2-p 기억 줄 값은 { user_id, at } 뿐이다: ${show(stored)}`);
+    ok(stored.user_id === "user-bin" && isDeepStrictEqual(Object.keys(stored), ["user_id"]), `2-p 기억 줄 값은 { user_id } 뿐이다(본 시각 없음): ${show(stored)}`);
     ok(first.log.length <= 2, `2-q 신호 하나의 DB 호출은 세션 확인 + 넣기, 많아야 2번이다(${first.log.length})`);
 
     const again = await withDb(() => seen(fx));
@@ -250,6 +250,9 @@ await section("2 내 계정·보안", async () => {
     await settle();
     const wifiBody = JSON.parse(memberCodeWrites(wifiSeen.log)[0]?.body || "{}");
     ok(wifiBody.key === `member_code:${codeOf("user-wifi")}` && JSON.parse(wifiBody.value || "{}").user_id === "user-wifi", "2-z 신호는 세션의 사용자 번호만 넣는다(번호와 사용자를 모두 세션에서 정한다)");
+    // 독립 검토 1차 P3: 저장 오류(확인 입력 불일치)로 같은 화면을 다시 그려도 맨 위 회원 번호 카드가 있다.
+    const mismatch = await post(fx, "/my/backup-login", { login_name: "qaid121", access_code: "qa-pass-121a", access_code_confirm: "qa-pass-121b", return_to: "/my/households" }, { cookie: wifiCookie });
+    ok(mismatch.status === 400 && mismatch.text.includes("확인 입력이 일치하지 않습니다.") && cardOf(mismatch.text).includes(`>${codeOf("user-wifi")}</code>`) && !mismatch.text.includes("user-wifi"), `2-z2 저장 오류로 다시 그린 화면에도 회원 번호 카드: ${mismatch.status}`);
 
     // 번호를 만들지 못하면(계산 실패) 카드도 신호 스크립트도 없고, 신호를 보내도 쓰지 않는다. 세션 서명 같은 다른 HMAC 은 그대로 둔다.
     resetMemo();
@@ -465,6 +468,12 @@ await withClock(DAY, () => fixture(async (fx) => {
       ok(list.length === 1 && list[0].text[0] === codeOf(A) && list[0].text[1] === "카카오 사용자", `4-q 회원 번호(${label})로 그 한 명을 찾는다`);
       ok(found.log.length <= 5 && !found.log.some((row) => row.method !== "GET"), `4-r 번호 찾기 화면도 DB 호출 5번 이하이고 아무것도 쓰지 않는다(${label}): ${show(found.log.map((row) => row.decoded))}`);
     }
+    // 독립 검토 1차 P3: 머리(MB) 없이 공백으로 나눈 네 글자 둘은 이름이다(번호로 읽지 않는다).
+    fx.db.users.push({ id: "c1d2e3f4-0000-4000-8000-0000000000a1", kakao_user_key: "kakao_login:9011", nickname: "Kate Moss", created_at: "2026-11-03T01:00:00Z" });
+    const kate = await view("Kate Moss");
+    ok(rowsOf(kate.result.html).some((row) => row.text[1] === "Kate Moss") && !kate.result.html.includes("회원 번호 MB-") && !kate.result.html.includes("회원 번호는 MB-XXXX-XXXX 꼴이에요.") && scans(kate.log).length === 0, "4-q2 ‘Kate Moss’ 처럼 네 글자 이름 둘은 이름으로 찾는다");
+    const dashed = await view(codeOf(A).slice(3).replace("-", "–"));
+    ok(rowsOf(dashed.result.html).length === 1 && rowsOf(dashed.result.html)[0].text[0] === codeOf(A), "4-q3 머리 없는 꼴도 줄표 계열(–)이면 번호로 찾는다");
     const missing = await view("MB-0000-0000");
     ok(missing.result.html.includes("회원 번호 MB-0000-0000 와 맞는 사용자가 없어요.") && missing.log.length <= 5 && scans(missing.log).length === 1, "4-s 맞는 사람이 없는 번호는 안내 한 줄(훑기 한 번)");
     const badCode = await view("MB-ABCD-EFGU");
@@ -553,14 +562,16 @@ await section("6 /privacy", async () => {
   await withClock(DAY, () => fixture(async (fx) => {
     const privacy = await page(fx, "/privacy", { cookie: "" });
     ok(privacy.status === 200, "6-a /privacy 200");
-    ok(privacy.html.includes("<tr><th scope=\"row\">후원(원하는 분만)</th><td>후원 확인을 위해 알려 주신 말해가계부 회원 번호(MB- 로 시작)·보낸 분 이름·보낸 날짜, 후원자 표시 기간, 공개 명단에 올릴 이름(원하는 분만)</td><td>후원 사실을 알려 주실 때(후원 확인, 후원자 표시와 공개 명단에만 씁니다)</td><td>후원자 표시를 지울 때까지(요청하면 바로 지움)</td></tr>"), "6-b 6절 표에 ‘후원(원하는 분만)’ 줄(항목·수집 시점과 쓰는 곳·보유기간)");
+    ok(privacy.html.includes("<tr><th scope=\"row\">후원(원하는 분만)</th><td>후원자 표시 기간, 확인 메모(보낸 분 이름·보낸 날짜처럼 후원 확인에 쓴 내용), 공개 명단에 올릴 이름(원하는 분만)</td><td>후원 사실을 메일이나 오픈채팅으로 알려 주실 때(보낸 분 이름·보낸 날짜·회원 번호로 확인하고, 후원자 표시와 공개 명단에만 씁니다)</td><td>후원자 표시를 지울 때까지(요청하면 바로 지움). 알려 주신 메일은 8절의 문의 메일 기준을 따릅니다.</td></tr>"), "6-b 6절 후원 줄: 저장하는 것(표시 기간·확인 메모·명단 이름), 확인에 쓰는 것, 보관(메일은 8절 기준)");
+    ok(privacy.html.includes("<tr><th scope=\"row\">회원 번호</th><td>회원 번호(MB- 로 시작, 계정마다 이미 있는 내부 식별값으로 만든 번호)와 그 번호가 가리키는 계정</td><td>‘내 계정·보안’ 화면을 열 때(운영자가 후원 확인이나 문의 때 번호로 계정을 찾는 데만 씁니다)</td><td>회원 이용 기간(삭제 요청 시까지)</td></tr>"), "6-b2 6절 회원 번호 줄(번호와 번호가 가리키는 계정 기억, 회원 이용 기간)");
     ok(privacy.html.includes("<li>ab_sp: 후원자가 고른 포인트 색을 웹 가계부의 다른 화면에도 보이게 하는 표시(값 1, 개인정보 없음), 1일</li>"), "6-c 6절 쿠키 목록에 ab_sp");
-    const v121 = "같은 날 개정에는 후원 확인 때 이미 받아 온 정보(말해가계부 회원 번호·보낸 분 이름·보낸 날짜)와 후원자 표시 기간·공개 명단 이름을 6절 표에 적고 후원자 포인트 색 쿠키(ab_sp)를 쿠키 목록에 더한 것도 들어 있습니다. 후원은 원하는 분만 하고, 새로 받는 항목이 아니라 처리 내용을 더 자세히 적은 것이어서 이것도 이용자에게 불리하지 않은 변경입니다.";
+    const v121 = "같은 날 개정에는 후원 확인 방법도 들어 있습니다. 후원을 확인할 때 로그인 이름 대신 ‘내 계정·보안’ 에 보이는 회원 번호를 받도록 하면서 회원 번호와 그 번호가 가리키는 계정을 6절 표에 더하고, 후원 확인 때 받는 정보와 보관 기간을 6절 표에 적고, 후원자 포인트 색 쿠키(ab_sp)를 쿠키 목록에 더했습니다. 회원 번호는 계정마다 이미 있는 내부 식별값으로 만든 번호이고 이용자에게서 새로 받는 정보가 없으며 쓰는 곳도 후원 확인과 문의뿐이어서, 이것도 이용자에게 불리하지 않은 변경입니다.";
     const twelfth = privacy.html.slice(privacy.html.indexOf("<h2>12. 개인정보처리방침의 변경</h2>"));
-    const v121At = twelfth.indexOf(`<p>${v121}</p>`);
+    const v121At = twelfth.indexOf(v121);
     const v118At = twelfth.indexOf("이번 개정은 단톡방에서 기록뿐 아니라 조회나 설명서 보기로 봇을 불러도");
-    ok(v121At > 0, "6-d 12절에 이번(V22.9.121) 개정 성격 문단이 따로 있다");
-    ok(v118At > 0 && v118At < v121At && twelfth.includes("처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다."), "6-e V22.9.118 개정 설명 문단은 그대로이고 새 문단은 그 뒤에 있다");
+    ok(v121At > 0, "6-d 12절에 이번(V22.9.121) 개정 설명이 있다");
+    ok(v118At > 0 && v118At < v121At && !twelfth.slice(v118At, v121At).includes("</p>") && twelfth.slice(v121At + v121.length).startsWith("</p>"), "6-e V22.9.118 설명과 같은 문단(같은 조건 — 공고 = 시행) 끝에 있다(독립 검토 1차 P3)");
+    ok(!twelfth.includes("이미 받아 온 정보"), "6-f 회원 번호를 ‘이미 받아 온 정보’ 라고 적지 않는다(이 판에서 처음 생긴 번호)");
   }));
 });
 

@@ -134,7 +134,8 @@ function supporterAdminUserQueryV229121(raw = "") {
   if (!text) return { text: "", kind: "all", code: "", idPrefix: "" };
   const folded = text.normalize("NFKC");
   const compact = folded.toUpperCase().replace(SUPPORTER_ADMIN_SEPARATORS_V229121, "");
-  const codeShaped = (compact.length === 10 && compact.startsWith("MB")) || /^[0-9A-Za-z]{4}[\s\-_.\u2010-\u2015\u2212][0-9A-Za-z]{4}$/.test(folded);
+  // 머리(MB) 없는 꼴은 줄표 계열 구분 기호만 받는다 — ‘Kate Moss’ 처럼 네 글자 이름 둘은 이름으로 찾는다(독립 검토 V22.9.121 1차 P3).
+  const codeShaped = (compact.length === 10 && compact.startsWith("MB")) || /^[0-9A-Za-z]{4}[\-_.\u2010-\u2015\u2212][0-9A-Za-z]{4}$/.test(folded);
   if (codeShaped) {
     const code = normalizeMemberCodeV229121(folded);
     return code ? { text, kind: "code", code, idPrefix: "" } : { text, kind: "badcode", code: "", idPrefix: "" };

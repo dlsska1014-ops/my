@@ -11,7 +11,7 @@ import { supabase } from "../data/supabase-client.js";
 // 앞 40비트를 크록퍼드 base32(0-9, I·L·O·U 를 뺀 A-Z) 8글자로 보인다. 같은 사용자는 늘 같은 번호다. 비밀값 없이는 번호를 만들 수도, 번호에서
 // 사용자 id 를 거꾸로 알 수도 없다. 로그인에는 쓰이지 않는다(번호를 알아도 열리는 것이 없다). 비밀값을 바꾸면 모든 번호가 바뀐다.
 // 비밀값이 없으면 "" 이다(내 계정·보안 카드는 숨고, 관리자 화면은 계산할 수 없다고 알린다). 어떤 경우에도 던지지 않는다.
-// 번호 → 사용자: 설정 표 기억 줄 member_code:<번호> → { user_id, at } 를 읽고 그 사용자의 번호를 다시 계산해 같을 때만 믿는다(오래되거나 꾸민
+// 번호 → 사용자: 설정 표 기억 줄 member_code:<번호> → { user_id } 를 읽고 그 사용자의 번호를 다시 계산해 같을 때만 믿는다(오래되거나 꾸민
 // 줄을 거른다). 없거나 틀리면 최근 가입한 users id 를 많아야 500개 읽어 하나씩 계산한다(키는 한 번만 만들고 50개씩 서명, 처음 맞는 사람에서 멈춘다).
 // 기억 줄은 사용자가 내 계정·보안 화면을 실제로 볼 때 그 화면이 보내는 신호(POST /my/member-code/seen, 아래)로 없을 때만 넣는다(on_conflict=key,
 // ignore-duplicates — 있는 줄은 그대로, 한 번 호출, 답 뒤 ctx.waitUntil). 화면 GET 에서는 쓰지 않는다(미리 렌더링 규칙과 ‘GET 무변경’ 약속).
@@ -136,7 +136,7 @@ async function rememberMemberCodeV229121(env, code = "", userId = "", { replace 
     await supabase(env, "/rest/v1/accountbook_settings?on_conflict=key", {
       method: "POST",
       headers: { Prefer: `${replace ? "resolution=merge-duplicates" : "resolution=ignore-duplicates"},return=minimal` },
-      body: JSON.stringify({ key: memberCodeSettingsKeyV229121(canonical), value: JSON.stringify({ user_id: id, at: new Date().toISOString() }) }),
+      body: JSON.stringify({ key: memberCodeSettingsKeyV229121(canonical), value: JSON.stringify({ user_id: id }) }),
     });
   } catch (_) {
     return false;

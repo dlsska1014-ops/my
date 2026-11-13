@@ -314,12 +314,14 @@ async function handleMyBackupLoginSave(request, env) {
   const accessCode = String(form.get("access_code") || "").trim();
   const accessCode2 = String(form.get("access_code_confirm") || "").trim();
   const returnTo = safeUserReturnPath(form.get("return_to") || "", "/my/households");
-  if (normalizeLocalLoginName(loginName).length < 2) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup: false, returnTo, err: "로그인 이름은 2자 이상 입력하세요." }), 400);
-  if (accessCode.length < 8) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup: false, returnTo, err: "내 계정 로그인 비밀번호는 8자리 이상으로 입력하세요." }), 400);
-  if (accessCode !== accessCode2) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup: false, returnTo, err: "확인 입력이 일치하지 않습니다." }), 400);
+  // V22.9.121: 저장 오류·저장 뒤 같은 화면을 다시 그릴 때도 맨 위 회원 번호 카드를 둔다(번호 계산은 DB 없음).
+  const memberCode = await memberCodeForUserV229121(env, user.id).catch(() => "");
+  if (normalizeLocalLoginName(loginName).length < 2) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, first: true, hasBackup: false, returnTo, err: "로그인 이름은 2자 이상 입력하세요." }), 400);
+  if (accessCode.length < 8) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, first: true, hasBackup: false, returnTo, err: "내 계정 로그인 비밀번호는 8자리 이상으로 입력하세요." }), 400);
+  if (accessCode !== accessCode2) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, first: true, hasBackup: false, returnTo, err: "확인 입력이 일치하지 않습니다." }), 400);
   const currentPassword = String(form.get("current_password") || "");
   const reauthenticated = await verifyCredentialProof(request, env, userId) || (currentPassword && await verifyPasswordReauth(request, env, userId, currentPassword));
-  if (!reauthenticated) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, hasBackup, returnTo, err: "현재 로그인 비밀번호 또는 원래 연결한 카카오 계정으로 먼저 본인 확인을 완료하세요." }), 403);
+  if (!reauthenticated) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, hasBackup, returnTo, err: "현재 로그인 비밀번호 또는 원래 연결한 카카오 계정으로 먼저 본인 확인을 완료하세요." }), 403);
   try {
     await replaceLocalLoginForUser(env, loginName, accessCode, userId, { revokeSessions: true });
   } catch (err) {
@@ -328,10 +330,10 @@ async function handleMyBackupLoginSave(request, env) {
     // ‘저장하지 못했습니다’라고 해 바뀐 비밀번호를 모르는 채 예전 비밀번호로 로그인하다 막혔다.
     if (isUncertainStorageWrite(err)) {
       rememberOpsEvent({ kind: "backup_login_save_unknown", severity: "warn", path: "/my/backup-login", method: "POST", detail });
-      return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup, returnTo, err: "비밀번호 변경 결과를 확인하지 못했습니다. 이미 바뀌었을 수 있어요. 이 화면을 다시 열어 로그인 화면이 나오면 새 비밀번호로 로그인하고, 그대로 열리면 바뀌지 않은 것이니 다시 저장해 주세요." }), 503);
+      return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, first: true, hasBackup, returnTo, err: "비밀번호 변경 결과를 확인하지 못했습니다. 이미 바뀌었을 수 있어요. 이 화면을 다시 열어 로그인 화면이 나오면 새 비밀번호로 로그인하고, 그대로 열리면 바뀌지 않은 것이니 다시 저장해 주세요." }), 503);
     }
     const message = /login_name_in_use|duplicate key|409/i.test(detail) ? "이미 사용 중인 로그인 이름입니다." : "내 계정 로그인 비밀번호를 저장하지 못했습니다. V22.7 인증 마이그레이션 적용 상태를 확인하세요.";
-    return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, first: true, hasBackup, returnTo, err: message }), 409);
+    return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, first: true, hasBackup, returnTo, err: message }), 409);
   }
   // V22.9.88 Y-3: 여기서부터 비밀번호는 바뀌었고 예전 로그인은 모두 끊겼다. 이 기기의 새 로그인을 만들지 못하면(세션 판 조회 실패 등) 저장 실패가
   // 아니라 ‘바꿨으니 새 비밀번호로 다시 로그인’이라고 안내하고, 끊긴 쿠키를 지운다.
@@ -339,7 +341,7 @@ async function handleMyBackupLoginSave(request, env) {
   try { session = await makeUserSession(env, userId); }
   catch (err) {
     rememberOpsEvent({ kind: "backup_login_session_reissue_failed", severity: "warn", path: "/my/backup-login", method: "POST", detail: safeError(err) });
-    return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, hasBackup: true, returnTo, msg: "backup_login_saved_relogin" }), 200, {
+    return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, hasBackup: true, returnTo, msg: "backup_login_saved_relogin" }), 200, {
       "set-cookie": "ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
     });
   }
