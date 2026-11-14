@@ -8,7 +8,10 @@ const t = counter("PASS: V22.9.100 room record DB calls, cleanup and snapshot sa
 const measurements = {};
 // K-1 historical split retained; V101 now tests first alias registration after reply.
 // B-0 에서 ≤ 10 으로 내린다
-const caps = { A: [25, 40], B: [10, 12], "B-ordinary": [10, 12], C: [10, 12], D: [20, 32], E: [10, 12], "F-1": [10, 17], "F-1-ordinary": [10, 17], "F-2-strong": [10, 19], "F-2-ordinary": [10, 24], G: [6, 6], H: [11, 14], I: [11, 13], J: [11, 13], K: [11, 13], "V115-J": [38, 48], "V115-K": [28, 38], "V115-L": [30, 40], "V115-M": [12, 14], "V119-direct-first": [42, 49], "V119-web-room-first": [39, 43] };
+// V22.9.123(재방문 장치 1차): 이번 달 날짜의 한 건을 저장하는 보통 기록은 ‘이번 달 …’ 한 줄을 위해 읽기 둘(예산 GET·이번 달 기록 GET)을 저장과 나란히 보낸다.
+// 그 장면(B·C·E·F·H·I·J·K)의 상한만 답 전·전체 둘 다 2씩 올렸다. 순차 단계는 늘지 않는다(B 의 단계 상한 5 는 그대로). 첫 기록 길(A·D·V115·V119)과 G 는 그대로다.
+// 끄는 변수(KAKAO_RETURN_HINTS_DISABLED)를 켜면 예전 수와 같다는 것은 validate-return-reasons-v229123 이 본다(켜면 꼭 +2, 쓰기 수 같음).
+const caps = { A: [25, 40], B: [12, 14], "B-ordinary": [12, 14], C: [12, 14], D: [20, 32], E: [12, 14], "F-1": [12, 19], "F-1-ordinary": [12, 19], "F-2-strong": [12, 21], "F-2-ordinary": [12, 26], G: [6, 6], H: [13, 16], I: [13, 15], J: [13, 15], K: [13, 15], "V115-J": [38, 48], "V115-K": [28, 38], "V115-L": [30, 40], "V115-M": [12, 14], "V119-direct-first": [42, 49], "V119-web-room-first": [39, 43] };
 const textOf = body => (body.template?.outputs || []).map(output => output.simpleText?.text || output.textCard?.description || "").join("\n");
 const pathIs = (call, suffix, method) => call.url.pathname.endsWith(suffix) && call.method === method;
 const pendingWrite = call => pathIs(call, "/accountbook_settings", "POST") && JSON.stringify(call.body).includes(":pending_write:") ||
@@ -178,13 +181,13 @@ await fixture(async fx => {
   const cold = await fx.say("폴백기록 12002");
   const warm = await fx.say("폴백다음 12003");
   t.eq(rejected, 1, "combined-or failure is remembered in the isolate");
-  t.ok(cold.before <= 11 && warm.before <= 10, `combined-or fallback remains bounded (${cold.before}/${warm.before})`);
+  t.ok(cold.before <= 13 && warm.before <= 12, `combined-or fallback remains bounded (${cold.before}/${warm.before})`); // V22.9.123: 한 줄 피드백 읽기 +2
   t.ok(cold.text.includes("저장했어요") && warm.text.includes("저장했어요"), "combined fallback preserves saving");
   fx.hook = null;
   fx.db.__embed_unsupported = true;
   const plain = await fx.say("포함없는기록 12004");
   measurements.fullEmbedFallback = { before: plain.before, total: plain.total, waves: plain.waves };
-  t.ok(plain.before <= 14 && plain.total <= 16, `all embedding unavailable has a separate explicit bound (${plain.before}/${plain.total})`);
+  t.ok(plain.before <= 16 && plain.total <= 18, `all embedding unavailable has a separate explicit bound (${plain.before}/${plain.total})`); // V22.9.123: 한 줄 피드백 읽기 +2
   t.ok(plain.text.includes("저장했어요") && plain.text.includes("04번"), "plain fallback preserves reply fields and number");
 });
 

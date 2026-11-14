@@ -119,7 +119,9 @@ try {
     ok(saved.length === 1 && Number(saved[0].amount) === 60000 && saved[0].payment_method === "카드" && saved[0].transaction_date === "2026-09-09", "실제 /skill 이 같은 문장을 9월 9일 카드 지출 60,000원 한 건으로 저장한다");
     return reply;
   }));
-  const realLines = real.split("\n");
+  // V22.9.123: 저장 답의 ‘이번 달 …’ 한 줄(예산 사용률·이번 달 지출)은 그 가계부의 그달 자료에 따라 달라지는 줄이라 공개 예시 말풍선에는 싣지 않는다. 나머지 줄은 그대로 같아야 한다.
+  const realLines = real.split("\n").filter((line) => !/^(?:📊|⚠️|🚨) 이번 달 /u.test(line));
+  eq(real.split("\n").length - realLines.length, 1, "실제 저장 답에는 ‘이번 달 …’ 한 줄이 하나 있다(예시에서는 뺀다)");
   eq(countOf(real, " / 외식"), 1, "픽스처 답의 분류(외식)는 한 번 나온다(바꿀 값이 있다)");
   eq(countOf(real, "지출자: Bin"), 1, "픽스처 답의 지출자(Bin)는 한 번 나온다(바꿀 값이 있다)");
   const mapped = realLines.map((line) => line.replace(/ \/ 외식$/, " / 식비").replace(/^지출자: Bin$/, "지출자: 민지"));

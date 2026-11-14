@@ -520,6 +520,69 @@ async function kakaoBudgetFeedback(env, householdId, month, category) {
   }
 }
 
+// V22.9.123 재방문 장치 1차(2026-11-14 사용자 ‘출시 전 반영’): 카카오 기록 한 건 저장 답 끝에 붙이는 ‘이번 달 …’ 한 줄.
+// 숫자는 ‘예산 현황’(kakaoBudgetStatusParts)·‘이번 달 요약’(kakaoDateSummaryParts)과 같은 계산이다(budgetSummary·budgetStageInfo·환불 차감). 새 계산식을 만들지 않는다.
+//   지출: 저장한 분류에 예산이 있으면 그 예산의 사용률 → 분류별 예산 없이 전체 예산만 있으면 전체 예산 사용률 → 그 밖(예산 없음, 예산을 잡지 않은 분류)은 이번 달 지출 합계와 건수.
+//   수입: 이번 달 수입 합계.
+function kakaoSaveFeedbackTextV229123(rows = [], budgets = [], saved = {}, { refundDeductions = [] } = {}) {
+  const list = safeArray(rows);
+  const deductions = safeArray(refundDeductions).filter((entry) => entry && Number(entry.amount) > 0);
+  const expenseRows = list.filter((row) => row.type !== "income");
+  const grossExpense = expenseRows.reduce((sum, row) => sum + Number(row.amount || 0), 0);
+  const applied = deductions.length ? Number(refundDeductionApplied(grossExpense, deductions).applied || 0) : 0;
+  if (saved?.type === "income") {
+    const income = list.filter((row) => row.type === "income").reduce((sum, row) => sum + Number(row.amount || 0), 0) - applied;
+    return `📊 이번 달 수입 ${numberWithCommas(income)}원`;
+  }
+  const summary = budgetSummary(list, budgets, { refundDeductions: deductions });
+  const category = String(saved?.category || "");
+  const key = normalizeText(category || "기타");
+  const own = summary.categoryAlerts.find((b) => b.category === category)
+    || summary.categoryAlerts.find((b) => normalizeText(b.category) === key)
+    || summary.categoryAlerts.find((b) => b.categories.includes(key));
+  const usage = own && Number(own.budget) > 0 ? { name: `${own.category} 예산`, info: budgetStageInfo(own.spent, own.budget) }
+    : summary.basis === "total" && Number(summary.totalBudget) > 0 ? { name: "예산", info: budgetStageInfo(summary.budgetedExpense, summary.totalBudget) }
+    : null;
+  if (usage) {
+    if (usage.info.stage === "over") return `🚨 이번 달 ${usage.name} ${numberWithCommas(usage.info.over)}원 초과 (${usage.info.rate}%)`;
+    return `${usage.info.stage === "warn" ? "⚠️" : "📊"} 이번 달 ${usage.name} ${usage.info.rate}% 사용 · ${numberWithCommas(usage.info.remain)}원 남음`;
+  }
+  return `📊 이번 달 지출 ${numberWithCommas(grossExpense - applied)}원 · ${expenseRows.length}건`;
+}
+
+// 읽기는 둘이다: 그 달 예산(1회)과 그 달 기록(1회, 1,000행까지). 환불 연결은 플래그가 켜진 곳에서만 더 읽는다(예산 현황과 같다).
+// 호출부(kakao/transaction-save.js)는 이 읽기를 저장과 나란히 던진다 — 순차 단계를 늘리지 않으려는 것이다. 그래서 읽은 줄에 방금 저장한 기록이
+// 있을 수도 없을 수도 있다. 문구를 만들 때(kakaoSaveFeedbackFromDataV229123) 그 기록이 없으면 더해서, 있으면 그대로 센다(한 번만 센다).
+// 아래 가운데 하나라도 해당하면 null(줄을 붙이지 않는다): 기록이 1,000행에 닿음(잘렸을 수 있다) · 환불 연결을 못 읽음 ·
+// 예산이나 기록을 못 읽음(던진다 → 호출부의 시간 상자가 빈 값으로 받는다).
+const KAKAO_SAVE_FEEDBACK_ROW_CAP_V229123 = 1000;
+async function kakaoSaveFeedbackDataV229123(env, householdId = "", month = "") {
+  if (!householdId || !/^\d{4}-\d{2}$/.test(String(month))) return null;
+  const end = nextMonthStart(month);
+  const params = new URLSearchParams();
+  params.set("select", "id,type,amount,category,user_id,transaction_date");
+  params.set("household_id", `eq.${householdId}`);
+  params.set("transaction_date", `gte.${month}-01`);
+  params.append("transaction_date", `lt.${end}`);
+  params.set("order", "transaction_date.desc,id.desc");
+  params.set("limit", String(KAKAO_SAVE_FEEDBACK_ROW_CAP_V229123));
+  const [budgets, rows, refund] = await Promise.all([
+    fetchBudgets(env, householdId, month, { strict: true }),
+    supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" }),
+    loadRefundDeductions(env, { householdId, start: `${month}-01`, end }),
+  ]);
+  if (!Array.isArray(rows) || rows.length >= KAKAO_SAVE_FEEDBACK_ROW_CAP_V229123 || refund?.failed) return null;
+  return { month: String(month), budgets, rows, refundDeductions: safeArray(refund?.entries) };
+}
+
+// 읽어 둔 자료와 방금 저장한 기록으로 한 줄을 만든다. 저장한 날짜가 읽은 달이 아니거나 자료가 없으면 빈 문자열.
+function kakaoSaveFeedbackFromDataV229123(data = null, saved = {}) {
+  if (!data || !saved?.id || String(saved.transaction_date || "").slice(0, 7) !== data.month) return "";
+  const seen = data.rows.some((row) => String(row.id) === String(saved.id));
+  const rows = seen ? data.rows : [...data.rows, { id: saved.id, type: saved.type, amount: saved.amount, category: saved.category, user_id: saved.user_id, transaction_date: saved.transaction_date }];
+  return kakaoSaveFeedbackTextV229123(rows, data.budgets, saved, { refundDeductions: data.refundDeductions });
+}
+
 // V22.9.37: 이 묶음에서 새로 생긴 안내 코드. formatMessage 는 모르는 코드를 일반 안내로 닫으므로 예산·정기·설정 화면이
 // 먼저 이 표를 본다. 수동 반영 결과("고정항목 N건 기록 …")는 숫자가 들어 있어 코드가 될 수 없으므로 형식을 확인한 뒤 그대로 보여 준다.
 // 돌려주는 값은 formatMessage 와 같이 HTML 이스케이프가 끝난 문장이고, 모르는 코드는 빈 문자열이다.
@@ -547,6 +610,7 @@ export {
   budgetFeedbackLine, budgetPlanFingerprint, budgetPlanMessage, budgetStageInfo, budgetStatusLabel,
   budgetSummary, fetchBudgets, fetchMobileHomeSettings, fetchObservationMonthRows,
   fetchRecurringMarkerRows, fetchRecurringRuleByIdStrict, fetchRecurringStrict,
-  kakaoBudgetStatusParts, optionalSupabase,
+  kakaoBudgetStatusParts, kakaoSaveFeedbackDataV229123, kakaoSaveFeedbackFromDataV229123,
+  kakaoSaveFeedbackTextV229123, optionalSupabase,
 };
 // @build:exports-end

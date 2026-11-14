@@ -140,7 +140,8 @@ await section("D-9", async () => {
     const stop = intercept(({ url, method }) => { log.push(`${method} ${url.pathname}`); });
     try {
       const saved = await kakaoRecord(fx, "헬로모바일 33900원");
-      eq(log.length, 11, "K-1 일일 기록 재사용으로 카카오 한 건 저장의 전체 Supabase 요청은 11회다");
+      // V22.9.123: 한 줄 피드백의 읽기 둘(예산·이번 달 기록)이 더해져 13회다. 설정 읽기 2회는 그대로다.
+      eq(log.length, 13, "K-1 일일 기록 재사용 + 한 줄 피드백 읽기 둘로 카카오 한 건 저장의 전체 Supabase 요청은 13회다");
       eq(log.filter((line) => line.startsWith("GET") && line.includes("accountbook_settings")).length, 2, "카카오 한 건 저장의 설정 읽기는 2회 그대로다");
       eq(saved.label, "expense/통신", "왕복 측정용 카카오 기록이 통신으로 저장된다");
       log.length = 0;
