@@ -19,6 +19,7 @@ import { fetchRawHouseholdMembers, fetchUserById } from "../data/users-household
 import {
   applyRecurringRulesForMonthBatched, eligibleRecurringSpenders, recurringDateForMonth,
   recurringSpenderEligible, refreshRecurringReports, settleRecurringBeforeEdit,
+  settleRecurringMonthEndAfterSave,
 } from "../cron/recurring-auto-apply.js";
 import {
   defaultExpenseBudgetNames, defaultIncomeBudgetNames, expenseBudgetRows, incomeBudgetRows,
@@ -214,7 +215,10 @@ async function handleRecurringSave(request, env) {
       if (existing) { await settleRecurringBeforeEdit(env, householdId, existing, row); assertFresh(); }
       // V22.9.76 감사 D-25: 두 번 보낸 같은 새 항목은 한 번만 만든다.
       if (!ruleId && await findRecentDuplicateRecurringRule(env, householdId, row)) return;
-      await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(householdId)}` : "/rest/v1/accountbook_recurring", { method: ruleId ? "PATCH" : "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(row) });
+      // V22.9.122 T-1(출시 전 점검 2026-11-14): 새 규칙은 저장된 행(id)을 돌려받고, 말일 예약 실행 뒤에 만들거나 다시 켠 규칙의 이번 달 몫을 저장 직후 넣는다
+      // (예전에는 넣을 실행이 없어 빠졌다. 말일이 아닌 날은 아무것도 하지 않고 예전처럼 다음 날 실행이 넣는다).
+      const written = await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(householdId)}` : "/rest/v1/accountbook_recurring", { method: ruleId ? "PATCH" : "POST", headers: { Prefer: ruleId ? "return=minimal" : "return=representation" }, body: JSON.stringify(row) });
+      await settleRecurringMonthEndAfterSave(env, householdId, ruleId ? { ...existing, ...row } : (Array.isArray(written) ? written[0] : null), { path: "/admin/recurring/save" });
     });
     return redirectResponse(addQueryToUrl(returnTo, { msg: "recurring_saved" }));
   } catch (err) {
