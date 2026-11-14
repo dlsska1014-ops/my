@@ -1,3 +1,7 @@
+## V22.9.123 SQL 판단
+
+- 이 판은 SQL 이 없다(스키마·RPC·RLS·권한·인덱스 변경 없음). 새 설정 줄도 없다. 한 줄 피드백은 기존 표(`accountbook_budgets`·`transactions`)를 읽기만 한다.
+
 ## V22.9.122 SQL 판단
 
 - 이 판은 SQL 이 없다(스키마·RPC·RLS·권한·인덱스 변경 없음). 방 참여 시도 표식 `kakao_group_member_attempt_v22943:*` 의 값에 시각 `at` 이 더해진다(기존 `accountbook_settings` 줄, 앱이 씀. `at` 없는 옛 줄은 오래된 것으로 본다).

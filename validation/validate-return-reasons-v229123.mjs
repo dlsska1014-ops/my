@@ -211,6 +211,27 @@ for (const value of ["", "0", "false", "off", "no"]) {
       t.ok(saved.text.includes("수정:"), `${label}: 답의 나머지는 그대로`);
     }));
   }
+  // 독립 검토 1: 읽은 줄의 원소가 이상해도(null·숫자·빈 객체) 저장된 기록에 일반 오류 답이 나가지 않는다 — 보통 저장 답에서 그 줄만 빠지거나, 셀 수 있으면 센다.
+  for (const [label, body] of [["기록 줄이 [null]", [null]], ["기록 줄이 [1, \"x\"]", [1, "x"]], ["기록 줄이 [{}]", [{}]]]) {
+    await at("2026-11-10", () => fixture(async (fx) => {
+      clean(fx);
+      budget(fx, "2026-11", "식비", 300000);
+      const stop = intercept(({ url, method }) => FEEDBACK_ROWS_GET(url, method) ? new Response(JSON.stringify(body), { status: 200, headers: { "content-type": "application/json" } }) : undefined);
+      let saved;
+      try { saved = await say(fx, `점심 ${++amount}원`); } finally { stop(); }
+      t.ok(saved.text.includes("저장했어요") && saved.text.includes("수정:") && !saved.text.includes("다시 보내"), `${label}: 보통 저장 답이 나간다 (${saved.text.split("\n")[0]})`);
+      t.eq(homeRows(fx).filter((row) => Number(row.amount) === amount).length, 1, `${label}: 기록 한 건`);
+      t.ok(!/undefined|NaN/.test(saved.text), `${label}: 답에 undefined·NaN 없음`);
+    }));
+  }
+  // 예산 줄의 원소가 이상한 경우도 같다.
+  await at("2026-11-10", () => fixture(async (fx) => {
+    clean(fx);
+    const stop = intercept(({ url, method }) => BUDGETS_GET(url, method) ? new Response(JSON.stringify([null, 3]), { status: 200, headers: { "content-type": "application/json" } }) : undefined);
+    let saved;
+    try { saved = await say(fx, `점심 ${++amount}원`); } finally { stop(); }
+    t.ok(saved.text.includes("저장했어요") && saved.text.includes("수정:") && !/undefined|NaN/.test(saved.text), `예산 줄이 [null, 3]: 보통 저장 답이 나간다 (${lineOf(saved.text) || "줄 없음"})`);
+  }));
   // 늦은 읽기(600 ms): 350 ms 까지만 기다리고 그 줄 없이 답한다.
   await at("2026-11-10", () => fixture(async (fx) => {
     clean(fx);
@@ -255,6 +276,19 @@ for (const value of ["", "0", "false", "off", "no"]) {
     try { saved = await say(fx, "점심 14300원"); } finally { stop(); }
     t.ok(["📊 이번 달 지출 44,300원 · 2건", ""].includes(lineOf(saved.text)), `읽기가 저장 뒤에 끝나도 두 번 세지 않는다 (${lineOf(saved.text) || "줄 없음"})`);
   }));
+}
+
+// 독립 검토 1: 말일 23:59 에 받은 기록의 저장이 자정 뒤에 끝나면 ‘이번 달’ 이라고 부르지 않는다(그 줄을 붙이지 않는다). 자정 전에 끝나면 붙는다.
+{
+  const run = (shift) => at("2026-11-30", () => fixture(async (fx) => {
+    clean(fx);
+    tx(fx, "2026-11-03", 30000);
+    const stop = intercept(({ url, method }) => { if (shift && method === "POST" && url.pathname === "/rest/v1/transactions") globalThis.__AB_QA_FIXED_NOW_MS = Date.parse("2026-12-01T00:00:01+09:00"); });
+    try { return await say(fx, "야식 18100원"); } finally { stop(); }
+  }), "23:59");
+  const before = await run(false), after = await run(true);
+  t.ok(before.text.includes("저장했어요") && before.text.includes("2026-11-30") && lineOf(before.text) === "📊 이번 달 지출 48,100원 · 2건", `말일 23:59 기록(자정 전에 끝남): 한 줄 있음 (${lineOf(before.text) || "줄 없음"})`);
+  t.ok(after.text.includes("저장했어요") && after.text.includes("2026-11-30") && !lineOf(after.text), `말일 23:59 기록(저장 중에 달이 넘어감): 한 줄 없음 (${lineOf(after.text) || "줄 없음"})`);
 }
 
 // ── 4. 단톡방 ─────────────────────────────────────────────────────────────────

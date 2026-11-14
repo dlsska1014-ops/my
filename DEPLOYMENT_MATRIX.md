@@ -1,3 +1,13 @@
+## V22.9.123 배포 판단
+
+- 대상: 앱 Worker `kakao-accountbook` 만. 관제·Secret·1년 캐시 자산·Kakao Developers·OpenBuilder·cron 일정·DB 스키마는 그대로다. 운영 V22.9.122(main 5b476dd) 위에 올렸다.
+- 지금 운영: `6c16574b-7a79-4dd9-a89f-9f51326a03c8`(#352, V22.9.122-PRELAUNCH-SWEEP, 배포 `bd696706-8929-4def-aea8-1416322859c6`, 2026-11-14 23:11 KST 승격), 바인딩 32·광고 모드 review. V22.9.122 운영 반영(2026-11-14 23:11 KST, 사용자 토큰 2단계): PR #160 병합 22:05:38(main 5b476dd, Aside 세션 ItS8fdeyxIGBj8Ms, merge commit·브랜치 유지, 트리 = 검사한 머리 트리 9fab4b5a, main CI 43598015087 성공) → 1단계 업로드 22:54:33 version `6c16574b-7a79-4dd9-a89f-9f51326a03c8` #352(10,119,406 B·cd4767d4…, 바인딩 32 inherit 차이 0·금지/선택 변수 없음, Claude 대조 통과) → 2단계 승격 deployment `bd696706-8929-4def-aea8-1416322859c6`(도구: 소스 해시 일치·/health 5/5·공개 123/123) → Claude 직후 확인 통과(/health ×3·/ready·sitemap 60·공개 화면 11곳·/privacy 개정일 그대로·1년 캐시 자산·POST /skill 무Secret 403 = 24/24, 공개 점검 재실행 123/123). 되돌리기 대상(기록만) `c0c79247-9503-4acb-b17b-092d911b648a` #351(V22.9.121). 증거 `review-artifacts/v122-prelaunch-sweep-2026-11-14/deploy/`. 사람 확인(RELEASE-CHECKLIST V22.9.122 ①~④)은 남아 있다.
+- SQL·Secret 없음. 새 변수는 선택 하나(`KAKAO_RETURN_HINTS_DISABLED`, 없으면 켜짐)라 승격 때 넣지 않는다 → 바인딩 그대로(32). 공개(로그인 없는) 화면 HTML·1년 캐시 자산·약관·방침 날짜는 바꾸지 않았다.
+- 되돌리기 대상(기록만) = 승격 시점의 활성 version(지금 `6c16574b-7a79-4dd9-a89f-9f51326a03c8`(#352, V22.9.122-PRELAUNCH-SWEEP, 배포 `bd696706-8929-4def-aea8-1416322859c6`, 2026-11-14 23:11 KST 승격)). 되돌리면 이 판의 재방문 장치만 빠진다. 기능만 끄려면 되돌리지 않고 변수 `KAKAO_RETURN_HINTS_DISABLED=1` 을 넣는다(바인딩 32 → 33, 새 version — 사용자 지목 뒤 Aside 또는 사용자). DB 영향은 없다.
+- 승격: 사용자 토큰 2단계(`review-artifacts/v123-return-reasons-2026-11-14/USER-DEPLOY-APP.md`). 11-18(수)부터는 결함 수정만, 11-20(출시일)에는 배포하지 않는다 → 이 판은 11-17 까지 내보낸다.
+- 저장소 호출: 이번 달 날짜의 한 건을 저장하는 보통 기록에서 답 전 +2(읽기만, 저장과 나란히 — 순차 단계 그대로). 요청 예산(50) 안이다(보통 기록 답 전 11~12, 전체 13~14). 한 요청의 동시 연결은 4~5(Workers 상한 6). 환불 연결 플래그(`REFUND_LINKS_ENABLED`)를 켜면 읽기가 셋이 되므로 그때 동시 연결 수를 다시 잰다.
+- 번들 10,129,599 B · SHA-256 `c597730dfc5953fb1762209493b06c540827e4bb90e5722e8ceaf45711a2faf0`(149 모듈). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_123.sha256`(867) · 하네스 두 모드 83,830 / 83,823(하한 83,823).
+
 ## V22.9.122 배포 판단
 
 - 대상: 앱 Worker `kakao-accountbook` 만. 관제·Secret·운영 변수·1년 캐시 자산·Kakao Developers·OpenBuilder·cron 일정·DB 스키마는 그대로다.

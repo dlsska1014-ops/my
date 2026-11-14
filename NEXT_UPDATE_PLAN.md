@@ -1,3 +1,8 @@
+## V22.9.123 다음 단계
+
+- 병합·승격은 사용자 지목 뒤(`review-artifacts/v123-return-reasons-2026-11-14/USER-DEPLOY-APP.md`). 11-17 까지 내보낸다. 승격 뒤 Claude 직후 확인 → 기록 PR.
+- 출시 뒤 후보(재방문 2차, `review-artifacts/prelaunch-sweep-2026-11-14/NEXT-STEPS.md`): 정기 규칙이 자동 기록한 다음 첫 호출의 한 줄, 모임 방 월말 정산 넛지, 관제 ‘이용 현황’ 의 재방문 지표(첫 기록 뒤 1·7·30일), 그달 합계 RPC(1,000건 상한 풀기·읽기 한 번으로), /demo 말풍선과 /kakao-guide 표.
+
 ## V22.9.122 다음 단계
 
 - 병합·승격은 사용자 지목 뒤(`review-artifacts/v122-prelaunch-sweep-2026-11-14/USER-DEPLOY-APP.md`). 승격 뒤 Claude 직후 확인 → 기록 PR.
