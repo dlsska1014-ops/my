@@ -58154,13 +58154,20 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
           let joinedNow = false;
           if (!role && departed) return rejected("departed", "이 가계부에서 나간 이력이 있어 자동으로 다시 참여하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 다시 참여하려면 개인 대화에서 초대코드를 사용해 주세요.");
           if (!role) {
-            // 결과를 모르는 참여 POST 는 다시 보내지 않는다. 표식은 방·사용자·가계부마다 하나라 방을 다른 가계부로 다시 연결해도 막히지 않는다.
-            // V22.9.31 표식(방·사용자마다 하나)이 같은 가계부를 가리키면 예전처럼 결과를 모르는 상태로 본다.
+            // 결과를 모르는 참여 POST 는 60초 안에는 다시 보내지 않는다. 표식은 방·사용자·가계부마다 하나라 방을 다른 가계부로 다시 연결해도 막히지 않는다.
+            // V22.9.31 표식(방·사용자마다 하나)이 같은 가계부를 가리키면 결과를 모르는 오래된 이전 시도로 본다(V22.9.122 KR-1).
             const memberAttemptKey = `kakao_group_member_attempt_v22943:${snapshot.keys.hash}:${await sha256Hex(String(user.id))}:${await sha256Hex(householdId)}`;
-            if (Object.keys(snapshot.member).length && snapshot.member.household_id === householdId) throw kakaoGroupPreparationUnknown();
+            // V22.9.122 KR-1(출시 전 점검 2026-11-14): 참여 POST 나 표식 INSERT 의 응답을 한 번 잃으면 표식만 남고 역할은 없어 그 사람은 영영
+            // ‘결과 미확정’이었다(requireInserted). 소유자 단계(V22.9.63)처럼, 같은 사람·가계부의 이전 표식(V22.9.31 표식 포함, at 없으면 오래된 것)이 60초
+            // 넘게 지났고 이 잠금 안에서 역할도 나간 이력도 없으면 같은 고정 POST(on_conflict 무시)를 한 번 더 보낸다. 60초 안에는 예전처럼 미확정으로 답한다.
+            const legacyAttempt = Object.keys(snapshot.member).length && snapshot.member.household_id === householdId;
             assertFresh();
-            const attempt = parseStrictSettingsObject(await insertKakaoGroupFirstSetting(env, memberAttemptKey, { version: 1, user_id: String(user.id), household_id: householdId, phase: "member_sent" }, { requireInserted: true }), "kakao_group_member_attempt");
+            let attemptInsertedNow = false;
+            const attempt = parseStrictSettingsObject(await insertKakaoGroupFirstSetting(env, memberAttemptKey, { version: 1, user_id: String(user.id), household_id: householdId, phase: "member_sent", at: new Date().toISOString() }, { onInserted: () => { attemptInsertedNow = true; } }), "kakao_group_member_attempt");
             if (attempt.household_id !== householdId || attempt.user_id !== String(user.id)) throw new Error("kakao_group_member_attempt_conflict");
+            const previousAttempt = attemptInsertedNow ? (legacyAttempt ? {} : null) : attempt;
+            const previousAt = Date.parse(String(previousAttempt?.at || ""));
+            if (previousAttempt && Number.isFinite(previousAt) && Date.now() - previousAt < KAKAO_GROUP_PHASE_RETRY_MS) throw kakaoGroupPreparationUnknown();
             assertFresh();
             let writeError;
             try { await supabase(env, "/rest/v1/household_members?on_conflict=household_id,user_id", { method: "POST", headers: { Prefer: "resolution=ignore-duplicates,return=minimal" }, body: JSON.stringify({ household_id: householdId, user_id: user.id, role: "member" }) }); }
