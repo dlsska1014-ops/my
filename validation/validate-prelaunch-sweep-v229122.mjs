@@ -58,7 +58,7 @@ one(await say("이거 반은 친구가 줄거임\n현대카드 승인 48,000원 
 {
   const result = await say("[Web발신]\n하나카드(5678) 승인\n42,000원 일시불\n11/08 21:14\n고기마을 누적 812,300원\n이거 셋이 나눠서 난 14000만");
   none(result, "덧말에 다른 금액", "카드 승인 문자로 보이는데");
-  check.ok(result.reply.includes("11월 8일 이마트 42000원"), "덧말에 다른 금액: 예시는 문자의 날짜·금액");
+  check.ok(result.reply.includes("11월 8일 쓴곳 42000원") && !result.reply.includes("이마트"), "덧말에 다른 금액: 예시는 문자의 날짜·금액이고 지어낸 가게 이름이 없다");
 }
 // 승인 문자가 아닌 말은 예전 그대로다.
 one(await say("점심 12000원"), "평범한 기록", { date: "2026-11-10", amount: 12000, memo: "점심" });
@@ -83,8 +83,8 @@ none(await say("정산 받은거 기록 ㄱㄱ\n[토스] 최*영님이 25,000원
 {
   const out = await say("[Web발신]\n신한체크 출금 8,900원\n11/09 14:11 스타벅스\n잔액 152,340원");
   none(out, "출금 문자의 날짜", "문자에 적힌 날짜(11월 9일)");
-  check.ok(out.reply.includes("11월 9일 이마트 8900원"), "출금 문자의 날짜: 예시");
-  one(await say("11월 9일 이마트 8900원"), "출금 예시를 그대로 보내면", { date: "2026-11-09", amount: 8900, memo: "이마트" });
+  check.ok(out.reply.includes("11월 9일 쓴곳 8900원") && !out.reply.includes("이마트"), "출금 문자의 날짜: 예시(지어낸 가게 이름 없음)");
+  one(await say("11월 9일 쓴곳 8900원"), "출금 예시를 그대로 보내면", { date: "2026-11-09", amount: 8900, memo: "쓴곳" });
   const income = await say("[Web발신]\n[국민은행] 11/09 14:22\n입금 2,500,000원\n급여\n잔액 3,120,450원");
   none(income, "입금 문자의 날짜", "문자에 적힌 날짜(11월 9일)");
   check.ok(income.reply.includes("11월 9일 수입 2500000원"), "입금 문자의 날짜: 수입 예시");
@@ -98,6 +98,45 @@ one(await say("카드 취소하러 은행 갔다가 커피 4500원"), "취소하
 one(await say("체크카드 취소 수수료 3000원"), "취소 수수료(알림 아님)", { date: "2026-11-10", amount: 3000 });
 one(await say("11/5 관리비 132000원 냈고 잔액 845210원"), "잔액을 함께 적은 기록", { date: "2026-11-05", amount: 132000 });
 one(await say("어제 받은 문자임 커피ㅋ\nNH카드 승인 4,500원 메가커피 잔여한도 2,345,500원"), "날짜 없는 문자는 덧말의 날짜 말을 따르는 예전 길", { date: "2026-11-09", amount: 4500 });
+
+// ── K-1 ③ 독립 검토 1에서 나온 것 ───────────────────────────────────────────────
+// (1) 해 없는 앞날 날짜를 지난해로 옮기지 않는다(새해 무렵만 예외). 예전 길과 같은 결과여야 한다.
+one(await say("11/15 14:00 카드 승인 예정 노트북 1200000원"), "앞날 날짜 + 승인 예정(예전 길)", { date: "2026-11-15", amount: 1200000 });
+one(await say("12/1 승인 6개월 할부 아이폰 1500000원"), "앞날 날짜 + 할부(예전 길)", { date: "2026-12-01", amount: 1500000 });
+{
+  const tomorrow = await say("[Web발신]\n신한카드(1234)승인\n김*수\n45,000원 일시불\n11/11 19:42\n이마트\n누적1,234,560원");
+  check.ok(tomorrow.added.every((row) => row.date >= "2026-01-01"), "내일 날짜 문자를 지난해로 저장하지 않는다 (" + JSON.stringify(tomorrow.added) + ")");
+  const spring = await say("[Web발신]\n신한카드(1234)승인\n김*수\n45,000원 일시불\n12/30 19:42\n이마트\n누적1,234,560원", "2026-03-10");
+  check.ok(spring.added.every((row) => row.date >= "2026-01-01"), "3월에 붙인 12/30 문자를 지난해로 저장하지 않는다 (" + JSON.stringify(spring.added) + ")");
+  const due = await say("[Web발신]\n현대카드 승인\n김*수\n45,000원 일시불\n이마트\n결제일 11/25");
+  check.ok(due.added.every((row) => row.date >= "2026-01-01"), "‘결제일 11/25’ 를 지난해 결제 날짜로 저장하지 않는다 (" + JSON.stringify(due.added) + ")");
+}
+// (2) 문자 꼴 글의 앞날 날짜를 날짜 어긋남으로 막지 않는다(예전처럼 저장).
+one(await say("12/25 크리스마스 선물 50000원 잔액 120000원"), "앞날 날짜 + 잔액(예전 길)", { date: "2026-12-25", amount: 50000 });
+// (3) 되묻는 답의 예시에 지어낸 금액·가게 이름이 없다.
+for (const text of ["[Web발신]\n신한카드(1234)승인\n김*수\n45,000원 일시불\n11/09 19:42\n교촌치킨\n포인트사용 5,000원", "현대카드 승인 4,500원 11/09 19:42 스타벅스 2잔 9000원", "두개 한번에 넣어줘\n[BC]7788 승인 54,000원 11/08 이마트 누적 640,000원\n[BC]7788 승인 23,000원 11/09 다이소 누적 663,000원"]) {
+  const out = await say(text);
+  if (!out.added.length) check.ok(!/42000|이마트 \d/.test(out.reply), "예시에 지어낸 금액·가게 없음: " + out.reply.replace(/\n/g, " / ").slice(0, 120));
+  else check.ok(true, "저장됨(예전 길): " + JSON.stringify(out.added));
+}
+// 수입으로 읽히는 말은 예전처럼 수입으로 저장한다.
+one(await say("11/9 14:30 승인 월급 3000000원"), "승인 + 월급(예전 길 = 수입)", { date: "2026-11-09", amount: 3000000, type: "income" });
+// (4) 문자 뒤에 한글 수로 적은 둘째 기록을 말없이 버리지 않는다.
+for (const text of ["[Web발신]\n신한카드(1234)승인\n김*수\n45,000원 일시불\n11/09 19:42\n이마트\n누적1,234,560원\n그리고 택시 만원", "택시 만원\n[Web발신]\n신한카드(1234)승인\n김*수\n45,000원 일시불\n11/09 19:42\n이마트"]) {
+  const out = await say(text);
+  const taxi = out.added.some((row) => row.amount === 10000);
+  check.ok(taxi || out.added.length === 0, "둘째 기록(택시 만원)이 저장되거나 전체를 되묻는다 — 한 건만 저장하고 끝내지 않는다 (" + JSON.stringify(out.added) + " / " + out.reply.split("\n")[0] + ")");
+}
+// (5) 결제가 안 돼 다른 방법으로 냈다는 말은 알림이 아니다.
+one(await say("카드 승인 거절돼서 현금으로 점심 9000원"), "승인 거절 이야기 + 실제 지출", { date: "2026-11-10", amount: 9000 });
+one(await say("결제 실패해서 현금 냄 택시 15000원"), "결제 실패 이야기 + 실제 지출", { date: "2026-11-10", amount: 15000 });
+// (6) ‘카드 취소’ 로 끝난 줄 다음의 평범한 기록을 막지 않는다.
+{
+  const out = await say("어제 쿠팡 카드 취소\n오늘 점심 9000원");
+  check.ok(out.added.some((row) => row.amount === 9000), "카드 취소 줄 다음 기록은 저장 (" + JSON.stringify(out.added) + " / " + out.reply.split("\n")[0] + ")");
+}
+// (7) 카드사를 모르는 ‘카드’ 도 결제수단으로 남는다.
+one(await say("회사 카드 승인 11/9 택시 23000원 14:30"), "카드사 없는 카드", { date: "2026-11-09", amount: 23000, payment: "카드" });
 
 // ── INJ-1 금액 하나만 받는 웹 폼 칸 ─────────────────────────────────────────────
 const recurringRules = (fx) => fx.db.accountbook_settings.filter((row) => /recurring/i.test(String(row.key || "")) && JSON.stringify(row.value ?? "").includes("월세점검"));
@@ -177,6 +216,21 @@ await quiet(async () => {
       check.eq(back.status, 200, `DB 복구 뒤(${kind}) /app: 200`);
     });
   }
+});
+// 독립 검토 1: 다시 열기 주소는 경로와 달·가계부·탭 값만 싣는다. 쿠키 없는 사람의 로그인 길은 안내 화면 대상이 아니다.
+await quiet(async () => {
+  await fixture(async (fx) => {
+    resetIsolate();
+    const undo = usersDown("503");
+    try {
+      const shown = await page(fx, "/app?month=2026-07&household_id=house-home&code=SECRETCODE&state=SECRETSTATE&foo=abcdefgh");
+      check.eq(shown.status, 503, "주소 값이 붙은 화면 요청: 503 안내");
+      check.ok(shown.html.includes('href="/app?month=2026-07&amp;household_id=house-home"'), "다시 열기 주소는 달·가계부만 싣는다");
+      check.ok(!/SECRETCODE|SECRETSTATE|abcdefgh/.test(shown.html), "다시 열기 주소에 인증 값 같은 다른 주소 값이 없다");
+      const login = await app.fetch(new Request(BASE + "/my/login", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded", origin: BASE, "sec-fetch-site": "same-origin", accept: "text/html" }, body: "login_name=nobody&password=wrong-password-1" }), fx.env, ctx);
+      check.ok(!(await login.text()).includes("로그아웃된 것은 아니에요"), "쿠키 없는 로그인 시도: 안내 화면 아님 (" + login.status + ")");
+    } finally { undo(); }
+  });
 });
 // 평소(실패 없음)에는 달라진 것이 없다.
 await fixture(async (fx) => {

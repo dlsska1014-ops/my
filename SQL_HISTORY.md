@@ -1,3 +1,7 @@
+## V22.9.122 SQL 판단
+
+- 이 판은 SQL 이 없다(스키마·RPC·RLS·권한·인덱스 변경 없음). 방 참여 시도 표식 `kakao_group_member_attempt_v22943:*` 의 값에 시각 `at` 이 더해진다(기존 `accountbook_settings` 줄, 앱이 씀. `at` 없는 옛 줄은 오래된 것으로 본다).
+
 ## V22.9.121 SQL 판단
 
 - 이 판은 SQL 이 없다. 앱은 스키마·RPC·RLS·권한·인덱스를 바꾸지 않는다. 새 설정 줄 `member_code:<MB-XXXX-XXXX>`(값 { user_id }, 회원 번호 기억)는 기존 `accountbook_settings` 표에 앱이 쓴다. 계정 합치기 뒤 `supporter:`·`consent:` 줄 옮기기도 같은 표의 앱 쓰기다.

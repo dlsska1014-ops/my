@@ -22,8 +22,12 @@ function renderEmergencyErrorHtml(url, err, title = "화면을 안전모드로 �
 
 // V22.9.122 F-1(출시 전 점검 2026-11-14): 로그인 확인을 잠깐 못 했을 때의 안내 화면(worker/router.js sessionUnavailableResponseV229122). DB 정보는 적지 않는다.
 function renderSessionUnavailableHtmlV229122(url, posted = false) {
-  const safePath = escapeHtml(`${url?.pathname || "/"}${url?.search || ""}`);
-  const retry = posted ? "/my" : safePath;
+  // 다시 열기 주소: 경로와 달·가계부·탭 값만 싣는다. 로그인 길(/auth/…)과 그 밖의 주소 값(인증 code·state, 방 키 등)은 다시 쓰지 않는다(독립 검토 1).
+  const keep = new URLSearchParams();
+  for (const key of ["month", "household_id", "tab", "view"]) { const value = url?.searchParams?.get(key); if (value && value.length <= 80) keep.set(key, value); }
+  const pathname = String(url?.pathname || "/");
+  const safePath = escapeHtml(pathname + (keep.toString() ? `?${keep}` : ""));
+  const retry = posted || /^\/auth\//.test(pathname) ? "/my" : safePath;
   const note = posted ? "방금 보낸 내용은 저장되지 않았어요. 잠시 뒤 다시 시도해 주세요." : "잠시 뒤 아래 단추로 다시 열어 주세요.";
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex"/><title>말해가계부 · 잠시 뒤 다시</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:40px auto;padding:20px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:24px;box-shadow:0 18px 44px rgba(15,23,42,.08)}h1{margin-top:0;font-size:22px}.muted{color:#475569;line-height:1.6}.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.btn{display:inline-flex;align-items:center;justify-content:center;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:900}@media (prefers-color-scheme:dark){body{background:#0f172a;color:#f1f5f9}.card{background:#1e293b;border-color:#334155}.muted{color:#cbd5e1}.btn{background:#f1f5f9;color:#0f172a!important}}</style></head><body><main class="wrap"><section class="card"><h1>로그인 상태를 잠시 확인하지 못했어요</h1><p class="muted">로그아웃된 것은 아니에요. 저장소 응답이 잠깐 늦어지고 있어요. ${note}</p><div class="btns"><a class="btn" href="${retry}">다시 열기</a></div></section></main></body></html>`;
 }

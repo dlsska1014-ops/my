@@ -751,32 +751,45 @@ const KAKAO_GUARD_MAX_TEXT_V229120 = 1500;
 //   ③ 취소 문자(‘신한카드(1234)취소’·‘체크취소’·‘부분취소’)가 지출로 저장됨   ④ 문자에 날짜가 하나 적혀 있는데 다른 날(오늘)로 저장됨
 //   ⑤ 받은 돈 알림(‘○○님이 25,000원을 보냈어요’)이 지출로 저장됨   ⑥ 한글 단위로 적은 잔액·누적·한도(‘잔액 3만원’)의 단위가 10,000원 헛기록이 됨
 const KAKAO_NOTICE_FAILED_V229122 = /승인\s*거절|출금\s*불능|이체\s*불능|결제\s*실패|승인\s*실패/;
-const KAKAO_NOTICE_CANCEL_V229122 = /(?:(?:카드|체크)\s*[\])】]?\s*[(\[]?[\d*]{0,4}[)\]]?|출금|부분)\s*취소\s*(?=-?\d|[가-힣]\*|$)/m;
+// 독립 검토 1: ‘카드 취소’ 로 끝난 줄 다음에 평범한 기록이 오면 막지 않는다. 취소 바로 뒤에 금액이나 가린 이름이 올 때만 취소 문자다.
+const KAKAO_NOTICE_CANCEL_V229122 = /(?:(?:카드|체크)\s*[\])】]?\s*[(\[]?[\d*]{0,4}[)\]]?|출금|부분)\s*취소\s*(?=-?\d|[가-힣]\*)/;
 const KAKAO_NOTICE_RECEIVED_V229122 = /님이\s*[\d,]+\s*원을?\s*보냈/;
 const KAKAO_NOTICE_SMSISH_V229122 = /[\[(【]\s*web\s*발신\s*[\])】]|(?:누적|잔액|잔고)\s*:?\s*[\d,]+|(?:승인|출금|입금)[^\n]{0,40}\d{1,2}:\d{2}|\d{1,2}:\d{2}[^\n]{0,40}(?:승인|출금|입금)/i;
+// 독립 검토 1: 알림 문자의 꼬리표(‘[국민]’·‘[신한]’)가 줄 머리에 있는지. ‘승인 거절돼서 현금으로 점심 9000원’ 같은 말은 알림이 아니다.
+const KAKAO_NOTICE_TAG_HEAD_V229122 = /^\s*[\[(【][^\])】\n]{1,12}[\])】]/m;
 const KAKAO_NOTICE_TYPE_WORD_V229122 = /(?:^|\s)(?:수입|지출)(?=\s|$)/;
 const KAKAO_NOTICE_BALANCE_UNIT_V229122 = /(?:누적|잔액|잔고|남은\s*한도|한도)\s*:?\s*[\d,.]+\s*[십백천만억]/;
 const KAKAO_CANCEL_NOTICE_TEXT_V229122 = "결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.";
-function kakaoCardSmsExampleV229122(date, amount, today) {
-  const ymd = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? String(date) : String(today);
+// 다시 보낼 예시. 독립 검토 1: 지어낸 금액·가게 이름을 예시에 쓰지 않는다 — 그대로 보내면 틀린 기록이 저장된다. 금액과 날짜를 알 때만 그 값으로 만들고
+// (쓴 곳 자리는 ‘쓴곳’, 들어온 돈이면 ‘수입’), 모르면 예시 없이 순서만 알린다.
+function kakaoCardSmsExampleV229122(date, amount, today, income = false) {
+  const ymd = String(date || "");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(ymd) || !(Number(amount) > 0)) return "";
   const year = ymd.slice(0, 4) === String(today).slice(0, 4) ? "" : Number(ymd.slice(0, 4)) + "년 ";
-  return year + Number(ymd.slice(5, 7)) + "월 " + Number(ymd.slice(8, 10)) + "일 이마트 " + (Number(amount) > 0 ? Math.round(Number(amount)) : 42000) + "원";
+  return year + Number(ymd.slice(5, 7)) + "월 " + Number(ymd.slice(8, 10)) + "일 " + (income ? "수입 " : "쓴곳 ") + Math.round(Number(amount)) + "원";
+}
+function kakaoCardSmsHowToV229122(example, income = false) {
+  if (!example) return "문자에서 날짜·쓴 곳·금액만 골라 ‘날짜 쓴 곳 금액원’ 순서로 한 건씩 보내 주세요.";
+  return income ? "문자에서 날짜·금액만 골라 이렇게 보내 주세요.\n" + example : "문자에서 날짜·쓴 곳·금액만 골라 이렇게 보내 주세요(‘쓴곳’ 자리에 쓴 곳 이름).\n" + example;
 }
 function kakaoCardSmsUnreadableTextV229122(blocked = {}, today = formatDate(nowKstDate())) {
-  return "카드 승인 문자로 보이는데 금액·날짜를 정확히 읽지 못해서 저장하지 않았어요.\n문자에서 날짜·쓴 곳·금액만 골라 이렇게 보내 주세요.\n" + kakaoCardSmsExampleV229122(blocked.date, blocked.amount, today);
+  const income = blocked.type === "income";
+  return "카드 승인 문자로 보이는데 금액·날짜를 정확히 읽지 못해서 저장하지 않았어요.\n" + kakaoCardSmsHowToV229122(kakaoCardSmsExampleV229122(blocked.date, blocked.amount, today, income), income);
 }
 function kakaoGuardNoticeV229122(text, rows, today) {
   const replies = [["오늘기록", "오늘기록"]];
-  if (KAKAO_NOTICE_FAILED_V229122.test(text)) {
+  const smsish = KAKAO_NOTICE_SMSISH_V229122.test(text);
+  if (KAKAO_NOTICE_FAILED_V229122.test(text) && (smsish || KAKAO_NOTICE_TAG_HEAD_V229122.test(text))) {
     return { kind: "notice_failed", text: "결제나 출금이 되지 않았다는 알림으로 보여서 기록하지 않았어요.\n실제로 쓴 돈이면 ‘커피 4500원’처럼 보내 주세요.", quickReplies: replies };
   }
   const digits = new Set();
   for (const match of text.matchAll(/승인\s*번호\s*:?\s*(\d{4,12})/g)) digits.add(Number(match[1]));
   if (rows.length > 1) for (const match of text.matchAll(/[(\[]?(\d{4})[)\]]?\s*승인(?!\s*번호)/g)) digits.add(Number(match[1]));
-  const wrongDigit = rows.find((row) => digits.has(Number(row.amount)));
-  if (wrongDigit) {
-    const real = rows.find((row) => !digits.has(Number(row.amount)));
-    return { kind: "notice_digits", text: "카드 끝 번호나 승인번호가 금액으로 읽혀서 저장하지 않았어요.\n문자에서 날짜·쓴 곳·금액만 골라 이렇게 보내 주세요.\n" + kakaoCardSmsExampleV229122(real?.transaction_date, real?.amount, today), quickReplies: replies };
+  if (rows.some((row) => digits.has(Number(row.amount)))) {
+    // 끝 번호·승인번호로 읽힌 건을 빼고 정확히 한 건이 남을 때만 그 건의 날짜·금액으로 예시를 만든다.
+    const real = rows.filter((row) => !digits.has(Number(row.amount)));
+    const example = real.length === 1 ? kakaoCardSmsExampleV229122(real[0].transaction_date, real[0].amount, today, real[0].type === "income") : "";
+    return { kind: "notice_digits", text: "카드 끝 번호나 승인번호가 금액으로 읽혀서 저장하지 않았어요.\n" + kakaoCardSmsHowToV229122(example, real.length === 1 && real[0].type === "income"), quickReplies: replies };
   }
   // ⑥ 잔액·누적·한도 금액을 한글 단위로 적은 말(‘잔액 3만원 남음’·‘카페 4800원 잔액21만’): 금액을 고르는 쪽이 잔액 뒤의 숫자만 빼고 단위(‘만원’)를 남겨
   //    10,000원 같은 헛기록이 한 건 생겼다. 고르는 쪽(브라우저 자산과 같이 쓰는 normalizeInputText)은 그대로 두고 여기서 저장만 막는다.
@@ -790,16 +803,14 @@ function kakaoGuardNoticeV229122(text, rows, today) {
       return { kind: "notice_received", text: "받은 돈 알림으로 보이는데 쓴 돈으로 읽혀서 저장하지 않았어요.\n받은 돈이면 ‘수입 정산 25000원’처럼 앞에 ‘수입’을 붙여 보내 주세요.", quickReplies: replies };
     }
   }
-  if (KAKAO_NOTICE_SMSISH_V229122.test(text)) {
+  if (smsish) {
+    // 달력에 없거나 앞날인 날짜("")는 문자의 사실로 삼지 않는다(nlu/transaction-parser.js cardSmsDateV229122).
     const dates = cardSmsDatesV229122(text, today);
     if (dates.length === 1 && dates[0] && rows.some((row) => String(row.transaction_date || "") !== dates[0])) {
-      const row = rows.find((item) => String(item.transaction_date || "") !== dates[0]) || rows[0];
       const day = Number(dates[0].slice(5, 7)) + "월 " + Number(dates[0].slice(8, 10)) + "일";
-      // 들어온 돈 문자(입금)는 쓴 곳 예시가 맞지 않는다 — ‘수입’ 을 붙인 예시를 보인다.
-      const example = rows.length === 1 && row.type === "income"
-        ? "문자에서 날짜·금액만 골라 이렇게 보내 주세요.\n" + day + " 수입 " + Math.round(Number(row.amount)) + "원"
-        : "문자에서 날짜·쓴 곳·금액만 골라 이렇게 보내 주세요.\n" + kakaoCardSmsExampleV229122(dates[0], rows.length === 1 ? row.amount : 0, today);
-      return { kind: "notice_date", text: "문자에 적힌 날짜(" + day + ")와 다른 날로 읽혀서 저장하지 않았어요.\n" + example, quickReplies: replies };
+      const income = rows.length === 1 && rows[0].type === "income";
+      const example = rows.length === 1 ? kakaoCardSmsExampleV229122(dates[0], rows[0].amount, today, income) : "";
+      return { kind: "notice_date", text: "문자에 적힌 날짜(" + day + ")와 다른 날로 읽혀서 저장하지 않았어요.\n" + kakaoCardSmsHowToV229122(example, income), quickReplies: replies };
     }
   }
   return null;

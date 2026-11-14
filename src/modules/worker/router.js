@@ -25,9 +25,9 @@ import { handleNoticeHideV22999, noticeBandResponse } from "../web/html-postproc
 import { logWorkerError, safeError } from "../runtime/leases.js";
 import {
   browserFormRequestFailed, constantTimeTextEqual, emergencyReturnUrl, headOnlyResponse,
-  htmlResponse, isExplicitAdminUrl, isJsonApiPath, isMobileRequest, jsonResponse, mobileAppLocation,
-  redirectPublicAwayFromAdmin, redirectResponse, renderEmergencyErrorHtml,
-  renderSessionUnavailableHtmlV229122, safeHtmlRoute,
+  htmlResponse, htmlResponseWithCookies, isExplicitAdminUrl, isJsonApiPath, isMobileRequest,
+  jsonResponse, mobileAppLocation, redirectPublicAwayFromAdmin, redirectResponse,
+  renderEmergencyErrorHtml, renderSessionUnavailableHtmlV229122, safeHtmlRoute,
 } from "../runtime/http.js";
 import {
   kakaoSkillAuthSnapshot, skillLatencySnapshot, verifyAdminSession,
@@ -329,7 +329,10 @@ function sessionUnavailableResponseV229122(request, env, response) {
     const toLogin = response.status >= 300 && response.status < 400 && /^(?:https?:\/\/[^/]+)?\/my(?:[?#]|$)/.test(location);
     const loginScreen = request.method === "GET" && url.pathname === "/my" && response.status === 200;
     if (!toLogin && !loginScreen) return response;
-    return htmlResponse(renderSessionUnavailableHtmlV229122(url, request.method === "POST"), 503, { "retry-after": "10", "cache-control": "no-store" });
+    // 바꾸기 전 응답이 싣던 쿠키(가계부 기억 등)는 그대로 싣는다(독립 검토 1).
+    // 세션 쿠키(ab_user)를 건드리는 쿠키는 싣지 않는다 — 확인을 못 했을 뿐 로그아웃이 아니다.
+    const cookies = (typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie() : []).filter((cookie) => !/^\s*ab_user=/i.test(String(cookie)));
+    return htmlResponseWithCookies(renderSessionUnavailableHtmlV229122(url, request.method === "POST"), 503, cookies, { "retry-after": "10", "cache-control": "no-store" });
   } catch (_) {
     return response;
   }

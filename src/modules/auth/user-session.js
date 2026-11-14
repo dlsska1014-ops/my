@@ -39,7 +39,6 @@ async function getUserSessionVersion(env, userId = "") {
     // unavailable revocation check as an invalid session instead of silently
     // accepting a version-1 token during a database or permission outage.
     rememberOpsEvent({ kind: "user_session_version_unavailable", severity: "error", path: "/rest/v1/accountbook_user_security", method: "GET", detail: safeError(err) });
-    markUserSessionUnavailableV229122(null, env);
     return 0;
   }
 }
@@ -81,6 +80,8 @@ async function verifyRawUserSessionUncached(request, env) {
   const parsed = await parseUserSessionToken(request, env);
   if (!parsed) return "";
   const currentVersion = await getUserSessionVersion(env, parsed.userId);
+  // V22.9.122 F-1: 판을 읽지 못하면(0) 쿠키 확인 길에서만 표시를 남긴다. 로그인 중 세션을 만드는 길(makeUserSession)은 표시하지 않는다(독립 검토 1).
+  if (currentVersion === 0) markUserSessionUnavailableV229122(request, env);
   if (!userSessionVersionMatches(parsed.tokenVersion, currentVersion)) return "";
   return parsed.userId;
 }
@@ -251,6 +252,7 @@ async function verifyUserSession(request, env) {
       if (snapshot.embedded && currentUser && !Object.prototype.hasOwnProperty.call(currentUser,"accountbook_user_security")) return "";
       const security = currentUser?.accountbook_user_security;
       const currentVersion = snapshot.embedded ? Math.max(1, Number((Array.isArray(security) ? security[0] : security)?.session_version || 1)) : await getUserSessionVersion(env, parsed.userId);
+      if (currentVersion === 0) markUserSessionUnavailableV229122(request, env); // V22.9.122 F-1: 세션 판을 읽지 못함(쿠키 확인 길)
       const effectiveUserId = currentUser && !String(currentUser.kakao_user_key || "").startsWith("merged:") && !/\(통합됨\)\s*$/.test(String(currentUser.nickname || "")) ? String(currentUser.id) : "";
       if (currentUser && env.__AB_REQUEST_USER_ROWS) env.__AB_REQUEST_USER_ROWS.set(parsed.userId, currentUser);
       const valid = userSessionVersionMatches(parsed.tokenVersion, currentVersion);
