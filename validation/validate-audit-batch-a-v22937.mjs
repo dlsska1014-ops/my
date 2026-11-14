@@ -409,7 +409,8 @@ await withClock("2026-07-15", async () => {
 
 // ── 공통: 자격 규칙은 저장·자동·수동이 한 함수를 쓴다 ─────────
 // V22.9.76 P0-1: 자동 반영이 규칙 목록을 묶음으로 처리해 참여자 목록을 가계부별로 꺼내 쓴다. 자격 판정은 같은 함수다.
-ok(source.includes("if (!recurringSpenderEligible(members.get(String(rule.household_id || \"\")) || [], rule.user_id)) { stats.skipped++;"), "T7 자동 반영이 공용 자격 함수를 쓴다");
+// V22.9.122 SCALE-2: 참여자는 (가계부, 지출자) 짝으로 읽고 기억한다(가계부 단위로 전부 읽으면 1,000행 상한에 잘렸다). 자격 판정은 그대로 공용 함수다.
+ok(source.includes("if (!recurringSpenderEligible(members.get(recurringCronMemberKey(rule.household_id, rule.user_id)) || [], rule.user_id)) { stats.skipped++;"), "T7 자동 반영이 공용 자격 함수를 쓴다");
 eq((source.match(/recurringSpenderEligible\(/g) || []).length >= 5, true, `T7 저장·화면·수동 반영도 같은 자격 함수를 쓴다 (${(source.match(/recurringSpenderEligible\(/g) || []).length}곳)`);
 
 done();

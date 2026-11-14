@@ -182,6 +182,39 @@ try {
     await runCron(fx, "2027-03-01");
     check.deepEq(shares(fx, k.rule.id), ["2027-02@2027-02-28"], "T-1-K 3-01 실행은 2월 몫을 다시 넣지 않는다");
   });
+
+  // ── SCALE-2 참여자 30명 가계부 40개(규칙 40개 = 한 묶음)를 PostgREST 1,000행 상한(__max_rows)으로 돌린다. 예전에는 한 번에 1,200행을 읽다 잘려
+  //    6개 가계부의 규칙이 ‘건너뜀’이었다. 12-02 실행: 1일 규칙 40개가 첫 묶음, 첫 묶음에서 본 가계부의 다른 지출자 2일 규칙 3개가 둘째 묶음
+  //    (구성원 → 넣음, 조회 전용·참여자 아님 → 건너뜀 — 짝으로 기억해도 묶음을 건너 다시 묻는지 본다).
+  resetRuntime();
+  setNow("2026-12-02", "09:00");
+  await fixture(async (fx) => {
+    fx.db.__max_rows = 1000;
+    fx.db.accountbook_recurring = [];
+    const H = 40, M = 30;
+    for (let i = 0; i < H; i += 1) {
+      const id = String(i).padStart(3, "0"); const hid = `hh-room-${id}`;
+      fx.db.households.push({ id: hid, name: `모임${id}`, invite_code: `RM${id}`, created_at: "2026-10-01T00:00:00.000Z" });
+      for (let m = 0; m < M; m += 1) {
+        const uid = `u-${id}-${m}`;
+        fx.db.users.push({ id: uid, kakao_user_key: `kakao_bot:${id}${m}`, nickname: `회원${m}`, created_at: "2026-10-01T00:00:00.000Z" });
+        fx.db.household_members.push({ household_id: hid, user_id: uid, role: m === 0 ? "owner" : m === 29 ? "viewer" : "member", created_at: "2026-10-02T00:00:00.000Z" });
+      }
+      fx.db.accountbook_recurring.push({ id: `rule-${id}`, household_id: hid, type: "expense", amount: 30000, category: "회비", memo: `모임 회비 ${id}`, payment_method: "계좌이체", day_of_month: 1, user_id: `u-${id}-0`, is_active: true, last_applied_month: "2026-11", created_at: "2026-10-01T00:00:00.000Z" });
+    }
+    const extra = [["rule-x-member", "hh-room-000", "u-000-5"], ["rule-x-viewer", "hh-room-001", "u-001-29"], ["rule-x-outsider", "hh-room-002", "u-003-1"]];
+    for (const [id, hid, uid] of extra) fx.db.accountbook_recurring.push({ id, household_id: hid, type: "expense", amount: 10000, category: "회비", memo: id, payment_method: "", day_of_month: 2, user_id: uid, is_active: true, last_applied_month: "2026-11", created_at: "2026-10-01T00:00:00.000Z" });
+    const memberReads = [];
+    const restore = intercept(({ url, method }) => { if (method === "GET" && url.pathname === "/rest/v1/household_members" && url.searchParams.has("household_id") && /^in\./.test(url.searchParams.get("household_id") || "")) memberReads.push(url.searchParams.get("user_id") || ""); return null; });
+    try { await runCron(fx, "2026-12-02"); } finally { restore(); }
+    const decRooms = new Set(fx.db.transactions.filter((row) => /^recurring:rule-\d{3}:2026-12$/.test(String(row.raw_text || ""))).map((row) => row.household_id));
+    check.eq(decRooms.size, H, "SCALE-2 1,000행 상한에서도 가계부 40개 모두 12월 회비가 들어간다(예전 34/40)");
+    check.deepEq(["rule-x-member", "rule-x-viewer", "rule-x-outsider"].map((id) => shares(fx, id).length), [1, 0, 0], "SCALE-2 둘째 묶음: 첫 묶음에서 본 가계부의 구성원 규칙은 넣고, 조회 전용·참여자 아닌 지출자 규칙은 건너뛴다");
+    const log = JSON.parse(fx.db.accountbook_settings.find((row) => row.key === "cron_run_log_v22978")?.value || "[]");
+    const last = (Array.isArray(log) ? log : []).slice().sort((a, b) => String(a.started_at).localeCompare(String(b.started_at))).at(-1) || {};
+    check.deepEq([last.recurring?.applied, last.recurring?.skipped, last.recurring?.failed], [41, 2, 0], "SCALE-2 실행 기록: 넣음 41, 건너뜀 2(조회 전용·참여자 아님), 실패 0");
+    check.ok(memberReads.length >= 1 && memberReads.every((users) => /^in\./.test(users)), "SCALE-2 참여자 읽기는 묶음 규칙의 지출자만 묻는다(user_id=in.…)");
+  });
 } finally {
   globalThis.Date = RealDate;
   fakeNow = null;

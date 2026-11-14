@@ -446,12 +446,21 @@ async function fetchRecurringCronRows(env, phase, after = null) {
   return rows;
 }
 
-async function fetchRecurringCronMembers(env, householdIds = []) {
+// V22.9.122 SCALE-2(출시 전 점검 2026-11-14): 예전에는 가계부 최대 40개의 참여자 전부를 제한 없이 한 번에 읽어, PostgREST 한 응답 상한(1,000행)에
+// 잘린 가계부의 지출자가 ‘자격 없음’으로 보여 그 규칙이 그날 건너뜀(skipped)이 됐다(30명 가계부 40개면 6개 가계부의 규칙). 이제 그 묶음 규칙의
+// 지출자만 읽는다(가계부 × 지출자 목록, 묶음 40개라 보통 수십 행). 상한에 닿으면 운영 이벤트를 남긴다(그때 빠진 지출자의 규칙은 예전처럼 건너뜀).
+const RECURRING_CRON_MEMBER_ROWS_CAP = 1000;
+function recurringCronMemberKey(householdId = "", userId = "") {
+  return `${String(householdId || "")}|${String(userId || "")}`;
+}
+async function fetchRecurringCronMembers(env, householdIds = [], userIds = []) {
   const params = new URLSearchParams();
   params.set("select", "household_id,user_id,role");
   params.set("household_id", `in.${recurringCronInList(householdIds)}`);
+  params.set("user_id", `in.${recurringCronInList(userIds)}`);
   const rows = await supabase(env, `/rest/v1/household_members?${params}`, { method: "GET" });
   if (!Array.isArray(rows)) throw new Error("household_member_source_invalid");
+  if (rows.length >= RECURRING_CRON_MEMBER_ROWS_CAP) rememberOpsEvent({ kind: "recurring_member_rows_capped", severity: "warn", path: "/cron/recurring/apply", method: "SCHEDULED", detail: `${householdIds.length}x${userIds.length}:${rows.length}` });
   return rows;
 }
 
@@ -608,19 +617,22 @@ async function runRecurringAutoApplyUnlocked(env, opts = {}) {
     const done = phase.done;
     for (let index = 0; index < work.length; index += RECURRING_CRON_CHUNK) {
       const chunk = work.slice(index, index + RECURRING_CRON_CHUNK);
-      const missing = [...new Set(chunk.map((rule) => String(rule.household_id || "")))].filter((id) => id && !members.has(id));
+      // V22.9.122 SCALE-2(출시 전 점검 2026-11-14): 참여자는 (가계부, 지출자) 짝으로 읽고 짝으로 기억한다. 예전에는 가계부 단위로 전부 읽어 1,000행
+      // 상한에 잘렸다. 가계부·지출자가 빈 규칙은 읽지 않는다(예전처럼 자격 없음으로 건너뛴다).
+      const missingRules = chunk.filter((rule) => String(rule.household_id || "") && String(rule.user_id || "") && !members.has(recurringCronMemberKey(rule.household_id, rule.user_id)));
+      const missing = [...new Set(missingRules.map((rule) => recurringCronMemberKey(rule.household_id, rule.user_id)))];
       if (!room((missing.length ? 1 : 0) + 3)) return "budget";
       if (missing.length) {
         let rows;
-        try { rows = await fetchRecurringCronMembers(env, missing); }
+        try { rows = await fetchRecurringCronMembers(env, [...new Set(missingRules.map((rule) => String(rule.household_id)))], [...new Set(missingRules.map((rule) => String(rule.user_id)))]); }
         catch (err) { stats.failed++; report(`${phase.month}:members:${safeError(err)}`, "recurring_household_scan_failed"); return "error"; }
-        for (const id of missing) members.set(id, []);
-        for (const row of rows) members.get(String(row.household_id || ""))?.push(row);
+        for (const key of missing) members.set(key, []);
+        for (const row of rows) members.get(recurringCronMemberKey(row.household_id, row.user_id))?.push(row);
       }
       const items = [];
       for (const rule of chunk) {
         // 소유자·관리자·구성원 지출자의 규칙만 넣는다(V22.9.37 T7·SIM-5). 건너뛴 규칙의 표식은 그대로 둔다.
-        if (!recurringSpenderEligible(members.get(String(rule.household_id || "")) || [], rule.user_id)) { stats.skipped++; done.add(String(rule.id)); ineligible.add(String(rule.id)); continue; }
+        if (!recurringSpenderEligible(members.get(recurringCronMemberKey(rule.household_id, rule.user_id)) || [], rule.user_id)) { stats.skipped++; done.add(String(rule.id)); ineligible.add(String(rule.id)); continue; }
         items.push({ rule, row: recurringCronTransaction(rule, phase.month) });
       }
       if (!items.length) continue;
