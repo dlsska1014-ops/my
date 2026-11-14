@@ -55439,6 +55439,8 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     safeHeaders.set("x-accountbook-request-id", requestId);
     return new Response(safeResponse.body, { status: safeResponse.status, statusText: safeResponse.statusText, headers: safeHeaders });
   } catch (err) {
+    // V22.9.122 KR-3: 아래 진단 저장이 쓰기를 보내기 전에, 이 요청이 내용 쓰기를 보냈는지 먼저 읽어 둔다(data/supabase-client.js 표시, 없으면 모름).
+    const contentWriteV229122 = env.__AB_KAKAO_REQUEST ? env.__AB_KAKAO_REQUEST.contentWriteV229122 || "" : "unknown";
     const latencyMs = Date.now() - skillStartedAt;
     const nluEvent = { at: new Date().toISOString(), request_id: requestId, intent: metricIntent(), confidence: intentMatch.confidence, result: "error", reason: safeError(err), latency_ms: latencyMs, block: blockName, version: APP_VERSION, utterance };
     rememberNluRuntimeEvent(nluEvent, env);
@@ -55449,7 +55451,17 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     // V22.9.76 감사 B-6: 식별 별칭 저장이 동시 요청으로 바빠 실패하면 기록하기 전에 멈춘 것이다. "다시 보내주세요" 예시만 주던
     // 일반 안내 대신, 저장하지 않았으니 같은 내용을 다시 보내라고 분명히 말한다.
     const busyIdentity = String(err?.code || "") === "identity_alias_persistence_failed";
-    const fallback = await kakaoGroupCompatibleResponse(kakaoText(busyIdentity ? "요청이 한꺼번에 몰려 이번 내용은 저장하지 못했어요.\n잠시 뒤 같은 내용을 한 번 더 보내 주세요." : kakaoSkillSafeFallbackText(origin)), payload, origin);
+    // V22.9.122 KR-3(출시 전 점검 2026-11-14): 저장소 오류(5xx·408·조회 시한·연결 끊김·잠금 함수 없음·결과 불확실 쓰기)가 여기까지 올라오면 ‘아래처럼 다시 보내주세요’
+    // 예시만 줬다(‘점심 12000원’을 그대로 보냈어도). 이 요청이 내용 쓰기를 보내지 않았으면(data/supabase-client.js 표시) 저장하지 않았다고 분명히 답하고,
+    // 보냈으면(또는 모르면) 저장 기록 확인 안내(transaction-save.js 와 같은 문장)를 낸다. 불확실 판정은 isUncertainStorageWrite 와 같은 원인 사슬 검사다. 그 밖의 오류는 예전 안내.
+    const errorChain = [];
+    for (let current = err, depth = 0; current && typeof current === "object" && depth < 8; current = current.cause, depth += 1) errorChain.push(current);
+    const storageFailed = errorChain.some((item) => item.uncertain_write === true || item.code === "supabase_write_result_unknown" || item.name === "AbortError" ||
+      /^(?:Supabase (?:5\d\d|408)\b|supabase_read_timeout\b|database operation lease is unavailable$)/.test(String(item.message || "")) ||
+      item instanceof TypeError && /fetch|network|connection/i.test(String(item.message || "")));
+    const storageText = !storageFailed ? "" : !contentWriteV229122 ? "일시적인 오류로 이번 내용은 저장하지 않았어요. 잠시 뒤 같은 내용을 다시 보내 주세요."
+      : `지금은 저장 확인이 지연되고 있어요. 중복될 수 있으니 같은 내용을 다시 보내지 말고 기다려 주세요.${contentWriteV229122 === "other" ? "" : "\n‘오늘기록’에서 확인해 주세요. 목록에 없어도 아직 저장 중일 수 있어요."}`;
+    const fallback = await kakaoGroupCompatibleResponse(kakaoText(busyIdentity ? "요청이 한꺼번에 몰려 이번 내용은 저장하지 못했어요.\n잠시 뒤 같은 내용을 한 번 더 보내 주세요." : storageText || kakaoSkillSafeFallbackText(origin)), payload, origin);
     const headers = new Headers(fallback.headers || {});
     headers.set("x-accountbook-version", APP_VERSION);
     headers.set("x-accountbook-intent", metricIntent());
@@ -60083,6 +60095,19 @@ function supabaseTransportFailure(error) {
   return error instanceof TypeError || error?.name === "AbortError";
 }
 
+// V22.9.122 KR-3(출시 전 점검 2026-11-14): 설정 키가 모두 kakao_ 로 시작하는 설정 쓰기(첫 기록·방 준비·참여 시도 표식, 연결·선택 상태)는 내용 쓰기로 세지 않는다.
+// 이 줄들은 같은 내용을 다시 보내도 이어지도록 만든 표식이고, 기록·예산·목표·정기 규칙은 거래 표·예산 표·recurring:·goals: 같은 다른 곳에 쓴다.
+// 키를 알 수 없으면(key=in.(…)·본문 없음 등) 내용 쓰기로 본다.
+function kakaoMarkerSettingsWriteV229122(path, body) {
+  if (!/^\/rest\/v1\/accountbook_settings(?:\?|$)/.test(path)) return false;
+  const keyFilter = new URLSearchParams(path.split("?")[1] || "").get("key");
+  if (keyFilter !== null) return keyFilter.startsWith("eq.kakao_");
+  let rows;
+  try { rows = typeof body === "string" ? JSON.parse(body) : null; } catch (_) { return false; }
+  rows = Array.isArray(rows) ? rows : rows ? [rows] : [];
+  return rows.length > 0 && rows.every((row) => typeof row?.key === "string" && row.key.startsWith("kakao_"));
+}
+
 async function supabase(env, path, init = {}) {
   const base = String(env.SUPABASE_URL || "").replace(/\/$/, "");
   if (!base) throw new Error("SUPABASE_URL is not set");
@@ -60126,6 +60151,13 @@ async function supabase(env, path, init = {}) {
         budget.used++;
       }
       dispatched = true;
+      // V22.9.122 KR-3(출시 전 점검 2026-11-14): 카카오 요청이 내용 쓰기(잠금·인증·진단 RPC 와 사용자·가계부·참여 행을 만드는 POST 밖의 모든 쓰기)를 보냈는지 남긴다
+      // (거래 쓰기면 "record", 그 밖은 "other"). 저장소 오류가 맨 바깥까지 올라오면 이 표시가 없을 때만 ‘이번 내용은 저장하지 않았어요’라고 답한다(kakao/skill-handler.js). 호출 수는 그대로다.
+      const kakaoRequest = env.__AB_KAKAO_REQUEST;
+      if (kakaoRequest && !readOnly && !/\/rpc\/(?:accountbook_(?:auth_attempt|claim_operation|release_operation)\b|record_nlu_)/.test(path) && !(method === "POST" && /^\/rest\/v1\/(?:users|households|household_members)(?:\?|$)/.test(path)) &&
+          !kakaoMarkerSettingsWriteV229122(path, fetchInit.body)) {
+        kakaoRequest.contentWriteV229122 = /^\/rest\/v1\/(?:transactions(?:\?|$)|rpc\/accountbook_[a-z_]*transaction)/.test(path) ? "record" : kakaoRequest.contentWriteV229122 || "other";
+      }
       const res = await fetch(`${base}${path}`, { ...fetchInit, headers, signal });
       status = res.status;
       if (rawHeadResponse && method === "HEAD" && (res.ok || [405, 501].includes(status))) return res;
