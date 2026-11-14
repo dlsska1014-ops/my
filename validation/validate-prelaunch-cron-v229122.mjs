@@ -1,7 +1,7 @@
 // V22.9.122 출시 전 점검(2026-11-14) — 예약 실행(cron) 결함 고침 검사. 오프라인(번들 + 픽스처), 시계는 아래 가짜 시계로 고정한다.
 // T-1: 말일 예약 실행(09:10) 뒤에 만들거나 다시 켠 정기 규칙은 그 달 몫이 영영 빠졌다(다른 날 만든 규칙은 다음 날 실행이 넣는다).
 //      이제 말일에 저장하면 저장 직후 그 달 몫을 한 번만 넣는다(웹 /my/recurring/save, 관리 /admin/recurring/save, 후보 확정 /my/recurring/from-candidate).
-// SCALE-2: 정기 반영이 40개 가계부의 참여자를 한 번에 제한 없이 읽어 PostgREST 1,000행 상한에 잘린 가계부의 규칙이 ‘건너뜀’이 됐다.
+// (SCALE-2 = 추적표 V122:C-2, 정기 반영의 참여자 읽기 상한은 이 판에 넣지 않았다. 고친 커밋은 claude/v229122-wip-cron 에 있다.)
 // 실행: node validation/validate-prelaunch-cron-v229122.mjs  (분류 표 없는 운영 모드: AB_QA_CATEGORIES_ABSENT=1)
 const RealDate = globalThis.Date;
 let fakeNow = null;
