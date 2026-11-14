@@ -202,7 +202,7 @@ for (const [label, steps] of [["‘가계부 참여 HOME2265’", ["가계부 �
 for (const [label, steps] of [["‘가계부 참여 HOME2265’", ["가계부 참여 HOME2265"]], ["‘초대코드 HOME2265’", ["초대코드 HOME2265"]], ["‘초대코드참여’ → ‘HOME2265’ 단계", ["초대코드참여", "HOME2265"]]]) {
   const scene = await joinScene(steps, { user: OUTSIDER });
   t.ok(scene.outRole === "pending" && scene.text.startsWith("🕒 아직 승인 대기 중입니다.\n가계부: 우리집 생활비"), `AZ-2 가계부 없는 방 새 참여자 ${label}: 승인 대기 그대로: ${scene.text.slice(0, 40)}`);
-  t.ok(scene.text.includes(`승인되면 ${SCOPE}에서 쓸 수 있어요.`) && scene.text.includes(BIND_HINT) && kakaoSafe(scene) && scene.linksAdded === 0, `AZ-2 가계부 없는 방 새 참여자 ${label}: 승인 뒤 범위와 ‘단톡방 연결 HOME2265’를 적는다: ${scene.text.replace(/\n/g, " ").slice(0, 220)}`);
+  t.ok(scene.text.includes(`승인되면 ${SCOPE}에서 이 가계부를 고를 수 있어요.`) && scene.text.includes(BIND_HINT) && kakaoSafe(scene) && scene.linksAdded === 0, `AZ-2 가계부 없는 방 새 참여자 ${label}: 승인 뒤 범위와 ‘단톡방 연결 HOME2265’를 적는다: ${scene.text.replace(/\n/g, " ").slice(0, 220)}`);
 }
 // 이 방이 우리집 생활비에 연결돼 있으면 방 기록이 그 가계부로 가므로 예전 답 그대로다. 다른 가계부(7월 제주여행)에 연결된 방이면 범위 안내다.
 {
@@ -210,7 +210,8 @@ for (const [label, steps] of [["‘가계부 참여 HOME2265’", ["가계부 �
   t.ok(linked.text.includes(OLD_PROMISE) && !linked.text.includes(BIND_HINT), `AZ-2 우리집 생활비에 연결된 방은 예전 답 그대로: ${linked.text.replace(/\n/g, " ").slice(0, 120)}`);
   t.ok(linked.record?.household === "house-home", `AZ-2 우리집 생활비에 연결된 방의 기록은 우리집 생활비로 간다: ${linked.record?.household}`);
   const other = await joinScene(["가계부 참여 HOME2265"], { room: ROOM, linkCode: "TRIP2265" });
-  t.ok(!other.text.includes(OLD_PROMISE) && other.text.includes(SCOPE) && other.text.includes(BIND_HINT), `AZ-2 다른 가계부에 연결된 방은 범위 안내: ${other.text.replace(/\n/g, " ").slice(0, 160)}`);
+  // 독립 검토 2: 이미 다른 가계부에 연결된 방은 ‘단톡방 연결 CODE’ 만으로 바뀌지 않으므로 연결을 바꾸는 조건을 적는다.
+  t.ok(!other.text.includes(OLD_PROMISE) && other.text.includes(SCOPE) && other.text.includes("이 방은 지금 다른 가계부에 연결돼 있어요") && other.text.includes("두 가계부 모두에서 소유자·관리자인 사람이 이 방에서 ‘단톡방 연결 HOME2265’처럼 보내야 해요") && !other.text.includes(BIND_HINT), `AZ-2 다른 가계부에 연결된 방은 범위와 연결을 바꾸는 조건 안내: ${other.text.replace(/\n/g, " ").slice(0, 200)}`);
 }
 // 개인 대화는 예전 답 그대로(구성원 = ‘바로 기록’, 새 참여자 = 승인 대기만).
 {

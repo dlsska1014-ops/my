@@ -48,10 +48,10 @@ import { startsWithKakaoEditField } from "./edit-state-machine.js";
 import { handleKakaoEditCommandV4, handleKakaoEditSessionMessageV4 } from "./edit-flow-v4.js";
 import {
   armKakaoRepeatGuard, checkKakaoRepeatGuard, clearKakaoInFlight, isKakaoFirstRecordInput,
-  isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoCardSmsUnreadableTextV229122,
-  kakaoChangeRequestReply, kakaoDeferredReply, kakaoQaRequestAllowed, kakaoRecordGuardReplyV229120,
-  kakaoRecordGuardV229120, kakaoRepeatGuardText, looksLikeKakaoChangeRequest,
-  looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse, stripLeadingCommand,
+  isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoChangeRequestReply, kakaoDeferredReply,
+  kakaoQaRequestAllowed, kakaoRecordGuardReplyV229120, kakaoRecordGuardV229120,
+  kakaoRepeatGuardText, looksLikeKakaoChangeRequest, looksLikeKakaoEditCommandV4,
+  normalizeKakaoSkillResponse, stripLeadingCommand,
 } from "./request-guards.js";
 import {
   clearKakaoFlowState, completeKakaoFlowState, getKakaoFlowState, isKakaoBudgetSetupCommand,
@@ -262,8 +262,11 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     const storageFailed = errorChain.some((item) => item.uncertain_write === true || item.code === "supabase_write_result_unknown" || item.name === "AbortError" ||
       /^(?:Supabase (?:5\d\d|408)\b|supabase_read_timeout\b|database operation lease is unavailable$)/.test(String(item.message || "")) ||
       item instanceof TypeError && /fetch|network|connection/i.test(String(item.message || "")));
-    const storageText = !storageFailed ? "" : !contentWriteV229122 ? "일시적인 오류로 이번 내용은 저장하지 않았어요. 잠시 뒤 같은 내용을 다시 보내 주세요."
-      : `지금은 저장 확인이 지연되고 있어요. 중복될 수 있으니 같은 내용을 다시 보내지 말고 기다려 주세요.${contentWriteV229122 === "other" ? "" : "\n‘오늘기록’에서 확인해 주세요. 목록에 없어도 아직 저장 중일 수 있어요."}`;
+    // 독립 검토 2: 내용 쓰기가 없을 때의 답은 ‘기록은 저장하지 않았어요’ 로 좁혀 말한다(가계부 만들기 확인 단계에서는 가계부 행이 이미 생겼을 수 있다). 거래가 아닌 쓰기(예산 등)는
+    // ‘중복될 수 있으니 기다리라’ 대신 결과를 확인해 보라고 한다(예산 저장은 다시 보내도 겹치지 않고, 실패했으면 기다려도 저장되지 않는다).
+    const storageText = !storageFailed ? "" : !contentWriteV229122 ? "일시적인 오류로 이번 요청을 끝내지 못했어요. 기록은 저장하지 않았어요. 잠시 뒤 같은 내용을 다시 보내 주세요."
+      : contentWriteV229122 === "other" ? "저장됐는지 확인하지 못했어요. 잠시 뒤 결과를 확인해 보고, 반영되지 않았으면 같은 내용을 다시 보내 주세요."
+      : "지금은 저장 확인이 지연되고 있어요. 중복될 수 있으니 같은 내용을 다시 보내지 말고 기다려 주세요.\n‘오늘기록’에서 확인해 주세요. 목록에 없어도 아직 저장 중일 수 있어요.";
     const fallback = await kakaoGroupCompatibleResponse(kakaoText(busyIdentity ? "요청이 한꺼번에 몰려 이번 내용은 저장하지 못했어요.\n잠시 뒤 같은 내용을 한 번 더 보내 주세요." : storageText || kakaoSkillSafeFallbackText(origin)), payload, origin);
     const headers = new Headers(fallback.headers || {});
     headers.set("x-accountbook-version", APP_VERSION);
@@ -401,8 +404,6 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   const editLikeUtterance = !separatePurchaseCommand && looksLikeKakaoEditCommandV4(commandText);
   // V22.9.90: 관제 기능 순위용 이름(부른 쪽은 메뉴 낱말 판별이 UNKNOWN 일 때만 쓴다). 기록으로 읽힌 글은 TRANSACTION, 고치기 명령 꼴은 EDIT.
   if (usage) usage.intent = editLikeUtterance || looksLikeKakaoChangeRequest(commandText) ? "EDIT" : separatePurchaseCommand || preParsedList.length ? "TRANSACTION" : "";
-  // V22.9.122 K-1: 카드 승인 문자 한 통인데 깨끗이 읽지 못했고 예전 길의 결과도 문자의 금액·날짜와 달라 저장하지 않은 말(nlu/transaction-parser.js).
-  if (!separatePurchaseCommand && !editLikeUtterance && preParsedList.blocked?.message === "card_sms_unreadable") return kakaoText(kakaoCardSmsUnreadableTextV229122(preParsedList.blocked), [["오늘기록", "오늘기록"]]);
   if (!separatePurchaseCommand && !editLikeUtterance && (preParsedList.blocked?.message === "transaction_type_confirmation_required" || (!preParsedList.length && parseTransaction(utterance,payload).message === "transaction_type_confirmation_required"))) {
     if (preParsedList.blocked?.reason === "mixed_cues") return kakaoMixedTypeConfirmationReply(utterance);
     return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");
@@ -990,8 +991,10 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     const canManageBudget = ["owner","admin"].includes(accessRole);
     // V22.9.122 T-2(출시 전 점검 2026-11-14): ‘지난달 예산 현황’·‘12월 예산 현황’도 늘 이번 달로 답했다(1월 1일에 12월 예산이 있어도 ‘아직 예산이 없어요’).
     // 예산 설정 명령과 같은 달 읽기(parseBudgetMonthHint: 지난달·다음 달·N월은 가장 가까운 해)로 물은 달을 보여 준다. 달 말이 없거나 읽지 못하면 예전처럼 이번 달이고, 어느 달인지는 머리줄에 적힌다.
-    const budgetStatus = await kakaoBudgetStatusParts(env, household.id, parseBudgetMonthHint(utterance), origin, household.name, { canManage: canManageBudget });
-    if (budgetStatus.noBudget) return kakaoNextStepReply(budgetStatus.text, payload, canManageBudget ? [["예산설정", "예산설정"]] : []);
+    const budgetMonth = parseBudgetMonthHint(utterance);
+    const budgetStatus = await kakaoBudgetStatusParts(env, household.id, budgetMonth, origin, household.name, { canManage: canManageBudget });
+    // 독립 검토 2: ‘예산설정’ 단추는 이번 달 예산을 정하므로 다른 달을 물은 답에는 달지 않는다.
+    if (budgetStatus.noBudget) return kakaoNextStepReply(budgetStatus.text, payload, canManageBudget && budgetMonth === currentMonthKst() ? [["예산설정", "예산설정"]] : []);
     return kakaoText(budgetStatus.text);
   }
 

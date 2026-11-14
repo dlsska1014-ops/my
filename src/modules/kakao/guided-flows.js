@@ -107,9 +107,13 @@ async function offerKakaoRoomRebindAfterCreate(env, { user, payload, groupKey = 
 function kakaoRoomJoinScopeNoteV229122(joined = {}, code = "", linkedHousehold = null) {
   if (linkedHousehold?.id && String(linkedHousehold.id) === String(joined?.id || "")) return "";
   const name = String(joined?.name || "가계부");
+  // 독립 검토 2: 참여해도 개인 대화의 선택 가계부는 바뀌지 않으므로 ‘고를 수 있어요’ 라고 하고, 이 방이 이미 다른 가계부에 연결돼 있으면 연결을 바꾸는 조건(두 가계부 모두의 소유자·관리자)을 알린다.
+  const upper = String(code || "").toUpperCase();
   return [
-    `${joined?.join_role === "pending" ? "승인되면 개인 대화와 웹 가계부에서 쓸 수 있어요." : "이 참여는 개인 대화와 웹 가계부에 적용돼요."} 이 방에서 보내는 기록은 이 방이 ‘${name}’에 연결돼 있을 때만 그 가계부에 저장돼요.`,
-    `이 방을 연결하려면 소유자·관리자가 이 방에서 ‘단톡방 연결 ${String(code || "").toUpperCase()}’처럼 보내 주세요.`,
+    `${joined?.join_role === "pending" ? "승인되면 개인 대화와 웹 가계부에서 이 가계부를 고를 수 있어요." : "이제 개인 대화와 웹 가계부에서 이 가계부를 고를 수 있어요."} 이 방에서 보내는 기록은 이 방이 ‘${name}’에 연결돼 있을 때만 그 가계부에 저장돼요.`,
+    linkedHousehold?.id
+      ? `이 방은 지금 다른 가계부에 연결돼 있어요. 연결을 바꾸려면 두 가계부 모두에서 소유자·관리자인 사람이 이 방에서 ‘단톡방 연결 ${upper}’처럼 보내야 해요.`
+      : `이 방을 연결하려면 소유자·관리자가 이 방에서 ‘단톡방 연결 ${upper}’처럼 보내 주세요.`,
   ].join("\n");
 }
 

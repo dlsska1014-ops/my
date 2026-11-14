@@ -30,18 +30,30 @@ function stripCardDigitsV22994(text = "") {
 
 // V22.9.122 K-1 (출시 전 점검 2026-11-14): 카드 승인 알림 문자 한 통을 붙여 넣은 말.
 // 예전에는 여러 줄 문자를 줄마다 따로 읽어서 카드 끝 번호가 한 건 더 저장되고(‘삼성카드 4321 승인’ → 4,321원), 날짜 줄(‘11/09 22:41’)이 버려져 오늘로 저장되고,
-// 메모가 ‘일시불’ 이 됐다. 금액·날짜 읽기를 규칙으로 넓히지 않는다는 원칙대로 좁게만 본다: ‘승인’ 이 한 번이고, ‘원’ 붙은 결제 금액이 정확히 하나(누적·잔액·한도
-// 금액은 뺀다)이고, 날짜가 많아야 하나인 원화 승인 문자에서만 금액·날짜를 문자의 사실로 삼는다. 취소·거절·해외·할인·포인트·승인번호가 있으면 보지 않는다(예전 길).
-// 사실이 서면 ① 남은 글에서 쓴 곳 하나를 깨끗이 가릴 수 있을 때 ‘M월 D일 쓴곳 금액원’ 한 문장으로 바꿔 기존 한 건 파서에 넣고, 읽힌 금액·날짜·지출이 문자와
-// 정확히 같으면 그 한 건을 쓴다. ② 아니면 예전 길의 결과가 문자의 사실(한 건·같은 금액·같은 날·지출)과 같을 때만 예전 결과를 쓴다. ③ 둘 다 아니면 저장하지 않고
-// 되묻는다(blocked card_sms_unreadable). 그래서 이 길이 예전보다 틀리게 저장하는 일은 없다.
-const AB_SMS_TAG_V229122 = /[\[(【]\s*web\s*발신\s*[\])】]/gi;
-// 독립 검토 1: 예정·결제일·청구·납부가 든 글(결제 예정 안내, ‘결제일 11/25’ 줄)도 승인 문자 한 통이 아니다.
-const AB_SMS_COMPLEX_V229122 = /취소|거절|불능|실패|해외|환불|부분|실결제|할인|포인트|쿠폰|수수료|적립|캐시백|예정|결제일|청구|납부|USD|JPY|EUR|CNY|GBP|[$€¥£]|달러|엔화|유로|위안/i;
-const AB_SMS_MARK_V229122 = /[\[(【]\s*web\s*발신\s*[\])】]|(?:누적|잔액|잔여\s*한도)\s*:?\s*[\d,]+|일시불|\d{1,2}\s*개월|[가-힣]\*+[가-힣]*|\d{1,2}:\d{2}/i;
+// 메모가 ‘일시불’ 이 됐다. 금액·날짜 읽기를 규칙으로 넓히지 않는다는 원칙대로 아주 좁게만 읽는다. 아래를 모두 채운 글만 승인 문자 한 통으로 본다.
+//   ① ‘승인’ 이 한 번이고 그 바로 앞이 카드 이름이다: ‘카드’·‘체크’ 로 끝나는 낱말(끝 번호는 붙어도 됨)이거나 카드사 이름 + 끝 번호 네 자리.
+//      ‘월급 승인’·‘입금 승인’·‘스타벅스 승인’ 은 아니다.
+//   ② 문자 표식이 있다: [Web발신] / 가린 이름(홍*동) / 누적·잔액 금액 / 일시불·N개월 / 날짜와 시각이 함께.
+//   ③ ‘원’ 붙은 결제 금액이 정확히 하나, 날짜가 정확히 하나(오늘이나 그 앞. 해 없는 앞날은 새해 무렵에만 지난해).
+//   ④ 글 안의 모든 숫자가 문자 항목(끝 번호·금액·날짜·시각·누적/잔액·할부 개월)이거나 쓴 곳 이름에 붙은 숫자(GS25·이마트24·11번가)다.
+//      따로 선 숫자나 금액 말(‘택시 8000’·‘택시 만원’)이 하나라도 남으면 읽지 않는다.
+//   ⑤ 취소·거절·거부·불가·해외·할인·포인트·예정·결제일·입금·환급 같은 말이 없다.
+//   ⑥ 쓴 곳 말고 남은 글은 숫자·금액·정산 말이 없는 덧말뿐이다.
+// 그런 글은 ‘M월 D일 쓴곳 금액원 [카드]’ 한 문장으로 바꿔 기존 한 건 파서에 넣고, 읽힌 금액·날짜·지출이 문자와 정확히 같을 때만 그 한 건을 쓴다.
+// 예전 길이 같은 금액·날짜를 수입 한 건으로 읽는 글이면 예전 결과를 쓴다. 하나라도 어긋나면 이 길은 아무것도 하지 않는다(예전 길 그대로이고, 틀리게 읽힌 것은
+// 저장 직전 안전망 kakao/request-guards.js kakaoGuardNoticeV229122 가 막는다). 독립 검토 두 번(1차 P1 1·P2 5, 2차 P1 1·P2 4)을 거치며 이렇게 좁혔다:
+// 초안은 ‘승인’ 이 든 평범한 말까지 가져가 앞날 날짜를 지난해로, 수입을 지출로 바꾸고 같은 줄의 둘째 기록을 버렸다.
+const AB_SMS_TAG_V229122 = /[\[(【]\s{0,2}web\s{0,2}발신\s{0,2}[\])】]/gi;
+const AB_SMS_COMPLEX_V229122 = /취소|거절|거부|불가|보류|미승인|불능|실패|해외|환불|환급|입금|부분|실결제|할인|포인트|쿠폰|수수료|적립|캐시백|예정|결제일|청구|납부|초과|부족|USD|JPY|EUR|CNY|GBP|[$€¥£]|달러|엔화|유로|위안/i;
 const AB_SMS_NOTE_RISK_V229122 = /\d|취소|환불|반품|아니|말고|빼고|나눠|나눔|나누|반반|반띵|반은|절반|각자|정산|더치|엔빵|n빵/i;
-const AB_SMS_ISSUER_V229122 = /(신한|현대|삼성|국민|우리|롯데|하나|농협|BC|비씨|카카오뱅크|토스뱅크)/i;
-const AB_SMS_DATE_V229122 = /(?<![\d.\/-])(20\d{2})[.\/-](\d{1,2})[.\/-](\d{1,2})(?![\d\/-])|(?<![\d.\/-])(\d{1,2})\/(\d{1,2})(?![\d\/])|(?<!\d)(\d{1,2})월\s*(\d{1,2})일/g;
+const AB_SMS_ISSUERS_V229122 = "신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오뱅크|카카오|토스뱅크|토스|씨티|IBK";
+// 승인 바로 앞의 카드 이름: (가) ‘카드’·‘체크’ 로 끝나는 낱말 + 끝 번호(없어도 됨) (나) 카드사 이름 + 끝 번호 네 자리(가린 것 포함).
+const AB_SMS_HEAD_V229122 = new RegExp("(?:^|[\\s\\[\\](【】])(?:([가-힣A-Za-z]{0,10}(?:카드|체크))(?:\\s?[A-Za-z])?\\s{0,2}[\\])】]?\\s{0,2}[(\\[]?[\\d*]{0,4}[)\\]]?|(" + AB_SMS_ISSUERS_V229122 + ")\\s{0,2}[\\])】]?\\s{0,2}[(\\[]?[\\d*]{4}[)\\]]?)\\s{0,2}$", "i");
+const AB_SMS_ISSUER_V229122 = new RegExp("(" + AB_SMS_ISSUERS_V229122 + ")", "i");
+const AB_SMS_BANK_TAG_V229122 = new RegExp("[\\[【][^\\]】\\n]{0,10}(?:" + AB_SMS_ISSUERS_V229122 + "|은행|카드|뱅크|페이|금고)[^\\]】\\n]{0,10}[\\]】]", "gi");
+const AB_SMS_DATE_V229122 = /(?<![\d.\/-])(20\d{2})[.\/-](\d{1,2})[.\/-](\d{1,2})(?![\d\/-])|(?<![\d.\/-])(\d{1,2})\/(\d{1,2})(?![\d\/])|(?<!\d)(\d{1,2})월\s{0,2}(\d{1,2})일/g;
+// 따로 선 숫자: 글자에 붙지 않은 숫자(뒤에 천·만·억·원이 와도 숫자다). ‘GS25’·‘이마트24’·‘11번가’·‘2호점’ 은 붙은 숫자라 아니다.
+const AB_SMS_LOOSE_NUMBER_V229122 = /(?<![A-Za-z가-힣\d])\d[\d,.]*\s{0,1}[천만억원]?(?![A-Za-z가-힣\d])/;
 
 function cardSmsDateV229122(year, month, day, today) {
   const todayYear = Number(String(today).slice(0, 4));
@@ -59,88 +71,88 @@ function cardSmsDateV229122(year, month, day, today) {
   return todayMonth <= 2 && month >= 11 ? build(todayYear - 1) : "";
 }
 
-// 글에 적힌 날짜(M/D·YYYY.M.D·M월 D일)를 문자 규칙(앞날이면 지난해)으로 푼 값의 목록. 달력에 없는 날은 "" 다. 저장 직전 안전망(kakao/request-guards.js)이 쓴다.
+// 글에 적힌 날짜(M/D·YYYY.M.D·M월 D일)를 문자 규칙으로 푼 값의 목록. 달력에 없거나 앞날인 날은 "" 다. 저장 직전 안전망(kakao/request-guards.js)이 쓴다.
 function cardSmsDatesV229122(text, today = formatDate(nowKstDate())) {
   const out = [];
   String(text || "").replace(AB_SMS_DATE_V229122, (_, y, m1, d1, m2, d2, m3, d3) => { out.push(cardSmsDateV229122(y ? Number(y) : 0, Number(m1 || m2 || m3), Number(d1 || d2 || d3), today)); return " "; });
   return [...new Set(out)];
 }
 
+// 덩이 안에 따로 선 금액 말이 있는지: 따로 선 숫자, 또는 글자에 붙지 않은 한글 금액 말(‘택시 만원’). ‘만원의행복’·‘천원샵’ 처럼 이름에 붙은 것은 아니다.
+function cardSmsLooseMoneyV229122(chunk) {
+  if (AB_SMS_LOOSE_NUMBER_V229122.test(chunk)) return true;
+  const normalized = normalizeText(chunk);
+  return moneyTokenSpans(normalized).some((span) => !/[가-힣A-Za-z\d]/.test(normalized[span.start - 1] || " ") && !/[가-힣A-Za-z\d]/.test(normalized[span.end] || " "));
+}
+
 function readCardApprovalSmsV229122(text, today = formatDate(nowKstDate())) {
   const src = String(text || "").replace(/\r/g, "");
-  if (src.length > 600 || src.split("승인").length !== 2 || /승인\s*번호/.test(src)) return null;
-  if (AB_SMS_COMPLEX_V229122.test(src) || !AB_SMS_MARK_V229122.test(src)) return null;
-  let amount = 0, amountCount = 0, card = "", approveLine = -1;
+  if (src.length > 600 || src.split("승인").length !== 2 || /승인\s{0,2}번호/.test(src) || AB_SMS_COMPLEX_V229122.test(src)) return null;
+  let amount = 0, amountCount = 0, card = "", approveLine = -1, installment = false, timed = false;
+  const marked = new RegExp(AB_SMS_TAG_V229122.source, "i").test(src) || /[가-힣]\*+[가-힣]*/.test(src) || /(?:누적|잔액|잔여\s{0,2}한도)\s{0,2}:?\s{0,2}[\d,]+/.test(src);
   const dates = [];
   const chunks = [];
   const lines = src.split("\n");
   for (let index = 0; index < lines.length; index += 1) {
+    // 은행·카드 꼬리표(‘[신한카드]’·‘[카카오뱅크]’)는 통째로 떼지 않고 꺾쇠만 푼다 — ‘[신한카드] 승인’ 의 카드 이름으로 쓴다. 그 밖의 꺾쇠(‘[11번가]’)도 글자는 남긴다.
     let line = lines[index].replace(AB_SMS_TAG_V229122, " ");
     const at = line.indexOf("승인");
     if (at >= 0) {
       approveLine = index;
-      // 승인 앞은 카드 이름과 끝 번호다(‘신한카드(5678)’·‘삼성1234’·‘하나카드(8*2*)’·‘현대카드 M’). 그 앞에 사람이 쓴 말이 붙어 있으면 덧말로 남긴다.
-      const headMatch = line.slice(0, at).match(/(?:^|[\s\[\](【】])([가-힣A-Za-z]{1,10}(?:\s?[A-Za-z])?\s*[(\[]?[\d*]{0,4}[)\]]?\s*)$/);
-      const headText = headMatch ? headMatch[1] : "";
-      card = headText.replace(/[\[\]()【】\d*]/g, " ").replace(/\s+/g, " ").trim();
-      line = line.slice(0, at - headText.length).replace(/[\[\](【】]\s*$/, " ") + " " + line.slice(at + 2).replace(/^\s*[\])】]/, " ");
+      const head = line.slice(0, at).match(AB_SMS_HEAD_V229122);
+      if (!head) return null; // ① 승인 바로 앞이 카드 이름이 아니다
+      const headText = head[0].replace(/^[\s\[\](【】]/, "");
+      card = String(head[1] || head[2] || "");
+      line = line.slice(0, at - headText.length).replace(/[\[\](【】]\s{0,2}$/, " ") + " " + line.slice(at + 2).replace(/^\s{0,2}[\])】]/, " ");
     }
-    line = line.replace(/(?:누적|잔액|잔고|잔여\s*한도|한도)\s*:?\s*[\d,]+\s*원?/g, " ");
-    line = line.replace(/(?<![\d,.])(\d{1,3}(?:,\d{3})+|\d{2,9})\s*원\s*(?:[(\[]?\s*(?:일시불|체크|\d{1,2}\s*개월|할부)\s*[)\]]?)?/g, (_, digits) => { amountCount += 1; amount = Number(digits.replace(/,/g, "")); return " "; });
+    line = line.replace(/(?:누적|잔액|잔고|잔여\s{0,2}한도|한도)\s{0,2}:?\s{0,2}[\d,]+\s{0,2}원?/g, " ");
+    line = line.replace(/(?<![\d,.])(\d{1,3}(?:,\d{3})+|\d{2,9})\s{0,2}원\s{0,2}(?:[(\[]?\s{0,2}(일시불|체크|\d{1,2}\s{0,2}개월|할부)\s{0,2}[)\]]?)?/g, (_, digits, plan) => { amountCount += 1; amount = Number(digits.replace(/,/g, "")); if (plan) installment = true; return " "; });
+    line = line.replace(/(?<![가-힣A-Za-z\d])(?:일시불|할부|\d{1,2}\s{0,2}개월)(?![가-힣A-Za-z\d])/g, () => { installment = true; return " "; });
     let dated = false;
     line = line.replace(AB_SMS_DATE_V229122, (_, y, m1, d1, m2, d2, m3, d3) => {
       dates.push(cardSmsDateV229122(y ? Number(y) : 0, Number(m1 || m2 || m3), Number(d1 || d2 || d3), today));
       dated = true;
       return " ";
     });
-    line = line.replace(/(?<!\d)\d{1,2}:\d{2}(?::\d{2})?(?!\d)/g, " ").replace(/[가-힣]\*+[가-힣]*\s*님?/g, " ");
-    // 남은 꺾쇠 꼬리표(‘[카카오뱅크]’·‘[우체국]’)는 쓴 곳이 아니다.
-    const chunk = line.replace(/[\[【][^\]】]{1,12}[\]】]/g, " ").replace(/\s+/g, " ").replace(/^[\s·|,.:;~\-]+|[\s·|,.:;~\-]+$/g, "");
+    line = line.replace(/(?<!\d)\d{1,2}:\d{2}(?::\d{2})?(?!\d)/g, () => { timed = true; return " "; }).replace(/[가-힣]\*+[가-힣]*\s{0,2}님?/g, " ");
+    const chunk = line.replace(AB_SMS_BANK_TAG_V229122, " ").replace(/[\[\]【】]/g, " ").replace(/\s+/g, " ").replace(/^[\s·|,.:;~\-]+|[\s·|,.:;~\-]+$/g, "");
     if (/[가-힣A-Za-z0-9]/.test(chunk)) chunks.push({ text: chunk, index, dated });
   }
-  if (amountCount !== 1 || !(amount > 0)) return null;
-  // 날짜가 정확히 하나 적힌 문자만 읽는다. 날짜 없는 문자는 덧말의 날짜 말(‘어제 받은 문자임’)이 날짜일 수 있어 예전 길에 맡긴다.
+  if (approveLine < 0 || amountCount !== 1 || !(amount > 0)) return null;              // ③ 결제 금액 하나
   const distinct = [...new Set(dates)];
-  if (distinct.length !== 1 || distinct[0] === "") return null;
+  if (distinct.length !== 1 || distinct[0] === "") return null;                         // ③ 날짜 하나(달력에 있고 앞날이 아님)
+  if (!(marked || installment || timed)) return null;                                   // ② 문자 표식
   const date = distinct[0];
-  const facts = { amount, date };
-  // 쓴 곳은 문자 본문(승인 줄부터 뒤)에 남은 덩이에서만 고른다: 하나면 그것, 여럿이면 날짜 줄에 남은 글이나 날짜 바로 다음 줄. 승인 줄 앞의 줄과
-  // 고르고 남은 덩이는 사람이 붙인 덧말이다 — 숫자·정산 말이 없을 때만 버리고, 있으면 깨끗이 읽은 것이 아니다(예전 길의 결과가 문자와 같을 때만 저장).
+  // 쓴 곳은 문자 본문(승인 줄부터 뒤)에 남은 덩이에서만 고른다: 하나면 그것, 여럿이면 날짜 줄에 남은 글이나 날짜 바로 다음 줄.
   const dateLine = lines.findIndex((line, index) => index >= approveLine && new RegExp(AB_SMS_DATE_V229122.source).test(line));
   const body = chunks.filter((item) => item.index >= approveLine);
   let merchant = null;
   if (body.length === 1) merchant = body[0];
   else if (body.length > 1) merchant = body.find((item) => item.dated) || body.find((item) => dateLine >= 0 && item.index === dateLine + 1) || null;
-  const rest = chunks.filter((item) => item !== merchant);
-  // 독립 검토 1: 덧말에 한글 수로 적은 금액(‘그리고 택시 만원’)이 있으면 그것도 기록이다 — 숫자가 없다고 버리면 둘째 기록이 말없이 빠진다.
-  if ((body.length && !merchant) || rest.some((item) => AB_SMS_NOTE_RISK_V229122.test(item.text) || findAmountTokenSpans(item.text).length > 0) || (merchant && merchant.text.length > 40)) return facts;
-  const issuer = (card.match(AB_SMS_ISSUER_V229122) || [])[1] || "";
-  // 결제수단: 카드사를 알면 ‘○○카드’, 모르면 문자에 적힌 대로 ‘체크카드’·‘카드’(예전 길이 읽던 값을 잃지 않게).
+  if (body.length && !merchant) return null;
+  if (merchant && (merchant.text.length > 40 || cardSmsLooseMoneyV229122(merchant.text))) return null;          // ④ 쓴 곳 덩이에 따로 선 숫자·금액 말
+  // ⑥ 나머지 덩이(앞에 붙인 덧말, 고르고 남은 줄)는 숫자·금액·정산 말이 없을 때만 버린다.
+  if (chunks.some((item) => item !== merchant && (AB_SMS_NOTE_RISK_V229122.test(item.text) || findAmountTokenSpans(item.text).length > 0))) return null;
+  const issuerRaw = (card.match(AB_SMS_ISSUER_V229122) || [])[1] || "";
+  const issuer = { KB: "국민", NH: "농협", "비씨": "BC" }[issuerRaw.toUpperCase()] || issuerRaw; // ‘KB국민카드’ → 국민카드, ‘NH농협카드’ → 농협카드
+  // 결제수단: 카드사를 알면 ‘○○카드’, 모르면 문자에 적힌 대로 ‘체크카드’·‘카드’.
   const tails = issuer ? [" " + issuer.replace(/뱅크$/, "") + "카드", ""] : /체크/.test(card) ? [" 체크카드", ""] : /카드/.test(card) ? [" 카드", ""] : [""];
   const dateText = (date.slice(0, 4) === String(today).slice(0, 4) ? "" : Number(date.slice(0, 4)) + "년 ") + Number(date.slice(5, 7)) + "월 " + Number(date.slice(8, 10)) + "일";
-  const names = merchant ? [merchant.text, merchant.text.replace(/\d+/g, " ").replace(/\s+/g, " ").trim()].filter((name, i, all) => name && all.indexOf(name) === i) : ["카드결제"];
-  for (const name of names) {
-    for (const tail of tails) {
-      const one = parseTransaction(dateText + " " + name + " " + amount + "원" + tail, {}, false);
-      if (one.ok && !one.type_confirmation && one.type === "expense" && one.amount === amount && one.transaction_date === date) return { ...facts, row: one };
-    }
+  const name = merchant ? merchant.text : "카드결제";
+  for (const tail of tails) {
+    const one = parseTransaction(dateText + " " + name + " " + amount + "원" + tail, {}, false);
+    if (one.ok && !one.type_confirmation && one.type === "expense" && one.amount === amount && one.transaction_date === date) return { amount, date, row: one };
   }
-  return facts;
+  return null;
 }
 
 function parseMultipleTransactions(text, payload) {
+  const plain = parseMultipleTransactionsPlainV229122(text, payload);
   const sms = readCardApprovalSmsV229122(stripCardDigitsV22994(foldInputWidth(text)));
-  if (sms?.row) return [{ ...sms.row, raw_text: text }];
-  const rows = parseMultipleTransactionsPlainV229122(text, payload);
-  // 예전 길의 결과가 한 건이고 금액·날짜가 문자와 같으면 그대로 쓴다. 구분(수입·지출)은 문자의 사실이 아니다 — ‘11/9 14:30 승인 월급 3000000원’ 은
-  // 예전처럼 수입으로 저장한다(독립 검토 1: 지출만 받던 초안은 이런 말을 막고 지출 예시를 보였다).
-  if (sms && !(rows.length === 1 && rows[0].amount === sms.amount && rows[0].transaction_date === sms.date)) {
-    const out = [];
-    // 예전 길이 모두 수입으로 읽었으면 되묻는 답의 예시도 수입 꼴로 보인다(kakao/request-guards.js kakaoCardSmsUnreadableTextV229122).
-    out.blocked = { message: "card_sms_unreadable", amount: sms.amount, date: sms.date, type: rows.length && rows.every((row) => row.type === "income") ? "income" : "expense" };
-    return out;
-  }
-  return rows;
+  if (!sms) return plain;
+  // 예전 길이 같은 금액·날짜를 수입 한 건으로 읽는 글은 예전 결과를 쓴다(구분은 문자의 사실이 아니다).
+  if (plain.length === 1 && plain[0].type === "income" && plain[0].amount === sms.amount && plain[0].transaction_date === sms.date) return plain;
+  return [{ ...sms.row, raw_text: text }];
 }
 
 function parseMultipleTransactionsPlainV229122(text, payload) {

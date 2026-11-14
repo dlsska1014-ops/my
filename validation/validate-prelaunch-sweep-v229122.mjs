@@ -57,8 +57,8 @@ one(await say("이거 반은 친구가 줄거임\n현대카드 승인 48,000원 
 // 문자의 금액·날짜와 다르게 읽히면 저장하지 않고 되묻는다.
 {
   const result = await say("[Web발신]\n하나카드(5678) 승인\n42,000원 일시불\n11/08 21:14\n고기마을 누적 812,300원\n이거 셋이 나눠서 난 14000만");
-  none(result, "덧말에 다른 금액", "카드 승인 문자로 보이는데");
-  check.ok(result.reply.includes("11월 8일 쓴곳 42000원") && !result.reply.includes("이마트"), "덧말에 다른 금액: 예시는 문자의 날짜·금액이고 지어낸 가게 이름이 없다");
+  none(result, "덧말에 다른 금액", "문자에 적힌 날짜(11월 8일)");
+  check.ok(!/\d원/.test(result.reply.split("\n").slice(1).join(" ")) && !result.reply.includes("이마트"), "덧말에 다른 금액: 여러 건이면 예시 없이 순서만 알린다");
 }
 // 승인 문자가 아닌 말은 예전 그대로다.
 one(await say("점심 12000원"), "평범한 기록", { date: "2026-11-10", amount: 12000, memo: "점심" });
@@ -137,6 +137,64 @@ one(await say("결제 실패해서 현금 냄 택시 15000원"), "결제 실패 
 }
 // (7) 카드사를 모르는 ‘카드’ 도 결제수단으로 남는다.
 one(await say("회사 카드 승인 11/9 택시 23000원 14:30"), "카드사 없는 카드", { date: "2026-11-09", amount: 23000, payment: "카드" });
+
+// ── K-1 ④ 독립 검토 2에서 나온 것 ───────────────────────────────────────────────
+const SMS = "[Web발신]\n신한카드(1234)승인\n김*수\n45,000원 일시불\n11/09 19:42\n";
+// (1) ‘승인’ 바로 앞이 카드 이름이 아니면 승인 문자가 아니다 — 수입으로 읽히던 말은 수입 그대로다.
+one(await say("11/9 14:30 월급 승인 3000000원"), "월급 승인(수입 그대로)", { date: "2026-11-09", amount: 3000000, type: "income" });
+one(await say("환급 승인 45,000원 11/09 19:22"), "환급 승인(수입 그대로)", { date: "2026-11-09", amount: 45000, type: "income" });
+{
+  const cafe = await say("스타벅스 승인 4,500원 11/09 19:42");
+  check.ok(cafe.added.length === 1 && cafe.added[0].amount === 4500 && cafe.added[0].memo.includes("스타벅스"), "가게 이름 + 승인은 예전 길(메모에 가게 이름): " + JSON.stringify(cafe.added));
+}
+// (2) 쓴 곳 줄이나 같은 줄에 따로 선 숫자·금액 말이 있으면 한 건만 저장하고 끝내지 않는다(둘 다 저장하거나 전체를 되묻는다).
+for (const tail of ["교촌치킨 택시 8000", "교촌치킨 택시 8000 커피 4500", "교촌치킨 택시 8천", "이마트 커피 4500", "교촌치킨 택시 만원"]) {
+  const out = await say(SMS + tail);
+  check.ok(out.added.length !== 1, "문자 + 덧붙인 기록 ‘" + tail + "’: 한 건만 저장하지 않는다 (" + JSON.stringify(out.added) + " / " + out.reply.split("\n")[0] + ")");
+}
+{
+  const total = await say("[Web발신] 신한카드 승인 김*수 일시불 45,000 11/09 19:42 이마트 이번달 이용 532,000원");
+  check.ok(!(total.added.length === 1 && total.added[0].amount === 532000), "원 없는 승인 금액 + 이용 누계: 누계만 저장하지 않는다 (" + JSON.stringify(total.added) + ")");
+}
+// 이름에 붙은 숫자·금액 말은 쓴 곳 이름이다.
+one(await say(SMS + "만원의행복"), "가게 이름 ‘만원의행복’", { date: "2026-11-09", amount: 45000, memo: "만원의행복" });
+one(await say(SMS + "천원샵 역삼점"), "가게 이름 ‘천원샵 역삼점’", { date: "2026-11-09", amount: 45000, memo: "천원샵 역삼점" });
+one(await say(SMS + "11번가"), "가게 이름 ‘11번가’", { date: "2026-11-09", amount: 45000, memo: "11번가" });
+// (바로 앞 사례와 같은 말로 정리되면 되풀이 안전망이 ‘방금 처리했어요’ 로 답하므로 금액이 다른 문자를 쓴다.)
+one(await say("[Web발신]\n신한카드(1234)승인\n김*수\n25,000원 일시불\n11/09 12:10\n[11번가]"), "꺾쇠 안의 가게 이름", { date: "2026-11-09", amount: 25000, memo: "11번가" });
+// (3) 빈칸이 아주 긴 글에서도 안전망 정규식이 오래 걸리지 않는다: 새 정규식의 빈칸 되풀이에는 모두 상한이 있다.
+{
+  const guards = fs.readFileSync(new URL("../src/modules/kakao/request-guards.js", import.meta.url), "utf8");
+  const from = guards.indexOf("const KAKAO_NOTICE_ISSUERS_V229122");
+  const to = guards.indexOf("function kakaoRecordGuardV229120(utterance, parsedList");
+  check.ok(from > 0 && to > from, "알림 문자 안전망 블록을 찾는다");
+  const unbounded = guards.slice(from, to).split("\n").filter((line) => /\\s[*+](?!\?)|\[ \\t\][*+]|\\\\s[*+]/.test(line) && !/^\s*\/\//.test(line));
+  check.eq(unbounded.length, 0, "알림 문자 안전망의 빈칸 되풀이에 상한이 없는 줄: " + unbounded.map((line) => line.slice(0, 60)).join(" | "));
+  const long = await say("커피 4500원 카드" + " ".repeat(1470) + "x");
+  check.ok(long.added.length <= 1, "빈칸이 긴 글도 답한다");
+}
+// (4) 실패 알림은 알림 문자 꼴일 때만 막는다 — 이야기로 쓴 실제 지출은 저장한다.
+for (const [text, amount] of [["잔액 3000원이라 승인 거절, 현금으로 커피 4500원", 4500], ["[메모] 결제실패 후 재결제 배민 23000원", 23000], ["출금불능 떠서 14:00에 다시 이체 월세 500000원", 500000], ["(회사) 승인거절 나서 개인카드로 점심 9000원", 9000], ["(어제) 결제 실패해서 현금으로 택시 15000원", 15000]]) {
+  const out = await say(text);
+  check.ok(out.added.some((row) => row.amount === amount), "실패 이야기 + 실제 지출 ‘" + text.slice(0, 24) + "’: 저장 (" + JSON.stringify(out.added) + " / " + out.reply.split("\n")[0] + ")");
+}
+// (5) 거부·불가·미승인 알림도 승인으로 저장하지 않는다.
+none(await say("[Web발신]\n현대카드 승인 거부\n김*수\n45,000원\n11/09 19:42\n이마트"), "승인 거부", "결제나 출금이 되지 않았다는 알림");
+none(await say("[Web발신]\n신한카드(1234)승인불가\n김*수\n45,000원 11/09 19:42\n이마트 한도초과"), "승인불가", "결제나 출금이 되지 않았다는 알림");
+none(await say("[Web발신]\n신한카드(1234) 미승인\n김*수\n45,000원 11/09 19:42\n이마트 (잔액부족)"), "미승인", "결제나 출금이 되지 않았다는 알림");
+// (6) 금액이 승인 앞에 온 평범한 말·건수가 뒤따르는 취소 이야기는 막지 않는다.
+{
+  const parking = await say("주차 2000 승인 점심 8000");
+  check.deepEq(parking.added.map((row) => row.amount).sort((a, b) => a - b), [2000, 8000], "‘주차 2000 승인 점심 8000’ 은 두 건 그대로");
+  const count = await say("카드 취소 2건 처리하고 점심 9000원");
+  check.ok(count.added.some((row) => row.amount === 9000), "‘카드 취소 2건 처리하고 점심 9000원’ 은 저장 (" + JSON.stringify(count.added) + " / " + count.reply.split("\n")[0] + ")");
+}
+// (7) 받은 돈 알림의 답은 내 금액으로 예시를 든다(지어낸 금액 없음).
+{
+  const got = await say("[토스] 최*영님이 50,000원을 보냈어요 잔액 401,250원");
+  none(got, "받은 돈 알림(5만원)", "받은 돈 알림으로 보이는데");
+  check.ok(got.reply.includes("수입 50000원") && !got.reply.includes("25000"), "받은 돈 알림: 예시는 내 금액");
+}
 
 // ── INJ-1 금액 하나만 받는 웹 폼 칸 ─────────────────────────────────────────────
 const recurringRules = (fx) => fx.db.accountbook_settings.filter((row) => /recurring/i.test(String(row.key || "")) && JSON.stringify(row.value ?? "").includes("월세점검"));

@@ -446,7 +446,8 @@ await scenario("KR-1 separate isolates", () => withFx(async (fx) => {
 }));
 
 // ---------------- V22.9.122 KR-3: 저장소 오류가 맨 바깥 catch 까지 올라온 답 ----------------
-const NOT_SAVED = "일시적인 오류로 이번 내용은 저장하지 않았어요. 잠시 뒤 같은 내용을 다시 보내 주세요.";
+const NOT_SAVED = "일시적인 오류로 이번 요청을 끝내지 못했어요. 기록은 저장하지 않았어요. 잠시 뒤 같은 내용을 다시 보내 주세요.";
+const UNSURE = "저장됐는지 확인하지 못했어요. 잠시 뒤 결과를 확인해 보고, 반영되지 않았으면 같은 내용을 다시 보내 주세요."; // 거래가 아닌 쓰기(예산 등)의 결과를 모를 때(독립 검토 2)
 const DELAYED = "지금은 저장 확인이 지연되고 있어요. 중복될 수 있으니 같은 내용을 다시 보내지 말고 기다려 주세요.";
 const GENERIC = "잠시 처리 흐름을 정리하고 있어요";
 const isClaim = (c) => c.method === "POST" && c.path === "rpc/accountbook_claim_operation";
@@ -504,7 +505,7 @@ async function sweepCells(label, makeCtx, utterance) {
         if (r.text.includes(GENERIC)) generic += 1;
         if (r.text.includes(NOT_SAVED)) { notSaved += 1; if (contentOf(fx) !== before) wrongNotSaved += 1; }
         if (failed.method === "POST" && failed.path === "accountbook_settings" && failed.body.includes('"key":"kakao_') && contentOf(fx) === before &&
-            r.text.includes(DELAYED) && !r.text.includes("오늘기록")) markerWait += 1;
+            (r.text.includes(DELAYED) || r.text.includes(UNSURE))) markerWait += 1;
         return false;
       });
       if (finished) break;
@@ -528,7 +529,7 @@ for (const kind of ["503", "lost"]) await scenario(`KR-3 budget ${kind}`, () => 
   const r = await say(fx, "월 예산 200만원", { key });
   fx.hook = null;
   check.ok(r.calls.some((c) => c.failed), `${tag}: the budget write failed`);
-  check.ok(r.text.includes(DELAYED) && !r.text.includes(NOT_SAVED), `${tag}: a write that may have landed gets the ‘wait’ reply, never ‘not saved’`);
+  check.ok(r.text.includes(UNSURE) && !r.text.includes(NOT_SAVED) && !r.text.includes(DELAYED), `${tag}: a non-record write that may have landed gets the ‘check the result’ reply, never ‘not saved’ or ‘may duplicate’`);
   check.ok(!r.text.includes("오늘기록"), `${tag}: no record-list hint for a budget`);
   check.eq((fx.db.accountbook_budgets || []).length - before, kind === "lost" ? 1 : 0, `${tag}: fixture state matches the failure kind`);
 }));
