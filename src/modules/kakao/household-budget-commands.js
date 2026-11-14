@@ -785,9 +785,9 @@ export {
   kakaoHouseholdReplyName, kakaoInviteManagementText, kakaoInviteNotAllowedText,
   kakaoManageableHouseholds, kakaoMemberPolicyReply, kakaoSelectedHouseholdKey, kakaoStartText,
   kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText, kakaoUnlinkedRoomStateLine, maybeKakaoCta,
-  parseBareInviteCode, parseDirectBudgetSetCommand, parseKakaoCreateKind, parseKakaoHouseholdChoice,
-  parseKakaoSummaryRange, plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName,
-  sanitizeHouseholdNameInput, sanitizeWebHouseholdNameInput, saveKakaoBudget,
-  setKakaoSelectedHousehold, suggestedHouseholdName,
+  parseBareInviteCode, parseBudgetMonthHint, parseDirectBudgetSetCommand, parseKakaoCreateKind,
+  parseKakaoHouseholdChoice, parseKakaoSummaryRange, plausibleHouseholdNameAtKindStep,
+  resolveBudgetCategoryName, sanitizeHouseholdNameInput, sanitizeWebHouseholdNameInput,
+  saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
 };
 // @build:exports-end

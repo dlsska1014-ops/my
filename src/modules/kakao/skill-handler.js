@@ -66,8 +66,9 @@ import {
   kakaoCreateKindPromptText, kakaoDateSummaryParts, kakaoHouseholdReplyName,
   kakaoInviteManagementText, kakaoInviteNotAllowedText, kakaoManageableHouseholds,
   kakaoMemberPolicyReply, kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote,
-  kakaoUnlinkedGroupStartText, parseDirectBudgetSetCommand, parseKakaoSummaryRange,
-  resolveBudgetCategoryName, sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
+  kakaoUnlinkedGroupStartText, parseBudgetMonthHint, parseDirectBudgetSetCommand,
+  parseKakaoSummaryRange, resolveBudgetCategoryName, sanitizeHouseholdNameInput, saveKakaoBudget,
+  setKakaoSelectedHousehold,
 } from "./household-budget-commands.js";
 import {
   KAKAO_SKILL_MAX_BODY_BYTES, handleHouseholdGuidedFlow, handlePreHouseholdGuidedFlow,
@@ -971,7 +972,9 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // V22.9.72: 빈 결과(예산 없음·정산할 지출 없음·기록 없음)는 짧게 알리고 다음 행동 버튼(예산설정·기록하기)으로 잇는다.
   if (!strongTransactionInput && isBudgetCommand(utterance)) {
     const canManageBudget = ["owner","admin"].includes(accessRole);
-    const budgetStatus = await kakaoBudgetStatusParts(env, household.id, currentMonthKst(), origin, household.name, { canManage: canManageBudget });
+    // V22.9.122 T-2(출시 전 점검 2026-11-14): ‘지난달 예산 현황’·‘12월 예산 현황’도 늘 이번 달로 답했다(1월 1일에 12월 예산이 있어도 ‘아직 예산이 없어요’).
+    // 예산 설정 명령과 같은 달 읽기(parseBudgetMonthHint: 지난달·다음 달·N월은 가장 가까운 해)로 물은 달을 보여 준다. 달 말이 없거나 읽지 못하면 예전처럼 이번 달이고, 어느 달인지는 머리줄에 적힌다.
+    const budgetStatus = await kakaoBudgetStatusParts(env, household.id, parseBudgetMonthHint(utterance), origin, household.name, { canManage: canManageBudget });
     if (budgetStatus.noBudget) return kakaoNextStepReply(budgetStatus.text, payload, canManageBudget ? [["예산설정", "예산설정"]] : []);
     return kakaoText(budgetStatus.text);
   }
