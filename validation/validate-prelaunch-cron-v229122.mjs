@@ -2,6 +2,7 @@
 // T-1: 말일 예약 실행(09:10) 뒤에 만들거나 다시 켠 정기 규칙은 그 달 몫이 영영 빠졌다(다른 날 만든 규칙은 다음 날 실행이 넣는다).
 //      이제 말일에 저장하면 저장 직후 그 달 몫을 한 번만 넣는다(웹 /my/recurring/save, 관리 /admin/recurring/save, 후보 확정 /my/recurring/from-candidate).
 // SCALE-2: 정기 반영이 40개 가계부의 참여자를 한 번에 제한 없이 읽어 PostgREST 1,000행 상한에 잘린 가계부의 규칙이 ‘건너뜀’이 됐다.
+// SCALE-1: 자동 리포트 커서에서 제날 한 가계부도 돌지 못한 미리 보기의 확정이 refresh 로 적혀 맨 뒤로 밀렸다(밀린 실행에서 월말·일부 주간 0개).
 // 실행: node validation/validate-prelaunch-cron-v229122.mjs  (분류 표 없는 운영 모드: AB_QA_CATEGORIES_ABSENT=1)
 const RealDate = globalThis.Date;
 let fakeNow = null;
@@ -13,6 +14,7 @@ const previousFixedNow = globalThis.__AB_QA_FIXED_NOW_MS;
 // 번들이 Date 를 읽기 전에 바꾼다(픽스처가 만든 시각 created_at 도 같은 가짜 시각이 되게). 끝에서 되돌린다.
 globalThis.Date = FakeDate;
 const { app, fixture, post, page, counter, intercept, failure, putSetting } = await import("./lib-audit-v22934.mjs");
+const { runAutomaticReports } = await import("../src/index.js");
 
 const check = counter("prelaunch cron fixes");
 const KST = (ymd, hm = "12:00") => `${ymd}T${hm}:00+09:00`;
@@ -214,6 +216,25 @@ try {
     const last = (Array.isArray(log) ? log : []).slice().sort((a, b) => String(a.started_at).localeCompare(String(b.started_at))).at(-1) || {};
     check.deepEq([last.recurring?.applied, last.recurring?.skipped, last.recurring?.failed], [41, 2, 0], "SCALE-2 실행 기록: 넣음 41, 건너뜀 2(조회 전용·참여자 아님), 실패 0");
     check.ok(memberReads.length >= 1 && memberReads.every((users) => /^in\./.test(users)), "SCALE-2 참여자 읽기는 묶음 규칙의 지출자만 묻는다(user_id=in.…)");
+  });
+
+  // ── SCALE-1 자동 리포트 커서: 제날에 한 가계부도 돌지 못한 미리 보기(11-29, after 없음)는 다음 날 확정으로 바뀔 때 refresh 가 아니다(스냅숏이 없는
+  //    가계부를 만드는 범위라 날짜 순서로 먼저 돈다). 일부 돈 미리 보기(11-15)는 예전처럼 뒤쪽(새로 만듦)과 앞쪽(refresh)으로 나뉜다. 예산 0 으로 돌려
+  //    아무 범위도 처리하지 않고 저장된 커서의 순서만 본다.
+  resetRuntime();
+  setNow("2026-11-30", "09:10");
+  await fixture(async (fx) => {
+    putSetting(fx, "cron_report_cursor_v22930", JSON.stringify({ scopes: [
+      { date: "2026-11-15", after: "free_report_preference:hh-m", force: false, weekly: true, monthly: false },
+      { date: "2026-11-22", after: "", force: false, weekly: true, monthly: false, final: true, refresh: true },
+      { date: "2026-11-29", after: "", force: false, weekly: true, monthly: false },
+    ], pushed: "2026-11-29" }));
+    const outcome = await runAutomaticReports({ ...fx.env, __AB_DB_BUDGET: { used: 0, limit: 3 } }, { today: "2026-11-30", lock: false });
+    check.eq(outcome.generated, 0, "SCALE-1 예산 0 실행은 아무것도 만들지 않는다");
+    const scopes = JSON.parse(fx.db.accountbook_settings.find((row) => row.key === "cron_report_cursor_v22930")?.value || "{}").scopes || [];
+    const label = (scope) => `${scope.date}${scope.final ? "F" : "P"}${scope.refresh ? "R" : ""}${scope.upto ? "u" : scope.after ? "a" : ""}`;
+    check.ok(scopes.some((scope) => scope.date === "2026-11-29" && scope.final === true && !scope.refresh), "SCALE-1 제날 못 돈 11-29 미리 보기의 확정은 refresh 가 아니다");
+    check.deepEq(scopes.map(label), ["2026-11-15Fa", "2026-11-29F", "2026-11-30P", "2026-11-15FRu", "2026-11-22FR"], "SCALE-1 스냅숏 없는 범위(날짜 순) → 오늘 미리 보기 → refresh 순서(예전: 11-29 가 refresh 로 맨 뒤)");
   });
 } finally {
   globalThis.Date = RealDate;

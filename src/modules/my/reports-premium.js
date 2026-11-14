@@ -274,7 +274,11 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
   for (const scope of stored) {
     const clean = { date: scope.date, after: scope.after, force: scope.force, weekly: scope.weekly, monthly: scope.monthly };
     if (scope.final === true) scopes.push({ ...clean, final: true, ...(typeof scope.upto === "string" && scope.upto ? { upto: scope.upto } : {}), ...(scope.refresh === true ? { refresh: true } : {}) });
-    else if (clean.date < invocationDate && reportFinalScopesV22994(clean).length) scopes.push(...reportFinalScopesV22994(clean));
+    // V22.9.122 SCALE-1(출시 전 점검 2026-11-14): 제날에 한 가계부도 돌지 못한 미리 보기(after 없음)는 스냅숏이 하나도 없는데 예전에는 확정이 refresh 로
+    // 적혀 모든 범위 뒤로 밀렸다(밀린 실행에서 월말·일부 주간이 끝까지 0개). 이제 빠진 날 확정처럼 refresh 없이 날짜 순서로 돈다. 처리 내용은 같고 순서만 바뀐다.
+    else if (clean.date < invocationDate && reportFinalScopesV22994(clean).length) {
+      for (const next of reportFinalScopesV22994(clean)) { if (!clean.after) delete next.refresh; scopes.push(next); }
+    }
     else scopes.push(clean);
   }
   const covers = (scope, want) => scope.date === want.date && (scope.final === true) === (want.final === true) && (!want.weekly || scope.weekly) && (!want.monthly || scope.monthly);
