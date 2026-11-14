@@ -67,8 +67,8 @@ import {
   kakaoInviteManagementText, kakaoInviteNotAllowedText, kakaoManageableHouseholds,
   kakaoMemberPolicyReply, kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote,
   kakaoUnlinkedGroupStartText, parseBudgetMonthHint, parseDirectBudgetSetCommand,
-  parseKakaoSummaryRange, resolveBudgetCategoryName, sanitizeHouseholdNameInput, saveKakaoBudget,
-  setKakaoSelectedHousehold,
+  parseInviteCodeJoinCommand, parseKakaoSummaryRange, resolveBudgetCategoryName,
+  sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
 } from "./household-budget-commands.js";
 import {
   KAKAO_SKILL_MAX_BODY_BYTES, handleHouseholdGuidedFlow, handlePreHouseholdGuidedFlow,
@@ -729,7 +729,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     return kakaoText(await kakaoGroupInfoText(env, payload, origin, user), [["가계부만들기", "가계부만들기"], ["초대코드", "초대코드"]]);
   }
 
-  const joinCode = strongTransactionInput ? "" : parseJoinCode(utterance);
+  // V22.9.122 AZ-1(출시 전 점검 2026-11-14): ‘초대코드 CODE’·‘참여코드 CODE’도 ‘참여 CODE’와 같은 참여 길로 보낸다(아래 초대코드 보기·방 자동 참여보다 먼저, 승인 대기 규칙 그대로).
+  const joinCode = strongTransactionInput ? "" : (parseJoinCode(utterance) || parseInviteCodeJoinCommand(utterance));
   if (joinCode) {
     try {
       const joined = await joinHouseholdByCode(env, user.id, joinCode);
