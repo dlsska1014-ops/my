@@ -758,7 +758,7 @@ const KAKAO_GUARD_MAX_TEXT_V229120 = 1500;
 const KAKAO_NOTICE_ISSUERS_V229122 = "신한|현대|삼성|국민|KB|우리|롯데|하나|농협|NH|BC|비씨|카카오뱅크|카카오|토스뱅크|토스|씨티|IBK";
 const KAKAO_NOTICE_FAILED_V229122 = /승인\s{0,2}(?:거절|거부|불가|보류|실패)|미승인|(?:출금|이체)\s{0,2}불능|결제\s{0,2}실패/;
 // 다른 방법으로 다시 냈다는 말이 있으면 실패 알림이 아니라 실제 지출 이야기다.
-const KAKAO_NOTICE_REPAID_V229122 = /현금으로|현금\s{0,2}냄|다른\s{0,2}카드|개인\s{0,2}카드|재결제|다시\s{0,2}(?:결제|이체|보냄|보냈|긁)|계좌이체로|겨우\s{0,2}결제/;
+const KAKAO_NOTICE_REPAID_V229122 = /현금(?:으로)?\s{0,2}(?:결제|계산|냄|냈|드림|드렸|승차|지불)|현금으로|(?:체크|회사|법인|다른|개인)\s{0,2}카드로?|페이로|토스로|계좌로|계좌이체로|송금|성공|재결제|다시\s{0,2}(?:결제|이체|보냄|보냈|긁)|겨우\s{0,2}결제/;
 const KAKAO_NOTICE_CANCEL_V229122 = /(?:(?:카드|체크)[ \t]{0,2}[\])】]?[ \t]{0,2}[(\[]?[\d*]{0,4}[)\]]?|출금|부분)[ \t]{0,2}취소\s{0,3}(?=-?\d[\d,]{0,12}\s{0,2}원|[가-힣]\*)/;
 const KAKAO_NOTICE_RECEIVED_V229122 = /님이\s{0,2}[\d,]{1,15}\s{0,2}원을?\s{0,2}보냈/;
 const KAKAO_NOTICE_WEB_TAG_V229122 = /[\[(【]\s{0,2}web\s{0,2}발신\s{0,2}[\])】]/i;
@@ -797,7 +797,8 @@ function kakaoGuardNoticeV229122(text, rows, today) {
   if (rows.some((row) => digits.has(Number(row.amount)))) {
     // 끝 번호·승인번호로 읽힌 건을 빼고 정확히 한 건이 남을 때만 그 건의 날짜·금액으로 예시를 만든다.
     const real = rows.filter((row) => !digits.has(Number(row.amount)));
-    const example = real.length === 1 ? kakaoCardSmsExampleV229122(real[0].transaction_date, real[0].amount, today, real[0].type === "income") : "";
+    // 독립 검토 3: 예시의 날짜는 글에 하나 적힌 날짜를 쓴다(예전 길이 읽은 날짜는 오늘일 수 있다). 적힌 날짜가 하나가 아니면 예시를 들지 않는다.
+    const example = real.length === 1 && hasDate.length === 1 && hasDate[0] ? kakaoCardSmsExampleV229122(hasDate[0], real[0].amount, today, real[0].type === "income") : "";
     return { kind: "notice_digits", text: "카드 끝 번호나 승인번호가 금액으로 읽혀서 저장하지 않았어요.\n" + kakaoCardSmsHowToV229122(example, real.length === 1 && real[0].type === "income"), quickReplies: replies };
   }
   // ⑥ 고르는 쪽(브라우저 자산과 같이 쓰는 normalizeInputText)이 잔액 뒤의 숫자만 빼고 단위(‘만원’)를 남겨 10,000원 같은 헛기록이 생긴다. 그쪽은 그대로 두고 저장만 막는다.
@@ -808,12 +809,16 @@ function kakaoGuardNoticeV229122(text, rows, today) {
   if (spends && !KAKAO_NOTICE_TYPE_WORD_V229122.test(text)) {
     if (KAKAO_NOTICE_CANCEL_V229122.test(text)) return { kind: "notice_cancel", text: KAKAO_CANCEL_NOTICE_TEXT_V229122, quickReplies: replies };
     if (KAKAO_NOTICE_RECEIVED_V229122.test(text)) {
-      const own = rows.length === 1 && Number(rows[0].amount) > 0 ? "\n수입 " + Math.round(Number(rows[0].amount)) + "원" : "";
+      const dated = rows.length === 1 && hasDate.length === 1 && hasDate[0] ? kakaoCardSmsExampleV229122(hasDate[0], rows[0].amount, today, true) : "";
+      const own = dated ? "\n" + dated : rows.length === 1 && Number(rows[0].amount) > 0 ? "\n수입 " + Math.round(Number(rows[0].amount)) + "원" : "";
       return { kind: "notice_received", text: "받은 돈 알림으로 보이는데 쓴 돈으로 읽혀서 저장하지 않았어요.\n받은 돈이면 앞에 ‘수입’을 붙여 다시 보내 주세요." + own, quickReplies: replies };
     }
   }
   // ④ 알림 문자 꼴이거나 누적·잔액 금액이 있는 글에 날짜가 하나 적혀 있는데 다른 날로 읽혔다. 달력에 없거나 앞날인 날짜("")는 문자의 사실로 삼지 않는다.
-  if ((noticeShape || KAKAO_NOTICE_BALANCE_V229122.test(text)) && hasDate.length === 1 && hasDate[0] && rows.some((row) => String(row.transaction_date || "") !== hasDate[0])) {
+  // 독립 검토 3: 다른 날로 읽힌 건이 글의 ‘오늘·어제·그제’ 로 설명되면 틀리게 읽힌 것이 아니다(‘11/8 08:30 택시 12000원 오늘 점심 9000원’ 은 두 건 다 맞다).
+  const wordDay = (days) => { const at = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 1, Number(today.slice(8, 10)) - days)); return at.toISOString().slice(0, 10); };
+  const wordDates = new Set([/오늘|금일|방금|지금/.test(text) ? wordDay(0) : "", /어제|어젯밤|전날/.test(text) ? wordDay(1) : "", /그제|그저께|엊그제/.test(text) ? wordDay(2) : ""].filter(Boolean));
+  if ((noticeShape || KAKAO_NOTICE_BALANCE_V229122.test(text)) && hasDate.length === 1 && hasDate[0] && rows.some((row) => String(row.transaction_date || "") !== hasDate[0] && !wordDates.has(String(row.transaction_date || "")))) {
     const day = Number(hasDate[0].slice(5, 7)) + "월 " + Number(hasDate[0].slice(8, 10)) + "일";
     const income = rows.length === 1 && rows[0].type === "income";
     const example = rows.length === 1 ? kakaoCardSmsExampleV229122(hasDate[0], rows[0].amount, today, income) : "";
