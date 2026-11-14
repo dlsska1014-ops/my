@@ -72,7 +72,7 @@ import {
 } from "./household-budget-commands.js";
 import {
   KAKAO_SKILL_MAX_BODY_BYTES, handleHouseholdGuidedFlow, handlePreHouseholdGuidedFlow,
-  readRequestTextBounded,
+  kakaoRoomJoinScopeNoteV229122, readRequestTextBounded,
 } from "./guided-flows.js";
 import { saveKakaoParsedTransactionsReply } from "./transaction-save.js";
 import {
@@ -657,7 +657,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     if (shouldInterruptKakaoFlowV2254(activeFlowBeforeRouting, utterance)) {
       await clearKakaoFlowState(env, user.id, payload);
     } else {
-      const activePreFlow = await handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin });
+      const activePreFlow = await handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin, roomLinkPromise: linkedGroupPromise });
       if (activePreFlow) return kakaoText(activePreFlow.text, activePreFlow.quickReplies || []);
     }
   }
@@ -737,8 +737,11 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
       if (!joined) return kakaoText(`초대코드 ${joinCode}를 찾지 못했어요. 코드를 다시 확인해 주세요.`);
       // V22.9.37 감사 H2: 단톡방에서 보낸 참여 명령은 1:1 개인 가계부 선택을 바꾸지 않는다.
       if (!botGroupKey && !["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
-      if (["pending","blocked","viewer"].includes(joined.join_role)) return kakaoText(roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`);
-      return kakaoText(`✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요.`, kakaoStartQuickReplies(true));
+      // V22.9.122 AZ-2(출시 전 점검 2026-11-14): 단톡방에서 참여해도 이 방은 그 가계부에 연결되지 않는데 ‘이제 … 바로 기록할 수 있어요’라고 했다(다음 방 기록은 ‘이 방의 공동 가계부’로 감).
+      // 이 방이 그 가계부에 연결돼 있지 않으면 참여 범위(개인 대화·웹)와 ‘단톡방 연결 CODE’를 적는다. 방 연결은 위에서 이미 던져 둔 읽기를 받는다(조회 추가 없음).
+      const roomNote = botGroupKey ? kakaoRoomJoinScopeNoteV229122(joined, joinCode, (await linkedGroupPromise)?.value) : "";
+      if (["pending","blocked","viewer"].includes(joined.join_role)) return kakaoText((roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`) + (joined.join_role === "pending" && roomNote ? `\n\n${roomNote}` : ""));
+      return kakaoText(`✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n${roomNote || "이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요."}`, kakaoStartQuickReplies(true));
     } catch (err) {
       return kakaoText("초대코드 확인이 잠시 지연되고 있어요. 잠시 후 다시 시도해 주세요.");
     }

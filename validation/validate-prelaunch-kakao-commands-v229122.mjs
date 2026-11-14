@@ -4,6 +4,8 @@
 // 2026-11-14 출시 전 점검(review-artifacts/prelaunch-sweep-2026-11-14)이 찾은 카카오 명령 결함을 실제 /skill 요청(개인 대화·단톡방)과 저장된 행으로 본다.
 // T-2: ‘지난달 예산 현황’·‘12월 예산 현황’이 늘 이번 달로 답했다(1월 1일에 12월 예산이 있어도 ‘아직 예산이 없어요’). 이제 예산 설정 명령과 같은 달 읽기로 물은 달을 보여 준다.
 // AZ-1: ‘초대코드 HOME2265’가 참여가 아니라 초대코드 보기로 읽혀 보낸 사람 자기 가계부의 초대코드를 보여 줬다(가계부 없는 방이면 방 전체에). 이제 ‘참여 HOME2265’와 같은 참여다.
+// AZ-2: 단톡방에서 ‘가계부 참여 CODE’로 참여하면 ‘이제 … 바로 기록할 수 있어요’라고 했지만 이 방은 그 가계부에 연결되지 않아 다음 방 기록은 ‘이 방의 공동 가계부’로 갔다.
+//       이제 그 방이 그 가계부에 연결돼 있지 않으면 참여 범위(개인 대화·웹)와 ‘단톡방 연결 CODE’를 적는다(문구만, 참여·연결은 그대로).
 // 가짜는 픽스처 DB 와 고정 시계(globalThis.__AB_QA_FIXED_NOW_MS)뿐이다. 오늘 날짜·컴퓨터 시간대와 상관없이(TZ=UTC 포함) 같은 결과여야 한다.
 //
 // ── 실행 ──
@@ -162,6 +164,60 @@ for (const utterance of ["참여 HOME2265", "초대코드 HOME2265"]) {
     const reply = await say(fx, utterance);
     t.ok(reply.text.startsWith("✅ ‘우리집 생활비’ 가계부에 참여했어요.") && roleIn(fx, "user-bin", "house-home") === "owner", `AZ-1 소유자 개인 대화 ‘${utterance}’는 참여 확인 답이고 역할은 owner 그대로: ${reply.text.replace(/\n/g, " ").slice(0, 70)}`);
   }));
+}
+
+// ── AZ-2: 단톡방에서 참여한 답이 이 방 기록이 그 가계부로 가는 것처럼 말하지 않는다 ──
+// 단톡방에서 ‘가계부 참여 CODE’로 참여해도 이 방은 그 가계부에 연결되지 않는다(다음 방 기록은 ‘이 방의 공동 가계부’로 간다). 예전 답은 ‘이제 … 바로 기록할 수 있어요’였다.
+const MEMBER = "kakao_login:2266"; // user-wifi, house-home 구성원
+const SCOPE = "개인 대화와 웹 가계부";
+const BIND_HINT = "‘단톡방 연결 HOME2265’처럼 보내 주세요";
+const OLD_PROMISE = "이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요.";
+const kakaoSafe = (reply) => noUrl(reply.text) && (reply.body?.template?.outputs || []).every((output) => String(output.simpleText?.text || "").length <= 1000);
+async function joinScene(steps, { room = NEW_ROOM, linkCode = "", user = MEMBER } = {}) {
+  return at("2026-11-14", "12:00", () => fixture(async (fx) => {
+    seedOutsider(fx);
+    if (linkCode) await say(fx, `단톡방 연결 ${linkCode}`, { room }); // 소유자(user-bin)가 이 방을 연결해 둔 경우
+    const links = roomLinks(fx);
+    let reply = null;
+    for (const step of steps) reply = await say(fx, step, { user, room });
+    const after = { linksAdded: roomLinks(fx) - links, wifiRole: roleIn(fx, "user-wifi", "house-home"), outRole: roleIn(fx, "user-out", "house-home") };
+    let record = null;
+    if (room && user === MEMBER) {
+      const lunch = await say(fx, "점심 12000원", { user, room });
+      const saved = fx.db.transactions.find((row) => row.user_id === "user-wifi" && Number(row.amount) === 12000);
+      record = { text: lunch.text, household: saved?.household_id || "" };
+    }
+    return { ...reply, ...after, record };
+  }));
+}
+// 가계부 없는 방: 이미 구성원인 사람의 참여 답(바로 참여·초대코드 참여 단계 모두)은 범위 안내로 바뀐다.
+for (const [label, steps] of [["‘가계부 참여 HOME2265’", ["가계부 참여 HOME2265"]], ["‘초대코드참여’ → ‘HOME2265’ 단계", ["초대코드참여", "HOME2265"]]]) {
+  const scene = await joinScene(steps);
+  t.ok(scene.text.startsWith("✅ ‘우리집 생활비’ 가계부에 참여했어요."), `AZ-2 가계부 없는 방 구성원 ${label}: 참여 확인 줄은 그대로: ${scene.text.slice(0, 40)}`);
+  t.ok(!scene.text.includes(OLD_PROMISE) && scene.text.includes(SCOPE) && scene.text.includes(BIND_HINT), `AZ-2 가계부 없는 방 구성원 ${label}: ‘바로 기록’ 대신 참여 범위(개인 대화·웹)와 ‘단톡방 연결 HOME2265’를 적는다: ${scene.text.replace(/\n/g, " ").slice(0, 200)}`);
+  t.ok(kakaoSafe(scene) && scene.linksAdded === 0 && scene.wifiRole === "member", `AZ-2 가계부 없는 방 구성원 ${label}: 주소 없음·1,000자 이하, 방 연결·역할은 그대로(문구만 바뀜)`);
+  t.ok(scene.record && scene.record.household && scene.record.household !== "house-home", `AZ-2 가계부 없는 방 구성원 ${label}: 이어서 보낸 방 기록은 우리집 생활비가 아닌 이 방 가계부로 간다(안내가 맞다): ${scene.record?.household}`);
+}
+// 가계부 없는 방: 처음 참여해 승인 대기인 사람(바로 참여·초대코드 CODE·초대코드 참여 단계)도 승인 뒤 범위와 방 연결을 적는다.
+for (const [label, steps] of [["‘가계부 참여 HOME2265’", ["가계부 참여 HOME2265"]], ["‘초대코드 HOME2265’", ["초대코드 HOME2265"]], ["‘초대코드참여’ → ‘HOME2265’ 단계", ["초대코드참여", "HOME2265"]]]) {
+  const scene = await joinScene(steps, { user: OUTSIDER });
+  t.ok(scene.outRole === "pending" && scene.text.startsWith("🕒 아직 승인 대기 중입니다.\n가계부: 우리집 생활비"), `AZ-2 가계부 없는 방 새 참여자 ${label}: 승인 대기 그대로: ${scene.text.slice(0, 40)}`);
+  t.ok(scene.text.includes(`승인되면 ${SCOPE}에서 쓸 수 있어요.`) && scene.text.includes(BIND_HINT) && kakaoSafe(scene) && scene.linksAdded === 0, `AZ-2 가계부 없는 방 새 참여자 ${label}: 승인 뒤 범위와 ‘단톡방 연결 HOME2265’를 적는다: ${scene.text.replace(/\n/g, " ").slice(0, 220)}`);
+}
+// 이 방이 우리집 생활비에 연결돼 있으면 방 기록이 그 가계부로 가므로 예전 답 그대로다. 다른 가계부(7월 제주여행)에 연결된 방이면 범위 안내다.
+{
+  const linked = await joinScene(["가계부 참여 HOME2265"], { room: ROOM, linkCode: "HOME2265" });
+  t.ok(linked.text.includes(OLD_PROMISE) && !linked.text.includes(BIND_HINT), `AZ-2 우리집 생활비에 연결된 방은 예전 답 그대로: ${linked.text.replace(/\n/g, " ").slice(0, 120)}`);
+  t.ok(linked.record?.household === "house-home", `AZ-2 우리집 생활비에 연결된 방의 기록은 우리집 생활비로 간다: ${linked.record?.household}`);
+  const other = await joinScene(["가계부 참여 HOME2265"], { room: ROOM, linkCode: "TRIP2265" });
+  t.ok(!other.text.includes(OLD_PROMISE) && other.text.includes(SCOPE) && other.text.includes(BIND_HINT), `AZ-2 다른 가계부에 연결된 방은 범위 안내: ${other.text.replace(/\n/g, " ").slice(0, 160)}`);
+}
+// 개인 대화는 예전 답 그대로(구성원 = ‘바로 기록’, 새 참여자 = 승인 대기만).
+{
+  const member = await joinScene(["가계부 참여 HOME2265"], { room: "" });
+  t.ok(member.text === `✅ ‘우리집 생활비’ 가계부에 참여했어요.\n\n${OLD_PROMISE}`, `AZ-2 개인 대화 구성원 답은 예전 그대로: ${member.text.replace(/\n/g, " ")}`);
+  const outsider = await joinScene(["가계부 참여 HOME2265"], { room: "", user: OUTSIDER });
+  t.ok(outsider.outRole === "pending" && !outsider.text.includes(SCOPE) && !outsider.text.includes("단톡방 연결"), `AZ-2 개인 대화 새 참여자 답은 승인 대기 안내만: ${outsider.text.replace(/\n/g, " ").slice(0, 120)}`);
 }
 
 t.done();
