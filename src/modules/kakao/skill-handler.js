@@ -48,10 +48,10 @@ import { startsWithKakaoEditField } from "./edit-state-machine.js";
 import { handleKakaoEditCommandV4, handleKakaoEditSessionMessageV4 } from "./edit-flow-v4.js";
 import {
   armKakaoRepeatGuard, checkKakaoRepeatGuard, clearKakaoInFlight, isKakaoFirstRecordInput,
-  isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoChangeRequestReply, kakaoDeferredReply,
-  kakaoQaRequestAllowed, kakaoRecordGuardReplyV229120, kakaoRecordGuardV229120,
-  kakaoRepeatGuardText, looksLikeKakaoChangeRequest, looksLikeKakaoEditCommandV4,
-  normalizeKakaoSkillResponse, stripLeadingCommand,
+  isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoCardSmsUnreadableTextV229122,
+  kakaoChangeRequestReply, kakaoDeferredReply, kakaoQaRequestAllowed, kakaoRecordGuardReplyV229120,
+  kakaoRecordGuardV229120, kakaoRepeatGuardText, looksLikeKakaoChangeRequest,
+  looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse, stripLeadingCommand,
 } from "./request-guards.js";
 import {
   clearKakaoFlowState, completeKakaoFlowState, getKakaoFlowState, isKakaoBudgetSetupCommand,
@@ -388,6 +388,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   const editLikeUtterance = !separatePurchaseCommand && looksLikeKakaoEditCommandV4(commandText);
   // V22.9.90: 관제 기능 순위용 이름(부른 쪽은 메뉴 낱말 판별이 UNKNOWN 일 때만 쓴다). 기록으로 읽힌 글은 TRANSACTION, 고치기 명령 꼴은 EDIT.
   if (usage) usage.intent = editLikeUtterance || looksLikeKakaoChangeRequest(commandText) ? "EDIT" : separatePurchaseCommand || preParsedList.length ? "TRANSACTION" : "";
+  // V22.9.122 K-1: 카드 승인 문자 한 통인데 깨끗이 읽지 못했고 예전 길의 결과도 문자의 금액·날짜와 달라 저장하지 않은 말(nlu/transaction-parser.js).
+  if (!separatePurchaseCommand && !editLikeUtterance && preParsedList.blocked?.message === "card_sms_unreadable") return kakaoText(kakaoCardSmsUnreadableTextV229122(preParsedList.blocked), [["오늘기록", "오늘기록"]]);
   if (!separatePurchaseCommand && !editLikeUtterance && (preParsedList.blocked?.message === "transaction_type_confirmation_required" || (!preParsedList.length && parseTransaction(utterance,payload).message === "transaction_type_confirmation_required"))) {
     if (preParsedList.blocked?.reason === "mixed_cues") return kakaoMixedTypeConfirmationReply(utterance);
     return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");

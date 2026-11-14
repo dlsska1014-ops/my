@@ -47,6 +47,8 @@ const AB_EFFECTIVE_USER_CACHE = globalThis.__AB_EFFECTIVE_USER_CACHE || (globalT
 const AB_OPERATION_MUTEXES = globalThis.__AB_OPERATION_MUTEXES || (globalThis.__AB_OPERATION_MUTEXES = new Map());
 const AB_REQUEST_RAW_USER_CACHE = new WeakMap();
 const AB_REQUEST_USER_CACHE = new WeakMap();
+// V22.9.122 F-1: 세션 쿠키는 멀쩡한데 DB 가 답하지 못해 로그인 확인을 못 한 요청(auth/user-session.js 가 넣고 worker/router.js 가 본다).
+const AB_REQUEST_SESSION_UNAVAILABLE = new WeakSet();
 // <!-- Lucian UX/UI Prompt #088 · MIT License (c) 2026 Seokwoooo · https://lucianlabs.dev/uxui-prompt/#088 -->
 function renderAccountbookEmptyState({ householdId = "", named = false, autoTour = false } = {}) {
   if (named) return `<section class="abEmptyFolder homeOnboarding" data-ab-empty-folder${autoTour ? " data-ab-new-ledger" : ""} data-household-id="${escapeHtml(householdId)}"><h2>첫 기록을 남겨보세요</h2><p>가계부를 준비했습니다. 지출이나 수입을 한 줄로 입력하세요.</p><button type="button" data-ab-quick-open>첫 기록 남기기</button></section>`;
@@ -1927,6 +1929,25 @@ function dbCallBudgetBaseV229119(budget) {
   return budget === DB_CALL_BUDGET_DEFAULT_V229119 ? {} : { __AB_DB_BUDGET_BASE_V229119: budget };
 }
 
+// V22.9.122 F-1(출시 전 점검 2026-11-14): 서명·만료가 맞는 세션 쿠키인데 DB 가 잠깐 답하지 못해 로그인 확인을 못 하면, 예전에는 로그인하지 않은 사람처럼 /my 로
+// 보내 로그인 화면이 떴다 — 로그아웃된 것처럼 보인다(쿠키는 그대로라 조금 뒤 다시 열면 돌아온다). 세션은 여전히 받아들이지 않되, 화면 요청(HTML 을 바라는
+// GET·폼 POST)이 로그인 화면으로 가려던 때만 ‘잠시 뒤 다시’ 안내(503)로 바꾼다. 공개 화면·JSON API·다른 곳으로 가는 응답(카카오 자동 로그인 등)은 그대로다.
+function sessionUnavailableResponseV229122(request, env, response) {
+  try {
+    if (!(AB_REQUEST_SESSION_UNAVAILABLE.has(request) || env?.__AB_SESSION_UNAVAILABLE === true)) return response;
+    if (!["GET", "POST"].includes(request.method) || !/text\/html/i.test(String(request.headers.get("accept") || ""))) return response;
+    const url = new URL(request.url);
+    if (isJsonApiPath(url.pathname) || url.pathname === "/skill") return response;
+    const location = String(response.headers.get("location") || "");
+    const toLogin = response.status >= 300 && response.status < 400 && /^(?:https?:\/\/[^/]+)?\/my(?:[?#]|$)/.test(location);
+    const loginScreen = request.method === "GET" && url.pathname === "/my" && response.status === 200;
+    if (!toLogin && !loginScreen) return response;
+    return htmlResponse(renderSessionUnavailableHtmlV229122(url, request.method === "POST"), 503, { "retry-after": "10", "cache-control": "no-store" });
+  } catch (_) {
+    return response;
+  }
+}
+
 const ACCOUNTBOOK_WORKER = {
   async fetch(request, env, ctx) {
     scrubPrototypePollution("fetch:start");
@@ -1940,7 +1961,7 @@ const ACCOUNTBOOK_WORKER = {
       // V22.9.102 가계부 기본 설정 띠: 홈이 적은 쿠키(ab_setup)만 보고 주요 화면에 붙인다(DB 읽기 없음). my/setup-page.js 참고.
       // V22.9.121 후원자 포인트 색: 홈·전체 메뉴·참여자가 적은 쿠키(ab_sp)만 보고 다른 셸 화면에도 붙인다(DB 읽기 없음, 쿠키가 없으면 응답 그대로).
       // my/supporter-accent.js 참고.
-      const response = await supporterAccentResponseV229121(routed.request, env, await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx))));
+      const response = sessionUnavailableResponseV229122(routed.request, requestEnv, await supporterAccentResponseV229121(routed.request, env, await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx)))));
       abMonitorCompleted(requestEnv, ctx, response);
       return withRememberedHouseholdCookie(routed, response);
     } catch (error) {
@@ -13841,6 +13862,14 @@ function renderEmergencyErrorHtml(url, err, title = "화면을 안전모드로 �
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>말해가계부 · 안전모드</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:40px auto;padding:20px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:24px;box-shadow:0 18px 44px rgba(15,23,42,.08)}h1{margin-top:0}.muted{color:#64748b;line-height:1.6}.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.btn{display:inline-flex;align-items:center;justify-content:center;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:900}.secondary{background:#eef2f7;color:#111827!important;border:1px solid #d8dee8}.code{background:#f1f5f9;border-radius:14px;padding:12px;word-break:break-all;color:#334155;font-size:13px}</style></head><body><main class="wrap"><section class="card"><h1>${escapeHtml(title)}</h1><p class="muted">일시적으로 해당 화면을 여는 중 문제가 발생해 안전 안내 화면을 표시합니다. 같은 작업을 반복 제출하지 말고 아래 경로로 돌아가 상태를 확인해 주세요.</p><div class="code">경로: ${safePath}<br/>상태: ${escapeHtml(msg)}</div><div class="btns"><a class="btn" href="${origin}${safePath}">${uncertain ? "목록에서 결과 확인" : "다시 시도"}</a><a class="btn secondary" href="${origin}/my/households">가계부 전환·추가</a><a class="btn secondary" href="${origin}/my/backup">백업·복구</a><a class="btn secondary" href="${origin}/start-guide">시작가이드</a></div></section></main></body></html>`;
 }
 
+// V22.9.122 F-1(출시 전 점검 2026-11-14): 로그인 확인을 잠깐 못 했을 때의 안내 화면(worker/router.js sessionUnavailableResponseV229122). DB 정보는 적지 않는다.
+function renderSessionUnavailableHtmlV229122(url, posted = false) {
+  const safePath = escapeHtml(`${url?.pathname || "/"}${url?.search || ""}`);
+  const retry = posted ? "/my" : safePath;
+  const note = posted ? "방금 보낸 내용은 저장되지 않았어요. 잠시 뒤 다시 시도해 주세요." : "잠시 뒤 아래 단추로 다시 열어 주세요.";
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex"/><title>말해가계부 · 잠시 뒤 다시</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:40px auto;padding:20px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:24px;box-shadow:0 18px 44px rgba(15,23,42,.08)}h1{margin-top:0;font-size:22px}.muted{color:#475569;line-height:1.6}.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.btn{display:inline-flex;align-items:center;justify-content:center;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:900}@media (prefers-color-scheme:dark){body{background:#0f172a;color:#f1f5f9}.card{background:#1e293b;border-color:#334155}.muted{color:#cbd5e1}.btn{background:#f1f5f9;color:#0f172a!important}}</style></head><body><main class="wrap"><section class="card"><h1>로그인 상태를 잠시 확인하지 못했어요</h1><p class="muted">로그아웃된 것은 아니에요. 저장소 응답이 잠깐 늦어지고 있어요. ${note}</p><div class="btns"><a class="btn" href="${retry}">다시 열기</a></div></section></main></body></html>`;
+}
+
 // V22.9.26: 라우터의 마지막 catch 가 브라우저 폼 제출을 구분하는 데 쓴다.
 // JSON 을 기대하는 경로(/api, /u/api, /skill)와 fetch() 호출은 그대로 JSON 을 받는다.
 function isJsonApiPath(pathname = "") {
@@ -16833,7 +16862,7 @@ async function handleReservePlanCreate(request, env) {
   try {
     await addReservePlan(env, householdId, {
       name: form.get("name"),
-      amount: parseAmountValue(form.get("amount") || "0"),
+      amount: parseSingleAmountFieldV229122(form.get("amount") || "0"),
       type: String(form.get("type") || "expense"),
       is_recurring: form.get("is_recurring") === "1",
       recurrence,
@@ -16875,7 +16904,7 @@ async function handleReservePlanUpdate(request, env) {
   try {
     await updateReservePlan(env, householdId, id, {
       name: form.get("name"),
-      amount: parseAmountValue(form.get("amount") || "0"),
+      amount: parseSingleAmountFieldV229122(form.get("amount") || "0"),
       type: String(form.get("type") || "expense"),
       is_recurring: form.get("is_recurring") === "1",
       recurrence,
@@ -27041,6 +27070,15 @@ function userSessionSecret(env) {
   return requiredSecret(env, "USER_SESSION_SECRET");
 }
 
+// V22.9.122 F-1(출시 전 점검 2026-11-14): 서명·만료가 맞는 세션 쿠키인데 DB 가 답하지 못해 세션 판·사용자 행을 확인하지 못한 요청에 표시를 남긴다.
+// 세션은 예전처럼 무효로 다룬다(확인 못 한 세션을 받아들이지 않는다). 표시는 worker/router.js 가 ‘로그인 화면으로 보내려던 화면 요청’을 ‘잠시 뒤 다시’ 안내로 바꿀 때만 쓴다.
+function markUserSessionUnavailableV229122(request, env) {
+  try {
+    if (request && typeof request === "object") AB_REQUEST_SESSION_UNAVAILABLE.add(request);
+    if (env && typeof env === "object") env.__AB_SESSION_UNAVAILABLE = true;
+  } catch (_) {}
+}
+
 async function getUserSessionVersion(env, userId = "") {
   const uid = String(userId || "").trim();
   if (!uid) return 0;
@@ -27052,6 +27090,7 @@ async function getUserSessionVersion(env, userId = "") {
     // unavailable revocation check as an invalid session instead of silently
     // accepting a version-1 token during a database or permission outage.
     rememberOpsEvent({ kind: "user_session_version_unavailable", severity: "error", path: "/rest/v1/accountbook_user_security", method: "GET", detail: safeError(err) });
+    markUserSessionUnavailableV229122(null, env);
     return 0;
   }
 }
@@ -27277,6 +27316,7 @@ async function verifyUserSession(request, env) {
     AB_REQUEST_USER_CACHE.delete(request);
     AB_REQUEST_RAW_USER_CACHE.set(request,Promise.resolve(""));
     rememberOpsEvent({kind:"user_session_snapshot_unavailable",severity:"error",path:"",method:"GET",detail:safeError(error)});
+    markUserSessionUnavailableV229122(request, env);
     return "";
   }
 }
@@ -35427,7 +35467,7 @@ async function handleMyRecurringSave(request, env) {
   const formProblem = recurringFormProblem(form);
   if (formProblem) return redirectResponse(mySettingsLocation(month, selected.id, { err: formProblem }));
   const memo = String(form.get("memo") || "").trim().slice(0, 120);
-  const amount = Math.max(0, Math.round(parseAmountValue(form.get("amount") || "0")));
+  const amount = Math.max(0, Math.round(parseSingleAmountFieldV229122(form.get("amount") || "0")));
   if (!memo || !amount || amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(mySettingsLocation(month, selected.id, { err: "recurring_missing" }));
   const ruleId = String(form.get("id") || "").trim();
   const type = normalizeTransactionType(String(form.get("type") || "expense"));
@@ -35554,7 +35594,7 @@ async function handleRecurringCandidateConfirm(request, env) {
   if (!canManageMyHousehold(selected.role)) return redirectResponse(`${returnTo}&err=manage_required`);
   if (String(form.get("confirmed") || "") !== "yes") return redirectResponse(`${returnTo}&err=confirmation_required`);
   const memo = String(form.get("memo") || "").trim().slice(0, 120);
-  const amount = Math.max(0, Math.min(2_000_000_000, Math.round(parseAmountValue(form.get("amount") || "0"))));
+  const amount = Math.max(0, Math.min(2_000_000_000, Math.round(parseSingleAmountFieldV229122(form.get("amount") || "0"))));
   if (!memo || !amount) return redirectResponse(`${returnTo}&err=recurring_missing`);
   const row = {
     household_id: selected.id,
@@ -53578,11 +53618,68 @@ function kakaoGuardShiftDateV229120(today, days) {
 // 판정 순서: 고치는 말 → 묻는 말 → 날짜 말 → 앞날 N일 → 계획·전해 들은 말(앞의 것이 더 분명한 신호다). 걸리지 않으면 null(예전처럼 저장).
 // 길이 상한(V22.9.120 후속 2): 이보다 긴 말은 판정하지 않고 null(예전처럼 저장) — 붙여 넣은 긴 글에 판정 시간을 쓰지 않도록 묶는다(판정은 길이에 비례).
 const KAKAO_GUARD_MAX_TEXT_V229120 = 1500;
+
+// V22.9.122 K-1 (출시 전 점검 2026-11-14): 카드·은행 알림 문자를 붙여 넣은 말에서 예전 길이 틀리게 저장하던 꼴 다섯 가지를 저장 직전에 막고 되묻는다.
+// 문자를 새로 읽지 않는다(승인 문자 한 통 읽기는 nlu/transaction-parser.js readCardApprovalSmsV229122). 여기 걸리지 않으면 예전처럼 저장한다.
+//   ① 결제·출금이 되지 않았다는 알림(승인거절·출금불능)이 지출로 저장됨   ② 카드 끝 번호(‘하나 1357 승인’)·승인번호가 금액으로 한 건 더 저장됨
+//   ③ 취소 문자(‘신한카드(1234)취소’·‘체크취소’·‘부분취소’)가 지출로 저장됨   ④ 문자에 날짜가 하나 적혀 있는데 다른 날(오늘)로 저장됨
+//   ⑤ 받은 돈 알림(‘○○님이 25,000원을 보냈어요’)이 지출로 저장됨
+const KAKAO_NOTICE_FAILED_V229122 = /승인\s*거절|출금\s*불능|이체\s*불능|결제\s*실패|승인\s*실패/;
+const KAKAO_NOTICE_CANCEL_V229122 = /(?:(?:카드|체크)\s*[\])】]?\s*[(\[]?[\d*]{0,4}[)\]]?|출금|부분)\s*취소\s*(?=-?\d|[가-힣]\*|$)/m;
+const KAKAO_NOTICE_RECEIVED_V229122 = /님이\s*[\d,]+\s*원을?\s*보냈/;
+const KAKAO_NOTICE_SMSISH_V229122 = /[\[(【]\s*web\s*발신\s*[\])】]|(?:누적|잔액|잔고)\s*:?\s*[\d,]+|(?:승인|출금|입금)[^\n]{0,40}\d{1,2}:\d{2}|\d{1,2}:\d{2}[^\n]{0,40}(?:승인|출금|입금)/i;
+const KAKAO_NOTICE_TYPE_WORD_V229122 = /(?:^|\s)(?:수입|지출)(?=\s|$)/;
+const KAKAO_CANCEL_NOTICE_TEXT_V229122 = "결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.";
+function kakaoCardSmsExampleV229122(date, amount, today) {
+  const ymd = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? String(date) : String(today);
+  const year = ymd.slice(0, 4) === String(today).slice(0, 4) ? "" : Number(ymd.slice(0, 4)) + "년 ";
+  return year + Number(ymd.slice(5, 7)) + "월 " + Number(ymd.slice(8, 10)) + "일 이마트 " + (Number(amount) > 0 ? Math.round(Number(amount)) : 42000) + "원";
+}
+function kakaoCardSmsUnreadableTextV229122(blocked = {}, today = formatDate(nowKstDate())) {
+  return "카드 승인 문자로 보이는데 금액·날짜를 정확히 읽지 못해서 저장하지 않았어요.\n문자에서 날짜·쓴 곳·금액만 골라 이렇게 보내 주세요.\n" + kakaoCardSmsExampleV229122(blocked.date, blocked.amount, today);
+}
+function kakaoGuardNoticeV229122(text, rows, today) {
+  const replies = [["오늘기록", "오늘기록"]];
+  if (KAKAO_NOTICE_FAILED_V229122.test(text)) {
+    return { kind: "notice_failed", text: "결제나 출금이 되지 않았다는 알림으로 보여서 기록하지 않았어요.\n실제로 쓴 돈이면 ‘커피 4500원’처럼 보내 주세요.", quickReplies: replies };
+  }
+  const digits = new Set();
+  for (const match of text.matchAll(/승인\s*번호\s*:?\s*(\d{4,12})/g)) digits.add(Number(match[1]));
+  if (rows.length > 1) for (const match of text.matchAll(/[(\[]?(\d{4})[)\]]?\s*승인(?!\s*번호)/g)) digits.add(Number(match[1]));
+  const wrongDigit = rows.find((row) => digits.has(Number(row.amount)));
+  if (wrongDigit) {
+    const real = rows.find((row) => !digits.has(Number(row.amount)));
+    return { kind: "notice_digits", text: "카드 끝 번호나 승인번호가 금액으로 읽혀서 저장하지 않았어요.\n문자에서 날짜·쓴 곳·금액만 골라 이렇게 보내 주세요.\n" + kakaoCardSmsExampleV229122(real?.transaction_date, real?.amount, today), quickReplies: replies };
+  }
+  const spends = rows.some((row) => row.type === "expense");
+  if (spends && !KAKAO_NOTICE_TYPE_WORD_V229122.test(text)) {
+    if (KAKAO_NOTICE_CANCEL_V229122.test(text)) return { kind: "notice_cancel", text: KAKAO_CANCEL_NOTICE_TEXT_V229122, quickReplies: replies };
+    if (KAKAO_NOTICE_RECEIVED_V229122.test(text)) {
+      return { kind: "notice_received", text: "받은 돈 알림으로 보이는데 쓴 돈으로 읽혀서 저장하지 않았어요.\n받은 돈이면 ‘수입 정산 25000원’처럼 앞에 ‘수입’을 붙여 보내 주세요.", quickReplies: replies };
+    }
+  }
+  if (KAKAO_NOTICE_SMSISH_V229122.test(text)) {
+    const dates = cardSmsDatesV229122(text, today);
+    if (dates.length === 1 && dates[0] && rows.some((row) => String(row.transaction_date || "") !== dates[0])) {
+      const row = rows.find((item) => String(item.transaction_date || "") !== dates[0]) || rows[0];
+      const day = Number(dates[0].slice(5, 7)) + "월 " + Number(dates[0].slice(8, 10)) + "일";
+      // 들어온 돈 문자(입금)는 쓴 곳 예시가 맞지 않는다 — ‘수입’ 을 붙인 예시를 보인다.
+      const example = rows.length === 1 && row.type === "income"
+        ? "문자에서 날짜·금액만 골라 이렇게 보내 주세요.\n" + day + " 수입 " + Math.round(Number(row.amount)) + "원"
+        : "문자에서 날짜·쓴 곳·금액만 골라 이렇게 보내 주세요.\n" + kakaoCardSmsExampleV229122(dates[0], rows.length === 1 ? row.amount : 0, today);
+      return { kind: "notice_date", text: "문자에 적힌 날짜(" + day + ")와 다른 날로 읽혀서 저장하지 않았어요.\n" + example, quickReplies: replies };
+    }
+  }
+  return null;
+}
+
 function kakaoRecordGuardV229120(utterance, parsedList, today = formatDate(nowKstDate())) {
   const rows = Array.isArray(parsedList) ? parsedList : [];
   if (!rows.length) return null;
   const text = String(utterance || "");
   if (text.length > KAKAO_GUARD_MAX_TEXT_V229120) return null;
+  const notice = kakaoGuardNoticeV229122(text.replace(/\r/g, ""), rows, today);
+  if (notice) return notice;
   if (kakaoGuardEditLikeV229120(text, rows)) return { kind: "edit", text: KAKAO_CHANGE_REQUEST_TEXT_V229120, quickReplies: [["오늘기록", "오늘기록"]] };
   const notRecord = kakaoGuardNotRecordV229120(text, rows, today);
   const browse = [["오늘기록", "오늘기록"], ["이번달요약", "이번달요약"]];
@@ -55424,6 +55521,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   const editLikeUtterance = !separatePurchaseCommand && looksLikeKakaoEditCommandV4(commandText);
   // V22.9.90: 관제 기능 순위용 이름(부른 쪽은 메뉴 낱말 판별이 UNKNOWN 일 때만 쓴다). 기록으로 읽힌 글은 TRANSACTION, 고치기 명령 꼴은 EDIT.
   if (usage) usage.intent = editLikeUtterance || looksLikeKakaoChangeRequest(commandText) ? "EDIT" : separatePurchaseCommand || preParsedList.length ? "TRANSACTION" : "";
+  // V22.9.122 K-1: 카드 승인 문자 한 통인데 깨끗이 읽지 못했고 예전 길의 결과도 문자의 금액·날짜와 달라 저장하지 않은 말(nlu/transaction-parser.js).
+  if (!separatePurchaseCommand && !editLikeUtterance && preParsedList.blocked?.message === "card_sms_unreadable") return kakaoText(kakaoCardSmsUnreadableTextV229122(preParsedList.blocked), [["오늘기록", "오늘기록"]]);
   if (!separatePurchaseCommand && !editLikeUtterance && (preParsedList.blocked?.message === "transaction_type_confirmation_required" || (!preParsedList.length && parseTransaction(utterance,payload).message === "transaction_type_confirmation_required"))) {
     if (preParsedList.blocked?.reason === "mixed_cues") return kakaoMixedTypeConfirmationReply(utterance);
     return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");
@@ -57120,7 +57219,9 @@ async function handleUserFavorites(request, env, url) {
     return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
   }
   const method = request.method;
-  const body = method === "POST" ? await readJson(request) : {};
+  // V22.9.122 INJ-2(출시 전 점검 2026-11-14): 본문이 JSON null·배열·글자면 body.household 에서 예외가 나 500 이었다. 객체가 아니면 빈 객체로 보고 400(가계부 필요)으로 답한다.
+  const posted = method === "POST" ? await readJson(request) : {};
+  const body = posted && typeof posted === "object" && !Array.isArray(posted) ? posted : {};
   const requested = String((method === "POST" ? body.household : url.searchParams.get("household")) || url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
   if (method === "POST" && !requested) return jsonResponse(HOUSEHOLD_REQUIRED, 400);
   const household = selectRequestedScopedHousehold(scope.households, requested);
@@ -57280,7 +57381,9 @@ async function handleUserGoals(request, env, url) {
     return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
   }
   const method = request.method;
-  const body = method === "POST" ? await readJson(request) : {};
+  // V22.9.122 INJ-2(출시 전 점검 2026-11-14): 본문이 JSON null·배열·글자면 body.household 에서 예외가 나 500 이었다. 객체가 아니면 빈 객체로 보고 400(가계부 필요)으로 답한다.
+  const posted = method === "POST" ? await readJson(request) : {};
+  const body = posted && typeof posted === "object" && !Array.isArray(posted) ? posted : {};
   const requested = String((method === "POST" ? body.household : url.searchParams.get("household")) || url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
   if (method === "POST" && !requested) return jsonResponse(HOUSEHOLD_REQUIRED, 400);
   const household = selectRequestedScopedHousehold(scope.households, requested);
@@ -60212,7 +60315,111 @@ function stripCardDigitsV22994(text = "") {
   }).join("");
 }
 
+// V22.9.122 K-1 (출시 전 점검 2026-11-14): 카드 승인 알림 문자 한 통을 붙여 넣은 말.
+// 예전에는 여러 줄 문자를 줄마다 따로 읽어서 카드 끝 번호가 한 건 더 저장되고(‘삼성카드 4321 승인’ → 4,321원), 날짜 줄(‘11/09 22:41’)이 버려져 오늘로 저장되고,
+// 메모가 ‘일시불’ 이 됐다. 금액·날짜 읽기를 규칙으로 넓히지 않는다는 원칙대로 좁게만 본다: ‘승인’ 이 한 번이고, ‘원’ 붙은 결제 금액이 정확히 하나(누적·잔액·한도
+// 금액은 뺀다)이고, 날짜가 많아야 하나인 원화 승인 문자에서만 금액·날짜를 문자의 사실로 삼는다. 취소·거절·해외·할인·포인트·승인번호가 있으면 보지 않는다(예전 길).
+// 사실이 서면 ① 남은 글에서 쓴 곳 하나를 깨끗이 가릴 수 있을 때 ‘M월 D일 쓴곳 금액원’ 한 문장으로 바꿔 기존 한 건 파서에 넣고, 읽힌 금액·날짜·지출이 문자와
+// 정확히 같으면 그 한 건을 쓴다. ② 아니면 예전 길의 결과가 문자의 사실(한 건·같은 금액·같은 날·지출)과 같을 때만 예전 결과를 쓴다. ③ 둘 다 아니면 저장하지 않고
+// 되묻는다(blocked card_sms_unreadable). 그래서 이 길이 예전보다 틀리게 저장하는 일은 없다.
+const AB_SMS_TAG_V229122 = /[\[(【]\s*web\s*발신\s*[\])】]/gi;
+const AB_SMS_COMPLEX_V229122 = /취소|거절|불능|실패|해외|환불|부분|실결제|할인|포인트|쿠폰|수수료|적립|캐시백|USD|JPY|EUR|CNY|GBP|[$€¥£]|달러|엔화|유로|위안/i;
+const AB_SMS_MARK_V229122 = /[\[(【]\s*web\s*발신\s*[\])】]|(?:누적|잔액|잔여\s*한도)\s*:?\s*[\d,]+|일시불|\d{1,2}\s*개월|[가-힣]\*+[가-힣]*|\d{1,2}:\d{2}/i;
+const AB_SMS_NOTE_RISK_V229122 = /\d|취소|환불|반품|아니|말고|빼고|나눠|나눔|나누|반반|반띵|반은|절반|각자|정산|더치|엔빵|n빵/i;
+const AB_SMS_ISSUER_V229122 = /(신한|현대|삼성|국민|우리|롯데|하나|농협|BC|비씨|카카오뱅크|토스뱅크)/i;
+const AB_SMS_DATE_V229122 = /(?<![\d.\/-])(20\d{2})[.\/-](\d{1,2})[.\/-](\d{1,2})(?![\d\/-])|(?<![\d.\/-])(\d{1,2})\/(\d{1,2})(?![\d\/])|(?<!\d)(\d{1,2})월\s*(\d{1,2})일/g;
+
+function cardSmsDateV229122(year, month, day, today) {
+  const todayYear = Number(String(today).slice(0, 4));
+  const build = (y) => {
+    const at = new Date(Date.UTC(y, month - 1, day));
+    if (at.getUTCFullYear() !== y || at.getUTCMonth() !== month - 1 || at.getUTCDate() !== day) return "";
+    return String(y).padStart(4, "0") + "-" + String(month).padStart(2, "0") + "-" + String(day).padStart(2, "0");
+  };
+  if (year) { const fixed = build(year); return fixed && fixed <= today ? fixed : ""; }
+  const thisYear = build(todayYear);
+  if (thisYear && thisYear <= today) return thisYear;
+  return build(todayYear - 1); // 해 없는 M/D 가 앞날이면 지난해 결제다(12/30 문자를 1월에 붙임)
+}
+
+// 글에 적힌 날짜(M/D·YYYY.M.D·M월 D일)를 문자 규칙(앞날이면 지난해)으로 푼 값의 목록. 달력에 없는 날은 "" 다. 저장 직전 안전망(kakao/request-guards.js)이 쓴다.
+function cardSmsDatesV229122(text, today = formatDate(nowKstDate())) {
+  const out = [];
+  String(text || "").replace(AB_SMS_DATE_V229122, (_, y, m1, d1, m2, d2, m3, d3) => { out.push(cardSmsDateV229122(y ? Number(y) : 0, Number(m1 || m2 || m3), Number(d1 || d2 || d3), today)); return " "; });
+  return [...new Set(out)];
+}
+
+function readCardApprovalSmsV229122(text, today = formatDate(nowKstDate())) {
+  const src = String(text || "").replace(/\r/g, "");
+  if (src.length > 600 || src.split("승인").length !== 2 || /승인\s*번호/.test(src)) return null;
+  if (AB_SMS_COMPLEX_V229122.test(src) || !AB_SMS_MARK_V229122.test(src)) return null;
+  let amount = 0, amountCount = 0, card = "", approveLine = -1;
+  const dates = [];
+  const chunks = [];
+  const lines = src.split("\n");
+  for (let index = 0; index < lines.length; index += 1) {
+    let line = lines[index].replace(AB_SMS_TAG_V229122, " ");
+    const at = line.indexOf("승인");
+    if (at >= 0) {
+      approveLine = index;
+      // 승인 앞은 카드 이름과 끝 번호다(‘신한카드(5678)’·‘삼성1234’·‘하나카드(8*2*)’·‘현대카드 M’). 그 앞에 사람이 쓴 말이 붙어 있으면 덧말로 남긴다.
+      const headMatch = line.slice(0, at).match(/(?:^|[\s\[\](【】])([가-힣A-Za-z]{1,10}(?:\s?[A-Za-z])?\s*[(\[]?[\d*]{0,4}[)\]]?\s*)$/);
+      const headText = headMatch ? headMatch[1] : "";
+      card = headText.replace(/[\[\]()【】\d*]/g, " ").replace(/\s+/g, " ").trim();
+      line = line.slice(0, at - headText.length).replace(/[\[\](【】]\s*$/, " ") + " " + line.slice(at + 2).replace(/^\s*[\])】]/, " ");
+    }
+    line = line.replace(/(?:누적|잔액|잔고|잔여\s*한도|한도)\s*:?\s*[\d,]+\s*원?/g, " ");
+    line = line.replace(/(?<![\d,.])(\d{1,3}(?:,\d{3})+|\d{2,9})\s*원\s*(?:[(\[]?\s*(?:일시불|체크|\d{1,2}\s*개월|할부)\s*[)\]]?)?/g, (_, digits) => { amountCount += 1; amount = Number(digits.replace(/,/g, "")); return " "; });
+    let dated = false;
+    line = line.replace(AB_SMS_DATE_V229122, (_, y, m1, d1, m2, d2, m3, d3) => {
+      dates.push(cardSmsDateV229122(y ? Number(y) : 0, Number(m1 || m2 || m3), Number(d1 || d2 || d3), today));
+      dated = true;
+      return " ";
+    });
+    line = line.replace(/(?<!\d)\d{1,2}:\d{2}(?::\d{2})?(?!\d)/g, " ").replace(/[가-힣]\*+[가-힣]*\s*님?/g, " ");
+    const chunk = line.replace(/\s+/g, " ").replace(/^[\s·|,.:;~\-]+|[\s·|,.:;~\-]+$/g, "");
+    if (/[가-힣A-Za-z0-9]/.test(chunk)) chunks.push({ text: chunk, index, dated });
+  }
+  if (amountCount !== 1 || !(amount > 0)) return null;
+  // 날짜가 정확히 하나 적힌 문자만 읽는다. 날짜 없는 문자는 덧말의 날짜 말(‘어제 받은 문자임’)이 날짜일 수 있어 예전 길에 맡긴다.
+  const distinct = [...new Set(dates)];
+  if (distinct.length !== 1 || distinct[0] === "") return null;
+  const date = distinct[0];
+  const facts = { amount, date };
+  // 쓴 곳은 문자 본문(승인 줄부터 뒤)에 남은 덩이에서만 고른다: 하나면 그것, 여럿이면 날짜 줄에 남은 글이나 날짜 바로 다음 줄. 승인 줄 앞의 줄과
+  // 고르고 남은 덩이는 사람이 붙인 덧말이다 — 숫자·정산 말이 없을 때만 버리고, 있으면 깨끗이 읽은 것이 아니다(예전 길의 결과가 문자와 같을 때만 저장).
+  const dateLine = lines.findIndex((line, index) => index >= approveLine && new RegExp(AB_SMS_DATE_V229122.source).test(line));
+  const body = chunks.filter((item) => item.index >= approveLine);
+  let merchant = null;
+  if (body.length === 1) merchant = body[0];
+  else if (body.length > 1) merchant = body.find((item) => item.dated) || body.find((item) => dateLine >= 0 && item.index === dateLine + 1) || null;
+  const rest = chunks.filter((item) => item !== merchant);
+  if ((body.length && !merchant) || rest.some((item) => AB_SMS_NOTE_RISK_V229122.test(item.text)) || (merchant && merchant.text.length > 40)) return facts;
+  const issuer = (card.match(AB_SMS_ISSUER_V229122) || [])[1] || "";
+  const dateText = (date.slice(0, 4) === String(today).slice(0, 4) ? "" : Number(date.slice(0, 4)) + "년 ") + Number(date.slice(5, 7)) + "월 " + Number(date.slice(8, 10)) + "일";
+  const names = merchant ? [merchant.text, merchant.text.replace(/\d+/g, " ").replace(/\s+/g, " ").trim()].filter((name, i, all) => name && all.indexOf(name) === i) : ["카드결제"];
+  for (const name of names) {
+    for (const tail of issuer ? [" " + issuer.replace(/뱅크$/, "") + "카드", ""] : [""]) {
+      const one = parseTransaction(dateText + " " + name + " " + amount + "원" + tail, {}, false);
+      if (one.ok && !one.type_confirmation && one.type === "expense" && one.amount === amount && one.transaction_date === date) return { ...facts, row: one };
+    }
+  }
+  return facts;
+}
+
 function parseMultipleTransactions(text, payload) {
+  const sms = readCardApprovalSmsV229122(stripCardDigitsV22994(foldInputWidth(text)));
+  if (sms?.row) return [{ ...sms.row, raw_text: text }];
+  const rows = parseMultipleTransactionsPlainV229122(text, payload);
+  if (sms && !(rows.length === 1 && rows[0].type === "expense" && rows[0].amount === sms.amount && rows[0].transaction_date === sms.date)) {
+    const out = [];
+    out.blocked = { message: "card_sms_unreadable", amount: sms.amount, date: sms.date };
+    return out;
+  }
+  return rows;
+}
+
+function parseMultipleTransactionsPlainV229122(text, payload) {
   // V22.9.79 A-16: 전각 숫자(“커피 ４５００”)는 입구에서 반각으로 바꿔 날짜·금액·메모가 모두 같은 글자를 읽게 한다. 저장하는 원문은 받은 그대로다.
   const original = text;
   text = stripCardDigitsV22994(foldInputWidth(text));
@@ -60568,6 +60775,19 @@ function parseAmountValue(value) {
   // V22.9.93 Q-21: 값 하나만 받는 칸(예산 대화·정기 폼)도 거래 문장과 같은 입구를 지난다. 안 그러면 ‘12.000’ 이 12원이다.
   const found = extractAmount(foldInputWidth(String(value)));
   return found ? found.amount : 0;
+}
+
+// V22.9.122 INJ-1(출시 전 점검 2026-11-14): 금액 하나만 받는 웹 폼 칸(정기 규칙·정기 수입·지출). parseAmountValue 는 글에서 처음 읽힌 금액 덩이만 쓰므로
+// 휴대폰에서 띄어 쓴 ‘1 000’·‘12 000원’ 이 1원·12원으로 저장되고 ‘저장했어요’ 로 끝났다(그 규칙이 매달 1원씩 자동 기록된다). 금액 덩이가 정확히 하나이고
+// 그 덩이 밖에 숫자가 남지 않을 때만 값으로 받는다. 아니면 0(틀린 값)이라 부르는 곳의 ‘금액을 입력하세요’ 안내로 돌아간다. ‘3만’·‘5,000원’·‘월 30만원’ 은 그대로다.
+function parseSingleAmountFieldV229122(value) {
+  if (typeof value === "number") return parseAmountValue(value);
+  const text = normalizeText(foldInputWidth(String(value ?? "")));
+  const tokens = moneyTokenSpans(text);
+  if (tokens.length !== 1) return 0;
+  const at = text.indexOf(tokens[0].raw);
+  const rest = at < 0 ? text : text.slice(0, at) + text.slice(at + tokens[0].raw.length);
+  return /\d/.test(rest) ? 0 : tokens[0].amount;
 }
 
 function extractAmount(text) { const found = moneyTokenSpans(normalizeText(text))[0]; return found ? { amount: found.amount, raw: found.raw } : null; }

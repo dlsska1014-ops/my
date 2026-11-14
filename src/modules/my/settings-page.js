@@ -44,7 +44,7 @@ import { addMonthsYm } from "../domain/analytics.js";
 import { formatMessage } from "../kakao/reply-texts.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { supabase } from "../data/supabase-client.js";
-import { normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
+import { normalizeText, parseSingleAmountFieldV229122 } from "../nlu/amount-parser.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml, nextMonthStart, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -192,7 +192,7 @@ async function handleMyRecurringSave(request, env) {
   const formProblem = recurringFormProblem(form);
   if (formProblem) return redirectResponse(mySettingsLocation(month, selected.id, { err: formProblem }));
   const memo = String(form.get("memo") || "").trim().slice(0, 120);
-  const amount = Math.max(0, Math.round(parseAmountValue(form.get("amount") || "0")));
+  const amount = Math.max(0, Math.round(parseSingleAmountFieldV229122(form.get("amount") || "0")));
   if (!memo || !amount || amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(mySettingsLocation(month, selected.id, { err: "recurring_missing" }));
   const ruleId = String(form.get("id") || "").trim();
   const type = normalizeTransactionType(String(form.get("type") || "expense"));
@@ -319,7 +319,7 @@ async function handleRecurringCandidateConfirm(request, env) {
   if (!canManageMyHousehold(selected.role)) return redirectResponse(`${returnTo}&err=manage_required`);
   if (String(form.get("confirmed") || "") !== "yes") return redirectResponse(`${returnTo}&err=confirmation_required`);
   const memo = String(form.get("memo") || "").trim().slice(0, 120);
-  const amount = Math.max(0, Math.min(2_000_000_000, Math.round(parseAmountValue(form.get("amount") || "0"))));
+  const amount = Math.max(0, Math.min(2_000_000_000, Math.round(parseSingleAmountFieldV229122(form.get("amount") || "0"))));
   if (!memo || !amount) return redirectResponse(`${returnTo}&err=recurring_missing`);
   const row = {
     household_id: selected.id,

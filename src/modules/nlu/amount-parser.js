@@ -65,6 +65,19 @@ function parseAmountValue(value) {
   return found ? found.amount : 0;
 }
 
+// V22.9.122 INJ-1(출시 전 점검 2026-11-14): 금액 하나만 받는 웹 폼 칸(정기 규칙·정기 수입·지출). parseAmountValue 는 글에서 처음 읽힌 금액 덩이만 쓰므로
+// 휴대폰에서 띄어 쓴 ‘1 000’·‘12 000원’ 이 1원·12원으로 저장되고 ‘저장했어요’ 로 끝났다(그 규칙이 매달 1원씩 자동 기록된다). 금액 덩이가 정확히 하나이고
+// 그 덩이 밖에 숫자가 남지 않을 때만 값으로 받는다. 아니면 0(틀린 값)이라 부르는 곳의 ‘금액을 입력하세요’ 안내로 돌아간다. ‘3만’·‘5,000원’·‘월 30만원’ 은 그대로다.
+function parseSingleAmountFieldV229122(value) {
+  if (typeof value === "number") return parseAmountValue(value);
+  const text = normalizeText(foldInputWidth(String(value ?? "")));
+  const tokens = moneyTokenSpans(text);
+  if (tokens.length !== 1) return 0;
+  const at = text.indexOf(tokens[0].raw);
+  const rest = at < 0 ? text : text.slice(0, at) + text.slice(at + tokens[0].raw.length);
+  return /\d/.test(rest) ? 0 : tokens[0].amount;
+}
+
 function extractAmount(text) { const found = moneyTokenSpans(normalizeText(text))[0]; return found ? { amount: found.amount, raw: found.raw } : null; }
 
 // V22.9.80 T-19: 부르는 곳이 없던 옛 금액 후보 함수(collectCombinedNumericUnitCandidates·parseMixedNumericAmount·collectSimpleUnitCandidates·
@@ -132,6 +145,6 @@ function koreanSimpleNumber(s, digit) {
 // @build:exports-start
 export {
   detectType, detectTypeDetail, extractAmount, normalizeText, normalizeType, parseAmountValue,
-  withNormalizeTextScope,
+  parseSingleAmountFieldV229122, withNormalizeTextScope,
 };
 // @build:exports-end

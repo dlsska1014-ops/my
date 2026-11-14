@@ -1,4 +1,5 @@
 // @build:imports-start
+import { AB_REQUEST_SESSION_UNAVAILABLE } from "../runtime/global-state.js";
 import {
   boundedRuntimeNumber, checkTrafficGuard, cleanupNluOpsRetention, csrfOriginAllowed,
   csrfRejectedResponse, csrfSignalSummary, rememberOpsEvent, trafficLimitedResponse,
@@ -25,7 +26,8 @@ import { logWorkerError, safeError } from "../runtime/leases.js";
 import {
   browserFormRequestFailed, constantTimeTextEqual, emergencyReturnUrl, headOnlyResponse,
   htmlResponse, isExplicitAdminUrl, isJsonApiPath, isMobileRequest, jsonResponse, mobileAppLocation,
-  redirectPublicAwayFromAdmin, redirectResponse, renderEmergencyErrorHtml, safeHtmlRoute,
+  redirectPublicAwayFromAdmin, redirectResponse, renderEmergencyErrorHtml,
+  renderSessionUnavailableHtmlV229122, safeHtmlRoute,
 } from "../runtime/http.js";
 import {
   kakaoSkillAuthSnapshot, skillLatencySnapshot, verifyAdminSession,
@@ -314,6 +316,25 @@ function dbCallBudgetBaseV229119(budget) {
   return budget === DB_CALL_BUDGET_DEFAULT_V229119 ? {} : { __AB_DB_BUDGET_BASE_V229119: budget };
 }
 
+// V22.9.122 F-1(출시 전 점검 2026-11-14): 서명·만료가 맞는 세션 쿠키인데 DB 가 잠깐 답하지 못해 로그인 확인을 못 하면, 예전에는 로그인하지 않은 사람처럼 /my 로
+// 보내 로그인 화면이 떴다 — 로그아웃된 것처럼 보인다(쿠키는 그대로라 조금 뒤 다시 열면 돌아온다). 세션은 여전히 받아들이지 않되, 화면 요청(HTML 을 바라는
+// GET·폼 POST)이 로그인 화면으로 가려던 때만 ‘잠시 뒤 다시’ 안내(503)로 바꾼다. 공개 화면·JSON API·다른 곳으로 가는 응답(카카오 자동 로그인 등)은 그대로다.
+function sessionUnavailableResponseV229122(request, env, response) {
+  try {
+    if (!(AB_REQUEST_SESSION_UNAVAILABLE.has(request) || env?.__AB_SESSION_UNAVAILABLE === true)) return response;
+    if (!["GET", "POST"].includes(request.method) || !/text\/html/i.test(String(request.headers.get("accept") || ""))) return response;
+    const url = new URL(request.url);
+    if (isJsonApiPath(url.pathname) || url.pathname === "/skill") return response;
+    const location = String(response.headers.get("location") || "");
+    const toLogin = response.status >= 300 && response.status < 400 && /^(?:https?:\/\/[^/]+)?\/my(?:[?#]|$)/.test(location);
+    const loginScreen = request.method === "GET" && url.pathname === "/my" && response.status === 200;
+    if (!toLogin && !loginScreen) return response;
+    return htmlResponse(renderSessionUnavailableHtmlV229122(url, request.method === "POST"), 503, { "retry-after": "10", "cache-control": "no-store" });
+  } catch (_) {
+    return response;
+  }
+}
+
 const ACCOUNTBOOK_WORKER = {
   async fetch(request, env, ctx) {
     scrubPrototypePollution("fetch:start");
@@ -327,7 +348,7 @@ const ACCOUNTBOOK_WORKER = {
       // V22.9.102 가계부 기본 설정 띠: 홈이 적은 쿠키(ab_setup)만 보고 주요 화면에 붙인다(DB 읽기 없음). my/setup-page.js 참고.
       // V22.9.121 후원자 포인트 색: 홈·전체 메뉴·참여자가 적은 쿠키(ab_sp)만 보고 다른 셸 화면에도 붙인다(DB 읽기 없음, 쿠키가 없으면 응답 그대로).
       // my/supporter-accent.js 참고.
-      const response = await supporterAccentResponseV229121(routed.request, env, await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx))));
+      const response = sessionUnavailableResponseV229122(routed.request, requestEnv, await supporterAccentResponseV229121(routed.request, env, await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx)))));
       abMonitorCompleted(requestEnv, ctx, response);
       return withRememberedHouseholdCookie(routed, response);
     } catch (error) {

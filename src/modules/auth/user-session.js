@@ -1,7 +1,7 @@
 // @build:imports-start
 import {
-  AB_EFFECTIVE_USER_CACHE, AB_REQUEST_RAW_USER_CACHE, AB_REQUEST_USER_CACHE, kakaoClientSecret,
-  kakaoRestApiKey,
+  AB_EFFECTIVE_USER_CACHE, AB_REQUEST_RAW_USER_CACHE, AB_REQUEST_SESSION_UNAVAILABLE,
+  AB_REQUEST_USER_CACHE, kakaoClientSecret, kakaoRestApiKey,
 } from "../runtime/global-state.js";
 import { pruneExpiringMap, rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { envFlagEnabled, normalizeBaseUrl } from "../public/site-config.js";
@@ -19,6 +19,15 @@ function userSessionSecret(env) {
   return requiredSecret(env, "USER_SESSION_SECRET");
 }
 
+// V22.9.122 F-1(출시 전 점검 2026-11-14): 서명·만료가 맞는 세션 쿠키인데 DB 가 답하지 못해 세션 판·사용자 행을 확인하지 못한 요청에 표시를 남긴다.
+// 세션은 예전처럼 무효로 다룬다(확인 못 한 세션을 받아들이지 않는다). 표시는 worker/router.js 가 ‘로그인 화면으로 보내려던 화면 요청’을 ‘잠시 뒤 다시’ 안내로 바꿀 때만 쓴다.
+function markUserSessionUnavailableV229122(request, env) {
+  try {
+    if (request && typeof request === "object") AB_REQUEST_SESSION_UNAVAILABLE.add(request);
+    if (env && typeof env === "object") env.__AB_SESSION_UNAVAILABLE = true;
+  } catch (_) {}
+}
+
 async function getUserSessionVersion(env, userId = "") {
   const uid = String(userId || "").trim();
   if (!uid) return 0;
@@ -30,6 +39,7 @@ async function getUserSessionVersion(env, userId = "") {
     // unavailable revocation check as an invalid session instead of silently
     // accepting a version-1 token during a database or permission outage.
     rememberOpsEvent({ kind: "user_session_version_unavailable", severity: "error", path: "/rest/v1/accountbook_user_security", method: "GET", detail: safeError(err) });
+    markUserSessionUnavailableV229122(null, env);
     return 0;
   }
 }
@@ -255,6 +265,7 @@ async function verifyUserSession(request, env) {
     AB_REQUEST_USER_CACHE.delete(request);
     AB_REQUEST_RAW_USER_CACHE.set(request,Promise.resolve(""));
     rememberOpsEvent({kind:"user_session_snapshot_unavailable",severity:"error",path:"",method:"GET",detail:safeError(error)});
+    markUserSessionUnavailableV229122(request, env);
     return "";
   }
 }

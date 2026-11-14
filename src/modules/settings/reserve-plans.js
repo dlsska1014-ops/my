@@ -29,7 +29,7 @@ import { DEFAULT_CATEGORIES, DEFAULT_PAYMENTS } from "../admin/dashboard-fragmen
 import { formatMessage, mergedOptions } from "../kakao/reply-texts.js";
 import { readHouseholdRoleOrFailure } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
-import { normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
+import { normalizeText, parseSingleAmountFieldV229122 } from "../nlu/amount-parser.js";
 import { currentMonthKst, formatDate, nowKstDate, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -502,7 +502,7 @@ async function handleReservePlanCreate(request, env) {
   try {
     await addReservePlan(env, householdId, {
       name: form.get("name"),
-      amount: parseAmountValue(form.get("amount") || "0"),
+      amount: parseSingleAmountFieldV229122(form.get("amount") || "0"),
       type: String(form.get("type") || "expense"),
       is_recurring: form.get("is_recurring") === "1",
       recurrence,
@@ -544,7 +544,7 @@ async function handleReservePlanUpdate(request, env) {
   try {
     await updateReservePlan(env, householdId, id, {
       name: form.get("name"),
-      amount: parseAmountValue(form.get("amount") || "0"),
+      amount: parseSingleAmountFieldV229122(form.get("amount") || "0"),
       type: String(form.get("type") || "expense"),
       is_recurring: form.get("is_recurring") === "1",
       recurrence,

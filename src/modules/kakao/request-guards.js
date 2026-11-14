@@ -32,7 +32,9 @@ import {
   isInputExampleCommand, isInviteCommand, isLinkCommand, isRecentCommand, isSettlementCommand,
   isSummaryCommand, isUndoCommand, parseGroupBindCommand,
 } from "./simple-commands.js";
-import { extractLeadingDateHint, parseMultipleTransactions } from "../nlu/transaction-parser.js";
+import {
+  cardSmsDatesV229122, extractLeadingDateHint, parseMultipleTransactions,
+} from "../nlu/transaction-parser.js";
 import { detectType, extractAmount, normalizeText } from "../nlu/amount-parser.js";
 import { formatDate, nowKstDate } from "../nlu/date-payment.js";
 // @build:imports-end
@@ -742,11 +744,68 @@ function kakaoGuardShiftDateV229120(today, days) {
 // 판정 순서: 고치는 말 → 묻는 말 → 날짜 말 → 앞날 N일 → 계획·전해 들은 말(앞의 것이 더 분명한 신호다). 걸리지 않으면 null(예전처럼 저장).
 // 길이 상한(V22.9.120 후속 2): 이보다 긴 말은 판정하지 않고 null(예전처럼 저장) — 붙여 넣은 긴 글에 판정 시간을 쓰지 않도록 묶는다(판정은 길이에 비례).
 const KAKAO_GUARD_MAX_TEXT_V229120 = 1500;
+
+// V22.9.122 K-1 (출시 전 점검 2026-11-14): 카드·은행 알림 문자를 붙여 넣은 말에서 예전 길이 틀리게 저장하던 꼴 다섯 가지를 저장 직전에 막고 되묻는다.
+// 문자를 새로 읽지 않는다(승인 문자 한 통 읽기는 nlu/transaction-parser.js readCardApprovalSmsV229122). 여기 걸리지 않으면 예전처럼 저장한다.
+//   ① 결제·출금이 되지 않았다는 알림(승인거절·출금불능)이 지출로 저장됨   ② 카드 끝 번호(‘하나 1357 승인’)·승인번호가 금액으로 한 건 더 저장됨
+//   ③ 취소 문자(‘신한카드(1234)취소’·‘체크취소’·‘부분취소’)가 지출로 저장됨   ④ 문자에 날짜가 하나 적혀 있는데 다른 날(오늘)로 저장됨
+//   ⑤ 받은 돈 알림(‘○○님이 25,000원을 보냈어요’)이 지출로 저장됨
+const KAKAO_NOTICE_FAILED_V229122 = /승인\s*거절|출금\s*불능|이체\s*불능|결제\s*실패|승인\s*실패/;
+const KAKAO_NOTICE_CANCEL_V229122 = /(?:(?:카드|체크)\s*[\])】]?\s*[(\[]?[\d*]{0,4}[)\]]?|출금|부분)\s*취소\s*(?=-?\d|[가-힣]\*|$)/m;
+const KAKAO_NOTICE_RECEIVED_V229122 = /님이\s*[\d,]+\s*원을?\s*보냈/;
+const KAKAO_NOTICE_SMSISH_V229122 = /[\[(【]\s*web\s*발신\s*[\])】]|(?:누적|잔액|잔고)\s*:?\s*[\d,]+|(?:승인|출금|입금)[^\n]{0,40}\d{1,2}:\d{2}|\d{1,2}:\d{2}[^\n]{0,40}(?:승인|출금|입금)/i;
+const KAKAO_NOTICE_TYPE_WORD_V229122 = /(?:^|\s)(?:수입|지출)(?=\s|$)/;
+const KAKAO_CANCEL_NOTICE_TEXT_V229122 = "결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.";
+function kakaoCardSmsExampleV229122(date, amount, today) {
+  const ymd = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? String(date) : String(today);
+  const year = ymd.slice(0, 4) === String(today).slice(0, 4) ? "" : Number(ymd.slice(0, 4)) + "년 ";
+  return year + Number(ymd.slice(5, 7)) + "월 " + Number(ymd.slice(8, 10)) + "일 이마트 " + (Number(amount) > 0 ? Math.round(Number(amount)) : 42000) + "원";
+}
+function kakaoCardSmsUnreadableTextV229122(blocked = {}, today = formatDate(nowKstDate())) {
+  return "카드 승인 문자로 보이는데 금액·날짜를 정확히 읽지 못해서 저장하지 않았어요.\n문자에서 날짜·쓴 곳·금액만 골라 이렇게 보내 주세요.\n" + kakaoCardSmsExampleV229122(blocked.date, blocked.amount, today);
+}
+function kakaoGuardNoticeV229122(text, rows, today) {
+  const replies = [["오늘기록", "오늘기록"]];
+  if (KAKAO_NOTICE_FAILED_V229122.test(text)) {
+    return { kind: "notice_failed", text: "결제나 출금이 되지 않았다는 알림으로 보여서 기록하지 않았어요.\n실제로 쓴 돈이면 ‘커피 4500원’처럼 보내 주세요.", quickReplies: replies };
+  }
+  const digits = new Set();
+  for (const match of text.matchAll(/승인\s*번호\s*:?\s*(\d{4,12})/g)) digits.add(Number(match[1]));
+  if (rows.length > 1) for (const match of text.matchAll(/[(\[]?(\d{4})[)\]]?\s*승인(?!\s*번호)/g)) digits.add(Number(match[1]));
+  const wrongDigit = rows.find((row) => digits.has(Number(row.amount)));
+  if (wrongDigit) {
+    const real = rows.find((row) => !digits.has(Number(row.amount)));
+    return { kind: "notice_digits", text: "카드 끝 번호나 승인번호가 금액으로 읽혀서 저장하지 않았어요.\n문자에서 날짜·쓴 곳·금액만 골라 이렇게 보내 주세요.\n" + kakaoCardSmsExampleV229122(real?.transaction_date, real?.amount, today), quickReplies: replies };
+  }
+  const spends = rows.some((row) => row.type === "expense");
+  if (spends && !KAKAO_NOTICE_TYPE_WORD_V229122.test(text)) {
+    if (KAKAO_NOTICE_CANCEL_V229122.test(text)) return { kind: "notice_cancel", text: KAKAO_CANCEL_NOTICE_TEXT_V229122, quickReplies: replies };
+    if (KAKAO_NOTICE_RECEIVED_V229122.test(text)) {
+      return { kind: "notice_received", text: "받은 돈 알림으로 보이는데 쓴 돈으로 읽혀서 저장하지 않았어요.\n받은 돈이면 ‘수입 정산 25000원’처럼 앞에 ‘수입’을 붙여 보내 주세요.", quickReplies: replies };
+    }
+  }
+  if (KAKAO_NOTICE_SMSISH_V229122.test(text)) {
+    const dates = cardSmsDatesV229122(text, today);
+    if (dates.length === 1 && dates[0] && rows.some((row) => String(row.transaction_date || "") !== dates[0])) {
+      const row = rows.find((item) => String(item.transaction_date || "") !== dates[0]) || rows[0];
+      const day = Number(dates[0].slice(5, 7)) + "월 " + Number(dates[0].slice(8, 10)) + "일";
+      // 들어온 돈 문자(입금)는 쓴 곳 예시가 맞지 않는다 — ‘수입’ 을 붙인 예시를 보인다.
+      const example = rows.length === 1 && row.type === "income"
+        ? "문자에서 날짜·금액만 골라 이렇게 보내 주세요.\n" + day + " 수입 " + Math.round(Number(row.amount)) + "원"
+        : "문자에서 날짜·쓴 곳·금액만 골라 이렇게 보내 주세요.\n" + kakaoCardSmsExampleV229122(dates[0], rows.length === 1 ? row.amount : 0, today);
+      return { kind: "notice_date", text: "문자에 적힌 날짜(" + day + ")와 다른 날로 읽혀서 저장하지 않았어요.\n" + example, quickReplies: replies };
+    }
+  }
+  return null;
+}
+
 function kakaoRecordGuardV229120(utterance, parsedList, today = formatDate(nowKstDate())) {
   const rows = Array.isArray(parsedList) ? parsedList : [];
   if (!rows.length) return null;
   const text = String(utterance || "");
   if (text.length > KAKAO_GUARD_MAX_TEXT_V229120) return null;
+  const notice = kakaoGuardNoticeV229122(text.replace(/\r/g, ""), rows, today);
+  if (notice) return notice;
   if (kakaoGuardEditLikeV229120(text, rows)) return { kind: "edit", text: KAKAO_CHANGE_REQUEST_TEXT_V229120, quickReplies: [["오늘기록", "오늘기록"]] };
   const notRecord = kakaoGuardNotRecordV229120(text, rows, today);
   const browse = [["오늘기록", "오늘기록"], ["이번달요약", "이번달요약"]];
@@ -779,8 +838,9 @@ function kakaoRecordGuardReplyV229120(guard, sessionNotice = "") {
 // @build:exports-start
 export {
   armKakaoRepeatGuard, buildKakaoSkillTestPayload, checkKakaoRepeatGuard, clearKakaoInFlight,
-  isKakaoFirstRecordInput, isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoChangeRequestReply,
-  kakaoDeferredReply, kakaoQaRequestAllowed, kakaoRecordCheckReply, kakaoRecordGuardReplyV229120,
+  isKakaoFirstRecordInput, isKakaoQaPayload, isStrongKakaoTransactionInput,
+  kakaoCardSmsUnreadableTextV229122, kakaoChangeRequestReply, kakaoDeferredReply,
+  kakaoQaRequestAllowed, kakaoRecordCheckReply, kakaoRecordGuardReplyV229120,
   kakaoRecordGuardV229120, kakaoRepeatGuardText, looksLikeKakaoChangeRequest,
   looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse, optionalWithin, stripKakaoBotMention,
   stripLeadingCommand,
