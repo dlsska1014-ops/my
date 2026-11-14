@@ -380,6 +380,13 @@ function parseBareInviteCode(text = "") {
   return /^[A-Z0-9]{5,12}$/i.test(t) ? t.toUpperCase() : "";
 }
 
+// V22.9.122 AZ-1(출시 전 점검 2026-11-14): ‘초대코드 HOME2265’(그 코드로 참여하려는 말)가 초대코드 보기로 읽혀 보낸 사람 자기 가계부의 초대코드를 보여 줬다
+// (가계부 없는 방이면 방 전체에). 초대코드·참여코드 바로 뒤에 위 코드 꼴(영문·숫자 5~12자)만 있으면 그 코드로 참여한다. ‘초대코드’·‘초대코드 보여줘’는 예전처럼 보기다.
+function parseInviteCodeJoinCommand(text = "") {
+  const m = normalizeText(text).trim().match(/^(?:초대|참여)\s*(코드.*)$/);
+  return m ? parseBareInviteCode(m[1]) : "";
+}
+
 function normalizeBudgetCategoryInput(value = "") {
   // 이 함수는 두 번 거친다(명령 파서에서 한 번, 분류 해석에서 또 한 번).
   // 첫 번째가 내놓은 "__total"을 두 번째가 다시 정규화하면 밑줄이 지워져
@@ -785,7 +792,8 @@ export {
   kakaoHouseholdReplyName, kakaoInviteManagementText, kakaoInviteNotAllowedText,
   kakaoManageableHouseholds, kakaoMemberPolicyReply, kakaoSelectedHouseholdKey, kakaoStartText,
   kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText, kakaoUnlinkedRoomStateLine, maybeKakaoCta,
-  parseBareInviteCode, parseDirectBudgetSetCommand, parseKakaoCreateKind, parseKakaoHouseholdChoice,
+  parseBareInviteCode, parseBudgetMonthHint, parseDirectBudgetSetCommand,
+  parseInviteCodeJoinCommand, parseKakaoCreateKind, parseKakaoHouseholdChoice,
   parseKakaoSummaryRange, plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName,
   sanitizeHouseholdNameInput, sanitizeWebHouseholdNameInput, saveKakaoBudget,
   setKakaoSelectedHousehold, suggestedHouseholdName,

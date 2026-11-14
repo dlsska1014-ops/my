@@ -889,6 +889,35 @@ async function settleRecurringBeforeEdit(env, householdId, existing = {}, next =
   return outcome;
 }
 
+// V22.9.122 T-1(출시 전 점검 2026-11-14): 말일 예약 실행(09:10) 뒤에 만들거나 고친(꺼진 규칙을 다시 켠) 규칙은 그 달 몫이 영영 빠졌다.
+// 다른 날 만든 규칙은 다음 날 실행이 이번 달 몫을 넣지만, 말일 다음 날은 새 달이고 따라잡기는 말일 실행이 끝까지 처리한 날짜(checked_date)
+// 뒤의 지정일만 본다(말일에 다 처리했으면 따라잡기가 없다). 홈은 그날 저녁 ‘이번 달 아직 안 나감’이라 하고 새 달에는 조용히 사라졌다.
+// 이제 말일에 저장한 규칙은 저장 직후 이번 달 몫을 자동 반영과 같은 판정·기록(켜짐·금액 0 건너뛰기·지출자 자격·표식·기록 확인)으로 넣는다.
+// 그날 실행 전이어도 넣는다(실행은 표식을 보고 건너뛰고, 실행과 겹쳐도 기록 확인과 (household_id, raw_text) 고유 색인으로 한 건만 들어간다).
+// 지난달 따라잡기가 아직 끝나지 않았으면(checked_date 가 지난달 말일 앞) 넣지 않는다: 지난달 몫을 먼저 넣어야 하고, 다음 날 따라잡기가 이번 달
+// 전체를 본다. 다른 날에는 아무것도 하지 않는다(예전처럼 다음 날 실행이 넣는다). 던지지 않는다(규칙 저장 결과를 바꾸지 않는다, 운영 이벤트만).
+async function settleRecurringMonthEndAfterSave(env, householdId, rule = {}, { path = "/recurring/save", method = "POST" } = {}) {
+  try {
+    if (!rule?.id || !householdId) return "none";
+    const today = formatDate(nowKstDate());
+    const month = today.slice(0, 7);
+    if (!validMonth(month) || today !== recurringDateForMonth(month, 31)) return "none";
+    const marker = String(rule.last_applied_month || "");
+    if (marker && marker >= month) return "none";
+    if (rule.is_active === false || String(rule.is_active) === "false" || !(Number(rule.amount || 0) > 0)) return "none";
+    const state = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
+    if (state.checked_date && state.checked_date < recurringDateForMonth(addMonthsYm(month, -1), 31)) return "none";
+    if (!recurringSpenderEligible(await fetchRawHouseholdMembers(env, householdId), rule.user_id)) return "none";
+    const outcome = await applyRecurringRuleForMonth(env, householdId, rule, month);
+    // 말일이라 이번 달 월간 스냅숏(그날 아침 실행이 만든 것)과 지정일이 든 끝난 주의 주간 스냅숏이 있으면 다시 만든다(없으면 대기에 보탠다).
+    if (outcome === "applied" || outcome === "deduplicated") await refreshRecurringReports(env, householdId, [rule], month, { path, method });
+    return outcome;
+  } catch (err) {
+    rememberOpsEvent({ kind: "recurring_month_end_settle_failed", severity: "warn", path, method, detail: safeError(err) });
+    return "failed";
+  }
+}
+
 // V22.9.79: 예약 실행 밖에서 정기 기록을 넣은 뒤(정기 규칙 수정의 지난달 몫, 수동 반영 '기록하기') 이미 만든 스냅숏 가운데 그
 // 기록이 빠진 것. 그 달이 끝났으면(말일이면 그날 만든 이번 달 스냅숏도) 그 달 월간, 기록 날짜가 든 주가 오늘이나 그 앞에
 // 끝났으면(일요일 실행이 이미 만들었을 수 있다) 그 주 주간이다. 예약 실행(N-9)은 오늘 끝나는 주·달을 같은 실행의 리포트
@@ -1173,6 +1202,6 @@ export {
   auditRetentionDaysV22995, cleanupTransactionAuditRetentionV22995, eligibleRecurringSpenders,
   handleRecurringCronApply, mergeScheduledCleanupV22995, readScheduledRunLog, recordScheduledRun,
   recurringDateForMonth, recurringSpenderEligible, refreshRecurringReports, runRecurringAutoApply,
-  scheduledRunErrorCode, settleRecurringBeforeEdit,
+  scheduledRunErrorCode, settleRecurringBeforeEdit, settleRecurringMonthEndAfterSave,
 };
 // @build:exports-end

@@ -18,7 +18,7 @@ import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { fetchRawHouseholdMembers, fetchUserById } from "../data/users-household-create.js";
 import {
-  recurringSpenderEligible, settleRecurringBeforeEdit,
+  recurringSpenderEligible, settleRecurringBeforeEdit, settleRecurringMonthEndAfterSave,
 } from "../cron/recurring-auto-apply.js";
 import {
   defaultExpenseBudgetNames, defaultIncomeBudgetNames, expenseBudgetRows, incomeBudgetRows,
@@ -44,7 +44,7 @@ import { addMonthsYm } from "../domain/analytics.js";
 import { formatMessage } from "../kakao/reply-texts.js";
 import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { supabase } from "../data/supabase-client.js";
-import { normalizeText, parseAmountValue } from "../nlu/amount-parser.js";
+import { normalizeText, parseSingleAmountFieldV229122 } from "../nlu/amount-parser.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml, nextMonthStart, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -192,7 +192,7 @@ async function handleMyRecurringSave(request, env) {
   const formProblem = recurringFormProblem(form);
   if (formProblem) return redirectResponse(mySettingsLocation(month, selected.id, { err: formProblem }));
   const memo = String(form.get("memo") || "").trim().slice(0, 120);
-  const amount = Math.max(0, Math.round(parseAmountValue(form.get("amount") || "0")));
+  const amount = Math.max(0, Math.round(parseSingleAmountFieldV229122(form.get("amount") || "0")));
   if (!memo || !amount || amount > MAX_TRANSACTION_AMOUNT) return redirectResponse(mySettingsLocation(month, selected.id, { err: "recurring_missing" }));
   const ruleId = String(form.get("id") || "").trim();
   const type = normalizeTransactionType(String(form.get("type") || "expense"));
@@ -226,11 +226,14 @@ async function handleMyRecurringSave(request, env) {
       // V22.9.76 감사 D-10: 놓친 지난달 몫은 고치기 전 값으로 먼저 넣고, 고친 값은 다음 반영부터 쓴다.
       if (existing) { await settleRecurringBeforeEdit(env, selected.id, existing, row); assertFresh(); }
       if (!ruleId && await findRecentDuplicateRecurringRule(env, selected.id, row)) return;
-      await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(selected.id)}` : "/rest/v1/accountbook_recurring", {
+      const written = await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(selected.id)}` : "/rest/v1/accountbook_recurring", {
         method: ruleId ? "PATCH" : "POST",
-        headers: { Prefer: "return=minimal" },
+        // V22.9.122 T-1(출시 전 점검 2026-11-14): 새 규칙은 저장된 행(id)을 돌려받는다. 말일 실행 뒤에 만든 규칙의 이번 달 몫을 바로 넣는 데 쓴다.
+        headers: { Prefer: ruleId ? "return=minimal" : "return=representation" },
         body: JSON.stringify(row),
       });
+      // V22.9.122 T-1(출시 전 점검 2026-11-14): 말일 예약 실행 뒤에 만들거나 다시 켠 규칙은 이번 달 몫을 넣을 실행이 없어 빠졌다. 말일에만 저장 직후 넣는다.
+      await settleRecurringMonthEndAfterSave(env, selected.id, ruleId ? { ...existing, ...row } : (Array.isArray(written) ? written[0] : null), { path: "/my/recurring/save" });
     });
     return redirectResponse(mySettingsLocation(month, selected.id, { msg: applied.otherMemberRecorded ? "recurring_saved_other_recorded" : "recurring_saved" }));
   } catch (err) {
@@ -319,7 +322,7 @@ async function handleRecurringCandidateConfirm(request, env) {
   if (!canManageMyHousehold(selected.role)) return redirectResponse(`${returnTo}&err=manage_required`);
   if (String(form.get("confirmed") || "") !== "yes") return redirectResponse(`${returnTo}&err=confirmation_required`);
   const memo = String(form.get("memo") || "").trim().slice(0, 120);
-  const amount = Math.max(0, Math.min(2_000_000_000, Math.round(parseAmountValue(form.get("amount") || "0"))));
+  const amount = Math.max(0, Math.min(2_000_000_000, Math.round(parseSingleAmountFieldV229122(form.get("amount") || "0"))));
   if (!memo || !amount) return redirectResponse(`${returnTo}&err=recurring_missing`);
   const row = {
     household_id: selected.id,
@@ -356,11 +359,13 @@ async function handleRecurringCandidateConfirm(request, env) {
       const key = normalizeRecurringKey(row);
       if (safeArray(existing).some((item) => normalizeRecurringKey(item) === key)) return false;
       assertFresh();
-      await supabase(env, "/rest/v1/accountbook_recurring", {
+      const written = await supabase(env, "/rest/v1/accountbook_recurring", {
         method: "POST",
-        headers: { Prefer: "return=minimal" },
+        // V22.9.122 T-1(출시 전 점검 2026-11-14): 저장된 행(id)을 돌려받아 말일 실행 뒤에 확정한 규칙의 이번 달 몫을 바로 넣는다.
+        headers: { Prefer: "return=representation" },
         body: JSON.stringify(row),
       });
+      await settleRecurringMonthEndAfterSave(env, selected.id, Array.isArray(written) ? written[0] : null, { path: "/my/recurring/from-candidate" });
       return true;
     });
     return redirectResponse(`${returnTo}&msg=${created ? "recurring_registered" : "recurring_exists"}`);

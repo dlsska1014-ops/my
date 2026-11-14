@@ -1,7 +1,7 @@
 // @build:imports-start
 import {
-  AB_EFFECTIVE_USER_CACHE, AB_REQUEST_RAW_USER_CACHE, AB_REQUEST_USER_CACHE, kakaoClientSecret,
-  kakaoRestApiKey,
+  AB_EFFECTIVE_USER_CACHE, AB_REQUEST_RAW_USER_CACHE, AB_REQUEST_SESSION_UNAVAILABLE,
+  AB_REQUEST_USER_CACHE, kakaoClientSecret, kakaoRestApiKey,
 } from "../runtime/global-state.js";
 import { pruneExpiringMap, rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { envFlagEnabled, normalizeBaseUrl } from "../public/site-config.js";
@@ -17,6 +17,15 @@ import { supabase } from "../data/supabase-client.js";
 
 function userSessionSecret(env) {
   return requiredSecret(env, "USER_SESSION_SECRET");
+}
+
+// V22.9.122 F-1(출시 전 점검 2026-11-14): 서명·만료가 맞는 세션 쿠키인데 DB 가 답하지 못해 세션 판·사용자 행을 확인하지 못한 요청에 표시를 남긴다.
+// 세션은 예전처럼 무효로 다룬다(확인 못 한 세션을 받아들이지 않는다). 표시는 worker/router.js 가 ‘로그인 화면으로 보내려던 화면 요청’을 ‘잠시 뒤 다시’ 안내로 바꿀 때만 쓴다.
+function markUserSessionUnavailableV229122(request, env) {
+  try {
+    if (request && typeof request === "object") AB_REQUEST_SESSION_UNAVAILABLE.add(request);
+    if (env && typeof env === "object") env.__AB_SESSION_UNAVAILABLE = true;
+  } catch (_) {}
 }
 
 async function getUserSessionVersion(env, userId = "") {
@@ -71,6 +80,8 @@ async function verifyRawUserSessionUncached(request, env) {
   const parsed = await parseUserSessionToken(request, env);
   if (!parsed) return "";
   const currentVersion = await getUserSessionVersion(env, parsed.userId);
+  // V22.9.122 F-1: 판을 읽지 못하면(0) 쿠키 확인 길에서만 표시를 남긴다. 로그인 중 세션을 만드는 길(makeUserSession)은 표시하지 않는다(독립 검토 1).
+  if (currentVersion === 0) markUserSessionUnavailableV229122(request, env);
   if (!userSessionVersionMatches(parsed.tokenVersion, currentVersion)) return "";
   return parsed.userId;
 }
@@ -241,6 +252,7 @@ async function verifyUserSession(request, env) {
       if (snapshot.embedded && currentUser && !Object.prototype.hasOwnProperty.call(currentUser,"accountbook_user_security")) return "";
       const security = currentUser?.accountbook_user_security;
       const currentVersion = snapshot.embedded ? Math.max(1, Number((Array.isArray(security) ? security[0] : security)?.session_version || 1)) : await getUserSessionVersion(env, parsed.userId);
+      if (currentVersion === 0) markUserSessionUnavailableV229122(request, env); // V22.9.122 F-1: 세션 판을 읽지 못함(쿠키 확인 길)
       const effectiveUserId = currentUser && !String(currentUser.kakao_user_key || "").startsWith("merged:") && !/\(통합됨\)\s*$/.test(String(currentUser.nickname || "")) ? String(currentUser.id) : "";
       if (currentUser && env.__AB_REQUEST_USER_ROWS) env.__AB_REQUEST_USER_ROWS.set(parsed.userId, currentUser);
       const valid = userSessionVersionMatches(parsed.tokenVersion, currentVersion);
@@ -255,6 +267,7 @@ async function verifyUserSession(request, env) {
     AB_REQUEST_USER_CACHE.delete(request);
     AB_REQUEST_RAW_USER_CACHE.set(request,Promise.resolve(""));
     rememberOpsEvent({kind:"user_session_snapshot_unavailable",severity:"error",path:"",method:"GET",detail:safeError(error)});
+    markUserSessionUnavailableV229122(request, env);
     return "";
   }
 }

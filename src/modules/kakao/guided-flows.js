@@ -101,7 +101,23 @@ async function offerKakaoRoomRebindAfterCreate(env, { user, payload, groupKey = 
   };
 }
 
-async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin }) {
+// V22.9.122 AZ-2(출시 전 점검 2026-11-14): 단톡방에서 ‘가계부 참여 CODE’로 참여해도 이 방은 그 가계부에 연결되지 않는다(이 방 다음 기록은 ‘이 방의 공동 가계부’로 간다).
+// 그런데 답은 ‘이제 … 바로 기록할 수 있어요’라고 해서 이 방 기록이 그 가계부로 가는 것처럼 읽혔다. 이 방이 그 가계부에 연결돼 있지 않으면(연결을 읽지 못했어도) 참여는 개인 대화·웹에
+// 적용되고 이 방 연결은 소유자·관리자의 ‘단톡방 연결 CODE’라고 적는다(누가 참여하고 무엇이 연결되는지는 그대로, 문구만). 승인 대기·구성원 답에만 붙인다.
+function kakaoRoomJoinScopeNoteV229122(joined = {}, code = "", linkedHousehold = null) {
+  if (linkedHousehold?.id && String(linkedHousehold.id) === String(joined?.id || "")) return "";
+  const name = String(joined?.name || "가계부");
+  // 독립 검토 2: 참여해도 개인 대화의 선택 가계부는 바뀌지 않으므로 ‘고를 수 있어요’ 라고 하고, 이 방이 이미 다른 가계부에 연결돼 있으면 연결을 바꾸는 조건(두 가계부 모두의 소유자·관리자)을 알린다.
+  const upper = String(code || "").toUpperCase();
+  return [
+    `${joined?.join_role === "pending" ? "승인되면 개인 대화와 웹 가계부에서 이 가계부를 고를 수 있어요." : "이제 개인 대화와 웹 가계부에서 이 가계부를 고를 수 있어요."} 이 방에서 보내는 기록은 이 방이 ‘${name}’에 연결돼 있을 때만 그 가계부에 저장돼요.`,
+    linkedHousehold?.id
+      ? `이 방은 지금 다른 가계부에 연결돼 있어요. 연결을 바꾸려면 두 가계부 모두에서 소유자·관리자인 사람이 이 방에서 ‘단톡방 연결 ${upper}’처럼 보내야 해요.`
+      : `이 방을 연결하려면 소유자·관리자가 이 방에서 ‘단톡방 연결 ${upper}’처럼 보내 주세요.`,
+  ].join("\n");
+}
+
+async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin, roomLinkPromise = null }) {
   let state = await getKakaoFlowState(env, user.id, payload);
   if (!state || !["create_household", "join_household", "household_choice"].includes(state.flow)) return null;
   if (isExplicitKakaoFlowCancelCommandV2254(utterance)) {
@@ -361,8 +377,10 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
     // V22.9.37 감사 H2: 단톡방에서 보낸 참여는 1:1 개인 가계부 선택을 바꾸지 않는다. 방의 가계부는 연결로만 정해진다.
     if (!getKakaoBotGroupKey(payload) && !["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
-    if (["pending","blocked","viewer"].includes(joined.join_role)) return { text: (roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`) + cleanupNotice, quickReplies: [["도움말 보기", "도움말 보기"]] };
-    return { text: `✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
+    // V22.9.122 AZ-2: 단톡방 참여 답은 이 방이 그 가계부에 연결돼 있지 않으면 범위 안내로 바꾼다(위 kakaoRoomJoinScopeNoteV229122; 방 연결은 이미 던져 둔 읽기를 받는다).
+    const roomNote = getKakaoBotGroupKey(payload) ? kakaoRoomJoinScopeNoteV229122(joined, code, roomLinkPromise ? (await roomLinkPromise)?.value : null) : "";
+    if (["pending","blocked","viewer"].includes(joined.join_role)) return { text: (roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`) + (joined.join_role === "pending" && roomNote ? `\n\n${roomNote}` : "") + cleanupNotice, quickReplies: [["도움말 보기", "도움말 보기"]] };
+    return { text: `✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n${roomNote || "이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요."}` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
   }
   return null;
 }
@@ -536,6 +554,6 @@ async function readRequestTextBounded(request, maxBytes = KAKAO_SKILL_MAX_BODY_B
 // @build:exports-start
 export {
   KAKAO_SKILL_MAX_BODY_BYTES, handleHouseholdGuidedFlow, handlePreHouseholdGuidedFlow,
-  readRequestTextBounded,
+  kakaoRoomJoinScopeNoteV229122, readRequestTextBounded,
 };
 // @build:exports-end

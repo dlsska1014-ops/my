@@ -433,7 +433,9 @@ async function handleUserFavorites(request, env, url) {
     return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
   }
   const method = request.method;
-  const body = method === "POST" ? await readJson(request) : {};
+  // V22.9.122 INJ-2(출시 전 점검 2026-11-14): 본문이 JSON null·배열·글자면 body.household 에서 예외가 나 500 이었다. 객체가 아니면 빈 객체로 보고 400(가계부 필요)으로 답한다.
+  const posted = method === "POST" ? await readJson(request) : {};
+  const body = posted && typeof posted === "object" && !Array.isArray(posted) ? posted : {};
   const requested = String((method === "POST" ? body.household : url.searchParams.get("household")) || url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
   if (method === "POST" && !requested) return jsonResponse(HOUSEHOLD_REQUIRED, 400);
   const household = selectRequestedScopedHousehold(scope.households, requested);
@@ -593,7 +595,9 @@ async function handleUserGoals(request, env, url) {
     return jsonResponse({ ok: false, error: "unauthorized", reason: "unauthorized", message: "로그인이 필요합니다. 다시 로그인해 주세요." }, 401);
   }
   const method = request.method;
-  const body = method === "POST" ? await readJson(request) : {};
+  // V22.9.122 INJ-2(출시 전 점검 2026-11-14): 본문이 JSON null·배열·글자면 body.household 에서 예외가 나 500 이었다. 객체가 아니면 빈 객체로 보고 400(가계부 필요)으로 답한다.
+  const posted = method === "POST" ? await readJson(request) : {};
+  const body = posted && typeof posted === "object" && !Array.isArray(posted) ? posted : {};
   const requested = String((method === "POST" ? body.household : url.searchParams.get("household")) || url.searchParams.get("household") || url.searchParams.get("household_id") || "").trim();
   if (method === "POST" && !requested) return jsonResponse(HOUSEHOLD_REQUIRED, 400);
   const household = selectRequestedScopedHousehold(scope.households, requested);

@@ -478,7 +478,8 @@ async function kakaoBudgetStatusParts(env, householdId, month, origin = "", hous
         `💰 ${month} 예산 현황`, householdName ? `가계부: ${householdName}` : "", "",
         incomeOnly ? "아직 지출 예산이 설정되지 않았어요. 예상 수입만 저장되어 있어요." : "아직 예산이 없어요.",
         canManage ? "예산을 정하고 지출을 기록하면 남은 예산을 바로 볼 수 있어요." : "가계부 주인·관리자가 ‘예산설정’으로 예산을 정하면 남은 예산을 볼 수 있어요.",
-        `이번 달 지출: ${numberWithCommas(expense)}원${refundSuffix}`,
+        // V22.9.122 T-2(출시 전 점검 2026-11-14): 카카오 ‘지난달 예산 현황’이 다른 달을 보여 주게 되어, 이번 달이 아니면 ‘이번 달 지출’ 대신 그 달을 적는다.
+        `${month === currentMonthKst() ? "이번 달" : month} 지출: ${numberWithCommas(expense)}원${refundSuffix}`,
       ].filter(Boolean).join("\n") };
     }
     // 분류별 예산이 있는 달에는 직접 설정한 전체 예산(__total)을 쓰지 않는다(V22.6.5 규칙). "예산 50만원"으로 저장한 값이

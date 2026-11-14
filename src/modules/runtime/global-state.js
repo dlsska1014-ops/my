@@ -47,10 +47,12 @@ const AB_EFFECTIVE_USER_CACHE = globalThis.__AB_EFFECTIVE_USER_CACHE || (globalT
 const AB_OPERATION_MUTEXES = globalThis.__AB_OPERATION_MUTEXES || (globalThis.__AB_OPERATION_MUTEXES = new Map());
 const AB_REQUEST_RAW_USER_CACHE = new WeakMap();
 const AB_REQUEST_USER_CACHE = new WeakMap();
+// V22.9.122 F-1: 세션 쿠키는 멀쩡한데 DB 가 답하지 못해 로그인 확인을 못 한 요청(auth/user-session.js 가 넣고 worker/router.js 가 본다).
+const AB_REQUEST_SESSION_UNAVAILABLE = new WeakSet();
 // @build:exports-start
 export {
   AB_EFFECTIVE_USER_CACHE, AB_NLU_RUNTIME_EVENTS, AB_NLU_RUNTIME_METRICS, AB_OPERATION_MUTEXES,
-  AB_REQUEST_RAW_USER_CACHE, AB_REQUEST_USER_CACHE, AB_SKILL_EVENTS, AB_SKILL_RATE_BUCKETS,
-  kakaoClientSecret, kakaoRestApiKey,
+  AB_REQUEST_RAW_USER_CACHE, AB_REQUEST_SESSION_UNAVAILABLE, AB_REQUEST_USER_CACHE, AB_SKILL_EVENTS,
+  AB_SKILL_RATE_BUCKETS, kakaoClientSecret, kakaoRestApiKey,
 };
 // @build:exports-end

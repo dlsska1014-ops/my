@@ -131,10 +131,12 @@ try {
   authDown = true;
   const authEvents = (globalThis.__AB_OPS_EVENTS || []).length;
   const authPage = await call("GET", "/app?household_id=house-home");
-  eq(authPage.response.status,303,"revocation snapshot outage fails closed before private HTML");
+  // V22.9.122 F-1: 세션 확인을 못 한 화면 요청은 로그인 화면(303) 대신 ‘잠시 뒤 다시’ 안내(503)를 받는다. 여전히 닫힌 쪽이다(가계부 내용 없음·저장 없음).
+  eq(authPage.response.status,503,"revocation snapshot outage fails closed before private HTML");
+  ok(authPage.text.includes("로그인 상태를 잠시 확인하지 못했어요") && !authPage.response.headers.get("location"),"revocation outage shows the retry notice instead of the login screen");
   ok(!authPage.text.includes("우리집 생활비"),"revocation outage discloses no household data");
   const authWrite = await call("POST","/my/transactions",{body:formBody});
-  eq(authWrite.response.status,303,"auth outage refuses financial writes");
+  eq(authWrite.response.status,503,"auth outage refuses financial writes");
   eq(fixture.db.transactions.length,txBefore,"auth outage stores zero transactions");
   ok((globalThis.__AB_OPS_EVENTS || []).slice(authEvents).some(event=>event.kind==="user_session_snapshot_unavailable"),"auth outage records its own closed-auth event");
   authDown = false;

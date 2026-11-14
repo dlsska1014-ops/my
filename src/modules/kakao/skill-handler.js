@@ -66,12 +66,13 @@ import {
   kakaoCreateKindPromptText, kakaoDateSummaryParts, kakaoHouseholdReplyName,
   kakaoInviteManagementText, kakaoInviteNotAllowedText, kakaoManageableHouseholds,
   kakaoMemberPolicyReply, kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote,
-  kakaoUnlinkedGroupStartText, parseDirectBudgetSetCommand, parseKakaoSummaryRange,
-  resolveBudgetCategoryName, sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
+  kakaoUnlinkedGroupStartText, parseBudgetMonthHint, parseDirectBudgetSetCommand,
+  parseInviteCodeJoinCommand, parseKakaoSummaryRange, resolveBudgetCategoryName,
+  sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
 } from "./household-budget-commands.js";
 import {
   KAKAO_SKILL_MAX_BODY_BYTES, handleHouseholdGuidedFlow, handlePreHouseholdGuidedFlow,
-  readRequestTextBounded,
+  kakaoRoomJoinScopeNoteV229122, readRequestTextBounded,
 } from "./guided-flows.js";
 import { saveKakaoParsedTransactionsReply } from "./transaction-save.js";
 import {
@@ -241,6 +242,8 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     safeHeaders.set("x-accountbook-request-id", requestId);
     return new Response(safeResponse.body, { status: safeResponse.status, statusText: safeResponse.statusText, headers: safeHeaders });
   } catch (err) {
+    // V22.9.122 KR-3: 아래 진단 저장이 쓰기를 보내기 전에, 이 요청이 내용 쓰기를 보냈는지 먼저 읽어 둔다(data/supabase-client.js 표시, 없으면 모름).
+    const contentWriteV229122 = env.__AB_KAKAO_REQUEST ? env.__AB_KAKAO_REQUEST.contentWriteV229122 || "" : "unknown";
     const latencyMs = Date.now() - skillStartedAt;
     const nluEvent = { at: new Date().toISOString(), request_id: requestId, intent: metricIntent(), confidence: intentMatch.confidence, result: "error", reason: safeError(err), latency_ms: latencyMs, block: blockName, version: APP_VERSION, utterance };
     rememberNluRuntimeEvent(nluEvent, env);
@@ -251,7 +254,20 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     // V22.9.76 감사 B-6: 식별 별칭 저장이 동시 요청으로 바빠 실패하면 기록하기 전에 멈춘 것이다. "다시 보내주세요" 예시만 주던
     // 일반 안내 대신, 저장하지 않았으니 같은 내용을 다시 보내라고 분명히 말한다.
     const busyIdentity = String(err?.code || "") === "identity_alias_persistence_failed";
-    const fallback = await kakaoGroupCompatibleResponse(kakaoText(busyIdentity ? "요청이 한꺼번에 몰려 이번 내용은 저장하지 못했어요.\n잠시 뒤 같은 내용을 한 번 더 보내 주세요." : kakaoSkillSafeFallbackText(origin)), payload, origin);
+    // V22.9.122 KR-3(출시 전 점검 2026-11-14): 저장소 오류(5xx·408·조회 시한·연결 끊김·잠금 함수 없음·결과 불확실 쓰기)가 여기까지 올라오면 ‘아래처럼 다시 보내주세요’
+    // 예시만 줬다(‘점심 12000원’을 그대로 보냈어도). 이 요청이 내용 쓰기를 보내지 않았으면(data/supabase-client.js 표시) 저장하지 않았다고 분명히 답하고,
+    // 보냈으면(또는 모르면) 저장 기록 확인 안내(transaction-save.js 와 같은 문장)를 낸다. 불확실 판정은 isUncertainStorageWrite 와 같은 원인 사슬 검사다. 그 밖의 오류는 예전 안내.
+    const errorChain = [];
+    for (let current = err, depth = 0; current && typeof current === "object" && depth < 8; current = current.cause, depth += 1) errorChain.push(current);
+    const storageFailed = errorChain.some((item) => item.uncertain_write === true || item.code === "supabase_write_result_unknown" || item.name === "AbortError" ||
+      /^(?:Supabase (?:5\d\d|408)\b|supabase_read_timeout\b|database operation lease is unavailable$)/.test(String(item.message || "")) ||
+      item instanceof TypeError && /fetch|network|connection/i.test(String(item.message || "")));
+    // 독립 검토 2: 내용 쓰기가 없을 때의 답은 ‘기록은 저장하지 않았어요’ 로 좁혀 말한다(가계부 만들기 확인 단계에서는 가계부 행이 이미 생겼을 수 있다). 거래가 아닌 쓰기(예산 등)는
+    // ‘중복될 수 있으니 기다리라’ 대신 결과를 확인해 보라고 한다(예산 저장은 다시 보내도 겹치지 않고, 실패했으면 기다려도 저장되지 않는다).
+    const storageText = !storageFailed ? "" : !contentWriteV229122 ? "일시적인 오류로 이번 요청을 끝내지 못했어요. 기록은 저장하지 않았어요. 잠시 뒤 같은 내용을 다시 보내 주세요."
+      : contentWriteV229122 === "other" ? "저장됐는지 확인하지 못했어요. 잠시 뒤 결과를 확인해 보고, 반영되지 않았으면 같은 내용을 다시 보내 주세요."
+      : "지금은 저장 확인이 지연되고 있어요. 중복될 수 있으니 같은 내용을 다시 보내지 말고 기다려 주세요.\n‘오늘기록’에서 확인해 주세요. 목록에 없어도 아직 저장 중일 수 있어요.";
+    const fallback = await kakaoGroupCompatibleResponse(kakaoText(busyIdentity ? "요청이 한꺼번에 몰려 이번 내용은 저장하지 못했어요.\n잠시 뒤 같은 내용을 한 번 더 보내 주세요." : storageText || kakaoSkillSafeFallbackText(origin)), payload, origin);
     const headers = new Headers(fallback.headers || {});
     headers.set("x-accountbook-version", APP_VERSION);
     headers.set("x-accountbook-intent", metricIntent());
@@ -654,7 +670,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     if (shouldInterruptKakaoFlowV2254(activeFlowBeforeRouting, utterance)) {
       await clearKakaoFlowState(env, user.id, payload);
     } else {
-      const activePreFlow = await handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin });
+      const activePreFlow = await handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin, roomLinkPromise: linkedGroupPromise });
       if (activePreFlow) return kakaoText(activePreFlow.text, activePreFlow.quickReplies || []);
     }
   }
@@ -726,15 +742,19 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     return kakaoText(await kakaoGroupInfoText(env, payload, origin, user), [["가계부만들기", "가계부만들기"], ["초대코드", "초대코드"]]);
   }
 
-  const joinCode = strongTransactionInput ? "" : parseJoinCode(utterance);
+  // V22.9.122 AZ-1(출시 전 점검 2026-11-14): ‘초대코드 CODE’·‘참여코드 CODE’도 ‘참여 CODE’와 같은 참여 길로 보낸다(아래 초대코드 보기·방 자동 참여보다 먼저, 승인 대기 규칙 그대로).
+  const joinCode = strongTransactionInput ? "" : (parseJoinCode(utterance) || parseInviteCodeJoinCommand(utterance));
   if (joinCode) {
     try {
       const joined = await joinHouseholdByCode(env, user.id, joinCode);
       if (!joined) return kakaoText(`초대코드 ${joinCode}를 찾지 못했어요. 코드를 다시 확인해 주세요.`);
       // V22.9.37 감사 H2: 단톡방에서 보낸 참여 명령은 1:1 개인 가계부 선택을 바꾸지 않는다.
       if (!botGroupKey && !["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
-      if (["pending","blocked","viewer"].includes(joined.join_role)) return kakaoText(roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`);
-      return kakaoText(`✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요.`, kakaoStartQuickReplies(true));
+      // V22.9.122 AZ-2(출시 전 점검 2026-11-14): 단톡방에서 참여해도 이 방은 그 가계부에 연결되지 않는데 ‘이제 … 바로 기록할 수 있어요’라고 했다(다음 방 기록은 ‘이 방의 공동 가계부’로 감).
+      // 이 방이 그 가계부에 연결돼 있지 않으면 참여 범위(개인 대화·웹)와 ‘단톡방 연결 CODE’를 적는다. 방 연결은 위에서 이미 던져 둔 읽기를 받는다(조회 추가 없음).
+      const roomNote = botGroupKey ? kakaoRoomJoinScopeNoteV229122(joined, joinCode, (await linkedGroupPromise)?.value) : "";
+      if (["pending","blocked","viewer"].includes(joined.join_role)) return kakaoText((roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`) + (joined.join_role === "pending" && roomNote ? `\n\n${roomNote}` : ""));
+      return kakaoText(`✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n${roomNote || "이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요."}`, kakaoStartQuickReplies(true));
     } catch (err) {
       return kakaoText("초대코드 확인이 잠시 지연되고 있어요. 잠시 후 다시 시도해 주세요.");
     }
@@ -969,8 +989,12 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // V22.9.72: 빈 결과(예산 없음·정산할 지출 없음·기록 없음)는 짧게 알리고 다음 행동 버튼(예산설정·기록하기)으로 잇는다.
   if (!strongTransactionInput && isBudgetCommand(utterance)) {
     const canManageBudget = ["owner","admin"].includes(accessRole);
-    const budgetStatus = await kakaoBudgetStatusParts(env, household.id, currentMonthKst(), origin, household.name, { canManage: canManageBudget });
-    if (budgetStatus.noBudget) return kakaoNextStepReply(budgetStatus.text, payload, canManageBudget ? [["예산설정", "예산설정"]] : []);
+    // V22.9.122 T-2(출시 전 점검 2026-11-14): ‘지난달 예산 현황’·‘12월 예산 현황’도 늘 이번 달로 답했다(1월 1일에 12월 예산이 있어도 ‘아직 예산이 없어요’).
+    // 예산 설정 명령과 같은 달 읽기(parseBudgetMonthHint: 지난달·다음 달·N월은 가장 가까운 해)로 물은 달을 보여 준다. 달 말이 없거나 읽지 못하면 예전처럼 이번 달이고, 어느 달인지는 머리줄에 적힌다.
+    const budgetMonth = parseBudgetMonthHint(utterance);
+    const budgetStatus = await kakaoBudgetStatusParts(env, household.id, budgetMonth, origin, household.name, { canManage: canManageBudget });
+    // 독립 검토 2: ‘예산설정’ 단추는 이번 달 예산을 정하므로 다른 달을 물은 답에는 달지 않는다.
+    if (budgetStatus.noBudget) return kakaoNextStepReply(budgetStatus.text, payload, canManageBudget && budgetMonth === currentMonthKst() ? [["예산설정", "예산설정"]] : []);
     return kakaoText(budgetStatus.text);
   }
 
