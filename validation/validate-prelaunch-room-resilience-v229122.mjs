@@ -445,5 +445,93 @@ await scenario("KR-1 separate isolates", () => withFx(async (fx) => {
   check.eq(rowsOf(fx, uid, "우유 2000원"), 1, `${tag}: later record saved once`);
 }));
 
+// ---------------- V22.9.122 KR-3: 저장소 오류가 맨 바깥 catch 까지 올라온 답 ----------------
+const NOT_SAVED = "일시적인 오류로 이번 내용은 저장하지 않았어요. 잠시 뒤 같은 내용을 다시 보내 주세요.";
+const DELAYED = "지금은 저장 확인이 지연되고 있어요. 중복될 수 있으니 같은 내용을 다시 보내지 말고 기다려 주세요.";
+const GENERIC = "잠시 처리 흐름을 정리하고 있어요";
+const isClaim = (c) => c.method === "POST" && c.path === "rpc/accountbook_claim_operation";
+const contentOf = (fx) => JSON.stringify([fx.db.transactions.map((t) => `${t.id}:${t.raw_text}:${t.amount}:${t.deleted_at || ""}`).sort(),
+  (fx.db.accountbook_budgets || []).map((b) => `${b.month}:${b.category}:${b.amount}`).sort()]);
+function failKth(fx, k, kind) {
+  let n = 0;
+  fx.hook = async (call, forward) => {
+    n += 1;
+    if (n !== k) return null;
+    call.failed = kind;
+    return FAIL[kind](forward);
+  };
+}
+async function directUser(fx, label) {
+  const key = freshKey(label);
+  await say(fx, "아침 3000원", { key });
+  check.eq(rowsOf(fx, fx.uid(key), "아침 3000원"), 1, `KR-3 ${label}: setup record saved`);
+  advance(2 * SEC);
+  return key;
+}
+
+for (const kind of ["503", "net", "lost", "lostnet"]) await scenario(`KR-3 claim ${kind}`, () => withFx(async (fx) => {
+  const tag = `KR-3 lease claim ${kind}`;
+  const key = await directUser(fx, `claim-${kind}`);
+  const uid = fx.uid(key);
+  failOnce(fx, isClaim, kind);
+  const r = await say(fx, "택시 8000원", { key });
+  fx.hook = null;
+  check.ok(r.calls.some((c) => c.failed), `${tag}: the lease claim failed`);
+  check.ok(r.status === 200 && r.text.includes(NOT_SAVED), `${tag}: the reply says this message was not saved`);
+  check.ok(!r.text.includes(GENERIC) && !r.text.includes(DELAYED), `${tag}: no generic or ‘wait’ fallback`);
+  check.ok(!/https?:\/\//.test(r.text), `${tag}: no URL in the reply text`);
+  check.eq(rowsOf(fx, uid, "택시 8000원"), 0, `${tag}: nothing saved`);
+  advance(91 * SEC);
+  const again = await say(fx, "택시 8000원", { key });
+  check.eq(rowsOf(fx, uid, "택시 8000원"), 1, `${tag}: resending after the lease time saves it once`);
+  check.ok(!again.text.includes(NOT_SAVED), `${tag}: the resend gets a normal reply`);
+}));
+
+// 한 요청의 호출을 하나씩 실패시켜 본다: 일반 대체 답은 없어야 하고, ‘저장하지 않았어요’는 내용(거래·예산)이 그대로일 때만 나와야 한다.
+async function sweepCells(label, makeCtx, utterance) {
+  for (const kind of ["503", "net", "lost", "lostnet"]) {
+    let notSaved = 0, cells = 0, generic = 0, wrongNotSaved = 0, markerWait = 0;
+    for (let k = 1; k < 90; k += 1) {
+      const finished = await withFx(async (fx) => {
+        const ctx = await makeCtx(fx);
+        const before = contentOf(fx);
+        failKth(fx, k, kind);
+        const r = await say(fx, utterance, ctx);
+        fx.hook = null;
+        const failed = r.calls.find((c) => c.failed);
+        if (!failed) return true;
+        cells += 1;
+        if (r.text.includes(GENERIC)) generic += 1;
+        if (r.text.includes(NOT_SAVED)) { notSaved += 1; if (contentOf(fx) !== before) wrongNotSaved += 1; }
+        if (failed.method === "POST" && failed.path === "accountbook_settings" && failed.body.includes('"key":"kakao_') && contentOf(fx) === before &&
+            r.text.includes(DELAYED) && !r.text.includes("오늘기록")) markerWait += 1;
+        return false;
+      });
+      if (finished) break;
+    }
+    const tag = `KR-3 every single failure, ${label}, ${kind}`;
+    check.ok(cells > 3, `${tag}: the sweep reached the request's calls`);
+    check.eq(generic, 0, `${tag}: no storage failure gets the generic fallback`);
+    check.eq(wrongNotSaved, 0, `${tag}: ‘not saved’ only when no record or budget changed`);
+    check.ok(notSaved >= 1, `${tag}: at least one failure gets the ‘not saved’ reply`);
+    check.eq(markerWait, 0, `${tag}: a failed kakao_ marker write alone does not get the ‘wait’ reply`);
+  }
+}
+await scenario("KR-3 sweep existing", () => sweepCells("existing 1:1 user record", async (fx) => ({ key: await directUser(fx, "sweep") }), "택시 8000원"));
+await scenario("KR-3 sweep new", () => sweepCells("new 1:1 user record", async () => ({ key: freshKey("sweep-new") }), "점심 12000원"));
+
+for (const kind of ["503", "lost"]) await scenario(`KR-3 budget ${kind}`, () => withFx(async (fx) => {
+  const tag = `KR-3 budget write ${kind}`;
+  const key = await directUser(fx, `budget-${kind}`);
+  const before = (fx.db.accountbook_budgets || []).length;
+  failOnce(fx, (c) => c.method === "POST" && c.path === "accountbook_budgets", kind);
+  const r = await say(fx, "월 예산 200만원", { key });
+  fx.hook = null;
+  check.ok(r.calls.some((c) => c.failed), `${tag}: the budget write failed`);
+  check.ok(r.text.includes(DELAYED) && !r.text.includes(NOT_SAVED), `${tag}: a write that may have landed gets the ‘wait’ reply, never ‘not saved’`);
+  check.ok(!r.text.includes("오늘기록"), `${tag}: no record-list hint for a budget`);
+  check.eq((fx.db.accountbook_budgets || []).length - before, kind === "lost" ? 1 : 0, `${tag}: fixture state matches the failure kind`);
+}));
+
 globalThis.Date = RealDate;
 check.done();

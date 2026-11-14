@@ -31,6 +31,19 @@ function supabaseTransportFailure(error) {
   return error instanceof TypeError || error?.name === "AbortError";
 }
 
+// V22.9.122 KR-3(출시 전 점검 2026-11-14): 설정 키가 모두 kakao_ 로 시작하는 설정 쓰기(첫 기록·방 준비·참여 시도 표식, 연결·선택 상태)는 내용 쓰기로 세지 않는다.
+// 이 줄들은 같은 내용을 다시 보내도 이어지도록 만든 표식이고, 기록·예산·목표·정기 규칙은 거래 표·예산 표·recurring:·goals: 같은 다른 곳에 쓴다.
+// 키를 알 수 없으면(key=in.(…)·본문 없음 등) 내용 쓰기로 본다.
+function kakaoMarkerSettingsWriteV229122(path, body) {
+  if (!/^\/rest\/v1\/accountbook_settings(?:\?|$)/.test(path)) return false;
+  const keyFilter = new URLSearchParams(path.split("?")[1] || "").get("key");
+  if (keyFilter !== null) return keyFilter.startsWith("eq.kakao_");
+  let rows;
+  try { rows = typeof body === "string" ? JSON.parse(body) : null; } catch (_) { return false; }
+  rows = Array.isArray(rows) ? rows : rows ? [rows] : [];
+  return rows.length > 0 && rows.every((row) => typeof row?.key === "string" && row.key.startsWith("kakao_"));
+}
+
 async function supabase(env, path, init = {}) {
   const base = String(env.SUPABASE_URL || "").replace(/\/$/, "");
   if (!base) throw new Error("SUPABASE_URL is not set");
@@ -74,6 +87,13 @@ async function supabase(env, path, init = {}) {
         budget.used++;
       }
       dispatched = true;
+      // V22.9.122 KR-3(출시 전 점검 2026-11-14): 카카오 요청이 내용 쓰기(잠금·인증·진단 RPC 와 사용자·가계부·참여 행을 만드는 POST 밖의 모든 쓰기)를 보냈는지 남긴다
+      // (거래 쓰기면 "record", 그 밖은 "other"). 저장소 오류가 맨 바깥까지 올라오면 이 표시가 없을 때만 ‘이번 내용은 저장하지 않았어요’라고 답한다(kakao/skill-handler.js). 호출 수는 그대로다.
+      const kakaoRequest = env.__AB_KAKAO_REQUEST;
+      if (kakaoRequest && !readOnly && !/\/rpc\/(?:accountbook_(?:auth_attempt|claim_operation|release_operation)\b|record_nlu_)/.test(path) && !(method === "POST" && /^\/rest\/v1\/(?:users|households|household_members)(?:\?|$)/.test(path)) &&
+          !kakaoMarkerSettingsWriteV229122(path, fetchInit.body)) {
+        kakaoRequest.contentWriteV229122 = /^\/rest\/v1\/(?:transactions(?:\?|$)|rpc\/accountbook_[a-z_]*transaction)/.test(path) ? "record" : kakaoRequest.contentWriteV229122 || "other";
+      }
       const res = await fetch(`${base}${path}`, { ...fetchInit, headers, signal });
       status = res.status;
       if (rawHeadResponse && method === "HEAD" && (res.ok || [405, 501].includes(status))) return res;

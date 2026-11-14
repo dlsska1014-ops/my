@@ -242,6 +242,8 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     safeHeaders.set("x-accountbook-request-id", requestId);
     return new Response(safeResponse.body, { status: safeResponse.status, statusText: safeResponse.statusText, headers: safeHeaders });
   } catch (err) {
+    // V22.9.122 KR-3: 아래 진단 저장이 쓰기를 보내기 전에, 이 요청이 내용 쓰기를 보냈는지 먼저 읽어 둔다(data/supabase-client.js 표시, 없으면 모름).
+    const contentWriteV229122 = env.__AB_KAKAO_REQUEST ? env.__AB_KAKAO_REQUEST.contentWriteV229122 || "" : "unknown";
     const latencyMs = Date.now() - skillStartedAt;
     const nluEvent = { at: new Date().toISOString(), request_id: requestId, intent: metricIntent(), confidence: intentMatch.confidence, result: "error", reason: safeError(err), latency_ms: latencyMs, block: blockName, version: APP_VERSION, utterance };
     rememberNluRuntimeEvent(nluEvent, env);
@@ -252,7 +254,17 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     // V22.9.76 감사 B-6: 식별 별칭 저장이 동시 요청으로 바빠 실패하면 기록하기 전에 멈춘 것이다. "다시 보내주세요" 예시만 주던
     // 일반 안내 대신, 저장하지 않았으니 같은 내용을 다시 보내라고 분명히 말한다.
     const busyIdentity = String(err?.code || "") === "identity_alias_persistence_failed";
-    const fallback = await kakaoGroupCompatibleResponse(kakaoText(busyIdentity ? "요청이 한꺼번에 몰려 이번 내용은 저장하지 못했어요.\n잠시 뒤 같은 내용을 한 번 더 보내 주세요." : kakaoSkillSafeFallbackText(origin)), payload, origin);
+    // V22.9.122 KR-3(출시 전 점검 2026-11-14): 저장소 오류(5xx·408·조회 시한·연결 끊김·잠금 함수 없음·결과 불확실 쓰기)가 여기까지 올라오면 ‘아래처럼 다시 보내주세요’
+    // 예시만 줬다(‘점심 12000원’을 그대로 보냈어도). 이 요청이 내용 쓰기를 보내지 않았으면(data/supabase-client.js 표시) 저장하지 않았다고 분명히 답하고,
+    // 보냈으면(또는 모르면) 저장 기록 확인 안내(transaction-save.js 와 같은 문장)를 낸다. 불확실 판정은 isUncertainStorageWrite 와 같은 원인 사슬 검사다. 그 밖의 오류는 예전 안내.
+    const errorChain = [];
+    for (let current = err, depth = 0; current && typeof current === "object" && depth < 8; current = current.cause, depth += 1) errorChain.push(current);
+    const storageFailed = errorChain.some((item) => item.uncertain_write === true || item.code === "supabase_write_result_unknown" || item.name === "AbortError" ||
+      /^(?:Supabase (?:5\d\d|408)\b|supabase_read_timeout\b|database operation lease is unavailable$)/.test(String(item.message || "")) ||
+      item instanceof TypeError && /fetch|network|connection/i.test(String(item.message || "")));
+    const storageText = !storageFailed ? "" : !contentWriteV229122 ? "일시적인 오류로 이번 내용은 저장하지 않았어요. 잠시 뒤 같은 내용을 다시 보내 주세요."
+      : `지금은 저장 확인이 지연되고 있어요. 중복될 수 있으니 같은 내용을 다시 보내지 말고 기다려 주세요.${contentWriteV229122 === "other" ? "" : "\n‘오늘기록’에서 확인해 주세요. 목록에 없어도 아직 저장 중일 수 있어요."}`;
+    const fallback = await kakaoGroupCompatibleResponse(kakaoText(busyIdentity ? "요청이 한꺼번에 몰려 이번 내용은 저장하지 못했어요.\n잠시 뒤 같은 내용을 한 번 더 보내 주세요." : storageText || kakaoSkillSafeFallbackText(origin)), payload, origin);
     const headers = new Headers(fallback.headers || {});
     headers.set("x-accountbook-version", APP_VERSION);
     headers.set("x-accountbook-intent", metricIntent());
