@@ -31567,6 +31567,35 @@ async function settleRecurringBeforeEdit(env, householdId, existing = {}, next =
   return outcome;
 }
 
+// V22.9.122 T-1(출시 전 점검 2026-11-14): 말일 예약 실행(09:10) 뒤에 만들거나 고친(꺼진 규칙을 다시 켠) 규칙은 그 달 몫이 영영 빠졌다.
+// 다른 날 만든 규칙은 다음 날 실행이 이번 달 몫을 넣지만, 말일 다음 날은 새 달이고 따라잡기는 말일 실행이 끝까지 처리한 날짜(checked_date)
+// 뒤의 지정일만 본다(말일에 다 처리했으면 따라잡기가 없다). 홈은 그날 저녁 ‘이번 달 아직 안 나감’이라 하고 새 달에는 조용히 사라졌다.
+// 이제 말일에 저장한 규칙은 저장 직후 이번 달 몫을 자동 반영과 같은 판정·기록(켜짐·금액 0 건너뛰기·지출자 자격·표식·기록 확인)으로 넣는다.
+// 그날 실행 전이어도 넣는다(실행은 표식을 보고 건너뛰고, 실행과 겹쳐도 기록 확인과 (household_id, raw_text) 고유 색인으로 한 건만 들어간다).
+// 지난달 따라잡기가 아직 끝나지 않았으면(checked_date 가 지난달 말일 앞) 넣지 않는다: 지난달 몫을 먼저 넣어야 하고, 다음 날 따라잡기가 이번 달
+// 전체를 본다. 다른 날에는 아무것도 하지 않는다(예전처럼 다음 날 실행이 넣는다). 던지지 않는다(규칙 저장 결과를 바꾸지 않는다, 운영 이벤트만).
+async function settleRecurringMonthEndAfterSave(env, householdId, rule = {}, { path = "/recurring/save", method = "POST" } = {}) {
+  try {
+    if (!rule?.id || !householdId) return "none";
+    const today = formatDate(nowKstDate());
+    const month = today.slice(0, 7);
+    if (!validMonth(month) || today !== recurringDateForMonth(month, 31)) return "none";
+    const marker = String(rule.last_applied_month || "");
+    if (marker && marker >= month) return "none";
+    if (rule.is_active === false || String(rule.is_active) === "false" || !(Number(rule.amount || 0) > 0)) return "none";
+    const state = recurringCronState(await getSettingValueStrict(env, RECURRING_CRON_STATE_KEY));
+    if (state.checked_date && state.checked_date < recurringDateForMonth(addMonthsYm(month, -1), 31)) return "none";
+    if (!recurringSpenderEligible(await fetchRawHouseholdMembers(env, householdId), rule.user_id)) return "none";
+    const outcome = await applyRecurringRuleForMonth(env, householdId, rule, month);
+    // 말일이라 이번 달 월간 스냅숏(그날 아침 실행이 만든 것)과 지정일이 든 끝난 주의 주간 스냅숏이 있으면 다시 만든다(없으면 대기에 보탠다).
+    if (outcome === "applied" || outcome === "deduplicated") await refreshRecurringReports(env, householdId, [rule], month, { path, method });
+    return outcome;
+  } catch (err) {
+    rememberOpsEvent({ kind: "recurring_month_end_settle_failed", severity: "warn", path, method, detail: safeError(err) });
+    return "failed";
+  }
+}
+
 // V22.9.79: 예약 실행 밖에서 정기 기록을 넣은 뒤(정기 규칙 수정의 지난달 몫, 수동 반영 '기록하기') 이미 만든 스냅숏 가운데 그
 // 기록이 빠진 것. 그 달이 끝났으면(말일이면 그날 만든 이번 달 스냅숏도) 그 달 월간, 기록 날짜가 든 주가 오늘이나 그 앞에
 // 끝났으면(일요일 실행이 이미 만들었을 수 있다) 그 주 주간이다. 예약 실행(N-9)은 오늘 끝나는 주·달을 같은 실행의 리포트
@@ -35501,11 +35530,14 @@ async function handleMyRecurringSave(request, env) {
       // V22.9.76 감사 D-10: 놓친 지난달 몫은 고치기 전 값으로 먼저 넣고, 고친 값은 다음 반영부터 쓴다.
       if (existing) { await settleRecurringBeforeEdit(env, selected.id, existing, row); assertFresh(); }
       if (!ruleId && await findRecentDuplicateRecurringRule(env, selected.id, row)) return;
-      await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(selected.id)}` : "/rest/v1/accountbook_recurring", {
+      const written = await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(selected.id)}` : "/rest/v1/accountbook_recurring", {
         method: ruleId ? "PATCH" : "POST",
-        headers: { Prefer: "return=minimal" },
+        // V22.9.122 T-1(출시 전 점검 2026-11-14): 새 규칙은 저장된 행(id)을 돌려받는다. 말일 실행 뒤에 만든 규칙의 이번 달 몫을 바로 넣는 데 쓴다.
+        headers: { Prefer: ruleId ? "return=minimal" : "return=representation" },
         body: JSON.stringify(row),
       });
+      // V22.9.122 T-1(출시 전 점검 2026-11-14): 말일 예약 실행 뒤에 만들거나 다시 켠 규칙은 이번 달 몫을 넣을 실행이 없어 빠졌다. 말일에만 저장 직후 넣는다.
+      await settleRecurringMonthEndAfterSave(env, selected.id, ruleId ? { ...existing, ...row } : (Array.isArray(written) ? written[0] : null), { path: "/my/recurring/save" });
     });
     return redirectResponse(mySettingsLocation(month, selected.id, { msg: applied.otherMemberRecorded ? "recurring_saved_other_recorded" : "recurring_saved" }));
   } catch (err) {
@@ -35631,11 +35663,13 @@ async function handleRecurringCandidateConfirm(request, env) {
       const key = normalizeRecurringKey(row);
       if (safeArray(existing).some((item) => normalizeRecurringKey(item) === key)) return false;
       assertFresh();
-      await supabase(env, "/rest/v1/accountbook_recurring", {
+      const written = await supabase(env, "/rest/v1/accountbook_recurring", {
         method: "POST",
-        headers: { Prefer: "return=minimal" },
+        // V22.9.122 T-1(출시 전 점검 2026-11-14): 저장된 행(id)을 돌려받아 말일 실행 뒤에 확정한 규칙의 이번 달 몫을 바로 넣는다.
+        headers: { Prefer: "return=representation" },
         body: JSON.stringify(row),
       });
+      await settleRecurringMonthEndAfterSave(env, selected.id, Array.isArray(written) ? written[0] : null, { path: "/my/recurring/from-candidate" });
       return true;
     });
     return redirectResponse(`${returnTo}&msg=${created ? "recurring_registered" : "recurring_exists"}`);
@@ -37781,7 +37815,8 @@ async function kakaoBudgetStatusParts(env, householdId, month, origin = "", hous
         `💰 ${month} 예산 현황`, householdName ? `가계부: ${householdName}` : "", "",
         incomeOnly ? "아직 지출 예산이 설정되지 않았어요. 예상 수입만 저장되어 있어요." : "아직 예산이 없어요.",
         canManage ? "예산을 정하고 지출을 기록하면 남은 예산을 바로 볼 수 있어요." : "가계부 주인·관리자가 ‘예산설정’으로 예산을 정하면 남은 예산을 볼 수 있어요.",
-        `이번 달 지출: ${numberWithCommas(expense)}원${refundSuffix}`,
+        // V22.9.122 T-2(출시 전 점검 2026-11-14): 카카오 ‘지난달 예산 현황’이 다른 달을 보여 주게 되어, 이번 달이 아니면 ‘이번 달 지출’ 대신 그 달을 적는다.
+        `${month === currentMonthKst() ? "이번 달" : month} 지출: ${numberWithCommas(expense)}원${refundSuffix}`,
       ].filter(Boolean).join("\n") };
     }
     // 분류별 예산이 있는 달에는 직접 설정한 전체 예산(__total)을 쓰지 않는다(V22.6.5 규칙). "예산 50만원"으로 저장한 값이
@@ -46092,7 +46127,10 @@ async function handleRecurringSave(request, env) {
       if (existing) { await settleRecurringBeforeEdit(env, householdId, existing, row); assertFresh(); }
       // V22.9.76 감사 D-25: 두 번 보낸 같은 새 항목은 한 번만 만든다.
       if (!ruleId && await findRecentDuplicateRecurringRule(env, householdId, row)) return;
-      await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(householdId)}` : "/rest/v1/accountbook_recurring", { method: ruleId ? "PATCH" : "POST", headers: { Prefer: "return=minimal" }, body: JSON.stringify(row) });
+      // V22.9.122 T-1(출시 전 점검 2026-11-14): 새 규칙은 저장된 행(id)을 돌려받고, 말일 예약 실행 뒤에 만들거나 다시 켠 규칙의 이번 달 몫을 저장 직후 넣는다
+      // (예전에는 넣을 실행이 없어 빠졌다. 말일이 아닌 날은 아무것도 하지 않고 예전처럼 다음 날 실행이 넣는다).
+      const written = await supabase(env, ruleId ? `/rest/v1/accountbook_recurring?id=eq.${encodeURIComponent(ruleId)}&household_id=eq.${encodeURIComponent(householdId)}` : "/rest/v1/accountbook_recurring", { method: ruleId ? "PATCH" : "POST", headers: { Prefer: ruleId ? "return=minimal" : "return=representation" }, body: JSON.stringify(row) });
+      await settleRecurringMonthEndAfterSave(env, householdId, ruleId ? { ...existing, ...row } : (Array.isArray(written) ? written[0] : null), { path: "/admin/recurring/save" });
     });
     return redirectResponse(addQueryToUrl(returnTo, { msg: "recurring_saved" }));
   } catch (err) {
@@ -54360,6 +54398,13 @@ function parseBareInviteCode(text = "") {
   return /^[A-Z0-9]{5,12}$/i.test(t) ? t.toUpperCase() : "";
 }
 
+// V22.9.122 AZ-1(출시 전 점검 2026-11-14): ‘초대코드 HOME2265’(그 코드로 참여하려는 말)가 초대코드 보기로 읽혀 보낸 사람 자기 가계부의 초대코드를 보여 줬다
+// (가계부 없는 방이면 방 전체에). 초대코드·참여코드 바로 뒤에 위 코드 꼴(영문·숫자 5~12자)만 있으면 그 코드로 참여한다. ‘초대코드’·‘초대코드 보여줘’는 예전처럼 보기다.
+function parseInviteCodeJoinCommand(text = "") {
+  const m = normalizeText(text).trim().match(/^(?:초대|참여)\s*(코드.*)$/);
+  return m ? parseBareInviteCode(m[1]) : "";
+}
+
 function normalizeBudgetCategoryInput(value = "") {
   // 이 함수는 두 번 거친다(명령 파서에서 한 번, 분류 해석에서 또 한 번).
   // 첫 번째가 내놓은 "__total"을 두 번째가 다시 정규화하면 밑줄이 지워져
@@ -54814,7 +54859,19 @@ async function offerKakaoRoomRebindAfterCreate(env, { user, payload, groupKey = 
   };
 }
 
-async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin }) {
+// V22.9.122 AZ-2(출시 전 점검 2026-11-14): 단톡방에서 ‘가계부 참여 CODE’로 참여해도 이 방은 그 가계부에 연결되지 않는다(이 방 다음 기록은 ‘이 방의 공동 가계부’로 간다).
+// 그런데 답은 ‘이제 … 바로 기록할 수 있어요’라고 해서 이 방 기록이 그 가계부로 가는 것처럼 읽혔다. 이 방이 그 가계부에 연결돼 있지 않으면(연결을 읽지 못했어도) 참여는 개인 대화·웹에
+// 적용되고 이 방 연결은 소유자·관리자의 ‘단톡방 연결 CODE’라고 적는다(누가 참여하고 무엇이 연결되는지는 그대로, 문구만). 승인 대기·구성원 답에만 붙인다.
+function kakaoRoomJoinScopeNoteV229122(joined = {}, code = "", linkedHousehold = null) {
+  if (linkedHousehold?.id && String(linkedHousehold.id) === String(joined?.id || "")) return "";
+  const name = String(joined?.name || "가계부");
+  return [
+    `${joined?.join_role === "pending" ? "승인되면 개인 대화와 웹 가계부에서 쓸 수 있어요." : "이 참여는 개인 대화와 웹 가계부에 적용돼요."} 이 방에서 보내는 기록은 이 방이 ‘${name}’에 연결돼 있을 때만 그 가계부에 저장돼요.`,
+    `이 방을 연결하려면 소유자·관리자가 이 방에서 ‘단톡방 연결 ${String(code || "").toUpperCase()}’처럼 보내 주세요.`,
+  ].join("\n");
+}
+
+async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin, roomLinkPromise = null }) {
   let state = await getKakaoFlowState(env, user.id, payload);
   if (!state || !["create_household", "join_household", "household_choice"].includes(state.flow)) return null;
   if (isExplicitKakaoFlowCancelCommandV2254(utterance)) {
@@ -55074,8 +55131,10 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
     const cleanupNotice = await completeKakaoFlowState(env, user.id, payload);
     // V22.9.37 감사 H2: 단톡방에서 보낸 참여는 1:1 개인 가계부 선택을 바꾸지 않는다. 방의 가계부는 연결로만 정해진다.
     if (!getKakaoBotGroupKey(payload) && !["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
-    if (["pending","blocked","viewer"].includes(joined.join_role)) return { text: (roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`) + cleanupNotice, quickReplies: [["도움말 보기", "도움말 보기"]] };
-    return { text: `✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요.` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
+    // V22.9.122 AZ-2: 단톡방 참여 답은 이 방이 그 가계부에 연결돼 있지 않으면 범위 안내로 바꾼다(위 kakaoRoomJoinScopeNoteV229122; 방 연결은 이미 던져 둔 읽기를 받는다).
+    const roomNote = getKakaoBotGroupKey(payload) ? kakaoRoomJoinScopeNoteV229122(joined, code, roomLinkPromise ? (await roomLinkPromise)?.value : null) : "";
+    if (["pending","blocked","viewer"].includes(joined.join_role)) return { text: (roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`) + (joined.join_role === "pending" && roomNote ? `\n\n${roomNote}` : "") + cleanupNotice, quickReplies: [["도움말 보기", "도움말 보기"]] };
+    return { text: `✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n${roomNote || "이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요."}` + cleanupNotice, quickReplies: kakaoStartQuickReplies(true) };
   }
   return null;
 }
@@ -55795,7 +55854,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     if (shouldInterruptKakaoFlowV2254(activeFlowBeforeRouting, utterance)) {
       await clearKakaoFlowState(env, user.id, payload);
     } else {
-      const activePreFlow = await handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin });
+      const activePreFlow = await handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin, roomLinkPromise: linkedGroupPromise });
       if (activePreFlow) return kakaoText(activePreFlow.text, activePreFlow.quickReplies || []);
     }
   }
@@ -55867,15 +55926,19 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     return kakaoText(await kakaoGroupInfoText(env, payload, origin, user), [["가계부만들기", "가계부만들기"], ["초대코드", "초대코드"]]);
   }
 
-  const joinCode = strongTransactionInput ? "" : parseJoinCode(utterance);
+  // V22.9.122 AZ-1(출시 전 점검 2026-11-14): ‘초대코드 CODE’·‘참여코드 CODE’도 ‘참여 CODE’와 같은 참여 길로 보낸다(아래 초대코드 보기·방 자동 참여보다 먼저, 승인 대기 규칙 그대로).
+  const joinCode = strongTransactionInput ? "" : (parseJoinCode(utterance) || parseInviteCodeJoinCommand(utterance));
   if (joinCode) {
     try {
       const joined = await joinHouseholdByCode(env, user.id, joinCode);
       if (!joined) return kakaoText(`초대코드 ${joinCode}를 찾지 못했어요. 코드를 다시 확인해 주세요.`);
       // V22.9.37 감사 H2: 단톡방에서 보낸 참여 명령은 1:1 개인 가계부 선택을 바꾸지 않는다.
       if (!botGroupKey && !["pending","blocked"].includes(joined.join_role)) await setKakaoSelectedHousehold(env, user.id, joined.id);
-      if (["pending","blocked","viewer"].includes(joined.join_role)) return kakaoText(roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`);
-      return kakaoText(`✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요.`, kakaoStartQuickReplies(true));
+      // V22.9.122 AZ-2(출시 전 점검 2026-11-14): 단톡방에서 참여해도 이 방은 그 가계부에 연결되지 않는데 ‘이제 … 바로 기록할 수 있어요’라고 했다(다음 방 기록은 ‘이 방의 공동 가계부’로 감).
+      // 이 방이 그 가계부에 연결돼 있지 않으면 참여 범위(개인 대화·웹)와 ‘단톡방 연결 CODE’를 적는다. 방 연결은 위에서 이미 던져 둔 읽기를 받는다(조회 추가 없음).
+      const roomNote = botGroupKey ? kakaoRoomJoinScopeNoteV229122(joined, joinCode, (await linkedGroupPromise)?.value) : "";
+      if (["pending","blocked","viewer"].includes(joined.join_role)) return kakaoText((roleBlockedMessage(joined.join_role, joined.name) || `🕒 ‘${joined.name}’ 참여 요청을 보냈어요.`) + (joined.join_role === "pending" && roomNote ? `\n\n${roomNote}` : ""));
+      return kakaoText(`✅ ‘${joined.name}’ 가계부에 참여했어요.\n\n${roomNote || "이제 ‘점심 12000원 국민카드’처럼 바로 기록할 수 있어요."}`, kakaoStartQuickReplies(true));
     } catch (err) {
       return kakaoText("초대코드 확인이 잠시 지연되고 있어요. 잠시 후 다시 시도해 주세요.");
     }
@@ -56110,7 +56173,9 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // V22.9.72: 빈 결과(예산 없음·정산할 지출 없음·기록 없음)는 짧게 알리고 다음 행동 버튼(예산설정·기록하기)으로 잇는다.
   if (!strongTransactionInput && isBudgetCommand(utterance)) {
     const canManageBudget = ["owner","admin"].includes(accessRole);
-    const budgetStatus = await kakaoBudgetStatusParts(env, household.id, currentMonthKst(), origin, household.name, { canManage: canManageBudget });
+    // V22.9.122 T-2(출시 전 점검 2026-11-14): ‘지난달 예산 현황’·‘12월 예산 현황’도 늘 이번 달로 답했다(1월 1일에 12월 예산이 있어도 ‘아직 예산이 없어요’).
+    // 예산 설정 명령과 같은 달 읽기(parseBudgetMonthHint: 지난달·다음 달·N월은 가장 가까운 해)로 물은 달을 보여 준다. 달 말이 없거나 읽지 못하면 예전처럼 이번 달이고, 어느 달인지는 머리줄에 적힌다.
+    const budgetStatus = await kakaoBudgetStatusParts(env, household.id, parseBudgetMonthHint(utterance), origin, household.name, { canManage: canManageBudget });
     if (budgetStatus.noBudget) return kakaoNextStepReply(budgetStatus.text, payload, canManageBudget ? [["예산설정", "예산설정"]] : []);
     return kakaoText(budgetStatus.text);
   }
