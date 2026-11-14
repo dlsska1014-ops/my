@@ -53623,12 +53623,13 @@ const KAKAO_GUARD_MAX_TEXT_V229120 = 1500;
 // 문자를 새로 읽지 않는다(승인 문자 한 통 읽기는 nlu/transaction-parser.js readCardApprovalSmsV229122). 여기 걸리지 않으면 예전처럼 저장한다.
 //   ① 결제·출금이 되지 않았다는 알림(승인거절·출금불능)이 지출로 저장됨   ② 카드 끝 번호(‘하나 1357 승인’)·승인번호가 금액으로 한 건 더 저장됨
 //   ③ 취소 문자(‘신한카드(1234)취소’·‘체크취소’·‘부분취소’)가 지출로 저장됨   ④ 문자에 날짜가 하나 적혀 있는데 다른 날(오늘)로 저장됨
-//   ⑤ 받은 돈 알림(‘○○님이 25,000원을 보냈어요’)이 지출로 저장됨
+//   ⑤ 받은 돈 알림(‘○○님이 25,000원을 보냈어요’)이 지출로 저장됨   ⑥ 한글 단위로 적은 잔액·누적·한도(‘잔액 3만원’)의 단위가 10,000원 헛기록이 됨
 const KAKAO_NOTICE_FAILED_V229122 = /승인\s*거절|출금\s*불능|이체\s*불능|결제\s*실패|승인\s*실패/;
 const KAKAO_NOTICE_CANCEL_V229122 = /(?:(?:카드|체크)\s*[\])】]?\s*[(\[]?[\d*]{0,4}[)\]]?|출금|부분)\s*취소\s*(?=-?\d|[가-힣]\*|$)/m;
 const KAKAO_NOTICE_RECEIVED_V229122 = /님이\s*[\d,]+\s*원을?\s*보냈/;
 const KAKAO_NOTICE_SMSISH_V229122 = /[\[(【]\s*web\s*발신\s*[\])】]|(?:누적|잔액|잔고)\s*:?\s*[\d,]+|(?:승인|출금|입금)[^\n]{0,40}\d{1,2}:\d{2}|\d{1,2}:\d{2}[^\n]{0,40}(?:승인|출금|입금)/i;
 const KAKAO_NOTICE_TYPE_WORD_V229122 = /(?:^|\s)(?:수입|지출)(?=\s|$)/;
+const KAKAO_NOTICE_BALANCE_UNIT_V229122 = /(?:누적|잔액|잔고|남은\s*한도|한도)\s*:?\s*[\d,.]+\s*[십백천만억]/;
 const KAKAO_CANCEL_NOTICE_TEXT_V229122 = "결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.";
 function kakaoCardSmsExampleV229122(date, amount, today) {
   const ymd = /^\d{4}-\d{2}-\d{2}$/.test(String(date || "")) ? String(date) : String(today);
@@ -53650,6 +53651,11 @@ function kakaoGuardNoticeV229122(text, rows, today) {
   if (wrongDigit) {
     const real = rows.find((row) => !digits.has(Number(row.amount)));
     return { kind: "notice_digits", text: "카드 끝 번호나 승인번호가 금액으로 읽혀서 저장하지 않았어요.\n문자에서 날짜·쓴 곳·금액만 골라 이렇게 보내 주세요.\n" + kakaoCardSmsExampleV229122(real?.transaction_date, real?.amount, today), quickReplies: replies };
+  }
+  // ⑥ 잔액·누적·한도 금액을 한글 단위로 적은 말(‘잔액 3만원 남음’·‘카페 4800원 잔액21만’): 금액을 고르는 쪽이 잔액 뒤의 숫자만 빼고 단위(‘만원’)를 남겨
+  //    10,000원 같은 헛기록이 한 건 생겼다. 고르는 쪽(브라우저 자산과 같이 쓰는 normalizeInputText)은 그대로 두고 여기서 저장만 막는다.
+  if (KAKAO_NOTICE_BALANCE_UNIT_V229122.test(text)) {
+    return { kind: "notice_balance", text: "잔액·누적·한도 금액이 기록으로 읽힐 수 있어서 저장하지 않았어요.\n쓴 돈만 ‘카페 4800원’처럼 다시 보내 주세요.", quickReplies: replies };
   }
   const spends = rows.some((row) => row.type === "expense");
   if (spends && !KAKAO_NOTICE_TYPE_WORD_V229122.test(text)) {
