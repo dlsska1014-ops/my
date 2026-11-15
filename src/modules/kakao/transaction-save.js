@@ -24,6 +24,10 @@ import { maskKey } from "../admin/ops-diagnostics-pages.js";
 import {
   MEMBER_POLICY_RECORD_ONLY, memberPolicySettingsKey, parseMemberPolicyValue,
 } from "../my/access-control.js";
+import {
+  kakaoSaveFeedbackDataV229123, kakaoSaveFeedbackFromDataV229123,
+} from "../domain/budgets.js";
+import { hasDatabaseRoom } from "../auth/kakao-account-link.js";
 import { kakaoNoMatchGuide } from "./reply-texts.js";
 import { kakaoSaveDelayText } from "./intent-nlu.js";
 import {
@@ -38,7 +42,7 @@ import { kakaoRecordCheckReply, optionalWithin } from "./request-guards.js";
 import { kakaoHouseholdReplyName } from "./household-budget-commands.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
-import { formatDate, nowKstDate } from "../nlu/date-payment.js";
+import { currentMonthKst, formatDate, nowKstDate } from "../nlu/date-payment.js";
 import {
   abTransactionRequestId, escapeHtml, numberWithCommas, sameTransactionCore,
 } from "../domain/transactions-core.js";
@@ -46,6 +50,22 @@ import {
 
 // V22.9.79 감사 N-4: 이름 없이 만들어진 사람의 기본 이름(채팅 사용자 ‘카카오사용자’, 이름 칸이 빈 구성원·관리자). 이 이름은 여러 사람이 같이 쓴다.
 const KAKAO_DEFAULT_PERSON_NAMES_V22979 = new Set(["", "카카오사용자", "구성원", "관리자"]);
+
+// V22.9.123 재방문 장치 1차(2026-11-14 사용자 ‘출시 전 반영’). 기본으로 켜져 있고, 변수 KAKAO_RETURN_HINTS_DISABLED 가 1·true·on·yes 면 셋 다 끈다
+// (기록 답 한 줄 · 월요일/월초 요약 단추 · 첫 기록 답의 채팅방 고정 안내). 출시 주에 코드 배포 없이 끌 수 있게 둔 스위치다.
+function kakaoReturnHintsDisabledV229123(env) {
+  return /^(?:1|true|on|yes)$/i.test(String(env?.KAKAO_RETURN_HINTS_DISABLED || "").trim());
+}
+
+// 월요일이면 ‘지난주 요약’, 매달 1~5일이면 ‘지난달 요약’ 단추. 둘 다 이미 있는 요약 명령이다(parseKakaoSummaryRange). 단추 이름 = 보내는 말(단톡방 메시지 단추는 이름을 보낸다).
+function kakaoReturnSummaryRepliesV229123(now = nowKstDate()) {
+  const replies = [];
+  if (now.getDay() === 1) replies.push(["지난주 요약", "지난주 요약"]);
+  if (now.getDate() <= 5) replies.push(["지난달 요약", "지난달 요약"]);
+  return replies;
+}
+
+const KAKAO_PIN_TIP_V229123 = "💡 이 채팅방을 상단에 고정해 두면 다음에도 바로 기록할 수 있어요.";
 
 async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const { household, user, kakaoUserKey, nickname, origin, parsedList, handlerStartedAt, canDeferSave = false, firstNotice = "", utterance = "", assertFresh, onSaved } = context;
@@ -113,6 +133,17 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const preparationBudgetMs = canDeferSave ? 20000 : 3500;
   if (Date.now() - handlerStartedAt >= preparationBudgetMs) return kakaoText("저장 전 준비 조회가 지연되어 이 요청의 기록은 아직 저장하지 않았어요. 잠시 후 다시 보내 주세요.");
 
+  // V22.9.123 재방문 장치 1차: 이번 달 날짜의 한 건을 저장하는 보통 기록에만 ‘이번 달 …’ 한 줄을 붙인다. 첫 기록 길(onSaved — 사용자·가계부를 막 만든 요청이라
+  // 저장소 호출이 가장 많다)·여러 건·중복 답·다른 달 날짜에는 붙이지 않는다. 읽기 둘(예산·이번 달 기록)은 저장과 나란히 던져 순차 단계를 늘리지 않고,
+  // 답을 만들 때 번호·이름과 같은 자리에서 시간 상자로 받는다 — 늦거나 실패하면 그 줄만 빠진다. 이미 2.8초를 썼거나, 남은 저장소 호출 예산이
+  // 이 저장과 답 뒤 뒷정리에 쓸 몫(읽기 3 — 환불 연결을 켠 곳은 셋이다 — + 16 + 대기 중인 뒷정리)보다 적으면 읽지 않는다.
+  const returnHints = !kakaoReturnHintsDisabledV229123(env);
+  const feedbackMonth = returnHints && !onSaved && rowsToInsert.length === 1 ? String(rowsToInsert[0].transaction_date || "").slice(0, 7) : "";
+  const afterReplyCost = (env?.__AB_KAKAO_REQUEST?.afterReply || []).reduce((sum, item) => sum + Number(item?.cost || 0), 0);
+  const feedbackPromise = feedbackMonth && feedbackMonth === currentMonthKst() && Date.now() - handlerStartedAt < 2800 && hasDatabaseRoom(env, 3 + 16 + afterReplyCost)
+    ? kakaoSaveFeedbackDataV229123(env, household.id, feedbackMonth) : null;
+  feedbackPromise?.catch(() => {});
+
   let savedRows = [];
   let dailyRows = null;
   // T1 starts under the writer lease beside marker persistence. Keep raw rows:
@@ -145,6 +176,8 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   if (!savedRows.length) return kakaoText(kakaoSaveDelayText(origin));
   const newCount = savedRows.filter(row => !row.__duplicate_skipped).length;
   const duplicateCount = savedRows.length - newCount;
+  // 첫 기록 답(이 사람이 이 가계부에 처음 남긴 기록)에는 채팅방 고정 안내를 한 번 붙인다.
+  const pinTip = returnHints && onSaved && newCount ? `\n\n${KAKAO_PIN_TIP_V229123}` : "";
   // V22.9.76 카카오 감사 5: 수입과 지출을 함께 보내면 "합계"가 둘을 더한 값이었다. 구분별로 나눠 보인다(지출만이면 예전처럼 "합계").
   const totalOf = (type) => savedRows.filter((row) => (row.type === "income" ? "income" : "expense") === type).reduce((sum, row) => sum + Number(row.amount || 0), 0);
   const expenseTotal = totalOf("expense");
@@ -181,7 +214,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     });
     const bulkGuide = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY
       ? "구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요." : "수정할 번호는 ‘오늘기록’에서 확인해 주세요.";
-    return kakaoText(`${firstNotice}✅ ${resultLine}\n가계부: ${householdLine}\n${lines.join("\n")}\n\n${bulkGuide}${finalizeNotice}`);
+    return kakaoText(`${firstNotice}✅ ${resultLine}\n가계부: ${householdLine}\n${lines.join("\n")}\n\n${bulkGuide}${finalizeNotice}${pinTip}`);
   }
 
   const parsed = limitedParsedList[0];
@@ -189,21 +222,36 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const icon = parsed.type === "income" ? "💰" : "💸";
   const typeText = parsed.type === "income" ? "수입" : "지출";
   const enrichBudgetMs = Math.max(150, Math.min(700, 3900 - (Date.now() - handlerStartedAt)));
-  const [seq, aliases, payerMembers] = await Promise.all([
+  const [seq, aliases, payerMembers, feedbackData] = await Promise.all([
     dailyRows ? dailyRows.length >= KAKAO_DAILY_ROW_LIMIT_V22980 ? 0 : kakaoDailySeqFromRows(dailyRows.some(row => String(row.id) === String(saved.id)) ? dailyRows : [...dailyRows, saved], saved, user.id, kakaoUserKey)
       : optionalWithin(dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, saved), enrichBudgetMs, 0),
     optionalWithin(aliasesPromise, enrichBudgetMs, {}),
     payerMembersPromise ? optionalWithin(payerMembersPromise, enrichBudgetMs, null) : null,
+    // V22.9.123: 한 줄 피드백은 350 ms 안에 온 것만 붙인다(저장소가 느린 날 답을 더 늦추지 않는다).
+    feedbackPromise && newCount === 1 ? optionalWithin(feedbackPromise, Math.min(enrichBudgetMs, 350), null) : null,
   ]);
+  // 독립 검토 뒤: 읽은 자료가 이상해(원소가 null 등) 줄을 만들다 던지면 저장된 기록에 일반 오류 답이 나가므로, 줄 만들기도 방어 안에 둔다(그 줄만 빠진다).
+  // 읽기를 던진 뒤 달이 넘어갔으면(말일 23:59 의 기록) ‘이번 달’ 이라고 부를 수 없으므로 붙이지 않는다.
+  let feedbackLine = "";
+  if (feedbackData && feedbackMonth === currentMonthKst()) {
+    try { feedbackLine = String(kakaoSaveFeedbackFromDataV229123(feedbackData, saved) || ""); }
+    catch (err) { rememberOpsEvent({ kind: "kakao_save_feedback_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) }); }
+  }
   const payerName = (payerMembers && memberNameMap(payerMembers)[user.id]) || aliases?.[user.id] || user.nickname || nickname || "나";
   const numberedLine = seq ? kakaoRowLabel(saved, seq) : `${saved.memo || saved.raw_text || saved.category || "기록"} / ${numberWithCommas(saved.amount)}원 / ${saved.payment_method || "-"} / ${saved.category || typeText}`;
   // T2: 오늘이 아닌 날짜로 저장한 기록은 안내에도 그 날짜를 붙인다. 날짜 없는 "수정 01번"은 오늘의 01번이다.
   const dayPrefix = kakaoEditDayPrefixV4(saved.transaction_date);
   // V22.9.43: 구성원 권한이 ‘기록만’인 구성원에게는 할 수 없는 수정·삭제 명령을 안내하지 않는다.
   const recordOnlyMember = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY;
+  // V22.9.123: 오늘 날짜로 남긴 오늘의 첫 카카오 기록 답에만 요약 단추를 붙인다(월요일 ‘지난주 요약’, 1~5일 ‘지난달 요약’). 그날 둘째 기록부터는 붙이지 않는다.
+  // ‘오늘의 첫 기록’ 은 답에 찍히는 번호(01번)로 본다 — 저장소 호출이 늘지 않는다. 번호는 ‘오늘기록’ 과 같은 규칙(isKakaoRowOwnedByRequesterV2254)이라
+  // 다른 사람의 기록은 세지 않지만, 내가 오늘 웹에서 먼저 넣은 기록은 내 줄로 센다(그때는 카카오 첫 기록이 02번이라 붙지 않는다).
+  // 번호를 읽지 못했으면(seq 0) 붙이지 않는다. 첫 기록 답(onSaved — 가계부 준비·참여 안내가 든 긴 답)에도 붙이지 않는다.
+  const firstOfToday = returnHints && !onSaved && newCount === 1 && seq === 1 && String(saved.transaction_date || "") === formatDate(nowKstDate());
+  const summaryReplies = firstOfToday ? kakaoReturnSummaryRepliesV229123() : null;
   const editGuide = recordOnlyMember ? `\n\n구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요.`
     : seq ? `\n\n수정: "${dayPrefix}수정 ${twoDigitSeq(seq)}번" 또는 "${dayPrefix}수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "${dayPrefix}삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘${dayPrefix || "오늘 "}기록 보기’에서 확인해 주세요.`;
-  return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${householdLine}\n${numberedLine}${parsed.type === "income" ? `\n수입자: ${payerName}` : `\n지출자: ${payerName}`}${editGuide}${finalizeNotice}`);
+  return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${householdLine}\n${numberedLine}${parsed.type === "income" ? `\n수입자: ${payerName}` : `\n지출자: ${payerName}`}${feedbackLine ? `\n${feedbackLine}` : ""}${editGuide}${finalizeNotice}${pinTip}`, summaryReplies);
   } finally { if (messageLease?.acquired && !context.messageLeasePromise) await deferKakaoAfterReply(env, () => releaseOperationLease(env, messageLease), { cost: 1, critical: true }); }
 }
 

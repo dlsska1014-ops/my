@@ -195,7 +195,7 @@ await fixture(async fx => {
   const properties = { appUserId: String(920000000 + sequence) };
   putSetting(fx, "user_identity_links", JSON.stringify({ ...JSON.parse(settingValue(fx, "user_identity_links")), [`kakao_login:${properties.appUserId}`]: { user_id: fx.uid(fx.owner) } }));
   const off = await fx.say("빵 2600", { properties }); measure("existing-off", off);
-  t.ok(off.before <= 10, "F ordinary reply cap ten");
+  t.ok(off.before <= 12, "F ordinary reply cap twelve (V22.9.123: ten + the two feedback reads sent beside the save)");
   t.eq(off.calls.filter(c => c.url.pathname.endsWith("/accountbook_user_identities") || c.url.search.includes("kakao_login")).length, 0, "off linked existing only confirms links without owner queries");
   t.ok(!settingValue(fx, "kakao_login_link_offers_v22991"), "off creates no offer queue storage");
   const hit = await fx.say("커피 2700원", { properties }); measure("existing-off-hit", hit);
@@ -416,7 +416,7 @@ for (const ordinary of [false, true]) await fixture(async fx => {
   t.eq(cold.before, base.before, "off existing app adds zero reply calls for either input shape");
   t.ok(cold.total - base.total <= 2, "off existing confirmation and cold probe total extra at most two");
   t.eq(hit.total, base.total, "off existing probe hit adds zero total calls");
-  t.ok(cold.before <= 10 && hit.before <= 10, "F reply cap ten in both input shapes");
+  t.ok(cold.before <= 12 && hit.before <= 12, "F reply cap twelve in both input shapes (V22.9.123: ten + the two feedback reads)");
   t.eq(cold.calls.filter(c => c.afterReply && c.method === "POST" && JSON.stringify(c.body).includes("kakao_app_user_id_probe_v22991:present")).length, 1, "cold present probe is written after reply");
   for (const [key] of globalThis.__AB_KAKAO_APP_USER_ID_PROBE) if (key.startsWith("present:")) globalThis.__AB_KAKAO_APP_USER_ID_PROBE.set(key, Date.now() - 60 * 60 * 1000 - 1);
   const expired = await fx.say(ordinary ? "빵 6400" : "커피 6400원", { properties });

@@ -1,3 +1,7 @@
+// V22.9.123 통합(2026-11-14, 재방문 장치 1차를 V22.9.122 위에 올리고 판 이름을 올림): 판 이름을 올리기 전의 번들(이름 V22.9.122)에서 이 검사가
+// 지문 = V22.9.122 값으로 두 모드 모두 통과함을 먼저 확인했다(등록 검사 전체 병렬 실행, review-artifacts/prelaunch-sweep-2026-11-14/mine/runall.mjs).
+// 그 뒤 --print-golden 으로 판 이름이 들어가는 analysis·backupFull·backupMonth 세 값만 다시 얻었다. 나머지는 그대로다(이 스크립트가 대조).
+// 카카오 기록 저장 답의 한 줄·요약 단추·고정 안내는 지문 화면에 닿지 않는다.
 // V22.9.122 통합(2026-11-14, 출시 전 점검 수정을 V22.9.121 위에 모으고 판 이름을 올림): 판 이름을 올리기 전의 통합 번들(이름 V22.9.121)에서 이 검사가
 // 지문 = V22.9.121 값으로 두 모드 모두 통과함을 먼저 확인했다(등록 검사 전체 병렬 실행, review-artifacts/prelaunch-sweep-2026-11-14/mine/runall.mjs).
 // 그 뒤 --print-golden 으로 판 이름이 들어가는 analysis·backupFull·backupMonth 세 값만 다시 얻었다. 나머지는 그대로다(이 스크립트가 대조).
@@ -140,15 +144,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 df9761ab7204d02ba148aa42",
   "reports": "200 323fd864cf7e343efe6dc40d",
   "reportsWeek": "200 14de653d7544b8f2e096f67f",
-  "analysis": "200 fdf82cc796a2f68f41b90f58",
+  "analysis": "200 e992e550e2218526d09dd11b",
   "backupPage": "200 6262b0957469ecc4f141ae06",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 b7bf1f4fe66e787c131b492e",
-  "backupMonth": "200 69c48075983cc32ba30adbb0",
+  "backupFull": "200 5fa0dfda7eba76f7f4d8bee6",
+  "backupMonth": "200 c6c2c2b166c7f6f57913d711",
   "candidate": "200 1571a22a5da825caeb45c8ac",
   "legacyErr": "200 8483371f87264a4e90af381d",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

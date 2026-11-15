@@ -55,7 +55,7 @@ import {
   householdJoinFeedback, purgeHouseholdData, removeMemberAlias,
 } from "../my/households-lifecycle.js";
 import {
-  budgetAlertText, budgetFeedbackLine, budgetStageInfo, budgetSummary,
+  budgetAlertText, budgetFeedbackLine, budgetStageInfo, budgetSummary, kakaoSaveFeedbackTextV229123,
 } from "../domain/budgets.js";
 import {
   AB_CATEGORY_ICON_PATHS, AB_NAV_ICON_PATHS, AB_UI_ICON_PATHS,
@@ -188,3 +188,6 @@ export { buildSettlementRefundPreview, settlementRefundPreviewDigest };
 export { refundDeductionsByMonth, applyRefundLinkNetting, refundLinkDeductionRows, normalizeRefundLinkRows, refundSettlementNetting, rankRefundCandidates, refundLinkDateAllowed, refundNettedMonthRows, loadRefundLinkMonthState, settlementRefundDigest, refundLinkErrorCode, refundLinkMessage };
 
 export { kakaoGroupFirstKeys, kakaoGroupLinkItemSettingsKey, getExplicitKakaoBotGroupKey, readKakaoGroupFirstSnapshot, removeKakaoGroupLink, bindKakaoGroupByInviteCode };
+
+// V22.9.123: 기록 저장 답의 한 줄 피드백 문구(검사가 조합을 직접 본다).
+export { kakaoSaveFeedbackTextV229123 };

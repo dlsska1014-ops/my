@@ -147,7 +147,8 @@ ok(/선택했어요/.test(chosen.text), "카카오에서 가계부를 골랐다"
   const cold = await measureWith(coldWorker, coldRequest("콜드아이솔레이트커피 4511"));
   console.log(`K-1 cold calls=${cold.calls}/${cold.totalCalls} depth=${cold.depth}`);
   ok(cold.status === 200 && /저장했어요/.test(cold.text), "fresh-isolate Kakao record succeeds through the actual worker");
-  const expectedCalls = process.env.AB_QA_CATEGORIES_ABSENT === "1" ? 8 : 9;
+  // V22.9.123: 한 줄 피드백의 읽기 둘(예산·이번 달 기록)을 저장과 나란히 보내 답 전 호출이 2 늘었다. 순차 단계(depth 5)는 그대로여야 한다.
+  const expectedCalls = process.env.AB_QA_CATEGORIES_ABSENT === "1" ? 10 : 11;
   ok(cold.calls === expectedCalls && cold.totalCalls === expectedCalls + 2, `fresh-isolate Kakao record keeps exact reply/total DB calls (${cold.calls}/${cold.totalCalls})`);
   ok(cold.depth === 5, `fresh-isolate Kakao record keeps exactly reply depth 5 (${cold.depth})`);
   const warm = await measureWith(coldWorker, coldRequest("웜아이솔레이트커피 4512"));
