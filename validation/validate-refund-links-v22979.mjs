@@ -6,6 +6,9 @@
 // 카카오 답장·완료 이력이 그 값과 바이트 단위로 같아야 한다. 다른 판이 정산 화면 틀을 일부러 바꾸면 그 판에서 다시 뽑아 적는다.
 // V22.9.118 ui(2026-11-12): 정산 화면 본문의 공유 문구에서 ‘초대/참여 문구’ 줄을 빼고(U-5) 정산 방식 select 에 이름(aria-label)을 붙여(U-13) 본문 넷(equalMain·itemMain·memberMain·afterMain)을 다시 뽑았다.
 // 그 둘을 옛 모양으로 되돌린 번들로 옛 값 그대로 251개가 모두 통과함을 먼저 확인했다(review-artifacts/v118-v119-improvements-2026-11-12/scratch/ui/refund-reverse-check.txt). 카카오 답장·완료 이력은 그대로다.
+// V22.9.124(UI/UX 기준 점검, 2026-11-15): 정산 화면의 두 표(참여자별·송금 제안)에 좁은 화면에서 카드로 쌓는 표식(.abStackWrap·.abStackTable)과 칸 머리글(data-label)을 달고,
+// ‘환급 연결 미리보기’ 줄에 누르는 높이 표식(.abLinkRow)을 달아 본문 넷(equalMain·itemMain·memberMain·afterMain)을 다시 뽑았다. 그 표식만 옛 모양으로 되돌린 번들로 옛 값 그대로
+// 251개가 모두 통과함을 먼저 확인했다(review-artifacts/v124-prelaunch-polish-2026-11-15/work/refund-reverse-check.txt). 카카오 답장·완료 이력은 그대로다.
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
@@ -13,10 +16,10 @@ import { BASE, app, ctx, fixture, intercept, page, post, skill, withClock } from
 
 const PRINT_GOLDEN = process.argv.includes("--print-golden");
 const FLAG_OFF_GOLDEN = {
-  equalMain: "9a07ece48645ecdfdfb46d1c",
-  itemMain: "e83c6bfbb2d6419a163055d9",
-  memberMain: "b4707b21fac3aabdbb931c70",
-  afterMain: "7c230594647ab5cc144ae943",
+  equalMain: "069bfd14accbf10e150aa8c1",
+  itemMain: "2a134791e4227d18be2fb57b",
+  memberMain: "f217a4472b9be984ae6cc7f7",
+  afterMain: "de625792d4824d8a0702ac37",
   kakao: "📊 2026-10 정산\n환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.\n총 지출: 130,000원\n참여자: 2명\n1인 기준: 65,000원\n\n• Bin: 35,000원 받기\n• WIFI♥: 35,000원 보내기\n\n송금 제안\n• WIFI♥ → Bin: 35,000원",
   entry: "{\"schema_version\":2,\"month\":\"2026-10\",\"mode\":\"equal\",\"conditions\":{\"weights\":{},\"itemParticipants\":{}},\"total_expense\":130000,\"participant_count\":2,\"shares\":[{\"user_id\":\"user-bin\",\"name\":\"Bin\",\"paid\":100000,\"share\":65000,\"balance\":35000},{\"user_id\":\"user-wifi\",\"name\":\"WIFI♥\",\"paid\":30000,\"share\":65000,\"balance\":-35000}],\"transfers\":[{\"from\":\"WIFI♥\",\"to\":\"Bin\",\"amount\":35000}],\"rows_digest\":\"08cb42034599e093a5c0ab7bcc975449\",\"note\":\"합성 정산\",\"completed_by\":\"user-bin\",\"status\":\"completed\"}",
   routes: "GET /my/settlement/refund-link 404\nPOST /my/settlement/refund-link 404 \nPOST /my/settlement/refund-unlink 404 \nPOST /my/settlement/refund-keep 404 ",

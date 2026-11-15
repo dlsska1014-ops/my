@@ -35,7 +35,7 @@ const asset = async (path) => {
   return response.text();
 };
 
-const SHELL = "/assets/accountbook-shell-v22993.css";
+const SHELL = "/assets/accountbook-shell-v229124.css";
 const HOME_CSS = "/assets/mobile-home-v22985.css";
 const V5 = "/assets/accountbook-v5-v22993.js";
 const NAV = "/assets/accountbook-nav-v22987.js";

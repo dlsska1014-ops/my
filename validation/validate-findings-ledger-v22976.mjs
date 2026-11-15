@@ -12,6 +12,8 @@ const ok = (condition, message) => { checks += 1; if (!condition) failures.push(
 
 // 출처 문서마다 항목 ID 를 뽑는 규칙. 새 감사 문서를 쓰면 여기에 한 줄을 더한다.
 const SOURCES = [
+  // V22.9.124: 2026-11-15 UI/UX 기준 점검(운영 V22.9.123 기준, 화면 36곳 × 390·768·1440 폭) — U 화면.
+  { key: "V124", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_124.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(U-[0-9]+)(?=[ *]|$)/gm, expected: 13 },
   // V22.9.122: 2026-11-14 출시 전 점검(운영 V22.9.121 기준) — K 카카오 입력·명령, R 단톡방 참여·장애 대응, C 예약 실행, W 웹.
   { key: "V122", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_122.md", pattern: /^(###|[ ]*-) +(?:[*][*])?([KRCW]-[0-9]+)(?=[ *]|$)/gm, expected: 18 },
   // V22.9.121: 2026-11-13 후원자 점검(운영 V22.9.120 기준)의 빈틈 S-1~S-4·남은 혜택 S-5 와 계정 잇기 진단 중 본 I-1.
@@ -77,7 +79,7 @@ const ledger = read("docs/codex/FINDINGS_LEDGER.md");
 const harness = read(".codex/scripts/verify-repository.mjs");
 const rows = [];
 for (const line of ledger.split("\n")) {
-  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108|V116|V117|V118|V120|V121|V122):[A-Z]-[0-9]+[a-z]?) *[|]/.exec(line);
+  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108|V116|V117|V118|V120|V121|V122|V124):[A-Z]-[0-9]+[a-z]?) *[|]/.exec(line);
   if (!match) continue;
   const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
   const [id, severity, title, status, fixedIn, check, note] = cells;

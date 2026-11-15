@@ -142,7 +142,8 @@ await section("B-5", async () => {
 
     // 같은 계산을 쓰는 웹 정산 화면도 같은 이름이다.
     const html = (await page(fx, `/settlement-summary?month=${MONTH}&household_id=${encodeURIComponent(hid)}`, { cookie: await fx.cookieFor(a) })).html;
-    const rows = [...html.matchAll(/<tr><td>([^<]+)<\/td><td>([^<]+)<\/td><td><b>([\d,]+)원<\/b><\/td><\/tr>/g)].map((m) => [m[1], m[2], m[3]]);
+    // V22.9.124: 정산 표 칸에 좁은 화면용 머리글 속성(data-label)이 붙었다. 칸의 속성은 무엇이든 받는다.
+    const rows = [...html.matchAll(/<tr><td[^>]*>([^<]+)<\/td><td[^>]*>([^<]+)<\/td><td[^>]*><b>([\d,]+)원<\/b><\/td><\/tr>/g)].map((m) => [m[1], m[2], m[3]]);
     ok(rows.length === 2 && rows.every(([from, to]) => from !== to) && rows.some(([from, to, amount]) => from === "카카오사용자 3" && to === "카카오사용자 1" && amount === "11,000"), `B-5 웹 정산 화면: 송금 제안 양쪽이 구분되고 카카오 답장과 같은 번호 (${JSON.stringify(rows)})`);
     ok(html.includes("<b>카카오사용자 2</b>") && !html.includes("<b>카카오사용자</b>"), "B-5 웹 정산 화면: 참여자 표도 번호로 구분");
 

@@ -27,6 +27,9 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
+  // V22.9.124(UI/UX 기준 점검: 좁은 화면의 터치 영역 44px·표를 카드로 쌓기·표 상자 포커스 표시): 셸 CSS 끝에 규칙 한 블록을 더해 주소를 v22993 → v229124 로 올렸다.
+  // 옛 주소(accountbook-shell-v22993.css, 운영 V22.9.93~123 이 쓰는 주소)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 옛 해시(아래 줄)로 계속 내려간다.
+  "/assets/accountbook-shell-v229124.css": "1d9051b9dfe27054c5ad0944af51c81736d85db01b774471a59f8725050ab397",
   // V22.9.95(안내·해석: 폭 0·전각 글자 정리, 외화 금액 되묻기, R-16 분류 예외 낱말): 공유 입력 해석이 실리는 홈 스크립트·홈 셸과 분류 규칙의 바이트가
   // 바뀌어 세 주소를 v22995 로 올렸다. 옛 주소(v22993, 운영 V22.9.93·94 가 쓰는 주소)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 v22993 해시로 계속 내려간다.
   "/assets/ab-category-rules-v22995.js": "1634aa035748a19ab8786347b6c7ee42f0bc6eb6bbf1588e163e70f92950687b",

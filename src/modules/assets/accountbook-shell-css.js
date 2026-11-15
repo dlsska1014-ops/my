@@ -1419,6 +1419,47 @@ body.abV22812Shell .quickMore>summary>span{flex:none;white-space:nowrap}
   + `${designUplift3Css()}\n`
   // V22.9.87 (지시서 4단계 T-19): 데스크톱 독 → 사이드바 검색·머리말 아이콘 단추·빠른 입력 단추 하나. 만드는 곳은 design-uplift-4-css.js.
   + `${designUplift4Css()}\n`
+  // V22.9.124 (UI/UX 기준 점검): 좁은 화면의 터치 영역 44px·표를 줄마다 카드로 쌓기·표 상자 포커스 표시. 아래 V22.9.40 (C) 블록 앞에 끼운다.
+  + `/* ── V22.9.124 (UI/UX 기준 점검: 터치 영역 · 좁은 화면의 표 · 포커스) ─────────────────────
+   390·768 폭에서 재 보니 44px 에 못 미치는 조작 영역이 남아 있었고(안내문 끝 ‘접기’ 34×17,
+   거래 탭 ‘홈으로’ 57×36, 조회 폼의 고르기 칸·단추 40px, 캘린더 ‘닫기’ 48×36 등), 정산·오늘 예산·
+   결제수단 표는 휴대폰에서 옆으로 밀어야 금액과 상태가 보였다. 1024px 이상의 배치는 건드리지 않는다. */
+@media(max-width:1023px){
+/* 안내문 끝의 ‘접기’ 는 글줄 높이를 그대로 두고(높이를 줄이려고 만든 단추다) 누르는 자리만 넓힌다 — 보이지 않는 덧칸. */
+body.abV22812Shell .abHeadNote .abHeadNoteToggle{position:relative}
+body.abV22812Shell .abHeadNote .abHeadNoteToggle::after{content:"";position:absolute;left:-5px;right:-5px;top:50%;height:44px;transform:translateY(-50%)}
+body.abV22812Shell .txTabHead .txTabHome{min-height:44px!important}
+body.abV22812Shell .yearNav>a,body.abV22812Shell .yearNav>span{min-width:44px!important;min-height:44px!important;justify-content:center}
+body.abV22812Shell .accountSecurity>a,body.abV22812Shell .dangerZone .reauthButton,body.abV22812Shell .tmpl .templateStart{min-height:44px!important}
+body.abV22812Shell .miniRow .mini{min-width:48px;min-height:44px!important}
+body.abV22812Shell .ckList>li>a{padding-top:10px!important;padding-bottom:10px!important}
+body.abV22812Shell form.filters.abV5ControlBar :is(select,button,input:not([type=hidden])){min-height:44px!important}
+body.abV22812Shell .kwChip .kwRemove{width:44px!important;height:44px!important;min-height:44px!important}
+body.abV22812Shell .homeCalendar .calHead .calClose{display:inline-flex!important;align-items:center;min-height:44px}
+body.abV22812Shell .homeCalendar .calNav>a{min-height:44px!important}
+body.abV22812Shell .abAnalysisViews>a,body.abV22812Shell .abV5HeaderActions>a{min-height:44px!important}
+body.abV22812Shell .loginOptional>summary{min-height:44px!important}
+body.abV22812Shell .loginLegal>a{min-width:44px;justify-content:center}
+body.abV22812Shell table.abStackTable>tbody>tr>td>a:not(.regLink):not(.mini){display:inline-flex;align-items:center;min-width:44px;min-height:44px;margin-block:-12px}
+body.abV22812Shell .abLinkRow>a{display:inline-flex;align-items:center;min-height:44px}
+}
+/* 가로로 밀리는 표 상자는 글쇠로 들어갈 수 있다(tabindex). 들어갔을 때의 표시가 약했다. */
+body.abV22812Shell .tableWrap:focus-visible{outline:2px solid var(--ab12-action,#2457d6);outline-offset:2px}
+/* 좁은 화면에서는 표를 줄마다 카드로 쌓는다. 머리글 줄은 화면에서만 감추고(읽어 주는 도구에는 남는다) 칸 위에 data-label 을 보인다. */
+@media(max-width:767px){
+body.abV22812Shell .tableWrap.abStackWrap{overflow:visible!important;border:0!important;border-radius:0!important;background:none!important;box-shadow:none!important;padding:0!important}
+body.abV22812Shell .tableWrap.abStackWrap::before{display:none!important;content:none!important}
+body.abV22812Shell table.abStackTable,body.abV22812Shell table.abStackTable>tbody{display:block!important;width:100%!important;min-width:0!important;background:none!important;border:0!important}
+body.abV22812Shell table.abStackTable>thead{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip-path:inset(50%)!important;white-space:nowrap}
+body.abV22812Shell table.abStackTable>tbody>tr{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px;margin:0 0 10px;padding:14px;border:1px solid var(--ab12-line,#e5e8eb);border-radius:14px;background:var(--ab12-surface,#fff)}
+body.abV22812Shell table.abStackTable>tbody>tr:last-child{margin-bottom:0}
+body.abV22812Shell table.abStackTable>tbody>tr>td{display:block!important;min-width:0!important;width:auto!important;padding:0!important;border:0!important;background:none!important;text-align:left!important;white-space:normal!important;overflow-wrap:anywhere}
+body.abV22812Shell table.abStackTable>tbody>tr>td[data-label]::before{content:attr(data-label);display:block;margin:0 0 2px;color:var(--ab12-muted,#6b7684);font-size:12px;font-weight:600;line-height:1.4}
+body.abV22812Shell table.abStackTable>tbody>tr>td:first-child,body.abV22812Shell table.abStackTable>tbody>tr>td[colspan],body.abV22812Shell table.abStackTable>tbody>tr>td:last-child:nth-child(even){grid-column:1/-1}
+body.abV22812Shell table.abStackTable>tbody>tr>td:first-child:not([colspan]){font-weight:700}
+body.abV22812Shell table.abStackTable>tbody>tr>td>.regLink{margin:0!important}
+}
+`
   + `/* ── V22.9.40 (C) 점진적 최신 규칙 ──
    모르는 브라우저는 모르는 속성·@supports 블록을 통째로 건너뛰므로 아무것도 바뀌지 않는다.
    · 제목 줄바꿈은 text-wrap-style(긴 이름)만 쓴다. 줄임 이름 text-wrap 은 text-wrap-mode 까지 wrap 으로 되돌려

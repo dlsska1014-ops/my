@@ -135,25 +135,29 @@ const PRINT_GOLDEN = process.argv.includes("--print-golden");
 const SOFT = process.env.V22980_SOFT === "1";
 // V22.9.99: 96 raw hash inputs compared with V98. Only version and authorized copy/title changes remain.
 // Evidence: review-artifacts/v99-support-wording-2026-11-04/refund-normalized-comparison.json.
+// V22.9.124(UI/UX 기준 점검, 2026-11-15): 셸 CSS 주소가 v22993 → v229124 로 바뀌어 셸을 부르는 화면 열두 곳(home·homeTrend·homePrev·budgets·budgetAlerts·reports·reportsWeek·
+// analysis·backupPage·backupFull·backupMonth·candidate)의 HTML 이 달라졌다. 그 가운데 analysis·backupFull·backupMonth 는 APP_VERSION 값도 들어가고, budgetAlerts 는 분류별 표의
+// 쌓기 표식(.abStackTable·data-label)도 달라졌다. 셸 CSS 주소·APP_VERSION 값·표 표식만 옛 모양으로 되돌린 번들로 옛 값 그대로 268개가 모두 통과함을 먼저 확인했고
+// (review-artifacts/v124-prelaunch-polish-2026-11-15/work/refund-reverse-check.txt), 그 뒤 --print-golden 으로 열두 값을 다시 얻었다. 나머지 13개(카카오 답·알림·옛 오류 화면 등)는 그대로다.
 const FLAG_OFF_GOLDEN = {
-  "home": "200 20f9536878db26ac79a3a548",
-  "homeTrend": "200 02f7bd6b777077dce5ad5119",
-  "homePrev": "200 e3a3b463296fe2dda9a8fd8f",
-  "budgets": "200 180151a99b7d8b0d1484a608",
-  "budgetAlerts": "200 7826103ec78c78e7869bbc37",
+  "home": "200 9f96446faba56efed32d542e",
+  "homeTrend": "200 2c29f800a0d719d5369ff2e7",
+  "homePrev": "200 afc7559e8cefb31b4063289f",
+  "budgets": "200 2addd800f676ff808221a8ec",
+  "budgetAlerts": "200 351d9f8f0c5f20143cd86316",
   "notifications": "200 df9761ab7204d02ba148aa42",
-  "reports": "200 323fd864cf7e343efe6dc40d",
-  "reportsWeek": "200 14de653d7544b8f2e096f67f",
-  "analysis": "200 e992e550e2218526d09dd11b",
-  "backupPage": "200 6262b0957469ecc4f141ae06",
+  "reports": "200 4d571d712af3ba972b834060",
+  "reportsWeek": "200 1a6fe620161239f04bbe90e2",
+  "analysis": "200 c6b25e720f777b6e95586869",
+  "backupPage": "200 f0c8650c243be7a233161b55",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 5fa0dfda7eba76f7f4d8bee6",
-  "backupMonth": "200 c6c2c2b166c7f6f57913d711",
-  "candidate": "200 1571a22a5da825caeb45c8ac",
+  "backupFull": "200 4bf1aa5911bd566e2de61a69",
+  "backupMonth": "200 82eacf909a00664704f519a6",
+  "candidate": "200 5365d78b1fbd4e9ea84bad21",
   "legacyErr": "200 8483371f87264a4e90af381d",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
   "apiBatch": "200 {\"ok\":true,\"updatedCount\":1}",
