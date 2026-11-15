@@ -10,7 +10,7 @@ function renderAccountbookBrandIcon(className = "abBrandIcon") {
 // V22.9.97 후원 진입점(데스크톱 셸): 사용자 화면 사이드바 아래쪽(처음 사용 가이드 밑)에 ‘후원하기’ 작은 링크 하나. 관리자·운영 화면 사이드바에는 없다.
 // 셸 CSS(1년 캐시 자산)는 바꾸지 않으므로 모양은 속성으로 준다. 글자색은 셸의 링크 색(--ab12-accent, 밝은·다크 모두)을 그대로 받는다.
 // 접힌 사이드바(72px)에서도 한 줄(약 52px)로 들어간다. 휴대폰에서는 ‘전체 메뉴’ 서랍 아래쪽에 같은 링크가 보인다.
-const NAV_SUPPORT_LINK_V22997 = '<a class="abNavSupport" href="/support" title="운영 비용 함께 나누기" style="display:flex;align-items:center;justify-content:center;min-height:44px;font-size:13px;font-weight:800;white-space:nowrap">후원하기</a>';
+const NAV_SUPPORT_LINK_V22997 = '<a class="abNavSupport" href="/support" title="운영 비용 함께 나누기" style="display:flex;align-items:center;justify-content:center;min-height:44px;font-size:13px;font-weight:600;white-space:nowrap">후원하기</a>';
 
 function renderUnifiedNav(active = "home", opts = {}) {
   const month = safeNavMonth(opts.month);

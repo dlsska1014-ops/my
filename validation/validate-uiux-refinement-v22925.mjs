@@ -72,7 +72,7 @@ try {
   const bundle = await request('/assets/accountbook-v5-v22993.js', { cookie: '' });
   new Function(bundle.html); checks++;
   ok(bundle.html.includes('typeof HTMLElement.prototype.showPopover'), 'popover enhancement checks support');
-  const css = await request('/assets/accountbook-shell-v229124.css', { cookie: '' });
+  const css = await request('/assets/accountbook-shell-v229125.css', { cookie: '' });
   ok(css.html.includes('@container home-reports'), 'report layout responds to actual content width');
   ok(css.html.includes('position-try-fallbacks'), 'help has anchor fallback positioning');
   const viewer = fixture.db.household_members.find(member => member.user_id === 'user-wifi' && member.household_id === 'house-home');

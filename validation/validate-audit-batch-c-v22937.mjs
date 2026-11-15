@@ -23,7 +23,7 @@ const { ok, eq, done } = process.env.AB_AUDIT_SOFT === "1" ? softCounter(LABEL) 
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 // 이번 릴리스의 자산 주소. 바뀐 자산은 주소를 올렸고(불변 캐시), 옛 JS 주소는 AB_HISTORICAL_RUNTIME_ASSETS 로 그대로 내려간다.
-const SHELL_CSS = "/assets/accountbook-shell-v229124.css";
+const SHELL_CSS = "/assets/accountbook-shell-v229125.css";
 const NAV_JS = "/assets/accountbook-nav-v22987.js";
 const V5_JS = "/assets/accountbook-v5-v22993.js";
 const GOALS_JS = "/assets/accountbook-goals-v22993.js";
@@ -58,7 +58,7 @@ const navOf = (html) => { const start = html.indexOf('class="abLayoutNav'); retu
   // V22.9.87: 셸 CSS·메뉴 스크립트·V5 번들 주소를 v22987 로 올렸다(디자인 보강 4단계).
   // V22.9.90: V5 번들 주소를 v22990 으로 올렸다(사용자 피드백 — 삭제 알림 되돌리기 5초).
   // V22.9.93: V5 번들·목표·셸 CSS 주소를 v22993 으로 올렸다(Aside 전체 검수 — 역할 이름·긴 내용 안내·목표 금액·좁은 폭 달 칸·다크 배지).
-  for (const [path, version] of [[SHELL_CSS, "v229124"], [NAV_JS, "v22987"], [V5_JS, "v22993"],[GOALS_JS, "v22993"], ["/assets/accountbook-favrows-v22937.js", "v22937"], ["/assets/accountbook-search-v22979.js", "v22979"], ["/assets/accountbook-notif-v22937.js", "v22937"]]) {
+  for (const [path, version] of [[SHELL_CSS, "v229125"], [NAV_JS, "v22987"], [V5_JS, "v22993"],[GOALS_JS, "v22993"], ["/assets/accountbook-favrows-v22937.js", "v22937"], ["/assets/accountbook-search-v22979.js", "v22979"], ["/assets/accountbook-notif-v22937.js", "v22937"]]) {
     const served = await asset(path);
     ok(served.status === 200 && served.etag.includes(version), `${path} 가 ${version} ETag 로 내려온다 (${served.etag || served.status})`);
   }
@@ -276,13 +276,13 @@ await fixture(async (fx) => {
 await fixture(async (fx) => {
   const help = await page(fx, "/quick-input-help");
   eq(help.status, 200, "스마트 입력 도움말이 열린다");
-  ok(help.html.includes("code{background:#f1f5f9;border-radius:10px;padding:4px 7px;font-family:inherit;font-weight:900;white-space:pre-wrap;color:#111827}"), "U8 입력 예시 글자색을 정한다 (예전에는 다크 본문색을 물려받아 1.05:1)");
+  ok(help.html.includes("code{background:#f1f5f9;border-radius:10px;padding:4px 7px;font-family:inherit;font-weight:700;white-space:pre-wrap;color:#111827}"), "U8 입력 예시 글자색을 정한다 (예전에는 다크 본문색을 물려받아 1.05:1)");
   ok(help.html.includes('html[data-ab-resolved-theme="dark"] code{background:#282b33;color:#edeff3}'), "U8 다크 모드의 코드 예시 규칙이 있다");
   const commands = await page(fx, "/kakao-commands", { cookie: "" });
   eq(commands.status, 200, "카카오 명령어 안내가 열린다");
   ok(/<script src="\/assets\/accountbook-theme-v\d+\.js"><\/script>/.test(commands.html), "U8 카카오 명령어 안내에 테마 스크립트가 있다 (예전에는 다크에서도 밝게 그려졌다)");
   ok(commands.html.includes('html[data-ab-resolved-theme="dark"] body{background:#141519;color:#edeff3}') && commands.html.includes('html[data-ab-resolved-theme="dark"] code{background:#282b33;color:#edeff3}'), "U8 카카오 명령어 안내의 다크 규칙");
-  ok(commands.html.includes("code{white-space:pre-wrap;background:#f1f5f9;border-radius:10px;padding:6px 8px;font-family:inherit;font-weight:900;color:#111827}"), "U8 카카오 명령어 코드 예시도 글자색을 정한다");
+  ok(commands.html.includes("code{white-space:pre-wrap;background:#f1f5f9;border-radius:10px;padding:6px 8px;font-family:inherit;font-weight:700;color:#111827}"), "U8 카카오 명령어 코드 예시도 글자색을 정한다");
 });
 
 // ── U9 포커스된 바로가기 링크와 수정 폼 라벨 대비 ───────────────────────────────
@@ -291,7 +291,7 @@ await fixture(async (fx) => {
   ok(login.html.includes(".skipLink{position:absolute;left:12px;top:-80px;z-index:10000;background:#111827;color:#fff!important;padding:12px 16px;border-radius:12px;font-weight:800}"), "U9 바로가기 글자색이 공통 링크색(body.abV22812Shell a)보다 우선한다 (예전에는 파란 글자로 2.65:1)");
   ok(contrast("#ffffff", "#111827") >= 4.5, "흰 글자와 검은 바탕은 4.5:1 을 넘는다");
   const css = (await asset(SHELL_CSS)).text;
-  ok(css.includes("body.abV22812Shell .abDayDetailEditGrid label{display:grid;gap:5px;min-width:0;color:#475467!important;font-size:11px;font-weight:750}"), "U9 날짜 시트 수정 폼의 11px 라벨이 더 진하다");
+  ok(css.includes("body.abV22812Shell .abDayDetailEditGrid label{display:grid;gap:5px;min-width:0;color:#475467!important;font-size:11px;font-weight:500}"), "U9 날짜 시트 수정 폼의 11px 라벨이 더 진하다");
   ok(css.includes("body.abV22812Shell :is(.v8-edit-field>span,.v8-spender-readonly>span){color:#475467!important}"), "U9 홈 수정 폼의 11px 라벨도 더 진하다");
   ok(css.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.v8-edit-field>span,.v8-spender-readonly>span){color:var(--ab12-muted)!important}'), "U9 다크 모드에서는 보조 토큰으로 돌아간다");
   ok(contrast("#475467", "#f8fafc") >= 4.5 && contrast("#475467", "#ffffff") >= 4.5, `진한 라벨은 밝은 카드 위에서도 4.5:1 을 넘는다 (${contrast("#475467", "#f8fafc").toFixed(2)}:1)`);
@@ -360,7 +360,7 @@ await fixture(async (fx) => {
   const ownerBackup = await page(fx, "/my/backup?month=2026-07&household_id=house-home");
   ok(ownerBackup.status === 200 && !ownerBackup.html.includes("abNavAdminOnly"), "승격한 화면도 소유자에게는 표시가 없다");
   const css = (await asset(SHELL_CSS)).text;
-  ok(css.includes("body.abV22812Shell .abNavAdminTag{margin-left:auto;padding-left:6px;font-size:10px;font-weight:800;color:var(--ab12-muted);white-space:nowrap}"), "표시 글자는 보조 토큰(4.5:1)을 쓴다");
+  ok(css.includes("body.abV22812Shell .abNavAdminTag{margin-left:auto;padding-left:6px;font-size:11px;font-weight:400;color:var(--ab12-muted);white-space:nowrap}"), "표시 글자는 보조 토큰(4.5:1)을 쓴다");
 });
 
 // ── N12 목표 마감월·즐겨찾기 날짜를 검증한다 ─────────────────────────────────────

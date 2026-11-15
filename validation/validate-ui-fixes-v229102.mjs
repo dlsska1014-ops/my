@@ -206,7 +206,7 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   // ── 4. 초대코드 표기 ──────────────────────────────────────────────────────────────────────
   const members = await page(fx, `/my/members?${M}&${H}`);
   ok(members.html.includes('<div class="inviteBox"><code><span>초대 문구 · 단톡방이나 참여자에게 그대로 보내세요</span><span>가계부 참여 <b class="inviteKey">HOME2265</b></span></code><button type="button" id="copyInvite">초대 문구 복사</button></div>'), "참여자 관리: 초대 문구와 코드 칸");
-  ok(/\.inviteBox \.inviteKey\{[^}]*ui-monospace[^}]*font-size:26px[^}]*letter-spacing:\.16em/.test(members.html), "초대코드는 큰 고정폭 글자·자간");
+  ok(/\.inviteBox \.inviteKey\{[^}]*ui-monospace[^}]*font-size:24px[^}]*letter-spacing:\.16em/.test(members.html), "초대코드는 큰 고정폭 글자·자간");
   const manage = await page(fx, `/my/households?${M}&${H}&manage=house-home`);
   ok(manage.html.includes("<code>가계부 참여 <b>HOME2265</b></code>"), "가계부 관리: 초대 문구 안에 코드를 따로 강조");
   ok(/\.inviteFold code b,\.inviteCode b\{[^}]*ui-monospace[^}]*letter-spacing:\.16em/.test(manage.html), "가계부 관리 코드 글자도 고정폭·자간");

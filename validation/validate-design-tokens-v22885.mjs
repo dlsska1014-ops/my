@@ -26,17 +26,17 @@ function eq(actual, expected, label) {
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 
 // 1. 셸 자산 주소와 ETag 가 함께 올라갔는지. 둘 중 하나만 올리면 캐시가 어긋난다.
-ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v229124.css"'), "shell stylesheet moved to a new immutable address");
-ok(source.includes('\'"accountbook-shell-v229124-css"\''), "shell stylesheet ETag matches its new path");
+ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v229125.css"'), "shell stylesheet moved to a new immutable address");
+ok(source.includes('\'"accountbook-shell-v229125-css"\''), "shell stylesheet ETag matches its new path");
 
 // 2. 실제로 배달되는 셸 CSS 를 받아서 확인한다. 소스 문자열만 보면 조립 과정에서
 //    빠진 경우를 놓친다(작업지시서 1장: 실제 렌더로 확인).
 const fixture = await createV2265QaFixture();
 let shellCss = "";
 try {
-  const response = await app.fetch(new Request("https://malhaebook.com/assets/accountbook-shell-v229124.css"), fixture.env, {});
+  const response = await app.fetch(new Request("https://malhaebook.com/assets/accountbook-shell-v229125.css"), fixture.env, {});
   eq(response.status, 200, "the bumped shell stylesheet is served");
-  eq(response.headers.get("etag"), '"accountbook-shell-v229124-css"', "the served ETag matches the path");
+  eq(response.headers.get("etag"), '"accountbook-shell-v229125-css"', "the served ETag matches the path");
   shellCss = await response.text();
 } finally {
   fixture.restore();
@@ -48,8 +48,8 @@ const declarations = [
   ["--ab12-sp-1", "4px"], ["--ab12-sp-2", "8px"], ["--ab12-sp-3", "12px"],
   ["--ab12-sp-4", "16px"], ["--ab12-sp-5", "24px"], ["--ab12-sp-6", "32px"],
   ["--ab12-r-sm", "8px"], ["--ab12-r-md", "12px"], ["--ab12-r-lg", "16px"],
-  ["--ab12-fs-num-xl", "34px"], ["--ab12-fw-num-xl", "700"],
-  ["--ab12-fs-num-lg", "22px"], ["--ab12-fw-num-lg", "700"],
+  ["--ab12-fs-num-xl", "36px"], ["--ab12-fw-num-xl", "700"],
+  ["--ab12-fs-num-lg", "20px"], ["--ab12-fw-num-lg", "700"],
   ["--ab12-fs-title", "16px"], ["--ab12-fw-title", "700"],
   ["--ab12-fs-body", "14px"], ["--ab12-fw-body", "400"],
   ["--ab12-fs-cap", "12px"], ["--ab12-fw-cap", "500"],
@@ -102,7 +102,7 @@ const consumedWithFallback = [
   ["--ab12-sp-4", "16px"],
   ["--ab12-sp-2", "8px"],
   ["--ab12-fs-title", "16px"],
-  ["--ab12-fs-num-lg", "22px"],
+  ["--ab12-fs-num-lg", "20px"],
   ["--ab12-fw-num-lg", "700"],
   ["--ab12-elev-card", "0 1px 2px rgba(0,0,0,.04)"],
 ];
@@ -127,7 +127,7 @@ try {
   const home = await app.fetch(new Request("https://malhaebook.com/app?month=2026-07&household_id=house-home", { headers: { cookie: homeFixture.cookie, "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" } }), homeFixture.env, {});
   const html = await home.text();
   eq(home.status, 200, "home still renders");
-  eq((html.match(/href="\/assets\/accountbook-shell-v229124.css"/g) || []).length, 1, "home loads the bumped shell exactly once");
+  eq((html.match(/href="\/assets\/accountbook-shell-v229125.css"/g) || []).length, 1, "home loads the bumped shell exactly once");
   eq(html.includes("--ab12-sp-"), false, "no design token leaks into the home HTML payload");
 } finally {
   homeFixture.restore();

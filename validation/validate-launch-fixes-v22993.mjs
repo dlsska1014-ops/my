@@ -595,7 +595,7 @@ await withClock("2026-10-31", () => fixture(async (fx) => {
 
 // ── Q-16~Q-19 화면 깨짐(Aside 2차 검수) ─────────────────────────────────────────────────────
 {
-  const shell = await assetText("/assets/accountbook-shell-v229124.css");
+  const shell = await assetText("/assets/accountbook-shell-v229125.css");
   const dark = 'html[data-ab-resolved-theme="dark"] body.abV22812Shell ';
   for (const [rule, message] of [
     [".abQuickCompact .abGlobalActionQuick{max-width:56px;padding-right:0;gap:16px}", "Q-16 줄어든 빠른 입력 버튼에 글자 조각이 보이지 않는다"],

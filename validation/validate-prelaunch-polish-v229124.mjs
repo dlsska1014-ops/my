@@ -45,7 +45,10 @@ async function scene(name, task) {
   try { await task(); } catch (error) { if (!SOFT) throw error; softFailures.push(`${name}: ${error && error.message}`); }
 }
 
-const SHELL = "/assets/accountbook-shell-v229124.css";
+// SHELL = 지금 화면이 부르는 셸 CSS 주소(뒤 판에서 올라간다). V124_SHELL = 이 판이 만든 주소 — V22.9.125 부터는 옛 주소로 보관되어
+// 이 판의 바이트를 그대로 낸다. ‘블록을 빼면 옛 스타일시트와 같다’ 는 이 판의 바이트(V124_SHELL)로 본다.
+const SHELL = "/assets/accountbook-shell-v229125.css";
+const V124_SHELL = "/assets/accountbook-shell-v229124.css";
 const OLD_SHELL = "/assets/accountbook-shell-v22993.css";
 const MARK = "/* ── V22.9.124 (UI/UX 기준 점검";
 const M1023 = "@media(max-width:1023px){";
@@ -58,16 +61,23 @@ const old = await asset(OLD_SHELL);
 const blockAt = css.text.indexOf(MARK);
 const blockEnd = blockAt < 0 ? -1 : css.text.indexOf(BLOCK_CLOSE, css.text.indexOf(M767, blockAt)) + BLOCK_CLOSE.length;
 const block = blockAt < 0 ? "" : css.text.slice(blockAt, blockEnd);
+const css124 = await asset(V124_SHELL);
+const blockAt124 = css124.text.indexOf(MARK);
+const blockEnd124 = blockAt124 < 0 ? -1 : css124.text.indexOf(BLOCK_CLOSE, css124.text.indexOf(M767, blockAt124)) + BLOCK_CLOSE.length;
 await scene("P-6", async () => {
   eq(css.status, 200, "P-6 새 셸 CSS 주소가 내려간다");
-  ok(css.cache.includes("immutable") && css.etag.includes("v229124"), "P-6 새 주소는 불변 자산이고 ETag 가 같은 판이다");
+  ok(css.cache.includes("immutable") && css.etag.includes(SHELL.match(/-(v\d+)\.css$/)[1]), "P-6 새 주소는 불변 자산이고 ETag 가 같은 판이다");
+  eq(css124.status, 200, "P-6 이 판이 만든 주소(v229124)도 계속 내려간다");
+  ok(css124.cache.includes("immutable") && css124.etag.includes("v229124"), "P-6 v229124 주소는 불변 자산이고 ETag 가 같은 판이다");
   eq(old.status, 200, "P-6 옛 셸 CSS 주소도 계속 내려간다(이미 받아 간 화면용)");
   eq(old.sha, "e5da88f98b1404f6f932820648077e75a1d7ee513f09934ca54217308a965e56", "P-6 옛 주소의 바이트는 운영 V22.9.93~123 이 쓰던 그대로다");
   ok(!old.text.includes("abStackTable") && !old.text.includes(MARK), "P-6 옛 주소에는 이번 판 규칙이 없다");
   eq(count(css.text, MARK), 1, "P-6 새 주소에 이번 판 블록이 한 번 있다");
+  eq(count(css124.text, MARK), 1, "P-6 v229124 주소에 이번 판 블록이 한 번 있다");
   ok(blockAt > 0 && blockEnd > blockAt, "P-6 블록의 처음과 끝을 찾는다");
-  // 이번 블록을 빼면 옛 주소와 바이트까지 같다(다른 규칙은 건드리지 않았다).
-  eq(sha(css.text.slice(0, blockAt) + css.text.slice(blockEnd)), old.sha, "P-6 블록을 빼면 옛 스타일시트와 바이트까지 같다");
+  ok(blockAt124 > 0 && blockEnd124 > blockAt124, "P-6 v229124 주소에서도 블록의 처음과 끝을 찾는다");
+  // 이번 블록을 빼면 옛 주소와 바이트까지 같다(다른 규칙은 건드리지 않았다). V22.9.125 가 다른 규칙의 값을 바꿨으므로 이 판의 바이트(v229124 주소)로 본다.
+  eq(sha(css124.text.slice(0, blockAt124) + css124.text.slice(blockEnd124)), old.sha, "P-6 블록을 빼면 옛 스타일시트와 바이트까지 같다");
   // 블록은 V22.9.40 (C) 점진적 최신 규칙 블록 앞에 있다(그 블록은 셸 CSS 맨 끝에 있어야 한다 — validate-ui-perf-v22940).
   ok(blockEnd <= css.text.indexOf("/* ── V22.9.40 (C) 점진적 최신 규칙 ──"), "P-6 블록은 V22.9.40 (C) 블록 앞에 있다");
 });

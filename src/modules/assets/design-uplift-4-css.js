@@ -9,7 +9,7 @@ function deskSearchCss() {
   return [
     `body.abV22812Shell .abNavKbd{display:none}`,
     `body.abV22812Shell .abNavSearchSlot{padding:2px 10px 6px}`,
-    `body.abV22812Shell .abNavSearchSlot .abGlobalAction{display:flex;width:100%;min-height:44px;justify-content:flex-start;gap:12px;padding:0 10px 0 12px;border:1px solid var(--ab12-line)!important;border-radius:12px;background:transparent!important;color:var(--ab12-muted)!important;box-shadow:none;font-size:13.5px;font-weight:600}`,
+    `body.abV22812Shell .abNavSearchSlot .abGlobalAction{display:flex;width:100%;min-height:44px;justify-content:flex-start;gap:12px;padding:0 10px 0 12px;border:1px solid var(--ab12-line)!important;border-radius:12px;background:transparent!important;color:var(--ab12-muted)!important;box-shadow:none;font-size:14px;font-weight:600}`,
     `body.abV22812Shell .abNavSearchSlot .abGlobalAction:hover{border-color:var(--ab12-accent)!important;color:var(--ab12-text)!important}`,
     `body.abV22812Shell .abNavSearchSlot .abGlobalAction>span{flex:1;min-width:0;text-align:left}`,
     `body.abV22812Shell .abNavSearchSlot .abNavKbd{display:inline-block;flex:none;padding:2px 6px;border-radius:6px;background:var(--ab12-surface-raised);color:var(--ab12-muted);font:inherit;font-size:11px;font-weight:700;line-height:1.4}`,
@@ -51,7 +51,7 @@ function quickFabCss() {
     `@media(min-width:900px){`,
     `body.abV22812Shell .abGlobalActions[data-ab-quick-dock]{left:auto!important;right:28px;bottom:24px;transform:none;gap:0;padding:0!important;border:0!important;border-radius:999px;background:transparent!important;-webkit-backdrop-filter:none;backdrop-filter:none;box-shadow:none!important}`,
     `body.abV22812Shell.abHasActivityRail .abGlobalActions[data-ab-quick-dock]{right:calc(var(--abActivityRailW,0px) + 28px)}`,
-    `body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick{box-sizing:border-box;max-width:220px;height:56px;min-height:56px;min-width:0;justify-content:flex-start;gap:8px;padding:0 22px 0 16px;border-radius:999px;font-size:15.5px;font-weight:800;white-space:nowrap;overflow:hidden;box-shadow:0 16px 40px rgba(15,23,42,.18)!important}`,
+    `body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick{box-sizing:border-box;max-width:220px;height:56px;min-height:56px;min-width:0;justify-content:flex-start;gap:8px;padding:0 22px 0 16px;border-radius:999px;font-size:16px;font-weight:700;white-space:nowrap;overflow:hidden;box-shadow:0 16px 40px rgba(15,23,42,.18)!important}`,
     `html[data-ab-resolved-theme="dark"] body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick{box-shadow:0 16px 40px rgba(0,0,0,.55)!important}`,
     `body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick .abNavIconSvg{width:24px!important;height:24px!important;flex:0 0 24px;stroke-width:2.2}`,
     `body.abV22812Shell .abGlobalActions[data-ab-quick-dock].abQuickCompact .abGlobalActionQuick{max-width:56px;padding-right:0;gap:16px}`,
@@ -78,7 +78,7 @@ function deskNavCurrentCss() {
 // T-16 저장 알림 ‘실행 취소’: 폼(POST /my/undo)은 상자를 만들지 않고(display:contents) 단추가 알림 줄의 한 칸이 된다.
 // 모양·색은 옆 ‘예산 보기’·‘다시 시도’ 링크(.abSaveFeedbackAction, 시안 .undo 의 toastlink 색)와 같고, 단추 기본 테두리·바탕·글꼴만 지운다.
 // 테두리에는 !important 를 쓰지 않는다 — 고대비(forced-colors) 모드에서 셸의 단추 테두리 규칙(ButtonText 1px)이 옆 링크처럼 이 단추에도 걸려야 한다.
-// 바탕·글자색만 !important 로 덮는다(V87:W-4): 홈 자산(mobile-home-v22985.css)의 `.abV2281 button[type="submit"]:not(.danger)…`
+// 바탕·글자색만 !important 로 덮는다(V87:W-4): 홈 자산(mobile-home-v229125.css)의 `.abV2281 button[type="submit"]:not(.danger)…`
 // {background:var(--ab-blue)!important;color:#fff!important}(특이도 0,5,1)가 이 단추를 파랗게 채운 단추로 칠했다. 아래 두 줄은 0,5,3·0,6,3 이다.
 // 예산 경고 알림(사용자 결정 2026-10-29)은 ‘예산 보기’·‘실행 취소’ 둘이라 문구 아래 한 줄로 내린다(hasActionRow). 첫 단추 글자가 문구와
 // 같은 세로줄에 서도록 단추 안쪽 여백(8px)만큼 왼쪽으로 당기고, 44px 누름 칸의 아래 여백은 알림 안쪽 여백으로 들어간다.
@@ -109,7 +109,7 @@ function reportPeriodTabsCss() {
 // 목록은 앱의 다른 화면 규칙이 이미 쓰는 한 줄이다. 지시서 B 처럼 "Apple SD Gothic Neo"·"Malgun Gothic" 을 앞세우면 윈도의 숫자·영문이
 // Segoe UI 에서 맑은 고딕 글자로 바뀌어 넣지 않았다(한글은 lang="ko" 와 운영체제 대체 글꼴이 그 두 글꼴을 고른다).
 // 셸 본문 규칙(accountbook-shell-css.js)과 생활비 리포트 인라인 CSS 는 원문에서 뺐다. 옛 UI 런타임 규칙 body.abV2281{font-family:Pretendard,…!important}
-// 은 1년 캐시 자산 두 개(ab-uiux-v22919.css·mobile-home-v22985.css)에 구워져 있어 주소를 올리지 않고 이 한 줄(특이도 0,2,1 > 0,1,1)로 덮는다.
+// 은 1년 캐시 자산 두 개(ab-uiux-v229125.css·mobile-home-v229125.css)에 구워져 있어 주소를 올리지 않고 이 한 줄(특이도 0,2,1 > 0,1,1)로 덮는다.
 // 옛 규칙은 5단계 T-24(CSS 계층 정리)에서 지운다.
 function fontStackCss() {
   return `body.abV22812Shell.abV2281{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif!important}`;

@@ -24,7 +24,7 @@ const t = counter("V22.9.86 디자인 보강 3단계(모바일 홈 머리말·�
 const HH = "house-home";
 const HOME = `/app?month=2026-07&household_id=${HH}`;
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)";
-const SHELL = "/assets/accountbook-shell-v229124.css";
+const SHELL = "/assets/accountbook-shell-v229125.css";
 const V5 = "/assets/accountbook-v5-v22993.js";
 const HOME_SHELL_JS = "/assets/mobile-home-shell-v22995.js";
 const count = (text, needle) => String(text).split(needle).length - 1;
@@ -272,7 +272,7 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
     ["body.abV22812Shell .abNavBottom a span{font-size:11px}", "라벨 11px"],
     ["body.abV22812Shell .abNavBottom a:not(.abNavQuick,.abNavQuickInput) i{width:48px;height:30px;border-radius:999px;", "알약 48×30"],
     ["body.abV22812Shell .abNavBottom a.active:not(.abNavQuick,.abNavQuickInput) i{background:var(--ab12-accent-soft);box-shadow:inset 0 0 0 1px var(--ab12-accent)}", "현재 탭은 알약 모양(accent-soft 면 + accent 윤곽선, 칩 고른 상태 규칙)으로도 구분"],
-    ["body.abV22812Shell .abNavBottom a.active{font-weight:800!important}", "현재 탭 글자 800"],
+    ["body.abV22812Shell .abNavBottom a.active{font-weight:700!important}", "현재 탭 글자 700(V22.9.125 굵기 눈금: 800 은 큰 숫자에만)"],
     ["body.abV22812Shell .abNavBottom a.active:before{display:none!important}", "옛 위쪽 막대는 알약으로 바꾼다"],
     ["body.abV22812Shell .abNavBottom a:is(.abNavQuick,.abNavQuickInput) i{width:52px!important;height:52px!important;border-radius:50%!important;margin-top:-22px!important;", "가운데 ＋ 52px 원이 솟는다"],
   ]) t.ok(shell.includes(needle), `T-17 §3-4 ${label}`);
