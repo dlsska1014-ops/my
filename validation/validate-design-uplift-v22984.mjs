@@ -56,7 +56,9 @@ const HOME_200_MAX = 40636;
 // 글꼴 목록 한 규칙(T-23)과 그 주석으로 266,298 B 다.
 // V22.9.93(Aside 2차 검수): 좁은 폭 달 칸 규칙, 다크 상태 배지 네 묶음, 상태 색 토큰, 빠른 입력 간격으로 267,463 B 다.
 // V22.9.93(Aside 3차 검수): 정산 조회 줄의 가계부 칸·단추 규칙(Q-27)으로 267,649 B 다.
-const SHELL_CSS_MAX_BYTES = 267649;
+// V22.9.124(UI/UX 기준 점검): 좁은 화면(1023px 이하)의 터치 영역 44px 규칙 열일곱 줄, 표 상자 포커스 윤곽선 한 줄, 표를 줄마다 카드로 쌓는 규칙(767px 이하) 열한 줄과
+// 그 주석으로 272,375 B 다(+4,726 B). 홈 HTML 에는 아무것도 더하지 않았다.
+const SHELL_CSS_MAX_BYTES = 272375;
 // V22.9.85: R-3·R-6·R-7 의 다크·초점 규칙이 이미 !important 인 규칙(모든 링크 강조색·다크 표면 목록·옛 2px 초점 링)을 이겨야 해서 12회 늘었다.
 // V22.9.86: 81회 늘었다. 모두 이미 !important 인 옛 규칙(머리말 단추 40px·탭 바 높이·칩 패딩·빠른 입력 시트·알림 면 색·옛 칩 무리·outline:0)을 이겨야 하는 자리다.
 // V22.9.87: T-19 가 49회 늘렸다. 보조기기용 숨김 글자 두 곳(9회씩, 접은 사이드바 메뉴 링크와 같은 방식) 18회와, 옛 !important 규칙(독 가운데 놓기·흐림·테두리·그림자,
@@ -66,10 +68,12 @@ const SHELL_CSS_MAX_BYTES = 267649;
 // 리포트 기간 탭 글자색 2회(V85:R-10, 다크 링크 강조색 R-3 이 !important), 글꼴 목록 1회(T-23, 옛 UI 런타임 body.abV2281 글꼴 규칙이 !important).
 // 단추 테두리는 고대비 모드 테두리가 이기도록 여전히 !important 를 쓰지 않는다.
 // V22.9.93(Aside 2차 검수): 9회 — 다크 상태 배지 8회(쪽마다 둔 밝은 바탕과 셸의 다크 글자색이 !important 라 이겨야 한다), 좁은 폭 달 칸 1회(옛 조회 줄 열 규칙이 !important).
-const SHELL_IMPORTANT_MAX = 1669;
+// V22.9.124(UI/UX 기준 점검): 43회 — 터치 영역 15회(화면마다의 인라인 규칙과 셸의 옛 40px·36px·32px 규칙이 !important 라 이겨야 한다)와 표를 카드로 쌓는 규칙 28회
+// (옛 UI 런타임과 화면 인라인의 표·칸 테두리·바탕·여백·최소 폭 규칙이 !important 다).
+const SHELL_IMPORTANT_MAX = 1712;
 const HOME_CSS_IMPORTANT_MAX = 368;
 
-const SHELL = "/assets/accountbook-shell-v22993.css";
+const SHELL = "/assets/accountbook-shell-v229124.css";
 const HOME_CSS = "/assets/mobile-home-v22985.css";
 const V5 = "/assets/accountbook-v5-v22993.js";
 const HOME_JS = "/assets/mobile-home-v22995.js";

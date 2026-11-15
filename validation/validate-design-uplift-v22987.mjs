@@ -33,7 +33,7 @@ const t = counter("V22.9.87 디자인 보강 4단계(데스크톱 독 정리·�
 const HH = "house-home";
 const HOME = `/app?month=2026-07&household_id=${HH}`;
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)";
-const SHELL = "/assets/accountbook-shell-v22993.css";
+const SHELL = "/assets/accountbook-shell-v229124.css";
 const NAV = "/assets/accountbook-nav-v22987.js";
 const V5 = "/assets/accountbook-v5-v22993.js";
 const ADMIN_PASSWORD = "design-uplift-v22987-admin";

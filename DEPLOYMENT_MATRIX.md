@@ -1,3 +1,14 @@
+## V22.9.124 배포 판단
+
+- 대상: 앱 Worker `kakao-accountbook` 만. 관제·Secret·운영 변수·Kakao Developers·OpenBuilder·cron 일정·DB 스키마는 그대로다. 운영 V22.9.123(main a53ffd2) 위에 올렸다.
+- 지금 운영: `83948ccc-9b89-4bc8-8819-c1eb5fb074fb`(#354, V22.9.123-RETURN-REASONS, 배포 `234a13cc-be3a-4f35-9796-60f2028a4b43`, 2026-11-15 13:49:49 KST 승격), 바인딩 32·광고 모드 review.
+- SQL·Secret·변수 없음 → 바인딩 그대로(32). 약관·방침 날짜와 공개 화면의 글자는 바꾸지 않았다. 공개 화면 HTML 은 스타일만 달라진다(모든 공개 화면 +16 B, 넓은 표가 있는 화면과 /demo 는 규칙만큼).
+- 1년 캐시 자산: 셸 CSS 가 바뀌어 주소를 `/assets/accountbook-shell-v22993.css` → `/assets/accountbook-shell-v229124.css` 로 올렸다. 옛 주소의 바이트(sha256 e5da88f9…)는 `AB_HISTORICAL_RUNTIME_ASSETS` 에 남아 그대로 내려간다(운영 V22.9.93~123 의 HTML 을 받은 화면용). 새 주소에서 이번 블록을 빼면 옛 스타일시트와 바이트까지 같다. 다른 자산 59개는 그대로(main 번들과 대조: 같음 59·바뀜 0·없어짐 0·새 주소 1).
+- 되돌리기 대상(기록만) = 승격 시점의 활성 version(지금 `83948ccc-9b89-4bc8-8819-c1eb5fb074fb`(#354, V22.9.123-RETURN-REASONS, 배포 `234a13cc-be3a-4f35-9796-60f2028a4b43`, 2026-11-15 13:49:49 KST 승격)). 되돌리면 이 판의 화면 손질이 빠지고 새 셸 CSS 주소(v229124)는 404 가 된다(이 판의 HTML 을 이미 연 화면은 새로 고침).
+- 승격: 사용자 토큰 2단계(`review-artifacts/v124-prelaunch-polish-2026-11-15/USER-DEPLOY-APP.md`). 11-18(수)부터는 결함 수정만, 11-20(출시일)에는 배포하지 않는다 → 이 판은 11-17 까지 내보낸다. 화면(CSS·마크업)만 바뀌고 카카오 스킬·저장·예약 실행 코드는 그대로다.
+- 배포 대조에서 볼 것: 바인딩 32 inherit·차이 0·금지/선택 변수 없음, named export 목록은 운영과 같음(이 판은 export 를 더하지 않았다), 1년 캐시 자산은 새 주소 1(셸 CSS v229124)·옛 주소 그대로.
+- 번들 10,411,090 B · SHA-256 `2458d31692ac874e5c45277ef5c8f2ca03a10668158dca276ba58f8c9cb14987`(149 모듈, 옛 셸 CSS 보관으로 +0.27 MB). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_124.sha256`(871) · 하네스 두 모드 85,229 / 85,222(하한 85,222).
+
 ## V22.9.123 배포 판단
 
 - 대상: 앱 Worker `kakao-accountbook` 만. 관제·Secret·1년 캐시 자산·Kakao Developers·OpenBuilder·cron 일정·DB 스키마는 그대로다. 운영 V22.9.122(main 5b476dd) 위에 올렸다.
