@@ -2,7 +2,7 @@
 1ab321e5317d6402a80f95e932d0d5648fa400d16fbd586564ab5d5fa641b0cb  ./.agents/skills/orchestrate-kakao-accountbook-graph/agents/openai.yaml
 3650639de7d91f5d4fabfb73118006066c86fe765730d75edce3f21ebdd20305  ./.agents/skills/run-kakao-accountbook-loop/SKILL.md
 9558e475266716f520de5f1402bb5f41994c0c1f062ffc8e221ad7cbce2541a4  ./.agents/skills/run-kakao-accountbook-loop/agents/openai.yaml
-5080b2d95b021ec6e902d153cc43691063e208e552b9e4fe2d60e453fe283b2a  ./.codex/scripts/verify-repository.mjs
+f2033e316b2b122e61f3f25c7bc327bcef9d02593ed8c53907418ff850292fd4  ./.codex/scripts/verify-repository.mjs
 d70641f8059980d5aa8f367e31f50797da942c839000f4ea00baf2d3ddbb70f5  ./.gitattributes
 97af5a3086d1d42c6cb8adbd3ef41c024bf33b4a5dacd8ceac75fdf195074a86  ./.github/workflows/monitoring.yml
 093fe8064204eeddf247bbffcc3daeb871435f43a8b02452481d9368f32e8f92  ./.github/workflows/verify.yml
@@ -139,12 +139,12 @@ b4b7b84ea5b6be6d40a8dd093a17f8e406b88fa469b473d18b000c8c55970f68  ./BUNDLE_FILE_
 4c993814461d3a146122409856e0e284ded72126258cfb1e8d8e1d39e02b2a1a  ./BUNDLE_FILE_CHECKSUMS_V22_9_97.sha256
 0beba4af3a07f386856a246e714e7b6b42b617458fca19ab4358443de6b9f28d  ./BUNDLE_FILE_CHECKSUMS_V22_9_98.sha256
 12b28bc8e9ba7e3b7f9480d66f50fbbe5bb874c994b57d0dc6f1b466992aabfe  ./BUNDLE_FILE_CHECKSUMS_V22_9_99.sha256
-f872dd0fb6ba48d7951ffad701e14cd48026164deb31567397107b886dea8308  ./CHANGELOG.md
-ca2e26b1694b6744966adc00a79edbf622e7a622c44fbb27d9d6c05f9b96962b  ./DEPLOYMENT_MATRIX.md
-f28565d3132e88bd3a358e9517b94e903840fa8ce7cce52e255d2598229a7418  ./KNOWN-ISSUES.md
+9bc9261c3b15e5d49cac95875ad9f6b2153fb21448921cb1031f56961556922f  ./CHANGELOG.md
+f3bcb4149b2aecdd7a6522f49c82738f1eb109c90a6f46f0dc434433b7b4a099  ./DEPLOYMENT_MATRIX.md
+3024d3164fb42db86aff83b1f8e9d66bc3c7e7d8a1e05a7ce6cb4eeb75db244a  ./KNOWN-ISSUES.md
 e3fc692173c6a3c3a3ff851cd9c0385fd5d6794fdb42355f7ee02781e91cac76  ./NEXT_UPDATE_PLAN.md
 d21e5e100e3e34115c6b0413cb7ec04d9912b979014b1ed414f67212397bb1e4  ./README.md
-735c12000b9a70d67975171911cd071adfd6b91b0d8fc1b98b1276d68cc07dde  ./RELEASE-CHECKLIST.md
+43e2601f5555f5f43880ace5cdfb74105ce92db0a848508865eee492603c8828  ./RELEASE-CHECKLIST.md
 a6c20c22fc05842517d593850a5fbb943596845be425e23e305922facb59eee8  ./SQL_HISTORY.md
 a427da2a487c44699e46ec05c6ce5edb74ee3c5eb496ce8afb02e34da732a9ad  ./VALIDATION_REPORT_V22_8_74.md
 bfff5bbffd347d9e123b557db6d2ce3e671486f2a1efafc4aa83253f58b68940  ./VALIDATION_REPORT_V22_8_75.md
@@ -227,7 +227,7 @@ f8b84b6c0c80a3785642194e7ed81518a9e3f4d7b2bc30a78161afdd3905fb79  ./docs/BACKUP_
 83b882e169a76a939fb5d0fee3a644b0d7622b553864c35f1b2f313f78e783bb  ./docs/MONETIZATION_OPS_PLAN_2026_10.md
 f70789d6c31c4a0c0d006d8530c50e4c803e9744f8a6e1f70ec0d2c4322d23e4  ./docs/OPERATIONS_CONFIG.md
 086bbde4d2d6794161d950738c4279fa5cadf12da4be44b21bfc7bdbdaf32852  ./docs/OPS_REMAINING_V22_9_29.md
-32ec3ebfcb7065d9dd63e5308e710d8b6364b9f62f293e296acbdbef519ceb65  ./docs/STATUS.md
+f47e29ecb38cc9da9baa8e0114c08aede1f445336cffb110919551d4358bea7b  ./docs/STATUS.md
 49d6e6e2a73af4be3899d8bd1e30d87b28518b95983d20c545700ab30f68085d  ./docs/archive/CHANGELOG_V22_8.md
 4f95ce409b83e02c4a4c2c6d4811ff700864a3da03dad7805a972c82c322bece  ./docs/archive/DEPLOYMENT_MATRIX_V22_8.md
 5c1aede8f150bcf2380d58b7a4149acfb376f371af8d81aa615ef601e583dbab  ./docs/archive/KNOWN_ISSUES_V22_8.md
@@ -528,7 +528,7 @@ b31b0137100c4ef94cbe6b13e12a00d718b784e1d6ddba5af196761f58aa49d9  ./tools/check-
 21caae05e32078839137d402109ce900cd66d505f6ba8cdaaff0f9e87af66fd5  ./tools/check-lucian-d-budget.mjs
 d0ee9975a4a4f5eee04b66dcca1ebac6f0da42a1f221b6d690861b643bb0e6ed  ./tools/check-lucian-six-fixes.mjs
 c0142d1a90d4d3923f68e4bf98d62a43369f7319faf0ec071c2346fcb6fcd883  ./tools/compare-worker-statements.mjs
-3d41f195206f0ad6ddab359be776904fe7108aa438d1e61b5ae74023e3ba9cef  ./tools/deploy-worker-version.mjs
+0d4c3233f3978ca27523cf6057e07b893a8f1e888941b525555b1eb8afd07030  ./tools/deploy-worker-version.mjs
 ac74e02b1881d77b8a549878287674948336ff2878bfa6bbd95b8c28bd28bb3f  ./tools/measure-cron-cpu-v22979.mjs
 d9bd124aa5a728f263e40627ce0339c6c028c334bacb77e1b309f77a70cf343a  ./tools/measure-import-mapping-v22956.mjs
 20c7e02751c87e1a04d29a58e56b08dc2d008ac81ee5e511ed84bd70155f0f99  ./tools/measure-import-prerequisites-v22955.mjs
@@ -612,7 +612,7 @@ a3e4dfa41013729bdcec4d1441a875fffd12675f347581f924f24b592d78e64f  ./validation/v
 5252c4cf6ca14e2f089879335a9dae876cf34541711aeee22b9b05d130badd4c  ./validation/validate-db-stall-guard-v22973.mjs
 a6b2869a388e064a4a68cdcb230022d4190684228dedcb5bc7f6245041bab30c  ./validation/validate-deferred-edit-forms-v22886.mjs
 289d0f7a75efd25a2e803666a226d2895b156a59c2db9b9bf92882f37c78843b  ./validation/validate-demo-tour-v22992.mjs
-7e205a297f2106094cfd639bbc9777b48e9eccd6ae83c877bcd00c3f16192145  ./validation/validate-deploy-worker-v22932.mjs
+1e17ae6ef65043de29d3b098b25625b5c82d6f1e6f3057bcc6b900dc692bb98d  ./validation/validate-deploy-worker-v22932.mjs
 461e61f099c1f0b87e8a23338dc5b2e3042ba83482fdc43fc4451b649e6015de  ./validation/validate-design-tokens-v22885.mjs
 4634affc37adc4b9ac7ff25e755a4af8d12a3474eec71375f08f668ef028e5d0  ./validation/validate-design-uplift-v22984.mjs
 6baa2417e101b1935deb7bccbb20aa1917242faf93729a9d34b3fadc22753ea0  ./validation/validate-design-uplift-v22985.mjs

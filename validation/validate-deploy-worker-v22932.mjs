@@ -25,7 +25,7 @@ import { readFileSync } from "node:fs";
 import { resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { sha256 } from "../tools/build-worker.mjs";
-import { HEALTH_CONSECUTIVE, HEALTH_DELAY_MS, HEALTH_MAX_ATTEMPTS, READY_CACHE_WAIT_MS, READY_CONSECUTIVE, READY_MAX_ATTEMPTS, ROLLBACK_FLOORS, ROLLBACK_FLOOR_OVERRIDE, canonical, compareVersionResources, deployedScriptSha256, liveVersionOf, parseArgs, rollbackFloorProblem, runDeploy } from "../tools/deploy-worker-version.mjs";
+import { HEALTH_CONSECUTIVE, HEALTH_DELAY_MS, HEALTH_MAX_ATTEMPTS, READY_CACHE_WAIT_MS, READY_CONSECUTIVE, READY_MAX_ATTEMPTS, ROLLBACK_FLOORS, ROLLBACK_FLOOR_OVERRIDE, canonical, compareVersionResources, defaultDeps, deployedScriptSha256, describeNamedDelta, liveVersionOf, namedHandlerDelta, namedHandlersOfModule, parseArgs, rollbackFloorProblem, runDeploy } from "../tools/deploy-worker-version.mjs";
 
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
@@ -72,7 +72,8 @@ function fakeCloudflare(options = {}) {
     metadata: { created_on: "2026-11-10T06:15:19Z", source: "dash" },
     resources: {
       bindings: options.liveBindings ?? structuredClone(LIVE_BINDINGS),
-      script: { etag: "etag-live", handlers: ["fetch", "scheduled"], named_handlers: [] },
+      // V22.9.123: liveNamed = 현재 버전의 named export 목록, uploadedNamed = 새로 저장되는 버전의 목록(없으면 현재와 같다).
+      script: { etag: "etag-live", handlers: ["fetch", "scheduled"], named_handlers: structuredClone(options.liveNamed ?? []) },
       script_runtime: { ...structuredClone(LIVE_RUNTIME), ...(options.liveRuntimeExtra ?? {}) },
     },
   });
@@ -174,7 +175,7 @@ function fakeCloudflare(options = {}) {
         startup_time_ms: 41,
         resources: {
           bindings,
-          script: { etag: sha256(call.upload.file.bytes), handlers: ["fetch", "scheduled"], named_handlers: [] },
+          script: { etag: sha256(call.upload.file.bytes), handlers: ["fetch", "scheduled"], named_handlers: structuredClone(options.uploadedNamed ?? options.liveNamed ?? []) },
           script_runtime: { compatibility_date: metadata.compatibility_date, compatibility_flags: metadata.compatibility_flags ?? [], usage_model: metadata.usage_model ?? "bundled" },
         },
       };
@@ -202,17 +203,26 @@ function fakeCloudflare(options = {}) {
   return { fetch, calls, versions, deployments };
 }
 
-function harness({ fake = null, env = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: ACCOUNT }, trackedChanges = [], buildText = null, overrides = {}, publicExit = 0, files = new Map() } = {}) {
+function harness({ fake = null, env = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_ACCOUNT_ID: ACCOUNT }, trackedChanges = [], buildText = null, overrides = {}, publicExit = 0, files = new Map(), localNamed = [] } = {}) {
   const logs = [];
   const publicRuns = [];
   const network = [];
   const sleeps = [];
+  // V22.9.123: localNamed = 로컬 번들에서 뽑은 named export 목록(배열), 읽기 실패 장면은 Error. h.named.list 를 바꾸면 다음 읽기부터 그 값이다.
+  const named = { list: localNamed, calls: 0 };
   const deps = {
     root,
     env,
     fetch: fake ? fake.fetch : async (url) => { network.push(String(url)); throw new Error("network must not be used"); },
     git: { head: () => HEAD, trackedChanges: () => trackedChanges },
     build: () => ({ text: buildText ?? sourceBytes.toString("utf8") }),
+    localNamedHandlers: async () => {
+      named.calls += 1;
+      if (named.list instanceof Error) throw named.list;
+      // { throwValue } = Error 가 아닌 값을 던지는 장면(독립 검토 P3-3).
+      if (named.list && typeof named.list === "object" && !Array.isArray(named.list) && "throwValue" in named.list) throw named.list.throwValue;
+      return structuredClone(named.list);
+    },
     readFile: (path, encoding) => {
       if (files.has(path)) return files.get(path);
       const name = Object.keys(overrides).find((key) => resolve(root, key) === path);
@@ -228,7 +238,7 @@ function harness({ fake = null, env = { CLOUDFLARE_API_TOKEN: TOKEN, CLOUDFLARE_
     error: (line) => logs.push(String(line)),
     runPublicChecks: (args) => { publicRuns.push(args); return publicExit; },
   };
-  const h = { deps, files, logs, publicRuns, network, sleeps, output: () => logs.join("\n") };
+  const h = { deps, files, logs, publicRuns, network, sleeps, named, output: () => logs.join("\n") };
   everyText.push(() => [h.output(), ...[...files.values()].map(String)].join("\n"));
   return h;
 }
@@ -420,6 +430,190 @@ for (const [label, mutate, pattern] of [
   const response = await fake.fetch(`https://api.cloudflare.com${API_PREFIX}/versions?bindings_inherit=strict`, { method: "POST", body: form, headers: { authorization: `Bearer ${TOKEN}` } });
   const body = await response.json();
   ok(response.status === 400 && body.errors?.[0]?.code === 10057 && fake.versions.size === 1, "가짜 API 도 실제처럼 버전 ID 고정 inherit 를 10057 로 거부하고 버전을 만들지 않는다");
+}
+
+// ---------------------------------------------------------------------------
+// 4-1. named export 목록(named_handlers)이 바뀌는 판 (V22.9.123, 2026-11-15)
+//      Cloudflare 는 모듈의 named export 를 named_handlers 에 적는다(함수 = ["class"], 객체 = 그 열쇠). V22.9.123 이 검사용 export 하나를
+//      더하자(120 → 121) ‘현재 버전과 글자 그대로 같아야 한다’ 는 예전 규칙이 그 판의 업로드를 막았다. 저장된 버전의 목록이 로컬 번들에서
+//      뽑은 목록과 항목까지 같을 때만 코드가 바꾼 것으로 보고 통과시키고(기록·출력에 남김), 그 밖의 차이는 예전처럼 막는다.
+// ---------------------------------------------------------------------------
+const NAMED_LIVE = [
+  { handlers: ["amount", "category"], name: "FIELD_LABEL" },
+  { handlers: ["class"], name: "oldHelper" },
+  { handlers: ["class"], name: "parseTransaction" },
+];
+const NAMED_NEXT = [
+  { handlers: ["amount", "category", "payer"], name: "FIELD_LABEL" },
+  { handlers: ["class"], name: "kakaoSaveFeedbackText" },
+  { handlers: ["class"], name: "parseTransaction" },
+];
+const NAMED_CHANGE = "추가 kakaoSaveFeedbackText · 빠짐 oldHelper · 바뀜 FIELD_LABEL";
+{
+  // (a) 목록이 현재 버전과 같으면 예전 길 그대로 — 로컬 번들을 읽지 않는다.
+  const { h, code, newId } = await upload({ liveNamed: NAMED_LIVE }, { localNamed: new Error("must not be read") });
+  eq(code, 0, "export 목록이 현재 버전과 같으면 예전처럼 통과한다");
+  eq(h.named.calls, 0, "목록이 같으면 로컬 번들의 export 목록을 읽지 않는다");
+  const record = recordOf(h, `upload-${newId}`).data;
+  ok(record.export_change === null && record.differences.length === 0, "기록의 export_change 는 null 이다");
+  eq(canonical(record.uploaded.named_handlers), canonical(NAMED_LIVE), "기록에 저장된 버전의 named export 목록이 남는다");
+  ok(!h.output().includes("named export 목록"), "바뀌지 않았으면 export 목록 줄을 내지 않는다");
+  eq(await runDeploy(["--promote", newId], h.deps), 0, "그 버전은 예전처럼 승격된다");
+  eq(h.named.calls, 0, "승격 때도 읽지 않는다");
+  ok(!("export_change" in recordOf(h, `promote-${newId}`).data), "변화가 없으면 승격 기록에 export_change 칸이 없다");
+}
+{
+  // (b) 코드가 바꾼 목록(추가 하나·빠짐 하나·열쇠가 늘어난 객체 하나): 저장된 버전 = 로컬 번들이면 통과하고 기록에 남는다.
+  const { fake, h, code, newId } = await upload({ liveNamed: NAMED_LIVE, uploadedNamed: NAMED_NEXT }, { localNamed: [...NAMED_NEXT].reverse() });
+  eq(code, 0, "저장된 버전의 export 목록이 로컬 번들의 목록과 같으면 통과한다(항목 순서는 따지지 않는다)");
+  eq(h.named.calls, 1, "목록이 다를 때 로컬 번들의 목록을 한 번 읽는다");
+  const record = recordOf(h, `upload-${newId}`).data;
+  eq(record.differences.length, 0, "코드가 바꾼 export 목록은 차이로 세지 않는다");
+  eq(canonical(record.export_change), canonical({ added: ["kakaoSaveFeedbackText"], removed: ["oldHelper"], changed: ["FIELD_LABEL"] }), "기록에 더해진·빠진·바뀐 이름이 남는다");
+  ok(h.output().includes(`named export 목록이 코드대로 바뀝니다(저장된 버전의 목록 = 로컬 번들의 목록, 3개): ${NAMED_CHANGE}`), "무엇이 바뀌는지 한 줄로 알린다");
+  ok(h.output().includes(`--promote ${newId}`) && !h.output().includes("승격하지 마세요"), "승격 명령을 알려 준다");
+  eq(posts(fake, "/deployments"), 0, "업로드는 여전히 배포하지 않는다");
+  eq(await runDeploy(["--promote", newId], h.deps), 0, "그 버전은 승격된다");
+  eq(h.named.calls, 2, "승격 때 로컬 번들의 목록을 다시 읽어 견준다");
+  eq(fake.deployments[0].versions[0].version_id, newId, "새 버전이 100% 배포된다");
+  ok(h.output().includes(`named export 목록이 코드대로 바뀝니다(업로드 기록과 같고 로컬 번들의 목록과 같음): ${NAMED_CHANGE}`), "승격 때도 그 변화를 알린다");
+  const promoted = recordOf(h, `promote-${newId}`).data;
+  eq(canonical(promoted.export_change), canonical(record.export_change), "승격 기록에도 같은 변화가 남는다");
+  ok(promoted.failures.length === 0 && promoted.content.sha256 === SOURCE_SHA, "승격 뒤 확인은 그대로 통과한다");
+}
+// (c) 통과시키지 않는 경우 — 저장된 버전의 목록이 로컬 번들의 목록과 다르거나, 견줄 수 없다.
+//     거절 줄 끝의 괄호는 저장된 버전과 로컬 번들이 어디서 다른지다(독립 검토 P3-1: 현재 버전과의 변화만 적으면 어긋난 이름이 보이지 않는다).
+for (const [label, localNamed, dropDep, pattern] of [
+  ["저장된 버전에 로컬 번들에 없는 export 가 있음", NAMED_NEXT.filter((entry) => entry.name !== "kakaoSaveFeedbackText"), false, /named_handlers: 추가 kakaoSaveFeedbackText · 빠짐 oldHelper · 바뀜 FIELD_LABEL — 저장된 버전의 목록이 로컬 번들의 export 목록과 다릅니다 [(]저장된 버전에만 kakaoSaveFeedbackText[)]/],
+  ["로컬 번들의 export 가 저장된 버전에 없음", [...NAMED_NEXT, { handlers: ["class"], name: "extraLocal" }], false, /로컬 번들의 export 목록과 다릅니다 [(]로컬 번들에만 extraLocal[)]/],
+  ["같은 이름인데 열쇠가 다름", NAMED_NEXT.map((entry) => (entry.name === "FIELD_LABEL" ? { ...entry, handlers: ["amount", "category"] } : entry)), false, /로컬 번들의 export 목록과 다릅니다 [(]내용 다름 FIELD_LABEL[)]/],
+  ["객체 열쇠의 순서가 다름", NAMED_NEXT.map((entry) => (entry.name === "FIELD_LABEL" ? { ...entry, handlers: ["payer", "category", "amount"] } : entry)), false, /로컬 번들의 export 목록과 다릅니다 [(]내용 다름 FIELD_LABEL[)]/],
+  ["로컬 목록이 현재 버전의 목록 그대로임", NAMED_LIVE, false, /로컬 번들의 export 목록과 다릅니다 [(]저장된 버전에만 kakaoSaveFeedbackText · 로컬 번들에만 oldHelper · 내용 다름 FIELD_LABEL[)]/],
+  ["로컬 번들을 읽지 못함", new Error("bundle import failed"), false, /로컬 번들의 export 목록을 읽지 못했습니다: bundle import failed[\s\S]*로컬 번들의 export 목록과 견주지 못했습니다/],
+  ["로컬 번들을 읽다가 Error 가 아닌 값이 던져짐", { throwValue: null }, false, /로컬 번들의 export 목록을 읽지 못했습니다: null[\s\S]*로컬 번들의 export 목록과 견주지 못했습니다/],
+  ["읽은 목록이 배열이 아님", { not: "a list" }, false, /로컬 번들의 export 목록과 견주지 못했습니다/],
+  ["목록을 읽는 길이 없는 실행 환경", NAMED_NEXT, true, /로컬 번들의 export 목록과 견주지 못했습니다/],
+]) {
+  const fake = fakeCloudflare({ liveNamed: NAMED_LIVE, uploadedNamed: NAMED_NEXT });
+  const h = harness({ fake, localNamed });
+  if (dropDep) delete h.deps.localNamedHandlers;
+  const code = await runDeploy([], h.deps);
+  const newId = [...fake.versions.keys()].find((id) => id !== LIVE_ID);
+  eq(code, 1, `${label}: 업로드 대조 실패(종료 코드 1)`);
+  ok(pattern.test(h.output()) && h.output().includes("승격하지 마세요"), `${label}: 이유를 알린다`);
+  const record = recordOf(h, `upload-${newId}`).data;
+  ok(record.differences.length === 1 && record.differences[0].startsWith(`named_handlers: ${NAMED_CHANGE} — `) && record.export_change, `${label}: 기록에 차이와 변화가 남는다`);
+  ok(record.differences[0].length < 300, `${label}: 차이 줄은 이름만 적는다(두 목록을 통째로 찍지 않는다)`);
+  eq(await runDeploy(["--promote", newId], h.deps), 1, `${label}: --promote 도 거부한다`);
+  eq(posts(fake, "/deployments"), 0, `${label}: 배포하지 않는다`);
+}
+// (c-2) 승격 때 로컬 번들의 목록을 읽지 못하면 승격하지 않는다 — 업로드 대조를 통과한 기록이어도(독립 검토 P3-2: 위 (c)의 --promote 는
+//       기록의 differences 에서 먼저 막혀 이 길을 지나지 않는다).
+for (const [label, breakIt, pattern] of [
+  ["읽기 실패", (h) => { h.named.list = new Error("bundle import failed at promote"); }, /로컬 번들의 export 목록을 읽지 못했습니다: bundle import failed at promote[\s\S]*로컬 번들의 export 목록과 견주지 못했습니다/],
+  ["Error 가 아닌 값이 던져짐", (h) => { h.named.list = { throwValue: null }; }, /로컬 번들의 export 목록을 읽지 못했습니다: null[\s\S]*로컬 번들의 export 목록과 견주지 못했습니다/],
+  ["읽은 목록이 배열이 아님", (h) => { h.named.list = { not: "a list" }; }, /로컬 번들의 export 목록과 견주지 못했습니다/],
+  ["목록을 읽는 길이 없음", (h) => { delete h.deps.localNamedHandlers; }, /로컬 번들의 export 목록과 견주지 못했습니다/],
+]) {
+  const { fake, h, code, newId } = await upload({ liveNamed: NAMED_LIVE, uploadedNamed: NAMED_NEXT }, { localNamed: NAMED_NEXT });
+  eq(code, 0, `승격 때 ${label}: 업로드는 통과한 기록이다`);
+  breakIt(h);
+  const from = fake.calls.length;
+  eq(await runDeploy(["--promote", newId], h.deps), 1, `승격 때 ${label}: 승격하지 않는다`);
+  ok(pattern.test(h.output()) && h.output().includes("현재 배포와 다릅니다 — 승격하지 않습니다"), `승격 때 ${label}: 이유를 알린다`);
+  ok(fake.calls.slice(from).some((c) => c.method === "GET" && c.path === `/versions/${newId}`), `승격 때 ${label}: 저장된 버전을 다시 읽어 견준 뒤에 막는다`);
+  eq(posts(fake, "/deployments"), 0, `승격 때 ${label}: 배포하지 않는다`);
+}
+{
+  // (d) 승격 때 다시 본다. 업로드 뒤 로컬 번들의 목록이 저장된 버전과 달라졌거나, 기록에 적힌 변화가 지금과 다르면 승격하지 않는다.
+  const { fake, h, newId } = await upload({ liveNamed: NAMED_LIVE, uploadedNamed: NAMED_NEXT }, { localNamed: NAMED_NEXT });
+  h.named.list = NAMED_LIVE;
+  eq(await runDeploy(["--promote", newId], h.deps), 1, "승격 때 로컬 번들의 목록이 저장된 버전과 다르면 승격하지 않는다");
+  ok(/현재 배포와 다릅니다 — 승격하지 않습니다:[\s\S]*named_handlers: .*로컬 번들의 export 목록과 다릅니다/.test(h.output()), "그 이유를 알린다");
+  h.named.list = NAMED_NEXT;
+  const stored = recordOf(h, `upload-${newId}`);
+  h.files.set(stored.path, JSON.stringify({ ...stored.data, export_change: { added: ["somethingElse"], removed: [], changed: [] } }));
+  eq(await runDeploy(["--promote", newId], h.deps), 1, "업로드 기록의 export 변화가 지금과 다르면 승격하지 않는다");
+  ok(h.output().includes(`named export 목록의 변화가 업로드 기록과 다릅니다 (기록: 추가 somethingElse → 지금: ${NAMED_CHANGE}). 다시 업로드하세요`), "기록과 지금의 변화를 나란히 알린다");
+  h.files.set(stored.path, JSON.stringify({ ...stored.data, export_change: null }));
+  eq(await runDeploy(["--promote", newId], h.deps), 1, "기록에는 변화가 없다고 적혀 있는데 지금은 있으면 승격하지 않는다");
+  ok(h.output().includes(`(기록: 변화 없음 → 지금: ${NAMED_CHANGE})`), "‘변화 없음’ 기록과의 차이를 알린다");
+  eq(posts(fake, "/deployments"), 0, "세 경우 모두 배포하지 않는다");
+  h.files.set(stored.path, JSON.stringify(stored.data));
+  eq(await runDeploy(["--promote", newId], h.deps), 0, "기록과 로컬 목록이 제자리면 승격된다");
+  eq(posts(fake, "/deployments"), 1, "그때 한 번만 배포한다");
+}
+{
+  // (e) 이 판 전 도구가 쓴 기록(export_change 칸 없음)도 목록이 같으면 예전처럼 승격된다.
+  const { fake, h, newId } = await upload({ liveNamed: NAMED_LIVE });
+  const stored = recordOf(h, `upload-${newId}`);
+  const legacy = { ...stored.data };
+  delete legacy.export_change;
+  h.files.set(stored.path, JSON.stringify(legacy));
+  eq(await runDeploy(["--promote", newId], h.deps), 0, "export_change 칸이 없는 옛 기록도 목록이 같으면 승격된다");
+  eq(posts(fake, "/deployments"), 1, "배포 요청은 한 번이다");
+}
+{
+  // (e-2) 칸이 없는 기록은 ‘변화 없음’ 으로 읽는다. 지금 변화가 있으면 승격하지 않는다 — 칸이 없다고 아무 변화나 받지 않는다(독립 검토 P3-2).
+  const { fake, h, newId } = await upload({ liveNamed: NAMED_LIVE, uploadedNamed: NAMED_NEXT }, { localNamed: NAMED_NEXT });
+  const stored = recordOf(h, `upload-${newId}`);
+  const legacy = { ...stored.data };
+  delete legacy.export_change;
+  h.files.set(stored.path, JSON.stringify(legacy));
+  eq(await runDeploy(["--promote", newId], h.deps), 1, "export_change 칸이 없는 기록인데 지금 변화가 있으면 승격하지 않는다");
+  ok(h.output().includes(`(기록: 변화 없음 → 지금: ${NAMED_CHANGE})`), "칸이 없는 기록은 ‘변화 없음’ 으로 읽었다고 알린다");
+  eq(posts(fake, "/deployments"), 0, "배포하지 않는다");
+}
+{
+  // (f) 항목은 같고 순서만 다른 목록도 로컬 번들의 목록과 같으면 통과한다(순서만 다르다고 알린다).
+  const { h, code, newId } = await upload({ liveNamed: NAMED_LIVE, uploadedNamed: [...NAMED_LIVE].reverse() }, { localNamed: NAMED_LIVE });
+  eq(code, 0, "항목은 같고 순서만 다른 목록은 통과한다");
+  ok(h.output().includes("named export 목록이 코드대로 바뀝니다") && h.output().includes("순서만 다름"), "순서만 다르다고 알린다");
+  eq(canonical(recordOf(h, `upload-${newId}`).data.export_change), canonical({ added: [], removed: [], changed: [] }), "기록의 변화는 빈 목록 셋이다");
+}
+{
+  // (g) export 목록이 통과해도 다른 차이는 그대로 막는다.
+  const { fake, h, code, newId } = await upload({ liveNamed: NAMED_LIVE, uploadedNamed: NAMED_NEXT, mutateUploaded: (v) => { v.resources.script.handlers = ["fetch"]; } }, { localNamed: NAMED_NEXT });
+  eq(code, 1, "export 목록이 로컬 번들과 같아도 handlers 가 다르면 막는다");
+  const record = recordOf(h, `upload-${newId}`).data;
+  ok(record.differences.length === 1 && record.differences[0].startsWith("handlers: "), "차이에는 handlers 만 남는다(export 목록은 차이가 아니다)");
+  eq(await runDeploy(["--promote", newId], h.deps), 1, "그 버전은 --promote 도 거부한다");
+  eq(posts(fake, "/deployments"), 0, "배포하지 않는다");
+}
+{
+  // (h) 되돌리기(독립 검토 P2): export 목록이 바뀐 판을 승격한 뒤에도 도구로 앞 판에 되돌릴 수 있어야 한다. 되돌릴 버전은 다른 코드라
+  //     export 목록이 다른 것이 정상이다 — 막지 않고 출력과 기록에 남긴다. 견줄 로컬 번들이 없으므로 로컬 목록도 읽지 않는다.
+  const { fake, h, newId } = await upload({ liveNamed: NAMED_LIVE, uploadedNamed: NAMED_NEXT }, { localNamed: NAMED_NEXT });
+  eq(await runDeploy(["--promote", newId], h.deps), 0, "export 목록이 바뀐 판을 승격한다");
+  const readsBefore = h.named.calls;
+  eq(await runDeploy(["--rollback", LIVE_ID], h.deps), 0, "그 뒤 앞 판으로 되돌릴 수 있다(export 목록이 다른 것은 막지 않는다)");
+  eq(fake.deployments[0].versions[0].version_id, LIVE_ID, "앞 판이 다시 100% 다");
+  eq(h.named.calls, readsBefore, "되돌리기는 로컬 번들의 목록을 읽지 않는다");
+  ok(h.output().includes("되돌릴 버전의 named export 목록은 현재 버전과 다릅니다(코드가 다른 버전이라 그렇습니다 — 막지 않음): 추가 oldHelper · 빠짐 kakaoSaveFeedbackText · 바뀜 FIELD_LABEL"), "되돌리면 export 목록이 어떻게 달라지는지 알린다");
+  const rollback = recordOf(h, `rollback-${LIVE_ID}`).data;
+  eq(canonical(rollback.export_change), canonical({ added: ["oldHelper"], removed: ["kakaoSaveFeedbackText"], changed: ["FIELD_LABEL"] }), "되돌리기 기록에 그 변화가 남는다");
+  ok(rollback.failures.length === 0 && rollback.ready?.ok === true && rollback.floor?.ok === true, "되돌린 뒤 확인(/health·/ready)과 하한은 그대로 통과한다");
+}
+{
+  // (i) 되돌리기에서도 바인딩·script_runtime·handlers 차이는 그대로 막는다 — 견주지 않는 것은 export 목록뿐이다.
+  for (const [label, mutate, pattern] of [
+    ["바인딩이 빠진 앞 판", (v) => { v.resources.bindings = v.resources.bindings.filter((b) => b.name !== "OPS_MONITOR"); }, /바인딩 없음: OPS_MONITOR/],
+    ["usage_model 이 다른 앞 판", (v) => { v.resources.script_runtime.usage_model = "bundled"; }, /script_runtime.usage_model/],
+    ["scheduled 가 없는 앞 판", (v) => { v.resources.script.handlers = ["fetch"]; }, /handlers: /],
+  ]) {
+    const { fake, h, newId } = await upload({ liveNamed: NAMED_LIVE, uploadedNamed: NAMED_NEXT }, { localNamed: NAMED_NEXT });
+    eq(await runDeploy(["--promote", newId], h.deps), 0, `${label}: 먼저 export 목록이 바뀐 판을 승격한다`);
+    mutate(fake.versions.get(LIVE_ID));
+    eq(await runDeploy(["--rollback", LIVE_ID], h.deps), 1, `${label}: 되돌리지 않는다`);
+    ok(pattern.test(h.output()) && h.output().includes("되돌릴 버전의 바인딩·런타임이 현재와 다릅니다") && !/named_handlers/.test(h.output().split("되돌릴 버전의 바인딩·런타임이 현재와 다릅니다")[1]), `${label}: 이유를 알리고, export 목록은 이유로 적지 않는다`);
+    eq(fake.deployments[0].versions[0].version_id, newId, `${label}: 현재 배포는 그대로다`);
+  }
+  // 목록이 같은 두 버전 사이의 되돌리기는 예전 그대로다(export 줄·기록 칸 없음).
+  const { fake, h, newId } = await upload({ liveNamed: NAMED_LIVE });
+  await runDeploy(["--promote", newId], h.deps);
+  eq(await runDeploy(["--rollback", LIVE_ID], h.deps), 0, "export 목록이 같은 앞 판으로는 예전처럼 되돌린다");
+  ok(!h.output().includes("되돌릴 버전의 named export 목록") && !("export_change" in recordOf(h, `rollback-${LIVE_ID}`).data), "목록이 같으면 export 줄도 기록 칸도 없다");
+  eq(fake.deployments[0].versions[0].version_id, LIVE_ID, "앞 판이 다시 100% 다");
 }
 
 // ---------------------------------------------------------------------------
@@ -741,6 +935,57 @@ eq(`${HEALTH_CONSECUTIVE}/${HEALTH_MAX_ATTEMPTS}/${HEALTH_DELAY_MS}`, "5/40/2000
   eq(text.sha256, SOURCE_SHA, "content/v2 가 스크립트 본문이면 그 바이트를 해시한다");
   const html = await deployedScriptSha256(new Response("<html></html>", { headers: { "content-type": "text/html" } }));
   ok(html.error && !html.sha256, "알 수 없는 형식은 해시로 세지 않는다");
+}
+{
+  // V22.9.123: named export 목록 단위 — 모듈에서 뽑는 규칙, 변화 설명, 비교.
+  const moduleLike = { default: { fetch() {}, scheduled() {} }, zeta() {}, Alpha: class {}, FIELD: { b: 1, a: 2 }, LIMIT: 3, LABEL: "x", NOTHING: null, flag: true };
+  eq(canonical(namedHandlersOfModule(moduleLike)), canonical([{ handlers: ["class"], name: "Alpha" }, { handlers: ["b", "a"], name: "FIELD" }, { handlers: ["class"], name: "zeta" }]), "함수·클래스 export 는 [\"class\"], 객체 export 는 그 열쇠(정의한 순서)이고 default·숫자·문자열·null·불리언은 적지 않는다");
+  eq(canonical(namedHandlersOfModule(null)), "[]", "모듈을 읽지 못한 값에서는 빈 목록이다");
+  const liveLike = { resources: { script: { named_handlers: NAMED_LIVE } } };
+  const nextLike = { resources: { script: { named_handlers: NAMED_NEXT } } };
+  eq(namedHandlerDelta(liveLike, { resources: { script: { named_handlers: structuredClone(NAMED_LIVE) } } }), null, "같은 목록이면 변화는 null 이다");
+  eq(namedHandlerDelta({ resources: {} }, { resources: { script: {} } }), null, "목록이 없는 두 버전도 같다");
+  eq(canonical(namedHandlerDelta(liveLike, nextLike)), canonical({ added: ["kakaoSaveFeedbackText"], removed: ["oldHelper"], changed: ["FIELD_LABEL"] }), "변화는 이름만 추린다");
+  eq(describeNamedDelta({ added: ["a", "b"], removed: [], changed: ["c"] }), "추가 a, b · 바뀜 c", "변화 설명은 있는 칸만 적는다");
+  eq(describeNamedDelta({ added: [], removed: [], changed: [] }), "순서만 다름", "이름 변화가 없으면 순서만 다르다고 적는다");
+  eq(compareVersionResources(liveLike, nextLike).length, 1, "로컬 목록을 주지 않으면 export 목록의 변화는 예전처럼 차이다");
+  eq(compareVersionResources(liveLike, nextLike, { localNamedHandlers: NAMED_NEXT }).length, 0, "저장된 목록 = 로컬 목록이면 차이가 아니다");
+  eq(compareVersionResources(liveLike, nextLike, { localNamedHandlers: NAMED_LIVE }).length, 1, "로컬 목록이 저장된 목록과 다르면 차이다");
+  eq(compareVersionResources(liveLike, nextLike, { localNamedHandlers: [] }).length, 1, "로컬 목록이 비어 있으면 차이다");
+  eq(compareVersionResources(liveLike, { resources: { script: { named_handlers: [...NAMED_NEXT, { handlers: ["class"], name: "parseTransaction" }] } } }, { localNamedHandlers: NAMED_NEXT }).length, 1, "저장된 목록에 같은 이름이 두 번 있으면 차이다");
+  eq(compareVersionResources(liveLike, { resources: { script: { named_handlers: [...NAMED_NEXT, null] } } }, { localNamedHandlers: NAMED_NEXT }).length, 1, "저장된 목록에 읽을 수 없는 항목이 있으면 차이다");
+  eq(compareVersionResources(liveLike, { resources: { script: { named_handlers: NAMED_NEXT.map((entry) => ({ ...entry, extra: "field" })) } } }, { localNamedHandlers: NAMED_NEXT }).length, 1, "저장된 항목에 모르는 칸이 붙어 있으면 차이다(규칙이 바뀐 것이므로 사람이 본다)");
+  // 독립 검토 P3-2: 저장된 칸이 배열이 아니면(알 수 없는 응답 꼴) 빈 로컬 목록과도 같지 않다.
+  eq(compareVersionResources(liveLike, { resources: { script: { named_handlers: {} } } }, { localNamedHandlers: [] }).length, 1, "저장된 칸이 객체면 빈 로컬 목록과도 같지 않다");
+  eq(compareVersionResources(liveLike, { resources: { script: { named_handlers: "x" } } }, { localNamedHandlers: [] }).length, 1, "저장된 칸이 글자여도 같지 않다");
+  eq(compareVersionResources({ resources: {} }, { resources: { script: { named_handlers: null } } }).length, 0, "칸이 없는 것과 null 은 둘 다 빈 목록이다(예전과 같다)");
+  // 독립 검토 P3-1: 거절 줄에 저장된 버전과 로컬 번들이 어디서 다른지 적는다.
+  ok(compareVersionResources(liveLike, nextLike, { localNamedHandlers: NAMED_LIVE })[0].endsWith("저장된 버전의 목록이 로컬 번들의 export 목록과 다릅니다 (저장된 버전에만 kakaoSaveFeedbackText · 로컬 번들에만 oldHelper · 내용 다름 FIELD_LABEL)"), "거절 줄 끝에 저장된 버전에만·로컬 번들에만·내용 다름을 적는다");
+  ok(compareVersionResources(liveLike, { resources: { script: { named_handlers: [...NAMED_NEXT, { handlers: ["class"], name: "parseTransaction" }] } } }, { localNamedHandlers: NAMED_NEXT })[0].endsWith("(이름은 같고 항목의 꼴이 다름)"), "이름은 같은데 꼴이 다르면(같은 이름 두 번 등) 그렇게 적는다");
+  // 독립 검토 P2: 되돌리기 비교는 export 목록을 견주지 않고, 다른 칸은 그대로 견준다.
+  eq(compareVersionResources(liveLike, nextLike, { skipNamedHandlers: true }).length, 0, "skipNamedHandlers 면 export 목록의 변화는 차이가 아니다");
+  eq(compareVersionResources({ resources: { script: { handlers: ["fetch", "scheduled"], named_handlers: NAMED_LIVE } } }, { resources: { script: { handlers: ["fetch"], named_handlers: NAMED_NEXT } } }, { skipNamedHandlers: true }).join("|"), 'handlers: ["fetch","scheduled"] → ["fetch"]', "skipNamedHandlers 여도 handlers 차이는 남는다");
+  // 실제 번들: 2026-11-15 에 이 규칙으로 뽑은 목록이 Cloudflare 기록(운영 120개·새 판 121개)과 항목까지 같았다.
+  const bundle = await import("../src/index.js");
+  const real = namedHandlersOfModule(bundle);
+  ok(real.length > 100 && real.every((entry) => typeof entry.name === "string" && entry.name && entry.name !== "default" && Array.isArray(entry.handlers) && entry.handlers.length > 0), "실제 번들의 목록은 100개가 넘고 항목마다 이름과 핸들러가 있다");
+  eq(new Set(real.map((entry) => entry.name)).size, real.length, "실제 번들의 이름은 겹치지 않는다");
+  eq(canonical(real.map((entry) => entry.name)), canonical(real.map((entry) => entry.name).sort()), "이름 순서로 정렬돼 있다");
+  eq(canonical(real.find((entry) => entry.name === "parseTransaction")?.handlers), canonical(["class"]), "실제 번들의 함수 export 는 [\"class\"] 다");
+  eq(canonical(real.find((entry) => entry.name === "FIELD_LABEL")?.handlers), canonical(Object.keys(bundle.FIELD_LABEL)), "실제 번들의 객체 export 는 그 객체의 열쇠다");
+  ok(real.every((entry) => ["function", "object"].includes(typeof bundle[entry.name])), "실제 번들의 숫자·문자열 export 는 목록에 없다");
+  eq(canonical(await defaultDeps(root).localNamedHandlers()), canonical(real), "실행 환경의 기본 읽기(defaultDeps)가 같은 목록을 준다");
+  // 독립 검토 P3-1: 이 규칙을 Cloudflare 기록과 맞춰 본 것은 함수 export 와 평범한 객체 export 뿐이다. 런타임은 클래스 인스턴스(Set·Map 등)에는
+  // 원형의 메서드 이름까지 적고, 배열에는 이름을 적지 않으며, 일부 열쇠(alarm·unhandledrejection·rejectionhandled)는 뺀다고 한다(런타임 코드를
+  // 읽은 것이고 API 로 확인하지는 못했다). 그런 export 가 번들에 생기면 버전이 저장된 뒤에야 업로드 대조가 막히므로 여기서 먼저 잡는다.
+  const RUNTIME_DROPPED_KEYS = ["alarm", "unhandledrejection", "rejectionhandled"];
+  const unverifiedExports = Object.keys(bundle).filter((name) => name !== "default").filter((name) => {
+    const value = bundle[name];
+    if (typeof value === "function" || value === null || typeof value !== "object") return false;
+    const proto = Object.getPrototypeOf(value);
+    return Array.isArray(value) || (proto !== Object.prototype && proto !== null) || Object.keys(value).some((key) => RUNTIME_DROPPED_KEYS.includes(key));
+  });
+  eq(unverifiedExports.join(", "), "", "번들의 named export 는 함수·평범한 객체·숫자·문자열뿐이다 — 배열·Set·Map·클래스 인스턴스나 alarm 같은 열쇠를 가진 객체를 export 하면 배포 도구가 뽑는 목록이 Cloudflare 가 적는 목록과 어긋날 수 있다(그런 값은 함수로 감싸 내보낸다)");
 }
 
 // ---------------------------------------------------------------------------
