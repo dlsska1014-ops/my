@@ -29,7 +29,16 @@
 //   compatibility_date, compatibility_flags and usage_model are copied from the live version;
 //   Durable Object exports or migrations are refused (this Worker has none).
 // - The stored version is read back; its bindings, script_runtime and handlers must deep-equal
-//   those of the live version, otherwise nothing may be promoted.
+//   those of the live version, otherwise nothing may be promoted. named_handlers is the one list
+//   that follows the code: Cloudflare writes every named export of the module there (a function as
+//   ["class"], an object as its keys), so a release that adds or drops an export changes it. First
+//   seen 2026-11-15: V22.9.123 added one test export (120 → 121) and its upload refused itself.
+//   A stored list that differs from the live one passes only when it equals, entry for entry, the
+//   list derived from the local src/index.js. The change is printed and recorded (export_change),
+//   and --promote requires the same change again; any other difference in the list still refuses.
+//   --rollback compares bindings, script_runtime and handlers the same way but not named_handlers:
+//   its target is other code, so after such a release the previous version's list differs by
+//   design. That difference is printed and recorded, never a reason to refuse the rollback.
 // - --promote needs the record written by the upload run for that version id, with the same
 //   SHA-256 as the current src/index.js, the same commit and an unchanged server etag. No API
 //   returns the source of a stored version, so the bytes are proven again after promotion.
@@ -60,7 +69,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { buildFromModulesRoot, sha256 } from "./build-worker.mjs";
 
 export const DEFAULT_SCRIPT = "kakao-accountbook";
@@ -239,7 +248,61 @@ export function requireBindings(version) {
   return bindings;
 }
 
-export function compareVersionResources(expected, actual) {
+// V22.9.123 (2026-11-15): named_handlers 는 모듈의 named export 목록이다. Cloudflare 는 함수 export 를 ["class"], 객체 export 를
+// 그 객체의 열쇠(정의한 순서)로 적고, 숫자·문자열 export 와 default 는 적지 않는다. 2026-11-15 에 API 기록과 맞춰 봤다 — V22.9.122
+// 번들에서 이렇게 뽑은 목록이 운영 버전의 120개와, V22.9.123 번들에서 뽑은 목록이 저장된 버전의 121개와 항목까지 같았다.
+const namedHandlersOf = (version) => version?.resources?.script?.named_handlers ?? [];
+const sortByName = (list) => [...(Array.isArray(list) ? list : [])].sort((a, b) => {
+  const left = String(a?.name);
+  const right = String(b?.name);
+  return left < right ? -1 : left > right ? 1 : 0;
+});
+
+export function namedHandlersOfModule(namespace) {
+  const list = [];
+  for (const name of Object.keys(namespace ?? {})) {
+    if (name === "default") continue;
+    const value = namespace[name];
+    if (typeof value === "function") list.push({ handlers: ["class"], name });
+    else if (value && typeof value === "object") list.push({ handlers: Object.keys(value), name });
+  }
+  return sortByName(list);
+}
+
+// 두 목록의 이름만 추린 변화(뒤 목록에만 있음·앞 목록에만 있음·같은 이름인데 내용이 다름).
+function namedListDelta(beforeList, afterList) {
+  const index = (list) => new Map(sortByName(list).map((entry) => [String(entry?.name), canonical(entry?.handlers)]));
+  const before = index(beforeList);
+  const after = index(afterList);
+  return {
+    added: [...after.keys()].filter((name) => !before.has(name)),
+    removed: [...before.keys()].filter((name) => !after.has(name)),
+    changed: [...after.keys()].filter((name) => before.has(name) && before.get(name) !== after.get(name)),
+  };
+}
+
+// 두 버전의 named_handlers 가 같으면 null, 다르면 이름만 추린 변화(더해짐·빠짐·바뀜). 셋 다 비면 순서만 다르다.
+export function namedHandlerDelta(expected, actual) {
+  if (canonical(namedHandlersOf(expected)) === canonical(namedHandlersOf(actual))) return null;
+  return namedListDelta(namedHandlersOf(expected), namedHandlersOf(actual));
+}
+
+export function describeNamedDelta(delta) {
+  const part = (label, names) => (names?.length ? `${label} ${names.join(", ")}` : "");
+  return [part("추가", delta?.added), part("빠짐", delta?.removed), part("바뀜", delta?.changed)].filter(Boolean).join(" · ") || "순서만 다름";
+}
+
+// 저장된 버전의 목록이 로컬 번들의 목록과 어디가 다른지(독립 검토 P3-1: 현재 버전과의 변화만 적으면 로컬과 어긋난 이름이 보이지 않는다).
+function describeAgainstLocal(localList, storedList) {
+  const delta = namedListDelta(localList, storedList);
+  const part = (label, names) => (names.length ? `${label} ${names.join(", ")}` : "");
+  return [part("저장된 버전에만", delta.added), part("로컬 번들에만", delta.removed), part("내용 다름", delta.changed)].filter(Boolean).join(" · ") || "이름은 같고 항목의 꼴이 다름";
+}
+
+// localNamedHandlers: 로컬 src/index.js 에서 뽑은 목록(namedHandlersOfModule). named_handlers 가 현재 버전과 다를 때, 저장된
+// 버전의 목록이 이 목록과 항목까지 같으면 코드가 바꾼 export 목록이므로 차이로 세지 않는다. 주지 않으면(null) 예전처럼 차이다.
+// skipNamedHandlers: 되돌리기 전용. 되돌릴 버전은 다른(앞선) 코드라 export 목록이 다를 수 있고 견줄 로컬 번들도 없다 — 그 칸은 견주지 않는다.
+export function compareVersionResources(expected, actual, { localNamedHandlers = null, skipNamedHandlers = false } = {}) {
   const differences = [];
   const byName = (version) => new Map((Array.isArray(version?.resources?.bindings) ? version.resources.bindings : []).map((b) => [b?.name, b]));
   const before = byName(expected);
@@ -266,9 +329,28 @@ export function compareVersionResources(expected, actual) {
   }
   const handlers = (version) => canonical([...(version?.resources?.script?.handlers ?? [])].sort());
   if (handlers(expected) !== handlers(actual)) differences.push(`handlers: ${handlers(expected)} → ${handlers(actual)}`);
-  const named = (version) => canonical(version?.resources?.script?.named_handlers ?? []);
-  if (named(expected) !== named(actual)) differences.push(`named_handlers: ${named(expected)} → ${named(actual)}`);
+  const delta = skipNamedHandlers ? null : namedHandlerDelta(expected, actual);
+  if (delta) {
+    const compared = Array.isArray(localNamedHandlers);
+    // 저장된 버전의 칸이 배열이 아니면(알 수 없는 응답 꼴) 빈 로컬 목록과도 같다고 보지 않는다.
+    const matchesLocal = compared && Array.isArray(namedHandlersOf(actual)) && canonical(sortByName(namedHandlersOf(actual))) === canonical(sortByName(localNamedHandlers));
+    if (!matchesLocal) differences.push(`named_handlers: ${describeNamedDelta(delta)} — ${compared ? `저장된 버전의 목록이 로컬 번들의 export 목록과 다릅니다 (${describeAgainstLocal(localNamedHandlers, namedHandlersOf(actual))})` : "로컬 번들의 export 목록과 견주지 못했습니다"}`);
+  }
   return differences;
+}
+
+// 로컬 번들의 export 목록. src/index.js 를 읽어 들여 뽑는다 — 올린 바이트가 그 파일이다(전제 검사가 src/modules 빌드와 같음을 본다).
+// named_handlers 가 현재 버전과 다를 때만 부른다. 읽지 못하면 null 이고, 그러면 그 차이는 예전처럼 승격을 막는다.
+async function readLocalNamedHandlers(deps) {
+  if (typeof deps.localNamedHandlers !== "function") return null;
+  try {
+    const list = await deps.localNamedHandlers();
+    return Array.isArray(list) ? list : null;
+  } catch (error) {
+    // 독립 검토 P3-3: 여기서 다시 던지면 버전은 저장됐는데 업로드 기록이 남지 않는다. 던져진 값이 Error 가 아니어도(null 등) 글로만 적는다.
+    deps.error(`로컬 번들의 export 목록을 읽지 못했습니다: ${error?.message ?? String(error)}`);
+    return null;
+  }
 }
 
 export function buildUploadMetadata(liveVersion, { appVersion, sha256: digest, commitSha }) {
@@ -512,7 +594,7 @@ async function runDryRun(options, deps) {
     `GET  ${base}/versions/<live-version-id>  — 바인딩·script_runtime·handlers`,
     `GET  ${base}/versions  — 최신 버전이 현재 배포 버전(또는 이 스크립트가 그 버전에서 올린 버전)인지. inherit latest 의 출처이므로 아니면 업로드 금지`,
     `POST ${base}/versions?bindings_inherit=strict  — multipart: metadata(application/json) + ${MAIN_MODULE}(application/javascript+module, ${local.bytes} bytes)`,
-    `GET  ${base}/versions/<new-version-id>  — 저장된 버전 깊은 비교, 다르면 승격 금지`,
+    `GET  ${base}/versions/<new-version-id>  — 저장된 버전 깊은 비교, 다르면 승격 금지 (named export 목록만은 로컬 번들의 목록과 같으면 통과)`,
     "--promote <id> (승인 후): 기록·HEAD·etag 확인 → 다시 비교 → POST /deployments 100% → GET /deployments → GET /content/v2 해시 → /health → 공개 검사",
   ]) deps.log(`  ${line}`);
   let metadata;
@@ -546,14 +628,16 @@ async function runUpload(options, deps, client) {
   const created = await client.uploadVersion(buildUploadForm(metadata, local.sourceBytes));
   if (!created?.id || !UUID.test(created.id)) throw new Error("업로드 응답에 버전 ID 가 없습니다");
   const uploaded = await client.getVersion(created.id);
-  const differences = compareVersionResources(liveVersion, uploaded);
+  // V22.9.123: export 목록(named_handlers)이 현재 버전과 다르면 로컬 번들의 목록과 견준다. 같으면 코드가 바꾼 것이라 통과시키고 기록에 남긴다.
+  const exportChange = namedHandlerDelta(liveVersion, uploaded);
+  const differences = compareVersionResources(liveVersion, uploaded, { localNamedHandlers: exportChange ? await readLocalNamedHandlers(deps) : null });
   const etag = uploaded?.resources?.script?.etag ?? created?.resources?.script?.etag ?? null;
   const record = {
     mode: "upload", at: deps.now().toISOString(), script: options.script, app_version: local.appVersion, commit, sha256: local.sha256, bytes: local.bytes,
     live: { deployment_id: live.deploymentId, version_id: live.versionId, binding_count: metadata.bindings.length },
     inherit: { version_id: "latest", latest_version_id: latestId, basis: inherit.basis },
-    uploaded: { version_id: created.id, number: uploaded?.number ?? created?.number ?? null, created_on: uploaded?.metadata?.created_on ?? null, etag, etag_equals_sha256: etag === local.sha256, startup_time_ms: created?.startup_time_ms ?? null },
-    differences, metadata_sent: metadata,
+    uploaded: { version_id: created.id, number: uploaded?.number ?? created?.number ?? null, created_on: uploaded?.metadata?.created_on ?? null, etag, etag_equals_sha256: etag === local.sha256, startup_time_ms: created?.startup_time_ms ?? null, named_handlers: namedHandlersOf(uploaded) },
+    differences, export_change: exportChange, metadata_sent: metadata,
   };
   const path = writeRecord(deps, directory, `upload-${created.id}.json`, record);
   deps.log(`저장된 버전 ${created.id} (번호 ${record.uploaded.number ?? "?"}, 시작 ${record.uploaded.startup_time_ms ?? "?"}ms). 기록: ${path}`);
@@ -562,6 +646,7 @@ async function runUpload(options, deps, client) {
     return 1;
   }
   deps.log(`바인딩 ${metadata.bindings.length}개·script_runtime·handlers 가 현재 버전과 같습니다. 배포는 하지 않았습니다.`);
+  if (exportChange) deps.log(`named export 목록이 코드대로 바뀝니다(저장된 버전의 목록 = 로컬 번들의 목록, ${namedHandlersOf(uploaded).length}개): ${describeNamedDelta(exportChange)}`);
   deps.log(`승인 후 승격: node tools/deploy-worker-version.mjs --promote ${created.id}`);
   return 0;
 }
@@ -629,7 +714,10 @@ async function runPromote(options, deps, client) {
   if (live.versionId === options.versionId) { deps.error(`버전 ${options.versionId} 는 이미 100% 배포돼 있습니다`); return 1; }
   const liveVersion = await client.getVersion(live.versionId);
   const target = await client.getVersion(options.versionId);
-  const refuse = compareVersionResources(liveVersion, target);
+  // V22.9.123: export 목록의 변화는 업로드 때와 같은 규칙으로 다시 보고(로컬 번들의 목록과 같을 때만 통과), 업로드 기록에 적힌 변화와도 같아야 한다.
+  const exportChange = namedHandlerDelta(liveVersion, target);
+  const refuse = compareVersionResources(liveVersion, target, { localNamedHandlers: exportChange ? await readLocalNamedHandlers(deps) : null });
+  if (canonical(exportChange) !== canonical(record.export_change ?? null)) refuse.push(`named export 목록의 변화가 업로드 기록과 다릅니다 (기록: ${record.export_change ? describeNamedDelta(record.export_change) : "변화 없음"} → 지금: ${exportChange ? describeNamedDelta(exportChange) : "변화 없음"}). 다시 업로드하세요`);
   const etag = target?.resources?.script?.etag ?? null;
   // V22.9.76 (감사 G-4): 업로드 뒤 대시보드에서 Secret·설정을 바꾸면 새 버전이 만들어져 배포된다. 그 뒤 이 버전을
   //   승격하면 업로드 때 이어받은 옛 Secret 값으로 되돌아간다(Secret 값은 API 로 비교할 수 없어 위 대조는 통과한다).
@@ -637,8 +725,9 @@ async function runPromote(options, deps, client) {
   if (record.uploaded?.etag && etag !== record.uploaded.etag) refuse.push(`저장된 버전의 etag 가 업로드 때와 다릅니다 (${record.uploaded.etag} → ${etag})`);
   if (refuse.length) { deps.error(`현재 배포와 다릅니다 — 승격하지 않습니다:\n- ${refuse.join("\n- ")}`); return 1; }
   writeRecord(deps, directory, `live-${live.versionId}.json`, liveSnapshot(deps, options, live, liveVersion));
+  if (exportChange) deps.log(`named export 목록이 코드대로 바뀝니다(업로드 기록과 같고 로컬 번들의 목록과 같음): ${describeNamedDelta(exportChange)}`);
   const { checks, failures } = await deployAndVerify(options, deps, client, { targetId: options.versionId, previousId: live.versionId, expectedVersion: local.appVersion, expectedSha256: local.sha256, message: `${local.appVersion} sha256:${local.sha256} (이전 ${live.versionId})`, runPublic: options.publicChecks });
-  const path = writeRecord(deps, directory, `promote-${options.versionId}.json`, { mode: "promote", at: deps.now().toISOString(), script: options.script, app_version: local.appVersion, commit, sha256: local.sha256, version_id: options.versionId, ...checks, failures });
+  const path = writeRecord(deps, directory, `promote-${options.versionId}.json`, { mode: "promote", at: deps.now().toISOString(), script: options.script, app_version: local.appVersion, commit, sha256: local.sha256, version_id: options.versionId, ...(exportChange ? { export_change: exportChange } : {}), ...checks, failures });
   return finish(deps, failures, path, live.versionId, `${local.appVersion} 버전 ${options.versionId} 100% 배포, 소스 해시·/health${options.publicChecks ? "·공개 검사" : ""} 확인 완료`);
 }
 
@@ -654,8 +743,13 @@ async function runRollback(options, deps, client) {
     return 1;
   }
   if (floorProblem) deps.error(`경고: ${ROLLBACK_FLOOR_OVERRIDE} — 하한을 일부러 넘깁니다: ${floorProblem}`);
-  const refuse = compareVersionResources(liveVersion, target);
+  // V22.9.123 (독립 검토 P2): 되돌릴 버전은 다른(앞선) 코드다. export 목록이 바뀐 판을 승격한 뒤에는 앞 판과 named_handlers 가 다른 것이
+  // 정상이고, 그 칸까지 같아야 한다면 도구로는 앞 판에 되돌릴 수 없다. 바인딩·script_runtime·handlers 는 그대로 견주고, export 목록의 변화는
+  // 막지 않고 출력과 기록에 남긴다.
+  const refuse = compareVersionResources(liveVersion, target, { skipNamedHandlers: true });
   if (refuse.length) { deps.error(`되돌릴 버전의 바인딩·런타임이 현재와 다릅니다 — 대시보드에서 확인하세요:\n- ${refuse.join("\n- ")}`); return 1; }
+  const exportChange = namedHandlerDelta(liveVersion, target);
+  if (exportChange) deps.log(`되돌릴 버전의 named export 목록은 현재 버전과 다릅니다(코드가 다른 버전이라 그렇습니다 — 막지 않음): ${describeNamedDelta(exportChange)}`);
   const directory = releaseDirectory(deps, options, "rollback");
   writeRecord(deps, directory, `live-${live.versionId}.json`, liveSnapshot(deps, options, live, liveVersion));
   // V22.9.118 O-4(독립 검토 P3-4): 배포 전 /health 의 판을 적어 두고, 되돌린 뒤 /health·/ready 는 그 판과 다른 응답만 센다(전파 중에는 이전 버전
@@ -667,7 +761,7 @@ async function runRollback(options, deps, client) {
   // back, so after a rollback the deployment, /health liveness and /ready (V22.9.118 O-4) are verified.
   const { checks, failures } = await deployAndVerify(options, deps, client, { targetId: options.versionId, previousId: live.versionId, expectedVersion: null, expectedSha256: null, message: `rollback to ${options.versionId} (이전 ${live.versionId})`, runPublic: false, runReady: true, excludeVersion: before.version });
   const floor = floorProblem ? { ok: false, overridden: true, problem: floorProblem } : { ok: true, number: target?.number ?? null, created_on: target?.metadata?.created_on ?? null };
-  const path = writeRecord(deps, directory, `rollback-${options.versionId}.json`, { mode: "rollback", at: deps.now().toISOString(), script: options.script, version_id: options.versionId, floor, before, ...checks, failures });
+  const path = writeRecord(deps, directory, `rollback-${options.versionId}.json`, { mode: "rollback", at: deps.now().toISOString(), script: options.script, version_id: options.versionId, floor, before, ...(exportChange ? { export_change: exportChange } : {}), ...checks, failures });
   const warned = checks.warnings?.length ? `, 경고 ${checks.warnings.length}건 — 판 이름이 같아 응답으로는 되돌린 버전을 가리지 못했습니다(활성 version id 로 확인)` : "";
   return finish(deps, failures, path, live.versionId, `버전 ${options.versionId} 로 되돌림 (/health 판 ${checks.health.version ?? "?"}, /ready ok${warned})`, "되돌리기 전 배포 버전");
 }
@@ -717,6 +811,8 @@ export function defaultDeps(root) {
       trackedChanges: () => gitOutput(root, ["status", "--porcelain", "--untracked-files=no"]).split("\n").filter(Boolean),
     },
     build: () => buildFromModulesRoot(resolve(root, "src/modules")),
+    // V22.9.123: 로컬 번들의 named export 목록(namedHandlersOfModule). 저장된 버전의 목록이 현재 버전과 다를 때만 읽는다.
+    localNamedHandlers: async () => namedHandlersOfModule(await import(pathToFileURL(resolve(root, "src/index.js")).href)),
     readFile: readFileSync,
     writeFile: writeFileSync,
     exists: existsSync,

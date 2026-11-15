@@ -6,6 +6,7 @@
 - 되돌리기 대상(기록만) = 승격 시점의 활성 version(지금 `6c16574b-7a79-4dd9-a89f-9f51326a03c8`(#352, V22.9.122-PRELAUNCH-SWEEP, 배포 `bd696706-8929-4def-aea8-1416322859c6`, 2026-11-14 23:11 KST 승격)). 되돌리면 이 판의 재방문 장치만 빠진다. 기능만 끄려면 되돌리지 않고 변수 `KAKAO_RETURN_HINTS_DISABLED=1` 을 넣는다(바인딩 32 → 33, 새 version — 사용자 지목 뒤 Aside 또는 사용자). DB 영향은 없다.
 - 승격: 사용자 토큰 2단계(`review-artifacts/v123-return-reasons-2026-11-14/USER-DEPLOY-APP.md`). 11-18(수)부터는 결함 수정만, 11-20(출시일)에는 배포하지 않는다 → 이 판은 11-17 까지 내보낸다.
 - 저장소 호출: 이번 달 날짜의 한 건을 저장하는 보통 기록에서 답 전 +2(읽기만, 저장과 나란히 — 순차 단계 그대로). 요청 예산(50) 안이다(보통 기록 답 전 11~12, 전체 13~14). 한 요청의 동시 연결은 4~5(Workers 상한 6). 환불 연결 플래그(`REFUND_LINKS_ENABLED`)를 켜면 읽기가 셋이 되므로 그때 동시 연결 수를 다시 잰다.
+- 2026-11-15 병합·1단계 업로드: PR #161 병합 11:43:02 KST(main eca7cc1, Aside 세션 BnxtvbYvPfqaT1TF, merge commit·브랜치 유지, 트리 = 검사한 머리 트리 d2eb07e3, main CI 43669074202 성공). 사용자 토큰 1단계 업로드 12:07 KST → version `df6d6f56-32ac-42d6-a988-9fcb74109a28`(#353, 2026-11-15 12:07 KST 저장, commit eca7cc1): 바인딩 32 inherit·script_runtime·handlers 같음, `named_handlers` 만 120 → 121(이 판이 더한 검사용 export `kakaoSaveFeedbackTextV229123`) → 옛 도구 규칙이 승격을 막았다. 배포 도구를 고친 뒤(같은 절 CHANGELOG ‘배포 도구 보정’) 다시 올려 승격한다 — #353 은 승격하지 않는다. 앞으로 export 가 바뀌는 판은 업로드 출력의 ‘named export 목록이 코드대로 바뀝니다 …’ 줄과 기록의 `export_change` 를 대조한다. 하네스 두 모드 83,997 / 83,990(하한 83,990).
 - 번들 10,129,599 B · SHA-256 `c597730dfc5953fb1762209493b06c540827e4bb90e5722e8ceaf45711a2faf0`(149 모듈). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_123.sha256`(867) · 하네스 두 모드 83,830 / 83,823(하한 83,823).
 
 ## V22.9.122 배포 판단
