@@ -206,17 +206,19 @@ for (const item of NEUTRAL_CASES) {
 
 // 번호 없는 ‘지출자 Bin’ 은 ‘방금’ 기록의 지출자를 바꾼다(끝의 ‘ㅋ’ 는 본 처리처럼 다듬는다) — 그 기록을 고르는 ‘최근기록’ 으로 확인하게 한다.
 // 3차 검토: 뒤 작업이 끝난 뒤 ‘방금’ 기록(점심)의 지출자만 한 번 바뀐다. (‘최근기록’·‘오늘기록’ 목록은 지출자를 보여 주지 않는다 — 단추로는 결과 확인 불가.)
+// 4차 검토: 세 기록 모두 다른 지출자(Wifi)로 시작해, 다른 기록을 Bin 으로 바꾸는 결함도 드러나게 한다.
 const spenders = (fx) => JSON.stringify(fx.db.transactions.filter((row) => row.household_id === HOME && row.transaction_date === TODAY && row.source_user_key === OWNER).map((row) => `${row.memo}:${row.user_id}`));
 await scene(async (fx, net) => {
   await seed(fx);
-  fx.db.transactions.find((row) => row.household_id === HOME && row.transaction_date === TODAY && row.memo === "점심").user_id = "user-wifi";
+  for (const row of fx.db.transactions) if (row.household_id === HOME && row.transaction_date === TODAY) row.user_id = "user-wifi";
+  t.eq(spenders(fx), JSON.stringify(["커피:user-wifi", "택시:user-wifi", "점심:user-wifi"]), "FC-1 ‘지출자 Binㅋ’: 준비 — 세 기록 모두 Wifi");
   net.delayMs = SLOW_MS;
   const reply = await send(fx, "지출자 Binㅋ");
   net.delayMs = 0;
   await reply.settle();
   t.eq(reply.text, changeDeferredText("최근기록"), "FC-1 ‘지출자 Binㅋ’: 기록 변경 늦은 답");
   t.deepEq(reply.buttons, [["최근기록", "최근기록"]], "FC-1 ‘지출자 Binㅋ’: 단추는 ‘최근기록’ 하나");
-  t.eq(spenders(fx), JSON.stringify(["커피:user-bin", "택시:user-bin", "점심:user-bin"]), "FC-1 ‘지출자 Binㅋ’: 뒤 작업이 끝나면 ‘방금’ 기록(점심)의 지출자만 Bin 으로 바뀐다");
+  t.eq(spenders(fx), JSON.stringify(["커피:user-wifi", "택시:user-wifi", "점심:user-bin"]), "FC-1 ‘지출자 Binㅋ’: 뒤 작업이 끝나면 ‘방금’ 기록(점심)의 지출자만 Bin 으로 바뀐다");
   t.eq(state(fx), JSON.stringify({ today: SEED, yesterday: [] }), "FC-1 ‘지출자 Binㅋ’: 다른 칸·다른 기록은 그대로");
 }, { KAKAO_RESPONSE_BUDGET_MS: "200" });
 
@@ -236,18 +238,24 @@ for (const utterance of ["삭제된 영수증 재발급 3000원", "복구비 500
 }
 
 // 3차 검토: 공백 변형(여러 칸·탭·줄바꿈·끝 공백)도 본 처리처럼 읽는다 — 다시 보내기 단추 없이 목록으로 확인하게 한다.
-for (const [command, list, prep] of [["삭제  01번", "오늘기록", []], ["삭제\t01번", "오늘기록", []], ["방금\n삭제", "최근기록", []], ["복구   ", "오늘기록", ["삭제 01번"]]]) {
+// 4차 검토: 뒤 작업이 바꾼 기록을 정확히 본다(다른 번호를 지우면 실패한다). ‘방금’ 은 마지막에 저장한 점심이다.
+for (const [command, list, prep, after] of [
+  ["삭제  01번", "오늘기록", [], ["택시 8000", "점심 12000"]],
+  ["삭제\t01번", "오늘기록", [], ["택시 8000", "점심 12000"]],
+  ["방금\n삭제", "최근기록", [], ["커피 4500", "택시 8000"]],
+  ["복구   ", "오늘기록", ["삭제 02번"], SEED],
+]) {
   await scene(async (fx, net) => {
     await seed(fx);
     for (const utterance of prep) await say(fx, utterance);
-    const before = state(fx);
+    if (prep.length) t.eq(state(fx), JSON.stringify({ today: ["커피 4500", "점심 12000"], yesterday: [] }), `FC-1 공백 변형 ${JSON.stringify(command)}: 준비 — 02번(택시)을 지웠다`);
     net.delayMs = SLOW_MS;
     const reply = await send(fx, command);
     net.delayMs = 0;
     await reply.settle();
     t.eq(reply.text, changeDeferredText(list), `FC-1 공백 변형 ${JSON.stringify(command)}: 기록 변경 늦은 답`);
     t.deepEq(reply.buttons, [[list, list]], `FC-1 공백 변형 ${JSON.stringify(command)}: 단추는 목록 보기 하나`);
-    t.ok(state(fx) !== before, `FC-1 공백 변형 ${JSON.stringify(command)}: 뒤 작업은 끝까지 간다`);
+    t.eq(state(fx), JSON.stringify({ today: after, yesterday: [] }), `FC-1 공백 변형 ${JSON.stringify(command)}: 뒤 작업이 그 기록만 바꾼다`);
   }, { KAKAO_RESPONSE_BUDGET_MS: "200" });
 }
 
@@ -569,11 +577,14 @@ await scene(async (fx) => {
 // ── FC-19 ② 고친 뒤 세션 정리 쓰기만 실패 ────────────────────────────────────────
 // 2차 검토: 정리 쓰기를 삼키면 세션이 5분 동안 살아 있어 다음 숫자 말(‘5000’)이 같은 기록을 또 고쳤고, ‘취소’ 는 취소했다고 답하면서 세션이 남았다.
 // 이제 한 번 더 써 보고, 그래도 실패하면 답(바꾼 결과·바꾸지 않은 이유)에 남은 세션의 위험을 한 줄 붙인다. 사용자가 한 ‘취소’ 만 예전처럼 오류로 끝낸다.
-// 3차 검토: 그 줄은 위험부터 말하고 남은 세션이 연 번호를 적으며, 그 세션이 실제로 남아 무엇을 바꿀 수 있을 때만 붙는다. 세션이 없으면 정리 쓰기도 없다.
+// 3차 검토: 그 줄은 위험부터 말하고, 그 세션이 실제로 남아 무엇을 바꿀 수 있을 때만 붙는다. 세션이 없으면 정리 쓰기도 없다.
+// 4차 검토: 줄은 번호를 적지 않는다(창을 열 때의 번호라 날짜를 고치거나 앞 기록을 지우면 다른 기록을 가리킨다). 창의 기록이 지워졌거나 없으면
+// 되살린 뒤의 위험을 말한다(‘복구’ 는 창을 비켜 같은 기록을 되살리고, 창은 다시 그 기록을 고친다).
 // 각 장면은 다음 말이 실제로 무엇을 하는지까지 본다(줄이 말한 대로인지).
 const sessionKeyCall = ({ url, init }) => url.pathname === "/rest/v1/accountbook_settings" && (/"key":"kakao_edit_v4:/.test(String(init?.body || "")) || decodeURIComponent(url.search).includes("key=eq.kakao_edit_v4:"));
 const sessionWrite = (call) => call.method === "POST" && sessionKeyCall(call);
-const closeLine = (no) => `⚠️ 5분 안에 숫자나 짧은 말을 보내면 ${no}번 기록이 바뀌거나 지워질 수 있어요(수정 창을 닫지 못했어요). 새 기록은 5분 뒤에 ‘커피 4500원’처럼 내용과 금액을 함께 보내 주세요.`;
+const CLOSE_LINE = "⚠️ 5분 안에 숫자나 짧은 말을 보내면 수정 창에 열려 있던 기록이 바뀌거나 지워질 수 있어요(수정 창을 닫지 못했어요). 새 기록은 5분 뒤에 ‘커피 4500원’처럼 내용과 금액을 함께 보내 주세요.";
+const CLOSE_LINE_GONE = "⚠️ 5분 안에 이 기록을 되살린 뒤 숫자나 짧은 말을 보내면 그 기록이 바뀌거나 지워질 수 있어요(수정 창을 닫지 못했어요). 새 기록은 5분 뒤에 ‘커피 4500원’처럼 내용과 금액을 함께 보내 주세요.";
 const CLOSE_HEAD = "수정 창을 닫지 못했어요";
 const GENERIC_ERROR = "일시적인 오류로 이번 요청을 끝내지 못했어요.";
 const removeRow = (memo) => (fx) => { fx.db.transactions = fx.db.transactions.filter((row) => !(row.household_id === HOME && row.transaction_date === TODAY && row.memo === memo)); };
@@ -581,42 +592,49 @@ const setRole = (role) => (fx) => { fx.db.household_members.find((member) => mem
 const STALE_CASES = [
   { name: "세션 고치기, 다시 쓰기 성공", prep: ["수정 02번", "금액"], send: "9000", fails: 1, head: "✅ 02번 금액을 9,000원으로 변경했어요.", line: "",
     next: "5000", after: { today: ["커피 4500", "택시 9000", "점심 12000", "기타지출 5000"], yesterday: [] } },
-  { name: "세션 고치기, 두 번 실패", prep: ["수정 02번", "금액"], send: "9000", fails: 2, head: "✅ 02번 금액을 9,000원으로 변경했어요.", line: "02",
+  { name: "세션 고치기, 두 번 실패", prep: ["수정 02번", "금액"], send: "9000", fails: 2, head: "✅ 02번 금액을 9,000원으로 변경했어요.", line: CLOSE_LINE,
     next: "5000", after: { today: ["커피 4500", "택시 5000", "점심 12000"], yesterday: [] } },
   { name: "취소, 다시 쓰기 성공", prep: ["수정 02번", "금액"], send: "취소", fails: 1, head: "👌 02번 수정을 취소했어요.", line: "",
     next: "13000", after: { today: ["커피 4500", "택시 8000", "점심 12000", "기타지출 13000"], yesterday: [] } },
   { name: "취소, 두 번 실패", prep: ["수정 02번", "금액"], send: "취소", fails: 2, head: GENERIC_ERROR, line: "",
     next: "13000", after: { today: ["커피 4500", "택시 13000", "점심 12000"], yesterday: [] } },
   // 내용 칸 세션은 숫자도 내용으로 받는다(줄의 ‘짧은 말’).
-  { name: "내용 고치기, 두 번 실패", prep: ["수정 02번", "4"], send: "간식", fails: 2, head: "✅ 02번 내용을 '간식'으로 변경했어요.", line: "02",
+  { name: "내용 고치기, 두 번 실패", prep: ["수정 02번", "4"], send: "간식", fails: 2, head: "✅ 02번 내용을 '간식'으로 변경했어요.", line: CLOSE_LINE,
     next: "5000", after: { today: ["커피 4500", "5000 8000", "점심 12000"], yesterday: [] } },
-  // 다른 날 기록의 세션이면 줄의 번호 앞에 그 날짜를 붙인다(답 첫 줄의 ‘02번’ 만으로는 오늘 기록으로 읽힌다).
+  // 다른 날 기록의 창도 같은 줄이다(번호·날짜를 적지 않는다). 다음 숫자 말은 그 창의 기록(어제 간식)을 고친다.
   { name: "어제 기록 고치기, 두 번 실패", yesterdaySeed: ["라면 3000", "간식 2000"], prep: ["어제 수정 02번"], send: "금액 9000", fails: 2, head: "✅ 02번 금액을 9,000원으로 변경했어요.",
-    line: `${Number(YESTERDAY.slice(5, 7))}월 ${Number(YESTERDAY.slice(8, 10))}일 02`, next: "5000", nextHead: "✅ 02번 금액을 5,000원으로 변경했어요.", after: { today: SEED, yesterday: ["라면 3000", "간식 5000"] } },
+    line: CLOSE_LINE, next: "5000", after: { today: SEED, yesterday: ["라면 3000", "간식 5000"] } },
+  // 4차 검토: 날짜를 어제로 옮겨도 창은 그 기록(택시)을 따라간다 — 지금 오늘 목록의 02번(점심)이 아니다. 줄이 번호를 적지 않는 까닭.
+  { name: "날짜를 어제로 고치기, 두 번 실패", prep: ["수정 02번", "5"], send: "어제", fails: 2, head: `✅ 02번 날짜를 ${YESTERDAY}로 변경했어요.`, line: CLOSE_LINE,
+    mid: { today: ["커피 4500", "점심 12000"], yesterday: ["택시 8000"] }, next: "오늘", after: { today: SEED, yesterday: [] } },
   // 3차 검토: 열린 세션이 없던 한 줄 고치기는 정리 쓰기를 하지 않는다(줄도 없다). 다음 숫자 말은 새 기록이다.
   { name: "세션 없이 한 줄 고치기", prep: [], send: "수정 01번 금액 13000", fails: 2, writes: 0, head: "✅ 01번 금액을 13,000원으로 변경했어요.", line: "",
     next: "5000", after: { today: ["커피 13000", "택시 8000", "점심 12000", "기타지출 5000"], yesterday: [] } },
-  // 앞서 연 다른 기록의 메뉴가 남는다 — 줄은 방금 고친 03번이 아니라 그 메뉴의 01번을 적는다.
-  { name: "01번 메뉴 위 ‘방금 거 금액 13000’, 두 번 실패", prep: ["수정 01번"], send: "방금 거 금액 13000", fails: 2, head: "✅ 03번 금액을 13,000원으로 변경했어요.", line: "01",
-    next: "5000", nextHead: "✅ 01번 금액을 5,000원으로 변경했어요.", after: { today: ["커피 5000", "택시 8000", "점심 13000"], yesterday: [] } },
-  // 지운 기록의 세션은 바꿀 것이 없어 줄이 없다(다음 숫자 말은 ‘찾지 못했어요’).
-  { name: "메뉴 삭제, 두 번 실패", prep: ["수정 02번"], send: "7", fails: 2, head: "🗑️ 02번 기록을 삭제했어요.", line: "",
+  // 앞서 연 다른 기록의 창이 남는다 — 다음 숫자 말은 방금 고친 점심이 아니라 그 창의 커피를 고친다.
+  { name: "01번 메뉴 위 ‘방금 거 금액 13000’, 두 번 실패", prep: ["수정 01번"], send: "방금 거 금액 13000", fails: 2, head: "✅ 03번 금액을 13,000원으로 변경했어요.", line: CLOSE_LINE,
+    next: "5000", after: { today: ["커피 5000", "택시 8000", "점심 13000"], yesterday: [] } },
+  // 4차 검토: 창의 기록을 지웠거나 찾지 못하면 되살린 뒤의 위험을 말한다. 되살리지 않으면 숫자 말은 저장되지 않고 ‘찾지 못했어요’ 를 받는다(되살린 장면은 아래).
+  { name: "메뉴 삭제, 두 번 실패", prep: ["수정 02번"], send: "7", fails: 2, head: "🗑️ 02번 기록을 삭제했어요.", line: CLOSE_LINE_GONE,
     next: "5000", nextHead: "수정하려던 02번 기록을 찾지 못했어요.", after: { today: ["커피 4500", "점심 12000"], yesterday: [] } },
-  { name: "03번 메뉴 위 한 줄 삭제, 두 번 실패", prep: ["수정 03번"], send: "삭제 01번", fails: 2, head: "🗑️ 01번 기록을 삭제했어요.", line: "03",
-    next: "5000", nextHead: "✅ 03번 금액을 5,000원으로 변경했어요.", after: { today: ["택시 8000", "점심 5000"], yesterday: [] } },
-  { name: "지운 기록의 메뉴 위 한 줄 삭제, 두 번 실패", prep: ["수정 01번"], send: "삭제 01번", fails: 2, head: "🗑️ 01번 기록을 삭제했어요.", line: "",
+  // 4차 검토: 앞 기록을 지우면 창의 기록(점심)의 번호가 03 에서 02 로 당겨진다 — 줄은 번호 없이 창의 기록을 말하고, 다음 숫자 말은 점심을 고친다.
+  { name: "03번 메뉴 위 한 줄 삭제, 두 번 실패", prep: ["수정 03번"], send: "삭제 01번", fails: 2, head: "🗑️ 01번 기록을 삭제했어요.", line: CLOSE_LINE,
+    next: "5000", after: { today: ["택시 8000", "점심 5000"], yesterday: [] } },
+  { name: "지운 기록의 메뉴 위 한 줄 삭제, 두 번 실패", prep: ["수정 01번"], send: "삭제 01번", fails: 2, head: "🗑️ 01번 기록을 삭제했어요.", line: CLOSE_LINE_GONE,
     next: "5000", nextHead: "수정하려던 01번 기록을 찾지 못했어요.", after: { today: ["택시 8000", "점심 12000"], yesterday: [] } },
   { name: "세션 없이 한 줄 삭제, 두 번 실패", prep: [], send: "삭제 01번", fails: 2, head: "🗑️ 01번 기록을 삭제했어요.", line: "",
     next: "5000", after: { today: ["택시 8000", "점심 12000", "기타지출 5000"], yesterday: [] } },
-  // 호출 예산이 바닥나면 세션 읽기·쓰기가 보내기 전에 모두 실패한다 — 읽기도 실패하는 꼴로 본다(남은 세션을 모르면 줄을 붙이지 않는다).
-  { name: "세션 없이 한 줄 삭제, 세션 읽기도 실패", prep: [], send: "삭제 01번", fails: 2, reads: true, head: "🗑️ 01번 기록을 삭제했어요.", line: "",
+  // 호출 예산이 바닥나면 세션 읽기·쓰기가 보내기 전에 모두 실패한다 — 읽기도 실패하는 꼴로 본다. 4차 검토: 그때는 정리 전에 본 메모리 힌트로 정한다
+  // (창이 있었으면 번호 없는 줄, 없었으면 줄 없음). 읽기 훅이 실제 세션 읽기에 한 번 맞았는지 센다.
+  { name: "03번 메뉴 위 한 줄 삭제, 세션 읽기도 실패", prep: ["수정 03번"], send: "삭제 01번", fails: 2, reads: 1, head: "🗑️ 01번 기록을 삭제했어요.", line: CLOSE_LINE,
+    next: "5000", after: { today: ["택시 8000", "점심 5000"], yesterday: [] } },
+  { name: "세션 없이 한 줄 삭제, 세션 읽기도 실패", prep: [], send: "삭제 01번", fails: 2, reads: 1, head: "🗑️ 01번 기록을 삭제했어요.", line: "",
     next: "5000", after: { today: ["택시 8000", "점심 12000", "기타지출 5000"], yesterday: [] } },
   // 3차 검토: 기록이 그대로라는 답(세 번째 실패의 끝·찾지 못함·같은 문장)은 오류로 바꾸지 않는다. 남은 세션은 다음 말로 그 기록을 바꿀 수 있다.
-  { name: "FC-12 세 번째 실패의 끝, 두 번 실패", prep: ["수정 02번", "5", "25일", "25일"], send: "25일", fails: 2, head: "😅 02번 수정을 끝냈어요. 기록은 그대로예요.", line: "02",
+  { name: "FC-12 세 번째 실패의 끝, 두 번 실패", prep: ["수정 02번", "5", "25일", "25일"], send: "25일", fails: 2, head: "😅 02번 수정을 끝냈어요. 기록은 그대로예요.", line: CLOSE_LINE,
     next: "어제", after: { today: ["커피 4500", "점심 12000"], yesterday: ["택시 8000"] } },
-  { name: "찾지 못함(그 사이 지워짐), 두 번 실패", prep: ["수정 02번", "금액"], mutate: removeRow("택시"), send: "9000", fails: 2, head: "수정하려던 02번 기록을 찾지 못했어요.", line: "",
+  { name: "찾지 못함(그 사이 지워짐), 두 번 실패", prep: ["수정 02번", "금액"], mutate: removeRow("택시"), send: "9000", fails: 2, head: "수정하려던 02번 기록을 찾지 못했어요.", line: CLOSE_LINE_GONE,
     next: "5000", nextHead: "수정하려던 02번 기록을 찾지 못했어요.", after: { today: ["커피 4500", "점심 12000"], yesterday: [] } },
-  { name: "같은 문장(어제 같은 기록), 두 번 실패", yesterdaySeed: ["커피 4500"], prep: ["수정 01번", "5"], send: "2", fails: 2, head: "01번 기록을 바꾸지 않았어요. 기록은 그대로예요.", line: "01",
+  { name: "같은 문장(어제 같은 기록), 두 번 실패", yesterdaySeed: ["커피 4500"], prep: ["수정 01번", "5"], send: "2", fails: 2, head: "01번 기록을 바꾸지 않았어요. 기록은 그대로예요.", line: CLOSE_LINE,
     next: "3", after: { today: ["택시 8000", "점심 12000"], yesterday: ["커피 4500"] } },
   // 바꿀 수 없게 된 사람(조회 전용)의 거절은 남은 세션도 바꾸지 못하므로 줄이 없다.
   { name: "조회 전용으로 바뀐 뒤, 두 번 실패", prep: ["수정 02번", "금액"], mutate: setRole("viewer"), send: "9000", fails: 2, head: "현재 가계부 권한으로는 기록을 수정하거나 삭제할 수 없어요.", line: "",
@@ -635,23 +653,49 @@ for (const item of STALE_CASES) {
     await seed(fx);
     for (const utterance of item.prep) await say(fx, utterance);
     item.mutate?.(fx);
-    let failed = 0, writes = 0;
+    let failed = 0, writes = 0, reads = 0;
     net.hook = (call) => {
       if (sessionWrite(call)) { writes += 1; if (failed < item.fails) { failed += 1; return failure(503, "simulated session write failure"); } }
-      else if (item.reads && call.method === "GET" && sessionKeyCall(call)) return failure(503, "simulated session read failure");
+      else if (item.reads && call.method === "GET" && sessionKeyCall(call)) { reads += 1; return failure(503, "simulated session read failure"); }
       return null;
     };
     const reply = await say(fx, item.send);
     net.hook = null;
     if (item.writes === undefined) t.eq(failed, item.fails, `${label}: 세션 정리 쓰기 실패 ${item.fails}번을 넣었다`);
     else t.eq(writes, item.writes, `${label}: 세션 정리 쓰기 ${item.writes}번`);
+    if (item.reads) t.eq(reads, item.reads, `${label}: 세션 읽기 실패 ${item.reads}번을 넣었다(훅이 실제 읽기에 맞았다)`);
     t.ok(reply.text.startsWith(item.head), `${label}: 답 (${reply.text.split("\n")[0]})`);
-    if (item.line) t.ok(reply.text.endsWith(`\n${closeLine(item.line)}`), `${label}: 답 끝에 ${item.line}번의 위험을 말하는 줄`);
+    if (item.line) t.ok(reply.text.endsWith(`\n${item.line}`), `${label}: 답 끝에 ${item.line === CLOSE_LINE_GONE ? "되살린 뒤의" : "남은 창의"} 위험을 말하는 줄`);
     else t.ok(!reply.text.includes(CLOSE_HEAD), `${label}: ‘수정 창을 닫지 못했어요’ 줄이 없다`);
     if (item.send === "취소") t.eq(reply.text.includes("취소했어요"), item.fails < 2, `${label}: 세션을 닫지 못했으면 취소했다고 하지 않는다`);
+    if (item.mid) t.eq(state(fx), JSON.stringify(item.mid), `${label}: ‘${item.send}’ 뒤 기록`);
     const next = await say(fx, item.next);
     if (item.nextHead) t.ok(next.text.startsWith(item.nextHead), `${label}: 다음 ‘${item.next}’ 의 답 (${next.text.split("\n")[0]})`);
     t.eq(state(fx), JSON.stringify(item.after), `${label}: 다음 ‘${item.next}’ 뒤 기록 (${next.text.split("\n")[0]})`);
+    await say(fx, "취소");
+  });
+}
+
+// 4차 검토: 창의 기록을 지운 뒤 답의 ‘복구’ 를 따르면 복구는 창을 비켜 같은 기록을 되살리고, 5분 안의 숫자 말은 되살린 기록을 고친다(줄이 말한 대로).
+for (const [prep, send, restore, after] of [
+  [["수정 02번"], "7", "복구 02번", ["커피 4500", "택시 5000", "점심 12000"]],
+  [["수정 01번"], "삭제 01번", "복구 01번", ["커피 5000", "택시 8000", "점심 12000"]],
+]) {
+  const label = `FC-19 ${prep[0]} → ‘${send}’(정리 두 번 실패) → ‘${restore}’ → ‘5000’`;
+  await scene(async (fx, net) => {
+    await seed(fx);
+    for (const utterance of prep) await say(fx, utterance);
+    let failed = 0;
+    net.hook = (call) => { if (sessionWrite(call) && failed < 2) { failed += 1; return failure(503, "simulated session write failure"); } return null; };
+    const deleted = await say(fx, send);
+    net.hook = null;
+    t.eq(failed, 2, `${label}: 세션 정리 쓰기 실패 2번을 넣었다`);
+    t.ok(deleted.text.endsWith(`\n${CLOSE_LINE_GONE}`), `${label}: 삭제 답 끝에 되살린 뒤의 위험을 말하는 줄`);
+    const restored = await say(fx, restore);
+    t.ok(restored.text.startsWith("↩️ 기록을 복구했어요."), `${label}: 복구는 창을 비켜 명령으로 처리된다 (${restored.text.split("\n")[0]})`);
+    t.eq(state(fx), JSON.stringify({ today: SEED, yesterday: [] }), `${label}: 복구 뒤 기록`);
+    const next = await say(fx, "5000");
+    t.eq(state(fx), JSON.stringify({ today: after, yesterday: [] }), `${label}: 남은 창이 되살린 기록을 고친다 (${next.text.split("\n")[0]})`);
     await say(fx, "취소");
   });
 }
@@ -676,11 +720,11 @@ for (const item of TABLE_CASES) {
     let failed = 0;
     net.hook = (call) => { if (sessionWrite(call) && (item.mode === "persistent" || failed < 2)) { failed += 1; return failure(503, "simulated session write failure"); } return null; };
     const first = await say(fx, "9000");
-    t.ok(first.text.endsWith(`\n${closeLine("02")}`), `${label}: 준비 — ‘9000’ 의 답에 줄이 붙는다`);
+    t.ok(first.text.endsWith(`\n${CLOSE_LINE}`), `${label}: 준비 — ‘9000’ 의 답에 줄이 붙는다`);
     const reply = await say(fx, item.next);
     net.hook = null;
     t.ok(reply.text.startsWith(item.head), `${label}: 답 (${reply.text.split("\n")[0]})`);
-    t.eq(reply.text.endsWith(`\n${closeLine("02")}`), item.line, `${label}: 줄이 ${item.line ? "다시 붙는다(창이 아직 열려 있다)" : "없다"}`);
+    t.eq(reply.text.endsWith(`\n${CLOSE_LINE}`), item.line, `${label}: 줄이 ${item.line ? "다시 붙는다(창이 아직 열려 있다)" : "없다"}`);
     t.eq(JSON.stringify(day(fx, TODAY)), JSON.stringify(item.after), `${label}: 기록`);
     // 그 뒤(쓰기가 되는 때) 숫자 말: 창이 남았으면 02번을 고치고, 닫혔으면 새 기록이다.
     const probe = await say(fx, "3000");
@@ -699,7 +743,7 @@ for (const mode of ["transient", "persistent"]) {
       let failed = 0;
       net.hook = (call) => { if (sessionWrite(call) && (mode === "persistent" || failed < 2)) { failed += 1; return failure(503, "simulated session write failure"); } return null; };
       const first = await say(fx, "금액 9000");
-      t.ok(first.text.endsWith(`\n${closeLine("02")}`), `${label}: 준비 — 메뉴에서 바로 고친 답에 줄이 붙는다`);
+      t.ok(first.text.endsWith(`\n${CLOSE_LINE}`), `${label}: 준비 — 메뉴에서 바로 고친 답에 줄이 붙는다`);
       const stale = fx.db.accountbook_settings.find((row) => String(row.key).startsWith("kakao_edit_v4:") && row.value);
       stale.value = JSON.stringify({ ...JSON.parse(stale.value), updatedAt: Date.now() - 6 * 60 * 1000 });
       const reply = await say(fx, next);
