@@ -5,7 +5,7 @@
 //   FC-6  가져오기 금액 칸 ‘12.000원’ 을 12원으로 읽던 것(import/flexible-import-parser.js parseImportAmountCell)
 //   FC-7  구성원 빠른 입력의 지출자 고르기(서버는 본인으로 저장)(my/mobile-home.js)
 //   FC-14 납부·입금 일정 금액에 상한이 없던 것(settings/reserve-plans.js)
-//   FC-17 로그인 없이 보이는 스킬 호출자 확인 건수·시각과 요청 제한 값(worker/router.js)
+//   FC-17 로그인 없이 보이는 스킬 호출자 확인 건수·시각과 요청 제한 값(worker/router.js) — 헤더 누락 추정 한 칸은 남긴다(2차)
 //   FC-18 옛 내부용 안내 화면의 검색 제외(X-Robots-Tag) — 고칠 것 없이 지금 머리가 있음을 고정한다
 //   FC-23 공개 /start-guide 의 공유 이미지(og:image)
 // 장면마다 고치기 전 결함이 생기던 조건을 그대로 만들고(사용자 글·예산 GET 500·구성원 세션·큰 금액·거부된 /skill 호출) 고친 동작을 확인한다.
@@ -91,10 +91,79 @@ await withClock("2026-07-20", () => fixture(async (fx) => {
   const guide = await page(fx, "/subscription-cleanup", { cookie: "" });
   t.ok(guide.status === 200 && guide.html.includes("유료 전환되도록"), "FC-2 ‘유료 전환’ 이 든 공개 안내 글은 그대로다");
 }));
+// FC-2(2차) 성질 검사: 후처리가 찾는 글(남긴 치환·뺀 치환 모두)을 메모·분류·결제수단에 넣고 실제 화면을 그린다.
+// 표식(M07x … M07y)이 나오는 모든 자리에서 그 사이 글이 원문이거나 원문을 이스케이프한 꼴이어야 한다(화면이 원래 자르는 곳은 자른 앞부분).
+// 고치기 전 번들(9c3fa818)에서는 같은 장면에서 363자리의 사용자 글이 바뀌었다(‘프리미엄’→‘스마트 도구’, 옛 안내 문장, 뷰포트 글 등).
+const FC2_KEYS = [
+  "프리미엄 1차 베타", "프리미엄 베타", "프리미엄", "프리미엄 1차 개발 예정", "프리미엄 1차 개발 순서",
+  "실제 데이터에서 가치와 정확도를 검증한 뒤 유료 전환합니다.", "유료 전환", "현재 결제 기능은 연결하지 않았습니다.", "월말 예상 지출", "절약 후보",
+  "운영 원칙", "밈카드와 카드 실적 기능은", "현재 동작하는 스마트 도구", "컬럼: 날짜, 구분, 금액, 분류, 내용, 결제수단, 출처, 기록ID", "/my/premium",
+  "🌱 시작가이드", "처음이라면 여기부터", "오늘 쓴 돈 ☀️",
+  "CSV·TSV·TXT·엑셀의 여러 시트", "CSV·TSV·TXT는 서버에서 바로 읽습니다.", "들어온 돈 💰", "나간 돈 💸",
+  ",maximum-scale=1", ".sep{text-align:center;color:#7b8494;", "https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js",
+  "카카오 로그인 없이도 이름과 개인 접속코드로 시작할 수 있습니다.", "가계부가 연결되면 시작가이드에서 월 수입, 예산, 분류·키워드, 카드·현금·통장, 정기지출을 순서대로 설정하면 됩니다.",
+  "처음에는 기능을 많이 설명하기보다 “가계부 생성 → 예산 → 결제수단 → 정기지출 → 카카오 기록 → 분석 확인” 흐름만 안내합니다. 오류가 나면 안전화면과 백업 가이드를 먼저 보여줍니다.",
+  "가계부에 접속하세요.", "현재 브라우저에 로그인 세션이 없으면 이 화면이 표시됩니다. 카카오 로그인이 아직 준비되지 않았으면 아래 이름 + 개인 접속코드로 접속하세요.",
+  "로컬 설정 일치 · 로그인 버튼 표시", "이 화면에서는 카카오 관리자센터 등록 여부까지 자동 확인할 수 없습니다.",
+  "일반 사용자가 매일 쓰는 메뉴만 모았습니다. 운영/점검/배포/진단 메뉴는 이 화면에 노출하지 않고 운영센터에서만 관리합니다.",
+  "추천 흐름: 홈·입력 → 기록 보기 → 예산알림 → 분석 → 백업·복구. 새 모임이나 여행은 가계부 전환·추가에서 만드세요.",
+  "재산세, 자동차세, 자동차보험처럼 반기·연단위로 나가는 큰돈을 미리 준비합니다. 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.",
+  "💛", "🏠", "📄", "📊", '<a class="btn" style="margin-top:10px" href=', "<span>들어온 돈 💰</span>", "<p>CSV·TSV·TXT·엑셀의 여러 시트",
+  '<i>🏠</i>', '<button type="submit">이 가계부 영구 삭제</button>', 'id="budgetPlanForm">',
+];
+const FC2_FIELDS = { memo: "M", category: "C", payment_method: "P" };
+const FC2_PROPERTY_PAGES = [`/app?${Q}`, `/app?tab=transactions&${Q}`, `/app?tab=calendar&${Q}`, `/m?${Q}`, `/my/analysis?${Q}`, `/reports?${Q}`, `/annual-report?year=2026&household_id=${HOME}`, "/transactions/edit?id=v126-prop-03", "/transactions/edit?id=v126-prop-25"];
+await withClock("2026-07-20", () => fixture(async (fx) => {
+  const tag = (kind, i, end) => `${FC2_FIELDS[kind]}${String(i).padStart(2, "0")}${end}`;
+  const valueOf = (kind, i) => `${tag(kind, i, "x")} ${FC2_KEYS[i]} ${tag(kind, i, "y")}`;
+  const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const json = (s) => JSON.stringify(s).slice(1, -1);
+  const encodings = [(s) => s, esc, (s) => esc(s).replace(/&#39;/g, "&#x27;"), json, (s) => json(s).replace(/</g, "\\u003c"), (s) => esc(json(s)), encodeURIComponent, (s) => esc(encodeURIComponent(s))];
+  const stamp = "2026-07-06T03:00:00.000Z";
+  FC2_KEYS.forEach((_, i) => fx.db.transactions.push({ id: `v126-prop-${String(i).padStart(2, "0")}`, household_id: HOME, user_id: "user-bin", transaction_date: `2026-07-${String(1 + (i % 19)).padStart(2, "0")}`, type: "expense", amount: 1000 + i * 1000, category: valueOf("category", i), memo: valueOf("memo", i), payment_method: valueOf("payment_method", i), source: "web", raw_text: `기록 ${i}`, created_at: stamp, updated_at: stamp }));
+  const problems = [], covered = new Set(), clipped = {};
+  let seen = 0;
+  for (const path of FC2_PROPERTY_PAGES) {
+    const r = await page(fx, path);
+    if (r.status !== 200) { problems.push(`${path} ${r.status}`); continue; }
+    FC2_KEYS.forEach((_, i) => {
+      for (const kind of Object.keys(FC2_FIELDS)) {
+        const forms = encodings.map((encode) => encode(valueOf(kind, i)));
+        for (let at = r.html.indexOf(tag(kind, i, "x")); at >= 0; at = r.html.indexOf(tag(kind, i, "x"), at + 1)) {
+          seen += 1; covered.add(`${kind}${i}`);
+          if (forms.some((form) => r.html.startsWith(form, at))) continue;
+          // 화면이 원래 글을 자르는 곳(소비 분석 자료의 분류·결제수단 40자): 원문 앞부분이 그대로이고 바로 뒤가 글의 끝이면 바뀐 것이 아니다.
+          const kept = Math.max(...forms.map((form) => { let n = 0; while (n < form.length && r.html[at + n] === form[n]) n += 1; return n; }));
+          if (kept >= 12 && /^["<…]/.test(r.html[at + kept] || "")) { clipped[path.split("?")[0]] = (clipped[path.split("?")[0]] || 0) + 1; continue; }
+          problems.push(`${path.split("&")[0]} ${kind}#${i} ${JSON.stringify(r.html.slice(at, at + 70))}`);
+        }
+      }
+    });
+  }
+  t.ok(seen >= 700 && covered.size === FC2_KEYS.length * 3, `FC-2 성질: 화면 ${FC2_PROPERTY_PAGES.length}곳에서 사용자 글 ${seen}자리를 봤고 낱말 ${FC2_KEYS.length}개 × 메모·분류·결제수단이 모두 한 번 이상 나왔다(${covered.size})`);
+  t.eq(problems.slice(0, 8).join(" | "), "", `FC-2 성질: 후처리가 찾는 어떤 글을 넣어도 사용자 글이 원문(이스케이프만)으로 나온다(바뀐 자리 ${problems.length})`);
+  t.ok(Object.keys(clipped).every((path) => path === "/my/analysis"), `FC-2 성질: 원문 앞부분만 나온 자리는 소비 분석 자료(분류·결제수단 40자)뿐이다(${JSON.stringify(clipped)})`);
+}));
+// 남긴 문장 치환은 템플릿 태그까지 붙여 찾으므로 템플릿 글은 예전처럼 바뀐다.
+await fixture(async (fx) => {
+  const guide = await page(fx, "/start-guide", { cookie: "" });
+  t.ok(guide.html.includes("<p>가계부를 만들거나 참여한 뒤 단톡방 연결과 첫 기록까지 차례로 진행해보세요.</p>") && !guide.html.includes("카카오 로그인 없이도"), "FC-2 공개 /start-guide 안내 문장은 예전처럼 바뀐다(<p> 태그까지 찾음)");
+  const beta = await page(fx, "/beta-start", { cookie: "" });
+  t.ok(beta.html.includes('<p class="muted">처음에는 ‘가계부 생성·참여 → 초대·승인 → 단톡방 연결(선택) → 기록 방법 → 첫 기록’까지만 안내합니다.') && !beta.html.includes("처음에는 기능을 많이 설명하기보다"), "FC-2 /beta-start 운영 기준 문장은 예전처럼 바뀐다(<p class=\"muted\"> 까지 찾음)");
+});
 {
   const source = read("src/modules/web/html-postprocess.js");
-  const body = source.slice(source.indexOf("function normalizeUserFacingUi("), source.indexOf("function normalizeUserFacingUi(") + 20000);
-  t.ok(!/\/[^/\n]*프리미엄[^/\n]*\/g?/.test(body) && !body.includes("유료 전환") && !body.includes('replace("🌱 시작가이드"') && !body.includes('replaceAll("오늘 쓴 돈 ☀️"') && !body.includes("/\\/my\\/premium/g"), "FC-2 문서 전체에 걸던 ‘프리미엄’·‘유료 전환’·그림 글자·주소 치환이 남아 있지 않다");
+  const start = source.indexOf("\nfunction normalizeUserFacingUi(");
+  const end = start < 0 ? -1 : source.indexOf("\n}\n", start);
+  t.ok(start > 0 && end > start + 2000, "FC-2 normalizeUserFacingUi 본문을 찾았다(이름이나 자리가 바뀌면 여기서 실패한다)");
+  const code = source.slice(start, end).split("\n").filter((line) => !line.trim().startsWith("//")).join("\n");
+  const searchKeys = [...code.matchAll(/source\.replace(?:All)?\(\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`|\/(?:[^/\\\n]|\\.)+\/[a-z]*|[A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
+  // 맨 글자로 찾아도 되는 두 개: ‘카카오 로그인 점검’ 화면(조건이 그 화면의 </h1>) 안에서만 돌고, 그 화면에는 사용자 기록이 없다.
+  const allowedPlain = new Set(['"로컬 설정 일치 · 로그인 버튼 표시"', '"이 화면에서는 카카오 관리자센터 등록 여부까지 자동 확인할 수 없습니다."']);
+  const plain = searchKeys.filter((key) => /^[A-Za-z_$]/.test(key) ? key !== "oldPublicSteps" : key.startsWith("/") ? !/^\/\(?</.test(key) : !/[<>]|="/.test(key) && !allowedPlain.has(key));
+  t.ok(searchKeys.length >= 40, `FC-2 normalizeUserFacingUi 의 치환 ${searchKeys.length}개를 읽었다`);
+  t.eq(plain.join(" | "), "", "FC-2 normalizeUserFacingUi 의 치환은 모두 템플릿 태그·속성까지 붙여 찾는다(사용자 글은 이스케이프되어 그 모양을 만들 수 없다)");
+  t.ok(!/프리미엄|유료 전환|시작가이드"|오늘 쓴 돈 ☀️|\/my\\?\/premium|maximum-scale|7b8494|가계부에 접속하세요|매일 쓰는 메뉴만|홈·입력 → 기록 보기|반기·연단위로/.test(code), "FC-2 뺀 치환(프리미엄·유료 전환·그림 글자·주소·뷰포트·옛 안내 문장)이 코드에 남아 있지 않다");
 }
 
 // ── FC-3 www 정본 308 은 정본 호스트 안에 머문다 ───────────────────────────────────
@@ -183,14 +252,48 @@ await fixture(async (fx) => {
   t.eq(fh.status, 200, "FC-5 예산을 못 읽어도 홈은 오류 화면이 아니다(200)");
   t.ok(fh.html.includes('<div class="homeBudgetAmount"><b>확인 불가</b></div>') && fh.html.includes('<div class="homeBudgetFoot"><span>예산을 불러오지 못했어요</span><span></span></div>'), "FC-5 홈 예산 카드는 ‘확인 불가’·‘예산을 불러오지 못했어요’");
   t.ok(!fh.html.includes("<b>예산 미설정</b>") && !fh.html.includes(">예산 없음<") && !fh.html.includes("예산 안 정한 지출 100,000원") && !fh.html.includes("예산을 설정하면 하루 기준이 생겨요"), "FC-5 홈에 ‘예산 미설정·예산 없음·예산 안 정한 지출·설정 안내’ 가 없다(고치기 전 결함 글)");
+  // 2차: 같은 화면의 ‘예산 항목’ 카드와 빠른 입력 아래 글도 ‘설정하라’ 고 하지 않는다. 입력 중 안내(클라이언트)는 범위가 ‘알 수 없음’(false)이면 ‘저장 후 확인’ 을 쓴다.
+  t.ok(fh.html.includes('<b>확인 불가</b><div class="homeReportBars"></div><small>예산을 불러오지 못했어요</small>') && fh.html.includes('data-bsc="[20261117,false]"') && fh.html.includes(">예산을 불러오지 못해 남은 예산은 보여 드리지 못해요</p>"), "FC-5(2차) 홈의 예산 항목 카드는 ‘확인 불가’, 빠른 입력 아래 글은 ‘불러오지 못해…’, 입력 범위는 알 수 없음(false)");
+  t.ok(!fh.html.includes("<b>미설정</b>") && !fh.html.includes("분류별 예산을 정하면") && !fh.html.includes("예산을 설정하면"), "FC-5(2차) 홈 어디에도 ‘미설정·예산을 정하면·예산을 설정하면’ 이 없다");
   const noneHome = none.home.html;
-  const backHome = fh.html
-    .replace('<div class="homeBudgetAmount"><b>확인 불가</b></div>', '<div class="homeBudgetAmount"><b>예산 미설정</b></div>')
-    .replace('<div class="homeBudgetFoot"><span>예산을 불러오지 못했어요</span><span></span></div>', '<div class="homeBudgetFoot"><span>예산 없음</span><span>예산 안 정한 지출 100,000원</span></div>');
   const planStart = noneHome.indexOf('<div class="homeDailyPlan homeDailyPlanEmpty">');
   const planEnd = planStart < 0 ? -1 : noneHome.indexOf("</div>", planStart) + 6;
   t.ok(planStart > 0 && noneHome.includes("예산을 설정하면 하루 기준이 생겨요"), "FC-5 예산이 정말 없는 달의 홈은 예전처럼 설정 안내 링크가 있다");
-  t.eq(backHome, noneHome.slice(0, planStart) + noneHome.slice(planEnd), "FC-5 홈: 카드 칸을 되돌리고 설정 안내 한 줄만 빼면 예산이 없는 달의 홈과 바이트가 같다");
+  t.ok(noneHome.includes("<b>미설정</b><div class=\"homeReportBars\"></div><small>분류별 예산을 정하면 넘치는 항목을 미리 알려드려요</small>") && noneHome.includes('data-bsc="[20261117,0]"') && noneHome.includes(">예산을 설정하면 저장 후 남는 돈이 함께 보여요</p>"), "FC-5 예산이 정말 없는 달의 홈 카드·입력 아래 글은 예전 그대로");
+  t.eq(revertFailedHomeV126(fh.html, "100,000원"), noneHome.slice(0, planStart) + noneHome.slice(planEnd), "FC-5 홈: 실패 글 다섯 칸을 되돌리고 설정 안내 한 줄만 빼면 예산이 없는 달의 홈과 바이트가 같다");
+}
+// FC-5 2차: 앞달·다음 달(시계 2026-11-17)도 같다 — 홈은 다섯 칸, 소비 분석은 세 칸만 다르다.
+function revertFailedHomeV126(html, spent) {
+  return html
+    .replace('<div class="homeBudgetAmount"><b>확인 불가</b></div>', '<div class="homeBudgetAmount"><b>예산 미설정</b></div>')
+    .replace('<div class="homeBudgetFoot"><span>예산을 불러오지 못했어요</span><span></span></div>', `<div class="homeBudgetFoot"><span>예산 없음</span><span>예산 안 정한 지출 ${spent}</span></div>`)
+    .replace('<b>확인 불가</b><div class="homeReportBars"></div><small>예산을 불러오지 못했어요</small>', '<b>미설정</b><div class="homeReportBars"></div><small>분류별 예산을 정하면 넘치는 항목을 미리 알려드려요</small>')
+    .replace(/data-bsc="\[(\d{8}),false\]"/, 'data-bsc="[$1,0]"')
+    .replace(">예산을 불러오지 못해 남은 예산은 보여 드리지 못해요</p>", ">예산을 설정하면 저장 후 남는 돈이 함께 보여요</p>");
+}
+for (const month of ["2026-10", "2026-12"]) {
+  const render = (mode) => withClock("2026-11-17", () => fixture(async (fx) => {
+    fx.db.transactions = fx.db.transactions.filter((row) => row.household_id !== HOME);
+    fx.db.accountbook_budgets = fx.db.accountbook_budgets.filter((row) => row.household_id !== HOME);
+    if (mode !== "none") for (const [category, amount] of [["__total", 600000], ["식비", 400000]]) fx.db.accountbook_budgets.push({ id: `v126-b-${month}-${category}`, household_id: HOME, month, category, amount, created_at: "2026-10-01T00:00:00.000Z" });
+    fx.db.transactions.push({ id: `v126-${month}`, household_id: HOME, user_id: "user-bin", transaction_date: `${month}-05`, type: "expense", amount: 25000, category: "식비", memo: "장보기", payment_method: "신용카드", source: "web", raw_text: "장보기 25000", created_at: `${month}-05T03:00:00.000Z`, updated_at: `${month}-05T03:00:00.000Z` });
+    const restore = mode === "fail" ? intercept(({ url, method }) => (url.hostname === "mock.supabase.co" && method === "GET" && url.pathname === "/rest/v1/accountbook_budgets") ? failure(500, "simulated budgets outage") : undefined) : () => {};
+    try { return { home: await page(fx, `/app?household_id=${HOME}&month=${month}`), analysis: await page(fx, `/my/analysis?household_id=${HOME}&month=${month}`) }; } finally { restore(); }
+  }));
+  const failed = await render("fail"), none = await render("none");
+  const home = failed.home.html, noneHome = none.home.html;
+  t.ok(failed.home.status === 200 && failed.analysis.status === 200, `FC-5(2차) ${month}: 예산을 못 읽어도 홈·소비 분석이 열린다`);
+  t.ok(!home.includes("예산 미설정") && !home.includes(">예산 없음<") && !home.includes("<b>미설정</b>") && !home.includes("분류별 예산을 정하면") && !home.includes("예산을 설정하면") && home.includes('<div class="homeBudgetAmount"><b>확인 불가</b></div>'), `FC-5(2차) ${month} 홈: ‘확인 불가’ 이고 ‘미설정·정하면·설정하면’ 이 없다`);
+  const planStart = noneHome.indexOf('<div class="homeDailyPlan homeDailyPlanEmpty">');
+  const planEnd = planStart < 0 ? -1 : noneHome.indexOf("</div>", planStart) + 6;
+  t.eq(revertFailedHomeV126(home, "25,000원"), planStart < 0 ? noneHome : noneHome.slice(0, planStart) + noneHome.slice(planEnd), `FC-5(2차) ${month} 홈: 다섯 칸을 되돌리고 설정 안내 한 줄을 빼면 예산이 없는 달과 바이트가 같다`);
+  const fa = failed.analysis.html;
+  t.ok(!fa.includes("월 예산 미설정") && !fa.includes("<b>설정 전</b>") && !fa.includes("예산을 설정하면") && fa.includes("<p>예산을 불러오지 못했어요</p>"), `FC-5(2차) ${month} 소비 분석: ‘불러오지 못했어요’ 이고 ‘미설정·설정 전·설정하면’ 이 없다`);
+  const backAnalysis = fa
+    .replace("<p>예산을 불러오지 못했어요</p>", "<p>월 예산 미설정</p>")
+    .replace("<span>남은 예산</span><b>확인 불가</b>", "<span>남은 예산</span><b>설정 전</b>")
+    .replace("<p>예산을 불러오지 못해 소비 속도는 안내하지 않았어요. 잠시 뒤 새로고침해 주세요.</p>", "<p>예산을 설정하면 현재 소비 속도와 남은 하루 한도를 함께 안내합니다.</p>");
+  t.eq(backAnalysis, none.analysis.html, `FC-5(2차) ${month} 소비 분석: 세 칸을 되돌리면 예산이 없는 달과 바이트가 같다(구성 그대로, R3)`);
 }
 
 // ── FC-6 가져오기 금액 ‘12.000원’ 은 12원이 아니다 ─────────────────────────────────
@@ -208,7 +311,30 @@ await fixture(async (fx) => {
   }
   const tsv = parseFlexibleImportRecords("날짜\t금액\t내용\n2026-07-01\t12.000원\t점심\n2026-07-02\t8000.00\t커피", HOME, "user-bin", {});
   t.ok(tsv.rows.length === 1 && tsv.rows[0].amount === 8000 && tsv.rejected.length === 1 && tsv.rejected[0].row_number === 2, "FC-6 TSV 도 같다(‘12.000원’ 줄만 되묻고 ‘8000.00’ 은 8000원)");
+  // 2차: 머리글 없는 표(쉼표·탭). 고치기 전에는 금액 칸을 못 읽으면 자연어 해석으로 넘어가 ‘12.000원’ 이 12원으로 저장 대기에 올랐다(미리 보기 ready).
+  for (const text of ["2026-07-01,커피,12.000원", "2026-07-01\t커피\t12.000원", "2026-07-01,커피,12.000원,1", "2026-07-01\t커피\t12.500원", "2026-07-01,커피,₩1.200.000"]) {
+    const r = parseFlexibleImportRecords(text, HOME, "user-bin", {});
+    t.ok(r.rows.length === 0 && r.rejected.length === 1 && r.rejected[0].reason_code === "invalid_amount", `FC-6(2차) 머리글 없는 ${JSON.stringify(text)} 는 ‘금액 형식을 해석하지 못함’ 으로 되묻는다(${r.rows.map((x) => x.amount).join(",") || r.rejected[0]?.reason_code})`);
+  }
+  const plainRows = parseFlexibleImportRecords("2026-07-01,커피,12000원", HOME, "user-bin", {});
+  const plainTsv = parseFlexibleImportRecords("2026-07-02\t점심\t8,000원", HOME, "user-bin", {});
+  t.ok(plainRows.rows.length === 1 && plainRows.rows[0].amount === 12000 && plainTsv.rows.length === 1 && plainTsv.rows[0].amount === 8000, `FC-6(2차) 머리글 없는 보통 금액 칸(12000원·8,000원)은 예전처럼 읽는다(${plainRows.rows.map((x) => x.amount)}/${plainTsv.rows.map((x) => x.amount)})`);
+  const natural = parseFlexibleImportRecords("커피 12.000원", HOME, "user-bin", {});
+  t.ok(natural.rows.length === 1 && natural.rows[0].amount === 12000, `FC-6(2차) 한 줄 문장 ‘커피 12.000원’ 은 예전처럼 12,000원이다(카카오·빠른 입력과 같은 읽기, 바꾸지 않음 — ${natural.rows[0]?.amount})`);
 }
+await withClock("2026-07-20", () => fixture(async (fx) => {
+  const preview = async (text) => {
+    const r = await post(fx, "/my/import", { import_action: "preview", household_id: HOME, month: "2026-07", csv_text: text, skip_duplicates: "1" });
+    const token = (r.text || "").match(/name="import_token" value="([^"]+)"/)?.[1] || "";
+    return { status: r.status, payload: token ? JSON.parse(Buffer.from(token.split(".")[0], "base64url").toString("utf8")) : null };
+  };
+  for (const text of ["2026-07-01,커피,12.000원", "2026-07-01\t커피\t12.000원", "2026-07-01,커피,12.000원,1"]) {
+    const { status, payload } = await preview(text);
+    t.ok(status === 200 && payload && payload.parsed.format === "headerless_table" && payload.parsed.accepted_count === 0 && payload.ready.length === 0 && payload.parsed.warnings.includes("1행: 금액 형식을 해석하지 못함"), `FC-6(2차) 가져오기 미리 보기 ${JSON.stringify(text)}: 저장 대기 0줄, ‘1행: 금액 형식을 해석하지 못함’(고치기 전 12원 한 줄)`);
+  }
+  const { payload } = await preview("커피 12.000원");
+  t.ok(payload && payload.parsed.format === "natural_text" && payload.ready.length === 1 && payload.ready[0].row?.amount === 12000, `FC-6(2차) 가져오기 미리 보기 한 줄 문장은 예전처럼 12,000원 한 줄(${payload?.ready?.[0]?.row?.amount})`);
+}));
 
 // ── FC-7 구성원에게는 빠른 입력의 지출자 고르기를 그리지 않는다 ──────────────────────────
 await withClock("2026-07-20", () => fixture(async (fx) => {
@@ -262,24 +388,34 @@ await withClock("2026-07-20", () => fixture(async (fx) => {
   t.eq(message, "이름과 금액을 입력해주세요.", "FC-14 updateReservePlan 도 같다");
 }));
 
-// ── FC-17 공개 응답의 스킬 호출자 확인은 모드·설정 여부만 ─────────────────────────────
+// ── FC-17 공개 응답의 스킬 호출자 확인은 모드·설정 여부·헤더 누락 추정만 ───────────────────
+// 2차: header_missing_suspected 는 오픈빌더 비밀 헤더가 빠졌다는 유일한 신호라 남긴다(운영 화면에 따로 보이지 않는다). 건수·시각만 뺀다.
 await fixture(async (fx) => {
   const secretEnv = { ...fx.env, KAKAO_SKILL_SECRET: "v126-skill-secret", ADMIN_SESSION_SECRET: "qa-v126-admin-session", ADMIN_API_TOKEN: "qa-v126-admin-token" };
   const json = async (path, env) => (await (await app.fetch(new Request(`${BASE}${path}`), env, ctx)).json());
-  // 고치기 전 장면: 거부된 /skill 호출이 쌓인 뒤 공개 /health 가 건수·시각·헤더 누락 추정을 냈다.
+  const skillBody = JSON.stringify({ userRequest: { utterance: "안녕", user: { id: "kakao_login:2265", properties: {} } }, action: { params: {} }, bot: { id: "bot" }, intent: { id: "i", name: "블록" } });
+  const COUNT_KEYS = /"(?:accepted|denied|last_accepted_at|last_denied_at)"/;
+  t.deepEq((await json("/health", secretEnv)).skill_caller_auth, { mode: "enforce", configured: true, header_missing_suspected: false }, "FC-17 거부가 쌓이기 전에는 헤더 누락 추정이 false");
+  // 고치기 전 장면: 거부된 /skill 호출이 쌓인 뒤 공개 /health 가 건수·시각까지 냈다.
   for (let i = 0; i < 2; i += 1) {
-    const denied = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ userRequest: { utterance: "안녕", user: { id: "kakao_login:2265", properties: {} } }, action: { params: {} }, bot: { id: "bot" }, intent: { id: "i", name: "블록" } }) }), secretEnv, ctx);
+    const denied = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers: { "content-type": "application/json" }, body: skillBody }), secretEnv, ctx);
     t.eq(denied.status, 403, "FC-17 장면: 비밀값 없는 /skill 호출은 예전처럼 막힌다");
   }
   for (const path of ["/health", "/ready", "/kakao-new-bot-config.json"]) {
     const body = await json(path, secretEnv);
-    t.deepEq(body.skill_caller_auth, { mode: "enforce", configured: true }, `FC-17 ${path} 의 skill_caller_auth 는 mode·configured 둘뿐이다`);
+    t.deepEq(body.skill_caller_auth, { mode: "enforce", configured: true, header_missing_suspected: true }, `FC-17 ${path}: 통과 없이 거부만 쌓이면 header_missing_suspected 가 true 다`);
+    t.eq(Object.keys(body.skill_caller_auth).join(","), "mode,configured,header_missing_suspected", `FC-17 ${path} 의 skill_caller_auth 는 이 세 칸뿐이다`);
+    t.ok(!COUNT_KEYS.test(JSON.stringify(body)), `FC-17 ${path} 에 통과·거부 건수와 시각이 없다`);
     t.eq(body.skill_caller_auth_configured, true, `FC-17 ${path} 의 설정 여부 칸은 그대로다`);
   }
-  t.deepEq((await json("/health", { ...secretEnv, KAKAO_SKILL_AUTH_MODE: "observe" })).skill_caller_auth, { mode: "observe", configured: true }, "FC-17 observe 모드가 그대로 드러난다(배포 점검이 읽는 칸)");
-  t.deepEq((await json("/health", fx.env)).skill_caller_auth, { mode: "off", configured: false }, "FC-17 비밀값이 없으면 off");
+  t.deepEq((await json("/health", { ...secretEnv, KAKAO_SKILL_AUTH_MODE: "observe" })).skill_caller_auth, { mode: "observe", configured: true, header_missing_suspected: true }, "FC-17 observe 모드와 누락 추정이 그대로 드러난다(배포 점검이 읽는 칸)");
+  t.deepEq((await json("/health", fx.env)).skill_caller_auth, { mode: "off", configured: false, header_missing_suspected: false }, "FC-17 비밀값이 없으면 off·추정 false");
+  const accepted = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers: { "content-type": "application/json", "x-kakao-skill-secret": "v126-skill-secret" }, body: skillBody }), secretEnv, ctx);
+  await accepted.text();
+  t.ok(accepted.status !== 403, `FC-17 비밀 헤더가 맞는 /skill 호출은 통과한다(${accepted.status})`);
+  t.deepEq((await json("/health", secretEnv)).skill_caller_auth, { mode: "enforce", configured: true, header_missing_suspected: false }, "FC-17 통과가 한 번 생기면 추정이 false 로 돌아온다(실제 세는 식 그대로)");
   const config = await json("/kakao-new-bot-config.json", { ...secretEnv, SKILL_RATE_LIMIT: "77", TRAFFIC_GUARD_LIMIT: "333" });
-  t.ok(!("skill_rate_limit_per_user_per_minute" in config) && !("traffic_guard_limit_per_ip_per_minute" in config) && !JSON.stringify(config).includes("333") && !/"(?:accepted|denied|last_accepted_at|last_denied_at|header_missing_suspected)"/.test(JSON.stringify(config)), "FC-17 /kakao-new-bot-config.json 에 요청 제한 값과 호출 건수·시각이 없다");
+  t.ok(!("skill_rate_limit_per_user_per_minute" in config) && !("traffic_guard_limit_per_ip_per_minute" in config) && !JSON.stringify(config).includes("333") && !COUNT_KEYS.test(JSON.stringify(config)), "FC-17 /kakao-new-bot-config.json 에 요청 제한 값과 호출 건수·시각이 없다");
   t.eq(Object.keys(config).join(","), "ok,version,mode,service,public_base_url,skill_url,skill_caller_auth_configured,skill_caller_auth,user_home,kakao_redirect_uri,privacy_url,terms_url,group_chatbot_routes,forbidden_public_patterns,skill_ip_guard,chat_first,quick_replies", "FC-17 나머지 설정 안내 칸은 순서까지 그대로다");
   const health = await json("/health", secretEnv);
   t.eq(Object.keys(health).join(","), "ok,alive,status,configured,app,version,mode,integrity,missing_count,skill_caller_auth_configured,skill_caller_auth,skill_latency,ready_endpoint,time", "FC-17 /health 의 칸 목록·순서는 그대로다");
@@ -323,5 +459,12 @@ await fixture(async (fx) => {
   const tagOf = (html) => (html.match(/<meta property="og:image" content="[^"]+"\/>/) || [""])[0];
   t.ok(!!tagOf(head) && tagOf(head) === tagOf(home.html), "FC-23 /start-guide 의 이미지 주소가 공개 첫 화면과 같다");
 });
+
+// ── 통합 준비(다른 묶음): 지출 전망 호출 세 곳이 이미 읽은 참여자 목록을 넘긴다. 받는 쪽은 아직 쓰지 않으므로 화면은 그대로다. ──
+{
+  const home = read("src/modules/my/mobile-home.js"), insight = read("src/modules/my/insight-page.js");
+  const calls = [...home.matchAll(/(monthSpendingOutlook|homeUpcomingOut)\(\{[^}]*\}\)/g), ...insight.matchAll(/(monthSpendingOutlook)\(\{[^}]*\}\)/g)].map((m) => m[0]);
+  t.ok(calls.length === 3 && calls.every((call) => /, members \}\)$/.test(call)), `통합 준비: 홈의 monthSpendingOutlook·homeUpcomingOut, 소비 분석의 monthSpendingOutlook 이 members 를 넘긴다(${calls.length}곳)`);
+}
 
 t.done();

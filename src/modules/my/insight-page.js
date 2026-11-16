@@ -119,7 +119,7 @@ async function handleMyInsightPage(request, env, url) {
   const currentRows = rows.filter((r) => String(r.transaction_date || "").slice(0, 10) >= currentStart && String(r.transaction_date || "").slice(0, 10) < currentEnd);
   const budget = budgetSummary(currentRows, budgets, { refundDeductions });
   const challenge = await buildReportChallengeForHousehold(env, { householdId: selected.id, month, rows: currentRows, value: challengeValue, startedOn: householdStartYmd(selected, currentRows) });
-  const outlook = monthSpendingOutlook({ month, rows: currentRows, receipt, recurring, plans: reservePlans, refundDeductions });
+  const outlook = monthSpendingOutlook({ month, rows: currentRows, receipt, recurring, plans: reservePlans, refundDeductions, members });
   const dashboard = { ...buildReportDashboardSummary(currentRows, budget, month, { outlook, refundDeductions, refundFailed: !!refund.failed }), householdId: selected.id };
   const html = renderMyInsightHtml({ env, month, selected, rows, currentRows, budget, dashboard, challenge, dataStart, truncated, receipt });
   return htmlResponse(budgetReadFailed ? budgetReadFailedCockpitV229126(html) : html);

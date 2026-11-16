@@ -730,6 +730,9 @@ function importTextOverCapV22995(text = "") {
   return false;
 }
 
+// V22.9.126 FC-6: 점 뒤에 숫자가 세 자리 이상 붙은 금액 꼴의 칸(‘12.000원’·‘₩1.200.000’). 금액 칸 읽기는 이 꼴을 받지 않는다.
+const IMPORT_DOT_AMOUNT_CELL_V229126 = /^(?:₩|￦|krw|won)?\s*[-−]?\d[\d,]*(?:\.\d{3,})+\s*(?:원|krw|won)?$/i;
+
 function parseImportAmountCell(value = "") {
   const raw = String(value ?? "").normalize("NFKC").trim();
   if (!raw || /^(?:-|—|–)$/.test(raw)) return { amount: 0, present: !!raw, valid: true, negative: false, raw };
@@ -1035,13 +1038,17 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   let inferredAmount = false, inferredLocal = false;
   if (!chosen.amount && !canonicalImportValue(obj, "amount") && !canonicalImportValue(obj, "income") && !canonicalImportValue(obj, "expense")) {
     const amountCandidates = [];
-    let foreignAmountCell = false;
+    let foreignAmountCell = false, dotAmountCell = false;
     for (const cell of contextCells || []) {
       if (!String(cell || "").trim() || parseImportDateCell(cell, options) || normalizeImportTypeValue(cell)) continue;
       const info = parseImportAmountCell(cell);
       if (info.amount > 0) amountCandidates.push(info);
       else if (importForeignAmountOnlyV22994(info.raw)) foreignAmountCell = true;
+      else if (!info.valid && IMPORT_DOT_AMOUNT_CELL_V229126.test(info.raw)) dotAmountCell = true;
     }
+    // V22.9.126 FC-6: 머리글 없는 표에서 금액 칸 ‘12.000원’ 을 읽지 못했으면 되묻는다. 자연어 해석으로 넘기면 12000원이 되고,
+    // 다른 숫자 칸(‘1’)만 남아 그 값이 금액이 되기도 했다. 머리글 있는 표의 금액 칸과 같은 ‘금액 형식을 해석하지 못함’ 이다.
+    if (dotAmountCell) return { row: null, rejection: importRejection("invalid_amount", options.rowNumber, rawText), warnings };
     const unique = [...new Map(amountCandidates.map((item) => [item.amount, item])).values()];
     if (unique.length === 1) {
       // V22.9.94 C-7: 찾은 금액 칸(같은 금액의 칸 모두)에 외화 표시가 있으면 머리글 경로처럼 거절한다. 외화 금액만 적힌 칸(‘€1’·‘USD 1’·‘000$’ —

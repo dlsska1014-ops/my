@@ -53,9 +53,9 @@ function addSkipToContentLink(source = "") {
 }
 
 function normalizeUserFacingUi(html = "") {
-  let source = String(html || "").replace(/,maximum-scale=1/g, "");
-  source = source.replace(".sep{text-align:center;color:#7b8494;", ".sep{text-align:center;color:#667085;");
-  source = source.replaceAll("https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js", "https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js");
+  // V22.9.126 FC-2(2차): 지금 템플릿이 내지 않는 글을 찾던 치환(‘,maximum-scale=1’·‘.sep{…#7b8494;’)은 사용자 메모만 바꿨으므로 뺐다.
+  let source = String(html || "");
+  source = source.replaceAll('src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"', 'src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"');
   source = source.replace('<a class="btn" style="margin-top:10px" href=', '<a class="btn homeFeedAllBtn" style="margin-top:10px" href=');
   source = deferHeavyBrowserTools(source);
   // Destructive controls must remain visually explicit even when client-side
@@ -66,22 +66,17 @@ function normalizeUserFacingUi(html = "") {
 
   const oldPublicSteps = '<div class="grid"><div class="step"><b>1. 내 이름과 접속코드</b><span>/my에서 본인만 아는 코드로 접속합니다.</span></div><div class="step"><b>2. 새 가계부 만들기 또는 초대 참여</b><span>가족/모임별로 가계부를 나눕니다.</span></div><div class="step"><b>3. 수입·예산 설정</b><span>분류별 예산 합계가 월 예산이 됩니다.</span></div><div class="step"><b>4. 정기지출 등록</b><span>보험, 통신비, 관리비처럼 반복되는 돈을 등록합니다.</span></div><div class="step"><b>5. 키워드 연결</b><span>자주 쓰는 표현을 분류에 연결합니다.</span></div><div class="step"><b>6. 기록/분석 확인</b><span>홈, 캘린더, 종합분석에서 흐름을 확인합니다.</span></div></div>';
   const newPublicSteps = '<div class="grid"><div class="step"><b>1. 가계부 만들기</b><span>새 가계부의 용도와 이름을 정합니다.</span></div><div class="step"><b>2. 초대·참여</b><span>초대코드를 공유하거나 받은 코드로 참여합니다.</span></div><div class="step"><b>3. 단톡방 연결</b><span>관리자가 단톡방과 사용할 가계부를 한 번 연결합니다.</span></div><div class="step"><b>4. 기록 튜토리얼</b><span>한 줄 입력 예시로 저장될 값을 확인합니다.</span></div><div class="step"><b>5. 첫 기록</b><span>첫 기록을 저장하고 오늘 기록에서 결과를 확인합니다.</span></div></div>';
-  source = source.replace("카카오 로그인 없이도 이름과 개인 접속코드로 시작할 수 있습니다.", "가계부를 만들거나 참여한 뒤 단톡방 연결과 첫 기록까지 차례로 진행해보세요.");
+  source = source.replace("<p>카카오 로그인 없이도 이름과 개인 접속코드로 시작할 수 있습니다.</p>", "<p>가계부를 만들거나 참여한 뒤 단톡방 연결과 첫 기록까지 차례로 진행해보세요.</p>");
   source = source.replace(oldPublicSteps, newPublicSteps);
-  source = source.replace("가계부가 연결되면 시작가이드에서 월 수입, 예산, 분류·키워드, 카드·현금·통장, 정기지출을 순서대로 설정하면 됩니다.", "가계부를 만들거나 참여한 뒤 단톡방을 연결하고 첫 기록을 남겨보세요. 예산과 분류 설정은 첫 기록 후 필요할 때 추가하면 됩니다.");
-  source = source.replace("처음에는 기능을 많이 설명하기보다 “가계부 생성 → 예산 → 결제수단 → 정기지출 → 카카오 기록 → 분석 확인” 흐름만 안내합니다. 오류가 나면 안전화면과 백업 가이드를 먼저 보여줍니다.", "처음에는 ‘가계부 생성·참여 → 초대·승인 → 단톡방 연결(선택) → 기록 방법 → 첫 기록’까지만 안내합니다. 예산·분류·자동화는 첫 기록 후 선택적으로 이어가고, 오류가 나면 원인과 돌아갈 경로를 함께 보여줍니다.");
+  source = source.replace('<p class="muted">처음에는 기능을 많이 설명하기보다 “가계부 생성 → 예산 → 결제수단 → 정기지출 → 카카오 기록 → 분석 확인” 흐름만 안내합니다. 오류가 나면 안전화면과 백업 가이드를 먼저 보여줍니다.</p>', '<p class="muted">처음에는 ‘가계부 생성·참여 → 초대·승인 → 단톡방 연결(선택) → 기록 방법 → 첫 기록’까지만 안내합니다. 예산·분류·자동화는 첫 기록 후 선택적으로 이어가고, 오류가 나면 원인과 돌아갈 경로를 함께 보여줍니다.</p>');
   // V22.9.126 FC-2: 문서 전체 낱말 치환이 사용자 메모·분류(예: ‘유튜브 프리미엄’)까지 바꿨다. 쓰이지 않는 치환은 뺐고,
   // 남은 치환은 템플릿의 마크업까지 붙여 찾는다(사용자 글은 이스케이프되어 이 마크업을 만들 수 없다).
   source = source.replaceAll("<p>CSV·TSV·TXT·엑셀의 여러 시트", "<p>CSV·TSV·TXT·JSON·엑셀의 여러 시트");
   source = source.replaceAll('class="fileStatus">CSV·TSV·TXT는 서버에서 바로 읽습니다.', 'class="fileStatus">CSV·TSV·TXT·JSON은 서버에서 바로 읽습니다.');
   source = source.replace('accept=".csv,.tsv,.txt,.xls,.xlsx,text/csv,text/tab-separated-values,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"', 'accept=".csv,.tsv,.txt,.json,.xls,.xlsx,text/csv,text/tab-separated-values,text/plain,application/json,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"');
 
-  if (source.includes("가계부에 접속하세요.")) {
-    source = source.replace("현재 브라우저에 로그인 세션이 없으면 이 화면이 표시됩니다. 카카오 로그인이 아직 준비되지 않았으면 아래 이름 + 개인 접속코드로 접속하세요.", "카카오로 로그인하면 참여 중인 가계부를 바로 이어서 사용할 수 있습니다. 다른 접속 방법도 아래에서 선택할 수 있어요.");
-    source = source.replace("<h2>가계부 접속</h2><p class=\"muted\">기존 사용자나 카카오 로그인이 준비되지 않은 경우 이름과 개인 접속코드로 들어갈 수 있습니다.</p>", "<h2>다른 방법으로 접속</h2><p class=\"muted\">미리 설정한 이름과 개인 접속코드가 있다면 여기에서 접속하세요.</p>");
-    source = source.replace(/<div class="card"><h2>카카오 연동 안내<\/h2>[\s\S]*?<\/ul><\/div><\/section>/, '<div class="card"><h2>접속 도움말</h2><p class="muted">기존 가계부가 보이지 않으면 이전에 사용하던 접속 방법으로 먼저 로그인한 뒤 카카오 계정을 연결해주세요.</p><div class="warn"><b>접속코드는 본인만 사용하세요</b><br/>공용 기기에서는 사용 후 반드시 로그아웃해주세요.</div></div></section>');
-  }
-
+  // V22.9.126 FC-2(2차): ‘가계부에 접속하세요.’ 화면 치환과 아래 두 문장 치환(메뉴 설명·추천 흐름), 정기 수입·지출의 옛 설명 치환은
+  // 템플릿이 그 글을 더는 내지 않아 사용자 메모에만 걸렸다. 그래서 뺐다. 남긴 문장 치환은 템플릿의 태그까지 붙여 찾는다.
   if (source.includes("카카오 로그인 점검</h1>")) {
     source = source.replace("<b>Redirect URI 형식</b>", "<b>KAKAO_REDIRECT_URI 명시값</b>");
     source = source.replace("로컬 설정 일치 · 로그인 버튼 표시", "로컬 설정 일치 · 카카오 로그인 버튼 표시됨");
@@ -95,8 +90,6 @@ function normalizeUserFacingUi(html = "") {
     );
   }
 
-  source = source.replace("일반 사용자가 매일 쓰는 메뉴만 모았습니다. 운영/점검/배포/진단 메뉴는 이 화면에 노출하지 않고 운영센터에서만 관리합니다.", "기록, 정산, 가계부 관리와 개인 설정을 한곳에서 찾을 수 있습니다.");
-  source = source.replace("추천 흐름: 홈·입력 → 기록 보기 → 예산알림 → 분석 → 백업·복구. 새 모임이나 여행은 가계부 전환·추가에서 만드세요.", "추천 흐름: 모임 선택 → 기록 입력 → 기록 확인 → 정산. 예산과 분석은 필요할 때 이어서 사용하세요.");
   if (source.includes(" · 프로필</title>") && !/<nav\b/i.test(source)) {
     source = source.replace("<body><main", `<body>${renderUnifiedNav("menu")}<main`);
   }
@@ -115,7 +108,6 @@ function normalizeUserFacingUi(html = "") {
   }
 
   if (source.includes("<title>정기 수입·지출</title>")) {
-    source = source.replace("재산세, 자동차세, 자동차보험처럼 반기·연단위로 나가는 큰돈을 미리 준비합니다. 3개월/2개월/1개월 전 기준으로 준비 알림을 보여줍니다.", "보험료·세금처럼 가끔 크게 나가는 돈을 등록하면 매달 준비할 금액을 계산해 드려요.");
     source = source.replace('<section class="card"><h2>납부·입금 일정 추가</h2>', '<section class="card" id="reserveAdd"><h2>납부·입금 일정 추가</h2>');
   }
 
