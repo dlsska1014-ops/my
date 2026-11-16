@@ -693,11 +693,17 @@ async function handleAdminHouseholdCreate(request, env) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const form = await request.formData();
   const name = String(form.get("name") || "").trim().slice(0, 80) || "새 가계부";
-  await supabase(env, "/rest/v1/households", {
-    method: "POST",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ name, invite_code: makeInviteCode() }),
-  });
+  // V22.9.126 FC-27i: 저장 실패가 500 안전모드 화면으로 떨어졌다. 이름 저장(D-27)처럼 실패를 알리고 같은 화면으로 돌아간다.
+  try {
+    await supabase(env, "/rest/v1/households", {
+      method: "POST",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ name, invite_code: makeInviteCode() }),
+    });
+  } catch (err) {
+    rememberOpsEvent({ kind: "admin_household_create_failed", severity: "warn", path: "/admin/household/create", method: "POST", detail: safeError(err) });
+    return redirectResponse(`/households?err=${isUncertainStorageWrite(err) ? "db_write_unknown" : "household_create_failed"}`);
+  }
   return redirectResponse("/households?msg=created");
 }
 
@@ -726,11 +732,17 @@ async function handleAdminHouseholdRegenerate(request, env) {
   const form = await request.formData();
   const id = String(form.get("id") || "").trim();
   if (!id) return redirectResponse("/households?err=missing");
-  await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(id)}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ invite_code: makeInviteCode() }),
-  });
+  // V22.9.126 FC-27i: 저장 실패가 500 안전모드 화면으로 떨어졌다. 실패를 알리고 기존 초대코드를 둔다.
+  try {
+    await supabase(env, `/rest/v1/households?id=eq.${encodeURIComponent(id)}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ invite_code: makeInviteCode() }),
+    });
+  } catch (err) {
+    rememberOpsEvent({ kind: "admin_household_regenerate_failed", severity: "warn", path: "/admin/household/regenerate", method: "POST", detail: safeError(err) });
+    return redirectResponse(`/households?household_id=${encodeURIComponent(id)}&err=${isUncertainStorageWrite(err) ? "db_write_unknown" : encodeURIComponent("초대코드를 새로 만들지 못했습니다. 기존 초대코드는 그대로입니다. 잠시 후 다시 시도해 주세요.")}`);
+  }
   return redirectResponse(`/households?household_id=${encodeURIComponent(id)}&msg=regenerated`);
 }
 

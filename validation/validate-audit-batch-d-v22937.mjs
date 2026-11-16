@@ -183,8 +183,9 @@ const multipart = async (fx, cookie, path, fields) => {
   const res = await app.fetch(new Request(`${BASE}${path}`, { method: "POST", headers: { cookie, origin: BASE, "sec-fetch-site": "same-origin" }, body: fd }), fx.env, ctx);
   return { status: res.status, html: await res.text() };
 };
-const planFile = (rows) => new File([JSON.stringify({ app: "kakao-accountbook", mode: "candidate_plan_only_no_db_write", selected: rows })], "plan.json", { type: "application/json" });
-const applyPlan = (fx, cookie, rows, extra = {}) => multipart(fx, cookie, "/backup/apply", { plan_file: planFile(rows), household_id: extra.household_id ?? "house-home", month: extra.month ?? "2026-07", admin_password: "qa-admin-123", confirm_text: "가져오기 적용" });
+// V22.9.126 FC-26: 계획 파일에는 만든 가계부(household_id)가 있어야 최종 확인·적용된다(후보 화면이 적는다).
+const planFile = (rows, householdId = "house-home") => new File([JSON.stringify({ app: "kakao-accountbook", mode: "candidate_plan_only_no_db_write", household_id: householdId, selected: rows })], "plan.json", { type: "application/json" });
+const applyPlan = (fx, cookie, rows, extra = {}) => multipart(fx, cookie, "/backup/apply", { plan_file: planFile(rows, extra.household_id ?? "house-home"), household_id: extra.household_id ?? "house-home", month: extra.month ?? "2026-07", admin_password: "qa-admin-123", confirm_text: "가져오기 적용" });
 const planRow = (memo, amount, extra = {}) => ({ type: "expense", transaction_date: "2026-07-20", amount, category: "식비", memo, payment_method: "카드", user_id: "11111111-1111-4111-8111-111111111111", ...extra });
 await fixture(async (fx) => {
   const cookie = await adminLogin(fx);

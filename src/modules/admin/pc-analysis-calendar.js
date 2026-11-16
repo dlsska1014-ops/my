@@ -15,7 +15,8 @@ import {
   computeFairMoM, renderReadableDailyTrend, renderWeekdayTrend, shiftMonthString, shortWonLabel,
 } from "../my/analysis-page.js";
 import {
-  getMySelectedHousehold, householdChoiceLabelV229118, myAccessStatusResponse,
+  getMySelectedHousehold, householdChoiceLabelV229118, householdIdWasRemembered,
+  householdNotFoundResponse, myAccessStatusResponse,
 } from "../my/access-control.js";
 import {
   budgetCenterSummary, budgetSummary, fetchBudgets, fetchRecurringStrict,
@@ -122,6 +123,8 @@ async function pcScopedContext(request, env, url) {
     getMySelectedHousehold(env, userId, url.searchParams.get("household_id") || ""),
   ]);
   if (access.restricted) return { userId, user, month, households: access.households, selectedHousehold: null, restricted: access.restricted };
+  // V22.9.126 FC-27k: 없는 가계부 id 를 빈(0원) 분석·캘린더로 그렸다. /my/backup 등 다른 화면과 같은 조건으로 ‘가계부를 찾을 수 없어요’(404)로 답한다.
+  if (access.invalidRequested && access.households.length && !householdIdWasRemembered(request)) return { notFound: householdNotFoundResponse({ env, user, requestedId: access.invalidRequested }) };
   const households = access.households;
   const selectedHousehold = access.selected;
   if (!selectedHousehold) return { userId, month, households, selectedHousehold: null, members: [], rows: [], stats: calculateStats([]), budgets: [], budget: budgetSummary([], []), calendar: [] };
@@ -409,6 +412,7 @@ details.foldSection summary h2{display:inline;font-size:inherit}
 async function handlePcAnalysisPage(request, env, url) {
   const ctx = await pcScopedContext(request, env, url);
   if (!ctx) return redirectResponse("/my");
+  if (ctx.notFound) return ctx.notFound;
   if (ctx.restricted) return myAccessStatusResponse({ env, user: ctx.user, household: ctx.restricted, role: ctx.restricted.role, month: ctx.month });
   const householdId = ctx.selectedHousehold?.id || "";
   const month = ctx.month;
@@ -459,6 +463,7 @@ function renderPcCalendarHtml({ month, households, selectedHousehold, rows, stat
 async function handlePcCalendarPage(request, env, url) {
   const ctx = await pcScopedContext(request, env, url);
   if (!ctx) return redirectResponse("/my");
+  if (ctx.notFound) return ctx.notFound;
   if (ctx.restricted) return myAccessStatusResponse({ env, user: ctx.user, household: ctx.restricted, role: ctx.restricted.role, month: ctx.month });
   return htmlResponse(renderPcCalendarHtml(ctx));
 }

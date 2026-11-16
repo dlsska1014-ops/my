@@ -59,6 +59,6 @@ export function adminPlan(fx, cookie) {
   const selected = [{ user_id: USER, type: "expense", transaction_date: "2026-10-17", amount: 34567, category: "식비", memo: "합성 관리자 적용", payment_method: "현금" }];
   const form = new FormData();
   for (const [k, v] of Object.entries({ household_id: HOUSE, month: "2026-10", admin_password: fx.env.ADMIN_PASSWORD, confirm_text: "가져오기 적용" })) form.set(k, v);
-  form.set("plan_file", new File([JSON.stringify({ app: "kakao-accountbook", mode: "candidate_plan_only_no_db_write", selected })], "synthetic.json", { type: "application/json" }));
+  form.set("plan_file", new File([JSON.stringify({ app: "kakao-accountbook", mode: "candidate_plan_only_no_db_write", household_id: HOUSE, selected })], "synthetic.json", { type: "application/json" }));
   return post(fx, form, "/backup/apply", cookie);
 }

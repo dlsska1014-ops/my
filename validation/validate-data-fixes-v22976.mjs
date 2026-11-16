@@ -235,7 +235,7 @@ const metrics = (html) => {
   return out;
 };
 const candidateRowsOf = (html) => JSON.parse(decode(String(html || "").match(/id="candidateJson" value="([^"]*)"/)?.[1] || "[]"));
-const planOf = (rows) => ({ app: "kakao-accountbook", mode: "candidate_plan_only_no_db_write", selected_count: rows.length, selected: rows });
+const planOf = (rows) => ({ app: "kakao-accountbook", mode: "candidate_plan_only_no_db_write", household_id: HH, selected_count: rows.length, selected: rows }); // V22.9.126 FC-26: 계획에 만든 가계부가 있어야 적용된다
 const applyFields = (month) => ({ household_id: HH, month, admin_password: "admin-pass", confirm_text: "가져오기 적용" });
 
 // ── E-16 백업센터의 '전체' 백업이 정말 전체 기간을 담는다 ──
