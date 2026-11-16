@@ -191,6 +191,9 @@ const POLICY_REVISION_DATE = "2026-11-13";
 // 개정 공고일과 같은 날이다. 날짜를 쪽마다 따로 적지 않고 이 상수를 쓴다 — 배포일이 바뀌면 위 두 줄만 고친다. 다음 개정에서 약관·방침 날짜만 바꾸고
 // 이 쪽들은 그대로 둘 때는 이 줄을 그 전 날짜 글자로 고정한다(쪽 수정일이 내용 변경 없이 따라 바뀌지 않게).
 const PUBLIC_COPY_REVISION_DATE = POLICY_NOTICE_DATE;
+// V22.9.126: /kakao-guide 의 ‘잘 읽히는 문장과 다시 묻는 말’ 표를 실제 동작에 맞춰 고친 날이다(날짜가 다른 기록 여러 줄은 저장하지 않고 다시 묻는다 · 카드 승인 문자 한 줄, V122:K-7).
+// 이 쪽만 바뀌었으므로 여섯 쪽이 함께 쓰는 위 상수와 따로 둔다. 글을 고친 날을 적는 값이라 배포일에 맞춰 바꾸지 않는다(앞날 날짜만 아니면 된다).
+const KAKAO_GUIDE_COPY_REVISION_DATE = "2026-11-16";
 
 // "2026-07-13" → "2026년 7월 13일"(방침 머리의 시행·공고·개정일 표기).
 function policyDateLabel(ymd = POLICY_REVISION_DATE) {
@@ -582,15 +585,15 @@ function publicSiteFooter() {
 // @build:exports-start
 export {
   APP_MODE, APP_VERSION, BUSINESS_FOOTER_INFO, DEFAULT_PUBLIC_BASE_URL,
-  KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS, POLICY_NOTICE_DATE, POLICY_REVISION_DATE,
-  PUBLIC_CONTENT_PATHS, PUBLIC_COPY_REVISION_DATE, adSlotMarkup, adfitUnitStatus, adsHeadMarkup,
-  adsHeaders, adsMode, adsPolicyLinks, adsPolicyNetwork, adsPolicyText, adsPublicRequestKeyV229106,
-  adsensePublisherIdForTxt, appName, canonicalRedirectResponse, cardPerformanceEnabled,
-  currentRequestBaseUrl, envFlagEnabled, handleKakaoCommandSystemPage,
-  hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled, kakaoChatCommandCatalog,
-  kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg, memeCardsEnabled,
-  normalizeBaseUrl, pageNotFoundResponse, policyDateLabel, premiumBetaEnabled, publicAdsenseHead,
-  publicBaseUrl, publicSiteFooter, publicSiteNav, publicSupportEmail, renderBusinessInfoFooter,
-  renderSkillGetHealthHtml, signupConsentFieldHtml, termsNoticeLineHtml,
+  KAKAO_GUIDE_COPY_REVISION_DATE, KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS,
+  POLICY_NOTICE_DATE, POLICY_REVISION_DATE, PUBLIC_CONTENT_PATHS, PUBLIC_COPY_REVISION_DATE,
+  adSlotMarkup, adfitUnitStatus, adsHeadMarkup, adsHeaders, adsMode, adsPolicyLinks,
+  adsPolicyNetwork, adsPolicyText, adsPublicRequestKeyV229106, adsensePublisherIdForTxt, appName,
+  canonicalRedirectResponse, cardPerformanceEnabled, currentRequestBaseUrl, envFlagEnabled,
+  handleKakaoCommandSystemPage, hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled,
+  kakaoChatCommandCatalog, kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg,
+  memeCardsEnabled, normalizeBaseUrl, pageNotFoundResponse, policyDateLabel, premiumBetaEnabled,
+  publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav, publicSupportEmail,
+  renderBusinessInfoFooter, renderSkillGetHealthHtml, signupConsentFieldHtml, termsNoticeLineHtml,
 };
 // @build:exports-end
