@@ -1,4 +1,4 @@
-export const MONITOR_VERSION = "1.7.0";
+export const MONITOR_VERSION = "1.8.0";
 export const PRICING_VERIFIED_AT = "2026-10-01";
 export const DAY = 86400000;
 
@@ -8,13 +8,14 @@ export function numberOrNull(value) {
   return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
-export function quotaStatus(value, limit, { fresh = true, forecast = null } = {}) {
+// 1.8.0(V22.9.126): forecastFrom = 예측만으로 ‘전환 검토’ 를 낼 수 있는 실제 사용률의 아래 끝(기본 0 = 예전 그대로).
+export function quotaStatus(value, limit, { fresh = true, forecast = null, forecastFrom = 0 } = {}) {
   const used = numberOrNull(value);
   const cap = numberOrNull(limit);
   if (!fresh || used === null || cap === null || cap <= 0) return { status: "unknown", ratio: null, forecast_ratio: null };
   const ratio = used / cap;
   const forecastRatio = numberOrNull(forecast) === null ? null : forecast / cap;
-  const status = ratio >= 0.95 ? "critical" : ratio >= 0.85 || forecastRatio >= 1 ? "upgrade" : ratio >= 0.7 ? "warning" : "normal";
+  const status = ratio >= 0.95 ? "critical" : ratio >= 0.85 || (forecastRatio >= 1 && ratio >= forecastFrom) ? "upgrade" : ratio >= 0.7 ? "warning" : "normal";
   return { status, ratio, forecast_ratio: forecastRatio };
 }
 

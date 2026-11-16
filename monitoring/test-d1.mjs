@@ -168,8 +168,12 @@ try {
   ok(failedCode.startsWith("delivery_failed")&&failedCode.includes("email:E_SENDER_NOT_VERIFIED")&&failedCode.includes("webhook:"),`every channel failing is recorded as delivery_failed with the per-channel cause (1.1.1): ${failedCode}`);
   eq(uptimeRecord()?.sent_at,new Date(base.getTime()+7*3600000).toISOString(),"failed delivery records no new send, so the next run retries");
   webhookFails=false;
-  await runScheduled(failingEnv,new Date(base.getTime()+8*3600000+300000));
-  ok(hooks.at(-1).text.includes("[긴급] 서비스 접속 또는 DB 준비 상태 실패 · 해소 뒤 다시 생김")&&uptimeRecord()?.sent_at===new Date(base.getTime()+8*3600000+300000).toISOString(),"retry succeeds through the remaining channel, flagged as a recurrence after the recovery mail");
+  // 1.8.0(V22.9.126 FC-29): 모든 채널이 실패하면 15분 동안은 다시 시도하지 않고 실패로 남는다(예전에는 다음 5분 실행마다 다시 시도했다).
+  const hooksBeforeRetry=hooks.length;
+  for(const offset of [300000,600000]) await runScheduled(failingEnv,new Date(base.getTime()+8*3600000+offset));
+  ok(hooks.length===hooksBeforeRetry&&String(sqlite.prepare("SELECT error_code FROM collector_state WHERE name='alerts'").get().error_code).startsWith("delivery_failed email:E_SENDER_NOT_VERIFIED"),"1.8.0: the 5- and 10-minute runs after a total failure do not retry and keep the delivery failure visible");
+  await runScheduled(failingEnv,new Date(base.getTime()+8*3600000+900000));
+  ok(hooks.at(-1).text.includes("[긴급] 서비스 접속 또는 DB 준비 상태 실패 · 해소 뒤 다시 생김")&&uptimeRecord()?.sent_at===new Date(base.getTime()+8*3600000+900000).toISOString(),"retry 15 minutes after the failure succeeds through the remaining channel, flagged as a recurrence after the recovery mail");
   uptimeFails=false;
   await runScheduled(env,new Date(base.getTime()+9*3600000));
   eq(sqlite.prepare("SELECT error_code FROM collector_state WHERE name='alerts'").get().error_code,"not_connected","no alert channel is recorded as not_connected");
@@ -458,7 +462,7 @@ try {
     want(badSupport.length===0,`V22.9.97 후원: 모양이 틀린 support 칸은 그 칸만 버리고 이용 현황은 정상으로 받는다: ${badSupport.join(" | ")}`);
     usageExtra={};
     const health=await (await worker.fetch(new Request("https://monitor.example/health"),r4Env,{})).json();
-    want(health.version==="1.7.0",`관제 판은 1.7.0 이다(V22.9.102 /ready 30분 간격): ${health.version}`);
+    want(health.version==="1.8.0",`관제 판은 1.8.0 이다(V22.9.126 알림 기록 순서·화면 5분 새로 읽기): ${health.version}`);
     r4.store.close();
     // ── 1.7.0(V22.9.102): /ready 는 30분에 한 번만 묻고 그 사이는 마지막 정상 답을 재사용한다 ─────────────────
     {
@@ -498,7 +502,62 @@ try {
       want(/\/ready · 정상 · [0-9,]+ ms · 30분마다 확인\(마지막 /.test(dash),"1.7.0 화면의 접속 검사 줄에 ‘30분마다 확인(마지막 …)’ 이 붙는다");
       r5.store.close();
     }
-    assert.equal(misses.length,0,`V22.9.94·V22.9.97·V22.9.102 관제(C-6·R-4·후원 줄·/ready 30분) 검사 실패 ${misses.length}건:\n- ${misses.join("\n- ")}`);
+    // ── 1.8.0(V22.9.126 FC-29) 2차: 확정 안 된 메일은 15·30·60분, 그 뒤 60분마다 다시 보낸다 · 보내기 전 쓰기 실패 · 밀린 0시 정리 ─────────
+    {
+      const title="서비스 접속 또는 DB 준비 상태 실패";
+      const t0=Date.parse("2026-06-17T03:10:00.000Z");
+      const seedUptime=(store,t,ready)=>store.prepare("INSERT INTO collector_state(name,last_attempt_at,last_success_at,status,error_code,payload) VALUES('uptime',?,?,'ok',NULL,?) ON CONFLICT(name) DO UPDATE SET last_attempt_at=excluded.last_attempt_at,last_success_at=excluded.last_success_at,status='ok',error_code=NULL,payload=excluded.payload").run(at(t),at(t),JSON.stringify({checks:[{path:"/health",ok:true,probed_at:at(t)},{path:"/ready",ok:ready,probed_at:at(t)}],checked_at:at(t),same_provider:true}));
+      const record=store=>JSON.parse(store.prepare("SELECT value FROM settings WHERE key LIKE 'alert:%'").all().map(row=>row.value).find(value=>JSON.parse(value).title===title)||"null");
+      const hookEnv=dbx=>({...env,MONITOR_DB:dbx,ALERT_WEBHOOK_URL:"https://hooks.example/alert"});
+      // 끊긴 실행: 메일 보내기가 끝나지 않아 그 뒤(확정 쓰기)가 돌지 않는다. 보내기에 닿은 실행만 센다.
+      const r6=freshDb();
+      const tries=[];
+      for(let i=0;i<=24;i++){
+        const t=t0+i*5*M;
+        seedUptime(r6.store,t,false);
+        let reached=false, hit;
+        const sending=new Promise(resolve=>{hit=resolve;});
+        const killedEnv={...env,MONITOR_DB:r6.db,ALERT_TO:"ops@example.com",ALERT_FROM:"monitor@app.example",ALERT_EMAIL:{send(){reached=true;hit();return new Promise(()=>{});}}};
+        await Promise.race([deliverAlerts(killedEnv,new Date(t)).catch(()=>null),sending]);
+        if(reached) tries.push(i*5);
+      }
+      want(tries.join(",")==="0,15,45,105",`1.8.0 2차: 실행마다 보내기 앞에서 끊기면 15·30·60분 간격으로 다시 시도한다(2시간 동안 ${tries.join(",")}분)`);
+      const pending=record(r6.store);
+      want(pending?.sent_at===null&&pending?.attempt?.kind==="alert"&&pending.attempt.n===4&&pending.attempt.at===at(t0+105*M),`1.8.0 2차: 확정 전 기록은 sent_at 을 비우고 시도 횟수·시각만 적는다: ${JSON.stringify(pending)}`);
+      const fullView=await summary({...env,MONITOR_DB:r6.db},t0+121*M), alertView=await summary({...env,MONITOR_DB:r6.db},t0+121*M,{alerting:true});
+      want(fullView.unknown.some(item=>item.startsWith(`알림 발송 미확인(${title} · `)&&item.endsWith(" 시도)"))&&!alertView.unknown.some(item=>item.startsWith("알림 발송 미확인")),`1.8.0 2차: 화면 범위에만 ‘알림 발송 미확인’ 이 보인다(알림 판정 범위는 그대로): ${fullView.unknown.join(" / ")}`);
+      const hooksBefore=hooks.length;
+      for(let minute=125;minute<=175;minute+=5){ seedUptime(r6.store,t0+minute*M,false); await deliverAlerts(hookEnv(r6.db),new Date(t0+minute*M)); }
+      const confirmed=record(r6.store);
+      want(hooks.length===hooksBefore+1&&confirmed?.sent_at===at(t0+165*M)&&!("attempt" in confirmed)&&!(await summary({...env,MONITOR_DB:r6.db},t0+176*M)).unknown.some(item=>item.startsWith("알림 발송 미확인")),`1.8.0 2차: 끊김이 멎으면 다음 간격(165분)에 한 번 보내고 확정한다(메일 ${hooks.length-hooksBefore}통): ${JSON.stringify(confirmed)}`);
+      r6.store.close();
+      // 보내기 전 쓰기가 실패해도 메일은 나간다(1.7.0 순서). 보낸 뒤 쓰기가 되면 확정하고, 그마저 실패하면 delivery_unrecorded 로 던진다.
+      for(const failing of [1,Infinity]){
+        const r7=freshDb();
+        const batch=r7.db.batch;
+        let left=failing;
+        r7.db.batch=async statements=>{ if(left>0){ left-=1; throw new Error("D1_ERROR: simulated batch failure"); } return batch(statements); };
+        seedUptime(r7.store,t0,false);
+        const count=hooks.length;
+        const outcome=await deliverAlerts(hookEnv(r7.db),new Date(t0)).then(value=>value.sent,error=>String(error?.message));
+        if(failing===1) want(hooks.length===count+1&&outcome===1&&record(r7.store)?.sent_at===at(t0),`1.8.0 2차: 보내기 전 쓰기만 실패하면 메일은 나가고 보낸 뒤 확정 기록을 쓴다: ${outcome} ${JSON.stringify(record(r7.store))}`);
+        else want(hooks.length===count+1&&outcome==="delivery_unrecorded collection_failed sent:webhook"&&record(r7.store)===null,`1.8.0 2차: 보낸 뒤 쓰기도 실패하면 메일은 나가고 delivery_unrecorded 로 남는다: ${outcome}`);
+        r7.store.close();
+      }
+      // 밀린 30일 정리: 한 번에 지우는 한도(2000행)를 채우면 오늘 끝난 것으로 적지 않고 다음 매시 실행이 이어 지운다.
+      const r8=freshDb();
+      const d0=Date.parse("2026-06-18T00:00:00.000Z");
+      const insert=r8.store.prepare("INSERT INTO samples(source,bucket,collected_at,payload) VALUES('uptime',?,?,'{}')");
+      for(let i=0;i<2100;i++) insert.run(at(d0-40*24*H+i*5*M),at(d0-40*24*H+i*5*M));
+      const staleRows=()=>r8.store.prepare("SELECT COUNT(*) AS n FROM samples WHERE source='uptime' AND bucket < ?").get(at(d0-30*24*H)).n;
+      const marker=()=>r8.store.prepare("SELECT value FROM settings WHERE key='samples_cleanup'").get()?.value||null;
+      await collect({...env,MONITOR_DB:r8.db},new Date(d0));
+      want(staleRows()===100&&marker()===null,`1.8.0 2차: 0시 정리가 2000행을 지우면 오늘 끝난 것으로 적지 않는다(남은 ${staleRows()}행 · ${marker()})`);
+      await collect({...env,MONITOR_DB:r8.db},new Date(d0+H));
+      want(staleRows()===0&&marker()===at(d0+H),`1.8.0 2차: 다음 매시 실행이 나머지를 이어 지우고 그때 끝난 것으로 적는다(남은 ${staleRows()}행 · ${marker()})`);
+      r8.store.close();
+    }
+    assert.equal(misses.length,0,`V22.9.94·V22.9.97·V22.9.102·V22.9.126 관제(C-6·R-4·후원 줄·/ready 30분·알림 다시 보내기) 검사 실패 ${misses.length}건:\n- ${misses.join("\n- ")}`);
   }
   console.log(`PASS: monitor D1 integration (${checks} checks)`);
 } finally {globalThis.fetch=originalFetch;globalThis.Date=RealDate;sqlite.close();}
