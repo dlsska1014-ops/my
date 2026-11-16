@@ -68,21 +68,26 @@ async function ownerTransferReauthStateV229126(request, env, userId, user, selec
     hasKakaoLoginIdentity(env, user),
     verifyHouseholdDeleteReauth(request, env, userId, selected.id, "owner-transfer"),
   ]);
-  return { hasLocalLogin, hasKakaoLogin, kakaoVerified };
+  // V22.9.126 FC-9: 카카오 본인 확인 시작은 카카오톡 인앱 브라우저에서 막힌다(kakao-oauth.js 와 같은 판정) — 그 화면에서는 갈 길을 따로 적는다.
+  const inApp = /KAKAOTALK/i.test(request.headers.get("user-agent") || "");
+  return { hasLocalLogin, hasKakaoLogin, kakaoVerified, inApp };
 }
 
 // V22.9.126 FC-9: 가계부 삭제(households-lifecycle.js handleMyHouseholdDelete)와 같은 본인 확인. 로그인 비밀번호가 있으면 비밀번호, 아니면 카카오 본인
 // 확인 표(용도 owner-transfer — 삭제용 표로는 안 된다). 시도 제한도 삭제와 같은 것을 쓴다. 통과하면 빈 값, 아니면 안내 코드(확인을 못 하면 양도하지 않는다).
 async function ownerTransferReauthErrorV229126(request, env, userId, householdId, accessCode) {
   const user = await fetchUserById(env, userId);
+  const lookup = {};
   const [hasLocalLogin, kakaoReauthVerified] = await Promise.all([
-    hasBackupLoginIdentity(env, user),
+    hasBackupLoginIdentity(env, user, lookup),
     verifyHouseholdDeleteReauth(request, env, userId, householdId, "owner-transfer"),
   ]);
   const reauthWhy = {};
   const localVerified = hasLocalLogin && accessCode ? await verifyPasswordReauth(request, env, userId, accessCode, reauthWhy) : false;
   if (localVerified || kakaoReauthVerified) return "";
-  return hasLocalLogin && accessCode ? passwordReauthErrorCodeV229126(reauthWhy.reason) : "owner_transfer_reauth_required";
+  if (hasLocalLogin && accessCode) return passwordReauthErrorCodeV229126(reauthWhy.reason);
+  // V22.9.126 FC-9: 로그인 수단을 읽지 못해 비밀번호를 대조하지 못했으면 ‘잠시 후 다시’ 로 알린다(양도는 하지 않는다).
+  return accessCode && lookup.unavailable ? "password_reauth_unavailable" : "owner_transfer_reauth_required";
 }
 
 // V22.9.43: 구성원 권한(기록만/기록·수정) 저장. 소유자만 바꾸며, 결과는 참여자 화면의 같은 칸으로 돌아가 알린다.
@@ -188,7 +193,7 @@ function renderMyMembersHtml({ env, user = null, month, households, selected, me
   const opts = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "가계부")}"${h.id === selected.id ? " selected" : ""}>${escapeHtml(householdChoiceLabelV229118(h, households) || h.name)} · ${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</option>`).join("");
   const viewerIsOwner = String(selected.role || "").toLowerCase() === "owner";
   // V22.9.126 FC-9: 양도 칸 = 가계부 삭제 칸과 같은 본인 확인(카카오 확인이 끝났으면 그 표시, 비밀번호가 있으면 비밀번호 칸 + 카카오 단추,
-  // 카카오만 있으면 카카오 단추, 둘 다 없으면 내 계정·보안 안내). 카카오 확인을 마치면 이 화면으로 돌아온다.
+  // 카카오만 있으면 카카오 단추, 둘 다 없으면 웹 연결 코드로 첫 비밀번호를 정하는 길). 카카오 확인을 마치면 이 화면으로 돌아온다.
   const reauth = transferReauth || {};
   const transferKakaoUrl = `/auth/kakao/start?reauth=owner-transfer&household_id=${encodeURIComponent(selected.id)}&return_to=${encodeURIComponent(returnTo)}`;
   const transferKakaoButton = reauth.hasKakaoLogin ? `<a class="reauthButton" href="${escapeHtml(transferKakaoUrl)}">카카오 계정으로 본인 확인</a>` : "";
@@ -196,8 +201,11 @@ function renderMyMembersHtml({ env, user = null, month, households, selected, me
     const form = (field) => `<form method="post" action="/my/household/transfer-owner" class="transferForm" onsubmit="return confirm('이 참여자에게 소유자를 양도할까요? 나는 관리자가 되고, 구성원 권한·가계부 삭제·소유자 양도는 이 참여자만 할 수 있게 됩니다.')"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/>${field}<button class="transferButton" type="submit">소유자 양도</button></form>`;
     if (reauth.kakaoVerified) return `<div class="transferBox">${form(`<div class="reauthOk">카카오 계정 본인 확인 완료 · 5분 동안 유효</div>`)}</div>`;
     if (reauth.hasLocalLogin) return `<div class="transferBox">${form(`<label>내 계정 로그인 비밀번호<input name="access_code" type="password" autocomplete="current-password" required/></label>`)}${transferKakaoButton ? `<div class="orText">또는</div>${transferKakaoButton}` : ""}</div>`;
-    if (transferKakaoButton) return `<div class="transferBox"><p class="muted">소유자를 양도하려면 먼저 이 계정에 연결된 카카오 계정으로 본인 확인을 완료하세요. 확인 후 양도 단추가 열립니다.</p>${transferKakaoButton}</div>`;
-    return `<div class="transferBox"><p class="muted">소유자를 양도하려면 먼저 내 계정·보안에서 로그인 수단을 연결해 주세요. 가계부 삭제처럼 내 계정 본인 확인이 필요합니다.</p><a class="reauthButton" href="/my/backup-login?return_to=${encodeURIComponent(returnTo)}">내 계정·보안 열기</a></div>`;
+    if (transferKakaoButton) return `<div class="transferBox"><p class="muted">소유자를 양도하려면 먼저 이 계정에 연결된 카카오 계정으로 본인 확인을 완료하세요. 확인 후 양도 단추가 열립니다.${reauth.inApp ? " 카카오톡 안에서는 카카오 본인 확인이 열리지 않아요. Chrome·Safari에서 ‘카카오 로그인’으로 로그인한 뒤 ‘참여자·초대’에서 이 단추를 눌러 주세요." : ""}</p>${transferKakaoButton}</div>`;
+    // V22.9.126 FC-9 2차: 채팅만 쓰는 소유자(비밀번호·카카오 로그인 없음)가 실제로 갈 수 있는 길 — 웹 연결 코드(5분 본인 확인) → 내 계정·보안에서
+    // 첫 비밀번호 저장 → 이 화면으로 돌아와 그 비밀번호로 양도. 단추는 코드 칸을 열고, 코드 뒤 내 계정·보안, 저장 뒤 이 화면으로 돌아오게 한다.
+    const transferClaimUrl = `/my/kakao-claim?auto=0&return_to=${encodeURIComponent(`/my/backup-login?return_to=${encodeURIComponent(returnTo)}`)}#kakao-claim-start`;
+    return `<div class="transferBox"><p class="muted">소유자를 양도하려면 내 계정 로그인 비밀번호가 필요해요. 카카오 1:1 채팅에서 ‘웹 가계부 열기’를 보내 웹 연결 코드를 받은 뒤, 아래 ‘웹 연결 코드 넣기’에서 코드를 붙여 넣으세요. 이어서 열리는 ‘내 계정·보안’에서 5분 안에 로그인 이름과 비밀번호를 저장하면 이 화면으로 돌아와 그 비밀번호로 양도할 수 있어요.</p><a class="reauthButton" href="${escapeHtml(transferClaimUrl)}">웹 연결 코드 넣기</a></div>`;
   };
   const cards = safeArray(members).map((m) => {
     const role = String(m.role || "member");

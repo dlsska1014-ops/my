@@ -140,7 +140,7 @@ async function findUserByLocalLoginIdentity(env, nickname = "", accessCode = "")
   return null;
 }
 
-async function hasBackupLoginIdentity(env, user = {}) {
+async function hasBackupLoginIdentity(env, user = {}, detail = null) {
   const uid = String(user?.id || "").trim();
   if (!uid) return false;
   try {
@@ -152,6 +152,8 @@ async function hasBackupLoginIdentity(env, user = {}) {
     // A temporary identity lookup problem must not break login, household, or
     // password-setting screens. Fall back to the cheapest local signal.
     rememberOpsEvent({ kind: "backup_identity_lookup_failed", severity: "warn", path: "", method: "", detail: safeError(err) });
+    // V22.9.126 FC-9: 양도 재확인이 ‘읽지 못함’ 을 ‘로그인 수단 없음’ 과 가려 알리도록 표시만 남긴다(돌려주는 값은 예전 그대로).
+    if (detail && typeof detail === "object") detail.unavailable = true;
     return String(user?.kakao_user_key || "").startsWith("local_web:");
   }
 }

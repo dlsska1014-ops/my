@@ -202,7 +202,14 @@ function issuesUserSession(response) {
 function withStaleSetupCookiesClearedV229126(request, response) {
   try {
     const cookies = typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie() : [];
-    if (!cookies.some((cookie) => /^\s*ab_user=[^;]/.test(cookie))) return response;
+    const issued = cookies.find((cookie) => /^\s*ab_user=[^;]/.test(cookie));
+    if (!issued) return response;
+    // V22.9.126 FC-15 2차: 같은 계정에 세션을 다시 줄 때(비밀번호 저장·같은 계정 재로그인)는 지우지 않는다 — 계정이 바뀌거나 앞 세션이 없을 때만.
+    // 띠 쿠키는 보안 값이 아니라서 요청 쿠키의 사용자 id 를 서명 확인 없이 견준다(틀려도 띠가 한 번 더 보이거나 덜 보일 뿐이다).
+    const sessionUserId = (token) => { const text = String(token || ""); return text.slice(0, text.lastIndexOf(".") < 0 ? text.length : text.lastIndexOf(".")).split("|")[0]; };
+    const issuedUserId = sessionUserId(decodeURIComponent(issued.trim().slice("ab_user=".length).split(";")[0]));
+    const previousUserId = sessionUserId(getCookie(request, "ab_user"));
+    if (previousUserId && previousUserId === issuedUserId) return response;
     const stale = clearSetupCookies().filter((clear) => {
       const name = clear.slice(0, clear.indexOf("="));
       return getCookie(request, name) !== "" && !cookies.some((cookie) => cookie.trimStart().startsWith(`${name}=`));

@@ -299,8 +299,9 @@ async function handleKakaoLoginCallback(request, env, url) {
     // 이 한도는 성공해도 풀리지 않는다(V22.9.30 감사: 같은 곳의 입장 수는 성공으로 지우지 않는다). 자동 로그인도 카카오가 코드를 준 요청만 센다.
     // V22.9.91 독립 검토: 자동 로그인은 따로 센다. 같은 IP(통신사 공유 IP·회사)의 자동 로그인이 손으로 누른 로그인을 ‘요청이 많아요’로 막지 않게 한다.
     // 자동 로그인 칸이 차면 로그인 화면으로 가고(하루 쉼), 그때 손으로 누른 로그인은 원래 칸을 쓴다.
-    // V22.9.126 FC-8: 한도 20 → 50(운영 함수가 50 에서 자른다). 주소를 함께 쓰는 곳(통신사 공유 IP·회사)에서 여럿이 가입하면 20번에 걸렸다.
-    const callbackAttempt = await recordAuthAttempt(env, request, autoMode ? "/auth/kakao/callback#auto" : "/auth/kakao/callback", false, {limit: 50});
+    // V22.9.126 FC-8: 손으로 누른 로그인 칸만 20 → 50(운영 함수가 50 에서 자른다). 주소를 함께 쓰는 곳에서 여럿이 가입하면 20번에 걸렸다.
+    // 화면 없는 자동 로그인 칸은 20 그대로 둔다(자동 토큰 교환을 넓히지 않는다).
+    const callbackAttempt = await recordAuthAttempt(env, request, autoMode ? "/auth/kakao/callback#auto" : "/auth/kakao/callback", false, {limit: autoMode ? 20 : 50});
     if (!callbackAttempt.allowed) {
       if (autoMode) return autoFallback();
       if (accountLinkMode) return accountLinkError("busy");
