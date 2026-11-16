@@ -6,7 +6,7 @@ import {
 } from "../public/site-config.js";
 import { safeError } from "../runtime/leases.js";
 import { htmlResponse, jsonResponse, redirectResponse } from "../runtime/http.js";
-import { verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { kakaoSkillAuthSnapshot, verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { fetchAdminHouseholds } from "../data/households-members-rows.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import { userPolishBaseStyle } from "./guide-pages.js";
@@ -179,7 +179,7 @@ async function handleKakaoCommandsPage(request, env, url) {
 async function handleOpsSnapshotJson(request, env, url) {
   const adminOk = await verifyAdminSession(request, env);
   if (!adminOk) return jsonResponse({ ok: false, error: "admin_required", reason: "admin_required", message: "관리자 권한이 필요합니다." }, 401);
-  return jsonResponse({ ok: true, snapshot: buildOpsSnapshot(env) });
+  return jsonResponse({ ok: true, snapshot: buildOpsSnapshot(env), skill_caller_auth: kakaoSkillAuthSnapshot(env) });
 }
 
 function renderDuplicateSafetyHtml(env = {}) {

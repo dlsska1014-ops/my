@@ -316,11 +316,12 @@ function dbCallBudgetBaseV229119(budget) {
   return budget === DB_CALL_BUDGET_DEFAULT_V229119 ? {} : { __AB_DB_BUDGET_BASE_V229119: budget };
 }
 
-// V22.9.126 FC-17: 로그인 없이 열리는 /health·/ready·/kakao-new-bot-config.json 에는 통과·거부 건수와 시각을 싣지 않는다.
-// 모드·설정 여부와, 오픈빌더 비밀 헤더가 빠졌다는 유일한 신호인 header_missing_suspected 만 남긴다.
+// V22.9.126 FC-17: 로그인 없이 열리는 /health·/ready·/kakao-new-bot-config.json 에는 모드·설정 여부만 싣는다.
+// 통과·거부 건수·시각과 헤더 누락 추정은 싣지 않는다 — 새로 뜬 인스턴스에 아무나 /skill 을 두 번 보내면 추정이 켜져 운영자를 헷갈리게 한다.
+// 그 값 전체는 관리자 전용 /ops-snapshot.json 의 skill_caller_auth 에 있다.
 function publicSkillAuthSnapshotV229126(env) {
-  const { mode, configured, header_missing_suspected } = kakaoSkillAuthSnapshot(env);
-  return { mode, configured, header_missing_suspected };
+  const { mode, configured } = kakaoSkillAuthSnapshot(env);
+  return { mode, configured };
 }
 
 // V22.9.122 F-1(출시 전 점검 2026-11-14): 서명·만료가 맞는 세션 쿠키인데 DB 가 잠깐 답하지 못해 로그인 확인을 못 하면, 예전에는 로그인하지 않은 사람처럼 /my 로

@@ -730,8 +730,9 @@ function importTextOverCapV22995(text = "") {
   return false;
 }
 
-// V22.9.126 FC-6: 점 뒤에 숫자가 세 자리 이상 붙은 금액 꼴의 칸(‘12.000원’·‘₩1.200.000’). 금액 칸 읽기는 이 꼴을 받지 않는다.
-const IMPORT_DOT_AMOUNT_CELL_V229126 = /^(?:₩|￦|krw|won)?\s*[-−]?\d[\d,]*(?:\.\d{3,})+\s*(?:원|krw|won)?$/i;
+// V22.9.126 FC-6: 천 단위를 점으로 쓴 원화 금액 꼴의 칸(‘12.000원’·‘₩1.200.000’·‘5.000’). 칸 전체가 이 꼴일 때만이고 맨 앞 묶음은 0 으로 시작하지 않는다.
+// 전화번호(010.1234.5678·02.123.4567)·환율(1,350.500)·좌표(37.5665)·무게(0.500)는 이 꼴이 아니다. 금액 칸 읽기는 이 꼴을 받지 않는다.
+const IMPORT_THOUSANDS_DOT_AMOUNT_CELL_V229126 = /^[-−]?\s*₩?\s*[-−]?[1-9]\d{0,2}(?:\.\d{3})+\s*원?$/;
 
 function parseImportAmountCell(value = "") {
   const raw = String(value ?? "").normalize("NFKC").trim();
@@ -1038,17 +1039,18 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   let inferredAmount = false, inferredLocal = false;
   if (!chosen.amount && !canonicalImportValue(obj, "amount") && !canonicalImportValue(obj, "income") && !canonicalImportValue(obj, "expense")) {
     const amountCandidates = [];
-    let foreignAmountCell = false, dotAmountCell = false;
+    let foreignAmountCell = false, thousandsDotCell = false;
     for (const cell of contextCells || []) {
       if (!String(cell || "").trim() || parseImportDateCell(cell, options) || normalizeImportTypeValue(cell)) continue;
       const info = parseImportAmountCell(cell);
       if (info.amount > 0) amountCandidates.push(info);
       else if (importForeignAmountOnlyV22994(info.raw)) foreignAmountCell = true;
-      else if (!info.valid && IMPORT_DOT_AMOUNT_CELL_V229126.test(info.raw)) dotAmountCell = true;
+      else if (!info.valid && IMPORT_THOUSANDS_DOT_AMOUNT_CELL_V229126.test(info.raw)) thousandsDotCell = true;
     }
-    // V22.9.126 FC-6: 머리글 없는 표에서 금액 칸 ‘12.000원’ 을 읽지 못했으면 되묻는다. 자연어 해석으로 넘기면 12000원이 되고,
-    // 다른 숫자 칸(‘1’)만 남아 그 값이 금액이 되기도 했다. 머리글 있는 표의 금액 칸과 같은 ‘금액 형식을 해석하지 못함’ 이다.
-    if (dotAmountCell) return { row: null, rejection: importRejection("invalid_amount", options.rowNumber, rawText), warnings };
+    // V22.9.126 FC-6: 머리글 없는 표의 천 단위 점 금액 칸(‘12.000원’)은 읽지 않는다. 그 칸뿐이면 ‘금액 형식을 해석하지 못함’ 으로 되묻는다
+    // (자연어 해석으로 넘기면 12원이 됐다). 읽을 수 있는 금액 칸이 함께 있으면 금액 후보가 둘이라 ‘금액 후보가 여러 개’ 로 되묻는다 —
+    // 머리글 있는 표도 금액 칸 하나를 읽지 못하면 다른 금액 칸으로 저장하지 않고, 고치기 전에도 그 칸을 12 로 읽어 같은 답이었다.
+    if (thousandsDotCell) return { row: null, rejection: importRejection(amountCandidates.length ? "ambiguous_amount" : "invalid_amount", options.rowNumber, rawText), warnings };
     const unique = [...new Map(amountCandidates.map((item) => [item.amount, item])).values()];
     if (unique.length === 1) {
       // V22.9.94 C-7: 찾은 금액 칸(같은 금액의 칸 모두)에 외화 표시가 있으면 머리글 경로처럼 거절한다. 외화 금액만 적힌 칸(‘€1’·‘USD 1’·‘000$’ —
