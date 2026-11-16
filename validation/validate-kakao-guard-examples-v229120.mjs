@@ -113,7 +113,8 @@ await withClock(DAY, async () => {
   // 3. 멈춘 두 문장: 메모에 안전망이 막는 말이 남은 기록의 날짜 수정
   const STOPPED = [
     ["몇 월 며칠인지도 모르고 사는 요즘ㅋㅋ 다이소 7000", "question"],
-    ["작년에 깜빡하고 안 한 실비 청구 며칠 전에 해놨더니 오늘 벌써 들어왔네요 보험금 58000원", "date"],
+    // V22.9.126: 끝이 ‘58000원’ 이던 이 문장은 지출로 읽혀 이제 안전망이 수입/지출을 되묻는다 — ‘받음’ 을 붙여 수입으로 저장되는 문장으로 본다.
+    ["작년에 깜빡하고 안 한 실비 청구 며칠 전에 해놨더니 오늘 벌써 들어왔네요 보험금 58000원 받음", "date"],
   ];
   for (const [name, room] of PATHS) for (const [sentence, guardKind] of STOPPED) await withFx(async (fx) => {
     const key = `guard-example-${room ? "room" : "direct"}-${guardKind}`;
