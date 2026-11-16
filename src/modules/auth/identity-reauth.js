@@ -277,22 +277,33 @@ async function verifyCredentialProof(request, env, userId) {
 }
 
 // V22.9.118 S-1: 비밀번호를 대조하는 길이라 IP 단위 제한은 IPv6 를 /64 로 묶어 센다(groupIpv6, 지우기도 같은 키).
-async function verifyPasswordReauth(request, env, userId, password) {
+// V22.9.126 FC-15: 시도 제한 장애·막힘도 ‘비밀번호가 맞지 않습니다’ 로 안내됐다. 돌려주는 값(맞을 때만 true)은 그대로 두고 detail.reason 에
+// 이유(invalid 틀림 · limited 시도 많음 · unavailable 확인 못 함)만 적는다 — 확인을 못 하면 늘 false 라 부르는 곳은 실패 쪽으로 닫힌다.
+async function verifyPasswordReauth(request, env, userId, password, detail = null) {
+  const why = (reason) => { if (detail && typeof detail === "object") detail.reason = reason; return false; };
   const admission = await recordAuthAttempt(env, request, "/my/password-reauth-admission", false, { limit: 30, groupIpv6: true });
-  if (!admission.allowed) return false;
+  if (!admission.allowed) return why(admission.unavailable ? "unavailable" : "limited");
   const attempt = await recordAuthAttempt(env, request, "/my/password-reauth", false, { groupIpv6: true });
-  if (!attempt.allowed) return false;
+  if (!attempt.allowed) return why(attempt.unavailable ? "unavailable" : "limited");
   try {
     const valid = await verifyLocalLoginForUser(env, userId, password);
     if (valid) await recordAuthAttempt(env, request, "/my/password-reauth", true, { groupIpv6: true });
-    return valid;
+    return valid || why("invalid");
   } catch (error) { await recordAuthAttempt(env, request, "/my/password-reauth", true, { groupIpv6: true }); throw error; }
+}
+
+// V22.9.126 FC-15: 비밀번호 재확인 이유 → 화면의 오류 코드. 틀린 비밀번호는 부르는 곳마다 예전 코드(invalidCode) 그대로다.
+function passwordReauthErrorCodeV229126(reason = "", invalidCode = "personal_password_invalid") {
+  if (reason === "limited") return "password_reauth_limited";
+  if (reason === "unavailable") return "password_reauth_unavailable";
+  return invalidCode;
 }
 
 async function handleAccountReauth(request, env) {
   const userId = await verifyUserSession(request, env); if (!userId) return redirectResponse("/my");
   const form = await request.formData();
-  if (!(await verifyPasswordReauth(request, env, userId, String(form.get("current_password") || "")))) return redirectResponse("/my/backup-login?err=account_reauth_required");
+  const reauthWhy = {};
+  if (!(await verifyPasswordReauth(request, env, userId, String(form.get("current_password") || ""), reauthWhy))) return redirectResponse(`/my/backup-login?err=${passwordReauthErrorCodeV229126(reauthWhy.reason, "account_reauth_required")}`);
   const proof = await makeCredentialProof(env, userId);
   return redirectResponse("/my/backup-login?msg=account_reauth_verified", {"set-cookie": `ab_credential_reauth=${encodeURIComponent(proof)}; Path=/; Max-Age=300; HttpOnly; Secure; SameSite=Lax`});
 }
@@ -305,7 +316,9 @@ function clearHouseholdDeleteReauthCookie() {
   return `${householdDeleteReauthCookieName()}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax`;
 }
 
-async function makeHouseholdDeleteReauthToken(env, userId = "", householdId = "") {
+// V22.9.126 FC-9: 소유자 양도도 같은 쿠키·같은 5분 표를 쓴다. 용도(household-delete·owner-transfer)를 내용과 서명 문자열 둘 다에 넣어
+// 삭제용 표로 양도하거나 양도용 표로 삭제하지 못하게 한다. 용도를 주지 않으면 예전 삭제 표와 같은 바이트다.
+async function makeHouseholdDeleteReauthToken(env, userId = "", householdId = "", purpose = "household-delete") {
   const payload = {
     v: 1,
     purpose: "household-delete",
@@ -313,25 +326,28 @@ async function makeHouseholdDeleteReauthToken(env, userId = "", householdId = ""
     household_id: String(householdId || "").trim(),
     exp: Math.floor(Date.now() / 1000) + 5 * 60,
   };
+  if (purpose === "owner-transfer") payload.purpose = "owner-transfer";
+  else if (purpose !== "household-delete") throw new Error("household_reauth_purpose_invalid");
   if (!payload.user_id || !payload.household_id) throw new Error("household_delete_reauth_target_required");
   const data = base64UrlEncodeText(JSON.stringify(payload));
-  const signature = await hmacSha256(userSessionSecret(env), `household-delete:${data}`);
+  const signature = await hmacSha256(userSessionSecret(env), `${payload.purpose}:${data}`);
   return `${data}.${signature}`;
 }
 
-async function verifyHouseholdDeleteReauth(request, env, userId = "", householdId = "") {
+async function verifyHouseholdDeleteReauth(request, env, userId = "", householdId = "", purpose = "household-delete") {
+  if (purpose !== "household-delete" && purpose !== "owner-transfer") return false;
   const token = getCookie(request, householdDeleteReauthCookieName());
   if (!token || token.length > 4096) return false;
   const dot = token.lastIndexOf(".");
   if (dot < 1) return false;
   const data = token.slice(0, dot);
   const signature = token.slice(dot + 1);
-  const expected = await hmacSha256(userSessionSecret(env), `household-delete:${data}`);
+  const expected = await hmacSha256(userSessionSecret(env), `${purpose}:${data}`);
   if (!signature || !constantTimeTextEqual(signature, expected)) return false;
   try {
     const payload = JSON.parse(base64UrlDecodeText(data));
     return Number(payload?.v || 0) === 1
-      && payload?.purpose === "household-delete"
+      && payload?.purpose === purpose
       && Number(payload?.exp || 0) >= Math.floor(Date.now() / 1000)
       && constantTimeTextEqual(String(payload?.user_id || ""), String(userId || ""))
       && constantTimeTextEqual(String(payload?.household_id || ""), String(householdId || ""));
@@ -425,8 +441,8 @@ export {
   householdDeleteReauthCookieName, isPlaceholderUserNickname, kakaoLoginIdentityMatchesUser,
   linkKakaoLoginToUser, lookupKakaoLoginOwner, makeCredentialProof, makeDeleteRestoreTicket,
   makeHouseholdDeleteReauthToken, makeQuickUndoTicket, normalizeLocalLoginName,
-  quickUndoFingerprint, readDeleteRestoreTicket, readPurposeToken, readQuickUndoTicket,
-  replaceLocalLoginForUser, saveUserIdentityLinks, signedPurposeToken, verifyCredentialProof,
-  verifyHouseholdDeleteReauth, verifyPasswordReauth,
+  passwordReauthErrorCodeV229126, quickUndoFingerprint, readDeleteRestoreTicket, readPurposeToken,
+  readQuickUndoTicket, replaceLocalLoginForUser, saveUserIdentityLinks, signedPurposeToken,
+  verifyCredentialProof, verifyHouseholdDeleteReauth, verifyPasswordReauth,
 };
 // @build:exports-end

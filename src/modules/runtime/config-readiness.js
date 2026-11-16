@@ -1,5 +1,6 @@
 // @build:imports-start
 import { getCookie } from "./http.js";
+import { clearSetupCookies } from "../my/setup-page.js";
 // @build:imports-end
 
 const JSON_HEADERS = {
@@ -196,6 +197,22 @@ function issuesUserSession(response) {
   }
 }
 
+// V22.9.126 FC-15: 세션(ab_user)을 새로 주는 응답은 앞 계정의 설정 띠 쿠키(ab_setup·ab_bk)도 지운다 — 계정을 바꿔 로그인하면 바뀐 계정 화면에 앞 사람의
+// ‘설정 전’ 띠가 남았다(웹 연결 코드 길은 ab_bk 까지). 요청에 그 쿠키가 있고 응답이 스스로 정하지 않은 것만 지운다(방 단추 열기·로그인의 새 ab_bk 는 그대로).
+function withStaleSetupCookiesClearedV229126(request, response) {
+  try {
+    const cookies = typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie() : [];
+    if (!cookies.some((cookie) => /^\s*ab_user=[^;]/.test(cookie))) return response;
+    const stale = clearSetupCookies().filter((clear) => {
+      const name = clear.slice(0, clear.indexOf("="));
+      return getCookie(request, name) !== "" && !cookies.some((cookie) => cookie.trimStart().startsWith(`${name}=`));
+    });
+    return stale.reduce((out, clear) => withSetCookie(out, clear), response);
+  } catch (_) {
+    return response;
+  }
+}
+
 async function withRememberedHouseholdCookie(routed, response) {
   try {
     const request = routed.request;
@@ -203,6 +220,7 @@ async function withRememberedHouseholdCookie(routed, response) {
     if (url.pathname === "/my/logout") {
       return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
     }
+    response = withStaleSetupCookiesClearedV229126(request, response);
     // H4: 다른 계정이 로그인해도 쿠키가 남아 그 사람의 가계부로 열렸다. 세션을 새로 주면 기억을 함께 지운다.
     if (issuesUserSession(response)) return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
     if (!routed.eligible) return response;

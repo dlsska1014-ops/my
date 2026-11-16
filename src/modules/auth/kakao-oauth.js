@@ -51,7 +51,7 @@ function withoutHouseholdIdV229104(path = "") {
 }
 
 async function handleKakaoLoginStart(request, env, url) {
-  const reauthPurpose = ["household-delete", "credential-change"].includes(url.searchParams.get("reauth")) ? url.searchParams.get("reauth") : "";
+  const reauthPurpose = ["household-delete", "owner-transfer", "credential-change"].includes(url.searchParams.get("reauth")) ? url.searchParams.get("reauth") : "";
   const reauthMode = !!reauthPurpose;
   const reauthHouseholdId = String(url.searchParams.get("household_id") || "").trim();
   const reauthReturnTo = safeUserReturnPath(url.searchParams.get("return_to") || "/my/households", "/my/households");
@@ -84,8 +84,10 @@ async function handleKakaoLoginStart(request, env, url) {
       readHouseholdRoleOrFailure(env, currentUserId, reauthHouseholdId, { path: "/auth/kakao/start", method: "GET" }),
       fetchUserById(env, currentUserId),
     ]);
-    if (reauthPurpose === "household-delete" && roleCheckFailed) return redirectResponse(addQueryToUrl(reauthReturnTo, { err: "household_role_check_failed" }));
-    if (reauthPurpose === "household-delete" && (!reauthHouseholdId || role !== "owner")) return redirectResponse(addQueryToUrl(reauthReturnTo, { err: "household_delete_owner_only" }));
+    // V22.9.126 FC-9: 소유자 양도의 카카오 본인 확인도 삭제와 같이 그 가계부의 소유자만 시작한다(안내 코드만 양도 쪽 말).
+    const householdReauth = reauthPurpose === "household-delete" || reauthPurpose === "owner-transfer";
+    if (householdReauth && roleCheckFailed) return redirectResponse(addQueryToUrl(reauthReturnTo, { err: "household_role_check_failed" }));
+    if (householdReauth && (!reauthHouseholdId || role !== "owner")) return redirectResponse(addQueryToUrl(reauthReturnTo, { err: reauthPurpose === "owner-transfer" ? "owner_transfer_not_owner" : "household_delete_owner_only" }));
     if (!(await hasKakaoLoginIdentity(env, currentUser))) return redirectResponse(addQueryToUrl(reauthReturnTo, { err: "kakao_reauth_unavailable" }));
   }
   // 로그인(login) 뒤 돌아갈 화면은 next 에 따로 둔다. return_to 의 기본값(/my/households)은 본인 확인용이라 로그인에는 쓰지 않는다.
@@ -209,7 +211,8 @@ function kakaoCallbackErrorMessage(stage = "", traceId = "") {
     profile: `카카오 프로필을 불러오지 못했습니다. 잠시 후 다시 시도하거나 아래 다른 방법으로 접속해주세요.${suffix}`,
     account: `로그인은 확인됐지만 계정 정보를 저장하지 못했습니다. 기존 기록은 변경되지 않았습니다.${suffix}`,
     // V22.9.91: 같은 곳(IP)에서 카카오 로그인이 짧은 시간에 많으면 잠시 막는다. 예전에는 ‘확인 시간이 지났습니다’로 보여 이유가 달랐다.
-    busy: "카카오 로그인 요청이 잠시 많아 처리하지 못했습니다. 1~2분 뒤 다시 시도하거나 아래 다른 방법으로 접속해주세요.",
+    // V22.9.126 FC-8: 막히면 15분쯤 풀리지 않는다(운영 함수의 막힘 시간). 예전 ‘1~2분’ 은 실제와 달랐다.
+    busy: "카카오 로그인 요청이 잠시 많아 처리하지 못했습니다. 15분쯤 뒤 다시 시도하거나 아래 다른 방법으로 접속해주세요.",
   };
   return messages[String(stage || "")] || `카카오 로그인을 완료하지 못했습니다. 기존 기록은 변경되지 않았습니다.${suffix}`;
 }
@@ -296,14 +299,17 @@ async function handleKakaoLoginCallback(request, env, url) {
     // 이 한도는 성공해도 풀리지 않는다(V22.9.30 감사: 같은 곳의 입장 수는 성공으로 지우지 않는다). 자동 로그인도 카카오가 코드를 준 요청만 센다.
     // V22.9.91 독립 검토: 자동 로그인은 따로 센다. 같은 IP(통신사 공유 IP·회사)의 자동 로그인이 손으로 누른 로그인을 ‘요청이 많아요’로 막지 않게 한다.
     // 자동 로그인 칸이 차면 로그인 화면으로 가고(하루 쉼), 그때 손으로 누른 로그인은 원래 칸을 쓴다.
-    const callbackAttempt = await recordAuthAttempt(env, request, autoMode ? "/auth/kakao/callback#auto" : "/auth/kakao/callback", false, {limit: 20});
+    // V22.9.126 FC-8: 한도 20 → 50(운영 함수가 50 에서 자른다). 주소를 함께 쓰는 곳(통신사 공유 IP·회사)에서 여럿이 가입하면 20번에 걸렸다.
+    const callbackAttempt = await recordAuthAttempt(env, request, autoMode ? "/auth/kakao/callback#auto" : "/auth/kakao/callback", false, {limit: 50});
     if (!callbackAttempt.allowed) {
       if (autoMode) return autoFallback();
       if (accountLinkMode) return accountLinkError("busy");
       return errorResponse("busy", callbackAttempt.unavailable ? 503 : 429);
     }
-    if (stateProof.user_id !== (getCookie(request, "kakao_oauth_link_user") || "") || (reauthRequested && stateProof.mode !== (reauthHouseholdId === "credential-change" ? "credential-change" : "household-delete"))) return errorResponse("state", 400);
-    if (stateProof.mode === "household-delete" && stateProof.household_id !== reauthHouseholdId) return errorResponse("state", 400);
+    // V22.9.126 FC-9: 가계부 쿠키가 있는 본인 확인은 삭제(household-delete)·양도(owner-transfer) 두 용도다. 용도는 서명된 상태가 정한다.
+    const householdReauthModes = ["household-delete", "owner-transfer"];
+    if (stateProof.user_id !== (getCookie(request, "kakao_oauth_link_user") || "") || (reauthRequested && !(reauthHouseholdId === "credential-change" ? stateProof.mode === "credential-change" : householdReauthModes.includes(stateProof.mode)))) return errorResponse("state", 400);
+    if (householdReauthModes.includes(stateProof.mode) && stateProof.household_id !== reauthHouseholdId) return errorResponse("state", 400);
     if (reauthRequested && /KAKAOTALK/i.test(request.headers.get("user-agent") || "")) return errorResponse("state", 403);
     stage = "token";
     const profile = await fetchKakaoProfileByCode(env, url, code);
@@ -327,10 +333,11 @@ async function handleKakaoLoginCallback(request, env, url) {
         const proof = await makeCredentialProof(env, currentUserId);
         return redirectResponseWithCookies("/my/backup-login?msg=account_reauth_verified", [...clearOauthCookies, `ab_credential_reauth=${encodeURIComponent(proof)}; Path=/; Max-Age=300; HttpOnly; Secure; SameSite=Lax`]);
       }
+      const transferReauth = stateProof.mode === "owner-transfer";
       if (roleCheckFailed) return redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { err: "household_role_check_failed" }), clearOauthCookies);
-      if (role !== "owner") return redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { err: "household_delete_owner_only" }), clearOauthCookies);
-      const reauthToken = await makeHouseholdDeleteReauthToken(env, currentUserId, reauthHouseholdId);
-      return redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { msg: "kakao_reauth_verified" }), [
+      if (role !== "owner") return redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { err: transferReauth ? "owner_transfer_not_owner" : "household_delete_owner_only" }), clearOauthCookies);
+      const reauthToken = await makeHouseholdDeleteReauthToken(env, currentUserId, reauthHouseholdId, transferReauth ? "owner-transfer" : "household-delete");
+      return redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { msg: transferReauth ? "kakao_reauth_verified_transfer" : "kakao_reauth_verified" }), [
         ...clearOauthCookies,
         `${householdDeleteReauthCookieName()}=${encodeURIComponent(reauthToken)}; Path=/; Max-Age=300; HttpOnly; Secure; SameSite=Lax`,
       ]);

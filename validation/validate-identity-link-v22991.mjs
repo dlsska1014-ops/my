@@ -727,7 +727,8 @@ await linkFixture(async (fx, server) => {
     const autoOnly = autoKeys.filter((key) => !manualKeys.includes(key));
     ok(autoOnly.length > 0 && manualKeys.some((key) => !autoKeys.includes(key)), "14 자동 로그인 콜백과 손으로 누른 콜백은 한도 칸이 다르다");
     fx.db.__enforce_auth_rate = true;
-    fx.db.__auth_attempts = new Map(autoOnly.map((key) => [key, 20]));
+    // V22.9.126 FC-8: 콜백 한도가 20 → 50 이 됐다. 자동 로그인 칸을 새 한도(50)까지 채운다.
+    fx.db.__auth_attempts = new Map(autoOnly.map((key) => [key, 50]));
     const autoJar = new Jar();
     const full = await kakaoLogin(fx, autoJar, server, "2265", { ua: INAPP, start: "/auth/kakao/start?auto=1" });
     ok(full.callback.location === "/my?auto=0" && !autoJar.has("ab_user"), "14 자동 로그인 칸이 차면 로그인 화면으로 간다");

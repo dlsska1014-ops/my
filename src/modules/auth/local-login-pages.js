@@ -18,8 +18,9 @@ import {
 } from "./user-session.js";
 import {
   fetchStrongIdentityForUser, fetchUserIdentityLinks, findUserByLocalLoginIdentity,
-  hasBackupLoginIdentity, hasKakaoLoginIdentity, normalizeLocalLoginName, replaceLocalLoginForUser,
-  verifyCredentialProof, verifyPasswordReauth,
+  hasBackupLoginIdentity, hasKakaoLoginIdentity, normalizeLocalLoginName,
+  passwordReauthErrorCodeV229126, replaceLocalLoginForUser, verifyCredentialProof,
+  verifyPasswordReauth,
 } from "./identity-reauth.js";
 import { handleMyLogout } from "./kakao-oauth.js";
 import { fetchUserById } from "../data/users-household-create.js";
@@ -97,8 +98,11 @@ async function createLocalLoginUser(env, loginName = "", displayName = "", acces
   const cleanCode = String(accessCode || "").trim();
   if (normalizeLocalLoginName(cleanLoginName).length < 2) throw new Error("invalid_login_name");
   if (cleanCode.length < 8) throw new Error("password_too_short");
-  const legacy = await supabase(env, `/rest/v1/users?nickname=ilike.${encodeURIComponent(cleanLoginName)}&kakao_user_key=like.local_web%3A*&select=id&limit=1`, {method:"GET"});
-  if (legacy?.length) throw new Error("login_name_in_use:legacy_recovery_required");
+  // V22.9.126 FC-15: 입력이 ilike 패턴(%·_·*)으로 읽혀 다른 옛 이름에도 걸렸다(엉뚱한 ‘이미 사용 중’, 패턴으로 옛 이름 짐작). 패턴 글자는 글자 그대로 찾고
+  // (* 는 PostgREST 가 % 로 바꾸므로 한 글자 _ 로 넓힌다), 읽어 온 이름을 정규화해 같은 이름만 막는다.
+  const legacyPattern = cleanLoginName.replace(/[\\%_]/g, (ch) => `\\${ch}`).replace(/\*/g, "_");
+  const legacy = await supabase(env, `/rest/v1/users?nickname=ilike.${encodeURIComponent(legacyPattern)}&kakao_user_key=like.local_web%3A*&select=id,nickname&limit=50`, {method:"GET"});
+  if (Array.isArray(legacy) && legacy.some((row) => normalizeLocalLoginName(row?.nickname) === normalizeLocalLoginName(cleanLoginName))) throw new Error("login_name_in_use:legacy_recovery_required");
   const links = await fetchUserIdentityLinks(env);
   if (Object.entries(links).some(([key,value]) => key.startsWith("local_web:") && normalizeLocalLoginName(safeObject(value).nickname) === normalizeLocalLoginName(cleanLoginName))) throw new Error("login_name_in_use:legacy_recovery_required");
   const salt = newPasswordSalt();
@@ -154,20 +158,21 @@ async function handleMyLocalLogin(request, env) {
   if (!admission.allowed) return htmlResponse(renderUserLoginHtml(env, "로그인 요청이 잠시 제한되었습니다.", loginReturnTo), admission.unavailable ? 503 : 429);
   const clientSubject = trafficClientIp(request) + "|" + normalizeLocalLoginName(nickname) + "|" + trafficClientKey(request);
   const attempt = await recordAuthAttempt(env, request, "/my/local-login", false, {scope:"subject-client",key:clientSubject});
-  if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
-  if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
+  // V22.9.126 FC-15: 막힘·장애·처리 오류 화면도 돌아갈 주소(loginReturnTo)를 싣는다. 예전에는 이 응답들만 주소를 잃어 로그인 뒤 첫 화면으로 갔다.
+  if (attempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", loginReturnTo), 503);
+  if (!attempt.allowed) return htmlResponse(renderUserLoginHtml(env, "로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", loginReturnTo), 429, { "retry-after": "900" });
   // V22.9.26: 로그인 이름 단위로도 센다. 클라이언트 키는 User-Agent 를 바꾸면 비껴간다. 이 키는 주소(V22.9.118: IPv6 는 /64)와
   // 로그인 이름의 묶음이라 주소를 바꾸면 새로 센다 — 예전 주석의 ‘어디서 보내든 같은 계정이면 함께 줄어든다’ 는 바로 아래 횟수가 한다(V22.9.118 S-1).
   const accountKey = authAttemptNetwork(request) + "|" + normalizeLocalLoginName(nickname);
   const accountAttempt = await recordAuthAttempt(env, request, "/my/local-login", false, { scope: "account", key: accountKey, limit: boundedRuntimeNumber(env.AUTH_ACCOUNT_RATE_LIMIT, 10, 3, 50) });
-  if (accountAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
-  if (!accountAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "이 로그인 이름으로 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
+  if (accountAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", loginReturnTo), 503);
+  if (!accountAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "이 로그인 이름으로 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", loginReturnTo), 429, { "retry-after": "900" });
   // V22.9.118 S-1: IP 와 무관한 로그인 이름 전체 횟수(한도·이벤트는 recordAuthAccountWideAttempt). 다른 로그인 이름의 횟수와는 섞이지 않는다.
   // 남이 채우면 그 이름의 비밀번호 로그인만 잠시 막힌다(카카오 로그인은 그대로).
   const loginName = normalizeLocalLoginName(nickname);
   const nameAttempt = await recordAuthAccountWideAttempt(env, request, "/my/local-login", loginName, false, "로그인 이름");
-  if (nameAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요."), 503);
-  if (!nameAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "이 로그인 이름으로 시도가 너무 많습니다. 잠시 후 다시 시도하세요."), 429, { "retry-after": "900" });
+  if (nameAttempt.unavailable) return htmlResponse(renderUserLoginHtml(env, "로그인 보호 기능에 연결하지 못했습니다. 잠시 후 다시 시도하세요.", loginReturnTo), 503);
+  if (!nameAttempt.allowed) return htmlResponse(renderUserLoginHtml(env, "이 로그인 이름으로 시도가 너무 많습니다. 잠시 후 다시 시도하세요.", loginReturnTo), 429, { "retry-after": "900" });
   try {
     const user = await ensureLocalLoginUser(env, nickname, accessCode);
     if (!user?.id) return htmlResponse(renderUserLoginHtml(env, "로그인 이름 또는 비밀번호가 맞지 않습니다. 처음이라면 새 계정 만들기를 이용하세요.", loginReturnTo), 401);
@@ -179,7 +184,7 @@ async function handleMyLocalLogin(request, env) {
       const joined = await joinHouseholdByCode(env, user.id, inviteCode);
       location = joined
         ? addQueryToUrl("/my", householdJoinFeedback(joined))
-        : `/my/households?err=${encodeURIComponent("초대코드를 찾지 못했습니다. 로그인은 완료되었습니다.")}`;
+        : "/my/households?msg=login_invite_code_not_found";
     }
     const session = await makeUserSession(env, user.id);
     // V22.9.102: 로그인 이름으로 들어왔으면 내 계정 로그인 비밀번호가 있는 계정이다(가계부 기본 설정 띠의 비밀번호 항목 쿠키).
@@ -197,7 +202,7 @@ async function handleMyLocalLogin(request, env) {
     const missingSecret = /USER_SESSION_SECRET/.test(safeError(err));
     // V22.9.35: 로그인 처리 오류는 운영 이벤트에 남지 않아 원인을 볼 자리가 없었다(가입 오류는 local_signup_failed).
     rememberOpsEvent({ kind: "local_login_failed", severity: "error", path: "/my/local-login", method: "POST", detail: safeError(err) });
-    return htmlResponse(renderUserLoginHtml(env, missingSecret ? "운영 보안키가 설정되지 않아 로그인할 수 없습니다." : "로그인을 처리하지 못했습니다. 잠시 후 다시 시도하세요."), missingSecret ? 503 : 500);
+    return htmlResponse(renderUserLoginHtml(env, missingSecret ? "운영 보안키가 설정되지 않아 로그인할 수 없습니다." : "로그인을 처리하지 못했습니다. 잠시 후 다시 시도하세요.", loginReturnTo), missingSecret ? 503 : 500);
   }
 }
 
@@ -255,7 +260,8 @@ async function handleMyLocalSignup(request, env) {
         : `/my/households?first=1&msg=signup_created_invite_missing#create`;
     } catch (err) {
       rememberOpsEvent({ kind: "local_signup_invite_failed", severity: "warn", path: "/my/local-signup", method: "POST", detail: safeError(err) });
-      location = isUncertainStorageWrite(err) ? "/my/households?first=1&err=db_write_unknown" : `/my/households?first=1&err=${encodeURIComponent("계정은 생성되었지만 초대 참여를 완료하지 못했습니다. 가계부 전환·추가에서 다시 참여해 주세요.")}`;
+      // V22.9.126 FC-15: 문장 대신 안내 표(householdPageMessage)의 코드를 싣는다 — 표에 없는 문장은 일반 오류 문장으로 보였다.
+      location = isUncertainStorageWrite(err) ? "/my/households?first=1&err=db_write_unknown" : "/my/households?first=1&err=signup_invite_join_failed";
     }
   }
   // V22.9.104 L-3: 방금 남긴 동의 기록은 홈 띠 쿠키 ab_cs=1 로 이어진다(기록이 실패하면 적지 않는다).
@@ -320,8 +326,14 @@ async function handleMyBackupLoginSave(request, env) {
   if (accessCode.length < 8) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, first: true, hasBackup: false, returnTo, err: "내 계정 로그인 비밀번호는 8자리 이상으로 입력하세요." }), 400);
   if (accessCode !== accessCode2) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, first: true, hasBackup: false, returnTo, err: "확인 입력이 일치하지 않습니다." }), 400);
   const currentPassword = String(form.get("current_password") || "");
-  const reauthenticated = await verifyCredentialProof(request, env, userId) || (currentPassword && await verifyPasswordReauth(request, env, userId, currentPassword));
-  if (!reauthenticated) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, hasBackup, returnTo, err: "현재 로그인 비밀번호 또는 원래 연결한 카카오 계정으로 먼저 본인 확인을 완료하세요." }), 403);
+  const reauthWhy = {};
+  const reauthenticated = await verifyCredentialProof(request, env, userId) || (currentPassword && await verifyPasswordReauth(request, env, userId, currentPassword, reauthWhy));
+  if (!reauthenticated) {
+    // V22.9.126 FC-15: 시도 제한 막힘(429)·장애(503)는 그 이유를 알린다. 틀린 비밀번호·본인 확인 전은 예전 문장(403) 그대로다.
+    const reauthCode = passwordReauthErrorCodeV229126(reauthWhy.reason, "");
+    if (reauthCode) return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, hasBackup, returnTo, err: backupLoginErrorText(reauthCode) }), reauthCode === "password_reauth_limited" ? 429 : 503, reauthCode === "password_reauth_limited" ? { "retry-after": "900" } : {});
+    return htmlResponse(renderMyBackupLoginHtml({ env, user, loginName, memberCode, hasBackup, returnTo, err: "현재 로그인 비밀번호 또는 원래 연결한 카카오 계정으로 먼저 본인 확인을 완료하세요." }), 403);
+  }
   try {
     await replaceLocalLoginForUser(env, loginName, accessCode, userId, { revokeSessions: true });
   } catch (err) {
@@ -357,6 +369,9 @@ function backupLoginErrorText(code = "") {
     account_reauth_required: "현재 로그인 비밀번호가 맞지 않거나 본인 확인이 아직이에요. 현재 비밀번호를 다시 입력하거나 원래 연결한 카카오 계정으로 본인 확인을 해 주세요.",
     credential_reauth_required: "로그인 이름·비밀번호를 바꾸려면 먼저 본인 확인이 필요해요. 현재 비밀번호를 입력하거나 원래 연결한 카카오 계정으로 확인해 주세요.",
     kakao_link_failed: "카카오 계정을 연결하지 못했어요. 잠시 후 다시 시도해 주세요.",
+    // V22.9.126 FC-15: 비밀번호 재확인이 시도 제한에 막혔거나 제한 기능에 닿지 못했을 때(예전에는 ‘비밀번호가 맞지 않거나’ 로 보였다).
+    password_reauth_limited: "본인 확인 시도가 많아 잠시 막혔어요. 15분쯤 뒤 다시 시도해 주세요.",
+    password_reauth_unavailable: "본인 확인을 지금 하지 못했어요. 잠시 후 다시 시도해 주세요.",
   };
   const key = String(code || "").trim();
   if (!key) return "";
