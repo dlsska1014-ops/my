@@ -300,7 +300,8 @@ async function handleUserNotifications(request, env, url) {
     fetchReservePlans(env, household.id, { strict: true }).catch(() => null),
     loadRefundDeductions(env, { householdId: household.id, start: `${month}-01`, end: nextMonthStart(month) }),
   ]);
-  const model = buildBudgetAlertPolishModel({ month, selectedHousehold: household, rows, budgets, recurring, plans, refundDeductions: refund.entries || [] });
+  // V22.9.126 FC-21: 예산 알림 화면과 같은 참여자 목록(위에서 읽음)을 넘겨, 지출자 자격이 없는 규칙을 같은 기준으로 대기·월말 예상에서 뺀다.
+  const model = buildBudgetAlertPolishModel({ month, selectedHousehold: household, rows, budgets, recurring, plans, refundDeductions: refund.entries || [], members });
   const refundTail = model.budget.refund?.applied ? ` · ${refundDeductionNote(model.budget.refund)}` : refund.failed ? " · 환불 차감 확인 불가" : "";
   const hh = `&household_id=${encodeURIComponent(household.id)}`;
   const mq = encodeURIComponent(month);
@@ -345,6 +346,13 @@ async function handleUserNotifications(request, env, url) {
       body: `예상 ${numberWithCommas(model.pendingRecurringTotal)}원 · 한 번에 반영할 수 있어요.`,
       href: `/reserve-plans?month=${mq}${hh}` });
   }
+  // V22.9.126 FC-21: 지출자 자격이 없어 자동·수동 반영이 건너뛰는 규칙은 위 대기 알림에서 빠지므로 달마다 따로 알린다(대기 목록과 같은 범위).
+  const spenderCheck = safeArray(model.spenderCheckRecurring);
+  if (spenderCheck.length) {
+    notifs.push({ key: `recurring-spender-check:${month}`, level: "info", title: `지출자 확인이 필요한 정기 항목 ${spenderCheck.length}건`,
+      body: `${numberWithCommas(model.spenderCheckTotal)}원 · 자동·수동 반영에서 건너뛰어 반영 대기·월말 예상에서 뺐어요. 지출자를 확인해 주세요.`,
+      href: `/reserve-plans?month=${mq}${hh}` });
+  }
 
   // 4b) 반복 지출 자동감지 (§3.4): 최근 3개월 반복 메모 → 정기지출 후보 추천 (기존 detectRecurringCandidates 재사용)
   const detectStart = `${addMonthsYm(month, -2)}-01`;
@@ -375,7 +383,9 @@ async function handleUserNotifications(request, env, url) {
   return jsonResponse({ ok: true, household_id: household.id, month, count: notifs.length, notifications: notifs,
     // V22.9.79 V76 W-7: 키는 그대로 두고 forecast 를 월말 예상(기록 + 남은 고정·정기 + 남은 날 예상)으로 바꿨다. 내역은 expected_parts.
     // after_pending_assumption 은 한 판 동안 forecast 와 같은 값으로 남긴다(반영 대기를 모르면 null).
-    budget_observation: { status: model.observation.status, observed_spent: model.observedSpent, average: model.avgDaily, forecast: model.forecastExpense, pending_state: model.pendingState, pending_total: model.pendingRecurringTotal, after_pending_assumption: model.afterPendingForecast,
+    // V22.9.126 FC-21: spender_check_count·total 은 대기에서 뺀 지출자 확인 필요 규칙이다(대기와 같은 범위, 대기를 모르면 null).
+    budget_observation: { status: model.observation.status, observed_spent: model.observedSpent, average: model.avgDaily, forecast: model.forecastExpense, pending_state: model.pendingState, pending_total: model.pendingRecurringTotal,
+      spender_check_count: model.pendingRecurringTotal == null ? null : spenderCheck.length, spender_check_total: model.pendingRecurringTotal == null ? null : model.spenderCheckTotal, after_pending_assumption: model.afterPendingForecast,
       expected_parts: model.forecastExpense == null || !model.outlook.expected ? null : { recorded: model.outlook.expected.recorded, fixed_remaining: model.outlook.expected.fixedRemaining, pace: model.outlook.expected.pace, remaining_days: model.outlook.remainingDays, reserve_state: model.reserveState, partial: model.outlook.expected.partial } } });
 }
 
