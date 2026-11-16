@@ -13,6 +13,8 @@
 // 2차(독립 검토 반영): 채팅만 쓰는 방 소유자가 실제로 갈 수 있는 길(1:1 웹 연결 코드 → 내 계정·보안의 첫 비밀번호 → 양도)을 양도 칸이 가리키고
 //  그 길과 카카오톡 인앱·브라우저 길을 끝까지 따라간다(FC-9 6·7). 만료·다른 사람 표·부분 실패 복구(8), 로그인 수단 읽기 실패(9), 표 없이 소유자로
 //  올리는 다른 길이 없음(10), 같은 계정에 세션을 다시 줄 때는 띠 쿠키를 두기(④), 옛 이름 확인의 PostgreSQL 규칙·쪽이 차면 막기(⑤).
+// 3차(독립 검토 2차 반영): 채팅 소유자 칸의 결과 한 문장과 5분 표의 서버 만료(FC-9 6), 비밀번호+카카오 칸의 인앱(7), 로그인 수단 읽기 실패
+//  화면(9), 삭제 칸의 같은 길과 다른 상태의 바이트 고정(11), 웹 연결 코드의 돌아갈 곳(12), 시도 제한 기능 장애 문구(FC-8).
 // 실제 요청(app.fetch)과 픽스처 DB 로 본다. 카카오 서버는 가로채 흉내 낸다(네트워크 없음). 장면마다 따로 잡아 하나가 실패해도 나머지를 본다.
 //
 // ── 실행 ──
@@ -21,7 +23,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { app, BASE, counter, failure, fixture, intercept, withClock } from "./lib-audit-v22934.mjs";
 import { PASSWORD_KDF_ITERATIONS, newPasswordSalt, pbkdf2PasswordHash } from "../src/modules/auth/crypto-admin-session.js";
-import { makeHouseholdDeleteReauthToken } from "../src/modules/auth/identity-reauth.js";
+import { makeHouseholdDeleteReauthToken, signedPurposeToken } from "../src/modules/auth/identity-reauth.js";
 
 const t = counter("PASS: V22.9.126 auth — owner transfer re-auth, Kakao callback limit, login fixes");
 const ok = (value, message) => t.ok(!!value, message);
@@ -157,6 +159,12 @@ async function openFromRoom(fx, room) {
   }
   return jar;
 }
+// (3차) 채팅만 쓰는 소유자 칸(양도·삭제)의 결과 한 문장, 로그인 수단을 읽지 못했을 때의 한 줄, 삭제 칸 조각.
+const CONSEQUENCE = "저장하면 다른 기기·브라우저는 로그아웃되고, 그 뒤 로그인돼 있지 않은 브라우저에서 단톡방의 웹 가계부 단추를 누르면 홈 대신 로그인 이름과 비밀번호를 먼저 물어요.";
+const RELOAD_LINE = "로그인 수단을 지금 확인하지 못했어요. 잠시 후 이 화면을 새로고침해 주세요.";
+const panelOf = (html) => (html.match(/<(form|div)[^>]*class="dangerZone"[\s\S]*?<\/\1>/) || [""])[0];
+const sha = (text) => createHash("sha256").update(text).digest("hex");
+const identitiesDown = () => intercept(async ({ url, method }) => (method === "GET" && url.pathname === "/rest/v1/accountbook_user_identities" ? failure(503) : null));
 
 // ═════════════════════════════════════════════════════════════════════════════════════
 // 0. 소스: 고친 자리
@@ -315,10 +323,14 @@ await section("FC-9 6 채팅만 쓰는 방 소유자의 길", () => withClock("2
   const jar = await openFromRoom(fx, room);
   const cookie = () => jarStr(jar);
   ok(sessionUserOf(jar) === room.ownerId && !jar.has("ab_credential_reauth"), "FC-9 6 방 링크 단추(인앱)로 연 세션은 그 소유자이고, 비밀번호를 정할 본인 확인 표는 없다");
+  // (3차) 같은 소유자가 다른 브라우저에서도 방 링크로 열어 둔 세션 — 첫 비밀번호 저장 뒤 로그아웃되는지 본다(양도 칸의 결과 문장).
+  const otherBrowser = await openFromRoom(fx, room);
+  ok(sessionUserOf(otherBrowser) === room.ownerId, "FC-9 6 준비: 다른 브라우저에도 같은 소유자 세션");
   const backupPath = `/my/backup-login?return_to=${encodeURIComponent(room.membersPath)}`;
   const claimHref = `/my/kakao-claim?auto=0&return_to=${encodeURIComponent(backupPath)}#kakao-claim-start`;
   const view = await http(fx, "GET", room.membersPath, { cookie: cookie(), ua: INAPP });
   ok(view.status === 200 && transferForms(view.html) === 0 && view.html.includes(`<a class="reauthButton" href="${claimHref.replace(/&/g, "&amp;")}">웹 연결 코드 넣기</a>`) && view.html.includes("이어서 열리는 ‘내 계정·보안’에서 5분 안에 로그인 이름과 비밀번호를 저장하면 이 화면으로 돌아와 그 비밀번호로 양도할 수 있어요."), "FC-9 6 양도 칸: 웹 연결 코드 길 안내와 ‘웹 연결 코드 넣기’ 단추");
+  ok(view.html.includes(`그 비밀번호로 양도할 수 있어요. ${CONSEQUENCE}</p>`), "FC-9 6 (3차) 양도 칸이 저장의 결과(다른 기기·브라우저 로그아웃, 로그인돼 있지 않은 브라우저의 방 단추는 로그인 이름·비밀번호)를 한 문장으로 알린다");
   const sessionOnly = await transfer(fx, { cookie: cookie(), target: room.memberId, household: room.hid, month: room.month, ua: INAPP });
   ok(sessionOnly.location.includes("err=owner_transfer_reauth_required") && roleOf(fx, room.ownerId, room.hid) === "owner", "FC-9 6 방 링크 세션만으로는 양도되지 않는다");
   const leaveForm = { household_id: room.hid, month: room.month, understand_history: "1" };
@@ -343,15 +355,20 @@ await section("FC-9 6 채팅만 쓰는 방 소유자의 길", () => withClock("2
   const claim = await http(fx, "POST", "/my/kakao-claim", { cookie: cookie(), ua: INAPP, form: { kakao_claim_code: code, return_to: backupPath } });
   applySet(jar, claim.cookies);
   ok(claim.status === 303 && claim.location === backupPath && sessionUserOf(jar) === room.ownerId && jar.has("ab_credential_reauth"), `FC-9 6 코드를 넣으면 같은 계정 세션과 5분 본인 확인 표를 받고 내 계정·보안으로 간다 (${claim.location})`);
-  const expiredJar = new Map(jar);
-  expiredJar.delete("ab_credential_reauth");
-  const late = await http(fx, "POST", "/my/backup-login", { cookie: jarStr(expiredJar), ua: INAPP, form: saveForm });
-  ok(late.status === 403, "FC-9 6 표 쿠키가 없으면(받은 뒤 5분이 지나 브라우저가 버림) 첫 비밀번호는 다시 막힌다 — 새 코드로 다시");
+  // (3차, 독립 검토 2차 P3) 서버의 만료를 본다: 같은 표 쿠키를 그대로 싣고 시계만 6분 앞으로(withClock 은 자연어 날짜만 바꾸므로 Date.now 를 옮긴다).
+  const realNow = Date.now;
+  let late;
+  Date.now = () => realNow() + 6 * 60 * 1000;
+  try { late = await http(fx, "POST", "/my/backup-login", { cookie: cookie(), ua: INAPP, form: saveForm }); }
+  finally { Date.now = realNow; }
+  ok(jar.has("ab_credential_reauth") && late.status === 403 && !fx.db.accountbook_user_identities.some((row) => String(row.user_id) === room.ownerId), `FC-9 6 받은 지 6분 된 표(쿠키는 그대로)로는 서버가 첫 비밀번호를 거절한다 — 새 코드로 다시 (${late.status})`);
   const security = await http(fx, "GET", claim.location, { cookie: cookie(), ua: INAPP });
   ok(security.status === 200 && security.html.includes("본인 확인을 마쳤어요. 5분 안에 아래 2번에서 로그인 이름과 비밀번호를 정해 저장하세요. 현재 비밀번호 칸은 비워 두세요."), "FC-9 6 내 계정·보안 1번 칸이 ‘본인 확인을 마쳤어요’ 라고 말한다");
   const saved = await http(fx, "POST", "/my/backup-login", { cookie: cookie(), ua: INAPP, form: saveForm });
   applySet(jar, saved.cookies);
   eq(saved.location, `${room.membersPath}&msg=backup_login_saved`, "FC-9 6 첫 비밀번호를 저장하면 참여자 화면으로 돌아온다");
+  const otherAfter = await http(fx, "GET", room.membersPath, { cookie: jarStr(otherBrowser), ua: INAPP });
+  ok(otherAfter.status === 303 && !otherAfter.html.includes("참여자·초대 관리"), `FC-9 6 (3차) 저장하면 다른 브라우저의 세션은 끊긴다(로그아웃) (${otherAfter.status} ${otherAfter.location.slice(0, 60)})`);
   const back = await http(fx, "GET", room.membersPath, { cookie: cookie(), ua: INAPP });
   ok(transferForms(back.html) === 1 && back.html.includes('<label>내 계정 로그인 비밀번호<input name="access_code" type="password" autocomplete="current-password" required/></label>'), "FC-9 6 이제 양도 칸에 비밀번호 칸과 양도 단추가 있다");
   const done = await transfer(fx, { cookie: cookie(), target: room.memberId, household: room.hid, month: room.month, password: ROOM_PASS, ua: INAPP });
@@ -361,7 +378,9 @@ await section("FC-9 6 채팅만 쓰는 방 소유자의 길", () => withClock("2
   const roomLink = `/my?botUserKey=${room.owner}&botGroupKey=${room.room}`;
   const sameBrowser = await http(fx, "GET", roomLink, { cookie: cookie(), ua: INAPP });
   const freshBrowser = await http(fx, "GET", roomLink, { ua: INAPP });
+  const loggedOutBrowser = await http(fx, "GET", roomLink, { cookie: jarStr(otherBrowser), ua: INAPP });
   ok(sameBrowser.location && !sameBrowser.location.includes("login=1") && freshBrowser.location.startsWith("/my?auto=0&login=1") && freshBrowser.location.endsWith("#login-local"), `FC-9 6 그 뒤 방 링크: 같은 브라우저는 홈, 세션 없는 브라우저는 로그인 이름 화면 (${sameBrowser.location} / ${freshBrowser.location})`);
+  eq(loggedOutBrowser.location, freshBrowser.location, "FC-9 6 (3차) 로그아웃된 다른 브라우저의 방 단추도 로그인 이름 화면");
   const leaveAfter = await http(fx, "POST", "/my/household/leave", { cookie: cookie(), ua: INAPP, form: leaveForm });
   ok(leaveAfter.location.includes("msg=household_left") && !roleOf(fx, room.ownerId, room.hid) && roleOf(fx, room.memberId, room.hid) === "owner", `FC-9 6 양도한 뒤에는 그 가계부에서 나갈 수 있다 (${leaveAfter.location})`);
 })));
@@ -398,6 +417,16 @@ await section("FC-9 7 카카오 로그인 소유자의 인앱 안내와 브라�
   const done = await transfer(fx, { cookie: `${jarStr(browser)}; ${own.ticket}`, target: room.memberId, household: room.hid, month: room.month });
   ok(done.location.includes("msg=owner_transferred") && roleOf(fx, room.ownerId, room.hid) === "admin" && roleOf(fx, room.memberId, room.hid) === "owner", "FC-9 7 그 표로 양도된다");
 })));
+// (3차, 독립 검토 2차 P3) 비밀번호와 카카오가 모두 있는 칸(①)도 카카오톡 인앱에서는 ‘또는 카카오’ 단추가 403 으로 끝났다 → 인앱에서는 그 단추를 뺀다.
+await section("FC-9 7 비밀번호+카카오 소유자의 인앱", () => fixture(async (fx) => {
+  Object.assign(fx.env, KAKAO_ENV);
+  await givePassword(fx, "user-bin", "v126bin");
+  const inApp = await http(fx, "GET", MEMBERS, { cookie: fx.cookie, ua: INAPP });
+  const pc = await http(fx, "GET", MEMBERS, { cookie: fx.cookie });
+  ok(transferForms(inApp.html) === 1 && inApp.html.includes('<label>내 계정 로그인 비밀번호<input name="access_code" type="password"') && !inApp.html.includes(">카카오 계정으로 본인 확인</a>") && !inApp.html.includes('<div class="orText">또는</div>'), "FC-9 7 카카오톡 인앱의 ① 칸: 비밀번호 칸만(누르면 403 인 ‘또는 카카오’ 단추는 뺀다)");
+  ok(transferForms(pc.html) === 1 && pc.html.includes('<div class="orText">또는</div><a class="reauthButton"') && pc.html.includes(">카카오 계정으로 본인 확인</a>"), "FC-9 7 보통 브라우저의 ① 칸은 예전처럼 ‘또는 카카오’ 단추가 있다");
+  ok((await transfer(fx, { password: PASSWORD, ua: INAPP })).location.includes("msg=owner_transferred"), "FC-9 7 인앱에서도 비밀번호로 양도된다");
+}));
 
 // ═════════════════════════════════════════════════════════════════════════════════════
 // FC-9 8. (2차, 검사 빈틈) 만료된 양도용 표, 같은 가계부의 다른 사람에게 나온 표, 부분 실패 뒤 카카오 표로 다시 눌러 복구
@@ -448,6 +477,31 @@ await section("FC-9 9 로그인 수단 읽기 실패", () => fixture(async (fx) 
   ok(withoutPassword.location.includes("err=owner_transfer_reauth_required"), "FC-9 9 비밀번호 없이 보낸 양도는 예전처럼 ‘본인 확인을 완료하세요’");
   ok((await transfer(fx, { password: PASSWORD })).location.includes("msg=owner_transferred"), "FC-9 9 읽기가 돌아오면 같은 비밀번호로 양도된다");
 }));
+// (3차, 독립 검토 2차 P3) 읽기 실패 때 화면이 비밀번호가 있는 소유자에게 ②(카카오) 또는 ④(웹 연결 코드) 길을 그렸다 → 새로고침 한 줄만, 양도 단추 없음.
+await section("FC-9 9 로그인 수단 읽기 실패 — 화면", () => withClock("2026-11-16", () => fixture(async (fx) => {
+  Object.assign(fx.env, KAKAO_ENV);
+  await givePassword(fx, "user-bin", "v126bin");
+  const room = await roomHousehold(fx, "lookup-fail");
+  await givePassword(fx, room.ownerId, "v126lookup");
+  const roomCookie = await fx.cookieFor(room.ownerId);
+  const roomDelete = `/my/households?month=${room.month}&household_id=${encodeURIComponent(room.hid)}&manage=${encodeURIComponent(room.hid)}`;
+  const restore = identitiesDown();
+  let bin, chat, binPost, chatPost, chatDelete;
+  try {
+    bin = await http(fx, "GET", MEMBERS, { cookie: fx.cookie });
+    chat = await http(fx, "GET", room.membersPath, { cookie: roomCookie, ua: INAPP });
+    binPost = await transfer(fx, { password: PASSWORD });
+    chatPost = await transfer(fx, { cookie: roomCookie, target: room.memberId, household: room.hid, month: room.month, password: PASSWORD, ua: INAPP });
+    chatDelete = panelOf((await http(fx, "GET", roomDelete, { cookie: roomCookie, ua: INAPP })).html);
+  } finally { restore(); }
+  const onlyReload = (html) => html.includes(`<div class="transferBox"><p class="muted">${RELOAD_LINE}</p></div>`) && transferForms(html) === 0 && !html.includes("웹 연결 코드 넣기") && !html.includes(">카카오 계정으로 본인 확인</a>");
+  ok(onlyReload(bin.html), "FC-9 9 비밀번호(+카카오) 소유자 + 로그인 수단 읽기 실패: 새로고침 한 줄만(예전 ② 카카오 안내 아님), 양도 단추 없음");
+  ok(onlyReload(chat.html), "FC-9 9 비밀번호가 있는 방 소유자 + 읽기 실패: 새로고침 한 줄만(예전 ④ 웹 연결 코드 안내 아님)");
+  ok(binPost.location.includes("err=password_reauth_unavailable") && chatPost.location.includes("err=password_reauth_unavailable") && rolesNow(fx) === "user-bin:owner,user-wifi:member" && roleOf(fx, room.ownerId, room.hid) === "owner", "FC-9 9 그 상태에서 맞는 비밀번호를 보내도 거절(확인 못 함), 역할 그대로");
+  eq(chatDelete, `<div class="dangerZone"><h3>가계부 영구 삭제</h3><p>${RELOAD_LINE}</p></div>`, "FC-9 9 같은 읽기 실패의 삭제 칸(채팅 계정 갈래)도 새 웹 연결 코드 길 대신 새로고침 한 줄");
+  const recovered = await http(fx, "GET", room.membersPath, { cookie: roomCookie, ua: INAPP });
+  ok(transferForms(recovered.html) === 1 && !recovered.html.includes(RELOAD_LINE), "FC-9 9 읽기가 돌아오면 비밀번호 칸이 다시 보인다");
+})));
 
 // ═════════════════════════════════════════════════════════════════════════════════════
 // FC-9 10. (2차, 확인이 필요한 가정 1) 표 없이 소유자로 올리는 다른 길: 권한 저장(/admin/member/update)·카카오 채팅. 고치기 전 번들에서도 같아야 한다.
@@ -476,6 +530,90 @@ await section("FC-9 10 다른 길로 소유자 올리기", () => withClock("2026
   }
   ok(replies.every((text) => String(text).includes('"version":"2.0"')), "FC-9 10 채팅 12문장은 모두 보통 답을 받았다(요청이 앞단에서 버려진 것이 아니다)");
   ok(roleOf(fx, room.ownerId, room.hid) === "owner" && roleOf(fx, room.memberId, room.hid) === "member" && fx.db.household_members.filter((row) => row.household_id === room.hid && row.role === "owner").length === 1, "FC-9 10 방 구성원이 카카오 채팅으로 권한·소유자 말을 보내도 역할 그대로(소유자 한 명)");
+})));
+
+// ═════════════════════════════════════════════════════════════════════════════════════
+// FC-9 11. (3차, 독립 검토 2차 P3) 삭제 칸의 채팅만 쓰는 소유자 안내는 막다른 길(내 계정·보안 열기)이었다 → 양도 칸과 같은 길로, 삭제 칸으로
+//          돌아와 그 비밀번호로 삭제. 다른 삭제 칸 상태는 고치기 전(main) 번들과 같은 바이트여야 한다.
+// ═════════════════════════════════════════════════════════════════════════════════════
+await section("FC-9 11 삭제 칸 — 채팅만 쓰는 소유자의 길", () => withClock("2026-11-16", () => fixture(async (fx) => {
+  Object.assign(fx.env, KAKAO_ENV);
+  const room = await roomHousehold(fx, "chat-delete");
+  const jar = await openFromRoom(fx, room);
+  const cookie = () => jarStr(jar);
+  const deleteBack = `/my/households?month=${room.month}&household_id=${encodeURIComponent(room.hid)}&manage=${encodeURIComponent(room.hid)}#manage`;
+  const backupPath = `/my/backup-login?return_to=${encodeURIComponent(deleteBack)}`;
+  const claimHref = `/my/kakao-claim?auto=0&return_to=${encodeURIComponent(backupPath)}#kakao-claim-start`;
+  const before = panelOf((await http(fx, "GET", deleteBack.replace(/#.*$/, ""), { cookie: cookie(), ua: INAPP })).html);
+  ok(before.includes("<p>가계부를 영구 삭제하려면 내 계정 로그인 비밀번호가 필요해요. 카카오 1:1 채팅에서 ‘웹 가계부 열기’를 보내 웹 연결 코드를 받은 뒤, 아래 ‘웹 연결 코드 넣기’에서 코드를 붙여 넣으세요. 이어서 열리는 ‘내 계정·보안’에서 5분 안에 로그인 이름과 비밀번호를 저장하면 이 화면으로 돌아와 그 비밀번호로 삭제할 수 있어요.") && before.includes(`${CONSEQUENCE}</p>`), "FC-9 11 삭제 칸: 양도 칸과 같은 웹 연결 코드 길과 결과 한 문장");
+  ok(before.includes(`<a class="reauthButton" href="${claimHref.replace(/&/g, "&amp;")}">웹 연결 코드 넣기</a>`) && !before.includes("내 계정·보안 열기") && !before.includes('action="/my/household/delete"'), "FC-9 11 삭제 칸 단추 = 웹 연결 코드 칸(돌아갈 곳 = 내 계정·보안 → 이 삭제 칸), 삭제 폼은 아직 없다");
+  const name = fx.db.households.find((row) => row.id === room.hid)?.name || "";
+  const noProof = await http(fx, "POST", "/my/household/delete", { cookie: cookie(), ua: INAPP, form: { household_id: room.hid, month: room.month, confirm_name: name, understand_members: "1" } });
+  ok(name && noProof.location.includes("err=account_reauth_required") && fx.db.households.some((row) => row.id === room.hid), `FC-9 11 방 링크 세션만으로는 삭제되지 않는다(이름·확인 칸이 맞아도 본인 확인 필요) (${noProof.location.slice(-60)})`);
+  const claimPage = await http(fx, "GET", claimHref.replace(/#.*$/, ""), { cookie: cookie(), ua: INAPP });
+  const claimForm = (claimPage.html.match(/<form method="post" action="\/my\/kakao-claim">[\s\S]*?<\/form>/) || [""])[0];
+  ok(claimPage.html.includes('id="kakao-claim-start" open') && claimForm.includes(`name="return_to" value="${backupPath.replace(/&/g, "&amp;")}"`), "FC-9 11 코드 칸이 펼쳐 열리고 코드 뒤 갈 곳(내 계정·보안 → 삭제 칸)을 싣는다");
+  const code = claimCodeOf(await say(fx, "웹 가계부 열기", { user: room.owner }));
+  const claim = await http(fx, "POST", "/my/kakao-claim", { cookie: cookie(), ua: INAPP, form: { kakao_claim_code: code, return_to: backupPath } });
+  applySet(jar, claim.cookies);
+  ok(claim.location === backupPath && sessionUserOf(jar) === room.ownerId && jar.has("ab_credential_reauth"), `FC-9 11 코드를 넣으면 같은 계정 + 5분 표로 내 계정·보안으로 간다 (${claim.location})`);
+  const DELETE_PASS = "v126-room-delete-pass";
+  const saved = await http(fx, "POST", "/my/backup-login", { cookie: cookie(), ua: INAPP, form: { login_name: "v126roomdelete", access_code: DELETE_PASS, access_code_confirm: DELETE_PASS, current_password: "", return_to: deleteBack } });
+  applySet(jar, saved.cookies);
+  eq(saved.location, `/my/households?month=${room.month}&household_id=${encodeURIComponent(room.hid)}&manage=${encodeURIComponent(room.hid)}&msg=backup_login_saved#manage`, "FC-9 11 첫 비밀번호를 저장하면 그 삭제 칸(#manage)으로 돌아온다");
+  const after = panelOf((await http(fx, "GET", saved.location.replace(/#.*$/, ""), { cookie: cookie(), ua: INAPP })).html);
+  ok(after.includes('action="/my/household/delete"') && after.includes('<label>내 계정 로그인 비밀번호<input name="access_code" type="password" autocomplete="current-password" required/></label>'), "FC-9 11 이제 삭제 칸에 비밀번호 칸과 삭제 폼이 있다");
+  const done = await http(fx, "POST", "/my/household/delete", { cookie: cookie(), ua: INAPP, form: { household_id: room.hid, month: room.month, confirm_name: name, understand_members: "1", access_code: DELETE_PASS } });
+  ok(done.location.includes("msg=household_deleted") && !fx.db.households.some((row) => row.id === room.hid), `FC-9 11 그 비밀번호로 방 가계부가 삭제된다(카카오톡 안에서도) (${done.location})`);
+})));
+await section("FC-9 11 삭제 칸 — 다른 상태 그대로", () => fixture(async (fx) => {
+  Object.assign(fx.env, KAKAO_ENV);
+  // 고치기 전(main) 번들로 같은 픽스처에서 그린 삭제 칸의 sha256. 채팅만 쓰는 소유자 갈래 말고는 한 바이트도 바뀌면 안 된다.
+  const PINNED = {
+    kakaoOnly: "f70210ce214c2740437992ab7afb6012e9179dad57012dc7dd086ba53b54a6ee",
+    kakaoVerified: "cac142ec8452dd87930d223bf7d43b73c6188de4fe9e85643ad60f60f99ff89a",
+    password: "f98e8caa5b84992c0cebb5a5231172124ba181a76229134d08aaf1cc2d79daa9",
+    leave: "c0f5a423fcaabfe39ac5649699299555974b4e02af7f8700545e809c0b8e6431",
+  };
+  const panelAt = async (cookie, ua = PC) => panelOf((await http(fx, "GET", DELETE_BACK.replace(/#.*$/, ""), { cookie, ua })).html);
+  const kakaoOnly = [await panelAt(fx.cookie), await panelAt(fx.cookie, INAPP)];
+  const restore = identitiesDown();
+  try { kakaoOnly.push(await panelAt(fx.cookie)); } finally { restore(); }
+  const ticket = await makeHouseholdDeleteReauthToken(fx.env, "user-bin", HOME);
+  const verified = await panelAt(`${fx.cookie}; ab_household_delete_reauth=${ticket}`);
+  await givePassword(fx, "user-bin", "v126bin");
+  const password = [await panelAt(fx.cookie), await panelAt(fx.cookie, INAPP)];
+  ok(kakaoOnly.every((panel) => sha(panel) === PINNED.kakaoOnly), `FC-9 11 카카오만 있는 소유자의 삭제 칸(PC·인앱·로그인 수단 읽기 실패)은 고치기 전과 같은 바이트 (${kakaoOnly.map((p) => sha(p).slice(0, 8)).join(",")})`);
+  ok(sha(verified) === PINNED.kakaoVerified, `FC-9 11 카카오 확인을 마친 삭제 칸은 고치기 전과 같은 바이트 (${sha(verified).slice(0, 8)})`);
+  ok(password.every((panel) => sha(panel) === PINNED.password), `FC-9 11 비밀번호(+카카오) 소유자의 삭제 칸(PC·인앱)은 고치기 전과 같은 바이트 (${password.map((p) => sha(p).slice(0, 8)).join(",")})`);
+  // 구성원·관리자: 같은 자리의 위험 칸은 ‘가계부에서 나가기’ 이고 삭제 폼은 없다(고치기 전과 같은 바이트).
+  const wifi = await fx.cookieFor("user-wifi");
+  const memberPage = (await http(fx, "GET", DELETE_BACK.replace(/#.*$/, ""), { cookie: wifi })).html;
+  fx.db.household_members.find((row) => row.household_id === HOME && row.user_id === "user-wifi").role = "admin";
+  const adminPage = (await http(fx, "GET", DELETE_BACK.replace(/#.*$/, ""), { cookie: wifi })).html;
+  ok([memberPage, adminPage].every((html) => sha(panelOf(html)) === PINNED.leave && !html.includes('action="/my/household/delete"')), "FC-9 11 구성원·관리자에게는 예전처럼 나가기 칸만 있고 삭제 폼은 없다(같은 바이트)");
+}));
+
+// ═════════════════════════════════════════════════════════════════════════════════════
+// FC-9 12. (3차, 확인이 필요한 가정) 웹 연결 코드의 돌아갈 곳은 사이트 안에만 머문다 — 새 단추가 만드는 겹친 주소 포함
+// ═════════════════════════════════════════════════════════════════════════════════════
+await section("FC-9 12 웹 연결 코드의 돌아갈 곳", () => withClock("2026-11-16", () => fixture(async (fx) => {
+  Object.assign(fx.env, KAKAO_ENV);
+  const room = await roomHousehold(fx, "return-to");
+  const claimWith = async (returnTo) => {
+    const code = claimCodeOf(await say(fx, "웹 가계부 열기", { user: room.owner }));
+    return http(fx, "POST", "/my/kakao-claim", { ua: INAPP, form: { kakao_claim_code: code, return_to: returnTo } });
+  };
+  const outside = [];
+  for (const returnTo of ["https://evil.example/", "//evil.example", "/\\evil.example"]) outside.push((await claimWith(returnTo)).location);
+  ok(outside.every((location) => location === "/my"), `FC-9 12 바깥 주소(https://·//·/\\)는 /my 로 (${outside.join(" ; ")})`);
+  const nested = `/my/backup-login?return_to=${encodeURIComponent(room.membersPath)}`;
+  eq((await claimWith(nested)).location, nested, "FC-9 12 양도·삭제 칸 단추가 만드는 겹친 주소는 그대로 내 계정·보안으로");
+  const nestedOutside = `/my/backup-login?return_to=${encodeURIComponent("https://evil.example/")}`;
+  const viaBackup = await claimWith(nestedOutside);
+  const jar = applySet(new Map(), viaBackup.cookies);
+  const saved = await http(fx, "POST", "/my/backup-login", { cookie: jarStr(jar), ua: INAPP, form: { login_name: "v126returnto", access_code: "v126-return-pass", access_code_confirm: "v126-return-pass", current_password: "", return_to: "https://evil.example/" } });
+  ok(viaBackup.location === nestedOutside && saved.location === "/my/households?msg=backup_login_saved", `FC-9 12 겹친 주소 안의 바깥 주소는 내 계정·보안 저장 뒤 /my/households 로 (${saved.location})`);
 })));
 
 // ═════════════════════════════════════════════════════════════════════════════════════
@@ -766,6 +904,37 @@ await section("FC-8 콜백 한도", () => fixture(async (fx) => {
     const autoLimits = limits.slice(before);
     ok(autoLimits.length === 1 && autoLimits[0] === 20, `FC-8 자동 로그인 콜백의 한도는 20 그대로 (${autoLimits.join(",")})`);
   } finally { restore(); }
+}));
+// (3차, 독립 검토 2차 P3) 시도 제한 기능 장애(RPC 503)도 ‘요청이 많아 … 15분쯤’ 으로 보였다 → 장애는 ‘잠시 후 다시’, 실제 막힘(429)은 ‘15분쯤’ 그대로.
+await section("FC-8 제한 기능 장애", () => fixture(async (fx) => {
+  Object.assign(fx.env, KAKAO_ENV);
+  const limiter = (mode) => intercept(async ({ url }) => (url.pathname === "/rest/v1/rpc/accountbook_auth_attempt"
+    ? (mode === "down" ? failure(503) : new Response(JSON.stringify([{ allowed: false, attempts: 51 }]), { headers: { "content-type": "application/json" } }))
+    : null));
+  const seen = {};
+  const consoleError = console.error;
+  console.error = (...args) => { if (!String(args[0] || "").includes('"event":')) consoleError(...args); };
+  try {
+    for (const mode of ["down", "limited"]) {
+      const start = await http(fx, "GET", "/auth/kakao/start");
+      const jar = applySet(new Map(), start.cookies);
+      const state = decodeURIComponent(jar.get("kakao_oauth_state") || "");
+      let restore = limiter(mode);
+      try { seen[`login-${mode}`] = await http(fx, "GET", `/auth/kakao/callback?code=c-${mode}&state=${encodeURIComponent(state)}`, { cookie: jarStr(jar) }); }
+      finally { restore(); }
+      // 계정 잇기 흐름의 서명된 상태(실제 시작 화면은 잇기 제안이 있어야 열리므로 상태만 같은 서명으로 만든다). 제한 확인은 제안 확인보다 앞이다.
+      const linkState = await signedPurposeToken(fx.env, "kakao-oauth", { nonce: `n-${mode}`, user_id: "user-bin", mode: "account-link", household_id: "", return_to: "/my", offer: "user-wifi" }, 600);
+      restore = limiter(mode);
+      try { seen[`link-${mode}`] = await http(fx, "GET", `/auth/kakao/callback?code=l-${mode}&state=${encodeURIComponent(linkState)}`, { cookie: `${fx.cookie}; kakao_oauth_state=${encodeURIComponent(linkState)}; kakao_oauth_link_user=user-bin` }); }
+      finally { restore(); }
+    }
+  } finally { console.error = consoleError; }
+  const down = seen["login-down"];
+  const limited = seen["login-limited"];
+  ok(down.status === 503 && down.html.includes("카카오 로그인을 지금 확인하지 못했습니다. 잠시 후 다시 시도하거나 아래 다른 방법으로 접속해주세요.") && !down.html.includes("15분쯤") && !down.html.includes("요청이 잠시 많아"), "FC-8 제한 기능 장애(503): ‘잠시 후 다시’(15분·‘요청이 많아’ 말 없음)");
+  ok(limited.status === 429 && limited.html.includes("카카오 로그인 요청이 잠시 많아 처리하지 못했습니다. 15분쯤 뒤 다시 시도하거나") && !limited.html.includes("지금 확인하지 못했습니다"), "FC-8 실제 막힘(429)은 ‘15분쯤’ 그대로");
+  ok(seen["link-down"].location === "/my/account-link?err=kakao_unavailable" && seen["link-limited"].location === "/my/account-link?err=busy", `FC-8 계정 잇기: 장애는 kakao_unavailable(‘잠시 후 다시’), 막힘은 busy(‘15분쯤’) (${seen["link-down"].location} / ${seen["link-limited"].location})`);
+  ok(read("src/modules/auth/kakao-account-link.js").includes('kakao_unavailable: "카카오 확인을 지금 쓸 수 없어요. 잠시 후 다시 시도해 주세요."'), "FC-8 계정 잇기 화면의 kakao_unavailable 문장은 ‘잠시 후 다시’(있던 문장)");
 }));
 
 const checks = t.done();

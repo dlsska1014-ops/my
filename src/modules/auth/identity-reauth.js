@@ -158,7 +158,7 @@ async function hasBackupLoginIdentity(env, user = {}, detail = null) {
   }
 }
 
-async function hasKakaoLoginIdentity(env, user = {}) {
+async function hasKakaoLoginIdentity(env, user = {}, detail = null) {
   const uid = String(user?.id || "").trim();
   if (!uid) return false;
   try {
@@ -168,6 +168,8 @@ async function hasKakaoLoginIdentity(env, user = {}) {
     return Object.entries(safeObject(links)).some(([key, value]) => String(key || "").startsWith("kakao_login:") && String(safeObject(value).user_id || "") === uid);
   } catch (err) {
     rememberOpsEvent({ kind: "kakao_identity_lookup_failed", severity: "warn", path: "", method: "", detail: safeError(err) });
+    // V22.9.126 FC-9 3차: 양도·삭제 칸이 ‘읽지 못함’ 을 ‘카카오 로그인 없음’ 으로 그리지 않도록 표시만 남긴다(돌려주는 값은 예전 그대로).
+    if (detail && typeof detail === "object") detail.unavailable = true;
     return String(user?.kakao_user_key || "").startsWith("kakao_login:");
   }
 }

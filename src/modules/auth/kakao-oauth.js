@@ -213,6 +213,8 @@ function kakaoCallbackErrorMessage(stage = "", traceId = "") {
     // V22.9.91: 같은 곳(IP)에서 카카오 로그인이 짧은 시간에 많으면 잠시 막는다. 예전에는 ‘확인 시간이 지났습니다’로 보여 이유가 달랐다.
     // V22.9.126 FC-8: 막히면 15분쯤 풀리지 않는다(운영 함수의 막힘 시간). 예전 ‘1~2분’ 은 실제와 달랐다.
     busy: "카카오 로그인 요청이 잠시 많아 처리하지 못했습니다. 15분쯤 뒤 다시 시도하거나 아래 다른 방법으로 접속해주세요.",
+    // V22.9.126 FC-8 3차: 시도 제한 기능 자체를 확인하지 못했을 때(장애, 503)는 막힘이 아니라 곧 풀릴 수 있어 15분을 말하지 않는다.
+    busy_unavailable: "카카오 로그인을 지금 확인하지 못했습니다. 잠시 후 다시 시도하거나 아래 다른 방법으로 접속해주세요.",
   };
   return messages[String(stage || "")] || `카카오 로그인을 완료하지 못했습니다. 기존 기록은 변경되지 않았습니다.${suffix}`;
 }
@@ -236,7 +238,7 @@ async function handleKakaoLoginCallback(request, env, url) {
   const errorResponse = (stage, status = 500) => reauthRequested
     ? redirectResponseWithCookies(addQueryToUrl(reauthReturnTo, { err: stage === "cancelled" ? "kakao_reauth_cancelled" : "kakao_reauth_failed" }), clearOauthCookies)
     : htmlResponseWithCookies(
-      callbackErrorHtml(kakaoCallbackErrorMessage(stage, ["cancelled", "state", "config", "busy"].includes(stage) ? "" : traceId)),
+      callbackErrorHtml(kakaoCallbackErrorMessage(stage, ["cancelled", "state", "config", "busy", "busy_unavailable"].includes(stage) ? "" : traceId)),
       status,
       clearOauthCookies
     );
@@ -304,8 +306,9 @@ async function handleKakaoLoginCallback(request, env, url) {
     const callbackAttempt = await recordAuthAttempt(env, request, autoMode ? "/auth/kakao/callback#auto" : "/auth/kakao/callback", false, {limit: autoMode ? 20 : 50});
     if (!callbackAttempt.allowed) {
       if (autoMode) return autoFallback();
-      if (accountLinkMode) return accountLinkError("busy");
-      return errorResponse("busy", callbackAttempt.unavailable ? 503 : 429);
+      // V22.9.126 FC-8 3차: 장애(unavailable)는 ‘요청이 많아 15분쯤’ 이 아니라 ‘잠시 후 다시’ 로 알린다(계정 잇기는 있던 kakao_unavailable 문구).
+      if (accountLinkMode) return accountLinkError(callbackAttempt.unavailable ? "kakao_unavailable" : "busy");
+      return callbackAttempt.unavailable ? errorResponse("busy_unavailable", 503) : errorResponse("busy", 429);
     }
     // V22.9.126 FC-9: 가계부 쿠키가 있는 본인 확인은 삭제(household-delete)·양도(owner-transfer) 두 용도다. 용도는 서명된 상태가 정한다.
     const householdReauthModes = ["household-delete", "owner-transfer"];
