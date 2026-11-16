@@ -5,6 +5,7 @@ import {
 } from "../runtime/leases.js";
 import { htmlResponse, redirectResponse } from "../runtime/http.js";
 import { randomEntityId, verifyAdminSession } from "../auth/crypto-admin-session.js";
+import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { fetchCustomCategories } from "./categories-keywords.js";
 import { fetchPaymentAssets } from "./payment-assets.js";
 import {
@@ -151,7 +152,8 @@ async function addReservePlan(env, householdId = "", data = {}) {
   const hid = String(householdId || "").trim();
   const name = String(data.name || "").trim().slice(0, 80);
   const amount = Math.max(0, Math.round(Number(data.amount || 0)));
-  if (!name || !amount) throw new Error("이름과 금액을 입력해주세요.");
+  // V22.9.126 FC-14: 기록 한 건의 상한(MAX_TRANSACTION_AMOUNT)을 넘는 금액은 기록과 같이 받지 않는다(예전에는 999조 원도 저장돼 홈·분석에 그대로 보였다).
+  if (!name || !amount || amount > MAX_TRANSACTION_AMOUNT) throw new Error("이름과 금액을 입력해주세요.");
   const recurrence = readReserveRecurrence(data.recurrence, "annual");
   let dueMonths = readReserveDueMonths(safeArray(data.due_months));
   if (!dueMonths.length) dueMonths = defaultReserveDueMonths(recurrence);
@@ -192,7 +194,8 @@ async function updateReservePlan(env, householdId = "", id = "", data = {}) {
   const hid = String(householdId || "").trim();
   const name = String(data.name || "").trim().slice(0, 80);
   const amount = Math.max(0, Math.round(Number(data.amount || 0)));
-  if (!name || !amount) throw new Error("이름과 금액을 입력해주세요.");
+  // V22.9.126 FC-14: 추가와 같은 상한이다.
+  if (!name || !amount || amount > MAX_TRANSACTION_AMOUNT) throw new Error("이름과 금액을 입력해주세요.");
   // V22.9.37 감사 N10: 월·일·반복주기는 항목을 찾기 전에 검증해 틀린 값을 조용히 깎지 않는다.
   const requestedRecurrence = readReserveRecurrence(data.recurrence, "");
   const requestedDueMonths = readReserveDueMonths(safeArray(data.due_months));

@@ -146,7 +146,12 @@ function canonicalRedirectResponse(request, env = {}, url = null) {
     // V22.9.40: www.<정본 호스트>는 CANONICAL_REDIRECT 설정과 무관하게 정본으로 보낸다. 운영 www 가 같은 문서를 200 으로
     // 내보내 한 문서가 두 주소로 색인될 수 있었다. 옛 도메인·workers.dev 같은 다른 호스트는 예전처럼 변수가 "1" 일 때만 옮긴다.
     if (currentHost !== targetHost && currentHost !== `www.${targetHost}` && String(env.CANONICAL_REDIRECT || "").trim() !== "1") return null;
-    const next = new URL(url.pathname + url.search + url.hash, targetBase);
+    // V22.9.126 FC-3: 경로를 주소 글자로 이어 붙이면 `//example.org/x` 가 다른 사이트 주소로 읽혀 그곳으로 보냈다.
+    // 목적지는 정본 주소에서 시작하고 경로·쿼리만 옮겨 다른 호스트로 나가지 않게 한다.
+    const next = new URL(targetBase);
+    next.pathname = url.pathname;
+    next.search = url.search;
+    next.hash = url.hash;
     return new Response(null, { status: 308, headers: { location: next.toString(), "cache-control": "no-store" } });
   } catch (err) {
     return null;

@@ -520,5 +520,5 @@ function renderBusinessInfoReviewCard(variant = "") {
   return "";
 }
 // @build:exports-start
-export { handlePublicContentPage, publicDocumentResponse };
+export { handlePublicContentPage, publicDocumentResponse, publicOgImageMeta };
 // @build:exports-end
