@@ -24,7 +24,7 @@ import { settlementHistoryKey } from "../features/settlement-ops-pages.js";
 import { mergedMarkerFreeName, verifyUserSession } from "../auth/user-session.js";
 import {
   clearHouseholdDeleteReauthCookie, hasBackupLoginIdentity, hasKakaoLoginIdentity,
-  verifyHouseholdDeleteReauth, verifyPasswordReauth,
+  passwordReauthErrorCodeV229126, verifyHouseholdDeleteReauth, verifyPasswordReauth,
 } from "../auth/identity-reauth.js";
 import { handleMyLogout } from "../auth/kakao-oauth.js";
 import {
@@ -113,6 +113,13 @@ function householdPageMessage(code = "") {
     kakao_reauth_failed: "카카오 계정 본인 확인을 완료하지 못했습니다. 가계부는 변경되지 않았습니다.",
     kakao_reauth_account_mismatch: "현재 가계부 계정과 다른 카카오 계정입니다. 원래 연결한 카카오 계정으로 다시 확인하세요.",
     kakao_reauth_unavailable: "카카오 본인 확인을 사용할 수 없습니다. 계정·보안에서 로그인 비밀번호를 설정한 뒤 확인하세요.",
+    // V22.9.126 FC-15: 비밀번호 재확인이 시도 제한에 막혔거나(15분 창) 제한 기능에 닿지 못했을 때. 예전에는 둘 다 ‘비밀번호가 맞지 않습니다’ 였다.
+    password_reauth_limited: "본인 확인 시도가 많아 잠시 막혔습니다. 15분쯤 뒤 다시 시도해 주세요. 가계부는 바뀌지 않았습니다.",
+    password_reauth_unavailable: "본인 확인을 지금 하지 못했습니다. 잠시 후 다시 시도해 주세요. 가계부는 바뀌지 않았습니다.",
+    // V22.9.126 FC-15: 로그인·가입은 됐고 초대 참여만 안 된 경우. 예전에는 문장을 주소에 실어 보내 표에 없는 값의 일반 오류 문장이 보였다.
+    // 로그인 쪽은 가입의 signup_created_invite_missing 처럼 안내(msg)로 보인다.
+    login_invite_code_not_found: "로그인은 완료되었습니다. 입력한 초대코드는 찾지 못했습니다. 영문·숫자를 다시 확인한 뒤 ‘초대코드로 참여’ 에서 다시 입력해 주세요.",
+    signup_invite_join_failed: "계정은 생성되었지만 초대 참여를 완료하지 못했습니다. 가계부 전환·추가에서 다시 참여해 주세요.",
     household_manage_not_allowed: "이 가계부의 설정을 변경할 권한이 없습니다.",
     // V22.9.76 감사 D-27: 역할 조회 실패를 '권한 없음'과 구분한다. 참여자 화면(/my/members)·운영 화면도 이 표를 쓴다.
     household_role_check_failed: "권한을 확인하지 못해 아무것도 바꾸지 않았습니다. 잠시 후 다시 시도해 주세요.",
@@ -136,6 +143,9 @@ function householdPageMessage(code = "") {
     owner_transfer_self: "나 자신에게는 소유자를 양도할 수 없습니다.",
     owner_transfer_partial: "상대를 소유자로 올렸지만 내 권한을 관리자로 바꾸지 못해 소유자가 둘인 상태입니다. 같은 참여자에게 ‘소유자 양도’를 한 번 더 누르면 내 권한만 관리자로 바뀝니다.",
     owner_transfer_failed: "소유자를 양도하지 못했습니다. 권한은 그대로입니다. 잠시 후 다시 시도하세요.",
+    // V22.9.126 FC-9: 양도도 가계부 삭제처럼 내 계정 본인 확인(로그인 비밀번호 또는 카카오 본인 확인)을 받는다.
+    owner_transfer_reauth_required: "소유자 양도 전에 내 계정으로 본인 확인을 완료하세요. 권한은 그대로입니다.",
+    kakao_reauth_verified_transfer: "카카오 계정 본인 확인을 완료했습니다. 5분 안에 소유자 양도를 마치세요.",
     household_leave_not_member: "현재 이 가계부의 참여자가 아닙니다.",
     household_leave_ack_required: "가계부에서 나가기 전 확인 항목에 동의해 주세요.",
     household_leave_failed: "가계부에서 나오지 못했습니다. 참여 상태는 그대로 유지됩니다.",
@@ -576,9 +586,11 @@ async function handleMyHouseholdDelete(request, env) {
     hasBackupLoginIdentity(env, user),
     verifyHouseholdDeleteReauth(request, env, userId, householdId),
   ]);
-  const localVerified = hasLocalLogin && accessCode ? await verifyPasswordReauth(request, env, userId, accessCode) : false;
+  const reauthWhy = {};
+  const localVerified = hasLocalLogin && accessCode ? await verifyPasswordReauth(request, env, userId, accessCode, reauthWhy) : false;
   if (!localVerified && !kakaoReauthVerified) {
-    const code = hasLocalLogin && accessCode ? "personal_password_invalid" : "account_reauth_required";
+    // V22.9.126 FC-15: 시도 제한 막힘·장애는 ‘비밀번호가 맞지 않습니다’ 가 아니라 그 이유를 알린다(틀린 비밀번호의 안내는 그대로).
+    const code = hasLocalLogin && accessCode ? passwordReauthErrorCodeV229126(reauthWhy.reason) : "account_reauth_required";
     return redirectResponse(addQueryToUrl(back, { err: code }));
   }
   try {

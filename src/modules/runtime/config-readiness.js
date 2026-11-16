@@ -1,5 +1,6 @@
 // @build:imports-start
 import { getCookie } from "./http.js";
+import { clearSetupCookies } from "../my/setup-page.js";
 // @build:imports-end
 
 const JSON_HEADERS = {
@@ -196,6 +197,29 @@ function issuesUserSession(response) {
   }
 }
 
+// V22.9.126 FC-15: 세션(ab_user)을 새로 주는 응답은 앞 계정의 설정 띠 쿠키(ab_setup·ab_bk)도 지운다 — 계정을 바꿔 로그인하면 바뀐 계정 화면에 앞 사람의
+// ‘설정 전’ 띠가 남았다(웹 연결 코드 길은 ab_bk 까지). 요청에 그 쿠키가 있고 응답이 스스로 정하지 않은 것만 지운다(방 단추 열기·로그인의 새 ab_bk 는 그대로).
+function withStaleSetupCookiesClearedV229126(request, response) {
+  try {
+    const cookies = typeof response.headers.getSetCookie === "function" ? response.headers.getSetCookie() : [];
+    const issued = cookies.find((cookie) => /^\s*ab_user=[^;]/.test(cookie));
+    if (!issued) return response;
+    // V22.9.126 FC-15 2차: 같은 계정에 세션을 다시 줄 때(비밀번호 저장·같은 계정 재로그인)는 지우지 않는다 — 계정이 바뀌거나 앞 세션이 없을 때만.
+    // 띠 쿠키는 보안 값이 아니라서 요청 쿠키의 사용자 id 를 서명 확인 없이 견준다(틀려도 띠가 한 번 더 보이거나 덜 보일 뿐이다).
+    const sessionUserId = (token) => { const text = String(token || ""); return text.slice(0, text.lastIndexOf(".") < 0 ? text.length : text.lastIndexOf(".")).split("|")[0]; };
+    const issuedUserId = sessionUserId(decodeURIComponent(issued.trim().slice("ab_user=".length).split(";")[0]));
+    const previousUserId = sessionUserId(getCookie(request, "ab_user"));
+    if (previousUserId && previousUserId === issuedUserId) return response;
+    const stale = clearSetupCookies().filter((clear) => {
+      const name = clear.slice(0, clear.indexOf("="));
+      return getCookie(request, name) !== "" && !cookies.some((cookie) => cookie.trimStart().startsWith(`${name}=`));
+    });
+    return stale.reduce((out, clear) => withSetCookie(out, clear), response);
+  } catch (_) {
+    return response;
+  }
+}
+
 async function withRememberedHouseholdCookie(routed, response) {
   try {
     const request = routed.request;
@@ -203,6 +227,7 @@ async function withRememberedHouseholdCookie(routed, response) {
     if (url.pathname === "/my/logout") {
       return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
     }
+    response = withStaleSetupCookiesClearedV229126(request, response);
     // H4: 다른 계정이 로그인해도 쿠키가 남아 그 사람의 가계부로 열렸다. 세션을 새로 주면 기억을 함께 지운다.
     if (issuesUserSession(response)) return withSetCookie(response, AB_HOUSEHOLD_MEMORY_CLEAR_COOKIE);
     if (!routed.eligible) return response;
