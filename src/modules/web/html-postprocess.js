@@ -9,9 +9,9 @@ import {
   inputPaymentPatterns, joinSpacedKoreanAmount, normalizeInputText,
 } from "../client/shared-input-nlu.js";
 import {
-  V22818_INLINE_RESULT_STYLE, V2281_GUIDED_NAV_STYLE, approximateWonLabel,
-  attachAccessibleControlNames, deferHeavyBrowserTools, guidedUiUxClientMain,
-  inlineActionResultClientMain, mobileShellUiClientMain, mobileUiUxClientMain, v2285NavStyleFor,
+  V22818_INLINE_RESULT_STYLE, V2281_GUIDED_NAV_STYLE, attachAccessibleControlNames,
+  deferHeavyBrowserTools, guidedUiUxClientMain, inlineActionResultClientMain,
+  mobileShellUiClientMain, mobileUiUxClientMain, v2285NavStyleFor,
 } from "../client/legacy-ui-runtime.js";
 import { getCookie, redirectResponse } from "../runtime/http.js";
 import { sha256Hex } from "../auth/crypto-admin-session.js";
@@ -25,7 +25,7 @@ import {
   AB_MANIFEST_LINK, AB_SPECULATION_RULES_PATH, AB_SPECULATION_RULES_TAG,
 } from "../assets/icons-manifest.js";
 import { AB_CONTROLS_38_CSS_PATH, AB_CONTROLS_38_JS_PATH } from "../assets/form-controls-v22938.js";
-import { currentMonthKst, nowKstDate, validMonth } from "../nlu/date-payment.js";
+import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { AB_CATEGORY_RULES_SCRIPT_TAG } from "../nlu/category-rules.js";
 import { escapeHtml } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -70,8 +70,10 @@ function normalizeUserFacingUi(html = "") {
   source = source.replace(oldPublicSteps, newPublicSteps);
   source = source.replace("가계부가 연결되면 시작가이드에서 월 수입, 예산, 분류·키워드, 카드·현금·통장, 정기지출을 순서대로 설정하면 됩니다.", "가계부를 만들거나 참여한 뒤 단톡방을 연결하고 첫 기록을 남겨보세요. 예산과 분류 설정은 첫 기록 후 필요할 때 추가하면 됩니다.");
   source = source.replace("처음에는 기능을 많이 설명하기보다 “가계부 생성 → 예산 → 결제수단 → 정기지출 → 카카오 기록 → 분석 확인” 흐름만 안내합니다. 오류가 나면 안전화면과 백업 가이드를 먼저 보여줍니다.", "처음에는 ‘가계부 생성·참여 → 초대·승인 → 단톡방 연결(선택) → 기록 방법 → 첫 기록’까지만 안내합니다. 예산·분류·자동화는 첫 기록 후 선택적으로 이어가고, 오류가 나면 원인과 돌아갈 경로를 함께 보여줍니다.");
-  source = source.replace(/CSV·TSV·TXT·엑셀의 여러 시트/g, "CSV·TSV·TXT·JSON·엑셀의 여러 시트");
-  source = source.replace(/CSV·TSV·TXT는 서버에서 바로 읽습니다\./g, "CSV·TSV·TXT·JSON은 서버에서 바로 읽습니다.");
+  // V22.9.126 FC-2: 문서 전체 낱말 치환이 사용자 메모·분류(예: ‘유튜브 프리미엄’)까지 바꿨다. 쓰이지 않는 치환은 뺐고,
+  // 남은 치환은 템플릿의 마크업까지 붙여 찾는다(사용자 글은 이스케이프되어 이 마크업을 만들 수 없다).
+  source = source.replaceAll("<p>CSV·TSV·TXT·엑셀의 여러 시트", "<p>CSV·TSV·TXT·JSON·엑셀의 여러 시트");
+  source = source.replaceAll('class="fileStatus">CSV·TSV·TXT는 서버에서 바로 읽습니다.', 'class="fileStatus">CSV·TSV·TXT·JSON은 서버에서 바로 읽습니다.');
   source = source.replace('accept=".csv,.tsv,.txt,.xls,.xlsx,text/csv,text/tab-separated-values,text/plain,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"', 'accept=".csv,.tsv,.txt,.json,.xls,.xlsx,text/csv,text/tab-separated-values,text/plain,application/json,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"');
 
   if (source.includes("가계부에 접속하세요.")) {
@@ -93,21 +95,8 @@ function normalizeUserFacingUi(html = "") {
     );
   }
 
-  if (/프리미엄|유료 전환/.test(source)) {
-    source = source.replace(/프리미엄 1차 베타|프리미엄 베타/g, "스마트 도구");
-    source = source.replace(/<p>([^<]*?) · 현재 결제 기능은 연결하지 않았습니다\. 실제 데이터에서 가치와 정확도를 검증한 뒤 유료 전환합니다\.<\/p>/, "<p>$1 · 현재 기록을 바탕으로 스마트 기능을 사용할 수 있습니다.</p>");
-    source = source.replace(/<span>월말 예상 지출<\/span><b>([\d,]+)원<\/b>/, function(_, amount) { return "<span>월말 예상 지출</span><b>" + approximateWonLabel(amount) + "</b>"; });
-    source = source.replace(/<span>절약 후보<\/span><b>([\d,]+)원<\/b>/, function(_, amount) { return "<span>절약 후보</span><b>" + approximateWonLabel(amount) + "</b>"; });
-    source = source.replace("프리미엄 1차 개발 예정", "스마트 기능");
-    source = source.replace(/<p class="notice"><b>운영 원칙<\/b><br\/>밈카드와 카드 실적 기능은[\s\S]*?<\/p>/, "");
-    const today = nowKstDate();
-    const basis = (today.getMonth() + 1) + "/" + today.getDate();
-    source = source.replace('</section><section class="card"><h2>현재 동작하는 스마트 도구</h2>', '</section><p class="metricBasis">' + basis + ' 기준 · 월말 예상은 오늘까지 기록에 남은 고정지출·정기지출과 남은 날 예상(변동 지출의 하루 평균)을 더한 값이며 실제 지출에 따라 달라질 수 있습니다.</p><section class="card"><h2>현재 동작하는 스마트 분석</h2>');
-  }
-
   source = source.replace("일반 사용자가 매일 쓰는 메뉴만 모았습니다. 운영/점검/배포/진단 메뉴는 이 화면에 노출하지 않고 운영센터에서만 관리합니다.", "기록, 정산, 가계부 관리와 개인 설정을 한곳에서 찾을 수 있습니다.");
   source = source.replace("추천 흐름: 홈·입력 → 기록 보기 → 예산알림 → 분석 → 백업·복구. 새 모임이나 여행은 가계부 전환·추가에서 만드세요.", "추천 흐름: 모임 선택 → 기록 입력 → 기록 확인 → 정산. 예산과 분석은 필요할 때 이어서 사용하세요.");
-  source = source.replace(/컬럼: 날짜, 구분, 금액, 분류, 내용, 결제수단, 출처, 기록ID/g, "컬럼: 날짜, 구분, 금액, 분류, 내용, 결제수단, 지출자, 출처, 기록ID");
   if (source.includes(" · 프로필</title>") && !/<nav\b/i.test(source)) {
     source = source.replace("<body><main", `<body>${renderUnifiedNav("menu")}<main`);
   }
@@ -178,20 +167,14 @@ function normalizeUserFacingUi(html = "") {
   }
   source = promoteLegacyUserLayoutToV5(source);
   source = normalizeUiV5RemainingPages(source);
-  source = source.replace(/\/my\/premium/g, "/smart-tools");
-  source = source.replace(/프리미엄 1차 개발 순서|프리미엄 1차 개발 예정/g, "스마트 기능");
-  source = source.replace(/프리미엄 1차 베타|프리미엄 베타|프리미엄/g, "스마트 도구");
-  source = source.replace(/실제 데이터에서 가치와 정확도를 검증한 뒤 유료 전환합니다\./g, "현재 기록을 바탕으로 기능을 사용할 수 있습니다.");
   source = source.replace('<span class="abNavLogo">💛</span>', '<span class="abNavLogo" aria-hidden="true"><span class="abBrandMark"><i></i><i></i><i></i></span></span>');
   source = source.replace(/<div class="abNavMobileTop"><a([^>]*)>💛\s*/i, '<div class="abNavMobileTop"><a$1><span class="abBrandMark" aria-hidden="true"><i></i><i></i><i></i></span>');
-  source = source.replace("🌱 시작가이드", "처음 사용 가이드");
-  source = source.replace("처음이라면 여기부터", "처음 3단계만 따라해 보세요");
   source = source.replaceAll("<i>🏠</i>", "<i>⌂</i>");
   source = source.replaceAll("<i>📄</i>", "<i>▤</i>");
   source = source.replaceAll("<i>📊</i>", "<i>◒</i>");
-  source = source.replaceAll("오늘 쓴 돈 ☀️", "오늘 쓴 돈");
-  source = source.replaceAll("들어온 돈 💰", "들어온 돈");
-  source = source.replaceAll("나간 돈 💸", "나간 돈");
+  // V22.9.126 FC-2: 홈 카드 이름의 그림 글자만 뺀다. 마크업까지 찾아 같은 글자를 쓴 사용자 메모는 그대로 둔다.
+  source = source.replaceAll("<span>들어온 돈 💰</span>", "<span>들어온 돈</span>");
+  source = source.replaceAll("<span>나간 돈 💸</span>", "<span>나간 돈</span>");
   if (source.includes('<aside class="abLayoutNav"') && !source.includes('id="v2281GuidedNavStyle"')) {
     source = source.replace('</style><aside class="abLayoutNav"', `</style>${V2281_GUIDED_NAV_STYLE}<aside class="abLayoutNav"`);
   }

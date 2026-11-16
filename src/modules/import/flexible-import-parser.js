@@ -749,7 +749,8 @@ function parseImportAmountCell(value = "") {
   numeric = stripCurrency(numeric);
   let amount = 0;
   if (signs > 1) amount = NaN;
-  else if (/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.0+)?$/.test(numeric)) amount = Number(numeric.replace(/,/g, ""));
+  // V22.9.126 FC-6: 소수점 뒤 0은 두 자리까지만 원 단위의 끝(12000.00)으로 본다. ‘12.000원’ 은 천 단위 점일 수 있어 12원으로 읽지 않고 금액을 읽지 못한 칸으로 둔다.
+  else if (/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.0{1,2})?$/.test(numeric)) amount = Number(numeric.replace(/,/g, ""));
   else if (numeric.length <= 120 && /^[0-9일이삼사오육칠팔구십백천만억영공.,\s]+$/.test(numeric) && /[십백천만억]/.test(numeric)) {
     const spans = moneyTokenSpans(numeric);
     amount = spans.length === 1 && spans[0].start === 0 && spans[0].end === numeric.length ? spans[0].amount : NaN;

@@ -48,13 +48,13 @@ ok(!deniedBody.includes("s3cret-value"), "거부 응답에 비밀값이 새지 �
 const wrong = await skill(secretEnv, "안녕", { "x-kakao-skill-secret": "wrong" });
 eq(wrong.status, 403, "틀린 비밀값도 막힌다");
 
+// V22.9.126 FC-17: 로그인 없이 열리는 /health 는 skill_caller_auth 의 mode·configured 만 싣는다. 거부·통과 건수와 시각,
+// header_missing_suspected 는 공개 응답에서 뺐다(관제·배포 점검이 읽는 칸은 mode 하나). 아래는 그 모양을 확인한다.
 const beforeAccept = await health(secretEnv);
 eq(beforeAccept.mode, "enforce", "비밀값만 넣으면 기본은 차단 모드다");
-ok(beforeAccept.denied >= 2, "거부가 세어진다");
-eq(beforeAccept.accepted, 0, "아직 통과한 호출이 없다");
-// 이것이 이번 판의 핵심이다. 헤더를 안 넣고 켜면 모든 대화가 조용히 실패하는데,
-// 운영자는 "설정됨"만 보고 정상이라고 오해했다. 이제 이 신호가 잡아낸다.
-eq(beforeAccept.header_missing_suspected, true, "통과 없이 거부만 쌓이면 헤더 누락으로 표시한다");
+ok(!("denied" in beforeAccept) && !("accepted" in beforeAccept), "거부가 쌓여도 공개 /health 에 건수가 없다");
+eq(beforeAccept.configured, true, "설정 여부는 그대로 보인다");
+ok(!("header_missing_suspected" in beforeAccept) && !("last_denied_at" in beforeAccept), "헤더 누락 추정·마지막 거부 시각도 공개 응답에 없다");
 
 for (const [label, headers] of [
   ["x-kakao-skill-secret", { "x-kakao-skill-secret": "s3cret-value" }],
@@ -67,9 +67,9 @@ for (const [label, headers] of [
 }
 
 const afterAccept = await health(secretEnv);
-ok(afterAccept.accepted >= 4, "통과가 세어진다");
-eq(afterAccept.header_missing_suspected, false, "한 번이라도 통과하면 헤더 누락 표시가 내려간다");
-ok(afterAccept.last_accepted_at && afterAccept.last_denied_at, "마지막 통과·거부 시각이 남는다");
+eq(JSON.stringify(afterAccept), JSON.stringify({ mode: "enforce", configured: true }), "통과가 쌓여도 공개 응답은 모드·설정 여부뿐이다(V22.9.126 FC-17)");
+eq(Object.keys(afterAccept).join(","), "mode,configured", "공개 skill_caller_auth 의 칸은 둘이다");
+ok(!JSON.stringify(afterAccept).includes("last_"), "마지막 통과·거부 시각이 공개 응답에 없다");
 
 // observe 모드: 헤더를 맞추는 동안 카카오톡이 멈추지 않게 하는 탈출구
 const observeEnv = { ...fixture.env, KAKAO_SKILL_SECRET: "s3cret-value", KAKAO_SKILL_AUTH_MODE: "observe" };
@@ -77,7 +77,7 @@ const observed = await skill(observeEnv, "안녕");
 eq(observed.status, 200, "observe 모드에서는 헤더가 없어도 막지 않는다");
 eq((await health(observeEnv)).mode, "observe", "observe 모드가 상태에 드러난다");
 const observeStats = await health(observeEnv);
-ok(observeStats.denied > afterAccept.denied, "observe 모드에서도 실패는 계속 세어진다");
+eq(observeStats.configured, true, "observe 모드도 설정됨으로 보인다(건수는 V22.9.126 FC-17 부터 공개하지 않는다)");
 
 // 알 수 없는 값은 안전한 쪽(차단)으로 떨어져야 한다
 const typoEnv = { ...fixture.env, KAKAO_SKILL_SECRET: "s3cret-value", KAKAO_SKILL_AUTH_MODE: "observ" };
@@ -88,7 +88,7 @@ eq((await skill(fixture.env, "안녕")).status, 200, "비밀값이 없으면 인
 eq((await health(fixture.env)).mode, "off", "비밀값이 없으면 인증이 꺼진 것으로 보고한다");
 
 ok(source.includes("KAKAO_SKILL_AUTH_MODE"), "인증 모드 설정 이름이 소스에 있다");
-ok(source.includes("skill_caller_auth: kakaoSkillAuthSnapshot(env)"), "인증 상태가 상태 응답에 실려 나간다");
+ok(source.includes("skill_caller_auth: publicSkillAuthSnapshotV229126(env)") && source.includes("const { mode, configured } = kakaoSkillAuthSnapshot(env);"), "인증 상태(모드·설정 여부)가 상태 응답에 실려 나간다");
 
 // ---------------------------------------------------------------------------
 // 2. 되묻기 정리 — 분류 이름 + 금액은 되묻지 않고 지출로 기록한다

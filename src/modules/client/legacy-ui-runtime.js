@@ -1177,7 +1177,7 @@ function deferHeavyBrowserTools(html = "") {
 export {
   KAKAO_LOGIN_PROGRESS_TIPS, UIUX_RUNTIME_STYLE, V22818_INLINE_RESULT_STYLE, V2281_GUIDED_NAV_STYLE,
   V2281_GUIDED_UIUX_STYLE, V2284_UI_REVALIDATION_STYLE, V2285_LOGIN_STYLE, V2285_MENU_STYLE,
-  approximateWonLabel, attachAccessibleControlNames, deferHeavyBrowserTools, guidedUiUxClientMain,
+  attachAccessibleControlNames, deferHeavyBrowserTools, guidedUiUxClientMain,
   inlineActionResultClientMain, kakaoLoginProgressClientMain, mobileShellUiClientMain,
   mobileUiUxClientMain, myBackupImportClientMain, passwordMatchFeedbackClientMain, v2284UiStyleFor,
   v2285NavStyleFor,
