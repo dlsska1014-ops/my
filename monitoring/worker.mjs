@@ -398,12 +398,10 @@ export async function collect(env,now=new Date()) {
       const day=now.toISOString().slice(0,10);
       const done=now.getUTCHours()===0?null:await env.MONITOR_DB.prepare("SELECT value FROM settings WHERE key='samples_cleanup'").first();
       if(String(done?.value||"").slice(0,10)!==day) {
-        const cleared=(await env.MONITOR_DB.batch([
-          env.MONITOR_DB.prepare("DELETE FROM samples WHERE (source,bucket) IN (SELECT source,bucket FROM samples WHERE (source<>'usage' AND bucket < ?1) OR (source='usage' AND bucket < ?2) LIMIT 2000)").bind(new Date(now.getTime()-30*DAY).toISOString(),monthShift(kstMonth(now.getTime()),-USAGE_KEEP_MONTHS)),
-          env.MONITOR_DB.prepare("INSERT INTO settings(key,value) VALUES('samples_cleanup',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(now.toISOString())
-        ]))?.[0];
-        // 1.8.0(V22.9.126): 한 번에 지우는 한도(2000행)를 다 채웠으면 더 남았을 수 있어 표시를 지운다. 다음 매시 실행이 밀린 만큼 이어 지운다.
-        if((Number(cleared?.meta?.changes)||0)>=2000) await env.MONITOR_DB.prepare("DELETE FROM settings WHERE key='samples_cleanup'").run();
+        const cleared=await env.MONITOR_DB.prepare("DELETE FROM samples WHERE (source,bucket) IN (SELECT source,bucket FROM samples WHERE (source<>'usage' AND bucket < ?1) OR (source='usage' AND bucket < ?2) LIMIT 2000)").bind(new Date(now.getTime()-30*DAY).toISOString(),monthShift(kstMonth(now.getTime()),-USAGE_KEEP_MONTHS)).run();
+        // 1.8.0(V22.9.126 3차): 지운 행(D1 결과 meta.changes)이 한도(2000행)보다 적을 때만 끝 표시를 쓴다. 지운 뒤 끊겨도 표시가 없어 다음 매시
+        // 실행이 이어 지운다(2차는 표시를 함께 쓰고 나중에 지워, 그 사이에 끊기면 다음 0시까지 밀렸다). 값이 없으면 0 으로 보아 표시를 쓴다(하루 한 번).
+        if((Number(cleared?.meta?.changes)||0)<2000) await env.MONITOR_DB.prepare("INSERT INTO settings(key,value) VALUES('samples_cleanup',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").bind(now.toISOString()).run();
       }
     } catch(error) { console.error(`monitor daily cleanup failed: ${failureCode(error)}`); }
   }
@@ -414,6 +412,7 @@ export async function collect(env,now=new Date()) {
 // 1,000행을 받아 해석·정렬했다(약 8.7ms, 7일치가 차는 10-19 무렵부터 1102 위험). 알림 판정(alerting)은 경고와 해소 판단에
 // 쓰는 값만 D1 에 집계해 묻는다: 성장 예측은 첫 점·끝 점·점 개수, 요청 표본은 건수·실패 수·마지막 시각과 p95 한 행.
 // 화면(/api/summary)은 그래프·최근 표본 때문에 예전처럼 전부 읽는다. 두 범위의 경고·상태가 같다는 것은 검사가 확인한다.
+// 예외(1.8.0, V22.9.126 FC-29): ‘알림 발송 미확인’ 줄은 화면 범위에만 있어, 다른 문제가 없으면 화면 상태는 확인 불가(unknown)·알림 범위는 정상이다.
 const DB_BYTES_POINTS="FROM samples WHERE source='database' AND bucket >= ?1 AND json_type(payload,'$.database_bytes') IN ('integer','real') AND json_extract(payload,'$.database_bytes') >= 0";
 async function alertGrowthDays(env,now,value,limit) {
   if(numberOrNull(value)===null||numberOrNull(limit)===null) return null;
@@ -624,8 +623,9 @@ const ALERT_RECOVERY_CHECKS=3;
 const ALERT_RECOVERY_MIN_MS=10*60000;
 const ALERT_RANK={warning:1,upgrade:2,critical:3};
 // 1.8.0(V22.9.126 FC-29): 예전에는 보낸 뒤에야 기록해, 끊긴 실행 뒤 같은 메일을 5분마다 보내거나 모든 채널 실패 때 5분마다 다시 시도했다.
-// 이제 보내기 전에 ‘보내는 중’(attempt)을 쓰고 닿으면 확정한다. 확정 안 된 메일은 15·30·60분, 그 뒤 60분마다 다시 보낸다(끊긴 시도마다 많아야 1통 중복).
-const ALERT_RETRY_GAPS=[15*60000,30*60000,60*60000];
+// 이제 보내기 전에 ‘보내는 중’(attempt)을 쓰고 닿으면 확정한다. 확정 안 된 메일은 15분 뒤부터 간격을 두 배씩 늘려 그 등급의 다시 보내는 간격
+// (해소는 긴급 6시간)까지 다시 보낸다(3차). 경고마다 따로 세므로, 끊긴 메일 한 통에 경고가 여럿 실렸으면 경고마다 많아야 1통씩 중복될 수 있다.
+const ALERT_RETRY_FIRST_MS=15*60000;
 const ALERT_HOLD_MS=15*60000;
 const ALERT_HOLD_KEY="alert:hold";
 const kstText=at=>new Date(at+9*3600000).toISOString().replace("T"," ").slice(0,16)+" KST";
@@ -638,7 +638,8 @@ export function rawAlertEmail({from,to,subject,text,now}) {
 export function renderAlertText(result,due,recovered,now,origin="") {
   const lines=[`말해가계부 관제 ${kstText(now.getTime())} · 전체 상태 ${ALERT_LABELS[result.status]||result.status}`,""];
   for(const alert of due) lines.push(`[${ALERT_LABELS[alert.status]||alert.status}] ${alert.title}${alert.again?" · 해소 뒤 다시 생김":""}`,`  ${alert.message}`);
-  for(const prev of recovered) { const resolvedAt=Date.parse(prev.resolved_at||""); lines.push(`[해소] ${prev.title}${Number.isFinite(resolvedAt)&&now.getTime()-resolvedAt>=300000?` · ${kstText(resolvedAt)}부터 정상`:""}`); }
+  // 1.8.0(V22.9.126 FC-29 3차): 확정되지 않은 긴급 메일 뒤의 해소는 앞선 경고 메일이 닿았는지 모른다고 적는다(받지 못한 경고의 해소일 수 있다).
+  for(const prev of recovered) { const resolvedAt=Date.parse(prev.resolved_at||""); lines.push(`[해소] ${prev.title}${Number.isFinite(resolvedAt)&&now.getTime()-resolvedAt>=300000?` · ${kstText(resolvedAt)}부터 정상`:""}${prev.unconfirmed?" · 앞선 경고 메일은 발송이 확인되지 않았습니다":""}`); }
   if(result.unknown?.length) lines.push("",`확인되지 않은 항목: ${result.unknown.join(", ")}`);
   lines.push("",`관제 화면: ${origin?`${origin}/ops-monitor`:"/ops-monitor"}`,"이 메일은 5분 수집마다 새 경고가 있을 때만 발송되며, 같은 경고는 긴급 6시간·전환 검토 12시간·주의 24시간 안에 다시 보내지 않습니다(등급이 오르거나, 해소를 알린 뒤 다시 생기면 보냄). 해소는 5분 수집 3번 연속(10분 이상) 정상일 때 판정하며, 긴급 경고의 해소는 같은 경고마다 6시간에 한 번 알립니다.");
   return lines.join("\n");
@@ -709,7 +710,8 @@ export async function deliverAlerts(env,now=new Date()) {
   remembered.delete(ALERT_HOLD_KEY);
   const failedAt=time(holdRecord?.at);
   const hold=failedAt!==null&&at-failedAt<ALERT_HOLD_MS;
-  const retryDue=attempt=>{ const tried=time(attempt?.at); return tried!==null&&at-tried>=ALERT_RETRY_GAPS[Math.min(Math.max(Number(attempt.n)||1,1),ALERT_RETRY_GAPS.length)-1]; };
+  // 1.8.0(V22.9.126 FC-29 3차): 간격 15·30·60·120…분은 그 등급의 다시 보내는 간격에서 멈춘다(2차는 60분마다 끝없이 — 주의도 하루 24통까지 갔다).
+  const retryDue=attempt=>{ const tried=time(attempt?.at); return tried!==null&&at-tried>=Math.min(ALERT_RETRY_FIRST_MS*2**(Math.max(Number(attempt.n)||1,1)-1),ALERT_RESEND_MS[attempt.kind==="recovery"?"critical":attempt.status]||ALERT_RESEND_MS.warning); };
   for(const alert of active) {
     const key=alertKey(alert.title);
     const previous=remembered.get(key);
@@ -721,9 +723,16 @@ export async function deliverAlerts(env,now=new Date()) {
     const again=sentAt!==null&&recoveredAt!==null&&recoveredAt>=sentAt;
     const attempt=previous?.attempt;
     const rank=ALERT_RANK[alert.status]||0;
+    const reset=previous&&(previous.resolved_at||previous.ok)?{...previous,resolved_at:null,ok:0,ok_since:null}:null;
+    // 1.8.0(V22.9.126 FC-29 3차): 오른 등급의 메일이 확정되지 않은 채 등급이 확정된 등급 이하로 내려오면, 확정된 메일의 간격 안에서는
+    // 그 시도를 버리고 보내지 않는다(2차는 이미 받은 주의를 15분 뒤 다시 보냈다).
+    if(attempt?.kind==="alert"&&(ALERT_RANK[attempt.status]||0)>rank&&sentAt!==null&&!again&&at-sentAt<ALERT_RESEND_MS[alert.status]&&rank<=(ALERT_RANK[previous.status]||0)) {
+      const {attempt:_,...kept}=reset||previous;
+      save(key,kept);
+      continue;
+    }
     // 1.8.0(V22.9.126 FC-29): 확정 안 된 경고 메일은 간격마다(등급이 오르면 바로) 다시 보낸다. 확정 안 된 해소 메일 뒤 다시 생긴 경고는 바로 알린다.
     const send=attempt?.kind==="alert"?rank>(ALERT_RANK[attempt.status]||0)||retryDue(attempt):attempt?.kind==="recovery"||sentAt===null||again||at-sentAt>=ALERT_RESEND_MS[alert.status]||rank>(ALERT_RANK[previous.status]||0);
-    const reset=previous&&(previous.resolved_at||previous.ok)?{...previous,resolved_at:null,ok:0,ok_since:null}:null;
     if(!send) {
       // 간격 안: 보내지 않는다. 진행 중이던 해소 판정(연속 정상)만 처음으로 되돌린다.
       if(reset) save(key,reset);
@@ -745,17 +754,27 @@ export async function deliverAlerts(env,now=new Date()) {
       record={...record,ok:0,ok_since:null,resolved_at:stamp};
       resolvedNow=true;
     }
-    // 1.8.0(V22.9.126 FC-29): 해소된 경고의 확정 안 된 경고 메일은 버린다(받았는지 모르는 경고의 ‘해소’ 를 보내지 않는다).
     let changed=false;
-    if(record.attempt?.kind==="alert") { const {attempt:_,...rest}=record; record=rest; changed=true; }
     const sentAt=time(record.sent_at);
     const recoveredAt=time(record.recovered_at);
-    const owed=record.status==="critical"&&sentAt!==null&&!(recoveredAt!==null&&recoveredAt>=sentAt);
-    const attempt=record.attempt?.kind==="recovery"?record.attempt:null;
+    const confirmedOwed=record.status==="critical"&&sentAt!==null&&!(recoveredAt!==null&&recoveredAt>=sentAt);
+    // 1.8.0(V22.9.126 FC-29): 해소된 경고의 확정 안 된 경고 메일은 버린다. 3차: 긴급이었으면 닿았을 수 있어(보낸 뒤 끊김) ‘[해소]’ 를 한 번
+    // 보내되 앞선 경고 메일이 확인되지 않았다고 적는다(unconfirmed). 주의·전환 검토는 예전처럼 조용히 버린다.
+    if(record.attempt?.kind==="alert") {
+      const {attempt:dropped,...rest}=record;
+      record=dropped.status==="critical"&&!confirmedOwed&&!(recoveredAt!==null&&recoveredAt>=(time(dropped.at)??0))?{...rest,unconfirmed:dropped.at}:rest;
+      changed=true;
+    }
+    const owed=confirmedOwed||Boolean(record.unconfirmed);
+    let attempt=record.attempt?.kind==="recovery"?record.attempt:null;
+    // 1.8.0(V22.9.126 FC-29 3차): 출처 수집이 멈춰 확인할 수 없는 해소 메일 시도는 24시간 뒤 버린다(화면의 ‘발송 미확인’ 이 영영 남지 않게).
+    // 해소를 알릴 몫(owed)은 남아, 그 출처가 다시 정상을 보이면 보낸다.
+    if(attempt&&at-(time(attempt.at)??0)>=DAY) { const {attempt:_,...rest}=record; record=rest; attempt=null; changed=true; }
     // 1.8.0(V22.9.126 FC-29): 확정 안 된 해소 메일은 경고와 같은 간격으로, 아직 정상일 때 다시 보낸다.
     if(attempt?retryDue(attempt)&&alertRecoveryConfirmed(result,record.title):owed&&(recoveredAt===null||at-recoveredAt>=ALERT_RESEND_MS.critical)&&(resolvedNow||alertRecoveryConfirmed(result,record.title))) {
       const {attempt:_,...settled}=record;
-      mail.push({key,record:settled,revert:record,held:resolvedNow||changed?record:null,trying:{...settled,attempt:{kind:"recovery",at:stamp,n:attempt?(Number(attempt.n)||1)+1:1}},done:{...settled,recovered_at:stamp}});
+      const {unconfirmed:__,...cleared}=settled;
+      mail.push({key,record:settled,revert:record,held:resolvedNow||changed?record:null,trying:{...settled,attempt:{kind:"recovery",at:stamp,n:attempt?(Number(attempt.n)||1)+1:1}},done:{...cleared,recovered_at:stamp}});
     } else if(!attempt&&!owed&&at-Math.max(sentAt??0,recoveredAt??0)>=(ALERT_RESEND_MS[record.status]||ALERT_RESEND_MS.warning)) statements.push(drop(key));
     else if(resolvedNow||changed) save(key,record);
   }
@@ -777,7 +796,7 @@ export async function deliverAlerts(env,now=new Date()) {
   const due=mail.filter(item=>item.alert).map(item=>item.alert);
   const recovered=mail.filter(item=>item.record).map(item=>item.record);
   const counts=["critical","upgrade","warning"].map(status=>`${ALERT_LABELS[status]} ${due.filter(a=>a.status===status).length}`).join(" · ");
-  const subject=`[말해가계부 관제] ${due.length?counts:"해소 "+recovered.length}`;
+  const subject=`[말해가계부 관제] ${due.length?counts:"해소 "+recovered.length}${recovered.some(prev=>prev.unconfirmed)?" (앞선 경고 메일 발송 미확인)":""}`;
   const text=renderAlertText(result,due,recovered,now,env.APP_ORIGIN||"");
   // 1.8.0(V22.9.126 FC-29): 보내기 전에 ‘보내는 중’ 기록부터 쓴다. 이 쓰기가 실패해도 메일은 보내고 보낸 뒤 한 번 더 써 본다(1.7.0 순서).
   let unrecorded=null;
@@ -789,12 +808,16 @@ export async function deliverAlerts(env,now=new Date()) {
   if(channels.includes("webhook")) { try { const response=await fetch(env.ALERT_WEBHOOK_URL,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({text:`${subject}\n${text}`}),signal:AbortSignal.timeout(8000)}); if(!response.ok) throw new Error(`http_${response.status}`); delivered.push("webhook"); } catch(error) { channelFailed("webhook",error); } }
   if(!delivered.length) {
     // 1.8.0(V22.9.126 FC-29): 모든 채널이 실패하면 이번 메일의 기록을 보내기 전 값으로 되돌리고, 실패 시각과 실은 경고의 등급을 alert:hold 에 남긴다.
-    try { await env.MONITOR_DB.batch([...(unrecorded===null?[]:statements),...mail.map(item=>item.revert?put(item.key,item.revert):drop(item.key)),put(ALERT_HOLD_KEY,{at:stamp,codes:failures.join(" "),ranks:Object.fromEntries(mail.map(item=>[item.key,item.rank||0]))})]); }
+    // 3차: 실패가 끊기지 않고 이어지는 동안(hold 행이 남아 있는 동안)은 앞선 등급과 키마다 큰 값으로 합친다(깜빡이는 경고가 15분 기다림을 깨지 않게).
+    const ranks={...heldRanks};
+    for(const item of mail) ranks[item.key]=Math.max(Number(ranks[item.key])||0,item.rank||0);
+    try { await env.MONITOR_DB.batch([...(unrecorded===null?[]:statements),...mail.map(item=>item.revert?put(item.key,item.revert):drop(item.key)),put(ALERT_HOLD_KEY,{at:stamp,codes:failures.join(" "),ranks})]); }
     catch(error) { console.error(`monitor alert revert failed: ${failureCode(error)}`); }
     throw new Error(`delivery_failed ${failures.join(" ")}`);
   }
   // 1.8.0(V22.9.126 FC-29): 닿으면 확정한다. 확정 쓰기가 실패하면 ‘보내는 중’ 이 남아 간격 뒤 다시 보낸다. 보내기 전 쓰기가 실패했으면 여기서 처음 쓰고,
-  // 이마저 실패하면 기록 없이 나간 메일을 delivery_unrecorded 로 남긴다(다음 실행이 다시 보낼 수 있다).
+  // 이마저 실패하면 기록 없이 나간 메일을 delivery_unrecorded 로 남긴다(다음 실행이 다시 보낼 수 있다). 3차 검토 1: D1 쓰기가 계속 실패하면
+  // (예: 하루 쓰기 한도) 수집 신선도를 보지 않는 경고는 1.7.0 처럼 5분마다 다시 간다 — 쓰기 없이 막을 근거가 없다(README 남는 한계).
   try { await env.MONITOR_DB.batch([...(unrecorded===null?[]:statements),...mail.map(item=>put(item.key,item.done)),...(holdRecord?[drop(ALERT_HOLD_KEY)]:[])]); }
   catch(error) { console.error(`monitor alert confirm failed: ${failureCode(error)}`); if(unrecorded!==null) throw new Error(`delivery_unrecorded ${unrecorded} sent:${delivered.join(",")}`); }
   return {channels,delivered,failures,sent:due.length,recovered:recovered.length,active:active.length,status:result.status,titles:due.map(alert=>alert.title).slice(0,10),...(failures.length?{failures_at:stamp}:{})};
