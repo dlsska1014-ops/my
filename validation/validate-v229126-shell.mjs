@@ -5,7 +5,7 @@
 //   FC-6  가져오기 금액 칸 ‘12.000원’ 을 12원으로 읽던 것(import/flexible-import-parser.js parseImportAmountCell)
 //   FC-7  구성원 빠른 입력의 지출자 고르기(서버는 본인으로 저장)(my/mobile-home.js)
 //   FC-14 납부·입금 일정 금액에 상한이 없던 것(settings/reserve-plans.js)
-//   FC-17 로그인 없이 보이는 스킬 호출자 확인 건수·시각과 요청 제한 값(worker/router.js) — 헤더 누락 추정 한 칸은 남긴다(2차)
+//   FC-17 로그인 없이 보이는 스킬 호출자 확인 건수·시각·헤더 누락 추정과 요청 제한 값(worker/router.js) — 집계 전체는 관리자 /ops-snapshot.json(3차)
 //   FC-18 옛 내부용 안내 화면의 검색 제외(X-Robots-Tag) — 고칠 것 없이 지금 머리가 있음을 고정한다
 //   FC-23 공개 /start-guide 의 공유 이미지(og:image)
 // 장면마다 고치기 전 결함이 생기던 조건을 그대로 만들고(사용자 글·예산 GET 500·구성원 세션·큰 금액·거부된 /skill 호출) 고친 동작을 확인한다.
@@ -151,6 +151,26 @@ await fixture(async (fx) => {
   const beta = await page(fx, "/beta-start", { cookie: "" });
   t.ok(beta.html.includes('<p class="muted">처음에는 ‘가계부 생성·참여 → 초대·승인 → 단톡방 연결(선택) → 기록 방법 → 첫 기록’까지만 안내합니다.') && !beta.html.includes("처음에는 기능을 많이 설명하기보다"), "FC-2 /beta-start 운영 기준 문장은 예전처럼 바뀐다(<p class=\"muted\"> 까지 찾음)");
 });
+// FC-2(3차): ‘카카오 로그인 점검’ 화면 치환의 예전 조건(…</h1>)은 가계부 이름으로도 켜졌다. 조건을 그 화면의 <title> 끝으로 옮겼다.
+// 고치기 전(과 2차)에는 메모 ‘로컬 설정 일치 · 로그인 버튼 표시’ 가 ‘…카카오 로그인 버튼 표시됨’ 으로, 결제수단 문장 끝에 ‘KOE006’ 안내가 붙었고,
+// 분류 ‘Redirect URI 형식’(홈·/m 의 <b>…</b>)이 ‘KAKAO_REDIRECT_URI 명시값’ 으로 보였다(태그까지 붙여 찾아도 사용자 글이 그 꼴이 된다).
+await withClock("2026-07-20", () => fixture(async (fx) => {
+  fx.db.households.find((row) => row.id === HOME).name = "카카오 로그인 점검";
+  const stamp = "2026-07-08T03:00:00.000Z";
+  fx.db.transactions.push(
+    { id: "v126-kl-1", household_id: HOME, user_id: "user-bin", transaction_date: "2026-07-08", type: "expense", amount: 7000, category: "기타", memo: "로컬 설정 일치 · 로그인 버튼 표시", payment_method: "이 화면에서는 카카오 관리자센터 등록 여부까지 자동 확인할 수 없습니다.", source: "web", raw_text: "기록", created_at: stamp, updated_at: stamp },
+    { id: "v126-kl-2", household_id: HOME, user_id: "user-bin", transaction_date: "2026-07-09", type: "expense", amount: 8000, category: "Redirect URI 형식", memo: "마지막 외부 확인", payment_method: "현금", source: "web", raw_text: "기록", created_at: stamp, updated_at: stamp },
+  );
+  for (const path of [`/app?${Q}`, `/app?tab=transactions&${Q}`, `/m?${Q}`]) {
+    const html = (await page(fx, path)).html;
+    t.ok(html.includes("카카오 로그인 점검</h1>") && !html.includes(" · 카카오 로그인 점검</title>"), `FC-2(3차) ${path}: 가계부 이름이 예전 조건(…</h1>)은 만들지만 제목은 그 꼴로 끝나지 않는다(장면 확인)`);
+    t.ok(!/카카오 로그인 버튼 표시됨|KOE006|KAKAO_REDIRECT_URI 명시값|로컬 구성만 확인한 상태입니다/.test(html), `FC-2(3차) ${path}: 메모·결제수단·분류의 점검 화면 문구가 하나도 바뀌지 않는다`);
+  }
+}));
+{
+  const code = read("src/modules/web/html-postprocess.js");
+  t.ok(code.includes('if (source.includes(" · 카카오 로그인 점검</title>")) {') && !code.includes('source.includes("카카오 로그인 점검</h1>")'), "FC-2(3차) ‘카카오 로그인 점검’ 화면 치환의 조건은 그 화면의 <title> 끝이다(사용자 글로 만들 수 있는 …</h1> 이 아님)");
+}
 {
   const source = read("src/modules/web/html-postprocess.js");
   const start = source.indexOf("\nfunction normalizeUserFacingUi(");
@@ -158,11 +178,10 @@ await fixture(async (fx) => {
   t.ok(start > 0 && end > start + 2000, "FC-2 normalizeUserFacingUi 본문을 찾았다(이름이나 자리가 바뀌면 여기서 실패한다)");
   const code = source.slice(start, end).split("\n").filter((line) => !line.trim().startsWith("//")).join("\n");
   const searchKeys = [...code.matchAll(/source\.replace(?:All)?\(\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|`(?:[^`\\]|\\.)*`|\/(?:[^/\\\n]|\\.)+\/[a-z]*|[A-Za-z_$][\w$]*)/g)].map((m) => m[1]);
-  // 맨 글자로 찾아도 되는 두 개: ‘카카오 로그인 점검’ 화면(조건이 그 화면의 </h1>) 안에서만 돌고, 그 화면에는 사용자 기록이 없다.
-  const allowedPlain = new Set(['"로컬 설정 일치 · 로그인 버튼 표시"', '"이 화면에서는 카카오 관리자센터 등록 여부까지 자동 확인할 수 없습니다."']);
-  const plain = searchKeys.filter((key) => /^[A-Za-z_$]/.test(key) ? key !== "oldPublicSteps" : key.startsWith("/") ? !/^\/\(?</.test(key) : !/[<>]|="/.test(key) && !allowedPlain.has(key));
+  // 3차: 예외 목록은 비었다. ‘카카오 로그인 점검’ 화면의 두 문장 치환도 그 화면의 태그(<td>…</td>·…</p>)까지 붙여 찾는다.
+  const plain = searchKeys.filter((key) => /^[A-Za-z_$]/.test(key) ? key !== "oldPublicSteps" : key.startsWith("/") ? !/^\/\(?</.test(key) : !/[<>]|="/.test(key));
   t.ok(searchKeys.length >= 40, `FC-2 normalizeUserFacingUi 의 치환 ${searchKeys.length}개를 읽었다`);
-  t.eq(plain.join(" | "), "", "FC-2 normalizeUserFacingUi 의 치환은 모두 템플릿 태그·속성까지 붙여 찾는다(사용자 글은 이스케이프되어 그 모양을 만들 수 없다)");
+  t.eq(plain.join(" | "), "", "FC-2 normalizeUserFacingUi 의 치환은 예외 없이 모두 템플릿 태그·속성까지 붙여 찾는다(사용자 글은 이스케이프되어 그 모양을 만들 수 없다)");
   t.ok(!/프리미엄|유료 전환|시작가이드"|오늘 쓴 돈 ☀️|\/my\\?\/premium|maximum-scale|7b8494|가계부에 접속하세요|매일 쓰는 메뉴만|홈·입력 → 기록 보기|반기·연단위로/.test(code), "FC-2 뺀 치환(프리미엄·유료 전환·그림 글자·주소·뷰포트·옛 안내 문장)이 코드에 남아 있지 않다");
 }
 
@@ -312,10 +331,19 @@ for (const month of ["2026-10", "2026-12"]) {
   const tsv = parseFlexibleImportRecords("날짜\t금액\t내용\n2026-07-01\t12.000원\t점심\n2026-07-02\t8000.00\t커피", HOME, "user-bin", {});
   t.ok(tsv.rows.length === 1 && tsv.rows[0].amount === 8000 && tsv.rejected.length === 1 && tsv.rejected[0].row_number === 2, "FC-6 TSV 도 같다(‘12.000원’ 줄만 되묻고 ‘8000.00’ 은 8000원)");
   // 2차: 머리글 없는 표(쉼표·탭). 고치기 전에는 금액 칸을 못 읽으면 자연어 해석으로 넘어가 ‘12.000원’ 이 12원으로 저장 대기에 올랐다(미리 보기 ready).
-  for (const text of ["2026-07-01,커피,12.000원", "2026-07-01\t커피\t12.000원", "2026-07-01,커피,12.000원,1", "2026-07-01\t커피\t12.500원", "2026-07-01,커피,₩1.200.000"]) {
-    const r = parseFlexibleImportRecords(text, HOME, "user-bin", {});
-    t.ok(r.rows.length === 0 && r.rejected.length === 1 && r.rejected[0].reason_code === "invalid_amount", `FC-6(2차) 머리글 없는 ${JSON.stringify(text)} 는 ‘금액 형식을 해석하지 못함’ 으로 되묻는다(${r.rows.map((x) => x.amount).join(",") || r.rejected[0]?.reason_code})`);
-  }
+  // 3차: 되묻는 것은 칸 전체가 천 단위 점 금액 꼴(₩·부호 선택, 1~3자리 + ‘.세 자리’ 묶음, 원 선택, 맨 앞 0 아님)일 때뿐이다.
+  //  - 그 칸뿐이면 ‘금액 형식을 해석하지 못함’(invalid_amount).
+  //  - 읽을 수 있는 금액 칸이 함께 있으면 금액 후보가 둘이라 ‘금액 후보가 여러 개’(ambiguous_amount). 고치기 전에도 그 칸을 12·5 로 읽어 같은 답이었고,
+  //    머리글 있는 표도 금액 칸 하나를 읽지 못하면 다른 금액 칸으로 저장하지 않는다.
+  //  - 점이 찍힌 다른 칸(전화번호·환율·좌표·무게)은 금액 꼴이 아니므로 고치기 전처럼 남은 금액으로 저장한다(독립 검토 2차의 예 그대로).
+  const outcome = (text) => { const r = parseFlexibleImportRecords(text, HOME, "user-bin", {}); return r.rows.length ? `rows:${r.rows.map((x) => x.amount).join("/")}` : `rejected:${r.rejected.map((x) => x.reason_code).join("/")}`; };
+  for (const [text, expected, main] of [
+    ["2026-07-01,커피,12.000원", "rejected:invalid_amount", "12원"], ["2026-07-01\t커피\t12.000원", "rejected:invalid_amount", "12원"], ["2026-07-01\t커피\t12.500원", "rejected:invalid_amount", "12,500원"],
+    ["2026-07-01,커피,₩1.200.000", "rejected:invalid_amount", "1,200,000원"], ["2026-07-01,커피,5.000", "rejected:invalid_amount", "5원"], ["2026-07-01,환불,-12.000원", "rejected:invalid_amount", "12원"],
+    ["2026-07-01,커피,12.000원,1", "rejected:ambiguous_amount", "같음"], ["2026-07-01,커피,12.000원,25000원", "rejected:ambiguous_amount", "같음"], ["2026-07-01,커피,25000원,5.000", "rejected:ambiguous_amount", "같음"],
+    ["2026-07-01,꽃집,010.1234.5678,25000원", "rows:25000", "같음"], ["2026-07-01\t환전\t13505원\t1,350.500", "rows:13505", "같음"], ["2026-07-01,꽃집,37.5665,25000원", "rows:25000", "같음"],
+    ["2026-07-01,정육점,0.500,25000원", "rows:25000", "같음"], ["2026-07-01,꽃집,02.123.4567,25000원", "rows:25000", "같음"], ["2026-07-01,커피,192.168.0.1,25000원", "rows:25000", "같음"],
+  ]) t.eq(outcome(text), expected, `FC-6(3차) 머리글 없는 ${JSON.stringify(text)} → ${expected}(고치기 전: ${main})`);
   const plainRows = parseFlexibleImportRecords("2026-07-01,커피,12000원", HOME, "user-bin", {});
   const plainTsv = parseFlexibleImportRecords("2026-07-02\t점심\t8,000원", HOME, "user-bin", {});
   t.ok(plainRows.rows.length === 1 && plainRows.rows[0].amount === 12000 && plainTsv.rows.length === 1 && plainTsv.rows[0].amount === 8000, `FC-6(2차) 머리글 없는 보통 금액 칸(12000원·8,000원)은 예전처럼 읽는다(${plainRows.rows.map((x) => x.amount)}/${plainTsv.rows.map((x) => x.amount)})`);
@@ -328,10 +356,14 @@ await withClock("2026-07-20", () => fixture(async (fx) => {
     const token = (r.text || "").match(/name="import_token" value="([^"]+)"/)?.[1] || "";
     return { status: r.status, payload: token ? JSON.parse(Buffer.from(token.split(".")[0], "base64url").toString("utf8")) : null };
   };
-  for (const text of ["2026-07-01,커피,12.000원", "2026-07-01\t커피\t12.000원", "2026-07-01,커피,12.000원,1"]) {
+  for (const text of ["2026-07-01,커피,12.000원", "2026-07-01\t커피\t12.000원"]) {
     const { status, payload } = await preview(text);
     t.ok(status === 200 && payload && payload.parsed.format === "headerless_table" && payload.parsed.accepted_count === 0 && payload.ready.length === 0 && payload.parsed.warnings.includes("1행: 금액 형식을 해석하지 못함"), `FC-6(2차) 가져오기 미리 보기 ${JSON.stringify(text)}: 저장 대기 0줄, ‘1행: 금액 형식을 해석하지 못함’(고치기 전 12원 한 줄)`);
   }
+  const both = (await preview("2026-07-01,커피,12.000원,1")).payload;
+  t.ok(both && both.ready.length === 0 && both.parsed.warnings.includes("1행: 금액 후보가 여러 개라 확정하지 못함"), "FC-6(3차) 가져오기 미리 보기 ‘12.000원’ 과 ‘1’ 이 함께 있으면 고치기 전처럼 ‘금액 후보가 여러 개’(1차의 1원 저장 대기 없음)");
+  const phone = (await preview("2026-07-01,꽃집,010.1234.5678,25000원")).payload;
+  t.ok(phone && phone.ready.length === 1 && phone.ready[0].row?.amount === 25000, `FC-6(3차) 가져오기 미리 보기 전화번호 칸이 있어도 고치기 전처럼 25,000원 한 줄(${phone?.ready?.[0]?.row?.amount})`);
   const { payload } = await preview("커피 12.000원");
   t.ok(payload && payload.parsed.format === "natural_text" && payload.ready.length === 1 && payload.ready[0].row?.amount === 12000, `FC-6(2차) 가져오기 미리 보기 한 줄 문장은 예전처럼 12,000원 한 줄(${payload?.ready?.[0]?.row?.amount})`);
 }));
@@ -388,37 +420,60 @@ await withClock("2026-07-20", () => fixture(async (fx) => {
   t.eq(message, "이름과 금액을 입력해주세요.", "FC-14 updateReservePlan 도 같다");
 }));
 
-// ── FC-17 공개 응답의 스킬 호출자 확인은 모드·설정 여부·헤더 누락 추정만 ───────────────────
-// 2차: header_missing_suspected 는 오픈빌더 비밀 헤더가 빠졌다는 유일한 신호라 남긴다(운영 화면에 따로 보이지 않는다). 건수·시각만 뺀다.
+// ── FC-17 공개 응답의 스킬 호출자 확인은 모드·설정 여부만, 집계 전체는 관리자 전용 /ops-snapshot.json ───────────────────
+// 3차: 공개 응답의 header_missing_suspected 는 새로 뜬 인스턴스에 아무나 비밀값 없는 /skill 을 두 번 보내면 true 가 되어 운영자를 헷갈리게 할 수 있었다.
+// 공개 /health·/ready·/kakao-new-bot-config.json 의 skill_caller_auth 는 {mode, configured} 뿐이고,
+// 통과·거부 건수·마지막 시각·헤더 누락 추정 전체(kakaoSkillAuthSnapshot)는 관리자 세션이 있어야 열리는 /ops-snapshot.json 의 skill_caller_auth 에 있다.
+// (/health 의 skill_latency.last_at 은 응답 시간 표본의 마지막 시각으로 고치기 전부터 있던 칸이다. 호출자 확인 값이 아니어서 그대로 둔다.)
 await fixture(async (fx) => {
-  const secretEnv = { ...fx.env, KAKAO_SKILL_SECRET: "v126-skill-secret", ADMIN_SESSION_SECRET: "qa-v126-admin-session", ADMIN_API_TOKEN: "qa-v126-admin-token" };
-  const json = async (path, env) => (await (await app.fetch(new Request(`${BASE}${path}`), env, ctx)).json());
+  Object.assign(fx.env, { KAKAO_SKILL_SECRET: "v126-skill-secret", ADMIN_PASSWORD: "qa-v126-admin", ADMIN_SESSION_SECRET: "qa-v126-admin-session", ADMIN_API_TOKEN: "qa-v126-admin-token" });
+  const secretEnv = fx.env;
+  const fetchJson = async (path, env = secretEnv, cookie = "") => { const res = await app.fetch(new Request(`${BASE}${path}`, { headers: cookie ? { cookie, accept: "text/html" } : { accept: "text/html" } }), env, ctx); return { status: res.status, body: await res.json() }; };
+  const json = async (path, env) => (await fetchJson(path, env)).body;
   const skillBody = JSON.stringify({ userRequest: { utterance: "안녕", user: { id: "kakao_login:2265", properties: {} } }, action: { params: {} }, bot: { id: "bot" }, intent: { id: "i", name: "블록" } });
-  const COUNT_KEYS = /"(?:accepted|denied|last_accepted_at|last_denied_at)"/;
-  t.deepEq((await json("/health", secretEnv)).skill_caller_auth, { mode: "enforce", configured: true, header_missing_suspected: false }, "FC-17 거부가 쌓이기 전에는 헤더 누락 추정이 false");
-  // 고치기 전 장면: 거부된 /skill 호출이 쌓인 뒤 공개 /health 가 건수·시각까지 냈다.
-  for (let i = 0; i < 2; i += 1) {
-    const denied = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers: { "content-type": "application/json" }, body: skillBody }), secretEnv, ctx);
-    t.eq(denied.status, 403, "FC-17 장면: 비밀값 없는 /skill 호출은 예전처럼 막힌다");
-  }
+  const skillCall = async (headers = {}) => { const res = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: skillBody }), secretEnv, ctx); await res.text(); return res.status; };
+  const AUTH_WORDS = /accepted|denied|last_|header_missing_suspected/;
+  const publicLeak = (body) => AUTH_WORDS.test(JSON.stringify({ ...body, skill_latency: undefined }));
+  const login = await post(fx, "/login", { password: secretEnv.ADMIN_PASSWORD, return_to: "/admin-view" }, { cookie: "" });
+  const admin = (login.setCookie.match(/ab_admin=[^;,]+/) || [""])[0];
+  t.ok(!!admin, `FC-17 장면: 관리자 로그인 쿠키를 받았다(${login.status})`);
+  const adminAuth = async () => { const r = await fetchJson("/ops-snapshot.json", secretEnv, admin); return { status: r.status, keys: Object.keys(r.body).join(","), auth: r.body.skill_caller_auth }; };
+  const anon = await fetchJson("/ops-snapshot.json");
+  t.ok(anon.status === 401 && !("skill_caller_auth" in anon.body) && !("snapshot" in anon.body) && !AUTH_WORDS.test(JSON.stringify(anon.body)), `FC-17 관리자 세션이 없으면 /ops-snapshot.json 은 예전처럼 401 이고 집계를 싣지 않는다(${anon.status})`);
+  const fresh = await adminAuth();
+  t.eq(fresh.status, 200, "FC-17 관리자 세션이면 /ops-snapshot.json 이 열린다");
+  t.eq(fresh.keys, "ok,snapshot,skill_caller_auth", "FC-17 /ops-snapshot.json 의 맨 위 칸은 ok·snapshot 에 skill_caller_auth 하나만 더했다");
+  t.eq(Object.keys(fresh.auth || {}).join(","), "mode,configured,accepted,denied,last_accepted_at,last_denied_at,header_missing_suspected", "FC-17 관리자 skill_caller_auth 는 집계 전체(kakaoSkillAuthSnapshot)다");
+  t.ok(fresh.auth?.mode === "enforce" && fresh.auth?.configured === true && fresh.auth?.header_missing_suspected === false, "FC-17 거부가 쌓이기 전에는 관리자 화면의 헤더 누락 추정이 false");
+  t.deepEq((await json("/health", secretEnv)).skill_caller_auth, { mode: "enforce", configured: true }, "FC-17 공개 /health 는 모드·설정 여부뿐이다");
+  // 고치기 전 장면: 거부된 /skill 호출이 쌓인 뒤 공개 /health 가 건수·시각까지 냈다(2차까지는 헤더 누락 추정이 공개로 true 가 됐다).
+  for (let i = 0; i < 2; i += 1) t.eq(await skillCall(), 403, "FC-17 장면: 비밀값 없는 /skill 호출은 예전처럼 막힌다");
+  const afterDenied = (await adminAuth()).auth || {};
+  t.ok(afterDenied.header_missing_suspected === true && afterDenied.denied >= 2 && afterDenied.accepted === 0 && !!afterDenied.last_denied_at && !afterDenied.last_accepted_at, `FC-17 거부 두 번 뒤 관리자 /ops-snapshot.json 의 헤더 누락 추정이 true(거부 ${afterDenied.denied}·통과 ${afterDenied.accepted})`);
   for (const path of ["/health", "/ready", "/kakao-new-bot-config.json"]) {
     const body = await json(path, secretEnv);
-    t.deepEq(body.skill_caller_auth, { mode: "enforce", configured: true, header_missing_suspected: true }, `FC-17 ${path}: 통과 없이 거부만 쌓이면 header_missing_suspected 가 true 다`);
-    t.eq(Object.keys(body.skill_caller_auth).join(","), "mode,configured,header_missing_suspected", `FC-17 ${path} 의 skill_caller_auth 는 이 세 칸뿐이다`);
-    t.ok(!COUNT_KEYS.test(JSON.stringify(body)), `FC-17 ${path} 에 통과·거부 건수와 시각이 없다`);
+    t.deepEq(body.skill_caller_auth, { mode: "enforce", configured: true }, `FC-17 ${path}: 거부가 쌓여도 skill_caller_auth 는 모드·설정 여부 두 칸뿐이다`);
+    t.ok(!publicLeak(body), `FC-17 ${path} 에 accepted·denied·last_…·header_missing_suspected 가 없다`);
     t.eq(body.skill_caller_auth_configured, true, `FC-17 ${path} 의 설정 여부 칸은 그대로다`);
   }
-  t.deepEq((await json("/health", { ...secretEnv, KAKAO_SKILL_AUTH_MODE: "observe" })).skill_caller_auth, { mode: "observe", configured: true, header_missing_suspected: true }, "FC-17 observe 모드와 누락 추정이 그대로 드러난다(배포 점검이 읽는 칸)");
-  t.deepEq((await json("/health", fx.env)).skill_caller_auth, { mode: "off", configured: false, header_missing_suspected: false }, "FC-17 비밀값이 없으면 off·추정 false");
-  const accepted = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers: { "content-type": "application/json", "x-kakao-skill-secret": "v126-skill-secret" }, body: skillBody }), secretEnv, ctx);
-  await accepted.text();
-  t.ok(accepted.status !== 403, `FC-17 비밀 헤더가 맞는 /skill 호출은 통과한다(${accepted.status})`);
-  t.deepEq((await json("/health", secretEnv)).skill_caller_auth, { mode: "enforce", configured: true, header_missing_suspected: false }, "FC-17 통과가 한 번 생기면 추정이 false 로 돌아온다(실제 세는 식 그대로)");
+  t.deepEq((await json("/health", { ...secretEnv, KAKAO_SKILL_AUTH_MODE: "observe" })).skill_caller_auth, { mode: "observe", configured: true }, "FC-17 observe 모드는 공개 응답에 그대로 드러난다(배포 점검이 읽는 칸)");
+  t.deepEq((await json("/health", { ...secretEnv, KAKAO_SKILL_SECRET: "" })).skill_caller_auth, { mode: "off", configured: false }, "FC-17 비밀값이 없으면 off");
+  t.ok((await skillCall({ "x-kakao-skill-secret": "v126-skill-secret" })) !== 403, "FC-17 비밀 헤더가 맞는 /skill 호출은 통과한다");
+  const afterAccept = (await adminAuth()).auth || {};
+  t.ok(afterAccept.header_missing_suspected === false && afterAccept.accepted >= 1 && !!afterAccept.last_accepted_at, `FC-17 통과가 한 번 생기면 관리자 화면의 추정이 false 로 돌아온다(통과 ${afterAccept.accepted})`);
+  t.deepEq((await json("/health", secretEnv)).skill_caller_auth, { mode: "enforce", configured: true }, "FC-17 통과 뒤에도 공개 /health 는 두 칸뿐이다");
   const config = await json("/kakao-new-bot-config.json", { ...secretEnv, SKILL_RATE_LIMIT: "77", TRAFFIC_GUARD_LIMIT: "333" });
-  t.ok(!("skill_rate_limit_per_user_per_minute" in config) && !("traffic_guard_limit_per_ip_per_minute" in config) && !JSON.stringify(config).includes("333") && !COUNT_KEYS.test(JSON.stringify(config)), "FC-17 /kakao-new-bot-config.json 에 요청 제한 값과 호출 건수·시각이 없다");
+  t.ok(!("skill_rate_limit_per_user_per_minute" in config) && !("traffic_guard_limit_per_ip_per_minute" in config) && !JSON.stringify(config).includes("333") && !publicLeak(config), "FC-17 /kakao-new-bot-config.json 에 요청 제한 값과 호출 건수·시각·헤더 누락 추정이 없다");
   t.eq(Object.keys(config).join(","), "ok,version,mode,service,public_base_url,skill_url,skill_caller_auth_configured,skill_caller_auth,user_home,kakao_redirect_uri,privacy_url,terms_url,group_chatbot_routes,forbidden_public_patterns,skill_ip_guard,chat_first,quick_replies", "FC-17 나머지 설정 안내 칸은 순서까지 그대로다");
   const health = await json("/health", secretEnv);
   t.eq(Object.keys(health).join(","), "ok,alive,status,configured,app,version,mode,integrity,missing_count,skill_caller_auth_configured,skill_caller_auth,skill_latency,ready_endpoint,time", "FC-17 /health 의 칸 목록·순서는 그대로다");
+  // FC-2(3차) 짝(관리자 로그인을 한 번만 쓰려고 여기 둔다): 진짜 ‘카카오 로그인 점검’ 화면에서는 태그까지 붙여 찾아도 두 문장이 예전처럼 바뀐다.
+  const readyEnv = { ...secretEnv, KAKAO_LOGIN_ENABLED: "1", KAKAO_REST_API_KEY: "qa-rest-key", PUBLIC_BASE_URL: BASE, KAKAO_REDIRECT_URI: `${BASE}/auth/kakao/callback` };
+  const check = await app.fetch(new Request(`${BASE}/kakao-login-check`, { headers: { cookie: admin, accept: "text/html" } }), readyEnv, ctx);
+  const checkHtml = await check.text();
+  t.ok(check.status === 200 && checkHtml.includes("<title>") && checkHtml.includes("카카오 로그인 점검</h1>"), `FC-2(3차) 관리자 ‘카카오 로그인 점검’ 화면이 열린다(${check.status})`);
+  t.ok(checkHtml.includes("<td>로컬 설정 일치 · 카카오 로그인 버튼 표시됨</td>") && checkHtml.includes("자동 확인할 수 없습니다. 등록값이 다르면 KOE006이 발생합니다.</p>") && !checkHtml.includes("로그인 버튼 표시</td>"), "FC-2(3차) 그 화면의 두 문장은 예전처럼 바뀐다(<td>…</td>·…</p> 까지 찾음)");
+  t.ok(checkHtml.includes("<b>KAKAO_REDIRECT_URI 명시값</b>") && checkHtml.includes("<b>로컬 구성만 확인한 상태입니다</b><br/>") && !checkHtml.includes("<b>Redirect URI 형식</b>"), "FC-2(3차) 그 화면의 나머지 두 치환도 예전처럼 된다(<title> 조건)");
 });
 
 // ── FC-18 옛 내부용 안내 화면: 접근은 그대로, 검색 제외 머리(X-Robots-Tag) ───────────────────
