@@ -1,4 +1,4 @@
-// 카카오 기록 저장 직전 안전망의 되묻기 아홉 가족 검사(kakao/request-guards.js kakaoGuardMoreV229126, 2026-11-16 가상 문장 점검).
+// 카카오 기록 저장 직전 안전망의 되묻기 아홉 가족과 두 자리 금액 되묻기 검사(kakao/request-guards.js kakaoGuardMoreV229126, 2026-11-16 가상 문장 점검).
 //  막는 말(BLOCK): 가족마다 4~6문장 — 1:1·단톡방 모두 기록이 생기지 않고, 그 가족의 안내 글과 단추(‘오늘기록’)로 답한다(글에 주소 없음).
 //  그대로 저장할 말(KEEP): 가족마다 6~10문장 — 가족 낱말이 들었지만 맞게 저장되던 말. 날짜·금액·구분이 그대로다.
 //  type_conflict: 답은 실제 섞인 말 확인 답(skill-handler.js kakaoMixedTypeConfirmationReply — 해석기가 섞인 말로 막는 문장을 /skill 로 보내 받은 답)과
@@ -7,6 +7,8 @@
 //  기존 안전망이 먼저다(날짜·고치기 말이 함께 든 말은 그 안내), 카드 승인 문자로 읽힌 기록은 보지 않는다.
 //  장면: 별도 구매 추가, 예산 명령, 열린 고치기 세션 뒤의 새 기록, 응답 예산을 넘긴 늦은 답(늦은 답 글과 뒤에서 끝난 저장이 맞는지).
 //  판정 시간: 되풀이 글 350자·1,400자의 판정 시간 비가 8배 이하(길이 4배 — 제곱이면 16배). 절대 시간은 보지 않는다.
+//  3차: 수입 한 건인데 금액에 붙은 낸 말로 끝나는 말(A), 여러 건이 한 구분인데 금액 바로 뒤에 반대쪽 말이 붙은 말(B)은 type_conflict,
+//  원 없이 적힌 10~99 가 다른 금액·물결표·세는 말과 함께 기록이 되는 말(C)은 한 자리 금액과 같은 글로 되묻는다(small_amount).
 // 오프라인: 픽스처 + app.fetch(DB·바깥 요청 없음), 시계 2026-11-10 12:00 KST. 판 이름 글자는 적지 않는다.
 // 바탕 코드(이 가족들 전)에서는 BLOCK·type_conflict 단언이 실패한다(틀린 값을 저장한다). KEEP 은 그 코드도 저장한다 — 지나치게 막지 않는지 지키는 단언이다.
 import crypto from "node:crypto";
@@ -17,7 +19,7 @@ const TODAY = "2026-11-10";
 const SECRET = "validate-v229126-guards-secret";
 const USER = "kakao_login:2265";
 const roomKey = (id) => crypto.createHash("sha256").update(`v229126-guards-room-${id}`).digest("hex");
-const { ok, eq, done } = counter("카카오 저장 직전 안전망 되묻기 아홉 가족(범위·외화·거스름돈·할인·단가·나눠 냄·총액·여러 날짜·수입/지출) 검사 통과");
+const { ok, eq, done } = counter("카카오 저장 직전 안전망 되묻기 아홉 가족(범위·외화·거스름돈·할인·단가·나눠 냄·총액·여러 날짜·수입/지출)과 두 자리 금액 검사 통과");
 const failures = [];
 const check = (fn, label) => { try { fn(); } catch (error) { failures.push(`${label}: ${String(error.message || error).split("\n")[0].slice(0, 300)}`); } };
 
@@ -95,6 +97,10 @@ const TEXT = {
   // 여러 건으로 읽힌 말: 앞에 붙인 ‘수입’ 이 첫 건에만 닿으므로 두 단추 대신 한 건씩 보내 달라고 한다.
   type_conflict: "수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n기록을 한 건씩, 앞에 ‘지출’ 이나 ‘수입’ 을 붙여 다시 보내 주세요.\n예: 수입 중고 자전거 15만원",
 };
+// 3차 C: skill-handler.js 의 한 자리 금액 답(amount_unit_required)과 같은 글.
+const SMALL_TEXT = (n) => `금액이 ${n}원으로 읽혀 저장하지 않았어요. 정말 ${n}원이면 "${n}원"처럼 원을 붙여 다시 보내 주세요.`;
+// SMALL = [보낸 말, 되묻는 금액]: 물결표에 붙은 앞 수(달·날 범위), 띄어 쓴 천 단위, 다른 금액과 함께 적힌 원 없는 두 자리 수.
+const SMALL = [["11~12월 주차비 두 달치 120000", 11], ["영양제 30~40일분 45000원", 30], ["저녁 15 000원", 15], ["24~25 시즌권 15만원", 24], ["월급 300 상여 50", 50]];
 // 실제 섞인 말 확인 답의 원본: 해석기가 섞인 말로 막는 문장(40자 이하·넘는 것 하나씩). 이 문장들의 답에서 예시·단추 말만 바꿔 안전망 답과 견준다.
 const REAL_MIXED = ["월급 받아서 카드값 냈어 50만원", "월급 받아서 카드값 냈어 50만원 오늘은 정말 바쁜 하루였고 저녁은 집에서 먹음"];
 
@@ -126,6 +132,12 @@ const BLOCK = [
   ["type_conflict", "작년에 깜빡하고 안 한 실비 청구 며칠 전에 해놨더니 오늘 벌써 들어왔네요 보험금 58000원"],
   // 앞에 ‘수입’ 을 붙였는데 해석기가 지출 한 건으로 읽은 말도 저장하지 않는다.
   ["type_conflict", "수입 작년에 깜빡하고 안 한 실비 청구 며칠 전에 해놨더니 오늘 벌써 들어왔네요 보험금 58000원"],
+  // 3차 A: 수입 한 건인데 낸 말에 붙은 금액이 기록 금액과 다른 말(들어온 돈과 쓴 돈이 함께 있다) — 단추 없이 한 건씩.
+  ["type_conflict", "반품 환불 31000 들어오고 치킨 19000 시킴"], ["type_conflict", "환급금 12000 들어와서 떡볶이 8000 시킴"],
+  // 3차 B: 여러 건이 모두 지출인데 금액 바로 뒤에 받은 말, 모두 수입인데 금액 바로 뒤에 낸 말.
+  ["type_conflict", "중고 책 팔아서 12000원 받고 커피 4500 사먹음"], ["type_conflict", "월세 50만원 받고 관리비 7만원 냈어"],
+  ["type_conflict", "당근에서 의자 팔고 2만원 받고 택배비 3500 나감"], ["type_conflict", "월급 250만원 들어옴 카드값 50만원 결제"],
+  ["type_conflict", "알바비 60만원 받음 그중 15만원 썼어요"], ["type_conflict", "상여금 50만원 들어옴 바로 20만원 이체함"],
 ];
 // KEEP = [가족, 보낸 말, 저장 값(날짜|금액|구분 e 지출·i 수입)].
 const e = (amount, date = TODAY) => `${date}|${amount}|e`;
@@ -178,8 +190,24 @@ const KEEP = [
   ["type_conflict", "택시 타서 20분 벌었다 15000원", [e(15000)]], ["type_conflict", "야근하고 들어왔다 택시 21000원", [e(21000)]],
   // 해석기가 ‘들어옴’ 을 수입으로 읽는 말 — 바탕 코드와 같다(안전망은 되묻지 않는다).
   ["type_conflict", "야근하고 택시 타고 들어옴 18000원", [`${TODAY}|18000|i`]],
-  // 단위 없는 두 수 옆에 다른 금액이 있으면 범위로 보지 않는다. 해석기는 앞의 수도 기록으로 읽는다 — 바탕 코드와 같다.
-  ["range", "24~25 시즌권 15만원", [e(24), e(150000)]], ["range", "운동화 250~255 고민하다 89000원", [e(250), e(255), e(89000)]],
+  // 단위 없는 두 수 옆에 다른 금액이 있으면 범위로 보지 않는다. 해석기는 앞의 수도 기록으로 읽는다 — 바탕 코드와 같다(두 자리 앞 수 ‘24~25’ 는 3차 C 가 되묻는다).
+  ["range", "운동화 250~255 고민하다 89000원", [e(250), e(255), e(89000)]],
+  // 3차 A·B 가 그대로 두는 말: 산 것을 말하지만 받은 돈으로 끝나는 수입, 다른 사람이 낸 말, 수입 둘, 돈이 아닌 받- 이 든 지출 둘, 맞게 섞인 두 건, 지출로 읽힌 서비스 값.
+  ["type_conflict", "중고로 산 자전거 팔아서 15만원 받음", [`${TODAY}|150000|i`]], ["type_conflict", "지난달 산 패딩 환불받음 89000원", [`${TODAY}|89000|i`]],
+  ["type_conflict", "배민 시켰다가 취소돼서 환불 받음 23000", [`${TODAY}|23000|i`]], ["type_conflict", "정산 받음 35000 (지수가 보냄)", [`${TODAY}|35000|i`]],
+  ["type_conflict", "회식비 정산 받음 42000 민수가 냄", [`${TODAY}|42000|i`]], ["type_conflict", "월급 250만원 들어오고 보너스 30만원 받음", [`${TODAY}|2500000|i`, `${TODAY}|300000|i`]],
+  ["type_conflict", "택배 받고 착불 4000원 냄, 커피 4500원", [e(4000), e(4500)]], ["type_conflict", "환불 15000원 들어오고 점심 9000원 결제", [`${TODAY}|15000|i`, e(9000)]],
+  ["type_conflict", "보너스 30만원 들어오고 7만원 사먹음", [`${TODAY}|300000|i`, e(70000)]], ["type_conflict", "두피 케어 받고 6만원 냈음", [e(60000)]],
+  // B 가 보지 않는 꼴: 받은 것이 서비스(지출 둘), ‘송금받음·이체됨’(들어온 말), 남이 보낸 돈(수입 둘).
+  ["type_conflict", "네일 6만원 받고 올리브영 2만원", [e(60000), e(20000)]], ["type_conflict", "친구한테 3만원 송금받음, 엄마한테 5만원 받음", [`${TODAY}|30000|i`, `${TODAY}|50000|i`]],
+  ["type_conflict", "월급 250만원 이체됨 보너스 30만원 입금됨", [`${TODAY}|2500000|i`, `${TODAY}|300000|i`]], ["type_conflict", "알바비 30만원 받았는데 친구가 3만원 보냄", [`${TODAY}|300000|i`, `${TODAY}|30000|i`]],
+  // 3차 C 가 그대로 두는 말: 원을 붙인 100 미만 금액, 호수·개월·개수의 두 자리 수, 수 하나만 적힌 두 자리 금액(예전처럼 원으로 저장).
+  ["small_amount", "사탕 50원", [e(50)]], ["small_amount", "봉투 50원 우유 1500원", [e(50), e(1500)]], ["small_amount", "302호 관리비 15만원", [e(150000)]],
+  ["small_amount", "넷플릭스 12개월 할부 15000원", [e(15000)]], ["small_amount", "계란 20개 6000원", [e(6000)]], ["small_amount", "마스크 50 장 8000원", [e(8000)]],
+  ["small_amount", "문구점 스티커 80", [e(80)]],
+  // 봉투값·이자처럼 정말 두 자리 원인 수는 다른 기록과 함께 읽혔으면 그대로 저장한다.
+  ["small_amount", "마트 45000 비닐봉투 50", [e(45000), e(50)]], ["small_amount", "커피 4500 쇼핑백 50", [e(4500), e(50)]],
+  ["small_amount", "예금 이자 12 들어왔고 점심 9000", [`${TODAY}|12|i`, e(9000)]],
   ["currency", "1파운드 스테이크 32000원", [e(32000)]], ["currency", "3파운드 연어 45000원", [e(45000)]],
   ["multi_date", "치킨 1/2마리 9000원\n피자 1/4판 7000원", [e(9000), e(7000)]], ["multi_date", "수박 1/2통 9000원\n무 1/3개 1500원", [e(9000), e(1500)]],
 ];
@@ -188,10 +216,14 @@ const KEEP = [
 const MIXED_AMOUNT = { "지원금 30만원 입금됨": 300000, "보험금 12만원 들어왔다": 120000, "외주비 80만원 입금됐어": 800000, "레슨비 25만원 입금됐어요": 250000, "안 쓰는 가방 팔았다 4만원": 40000,
   "공연 끝나고 환불 안 되는 티켓 99000 결제함": 99000, "이자 받는 날이라 피자 시킴 21000": 21000, "환불 받으러 가는 길에 택시 9800원 냄": 9800,
   "환불된대서 반품했는데 오늘 들어왔네 32000원": 32000, "실손 청구한거 오늘 들어왔더라고요 54000원": 54000,
-  "디자인 외주 작업비 80만원 오늘 드디어 입금됐어 ㅎㅎ 이번 달은 진짜 열심히 일했다": 800000 };
+  "디자인 외주 작업비 80만원 오늘 드디어 입금됐어 ㅎㅎ 이번 달은 진짜 열심히 일했다": 800000,
+  // 3차 A: 받은 것이 돈이 아니고(서비스·용돈으로 산 것) 금액에 붙은 낸 말로 끝나는 수입 한 건.
+  "네일아트 받음 현금 45000 냈음": 45000, "용돈 받아서 커피 4500원 삼": 4500, "속눈썹 연장 받음 카드로 55000원 결제함": 55000 };
 const MIXED = Object.keys(MIXED_AMOUNT);
 // 늦은 답 장면: [보낸 말, 되묻는 가족(없으면 저장), 뒤 작업이 끝난 뒤 생긴 기록].
-const LATE = [["4500원짜리 커피 2잔", "unit", []], ["지원금 30만원 입금됨", "mixed", []], ["피자 23000원 동생이랑 나눠 먹음", "", [e(23000)]], ["커피 4500, 기념품 20달러", "", [e(4500)]]];
+const LATE = [["4500원짜리 커피 2잔", "unit", []], ["지원금 30만원 입금됨", "mixed", []], ["피자 23000원 동생이랑 나눠 먹음", "", [e(23000)]], ["커피 4500, 기념품 20달러", "", [e(4500)]],
+  ["네일아트 받음 현금 45000 냈음", "mixed", []], ["월세 50만원 받고 관리비 7만원 냈어", "type_conflict", []], ["11~12월 주차비 두 달치 120000", "small:11", []],
+  ["정산 받음 35000 (지수가 보냄)", "", [`${TODAY}|35000|i`]], ["문구점 스티커 80", "", [e(80)]]];
 
 for (const path of ["direct", "room"]) {
   for (const [kind, utterance] of BLOCK) {
@@ -202,6 +234,14 @@ for (const path of ["direct", "room"]) {
     check(() => eq(JSON.stringify(reply.labels), JSON.stringify(ONE), `${path} [${kind}] ‘${utterance}’: 단추`), "block");
     check(() => ok(!/https?:\/\//.test(reply.text), `${path} [${kind}] ‘${utterance}’: 글에 주소 없음`), "block");
     check(() => eq(r.touchedSeed, 0, `${path} [${kind}] ‘${utterance}’: 예전 기록 그대로`), "block");
+  }
+  for (const [utterance, n] of SMALL) {
+    const r = await run(`small-${utterance}`, path, [utterance]);
+    const reply = r.replies[0];
+    check(() => eq(r.addedPerTurn[0].length, 0, `${path} [small_amount] ‘${utterance}’: 저장 없음 — ${JSON.stringify(r.addedPerTurn[0])}`), "small");
+    check(() => eq(reply.text, SMALL_TEXT(n), `${path} [small_amount] ‘${utterance}’: 한 자리 금액과 같은 글, 금액 ${n}`), "small");
+    check(() => eq(JSON.stringify(reply.labels), JSON.stringify(ONE), `${path} [small_amount] ‘${utterance}’: 단추`), "small");
+    check(() => eq(r.touchedSeed, 0, `${path} [small_amount] ‘${utterance}’: 예전 기록 그대로`), "small");
   }
   for (const [kind, utterance, rows] of KEEP) {
     const r = await run(`${kind}-${utterance}`, path, [utterance]);
@@ -260,7 +300,7 @@ for (const path of ["direct", "room"]) {
   for (const [said, kind, rows] of LATE) {
     const r = await run(`late-${said}`, path, [said], { late: true });
     const reply = r.replies[0];
-    const head = kind === "mixed" ? "수입인지 지출인지 헷갈려서 아직 저장하지 않았어요." : kind ? TEXT[kind] : "기록 저장 확인이 조금 늦어지고 있어요";
+    const head = kind === "mixed" ? "수입인지 지출인지 헷갈려서 아직 저장하지 않았어요." : kind.startsWith("small:") ? SMALL_TEXT(kind.slice(6)) : kind ? TEXT[kind] : "기록 저장 확인이 조금 늦어지고 있어요";
     check(() => ok(reply.result === "deferred" && reply.text.startsWith(head), `${path} 늦은 답 ‘${said}’: ${reply.result} — ${JSON.stringify(reply.text.slice(0, 50))}`), "late");
     check(() => eq(JSON.stringify(r.addedPerTurn[0]), JSON.stringify(rows), `${path} 늦은 답 ‘${said}’: 뒤 작업이 끝난 뒤 기록`), "late");
   }
@@ -284,7 +324,14 @@ const GUARD_URL = new URL("../src/modules/kakao/request-guards.js", import.meta.
 const { kakaoRecordGuardV229120: guardFn } = await import(GUARD_URL);
 const TIME_SEEDS = ["ㅋ", "1", "~", "만", " ", "1 ", "1~", "1만 ", "쿠폰1 ", "나 1 ", "3일 ", "들어왔길래 ", "1씩 ", "총1 ", "냄 ", "1/1 ",
   "2마리 한마리 100 ", "2개 100씩 ", "나눠 ", "들어왔 "];
-const timeRows = (text) => [{ transaction_date: TODAY, amount: 4500, type: "expense", memo: text.slice(0, 160), raw_text: text.slice(0, 300) }, { transaction_date: TODAY, amount: 3000, type: "expense", memo: "빵" }];
+// 3차: A 는 수입 한 건일 때, C 는 10~99 로 저장될 기록이 있을 때만 끝까지 돈다 — 그 기록 꼴과 씨앗으로 따로 잰다(B 는 바탕 꼴 두 건에서 돈다).
+const TIME_MODES = [
+  ["", TIME_SEEDS.concat(["100원 받고 ", "들어오고 ", "네일 1만 받고 "]), (text) => [{ transaction_date: TODAY, amount: 4500, type: "expense", memo: text.slice(0, 160), raw_text: text.slice(0, 300) }, { transaction_date: TODAY, amount: 3000, type: "expense", memo: "빵" }]],
+  ["(수입 두 건)", [" ", "1만 보냄 ", "친구가 1만 보냄 ", "1만 송금받음 "], (text) => [{ transaction_date: TODAY, amount: 4500, type: "income", memo: text.slice(0, 160) }, { transaction_date: TODAY, amount: 3000, type: "income", memo: "빵" }]],
+  ["(수입 한 건)", [" ", "1 ", "냄 ", "냈음 ", "100 냈음 ", "100원 받고 ", "들어오고 ", "삼 ", "결제함 "], (text) => [{ transaction_date: TODAY, amount: 4500, type: "income", memo: text.slice(0, 160) }]],
+  ["(두 자리 기록)", [" ", "1 ", "10 ", "10~", "~10 ", "10,", "10개 "], (text) => [{ transaction_date: TODAY, amount: 4500, type: "expense", memo: text.slice(0, 160) }, { transaction_date: TODAY, amount: 10, type: "expense", memo: "빵" }]],
+];
+let timeRows = TIME_MODES[0][2];
 const timeBody = (seed, n) => seed.repeat(Math.ceil(n / seed.length)).slice(0, n);
 const TIME_FLOOR_MS = 0.05;
 function guardTime(text) {
@@ -301,11 +348,14 @@ function guardTime(text) {
   }
   return best;
 }
-for (const seed of TIME_SEEDS) {
-  const shape = (body) => `커피 4500 ${body} 빵 3000`;
-  const short = guardTime(shape(timeBody(seed, 350)));
-  const long = guardTime(shape(timeBody(seed, 1400)));
-  check(() => ok(Math.max(long, TIME_FLOOR_MS) <= 8 * Math.max(short, TIME_FLOOR_MS), `씨앗 ${JSON.stringify(seed)}: 1,400자 ${long.toFixed(3)} ms 가 350자 ${short.toFixed(3)} ms 의 8배 이하(길이 4배, 제곱이면 16배)`), "time");
+for (const [label, seeds, rowsOf] of TIME_MODES) {
+  timeRows = rowsOf;
+  for (const seed of seeds) {
+    const shape = (body) => `커피 4500 ${body} 빵 3000`;
+    const short = guardTime(shape(timeBody(seed, 350)));
+    const long = guardTime(shape(timeBody(seed, 1400)));
+    check(() => ok(Math.max(long, TIME_FLOOR_MS) <= 8 * Math.max(short, TIME_FLOOR_MS), `씨앗 ${JSON.stringify(seed)}${label}: 1,400자 ${long.toFixed(3)} ms 가 350자 ${short.toFixed(3)} ms 의 8배 이하(길이 4배, 제곱이면 16배)`), "time");
+  }
 }
 
 if (failures.length) {
