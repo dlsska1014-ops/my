@@ -300,7 +300,8 @@ async function handleUserNotifications(request, env, url) {
     fetchReservePlans(env, household.id, { strict: true }).catch(() => null),
     loadRefundDeductions(env, { householdId: household.id, start: `${month}-01`, end: nextMonthStart(month) }),
   ]);
-  const model = buildBudgetAlertPolishModel({ month, selectedHousehold: household, rows, budgets, recurring, plans, refundDeductions: refund.entries || [] });
+  // V22.9.126 FC-21: 예산 알림 화면과 같은 참여자 목록(위에서 읽음)을 넘겨, 지출자 자격이 없는 규칙을 같은 기준으로 대기·월말 예상에서 뺀다.
+  const model = buildBudgetAlertPolishModel({ month, selectedHousehold: household, rows, budgets, recurring, plans, refundDeductions: refund.entries || [], members });
   const refundTail = model.budget.refund?.applied ? ` · ${refundDeductionNote(model.budget.refund)}` : refund.failed ? " · 환불 차감 확인 불가" : "";
   const hh = `&household_id=${encodeURIComponent(household.id)}`;
   const mq = encodeURIComponent(month);

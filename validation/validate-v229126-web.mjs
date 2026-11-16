@@ -7,10 +7,14 @@
 //   FC-30 환불 차감은 그 범위의 지출 합을 넘지 않는다(차감 목록이 비면 — 환불 연결 꺼짐 — 예전과 같다).
 //   FC-20 품목별 정산 후보 = 계산의 참여자(이 달에 돈을 낸 나간 사람 포함), 지출자 없는 행은 품목 목록에서 뺀다, 완료 지문에 기본 참여자 id·역할.
 // 장면마다 고치기 전 결함이 나던 자료를 그대로 만들고(검증 재현과 같은 자료), 고친 동작과 그 자료의 결함 전제(예: 번호가 다른 사람을 가리킴)를 함께 본다.
+// 2차 검토 장면: 지출자 없는 규칙은 예약 실행도 건너뜀(2-c), 예산 알림·알림센터 API·종합 리포트·스마트 도구의 같은 값(2-b), 관측 확인 불가 달의 안내(2-d),
+// 지출자를 둔 같은 자료의 예전 값(2-e), 번호 판정 = memberNameMap 의 실제 규칙(1-e), 음수 지출 달의 예전 식(3 C).
 // 네트워크를 쓰지 않는다(메모리 픽스처). 실행: node validation/validate-v229126-web.mjs  (분류 표 없는 운영 모드: AB_QA_CATEGORIES_ABSENT=1)
-import { app, BASE, ctx, counter, fixture, intercept, failure, page, post, formFields, settingValue } from "./lib-audit-v22934.mjs";
-import { budgetSummary } from "../src/index.js";
+import { app, BASE, ctx, counter, fixture, intercept, failure, page, post, api, formFields, settingValue } from "./lib-audit-v22934.mjs";
+import { budgetSummary, runRecurringAutoApply } from "../src/index.js";
 import { homeUpcomingOut, monthSpendingOutlook, pendingRecurringRules } from "../src/modules/domain/spending-outlook.js";
+import { refundDeductionApplied } from "../src/modules/domain/refund-links.js";
+import { buildBudgetAlertPolishModel, renderPendingRecurringList } from "../src/modules/features/budget-alerts-annual-goals.js";
 import { renderHomeReportCards } from "../src/modules/my/home-sections.js";
 
 const t = counter("web fixes FC-20·21·22·30");
@@ -153,6 +157,28 @@ await at("2026-07-20", "12:00", () => fixture(async (fx) => {
   t.ok(!second.html.includes("중복 건너뛰기가 켜져 있어"), "1-d 고친 뒤: 옵션을 끈 화면에 ‘중복 건너뛰기가 켜져 있어’ 가 나오지 않는다");
 }));
 
+// 1-e. 번호를 붙였는지는 memberNameMap 의 실제 규칙(같은 기본 이름이 둘 이상)으로 본다. 닉네임이 없는 사람(‘구성원’)과 이름이 ‘민수 2’인 사람은
+//      하나뿐이라 번호가 아니고 바로 붙는다. 같은 ‘카카오사용자’ 둘만 번호라 확인을 묻는다.
+const NULL_NICK = "a4444444-4444-4444-8444-444444444444";
+const MINSU = "a5555555-5555-4555-8555-555555555555";
+await at("2026-07-20", "12:00", () => fixture(async (fx) => {
+  await importBase(fx, { kakaoUsers: false });
+  const people = [[NULL_NICK, null, "닉네임없음밥"], [MINSU, "민수 2", "민수밥"], [K[0], "카카오사용자", "카톡1밥"], [K[1], "카카오사용자", "카톡2밥"]];
+  people.forEach(([id, nickname, memo], i) => {
+    fx.db.users.push({ id, kakao_user_key: `room_user_e${i}`, nickname, created_at: "2026-07-01T00:00:00.000Z" });
+    fx.db.household_members.push({ household_id: HH, user_id: id, role: "member", created_at: `2026-07-0${2 + i}T05:00:00.000Z` });
+    fx.db.transactions.push({ id: `e000000${i}-0000-4000-8000-00000000000${i}`, household_id: HH, user_id: id, transaction_date: "2026-07-11", type: "expense", amount: 1000 * (i + 1), category: "식비", memo, payment_method: "현금", source: "web", raw_text: memo });
+  });
+  const csv = await exportBackup(fx);
+  fx.db.transactions = fx.db.transactions.filter((row) => row.household_id !== HH);
+  const pv = await previewImport(fx, csv, { skip_duplicates: "1" });
+  const state = (memo) => {
+    const entry = readyOf(pv.payload, memo);
+    return entry ? `${entry.row.user_id}|${entry.spender_name}|${entry.needs_confirmation ? "확인" : "바로"}|${/\bchecked\b/.test(pickTag(pv.html, entry.row_number)) ? "선택" : "미선택"}` : "(없음)";
+  };
+  t.deepEq(people.map(([, , memo]) => state(memo)), [`${NULL_NICK}|구성원|바로|선택`, `${MINSU}|민수 2|바로|선택`, `${K[0]}|카카오사용자 1|확인|미선택`, `${K[1]}|카카오사용자 2|확인|미선택`], "1-e 닉네임 없는 사람·이름이 ‘민수 2’인 사람은 번호가 아니라 바로 붙고, 같은 ‘카카오사용자’ 둘만 확인을 묻는다");
+}));
+
 // ── FC-21 지출자 자격을 잃은 정기 규칙 ─────────────────────────────────────────────
 const rule = (id, day, amount, memo, user, applied = "2026-10", extra = {}) => ({ id, household_id: HH, type: "expense", amount, category: "주거/관리", memo, payment_method: "", day_of_month: day, user_id: user, is_active: true, last_applied_month: applied, created_at: "2026-10-01T00:00:00.000Z", ...extra });
 const spend = (id, date, amount, extra = {}) => ({ id, household_id: HH, user_id: "user-bin", transaction_date: date, type: "expense", amount, category: "식비", memo: `메모 ${id}`, payment_method: "", source: "web", raw_text: `메모 ${id}`, created_at: `${date}T03:00:00.000Z`, ...extra });
@@ -204,6 +230,14 @@ const ids = (list) => (list || []).map((r) => r.id).sort().join(",");
 }
 
 // 2-b. 화면: 예산 알림과 생활비 리포트는 이미 읽은 참여자 목록을 넘긴다.
+// 예산 알림·종합 리포트·스마트 도구 화면의 ‘월말 예상 지출’ 과 알림센터 API 의 budget_observation 을 함께 읽는다.
+async function sameForecast(fx, month = "2026-11") {
+  const q = `household_id=${HH}&month=${month}`;
+  const forecastOn = async (path) => strip((await page(fx, path)).html).match(/월말 예상 지출 ([0-9,]+)원/)?.[1] || "(없음)";
+  const pages = [await forecastOn(`/budget-alerts?${q}`), await forecastOn(`/my/analysis?view=report&${q}`), await forecastOn(`/smart-tools?${q}`)];
+  const notes = await api(fx, `/u/api/notifications?${q}`);
+  return { pages, api: notes.data?.budget_observation || {}, pendingNotice: (notes.data?.notifications || []).some((n) => n.key === `recurring-pending:${month}`) };
+}
 function seedRules(fx) {
   fx.db.household_members.find((m) => m.household_id === HH && m.user_id === "user-wifi").role = "viewer";
   fx.db.users.push({ id: "user-gone", kakao_user_key: "kakao_login:2299", nickname: "Gone", created_at: "2026-07-01T00:00:00.000Z" });
@@ -225,6 +259,10 @@ await at("2026-11-17", "12:00", () => fixture(async (fx) => {
   t.eq(reports.status, 200, "2-b 생활비 리포트가 그려진다");
   t.eq((reports.html.match(/<span class="lrTag isWarn">지출자 확인 필요<\/span>/g) || []).length, 2, "2-b 고친 뒤: 리포트 정기 항목 두 개가 ‘반영 전’ 대신 ‘지출자 확인 필요’");
   t.ok(reports.html.includes('<span class="lrTag isOk">이번 달 반영</span>'), "2-b 반영된 규칙은 예전처럼 ‘이번 달 반영’");
+  // 같은 달의 월말 예상은 예산 알림·알림센터 API·종합 리포트(?view=report)·스마트 도구가 같은 값이다(같은 판에 참여자 목록을 함께 넘긴다).
+  const shared = await sameForecast(fx);
+  t.deepEq(shared.pages, ["197,647", "197,647", "197,647"], "2-b 고친 뒤: 예산 알림·종합 리포트·스마트 도구의 월말 예상이 모두 197,647원");
+  t.deepEq([shared.api.forecast, shared.api.pending_total, shared.api.after_pending_assumption, shared.pendingNotice], [197647, 0, 197647, false], "2-b 고친 뒤: 알림센터 API 도 월말 예상 197,647원·반영 대기 0원이고 반영 대기 알림이 없다(고치기 전 737,647원·540,000원)");
 }));
 await at("2026-11-17", "12:00", () => fixture(async (fx) => {
   seedRules(fx);
@@ -236,6 +274,60 @@ await at("2026-11-17", "12:00", () => fixture(async (fx) => {
   t.ok(alerts.html.includes("<span>고정지출 대기</span><b>500,000원</b></div>") && !alerts.html.includes("지출자 확인 필요"), "2-b 지출자가 모두 자격이 있으면 예산 알림은 예전과 같다");
   t.ok(alerts.html.includes("<b>월세-조회전용지출자</b><span>주거/관리 · 매월 10일 예정</span>"), "2-b 그때 그 규칙은 예전처럼 반영 대기 목록에 있다");
   t.ok(!reports.html.includes("지출자 확인 필요") && reports.html.includes('<span class="lrTag ">반영 전</span>'), "2-b 지출자가 모두 자격이 있으면 리포트는 예전처럼 ‘반영 전’");
+  const shared = await sameForecast(fx);
+  t.ok(shared.pages.every((value) => value === shared.pages[0]) && shared.pages[0] === Number(shared.api.forecast).toLocaleString("en-US") && shared.api.pending_total === 500000 && shared.pendingNotice, "2-b 지출자가 모두 자격이 있으면 네 곳이 예전처럼 대기 500,000원을 넣은 같은 월말 예상이고 반영 대기 알림이 있다");
+}));
+
+// 2-c. 지출자가 없는 규칙(user_id null·빈 값): 예약 실행은 소유자로 보정하지 않고 건너뛴다(recurringSpenderEligible 에 규칙의 user_id 를 그대로 넘김).
+//      화면이 대기에서 뺀 규칙 = 예약 실행이 건너뛴 규칙이고, 대기에 남긴 규칙 = 예약 실행이 넣은 규칙이다.
+await at("2026-11-17", "12:00", () => fixture(async (fx) => {
+  fx.db.accountbook_recurring = [rule("rule-null", 10, 40000, "rule-null", null), rule("rule-empty", 10, 40000, "rule-empty", ""), rule("rule-owner", 10, 40000, "rule-owner", "user-bin")];
+  fx.db.accountbook_budgets.push({ id: "b-nov-total", household_id: HH, month: "2026-11", category: "__total", amount: 1500000, created_at: "2026-11-01T00:00:00.000Z" });
+  fx.cookie = await fx.cookieFor("user-bin");
+  const before = await page(fx, `/budget-alerts?household_id=${HH}&month=2026-11`);
+  t.ok(before.html.includes("<span>고정지출 대기</span><b>40,000원</b><small>지출자 확인 필요 2건</small>") && before.html.includes("<b>rule-owner</b>") && !before.html.includes("<b>rule-null</b>") && !before.html.includes("<b>rule-empty</b>"), "2-c 예산 알림: 지출자 있는 규칙만 대기(40,000원), 지출자 없는 둘은 ‘지출자 확인 필요 2건’");
+  const plansPage = await page(fx, `/reserve-plans?month=2026-11&household_id=${HH}`);
+  t.eq((plansPage.html.match(/지출자 확인 필요 · 지출자가 활성 참여자\(소유자·관리자·구성원\)가 아니어서 자동·수동 반영에서 건너뜁니다/g) || []).length, 2, "2-c 정기 수입·지출 화면도 예전부터 같은 두 규칙을 ‘반영에서 건너뜀’ 으로 알린다(같은 판정 함수)");
+  const job = await runRecurringAutoApply(fx.env, { today: "2026-11-17", lock: false });
+  const made = (id) => fx.db.transactions.filter((row) => row.raw_text === `recurring:${id}:2026-11`).length;
+  const marker = (id) => fx.db.accountbook_recurring.find((r) => r.id === id).last_applied_month;
+  t.ok(job.ok && job.applied === 1 && job.skipped === 2 && made("rule-owner") === 1 && made("rule-null") === 0 && made("rule-empty") === 0, "2-c 예약 실행: 지출자 없는 규칙은 기록하지 않고 건너뛴다(소유자로 보정하지 않음), 지출자 있는 규칙만 넣는다");
+  t.ok(marker("rule-owner") === "2026-11" && marker("rule-null") === "2026-10" && marker("rule-empty") === "2026-10", "2-c 건너뛴 규칙의 표식은 그대로라 다음 달에도 대기가 아니라 ‘지출자 확인 필요’ 다");
+  const after = await page(fx, `/budget-alerts?household_id=${HH}&month=2026-11`);
+  t.ok(after.html.includes("<span>고정지출 대기</span><b>0원</b><small>지출자 확인 필요 2건</small>"), "2-c 예약 실행 뒤: 대기 0원, 지출자 없는 둘은 그대로 ‘지출자 확인 필요’");
+}));
+
+// 2-d. 관측이 확인 불가(읽은 행이 한도에 걸림)인 달: 월말 예상(outlook)은 없지만 대기에서 뺀 규칙의 안내는 남는다(모델 안의 대기 차집합으로 센다).
+await at("2026-11-17", "12:00", async () => {
+  const input = { month: "2026-11", rows: NOV_ROWS(), budgets: [{ month: "2026-11", category: "__total", amount: 1500000 }], recurring: RULES(), plans: [], receipt: { status: "limit" } };
+  const limited = buildBudgetAlertPolishModel({ ...input, members: MEMBERS });
+  t.ok(limited.observation.status === "unavailable" && limited.pendingState === "complete" && !limited.outlook.notYetRecorded?.spenderCheckRules?.length, "2-d 결함 전제: 관측 확인 불가라 월말 예상 쪽에는 뺀 규칙 목록이 없다");
+  t.ok(ids(limited.pendingRecurring) === "" && ids(limited.spenderCheckRecurring) === "rule-gone,rule-viewer" && limited.spenderCheckTotal === 540000, "2-d 고친 뒤: 대기에서 뺀 규칙 둘(540,000원)을 모델이 직접 센다");
+  t.ok(renderPendingRecurringList(limited).includes("지출자 확인 필요 2건(540,000원)"), "2-d 고친 뒤: 대기 목록에 안내가 붙는다(고치기 전 안내 없이 사라짐)");
+  const plain = buildBudgetAlertPolishModel(input);
+  t.ok(ids(plain.pendingRecurring) === "rule-gone,rule-viewer" && plain.spenderCheckRecurring.length === 0 && !renderPendingRecurringList(plain).includes("지출자 확인 필요"), "2-d 참여자 목록 없이 부르면 예전처럼 둘 다 대기다");
+});
+
+// 2-e. 같은 규칙에 지출자(소유자)를 둔 경우(검사 d3 의 대기 합산 장면 자료): 예전처럼 한 번씩 세고 비슷한 직접 기록과 겹쳐 빼지 않으며, 네 화면과 API 가 같은 값이다.
+//      d3 장면은 지출자 없는 원래 규칙 그대로 두고 ‘지출자 확인 필요’ 를 본다.
+const d3tx = (date, amount) => ({ id: `tx-${date}-${amount}`, household_id: HH, user_id: "user-bin", transaction_date: date, type: "expense", category: "외식", memo: "합성 공동 지출", amount });
+await at("2026-10-15", "12:00", () => fixture(async (fx) => {
+  fx.db.transactions = [d3tx("2026-10-10", 40000), d3tx("2026-10-11", 260000), d3tx("2026-10-25", 150000)];
+  fx.db.accountbook_budgets = [["식비", 200000], ["외식", 100000], ["식비", 200000], ["우리 분류", 200000], ["__total", 9000000]].map(([category, amount], i) => ({ id: `pending-budget-${i}`, household_id: HH, month: "2026-10", category, amount }));
+  fx.db.accountbook_recurring = [
+    { id: "r1", household_id: HH, type: "expense", category: "외식", amount: 40000, last_applied_month: "2026-09", memo: "합성 공동 지출", day_of_month: 10, user_id: "user-bin" },
+    { id: "r2", household_id: HH, type: "expense", category: "식비", amount: 10000, last_applied_month: "2026-09", memo: "별도 대기", user_id: "user-bin" },
+  ];
+  const q = `?month=2026-10&household_id=${HH}`;
+  for (const path of ["/budget-alerts", "/today-budget", "/monthly-forecast", "/fixed-preview"]) {
+    const result = await page(fx, path + q);
+    const list = result.html.match(/<ul class="recList">([\s\S]*?)<\/ul>/)?.[1] || "";
+    t.ok(result.html.includes("<span>고정지출 대기</span><b>50,000원</b></div>") && result.html.includes("기록 300,000원 + 남은 고정·정기 50,000원 + 남은 16일 예상 320,000원") && result.html.includes("670,000원") && (list.match(/<li>/g) || []).length === 2 && !result.html.includes("지출자 확인 필요"), `2-e ${path}: 지출자가 있으면 예전처럼 대기 50,000원·월말 670,000원·두 건`);
+  }
+  const notes = await api(fx, `/u/api/notifications${q}`);
+  const obs = notes.data.budget_observation;
+  const pending = notes.data.notifications.filter((n) => n.key === "recurring-pending:2026-10");
+  t.ok(obs.forecast === 670000 && obs.pending_total === 50000 && obs.after_pending_assumption === 670000 && pending.length === 1 && pending[0].body.includes("50,000원"), "2-e 알림센터 API 도 같은 값(월말 670,000원·대기 50,000원)과 예전 알림 키");
 }));
 
 // ── FC-30 환불 차감은 지출 합 이하 ─────────────────────────────────────────────────
@@ -257,6 +349,19 @@ await at("2026-11-17", "12:00", () => fixture(async (fx) => {
   const omitted = monthSpendingOutlook({ month: "2026-11", today: "2026-11-05", rows: rowsB, recurring: [], plans: [], budgets, scope: "budgeted" });
   t.deepEq(off, omitted, "3 환불 연결 꺼짐(차감 목록 빔)은 차감을 넘기지 않은 것과 같다");
   t.ok(off.budget.remaining === 470000 && off.expected.total === 180000, "3 환불 연결 꺼짐 값은 예전과 같다(남은 470,000원·월말 180,000원)");
+  // 3 C. 옛 음수 지출 행이 있는 달: 환불 연결이 꺼져 있으면(차감 목록 빔) 기록·등록액이 예전 식(지출 합 − 차감 합)과 같다.
+  t.deepEq([refundDeductionApplied(-5000, []).applied, refundDeductionApplied(-5000, [{ amount: 1000 }]).applied, refundDeductionApplied(30000, []).applied], [0, 0, 0], "3 C 지출 합이 음수이거나 차감 목록이 비면 차감은 0 이다");
+  const row = (id, date, amount) => ({ id, household_id: "h", transaction_date: date, type: "expense", amount, category: "식비", source: "web" });
+  const oldExpression = (rows, deductions, today) => {
+    const total = (list) => list.reduce((acc, item) => acc + Number(item.amount || 0), 0);
+    return [total(rows.filter((r) => r.transaction_date <= today)) - total(deductions.filter((d) => d.transaction_date <= today)), total(rows) - total(deductions)];
+  };
+  for (const [label, rows] of [["음수 행만", [row("n1", "2026-11-02", -5000)]], ["양수·음수 섞임", [row("p1", "2026-11-03", 30000), row("n1", "2026-11-02", -5000)]], ["오늘 뒤 음수 행", [row("p1", "2026-11-03", 30000), row("n2", "2026-11-20", -8000)]]]) {
+    for (const scope of ["all", "budgeted"]) {
+      const out = monthSpendingOutlook({ month: "2026-11", today: "2026-11-05", rows, recurring: [], plans: [], budgets: scope === "budgeted" ? budgets : [], scope, refundDeductions: [] });
+      t.deepEq([out.recorded.toDate, out.recorded.registered, out.recorded.refundDeduction], [...oldExpression(rows, [], "2026-11-05"), 0], `3 C ${label}(${scope}): 환불 연결 꺼짐이면 예전 식과 같다`);
+    }
+  }
 }
 
 // ── FC-20 정산 품목별 후보·완료 지문 ──────────────────────────────────────────────

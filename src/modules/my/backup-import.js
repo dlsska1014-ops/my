@@ -163,10 +163,18 @@ function buildMyImportMemberLookup(members = []) {
     if (!lookup.has(key)) lookup.set(key, []);
     if (!lookup.get(key).includes(member)) lookup.get(key).push(member);
   };
+  // V22.9.126 FC-22: 번호를 붙였는지는 memberNameMap 이 그 사람 혼자일 때 주는 이름(번호 없는 기본 이름)이 둘 이상 겹치는지로 본다.
+  // memberNameMap(distinctPersonLabels)이 번호를 붙이는 기준과 같아, 빈 닉네임 기본값이나 ‘민수 2’ 같은 이름을 따로 가정하지 않는다.
+  const baseOf = (member) => memberNameMap([member])[String(member?.user_id || "").trim()] || "";
+  const baseCount = new Map();
+  for (const member of safeArray(members)) {
+    const base = baseOf(member);
+    if (base) baseCount.set(base, (baseCount.get(base) || 0) + 1);
+  }
   for (const member of safeArray(members)) {
     add(member.nickname, member);
     add(labels[member.user_id], member);
-    if (labels[member.user_id] && labels[member.user_id] !== (String(member.nickname || "").trim() || "구성원")) numbered.add(keyOf(labels[member.user_id]));
+    if (labels[member.user_id] && (baseCount.get(baseOf(member)) || 0) > 1) numbered.add(keyOf(labels[member.user_id]));
   }
   lookup.numbered = numbered;
   lookup.labels = labels;

@@ -67,7 +67,8 @@ async function getMyPageContext(request, env, url, { observedComparison = false,
   const calendar = calendarDaysFromRows(rows, month);
   const stats = calculateStats(rows);
   const budget = budgetSummary(rows, budgets);
-  const analysis = calculateDashboardAnalysis(rows, rows, calendar, month, { startedOn: householdStartYmd(selected, rows), ...(outlook ? { outlook: monthSpendingOutlook({ month, rows, recurring, plans: reservePlans }) } : {}) });
+  // V22.9.126 FC-21: 위에서 읽은 참여자 목록을 넘겨 ?view=report·/smart-tools 의 월말 예상도 예산 알림과 같은 기준으로 지출자 자격이 없는 규칙을 뺀다.
+  const analysis = calculateDashboardAnalysis(rows, rows, calendar, month, { startedOn: householdStartYmd(selected, rows), ...(outlook ? { outlook: monthSpendingOutlook({ month, rows, recurring, plans: reservePlans, members }) } : {}) });
   return { userId, user, month, households, selected, members, rows, calendar, stats, budgets, budget, analysis, recurring, reservePlans };
 }
 

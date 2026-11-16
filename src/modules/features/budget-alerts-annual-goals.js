@@ -53,7 +53,8 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   // V22.9.79 V78 S-2: 반영 대기는 홈 ‘앞으로 나갈 돈’과 같은 판정(pendingRecurringRules: 그 달 표식 또는 그 달 기록이 있으면 반영됨)이다.
   // 예전에는 표식(last_applied_month)만 봐서, 표식 저장이 늦은 달에는 이미 기록된 고정지출을 한 건 더 셌다.
   const pendingAll = pendingState === "complete" ? safeArray(pendingRecurringRules(recurring, month, rows, members)) : null;
-  const spenderCheckRecurring = pendingState === "complete" ? safeArray(outlook.notYetRecorded?.spenderCheckRules) : [];
+  // V22.9.126 FC-21: 뺀 규칙은 이 대기 목록의 차집합으로 센다(월말 예상이 확인 불가인 달에도 대기에서 빠진 까닭을 알린다).
+  const spenderCheckRecurring = pendingAll && Array.isArray(members) ? safeArray(pendingRecurringRules(recurring, month, rows)).filter((rule) => !pendingAll.includes(rule)) : [];
   const spenderCheckTotal = spenderCheckRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const pendingRecurring = pendingAll ? pendingAll.filter((r) => inBudget(r.category)) : null;
   const recurringTotal = activeRecurring ? activeRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
