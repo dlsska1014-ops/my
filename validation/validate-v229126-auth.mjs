@@ -15,6 +15,7 @@
 //  올리는 다른 길이 없음(10), 같은 계정에 세션을 다시 줄 때는 띠 쿠키를 두기(④), 옛 이름 확인의 PostgreSQL 규칙·쪽이 차면 막기(⑤).
 // 3차(독립 검토 2차 반영): 채팅 소유자 칸의 결과 한 문장과 5분 표의 서버 만료(FC-9 6), 비밀번호+카카오 칸의 인앱(7), 로그인 수단 읽기 실패
 //  화면(9), 삭제 칸의 같은 길과 다른 상태의 바이트 고정(11), 웹 연결 코드의 돌아갈 곳(12), 시도 제한 기능 장애 문구(FC-8).
+// 4차(독립 검토 3차 반영): 한쪽 읽기만 실패하면 읽힌 수단을 그대로 보이고 삭제 칸과 같은 수단(9 의 4차 a~d).
 // 실제 요청(app.fetch)과 픽스처 DB 로 본다. 카카오 서버는 가로채 흉내 낸다(네트워크 없음). 장면마다 따로 잡아 하나가 실패해도 나머지를 본다.
 //
 // ── 실행 ──
@@ -165,6 +166,19 @@ const RELOAD_LINE = "로그인 수단을 지금 확인하지 못했어요. 잠�
 const panelOf = (html) => (html.match(/<(form|div)[^>]*class="dangerZone"[\s\S]*?<\/\1>/) || [""])[0];
 const sha = (text) => createHash("sha256").update(text).digest("hex");
 const identitiesDown = () => intercept(async ({ url, method }) => (method === "GET" && url.pathname === "/rest/v1/accountbook_user_identities" ? failure(503) : null));
+// (4차) 읽기 하나만 503 으로 떨어뜨리고 실제로 불렸는지 센다. LINKS = 식별 링크 설정(두 확인이 모두 마지막에 읽는다), LOCAL = 로그인 비밀번호 행.
+const LINKS = (url) => url.pathname === "/rest/v1/accountbook_settings" && url.searchParams.get("key") === "eq.user_identity_links";
+const LOCAL = (url) => url.pathname === "/rest/v1/accountbook_user_identities" && url.searchParams.get("provider") === "eq.local";
+function readsDown(match) {
+  const state = { hits: 0 };
+  state.restore = intercept(async ({ url, method }) => (method === "GET" && match(url) ? (state.hits += 1, failure(503)) : null));
+  return state;
+}
+const reloadOnly = (html) => html.includes(`<div class="transferBox"><p class="muted">${RELOAD_LINE}</p></div>`) && transferForms(html) === 0 && !html.includes("웹 연결 코드 넣기") && !html.includes(">카카오 계정으로 본인 확인</a>");
+const passwordBoxShown = (html) => transferForms(html) === 1 && html.includes('<label>내 계정 로그인 비밀번호<input name="access_code" type="password"') && !html.includes(RELOAD_LINE);
+const kakaoBoxShown = (html) => html.includes("먼저 이 계정에 연결된 카카오 계정으로 본인 확인을 완료하세요.") && html.includes('href="/auth/kakao/start?reauth=owner-transfer&amp;') && !html.includes(RELOAD_LINE);
+const deleteHasPassword = (panel) => panel.includes('action="/my/household/delete"') && panel.includes('<label>내 계정 로그인 비밀번호<input name="access_code" type="password"');
+const deleteHasKakao = (panel) => !panel.includes('action="/my/household/delete"') && panel.includes(">카카오 계정으로 본인 확인</a>");
 
 // ═════════════════════════════════════════════════════════════════════════════════════
 // 0. 소스: 고친 자리
@@ -501,6 +515,69 @@ await section("FC-9 9 로그인 수단 읽기 실패 — 화면", () => withCloc
   eq(chatDelete, `<div class="dangerZone"><h3>가계부 영구 삭제</h3><p>${RELOAD_LINE}</p></div>`, "FC-9 9 같은 읽기 실패의 삭제 칸(채팅 계정 갈래)도 새 웹 연결 코드 길 대신 새로고침 한 줄");
   const recovered = await http(fx, "GET", room.membersPath, { cookie: roomCookie, ua: INAPP });
   ok(transferForms(recovered.html) === 1 && !recovered.html.includes(RELOAD_LINE), "FC-9 9 읽기가 돌아오면 비밀번호 칸이 다시 보인다");
+})));
+// (4차, 독립 검토 3차 P3) 두 확인이 실패 표시 하나를 같이 써서, 한쪽 읽기만 실패해도 읽힌 비밀번호 칸·카카오 단추까지 새로고침 한 줄로 가렸다(깨진 링크 줄이면
+//  계속). → 읽힌 수단은 삭제 칸과 같은 순서로 그대로 보이고, 새로고침 한 줄은 둘 다 실패했거나 수단을 하나도 못 찾았을 때만. 삭제 칸은 바꾸지 않았다.
+const roomDeletePath = (room) => `/my/households?month=${room.month}&household_id=${encodeURIComponent(room.hid)}&manage=${encodeURIComponent(room.hid)}`;
+await section("FC-9 9 (4차 a) 식별 링크 읽기만 실패 — 비밀번호 소유자", () => withClock("2026-11-16", () => fixture(async (fx) => {
+  Object.assign(fx.env, KAKAO_ENV);
+  const room = await roomHousehold(fx, "links-down");
+  await givePassword(fx, room.ownerId, "v126linksdown");
+  const cookie = await fx.cookieFor(room.ownerId);
+  const down = readsDown(LINKS);
+  let members, panel, done;
+  try {
+    members = await http(fx, "GET", room.membersPath, { cookie });
+    panel = panelOf((await http(fx, "GET", roomDeletePath(room), { cookie })).html);
+    done = await transfer(fx, { cookie, target: room.memberId, household: room.hid, month: room.month, password: PASSWORD });
+  } finally { down.restore(); }
+  ok(down.hits > 0 && passwordBoxShown(members.html), `FC-9 9 (4차 a) 비밀번호가 있는 방 소유자 + 식별 링크 설정 읽기만 실패(503 ${down.hits}회): 비밀번호 칸이 보인다`);
+  ok(deleteHasPassword(panel), "FC-9 9 (4차 a) 같은 실패의 삭제 칸도 비밀번호 칸(두 칸이 같은 수단)");
+  ok(done.location.includes("msg=owner_transferred") && roleOf(fx, room.memberId, room.hid) === "owner" && roleOf(fx, room.ownerId, room.hid) === "admin", `FC-9 9 (4차 a) 그 비밀번호로 양도된다 (${done.location.slice(-40)})`);
+})));
+await section("FC-9 9 (4차 b) 비밀번호 쪽 읽기만 실패 — 카카오만 있는 소유자", () => fixture(async (fx) => {
+  Object.assign(fx.env, KAKAO_ENV);
+  for (const [label, match] of [["로그인 비밀번호 행 읽기", LOCAL], ["식별 링크 설정 읽기(비밀번호 쪽만 읽는다)", LINKS]]) {
+    const down = readsDown(match);
+    let members, panel;
+    try {
+      members = await http(fx, "GET", MEMBERS, { cookie: fx.cookie });
+      panel = panelOf((await http(fx, "GET", DELETE_BACK.replace(/#.*$/, ""), { cookie: fx.cookie })).html);
+    } finally { down.restore(); }
+    ok(down.hits > 0 && kakaoBoxShown(members.html) && transferForms(members.html) === 0, `FC-9 9 (4차 b) 카카오만 있는 소유자 + ${label}만 실패(503 ${down.hits}회): 카카오 본인 확인 단추가 보인다`);
+    ok(deleteHasKakao(panel), `FC-9 9 (4차 b) ${label}만 실패한 삭제 칸도 카카오 단추(두 칸이 같은 수단)`);
+  }
+}));
+await section("FC-9 9 (4차 c) 두 읽기 모두 실패", () => withClock("2026-11-16", () => fixture(async (fx) => {
+  Object.assign(fx.env, KAKAO_ENV);
+  await givePassword(fx, "user-bin", "v126bin");
+  const room = await roomHousehold(fx, "both-down");
+  await givePassword(fx, room.ownerId, "v126bothdown");
+  const roomCookie = await fx.cookieFor(room.ownerId);
+  const down = readsDown((url) => LINKS(url) || url.pathname === "/rest/v1/accountbook_user_identities");
+  let bin, chat;
+  try {
+    bin = await http(fx, "GET", MEMBERS, { cookie: fx.cookie });
+    chat = await http(fx, "GET", room.membersPath, { cookie: roomCookie });
+  } finally { down.restore(); }
+  ok(down.hits > 0 && reloadOnly(bin.html) && reloadOnly(chat.html), "FC-9 9 (4차 c) 두 읽기가 모두 실패하면 3차처럼 새로고침 한 줄만(비밀번호+카카오 소유자, 비밀번호가 있는 방 소유자)");
+})));
+await section("FC-9 9 (4차 d) 식별 링크 설정이 풀리지 않음", () => withClock("2026-11-16", () => fixture(async (fx) => {
+  Object.assign(fx.env, KAKAO_ENV);
+  const room = await roomHousehold(fx, "links-broken");
+  await givePassword(fx, room.ownerId, "v126linksbroken");
+  const cookie = await fx.cookieFor(room.ownerId);
+  // 읽기는 되지만 JSON 으로 풀리지 않는 링크 줄(계속 깨져 있는 경우). 설정 표는 key 가 기본 키다.
+  const row = fx.db.accountbook_settings.find((item) => item.key === "user_identity_links");
+  if (row) row.value = "{not json";
+  else fx.db.accountbook_settings.push({ key: "user_identity_links", value: "{not json", created_at: "2026-11-16T00:00:00.000Z" });
+  const members = await http(fx, "GET", room.membersPath, { cookie });
+  const panel = panelOf((await http(fx, "GET", roomDeletePath(room), { cookie })).html);
+  const kakaoOnly = await http(fx, "GET", MEMBERS, { cookie: fx.cookie });
+  const done = await transfer(fx, { cookie, target: room.memberId, household: room.hid, month: room.month, password: PASSWORD });
+  ok(passwordBoxShown(members.html) && deleteHasPassword(panel), "FC-9 9 (4차 d) 링크 줄이 깨져 있어도 비밀번호가 있는 방 소유자에게 양도·삭제 칸 모두 비밀번호 칸(a 와 같다)");
+  ok(kakaoBoxShown(kakaoOnly.html), "FC-9 9 (4차 d) 같은 상태에서 카카오만 있는 소유자에게는 카카오 단추");
+  ok(done.location.includes("msg=owner_transferred") && roleOf(fx, room.memberId, room.hid) === "owner", `FC-9 9 (4차 d) 그 비밀번호로 양도된다 (${done.location.slice(-40)})`);
 })));
 
 // ═════════════════════════════════════════════════════════════════════════════════════

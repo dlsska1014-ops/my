@@ -63,16 +63,18 @@ async function handleMyMembersPage(request, env, url) {
 async function ownerTransferReauthStateV229126(request, env, userId, user, selected, members) {
   if (String(selected?.role || "").toLowerCase() !== "owner") return null;
   if (!safeArray(members).some((m) => ["admin", "member"].includes(String(m?.role || "")))) return null;
-  const lookup = {};
+  // V22.9.126 FC-9 4차: 두 읽기의 실패 표시를 따로 둔다 — 한쪽만 실패해도 다른 쪽에서 읽힌 수단(비밀번호·카카오)은 그대로 쓴다(삭제 칸과 같다).
+  const localLookup = {};
+  const kakaoLookup = {};
   const [hasLocalLogin, hasKakaoLogin, kakaoVerified] = await Promise.all([
-    hasBackupLoginIdentity(env, user, lookup),
-    hasKakaoLoginIdentity(env, user, lookup),
+    hasBackupLoginIdentity(env, user, localLookup),
+    hasKakaoLoginIdentity(env, user, kakaoLookup),
     verifyHouseholdDeleteReauth(request, env, userId, selected.id, "owner-transfer"),
   ]);
   // V22.9.126 FC-9: 카카오 본인 확인 시작은 카카오톡 인앱 브라우저에서 막힌다(kakao-oauth.js 와 같은 판정) — 그 화면에서는 갈 길을 따로 적는다.
   const inApp = /KAKAOTALK/i.test(request.headers.get("user-agent") || "");
-  // V22.9.126 FC-9 3차: 로그인 수단을 읽지 못했으면(unavailable) 비밀번호가 있을 수도 있는 소유자에게 엉뚱한 길을 그리지 않는다.
-  return { hasLocalLogin, hasKakaoLogin, kakaoVerified, inApp, unavailable: !!lookup.unavailable };
+  // V22.9.126 FC-9 3차·4차: 둘 다 읽지 못했으면(unavailable) 비밀번호가 있을 수도 있는 소유자에게 엉뚱한 길을 그리지 않는다. lookupFailed = 한쪽이라도 실패.
+  return { hasLocalLogin, hasKakaoLogin, kakaoVerified, inApp, unavailable: !!(localLookup.unavailable && kakaoLookup.unavailable), lookupFailed: !!(localLookup.unavailable || kakaoLookup.unavailable) };
 }
 
 // V22.9.126 FC-9: 가계부 삭제(households-lifecycle.js handleMyHouseholdDelete)와 같은 본인 확인. 로그인 비밀번호가 있으면 비밀번호, 아니면 카카오 본인
@@ -203,10 +205,13 @@ function renderMyMembersHtml({ env, user = null, month, households, selected, me
     const form = (field) => `<form method="post" action="/my/household/transfer-owner" class="transferForm" onsubmit="return confirm('이 참여자에게 소유자를 양도할까요? 나는 관리자가 되고, 구성원 권한·가계부 삭제·소유자 양도는 이 참여자만 할 수 있게 됩니다.')"><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="user_id" value="${escapeHtml(m.user_id || "")}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/>${field}<button class="transferButton" type="submit">소유자 양도</button></form>`;
     if (reauth.kakaoVerified) return `<div class="transferBox">${form(`<div class="reauthOk">카카오 계정 본인 확인 완료 · 5분 동안 유효</div>`)}</div>`;
     // V22.9.126 FC-9 3차: 로그인 수단을 읽지 못하면 안내·단추 없이 새로고침 한 줄만 둔다(양도 POST 도 확인을 못 하면 거절한다).
-    if (reauth.unavailable) return `<div class="transferBox"><p class="muted">로그인 수단을 지금 확인하지 못했어요. 잠시 후 이 화면을 새로고침해 주세요.</p></div>`;
+    const reloadBox = `<div class="transferBox"><p class="muted">로그인 수단을 지금 확인하지 못했어요. 잠시 후 이 화면을 새로고침해 주세요.</p></div>`;
+    if (reauth.unavailable) return reloadBox;
     // V22.9.126 FC-9 3차: 카카오톡 인앱에서는 카카오 본인 확인 시작이 403 이라 ‘또는 카카오’ 단추를 빼고 비밀번호 칸만 둔다.
     if (reauth.hasLocalLogin) return `<div class="transferBox">${form(`<label>내 계정 로그인 비밀번호<input name="access_code" type="password" autocomplete="current-password" required/></label>`)}${transferKakaoButton && !reauth.inApp ? `<div class="orText">또는</div>${transferKakaoButton}` : ""}</div>`;
     if (transferKakaoButton) return `<div class="transferBox"><p class="muted">소유자를 양도하려면 먼저 이 계정에 연결된 카카오 계정으로 본인 확인을 완료하세요. 확인 후 양도 단추가 열립니다.${reauth.inApp ? " 카카오톡 안에서는 카카오 본인 확인이 열리지 않아요. Chrome·Safari에서 ‘카카오 로그인’으로 로그인한 뒤 ‘참여자·초대’에서 이 단추를 눌러 주세요." : ""}</p>${transferKakaoButton}</div>`;
+    // V22.9.126 FC-9 4차: 한쪽 읽기가 실패했고 남은 쪽에서도 수단을 찾지 못했으면 ④ 대신 새로고침 한 줄(삭제 칸과 같은 판정).
+    if (reauth.lookupFailed) return reloadBox;
     // V22.9.126 FC-9 2차: 채팅만 쓰는 소유자(비밀번호·카카오 로그인 없음)가 실제로 갈 수 있는 길 — 웹 연결 코드(5분 본인 확인) → 내 계정·보안에서
     // 첫 비밀번호 저장 → 이 화면으로 돌아와 그 비밀번호로 양도. 단추는 코드 칸을 열고, 코드 뒤 내 계정·보안, 저장 뒤 이 화면으로 돌아오게 한다.
     const transferClaimUrl = `/my/kakao-claim?auto=0&return_to=${encodeURIComponent(`/my/backup-login?return_to=${encodeURIComponent(returnTo)}`)}#kakao-claim-start`;
