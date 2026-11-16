@@ -219,26 +219,40 @@ function validateRollbackCandidatePlan(plan) {
 // ‘통과’ 였다. 고른 가계부 안에서 50건씩 묶어 읽고(id=in.(…)&household_id=eq.), 읽은 묶음의 id 만 확인한 것으로 센다(나머지는 ‘확인 불가’).
 const ROLLBACK_READ_CHUNK_V229126 = 50;
 const ROLLBACK_READ_MAX_V229126 = 200;
+// 2차 검토: id 하나가 틀려도 묶음 전체가 사유 없이 ‘확인 불가’ 였다. 모양이 다른 id(fetchRowsByPlainIds 와 같은 기준)는 묻지 않고 그 행에만 사유를 적고,
+// 읽지 못한 묶음은 사유를 적은 뒤 다음 묶음으로 간다. skipped 는 id → ‘확인 불가’ 사유다.
 async function fetchTransactionsByIds(env, ids = [], householdId = "") {
-  const wanted = [...new Set(safeArray(ids).map((x) => String(x || "").trim()).filter(Boolean))].slice(0, ROLLBACK_READ_MAX_V229126);
   const rows = [];
   const checked = new Set();
-  if (!householdId) return { rows, checked };
+  const skipped = new Map();
+  const wanted = [];
+  for (const id of new Set(safeArray(ids).map((x) => String(x || "").trim()).filter(Boolean))) {
+    if (!/^[A-Za-z0-9_-]{1,160}$/.test(id)) skipped.set(id, "확인 불가: 거래 id 모양이 아님(영문·숫자·-·_ 160자까지) — 되돌리기 후보 화면에서 계획을 다시 만드세요");
+    else if (wanted.length >= ROLLBACK_READ_MAX_V229126) skipped.set(id, `확인 불가: 한 번에 ${ROLLBACK_READ_MAX_V229126}건까지만 확인합니다 — 계획을 나눠 다시 확인하세요`);
+    else wanted.push(id);
+  }
+  if (!householdId) return { rows, checked, skipped };
   for (let index = 0; index < wanted.length; index += ROLLBACK_READ_CHUNK_V229126) {
     const chunk = wanted.slice(index, index + ROLLBACK_READ_CHUNK_V229126);
-    if (!hasDatabaseRoom(env, 1)) break;
-    let found;
+    if (!hasDatabaseRoom(env, 1)) {
+      for (const id of wanted.slice(index)) skipped.set(id, "확인 불가: 요청 한 번의 DB 호출 한도로 읽지 못함 — 계획을 나눠 다시 확인하세요");
+      break;
+    }
+    let found = null;
     try {
       found = await supabase(env, `/rest/v1/transactions?id=in.(${chunk.map((id) => encodeURIComponent(postgrestQuotedValueV22979(id))).join(",")})&household_id=eq.${encodeURIComponent(householdId)}&select=*`, { method: "GET" });
-    } catch (_) { break; }
-    if (!Array.isArray(found)) break;
+    } catch (_) { found = null; }
+    if (!Array.isArray(found)) {
+      for (const id of chunk) skipped.set(id, `확인 불가: 이 행이 든 묶음(${chunk.length}건)을 읽지 못함 — 잠시 후 다시 확인하고, 계속되면 되돌리기 후보 화면에서 계획을 다시 만드세요`);
+      continue;
+    }
     rows.push(...found);
     for (const id of chunk) checked.add(id);
   }
-  return { rows, checked };
+  return { rows, checked, skipped };
 }
 
-function compareRollbackPlanToCurrent(planRows = [], currentRows = [], checkedIds = null) {
+function compareRollbackPlanToCurrent(planRows = [], currentRows = [], checkedIds = null, skippedReasons = null) {
   const currentById = new Map();
   for (const row of safeArray(currentRows)) currentById.set(String(safeObject(row).id || ""), safeObject(row));
   const deletable = [];
@@ -249,7 +263,7 @@ function compareRollbackPlanToCurrent(planRows = [], currentRows = [], checkedId
   for (const planRow of safeArray(planRows)) {
     const current = currentById.get(String(planRow.id || ""));
     if (!current && checkedIds && !checkedIds.has(String(planRow.id || ""))) {
-      unverified.push({ plan: planRow, error: "확인 불가: 현재 거래를 읽지 못함(한 번에 200건까지 확인)" });
+      unverified.push({ plan: planRow, error: skippedReasons?.get(String(planRow.id || "")) || "확인 불가: 현재 거래를 읽지 못함" });
       continue;
     }
     if (!current) {
@@ -350,7 +364,7 @@ async function handleRollbackFinalCheckPost(request, env) {
       return htmlResponse(renderRollbackFinalCheckHtml({ households, month, householdId, validation, error: "되돌릴 가계부를 고른 뒤 다시 올려 주세요." }), 400);
     }
     const read = await fetchTransactionsByIds(env, validation.rows.map((r) => r.id), scopeHouseholdId);
-    const finalCheck = compareRollbackPlanToCurrent(validation.rows, read.rows, read.checked);
+    const finalCheck = compareRollbackPlanToCurrent(validation.rows, read.rows, read.checked, read.skipped);
     return htmlResponse(renderRollbackFinalCheckHtml({ households, month, householdId: scopeHouseholdId, validation, finalCheck }));
   } catch (err) {
     rememberOpsEvent({ kind: "rollback_final_check_failed", severity: "warn", path: "/rollback/final-check", method: "POST", detail: safeError(err) });

@@ -5,8 +5,12 @@
 //   FC-27  a 이력·되돌리기 후보가 my_import 를 센다 · b 되돌리기 최종 확인 묶음 읽기·확인 불가 · c 최종 확인 범위 = 적용 범위
 //          d 백업 JSON 에 초대코드·카카오 키 없음 · e 운영센터 카드 · f ‘전체 가계부’ 빠른 입력 안내 · g 이력 시각 KST
 //          i 가계부 만들기·초대코드 재발급·프로필 저장 실패 안내 · j 한 번에 18건 · k /analysis·/calendar 없는 가계부
+//   2차 검토: 가계부가 없는 계획·가계부를 알 수 없는 백업은 멈춤, 형식 오류 행도 ‘적용에서 빠짐’, 참여자 읽기 실패는 확인 불가,
+//          예산 2회 여유와 읽기 실패 문구, 되돌리기 id 모양·묶음 실패 사유, 백업 파일에 사용자 키·초대코드 값 없음, 3·4단계 단추
 // 네트워크를 쓰지 않는다(메모리 픽스처). 실행: node validation/validate-v229126-ops.mjs  (분류 표 없는 운영 모드: AB_QA_CATEGORIES_ABSENT=1)
-import { app, BASE, ctx, counter, fixture, intercept, failure, page, post } from "./lib-audit-v22934.mjs";
+import { readFileSync } from "node:fs";
+import vm from "node:vm";
+import { app, BASE, ctx, counter, fixture, intercept, failure, page, post, putSetting, skill } from "./lib-audit-v22934.mjs";
 
 const t = counter("V22.9.126 ops screens");
 const failures = [];
@@ -72,6 +76,7 @@ function planFromCandidatePage(html) {
   const selected = candidatesOf(html) || [];
   return { householdId, text: JSON.stringify({ app: "kakao-accountbook", version: "V19.8-BUDGET-ALERT", created_at: "2026-07-20T03:00:00.000Z", mode: "candidate_plan_only_no_db_write", household_id: householdId, selected_count: selected.length, selected }, null, 2) };
 }
+// 손으로 만든 계획(후보 화면을 거치지 않음). 가계부는 extra 로 넣는다 — 없으면 최종 확인·적용이 멈춘다(2차).
 const legacyPlan = (selected, extra = {}) => JSON.stringify({ app: "kakao-accountbook", mode: "candidate_plan_only_no_db_write", selected_count: selected.length, selected, ...extra });
 const applyFields = (householdId, month = "2026-07") => ({ household_id: householdId, month, admin_password: "admin-pass", confirm_text: "가져오기 적용" });
 
@@ -90,21 +95,24 @@ try {
     ok(!!cookie, "FC-24 관리자 로그인");
     const plain = await dbCalls(() => page(fx, "/households", { cookie }));
     eq(plain.result.status, 200, "FC-24 가계부 60개에서 관리자 /households 가 열린다(예전에는 45개부터 500 안전모드)");
-    ok(plain.calls.length <= 50, `FC-24 DB 호출이 예산 50회 안이다 (${plain.calls.length}회)`);
+    // 2차: 예산 50 가운데 2회를 남긴다. DB_CALL_BUDGET 은 50~900 만 받아 49 로 줄여 볼 수 없으므로, 셈이 끝난 뒤 DB 호출이 없음(마지막 호출 = 거래 수 셈)을 함께 본다.
+    ok(plain.calls.length <= 48, `FC-24 DB 호출이 48회 이하다(예산 50 에서 2회 여유) (${plain.calls.length}회)`);
+    ok(/^HEAD \/rest\/v1\/transactions/.test(plain.calls.at(-1) || ""), `FC-24 거래 수 셈 뒤에는 DB 호출이 없다 (${plain.calls.at(-1)})`);
     const uncounted = (plain.result.html.match(/거래 확인 못 함/g) || []).length;
     ok(uncounted > 0 && uncounted < 60, `FC-24 세지 못한 가계부는 ‘거래 확인 못 함’ 이다 (${uncounted}곳)`);
-    ok(textOf(plain.result.html).includes(`가계부 ${uncounted}곳은 거래 수를 세지 않았습니다`), "FC-24 세지 않은 가계부 수를 목록 위에 알린다");
+    ok(textOf(plain.result.html).includes(`요청 한 번의 DB 호출 한도 때문에 가계부 ${uncounted}곳은 거래 수를 세지 않았습니다`), "FC-24 세지 않은 가계부 수를 목록 위에 알린다");
     ok(/참여자 1명 · 거래 1건/.test(plain.result.html), "FC-24 예산 안에서는 거래 수를 그대로 센다");
     const picked = await dbCalls(() => page(fx, "/households?household_id=hh-059", { cookie }));
     eq(picked.result.status, 200, "FC-24 마지막 가계부를 고른 화면도 열린다");
-    ok(picked.calls.length <= 50, `FC-24 고른 화면의 DB 호출도 50회 안이다 (${picked.calls.length}회)`);
+    ok(picked.calls.length <= 48, `FC-24 고른 화면의 DB 호출도 48회 이하다 (${picked.calls.length}회)`);
     ok(/href="\/households\?household_id=hh-059"><b>가계부 59<\/b><span class="muted">참여자 1명 · 거래 1건<\/span>/.test(picked.result.html), "FC-24 고른 가계부는 먼저 세어 거래 수가 보인다");
-    // 첫 셈이 실패하면 나머지는 세지 않고 ‘확인 못 함’ — 500 이 아니다.
+    // 첫 셈이 실패하면 나머지는 세지 않고 ‘확인 못 함’ — 500 이 아니다. 2차: 한도 때문이라고 하지 않고 읽지 못했다고 알린다.
     const stop = intercept(({ url, method }) => (method === "HEAD" && url.pathname === "/rest/v1/transactions" ? failure(503) : null));
     let broken;
     try { broken = await page(fx, "/households", { cookie }); } finally { stop(); }
     eq(broken.status, 200, "FC-24 거래 수 읽기가 실패해도 화면은 열린다");
     eq((broken.html.match(/거래 확인 못 함/g) || []).length, 60, "FC-24 읽지 못한 가계부는 모두 ‘거래 확인 못 함’ 이다");
+    ok(textOf(broken.html).includes("거래 수를 읽지 못해 가계부 60곳은 ‘확인 못 함’ 으로 두었습니다") && !textOf(broken.html).includes("한도 때문에"), "FC-24 읽기 실패는 ‘한도 때문’ 이 아니라 읽지 못했다고 알린다");
     // 고치기 전 장면: 가계부마다 세면 60개에서 한 요청이 50회를 넘는다(예산 50 에서는 그 순간 500 이었다). 예산을 900 으로 열어 확인한다.
     fx.env.DB_CALL_BUDGET = "900";
     const every = await dbCalls(() => page(fx, "/households", { cookie }));
@@ -124,13 +132,17 @@ try {
     }
     const big = await dbCalls(() => page(fx, `/identity-audit?household_id=${HOME}`, { cookie }));
     eq(big.result.status, 200, "FC-24 참여자 50명에서 /identity-audit 이 열린다(예전에는 47명부터 500)");
-    ok(big.calls.length <= 50, `FC-24 DB 호출이 50회 안이다 (${big.calls.length}회)`);
+    ok(big.calls.length <= 48, `FC-24 DB 호출이 48회 이하다(예산 50 에서 2회 여유) (${big.calls.length}회)`);
     const cells = (big.result.html.match(/<td>확인 못 함<\/td>/g) || []).length;
     ok(cells > 0 && cells < 50, `FC-24 세지 못한 참여자 줄은 ‘확인 못 함’ 이다 (${cells}줄)`);
     ok((big.result.html.match(/· 거래 확인 못 함<\/option>/g) || []).length === cells * 2, "FC-24 통합 선택 칸에도 ‘거래 확인 못 함’ 으로 보인다(주·보조 두 칸)");
-    ok(textOf(big.result.html).includes(`참여자 ${cells}명은 거래 수를 세지 않았습니다`), "FC-24 세지 않은 참여자 수를 알린다");
+    ok(textOf(big.result.html).includes(`요청 한 번의 DB 호출 한도 때문에 참여자 ${cells}명은 거래 수를 세지 않았습니다`), "FC-24 세지 않은 참여자 수를 알린다");
     ok(/<td>\d+건<\/td>/.test(big.result.html), "FC-24 예산 안의 참여자는 거래 수가 보인다");
     eq(unreadable(big.result.html), unreadable(small.html), "FC-24 계정 잇기 진단(DB 2회)은 예산을 남겨 두어 그대로 읽힌다");
+    const stop = intercept(({ url, method }) => (method === "HEAD" && url.pathname === "/rest/v1/transactions" && url.searchParams.has("user_id") ? failure(503) : null));
+    let broken;
+    try { broken = await page(fx, `/identity-audit?household_id=${HOME}`, { cookie }); } finally { stop(); }
+    ok(broken.status === 200 && textOf(broken.html).includes("거래 수를 읽지 못해 참여자 50명은 ‘확인 못 함’ 으로 두었습니다") && !textOf(broken.html).includes("한도 때문에"), `FC-24 참여자 거래 수 읽기 실패는 읽지 못했다고 알린다 (${broken.status})`);
     fx.env.DB_CALL_BUDGET = "900";
     const every = await dbCalls(() => page(fx, `/identity-audit?household_id=${HOME}`, { cookie }));
     delete fx.env.DB_CALL_BUDGET;
@@ -210,6 +222,16 @@ try {
     const applyWrong = await upload(fx, cookie, "/backup/apply", { plan_file: { file: plan.text }, ...applyFields(HOME) });
     ok(applyWrong.status === 400 && textOf(applyWrong.html).includes("아무 행도 저장하지 않았습니다"), "FC-26 적용도 다른 가계부면 멈춘다");
     eq(fx.db.transactions.filter((row) => row.household_id === HOME).length, homeBefore, "FC-26 HOME 에 아무 기록도 들어가지 않았다(예전에는 BIN 의 기록 2건이 들어갔다)");
+    // 2차: 같은 계획에서 household_id 를 지우거나 비우면(예전 계획·고친 파일) 1차에서는 대조를 건너뛰어 HOME 에 BIN 의 기록 2건이 저장됐다.
+    const unscoped = JSON.parse(plan.text);
+    delete unscoped.household_id;
+    for (const variant of [JSON.stringify(unscoped), JSON.stringify({ ...unscoped, household_id: "" })]) {
+      const finalNone = await upload(fx, cookie, "/backup/final-check", { plan_file: { file: variant }, household_id: HOME, month: "2026-07", admin_password: "admin-pass" });
+      ok(finalNone.status === 400 && textOf(finalNone.html).includes("이 계획 파일에는 계획을 만든 가계부가 적혀 있지 않습니다") && textOf(finalNone.html).includes("‘4. 복구할 항목 고르기’ 에서 백업 파일을 다시 올려 계획을 새로 만드세요") && !("아직 신규" in metrics(finalNone.html)), `FC-26 가계부가 없는 계획은 최종 확인하지 않는다 (${finalNone.status})`);
+      const applyNone = await upload(fx, cookie, "/backup/apply", { plan_file: { file: variant }, ...applyFields(HOME) });
+      ok(applyNone.status === 400 && textOf(applyNone.html).includes("적용하지 않았습니다") && textOf(applyNone.html).includes("아무 행도 저장하지 않았습니다") && !("성공" in metrics(applyNone.html)), `FC-26 가계부가 없는 계획은 적용하지 않는다 (${applyNone.status})`);
+      eq(fx.db.transactions.filter((row) => row.household_id === HOME).length, homeBefore, "FC-26 가계부가 없는 계획으로 HOME 에 아무 기록도 들어가지 않았다(1차에서는 2건)");
+    }
     const applied = await upload(fx, cookie, "/backup/apply", { plan_file: { file: plan.text }, ...applyFields(TRIP) });
     eq(metrics(applied.html)["성공"], String(tripRows.length), "FC-26 같은 가계부로는 그대로 복구된다(GUEST 의 기록 포함)");
     const restored = fx.db.transactions.filter((row) => row.household_id === TRIP);
@@ -235,9 +257,24 @@ try {
     const allNone = await upload(fx, cookie, "/backup/select", { backup_file: { file: all.html }, household_id: "", month: "2026-07" });
     ok(allNone.status === 400 && textOf(allNone.html).includes("복구할 가계부를 하나 고른 뒤"), "FC-26 모든 가계부 백업은 가계부를 고르게 한다");
 
+    // 2차: scope 와 거래 어디에도 가계부가 없는 백업(손으로 고친 파일 등)은 ‘다른 가계부의 기록’ 이 아니라 가계부를 알 수 없는 백업이다.
+    const homeBackup = JSON.parse((await page(fx, `/admin/export/json?month=2026-07&household_id=${HOME}`, { cookie })).html);
+    const unknown = { ...homeBackup, scope: { ...homeBackup.scope, household_id: "" }, transactions: homeBackup.transactions.map(({ household_id: _householdId, ...row }) => row) };
+    for (const path of ["/backup/select", "/backup/compare"]) {
+      const res = await upload(fx, cookie, path, { backup_file: { file: JSON.stringify(unknown) }, household_id: HOME, month: "2026-07" });
+      ok(res.status === 400 && textOf(res.html).includes("가계부를 알 수 없는 백업입니다") && !/다른 가계부의 기록 \d/.test(textOf(res.html)) && !textOf(res.html).includes("빼고 고른 가계부의 기록만"), `FC-26 가계부를 알 수 없는 백업은 ${path} 에서 멈춘다(‘다른 가계부의 기록 N건은 빼고’ 가 아니다) (${res.status})`);
+    }
+    const partly = JSON.parse(all.html);
+    delete partly.transactions[0].household_id;
+    const partlyRes = await upload(fx, cookie, "/backup/select", { backup_file: { file: JSON.stringify(partly) }, household_id: HOME, month: "2026-07" });
+    ok(partlyRes.status === 200 && textOf(partlyRes.html).includes("가계부가 적혀 있지 않은 기록 1건") && textOf(partlyRes.html).includes("다른 가계부의 기록"), "FC-26 가계부가 빠진 기록은 따로 세어 알린다");
+
     // 백업센터의 복구 크기 안내(라우터가 /backup/* 본문을 64KB 에서 자른다).
-    const center = textOf((await page(fx, `/backup?household_id=${HOME}&month=2026-07`, { cookie })).html);
+    const centerHtml = (await page(fx, `/backup?household_id=${HOME}&month=2026-07`, { cookie })).html;
+    const center = textOf(centerHtml);
     ok(center.includes("복구 단계(2~6)에 올릴 수 있는 파일은 약 64KB까지") && center.includes("거래 150건 안팎"), "FC-26 백업센터가 복구에 올릴 수 있는 크기(약 64KB, 한 달 150건 안팎)를 알린다");
+    // 2차: 3·4단계 단추는 가계부를 싣지 않아 ‘백업 파일의 가계부’ 로 열린다(5·6단계는 그대로 보던 가계부).
+    ok(centerHtml.includes('href="/backup/compare?month=2026-07"') && centerHtml.includes('href="/backup/select?month=2026-07"') && centerHtml.includes(`href="/backup/final-check?month=2026-07&amp;household_id=${HOME}"`), "FC-26 백업센터 3·4단계 단추는 가계부 없이, 5단계는 보던 가계부로 연다");
     const bigRows = Array.from({ length: 400 }, (_, i) => ({ ...parsedB.transactions[0], id: `big-${i}`, memo: `큰 백업 ${i}` }));
     const tooBig = await upload(fx, cookie, "/backup/compare", { backup_file: { file: JSON.stringify({ ...parsedB, transactions: bigRows }, null, 2) }, household_id: TRIP, month: "2026-07" });
     eq(tooBig.status, 413, "FC-26 장면: 한 달 400건 백업은 복구 단계에 올라가지 않는다(라우터 64KB)");
@@ -272,6 +309,40 @@ try {
     ok(metrics(capped.result.html)["확인 불가"] === "10" && metrics(capped.result.html)["삭제 가능 후보"] === "200" && !textOf(capped.result.html).includes("삭제 전 최종 확인 통과"), `FC-27b 한 번에 200건까지 확인하고 나머지는 ‘확인 불가’ 다 (${JSON.stringify(metrics(capped.result.html))})`);
     const otherHousehold = await check(rows.slice(0, 3), { household_id: TRIP });
     ok(metrics(otherHousehold.result.html)["현재 없음"] === "3" && !textOf(otherHousehold.result.html).includes("삭제 전 최종 확인 통과"), "FC-27b 다른 가계부를 고르면 그 가계부에서만 찾는다");
+
+    // 2차: 모양이 다른 id(손으로 고친 계획)는 묻지 않고 그 행에만 사유를 적는다. 1차에서는 그 묶음 50건이 사유 없이 모두 ‘확인 불가’ 였다(운영의 id 는 uuid 라 400).
+    const tripId = fx.db.transactions.find((row) => row.household_id === TRIP).id;
+    const weirdIds = ["a,b)", 'x"y', "),household_id.eq.", `${tripId}),household_id.eq.${TRIP}`, `${tripId}&household_id=eq.${TRIP}`, "y".repeat(161)];
+    const mixed = [...rows.slice(0, 3), ...weirdIds.map((id, i) => ({ ...rows[10 + i], id })), { ...rows[20], id: tripId }];
+    const shaped = await check(mixed);
+    const sm = metrics(shaped.result.html);
+    const sentIds = shaped.calls.filter((call) => call.startsWith("GET /rest/v1/transactions")).map((call) => new URLSearchParams(call.slice(call.indexOf("?"))));
+    ok(sm["삭제 가능 후보"] === "3" && sm["확인 불가"] === String(weirdIds.length) && sm["현재 없음"] === "1" && !textOf(shaped.result.html).includes("삭제 전 최종 확인 통과"), `FC-27b 모양이 다른 id 는 그 행만 ‘확인 불가’, 나머지는 확인하고 다른 가계부의 행은 ‘현재 없음’ 이다 (${JSON.stringify(sm)})`);
+    eq((textOf(shaped.result.html).match(/거래 id 모양이 아님/g) || []).length, weirdIds.length, "FC-27b ‘확인 불가’ 행마다 id 모양이 아니라는 사유가 보인다");
+    ok(sentIds.length === 1 && sentIds[0].getAll("household_id").join() === `eq.${HOME}` && sentIds[0].get("id") === `in.(${[...rows.slice(0, 3).map((r) => r.id), tripId].map((id) => `"${id}"`).join(",")})`, `FC-27b 모양이 맞는 id 만 한 값씩 따옴표로 묻고, 가계부 조건은 따로 하나다 (${sentIds.map((p) => p.toString()).join(" | ")})`);
+    // 묶음 하나를 읽지 못해도 다음 묶음은 확인하고, 읽지 못한 묶음의 행에는 사유를 적는다(1차에서는 거기서 멈췄다).
+    const firstBatch = intercept(({ url, method }) => (method === "GET" && url.pathname === "/rest/v1/transactions" && decodeURIComponent(url.search).includes('"rb-000"') ? failure(503) : null));
+    let halfDown;
+    try { halfDown = await check(rows); } finally { firstBatch(); }
+    const hm = metrics(halfDown.result.html);
+    ok(hm["확인 불가"] === "50" && hm["삭제 가능 후보"] === "10" && hm["현재 없음"] === "0" && !textOf(halfDown.result.html).includes("삭제 전 최종 확인 통과"), `FC-27b 첫 묶음을 읽지 못해도 둘째 묶음은 확인한다 (${JSON.stringify(hm)})`);
+    ok(textOf(halfDown.result.html).includes("확인 불가: 이 행이 든 묶음(50건)을 읽지 못함 — 잠시 후 다시 확인하고"), "FC-27b 읽지 못한 묶음의 행에 사유가 보인다");
+    // PostgREST 의 in.(…) 목록 문법(큰따옴표 안에서 \ 다음 글자는 그대로)으로 되읽으면 따옴표로 감싼 값은 쉼표·괄호·따옴표가 있어도 한 값이다.
+    const quoteSource = readFileSync(new URL("../src/modules/kakao/edit-session-v4.js", import.meta.url), "utf8").match(/function postgrestQuotedValueV22979\([^)]*\) \{[\s\S]*?\n\}/)?.[0] || "";
+    const quote = quoteSource ? vm.runInNewContext(`(${quoteSource})`) : null;
+    const parseList = (text) => {
+      const values = [];
+      let i = 0;
+      while (i < text.length) {
+        let value = "";
+        if (text[i] === "\"") { i += 1; while (i < text.length && text[i] !== "\"") { if (text[i] === "\\") i += 1; value += text[i] ?? ""; i += 1; } i += 1; } else { while (i < text.length && text[i] !== ",") { value += text[i]; i += 1; } }
+        values.push(value);
+        if (text[i] === ",") i += 1; else if (i < text.length) return null;
+      }
+      return values;
+    };
+    const quoteCases = [...weirdIds, "back\\slash", "\\\"", "plain-id"];
+    ok(typeof quote === "function" && quoteCases.every((id) => JSON.stringify(parseList([id, "z"].map(quote).join(","))) === JSON.stringify([id, "z"])), "FC-27b 따옴표 처리: a,b) · x\"y · ),household_id.eq. 같은 값도 in.(…) 안에서 한 값으로 되읽힌다");
   }));
 
   // ── FC-27c 최종 확인 범위 = 적용 범위, FC-27j 한 번에 18건 ─────────────────────────
@@ -279,21 +350,30 @@ try {
     uuidFixture(fx);
     const cookie = await adminCookie(fx);
     const row = (memo, extra = {}) => ({ transaction_date: "2026-07-21", type: "expense", amount: 4100, category: "식비", memo, payment_method: "현금", user_id: BIN, ...extra });
-    const selected = [row("범위 안 하나"), row("범위 안 둘", { amount: 4200 }), row("유월 기록", { transaction_date: "2026-06-30" }), row("손님 기록", { user_id: GUEST })];
-    const final = await upload(fx, cookie, "/backup/final-check", { plan_file: { file: legacyPlan(selected) }, household_id: HOME, month: "2026-07", admin_password: "admin-pass" });
+    // 2차: 형식이 틀린 행(구분 transfer)도 넣는다 — 적용은 그 행을 ‘형식·범위·중단 제외’ 로 세는데 1차의 최종 확인은 세지 않았다.
+    const selected = [row("범위 안 하나"), row("범위 안 둘", { amount: 4200 }), row("유월 기록", { transaction_date: "2026-06-30" }), row("손님 기록", { user_id: GUEST }), row("구분 틀림", { type: "transfer" })];
+    const homePlan = (rows) => legacyPlan(rows, { household_id: HOME });
+    const final = await upload(fx, cookie, "/backup/final-check", { plan_file: { file: homePlan(selected) }, household_id: HOME, month: "2026-07", admin_password: "admin-pass" });
     const fm = metrics(final.html);
-    ok(final.status === 200 && fm["선택 후보"] === "4" && fm["아직 신규"] === "2" && fm["적용에서 빠짐"] === "2", `FC-27c 최종 확인이 적용과 같이 다른 달·활성 참여자 아닌 행을 뺀다(예전에는 4건 모두 ‘아직 신규’) (${JSON.stringify(fm)})`);
-    ok(textOf(final.html).includes("일부 행은 적용에서 빠집니다") && !textOf(final.html).includes("최종 확인 통과") && textOf(final.html).includes("지출자가 이 가계부의 활성 참여자가 아니어서 제외") && textOf(final.html).includes("선택한 달(2026-07) 밖의 날짜라"), "FC-27c 빠질 행과 사유를 보이고 ‘통과’ 라고 하지 않는다");
-    const applied = await upload(fx, cookie, "/backup/apply", { plan_file: { file: legacyPlan(selected) }, ...applyFields(HOME) });
+    ok(final.status === 200 && fm["선택 후보"] === "4" && fm["아직 신규"] === "2" && fm["적용에서 빠짐"] === "3" && fm["계획 후보"] === "5", `FC-27c 최종 확인이 적용과 같이 형식 오류·다른 달·활성 참여자 아닌 행을 뺀다(예전에는 4건 모두 ‘아직 신규’) (${JSON.stringify(fm)})`);
+    ok(textOf(final.html).includes("일부 행은 적용에서 빠집니다") && !textOf(final.html).includes("최종 확인 통과") && textOf(final.html).includes("지출자가 이 가계부의 활성 참여자가 아니어서 제외") && textOf(final.html).includes("선택한 달(2026-07) 밖의 날짜라") && textOf(final.html).includes("제외: 형식 오류로 제외: 구분 ‘transfer’은 income·expense 가 아님"), "FC-27c 빠질 행과 사유(형식 오류 포함)를 보이고 ‘통과’ 라고 하지 않는다");
+    const applied = await upload(fx, cookie, "/backup/apply", { plan_file: { file: homePlan(selected) }, ...applyFields(HOME) });
     const am = metrics(applied.html);
-    ok(am["성공"] === fm["아직 신규"] && am["형식·범위·중단 제외"] === fm["적용에서 빠짐"], `FC-27c 적용 결과가 최종 확인과 같다 (${JSON.stringify(am)})`);
+    ok(am["성공"] === fm["아직 신규"] && am["형식·범위·중단 제외"] === fm["적용에서 빠짐"] && am["요청 후보"] === fm["계획 후보"], `FC-27c 적용 결과가 최종 확인과 같다 (최종 ${JSON.stringify(fm)} / 적용 ${JSON.stringify(am)})`);
     const missingHousehold = await upload(fx, cookie, "/backup/final-check", { plan_file: { file: legacyPlan(selected) }, household_id: "", month: "2026-07", admin_password: "admin-pass" });
-    ok(missingHousehold.status === 400 && textOf(missingHousehold.html).includes("확인할 가계부를 고른 뒤"), "FC-27c 가계부가 정해지지 않으면 확인하지 않는다");
+    ok(missingHousehold.status === 400 && textOf(missingHousehold.html).includes("계획을 만든 가계부가 적혀 있지 않습니다"), "FC-27c 계획에도 선택 칸에도 가계부가 없으면 확인하지 않는다");
+    const planOnly = await upload(fx, cookie, "/backup/final-check", { plan_file: { file: homePlan(selected.slice(0, 1)) }, household_id: "", month: "2026-07", admin_password: "admin-pass" });
+    ok(planOnly.status === 200 && selectedHousehold(planOnly.html) === HOME, "FC-27c 선택 칸이 비어 있으면 계획의 가계부로 확인한다");
+    // 2차: 참여자 목록을 읽지 못하면 모든 행을 ‘활성 참여자가 아님’ 으로 보이지 않고 확인 불가로 멈춘다.
+    const membersDown = intercept(({ url, method }) => (method === "GET" && url.pathname === "/rest/v1/household_members" ? failure(503) : null));
+    let unreadable;
+    try { unreadable = await upload(fx, cookie, "/backup/final-check", { plan_file: { file: homePlan(selected) }, household_id: HOME, month: "2026-07", admin_password: "admin-pass" }); } finally { membersDown(); }
+    ok(unreadable.status === 503 && textOf(unreadable.html).includes("현재 기록이나 참여자 목록을 읽지 못해 확인하지 못했습니다(확인 불가)") && !textOf(unreadable.html).includes("활성 참여자가 아니어서") && !("아직 신규" in metrics(unreadable.html)), `FC-27c 참여자 목록을 읽지 못하면 확인 불가다 (${unreadable.status})`);
 
     const applyPage = await page(fx, `/backup/apply?household_id=${HOME}&month=2026-07`, { cookie });
     ok(applyPage.html.includes("최대 18건 적용") && applyPage.html.includes("1회 최대 18건"), "FC-27j 적용 화면이 한 번에 18건이라고 알린다");
     const many = Array.from({ length: 25 }, (_, i) => row(`많은 복구 ${i}`, { amount: 7000 + i, transaction_date: `2026-07-${String(1 + i).padStart(2, "0")}` }));
-    const big = await dbCalls(() => upload(fx, cookie, "/backup/apply", { plan_file: { file: legacyPlan(many) }, ...applyFields(HOME) }));
+    const big = await dbCalls(() => upload(fx, cookie, "/backup/apply", { plan_file: { file: homePlan(many) }, ...applyFields(HOME) }));
     const bm = metrics(big.result.html);
     ok(bm["성공"] === "18" && bm["제한 초과 제외"] === "7", `FC-27j 25건 계획에서 18건만 적용하고 7건은 제한으로 뺀다 (${JSON.stringify(bm)})`);
     ok(big.calls.length <= 48, `FC-27j 18건 적용의 DB 호출이 예산 50회보다 여유가 있다(${big.calls.length}회; 20건이면 행마다 2회씩 더해 50회에 닿았다)`);
@@ -302,12 +382,20 @@ try {
   // ── FC-27d 백업 JSON 에서 초대코드·카카오 사용자 키를 뺀다 ───────────────────────────
   await section("FC-27d", () => fixture(async (fx) => {
     const cookie = await adminCookie(fx);
-    ok(fx.db.households.some((h) => h.id === HOME && h.invite_code) && fx.db.users.some((u) => u.kakao_user_key), "FC-27d 장면: 저장소의 가계부·사용자에는 초대코드·카카오 키가 있다");
+    // 2차: 카카오로 저장한 기록(source_user_key 에 사용자 키가 적힌다)을 하나 만들고, 칸 이름이 아니라 저장소의 키·초대코드 값이 파일 어디에도 없는지 본다.
+    putSetting(fx, "kakao_selected_household_v2251:user-bin", HOME);
+    const before = new Set(fx.db.transactions.map((row) => row.id));
+    await skill(fx, "점심 9000원");
+    const kakaoRow = fx.db.transactions.find((row) => !before.has(row.id));
+    ok(kakaoRow?.household_id === HOME && String(kakaoRow?.transaction_date || "").startsWith("2026-07") && fx.db.users.some((u) => u.kakao_user_key && u.kakao_user_key === kakaoRow?.source_user_key), "FC-27d 장면: 카카오로 저장한 기록의 source_user_key 에 사용자 키가 있다");
+    const secrets = [...new Set([...fx.db.users.map((u) => u.kakao_user_key), ...fx.db.households.map((h) => h.invite_code), ...fx.db.transactions.map((row) => row.source_user_key)].map((value) => String(value || "")).filter((value) => value.length >= 6))];
+    ok(secrets.length >= 4 && fx.db.households.some((h) => h.id === HOME && h.invite_code), `FC-27d 장면: 저장소의 사용자 키·초대코드 값 ${secrets.length}개`);
     for (const query of [`month=2026-07&household_id=${HOME}`, `month=2026-07&household_id=${HOME}&range=all`, "month=2026-07"]) {
       const exported = await page(fx, `/admin/export/json?${query}`, { cookie });
       const data = JSON.parse(exported.html);
       const members = Object.values(data.household_members || {}).flat();
-      ok(exported.status === 200 && !exported.html.includes("kakao_user_key") && !exported.html.includes("invite_code") && !exported.html.includes("HOME2265"), `FC-27d 백업 파일에 kakao_user_key·invite_code 가 없다 (${query})`);
+      const leaked = secrets.filter((value) => exported.html.includes(value)).length;
+      ok(exported.status === 200 && leaked === 0 && data.transactions.some((row) => row.id === kakaoRow?.id), `FC-27d 백업 파일 어디에도 사용자 키·초대코드 값이 없고 카카오 기록은 들어 있다 (${query}; 남은 값 ${leaked}개)`);
       ok(members.length > 0 && members.every((m) => m.user_id && m.role) && data.households.every((h) => h.id && h.name), `FC-27d 참여자·가계부의 나머지 칸은 그대로다 (${query})`);
     }
     const exported = JSON.parse((await page(fx, `/admin/export/json?month=2026-07&household_id=${HOME}`, { cookie })).html);

@@ -192,7 +192,7 @@ async function adminCookie(fx) {
 async function sendPlan(fx, cookie, rows) {
   const form = new FormData();
   for (const [key, value] of Object.entries({ household_id: HH, month: "2026-07", admin_password: "admin-pass", confirm_text: "가져오기 적용" })) form.set(key, value);
-  form.set("plan_file", new File([JSON.stringify({ app: "kakao-accountbook", mode: "candidate_plan_only_no_db_write", selected_count: rows.length, selected: rows })], "plan.json", { type: "application/json" }));
+  form.set("plan_file", new File([JSON.stringify({ app: "kakao-accountbook", mode: "candidate_plan_only_no_db_write", household_id: HH, selected_count: rows.length, selected: rows })], "plan.json", { type: "application/json" })); // V22.9.126 FC-26: 계획에 만든 가계부
   const response = await app.fetch(new Request(`${BASE}/backup/apply`, { method: "POST", headers: { cookie, origin: BASE, "sec-fetch-site": "same-origin" }, body: form }), fx.env, ctx);
   return { status: response.status, text: await response.text() };
 }
