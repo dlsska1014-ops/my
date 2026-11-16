@@ -105,6 +105,7 @@ async function createLocalLoginUser(env, loginName = "", displayName = "", acces
   const legacy = await supabase(env, `/rest/v1/users?nickname=ilike.${encodeURIComponent(legacyPattern)}&kakao_user_key=like.local_web%3A*&select=id,nickname&order=id&limit=${legacyLimit}`, {method:"GET"});
   if (Array.isArray(legacy) && legacy.some((row) => normalizeLocalLoginName(row?.nickname) === normalizeLocalLoginName(cleanLoginName))) throw new Error("login_name_in_use:legacy_recovery_required");
   // V22.9.126 FC-15 2차: 한 글자 넓힌 패턴(*)은 한 쪽(50행)을 넘게 맞을 수 있어 같은 이름이 잘려 나갔을 수 있다 → 쪽이 차면 이미 쓰는 이름으로 닫는다.
+  // V22.9.126 FC-15 3차: 흔한 앞 글자 + * (예: ‘김*’)는 같은 이름이 없어도 여기서 ‘이미 사용 중’ 이 될 수 있다 — 받아들인 제약(다른 이름을 고르면 된다).
   if (Array.isArray(legacy) && legacy.length >= legacyLimit) throw new Error("login_name_in_use:legacy_scan_full");
   const links = await fetchUserIdentityLinks(env);
   if (Object.entries(links).some(([key,value]) => key.startsWith("local_web:") && normalizeLocalLoginName(safeObject(value).nickname) === normalizeLocalLoginName(cleanLoginName))) throw new Error("login_name_in_use:legacy_recovery_required");
