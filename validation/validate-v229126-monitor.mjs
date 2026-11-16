@@ -1,20 +1,24 @@
 // V22.9.126 관제 1.8.0 검사 — FC-28(화면 새로 읽기·7일 이력 읽기)·FC-29(알림 기록을 보내기 전에 쓰기·끊긴 실행·모든 채널 실패·
 // 관제 몫 CPU 초과)와 작은 것들. 장면마다 고친 동작과 고치기 전 결함을 함께 본다.
-//   1. FC-29 보내는 순간 D1 에 이번 메일의 ‘보내는 중’ 기록이 이미 있다(고치기 전: 보낸 뒤에야 기록).
-//   2. FC-29 보내기 앞에서 끊긴 실행 → 다음 실행들이 15분 뒤 정확히 한 번 보낸다(영영 안 보내지 않는다).
-//   3. FC-29 보낸 뒤 끊긴 실행 → 5분·10분 뒤 다시 보내지 않고 15분 뒤 많아야 한 번 더, 그 뒤 멈춘다(고치기 전: 다음 실행이 또 보내고,
-//      실행마다 끊기면 5분마다 보냄).
-//   4. FC-29 모든 채널 실패 → 15분 간격으로 다시 시도하고 그동안 화면에 실패가 남는다(고치기 전: 5분마다 다시 시도).
-//   5. FC-29 해소 메일도 2·3 과 같다.
-//   6. FC-29 관제 몫 CPU 초과(계정 전체 − 앱)를 주의로 알리고 0 이 되면 해소한다(고치기 전: 경고 없음).
-//   7. 한 채널만 닿은 발송의 실패 채널이 ‘확인되지 않은 항목’ 에 다음 발송까지 남는다(고치기 전: 숨음).
+//   1. FC-29 보내는 순간 D1 에 이번 메일이 ‘보내는 중’(attempt)으로 이미 있고 확정 칸은 비어 있다(고치기 전: 보낸 뒤에야 기록).
+//   2. FC-29 보내기 앞에서 끊긴 실행 → 15분 뒤 정확히 한 번 보낸다. 그동안 화면에 ‘알림 발송 미확인’ 이 보인다.
+//   3. FC-29 보낸 뒤 끊긴 실행 → 15분 뒤 많아야 한 번 더, 확정되면 멈춘다. 실행마다 끊기면 15·30·60분, 그 뒤 60분마다(고치기 전: 5분마다).
+//      실행마다 보내기 앞에서 끊겨도 60분 넘게 시도를 쉬지 않고, 끊김이 멎으면 한 번 보낸다(2차 검토 P2).
+//   4. FC-29 모든 채널 실패 → 15분 간격으로 다시 시도하고 그동안 화면에 실패가 남는다(고치기 전: 5분마다). 그 메일에 없던 경고·더 높은
+//      등급은 기다리지 않는다(2차).
+//   5. FC-29 해소 메일도 2·3 과 같다. 확정 안 된 경고의 ‘해소’ 는 보내지 않고, 확정 안 된 해소 뒤 다시 생긴 경고에 ‘해소 뒤 다시 생김’ 을
+//      붙이지 않는다(2차; 고치기 전: 보낸 뒤 끊긴 해소 뒤 다시 생긴 경고를 6시간 동안 알리지 않음).
+//   6. FC-29 관제 몫 CPU 초과(계정 전체 − 앱)를 주의로 알리고 0 이 되면 해소한다. 앱 행이 비거나 창이 전날이면 판단하지 않는다(2차).
+//   7. 한 채널만 닿은 발송의 실패 채널이 ‘확인되지 않은 항목’ 에 다음 발송까지, 길어야 24시간 남는다(고치기 전: 숨음).
 //   8. collect 의 D1 실패(매시 정리·실패 기록 쓰기)가 그 실행의 경고 발송·이용 현황을 막지 않는다(고치기 전: 둘 다 빠짐).
-//   9. UTC 0시 표본 정리를 놓치면 다음 매시 실행이 메우고 같은 날 다시 하지 않는다(고치기 전: 다음 0시까지 밀림).
+//   9. UTC 0시 표본 정리를 놓치면 다음 매시 실행이 메우고, 한도(2000행)를 채우면 다음 매시 실행이 이어 지운다(고치기 전: 다음 0시까지 밀림).
+//  14. FC-29 보내기 전 기록 쓰기가 실패해도 메일은 나가고, 보낸 뒤에도 못 쓰면 delivery_unrecorded 로 남는다(2차).
 //  10. 한도 카드의 값이 없으면 ‘확인 불가’ 에 단위를 붙이지 않는다(고치기 전: ‘확인 불가 회/행’).
 //  11. 요청 예측만으로는 실제 사용이 한도의 50% 이상일 때만 ‘전환 검토’ 다(고치기 전: 사용 20% 에 저녁 첨두 한 시간으로 전환 검토).
 //  12. FC-28 화면 새로 읽기 300초 — 관제 화면과 앱 /ops-monitor 가 같은 HTML 을 낸다(고치기 전: 60초).
 //  13. FC-28 화면용 7일 이력은 그래프 점만 읽는다(48행 이하, 같은 48점·같은 남은 일수. 고치기 전: 2,016행).
-// 고치기 전 장면은 monitoring/worker.mjs 원문에 아래 BEFORE 되돌림 변환을 걸어 data: URL 로 읽은 사본에서 돌린다(네트워크 없음).
+// 고치기 전 장면은 monitoring/worker.mjs 원문에 아래 BEFORE 되돌림 변환을 걸고 deliverAlerts 를 1.7.0 원문(OLD_DELIVER)으로 바꾼 사본을
+// data: URL 로 읽어 돌린다(네트워크 없음).
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
@@ -50,23 +54,86 @@ const BEFORE = [
   ["\"./dashboard.mjs\"", JSON.stringify(new URL("../monitoring/dashboard.mjs", import.meta.url).href), "dashboard.mjs 주소"],
   ["monthlyForecast, growthDaysToLimit,", "monthlyForecast, daysToLimit, growthDaysToLimit,", "daysToLimit 가져오기"],
   [/    try \{ (await env\.MONITOR_DB\.prepare\("INSERT INTO collector_state\(name,last_attempt_at,status,error_code\)[^\n]*?\.run\(\);) \}\n    catch\(writeError\)[^\n]*\n/, (_, statement) => `    ${statement}\n`, "실패 기록 쓰기 보호"],
+  ["/^delivery_(?:failed|unrecorded)\\b/", "/^delivery_failed\\b/", "delivery_unrecorded 코드"],
   [/  \/\/ 1\.8\.0\(V22\.9\.126\): 정리 문장이 실패해도[\s\S]*?monitor daily cleanup failed[^\n]*\n  \}\n\}/, OLD_CLEANUP, "매시·0시 정리 보호와 메우기"],
+  ["prepare(`SELECT * FROM settings WHERE key IN ('plans','roundtrip','usage','cron')${alerting?\"\":\" OR key LIKE 'alert:%'\"}`)", "prepare(\"SELECT * FROM settings WHERE key IN ('plans','roundtrip','usage','cron')\")", "화면 범위 alert:* 읽기"],
   ["  const history=alerting?[]:await dashboardHistory(env,now);\n  const days=await alertGrowthDays(env,now,db.data?.database_bytes,dbCap);",
     "  const history=alerting?[]:(await env.MONITOR_DB.prepare(\"SELECT collected_at AS at,json_extract(payload,'$.database_bytes') AS value FROM samples WHERE source='database' AND bucket >= ? ORDER BY bucket LIMIT 3000\").bind(new Date(now-7*DAY).toISOString()).all()).results;\n  const days=alerting?await alertGrowthDays(env,now,db.data?.database_bytes,dbCap):daysToLimit(history,db.data?.database_bytes,dbCap);", "화면 7일 이력(FC-28)"],
   ["{fresh:cfFresh,forecast,forecastFrom:0.5}", "{fresh:cfFresh,forecast}", "요청 예측 50%"],
-  [/  const monitorCpu=monitorCpuLimitErrors\(cf\);\n[^\n]*\n/, "", "관제 몫 CPU 경고"],
-  [/  const partial=states\.alerts\?\.fresh[^\n]*\n[^\n]*\n/, "", "일부 채널 실패 항목"],
-  ["const hold=failedAt!==null&&at-failedAt<ALERT_RETRY_MS;", "const hold=false;", "모든 채널 실패 뒤 간격"],
-  [/  const retryDue=\(record,kind\)=>[^\n]*\n/, "  const retryDue=()=>false;\n", "끊긴 발송 다시 보내기"],
-  ["save(key,{...done,attempt:{kind:\"alert\",at:stamp,retry}});", "save(key,done);", "경고 ‘보내는 중’ 표시"],
-  ["save(key,{...done,attempt:{kind:\"recovery\",at:stamp,retry}});", "save(key,done);", "해소 ‘보내는 중’ 표시"],
-  [/  \/\/ 1\.8\.0\(V22\.9\.126 FC-29\): 보내기 전에 기록부터 쓴다[^\n]*\n  await env\.MONITOR_DB\.batch\(statements\);\n/, "", "보내기 전 쓰기"],
-  [/  if\(!delivered\.length\) \{\n[\s\S]*?\n  \}\n/, "  if(!delivered.length) throw new Error(`delivery_failed ${failures.join(\" \")}`);\n", "모든 채널 실패 때 되돌리기"],
-  ["await env.MONITOR_DB.batch([...mail.map(item=>put(item.key,item.done)),...(holdRecord?[drop(ALERT_HOLD_KEY)]:[])]);", "if(statements.length) await env.MONITOR_DB.batch(statements);", "보낸 뒤 쓰기(1.7.0 순서)"],
+  [/  const monitorCpu=monitorCpuLimitErrors\(cf,now\);\n[^\n]*\n/, "", "관제 몫 CPU 경고"],
+  [/  const partial=states\.alerts\?\.fresh[\s\S]*?시도\)`\);\n/, "", "일부 채널 실패·발송 미확인 항목"],
 ];
-const beforeSource = BEFORE.reduce((text, [from, to, label]) => once(text, from, to, label), readFileSync(new URL("../monitoring/worker.mjs", import.meta.url), "utf8"));
+// 1.7.0(9c3fa818) monitoring/worker.mjs 의 deliverAlerts 원문. 고치기 전 장면은 이 함수로 돈다(작은 되돌림을 여럿 쌓지 않는다).
+const OLD_DELIVER = [
+  "export async function deliverAlerts(env,now=new Date()) {",
+  "  const channels=[env.ALERT_EMAIL&&env.ALERT_TO?\"email\":null,env.ALERT_WEBHOOK_URL?\"webhook\":null].filter(Boolean);",
+  "  if(!channels.length) throw new Error(\"not_connected\");",
+  "  const result=await summary(env,now.getTime(),{alerting:true});",
+  "  const at=now.getTime();const stamp=now.toISOString();",
+  "  const time=value=>{ const parsed=Date.parse(value||\"\"); return Number.isFinite(parsed)?parsed:null; };",
+  "  const active=result.alerts.filter(alert=>ALERT_RESEND_MS[alert.status]);",
+  "  const rows=(await env.MONITOR_DB.prepare(\"SELECT key,value FROM settings WHERE key LIKE 'alert:%'\").all()).results;",
+  "  const remembered=new Map(rows.map(row=>{ try { return [row.key,JSON.parse(row.value)]; } catch(_) { return [row.key,{}]; } }));",
+  "  const due=[];const recovered=[];const statements=[];",
+  "  const save=(key,record)=>statements.push(env.MONITOR_DB.prepare(\"INSERT INTO settings(key,value) VALUES(?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value\").bind(key,JSON.stringify(record)));",
+  "  for(const alert of active) {",
+  "    const key=alertKey(alert.title);",
+  "    const previous=remembered.get(key);",
+  "    remembered.delete(key);",
+  "    const sentAt=time(previous?.sent_at);",
+  "    const recoveredAt=time(previous?.recovered_at);",
+  "    // 마지막으로 보낸 메일이 '해소'였다면 운영자는 해소를 믿고 있다. 다시 생긴 것을 한 번 알린다.",
+  "    const again=sentAt!==null&&recoveredAt!==null&&recoveredAt>=sentAt;",
+  "    if(sentAt!==null&&!again&&at-sentAt<ALERT_RESEND_MS[alert.status]&&(ALERT_RANK[alert.status]||0)<=(ALERT_RANK[previous.status]||0)) {",
+  "      // 간격 안: 보내지 않는다. 진행 중이던 해소 판정(연속 정상)만 처음으로 되돌린다.",
+  "      if(previous.resolved_at||previous.ok) save(key,{...previous,resolved_at:null,ok:0,ok_since:null});",
+  "      continue;",
+  "    }",
+  "    due.push(again?{...alert,again:true}:alert);",
+  "    save(key,{title:alert.title,status:alert.status,sent_at:stamp,resolved_at:null,ok:0,ok_since:null,recovered_at:previous?.recovered_at||null});",
+  "  }",
+  "  for(const [key,previous] of remembered) {",
+  "    let record=previous;",
+  "    let resolvedNow=false;",
+  "    if(!record?.resolved_at) {",
+  "      // 사라진 경고도 같은 출처의 새 정상 측정이 있어야 해소 쪽으로 센다(수집 오류·지연은 세지 않고 되돌리지도 않는다).",
+  "      if(!alertRecoveryConfirmed(result,record?.title)) continue;",
+  "      const ok=(Number(record.ok)||0)+1;",
+  "      const okSince=time(record.ok_since)??at;",
+  "      if(ok<ALERT_RECOVERY_CHECKS||at-okSince<ALERT_RECOVERY_MIN_MS) { save(key,{...record,ok,ok_since:new Date(okSince).toISOString()}); continue; }",
+  "      record={...record,ok:0,ok_since:null,resolved_at:stamp};",
+  "      resolvedNow=true;",
+  "    }",
+  "    const sentAt=time(record.sent_at);",
+  "    const recoveredAt=time(record.recovered_at);",
+  "    const owed=record.status===\"critical\"&&sentAt!==null&&!(recoveredAt!==null&&recoveredAt>=sentAt);",
+  "    if(owed&&(recoveredAt===null||at-recoveredAt>=ALERT_RESEND_MS.critical)&&(resolvedNow||alertRecoveryConfirmed(result,record.title))) {",
+  "      recovered.push(record);",
+  "      save(key,{...record,recovered_at:stamp});",
+  "    } else if(!owed&&at-Math.max(sentAt??0,recoveredAt??0)>=(ALERT_RESEND_MS[record.status]||ALERT_RESEND_MS.warning)) statements.push(env.MONITOR_DB.prepare(\"DELETE FROM settings WHERE key=?\").bind(key));",
+  "    else if(resolvedNow) save(key,record);",
+  "  }",
+  "  if(!due.length&&!recovered.length) { if(statements.length) await env.MONITOR_DB.batch(statements); return {channels,sent:0,recovered:0,active:active.length,status:result.status}; }",
+  "  const counts=[\"critical\",\"upgrade\",\"warning\"].map(status=>`${ALERT_LABELS[status]} ${due.filter(a=>a.status===status).length}`).join(\" · \");",
+  "  const subject=`[말해가계부 관제] ${due.length?counts:\"해소 \"+recovered.length}`;",
+  "  const text=renderAlertText(result,due,recovered,now,env.APP_ORIGIN||\"\");",
+  "  const delivered=[];const failures=[];",
+  "  const channelFailed=(channel,error)=>{ const code=failureCode(error); failures.push(`${channel}:${code}`); console.error(`monitor alert ${channel} failed: ${code} — ${String(error?.message||error).replace(/\\s+/g,\" \").slice(0,200)}`); };",
+  "  if(channels.includes(\"email\")) { try { await sendAlertEmail(env,subject,text,now); delivered.push(\"email\"); } catch(error) { channelFailed(\"email\",error); } }",
+  "  if(channels.includes(\"webhook\")) { try { const response=await fetch(env.ALERT_WEBHOOK_URL,{method:\"POST\",headers:{\"content-type\":\"application/json\"},body:JSON.stringify({text:`${subject}\\n${text}`}),signal:AbortSignal.timeout(8000)}); if(!response.ok) throw new Error(`http_${response.status}`); delivered.push(\"webhook\"); } catch(error) { channelFailed(\"webhook\",error); } }",
+  "  if(!delivered.length) throw new Error(`delivery_failed ${failures.join(\" \")}`);",
+  "  if(statements.length) await env.MONITOR_DB.batch(statements);",
+  "  return {channels,delivered,failures,sent:due.length,recovered:recovered.length,active:active.length,status:result.status,titles:due.map(alert=>alert.title).slice(0,10)};",
+  "}",
+].join("\n");
+const swapDeliver = (text) => {
+  const start = text.indexOf("export async function deliverAlerts(env,now=new Date()) {"), end = text.indexOf("\n}\n\nexport default {", start);
+  assert.ok(start > 0 && end > start && text.indexOf("export async function deliverAlerts(", start + 1) < 0, "deliverAlerts 를 1.7.0 원문으로 바꿀 자리를 찾는다");
+  return text.slice(0, start) + OLD_DELIVER + text.slice(end + 2);
+};
+const beforeSource = swapDeliver(BEFORE.reduce((text, [from, to, label]) => once(text, from, to, label), readFileSync(new URL("../monitoring/worker.mjs", import.meta.url), "utf8")));
 const before = await import("data:text/javascript;charset=utf-8," + encodeURIComponent(beforeSource));
-ok(typeof before.deliverAlerts === "function" && typeof before.default?.scheduled === "function", `고치기 전 사본을 만든다(되돌림 변환 ${BEFORE.length}개)`);
+ok(typeof before.deliverAlerts === "function" && typeof before.default?.scheduled === "function", `고치기 전 사본을 만든다(되돌림 변환 ${BEFORE.length}개 + deliverAlerts 1.7.0 원문)`);
 
 // ── D1·바깥 요청 흉내 ────────────────────────────────────────────────────────────
 // test-d1.mjs 와 같은 node:sqlite D1. fail(sql) 이 참인 문장은 D1 오류로 던지고(batch 는 통째로), counting 이면 samples 를 읽는 문장이
@@ -172,6 +239,7 @@ try {
     const kill = killedSend(box, delivered);
     const first = await deliver(mod, fx, T0, { ALERT_EMAIL: kill.binding }, kill);
     const atSend = recordOf(fx, TITLE);
+    const pendingView = await mod.summary(monitorEnv(fx), T0 + MIN);
     const sends = [];
     for (let i = 1; i <= 12; i += 1) {
       const t = T0 + i * 5 * MIN;
@@ -181,17 +249,21 @@ try {
       else await deliver(mod, fx, t, { ALERT_EMAIL: box.ok });
       sends.push(box.mails.length - count);
     }
-    return { first, atSend, sends: sends.join(""), mails: box.mails, record: recordOf(fx, TITLE), fx };
+    const finalView = await mod.summary(monitorEnv(fx), T0 + 61 * MIN);
+    return { first, atSend, pendingView, finalView, sends: sends.join(""), mails: box.mails, record: recordOf(fx, TITLE), fx };
   }
+  const pendingLine = (t, recovery = false) => `알림 발송 미확인(${recovery ? "[해소] " : ""}${TITLE} · ${kst(t)} 시도)`;
   {
     const cut = await killScene(after, false);
     eq(cut.first, "killed", "2 첫 실행은 보내는 자리에서 끊긴다");
-    ok(cut.atSend?.sent_at === iso(T0) && cut.atSend.attempt?.kind === "alert" && cut.atSend.attempt.at === iso(T0) && cut.atSend.attempt.retry === false, `1 보내는 순간 D1 에 이번 경고 기록이 ‘보내는 중’(attempt) 표시와 함께 이미 있다: ${JSON.stringify(cut.atSend)}`);
+    ok(cut.atSend?.sent_at === null && cut.atSend.status === null && cut.atSend.attempt?.kind === "alert" && cut.atSend.attempt.at === iso(T0) && cut.atSend.attempt.n === 1 && cut.atSend.attempt.status === "critical", `1 보내는 순간 D1 에 이번 경고가 ‘보내는 중’(attempt)으로 이미 있고, 닿은 메일만 뜻하는 sent_at·status 는 비어 있다: ${JSON.stringify(cut.atSend)}`);
     const old = await killScene(before, false);
     eq(old.atSend, null, "1 고치기 전: 보내는 순간 D1 에 기록이 없다(보낸 뒤에야 썼다)");
+    ok(cut.pendingView.unknown.includes(pendingLine(T0)) && !old.pendingView.unknown.some((item) => item.startsWith("알림 발송 미확인")), `2 확정되기 전에는 화면의 확인되지 않은 항목에 ‘${pendingLine(T0)}’ 이 보인다(고치기 전: 아무 표시 없음)`);
     eq(cut.sends, "001000000000", "2 보내기 앞에서 끊긴 뒤: 5분·10분 실행은 보내지 않고 15분 실행이 정확히 한 번 보낸 뒤 1시간 동안 더 보내지 않는다");
     ok(cut.mails.length === 1 && bodyOf(cut.mails[0]).includes(`[긴급] ${TITLE}`), "2 그 한 번이 끊긴 경고 메일이다(영영 안 보내지 않는다)");
-    ok(cut.record?.sent_at === iso(T0 + 15 * MIN) && !("attempt" in cut.record), `2 닿은 뒤에는 ‘보내는 중’ 표시가 지워진다: ${JSON.stringify(cut.record)}`);
+    ok(cut.record?.sent_at === iso(T0 + 15 * MIN) && cut.record.status === "critical" && !("attempt" in cut.record), `2 닿은 뒤에는 확정 값이 적히고 ‘보내는 중’ 표시가 지워진다: ${JSON.stringify(cut.record)}`);
+    ok(!cut.finalView.unknown.some((item) => item.startsWith("알림 발송 미확인")), "2 확정된 뒤에는 ‘알림 발송 미확인’ 이 사라진다");
   }
   {
     const cut = await killScene(after, true);
@@ -200,10 +272,44 @@ try {
     const old = await killScene(before, true);
     eq(old.sends, "100000000000", "3 고치기 전: 보낸 뒤 끊기면 기록이 없어 바로 다음 5분 실행이 같은 메일을 또 보냈다");
     const always = await killScene(after, true, { everyRunKilled: true });
-    eq(always.sends, "001000000000", "3 보내는 실행마다 보낸 뒤 끊겨도 15분 뒤 한 번만 더 보내고 멈춘다(다시 보낸 기록은 다시 보내지 않는다)");
-    ok(always.record?.attempt?.retry === true, "3 그 기록은 ‘다시 보낸 것’ 표시를 지닌다");
+    eq(always.sends, "001000001000", "3 보내는 실행마다 보낸 뒤 끊기면 확정될 때까지 15분·30분(그 뒤 60분) 간격으로만 다시 보낸다(끊긴 시도마다 많아야 1통)");
+    ok(always.record?.attempt?.n === 3 && always.record.sent_at === null, `3 확정되지 않는 동안 기록은 몇 번째 시도인지만 늘고 닿은 것으로 적지 않는다: ${JSON.stringify(always.record)}`);
     const oldAlways = await killScene(before, true, { everyRunKilled: true });
     eq(oldAlways.sends, "111111111111", "3 고치기 전: 보내는 실행마다 끊기면 5분마다 같은 메일을 보냈다(1시간 12통)");
+  }
+  {
+    // 2차 검토 P2: 실행마다 보내기 앞에서 끊기면(관제 CPU 초과가 같은 자리에서 되풀이) 7시간 동안 시도가 언제 있었는지, 끊김이 멎은 뒤 몇 통 가는지 본다.
+    const scene = async (mod) => {
+      const fx = monitorDb(), box = mailbox();
+      const tries = [];
+      for (let i = 0; i <= 84; i += 1) {
+        const t = T0 + i * 5 * MIN;
+        setState(fx, "uptime", t, uptime(t, false));
+        let reached = false;
+        const kill = killedSend(box, false);
+        kill.at.then(() => { reached = true; });
+        await deliver(mod, fx, t, { ALERT_EMAIL: kill.binding }, kill);
+        if (reached) tries.push(i * 5);
+      }
+      const view = await mod.summary(monitorEnv(fx), T0 + 421 * MIN);
+      const sends = [];
+      for (let i = 85; i <= 96; i += 1) {
+        const t = T0 + i * 5 * MIN;
+        setState(fx, "uptime", t, uptime(t, false));
+        const count = box.mails.length;
+        await deliver(mod, fx, t, { ALERT_EMAIL: box.ok });
+        sends.push(box.mails.length - count);
+      }
+      return { tries, view, sends: sends.join(""), mails: box.mails.length };
+    };
+    const fixed = await scene(after);
+    const gaps = fixed.tries.slice(1).map((m, i) => m - fixed.tries[i]);
+    eq(fixed.tries.join(","), "0,15,45,105,165,225,285,345,405", "3 실행마다 보내기 앞에서 끊기면 15·30·60분, 그 뒤 60분마다 다시 시도한다");
+    ok(Math.max(...gaps) <= 60, `3 긴급 경고가 60분 넘게 시도 없이 남지 않는다(간격 ${gaps.join("·")}분)`);
+    ok(fixed.view.unknown.includes(pendingLine(T0 + 405 * MIN)), "3 그동안 화면에는 마지막 시도 시각과 함께 ‘알림 발송 미확인’ 이 보인다");
+    ok(fixed.sends === "000000001000" && fixed.mails === 1, `3 끊김이 멎으면 다음 시도(465분)에 정확히 한 통 가고 확정된다: ${fixed.sends}`);
+    const old = await scene(before);
+    ok(old.tries.length === 85 && old.sends === "100000000000", `3 고치기 전: 끊기는 동안 5분마다 보내러 갔고(85번) 멎은 첫 실행에 바로 보냈다`);
   }
 
   // ── 4. FC-29 모든 채널 실패 ─────────────────────────────────────────────────────
@@ -226,7 +332,7 @@ try {
     const failed = await totalFailure(after);
     eq(failed.tries, "1001001", "4 모든 채널이 실패하면 15분 간격으로 다시 시도한다(30분에 세 번)");
     ok(failed.codes.every((code) => code === "delivery_failed email:E_SENDER_NOT_VERIFIED"), `4 다시 시도하지 않는 실행도 알림 발송을 실패로 남긴다(화면 ‘확인되지 않은 항목’ 에 계속 보인다): ${[...new Set(failed.codes)].join(" | ")}`);
-    ok(recordOf(failed.fx, TITLE) === null && holdOf(failed.fx)?.at === iso(T0 + 30 * MIN) && holdOf(failed.fx)?.codes === "email:E_SENDER_NOT_VERIFIED", `4 실패한 경고 기록은 보내기 전으로 되돌리고(없던 기록은 지움) 실패 시각만 alert:hold 에 남는다: ${JSON.stringify(holdOf(failed.fx))}`);
+    ok(recordOf(failed.fx, TITLE) === null && holdOf(failed.fx)?.at === iso(T0 + 30 * MIN) && holdOf(failed.fx)?.codes === "email:E_SENDER_NOT_VERIFIED" && Object.values(holdOf(failed.fx)?.ranks || {}).join() === "3", `4 실패한 경고 기록은 보내기 전으로 되돌리고(없던 기록은 지움) 실패 시각·실은 경고의 등급만 alert:hold 에 남는다: ${JSON.stringify(holdOf(failed.fx))}`);
     const view = await after.summary(monitorEnv(failed.fx), T0 + 31 * MIN);
     ok(view.unknown.includes("알림 발송(delivery_failed email:E_SENDER_NOT_VERIFIED)"), "4 화면의 확인되지 않은 항목에 알림 발송 실패가 보인다");
     const old = await totalFailure(before);
@@ -244,6 +350,32 @@ try {
     eq(sent.join(""), "0010", "4 채널이 살아나도 마지막 실패 15분 뒤에 한 번 보낸다");
     ok(holdOf(failed.fx) === null && recordOf(failed.fx, TITLE)?.sent_at === iso(T0 + 45 * MIN) && alertsState(failed.fx)?.status === "ok", "4 닿으면 alert:hold 를 지우고 경고 기록을 적고 알림 발송이 정상으로 돌아온다");
   }
+  {
+    // 2차 검토 P3: 15분 기다림은 실패한 그 메일만 늦춘다. 그 메일에 없던 경고·오른 등급은 기다리지 않는다(등급이 오르면 바로 보내는 규칙이 앞선다).
+    const failing = { async send() { throw Object.assign(new Error("sender domain is not verified"), { code: "E_SENDER_NOT_VERIFIED" }); } };
+    const WORKERS = "Workers 일간 요청";
+    const holdScene = async (next) => {
+      const fx = monitorDb(), box = mailbox();
+      setState(fx, "uptime", T0, uptime(T0, true));
+      setState(fx, "cloudflare", T0, cloudflare(T0, { today: 72000, app: 70000 }));
+      await deliver(after, fx, T0, { ALERT_EMAIL: failing });
+      const sends = [];
+      for (const offset of [5, 10]) {
+        const t = T0 + offset * MIN;
+        next(fx, t);
+        const count = box.mails.length;
+        await deliver(after, fx, t, { ALERT_EMAIL: box.ok });
+        sends.push(box.mails.length - count);
+      }
+      return { sends: sends.join(""), bodies: box.mails.map(bodyOf), hold: holdOf(fx) };
+    };
+    const same = await holdScene((fx, t) => { setState(fx, "uptime", t, uptime(t, true)); setState(fx, "cloudflare", t, cloudflare(t, { today: 72000, app: 70000 })); });
+    ok(same.sends === "00" && same.hold !== null, `4 실패한 메일과 같은 주의 경고뿐이면 15분 동안 다시 보내지 않는다: ${same.sends}`);
+    const fresh = await holdScene((fx, t) => { setState(fx, "uptime", t, uptime(t, false)); setState(fx, "cloudflare", t, cloudflare(t, { today: 72000, app: 70000 })); });
+    ok(fresh.sends === "10" && fresh.bodies[0].includes(`[긴급] ${TITLE}`) && fresh.bodies[0].includes(`[주의] ${WORKERS}`) && fresh.hold === null, `4 그 메일에 없던 긴급 경고가 5분 뒤 생기면 기다리지 않고 기다리던 주의 경고와 함께 보낸다: ${fresh.sends}`);
+    const raised = await holdScene((fx, t) => { setState(fx, "uptime", t, uptime(t, true)); setState(fx, "cloudflare", t, cloudflare(t, { today: 96000, app: 90000 })); });
+    ok(raised.sends === "10" && raised.bodies[0].includes(`[긴급] ${WORKERS}`) && raised.hold === null, `4 같은 경고가 주의에서 긴급으로 오르면 기다리지 않고 보낸다: ${raised.sends}`);
+  }
 
   // ── 5. FC-29 해소 메일 ─────────────────────────────────────────────────────────
   async function recoveryScene(mod, delivered) {
@@ -257,6 +389,7 @@ try {
     const kill = killedSend(box, delivered);
     const first = await deliver(mod, fx, third, { ALERT_EMAIL: kill.binding }, kill);
     const atSend = recordOf(fx, TITLE);
+    const pendingView = await mod.summary(monitorEnv(fx), third + MIN);
     const sends = [];
     for (let i = 1; i <= 10; i += 1) {
       const t = third + i * 5 * MIN;
@@ -265,17 +398,53 @@ try {
       await deliver(mod, fx, t, { ALERT_EMAIL: box.ok });
       sends.push(box.mails.length - count);
     }
-    return { first, atSend, third, sends: sends.join(""), recoveries: box.mails.filter((m) => bodyOf(m).includes(`[해소] ${TITLE}`)).length, record: recordOf(fx, TITLE) };
+    return { first, atSend, pendingView, third, sends: sends.join(""), recoveries: box.mails.filter((m) => bodyOf(m).includes(`[해소] ${TITLE}`)).length, record: recordOf(fx, TITLE) };
   }
   {
     const cut = await recoveryScene(after, false);
-    ok(cut.first === "killed" && cut.atSend?.attempt?.kind === "recovery" && cut.atSend.recovered_at === iso(cut.third), `5 해소 메일도 보내기 전에 ‘보내는 중’ 기록을 쓴다: ${JSON.stringify(cut.atSend)}`);
+    ok(cut.first === "killed" && cut.atSend?.attempt?.kind === "recovery" && cut.atSend.attempt.at === iso(cut.third) && cut.atSend.recovered_at === null && cut.atSend.resolved_at === iso(cut.third), `5 해소 메일도 보내기 전에 ‘보내는 중’ 을 쓰고, 닿은 해소만 뜻하는 recovered_at 은 비워 둔다: ${JSON.stringify(cut.atSend)}`);
+    ok(cut.pendingView.unknown.includes(pendingLine(cut.third, true)), `5 확정되기 전에는 화면에 ‘${pendingLine(cut.third, true)}’ 이 보인다`);
     ok(cut.sends === "0010000000" && cut.recoveries === 1, `5 해소 메일을 보내기 앞에서 끊기면 15분 뒤 한 번 보낸다(${cut.sends}, 해소 ${cut.recoveries}통)`);
     ok(cut.record?.recovered_at === iso(cut.third + 15 * MIN) && !("attempt" in cut.record), "5 닿은 해소 기록에는 표시가 없다");
     const sent = await recoveryScene(after, true);
     ok(sent.sends === "0010000000" && sent.recoveries === 2, `5 해소 메일을 보낸 뒤 끊기면 15분 뒤 많아야 한 번 더 보내고 멈춘다(${sent.sends}, 해소 ${sent.recoveries}통)`);
     const old = await recoveryScene(before, true);
     ok(old.sends.startsWith("1") && old.recoveries === 2, `5 고치기 전: 해소 메일을 보낸 뒤 끊기면 바로 다음 5분 실행이 또 보냈다(${old.sends})`);
+  }
+  {
+    // 2차 검토 P3: 경고 메일이 확정되기 전에 경고가 정상 3번(10분 이상)으로 해소되면, 받았는지 모르는 경고의 ‘[해소]’ 를 보내지 않는다.
+    const unsent = async (mod) => {
+      const fx = monitorDb(), box = mailbox();
+      setState(fx, "uptime", T0, uptime(T0, false));
+      const kill = killedSend(box, false);
+      await deliver(mod, fx, T0, { ALERT_EMAIL: kill.binding }, kill);
+      for (const offset of [5, 10, 15, 20, 25]) { const t = T0 + offset * MIN; setState(fx, "uptime", t, uptime(t, true)); await deliver(mod, fx, t, { ALERT_EMAIL: box.ok }); }
+      return { mails: box.mails.length, record: recordOf(fx, TITLE), view: await mod.summary(monitorEnv(fx), T0 + 26 * MIN) };
+    };
+    const fixed = await unsent(after);
+    ok(fixed.mails === 0 && fixed.record === null && !fixed.view.unknown.some((item) => item.startsWith("알림 발송 미확인")), `5 확정 안 된 경고가 해소되면 ‘[해소]’ 를 보내지 않고 그 기록과 ‘발송 미확인’ 을 지운다(메일 ${fixed.mails}통)`);
+    eq((await unsent(before)).mails, 0, "5 1.7.0 도 이 경우 메일이 없었다(같다)");
+    // 2차 검토 P3: 해소 메일이 확정되기 전에 경고가 다시 생기면 다음 실행이 바로 알리되 ‘해소 뒤 다시 생김’ 은 붙이지 않는다(해소를 받았는지 모른다).
+    const recur = async (mod, delivered) => {
+      const fx = monitorDb(), box = mailbox();
+      setState(fx, "uptime", T0, uptime(T0, false));
+      await deliver(mod, fx, T0, { ALERT_EMAIL: box.ok });
+      const R = T0 + 2 * HOUR;
+      for (const offset of [0, 5]) { const t = R + offset * MIN; setState(fx, "uptime", t, uptime(t, true)); await deliver(mod, fx, t, { ALERT_EMAIL: box.ok }); }
+      const third = R + 10 * MIN;
+      setState(fx, "uptime", third, uptime(third, true));
+      const kill = killedSend(box, delivered);
+      await deliver(mod, fx, third, { ALERT_EMAIL: kill.binding }, kill);
+      const count = box.mails.length, sends = [];
+      for (let i = 1; i <= 12; i += 1) { const t = third + i * 5 * MIN; setState(fx, "uptime", t, uptime(t, false)); const c = box.mails.length; await deliver(mod, fx, t, { ALERT_EMAIL: box.ok }); sends.push(box.mails.length - c); }
+      return { sends: sends.join(""), later: box.mails.slice(count).map(bodyOf) };
+    };
+    for (const delivered of [false, true]) {
+      const fixed = await recur(after, delivered);
+      ok(fixed.sends === "100000000000" && fixed.later.length === 1 && fixed.later[0].includes(`[긴급] ${TITLE}`) && !fixed.later[0].includes("해소 뒤 다시 생김"), `5 해소 메일을 ${delivered ? "보낸 뒤" : "보내기 앞에서"} 끊긴 뒤 경고가 다시 생기면 다음 실행이 한 번 알리고 ‘해소 뒤 다시 생김’ 은 붙이지 않는다: ${fixed.sends}`);
+    }
+    const old = await recur(before, true);
+    eq(old.sends, "000000000000", "5 고치기 전: 해소 메일을 보낸 뒤 끊기고 경고가 다시 생기면 1시간 동안 알리지 않았다(운영자는 해소만 받았다)");
   }
 
   // ── 6. FC-29 관제 몫 CPU 초과 ──────────────────────────────────────────────────
@@ -296,6 +465,15 @@ try {
       setState(fx, "cloudflare", T0, cloudflare(T0, cpu));
       ok(!(await after.summary(monitorEnv(fx), T0, { alerting: true })).alerts.some((alert) => alert.title === title), `6 ${label}이면 관제 몫 경고가 없다`);
     }
+    // 2차 검토 P3: 앱 행이 비면(observed:false) 계정 전체를 관제 몫으로 세지 않고, UTC 0시 직후 실행의 창(전날)을 ‘오늘’ 로 쓰지 않는다.
+    const monitorAlert = async (t) => (await after.summary(monitorEnv(fx), t, { alerting: true })).alerts.find((alert) => alert.title === title) || null;
+    setState(fx, "cloudflare", T0, { ...cloudflare(T0, { todayCpu: 3 }), app: { requests: null, errors: null, subrequests: null, cpu_ms: null, cpu_limit_errors: null, resource_limit_errors: null, observed: false } });
+    eq(await monitorAlert(T0), null, "6 앱 행이 비면 관제 몫을 판단하지 않는다(계정 전체 3건을 관제 몫으로 알리지 않는다)");
+    const midnight = Date.parse("2026-11-17T00:02:00.000Z");
+    setState(fx, "cloudflare", midnight, cloudflare(midnight, { todayCpu: 4, appCpu: 1 }));
+    eq(await monitorAlert(midnight), null, "6 UTC 00:02 실행은 창이 전날(00:00~23:55)이라 그 건수를 ‘오늘’ 관제 몫으로 알리지 않는다");
+    setState(fx, "cloudflare", midnight + 5 * MIN, cloudflare(midnight + 5 * MIN, { todayCpu: 4, appCpu: 1 }));
+    ok((await monitorAlert(midnight + 5 * MIN))?.message.includes("3건"), "6 같은 날 창이 되면(00:07) 다시 관제 몫을 센다");
     // 다음 UTC 날 건수가 0 으로 돌아오면 정상 3번(10분 이상)으로 해소한다(주의라 해소 메일은 없다).
     const next = Date.parse("2026-11-17T01:00:00.000Z");
     for (const offset of [0, 5, 10]) { const t = next + offset * MIN; setState(fx, "cloudflare", t, cloudflare(t)); await deliver(after, fx, t, { ALERT_EMAIL: box.ok }); }
@@ -335,6 +513,22 @@ try {
     await deliver(after, partial.fx, t2, partial.hookEnv);
     const healed = await after.summary(monitorEnv(partial.fx, partial.hookEnv), t2 + MIN);
     ok(partial.box.mails.length === 2 && world.hooks.length === hooks + 1 && !healed.unknown.some((item) => item.startsWith("알림 발송")), "7 두 채널이 다 닿은 다음 발송(6시간 뒤 다시 보냄)이 실패 항목을 지운다");
+  }
+  {
+    // 2차 검토 P3: 그 채널을 고친 뒤 보낼 경고가 없어도 실패 항목이 영영 남지 않게 24시간이 지나면 내린다.
+    const fx = monitorDb();
+    const hookEnv = { ALERT_EMAIL: mailbox().ok, ALERT_WEBHOOK_URL: "https://hooks.example/alert" };
+    const payload = (failedAt) => ({ channels: ["email", "webhook"], sent: 0, recovered: 0, active: 0, status: "normal", failures: ["webhook:http_500"], failures_at: iso(failedAt) });
+    const partialItems = async (t) => (await after.summary(monitorEnv(fx, hookEnv), t)).unknown.filter((item) => item.startsWith("알림 발송 일부"));
+    setState(fx, "alerts", T0, payload(T0 - 23 * HOUR));
+    eq((await partialItems(T0 + MIN)).join(), `알림 발송 일부 채널 실패(webhook:http_500 · ${kst(T0 - 23 * HOUR)} 발송)`, "7 실패한 지 24시간 안이면 보인다");
+    setState(fx, "alerts", T0, payload(T0 - 25 * HOUR));
+    eq((await partialItems(T0 + MIN)).length, 0, "7 실패한 지 24시간이 지나면 화면에서 내린다");
+    setState(fx, "alerts", T0, payload(T0 - 23 * HOUR));
+    setState(fx, "uptime", T0 + 2 * HOUR, uptime(T0 + 2 * HOUR, true));
+    await deliver(after, fx, T0 + 2 * HOUR, hookEnv);
+    const carried = JSON.parse(alertsState(fx)?.payload || "{}");
+    ok(alertsState(fx)?.status === "ok" && carried.sent === 0 && !carried.failures, `7 조용한 실행도 24시간이 지난 실패 채널은 이어 적지 않는다: ${JSON.stringify(carried)}`);
   }
 
   // ── 8·9. collect 의 D1 실패와 0시 정리 ─────────────────────────────────────────
@@ -391,6 +585,51 @@ try {
     ok(fixed.steps[3].deletes === 1 && fixed.steps[3].marks === 0, `9 다음 날 0시에는 예전처럼 정리 시각을 읽지 않고 정리한다: ${JSON.stringify(fixed.steps[3])}`);
     const old = await cleanupScene(before);
     ok(!old.midnight && old.steps[0].stale === 3 && old.steps[2].stale === 3 && old.steps[3].deletes === 1, `9 고치기 전: 0시 정리가 실패하면 그날은 다시 지우지 않아 다음 0시까지 밀렸다: ${JSON.stringify(old.steps.map((s) => s.stale))}`);
+    // 2차 검토 P3: 하루 넘게 밀려 한 번에 지우는 한도(2000행)를 채우면 그날 끝난 것으로 적지 않고 다음 매시 실행이 이어 지운다.
+    const backlog = async (mod) => {
+      const fx = monitorDb(), box = mailbox();
+      const insert = fx.sqlite.prepare("INSERT INTO samples(source,bucket,collected_at,payload) VALUES(?,?,?,'{}')");
+      for (let i = 0; i < 3500; i += 1) insert.run("uptime", iso(D0 - 45 * DAY + i * 5 * MIN), iso(D0 - 45 * DAY + i * 5 * MIN));
+      const stale = () => fx.sqlite.prepare("SELECT COUNT(*) AS n FROM samples WHERE source='uptime' AND bucket < ?").get(iso(D0 - 30 * DAY)).n;
+      const left = [];
+      for (const t of [D0, D0 + HOUR, D0 + 2 * HOUR]) { await scheduledRun(mod, fx, t, box); left.push(stale()); }
+      return { left: left.join(","), marker: fx.sqlite.prepare("SELECT value FROM settings WHERE key='samples_cleanup'").get()?.value || null };
+    };
+    const fixedBacklog = await backlog(after);
+    ok(fixedBacklog.left === "1500,0,0" && fixedBacklog.marker === iso(D0 + HOUR), `9 밀린 3,500행: 0시가 2,000행을 지우고 01:00 매시 실행이 나머지를 이어 지운 뒤에야 끝난 것으로 적는다(${fixedBacklog.left} · ${fixedBacklog.marker})`);
+    eq((await backlog(before)).left, "1500,1500,1500", "9 고치기 전: 한도를 채운 뒤 남은 행은 다음 0시까지 남았다");
+  }
+
+  // ── 14. FC-29 보내기 전 기록 쓰기 실패 ─────────────────────────────────────────
+  {
+    // 2차 검토 P3: 보내기 전 쓰기가 실패해도 메일은 1.7.0 처럼 나간다. 보낸 뒤 쓰기가 되면 확정하고, 그마저 실패하면 delivery_unrecorded 로 남긴다.
+    const writes = (sql) => sql.startsWith("INSERT INTO settings");
+    const recordFails = async (mod, failing) => {
+      const fx = monitorDb(), box = mailbox();
+      let left = failing === "first" ? 1 : Infinity;
+      const batch = fx.db.batch;
+      fx.db.batch = async (statements) => { if (left > 0 && statements.some((statement) => writes(statement.sql))) { left -= 1; throw new Error("D1_ERROR: simulated batch failure"); } return batch(statements); };
+      const sends = [];
+      let firstRun = null;
+      for (const offset of [0, 5, 10]) {
+        const t = T0 + offset * MIN;
+        if (offset === 5) left = 0;
+        setState(fx, "uptime", t, uptime(t, false));
+        const count = box.mails.length;
+        await deliver(mod, fx, t, { ALERT_EMAIL: box.ok });
+        sends.push(box.mails.length - count);
+        if (offset === 0) firstRun = { state: alertsState(fx), view: await mod.summary(monitorEnv(fx), t + MIN), record: recordOf(fx, TITLE) };
+      }
+      return { sends: sends.join(""), ...firstRun };
+    };
+    const firstOnly = await recordFails(after, "first");
+    ok(firstOnly.sends === "100" && firstOnly.state?.status === "ok" && firstOnly.record?.sent_at === iso(T0) && !("attempt" in firstOnly.record), `14 보내기 전 쓰기만 실패하면 메일은 나가고 보낸 뒤 확정 기록을 쓴다(다시 보내지 않는다): ${firstOnly.sends} ${JSON.stringify(firstOnly.record)}`);
+    const always = await recordFails(after, "always");
+    ok(always.state?.status === "error" && always.state.error_code === "delivery_unrecorded collection_failed sent:email" && always.record === null, `14 보낸 뒤 쓰기도 실패하면 알림 발송에 delivery_unrecorded 가 남는다: ${JSON.stringify(always.state)}`);
+    ok(always.view.unknown.includes("알림 발송(delivery_unrecorded collection_failed sent:email)"), "14 화면의 확인되지 않은 항목에 ‘알림 발송(delivery_unrecorded …)’ 이 보인다");
+    eq(always.sends, "110", "14 쓰기가 살아난 다음 실행은 기록이 없어 한 번 더 보내고(많아야 1통 중복) 그 뒤 확정되어 멈춘다");
+    const old = await recordFails(before, "always");
+    ok(old.sends === "110" && old.state?.error_code === "collection_failed", `14 1.7.0 도 쓰기가 실패하는 동안 메일은 보냈다(기록 실패는 collection_failed 로만 보였다): ${old.sends} ${old.state?.error_code}`);
   }
 
   // ── 10·12. 화면: 단위·새로 읽기 간격 ───────────────────────────────────────────
