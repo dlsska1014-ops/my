@@ -98,8 +98,9 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   if (settled[1].status === "fulfilled") messageLease = settled[1].value;
   if (settled[0].status === "rejected") throw settled[0].reason;
   if (settled[1].status === "rejected") throw settled[1].reason;
-  if (!messageLease.acquired) return kakaoText("같은 내용을 처리 중이에요. 이 요청으로 새 기록을 저장하지 않았어요. 먼저 기록 목록을 확인해 주세요.");
-  const {customCategoryRows, paymentAssetRows, aliases: inputAliases, memberPolicy, pendingWrite, pendingWriteExists, pendingWriteEmptyValue} = settled[0].value;
+  // V22.9.126 FC-4: 잠금은 같은 사람의 앞 기록이 잡고 있다(같은 내용이 아닐 수 있다). 다른 기록이면 다시 보내야 저장된다고 알린다.
+  if (!messageLease.acquired) return kakaoText("앞서 보낸 기록을 저장하는 중이라 이번 내용은 저장하지 않았어요. 같은 내용이면 그대로 두고, 다른 기록이면 잠시 뒤 다시 보내 주세요.");
+  const {customCategoryRows, paymentAssetRows, aliases: inputAliases, memberPolicy, pendingWrite, pendingWriteUnreadable, pendingWriteExists, pendingWriteEmptyValue} = settled[0].value;
   const aliasesPromise = Promise.resolve(inputAliases);
   // V22.9.79 감사 N-4: 한 건 저장 답장의 ‘지출자:’는 웹 지출자 목록·요약·정산과 같은 이름 규칙(memberNameMap — 같은 이름이면 참여 순서 번호)으로 쓴다.
   // 번호를 매기려면 구성원 명단이 필요한데 저장 경로는 그것을 읽지 않았다(내 가계부 목록·내 사용자 행·별명 설정뿐). 응답 경로에 조회를 늘리지
@@ -154,7 +155,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     const cutoff = Date.now() - KAKAO_RETRY_DEDUP_SECONDS * 1000;
     return dailyRows.filter(row => String(row.user_id) === String(user.id) && Number(row.amount) === Number(rowsToInsert[0].amount) && Date.parse(row.created_at) >= cutoff);
   } : undefined;
-  try { savedRows = await insertKakaoTransactions(env, rowsToInsert, { messageLeaseHeld:true, fingerprint: messageKey, pendingWrite, pendingWriteExists, pendingWriteEmptyValue, readCandidates, assertFresh:()=>{assertFresh?.();assertSettingsLeaseFresh(messageLease);}, onConfirmed:cleanup => deferKakaoAfterReply(env, cleanup) }); }
+  try { savedRows = await insertKakaoTransactions(env, rowsToInsert, { messageLeaseHeld:true, fingerprint: messageKey, pendingWrite, pendingWriteUnreadable, pendingWriteExists, pendingWriteEmptyValue, readCandidates, assertFresh:()=>{assertFresh?.();assertSettingsLeaseFresh(messageLease);}, onConfirmed:cleanup => deferKakaoAfterReply(env, cleanup) }); }
   catch (err) {
     // V22.9.119 O-1: 같은 날 같은 문장의 내 기록이 이미 있어 운영 DB 의 유니크 인덱스가 거절했다. 저장소 오류가 아니라 그날은 다시 보내도 같으므로
     // ‘잠시 후 다시’ 대신 무엇을 저장하지 않았고 어느 내용이 이미 있는지, 어떻게 보내면 저장되는지 답한다(운영 이벤트도 오류가 아닌 안내로 남긴다).
@@ -188,9 +189,13 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const duplicateRows = savedRows.filter((row) => row.__duplicate_skipped);
   // V22.9.88 Y-4(Codex 지적): 저장 결과는 중복부터 돌아왔는데 안내는 그 자리 번호로 입력 문장을 골라 다른 거래의 문장을 보였다. 이제 결과는
   // 입력 순서이고, 중복 행은 그 행을 만든 입력 문장(__input_raw_text)을 함께 가져온다.
-  const duplicateExample = String(duplicateRows[0]?.__input_raw_text || duplicateRows[0]?.raw_text || utterance || "").replace(/\s+/g, " ").trim().slice(0, 60);
+  const duplicateSource = String(duplicateRows[0]?.__input_raw_text || duplicateRows[0]?.raw_text || utterance || "").replace(/\s+/g, " ").trim();
+  const duplicateExample = duplicateSource.slice(0, 60);
+  // V22.9.126 FC-19: 60자를 넘는 원래 문장은 잘린 예시를 그대로 보내면 원래 기록을 찾지 못한다. 예시 없이 붙이는 방법만 알린다.
+  const duplicateLong = duplicateSource.length > 60;
   const duplicateNotice = !duplicateCount ? ""
-    : duplicateRows.every((row) => row.type === "income") ? `\n따로 들어온 돈이라면 ‘별도 기록 추가 ${duplicateExample}’라고 보내 후보를 확인해 주세요.`
+    : duplicateRows.every((row) => row.type === "income") ? (duplicateLong ? "\n따로 들어온 돈이라면 원래 문장 앞에 ‘별도 기록 추가’를 붙여 보내 주세요." : `\n따로 들어온 돈이라면 ‘별도 기록 추가 ${duplicateExample}’라고 보내 후보를 확인해 주세요.`)
+    : duplicateLong ? "\n서로 다른 구매라면 원래 문장 앞에 ‘별도 구매 추가’를 붙여 보내 주세요."
     : `\n서로 다른 구매라면 ‘별도 구매 추가 ${duplicateExample}’라고 원래 기록 문장을 보내 후보를 확인해 주세요.`;
   const unread = parsedList.unread || [];
   const unreadNotice = unread.length ? `\n금액을 읽지 못해 저장하지 않은 말: ${unread.slice(0, 3).map((text) => `‘${text.slice(0, 20)}’`).join(", ")}${unread.length > 3 ? ` 외 ${unread.length - 3}개` : ""}` : "";
@@ -299,7 +304,11 @@ function parseKakaoInputSettings(values, householdId, userId = "", categories = 
   const customCategoryRows=[...listedCategoryRows,...keywordCardClassificationRows(map,listedCategoryRows,householdId)];
   let memberPolicy="";
   try { memberPolicy=parseMemberPolicyValue(values.get(keys[4])); } catch (_) {}
-  return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3])),memberPolicy,pendingWrite:keys[5] ? parseKakaoPendingWrite(values.get(keys[5])) : null,pendingWriteExists:!!keys[5] && values.has(keys[5]),pendingWriteEmptyValue:keys[5] ? values.get(keys[5]) : undefined};
+  // V22.9.126 FC-19: 읽지 못하는 표식은 번호를 읽을 수 없어 늦은 전송을 막는 데 쓰지 못하고, 예전에는 여기서 던져 그 사람의 저장을 기한 없이 막았다.
+  // 기한 지난 표식처럼 운영 이벤트를 남기고, 새 표식이 그 값과 정확히 같을 때만 덮어 쓴다(writeKakaoPendingWrite).
+  let pendingWrite = null, pendingWriteUnreadable = false;
+  if (keys[5]) { try { pendingWrite = parseKakaoPendingWrite(values.get(keys[5])); } catch (_) { pendingWriteUnreadable = true; } }
+  return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3])),memberPolicy,pendingWrite,pendingWriteUnreadable,pendingWriteExists:!!keys[5] && values.has(keys[5]),pendingWriteEmptyValue:keys[5] ? values.get(keys[5]) : undefined};
 }
 
 const KAKAO_RETRY_DEDUP_SECONDS = 120;
@@ -374,6 +383,8 @@ async function insertKakaoTransactions(env, rows, options = {}) {
   // V22.9.34 proto (B13 Kakao): row ids are chosen here. When the same message (same fingerprint) had an UNKNOWN result
   // before, its ids were parked in a pending marker and are reused now, so a late-landing first write collides on the PK.
   const pending = options.pendingWrite;
+  // V22.9.126 FC-19: 읽지 못한 표식은 기한 지난 표식과 같은 길로 정리한다(운영 이벤트를 남기고 아래 표식 쓰기가 그 값을 덮어 쓴다).
+  if (options.pendingWriteUnreadable) rememberOpsEvent({ kind: "kakao_pending_write_expired", severity: "warn", path: "/skill", method: "POST", detail: "unreadable" });
   if (pending && pending.fp !== options.fingerprint) {
     const recovered = await kakaoRowsByIds(env, cleanRows[0].household_id, pending.ids);
     if (!pending.rows || recovered.length !== pending.rows.length || !pending.rows.every(expected => recovered.some(actual => actual.id === expected.id && sameTransactionCore(actual, expected)))) {
@@ -535,7 +546,8 @@ async function writeKakaoPendingWrite(env, householdId, userId, marker, expected
     });
   } else {
     const prefix = expected.marker ? JSON.stringify({fp:expected.marker.fp,ids:expected.marker.ids}).slice(0,-1)+"," : "";
-    const filter = expected.marker ? `like.${prefix}*` : expected.emptyValue == null ? "is.null" : "eq.";
+    // V22.9.126 FC-19: 읽지 못한 표식(emptyValue 에 그 원래 값)은 값이 정확히 같을 때만 덮어 쓴다. 빈 값("")은 예전과 같은 "eq." 다.
+    const filter = expected.marker ? `like.${prefix}*` : expected.emptyValue == null ? "is.null" : `eq.${String(expected.emptyValue)}`;
     const params = new URLSearchParams({key:`eq.${key}`,value:filter});
     rows = await supabase(env,`/rest/v1/accountbook_settings?${params}`,{
       method:"PATCH",headers:{Prefer:"return=representation"},body:JSON.stringify({value}),

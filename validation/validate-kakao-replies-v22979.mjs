@@ -570,7 +570,8 @@ function emulateOwnerFilter(fx, trace = []) {
 const OTHER_KEY = "kakao_login:9999";
 const OWNER_FILTER = "(source_user_key.eq.\"kakao_login:2265\",and(user_id.eq.\"user-bin\",or(source_user_key.is.null,source_user_key.eq.\"\")))";
 const txRow = (id, memo, createdAt, extra = {}) => ({ id, household_id: HH, user_id: "user-bin", type: "expense", amount: 1100, category: "기타지출", memo, payment_method: "", transaction_date: DAY, source: "kakao_skill", source_user_key: BIN, raw_text: memo, created_at: createdAt, ...extra });
-const recentMemos = (text) => [...text.matchAll(/^\d+\. \d{4}-\d{2}-\d{2} (?:지출|수입) [\d,]+원 · (.+)$/gm)].map((match) => match[1]);
+// V22.9.126 FC-13: 최근 목록의 줄머리가 ‘1.’ 같은 번호에서 ‘•’ 로 바뀌었다(‘01번’ 과 헷갈리지 않게).
+const recentMemos = (text) => [...text.matchAll(/^• \d{4}-\d{2}-\d{2} (?:지출|수입) [\d,]+원 · (.+)$/gm)].map((match) => match[1]);
 await scenario("P2 최근 기록 창", async (fx) => {
   fx.db.transactions.push(
     txRow("p2-b1", "내커피1", "2026-08-05T01:00:01.000Z"), txRow("p2-b2", "내커피2", "2026-08-05T01:00:02.000Z"), txRow("p2-b3", "내커피3", "2026-08-05T01:00:03.000Z"),

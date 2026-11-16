@@ -39,6 +39,7 @@ import {
   handleEditMessage, isExactKakaoEditFieldStart, isKakaoAmountAnswer, isKakaoEditNotValue,
   isSessionExpired, josa, kakaoEditComplaintField, kakaoEditTypeValue, startsWithKakaoEditField,
 } from "./edit-state-machine.js";
+import { kakaoGuardFutureBareDayV229120 } from "./request-guards.js";
 import {
   KAKAO_ROLE_CHECK_FAILED_TEXT, readHouseholdRoleOrFailure, roleBlockedMessage,
 } from "../domain/users-households.js";
@@ -192,6 +193,12 @@ async function sendKakaoEditReplyV4(env, { kakaoUserKey, payload }, session, rep
     finalNext.lastBotMsg = finalReply;
     finalNext.guardCount = Number(finalNext.guardCount) || 0;
   }
+  // V22.9.126 FC-19: 세션을 닫는 답(고치기가 반영된 뒤 등)은 정리 쓰기만 실패해도 그 답을 보낸다(아래 삭제 경로와 같다). 오류 답으로 바꾸면
+  // 이미 바뀐 기록을 사용자가 다시 고치게 된다. 세션을 이어 가는 답은 예전처럼 저장이 실패하면 오류로 끝낸다(I6).
+  if (!finalNext) {
+    try { await saveKakaoEditSessionV4(env, kakaoUserKey, payload, null); } catch (_) {}
+    return kakaoText(finalReply);
+  }
   await saveKakaoEditSessionV4(env, kakaoUserKey, payload, finalNext); // I6: 전송과 원자적 쌍
   return kakaoText(finalReply);
 }
@@ -277,6 +284,21 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
         nextSession: { ...session, step: "awaiting_value", field: "date", valueOptions: ["오늘", "어제", "그제"], pendingField: null, pendingValue: null, repeatCount: count, updatedAt: Date.now() },
       };
     }
+    // V22.9.126 FC-12: 달 없이 쓴 ‘N일’ 이 아직 오지 않은 날로 풀리면 새 기록과 같은 판정·문장으로 다시 묻는다(예전에는 이번 달 앞날로 옮겼다).
+    // 달을 쓴 날짜(‘12월 25일’·‘11/25’)와 ‘내일’ 은 예전처럼 바꾼다.
+    const future = kakaoGuardFutureBareDayV229120(String(value || ""), [{ transaction_date: date }], formatDate(nowKstDate()));
+    if (future) {
+      const ask = kakaoEditFutureBareDayAskV229126(future);
+      const count = (Number(session.repeatCount) || 0) + 1;
+      if (count >= MAX_FAILS) {
+        return { log: { type: "unrecognized_final", entryNo: session.entryNo, input: String(value) }, reply: `😅 ${session.entryNo}번 수정을 끝냈어요. 기록은 그대로예요.\n이렇게 보내면 바로 돼요:\n👉 수정 ${session.entryNo}번 날짜 ${ask.prevMonth}월 ${ask.prevDay}일`, nextSession: null };
+      }
+      return {
+        log: { type: "unrecognized", entryNo: session.entryNo, input: String(value), attempt: count },
+        reply: `${ask.text}\n(그만하려면: 취소)`,
+        nextSession: { ...session, step: "awaiting_value", field: "date", valueOptions: null, pendingField: null, pendingValue: null, repeatCount: count, updatedAt: Date.now() },
+      };
+    }
     patch.transaction_date = date;
     reply = `✅ ${session.entryNo}번 날짜를 ${date}${josa(date, "으로로")} 변경했어요.`;
   } else if (field === "payer") {
@@ -352,6 +374,15 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     return { reply: `${session.entryNo}번 기록을 바꾸지 못했어요. 기록은 그대로예요.\n잠시 후 다시 보내 주세요.`, nextSession: null };
   }
   return { reply: `${reply}\n${kakaoEditRecordLineV4({ ...row, ...patch })}`, nextSession: null };
+}
+
+// V22.9.126 FC-12: 새 기록의 ‘future’ 안내(request-guards.js kakaoRecordGuardV229120)와 같은 두 문장. 예시는 고치는 값(날짜)만 적는다 —
+// 새 기록 예시(‘… 미용실 30000원’)를 그대로 보내면 고치기가 아니라 새 기록이 된다. 지난달에 없는 날은 그달 마지막 날로 적는다.
+function kakaoEditFutureBareDayAskV229126(future = {}) {
+  const prevMonth = future.month === 1 ? 12 : future.month - 1;
+  const prevDay = Math.min(future.day, new Date(Date.UTC(future.year, future.month - 1, 0)).getUTCDate());
+  const text = `‘${future.day}일’이 이번 달 ${future.day}일(${future.month}월 ${future.day}일, 아직 오지 않은 날)로 읽혀서 저장하지 않았어요.\n지난달이면 달을 붙여 다시 보내 주세요.\n${prevMonth}월 ${prevDay}일\n앞으로 낼 돈을 미리 적는 거면 ‘${future.month}월 ${future.day}일’처럼 보내 주세요.`;
+  return { prevMonth, prevDay, text };
 }
 
 // V22.9.104 J-9: 고치려던 사이 다른 사람이 이 기록을 먼저 바꿨다(지출자 바뀜은 spender_changed). 아무것도 바꾸지 않았다. 답 글에 주소는 넣지 않는다.
