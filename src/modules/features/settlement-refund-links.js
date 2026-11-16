@@ -196,8 +196,9 @@ function refundSettlementSpenderRows(rows = [], state = {}) {
 }
 
 // 완료 저장 지문. 연결이 없으면 예전 지문(settlementPreviewDigest)과 같다. 연결이 있으면 연결과 연결한 환급 행(금액·받은 사람)을 넣는다.
-async function settlementRefundDigest({ month, mode, conditions = {}, rows = [], links = [] }) {
-  if (!safeArray(links).length) return settlementPreviewDigest({ month, mode, conditions, rows });
+// V22.9.126 FC-20: members 는 연결이 없을 때 예전 지문으로 그대로 넘긴다(플래그 꺼짐 화면과 같은 지문을 지킨다). 연결이 있을 때의 지문 형식은 그대로다.
+async function settlementRefundDigest({ month, mode, conditions = {}, rows = [], links = [], members = null }) {
+  if (!safeArray(links).length) return settlementPreviewDigest({ month, mode, conditions, rows, members });
   const canonical = JSON.stringify([
     "v3-refund-links",
     month,
@@ -577,7 +578,7 @@ async function handleSettlementHistorySaveV22979(request, env) {
       backTo = `${returnTo}${settlementConditionQuery(mode, conditions)}`;
       const formerMembers = await fetchFormerSpenderMembers(env, refundSettlementSpenderRows(rows, refund), members);
       const model = buildSettlementModel(rows, members, { mode, ...conditions, formerMembers, ...(refund.netting ? { refundNetting: refund.netting } : {}) });
-      const digest = await settlementRefundDigest({ month, mode, conditions, rows, links: refund.links });
+      const digest = await settlementRefundDigest({ month, mode, conditions, rows, links: refund.links, members });
       if (submittedDigest && submittedDigest !== digest) return "changed";
       const history = parseJsonArraySettingStrict(historyValue, "settlement_history_json_invalid");
       const duplicate = history.some((item) => {

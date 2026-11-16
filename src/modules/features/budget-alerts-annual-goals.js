@@ -26,7 +26,8 @@ import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // ‘월말 초과 예상’ 판정에도 반영 대기 고정지출·남은 정기지출 납부가 들어간다(2026-10-25 운영자 결정 Q3).
 // plans(정기지출 항목)를 못 읽었으면 null — 그 몫을 빼고 계산했다고 내역 줄에 적는다.
 // V22.9.80 V76 M-7: refundDeductions(연결한 환불, 플래그가 켜진 화면만 넘긴다)는 사용액·월말 예상의 기록에서 뺀다. 기본은 빈 목록이다.
-function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [], budgets = [], recurring = [], recurringState = "complete", plans = [], receipt = null, refundDeductions = [] }) {
+// V22.9.126 FC-21: members(이미 읽어 둔 참여자 목록)를 넘기면 지출자 자격이 없는 규칙을 대기·월말 예상에서 빼고 spenderCheckRecurring 으로 따로 돌려준다.
+function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [], budgets = [], recurring = [], recurringState = "complete", plans = [], receipt = null, refundDeductions = [], members = null }) {
   if (!Array.isArray(rows) || !Array.isArray(budgets)) throw new Error("budget_observation_read_invalid");
   const budget = budgetSummary(rows, budgets, { refundDeductions });
   const center = budgetCenterSummary(rows, budgets, { refundDeductions });
@@ -37,7 +38,7 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   const totalBudget = Number(budget.totalBudget || 0);
   const remainingBudget = totalBudget ? Math.max(0, totalBudget - spent) : 0;
   const recurringAvailable = recurringState === "complete" && Array.isArray(recurring) && recurring.every(r => r && r.amount != null && Number.isFinite(Number(r.amount)));
-  const outlook = monthSpendingOutlook({ month, rows, today: todayStr, receipt, recurring: recurringAvailable ? recurring : null, plans, budgets, scope: "budgeted", refundDeductions });
+  const outlook = monthSpendingOutlook({ month, rows, today: todayStr, receipt, recurring: recurringAvailable ? recurring : null, plans, budgets, scope: "budgeted", refundDeductions, members });
   // V22.9.79 감사 V44 D-18: 하루 사용 가능은 홈과 같이 내림이다(예전에는 반올림이라 홈보다 1원 많을 수 있었다).
   const dailyAllowance = observation.status === "complete" && totalBudget && remainingDays ? Math.floor(remainingBudget / remainingDays) : null;
   const observedSpent = observation.status === "complete" ? outlook.recorded.toDate : null;
@@ -51,7 +52,9 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   const activeRecurring = recurringAvailable ? recurring.filter((r) => isOutgoingRecurringRule(r) && inBudget(r.category)) : null;
   // V22.9.79 V78 S-2: 반영 대기는 홈 ‘앞으로 나갈 돈’과 같은 판정(pendingRecurringRules: 그 달 표식 또는 그 달 기록이 있으면 반영됨)이다.
   // 예전에는 표식(last_applied_month)만 봐서, 표식 저장이 늦은 달에는 이미 기록된 고정지출을 한 건 더 셌다.
-  const pendingAll = pendingState === "complete" ? safeArray(pendingRecurringRules(recurring, month, rows)) : null;
+  const pendingAll = pendingState === "complete" ? safeArray(pendingRecurringRules(recurring, month, rows, members)) : null;
+  const spenderCheckRecurring = pendingState === "complete" ? safeArray(outlook.notYetRecorded?.spenderCheckRules) : [];
+  const spenderCheckTotal = spenderCheckRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const pendingRecurring = pendingAll ? pendingAll.filter((r) => inBudget(r.category)) : null;
   const recurringTotal = activeRecurring ? activeRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
   const pendingRecurringTotal = pendingRecurring ? pendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
@@ -94,7 +97,7 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   const sortedAlerts = safeArray(budget.categoryAlerts).filter((x) => Number(x.budget || 0) > 0).sort((a, b) => Number(b.rate || 0) - Number(a.rate || 0));
   const dangerCategories = sortedAlerts.filter((x) => Number(x.spent || 0) > Number(x.budget || 0));
   const warningCategories = sortedAlerts.filter((x) => Number(x.rate || 0) >= 85 && Number(x.spent || 0) <= Number(x.budget || 0));
-  return { selectedHousehold, month, budget, center, todayStr, sameMonth, pastMonth, observation, outlook, observedSpent, pendingState, daysInMonth, currentDay, remainingDays, spent, totalBudget, remainingBudget, dailyAllowance, avgDaily, forecastExpense, forecastDiff, rate, projectedRate, recurringTotal, pendingRecurringTotal, scheduledRecurring, scheduledRecurringTotal, reserveState, reserveDue, reserveDueTotal, outsidePendingRecurring, outsidePendingTotal, outsideReserveDue, outsideReserveTotal, afterPendingForecast, afterPendingDiff, activeRecurring, pendingRecurring, sortedAlerts, dangerCategories, warningCategories, status, statusText, statusMessage };
+  return { selectedHousehold, month, budget, center, todayStr, sameMonth, pastMonth, observation, outlook, observedSpent, pendingState, daysInMonth, currentDay, remainingDays, spent, totalBudget, remainingBudget, dailyAllowance, avgDaily, forecastExpense, forecastDiff, rate, projectedRate, recurringTotal, pendingRecurringTotal, scheduledRecurring, scheduledRecurringTotal, reserveState, reserveDue, reserveDueTotal, outsidePendingRecurring, outsidePendingTotal, outsideReserveDue, outsideReserveTotal, spenderCheckRecurring, spenderCheckTotal, afterPendingForecast, afterPendingDiff, activeRecurring, pendingRecurring, sortedAlerts, dangerCategories, warningCategories, status, statusText, statusMessage };
 }
 
 function renderBudgetAlertStatusPill(status = "ok") {
@@ -128,6 +131,9 @@ function renderPendingRecurringList(model) {
   if (outsideCount) notes.push(`예산 밖 분류의 반영 대기 고정지출·정기지출 ${numberWithCommas(outsideCount)}건(${numberWithCommas(outsideTotal)}원)은 이 목록과 예산과 견주는 월말 예상에 넣지 않았습니다.`);
   if (scheduled.length) notes.push(`날짜가 아직 오지 않은 반영된 고정지출 ${numberWithCommas(scheduled.length)}건(${numberWithCommas(model.scheduledRecurringTotal || 0)}원)은 월말 예상에 넣었습니다.`);
   if (model.reserveState === "unavailable") notes.push("정기지출 항목을 읽지 못해 남은 납부액은 월말 예상에서 빼고 계산했습니다.");
+  // V22.9.126 FC-21: 자동·수동 반영이 건너뛰는 규칙(지출자 자격 없음)은 대기에서 뺐다고 따로 알린다. 참여자 목록을 넘긴 화면만 생긴다.
+  const spenderCheck = safeArray(model.spenderCheckRecurring);
+  if (spenderCheck.length) notes.push(`지출자 확인 필요 ${numberWithCommas(spenderCheck.length)}건(${numberWithCommas(model.spenderCheckTotal || 0)}원) · 지출자가 활성 참여자(소유자·관리자·구성원)가 아니어서 자동·수동 반영에서 건너뛰므로 반영 대기와 월말 예상에 넣지 않았습니다. 정기 수입·지출 화면에서 지출자를 확인해 주세요.`);
   const noteHtml = notes.map((note) => `<p class="muted">${escapeHtml(note)}</p>`).join("");
   if (!list.length && !plans.length) return `<p class="muted">${outsideCount ? "예산을 정한 분류에는 반영을 기다리는 고정지출이 0건입니다." : "이번 달에 아직 반영 대기 중인 고정지출이 없습니다."}</p>${noteHtml}`;
   const ruleItems = list.map((r) => `<li><b>${escapeHtml(r.memo || r.category || "고정지출")}</b><span>${escapeHtml(r.category || "미분류")} · 매월 ${numberWithCommas(r.day_of_month || 1)}일 예정</span><strong>${numberWithCommas(r.amount || 0)}원</strong></li>`).join("");

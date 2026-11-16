@@ -99,7 +99,8 @@ await withClock("2026-10-15",async()=>{
  await fixture(async fx=>{
   seed(fx,[tx("2026-10-10",40000),tx("2026-10-11",260000),tx("2026-10-25",150000)]);
   fx.db.accountbook_budgets=unionBudgets.map((b,i)=>({...b,id:"pending-budget-"+i,household_id:"house-home",month:"2026-10"}));
-  fx.db.accountbook_recurring=[{...rules[0],household_id:"house-home"},{...rules[1],household_id:"house-home",memo:"별도 대기"}];
+  // V22.9.126 FC-21: /budget-alerts 는 참여자 목록을 넘겨 지출자가 없거나 자격이 없는 규칙(예약 실행이 건너뜀)을 대기에서 뺀다. 이 장면은 대기 합산을 보므로 소유자를 지출자로 둔다.
+  fx.db.accountbook_recurring=[{...rules[0],household_id:"house-home",user_id:"user-bin"},{...rules[1],household_id:"house-home",memo:"별도 대기",user_id:"user-bin"}];
   // The 40,000-won rule deliberately resembles the directly recorded expense.
   // There is no transaction/rule link, so it must remain in the assumption.
   for(const path of paths){
