@@ -168,8 +168,12 @@ try {
   ok(failedCode.startsWith("delivery_failed")&&failedCode.includes("email:E_SENDER_NOT_VERIFIED")&&failedCode.includes("webhook:"),`every channel failing is recorded as delivery_failed with the per-channel cause (1.1.1): ${failedCode}`);
   eq(uptimeRecord()?.sent_at,new Date(base.getTime()+7*3600000).toISOString(),"failed delivery records no new send, so the next run retries");
   webhookFails=false;
-  await runScheduled(failingEnv,new Date(base.getTime()+8*3600000+300000));
-  ok(hooks.at(-1).text.includes("[긴급] 서비스 접속 또는 DB 준비 상태 실패 · 해소 뒤 다시 생김")&&uptimeRecord()?.sent_at===new Date(base.getTime()+8*3600000+300000).toISOString(),"retry succeeds through the remaining channel, flagged as a recurrence after the recovery mail");
+  // 1.8.0(V22.9.126 FC-29): 모든 채널이 실패하면 15분 동안은 다시 시도하지 않고 실패로 남는다(예전에는 다음 5분 실행마다 다시 시도했다).
+  const hooksBeforeRetry=hooks.length;
+  for(const offset of [300000,600000]) await runScheduled(failingEnv,new Date(base.getTime()+8*3600000+offset));
+  ok(hooks.length===hooksBeforeRetry&&String(sqlite.prepare("SELECT error_code FROM collector_state WHERE name='alerts'").get().error_code).startsWith("delivery_failed email:E_SENDER_NOT_VERIFIED"),"1.8.0: the 5- and 10-minute runs after a total failure do not retry and keep the delivery failure visible");
+  await runScheduled(failingEnv,new Date(base.getTime()+8*3600000+900000));
+  ok(hooks.at(-1).text.includes("[긴급] 서비스 접속 또는 DB 준비 상태 실패 · 해소 뒤 다시 생김")&&uptimeRecord()?.sent_at===new Date(base.getTime()+8*3600000+900000).toISOString(),"retry 15 minutes after the failure succeeds through the remaining channel, flagged as a recurrence after the recovery mail");
   uptimeFails=false;
   await runScheduled(env,new Date(base.getTime()+9*3600000));
   eq(sqlite.prepare("SELECT error_code FROM collector_state WHERE name='alerts'").get().error_code,"not_connected","no alert channel is recorded as not_connected");
@@ -458,7 +462,7 @@ try {
     want(badSupport.length===0,`V22.9.97 후원: 모양이 틀린 support 칸은 그 칸만 버리고 이용 현황은 정상으로 받는다: ${badSupport.join(" | ")}`);
     usageExtra={};
     const health=await (await worker.fetch(new Request("https://monitor.example/health"),r4Env,{})).json();
-    want(health.version==="1.7.0",`관제 판은 1.7.0 이다(V22.9.102 /ready 30분 간격): ${health.version}`);
+    want(health.version==="1.8.0",`관제 판은 1.8.0 이다(V22.9.126 알림 기록 순서·화면 5분 새로 읽기): ${health.version}`);
     r4.store.close();
     // ── 1.7.0(V22.9.102): /ready 는 30분에 한 번만 묻고 그 사이는 마지막 정상 답을 재사용한다 ─────────────────
     {

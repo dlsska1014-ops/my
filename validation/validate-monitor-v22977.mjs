@@ -84,8 +84,8 @@ const originalFetch = globalThis.fetch;
 globalThis.fetch = monitorFetch;
 try {
   // ── 0. 관제 판 ───────────────────────────────────────────────────────────────
-  eq(MONITOR_VERSION, "1.7.0", "관제 판은 1.7.0 이다(1.6.0 → 1.7.0, V22.9.102 /ready 30분 간격. 1.6.0 은 V22.9.97 이용 현황 후원 줄, 1.5.0 은 V22.9.94 예약 실행 경보·빈 사용량)");
-  eq((await (await monitor.fetch(new Request("https://monitor.example/health"), {}, {})).json()).version, "1.7.0", "/health 가 1.7.0 을 알린다");
+  eq(MONITOR_VERSION, "1.8.0", "관제 판은 1.8.0 이다(1.7.0 → 1.8.0, V22.9.126 알림 기록을 보내기 전에 쓰기·화면 5분 새로 읽기. 1.7.0 은 V22.9.102 /ready 30분 간격, 1.6.0 은 V22.9.97 이용 현황 후원 줄, 1.5.0 은 V22.9.94 예약 실행 경보·빈 사용량)");
+  eq((await (await monitor.fetch(new Request("https://monitor.example/health"), {}, {})).json()).version, "1.8.0", "/health 가 1.8.0 을 알린다");
 
   // ── 1. G-3 긴급 경고 깜빡임: /ready 가 5분마다 실패·정상 ────────────────────────
   {
