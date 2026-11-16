@@ -581,6 +581,8 @@ function handleEditMessage(session, textRaw, config = {}) {
   if (CANCEL_WORDS.has(c) || KAKAO_EDIT_CANCEL_TALK.test(c)) {
     return {
       action: "cancel",
+      // V22.9.126 FC-19(3차 검토): 사용자가 끝내 달라고 한 취소다. 세션을 닫지 못하면 이 답만 오류로 바꾼다(edit-flow-v4 sendKakaoEditReplyV4).
+      userCancel: true,
       reply: `👌 ${session.entryNo}번 수정을 취소했어요. 언제든 다시 불러주세요!`,
       nextSession: null,
     };
