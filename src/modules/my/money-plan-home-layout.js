@@ -50,8 +50,8 @@ function renderMoneyPlanTabs(active = "budgets", { month = currentMonthKst(), ho
 function moneyPlanTabsCss() {
   return `.abMoneyPlanTabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}`
     + `.abMoneyPlanTabs a{display:grid;gap:3px;align-content:center;padding:11px 12px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;color:#475467!important;text-decoration:none;min-width:0}`
-    + `.abMoneyPlanTabs a b{font-size:14px;font-weight:1000;overflow-wrap:anywhere}`
-    + `.abMoneyPlanTabs a small{font-size:11px;color:#667085;font-weight:900}`
+    + `.abMoneyPlanTabs a b{font-size:14px;font-weight:700;overflow-wrap:anywhere}`
+    + `.abMoneyPlanTabs a small{font-size:11px;color:#667085;font-weight:400}`
     + `.abMoneyPlanTabs a.on{background:#111827;border-color:#111827;color:#fff!important}`
     + `.abMoneyPlanTabs a.on small{color:#cbd5e1}`
     + `.abMoneyPlanTabs.isTwo{grid-template-columns:repeat(2,minmax(0,1fr))}`

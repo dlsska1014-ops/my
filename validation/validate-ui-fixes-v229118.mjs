@@ -316,7 +316,7 @@ await scene("U-9", () => fixture(async (fx) => {
   ok(goals.includes('<label class="goalField goalFieldEmoji"><span>이모지</span><input name="emoji" value="🎯" maxlength="4"/></label>'), "U-12 이모지 칸에 항상 보이는 이름");
   ok(goals.includes('<label class="goalField goalFieldDeadline"><span>마감월(선택)</span><input name="deadline" type="month"/></label>'), "U-12 마감월 칸에 항상 보이는 이름(선택 칸)");
   ok(goals.includes(".goalForm .goalField input{flex:none;width:100%}") && goals.includes(".goalForm{align-items:flex-end}"), "U-12 이름을 붙인 칸도 다른 칸과 아래끝을 맞춘다");
-  ok(goals.includes(".goalField>span{font-size:12px;font-weight:800}") && !/\.goalField\{[^}]*font-size/.test(goals), "U-12 작은 글자는 이름 글자(span)에만 — 입력칸은 font:inherit 로 폼 글자 크기를 그대로 받는다");
+  ok(goals.includes(".goalField>span{font-size:12px;font-weight:500}") && !/\.goalField\{[^}]*font-size/.test(goals), "U-12 작은 글자는 이름 글자(span)에만 — 입력칸은 font:inherit 로 폼 글자 크기를 그대로 받는다");
 }));
 
 // ── U-18 홈 달 표시 ──

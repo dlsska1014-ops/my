@@ -27,6 +27,12 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
+  // V22.9.125(글자·굵기 눈금, 위계·밀도): 스타일시트 셋(셸·홈·공통)의 글자 크기·굵기·모서리 값이 바뀌어 주소를 v229125 로 올렸다.
+  // 옛 주소(accountbook-shell-v229124.css·mobile-home-v22985.css·ab-uiux-v22919.css, 운영 V22.9.124 가 쓰는 주소)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 옛 해시로 계속 내려간다.
+  "/assets/accountbook-shell-v229125.css": "00cf0e5db858612c9b92f6eb5f356eaa071c5f741c36cfa537f536a65cce69ce",
+  "/assets/mobile-home-v229125.css": "8c6e0ea2b68525b80ee6d4661ed2bd5e28386b48b7f7ba036fe4ae694d87b602",
+  "/assets/ab-uiux-v229125.css": "232228f164aa99d4a93f5b03f4174702e249d0a580b4462d3d1e52ea4099f249",
+  // V22.9.125 끝
   // V22.9.124(UI/UX 기준 점검: 좁은 화면의 터치 영역 44px·표를 카드로 쌓기·표 상자 포커스 표시): 셸 CSS 끝에 규칙 한 블록을 더해 주소를 v22993 → v229124 로 올렸다.
   // 옛 주소(accountbook-shell-v22993.css, 운영 V22.9.93~123 이 쓰는 주소)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 옛 해시(아래 줄)로 계속 내려간다.
   "/assets/accountbook-shell-v229124.css": "1d9051b9dfe27054c5ad0944af51c81736d85db01b774471a59f8725050ab397",

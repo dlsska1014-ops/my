@@ -98,7 +98,7 @@ function bottomTabCss() {
     `body.abV22812Shell .abNavBottom a span{font-size:11px}`,
     `body.abV22812Shell .abNavBottom a:not(.abNavQuick,.abNavQuickInput) i{width:48px;height:30px;border-radius:999px;transition:background-color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}`,
     `body.abV22812Shell .abNavBottom a.active:not(.abNavQuick,.abNavQuickInput) i{background:var(--ab12-accent-soft);box-shadow:inset 0 0 0 1px var(--ab12-accent)}`,
-    `body.abV22812Shell .abNavBottom a.active{font-weight:800!important}`,
+    `body.abV22812Shell .abNavBottom a.active{font-weight:700!important}`,
     `body.abV22812Shell .abNavBottom a.active:before{display:none!important}`,
     // V85:R-8: 다크의 ‘모든 링크 강조색’ 규칙(html[…dark] body a, 특이도 0,2,3)이 탭 바의 안 고른 색(0,2,2)을 이겨 다섯 탭 글자가 모두 강조색이었다.
     `html[data-ab-resolved-theme="dark"] body.abV22812Shell .abNavBottom a:not(.active){color:var(--ab12-nav-inactive)!important}`,
@@ -119,9 +119,9 @@ function bottomTabCss() {
 function quickEntryCss() {
   return [
     `/* V22.9.86 T-14: 한 줄로 기록하기 입력 바·빠른 입력 시트(지시서 §3-4·§3-6) */`,
-    `body.abV22812Shell .abEntryBar{display:flex;align-items:center;gap:10px;min-height:56px;margin:12px 0 0;padding:0 16px;border:1px solid var(--ab12-line);border-radius:16px;background:var(--ab12-surface);color:var(--ab12-text)!important;font-size:16px;font-weight:800;text-decoration:none!important;box-shadow:0 1px 2px rgba(15,23,42,.05)}`,
+    `body.abV22812Shell .abEntryBar{display:flex;align-items:center;gap:10px;min-height:56px;margin:12px 0 0;padding:0 16px;border:1px solid var(--ab12-line);border-radius:16px;background:var(--ab12-surface);color:var(--ab12-text)!important;font-size:16px;font-weight:600;text-decoration:none!important;box-shadow:0 1px 2px rgba(15,23,42,.05)}`,
     `body.abV22812Shell .abEntryBar:before{content:"";flex:none;width:22px;height:22px;background:var(--ab12-accent);--ab-ico:${iconMaskUrl(AB_UI_ICON_PATHS["notebook-pen"])};${AB_ICON_MASK}}`,
-    `body.abV22812Shell .abEntryBar small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ab12-muted);font-size:13px;font-weight:600}`,
+    `body.abV22812Shell .abEntryBar small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ab12-muted);font-size:13px;font-weight:400}`,
     `body.abV22812Shell .abEntryBar:focus-visible{outline:3px solid var(--ab12-accent);outline-offset:2px}`,
     `@media(min-width:900px){body.abV22812Shell .abEntryBar{display:none}}`,
     `@media(max-width:899px){body.abV22812Shell.abQuickSheetOnly #add.panel:not(.abQuickInputContent){display:none!important}}`,
@@ -193,9 +193,9 @@ function emptyStateCss() {
     `body.abV22812Shell .abEmptyState{display:grid;justify-items:center;gap:6px;margin:12px 0;padding:24px 20px;border:2px dashed var(--ab12-line);border-radius:20px;background:var(--ab12-surface);color:var(--ab12-text);text-align:center}`,
     `body.abV22812Shell .abEmptyIcon{display:grid;place-items:center;width:52px;height:52px;margin-bottom:6px;border-radius:16px;background:var(--ab12-accent-soft);color:var(--ab12-accent)}`,
     `body.abV22812Shell .abEmptyIcon:before{content:"";width:26px;height:26px;background:currentColor;--ab-ico:${iconMaskUrl(AB_UI_ICON_PATHS["notebook-pen"])};${AB_ICON_MASK}}`,
-    `body.abV22812Shell .abEmptyState h3{margin:0;color:var(--ab12-text);font-size:17px;font-weight:800}`,
+    `body.abV22812Shell .abEmptyState h3{margin:0;color:var(--ab12-text);font-size:16px;font-weight:800}`,
     `body.abV22812Shell .abEmptyState p{margin:0 0 8px;color:var(--ab12-muted);font-size:14px;line-height:1.55}`,
-    `body.abV22812Shell .abEmptyState .abEmptyAction{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 20px;border:0;border-radius:14px;background:var(--ab12-action)!important;color:#fff!important;font-size:15px;font-weight:800;text-decoration:none}`,
+    `body.abV22812Shell .abEmptyState .abEmptyAction{display:inline-flex;align-items:center;justify-content:center;min-height:48px;padding:0 20px;border:0;border-radius:14px;background:var(--ab12-action)!important;color:#fff!important;font-size:14px;font-weight:800;text-decoration:none}`,
     `body.abV22812Shell .abEmptyState .abEmptyAction:focus-visible{outline:3px solid var(--ab12-accent);outline-offset:3px}`,
   ].join("\n");
 }
@@ -211,7 +211,7 @@ function budgetPaceCss() {
     `@media(forced-colors:active){body.abV22812Shell .homeProgress[style*="--ab-today"]:after{background:CanvasText}}`,
     `body.abV22812Shell.abMobileAppSurface .homeDailyPlan.homePace{display:flex;flex-wrap:wrap;align-items:flex-start;gap:4px 10px;margin-top:var(--ab12-sp-3,12px);padding:12px 14px;border:0;border-radius:14px;background:var(--ab12-accent-soft)}`,
     `body.abV22812Shell.abMobileAppSurface .homePace:before{content:"";flex:none;width:20px;height:20px;margin-top:1px;background:var(--ab12-accent);--ab-ico:${iconMaskUrl(AB_UI_ICON_PATHS.clock)};${AB_ICON_MASK}}`,
-    `body.abV22812Shell.abMobileAppSurface .homePace>p{flex:1 1 0;min-width:0;margin:0;color:var(--ab12-text);font-size:14px;font-weight:700;line-height:1.5;word-break:keep-all;overflow-wrap:break-word}`,
+    `body.abV22812Shell.abMobileAppSurface .homePace>p{flex:1 1 0;min-width:0;margin:0;color:var(--ab12-text);font-size:14px;font-weight:400;line-height:1.5;word-break:keep-all;overflow-wrap:break-word}`,
     `body.abV22812Shell.abMobileAppSurface .homePace>p [data-ab-num]{font-weight:800;font-variant-numeric:tabular-nums}`,
     `body.abV22812Shell.abMobileAppSurface .homePace>small{flex-basis:100%;margin:0 0 0 30px}`,
     `body.abV22812Shell.abMobileAppSurface .homePace.homeDailyPlanOver{background:var(--ab12-warn-bg)}`,

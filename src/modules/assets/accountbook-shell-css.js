@@ -14,6 +14,11 @@ const ACCOUNTBOOK_SHELL_CSS = ACCOUNTBOOK_SHELL_V22811_CSS
   .replace("{background:var(--ab12-accent-soft)!important;color:#1b64da!important;border:1px solid #b7d8ff!important}", "{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border:1px solid var(--ab12-accent)!important}")
   // V22.9.84 T-01: 바탕 규칙에도 폼 안 모든 버튼을 주 버튼으로 칠하는 줄이 있다(아래 셸 51·160행과 같은 목록). 제출 버튼으로 좁힌다.
   .replaceAll(".form button:not(.danger),", '.form button[type="submit"]:not(.danger),')
+  // V22.9.125 (글자 크기·굵기 눈금): 바탕 규칙의 값. 옛 주소 /assets/accountbook-shell-v22811.css 는 상수를 그대로 내려보내므로 이 판의 셸에서만 바꾼다.
+  .replace("body.abV22812Shell .topLine h1{color:var(--ab12-text);font-size:20px!important;font-weight:900!important}", "body.abV22812Shell .topLine h1{color:var(--ab12-text);font-size:20px!important;font-weight:700!important}")
+  .replace("body.abV22812Shell .homeBudgetAmount b{color:var(--ab12-text);font-size:36px!important;font-weight:900}", "body.abV22812Shell .homeBudgetAmount b{color:var(--ab12-text);font-size:36px!important;font-weight:800}")
+  .replace("body.abV22812Shell .homeDesktopBrand{display:flex;align-items:center;gap:10px;color:var(--ab12-text);text-decoration:none;font-size:17px;font-weight:900;padding:0 10px 20px}", "body.abV22812Shell .homeDesktopBrand{display:flex;align-items:center;gap:10px;color:var(--ab12-text);text-decoration:none;font-size:16px;font-weight:800;padding:0 10px 20px}")
+  // V22.9.125 바탕 규칙 끝
   + `
 html{background:#f2f4f6;color-scheme:light}
 html[data-ab-resolved-theme="dark"]{background:#141519;color-scheme:dark}
@@ -24,7 +29,7 @@ body.abV22812Shell{--ab12-bg:#f2f4f6;--ab12-surface:#fff;--ab12-surface-raised:#
    리터럴을 이 토큰으로 옮겨 온다. 리터럴을 새로 적기 전에 여기를 먼저 본다.
    간격은 6단계 고정이고 중간값을 쓰지 않는다. --ab12-fs-* 는 크기, --ab12-fw-* 는 그
    크기에 딸린 굵기다(지시서가 "34px / 700" 로 적은 것을 CSS 가 담을 수 있게 나눴다). */
-body.abV22812Shell{--ab12-sp-1:4px;--ab12-sp-2:8px;--ab12-sp-3:12px;--ab12-sp-4:16px;--ab12-sp-5:24px;--ab12-sp-6:32px;--ab12-r-sm:8px;--ab12-r-md:12px;--ab12-r-lg:16px;--ab12-fs-num-xl:34px;--ab12-fw-num-xl:700;--ab12-fs-num-lg:22px;--ab12-fw-num-lg:700;--ab12-fs-title:16px;--ab12-fw-title:700;--ab12-fs-body:14px;--ab12-fw-body:400;--ab12-fs-cap:12px;--ab12-fw-cap:500;--ab12-disabled:#94a3b8;--ab12-elev-card:0 1px 2px rgba(0,0,0,.04);--ab12-elev-float:0 8px 24px rgba(0,0,0,.12);--ab12-dur:180ms;--ab12-ease:cubic-bezier(.2,.8,.2,1);--ab12-dur-fast:120ms;--ab12-dur-slow:320ms;--ab12-dur-gauge:620ms;--ab12-ease-gauge:cubic-bezier(.2,.8,.2,1)}
+body.abV22812Shell{--ab12-sp-1:4px;--ab12-sp-2:8px;--ab12-sp-3:12px;--ab12-sp-4:16px;--ab12-sp-5:24px;--ab12-sp-6:32px;--ab12-r-sm:8px;--ab12-r-md:12px;--ab12-r-lg:16px;--ab12-fs-num-xl:36px;--ab12-fw-num-xl:700;--ab12-fs-num-lg:20px;--ab12-fw-num-lg:700;--ab12-fs-title:16px;--ab12-fw-title:700;--ab12-fs-body:14px;--ab12-fw-body:400;--ab12-fs-cap:12px;--ab12-fw-cap:500;--ab12-disabled:#94a3b8;--ab12-elev-card:0 1px 2px rgba(0,0,0,.04);--ab12-elev-float:0 8px 24px rgba(0,0,0,.12);--ab12-dur:180ms;--ab12-ease:cubic-bezier(.2,.8,.2,1);--ab12-dur-fast:120ms;--ab12-dur-slow:320ms;--ab12-dur-gauge:620ms;--ab12-ease-gauge:cubic-bezier(.2,.8,.2,1)}
 /* V22.8.85 통합 작업지시서 2.1: 증감(--ab12-up/down)과 파싱 밑줄(--ab12-parse-*)은
    톤을 따라가지 않는다. 뜻을 가리키는 색이지 강조색이 아니라서, 톤을 바꿨다고 "늘었다"가
    보라색이 되면 안 된다. 그래서 톤 선택자에는 넣지 않고 여기 한 곳에만 둔다.
@@ -57,9 +62,9 @@ body.abV22812Shell [style*="color:#8B95A1"],body.abV22812Shell [style*="color:#8
 body.abV22812Shell :is(.muted,.note,.smartHint,.homeEmpty,.homeBudgetTop span,.homeMetric span,.homeTx span,.homeBarRow span){color:var(--ab12-muted)!important}
 body.abV22812Shell a{color:var(--ab12-accent)}
 body.abV22812Shell :is(.smartLine button,.form button[type="submit"]:not(.danger),.loginCard button[type="submit"],.signupCard button[type="submit"],form[action="/my/backup-login"] button[type="submit"],.menuContext button){background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
-.abAppearancePanel{margin:0 0 28px;padding:18px;border:1px solid var(--ab12-line);border-radius:18px;background:var(--ab12-surface);box-shadow:var(--ab12-shadow)}.abCursorPref{margin-top:14px;padding-top:14px;border-top:1px solid var(--ab12-line);display:grid;gap:10px}.abCursorPick{display:flex;align-items:flex-start;gap:10px;min-height:44px;cursor:pointer}.abCursorPick input{width:22px;height:22px;margin-top:2px;flex:none}.abCursorPick b{display:block;font-size:14px}.abCursorPick small{display:block;color:var(--ab12-muted);font-size:12px;line-height:1.6;margin-top:3px}.abCursorPref button{min-height:44px;border:1px solid var(--ab12-line);border-radius:var(--ab12-r-sm,8px);background:var(--ab12-surface);color:var(--ab12-text);font-weight:1000;cursor:pointer;justify-self:start;padding:0 14px}
-.abAppearanceHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.abAppearanceHead h2{margin:0;color:var(--ab12-text);font-size:18px}.abAppearanceHead p{margin:5px 0 0;color:var(--ab12-muted);font-size:13px;line-height:1.5}.abAppearanceDevice{display:inline-flex;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);padding:6px 9px;font-size:11px;font-weight:750;white-space:nowrap}
-.abAppearanceRows{display:grid;grid-template-columns:1fr 1.35fr;gap:18px;margin-top:16px}.abAppearanceRows>div>b{display:block;margin-bottom:8px;color:var(--ab12-text);font-size:13px}.abAppearanceChoices{display:flex;flex-wrap:wrap;gap:7px}.menuPage .abAppearanceChoices button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:0 13px!important;border:1px solid var(--ab12-line)!important;border-radius:12px!important;background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;font-size:13px;font-weight:750}.menuPage .abAppearanceChoices button[aria-pressed="true"]{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--ab12-accent) 16%,transparent)}
+.abAppearancePanel{margin:0 0 28px;padding:18px;border:1px solid var(--ab12-line);border-radius:18px;background:var(--ab12-surface);box-shadow:var(--ab12-shadow)}.abCursorPref{margin-top:14px;padding-top:14px;border-top:1px solid var(--ab12-line);display:grid;gap:10px}.abCursorPick{display:flex;align-items:flex-start;gap:10px;min-height:44px;cursor:pointer}.abCursorPick input{width:22px;height:22px;margin-top:2px;flex:none}.abCursorPick b{display:block;font-size:14px}.abCursorPick small{display:block;color:var(--ab12-muted);font-size:12px;line-height:1.6;margin-top:3px}.abCursorPref button{min-height:44px;border:1px solid var(--ab12-line);border-radius:var(--ab12-r-sm,8px);background:var(--ab12-surface);color:var(--ab12-text);font-weight:800;cursor:pointer;justify-self:start;padding:0 14px}
+.abAppearanceHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.abAppearanceHead h2{margin:0;color:var(--ab12-text);font-size:18px}.abAppearanceHead p{margin:5px 0 0;color:var(--ab12-muted);font-size:13px;line-height:1.5}.abAppearanceDevice{display:inline-flex;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);padding:6px 9px;font-size:11px;font-weight:500;white-space:nowrap}
+.abAppearanceRows{display:grid;grid-template-columns:1fr 1.35fr;gap:18px;margin-top:16px}.abAppearanceRows>div>b{display:block;margin-bottom:8px;color:var(--ab12-text);font-size:13px}.abAppearanceChoices{display:flex;flex-wrap:wrap;gap:7px}.menuPage .abAppearanceChoices button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:0 13px!important;border:1px solid var(--ab12-line)!important;border-radius:12px!important;background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;font-size:13px;font-weight:700}.menuPage .abAppearanceChoices button[aria-pressed="true"]{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--ab12-accent) 16%,transparent)}
 .abToneDot{width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 2px var(--ab12-surface),0 0 0 3px var(--ab12-line)}.abToneBlue{background:#1d4ed8}.abToneEmerald{background:#047857}.abToneViolet{background:#6d28d9}.abToneAmber{background:#92400e}.abAppearanceStatus{margin:13px 0 0;color:var(--ab12-muted);font-size:12px;line-height:1.5}
 html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abPageReserve .reserveCard.alert{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important}
 html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abPageReserve .reserveCard.alert :is(b,strong,span,small):not(.reserveEdit *){color:var(--ab12-accent)!important}
@@ -196,7 +201,7 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin .sampleNotice
 html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageLogin .previewCta .cta{color:#172033!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell svg text{fill:var(--ab12-text)!important}
 body.abV22812Shell.abMobileAppSurface .homeSpendMeta{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px}
-body.abV22812Shell.abMobileAppSurface .homeSpendMeta>span{display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:0 11px;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);font-size:12px;font-weight:850}
+body.abV22812Shell.abMobileAppSurface .homeSpendMeta>span{display:inline-flex;align-items:center;gap:5px;min-height:34px;padding:0 11px;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);font-size:12px;font-weight:800}
 body.abV22812Shell.abMobileAppSurface .homeSpendMeta b{color:var(--ab12-accent)}
 /* V22.8.88 M2·M3: 세 카드("N월 지출"·"쓸 수 있는 돈"·"오늘 쓴 돈")를 P0 하나로 합쳤다.
    오늘 쓴 돈은 카드가 아니라 P0 안의 한 줄이고, 하루 환산은 구분선 아래에 붙는다. */
@@ -210,8 +215,8 @@ body.abV22812Shell .homeReport{display:flex;flex-direction:column;gap:6px;min-wi
 body.abV22812Shell .homeReportTop{display:flex;align-items:center;justify-content:space-between;gap:8px}
 body.abV22812Shell .homeReportTop>span{color:var(--ab12-muted);font-size:var(--ab12-fs-cap,12px);font-weight:800}
 /* 카드마다 링크는 하나뿐이다. 둘 이상이면 어디로 가는 카드인지 흐려진다. */
-body.abV22812Shell .homeReportTop>a{flex:none;display:inline-flex;align-items:center;min-height:44px;color:var(--ab12-action);font-size:var(--ab12-fs-cap,12px);font-weight:800;text-decoration:none}
-body.abV22812Shell .homeReport>b{font-size:var(--ab12-fs-num-lg,22px);font-weight:var(--ab12-fw-num-lg,700);line-height:1.15;letter-spacing:-.03em;color:var(--ab12-text);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+body.abV22812Shell .homeReportTop>a{flex:none;display:inline-flex;align-items:center;min-height:44px;color:var(--ab12-action);font-size:var(--ab12-fs-cap,12px);font-weight:600;text-decoration:none}
+body.abV22812Shell .homeReport>b{font-size:var(--ab12-fs-num-lg,20px);font-weight:var(--ab12-fw-num-lg,700);line-height:1.15;letter-spacing:-.03em;color:var(--ab12-text);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 body.abV22812Shell .homeReport>small{color:var(--ab12-muted);font-size:var(--ab12-fs-cap,12px);font-weight:700;line-height:1.5}
 body.abV22812Shell .homeReportBars{display:flex;gap:3px;min-height:3px}
 body.abV22812Shell .homeReportBars i{height:3px;border-radius:999px;background:var(--ab12-brand)}
@@ -228,15 +233,15 @@ body.abV22812Shell .homeReportPace i.isBlank{height:100%;background:repeating-li
    "자세히" 안으로 들어간다. 접힌 채로도 무엇이 들어갈지 알 수 있게 헤더가 요약을 든다 —
    요약이 없으면 접는 것이 곧 값을 숨기는 일이 된다. */
 body.abV22812Shell .quickMore{margin:var(--ab12-sp-2,8px) 0;border:1px solid var(--ab12-line);border-radius:var(--ab12-r-md,12px);background:var(--ab12-surface)}
-body.abV22812Shell .quickMore>summary{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;padding:0 var(--ab12-sp-3,12px);cursor:pointer;list-style:none;color:var(--ab12-text);font-size:13px;font-weight:800}
+body.abV22812Shell .quickMore>summary{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:44px;padding:0 var(--ab12-sp-3,12px);cursor:pointer;list-style:none;color:var(--ab12-text);font-size:13px;font-weight:600}
 body.abV22812Shell .quickMore>summary::-webkit-details-marker{display:none}
-body.abV22812Shell .quickMore>summary em{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;color:var(--ab12-muted);font-style:normal;font-size:var(--ab12-fs-cap,12px);font-weight:700}
+body.abV22812Shell .quickMore>summary em{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-align:right;color:var(--ab12-muted);font-style:normal;font-size:var(--ab12-fs-cap,12px);font-weight:500}
 body.abV22812Shell .quickMoreBody{display:grid;gap:var(--ab12-sp-2,8px);padding:0 var(--ab12-sp-3,12px) var(--ab12-sp-3,12px)}
 /* 저장 버튼은 시트 아래에 붙어 있어야 한다. 시트를 스크롤해도 따라오지 않으면
    긴 화면에서 저장까지 내려가야 하고, 그것이 M4 가 지목한 문제였다. */
 body.abV22812Shell .quickSubmit{position:sticky;bottom:0;z-index:2;margin-top:var(--ab12-sp-2,8px);padding-bottom:env(safe-area-inset-bottom,0px);background:var(--ab12-surface)}
 body.abV22812Shell .quickSubmit>button[type="submit"]{width:100%;min-height:52px}
-body.abV22812Shell .quickAfter{margin:6px 0 0;color:var(--ab12-muted);font-size:var(--ab12-fs-cap,12px);font-weight:750;text-align:center;font-variant-numeric:tabular-nums}
+body.abV22812Shell .quickAfter{margin:6px 0 0;color:var(--ab12-muted);font-size:var(--ab12-fs-cap,12px);font-weight:400;text-align:center;font-variant-numeric:tabular-nums}
 /* 기본 버튼이 톤을 따라가지 않던 이유. V22.8.1 층이 background:var(--ab-blue)!important
    로 primary 를 칠하는데, --ab-blue 는 이름 그대로 파란색 상수라 톤을 emerald 로 바꿔도
    "기록 저장" 버튼만 파랗게 남았다. 화면 하나가 아니라 primary 버튼이 있는 모든 화면이
@@ -259,8 +264,8 @@ body.abV22812Shell #add :is(.chipRow button,.dateChip):active:not(:disabled){tra
 /* V22.9.84 T-02: 지출/수입 세그먼트는 트랙형이다. 다크에서 고른 칸과 안 고른 칸의 면·테두리가 같아(#282b33/#3b475a) 글자색만 달랐다.
    라이트·다크 같은 규칙: 트랙 surface-raised, 고른 칸 surface 면 + accent 테두리·글자 + 그림자, 안 고른 칸 투명 면 + nav-inactive. */
 body.abV22812Shell #add .seg{background:var(--ab12-surface-raised);padding:4px;border-radius:14px;gap:4px}
-body.abV22812Shell #add .seg span{height:44px;border-radius:11px;background:transparent!important;border:1px solid transparent!important;color:var(--ab12-nav-inactive)!important;font-weight:700}
-body.abV22812Shell #add .seg input:checked+span{background:var(--ab12-surface)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;font-weight:800;box-shadow:var(--shadow)}
+body.abV22812Shell #add .seg span{height:44px;border-radius:12px;background:transparent!important;border:1px solid transparent!important;color:var(--ab12-nav-inactive)!important;font-weight:400}
+body.abV22812Shell #add .seg input:checked+span{background:var(--ab12-surface)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;font-weight:700;box-shadow:var(--shadow)}
 /* V22.9.85 R-6(디자인 적합성 점검): 지시서 §3-5 대로 고른 칸이 바뀔 때도 면·테두리·글자가 180ms 로 바뀌고(움직임 줄이기에서는 끈다),
    초점 링은 다른 조작부처럼 강조색 3px 이다(빠른 입력 자산의 옛 규칙은 2px 였다). */
 body.abV22812Shell #add .seg span{transition:background-color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),border-color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),color var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),box-shadow var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}
@@ -275,19 +280,19 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell .txChip.isOn{background:v
    홈 KPI(들어온 돈·나간 돈)와 거래 행 금액만 바꾼다(분석 화면은 바꾸지 않는다). html[data-ab-resolved-theme] 는 다크 증감 색 규칙보다 앞서려고 붙였다. */
 html[data-ab-resolved-theme] body.abV22812Shell :is(.homeMetric>b.income,.v8-tx strong.income,.homeTxAmt.income){color:var(--pos)!important}
 html[data-ab-resolved-theme] body.abV22812Shell :is(.homeMetric>b.expense,.v8-tx strong.expense,.homeTxAmt:not(.income)){color:var(--ab12-text)!important}
-body.abV22812Shell.abMobileAppSurface .homeBudgetToday{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:var(--ab12-sp-3,12px);color:var(--ab12-muted);font-size:var(--ab12-fs-cap,12px);font-weight:850}
-body.abV22812Shell.abMobileAppSurface .homeBudgetToday b{font-size:15px;font-variant-numeric:tabular-nums}
+body.abV22812Shell.abMobileAppSurface .homeBudgetToday{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:var(--ab12-sp-3,12px);color:var(--ab12-muted);font-size:var(--ab12-fs-cap,12px);font-weight:400}
+body.abV22812Shell.abMobileAppSurface .homeBudgetToday b{font-size:14px;font-variant-numeric:tabular-nums}
 /* 구분선은 지시서 M3 의 "P0 하단 구분선 아래"를 그대로 옮긴 것이다. 하루 환산은
    남은 예산을 다시 적는 줄이 아니라 그 돈을 오늘의 크기로 바꿔 주는 줄이라, 같은
    카드 안에서도 선 하나로 층을 나눈다. */
 body.abV22812Shell.abMobileAppSurface .homeDailyPlan{margin-top:var(--ab12-sp-3,12px);padding-top:var(--ab12-sp-3,12px);border-top:1px solid var(--ab12-line)}
-body.abV22812Shell.abMobileAppSurface .homeDailyPlan>span{display:block;color:var(--ab12-muted);font-size:var(--ab12-fs-cap,12px);font-weight:850}
+body.abV22812Shell.abMobileAppSurface .homeDailyPlan>span{display:block;color:var(--ab12-muted);font-size:var(--ab12-fs-cap,12px);font-weight:800}
 body.abV22812Shell.abMobileAppSurface .homeDailyPlan>b{display:block;margin-top:2px;color:var(--ab12-text);font-size:20px;font-weight:800;font-variant-numeric:tabular-nums;letter-spacing:-.03em}
-body.abV22812Shell.abMobileAppSurface .homeDailyPlan>small{display:block;margin-top:3px;color:var(--ab12-muted);font-size:var(--ab12-fs-cap,12px);font-weight:800}
-body.abV22812Shell.abMobileAppSurface .homeDailyPlanEmpty a{display:inline-flex;align-items:center;min-height:44px;color:var(--ab12-action);font-size:13px;font-weight:850;text-decoration:underline}
+body.abV22812Shell.abMobileAppSurface .homeDailyPlan>small{display:block;margin-top:3px;color:var(--ab12-muted);font-size:var(--ab12-fs-cap,12px);font-weight:400}
+body.abV22812Shell.abMobileAppSurface .homeDailyPlanEmpty a{display:inline-flex;align-items:center;min-height:44px;color:var(--ab12-action);font-size:13px;font-weight:800;text-decoration:underline}
 /* 초과는 톤을 따라가지 않는다(2.1). 파란 경고는 경고로 읽히지 않는다. */
 body.abV22812Shell.abMobileAppSurface .homeDailyPlanOver{border-top-color:var(--ab12-warn-line)}
-body.abV22812Shell.abMobileAppSurface .homeDailyPlanOver b{display:block;color:var(--ab12-warn-text);font-size:15px;font-weight:900}
+body.abV22812Shell.abMobileAppSurface .homeDailyPlanOver b{display:block;color:var(--ab12-warn-text);font-size:14px;font-weight:800}
 body.abV22812Shell.abMobileAppSurface .homeBudget{background:var(--ab12-surface)!important;border-color:var(--ab12-line)!important}
 body.abV22812Shell.abMobileAppSurface .homeBudget:after{display:none!important}
 body.abV22812Shell.abMobileAppSurface .homeProgress i{background:var(--ab12-action)!important}
@@ -296,7 +301,7 @@ body.abV22812Shell.abMobileAppSurface .homeCalendar .calHead h2{font-size:20px}
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calClose,
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calNav a{background:var(--ab12-surface-raised)!important;color:var(--ab12-accent)!important;border:1px solid var(--ab12-line)!important;box-shadow:none!important}
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calGrid{gap:3px}
-body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay{min-height:62px;padding:7px 2px;border:1px solid transparent!important;border-radius:11px;background:transparent!important;color:var(--ab12-text)!important;opacity:1!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay{min-height:62px;padding:7px 2px;border:1px solid transparent!important;border-radius:12px;background:transparent!important;color:var(--ab12-text)!important;opacity:1!important}
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.noRec{background:transparent!important;color:var(--ab12-muted)!important}
 body.abV22812Shell.abMobileAppSurface .homeCalendar a.calDay.hasRec{background:var(--ab12-accent-soft)!important;border-color:color-mix(in srgb,var(--ab12-accent) 34%,var(--ab12-line))!important;color:var(--ab12-text)!important}
 body.abV22812Shell.abMobileAppSurface .homeCalendar a.calDay.hasRec.sel{background:var(--ab12-action)!important;border-color:var(--ab12-action)!important;color:#fff!important}
@@ -329,7 +334,7 @@ body.abV22812Shell.abPageInsight :is(.dRow:hover,.hRow:hover,a.txRow:hover){back
 body.abV22812Shell.abPageInsight :is(.card,.kpi){border-radius:var(--ab12-radius,20px)!important;box-shadow:none!important}
 body.abV22812Shell.abPageInsight .kpiRow{gap:10px}
 body.abV22812Shell.abPageInsight .kpi{min-height:108px;padding:17px}
-body.abV22812Shell.abPageInsight .kpi b{font-size:23px}
+body.abV22812Shell.abPageInsight .kpi b{font-size:24px}
 body.abV22812Shell.abPageInsight :is(.hTrack,.meterBig){background:var(--ab12-surface-raised)!important;border:1px solid var(--ab12-line)!important}
 body.abV22812Shell .appMenu>summary{background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;border-color:var(--ab12-line)!important}
 body.abV22812Shell .appMenu>summary:after{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important}
@@ -470,14 +475,14 @@ body.abV22812Shell :is(.ghost,.secondary,.soft,.light,.btn.ghost){background:var
 body.abV22812Shell :is(.ghost,.secondary,.soft,.light,.btn.ghost):hover{background:var(--card-2)!important;color:var(--text)!important}
 body.abV22812Shell :is(input,select,textarea){background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:var(--radius-xs)!important}
 body.abV22812Shell :is(input,textarea)::placeholder{color:var(--faint)!important;opacity:1}
-body.abV22812Shell :is(.field label,.formField label){font-size:11.5px;font-weight:700;color:var(--sub)!important}
+body.abV22812Shell :is(.field label,.formField label){font-size:12px;font-weight:700;color:var(--sub)!important}
 body.abV22812Shell :is(.filterCard,.filterBar,.filterAdvanced,.fPanel){background:var(--card)!important;color:var(--text)!important;border-color:var(--line)!important;border-radius:var(--radius-sm)!important;box-shadow:var(--shadow)!important}
 body.abV22812Shell :is(.chip,.pchip,.fBtn,.tchip,.aChip,.feedControls a,.dateChip){background:var(--card-2)!important;color:var(--sub)!important;border-color:transparent!important;border-radius:999px!important;box-shadow:none!important}
 body.abV22812Shell :is(.chip.blue,.pchip.on,.fBtn.on,.tchip.on,.aChip,.feedControls a.active,.dateChip.on){background:var(--accent-weak)!important;color:var(--accent)!important;border-color:var(--line)!important}
 body.abV22812Shell :is(.tableWrap,.scroll){background:var(--card)!important;border:1px solid var(--line)!important;border-radius:var(--radius-sm)!important;box-shadow:none!important}
 body.abV22812Shell table{background:var(--card)!important;color:var(--text)!important;border-collapse:collapse}
 body.abV22812Shell :is(th,td){border-color:var(--line)!important}
-body.abV22812Shell th{background:var(--card-2)!important;color:var(--sub)!important;font-size:11.5px;font-weight:700}
+body.abV22812Shell th{background:var(--card-2)!important;color:var(--sub)!important;font-size:12px;font-weight:700}
 body.abV22812Shell :is(.txItem,.txRow,.record){background:var(--card)!important;color:var(--text)!important;border-color:var(--line)!important;border-radius:var(--radius-sm)!important;box-shadow:none!important}
 body.abV22812Shell :is(.txMeta span,.txCount,.txLiveCount,.summaryBox,.emptyBox){background:var(--card-2)!important;color:var(--sub)!important;border-color:var(--line)!important}
 body.abV22812Shell .tabs{display:flex;flex-wrap:nowrap;gap:6px;overflow-x:auto;background:var(--card)!important;border-radius:var(--radius-sm);padding:7px;box-shadow:var(--shadow);scrollbar-width:none}
@@ -503,7 +508,7 @@ body.abV22812Shell .abNavLinks a{align-items:center;text-decoration:none}
 body.abV22812Shell .abNavItemIcon,body.abV22812Shell .abNavGroup summary>i{display:grid;place-items:center;font-style:normal}
 body.abV22812Shell .abNavBottom a{position:relative;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;min-width:0;text-decoration:none;text-align:center}
 body.abV22812Shell .abNavBottom a i{display:grid;place-items:center;font-style:normal}
-body.abV22812Shell .abNavBottom a span{display:block;font-size:10px}
+body.abV22812Shell .abNavBottom a span{display:block;font-size:11px}
 body.abV22812Shell .abNavBottom a.active:before{content:"";position:absolute;top:0;left:50%;transform:translateX(-50%);width:26px;height:3px;border-radius:0 0 4px 4px}
 body.abV22812Shell.abNavCollapsed .abNavBrandText,body.abV22812Shell.abNavCollapsed .abNavGuide small{display:none!important}
 body.abV22812Shell.abNavCollapsed :is(.abNavLinks a>span,.abNavGroup summary b,.abNavGuide span){position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
@@ -512,8 +517,8 @@ body.abV22812Shell.abNavCollapsed .abNavToggle{transform:rotate(180deg)}
 
 body.abV22812Shell .abLayoutNav{font-family:inherit!important;color:var(--text)!important;background:var(--card)!important;border-right:1px solid var(--line)!important;box-shadow:none!important}
 body.abV22812Shell .abNavTop{padding:16px 14px!important;border-color:var(--line)!important}
-body.abV22812Shell .abNavBrand{gap:10px!important;color:var(--text)!important;font-weight:800!important}
-body.abV22812Shell .abNavLogo{width:38px!important;height:38px!important;flex:none;border-radius:12px!important;display:grid!important;place-items:center!important;background:var(--brand)!important;color:var(--on-accent)!important;border-color:transparent!important;box-shadow:var(--shadow)!important;font-size:19px!important;font-weight:800!important;line-height:1!important}
+body.abV22812Shell .abNavBrand{gap:10px!important;color:var(--text)!important;font-weight:600!important}
+body.abV22812Shell .abNavLogo{width:38px!important;height:38px!important;flex:none;border-radius:12px!important;display:grid!important;place-items:center!important;background:var(--brand)!important;color:var(--on-accent)!important;border-color:transparent!important;box-shadow:var(--shadow)!important;font-size:18px!important;font-weight:800!important;line-height:1!important}
 /* 브랜드 아이콘은 SVG(renderAccountbookBrandIcon)라 stroke 가 컨테이너 대비색을 그대로 받아야 한다.
    .abNavLogo 선언이 여러 곳(V2281_GUIDED_NAV_STYLE·renderUnifiedNav·이 파일)에 흩어져 있어
    어느 것이 이기든 아이콘 크기와 stroke 색이 같아지도록 여기서 못박는다. */
@@ -521,8 +526,8 @@ body.abV22812Shell :is(.abNavLogo,.abNavMobileLogo)>svg{width:22px!important;hei
 body.abV22812Shell .abNavMobileLogo>svg{width:18px!important;height:18px!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .abNavLogo{background:var(--brand)!important;color:#fff!important;border-color:transparent!important}
 body.abV22812Shell :is(.abNavLogo,.abNavMobileTop a>span) .abBrandMark i{background:var(--on-accent)!important}
-body.abV22812Shell .abNavBrandText small{color:var(--faint)!important;font-weight:700!important}
-body.abV22812Shell .abNavToggle{width:34px!important;height:34px!important;border-radius:11px!important;background:var(--card-2)!important;color:var(--sub)!important;border:0!important}
+body.abV22812Shell .abNavBrandText small{color:var(--faint)!important;font-weight:600!important}
+body.abV22812Shell .abNavToggle{width:34px!important;height:34px!important;border-radius:12px!important;background:var(--card-2)!important;color:var(--sub)!important;border:0!important}
 body.abV22812Shell .abNavBody{padding:10px 10px 16px!important}
 body.abV22812Shell .abNavGroup{margin:4px 0!important;border-radius:14px!important}
 body.abV22812Shell .abNavGroup summary{min-height:42px!important;padding:0 12px!important;border-radius:12px!important;background:transparent!important;color:var(--sub)!important;box-shadow:none!important;font-weight:700!important}
@@ -530,9 +535,9 @@ body.abV22812Shell .abNavGroup summary:hover{background:var(--card-2)!important;
 body.abV22812Shell .abNavGroup[open] summary{color:var(--text)!important}
 body.abV22812Shell .abNavGroup summary i{width:24px!important;flex:0 0 24px!important;color:var(--faint)!important;font-size:16px!important}
 body.abV22812Shell .abNavIconSvg{width:20px!important;height:20px!important;stroke:currentColor!important;fill:none!important}
-body.abV22812Shell .abNavGroup summary b{font-size:12.5px!important;font-weight:700!important;text-transform:none!important}
+body.abV22812Shell .abNavGroup summary b{font-size:13px!important;font-weight:700!important;text-transform:none!important}
 body.abV22812Shell .abNavLinks{display:flex!important;flex-direction:column!important;gap:2px!important;padding:4px 0 8px!important}
-body.abV22812Shell .abNavLinks a{display:flex!important;justify-content:flex-start!important;gap:11px!important;min-height:42px!important;padding:9px 12px 9px 14px!important;border-radius:11px!important;background:transparent!important;color:var(--sub)!important;font-size:13.5px!important;font-weight:600!important;box-shadow:none!important}
+body.abV22812Shell .abNavLinks a{display:flex!important;justify-content:flex-start!important;gap:11px!important;min-height:42px!important;padding:9px 12px 9px 14px!important;border-radius:12px!important;background:transparent!important;color:var(--sub)!important;font-size:14px!important;font-weight:400!important;box-shadow:none!important}
 body.abV22812Shell .abNavLinks a:hover{background:var(--card-2)!important;color:var(--text)!important}
 body.abV22812Shell .abNavLinks a.active{background:var(--accent-weak)!important;color:var(--accent)!important;font-weight:800!important}
 /* 라이트 사이드바의 대메뉴/하위 위계.
@@ -540,37 +545,37 @@ body.abV22812Shell .abNavLinks a.active{background:var(--accent-weak)!important;
    대비를 낮추는 변경은 넣지 않는다 — 강조하는 쪽(abNavGroupPrimary)만 --text 로 올린다.
    다크는 그대로 둔다(회귀 방지). */
 html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavGroup+.abNavGroup{border-top:1px solid var(--line)!important;margin-top:9px!important;padding-top:7px!important}
-html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavGroup summary b{letter-spacing:.055em!important;font-size:11.5px!important;font-weight:800!important}
+html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavGroup summary b{letter-spacing:.055em!important;font-size:12px!important;font-weight:800!important}
 html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavGroupPrimary>summary b{color:var(--text)!important}
 html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavLinks{margin-left:17px!important;padding-left:11px!important;border-left:1px solid var(--line)!important}
-html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavLinks a{padding-left:10px!important;font-size:13.5px!important;letter-spacing:0!important}
+html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell .abNavLinks a{padding-left:10px!important;font-size:14px!important;letter-spacing:0!important}
 html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abNavCollapsed .abNavLinks{margin-left:0!important;padding-left:0!important;border-left:0!important}
 /* V22.9.83: 사용자 사이드바는 접지 않는 묶음(.abNavSection)이다. 묶음 위 작은 이름표, 링크는 들여쓰기 레일 없이 한 줄 36px.
    위 라이트 규칙(.abNavGroup+.abNavGroup 구분선, .abNavLinks 레일)과 같은 세기로 적고 뒤에 두어 이긴다. 접힌 사이드바는 이름표를 숨기고 구분선만 남긴다. */
 html body.abV22812Shell .abNavSection.abNavGroup+.abNavSection{border-top:0!important;margin-top:0!important;padding-top:0!important}
 body.abV22812Shell .abNavSection{margin:0 0 10px!important}
-body.abV22812Shell .abNavLabel{margin:8px 12px 4px!important;font-size:11.5px!important;font-weight:700!important;letter-spacing:.02em!important;line-height:1.4!important;color:var(--sub)!important}
+body.abV22812Shell .abNavLabel{margin:8px 12px 4px!important;font-size:12px!important;font-weight:700!important;letter-spacing:.02em!important;line-height:1.4!important;color:var(--sub)!important}
 html body.abV22812Shell .abNavSection .abNavLinks{margin-left:0!important;padding:0!important;border-left:0!important;gap:1px!important}
 html body.abV22812Shell .abNavSection .abNavLinks a{min-height:36px!important;padding:7px 12px!important}
 body.abV22812Shell.abNavCollapsed .abNavLabel{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important}
 html body.abV22812Shell.abNavCollapsed .abNavSection.abNavGroup+.abNavSection{border-top:1px solid var(--line)!important;padding-top:8px!important}
 /* V22.9.83: 소비 분석의 두 보기(한눈에 보기·종합 리포트) 탭. 화면마다 인라인으로 넣으면 /my/analysis 인라인 CSS 한도(24 KiB)를 넘어 공용 셸로 옮겼다. */
 .lrSeg.abAnalysisViews{display:inline-flex;gap:4px;padding:4px;border-radius:var(--ab12-r-lg,16px);background:var(--ab12-surface-raised,#eef1f5);margin:14px 0 0}
-.lrSeg.abAnalysisViews a{min-height:40px;display:inline-flex;align-items:center;justify-content:center;padding:0 16px;border-radius:var(--ab12-r-md,12px);text-decoration:none;font-weight:800;color:var(--ab12-muted,#5f6b7a)}
+.lrSeg.abAnalysisViews a{min-height:40px;display:inline-flex;align-items:center;justify-content:center;padding:0 16px;border-radius:var(--ab12-r-md,12px);text-decoration:none;font-weight:600;color:var(--ab12-muted,#5f6b7a)}
 .lrSeg.abAnalysisViews a[aria-current="true"]{background:var(--ab12-surface,#fff);color:var(--ab12-text,#191f28);box-shadow:var(--ab12-elev-card,0 2px 8px rgba(15,23,42,.08))}
 /* V22.9.85 R-3: 다크에서는 모든 링크를 강조색으로 칠하는 규칙(!important)이 이겨 두 탭 글자가 같았고, 고른 칸 면(#1e2026)과 트랙(#282b33)은 1.15:1 이었다.
    세그먼트(T-02)처럼 고른 탭은 강조색 글자·테두리, 안 고른 탭은 보조색 글자로 가른다. */
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .lrSeg.abAnalysisViews a{color:var(--ab12-muted)!important;border:1px solid transparent}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .lrSeg.abAnalysisViews a[aria-current="true"]{color:var(--ab12-accent)!important;border-color:var(--ab12-accent)}
-body.abV22812Shell .abNavItemIcon{width:22px!important;height:auto!important;flex:0 0 22px!important;background:transparent!important;color:inherit!important;font-size:15px!important}
+body.abV22812Shell .abNavItemIcon{width:22px!important;height:auto!important;flex:0 0 22px!important;background:transparent!important;color:inherit!important;font-size:14px!important}
 body.abV22812Shell .abNavFooter{padding:12px 10px!important;border-color:var(--line)!important}
 body.abV22812Shell .abNavGuide{background:var(--card-2)!important;border:1px solid var(--line)!important;color:var(--accent)!important;border-radius:12px!important;box-shadow:none!important}
 body.abV22812Shell .abNavGuide small{color:var(--sub)!important}
 body.abV22812Shell .abNavMobileTop,body.abV22812Shell .abNavMobileDrawer,body.abV22812Shell .abNavBottom{background:var(--card)!important;color:var(--text)!important;border-color:var(--line)!important}
 body.abV22812Shell .abNavMobileTop a{color:var(--text)!important}
-body.abV22812Shell .abNavMobileTop a>span{display:inline-grid;place-items:center;width:28px;height:28px;margin-right:6px;border-radius:9px;background:var(--accent);color:var(--on-accent)}
+body.abV22812Shell .abNavMobileTop a>span{display:inline-grid;place-items:center;width:28px;height:28px;margin-right:6px;border-radius:8px;background:var(--accent);color:var(--on-accent)}
 body.abV22812Shell .abNavMobileTop button{background:var(--card-2)!important;color:var(--sub)!important;border:0!important}
-body.abV22812Shell .abNavBottom a{color:var(--faint)!important;font-weight:700!important}
+body.abV22812Shell .abNavBottom a{color:var(--faint)!important;font-weight:400!important}
 body.abV22812Shell .abNavBottom a.active{color:var(--accent)!important}
 body.abV22812Shell .abNavBottom a.active:before{background:var(--accent)!important}
 
@@ -585,7 +590,7 @@ body.abV22812Shell .abNavBottom a.active:before{background:var(--accent)!importa
   body.abV22812Shell.abNavCollapsed .abNavLinks{display:flex!important;padding-inline:5px!important}
   body.abV22812Shell.abNavCollapsed :is(.abNavLinks a>span,.abNavGroup summary b){position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important}
   body.abV22812Shell .homeDesktopNav{width:var(--abNavW)!important;background:var(--card)!important;border-color:var(--line)!important;padding:22px 14px!important}
-  body.abV22812Shell .homeDesktopNav nav a{min-height:44px!important;border-radius:11px!important;color:var(--sub)!important;font-size:13.5px!important;font-weight:650!important}
+  body.abV22812Shell .homeDesktopNav nav a{min-height:44px!important;border-radius:12px!important;color:var(--sub)!important;font-size:14px!important;font-weight:600!important}
   body.abV22812Shell .homeDesktopNav nav a:hover{background:var(--card-2)!important;color:var(--text)!important}
   body.abV22812Shell .homeDesktopNav nav a.active{background:var(--accent-weak)!important;color:var(--accent)!important}
 }
@@ -599,7 +604,7 @@ body.abV22812Shell .abNavBottom a.active:before{background:var(--accent)!importa
   body.abV22812Shell.abMobileNavOpen:after{content:"";position:fixed;inset:0;background:rgba(15,23,42,.28);z-index:2198}
   body.abV22812Shell.abMobileNavOpen{overflow:hidden!important}
   body.abV22812Shell .abNavMobileTop{position:fixed;display:flex!important;align-items:center;justify-content:space-between;left:0;right:0;top:0;z-index:2200}
-  body.abV22812Shell .abNavMobileTop a{display:flex;align-items:center;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;font-weight:800}
+  body.abV22812Shell .abNavMobileTop a{display:flex;align-items:center;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;text-decoration:none;font-weight:600}
   body.abV22812Shell .abNavBottom{position:fixed;display:grid!important;grid-template-columns:repeat(5,minmax(0,1fr));left:0;right:0;bottom:0;z-index:2200;border-top:1px solid var(--line)!important}
   body.abV22812Shell .abNavMobileTop{height:calc(52px + var(--abSafeTop))!important;padding:var(--abSafeTop) 16px 0!important}
   body.abV22812Shell .abNavMobileTop button{min-width:44px!important;min-height:44px!important;padding:0 12px!important}
@@ -640,14 +645,14 @@ body.abV22812Shell .abV5PageTitle{min-width:0}
 body.abV22812Shell .abV5PageHeader h1{margin:0!important;color:var(--text)!important;font-size:28px!important;line-height:1.25;letter-spacing:-.035em}
 body.abV22812Shell .abV5PageHeader p{margin:7px 0 0!important;color:var(--sub)!important;line-height:1.55!important}
 body.abV22812Shell .abV5HeaderActions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
-body.abV22812Shell .abV5HeaderActions :is(a,button){display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 14px;border:1px solid var(--line)!important;border-radius:12px!important;background:var(--card-2)!important;color:var(--text)!important;text-decoration:none;font-weight:800;white-space:nowrap}
+body.abV22812Shell .abV5HeaderActions :is(a,button){display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 14px;border:1px solid var(--line)!important;border-radius:12px!important;background:var(--card-2)!important;color:var(--text)!important;text-decoration:none;font-weight:600;white-space:nowrap}
 body.abV22812Shell .abV5HeaderActions .primary{border-color:var(--ab12-action)!important;background:var(--ab12-action)!important;color:#fff!important}
 body.abV22812Shell .abV5ControlBar{display:grid;gap:8px;margin-top:16px}
 body.abV22812Shell .abV5ControlBar :is(input,select,button){min-height:46px!important}
 body.abV22812Shell .abV5KpiGrid{display:grid!important;grid-template-columns:repeat(auto-fit,minmax(190px,1fr))!important;gap:10px!important;margin:14px 0!important}
 body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric){min-width:0;padding:16px!important;background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:16px!important;box-shadow:none!important}
-body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>span{color:var(--sub)!important;font-size:12px!important;font-weight:750!important}
-body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>b{display:block;margin:6px 0 0!important;color:var(--text)!important;font-size:clamp(19px,1.7vw,25px)!important;line-height:1.25!important;font-variant-numeric:tabular-nums;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
+body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>span{color:var(--sub)!important;font-size:12px!important;font-weight:400!important}
+body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>b{display:block;margin:6px 0 0!important;color:var(--text)!important;font-size:clamp(18px,1.7vw,24px)!important;line-height:1.25!important;font-variant-numeric:tabular-nums;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
 body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>small{display:block;margin-top:5px;color:var(--sub)!important;font-size:11px!important}
 body.abV22812Shell .abV5SectionCard{background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:var(--ab12-radius,20px)!important;box-shadow:none!important}
 body.abV22812Shell .abV5FilterBar{background:color-mix(in srgb,var(--bg) 90%,transparent)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:16px!important;box-shadow:none!important;padding:10px!important}
@@ -661,7 +666,7 @@ body.abV22812Shell.abMobileAppSurface .appTop.abV5PageHeader .selectLine{margin-
 @media(max-width:899px){
   body.abV22812Shell .abV5PageHeader{margin:10px 0!important;padding:17px 16px!important;border-radius:16px!important}
   body.abV22812Shell .abV5PageHeaderTop{display:grid;gap:12px}
-  body.abV22812Shell .abV5PageHeader h1{font-size:23px!important}
+  body.abV22812Shell .abV5PageHeader h1{font-size:24px!important}
   body.abV22812Shell .abV5HeaderActions{justify-content:flex-start}
   body.abV22812Shell .abV5KpiGrid{grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}
   body.abV22812Shell .abV5FilterBar{position:relative!important;top:auto!important;margin:10px 0!important}
@@ -690,7 +695,7 @@ body.abV22812Shell.abV5RemainingPage :is(.btn,button:not(.danger)){border-radius
 @media(max-width:420px){body.abV22812Shell.abV5RemainingPage main.wrap{padding-left:10px!important;padding-right:10px!important}body.abV22812Shell.abV5RemainingPage .abV5SectionCard{border-radius:var(--ab12-radius,20px)!important}}
 
 /* V22.8.24 UI V5 shell correctness: 900px boundary, route state and focus-ready drawer. */
-body.abV22812Shell .abLayoutNav a[aria-current="page"]{font-weight:800!important}
+body.abV22812Shell .abLayoutNav a[aria-current="page"]{font-weight:700!important}
 
 /* V22.8.25 UI V5 global actions: search, quick entry, alerts and appearance without inline HTML growth. */
 body.abV22812Shell .abGlobalActions{position:fixed;z-index:2210;top:12px;right:18px;display:flex;align-items:center;gap:7px}
@@ -706,23 +711,23 @@ body.abV22812Shell .abGlobalDialog{width:min(560px,calc(100% - 32px));max-height
 body.abV22812Shell .abGlobalDialog::backdrop{background:rgba(15,23,42,.58);backdrop-filter:blur(3px)}
 body.abV22812Shell.abGlobalDialogOpen{overflow:hidden!important}
 body.abV22812Shell .abGlobalDialogHeader{position:sticky;top:0;z-index:2;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:20px 20px 14px;background:var(--card);border-bottom:1px solid var(--line)}
-body.abV22812Shell .abGlobalDialogHeader h2{margin:0;color:var(--text);font-size:21px;line-height:1.3}
+body.abV22812Shell .abGlobalDialogHeader h2{margin:0;color:var(--text);font-size:20px;line-height:1.3}
 body.abV22812Shell .abGlobalDialogHeader p{margin:5px 0 0;color:var(--sub);font-size:13px;line-height:1.45}
-body.abV22812Shell .abGlobalDialogClose{display:grid;flex:0 0 40px;width:40px;height:40px;place-items:center;border:1px solid var(--line);border-radius:12px;background:var(--card-2);color:var(--text);font:inherit;font-size:21px;cursor:pointer}
+body.abV22812Shell .abGlobalDialogClose{display:grid;flex:0 0 40px;width:40px;height:40px;place-items:center;border:1px solid var(--line);border-radius:12px;background:var(--card-2);color:var(--text);font:inherit;font-size:20px;cursor:pointer}
 body.abV22812Shell .abGlobalDialogBody{display:grid;gap:14px;padding:18px 20px 22px}
 body.abV22812Shell .abGlobalDialog [hidden]{display:none!important}
 body.abV22812Shell .abGlobalActionGrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
-body.abV22812Shell .abGlobalActionChoice{display:flex;min-width:0;min-height:70px;align-items:center;gap:11px;padding:13px;border:1px solid var(--line);border-radius:15px;background:var(--card-2);color:var(--text);text-align:left;text-decoration:none;font:inherit;font-weight:800;cursor:pointer}
+body.abV22812Shell .abGlobalActionChoice{display:flex;min-width:0;min-height:70px;align-items:center;gap:11px;padding:13px;border:1px solid var(--line);border-radius:16px;background:var(--card-2);color:var(--text);text-align:left;text-decoration:none;font:inherit;font-weight:800;cursor:pointer}
 body.abV22812Shell .abGlobalActionChoice:hover{border-color:var(--accent);color:var(--accent)}
 body.abV22812Shell .abGlobalActionChoice .abNavIconSvg{width:21px;height:21px;flex:0 0 21px}
 body.abV22812Shell .abGlobalSearchForm{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px}
-body.abV22812Shell .abGlobalSearchForm input[type="search"]{min-width:0;min-height:48px;padding:0 14px;border:1px solid var(--line);border-radius:13px;background:var(--card-2);color:var(--text);font:inherit}
-body.abV22812Shell .abGlobalSearchForm button{min-height:48px;padding:0 17px;border:1px solid var(--ab12-action);border-radius:13px;background:var(--ab12-action);color:#fff;font:inherit;font-weight:800;cursor:pointer}
+body.abV22812Shell .abGlobalSearchForm input[type="search"]{min-width:0;min-height:48px;padding:0 14px;border:1px solid var(--line);border-radius:12px;background:var(--card-2);color:var(--text);font:inherit}
+body.abV22812Shell .abGlobalSearchForm button{min-height:48px;padding:0 17px;border:1px solid var(--ab12-action);border-radius:12px;background:var(--ab12-action);color:#fff;font:inherit;font-weight:800;cursor:pointer}
 body.abV22812Shell .abGlobalAppearance{display:grid;gap:15px}
 body.abV22812Shell .abGlobalAppearanceRow{display:grid;gap:8px}
 body.abV22812Shell .abGlobalAppearanceRow>b{color:var(--text);font-size:13px}
 body.abV22812Shell .abGlobalAppearanceChoices{display:flex;flex-wrap:wrap;gap:7px}
-body.abV22812Shell .abGlobalAppearanceChoices button{min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:11px;background:var(--card-2);color:var(--text);font:inherit;font-weight:750;cursor:pointer}
+body.abV22812Shell .abGlobalAppearanceChoices button{min-height:40px;padding:0 12px;border:1px solid var(--line);border-radius:12px;background:var(--card-2);color:var(--text);font:inherit;font-weight:700;cursor:pointer}
 body.abV22812Shell .abGlobalAppearanceChoices button[aria-pressed="true"]{border-color:var(--accent);background:color-mix(in srgb,var(--accent) 14%,var(--card));color:var(--accent)}
 body.abV22812Shell .abGlobalAppearanceNote{margin:0;color:var(--sub);font-size:12px;line-height:1.5}
 @media(min-width:900px){body.abV22812Shell .abGlobalActions{left:calc(var(--abNavWidth,238px) + 22px);right:auto;top:auto;bottom:18px}body.abV22812Shell.abNavCollapsed .abGlobalActions{left:90px}}
@@ -745,14 +750,14 @@ body.abV22812Shell .abV5SearchPanel{position:relative;width:min(100%,600px);back
 body.abV22812Shell .abV5SearchBar{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--line)!important}
 body.abV22812Shell .abV5SearchIcon{font-size:16px;opacity:.7}
 body.abV22812Shell .abV5SearchBar input{flex:1;min-width:0;border:0!important;background:transparent!important;color:var(--text)!important;font-size:16px;padding:6px 2px;outline:none}
-body.abV22812Shell .abV5SearchClose{flex:none;border:1px solid var(--line)!important;background:var(--card-2)!important;color:var(--sub)!important;border-radius:9px;padding:5px 9px;font-size:11px;font-weight:800;cursor:pointer}
+body.abV22812Shell .abV5SearchClose{flex:none;border:1px solid var(--line)!important;background:var(--card-2)!important;color:var(--sub)!important;border-radius:8px;padding:5px 9px;font-size:11px;font-weight:800;cursor:pointer}
 body.abV22812Shell .abV5SearchResults{max-height:min(56vh,460px);overflow:auto;padding:6px}
 body.abV22812Shell .abV5SearchRow{display:flex;align-items:center;gap:12px;justify-content:space-between;padding:11px 12px;border-radius:12px;text-decoration:none;color:var(--text)!important}
 body.abV22812Shell .abV5SearchRow:hover,body.abV22812Shell .abV5SearchRow:focus-visible{background:var(--card-2)!important;outline:none}
 body.abV22812Shell .abV5SearchRowMain{min-width:0}
 body.abV22812Shell .abV5SearchRowMain b{display:block;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-body.abV22812Shell .abV5SearchRowMain small{display:block;margin-top:2px;color:var(--sub)!important;font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-body.abV22812Shell .abV5SearchAmt{flex:none;font-weight:800;font-variant-numeric:tabular-nums;font-size:13.5px}
+body.abV22812Shell .abV5SearchRowMain small{display:block;margin-top:2px;color:var(--sub)!important;font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.abV22812Shell .abV5SearchAmt{flex:none;font-weight:800;font-variant-numeric:tabular-nums;font-size:14px}
 body.abV22812Shell .abV5SearchAmt.isExpense{color:var(--neg)!important}
 body.abV22812Shell .abV5SearchAmt.isIncome{color:var(--accent)!important}
 body.abV22812Shell .abV5SearchEmpty{padding:24px 16px;text-align:center;color:var(--sub)!important;font-size:13px}
@@ -761,7 +766,7 @@ body.abV5SearchOpen{overflow:hidden!important}
 @media(max-width:560px){body.abV22812Shell .abV5SearchOverlay{padding:8vh 10px 10px}body.abV22812Shell .abV5SearchPanel{border-radius:16px}}
 /* V22.8.26 검색 진입 버튼 + 결과 포커스 하이라이트. */
 body.abV22812Shell .abNavTopActions,body.abV22812Shell .abNavMobileActions{display:flex;align-items:center;gap:6px;flex:none}
-body.abV22812Shell .abNavSearchBtn{display:grid;place-items:center;width:34px;height:34px;flex:none;border:0!important;border-radius:11px!important;background:var(--card-2)!important;color:var(--sub)!important;cursor:pointer;font-size:15px;line-height:1;padding:0}
+body.abV22812Shell .abNavSearchBtn{display:grid;place-items:center;width:34px;height:34px;flex:none;border:0!important;border-radius:12px!important;background:var(--card-2)!important;color:var(--sub)!important;cursor:pointer;font-size:14px;line-height:1;padding:0}
 body.abV22812Shell .abNavSearchBtn:hover{color:var(--text)!important}
 body.abV22812Shell .abNavSearchBtn:focus-visible{outline:2px solid var(--accent)!important;outline-offset:2px}
 body.abV22812Shell.abNavCollapsed .abNavTopActions{flex-direction:column;gap:8px}
@@ -778,7 +783,7 @@ body.abV22812Shell .abV5Focus{animation:abV5FocusPulse 2.4s ease-out 1;border-ra
 @media(prefers-reduced-motion:reduce){body.abV22812Shell .abV5Focus{animation:none;box-shadow:0 0 0 2px var(--accent)}}
 /* V22.8.27 알림 센터 + 홈 예산위험 배너. */
 body.abV22812Shell .abNavBellBtn{position:relative}
-body.abV22812Shell .abV5NotifBadge{position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--neg)!important;color:#fff!important;font-size:10px;font-weight:800;line-height:16px;text-align:center}
+body.abV22812Shell .abV5NotifBadge{position:absolute;top:-2px;right:-2px;min-width:16px;height:16px;padding:0 4px;border-radius:999px;background:var(--neg)!important;color:#fff!important;font-size:11px;font-weight:600;line-height:16px;text-align:center}
 body.abV22812Shell .abV5NotifBadge[hidden]{display:none}
 /* V22.9.81 U-28: 다크 --neg(#fca5a5)는 글자용으로 밝힌 값이라 흰 숫자가 1.90:1 이었다. 배지 바탕만 라이트 값(#c0362c, 5.52:1)으로 되돌린다. */
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .abV5NotifBadge{background:#c0362c!important}
@@ -787,8 +792,8 @@ body.abV22812Shell .abV5NotifOverlay[hidden]{display:none}
 body.abV22812Shell .abV5NotifScrim{position:absolute;inset:0;background:rgba(15,23,42,.42)}
 body.abV22812Shell .abV5NotifPanel{position:relative;width:min(100%,400px);max-height:min(80vh,640px);display:flex;flex-direction:column;background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:18px;box-shadow:0 24px 60px rgba(15,23,42,.28);overflow:hidden}
 body.abV22812Shell .abV5NotifHead{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-bottom:1px solid var(--line)!important}
-body.abV22812Shell .abV5NotifHead b{font-size:15px}
-body.abV22812Shell .abV5NotifClose{border:1px solid var(--line)!important;background:var(--card-2)!important;color:var(--sub)!important;border-radius:9px;padding:5px 9px;font-size:11px;font-weight:800;cursor:pointer}
+body.abV22812Shell .abV5NotifHead b{font-size:14px}
+body.abV22812Shell .abV5NotifClose{border:1px solid var(--line)!important;background:var(--card-2)!important;color:var(--sub)!important;border-radius:8px;padding:5px 9px;font-size:11px;font-weight:800;cursor:pointer}
 body.abV22812Shell .abV5NotifList{overflow:auto;padding:8px}
 body.abV22812Shell .abV5NotifItem{display:flex;gap:10px;align-items:flex-start;padding:12px;border-radius:12px;border:1px solid var(--line)!important;margin:6px 0;background:var(--card-2)!important;border-left:4px solid var(--sub)!important}
 body.abV22812Shell .abV5NotifItem.lvl-danger{border-left-color:var(--neg)!important}
@@ -796,14 +801,14 @@ body.abV22812Shell .abV5NotifItem.lvl-warn{border-left-color:var(--warn)!importa
 body.abV22812Shell .abV5NotifItem.lvl-info{border-left-color:var(--accent)!important}
 body.abV22812Shell .abV5NotifItemBody{min-width:0;flex:1}
 body.abV22812Shell .abV5NotifItemBody a{text-decoration:none;color:var(--text)!important}
-body.abV22812Shell .abV5NotifItemBody b{display:block;font-size:13.5px;font-weight:700}
+body.abV22812Shell .abV5NotifItemBody b{display:block;font-size:14px;font-weight:700}
 body.abV22812Shell .abV5NotifItemBody span{display:block;margin-top:3px;color:var(--sub)!important;font-size:12px;line-height:1.45}
 body.abV22812Shell .abV5NotifDismiss{flex:none;border:0!important;background:transparent!important;color:var(--faint)!important;font-size:16px;line-height:1;cursor:pointer;padding:2px 4px}
 body.abV22812Shell .abV5NotifEmpty{padding:28px 16px;text-align:center;color:var(--sub)!important;font-size:13px}
 body.abV22812Shell .abV5Banner{position:fixed;left:50%;transform:translateX(-50%);top:calc(60px + var(--abSafeTop));z-index:2050;width:min(calc(100% - 24px),560px);display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--card)!important;border:1px solid var(--line)!important;border-left:4px solid var(--neg)!important;border-radius:14px;box-shadow:0 14px 34px rgba(15,23,42,.16)}
 body.abV22812Shell .abV5Banner.lvl-warn{border-left-color:var(--warn)!important}
 body.abV22812Shell .abV5Banner a{flex:1;min-width:0;text-decoration:none;color:var(--text)!important}
-body.abV22812Shell .abV5Banner b{display:block;font-size:13.5px;font-weight:800}
+body.abV22812Shell .abV5Banner b{display:block;font-size:14px;font-weight:800}
 body.abV22812Shell .abV5Banner span{display:block;margin-top:2px;color:var(--sub)!important;font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.abV22812Shell .abV5BannerClose{flex:none;border:0!important;background:transparent!important;color:var(--faint)!important;font-size:18px;line-height:1;cursor:pointer;padding:2px 6px}
 @media(min-width:900px){body.abV22812Shell .abV5Banner{left:calc(50% + var(--abNavW)/2);top:20px}body.abV22812Shell.abNavCollapsed .abV5Banner{left:calc(50% + var(--abNavCollapsed)/2)}}
@@ -816,33 +821,33 @@ body.abV22812Shell .abV5SearchFav:hover{background:var(--card-2)!important}
 body.abV22812Shell .abV5SearchFav:focus-visible{outline:2px solid var(--accent)!important;outline-offset:1px}
 body.abV22812Shell .abV5SearchFavHead{padding:8px 10px 2px;color:var(--faint)!important;font-size:11px;font-weight:800}
 /* V22.8.33 거래목록 행 즐겨찾기(★). */
-body.abV22812Shell .abV5RowFav{display:inline-flex;align-items:center;justify-content:center;align-self:center;flex:none;width:30px;min-width:30px;height:30px;margin-left:2px;color:var(--faint)!important;font-size:15px;line-height:1;cursor:pointer;-webkit-user-select:none;user-select:none;border-radius:8px}
+body.abV22812Shell .abV5RowFav{display:inline-flex;align-items:center;justify-content:center;align-self:center;flex:none;width:30px;min-width:30px;height:30px;margin-left:2px;color:var(--faint)!important;font-size:14px;line-height:1;cursor:pointer;-webkit-user-select:none;user-select:none;border-radius:8px}
 body.abV22812Shell .abV5RowFav.isFav{color:#f5a623!important}
 body.abV22812Shell .abV5RowFav:hover{color:var(--text)!important;background:var(--card-2)!important}
 body.abV22812Shell .abV5RowFav:focus-visible{outline:2px solid var(--accent)!important;outline-offset:1px}
 /* V22.8.47 UI/UX stage 1: desktop sidebar calendar and live budget usage. */
 body.abV22812Shell{--abNavW:252px}
 body.abV22812Shell .abNavDashboard{flex:none;padding:0 12px 10px;border-bottom:1px solid var(--line)!important;display:grid;gap:9px}
-body.abV22812Shell .abNavCalendar,body.abV22812Shell .abNavBudget{display:block;background:var(--card-2)!important;border:1px solid var(--line)!important;border-radius:13px;color:var(--text)!important;text-decoration:none}
+body.abV22812Shell .abNavCalendar,body.abV22812Shell .abNavBudget{display:block;background:var(--card-2)!important;border:1px solid var(--line)!important;border-radius:12px;color:var(--text)!important;text-decoration:none}
 body.abV22812Shell .abNavCalendar{padding:10px}
 body.abV22812Shell .abNavCalHead{display:grid;grid-template-columns:28px 1fr 28px;align-items:center;gap:4px;margin-bottom:7px}
-body.abV22812Shell .abNavCalHead b{text-align:center;font-size:12.5px;font-weight:800;color:var(--text)!important}
+body.abV22812Shell .abNavCalHead b{text-align:center;font-size:13px;font-weight:800;color:var(--text)!important}
 body.abV22812Shell .abNavCalHead a{display:grid;place-items:center;width:28px;height:28px;border-radius:8px;color:var(--sub)!important;text-decoration:none;font-size:20px;line-height:1}
 body.abV22812Shell .abNavCalHead a:hover{background:var(--card)!important;color:var(--text)!important}
 body.abV22812Shell .abNavCalDows,body.abV22812Shell .abNavCalGrid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:2px}
-body.abV22812Shell .abNavCalDows span{text-align:center;font-size:9.5px;font-weight:700;color:var(--faint)!important;padding:2px 0 4px}
+body.abV22812Shell .abNavCalDows span{text-align:center;font-size:11px;font-weight:700;color:var(--faint)!important;padding:2px 0 4px}
 body.abV22812Shell .abNavCalDay,body.abV22812Shell .abNavCalBlank{aspect-ratio:1;min-width:0}
-body.abV22812Shell .abNavCalDay{position:relative;display:grid;place-items:center;border-radius:8px;color:var(--sub)!important;text-decoration:none;font-size:10.5px;font-weight:700}
+body.abV22812Shell .abNavCalDay{position:relative;display:grid;place-items:center;border-radius:8px;color:var(--sub)!important;text-decoration:none;font-size:11px;font-weight:700}
 body.abV22812Shell .abNavCalDay:hover{background:var(--card)!important;color:var(--text)!important}
 /* V22.9.81 U-29: 오늘 칸이 다크에서 밝아지는 --accent 위 흰 글씨(1.44~1.85:1)였다. 흰 글씨용 채움 --action(라이트는 --accent 와 같은 값)을 쓴다. */
-body.abV22812Shell .abNavCalDay.isToday{background:var(--action)!important;color:#fff!important;font-weight:900}
+body.abV22812Shell .abNavCalDay.isToday{background:var(--action)!important;color:#fff!important;font-weight:800}
 body.abV22812Shell .abNavCalDay i{position:absolute;left:50%;bottom:2px;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--accent)!important}
 body.abV22812Shell .abNavCalDay.isToday i{background:#fff!important}
-body.abV22812Shell .abNavCalToday{display:block;margin-top:6px;text-align:right;color:var(--accent)!important;text-decoration:none;font-size:10.5px;font-weight:800}
+body.abV22812Shell .abNavCalToday{display:block;margin-top:6px;text-align:right;color:var(--accent)!important;text-decoration:none;font-size:11px;font-weight:800}
 body.abV22812Shell .abNavBudget{padding:11px 12px}
 body.abV22812Shell .abNavBudget>span{display:flex;align-items:center;justify-content:space-between;gap:8px}
-body.abV22812Shell .abNavBudget>span b{font-size:11.5px;font-weight:750;color:var(--sub)!important}
-body.abV22812Shell .abNavBudget>span em{font-style:normal;font-size:12px;font-weight:850;color:var(--accent)!important}
+body.abV22812Shell .abNavBudget>span b{font-size:12px;font-weight:700;color:var(--sub)!important}
+body.abV22812Shell .abNavBudget>span em{font-style:normal;font-size:12px;font-weight:800;color:var(--accent)!important}
 body.abV22812Shell .abNavBudget.isWarn>span em{color:#f59e0b!important}
 body.abV22812Shell .abNavBudget.isOver>span em{color:#f04452!important}
 body.abV22812Shell .abNavBudgetTrack{height:7px;margin:8px 0 7px;overflow:hidden;border-radius:999px;background:var(--line)!important}
@@ -863,13 +868,13 @@ body.abV22812Shell .homeBudget.isWarn .homeBudgetTop em{color:var(--ab12-gauge-w
 body.abV22812Shell .homeReport.isWarn .homeReportBars i{background:var(--ab12-gauge-warn)!important}
 body.abV22812Shell .homeReport.isOver .homeReportBars i{background:var(--ab12-gauge-over)!important}
 body.abV22812Shell .homeReport.isOver>b{color:var(--ab12-gauge-over)!important}
-body.abV22812Shell .abNavBudget small{display:block;color:var(--faint)!important;font-size:10.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+body.abV22812Shell .abNavBudget small{display:block;color:var(--faint)!important;font-size:11px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 body.abV22812Shell .abNavBudget small b{color:var(--sub)!important;font-weight:800}
 body.abV22812Shell .abNavBudgetEmpty small{margin-top:5px;white-space:normal;line-height:1.35}
-body.abV22812Shell .abNavBudgetEmpty strong{display:block;margin-top:7px;color:var(--accent)!important;font-size:10.5px}
+body.abV22812Shell .abNavBudgetEmpty strong{display:block;margin-top:7px;color:var(--accent)!important;font-size:11px}
 body.abV22812Shell.abNavCollapsed .abNavDashboard{display:none!important}
 @media(min-width:900px){body.abV22812Shell.abMobileAppSurface{padding-left:252px!important}body.abV22812Shell.abAppSurface{padding-left:252px!important}body.abV22812Shell.abAppSurface .abLayoutNav{width:252px!important}}
-@media(max-height:760px) and (min-width:900px){body.abV22812Shell .abNavCalendar{padding:8px}body.abV22812Shell .abNavCalDay{font-size:9.5px}body.abV22812Shell .abNavBody{padding-top:6px!important}}
+@media(max-height:760px) and (min-width:900px){body.abV22812Shell .abNavCalendar{padding:8px}body.abV22812Shell .abNavCalDay{font-size:11px}body.abV22812Shell .abNavBody{padding-top:6px!important}}
 @media(prefers-reduced-motion:reduce){body.abV22812Shell .abNavBudgetTrack i{transition:none}}
 /* V22.8.48 UI/UX stage 2: day transaction detail modal and mobile bottom sheet. */
 body.abDayDetailOpen{overflow:hidden!important}
@@ -879,43 +884,43 @@ body.abV22812Shell.abNavCollapsed .abDayDetailOverlay{padding-left:calc(var(--ab
 body.abV22812Shell .abDayDetailScrim{position:absolute;inset:0;background:rgba(15,23,42,.48);backdrop-filter:blur(2px)}
 body.abV22812Shell .abDayDetailPanel{position:relative;width:min(100%,640px);max-height:min(82dvh,720px);display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line)!important;border-radius:22px;background:var(--card)!important;color:var(--text)!important;box-shadow:0 30px 80px rgba(15,23,42,.3)}
 body.abV22812Shell .abDayDetailHead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;padding:19px 20px 15px;border-bottom:1px solid var(--line)!important}
-body.abV22812Shell .abDayDetailHead b{display:block;font-size:19px;font-weight:850;letter-spacing:-.025em}
-body.abV22812Shell .abDayDetailHead small{display:block;margin-top:4px;color:var(--sub)!important;font-size:12px;font-weight:650}
+body.abV22812Shell .abDayDetailHead b{display:block;font-size:18px;font-weight:800;letter-spacing:-.025em}
+body.abV22812Shell .abDayDetailHead small{display:block;margin-top:4px;color:var(--sub)!important;font-size:12px;font-weight:600}
 body.abV22812Shell .abDayDetailClose{display:grid;place-items:center;flex:none;width:38px;height:38px;padding:0;border:1px solid var(--line)!important;border-radius:12px;background:var(--card-2)!important;color:var(--sub)!important;font:inherit;font-size:16px;cursor:pointer}
 body.abV22812Shell .abDayDetailBody{min-height:0;overflow:auto;padding:16px 20px 18px}
 body.abV22812Shell .abDayDetailSums{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
-body.abV22812Shell .abDayDetailSum{padding:13px 14px;border:1px solid var(--line)!important;border-radius:15px;background:var(--card-2)!important}
-body.abV22812Shell .abDayDetailSum span{display:block;color:var(--sub)!important;font-size:11px;font-weight:750}
-body.abV22812Shell .abDayDetailSum b{display:block;margin-top:4px;font-size:19px;font-weight:850;font-variant-numeric:tabular-nums}
+body.abV22812Shell .abDayDetailSum{padding:13px 14px;border:1px solid var(--line)!important;border-radius:16px;background:var(--card-2)!important}
+body.abV22812Shell .abDayDetailSum span{display:block;color:var(--sub)!important;font-size:11px;font-weight:700}
+body.abV22812Shell .abDayDetailSum b{display:block;margin-top:4px;font-size:18px;font-weight:800;font-variant-numeric:tabular-nums}
 body.abV22812Shell .abDayDetailSum.isExpense b{color:var(--neg)!important}
 body.abV22812Shell .abDayDetailSum.isIncome b{color:var(--accent)!important}
 body.abV22812Shell .abDayDetailList{display:grid;gap:8px}
-body.abV22812Shell .abDayDetailItem{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:12px;border:1px solid var(--line)!important;border-radius:15px;background:var(--card)!important}
-body.abV22812Shell .abDayDetailType{display:inline-flex;align-items:center;justify-content:center;min-width:42px;height:27px;border-radius:999px;background:color-mix(in srgb,var(--neg) 11%,var(--card));color:var(--neg)!important;font-size:10.5px;font-weight:850}
+body.abV22812Shell .abDayDetailItem{display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:10px;padding:12px;border:1px solid var(--line)!important;border-radius:16px;background:var(--card)!important}
+body.abV22812Shell .abDayDetailType{display:inline-flex;align-items:center;justify-content:center;min-width:42px;height:27px;border-radius:999px;background:color-mix(in srgb,var(--neg) 11%,var(--card));color:var(--neg)!important;font-size:11px;font-weight:800}
 body.abV22812Shell .abDayDetailItem.isIncome .abDayDetailType{background:color-mix(in srgb,var(--accent) 12%,var(--card));color:var(--accent)!important}
 body.abV22812Shell .abDayDetailCopy{min-width:0}
-body.abV22812Shell .abDayDetailCopy b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px;font-weight:800}
-body.abV22812Shell .abDayDetailCopy span{display:block;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub)!important;font-size:11.5px}
-body.abV22812Shell .abDayDetailItem>strong{white-space:nowrap;font-size:13.5px;font-weight:850;font-variant-numeric:tabular-nums;color:var(--neg)!important}
+body.abV22812Shell .abDayDetailCopy b{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:14px;font-weight:800}
+body.abV22812Shell .abDayDetailCopy span{display:block;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--sub)!important;font-size:12px}
+body.abV22812Shell .abDayDetailItem>strong{white-space:nowrap;font-size:14px;font-weight:800;font-variant-numeric:tabular-nums;color:var(--neg)!important}
 body.abV22812Shell .abDayDetailItem.isIncome>strong{color:var(--accent)!important}
 body.abV22812Shell .abDayDetailActions{grid-column:1/-1;display:flex;align-items:flex-start;justify-content:flex-end;gap:8px;padding-top:9px;border-top:1px solid var(--line)!important}
 body.abV22812Shell .abDayDetailEdit{flex:1;min-width:0;border:1px solid var(--line)!important;border-radius:12px;background:var(--card-2)!important;overflow:hidden}
 body.abV22812Shell .abDayDetailEdit summary{display:flex;align-items:center;min-height:44px;padding:0 13px;color:var(--text)!important;font-size:12px;font-weight:800;cursor:pointer}
 body.abV22812Shell .abDayDetailEdit form{display:grid;gap:10px;padding:0 12px 12px}
 body.abV22812Shell .abDayDetailEditGrid{display:grid;grid-template-columns:1fr 1fr;gap:9px}
-body.abV22812Shell .abDayDetailEditGrid label{display:grid;gap:5px;min-width:0;color:#475467!important;font-size:11px;font-weight:750}
+body.abV22812Shell .abDayDetailEditGrid label{display:grid;gap:5px;min-width:0;color:#475467!important;font-size:11px;font-weight:500}
 /* V22.9.37 감사 U9: 수정 폼의 11px 라벨이 보조색(--sub)으로 4.35:1 이었다. 작은 글자는 더 진한 #475467(밝은 카드 위 7:1)로, 다크는 보조 토큰. */
 body.abV22812Shell :is(.v8-edit-field>span,.v8-spender-readonly>span){color:#475467!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell :is(.v8-edit-field>span,.v8-spender-readonly>span){color:var(--ab12-muted)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell .abDayDetailEditGrid label{color:var(--ab12-muted)!important}
 /* V22.9.37 감사 U14: 일반 참여자에게 관리자 전용 메뉴(참여자·초대, 단톡방 연결)를 표시한다. 글자는 보조 토큰(4.5:1). */
-body.abV22812Shell .abNavAdminTag{margin-left:auto;padding-left:6px;font-size:10px;font-weight:800;color:var(--ab12-muted);white-space:nowrap}
+body.abV22812Shell .abNavAdminTag{margin-left:auto;padding-left:6px;font-size:11px;font-weight:400;color:var(--ab12-muted);white-space:nowrap}
 body.abV22812Shell .abNavLinks a.abNavAdminOnly .abNavItemIcon{opacity:.75}
 body.abV22812Shell .abDayDetailEditGrid label>span{color:var(--sub)!important}
 body.abV22812Shell .abDayDetailEditGrid :is(input,select){width:100%;min-width:0;min-height:44px;padding:0 10px;border:1px solid var(--line)!important;border-radius:10px;background:var(--card)!important;color:var(--text)!important;font:inherit;font-size:13px}
 body.abV22812Shell .abDayDetailMemo{grid-column:1/-1}
-body.abV22812Shell .abDayDetailSpender{grid-column:1/-1;margin:0;color:var(--sub)!important;font-size:11.5px}
-body.abV22812Shell .abDayDetailSave,body.abV22812Shell .abDayDetailDelete button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 14px;border:0;border-radius:11px;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
+body.abV22812Shell .abDayDetailSpender{grid-column:1/-1;margin:0;color:var(--sub)!important;font-size:12px}
+body.abV22812Shell .abDayDetailSave,body.abV22812Shell .abDayDetailDelete button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 14px;border:0;border-radius:12px;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
 body.abV22812Shell .abDayDetailSave{background:var(--action)!important;color:#fff!important}
 body.abV22812Shell .abDayDetailDelete{flex:none;margin:0}
 body.abV22812Shell .abDayDetailDelete button{background:color-mix(in srgb,var(--neg) 12%,var(--card))!important;color:var(--neg)!important;border:1px solid color-mix(in srgb,var(--neg) 28%,var(--line))!important}
@@ -924,10 +929,10 @@ body.abV22812Shell .abDayDetailLoading,body.abV22812Shell .abDayDetailEmpty{disp
 body.abV22812Shell .abDayDetailLoading i{width:24px;height:24px;border:3px solid var(--line);border-top-color:var(--accent);border-radius:50%;animation:abDaySpin .8s linear infinite}
 body.abV22812Shell .abDayDetailEmpty b{color:var(--text)!important;font-size:14px}
 body.abV22812Shell .abDayDetailEmpty span{max-width:340px;font-size:12px;line-height:1.5}
-body.abV22812Shell .abDayDetailEmpty button{min-height:38px;padding:0 13px;border:0;border-radius:11px;background:var(--action)!important;color:#fff!important;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
-body.abV22812Shell .abDayDetailMore{padding:11px 12px;border-radius:12px;background:var(--card-2)!important;color:var(--sub)!important;font-size:11.5px;line-height:1.5;text-align:center}
+body.abV22812Shell .abDayDetailEmpty button{min-height:38px;padding:0 13px;border:0;border-radius:12px;background:var(--action)!important;color:#fff!important;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
+body.abV22812Shell .abDayDetailMore{padding:11px 12px;border-radius:12px;background:var(--card-2)!important;color:var(--sub)!important;font-size:12px;line-height:1.5;text-align:center}
 body.abV22812Shell .abDayDetailFoot{display:flex;align-items:center;justify-content:flex-end;gap:8px;padding:13px 20px calc(13px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line)!important;background:var(--card)!important}
-body.abV22812Shell .abDayDetailFoot a,body.abV22812Shell .abDayDetailFoot button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 15px;border-radius:12px;font:inherit;font-size:12.5px;font-weight:800;text-decoration:none;cursor:pointer}
+body.abV22812Shell .abDayDetailFoot a,body.abV22812Shell .abDayDetailFoot button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 15px;border-radius:12px;font:inherit;font-size:13px;font-weight:800;text-decoration:none;cursor:pointer}
 body.abV22812Shell .abDayDetailFoot a{background:var(--action)!important;color:#fff!important;border:1px solid var(--action)!important}
 body.abV22812Shell .abDayDetailFoot button{background:var(--card-2)!important;color:var(--sub)!important;border:1px solid var(--line)!important}
 @keyframes abDaySpin{to{transform:rotate(360deg)}}
@@ -940,9 +945,9 @@ body.abV22812Shell .abQuickInputOverlay[hidden]{display:none}
 body.abV22812Shell .abQuickInputScrim{position:absolute;inset:0;background:rgba(15,23,42,.54);backdrop-filter:blur(2px)}
 body.abV22812Shell .abQuickInputPanel{position:relative;width:min(100%,620px);max-height:min(90dvh,820px);display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line)!important;border-radius:22px;background:var(--card)!important;color:var(--text)!important;box-shadow:0 28px 80px rgba(15,23,42,.35)}
 body.abV22812Shell .abQuickInputHead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none;padding:16px 18px;border-bottom:1px solid var(--line)!important;background:var(--card)!important}
-body.abV22812Shell .abQuickInputHead b{display:block;font-size:18px;font-weight:850}
-body.abV22812Shell .abQuickInputHead small{display:block;margin-top:3px;color:var(--sub)!important;font-size:11.5px}
-body.abV22812Shell .abQuickInputClose{display:grid;place-items:center;width:38px;height:38px;flex:none;border:1px solid var(--line)!important;border-radius:12px;background:var(--card-2)!important;color:var(--sub)!important;font:inherit;font-size:15px;cursor:pointer}
+body.abV22812Shell .abQuickInputHead b{display:block;font-size:18px;font-weight:700}
+body.abV22812Shell .abQuickInputHead small{display:block;margin-top:3px;color:var(--sub)!important;font-size:12px}
+body.abV22812Shell .abQuickInputClose{display:grid;place-items:center;width:38px;height:38px;flex:none;border:1px solid var(--line)!important;border-radius:12px;background:var(--card-2)!important;color:var(--sub)!important;font:inherit;font-size:14px;cursor:pointer}
 body.abV22812Shell .abQuickInputBody{overflow:auto;padding:16px 18px 20px}
 body.abV22812Shell .abQuickInputContent{margin:0!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important}
 body.abV22812Shell .abQuickInputOriginalTitle{display:none!important}
@@ -953,31 +958,31 @@ body.abQuickInputOpen{overflow:hidden!important}
 body.abV22812Shell .abDayDetailAdd{background:var(--action)!important;color:#fff!important;border:1px solid var(--action)!important}
 body.abV22812Shell .abDayDetailView{background:var(--card-2)!important;color:var(--text)!important;border:1px solid var(--line)!important}
 body.abV22812Shell .abNavBottom a.abNavQuickInput{position:relative;z-index:2;transform:translateY(-8px)}
-body.abV22812Shell .abNavBottom a.abNavQuickInput i{width:48px;height:48px;border-radius:17px;background:var(--action)!important;color:#fff!important;box-shadow:0 9px 22px color-mix(in srgb,var(--action) 32%,transparent)}
-body.abV22812Shell .abNavBottom a.abNavQuickInput span{margin-top:-3px;color:var(--text)!important;font-weight:850}
+body.abV22812Shell .abNavBottom a.abNavQuickInput i{width:48px;height:48px;border-radius:16px;background:var(--action)!important;color:#fff!important;box-shadow:0 9px 22px color-mix(in srgb,var(--action) 32%,transparent)}
+body.abV22812Shell .abNavBottom a.abNavQuickInput span{margin-top:-3px;color:var(--text)!important;font-weight:400}
 body.abV22812Shell .abNavBottom a.abNavQuickInput:before{display:none!important}
 @media(max-width:899px){body.abV22812Shell .abQuickInputOverlay{align-items:flex-end;padding:0}body.abV22812Shell .abQuickInputPanel{width:100%;max-height:min(92dvh,840px);border-width:1px 0 0!important;border-radius:24px 24px 0 0}body.abV22812Shell .abQuickInputPanel:before{content:"";display:block;flex:none;width:38px;height:4px;margin:8px auto 0;border-radius:999px;background:var(--line)!important}body.abV22812Shell .abQuickInputHead{padding:11px 15px 13px}body.abV22812Shell .abQuickInputBody{padding:13px 14px calc(22px + env(safe-area-inset-bottom,0px))}body.abV22812Shell .abQuickInputContent .chipRow{max-height:92px;overflow:auto}body.abV22812Shell .abDayDetailFoot{flex-wrap:wrap}body.abV22812Shell .abDayDetailFoot .abDayDetailAdd{order:0;flex:1 1 100%}body.abV22812Shell .abDayDetailFoot .abDayDetailView{order:1;flex:1}body.abV22812Shell .abDayDetailFoot [data-ab-day-close]{order:2}}
-@media(max-width:420px){body.abV22812Shell .abQuickInputHead b{font-size:17px}body.abV22812Shell .abQuickInputBody{padding-left:12px;padding-right:12px}body.abV22812Shell .abQuickInputContent .grid2{grid-template-columns:1fr}}
+@media(max-width:420px){body.abV22812Shell .abQuickInputHead b{font-size:18px}body.abV22812Shell .abQuickInputBody{padding-left:12px;padding-right:12px}body.abV22812Shell .abQuickInputContent .grid2{grid-template-columns:1fr}}
 @media(prefers-reduced-motion:reduce){body.abV22812Shell .abNavBottom a.abNavQuickInput{transform:none}}
 /* V22.8.50 UI/UX stage 4: desktop quick dock, save feedback, and date return flow. */
 @media(min-width:900px){
   body.abV22812Shell{padding-bottom:94px!important}
-  body.abV22812Shell .abGlobalActions[data-ab-quick-dock]{left:calc(50% + (var(--abNavWidth,238px) / 2));right:auto;top:auto;bottom:18px;transform:translateX(-50%);display:flex;gap:6px;padding:7px;border:1px solid color-mix(in srgb,var(--line) 88%,transparent)!important;border-radius:19px;background:color-mix(in srgb,var(--card) 88%,transparent)!important;backdrop-filter:blur(18px);box-shadow:0 16px 42px rgba(15,23,42,.18)}
+  body.abV22812Shell .abGlobalActions[data-ab-quick-dock]{left:calc(50% + (var(--abNavWidth,238px) / 2));right:auto;top:auto;bottom:18px;transform:translateX(-50%);display:flex;gap:6px;padding:7px;border:1px solid color-mix(in srgb,var(--line) 88%,transparent)!important;border-radius:20px;background:color-mix(in srgb,var(--card) 88%,transparent)!important;backdrop-filter:blur(18px);box-shadow:0 16px 42px rgba(15,23,42,.18)}
   body.abV22812Shell.abNavCollapsed .abGlobalActions[data-ab-quick-dock]{left:calc(50% + (var(--abNavCollapsed,72px) / 2))}
-  body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalAction{min-height:46px;border-radius:13px;box-shadow:none!important}
+  body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalAction{min-height:46px;border-radius:12px;box-shadow:none!important}
   body.abV22812Shell .abGlobalActions[data-ab-quick-dock] .abGlobalActionQuick{min-width:132px;padding-left:17px;padding-right:17px}
 }
-body.abV22812Shell .abSaveFeedback{position:fixed;z-index:3900;left:calc(50% + (var(--abNavWidth,238px) / 2));bottom:86px;transform:translate(-50%,18px);width:min(520px,calc(100vw - var(--abNavWidth,238px) - 40px));display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:11px;padding:13px 14px;border:1px solid var(--line)!important;border-radius:17px;background:color-mix(in srgb,var(--card) 94%,transparent)!important;color:var(--text)!important;box-shadow:0 18px 48px rgba(15,23,42,.24);backdrop-filter:blur(18px);opacity:0;pointer-events:none;transition:opacity var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),transform var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}
+body.abV22812Shell .abSaveFeedback{position:fixed;z-index:3900;left:calc(50% + (var(--abNavWidth,238px) / 2));bottom:86px;transform:translate(-50%,18px);width:min(520px,calc(100vw - var(--abNavWidth,238px) - 40px));display:grid;grid-template-columns:auto minmax(0,1fr) auto;align-items:center;gap:11px;padding:13px 14px;border:1px solid var(--line)!important;border-radius:16px;background:color-mix(in srgb,var(--card) 94%,transparent)!important;color:var(--text)!important;box-shadow:0 18px 48px rgba(15,23,42,.24);backdrop-filter:blur(18px);opacity:0;pointer-events:none;transition:opacity var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1)),transform var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}
 body.abV22812Shell.abNavCollapsed .abSaveFeedback{left:calc(50% + (var(--abNavCollapsed,72px) / 2));width:min(520px,calc(100vw - var(--abNavCollapsed,72px) - 40px))}
 body.abV22812Shell .abSaveFeedback.isVisible{opacity:1;transform:translate(-50%,0);pointer-events:auto}
 body.abV22812Shell .abSaveFeedback.isLeaving{opacity:0;transform:translate(-50%,10px);pointer-events:none}
-body.abV22812Shell .abSaveFeedbackMark{display:grid;place-items:center;width:36px;height:36px;border-radius:12px;background:color-mix(in srgb,var(--pos) 14%,var(--card));color:var(--pos)!important;font-size:18px;font-weight:900}
+body.abV22812Shell .abSaveFeedbackMark{display:grid;place-items:center;width:36px;height:36px;border-radius:12px;background:color-mix(in srgb,var(--pos) 14%,var(--card));color:var(--pos)!important;font-size:18px;font-weight:800}
 body.abV22812Shell .abSaveFeedback.isWarning .abSaveFeedbackMark{background:color-mix(in srgb,var(--warn) 16%,var(--card));color:var(--warn)!important}
 body.abV22812Shell .abSaveFeedback.isError .abSaveFeedbackMark{background:color-mix(in srgb,var(--neg) 14%,var(--card));color:var(--neg)!important}
 body.abV22812Shell .abSaveFeedbackCopy{min-width:0}
-body.abV22812Shell .abSaveFeedbackCopy b{display:block;font-size:13.5px;font-weight:850}
+body.abV22812Shell .abSaveFeedbackCopy b{display:block;font-size:14px;font-weight:800}
 body.abV22812Shell .abSaveFeedbackCopy span{display:block;margin-top:3px;color:var(--sub)!important;font-size:12px;line-height:1.45}
-body.abV22812Shell .abSaveFeedbackClose{display:grid;place-items:center;width:34px;height:34px;border:1px solid var(--line)!important;border-radius:11px;background:var(--card-2)!important;color:var(--sub)!important;font:inherit;font-size:15px;cursor:pointer}
+body.abV22812Shell .abSaveFeedbackClose{display:grid;place-items:center;width:34px;height:34px;border:1px solid var(--line)!important;border-radius:12px;background:var(--card-2)!important;color:var(--sub)!important;font:inherit;font-size:14px;cursor:pointer}
 @media(max-width:899px){
   body.abV22812Shell .abSaveFeedback,body.abV22812Shell.abNavCollapsed .abSaveFeedback{left:12px;right:12px;bottom:calc(76px + env(safe-area-inset-bottom,0px));width:auto;transform:translateY(18px)}
   body.abV22812Shell .abSaveFeedback.isVisible{transform:translateY(0)}
@@ -986,7 +991,7 @@ body.abV22812Shell .abSaveFeedbackClose{display:grid;place-items:center;width:34
 @media(prefers-reduced-motion:reduce){body.abV22812Shell .abSaveFeedback{transition:none}}
 /* V22.8.58: 날짜형 챌린지와 범주 SVG 아이콘 기반 최근 기록 가독성 개선. */
 body.abV22812Shell .abBrandIcon{display:block;width:22px;height:22px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
-body.abV22812Shell .abNavMobileLogo{display:grid;place-items:center;width:30px;height:30px;border-radius:9px;background:var(--accent-soft)!important;color:var(--accent)!important}
+body.abV22812Shell .abNavMobileLogo{display:grid;place-items:center;width:30px;height:30px;border-radius:8px;background:var(--accent-soft)!important;color:var(--accent)!important}
 body.abV22812Shell .abNavToggleIcon{display:block;width:18px;height:18px;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;transition:transform var(--ab12-dur,180ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))}
 body.abV22812Shell.abNavCollapsed .abNavToggleIcon{transform:rotate(180deg)}
 @media(min-width:900px){
@@ -997,7 +1002,7 @@ body.abV22812Shell.abNavCollapsed .abNavToggleIcon{transform:rotate(180deg)}
   body.abV22812Shell .abNavBrandText{white-space:normal!important;overflow-wrap:anywhere;text-overflow:clip!important;overflow:visible!important}
   body.abV22812Shell .abNavBrandText small{white-space:nowrap!important;overflow:hidden!important}
   body.abV22812Shell.abNavCollapsed .abNavBrandText{display:none!important}
-  body.abV22812Shell .abNavToggle,body.abV22812Shell.abNavCollapsed .abNavToggle{position:absolute!important;right:-15px!important;top:20px!important;z-index:6!important;width:32px!important;height:36px!important;display:grid!important;place-items:center!important;padding:0!important;border:1px solid var(--line)!important;border-radius:11px!important;background:var(--card)!important;color:var(--sub)!important;box-shadow:0 6px 16px rgba(15,23,42,.1)!important;transform:none!important}
+  body.abV22812Shell .abNavToggle,body.abV22812Shell.abNavCollapsed .abNavToggle{position:absolute!important;right:-15px!important;top:20px!important;z-index:6!important;width:32px!important;height:36px!important;display:grid!important;place-items:center!important;padding:0!important;border:1px solid var(--line)!important;border-radius:12px!important;background:var(--card)!important;color:var(--sub)!important;box-shadow:0 6px 16px rgba(15,23,42,.1)!important;transform:none!important}
   body.abV22812Shell .abNavToggle:hover{background:var(--accent-soft)!important;color:var(--accent)!important}
   body.abV22812Shell.abNavCollapsed .abNavBrand{justify-content:center!important}
   body.abV22812Shell.abMobileAppSurface .appTop,body.abV22812Shell.abMobileAppSurface main.wrap{box-sizing:border-box!important;width:calc(100% - 32px)!important;max-width:1280px!important;margin-left:auto!important;margin-right:auto!important}
@@ -1020,28 +1025,28 @@ body.abV22812Shell .abActivityRail{display:none}
   body.abV22812Shell .abActivityRail[hidden]{display:none!important}
 }
 body.abV22812Shell .abActivityHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:21px 18px 13px}
-body.abV22812Shell .abActivityHead span{display:block;color:var(--faint)!important;font-size:11px;font-weight:750}
-body.abV22812Shell .abActivityHead h2{margin:2px 0 0;font-size:18px;font-weight:850;letter-spacing:-.025em}
-body.abV22812Shell .abActivityHead a{color:var(--accent)!important;text-decoration:none;font-size:11.5px;font-weight:800;padding-top:3px}
+body.abV22812Shell .abActivityHead span{display:block;color:var(--faint)!important;font-size:11px;font-weight:400}
+body.abV22812Shell .abActivityHead h2{margin:2px 0 0;font-size:18px;font-weight:800;letter-spacing:-.025em}
+body.abV22812Shell .abActivityHead a{color:var(--accent)!important;text-decoration:none;font-size:12px;font-weight:600;padding-top:3px}
 body.abV22812Shell .abActivityTabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:0 16px 12px;padding:4px;border-radius:12px;background:var(--card-2)!important}
-body.abV22812Shell .abActivityTabs button{min-height:31px;padding:0 7px;border:0;border-radius:9px;background:transparent;color:var(--faint)!important;font:inherit;font-size:11px;font-weight:750;cursor:pointer}
+body.abV22812Shell .abActivityTabs button{min-height:31px;padding:0 7px;border:0;border-radius:8px;background:transparent;color:var(--faint)!important;font:inherit;font-size:11px;font-weight:700;cursor:pointer}
 body.abV22812Shell .abActivityTabs button.active{background:var(--card)!important;color:var(--text)!important;box-shadow:0 3px 10px rgba(15,23,42,.08)}
-body.abV22812Shell .abActivityAdd{display:flex;align-items:center;gap:10px;min-height:50px;margin:0 16px 12px;padding:0 14px;border:1px solid var(--line)!important;border-radius:14px;background:var(--card)!important;color:var(--text)!important;text-decoration:none;font-size:12.5px;font-weight:750}
-body.abV22812Shell .abActivityAdd b{display:grid;place-items:center;width:25px;height:25px;border-radius:9px;background:var(--accent-soft)!important;color:var(--accent)!important;font-size:17px}
+body.abV22812Shell .abActivityAdd{display:flex;align-items:center;gap:10px;min-height:50px;margin:0 16px 12px;padding:0 14px;border:1px solid var(--line)!important;border-radius:14px;background:var(--card)!important;color:var(--text)!important;text-decoration:none;font-size:13px;font-weight:600}
+body.abV22812Shell .abActivityAdd b{display:grid;place-items:center;width:25px;height:25px;border-radius:8px;background:var(--accent-soft)!important;color:var(--accent)!important;font-size:18px}
 body.abV22812Shell .abActivityList{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;border-top:1px solid var(--line)!important;padding:8px 0 14px}
 body.abV22812Shell .abActivityLoading,body.abV22812Shell .abActivityEmpty{display:grid;place-items:center;gap:7px;min-height:180px;padding:24px;text-align:center;color:var(--sub)!important}
 body.abV22812Shell .abActivityLoading i{width:22px;height:22px;border:3px solid var(--line)!important;border-top-color:var(--accent)!important;border-radius:50%;animation:abActivitySpin .8s linear infinite}
 body.abV22812Shell .abActivityEmpty b{color:var(--text)!important;font-size:13px}
-body.abV22812Shell .abActivityEmpty span{font-size:11.5px;line-height:1.5}
-body.abV22812Shell .abActivityEmpty button{min-height:36px;padding:0 12px;border:1px solid var(--line)!important;border-radius:10px;background:var(--card-2)!important;color:var(--text)!important;font:inherit;font-size:11.5px;font-weight:750;cursor:pointer}
+body.abV22812Shell .abActivityEmpty span{font-size:12px;line-height:1.5}
+body.abV22812Shell .abActivityEmpty button{min-height:36px;padding:0 12px;border:1px solid var(--line)!important;border-radius:10px;background:var(--card-2)!important;color:var(--text)!important;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 body.abV22812Shell .abActivityGroup{padding:0 14px}
 body.abV22812Shell .abActivityGroup>header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 3px 7px}
-body.abV22812Shell .abActivityGroup>header b,body.abV22812Shell .abActivityGroup>header span{color:var(--faint)!important;font-size:10.5px;font-weight:800}
+body.abV22812Shell .abActivityGroup>header b,body.abV22812Shell .abActivityGroup>header span{color:var(--faint)!important;font-size:11px;font-weight:700}
 body.abV22812Shell .abActivityGroup>header span{display:flex;align-items:center;gap:7px}body.abV22812Shell .abActivityGroup>header span em{padding:2px 6px;border-radius:999px;background:var(--card-2)!important;color:var(--sub)!important;font-style:normal}body.abV22812Shell .abActivityGroup>header span b{color:var(--neg)!important;font-variant-numeric:tabular-nums}
 body.abV22812Shell .abActivityItem{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:66px;padding:8px 3px;border-bottom:1px solid color-mix(in srgb,var(--line) 72%,transparent)!important;color:var(--text)!important;text-decoration:none}
-body.abV22812Shell .abActivityItem:hover,body.abV22812Shell .abActivityItem:focus-visible{background:var(--card-2)!important;border-radius:13px;padding-left:7px;padding-right:7px}
+body.abV22812Shell .abActivityItem:hover,body.abV22812Shell .abActivityItem:focus-visible{background:var(--card-2)!important;border-radius:12px;padding-left:7px;padding-right:7px}
 body.abV22812Shell .abActivityItem:focus-visible{outline:3px solid var(--accent)!important;outline-offset:-1px}
-body.abV22812Shell .abActivityTypeIcon{display:grid;place-items:center;width:38px;height:38px;border-radius:13px;background:var(--card-2)!important;color:var(--sub)!important;font-style:normal}
+body.abV22812Shell .abActivityTypeIcon{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:var(--card-2)!important;color:var(--sub)!important;font-style:normal}
 body.abV22812Shell .abActivityTypeIcon svg{display:block;width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 body.abV22812Shell .abActivityTypeIcon.kind-income{background:color-mix(in srgb,var(--pos) 14%,var(--card))!important;color:var(--pos)!important}
 body.abV22812Shell .abActivityTypeIcon.kind-cafe,body.abV22812Shell .abActivityTypeIcon.kind-food{background:color-mix(in srgb,#f59e0b 16%,var(--card))!important;color:#a85400!important}
@@ -1053,43 +1058,43 @@ body.abV22812Shell .abActivityTypeIcon.kind-subscription,body.abV22812Shell .abA
 body.abV22812Shell .abActivityTypeIcon.kind-leisure{background:color-mix(in srgb,#0ea5e9 13%,var(--card))!important;color:#087cae!important}
 body.abV22812Shell .abActivityItem>span{min-width:0}
 body.abV22812Shell .abActivityItem>span b,body.abV22812Shell .abActivityItem>span small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-body.abV22812Shell .abActivityItem>span b{font-size:12.5px;font-weight:800}
-body.abV22812Shell .abActivityItem>span small{display:flex;align-items:center;gap:5px;margin-top:4px;color:var(--faint)!important;font-size:10px}
-body.abV22812Shell .abActivityItem>span small em{flex:none;padding:2px 5px;border-radius:999px;background:var(--card-2)!important;color:var(--sub)!important;font-style:normal;font-weight:750}
+body.abV22812Shell .abActivityItem>span b{font-size:13px;font-weight:700}
+body.abV22812Shell .abActivityItem>span small{display:flex;align-items:center;gap:5px;margin-top:4px;color:var(--faint)!important;font-size:11px}
+body.abV22812Shell .abActivityItem>span small em{flex:none;padding:2px 5px;border-radius:999px;background:var(--card-2)!important;color:var(--sub)!important;font-style:normal;font-weight:600}
 body.abV22812Shell .abActivityItem>span small span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-body.abV22812Shell .abActivityItem>strong{display:flex;align-items:baseline;gap:2px;white-space:nowrap;color:var(--neg)!important;font-size:12.5px;font-weight:850;font-variant-numeric:tabular-nums}
-body.abV22812Shell .abActivityItem>strong>b{font:inherit}body.abV22812Shell .abActivityItem>strong>small{font-size:9px;font-weight:750;color:currentColor!important}
+body.abV22812Shell .abActivityItem>strong{display:flex;align-items:baseline;gap:2px;white-space:nowrap;color:var(--neg)!important;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
+body.abV22812Shell .abActivityItem>strong>b{font:inherit}body.abV22812Shell .abActivityItem>strong>small{font-size:11px;font-weight:600;color:currentColor!important}
 body.abV22812Shell .abActivityItem.isIncome>strong{color:var(--pos)!important}
 body.abV22812Shell .abActivitySummary{flex:none;padding:12px 16px calc(14px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line)!important;background:var(--card)!important}
-body.abV22812Shell .abActivitySummary>div{display:inline-flex;align-items:center;gap:5px;margin-right:10px;font-size:10.5px}
+body.abV22812Shell .abActivitySummary>div{display:inline-flex;align-items:center;gap:5px;margin-right:10px;font-size:11px}
 body.abV22812Shell .abActivitySummary>div span{color:var(--faint)!important}
-body.abV22812Shell .abActivitySummary>div b{color:var(--text)!important;font-size:10.5px}
+body.abV22812Shell .abActivitySummary>div b{color:var(--text)!important;font-size:11px}
 body.abV22812Shell .abActivitySummary>div:first-child b{color:var(--pos)!important}
 body.abV22812Shell .abActivitySummary>div:nth-child(2) b{color:var(--neg)!important}
 body.abV22812Shell .abActivitySummary p{display:flex;align-items:center;justify-content:space-between;margin:9px 0 0;padding-top:9px;border-top:1px solid var(--line)!important;font-size:11px}
 body.abV22812Shell .abActivitySummary p span{color:var(--faint)!important}
 body.abV22812Shell .abActivitySummary p strong{color:var(--pos)!important;font-size:12px}
 body.abV22812Shell .abActivitySummary p strong.isNegative{color:var(--neg)!important}
-body.abV22812Shell .abActivityLimitNote{margin:8px 14px 14px;padding:9px 10px;border:1px dashed var(--line)!important;border-radius:10px;color:var(--faint)!important;background:var(--soft)!important;font-size:10.5px;line-height:1.45;text-align:center}
+body.abV22812Shell .abActivityLimitNote{margin:8px 14px 14px;padding:9px 10px;border:1px dashed var(--line)!important;border-radius:10px;color:var(--faint)!important;background:var(--soft)!important;font-size:11px;line-height:1.45;text-align:center}
 @keyframes abActivitySpin{to{transform:rotate(360deg)}}
 /* 홈에서도 챌린지를 카드로 표시하고 라이트·다크 모드 토큰을 함께 사용한다. */
 body.abV22812Shell .reportChallenge{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:center;background:linear-gradient(135deg,#171a2b,#222741)!important;color:#fff!important;border:1px solid #343b5f!important;border-radius:22px;padding:18px;margin:14px 0}
-body.abV22812Shell .reportChallengeBadge{display:inline-flex;padding:5px 9px;border-radius:999px;background:var(--action,#6d5dfc)!important;color:#fff!important;font-size:11px;font-weight:900}
+body.abV22812Shell .reportChallengeBadge{display:inline-flex;padding:5px 9px;border-radius:999px;background:var(--action,#6d5dfc)!important;color:#fff!important;font-size:11px;font-weight:500}
 body.abV22812Shell .reportChallenge h2{margin:9px 0 5px;color:#fff!important;font-size:18px}
-body.abV22812Shell .reportChallenge p{margin:0;color:#c7cce0!important;font-size:12.5px;line-height:1.55}
+body.abV22812Shell .reportChallenge p{margin:0;color:#c7cce0!important;font-size:13px;line-height:1.55}
 body.abV22812Shell .reportChallengeDates{color:#aeb6d3!important;font-size:11px}
 body.abV22812Shell .reportChallengeTrack{height:9px;border-radius:999px;background:#30364d;overflow:hidden;margin:13px 0 7px}
 body.abV22812Shell .reportChallengeTrack i{display:block;height:100%;background:linear-gradient(90deg,#ffd45b,var(--accent,#6d5dfc));border-radius:inherit}
 body.abV22812Shell .reportChallengeMain>strong{font-size:12px;color:#ffd45b!important}
-body.abV22812Shell .reportChallengeManage{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 14px;border:1px solid #4b557c;border-radius:12px;color:#fff!important;text-decoration:none;font-size:12px;font-weight:800;white-space:nowrap}
-body.abV22812Shell .reportChallengeActions{align-self:center;min-width:0}body.abV22812Shell .reportChallengeFormStatus{margin:8px 0 0!important;padding:8px 10px;border:1px solid #387966!important;border-radius:10px;background:#17372f!important;color:#9af0d3!important;font-size:11px!important;font-weight:750}body.abV22812Shell .reportChallengeFormStatus.isError{border-color:#86515a!important;background:#3a2229!important;color:#ffabb3!important}body.abV22812Shell .reportChallenge button{min-height:44px}
+body.abV22812Shell .reportChallengeManage{display:inline-flex;align-items:center;justify-content:center;min-height:44px;padding:0 14px;border:1px solid #4b557c;border-radius:12px;color:#fff!important;text-decoration:none;font-size:12px;font-weight:600;white-space:nowrap}
+body.abV22812Shell .reportChallengeActions{align-self:center;min-width:0}body.abV22812Shell .reportChallengeFormStatus{margin:8px 0 0!important;padding:8px 10px;border:1px solid #387966!important;border-radius:10px;background:#17372f!important;color:#9af0d3!important;font-size:11px!important;font-weight:700}body.abV22812Shell .reportChallengeFormStatus.isError{border-color:#86515a!important;background:#3a2229!important;color:#ffabb3!important}body.abV22812Shell .reportChallenge button{min-height:44px}
 
 
-body.abV22812Shell .reportChallengeDays{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(48px,1fr));gap:7px;margin:14px 0 9px;padding:0}body.abV22812Shell .reportChallengeDays li{position:relative;display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:center;min-height:58px;padding:7px 8px;border:1px solid #3d4569;border-radius:12px;background:#20253b}body.abV22812Shell .reportChallengeDays li>span{font-size:10px;color:#aeb6d3!important}body.abV22812Shell .reportChallengeDays li>b{grid-row:2;font-size:15px;color:#fff!important}body.abV22812Shell .reportChallengeDays li>i{grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border-radius:50%;font-style:normal;font-size:11px}body.abV22812Shell .reportChallengeDays .is-success{border-color:#387966;background:#17372f}body.abV22812Shell .reportChallengeDays .is-success>i{background:#53d7ad;color:#08251d!important}body.abV22812Shell .reportChallengeDays .is-spent{border-color:#86515a;background:#3a2229}body.abV22812Shell .reportChallengeDays .is-spent>i{background:#ff7c88;color:#351218!important}body.abV22812Shell .reportChallengeDays .is-today{border-color:#ffd45b;box-shadow:inset 0 0 0 1px #ffd45b}body.abV22812Shell .reportChallengeDays .is-today>i{background:#ffd45b;color:#332600!important}body.abV22812Shell .reportChallengeDays .is-future>i{border:1px solid #59617d}body.abV22812Shell .reportChallengeLegend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-1px 0 9px;color:#c7cce0!important;font-size:10px;font-weight:750}body.abV22812Shell .reportChallengeLegend .is-success{color:#7ce6c3!important}body.abV22812Shell .reportChallengeLegend .is-spent{color:#ff9ba4!important}body.abV22812Shell .reportChallengeLegend .is-today{color:#ffd45b!important}body.abV22812Shell .reportChallengePercent{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:10px;margin:13px 0 8px}body.abV22812Shell .reportChallengePercent>b{font-size:22px;color:#ffd45b!important}body.abV22812Shell .reportChallengePercent .reportChallengeTrack{margin:0}body.abV22812Shell .reportChallengePercent>span{font-size:11px;color:#c7cce0!important;white-space:nowrap}
+body.abV22812Shell .reportChallengeDays{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(48px,1fr));gap:7px;margin:14px 0 9px;padding:0}body.abV22812Shell .reportChallengeDays li{position:relative;display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:center;min-height:58px;padding:7px 8px;border:1px solid #3d4569;border-radius:12px;background:#20253b}body.abV22812Shell .reportChallengeDays li>span{font-size:11px;color:#aeb6d3!important}body.abV22812Shell .reportChallengeDays li>b{grid-row:2;font-size:14px;color:#fff!important}body.abV22812Shell .reportChallengeDays li>i{grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border-radius:50%;font-style:normal;font-size:11px}body.abV22812Shell .reportChallengeDays .is-success{border-color:#387966;background:#17372f}body.abV22812Shell .reportChallengeDays .is-success>i{background:#53d7ad;color:#08251d!important}body.abV22812Shell .reportChallengeDays .is-spent{border-color:#86515a;background:#3a2229}body.abV22812Shell .reportChallengeDays .is-spent>i{background:#ff7c88;color:#351218!important}body.abV22812Shell .reportChallengeDays .is-today{border-color:#ffd45b;box-shadow:inset 0 0 0 1px #ffd45b}body.abV22812Shell .reportChallengeDays .is-today>i{background:#ffd45b;color:#332600!important}body.abV22812Shell .reportChallengeDays .is-future>i{border:1px solid #59617d}body.abV22812Shell .reportChallengeLegend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-1px 0 9px;color:#c7cce0!important;font-size:11px;font-weight:400}body.abV22812Shell .reportChallengeLegend .is-success{color:#7ce6c3!important}body.abV22812Shell .reportChallengeLegend .is-spent{color:#ff9ba4!important}body.abV22812Shell .reportChallengeLegend .is-today{color:#ffd45b!important}body.abV22812Shell .reportChallengePercent{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:10px;margin:13px 0 8px}body.abV22812Shell .reportChallengePercent>b{font-size:20px;color:#ffd45b!important}body.abV22812Shell .reportChallengePercent .reportChallengeTrack{margin:0}body.abV22812Shell .reportChallengePercent>span{font-size:11px;color:#c7cce0!important;white-space:nowrap}
 
 body.abV22812Shell .reportChallengeDays li:after{content:"";grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border:1px solid #59617d;border-radius:50%;font-size:11px}body.abV22812Shell .reportChallengeDays .is-success:after{content:"✓";border-color:#53d7ad;background:#53d7ad;color:#08251d}body.abV22812Shell .reportChallengeDays .is-spent:after{content:"−";border-color:#ff7c88;background:#ff7c88;color:#351218}body.abV22812Shell .reportChallengeDays .is-today:after{content:"●";border-color:#ffd45b;background:#ffd45b;color:#332600}
 body.abV22812Shell .v8-tx summary{display:flex;align-items:center;min-height:44px;padding:4px 0}body.abV22812Shell .kwRemove{width:32px!important;height:32px!important;min-height:32px!important}
-@media(max-width:899px){body.abV22812Shell .reportChallenge{grid-template-columns:1fr;padding:15px;border-radius:19px}body.abV22812Shell .kwRemove{width:40px!important;height:40px!important;min-height:40px!important}}
+@media(max-width:899px){body.abV22812Shell .reportChallenge{grid-template-columns:1fr;padding:15px;border-radius:20px}body.abV22812Shell .kwRemove{width:40px!important;height:40px!important;min-height:40px!important}}
 @media(prefers-reduced-motion:reduce){body.abV22812Shell .abActivityLoading i{animation:none}body.abV22812Shell .abNavToggleIcon{transition:none}}
 
 /* V22.8.61 모바일 상단바·전체 메뉴·빠른 입력 시트 정리.
@@ -1154,16 +1159,16 @@ body.abV22812Shell.abPageAssets .heroChips span{background:var(--card-2)!importa
    같은 CSS 를 1년 캐시되는 이 자산에 한 번만 두면 마크업에는 날짜·금액·막대 길이만
    남는다. 절충의 전제였던 무게 자체를 없앤 셈이다. */
 body.abV22812Shell .readableTrendGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:6px;width:100%;box-sizing:border-box}
-body.abV22812Shell .readableTrendGrid .dailyCell{display:grid;gap:6px;background:#F8F9FB;border:1px solid #EEF0F3;border-radius:13px;padding:8px 9px;box-sizing:border-box;text-decoration:none;color:inherit}
+body.abV22812Shell .readableTrendGrid .dailyCell{display:grid;gap:6px;background:#F8F9FB;border:1px solid #EEF0F3;border-radius:12px;padding:8px 9px;box-sizing:border-box;text-decoration:none;color:inherit}
 body.abV22812Shell .readableTrendGrid .dailyCell.hasValue{background:#EFF6FF;border-color:#DBEAFE}
 body.abV22812Shell .readableTrendGrid .dailyTop{display:flex;align-items:center;justify-content:space-between;gap:6px}
 body.abV22812Shell .readableTrendGrid .dailyTop b{font-size:14px;line-height:1;color:#4E5968}
-body.abV22812Shell .readableTrendGrid .dailyTop small{font-size:10px;font-weight:800;color:#8B95A1}
-body.abV22812Shell .readableTrendGrid .dailyAmt{font-size:13px;font-weight:800;color:#B0B8C1;white-space:nowrap;letter-spacing:-.02em}
+body.abV22812Shell .readableTrendGrid .dailyTop small{font-size:11px;font-weight:500;color:#8B95A1}
+body.abV22812Shell .readableTrendGrid .dailyAmt{font-size:13px;font-weight:500;color:#B0B8C1;white-space:nowrap;letter-spacing:-.02em}
 body.abV22812Shell .readableTrendGrid .hasValue .dailyAmt{color:var(--accent)!important}
 body.abV22812Shell .readableTrendGrid .dailyTrack{height:6px;background:#E8EBEF;border-radius:999px;overflow:hidden}
 body.abV22812Shell .readableTrendGrid .dailyTrack i{display:block;height:100%;background:var(--accent);border-radius:999px}
-body.abV22812Shell .dailyDrill{display:inline-flex;align-items:center;min-height:44px;margin-top:var(--ab12-sp-2,8px);color:var(--ab12-action);font-size:var(--ab12-fs-cap,12px);font-weight:800;text-decoration:none}
+body.abV22812Shell .dailyDrill{display:inline-flex;align-items:center;min-height:44px;margin-top:var(--ab12-sp-2,8px);color:var(--ab12-action);font-size:var(--ab12-fs-cap,12px);font-weight:600;text-decoration:none}
 /* 챌린지 카드는 라이트에서도 어두운 표면이라 폼 라벨을 밝게 유지해야 한다. */
 body.abV22812Shell .reportChallenge :is(label,label>span,summary){color:#d7dbee!important}
 body.abV22812Shell .reportChallenge summary{color:#fff!important}
@@ -1204,7 +1209,7 @@ body.abV22812Shell .deltaUp{color:var(--neg)!important}
    데스크톱 홈은 사이드바 달력 때문에 Tab 을 55번 눌러야 본문 첫 요소에 닿았다.
    display:none·visibility:hidden 으로 감추면 포커스가 가지 않아 없는 것과 같으므로,
    화면 밖으로 밀어 두었다가 포커스를 받으면 제자리로 가져온다. */
-body.abV22812Shell .abSkipLink{position:fixed;left:12px;top:-100px;z-index:2147483647;display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:12px;background:var(--ab12-action,#1d4ed8);color:#fff!important;font-weight:900;text-decoration:none;box-shadow:0 10px 28px rgba(15,23,42,.28);transition:top var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))-out}
+body.abV22812Shell .abSkipLink{position:fixed;left:12px;top:-100px;z-index:2147483647;display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border-radius:12px;background:var(--ab12-action,#1d4ed8);color:#fff!important;font-weight:800;text-decoration:none;box-shadow:0 10px 28px rgba(15,23,42,.28);transition:top var(--ab12-dur-fast,120ms) var(--ab12-ease,cubic-bezier(.2,.8,.2,1))-out}
 body.abV22812Shell .abSkipLink:focus,body.abV22812Shell .abSkipLink:focus-visible{top:12px}
 /* 건너뛴 목적지에는 기본 포커스 테두리를 두지 않는다. 본문 전체를 두르는 굵은 사각형은
    "여기로 왔다"는 신호보다 오류처럼 읽힌다. 대신 왼쪽에 짧은 표시만 남긴다. */
@@ -1234,7 +1239,7 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell a.abSkipLink{color:#fff!i
    지우는 게 아니라 조인다. 안내문은 접을 수 있게 하고(접은 상태는 브라우저가 기억),
    제목·여백·컨트롤은 눈금을 한 단계씩 내린다. */
 body.abV22812Shell .abV5PageHeader{margin:var(--ab12-sp-3,12px) auto!important;padding:16px 18px!important}
-body.abV22812Shell .abV5PageHeader h1{font-size:22px!important;letter-spacing:-.02em}
+body.abV22812Shell .abV5PageHeader h1{font-size:24px!important;letter-spacing:-.02em}
 body.abV22812Shell .abHeadNote{position:relative;margin:6px 0 0}
 /* V22.9.10: 전체 메뉴의 "기준 변경"은 화면에서 가장 강한 요소였다 — 큰 파란 덩어리가
    폭 전체를 차지했다. 하는 일은 가계부·월 필터를 적용하는 것이고, 이 화면의 주된
@@ -1336,7 +1341,7 @@ body.abV22812Shell :is(.reportChallenge,.homeNotice){background:var(--ab12-notic
 /* ── 3) 카드 머리말 링크 하나만 밑줄 ──
    "홈 구성"은 16px·굵기 400·밑줄이었는데, 같은 자리의 다른 링크("주별"·"월별")는
    13px·굵기 1000·밑줄 없음이다. 하나만 브라우저 기본 링크처럼 보였다. */
-body.abV22812Shell .homeReportsEdit{font-size:13px!important;font-weight:800!important;text-decoration:none!important;color:var(--ab12-accent)!important}
+body.abV22812Shell .homeReportsEdit{font-size:13px!important;font-weight:600!important;text-decoration:none!important;color:var(--ab12-accent)!important}
 body.abV22812Shell .homeReportsEdit:hover{text-decoration:underline!important;text-underline-offset:3px}
 /* V22.9.14: 월별 소비 흐름이 홈에서 글자 뭉텅이로 나오던 것.
 
@@ -1458,6 +1463,38 @@ body.abV22812Shell table.abStackTable>tbody>tr>td[data-label]::before{content:at
 body.abV22812Shell table.abStackTable>tbody>tr>td:first-child,body.abV22812Shell table.abStackTable>tbody>tr>td[colspan],body.abV22812Shell table.abStackTable>tbody>tr>td:last-child:nth-child(even){grid-column:1/-1}
 body.abV22812Shell table.abStackTable>tbody>tr>td:first-child:not([colspan]){font-weight:700}
 body.abV22812Shell table.abStackTable>tbody>tr>td>.regLink{margin:0!important}
+}
+`
+  // V22.9.125 (글자·굵기 눈금, 위계, 밀도): 규칙마다의 값은 제자리에서 고쳤고, 여기에는 새로 필요한 규칙만 둔다. 아래 V22.9.40 (C) 블록 앞에 끼운다.
+  + `/* ── V22.9.125 (글자·굵기 눈금, 위계, 밀도) ─────────────────────────────────────
+   눈금: 글자 11·12·13·14·16·18·20·24·28·32·36px / 굵기 400·500·600·700·800.
+   역할: 큰 숫자 800 · 제목·강조(b)·핵심 값 700 · 단추·링크·표 머리글 600 · 작은 숫자·칸 이름 500 · 설명·라벨·날짜 같은 보조 글자 400.
+   규칙마다의 값은 그 규칙이 있는 자리에서 고쳤다. 이 블록에는 규칙이 없어 브라우저 기본값이 쓰이던 곳,
+   한 규칙을 여러 역할이 같이 써서 제자리에서 못 나눈 곳, 여백(밀도)만 둔다. */
+:where(body.abV22812Shell) :where(button,input[type=submit],input[type=button]){font-size:13px}
+:where(body.abV22812Shell) :where(small){font-size:13px}
+body.abV22812Shell .policyOption small,body.abV22812Shell label.chk>small{font-size:12px}
+body.abV22812Shell .hTop span small{font-size:11px}
+/* 홈 — 예산 카드: 라벨은 가늘게, 사용률 칩은 한 줄(이름 + 숫자), 페이스 상자의 첫 문장만 굵게 */
+body.abV22812Shell .homeBudgetTop>span{font-weight:400}
+body.abV22812Shell .homeBudgetTop>em{font-weight:400;white-space:nowrap}
+body.abV22812Shell .homeBudgetTop>em>span{display:inline;margin-left:4px;font-weight:700}
+body.abV22812Shell.abMobileAppSurface .homePace>p{font-weight:700}
+/* 홈 — 주간 띠와 일별 칸: 요일·날짜 표시는 가늘게, 그날의 숫자만 굵게 */
+body.abV22812Shell .homeWeek li>b{font-weight:400}
+body.abV22812Shell .homeWeek li>em{font-weight:700}
+body.abV22812Shell .readableTrendGrid .dailyTop b{font-weight:400}
+body.abV22812Shell .readableTrendGrid .dailyCell.hasValue .dailyAmt{font-weight:700}
+/* 밀도 — 휴대폰: 머리(달 이동 줄)와 첫 카드 사이의 빈 띠 38px → 12px(카드 사이 간격과 같게). 홈·캘린더·내역 탭이 같은 머리를 쓴다 */
+@media(max-width:899px){
+body.abV22812Shell header.appTop~main.wrap{padding-top:0!important}
+}
+/* 표 — 설정의 분류 예산 표도 767px 이하에서 줄마다 카드로(감싸개가 .scroll), 768~1099px 의 쌓는 표는 최소 폭을 풀어 화면 안에(사이드바가 나오는 900px 부터 본문이 좁다) */
+@media(max-width:767px){
+body.abV22812Shell .scroll.abStackWrap{overflow:visible!important;border:0!important;border-radius:0!important;background:none!important;box-shadow:none!important;padding:0!important}
+}
+@media(min-width:768px) and (max-width:1099px){
+body.abV22812Shell .tableWrap.abStackWrap>table.abStackTable{min-width:0!important}
 }
 `
   + `/* ── V22.9.40 (C) 점진적 최신 규칙 ──

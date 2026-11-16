@@ -58,23 +58,27 @@ const HOME_200_MAX = 40636;
 // V22.9.93(Aside 3차 검수): 정산 조회 줄의 가계부 칸·단추 규칙(Q-27)으로 267,649 B 다.
 // V22.9.124(UI/UX 기준 점검): 좁은 화면(1023px 이하)의 터치 영역 44px 규칙 열일곱 줄, 표 상자 포커스 윤곽선 한 줄, 표를 줄마다 카드로 쌓는 규칙(767px 이하) 열한 줄과
 // 그 주석으로 272,375 B 다(+4,726 B). 홈 HTML 에는 아무것도 더하지 않았다.
-const SHELL_CSS_MAX_BYTES = 272375;
+// V22.9.125(글자·굵기 눈금, 위계, 밀도): 이번 판 블록(규칙이 없어 13.33px 이던 단추·small 13px 세 줄, 홈 위계 여덟 줄, 소비 분석의 비율 글자 한 줄, 휴대폰 여백 한 줄, 설정 표 감싸개와
+// 768~1099px 표 최소 폭 두 줄)과 그 주석이 더해지고, 굵기·크기 값을 눈금으로 바꾼 자리(1000 → 800·13.5px → 14px 등)에서 조금 줄어 274,927 B 다(+2,552 B).
+const SHELL_CSS_MAX_BYTES = 274927;
 // V22.9.85: R-3·R-6·R-7 의 다크·초점 규칙이 이미 !important 인 규칙(모든 링크 강조색·다크 표면 목록·옛 2px 초점 링)을 이겨야 해서 12회 늘었다.
 // V22.9.86: 81회 늘었다. 모두 이미 !important 인 옛 규칙(머리말 단추 40px·탭 바 높이·칩 패딩·빠른 입력 시트·알림 면 색·옛 칩 무리·outline:0)을 이겨야 하는 자리다.
 // V22.9.87: T-19 가 49회 늘렸다. 보조기기용 숨김 글자 두 곳(9회씩, 접은 사이드바 메뉴 링크와 같은 방식) 18회와, 옛 !important 규칙(독 가운데 놓기·흐림·테두리·그림자,
 // 머리말·리포트 단추 크기와 여백 3px, 서랍 단추 색)을 이겨야 하는 자리 31회다. T-16 단추는 고대비 모드 테두리가 이기도록 !important 를 쓰지 않는다.
 // V22.9.87 V85:R-9: 6회 — 옛 현재 메뉴 규칙 셋(V22.8.11 셸의 #1b64da, :is 묶음, accent-weak)과 다크 링크 강조색(R-3)이 모두 !important 라 이겨야 한다.
-// V22.9.87 사용자 결정(2026-10-29): 6회 — 실행 취소 단추 바탕·글자색 3회(V87:W-4, mobile-home-v22985.css 의 파랗게 채운 submit 규칙이 !important),
+// V22.9.87 사용자 결정(2026-10-29): 6회 — 실행 취소 단추 바탕·글자색 3회(V87:W-4, mobile-home-v229125.css 의 파랗게 채운 submit 규칙이 !important),
 // 리포트 기간 탭 글자색 2회(V85:R-10, 다크 링크 강조색 R-3 이 !important), 글꼴 목록 1회(T-23, 옛 UI 런타임 body.abV2281 글꼴 규칙이 !important).
 // 단추 테두리는 고대비 모드 테두리가 이기도록 여전히 !important 를 쓰지 않는다.
 // V22.9.93(Aside 2차 검수): 9회 — 다크 상태 배지 8회(쪽마다 둔 밝은 바탕과 셸의 다크 글자색이 !important 라 이겨야 한다), 좁은 폭 달 칸 1회(옛 조회 줄 열 규칙이 !important).
 // V22.9.124(UI/UX 기준 점검): 43회 — 터치 영역 15회(화면마다의 인라인 규칙과 셸의 옛 40px·36px·32px 규칙이 !important 라 이겨야 한다)와 표를 카드로 쌓는 규칙 28회
 // (옛 UI 런타임과 화면 인라인의 표·칸 테두리·바탕·여백·최소 폭 규칙이 !important 다).
-const SHELL_IMPORTANT_MAX = 1712;
+// V22.9.125(글자·굵기 눈금, 위계, 밀도): 8회 — 휴대폰 본문 위 여백 1회(옛 main.wrap 여백 규칙이 !important), 설정 표 감싸개(.scroll.abStackWrap) 6회와
+// 768~899px 표 최소 폭 1회(화면 인라인의 표·감싸개 규칙이 !important). 굵기·크기 규칙은 !important 를 더하지 않았다(값만 바꿨다).
+const SHELL_IMPORTANT_MAX = 1720;
 const HOME_CSS_IMPORTANT_MAX = 368;
 
-const SHELL = "/assets/accountbook-shell-v229124.css";
-const HOME_CSS = "/assets/mobile-home-v22985.css";
+const SHELL = "/assets/accountbook-shell-v229125.css";
+const HOME_CSS = "/assets/mobile-home-v229125.css";
 const V5 = "/assets/accountbook-v5-v22993.js";
 const HOME_JS = "/assets/mobile-home-v22995.js";
 const HOME_SHELL_JS = "/assets/mobile-home-shell-v22995.js";
@@ -159,8 +163,8 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   t.ok(shell.includes("{background:var(--ab12-accent-soft)!important;color:var(--ab12-accent)!important;border:1px solid var(--ab12-accent)!important}"), "T-02 고른 칸은 accent-soft 면·accent 글자와 선");
   t.ok(!shell.includes(".filterAdvanced,.seg span,") && shell.includes(".filterAdvanced,.seg button,"), "T-02 다크 면 목록에서 .seg span 을 뺐다(고른 칸이 면에 덮이지 않는다)");
   t.ok(shell.includes("body.abV22812Shell #add .seg{background:var(--ab12-surface-raised);padding:4px;border-radius:14px;gap:4px}"), "T-02 트랙은 surface-raised");
-  t.ok(shell.includes("body.abV22812Shell #add .seg span{height:44px;border-radius:11px;background:transparent!important;border:1px solid transparent!important;color:var(--ab12-nav-inactive)!important;font-weight:700}"), "T-02 안 고른 칸은 투명 면·nav-inactive 글자, 높이 44px");
-  t.ok(shell.includes("body.abV22812Shell #add .seg input:checked+span{background:var(--ab12-surface)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;font-weight:800;box-shadow:var(--shadow)}"), "T-02 고른 칸은 surface 면·accent 선과 글자 800");
+  t.ok(shell.includes("body.abV22812Shell #add .seg span{height:44px;border-radius:12px;background:transparent!important;border:1px solid transparent!important;color:var(--ab12-nav-inactive)!important;font-weight:400}"), "T-02 안 고른 칸은 투명 면·nav-inactive 글자, 높이 44px(V22.9.125: 모서리 12px·굵기 400)");
+  t.ok(shell.includes("body.abV22812Shell #add .seg input:checked+span{background:var(--ab12-surface)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;font-weight:700;box-shadow:var(--shadow)}"), "T-02 고른 칸은 surface 면·accent 선과 글자 700(V22.9.125 굵기 눈금)");
   t.ok(/<div class="seg"><label><input type="radio" name="type" value="expense" checked><span>지출<\/span><\/label><label><input type="radio" name="type" value="income"><span>수입<\/span><\/label><\/div>/.test(home), "T-02 세그먼트 마크업(라디오 + span)은 그대로다");
 
   // ── T-03 거래 행 읽기 이름 ──

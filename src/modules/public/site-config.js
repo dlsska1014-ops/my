@@ -8,7 +8,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.124-PRELAUNCH-POLISH";
+const APP_VERSION = "V22.9.125-HIERARCHY-DENSITY";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -200,13 +200,13 @@ function businessFooterText(value = "") {
 function renderBusinessInfoFooter() {
   const info = BUSINESS_FOOTER_INFO;
   return `<style>
-  .abBusinessFooter{margin:18px 0 0;padding:13px 0 2px;border-top:1px solid #e5e7eb;color:#596579;font-size:11px;line-height:1.45;letter-spacing:-.015em}
+  .abBusinessFooter{margin:18px 0 0;padding:13px 0 2px;border-top:1px solid #e5e7eb;color:#596579;font-size:12px;line-height:1.45;letter-spacing:-.015em}
   .abBusinessFooterInner{display:flex;flex-wrap:wrap;align-items:center;gap:6px 16px}
-  .abBusinessFooterTitle{font-weight:1000;color:#334155;white-space:nowrap}
+  .abBusinessFooterTitle{font-weight:400;color:#334155;white-space:nowrap}
   .abBusinessFooterItem{display:inline-flex;gap:5px;align-items:baseline;min-width:0}
-  .abBusinessFooterItem b{color:#475569;font-weight:900;white-space:nowrap}
-  .abBusinessFooterItem a{color:inherit;text-decoration:underline;overflow-wrap:anywhere}
-  @media(max-width:700px){.abBusinessFooterInner{gap:5px 11px}.abBusinessFooterTitle{flex-basis:100%}.abBusinessFooterItem{font-size:10.5px}}
+  .abBusinessFooterItem b{color:#475569;font-weight:700;white-space:nowrap}
+  .abBusinessFooterItem a{display:inline-block;margin:-14px 0;padding:14px 0;color:inherit;text-decoration:underline;overflow-wrap:anywhere}
+  @media(max-width:700px){.abBusinessFooterInner{gap:5px 11px}.abBusinessFooterTitle{flex-basis:100%}.abBusinessFooterItem{font-size:12px}}
   </style><footer class="abBusinessFooter" aria-label="사업자 정보"><div class="abBusinessFooterInner">
     <span class="abBusinessFooterTitle">사업자 정보</span>
     <span class="abBusinessFooterItem"><b>상호</b>${businessFooterText(info.company)}</span>

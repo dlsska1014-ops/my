@@ -20,8 +20,8 @@
 // V22.9.95(안내·해석): 세 자산의 바이트가 바뀌어 주소를 v22995 로 올렸다 — 홈 스크립트·홈 셸(폭 0 글자·전각 글자 정리, 외화 금액 되묻기
 // foreignCurrencyAmountIn), 분류 규칙(R-16 예외 낱말: 운동화·충전기·참기름·들기름·버스킹). 옛 주소(mobile-home(-shell)-v22993.js·
 // ab-category-rules-v22993.js, 운영 V22.9.93·94 가 쓰는 주소)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 그대로 내려간다.
-const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v22985.css";
-const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v22919.css";
+const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v229125.css";
+const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v229125.css";
 // V22.9.78(V77 N-12): 홈 스크립트·홈 셸에 실리는 quickInputDate 가 주 없이 쓴 ‘지난·저번 요일’을 오늘을 뺀 앞 요일로 읽게 바뀌어
 // 두 주소를 v22976 → v22978 로 올렸다. 옛 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 그대로 내려간다.
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22995.js";
@@ -30,7 +30,7 @@ const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v2281
 // 옛 JS 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 이미 받아 간 화면이 계속 동작한다.
 // V22.9.40 (C2): 셸 CSS 끝에 점진적 최신 규칙 한 블록(제목·문단 줄바꿈, 글상자 높이, 창·팝오버 등장, 스크롤 막대 자리,
 // 시트 스크롤 가두기)을 더해 주소를 v22937 → v22940 으로 올렸다.
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v229124.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v229125.css";
 const ACCOUNTBOOK_EXPERIENCE_CSS = `
 /* V22.9.25: scoped enhancements preserve the analysis surface and theme tokens. */
 body.abV22812Shell .homeReports{container-type:inline-size;container-name:home-reports}
@@ -39,7 +39,7 @@ body.abV22812Shell .homeReportTop>span,body.abV22812Shell .homeReport>small{font
 body.abV22812Shell .homeMetrics{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:8px!important}
 body.abV22812Shell .homeMetrics>.homeUsage{grid-column:1/-1}
 body.abV22812Shell .homeMetric{min-width:0;padding:14px!important}
-body.abV22812Shell .homeMetric>b{font-variant-numeric:tabular-nums;font-size:clamp(17px,3.8vw,24px)!important;overflow-wrap:anywhere}
+body.abV22812Shell .homeMetric>b{font-variant-numeric:tabular-nums;font-size:clamp(16px,3.8vw,24px)!important;overflow-wrap:anywhere}
 body.abV22812Shell .homeMetric>span{font-weight:500!important}
 body.abV22812Shell .homeReportsEdit{display:inline-flex;align-items:center;min-height:44px;padding:0 8px}
 body.abV22812Shell .homeInsights{margin:12px 0;border:1px solid var(--line);border-radius:16px;background:var(--card)}
@@ -47,10 +47,10 @@ body.abV22812Shell .homeInsights>summary{display:flex;justify-content:space-betw
 body.abV22812Shell .homeInsights>summary::-webkit-details-marker{display:none}
 body.abV22812Shell .homeInsights>summary:after{content:'＋';flex:none;color:var(--sub)}
 body.abV22812Shell .homeInsights[open]>summary:after{content:'−'}
-body.abV22812Shell .homeInsights>summary{font-size:14px;font-weight:650}
+body.abV22812Shell .homeInsights>summary{font-size:14px;font-weight:600}
 body.abV22812Shell .homeCategoryHead{display:flex;align-items:center;justify-content:space-between;gap:8px}
 body.abV22812Shell .homeCategoryLink{display:inline-flex;align-items:center;min-height:44px;font-size:12px;color:var(--ab12-accent);text-decoration:none;font-weight:600}
-body.abV22812Shell .homeSpender{width:100%;min-height:44px;border:1px solid var(--line);border-radius:15px;padding:0 12px}
+body.abV22812Shell .homeSpender{width:100%;min-height:44px;border:1px solid var(--line);border-radius:16px;padding:0 12px}
 body.abV22812Shell .homeInsights .homeGrid{margin:0;padding:0 12px 12px}
 body.abV22812Shell .txTabFilter{padding:8px 16px!important;margin:8px 0!important;box-shadow:none}
 body.abV22812Shell .txFilterMore>summary{min-height:44px;display:flex;align-items:center;font-weight:600}
@@ -70,12 +70,12 @@ body.abV22812Shell .abTxDetailHead{display:flex;justify-content:space-between;al
 body.abV22812Shell .abTxDetailHead h2{font-size:18px;font-weight:700;margin:0}
 body.abV22812Shell .abTxDetailHead button{width:44px;min-height:44px;border:0;background:var(--card-2);color:var(--text);border-radius:12px;font-size:24px;cursor:pointer}
 body.abV22812Shell .abTxDetailBody{padding:20px;overflow:auto;max-height:calc(100dvh - 230px);overscroll-behavior:contain}
-body.abV22812Shell .abTxOverview h3{font-size:19px;margin:0 0 16px;overflow-wrap:anywhere;font-weight:600}
-body.abV22812Shell .abTxDetailAmount{display:block;font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+body.abV22812Shell .abTxOverview h3{font-size:18px;margin:0 0 16px;overflow-wrap:anywhere;font-weight:600}
+body.abV22812Shell .abTxDetailAmount{display:block;font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 body.abV22812Shell .abTxOverview p{white-space:pre-line;line-height:1.7;font-size:14px;overflow-wrap:anywhere}
 body.abV22812Shell .abTxDetailNote{color:var(--sub);font-size:13px!important}
 body.abV22812Shell .abTxDetailFoot{display:flex;gap:8px;padding:12px 20px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--line);background:var(--card)}
-body.abV22812Shell .abTxDetailFoot button{flex:1;min-height:48px;font-size:15px}
+body.abV22812Shell .abTxDetailFoot button{flex:1;min-height:48px;font-size:14px}
 body.abV22812Shell .abTxDetail .v8-edit{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:0}
 body.abV22812Shell .abTxDetail .v8-edit :is(input,select){min-width:0;width:100%;min-height:48px;font-size:16px}
 body.abV22812Shell .abTxDetail .v8-edit button{min-height:48px}
@@ -85,7 +85,7 @@ body.abV22812Shell .abEditStatus{font-size:14px;line-height:1.6;color:var(--sub)
 body.abV22812Shell .importSelectionSummary{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin:16px 0;padding:16px;background:var(--card-2);border:1px solid var(--line);border-radius:14px}
 body.abV22812Shell .importSelectionSummary>div{display:grid;gap:6px;min-width:0}
 body.abV22812Shell .importSelectionSummary span{font-size:13px;color:var(--sub)}
-body.abV22812Shell .importSelectionSummary b{font-size:22px;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+body.abV22812Shell .importSelectionSummary b{font-size:20px;font-weight:700;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 body.abV22812Shell .importSelectionSummary>p,body.abV22812Shell .importSelectionSummary>small{grid-column:1/-1;margin:0;font-size:13px;line-height:1.6;color:var(--sub)}
 body.abV22812Shell .importReviewBadge{color:var(--ab12-warn-text)!important;background:var(--ab12-warn-bg);padding:6px 8px;border-radius:6px}
 body.abV22812Shell .importPick{margin:0;cursor:pointer}
@@ -99,10 +99,10 @@ body.abV22812Shell .abTransactionSummary,body.abV22812Shell .abTransactionCondit
 body.abV22812Shell .abTransactionSummary>span{font-size:13px;color:var(--sub)}
 body.abV22812Shell .abTransactionSummary>b{display:block;margin:8px 0;font-size:32px;font-weight:700}
 body.abV22812Shell .abTransactionSummary dl>div{display:flex;justify-content:space-between;gap:12px;margin:12px 0}
-body.abV22812Shell .abTransactionSummary dd{margin:0;font-weight:650;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
+body.abV22812Shell .abTransactionSummary dd{margin:0;font-weight:600;font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 /* V22.9.81 U-30: 수입 합계가 모바일 홈 CSS 의 .income(#059669)을 받아 흰 바탕 3.77:1 이었다. 수입 토큰 --pos(라이트 #087a55 5.35:1, 다크 #6ee7b7)로 맞춘다. */
 body.abV22812Shell .abTransactionSummary dd.income{color:var(--pos)}
-body.abV22812Shell .abTransactionConditions h3,body.abV22812Shell .abTransactionTools h3{font-size:14px;margin:0 0 12px;font-weight:650}
+body.abV22812Shell .abTransactionConditions h3,body.abV22812Shell .abTransactionTools h3{font-size:14px;margin:0 0 12px;font-weight:600}
 body.abV22812Shell .abTransactionConditions p{white-space:pre-line;overflow-wrap:anywhere;font-size:14px;line-height:1.7;color:var(--sub);margin:0}
 body.abV22812Shell .abTransactionTools nav{display:grid;gap:8px;grid-template-columns:repeat(2,minmax(0,1fr))}
 body.abV22812Shell .abTransactionTools a{display:flex;align-items:center;min-height:44px;padding:10px;font-size:13px;white-space:normal}

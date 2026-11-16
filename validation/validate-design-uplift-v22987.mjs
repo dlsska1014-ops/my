@@ -33,7 +33,7 @@ const t = counter("V22.9.87 디자인 보강 4단계(데스크톱 독 정리·�
 const HH = "house-home";
 const HOME = `/app?month=2026-07&household_id=${HH}`;
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)";
-const SHELL = "/assets/accountbook-shell-v229124.css";
+const SHELL = "/assets/accountbook-shell-v229125.css";
 const NAV = "/assets/accountbook-nav-v22987.js";
 const V5 = "/assets/accountbook-v5-v22993.js";
 const ADMIN_PASSWORD = "design-uplift-v22987-admin";
@@ -129,9 +129,9 @@ t.ok(!/(border|margin|font)[^;{}]*!important/.test(quickUndoBlock(uplift4)) && s
   "T-16 실행 취소 단추의 테두리·모양 규칙은 !important 없이 — 고대비 모드의 단추 테두리(ButtonText)가 그대로 걸린다(!important 는 W-4 의 바탕·글자색뿐)");
 
 // ── V87:W-4(경고 알림 캡처에서 찾음): 홈 자산의 제출 단추 규칙이 실행 취소 단추를 파랗게 채운 단추로 칠했다 ──
-const mobileCss = await asset("/assets/mobile-home-v22985.css");
+const mobileCss = await asset("/assets/mobile-home-v229125.css");
 const BLUE_SUBMIT = '.abV2281 button[type="submit"]:not(.danger):not(.delBtn):not(.secondary)';
-t.ok(new RegExp(`${BLUE_SUBMIT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")},[^{]*\\{background:var\\(--ab-blue\\)!important;color:#fff!important`).test(mobileCss), "W-4 원인: 홈 자산(mobile-home-v22985.css)의 제출 단추 규칙이 바탕·글자색을 !important 로 칠한다");
+t.ok(new RegExp(`${BLUE_SUBMIT.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")},[^{]*\\{background:var\\(--ab-blue\\)!important;color:#fff!important`).test(mobileCss), "W-4 원인: 홈 자산(mobile-home-v229125.css)의 제출 단추 규칙이 바탕·글자색을 !important 로 칠한다");
 t.ok(uplift4.includes(W4_LIGHT) && uplift4.includes(W4_DARK) && shell.includes(W4_LIGHT) && shell.includes(W4_DARK), "W-4 실행 취소 단추는 바탕 투명·글자 알림 단추색으로 덮는다(셸 자산에 실렸다)");
 const uplift3 = designUplift3Css();
 t.ok(uplift3.includes("body.abV22812Shell .abSaveFeedbackAction{flex:none;display:inline-flex;align-items:center;min-height:44px;padding:0 8px;border-radius:10px;color:#93c5fd!important;")
@@ -173,7 +173,7 @@ const FONT_STACK = '-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",s
 const FONT_OVERRIDE = `body.abV22812Shell.abV2281{font-family:${FONT_STACK}!important}`;
 t.ok(uplift4.includes(FONT_OVERRIDE) && shell.includes(FONT_OVERRIDE) && shell.includes(`font-family:${FONT_STACK};`), "T-23 셸 본문 글꼴과 옛 규칙 덮어쓰기는 Pretendard 없는 앱 공통 목록이다");
 t.ok(!/Pretendard/i.test(shell.replace(/\/\*[^]*?\*\//g, "")), "T-23 셸 CSS 규칙에 Pretendard 가 없다");
-const oldUiux = await asset("/assets/ab-uiux-v22919.css");
+const oldUiux = await asset("/assets/ab-uiux-v229125.css");
 const OLD_FONT = 'body.abV2281{background:var(--ab-bg)!important;color:var(--ab-text)!important;font-family:Pretendard,';
 t.ok(oldUiux.includes(OLD_FONT) && mobileCss.includes(OLD_FONT), "T-23 옛 UI 런타임 규칙은 1년 캐시 자산 두 개(ab-uiux-v22919·mobile-home-v22985)에 그대로 있다(주소를 올리지 않았다)");
 t.ok(beats(specificity("body.abV22812Shell.abV2281"), specificity("body.abV2281")), "T-23 덮어쓰기(0,2,1)가 옛 규칙(0,1,1)보다 높다(둘 다 !important)");
@@ -382,7 +382,7 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   for (const path of [HOME, `/reports?month=2026-07&household_id=${HH}`, `/budgets?month=2026-07&household_id=${HH}`, `/my/analysis?month=2026-07&household_id=${HH}`, `/menu?household_id=${HH}`, `/my/settings?household_id=${HH}`, `/annual?household_id=${HH}`, `/reserve-plans?household_id=${HH}`, `/start-guide?month=2026-07&household_id=${HH}`]) {
     const html = await home(fx, path);
     const bodyClass = ((html.match(/<body class="([^"]*)"/) || [])[1] || "").split(/\s+/);
-    const oldCss = /\/assets\/(ab-uiux-v22919|mobile-home-v22985)\.css/.test(html);
+    const oldCss = /\/assets\/(ab-uiux-v229125|mobile-home-v229125)\.css/.test(html);
     t.ok(oldCss && bodyClass.includes("abV2281") && bodyClass.includes("abV22812Shell") && html.includes(SHELL), `T-23 ${path.split("?")[0]}: 옛 글꼴 규칙을 싣는 화면에 셸 덮어쓰기(body.abV22812Shell.abV2281)가 걸린다`);
   }
 }));

@@ -206,15 +206,15 @@ body{margin:0;background:#F7F8FA;color:#191F28;font-family:-apple-system,BlinkMa
 .kpi{background:#fff;border:1px solid #E8EBEF;border-radius:16px;padding:14px;min-width:0}
 .kpi span{display:block;color:#6B7684;font-size:12px;font-weight:800}
 .kpi b{display:block;font-size:20px;margin-top:5px;letter-spacing:-.03em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.kpi small{display:block;margin-top:4px;font-size:11px;font-weight:800;color:#8B95A1}
+.kpi small{display:block;margin-top:4px;font-size:11px;font-weight:500;color:#8B95A1}
 .kpi small.up{color:#D03B3B}.kpi small.down{color:#006300}
 .insightChips{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 4px}
-.iChip{background:#fff;border:1px solid #E8EBEF;border-radius:999px;padding:7px 11px;font-size:12px;font-weight:800;color:#4E5968}
+.iChip{background:#fff;border:1px solid #E8EBEF;border-radius:999px;padding:7px 11px;font-size:12px;font-weight:500;color:#4E5968}
 .iChip.good{background:#F0FAF4;border-color:#cdeeda;color:#006300}
 .iChip.bad{background:#FDF3F3;border-color:#f3d5d5;color:#B3261E}
 .cardHead{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap;margin:0 0 6px}
 .cardHead h2{margin:0!important;font-size:16px}
-.cardHead .sub{color:#8B95A1;font-size:12px;font-weight:700}
+.cardHead .sub{color:#8B95A1;font-size:12px;font-weight:500}
 .chartBox{position:relative}
 .grid2{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin:12px 0}
 .grid2>.card{margin:0}
@@ -233,8 +233,8 @@ body{margin:0;background:#F7F8FA;color:#191F28;font-family:-apple-system,BlinkMa
 .dRow.sel{background:#EFF6FF}
 .dRow i{width:10px;height:10px;border-radius:3px}
 .dRow b{font-size:13px;color:#191F28;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.dRow .pct{color:#8B95A1;font-size:12px;font-weight:800}
-.dRow .amt{font-size:13px;font-weight:900;color:#333D4B;font-variant-numeric:tabular-nums;white-space:nowrap}
+.dRow .pct{color:#8B95A1;font-size:12px;font-weight:600}
+.dRow .amt{font-size:13px;font-weight:600;color:#333D4B;font-variant-numeric:tabular-nums;white-space:nowrap}
 .hRows{display:grid;grid-template-columns:minmax(0,1fr);gap:4px}
 .hRow{display:grid;grid-template-columns:minmax(0,1fr);gap:5px;border:0;background:transparent;padding:8px;border-radius:12px;font:inherit;text-align:left;cursor:pointer}
 .hRow:hover{background:#F5F7F9}
@@ -242,8 +242,8 @@ body{margin:0;background:#F7F8FA;color:#191F28;font-family:-apple-system,BlinkMa
 .hRow.sel{background:#EFF6FF}
 .hTop{display:flex;justify-content:space-between;gap:8px;align-items:baseline}
 .hTop b{min-width:0;font-size:13px;color:#191F28;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.hTop span{font-size:13px;font-weight:900;color:#333D4B;font-variant-numeric:tabular-nums;white-space:nowrap}
-.hTop span small{color:#8B95A1;font-weight:700;margin-left:4px}
+.hTop span{font-size:13px;font-weight:600;color:#333D4B;font-variant-numeric:tabular-nums;white-space:nowrap}
+.hTop span small{color:#8B95A1;font-weight:600;margin-left:4px}
 .hTrack{height:8px;background:#EFF3F8;border-radius:999px;overflow:hidden}
 .hFill{display:block;height:100%;border-radius:999px;background:#2a78d6}
 .meterBig{height:14px;background:#EFF3F8;border-radius:999px;overflow:hidden;margin:10px 0 6px}
@@ -256,14 +256,14 @@ body{margin:0;background:#F7F8FA;color:#191F28;font-family:-apple-system,BlinkMa
 .txGroup{margin:0 0 4px}
 .txDate{display:flex;justify-content:space-between;gap:8px;align-items:baseline;padding:10px 2px 6px;border-bottom:1px solid #F2F4F6}
 .txDate b{font-size:12px;color:#6B7684;font-weight:900}
-.txDate span{font-size:12px;color:#8B95A1;font-weight:800;font-variant-numeric:tabular-nums}
+.txDate span{font-size:12px;color:#8B95A1;font-weight:500;font-variant-numeric:tabular-nums}
 .txRow{display:grid;grid-template-columns:8px minmax(0,1fr) auto;gap:10px;align-items:center;padding:9px 6px;border-bottom:1px solid #F7F8FA}
 a.txRow{text-decoration:none;color:inherit;border-radius:12px}
 a.txRow:hover{background:#F5F7F9}
 .txRow .dot{width:8px;height:8px;border-radius:999px}
-.txRow .mid b{display:block;font-size:14px;font-weight:800;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.txRow .mid b{display:block;font-size:14px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .txRow .mid span{display:block;font-size:12px;color:#8B95A1;margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.txRow .amt{font-size:14px;font-weight:900;font-variant-numeric:tabular-nums;white-space:nowrap}
+.txRow .amt{font-size:14px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 .txRow .amt.in{color:#006300}
 .moreBtn{display:block;width:100%;border:1px solid #E5E8EB;background:#fff;border-radius:13px;padding:12px;font:inherit;font-weight:800;color:#4E5968;cursor:pointer;margin-top:10px}
 .csvBtn{border:1px solid #E5E8EB;background:#fff;border-radius:11px;padding:8px 11px;font:inherit;font-size:12px;font-weight:800;color:#4E5968;cursor:pointer}
@@ -289,7 +289,7 @@ html[data-ab-resolved-theme="dark"] .paceChart{--pace-current:#7eb9ff;--pace-pre
 .paceTableScroll table{min-width:900px}
 .paceTableScroll caption{text-align:left;white-space:normal;line-height:1.6;color:var(--pace-ink)}
 .paceTableScroll th,.paceTableScroll td{color:var(--pace-ink)}
-details.twin summary{cursor:pointer;font-size:12px;font-weight:900;color:#1D6BF3;list-style:none}
+details.twin summary{cursor:pointer;font-size:12px;font-weight:600;color:#1D6BF3;list-style:none}
 details.twin summary::-webkit-details-marker{display:none}
 details.twin table{width:100%;border-collapse:collapse;margin-top:8px}
 details.twin th,details.twin td{border-bottom:1px solid #F2F4F6;padding:8px 6px;text-align:right;font-size:12px;font-variant-numeric:tabular-nums}

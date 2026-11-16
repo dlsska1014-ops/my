@@ -94,13 +94,13 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === NUMBER_FLOW_ASSET_PATH
       ? '"number-flow-v22893-mjs"'
       : path === AB_UIUX_CSS_ASSET_PATH
-      ? '"ab-uiux-v22919-css"'
+      ? '"ab-uiux-v229125-css"'
       : path === MOBILE_HOME_CSS_ASSET_PATH
-      ? '"mobile-home-v22985-css"'
+      ? '"mobile-home-v229125-css"'
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
-        ? '"accountbook-shell-v229124-css"'
+        ? '"accountbook-shell-v229125-css"'
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22946-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH

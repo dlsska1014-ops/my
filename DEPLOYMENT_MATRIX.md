@@ -1,3 +1,14 @@
+## V22.9.125 배포 판단
+
+- 대상: 앱 Worker `kakao-accountbook` 만. 관제·Secret·운영 변수·Kakao Developers·OpenBuilder·cron 일정·DB 스키마는 그대로다. 운영 V22.9.124(main f05d0f8) 위에 올렸다.
+- 지금 운영: `67ec6f87-670b-407a-9609-fd9730e95f34`(#355, V22.9.124-PRELAUNCH-POLISH, 배포 `7e2cd185-e1ef-49a9-b832-556186e222f2`, 2026-11-15 20:26:27 KST 승격), 바인딩 32·광고 모드 review.
+- SQL·Secret·변수 없음 → 바인딩 그대로(32). 카카오 스킬·저장·예약 실행 코드는 그대로다. 약관·방침 날짜와 공개 화면의 글(문구)은 바꾸지 않았다(공개 화면은 글자 크기·굵기와 꼬리말 스타일만 달라진다).
+- 1년 캐시 자산: 스타일시트 셋의 주소를 올렸다 — 셸 `/assets/accountbook-shell-v229124.css` → `…v229125.css`, 홈 `/assets/mobile-home-v22985.css` → `…v229125.css`, 공통 `/assets/ab-uiux-v22919.css` → `…v229125.css`. 옛 주소 셋의 바이트(sha256 1d9051b9…·9c9d665d…·59510e82…)는 `AB_HISTORICAL_RUNTIME_ASSETS` 에 남아 그대로 내려간다(운영 V22.9.124 의 HTML 을 받은 화면용). 다른 자산 57개는 그대로다(옛 번들과 주소별 바이트 대조: 같음 60·바뀜 0·없어짐 0·새 주소 3).
+- 되돌리기 대상(기록만) = 승격 시점의 활성 version(지금 `67ec6f87-670b-407a-9609-fd9730e95f34`(#355, V22.9.124-PRELAUNCH-POLISH, 배포 `7e2cd185-e1ef-49a9-b832-556186e222f2`, 2026-11-15 20:26:27 KST 승격)). 되돌리면 이 판의 글자·여백 손질이 빠지고 새 주소 셋(v229125)은 404 가 된다(이 판의 HTML 을 이미 연 화면은 새로 고침). DB 영향은 없다.
+- 승격: 사용자 토큰 2단계(`review-artifacts/v125-hierarchy-density-2026-11-15/USER-DEPLOY-APP.md`). 11-18(수)부터는 결함 수정만, 11-20(출시일)에는 배포하지 않는다 → 이 판은 11-17 까지 내보낸다. 화면의 스타일(글자 크기·굵기·여백·모서리)과 설정 표·꼬리말 마크업만 바뀌고 카카오 스킬·저장·예약 실행 코드는 그대로다.
+- 배포 대조에서 볼 것: 바인딩 32 inherit·차이 0·금지/선택 변수 없음, named export 목록은 운영과 같음(이 판은 export 를 더하지 않았다), 1년 캐시 자산은 새 주소 3(스타일시트 셋 v229125)·옛 주소 그대로.
+- 번들 10,791,541 B · SHA-256 `c49ca35956fb2b71d4a520a4dd6f12100cdccaad3ed82a4828b97fcf839c2ca8`(149 모듈, 옛 스타일시트 셋 보관으로 +0.38 MB). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_125.sha256`(875) · 하네스 두 모드 85,444 / 85,437(하한 85,437).
+
 ## V22.9.124 배포 판단
 
 - 대상: 앱 Worker `kakao-accountbook` 만. 관제·Secret·운영 변수·Kakao Developers·OpenBuilder·cron 일정·DB 스키마는 그대로다. 운영 V22.9.123(main a53ffd2) 위에 올렸다.

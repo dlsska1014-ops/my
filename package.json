@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.124",
+  "version": "22.9.125",
   "private": true,
   "type": "module",
   "engines": {
@@ -23,6 +23,7 @@
     "validate:ops-hardening-v229119": "node validation/validate-ops-hardening-v229119.mjs",
     "validate:kakao-input-guards-v229120": "node validation/validate-kakao-input-guards-v229120.mjs",
     "validate:kakao-guard-examples-v229120": "node validation/validate-kakao-guard-examples-v229120.mjs",
+    "validate:hierarchy-density-v229125": "node validation/validate-hierarchy-density-v229125.mjs",
     "validate:prelaunch-polish-v229124": "node validation/validate-prelaunch-polish-v229124.mjs",
     "validate:return-reasons-v229123": "node validation/validate-return-reasons-v229123.mjs",
     "validate:prelaunch-sweep-v229122": "node validation/validate-prelaunch-sweep-v229122.mjs",
