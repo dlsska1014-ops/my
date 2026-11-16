@@ -10,13 +10,15 @@
 // 2차 검토 장면: 지출자 없는 규칙은 예약 실행도 건너뜀(2-c), 예산 알림·알림센터 API·종합 리포트·스마트 도구의 같은 값(2-b), 관측 확인 불가 달의 안내(2-d),
 // 지출자를 둔 같은 자료의 예전 값(2-e → 3차에 검사 d3 안으로 옮김), 번호 판정 = memberNameMap 의 실제 규칙(1-e), 음수 지출 달의 예전 식(3 C).
 // 3차 검토 장면: ‘지출자 확인’ 알림과 API 값(2-b·2-f), 빈 참여자 목록·읽기 실패(2-a·2-d·2-g), 예산 범위(2-h), 이름 경계(1-f).
+// 4차 검토 장면: 예산 밖의 자격 없는 규칙(2-h), 짝지은 정기지출 항목(2-i), 역할이 빈 지출자 = 예약 실행과 같은 판정(2-j), 예산 없는 달(2-k), 모르면 null(2-g).
 // 네트워크를 쓰지 않는다(메모리 픽스처). 실행: node validation/validate-v229126-web.mjs  (분류 표 없는 운영 모드: AB_QA_CATEGORIES_ABSENT=1)
-import { app, BASE, ctx, counter, fixture, intercept, failure, page, post, api, formFields, settingValue } from "./lib-audit-v22934.mjs";
+import { app, BASE, ctx, counter, fixture, intercept, failure, page, post, api, formFields, settingValue, putSetting } from "./lib-audit-v22934.mjs";
 import { budgetSummary, runRecurringAutoApply } from "../src/index.js";
 import { homeUpcomingOut, monthSpendingOutlook, pendingRecurringRules } from "../src/modules/domain/spending-outlook.js";
 import { refundDeductionApplied } from "../src/modules/domain/refund-links.js";
 import { buildBudgetAlertPolishModel, renderPendingRecurringList } from "../src/modules/features/budget-alerts-annual-goals.js";
 import { renderHomeReportCards } from "../src/modules/my/home-sections.js";
+import { fetchHouseholdMembers } from "../src/modules/data/households-members-rows.js";
 
 const t = counter("web fixes FC-20·21·22·30");
 const HH = "house-home";
@@ -306,7 +308,7 @@ await at("2026-11-17", "12:00", () => fixture(async (fx) => {
   t.deepEq([shared.api.forecast, shared.api.pending_total, shared.api.after_pending_assumption, shared.pendingNotice], [197647, 0, 197647, false], "2-b 고친 뒤: 알림센터 API 도 월말 예상 197,647원·반영 대기 0원이고 반영 대기 알림이 없다(고치기 전 737,647원·540,000원)");
   // 3차: 대기 알림에서 빠진 규칙은 달마다 ‘지출자 확인’ 알림 하나로 알리고(정기 수입·지출 화면으로), API 에 건수·금액을 대기 옆에 싣는다.
   const check = noticeOf(shared, "recurring-spender-check:2026-11");
-  t.deepEq([check?.title, check?.body, check?.href, check?.level], ["지출자 확인이 필요한 정기 항목 2건", "540,000원 · 자동·수동 반영에서 건너뛰어 반영 대기·월말 예상에서 뺐어요. 지출자를 확인해 주세요.", `/reserve-plans?month=2026-11&household_id=${HH}`, "info"], "2-b 3차: 알림센터에 ‘지출자 확인이 필요한 정기 항목 2건’(540,000원) 알림이 달 붙은 키로 생긴다(2차는 알림센터에 흔적이 없었다)");
+  t.deepEq([check?.title, check?.body, check?.href, check?.level], ["지출자 확인이 필요한 정기 항목 2건", "540,000원 · 자동·수동 반영에서 건너뛰어 반영 대기에서 뺐어요. 지출자를 확인해 주세요.", `/reserve-plans?month=2026-11&household_id=${HH}`, "info"], "2-b 3차: 알림센터에 ‘지출자 확인이 필요한 정기 항목 2건’(540,000원) 알림이 달 붙은 키로 생긴다(2차는 알림센터에 흔적이 없었다)");
   t.deepEq([shared.api.spender_check_count, shared.api.spender_check_total], [2, 540000], "2-b 3차: budget_observation 에 spender_check_count·total(2건·540,000원)");
   // 3차: 종합 리포트·스마트 도구도 낮아진 월말 예상 옆에 뺀 건수를 적는다.
   t.ok(strip(shared.htmls[1]).includes(SPENDER_NOTE_REPORT) && shared.htmls[2].includes("<small>지출자 확인 필요 2건 제외</small>"), "2-b 3차: 종합 리포트 부제와 스마트 도구 칸에 ‘지출자 확인 필요 2건 제외’");
@@ -391,7 +393,8 @@ await at("2026-11-17", "12:00", () => fixture(async (fx) => {
   } finally { restore(); }
   t.eq(reads, 5, "2-g 빈 목록을 돌려준 것은 다섯 곳(예산 알림·종합 리포트·스마트 도구·알림센터·생활비 리포트)의 참여자 목록 읽기뿐이다");
   t.ok(shared.pages.every((value) => value === "737,647") && shared.api.forecast === 737647 && shared.api.pending_total === 540000, "2-g 빈 참여자 목록: 월말 예상 737,647원·대기 540,000원 = 참여자 목록을 넘기지 않은 예전 값");
-  t.ok([...shared.htmls, reports].every((html) => !html.includes("지출자 확인 필요")) && !noticeOf(shared, "recurring-spender-check:2026-11") && shared.api.spender_check_count === 0, "2-g 빈 참여자 목록: 어느 화면에도 ‘지출자 확인 필요’ 가 없다(모든 규칙이 자격 없음이 되지 않는다)");
+  t.ok([...shared.htmls, reports].every((html) => !html.includes("지출자 확인 필요")) && !noticeOf(shared, "recurring-spender-check:2026-11"), "2-g 빈 참여자 목록: 어느 화면에도 ‘지출자 확인 필요’ 가 없다(모든 규칙이 자격 없음이 되지 않는다)");
+  t.deepEq([shared.api.spender_check_count, shared.api.spender_check_total], [null, null], "2-g 4차: 참여자를 모르면(빈 목록) API 의 spender_check_count·total 은 0 이 아니라 null 이다(3차는 0 — ‘없음’과 ‘모름’이 같았다)");
   t.eq(noticeOf(shared, "recurring-pending:2026-11")?.title, "이번 달 반영 대기 고정지출 2건", "2-g 빈 참여자 목록: 반영 대기 알림도 예전 그대로(2건)");
 }));
 await at("2026-11-17", "12:00", () => fixture(async (fx) => {
@@ -412,8 +415,8 @@ await at("2026-11-17", "12:00", () => fixture(async (fx) => {
   t.deepEq(seen, [[500, false], [500, false], [500, false], [500, false], [500, false]], "2-g 참여자 목록 읽기 실패: 네 화면·알림센터가 예전처럼 안전 화면(500)이고 ‘자격 없음’ 값으로 그리지 않는다");
 }));
 
-// 2-h. 3차: 분류별 예산만 쓰는 달 — ‘지출자 확인 필요’ 는 그 위 대기 금액과 같은 범위(예산 안)만 센다. 예산 밖 분류의 규칙은
-//      지출자와 상관없이 예전처럼 예산 밖 안내에 남는다.
+// 2-h. 4차: 분류별 예산만 쓰는 달 — ‘지출자 확인 필요’ 는 그 위 대기 금액과 같은 범위(예산 안)만 센다. 예산 밖 대기 목록(예산 알림 안내·
+//      월말 예상 outsidePendingRules = 홈 ‘예산에 안 넣은’ 줄)에는 자격 있는 규칙만 남고, 예산 밖의 자격 없는 규칙은 같은 안내에 따로 적는다.
 const scopeRules = () => [
   rule("rule-in-gone", 12, 40000, "식비-나간지출자", "user-gone", "2026-10", { category: "식비" }),
   rule("rule-out-gone", 15, 70000, "보험-나간지출자", "user-gone", "2026-10", { category: "보험" }),
@@ -425,22 +428,86 @@ await at("2026-11-17", "12:00", () => fixture(async (fx) => {
   fx.db.accountbook_budgets = fx.db.accountbook_budgets.filter((b) => b.id !== "b-nov-total");
   fx.db.accountbook_budgets.push({ id: "b-nov-food", household_id: HH, month: "2026-11", category: "식비", amount: 300000, created_at: "2026-11-01T00:00:00.000Z" });
   fx.cookie = await fx.cookieFor("user-bin");
-  const alerts = await page(fx, `/budget-alerts?household_id=${HH}&month=2026-11`);
-  t.ok(alerts.html.includes("<span>고정지출 대기</span><b>20,000원</b><small>지출자 확인 필요 1건</small>") && alerts.html.includes("지출자 확인 필요 1건(40,000원)"), "2-h 3차: 대기(예산 안 20,000원) 아래 ‘지출자 확인 필요’ 도 예산 안 1건(40,000원)만 센다(2차는 예산 밖까지 2건·110,000원)");
-  t.ok(alerts.html.includes("예산 밖 분류의 반영 대기 고정지출·정기지출 1건(70,000원)"), "2-h 3차: 예산 밖 분류의 규칙은 예전처럼 예산 밖 안내에 남는다(2차는 예산 밖 안내에서 빠졌다)");
-  const notes = await api(fx, `/u/api/notifications?household_id=${HH}&month=2026-11`);
-  const obs = notes.data.budget_observation;
-  const check = (notes.data.notifications || []).find((n) => n.key === "recurring-spender-check:2026-11");
-  t.deepEq([obs.pending_total, obs.spender_check_count, obs.spender_check_total, check?.title], [20000, 1, 40000, "지출자 확인이 필요한 정기 항목 1건"], "2-h 3차: API·알림도 같은 범위(대기 20,000원 · 지출자 확인 1건 40,000원)");
+  const shared = await sameForecast(fx);
+  const alerts = shared.htmls[0];
+  t.ok(alerts.includes("<span>고정지출 대기</span><b>20,000원</b><small>지출자 확인 필요 1건</small>") && alerts.includes("지출자 확인 필요 1건(40,000원)"), "2-h 대기(예산 안 20,000원) 아래 ‘지출자 확인 필요’ 는 예산 안 1건(40,000원)만 센다(2차는 예산 밖까지 2건·110,000원)");
+  t.ok(!alerts.includes("예산 밖 분류의 반영 대기") && alerts.includes("<p class=\"muted\">예산 밖 지출자 확인 필요 1건(70,000원)은 반영 대기에 넣지 않았습니다.</p>"), "2-h 4차: 예산 밖의 자격 없는 보험 규칙은 ‘반영 대기’ 가 아니라 ‘예산 밖 지출자 확인 필요 1건(70,000원)’ 이다(3차는 예약 실행이 매달 건너뛰는 그 규칙을 ‘예산 밖 분류의 반영 대기 1건(70,000원)’ 으로 적었다)");
+  const check = noticeOf(shared, "recurring-spender-check:2026-11");
+  t.deepEq([check?.title, check?.body], ["지출자 확인이 필요한 정기 항목 2건", "110,000원 · 자동·수동 반영에서 건너뛰어 반영 대기에서 뺐어요. 지출자를 확인해 주세요."], "2-h 4차: 알림센터의 ‘지출자 확인’ 알림은 예산 안팎을 모두 센다(2건 110,000원 — 3차는 예산 안 1건뿐이라 예산 밖 규칙의 신호가 없었다)");
+  t.deepEq([shared.api.forecast, shared.api.pending_total, shared.api.spender_check_count, shared.api.spender_check_total, noticeOf(shared, "recurring-pending:2026-11")?.title], [187647, 20000, 1, 40000, "이번 달 반영 대기 고정지출 1건"], "2-h API budget_observation 은 pending_total 과 같은 예산 범위다(월말 예상 187,647원 · 대기 20,000원 · 지출자 확인 1건 40,000원)");
+  t.deepEq(shared.pages, ["187,647", "217,647", "217,647"], "2-h 월말 예상: 예산 알림은 예산 범위 187,647원, 종합 리포트·스마트 도구는 전체 분류 217,647원(범위가 달라 예전부터 다른 값)");
+  t.ok(strip(shared.htmls[1]).includes("· 지출자 확인 필요 2건 제외") && shared.htmls[2].includes("<small>지출자 확인 필요 2건 제외</small>"), "2-h 종합 리포트·스마트 도구(전체 분류)는 뺀 규칙 2건을 적는다");
 }));
-{
+await at("2026-11-17", "12:00", async () => {
   const budgets = [{ month: "2026-11", category: "식비", amount: 300000 }];
   const input = { month: "2026-11", rows: NOV_ROWS(), today: "2026-11-17", recurring: scopeRules(), plans: [], budgets, scope: "budgeted" };
   const plain = monthSpendingOutlook(input);
   const scoped = monthSpendingOutlook({ ...input, members: MEMBERS });
-  t.ok(scoped.notYetRecorded.spenderCheckCount === 1 && ids(scoped.notYetRecorded.spenderCheckRules) === "rule-in-gone" && ids(scoped.notYetRecorded.pendingFixedRules) === "rule-in-bin", "2-h 3차: 월말 예상(예산 범위)의 지출자 확인 목록도 pendingFixedRules 와 같은 범위 안이다");
-  t.ok(ids(scoped.notYetRecorded.outsidePendingRules) === ids(plain.notYetRecorded.outsidePendingRules) && ids(plain.notYetRecorded.outsidePendingRules) === "rule-out-gone", "2-h 3차: 범위 밖 목록은 참여자 목록과 상관없이 예전 값(홈 ‘예산에 안 넣은’ 줄의 출처)");
+  t.ok(scoped.notYetRecorded.spenderCheckCount === 1 && ids(scoped.notYetRecorded.spenderCheckRules) === "rule-in-gone" && ids(scoped.notYetRecorded.pendingFixedRules) === "rule-in-bin", "2-h 월말 예상(예산 범위)의 지출자 확인 목록도 pendingFixedRules 와 같은 범위 안이다");
+  t.deepEq([ids(plain.notYetRecorded.outsidePendingRules), plain.notYetRecorded.outsidePendingFixed, ids(scoped.notYetRecorded.outsidePendingRules), scoped.notYetRecorded.outsidePendingFixed], ["rule-out-gone", 70000, "", 0], "2-h 4차: 범위 밖 대기 목록(홈 ‘예산에 안 넣은 … 따로 나가요’ 줄의 출처)도 참여자 목록을 넘기면 자격 있는 규칙만이다(3차는 넘겨도 70,000원)");
+  const home = homeUpcomingOut({ month: "2026-11", today: "2026-11-17", rows: NOV_ROWS(), plans: [], recurring: scopeRules(), members: MEMBERS });
+  t.deepEq([home.total, home.fixedCount, home.spenderCheckCount], [20000, 1, 2], "2-h 홈 ‘앞으로 나갈 돈’(전체 분류)은 대기 20,000원 아래 지출자 확인 2건 — 예산 밖 보험 규칙의 신호가 홈에 남는다");
+  const model = buildBudgetAlertPolishModel({ month: "2026-11", rows: NOV_ROWS(), budgets, recurring: scopeRules(), plans: [], members: MEMBERS });
+  t.deepEq([ids(model.outsidePendingRecurring), ids(model.outsideSpenderCheckRecurring), model.outsideSpenderCheckTotal, ids(model.spenderCheckRecurring), model.spenderKnown], ["", "rule-out-gone", 70000, "rule-in-gone", true], "2-h 4차: 예산 알림 모델은 예산 밖 대기(자격 있는 규칙만)와 예산 밖 지출자 확인(보험 70,000원)을 따로 돌려준다");
+  t.deepEq([null, []].map((members) => buildBudgetAlertPolishModel({ month: "2026-11", rows: NOV_ROWS(), budgets, recurring: scopeRules(), plans: [], members }).spenderKnown), [false, false], "2-h 4차: 참여자 목록이 없거나 비면 모델의 spenderKnown 은 false(API 의 spender_check_* 가 null)");
+});
+
+// 2-i. 4차: 자격 없는 보험 규칙(70,000원·20일)과 같은 금액·날짜의 정기지출 항목 — 규칙은 기록을 만들지 않으므로 항목과 짝짓지 않고,
+//      항목은 목록에 남아 월말 예상에 한 번(70,000원) 들어간다. 안내·알림은 ‘반영 대기에서 뺐다’ 고만 말한다(월말 예상에서 뺐다고 하지 않는다).
+const insScene = (spender) => at("2026-11-17", "12:00", () => fixture(async (fx) => {
+  seedRules(fx);
+  fx.db.accountbook_recurring = [rule("rule-ins", 20, 70000, "보험-나간지출자", spender, "2026-10", { category: "보험" })];
+  putSetting(fx, `reserve_plans:${HH}`, JSON.stringify([{ id: "p-ins", name: "보험-나간지출자", amount: 70000, due_months: [11], due_day: 20, category: "보험" }]));
+  fx.cookie = await fx.cookieFor("user-bin");
+  return sameForecast(fx);
+}));
+{
+  const gone = await insScene("user-gone");
+  const kept = await insScene("user-bin");
+  const alerts = gone.htmls[0];
+  const note = alerts.match(/<p class="muted">지출자 확인 필요 1건\(70,000원\)[^<]*<\/p>/)?.[0] || "";
+  const check = noticeOf(gone, "recurring-spender-check:2026-11");
+  t.ok(alerts.includes("<li><b>보험-나간지출자</b><span>정기지출 · 보험 · 20일 납부 예정</span><strong>70,000원</strong></li>") && alerts.includes("<span>고정지출 대기</span><b>0원</b><small>지출자 확인 필요 1건</small>"), "2-i 정기지출 항목은 납부 예정으로 목록에 남고, 규칙은 대기 0원 아래 지출자 확인 1건이다");
+  t.deepEq([...gone.pages, gone.api.forecast, ...kept.pages, kept.api.forecast], ["267,647", "267,647", "267,647", 267647, "267,647", "267,647", "267,647", 267647], "2-i 월말 예상은 항목 70,000원을 한 번 넣은 267,647원(항목이 없으면 197,647원 — 2-b)이고, 지출자가 자격이 있어 규칙과 짝지을 때와 같다");
+  t.ok(note.includes("반영 대기에 넣지 않았습니다.") && !note.includes("월말 예상") && check?.body === "70,000원 · 자동·수동 반영에서 건너뛰어 반영 대기에서 뺐어요. 지출자를 확인해 주세요.", "2-i 4차: 안내와 알림은 ‘반영 대기에서 뺐다’ 고만 말한다(3차의 ‘…월말 예상에 넣지 않았습니다’·‘…월말 예상에서 뺐어요’ 는 항목으로 들어간 70,000원과 맞지 않았다)");
+  t.deepEq([gone.api.pending_total, gone.api.spender_check_count, gone.api.spender_check_total, kept.api.pending_total, kept.api.spender_check_count], [0, 1, 70000, 70000, 0], "2-i API: 자격 없으면 대기 0원·지출자 확인 1건 70,000원, 자격 있으면 대기 70,000원·0건");
 }
+
+// 2-j. 4차: 저장된 역할이 비어(null·빈 값) 화면에는 ‘구성원’ 으로 보이는 사람이 지출자인 규칙 — 예약 실행(보정 전 역할 행)은 건너뛴다.
+//      화면도 같은 판정(참여자 읽기가 붙여 둔 숨은 값)을 쓴다. 역할 보정(권한)과 직렬화는 그대로다. 역할 member 는 대조군이다.
+for (const role of [null, "", "member"]) {
+  const skipped = role !== "member";
+  await at("2026-11-17", "12:00", () => fixture(async (fx) => {
+    fx.db.users.push({ id: "user-norole", kakao_user_key: "kakao_login:2401", nickname: "역할없음", created_at: "2026-07-01T00:00:00.000Z" });
+    fx.db.household_members.push({ household_id: HH, user_id: "user-norole", role, created_at: "2026-07-02T00:00:00.000Z" });
+    fx.db.accountbook_recurring = [rule("rule-norole", 10, 30000, "역할없음-규칙", "user-norole"), rule("rule-owner", 10, 40000, "소유자-규칙", "user-bin")];
+    fx.db.accountbook_budgets.push({ id: "b-nov-total", household_id: HH, month: "2026-11", category: "__total", amount: 1500000, created_at: "2026-11-01T00:00:00.000Z" });
+    fx.cookie = await fx.cookieFor("user-bin");
+    const members = await fetchHouseholdMembers(fx.env, HH);
+    const person = members.find((m) => m.user_id === "user-norole");
+    t.ok(person.role === "member" && person.recurringSpender === !skipped && !Object.keys(person).includes("recurringSpender") && !JSON.stringify(members).includes("recurringSpender"), `2-j 역할 ${JSON.stringify(role)}: 참여자 읽기의 role 은 예전처럼 ‘member’(권한 보정 그대로), 지출자 판정은 예약 실행과 같은 값을 열거되지 않게 붙인다`);
+    const alerts = await page(fx, `/budget-alerts?household_id=${HH}&month=2026-11`);
+    const obs = (await api(fx, `/u/api/notifications?household_id=${HH}&month=2026-11`)).data.budget_observation;
+    const job = await runRecurringAutoApply(fx.env, { today: "2026-11-17", lock: false });
+    const made = (id) => fx.db.transactions.filter((row) => row.raw_text === `recurring:${id}:2026-11`).length;
+    const screen = [alerts.html.includes(skipped ? "<span>고정지출 대기</span><b>40,000원</b><small>지출자 확인 필요 1건</small>" : "<span>고정지출 대기</span><b>70,000원</b></div>"), alerts.html.includes("<b>역할없음-규칙</b>"), obs.pending_total, obs.spender_check_count];
+    t.deepEq(screen, skipped ? [true, false, 40000, 1] : [true, true, 70000, 0], `2-j 역할 ${JSON.stringify(role)}: 예산 알림·API 는 ${skipped ? "그 규칙을 대기(3차: 70,000원·목록에 있음)가 아니라 지출자 확인 1건으로 센다" : "예전처럼 두 규칙을 대기로 센다"}`);
+    t.deepEq([job.applied, job.skipped, made("rule-norole"), made("rule-owner")], skipped ? [1, 1, 0, 1] : [2, 0, 1, 1], `2-j 역할 ${JSON.stringify(role)}: 예약 실행도 ${skipped ? "그 규칙을 건너뛴다" : "두 규칙을 넣는다"}(화면과 같은 판정)`);
+  }));
+}
+
+// 2-k. 4차: 예산이 하나도 없는 달(2-b 자료에서 예산 행을 모두 지움) — 모델(inBudget)과 월말 예상(inScope)이 모두 전체 분류라
+//      예산 알림·알림센터 API·종합 리포트·스마트 도구가 같은 월말 예상과 같은 지출자 확인 건수를 말한다.
+await at("2026-11-17", "12:00", () => fixture(async (fx) => {
+  seedRules(fx);
+  fx.db.accountbook_budgets = [];
+  fx.cookie = await fx.cookieFor("user-bin");
+  const shared = await sameForecast(fx);
+  const check = noticeOf(shared, "recurring-spender-check:2026-11");
+  t.deepEq(shared.pages, ["197,647", "197,647", "197,647"], "2-k 예산 없음: 예산 알림·종합 리포트·스마트 도구의 월말 예상이 같은 197,647원");
+  t.ok(shared.htmls[0].includes("<span>고정지출 대기</span><b>0원</b><small>지출자 확인 필요 2건</small>") && shared.htmls[0].includes("지출자 확인 필요 2건(540,000원)") && strip(shared.htmls[1]).includes("· 지출자 확인 필요 2건 제외") && shared.htmls[2].includes("<small>지출자 확인 필요 2건 제외</small>"), "2-k 예산 없음: 세 화면이 같은 지출자 확인 2건을 말한다");
+  t.deepEq([shared.api.forecast, shared.api.pending_total, shared.api.spender_check_count, shared.api.spender_check_total, check?.title, check?.body.split(" · ")[0]], [197647, 0, 2, 540000, "지출자 확인이 필요한 정기 항목 2건", "540,000원"], "2-k 예산 없음: 알림센터 API·알림도 같은 월말 예상·2건 540,000원");
+}));
 
 // ── FC-30 환불 차감은 지출 합 이하 ─────────────────────────────────────────────────
 {
