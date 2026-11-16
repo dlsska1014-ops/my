@@ -537,8 +537,13 @@ async function clearKakaoConfirmedPendingWrite(env, householdId, userId, marker)
 
 // V22.9.126 FC-19(2차 검토): 값 칸은 text 라 늘 글자지만 길이 제한이 없다. 긴 값을 eq 로 주소에 실으면 요청이 거절되어 다시 기한 없이 막히므로,
 // 200자를 넘으면 앞 200자(LIKE 특수 문자 앞까지)로 비교한다. 같은 사람의 쓰기 잠금 안이라 앞부분 비교로 충분하다.
+// 3차 검토: 서로게이트 쌍 가운데서 자르지 않는다(반쪽은 주소에서 U+FFFD 가 되어 맞지 않는다). 앞부분이 64자보다 짧으면(특수 문자로 시작하면 빈 값)
+// 이 코드가 쓰는 표식(지문 64자로 시작)까지 맞을 수 있어 예전처럼 값 전체로 비교한다 — 주소가 너무 길면 예전처럼 막힌다.
 function kakaoPendingWriteValueFilterV229126(raw = "") {
-  return raw.length <= 200 ? `eq.${raw}` : `like.${raw.slice(0, 200).split(/[*%_\\]/)[0]}*`;
+  if (raw.length <= 200) return `eq.${raw}`;
+  const head = /[\uD800-\uDBFF]$/.test(raw.slice(0, 200)) ? raw.slice(0, 199) : raw.slice(0, 200);
+  const prefix = head.split(/[*%_\\]/)[0];
+  return prefix.length >= 64 ? `like.${prefix}*` : `eq.${raw}`;
 }
 
 async function writeKakaoPendingWrite(env, householdId, userId, marker, expected = {exists:false}) {
@@ -564,8 +569,9 @@ async function writeKakaoPendingWrite(env, householdId, userId, marker, expected
 
 // V22.9.126 FC-19(2차 검토): 표식 번호에는 120초 중복으로 건너뛴 기존 행의 DB 번호도 들어간다(kakaoPendingMarker). 그 번호는 v4 가 아닐 수 있어
 // (transactions.id 는 uuid 칸), v4 만 받으면 이 코드가 쓴 표식이 ‘읽지 못함’ 이 되어 번호 재사용과 10분 보류가 사라졌다. UUID 꼴이면 버전과 상관없이 받는다.
+// 3차 검토: 번호는 그대로 주소·거래 POST 에 쓰이므로 다듬은 값이 아니라 원래 값을 본다(앞뒤 공백이 붙은 번호는 읽지 못함).
 function kakaoPendingWriteRowIdV229126(value) {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(String(value || "").trim().toLowerCase());
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 }
 
 function parseKakaoPendingWrite(value) {

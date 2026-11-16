@@ -64,6 +64,11 @@ async function getKakaoEditSessionV4(env, kakaoUserKey = "", payload = {}, snaps
   }
 }
 
+// V22.9.126 FC-19(3차 검토): 저장된 세션이 없어 정리 쓰기를 건너뛸 때도 이 isolate 의 힌트는 쓰기 때처럼 지운다(반복 방지·늦은 답 판정이 예전과 같다).
+function clearKakaoEditSessionHintV229126(kakaoUserKey = "", payload = {}) {
+  AB_KAKAO_EDIT_SESSION_HINTS.delete(kakaoEditSessionHintKey(kakaoUserKey, payload));
+}
+
 // I6: reply 전송과 세션 저장은 원자적 쌍 — 저장 실패를 조용히 삼키면
 // lastBotMsg·repeatCount가 무력화되어 루프가 재발하므로 여기서는 throw를 허용한다.
 async function saveKakaoEditSessionV4(env, kakaoUserKey = "", payload = {}, session = null) {
@@ -589,18 +594,19 @@ function kakaoEditGuideText(origin = "") {
 // @build:exports-start
 export {
   KAKAO_AMOUNT_CHANGE_TAIL_V4, KAKAO_AUDIT_ACTOR_KIND, KAKAO_DAILY_ROW_LIMIT_V22980,
-  KAKAO_LATEST_AMOUNT_EDIT_V4, KAKAO_SEQ_AMOUNT_EDIT_V4, KAKAO_TX_SELECT_V4, dailySeqForKakaoRow,
-  deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq, getDailyKakaoRawRows, getDailyKakaoRows,
-  getKakaoEditSessionV4, getKakaoRowById, getRecentKakaoOwnedTransactionsV2254,
-  hasKakaoEditSessionHint, isKakaoDailyListCommand, isKakaoEditCancelCommand,
-  isKakaoEditGuideCommand, isKakaoSessionSeqReplyV4, isKakaoTransactionSpenderChangeCommand,
-  kakaoActiveSpenderMembers, kakaoDailySeqFromRows, kakaoEditDayPrefixV4,
-  kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditInputTextV4,
-  kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditSessionKeyV4, kakaoEditSessionTextV4,
-  kakaoEditTargetRejectTextV4, kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4, kakaoRowLabel,
-  parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
-  parseKakaoSpenderChoiceValue, postgrestQuotedValueV22979, readKakaoEditUndoItemsV4,
-  resolveKakaoEditDateV4, saveKakaoEditSessionV4, stripKakaoEditDatePrefixV4, twoDigitSeq,
-  withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
+  KAKAO_LATEST_AMOUNT_EDIT_V4, KAKAO_SEQ_AMOUNT_EDIT_V4, KAKAO_TX_SELECT_V4,
+  clearKakaoEditSessionHintV229126, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4,
+  findDailyKakaoRowBySeq, getDailyKakaoRawRows, getDailyKakaoRows, getKakaoEditSessionV4,
+  getKakaoRowById, getRecentKakaoOwnedTransactionsV2254, hasKakaoEditSessionHint,
+  isKakaoDailyListCommand, isKakaoEditCancelCommand, isKakaoEditGuideCommand,
+  isKakaoSessionSeqReplyV4, isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers,
+  kakaoDailySeqFromRows, kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4,
+  kakaoEditGuideText, kakaoEditInputTextV4, kakaoEditMenuTextV4, kakaoEditRecordLineV4,
+  kakaoEditSessionKeyV4, kakaoEditSessionTextV4, kakaoEditTargetRejectTextV4,
+  kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4, kakaoRowLabel, parseKakaoDeleteCommandV4,
+  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue,
+  postgrestQuotedValueV22979, readKakaoEditUndoItemsV4, resolveKakaoEditDateV4,
+  saveKakaoEditSessionV4, stripKakaoEditDatePrefixV4, twoDigitSeq, withKakaoEditUndoLeaseV4,
+  writeKakaoEditUndoItemsV4,
 };
 // @build:exports-end
