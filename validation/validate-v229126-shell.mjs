@@ -361,6 +361,22 @@ for (const month of ["2026-10", "2026-12"]) {
   for (const text of ["2026-07-01,정육점,1.500,25000원", "2026-07-01,책,3.141,25000원", "2026-07-01,주유,126.978,25000원"]) {
     t.eq(full(text), "rejected:ambiguous_amount", `FC-6(4차) 받아들인 대가: ${JSON.stringify(text)} 는 ‘금액 후보가 여러 개’ 로 되묻는다(고치기 전 25,000원 저장 대기)`);
   }
+  // 5차: 정수 부분이 0 인 ‘.000’ 꼴(0.000·000.000·0,000.000)은 되물을 금액이 없어 점 금액 칸이 아니다. 고치기 전과 같다(4차는 ‘금액 후보가 여러 개’·invalid 였다).
+  for (const zero of ["0.000", "000.000", "0,000.000"]) {
+    t.eq(full(`2026-07-01,커피,${csvCell(zero)},25000원`), "expense:25000:ready", `FC-6(5차) ${JSON.stringify(zero)} 옆의 25000원은 고치기 전처럼 25,000원 저장 대기다`);
+    t.eq(full(`2026-07-01,커피,${csvCell(zero)}`), "rejected:missing_amount", `FC-6(5차) ${JSON.stringify(zero)} 만 있는 줄은 고치기 전처럼 ‘금액 없음’ 이다`);
+  }
+  // 5차: 칸 읽기가 받지 않고 점 금액 칸도 아닌 꼴은 고치기 전처럼 자연어 해석으로 간다. 결과가 고치기 전과 같음을 고정한다.
+  // (괄호·en dash 부호를 자연어 해석이 읽지 않는 것은 고치기 전부터의 동작이다.)
+  for (const [cell, tsvMain, csvMain] of [
+    ["+12.000", "rejected:missing_amount", "rejected:missing_amount"], ["+1.200.000", "rejected:missing_amount", "rejected:missing_amount"],
+    ["-(12.000)", "rejected:missing_amount", "rejected:missing_amount"], ["₩(12.000)", "expense:12000:ready", "expense:12000:ready"],
+    ["KRW(12.000)", "expense:12000:ready", "expense:12000:ready"], ["12.000₩", "expense:12000:ready", "rejected:missing_amount"],
+    ["–12.000", "expense:12000:ready", "expense:12000:ready"], ["12.000,00", "rejected:missing_amount", "rejected:missing_amount"],
+  ]) {
+    t.eq(full(`2026-07-01\t커피\t${cell}`), tsvMain, `FC-6(5차) 머리글 없는 TSV 칸 ${JSON.stringify(cell)} 은 고치기 전과 같다(${tsvMain})`);
+    t.eq(full(`2026-07-01,커피,"${cell}"`), csvMain, `FC-6(5차) 따옴표로 감싼 CSV 칸 ${JSON.stringify(cell)} 도 고치기 전과 같다(${csvMain})`);
+  }
   for (const [text, expected, main] of [
     ["2026-07-01,커피,12.000원", "rejected:invalid_amount", "12원"], ["2026-07-01\t커피\t12.000원", "rejected:invalid_amount", "12원"], ["2026-07-01\t커피\t12.500원", "rejected:invalid_amount", "12,500원"],
     ["2026-07-01,커피,₩1.200.000", "rejected:invalid_amount", "1,200,000원"], ["2026-07-01,커피,5.000", "rejected:invalid_amount", "5원"], ["2026-07-01,환불,-12.000원", "rejected:invalid_amount", "12원"],
