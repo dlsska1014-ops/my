@@ -8,18 +8,31 @@ import { safeArray, safeObject } from "./backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import { csvSafeText } from "../import/csv-duplicates.js";
 import { householdChoiceLabelV229118 } from "../my/access-control.js";
+import { hasDatabaseRoom } from "../auth/kakao-account-link.js";
+import { postgrestQuotedValueV22979 } from "../kakao/edit-session-v4.js";
 import { supabase } from "../data/supabase-client.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
 import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // @build:imports-end
 
+// V22.9.126 FC-27a: 복구 적용은 기록을 source "my_import" 로 저장한다(저장 RPC 가 backup_import_v19_3 밖의 가져오기 source 를 my_import 로 바꾸고,
+// 옛 RPC 본문은 늘 my_import). backup_import_* 만 세어 복구 직후에도 이력·되돌리기 후보가 0건이었다. 저장 값은 그대로 두고 판정을 넓힌다.
 function isBackupImportSource(value) {
-  return String(value || "").includes("backup_import_");
+  const source = String(value || "");
+  return source.includes("backup_import_") || source === "my_import";
+}
+
+// V22.9.126 FC-27g: created_at(UTC)을 글자 그대로 잘라 배치·저장 시각이 9시간 이르게 보였다. 한국 시간으로 바꿔 보인다(모양이 틀리면 예전처럼 자른다).
+function importHistoryKstV229126(value) {
+  const text = String(value || "").trim();
+  const ms = Date.parse(/(?:[zZ]|[+-]\d{2}:?\d{2})$/.test(text) ? text : `${text}Z`);
+  if (!text || !Number.isFinite(ms)) return text.replace("T", " ").slice(0, 19);
+  return new Date(ms + 9 * 60 * 60 * 1000).toISOString().replace("T", " ").slice(0, 19);
 }
 
 function importHistoryBatchKey(row) {
   const r = safeObject(row);
-  const created = String(r.created_at || "");
+  const created = importHistoryKstV229126(r.created_at);
   const day = created.slice(0, 10) || String(r.transaction_date || "").slice(0, 10) || "날짜없음";
   const hour = created.slice(11, 13) || "00";
   return `${day} ${hour}시`;
@@ -52,13 +65,13 @@ function summarizeImportHistory(rows = []) {
 function renderImportHistoryRows(rows = []) {
   const arr = safeArray(rows).slice(0, 300);
   if (!arr.length) return `<tr><td colspan="9">가져오기 이력이 없습니다.</td></tr>`;
-  return arr.map((r) => `<tr><td>${escapeHtml(String(r.created_at || "").replace("T", " ").slice(0, 19))}</td><td>${escapeHtml(String(r.transaction_date || ""))}</td><td>${r.type === "income" ? "수입" : "지출"}</td><td>${numberWithCommas(r.amount || 0)}원</td><td>${escapeHtml(r.category || "")}</td><td>${escapeHtml(r.memo || r.raw_text || "")}</td><td>${escapeHtml(r.payment_method || "")}</td><td>${escapeHtml(r.source || "")}</td><td>${escapeHtml(r.id || "")}</td></tr>`).join("");
+  return arr.map((r) => `<tr><td>${escapeHtml(importHistoryKstV229126(r.created_at))}</td><td>${escapeHtml(String(r.transaction_date || ""))}</td><td>${r.type === "income" ? "수입" : "지출"}</td><td>${numberWithCommas(r.amount || 0)}원</td><td>${escapeHtml(r.category || "")}</td><td>${escapeHtml(r.memo || r.raw_text || "")}</td><td>${escapeHtml(r.payment_method || "")}</td><td>${escapeHtml(r.source || "")}</td><td>${escapeHtml(r.id || "")}</td></tr>`).join("");
 }
 
 function renderImportHistoryBatchRows(batches = []) {
   const arr = safeArray(batches);
   if (!arr.length) return `<tr><td colspan="6">가져오기 배치가 없습니다.</td></tr>`;
-  return arr.map((b) => `<tr><td><b>${escapeHtml(b.key)}</b></td><td>${numberWithCommas(b.count)}건</td><td>${numberWithCommas(b.income)}원</td><td>${numberWithCommas(b.expense)}원</td><td>${escapeHtml(String(b.first_created || "").replace("T", " ").slice(0, 19))}</td><td>${escapeHtml(String(b.last_created || "").replace("T", " ").slice(0, 19))}</td></tr>`).join("");
+  return arr.map((b) => `<tr><td><b>${escapeHtml(b.key)}</b></td><td>${numberWithCommas(b.count)}건</td><td>${numberWithCommas(b.income)}원</td><td>${numberWithCommas(b.expense)}원</td><td>${escapeHtml(importHistoryKstV229126(b.first_created))}</td><td>${escapeHtml(importHistoryKstV229126(b.last_created))}</td></tr>`).join("");
 }
 
 async function handleImportHistoryPage(request, env, url) {
@@ -74,7 +87,7 @@ async function handleImportHistoryPage(request, env, url) {
   qs.set("month", month);
   if (hid) qs.set("household_id", hid);
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(householdChoiceLabelV229118(h, households) || h.name)}</option>`).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>가져오기 이력</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1e3a8a));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:980px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid, role: "admin" })}<main class="wrap"><section class="hero"><h1>가져오기 이력/감사 로그</h1><p>백업 가져오기로 실제 저장된 거래를 확인합니다. 현재는 source 값이 backup_import_* 인 거래를 기준으로 집계합니다.</p><form class="filters" method="get" action="/backup/import-history"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="grid"><div class="metric"><span>가져오기 건수</span><b>${numberWithCommas(summary.total)}건</b></div><div class="metric"><span>수입 합계</span><b>${numberWithCommas(summary.income)}원</b></div><div class="metric"><span>지출 합계</span><b>${numberWithCommas(summary.expense)}원</b></div><div class="metric"><span>잔액 영향</span><b>${numberWithCommas(summary.balance)}원</b></div></section><section class="card"><h2>내보내기</h2><p class="warnBox">가져오기 이력은 실제 저장된 거래 기준입니다. 필요하면 CSV로 내려받아 보관하세요.</p><p><a class="btn light" href="/backup/import-history.csv?${escapeHtml(qs.toString())}">이력 CSV 다운로드</a> <a class="btn" href="/backup/apply?${escapeHtml(qs.toString())}">가져오기 실제 적용</a></p></section><section class="card"><h2>시간대별 요약</h2><div class="tableWrap"><table><thead><tr><th>배치 추정</th><th>건수</th><th>수입</th><th>지출</th><th>시작</th><th>마지막</th></tr></thead><tbody>${renderImportHistoryBatchRows(summary.batches)}</tbody></table></div></section><section class="card"><h2>상세 이력</h2><p class="note">최근 300건까지만 화면에 표시합니다. 전체는 CSV로 확인하세요.</p><div class="tableWrap"><table><thead><tr><th>저장시각</th><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th><th>source</th><th>ID</th></tr></thead><tbody>${renderImportHistoryRows(rows)}</tbody></table></div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>가져오기 이력</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1e3a8a));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:980px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid, role: "admin" })}<main class="wrap"><section class="hero"><h1>가져오기 이력/감사 로그</h1><p>백업 가져오기로 실제 저장된 거래를 확인합니다. source 값이 가져오기(my_import·backup_import_*)인 거래를 집계하므로 백업 복구와 웹 파일 가져오기로 저장한 거래가 함께 보입니다. 시각은 한국 시간입니다.</p><form class="filters" method="get" action="/backup/import-history"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section><section class="grid"><div class="metric"><span>가져오기 건수</span><b>${numberWithCommas(summary.total)}건</b></div><div class="metric"><span>수입 합계</span><b>${numberWithCommas(summary.income)}원</b></div><div class="metric"><span>지출 합계</span><b>${numberWithCommas(summary.expense)}원</b></div><div class="metric"><span>잔액 영향</span><b>${numberWithCommas(summary.balance)}원</b></div></section><section class="card"><h2>내보내기</h2><p class="warnBox">가져오기 이력은 실제 저장된 거래 기준입니다. 필요하면 CSV로 내려받아 보관하세요.</p><p><a class="btn light" href="/backup/import-history.csv?${escapeHtml(qs.toString())}">이력 CSV 다운로드</a> <a class="btn" href="/backup/apply?${escapeHtml(qs.toString())}">가져오기 실제 적용</a></p></section><section class="card"><h2>시간대별 요약</h2><div class="tableWrap"><table><thead><tr><th>배치 추정</th><th>건수</th><th>수입</th><th>지출</th><th>시작</th><th>마지막</th></tr></thead><tbody>${renderImportHistoryBatchRows(summary.batches)}</tbody></table></div></section><section class="card"><h2>상세 이력</h2><p class="note">최근 300건까지만 화면에 표시합니다. 전체는 CSV로 확인하세요.</p><div class="tableWrap"><table><thead><tr><th>저장시각</th><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th><th>source</th><th>ID</th></tr></thead><tbody>${renderImportHistoryRows(rows)}</tbody></table></div></section></main></body></html>`);
 }
 
 function csvCell(value) {
@@ -117,7 +130,7 @@ function renderRollbackCandidateRows(rows = []) {
       source: row.source || "",
       created_at: row.created_at || ""
     }));
-    return `<tr data-rollback-row="1"><td><input class="rollbackCheck" type="checkbox" data-idx="${idx}" data-amount="${escapeHtml(row.amount || 0)}" data-type="${escapeHtml(row.type || "expense")}"/></td><td>${escapeHtml(String(row.created_at || "").replace("T", " ").slice(0, 19))}</td><td>${escapeHtml(String(row.transaction_date || ""))}</td><td>${row.type === "income" ? "수입" : "지출"}</td><td>${numberWithCommas(row.amount || 0)}원</td><td>${escapeHtml(row.category || "")}</td><td>${escapeHtml(row.memo || row.raw_text || "")}</td><td>${escapeHtml(row.payment_method || "")}</td><td>${escapeHtml(row.source || "")}</td><td><code>${escapeHtml(row.id || "")}</code><input type="hidden" class="rollbackPayload" value="${json}"/></td></tr>`;
+    return `<tr data-rollback-row="1"><td><input class="rollbackCheck" type="checkbox" data-idx="${idx}" data-amount="${escapeHtml(row.amount || 0)}" data-type="${escapeHtml(row.type || "expense")}"/></td><td>${escapeHtml(importHistoryKstV229126(row.created_at))}</td><td>${escapeHtml(String(row.transaction_date || ""))}</td><td>${row.type === "income" ? "수입" : "지출"}</td><td>${numberWithCommas(row.amount || 0)}원</td><td>${escapeHtml(row.category || "")}</td><td>${escapeHtml(row.memo || row.raw_text || "")}</td><td>${escapeHtml(row.payment_method || "")}</td><td>${escapeHtml(row.source || "")}</td><td><code>${escapeHtml(row.id || "")}</code><input type="hidden" class="rollbackPayload" value="${json}"/></td></tr>`;
   }).join("");
 }
 
@@ -202,28 +215,45 @@ function validateRollbackCandidatePlan(plan) {
   return { ok: errors.length === 0, errors, warnings, rows, counts: { selected: rows.length, income, expense, balance: income - expense } };
 }
 
-async function fetchTransactionsByIds(env, ids = []) {
-  const out = [];
-  for (const id of safeArray(ids).map((x) => String(x || "").trim()).filter(Boolean).slice(0, 200)) {
+// V22.9.126 FC-27b: 거래를 한 건씩 읽어(최대 200회) 예산(50회)을 넘긴 뒤의 읽기 실패를 삼켰다 — 그 행들이 ‘현재 없음’ 이 되고, 빠진 행이 있어도
+// ‘통과’ 였다. 고른 가계부 안에서 50건씩 묶어 읽고(id=in.(…)&household_id=eq.), 읽은 묶음의 id 만 확인한 것으로 센다(나머지는 ‘확인 불가’).
+const ROLLBACK_READ_CHUNK_V229126 = 50;
+const ROLLBACK_READ_MAX_V229126 = 200;
+async function fetchTransactionsByIds(env, ids = [], householdId = "") {
+  const wanted = [...new Set(safeArray(ids).map((x) => String(x || "").trim()).filter(Boolean))].slice(0, ROLLBACK_READ_MAX_V229126);
+  const rows = [];
+  const checked = new Set();
+  if (!householdId) return { rows, checked };
+  for (let index = 0; index < wanted.length; index += ROLLBACK_READ_CHUNK_V229126) {
+    const chunk = wanted.slice(index, index + ROLLBACK_READ_CHUNK_V229126);
+    if (!hasDatabaseRoom(env, 1)) break;
+    let found;
     try {
-      const rows = await supabase(env, `/rest/v1/transactions?id=eq.${encodeURIComponent(id)}&select=*`, { method: "GET" }) || [];
-      if (Array.isArray(rows) && rows[0]) out.push(rows[0]);
-    } catch (_) {}
+      found = await supabase(env, `/rest/v1/transactions?id=in.(${chunk.map((id) => encodeURIComponent(postgrestQuotedValueV22979(id))).join(",")})&household_id=eq.${encodeURIComponent(householdId)}&select=*`, { method: "GET" });
+    } catch (_) { break; }
+    if (!Array.isArray(found)) break;
+    rows.push(...found);
+    for (const id of chunk) checked.add(id);
   }
-  return out;
+  return { rows, checked };
 }
 
-function compareRollbackPlanToCurrent(planRows = [], currentRows = []) {
+function compareRollbackPlanToCurrent(planRows = [], currentRows = [], checkedIds = null) {
   const currentById = new Map();
   for (const row of safeArray(currentRows)) currentById.set(String(safeObject(row).id || ""), safeObject(row));
   const deletable = [];
   const missing = [];
   const mismatch = [];
   const blocked = [];
+  const unverified = [];
   for (const planRow of safeArray(planRows)) {
     const current = currentById.get(String(planRow.id || ""));
+    if (!current && checkedIds && !checkedIds.has(String(planRow.id || ""))) {
+      unverified.push({ plan: planRow, error: "확인 불가: 현재 거래를 읽지 못함(한 번에 200건까지 확인)" });
+      continue;
+    }
     if (!current) {
-      missing.push({ plan: planRow, error: "현재 DB에 거래가 없음" });
+      missing.push({ plan: planRow, error: "고른 가계부에 이 거래가 없음" });
       continue;
     }
     if (!isBackupImportSource(current.source)) {
@@ -242,13 +272,14 @@ function compareRollbackPlanToCurrent(planRows = [], currentRows = []) {
   const income = deletable.filter((x) => x.plan.type === "income").reduce((a, x) => a + Number(x.plan.amount || 0), 0);
   const expense = deletable.filter((x) => x.plan.type !== "income").reduce((a, x) => a + Number(x.plan.amount || 0), 0);
   return {
-    ok: mismatch.length === 0 && blocked.length === 0,
+    ok: mismatch.length === 0 && blocked.length === 0 && missing.length === 0 && unverified.length === 0,
     counts: {
       plan: planRows.length,
       deletable: deletable.length,
       missing: missing.length,
       mismatch: mismatch.length,
       blocked: blocked.length,
+      unverified: unverified.length,
       income,
       expense,
       balance: income - expense,
@@ -257,6 +288,7 @@ function compareRollbackPlanToCurrent(planRows = [], currentRows = []) {
     missing,
     mismatch,
     blocked,
+    unverified,
   };
 }
 
@@ -274,7 +306,7 @@ function renderRollbackFinalCheckHtml({ households = [], householdId = "", month
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(householdChoiceLabelV229118(h, households) || h.name)}</option>`).join("");
   const errorBox = error ? `<section class="card bad"><h2>최종 확인 실패</h2><p>${escapeHtml(error)}</p></section>` : "";
   const validationBox = validation ? `<section class="card ${validation.ok ? "good" : "bad"}"><h2>계획 파일 검증: ${validation.ok ? "정상" : "확인 필요"}</h2><div class="grid mini"><div class="metric"><span>선택 후보</span><b>${numberWithCommas(validation.counts.selected)}</b></div><div class="metric"><span>수입 후보</span><b>${numberWithCommas(validation.counts.income)}원</b></div><div class="metric"><span>지출 후보</span><b>${numberWithCommas(validation.counts.expense)}원</b></div><div class="metric"><span>잔액 영향</span><b>${numberWithCommas(validation.counts.balance)}원</b></div></div>${validation.errors?.length ? `<h3>오류</h3><ul>${validation.errors.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}${validation.warnings?.length ? `<h3>주의</h3><ul>${validation.warnings.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</section>` : "";
-  const finalHtml = finalCheck ? `<section class="card ${finalCheck.ok ? "good" : "warn"}"><h2>${finalCheck.ok ? "삭제 전 최종 확인 통과" : "삭제 전 확인 필요"}</h2><p>${finalCheck.ok ? "계획 파일의 후보가 현재 DB에도 동일하게 존재합니다. 그래도 이 화면은 DB에서 삭제하지 않습니다." : "일부 후보가 현재 DB와 다르거나 삭제 대상이 아닙니다. 실제 삭제 전 계획을 다시 만드는 것이 안전합니다."}</p><div class="grid mini"><div class="metric"><span>계획 후보</span><b>${numberWithCommas(finalCheck.counts.plan)}</b></div><div class="metric"><span>삭제 가능 후보</span><b>${numberWithCommas(finalCheck.counts.deletable)}</b></div><div class="metric"><span>현재 없음</span><b>${numberWithCommas(finalCheck.counts.missing)}</b></div><div class="metric"><span>내용 차이</span><b>${numberWithCommas(finalCheck.counts.mismatch)}</b></div><div class="metric"><span>차단</span><b>${numberWithCommas(finalCheck.counts.blocked)}</b></div><div class="metric"><span>지출 되돌림 영향</span><b>${numberWithCommas(finalCheck.counts.expense)}원</b></div></div></section><section class="card"><h2>삭제 가능 후보</h2><p class="note">다음 실제 되돌리기 단계에서 대상이 될 수 있는 항목입니다. 이 화면에서는 삭제하지 않습니다.</p><div class="tableWrap"><table><thead><tr><th>ID</th><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>source</th><th>상태</th></tr></thead><tbody>${renderRollbackFinalRows(finalCheck.deletable)}</tbody></table></div></section><section class="card"><h2>삭제 제외/확인 필요</h2><p class="note">현재 없거나, source가 다르거나, 내용이 달라진 항목입니다.</p><div class="tableWrap"><table><thead><tr><th>ID</th><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>source</th><th>사유</th></tr></thead><tbody>${renderRollbackFinalRows([...finalCheck.missing, ...finalCheck.mismatch, ...finalCheck.blocked])}</tbody></table></div></section>` : "";
+  const finalHtml = finalCheck ? `<section class="card ${finalCheck.ok ? "good" : "warn"}"><h2>${finalCheck.ok ? "삭제 전 최종 확인 통과" : "삭제 전 확인 필요"}</h2><p>${finalCheck.ok ? "계획 파일의 후보가 현재 DB에도 동일하게 존재합니다. 그래도 이 화면은 DB에서 삭제하지 않습니다." : "일부 후보가 현재 DB와 다르거나, 고른 가계부에 없거나, 읽지 못해 확인하지 못했거나, 삭제 대상이 아닙니다. 실제 삭제 전 계획을 다시 만드는 것이 안전합니다."}</p><div class="grid mini"><div class="metric"><span>계획 후보</span><b>${numberWithCommas(finalCheck.counts.plan)}</b></div><div class="metric"><span>삭제 가능 후보</span><b>${numberWithCommas(finalCheck.counts.deletable)}</b></div><div class="metric"><span>현재 없음</span><b>${numberWithCommas(finalCheck.counts.missing)}</b></div><div class="metric"><span>확인 불가</span><b>${numberWithCommas(finalCheck.counts.unverified || 0)}</b></div><div class="metric"><span>내용 차이</span><b>${numberWithCommas(finalCheck.counts.mismatch)}</b></div><div class="metric"><span>차단</span><b>${numberWithCommas(finalCheck.counts.blocked)}</b></div><div class="metric"><span>지출 되돌림 영향</span><b>${numberWithCommas(finalCheck.counts.expense)}원</b></div></div></section><section class="card"><h2>삭제 가능 후보</h2><p class="note">다음 실제 되돌리기 단계에서 대상이 될 수 있는 항목입니다. 이 화면에서는 삭제하지 않습니다.</p><div class="tableWrap"><table><thead><tr><th>ID</th><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>source</th><th>상태</th></tr></thead><tbody>${renderRollbackFinalRows(finalCheck.deletable)}</tbody></table></div></section><section class="card"><h2>삭제 제외/확인 필요</h2><p class="note">현재 없거나, 읽지 못해 확인하지 못했거나, source가 다르거나, 내용이 달라진 항목입니다.</p><div class="tableWrap"><table><thead><tr><th>ID</th><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>source</th><th>사유</th></tr></thead><tbody>${renderRollbackFinalRows([...finalCheck.missing, ...safeArray(finalCheck.unverified), ...finalCheck.mismatch, ...finalCheck.blocked])}</tbody></table></div></section>` : "";
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>되돌리기 최종 확인</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7f1d1d));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.card.good{border-color:#86efac;background:#f0fdf4}.card.warn{border-color:#fde68a;background:#fffbeb}.card.bad{border-color:#fecaca;background:#fef2f2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.upload{display:grid;grid-template-columns:1fr 160px 170px 170px;gap:10px}.upload input,.upload select,.upload button{min-height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.upload input[type=file]{padding:10px}.upload button,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:900px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}@media(max-width:840px){.wrap{padding:12px}.hero h1{font-size:24px}.upload{grid-template-columns:1fr}.card{overflow-x:auto}}</style></head><body>${renderUnifiedNav("backup", { month, householdId, role: "admin" })}<main class="wrap"><section class="hero"><h1>되돌리기 최종 확인</h1><p>v10.9에서 만든 되돌리기 계획 JSON을 실제 삭제 전 다시 검증하고, 관리자 비밀번호를 재확인합니다. 이 단계도 DB에서 아무것도 삭제하지 않습니다.</p><p><a class="btn light" href="/backup/rollback-candidates">되돌리기 후보</a> <a class="btn light" href="/backup/import-history">가져오기 이력</a></p></section><section class="card"><h2>되돌리기 계획 파일 최종 확인</h2><p class="warnBox">계획 JSON과 관리자 비밀번호를 함께 확인합니다. 비밀번호가 맞아도 아직 Supabase에서 삭제하지 않습니다.</p><form class="upload" method="post" action="/backup/rollback-final-check" enctype="multipart/form-data"><input type="file" name="rollback_plan_file" accept="application/json,.json" required/><select name="household_id"><option value="">가계부 선택</option>${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month || currentMonthKst())}"/><input type="password" name="admin_password" placeholder="관리자 비밀번호" autocomplete="current-password" required/><button type="submit">최종 확인</button></form></section>${errorBox}${validationBox}${finalHtml}</main></body></html>`;
 }
 
@@ -311,9 +343,15 @@ async function handleRollbackFinalCheckPost(request, env) {
     if (!validation.ok) {
       return htmlResponse(renderRollbackFinalCheckHtml({ households, month, householdId, validation, error: "되돌리기 계획 파일 구조를 먼저 확인해야 합니다." }), 400);
     }
-    const currentRows = await fetchTransactionsByIds(env, validation.rows.map((r) => r.id));
-    const finalCheck = compareRollbackPlanToCurrent(validation.rows, currentRows);
-    return htmlResponse(renderRollbackFinalCheckHtml({ households, month, householdId, validation, finalCheck }));
+    // V22.9.126 FC-27b: 고른 가계부(비었으면 계획 파일의 가계부) 안에서만 읽는다.
+    const planHouseholdId = typeof safeObject(plan).household_id === "string" ? safeObject(plan).household_id.trim() : "";
+    const scopeHouseholdId = householdId || planHouseholdId;
+    if (!scopeHouseholdId) {
+      return htmlResponse(renderRollbackFinalCheckHtml({ households, month, householdId, validation, error: "되돌릴 가계부를 고른 뒤 다시 올려 주세요." }), 400);
+    }
+    const read = await fetchTransactionsByIds(env, validation.rows.map((r) => r.id), scopeHouseholdId);
+    const finalCheck = compareRollbackPlanToCurrent(validation.rows, read.rows, read.checked);
+    return htmlResponse(renderRollbackFinalCheckHtml({ households, month, householdId: scopeHouseholdId, validation, finalCheck }));
   } catch (err) {
     rememberOpsEvent({ kind: "rollback_final_check_failed", severity: "warn", path: "/rollback/final-check", method: "POST", detail: safeError(err) });
     return htmlResponse(renderRollbackFinalCheckHtml({ households, error: "되돌리기 최종 확인을 완료하지 못했습니다. 계획 파일을 다시 생성해 주세요." }), 400);
