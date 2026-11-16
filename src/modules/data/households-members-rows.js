@@ -6,6 +6,7 @@ import { safeArray, safeObject } from "../admin/backup-compare.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { verifyUserSession } from "../auth/user-session.js";
 import { fetchUserHouseholds, supabaseWithEmbedFallback } from "./users-household-create.js";
+import { recurringSpenderEligible } from "../cron/recurring-auto-apply.js";
 import { canReadMyHousehold } from "../my/access-control.js";
 import { memberCanBeSpender } from "../my/transactions.js";
 import { isMissingCategory, isMissingPayment } from "../kakao/reply-texts.js";
@@ -180,7 +181,7 @@ async function fetchHouseholdMembers(env, householdId, options = {}) {
     ? members.map((member) => member.users).filter((user) => user && user.id)
     : await fetchRowsByPlainIds(env, "users", members.map((member) => member.user_id), "id,nickname,kakao_user_key,created_at");
   const usersById = new Map(userRows.map((user) => [String(user.id || ""), user]));
-  return members.map((m) => {
+  const list = members.map((m) => {
     const user = usersById.get(String(m.user_id || "")) || {};
     const alias = aliases[m.user_id] || "";
     return {
@@ -193,6 +194,10 @@ async function fetchHouseholdMembers(env, householdId, options = {}) {
       created_at: m.created_at || user.created_at || "",
     };
   });
+  // V22.9.126 FC-21: 정기 규칙 지출자 자격을 예약 실행과 같은 판정(보정 전 역할 행, 역할이 비면 자격 없음)으로 붙여 둔다.
+  // 화면 판정용 숨은 값이라(열거되지 않음) JSON·백업·비교에는 나오지 않고, role 보정(권한)은 그대로다.
+  for (const member of list) Object.defineProperty(member, "recurringSpender", { value: recurringSpenderEligible(rawMembers, member.user_id) });
+  return list;
 }
 
 async function fetchAllHouseholdMembersMap(env, households = []) {

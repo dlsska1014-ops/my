@@ -28,7 +28,6 @@ import {
 } from "../domain/refund-links.js";
 import { loadRefundDeductions } from "../features/settlement-refund-links.js";
 import { verifyUserSession } from "../auth/user-session.js";
-import { recurringSpenderEligible } from "../cron/recurring-auto-apply.js";
 import { getMyPageContext, renderReportMonthNavigator, reportUxCss } from "./report-challenge.js";
 import {
   MEMBER_POLICY_RECORD_ONLY, canManageMyHousehold, canWriteMyHousehold, getMySelectedHousehold,
@@ -38,7 +37,7 @@ import {
 import { fetchRecurringStrict } from "../domain/budgets.js";
 import { recordCountText } from "../domain/metric-labels.js";
 import {
-  isRecurringSourceRow, recurringMarkerSet, recurringRuleAppliedInMonth,
+  isRecurringSourceRow, recurringMarkerSet, recurringRuleAppliedInMonth, spenderEligibleAsJob,
 } from "../domain/spending-outlook.js";
 import {
   buildWeeklyReport, detectRecurringCandidates, findAnomalousExpenses, renderAnomalyList,
@@ -693,7 +692,7 @@ function buildLivingReport({ month = currentMonthKst(), range = "month", week = 
   // 빈 목록이면 참여자를 모르는 것으로 보고 예전처럼 둔다.
   const ruleItems = rules.map((rule) => {
     const applied = recurringRuleAppliedInMonth(rule, month, monthMarkers);
-    const spenderCheck = !applied && Array.isArray(members) && members.length > 0 && !recurringSpenderEligible(members, rule.user_id);
+    const spenderCheck = !applied && Array.isArray(members) && members.length > 0 && !spenderEligibleAsJob(members, rule.user_id);
     return { id: String(rule.id || ""), memo: String(rule.memo || rule.category || "정기지출"), amount: Number(rule.amount || 0), day: Number(rule.day_of_month || 1), category: String(rule.category || ""), applied, ...(spenderCheck ? { spenderCheck } : {}) };
   });
   const fixedTotal = ruleItems.reduce((s, r) => s + r.amount, 0);
