@@ -14,8 +14,9 @@ import {
 } from "./edit-vocabulary.js";
 import {
   KAKAO_AMOUNT_CHANGE_TAIL_V4, KAKAO_LATEST_AMOUNT_EDIT_V4, KAKAO_SEQ_AMOUNT_EDIT_V4,
-  hasKakaoEditSessionHint, isKakaoTransactionSpenderChangeCommand, parseKakaoDeleteCommandV4,
-  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4, stripKakaoEditDatePrefixV4,
+  hasKakaoEditSessionHint, isKakaoTransactionSpenderChangeCommand, kakaoEditInputTextV4,
+  parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
+  stripKakaoEditDatePrefixV4,
 } from "./edit-session-v4.js";
 import { isKakaoAmountAnswer } from "./edit-state-machine.js";
 import {
@@ -24,6 +25,7 @@ import {
 import {
   isKakaoReservedCreateFlowReply, parseKakaoSummaryRange,
 } from "./household-budget-commands.js";
+import { normalizeKakaoButtonLabel } from "./skill-handler.js";
 import { parseKakaoSeparatePurchaseCommand } from "./separate-purchase.js";
 import { getKakaoBotGroupKey } from "./group-links-first-record.js";
 import { getKakaoUserKey, stableShortHash } from "./identity-chat-first.js";
@@ -286,18 +288,35 @@ function kakaoDeferredGuardSkipV229120(text, payload, rows) {
   return hasKakaoEditSessionHint(getKakaoUserKey(payload), payload) && !isStrongKakaoTransactionInput(text, rows);
 }
 
+// V22.9.126 FC-1(2차 검토): 본 처리(skill-handler 의 commandText)와 같은 글로 판정한다. 끝에 ‘ㅠ·ㅋ·.’ 이 붙거나 앞에 그림 문자가 붙은
+// ‘방금 삭제ㅠ’·‘🗑️ 삭제 01번’ 은 본 처리에서 지우기인데 늦은 답에서는 다시 보내기 단추를 받아, 누르면 다른 기록이 지워졌다.
+function kakaoRecordChangeTextV229126(text = "") {
+  return kakaoEditInputTextV4(normalizeKakaoButtonLabel(text));
+}
+
 // V22.9.126 FC-1: 기록을 바꾸는 명령(고치기·지우기·되살리기·지출자 바꾸기·되돌리기). 늦은 답 뒤에도 처리는 끝까지 가므로,
 // 같은 명령을 다시 보내게 하면 다음 번호의 다른 기록까지 바뀐다. 조회(기간 요약)는 넣지 않는다.
 function kakaoRecordChangeCommandV229126(text = "") {
-  const t = normalizeText(text);
-  return looksLikeKakaoEditCommandV4(text) || !!parseKakaoEditCommandV4(t) || !!parseKakaoDeleteCommandV4(t) || !!parseKakaoRestoreCommandV4(t) ||
+  const t = kakaoRecordChangeTextV229126(text);
+  return looksLikeKakaoEditCommandV4(t) || !!parseKakaoEditCommandV4(t) || !!parseKakaoDeleteCommandV4(t) || !!parseKakaoRestoreCommandV4(t) ||
     isKakaoTransactionSpenderChangeCommand(t) || isUndoCommand(t);
 }
 
+// V22.9.126 FC-1(2차 검토): 메뉴만 여는 ‘수정 01번’ 과 ‘취소’·‘잘못 입력’ 같은 안내 낱말은 번호·‘방금’ 으로 기록을 고르지 않는다(열린 수정 세션이
+// 받아도 그 세션의 한 기록뿐이다). 다시 보내도 다른 기록이 바뀌지 않으므로 ‘기록 변경’·‘다른 기록까지 바뀔 수 있어요’ 라고 하지 않는다.
+function kakaoRecordNoChangeCommandV229126(text = "") {
+  const t = kakaoRecordChangeTextV229126(text);
+  const edit = parseKakaoEditCommandV4(t);
+  if (edit) return !edit.rest && !edit.multi;
+  return isUndoCommand(t) && !looksLikeKakaoEditCommandV4(t) && !parseKakaoDeleteCommandV4(t) && !parseKakaoRestoreCommandV4(t) && !isKakaoTransactionSpenderChangeCommand(t);
+}
+
 // V22.9.126 FC-1: 날짜가 앞에 붙은 고치기·지우기(‘2026년 11월 9일 삭제 01번’)는 그날 목록에서 확인하게 한다(kakaoRecordCheckCommands 와 같은 꼴).
+// 2차 검토: ‘방금’ 이 가리키는 기록(마지막으로 저장한 기록, 번호 없는 지출자 변경도 같다)은 다른 날일 수 있어 그 기록을 고르는 ‘최근기록’ 으로 보낸다.
 function kakaoRecordChangeListCommandV229126(text = "") {
-  const t = normalizeText(text);
+  const t = kakaoRecordChangeTextV229126(text);
   const target = parseKakaoDeleteCommandV4(t) || parseKakaoEditCommandV4(t);
+  if (target?.latest || (!target && isKakaoTransactionSpenderChangeCommand(t))) return "최근기록";
   const date = target?.prefix && !target.dateError ? String(target.date || "") : "";
   return date && date !== formatDate(nowKstDate()) ? `${date} 기록` : "오늘기록";
 }
@@ -317,6 +336,7 @@ function kakaoDeferredReply(utterance = "", payload = {}) {
   // V22.9.126 FC-1: 기록을 바꾸는 명령에는 그 명령을 다시 보내는 단추·문장을 주지 않는다(길이와 상관없이). 목록에서 결과만 확인하게 한다.
   if (kakaoRecordChangeCommandV229126(text)) {
     const listCommand = kakaoRecordChangeListCommandV229126(text);
+    if (kakaoRecordNoChangeCommandV229126(text)) return kakaoText(`확인이 조금 늦어지고 있어요 😊\n잠시 뒤 ‘${listCommand}’에서 확인해 주세요.`, [[listCommand, listCommand]]);
     return kakaoText(`기록 변경 확인이 조금 늦어지고 있어요 😊\n같은 명령을 다시 보내지 말고 잠시 뒤 ‘${listCommand}’에서 확인해 주세요. 다시 보내면 다른 기록까지 바뀔 수 있어요.`, [[listCommand, listCommand]]);
   }
   const command = String(text || "").replace(/\s+/g, " ").trim();

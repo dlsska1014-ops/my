@@ -123,19 +123,32 @@ const changeDeferredText = (list) => `기록 변경 확인이 조금 늦어지�
 const CHANGE_WORDS = /(?:삭제|지워|지우|복구|되살|수정|고쳐|바꿔|취소|\d+\s*번)/;
 
 // ── FC-1 늦은 답: 기록을 바꾸는 명령 ─────────────────────────────────────────────
+const JULY_10 = "2026-07-10";
+const stateOf = state;
 const CHANGE_CASES = [
   { command: "삭제 01번", list: "오늘기록", after: { today: ["택시 8000", "점심 12000"], yesterday: [] }, again: { today: ["점심 12000"], yesterday: [] } },
-  { command: "방금 삭제", list: "오늘기록", after: { today: ["커피 4500", "택시 8000"], yesterday: [] }, again: { today: ["커피 4500"], yesterday: [] } },
+  // 2차 검토: ‘방금’ 은 마지막으로 저장한 기록(다른 날일 수 있다)이라 그 기록을 고르는 ‘최근기록’ 에서 확인하게 한다.
+  { command: "방금 삭제", list: "최근기록", after: { today: ["커피 4500", "택시 8000"], yesterday: [] }, again: { today: ["커피 4500"], yesterday: [] } },
+  { command: "방금 삭제", note: "마지막 기록이 어제", extra: ["어제 우유 3000"], list: "최근기록", after: { today: SEED, yesterday: [] }, again: { today: ["커피 4500", "택시 8000"], yesterday: [] } },
   { command: "복구", prep: ["삭제 01번", "삭제 01번"], list: "오늘기록", after: { today: ["택시 8000", "점심 12000"], yesterday: [] }, again: { today: ["커피 4500", "택시 8000", "점심 12000"], yesterday: [] } },
   { command: "수정 01번 날짜 어제", list: "오늘기록", after: { today: ["택시 8000", "점심 12000"], yesterday: ["커피 4500"] }, again: { today: ["점심 12000"], yesterday: ["커피 4500", "택시 8000"] } },
   // 14자가 넘는 명령(예전에는 ‘같은 내용을 다시 보내 주세요’ 만 했다)과 그날 목록 단추.
   { command: "2026년 11월 9일 삭제 01번", extra: ["어제 우유 3000", "어제 빵 5000"], list: `${YESTERDAY} 기록`,
     after: { today: SEED, yesterday: ["빵 5000"] }, again: { today: SEED, yesterday: [] } },
   { command: "삭제 01번", room: true, list: "오늘기록", after: { today: ["택시 8000", "점심 12000"], yesterday: [] }, again: { today: ["점심 12000"], yesterday: [] } },
+  // 2차 검토: 본 처리(commandText)처럼 전각 숫자·끝의 ‘ㅠ·ㅋ·.’·앞 그림 문자를 다듬어 읽는다(예전에는 같은 명령 단추를 받았다).
+  { command: "삭제 ０１번", list: "오늘기록", after: { today: ["택시 8000", "점심 12000"], yesterday: [] }, again: { today: ["점심 12000"], yesterday: [] } },
+  { command: "방금 삭제ㅠ", list: "최근기록", after: { today: ["커피 4500", "택시 8000"], yesterday: [] }, again: { today: ["커피 4500"], yesterday: [] } },
+  { command: "복구.", prep: ["삭제 01번", "삭제 01번"], list: "오늘기록", after: { today: ["택시 8000", "점심 12000"], yesterday: [] }, again: { today: ["커피 4500", "택시 8000", "점심 12000"], yesterday: [] } },
+  { command: "🗑️ 삭제 01번", list: "오늘기록", after: { today: ["택시 8000", "점심 12000"], yesterday: [] }, again: { today: ["점심 12000"], yesterday: [] } },
+  { command: "어제 삭제 01번ㅠㅠ", extra: ["어제 우유 3000", "어제 빵 5000"], list: `${YESTERDAY} 기록`, after: { today: SEED, yesterday: ["빵 5000"] }, again: { today: SEED, yesterday: [] } },
+  { command: "7/10 01번 삭제", extra: ["7월 10일 우유 3000", "7월 10일 빵 5000"], extraDay: JULY_10, list: `${JULY_10} 기록`,
+    after: { today: SEED, yesterday: [], [JULY_10]: ["빵 5000"] }, again: { today: SEED, yesterday: [], [JULY_10]: [] } },
 ];
 for (const item of CHANGE_CASES) {
-  const label = `FC-1 ${item.room ? "단톡방" : "1:1"} ‘${item.command}’`;
+  const label = `FC-1 ${item.room ? "단톡방" : "1:1"} ‘${item.command}’${item.note ? `(${item.note})` : ""}`;
   await scene(async (fx, net) => {
+    const state = (fx) => JSON.stringify({ ...JSON.parse(stateOf(fx)), ...(item.extraDay ? { [item.extraDay]: day(fx, item.extraDay) } : {}) });
     const room = item.room ? ROOM : "";
     if (room) t.ok((await say(fx, "단톡방 연결 HOME2265", { room })).text.includes("단톡방 연결 완료"), `${label}: 준비 — 방을 house-home 에 연결`);
     await seed(fx, [...SEED, ...(item.extra || [])], { room });
@@ -158,6 +171,49 @@ for (const item of CHANGE_CASES) {
     t.eq(state(fx), JSON.stringify(item.again), `${label}: (예전 단추) 같은 명령을 다시 보내면 다른 기록이 바뀐다`);
   }, { KAKAO_RESPONSE_BUDGET_MS: "200" });
 }
+
+// 2차 검토: 기록을 고르지 않는 명령(메뉴만 여는 고치기, 안내 낱말)은 ‘기록 변경’·‘다른 기록까지 바뀔 수 있어요’ 라고 하지 않는다. 다시 보내기 단추도 없다.
+const neutralDeferredText = (list) => `확인이 조금 늦어지고 있어요 😊\n잠시 뒤 ‘${list}’에서 확인해 주세요.`;
+const NEUTRAL_CASES = [
+  { command: "수정 01번", list: "오늘기록", session: true },
+  { command: "어제 수정 01번", extra: ["어제 우유 3000"], list: `${YESTERDAY} 기록`, session: true },
+  { command: "방금 거 수정", list: "최근기록", session: true },
+  { command: "취소", list: "오늘기록" },
+  { command: "잘못 입력", list: "오늘기록" },
+  { command: "방금 취소", list: "오늘기록" },
+  { command: "삭제", list: "오늘기록" },
+];
+for (const item of NEUTRAL_CASES) {
+  const label = `FC-1 기록을 바꾸지 않는 ‘${item.command}’`;
+  await scene(async (fx, net) => {
+    await seed(fx, [...SEED, ...(item.extra || [])]);
+    const before = state(fx);
+    net.delayMs = SLOW_MS;
+    const reply = await send(fx, item.command);
+    net.delayMs = 0;
+    t.eq(reply.nlu, "deferred", `${label}: 늦은 답`);
+    t.eq(reply.text, neutralDeferredText(item.list), `${label}: ‘기록 변경’ 이라 하지 않는 늦은 답`);
+    t.deepEq(reply.buttons, [[item.list, item.list]], `${label}: 단추는 목록 보기 하나`);
+    t.ok(reply.buttons.every(([, sends]) => !CHANGE_WORDS.test(sends)), `${label}: 다시 보내기 단추가 없다`);
+    await reply.settle();
+    t.eq(state(fx), before, `${label}: 기록은 그대로`);
+    const press = await say(fx, item.list);
+    t.ok(!/삭제했어요|복구했어요|변경했어요/.test(press.text), `${label}: 단추는 목록만 보여 준다 (${press.text.split("\n")[0]})`);
+    t.eq(state(fx), before, `${label}: 단추를 눌러도 기록은 그대로`);
+    if (item.session) await closeSession(fx);
+  }, { KAKAO_RESPONSE_BUDGET_MS: "200" });
+}
+
+// 번호 없는 ‘지출자 Bin’ 은 ‘방금’ 기록의 지출자를 바꾼다(끝의 ‘ㅋ’ 는 본 처리처럼 다듬는다) — 그 기록을 고르는 ‘최근기록’ 으로 확인하게 한다.
+await scene(async (fx, net) => {
+  await seed(fx);
+  net.delayMs = SLOW_MS;
+  const reply = await send(fx, "지출자 Binㅋ");
+  net.delayMs = 0;
+  await reply.settle();
+  t.eq(reply.text, changeDeferredText("최근기록"), "FC-1 ‘지출자 Binㅋ’: 기록 변경 늦은 답");
+  t.deepEq(reply.buttons, [["최근기록", "최근기록"]], "FC-1 ‘지출자 Binㅋ’: 단추는 ‘최근기록’ 하나");
+}, { KAKAO_RESPONSE_BUDGET_MS: "200" });
 
 // 조회의 늦은 답과 기록 분기(금액이 든 고치기)는 예전 그대로다.
 await scene(async (fx, net) => {
@@ -287,6 +343,29 @@ await scene(async (fx) => {
   t.eq(closed.text, "😅 01번 수정을 끝냈어요. 기록은 그대로예요.\n이렇게 보내면 바로 돼요:\n👉 수정 01번 날짜 10월 25일", "FC-12 세 번째에는 세션을 닫고 보낼 한 줄을 알려 준다");
   t.eq(state(fx), JSON.stringify({ today: SEED, yesterday: [] }), "FC-12 세션: 기록 그대로");
 });
+// 2차 검토(P3): 1월의 ‘지난달’ 예시는 연도 없는 ‘12월 25일’ 이다. 그대로 보내면 지난해 12월(앞날인 올해 12월이 아님)로 고쳐지는지,
+// 말일(3월의 ‘31일’)은 있는 날(‘2월 28일’)을 예시로 주는지 본다.
+for (const [today, value, example, exampleDate] of [["2027-01-10", "25일", "12월 25일", "2026-12-25"], ["2026-03-10", "31일", "2월 28일", "2026-02-28"]]) {
+  await scene(async (fx) => {
+    globalThis.__AB_QA_FIXED_NOW_MS = Date.parse(`${today}T12:00:00+09:00`);
+    t.ok((await say(fx, "커피 4500")).text.includes("저장했어요"), `FC-12 ${today}: 준비 — 오늘 기록`);
+    const asked = await say(fx, `수정 01번 날짜 ${value}`);
+    t.ok(asked.text.includes(`\n지난달이면 달을 붙여 다시 보내 주세요.\n${example}\n`), `FC-12 ${today} ‘${value}’: 지난달 예시는 ‘${example}’ (${asked.text.split("\n")[2] || asked.text.split("\n")[0]})`);
+    t.eq(JSON.stringify(day(fx, today)), JSON.stringify(["커피 4500"]), `FC-12 ${today} ‘${value}’: 날짜를 바꾸지 않았다`);
+    const fixed = await say(fx, example);
+    t.ok(fixed.text.startsWith(`✅ 01번 날짜를 ${exampleDate}`) && fixed.text.split("\n")[0].endsWith("변경했어요."), `FC-12 ${today}: 예시 ‘${example}’ 를 그대로 보내면 ${exampleDate} (${fixed.text.split("\n")[0]})`);
+    t.eq(JSON.stringify(day(fx, exampleDate)), JSON.stringify(["커피 4500"]), `FC-12 ${today}: 고친 날짜`);
+  });
+}
+await scene(async (fx) => {
+  globalThis.__AB_QA_FIXED_NOW_MS = Date.parse("2027-01-10T12:00:00+09:00");
+  await say(fx, "커피 4500");
+  for (let i = 0; i < 2; i += 1) await say(fx, i ? "25일" : "수정 01번 날짜 25일");
+  const closed = await say(fx, "25일");
+  t.eq(closed.text, "😅 01번 수정을 끝냈어요. 기록은 그대로예요.\n이렇게 보내면 바로 돼요:\n👉 수정 01번 날짜 12월 25일", "FC-12 1월 세 번째: 보낼 한 줄의 예시도 ‘12월 25일’");
+  t.ok((await say(fx, "수정 01번 날짜 12월 25일")).text.startsWith("✅ 01번 날짜를 2026-12-25로 변경했어요."), "FC-12 1월: 그 한 줄을 그대로 보내면 지난해 12월 25일");
+  t.eq(JSON.stringify(day(fx, "2026-12-25")), JSON.stringify(["커피 4500"]), "FC-12 1월: 고친 날짜");
+});
 
 // ── FC-13 ‘최근 기록’ 목록 ──────────────────────────────────────────────────
 await scene(async (fx) => {
@@ -314,11 +393,14 @@ await scene(async (fx) => {
 });
 
 // ── FC-19 ① 읽지 못하는 저장 표식 ───────────────────────────────────────────────
+const NON_V4_ID = "6ba7b810-9dad-11d1-80b4-00c04fd430c8"; // v1 꼴 UUID(RFC 4122 의 이름공간 예시)
+// 읽지 못함 = JSON 이 아니거나 이 코드가 늘 쓰는 칸(fp·UUID 번호·at)이 없는 꼴. UUID 가 아닌 번호는 행 번호(uuid 칸)일 수 없어 그 번호로 늦게
+// 들어올 전송이 없고, at 은 kakaoPendingMarker 가 늘 쓰므로 at 없는 표식은 10분 규칙보다 오래된 옛 꼴이다(막으면 예전처럼 기한 없이 막힌다).
 await scene(async (fx) => {
   const broken = [
     ["잘린 값", "{\"fp\":\"", "택시 8000"],
     ["문자 null", "null", "커피 4500"],
-    ["번호 꼴이 아닌 id", JSON.stringify({ fp: "b".repeat(64), ids: ["not-a-request-id"], at: Date.now() }), "점심 12000"],
+    ["UUID 가 아닌 번호", JSON.stringify({ fp: "b".repeat(64), ids: ["not-a-request-id"], at: Date.now() }), "점심 12000"],
     ["at 없는 옛 꼴", JSON.stringify({ fp: "c".repeat(64), ids: [randomUUID()] }), "버스 1500"],
   ];
   const saved = [];
@@ -332,13 +414,73 @@ await scene(async (fx) => {
     t.ok(!settingValue(fx, MARKER_KEY), `FC-19 표식(${label}): 저장이 끝나면 표식이 남지 않는다`);
     t.ok(opsEvents().slice(mark).some((event) => event.kind === "kakao_pending_write_expired" && event.detail === "unreadable"), `FC-19 표식(${label}): 기한 지난 표식과 같은 운영 이벤트`);
   }
-  // 정상 표식(10분 안, 행 확인 안 됨)은 예전처럼 다른 문장을 막는다.
-  const valid = JSON.stringify({ fp: "d".repeat(64), ids: [randomUUID()], at: Date.now() });
-  putSetting(fx, MARKER_KEY, valid);
-  const blocked = await say(fx, "우유 3000");
-  t.ok(!/저장했어요/.test(blocked.text), `FC-19 정상 표식은 그대로 막는다 (${blocked.text.split("\n")[0]})`);
-  t.eq(JSON.stringify(day(fx, TODAY)), JSON.stringify(saved), "FC-19 정상 표식: 새 기록 없음");
-  t.eq(settingValue(fx, MARKER_KEY), valid, "FC-19 정상 표식: 표식 그대로");
+  // 정상 표식(10분 안, 행 확인 안 됨)은 예전처럼 다른 문장을 막는다. 2차 검토: 번호가 v4 가 아닌 UUID 여도 정상 표식이다.
+  for (const [label, id] of [["v4 번호", randomUUID()], ["v4 가 아닌 UUID 번호", NON_V4_ID]]) {
+    const valid = JSON.stringify({ fp: "d".repeat(64), ids: [id], at: Date.now() });
+    putSetting(fx, MARKER_KEY, valid);
+    const blocked = await say(fx, "우유 3000");
+    t.ok(!/저장했어요/.test(blocked.text), `FC-19 정상 표식(${label})은 그대로 막는다 (${blocked.text.split("\n")[0]})`);
+    t.eq(JSON.stringify(day(fx, TODAY)), JSON.stringify(saved), `FC-19 정상 표식(${label}): 새 기록 없음`);
+    t.eq(settingValue(fx, MARKER_KEY), valid, `FC-19 정상 표식(${label}): 표식 그대로`);
+  }
+});
+
+// 2차 검토: 이 코드가 쓰는 표식에는 120초 중복으로 건너뛴 기존 행의 DB 번호가 들어간다. 그 번호가 v4 가 아니어도(가져오기·옛 경로 행) 표식은 읽혀야
+// 같은 문장의 번호 재사용(늦게 들어온 첫 전송과 겹치지 않는다)과 다른 문장의 10분 보류가 그대로다.
+const txPost = ({ url, method }) => method === "POST" && url.pathname === "/rest/v1/transactions";
+async function unknownAfterNonV4Duplicate(fx, net) {
+  t.ok(/저장했어요/.test((await say(fx, "커피 4500")).text), "FC-19 v4 아닌 번호: 준비 ‘커피 4500’");
+  fx.db.transactions.find((row) => row.household_id === HOME && row.memo === "커피" && row.transaction_date === TODAY).id = NON_V4_ID;
+  let posted = null;
+  net.hook = (call) => { if (txPost(call)) { posted = JSON.parse(call.init.body); return failure(503, "simulated unknown result"); } return null; };
+  const first = await say(fx, "커피 4500 택시 8000");
+  net.hook = null;
+  t.ok(!/저장했어요/.test(first.text) && posted?.length === 1, `FC-19 v4 아닌 번호: 커피는 중복, 택시 전송은 결과를 모른다 (${first.text.split("\n")[0]})`);
+  const marker = JSON.parse(settingValue(fx, MARKER_KEY) || "null");
+  t.ok(marker?.ids?.includes(NON_V4_ID) && marker.ids.includes(posted[0].id) && Number.isSafeInteger(marker.at), "FC-19 v4 아닌 번호: 이 코드가 쓴 표식에 건너뛴 행의 v4 아닌 번호가 들어간다");
+  return posted;
+}
+await scene(async (fx, net) => {
+  const posted = await unknownAfterNonV4Duplicate(fx, net);
+  const mark = opsEvents().length;
+  // 첫 택시 전송이 늦게(두 번째 요청의 중복 조회 뒤, 그 요청의 전송 직전에) 들어온다.
+  let landed = false;
+  net.hook = (call) => { if (!landed && txPost(call)) { landed = true; fx.db.transactions.push({ ...posted[0], created_at: new Date().toISOString() }); } return null; };
+  const again = await say(fx, "커피 4500 택시 8000");
+  net.hook = null;
+  t.ok(landed, "FC-19 v4 아닌 번호: 늦은 첫 전송을 넣었다");
+  t.eq(JSON.stringify(day(fx, TODAY)), JSON.stringify(["커피 4500", "택시 8000"]), `FC-19 v4 아닌 번호: 같은 문장을 다시 보내도 택시는 한 건 (${again.text.split("\n")[0]})`);
+  t.ok(!opsEvents().slice(mark).some((event) => event.detail === "unreadable"), "FC-19 v4 아닌 번호: ‘읽지 못함’ 으로 보지 않는다");
+});
+await scene(async (fx, net) => {
+  await unknownAfterNonV4Duplicate(fx, net);
+  const held = await say(fx, "점심 12000");
+  t.ok(/앞서 보낸 기록/.test(held.text) && !/저장했어요/.test(held.text), `FC-19 v4 아닌 번호: 10분 안의 다른 문장은 예전처럼 보류 (${held.text.split("\n")[0]})`);
+  t.eq(JSON.stringify(day(fx, TODAY)), JSON.stringify(["커피 4500"]), "FC-19 v4 아닌 번호: 보류된 문장은 저장하지 않았다");
+  // 10분이 지나면 기한 지난 표식으로 덮어 쓴다(행 확인 결과를 남기는 예전 이벤트).
+  putSetting(fx, MARKER_KEY, JSON.stringify({ ...JSON.parse(settingValue(fx, MARKER_KEY) || "{}"), at: Date.now() - 11 * 60_000 }));
+  const mark = opsEvents().length;
+  const late = await say(fx, "점심 12000");
+  t.ok(/저장했어요/.test(late.text), `FC-19 v4 아닌 번호: 10분 뒤에는 저장된다 (${late.text.split("\n")[0]})`);
+  const expired = opsEvents().slice(mark).filter((event) => event.kind === "kakao_pending_write_expired");
+  t.ok(expired.length > 0 && expired.every((event) => /^found:/.test(event.detail)), `FC-19 v4 아닌 번호: 기한 지난 정상 표식의 이벤트 (${JSON.stringify(expired.map((event) => event.detail))})`);
+});
+
+// 2차 검토(P3): 값 칸은 text 라 늘 글자지만 길이 제한이 없다. 200자가 넘는 읽지 못한 값은 앞부분으로 비교해 주소가 짧다(예전에는 값 전체를 주소에 실었다).
+await scene(async (fx, net) => {
+  const long = JSON.stringify({ fp: "e".repeat(64), ids: [randomUUID()], rows: [{ household_id: HOME, raw_text: "아주 긴 옛 기록 문장 ".repeat(100) }] });
+  t.ok(long.length > 1000, "FC-19 긴 값: 준비 — 1,000자가 넘는 at 없는 옛 꼴 표식");
+  putSetting(fx, MARKER_KEY, long);
+  const urls = [];
+  net.hook = ({ url, method }) => { if (method === "PATCH" && url.pathname === "/rest/v1/accountbook_settings") urls.push(url.href); return null; };
+  const mark = opsEvents().length;
+  const reply = await say(fx, "택시 8000");
+  net.hook = null;
+  t.ok(/저장했어요/.test(reply.text), `FC-19 긴 값: 저장된다 (${reply.text.split("\n")[0]})`);
+  t.eq(JSON.stringify(day(fx, TODAY)), JSON.stringify(["택시 8000"]), "FC-19 긴 값: 기록 한 건");
+  t.ok(!settingValue(fx, MARKER_KEY), "FC-19 긴 값: 표식이 남지 않는다");
+  t.ok(urls.length > 0 && urls.every((href) => href.length < 1500), `FC-19 긴 값: 비교 주소가 짧다 (${urls.map((href) => href.length).join(",")}자)`);
+  t.ok(opsEvents().slice(mark).some((event) => event.kind === "kakao_pending_write_expired" && event.detail === "unreadable"), "FC-19 긴 값: 같은 운영 이벤트");
 });
 
 // 단톡방 기록은 방 가계부의 설정을 따로 읽는다(group-links-first-record.js) — 같은 결과여야 한다.
@@ -354,28 +496,54 @@ await scene(async (fx) => {
 });
 
 // ── FC-19 ② 고친 뒤 세션 정리 쓰기만 실패 ────────────────────────────────────────
+// 2차 검토: 정리 쓰기를 삼키면 세션이 5분 동안 살아 있어 다음 숫자 말(‘5000’)이 같은 기록을 또 고쳤고, ‘취소’ 는 취소했다고 답하면서 세션이 남았다.
+// 이제 한 번 더 써 보고, 그래도 실패하면 기록을 바꾼 답에는 한 줄을 붙이고(다음 숫자 말은 여전히 그 세션이 받는다 — 그 줄이 알린다),
+// 바꾸지 않은 답(취소)은 예전처럼 오류로 끝낸다. 각 장면은 다음 숫자 말이 실제로 무엇을 하는지까지 본다.
 const sessionWrite = ({ url, method, init }) => method === "POST" && url.pathname === "/rest/v1/accountbook_settings" && /"key":"kakao_edit_v4:/.test(String(init.body || ""));
+const CLOSE_LINE = "수정 창을 닫지 못했어요. 5분 안에는 새 기록을 ‘커피 4500원’처럼 내용과 금액을 함께 보내 주세요.";
+const STALE_CASES = [
+  { name: "세션 고치기, 다시 쓰기 성공", prep: ["수정 02번", "금액"], send: "9000", fails: 1, head: "✅ 02번 금액을 9,000원으로 변경했어요.", line: false,
+    next: "5000", after: ["커피 4500", "택시 9000", "점심 12000", "기타지출 5000"] },
+  { name: "세션 고치기, 두 번 실패", prep: ["수정 02번", "금액"], send: "9000", fails: 2, head: "✅ 02번 금액을 9,000원으로 변경했어요.", line: true,
+    next: "5000", after: ["커피 4500", "택시 5000", "점심 12000"] },
+  { name: "취소, 다시 쓰기 성공", prep: ["수정 02번", "금액"], send: "취소", fails: 1, head: "👌 02번 수정을 취소했어요.", line: false,
+    next: "13000", after: ["커피 4500", "택시 8000", "점심 12000", "기타지출 13000"] },
+  { name: "취소, 두 번 실패", prep: ["수정 02번", "금액"], send: "취소", fails: 2, head: "일시적인 오류로 이번 요청을 끝내지 못했어요.", line: false,
+    next: "13000", after: ["커피 4500", "택시 13000", "점심 12000"] },
+  { name: "한 줄 고치기, 두 번 실패", prep: [], send: "수정 01번 금액 13000", fails: 2, head: "✅ 01번 금액을 13,000원으로 변경했어요.", line: true,
+    next: "5000", after: ["커피 13000", "택시 8000", "점심 12000", "기타지출 5000"] },
+  { name: "메뉴 삭제, 두 번 실패", prep: ["수정 02번"], send: "7", fails: 2, head: "🗑️ 02번 기록을 삭제했어요.", line: true,
+    next: "5000", after: ["커피 4500", "점심 12000"] },
+  { name: "열린 메뉴 위 한 줄 삭제, 두 번 실패", prep: ["수정 03번"], send: "삭제 01번", fails: 2, head: "🗑️ 01번 기록을 삭제했어요.", line: true,
+    next: "5", after: ["택시 8000", "점심 12000"], open: true },
+];
+for (const item of STALE_CASES) {
+  const label = `FC-19 ${item.name}`;
+  await scene(async (fx, net) => {
+    await seed(fx);
+    for (const utterance of item.prep) await say(fx, utterance);
+    let failed = 0;
+    net.hook = (call) => { if (sessionWrite(call) && failed < item.fails) { failed += 1; return failure(503, "simulated session write failure"); } return null; };
+    const reply = await say(fx, item.send);
+    net.hook = null;
+    t.eq(failed, item.fails, `${label}: 세션 정리 쓰기 실패 ${item.fails}번을 넣었다`);
+    t.ok(reply.text.startsWith(item.head), `${label}: 답 (${reply.text.split("\n")[0]})`);
+    t.eq(reply.text.includes(CLOSE_LINE), item.line, `${label}: ‘수정 창을 닫지 못했어요’ 줄이 ${item.line ? "붙는다" : "없다"}`);
+    if (item.send === "취소") t.eq(reply.text.includes("취소했어요"), item.fails < 2, `${label}: 세션을 닫지 못했으면 취소했다고 하지 않는다`);
+    const next = await say(fx, item.next);
+    t.eq(JSON.stringify(day(fx, TODAY)), JSON.stringify(item.after), `${label}: 다음 ‘${item.next}’ 뒤 기록 (${next.text.split("\n")[0]})`);
+    if (item.open) await closeSession(fx);
+  });
+}
+// 세션을 이어 가는 답(메뉴)은 예전처럼 저장이 실패하면 그 답을 보내지 않는다(I6: 보낸 답과 저장된 세션이 짝).
 await scene(async (fx, net) => {
   await seed(fx);
-  let failed = 0;
-  net.hook = (call) => { if (sessionWrite(call)) { failed += 1; return failure(503, "simulated session write failure"); } return null; };
-  const oneLine = await say(fx, "수정 01번 금액 13000");
-  net.hook = null;
-  t.ok(failed > 0, "FC-19 세션 정리 쓰기 실패를 넣었다");
-  t.ok(oneLine.text.startsWith("✅ 01번 금액을 13,000원으로 변경했어요."), `FC-19 한 줄 고치기: 정리 쓰기만 실패해도 성공 답 (${oneLine.text.split("\n")[0]})`);
-  t.eq(day(fx, TODAY)[0], "커피 13000", "FC-19 한 줄 고치기: 한 번 바뀌었다");
-  await say(fx, "수정 02번");
-  await say(fx, "금액");
-  net.hook = (call) => sessionWrite(call) ? failure(503, "simulated session write failure") : null;
-  const viaSession = await say(fx, "9000");
-  net.hook = null;
-  t.ok(viaSession.text.startsWith("✅ 02번 금액을 9,000원으로 변경했어요."), `FC-19 세션 고치기: 정리 쓰기만 실패해도 성공 답 (${viaSession.text.split("\n")[0]})`);
-  t.eq(day(fx, TODAY)[1], "택시 9000", "FC-19 세션 고치기: 바뀌었다");
-  // 세션을 이어 가는 답(메뉴)은 예전처럼 저장이 실패하면 그 답을 보내지 않는다(I6: 보낸 답과 저장된 세션이 짝).
   net.hook = (call) => sessionWrite(call) ? failure(503, "simulated session write failure") : null;
   const menu = await say(fx, "수정 03번");
   net.hook = null;
   t.ok(!menu.text.includes("무엇을 바꿀까요?"), `FC-19 세션을 여는 답은 저장 실패 때 보내지 않는다 (${menu.text.split("\n")[0]})`);
+  // 실패한 저장도 메모리 힌트는 켜 두므로(다음 장면의 반복 가드에 닿는다) 세션을 정상으로 열고 닫아 힌트를 지운다.
+  t.ok((await say(fx, "수정 03번")).text.includes("무엇을 바꿀까요?"), "FC-19 장면 정리: 메뉴를 다시 연다");
   await closeSession(fx);
 });
 

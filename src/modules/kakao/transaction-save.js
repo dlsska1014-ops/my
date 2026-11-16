@@ -43,9 +43,7 @@ import { kakaoHouseholdReplyName } from "./household-budget-commands.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { currentMonthKst, formatDate, nowKstDate } from "../nlu/date-payment.js";
-import {
-  abTransactionRequestId, escapeHtml, numberWithCommas, sameTransactionCore,
-} from "../domain/transactions-core.js";
+import { escapeHtml, numberWithCommas, sameTransactionCore } from "../domain/transactions-core.js";
 // @build:imports-end
 
 // V22.9.79 감사 N-4: 이름 없이 만들어진 사람의 기본 이름(채팅 사용자 ‘카카오사용자’, 이름 칸이 빈 구성원·관리자). 이 이름은 여러 사람이 같이 쓴다.
@@ -304,8 +302,8 @@ function parseKakaoInputSettings(values, householdId, userId = "", categories = 
   const customCategoryRows=[...listedCategoryRows,...keywordCardClassificationRows(map,listedCategoryRows,householdId)];
   let memberPolicy="";
   try { memberPolicy=parseMemberPolicyValue(values.get(keys[4])); } catch (_) {}
-  // V22.9.126 FC-19: 읽지 못하는 표식은 번호를 읽을 수 없어 늦은 전송을 막는 데 쓰지 못하고, 예전에는 여기서 던져 그 사람의 저장을 기한 없이 막았다.
-  // 기한 지난 표식처럼 운영 이벤트를 남기고, 새 표식이 그 값과 정확히 같을 때만 덮어 쓴다(writeKakaoPendingWrite).
+  // V22.9.126 FC-19: 읽지 못하는 표식(JSON 이 아니거나 fp·UUID 번호·at 이 없는 꼴 — 이 코드가 쓰는 표식은 늘 읽힌다)은 늦은 전송을 막는 데 쓰지 못하고,
+  // 예전에는 여기서 던져 그 사람의 저장을 기한 없이 막았다. 기한 지난 표식처럼 운영 이벤트를 남기고, 새 표식이 그 값과 같을 때만 덮어 쓴다(writeKakaoPendingWrite).
   let pendingWrite = null, pendingWriteUnreadable = false;
   if (keys[5]) { try { pendingWrite = parseKakaoPendingWrite(values.get(keys[5])); } catch (_) { pendingWriteUnreadable = true; } }
   return {customCategoryRows,paymentAssetRows:normalizePaymentAssetList(values.get(keys[2]),householdId),aliases:normalizeMemberAliasMap(values.get(keys[3])),memberPolicy,pendingWrite,pendingWriteUnreadable,pendingWriteExists:!!keys[5] && values.has(keys[5]),pendingWriteEmptyValue:keys[5] ? values.get(keys[5]) : undefined};
@@ -537,6 +535,12 @@ async function clearKakaoConfirmedPendingWrite(env, householdId, userId, marker)
   await supabase(env,`/rest/v1/accountbook_settings?${params}`,{method:"DELETE",headers:{Prefer:"return=minimal"}});
 }
 
+// V22.9.126 FC-19(2차 검토): 값 칸은 text 라 늘 글자지만 길이 제한이 없다. 긴 값을 eq 로 주소에 실으면 요청이 거절되어 다시 기한 없이 막히므로,
+// 200자를 넘으면 앞 200자(LIKE 특수 문자 앞까지)로 비교한다. 같은 사람의 쓰기 잠금 안이라 앞부분 비교로 충분하다.
+function kakaoPendingWriteValueFilterV229126(raw = "") {
+  return raw.length <= 200 ? `eq.${raw}` : `like.${raw.slice(0, 200).split(/[*%_\\]/)[0]}*`;
+}
+
 async function writeKakaoPendingWrite(env, householdId, userId, marker, expected = {exists:false}) {
   const key = kakaoPendingWriteKey(householdId,userId), value = JSON.stringify(marker);
   let rows;
@@ -546,8 +550,8 @@ async function writeKakaoPendingWrite(env, householdId, userId, marker, expected
     });
   } else {
     const prefix = expected.marker ? JSON.stringify({fp:expected.marker.fp,ids:expected.marker.ids}).slice(0,-1)+"," : "";
-    // V22.9.126 FC-19: 읽지 못한 표식(emptyValue 에 그 원래 값)은 값이 정확히 같을 때만 덮어 쓴다. 빈 값("")은 예전과 같은 "eq." 다.
-    const filter = expected.marker ? `like.${prefix}*` : expected.emptyValue == null ? "is.null" : `eq.${String(expected.emptyValue)}`;
+    // V22.9.126 FC-19: 읽지 못한 표식(emptyValue 에 그 원래 값)은 값이 같을 때만 덮어 쓴다. 빈 값("")은 예전과 같은 "eq." 다.
+    const filter = expected.marker ? `like.${prefix}*` : expected.emptyValue == null ? "is.null" : kakaoPendingWriteValueFilterV229126(String(expected.emptyValue));
     const params = new URLSearchParams({key:`eq.${key}`,value:filter});
     rows = await supabase(env,`/rest/v1/accountbook_settings?${params}`,{
       method:"PATCH",headers:{Prefer:"return=representation"},body:JSON.stringify({value}),
@@ -558,11 +562,17 @@ async function writeKakaoPendingWrite(env, householdId, userId, marker, expected
   if (!Array.isArray(rows) || rows.length!==1 || rows[0].key!==key || rows[0].value!==value) throw kakaoUnknownWriteError();
 }
 
+// V22.9.126 FC-19(2차 검토): 표식 번호에는 120초 중복으로 건너뛴 기존 행의 DB 번호도 들어간다(kakaoPendingMarker). 그 번호는 v4 가 아닐 수 있어
+// (transactions.id 는 uuid 칸), v4 만 받으면 이 코드가 쓴 표식이 ‘읽지 못함’ 이 되어 번호 재사용과 10분 보류가 사라졌다. UUID 꼴이면 버전과 상관없이 받는다.
+function kakaoPendingWriteRowIdV229126(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(String(value || "").trim().toLowerCase());
+}
+
 function parseKakaoPendingWrite(value) {
   if (value === undefined || value === null || value === "") return null;
   try {
     const parsed = typeof value === "string" ? JSON.parse(value || "null") : value;
-    if (!parsed || typeof parsed.fp !== "string" || !parsed.fp || !Array.isArray(parsed.ids) || !parsed.ids.length || parsed.ids.length > 80 || !parsed.ids.every(id => abTransactionRequestId(id)) || new Set(parsed.ids).size !== parsed.ids.length || !Number.isSafeInteger(parsed.at) || parsed.at < 0) throw new Error("invalid");
+    if (!parsed || typeof parsed.fp !== "string" || !parsed.fp || !Array.isArray(parsed.ids) || !parsed.ids.length || parsed.ids.length > 80 || !parsed.ids.every(id => kakaoPendingWriteRowIdV229126(id)) || new Set(parsed.ids).size !== parsed.ids.length || !Number.isSafeInteger(parsed.at) || parsed.at < 0) throw new Error("invalid");
     if (parsed.rows && (!Array.isArray(parsed.rows) || parsed.rows.length !== parsed.ids.length || parsed.rows.some((row, index) => row.id !== parsed.ids[index]))) throw new Error("invalid");
     if (parsed.replay_ids && (!Array.isArray(parsed.replay_ids) || parsed.replay_ids.length>80 || !parsed.replay_ids.length || !parsed.replay_ids.every(id=>parsed.ids.includes(id)))) throw new Error("invalid");
     return parsed;

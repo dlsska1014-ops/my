@@ -1061,5 +1061,5 @@ ${formatRecentTransactions(rows)}`);
   return await saveKakaoParsedTransactionsReply(env, { ...(roomSave || {}), household: savedHousehold, householdLabel: kakaoHouseholdReplyName(savedHousehold, activeHouseholds), user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, firstNotice: editSessionNotice });
 }
 // @build:exports-start
-export { handleKakaoSkillStable };
+export { handleKakaoSkillStable, normalizeKakaoButtonLabel };
 // @build:exports-end
