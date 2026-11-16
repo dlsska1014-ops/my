@@ -330,13 +330,37 @@ for (const month of ["2026-10", "2026-12"]) {
   }
   const tsv = parseFlexibleImportRecords("날짜\t금액\t내용\n2026-07-01\t12.000원\t점심\n2026-07-02\t8000.00\t커피", HOME, "user-bin", {});
   t.ok(tsv.rows.length === 1 && tsv.rows[0].amount === 8000 && tsv.rejected.length === 1 && tsv.rejected[0].row_number === 2, "FC-6 TSV 도 같다(‘12.000원’ 줄만 되묻고 ‘8000.00’ 은 8000원)");
-  // 2차: 머리글 없는 표(쉼표·탭). 고치기 전에는 금액 칸을 못 읽으면 자연어 해석으로 넘어가 ‘12.000원’ 이 12원으로 저장 대기에 올랐다(미리 보기 ready).
-  // 3차: 되묻는 것은 칸 전체가 천 단위 점 금액 꼴(₩·부호 선택, 1~3자리 + ‘.세 자리’ 묶음, 원 선택, 맨 앞 0 아님)일 때뿐이다.
-  //  - 그 칸뿐이면 ‘금액 형식을 해석하지 못함’(invalid_amount).
-  //  - 읽을 수 있는 금액 칸이 함께 있으면 금액 후보가 둘이라 ‘금액 후보가 여러 개’(ambiguous_amount). 고치기 전에도 그 칸을 12·5 로 읽어 같은 답이었고,
-  //    머리글 있는 표도 금액 칸 하나를 읽지 못하면 다른 금액 칸으로 저장하지 않는다.
-  //  - 점이 찍힌 다른 칸(전화번호·환율·좌표·무게)은 금액 꼴이 아니므로 고치기 전처럼 남은 금액으로 저장한다(독립 검토 2차의 예 그대로).
+  // 2차: 머리글 없는 표(쉼표·탭). 고치기 전에는 칸 읽기가 ‘.0…’ 끝을 떼어 ‘12.000원’ 을 12원으로 읽어 저장 대기에 올렸다(미리 보기 ready).
+  //   1차에서 칸 읽기가 그 꼴을 받지 않게 되자 그 줄이 자연어 해석으로 넘어갔다(그래서 2차부터 되묻는다).
+  // 4차: 되묻는 칸은 칸 읽기가 통화 표시·괄호·부호를 뗀 숫자가 점 금액 꼴인 칸(dotted)이다. 꼴은 둘이다.
+  //   (가) 천 단위 점 꼴 12.000·1.200.000(맨 앞 묶음은 0 아님)
+  //   (나) 고치기 전 칸 읽기가 ‘.0…’ 끝으로만 받던 꼴 중 0 이 셋 이상(12000.000·1,000.000·12.0000)
+  //  - 그 칸뿐이면 머리글 있는 표와 같은 ‘금액 형식을 해석하지 못함’(invalid_amount)이다.
+  //  - 읽을 수 있는 금액 칸이 함께 있으면 금액 후보가 둘이라 ‘금액 후보가 여러 개’(ambiguous_amount)다.
+  //    고치기 전에도 그 칸을 12·5 로 읽어 같은 답이었다. 머리글 있는 표도 금액 칸 하나를 읽지 못하면 다른 금액 칸으로 저장하지 않는다.
+  //  - 점이 찍힌 다른 칸(전화번호·환율·좌표·무게 0.500)은 이 꼴이 아니다. 고치기 전처럼 남은 금액으로 저장한다(독립 검토 2차의 예 그대로).
+  //  - 3차는 칸 원문에 대고 판정해서 ‘(12.000)’·‘△12.000’ 환불을 자연어 해석으로 넘겼다. 그 결과 부호가 사라진 12,000원 지출이 저장 대기에 올랐다.
+  //    ‘12000.000,25000원’ 같은 줄은 그 칸을 빼고 25,000원으로 저장했다. 독립 검토 3차가 이를 찾았다.
   const outcome = (text) => { const r = parseFlexibleImportRecords(text, HOME, "user-bin", {}); return r.rows.length ? `rows:${r.rows.map((x) => x.amount).join("/")}` : `rejected:${r.rejected.map((x) => x.reason_code).join("/")}`; };
+  const full = (text) => { const r = parseFlexibleImportRecords(text, HOME, "user-bin", {}); return r.rows.length ? r.rows.map((x) => `${x.type}:${x.amount}:${x._import_needs_confirmation ? "확인" : "ready"}`).join("/") : `rejected:${r.rejected.map((x) => x.reason_code).join("/")}`; };
+  const csvCell = (x) => (/[,"]/.test(x) ? `"${x.replace(/"/g, '""')}"` : x);
+  // [칸, 고치기 전 머리글 없는 결과]
+  for (const [cell, main] of [
+    ["12000.000", "12,000원 ready"], ["1,000.000", "1,000원 ready"], ["12.0000", "12원 ready"], ["12.000KRW", "12원 ready"], ["12.000 won", "12원 ready"],
+    ["(12.000)", "+12원 확인"], ["12.000-", "+12원 확인"], ["△12.000", "+12원 확인"], ["-₩12.000", "+12원 확인"], ["１２．０００원", "12원 ready"],
+  ]) {
+    t.eq(full(`2026-07-01,커피,${csvCell(cell)}`), "rejected:invalid_amount", `FC-6(4차) 머리글 없는 CSV 칸 ${JSON.stringify(cell)} 은 자연어로 넘기지 않고 되묻는다(고치기 전 ${main}, 3차는 자연어 결과)`);
+    t.eq(full(`2026-07-01\t커피\t${cell}`), "rejected:invalid_amount", `FC-6(4차) 머리글 없는 TSV 칸 ${JSON.stringify(cell)} 도 같다`);
+    t.eq(full(`날짜,내용,금액\n2026-07-01,커피,${csvCell(cell)}`), "rejected:invalid_amount", `FC-6(4차) 머리글 있는 표의 같은 칸 ${JSON.stringify(cell)} 도 invalid_amount 라 두 길이 같다`);
+    t.eq(full(`2026-07-01,커피,${csvCell(cell)},25000원`), "rejected:ambiguous_amount", `FC-6(4차) ${JSON.stringify(cell)} 옆에 25000원이 있으면 고치기 전처럼 ‘금액 후보가 여러 개’(3차는 25,000원 저장 대기)`);
+  }
+  // 칸 읽기는 작은따옴표(엑셀 글자 표시)를 떼지 않는다. 그래서 ‘'12.000’ 은 점 금액 칸이 아니고 고치기 전과 같다. 두 길이 다른 것도 고치기 전부터다.
+  t.eq(full("2026-07-01,커피,'12.000"), "expense:12000:ready", "FC-6(4차) ‘'12.000’ 머리글 없는 줄은 고치기 전처럼 자연어 해석의 12,000원이다");
+  t.eq(full("날짜,내용,금액\n2026-07-01,커피,'12.000"), "rejected:invalid_amount", "FC-6(4차) 같은 칸이 머리글 있는 표에서는 고치기 전처럼 invalid_amount 다");
+  // 받아들인 대가: 소수 세 자리 수치 칸(무게·원주율·경도)은 천 단위 점 꼴과 구별할 수 없다. 그래서 진짜 금액 옆에 있으면 되묻는다(고치기 전에는 25,000원 저장 대기였다).
+  for (const text of ["2026-07-01,정육점,1.500,25000원", "2026-07-01,책,3.141,25000원", "2026-07-01,주유,126.978,25000원"]) {
+    t.eq(full(text), "rejected:ambiguous_amount", `FC-6(4차) 받아들인 대가: ${JSON.stringify(text)} 는 ‘금액 후보가 여러 개’ 로 되묻는다(고치기 전 25,000원 저장 대기)`);
+  }
   for (const [text, expected, main] of [
     ["2026-07-01,커피,12.000원", "rejected:invalid_amount", "12원"], ["2026-07-01\t커피\t12.000원", "rejected:invalid_amount", "12원"], ["2026-07-01\t커피\t12.500원", "rejected:invalid_amount", "12,500원"],
     ["2026-07-01,커피,₩1.200.000", "rejected:invalid_amount", "1,200,000원"], ["2026-07-01,커피,5.000", "rejected:invalid_amount", "5원"], ["2026-07-01,환불,-12.000원", "rejected:invalid_amount", "12원"],
