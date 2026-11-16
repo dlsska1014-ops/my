@@ -111,13 +111,19 @@ const PATHS = [["1:1", ""], ["단톡방", "room-guard-examples"]];
 
 await withClock(DAY, async () => {
   // 3. 멈춘 두 문장: 메모에 안전망이 막는 말이 남은 기록의 날짜 수정
+  // [보낸 말, 예시가 걸리는 안전망, 앞에 붙여 다시 보낸 구분]. V22.9.126: 둘째 문장은 지출로 읽혀 안전망이 수입/지출을 먼저 되묻는다 —
+  // 되물음(저장 없음)을 본 뒤 ‘지출 …’ 로 다시 보내 지출 기록을 만들고, 그 기록으로 예전과 같은 V22.9.119 예시 길(지출 행)을 본다.
   const STOPPED = [
-    ["몇 월 며칠인지도 모르고 사는 요즘ㅋㅋ 다이소 7000", "question"],
-    // V22.9.126: 끝이 ‘58000원’ 이던 이 문장은 지출로 읽혀 이제 안전망이 수입/지출을 되묻는다 — ‘받음’ 을 붙여 수입으로 저장되는 문장으로 본다.
-    ["작년에 깜빡하고 안 한 실비 청구 며칠 전에 해놨더니 오늘 벌써 들어왔네요 보험금 58000원 받음", "date"],
+    ["몇 월 며칠인지도 모르고 사는 요즘ㅋㅋ 다이소 7000", "question", ""],
+    ["작년에 깜빡하고 안 한 실비 청구 며칠 전에 해놨더니 오늘 벌써 들어왔네요 보험금 58000원", "date", "지출"],
   ];
-  for (const [name, room] of PATHS) for (const [sentence, guardKind] of STOPPED) await withFx(async (fx) => {
+  for (const [name, room] of PATHS) for (const [original, guardKind, typed] of STOPPED) await withFx(async (fx) => {
     const key = `guard-example-${room ? "room" : "direct"}-${guardKind}`;
+    const sentence = typed ? `${typed} ${original}` : original;
+    if (typed) {
+      const asked = await say(fx, original, { key, room });
+      c.ok(rowsOf(fx, key).length === 0 && asked.startsWith("수입인지 지출인지 헷갈려서 아직 저장하지 않았어요."), `3 ${name} ‘${original.slice(0, 16)}…’ 는 먼저 수입/지출을 되묻고 저장하지 않는다`);
+    }
     const first = await say(fx, sentence, { key, room });
     const row = rowsOf(fx, key)[0];
     c.ok(rowsOf(fx, key).length === 1 && /저장했어요/.test(first), `3 ${name} ‘${sentence.slice(0, 16)}…’ 는 이 판에서 저장된다(안전망 통과)`);
