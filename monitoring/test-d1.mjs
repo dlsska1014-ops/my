@@ -502,7 +502,7 @@ try {
       want(/\/ready · 정상 · [0-9,]+ ms · 30분마다 확인\(마지막 /.test(dash),"1.7.0 화면의 접속 검사 줄에 ‘30분마다 확인(마지막 …)’ 이 붙는다");
       r5.store.close();
     }
-    // ── 1.8.0(V22.9.126 FC-29) 2차: 확정 안 된 메일은 15·30·60분, 그 뒤 60분마다 다시 보낸다 · 보내기 전 쓰기 실패 · 밀린 0시 정리 ─────────
+    // ── 1.8.0(V22.9.126 FC-29) 2·3차: 확정 안 된 메일은 15·30·60·120…분(그 등급의 다시 보내는 간격까지) · 보내기 전 쓰기 실패 · 밀린 0시 정리 ──
     {
       const title="서비스 접속 또는 DB 준비 상태 실패";
       const t0=Date.parse("2026-06-17T03:10:00.000Z");
@@ -527,9 +527,9 @@ try {
       const fullView=await summary({...env,MONITOR_DB:r6.db},t0+121*M), alertView=await summary({...env,MONITOR_DB:r6.db},t0+121*M,{alerting:true});
       want(fullView.unknown.some(item=>item.startsWith(`알림 발송 미확인(${title} · `)&&item.endsWith(" 시도)"))&&!alertView.unknown.some(item=>item.startsWith("알림 발송 미확인")),`1.8.0 2차: 화면 범위에만 ‘알림 발송 미확인’ 이 보인다(알림 판정 범위는 그대로): ${fullView.unknown.join(" / ")}`);
       const hooksBefore=hooks.length;
-      for(let minute=125;minute<=175;minute+=5){ seedUptime(r6.store,t0+minute*M,false); await deliverAlerts(hookEnv(r6.db),new Date(t0+minute*M)); }
+      for(let minute=125;minute<=235;minute+=5){ seedUptime(r6.store,t0+minute*M,false); await deliverAlerts(hookEnv(r6.db),new Date(t0+minute*M)); }
       const confirmed=record(r6.store);
-      want(hooks.length===hooksBefore+1&&confirmed?.sent_at===at(t0+165*M)&&!("attempt" in confirmed)&&!(await summary({...env,MONITOR_DB:r6.db},t0+176*M)).unknown.some(item=>item.startsWith("알림 발송 미확인")),`1.8.0 2차: 끊김이 멎으면 다음 간격(165분)에 한 번 보내고 확정한다(메일 ${hooks.length-hooksBefore}통): ${JSON.stringify(confirmed)}`);
+      want(hooks.length===hooksBefore+1&&confirmed?.sent_at===at(t0+225*M)&&!("attempt" in confirmed)&&!(await summary({...env,MONITOR_DB:r6.db},t0+236*M)).unknown.some(item=>item.startsWith("알림 발송 미확인")),`1.8.0 3차: 끊김이 멎으면 다음 간격(105분 + 120분 = 225분)에 한 번 보내고 확정한다(메일 ${hooks.length-hooksBefore}통): ${JSON.stringify(confirmed)}`);
       r6.store.close();
       // 보내기 전 쓰기가 실패해도 메일은 나간다(1.7.0 순서). 보낸 뒤 쓰기가 되면 확정하고, 그마저 실패하면 delivery_unrecorded 로 던진다.
       for(const failing of [1,Infinity]){
