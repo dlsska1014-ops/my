@@ -89,9 +89,11 @@ async function kakaoSettlementParts(env, household = {}) {
   // 미리보기는 웹 정산 화면(소유자·관리자)에만 있다. 예전 문장은 여기서 환급을 미리 계산해 주는 것처럼 읽혔다.
   const refundNotice = "환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.";
   const refundLines = refund?.available ? kakaoRefundSettlementLines(refund, model) : [refundNotice];
+  // V22.9.126 FC-16: 지출자가 없는 지출은 정산에서 빠진다. 웹 정산처럼 뺀 금액을 한 줄로 알린다(예전에는 말없이 빠져 총 지출이 기록 합과 달랐다).
+  const unknownPaidLines = Number(model.unknownPaid || 0) > 0 ? [`지출자 미지정 ${numberWithCommas(model.unknownPaid)}원은 정산에서 제외했어요.`] : [];
   if (!model.people.length || (!model.totalExpense && !model.refundTotal)) {
     // D3(V22.9.58): 환급 미리보기 한계 문장은 빈 정산에도 남긴다(validate-d3-refund-guidance).
-    return { empty: true, text: [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "아직 정산할 지출이 없어요.", "기록이 쌓이면 1/n 정산을 바로 계산해 드려요.", "", ...refundLines].join("\n") };
+    return { empty: true, text: [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "아직 정산할 지출이 없어요.", ...unknownPaidLines, "기록이 쌓이면 1/n 정산을 바로 계산해 드려요.", "", ...refundLines].join("\n") };
   }
   const people = model.people.slice(0, 8).map((p) => {
     if (p.balance > 0) return `• ${p.name}: ${numberWithCommas(p.balance)}원 받기`;
@@ -108,6 +110,7 @@ async function kakaoSettlementParts(env, household = {}) {
     `총 지출: ${numberWithCommas(model.totalExpense)}원${model.refundTotal ? ` (환불 ${numberWithCommas(model.refundTotal)}원 뺌)` : ""}`,
     `참여자: ${numberWithCommas(model.participantCount)}명`,
     model.totalExpense < 0 ? kakaoRefundSurplusLine(model) : kakaoSettlementShareLine(model),
+    ...unknownPaidLines,
     "",
     ...people,
     ...morePeople,

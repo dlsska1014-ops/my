@@ -531,6 +531,24 @@ function expiredReply(session) {
   };
 }
 
+// V22.9.126 FC-10: 새 기록의 N11 과 같은 규칙. 단위(원·십·백·천·만·억) 없이 보낸 한 자리 금액(‘5’)은 고치지 않고 같은 문장으로 다시 묻는다
+// (예전에는 5원으로 바꿨다). 값을 묻는 칸은 금액으로 열어 두어 ‘5원’ 을 보내면 바로 고친다.
+function kakaoEditSmallAmountV229126(userText = "", value = "") {
+  const amount = Number(value);
+  return amount > 0 && amount < 10 && !/[원십백천만억]/.test(normalize(userText)) ? Math.round(amount) : 0;
+}
+
+function kakaoEditSmallAmountReaskV229126(session, now, userText, small) {
+  const count = (Number(session.repeatCount) || 0) + 1;
+  if (count >= MAX_FAILS) return fail(session, now, userText);
+  return finish(session, {
+    action: "reprompt",
+    log: { type: "unrecognized", entryNo: session.entryNo, input: userText, attempt: count },
+    reply: `금액이 ${small}원으로 읽혀 저장하지 않았어요. 정말 ${small}원이면 "${small}원"처럼 원을 붙여 다시 보내 주세요.\n(그만하려면: 취소)`,
+    nextSession: { ...session, step: "awaiting_value", field: "amount", valueOptions: null, pendingField: null, pendingValue: null, repeatCount: count, updatedAt: now },
+  });
+}
+
 function handleEditMessage(session, textRaw, config = {}) {
   const now = config.now || Date.now();
   if (isSessionExpired(session, now)) return expiredReply(session);
@@ -628,6 +646,8 @@ function handleEditMessage(session, textRaw, config = {}) {
     if (session.field === "amount") {
       const num = normalizeKakaoEditAmountValue(kakaoEditNamedAmount(spoken) || value);
       if (!num) return fail(session, now, text, `금액을 알아듣지 못했어요. 13000 · 1만3천 · 1만3천원 처럼 보내주세요.`);
+      const small = kakaoEditSmallAmountV229126(text, num);
+      if (small) return kakaoEditSmallAmountReaskV229126(session, now, text, small);
       value = num;
     }
     if (!value) return fail(session, now, text);
@@ -681,6 +701,10 @@ function handleEditMessage(session, textRaw, config = {}) {
       nextSession: { ...session, step: "awaiting_confirm", pendingField: "type", pendingValue: to, updatedAt: now },
     });
   }
+
+  // V22.9.126 FC-10: ‘수정 01번 금액 5’·‘방금 금액 5’·‘수정 01번 9’ 처럼 칸과 함께 온 단위 없는 한 자리 금액도 같은 규칙이다.
+  const smallAmount = parsed.field === "amount" && parsed.value ? kakaoEditSmallAmountV229126(text, parsed.value) : 0;
+  if (smallAmount) return kakaoEditSmallAmountReaskV229126(session, now, text, smallAmount);
 
   // [L3] 값 추론 confidence 낮음 → 확인 질문
   if (parsed.via === "infer" && parsed.confidence === "low") {

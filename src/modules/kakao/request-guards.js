@@ -14,8 +14,9 @@ import {
 } from "./edit-vocabulary.js";
 import {
   KAKAO_AMOUNT_CHANGE_TAIL_V4, KAKAO_LATEST_AMOUNT_EDIT_V4, KAKAO_SEQ_AMOUNT_EDIT_V4,
-  hasKakaoEditSessionHint, isKakaoTransactionSpenderChangeCommand, parseKakaoDeleteCommandV4,
-  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4, stripKakaoEditDatePrefixV4,
+  hasKakaoEditSessionHint, isKakaoTransactionSpenderChangeCommand, kakaoEditInputTextV4,
+  parseKakaoDeleteCommandV4, parseKakaoEditCommandV4, parseKakaoRestoreCommandV4,
+  stripKakaoEditDatePrefixV4,
 } from "./edit-session-v4.js";
 import { isKakaoAmountAnswer } from "./edit-state-machine.js";
 import {
@@ -24,6 +25,7 @@ import {
 import {
   isKakaoReservedCreateFlowReply, parseKakaoSummaryRange,
 } from "./household-budget-commands.js";
+import { normalizeKakaoButtonLabel } from "./skill-handler.js";
 import { parseKakaoSeparatePurchaseCommand } from "./separate-purchase.js";
 import { getKakaoBotGroupKey } from "./group-links-first-record.js";
 import { getKakaoUserKey, stableShortHash } from "./identity-chat-first.js";
@@ -181,7 +183,8 @@ async function optionalWithin(promise, timeoutMs, fallback) {
 function checkKakaoRepeatGuard(userKey = "", utterance = "", env = {}, payload = {}) {
   const text = normalizeText(stripLeadingCommand(utterance));
   if (parseKakaoSeparatePurchaseCommand(text)) return {ok:true,skipped:true};
-  if (!text || isKakaoStartCommand(text) || isCommandMenuCommand(text) || isSummaryCommand(text) || isRecentCommand(text) || isBudgetCommand(text) || isSettlementCommand(text) || isHelpCommand(text) || isLinkCommand(text) || isInviteCommand(text) || isGroupLinkInfoCommand(text) || !!parseGroupBindCommand(text) || isHouseholdSwitchCommand(text) || isInputExampleCommand(text) || isEditGuideSimpleCommand(text) || isUndoCommand(text) || !!parseKakaoEditCommandV4(text) || !!parseKakaoDeleteCommandV4(text) || !!parseKakaoRestoreCommandV4(text) || isKakaoTransactionSpenderChangeCommand(text) || hasKakaoEditSessionHint(userKey, payload) || isKakaoGuidedCommand(text) || isKakaoReservedCreateFlowReply(text) || isKakaoFlowCancelCommand(text) || !!parseKakaoSummaryRange(text)) return { ok: true, skipped: true };
+  // V22.9.126 D-7(최종 점검): ‘초대권 15000원’ 처럼 금액이 분명한 기록은 ‘초대’ 낱말이 있어도 다른 기록처럼 반복 방지를 받는다.
+  if (!text || isKakaoStartCommand(text) || isCommandMenuCommand(text) || isSummaryCommand(text) || isRecentCommand(text) || isBudgetCommand(text) || isSettlementCommand(text) || isHelpCommand(text) || isLinkCommand(text) || (isInviteCommand(text) && !isStrongKakaoTransactionInput(text, parseMultipleTransactions(text, payload))) || isGroupLinkInfoCommand(text) || !!parseGroupBindCommand(text) || isHouseholdSwitchCommand(text) || isInputExampleCommand(text) || isEditGuideSimpleCommand(text) || isUndoCommand(text) || !!parseKakaoEditCommandV4(text) || !!parseKakaoDeleteCommandV4(text) || !!parseKakaoRestoreCommandV4(text) || isKakaoTransactionSpenderChangeCommand(text) || hasKakaoEditSessionHint(userKey, payload) || isKakaoGuidedCommand(text) || isKakaoReservedCreateFlowReply(text) || isKakaoFlowCancelCommand(text) || !!parseKakaoSummaryRange(text)) return { ok: true, skipped: true };
   const windowMs = boundedRuntimeNumber(env.KAKAO_REPEAT_GUARD_SECONDS, 8, 2, 600) * 1000;
   const now = Date.now();
   const conversationScope = getKakaoBotGroupKey(payload) || "direct";
@@ -227,14 +230,18 @@ function armKakaoRepeatGuard(key = "", responseText = "") {
 
 // V22.9.76 카카오 감사 11: 예시를 보낸 문장으로 만든다. 수입 문장이면 ‘별도 기록 추가’로 안내한다.
 function kakaoRepeatGuardText(origin = "", utterance = "") {
-  const text = normalizeText(stripLeadingCommand(utterance)).slice(0, 60);
-  const example = text && extractAmount(text)?.amount ? text : "";
-  const income = example && detectType(example) === "income";
+  const full = normalizeText(stripLeadingCommand(utterance));
+  const text = full.slice(0, 60);
+  // V22.9.126 FC-19: 60자를 넘는 문장은 잘린 예시를 보내면 원래 기록을 찾지 못한다. 예시 없이 원래 문장 앞에 붙이라고만 한다.
+  const long = full.length > 60 && !!extractAmount(full)?.amount;
+  const example = !long && text && extractAmount(text)?.amount ? text : "";
+  const income = long ? detectType(full) === "income" : example && detectType(example) === "income";
   return [
     "방금 같은 내용을 처리했어요 😊",
     "중복 저장을 막기 위해 같은 요청은 잠시 멈췄습니다.",
     "‘오늘기록’로 저장 결과를 확인해 주세요.",
-    income ? `따로 들어온 돈이라면 ‘별도 기록 추가 ${example}’라고 보내 후보를 확인해 주세요.`
+    long ? (income ? "따로 들어온 돈이라면 원래 문장 앞에 ‘별도 기록 추가’를 붙여 보내 주세요." : "서로 다른 구매라면 원래 문장 앞에 ‘별도 구매 추가’를 붙여 보내 주세요.")
+      : income ? `따로 들어온 돈이라면 ‘별도 기록 추가 ${example}’라고 보내 후보를 확인해 주세요.`
       : `서로 다른 구매라면 ‘별도 구매 추가 ${example || "커피 4500원"}’처럼 원래 내용을 보내 후보를 확인해 주세요.`,
   ].join("\n");
 }
@@ -276,10 +283,42 @@ function kakaoRecordCheckReply(text, utterance = "", payload = {}) {
 function kakaoDeferredGuardSkipV229120(text, payload, rows) {
   const t = normalizeText(text);
   if (/예산/.test(t)) return true;
-  if (looksLikeKakaoEditCommandV4(text) || !!parseKakaoEditCommandV4(t) || !!parseKakaoDeleteCommandV4(t) || !!parseKakaoRestoreCommandV4(t) ||
-      isKakaoTransactionSpenderChangeCommand(t) || isUndoCommand(t) || !!parseKakaoSummaryRange(t)) return true;
+  if (kakaoRecordChangeCommandV229126(text) || !!parseKakaoSummaryRange(t)) return true;
   if (isKakaoGuidedCommand(t) || isKakaoReservedCreateFlowReply(t) || isKakaoFlowCancelCommand(t)) return true;
   return hasKakaoEditSessionHint(getKakaoUserKey(payload), payload) && !isStrongKakaoTransactionInput(text, rows);
+}
+
+// V22.9.126 FC-1(2차 검토): 본 처리(skill-handler 의 commandText)와 같은 글로 판정한다. 끝에 ‘ㅠ·ㅋ·.’ 이 붙거나 앞에 그림 문자가 붙은
+// ‘방금 삭제ㅠ’·‘🗑️ 삭제 01번’ 은 본 처리에서 지우기인데 늦은 답에서는 다시 보내기 단추를 받아, 누르면 다른 기록이 지워졌다.
+function kakaoRecordChangeTextV229126(text = "") {
+  return kakaoEditInputTextV4(normalizeKakaoButtonLabel(text));
+}
+
+// V22.9.126 FC-1: 기록을 바꾸는 명령(고치기·지우기·되살리기·지출자 바꾸기·되돌리기). 늦은 답 뒤에도 처리는 끝까지 가므로,
+// 같은 명령을 다시 보내게 하면 다음 번호의 다른 기록까지 바뀐다. 조회(기간 요약)는 넣지 않는다.
+function kakaoRecordChangeCommandV229126(text = "") {
+  const t = kakaoRecordChangeTextV229126(text);
+  return looksLikeKakaoEditCommandV4(t) || !!parseKakaoEditCommandV4(t) || !!parseKakaoDeleteCommandV4(t) || !!parseKakaoRestoreCommandV4(t) ||
+    isKakaoTransactionSpenderChangeCommand(t) || isUndoCommand(t);
+}
+
+// V22.9.126 FC-1(2차 검토): 메뉴만 여는 ‘수정 01번’ 과 ‘취소’·‘잘못 입력’ 같은 안내 낱말은 번호·‘방금’ 으로 기록을 고르지 않는다(열린 수정 세션이
+// 받아도 그 세션의 한 기록뿐이다). 다시 보내도 다른 기록이 바뀌지 않으므로 ‘기록 변경’·‘다른 기록까지 바뀔 수 있어요’ 라고 하지 않는다.
+function kakaoRecordNoChangeCommandV229126(text = "") {
+  const t = kakaoRecordChangeTextV229126(text);
+  const edit = parseKakaoEditCommandV4(t);
+  if (edit) return !edit.rest && !edit.multi;
+  return isUndoCommand(t) && !looksLikeKakaoEditCommandV4(t) && !parseKakaoDeleteCommandV4(t) && !parseKakaoRestoreCommandV4(t) && !isKakaoTransactionSpenderChangeCommand(t);
+}
+
+// V22.9.126 FC-1: 날짜가 앞에 붙은 고치기·지우기(‘2026년 11월 9일 삭제 01번’)는 그날 목록에서 확인하게 한다(kakaoRecordCheckCommands 와 같은 꼴).
+// 2차 검토: ‘방금’ 이 가리키는 기록(마지막으로 저장한 기록, 번호 없는 지출자 변경도 같다)은 다른 날일 수 있어 그 기록을 고르는 ‘최근기록’ 으로 보낸다.
+function kakaoRecordChangeListCommandV229126(text = "") {
+  const t = kakaoRecordChangeTextV229126(text);
+  const target = parseKakaoDeleteCommandV4(t) || parseKakaoEditCommandV4(t);
+  if (target?.latest || (!target && isKakaoTransactionSpenderChangeCommand(t))) return "최근기록";
+  const date = target?.prefix && !target.dateError ? String(target.date || "") : "";
+  return date && date !== formatDate(nowKstDate()) ? `${date} 기록` : "오늘기록";
 }
 
 function kakaoDeferredReply(utterance = "", payload = {}) {
@@ -293,6 +332,12 @@ function kakaoDeferredReply(utterance = "", payload = {}) {
   if (separate?.token || recordRows.length) {
     const commands = kakaoRecordCheckCommands(utterance, payload);
     return kakaoText(`기록 저장 확인이 조금 늦어지고 있어요 😊\n같은 내용을 다시 보내지 말고 잠시 뒤 ${commands.map(command => `‘${command}’`).join(" 또는 ")}에서 확인해 주세요.`, commands.map(command => [command, command]));
+  }
+  // V22.9.126 FC-1: 기록을 바꾸는 명령에는 그 명령을 다시 보내는 단추·문장을 주지 않는다(길이와 상관없이). 목록에서 결과만 확인하게 한다.
+  if (kakaoRecordChangeCommandV229126(text)) {
+    const listCommand = kakaoRecordChangeListCommandV229126(text);
+    if (kakaoRecordNoChangeCommandV229126(text)) return kakaoText(`확인이 조금 늦어지고 있어요 😊\n잠시 뒤 ‘${listCommand}’에서 확인해 주세요.`, [[listCommand, listCommand]]);
+    return kakaoText(`기록 변경 확인이 조금 늦어지고 있어요 😊\n같은 명령을 다시 보내지 말고 잠시 뒤 ‘${listCommand}’에서 확인해 주세요. 다시 보내면 다른 기록까지 바뀔 수 있어요.`, [[listCommand, listCommand]]);
   }
   const command = String(text || "").replace(/\s+/g, " ").trim();
   // 단톡방 버튼은 이름(14자 이하)을 그대로 보내므로 긴 말은 잘라서 버튼에 넣지 않고 다시 보내 달라고만 한다.
@@ -867,9 +912,9 @@ function kakaoRecordGuardReplyV229120(guard, sessionNotice = "") {
 export {
   armKakaoRepeatGuard, buildKakaoSkillTestPayload, checkKakaoRepeatGuard, clearKakaoInFlight,
   isKakaoFirstRecordInput, isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoChangeRequestReply,
-  kakaoDeferredReply, kakaoQaRequestAllowed, kakaoRecordCheckReply, kakaoRecordGuardReplyV229120,
-  kakaoRecordGuardV229120, kakaoRepeatGuardText, looksLikeKakaoChangeRequest,
-  looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse, optionalWithin, stripKakaoBotMention,
-  stripLeadingCommand,
+  kakaoDeferredReply, kakaoGuardFutureBareDayV229120, kakaoQaRequestAllowed, kakaoRecordCheckReply,
+  kakaoRecordGuardReplyV229120, kakaoRecordGuardV229120, kakaoRepeatGuardText,
+  looksLikeKakaoChangeRequest, looksLikeKakaoEditCommandV4, normalizeKakaoSkillResponse,
+  optionalWithin, stripKakaoBotMention, stripLeadingCommand,
 };
 // @build:exports-end
