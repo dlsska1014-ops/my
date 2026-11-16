@@ -27,6 +27,7 @@ import { escapeHtml, numberWithCommas } from "../domain/transactions-core.js";
 // plans(정기지출 항목)를 못 읽었으면 null — 그 몫을 빼고 계산했다고 내역 줄에 적는다.
 // V22.9.80 V76 M-7: refundDeductions(연결한 환불, 플래그가 켜진 화면만 넘긴다)는 사용액·월말 예상의 기록에서 뺀다. 기본은 빈 목록이다.
 // V22.9.126 FC-21: members(이미 읽어 둔 참여자 목록)를 넘기면 지출자 자격이 없는 규칙을 대기·월말 예상에서 빼고 spenderCheckRecurring 으로 따로 돌려준다.
+// 빈 목록은 넘기지 않은 것과 같다(참여자를 모르면 거르지 않는다).
 function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [], budgets = [], recurring = [], recurringState = "complete", plans = [], receipt = null, refundDeductions = [], members = null }) {
   if (!Array.isArray(rows) || !Array.isArray(budgets)) throw new Error("budget_observation_read_invalid");
   const budget = budgetSummary(rows, budgets, { refundDeductions });
@@ -54,7 +55,9 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   // 예전에는 표식(last_applied_month)만 봐서, 표식 저장이 늦은 달에는 이미 기록된 고정지출을 한 건 더 셌다.
   const pendingAll = pendingState === "complete" ? safeArray(pendingRecurringRules(recurring, month, rows, members)) : null;
   // V22.9.126 FC-21: 뺀 규칙은 이 대기 목록의 차집합으로 센다(월말 예상이 확인 불가인 달에도 대기에서 빠진 까닭을 알린다).
-  const spenderCheckRecurring = pendingAll && Array.isArray(members) ? safeArray(pendingRecurringRules(recurring, month, rows)).filter((rule) => !pendingAll.includes(rule)) : [];
+  // 범위는 아래 대기 목록과 같은 예산 안이다. 예산 밖 분류의 규칙은 지출자와 상관없이 예전처럼 예산 밖 안내에 남긴다.
+  const pendingAnySpender = pendingAll && Array.isArray(members) ? safeArray(pendingRecurringRules(recurring, month, rows)) : pendingAll;
+  const spenderCheckRecurring = pendingAll ? pendingAnySpender.filter((rule) => !pendingAll.includes(rule) && inBudget(rule.category)) : [];
   const spenderCheckTotal = spenderCheckRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const pendingRecurring = pendingAll ? pendingAll.filter((r) => inBudget(r.category)) : null;
   const recurringTotal = activeRecurring ? activeRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0) : null;
@@ -70,7 +73,7 @@ function buildBudgetAlertPolishModel({ month, selectedHousehold = null, rows = [
   const afterPendingDiff = totalBudget && afterPendingForecast != null ? afterPendingForecast - totalBudget : null;
   // V22.9.76 감사 P2-1: 분류별 예산을 쓰면 예산 밖 분류의 대기 고정지출·정기지출은 예산과 견주는 예상에서 빠진다. 그때
   // "대기 중인 고정지출이 없다"고 단정하지 않도록 예산 밖 건수·금액을 따로 돌려준다.
-  const outsidePendingRecurring = pendingAll && budget.basis === "category" ? pendingAll.filter((r) => !inBudget(r.category)) : [];
+  const outsidePendingRecurring = pendingAll && budget.basis === "category" ? pendingAnySpender.filter((r) => !inBudget(r.category)) : [];
   const outsidePendingTotal = outsidePendingRecurring.reduce((sum, r) => sum + Number(r.amount || 0), 0);
   const outsideReserveDue = reserveState === "complete" && outlook.notYetRecorded && budget.basis === "category" ? outlook.notYetRecorded.outsideReservePlans : [];
   const outsideReserveTotal = outsideReserveDue.reduce((sum, entry) => sum + Number(entry.plan.amount || 0), 0);

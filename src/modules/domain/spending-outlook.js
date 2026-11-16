@@ -47,19 +47,27 @@ function recurringRuleAppliedInMonth(rule, month = "", markers = new Set()) {
   return markers.has(`recurring:${rule?.id}:${month}`);
 }
 
+// V22.9.126 FC-21: 참여자 목록이 없거나 비었으면 지출자 자격을 모르는 것으로 보고 거르지 않는다(예전 값).
+// 빈 목록을 그대로 쓰면 모든 규칙이 ‘자격 없음’이 되어 대기 0원·지출자 확인 필요 전부가 됐다.
+function knownSpenderMembers(members) {
+  return Array.isArray(members) && members.length ? members : null;
+}
+
 // 그 달의 반영 대기 고정지출. 규칙을 못 읽었으면(배열이 아니면) null 이다 — 0건으로 단정하지 않는다.
 // V22.9.126 FC-21: 참여자 목록(members)을 넘기면 예약 실행·수동 반영처럼 지출자가 소유자·관리자·구성원이 아닌 규칙을 뺀다
-// (그 규칙은 기록이 생기지 않아 매달 대기로 남았다). 넘기지 않으면 예전과 같다.
+// (그 규칙은 기록이 생기지 않아 매달 대기로 남았다). 넘기지 않거나 빈 목록이면 예전과 같다.
 function pendingRecurringRules(recurring, month = "", rows = [], members = null) {
   if (!Array.isArray(recurring)) return null;
   const markers = recurringMarkerSet(rows);
-  return recurring.filter((rule) => isOutgoingRecurringRule(rule) && !recurringRuleAppliedInMonth(rule, month, markers) && (!Array.isArray(members) || recurringSpenderEligible(members, rule.user_id)));
+  const known = knownSpenderMembers(members);
+  return recurring.filter((rule) => isOutgoingRecurringRule(rule) && !recurringRuleAppliedInMonth(rule, month, markers) && (!known || recurringSpenderEligible(known, rule.user_id)));
 }
 
-// V22.9.126 FC-21: 대기였을 규칙 중 지출자 자격이 없어 반영되지 않는 규칙(‘지출자 확인 필요’). 참여자 목록이 없으면 빈 목록이다.
+// V22.9.126 FC-21: 대기였을 규칙 중 지출자 자격이 없어 반영되지 않는 규칙(‘지출자 확인 필요’). 참여자 목록이 없거나 비었으면 빈 목록이다.
 function spenderCheckRecurringRules(recurring, month = "", rows = [], members = null) {
-  if (!Array.isArray(recurring) || !Array.isArray(members)) return [];
-  return pendingRecurringRules(recurring, month, rows).filter((rule) => !recurringSpenderEligible(members, rule.user_id));
+  const known = knownSpenderMembers(members);
+  if (!Array.isArray(recurring) || !known) return [];
+  return pendingRecurringRules(recurring, month, rows).filter((rule) => !recurringSpenderEligible(known, rule.user_id));
 }
 
 // 그 달에 아직 내지 않은 정기지출(준비금) 항목: 지출 항목이고 금액이 있으며 납부일이 오늘~말일. 지난 납부일·다른 달은 뺀다.
@@ -139,8 +147,8 @@ function homeUpcomingOut({ month = "", today = formatDate(nowKstDate()), rows = 
     fixedCount: fixed.length, fixedTotal, pendingFixed: fixed, planCount: unrecorded.planEntries.length, planTotal,
     expenseItems: rules.filter((r) => !isIncomeRule(r)).length + outPlans.length,
     incomeItems: rules.filter(isIncomeRule).length + allPlans.length - outPlans.length,
-    // V22.9.126 FC-21: 참여자 목록을 넘긴 화면만 ‘지출자 확인 필요’ 규칙을 함께 받는다(넘기지 않으면 예전과 같은 모양).
-    ...(Array.isArray(members) ? { spenderCheckCount: unrecorded.spenderCheck.length, spenderCheckRules: unrecorded.spenderCheck } : {}),
+    // V22.9.126 FC-21: 참여자 목록을 넘긴 화면만 ‘지출자 확인 필요’ 규칙을 함께 받는다(넘기지 않거나 빈 목록이면 예전과 같은 모양).
+    ...(knownSpenderMembers(members) ? { spenderCheckCount: unrecorded.spenderCheck.length, spenderCheckRules: unrecorded.spenderCheck } : {}),
   };
 }
 
@@ -186,9 +194,13 @@ function monthSpendingOutlook({ month = "", rows = [], today = "", receipt = nul
   const current = monthState === "current";
   const unrecorded = current ? unrecordedOutgoingInMonth({ month, today: day, rows, recurring, plans, members }) : null;
   const pending = safeArray(unrecorded?.pending);
+  // V22.9.126 FC-21: 지출자 확인이 필요한 규칙은 범위 안(예상에 넣을 몫)만 세어 대기 금액과 같은 범위로 알린다.
+  // 범위 밖 목록은 예상에 들어가지 않으므로 지출자와 상관없이 예전 값이다.
+  const spenderCheck = safeArray(unrecorded?.spenderCheck);
+  const spenderCheckIn = spenderCheck.filter((rule) => inScope(rule.category));
   const pendingIn = pending.filter((rule) => inScope(rule.category));
   const planIn = safeArray(unrecorded?.planEntries).filter((entry) => inScope(entry.plan.category));
-  const pendingOut = budgeted ? pending.filter((rule) => !inScope(rule.category)) : [];
+  const pendingOut = budgeted ? (spenderCheck.length ? safeArray(pendingRecurringRules(recurring, month, rows)) : pending).filter((rule) => !inScope(rule.category)) : [];
   const planOut = budgeted ? safeArray(unrecorded?.planEntries).filter((entry) => !inScope(entry.plan.category)) : [];
   const notYetRecorded = {
     pendingFixed: sum(pendingIn), pendingFixedCount: pendingIn.length, pendingFixedRules: pendingIn,
@@ -196,8 +208,8 @@ function monthSpendingOutlook({ month = "", rows = [], today = "", receipt = nul
     outsidePendingFixed: sum(pendingOut), outsidePendingRules: pendingOut,
     outsideReserve: sum(planOut, (entry) => entry.plan.amount), outsideReservePlans: planOut,
     rulesKnown: current ? !!unrecorded?.rulesKnown : null, plansKnown: current ? !!unrecorded?.plansKnown : null,
-    // V22.9.126 FC-21: 참여자 목록을 넘긴 화면만 받는다(분류 범위와 상관없이 전부 — 금액 합계가 아니라 확인 안내라서).
-    ...(Array.isArray(members) ? { spenderCheckCount: safeArray(unrecorded?.spenderCheck).length, spenderCheckRules: safeArray(unrecorded?.spenderCheck) } : {}),
+    // V22.9.126 FC-21: 참여자 목록을 넘긴 화면만 받는다(pendingFixedRules 와 같은 범위 안).
+    ...(knownSpenderMembers(members) ? { spenderCheckCount: spenderCheckIn.length, spenderCheckRules: spenderCheckIn } : {}),
   };
   const partialReasons = current ? [...(Array.isArray(recurring) ? [] : ["recurring"]), ...(Array.isArray(plans) ? [] : ["plans"])] : [];
   // V22.9.89 Astra 2: 오늘 뒤 날짜로 미리 적은 일반 지출은 남은 날 예상의 아래 한도다(지금 속도 × 남은 날이 그보다 작으면 미리 적은 금액).
@@ -263,7 +275,9 @@ function spendingOutlookCaption(outlook) {
   if (outlook.monthState !== "current") return "관측 전";
   const reasons = safeArray(outlook.expected?.partialReasons);
   const missing = [...(reasons.includes("recurring") ? ["반영 대기 고정지출"] : []), ...(reasons.includes("plans") ? ["정기지출 항목"] : [])];
-  return `기록 + 남은 고정 + 남은 날 예상${missing.length ? ` · ${missing.join("·")} 제외` : ""}`;
+  // V22.9.126 FC-21: 지출자 확인이 필요해 뺀 규칙이 있으면 낮아진 예상의 까닭을 적는다(참여자 목록을 넘긴 화면만 생긴다).
+  const spenderCheck = Number(outlook.notYetRecorded?.spenderCheckCount || 0);
+  return `기록 + 남은 고정 + 남은 날 예상${missing.length ? ` · ${missing.join("·")} 제외` : ""}${spenderCheck ? ` · 지출자 확인 필요 ${numberWithCommas(spenderCheck)}건 제외` : ""}`;
 }
 // @build:exports-start
 export {
