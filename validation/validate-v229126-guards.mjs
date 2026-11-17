@@ -379,7 +379,10 @@ for (const path of ["direct", "room"]) {
     check(() => eq(reply.text, src.reply.text.split(exampleOf(src.flat)).join(exampleOf(flat)), `${path} [type_conflict] ‘${utterance}’: 안내 글이 실제 섞인 말 확인 답과 같다`), "mixed");
     check(() => eq(JSON.stringify(reply.labels), JSON.stringify(src.reply.labels), `${path} [type_conflict] ‘${utterance}’: 단추 이름이 실제 답과 같다`), "mixed");
     check(() => eq(JSON.stringify(reply.messages), JSON.stringify(src.reply.messages.map((m) => m.split(src.flat).join(flat))), `${path} [type_conflict] ‘${utterance}’: 단추가 보내는 말이 실제 답과 같은 꼴`), "mixed");
-    check(() => eq(JSON.stringify(reply.messages), JSON.stringify([`지출 ${flat}`, `수입 ${flat}`]), `${path} [type_conflict] ‘${utterance}’: 단추가 보내는 말`), "mixed");
+    // 단톡방은 단추 이름을 보내므로, 이름이 명령이 아닌 두 단추는 보낼 글이 14자를 넘으면 내지 않고 ‘기록하기’(봇 부르기)를 단다. 1:1 은 보낼 글이 80자에 온전히 실릴 때만 단추를 낸다
+    // (validate-v229127-room-buttons.mjs 가 누른 글로 저장까지 따라간다).
+    const wantMessages = flat.length + 3 > 80 ? [] : path === "room" && flat.length + 3 > 14 ? ["기록하기"] : [`지출 ${flat}`, `수입 ${flat}`];
+    check(() => eq(JSON.stringify(reply.messages), JSON.stringify(wantMessages), `${path} [type_conflict] ‘${utterance}’: 단추가 보내는 말`), "mixed");
     for (const [word, type] of [["수입", "i"], ["지출", "e"]]) {
       const again = await run(`mixed-${word}-${utterance}`, path, [utterance, `${word} ${flat}`]);
       check(() => eq(JSON.stringify(again.addedPerTurn[1]), JSON.stringify([`${TODAY}|${MIXED_AMOUNT[utterance]}|${type}`]), `${path} [type_conflict] ‘${word} ${flat}’: ${word} 한 건 — ${again.replies[1].text.split("\n")[0].slice(0, 60)}`), "mixed");
@@ -388,7 +391,7 @@ for (const path of ["direct", "room"]) {
   // 앞에 ‘기록’ 을 붙이거나 봇을 부른 말: 단추 말에는 붙인 말·부른 이름이 없고, 단추로 저장한 메모에도 없다.
   for (const said of ["기록 지원금 30만원 입금됨", "@말해가계부 지원금 30만원 입금됨"]) {
     const r = await run(`prefix-${said}`, path, [said, "수입 지원금 30만원 입금됨"]);
-    check(() => eq(JSON.stringify(r.replies[0].messages), JSON.stringify(["지출 지원금 30만원 입금됨", "수입 지원금 30만원 입금됨"]), `${path} ‘${said}’: 단추 말에 붙인 말이 없다`), "prefix");
+    check(() => eq(JSON.stringify(r.replies[0].messages), JSON.stringify(path === "room" ? ["기록하기"] : ["지출 지원금 30만원 입금됨", "수입 지원금 30만원 입금됨"]), `${path} ‘${said}’: 단추 말에 붙인 말이 없다(단톡방은 봇 부르기 단추)`), "prefix");
     check(() => ok(r.addedPerTurn[0].length === 0 && JSON.stringify(r.addedPerTurn[1]) === JSON.stringify([`${TODAY}|300000|i`]) && r.memos.every((memo) => !/기록|수입|말해가계부|@/.test(memo)), `${path} ‘${said}’ → 단추: 수입 한 건, 메모 ${JSON.stringify(r.memos)}`), "prefix");
   }
   // 장면: 별도 구매 추가는 원래 기록과 같은 한 건을 하나 더 넣는 명령이라 안전망을 거치지 않는다. 단가 꼴은 원래 기록이 생기지 않아 후보도 없다.
@@ -409,7 +412,7 @@ for (const path of ["direct", "room"]) {
     const reply = r.replies[2];
     const body = kind === "mixed" ? "수입인지 지출인지 헷갈려서 아직 저장하지 않았어요." : TEXT[kind];
     check(() => ok(JSON.stringify(r.addedPerTurn) === JSON.stringify([[e(4500)], [], []]) && reply.text.startsWith(`✏️ 01번 수정은 끝냈어요.\n${body}`), `${path} 고치기 세션 뒤 ‘${said}’ — ${JSON.stringify(reply.text.slice(0, 60))}`), "scene");
-    check(() => eq(JSON.stringify(reply.labels), JSON.stringify(kind === "mixed" ? ["지출로 기록", "수입으로 기록"] : ONE), `${path} 고치기 세션 뒤 ‘${said}’: 단추`), "scene");
+    check(() => eq(JSON.stringify(reply.labels), JSON.stringify(kind === "mixed" ? (path === "room" ? ["기록하기"] : ["지출로 기록", "수입으로 기록"]) : ONE), `${path} 고치기 세션 뒤 ‘${said}’: 단추`), "scene");
   }
   // 장면: 응답 예산을 넘긴 늦은 답과 뒤에서 끝난 저장이 같은 말을 한다(되묻는 말은 늦은 답도 되묻고 저장이 없다, 저장되는 말은 ‘늦어지고 있어요’ 뒤에 저장된다).
   for (const [said, kind, rows] of LATE) {

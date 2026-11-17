@@ -191,9 +191,23 @@ function kakaoSafeText(text = "") {
   return `${head.slice(0, cut).trimEnd()}\n\n…자세한 내용은 메뉴를 눌러 확인해주세요.`;
 }
 
+// V22.9.127: 바로가기가 실어 보내는 글의 최대 길이. 이보다 긴 글은 잘려 나간다 — 잘린 글이 그대로 저장으로 이어지는 단추(‘지출 …’·‘수입 …’)는
+// 보낼 글이 이 길이에 온전히 들어갈 때만 만든다(request-guards.js kakaoGuardTypeConflictReplyV229126·skill-handler.js kakaoMixedTypeConfirmationReply).
+const KAKAO_QR_MESSAGE_MAX_V229127 = 80;
+
+// V22.9.127: 수입·지출을 되묻는 글(안전망의 되묻기와 해석기의 섞인 말 확인 답이 함께 쓴다). 40자 이하 문장은 앞에 구분을 붙인 문장을 통째로 보여 준다.
+// 더 긴 문장은 잘라 보여 주지 않는다 — 잘린 예시(‘수입 <앞 40자>…’)를 그대로 보내면 금액 숫자가 잘려 다른 값으로 저장될 수 있다(독립 검토).
+// 긴 문장은 무엇을 붙이면 되는지만 알려 준다.
+const KAKAO_TYPE_CHOICE_ASK_V229127 = "수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.";
+function kakaoTypeChoiceAskTextV229127(text = "") {
+  const sentence = String(text || "");
+  if (sentence.length > 40) return `${KAKAO_TYPE_CHOICE_ASK_V229127}\n쓴 돈이면 보낸 문장 맨 앞에 ‘지출’, 들어온 돈이면 ‘수입’ 을 붙여 다시 보내 주세요.`;
+  return `${KAKAO_TYPE_CHOICE_ASK_V229127}\n쓴 돈이면 ‘지출 ${sentence}’, 들어온 돈이면 ‘수입 ${sentence}’처럼 앞에 구분을 붙여 다시 보내 주세요.`;
+}
+
 function kakaoQr(label, messageText = label, extra = null) {
   const safeLabel = String(label || "").trim().slice(0, 14);
-  const safeMessage = String(messageText || label || "").trim().slice(0, 80);
+  const safeMessage = String(messageText || label || "").trim().slice(0, KAKAO_QR_MESSAGE_MAX_V229127);
   if (!safeLabel || !safeMessage) return null;
   const out = { label: safeLabel, action: "message", messageText: safeMessage };
   // 오픈빌더 스킬 테스트 호환성을 위해 빈 extra 객체는 보내지 않습니다.
@@ -341,16 +355,25 @@ function kakaoGroupTextChoices(quickReplies = []) {
 // 똑같이 맞춘다(14자 이하일 때). 안내 글이 짧으면 글과 버튼을 한 말풍선에 담아 대화창이 길어지지 않게 한다.
 const KAKAO_GROUP_CARD_TEXT_MAX = 400;
 
+// V22.9.127: 수입·지출을 고르는 두 단추([지출로 기록]·[수입으로 기록])는 이름이 명령이 아니다. 보낼 글(‘수입 <원래 문장>’)이 14자를 넘으면 단톡방에서는
+// 이름만 나가 입력 안내로 끝났다(2026-11-17 시험 단톡방 — 저장되지 않음). 그런 단추는 단톡방에 내지 않고, 다시 보내기 쉽게 ‘기록하기’(봇 부르기) 단추를 하나 단다.
+// 안내 글이 앞에 구분을 붙여 다시 보내는 법을 알려 준다. 다른 단추는 그대로다(이름이 그 흐름의 답이거나 명령인 단추가 있다).
+const KAKAO_TYPE_CHOICE_LABELS_V229127 = new Set(["지출로 기록", "수입으로 기록"]);
+
 function kakaoGroupChoiceButtons(quickReplies = []) {
-  return dedupeQuickReplies(Array.isArray(quickReplies) ? quickReplies : [])
-    .filter((reply) => reply.action === "message" && reply.messageText)
-    .map((reply) => ({ label: reply.messageText.length <= 14 ? reply.messageText : reply.label, action: "message", messageText: reply.messageText }));
+  const replies = dedupeQuickReplies(Array.isArray(quickReplies) ? quickReplies : [])
+    .filter((reply) => reply.action === "message" && reply.messageText);
+  const sendable = replies.filter((reply) => reply.messageText.length <= 14 || !KAKAO_TYPE_CHOICE_LABELS_V229127.has(reply.label));
+  const buttons = sendable.map((reply) => ({ label: reply.messageText.length <= 14 ? reply.messageText : reply.label, action: "message", messageText: reply.messageText }));
+  return sendable.length < replies.length ? [...buttons, { ...KAKAO_RECORD_MENTION_BUTTON }] : buttons;
 }
 
 // V22.9.88(Y-7): 링크 버튼(leadButtons)은 메시지 버튼보다 앞에 둔다. 그래서 늘 첫 카드에 들어가고, 글로 늘어놓는 나머지(rest)에는 오지 않는다.
 // 말풍선이 이미 3개이고 마지막 글이 길어 카드를 못 만들면 링크는 kakaoPlaceLeftLinks 가 다른 자리에 붙인다.
 function kakaoGroupChoiceCards(quickReplies = [], outputs = [], leadButtons = []) {
-  const buttons = [...leadButtons, ...kakaoGroupChoiceButtons(quickReplies)];
+  let buttons = [...leadButtons, ...kakaoGroupChoiceButtons(quickReplies)];
+  // V22.9.127: 수입·지출을 되묻는 답이 단톡방에서 단추 없이 나가면(보낼 글이 바로가기에 실리지 않는 긴 문장) 다시 보내기 쉽게 ‘기록하기’(봇 부르기)를 단다.
+  if (!buttons.length && outputs.some((output) => String(output?.simpleText?.text || "").includes(KAKAO_TYPE_CHOICE_ASK_V229127))) buttons = [{ ...KAKAO_RECORD_MENTION_BUTTON }];
   if (!buttons.length) return { outputs, rest: [] };
   let merged = [...outputs];
   let used = 0;
@@ -721,11 +744,12 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
 }
 // @build:exports-start
 export {
-  KAKAO_TERMS_NOTICE_LINE_V229118, dedupeQuickReplies, isDefiniteStorageFailure,
-  isKakaoRequestUniqueConflictV229119, isUncertainStorageWrite, kakaoDefaultQuickReplies,
-  kakaoEditSameTextTextV229119, kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply,
-  kakaoNextStepReply, kakaoQr, kakaoSameTextExistsTextV229119, kakaoSameTextLongV229119,
-  kakaoSaveFailedText, kakaoSeparateSameTextTextV229119, kakaoTermsNoticeResponseV229118, kakaoText,
-  kakaoWebLedgerReply, noteKakaoTermsNoticeDroppedV229118,
+  KAKAO_QR_MESSAGE_MAX_V229127, KAKAO_TERMS_NOTICE_LINE_V229118, dedupeQuickReplies,
+  isDefiniteStorageFailure, isKakaoRequestUniqueConflictV229119, isUncertainStorageWrite,
+  kakaoDefaultQuickReplies, kakaoEditSameTextTextV229119, kakaoGroupCompatibleResponse,
+  kakaoGroupEmptyMentionReply, kakaoNextStepReply, kakaoQr, kakaoSameTextExistsTextV229119,
+  kakaoSameTextLongV229119, kakaoSaveFailedText, kakaoSeparateSameTextTextV229119,
+  kakaoTermsNoticeResponseV229118, kakaoText, kakaoTypeChoiceAskTextV229127, kakaoWebLedgerReply,
+  noteKakaoTermsNoticeDroppedV229118,
 };
 // @build:exports-end

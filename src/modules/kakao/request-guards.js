@@ -8,7 +8,9 @@ import { jsonResponse } from "../runtime/http.js";
 import { verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { kakaoSkillSafeFallbackText } from "./reply-texts.js";
 import { isCommandMenuCommand, isHouseholdSwitchCommand } from "./intent-nlu.js";
-import { kakaoText } from "./response-builders.js";
+import {
+  KAKAO_QR_MESSAGE_MAX_V229127, kakaoText, kakaoTypeChoiceAskTextV229127,
+} from "./response-builders.js";
 import {
   KAKAO_DELETE_WORD_V4, KAKAO_EDIT_AMOUNT_V4, KAKAO_EDIT_VERB_V4,
 } from "./edit-vocabulary.js";
@@ -1388,18 +1390,21 @@ function kakaoGuardTypeConflictV229126(t, spans, rows, raw = "") {
   if (k > 0 && kakaoGuardJoinedV229126(t, spans[k - 1], near)) k -= 1;
   return kakaoGuardSpanValueV229126(t, spans, k) === Number(rows[0].amount) ? true : "plain";
 }
-// 답: skill-handler.js kakaoMixedTypeConfirmationReply 를 본뜬다(같은 글·같은 두 단추, 40자에서 자른 예시, 200자 이하이고 줄바꿈 없을 때만 단추). 그 함수가 바뀌면 함께 바꾼다.
+// 답: skill-handler.js kakaoMixedTypeConfirmationReply 를 본뜬다(같은 글·같은 두 단추, 40자에서 자른 예시, 단추가 보낼 글이 온전히 실리는 길이이고 줄바꿈 없을 때만 단추). 그 함수가 바뀌면 함께 바꾼다.
 // 빈칸 정리는 그 함수의 replace·trim 과 같은 결과를 split 으로 낸다(이 구역 정규식의 빈칸 되풀이에는 상한을 둔다).
 function kakaoGuardTypeConflictReplyV229126(utterance, rows, plain = false) {
   const text = String(utterance || "").split(/\s/).filter(Boolean).join(" ");
-  const buttons = text.length <= 200 && !/\n/.test(String(utterance || ""));
+  const oneLine = text.length <= 200 && !/\n/.test(String(utterance || ""));
+  // V22.9.127: 단추가 보내는 글(‘지출 …’·‘수입 …’, 앞말 석 자)은 바로가기가 실어 보내는 길이(response-builders.js kakaoQr)에 온전히 들어갈 때만 만든다.
+  // 그보다 길면 글이 잘려 나가 금액이 달라졌다(1:1 에서 ‘… 1250000원 입금됨’ 84자 → 단추가 ‘… 12500’ 까지만 보내 12,500원 저장). 긴 글은 안내 글만 보낸다.
+  const buttons = oneLine && text.length + 3 <= KAKAO_QR_MESSAGE_MAX_V229127;
   // 단추 말(앞에 ‘지출’·‘수입’)이 그 구분의 같은 금액 한 건으로 읽힐 때만 단추를 준다. 여러 건(앞말이 첫 건에만 닿는다)·앞말이 떨어져 나가는 말
   // (‘수입 작년에 깜빡하고 … 58000원’ 은 지출로 읽힌다)·앞말을 붙이고도 반대로 읽힌 말·낸 금액이 기록 금액과 다른 말(plain)은 단추·통째 예시 없이 한 건씩 짧게 보내 달라고 한다.
   const sticks = (word, type) => { const got = parseMultipleTransactions(`${word} ${text}`, {}); return got.length === 1 && got[0].type === type && Number(got[0].amount) === Number(rows[0].amount); };
-  if (plain || rows.length !== 1 || (buttons && (!sticks("지출", "expense") || !sticks("수입", "income")))) return { kind: "type_conflict", text: "수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n기록을 한 건씩, 앞에 ‘지출’ 이나 ‘수입’ 을 붙여 다시 보내 주세요.\n예: 수입 중고 자전거 15만원", quickReplies: KAKAO_GUARD_ONE_REPLY_V229126 };
-  const example = text.length > 40 ? `${text.slice(0, 40)}…` : text;
+  if (plain || rows.length !== 1 || (oneLine && (!sticks("지출", "expense") || !sticks("수입", "income")))) return { kind: "type_conflict", text: "수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n기록을 한 건씩, 앞에 ‘지출’ 이나 ‘수입’ 을 붙여 다시 보내 주세요.\n예: 수입 중고 자전거 15만원", quickReplies: KAKAO_GUARD_ONE_REPLY_V229126 };
   const quickReplies = buttons ? [["지출로 기록", `지출 ${text}`], ["수입으로 기록", `수입 ${text}`]] : [];
-  return { kind: "type_conflict", text: `수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n쓴 돈이면 ‘지출 ${example}’, 들어온 돈이면 ‘수입 ${example}’처럼 앞에 구분을 붙여 다시 보내 주세요.`, quickReplies };
+  // V22.9.127: 글은 response-builders.js kakaoTypeChoiceAskTextV229127 — 40자를 넘는 문장은 잘린 예시를 보여 주지 않는다.
+  return { kind: "type_conflict", text: kakaoTypeChoiceAskTextV229127(text), quickReplies };
 }
 function kakaoGuardMoreV229126(text, rows) {
   const raw = String(text || "").replace(/\r/g, "");
