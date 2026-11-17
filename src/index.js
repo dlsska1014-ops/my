@@ -3315,7 +3315,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.127-TYPE-BUTTONS";
+const APP_VERSION = "V22.9.128-WEB-CHECK";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3363,8 +3363,9 @@ function premiumBetaEnabled(_env = {}) {
 }
 
 // V22.9.93 Q-5: 없는 주소를 브라우저로 열 때도 이 화면을 쓴다(라우터 마지막). 로그인 전 방문자도 오므로 처음 화면 링크를 같이 둔다.
+// V22.9.128 W-2: 휴대폰 폭에서 제목이 낱말 가운데(‘없습니/다.’)에서 꺾이지 않게 낱말 단위로 줄을 바꾼다(word-break:keep-all).
 function pageNotFoundResponse() {
-  const body = `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>페이지를 찾을 수 없습니다</title></head><body><main style="max-width:620px;margin:70px auto;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif"><h1>페이지를 찾을 수 없습니다.</h1><p style="color:#64748b;line-height:1.65">요청한 페이지가 없거나 현재 사용할 수 없습니다.</p><p><a href="/my" style="display:inline-flex;padding:11px 14px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:900">내 가계부로 이동</a> <a href="/" style="display:inline-flex;padding:11px 14px;border-radius:13px;border:1px solid #cbd5e1;color:#111827;text-decoration:none;font-weight:800">처음 화면</a></p></main></body></html>`;
+  const body = `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><meta name="robots" content="noindex,nofollow"/><title>페이지를 찾을 수 없습니다</title></head><body><main style="max-width:620px;margin:70px auto;padding:24px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;word-break:keep-all"><h1>페이지를 찾을 수 없습니다.</h1><p style="color:#64748b;line-height:1.65">요청한 페이지가 없거나 현재 사용할 수 없습니다.</p><p><a href="/my" style="display:inline-flex;padding:11px 14px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:900">내 가계부로 이동</a> <a href="/" style="display:inline-flex;padding:11px 14px;border-radius:13px;border:1px solid #cbd5e1;color:#111827;text-decoration:none;font-weight:800">처음 화면</a></p></main></body></html>`;
   return new Response(body, { status: 404, headers: { ...HTML_HEADERS, "x-robots-tag": "noindex, nofollow" } });
 }
 
@@ -13497,7 +13498,14 @@ function attachUiUxRuntime(html = "", options = {}) {
   // 무엇이 "안내문"인가: 머리말 안의 **class 없는 <p>** 와 <p class="heroDelta">.
   // 자산 화면의 .heroLabel/.heroNet/.heroChips 처럼 클래스가 붙은 문단은 값이므로
   // 건드리지 않는다 — 실제로 그 화면의 순자산 금액이 <p> 형제로 들어 있다.
-  if (source.includes("abV5PageHeader")) {
+  //
+  // V22.9.128 W-1: ‘접기’ 는 그 단추를 움직이는 테마 스크립트(bindHeadNotes)와 꾸미는 셸 스타일시트
+  // (body.abV22812Shell .abHeadNote …)가 함께 실린 화면에만 붙인다. 로그인 전 /start-guide 는 셸이 없는데도
+  // 머리말 표식만 보고 단추를 붙여, 눌러도 아무 일이 없는 기본 모양 단추가 보였다(V22.9.9 부터).
+  const headNoteReady = source.includes(`src="${ACCOUNTBOOK_THEME_JS_ASSET_PATH}"`)
+    && source.includes(v22812ShellLink)
+    && /<body\b[^>]*\bclass="[^"]*\babV22812Shell\b/.test(source);
+  if (headNoteReady && source.includes("abV5PageHeader")) {
     const noteKey = (source.match(/<title>([^<]*)<\/title>/) || ["", "page"])[1]
       .replace(/[^가-힣A-Za-z0-9]+/g, "-").slice(0, 40) || "page";
     const wrap = (inner) => `<div class="abHeadNote" data-ab-note="${escapeHtml(noteKey)}"><p>${inner}</p>`

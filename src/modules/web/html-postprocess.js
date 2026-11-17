@@ -461,7 +461,14 @@ function attachUiUxRuntime(html = "", options = {}) {
   // 무엇이 "안내문"인가: 머리말 안의 **class 없는 <p>** 와 <p class="heroDelta">.
   // 자산 화면의 .heroLabel/.heroNet/.heroChips 처럼 클래스가 붙은 문단은 값이므로
   // 건드리지 않는다 — 실제로 그 화면의 순자산 금액이 <p> 형제로 들어 있다.
-  if (source.includes("abV5PageHeader")) {
+  //
+  // V22.9.128 W-1: ‘접기’ 는 그 단추를 움직이는 테마 스크립트(bindHeadNotes)와 꾸미는 셸 스타일시트
+  // (body.abV22812Shell .abHeadNote …)가 함께 실린 화면에만 붙인다. 로그인 전 /start-guide 는 셸이 없는데도
+  // 머리말 표식만 보고 단추를 붙여, 눌러도 아무 일이 없는 기본 모양 단추가 보였다(V22.9.9 부터).
+  const headNoteReady = source.includes(`src="${ACCOUNTBOOK_THEME_JS_ASSET_PATH}"`)
+    && source.includes(v22812ShellLink)
+    && /<body\b[^>]*\bclass="[^"]*\babV22812Shell\b/.test(source);
+  if (headNoteReady && source.includes("abV5PageHeader")) {
     const noteKey = (source.match(/<title>([^<]*)<\/title>/) || ["", "page"])[1]
       .replace(/[^가-힣A-Za-z0-9]+/g, "-").slice(0, 40) || "page";
     const wrap = (inner) => `<div class="abHeadNote" data-ab-note="${escapeHtml(noteKey)}"><p>${inner}</p>`

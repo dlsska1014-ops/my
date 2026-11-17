@@ -21,7 +21,8 @@ jobs:
         os: [ubuntu-latest, windows-latest]
         categories: [present, absent]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 10
+    # V22.9.128: 검사가 판마다 늘어 윈도우 실행이 9~10분이 됐고 10분 한도에 걸려 한 번 취소됐다(실패가 아님). 한도를 20분으로 올린다.
+    timeout-minutes: 20
     env:
       AB_QA_CATEGORIES_ABSENT: ${{ matrix.categories == 'absent' && '1' || '0' }}
     steps:
