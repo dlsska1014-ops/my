@@ -3,7 +3,10 @@ import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { AB_HOUSEHOLD_MEMORY_HEADER } from "../runtime/config-readiness.js";
 import { APP_VERSION, envFlagEnabled } from "../public/site-config.js";
 import { safeError } from "../runtime/leases.js";
-import { getCookie, redirectResponse, redirectResponseWithCookies } from "../runtime/http.js";
+import {
+  getCookie, htmlResponseWithCookies, redirectResponse, redirectResponseWithCookies,
+  renderSessionUnavailableHtmlV229122,
+} from "../runtime/http.js";
 import { recordAuthAttempt } from "./crypto-admin-session.js";
 import { safeUserReturnPath } from "../admin/bulk-and-return-paths.js";
 import { safeObject } from "../admin/backup-compare.js";
@@ -20,7 +23,7 @@ import {
 } from "./kakao-account-link.js";
 import { consentStateCookieFor } from "./kakao-start-screen.js";
 import { getLinkedKakaoGroupHousehold } from "../kakao/group-links-first-record.js";
-import { getHouseholdMemberRole } from "../domain/users-households.js";
+import { getHouseholdMemberRole, readHouseholdRoleOrFailure } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 // @build:imports-end
 
@@ -82,6 +85,13 @@ function kakaoRoomEntryLocationV229129(householdId = "") {
 }
 // 돌아갈 주소가 방 표식 주소(정확히 /my?room=<번호> 하나)인지. 카카오 로그인 시작(auth/kakao-oauth.js)이 카카오톡 밖의 브라우저에도 화면 없는 로그인을
 // 허락할지 볼 때 쓴다 — 그 밖의 주소로는 예전처럼 인앱 브라우저만이다.
+// V22.9.129 독립 검토 2(P2): 카카오톡 밖의 브라우저에서 하는 화면 없는 카카오 로그인은 운영 변수 KAKAO_ROOM_QUIET_LOGIN 을 켠 곳(1·true·on)에서만 한다.
+// 없으면 꺼짐이다. 그 브라우저의 카카오 계정이 단추를 누른 사람인지는 서버가 알 수 없다 — 가족이 같이 쓰는 PC 에 다른 가족의 카카오 로그인이 남아 있고
+// 그 사람도 같은 방 구성원이면, 아무도 누르지 않았는데 그 사람의 계정으로 들어가 기록이 그 사람 이름으로 남는다(그 방을 읽을 수 있는 계정만 들이는 조건으로는
+// 막지 못한다). 꺼 두면 로그인 화면이 나오고(사람이 [카카오 로그인] 을 누른다) 로그인 뒤 그 방 가계부로 돌아온다. 켜는 것은 운영자 결정이다.
+function kakaoRoomQuietLoginEnabledV229129(env) {
+  return envFlagEnabled(env?.KAKAO_ROOM_QUIET_LOGIN, false) && envFlagEnabled(env?.KAKAO_INAPP_AUTO_LOGIN, true);
+}
 function kakaoRoomEntryHouseholdIdV229129(raw = "") {
   const match = /^\/my\?room=([A-Za-z0-9_-]{1,80})$/.exec(String(raw || "").trim());
   return match ? match[1] : "";
@@ -222,6 +232,8 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     if (!household?.id) return finish("no_room_household", plain);
     // V22.9.129 독립 검토 P3: 방이 다른 가계부로 다시 묶인 뒤 옛 카드를 누르면 표식(room)이 옛 가계부를 가리킨다. 카카오 값이 가리키는 지금의 방 가계부와
     // 다른 표식은 아래의 ‘값을 뺀 주소’ 에서 버린다(그 방의 지금 가계부 번호로 바꿔 적지는 않는다 — 구성원이 아닌 사람에게 번호를 알려 주지 않으려고).
+    // 방 가계부를 읽기 전에 끝나는 결과(사용자 키 없음·키 모양 틀림·요청 제한·수집기·관리자 브라우저)와 값이 아예 없는 PC 길은 방을 확인하지 않으므로
+    // 옛 표식이 남는다 — 그 가계부를 읽을 수 있는 사람에게만 열리고 권한은 넓어지지 않는다(알려진 한계, 발견 기록 E-6).
     if (source.searchParams.has(KAKAO_ROOM_ENTRY_PARAM_V229129) && source.searchParams.get(KAKAO_ROOM_ENTRY_PARAM_V229129) !== String(household.id)) {
       source.searchParams.delete(KAKAO_ROOM_ENTRY_PARAM_V229129);
       plain = kakaoRoomOpenLocation(source, "");
@@ -275,7 +287,8 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
 // 값이 없거나 쓸 수 없으면(2026-11-17 운영 기록: PC 카카오톡은 사용자 식별 값 없이 연다) 이 표식만 남고, 라우터가 그다음에 이 함수를 부른다.
 //  · 세션이 있으면: 그 가계부를 읽을 수 있을 때 그 가계부 홈으로, 아니면 표식을 뺀 /my 로 보낸다. 표식은 고르는 힌트일 뿐 권한이 아니다 —
 //    남의 가계부 번호를 적어도 그 가계부는 열리지 않고 ‘찾을 수 없음’ 도 내지 않는다(자기 가계부가 열린다).
-//  · 세션이 없고 카카오톡 밖의 브라우저면: 화면 없는 카카오 로그인(prompt=none)을 한 번 해 본다. 그 브라우저에 카카오 로그인이 돼 있고 이미 회원이면
+//  · 세션이 없고 카카오톡 밖의 브라우저면: 기본은 로그인 화면이다(돌아올 주소 = 이 표식 주소 — 로그인하면 그 방 가계부가 열린다).
+//    운영 변수 KAKAO_ROOM_QUIET_LOGIN 을 켠 곳에서는 화면 없는 카카오 로그인(prompt=none)을 한 번 해 본다. 그 브라우저에 카카오 로그인이 돼 있고 이미 회원이면
 //    화면 없이 들어와 이 표식 주소로 돌아오고(위 줄), 아니면 로그인 화면이 돌아올 주소(이 표식 주소)를 갖고 열린다. 자동 로그인의 규칙(새 계정을 만들지
 //    않음, 한 번 해 보면 되풀이하지 않음 — auth/kakao-oauth.js)은 인앱과 같고, 인앱보다 좁다: 그 카카오 계정의 웹 계정이 이 표식의 가계부를 읽을 수 있을
 //    때만 세션을 준다(콜백, 독립 검토 P2). 빈 계정·그 방을 못 읽는 계정(공용 PC 에 남은 다른 사람의 카카오 로그인일 수 있다)·계정 잇기 제안이 걸린 계정은
@@ -296,8 +309,15 @@ async function kakaoRoomEntryResponse(request, env, url, ctx) {
   // 보내지 않는다. 예전 길(/my)에 맡긴다 — 라우터가 그 로그인 화면을 ‘잠시 뒤 다시’ 안내로 바꾸고, 주소는 그대로라 새로 고치면 다시 이 길로 온다.
   if (!current && env?.__AB_SESSION_UNAVAILABLE === true) return null;
   if (current) {
-    let readable = false;
-    try { readable = canReadMyHousehold(String(await getHouseholdMemberRole(env, current, householdId) || "").toLowerCase()); } catch (_) { readable = false; }
+    // 독립 검토 2(P3): 역할을 읽지 못한 것(DB 순간 장애)을 ‘읽을 수 없음’ 으로 다루지 않는다 — 표식을 뺀 /my 로 보내면 새로 고쳐도 이 방 가계부로 돌아오지 못한다.
+    // 실패를 따로 알려 주는 엄격판으로 읽고(getHouseholdMemberRole 은 실패하면 빈 역할을 돌려준다 — V22.9.76 D-27), 실패하면 ‘잠시 뒤 다시’ 안내(503)를 낸다.
+    // 그 화면의 다시 열기 주소가 이 표식을 싣는다(runtime/http.js).
+    const roleRead = await readHouseholdRoleOrFailure(env, current, householdId, { path: "/my", method: "GET" });
+    if (roleRead.failed) {
+      kakaoRoomEntryProbeV229129(env, ctx, "role_read_failed");
+      return htmlResponseWithCookies(renderSessionUnavailableHtmlV229122(url, false), 503, [], { "retry-after": "10", "cache-control": "no-store", ...KAKAO_ROOM_OPEN_HEADERS });
+    }
+    const readable = canReadMyHousehold(roleRead.role);
     kakaoRoomEntryProbeV229129(env, ctx, readable ? "session_readable" : "session_other");
     return redirectResponse(readable ? `/app?household_id=${encodeURIComponent(householdId)}` : "/my", KAKAO_ROOM_OPEN_HEADERS);
   }
@@ -307,9 +327,9 @@ async function kakaoRoomEntryResponse(request, env, url, ctx) {
   // 화면 없는 로그인은 사람이 바로 연 이동(Sec-Fetch-Site: none — 카카오톡이 띄운 브라우저, 주소 입력)일 때만 해 본다. 다른 사이트의 링크·넘김이 시킨 이동이나
   // 그 머리가 없는 요청은 로그인 화면으로 간다(위의 세션 바꾸기와 같은 기준 — 남의 화면이 이 브라우저를 말없이 로그인시키지 못하게).
   const direct = String(request.headers.get("sec-fetch-site") || "").toLowerCase() === "none";
-  // 이미 한 번 해 봤거나(ab_kakao_auto: try·skip, 직접 로그아웃한 off), 자동 로그인을 꺼 두었거나, 카카오 로그인 설정이 준비되지 않았을 때도 로그인 화면이다
-  // (돌아올 주소는 이 표식 주소).
-  if (!direct || url.searchParams.get("auto") === "0" || getCookie(request, "ab_kakao_auto") || !envFlagEnabled(env.KAKAO_INAPP_AUTO_LOGIN, true) || !inspectKakaoLoginConfig(env).ready) {
+  // 화면 없는 로그인을 켜지 않은 운영(기본 — 위 kakaoRoomQuietLoginEnabledV229129), 이미 한 번 해 본 브라우저(ab_kakao_auto: try·skip), 직접 로그아웃한 브라우저(off),
+  // 카카오 로그인 설정이 준비되지 않은 곳도 로그인 화면이다(돌아올 주소는 이 표식 주소).
+  if (!direct || url.searchParams.get("auto") === "0" || getCookie(request, "ab_kakao_auto") || !kakaoRoomQuietLoginEnabledV229129(env) || !inspectKakaoLoginConfig(env).ready) {
     kakaoRoomEntryProbeV229129(env, ctx, direct ? "login_screen" : "login_screen_indirect");
     return redirectResponse(fallback, KAKAO_ROOM_OPEN_HEADERS);
   }
@@ -320,6 +340,6 @@ async function kakaoRoomEntryResponse(request, env, url, ctx) {
 // @build:exports-start
 export {
   kakaoRoomEntryHouseholdIdV229129, kakaoRoomEntryResponse, kakaoRoomEntryReturnPathV229129,
-  kakaoRoomOpenResponse,
+  kakaoRoomOpenResponse, kakaoRoomQuietLoginEnabledV229129,
 };
 // @build:exports-end

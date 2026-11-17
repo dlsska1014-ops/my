@@ -24,7 +24,8 @@ function renderEmergencyErrorHtml(url, err, title = "화면을 안전모드로 �
 function renderSessionUnavailableHtmlV229122(url, posted = false) {
   // 다시 열기 주소: 경로와 달·가계부·탭 값만 싣는다. 로그인 길(/auth/…)과 그 밖의 주소 값(인증 code·state, 방 키 등)은 다시 쓰지 않는다(독립 검토 1).
   const keep = new URLSearchParams();
-  for (const key of ["month", "household_id", "tab", "view"]) { const value = url?.searchParams?.get(key); if (value && value.length <= 80) keep.set(key, value); }
+  // V22.9.129: 방 표식(room — 단톡방 ‘웹 가계부 열기’ 가 가리키는 가계부 번호, household_id 와 같은 종류의 값)도 싣는다. 다시 열면 그 방 가계부 길로 돌아온다.
+  for (const key of ["month", "household_id", "tab", "view", "room"]) { const value = url?.searchParams?.get(key); if (value && value.length <= 80 && (key !== "room" || /^[A-Za-z0-9_-]{1,80}$/.test(value))) keep.set(key, value); }
   const pathname = String(url?.pathname || "/");
   const safePath = escapeHtml(pathname + (keep.toString() ? `?${keep}` : ""));
   const retry = posted || /^\/auth\//.test(pathname) ? "/my" : safePath;

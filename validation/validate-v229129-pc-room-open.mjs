@@ -2,14 +2,18 @@
 //  사용자(2026-11-17): "앱 승인 담당자가 말했듯 웹 가계부 열기 누르면 로그인 없이 바로 가계부가 열려야해", "pc에서도 바로 열리게 해줘".
 //  E-1 답 카드의 단추 주소는 /my?room=<그 방 가계부 번호> 다(방 표식). 1:1 답과 구성원이 아닌 때는 예전 주소 그대로다.
 //  E-2 표식만 온 길(값 없음)에서 세션이 있으면: 그 가계부를 읽을 수 있을 때 그 가계부 홈, 아니면 표식을 뺀 /my — ‘찾을 수 없음’ 을 내지 않고 권한을 넓히지도 않는다.
-//  E-3 세션이 없고 카카오톡 밖의 브라우저면: 화면 없는 카카오 로그인을 한 번 해 본다. 되면 그 방 가계부가 열리고, 안 되면 로그인 화면이 그 방 가계부로
-//      돌아올 주소를 갖는다. 이미 해 봤거나(ab_kakao_auto) 꺼 두었거나 설정이 없으면 바로 로그인 화면이다. 새 계정은 만들지 않는다.
+//  E-3 세션이 없고 카카오톡 밖의 브라우저면: 기본은 로그인 화면이다(그 방 가계부로 돌아올 주소를 갖는다 — E-8). 운영 변수 KAKAO_ROOM_QUIET_LOGIN 을 켠 곳에서는
+//      화면 없는 카카오 로그인을 한 번 해 본다. 되면 그 방 가계부가 열리고, 안 되면 로그인 화면이다. 이미 해 봤거나(ab_kakao_auto) 꺼 두었거나 설정이 없으면
+//      바로 로그인 화면이다. 새 계정은 만들지 않는다. (E-3·E-4·E-5·E-7 의 화면 없는 로그인 장면은 그 변수를 켠 픽스처에서 본다.)
 //  E-4 화면 없는 로그인(auto=1)이 카카오톡 밖의 브라우저에서 허락되는 것은 돌아갈 주소가 정확히 방 표식 주소이고 사람이 바로 연 이동
 //      (Sec-Fetch-Site: none)일 때뿐이다. 다른 사이트가 시킨 이동·그 머리가 없는 요청은 로그인 화면으로 간다.
 //  E-6 방 답의 다른 ‘웹가계부’ 링크 단추(설명서 카드 — 주소가 정확히 <origin>/my 인 것)에도 같은 표식이 실린다. 방 연결을 읽지 못하면 예전 주소 그대로다.
 //  E-7 독립 검토(2026-11-17) 반영: PC 의 화면 없는 로그인은 그 카카오 계정의 웹 계정이 그 방 가계부를 읽을 수 있을 때만 세션을 준다(빈 계정·그 방을 못
 //      읽는 계정·계정 잇기 제안이 걸린 계정은 세션 없이 로그인 화면). 시작 주소를 바로 열어도 되풀이 쿠키·끄기 스위치를 지킨다. 다시 묶인 방의 옛 표식은
 //      식별 값이 가리키는 지금의 방 가계부와 다르면 버린다. 세션 확인을 못 한 요청은 카카오로 보내지 않는다. 답 마무리의 읽기는 늦으면 기다리지 않는다.
+//  E-8 독립 검토 2 반영: PC 의 화면 없는 로그인은 기본 꺼짐이다(가족이 같이 쓰는 PC 에서 같은 방의 다른 구성원 카카오 로그인으로 말없이 들어가는 일을 막는다).
+//      꺼진 곳에서는 진입·시작·콜백 어디서도 화면 없는 로그인이 되지 않고, 로그인 화면에서 로그인하면 그 방 가계부로 돌아온다. 역할 읽기 실패는 ‘잠시 뒤 다시’.
+//      답 예산이 모자라면 답 마무리가 방 연결을 읽지 않는다.
 //  E-5 식별 값이 붙어 온 길(휴대폰·오픈빌더 고정 단추): 채팅으로만 쓰는 계정은 예전처럼 바로 열리고(표식은 빠진다), 웹 계정에 이어진·카카오 로그인이 붙은
 //      계정은 세션을 받지 않되 카카오톡 밖의 브라우저에서는 방 표식 주소로 간다(예전에는 가계부 번호를 잃고 /my 시작 화면이었다). 인앱은 예전 그대로다.
 // 오프라인: 픽스처 + app.fetch(DB·바깥 요청 없음, 카카오 서버는 흉내), 시계 2026-11-17 12:00 KST. 판 이름 글자는 적지 않는다.
@@ -138,12 +142,30 @@ function kakaoServer() {
   return server;
 }
 
+// 답이 나갈 때까지 쓴 DB 호출(답 뒤에 도는 들이기·진단은 세지 않는다). 돌려주는 값: 호출 주소 목록과 답 본문.
+async function callsBeforeReply(fx, utterance, options) {
+  globalThis.__AB_KAKAO_INFLIGHT?.clear?.(); globalThis.__AB_KAKAO_REPEAT_GUARD?.clear?.();
+  const seen = [];
+  const stop = intercept(async ({ url }) => { if (url.pathname.startsWith("/rest/v1/")) seen.push(`${url.pathname}${decodeURIComponent(url.search)}`); return null; });
+  const jobs = [];
+  try {
+    const response = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers: { "content-type": "application/json", "x-kakao-skill-secret": SECRET }, body: JSON.stringify(payloadFor(utterance, options)) }), fx.env, { waitUntil(job) { jobs.push(job); }, passThroughOnException() {} });
+    const raw = await response.text();
+    const before = seen.slice();
+    for (let round = 0; round < 5 && jobs.length; round += 1) await Promise.allSettled(jobs.splice(0));
+    return { before, raw };
+  } finally { stop(); }
+}
+const isRoomLinkRead = (line) => /accountbook_settings/.test(line) && /kakao_group_link_v2254:/.test(line);
+
 // 방 가계부: U1 이 ROOM 에서 첫 기록(→ 방 가계부·소유자), U2 가 같은 방에서 기록(→ 구성원), U3 은 다른 방(ROOM_B)에서만 기록.
-async function roomFixture(task, { kakao = true } = {}) {
+// quiet: 운영 변수 KAKAO_ROOM_QUIET_LOGIN(PC 의 화면 없는 로그인). 운영 기본은 꺼짐이다 — 켠 장면(E-3·E-4·E-5·E-7)과 끈 장면(E-8)을 따로 본다.
+async function roomFixture(task, { kakao = true, quiet = true } = {}) {
   return withClock(DAY, () => fixture(async (fx) => {
     resetIsolateState();
     fx.env.KAKAO_SKILL_SECRET = SECRET;
     if (kakao) Object.assign(fx.env, KAKAO_ENV);
+    if (quiet) fx.env.KAKAO_ROOM_QUIET_LOGIN = "1"; else delete fx.env.KAKAO_ROOM_QUIET_LOGIN;
     const server = kakaoServer();
     try {
       await say(fx, "점심 12000원", { user: U1, room: ROOM });
@@ -444,22 +466,9 @@ await roomFixture(async (fx, { hh, hhB }) => {
   check(() => ok(failed.status === 200 && webLinks(failed).length === 1 && webLinks(failed)[0].url === `${BASE}/my`, `E-6 방 연결을 읽지 못하면 예전 주소로 답한다(${failed.status} ${webLinks(failed)[0]?.url})`), "manual read failed");
   // 답을 내기 전에 쓰는 DB 호출: [웹가계부] 단추가 있는 설명서 답은 방 연결 한 줄 읽기 하나뿐이고, 그런 단추가 없는 설명서 답은 0 이다.
   // (답 뒤에 도는 들이기·진단은 세지 않는다 — 답이 나간 시점까지만 센다.)
-  const callsBeforeReply = async (utterance) => {
-    globalThis.__AB_KAKAO_INFLIGHT?.clear?.(); globalThis.__AB_KAKAO_REPEAT_GUARD?.clear?.();
-    const seen = [];
-    const stop = intercept(async ({ url }) => { if (url.pathname.startsWith("/rest/v1/")) seen.push(`${url.pathname}${decodeURIComponent(url.search)}`); return null; });
-    const jobs = [];
-    try {
-      const response = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers: { "content-type": "application/json", "x-kakao-skill-secret": SECRET }, body: JSON.stringify(payloadFor(utterance, { user: U1, room: ROOM })) }), fx.env, { waitUntil(job) { jobs.push(job); }, passThroughOnException() {} });
-      await response.text();
-      const before = seen.slice();
-      for (let round = 0; round < 5 && jobs.length; round += 1) await Promise.allSettled(jobs.splice(0));
-      return before;
-    } finally { stop(); }
-  };
-  const withButton = await callsBeforeReply("웹관리하기");
-  const withoutButton = await callsBeforeReply("함께쓰기");
-  check(() => ok(withButton.length === 1 && /accountbook_settings/.test(withButton[0]) && /kakao_group_link_v2254:/.test(withButton[0]), `E-6 [웹가계부] 단추가 있는 설명서 답: 답 전 DB 호출은 방 연결 한 줄 읽기 하나(${withButton.length}: ${withButton.map((line) => line.slice(0, 60)).join(" | ")})`), "manual one read");
+  const withButton = (await callsBeforeReply(fx, "웹관리하기", { user: U1, room: ROOM })).before;
+  const withoutButton = (await callsBeforeReply(fx, "함께쓰기", { user: U1, room: ROOM })).before;
+  check(() => ok(withButton.length === 1 && isRoomLinkRead(withButton[0]), `E-6 [웹가계부] 단추가 있는 설명서 답: 답 전 DB 호출은 방 연결 한 줄 읽기 하나(${withButton.length}: ${withButton.map((line) => line.slice(0, 60)).join(" | ")})`), "manual one read");
   check(() => eq(withoutButton.length, 0, "E-6 그런 단추가 없는 설명서 답: 답 전 DB 호출 0(예전 그대로)"), "manual no read");
   // 읽기가 늦으면(0.7초를 넘김) 기다리지 않고 예전 주소로 답한다.
   const slow = intercept(async ({ url }) => {
@@ -595,6 +604,100 @@ await roomFixture(async (fx, { hh }) => {
   check(() => eq(after.location, `/app?household_id=${hh}`, "E-7 DB 가 돌아오면 같은 주소가 그 방 가계부로 간다"), "outage recovers");
 });
 
+// ── E-8. 독립 검토 2 반영: 기본은 꺼짐 ───────────────────────────────────────────
+await roomFixture(async (fx, { u1, hh, server }) => {
+  fx.db.accountbook_user_identities.push(strongKakao(u1.id)); // 이 브라우저의 카카오 계정(KAKAO_ID) = 이 방 소유자의 웹 계정 — 켜져 있었다면 들어갔을 사람
+  check(() => ok(!("KAKAO_ROOM_QUIET_LOGIN" in fx.env), "E-8 준비: 운영 변수가 없다(기본)"), "default env");
+  // (1) 진입: 세션 없는 PC 의 바로 연 이동도 로그인 화면으로 간다. 카카오로 보내지 않는다.
+  const jar = new Jar();
+  const first = await go(fx, entryPath(hh), { jar });
+  check(() => ok(first.status === 303 && first.location === loginScreen(hh) && first.cookies.length === 0, `E-8 기본: 세션 없는 PC 는 로그인 화면으로(${first.status} ${first.location})`), "default login screen");
+  check(() => eq(lastEntry(), "login_screen", "E-8 기본: 운영 이벤트 login_screen"), "default event");
+  check(() => eq(probeKeys(fx, "entry_login_screen"), "app_version,at,version", "E-8 기본: 진단 기록 entry_login_screen"), "default probe");
+  // (2) 시작 주소를 바로 열어도 화면 없는 로그인이 아니다.
+  const start = await go(fx, quietStart(hh), { jar: new Jar() });
+  const startUrl = new URL(start.location || "/", BASE);
+  const startState = startUrl.searchParams.get("state") ? await readPurposeToken(fx.env, "kakao-oauth", startUrl.searchParams.get("state")) : null;
+  check(() => ok(startUrl.searchParams.get("prompt") !== "none" && startState?.auto !== 1, "E-8 기본: 시작 주소도 화면 없는 로그인이 아니다(보통 로그인으로 시작)"), "default start not quiet");
+  // (3) 콜백: 스위치를 끄기 전에 받은 서명된 상태(auto)로 돌아와도 세션을 주지 않는다.
+  fx.env.KAKAO_ROOM_QUIET_LOGIN = "1";
+  const lateJar = new Jar();
+  const lateFirst = await go(fx, entryPath(hh), { jar: lateJar });
+  const lateStart = await go(fx, lateFirst.location, { jar: lateJar });
+  delete fx.env.KAKAO_ROOM_QUIET_LOGIN;
+  server.id = KAKAO_ID;
+  const lateBack = await go(fx, `/auth/kakao/callback?code=qa-code&state=${encodeURIComponent(new URL(lateStart.location || "/", BASE).searchParams.get("state") || "")}`, { jar: lateJar, site: "cross-site" });
+  check(() => ok(lateBack.location === loginScreen(hh) && !lateJar.user(), `E-8 기본: 스위치가 꺼진 뒤 돌아온 화면 없는 로그인에는 세션을 주지 않는다(${lateBack.location})`), "default late callback");
+  check(() => ok((events("kakao_auto_login_room_closed").at(-1)?.detail || "").startsWith("switched_off;"), "E-8 운영 이벤트 kakao_auto_login_room_closed: switched_off"), "default late event");
+  // (4) 로그인 화면에서 사람이 [카카오 로그인] 을 누르면 그 방 가계부로 돌아온다.
+  const screen = await go(fx, first.location, { jar, site: "same-origin" });
+  check(() => ok(screen.status === 200 && screen.html.includes(`name="return_to" value="${entryPath(hh)}"`), "E-8 기본: 로그인 화면이 방 표식 주소로 돌아올 값을 갖는다"), "default screen return");
+  const manual = await go(fx, `/auth/kakao/start?return_to=${encodeURIComponent(entryPath(hh))}`, { jar, site: "same-origin" });
+  const manualBack = await go(fx, `/auth/kakao/callback?code=qa-code&state=${encodeURIComponent(new URL(manual.location || "/", BASE).searchParams.get("state") || "")}`, { jar, site: "cross-site" });
+  const manualLand = await go(fx, manualBack.location, { jar, site: "cross-site" });
+  check(() => ok(manualBack.location === entryPath(hh) && jar.user() === u1.id && manualLand.location === `/app?household_id=${hh}`, `E-8 기본: 직접 로그인하면 그 방 가계부로(${manualBack.location} → ${manualLand.location})`), "default manual login");
+  // (5) 그 뒤로는 세션이 있어 단추가 바로 그 방 가계부를 연다.
+  const again = await go(fx, entryPath(hh), { jar });
+  check(() => eq(again.location, `/app?household_id=${hh}`, "E-8 기본: 로그인한 브라우저에서는 단추가 바로 그 방 가계부를 연다"), "default session direct");
+  // (6) 식별 값이 붙어 온 카카오 로그인 계정(PC): 방 표식 주소 → 로그인 화면.
+  const tappedPc = await go(fx, tapped("/my"), { ua: PC });
+  const tappedNext = await go(fx, tappedPc.location, { ua: PC });
+  check(() => ok(tappedPc.location === entryPath(hh) && tappedNext.location === loginScreen(hh), `E-8 기본: 식별 값이 붙어 온 카카오 로그인 계정(PC)도 로그인 화면으로(${tappedPc.location} → ${tappedNext.location})`), "default strong pc");
+  // 인앱 브라우저의 자동 로그인은 이 변수와 무관하다(예전 그대로).
+  const inapp = await go(fx, entryPath(hh), { ua: INAPP });
+  check(() => eq(inapp.location, quietStart(hh), "E-8 인앱 브라우저의 자동 로그인은 이 변수와 무관하다"), "default inapp unchanged");
+}, { quiet: false });
+await roomFixture(async (fx, { hh }) => {
+  // 변수 값: 1·true·on 이면 켬, 그 밖(0·빈 값·모르는 말)은 끔. 인앱 자동 로그인을 끈 곳(KAKAO_INAPP_AUTO_LOGIN=0)에서는 함께 꺼진다.
+  for (const [value, on] of [["1", true], ["true", true], ["on", true], ["0", false], ["", false], ["off", false], ["maybe", false]]) {
+    fx.env.KAKAO_ROOM_QUIET_LOGIN = value;
+    const out = await go(fx, entryPath(hh), { jar: new Jar() });
+    check(() => eq(out.location, on ? quietStart(hh) : loginScreen(hh), `E-8 KAKAO_ROOM_QUIET_LOGIN=${JSON.stringify(value)} → ${on ? "켬" : "끔"}`), `switch value ${value || "empty"}`);
+  }
+  fx.env.KAKAO_ROOM_QUIET_LOGIN = "1";
+  fx.env.KAKAO_INAPP_AUTO_LOGIN = "0";
+  const both = await go(fx, entryPath(hh), { jar: new Jar() });
+  check(() => eq(both.location, loginScreen(hh), "E-8 인앱 자동 로그인을 끈 곳에서는 이 변수를 켜도 꺼진다"), "switch with inapp off");
+}, { quiet: false });
+await roomFixture(async (fx, { hh }) => {
+  // 역할 읽기 실패(세션은 확인됨): ‘읽을 수 없음’ 으로 다루지 않는다 — ‘잠시 뒤 다시’(503), 다시 열기 주소가 방 표식을 싣는다.
+  const owner = await chatSession(fx, U1);
+  const roleFail = intercept(async ({ url }) => (url.pathname === "/rest/v1/household_members" ? new Response("upstream", { status: 503 }) : null));
+  let during;
+  try { during = await go(fx, entryPath(hh), { jar: owner }); } finally { roleFail(); }
+  check(() => ok(during.status === 503 && !during.location && during.cookies.length === 0, `E-8 역할 읽기 실패: ‘잠시 뒤 다시’(503)이고 쿠키를 바꾸지 않는다(${during.status} ${during.location})`), "role read failed page");
+  check(() => ok(during.html.includes(`href="${entryPath(hh)}"`) || during.html.includes(`href="/my?room=${hh}"`), "E-8 그 화면의 다시 열기 주소가 방 표식을 싣는다"), "role read failed retry");
+  check(() => eq(lastEntry(), "role_read_failed", "E-8 운영 이벤트 role_read_failed"), "role read failed event");
+  const after = await go(fx, entryPath(hh), { jar: owner });
+  check(() => eq(after.location, `/app?household_id=${hh}`, "E-8 DB 가 돌아오면 같은 주소가 그 방 가계부로 간다"), "role read recovers");
+  // 세션 확인을 못 한 요청의 ‘잠시 뒤 다시’ 화면도 방 표식을 싣는다. 모양이 틀린 표식은 싣지 않는다.
+  const outage = intercept(async ({ url }) => (url.pathname.startsWith("/rest/v1/") ? new Response("upstream", { status: 503 }) : null));
+  let down, downBad;
+  try { down = await go(fx, entryPath(hh), { jar: owner }); downBad = await go(fx, "/my?room=%3Cscript%3E", { jar: owner }); } finally { outage(); }
+  check(() => ok(down.status === 503 && down.html.includes(`room=${hh}`), "E-8 세션 확인을 못 한 요청: ‘잠시 뒤 다시’ 화면의 다시 열기 주소가 방 표식을 싣는다"), "outage retry keeps marker");
+  check(() => ok(!/room=/.test(downBad.html) && !/<script>/i.test(downBad.html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")), "E-8 모양이 틀린 표식은 그 화면에 싣지 않는다"), "outage retry drops bad marker");
+});
+await roomFixture(async (fx, { hh }) => {
+  // 답 예산이 모자라면(읽기 뒤 마무리 몫 0.4초 + 0.15초가 안 남으면) 답 마무리가 방 연결을 읽지 않는다. 예산 0.5초: 처음부터 모자라다.
+  fx.env.KAKAO_RESPONSE_BUDGET_MS = "500";
+  const tight = await callsBeforeReply(fx, "웹관리하기", { user: U1, room: ROOM });
+  check(() => eq(tight.before.filter(isRoomLinkRead).length, 0, `E-8 답 예산이 모자라면 답 전에 방 연결을 읽지 않는다(${tight.before.length}번 호출)`), "budget no read");
+  // 답이 예산 안에 나갔으면(느린 기계에서는 ‘처리 중’ 답일 수 있다) 단추는 예전 주소다 — 표식이 실린 주소는 어느 쪽에도 없다.
+  check(() => ok(!tight.raw.includes("room=") && (tight.raw.includes(JSON.stringify(`${BASE}/my`)) || !tight.raw.includes("웹관리하기")), "E-8 그때 단추는 예전 주소다(또는 지연 답)"), "budget old address");
+  delete fx.env.KAKAO_RESPONSE_BUDGET_MS;
+  const roomy = await callsBeforeReply(fx, "웹관리하기", { user: U1, room: ROOM });
+  check(() => ok(roomy.before.filter(isRoomLinkRead).length === 1 && roomy.raw.includes(JSON.stringify(`${BASE}/my?room=${hh}`)), "E-8 예산이 넉넉하면(기본 4초) 한 번 읽고 표식을 싣는다"), "budget roomy reads");
+});
+await roomFixture(async (fx, { hh, hhB }) => {
+  // 독립 검토 2(P3) — 알려진 한계를 그대로 적는다: 방 가계부를 읽기 전에 끝나는 결과(사용자 키 없는 PC 링크 등)는 옛 표식을 버리지 못한다.
+  const staleNoUser = await go(fx, tapped(entryPath(hhB), { user: null }), { ua: PC });
+  check(() => ok(staleNoUser.location === entryPath(hhB) && lastRoomOpen() === "no_user_key", `E-8 사용자 키 없는 링크의 옛 표식은 남는다(알려진 한계 — 읽을 수 있는 사람에게만 열린다): ${staleNoUser.location}`), "stale marker pc limitation");
+  const owner = await chatSession(fx, U1);
+  const land = await go(fx, staleNoUser.location, { jar: owner });
+  check(() => eq(land.location, "/my", "E-8 그 표식의 가계부를 읽을 수 없는 사람에게는 열리지 않는다"), "stale marker not readable");
+  void hh;
+});
+
 // 순수 변환: 정확히 <origin>/my 인 링크 단추만 바꾼다.
 {
   const outputs = [
@@ -633,7 +736,8 @@ await roomFixture(async (fx, { hh }) => {
   const sessionAt = oauth.indexOf("const session = await makeUserSession(env, user.id);");
   const createAt = oauth.indexOf("if (emptyAccount && noLinkOffer && isKakaoTalkInAppBrowser(request)) {");
   check(() => ok(guardAt > 0 && createAt > guardAt && sessionAt > guardAt, "원본: 콜백의 ‘그 방을 읽을 수 있을 때만’ 조건이 가계부 만들기·세션 만들기보다 앞에 있다"), "callback guard order");
-  check(() => ok(/const roomEntryAuto = [^;]*sec-fetch-site[^;]*!getCookie\(request, "ab_kakao_auto"\)[^;]*envFlagEnabled\(env\.KAKAO_INAPP_AUTO_LOGIN, true\);/.test(oauth), "원본: 시작 처리의 PC 조건 = 방 표식 주소 + 바로 연 이동 + 되풀이 쿠키 없음 + 스위치 켜짐"), "start condition");
+  check(() => ok(/const roomEntryAuto = [^;]*sec-fetch-site[^;]*!getCookie\(request, "ab_kakao_auto"\)[^;]*kakaoRoomQuietLoginEnabledV229129\(env\);/.test(oauth), "원본: 시작 처리의 PC 조건 = 방 표식 주소 + 바로 연 이동 + 되풀이 쿠키 없음 + 운영 스위치"), "start condition");
+  check(() => ok(/function kakaoRoomQuietLoginEnabledV229129\(env\) \{\s*return envFlagEnabled\(env\?\.KAKAO_ROOM_QUIET_LOGIN, false\) && envFlagEnabled\(env\?\.KAKAO_INAPP_AUTO_LOGIN, true\);\s*\}/.test(mod), "원본: 운영 스위치는 없으면 꺼짐이고, 인앱 자동 로그인을 끈 곳에서는 함께 꺼진다"), "switch default off");
   const skill = read("src/modules/kakao/skill-handler.js");
   check(() => ok(skill.includes("deadlineAt - Date.now() - KAKAO_ROOM_LEDGER_LINK_TAIL_MS_V229129") && skill.includes("if (waitMs < 150) return response;"), "원본: 답 마무리의 읽기는 답 예산에서 마무리 몫을 남기고, 모자라면 읽지 않는다"), "finalizer budget");
 }

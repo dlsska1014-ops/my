@@ -1,7 +1,6 @@
 // @build:imports-start
 import { kakaoClientSecret, kakaoRestApiKey } from "../runtime/global-state.js";
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
-import { envFlagEnabled } from "../public/site-config.js";
 import { logWorkerError, safeError } from "../runtime/leases.js";
 import {
   constantTimeTextEqual, getCookie, htmlResponse, htmlResponseWithCookies, redirectResponse,
@@ -35,6 +34,7 @@ import {
 } from "./kakao-start-screen.js";
 import {
   kakaoRoomEntryHouseholdIdV229129, kakaoRoomEntryReturnPathV229129,
+  kakaoRoomQuietLoginEnabledV229129,
 } from "./kakao-room-open.js";
 import { readHouseholdRoleOrFailure } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
@@ -65,9 +65,10 @@ async function handleKakaoLoginStart(request, env, url) {
   // 사람이 바로 연 이동(Sec-Fetch-Site: none)일 때만이다(auth/kakao-room-open.js kakaoRoomEntryResponse 가 그 조건으로 보낸다; 우리 303 을 거쳐도 그
   // 머리는 none 그대로다). 그 밖의 auto=1 은 예전처럼 인앱 브라우저에서만 화면 없는 로그인이고, 아니면 보통(화면 있는) 로그인으로 시작한다.
   // 독립 검토 P3: 진입 처리와 같은 조건을 여기서도 본다 — 이미 해 본 브라우저(ab_kakao_auto: try·skip)·직접 로그아웃한 브라우저(off)·자동 로그인을 끈 운영
-  // (KAKAO_INAPP_AUTO_LOGIN=0)에서는 이 주소를 바로 열어도 화면 없는 로그인이 되지 않는다.
+  // (KAKAO_INAPP_AUTO_LOGIN=0)에서는 이 주소를 바로 열어도 화면 없는 로그인이 되지 않는다(인앱 브라우저의 분기는 예전 그대로다).
+  // 독립 검토 2(P2): 그리고 운영 변수 KAKAO_ROOM_QUIET_LOGIN 을 켠 곳에서만이다(없으면 꺼짐 — auth/kakao-room-open.js kakaoRoomQuietLoginEnabledV229129 의 설명).
   const roomEntryAuto = !!kakaoRoomEntryReturnPathV229129(url.searchParams.get("return_to") || "") && String(request.headers.get("sec-fetch-site") || "").toLowerCase() === "none"
-    && !getCookie(request, "ab_kakao_auto") && envFlagEnabled(env.KAKAO_INAPP_AUTO_LOGIN, true);
+    && !getCookie(request, "ab_kakao_auto") && kakaoRoomQuietLoginEnabledV229129(env);
   const autoMode = url.searchParams.get("auto") === "1" && !reauthMode && url.searchParams.get("link") !== "1" && (isKakaoTalkInAppBrowser(request) || roomEntryAuto);
   const config = inspectKakaoLoginConfig(env);
   if (autoMode && !config.ready) return redirectResponseWithCookies(kakaoAutoLoginFallbackLocation(url.searchParams.get("return_to") || ""), [kakaoAutoLoginCookie("skip")]);
@@ -435,10 +436,10 @@ async function handleKakaoLoginCallback(request, env, url) {
     // 않는다)·그 방을 못 읽는 계정·계정 잇기 제안이 걸린 계정(합치기는 사람이 누른 로그인에서만 돈다)은 세션 없이 로그인 화면으로 보낸다.
     if (autoMode && !isKakaoTalkInAppBrowser(request)) {
       const roomEntryId = kakaoRoomEntryHouseholdIdV229129(loginNext);
-      const opensRoom = !!roomEntryId && !linkProof?.ok
+      const opensRoom = !!roomEntryId && !linkProof?.ok && kakaoRoomQuietLoginEnabledV229129(env)
         && existingHouseholds.some((item) => String(item?.id || "") === roomEntryId && canReadMyHousehold(String(item?.role || "").toLowerCase()));
       if (!opensRoom) {
-        rememberOpsEvent({ kind: "kakao_auto_login_room_closed", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `${!roomEntryId ? "no_room" : linkProof?.ok ? "link_offer" : existingHouseholds.length ? "not_readable" : "empty_account"};trace=${traceId}` });
+        rememberOpsEvent({ kind: "kakao_auto_login_room_closed", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `${!roomEntryId ? "no_room" : !kakaoRoomQuietLoginEnabledV229129(env) ? "switched_off" : linkProof?.ok ? "link_offer" : existingHouseholds.length ? "not_readable" : "empty_account"};trace=${traceId}` });
         return autoFallback();
       }
     }

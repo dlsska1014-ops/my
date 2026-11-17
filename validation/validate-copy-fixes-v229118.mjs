@@ -341,8 +341,10 @@ await kakaoFixture(async (fx) => {
   const ledgerButton = webJoin.outputs[1]?.textCard?.buttons || [];
   {
     // V22.9.129: 단추 주소는 /my 에 이 방 가계부 표식만 붙는다. 방 가계부 번호는 이 방에 연결된 가계부(이름 ‘이 방의 공동 가계부’) 가운데 방금 들어간 곳이다.
-    const joinedHouseholdIds = fx.db.household_members.filter((row) => row.user_id === fx.db.users.find((user) => user.kakao_user_key === E)?.id).map((row) => String(row.household_id));
-    ok(ledgerButton.length === 1 && ledgerButton[0].label === "웹 가계부 열기" && joinedHouseholdIds.some((id) => ledgerButton[0].webLinkUrl === `${BASE}/my?room=${id}`), "3 웹 가계부 카드의 단추는 그대로(/my 에 이 방 가계부 표식 — V22.9.129)");
+    // 방 연결 한 줄(kakao_group_link_v2254:…)의 가계부 번호와 정확히 견준다(독립 검토 2: 부른 사람이 구성원인 아무 가계부나 통과하면 안 된다).
+    const roomLinkRow = fx.db.accountbook_settings.find((row) => String(row.key).startsWith("kakao_group_link_v2254:") && (() => { try { return JSON.parse(row.value)?.group_key === ROOM; } catch (_) { return false; } })());
+    const roomHouseholdId = roomLinkRow ? String(JSON.parse(roomLinkRow.value).household_id || "") : "";
+    ok(roomHouseholdId && ledgerButton.length === 1 && ledgerButton[0].label === "웹 가계부 열기" && ledgerButton[0].webLinkUrl === `${BASE}/my?room=${roomHouseholdId}`, "3 웹 가계부 카드의 단추는 그대로(/my 에 이 방 가계부 표식 — V22.9.129)");
   }
   // 조회 명령(참여)
   const queryJoin = await say(fx, "오늘기록", { user: F, room: ROOM });
