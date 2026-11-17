@@ -32,8 +32,12 @@ const SWEEP = [
   `/quick-input-help?${H}`, `/kakao-guide?${H}`, `/today-budget?${H}`, `/travel-households?${H}`, "/support", "/my", "/demo", "/", "/articles", "/faq", "/privacy", "/terms",
   "/group-accountbook", "/kakao-guide", "/quick-input-help", "/budget-alert-guide", "/households", "/my/backup-login", "/about", "/contact", "/budgets", "/reports", "/smart-tools",
   "/payment-methods", "/reserve-plans", "/split-summary", "/keyword-guide",
+  // 독립 검토 P3: 라우터의 모든 주소를 훑어 찾은, 머리말이 있는 나머지 화면과 없는 주소(200 이 아닌 HTML 응답).
+  "/group-chat-flow", "/group-chat-setup", "/group-household-flow", "/kakao-group-flow", "/meeting-settlement", "/settlement-summary", "/my/premium", "/m", "/no-such-page",
 ];
-const ADMIN_PATHS = ["/backup", "/households", `/households?${H}`, "/identity-audit", "/ops-dashboard", "/?legacy=1", "/", "/categories", "/start-guide", "/budgets", "/payment-methods", "/reserve-plans", "/smart-tools", "/reports"];
+const ADMIN_PATHS = ["/backup", "/households", `/households?${H}`, "/identity-audit", "/ops-dashboard", "/?legacy=1", "/", "/categories", `/categories?${H}`, "/analysis", "/start-guide", "/budgets", "/payment-methods", "/reserve-plans", "/smart-tools", "/reports"];
+// 훑기에서 ‘접기’ 가 있는 응답 수(로그인 전 4·소유자 31·관리자 14·관리자와 소유자 33 — 이 목록과 픽스처에서 잰 값). 머리말 화면을 더하거나 빼면 이 값도 고친다.
+const SWEEP_TOGGLES = 82;
 
 async function adminCookie(fx) {
   fx.env.ADMIN_PASSWORD = "admin-pass";
@@ -79,11 +83,17 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   for (const [name, cookie, paths] of states) {
     for (const path of [...new Set(paths)]) {
       const out = await page(fx, path, { cookie });
-      if (out.status !== 200 || !/<html/i.test(out.html)) continue;
+      // 200 이 아닌 HTML 응답(없는 주소·권한 화면 등)도 같은 규칙으로 본다.
+      if (!/<html/i.test(out.html)) continue;
       htmlResponses += 1;
       const count = toggles(out.html);
+      const shell = THEME_JS.test(out.html) && SHELL_CSS.test(out.html) && SHELL_BODY.test(out.html);
       if (!count) {
         check(() => eq(notes(out.html), 0, `훑기 ${name} ${path}: 단추가 없으면 접는 칸도 없다`), `sweep-note ${name} ${path}`);
+        // 거꾸로도 본다(독립 검토 P3): 셸이 다 실린 머리말 화면이면 접을 안내 문장을 그대로 남겨 두지 않는다 — 조건을 잘못 좁혀 단추를 잃는 일을 잡는다.
+        if (shell && out.html.includes("abV5PageHeader")) {
+          check(() => ok(!/<\/h1><p>/.test(out.html) && !/<p class="heroDelta/.test(out.html), `훑기 ${name} ${path}: 셸이 실린 머리말 화면에 접지 않은 안내 문장이 남지 않는다`), `sweep-reverse ${name} ${path}`);
+        }
         continue;
       }
       withToggle += 1;
@@ -93,8 +103,8 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
       check(() => ok(SHELL_BODY.test(out.html), `훑기 ${name} ${path}: 단추가 있으면 바탕에 셸 표식이 있다`), `sweep-body ${name} ${path}`);
     }
   }
-  check(() => ok(htmlResponses >= 150, `훑기: HTML 응답을 넉넉히 봤다(${htmlResponses})`), "sweep size");
-  check(() => ok(withToggle >= 40, `훑기: ‘접기’ 가 있는 응답이 줄지 않았다(${withToggle})`), "sweep toggles");
+  check(() => ok(htmlResponses >= 180, `훑기: HTML 응답을 넉넉히 봤다(${htmlResponses})`), "sweep size");
+  check(() => eq(withToggle, SWEEP_TOGGLES, "훑기: ‘접기’ 가 있는 응답 수가 그대로다(줄면 단추를 잃은 화면이, 늘면 새로 붙은 화면이 있다)"), "sweep toggles");
 
   // ── W-1: 단추를 움직이는 코드와 꾸미는 규칙이 그 두 자산에 실제로 들어 있다 ─────────
   const shellPage = await page(fx, `/budgets?${M}&${H}`);
@@ -121,9 +131,14 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
 
 // ── 원본: 단추를 붙이는 자리가 조건 뒤에 있다 ─────────────────────────────────
 const source = fs.readFileSync(new URL("../src/modules/web/html-postprocess.js", import.meta.url), "utf8");
-check(() => ok(/const headNoteReady = source\.includes\(`src="\$\{ACCOUNTBOOK_THEME_JS_ASSET_PATH\}"`\)\s*&& source\.includes\(v22812ShellLink\)\s*&& \/<body\\b\[\^>\]\*\\bclass="\[\^"\]\*\\babV22812Shell\\b\/\.test\(source\);/.test(source), "W-1 원본: 스크립트·스타일·바탕 표식 셋을 다 본다"), "source guard");
-check(() => ok(source.includes('if (headNoteReady && source.includes("abV5PageHeader")) {'), "W-1 원본: 그 조건 안에서만 접는 칸을 만든다"), "source if");
-check(() => eq((source.match(/class="abHeadNoteToggle"/g) || []).length, 2, "W-1 원본: 단추를 만드는 자리는 두 곳뿐이다(둘 다 그 조건 안)"), "source count");
+// 코드 모양은 고정하지 않는다(독립 검토 P3) — 조건이 세 가지를 다 보는지와, 단추를 만드는 글이 그 조건 아래에만 있는지만 본다.
+const readyAt = source.indexOf("const headNoteReady");
+const readyText = readyAt >= 0 ? source.slice(readyAt, source.indexOf(";", readyAt) + 1) : "";
+check(() => ok(readyText.includes("ACCOUNTBOOK_THEME_JS_ASSET_PATH") && readyText.includes("v22812ShellLink") && readyText.includes("abV22812Shell"), "W-1 원본: 조건이 테마 스크립트·셸 스타일시트·바탕 표식 셋을 다 본다"), "source guard");
+const blockAt = source.indexOf("if (headNoteReady");
+const blockEnd = blockAt >= 0 ? source.indexOf("\n  }\n", blockAt) : -1;
+const inBlock = blockAt >= 0 && blockEnd > blockAt ? (source.slice(blockAt, blockEnd).match(/abHeadNoteToggle/g) || []).length : 0;
+check(() => ok(inBlock > 0 && inBlock === (source.match(/abHeadNoteToggle/g) || []).length, "W-1 원본: 단추를 만드는 글은 그 조건 아래에만 있다"), "source block");
 
 if (failures.length) {
   console.error(`실패 ${failures.length}건:`);

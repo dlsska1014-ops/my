@@ -428,7 +428,8 @@ function run(command, args, label) {
 // V22.9.125: 글자·굵기 눈금 검사(validate-hierarchy-density-v229125)가 더해지고 설정 표·꼬리말·자산 주소 검사 줄이 늘었다. 하네스 두 모드 실측 85,444 present / 85,437 absent.
 // V22.9.126: 출시 전 최종 점검의 결함 수정과 카카오 저장 직전 되묻기(새 검사 일곱 — kakao·guards·shell·web·auth·ops·monitor)·추적표 V126 출처 41행, 독립 검토 반영 포함; 하네스 두 모드 실측 90,023 present / 90,016 absent.
 // V22.9.127: 수입·지출 고르기 단추 검사(validate-v229127-room-buttons)와 추적표 V127 출처 6행이 더해졌다. 하네스 두 모드 실측 90,570 present / 90,563 absent.
-const EXPECTED_MINIMUM_CHECKS = 90563;
+// V22.9.128: 운영 웹 확인 수정 검사(validate-v229128-web-check)와 추적표 V128 출처 5행이 더해졌다. 하네스 두 모드 실측 91,170 present / 91,163 absent.
+const EXPECTED_MINIMUM_CHECKS = 91163;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
