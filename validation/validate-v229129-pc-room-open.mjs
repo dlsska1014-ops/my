@@ -14,6 +14,8 @@
 //  E-8 독립 검토 2 반영: PC 의 화면 없는 로그인은 기본 꺼짐이다(가족이 같이 쓰는 PC 에서 같은 방의 다른 구성원 카카오 로그인으로 말없이 들어가는 일을 막는다).
 //      꺼진 곳에서는 진입·시작·콜백 어디서도 화면 없는 로그인이 되지 않고, 로그인 화면에서 로그인하면 그 방 가계부로 돌아온다. 역할 읽기 실패는 ‘잠시 뒤 다시’.
 //      답 예산이 모자라면 답 마무리가 방 연결을 읽지 않는다.
+//  E-9 독립 검토 3 반영: 표식은 가계부 번호(UUID) 모양만 받는다 — 다른 글자는 역할을 읽기 전에 버려, 로그인한 사람이 ‘잠시 뒤 다시’ 에 갇히지 않는다.
+//      역할 읽기 실패 화면은 ‘가계부를 잠시 불러오지 못했어요’ 라고 말한다. 인앱에서 처음 로그인해 첫 가계부를 만든 사람은 예전처럼 /app 으로 간다.
 //  E-5 식별 값이 붙어 온 길(휴대폰·오픈빌더 고정 단추): 채팅으로만 쓰는 계정은 예전처럼 바로 열리고(표식은 빠진다), 웹 계정에 이어진·카카오 로그인이 붙은
 //      계정은 세션을 받지 않되 카카오톡 밖의 브라우저에서는 방 표식 주소로 간다(예전에는 가계부 번호를 잃고 /my 시작 화면이었다). 인앱은 예전 그대로다.
 // 오프라인: 픽스처 + app.fetch(DB·바깥 요청 없음, 카카오 서버는 흉내), 시계 2026-11-17 12:00 KST. 판 이름 글자는 적지 않는다.
@@ -24,6 +26,7 @@ import { app, BASE, counter, fixture, intercept, withClock } from "./lib-audit-v
 import { readPurposeToken } from "../src/index.js";
 // 바탕 코드에는 이 함수가 없다 — 그때는 검사가 하나씩 실패하도록(불러오기 오류로 멈추지 않게) 이름으로 꺼낸다.
 const kakaoRoomLedgerLinkOutputsV229129 = (await import("../src/modules/kakao/response-builders.js")).kakaoRoomLedgerLinkOutputsV229129 || (() => undefined);
+const { renderSessionUnavailableHtmlV229122 } = await import("../src/modules/runtime/http.js");
 
 const { ok, eq, done } = counter("단톡방 ‘웹 가계부 열기’: PC 에서도 방 가계부로(방 표식·화면 없는 카카오 로그인·로그인 뒤 돌아오기) 검사 통과");
 const failures = [];
@@ -132,11 +135,17 @@ const strongKakao = (userId) => ({ id: `ident-v229129-${userId}`, user_id: userI
 const strongLocal = (userId) => ({ id: `ident-v229129-local-${userId}`, user_id: userId, provider: "local", provider_subject: "v229129room", credential_hash: "a".repeat(64), credential_salt: "b".repeat(32), credential_iterations: 100000, created_at: `${DAY}T01:00:00Z` });
 
 // 카카오 서버 흉내(토큰·프로필). id 는 지금 그 브라우저에 로그인된 카카오 계정.
-function kakaoServer() {
+function kakaoServer(fx) {
   const server = { id: KAKAO_ID, exchanges: 0, restore: () => {} };
-  server.restore = intercept(async ({ url }) => {
+  server.restore = intercept(async ({ url, method, init }) => {
     if (url.href === "https://kauth.kakao.com/oauth/token") { server.exchanges += 1; return json({ access_token: "qa-access-token", token_type: "bearer" }); }
     if (url.href === "https://kapi.kakao.com/v2/user/me") return json({ id: Number(server.id), properties: { nickname: "피시" } });
+    // 새 카카오 계정의 식별 연결 RPC(운영 함수의 효과만 — validate-kakao-home-v229104 와 같은 흉내).
+    if (method === "POST" && url.pathname === "/rest/v1/rpc/accountbook_link_kakao_identity_v227") {
+      const body = JSON.parse(String(init?.body || "{}"));
+      fx.db.accountbook_user_identities.push({ provider: "kakao", provider_subject: String(body.p_kakao_id), user_id: String(body.p_user_id), login_name: body.p_nickname, created_at: DAY + "T00:00:00Z" });
+      return json(true);
+    }
     return null;
   });
   return server;
@@ -166,7 +175,7 @@ async function roomFixture(task, { kakao = true, quiet = true } = {}) {
     fx.env.KAKAO_SKILL_SECRET = SECRET;
     if (kakao) Object.assign(fx.env, KAKAO_ENV);
     if (quiet) fx.env.KAKAO_ROOM_QUIET_LOGIN = "1"; else delete fx.env.KAKAO_ROOM_QUIET_LOGIN;
-    const server = kakaoServer();
+    const server = kakaoServer(fx);
     try {
       await say(fx, "점심 12000원", { user: U1, room: ROOM });
       await say(fx, "커피 4500원", { user: U2, room: ROOM });
@@ -241,18 +250,24 @@ await roomFixture(async (fx, { u1, u3, hh, hhB }) => {
     check(() => ok(tried.status === 303 && tried.location === "/my" && outsider.user() === u3.id, "E-2 다른 방 사람: 이 방 가계부가 열리지 않고 세션도 그대로"), "outsider");
   } else failures.push("outsider session: U3 chat session not issued");
   // 모양이 틀린 표식·두 번 온 표식은 버린다.
-  for (const bad of ["/my?room=", "/my?room=a%2Fb", "/my?room=" + "x".repeat(81), `/my?room=${hh}&room=${hhB}`, "/my?room=%3Cscript%3E"]) {
-    const out = await go(fx, bad, { jar: owner });
+  // 독립 검토 3: UUID 모양이 아닌 값(잘린 복사·손으로 친 값·대문자·남이 꾸민 값)은 역할을 읽기 전에 버린다 — 저장소에 묻지 않고 /my 로 간다.
+  for (const bad of ["/my?room=", "/my?room=a%2Fb", "/my?room=" + "x".repeat(81), `/my?room=${hh}&room=${hhB}`, "/my?room=%3Cscript%3E", "/my?room=abc", "/my?room=house-home", `/my?room=${hh.slice(0, 20)}`, `/my?room=${hh.toUpperCase()}`, `/my?room=${hh}x`]) {
+    let roleReads = 0;
+    const stop = intercept(async ({ url }) => { if (url.pathname === "/rest/v1/household_members") roleReads += 1; return null; });
+    let out;
+    try { out = await go(fx, bad, { jar: owner }); } finally { stop(); }
     check(() => ok(out.status === 303 && out.location === "/my" && out.cookies.length === 0, `E-2 틀린 표식은 버린다: ${bad.slice(0, 40)} → ${out.status} ${out.location}`), `bad ${bad.slice(0, 24)}`);
+    check(() => eq(roleReads, 0, `E-2 틀린 표식(${bad.slice(9, 30)})으로는 역할을 읽지 않는다`), `bad no read ${bad.slice(0, 24)}`);
   }
   // 화면 이동이 아닌 요청(미리 읽기·fetch)은 건드리지 않는다.
   const fetched = await go(fx, entryPath(hh), { jar: owner, headers: { "sec-fetch-mode": "cors", accept: "application/json" } });
   check(() => ok(fetched.location !== `/app?household_id=${hh}`, `E-2 fetch 요청은 이 길이 받지 않는다(${fetched.status} ${fetched.location})`), "fetch untouched");
   const prefetch = await go(fx, entryPath(hh), { jar: owner, headers: { "sec-purpose": "prefetch" } });
   check(() => ok(prefetch.location !== `/app?household_id=${hh}`, "E-2 미리 읽기 요청은 이 길이 받지 않는다"), "prefetch untouched");
-  // 웹 계정(픽스처의 소유자)도 자기 가계부 표식은 열린다.
-  const web = await go(fx, entryPath("house-home"), { cookie: fx.cookie });
-  check(() => ok(web.status === 303 && web.location === "/app?household_id=house-home", "E-2 웹 계정: 읽을 수 있는 가계부의 표식은 그 가계부로"), "web session");
+  // 웹 계정(픽스처의 소유자)이 방 가계부의 구성원이면 그 표식으로 열린다.
+  fx.db.household_members.push({ household_id: hh, user_id: "user-bin", role: "member", created_at: `${DAY}T02:00:00Z` });
+  const web = await go(fx, entryPath(hh), { cookie: fx.cookie });
+  check(() => ok(web.status === 303 && web.location === `/app?household_id=${hh}`, `E-2 웹 계정: 읽을 수 있는 방 가계부의 표식은 그 가계부로(${web.status} ${web.location})`), "web session");
   check(() => ok(u1.id && !JSON.stringify(globalThis.__AB_OPS_EVENTS || []).includes(hh), "E-2 운영 이벤트에 가계부 번호를 남기지 않는다"), "event no id");
   check(() => eq(probeKeys(fx, "entry_session_readable"), "app_version,at,version", "E-2 진단 기록 entry_session_readable 에는 시각·판만 남는다"), "probe session readable");
   check(() => eq(probeKeys(fx, "entry_session_other"), "app_version,at,version", "E-2 진단 기록 entry_session_other 에는 시각·판만 남는다"), "probe session other");
@@ -667,15 +682,25 @@ await roomFixture(async (fx, { hh }) => {
   try { during = await go(fx, entryPath(hh), { jar: owner }); } finally { roleFail(); }
   check(() => ok(during.status === 503 && !during.location && during.cookies.length === 0, `E-8 역할 읽기 실패: ‘잠시 뒤 다시’(503)이고 쿠키를 바꾸지 않는다(${during.status} ${during.location})`), "role read failed page");
   check(() => ok(during.html.includes(`href="${entryPath(hh)}"`) || during.html.includes(`href="/my?room=${hh}"`), "E-8 그 화면의 다시 열기 주소가 방 표식을 싣는다"), "role read failed retry");
+  check(() => ok(during.html.includes("가계부를 잠시 불러오지 못했어요") && !during.html.includes("로그인 상태를 잠시 확인하지 못했어요") && !during.html.includes("로그아웃된 것은 아니에요"), "E-9 역할 읽기 실패 화면은 로그인 확인 실패라고 말하지 않는다"), "role read failed wording");
   check(() => eq(lastEntry(), "role_read_failed", "E-8 운영 이벤트 role_read_failed"), "role read failed event");
   const after = await go(fx, entryPath(hh), { jar: owner });
   check(() => eq(after.location, `/app?household_id=${hh}`, "E-8 DB 가 돌아오면 같은 주소가 그 방 가계부로 간다"), "role read recovers");
   // 세션 확인을 못 한 요청의 ‘잠시 뒤 다시’ 화면도 방 표식을 싣는다. 모양이 틀린 표식은 싣지 않는다.
   const outage = intercept(async ({ url }) => (url.pathname.startsWith("/rest/v1/") ? new Response("upstream", { status: 503 }) : null));
-  let down, downBad;
-  try { down = await go(fx, entryPath(hh), { jar: owner }); downBad = await go(fx, "/my?room=%3Cscript%3E", { jar: owner }); } finally { outage(); }
-  check(() => ok(down.status === 503 && down.html.includes(`room=${hh}`), "E-8 세션 확인을 못 한 요청: ‘잠시 뒤 다시’ 화면의 다시 열기 주소가 방 표식을 싣는다"), "outage retry keeps marker");
-  check(() => ok(!/room=/.test(downBad.html) && !/<script>/i.test(downBad.html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")), "E-8 모양이 틀린 표식은 그 화면에 싣지 않는다"), "outage retry drops bad marker");
+  let down;
+  try { down = await go(fx, entryPath(hh), { jar: owner }); } finally { outage(); }
+  check(() => ok(down.status === 503 && down.html.includes(`room=${hh}`) && down.html.includes("로그인 상태를 잠시 확인하지 못했어요"), "E-8 세션 확인을 못 한 요청: ‘잠시 뒤 다시’ 화면(예전 말 그대로)의 다시 열기 주소가 방 표식을 싣는다"), "outage retry keeps marker");
+  // 안내 화면 만들기 함수를 직접 본다(독립 검토 3: 모양이 틀린 표식은 진입 길이 먼저 넘겨 버려 화면까지 오지 않는다 — 함수의 거름을 따로 시험한다).
+  const page = (path, ...rest) => renderSessionUnavailableHtmlV229122(new URL(path, BASE), ...rest);
+  check(() => ok(page(entryPath(hh)).includes(`href="/my?room=${hh}"`), "E-9 안내 화면: UUID 모양의 표식은 다시 열기 주소에 싣는다"), "page keeps uuid marker");
+  for (const bad of ["abc", "house-home", "%3Cscript%3E", hh.toUpperCase(), `${hh}x`, "x".repeat(81)]) {
+    const html = page(`/my?room=${bad}`);
+    check(() => ok(!html.includes("room=") && html.includes('href="/my"'), `E-9 안내 화면: 모양이 틀린 표식(${bad.slice(0, 16)})은 싣지 않는다`), `page drops ${bad.slice(0, 12)}`);
+  }
+  check(() => ok(page(`/app?household_id=${hh}&month=2026-11&room=${hh}`).includes(`household_id=${hh}`), "E-9 안내 화면: 예전부터 싣던 값(가계부·달)은 그대로 싣는다"), "page keeps old params");
+  check(() => ok(page("/my").includes("로그인 상태를 잠시 확인하지 못했어요") && page("/my").includes("로그아웃된 것은 아니에요"), "E-9 안내 화면: 인자를 주지 않으면 예전 말 그대로"), "page default wording");
+  check(() => ok(page("/my", false, "household").includes("가계부를 잠시 불러오지 못했어요") && !page("/my", false, "household").includes("로그아웃된 것은 아니에요"), "E-9 안내 화면: 가계부 읽기 실패의 말"), "page household wording");
 });
 await roomFixture(async (fx, { hh }) => {
   // 답 예산이 모자라면(읽기 뒤 마무리 몫 0.4초 + 0.15초가 안 남으면) 답 마무리가 방 연결을 읽지 않는다. 예산 0.5초: 처음부터 모자라다.
@@ -698,6 +723,19 @@ await roomFixture(async (fx, { hh, hhB }) => {
   void hh;
 });
 
+// ── E-9. 독립 검토 3 반영: 인앱 첫 로그인 뒤 착지 ───────────────────────────────────
+await roomFixture(async (fx, { hh, server }) => {
+  // 카카오톡 안의 브라우저에서 방 단추로 와 처음 카카오 로그인을 하는 사람(웹 계정 없음): 계정과 기본 가계부가 만들어지고 예전처럼 /app 으로 간다
+  // (돌아갈 주소의 방 표식은 뺀다 — 새 계정은 그 방 가계부를 읽을 수 없다).
+  server.id = "9129777";
+  const jar = new Jar();
+  const households = fx.db.households.length;
+  const start = await go(fx, `/auth/kakao/start?return_to=${encodeURIComponent(entryPath(hh))}`, { ua: INAPP, jar, site: "same-origin" });
+  const back = await go(fx, `/auth/kakao/callback?code=qa-code&state=${encodeURIComponent(new URL(start.location || "/", BASE).searchParams.get("state") || "")}`, { ua: INAPP, jar, site: "cross-site" });
+  check(() => ok(jar.user() && fx.db.households.length === households + 1, `E-9 인앱 첫 로그인: 계정과 기본 가계부가 만들어진다(${back.status} ${back.location})`), "inapp first login created");
+  check(() => eq(back.location, "/app", "E-9 인앱 첫 로그인: 예전처럼 /app 으로 간다(방 표식을 거쳐 /my 로 가지 않는다)"), "inapp first login lands app");
+}, { quiet: false });
+
 // 순수 변환: 정확히 <origin>/my 인 링크 단추만 바꾼다.
 {
   const outputs = [
@@ -710,15 +748,16 @@ await roomFixture(async (fx, { hh, hhB }) => {
       { label: "메시지", action: "message", messageText: `${BASE}/my` },
     ] } },
   ];
-  const next = kakaoRoomLedgerLinkOutputsV229129(outputs, BASE, "hh-1");
-  check(() => ok(next && next[1].textCard.buttons[0].webLinkUrl === `${BASE}/my?room=hh-1`, "E-6 변환: 정확히 /my 인 링크 단추에 표식"), "pure marked");
+  const PURE_ID = "a1b2c3d4-2222-4333-8444-5555555555ef";
+  const next = kakaoRoomLedgerLinkOutputsV229129(outputs, BASE, PURE_ID);
+  check(() => ok(next && next[1].textCard.buttons[0].webLinkUrl === `${BASE}/my?room=${PURE_ID}`, "E-6 변환: 정확히 /my 인 링크 단추에 표식"), "pure marked");
   check(() => ok(next && next[1].textCard.buttons.slice(1).every((button, index) => JSON.stringify(button) === JSON.stringify(outputs[1].textCard.buttons[index + 1])) && next[0] === outputs[0], "E-6 변환: 다른 단추·다른 출력은 그대로"), "pure untouched");
   check(() => eq(outputs[1].textCard.buttons[0].webLinkUrl, `${BASE}/my`, "E-6 변환: 받은 값을 고치지 않는다"), "pure no mutation");
-  for (const [label, id] of [["빈 번호", ""], ["모양이 틀린 번호", "a/b"], ["너무 긴 번호", "x".repeat(81)], ["꺾쇠", "<x>"]]) {
+  for (const [label, id] of [["빈 번호", ""], ["모양이 틀린 번호", "a/b"], ["너무 긴 번호", "x".repeat(81)], ["꺾쇠", "<x>"], ["UUID 가 아닌 번호", "hh-1"], ["대문자 UUID", PURE_ID.toUpperCase()], ["UUID 뒤에 글자", `${PURE_ID}x`]]) {
     check(() => eq(kakaoRoomLedgerLinkOutputsV229129(outputs, BASE, id), null, `E-6 변환: ${label}는 바꾸지 않는다`), `pure bad id ${label}`);
   }
-  check(() => eq(kakaoRoomLedgerLinkOutputsV229129([{ simpleText: { text: "x" } }], BASE, "hh-1"), null, "E-6 변환: 그런 단추가 없으면 null"), "pure none");
-  check(() => eq(kakaoRoomLedgerLinkOutputsV229129(outputs, "", "hh-1"), null, "E-6 변환: origin 이 없으면 null"), "pure no origin");
+  check(() => eq(kakaoRoomLedgerLinkOutputsV229129([{ simpleText: { text: "x" } }], BASE, PURE_ID), null, "E-6 변환: 그런 단추가 없으면 null"), "pure none");
+  check(() => eq(kakaoRoomLedgerLinkOutputsV229129(outputs, "", PURE_ID), null, "E-6 변환: origin 이 없으면 null"), "pure no origin");
 }
 
 // ── 원본: 부르는 자리와 조건 ───────────────────────────────────────────────────

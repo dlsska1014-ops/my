@@ -13922,16 +13922,17 @@ function renderEmergencyErrorHtml(url, err, title = "화면을 안전모드로 �
 }
 
 // V22.9.122 F-1(출시 전 점검 2026-11-14): 로그인 확인을 잠깐 못 했을 때의 안내 화면(worker/router.js sessionUnavailableResponseV229122). DB 정보는 적지 않는다.
-function renderSessionUnavailableHtmlV229122(url, posted = false) {
+// V22.9.129: kind "household" = 로그인은 확인됐고 가계부(역할) 읽기만 실패한 때(auth/kakao-room-open.js 의 방 표식 길). 제목·첫 문장만 다르다.
+function renderSessionUnavailableHtmlV229122(url, posted = false, kind = "session") {
   // 다시 열기 주소: 경로와 달·가계부·탭 값만 싣는다. 로그인 길(/auth/…)과 그 밖의 주소 값(인증 code·state, 방 키 등)은 다시 쓰지 않는다(독립 검토 1).
   const keep = new URLSearchParams();
   // V22.9.129: 방 표식(room — 단톡방 ‘웹 가계부 열기’ 가 가리키는 가계부 번호, household_id 와 같은 종류의 값)도 싣는다. 다시 열면 그 방 가계부 길로 돌아온다.
-  for (const key of ["month", "household_id", "tab", "view", "room"]) { const value = url?.searchParams?.get(key); if (value && value.length <= 80 && (key !== "room" || /^[A-Za-z0-9_-]{1,80}$/.test(value))) keep.set(key, value); }
+  for (const key of ["month", "household_id", "tab", "view", "room"]) { const value = url?.searchParams?.get(key); if (value && value.length <= 80 && (key !== "room" || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value))) keep.set(key, value); }
   const pathname = String(url?.pathname || "/");
   const safePath = escapeHtml(pathname + (keep.toString() ? `?${keep}` : ""));
   const retry = posted || /^\/auth\//.test(pathname) ? "/my" : safePath;
   const note = posted ? "방금 보낸 내용은 저장되지 않았어요. 잠시 뒤 다시 시도해 주세요." : "잠시 뒤 아래 단추로 다시 열어 주세요.";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex"/><title>말해가계부 · 잠시 뒤 다시</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:40px auto;padding:20px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:24px;box-shadow:0 18px 44px rgba(15,23,42,.08)}h1{margin-top:0;font-size:22px}.muted{color:#475569;line-height:1.6}.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.btn{display:inline-flex;align-items:center;justify-content:center;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:900}@media (prefers-color-scheme:dark){body{background:#0f172a;color:#f1f5f9}.card{background:#1e293b;border-color:#334155}.muted{color:#cbd5e1}.btn{background:#f1f5f9;color:#0f172a!important}}</style></head><body><main class="wrap"><section class="card"><h1>로그인 상태를 잠시 확인하지 못했어요</h1><p class="muted">로그아웃된 것은 아니에요. 저장소 응답이 잠깐 늦어지고 있어요. ${note}</p><div class="btns"><a class="btn" href="${retry}">다시 열기</a></div></section></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex"/><title>말해가계부 · 잠시 뒤 다시</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:40px auto;padding:20px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:24px;box-shadow:0 18px 44px rgba(15,23,42,.08)}h1{margin-top:0;font-size:22px}.muted{color:#475569;line-height:1.6}.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.btn{display:inline-flex;align-items:center;justify-content:center;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:900}@media (prefers-color-scheme:dark){body{background:#0f172a;color:#f1f5f9}.card{background:#1e293b;border-color:#334155}.muted{color:#cbd5e1}.btn{background:#f1f5f9;color:#0f172a!important}}</style></head><body><main class="wrap"><section class="card"><h1>${kind === "household" ? "가계부를 잠시 불러오지 못했어요" : "로그인 상태를 잠시 확인하지 못했어요"}</h1><p class="muted">${kind === "household" ? "" : "로그아웃된 것은 아니에요. "}저장소 응답이 잠깐 늦어지고 있어요. ${note}</p><div class="btns"><a class="btn" href="${retry}">다시 열기</a></div></section></main></body></html>`;
 }
 
 // V22.9.26: 라우터의 마지막 catch 가 브라우저 폼 제출을 구분하는 데 쓴다.
@@ -28139,6 +28140,9 @@ function withoutHouseholdIdV229104(path = "") {
   try {
     const parsed = new URL(path, "https://accountbook.local");
     parsed.searchParams.delete("household_id");
+    // V22.9.129 독립 검토 3(P3): 방 표식(room)도 뺀다 — 방금 첫 가계부를 만든 새 계정은 그 방 가계부를 읽을 수 없어, 표식을 남기면 예전의 /app 이 아니라
+    // 표식 길을 거쳐 /my 로 착지했다.
+    parsed.searchParams.delete("room");
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch (_) {
     return "";
@@ -48595,7 +48599,9 @@ const KAKAO_ROOM_OPEN_HEADERS = { "referrer-policy": "no-referrer" };
 const AB_KAKAO_ROOM_OPEN_PROBE = globalThis.__AB_KAKAO_ROOM_OPEN_PROBE || (globalThis.__AB_KAKAO_ROOM_OPEN_PROBE = new Map());
 // V22.9.129 방 표식: 단톡방 ‘웹 가계부 열기’ 단추의 주소 /my?room=<그 방 가계부 번호>(kakao/response-builders.js kakaoWebLedgerReply).
 const KAKAO_ROOM_ENTRY_PARAM_V229129 = "room";
-const KAKAO_ROOM_ENTRY_ID_V229129 = /^[A-Za-z0-9_-]{1,80}$/;
+// 독립 검토 3(P2): 표식은 가계부 번호(UUID) 모양만 받는다. 가계부 번호 칸은 uuid 형이라, 다른 글자(잘린 복사·손으로 친 값·남이 꾸민 링크)로 역할을 읽으면
+// 저장소가 형 변환 오류를 내고 — 그것을 ‘읽기 실패’ 로 다루면 로그인한 사람이 끝나지 않는 ‘잠시 뒤 다시’ 에 갇힌다. 모양이 틀린 표식은 읽기 전에 버린다(/my).
+const KAKAO_ROOM_ENTRY_ID_V229129 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 function kakaoRoomEntryLocationV229129(householdId = "") {
   return `/my?${KAKAO_ROOM_ENTRY_PARAM_V229129}=${encodeURIComponent(String(householdId || ""))}`;
 }
@@ -48609,7 +48615,7 @@ function kakaoRoomQuietLoginEnabledV229129(env) {
   return envFlagEnabled(env?.KAKAO_ROOM_QUIET_LOGIN, false) && envFlagEnabled(env?.KAKAO_INAPP_AUTO_LOGIN, true);
 }
 function kakaoRoomEntryHouseholdIdV229129(raw = "") {
-  const match = /^\/my\?room=([A-Za-z0-9_-]{1,80})$/.exec(String(raw || "").trim());
+  const match = /^\/my\?room=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(String(raw || "").trim());
   return match ? match[1] : "";
 }
 function kakaoRoomEntryReturnPathV229129(raw = "") {
@@ -48831,9 +48837,10 @@ async function kakaoRoomEntryResponse(request, env, url, ctx) {
     const roleRead = await readHouseholdRoleOrFailure(env, current, householdId, { path: "/my", method: "GET" });
     if (roleRead.failed) {
       kakaoRoomEntryProbeV229129(env, ctx, "role_read_failed");
-      return htmlResponseWithCookies(renderSessionUnavailableHtmlV229122(url, false), 503, [], { "retry-after": "10", "cache-control": "no-store", ...KAKAO_ROOM_OPEN_HEADERS });
+      // 로그인은 확인됐고 가계부 읽기만 실패했다 — 화면의 말도 그렇게 한다(독립 검토 3 P3).
+      return htmlResponseWithCookies(renderSessionUnavailableHtmlV229122(url, false, "household"), 503, [], { "retry-after": "10", "cache-control": "no-store", ...KAKAO_ROOM_OPEN_HEADERS });
     }
-    const readable = canReadMyHousehold(roleRead.role);
+    const readable = canReadMyHousehold(roleRead.role); // 역할은 readHouseholdRoleOrFailure 가 소문자로 돌려준다
     kakaoRoomEntryProbeV229129(env, ctx, readable ? "session_readable" : "session_other");
     return redirectResponse(readable ? `/app?household_id=${encodeURIComponent(householdId)}` : "/my", KAKAO_ROOM_OPEN_HEADERS);
   }
@@ -51238,7 +51245,8 @@ async function kakaoDirectLinkResponse(response, origin = "") {
 // PC 카카오톡은 쓸 수 있는 사용자 식별 값 없이 연다. 표식은 권한이 아니라 "어느 가계부를 열려던 길인지" 만 알려 준다 — 읽을 수 있는 사람에게만 그 가계부가
 // 열리고(auth/kakao-room-open.js kakaoRoomEntryResponse), 채팅 계정과 웹 계정이 이어지지 않아 구성원이 아닌 사람은 예전처럼 자기 가계부가 열린다
 // (household_id 를 직접 실으면 ‘가계부를 찾을 수 없어요’ 가 되던 것 — 위 V22.9.105 설명 — 과 다르다).
-const KAKAO_WEB_LEDGER_ROOM_ID_V229129 = /^[A-Za-z0-9_-]{1,80}$/;
+// 가계부 번호(UUID) 모양일 때만 싣는다(웹의 표식 길 auth/kakao-room-open.js 가 받는 모양과 같다 — 독립 검토 3).
+const KAKAO_WEB_LEDGER_ROOM_ID_V229129 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 function kakaoWebLedgerRoomUrlV229129(origin = "", roomHouseholdId = "") {
   const id = String(roomHouseholdId || "").trim();
   return KAKAO_WEB_LEDGER_ROOM_ID_V229129.test(id) ? `${origin}/my?room=${encodeURIComponent(id)}` : `${origin}/my`;

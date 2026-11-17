@@ -614,7 +614,8 @@ async function kakaoDirectLinkResponse(response, origin = "") {
 // PC 카카오톡은 쓸 수 있는 사용자 식별 값 없이 연다. 표식은 권한이 아니라 "어느 가계부를 열려던 길인지" 만 알려 준다 — 읽을 수 있는 사람에게만 그 가계부가
 // 열리고(auth/kakao-room-open.js kakaoRoomEntryResponse), 채팅 계정과 웹 계정이 이어지지 않아 구성원이 아닌 사람은 예전처럼 자기 가계부가 열린다
 // (household_id 를 직접 실으면 ‘가계부를 찾을 수 없어요’ 가 되던 것 — 위 V22.9.105 설명 — 과 다르다).
-const KAKAO_WEB_LEDGER_ROOM_ID_V229129 = /^[A-Za-z0-9_-]{1,80}$/;
+// 가계부 번호(UUID) 모양일 때만 싣는다(웹의 표식 길 auth/kakao-room-open.js 가 받는 모양과 같다 — 독립 검토 3).
+const KAKAO_WEB_LEDGER_ROOM_ID_V229129 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 function kakaoWebLedgerRoomUrlV229129(origin = "", roomHouseholdId = "") {
   const id = String(roomHouseholdId || "").trim();
   return KAKAO_WEB_LEDGER_ROOM_ID_V229129.test(id) ? `${origin}/my?room=${encodeURIComponent(id)}` : `${origin}/my`;

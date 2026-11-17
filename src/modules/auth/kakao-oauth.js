@@ -49,6 +49,9 @@ function withoutHouseholdIdV229104(path = "") {
   try {
     const parsed = new URL(path, "https://accountbook.local");
     parsed.searchParams.delete("household_id");
+    // V22.9.129 독립 검토 3(P3): 방 표식(room)도 뺀다 — 방금 첫 가계부를 만든 새 계정은 그 방 가계부를 읽을 수 없어, 표식을 남기면 예전의 /app 이 아니라
+    // 표식 길을 거쳐 /my 로 착지했다.
+    parsed.searchParams.delete("room");
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch (_) {
     return "";

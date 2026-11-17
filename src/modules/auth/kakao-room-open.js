@@ -79,7 +79,9 @@ const KAKAO_ROOM_OPEN_HEADERS = { "referrer-policy": "no-referrer" };
 const AB_KAKAO_ROOM_OPEN_PROBE = globalThis.__AB_KAKAO_ROOM_OPEN_PROBE || (globalThis.__AB_KAKAO_ROOM_OPEN_PROBE = new Map());
 // V22.9.129 방 표식: 단톡방 ‘웹 가계부 열기’ 단추의 주소 /my?room=<그 방 가계부 번호>(kakao/response-builders.js kakaoWebLedgerReply).
 const KAKAO_ROOM_ENTRY_PARAM_V229129 = "room";
-const KAKAO_ROOM_ENTRY_ID_V229129 = /^[A-Za-z0-9_-]{1,80}$/;
+// 독립 검토 3(P2): 표식은 가계부 번호(UUID) 모양만 받는다. 가계부 번호 칸은 uuid 형이라, 다른 글자(잘린 복사·손으로 친 값·남이 꾸민 링크)로 역할을 읽으면
+// 저장소가 형 변환 오류를 내고 — 그것을 ‘읽기 실패’ 로 다루면 로그인한 사람이 끝나지 않는 ‘잠시 뒤 다시’ 에 갇힌다. 모양이 틀린 표식은 읽기 전에 버린다(/my).
+const KAKAO_ROOM_ENTRY_ID_V229129 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 function kakaoRoomEntryLocationV229129(householdId = "") {
   return `/my?${KAKAO_ROOM_ENTRY_PARAM_V229129}=${encodeURIComponent(String(householdId || ""))}`;
 }
@@ -93,7 +95,7 @@ function kakaoRoomQuietLoginEnabledV229129(env) {
   return envFlagEnabled(env?.KAKAO_ROOM_QUIET_LOGIN, false) && envFlagEnabled(env?.KAKAO_INAPP_AUTO_LOGIN, true);
 }
 function kakaoRoomEntryHouseholdIdV229129(raw = "") {
-  const match = /^\/my\?room=([A-Za-z0-9_-]{1,80})$/.exec(String(raw || "").trim());
+  const match = /^\/my\?room=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(String(raw || "").trim());
   return match ? match[1] : "";
 }
 function kakaoRoomEntryReturnPathV229129(raw = "") {
@@ -315,9 +317,10 @@ async function kakaoRoomEntryResponse(request, env, url, ctx) {
     const roleRead = await readHouseholdRoleOrFailure(env, current, householdId, { path: "/my", method: "GET" });
     if (roleRead.failed) {
       kakaoRoomEntryProbeV229129(env, ctx, "role_read_failed");
-      return htmlResponseWithCookies(renderSessionUnavailableHtmlV229122(url, false), 503, [], { "retry-after": "10", "cache-control": "no-store", ...KAKAO_ROOM_OPEN_HEADERS });
+      // 로그인은 확인됐고 가계부 읽기만 실패했다 — 화면의 말도 그렇게 한다(독립 검토 3 P3).
+      return htmlResponseWithCookies(renderSessionUnavailableHtmlV229122(url, false, "household"), 503, [], { "retry-after": "10", "cache-control": "no-store", ...KAKAO_ROOM_OPEN_HEADERS });
     }
-    const readable = canReadMyHousehold(roleRead.role);
+    const readable = canReadMyHousehold(roleRead.role); // 역할은 readHouseholdRoleOrFailure 가 소문자로 돌려준다
     kakaoRoomEntryProbeV229129(env, ctx, readable ? "session_readable" : "session_other");
     return redirectResponse(readable ? `/app?household_id=${encodeURIComponent(householdId)}` : "/my", KAKAO_ROOM_OPEN_HEADERS);
   }
