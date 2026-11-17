@@ -1009,8 +1009,10 @@ const KAKAO_GUARD_SPEND_FINAL_V229126 = /(?:결제\s?(?:함|완료|했(?:다|어
 // 금액과 낸 말 사이에 올 수 있는 말(원·을·를·빈칸, 결제 수단 낱말 둘까지). ‘(민수가 보냄)’ 처럼 다른 사람이 낸 말은 금액에 붙지 않는다.
 const KAKAO_GUARD_SPEND_GAP_V229126 = /^원?\s{0,2}(?:을|를)?\s{0,2}(?:(?:현금|카드|계좌|계좌이체|체크카드|신용카드|일시불|바로|그냥|전부|다)\s?(?:으로|로)?\s{0,2}){0,2}$/;
 // 3차 B: 금액 바로 뒤(원·을·를·빈칸만 사이에 둠)의 반대쪽 말. ‘이체됨·송금받음’ 은 들어온 말, ‘들어오면·환불 안 됨’ 은 아직·아닌 말이라 뺀다.
-const KAKAO_GUARD_SPEND_CORE_V229126 = String.raw`(?:결제(?!\s{0,2}(?:취소|안|못|예정|할|해야|하면|하려|받|들어))|사\s?먹|샀|삼(?![가-힣])|썼|씀|(?<!보)냈|냄|시킴|시켰|긁|(?:이체|송금)(?!\s{0,2}(?:받|됨|됐|되|예정|할|해야|하면|하려|취소|안|못))|보냄|보냈|나갔|나감)`;
-const KAKAO_GUARD_ARRIVE_CORE_V229126 = String.raw`(?:받(?:음|았|고|아서|은)|(?:돌려|정산)\s?받(?!을|기로|아야)|들어(?:옴|왔|와|오(?!면|려|기로))|입금\s?(?:됨|됐|되었)|(?:환불|환급)(?!\s{0,2}(?:안|못|불가|요청|신청|예정|해야))|벌었|벌고|지급\s?(?:됨|됐|되었))`;
+// 5차(독립 검토): ‘결제계좌·결제대금·결제 수단’ 처럼 이름씨로 이어지는 결제는 낸 말이 아니다(‘보험금 30만원 결제계좌로 들어옴’ 은 수입이다).
+// ‘들어오는 길에·들어오다가’ 는 돈이 아니라 사람이 들어오는 말이다(‘택시 15000 들어오는 길에 편의점 3500’ 은 지출 둘이다).
+const KAKAO_GUARD_SPEND_CORE_V229126 = String.raw`(?:결제(?!\s{0,2}(?:취소|안|못|예정|할|해야|하면|하려|받|들어|계좌|대금|수단|내역|금액|실패|오류|한도))|사\s?먹|샀|삼(?![가-힣])|썼|씀|(?<!보)냈|냄|시킴|시켰|긁|(?:이체|송금)(?!\s{0,2}(?:받|됨|됐|되|예정|할|해야|하면|하려|취소|안|못))|보냄|보냈|나갔|나감)`;
+const KAKAO_GUARD_ARRIVE_CORE_V229126 = String.raw`(?:받(?:음|았|고|아서|은)|(?:돌려|정산)\s?받(?!을|기로|아야)|들어(?:옴|왔|와|오(?!면|려|기로|다가|는\s?(?:길|도중)))|입금\s?(?:됨|됐|되었)|(?:환불|환급)(?!\s{0,2}(?:안|못|불가|요청|신청|예정|해야))|벌었|벌고|지급\s?(?:됨|됐|되었))`;
 const KAKAO_GUARD_AFTER_SPEND_V229126 = new RegExp(String.raw`^원?\s{0,2}(?:을|를)?\s{0,2}` + KAKAO_GUARD_SPEND_CORE_V229126);
 const KAKAO_GUARD_AFTER_ARRIVE_V229126 = new RegExp(String.raw`^원?\s{0,2}(?:을|를|이|가)?\s{0,2}` + KAKAO_GUARD_ARRIVE_CORE_V229126);
 // 4차: 기록마다 붙은 말을 볼 때는 ‘2만원은 받았고’·‘5000원도 냄’ 처럼 은·는·도 도 사이에 둔다.
@@ -1029,6 +1031,8 @@ const KAKAO_GUARD_SERVICE_ANY_V229126 = new RegExp(`${KAKAO_GUARD_SERVICE_WORDS_
 const KAKAO_GUARD_UNDO_V229126 = /환불|환급|취소|반품|캔슬|정산|돌려\s?(?:받|줌|줬|주|드)|반납|갚|다시|도로/;
 // 4차(기록마다): 보낸 말의 금액 앞 마디에 남이 주어·보낸 쪽인 말(‘엄마가 용돈 5만원 보냈음’·‘회사에서 … 이체함’)이 있으면 세지 않는다.
 const KAKAO_GUARD_SENDER_V229126 = /(?:[가-힣](?:가|이)|께서|에서|한테서|에게서|로부터)(?=\s|$)/;
+// 5차(독립 검토): 금액에 붙은 ‘결제’ 뒤 같은 마디에 들어온 말이 오면(‘캐시백 3000원 결제일에 들어옴’) 그 결제는 이름씨다. 다음 금액(숫자)을 넘어서는 보지 않는다.
+const KAKAO_GUARD_PAY_NOUN_V229126 = /^원?\s{0,2}(?:을|를|은|는|도)?\s{0,2}결제[^\n\d]{0,14}?(?:들어(?:옴|왔|와|오)|입금\s?(?:됨|됐|되었)|환급|환불|지급\s?(?:됨|됐|되었))/;
 // 3차 C: 정말 두 자리 원인 일이 흔한 말(봉투값·이자) 바로 뒤의 수.
 const KAKAO_GUARD_SMALL_FEE_V229126 = /(?:봉투|비닐|쇼핑백|종이백|이자)(?:값|비)?\s{0,2}$/;
 // ‘들어왔·들어옴·벌었’ 은 같은 줄 앞 24자 안에 금액이나 돈 말이 있을 때만 들어온 돈 말로 센다(‘택시 타고 들어옴’·‘20분 벌었다’ 는 아니다).
@@ -1067,6 +1071,21 @@ function kakaoGuardAmountGroupsV229126(t, spans) {
   }
   return { groups, only: (amount) => { const found = byValue.get(Number(amount)); return found && found.length === 1 ? found[0] : null; } };
 }
+// 금액 묶음의 앞 마디(같은 줄, 앞 금액 끝부터·20자 안)와 뒤 마디(같은 줄, 다음 금액 앞까지·30자 안). lines 는 글자 자리가 t 와 같은 글이다.
+function kakaoGuardClauseV229126(lines, groups, g) {
+  const before = lines.slice(Math.max(g.at > 0 ? groups[g.at - 1].end : 0, g.start - 20), g.start);
+  return { lead: before.slice(before.lastIndexOf("\n") + 1), rest: lines.slice(g.end, Math.min(g.at + 1 < groups.length ? groups[g.at + 1].start : lines.length, g.end + 30)).split("\n")[0] };
+}
+// 금액 바로 뒤의 반대쪽 말 m(뒤 마디 rest 의 처음에서 맞은 것)을 세지 않는 경우. 기록마다 시험이 쓰고, 5차부터 3차 B 도 같은 예외를 쓴다.
+//  되돌린 말이 같은 마디에 뒤따른다, 받은 것이 서비스다(앞 마디에 서비스 낱말), 결제 뒤에 들어온 말이 온다(결제가 이름씨),
+//  보낸 쪽이 남이다(앞 마디에 주어·보낸 쪽), 홀로 쓴 ‘이체·송금’(‘팔아서 100만원 이체’ — 누가 보냈는지 모르므로 ‘이체함·송금했’ 처럼 맺을 때만 센다).
+function kakaoGuardFlipExceptV229126(type, lead, rest, m) {
+  if (KAKAO_GUARD_UNDO_V229126.test(rest.slice(m[0].length))) return true;
+  if (type === "expense") return KAKAO_GUARD_TAKE_V229126.test(rest) && KAKAO_GUARD_SERVICE_ANY_V229126.test(lead);
+  if (KAKAO_GUARD_PAY_NOUN_V229126.test(rest)) return true;
+  if (!KAKAO_GUARD_SEND_V229126.test(rest)) return false;
+  return KAKAO_GUARD_SENDER_V229126.test(lead) || (/(?:이체|송금)$/.test(m[0]) && !/^\s?(?:함|했)/.test(rest.slice(m[0].length)));
+}
 // 4차: 여러 건의 기록마다, 그 금액 자리 바로 뒤(같은 줄) 말이 기록 구분과 반대인지 본다(‘알바비 40만원 받았다 … 운동화 32000원 샀다’ 가 지출·수입으로 뒤바뀐 꼴).
 // 금액 자리가 없거나 바로 뒤에 말이 없으면 정하지 않는다. 예외는 3차 B 와 같고, 마디(앞 금액·줄 처음부터 다음 금액·줄 끝까지)를 넓혀 본다.
 function kakaoGuardRowFlipV229126(t, spans, rows, lines) {
@@ -1076,15 +1095,9 @@ function kakaoGuardRowFlipV229126(t, spans, rows, lines) {
     const g = only(row.amount);
     const sense = row.type === "expense" ? KAKAO_GUARD_ROW_ARRIVE_V229126 : row.type === "income" ? KAKAO_GUARD_ROW_SPEND_V229126 : null;
     if (!g || !sense) return false;
-    const before = lines.slice(Math.max(g.at > 0 ? groups[g.at - 1].end : 0, g.start - 20), g.start);
-    const lead = before.slice(before.lastIndexOf("\n") + 1);
-    const rest = lines.slice(g.end, Math.min(g.at + 1 < groups.length ? groups[g.at + 1].start : lines.length, g.end + 30)).split("\n")[0];
+    const { lead, rest } = kakaoGuardClauseV229126(lines, groups, g);
     const m = rest.match(sense);
-    if (!m || KAKAO_GUARD_UNDO_V229126.test(rest.slice(m[0].length))) return false;
-    if (row.type === "expense") return !(KAKAO_GUARD_TAKE_V229126.test(rest) && KAKAO_GUARD_SERVICE_ANY_V229126.test(lead));
-    if (!KAKAO_GUARD_SEND_V229126.test(rest)) return true;
-    // 홀로 쓴 ‘이체·송금’(‘팔아서 100만원 이체’)은 누가 보냈는지 모르므로 ‘이체함·송금했’ 처럼 맺을 때만 센다.
-    return !KAKAO_GUARD_SENDER_V229126.test(lead) && (!/(?:이체|송금)$/.test(m[0]) || /^\s?(?:함|했)/.test(rest.slice(m[0].length)));
+    return !!m && !kakaoGuardFlipExceptV229126(row.type, lead, rest, m);
   });
 }
 // 4차 E: 지출 한 건인데 남(사람·곳)이 주어로 돈을 준 말이 마지막에 오는 글(‘엄마가 용돈 5만원 주심’·‘회사에서 출장비 20만원 입금해줌’)은 들어온 돈일 수 있다.
@@ -1100,6 +1113,7 @@ const KAKAO_GUARD_LINK_V229126 = /(?:서|고|며|면|니|는데|은데|지만|�
 // 5차: 준 사람이 나에게 주거나 대신 낸 꾸밈꼴(‘내줬던거’·‘대신 낸 거’·‘계산한 밥값’)도 같다(붙여 쓴 거·걸·것·돈까지).
 // 나에게서 가져간 꼴(‘빌려간·빌렸던·꿔간·가져간’)은 준 사람이 갚는 글이라 그대로 본다.
 const KAKAO_GUARD_GAVE_BEFORE_V229126 = /(?:준|주신|줬던|주던|주셨던|주시던|(?:(?<![가-힣])|대신|보)(?:낸|냈던|내던|내신|내셨던)|(?<![가-힣])(?:산|샀던|쏜|쐈던)|(?:계산|결제)(?:한|했던|하신|하셨던))(?:거|걸|것|게|건|돈)?(?:을|를|은|는|도)?$/;
+const KAKAO_GUARD_GIVE_GAP_V229126 = /^[\s.,!~^ㅋㅎㅠㅜ]{0,6}(?:(?:현금|계좌|통장|카드)\s?(?:으로|로)?\s{0,2})?$/;
 // 낸 말(맺는 꼴·이음꼴·‘삼·냄·씀’)이 어느 자리 뒤에 있는지. E·F 가 함께 쓴다(준 말 자리 skip 은 빼고 본다).
 function kakaoGuardSpendAfterV229126(t, at, negated, skip = null) {
   for (const re of [KAKAO_GUARD_SPEND_V229126, KAKAO_GUARD_SPEND_FINAL_V229126, KAKAO_GUARD_SPEND_MORE_V229126, KAKAO_GUARD_BUY_MORE_V229126]) {
@@ -1125,7 +1139,10 @@ function kakaoGuardGiverV229126(t, spans, row, negated) {
   }
   if (kakaoGuardSpendAfterV229126(t, giver.index, negated, span)) return false;
   const g = kakaoGuardAmountGroupsV229126(t, spans).only(row.amount);
-  return !!g && g.start > giver.index;
+  if (!g || g.start <= giver.index) return false;
+  // 5차(독립 검토): 기록 금액은 준 사람과 준 말 사이에 있거나 준 말 바로 뒤(구두점·웃음 글자·빈칸, 받은 길 ‘현금·계좌로’ 만 사이)에 있어야 한다.
+  // 준 말 뒤에 다른 말이 오고 금액이 그 뒤에 있으면(‘사장님이 서비스 줌 치킨 20000원’) 남이 준 것은 돈이 아니고 금액은 내가 쓴 돈이다.
+  return g.end <= span.start || (g.start >= span.end && g.start - span.end <= 12 && KAKAO_GUARD_GIVE_GAP_V229126.test(t.slice(span.end, g.start)));
 }
 // 4차 F: 수입 한 건인데 들어온 돈 말이 모두 돈의 출처·까닭 마디(‘용돈 받은 걸로’·‘월급 들어온 기념으로’·‘환불받아서’)에만 있고, 그 마디 뒤에 산 말과 기록 금액이 오는 글
 // (‘… 운동화 89000원 삼’). 1차의 ‘까닭 꼬리’(지출 쪽)를 거꾸로 쓴 것이다. 마디 밖에 들어온 말이 하나라도 있으면(‘… 나머지 2만원 받음’) 보지 않는다.
@@ -1143,9 +1160,10 @@ function kakaoGuardSourceBuyV229126(t, spans, row, negated, moneyNear) {
       let end = Math.max(m.index + m[0].length, reach);
       while (end < t.length && /[가-힣]/.test(t[end])) end += 1;
       reach = end;
-      const word = t.slice(m.index, end);
-      const n = word.charCodeAt(word.length - 1) - 0xAC00;
-      const source = KAKAO_GUARD_SOURCE_END_V229126.test(word) || (n >= 0 && n % 28 === 4 && KAKAO_GUARD_SOURCE_NEXT_V229126.test(t.slice(end, end + 8)));
+      // 5차(독립 검토): 낱말 끝 세 글자만 본다(끝 꼴은 두 글자 이하다). 빈칸 없는 긴 한 낱말을 맞은 자리마다 처음부터 훑지 않는다.
+      const tail = t.slice(Math.max(m.index, end - 3), end);
+      const n = t.charCodeAt(end - 1) - 0xAC00;
+      const source = KAKAO_GUARD_SOURCE_END_V229126.test(tail) || (n >= 0 && n % 28 === 4 && KAKAO_GUARD_SOURCE_NEXT_V229126.test(t.slice(end, end + 8)));
       if (!source) return false;
       last = Math.max(last, end);
     }
@@ -1187,11 +1205,23 @@ function kakaoGuardTypeConflictV229126(t, spans, rows, raw = "") {
   // 3차 B: 여러 건이 모두 한 구분인데 어느 돈다운 금액 바로 뒤에 반대쪽 말이 붙어 있다(‘… 15000원 결제’ 가 수입, ‘… 2만원 받고’ 가 지출).
   const opposite = type === "expense" ? KAKAO_GUARD_AFTER_ARRIVE_V229126 : KAKAO_GUARD_AFTER_SPEND_V229126;
   const lead = (span) => t.slice(Math.max(0, span.start - 12), span.start);
+  // 5차(독립 검토): 4차가 기록마다 시험에 둔 예외(kakaoGuardFlipExceptV229126 — 앞 마디 어디든 서비스 낱말·보낸 쪽, 뒤따르는 되돌린 말, 홀로 쓴 이체·송금,
+  // 결제 뒤 들어온 말)를 B·A 에도 쓴다. 기록마다 시험이 놓아준 글(‘속눈썹 연장 5만원 받고 커피 4500원’)을 B 가 다시 막았다. 3차의 좁은 예외(금액 앞 12자)도 그대로 둔다.
+  const body = lines.length === t.length ? lines : t;
+  let grouped = null;
+  const clauseOf = (span, last) => {
+    if (!grouped) { const { groups } = kakaoGuardAmountGroupsV229126(t, spans); grouped = { groups, byEnd: new Map(groups.map((g) => [g.end, g])) }; }
+    const g = last ? grouped.byEnd.get(span.end) : grouped.groups.find((group) => group.start <= span.start && span.end <= group.end);
+    return g ? kakaoGuardClauseV229126(body, grouped.groups, g) : null;
+  };
   const oppositeAt = (span) => {
     const rest = t.slice(span.end, span.end + 12);
     if (!opposite.test(rest)) return false;
-    return type === "expense" ? !(KAKAO_GUARD_TAKE_V229126.test(rest) && KAKAO_GUARD_SERVICE_V229126.test(lead(span)))
-      : !(KAKAO_GUARD_SEND_V229126.test(rest) && KAKAO_GUARD_OTHER_SUBJECT_V229126.test(lead(span)));
+    if (type === "expense" ? KAKAO_GUARD_TAKE_V229126.test(rest) && KAKAO_GUARD_SERVICE_V229126.test(lead(span)) : KAKAO_GUARD_SEND_V229126.test(rest) && KAKAO_GUARD_OTHER_SUBJECT_V229126.test(lead(span))) return false;
+    // 반대쪽 말이 붙은 금액은 그 묶음의 마지막 조각이다. 마디에서 같은 말을 찾지 못하면(줄이 바뀐 글 등) 예전처럼 센다.
+    const clause = clauseOf(span, true);
+    const m = clause ? clause.rest.match(opposite) : null;
+    return !m || !kakaoGuardFlipExceptV229126(type, clause.lead, clause.rest, m);
   };
   if (rows.length > 1 && spans.some((span) => span.like && oppositeAt(span))) return true;
   if (type === "expense") return (arrive && !spend && !cue(KAKAO_GUARD_SPEND_MORE_V229126)) || (rows.length === 1 && (kakaoGuardGiverV229126(t, spans, rows[0], negated) || single()));
@@ -1211,7 +1241,9 @@ function kakaoGuardTypeConflictV229126(t, spans, rows, raw = "") {
   for (const span of spans) { if (!span.like) continue; if (span.end <= last.index) before = span; else if (span.start >= end) { after = span; break; } }
   const near = before && last.index - before.end <= 40 && KAKAO_GUARD_SPEND_GAP_V229126.test(t.slice(before.end, last.index)) ? before
     : after && after.start - end <= 2 && /^\s{0,2}$/.test(t.slice(end, after.start)) ? after : null;
-  if (!near || (KAKAO_GUARD_SEND_V229126.test(last[0]) && KAKAO_GUARD_OTHER_SUBJECT_V229126.test(lead(near)))) return source;
+  if (!near) return source;
+  // 보낸 말(보냄·이체·송금)이고 붙은 금액의 앞 마디에 남이 주어·보낸 쪽이면 내가 보낸 돈이 아니다(5차: 금액 바로 앞뿐 아니라 앞 마디 어디든 — ‘친구가 밥값 3만원 보냄’).
+  if (KAKAO_GUARD_SEND_V229126.test(last[0]) && (KAKAO_GUARD_OTHER_SUBJECT_V229126.test(lead(near)) || KAKAO_GUARD_SENDER_V229126.test(clauseOf(near, false)?.lead || ""))) return source;
   let k = spans.indexOf(near);
   if (k > 0 && kakaoGuardJoinedV229126(t, spans[k - 1], near)) k -= 1;
   return kakaoGuardSpanValueV229126(t, spans, k) === Number(rows[0].amount) ? true : "plain";
