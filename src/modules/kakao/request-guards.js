@@ -1087,10 +1087,16 @@ const KAKAO_GUARD_SENDER_V229126 = /(?:[가-힣](?:가|이)|께서|에서|한테
 const KAKAO_GUARD_PAY_NOUN_V229126 = /^원?\s{0,2}(?:을|를|은|는|도)?\s{0,2}결제\s?(?:일(?!시불)\s?(?:에|날|날에|당일|당일에)?|(?:계좌|통장|수단)\s?(?:으로|로|에)?\s?(?:[가-힣A-Za-z]{1,6}(?:으로|로)\s?)?)\s?(?:(?:딱|바로|미리)\s?)?들어(?:옴|왔(?:다|어|음|습니다|네)?)요?(?![가-힣])/;
 // 12·13차(독립 검토): 금액 바로 앞 낱말(토씨를 뗀 것)이 들어온 돈의 이름이거나 받은 말일 때만 그 예외를 쓴다. ‘넷플릭스 17000원 결제일에 들어옴’(청구)·‘생활비 50만원 결제계좌에 … 들어옴’(내 계좌 사이),
 // ‘카드대금·대출이자 … 결제일에 들어옴’, 앞 마디의 낱말만 있는 ‘월급 들어옴 넷플릭스 17000원 결제일에 들어옴’ 은 아니다.
-const KAKAO_GUARD_PAY_INCOME_V229126 = /^(?:캐시백|페이백|환급금?|환불금?|보험금|(?:예금|적금|통장)?이자|배당금?|월급|급여|알바비|수당|보너스|상여금?|성과급|인센티브|용돈|세뱃돈|정산금?|지원금|장학금|상금|리워드|적립금|포인트|받음|받았음|받았어|받았다)$/;
+// 14차(독립 검토): 홀로 쓴 ‘이자’ 는 앞 낱말이 예금·적금·통장·은행일 때만(‘대출 이자·할부 이자’ 는 내는 돈이다). ‘받음’ 은 같은 마디에 그 돈의 이름이 함께 있을 때만
+// (‘모임비 정산 받음 3만원 …’ — 앞 금액에 붙은 ‘… 10만원 받음 17000원 결제일에 들어옴’ 의 ‘받음’ 은 앞 기록의 말이다).
+const KAKAO_GUARD_PAY_INCOME_V229126 = /^(?:캐시백|페이백|환급금?|환불금?|보험금|(?:예금|적금|통장|은행)이자|배당금?|월급|급여|알바비|수당|보너스|상여금?|성과급|인센티브|용돈|세뱃돈|정산금?|지원금|장학금|상금|리워드|적립금|포인트)$/;
 function kakaoGuardPayIncomeV229126(lead) {
-  const words = kakaoGuardWordsV229120(lead);
-  return words.length > 0 && KAKAO_GUARD_PAY_INCOME_V229126.test(words[words.length - 1].core.replace(/(?:을|를|은|는|이|가|도)$/, ""));
+  const words = kakaoGuardWordsV229120(lead).map(({ core }) => core.replace(/(?:을|를|은|는|이|가|도)$/, "")).filter((word, i) => word && !(i === 0 && word === "원"));
+  if (!words.length) return false;
+  const last = words[words.length - 1];
+  if (KAKAO_GUARD_PAY_INCOME_V229126.test(last)) return true;
+  if (last === "이자") return words.length > 1 && /^(?:예금|적금|통장|은행)$/.test(words[words.length - 2]);
+  return /^(?:받음|받았음|받았어|받았다)$/.test(last) && words.length > 1 && KAKAO_GUARD_PAY_INCOME_V229126.test(words[words.length - 2]);
 }
 // 3차 C: 정말 두 자리 원인 일이 흔한 말(봉투값·이자) 바로 뒤의 수.
 const KAKAO_GUARD_SMALL_FEE_V229126 = /(?:봉투|비닐|쇼핑백|종이백|이자)(?:값|비)?\s{0,2}$/;
@@ -1207,7 +1213,11 @@ const KAKAO_GUARD_PAID_INSTEAD_V229126 = /^대신\s?(?:낸|냈던|산|샀던|계
 // 준 사람과 준 말 사이에도 준 말과 금액 사이에도 돈 이름이 없으며, 준 것이 내 구매에 딸려 온 덤이라는 표지(‘서비스로·덤으로·더’)나 준 말 뒤가 내가 산 이야기라는 표지(‘답례로·기념으로·사느라·해서’)가 있고,
 // 준 말과 금액 사이에 산 것의 이름이 있다(‘사장님이 음료수 서비스로 주심 짜장면 9000원’·‘친구가 생일선물 줬음 답례로 케이크 3만원’).
 // 표지가 없으면 그 금액이 내가 쓴 돈인지 받은 선물의 값인지 글만으로는 가르지 못한다(‘친구가 표 줌 팝콘 9000원’ 과 ‘엄마가 생일선물 주심 가방 30만원’) — 4차처럼 묻는다.
-const KAKAO_GUARD_GIVE_FREEBIE_V229126 = /^(?:서비스|덤|사은품|샘플|증정|증정품|더)(?:으로|로)?$/;
+const KAKAO_GUARD_GIVE_FREEBIE_V229126 = /^(?:서비스|덤|사은품|샘플|증정|증정품)(?:으로|로)?$/;
+// 14차(독립 검토): ‘더’ 는 ‘[물건] (조금·많이) 더 넣어주심’ 일 때만 덤이다(‘할머니가 이번엔 더 주심 진짜 10만원’ 은 돈을 더 받은 글이다).
+const KAKAO_GUARD_GIVE_AMOUNT_WORD_V229126 = /^(?:조금|많이|하나|좀|듬뿍|잔뜩)$/;
+// 금액 바로 앞 낱말이 산 것의 이름이 아닌 말(덧말·값 이야기).
+const KAKAO_GUARD_GIVE_NOT_ITEM_V229126 = /^(?:진짜|정말|대박|완전|무려|원래|정가|원가|시가|이득|개이득|공짜|가격|그리고|드디어|역시|너무|엄청|이번엔|총|합계|도합)$/;
 const KAKAO_GUARD_GIVE_BOUGHT_V229126 = /^(?:답례|보답|기념|감사)(?:으로|로)?$|^(?:그래서|사느라|하느라|해서)$/;
 const KAKAO_GUARD_GIVE_MONEY_VERB_V229126 = /^(?:갚|돌려|쏴|송금|입금|이체)/;
 const KAKAO_GUARD_GIVE_GOT_MONEY_V229126 = /(?:돈|보너스|상품권|성과급|상여|축의금|조의금|부조금|장학금|지원금|상금|격려금|월급|급여|수당|이자|배당|팁|인센|인센티브|환급|환불|보험금|퇴직금|연금)$/;
@@ -1256,12 +1266,24 @@ function kakaoGuardGiverV229126(t, spans, row, negated) {
   const after = kakaoGuardWordsV229120(t.slice(span.end, g.start)).map(strip).filter(Boolean);
   // 돈 이름이 어디든 하나라도 있으면(‘… 주심 차비 하라고 2만원’·‘… 줌 떡값 30만원’ — ‘세탁비·요금’ 같은 쓴 돈 이름도 글만으로는 가르지 못한다) 묻는다.
   // 돈 이름은 ‘차비로·용돈으로·봉투에’ 처럼 길·곳 토씨가 붙어도 돈 이름이다.
-  const money = (word) => [word, word.replace(/(?:으로|로|에서|에|한테)$/, "")].some((name) => KAKAO_GUARD_GIVE_MONEY_WORD_V229126.test(name) || KAKAO_GUARD_GIVE_GOT_MONEY_V229126.test(name));
+  const money = (word) => [word, word.replace(/(?:으로|로|에서|에|한테|까지|부터|마저|조차)$/, "")].some((name) => KAKAO_GUARD_GIVE_MONEY_WORD_V229126.test(name) || KAKAO_GUARD_GIVE_GOT_MONEY_V229126.test(name));
   // 금액이 ‘…짜리·어치·상당’ 이면 받은 것의 값을 적은 글이다(‘… 서비스로 주심 와인이 5만원짜리’).
-  if (names.some(money) || after.some(money) || /^원?\s?(?:짜리|어치|상당)/.test(t.slice(g.end, g.end + 5))) return true;
-  const marked = mid.some(({ core }) => KAKAO_GUARD_GIVE_FREEBIE_V229126.test(core)) || after.some((word) => KAKAO_GUARD_GIVE_BOUGHT_V229126.test(word));
-  const thing = names.some((name) => /^[가-힣A-Za-z]/.test(name) && !KAKAO_GUARD_GIVE_NOT_THING_V229126.test(name));
-  const item = after.some((word) => /^[가-힣A-Za-z]{2,}/.test(word) && !KAKAO_GUARD_GIVE_ROUTE_V229126.test(word) && !KAKAO_GUARD_GIVE_NOT_THING_V229126.test(word) && !KAKAO_GUARD_GIVE_BOUGHT_V229126.test(word));
+  if (names.some(money) || after.some(money) || /^\s?원?\s?(?:짜리|어치|상당)/.test(t.slice(g.end, g.end + 6))) return true;
+  const isThing = (name) => /^[가-힣A-Za-z]/.test(name) && !KAKAO_GUARD_GIVE_NOT_THING_V229126.test(name);
+  // ‘더’: 맺는 말이 ‘넣어주심’ 꼴이고, 바로 앞(양을 나타내는 말만 사이)에 물건 이름이 있을 때만 덤 표지다.
+  const moreAt = mid.findIndex(({ core }) => core === "더");
+  let more = false;
+  if (moreAt > 0 && /^넣어/.test(give[0])) {
+    let k = moreAt - 1;
+    while (k >= 0 && KAKAO_GUARD_GIVE_AMOUNT_WORD_V229126.test(mid[k].core)) k -= 1;
+    more = k >= 0 && isThing(strip(mid[k]));
+  }
+  const marked = more || mid.some(({ core }) => KAKAO_GUARD_GIVE_FREEBIE_V229126.test(core)) || after.some((word) => KAKAO_GUARD_GIVE_BOUGHT_V229126.test(word));
+  const thing = names.some(isThing);
+  // 산 것의 이름은 금액 바로 앞 낱말 하나로 본다(산 이야기 표지·받은 길 낱말은 건너뛴다). 덧말·값 이야기(‘진짜 10만원’·‘원래 2000원’)는 아니다.
+  const named = after.filter((word) => !KAKAO_GUARD_GIVE_BOUGHT_V229126.test(word) && !KAKAO_GUARD_GIVE_ROUTE_V229126.test(word));
+  const last = named.length ? named[named.length - 1] : "";
+  const item = /^[가-힣A-Za-z]{2,}/.test(last) && !KAKAO_GUARD_GIVE_NOT_THING_V229126.test(last) && !KAKAO_GUARD_GIVE_NOT_ITEM_V229126.test(last);
   return !(marked && thing && item);
 }
 // 4차 F: 수입 한 건인데 들어온 돈 말이 모두 돈의 출처·까닭 마디(‘용돈 받은 걸로’·‘월급 들어온 기념으로’·‘환불받아서’)에만 있고, 그 마디 뒤에 산 말과 기록 금액이 오는 글
