@@ -8,7 +8,9 @@ import { jsonResponse } from "../runtime/http.js";
 import { verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { kakaoSkillSafeFallbackText } from "./reply-texts.js";
 import { isCommandMenuCommand, isHouseholdSwitchCommand } from "./intent-nlu.js";
-import { KAKAO_QR_MESSAGE_MAX_V229127, kakaoText } from "./response-builders.js";
+import {
+  KAKAO_QR_MESSAGE_MAX_V229127, kakaoText, kakaoTypeChoiceAskTextV229127,
+} from "./response-builders.js";
 import {
   KAKAO_DELETE_WORD_V4, KAKAO_EDIT_AMOUNT_V4, KAKAO_EDIT_VERB_V4,
 } from "./edit-vocabulary.js";
@@ -1400,9 +1402,9 @@ function kakaoGuardTypeConflictReplyV229126(utterance, rows, plain = false) {
   // (‘수입 작년에 깜빡하고 … 58000원’ 은 지출로 읽힌다)·앞말을 붙이고도 반대로 읽힌 말·낸 금액이 기록 금액과 다른 말(plain)은 단추·통째 예시 없이 한 건씩 짧게 보내 달라고 한다.
   const sticks = (word, type) => { const got = parseMultipleTransactions(`${word} ${text}`, {}); return got.length === 1 && got[0].type === type && Number(got[0].amount) === Number(rows[0].amount); };
   if (plain || rows.length !== 1 || (oneLine && (!sticks("지출", "expense") || !sticks("수입", "income")))) return { kind: "type_conflict", text: "수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n기록을 한 건씩, 앞에 ‘지출’ 이나 ‘수입’ 을 붙여 다시 보내 주세요.\n예: 수입 중고 자전거 15만원", quickReplies: KAKAO_GUARD_ONE_REPLY_V229126 };
-  const example = text.length > 40 ? `${text.slice(0, 40)}…` : text;
   const quickReplies = buttons ? [["지출로 기록", `지출 ${text}`], ["수입으로 기록", `수입 ${text}`]] : [];
-  return { kind: "type_conflict", text: `수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n쓴 돈이면 ‘지출 ${example}’, 들어온 돈이면 ‘수입 ${example}’처럼 앞에 구분을 붙여 다시 보내 주세요.`, quickReplies };
+  // V22.9.127: 글은 response-builders.js kakaoTypeChoiceAskTextV229127 — 40자를 넘는 문장은 잘린 예시를 보여 주지 않는다.
+  return { kind: "type_conflict", text: kakaoTypeChoiceAskTextV229127(text), quickReplies };
 }
 function kakaoGuardMoreV229126(text, rows) {
   const raw = String(text || "").replace(/\r/g, "");

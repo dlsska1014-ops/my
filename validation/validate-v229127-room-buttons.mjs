@@ -80,17 +80,28 @@ const QR_MAX = 80;
 const ROOM_LABEL_MAX = 14;
 function expectedLabels(path, flat) {
   const fits = flat.length + 3 <= QR_MAX;
-  if (!fits) return [];
+  // 보낼 글이 실리지 않는 긴 문장: 1:1 은 단추 없음, 단톡방은 다시 부르기 쉽게 ‘기록하기’ 하나.
+  if (!fits) return path === "room" ? ["기록하기"] : [];
   if (path === "direct") return TYPE_LABELS;
   return flat.length + 3 <= ROOM_LABEL_MAX ? [`지출 ${flat}`, `수입 ${flat}`] : ["기록하기"];
 }
+// 되묻는 글: 40자 이하 문장은 앞에 구분을 붙인 문장을 통째로 보여 주고, 더 긴 문장은 잘라 보여 주지 않는다(잘린 예시를 그대로 보내면 금액이 달라질 수 있다).
+const askText = (flat) => (flat.length > 40
+  ? `${ASK}\n쓴 돈이면 보낸 문장 맨 앞에 ‘지출’, 들어온 돈이면 ‘수입’ 을 붙여 다시 보내 주세요.`
+  : `${ASK}\n쓴 돈이면 ‘지출 ${flat}’, 들어온 돈이면 ‘수입 ${flat}’처럼 앞에 구분을 붙여 다시 보내 주세요.`);
 
+const MIXED_LONG = "월급 받아서 카드값 냈어 50만원 오늘은 정말 바쁜 하루였고 저녁은 집에서 먹음";
 // 두 단추로 되묻는 문장 [보낸 말, 금액]. 앞 여섯은 안전망(type_conflict), 마지막 둘은 해석기가 섞인 말로 막는 문장(skill-handler.js 의 확인 답).
 const CHOICE = [
   ["지원금 3만 입금됨", 30000], ["지원금 30만원 입금됨", 300000], ["아빠가 차비 2만원 줌", 20000], ["네일아트 받음 현금 45000 냈음", 45000],
   ["용돈 받아서 커피 4500원 삼", 4500], ["디자인 외주 작업비 80만원 오늘 드디어 입금됐어 ㅎㅎ 이번 달은 진짜 열심히 일했다", 800000],
   ["월급 받아서 카드값 냈어 50만원", 500000], ["월급 받아서 카드값 냈어 50만원 오늘은 정말 바쁜 하루였고 저녁은 집에서 먹음", 500000],
+  // 해석기 경로의 77자·78자 경계(같은 문장에 군말을 붙임), 그림 글자가 든 문장(글자 수는 UTF-16 단위로 센다).
+  [`${MIXED_LONG} ${"ㅎ".repeat(77 - MIXED_LONG.length - 1)}`, 500000],
+  [`${MIXED_LONG} ${"ㅎ".repeat(78 - MIXED_LONG.length - 1)}`, 500000],
+  ["지원금 30만원 입금됨 🎉🎉", 300000],
 ];
+check(() => ok(CHOICE[8][0].length === 77 && CHOICE[9][0].length === 78 && !/\s$/.test(CHOICE[8][0]) && !/\s$/.test(CHOICE[9][0]), `해석기 경로 경계 문장의 길이 77·78 — ${CHOICE[8][0].length}·${CHOICE[9][0].length}`), "ask");
 
 for (const path of ["direct", "room"]) {
   for (const [utterance, amount] of CHOICE) {
@@ -100,6 +111,8 @@ for (const path of ["direct", "room"]) {
     const labels = first.reply.buttons.filter((b) => b.action === "message" || b.action === "mention").map((b) => b.label);
     check(() => ok(first.added.length === 0 && first.reply.text.startsWith(ASK), `${path} ‘${utterance.slice(0, 24)}’: 저장 없이 되묻는다 — ${JSON.stringify(first.reply.text.slice(0, 40))}`), "ask");
     check(() => eq(JSON.stringify(labels), JSON.stringify(want), `${path} ‘${utterance.slice(0, 24)}’(${flat.length}자): 단추 이름`), "ask");
+    check(() => eq(first.reply.text, askText(flat), `${path} ‘${utterance.slice(0, 24)}’(${flat.length}자): 되묻는 글(긴 문장은 잘린 예시 없이)`), "ask");
+    check(() => ok(flat.length <= 40 || (!first.reply.text.includes("…") && !first.reply.text.includes(flat.slice(0, 12))), `${path} ‘${utterance.slice(0, 24)}’: 긴 문장의 글에 잘라 낸 문장 조각이 없다`), "ask");
     check(() => ok(path !== "room" || !first.reply.buttons.some((b) => TYPE_LABELS.includes(b.label)), `${path} ‘${utterance.slice(0, 24)}’: 단톡방 답에 이름만 나가는 두 단추가 없다`), "ask");
     check(() => ok(path !== "room" || !first.reply.hasQuickReplies, `${path} ‘${utterance.slice(0, 24)}’: 단톡방 답에 바로가기가 없다`), "ask");
     check(() => ok(!/https?:\/\//.test(first.reply.text), `${path} ‘${utterance.slice(0, 24)}’: 글에 주소 없음`), "ask");
@@ -120,7 +133,7 @@ for (const path of ["direct", "room"]) {
         const again = await scene(`typed-${word}-${utterance}`, path, async (talk) => { await talk(utterance); return talk(`${word} ${flat}`); });
         check(() => eq(JSON.stringify(again.added), JSON.stringify([`${TODAY}|${amount}|${type}`]), `${path} ‘${word} ${flat.slice(0, 20)}…’ 를 직접 보냄: ${word} 한 건 — ${again.reply.text.split("\n")[0].slice(0, 50)}`), "typed");
       }
-      check(() => ok(first.reply.text.includes("앞에 구분을 붙여 다시 보내 주세요") || first.reply.text.includes("앞에 ‘지출’ 이나 ‘수입’ 을 붙여 다시 보내 주세요"), `${path} ‘${utterance.slice(0, 24)}’: 단추가 없으면 글이 다시 보내는 법을 알려 준다`), "typed");
+      check(() => ok(first.reply.text.includes("앞에 구분을 붙여 다시 보내 주세요") || first.reply.text.includes("맨 앞에 ‘지출’, 들어온 돈이면 ‘수입’ 을 붙여 다시 보내 주세요"), `${path} ‘${utterance.slice(0, 24)}’: 단추가 없으면 글이 다시 보내는 법을 알려 준다`), "typed");
     }
     // 봇 부르기 단추의 모양(단톡방): 이름 ‘기록하기’, 동작 mention, 보낼 글 없음.
     if (want.includes("기록하기")) {

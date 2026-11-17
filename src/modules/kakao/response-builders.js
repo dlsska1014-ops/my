@@ -195,6 +195,16 @@ function kakaoSafeText(text = "") {
 // 보낼 글이 이 길이에 온전히 들어갈 때만 만든다(request-guards.js kakaoGuardTypeConflictReplyV229126·skill-handler.js kakaoMixedTypeConfirmationReply).
 const KAKAO_QR_MESSAGE_MAX_V229127 = 80;
 
+// V22.9.127: 수입·지출을 되묻는 글(안전망의 되묻기와 해석기의 섞인 말 확인 답이 함께 쓴다). 40자 이하 문장은 앞에 구분을 붙인 문장을 통째로 보여 준다.
+// 더 긴 문장은 잘라 보여 주지 않는다 — 잘린 예시(‘수입 <앞 40자>…’)를 그대로 보내면 금액 숫자가 잘려 다른 값으로 저장될 수 있다(독립 검토).
+// 긴 문장은 무엇을 붙이면 되는지만 알려 준다.
+const KAKAO_TYPE_CHOICE_ASK_V229127 = "수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.";
+function kakaoTypeChoiceAskTextV229127(text = "") {
+  const sentence = String(text || "");
+  if (sentence.length > 40) return `${KAKAO_TYPE_CHOICE_ASK_V229127}\n쓴 돈이면 보낸 문장 맨 앞에 ‘지출’, 들어온 돈이면 ‘수입’ 을 붙여 다시 보내 주세요.`;
+  return `${KAKAO_TYPE_CHOICE_ASK_V229127}\n쓴 돈이면 ‘지출 ${sentence}’, 들어온 돈이면 ‘수입 ${sentence}’처럼 앞에 구분을 붙여 다시 보내 주세요.`;
+}
+
 function kakaoQr(label, messageText = label, extra = null) {
   const safeLabel = String(label || "").trim().slice(0, 14);
   const safeMessage = String(messageText || label || "").trim().slice(0, KAKAO_QR_MESSAGE_MAX_V229127);
@@ -361,7 +371,9 @@ function kakaoGroupChoiceButtons(quickReplies = []) {
 // V22.9.88(Y-7): 링크 버튼(leadButtons)은 메시지 버튼보다 앞에 둔다. 그래서 늘 첫 카드에 들어가고, 글로 늘어놓는 나머지(rest)에는 오지 않는다.
 // 말풍선이 이미 3개이고 마지막 글이 길어 카드를 못 만들면 링크는 kakaoPlaceLeftLinks 가 다른 자리에 붙인다.
 function kakaoGroupChoiceCards(quickReplies = [], outputs = [], leadButtons = []) {
-  const buttons = [...leadButtons, ...kakaoGroupChoiceButtons(quickReplies)];
+  let buttons = [...leadButtons, ...kakaoGroupChoiceButtons(quickReplies)];
+  // V22.9.127: 수입·지출을 되묻는 답이 단톡방에서 단추 없이 나가면(보낼 글이 바로가기에 실리지 않는 긴 문장) 다시 보내기 쉽게 ‘기록하기’(봇 부르기)를 단다.
+  if (!buttons.length && outputs.some((output) => String(output?.simpleText?.text || "").includes(KAKAO_TYPE_CHOICE_ASK_V229127))) buttons = [{ ...KAKAO_RECORD_MENTION_BUTTON }];
   if (!buttons.length) return { outputs, rest: [] };
   let merged = [...outputs];
   let used = 0;
@@ -737,7 +749,7 @@ export {
   kakaoDefaultQuickReplies, kakaoEditSameTextTextV229119, kakaoGroupCompatibleResponse,
   kakaoGroupEmptyMentionReply, kakaoNextStepReply, kakaoQr, kakaoSameTextExistsTextV229119,
   kakaoSameTextLongV229119, kakaoSaveFailedText, kakaoSeparateSameTextTextV229119,
-  kakaoTermsNoticeResponseV229118, kakaoText, kakaoWebLedgerReply,
+  kakaoTermsNoticeResponseV229118, kakaoText, kakaoTypeChoiceAskTextV229127, kakaoWebLedgerReply,
   noteKakaoTermsNoticeDroppedV229118,
 };
 // @build:exports-end

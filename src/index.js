@@ -3315,7 +3315,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.126-FINAL-CHECK";
+const APP_VERSION = "V22.9.127-TYPE-BUTTONS";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -50679,6 +50679,16 @@ function kakaoSafeText(text = "") {
 // 보낼 글이 이 길이에 온전히 들어갈 때만 만든다(request-guards.js kakaoGuardTypeConflictReplyV229126·skill-handler.js kakaoMixedTypeConfirmationReply).
 const KAKAO_QR_MESSAGE_MAX_V229127 = 80;
 
+// V22.9.127: 수입·지출을 되묻는 글(안전망의 되묻기와 해석기의 섞인 말 확인 답이 함께 쓴다). 40자 이하 문장은 앞에 구분을 붙인 문장을 통째로 보여 준다.
+// 더 긴 문장은 잘라 보여 주지 않는다 — 잘린 예시(‘수입 <앞 40자>…’)를 그대로 보내면 금액 숫자가 잘려 다른 값으로 저장될 수 있다(독립 검토).
+// 긴 문장은 무엇을 붙이면 되는지만 알려 준다.
+const KAKAO_TYPE_CHOICE_ASK_V229127 = "수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.";
+function kakaoTypeChoiceAskTextV229127(text = "") {
+  const sentence = String(text || "");
+  if (sentence.length > 40) return `${KAKAO_TYPE_CHOICE_ASK_V229127}\n쓴 돈이면 보낸 문장 맨 앞에 ‘지출’, 들어온 돈이면 ‘수입’ 을 붙여 다시 보내 주세요.`;
+  return `${KAKAO_TYPE_CHOICE_ASK_V229127}\n쓴 돈이면 ‘지출 ${sentence}’, 들어온 돈이면 ‘수입 ${sentence}’처럼 앞에 구분을 붙여 다시 보내 주세요.`;
+}
+
 function kakaoQr(label, messageText = label, extra = null) {
   const safeLabel = String(label || "").trim().slice(0, 14);
   const safeMessage = String(messageText || label || "").trim().slice(0, KAKAO_QR_MESSAGE_MAX_V229127);
@@ -50845,7 +50855,9 @@ function kakaoGroupChoiceButtons(quickReplies = []) {
 // V22.9.88(Y-7): 링크 버튼(leadButtons)은 메시지 버튼보다 앞에 둔다. 그래서 늘 첫 카드에 들어가고, 글로 늘어놓는 나머지(rest)에는 오지 않는다.
 // 말풍선이 이미 3개이고 마지막 글이 길어 카드를 못 만들면 링크는 kakaoPlaceLeftLinks 가 다른 자리에 붙인다.
 function kakaoGroupChoiceCards(quickReplies = [], outputs = [], leadButtons = []) {
-  const buttons = [...leadButtons, ...kakaoGroupChoiceButtons(quickReplies)];
+  let buttons = [...leadButtons, ...kakaoGroupChoiceButtons(quickReplies)];
+  // V22.9.127: 수입·지출을 되묻는 답이 단톡방에서 단추 없이 나가면(보낼 글이 바로가기에 실리지 않는 긴 문장) 다시 보내기 쉽게 ‘기록하기’(봇 부르기)를 단다.
+  if (!buttons.length && outputs.some((output) => String(output?.simpleText?.text || "").includes(KAKAO_TYPE_CHOICE_ASK_V229127))) buttons = [{ ...KAKAO_RECORD_MENTION_BUTTON }];
   if (!buttons.length) return { outputs, rest: [] };
   let merged = [...outputs];
   let used = 0;
@@ -55113,9 +55125,9 @@ function kakaoGuardTypeConflictReplyV229126(utterance, rows, plain = false) {
   // (‘수입 작년에 깜빡하고 … 58000원’ 은 지출로 읽힌다)·앞말을 붙이고도 반대로 읽힌 말·낸 금액이 기록 금액과 다른 말(plain)은 단추·통째 예시 없이 한 건씩 짧게 보내 달라고 한다.
   const sticks = (word, type) => { const got = parseMultipleTransactions(`${word} ${text}`, {}); return got.length === 1 && got[0].type === type && Number(got[0].amount) === Number(rows[0].amount); };
   if (plain || rows.length !== 1 || (oneLine && (!sticks("지출", "expense") || !sticks("수입", "income")))) return { kind: "type_conflict", text: "수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n기록을 한 건씩, 앞에 ‘지출’ 이나 ‘수입’ 을 붙여 다시 보내 주세요.\n예: 수입 중고 자전거 15만원", quickReplies: KAKAO_GUARD_ONE_REPLY_V229126 };
-  const example = text.length > 40 ? `${text.slice(0, 40)}…` : text;
   const quickReplies = buttons ? [["지출로 기록", `지출 ${text}`], ["수입으로 기록", `수입 ${text}`]] : [];
-  return { kind: "type_conflict", text: `수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n쓴 돈이면 ‘지출 ${example}’, 들어온 돈이면 ‘수입 ${example}’처럼 앞에 구분을 붙여 다시 보내 주세요.`, quickReplies };
+  // V22.9.127: 글은 response-builders.js kakaoTypeChoiceAskTextV229127 — 40자를 넘는 문장은 잘린 예시를 보여 주지 않는다.
+  return { kind: "type_conflict", text: kakaoTypeChoiceAskTextV229127(text), quickReplies };
 }
 function kakaoGuardMoreV229126(text, rows) {
   const raw = String(text || "").replace(/\r/g, "");
@@ -57076,11 +57088,11 @@ async function kakaoRoomJoinGuideReply(env, { payload, groupKey = "", user = {},
 
 function kakaoMixedTypeConfirmationReply(utterance = "") {
   const text = String(utterance || "").replace(/\s+/g, " ").trim();
-  const example = text.length > 40 ? `${text.slice(0, 40)}…` : text;
   // V22.9.127: 단추가 보내는 글(‘지출 …’·‘수입 …’, 앞말 석 자)이 바로가기에 온전히 실릴 때만 단추를 만든다(response-builders.js kakaoQr 는 그보다 긴 글을 자른다 —
   // 잘린 글이 그대로 저장으로 이어져 금액이 달라졌다). request-guards.js kakaoGuardTypeConflictReplyV229126 과 같은 조건이다.
   const replies = text.length + 3 <= KAKAO_QR_MESSAGE_MAX_V229127 && !/\n/.test(String(utterance || "")) ? [["지출로 기록", `지출 ${text}`], ["수입으로 기록", `수입 ${text}`]] : [];
-  return kakaoText(`수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n쓴 돈이면 ‘지출 ${example}’, 들어온 돈이면 ‘수입 ${example}’처럼 앞에 구분을 붙여 다시 보내 주세요.`, replies);
+  // 글은 response-builders.js kakaoTypeChoiceAskTextV229127 — 40자를 넘는 문장은 잘린 예시를 보여 주지 않는다.
+  return kakaoText(kakaoTypeChoiceAskTextV229127(text), replies);
 }
 
 async function handleKakaoSkill(request, env, { canDeferSave = false, usage = null } = {}) {
