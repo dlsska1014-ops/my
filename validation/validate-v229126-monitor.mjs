@@ -225,7 +225,10 @@ await fixture(async (fx) => {
   ok(admin.length > "ab_admin=".length, "12 관리자로 로그인한다");
   const screen = await page(fx, "/ops-monitor", { cookie: admin });
   eq(screen.status, 200, "12 앱 /ops-monitor 가 화면을 낸다");
-  ok(calls.length === 1 && calls[0].endsWith("/dashboard?base=/ops-monitor"), `12 앱은 관제의 /dashboard?base=/ops-monitor 를 부른다: ${calls.join(",")}`);
+  // 앱은 사용자 요청의 표본(무작위 2%, 느리거나 실패한 요청)을 같은 연결의 /internal/telemetry 로 보낸다. 화면을 가져오는 호출만 센다
+  // (V22.9.128: 그 표본이 섞이면 호출이 둘이 돼 CI 에서 가끔 실패했다 — 다른 관제 검사들은 무작위를 고정해 두었고 이 검사만 빠져 있었다).
+  const screenCalls = calls.filter((url) => !url.endsWith("/internal/telemetry"));
+  ok(screenCalls.length === 1 && screenCalls[0].endsWith("/dashboard?base=/ops-monitor"), `12 앱은 관제의 /dashboard?base=/ops-monitor 를 부른다: ${calls.join(",")}`);
   eq(screen.html, dashboardHtml("/ops-monitor"), "12 앱 /ops-monitor 의 HTML 은 관제가 낸 화면 그대로다(앱 쪽을 고치지 않아도 새로 읽기 간격이 같이 바뀐다)");
   ok(screen.html.includes("setInterval(load,300000)") && !screen.html.includes("setInterval(load,60000)"), "12 앱 /ops-monitor 화면도 300초마다 새로 읽는다");
   monitorFx.sqlite.close();
