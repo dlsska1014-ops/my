@@ -191,9 +191,13 @@ function kakaoSafeText(text = "") {
   return `${head.slice(0, cut).trimEnd()}\n\n…자세한 내용은 메뉴를 눌러 확인해주세요.`;
 }
 
+// V22.9.127: 바로가기가 실어 보내는 글의 최대 길이. 이보다 긴 글은 잘려 나간다 — 잘린 글이 그대로 저장으로 이어지는 단추(‘지출 …’·‘수입 …’)는
+// 보낼 글이 이 길이에 온전히 들어갈 때만 만든다(request-guards.js kakaoGuardTypeConflictReplyV229126·skill-handler.js kakaoMixedTypeConfirmationReply).
+const KAKAO_QR_MESSAGE_MAX_V229127 = 80;
+
 function kakaoQr(label, messageText = label, extra = null) {
   const safeLabel = String(label || "").trim().slice(0, 14);
-  const safeMessage = String(messageText || label || "").trim().slice(0, 80);
+  const safeMessage = String(messageText || label || "").trim().slice(0, KAKAO_QR_MESSAGE_MAX_V229127);
   if (!safeLabel || !safeMessage) return null;
   const out = { label: safeLabel, action: "message", messageText: safeMessage };
   // 오픈빌더 스킬 테스트 호환성을 위해 빈 extra 객체는 보내지 않습니다.
@@ -341,10 +345,17 @@ function kakaoGroupTextChoices(quickReplies = []) {
 // 똑같이 맞춘다(14자 이하일 때). 안내 글이 짧으면 글과 버튼을 한 말풍선에 담아 대화창이 길어지지 않게 한다.
 const KAKAO_GROUP_CARD_TEXT_MAX = 400;
 
+// V22.9.127: 수입·지출을 고르는 두 단추([지출로 기록]·[수입으로 기록])는 이름이 명령이 아니다. 보낼 글(‘수입 <원래 문장>’)이 14자를 넘으면 단톡방에서는
+// 이름만 나가 입력 안내로 끝났다(2026-11-17 시험 단톡방 — 저장되지 않음). 그런 단추는 단톡방에 내지 않고, 다시 보내기 쉽게 ‘기록하기’(봇 부르기) 단추를 하나 단다.
+// 안내 글이 앞에 구분을 붙여 다시 보내는 법을 알려 준다. 다른 단추는 그대로다(이름이 그 흐름의 답이거나 명령인 단추가 있다).
+const KAKAO_TYPE_CHOICE_LABELS_V229127 = new Set(["지출로 기록", "수입으로 기록"]);
+
 function kakaoGroupChoiceButtons(quickReplies = []) {
-  return dedupeQuickReplies(Array.isArray(quickReplies) ? quickReplies : [])
-    .filter((reply) => reply.action === "message" && reply.messageText)
-    .map((reply) => ({ label: reply.messageText.length <= 14 ? reply.messageText : reply.label, action: "message", messageText: reply.messageText }));
+  const replies = dedupeQuickReplies(Array.isArray(quickReplies) ? quickReplies : [])
+    .filter((reply) => reply.action === "message" && reply.messageText);
+  const sendable = replies.filter((reply) => reply.messageText.length <= 14 || !KAKAO_TYPE_CHOICE_LABELS_V229127.has(reply.label));
+  const buttons = sendable.map((reply) => ({ label: reply.messageText.length <= 14 ? reply.messageText : reply.label, action: "message", messageText: reply.messageText }));
+  return sendable.length < replies.length ? [...buttons, { ...KAKAO_RECORD_MENTION_BUTTON }] : buttons;
 }
 
 // V22.9.88(Y-7): 링크 버튼(leadButtons)은 메시지 버튼보다 앞에 둔다. 그래서 늘 첫 카드에 들어가고, 글로 늘어놓는 나머지(rest)에는 오지 않는다.
@@ -721,11 +732,12 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
 }
 // @build:exports-start
 export {
-  KAKAO_TERMS_NOTICE_LINE_V229118, dedupeQuickReplies, isDefiniteStorageFailure,
-  isKakaoRequestUniqueConflictV229119, isUncertainStorageWrite, kakaoDefaultQuickReplies,
-  kakaoEditSameTextTextV229119, kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply,
-  kakaoNextStepReply, kakaoQr, kakaoSameTextExistsTextV229119, kakaoSameTextLongV229119,
-  kakaoSaveFailedText, kakaoSeparateSameTextTextV229119, kakaoTermsNoticeResponseV229118, kakaoText,
-  kakaoWebLedgerReply, noteKakaoTermsNoticeDroppedV229118,
+  KAKAO_QR_MESSAGE_MAX_V229127, KAKAO_TERMS_NOTICE_LINE_V229118, dedupeQuickReplies,
+  isDefiniteStorageFailure, isKakaoRequestUniqueConflictV229119, isUncertainStorageWrite,
+  kakaoDefaultQuickReplies, kakaoEditSameTextTextV229119, kakaoGroupCompatibleResponse,
+  kakaoGroupEmptyMentionReply, kakaoNextStepReply, kakaoQr, kakaoSameTextExistsTextV229119,
+  kakaoSameTextLongV229119, kakaoSaveFailedText, kakaoSeparateSameTextTextV229119,
+  kakaoTermsNoticeResponseV229118, kakaoText, kakaoWebLedgerReply,
+  noteKakaoTermsNoticeDroppedV229118,
 };
 // @build:exports-end

@@ -176,6 +176,15 @@ function kakaoSkillSafeFallbackText(origin = "") {
 
 function kakaoNoMatchGuideText(utterance = "", origin = "") {
   const t = normalizeText(utterance);
+  // V22.9.127: 단톡방의 메시지 단추는 단추 이름을 그대로 보낸다. 예전 답 카드에 남은 [지출로 기록]·[수입으로 기록] 을 누르면 그 이름만 오므로,
+  // 일반 입력 안내 대신 무엇을 다시 보내면 되는지 알려 준다(새 답은 단톡방에 이 단추를 내지 않는다 — response-builders.js kakaoGroupChoiceButtons).
+  if (/^(?:지출로|수입으로)\s?기록$/.test(t)) {
+    return [
+      "이 단추만으로는 어떤 기록인지 알 수 없어요.",
+      "앞에 ‘지출’ 이나 ‘수입’ 을 붙여 한 문장으로 다시 보내 주세요.",
+      "예) 수입 지원금 30만원",
+    ].join("\n");
+  }
   if (/(닉네임|별명|표시명|내 이름|이름 수정|이름 변경)/.test(t)) {
     return [
       "이 가계부에서 표시할 이름을 바꾸려는 것으로 이해했어요 😊",

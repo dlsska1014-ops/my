@@ -34,9 +34,10 @@ import {
   kakaoImageNotSupportedText, kakaoPublicCommandReply, parseCreateHouseholdCommand,
 } from "./intent-nlu.js";
 import {
-  KAKAO_TERMS_NOTICE_LINE_V229118, dedupeQuickReplies, kakaoGroupCompatibleResponse,
-  kakaoGroupEmptyMentionReply, kakaoNextStepReply, kakaoTermsNoticeResponseV229118, kakaoText,
-  kakaoWebLedgerReply, noteKakaoTermsNoticeDroppedV229118,
+  KAKAO_QR_MESSAGE_MAX_V229127, KAKAO_TERMS_NOTICE_LINE_V229118, dedupeQuickReplies,
+  kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoNextStepReply,
+  kakaoTermsNoticeResponseV229118, kakaoText, kakaoWebLedgerReply,
+  noteKakaoTermsNoticeDroppedV229118,
 } from "./response-builders.js";
 import { kakaoManualReply, kakaoManualTopic } from "./manual-guides.js";
 import {
@@ -386,7 +387,9 @@ async function kakaoRoomJoinGuideReply(env, { payload, groupKey = "", user = {},
 function kakaoMixedTypeConfirmationReply(utterance = "") {
   const text = String(utterance || "").replace(/\s+/g, " ").trim();
   const example = text.length > 40 ? `${text.slice(0, 40)}…` : text;
-  const replies = text.length <= 200 && !/\n/.test(String(utterance || "")) ? [["지출로 기록", `지출 ${text}`], ["수입으로 기록", `수입 ${text}`]] : [];
+  // V22.9.127: 단추가 보내는 글(‘지출 …’·‘수입 …’, 앞말 석 자)이 바로가기에 온전히 실릴 때만 단추를 만든다(response-builders.js kakaoQr 는 그보다 긴 글을 자른다 —
+  // 잘린 글이 그대로 저장으로 이어져 금액이 달라졌다). request-guards.js kakaoGuardTypeConflictReplyV229126 과 같은 조건이다.
+  const replies = text.length + 3 <= KAKAO_QR_MESSAGE_MAX_V229127 && !/\n/.test(String(utterance || "")) ? [["지출로 기록", `지출 ${text}`], ["수입으로 기록", `수입 ${text}`]] : [];
   return kakaoText(`수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n쓴 돈이면 ‘지출 ${example}’, 들어온 돈이면 ‘수입 ${example}’처럼 앞에 구분을 붙여 다시 보내 주세요.`, replies);
 }
 

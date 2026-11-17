@@ -49876,6 +49876,15 @@ function kakaoSkillSafeFallbackText(origin = "") {
 
 function kakaoNoMatchGuideText(utterance = "", origin = "") {
   const t = normalizeText(utterance);
+  // V22.9.127: 단톡방의 메시지 단추는 단추 이름을 그대로 보낸다. 예전 답 카드에 남은 [지출로 기록]·[수입으로 기록] 을 누르면 그 이름만 오므로,
+  // 일반 입력 안내 대신 무엇을 다시 보내면 되는지 알려 준다(새 답은 단톡방에 이 단추를 내지 않는다 — response-builders.js kakaoGroupChoiceButtons).
+  if (/^(?:지출로|수입으로)\s?기록$/.test(t)) {
+    return [
+      "이 단추만으로는 어떤 기록인지 알 수 없어요.",
+      "앞에 ‘지출’ 이나 ‘수입’ 을 붙여 한 문장으로 다시 보내 주세요.",
+      "예) 수입 지원금 30만원",
+    ].join("\n");
+  }
   if (/(닉네임|별명|표시명|내 이름|이름 수정|이름 변경)/.test(t)) {
     return [
       "이 가계부에서 표시할 이름을 바꾸려는 것으로 이해했어요 😊",
@@ -50666,9 +50675,13 @@ function kakaoSafeText(text = "") {
   return `${head.slice(0, cut).trimEnd()}\n\n…자세한 내용은 메뉴를 눌러 확인해주세요.`;
 }
 
+// V22.9.127: 바로가기가 실어 보내는 글의 최대 길이. 이보다 긴 글은 잘려 나간다 — 잘린 글이 그대로 저장으로 이어지는 단추(‘지출 …’·‘수입 …’)는
+// 보낼 글이 이 길이에 온전히 들어갈 때만 만든다(request-guards.js kakaoGuardTypeConflictReplyV229126·skill-handler.js kakaoMixedTypeConfirmationReply).
+const KAKAO_QR_MESSAGE_MAX_V229127 = 80;
+
 function kakaoQr(label, messageText = label, extra = null) {
   const safeLabel = String(label || "").trim().slice(0, 14);
-  const safeMessage = String(messageText || label || "").trim().slice(0, 80);
+  const safeMessage = String(messageText || label || "").trim().slice(0, KAKAO_QR_MESSAGE_MAX_V229127);
   if (!safeLabel || !safeMessage) return null;
   const out = { label: safeLabel, action: "message", messageText: safeMessage };
   // 오픈빌더 스킬 테스트 호환성을 위해 빈 extra 객체는 보내지 않습니다.
@@ -50816,10 +50829,17 @@ function kakaoGroupTextChoices(quickReplies = []) {
 // 똑같이 맞춘다(14자 이하일 때). 안내 글이 짧으면 글과 버튼을 한 말풍선에 담아 대화창이 길어지지 않게 한다.
 const KAKAO_GROUP_CARD_TEXT_MAX = 400;
 
+// V22.9.127: 수입·지출을 고르는 두 단추([지출로 기록]·[수입으로 기록])는 이름이 명령이 아니다. 보낼 글(‘수입 <원래 문장>’)이 14자를 넘으면 단톡방에서는
+// 이름만 나가 입력 안내로 끝났다(2026-11-17 시험 단톡방 — 저장되지 않음). 그런 단추는 단톡방에 내지 않고, 다시 보내기 쉽게 ‘기록하기’(봇 부르기) 단추를 하나 단다.
+// 안내 글이 앞에 구분을 붙여 다시 보내는 법을 알려 준다. 다른 단추는 그대로다(이름이 그 흐름의 답이거나 명령인 단추가 있다).
+const KAKAO_TYPE_CHOICE_LABELS_V229127 = new Set(["지출로 기록", "수입으로 기록"]);
+
 function kakaoGroupChoiceButtons(quickReplies = []) {
-  return dedupeQuickReplies(Array.isArray(quickReplies) ? quickReplies : [])
-    .filter((reply) => reply.action === "message" && reply.messageText)
-    .map((reply) => ({ label: reply.messageText.length <= 14 ? reply.messageText : reply.label, action: "message", messageText: reply.messageText }));
+  const replies = dedupeQuickReplies(Array.isArray(quickReplies) ? quickReplies : [])
+    .filter((reply) => reply.action === "message" && reply.messageText);
+  const sendable = replies.filter((reply) => reply.messageText.length <= 14 || !KAKAO_TYPE_CHOICE_LABELS_V229127.has(reply.label));
+  const buttons = sendable.map((reply) => ({ label: reply.messageText.length <= 14 ? reply.messageText : reply.label, action: "message", messageText: reply.messageText }));
+  return sendable.length < replies.length ? [...buttons, { ...KAKAO_RECORD_MENTION_BUTTON }] : buttons;
 }
 
 // V22.9.88(Y-7): 링크 버튼(leadButtons)은 메시지 버튼보다 앞에 둔다. 그래서 늘 첫 카드에 들어가고, 글로 늘어놓는 나머지(rest)에는 오지 않는다.
@@ -55081,15 +55101,18 @@ function kakaoGuardTypeConflictV229126(t, spans, rows, raw = "") {
   if (k > 0 && kakaoGuardJoinedV229126(t, spans[k - 1], near)) k -= 1;
   return kakaoGuardSpanValueV229126(t, spans, k) === Number(rows[0].amount) ? true : "plain";
 }
-// 답: skill-handler.js kakaoMixedTypeConfirmationReply 를 본뜬다(같은 글·같은 두 단추, 40자에서 자른 예시, 200자 이하이고 줄바꿈 없을 때만 단추). 그 함수가 바뀌면 함께 바꾼다.
+// 답: skill-handler.js kakaoMixedTypeConfirmationReply 를 본뜬다(같은 글·같은 두 단추, 40자에서 자른 예시, 단추가 보낼 글이 온전히 실리는 길이이고 줄바꿈 없을 때만 단추). 그 함수가 바뀌면 함께 바꾼다.
 // 빈칸 정리는 그 함수의 replace·trim 과 같은 결과를 split 으로 낸다(이 구역 정규식의 빈칸 되풀이에는 상한을 둔다).
 function kakaoGuardTypeConflictReplyV229126(utterance, rows, plain = false) {
   const text = String(utterance || "").split(/\s/).filter(Boolean).join(" ");
-  const buttons = text.length <= 200 && !/\n/.test(String(utterance || ""));
+  const oneLine = text.length <= 200 && !/\n/.test(String(utterance || ""));
+  // V22.9.127: 단추가 보내는 글(‘지출 …’·‘수입 …’, 앞말 석 자)은 바로가기가 실어 보내는 길이(response-builders.js kakaoQr)에 온전히 들어갈 때만 만든다.
+  // 그보다 길면 글이 잘려 나가 금액이 달라졌다(1:1 에서 ‘… 1250000원 입금됨’ 84자 → 단추가 ‘… 12500’ 까지만 보내 12,500원 저장). 긴 글은 안내 글만 보낸다.
+  const buttons = oneLine && text.length + 3 <= KAKAO_QR_MESSAGE_MAX_V229127;
   // 단추 말(앞에 ‘지출’·‘수입’)이 그 구분의 같은 금액 한 건으로 읽힐 때만 단추를 준다. 여러 건(앞말이 첫 건에만 닿는다)·앞말이 떨어져 나가는 말
   // (‘수입 작년에 깜빡하고 … 58000원’ 은 지출로 읽힌다)·앞말을 붙이고도 반대로 읽힌 말·낸 금액이 기록 금액과 다른 말(plain)은 단추·통째 예시 없이 한 건씩 짧게 보내 달라고 한다.
   const sticks = (word, type) => { const got = parseMultipleTransactions(`${word} ${text}`, {}); return got.length === 1 && got[0].type === type && Number(got[0].amount) === Number(rows[0].amount); };
-  if (plain || rows.length !== 1 || (buttons && (!sticks("지출", "expense") || !sticks("수입", "income")))) return { kind: "type_conflict", text: "수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n기록을 한 건씩, 앞에 ‘지출’ 이나 ‘수입’ 을 붙여 다시 보내 주세요.\n예: 수입 중고 자전거 15만원", quickReplies: KAKAO_GUARD_ONE_REPLY_V229126 };
+  if (plain || rows.length !== 1 || (oneLine && (!sticks("지출", "expense") || !sticks("수입", "income")))) return { kind: "type_conflict", text: "수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n기록을 한 건씩, 앞에 ‘지출’ 이나 ‘수입’ 을 붙여 다시 보내 주세요.\n예: 수입 중고 자전거 15만원", quickReplies: KAKAO_GUARD_ONE_REPLY_V229126 };
   const example = text.length > 40 ? `${text.slice(0, 40)}…` : text;
   const quickReplies = buttons ? [["지출로 기록", `지출 ${text}`], ["수입으로 기록", `수입 ${text}`]] : [];
   return { kind: "type_conflict", text: `수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n쓴 돈이면 ‘지출 ${example}’, 들어온 돈이면 ‘수입 ${example}’처럼 앞에 구분을 붙여 다시 보내 주세요.`, quickReplies };
@@ -57054,7 +57077,9 @@ async function kakaoRoomJoinGuideReply(env, { payload, groupKey = "", user = {},
 function kakaoMixedTypeConfirmationReply(utterance = "") {
   const text = String(utterance || "").replace(/\s+/g, " ").trim();
   const example = text.length > 40 ? `${text.slice(0, 40)}…` : text;
-  const replies = text.length <= 200 && !/\n/.test(String(utterance || "")) ? [["지출로 기록", `지출 ${text}`], ["수입으로 기록", `수입 ${text}`]] : [];
+  // V22.9.127: 단추가 보내는 글(‘지출 …’·‘수입 …’, 앞말 석 자)이 바로가기에 온전히 실릴 때만 단추를 만든다(response-builders.js kakaoQr 는 그보다 긴 글을 자른다 —
+  // 잘린 글이 그대로 저장으로 이어져 금액이 달라졌다). request-guards.js kakaoGuardTypeConflictReplyV229126 과 같은 조건이다.
+  const replies = text.length + 3 <= KAKAO_QR_MESSAGE_MAX_V229127 && !/\n/.test(String(utterance || "")) ? [["지출로 기록", `지출 ${text}`], ["수입으로 기록", `수입 ${text}`]] : [];
   return kakaoText(`수입인지 지출인지 헷갈려서 아직 저장하지 않았어요.\n쓴 돈이면 ‘지출 ${example}’, 들어온 돈이면 ‘수입 ${example}’처럼 앞에 구분을 붙여 다시 보내 주세요.`, replies);
 }
 
