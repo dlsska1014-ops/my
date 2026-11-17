@@ -277,14 +277,18 @@ function kakaoRecordCheckReply(text, utterance = "", payload = {}) {
 // V22.9.120 후속 3(재검토 P2): 본 처리에서 저장 직전 안전망보다 앞선 관문이 받는 말이면 늦은 답에서도 안전망 안내를 하지 않고 예전 늦은 답(확인 안내)으로 둔다.
 // 그런 말은 뒤 처리가 예산을 바꾸거나 기록을 고치는 등 다른 일을 하므로 ‘저장하지 않았어요’ 안내와 어긋난다.
 //   ‘예산’ 이 든 말(예산 직접 설정·조회·예산 안내), 번호·방금 고치기·지우기·되살리기·지출자 바꾸기·되돌리기 명령, 기간 요약,
-//   단계 흐름 명령·답(시작·만들기·참여·예산 설정·취소·금액만 보낸 답), 열린 수정 세션의 값 답(강한 새 기록은 세션을 끝내고 안전망까지 가므로 뺀다).
+//   단계 흐름 명령·답(시작·만들기·참여·예산 설정·취소·금액만 보낸 답 — 강한 기록 입력은 본 처리가 명령으로 받지 않으므로 뺀다),
+//   열린 수정 세션의 값 답(강한 새 기록은 세션을 끝내고 안전망까지 가므로 뺀다).
 // 그 밖의 말은 본 처리도 같은 안전망 안내로 끝난다(번호 없는 고치는 말은 본 처리의 마지막 ‘고치는 말’ 안내와 같은 글이다).
 // 단계 흐름의 상태는 DB 에만 있어 늦은 답이 볼 수 없다(흐름 답으로 받을 말을 안전망 안내로 답할 수 있는 드문 경우가 남는다).
 function kakaoDeferredGuardSkipV229120(text, payload, rows) {
   const t = normalizeText(text);
   if (/예산/.test(t)) return true;
   if (kakaoRecordChangeCommandV229126(text) || !!parseKakaoSummaryRange(t)) return true;
-  if (isKakaoGuidedCommand(t) || isKakaoReservedCreateFlowReply(t) || isKakaoFlowCancelCommand(t)) return true;
+  // V22.9.126(안전망 독립 검토): ‘취소·그만·중단’ 이 든 글도 강한 기록 입력이면 본 처리는 흐름 명령 관문을 건너뛰고 저장 지점까지 간다.
+  // ‘공연 취소표 양도받음 66000 송금함’ 은 본 처리가 되묻고 저장하지 않는데 늦은 답은 ‘저장 확인이 늦어지고 있어요(다시 보내지 말고 확인)’ 였다.
+  // 그런 글은 늦은 답도 안전망을 본다. 안전망이 받지 않는 글(‘취소 수수료 2000원’)의 늦은 답은 예전 그대로다.
+  if (isKakaoGuidedCommand(t) || isKakaoReservedCreateFlowReply(t) || isKakaoFlowCancelCommand(t)) return !isStrongKakaoTransactionInput(text, rows);
   return hasKakaoEditSessionHint(getKakaoUserKey(payload), payload) && !isStrongKakaoTransactionInput(text, rows);
 }
 
