@@ -82,9 +82,13 @@ function kakaoRoomEntryLocationV229129(householdId = "") {
 }
 // 돌아갈 주소가 방 표식 주소(정확히 /my?room=<번호> 하나)인지. 카카오 로그인 시작(auth/kakao-oauth.js)이 카카오톡 밖의 브라우저에도 화면 없는 로그인을
 // 허락할지 볼 때 쓴다 — 그 밖의 주소로는 예전처럼 인앱 브라우저만이다.
-function kakaoRoomEntryReturnPathV229129(raw = "") {
+function kakaoRoomEntryHouseholdIdV229129(raw = "") {
   const match = /^\/my\?room=([A-Za-z0-9_-]{1,80})$/.exec(String(raw || "").trim());
-  return match ? kakaoRoomEntryLocationV229129(match[1]) : "";
+  return match ? match[1] : "";
+}
+function kakaoRoomEntryReturnPathV229129(raw = "") {
+  const id = kakaoRoomEntryHouseholdIdV229129(raw);
+  return id ? kakaoRoomEntryLocationV229129(id) : "";
 }
 
 // 카카오 값을 뺀 주소. 가계부 번호(householdId)가 주어지면 그 방 가계부 홈으로 간다: /my·/app·/m 은 /app 홈, /my/* 는 그 화면에 가계부 번호를 붙인다.
@@ -192,7 +196,7 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
   if (fetchMode ? fetchMode !== "navigate" : !/text\/html/i.test(String(request.headers.get("accept") || ""))) return null;
   if (/prefetch|prerender/i.test(`${request.headers.get("sec-purpose") || ""} ${request.headers.get("purpose") || ""}`)) return null;
   const source = kakaoRoomOpenSourceUrl(request, url);
-  const plain = kakaoRoomOpenLocation(source, "");
+  let plain = kakaoRoomOpenLocation(source, "");
   // 로그인 뒤 화면이 아니면(공개 문서·글·안내·로그아웃·계정 잇기) 값만 지운다. DB 는 읽지 않는다.
   if (!kakaoAutoLoginPath(url.pathname)) {
     rememberOpsEvent({ kind: "kakao_room_values_stripped", severity: "info", path: url.pathname.slice(0, 80), method: "GET", detail: "" });
@@ -216,6 +220,12 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     if (!admission.allowed) return finish("rate_limited", plain);
     const household = await getLinkedKakaoGroupHousehold(env, groupKey);
     if (!household?.id) return finish("no_room_household", plain);
+    // V22.9.129 독립 검토 P3: 방이 다른 가계부로 다시 묶인 뒤 옛 카드를 누르면 표식(room)이 옛 가계부를 가리킨다. 카카오 값이 가리키는 지금의 방 가계부와
+    // 다른 표식은 아래의 ‘값을 뺀 주소’ 에서 버린다(그 방의 지금 가계부 번호로 바꿔 적지는 않는다 — 구성원이 아닌 사람에게 번호를 알려 주지 않으려고).
+    if (source.searchParams.has(KAKAO_ROOM_ENTRY_PARAM_V229129) && source.searchParams.get(KAKAO_ROOM_ENTRY_PARAM_V229129) !== String(household.id)) {
+      source.searchParams.delete(KAKAO_ROOM_ENTRY_PARAM_V229129);
+      plain = kakaoRoomOpenLocation(source, "");
+    }
     const identity = await kakaoRoomOpenIdentity(env, userKey);
     if (!identity) return finish("no_user", plain);
     const role = String(await getHouseholdMemberRole(env, identity.userId, household.id) || "").toLowerCase();
@@ -267,7 +277,9 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
 //    남의 가계부 번호를 적어도 그 가계부는 열리지 않고 ‘찾을 수 없음’ 도 내지 않는다(자기 가계부가 열린다).
 //  · 세션이 없고 카카오톡 밖의 브라우저면: 화면 없는 카카오 로그인(prompt=none)을 한 번 해 본다. 그 브라우저에 카카오 로그인이 돼 있고 이미 회원이면
 //    화면 없이 들어와 이 표식 주소로 돌아오고(위 줄), 아니면 로그인 화면이 돌아올 주소(이 표식 주소)를 갖고 열린다. 자동 로그인의 규칙(새 계정을 만들지
-//    않음, 빈 계정은 들이지 않음, 한 번 해 보면 되풀이하지 않음 — auth/kakao-oauth.js)은 인앱과 같다.
+//    않음, 한 번 해 보면 되풀이하지 않음 — auth/kakao-oauth.js)은 인앱과 같고, 인앱보다 좁다: 그 카카오 계정의 웹 계정이 이 표식의 가계부를 읽을 수 있을
+//    때만 세션을 준다(콜백, 독립 검토 P2). 빈 계정·그 방을 못 읽는 계정(공용 PC 에 남은 다른 사람의 카카오 로그인일 수 있다)·계정 잇기 제안이 걸린 계정은
+//    세션 없이 로그인 화면으로 간다 — 그 사람의 다른 가계부가 아무도 누르지 않았는데 열리는 일이 없다.
 //  · 카카오톡 안의 브라우저는 예전의 인앱 자동 로그인·시작 팝업이 그대로 맡는다(돌아올 주소에 이 표식이 실린다). 관리자 쿠키 브라우저는 건드리지 않는다.
 // 식별 값으로 세션을 주는 일은 여기서 하지 않는다 — 이 길의 로그인은 그 브라우저의 카카오 로그인(또는 사용자가 직접 한 로그인)뿐이다.
 async function kakaoRoomEntryResponse(request, env, url, ctx) {
@@ -280,6 +292,9 @@ async function kakaoRoomEntryResponse(request, env, url, ctx) {
   if (url.searchParams.getAll(KAKAO_ROOM_ENTRY_PARAM_V229129).length !== 1 || !KAKAO_ROOM_ENTRY_ID_V229129.test(householdId)) return redirectResponse("/my", KAKAO_ROOM_OPEN_HEADERS);
   const entry = kakaoRoomEntryLocationV229129(householdId);
   const current = await verifyUserSession(request, env);
+  // V22.9.129 독립 검토: 서명·만료가 맞는 세션인데 DB 가 잠깐 답하지 못해 확인을 못 한 요청(V22.9.122 F-1 의 표시)은 로그인하지 않은 사람처럼 카카오로
+  // 보내지 않는다. 예전 길(/my)에 맡긴다 — 라우터가 그 로그인 화면을 ‘잠시 뒤 다시’ 안내로 바꾸고, 주소는 그대로라 새로 고치면 다시 이 길로 온다.
+  if (!current && env?.__AB_SESSION_UNAVAILABLE === true) return null;
   if (current) {
     let readable = false;
     try { readable = canReadMyHousehold(String(await getHouseholdMemberRole(env, current, householdId) || "").toLowerCase()); } catch (_) { readable = false; }
@@ -303,5 +318,8 @@ async function kakaoRoomEntryResponse(request, env, url, ctx) {
 }
 
 // @build:exports-start
-export { kakaoRoomEntryResponse, kakaoRoomEntryReturnPathV229129, kakaoRoomOpenResponse };
+export {
+  kakaoRoomEntryHouseholdIdV229129, kakaoRoomEntryResponse, kakaoRoomEntryReturnPathV229129,
+  kakaoRoomOpenResponse,
+};
 // @build:exports-end

@@ -193,7 +193,7 @@ await roomFixture(async (fx) => {
   eq(card.outputs[0]?.textCard?.description, `이 방 가계부 ‘${ROOM_HOUSEHOLD_NAME}’에 참여했어요.
 말해가계부를 이용하면 이용약관에 동의한 것으로 봐요.`, "3 카드 앞에 참여 한 줄");
   const button = card.outputs[1]?.textCard?.buttons?.[0] || {};
-  ok(button.action === "webLink" && /^\/my(?:\?room=[A-Za-z0-9_-]{1,80})?$/.test(String(button.webLinkUrl || "").slice(BASE.length)) && String(button.webLinkUrl || "").startsWith(BASE) && card.outputs[1]?.textCard?.description?.includes("아래 버튼을 누르면 이 방 가계부가 열려요"), "3 카드 글·단추(/my, V22.9.129 부터 이 방 가계부 표식)는 예전 그대로다");
+  ok(button.action === "webLink" && household?.id && button.webLinkUrl === `${BASE}/my?room=${household.id}` && card.outputs[1]?.textCard?.description?.includes("아래 버튼을 누르면 이 방 가계부가 열려요"), "3 카드 글은 예전 그대로이고 단추는 /my 에 이 방 가계부 표식만 붙는다(V22.9.129)");
   const opened = await go(fx, tapped("/my", { user: U.u3 }));
   eq(opened.status, 303, "3 단추를 누르면 로그인 화면 없이 넘긴다");
   eq(opened.location, `/app?household_id=${encodeURIComponent(household.id)}`, "3 그 방 가계부 홈(/app)으로 간다(기록 없이 들어온 사람도)");
