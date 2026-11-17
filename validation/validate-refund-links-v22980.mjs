@@ -144,25 +144,29 @@ const SOFT = process.env.V22980_SOFT === "1";
 // 해시에 들어가는 원문 97개를 옛 번들(main f05d0f8)과 견주어 <style> 블록·스타일시트 주소·판 이름·인라인 굵기 둘을 가리면 모두 같음을 먼저 확인했고
 // (review-artifacts/v125-hierarchy-density-2026-11-15/work/refund-hash-compare.txt: 같음 40 · 스타일·주소·판 이름만 다름 57 · 그 밖의 차이 0),
 // 그 뒤 --print-golden 으로 그 값들을 다시 얻었다. 카카오 답·알림 등 나머지 값은 그대로다. 정산 본문(v22979)은 원문 28개가 모두 같아 그대로다.
+// V22.9.126(출시 전 최종 점검의 결함 수정, 2026-11-16): 판 이름이 바뀌었고, 백업 파일에서 초대코드·카카오 사용자 키를 뺐고(F-27), 복구 후보 화면의 가계부 선택지와 계획의 가계부(F-26),
+// 알림 응답의 spender_check_count·total 두 칸(F-21)이 더해져 5곳(notifications·analysis·backupFull·backupMonth·candidate)의 값이 달라졌다.
+// 해시에 들어가는 원문 97개를 운영 번들(main 9c3fa81)과 견줘 판 이름과 위 세 가지 말고는 같음을 먼저 확인했고
+// (저장소 밖 검증 기록의 refund-hash-compare.txt), 그 뒤 --print-golden 으로 그 값들을 다시 얻었다. 나머지 값은 그대로다.
 const FLAG_OFF_GOLDEN = {
   "home": "200 8adf3cda055bc6f9a52f7767",
   "homeTrend": "200 6a7fcf0d39e81d4533c95cf0",
   "homePrev": "200 0f04455f4788d93ebeb3df05",
   "budgets": "200 66dd227ec0cf460ef91e8fa7",
   "budgetAlerts": "200 9771b22fa98902194b64ff2b",
-  "notifications": "200 df9761ab7204d02ba148aa42",
+  "notifications": "200 66c9272b3c7b49d47411251a",
   "reports": "200 995f978ff5c81bee802d7eba",
   "reportsWeek": "200 c47238b0a140b4f06df6ea3c",
-  "analysis": "200 6b40f0ad81fa0509d6503a30",
+  "analysis": "200 0bb19cbbaae0c390c6b96bca",
   "backupPage": "200 8bd4f16ee02af5861dbc5041",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 497cf738154a7c0201612b6a",
-  "backupMonth": "200 bf3c469972c3b0c5928e6eec",
-  "candidate": "200 6857d285d275ce7d4846c6ea",
+  "backupFull": "200 e32e18e6114cecc3e87832fe",
+  "backupMonth": "200 8914998a8c629bfb78c2ace5",
+  "candidate": "200 3fd63bf1cab0637b31011a88",
   "legacyErr": "200 5db1a5775f71c674ef881eb4",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
   "apiBatch": "200 {\"ok\":true,\"updatedCount\":1}",
