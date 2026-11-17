@@ -178,10 +178,17 @@ await fixture(async (fx) => {
   for (const utterance of ["웹가계부", "웹 가계부 열기", "링크"]) {
     const body = await say(`@말해가계부 ${utterance}`, OWNER);
     inspect(body, `단톡방 ${utterance}`);
-    // 이 방 가계부 번호는 넣지 않는다: 단톡방 기록 계정과 웹 로그인 계정이 이어지지 않아, 웹 계정이 구성원이 아니면 404 가 된다.
-    t.deepEq(links(body).map((button) => [button.label, button.webLinkUrl]), [["웹 가계부 열기", `${BASE}/my`]], `단톡방 ${utterance}: ‘웹 가계부 열기’ 버튼 하나가 /my 를 연다 (예전: 주소 글)`);
+    // household_id 는 넣지 않는다: 단톡방 기록 계정과 웹 로그인 계정이 이어지지 않았으면 웹 계정이 구성원이 아니라 404 가 된다.
+    // V22.9.129: 대신 이 방 가계부를 가리키는 표식(room)을 싣는다 — 읽을 수 있는 사람에게만 그 가계부가 열리고, 아니면 자기 가계부가 열린다(404 아님).
+    const ownerRow = fx.db.users.find((user) => user.kakao_user_key === OWNER);
+    const roomHouseholdId = fx.db.household_members.find((row) => row.user_id === ownerRow?.id && row.role === "owner")?.household_id || "";
+    t.ok(roomHouseholdId, `단톡방 ${utterance}: 준비 — 방 가계부 번호`);
+    t.deepEq(links(body).map((button) => [button.label, button.webLinkUrl]), [["웹 가계부 열기", `${BASE}/my?room=${roomHouseholdId}`]], `단톡방 ${utterance}: ‘웹 가계부 열기’ 버튼 하나가 /my(이 방 가계부 표식)를 연다 (예전: 주소 글)`);
     t.eq(cards(body)[0]?.title, "웹 가계부", `단톡방 ${utterance}: 제목 ‘웹 가계부’ 카드`);
   }
+  // V22.9.129: 방 답의 단추 주소가 표식을 실은 주소로 바뀌어, 표식 없는 /my(1:1 답·요청 제한 답이 쓴다)는 아래 ‘열어 보기’ 에서 예전처럼 방 소유자의
+  // 로그인으로 본다(1:1 시험 사용자는 로그인 쿠키를 만들 수 없는 키다).
+  if (!opened.has(`${BASE}/my`)) opened.set(`${BASE}/my`, { user: OWNER, label: "표식 없는 웹 가계부 주소" });
   // 버튼을 누르면 카카오가 주소 뒤에 식별값을 붙인다. V22.9.105 R-1(사용자 2026-11-06 "별도 화면없이 바로 가계부 홈"): 누른 사람이 이 방 가계부
   // 구성원이면 그 값으로 로그인 화면 없이 이 방 가계부 홈으로 간다(auth/kakao-room-open.js, 자세한 검사는 validate-room-open-v229105).
   // 구성원이 아니면 예전처럼 로그인 화면이다(카카오 값은 주소에서 지운다).
@@ -200,7 +207,12 @@ await fixture(async (fx) => {
   t.ok(sessionOf(member) === ownerId, "링크 도착(이 방 가계부를 못 읽는 다른 계정 세션, 앱에서 바로 연 이동): 누른 사람(방 구성원) 세션으로 바꾼다(V22.9.105)");
   const managed = await say("@말해가계부 웹관리하기", OWNER);
   inspect(managed, "단톡방 웹관리하기");
-  t.deepEq(buttonsOf(managed)[0], { label: "웹가계부", action: "webLink", webLinkUrl: `${BASE}/my` }, "단톡방 웹관리하기: 첫 버튼 ‘웹가계부’ 는 바로 열리는 링크");
+  {
+    // V22.9.129: 방 답의 ‘웹가계부’ 링크 단추에도 이 방 가계부 표식이 실린다(답 마무리 kakaoRoomLedgerLinksResponseV229129).
+    const managedOwner = fx.db.users.find((user) => user.kakao_user_key === OWNER);
+    const managedRoom = fx.db.household_members.find((row) => row.user_id === managedOwner?.id && row.role === "owner")?.household_id || "";
+    t.deepEq(buttonsOf(managed)[0], { label: "웹가계부", action: "webLink", webLinkUrl: `${BASE}/my?room=${managedRoom}` }, "단톡방 웹관리하기: 첫 버튼 ‘웹가계부’ 는 바로 열리는 링크(이 방 가계부 표식)");
+  }
   t.ok(textsOf(managed).some((text) => text.includes("‘웹가계부’를 눌러 로그인하면")), "단톡방 웹관리하기: ‘주소를 받아’ 대신 ‘눌러’ 로 안내");
   const invite = await say("@말해가계부 초대코드", OWNER);
   inspect(invite, "단톡방 초대코드");

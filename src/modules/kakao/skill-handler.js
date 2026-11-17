@@ -18,6 +18,7 @@ import {
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { kakaoReserveAlert } from "../settings/reserve-plans.js";
 import { bestRoleFromRows, saveMemberAlias } from "../data/households-members-rows.js";
+import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { refundAdjustedStats } from "../domain/refund-links.js";
 import { loadRefundDeductions } from "../features/settlement-refund-links.js";
@@ -36,8 +37,8 @@ import {
 import {
   KAKAO_QR_MESSAGE_MAX_V229127, KAKAO_TERMS_NOTICE_LINE_V229118, dedupeQuickReplies,
   kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoNextStepReply,
-  kakaoTermsNoticeResponseV229118, kakaoText, kakaoTypeChoiceAskTextV229127, kakaoWebLedgerReply,
-  noteKakaoTermsNoticeDroppedV229118,
+  kakaoRoomLedgerLinkOutputsV229129, kakaoTermsNoticeResponseV229118, kakaoText,
+  kakaoTypeChoiceAskTextV229127, kakaoWebLedgerReply, noteKakaoTermsNoticeDroppedV229118,
 } from "./response-builders.js";
 import { kakaoManualReply, kakaoManualTopic } from "./manual-guides.js";
 import {
@@ -83,7 +84,8 @@ import { readJson } from "../api/admin-api.js";
 import {
   bindKakaoGroupByInviteCode, getExplicitKakaoBotGroupKey, getKakaoBotGroupKey,
   getLinkedKakaoGroupHousehold, joinKakaoRoomOnCallV229115, kakaoGroupInfoText,
-  kakaoRoomBindConfirmLine, kakaoRoomBindDoneText, kakaoRoomDepartedFromHousehold, kakaoRoomPhaseOf,
+  kakaoGroupLinkItemSettingsKey, kakaoRoomBindConfirmLine, kakaoRoomBindDoneText,
+  kakaoRoomDepartedFromHousehold, kakaoRoomPhaseOf, normalizeKakaoGroupLinkItem,
   readKakaoGroupFirstSnapshot, readKakaoRoomRoutingSnapshot, startKakaoRoomRecordSnapshot,
   tryKakaoGroupFirstRecord,
 } from "./group-links-first-record.js";
@@ -223,7 +225,12 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     const normalizedResponse = await normalizeKakaoSkillResponse(response, origin);
     // V22.9.118 P-3: 처음 계정(개인 가계부)이 만들어지거나 처음 이 방 가계부에 들어간 답이면 약관 안내 한 줄 + 링크 단추(response-builders.js). 그 밖의 답은 그대로.
     // 독립 검토 P2: 단톡방의 빈 멘션·설명서 첫 화면 답에는 늘 단다(payload 로 단톡방인지 본다).
-    const safeResponse = await kakaoTermsNoticeResponseV229118(await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin), env, origin, payload);
+    const noticedResponse = await kakaoTermsNoticeResponseV229118(await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin), env, origin, payload);
+    // V22.9.129: 단톡방 답의 ‘웹가계부’ 링크 단추에 이 방 가계부 표식을 싣는다(그런 단추가 있는 답만, 답 예산이 남았을 때만 — 아래 함수 설명).
+    const safeResponse = await kakaoRoomLedgerLinksResponseV229129(noticedResponse, env, origin, payload, {
+      trusted: trustedChatFirstSkillCaller(request, env),
+      deadlineAt: requestStartedAt + boundedRuntimeNumber(env.KAKAO_RESPONSE_BUDGET_MS, 4000, 200, 4700),
+    });
     const latencyMs = Date.now() - skillStartedAt;
     const responsePreview = await safeResponse.clone().text();
     const outcome = nluOutcomeFromKakaoResponse(responsePreview);
@@ -314,6 +321,47 @@ async function prependKakaoRoomJoinNoticeV229115(response, env) {
     const outputs = body?.template?.outputs;
     if (!Array.isArray(outputs) || !outputs.length || outputs.length >= 3) return response;
     return jsonResponse({ ...body, template: { ...body.template, outputs: [{ simpleText: { text: notice } }, ...outputs] } }, 200);
+  } catch (_) {
+    return response;
+  }
+}
+
+// V22.9.129 W-3·W-4: 단톡방 답의 ‘웹가계부’ 링크 단추(주소가 정확히 <origin>/my 인 것 — 설명서 카드·바꾼 바로가기·글 속 주소에서 옮긴 단추)에 이 방
+// 가계부를 가리키는 표식(/my?room=<번호>)을 싣는다. 카카오가 식별 값을 붙이지 않는 PC 카카오톡으로 눌러도 그 단추가 이 방 가계부로 이어지게 하려는 것이다
+// (auth/kakao-room-open.js kakaoRoomEntryResponse). ‘웹가계부’ 답은 자기 단추에 이미 표식을 실어 온다(kakaoWebLedgerReply).
+//  · 그런 단추가 없는 답(대부분의 답)은 건드리지 않고 읽기도 하지 않는다.
+//  · 가계부 번호는 이 요청이 이미 알아낸 값(roomHouseholdIdV229129)을 쓰고, 없으면 방 연결 한 줄을 한 번 읽는다 — Secret 으로 확인된 요청 + 명시된
+//    botGroupKey 일 때만, 답 예산(deadlineAt)과 DB 호출 여유가 남았을 때만, 0.7초 안에 올 때만. 못 읽으면 예전 주소 그대로 답한다.
+//  · 표식은 권한이 아니다(읽을 수 있는 사람에게만 그 가계부가 열린다). 답 글·카드 모양은 바꾸지 않는다.
+const KAKAO_ROOM_LEDGER_LINK_READ_MS_V229129 = 700;
+async function kakaoRoomLedgerLinksResponseV229129(response, env, origin = "", payload = {}, { trusted = false, deadlineAt = 0 } = {}) {
+  try {
+    const groupKey = getKakaoBotGroupKey(payload);
+    if (!origin || !groupKey || !response || response.status !== 200) return response;
+    const raw = await response.clone().text();
+    if (!raw.includes(JSON.stringify(`${origin}/my`))) return response;
+    const data = JSON.parse(raw);
+    const outputs = data?.template?.outputs;
+    if (!Array.isArray(outputs)) return response;
+    let householdId = String(env?.__AB_KAKAO_REQUEST?.roomHouseholdIdV229129 || "").trim();
+    if (!householdId) {
+      if (!trusted || getExplicitKakaoBotGroupKey(payload) !== groupKey || !env?.SUPABASE_URL || !env?.SUPABASE_SERVICE_ROLE_KEY) return response;
+      if (deadlineAt && Date.now() + KAKAO_ROOM_LEDGER_LINK_READ_MS_V229129 > deadlineAt) return response;
+      const budget = env.__AB_DB_BUDGET;
+      const queued = (env.__AB_KAKAO_REQUEST?.afterReply || []).reduce((sum, item) => sum + Number(item?.cost || 0), 0);
+      if (budget && Number(budget.used || 0) + 1 + queued + Number(budget.reserved || 0) > Number(budget.limit || 50)) return response;
+      const read = getSettingValueStrict(env, kakaoGroupLinkItemSettingsKey(groupKey));
+      read.catch(() => {});
+      let timer = null;
+      const value = await Promise.race([read, new Promise((resolve) => { timer = setTimeout(() => resolve(undefined), KAKAO_ROOM_LEDGER_LINK_READ_MS_V229129); })]);
+      if (timer) clearTimeout(timer);
+      householdId = value === undefined ? "" : String(normalizeKakaoGroupLinkItem(value, groupKey)?.household_id || "").trim();
+    }
+    const next = householdId ? kakaoRoomLedgerLinkOutputsV229129(outputs, origin, householdId) : null;
+    if (!next) return response;
+    const headers = new Headers(response.headers || {});
+    headers.set("content-type", "application/json; charset=utf-8");
+    return new Response(JSON.stringify({ ...data, template: { ...data.template, outputs: next } }), { status: response.status, statusText: response.statusText, headers });
   } catch (_) {
     return response;
   }
@@ -542,10 +590,14 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     // V22.9.88(Y-7): 단톡방 ‘웹가계부’는 웹 가계부를 바로 여는 링크 버튼 카드로 답한다(카카오 심사: 답 글에 주소를 넣지 않는다).
     if (skillConfigured && botGroupKey && isLinkCommand(utterance)) {
       // V22.9.115: 누르기 전에 이 방 가계부 구성원으로 들인다(가계부 없는 방은 첫 호출자가 소유자). 그래야 단추가 로그인 화면 없이 이 방 가계부 홈을 연다(V22.9.105 R-1).
-      const lead = roomJoinNoticeLine(await joinRoomOnCallSync({ source: "link" }));
+      const linkJoined = await joinRoomOnCallSync({ source: "link" });
+      const lead = roomJoinNoticeLine(linkJoined);
       // V22.9.118 P-3: 참여 한 줄이 있으면 약관 안내를 그 말풍선에 합치도록 알려 둔다(kakaoTermsNoticeResponseV229118).
       if (lead && env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.termsNoticeLeadV229118 = lead;
-      return kakaoWebLedgerReply(origin, lead);
+      // V22.9.129: 단추 주소에 이 방 가계부를 가리키는 표식을 싣는다(구성원으로 확인된 때만). 카카오가 식별 값을 붙이지 않는 PC 카카오톡으로 눌러도
+      // 로그인 뒤 이 방 가계부가 열리고, 그 브라우저에 카카오 로그인이 돼 있으면 화면 없이 들어온다(auth/kakao-room-open.js kakaoRoomEntryResponse).
+      const roomHouseholdId = linkJoined?.ok ? String(linkJoined.household?.id || linkJoined.householdId || "") : "";
+      return kakaoWebLedgerReply(origin, lead, roomHouseholdId);
     }
     if (skillConfigured && isLinkCommand(utterance)) return kakaoText(await kakaoPrivateWebLinkReply(request, env, payload, kakaoUserKey, nickname, origin));
     return kakaoText(earlyReply);
@@ -877,6 +929,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
       return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, await unlinkedRoomTextOptions(strongTransactionInput)), dedupeQuickReplies([["가계부전환", "가계부전환"], ["단톡방연결", "단톡방연결"], ["가계부만들기", "가계부만들기"]]));
     }
     household = { ...linkedGroupHousehold, from_group_link: true, bot_group_key: botGroupKey };
+    // V22.9.129: 이 방 가계부 번호를 답 마무리(kakaoRoomLedgerLinksResponseV229129)에 넘겨, ‘웹가계부’ 링크 단추가 있는 답이 방 연결을 다시 읽지 않게 한다.
+    if (roomJoinEligible && env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.roomHouseholdIdV229129 = String(linkedGroupHousehold.id);
     const membership = households.find((h) => String(h.id) === String(linkedGroupHousehold.id));
     accessRole = membership?.role || "";
     // V22.9.43: \uC5F0\uACB0\uB41C \uBC29\uC740 \uC2B9\uC778 \uC5C6\uC774 \uAC70\uB798 \uD55C \uBC88\uC73C\uB85C \uCC38\uC5EC\uD55C\uB2E4(group-links-first-record.js). \uAE30\uB85D\uC774 \uC544\uB2CC \uB9D0\uC5D0\uB294 \uADF8 \uBC29\uBC95\uC744 \uC54C\uB9B0\uB2E4.

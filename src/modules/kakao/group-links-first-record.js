@@ -556,7 +556,8 @@ async function joinKakaoRoomOnCallV229115(env, context = {}) {
     if (phase === "retired") return skipped("retired");
     if (phase === "linked" && role === null) {
       role = String(await getHouseholdMemberRole(env, user.id, snapshot.link.household_id) || "").toLowerCase();
-      if (role && role !== "pending") return skipped("already_member", { ok: true, role });
+      // V22.9.129: 이미 구성원이면 그 방 가계부 번호를 함께 알려 준다(웹가계부 답 단추의 방 표식에 쓴다 — 읽기를 더하지 않는다).
+      if (role && role !== "pending") return skipped("already_member", { ok: true, role, householdId: String(snapshot.link.household_id || "") });
     }
     return await tryKakaoGroupFirstRecord(env, { ...context, observed: snapshot, parsedList: [], joinOnly: true });
   } catch (err) {

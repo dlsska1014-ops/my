@@ -31,6 +31,7 @@ import { renderUserLoginHtml } from "../web/login-page-side-nav.js";
 import {
   clearConsentStateCookie, consentStateCookie, kakaoStartOrLoginHtml, readSignupConsentState,
 } from "./kakao-start-screen.js";
+import { kakaoRoomEntryReturnPathV229129 } from "./kakao-room-open.js";
 import { readHouseholdRoleOrFailure } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 // @build:imports-end
@@ -56,7 +57,11 @@ async function handleKakaoLoginStart(request, env, url) {
   const reauthHouseholdId = String(url.searchParams.get("household_id") || "").trim();
   const reauthReturnTo = safeUserReturnPath(url.searchParams.get("return_to") || "/my/households", "/my/households");
   // V22.9.91: 카카오톡 인앱 브라우저 자동 로그인(라우터의 kakaoInAppAutoLoginResponse 가 auto=1 로 보낸다). prompt=none 이라 카카오 화면이 뜨지 않는다.
-  const autoMode = url.searchParams.get("auto") === "1" && !reauthMode && url.searchParams.get("link") !== "1" && isKakaoTalkInAppBrowser(request);
+  // V22.9.129: 단톡방 ‘웹 가계부 열기’ 로 카카오톡 밖의 브라우저(PC)에 온 사람도 한 번 해 본다 — 돌아갈 주소가 방 표식 주소(/my?room=<번호>)이고
+  // 사람이 바로 연 이동(Sec-Fetch-Site: none)일 때만이다(auth/kakao-room-open.js kakaoRoomEntryResponse 가 그 조건으로 보낸다; 우리 303 을 거쳐도 그
+  // 머리는 none 그대로다). 그 밖의 auto=1 은 예전처럼 인앱 브라우저에서만 화면 없는 로그인이고, 아니면 보통(화면 있는) 로그인으로 시작한다.
+  const roomEntryAuto = !!kakaoRoomEntryReturnPathV229129(url.searchParams.get("return_to") || "") && String(request.headers.get("sec-fetch-site") || "").toLowerCase() === "none";
+  const autoMode = url.searchParams.get("auto") === "1" && !reauthMode && url.searchParams.get("link") !== "1" && (isKakaoTalkInAppBrowser(request) || roomEntryAuto);
   const config = inspectKakaoLoginConfig(env);
   if (autoMode && !config.ready) return redirectResponseWithCookies(kakaoAutoLoginFallbackLocation(url.searchParams.get("return_to") || ""), [kakaoAutoLoginCookie("skip")]);
   if (!config.enabled) {

@@ -610,7 +610,33 @@ async function kakaoDirectLinkResponse(response, origin = "") {
 // 이 방 가계부 번호(household_id)는 넣지 않는다. 단톡방 기록 계정과 웹 로그인 계정은 아직 이어지지 않아(챗봇에 앱이 연결되지 않아
 // appUserId 가 없다), 웹 계정이 그 가계부 구성원이 아니면 /my?household_id= 는 ‘가계부를 찾을 수 없어요’(404)가 된다.
 // V22.9.115: 방금 이 방 가계부에 들였으면(또는 첫 호출자로 준비했으면) 카드 앞에 한 줄(notice)로 알린다. 카드 글은 그대로 둔다.
-function kakaoWebLedgerReply(origin = "", notice = "") {
+// V22.9.129: 이 방 가계부 번호를 알면 단추 주소에 방 표식(/my?room=<번호>)을 싣는다. 2026-11-17 운영 기록: 휴대폰은 카카오가 식별 값을 붙여 주지만
+// PC 카카오톡은 쓸 수 있는 사용자 식별 값 없이 연다. 표식은 권한이 아니라 "어느 가계부를 열려던 길인지" 만 알려 준다 — 읽을 수 있는 사람에게만 그 가계부가
+// 열리고(auth/kakao-room-open.js kakaoRoomEntryResponse), 채팅 계정과 웹 계정이 이어지지 않아 구성원이 아닌 사람은 예전처럼 자기 가계부가 열린다
+// (household_id 를 직접 실으면 ‘가계부를 찾을 수 없어요’ 가 되던 것 — 위 V22.9.105 설명 — 과 다르다).
+const KAKAO_WEB_LEDGER_ROOM_ID_V229129 = /^[A-Za-z0-9_-]{1,80}$/;
+function kakaoWebLedgerRoomUrlV229129(origin = "", roomHouseholdId = "") {
+  const id = String(roomHouseholdId || "").trim();
+  return KAKAO_WEB_LEDGER_ROOM_ID_V229129.test(id) ? `${origin}/my?room=${encodeURIComponent(id)}` : `${origin}/my`;
+}
+// V22.9.129: 단톡방 답의 다른 ‘웹가계부’ 링크 단추(설명서 카드·바꾼 바로가기·글 속 주소에서 옮긴 단추 — 주소가 정확히 <origin>/my 인 것)에도 같은 방 표식을
+// 싣는다. 답 모양은 그대로 두고 그 단추의 주소만 바꾼다. 바꾼 것이 없으면 null(부르는 쪽이 원래 답을 그대로 쓴다). 가계부 번호를 읽는 일은 부르는 쪽
+// (kakao/skill-handler.js kakaoRoomLedgerLinksResponseV229129)이 맡는다.
+function kakaoRoomLedgerLinkOutputsV229129(outputs = [], origin = "", roomHouseholdId = "") {
+  const plain = origin ? `${origin}/my` : "";
+  const marked = kakaoWebLedgerRoomUrlV229129(origin, roomHouseholdId);
+  if (!plain || marked === plain || !Array.isArray(outputs)) return null;
+  let changed = false;
+  const next = outputs.map((output) => {
+    const kind = output?.textCard ? "textCard" : output?.basicCard ? "basicCard" : "";
+    const buttons = kind && Array.isArray(output[kind].buttons) ? output[kind].buttons : null;
+    if (!buttons?.some((button) => button?.action === "webLink" && button.webLinkUrl === plain)) return output;
+    changed = true;
+    return { [kind]: { ...output[kind], buttons: buttons.map((button) => (button?.action === "webLink" && button.webLinkUrl === plain ? { ...button, webLinkUrl: marked } : button)) } };
+  });
+  return changed ? next : null;
+}
+function kakaoWebLedgerReply(origin = "", notice = "", roomHouseholdId = "") {
   if (!origin) return kakaoText("웹 가계부는 말해가계부 웹사이트에서 로그인한 뒤 볼 수 있어요.");
   const lead = String(notice || "").trim();
   return jsonResponse({
@@ -620,7 +646,7 @@ function kakaoWebLedgerReply(origin = "", notice = "") {
         textCard: {
           title: "웹 가계부",
           description: "전체 기록과 분석을 웹에서 크게 볼 수 있어요.\n아래 버튼을 누르면 이 방 가계부가 열려요.",
-          buttons: [kakaoLinkButton("웹 가계부 열기", `${origin}/my`)],
+          buttons: [kakaoLinkButton("웹 가계부 열기", kakaoWebLedgerRoomUrlV229129(origin, roomHouseholdId))],
           buttonLayout: "vertical",
         },
       }],
@@ -747,9 +773,9 @@ export {
   KAKAO_QR_MESSAGE_MAX_V229127, KAKAO_TERMS_NOTICE_LINE_V229118, dedupeQuickReplies,
   isDefiniteStorageFailure, isKakaoRequestUniqueConflictV229119, isUncertainStorageWrite,
   kakaoDefaultQuickReplies, kakaoEditSameTextTextV229119, kakaoGroupCompatibleResponse,
-  kakaoGroupEmptyMentionReply, kakaoNextStepReply, kakaoQr, kakaoSameTextExistsTextV229119,
-  kakaoSameTextLongV229119, kakaoSaveFailedText, kakaoSeparateSameTextTextV229119,
-  kakaoTermsNoticeResponseV229118, kakaoText, kakaoTypeChoiceAskTextV229127, kakaoWebLedgerReply,
-  noteKakaoTermsNoticeDroppedV229118,
+  kakaoGroupEmptyMentionReply, kakaoNextStepReply, kakaoQr, kakaoRoomLedgerLinkOutputsV229129,
+  kakaoSameTextExistsTextV229119, kakaoSameTextLongV229119, kakaoSaveFailedText,
+  kakaoSeparateSameTextTextV229119, kakaoTermsNoticeResponseV229118, kakaoText,
+  kakaoTypeChoiceAskTextV229127, kakaoWebLedgerReply, noteKakaoTermsNoticeDroppedV229118,
 };
 // @build:exports-end

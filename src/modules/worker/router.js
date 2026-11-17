@@ -184,7 +184,7 @@ import {
 } from "../auth/kakao-account-link.js";
 import { renderUserLoginHtml } from "../web/login-page-side-nav.js";
 import { handleMyConsent, kakaoInAppStartResponse } from "../auth/kakao-start-screen.js";
-import { kakaoRoomOpenResponse } from "../auth/kakao-room-open.js";
+import { kakaoRoomEntryResponse, kakaoRoomOpenResponse } from "../auth/kakao-room-open.js";
 import { renderPublicShareCardHtml } from "../admin/dashboard-fragments.js";
 import {
   detectKakaoAmbiguity, formatMessage, kakaoSkillSafeFallbackText,
@@ -418,6 +418,10 @@ const ACCOUNTBOOK_WORKER = {
       // 아래 자동 로그인·시작 팝업 그대로다. 로그인 뒤 화면이 아닌 주소(공개 문서 등)는 값만 지우므로 숨긴 기능·공지·후원·공개 문서보다 먼저 부른다.
       const kakaoRoomOpen = await kakaoRoomOpenResponse(request, env, url, ctx);
       if (kakaoRoomOpen) return kakaoRoomOpen;
+      // V22.9.129: 카카오 값 없이 방 표식(/my?room=<그 방 가계부 번호>)만 온 길 — PC 카카오톡의 ‘웹 가계부 열기’. 세션이 있으면 그 가계부(읽을 수 있을 때)로,
+      // 없으면 화면 없는 카카오 로그인을 한 번 해 본 뒤 로그인 화면으로 간다(auth/kakao-room-open.js kakaoRoomEntryResponse).
+      const kakaoRoomEntry = await kakaoRoomEntryResponse(request, env, url, ctx);
+      if (kakaoRoomEntry) return kakaoRoomEntry;
 
       const hiddenFeature = hiddenIncompleteFeatureResponse(request, env, url);
       if (hiddenFeature) return hiddenFeature;
