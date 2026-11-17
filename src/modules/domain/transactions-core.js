@@ -85,12 +85,13 @@ async function deleteLatestUserTransaction(env, householdId, userId) {
 
 function formatRecentTransactions(rows) {
   if (!rows || !rows.length) return "최근 입력 내역이 없습니다.";
-  const lines = rows.map((r, i) => {
+  // V22.9.126 FC-13: 이 목록의 순서는 ‘01번’(그날 목록의 번호)이 아니다. 번호 대신 점을 찍고, 번호로 고치는 예시는 ‘오늘기록’ 안내만 남긴다.
+  const lines = rows.map((r) => {
     const typeText = r.type === "income" ? "수입" : "지출";
     const memo = r.memo || r.category || "-";
-    return `${i + 1}. ${r.transaction_date} ${typeText} ${numberWithCommas(r.amount)}원 · ${memo}`;
+    return `• ${r.transaction_date} ${typeText} ${numberWithCommas(r.amount)}원 · ${memo}`;
   });
-  return ["🧾 최근 입력 내역", ...lines, "", "오늘 번호로 수정하려면 '오늘기록'을 보내세요.", "예: 01번 금액 13000원 / 01번 삭제"].join("\n");
+  return ["🧾 최근 입력 내역", ...lines, "", "오늘 번호로 수정하려면 '오늘기록'을 보내세요."].join("\n");
 }
 
 async function listTransactions(env, url) {

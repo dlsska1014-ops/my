@@ -98,9 +98,11 @@ async function handleMyInsightPage(request, env, url) {
   // metadata. Members, budget and settings still use the existing parallel read.
   // V22.9.79 V76 W-7: ‘월말 예상 지출’에 남은 고정지출·정기지출을 넣으려고 규칙·정기 항목을 같은 단계에서 읽는다(+2, 직렬 깊이 그대로).
   // V22.9.80 V76 M-7: 이번 달 환불 차감(위 요약·예산 속도·월말 예상에만 반영, 아래 분석 그래프는 기록 그대로)도 같은 단계에서 읽는다.
+  // V22.9.126 FC-5: 예산 읽기가 잠깐 실패한 달을 ‘월 예산 미설정’ 으로 그리지 않도록 엄격하게 읽고, 실패는 표시만 해 둔다(빈 목록으로 계산한다).
+  let budgetReadFailed = false;
   const [members, budgets, history, challengeValue, recurring, reservePlans, refund] = await Promise.all([
     fetchHouseholdMembers(env, selected.id),
-    fetchBudgets(env, selected.id, month),
+    fetchBudgets(env, selected.id, month, { strict: true }).catch(() => { budgetReadFailed = true; return []; }),
     fetchAdminRowsRange(env, { householdId: selected.id, start: dataStart, end: dataEnd, limit: 9001, complete: false, analysisReceipt: true }),
     getSettingValue(env, reportChallengeSettingsKey(selected.id)),
     fetchRecurringStrict(env, selected.id).catch(() => null),
@@ -117,9 +119,19 @@ async function handleMyInsightPage(request, env, url) {
   const currentRows = rows.filter((r) => String(r.transaction_date || "").slice(0, 10) >= currentStart && String(r.transaction_date || "").slice(0, 10) < currentEnd);
   const budget = budgetSummary(currentRows, budgets, { refundDeductions });
   const challenge = await buildReportChallengeForHousehold(env, { householdId: selected.id, month, rows: currentRows, value: challengeValue, startedOn: householdStartYmd(selected, currentRows) });
-  const outlook = monthSpendingOutlook({ month, rows: currentRows, receipt, recurring, plans: reservePlans, refundDeductions });
+  const outlook = monthSpendingOutlook({ month, rows: currentRows, receipt, recurring, plans: reservePlans, refundDeductions, members });
   const dashboard = { ...buildReportDashboardSummary(currentRows, budget, month, { outlook, refundDeductions, refundFailed: !!refund.failed }), householdId: selected.id };
-  return htmlResponse(renderMyInsightHtml({ env, month, selected, rows, currentRows, budget, dashboard, challenge, dataStart, truncated, receipt }));
+  const html = renderMyInsightHtml({ env, month, selected, rows, currentRows, budget, dashboard, challenge, dataStart, truncated, receipt });
+  return htmlResponse(budgetReadFailed ? budgetReadFailedCockpitV229126(html) : html);
+}
+
+// V22.9.126 FC-5: 한눈에 보기의 예산 칸 셋(사용률 아래 줄·남은 예산·안내 문장)만 ‘못 불러왔다’ 로 바꾼다. 칸·순서는 그대로다(R3).
+// 요약 그리기(my/report-challenge.js)는 그대로 두고, 읽기가 실패한 때만 그린 글에서 그 칸의 정확한 마크업을 찾아 바꾼다.
+function budgetReadFailedCockpitV229126(html) {
+  return html
+    .replace("<span>예산 사용</span></div></div><p>월 예산 미설정</p>", "<span>예산 사용</span></div></div><p>예산을 불러오지 못했어요</p>")
+    .replace("<span>남은 예산</span><b>설정 전</b>", "<span>남은 예산</span><b>확인 불가</b>")
+    .replace("<p>예산을 설정하면 현재 소비 속도와 남은 하루 한도를 함께 안내합니다.</p>", "<p>예산을 불러오지 못해 소비 속도는 안내하지 않았어요. 잠시 뒤 새로고침해 주세요.</p>");
 }
 
 function insightAppJsResponse() {

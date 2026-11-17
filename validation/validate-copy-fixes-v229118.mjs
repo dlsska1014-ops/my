@@ -33,7 +33,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { app, BASE, ctx, failure, fixture, intercept, page, skill, withClock } from "./lib-audit-v22934.mjs";
-import { POLICY_NOTICE_DATE, POLICY_REVISION_DATE, PUBLIC_COPY_REVISION_DATE } from "../src/modules/public/site-config.js";
+import { KAKAO_GUIDE_COPY_REVISION_DATE, POLICY_NOTICE_DATE, POLICY_REVISION_DATE, PUBLIC_COPY_REVISION_DATE } from "../src/modules/public/site-config.js";
 import { kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoTermsNoticeResponseV229118, noteKakaoTermsNoticeDroppedV229118 } from "../src/modules/kakao/response-builders.js";
 import { kakaoGroupFirstKeys } from "../src/modules/kakao/group-links-first-record.js";
 
@@ -49,6 +49,8 @@ const DAY = "2026-11-12";
 const NOTICE = String(POLICY_NOTICE_DATE || "");
 const REVISION = String(POLICY_REVISION_DATE || "");
 const COPY_DATE = String(PUBLIC_COPY_REVISION_DATE || "");
+// V22.9.126: /kakao-guide 는 표를 고친 날(날짜가 다른 기록 여러 줄은 되묻는다 · 카드 승인 문자 한 줄)이 수정일이라 상수를 따로 쓴다. 나머지 다섯 쪽은 그대로다.
+const GUIDE_DATE = String(KAKAO_GUIDE_COPY_REVISION_DATE || "");
 const korean = (ymd) => { const [y, m, d] = ymd.split("-").map(Number); return `${y}년 ${m}월 ${d}일`; };
 const URL_TEXT = /https?:\/\//i;
 
@@ -73,7 +75,8 @@ const visible = (html) => html.replace(/<script[\s\S]*?<\/script>/g, " ").replac
   // 날짜로 고정하는 것을 막았다. 여기서는 6곳이 이 상수에서 나오는지와 이번 판 값만 본다.
   const guide = read("src/modules/public/guide-content.js");
   const support = read("src/modules/public/support-page.js");
-  ok(count(guide, "updated: PUBLIC_COPY_REVISION_DATE") === 5 && count(support, "updated: PUBLIC_COPY_REVISION_DATE") === 1, "0 C2 안내 쪽 6곳(첫 화면·/how-it-works·/kakao-guide·/group-accountbook·/faq·/support)의 수정일은 상수에서 나온다");
+  ok(count(guide, "updated: PUBLIC_COPY_REVISION_DATE") === 4 && count(guide, "updated: KAKAO_GUIDE_COPY_REVISION_DATE") === 1 && count(support, "updated: PUBLIC_COPY_REVISION_DATE") === 1, "0 C2 안내 쪽 6곳(첫 화면·/how-it-works·/kakao-guide·/group-accountbook·/faq·/support)의 수정일은 상수에서 나온다(/kakao-guide 는 V22.9.126 부터 제 상수)");
+  ok(/^\d{4}-\d{2}-\d{2}$/.test(GUIDE_DATE) && GUIDE_DATE >= COPY_DATE && !new RegExp(`updated: "${GUIDE_DATE}"`).test(guide), "0 C2 /kakao-guide 수정일 상수는 날짜 꼴이고 다섯 쪽의 수정일보다 앞서지 않으며 쪽에 날짜 글자를 따로 적지 않는다");
   ok(/^\d{4}-\d{2}-\d{2}$/.test(COPY_DATE) && !new RegExp(`updated: "${COPY_DATE}"`).test(guide + support), "0 C2 안내 쪽 6곳에 수정일 날짜 글자를 따로 적지 않는다");
   // V118 범위 — 다음 개정 때 지워도 됨(배포일이 밀려 site-config.js 날짜를 바꾸면 이 줄도 같이 고친다).
   eq(COPY_DATE, "2026-11-13", "0 C2 이번 판에서는 안내 쪽 수정일 상수(PUBLIC_COPY_REVISION_DATE)가 2026-11-13");
@@ -182,7 +185,7 @@ await withClock(DAY, () => fixture(async (fx) => {
   // C2 수정일(화면 time·JSON-LD dateModified·사이트맵 lastmod) — 상수에서 나온 날짜와 같다
   const sitemap = html["/sitemap.xml"];
   const lastmod = (path) => sitemap.match(new RegExp(`<loc>${BASE.replace(/[.]/g, "\\.")}${path === "/" ? "/" : path}</loc>\\s*<lastmod>([^<]+)</lastmod>`))?.[1] || "";
-  for (const [path, date] of [["/", COPY_DATE], ["/how-it-works", COPY_DATE], ["/group-accountbook", COPY_DATE], ["/faq", COPY_DATE], ["/kakao-guide", COPY_DATE], ["/support", COPY_DATE], ["/terms", NOTICE], ["/privacy", NOTICE]]) {
+  for (const [path, date] of [["/", COPY_DATE], ["/how-it-works", COPY_DATE], ["/group-accountbook", COPY_DATE], ["/faq", COPY_DATE], ["/kakao-guide", GUIDE_DATE], ["/support", COPY_DATE], ["/terms", NOTICE], ["/privacy", NOTICE]]) {
     ok(html[path].includes(`<time datetime="${date}">`), `1 C2 ${path} 수정일 표시 = 상수(${date})`);
     ok(jsonLd(html[path]).some((item) => item.dateModified === date), `1 C2 ${path} JSON-LD dateModified = 상수(${date})`);
     eq(lastmod(path), date, `1 C2 ${path} sitemap lastmod = 상수`);

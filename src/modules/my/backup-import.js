@@ -150,25 +150,44 @@ async function readImportUploadText(file) {
 // V22.9.79 감사 E-15: 이름이 같은 구성원(단톡방 ‘카카오사용자’ 여럿)이 둘 이상이면 백업 CSV 의 지출자 칸에는 ‘이름 1’·‘이름 2’처럼 겹치지 않게
 // 붙인 이름이 적힌다(attachSpenderNames). 가져올 때 이 이름으로도 그 구성원을 찾는다 — 예전에는 닉네임으로만 찾아 이런 행이 모두
 // 지출자 오류로 빠졌다. 닉네임 그대로는 예전처럼 둘 이상이면 어느 쪽인지 알 수 없어 거절한다(이름이 하나뿐이면 번호가 붙지 않아 같은 이름이다).
+// V22.9.126 FC-22: 번호는 내보낸 때의 참여 순서로 붙어서, 그 뒤 누가 나가거나 들어오면 같은 번호가 다른 사람을 가리킨다. 번호를 붙인
+// 이름의 열쇠를 numbered 에 따로 적어(지금 이름표는 labels) 그 이름으로만 찾은 행은 확인 후 저장하게 하고 미리보기에 지출자를 보인다.
 function buildMyImportMemberLookup(members = []) {
   const lookup = new Map();
   const labels = memberNameMap(members);
+  const numbered = new Set();
+  const keyOf = (name) => normalizeText(name || "").toLowerCase().replace(/\s+/g, "");
   const add = (name, member) => {
-    const key = normalizeText(name || "").toLowerCase().replace(/\s+/g, "");
+    const key = keyOf(name);
     if (!key) return;
     if (!lookup.has(key)) lookup.set(key, []);
     if (!lookup.get(key).includes(member)) lookup.get(key).push(member);
   };
+  // V22.9.126 FC-22: 번호를 붙였는지는 memberNameMap 이 그 사람 혼자일 때 주는 이름(번호 없는 기본 이름)이 둘 이상 겹치는지로 본다.
+  // memberNameMap(distinctPersonLabels)이 번호를 붙이는 기준과 같아, 빈 닉네임 기본값이나 ‘민수 2’ 같은 이름을 따로 가정하지 않는다.
+  const baseOf = (member) => memberNameMap([member])[String(member?.user_id || "").trim()] || "";
+  const baseCount = new Map();
+  for (const member of safeArray(members)) {
+    const base = baseOf(member);
+    if (base) baseCount.set(base, (baseCount.get(base) || 0) + 1);
+  }
   for (const member of safeArray(members)) {
     add(member.nickname, member);
     add(labels[member.user_id], member);
+    if (labels[member.user_id] && (baseCount.get(baseOf(member)) || 0) > 1) numbered.add(keyOf(labels[member.user_id]));
   }
+  lookup.numbered = numbered;
+  lookup.labels = labels;
   return lookup;
 }
 
 // V22.9.79 감사 E-15: 백업 CSV 의 지출자 칸에는 지금 참여자가 아닌 사람이 "이전 구성원"(나간 사람)·"미지정"(지출자 없음)으로 적힌다.
 // 이 말은 지출자를 지정한 것이 아니므로(참여자 이름과 같지 않을 때만) 행을 버리지 않고 가져오는 사람 이름으로 두되 확인 후 저장하게 한다.
 const BACKUP_SPENDER_PLACEHOLDER = /^(?:미지정|이전 구성원(?: ?\d+)?|.{1,40}\(나간 구성원\))$/;
+
+// V22.9.126 FC-22: 같은 원본에서 앞서 저장한 행(같은 고정 ID·출처 열쇠)은 ‘중복 건너뛰기’ 설정과 상관없이 다시 저장하지 않는다.
+// 예전에는 이 행에도 ‘중복 건너뛰기가 켜져 있어…’ 안내가 붙어, 옵션을 끈 채 다음 묶음을 분석해도 켜져 있다고 말했다.
+const MY_IMPORT_ALREADY_SAVED_SUGGESTION = "이 원본에서 앞서 저장한 행이라 다시 저장하지 않았습니다. 중복 건너뛰기 설정과 상관없이 같은 행은 한 번만 저장합니다.";
 
 function prepareMyImportEntry(entry = {}, userId = "", selected = {}, memberLookup = new Map(), jti = "") {
   const internal = safeObject(entry.row);
@@ -190,7 +209,13 @@ function prepareMyImportEntry(entry = {}, userId = "", selected = {}, memberLook
     } else if (matches.length !== 1 || !canWriteMyHousehold(matches[0].role) || (!canManageMyHousehold(selected.role) && matches[0].user_id !== userId)) {
       errorCode = "invalid_spender";
       warnings.push("명시한 지출자를 현재 권한으로 저장할 수 없습니다. 지출자와 참여 권한을 확인한 뒤 다시 분석해 주세요.");
-    } else row.user_id = matches[0].user_id;
+    } else {
+      row.user_id = matches[0].user_id;
+      if (memberLookup.numbered?.has(key)) {
+        warnings.push(`지출자 ‘${spender.slice(0, 40)}’은 같은 이름이 여럿이라 붙인 번호로 찾았습니다. 백업한 뒤 참여자가 바뀌었으면 다른 분에게 붙을 수 있으니 지출자 칸을 확인한 뒤 저장하세요.`);
+        needsConfirmation = true;
+      }
+    }
   }
   if (jti) row.source_user_key = `import_v2264:${String(jti).slice(0, 48)}:${Number(entry.row_number || 0)}`;
   return {
@@ -201,6 +226,8 @@ function prepareMyImportEntry(entry = {}, userId = "", selected = {}, memberLook
     raw: String(entry.raw || "").slice(0, 500),
     warnings: [...new Set(warnings.map((item) => String(item || "").trim()).filter(Boolean))],
     needs_confirmation: needsConfirmation,
+    // V22.9.126 FC-22: 미리보기 표의 지출자 칸(저장될 지출자의 지금 이름표). 커밋 화면도 토큰만으로 다시 그리므로 여기 적어 둔다.
+    ...(memberLookup.labels ? { spender_name: String(memberLookup.labels[row.user_id] || "").slice(0, 60) } : {}),
     row,
   };
 }
@@ -524,7 +551,11 @@ async function handleMyImport(request, env) {
     const fixedRows = await importFixedTransactionRows(env, selected.id, entries, tokenPayload.jti);
     const knownIds = new Map(fixedRows.map(row => [String(row.id), row]));
     const knownKeys = new Map(fixedRows.filter(row => row.source_user_key).map(row => [String(row.source_user_key), row]));
-    const duplicateCandidates = await importDuplicateCandidates(env, selected.id, ready.map(entry => entry.row));
+    // V22.9.126 FC-22: 중복 후보는 ‘중복 건너뛰기’가 켜졌을 때만 쓰므로 그때만 읽는다. 읽지 못하면 500 화면 대신 미리보기와 같은 안내(503)로
+    // 돌린다(아직 저장 0건, 잠금은 아래 finally 가 푼다).
+    let duplicateCandidates = [];
+    try { duplicateCandidates = skipDuplicates ? await importDuplicateCandidates(env, selected.id, ready.map(entry => entry.row)) : []; }
+    catch (_) { return myImportHtmlResponse(form, renderMyImportPreviewHtml({ env, selected, month, payload: tokenPayload, token: previewToken, error: "기존 거래를 끝까지 확인하지 못해 저장을 중단했습니다. 거래는 저장하지 않았습니다. 잠시 후 ‘선택한 항목 저장’을 다시 눌러 주세요." }), 503); }
     const matcher = createImportDuplicateMatcher(duplicateCandidates, [...safeArray(tokenPayload.duplicate_basis), ...ready.map(entry => String(entry.row?.id || ""))]);
     // Allocate competing DB occurrences over the entire signed file order
     // before applying this request's partial selection.
@@ -573,7 +604,7 @@ async function handleMyImport(request, env) {
           outcomes.push(conflict); if (sourceState.state === "pending") unknown++; else failed++; continue;
         }
         duplicate += 1;
-        outcomes.push(importRejection("duplicate", entry.row_number, entry.raw));
+        outcomes.push({ ...importRejection("duplicate", entry.row_number, entry.raw), suggestion: MY_IMPORT_ALREADY_SAVED_SUGGESTION });
         continue;
       }
       if (skipDuplicates && matcher.consume(row, entry.spender_explicit === true)) {
@@ -793,7 +824,8 @@ async function handleMyImport(request, env) {
   for (const entry of parsed.accepted) {
     const prepared = prepareMyImportEntry(entry, userId, { ...selected, role: actor.role }, memberLookup, jti);
     if (prepared.error_code) { const rejected = importRejection("invalid_spender", entry.row_number, entry.raw); rejected.source_location = entry.source_location; outcomes.push(rejected); continue; }
-    const matched = knownKeys.get(prepared.row.source_user_key) || (skipDuplicates && matcher.consume(prepared.row, prepared.spender_explicit));
+    const savedBefore = knownKeys.get(prepared.row.source_user_key);
+    const matched = savedBefore || (skipDuplicates && matcher.consume(prepared.row, prepared.spender_explicit));
     if (matched) {
       if (mappingProtocol && matched.source_user_key === prepared.row.source_user_key && myImportStoredValue({ ...prepared.row, id: matched.id }) !== myImportStoredValue(matched)) {
         const conflict = { ...importRejection("write_failed", entry.row_number, entry.raw), source_location: entry.source_location };
@@ -802,7 +834,7 @@ async function handleMyImport(request, env) {
         continue;
       }
       duplicateBasis.push(String(matched.id));
-      outcomes.push({ ...importRejection("duplicate", entry.row_number, entry.raw), source_location: entry.source_location });
+      outcomes.push({ ...importRejection("duplicate", entry.row_number, entry.raw), source_location: entry.source_location, ...(savedBefore ? { suggestion: MY_IMPORT_ALREADY_SAVED_SUGGESTION } : {}) });
       continue;
     }
     if (ready.length >= importLimit) { limited++; outcomes.push({ ...importRejection("over_limit", entry.row_number, entry.raw), source_location: entry.source_location }); continue; }
@@ -948,8 +980,8 @@ function renderMyImportPreviewHtml({ env, selected, month, payload = {}, token =
     const row = safeObject(entry.row);
     const reviewNeeded = safeArray(entry.warnings).length > 0 || /취소|환불|승인취소|cancel|refund/i.test([entry.raw, row.memo].join(" "));
     const warning = safeArray(entry.warnings).map((item) => `<small>${escapeHtml(item)}</small>`).join("");
-    return `<tr${reviewNeeded ? ' class="importReviewRow"' : ""}><td data-label="선택"><label class="importPickTarget"><input class="importPick" type="checkbox" name="selected_rows" value="${Number(entry.row_number || 0)}" data-amount="${Number(row.amount || 0)}" data-type="${row.type === "income" ? "income" : "expense"}" data-review-needed="${reviewNeeded ? "1" : "0"}"${entry.needs_confirmation ? "" : " checked"} aria-label="${escapeHtml(myImportLocationLabel(entry))} 저장 선택${reviewNeeded ? " · 확인 필요" : ""}"/></label></td><td data-label="행">${escapeHtml(myImportLocationLabel(entry))}</td><td data-label="날짜">${escapeHtml(row.transaction_date || "-")}</td><td data-label="구분"><select class="importTypePick" name="row_type_${Number(entry.row_number || 0)}" data-row="${Number(entry.row_number || 0)}" aria-label="${escapeHtml(myImportLocationLabel(entry))} 구분"><option value="expense"${row.type === "income" ? "" : " selected"}>지출</option><option value="income"${row.type === "income" ? " selected" : ""}>수입</option></select></td><td data-label="금액">${numberWithCommas(row.amount || 0)}원</td><td data-label="분류·내용">${escapeHtml(row.category || "-")}<small>${escapeHtml(row.memo || "-")}</small>${reviewNeeded ? '<small class="importReviewBadge">확인 필요 · 취소·환불 또는 보정 내용을 확인하세요.</small>' : ""}</td><td data-label="결제수단·보정">${escapeHtml(row.payment_method || "-")}${warning}</td></tr>`;
-  }).join("") || `<tr><td colspan="7">저장 가능한 행이 없습니다. 제외 사유를 확인해 원본의 해당 행만 수정해 주세요.</td></tr>`;
+    return `<tr${reviewNeeded ? ' class="importReviewRow"' : ""}><td data-label="선택"><label class="importPickTarget"><input class="importPick" type="checkbox" name="selected_rows" value="${Number(entry.row_number || 0)}" data-amount="${Number(row.amount || 0)}" data-type="${row.type === "income" ? "income" : "expense"}" data-review-needed="${reviewNeeded ? "1" : "0"}"${entry.needs_confirmation ? "" : " checked"} aria-label="${escapeHtml(myImportLocationLabel(entry))} 저장 선택${reviewNeeded ? " · 확인 필요" : ""}"/></label></td><td data-label="행">${escapeHtml(myImportLocationLabel(entry))}</td><td data-label="날짜">${escapeHtml(row.transaction_date || "-")}</td><td data-label="구분"><select class="importTypePick" name="row_type_${Number(entry.row_number || 0)}" data-row="${Number(entry.row_number || 0)}" aria-label="${escapeHtml(myImportLocationLabel(entry))} 구분"><option value="expense"${row.type === "income" ? "" : " selected"}>지출</option><option value="income"${row.type === "income" ? " selected" : ""}>수입</option></select></td><td data-label="금액">${numberWithCommas(row.amount || 0)}원</td><td data-label="지출자">${escapeHtml(entry.spender_name || "-")}</td><td data-label="분류·내용">${escapeHtml(row.category || "-")}<small>${escapeHtml(row.memo || "-")}</small>${reviewNeeded ? '<small class="importReviewBadge">확인 필요 · 취소·환불 또는 보정 내용을 확인하세요.</small>' : ""}</td><td data-label="결제수단·보정">${escapeHtml(row.payment_method || "-")}${warning}</td></tr>`;
+  }).join("") || `<tr><td colspan="8">저장 가능한 행이 없습니다. 제외 사유를 확인해 원본의 해당 행만 수정해 주세요.</td></tr>`;
   const rejectedRows = outcomes.slice(0, 40).map((item) => `<tr><td>${escapeHtml(myImportLocationLabel(item))}</td><td><b>${escapeHtml(item.reason || "제외")}</b><small>${escapeHtml(item.suggestion || "")}</small></td><td>${escapeHtml(item.raw || "-")}</td></tr>`).join("") || `<tr><td colspan="3">제외된 행이 없습니다.</td></tr>`;
   const mappings = safeArray(payload.parsed?.mappings).map((item) => `<span>${escapeHtml(item.source || "-")} → <b>${escapeHtml(item.label || item.field || "-")}</b></span>`).join("") || "제목 행 없이 자연어·행 위치를 기준으로 분석했습니다.";
   // V22.9.37 감사 T10·D6: 추론한 부호 규칙과 두 자리 연도 해석을 미리보기에 밝힌다. 구분은 아래 표에서 행마다 바꿀 수 있다.
@@ -958,7 +990,7 @@ function renderMyImportPreviewHtml({ env, selected, month, payload = {}, token =
     ? `<p class="notice" id="importSignConvention">부호 규칙: 금액이 있는 ${numberWithCommas(sign.amount_rows || 0)}행 중 ${numberWithCommas(sign.negative_rows || 0)}행이 음수라 <b>음수 = 지출, 양수 = 수입</b>으로 읽었습니다. 아래 표의 구분을 행마다 바꿀 수 있습니다.</p>`
     : Number(sign.negative_rows || 0) > 0 ? `<p class="notice" id="importSignConvention">부호 규칙: 음수 금액 ${numberWithCommas(sign.negative_rows)}행은 취소·환불(수입)로 읽고 확인 필요로 표시했습니다. 아래 표의 구분을 행마다 바꿀 수 있습니다.</p>` : "";
   const twoDigitNotice = Number(payload.parsed?.two_digit_year_rows || 0) > 0 ? `<p class="notice" id="importTwoDigitYear">두 자리 연도 날짜(예: 10/12/25) ${numberWithCommas(payload.parsed.two_digit_year_rows)}행은 월/일/연도 순서로 읽었습니다. 날짜 열을 확인해 주세요.</p>` : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 가져오기 미리보기</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:21px;margin:13px 0;box-shadow:0 12px 32px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.6}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:19px;padding:14px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.notice,.error{border-radius:16px;padding:12px;line-height:1.6}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.mapping{display:flex;flex-wrap:wrap;gap:7px}.mapping span{background:#f8fafc;border:1px solid #e5e7eb;border-radius:999px;padding:7px 10px;font-size:12px}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:14px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 14px;cursor:pointer}.soft{background:#eef2f7;color:#111827}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:17px}table{width:100%;border-collapse:collapse;min-width:860px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;vertical-align:top;font-size:13px}td small{display:block;color:#64748b;line-height:1.45;margin-top:4px}.importPick{width:22px;height:22px}.importTypePick{min-height:36px;border:1px solid #cbd5e1;border-radius:10px;padding:4px 8px;font:inherit;background:#fff;color:#111827}button:disabled{opacity:.55;cursor:not-allowed}@media(max-width:760px){.wrap{padding:12px}.hero{border-radius:22px}.metrics{grid-template-columns:1fr 1fr}.card{padding:16px}.btn,button{width:100%}}</style></head><body class="abImportPreview"><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>저장 전 미리보기</h1><p>${escapeHtml(selected.name || "가계부")}에 저장될 후보를 확인하고 필요한 행만 선택하세요. 아직 거래는 저장되지 않았습니다.</p></section>${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}${renderMyImportSourceReselect(selected, month, payload)}<div id="myImportWorkspace">${renderMyImportMappingEditor(payload)}<section class="metrics"><div class="metric"><span>원본 행</span><b>${numberWithCommas(payload.parsed?.total_rows || 0)}</b></div><div class="metric"><span>인식 행</span><b>${numberWithCommas(payload.parsed?.accepted_count || 0)}</b></div><div class="metric"><span>저장 후보</span><b>${numberWithCommas(ready.length)}</b></div><div class="metric"><span>중복 제외</span><b>${numberWithCommas(duplicate)}</b></div><div class="metric"><span>저장 후보 전체 수입</span><b>${numberWithCommas(income)}원</b></div><div class="metric"><span>저장 후보 전체 지출</span><b>${numberWithCommas(expense)}원</b></div></section><section class="card"><h2>인식 기준</h2><div class="mapping">${mappings}</div>${signNotice}${twoDigitNotice}${myImportBasisNotice(payload.parsed, payload.limited)}<p class="notice"><b>안전 확인 단계</b><br/>체크한 행만 저장합니다. 이 미리보기는 30분 뒤 만료되며, 저장 직전에 중복과 권한을 다시 확인합니다.</p></section><form id="myImportCommitForm" method="post" action="/my/import"><input type="hidden" name="import_action" value="commit"/><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="import_token" value="${escapeHtml(token)}"/><section class="card"><h2>저장할 행 선택</h2><div class="toolbar"><button id="selectAllImport" type="button" class="soft">전체 선택</button><button id="clearImport" type="button" class="soft">전체 해제</button><button id="reviewImportRows" type="button" class="soft" aria-pressed="false">확인 필요한 행 보기</button><b id="selectedImportCount" aria-live="polite">${numberWithCommas(ready.length)}건 선택</b></div><div class="tableWrap"><table><thead><tr><th>선택</th><th>행</th><th>날짜</th><th>구분</th><th>금액</th><th>분류·내용</th><th>결제수단·보정</th></tr></thead><tbody>${rows}</tbody></table></div><section class="importSelectionSummary" aria-label="선택한 항목의 저장 예정 금액"><div><span>선택한 수입</span><b id="selectedImportIncome">${numberWithCommas(income)}원</b></div><div><span>선택한 지출</span><b id="selectedImportExpense">${numberWithCommas(expense)}원</b></div><p id="selectedImportReview" role="status"></p><small>선택한 행 기준입니다. 저장 직전 중복 검사를 거치면 실제 저장 건수와 금액이 줄어들 수 있습니다. 확인 필요 필터를 바꿔도 선택은 유지됩니다.</small></section><div class="toolbar"><button id="commitImport" type="submit"${ready.length ? "" : " disabled"}>선택한 항목 저장</button><a class="btn soft" href="${escapeHtml(back)}">취소하고 돌아가기</a></div></section></form><section class="card"><h2>제외된 행과 이유</h2><div class="tableWrap"><table><thead><tr><th>행</th><th>이유 / 해결 방법</th><th>원본 미리보기</th></tr></thead><tbody>${rejectedRows}</tbody></table></div>${outcomes.length > 40 ? `<p class="notice">처음 40행만 표시했습니다. 전체 사유 건수는 분석 결과에 반영되어 있습니다.</p>` : ""}</section></div></div></div></main><script>(${myBackupImportClientMain.toString()})();(${importMappingClientMain.toString()})(${importPreviewClientMain.toString()});</script></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${escapeHtml(appName(env))} · 가져오기 미리보기</title><style>${myNavCss()}*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1240px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:21px;margin:13px 0;box-shadow:0 12px 32px rgba(15,23,42,.06)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#1d4ed8));color:#fff}.hero p{color:#dbeafe;line-height:1.6}.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:9px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:19px;padding:14px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:23px;margin-top:5px}.notice,.error{border-radius:16px;padding:12px;line-height:1.6}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.mapping{display:flex;flex-wrap:wrap;gap:7px}.mapping span{background:#f8fafc;border:1px solid #e5e7eb;border-radius:999px;padding:7px 10px;font-size:12px}.toolbar{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:10px 0}.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:44px;border:0;border-radius:14px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 14px;cursor:pointer}.soft{background:#eef2f7;color:#111827}.tableWrap{overflow:auto;border:1px solid #e5e7eb;border-radius:17px}table{width:100%;border-collapse:collapse;min-width:860px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;vertical-align:top;font-size:13px}td small{display:block;color:#64748b;line-height:1.45;margin-top:4px}.importPick{width:22px;height:22px}.importTypePick{min-height:36px;border:1px solid #cbd5e1;border-radius:10px;padding:4px 8px;font:inherit;background:#fff;color:#111827}button:disabled{opacity:.55;cursor:not-allowed}@media(max-width:760px){.wrap{padding:12px}.hero{border-radius:22px}.metrics{grid-template-columns:1fr 1fr}.card{padding:16px}.btn,button{width:100%}}</style></head><body class="abImportPreview"><main class="wrap"><div class="appLayout">${renderMySideNav(selected, selected.role, month, "backup")}<div class="pageMain"><section class="hero"><h1>저장 전 미리보기</h1><p>${escapeHtml(selected.name || "가계부")}에 저장될 후보를 확인하고 필요한 행만 선택하세요. 아직 거래는 저장되지 않았습니다.</p></section>${error ? `<div class="error">${escapeHtml(error)}</div>` : ""}${renderMyImportSourceReselect(selected, month, payload)}<div id="myImportWorkspace">${renderMyImportMappingEditor(payload)}<section class="metrics"><div class="metric"><span>원본 행</span><b>${numberWithCommas(payload.parsed?.total_rows || 0)}</b></div><div class="metric"><span>인식 행</span><b>${numberWithCommas(payload.parsed?.accepted_count || 0)}</b></div><div class="metric"><span>저장 후보</span><b>${numberWithCommas(ready.length)}</b></div><div class="metric"><span>중복 제외</span><b>${numberWithCommas(duplicate)}</b></div><div class="metric"><span>저장 후보 전체 수입</span><b>${numberWithCommas(income)}원</b></div><div class="metric"><span>저장 후보 전체 지출</span><b>${numberWithCommas(expense)}원</b></div></section><section class="card"><h2>인식 기준</h2><div class="mapping">${mappings}</div>${signNotice}${twoDigitNotice}${myImportBasisNotice(payload.parsed, payload.limited)}<p class="notice"><b>안전 확인 단계</b><br/>체크한 행만 저장합니다. 이 미리보기는 30분 뒤 만료되며, 저장 직전에 중복과 권한을 다시 확인합니다.</p></section><form id="myImportCommitForm" method="post" action="/my/import"><input type="hidden" name="import_action" value="commit"/><input type="hidden" name="household_id" value="${escapeHtml(selected.id)}"/><input type="hidden" name="month" value="${escapeHtml(month)}"/><input type="hidden" name="import_token" value="${escapeHtml(token)}"/><section class="card"><h2>저장할 행 선택</h2><div class="toolbar"><button id="selectAllImport" type="button" class="soft">전체 선택</button><button id="clearImport" type="button" class="soft">전체 해제</button><button id="reviewImportRows" type="button" class="soft" aria-pressed="false">확인 필요한 행 보기</button><b id="selectedImportCount" aria-live="polite">${numberWithCommas(ready.length)}건 선택</b></div><div class="tableWrap"><table><thead><tr><th>선택</th><th>행</th><th>날짜</th><th>구분</th><th>금액</th><th>지출자</th><th>분류·내용</th><th>결제수단·보정</th></tr></thead><tbody>${rows}</tbody></table></div><section class="importSelectionSummary" aria-label="선택한 항목의 저장 예정 금액"><div><span>선택한 수입</span><b id="selectedImportIncome">${numberWithCommas(income)}원</b></div><div><span>선택한 지출</span><b id="selectedImportExpense">${numberWithCommas(expense)}원</b></div><p id="selectedImportReview" role="status"></p><small>선택한 행 기준입니다. 저장 직전 중복 검사를 거치면 실제 저장 건수와 금액이 줄어들 수 있습니다. 확인 필요 필터를 바꿔도 선택은 유지됩니다.</small></section><div class="toolbar"><button id="commitImport" type="submit"${ready.length ? "" : " disabled"}>선택한 항목 저장</button><a class="btn soft" href="${escapeHtml(back)}">취소하고 돌아가기</a></div></section></form><section class="card"><h2>제외된 행과 이유</h2><div class="tableWrap"><table><thead><tr><th>행</th><th>이유 / 해결 방법</th><th>원본 미리보기</th></tr></thead><tbody>${rejectedRows}</tbody></table></div>${outcomes.length > 40 ? `<p class="notice">처음 40행만 표시했습니다. 전체 사유 건수는 분석 결과에 반영되어 있습니다.</p>` : ""}</section></div></div></div></main><script>(${myBackupImportClientMain.toString()})();(${importMappingClientMain.toString()})(${importPreviewClientMain.toString()});</script></body></html>`;
 }
 
 function renderMyImportResultHtml({ env, selected, month, parsed, outcomes = [], acceptedWarnings = [], imported = 0, duplicate = 0, failed = 0, unknown = 0, limited = 0, importLimit = 120, selectedCount = 0 }) {

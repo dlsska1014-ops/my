@@ -102,17 +102,38 @@ await withClock("2026-10-15",async()=>{
   fx.db.accountbook_recurring=[{...rules[0],household_id:"house-home"},{...rules[1],household_id:"house-home",memo:"별도 대기"}];
   // The 40,000-won rule deliberately resembles the directly recorded expense.
   // There is no transaction/rule link, so it must remain in the assumption.
+  // V22.9.126 FC-21: 이 두 규칙에는 지출자가 없다. 예약 실행·수동 반영은 지출자 없는 규칙을 건너뛰므로(recurringSpenderEligible, 소유자로 보정하지 않음)
+  // 화면과 API 모두 대기·월말 예상에서 빼고 ‘지출자 확인 필요’로 알린다. 같은 규칙에 지출자를 둔 예전 단정(대기 50,000원·월말 670,000원)은 바로 아래 장면이 본다.
   for(const path of paths){
    const result=await page(fx,path+qs);eq(result.status,200,path+" current nonempty pending HTTP");
    // V22.9.79 V76 W-7: 대기 고정지출은 따로 더한 가정값 줄이 아니라 월말 예상 자체에 들어가고, 그 내역을 한 줄로 보인다(운영자 결정 Q3).
-   ok(result.html.includes('<span>고정지출 대기</span><b>50,000원</b>'),path+" recurring union counted once");
-   ok(result.html.includes("기록 300,000원 + 남은 고정·정기 50,000원 + 남은 16일 예상 320,000원")&&result.html.includes("670,000원"),path+" pending fixed expenses are inside the one month-end outlook");
-   const list=result.html.match(/<ul class="recList">([\s\S]*?)<\/ul>/)?.[1]||"";eq((list.match(/<li>/g)||[]).length,2,path+" does not deduplicate a similar recorded expense");
+   ok(result.html.includes('<span>고정지출 대기</span><b>0원</b><small>지출자 확인 필요 2건</small>'),path+" spenderless rules are not pending (the scheduled job skips them)");
+   ok(result.html.includes("기록 300,000원 + 남은 고정·정기 0원 + 남은 16일 예상 320,000원")&&result.html.includes("620,000원")&&!result.html.includes("670,000원"),path+" skipped rules are not inside the one month-end outlook");
+   const list=result.html.match(/<ul class="recList">([\s\S]*?)<\/ul>/)?.[1]||"";eq((list.match(/<li>/g)||[]).length,0,path+" skipped rules are not listed as pending");ok(result.html.includes("지출자 확인 필요 2건(50,000원)"),path+" skipped rules are counted in the pending note");
   }
   const n=await api(fx,"/u/api/notifications"+qs);eq(n.status,200,"current nonempty pending notification HTTP");
   // V22.9.79 V76 W-7: forecast 가 대기 고정지출을 포함한 월말 예상이 됐다. after_pending_assumption 은 한 판 동안 같은 값으로 남는다.
+  deepEq([n.data.budget_observation.forecast,n.data.budget_observation.pending_total,n.data.budget_observation.after_pending_assumption],[620000,0,620000],"API forecast agrees with the screens (skipped rules excluded) and keeps the old key equal for one release");
+  ok(!n.data.notifications.some(item=>item.key==="recurring-pending:2026-10"),"no pending notification for rules the job skips");ok(!n.data.notifications.some(item=>item.key==="budget-warn:2026-10"),"additional pending assumption does not become a pace warning");
+  // V22.9.126 FC-21: 건너뛰는 규칙은 대기 알림 대신 달마다 ‘지출자 확인’ 알림 하나로 알리고(정기 수입·지출 화면으로), API 에 건수·금액을 대기 옆에 싣는다.
+  const check=n.data.notifications.filter(item=>item.key==="recurring-spender-check:2026-10");eq(check.length,1,"skipped rules keep a monthly notification of their own");ok(check[0].title==="지출자 확인이 필요한 정기 항목 2건"&&check[0].body.startsWith("50,000원 · ")&&check[0].href==="/reserve-plans?month=2026-10&household_id=house-home","spender-check notification count, amount and link");
+  deepEq([n.data.budget_observation.spender_check_count,n.data.budget_observation.spender_check_total],[2,50000],"API reports the skipped rules next to the pending total");
+ });
+ // V22.9.126 FC-21: 같은 두 규칙(rules·seed 그대로)에 지출자(소유자)를 두면 예전 단정 그대로다 — 한 번씩 세고, 비슷한 직접 기록과 겹쳐 빼지 않으며, 월별 대기 알림이 있다.
+ await fixture(async fx=>{
+  seed(fx,[tx("2026-10-10",40000),tx("2026-10-11",260000),tx("2026-10-25",150000)]);
+  fx.db.accountbook_budgets=unionBudgets.map((b,i)=>({...b,id:"pending-budget-"+i,household_id:"house-home",month:"2026-10"}));
+  fx.db.accountbook_recurring=[{...rules[0],household_id:"house-home",user_id:"user-bin"},{...rules[1],household_id:"house-home",memo:"별도 대기",user_id:"user-bin"}];
+  for(const path of paths){
+   const result=await page(fx,path+qs);eq(result.status,200,path+" current nonempty pending HTTP (spender set)");
+   ok(result.html.includes('<span>고정지출 대기</span><b>50,000원</b>'),path+" recurring union counted once");
+   ok(result.html.includes("기록 300,000원 + 남은 고정·정기 50,000원 + 남은 16일 예상 320,000원")&&result.html.includes("670,000원"),path+" pending fixed expenses are inside the one month-end outlook");
+   const list=result.html.match(/<ul class="recList">([\s\S]*?)<\/ul>/)?.[1]||"";eq((list.match(/<li>/g)||[]).length,2,path+" does not deduplicate a similar recorded expense");ok(!result.html.includes("지출자 확인 필요"),path+" no spender-check note when the spender is a member");
+  }
+  const n=await api(fx,"/u/api/notifications"+qs);eq(n.status,200,"current nonempty pending notification HTTP (spender set)");
   deepEq([n.data.budget_observation.forecast,n.data.budget_observation.pending_total,n.data.budget_observation.after_pending_assumption],[670000,50000,670000],"API forecast includes pending fixed expenses and keeps the old key equal for one release");
   const pending=n.data.notifications.filter(item=>item.key==="recurring-pending:2026-10");eq(pending.length,1,"current pending retains monthly notification key");ok(pending[0].body.includes("50,000원"),"actual pending notification amount");ok(!n.data.notifications.some(item=>item.key==="budget-warn:2026-10"),"additional pending assumption does not become a pace warning");
+  ok(!n.data.notifications.some(item=>item.key.startsWith("recurring-spender-check:"))&&n.data.budget_observation.spender_check_count===0,"no spender-check notification when the spender is a member");
  });
  await fixture(async fx=>{
   seed(fx,[tx("2026-10-01",150000),tx("2026-10-11",50000)],"2026-10",300000);

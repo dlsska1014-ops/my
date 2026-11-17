@@ -479,7 +479,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // V22.9.115: 설명서를 부른 사람도 답 뒤에 이 방 가계부에 들인다(답은 예전처럼 바로).
   if (manualTopic) { await deferRoomJoinOnCall("manual", { noticeShown: manualTopic === "home" }); return kakaoManualReply(manualTopic, { group: !!botGroupKey }); }
 
-  const bypassPublic = !!separatePurchaseCommand || isKakaoStartCommand(utterance) || isHelpCommand(utterance) || isCommandMenuCommand(utterance) ||
+  // V22.9.126 FC-11: ‘수정 01번 내용 자동차보험’ 처럼 고치기 명령으로 읽히는 말은 값의 낱말(자동차보험·홈페이지·개인정보 …)로 공개 안내를 내지 않고 고치기로 보낸다.
+  const bypassPublic = !!separatePurchaseCommand || editLikeUtterance || isKakaoStartCommand(utterance) || isHelpCommand(utterance) || isCommandMenuCommand(utterance) ||
     isKakaoCreateFlowCommand(utterance) || isKakaoJoinFlowCommand(utterance) || isKakaoBudgetSetupCommand(utterance) ||
     isKakaoMemberAliasCommand(utterance) || !!parseKakaoSummaryRange(utterance) || !!parseKakaoMemberPolicyCommand(utterance);
   const earlyReply = strongTransactionInput || bypassPublic ? "" : kakaoPublicCommandReply(utterance, origin, env);
@@ -826,7 +827,9 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // V22.9.115: 단톡방에서 봇을 부르기만 해도 이 방 가계부의 구성원으로 들이고(승인 대기도 구성원으로), 가계부가 없는 방이면 첫 호출자를 소유자로 공동 가계부를 준비해
   // 그 가계부로 명령을 잇는다(답 맨 앞 한 줄은 래퍼 prependKakaoRoomJoinNoticeV229115). ‘초대’(초대코드 보기·구성원 초대)는 가계부 없는 방에서만 예전처럼 둔다(그 사람은 자기 가계부를 이 방에 연결하려는 것일 수 있다); 연결된 방에서는 들인 뒤 처리한다. 나간 이력·해제된 방·
   // 조회 전용·이용 제한·실패는 아래 예전 안내가 그대로 답한다.
-  if (roomJoinEligible && (linkedGroupHousehold?.id || !isInviteCommand(utterance))) {
+  // V22.9.126 D-7(최종 점검): 금액이 분명한 기록 문장(‘초대권 15000원’)은 ‘초대’ 낱말이 있어도 초대 명령으로 보지 않는다(아래 세 곳도 같다).
+  const inviteCommandV229126 = !strongTransactionInput && isInviteCommand(utterance);
+  if (roomJoinEligible && (linkedGroupHousehold?.id || !inviteCommandV229126)) {
     const roomRole = linkedGroupHousehold?.id ? String(households.find((h) => String(h.id) === String(linkedGroupHousehold.id))?.role || "") : "";
     if (!linkedGroupHousehold?.id || !roomRole || roomRole === "pending") {
       const joined = await joinRoomOnCallSync({ user, role: linkedGroupHousehold?.id ? roomRole : undefined, source: "command" });
@@ -838,12 +841,12 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
       }
     }
   }
-  if (botGroupKey && !linkedGroupHousehold?.id && !isInviteCommand(utterance)) {
+  if (botGroupKey && !linkedGroupHousehold?.id && !inviteCommandV229126) {
     return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, await unlinkedRoomTextOptions(strongTransactionInput)), dedupeQuickReplies([["가계부전환", "가계부전환"], ["단톡방연결", "단톡방연결"], ["가계부만들기", "가계부만들기"]]));
   }
   // V22.9.79 감사 B-10: 연결된 방에서는 이 안내를 하지 않는다. 내 승인 대기 가계부는 이 방 가계부와 다른 것일 수 있고(남의 가계부 이름이 방에
   // 나갔다), 이 방 가계부의 승인 대기는 승인 없이 기록 한 번으로 참여되므로 "관리자가 승인해야"가 틀리다. 아래 방 분기가 방 기준으로 답한다.
-  if (pendingHousehold && !activeHouseholds.length && !botGroupKey && !isHelpCommand(utterance) && !isLinkCommand(utterance) && !isInviteCommand(utterance)) {
+  if (pendingHousehold && !activeHouseholds.length && !botGroupKey && !isHelpCommand(utterance) && !isLinkCommand(utterance) && !inviteCommandV229126) {
     return kakaoText(`🕒 아직 승인 대기 중입니다.\n가계부: ${pendingHousehold.name}\n\n관리자가 참여자를 승인해야 기록할 수 있어요.`);
   }
   if (!botGroupKey && seedChatFirst && firstRecordInput && !selectedHouseholdId &&
@@ -884,7 +887,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     if (!household && activeHouseholds.length) {
       const choice = await beginKakaoHouseholdChoice(env, {
         user, payload, households: activeHouseholds,
-        action: isInviteCommand(utterance) ? "invite" : "select",
+        action: inviteCommandV229126 ? "invite" : "select",
         origin, forceChoice: true,
       });
       return kakaoText(choice.text, choice.quickReplies || []);
@@ -1058,5 +1061,5 @@ ${formatRecentTransactions(rows)}`);
   return await saveKakaoParsedTransactionsReply(env, { ...(roomSave || {}), household: savedHousehold, householdLabel: kakaoHouseholdReplyName(savedHousehold, activeHouseholds), user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, firstNotice: editSessionNotice });
 }
 // @build:exports-start
-export { handleKakaoSkillStable };
+export { handleKakaoSkillStable, normalizeKakaoButtonLabel };
 // @build:exports-end

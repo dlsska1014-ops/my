@@ -10,8 +10,9 @@ import {
   fetchAdminHouseholds, fetchAdminRows, fetchHouseholdMembers,
 } from "../data/households-members-rows.js";
 import {
-  backupRestoreView, compareBackupTransactions, safeArray, safeObject, transactionComparable,
-  transactionSignature, validateBackupPayloadShape,
+  backupHouseholdLabelV229126, backupHouseholdScopeV229126, backupRestoreView,
+  compareBackupTransactions, safeArray, safeObject, transactionComparable, transactionSignature,
+  validateBackupPayloadShape,
 } from "./backup-compare.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import { reconcileImportedTransactionIds } from "../my/backup-import.js";
@@ -56,14 +57,15 @@ function renderBackupCandidateSelectHtml({ payload = null, validation = null, co
   const validationBox = validation ? `<section class="card ${validation.ok ? "good" : "bad"}"><h2>백업 구조: ${validation.ok ? "정상" : "확인 필요"}</h2>${validation.errors?.length ? `<h3>오류</h3><ul>${validation.errors.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}${validation.warnings?.length ? `<h3>주의</h3><ul>${validation.warnings.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</section>` : "";
   const summary = compare ? `<section class="grid"><div class="metric"><span>신규 후보</span><b>${numberWithCommas(candidates.length)}</b></div><div class="metric"><span>충돌</span><b>${numberWithCommas(conflictCount)}</b></div><div class="metric"><span>중복 가능</span><b>${numberWithCommas(duplicateCount)}</b></div><div class="metric"><span>현재만 있음</span><b>${numberWithCommas(compare.counts.current_only || 0)}</b></div></section>` : "";
   const riskBox = compare ? `<section class="card ${conflictCount ? "bad" : duplicateCount ? "warn" : "good"}"><h2>${conflictCount ? "충돌 항목 확인 필요" : duplicateCount ? "중복 가능성 있음" : "신규 후보 선택 가능"}</h2><p>${conflictCount ? "같은 ID인데 내용이 다른 항목이 있어 자동 가져오기를 진행하면 안 됩니다." : "아래 신규 후보 중 실제로 가져올 항목을 체크해 가져오기 계획만 만들 수 있습니다. 아직 DB에는 저장하지 않습니다."}</p></section>` : "";
-  const candidateBox = compare ? `<section class="card"><div class="cardTitle"><div><h2>가져오기 후보 선택</h2><p class="note">현재 데이터에 없어 보이는 거래만 표시합니다. 체크박스는 가져오기 계획 생성용이며, DB 저장은 하지 않습니다.</p></div><div class="actions"><button type="button" class="btn light" onclick="setCandidateChecks(true)">전체 선택</button><button type="button" class="btn light" onclick="setCandidateChecks(false)">선택 해제</button><button type="button" class="btn green" onclick="downloadImportPlan()">선택 계획 JSON 저장</button></div></div><div class="selectedBar"><b id="candidateSelectedCount">0건 선택</b><span id="candidateSelectedAmount">0원</span></div><input type="hidden" id="candidateJson" value="${renderImportCandidateHiddenJson(candidates)}"/><div class="tableWrap"><table><thead><tr><th>선택</th><th>#</th><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th></tr></thead><tbody>${renderImportCandidateRows(candidates)}</tbody></table></div>${candidates.length > 200 ? `<p class="note">후보가 많아 상위 200건만 표시합니다.</p>` : ""}</section>` : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>가져오기 후보 선택</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#14532d);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.card.good{border-color:#86efac;background:#f0fdf4}.card.warn{border-color:#fde68a;background:#fffbeb}.card.bad{border-color:#fecaca;background:#fef2f2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin-top:6px}.upload{display:grid;grid-template-columns:1fr 160px 170px;gap:10px}.upload input,.upload select,.upload button{min-height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.upload input[type=file]{padding:10px}.upload button,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.btn.light{background:#eff6ff;color:#1e3a8a}.btn.green{background:#059669;color:#fff}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.cardTitle{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.actions{display:flex;gap:8px;flex-wrap:wrap}.selectedBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0;padding:12px;border-radius:16px;background:#eff6ff;color:#1e3a8a;font-weight:1000}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:860px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.candidateCheck{width:20px;height:20px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.upload{grid-template-columns:1fr}.card{overflow-x:auto}}</style></head><body>${renderUnifiedNav("backup", { month, householdId, role: "admin" })}<main class="wrap"><section class="hero"><h1>가져오기 후보 선택</h1><p>백업 파일에서 현재 데이터에 없는 거래 후보만 골라 가져오기 계획을 만듭니다. 이 단계도 DB에 아무것도 저장하지 않습니다.</p><p><a class="btn light" href="/backup">백업센터</a> <a class="btn light" href="/backup/compare">백업 비교</a></p></section><section class="card"><h2>백업 파일 분석</h2><p class="warnBox">복구 자동 적용 전 단계입니다. 선택 결과는 JSON 계획 파일로만 저장되며, Supabase 데이터는 변경하지 않습니다.</p><form class="upload" method="post" action="/backup/select" enctype="multipart/form-data"><input type="file" name="backup_file" accept="application/json,.json" required/><select name="household_id"><option value="">백업 기준 사용/전체</option>${householdOptions}</select><label class="note">전체 기간 백업이면 고를 달 <input type="month" name="month" value="${escapeHtml(month || currentMonthKst())}"/></label><button type="submit">후보 분석</button></form></section>${errorBox}${noteBox}${refundLinkBox}${validationBox}${summary}${riskBox}${candidateBox}</main><script>(function(){function money(n){n=Number(n||0);return n.toLocaleString('ko-KR')+'원'}window.setCandidateChecks=function(v){document.querySelectorAll('.candidateCheck').forEach(function(x){x.checked=!!v});updateCandidateSelection()};function updateCandidateSelection(){var count=0, amount=0;document.querySelectorAll('.candidateCheck').forEach(function(x){if(x.checked){count++;if((x.getAttribute('data-type')||'expense')==='income')amount-=Number(x.getAttribute('data-amount')||0);else amount+=Number(x.getAttribute('data-amount')||0)}});var c=document.getElementById('candidateSelectedCount');var a=document.getElementById('candidateSelectedAmount');if(c)c.textContent=count+'건 선택';if(a)a.textContent='순지출 기준 '+money(amount)}document.querySelectorAll('.candidateCheck').forEach(function(x){x.addEventListener('change',updateCandidateSelection)});window.downloadImportPlan=function(){var raw=document.getElementById('candidateJson');var rows=[];try{rows=JSON.parse(raw?raw.value:'[]')}catch(e){rows=[]}var selected=[];document.querySelectorAll('.candidateCheck').forEach(function(x,idx){if(x.checked&&rows[idx])selected.push(rows[idx])});var payload={app:'kakao-accountbook',version:'V19.8-BUDGET-ALERT',created_at:new Date().toISOString(),mode:'candidate_plan_only_no_db_write',selected_count:selected.length,selected:selected};var blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='accountbook_import_candidate_plan.json';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},1000)};updateCandidateSelection();})();</script></body></html>`;
+  const candidateBox = compare ? `<section class="card"><div class="cardTitle"><div><h2>가져오기 후보 선택</h2><p class="note">현재 데이터에 없어 보이는 거래만 표시합니다. 체크박스는 가져오기 계획 생성용이며, DB 저장은 하지 않습니다.</p></div><div class="actions"><button type="button" class="btn light" onclick="setCandidateChecks(true)">전체 선택</button><button type="button" class="btn light" onclick="setCandidateChecks(false)">선택 해제</button><button type="button" class="btn green" onclick="downloadImportPlan()">선택 계획 JSON 저장</button></div></div><div class="selectedBar"><b id="candidateSelectedCount">0건 선택</b><span id="candidateSelectedAmount">0원</span></div><input type="hidden" id="candidateJson" value="${renderImportCandidateHiddenJson(candidates)}" data-household-id="${escapeHtml(householdId)}"/><div class="tableWrap"><table><thead><tr><th>선택</th><th>#</th><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th></tr></thead><tbody>${renderImportCandidateRows(candidates)}</tbody></table></div>${candidates.length > 200 ? `<p class="note">후보가 많아 상위 200건만 표시합니다.</p>` : ""}</section>` : "";
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>가져오기 후보 선택</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#0f172a,#14532d);color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.card.good{border-color:#86efac;background:#f0fdf4}.card.warn{border-color:#fde68a;background:#fffbeb}.card.bad{border-color:#fecaca;background:#fef2f2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:25px;margin-top:6px}.upload{display:grid;grid-template-columns:1fr 160px 170px;gap:10px}.upload input,.upload select,.upload button{min-height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.upload input[type=file]{padding:10px}.upload button,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.btn.light{background:#eff6ff;color:#1e3a8a}.btn.green{background:#059669;color:#fff}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.cardTitle{display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap}.actions{display:flex;gap:8px;flex-wrap:wrap}.selectedBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0;padding:12px;border-radius:16px;background:#eff6ff;color:#1e3a8a;font-weight:1000}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:860px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.candidateCheck{width:20px;height:20px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.upload{grid-template-columns:1fr}.card{overflow-x:auto}}</style></head><body>${renderUnifiedNav("backup", { month, householdId, role: "admin" })}<main class="wrap"><section class="hero"><h1>가져오기 후보 선택</h1><p>백업 파일에서 현재 데이터에 없는 거래 후보만 골라 가져오기 계획을 만듭니다. 이 단계도 DB에 아무것도 저장하지 않습니다.</p><p><a class="btn light" href="/backup">백업센터</a> <a class="btn light" href="/backup/compare">백업 비교</a></p></section><section class="card"><h2>백업 파일 분석</h2><p class="warnBox">복구 자동 적용 전 단계입니다. 선택 결과는 JSON 계획 파일로만 저장되며, Supabase 데이터는 변경하지 않습니다.</p><form class="upload" method="post" action="/backup/select" enctype="multipart/form-data"><input type="file" name="backup_file" accept="application/json,.json" required/><select name="household_id"><option value="">백업 파일의 가계부</option>${householdOptions}</select><label class="note">전체 기간 백업이면 고를 달 <input type="month" name="month" value="${escapeHtml(month || currentMonthKst())}"/></label><button type="submit">후보 분석</button></form></section>${errorBox}${noteBox}${refundLinkBox}${validationBox}${summary}${riskBox}${candidateBox}</main><script>(function(){function money(n){n=Number(n||0);return n.toLocaleString('ko-KR')+'원'}window.setCandidateChecks=function(v){document.querySelectorAll('.candidateCheck').forEach(function(x){x.checked=!!v});updateCandidateSelection()};function updateCandidateSelection(){var count=0, amount=0;document.querySelectorAll('.candidateCheck').forEach(function(x){if(x.checked){count++;if((x.getAttribute('data-type')||'expense')==='income')amount-=Number(x.getAttribute('data-amount')||0);else amount+=Number(x.getAttribute('data-amount')||0)}});var c=document.getElementById('candidateSelectedCount');var a=document.getElementById('candidateSelectedAmount');if(c)c.textContent=count+'건 선택';if(a)a.textContent='순지출 기준 '+money(amount)}document.querySelectorAll('.candidateCheck').forEach(function(x){x.addEventListener('change',updateCandidateSelection)});window.downloadImportPlan=function(){var raw=document.getElementById('candidateJson');var rows=[];try{rows=JSON.parse(raw?raw.value:'[]')}catch(e){rows=[]}var selected=[];document.querySelectorAll('.candidateCheck').forEach(function(x,idx){if(x.checked&&rows[idx])selected.push(rows[idx])});var payload={app:'kakao-accountbook',version:'V19.8-BUDGET-ALERT',created_at:new Date().toISOString(),mode:'candidate_plan_only_no_db_write',household_id:(raw&&raw.getAttribute('data-household-id'))||'',selected_count:selected.length,selected:selected};var blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='accountbook_import_candidate_plan.json';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},1000)};updateCandidateSelection();})();</script></body></html>`;
 }
 
 async function handleBackupCandidateSelectPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const households = await fetchAdminHouseholds(env);
-  const householdId = url.searchParams.get("household_id") || households[0]?.id || "";
+  // V22.9.126 FC-26: 주소에 가계부가 없으면 첫 가계부 대신 ‘백업 파일의 가계부’ 를 기본으로 둔다.
+  const householdId = url.searchParams.get("household_id") || "";
   return htmlResponse(renderBackupCandidateSelectHtml({ households, householdId, month: currentMonthKst() }));
 }
 
@@ -91,9 +93,12 @@ async function handleBackupCandidateSelectPost(request, env) {
     if (!validation.ok) {
       return htmlResponse(renderBackupCandidateSelectHtml({ payload, validation, households, month, householdId }), 400);
     }
+    // V22.9.126 FC-26: 백업의 가계부와 고른 가계부가 다르면 후보를 만들지 않고, 후보는 고른 가계부의 기록에서만 고른다.
+    const scoped = backupHouseholdScopeV229126({ households, payload, formHouseholdId, rows: view.rows });
+    if (scoped.error) return htmlResponse(renderBackupCandidateSelectHtml({ payload, validation, households, month, householdId: scoped.householdId, error: scoped.error }), 400);
     const currentRows = await fetchAdminRows(env, { month, householdId, type: "all" });
-    const compare = compareBackupTransactions(view.rows, currentRows);
-    return htmlResponse(renderBackupCandidateSelectHtml({ payload, validation, compare, households, month, householdId, note: view.note }));
+    const compare = compareBackupTransactions(scoped.rows, currentRows);
+    return htmlResponse(renderBackupCandidateSelectHtml({ payload, validation, compare, households, month, householdId, note: [view.note, scoped.note].filter(Boolean).join(" ") }));
   } catch (err) {
     rememberOpsEvent({ kind: "backup_candidate_failed", severity: "warn", path: "/backup/import-candidates", method: "POST", detail: safeError(err) });
     return htmlResponse(renderBackupCandidateSelectHtml({ households, error: "가져오기 후보를 분석하지 못했습니다. 파일 구조와 선택한 가계부를 확인해 주세요." }), 400);
@@ -177,6 +182,36 @@ function finalCheckAgainstCurrent(candidateRows, currentRows) {
   return { risk, stillNew, nowDuplicate, counts: { plan: candidateRows.length, current: current.length, still_new: stillNew.length, now_duplicate: nowDuplicate.length } };
 }
 
+// V22.9.126 FC-27c: 최종 확인은 계획의 모든 행을 견줘, 적용이 뺄 행(다른 달·지출자 없음·활성 참여자 아님)까지 ‘아직 신규’ 로 세었다.
+// 최종 확인과 적용이 이 한 판정을 함께 쓴다(사유 문구는 적용이 쓰던 그대로).
+function importPlanScopeV229126(rows = [], month = "", members = []) {
+  const inScope = [];
+  const excluded = [];
+  for (const row of safeArray(rows)) {
+    if (String(row.transaction_date || "").slice(0, 7) !== month) { excluded.push({ row, error: `선택한 달(${month}) 밖의 날짜라 중복을 확인할 수 없어 제외`, excluded: true }); continue; }
+    // V22.9.37 감사 SIM-7: 지출자는 비어 있으면 저장할 수 없고(NOT NULL), 있으면 이 가계부의 활성 참여자여야 한다.
+    if (!row.user_id) { excluded.push({ row, error: "지출자(user_id)가 없어 저장할 수 없음 — 백업 원본의 user_id 를 확인하세요", excluded: true }); continue; }
+    if (!activeSpenderExists(members, row.user_id)) { excluded.push({ row, error: "지출자가 이 가계부의 활성 참여자가 아니어서 제외", excluded: true }); continue; }
+    inScope.push(row);
+  }
+  return { inScope, excluded };
+}
+
+// V22.9.126 FC-26: 후보 화면이 만든 계획 파일에는 만든 가계부(household_id)가 적힌다. 고른 가계부와 다르면 최종 확인·적용을 멈춘다.
+// 가계부가 적히지 않은 계획(예전 파일·고친 파일)은 행에도 가계부가 없어 어느 가계부의 기록인지 알 수 없으므로 받지 않는다(2차 검토).
+function importPlanHouseholdV229126(plan) {
+  const value = safeObject(plan).household_id;
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function importPlanHouseholdMissingV229126(action = "") {
+  return `이 계획 파일에는 계획을 만든 가계부가 적혀 있지 않습니다(예전에 만들었거나 고친 파일). 다른 가계부의 기록이 섞이지 않도록 ${action} 백업센터 ‘4. 복구할 항목 고르기’ 에서 백업 파일을 다시 올려 계획을 새로 만드세요.`;
+}
+
+function importPlanHouseholdMismatchV229126(households, planHouseholdId, householdId) {
+  return `이 계획 파일은 ‘${backupHouseholdLabelV229126(households, planHouseholdId)}’ 가계부에서 만든 것이라 고른 가계부(‘${backupHouseholdLabelV229126(households, householdId)}’)와 다릅니다. 다른 가계부에 기록을 옮겨 담지 않도록 멈췄습니다. 선택 칸을 계획의 가계부로 바꿔 두었으니 파일을 다시 골라 올려 주세요.`;
+}
+
 function renderFinalCheckRows(rows = []) {
   const arr = safeArray(rows).slice(0, 80);
   if (!arr.length) return `<tr><td colspan="6">표시할 항목이 없습니다.</td></tr>`;
@@ -190,7 +225,10 @@ function renderImportFinalCheckHtml({ households = [], householdId = "", month =
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(householdChoiceLabelV229118(h, households) || h.name)}</option>`).join("");
   const errorBox = error ? `<section class="card bad"><h2>최종 확인 실패</h2><p>${escapeHtml(error)}</p></section>` : "";
   const validationBox = validation ? `<section class="card ${validation.ok ? "good" : "bad"}"><h2>계획 파일 검증: ${validation.ok ? "정상" : "확인 필요"}</h2><div class="grid mini"><div class="metric"><span>선택 후보</span><b>${numberWithCommas(validation.counts.selected)}</b></div><div class="metric"><span>수입 합계</span><b>${numberWithCommas(validation.counts.income)}원</b></div><div class="metric"><span>지출 합계</span><b>${numberWithCommas(validation.counts.expense)}원</b></div><div class="metric"><span>잔액 영향</span><b>${numberWithCommas(validation.counts.balance)}원</b></div></div>${validation.errors?.length ? `<h3>오류</h3><ul>${validation.errors.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}${validation.warnings?.length ? `<h3>주의</h3><ul>${validation.warnings.map((x) => `<li>${escapeHtml(x)}</li>`).join("")}</ul>` : ""}</section>` : "";
-  const finalHtml = finalCheck ? `<section class="card ${finalCheck.risk === "good" ? "good" : "warn"}"><h2>${finalCheck.risk === "good" ? "최종 확인 통과" : "중복 재확인 필요"}</h2><p>${finalCheck.risk === "good" ? "계획 파일의 모든 후보가 현재 DB에 아직 없어 보입니다. 그래도 이 화면은 DB에 저장하지 않습니다." : "계획 생성 이후 현재 DB에 이미 들어간 항목이 있어 보입니다. 실제 가져오기 전 후보 계획을 다시 만드는 것이 안전합니다."}</p><div class="grid mini"><div class="metric"><span>계획 후보</span><b>${numberWithCommas(finalCheck.counts.plan)}</b></div><div class="metric"><span>현재 거래</span><b>${numberWithCommas(finalCheck.counts.current)}</b></div><div class="metric"><span>아직 신규</span><b>${numberWithCommas(finalCheck.counts.still_new)}</b></div><div class="metric"><span>현재 중복</span><b>${numberWithCommas(finalCheck.counts.now_duplicate)}</b></div></div></section><section class="card"><h2>아직 신규 후보</h2><p class="note">다음 실제 가져오기 단계에서 대상이 될 수 있는 항목입니다. 이 화면에서는 저장하지 않습니다.</p><div class="tableWrap"><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th></tr></thead><tbody>${renderFinalCheckRows(finalCheck.stillNew)}</tbody></table></div></section><section class="card"><h2>현재 중복 후보</h2><p class="note">계획 생성 이후 이미 현재 데이터에 있는 것으로 보이는 항목입니다.</p><div class="tableWrap"><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th></tr></thead><tbody>${renderFinalCheckRows(finalCheck.nowDuplicate)}</tbody></table></div></section>` : "";
+  const excludedCount = safeArray(finalCheck?.excluded).length;
+  const finalTitle = finalCheck ? (finalCheck.counts.now_duplicate ? "중복 재확인 필요" : excludedCount ? "일부 행은 적용에서 빠집니다" : "최종 확인 통과") : "";
+  const finalText = finalCheck ? (finalCheck.counts.now_duplicate ? "계획 생성 이후 현재 DB에 이미 들어간 항목이 있어 보입니다. 실제 가져오기 전 후보 계획을 다시 만드는 것이 안전합니다." : excludedCount ? "형식이 틀리거나 선택한 달 밖이거나 지출자가 이 가계부의 활성 참여자가 아닌 행은 적용 단계에서도 저장하지 않습니다. 아래 ‘적용에서 빠질 행’ 의 사유를 확인하세요. 이 화면은 DB에 저장하지 않습니다." : "계획 파일의 모든 후보가 현재 DB에 아직 없어 보입니다. 그래도 이 화면은 DB에 저장하지 않습니다.") : "";
+  const finalHtml = finalCheck ? `<section class="card ${finalCheck.counts.now_duplicate || excludedCount ? "warn" : "good"}"><h2>${finalTitle}</h2><p>${finalText}</p><div class="grid mini"><div class="metric"><span>계획 후보</span><b>${numberWithCommas(finalCheck.counts.plan)}</b></div><div class="metric"><span>현재 거래</span><b>${numberWithCommas(finalCheck.counts.current)}</b></div><div class="metric"><span>아직 신규</span><b>${numberWithCommas(finalCheck.counts.still_new)}</b></div><div class="metric"><span>현재 중복</span><b>${numberWithCommas(finalCheck.counts.now_duplicate)}</b></div><div class="metric"><span>적용에서 빠짐</span><b>${numberWithCommas(excludedCount)}</b></div></div></section>${excludedCount ? `<section class="card warn"><h2>적용에서 빠질 행</h2><div class="tableWrap"><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th><th>사유</th></tr></thead><tbody>${renderImportApplyRows(finalCheck.excluded)}</tbody></table></div></section>` : ""}<section class="card"><h2>아직 신규 후보</h2><p class="note">다음 실제 가져오기 단계에서 대상이 될 수 있는 항목입니다. 이 화면에서는 저장하지 않습니다.</p><div class="tableWrap"><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th></tr></thead><tbody>${renderFinalCheckRows(finalCheck.stillNew)}</tbody></table></div></section><section class="card"><h2>현재 중복 후보</h2><p class="note">계획 생성 이후 이미 현재 데이터에 있는 것으로 보이는 항목입니다.</p><div class="tableWrap"><table><thead><tr><th>날짜</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th></tr></thead><tbody>${renderFinalCheckRows(finalCheck.nowDuplicate)}</tbody></table></div></section>` : "";
   return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>가져오기 최종 확인</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1160px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7f1d1d));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.card.good{border-color:#86efac;background:#f0fdf4}.card.warn{border-color:#fde68a;background:#fffbeb}.card.bad{border-color:#fecaca;background:#fef2f2}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.upload{display:grid;grid-template-columns:1fr 160px 170px 170px;gap:10px}.upload input,.upload select,.upload button{min-height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.upload input[type=file]{padding:10px}.upload button,.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.btn.light{background:#eff6ff;color:#1e3a8a}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:760px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}@media(max-width:840px){.wrap{padding:12px}.hero h1{font-size:24px}.upload{grid-template-columns:1fr}.card{overflow-x:auto}}</style></head><body>${renderUnifiedNav("backup", { month, householdId, role: "admin" })}<main class="wrap"><section class="hero"><h1>가져오기 최종 확인</h1><p>v10.4에서 저장한 후보 계획 JSON을 실제 가져오기 전 다시 검증하고, 관리자 비밀번호를 재확인합니다. 이 단계도 DB에 아무것도 저장하지 않습니다.</p><p><a class="btn light" href="/backup/select">후보 선택</a> <a class="btn light" href="/backup/compare">백업 비교</a></p></section><section class="card"><h2>후보 계획 파일 최종 확인</h2><p class="warnBox">선택 계획 JSON과 관리자 비밀번호를 함께 확인합니다. 비밀번호가 맞아도 아직 Supabase에는 저장하지 않습니다.</p><form class="upload" method="post" action="/backup/final-check" enctype="multipart/form-data"><input type="file" name="plan_file" accept="application/json,.json" required/><select name="household_id"><option value="">가계부 선택</option>${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month || currentMonthKst())}"/><input type="password" name="admin_password" placeholder="관리자 비밀번호" autocomplete="current-password" required/><button type="submit">최종 확인</button></form></section>${errorBox}${validationBox}${finalHtml}</main></body></html>`;
 }
 
@@ -228,16 +266,37 @@ async function handleImportFinalCheckPost(request, env) {
     if (!validation.ok) {
       return htmlResponse(renderImportFinalCheckHtml({ households, month, householdId, validation, error: "후보 계획 파일 구조를 먼저 확인해야 합니다." }), 400);
     }
-    const currentRows = await fetchAdminRows(env, { month, householdId, type: "all" });
-    const finalCheck = finalCheckAgainstCurrent(validation.rows, currentRows);
-    return htmlResponse(renderImportFinalCheckHtml({ households, month, householdId, validation, finalCheck, passwordOk: true }));
+    const planHouseholdId = importPlanHouseholdV229126(plan);
+    if (!planHouseholdId) {
+      return htmlResponse(renderImportFinalCheckHtml({ households, month, householdId, validation, error: importPlanHouseholdMissingV229126("확인하지 않았습니다.") }), 400);
+    }
+    if (householdId && planHouseholdId !== householdId) {
+      return htmlResponse(renderImportFinalCheckHtml({ households, month, householdId: planHouseholdId, validation, error: importPlanHouseholdMismatchV229126(households, planHouseholdId, householdId) }), 400);
+    }
+    // 2차 검토: 읽기 실패는 ‘후보 파일을 다시 생성’ 이 아니라 확인 불가다(계획 파일에는 문제가 없다).
+    let currentRows;
+    let members;
+    try {
+      currentRows = await fetchAdminRows(env, { month, householdId: planHouseholdId, type: "all" });
+      members = await fetchHouseholdMembers(env, planHouseholdId);
+    } catch (err) {
+      rememberOpsEvent({ kind: "backup_final_check_failed", severity: "warn", path: "/backup/import-final-check", method: "POST", detail: safeError(err) });
+      return htmlResponse(renderImportFinalCheckHtml({ households, month, householdId: planHouseholdId, validation, error: "현재 기록이나 참여자 목록을 읽지 못해 확인하지 못했습니다(확인 불가). 계획 파일은 그대로 두고 잠시 후 다시 확인하세요." }), 503);
+    }
+    const scope = importPlanScopeV229126(validation.rows, month, members);
+    const checked = finalCheckAgainstCurrent(scope.inScope, currentRows);
+    // 적용과 같이 형식 오류로 뺀 행(validation.invalid)도 ‘적용에서 빠짐’ 과 ‘계획 후보’ 에 센다.
+    const excluded = [...safeArray(validation.invalid), ...scope.excluded];
+    const finalCheck = { ...checked, excluded, counts: { ...checked.counts, plan: validation.rows.length + safeArray(validation.invalid).length } };
+    return htmlResponse(renderImportFinalCheckHtml({ households, month, householdId: planHouseholdId, validation, finalCheck, passwordOk: true }));
   } catch (err) {
     rememberOpsEvent({ kind: "backup_final_check_failed", severity: "warn", path: "/backup/import-final-check", method: "POST", detail: safeError(err) });
     return htmlResponse(renderImportFinalCheckHtml({ households, error: "최종 확인을 완료하지 못했습니다. 후보 파일을 다시 생성해 주세요." }), 400);
   }
 }
 
-const IMPORT_APPLY_LIMIT = 20;
+// V22.9.126 FC-27j: 20건이면 한 요청의 DB 호출이 예산(50회)을 꼭 채웠다(행마다 저장·확인 2회 + 고정 10회). 여유를 두고 18건으로 둔다.
+const IMPORT_APPLY_LIMIT = 18;
 const IMPORT_CONFIRM_TEXT = "가져오기 적용";
 
 function renderImportApplyRows(rows = [], status = "") {
@@ -303,6 +362,13 @@ async function handleImportApplyPost(request, env) {
     if (!validation.ok) {
       return htmlResponse(renderImportApplyHtml({ households, month, householdId, validation, error: "후보 계획 파일 구조를 먼저 확인해야 합니다." }), 400);
     }
+    const planHouseholdId = importPlanHouseholdV229126(plan);
+    if (!planHouseholdId) {
+      return htmlResponse(renderImportApplyHtml({ households, month, householdId, validation, error: `${importPlanHouseholdMissingV229126("적용하지 않았습니다.")} 아무 행도 저장하지 않았습니다.` }), 400);
+    }
+    if (planHouseholdId !== householdId) {
+      return htmlResponse(renderImportApplyHtml({ households, month, householdId: planHouseholdId, validation, error: `${importPlanHouseholdMismatchV229126(households, planHouseholdId, householdId)} 아무 행도 저장하지 않았습니다.` }), 400);
+    }
     // V22.9.37 감사 SIM-7: 가계부는 읽어 온 목록에 있는 것만 받는다(목록을 못 읽었으면 적용하지 않는다).
     if (!households.some((h) => String(h.id) === householdId)) {
       return htmlResponse(renderImportApplyHtml({ households, month, householdId, validation, error: "선택한 가계부를 찾지 못했습니다. 가계부 목록을 다시 불러온 뒤 선택해 주세요. 아무 행도 저장하지 않았습니다." }), 400);
@@ -327,15 +393,9 @@ async function applyCandidatePlanRows(env, { householdId = "", month = "", valid
   const currentRows = await fetchAdminRows(env, { month, householdId, type: "all" });
   const members = await fetchHouseholdMembers(env, householdId);
   const excludedRows = safeArray(validation.invalid).slice();
-  const inScope = [];
-  for (const row of safeArray(validation.rows)) {
-    if (String(row.transaction_date || "").slice(0, 7) !== month) { excludedRows.push({ row, error: `선택한 달(${month}) 밖의 날짜라 중복을 확인할 수 없어 제외`, excluded: true }); continue; }
-    // V22.9.37 감사 SIM-7: 지출자는 비어 있으면 저장할 수 없고(NOT NULL), 있으면 이 가계부의 활성 참여자여야 한다.
-    if (!row.user_id) { excludedRows.push({ row, error: "지출자(user_id)가 없어 저장할 수 없음 — 백업 원본의 user_id 를 확인하세요", excluded: true }); continue; }
-    if (!activeSpenderExists(members, row.user_id)) { excludedRows.push({ row, error: "지출자가 이 가계부의 활성 참여자가 아니어서 제외", excluded: true }); continue; }
-    inScope.push(row);
-  }
-  const finalCheck = finalCheckAgainstCurrent(inScope, currentRows);
+  const scope = importPlanScopeV229126(validation.rows, month, members);
+  excludedRows.push(...scope.excluded);
+  const finalCheck = finalCheckAgainstCurrent(scope.inScope, currentRows);
   const applyRows = finalCheck.stillNew.slice(0, IMPORT_APPLY_LIMIT);
   const limitRows = finalCheck.stillNew.slice(IMPORT_APPLY_LIMIT).map((row) => ({ row, error: `1회 ${IMPORT_APPLY_LIMIT}건 제한으로 제외` }));
   const duplicateRows = finalCheck.nowDuplicate.map((x) => ({ row: x.backup || x, error: "현재 DB 중복으로 제외" }));

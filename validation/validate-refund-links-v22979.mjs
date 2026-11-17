@@ -15,13 +15,16 @@ import { existsSync, readFileSync } from "node:fs";
 import { BASE, app, ctx, fixture, intercept, page, post, skill, withClock } from "./lib-audit-v22934.mjs";
 
 const PRINT_GOLDEN = process.argv.includes("--print-golden");
+// V22.9.126(F-20, 2026-11-16): 정산 완료 지문(preview_digest)에 기본 참여자의 id·역할을 넣어 정산 화면 본문 셋(equalMain·itemMain·afterMain)과 완료 이력 항목(entry 의 rows_digest)의 값이 바뀌었다.
+// 해시에 들어가는 원문 28개를 운영 번들(main 9c3fa81)과 견줘 preview_digest 값 말고는 같음을 먼저 확인했고(지문에서 참여자 한 줄만 빼면 옛 값으로 251개가 모두 통과),
+// 그 뒤 --print-golden 으로 네 값을 다시 얻었다. memberMain·kakao·routes·readyKeys 는 그대로다.
 const FLAG_OFF_GOLDEN = {
-  equalMain: "069bfd14accbf10e150aa8c1",
-  itemMain: "2a134791e4227d18be2fb57b",
+  equalMain: "c24ff23171c3d263dbc03342",
+  itemMain: "59f709871a82052f64c845f9",
   memberMain: "f217a4472b9be984ae6cc7f7",
-  afterMain: "de625792d4824d8a0702ac37",
+  afterMain: "ad2bb736ab773b7c58132121",
   kakao: "📊 2026-10 정산\n환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.\n총 지출: 130,000원\n참여자: 2명\n1인 기준: 65,000원\n\n• Bin: 35,000원 받기\n• WIFI♥: 35,000원 보내기\n\n송금 제안\n• WIFI♥ → Bin: 35,000원",
-  entry: "{\"schema_version\":2,\"month\":\"2026-10\",\"mode\":\"equal\",\"conditions\":{\"weights\":{},\"itemParticipants\":{}},\"total_expense\":130000,\"participant_count\":2,\"shares\":[{\"user_id\":\"user-bin\",\"name\":\"Bin\",\"paid\":100000,\"share\":65000,\"balance\":35000},{\"user_id\":\"user-wifi\",\"name\":\"WIFI♥\",\"paid\":30000,\"share\":65000,\"balance\":-35000}],\"transfers\":[{\"from\":\"WIFI♥\",\"to\":\"Bin\",\"amount\":35000}],\"rows_digest\":\"08cb42034599e093a5c0ab7bcc975449\",\"note\":\"합성 정산\",\"completed_by\":\"user-bin\",\"status\":\"completed\"}",
+  entry: "{\"schema_version\":2,\"month\":\"2026-10\",\"mode\":\"equal\",\"conditions\":{\"weights\":{},\"itemParticipants\":{}},\"total_expense\":130000,\"participant_count\":2,\"shares\":[{\"user_id\":\"user-bin\",\"name\":\"Bin\",\"paid\":100000,\"share\":65000,\"balance\":35000},{\"user_id\":\"user-wifi\",\"name\":\"WIFI♥\",\"paid\":30000,\"share\":65000,\"balance\":-35000}],\"transfers\":[{\"from\":\"WIFI♥\",\"to\":\"Bin\",\"amount\":35000}],\"rows_digest\":\"2a966869aa9e946e9a42f16e389008c6\",\"note\":\"합성 정산\",\"completed_by\":\"user-bin\",\"status\":\"completed\"}",
   routes: "GET /my/settlement/refund-link 404\nPOST /my/settlement/refund-link 404 \nPOST /my/settlement/refund-unlink 404 \nPOST /my/settlement/refund-keep 404 ",
   readyKeys: "ok,ready,version,skill_caller_auth_configured,skill_caller_auth,checked_tables,checked_required_tables,checked_optional_tables,checked_rpcs,failed_tables,unavailable_optional_tables,missing_rpcs,ads_mode",
 };

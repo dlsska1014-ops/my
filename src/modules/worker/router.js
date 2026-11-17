@@ -1,8 +1,8 @@
 // @build:imports-start
 import { AB_REQUEST_SESSION_UNAVAILABLE } from "../runtime/global-state.js";
 import {
-  boundedRuntimeNumber, checkTrafficGuard, cleanupNluOpsRetention, csrfOriginAllowed,
-  csrfRejectedResponse, csrfSignalSummary, rememberOpsEvent, trafficLimitedResponse,
+  checkTrafficGuard, cleanupNluOpsRetention, csrfOriginAllowed, csrfRejectedResponse,
+  csrfSignalSummary, rememberOpsEvent, trafficLimitedResponse,
 } from "../runtime/ops-telemetry.js";
 import {
   CORS_HEADERS, READINESS_ALTERNATIVE_RPC_GROUPS, READINESS_CORE_RPCS, READINESS_OPTIONAL_TABLES,
@@ -314,6 +314,14 @@ function dbCallBudgetV229119(value, name = "DB_CALL_BUDGET") {
 
 function dbCallBudgetBaseV229119(budget) {
   return budget === DB_CALL_BUDGET_DEFAULT_V229119 ? {} : { __AB_DB_BUDGET_BASE_V229119: budget };
+}
+
+// V22.9.126 FC-17: 로그인 없이 열리는 /health·/ready·/kakao-new-bot-config.json 에는 모드·설정 여부만 싣는다.
+// 통과·거부 건수·시각과 헤더 누락 추정은 싣지 않는다 — 새로 뜬 인스턴스에 아무나 /skill 을 두 번 보내면 추정이 켜져 운영자를 헷갈리게 한다.
+// 그 값 전체는 관리자 전용 /ops-snapshot.json 의 skill_caller_auth 에 있다.
+function publicSkillAuthSnapshotV229126(env) {
+  const { mode, configured } = kakaoSkillAuthSnapshot(env);
+  return { mode, configured };
 }
 
 // V22.9.122 F-1(출시 전 점검 2026-11-14): 서명·만료가 맞는 세션 쿠키인데 DB 가 잠깐 답하지 못해 로그인 확인을 못 하면, 예전에는 로그인하지 않은 사람처럼 /my 로
@@ -941,7 +949,7 @@ const ACCOUNTBOOK_WORKER = {
 
       if (url.pathname === "/health") {
         const missing = missingRuntimeConfiguration(env);
-        return jsonResponse({ ok: true, alive: true, status: "alive", configured: missing.length === 0, app: appName(env), version: APP_VERSION, mode: APP_MODE, integrity: "auth-atomicity-spender-audit", missing_count: missing.length, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), skill_latency: skillLatencySnapshot(), ready_endpoint: "/ready", time: new Date().toISOString() });
+        return jsonResponse({ ok: true, alive: true, status: "alive", configured: missing.length === 0, app: appName(env), version: APP_VERSION, mode: APP_MODE, integrity: "auth-atomicity-spender-audit", missing_count: missing.length, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: publicSkillAuthSnapshotV229126(env), skill_latency: skillLatencySnapshot(), ready_endpoint: "/ready", time: new Date().toISOString() });
       }
 
       if (url.pathname === "/ready") {
@@ -952,7 +960,7 @@ const ACCOUNTBOOK_WORKER = {
         // V22.9.94 R-2: 점검은 readinessReportV22994 가 하고 60초 동안 다시 쓴다. 칸 순서는 V22.9.93 그대로이고, 함수 없음이 아닌 실패가
         // 있을 때만 rpc_failures 를, 다시 쓴 답일 때만 cached·checked_at 을 더한다.
         const report = await readinessReportV22994(env);
-        return jsonResponse({ ok: report.ready, ready: report.ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: report.checkedRpcs, failed_tables: report.failedTables, unavailable_optional_tables: report.unavailableOptionalTables, missing_rpcs: report.missingRpcs, ...(report.rpcFailures.length ? { rpc_failures: report.rpcFailures } : {}), ads_mode: adsMode(env), ...(adfitUnitStatus(env) ? { adfit_unit: adfitUnitStatus(env) } : {}), ...(report.refundLinksReady ? { refund_links: report.refundLinksReady } : {}), ...(report.cached ? { cached: true, checked_at: report.checkedAt } : {}), time: new Date().toISOString() }, report.ready ? 200 : 503);
+        return jsonResponse({ ok: report.ready, ready: report.ready, version: APP_VERSION, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: publicSkillAuthSnapshotV229126(env), checked_tables: READINESS_REQUIRED_TABLES.length + READINESS_OPTIONAL_TABLES.length, checked_required_tables: READINESS_REQUIRED_TABLES.length, checked_optional_tables: READINESS_OPTIONAL_TABLES.length, checked_rpcs: report.checkedRpcs, failed_tables: report.failedTables, unavailable_optional_tables: report.unavailableOptionalTables, missing_rpcs: report.missingRpcs, ...(report.rpcFailures.length ? { rpc_failures: report.rpcFailures } : {}), ads_mode: adsMode(env), ...(adfitUnitStatus(env) ? { adfit_unit: adfitUnitStatus(env) } : {}), ...(report.refundLinksReady ? { refund_links: report.refundLinksReady } : {}), ...(report.cached ? { cached: true, checked_at: report.checkedAt } : {}), time: new Date().toISOString() }, report.ready ? 200 : 503);
       }
 
       if ((url.pathname === "/nlu-intents.json" || url.pathname === "/nlu-runtime.json") && request.method === "GET") {
@@ -1375,8 +1383,9 @@ const ACCOUNTBOOK_WORKER = {
       }
 
       if (url.pathname === "/kakao-new-bot-config.json" && request.method === "GET") {
+        // V22.9.126 FC-17: 요청 제한 값(SKILL_RATE_LIMIT·TRAFFIC_GUARD_LIMIT)은 싣지 않는다 — 로그인 없이 열리는 안내라 피해 갈 한도만 알려 준다.
         const publicBase = publicBaseUrl(env, url);
-        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: kakaoSkillAuthSnapshot(env), user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_rate_limit_per_user_per_minute: boundedRuntimeNumber(env.SKILL_RATE_LIMIT, 60, 10, 10000), traffic_guard_limit_per_ip_per_minute: boundedRuntimeNumber(env.TRAFFIC_GUARD_LIMIT, 240, 20, 10000), skill_ip_guard: "high_ceiling_only; botUserKey guard handles normal traffic", chat_first: true, quick_replies: "direct_guided_flows_only; group_converted_to_typed_choices" });
+        return jsonResponse({ ok: true, version: APP_VERSION, mode: APP_MODE, service: appName(env), public_base_url: publicBase, skill_url: `${publicBase}/skill`, skill_caller_auth_configured: !!String(env.KAKAO_SKILL_SECRET || "").trim(), skill_caller_auth: publicSkillAuthSnapshotV229126(env), user_home: `${publicBase}/my`, kakao_redirect_uri: `${publicBase}/auth/kakao/callback`, privacy_url: `${publicBase}/privacy`, terms_url: `${publicBase}/terms`, group_chatbot_routes: ["/group-chatbot-launch", "/openbuilder-start-blocks", "/group-chatbot-scale", "/personal-url-audit", "/kakao-command-system"], forbidden_public_patterns: ["personal handle", "private workers.dev URL", "direct user email in public copy"], skill_ip_guard: "high_ceiling_only; botUserKey guard handles normal traffic", chat_first: true, quick_replies: "direct_guided_flows_only; group_converted_to_typed_choices" });
       }
 
       if ((url.pathname === "/release-candidate" || url.pathname === "/rc-check" || url.pathname === "/release-candidate-check") && request.method === "GET") {

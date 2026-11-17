@@ -730,6 +730,15 @@ function importTextOverCapV22995(text = "") {
   return false;
 }
 
+// V22.9.126 FC-6(4차): 점 금액 칸. 아래 칸 읽기가 통화 표시·괄호·부호를 뗀 숫자(numeric)가
+//  (가) 천 단위 점 꼴(12.000·1.200.000, 맨 앞 묶음은 0 으로 시작하지 않음)이거나
+//  (나) 고치기 전 이 읽기가 ‘.0…’ 끝으로만 받던 꼴 중 0 이 셋 이상(12000.000·1,000.000·12.0000)이면 dotted 다.
+//      정수 부분이 0 인 칸(0.000·000.000·0,000.000)은 되물을 금액이 없으므로 넣지 않는다(5차, 앞의 (?=…[1-9])).
+// 칸 읽기는 이 꼴을 금액으로 받지 않는다(그대로 읽지 못한 칸). dotted 는 머리글 없는 표가 그 줄을 자연어 해석으로 넘기지 않고 되묻는 데만 쓴다.
+// 전화번호(010.1234.5678·02.123.4567)·환율(1,350.500)·좌표(37.5665)·무게(0.500)는 이 꼴이 아니다.
+const IMPORT_THOUSANDS_DOT_NUMBER_V229126 = /^[1-9]\d{0,2}(?:\.\d{3})+$/;
+const IMPORT_OLD_ZERO_TAIL_NUMBER_V229126 = /^(?=[\d,]*[1-9])(?:\d+|\d{1,3}(?:,\d{3})+)\.0{3,}$/;
+
 function parseImportAmountCell(value = "") {
   const raw = String(value ?? "").normalize("NFKC").trim();
   if (!raw || /^(?:-|—|–)$/.test(raw)) return { amount: 0, present: !!raw, valid: true, negative: false, raw };
@@ -749,13 +758,16 @@ function parseImportAmountCell(value = "") {
   numeric = stripCurrency(numeric);
   let amount = 0;
   if (signs > 1) amount = NaN;
-  else if (/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.0+)?$/.test(numeric)) amount = Number(numeric.replace(/,/g, ""));
+  // V22.9.126 FC-6: 소수점 뒤 0은 두 자리까지만 원 단위의 끝(12000.00)으로 본다. ‘12.000원’ 은 천 단위 점일 수 있어 12원으로 읽지 않고 금액을 읽지 못한 칸으로 둔다.
+  else if (/^(?:\d+|\d{1,3}(?:,\d{3})+)(?:\.0{1,2})?$/.test(numeric)) amount = Number(numeric.replace(/,/g, ""));
   else if (numeric.length <= 120 && /^[0-9일이삼사오육칠팔구십백천만억영공.,\s]+$/.test(numeric) && /[십백천만억]/.test(numeric)) {
     const spans = moneyTokenSpans(numeric);
     amount = spans.length === 1 && spans[0].start === 0 && spans[0].end === numeric.length ? spans[0].amount : NaN;
   }
   else amount = NaN;
-  return { amount: Number.isFinite(amount) ? amount : 0, present: true, valid: Number.isSafeInteger(amount) && amount >= 0, negative, raw };
+  const valid = Number.isSafeInteger(amount) && amount >= 0;
+  const dotted = !valid && (IMPORT_THOUSANDS_DOT_NUMBER_V229126.test(numeric) || IMPORT_OLD_ZERO_TAIL_NUMBER_V229126.test(numeric));
+  return { amount: Number.isFinite(amount) ? amount : 0, present: true, valid, negative, raw, dotted };
 }
 
 // V22.9.94 C-7: 외화 표시. 머리글 있는 표의 금액 칸과 머리글 없는 행에서 금액을 찾은 칸이 같은 기준을 쓴다(₩·￦·원·KRW·won 은 원화).
@@ -1034,13 +1046,19 @@ function normalizeImportedRecordDetailed(obj = {}, householdId = "", raw = "", c
   let inferredAmount = false, inferredLocal = false;
   if (!chosen.amount && !canonicalImportValue(obj, "amount") && !canonicalImportValue(obj, "income") && !canonicalImportValue(obj, "expense")) {
     const amountCandidates = [];
-    let foreignAmountCell = false;
+    let foreignAmountCell = false, dottedAmountCell = false;
     for (const cell of contextCells || []) {
       if (!String(cell || "").trim() || parseImportDateCell(cell, options) || normalizeImportTypeValue(cell)) continue;
       const info = parseImportAmountCell(cell);
       if (info.amount > 0) amountCandidates.push(info);
       else if (importForeignAmountOnlyV22994(info.raw)) foreignAmountCell = true;
+      else if (info.dotted) dottedAmountCell = true;
     }
+    // V22.9.126 FC-6: 머리글 없는 표의 점 금액 칸(‘12.000원’·‘(12.000)’·‘12000.000’ 등, 칸 읽기의 dotted)은 금액으로 읽지 않고 자연어 해석으로도 넘기지 않는다.
+    // 고치기 전에는 칸 읽기가 ‘.0…’ 끝을 떼어 ‘12.000원’ 을 12원으로 읽었다. 그 칸만 읽지 못하게 하면 줄이 자연어 해석으로 넘어가
+    // 12,000원 지출이 되거나 ‘(12.000)’ 환불의 부호가 사라졌다(4차에서 확인). 그래서 그 칸뿐이면 머리글 있는 표와 같은 ‘금액 형식을 해석하지 못함’,
+    // 읽을 수 있는 금액 칸이 함께 있으면 ‘금액 후보가 여러 개’ 로 되묻는다(고치기 전에도 그 칸을 12 로 읽어 후보가 둘이었다).
+    if (dottedAmountCell) return { row: null, rejection: importRejection(amountCandidates.length ? "ambiguous_amount" : "invalid_amount", options.rowNumber, rawText), warnings };
     const unique = [...new Map(amountCandidates.map((item) => [item.amount, item])).values()];
     if (unique.length === 1) {
       // V22.9.94 C-7: 찾은 금액 칸(같은 금액의 칸 모두)에 외화 표시가 있으면 머리글 경로처럼 거절한다. 외화 금액만 적힌 칸(‘€1’·‘USD 1’·‘000$’ —

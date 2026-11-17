@@ -245,7 +245,7 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   ok((await page(fx, `/my/settings?${M}&${H}&msg=recurring_saved_other_recorded`)).html.includes("다른 참여자 이름으로 있어 이번 달 자동 반영은 그대로 진행돼요"), "설정 화면이 그 안내를 사람 말로 보인다");
 
   // ── 7. 관제 1.7.0 ─────────────────────────────────────────────────────────────────────────
-  eq(MONITOR_VERSION, "1.7.0", "관제 판 1.7.0");
+  eq(MONITOR_VERSION, "1.8.0", "관제 판 1.8.0(V22.9.126 — 1.7.0 의 /ready 30분 간격은 그대로)");
   const worker = read("monitoring/worker.mjs");
   ok(worker.includes("const READY_REUSE_MS=27.5*60000;") && worker.includes("const READY_PROBE_AFTER_FAILURE_MS=60*60000;"), "재사용 창 27.5분·실패 뒤 1시간 상수");
   ok(read("monitoring/dashboard.mjs").includes("' · 30분마다 확인(마지막 '"), "화면이 재사용한 /ready 줄을 표시한다");

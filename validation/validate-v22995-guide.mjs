@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // V22.9.95 안내·해석 검사(영역 3) — 번들(src/index.js)·QA 픽스처·가짜 브라우저로 본다. DB·네트워크 없음.
-//   R-14 안내: /kakao-guide 의 표 10줄이 카카오 1:1·단톡방에서 보낸 실제 결과와 같다. 봇 ‘기록방법’ 카드 두 줄. 되묻는 답(금액을 못 읽음·외화)에
+//   R-14 안내: /kakao-guide 의 표 11줄(V22.9.126 에서 카드 승인 문자 한 줄을 더함)이 카카오 1:1·단톡방에서 보낸 실제 결과와 같다. 봇 ‘기록방법’ 카드 두 줄. 되묻는 답(금액을 못 읽음·외화)에
 //              ‘입력 예시 보기’ 링크 버튼(글에는 주소 없음). /quick-input-help 낡은 문구 0·지금 동작. 공지 띠 NOTICE_TEXT·NOTICE_LINK(있을 때만).
 //              /menu ‘도움말과 안내’ 의 ‘문의·FAQ’ 줄.
 //   R-16 분류 예외 4개(운동화·충전기·참기름/들기름·버스킹)의 전·후. 보이지 않는 글자(폭 0 글자 지우기, 전각 라틴·숫자·공백만 반각).
@@ -169,25 +169,28 @@ function oldParserLines(sentences) {
   } catch (_) { return null; } finally { if (dir) rmSync(dir, { recursive: true, force: true }); }
 }
 
-// ── R-14: /kakao-guide 표 10줄 = 실제 결과 ─────────────────────────────────
+// ── R-14: /kakao-guide 표 11줄 = 실제 결과 ─────────────────────────────────
 const TABLE = [
   ["점심 12000원", "지출 12,000원 1건(외식)", (r) => r.rows.length === 1 && r.rows[0].amount === 12000 && r.rows[0].type === "expense" && r.rows[0].category === "외식"],
   ["커피 4500, 택시 8000", "지출 2건(4,500원·8,000원)", (r) => r.rows.length === 2 && r.rows.map((row) => row.amount).join(",") === "4500,8000" && r.rows.every((row) => row.type === "expense")],
   ["어제 병원 15000", "어제 날짜로 15,000원 1건", (r) => r.rows.length === 1 && r.rows[0].amount === 15000 && r.rows[0].transaction_date === "2026-07-14"],
   ["신한카드 1234 결제 5000", "5,000원 1건, 결제수단 신한카드", (r) => r.rows.length === 1 && r.rows[0].amount === 5000 && r.rows[0].payment_method === "신한카드"],
+  // V22.9.126(V122:K-7): 카드 승인 문자를 통째로 붙여 넣은 꼴(V22.9.122 K-1). 시계가 2026-07-15 라 문자의 07/14 는 어제다.
+  ["[Web발신]\n삼성1234승인 홍*동\n45,000원 일시불\n07/14 19:22 교촌치킨\n누적532,000원", "문자에 적힌 날짜(7월 14일)로 45,000원 1건, 결제수단 삼성카드", (r) => r.rows.length === 1 && r.rows[0].amount === 45000 && r.rows[0].type === "expense" && r.rows[0].transaction_date === "2026-07-14" && r.rows[0].payment_method === "삼성카드" && r.rows[0].memo === "교촌치킨"],
   ["수정 01번 금액 13000", "오늘 01번 기록의 금액을 13,000원으로 고쳐요", (r) => r.rows.length === 0 && r.removed.length === 0 && r.changed.length === 1 && r.changed[0].amount === 13000, ["주차 3000"]],
   ["방금 거 지워줘", "가장 최근 기록을 지워요", (r) => r.rows.length === 0 && r.removed.length === 1 && r.text.includes("복구"), ["주차 3000"]],
   ["예산 식비 300000", "이번 달 식비 예산 300,000원 설정(기록 아님)", (r) => r.rows.length === 0 && r.removed.length === 0 && r.changed.length === 0 && r.text.includes("식비 예산")],
   ["커피 $100", "저장하지 않고 다시 물어요", (r) => r.rows.length === 0 && r.text.includes(FOREIGN_TEXT) && exampleButton(r) && noUrlInText(r)],
   ["월급 300", "수입 300원으로 저장돼요", (r) => r.rows.length === 1 && r.rows[0].amount === 300 && r.rows[0].type === "income"],
-  ["3일 커피 4000\n5일 택시 8000", "두 건 모두 3일로 저장돼요(택시 내용은 ‘5일 택시’)", (r) => r.rows.length === 2 && r.rows.every((row) => row.transaction_date === "2026-07-03") && r.rows[1].memo === "5일 택시"],
+  // V22.9.126: 줄마다 날짜가 다른 기록은 저장하지 않고 되묻는다(그 전에는 두 건 모두 3일로 저장됐다 — V93:Q-104, 매달 1·2일에만 앞날 안전망이 되물었다 — V122:K-7).
+  ["3일 커피 4000\n5일 택시 8000", "저장하지 않고 다시 물어요", (r) => r.rows.length === 0 && r.removed.length === 0 && r.changed.length === 0 && r.text.includes("날짜가 둘 이상 적혀 있어서 저장하지 않았어요.")],
 ];
 await section("R-14 /kakao-guide 표", async () => {
   const response = await app.fetch(new Request(`${BASE}/kakao-guide`), {}, ctx);
   const html = await response.text();
   eq(response.status, 200, "R-14 /kakao-guide 가 열린다");
   ok(html.includes("잘 읽히는 문장과 다시 묻는 말") && html.includes("검증용 가상 문장과 처리 결과"), "R-14 /kakao-guide 에 ‘잘 읽히는 문장과 다시 묻는 말’ 절과 가상 검증임을 명시한 표 제목이 있다");
-  for (const [sentence, result] of TABLE) ok(html.includes(sentence.replace("\n", " ⏎ ")) && html.includes(result), `R-14 표에 ‘${sentence.replace("\n", " ⏎ ")}’ → ‘${result}’ 줄이 있다`);
+  for (const [sentence, result] of TABLE) ok(html.includes(sentence.split("\n").join(" ⏎ ")) && html.includes(result), `R-14 표에 ‘${sentence.split("\n").join(" ⏎ ")}’ → ‘${result}’ 줄이 있다`);
   const tableAt = html.indexOf("검증용 가상 문장과 처리 결과");
   const added = tableAt < 0 ? "" : html.slice(tableAt, html.indexOf("</table>", tableAt));
   ok(added.length > 500 && !/계좌|\d{2,3}-\d{3,4}-\d{4}|@[a-z0-9.-]+\.[a-z]{2,}/i.test(added), "R-14 새 절에 계좌·전화번호·메일 같은 개인 정보가 없다");

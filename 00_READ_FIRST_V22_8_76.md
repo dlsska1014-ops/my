@@ -23,7 +23,7 @@
 
 ### 이번에 넣은 것
 
-`/health` 에 실제 통과·거부 집계가 실려 나갑니다.
+`/health` 에 실제 통과·거부 집계가 실려 나갑니다(V22.9.126 부터는 관리자 전용 `/ops-snapshot.json` — 아래 ‘V22.9.126 부터 달라진 점’).
 
 ```json
 "skill_caller_auth": {
@@ -40,6 +40,12 @@
 `accepted` 가 0인데 `denied` 만 쌓이면 `header_missing_suspected` 가 `true` 가 됩니다.
 **헤더 설정이 빠졌다는 뜻입니다.**
 
+> **V22.9.126 부터 달라진 점**
+> 로그인 없이 열리는 `/health`·`/ready`·`/kakao-new-bot-config.json` 의 `skill_caller_auth` 에는 `mode` 와 `configured` 만 나옵니다.
+> 통과·거부 건수(`accepted`·`denied`), 마지막 시각(`last_accepted_at`·`last_denied_at`), 헤더 누락 추정(`header_missing_suspected`)은
+> 관리자로 로그인한 브라우저에서 `/ops-snapshot.json` 을 열어 `skill_caller_auth` 칸에서 봅니다(위 JSON 과 같은 모양).
+> 요청을 받은 인스턴스 하나의 집계라 새 인스턴스에서는 0 부터 다시 셉니다. 한두 번 새로 고쳐 보고, 실제 카카오톡 메시지 하나로 확인하세요.
+
 ### 안전하게 켜는 순서
 
 1. Cloudflare 에 `KAKAO_SKILL_AUTH_MODE = observe` 를 먼저 넣습니다.
@@ -48,7 +54,8 @@
    - `x-kakao-skill-secret: <비밀값>`
    - `x-api-key: <비밀값>`
    - `Authorization: Bearer <비밀값>`
-4. `/health` 에서 `accepted` 가 올라가고 `denied` 가 멈추는지 봅니다.
+4. 관리자로 로그인한 브라우저의 `/ops-snapshot.json` 에서 `skill_caller_auth` 의 `accepted` 가 올라가고 `denied` 가 멈추며
+   `header_missing_suspected` 가 `false` 인지 봅니다(V22.9.125 까지는 `/health` 에서 봤습니다).
 5. 확인되면 `KAKAO_SKILL_AUTH_MODE` 를 **지웁니다**. 그때부터 차단됩니다.
 
 ### 이미 켜서 카카오톡이 멈춘 경우

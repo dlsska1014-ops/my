@@ -107,7 +107,8 @@ await withClock("2026-07-15", async () => {
     const saved = await post(fx, "/my/settlement/save", fields);
     ok(/err=settlement_changed/.test(saved.decoded) && !fx.db.accountbook_settings.some((row) => row.key === "settlement_history:house-home"), "B11 화면을 연 뒤 지출이 바뀌면 완료를 저장하지 않는다");
     const notice = await page(fx, saved.location);
-    ok(notice.html.includes("화면을 연 뒤 이 달 지출 기록이 바뀌어 저장하지 않았습니다"), "B11 바뀐 이유를 알려 준다");
+    // V22.9.126 FC-20: 참여자가 바뀌어도 같은 안내로 거절하므로 문구에 ‘참여자’를 더했다.
+    ok(notice.html.includes("화면을 연 뒤 이 달 지출 기록이나 참여자가 바뀌어 저장하지 않았습니다"), "B11 바뀐 이유를 알려 준다");
   });
 });
 

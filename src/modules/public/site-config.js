@@ -8,7 +8,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.125-HIERARCHY-DENSITY";
+const APP_VERSION = "V22.9.126-FINAL-CHECK";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -146,7 +146,12 @@ function canonicalRedirectResponse(request, env = {}, url = null) {
     // V22.9.40: www.<정본 호스트>는 CANONICAL_REDIRECT 설정과 무관하게 정본으로 보낸다. 운영 www 가 같은 문서를 200 으로
     // 내보내 한 문서가 두 주소로 색인될 수 있었다. 옛 도메인·workers.dev 같은 다른 호스트는 예전처럼 변수가 "1" 일 때만 옮긴다.
     if (currentHost !== targetHost && currentHost !== `www.${targetHost}` && String(env.CANONICAL_REDIRECT || "").trim() !== "1") return null;
-    const next = new URL(url.pathname + url.search + url.hash, targetBase);
+    // V22.9.126 FC-3: 경로를 주소 글자로 이어 붙이면 `//example.org/x` 가 다른 사이트 주소로 읽혀 그곳으로 보냈다.
+    // 목적지는 정본 주소에서 시작하고 경로·쿼리만 옮겨 다른 호스트로 나가지 않게 한다.
+    const next = new URL(targetBase);
+    next.pathname = url.pathname;
+    next.search = url.search;
+    next.hash = url.hash;
     return new Response(null, { status: 308, headers: { location: next.toString(), "cache-control": "no-store" } });
   } catch (err) {
     return null;
@@ -186,6 +191,9 @@ const POLICY_REVISION_DATE = "2026-11-13";
 // 개정 공고일과 같은 날이다. 날짜를 쪽마다 따로 적지 않고 이 상수를 쓴다 — 배포일이 바뀌면 위 두 줄만 고친다. 다음 개정에서 약관·방침 날짜만 바꾸고
 // 이 쪽들은 그대로 둘 때는 이 줄을 그 전 날짜 글자로 고정한다(쪽 수정일이 내용 변경 없이 따라 바뀌지 않게).
 const PUBLIC_COPY_REVISION_DATE = POLICY_NOTICE_DATE;
+// V22.9.126: /kakao-guide 의 ‘잘 읽히는 문장과 다시 묻는 말’ 표를 실제 동작에 맞춰 고친 날이다(날짜가 다른 기록 여러 줄은 저장하지 않고 다시 묻는다 · 카드 승인 문자 한 줄, V122:K-7).
+// 이 쪽만 바뀌었으므로 여섯 쪽이 함께 쓰는 위 상수와 따로 둔다. 글을 고친 날을 적는 값이라 배포일에 맞춰 바꾸지 않는다(앞날 날짜만 아니면 된다).
+const KAKAO_GUIDE_COPY_REVISION_DATE = "2026-11-16";
 
 // "2026-07-13" → "2026년 7월 13일"(방침 머리의 시행·공고·개정일 표기).
 function policyDateLabel(ymd = POLICY_REVISION_DATE) {
@@ -577,15 +585,15 @@ function publicSiteFooter() {
 // @build:exports-start
 export {
   APP_MODE, APP_VERSION, BUSINESS_FOOTER_INFO, DEFAULT_PUBLIC_BASE_URL,
-  KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS, POLICY_NOTICE_DATE, POLICY_REVISION_DATE,
-  PUBLIC_CONTENT_PATHS, PUBLIC_COPY_REVISION_DATE, adSlotMarkup, adfitUnitStatus, adsHeadMarkup,
-  adsHeaders, adsMode, adsPolicyLinks, adsPolicyNetwork, adsPolicyText, adsPublicRequestKeyV229106,
-  adsensePublisherIdForTxt, appName, canonicalRedirectResponse, cardPerformanceEnabled,
-  currentRequestBaseUrl, envFlagEnabled, handleKakaoCommandSystemPage,
-  hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled, kakaoChatCommandCatalog,
-  kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg, memeCardsEnabled,
-  normalizeBaseUrl, pageNotFoundResponse, policyDateLabel, premiumBetaEnabled, publicAdsenseHead,
-  publicBaseUrl, publicSiteFooter, publicSiteNav, publicSupportEmail, renderBusinessInfoFooter,
-  renderSkillGetHealthHtml, signupConsentFieldHtml, termsNoticeLineHtml,
+  KAKAO_GUIDE_COPY_REVISION_DATE, KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS,
+  POLICY_NOTICE_DATE, POLICY_REVISION_DATE, PUBLIC_CONTENT_PATHS, PUBLIC_COPY_REVISION_DATE,
+  adSlotMarkup, adfitUnitStatus, adsHeadMarkup, adsHeaders, adsMode, adsPolicyLinks,
+  adsPolicyNetwork, adsPolicyText, adsPublicRequestKeyV229106, adsensePublisherIdForTxt, appName,
+  canonicalRedirectResponse, cardPerformanceEnabled, currentRequestBaseUrl, envFlagEnabled,
+  handleKakaoCommandSystemPage, hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled,
+  kakaoChatCommandCatalog, kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg,
+  memeCardsEnabled, normalizeBaseUrl, pageNotFoundResponse, policyDateLabel, premiumBetaEnabled,
+  publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav, publicSupportEmail,
+  renderBusinessInfoFooter, renderSkillGetHealthHtml, signupConsentFieldHtml, termsNoticeLineHtml,
 };
 // @build:exports-end

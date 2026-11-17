@@ -456,7 +456,8 @@ function budgetFeedbackLine(rows = [], budgets = [], category = "") {
 // 호출부가 예산설정·기록하기 버튼을 붙인다(2026-10-20 디자이너 피드백).
 async function kakaoBudgetStatusParts(env, householdId, month, origin = "", householdName = "", { canManage = true } = {}) {
   try {
-    const budgets = await fetchBudgets(env, householdId, month);
+    // V22.9.126 FC-5: 예산 읽기가 실패하면 ‘아직 예산이 없어요’ 가 아니라 아래 ‘불러오지 못했어요’ 로 답한다(저장된 예산을 없다고 했다).
+    const budgets = await fetchBudgets(env, householdId, month, { strict: true });
     // V22.9.80 V76 M-7: 연결한 환불 차감을 기록과 함께 읽는다(플래그가 꺼져 있으면 요청 없음). 사용 금액 줄에 반영을 적는다.
     const [rows, refund] = await Promise.all([
       fetchAdminRows(env, { month, householdId, type: "all" }),

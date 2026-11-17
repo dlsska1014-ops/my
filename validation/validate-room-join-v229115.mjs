@@ -16,6 +16,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { kakaoGroupFirstKeys } from "../src/modules/kakao/group-links-first-record.js";
 import { householdPageMessage } from "../src/modules/my/households-lifecycle.js";
+import { PASSWORD_KDF_ITERATIONS, newPasswordSalt, pbkdf2PasswordHash } from "../src/modules/auth/crypto-admin-session.js";
 import { app, BASE, counter, failure, fixture, intercept, page, post, withClock } from "./lib-audit-v22934.mjs";
 
 const t = counter("PASS: V22.9.115 room call joins members, first caller owns, owner transfers");
@@ -86,6 +87,13 @@ function putSetting(fx, key, value) {
 function addUser(fx, key, id, nickname) {
   fx.db.users.push({ id, kakao_user_key: key, nickname, created_at: `${DAY}T00:00:00.000Z` });
   return id;
+}
+// V22.9.126 FC-9: 소유자 양도에 가계부 삭제와 같은 본인 확인이 붙었다. 양도하는 사람(채팅으로 들어온 U1·U3)에게 내 계정 로그인 비밀번호를 붙인다.
+const OWNER_PASSWORD = "v115-owner-pass";
+async function givePassword(fx, userId, loginName) {
+  const salt = newPasswordSalt();
+  const hash = await pbkdf2PasswordHash(OWNER_PASSWORD, salt, PASSWORD_KDF_ITERATIONS);
+  fx.db.accountbook_user_identities.push({ user_id: userId, provider: "local", provider_subject: loginName, login_name: loginName, credential_hash: hash, credential_salt: salt, credential_iterations: PASSWORD_KDF_ITERATIONS, credential_version: 2 });
 }
 
 async function roomFixture(task) {
@@ -269,13 +277,15 @@ await roomFixture(async (fx) => {
 
   // ── 11~14. 소유자 양도(웹) ──
   const u3Id = u3.id;
+  await givePassword(fx, u1.id, "v115owner1");
+  await givePassword(fx, u3Id, "v115owner3");
   const ownerCookie = await fx.cookieFor(u1.id);
   const membersPage = await page(fx, `/my/members?household_id=${encodeURIComponent(household.id)}&month=2026-11`, { cookie: ownerCookie });
   eq(membersPage.status, 200, "11 소유자가 참여자 화면을 연다");
   const transferForms = membersPage.html.split('action="/my/household/transfer-owner"').length - 1;
   const memberCount = fx.db.household_members.filter((row) => row.household_id === household.id && ["admin", "member"].includes(row.role)).length;
   eq(transferForms, memberCount, "11 소유자 화면의 ‘소유자 양도’ 단추 수 = 관리자·구성원 수(소유자 자신·승인 대기·조회 전용·이용 제한 제외)");
-  ok(membersPage.html.includes(`name="user_id" value="${u3Id}"/><input type="hidden" name="month" value="2026-11"/><button class="transferButton" type="submit">소유자 양도</button>`), "11 구성원 카드에 양도 단추가 있다");
+  ok(membersPage.html.includes(`name="user_id" value="${u3Id}"/><input type="hidden" name="month" value="2026-11"/><label>내 계정 로그인 비밀번호<input name="access_code" type="password" autocomplete="current-password" required/></label><button class="transferButton" type="submit">소유자 양도</button>`), "11 구성원 카드에 양도 단추가 있다(V22.9.126: 내 계정 로그인 비밀번호 칸과 함께)");
   ok(membersPage.html.includes("소유자는 다른 참여자에게 소유자를 양도할 수 있습니다") && membersPage.html.includes("봇을 부르거나 거래를 보낸 사람이 승인 없이 구성원이 됩니다"), "11 화면 안내가 양도와 호출 참여를 말한다");
 
   const notOwner = await post(fx, "/my/household/transfer-owner", { household_id: household.id, user_id: u4.id, month: "2026-11" }, { cookie: await fx.cookieFor(u3Id) });
@@ -288,7 +298,7 @@ await roomFixture(async (fx) => {
   const stranger = await post(fx, "/my/household/transfer-owner", { household_id: household.id, user_id: "no-such-user", month: "2026-11" }, { cookie: ownerCookie });
   ok(stranger.status === 303 && stranger.location.includes("err=owner_transfer_target_invalid"), "12-d 참여자가 아닌 사람에게는 양도할 수 없다");
 
-  const transferred = await post(fx, "/my/household/transfer-owner", { household_id: household.id, user_id: u3Id, month: "2026-11" }, { cookie: ownerCookie });
+  const transferred = await post(fx, "/my/household/transfer-owner", { household_id: household.id, user_id: u3Id, month: "2026-11", access_code: OWNER_PASSWORD }, { cookie: ownerCookie });
   ok(transferred.status === 303 && transferred.location === `/my/members?household_id=${encodeURIComponent(household.id)}&month=2026-11&msg=owner_transferred`, `13 소유자가 구성원에게 양도한다 (${transferred.location})`);
   eq(roleOf(fx, u3Id, household.id), "owner", "13 대상이 소유자가 됐다");
   eq(roleOf(fx, u1.id, household.id), "admin", "13 전 소유자는 관리자가 됐다");
@@ -297,8 +307,8 @@ await roomFixture(async (fx) => {
   ok(linkRows(fx).length === 1 && JSON.parse(linkRows(fx)[0].value).linked_by === String(u1.id), "13 단톡방 연결 항목의 linked_by(표시용 이력)는 바꾸지 않는다");
   const adminPage = await page(fx, `/my/members?household_id=${encodeURIComponent(household.id)}&month=2026-11`, { cookie: ownerCookie });
   ok(adminPage.status === 200 && !adminPage.html.includes('action="/my/household/transfer-owner"') && adminPage.html.includes(householdPageMessage("owner_transferred").slice(0, 10)) === false, "13-b 관리자가 된 전 소유자의 화면에는 양도 단추가 없다");
-  const adminTries = await post(fx, "/my/household/transfer-owner", { household_id: household.id, user_id: u4.id, month: "2026-11" }, { cookie: ownerCookie });
-  ok(adminTries.status === 303 && adminTries.location.includes("err=owner_transfer_not_owner") && roleOf(fx, u3Id, household.id) === "owner", "13-c 관리자는 양도할 수 없다");
+  const adminTries = await post(fx, "/my/household/transfer-owner", { household_id: household.id, user_id: u4.id, month: "2026-11", access_code: OWNER_PASSWORD }, { cookie: ownerCookie });
+  ok(adminTries.status === 303 && adminTries.location.includes("err=owner_transfer_not_owner") && roleOf(fx, u3Id, household.id) === "owner", "13-c 관리자는 (맞는 비밀번호로도) 양도할 수 없다");
   const newOwnerPage = await page(fx, `/my/members?household_id=${encodeURIComponent(household.id)}&month=2026-11&msg=owner_transferred`, { cookie: await fx.cookieFor(u3Id) });
   ok(newOwnerPage.status === 200 && newOwnerPage.html.includes(householdPageMessage("owner_transferred")) && newOwnerPage.html.includes('action="/my/household/transfer-owner"'), "13-d 새 소유자 화면에 안내 글과 양도 단추가 있다");
 
@@ -306,12 +316,12 @@ await roomFixture(async (fx) => {
   const newOwnerCookie = await fx.cookieFor(u3Id);
   const restore = intercept(async ({ url, method }) => method === "PATCH" && url.pathname.endsWith("/household_members") && url.searchParams.get("user_id") === `eq.${u3Id}` && url.searchParams.get("role") === "eq.owner" ? failure(503, "demote failed") : null);
   let partial;
-  try { partial = await post(fx, "/my/household/transfer-owner", { household_id: household.id, user_id: u4.id, month: "2026-11" }, { cookie: newOwnerCookie }); }
+  try { partial = await post(fx, "/my/household/transfer-owner", { household_id: household.id, user_id: u4.id, month: "2026-11", access_code: OWNER_PASSWORD }, { cookie: newOwnerCookie }); }
   finally { restore(); }
   ok(partial.status === 303 && partial.location.includes("err=owner_transfer_partial"), `14 내 권한 내리기만 실패하면 부분 실패로 알린다 (${partial.location})`);
   eq(owners(fx, household.id).sort().join(","), [String(u3Id), String(u4.id)].sort().join(","), "14 그때는 소유자가 둘이다(대상은 올라갔다)");
   ok(householdPageMessage("owner_transfer_partial").includes("한 번 더 누르면"), "14 안내가 다시 누르라고 말한다");
-  const recovered = await post(fx, "/my/household/transfer-owner", { household_id: household.id, user_id: u4.id, month: "2026-11" }, { cookie: newOwnerCookie });
+  const recovered = await post(fx, "/my/household/transfer-owner", { household_id: household.id, user_id: u4.id, month: "2026-11", access_code: OWNER_PASSWORD }, { cookie: newOwnerCookie });
   ok(recovered.status === 303 && recovered.location.includes("msg=owner_transferred"), "14-b 같은 대상에게 다시 누르면 성공한다");
   eq(roleOf(fx, u3Id, household.id), "admin", "14-b 나는 관리자로 내려갔다");
   eq(owners(fx, household.id).join(","), String(u4.id), "14-b 소유자는 대상 한 명이다");

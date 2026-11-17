@@ -18,6 +18,7 @@ import {
 } from "../my/access-control.js";
 import { DEFAULT_CATEGORIES } from "./dashboard-fragments.js";
 import { formatMessage } from "../kakao/reply-texts.js";
+import { isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
 import { currentMonthKst, validMonth } from "../nlu/date-payment.js";
@@ -225,11 +226,18 @@ async function handleMyProfileUpdate(request, env) {
   const form = await request.formData();
   const nickname = mergedMarkerFreeName(String(form.get("nickname") || ""), 80);
   if (!nickname) return redirectResponse("/my/profile?err=nickname_missing");
-  await supabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(userId)}`, {
-    method: "PATCH",
-    headers: { Prefer: "return=minimal" },
-    body: JSON.stringify({ nickname }),
-  });
+  // V22.9.126 FC-27i: 저장 실패가 500 안전모드 화면으로 떨어졌다. 실패를 알리고 프로필 화면으로 돌아간다.
+  try {
+    await supabase(env, `/rest/v1/users?id=eq.${encodeURIComponent(userId)}`, {
+      method: "PATCH",
+      headers: { Prefer: "return=minimal" },
+      body: JSON.stringify({ nickname }),
+    });
+  } catch (err) {
+    rememberOpsEvent({ kind: "my_profile_update_failed", severity: "warn", path: "/my/profile", method: "POST", detail: safeError(err) });
+    const notice = isUncertainStorageWrite(err) ? "저장 결과를 확인하지 못했습니다. 화면을 새로고침해 이름이 바뀌었는지 먼저 확인해 주세요." : "표시 이름을 저장하지 못했습니다. 기존 이름은 그대로입니다. 잠시 후 다시 시도해 주세요.";
+    return redirectResponse(`/my/profile?err=${encodeURIComponent(notice)}`);
+  }
   return redirectResponse("/my/profile?msg=updated");
 }
 
