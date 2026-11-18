@@ -368,7 +368,11 @@ const ACCOUNTBOOK_WORKER = {
       // my/supporter-accent.js 참고.
       // V22.9.130 방 전용 보기: 방 전용 세션으로 그린 화면에는 띠를 붙이고(맨 안쪽), 볼 수 없는 화면을 열어 로그인 화면으로 보내지는 응답은 그 방 가계부 홈으로
       // 돌려보낸다(맨 바깥). 방 전용 세션이 아닌 요청에서는 두 함수 모두 받은 응답을 그대로 돌려준다(auth/kakao-room-open.js).
-      const response = roomViewBounceResponseV229130(routed.request, requestEnv, sessionUnavailableResponseV229122(routed.request, requestEnv, await supporterAccentResponseV229121(routed.request, env, await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await roomViewBandResponseV229130(routed.request, requestEnv, await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx)))))));
+      // 방 전용 세션을 뗀 요청이면 응답 마무리 함수들도 뗀 요청을 본다(쿠키만 보고 띠·색을 붙이는 함수들이 로그인하지 않은 사람과 같은 판정을 하게 —
+      // 독립 검토 2). 관문이 적어 둔 뗀 요청으로 routed.request 를 바꿔 끼운다. 방 전용 세션이 아닌 요청에서는 아무것도 바뀌지 않는다.
+      const routedResponse = await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx);
+      if (requestEnv.__AB_ROOM_VIEW_STRIPPED_REQUEST) routed.request = requestEnv.__AB_ROOM_VIEW_STRIPPED_REQUEST;
+      const response = roomViewBounceResponseV229130(routed.request, requestEnv, sessionUnavailableResponseV229122(routed.request, requestEnv, await supporterAccentResponseV229121(routed.request, env, await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await roomViewBandResponseV229130(routed.request, requestEnv, routedResponse))))));
       abMonitorCompleted(requestEnv, ctx, response);
       return withRememberedHouseholdCookie(routed, response);
     } catch (error) {
@@ -458,6 +462,7 @@ const ACCOUNTBOOK_WORKER = {
 
       // V22.9.91: 카카오톡 인앱 브라우저에서 세션 없이 /my·/app 을 열면 로그인 화면 대신 카카오 자동 로그인(prompt=none)을 먼저 해 본다.
       // 회원이면 화면 없이 로그인되고, 아니면 지금처럼 로그인 화면이 나온다(auth/kakao-account-link.js).
+      // V22.9.130: 방 전용 세션을 뗀 요청(허용 밖의 화면)에서는 이 함수가 아무것도 하지 않는다(auth/kakao-account-link.js 의 첫 줄).
       const kakaoAutoLogin = await kakaoInAppAutoLoginResponse(request, env, url);
       if (kakaoAutoLogin) return kakaoAutoLogin;
       // V22.9.104 L-1: 자동 로그인을 보내지 않은(이미 해 봤거나 auto=0·할 수 없는) 인앱 브라우저의 세션 없는 /my·/app·/m 은 긴 로그인 화면 대신

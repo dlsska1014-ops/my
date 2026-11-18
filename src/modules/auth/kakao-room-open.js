@@ -216,9 +216,16 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     rememberOpsEvent({ kind: "kakao_room_values_stripped", severity: "info", path: url.pathname.slice(0, 80), method: "GET", detail: "" });
     return redirectResponse(plain, KAKAO_ROOM_OPEN_HEADERS);
   }
+  // V22.9.130 독립 검토 2(P3): 이 브라우저가 **다른 방**의 방 전용 세션을 들고 있는데 이 방으로 다시 정하지 못하고 끝나면(구성원 아님·승인 대기·인앱의
+  // 카카오 로그인 계정 등) 그 세션을 끝낸다. 남겨 두면 그다음 화면(/my·/app)에서 먼저 받은 방의 가계부가 이 방인 것처럼 열린다. 앱에서 바로 연
+  // 이동(Sec-Fetch-Site: none)일 때만이다 — 다른 사이트의 링크가 세션을 끝내지 못하게. 세션을 새로 주는 응답과 읽기 실패·요청 제한은 건드리지 않는다.
+  let dropHeldRoomView = false;
+  const ROOM_VIEW_KEEP_RESULTS = new Set(["same_session", "member_session", "session_kept", "lookup_failed", "limiter_unavailable", "rate_limited"]);
   const finish = (result, location, cookies = [], detail = "") => {
     kakaoRoomOpenProbe(env, ctx, result, detail);
-    return cookies.length ? redirectResponseWithCookies(location, cookies, KAKAO_ROOM_OPEN_HEADERS) : redirectResponse(location, KAKAO_ROOM_OPEN_HEADERS);
+    const out = !cookies.length && dropHeldRoomView && !ROOM_VIEW_KEEP_RESULTS.has(result) ? [ROOM_VIEW_END_COOKIE_V229130] : cookies;
+    if (out !== cookies) rememberOpsEvent({ kind: "kakao_room_view_dropped", severity: "info", path: "/my", method: "GET", detail: String(result).slice(0, 40) });
+    return out.length ? redirectResponseWithCookies(location, out, KAKAO_ROOM_OPEN_HEADERS) : redirectResponse(location, KAKAO_ROOM_OPEN_HEADERS);
   };
   if (KAKAO_ROOM_OPEN_CRAWLER.test(String(request.headers.get("user-agent") || ""))) return finish("crawler", plain);
   if (getCookie(request, "ab_admin")) return finish("admin_browser", plain);
@@ -234,6 +241,10 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     if (!admission.allowed) return finish("rate_limited", plain);
     const household = await getLinkedKakaoGroupHousehold(env, groupKey);
     if (!household?.id) return finish("no_room_household", plain);
+    {
+      const held = await roomViewSessionOfRequestV229130(request, env);
+      dropHeldRoomView = !!held && held.householdId !== String(household.id) && String(request.headers.get("sec-fetch-site") || "").toLowerCase() === "none";
+    }
     // V22.9.129 독립 검토 P3: 방이 다른 가계부로 다시 묶인 뒤 옛 카드를 누르면 표식(room)이 옛 가계부를 가리킨다. 카카오 값이 가리키는 지금의 방 가계부와
     // 다른 표식은 아래의 ‘값을 뺀 주소’ 에서 버린다(그 방의 지금 가계부 번호로 바꿔 적지는 않는다 — 구성원이 아닌 사람에게 번호를 알려 주지 않으려고).
     // 방 가계부를 읽기 전에 끝나는 결과(사용자 키 없음·키 모양 틀림·요청 제한·수집기·관리자 브라우저)와 값이 아예 없는 PC 길은 방을 확인하지 않으므로
@@ -330,6 +341,7 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
 // ①의 요청에서는 라우터가 env.__AB_ROOM_VIEW 를 적고, 역할 읽기(domain/users-households.js)와 가계부 목록(data/users-household-create.js)이 그 값으로
 // 범위를 한 번 더 지킨다(관문이 주소를 놓쳐도 다른 가계부·쓰기 역할이 나오지 않게).
 
+const ROOM_VIEW_END_COOKIE_V229130 = "ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax";
 async function roomViewCookiesV229130(env, userId = "", householdId = "") {
   const token = await makeUserSession(env, userId, { roomViewHouseholdId: String(householdId || "") });
   return [
@@ -392,8 +404,13 @@ function roomViewGateV229130(request, env, url, token) {
     return (eq < 0 ? part : part.slice(0, eq)).trim() !== "ab_user";
   });
   if (kept.length) headers.set("cookie", kept.join("; ")); else headers.delete("cookie");
-  if (env && typeof env === "object") env.__AB_ROOM_VIEW_STRIPPED = { householdId: String(token.householdId) };
-  return { request: new Request(request, { headers }), url };
+  const stripped = new Request(request, { headers });
+  if (env && typeof env === "object") {
+    env.__AB_ROOM_VIEW_STRIPPED = { householdId: String(token.householdId) };
+    // 응답 마무리(공지·설정 띠·포인트 색)도 이 요청을 본다 — 쿠키 판정까지 로그인하지 않은 사람과 같게(독립 검토 2).
+    env.__AB_ROOM_VIEW_STRIPPED_REQUEST = stripped;
+  }
+  return { request: stripped, url };
 }
 
 // 응답 마무리 1: 방 전용 세션으로 볼 수 없는 화면을 열면(세션을 뗀 요청이 로그인 화면으로 보내지면) 이 방 가계부 홈으로 돌려보내 띠에서 알린다.
@@ -419,19 +436,22 @@ const ROOM_VIEW_BAND_STYLE_V229130 = '<style id="abRoomViewBandStyle">.abRoomVie
 function roomViewBandHtmlV229130(householdId = "", bounced = false) {
   const login = kakaoAutoLoginFallbackLocation(kakaoRoomEntryLocationV229129(householdId));
   const lead = bounced ? "<b>방금 누른 화면은 로그인하면 볼 수 있어요.</b> " : "";
-  return `${ROOM_VIEW_BAND_STYLE_V229130}<div class="abRoomViewBand" id="abRoomViewBand" role="region" aria-label="방 전용 보기 안내"><p>${lead}<b>방 전용 보기</b> · 이 단톡방의 가계부만 볼 수 있어요. 기록은 단톡방에서 말로 남기고, 고치거나 다른 화면을 쓰려면 로그인해 주세요.</p><a href="${login.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">로그인</a></div>`;
+  return `${ROOM_VIEW_BAND_STYLE_V229130}<div class="abRoomViewBand" id="abRoomViewBand" role="region" aria-label="방 전용 보기 안내"><p>${lead}<b>방 전용 보기</b> · 이 단톡방의 가계부만 볼 수 있어요. 다른 화면을 열거나 내 권한대로 쓰려면 로그인해 주세요.</p><a href="${login.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">로그인</a></div>`;
 }
 async function roomViewBandResponseV229130(request, env, response) {
   const scope = env?.__AB_ROOM_VIEW;
-  if (!scope?.householdId || !response || response.status !== 200) return response;
+  if (!scope?.householdId || !response || ![200, 403, 404].includes(response.status)) return response;
   if (!/text\/html/i.test(String(response.headers?.get?.("content-type") || ""))) return response;
   // 독립 검토 1(P3): 방 전용 세션으로 그린 화면에만 붙인다. 표의 서명은 맞지만 세션이 끝난 경우(세션 판이 오름 등)에는 로그인 화면이 나오는데, 그 위에
   // ‘방 전용 보기’ 라고 적으면 틀린 말이다. /my 가 200 으로 답하는 화면(로그인·시작·승인 대기 상태)에도 붙이지 않는다.
   // 세션 확인은 관문이 만든 요청으로 다시 묻는다 — 처리기가 이미 확인했다면 요청별 캐시의 값이 그대로 온다(DB 를 더 읽지 않는다).
+  // 독립 검토 2(P3): 범위의 가계부를 읽을 수 없게 된 방 전용 세션(받은 뒤 승인 대기로 바뀜·내보내짐 — 가계부 목록 읽기가 scope.checked·readable 을 적는다)은
+  // 상태 화면·‘가계부 만들기’ 화면 위에 띠를 붙이는 대신 끝낸다: 세션 쿠키를 지우고 /my(로그인 화면)로 보낸다.
   try {
-    if (new URL(request.url).pathname === "/my") return response;
     const viewer = env.__AB_ROOM_VIEW_REQUEST ? await verifyUserSession(env.__AB_ROOM_VIEW_REQUEST, env) : "";
     if (!viewer || viewer !== scope.userId) return response;
+    if (scope.checked === true && scope.readable !== true) return redirectResponseWithCookies("/my", [ROOM_VIEW_END_COOKIE_V229130], KAKAO_ROOM_OPEN_HEADERS);
+    if (response.status !== 200 || scope.readable !== true || new URL(request.url).pathname === "/my") return response;
   } catch (_) {
     return response;
   }
