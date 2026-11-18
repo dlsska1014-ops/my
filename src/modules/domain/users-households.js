@@ -1,7 +1,9 @@
 // @build:imports-start
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { safeError, withHouseholdDatabaseLease } from "../runtime/leases.js";
-import { bestRoleFromRows } from "../data/households-members-rows.js";
+import {
+  bestRoleFromRows, roomViewRoleV229130, roomViewScopeForV229130,
+} from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { mergedMarkerFreeName, resolveEffectiveUserId } from "../auth/user-session.js";
 import { fetchUserById, withKakaoUserLifecycleLease } from "../data/users-household-create.js";
@@ -232,16 +234,25 @@ async function getPendingHousehold(env, userId) {
   return null;
 }
 
+// V22.9.130 방 전용 보기: 이 요청의 세션이 방 전용이면(그 세션의 사용자로 읽을 때) 범위 밖 가계부는 읽지 않고 구성원이 아닌 것("")으로 답한다.
+// 범위 안 가계부의 역할은 읽은 뒤 조회 전용으로 낮춘다(data/households-members-rows.js roomViewRoleV229130). 세 읽기 함수가 같은 규칙을 쓴다.
+function roomViewOutsideScopeV229130(env, userId, householdId) {
+  const scope = roomViewScopeForV229130(env, userId);
+  return !!scope && String(householdId || "") !== scope.householdId;
+}
+
 async function getHouseholdMemberRole(env, userId, householdId) {
   if (!userId || !householdId) return "";
+  if (roomViewOutsideScopeV229130(env, userId, householdId)) return "";
   const rows = await optionalSupabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(userId)}&select=role,created_at&order=created_at.desc`, { method: "GET" }, []) || [];
-  return bestRoleFromRows(rows);
+  return roomViewRoleV229130(env, userId, householdId, bestRoleFromRows(rows));
 }
 
 // V22.9.76 감사 D-27: getHouseholdMemberRole 은 조회가 실패(503 등)하면 빈 역할("")을 돌려줘 "권한이 없습니다"·
 // "참여자가 아닙니다"로 안내됐다. 권한을 바꾸거나 거절을 알리는 곳은 이 엄격판을 써서 '확인하지 못함'을 따로 알린다.
 async function getHouseholdMemberRoleStrict(env, userId, householdId) {
   if (!userId || !householdId) return "";
+  if (roomViewOutsideScopeV229130(env, userId, householdId)) return "";
   let rows;
   try {
     rows = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(userId)}&select=role,created_at&order=created_at.desc`, { method: "GET" });
@@ -249,7 +260,7 @@ async function getHouseholdMemberRoleStrict(env, userId, householdId) {
     throw Object.assign(new Error(`household_role_check_failed: ${String(err?.message || err).slice(0, 120)}`), { code: "household_role_check_failed" });
   }
   if (!Array.isArray(rows)) throw Object.assign(new Error("household_role_check_failed: invalid response"), { code: "household_role_check_failed" });
-  return bestRoleFromRows(rows);
+  return roomViewRoleV229130(env, userId, householdId, bestRoleFromRows(rows));
 }
 
 function isHouseholdRoleCheckFailure(err) {

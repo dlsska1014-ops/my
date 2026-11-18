@@ -24,6 +24,7 @@
     "validate:kakao-input-guards-v229120": "node validation/validate-kakao-input-guards-v229120.mjs",
     "validate:kakao-guard-examples-v229120": "node validation/validate-kakao-guard-examples-v229120.mjs",
     "validate:v229129-pc-room-open": "node validation/validate-v229129-pc-room-open.mjs",
+    "validate:v229130-room-only-view": "node validation/validate-v229130-room-only-view.mjs",
     "validate:v229128-web-check": "node validation/validate-v229128-web-check.mjs",
     "validate:v229127-room-buttons": "node validation/validate-v229127-room-buttons.mjs",
     "validate:v229126-kakao": "node validation/validate-v229126-kakao.mjs",

@@ -43,11 +43,27 @@ async function getUserSessionVersion(env, userId = "") {
   }
 }
 
-async function makeUserSession(env, userId) {
-  const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 14;
+// V22.9.130 방 전용 보기(사용자 2026-11-18 "해당 단톡방에 가계부는 맴버들이 입장할 수 있도록 해야해 다른 가계부 막 들어가는게 아니라 해당 단톡방에서만
+// 해당 단톡방 가계부를 로그인 없이 입장할 수 있도록"): 세션 표에 넷째 칸 ‘r:<가계부 번호>’ 가 있으면 그 세션은 그 가계부 하나만, 보기 전용이다.
+//  · 주는 곳은 한 곳뿐이다 — 단톡방 링크 단추의 식별 값으로 확인된 구성원인데 주소 값으로는 온전한 세션을 주지 않는 계정(auth/kakao-room-open.js).
+//  · 칸 순서는 그대로다(0 사용자, 1 만료, 2 세션 판) — 앞 세 칸을 읽는 곳(runtime/config-readiness.js, auth/kakao-web-claim.js)이 그대로 맞는다.
+//  · 서명은 표 전체에 건다. 넷째 칸을 떼면 서명이 맞지 않으므로 온전한 세션으로 바꿀 수 없다.
+//  · 앞 판(V22.9.129 까지)은 네 칸짜리 표를 받지 않는다 — 되돌리면 방 전용 세션은 그냥 로그아웃 상태가 된다.
+//  · 수명은 12시간이다(온전한 세션은 14일). 방의 단추를 다시 누르면 새로 받는다.
+//  · 운영 변수 KAKAO_ROOM_VIEW_DISABLED 를 켜면(1·true·on) 새로 주지도 않고 이미 준 표도 받지 않는다.
+const ROOM_VIEW_SESSION_SECONDS_V229130 = 60 * 60 * 12;
+const ROOM_VIEW_HOUSEHOLD_SHAPE_V229130 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+function roomViewEnabledV229130(env) {
+  return !envFlagEnabled(env?.KAKAO_ROOM_VIEW_DISABLED, false);
+}
+
+async function makeUserSession(env, userId, options = {}) {
+  const roomViewHouseholdId = String(options?.roomViewHouseholdId || "");
+  if (roomViewHouseholdId && (!ROOM_VIEW_HOUSEHOLD_SHAPE_V229130.test(roomViewHouseholdId) || String(userId || "").includes("|"))) throw new Error("room_view_scope_invalid");
+  const exp = Math.floor(Date.now() / 1000) + (roomViewHouseholdId ? ROOM_VIEW_SESSION_SECONDS_V229130 : 60 * 60 * 24 * 14);
   const version = await getUserSessionVersion(env, userId);
   if (version < 1) throw new Error("user_session_security_unavailable");
-  const data = `${userId}|${exp}|${version}`;
+  const data = roomViewHouseholdId ? `${userId}|${exp}|${version}|r:${roomViewHouseholdId}` : `${userId}|${exp}|${version}`;
   const sig = await hmacSha256(userSessionSecret(env), data);
   return `${data}.${sig}`;
 }
@@ -62,14 +78,35 @@ async function parseUserSessionToken(request, env) {
   const data = token.slice(0, dot);
   const sig = token.slice(dot + 1);
   const parts = data.split("|");
-  if (parts.length !== 2 && parts.length !== 3) return null;
+  if (parts.length !== 2 && parts.length !== 3 && parts.length !== 4) return null;
+  // V22.9.130: 넷째 칸은 방 전용 보기의 가계부 범위(r:<UUID>)만이다. 다른 모양이면 받지 않는다. 스위치를 끈 운영에서도 받지 않는다(로그아웃 상태).
+  let roomViewHouseholdId = "";
+  if (parts.length === 4) {
+    const scope = /^r:(.+)$/.exec(parts[3]);
+    if (!scope || !ROOM_VIEW_HOUSEHOLD_SHAPE_V229130.test(scope[1]) || !roomViewEnabledV229130(env)) return null;
+    roomViewHouseholdId = scope[1];
+  }
   const userId = parts[0];
   const exp = Number(parts[1]);
   if (!userId || !Number.isFinite(exp) || exp < Math.floor(Date.now() / 1000)) return null;
   const expected = await hmacSha256(userSessionSecret(env), data);
   if (!constantTimeTextEqual(expected, sig)) return null;
-  const tokenVersion = parts.length === 3 ? Number(parts[2]) : 1;
-  return { userId, tokenVersion };
+  const tokenVersion = parts.length >= 3 ? Number(parts[2]) : 1;
+  return { userId, tokenVersion, roomViewHouseholdId };
+}
+
+// V22.9.130: 이 요청의 세션 쿠키가 방 전용 보기 표인지(서명·만료만 본다 — DB 를 읽지 않는다). 방 전용이면 { userId, householdId }, 아니면 null.
+// 라우터가 요청 처음에 한 번 불러 요청별 env 에 적어 두고(worker/router.js roomViewGate…), 그 뒤의 역할 읽기·가계부 목록이 그 값으로 범위를 지킨다.
+// 세션이 유효한지(세션 판·통합 여부)는 여전히 verifyUserSession 이 본다 — 여기서 null 이 아니라고 로그인된 것은 아니다.
+async function roomViewSessionOfRequestV229130(request, env) {
+  try {
+    // 보통 세션(세 칸)에는 서명 계산을 한 번 더 하지 않는다 — 쿠키에 넷째 칸 머리(|r:)가 있을 때만 확인한다.
+    if (!String(getCookie(request, "ab_user") || "").includes("|r:")) return null;
+    const parsed = await parseUserSessionToken(request, env);
+    return parsed?.roomViewHouseholdId ? { userId: String(parsed.userId), householdId: parsed.roomViewHouseholdId } : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 function userSessionVersionMatches(tokenVersion, currentVersion) {
@@ -359,9 +396,10 @@ function kakaoLoginUserKey(kakaoId = "") {
 }
 // @build:exports-start
 export {
-  getKakaoRedirectUri, getUserSessionVersion, identityMergeRedirectSettingsKey,
-  inspectKakaoLoginConfig, kakaoLoginUserKey, makeUserSession, mergedMarkerFreeName,
-  parseIdentityMergeRedirectValue, randomState, resolveEffectiveUserId, rewireEffectiveUserCache,
+  ROOM_VIEW_SESSION_SECONDS_V229130, getKakaoRedirectUri, getUserSessionVersion,
+  identityMergeRedirectSettingsKey, inspectKakaoLoginConfig, kakaoLoginUserKey, makeUserSession,
+  mergedMarkerFreeName, parseIdentityMergeRedirectValue, randomState, resolveEffectiveUserId,
+  rewireEffectiveUserCache, roomViewEnabledV229130, roomViewSessionOfRequestV229130,
   userSessionSecret, verifyUserSession,
 };
 // @build:exports-end

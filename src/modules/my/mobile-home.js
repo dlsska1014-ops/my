@@ -965,7 +965,8 @@ async function handleMobileV8Page(request, env, url) {
   const calendarRows = rows;
   // V22.9.102 가계부 기본 설정 띠: 이미 읽은 가계부·구성원 행과 쿠키(ab_bk)만으로 판정한다(DB 읽기 0회). 판정은 쿠키 ab_setup(1시간)에 적어
   // 전체 메뉴·가계부 전환 등 다른 화면이 같은 띠를 붙인다. 관리자 세션(로그인 사용자 없음)에는 띠가 없다. my/setup-page.js 참고.
-  const setupStatus = userId && selectedHousehold ? householdSetupStatus({ household: selectedHousehold, members, userId, backupKnown: backupLoginKnown(request) }) : null;
+  // V22.9.130: 방 전용 보기(가계부 하나·보기 전용 세션, env.__AB_ROOM_VIEW)에는 설정 띠를 붙이지 않고 쿠키도 적지 않는다 — 설정 화면은 로그인해야 열린다.
+  const setupStatus = userId && selectedHousehold && !env?.__AB_ROOM_VIEW ? householdSetupStatus({ household: selectedHousehold, members, userId, backupKnown: backupLoginKnown(request) }) : null;
   const setupBand = setupStatus && !setupStatus.done ? setupBandHtml({ householdId, missing: setupStatus.missing, month }) : "";
   const setupHeaders = setupStatus ? { "set-cookie": setupStatusCookie(householdId, setupStatus) } : {};
   // V22.9.121: 보는 사람의 후원자 표시(위 설정 조회 한 번에 얹어 읽은 값). 홈 그리기와 포인트 색 쿠키(ab_sp)가 같은 값을 쓴다(추가 조회 없음).

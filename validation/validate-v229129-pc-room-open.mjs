@@ -175,6 +175,9 @@ async function roomFixture(task, { kakao = true, quiet = true } = {}) {
     fx.env.KAKAO_SKILL_SECRET = SECRET;
     if (kakao) Object.assign(fx.env, KAKAO_ENV);
     if (quiet) fx.env.KAKAO_ROOM_QUIET_LOGIN = "1"; else delete fx.env.KAKAO_ROOM_QUIET_LOGIN;
+    // V22.9.130: 이 검사는 방 전용 보기를 끈 운영(KAKAO_ROOM_VIEW_DISABLED)의 길 — V22.9.129 가 만든 동작 — 을 지킨다. 스위치를 끄지 않은 기본 동작
+    // (식별 값으로 확인된 구성원을 그 방 가계부만·보기 전용으로 들임)은 validate-v229130-room-only-view 가 본다.
+    fx.env.KAKAO_ROOM_VIEW_DISABLED = "1";
     const server = kakaoServer(fx);
     try {
       await say(fx, "점심 12000원", { user: U1, room: ROOM });

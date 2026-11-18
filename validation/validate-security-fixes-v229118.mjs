@@ -601,7 +601,14 @@ await section("S-2 카카오 로그인 계정", () => roomFixture(async (fx, { u
   const next = await go(fx, tap.location);
   ok(next.status === 303 && next.location.startsWith("/auth/kakao/start?auto=1") && !sessionUser(next.cookies), "S-2 2 그 다음은 인앱 자동 로그인(그 카카오 계정으로 로그인하는 길)");
   const pc = await go(fx, tapped("/my"), { ua: PC });
-  ok(pc.status === 303 && pc.cookies.length === 0 && lastRoomOpen() === "strong_account", "S-2 2 PC 브라우저에서도 세션을 주지 않는다");
+  // V22.9.130 방 전용 보기: PC 브라우저(카카오톡 밖)에서도 온전한 세션은 주지 않는다. 주는 것은 그 방 가계부 하나로 묶인 보기 전용 표(넷째 칸
+  // r:<가계부 번호>)뿐이다 — 주소 값이 여는 범위가 그 계정 전체가 아니라 이 방 가계부의 읽기다. 방 전용 보기를 끈 운영은 예전 그대로다.
+  const pcParts = decodeURIComponent(cookieLine(pc.cookies, "ab_user").split(";")[0].slice("ab_user=".length)).split(".")[0].split("|");
+  ok(pc.status === 303 && lastRoomOpen() === "strong_room_view" && pcParts.length === 4 && pcParts[0] === u1.id && pcParts[3] === `r:${hh}`, `S-2 2 PC 브라우저에서도 온전한 세션을 주지 않는다 — 그 방 가계부로 묶인 보기 전용 표만(${lastRoomOpen()}, ${pcParts.length}칸)`);
+  fx.env.KAKAO_ROOM_VIEW_DISABLED = "1";
+  const pcOff = await go(fx, tapped("/my"), { ua: PC });
+  ok(pcOff.status === 303 && pcOff.cookies.length === 0 && lastRoomOpen() === "strong_account", "S-2 2 방 전용 보기를 끈 운영의 PC 브라우저: 세션을 주지 않는다(예전 그대로)");
+  delete fx.env.KAKAO_ROOM_VIEW_DISABLED;
   const probe = JSON.parse(settingValue(fx, `${PROBE}strong_account`) || "{}");
   eq(Object.keys(probe).sort().join(","), "app_version,at,version", "S-2 2 진단 기록 칸 strong_account 에는 시각·판만 남는다(식별자 없음)");
   ok(!JSON.stringify(globalThis.__AB_OPS_EVENTS || []).includes(U1), "S-2 2 운영 이벤트에 botUserKey 가 없다");
@@ -618,6 +625,9 @@ async function realLocalIdentity(userId) {
 }
 await section("S-2 비밀번호 계정", () => roomFixture(async (fx, { u1, u2, hh }) => {
   fx.db.accountbook_user_identities.push(await realLocalIdentity(u2.id));
+  // V22.9.130: 이 장면은 방 전용 보기를 끈 운영의 길(로그인 이름 칸을 연 로그인 화면)을 지킨다. 끄지 않은 기본 동작(그 방 가계부만·보기 전용으로
+  // 들임)은 validate-v229130-room-only-view 가 본다.
+  fx.env.KAKAO_ROOM_VIEW_DISABLED = "1";
   const roomHome = `/app?household_id=${hh}`;
   const loginScreen = `/my?${new URLSearchParams({ auto: "0", login: "1", return_to: decodeURIComponent(roomHome) }).toString()}#login-local`;
   const tap = await go(fx, tapped("/my", { user: U2 }));
@@ -741,7 +751,8 @@ await section("S-2 입장 제한 주소", () => roomFixture(async (fx, { u1, u2 
   fx.db.accountbook_user_identities.push(strongIdentity(u2.id, "local"));
   resetIsolateState();
   const local = await countedGo(fx, tapped("/my", { user: U2 }));
-  ok(lastRoomOpen() === "strong_local_account" && local.seen.filter((line) => line === IDENTITY_READ).length === 1, "S-2 7 비밀번호 계정: 강한 식별 읽기는 한 번");
+  // V22.9.130: 비밀번호 계정은 이제 그 방 가계부만·보기 전용으로 들어온다(결과 strong_local_room_view). 강한 식별 읽기는 여전히 한 번이다.
+  ok(lastRoomOpen() === "strong_local_room_view" && local.seen.filter((line) => line === IDENTITY_READ).length === 1, `S-2 7 비밀번호 계정: 강한 식별 읽기는 한 번(${lastRoomOpen()})`);
   ok(local.seen.length <= ROOM_OPEN_DB_CAP, `S-2 7 비밀번호 계정 한 번 누름의 DB 호출 ${local.seen.length}회 ≤ ${ROOM_OPEN_DB_CAP}`);
 }));
 
