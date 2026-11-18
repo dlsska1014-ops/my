@@ -144,6 +144,26 @@ function bestRoleFromRows(rows = []) {
   return String(bestMemberRow(rows)?.role || "");
 }
 
+// V22.9.130 방 전용 보기(auth/user-session.js 의 넷째 칸 설명 참고): 라우터가 요청 처음에 세션 쿠키를 읽어 요청별 env 에 적어 둔 범위
+// (env.__AB_ROOM_VIEW = { userId, householdId })를 읽는다. 범위는 그 세션의 사용자 번호로 읽을 때만 걸린다 — 같은 요청에서 다른 사람 번호로 읽는 일
+// (구성원 목록·이름 표)은 그대로다. 카카오 스킬·예약 실행·관리자 화면에는 이 값이 없다(세션 쿠키가 없거나 다른 쿠키다).
+function roomViewScopeForV229130(env, userId = "") {
+  const scope = env?.__AB_ROOM_VIEW;
+  const uid = String(userId || "");
+  return scope && scope.householdId && scope.userId && uid && scope.userId === uid ? scope : null;
+}
+
+// 그 사용자의 역할을 범위에 맞춘다. 범위 밖 가계부는 구성원이 아닌 것("")으로, 범위 안 가계부는 읽을 수 있는 역할(소유자·관리자·구성원·조회 전용)이면
+// 조회 전용(viewer)으로 낮춘다. 승인 대기·이용 제한·빈 역할은 그대로 둔다 — 읽을 수 없던 사람이 범위 때문에 읽게 되는 일은 없다.
+// 범위가 없으면(보통 세션) 받은 값을 글자 하나 바꾸지 않고 돌려준다.
+const ROOM_VIEW_READABLE_ROLES_V229130 = ["owner", "admin", "member", "viewer"];
+function roomViewRoleV229130(env, userId = "", householdId = "", role = "") {
+  const scope = roomViewScopeForV229130(env, userId);
+  if (!scope) return role;
+  if (String(householdId || "") !== scope.householdId) return "";
+  return ROOM_VIEW_READABLE_ROLES_V229130.includes(String(role || "").toLowerCase()) ? "viewer" : role;
+}
+
 function dedupeMemberRowsByKey(rows = [], keyName = "user_id") {
   const map = new Map();
   for (const row of safeArray(rows)) {
@@ -522,6 +542,7 @@ export {
   fetchHouseholdMemberCounts, fetchHouseholdMembers, fetchMemberAliasMap, fetchPostgrestRows,
   fetchRowsByPlainIds, getScopedHouseholdsForPage, householdPersonLabels, isRowLimitExceededError,
   memberAliasSettingsKey, memberNameMap, normalizeMemberAliasMap, renderSpenderOptions, roleRank,
-  saveMemberAlias, selectRequestedScopedHousehold, supabaseExactCount,
+  roomViewRoleV229130, roomViewScopeForV229130, saveMemberAlias, selectRequestedScopedHousehold,
+  supabaseExactCount,
 };
 // @build:exports-end

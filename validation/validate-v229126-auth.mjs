@@ -393,8 +393,11 @@ await section("FC-9 6 채팅만 쓰는 방 소유자의 길", () => withClock("2
   const sameBrowser = await http(fx, "GET", roomLink, { cookie: cookie(), ua: INAPP });
   const freshBrowser = await http(fx, "GET", roomLink, { ua: INAPP });
   const loggedOutBrowser = await http(fx, "GET", roomLink, { cookie: jarStr(otherBrowser), ua: INAPP });
-  ok(sameBrowser.location && !sameBrowser.location.includes("login=1") && freshBrowser.location.startsWith("/my?auto=0&login=1") && freshBrowser.location.endsWith("#login-local"), `FC-9 6 그 뒤 방 링크: 같은 브라우저는 홈, 세션 없는 브라우저는 로그인 이름 화면 (${sameBrowser.location} / ${freshBrowser.location})`);
-  eq(loggedOutBrowser.location, freshBrowser.location, "FC-9 6 (3차) 로그아웃된 다른 브라우저의 방 단추도 로그인 이름 화면");
+  // V22.9.130 방 전용 보기: 세션이 없는 브라우저는 로그인 이름 화면 대신 그 방 가계부만·보기 전용으로 들어온다. 온전한 세션은 여전히 주지 않는다
+  // (받는 표는 넷째 칸 r:<가계부 번호> 가 붙은 방 전용 표다 — 양도·비밀번호 같은 계정 일은 로그인해야 한다).
+  const freshToken = decodeURIComponent(pairOf(freshBrowser.cookies, "ab_user").slice("ab_user=".length)).split(".")[0].split("|");
+  ok(sameBrowser.location && !sameBrowser.location.includes("login=1") && freshBrowser.location === `/app?household_id=${room.hid}` && freshToken.length === 4 && freshToken[0] === room.ownerId && freshToken[3] === `r:${room.hid}`, `FC-9 6 그 뒤 방 링크: 같은 브라우저는 홈, 세션 없는 브라우저는 그 방 가계부만·보기 전용 (${sameBrowser.location} / ${freshBrowser.location} / ${freshToken.length}칸)`);
+  eq(loggedOutBrowser.location, freshBrowser.location, "FC-9 6 (3차) 로그아웃된 다른 브라우저의 방 단추도 같다(그 방 가계부만·보기 전용)");
   const leaveAfter = await http(fx, "POST", "/my/household/leave", { cookie: cookie(), ua: INAPP, form: leaveForm });
   ok(leaveAfter.location.includes("msg=household_left") && !roleOf(fx, room.ownerId, room.hid) && roleOf(fx, room.memberId, room.hid) === "owner", `FC-9 6 양도한 뒤에는 그 가계부에서 나갈 수 있다 (${leaveAfter.location})`);
 })));

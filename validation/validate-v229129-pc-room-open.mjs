@@ -1,4 +1,5 @@
-// 단톡방 ‘웹 가계부 열기’ 를 PC 카카오톡에서 눌렀을 때(2026-11-17 운영 진단 기록: 휴대폰은 카카오가 식별 값을 붙이고, PC 는 쓸 수 있는 사용자 식별 값 없이 연다).
+// 단톡방 ‘웹 가계부 열기’ 를 식별 값 없이 표식만으로 열었을 때와 로그인 뒤 그 방으로 돌아오는 길(방 표식 길).
+// 바로잡음(V22.9.130): 이 머리말은 ‘PC 카카오톡은 식별 값을 붙이지 않는다’ 고 적었었다. 틀렸다 — PC 도 붙인다(2026-11-18 운영 진단 기록). 이 검사가 보는 동작은 그대로다.
 //  사용자(2026-11-17): "앱 승인 담당자가 말했듯 웹 가계부 열기 누르면 로그인 없이 바로 가계부가 열려야해", "pc에서도 바로 열리게 해줘".
 //  E-1 답 카드의 단추 주소는 /my?room=<그 방 가계부 번호> 다(방 표식). 1:1 답과 구성원이 아닌 때는 예전 주소 그대로다.
 //  E-2 표식만 온 길(값 없음)에서 세션이 있으면: 그 가계부를 읽을 수 있을 때 그 가계부 홈, 아니면 표식을 뺀 /my — ‘찾을 수 없음’ 을 내지 않고 권한을 넓히지도 않는다.
@@ -175,6 +176,9 @@ async function roomFixture(task, { kakao = true, quiet = true } = {}) {
     fx.env.KAKAO_SKILL_SECRET = SECRET;
     if (kakao) Object.assign(fx.env, KAKAO_ENV);
     if (quiet) fx.env.KAKAO_ROOM_QUIET_LOGIN = "1"; else delete fx.env.KAKAO_ROOM_QUIET_LOGIN;
+    // V22.9.130: 이 검사는 방 전용 보기를 끈 운영(KAKAO_ROOM_VIEW_DISABLED)의 길 — V22.9.129 가 만든 동작 — 을 지킨다. 스위치를 끄지 않은 기본 동작
+    // (식별 값으로 확인된 구성원을 그 방 가계부만·보기 전용으로 들임)은 validate-v229130-room-only-view 가 본다.
+    fx.env.KAKAO_ROOM_VIEW_DISABLED = "1";
     const server = kakaoServer(fx);
     try {
       await say(fx, "점심 12000원", { user: U1, room: ROOM });

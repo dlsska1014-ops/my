@@ -92,6 +92,10 @@ function kakaoAutoLoginPath(pathname = "") {
 // 세션이 있거나(같은 요청 캐시라 왕복이 늘지 않는다), 이미 해 봤거나(ab_kakao_auto), 페이지 이동이 아닌 요청이면 하지 않는다.
 // 관리자 세션이 있는 브라우저의 /app 은 관리자 화면이라 건드리지 않는다. 운영에서 끌 때는 KAKAO_INAPP_AUTO_LOGIN=0.
 async function kakaoInAppAutoLoginResponse(request, env, url) {
+  // V22.9.130 독립 검토 2(P3): 방 전용 세션(가계부 하나·보기 전용)을 뗀 요청은 자동 로그인으로 보내지 않는다. 카카오톡 안의 브라우저에서 방 전용 세션을
+  // 받는 것은 로그인 이름 계정뿐인데, 화면 없는 카카오 로그인은 그 휴대폰의 카카오 계정에 이어진 다른 웹 계정으로 말없이 들어갈 수 있다(V22.9.118 이 그
+  // 계정을 자동 로그인에서 떼어 둔 까닭). 여기서 물러나면 처리기가 로그인 화면으로 보내고, 응답 마무리가 그 방 가계부 홈으로 돌려보낸다.
+  if (env?.__AB_ROOM_VIEW_STRIPPED) return null;
   if (String(request?.method || "GET").toUpperCase() !== "GET" || !url || !kakaoAutoLoginPath(url.pathname)) return null;
   if (url.searchParams.get("auto") === "0" || !isKakaoTalkInAppBrowser(request) || getCookie(request, KAKAO_AUTO_LOGIN_COOKIE)) return null;
   const fetchMode = String(request.headers.get("sec-fetch-mode") || "").toLowerCase();

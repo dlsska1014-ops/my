@@ -7,6 +7,7 @@ import {
 import { sha256Hex } from "../auth/crypto-admin-session.js";
 import {
   bestRoleFromRows, dedupeMemberRowsByKey, fetchHouseholdMembers, fetchRowsByPlainIds, roleRank,
+  roomViewRoleV229130, roomViewScopeForV229130,
 } from "./households-members-rows.js";
 import { isDefiniteStorageFailure, isUncertainStorageWrite } from "../kakao/response-builders.js";
 import { postgrestQuotedValueV22979 } from "../kakao/edit-session-v4.js";
@@ -91,10 +92,22 @@ async function fetchUserHouseholds(env, userId) {
     ? orderedMemberships.map((membership) => membership.households).filter((household) => household && household.id)
     : await fetchRowsByPlainIds(env, "households", orderedMemberships.map((membership) => membership.household_id), "id,name,invite_code,created_at");
   const householdsById = new Map(householdRows.map((household) => [String(household.id || ""), household]));
-  return orderedMemberships.map((membership) => {
+  const list = orderedMemberships.map((membership) => {
     const household = householdsById.get(String(membership.household_id || ""));
     return household ? { ...household, role: membership.role || "member", joined_at: membership.created_at } : null;
   }).filter(Boolean);
+  // V22.9.130 방 전용 보기: 그 세션의 사용자로 읽을 때는 범위의 가계부 하나만, 조회 전용 역할로 돌려준다. 초대코드는 싣지 않는다
+  // (조회 전용에게는 원래 보이지 않는 값이지만, 이 목록을 쓰는 화면이 60곳이 넘어 값 자체를 비운다). 범위가 없으면 목록 그대로다.
+  const roomView = roomViewScopeForV229130(env, userId);
+  if (!roomView) return list;
+  // 독립 검토 2: 낮추기 전 역할(room_view_role)을 함께 싣는다 — 화면이 ‘로그인하면 기록할 수 있어요’ 를 실제로 기록할 수 있는 사람에게만 말하게.
+  // 그리고 이 요청에서 범위의 가계부를 읽을 수 있었는지 범위 값에 적는다(checked·readable). 읽을 수 없게 된 방 전용 세션(승인 대기로 바뀜·내보내짐)은
+  // 응답 마무리가 끝낸다(auth/kakao-room-open.js roomViewBandResponseV229130).
+  const narrowed = list.filter((household) => String(household.id || "") === roomView.householdId)
+    .map((household) => ({ ...household, invite_code: "", role: roomViewRoleV229130(env, userId, household.id, household.role), room_view_role: household.role }));
+  roomView.checked = true;
+  roomView.readable = narrowed.some((household) => String(household.role || "").toLowerCase() === "viewer");
+  return narrowed;
 }
 
 // K-1: one request-local membership snapshot supplies routing, authority and

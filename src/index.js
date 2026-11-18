@@ -1990,13 +1990,23 @@ const ACCOUNTBOOK_WORKER = {
     const requestDbBudget = dbCallBudgetV229119(env?.DB_CALL_BUDGET, "DB_CALL_BUDGET");
     const requestEnv = { ...env, ...(monitoring ? { __AB_MONITOR_REQUEST: monitoring } : {}), __AB_REQUEST_USER_ROWS: new Map(), __AB_IDENTITY_CONFIRMED: new Map(), __AB_MEMBER_POLICY: new Map(), __AB_DB_BUDGET: {used: 0, limit: requestDbBudget}, ...dbCallBudgetBaseV229119(requestDbBudget) };
     if (new URL(request.url).pathname === "/skill") requestEnv.__AB_KAKAO_REQUEST = { settings: new Map(), afterReply: [], messageLeases: [], createdUsers: new Set(), enabled: false };
-    const routed = rememberedHouseholdRequest(request);
+    // V22.9.130 방 전용 보기: 세션 쿠키가 방 전용 표(가계부 하나·보기 전용)면 요청별 env 에 적어 둔다(서명·만료만 본다 — 보통 세션에는 계산을 더하지 않는다).
+    // 그 브라우저에서는 가계부 기억 쿠키(ab_hh)를 쓰지도 새로 적지도 않는다 — 열리는 가계부는 늘 그 방 가계부다. 관문은 route() 의 방 열기 바로 다음에 있다.
+    const roomViewToken = await roomViewSessionOfRequestV229130(request, requestEnv);
+    if (roomViewToken) requestEnv.__AB_ROOM_VIEW_TOKEN = roomViewToken;
+    const routed = roomViewToken ? { request, eligible: false, injected: false, remembered: "" } : rememberedHouseholdRequest(request);
     try {
       // V22.9.95 공지 띠: NOTICE_TEXT 가 있을 때만 HTML 을 다시 쓴다(없으면 응답 그대로). html-postprocess.js attachNoticeBand 참고.
       // V22.9.102 가계부 기본 설정 띠: 홈이 적은 쿠키(ab_setup)만 보고 주요 화면에 붙인다(DB 읽기 없음). my/setup-page.js 참고.
       // V22.9.121 후원자 포인트 색: 홈·전체 메뉴·참여자가 적은 쿠키(ab_sp)만 보고 다른 셸 화면에도 붙인다(DB 읽기 없음, 쿠키가 없으면 응답 그대로).
       // my/supporter-accent.js 참고.
-      const response = sessionUnavailableResponseV229122(routed.request, requestEnv, await supporterAccentResponseV229121(routed.request, env, await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx)))));
+      // V22.9.130 방 전용 보기: 방 전용 세션으로 그린 화면에는 띠를 붙이고(맨 안쪽), 볼 수 없는 화면을 열어 로그인 화면으로 보내지는 응답은 그 방 가계부 홈으로
+      // 돌려보낸다(맨 바깥). 방 전용 세션이 아닌 요청에서는 두 함수 모두 받은 응답을 그대로 돌려준다(auth/kakao-room-open.js).
+      // 방 전용 세션을 뗀 요청이면 응답 마무리 함수들도 뗀 요청을 본다(쿠키만 보고 띠·색을 붙이는 함수들이 로그인하지 않은 사람과 같은 판정을 하게 —
+      // 독립 검토 2). 관문이 적어 둔 뗀 요청으로 routed.request 를 바꿔 끼운다. 방 전용 세션이 아닌 요청에서는 아무것도 바뀌지 않는다.
+      const routedResponse = await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx);
+      if (requestEnv.__AB_ROOM_VIEW_STRIPPED_REQUEST) routed.request = requestEnv.__AB_ROOM_VIEW_STRIPPED_REQUEST;
+      const response = roomViewBounceResponseV229130(routed.request, requestEnv, sessionUnavailableResponseV229122(routed.request, requestEnv, await supporterAccentResponseV229121(routed.request, env, await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await roomViewBandResponseV229130(routed.request, requestEnv, routedResponse))))));
       abMonitorCompleted(requestEnv, ctx, response);
       return withRememberedHouseholdCookie(routed, response);
     } catch (error) {
@@ -2008,7 +2018,7 @@ const ACCOUNTBOOK_WORKER = {
   },
   async route(request, env, ctx) {
     try {
-      const url = new URL(request.url);
+      let url = new URL(request.url);
       if (["POST", "PUT", "PATCH"].includes(request.method) && url.pathname !== "/skill") {
         request = await boundedFormRequest(request, /\/import(?:\/|$)/.test(url.pathname) ? 16 * 1024 * 1024 : 64 * 1024);
       }
@@ -2055,6 +2065,15 @@ const ACCOUNTBOOK_WORKER = {
       // 아래 자동 로그인·시작 팝업 그대로다. 로그인 뒤 화면이 아닌 주소(공개 문서 등)는 값만 지우므로 숨긴 기능·공지·후원·공개 문서보다 먼저 부른다.
       const kakaoRoomOpen = await kakaoRoomOpenResponse(request, env, url, ctx);
       if (kakaoRoomOpen) return kakaoRoomOpen;
+      // V22.9.130 방 전용 보기 관문: 이 요청의 세션 쿠키가 방 전용 표면(fetch 가 env.__AB_ROOM_VIEW_TOKEN 에 적어 둠) 여기서 갈린다.
+      //  · 보기 화면·조회 API 의 GET 이면 그 방 가계부로 묶인 조회 전용 세션으로 계속 간다(env.__AB_ROOM_VIEW, 주소의 가계부 번호를 그 방 것으로).
+      //  · 그 밖의 모든 요청은 세션 쿠키를 뗀 요청으로 바꿔 계속 간다 — 아래의 어떤 처리도 이 사람을 로그인한 사람으로 보지 않는다.
+      // 방 열기(위)는 이보다 먼저다: 다른 방의 단추를 누르면 그 방으로 다시 정해야 하고, 거기의 구성원 확인은 범위에 걸리면 안 된다.
+      if (env?.__AB_ROOM_VIEW_TOKEN) {
+        const gated = roomViewGateV229130(request, env, url, env.__AB_ROOM_VIEW_TOKEN);
+        request = gated.request;
+        url = gated.url;
+      }
       // V22.9.129: 카카오 값 없이 방 표식(/my?room=<그 방 가계부 번호>)만 온 길 — PC 카카오톡의 ‘웹 가계부 열기’. 세션이 있으면 그 가계부(읽을 수 있을 때)로,
       // 없으면 화면 없는 카카오 로그인을 한 번 해 본 뒤 로그인 화면으로 간다(auth/kakao-room-open.js kakaoRoomEntryResponse).
       const kakaoRoomEntry = await kakaoRoomEntryResponse(request, env, url, ctx);
@@ -2077,6 +2096,7 @@ const ACCOUNTBOOK_WORKER = {
 
       // V22.9.91: 카카오톡 인앱 브라우저에서 세션 없이 /my·/app 을 열면 로그인 화면 대신 카카오 자동 로그인(prompt=none)을 먼저 해 본다.
       // 회원이면 화면 없이 로그인되고, 아니면 지금처럼 로그인 화면이 나온다(auth/kakao-account-link.js).
+      // V22.9.130: 방 전용 세션을 뗀 요청(허용 밖의 화면)에서는 이 함수가 아무것도 하지 않는다(auth/kakao-account-link.js 의 첫 줄).
       const kakaoAutoLogin = await kakaoInAppAutoLoginResponse(request, env, url);
       if (kakaoAutoLogin) return kakaoAutoLogin;
       // V22.9.104 L-1: 자동 로그인을 보내지 않은(이미 해 봤거나 auto=0·할 수 없는) 인앱 브라우저의 세션 없는 /my·/app·/m 은 긴 로그인 화면 대신
@@ -3319,7 +3339,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.129-PC-ROOM-OPEN";
+const APP_VERSION = "V22.9.130-ROOM-ONLY-VIEW";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -18903,6 +18923,26 @@ function bestRoleFromRows(rows = []) {
   return String(bestMemberRow(rows)?.role || "");
 }
 
+// V22.9.130 방 전용 보기(auth/user-session.js 의 넷째 칸 설명 참고): 라우터가 요청 처음에 세션 쿠키를 읽어 요청별 env 에 적어 둔 범위
+// (env.__AB_ROOM_VIEW = { userId, householdId })를 읽는다. 범위는 그 세션의 사용자 번호로 읽을 때만 걸린다 — 같은 요청에서 다른 사람 번호로 읽는 일
+// (구성원 목록·이름 표)은 그대로다. 카카오 스킬·예약 실행·관리자 화면에는 이 값이 없다(세션 쿠키가 없거나 다른 쿠키다).
+function roomViewScopeForV229130(env, userId = "") {
+  const scope = env?.__AB_ROOM_VIEW;
+  const uid = String(userId || "");
+  return scope && scope.householdId && scope.userId && uid && scope.userId === uid ? scope : null;
+}
+
+// 그 사용자의 역할을 범위에 맞춘다. 범위 밖 가계부는 구성원이 아닌 것("")으로, 범위 안 가계부는 읽을 수 있는 역할(소유자·관리자·구성원·조회 전용)이면
+// 조회 전용(viewer)으로 낮춘다. 승인 대기·이용 제한·빈 역할은 그대로 둔다 — 읽을 수 없던 사람이 범위 때문에 읽게 되는 일은 없다.
+// 범위가 없으면(보통 세션) 받은 값을 글자 하나 바꾸지 않고 돌려준다.
+const ROOM_VIEW_READABLE_ROLES_V229130 = ["owner", "admin", "member", "viewer"];
+function roomViewRoleV229130(env, userId = "", householdId = "", role = "") {
+  const scope = roomViewScopeForV229130(env, userId);
+  if (!scope) return role;
+  if (String(householdId || "") !== scope.householdId) return "";
+  return ROOM_VIEW_READABLE_ROLES_V229130.includes(String(role || "").toLowerCase()) ? "viewer" : role;
+}
+
 function dedupeMemberRowsByKey(rows = [], keyName = "user_id") {
   const map = new Map();
   for (const row of safeArray(rows)) {
@@ -27399,11 +27439,27 @@ async function getUserSessionVersion(env, userId = "") {
   }
 }
 
-async function makeUserSession(env, userId) {
-  const exp = Math.floor(Date.now() / 1000) + 60 * 60 * 24 * 14;
+// V22.9.130 방 전용 보기(사용자 2026-11-18 "해당 단톡방에 가계부는 맴버들이 입장할 수 있도록 해야해 다른 가계부 막 들어가는게 아니라 해당 단톡방에서만
+// 해당 단톡방 가계부를 로그인 없이 입장할 수 있도록"): 세션 표에 넷째 칸 ‘r:<가계부 번호>’ 가 있으면 그 세션은 그 가계부 하나만, 보기 전용이다.
+//  · 주는 곳은 한 곳뿐이다 — 단톡방 링크 단추의 식별 값으로 확인된 구성원인데 주소 값으로는 온전한 세션을 주지 않는 계정(auth/kakao-room-open.js).
+//  · 칸 순서는 그대로다(0 사용자, 1 만료, 2 세션 판) — 앞 세 칸을 읽는 곳(runtime/config-readiness.js, auth/kakao-web-claim.js)이 그대로 맞는다.
+//  · 서명은 표 전체에 건다. 넷째 칸을 떼면 서명이 맞지 않으므로 온전한 세션으로 바꿀 수 없다.
+//  · 앞 판(V22.9.129 까지)은 네 칸짜리 표를 받지 않는다 — 되돌리면 방 전용 세션은 그냥 로그아웃 상태가 된다.
+//  · 수명은 12시간이다(온전한 세션은 14일). 방의 단추를 다시 누르면 새로 받는다.
+//  · 운영 변수 KAKAO_ROOM_VIEW_DISABLED 를 켜면(1·true·on) 새로 주지도 않고 이미 준 표도 받지 않는다.
+const ROOM_VIEW_SESSION_SECONDS_V229130 = 60 * 60 * 12;
+const ROOM_VIEW_HOUSEHOLD_SHAPE_V229130 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+function roomViewEnabledV229130(env) {
+  return !envFlagEnabled(env?.KAKAO_ROOM_VIEW_DISABLED, false);
+}
+
+async function makeUserSession(env, userId, options = {}) {
+  const roomViewHouseholdId = String(options?.roomViewHouseholdId || "");
+  if (roomViewHouseholdId && (!ROOM_VIEW_HOUSEHOLD_SHAPE_V229130.test(roomViewHouseholdId) || String(userId || "").includes("|"))) throw new Error("room_view_scope_invalid");
+  const exp = Math.floor(Date.now() / 1000) + (roomViewHouseholdId ? ROOM_VIEW_SESSION_SECONDS_V229130 : 60 * 60 * 24 * 14);
   const version = await getUserSessionVersion(env, userId);
   if (version < 1) throw new Error("user_session_security_unavailable");
-  const data = `${userId}|${exp}|${version}`;
+  const data = roomViewHouseholdId ? `${userId}|${exp}|${version}|r:${roomViewHouseholdId}` : `${userId}|${exp}|${version}`;
   const sig = await hmacSha256(userSessionSecret(env), data);
   return `${data}.${sig}`;
 }
@@ -27418,14 +27474,35 @@ async function parseUserSessionToken(request, env) {
   const data = token.slice(0, dot);
   const sig = token.slice(dot + 1);
   const parts = data.split("|");
-  if (parts.length !== 2 && parts.length !== 3) return null;
+  if (parts.length !== 2 && parts.length !== 3 && parts.length !== 4) return null;
+  // V22.9.130: 넷째 칸은 방 전용 보기의 가계부 범위(r:<UUID>)만이다. 다른 모양이면 받지 않는다. 스위치를 끈 운영에서도 받지 않는다(로그아웃 상태).
+  let roomViewHouseholdId = "";
+  if (parts.length === 4) {
+    const scope = /^r:(.+)$/.exec(parts[3]);
+    if (!scope || !ROOM_VIEW_HOUSEHOLD_SHAPE_V229130.test(scope[1]) || !roomViewEnabledV229130(env)) return null;
+    roomViewHouseholdId = scope[1];
+  }
   const userId = parts[0];
   const exp = Number(parts[1]);
   if (!userId || !Number.isFinite(exp) || exp < Math.floor(Date.now() / 1000)) return null;
   const expected = await hmacSha256(userSessionSecret(env), data);
   if (!constantTimeTextEqual(expected, sig)) return null;
-  const tokenVersion = parts.length === 3 ? Number(parts[2]) : 1;
-  return { userId, tokenVersion };
+  const tokenVersion = parts.length >= 3 ? Number(parts[2]) : 1;
+  return { userId, tokenVersion, roomViewHouseholdId };
+}
+
+// V22.9.130: 이 요청의 세션 쿠키가 방 전용 보기 표인지(서명·만료만 본다 — DB 를 읽지 않는다). 방 전용이면 { userId, householdId }, 아니면 null.
+// 라우터가 요청 처음에 한 번 불러 요청별 env 에 적어 두고(worker/router.js roomViewGate…), 그 뒤의 역할 읽기·가계부 목록이 그 값으로 범위를 지킨다.
+// 세션이 유효한지(세션 판·통합 여부)는 여전히 verifyUserSession 이 본다 — 여기서 null 이 아니라고 로그인된 것은 아니다.
+async function roomViewSessionOfRequestV229130(request, env) {
+  try {
+    // 보통 세션(세 칸)에는 서명 계산을 한 번 더 하지 않는다 — 쿠키에 넷째 칸 머리(|r:)가 있을 때만 확인한다.
+    if (!String(getCookie(request, "ab_user") || "").includes("|r:")) return null;
+    const parsed = await parseUserSessionToken(request, env);
+    return parsed?.roomViewHouseholdId ? { userId: String(parsed.userId), householdId: parsed.roomViewHouseholdId } : null;
+  } catch (_) {
+    return null;
+  }
 }
 
 function userSessionVersionMatches(tokenVersion, currentVersion) {
@@ -28667,10 +28744,22 @@ async function fetchUserHouseholds(env, userId) {
     ? orderedMemberships.map((membership) => membership.households).filter((household) => household && household.id)
     : await fetchRowsByPlainIds(env, "households", orderedMemberships.map((membership) => membership.household_id), "id,name,invite_code,created_at");
   const householdsById = new Map(householdRows.map((household) => [String(household.id || ""), household]));
-  return orderedMemberships.map((membership) => {
+  const list = orderedMemberships.map((membership) => {
     const household = householdsById.get(String(membership.household_id || ""));
     return household ? { ...household, role: membership.role || "member", joined_at: membership.created_at } : null;
   }).filter(Boolean);
+  // V22.9.130 방 전용 보기: 그 세션의 사용자로 읽을 때는 범위의 가계부 하나만, 조회 전용 역할로 돌려준다. 초대코드는 싣지 않는다
+  // (조회 전용에게는 원래 보이지 않는 값이지만, 이 목록을 쓰는 화면이 60곳이 넘어 값 자체를 비운다). 범위가 없으면 목록 그대로다.
+  const roomView = roomViewScopeForV229130(env, userId);
+  if (!roomView) return list;
+  // 독립 검토 2: 낮추기 전 역할(room_view_role)을 함께 싣는다 — 화면이 ‘로그인하면 기록할 수 있어요’ 를 실제로 기록할 수 있는 사람에게만 말하게.
+  // 그리고 이 요청에서 범위의 가계부를 읽을 수 있었는지 범위 값에 적는다(checked·readable). 읽을 수 없게 된 방 전용 세션(승인 대기로 바뀜·내보내짐)은
+  // 응답 마무리가 끝낸다(auth/kakao-room-open.js roomViewBandResponseV229130).
+  const narrowed = list.filter((household) => String(household.id || "") === roomView.householdId)
+    .map((household) => ({ ...household, invite_code: "", role: roomViewRoleV229130(env, userId, household.id, household.role), room_view_role: household.role }));
+  roomView.checked = true;
+  roomView.readable = narrowed.some((household) => String(household.role || "").toLowerCase() === "viewer");
+  return narrowed;
 }
 
 // K-1: one request-local membership snapshot supplies routing, authority and
@@ -37492,7 +37581,8 @@ async function handleMyPage(request, env, url) {
   if (!userId) return htmlResponse(renderUserLoginHtml(env, "", safeUserReturnPath(url.searchParams.get("return_to") || "", ""), url.searchParams.get("login") === "1" ? "login_local" : "login"));
   // V22.9.91 계정 잇기: 이 사람의 카카오톡 방 기록 계정과 웹 계정이 갈라져 있으면(잇기 제안) 가계부보다 확인 화면을 먼저 보인다.
   // ‘나중에’를 골랐거나 방금 이은 뒤(msg=account_linked)는 묻지 않는다.
-  if (url.searchParams.get("msg") !== "account_linked") {
+  // V22.9.130: 방 전용 보기(가계부 하나·보기 전용 세션)에서는 계정 잇기 확인 화면으로 보내지 않는다 — 그 화면은 로그인해야 열린다.
+  if (url.searchParams.get("msg") !== "account_linked" && !env?.__AB_ROOM_VIEW) {
     const linkPrompt = await kakaoAccountLinkPrompt(request, env, userId);
     if (linkPrompt) return linkPrompt;
   }
@@ -45008,7 +45098,7 @@ function budgetReadFailedHomeCardsV229126(html, failed) {
   return failed ? html.replace('<b>미설정</b><div class="homeReportBars"></div><small>분류별 예산을 정하면 넘치는 항목을 미리 알려드려요</small>', '<b>확인 불가</b><div class="homeReportBars"></div><small>예산을 불러오지 못했어요</small>') : html;
 }
 
-function renderMobileV81Html({ title, setupBand = "", month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, paymentAssetNames = [], msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "", spenderMembers = members, memberCanChangeRecords = true, ledgerHasRecords = rows.length > 0, refundDeductions = [], refundFailed = false, quickRetry = false, quickUndo = null, deleteRestore = null, supporter = null, budgetReadFailed = false }) {
+function renderMobileV81Html({ title, setupBand = "", roomView = false, month, households, selectedHousehold, members, rows, filteredRows = null, stats, prevStats = null, budgets, reservePlans = [], reserveLoaded = true, monthlyTrend = [], budget, recurring = [], meme = null, categoryOptions, paymentOptions, paymentAssetNames = [], msg = "", err = "", mobileFeed = "10", mobileFilters = {}, focusTab = "home", txPage = 1, trendView = "", balert = "", homeView = "", calendarRows = null, reportChallenge = null, sessionRole = "admin", sessionUserId = "", isAdminSession = true, homeLayoutSetting = null, sharePrefill = "", spenderMembers = members, memberCanChangeRecords = true, ledgerHasRecords = rows.length > 0, refundDeductions = [], refundFailed = false, quickRetry = false, quickUndo = null, deleteRestore = null, supporter = null, budgetReadFailed = false }) {
   // 8.4: 저장된 홈 구성이 없거나 깨졌으면 기본 순서다. 이 폴백이 정상 경로다.
   const homeLayout = normalizeHomeLayout(homeLayoutSetting);
   const roleLower = String(sessionRole || "").toLowerCase();
@@ -45592,7 +45682,7 @@ function renderMobileV81Html({ title, setupBand = "", month, households, selecte
   // 조합 중 읽기는 composing 을 넘겨 가계부 분류 요청을 조합이 끝날 때(compositionend 의 읽기)로 미룬다(공유 컨트롤러 apply, 독립 검토).
   // V22.9.97 홈 HTML 예산(35 KiB, validate-ui-perf-v22940): 후원 줄·사이드바 후원 링크를 더하기 전 여유가 32 B 뿐이었다. 맨 끝의 바이트 줄이기(빈 요소의
   // ‘/>’ 빼기)에 빈 option 의 끝 태그 빼기를 더한다 — HTML 규칙상 생략할 수 있는 태그라 브라우저가 만드는 DOM 은 같다(분류·결제수단 목록 75개 = 675 B).
-  return `<!doctype html><html lang="ko"${supporterHtmlAttr(!!supporter)}><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/>${supporterHeadHtml({ viewer: !!supporter })}</head><body>${setupBand}${renderUnifiedNav(appNavActive, { month, householdId, householdName: householdChoiceLabelV229118(selectedHousehold, households) || selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(householdChoiceLabelV229118(selectedHousehold, households) || selectedHousehold?.name || "가계부")}</h1>${supporter ? supporterBadgeHtml() : ""}</div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(householdChoiceLabelV229118(h, households) || h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>${escapeHtml(budgetHeadLabel)}</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : budgetReadFailed ? `<b>확인 불가</b>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"${isCurrentMonth && budgetTotal ? ` style="--ab-today:${monthElapsedPercent}%"` : ""}><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>${budgetTotal ? `예산 ${numberWithCommas(budgetTotal)}원` : budgetReadFailed ? "예산을 불러오지 못했어요" : "예산 없음"}</span><span>${budgetReadFailed && !budgetTotal ? "" : `${budgetTotal ? METRIC_LABELS.budgetSpent.label : METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUsed)}원`}${budgetUncovered ? `<br>${METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUncovered)}원` : ""}</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈${todayOk ? "" : " · 하루 한도를 넘었어요"}</span><b${!todaySpend ? " class=\"muted\"" : todayOk ? "" : " class=\"expense\""}>${todaySpend ? `${numberWithCommas(todaySpend)}원` : "아직 없어요"}</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${entryBarHtml}${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${budgetReadFailedHomeCardsV229126(renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, upcoming: homeUpcoming, reserveHref: homeReserveHref, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref }), budgetReadFailed)}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">${stats.totals.income ? "+" : ""}${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">${stats.totals.expense ? "-" : ""}${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}${homeRefundNote ? `<small class="homeMomLine">${escapeHtml(homeRefundNote)}</small>` : ""}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요.</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div>${appIsManager ? `<div class="grid2"><select name="user_id">${spenderOptions}</select>` : "<div>"}<input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}" data-income="${Math.max(0, Number(stats.totals?.income || 0))}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>필터</b><span>${hasMobileFilter ? `적용 중 · ${numberWithCommas(feedSource.length)}건` : "전체"}</span></summary>${mobileFilterForm}${feedLinks}</details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow, [], false, { filtered: hasMobileFilter }) : onboardingHtml}</div>${feedSource.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(feedSource.length)}건 조회</a>` : ""}</section>${HOME_SUPPORT_LINE_V22997}`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date(Date.now()+32400000+Number(this.getAttribute('data-day')||0)*86400000);var v=d.toISOString().slice(0,10);var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value&&!(o.getAttribute&&o.getAttribute('data-ab-pick')))payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(inputPaymentNameIn(text,payOpts[i]))return payOpts[i];}return detectInputPayment(normalizeInputText(text));}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase(),after=inputPaymentPatterns().after;var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value).toLowerCase();if(!v||optionHit)return;for(var at=raw.indexOf(v),seen=0;at>=0&&seen<16;at=raw.indexOf(v,at+1),seen++){var rest=raw.slice(at+v.length);if(/[a-z0-9]$/.test(v)?!/^[a-z0-9]/.test(rest):after.test(rest)){optionHit=o.value;return;}}});if(optionHit)return optionHit;return inferInputCategory(normalizeInputText(text).toLowerCase(),type,quickRules);}function stripQuickMemo(text,amountText,payment,category,type){return cleanInputMemo(text,amountText,type,payment,category);}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput,composing){abSmartState.apply(clearInput,composing);}
+  return `<!doctype html><html lang="ko"${supporterHtmlAttr(!!supporter)}><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="theme-color" content="#3182f6"/><title>${title} · 모바일</title><link rel="stylesheet" href="${MOBILE_HOME_CSS_ASSET_PATH}"/>${supporterHeadHtml({ viewer: !!supporter })}</head><body>${setupBand}${renderUnifiedNav(appNavActive, { month, householdId, householdName: householdChoiceLabelV229118(selectedHousehold, households) || selectedHousehold?.name || "가계부", showSidebarDashboard: true, sidebarRows: rows, sidebarBudget: budget, role: String(selectedHousehold?.role || "") })}<header class="appTop" id="top"><div class="topLine"><h1>${escapeHtml(householdChoiceLabelV229118(selectedHousehold, households) || selectedHousehold?.name || "가계부")}</h1>${supporter ? supporterBadgeHtml() : ""}</div><form class="selectLine" method="get" action="/app">${monthNavHidden}<select name="household_id" onchange="this.form.submit()">${households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "가계부")}"${h.id === householdId ? " selected" : ""}>${escapeHtml(householdChoiceLabelV229118(h, households) || h.name)}</option>`).join("")}</select><input type="month" name="month" value="${escapeHtml(month)}" onchange="this.form.submit()"/></form>${monthAwayHtml}</header><main class="wrap">${focusTab === "transactions" ? txViewHtml : `<section class="homeBudget${budgetGaugeState}"${month < currentMonthKst() && rows.length > 0 && budgetTotal > 0 && budgetUsed <= budgetTotal ? ` data-ab-celebrate="budget" data-ab-celebrate-key="${escapeHtml(householdId)}:${escapeHtml(month)}"` : ""}><div class="homeBudgetTop"><span>${escapeHtml(budgetHeadLabel)}</span>${budgetTotal ? `<em>예산 사용률 <span data-ab-num="${budgetUsedRatio}" data-ab-num-style="percent">${displayBudgetPercent}%</span></em>` : ""}</div><div class="homeBudgetAmount">${budgetTotal ? `<b data-ab-num="${budgetRemaining}" data-ab-num-unit="원">${numberWithCommas(budgetRemaining)}</b><small>원</small>` : budgetReadFailed ? `<b>확인 불가</b>` : `<b>예산 미설정</b>`}</div><div class="homeProgress"${isCurrentMonth && budgetTotal ? ` style="--ab-today:${monthElapsedPercent}%"` : ""}><i style="width:${budgetBarPercent}%"${homePrevBarAttr}></i></div><div class="homeBudgetFoot"><span>${budgetTotal ? `예산 ${numberWithCommas(budgetTotal)}원` : budgetReadFailed ? "예산을 불러오지 못했어요" : "예산 없음"}</span><span>${budgetReadFailed && !budgetTotal ? "" : `${budgetTotal ? METRIC_LABELS.budgetSpent.label : METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUsed)}원`}${budgetUncovered ? `<br>${METRIC_LABELS.budgetUnset.label} ${numberWithCommas(budgetUncovered)}원` : ""}</span></div>${isCurrentMonth ? `<div class="homeBudgetToday"><span>오늘 쓴 돈${todayOk ? "" : " · 하루 한도를 넘었어요"}</span><b${!todaySpend ? " class=\"muted\"" : todayOk ? "" : " class=\"expense\""}>${todaySpend ? `${numberWithCommas(todaySpend)}원` : "아직 없어요"}</b></div>` : ""}${Number(stats.totals.expense || 0) ? "" : `<div class="homeBudgetEmpty">아직 지출 기록이 없어요</div>`}${dailyPlanHtml}${dailyAllowanceAmt && isCurrentMonth && !budgetOverAmt ? `<details class="abDailyHelp"><summary>하루 금액 계산</summary><p>남은 예산을 오늘 포함 ${remainDays}일로 나누며 원 미만은 버립니다.</p></details>` : ""}</section>${entryBarHtml}${renderHomeWeekStrip(rows, isCurrentMonth)}${homeChallengeHtml}${budgetReadFailedHomeCardsV229126(renderHomeReportCards({ month, householdId, rows, stats, budgetAlerts: budget.categoryAlerts, upcoming: homeUpcoming, reserveHref: homeReserveHref, reserveLoaded, isCurrentMonth, layout: homeLayout, layoutHref: homeLayoutHref }), budgetReadFailed)}<section class="homeMetrics">${incomeUsageHtml}<div class="homeMetric"><span>들어온 돈 💰</span><b class="income">${stats.totals.income ? "+" : ""}${numberWithCommas(stats.totals.income)}원</b></div><div class="homeMetric"><span>나간 돈 💸</span><b class="expense">${stats.totals.expense ? "-" : ""}${numberWithCommas(stats.totals.expense)}원</b>${appMomRate === null ? "" : `<small class="homeMomLine ${expenseDeltaClass}">${escapeHtml(expenseDeltaText)}</small>`}${homeRefundNote ? `<small class="homeMomLine">${escapeHtml(homeRefundNote)}</small>` : ""}</div></section>${homeCalendarHtml}${homeShortcutsHtml}<details class="homeInsights"${trendView !== "daily" ? " open" : ""}><summary>소비 흐름·카테고리</summary><section class="homeGrid"><div class="homeCard"><h2>소비 흐름</h2>${homeTrendHtml}</div><div class="homeCard"><h2 class="homeCategoryHead">카테고리 비율<a href="/my/analysis?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}" class="homeCategoryLink">월간 리포트 →</a></h2>${homeBars}</div></section></details><section id="add" class="panel" data-ab-draft-user="${escapeHtml(sessionUserId || "")}" data-ab-draft-household="${escapeHtml(householdId)}"><h2>빠른 입력</h2>${!appCanWrite ? `<div class="empty">${roomView ? "방 전용 보기에서는 기록할 수 없어요. 단톡방에서 말로 남기거나, 로그인하면 여기서 기록할 수 있어요." : "현재 권한(조회 전용/승인 대기)은 입력이 제한됩니다. 가계부 관리자에게 권한을 요청하세요."}</div>` : `<div class="smartLine"><input id="smartInput" type="text" autocomplete="off" enterkeyhint="done" placeholder="한 줄 입력: 점심 12000 국민카드"${sharePrefill ? ` value="${escapeHtml(sharePrefill)}" data-ab-shared="1"` : ""}/></div><p class="smartHint">내용·금액·결제수단을 적으면 아래 항목에 반영됩니다. 예: 커피 5천 현금</p><form class="form" method="post" action="/admin/transactions">${hidden}<input type="hidden" name="raw_text" id="rawTextInput"/><div class="seg"><label><input type="radio" name="type" value="expense" checked/><span>지출</span></label><label><input type="radio" name="type" value="income"/><span>수입</span></label></div><input id="amountInput" class="amountInput" type="text" name="amount" inputmode="numeric" autocomplete="off" placeholder="예: 12,000" required/><input id="memoInput" name="memo" placeholder="내용 예: 점심, 쿠팡, 병원"/><div class="chipRow" id="freqChips">${inputChips}</div><details class="quickMore" id="quickMore"><summary><span>자세히</span><em id="quickMoreSummary" data-ab-quick-summary>${escapeHtml(quickMoreSummaryText)}</em></summary><div class="quickMoreBody"><div class="dateRow"><input id="txDate" type="date" name="transaction_date" value="${escapeHtml(quickInputDate)}"/><button type="button" class="dateChip" data-day="0">오늘</button><button type="button" class="dateChip" data-day="-1">어제</button></div>${appIsManager ? `<div class="grid2"><select name="user_id">${spenderOptions}</select>` : "<div>"}<input name="payment_method" list="paymentList" id="payInput" placeholder="결제수단"/></div>${payChips ? `<div class="chipRow payChips"><span class="chipRowLabel">결제수단</span>${payChips}</div>` : ""}<input id="catInput" name="category" list="categoryList" placeholder="분류 자동추천"/></div></details><div class="quickSubmit"><button type="submit">기록 저장</button><p class="quickAfter" id="quickAfter" data-ab-quick-after data-bsc="${escapeHtml(quickBudgetScope)}" data-remaining="${Math.max(0, Number(budgetRemaining) || 0)}" data-has-budget="${budgetTotal ? "1" : "0"}" data-income="${Math.max(0, Number(stats.totals?.income || 0))}">${escapeHtml(quickAfterBaseText)}</p></div></form>`}</section>${homeReserveCard}<section id="feed" class="panel"><h2>최근 내역</h2>${firstRecordDone ? `<details class="homeFeedFilter"${hasMobileFilter ? " open" : ""}><summary><b>필터</b><span>${hasMobileFilter ? `적용 중 · ${numberWithCommas(feedSource.length)}건` : "전체"}</span></summary>${mobileFilterForm}${feedLinks}</details>` : ""}<div id="v8Feed">${firstRecordDone ? renderV8TxCards(feedRows, currentPath, appCanEditRow, [], false, { filtered: hasMobileFilter }) : onboardingHtml}</div>${feedSource.length > feedRows.length ? `<a class="btn" style="margin-top:10px" href="${escapeHtml(`${baseAppPath}&feed=all`)}#feed">전체 ${numberWithCommas(feedSource.length)}건 조회</a>` : ""}</section>${HOME_SUPPORT_LINE_V22997}`}<datalist id="categoryList">${categoryList}</datalist><datalist id="paymentList">${paymentList}</datalist></main>${saveFeedbackHtml}<nav class="bottom"><a class="tab${focusTab === "transactions" ? "" : " active"}" href="${escapeHtml(resetAppPath)}#top"><i>🏠</i><span>홈</span></a><a class="tab${focusTab === "transactions" ? " active" : ""}" href="${escapeHtml(`${resetAppPath}&tab=transactions`)}"><i>📄</i><span>기록</span></a><a class="tab tabAdd" href="#add"><i>＋</i><span>입력</span></a><a class="tab" href="/budgets?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>📊</i><span>예산</span></a><a class="tab" href="/menu?month=${encodeURIComponent(month)}${householdId ? `&household_id=${encodeURIComponent(householdId)}` : ""}"><i>☰</i><span>전체</span></a></nav><script>(function(){var q=document.getElementById('v8Search');if(q){q.addEventListener('input',function(){var s=this.value.toLowerCase();document.querySelectorAll('.v8-tx').forEach(function(x){var main=x.querySelector('.v8-tx-main');var hay=((main||x).textContent||'').toLowerCase();x.style.display=hay.indexOf(s)>=0?'block':'none';});});}var amount=document.getElementById('amountInput');document.querySelectorAll('.chipRow button').forEach(function(btn){btn.addEventListener('click',function(){var payOnly=this.getAttribute('data-pay-only');var pay=document.getElementById('payInput');if(payOnly){if(pay){pay.value=payOnly;pay.dispatchEvent(new Event('change',{bubbles:true}));}return;}var memo=document.getElementById('memoInput');var cat=document.getElementById('catInput');if(memo)memo.value=this.getAttribute('data-memo')||'';if(cat)cat.value=this.getAttribute('data-cat')||'';var chipPay=this.getAttribute('data-pay');if(pay&&chipPay&&!pay.value){pay.value=chipPay;pay.dispatchEvent(new Event('change',{bubbles:true}));}if(cat)cat.dispatchEvent(new Event('change',{bubbles:true}));if(memo)memo.dispatchEvent(new Event('change',{bubbles:true}));if(amount&&!amount.value){amount.focus();}});});document.querySelectorAll('.dateChip').forEach(function(btn){btn.addEventListener('click',function(){var d=new Date(Date.now()+32400000+Number(this.getAttribute('data-day')||0)*86400000);var v=d.toISOString().slice(0,10);var inp=document.getElementById('txDate');if(inp){inp.value=v;inp.dispatchEvent(new Event('change',{bubbles:true}));}});});var _tabs=document.querySelectorAll('.bottom a.tab');function _setActive(hash){_tabs.forEach(function(t){var h=t.getAttribute('href')||'';t.classList.toggle('active',h===hash);});}_tabs.forEach(function(t){var h=t.getAttribute('href')||'';if(h.charAt(0)==='#'){t.addEventListener('click',function(){_setActive(h);});}});var _secs=[['#add','add'],['#feed','feed']];window.addEventListener('scroll',function(){var y=window.scrollY+120;var on='#top';_secs.forEach(function(p){var el=document.getElementById(p[1]);if(el&&el.offsetTop<=y)on=p[0];});_setActive(on);},{passive:true});var smart=document.getElementById('smartInput');function parseKoreanAmount(text){return parseMobileAmountText(text);}function abNorm(v){return String(v||'').replace(/[~!@#$%^&*_=+\`|\\\\{}\\[\\]:;"'<>?]/g,' ').replace(/[()]/g,' ').replace(/\\s+/g,' ').trim();}function detectQuickType(text){return transactionTypeFromText(text,window.AB_CATEGORY_RULES||[]);}function parseQuickDate(text){return quickInputDate(text);}function detectQuickPayment(text){var payOpts=[];document.querySelectorAll('#paymentList option').forEach(function(o){if(o.value&&!(o.getAttribute&&o.getAttribute('data-ab-pick')))payOpts.push(o.value);});payOpts.sort(function(a,b){return b.length-a.length;});for(var i=0;i<payOpts.length;i++){if(inputPaymentNameIn(text,payOpts[i]))return payOpts[i];}return detectInputPayment(normalizeInputText(text));}var quickRules=(window.AB_CATEGORY_RULES||[]);function inferQuickCategory(text,type){var raw=abNorm(text).toLowerCase(),after=inputPaymentPatterns().after;var optionHit='';document.querySelectorAll('#categoryList option').forEach(function(o){var v=abNorm(o.value).toLowerCase();if(!v||optionHit)return;for(var at=raw.indexOf(v),seen=0;at>=0&&seen<16;at=raw.indexOf(v,at+1),seen++){var rest=raw.slice(at+v.length);if(/[a-z0-9]$/.test(v)?!/^[a-z0-9]/.test(rest):after.test(rest)){optionHit=o.value;return;}}});if(optionHit)return optionHit;return inferInputCategory(normalizeInputText(text).toLowerCase(),type,quickRules);}function stripQuickMemo(text,amountText,payment,category,type){return cleanInputMemo(text,amountText,type,payment,category);}var abSmartState = (${quickSmartInputController.toString()})({amount:parseKoreanAmount,date:quickInputDate,type:detectQuickType,payment:detectQuickPayment,category:inferQuickCategory,memo:stripQuickMemo,sync:abQuickSyncMore});function applySmart(clearInput,composing){abSmartState.apply(clearInput,composing);}
 
 function abQuickTypeLabels(){var inc=!!document.querySelector('#add input[name=type][value=income]:checked');var who=document.querySelector('#add select[name=user_id]');var o=who&&who.options[0];if(o&&!o.value)o.text=inc?'수입자 선택':'지출자 선택';var pay=document.getElementById('payInput');if(pay)pay.placeholder=inc?'입금 계좌·수단':'결제수단';}function abQuickSyncMore(){abQuickTypeLabels();var d=document.getElementById('txDate');var dv=d&&d.value?d.value:'';var kstDay=function(n){return new Date(Date.now()+32400000+n*86400000).toISOString().slice(0,10);};document.querySelectorAll('.dateChip').forEach(function(x){var on=!!dv&&dv===kstDay(Number(x.getAttribute('data-day')||0));x.setAttribute('aria-pressed',on?'true':'false');x.classList.toggle('on',on);});var out=document.querySelector('[data-ab-quick-summary]');if(!out)return;var pay=document.getElementById('payInput');var cat=document.getElementById('catInput');var who=document.querySelector('#add select[name=user_id]');var parts=[];parts.push(dv===kstDay(0)?'오늘':(dv||'날짜'));if(pay&&pay.value)parts.push(pay.value);if(who&&who.selectedIndex>=0&&who.options[who.selectedIndex]&&who.value)parts.push(who.options[who.selectedIndex].text);if(cat&&cat.value)parts.push(cat.value);out.textContent=parts.join(' · ');}function abQuickSyncAfter(){abSmartState.preview();}var abImeComposing=false;if(smart){smart.addEventListener('compositionstart',function(){abImeComposing=true;});smart.addEventListener('compositionend',function(){abImeComposing=false;applySmart(false);});smart.addEventListener('input',function(e){applySmart(false,abImeComposing||!!(e&&e.isComposing));});smart.addEventListener('keydown',function(e){if(e.key==='Enter'&&!abImeComposing&&!e.isComposing){e.preventDefault();applySmart(true);}});if(smart.value&&smart.getAttribute('data-ab-shared')){applySmart(false);}}['txDate','payInput','catInput','amountInput'].forEach(function(id){var el=document.getElementById(id);if(el){el.addEventListener('input',function(){abQuickSyncMore();abQuickSyncAfter();});el.addEventListener('change',function(){abQuickSyncMore();abQuickSyncAfter();});}});var whoSel=document.querySelector('#add select[name=user_id]');if(whoSel)whoSel.addEventListener('change',abQuickSyncMore);document.addEventListener('change',function(e){if(e.target&&e.target.name==='type'){abQuickTypeLabels();abQuickSyncAfter();}});abQuickSyncMore();abSmartState.preview(true);var addForm=document.querySelector('#add form.form');if(addForm)addForm.addEventListener('submit',function(){var rawEl=document.getElementById('rawTextInput');if(rawEl&&!rawEl.value){var memo=document.getElementById('memoInput')?.value||'';var amt=document.getElementById('amountInput')?.value||'';var pay=document.getElementById('payInput')?.value||'';var cat=document.getElementById('catInput')?.value||'';rawEl.value=[memo,amt,pay,cat].filter(Boolean).join(' ');}});window.copyMemeText=function(btn){var text=btn.getAttribute('data-share')||'';if(navigator.clipboard){navigator.clipboard.writeText(text).then(function(){btn.textContent='복사됨';});}else{btn.textContent=text;}};})();</script></body></html>`.replace(/(<(?:input|meta|link|br|hr)\b[^>]*?)\/>/g,"$1>").replace(/(<option\b[^>]*>)<\/option>/g,"$1");
 }
@@ -45688,7 +45778,7 @@ async function handleMobileV8Page(request, env, url) {
   const refundOn = !!selectedHousehold && refundLinksEnabled(env);
   const layoutKey = homeLayoutKey(selectedHousehold?.id || "", userId || "shared");
   // V22.9.95 후원: 로그인한 사용자의 후원자 표시도 아래 설정 조회 한 번에 얹는다(홈 조회 9회 그대로). 관리자 세션은 읽지 않는다.
-  const homeSupporterKey = !adminOk && userId ? supporterSettingsKey(userId) : "";
+  const homeSupporterKey = !adminOk && userId && !env?.__AB_ROOM_VIEW ? supporterSettingsKey(userId) : "";
   const trendMonthly = !!selectedHousehold && url.searchParams.get("tab") !== "transactions" && url.searchParams.get("trend") === "monthly";
   const homeSettingsPromise = selectedHousehold
     ? fetchMobileHomeSettings(env, householdId, month, { includeReserve, includePayment: canLoadWriteOptions, includeMemberPolicy: !adminOk && String(selectedHousehold?.role || "").toLowerCase() === "member", extraKeys: [...(refundOn ? [layoutKey] : []), homeSupporterKey].filter(Boolean) })
@@ -45814,14 +45904,15 @@ async function handleMobileV8Page(request, env, url) {
   const calendarRows = rows;
   // V22.9.102 가계부 기본 설정 띠: 이미 읽은 가계부·구성원 행과 쿠키(ab_bk)만으로 판정한다(DB 읽기 0회). 판정은 쿠키 ab_setup(1시간)에 적어
   // 전체 메뉴·가계부 전환 등 다른 화면이 같은 띠를 붙인다. 관리자 세션(로그인 사용자 없음)에는 띠가 없다. my/setup-page.js 참고.
-  const setupStatus = userId && selectedHousehold ? householdSetupStatus({ household: selectedHousehold, members, userId, backupKnown: backupLoginKnown(request) }) : null;
+  // V22.9.130: 방 전용 보기(가계부 하나·보기 전용 세션, env.__AB_ROOM_VIEW)에는 설정 띠를 붙이지 않고 쿠키도 적지 않는다 — 설정 화면은 로그인해야 열린다.
+  const setupStatus = userId && selectedHousehold && !env?.__AB_ROOM_VIEW ? householdSetupStatus({ household: selectedHousehold, members, userId, backupKnown: backupLoginKnown(request) }) : null;
   const setupBand = setupStatus && !setupStatus.done ? setupBandHtml({ householdId, missing: setupStatus.missing, month }) : "";
   const setupHeaders = setupStatus ? { "set-cookie": setupStatusCookie(householdId, setupStatus) } : {};
   // V22.9.121: 보는 사람의 후원자 표시(위 설정 조회 한 번에 얹어 읽은 값). 홈 그리기와 포인트 색 쿠키(ab_sp)가 같은 값을 쓴다(추가 조회 없음).
   // 관리자 세션은 표시를 읽지 않으므로 쿠키도 그대로 둔다(my/supporter-accent.js).
   const homeSupporter = homeSupporterKey ? activeSupporterFlag(homeSettings.extra?.get(homeSupporterKey)) : null;
   // V22.9.104 L-3: 동의 기록이 없다고 확인된 사용자(쿠키 ab_cs=0)만 홈 위에 동의 팝업을 붙인다(DB 읽기 0회, 관리자 세션 제외).
-  return withSupporterAccentCookieV229121(request, htmlResponse(withTermsNoticeBandV229114(request, url, !!userId && !adminOk, abEchoQuickRequestId(url, err, renderMobileV81Html({ title, setupBand, month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, budgetReadFailed, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, supporter: homeSupporter, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed, quickUndo, deleteRestore }))), 200, setupHeaders), homeSupporterKey ? !!homeSupporter : null);
+  return withSupporterAccentCookieV229121(request, htmlResponse(withTermsNoticeBandV229114(request, url, !!userId && !adminOk, abEchoQuickRequestId(url, err, renderMobileV81Html({ title, setupBand, roomView: !adminOk && !!env?.__AB_ROOM_VIEW && canWriteMyHousehold(selectedHousehold?.room_view_role), month, households, selectedHousehold, members, rows, filteredRows, stats, prevStats, budgets, budgetReadFailed, reservePlans, budget, recurring: recurringRules, meme: null, categoryOptions, paymentOptions, paymentAssetNames: paymentAssetRows.map((p) => p.name), msg, err, quickRetry: url.searchParams.get("quick") === "1", mobileFeed, mobileFilters: { type: mobileType, q: mobileQ, quality: mobileQuality, date: mobileDate, category: mobileCategory, payment_method: mobilePayment }, focusTab, txPage, trendView, reserveLoaded: includeReserve, monthlyTrend, balert, homeView, calendarRows, reportChallenge, sessionRole: adminOk ? "admin" : String(selectedHousehold?.role || ""), sessionUserId: userId || "", isAdminSession: !!adminOk, supporter: homeSupporter, homeLayoutSetting, sharePrefill, spenderMembers, ledgerHasRecords, memberCanChangeRecords: homeSettings.memberPolicy !== MEMBER_POLICY_RECORD_ONLY, refundDeductions: monthEntries, refundFailed: !!refundRead?.failed, quickUndo, deleteRestore }))), 200, setupHeaders), homeSupporterKey ? !!homeSupporter : null);
 }
 
 async function handleBudgetSave(request, env) {
@@ -47631,6 +47722,10 @@ function kakaoAutoLoginPath(pathname = "") {
 // 세션이 있거나(같은 요청 캐시라 왕복이 늘지 않는다), 이미 해 봤거나(ab_kakao_auto), 페이지 이동이 아닌 요청이면 하지 않는다.
 // 관리자 세션이 있는 브라우저의 /app 은 관리자 화면이라 건드리지 않는다. 운영에서 끌 때는 KAKAO_INAPP_AUTO_LOGIN=0.
 async function kakaoInAppAutoLoginResponse(request, env, url) {
+  // V22.9.130 독립 검토 2(P3): 방 전용 세션(가계부 하나·보기 전용)을 뗀 요청은 자동 로그인으로 보내지 않는다. 카카오톡 안의 브라우저에서 방 전용 세션을
+  // 받는 것은 로그인 이름 계정뿐인데, 화면 없는 카카오 로그인은 그 휴대폰의 카카오 계정에 이어진 다른 웹 계정으로 말없이 들어갈 수 있다(V22.9.118 이 그
+  // 계정을 자동 로그인에서 떼어 둔 까닭). 여기서 물러나면 처리기가 로그인 화면으로 보내고, 응답 마무리가 그 방 가계부 홈으로 돌려보낸다.
+  if (env?.__AB_ROOM_VIEW_STRIPPED) return null;
   if (String(request?.method || "GET").toUpperCase() !== "GET" || !url || !kakaoAutoLoginPath(url.pathname)) return null;
   if (url.searchParams.get("auto") === "0" || !isKakaoTalkInAppBrowser(request) || getCookie(request, KAKAO_AUTO_LOGIN_COOKIE)) return null;
   const fetchMode = String(request.headers.get("sec-fetch-mode") || "").toLowerCase();
@@ -48592,7 +48687,7 @@ const KAKAO_ROOM_OPEN_CRAWLER = /kakaotalk-scrap|facebookexternalhit|facebot|twi
 const KAKAO_ROOM_OPEN_ADMISSION_LIMIT = 60;
 const KAKAO_ROOM_OPEN_PROBE_PREFIX = "kakao_room_open_probe_v229105:";
 const KAKAO_ROOM_OPEN_PROBE_MS = 10 * 60 * 1000;
-const KAKAO_ROOM_OPEN_OK = new Set(["ok", "switched", "same_session", "member_session", "linked_account", "strong_account", "strong_local_account"]);
+const KAKAO_ROOM_OPEN_OK = new Set(["ok", "switched", "same_session", "member_session", "linked_account", "strong_account", "strong_local_account", "linked_room_view", "strong_room_view", "strong_local_room_view"]);
 // V22.9.118 S-2: 강한 식별로 세는 종류. 계정 잇기(V22.9.117)·본인 확인이 믿는 것(identity-reauth.js fetchStrongIdentityForUser 의 kakao·local)과 같다.
 const KAKAO_ROOM_OPEN_STRONG_PROVIDERS = ["kakao", "local"];
 const KAKAO_ROOM_OPEN_HEADERS = { "referrer-policy": "no-referrer" };
@@ -48734,9 +48829,21 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     rememberOpsEvent({ kind: "kakao_room_values_stripped", severity: "info", path: url.pathname.slice(0, 80), method: "GET", detail: "" });
     return redirectResponse(plain, KAKAO_ROOM_OPEN_HEADERS);
   }
+  // V22.9.130 독립 검토 2(P3): 이 브라우저가 **다른 방**의 방 전용 세션을 들고 있는데 이 방으로 다시 정하지 못하고 끝나면(구성원 아님·승인 대기·인앱의
+  // 카카오 로그인 계정 등) 그 세션을 끝낸다. 남겨 두면 그다음 화면(/my·/app)에서 먼저 받은 방의 가계부가 이 방인 것처럼 열린다. 앱에서 바로 연
+  // 이동(Sec-Fetch-Site: none)일 때만이다 — 다른 사이트의 링크가 세션을 끝내지 못하게. 세션을 새로 주는 응답과 읽기 실패·요청 제한은 건드리지 않는다.
+  let dropHeldRoomView = false;
+  const ROOM_VIEW_KEEP_RESULTS = new Set(["same_session", "member_session", "session_kept", "lookup_failed", "limiter_unavailable", "rate_limited"]);
   const finish = (result, location, cookies = [], detail = "") => {
     kakaoRoomOpenProbe(env, ctx, result, detail);
-    return cookies.length ? redirectResponseWithCookies(location, cookies, KAKAO_ROOM_OPEN_HEADERS) : redirectResponse(location, KAKAO_ROOM_OPEN_HEADERS);
+    const ending = !cookies.length && dropHeldRoomView && !ROOM_VIEW_KEEP_RESULTS.has(result);
+    if (!ending) return cookies.length ? redirectResponseWithCookies(location, cookies, KAKAO_ROOM_OPEN_HEADERS) : redirectResponse(location, KAKAO_ROOM_OPEN_HEADERS);
+    rememberOpsEvent({ kind: "kakao_room_view_dropped", severity: "info", path: "/my", method: "GET", detail: String(result).slice(0, 40) });
+    // 독립 검토 4(P3): 카카오톡 안의 브라우저에서 방 전용 세션을 들고 있던 것은 로그인 이름 계정이다. 세션을 끝내고 값을 뺀 주소(/my·/app)로 그냥 보내면
+    // 세션이 없어진 다음 요청이 화면 없는 카카오 로그인으로 간다(구성원 아님·사용자 없음으로 끝나는 갈래). 자동 로그인을 끈 로그인 이름 칸으로 보내고 가려던
+    // 곳은 돌아올 주소로 싣는다. 이미 자동 로그인을 끈 주소(strong_local_account 의 로그인 이름 칸)는 그대로 둔다.
+    const where = isKakaoTalkInAppBrowser(request) && !/[?&]auto=0(?:[&#]|$)/.test(location) ? kakaoRoomOpenLoginNameLocation(location) : location;
+    return redirectResponseWithCookies(where, [ROOM_VIEW_END_COOKIE_V229130], KAKAO_ROOM_OPEN_HEADERS);
   };
   if (KAKAO_ROOM_OPEN_CRAWLER.test(String(request.headers.get("user-agent") || ""))) return finish("crawler", plain);
   if (getCookie(request, "ab_admin")) return finish("admin_browser", plain);
@@ -48752,9 +48859,13 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     if (!admission.allowed) return finish("rate_limited", plain);
     const household = await getLinkedKakaoGroupHousehold(env, groupKey);
     if (!household?.id) return finish("no_room_household", plain);
+    {
+      const held = await roomViewSessionOfRequestV229130(request, env);
+      dropHeldRoomView = !!held && held.householdId !== String(household.id) && String(request.headers.get("sec-fetch-site") || "").toLowerCase() === "none";
+    }
     // V22.9.129 독립 검토 P3: 방이 다른 가계부로 다시 묶인 뒤 옛 카드를 누르면 표식(room)이 옛 가계부를 가리킨다. 카카오 값이 가리키는 지금의 방 가계부와
     // 다른 표식은 아래의 ‘값을 뺀 주소’ 에서 버린다(그 방의 지금 가계부 번호로 바꿔 적지는 않는다 — 구성원이 아닌 사람에게 번호를 알려 주지 않으려고).
-    // 방 가계부를 읽기 전에 끝나는 결과(사용자 키 없음·키 모양 틀림·요청 제한·수집기·관리자 브라우저)와 값이 아예 없는 PC 길은 방을 확인하지 않으므로
+    // 방 가계부를 읽기 전에 끝나는 결과(사용자 키 없음·키 모양 틀림·요청 제한·수집기·관리자 브라우저)와 값 없이 표식만 온 길은 방을 확인하지 않으므로
     // 옛 표식이 남는다 — 그 가계부를 읽을 수 있는 사람에게만 열리고 권한은 넓어지지 않는다(알려진 한계, 발견 기록 E-6).
     if (source.searchParams.has(KAKAO_ROOM_ENTRY_PARAM_V229129) && source.searchParams.get(KAKAO_ROOM_ENTRY_PARAM_V229129) !== String(household.id)) {
       source.searchParams.delete(KAKAO_ROOM_ENTRY_PARAM_V229129);
@@ -48762,33 +48873,75 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     }
     const identity = await kakaoRoomOpenIdentity(env, userKey);
     if (!identity) return finish("no_user", plain);
-    const role = String(await getHouseholdMemberRole(env, identity.userId, household.id) || "").toLowerCase();
+    // V22.9.130 독립 검토 3(P3): 역할을 읽지 못한 것(DB 순간 장애)을 ‘구성원 아님’ 으로 읽지 않는다. 예전에는 둘 다 값을 뺀 주소로 끝나 차이가 없었지만,
+    // 이제 ‘구성원 아님’ 은 들고 있던 다른 방의 방 전용 세션을 끝낸다 — 읽기 실패로 끝내면 안 된다. 실패를 따로 알려 주는 읽기로 읽고(읽는 횟수는 같다),
+    // 실패하면 lookup_failed 로 끝낸다(세션을 건드리지 않는다).
+    const roleRead = await readHouseholdRoleOrFailure(env, identity.userId, household.id, { path: "/my", method: "GET" });
+    if (roleRead.failed) return finish("lookup_failed", plain, [], "role_read");
+    const role = roleRead.role; // 소문자로 온다
     const readable = canReadMyHousehold(role);
     // 이용 제한 등 읽을 수 없고 승인 대기도 아닌 사람은 열지 않는다.
     if (!readable && role !== "pending") return finish("not_member", plain);
     const roomHome = kakaoRoomOpenLocation(source, household.id);
     // 승인 대기처럼 아직 읽을 수 없는 구성원은 지금처럼 /my 의 상태 화면으로 간다.
     const home = readable ? roomHome : `/my?household_id=${encodeURIComponent(household.id)}`;
-    const current = await verifyUserSession(request, env);
-    if (current && current === identity.userId) return finish("same_session", home);
-    if (current && canReadMyHousehold(await getHouseholdMemberRole(env, current, household.id))) return finish("member_session", roomHome);
+    // V22.9.130 독립 검토 3(P3): 끝내기로 한 방 전용 세션(다른 방의 것 + 앱에서 바로 연 이동 — 위 dropHeldRoomView)은 이 요청에서 **없는 세션**이다.
+    // 아래 갈래를 세션이 없는 사람과 똑같이 계산한다 — 결과 이름(linked_account·strong_account·strong_local_account)도, 가는 곳(이 방으로 돌아올 로그인
+    // 화면·로그인 이름 칸)도. 세션이 있는 사람의 갈래(…_other_session → 값을 뺀 주소)로 끝내면 세션을 지운 다음 요청이 카카오톡 안의 브라우저에서
+    // 화면 없는 카카오 로그인으로 가거나(로그인 이름 계정 — V22.9.118 이 막아 둔 길) 이 방으로 돌아올 주소를 잃는다.
+    const current = dropHeldRoomView ? "" : await verifyUserSession(request, env);
+    // V22.9.130 방 전용 보기: 이 브라우저의 세션이 방 전용(가계부 하나·보기 전용)이면 그 세션은 ‘그 방 가계부에서만’ 세션이다. 다른 방의 단추를 누른
+    // 요청에서는 세션이 없는 것처럼 다뤄 이 방으로 새로 정한다(아래). 이 함수는 라우터가 요청별 범위(env.__AB_ROOM_VIEW)를 적기 전에 불리므로,
+    // 여기의 역할 읽기는 범위에 걸리지 않고 누른 사람의 실제 구성원 여부를 본다.
+    const roomView = current ? await roomViewSessionOfRequestV229130(request, env) : null;
+    const viewHere = !!roomView && roomView.householdId === String(household.id);
+    const viewElsewhere = !!roomView && !viewHere;
+    const fullCurrent = current && !roomView ? current : "";
+    // 같은 사람의 온전한 세션이면 예전 그대로다. 같은 사람의 방 전용 세션이면(이 방이든 다른 방이든) 아래로 내려가 이 방의 표를 새로 받는다 —
+    // 단추를 다시 누르면 12시간이 다시 시작된다(독립 검토 1 P3). 방 전용 세션을 줄 수 없는 경우(스위치 끔 등)는 예전 갈래로 끝난다.
+    if (current && current === identity.userId && !roomView) return finish("same_session", home);
+    if (current && current !== identity.userId && !viewElsewhere && canReadMyHousehold(await getHouseholdMemberRole(env, current, household.id))) return finish("member_session", roomHome);
     // 웹 계정에 이어진 사람: 세션을 주지 않는다. 세션이 없으면 그 방 가계부 주소로만 보내 인앱 자동 로그인이 그 계정으로 로그인하게 하고,
     // 이 방 가계부를 못 읽는 다른 계정 세션이면 그대로 둔다.
     // V22.9.129: 카카오톡 밖의 브라우저(PC 카카오톡이 여는 기본 브라우저)에는 인앱 자동 로그인이 없어, 그 방 가계부 주소(/app?household_id=…)가 세션 없이
     // 가계부 번호를 잃고 /my 시작 화면으로 갔다. 그런 브라우저는 방 표식 주소(/my?room=…)로 보낸다 — kakaoRoomEntryResponse 가 화면 없는 카카오 로그인을
     // 한 번 해 보고, 안 되면 로그인 화면이 이 방 가계부로 돌아올 주소를 갖는다. 주소 값으로 세션을 주지 않는 것은 그대로다.
-    const loginEntry = readable && !isKakaoTalkInAppBrowser(request) ? kakaoRoomEntryLocationV229129(household.id) : home;
-    if (!identity.raw) return current ? finish("linked_other_session", plain) : finish("linked_account", loginEntry);
-    // 다른 계정 세션을 누른 사람으로 바꾸는 것은 앱에서 바로 연 이동(Sec-Fetch-Site: none)일 때만이다.
-    if (current && String(request.headers.get("sec-fetch-site") || "").toLowerCase() !== "none") return finish("session_kept", plain);
+    const inApp = isKakaoTalkInAppBrowser(request);
+    const loginEntry = readable && !inApp ? kakaoRoomEntryLocationV229129(household.id) : home;
+    const direct = String(request.headers.get("sec-fetch-site") || "").toLowerCase() === "none";
+    // V22.9.130 방 전용 보기(사용자 2026-11-18): 주소 값으로 온전한 세션을 주지 않는 구성원(웹 계정에 이어진 사람·강한 식별이 붙은 사람)도 로그인 화면
+    // 없이 들인다 — 다만 이 방 가계부 하나만, 보기 전용으로(auth/user-session.js 의 넷째 칸). 주소 값이 여는 범위가 그 계정 전체가 아니라 이 방
+    // 가계부의 읽기뿐이라, 세션을 주지 않던 까닭(만료 없는 값이 다른 가계부·관리 권한까지 여는 일 — V22.9.105 P2-1·V22.9.118 S-2)이 생기지 않는다.
+    //  · 읽을 수 있는 구성원에게만(승인 대기·이용 제한은 예전 그대로), 운영 스위치를 끄지 않은 곳에서만.
+    //  · 카카오톡 안의 브라우저에서는 카카오 로그인이 있는 계정을 예전처럼 인앱 자동 로그인에 맡긴다(온전한 세션이 화면 없이 된다). 로그인 이름
+    //    비밀번호만 붙은 계정은 자동 로그인이 닿지 않으므로 어느 브라우저에서나 방 전용 보기로 들인다(localOnly).
+    //  · 온전한 세션(다른 계정)이 있는 브라우저는 건드리지 않는다. 방 전용 세션이 있는 브라우저는 같은 사람이면 이 방으로 다시 정하고, 다른 사람의
+    //    것이면 앱에서 바로 연 이동일 때만 바꾼다(온전한 세션을 바꾸는 규칙과 같다).
+    //  · 세션 확인을 못 한 요청(서명·만료가 맞는 쿠키인데 DB 가 잠깐 답하지 못함 — V22.9.122 F-1 의 표시)에는 주지 않는다. 그 브라우저의 온전한 세션
+    //    쿠키를 12시간짜리 방 전용 쿠키로 덮어쓰게 된다(독립 검토 1 P3). 예전 길로 보내면 라우터가 ‘잠시 뒤 다시’ 를 낸다.
+    const roomViewOk = (localOnly = false) => readable && roomViewEnabledV229130(env) && (localOnly || !inApp)
+      && !(!current && env?.__AB_SESSION_UNAVAILABLE === true)
+      && (!current || (!!roomView && (current === identity.userId || direct)));
+    if (!identity.raw) {
+      if (fullCurrent) return finish("linked_other_session", plain);
+      if (roomViewOk(false)) return finish("linked_room_view", roomHome, await roomViewCookiesV229130(env, identity.userId, household.id));
+      return current ? finish("linked_other_session", plain) : finish("linked_account", loginEntry);
+    }
+    // 다른 계정 세션을 누른 사람으로 바꾸는 것은 앱에서 바로 연 이동(Sec-Fetch-Site: none)일 때만이다. 같은 사람의 방 전용 세션을 이 방으로 다시 정하는
+    // 것은 계정을 바꾸는 일이 아니라 여기서 막지 않는다(강한 식별이 없는 계정이면 아래에서 다시 막는다).
+    if (current && !direct && !(roomView && current === identity.userId)) return finish("session_kept", plain);
     // V22.9.118 S-2: 강한 식별이 붙은 채팅 계정도 웹 계정에 이어진 사람과 같이 세션을 주지 않는다(R-6 의 뜻). 다른 계정 세션이면 그대로 둔다.
     // 세션이 없으면 카카오 로그인이 붙은 계정은 그 방 가계부 주소로만 보내 인앱 자동 로그인이 그 카카오 계정으로 로그인하게 하고, 로그인 이름
     // 비밀번호만 붙은 계정은 자동 로그인 없이 로그인 이름 칸을 연 로그인 화면으로 보낸다(카카오 자동 로그인은 이 계정에 닿지 않는다).
     const strong = await kakaoRoomOpenStrongIdentity(env, identity.userId);
     if (strong) {
+      if (fullCurrent) return finish("strong_other_session", plain);
+      if (roomViewOk(strong === "local")) return finish(strong === "kakao" ? "strong_room_view" : "strong_local_room_view", roomHome, await roomViewCookiesV229130(env, identity.userId, household.id));
       if (current) return finish("strong_other_session", plain);
       return strong === "kakao" ? finish("strong_account", loginEntry) : finish("strong_local_account", kakaoRoomOpenLoginNameLocation(home));
     }
+    // 강한 식별이 없는 원래 채팅 계정은 예전처럼 온전한 세션을 받는다. 방 전용 세션이 있던 브라우저도 바로 연 이동일 때만 바꾼다.
+    if (current && !direct) return finish("session_kept", plain);
     const token = await makeUserSession(env, identity.userId);
     const cookies = [
       `ab_user=${encodeURIComponent(token)}; Path=/; Max-Age=1209600; HttpOnly; Secure; SameSite=Lax`,
@@ -48804,9 +48957,166 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
   }
 }
 
+// ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// V22.9.130 방 전용 보기 — 세션 쿠키 묶음, 요청 관문, 화면 띠.
+//
+// 방 전용 세션(auth/user-session.js 의 넷째 칸)은 위 kakaoRoomOpenResponse 한 곳에서만 준다. 받은 브라우저에서 그 세션은
+//   ① 아래 ROOM_VIEW_PATHS_V229130 의 주소를 GET·HEAD 로 열 때만 ‘세션’ 이고(그 방 가계부 하나, 조회 전용 역할),
+//   ② 그 밖의 모든 요청(다른 주소·POST 등)에서는 세션 쿠키를 뗀 요청으로 처리된다 — 로그인하지 않은 사람과 글자 하나 다르지 않다.
+// 그래서 계정에 닿는 길(로그인 이름·비밀번호, 계정 잇기·통합, 카카오 로그인 연결, 가계부 만들기·참여·나가기·양도, 내보내기, 모든 저장)은 방 전용
+// 세션으로 갈 수 없다. 허용 목록에 없는 주소를 새로 만들면 그 주소는 자동으로 ②가 된다(안전한 쪽이 기본이다).
+// ①의 요청에서는 라우터가 env.__AB_ROOM_VIEW 를 적고, 역할 읽기(domain/users-households.js)와 가계부 목록(data/users-household-create.js)이 그 값으로
+// 범위를 한 번 더 지킨다(관문이 주소를 놓쳐도 다른 가계부·쓰기 역할이 나오지 않게).
+
+const ROOM_VIEW_END_COOKIE_V229130 = "ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax";
+// 방 전용 세션을 끝낸 뒤 보내는 곳(독립 검토 3 P3): 자동 로그인을 끈 로그인 화면(/my?auto=0)이다. 카카오톡 안의 브라우저에서 방 전용 세션을 받는 것은
+// 로그인 이름 계정뿐이라, 거기서는 로그인 이름 칸을 연 화면으로 보낸다(V22.9.118 S-2 와 같은 곳). 그냥 /my 로 보내면 세션이 없어진 다음 요청이 화면
+// 없는 카카오 로그인으로 가 그 휴대폰의 카카오 계정에 이어진 다른 웹 계정으로 말없이 들어갈 수 있다.
+function roomViewEndLocationV229130(request) {
+  return isKakaoTalkInAppBrowser(request) ? kakaoRoomOpenLoginNameLocation("") : kakaoAutoLoginFallbackLocation("");
+}
+async function roomViewCookiesV229130(env, userId = "", householdId = "") {
+  const token = await makeUserSession(env, userId, { roomViewHouseholdId: String(householdId || "") });
+  return [
+    `ab_user=${encodeURIComponent(token)}; Path=/; Max-Age=${ROOM_VIEW_SESSION_SECONDS_V229130}; HttpOnly; Secure; SameSite=Lax`,
+    "ab_hh=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax",
+    // 앞 계정의 설정 띠 쿠키(ab_setup·ab_bk)와 약관 안내 띠 쿠키(ab_cs)를 지운다 — 보기 전용 화면에는 저장으로 이어지는 띠를 붙이지 않는다.
+    ...clearSetupCookies(),
+    "ab_cs=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Lax",
+  ];
+}
+
+// 방 전용 세션이 세션으로 인정되는 주소. 홈(목록·달력 포함)·분석·예산 현황과 그 화면이 읽는 조회 API 뿐이다.
+const ROOM_VIEW_PATHS_V229130 = new Set([
+  "/app", "/m", "/my", "/budgets", "/my/analysis", "/my/analysis/app.js", "/my/calendar", "/calendar", "/analysis", "/cursor-preference",
+  "/u/api/recent-transactions", "/u/api/day-transactions", "/u/api/tx/search", "/u/api/tx/presence", "/u/api/notifications",
+  "/u/api/favorites", "/u/api/goals",
+]);
+
+function roomViewRequestAllowedV229130(request, url, householdId = "") {
+  const method = String(request?.method || "GET").toUpperCase();
+  if (method !== "GET" && method !== "HEAD") return false;
+  if (!url || !ROOM_VIEW_PATHS_V229130.has(url.pathname)) return false;
+  if (url.pathname === "/my") {
+    // /my 의 로그인 화면(로그인 이름 칸 login=1, 자동 로그인을 끈 auto=0)은 로그인하려는 길이다 — 세션 없이 그린다.
+    if (url.searchParams.has("login") || url.searchParams.get("auto") === "0") return false;
+    // 독립 검토 1(P2): 다른 방의 표식(/my?room=<다른 가계부>)은 다른 방을 열려는 길이다. 방 전용 세션으로 받으면 먼저 받은 방의 가계부가 그 방인 것처럼
+    // 열린다 — 세션 없이 처리해 로그인 화면이 그 방으로 돌아올 주소를 갖게 한다(식별 값이 붙어 왔다면 방 열기가 먼저 그 방으로 다시 정했다).
+    if (url.searchParams.has(KAKAO_ROOM_ENTRY_PARAM_V229129)) {
+      const marks = url.searchParams.getAll(KAKAO_ROOM_ENTRY_PARAM_V229129);
+      if (marks.length !== 1 || marks[0] !== String(householdId || "")) return false;
+    }
+  }
+  return true;
+}
+
+// 라우터가 kakaoRoomOpenResponse 바로 다음에 부른다(worker/router.js). token = 이 요청의 방 전용 세션 표({ userId, householdId }) 또는 null.
+// 돌려주는 것은 그 뒤 라우팅이 쓸 요청과 주소다.
+//  · 허용 요청: env.__AB_ROOM_VIEW 를 적고, 주소의 가계부 번호(household_id, 조회 API 의 household)를 범위의 번호로 맞춘다. 사용자가 다른 번호를
+//    적었거나 기억 쿠키가 다른 가계부를 가리켜도 이 방 가계부가 열린다. 기억 표시 머리(x-ab-household-memory)는 떼어 낸다(브라우저가 꾸밀 수 있다).
+//  · 그 밖의 요청: 세션 쿠키(ab_user)만 뗀 요청으로 바꾼다. env.__AB_ROOM_VIEW_STRIPPED 는 응답 마무리(roomViewBounceResponseV229130)가 쓴다.
+function roomViewGateV229130(request, env, url, token) {
+  if (!token?.householdId || !token?.userId || !request || !url) return { request, url };
+  const headers = new Headers(request.headers);
+  headers.delete(AB_HOUSEHOLD_MEMORY_HEADER);
+  if (roomViewRequestAllowedV229130(request, url, token.householdId)) {
+    const forced = new URL(url.href);
+    forced.searchParams.set("household_id", token.householdId);
+    if (forced.pathname.startsWith("/u/api/")) forced.searchParams.set("household", token.householdId);
+    const gated = new Request(forced.toString(), { method: request.method, headers });
+    if (env && typeof env === "object") {
+      env.__AB_ROOM_VIEW = { userId: String(token.userId), householdId: String(token.householdId) };
+      // 응답 마무리(띠)가 이 요청의 세션 확인 결과를 다시 쓴다(요청별 캐시는 Request 객체가 열쇠다 — 독립 검토 1).
+      env.__AB_ROOM_VIEW_REQUEST = gated;
+    }
+    return { request: gated, url: forced };
+  }
+  const kept = String(headers.get("cookie") || "").split(";").map((part) => part.trim()).filter((part) => {
+    if (!part) return false;
+    const eq = part.indexOf("=");
+    return (eq < 0 ? part : part.slice(0, eq)).trim() !== "ab_user";
+  });
+  if (kept.length) headers.set("cookie", kept.join("; ")); else headers.delete("cookie");
+  const stripped = new Request(request, { headers });
+  if (env && typeof env === "object") {
+    env.__AB_ROOM_VIEW_STRIPPED = { householdId: String(token.householdId) };
+    // 응답 마무리(공지·설정 띠·포인트 색)도 이 요청을 본다 — 쿠키 판정까지 로그인하지 않은 사람과 같게(독립 검토 2).
+    env.__AB_ROOM_VIEW_STRIPPED_REQUEST = stripped;
+  }
+  return { request: stripped, url };
+}
+
+// 응답 마무리 1: 방 전용 세션으로 볼 수 없는 화면을 열면(세션을 뗀 요청이 로그인 화면으로 보내지면) 이 방 가계부 홈으로 돌려보내 띠에서 알린다.
+// 화면 요청(HTML 을 바라는 GET)만 바꾼다. 로그인하려는 길(/my 의 로그인 화면, /auth/…)과 다른 곳으로 가는 응답은 그대로다.
+function roomViewBounceResponseV229130(request, env, response) {
+  try {
+    const stripped = env?.__AB_ROOM_VIEW_STRIPPED;
+    if (!stripped?.householdId || String(request?.method || "").toUpperCase() !== "GET") return response;
+    if (!/text\/html/i.test(String(request.headers.get("accept") || ""))) return response;
+    const url = new URL(request.url);
+    if (url.pathname === "/my" || url.pathname.startsWith("/auth/")) return response;
+    const location = String(response.headers.get("location") || "");
+    if (!(response.status >= 300 && response.status < 400 && /^(?:https?:\/\/[^/]+)?\/my(?:[?#]|$)/.test(location))) return response;
+    return redirectResponse(`/app?household_id=${encodeURIComponent(stripped.householdId)}&rv=login`, KAKAO_ROOM_OPEN_HEADERS);
+  } catch (_) {
+    return response;
+  }
+}
+
+// 응답 마무리 2: 방 전용 세션으로 그린 화면(200 HTML) 맨 위에 띠를 붙인다. 스타일은 띠와 함께 한 번만 싣는다(1년 캐시 자산을 건드리지 않는다 — 약관
+// 안내 띠와 같은 방식). 띠에는 저장으로 이어지는 폼이 없다. [로그인] 은 로그인 화면으로 가고, 로그인하면 이 방 가계부로 돌아온다(V22.9.129 의 방 표식).
+// [보기 끝내기] 는 로그아웃 주소(POST /my/logout)로 가는 폼 하나다 — 같이 쓰는 PC 에서 12시간을 기다리지 않고 끝낼 길. 방 전용 세션의 POST 는 세션 쿠키를
+// 뗀 요청으로 처리되므로 로그아웃 처리기는 이 브라우저의 쿠키만 지운다(세션 판을 올리지 않는다 — 그 사람의 다른 기기 로그인은 그대로다).
+const ROOM_VIEW_BAND_STYLE_V229130 = '<style id="abRoomViewBandStyle">.abRoomViewBand{display:flex;align-items:center;justify-content:center;gap:6px 10px;flex-wrap:wrap;margin:0;padding:9px 16px;background:#fff7e6;color:#7a4b00;border-bottom:1px solid #f3d9a4;font-size:13.5px;line-height:1.45;text-align:center;word-break:keep-all;overflow-wrap:anywhere}.abRoomViewBand p{margin:0}.abRoomViewBand b{font-weight:700}.abRoomViewBand form{display:inline-flex;margin:0;padding:0;border:0;background:none;box-shadow:none}.abRoomViewBand a,.abRoomViewBand button.secondary{display:inline-flex!important;align-items:center;justify-content:center;box-sizing:border-box;min-height:32px!important;margin:0!important;padding:4px 14px!important;border:1px solid #d9a441!important;border-radius:999px!important;background:#fff!important;color:#7a4b00!important;font:inherit;font-size:13px!important;font-weight:700!important;line-height:1.3!important;text-decoration:none!important;box-shadow:none!important;transform:none!important;cursor:pointer}.abRoomViewBand button.secondary{font-weight:400!important}.abRoomViewBand a:focus-visible,.abRoomViewBand button:focus-visible{outline:2px solid currentColor;outline-offset:2px}@media (max-width:900px){.abRoomViewBand a,.abRoomViewBand button.secondary{min-height:44px!important}}html[data-ab-resolved-theme="dark"] .abRoomViewBand{background:#3a2a05;color:#ffe2a8;border-bottom-color:#6b4e12}html[data-ab-resolved-theme="dark"] .abRoomViewBand a,html[data-ab-resolved-theme="dark"] .abRoomViewBand button.secondary{background:#5a4108!important;color:#ffe2a8!important;border-color:#8a6a1f!important}</style>';
+function roomViewBandHtmlV229130(householdId = "", bounced = false, inApp = false) {
+  // 독립 검토 3(P3): 카카오톡 안의 브라우저에서 방 전용 세션을 받는 것은 로그인 이름 계정뿐이다 — 거기서는 [로그인] 이 로그인 이름 칸을 연 화면으로 간다
+  // (보통 주소는 인앱에서 ‘카카오 계정으로 가계부 열기’ 팝업을 먼저 띄우는데, 카카오 로그인은 이 계정에 닿지 않는다). 로그인하면 이 방 가계부로 돌아온다.
+  const login = inApp
+    ? kakaoRoomOpenLoginNameLocation(kakaoRoomEntryLocationV229129(householdId))
+    : kakaoAutoLoginFallbackLocation(kakaoRoomEntryLocationV229129(householdId));
+  // 돌려보낸 까닭은 조건으로만 적는다 — 로그인해도 권한이 없으면 열리지 않는 화면(참여자·설정 등)이 있어 ‘로그인하면 볼 수 있어요’ 는 틀린 약속이 된다.
+  const lead = bounced ? "<b>방금 누른 화면은 로그인해야 열 수 있어요.</b> " : "";
+  return `${ROOM_VIEW_BAND_STYLE_V229130}<div class="abRoomViewBand" id="abRoomViewBand" role="region" aria-label="방 전용 보기 안내"><p>${lead}<b>방 전용 보기</b> · 이 단톡방의 가계부만 볼 수 있어요. 다른 화면을 열거나 내 권한대로 쓰려면 로그인해 주세요.</p><a href="${login.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">로그인</a><form method="post" action="/my/logout"><button class="secondary" type="submit" aria-label="방 전용 보기 끝내기">보기 끝내기</button></form></div>`;
+}
+async function roomViewBandResponseV229130(request, env, response) {
+  const scope = env?.__AB_ROOM_VIEW;
+  if (!scope?.householdId || !response || ![200, 403, 404].includes(response.status)) return response;
+  if (!/text\/html/i.test(String(response.headers?.get?.("content-type") || ""))) return response;
+  // 독립 검토 1(P3): 방 전용 세션으로 그린 화면에만 붙인다. 표의 서명은 맞지만 세션이 끝난 경우(세션 판이 오름 등)에는 로그인 화면이 나오는데, 그 위에
+  // ‘방 전용 보기’ 라고 적으면 틀린 말이다. /my 가 200 으로 답하는 화면(로그인·시작·승인 대기 상태)에도 붙이지 않는다.
+  // 세션 확인은 관문이 만든 요청으로 다시 묻는다 — 처리기가 이미 확인했다면 요청별 캐시의 값이 그대로 온다(DB 를 더 읽지 않는다).
+  // 독립 검토 2(P3): 범위의 가계부를 읽을 수 없게 된 방 전용 세션(받은 뒤 승인 대기로 바뀜·내보내짐 — 가계부 목록 읽기가 scope.checked·readable 을 적는다)은
+  // 상태 화면·‘가계부 만들기’ 화면 위에 띠를 붙이는 대신 끝낸다: 세션 쿠키를 지우고 자동 로그인을 끈 로그인 화면으로 보낸다(roomViewEndLocationV229130).
+  try {
+    const viewer = env.__AB_ROOM_VIEW_REQUEST ? await verifyUserSession(env.__AB_ROOM_VIEW_REQUEST, env) : "";
+    if (!viewer || viewer !== scope.userId) return response;
+    if (scope.checked === true && scope.readable !== true) return redirectResponseWithCookies(roomViewEndLocationV229130(request), [ROOM_VIEW_END_COOKIE_V229130], KAKAO_ROOM_OPEN_HEADERS);
+    if (response.status !== 200 || scope.readable !== true || new URL(request.url).pathname === "/my") return response;
+  } catch (_) {
+    return response;
+  }
+  let source = "";
+  try { source = await response.text(); } catch (_) { return response; }
+  // 여기부터는 본문을 이미 읽었으므로 늘 새 응답을 돌려준다(띠를 붙이지 못해도 화면은 그대로 나간다).
+  const headers = new Headers(response.headers);
+  headers.delete("content-length");
+  let out = source;
+  try {
+    if (source && !source.includes('class="abRoomViewBand"') && /<body\b[^>]*>/i.test(source)) {
+      const band = roomViewBandHtmlV229130(scope.householdId, new URL(request.url).searchParams.get("rv") === "login", isKakaoTalkInAppBrowser(request));
+      const skip = /<a class="abSkipLink" href="[^"]*">본문 바로가기<\/a>/;
+      out = skip.test(source) ? source.replace(skip, (full) => full + band) : source.replace(/<body\b[^>]*>/i, (full) => full + band);
+    }
+  } catch (_) {
+    out = source;
+  }
+  return new Response(out, { status: response.status, headers });
+}
+
 // V22.9.129 W-3·W-4(사용자 2026-11-17 "앱 승인 담당자가 말했듯 웹 가계부 열기 누르면 로그인 없이 바로 가계부가 열려야해", "pc에서도 바로 열리게 해줘"):
-// 단톡방 ‘웹 가계부 열기’ 단추의 주소는 /my?room=<그 방 가계부 번호> 다. 카카오가 식별 값을 붙여 주면(휴대폰) 위의 kakaoRoomOpenResponse 가 먼저 받는다.
-// 값이 없거나 쓸 수 없으면(2026-11-17 운영 기록: PC 카카오톡은 사용자 식별 값 없이 연다) 이 표식만 남고, 라우터가 그다음에 이 함수를 부른다.
+// 단톡방 ‘웹 가계부 열기’ 단추의 주소는 /my?room=<그 방 가계부 번호> 다. 카카오가 식별 값을 붙여 주면(휴대폰·PC 모두 붙인다) 위의 kakaoRoomOpenResponse 가 먼저 받는다.
+// 값이 없거나 쓸 수 없으면 이 표식만 남고, 라우터가 그다음에 이 함수를 부른다. (바로잡음 V22.9.130: 이 자리에 ‘PC 카카오톡은 식별 값을 붙이지 않는다’ 고 적었던 것은
+// 틀렸다 — 2026-11-18 운영 진단 기록에서 PC 누름이 same_session 이었다. 값 없이 오는 요청은 드물고, 이 길은 그런 요청과 로그인 뒤 돌아오는 길에 쓰인다.)
 //  · 세션이 있으면: 그 가계부를 읽을 수 있을 때 그 가계부 홈으로, 아니면 표식을 뺀 /my 로 보낸다. 표식은 고르는 힌트일 뿐 권한이 아니다 —
 //    남의 가계부 번호를 적어도 그 가계부는 열리지 않고 ‘찾을 수 없음’ 도 내지 않는다(자기 가계부가 열린다).
 //  · 세션이 없고 카카오톡 밖의 브라우저면: 기본은 로그인 화면이다(돌아올 주소 = 이 표식 주소 — 로그인하면 그 방 가계부가 열린다).
@@ -51241,8 +51551,8 @@ async function kakaoDirectLinkResponse(response, origin = "") {
 // 이 방 가계부 번호(household_id)는 넣지 않는다. 단톡방 기록 계정과 웹 로그인 계정은 아직 이어지지 않아(챗봇에 앱이 연결되지 않아
 // appUserId 가 없다), 웹 계정이 그 가계부 구성원이 아니면 /my?household_id= 는 ‘가계부를 찾을 수 없어요’(404)가 된다.
 // V22.9.115: 방금 이 방 가계부에 들였으면(또는 첫 호출자로 준비했으면) 카드 앞에 한 줄(notice)로 알린다. 카드 글은 그대로 둔다.
-// V22.9.129: 이 방 가계부 번호를 알면 단추 주소에 방 표식(/my?room=<번호>)을 싣는다. 2026-11-17 운영 기록: 휴대폰은 카카오가 식별 값을 붙여 주지만
-// PC 카카오톡은 쓸 수 있는 사용자 식별 값 없이 연다. 표식은 권한이 아니라 "어느 가계부를 열려던 길인지" 만 알려 준다 — 읽을 수 있는 사람에게만 그 가계부가
+// V22.9.129: 이 방 가계부 번호를 알면 단추 주소에 방 표식(/my?room=<번호>)을 싣는다. 카카오는 휴대폰·PC 모두 누른 사람의 식별 값을 붙여 주고(바로잡음 V22.9.130 —
+// ‘PC 는 값을 붙이지 않는다’ 는 틀린 말이었다), 표식은 값 없이 온 요청과 로그인 뒤 돌아오는 길에 쓰인다. 표식은 권한이 아니라 "어느 가계부를 열려던 길인지" 만 알려 준다 — 읽을 수 있는 사람에게만 그 가계부가
 // 열리고(auth/kakao-room-open.js kakaoRoomEntryResponse), 채팅 계정과 웹 계정이 이어지지 않아 구성원이 아닌 사람은 예전처럼 자기 가계부가 열린다
 // (household_id 를 직접 실으면 ‘가계부를 찾을 수 없어요’ 가 되던 것 — 위 V22.9.105 설명 — 과 다르다).
 // 가계부 번호(UUID) 모양일 때만 싣는다(웹의 표식 길 auth/kakao-room-open.js 가 받는 모양과 같다 — 독립 검토 3).
@@ -61860,16 +62170,25 @@ async function getPendingHousehold(env, userId) {
   return null;
 }
 
+// V22.9.130 방 전용 보기: 이 요청의 세션이 방 전용이면(그 세션의 사용자로 읽을 때) 범위 밖 가계부는 읽지 않고 구성원이 아닌 것("")으로 답한다.
+// 범위 안 가계부의 역할은 읽은 뒤 조회 전용으로 낮춘다(data/households-members-rows.js roomViewRoleV229130). 세 읽기 함수가 같은 규칙을 쓴다.
+function roomViewOutsideScopeV229130(env, userId, householdId) {
+  const scope = roomViewScopeForV229130(env, userId);
+  return !!scope && String(householdId || "") !== scope.householdId;
+}
+
 async function getHouseholdMemberRole(env, userId, householdId) {
   if (!userId || !householdId) return "";
+  if (roomViewOutsideScopeV229130(env, userId, householdId)) return "";
   const rows = await optionalSupabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(userId)}&select=role,created_at&order=created_at.desc`, { method: "GET" }, []) || [];
-  return bestRoleFromRows(rows);
+  return roomViewRoleV229130(env, userId, householdId, bestRoleFromRows(rows));
 }
 
 // V22.9.76 감사 D-27: getHouseholdMemberRole 은 조회가 실패(503 등)하면 빈 역할("")을 돌려줘 "권한이 없습니다"·
 // "참여자가 아닙니다"로 안내됐다. 권한을 바꾸거나 거절을 알리는 곳은 이 엄격판을 써서 '확인하지 못함'을 따로 알린다.
 async function getHouseholdMemberRoleStrict(env, userId, householdId) {
   if (!userId || !householdId) return "";
+  if (roomViewOutsideScopeV229130(env, userId, householdId)) return "";
   let rows;
   try {
     rows = await supabase(env, `/rest/v1/household_members?household_id=eq.${encodeURIComponent(householdId)}&user_id=eq.${encodeURIComponent(userId)}&select=role,created_at&order=created_at.desc`, { method: "GET" });
@@ -61877,7 +62196,7 @@ async function getHouseholdMemberRoleStrict(env, userId, householdId) {
     throw Object.assign(new Error(`household_role_check_failed: ${String(err?.message || err).slice(0, 120)}`), { code: "household_role_check_failed" });
   }
   if (!Array.isArray(rows)) throw Object.assign(new Error("household_role_check_failed: invalid response"), { code: "household_role_check_failed" });
-  return bestRoleFromRows(rows);
+  return roomViewRoleV229130(env, userId, householdId, bestRoleFromRows(rows));
 }
 
 function isHouseholdRoleCheckFailure(err) {

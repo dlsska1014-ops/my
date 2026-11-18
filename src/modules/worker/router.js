@@ -113,7 +113,7 @@ import {
   handleWelcomeLinkGuidePage,
 } from "../admin/nlu-openbuilder-ops.js";
 import { handleBeginnerGuidePage, handleUnifiedMenuPage } from "../web/menu-and-guides.js";
-import { verifyUserSession } from "../auth/user-session.js";
+import { roomViewSessionOfRequestV229130, verifyUserSession } from "../auth/user-session.js";
 import { boundedFormRequest, handleAccountReauth } from "../auth/identity-reauth.js";
 import {
   handleKakaoLoginCallback, handleKakaoLoginStart, handleMyLogout,
@@ -184,7 +184,10 @@ import {
 } from "../auth/kakao-account-link.js";
 import { renderUserLoginHtml } from "../web/login-page-side-nav.js";
 import { handleMyConsent, kakaoInAppStartResponse } from "../auth/kakao-start-screen.js";
-import { kakaoRoomEntryResponse, kakaoRoomOpenResponse } from "../auth/kakao-room-open.js";
+import {
+  kakaoRoomEntryResponse, kakaoRoomOpenResponse, roomViewBandResponseV229130,
+  roomViewBounceResponseV229130, roomViewGateV229130,
+} from "../auth/kakao-room-open.js";
 import { renderPublicShareCardHtml } from "../admin/dashboard-fragments.js";
 import {
   detectKakaoAmbiguity, formatMessage, kakaoSkillSafeFallbackText,
@@ -353,13 +356,23 @@ const ACCOUNTBOOK_WORKER = {
     const requestDbBudget = dbCallBudgetV229119(env?.DB_CALL_BUDGET, "DB_CALL_BUDGET");
     const requestEnv = { ...env, ...(monitoring ? { __AB_MONITOR_REQUEST: monitoring } : {}), __AB_REQUEST_USER_ROWS: new Map(), __AB_IDENTITY_CONFIRMED: new Map(), __AB_MEMBER_POLICY: new Map(), __AB_DB_BUDGET: {used: 0, limit: requestDbBudget}, ...dbCallBudgetBaseV229119(requestDbBudget) };
     if (new URL(request.url).pathname === "/skill") requestEnv.__AB_KAKAO_REQUEST = { settings: new Map(), afterReply: [], messageLeases: [], createdUsers: new Set(), enabled: false };
-    const routed = rememberedHouseholdRequest(request);
+    // V22.9.130 방 전용 보기: 세션 쿠키가 방 전용 표(가계부 하나·보기 전용)면 요청별 env 에 적어 둔다(서명·만료만 본다 — 보통 세션에는 계산을 더하지 않는다).
+    // 그 브라우저에서는 가계부 기억 쿠키(ab_hh)를 쓰지도 새로 적지도 않는다 — 열리는 가계부는 늘 그 방 가계부다. 관문은 route() 의 방 열기 바로 다음에 있다.
+    const roomViewToken = await roomViewSessionOfRequestV229130(request, requestEnv);
+    if (roomViewToken) requestEnv.__AB_ROOM_VIEW_TOKEN = roomViewToken;
+    const routed = roomViewToken ? { request, eligible: false, injected: false, remembered: "" } : rememberedHouseholdRequest(request);
     try {
       // V22.9.95 공지 띠: NOTICE_TEXT 가 있을 때만 HTML 을 다시 쓴다(없으면 응답 그대로). html-postprocess.js attachNoticeBand 참고.
       // V22.9.102 가계부 기본 설정 띠: 홈이 적은 쿠키(ab_setup)만 보고 주요 화면에 붙인다(DB 읽기 없음). my/setup-page.js 참고.
       // V22.9.121 후원자 포인트 색: 홈·전체 메뉴·참여자가 적은 쿠키(ab_sp)만 보고 다른 셸 화면에도 붙인다(DB 읽기 없음, 쿠키가 없으면 응답 그대로).
       // my/supporter-accent.js 참고.
-      const response = sessionUnavailableResponseV229122(routed.request, requestEnv, await supporterAccentResponseV229121(routed.request, env, await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx)))));
+      // V22.9.130 방 전용 보기: 방 전용 세션으로 그린 화면에는 띠를 붙이고(맨 안쪽), 볼 수 없는 화면을 열어 로그인 화면으로 보내지는 응답은 그 방 가계부 홈으로
+      // 돌려보낸다(맨 바깥). 방 전용 세션이 아닌 요청에서는 두 함수 모두 받은 응답을 그대로 돌려준다(auth/kakao-room-open.js).
+      // 방 전용 세션을 뗀 요청이면 응답 마무리 함수들도 뗀 요청을 본다(쿠키만 보고 띠·색을 붙이는 함수들이 로그인하지 않은 사람과 같은 판정을 하게 —
+      // 독립 검토 2). 관문이 적어 둔 뗀 요청으로 routed.request 를 바꿔 끼운다. 방 전용 세션이 아닌 요청에서는 아무것도 바뀌지 않는다.
+      const routedResponse = await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx);
+      if (requestEnv.__AB_ROOM_VIEW_STRIPPED_REQUEST) routed.request = requestEnv.__AB_ROOM_VIEW_STRIPPED_REQUEST;
+      const response = roomViewBounceResponseV229130(routed.request, requestEnv, sessionUnavailableResponseV229122(routed.request, requestEnv, await supporterAccentResponseV229121(routed.request, env, await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await roomViewBandResponseV229130(routed.request, requestEnv, routedResponse))))));
       abMonitorCompleted(requestEnv, ctx, response);
       return withRememberedHouseholdCookie(routed, response);
     } catch (error) {
@@ -371,7 +384,7 @@ const ACCOUNTBOOK_WORKER = {
   },
   async route(request, env, ctx) {
     try {
-      const url = new URL(request.url);
+      let url = new URL(request.url);
       if (["POST", "PUT", "PATCH"].includes(request.method) && url.pathname !== "/skill") {
         request = await boundedFormRequest(request, /\/import(?:\/|$)/.test(url.pathname) ? 16 * 1024 * 1024 : 64 * 1024);
       }
@@ -418,6 +431,15 @@ const ACCOUNTBOOK_WORKER = {
       // 아래 자동 로그인·시작 팝업 그대로다. 로그인 뒤 화면이 아닌 주소(공개 문서 등)는 값만 지우므로 숨긴 기능·공지·후원·공개 문서보다 먼저 부른다.
       const kakaoRoomOpen = await kakaoRoomOpenResponse(request, env, url, ctx);
       if (kakaoRoomOpen) return kakaoRoomOpen;
+      // V22.9.130 방 전용 보기 관문: 이 요청의 세션 쿠키가 방 전용 표면(fetch 가 env.__AB_ROOM_VIEW_TOKEN 에 적어 둠) 여기서 갈린다.
+      //  · 보기 화면·조회 API 의 GET 이면 그 방 가계부로 묶인 조회 전용 세션으로 계속 간다(env.__AB_ROOM_VIEW, 주소의 가계부 번호를 그 방 것으로).
+      //  · 그 밖의 모든 요청은 세션 쿠키를 뗀 요청으로 바꿔 계속 간다 — 아래의 어떤 처리도 이 사람을 로그인한 사람으로 보지 않는다.
+      // 방 열기(위)는 이보다 먼저다: 다른 방의 단추를 누르면 그 방으로 다시 정해야 하고, 거기의 구성원 확인은 범위에 걸리면 안 된다.
+      if (env?.__AB_ROOM_VIEW_TOKEN) {
+        const gated = roomViewGateV229130(request, env, url, env.__AB_ROOM_VIEW_TOKEN);
+        request = gated.request;
+        url = gated.url;
+      }
       // V22.9.129: 카카오 값 없이 방 표식(/my?room=<그 방 가계부 번호>)만 온 길 — PC 카카오톡의 ‘웹 가계부 열기’. 세션이 있으면 그 가계부(읽을 수 있을 때)로,
       // 없으면 화면 없는 카카오 로그인을 한 번 해 본 뒤 로그인 화면으로 간다(auth/kakao-room-open.js kakaoRoomEntryResponse).
       const kakaoRoomEntry = await kakaoRoomEntryResponse(request, env, url, ctx);
@@ -440,6 +462,7 @@ const ACCOUNTBOOK_WORKER = {
 
       // V22.9.91: 카카오톡 인앱 브라우저에서 세션 없이 /my·/app 을 열면 로그인 화면 대신 카카오 자동 로그인(prompt=none)을 먼저 해 본다.
       // 회원이면 화면 없이 로그인되고, 아니면 지금처럼 로그인 화면이 나온다(auth/kakao-account-link.js).
+      // V22.9.130: 방 전용 세션을 뗀 요청(허용 밖의 화면)에서는 이 함수가 아무것도 하지 않는다(auth/kakao-account-link.js 의 첫 줄).
       const kakaoAutoLogin = await kakaoInAppAutoLoginResponse(request, env, url);
       if (kakaoAutoLogin) return kakaoAutoLogin;
       // V22.9.104 L-1: 자동 로그인을 보내지 않은(이미 해 봤거나 auto=0·할 수 없는) 인앱 브라우저의 세션 없는 /my·/app·/m 은 긴 로그인 화면 대신

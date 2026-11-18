@@ -33,6 +33,8 @@ V22.9.76 작성(감사 G-15). 값은 적지 않는다. 이름과 빠졌을 때�
 `KAKAO_ACCOUNT_LINK_ENABLED`(V22.9.91, 없으면 끔): 단톡방 기록 계정과 웹 계정 잇기(/my 의 안내, /my/account-link 확인 화면, 합치기)를 켠다. `1` 이면 켠다. **운영: 2026-11-05 22:42:57 KST 부터 `1`**(사용자 지목 뒤 Aside 가 대시보드에서 추가, version 3d00c670 #334; 앱 1489689 ↔ 채널 연결 + 방 기록 probe 확인 뒤). 이로써 바인딩 34, 금지 변수 목록에서 빠짐.
 꺼져 있어도 잇기 제안(`kakao_login_link_offers_v22991`)과 appUserId 진단은 남는다. 켜는 것은 설정 변경이라 사용자 승인 뒤에 한다.
 
+`KAKAO_ROOM_VIEW_DISABLED`(V22.9.130, 선택 — 없으면 켜짐): 방 전용 보기를 끄는 스위치다. 단톡방 ‘웹 가계부 열기’ 로 온, 식별 값으로 확인된 구성원 가운데 주소 값으로 온전한 세션을 받지 못하는 사람(웹 계정에 이어진 구성원·강한 식별이 붙은 구성원)을 로그인 없이 그 방 가계부만 보기 전용으로 들이는 기능이다(`docs/codex/FOLLOWUP_FINDINGS_V22_9_130.md`). `1`·`true`·`on` 이면 방 전용 세션을 새로 주지 않고 이미 나간 것도 받지 않는다 — 그런 구성원은 예전처럼 로그인 화면을 본다. 넣으면 바인딩 32 → 33.
+
 `KAKAO_ROOM_QUIET_LOGIN`(V22.9.129, 선택 — 없으면 꺼짐): 단톡방 ‘웹 가계부 열기’ 로 온 PC 브라우저(카카오톡 밖, 말해가계부 로그인 없음)에서 카카오 로그인을 화면 없이(prompt=none) 한 번 해 본다. `1`·`true`·`on` 이면 켠다. 그 브라우저의 카카오 계정이 그 방 가계부를 읽을 수 있는 웹 회원일 때만 들이고, 아니면 로그인 화면이다. **켜기 전에 알 것**: 가족이 같이 쓰는 PC 에 같은 방의 다른 구성원 카카오 로그인이 남아 있으면 아무도 누르지 않았는데 그 사람 계정으로 들어가고 기록이 그 사람 이름으로 남는다(`docs/codex/FOLLOWUP_FINDINGS_V22_9_129.md` E-4). 꺼 두면 로그인 화면이 나오고 로그인 뒤 그 방 가계부가 열린다. `KAKAO_INAPP_AUTO_LOGIN=0` 인 곳에서는 켜도 꺼진다.
 
 `KAKAO_RETURN_HINTS_DISABLED`(V22.9.123, 선택 — 없으면 켜짐): 카카오 기록 답의 재방문 장치 셋(‘이번 달 …’ 한 줄 · 오늘 첫 기록 답의 ‘지난주 요약’·‘지난달 요약’ 단추 · 첫 기록 답의 채팅방 고정 안내)을 끈다. `1`·`true`·`on`·`yes`(대소문자 무시) 면 끄고, 그때는 한 줄을 위한 읽기 둘(그 달 예산·그 달 기록)도 보내지 않아 답과 저장소 호출이 V22.9.122 와 같다. 운영에는 넣지 않았다(= 켜짐). 답이 느려지거나 숫자가 어긋나 보이면 이 변수로 먼저 끈다(변수 추가 = 새 version·바인딩 33, 사용자 승인 뒤).
@@ -92,7 +94,7 @@ V22.9.97 후원 지표(변수 없음, 새 SQL 없음): 송금·오픈채팅 단�
 ## 조정용 (없으면 코드 기본값)
 
 요청 제한 `SKILL_RATE_LIMIT`·`SKILL_RATE_WINDOW_MS`·`SKILL_IP_GUARD_LIMIT`·`TRAFFIC_GUARD_LIMIT`·`TRAFFIC_GUARD_WINDOW_MS`·`AUTH_RATE_LIMIT`·`AUTH_ACCOUNT_RATE_LIMIT`·`AUTH_ACCOUNT_GLOBAL_RATE_LIMIT`,
-카카오 `KAKAO_BULK_LIMIT`·`KAKAO_RESPONSE_BUDGET_MS`·`KAKAO_RETRY_DEDUP_SECONDS`·`KAKAO_REPEAT_GUARD_SECONDS`·`DUPLICATE_GUARD_SECONDS`·`KAKAO_DEFAULT_HOUSEHOLD_ID`·`KAKAO_RETURN_HINTS_DISABLED`·`KAKAO_ROOM_QUIET_LOGIN`,
+카카오 `KAKAO_BULK_LIMIT`·`KAKAO_RESPONSE_BUDGET_MS`·`KAKAO_RETRY_DEDUP_SECONDS`·`KAKAO_REPEAT_GUARD_SECONDS`·`DUPLICATE_GUARD_SECONDS`·`KAKAO_DEFAULT_HOUSEHOLD_ID`·`KAKAO_RETURN_HINTS_DISABLED`·`KAKAO_ROOM_QUIET_LOGIN`·`KAKAO_ROOM_VIEW_DISABLED`,
 DB `SUPABASE_READ_ATTEMPT_MS`·`SUPABASE_WRITE_TIMEOUT_MS`·`DB_CALL_BUDGET`·`CRON_DB_CALL_BUDGET`, 가져오기 `MY_IMPORT_LIMIT`·`MY_IMPORT_MAX_BYTES`, 자산 `PAYMENT_ASSET_LEASE_SECONDS`,
 NLU 기록 `NLU_*`.
 `AUTH_ACCOUNT_GLOBAL_RATE_LIMIT`(V22.9.118, 선택): 관리자 로그인·로그인 이름 로그인의 IP 와 무관한 계정 전체 실패 횟수 한도. 없거나 비면 50. 0 보다 큰 숫자는 반올림해 10~50(1~9 는 10, 50 넘으면 50). `off`·`false`·`no`·`none`·`disabled`(대소문자·앞뒤 빈칸 무시)나 0 이하 숫자(`0`·`00`·`-0`·음수)는 끈다 — 횟수는 세고 운영 이벤트도 남기지만 막지 않는다. 그 밖의 글자(`on`·`true`·`50%`·`1,000` 같은 값)는 알아듣지 못한 값으로 보고 50 으로 막으며 운영 이벤트 `auth_account_limit_value_unknown`(warn, 값 원문 40자까지)을 isolate 마다 한 번 남긴다. 창은 `AUTH_RATE_WINDOW_SECONDS`(기본 900초), 로그인에 성공하면 지운다. 허용에서 막힘으로 바뀐 첫 응답에 운영 이벤트 `auth_account_limit_reached`(warn, 식별자 없음)를 한 번 남긴다(isolate 마다). 운영은 넣지 않는다(바인딩 32). 막힌 계정 푸는 법: 이 변수를 `off` 로 넣고 배포한다(그 뒤 맞는 비밀번호로 로그인하면 횟수도 지워져 다시 켜도 막히지 않음; 바인딩이 하나 늘어남, 사용자 지목). 또는 마지막 막힌 시도 뒤 창이 지나기를 기다린다(막힌 시도도 횟수를 늘리므로 누가 계속 두드리면 앞 방법만 통함). 같은 판부터 비밀번호를 대조하는 세 길(관리자 로그인·로그인 이름 로그인·비밀번호 재확인)의 IP 단위 시도 제한은 IPv6 을 /64 로 묶어 센다(IPv4 와 그 밖의 경로는 주소 그대로).
