@@ -723,7 +723,8 @@ async function handleMyPage(request, env, url) {
   if (!userId) return htmlResponse(renderUserLoginHtml(env, "", safeUserReturnPath(url.searchParams.get("return_to") || "", ""), url.searchParams.get("login") === "1" ? "login_local" : "login"));
   // V22.9.91 계정 잇기: 이 사람의 카카오톡 방 기록 계정과 웹 계정이 갈라져 있으면(잇기 제안) 가계부보다 확인 화면을 먼저 보인다.
   // ‘나중에’를 골랐거나 방금 이은 뒤(msg=account_linked)는 묻지 않는다.
-  if (url.searchParams.get("msg") !== "account_linked") {
+  // V22.9.130: 방 전용 보기(가계부 하나·보기 전용 세션)에서는 계정 잇기 확인 화면으로 보내지 않는다 — 그 화면은 로그인해야 열린다.
+  if (url.searchParams.get("msg") !== "account_linked" && !env?.__AB_ROOM_VIEW) {
     const linkPrompt = await kakaoAccountLinkPrompt(request, env, userId);
     if (linkPrompt) return linkPrompt;
   }

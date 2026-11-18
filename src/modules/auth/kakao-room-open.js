@@ -74,7 +74,7 @@ const KAKAO_ROOM_OPEN_CRAWLER = /kakaotalk-scrap|facebookexternalhit|facebot|twi
 const KAKAO_ROOM_OPEN_ADMISSION_LIMIT = 60;
 const KAKAO_ROOM_OPEN_PROBE_PREFIX = "kakao_room_open_probe_v229105:";
 const KAKAO_ROOM_OPEN_PROBE_MS = 10 * 60 * 1000;
-const KAKAO_ROOM_OPEN_OK = new Set(["ok", "switched", "same_session", "member_session", "linked_account", "strong_account", "strong_local_account", "linked_room_view", "strong_room_view", "strong_local_room_view", "room_view_same"]);
+const KAKAO_ROOM_OPEN_OK = new Set(["ok", "switched", "same_session", "member_session", "linked_account", "strong_account", "strong_local_account", "linked_room_view", "strong_room_view", "strong_local_room_view"]);
 // V22.9.118 S-2: 강한 식별로 세는 종류. 계정 잇기(V22.9.117)·본인 확인이 믿는 것(identity-reauth.js fetchStrongIdentityForUser 의 kakao·local)과 같다.
 const KAKAO_ROOM_OPEN_STRONG_PROVIDERS = ["kakao", "local"];
 const KAKAO_ROOM_OPEN_HEADERS = { "referrer-policy": "no-referrer" };
@@ -259,8 +259,10 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     const viewHere = !!roomView && roomView.householdId === String(household.id);
     const viewElsewhere = !!roomView && !viewHere;
     const fullCurrent = current && !roomView ? current : "";
-    if (current && current === identity.userId && !viewElsewhere) return finish(viewHere ? "room_view_same" : "same_session", home);
-    if (current && !viewElsewhere && canReadMyHousehold(await getHouseholdMemberRole(env, current, household.id))) return finish("member_session", roomHome);
+    // 같은 사람의 온전한 세션이면 예전 그대로다. 같은 사람의 방 전용 세션이면(이 방이든 다른 방이든) 아래로 내려가 이 방의 표를 새로 받는다 —
+    // 단추를 다시 누르면 12시간이 다시 시작된다(독립 검토 1 P3). 방 전용 세션을 줄 수 없는 경우(스위치 끔 등)는 예전 갈래로 끝난다.
+    if (current && current === identity.userId && !roomView) return finish("same_session", home);
+    if (current && current !== identity.userId && !viewElsewhere && canReadMyHousehold(await getHouseholdMemberRole(env, current, household.id))) return finish("member_session", roomHome);
     // 웹 계정에 이어진 사람: 세션을 주지 않는다. 세션이 없으면 그 방 가계부 주소로만 보내 인앱 자동 로그인이 그 계정으로 로그인하게 하고,
     // 이 방 가계부를 못 읽는 다른 계정 세션이면 그대로 둔다.
     // V22.9.129: 카카오톡 밖의 브라우저(PC 카카오톡이 여는 기본 브라우저)에는 인앱 자동 로그인이 없어, 그 방 가계부 주소(/app?household_id=…)가 세션 없이
@@ -277,7 +279,10 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     //    비밀번호만 붙은 계정은 자동 로그인이 닿지 않으므로 어느 브라우저에서나 방 전용 보기로 들인다(localOnly).
     //  · 온전한 세션(다른 계정)이 있는 브라우저는 건드리지 않는다. 방 전용 세션이 있는 브라우저는 같은 사람이면 이 방으로 다시 정하고, 다른 사람의
     //    것이면 앱에서 바로 연 이동일 때만 바꾼다(온전한 세션을 바꾸는 규칙과 같다).
+    //  · 세션 확인을 못 한 요청(서명·만료가 맞는 쿠키인데 DB 가 잠깐 답하지 못함 — V22.9.122 F-1 의 표시)에는 주지 않는다. 그 브라우저의 온전한 세션
+    //    쿠키를 12시간짜리 방 전용 쿠키로 덮어쓰게 된다(독립 검토 1 P3). 예전 길로 보내면 라우터가 ‘잠시 뒤 다시’ 를 낸다.
     const roomViewOk = (localOnly = false) => readable && roomViewEnabledV229130(env) && (localOnly || !inApp)
+      && !(!current && env?.__AB_SESSION_UNAVAILABLE === true)
       && (!current || (!!roomView && (current === identity.userId || direct)));
     if (!identity.raw) {
       if (fullCurrent) return finish("linked_other_session", plain);
@@ -343,12 +348,20 @@ const ROOM_VIEW_PATHS_V229130 = new Set([
   "/u/api/favorites", "/u/api/goals",
 ]);
 
-function roomViewRequestAllowedV229130(request, url) {
+function roomViewRequestAllowedV229130(request, url, householdId = "") {
   const method = String(request?.method || "GET").toUpperCase();
   if (method !== "GET" && method !== "HEAD") return false;
   if (!url || !ROOM_VIEW_PATHS_V229130.has(url.pathname)) return false;
-  // /my 의 로그인 화면(로그인 이름 칸 login=1, 자동 로그인을 끈 auto=0)은 로그인하려는 길이다 — 세션 없이 그린다.
-  if (url.pathname === "/my" && (url.searchParams.has("login") || url.searchParams.get("auto") === "0")) return false;
+  if (url.pathname === "/my") {
+    // /my 의 로그인 화면(로그인 이름 칸 login=1, 자동 로그인을 끈 auto=0)은 로그인하려는 길이다 — 세션 없이 그린다.
+    if (url.searchParams.has("login") || url.searchParams.get("auto") === "0") return false;
+    // 독립 검토 1(P2): 다른 방의 표식(/my?room=<다른 가계부>)은 다른 방을 열려는 길이다. 방 전용 세션으로 받으면 먼저 받은 방의 가계부가 그 방인 것처럼
+    // 열린다 — 세션 없이 처리해 로그인 화면이 그 방으로 돌아올 주소를 갖게 한다(식별 값이 붙어 왔다면 방 열기가 먼저 그 방으로 다시 정했다).
+    if (url.searchParams.has(KAKAO_ROOM_ENTRY_PARAM_V229129)) {
+      const marks = url.searchParams.getAll(KAKAO_ROOM_ENTRY_PARAM_V229129);
+      if (marks.length !== 1 || marks[0] !== String(householdId || "")) return false;
+    }
+  }
   return true;
 }
 
@@ -361,12 +374,17 @@ function roomViewGateV229130(request, env, url, token) {
   if (!token?.householdId || !token?.userId || !request || !url) return { request, url };
   const headers = new Headers(request.headers);
   headers.delete(AB_HOUSEHOLD_MEMORY_HEADER);
-  if (roomViewRequestAllowedV229130(request, url)) {
+  if (roomViewRequestAllowedV229130(request, url, token.householdId)) {
     const forced = new URL(url.href);
     forced.searchParams.set("household_id", token.householdId);
     if (forced.pathname.startsWith("/u/api/")) forced.searchParams.set("household", token.householdId);
-    if (env && typeof env === "object") env.__AB_ROOM_VIEW = { userId: String(token.userId), householdId: String(token.householdId) };
-    return { request: new Request(forced.toString(), { method: request.method, headers }), url: forced };
+    const gated = new Request(forced.toString(), { method: request.method, headers });
+    if (env && typeof env === "object") {
+      env.__AB_ROOM_VIEW = { userId: String(token.userId), householdId: String(token.householdId) };
+      // 응답 마무리(띠)가 이 요청의 세션 확인 결과를 다시 쓴다(요청별 캐시는 Request 객체가 열쇠다 — 독립 검토 1).
+      env.__AB_ROOM_VIEW_REQUEST = gated;
+    }
+    return { request: gated, url: forced };
   }
   const kept = String(headers.get("cookie") || "").split(";").map((part) => part.trim()).filter((part) => {
     if (!part) return false;
@@ -407,6 +425,16 @@ async function roomViewBandResponseV229130(request, env, response) {
   const scope = env?.__AB_ROOM_VIEW;
   if (!scope?.householdId || !response || response.status !== 200) return response;
   if (!/text\/html/i.test(String(response.headers?.get?.("content-type") || ""))) return response;
+  // 독립 검토 1(P3): 방 전용 세션으로 그린 화면에만 붙인다. 표의 서명은 맞지만 세션이 끝난 경우(세션 판이 오름 등)에는 로그인 화면이 나오는데, 그 위에
+  // ‘방 전용 보기’ 라고 적으면 틀린 말이다. /my 가 200 으로 답하는 화면(로그인·시작·승인 대기 상태)에도 붙이지 않는다.
+  // 세션 확인은 관문이 만든 요청으로 다시 묻는다 — 처리기가 이미 확인했다면 요청별 캐시의 값이 그대로 온다(DB 를 더 읽지 않는다).
+  try {
+    if (new URL(request.url).pathname === "/my") return response;
+    const viewer = env.__AB_ROOM_VIEW_REQUEST ? await verifyUserSession(env.__AB_ROOM_VIEW_REQUEST, env) : "";
+    if (!viewer || viewer !== scope.userId) return response;
+  } catch (_) {
+    return response;
+  }
   let source = "";
   try { source = await response.text(); } catch (_) { return response; }
   // 여기부터는 본문을 이미 읽었으므로 늘 새 응답을 돌려준다(띠를 붙이지 못해도 화면은 그대로 나간다).
