@@ -20,6 +20,10 @@
 //      (승인 대기로 바뀜·내보내짐)은 띠를 붙이는 대신 끝낸다. 방 전용 세션을 뗀 요청은 인앱 자동 로그인으로 보내지 않는다. 다른 방의 단추에서 다시 정하지
 //      못하면 들고 있던 방 전용 세션을 끝낸다(앱에서 바로 연 이동일 때만). 허용 화면·조회 API 에 구성원의 카카오 채팅 키·방 키가 실리지 않는다.
 //      다른 쿠키(포인트 색·자동 로그인 되풀이 막기·설정 띠)가 있는 브라우저에서도 허용 밖의 요청은 로그인하지 않은 사람과 같다.
+//  R-10 독립 검토 3 반영: 방 전용 세션을 끝낸 뒤에는 자동 로그인을 끈 로그인 화면으로 보낸다(카카오톡 안의 브라우저는 로그인 이름 칸 — 그냥 /my 로
+//      보내면 화면 없는 카카오 로그인이 돈다). 끝내기로 한 다른 방의 방 전용 세션은 없는 세션으로 다뤄 세션이 없는 사람과 같은 결과·같은 곳으로 간다.
+//      역할 읽기 실패는 ‘구성원 아님’ 이 아니다(세션을 끝내지 않는다). 가계부 목록 읽기 실패도 세션을 끝내지 않는다. 돌려보낸 띠는 조건만 말한다.
+//      인앱 띠의 [로그인] 은 로그인 이름 칸으로 간다. 허용 화면마다 띠가 붙는다.
 // 오프라인: 픽스처 + app.fetch(DB·바깥 요청 없음), 시계 2026-11-18 12:00 KST. 판 이름 글자는 적지 않는다.
 // 바탕 코드(이 기능이 없는 판)에서는 R-1~R-7 의 단언 대부분이 실패한다.
 import { createHash } from "node:crypto";
@@ -533,7 +537,7 @@ await roomFixture(async (fx, { hh }) => {
   } finally { Date.now = realNow; }
   // 돌려보낸 화면: 띠가 까닭을 말한다.
   const bounced = await go(fx, `/app?household_id=${hh}&rv=login`, { jar: new Jar(jar) });
-  check(() => ok(bounced.status === 200 && bounced.html.includes("방금 누른 화면은 로그인하면 볼 수 있어요."), "R-7 돌려보낸 홈의 띠가 까닭을 말한다"), "bounce notice");
+  check(() => ok(bounced.status === 200 && bounced.html.includes("방금 누른 화면은 로그인해야 열 수 있어요.") && !bounced.html.includes("로그인하면 볼 수 있어요"), "R-7 돌려보낸 홈의 띠가 까닭을 말한다(조건만 — 로그인해도 권한이 없으면 안 열리는 화면이 있다)"), "bounce notice");
   const band = alive.html.slice(alive.html.indexOf('<div class="abRoomViewBand"'), alive.html.indexOf("</div>", alive.html.indexOf('<div class="abRoomViewBand"')));
   check(() => ok(band.includes(`href="/my?auto=0&amp;return_to=${encodeURIComponent(entryPath(hh))}"`) && !/무료|평생|언제나/.test(band), `R-7 띠의 [로그인] 은 로그인 화면으로 가고 로그인 뒤 이 방 가계부로 돌아온다(${(band.match(/href="[^"]+"/) || [""])[0]})`), "band login link");
 });
@@ -601,8 +605,8 @@ await roomFixture(async (fx, { hh }) => {
     const kept = { ...row };
     change(row);
     const ended = await go(fx, "/app", { jar });
-    check(() => ok(ended.status === 303 && ended.location === "/my" && !jar.token() && ended.cookies.some((line) => /^ab_user=;/.test(line) && /Max-Age=0/.test(line)), `R-9 ${label}: 방 전용 세션을 끝내고 /my 로(${ended.status} ${ended.location})`), `ended ${label}`);
-    const after = await go(fx, "/my", { jar });
+    check(() => ok(ended.status === 303 && ended.location === "/my?auto=0" && !jar.token() && ended.cookies.some((line) => /^ab_user=;/.test(line) && /Max-Age=0/.test(line)), `R-9 ${label}: 방 전용 세션을 끝내고 자동 로그인을 끈 로그인 화면으로(${ended.status} ${ended.location})`), `ended ${label}`);
+    const after = await go(fx, ended.location, { jar });
     check(() => ok(after.status === 200 && !after.html.includes("abRoomViewBand") && !after.html.includes(WORD_A1), `R-9 ${label}: 그 뒤는 로그인 화면(띠·기록 없음)(${after.status})`), `ended then login ${label}`);
     if (!fx.db.household_members.includes(row)) fx.db.household_members.push(kept); else row.role = kept.role;
   }
@@ -654,6 +658,91 @@ await roomFixture(async (fx, { hh }) => {
   check(() => ok(sample.length >= 80 && differs.length === 0, `R-9 다른 쿠키가 있는 브라우저에서도 허용 밖의 GET ${sample.length}개가 로그인하지 않은 사람과 같다(다른 것: ${differs.slice(0, 6).join(" / ")})`), "equal with other cookies");
 });
 
+// ── R-10. 독립 검토 3 반영 장면 ──────────────────────────────────────────────
+await roomFixture(async (fx, { u2, hh, hhB }) => {
+  // 카카오톡 안의 브라우저 + 로그인 이름 계정(U2). 방 전용 세션을 받은 뒤 ① 승인 대기로 바뀌어 홈을 연다 ② 승인 대기인 다른 방의 단추를 누른다.
+  // 어느 쪽도 세션을 끝낸 다음 요청이 화면 없는 카카오 로그인(/auth/kakao/start?auto=1)으로 가면 안 된다 — 로그인 이름 칸을 연 로그인 화면이어야 한다.
+  fx.db.accountbook_user_identities.push(strongLocal(u2.id));
+  const naive = await go(fx, "/my", { ua: INAPP, jar: new Jar() });
+  check(() => ok(/^\/auth\/kakao\/start\?auto=1/.test(naive.location), `R-10 (견줌) 세션 없는 인앱의 /my 는 화면 없는 카카오 로그인으로 간다 — 그래서 끝낸 뒤 /my 로 보내지 않는다(${naive.status} ${naive.location})`), "inapp plain my goes auto");
+  const issue = async () => { const jar = new Jar(); await go(fx, tapped("/my", { user: U2 }), { ua: INAPP, jar }); return jar; };
+  const jar = await issue();
+  check(() => ok(jar.user() === u2.id && jar.scope() === hh && lastRoomOpen() === "strong_local_room_view", `R-10 준비: 인앱의 로그인 이름 계정이 방 전용 세션을 받았다(${lastRoomOpen()})`), "inapp local ready 2");
+  // 인앱 띠의 [로그인]: 로그인 이름 칸을 연 화면(카카오 시작 팝업이 아님), 로그인하면 이 방 가계부로.
+  const inappHome = await go(fx, "/app", { ua: INAPP, jar: new Jar(jar) });
+  const inappLogin = (/<div class="abRoomViewBand"[\s\S]*?href="([^"]+)"/.exec(inappHome.html) || ["", ""])[1].replace(/&amp;/g, "&");
+  check(() => eq(inappLogin, `/my?auto=0&login=1&return_to=${encodeURIComponent(`/app?household_id=${hh}`)}#login-local`, "R-10 인앱 띠의 [로그인] 은 로그인 이름 칸을 연 화면으로 간다"), "inapp band login href");
+  const inappLoginScreen = await go(fx, inappLogin.split("#")[0], { ua: INAPP, jar: new Jar(jar) });
+  check(() => ok(inappLoginScreen.status === 200 && inappLoginScreen.html.includes('action="/my/local-login"') && !inappLoginScreen.html.includes('id="abKakaoStart"') && !inappLoginScreen.html.includes("abRoomViewBand"), `R-10 그 화면은 로그인 이름 로그인 폼이다(카카오 시작 팝업·띠 없음)(${inappLoginScreen.status} ${inappLoginScreen.location})`), "inapp band login screen");
+  // ① 승인 대기로 바뀜 → 홈
+  const row = fx.db.household_members.find((item) => item.user_id === u2.id && item.household_id === hh);
+  const keptRole = row.role;
+  row.role = "pending";
+  const ended = await go(fx, "/app", { ua: INAPP, jar });
+  check(() => ok(ended.status === 303 && ended.location === "/my?auto=0&login=1#login-local" && !jar.token() && ended.cookies.some((line) => /^ab_user=;/.test(line) && /Max-Age=0/.test(line)), `R-10 인앱: 읽을 수 없게 된 방 전용 세션을 끝내고 로그인 이름 칸으로(${ended.status} ${ended.location})`), "inapp ended location");
+  const next = await go(fx, ended.location.split("#")[0], { ua: INAPP, jar });
+  check(() => ok(next.status === 200 && !/auth\/kakao\/start/.test(next.location) && next.html.includes('action="/my/local-login"') && !next.html.includes('id="abKakaoStart"'), `R-10 인앱: 그다음 화면은 로그인 이름 로그인 폼이다 — 화면 없는 카카오 로그인이 돌지 않는다(${next.status} ${next.location})`), "inapp ended no auto login");
+  row.role = keptRole;
+  // ② 승인 대기인 다른 방(B)의 단추
+  fx.db.household_members.push({ household_id: hhB, user_id: u2.id, role: "pending", created_at: `${DAY}T03:00:00Z` });
+  const jar2 = await issue();
+  const pressed = await go(fx, tapped("/app", { user: U2, room: ROOM_B }), { ua: INAPP, jar: jar2, site: "none" });
+  check(() => eq(lastRoomOpen(), "strong_local_account", "R-10 끝내기로 한 방 전용 세션은 없는 세션이다: 결과 이름이 세션 없는 사람의 것(strong_local_account)"), "dropped result name local");
+  check(() => ok(pressed.status === 303 && /^\/my\?auto=0&login=1(?:&return_to=[^#]*)?#login-local$/.test(pressed.location) && !jar2.token() && pressed.cookies.some((line) => /^ab_user=;/.test(line) && /Max-Age=0/.test(line)), `R-10 인앱: 승인 대기인 다른 방의 단추 → 세션을 끝내고 로그인 이름 칸으로(${pressed.status} ${pressed.location})`), "dropped goes to login name");
+  const anonymous = await go(fx, tapped("/app", { user: U2, room: ROOM_B }), { ua: INAPP, jar: new Jar(), site: "none" });
+  check(() => ok(anonymous.location === pressed.location, `R-10 세션이 없는 사람이 같은 단추를 눌렀을 때와 같은 곳이다(${anonymous.location})`), "dropped equals anonymous local");
+});
+await roomFixture(async (fx, { hh, hhB }) => {
+  // PC + 웹 계정에 이어진 구성원. 방 A 의 방 전용 세션을 든 채 승인 대기인 방 B 의 표식 없는 단추(옛 카드)를 바로 연다.
+  fx.db.household_members.push({ household_id: hhB, user_id: WEB_USER, role: "pending", created_at: `${DAY}T03:00:00Z` });
+  const jar = await roomViewJar(fx);
+  const pressed = await go(fx, tapped("/app", { user: U_ALIAS, room: ROOM_B }), { ua: PC, jar, site: "none" });
+  check(() => eq(lastRoomOpen(), "linked_account", "R-10 끝내기로 한 방 전용 세션은 없는 세션이다: 결과 이름이 세션 없는 사람의 것(linked_account)"), "dropped result name linked");
+  check(() => ok(pressed.status === 303 && pressed.location === `/my?household_id=${hhB}` && !jar.token() && pressed.cookies.some((line) => /^ab_user=;/.test(line) && /Max-Age=0/.test(line)), `R-10 PC: 승인 대기인 다른 방의 단추 → 세션을 끝내고 그 방의 상태 화면 주소로(${pressed.status} ${pressed.location})`), "dropped keeps way back");
+  const anonymous = await go(fx, tapped("/app", { user: U_ALIAS, room: ROOM_B }), { ua: PC, jar: new Jar(), site: "none" });
+  check(() => ok(anonymous.location === pressed.location && lastRoomOpen() === "linked_account", `R-10 세션이 없는 사람과 같은 곳·같은 결과다(${anonymous.location})`), "dropped equals anonymous linked");
+  const landed = await go(fx, pressed.location, { jar });
+  check(() => ok(!landed.html.includes(WORD_A1) && !landed.html.includes("abRoomViewBand"), `R-10 그 뒤 화면에 먼저 받은 방의 가계부가 열리지 않는다(${landed.status} ${landed.location})`), "dropped no stale room");
+  check(() => ok(hh !== hhB, "픽스처"), "fixture rooms 2");
+});
+await roomFixture(async (fx, { hh, hhB }) => {
+  // 역할 읽기가 순간 실패한 누름: ‘구성원 아님’ 으로 읽지 않는다 — 들고 있던 방 전용 세션을 끝내지 않고(lookup_failed), DB 가 돌아오면 그 방으로 다시 정한다.
+  const jar = await roomViewJar(fx);
+  const token = jar.token();
+  const stop = intercept(async ({ url, method }) => (method === "GET" && url.pathname === "/rest/v1/household_members" ? failure(503, "simulated membership read failure") : null));
+  let during, duringAnonymous;
+  try {
+    during = await go(fx, tapped("/my", { user: U_ALIAS, room: ROOM_B }), { ua: PC, jar, site: "none" });
+    check(() => ok(lastRoomOpen().startsWith("lookup_failed") && jar.token() === token && !during.cookies.some((line) => /^ab_user=/.test(line)), `R-10 역할 읽기 실패: lookup_failed 로 끝나고 방 전용 세션을 건드리지 않는다(${lastRoomOpen()})`), "role read failure keeps session");
+    duringAnonymous = await go(fx, tapped("/my", { user: U_ALIAS, room: ROOM_B }), { ua: PC, jar: new Jar(), site: "none" });
+    check(() => ok(lastRoomOpen().startsWith("lookup_failed") && !issuesSession(duringAnonymous.cookies), `R-10 역할 읽기 실패: 세션이 없는 사람에게도 세션을 주지 않는다(${lastRoomOpen()})`), "role read failure no session");
+  } finally { stop(); }
+  const after = await go(fx, tapped("/my", { user: U_ALIAS, room: ROOM_B }), { ua: PC, jar, site: "none" });
+  check(() => ok(lastRoomOpen() === "linked_room_view" && jar.scope() === hhB && after.location === `/app?household_id=${hhB}`, `R-10 DB 가 돌아오면 그 방으로 다시 정한다(${lastRoomOpen()} ${after.location})`), "role read recovers");
+  // 가계부 목록 읽기가 순간 실패한 화면: 방 전용 세션을 끝내지 않는다(읽을 수 없게 된 것과 읽지 못한 것은 다르다).
+  const jar2 = await roomViewJar(fx);
+  const token2 = jar2.token();
+  const stop2 = intercept(async ({ url, method }) => (method === "GET" && url.pathname === "/rest/v1/household_members" ? failure(503, "simulated list read failure") : null));
+  let broken;
+  try { broken = await go(fx, "/app", { jar: jar2 }); } finally { stop2(); }
+  check(() => ok(jar2.token() === token2 && !broken.cookies.some((line) => /^ab_user=/.test(line)) && !(broken.status === 303 && /^\/my/.test(broken.location)), `R-10 목록 읽기 실패: 방 전용 세션을 끝내지 않는다(${broken.status} ${broken.location})`), "list read failure keeps session");
+  const healed = await go(fx, "/app", { jar: jar2 });
+  check(() => ok(healed.status === 200 && healed.html.includes(WORD_A1) && healed.html.includes('id="abRoomViewBand"'), `R-10 DB 가 돌아오면 같은 세션으로 그 방 가계부가 열린다(${healed.status})`), "list read recovers");
+  check(() => ok(hh !== hhB, "픽스처"), "fixture rooms 3");
+}, { alsoB: true });
+await roomFixture(async (fx, { hh }) => {
+  // 허용 화면마다 띠가 붙는다(띠는 가계부 목록을 읽은 화면에만 붙는다 — 목록을 읽지 않는 허용 화면이 띠 없이 그려지지 않는지).
+  const jar = await roomViewJar(fx);
+  const missing = [];
+  for (const path of ["/app", "/m", "/app?tab=transactions", "/app?view=calendar", "/app?month=2026-10", "/budgets", "/budgets?month=2026-10", "/my/analysis", "/my/analysis?view=report", "/my/analysis?month=2026-10", "/my/calendar", "/calendar", "/analysis"]) {
+    let page = await go(fx, path, { jar: new Jar(jar) });
+    for (let hop = 0; hop < 3 && page.status >= 300 && page.status < 400; hop += 1) page = await go(fx, page.location, { jar: new Jar(jar) });
+    if (!(page.status === 200 && /text\/html/.test(page.type) && page.html.includes('id="abRoomViewBand"'))) missing.push(`${path} → ${page.status} ${page.location}`);
+  }
+  check(() => ok(missing.length === 0, `R-10 허용 화면마다 띠가 붙는다(없는 곳: ${missing.join(" / ")})`), "band on every allowed page");
+  check(() => ok(!!hh, "픽스처"), "fixture rooms 4");
+});
+
 // ── 원본 ────────────────────────────────────────────────────────────────────
 {
   const room = read("src/modules/auth/kakao-room-open.js");
@@ -673,6 +762,9 @@ await roomFixture(async (fx, { hh }) => {
   check(() => ok(room.includes('if (marks.length !== 1 || marks[0] !== String(householdId || "")) return false;'), "원본: 다른 방의 표식은 허용하지 않는다"), "marker predicate");
   check(() => ok(room.includes("&& !(!current && env?.__AB_SESSION_UNAVAILABLE === true)"), "원본: 세션 확인을 못 한 요청에는 방 전용 세션을 주지 않는다"), "outage guard");
   check(() => ok(!room.includes("room_view_same"), "원본: 같은 방을 다시 눌러도 새 표를 준다(예전 이름 room_view_same 이 없다)"), "no stale result name");
+  check(() => ok(room.includes("const current = dropHeldRoomView ? \"\" : await verifyUserSession(request, env);"), "원본: 끝내기로 한 방 전용 세션은 없는 세션으로 다룬다"), "dropped session is no session");
+  check(() => ok(room.includes("if (roleRead.failed) return finish(\"lookup_failed\", plain, [], \"role_read\");") && !/await getHouseholdMemberRole\(env, identity\.userId, household\.id\)/.test(room), "원본: 방 열기의 역할 읽기는 실패를 따로 알려 주는 읽기다"), "room open strict role read");
+  check(() => ok(!/redirectResponseWithCookies\("\/my", \[ROOM_VIEW_END_COOKIE_V229130\]/.test(room), "원본: 세션을 끝낸 뒤 그냥 /my 로 보내는 곳이 없다"), "no plain my after end");
   check(() => ok(read("src/modules/auth/kakao-account-link.js").includes("async function kakaoInAppAutoLoginResponse(request, env, url) {") && /async function kakaoInAppAutoLoginResponse\(request, env, url\) \{\n(?:  \/\/[^\n]*\n)*  if \(env\?\.__AB_ROOM_VIEW_STRIPPED\) return null;/.test(read("src/modules/auth/kakao-account-link.js")), "원본: 방 전용 세션을 뗀 요청은 인앱 자동 로그인으로 보내지 않는다(함수의 첫 판정)"), "auto login skipped when stripped");
   check(() => ok(router.includes("if (requestEnv.__AB_ROOM_VIEW_STRIPPED_REQUEST) routed.request = requestEnv.__AB_ROOM_VIEW_STRIPPED_REQUEST;") && router.indexOf("if (requestEnv.__AB_ROOM_VIEW_STRIPPED_REQUEST) routed.request") < router.indexOf("const response = roomViewBounceResponseV229130(routed.request, requestEnv,"), "원본: 응답 마무리는 뗀 요청을 본다"), "wrappers see stripped request");
 }

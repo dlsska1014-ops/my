@@ -255,14 +255,23 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     }
     const identity = await kakaoRoomOpenIdentity(env, userKey);
     if (!identity) return finish("no_user", plain);
-    const role = String(await getHouseholdMemberRole(env, identity.userId, household.id) || "").toLowerCase();
+    // V22.9.130 독립 검토 3(P3): 역할을 읽지 못한 것(DB 순간 장애)을 ‘구성원 아님’ 으로 읽지 않는다. 예전에는 둘 다 값을 뺀 주소로 끝나 차이가 없었지만,
+    // 이제 ‘구성원 아님’ 은 들고 있던 다른 방의 방 전용 세션을 끝낸다 — 읽기 실패로 끝내면 안 된다. 실패를 따로 알려 주는 읽기로 읽고(읽는 횟수는 같다),
+    // 실패하면 lookup_failed 로 끝낸다(세션을 건드리지 않는다).
+    const roleRead = await readHouseholdRoleOrFailure(env, identity.userId, household.id, { path: "/my", method: "GET" });
+    if (roleRead.failed) return finish("lookup_failed", plain, [], "role_read");
+    const role = roleRead.role; // 소문자로 온다
     const readable = canReadMyHousehold(role);
     // 이용 제한 등 읽을 수 없고 승인 대기도 아닌 사람은 열지 않는다.
     if (!readable && role !== "pending") return finish("not_member", plain);
     const roomHome = kakaoRoomOpenLocation(source, household.id);
     // 승인 대기처럼 아직 읽을 수 없는 구성원은 지금처럼 /my 의 상태 화면으로 간다.
     const home = readable ? roomHome : `/my?household_id=${encodeURIComponent(household.id)}`;
-    const current = await verifyUserSession(request, env);
+    // V22.9.130 독립 검토 3(P3): 끝내기로 한 방 전용 세션(다른 방의 것 + 앱에서 바로 연 이동 — 위 dropHeldRoomView)은 이 요청에서 **없는 세션**이다.
+    // 아래 갈래를 세션이 없는 사람과 똑같이 계산한다 — 결과 이름(linked_account·strong_account·strong_local_account)도, 가는 곳(이 방으로 돌아올 로그인
+    // 화면·로그인 이름 칸)도. 세션이 있는 사람의 갈래(…_other_session → 값을 뺀 주소)로 끝내면 세션을 지운 다음 요청이 카카오톡 안의 브라우저에서
+    // 화면 없는 카카오 로그인으로 가거나(로그인 이름 계정 — V22.9.118 이 막아 둔 길) 이 방으로 돌아올 주소를 잃는다.
+    const current = dropHeldRoomView ? "" : await verifyUserSession(request, env);
     // V22.9.130 방 전용 보기: 이 브라우저의 세션이 방 전용(가계부 하나·보기 전용)이면 그 세션은 ‘그 방 가계부에서만’ 세션이다. 다른 방의 단추를 누른
     // 요청에서는 세션이 없는 것처럼 다뤄 이 방으로 새로 정한다(아래). 이 함수는 라우터가 요청별 범위(env.__AB_ROOM_VIEW)를 적기 전에 불리므로,
     // 여기의 역할 읽기는 범위에 걸리지 않고 누른 사람의 실제 구성원 여부를 본다.
@@ -342,6 +351,12 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
 // 범위를 한 번 더 지킨다(관문이 주소를 놓쳐도 다른 가계부·쓰기 역할이 나오지 않게).
 
 const ROOM_VIEW_END_COOKIE_V229130 = "ab_user=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax";
+// 방 전용 세션을 끝낸 뒤 보내는 곳(독립 검토 3 P3): 자동 로그인을 끈 로그인 화면(/my?auto=0)이다. 카카오톡 안의 브라우저에서 방 전용 세션을 받는 것은
+// 로그인 이름 계정뿐이라, 거기서는 로그인 이름 칸을 연 화면으로 보낸다(V22.9.118 S-2 와 같은 곳). 그냥 /my 로 보내면 세션이 없어진 다음 요청이 화면
+// 없는 카카오 로그인으로 가 그 휴대폰의 카카오 계정에 이어진 다른 웹 계정으로 말없이 들어갈 수 있다.
+function roomViewEndLocationV229130(request) {
+  return isKakaoTalkInAppBrowser(request) ? kakaoRoomOpenLoginNameLocation("") : kakaoAutoLoginFallbackLocation("");
+}
 async function roomViewCookiesV229130(env, userId = "", householdId = "") {
   const token = await makeUserSession(env, userId, { roomViewHouseholdId: String(householdId || "") });
   return [
@@ -433,9 +448,14 @@ function roomViewBounceResponseV229130(request, env, response) {
 // 응답 마무리 2: 방 전용 세션으로 그린 화면(200 HTML) 맨 위에 띠를 붙인다. 스타일은 띠와 함께 한 번만 싣는다(1년 캐시 자산을 건드리지 않는다 — 약관
 // 안내 띠와 같은 방식). 띠에는 저장으로 이어지는 폼이 없다. [로그인] 은 로그인 화면으로 가고, 로그인하면 이 방 가계부로 돌아온다(V22.9.129 의 방 표식).
 const ROOM_VIEW_BAND_STYLE_V229130 = '<style id="abRoomViewBandStyle">.abRoomViewBand{display:flex;align-items:center;justify-content:center;gap:6px 12px;flex-wrap:wrap;margin:0;padding:9px 16px;background:#fff7e6;color:#7a4b00;border-bottom:1px solid #f3d9a4;font-size:13.5px;line-height:1.45;text-align:center;word-break:keep-all;overflow-wrap:anywhere}.abRoomViewBand p{margin:0}.abRoomViewBand b{font-weight:700}.abRoomViewBand a{display:inline-block;padding:5px 12px;border:1px solid currentColor;border-radius:999px;color:inherit;font-weight:700;text-decoration:none;background:#fff}.abRoomViewBand a:focus-visible{outline:2px solid currentColor;outline-offset:2px}</style>';
-function roomViewBandHtmlV229130(householdId = "", bounced = false) {
-  const login = kakaoAutoLoginFallbackLocation(kakaoRoomEntryLocationV229129(householdId));
-  const lead = bounced ? "<b>방금 누른 화면은 로그인하면 볼 수 있어요.</b> " : "";
+function roomViewBandHtmlV229130(householdId = "", bounced = false, inApp = false) {
+  // 독립 검토 3(P3): 카카오톡 안의 브라우저에서 방 전용 세션을 받는 것은 로그인 이름 계정뿐이다 — 거기서는 [로그인] 이 로그인 이름 칸을 연 화면으로 간다
+  // (보통 주소는 인앱에서 ‘카카오 계정으로 가계부 열기’ 팝업을 먼저 띄우는데, 카카오 로그인은 이 계정에 닿지 않는다). 로그인하면 이 방 가계부로 돌아온다.
+  const login = inApp
+    ? kakaoRoomOpenLoginNameLocation(`/app?household_id=${encodeURIComponent(householdId)}`)
+    : kakaoAutoLoginFallbackLocation(kakaoRoomEntryLocationV229129(householdId));
+  // 돌려보낸 까닭은 조건으로만 적는다 — 로그인해도 권한이 없으면 열리지 않는 화면(참여자·설정 등)이 있어 ‘로그인하면 볼 수 있어요’ 는 틀린 약속이 된다.
+  const lead = bounced ? "<b>방금 누른 화면은 로그인해야 열 수 있어요.</b> " : "";
   return `${ROOM_VIEW_BAND_STYLE_V229130}<div class="abRoomViewBand" id="abRoomViewBand" role="region" aria-label="방 전용 보기 안내"><p>${lead}<b>방 전용 보기</b> · 이 단톡방의 가계부만 볼 수 있어요. 다른 화면을 열거나 내 권한대로 쓰려면 로그인해 주세요.</p><a href="${login.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">로그인</a></div>`;
 }
 async function roomViewBandResponseV229130(request, env, response) {
@@ -446,11 +466,11 @@ async function roomViewBandResponseV229130(request, env, response) {
   // ‘방 전용 보기’ 라고 적으면 틀린 말이다. /my 가 200 으로 답하는 화면(로그인·시작·승인 대기 상태)에도 붙이지 않는다.
   // 세션 확인은 관문이 만든 요청으로 다시 묻는다 — 처리기가 이미 확인했다면 요청별 캐시의 값이 그대로 온다(DB 를 더 읽지 않는다).
   // 독립 검토 2(P3): 범위의 가계부를 읽을 수 없게 된 방 전용 세션(받은 뒤 승인 대기로 바뀜·내보내짐 — 가계부 목록 읽기가 scope.checked·readable 을 적는다)은
-  // 상태 화면·‘가계부 만들기’ 화면 위에 띠를 붙이는 대신 끝낸다: 세션 쿠키를 지우고 /my(로그인 화면)로 보낸다.
+  // 상태 화면·‘가계부 만들기’ 화면 위에 띠를 붙이는 대신 끝낸다: 세션 쿠키를 지우고 자동 로그인을 끈 로그인 화면으로 보낸다(roomViewEndLocationV229130).
   try {
     const viewer = env.__AB_ROOM_VIEW_REQUEST ? await verifyUserSession(env.__AB_ROOM_VIEW_REQUEST, env) : "";
     if (!viewer || viewer !== scope.userId) return response;
-    if (scope.checked === true && scope.readable !== true) return redirectResponseWithCookies("/my", [ROOM_VIEW_END_COOKIE_V229130], KAKAO_ROOM_OPEN_HEADERS);
+    if (scope.checked === true && scope.readable !== true) return redirectResponseWithCookies(roomViewEndLocationV229130(request), [ROOM_VIEW_END_COOKIE_V229130], KAKAO_ROOM_OPEN_HEADERS);
     if (response.status !== 200 || scope.readable !== true || new URL(request.url).pathname === "/my") return response;
   } catch (_) {
     return response;
@@ -463,7 +483,7 @@ async function roomViewBandResponseV229130(request, env, response) {
   let out = source;
   try {
     if (source && !source.includes('class="abRoomViewBand"') && /<body\b[^>]*>/i.test(source)) {
-      const band = roomViewBandHtmlV229130(scope.householdId, new URL(request.url).searchParams.get("rv") === "login");
+      const band = roomViewBandHtmlV229130(scope.householdId, new URL(request.url).searchParams.get("rv") === "login", isKakaoTalkInAppBrowser(request));
       const skip = /<a class="abSkipLink" href="[^"]*">본문 바로가기<\/a>/;
       out = skip.test(source) ? source.replace(skip, (full) => full + band) : source.replace(/<body\b[^>]*>/i, (full) => full + band);
     }
