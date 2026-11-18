@@ -132,7 +132,7 @@ async function roomFixture(task) {
   ok(skill.includes('await deferRoomJoinOnCall("manual", { noticeShown: manualTopic === "home" });') && skill.includes('await deferRoomJoinOnCall("mention", { noticeShown: true });') && skill.includes('await deferKakaoAfterReply(env, async () => {\n      const joined = await joinRoomOnCallSync({ source });') && skill.includes('}, { cost: 26 });'), "0 설명서·빈 멘션은 답 뒤(deferKakaoAfterReply)에서 들인다");
   ok(skill.includes('joinRoomOnCallSync({ source: "link" })') && skill.includes('source: "start"') && skill.includes('source: "help"') && skill.includes('source: "command"'), "0 웹가계부·시작·도움말·그 밖의 명령은 그 자리에서 들인다");
   ok(skill.includes("response = await prependKakaoRoomJoinNoticeV229115(response, env);") && skill.includes("async function prependKakaoRoomJoinNoticeV229115(response, env) {"), "0 래퍼가 들인 사실을 답 맨 앞 한 줄로 끼운다");
-  ok(builders.includes('function kakaoWebLedgerReply(origin = "", notice = "") {') && builders.includes('description: "전체 기록과 분석을 웹에서 크게 볼 수 있어요.\\n아래 버튼을 누르면 이 방 가계부가 열려요."'), "0 ‘웹가계부’ 카드는 글을 그대로 두고 앞에 한 줄만 더한다");
+  ok(/function kakaoWebLedgerReply\(origin = "", notice = ""(?:, roomHouseholdId = "")?\) \{/.test(builders) && builders.includes('description: "전체 기록과 분석을 웹에서 크게 볼 수 있어요.\\n아래 버튼을 누르면 이 방 가계부가 열려요."'), "0 ‘웹가계부’ 카드는 글을 그대로 두고 앞에 한 줄만 더한다");
   ok(members.includes("async function handleMyOwnerTransfer(request, env) {") && /export \{[^}]*\bhandleMyOwnerTransfer\b[^}]*\}/.test(members), "0 소유자 양도 처리기가 있고 내보낸다");
   const promoteAt = members.indexOf('"owner"))) throw new Error("owner_transfer_promote_not_applied");');
   const demoteAt = members.indexOf('demoted = await patchRole(String(userId), "&role=eq.owner", "admin");');
@@ -193,7 +193,7 @@ await roomFixture(async (fx) => {
   eq(card.outputs[0]?.textCard?.description, `이 방 가계부 ‘${ROOM_HOUSEHOLD_NAME}’에 참여했어요.
 말해가계부를 이용하면 이용약관에 동의한 것으로 봐요.`, "3 카드 앞에 참여 한 줄");
   const button = card.outputs[1]?.textCard?.buttons?.[0] || {};
-  ok(button.action === "webLink" && button.webLinkUrl === `${BASE}/my` && card.outputs[1]?.textCard?.description?.includes("아래 버튼을 누르면 이 방 가계부가 열려요"), "3 카드 글·단추(/my)는 예전 그대로다");
+  ok(button.action === "webLink" && household?.id && button.webLinkUrl === `${BASE}/my?room=${household.id}` && card.outputs[1]?.textCard?.description?.includes("아래 버튼을 누르면 이 방 가계부가 열려요"), "3 카드 글은 예전 그대로이고 단추는 /my 에 이 방 가계부 표식만 붙는다(V22.9.129)");
   const opened = await go(fx, tapped("/my", { user: U.u3 }));
   eq(opened.status, 303, "3 단추를 누르면 로그인 화면 없이 넘긴다");
   eq(opened.location, `/app?household_id=${encodeURIComponent(household.id)}`, "3 그 방 가계부 홈(/app)으로 간다(기록 없이 들어온 사람도)");

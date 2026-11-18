@@ -20,6 +20,7 @@ import {
 } from "./identity-reauth.js";
 import { fetchUserById, fetchUserHouseholds } from "../data/users-household-create.js";
 import { backupLoginKnownCookie, clearSetupCookies } from "../my/setup-page.js";
+import { canReadMyHousehold } from "../my/access-control.js";
 import { createHouseholdForUserV229104 } from "../my/households-lifecycle.js";
 import { supporterAccentCookieV229121 } from "../my/supporter-accent.js";
 import { addQueryToUrl, recordSignupConsent } from "./local-login-pages.js";
@@ -31,6 +32,10 @@ import { renderUserLoginHtml } from "../web/login-page-side-nav.js";
 import {
   clearConsentStateCookie, consentStateCookie, kakaoStartOrLoginHtml, readSignupConsentState,
 } from "./kakao-start-screen.js";
+import {
+  kakaoRoomEntryHouseholdIdV229129, kakaoRoomEntryReturnPathV229129,
+  kakaoRoomQuietLoginEnabledV229129,
+} from "./kakao-room-open.js";
 import { readHouseholdRoleOrFailure } from "../domain/users-households.js";
 import { supabase } from "../data/supabase-client.js";
 // @build:imports-end
@@ -44,6 +49,9 @@ function withoutHouseholdIdV229104(path = "") {
   try {
     const parsed = new URL(path, "https://accountbook.local");
     parsed.searchParams.delete("household_id");
+    // V22.9.129 독립 검토 3(P3): 방 표식(room)도 뺀다 — 방금 첫 가계부를 만든 새 계정은 그 방 가계부를 읽을 수 없어, 표식을 남기면 예전의 /app 이 아니라
+    // 표식 길을 거쳐 /my 로 착지했다.
+    parsed.searchParams.delete("room");
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch (_) {
     return "";
@@ -56,7 +64,15 @@ async function handleKakaoLoginStart(request, env, url) {
   const reauthHouseholdId = String(url.searchParams.get("household_id") || "").trim();
   const reauthReturnTo = safeUserReturnPath(url.searchParams.get("return_to") || "/my/households", "/my/households");
   // V22.9.91: 카카오톡 인앱 브라우저 자동 로그인(라우터의 kakaoInAppAutoLoginResponse 가 auto=1 로 보낸다). prompt=none 이라 카카오 화면이 뜨지 않는다.
-  const autoMode = url.searchParams.get("auto") === "1" && !reauthMode && url.searchParams.get("link") !== "1" && isKakaoTalkInAppBrowser(request);
+  // V22.9.129: 단톡방 ‘웹 가계부 열기’ 로 카카오톡 밖의 브라우저(PC)에 온 사람도 한 번 해 본다 — 돌아갈 주소가 방 표식 주소(/my?room=<번호>)이고
+  // 사람이 바로 연 이동(Sec-Fetch-Site: none)일 때만이다(auth/kakao-room-open.js kakaoRoomEntryResponse 가 그 조건으로 보낸다; 우리 303 을 거쳐도 그
+  // 머리는 none 그대로다). 그 밖의 auto=1 은 예전처럼 인앱 브라우저에서만 화면 없는 로그인이고, 아니면 보통(화면 있는) 로그인으로 시작한다.
+  // 독립 검토 P3: 진입 처리와 같은 조건을 여기서도 본다 — 이미 해 본 브라우저(ab_kakao_auto: try·skip)·직접 로그아웃한 브라우저(off)·자동 로그인을 끈 운영
+  // (KAKAO_INAPP_AUTO_LOGIN=0)에서는 이 주소를 바로 열어도 화면 없는 로그인이 되지 않는다(인앱 브라우저의 분기는 예전 그대로다).
+  // 독립 검토 2(P2): 그리고 운영 변수 KAKAO_ROOM_QUIET_LOGIN 을 켠 곳에서만이다(없으면 꺼짐 — auth/kakao-room-open.js kakaoRoomQuietLoginEnabledV229129 의 설명).
+  const roomEntryAuto = !!kakaoRoomEntryReturnPathV229129(url.searchParams.get("return_to") || "") && String(request.headers.get("sec-fetch-site") || "").toLowerCase() === "none"
+    && !getCookie(request, "ab_kakao_auto") && kakaoRoomQuietLoginEnabledV229129(env);
+  const autoMode = url.searchParams.get("auto") === "1" && !reauthMode && url.searchParams.get("link") !== "1" && (isKakaoTalkInAppBrowser(request) || roomEntryAuto);
   const config = inspectKakaoLoginConfig(env);
   if (autoMode && !config.ready) return redirectResponseWithCookies(kakaoAutoLoginFallbackLocation(url.searchParams.get("return_to") || ""), [kakaoAutoLoginCookie("skip")]);
   if (!config.enabled) {
@@ -416,6 +432,19 @@ async function handleKakaoLoginCallback(request, env, url) {
     if (autoMode && emptyAccount && (consentState !== true || !noLinkOffer)) {
       rememberOpsEvent({ kind: "kakao_auto_login_empty_account", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId}` });
       return autoFallback();
+    }
+    // V22.9.129 독립 검토 P2 둘: 카카오톡 밖의 브라우저(PC)의 화면 없는 로그인은 단톡방 ‘웹 가계부 열기’ 의 방 표식 길 하나에만 쓴다(시작 처리가 그 조건으로만
+    // 허락한다). 인앱과 달리 이 브라우저의 카카오 계정이 단추를 누른 사람인지 알 수 없으므로(공용·가족 PC 에 남은 다른 사람의 카카오 로그인), 그 계정이
+    // 그 표식의 가계부를 읽을 수 있을 때만 세션을 준다. 빈 계정(위 조건을 지나온 안내 확인 기록이 있는 빈 계정 포함 — 인앱처럼 기본 가계부를 만들지도
+    // 않는다)·그 방을 못 읽는 계정·계정 잇기 제안이 걸린 계정(합치기는 사람이 누른 로그인에서만 돈다)은 세션 없이 로그인 화면으로 보낸다.
+    if (autoMode && !isKakaoTalkInAppBrowser(request)) {
+      const roomEntryId = kakaoRoomEntryHouseholdIdV229129(loginNext);
+      const opensRoom = !!roomEntryId && !linkProof?.ok && kakaoRoomQuietLoginEnabledV229129(env)
+        && existingHouseholds.some((item) => String(item?.id || "") === roomEntryId && canReadMyHousehold(String(item?.role || "").toLowerCase()));
+      if (!opensRoom) {
+        rememberOpsEvent({ kind: "kakao_auto_login_room_closed", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `${!roomEntryId ? "no_room" : !kakaoRoomQuietLoginEnabledV229129(env) ? "switched_off" : linkProof?.ok ? "link_offer" : existingHouseholds.length ? "not_readable" : "empty_account"};trace=${traceId}` });
+        return autoFallback();
+      }
     }
     // V22.9.104 L-1(사용자 2026-11-06 "바로 가계부 홈이 나와야"): 카카오 로그인(화면 있는 로그인이든 자동 로그인이든)인데 가계부가 없고 이을 계정도
     // 없으면 첫 가계부 만들기 화면(/my/households?first=1#create)으로 보내지 않고 ‘내 가계부’ 하나를 이 사람 소유로 만든 뒤 돌아갈 곳(없으면 /app)으로 간다.

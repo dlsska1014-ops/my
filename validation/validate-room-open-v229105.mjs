@@ -167,7 +167,7 @@ await roomFixture(async (fx, { u1, u2, u3, household }) => {
   const card = await sayRaw(fx, "웹가계부", { user: U1, room: ROOM });
   const button = card?.template?.outputs?.[0]?.textCard?.buttons?.[0] || {};
   eq(button.action, "webLink", "1 단톡방 ‘웹가계부’ 답은 링크 단추다");
-  eq(button.webLinkUrl, `${BASE}/my`, "1 단추 주소는 /my 그대로다(카카오가 누른 사람 값을 붙인다)");
+  eq(button.webLinkUrl, `${BASE}/my?room=${household.id}`, "1 단추 주소는 /my 에 이 방 가계부 표식만 붙는다(V22.9.129 — 카카오가 누른 사람 값을 그 뒤에 붙인다)");
   ok(!JSON.stringify(card).includes(U1) && !JSON.stringify(card).includes(ROOM), "1 답에는 botUserKey·botGroupKey 가 없다");
   for (const [name, ua] of [["아이폰 인앱", INAPP], ["안드로이드 인앱", ANDROID_INAPP], ["PC 브라우저", PC]]) {
     const first = await go(fx, tapped("/my"), { ua });

@@ -2055,6 +2055,10 @@ const ACCOUNTBOOK_WORKER = {
       // 아래 자동 로그인·시작 팝업 그대로다. 로그인 뒤 화면이 아닌 주소(공개 문서 등)는 값만 지우므로 숨긴 기능·공지·후원·공개 문서보다 먼저 부른다.
       const kakaoRoomOpen = await kakaoRoomOpenResponse(request, env, url, ctx);
       if (kakaoRoomOpen) return kakaoRoomOpen;
+      // V22.9.129: 카카오 값 없이 방 표식(/my?room=<그 방 가계부 번호>)만 온 길 — PC 카카오톡의 ‘웹 가계부 열기’. 세션이 있으면 그 가계부(읽을 수 있을 때)로,
+      // 없으면 화면 없는 카카오 로그인을 한 번 해 본 뒤 로그인 화면으로 간다(auth/kakao-room-open.js kakaoRoomEntryResponse).
+      const kakaoRoomEntry = await kakaoRoomEntryResponse(request, env, url, ctx);
+      if (kakaoRoomEntry) return kakaoRoomEntry;
 
       const hiddenFeature = hiddenIncompleteFeatureResponse(request, env, url);
       if (hiddenFeature) return hiddenFeature;
@@ -3315,7 +3319,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.128-WEB-CHECK";
+const APP_VERSION = "V22.9.129-PC-ROOM-OPEN";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -13918,15 +13922,17 @@ function renderEmergencyErrorHtml(url, err, title = "화면을 안전모드로 �
 }
 
 // V22.9.122 F-1(출시 전 점검 2026-11-14): 로그인 확인을 잠깐 못 했을 때의 안내 화면(worker/router.js sessionUnavailableResponseV229122). DB 정보는 적지 않는다.
-function renderSessionUnavailableHtmlV229122(url, posted = false) {
+// V22.9.129: kind "household" = 로그인은 확인됐고 가계부(역할) 읽기만 실패한 때(auth/kakao-room-open.js 의 방 표식 길). 제목·첫 문장만 다르다.
+function renderSessionUnavailableHtmlV229122(url, posted = false, kind = "session") {
   // 다시 열기 주소: 경로와 달·가계부·탭 값만 싣는다. 로그인 길(/auth/…)과 그 밖의 주소 값(인증 code·state, 방 키 등)은 다시 쓰지 않는다(독립 검토 1).
   const keep = new URLSearchParams();
-  for (const key of ["month", "household_id", "tab", "view"]) { const value = url?.searchParams?.get(key); if (value && value.length <= 80) keep.set(key, value); }
+  // V22.9.129: 방 표식(room — 단톡방 ‘웹 가계부 열기’ 가 가리키는 가계부 번호, household_id 와 같은 종류의 값)도 싣는다. 다시 열면 그 방 가계부 길로 돌아온다.
+  for (const key of ["month", "household_id", "tab", "view", "room"]) { const value = url?.searchParams?.get(key); if (value && value.length <= 80 && (key !== "room" || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value))) keep.set(key, value); }
   const pathname = String(url?.pathname || "/");
   const safePath = escapeHtml(pathname + (keep.toString() ? `?${keep}` : ""));
   const retry = posted || /^\/auth\//.test(pathname) ? "/my" : safePath;
   const note = posted ? "방금 보낸 내용은 저장되지 않았어요. 잠시 뒤 다시 시도해 주세요." : "잠시 뒤 아래 단추로 다시 열어 주세요.";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex"/><title>말해가계부 · 잠시 뒤 다시</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:40px auto;padding:20px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:24px;box-shadow:0 18px 44px rgba(15,23,42,.08)}h1{margin-top:0;font-size:22px}.muted{color:#475569;line-height:1.6}.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.btn{display:inline-flex;align-items:center;justify-content:center;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:900}@media (prefers-color-scheme:dark){body{background:#0f172a;color:#f1f5f9}.card{background:#1e293b;border-color:#334155}.muted{color:#cbd5e1}.btn{background:#f1f5f9;color:#0f172a!important}}</style></head><body><main class="wrap"><section class="card"><h1>로그인 상태를 잠시 확인하지 못했어요</h1><p class="muted">로그아웃된 것은 아니에요. 저장소 응답이 잠깐 늦어지고 있어요. ${note}</p><div class="btns"><a class="btn" href="${retry}">다시 열기</a></div></section></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex"/><title>말해가계부 · 잠시 뒤 다시</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:760px;margin:40px auto;padding:20px}.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:24px;box-shadow:0 18px 44px rgba(15,23,42,.08)}h1{margin-top:0;font-size:22px}.muted{color:#475569;line-height:1.6}.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}.btn{display:inline-flex;align-items:center;justify-content:center;background:#111827;color:#fff!important;text-decoration:none;border-radius:14px;padding:11px 14px;font-weight:900}@media (prefers-color-scheme:dark){body{background:#0f172a;color:#f1f5f9}.card{background:#1e293b;border-color:#334155}.muted{color:#cbd5e1}.btn{background:#f1f5f9;color:#0f172a!important}}</style></head><body><main class="wrap"><section class="card"><h1>${kind === "household" ? "가계부를 잠시 불러오지 못했어요" : "로그인 상태를 잠시 확인하지 못했어요"}</h1><p class="muted">${kind === "household" ? "" : "로그아웃된 것은 아니에요. "}저장소 응답이 잠깐 늦어지고 있어요. ${note}</p><div class="btns"><a class="btn" href="${retry}">다시 열기</a></div></section></main></body></html>`;
 }
 
 // V22.9.26: 라우터의 마지막 catch 가 브라우저 폼 제출을 구분하는 데 쓴다.
@@ -28134,6 +28140,9 @@ function withoutHouseholdIdV229104(path = "") {
   try {
     const parsed = new URL(path, "https://accountbook.local");
     parsed.searchParams.delete("household_id");
+    // V22.9.129 독립 검토 3(P3): 방 표식(room)도 뺀다 — 방금 첫 가계부를 만든 새 계정은 그 방 가계부를 읽을 수 없어, 표식을 남기면 예전의 /app 이 아니라
+    // 표식 길을 거쳐 /my 로 착지했다.
+    parsed.searchParams.delete("room");
     return `${parsed.pathname}${parsed.search}${parsed.hash}`;
   } catch (_) {
     return "";
@@ -28146,7 +28155,15 @@ async function handleKakaoLoginStart(request, env, url) {
   const reauthHouseholdId = String(url.searchParams.get("household_id") || "").trim();
   const reauthReturnTo = safeUserReturnPath(url.searchParams.get("return_to") || "/my/households", "/my/households");
   // V22.9.91: 카카오톡 인앱 브라우저 자동 로그인(라우터의 kakaoInAppAutoLoginResponse 가 auto=1 로 보낸다). prompt=none 이라 카카오 화면이 뜨지 않는다.
-  const autoMode = url.searchParams.get("auto") === "1" && !reauthMode && url.searchParams.get("link") !== "1" && isKakaoTalkInAppBrowser(request);
+  // V22.9.129: 단톡방 ‘웹 가계부 열기’ 로 카카오톡 밖의 브라우저(PC)에 온 사람도 한 번 해 본다 — 돌아갈 주소가 방 표식 주소(/my?room=<번호>)이고
+  // 사람이 바로 연 이동(Sec-Fetch-Site: none)일 때만이다(auth/kakao-room-open.js kakaoRoomEntryResponse 가 그 조건으로 보낸다; 우리 303 을 거쳐도 그
+  // 머리는 none 그대로다). 그 밖의 auto=1 은 예전처럼 인앱 브라우저에서만 화면 없는 로그인이고, 아니면 보통(화면 있는) 로그인으로 시작한다.
+  // 독립 검토 P3: 진입 처리와 같은 조건을 여기서도 본다 — 이미 해 본 브라우저(ab_kakao_auto: try·skip)·직접 로그아웃한 브라우저(off)·자동 로그인을 끈 운영
+  // (KAKAO_INAPP_AUTO_LOGIN=0)에서는 이 주소를 바로 열어도 화면 없는 로그인이 되지 않는다(인앱 브라우저의 분기는 예전 그대로다).
+  // 독립 검토 2(P2): 그리고 운영 변수 KAKAO_ROOM_QUIET_LOGIN 을 켠 곳에서만이다(없으면 꺼짐 — auth/kakao-room-open.js kakaoRoomQuietLoginEnabledV229129 의 설명).
+  const roomEntryAuto = !!kakaoRoomEntryReturnPathV229129(url.searchParams.get("return_to") || "") && String(request.headers.get("sec-fetch-site") || "").toLowerCase() === "none"
+    && !getCookie(request, "ab_kakao_auto") && kakaoRoomQuietLoginEnabledV229129(env);
+  const autoMode = url.searchParams.get("auto") === "1" && !reauthMode && url.searchParams.get("link") !== "1" && (isKakaoTalkInAppBrowser(request) || roomEntryAuto);
   const config = inspectKakaoLoginConfig(env);
   if (autoMode && !config.ready) return redirectResponseWithCookies(kakaoAutoLoginFallbackLocation(url.searchParams.get("return_to") || ""), [kakaoAutoLoginCookie("skip")]);
   if (!config.enabled) {
@@ -28506,6 +28523,19 @@ async function handleKakaoLoginCallback(request, env, url) {
     if (autoMode && emptyAccount && (consentState !== true || !noLinkOffer)) {
       rememberOpsEvent({ kind: "kakao_auto_login_empty_account", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId}` });
       return autoFallback();
+    }
+    // V22.9.129 독립 검토 P2 둘: 카카오톡 밖의 브라우저(PC)의 화면 없는 로그인은 단톡방 ‘웹 가계부 열기’ 의 방 표식 길 하나에만 쓴다(시작 처리가 그 조건으로만
+    // 허락한다). 인앱과 달리 이 브라우저의 카카오 계정이 단추를 누른 사람인지 알 수 없으므로(공용·가족 PC 에 남은 다른 사람의 카카오 로그인), 그 계정이
+    // 그 표식의 가계부를 읽을 수 있을 때만 세션을 준다. 빈 계정(위 조건을 지나온 안내 확인 기록이 있는 빈 계정 포함 — 인앱처럼 기본 가계부를 만들지도
+    // 않는다)·그 방을 못 읽는 계정·계정 잇기 제안이 걸린 계정(합치기는 사람이 누른 로그인에서만 돈다)은 세션 없이 로그인 화면으로 보낸다.
+    if (autoMode && !isKakaoTalkInAppBrowser(request)) {
+      const roomEntryId = kakaoRoomEntryHouseholdIdV229129(loginNext);
+      const opensRoom = !!roomEntryId && !linkProof?.ok && kakaoRoomQuietLoginEnabledV229129(env)
+        && existingHouseholds.some((item) => String(item?.id || "") === roomEntryId && canReadMyHousehold(String(item?.role || "").toLowerCase()));
+      if (!opensRoom) {
+        rememberOpsEvent({ kind: "kakao_auto_login_room_closed", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `${!roomEntryId ? "no_room" : !kakaoRoomQuietLoginEnabledV229129(env) ? "switched_off" : linkProof?.ok ? "link_offer" : existingHouseholds.length ? "not_readable" : "empty_account"};trace=${traceId}` });
+        return autoFallback();
+      }
     }
     // V22.9.104 L-1(사용자 2026-11-06 "바로 가계부 홈이 나와야"): 카카오 로그인(화면 있는 로그인이든 자동 로그인이든)인데 가계부가 없고 이을 계정도
     // 없으면 첫 가계부 만들기 화면(/my/households?first=1#create)으로 보내지 않고 ‘내 가계부’ 하나를 이 사람 소유로 만든 뒤 돌아갈 곳(없으면 /app)으로 간다.
@@ -48555,6 +48585,7 @@ async function handleMyConsent(request, env) {
 //  · 시도는 IP 마다 15분 60번(두 값이 다 있는 시도만 센다; IPv6 도 주소 그대로 — /64 로 묶는 것은 비밀번호를 대조하는 길만, V22.9.118).
 //    관리자 쿠키 브라우저와 링크 미리보기 수집기(UA)는 열지 않는다.
 //  · 결과는 설정 표 kakao_room_open_probe_v229105:<결과> 에 시각·판만 남긴다(식별자 없음, isolate 마다 결과별 10분에 한 번).
+//    V22.9.129: 방 표식 길(아래 kakaoRoomEntryResponse)의 결과는 같은 칸에 entry_<결과> 로 남는다.
 const KAKAO_ROOM_OPEN_PARAMS = ["botUserKey", "appUserId", "botGroupKey"];
 const KAKAO_ROOM_OPEN_KEY_SHAPE = /^[0-9A-Fa-f]{32,128}$/;
 const KAKAO_ROOM_OPEN_CRAWLER = /kakaotalk-scrap|facebookexternalhit|facebot|twitterbot|slackbot|slack-imgproxy|discordbot|telegrambot|whatsapp|linkedinbot|skypeuripreview|googlebot|bingbot|yeti\/|daumoa|applebot|petalbot|headlesschrome/i;
@@ -48566,6 +48597,31 @@ const KAKAO_ROOM_OPEN_OK = new Set(["ok", "switched", "same_session", "member_se
 const KAKAO_ROOM_OPEN_STRONG_PROVIDERS = ["kakao", "local"];
 const KAKAO_ROOM_OPEN_HEADERS = { "referrer-policy": "no-referrer" };
 const AB_KAKAO_ROOM_OPEN_PROBE = globalThis.__AB_KAKAO_ROOM_OPEN_PROBE || (globalThis.__AB_KAKAO_ROOM_OPEN_PROBE = new Map());
+// V22.9.129 방 표식: 단톡방 ‘웹 가계부 열기’ 단추의 주소 /my?room=<그 방 가계부 번호>(kakao/response-builders.js kakaoWebLedgerReply).
+const KAKAO_ROOM_ENTRY_PARAM_V229129 = "room";
+// 독립 검토 3(P2): 표식은 가계부 번호(UUID) 모양만 받는다. 가계부 번호 칸은 uuid 형이라, 다른 글자(잘린 복사·손으로 친 값·남이 꾸민 링크)로 역할을 읽으면
+// 저장소가 형 변환 오류를 내고 — 그것을 ‘읽기 실패’ 로 다루면 로그인한 사람이 끝나지 않는 ‘잠시 뒤 다시’ 에 갇힌다. 모양이 틀린 표식은 읽기 전에 버린다(/my).
+const KAKAO_ROOM_ENTRY_ID_V229129 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+function kakaoRoomEntryLocationV229129(householdId = "") {
+  return `/my?${KAKAO_ROOM_ENTRY_PARAM_V229129}=${encodeURIComponent(String(householdId || ""))}`;
+}
+// 돌아갈 주소가 방 표식 주소(정확히 /my?room=<번호> 하나)인지. 카카오 로그인 시작(auth/kakao-oauth.js)이 카카오톡 밖의 브라우저에도 화면 없는 로그인을
+// 허락할지 볼 때 쓴다 — 그 밖의 주소로는 예전처럼 인앱 브라우저만이다.
+// V22.9.129 독립 검토 2(P2): 카카오톡 밖의 브라우저에서 하는 화면 없는 카카오 로그인은 운영 변수 KAKAO_ROOM_QUIET_LOGIN 을 켠 곳(1·true·on)에서만 한다.
+// 없으면 꺼짐이다. 그 브라우저의 카카오 계정이 단추를 누른 사람인지는 서버가 알 수 없다 — 가족이 같이 쓰는 PC 에 다른 가족의 카카오 로그인이 남아 있고
+// 그 사람도 같은 방 구성원이면, 아무도 누르지 않았는데 그 사람의 계정으로 들어가 기록이 그 사람 이름으로 남는다(그 방을 읽을 수 있는 계정만 들이는 조건으로는
+// 막지 못한다). 꺼 두면 로그인 화면이 나오고(사람이 [카카오 로그인] 을 누른다) 로그인 뒤 그 방 가계부로 돌아온다. 켜는 것은 운영자 결정이다.
+function kakaoRoomQuietLoginEnabledV229129(env) {
+  return envFlagEnabled(env?.KAKAO_ROOM_QUIET_LOGIN, false) && envFlagEnabled(env?.KAKAO_INAPP_AUTO_LOGIN, true);
+}
+function kakaoRoomEntryHouseholdIdV229129(raw = "") {
+  const match = /^\/my\?room=([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(String(raw || "").trim());
+  return match ? match[1] : "";
+}
+function kakaoRoomEntryReturnPathV229129(raw = "") {
+  const id = kakaoRoomEntryHouseholdIdV229129(raw);
+  return id ? kakaoRoomEntryLocationV229129(id) : "";
+}
 
 // 카카오 값을 뺀 주소. 가계부 번호(householdId)가 주어지면 그 방 가계부 홈으로 간다: /my·/app·/m 은 /app 홈, /my/* 는 그 화면에 가계부 번호를 붙인다.
 function kakaoRoomOpenLocation(url, householdId = "") {
@@ -48573,6 +48629,9 @@ function kakaoRoomOpenLocation(url, householdId = "") {
   for (const name of KAKAO_ROOM_OPEN_PARAMS) query.delete(name);
   let path = url.pathname === "/m" ? "/app" : url.pathname;
   if (householdId) {
+    // V22.9.129: 방 가계부 번호가 정해졌으면 방 표식(room)은 뺀다(같은 뜻이 household_id 로 실린다). 값을 뺀 주소(householdId 없음)에는 그대로 남겨
+    // 아래 kakaoRoomEntryResponse 가 이어 받게 한다.
+    query.delete(KAKAO_ROOM_ENTRY_PARAM_V229129);
     if (path === "/my") path = "/app";
     if (!query.get("household_id")) query.set("household_id", householdId);
   }
@@ -48636,6 +48695,18 @@ function kakaoRoomOpenLoginNameLocation(home = "") {
 function kakaoRoomOpenProbe(env, ctx, result = "", detail = "") {
   const slot = String(result || "unknown").replace(/[^a-z_]/g, "").slice(0, 40) || "unknown";
   rememberOpsEvent({ kind: "kakao_room_open", severity: KAKAO_ROOM_OPEN_OK.has(slot) ? "info" : "warn", path: "/my", method: "GET", detail: detail ? `${slot}: ${detail}`.slice(0, 200) : slot });
+  kakaoRoomOpenProbeSave(env, ctx, slot);
+}
+
+// V22.9.129: 방 표식 길(kakaoRoomEntryResponse)의 결과. 같은 진단 기록 칸에 entry_<결과> 로 남긴다(시각·판만 — 가계부 번호·식별자 없음).
+// 2026-11-17 의 교훈: 이 흐름은 화면에서 본 것으로 짐작하지 않고 서버가 남긴 이 기록으로 확인한다.
+function kakaoRoomEntryProbeV229129(env, ctx, result = "") {
+  const name = String(result || "unknown").replace(/[^a-z_]/g, "").slice(0, 30) || "unknown";
+  rememberOpsEvent({ kind: "kakao_room_entry", severity: "info", path: "/my", method: "GET", detail: name });
+  kakaoRoomOpenProbeSave(env, ctx, `entry_${name}`);
+}
+
+function kakaoRoomOpenProbeSave(env, ctx, slot = "") {
   if (!env?.SUPABASE_URL || !env?.SUPABASE_SERVICE_ROLE_KEY) return;
   const now = Date.now();
   if (now - Number(AB_KAKAO_ROOM_OPEN_PROBE.get(slot) || 0) < KAKAO_ROOM_OPEN_PROBE_MS) return;
@@ -48657,7 +48728,7 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
   if (fetchMode ? fetchMode !== "navigate" : !/text\/html/i.test(String(request.headers.get("accept") || ""))) return null;
   if (/prefetch|prerender/i.test(`${request.headers.get("sec-purpose") || ""} ${request.headers.get("purpose") || ""}`)) return null;
   const source = kakaoRoomOpenSourceUrl(request, url);
-  const plain = kakaoRoomOpenLocation(source, "");
+  let plain = kakaoRoomOpenLocation(source, "");
   // 로그인 뒤 화면이 아니면(공개 문서·글·안내·로그아웃·계정 잇기) 값만 지운다. DB 는 읽지 않는다.
   if (!kakaoAutoLoginPath(url.pathname)) {
     rememberOpsEvent({ kind: "kakao_room_values_stripped", severity: "info", path: url.pathname.slice(0, 80), method: "GET", detail: "" });
@@ -48681,6 +48752,14 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     if (!admission.allowed) return finish("rate_limited", plain);
     const household = await getLinkedKakaoGroupHousehold(env, groupKey);
     if (!household?.id) return finish("no_room_household", plain);
+    // V22.9.129 독립 검토 P3: 방이 다른 가계부로 다시 묶인 뒤 옛 카드를 누르면 표식(room)이 옛 가계부를 가리킨다. 카카오 값이 가리키는 지금의 방 가계부와
+    // 다른 표식은 아래의 ‘값을 뺀 주소’ 에서 버린다(그 방의 지금 가계부 번호로 바꿔 적지는 않는다 — 구성원이 아닌 사람에게 번호를 알려 주지 않으려고).
+    // 방 가계부를 읽기 전에 끝나는 결과(사용자 키 없음·키 모양 틀림·요청 제한·수집기·관리자 브라우저)와 값이 아예 없는 PC 길은 방을 확인하지 않으므로
+    // 옛 표식이 남는다 — 그 가계부를 읽을 수 있는 사람에게만 열리고 권한은 넓어지지 않는다(알려진 한계, 발견 기록 E-6).
+    if (source.searchParams.has(KAKAO_ROOM_ENTRY_PARAM_V229129) && source.searchParams.get(KAKAO_ROOM_ENTRY_PARAM_V229129) !== String(household.id)) {
+      source.searchParams.delete(KAKAO_ROOM_ENTRY_PARAM_V229129);
+      plain = kakaoRoomOpenLocation(source, "");
+    }
     const identity = await kakaoRoomOpenIdentity(env, userKey);
     if (!identity) return finish("no_user", plain);
     const role = String(await getHouseholdMemberRole(env, identity.userId, household.id) || "").toLowerCase();
@@ -48695,7 +48774,11 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     if (current && canReadMyHousehold(await getHouseholdMemberRole(env, current, household.id))) return finish("member_session", roomHome);
     // 웹 계정에 이어진 사람: 세션을 주지 않는다. 세션이 없으면 그 방 가계부 주소로만 보내 인앱 자동 로그인이 그 계정으로 로그인하게 하고,
     // 이 방 가계부를 못 읽는 다른 계정 세션이면 그대로 둔다.
-    if (!identity.raw) return current ? finish("linked_other_session", plain) : finish("linked_account", home);
+    // V22.9.129: 카카오톡 밖의 브라우저(PC 카카오톡이 여는 기본 브라우저)에는 인앱 자동 로그인이 없어, 그 방 가계부 주소(/app?household_id=…)가 세션 없이
+    // 가계부 번호를 잃고 /my 시작 화면으로 갔다. 그런 브라우저는 방 표식 주소(/my?room=…)로 보낸다 — kakaoRoomEntryResponse 가 화면 없는 카카오 로그인을
+    // 한 번 해 보고, 안 되면 로그인 화면이 이 방 가계부로 돌아올 주소를 갖는다. 주소 값으로 세션을 주지 않는 것은 그대로다.
+    const loginEntry = readable && !isKakaoTalkInAppBrowser(request) ? kakaoRoomEntryLocationV229129(household.id) : home;
+    if (!identity.raw) return current ? finish("linked_other_session", plain) : finish("linked_account", loginEntry);
     // 다른 계정 세션을 누른 사람으로 바꾸는 것은 앱에서 바로 연 이동(Sec-Fetch-Site: none)일 때만이다.
     if (current && String(request.headers.get("sec-fetch-site") || "").toLowerCase() !== "none") return finish("session_kept", plain);
     // V22.9.118 S-2: 강한 식별이 붙은 채팅 계정도 웹 계정에 이어진 사람과 같이 세션을 주지 않는다(R-6 의 뜻). 다른 계정 세션이면 그대로 둔다.
@@ -48704,7 +48787,7 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
     const strong = await kakaoRoomOpenStrongIdentity(env, identity.userId);
     if (strong) {
       if (current) return finish("strong_other_session", plain);
-      return strong === "kakao" ? finish("strong_account", home) : finish("strong_local_account", kakaoRoomOpenLoginNameLocation(home));
+      return strong === "kakao" ? finish("strong_account", loginEntry) : finish("strong_local_account", kakaoRoomOpenLoginNameLocation(home));
     }
     const token = await makeUserSession(env, identity.userId);
     const cookies = [
@@ -48719,6 +48802,62 @@ async function kakaoRoomOpenResponse(request, env, url, ctx) {
   } catch (err) {
     return finish("lookup_failed", plain, [], safeError(err));
   }
+}
+
+// V22.9.129 W-3·W-4(사용자 2026-11-17 "앱 승인 담당자가 말했듯 웹 가계부 열기 누르면 로그인 없이 바로 가계부가 열려야해", "pc에서도 바로 열리게 해줘"):
+// 단톡방 ‘웹 가계부 열기’ 단추의 주소는 /my?room=<그 방 가계부 번호> 다. 카카오가 식별 값을 붙여 주면(휴대폰) 위의 kakaoRoomOpenResponse 가 먼저 받는다.
+// 값이 없거나 쓸 수 없으면(2026-11-17 운영 기록: PC 카카오톡은 사용자 식별 값 없이 연다) 이 표식만 남고, 라우터가 그다음에 이 함수를 부른다.
+//  · 세션이 있으면: 그 가계부를 읽을 수 있을 때 그 가계부 홈으로, 아니면 표식을 뺀 /my 로 보낸다. 표식은 고르는 힌트일 뿐 권한이 아니다 —
+//    남의 가계부 번호를 적어도 그 가계부는 열리지 않고 ‘찾을 수 없음’ 도 내지 않는다(자기 가계부가 열린다).
+//  · 세션이 없고 카카오톡 밖의 브라우저면: 기본은 로그인 화면이다(돌아올 주소 = 이 표식 주소 — 로그인하면 그 방 가계부가 열린다).
+//    운영 변수 KAKAO_ROOM_QUIET_LOGIN 을 켠 곳에서는 화면 없는 카카오 로그인(prompt=none)을 한 번 해 본다. 그 브라우저에 카카오 로그인이 돼 있고 이미 회원이면
+//    화면 없이 들어와 이 표식 주소로 돌아오고(위 줄), 아니면 로그인 화면이 돌아올 주소(이 표식 주소)를 갖고 열린다. 자동 로그인의 규칙(새 계정을 만들지
+//    않음, 한 번 해 보면 되풀이하지 않음 — auth/kakao-oauth.js)은 인앱과 같고, 인앱보다 좁다: 그 카카오 계정의 웹 계정이 이 표식의 가계부를 읽을 수 있을
+//    때만 세션을 준다(콜백, 독립 검토 P2). 빈 계정·그 방을 못 읽는 계정(공용 PC 에 남은 다른 사람의 카카오 로그인일 수 있다)·계정 잇기 제안이 걸린 계정은
+//    세션 없이 로그인 화면으로 간다 — 그 사람의 다른 가계부가 아무도 누르지 않았는데 열리는 일이 없다.
+//  · 카카오톡 안의 브라우저는 예전의 인앱 자동 로그인·시작 팝업이 그대로 맡는다(돌아올 주소에 이 표식이 실린다). 관리자 쿠키 브라우저는 건드리지 않는다.
+// 식별 값으로 세션을 주는 일은 여기서 하지 않는다 — 이 길의 로그인은 그 브라우저의 카카오 로그인(또는 사용자가 직접 한 로그인)뿐이다.
+async function kakaoRoomEntryResponse(request, env, url, ctx) {
+  if (String(request?.method || "GET").toUpperCase() !== "GET" || !url || url.pathname !== "/my" || !url.searchParams.has(KAKAO_ROOM_ENTRY_PARAM_V229129)) return null;
+  const fetchMode = String(request.headers.get("sec-fetch-mode") || "").toLowerCase();
+  if (fetchMode ? fetchMode !== "navigate" : !/text\/html/i.test(String(request.headers.get("accept") || ""))) return null;
+  if (/prefetch|prerender/i.test(`${request.headers.get("sec-purpose") || ""} ${request.headers.get("purpose") || ""}`)) return null;
+  const householdId = String(url.searchParams.get(KAKAO_ROOM_ENTRY_PARAM_V229129) || "").trim();
+  // 모양이 틀리거나 두 번 온 표식은 버린다(그냥 /my).
+  if (url.searchParams.getAll(KAKAO_ROOM_ENTRY_PARAM_V229129).length !== 1 || !KAKAO_ROOM_ENTRY_ID_V229129.test(householdId)) return redirectResponse("/my", KAKAO_ROOM_OPEN_HEADERS);
+  const entry = kakaoRoomEntryLocationV229129(householdId);
+  const current = await verifyUserSession(request, env);
+  // V22.9.129 독립 검토: 서명·만료가 맞는 세션인데 DB 가 잠깐 답하지 못해 확인을 못 한 요청(V22.9.122 F-1 의 표시)은 로그인하지 않은 사람처럼 카카오로
+  // 보내지 않는다. 예전 길(/my)에 맡긴다 — 라우터가 그 로그인 화면을 ‘잠시 뒤 다시’ 안내로 바꾸고, 주소는 그대로라 새로 고치면 다시 이 길로 온다.
+  if (!current && env?.__AB_SESSION_UNAVAILABLE === true) return null;
+  if (current) {
+    // 독립 검토 2(P3): 역할을 읽지 못한 것(DB 순간 장애)을 ‘읽을 수 없음’ 으로 다루지 않는다 — 표식을 뺀 /my 로 보내면 새로 고쳐도 이 방 가계부로 돌아오지 못한다.
+    // 실패를 따로 알려 주는 엄격판으로 읽고(getHouseholdMemberRole 은 실패하면 빈 역할을 돌려준다 — V22.9.76 D-27), 실패하면 ‘잠시 뒤 다시’ 안내(503)를 낸다.
+    // 그 화면의 다시 열기 주소가 이 표식을 싣는다(runtime/http.js).
+    const roleRead = await readHouseholdRoleOrFailure(env, current, householdId, { path: "/my", method: "GET" });
+    if (roleRead.failed) {
+      kakaoRoomEntryProbeV229129(env, ctx, "role_read_failed");
+      // 로그인은 확인됐고 가계부 읽기만 실패했다 — 화면의 말도 그렇게 한다(독립 검토 3 P3).
+      return htmlResponseWithCookies(renderSessionUnavailableHtmlV229122(url, false, "household"), 503, [], { "retry-after": "10", "cache-control": "no-store", ...KAKAO_ROOM_OPEN_HEADERS });
+    }
+    const readable = canReadMyHousehold(roleRead.role); // 역할은 readHouseholdRoleOrFailure 가 소문자로 돌려준다
+    kakaoRoomEntryProbeV229129(env, ctx, readable ? "session_readable" : "session_other");
+    return redirectResponse(readable ? `/app?household_id=${encodeURIComponent(householdId)}` : "/my", KAKAO_ROOM_OPEN_HEADERS);
+  }
+  // 카카오톡 안의 브라우저(예전의 인앱 자동 로그인이 맡는다)·관리자 쿠키 브라우저·링크 미리보기 수집기는 건드리지 않는다(예전 그대로 /my).
+  if (isKakaoTalkInAppBrowser(request) || getCookie(request, "ab_admin") || KAKAO_ROOM_OPEN_CRAWLER.test(String(request.headers.get("user-agent") || ""))) return null;
+  const fallback = kakaoAutoLoginFallbackLocation(entry);
+  // 화면 없는 로그인은 사람이 바로 연 이동(Sec-Fetch-Site: none — 카카오톡이 띄운 브라우저, 주소 입력)일 때만 해 본다. 다른 사이트의 링크·넘김이 시킨 이동이나
+  // 그 머리가 없는 요청은 로그인 화면으로 간다(위의 세션 바꾸기와 같은 기준 — 남의 화면이 이 브라우저를 말없이 로그인시키지 못하게).
+  const direct = String(request.headers.get("sec-fetch-site") || "").toLowerCase() === "none";
+  // 화면 없는 로그인을 켜지 않은 운영(기본 — 위 kakaoRoomQuietLoginEnabledV229129), 이미 한 번 해 본 브라우저(ab_kakao_auto: try·skip), 직접 로그아웃한 브라우저(off),
+  // 카카오 로그인 설정이 준비되지 않은 곳도 로그인 화면이다(돌아올 주소는 이 표식 주소).
+  if (!direct || url.searchParams.get("auto") === "0" || getCookie(request, "ab_kakao_auto") || !kakaoRoomQuietLoginEnabledV229129(env) || !inspectKakaoLoginConfig(env).ready) {
+    kakaoRoomEntryProbeV229129(env, ctx, direct ? "login_screen" : "login_screen_indirect");
+    return redirectResponse(fallback, KAKAO_ROOM_OPEN_HEADERS);
+  }
+  kakaoRoomEntryProbeV229129(env, ctx, "quiet_login");
+  return redirectResponse(`/auth/kakao/start?auto=1&return_to=${encodeURIComponent(entry)}`, KAKAO_ROOM_OPEN_HEADERS);
 }
 
 
@@ -51102,7 +51241,34 @@ async function kakaoDirectLinkResponse(response, origin = "") {
 // 이 방 가계부 번호(household_id)는 넣지 않는다. 단톡방 기록 계정과 웹 로그인 계정은 아직 이어지지 않아(챗봇에 앱이 연결되지 않아
 // appUserId 가 없다), 웹 계정이 그 가계부 구성원이 아니면 /my?household_id= 는 ‘가계부를 찾을 수 없어요’(404)가 된다.
 // V22.9.115: 방금 이 방 가계부에 들였으면(또는 첫 호출자로 준비했으면) 카드 앞에 한 줄(notice)로 알린다. 카드 글은 그대로 둔다.
-function kakaoWebLedgerReply(origin = "", notice = "") {
+// V22.9.129: 이 방 가계부 번호를 알면 단추 주소에 방 표식(/my?room=<번호>)을 싣는다. 2026-11-17 운영 기록: 휴대폰은 카카오가 식별 값을 붙여 주지만
+// PC 카카오톡은 쓸 수 있는 사용자 식별 값 없이 연다. 표식은 권한이 아니라 "어느 가계부를 열려던 길인지" 만 알려 준다 — 읽을 수 있는 사람에게만 그 가계부가
+// 열리고(auth/kakao-room-open.js kakaoRoomEntryResponse), 채팅 계정과 웹 계정이 이어지지 않아 구성원이 아닌 사람은 예전처럼 자기 가계부가 열린다
+// (household_id 를 직접 실으면 ‘가계부를 찾을 수 없어요’ 가 되던 것 — 위 V22.9.105 설명 — 과 다르다).
+// 가계부 번호(UUID) 모양일 때만 싣는다(웹의 표식 길 auth/kakao-room-open.js 가 받는 모양과 같다 — 독립 검토 3).
+const KAKAO_WEB_LEDGER_ROOM_ID_V229129 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+function kakaoWebLedgerRoomUrlV229129(origin = "", roomHouseholdId = "") {
+  const id = String(roomHouseholdId || "").trim();
+  return KAKAO_WEB_LEDGER_ROOM_ID_V229129.test(id) ? `${origin}/my?room=${encodeURIComponent(id)}` : `${origin}/my`;
+}
+// V22.9.129: 단톡방 답의 다른 ‘웹가계부’ 링크 단추(설명서 카드·바꾼 바로가기·글 속 주소에서 옮긴 단추 — 주소가 정확히 <origin>/my 인 것)에도 같은 방 표식을
+// 싣는다. 답 모양은 그대로 두고 그 단추의 주소만 바꾼다. 바꾼 것이 없으면 null(부르는 쪽이 원래 답을 그대로 쓴다). 가계부 번호를 읽는 일은 부르는 쪽
+// (kakao/skill-handler.js kakaoRoomLedgerLinksResponseV229129)이 맡는다.
+function kakaoRoomLedgerLinkOutputsV229129(outputs = [], origin = "", roomHouseholdId = "") {
+  const plain = origin ? `${origin}/my` : "";
+  const marked = kakaoWebLedgerRoomUrlV229129(origin, roomHouseholdId);
+  if (!plain || marked === plain || !Array.isArray(outputs)) return null;
+  let changed = false;
+  const next = outputs.map((output) => {
+    const kind = output?.textCard ? "textCard" : output?.basicCard ? "basicCard" : "";
+    const buttons = kind && Array.isArray(output[kind].buttons) ? output[kind].buttons : null;
+    if (!buttons?.some((button) => button?.action === "webLink" && button.webLinkUrl === plain)) return output;
+    changed = true;
+    return { [kind]: { ...output[kind], buttons: buttons.map((button) => (button?.action === "webLink" && button.webLinkUrl === plain ? { ...button, webLinkUrl: marked } : button)) } };
+  });
+  return changed ? next : null;
+}
+function kakaoWebLedgerReply(origin = "", notice = "", roomHouseholdId = "") {
   if (!origin) return kakaoText("웹 가계부는 말해가계부 웹사이트에서 로그인한 뒤 볼 수 있어요.");
   const lead = String(notice || "").trim();
   return jsonResponse({
@@ -51112,7 +51278,7 @@ function kakaoWebLedgerReply(origin = "", notice = "") {
         textCard: {
           title: "웹 가계부",
           description: "전체 기록과 분석을 웹에서 크게 볼 수 있어요.\n아래 버튼을 누르면 이 방 가계부가 열려요.",
-          buttons: [kakaoLinkButton("웹 가계부 열기", `${origin}/my`)],
+          buttons: [kakaoLinkButton("웹 가계부 열기", kakaoWebLedgerRoomUrlV229129(origin, roomHouseholdId))],
           buttonLayout: "vertical",
         },
       }],
@@ -56933,7 +57099,12 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     const normalizedResponse = await normalizeKakaoSkillResponse(response, origin);
     // V22.9.118 P-3: 처음 계정(개인 가계부)이 만들어지거나 처음 이 방 가계부에 들어간 답이면 약관 안내 한 줄 + 링크 단추(response-builders.js). 그 밖의 답은 그대로.
     // 독립 검토 P2: 단톡방의 빈 멘션·설명서 첫 화면 답에는 늘 단다(payload 로 단톡방인지 본다).
-    const safeResponse = await kakaoTermsNoticeResponseV229118(await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin), env, origin, payload);
+    const noticedResponse = await kakaoTermsNoticeResponseV229118(await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin), env, origin, payload);
+    // V22.9.129: 단톡방 답의 ‘웹가계부’ 링크 단추에 이 방 가계부 표식을 싣는다(그런 단추가 있는 답만, 답 예산이 남았을 때만 — 아래 함수 설명).
+    const safeResponse = await kakaoRoomLedgerLinksResponseV229129(noticedResponse, env, origin, payload, {
+      trusted: trustedChatFirstSkillCaller(request, env),
+      deadlineAt: requestStartedAt + boundedRuntimeNumber(env.KAKAO_RESPONSE_BUDGET_MS, 4000, 200, 4700),
+    });
     const latencyMs = Date.now() - skillStartedAt;
     const responsePreview = await safeResponse.clone().text();
     const outcome = nluOutcomeFromKakaoResponse(responsePreview);
@@ -57024,6 +57195,52 @@ async function prependKakaoRoomJoinNoticeV229115(response, env) {
     const outputs = body?.template?.outputs;
     if (!Array.isArray(outputs) || !outputs.length || outputs.length >= 3) return response;
     return jsonResponse({ ...body, template: { ...body.template, outputs: [{ simpleText: { text: notice } }, ...outputs] } }, 200);
+  } catch (_) {
+    return response;
+  }
+}
+
+// V22.9.129 W-3·W-4: 단톡방 답의 ‘웹가계부’ 링크 단추(주소가 정확히 <origin>/my 인 것 — 설명서 카드·바꾼 바로가기·글 속 주소에서 옮긴 단추)에 이 방
+// 가계부를 가리키는 표식(/my?room=<번호>)을 싣는다. 카카오가 식별 값을 붙이지 않는 PC 카카오톡으로 눌러도 그 단추가 이 방 가계부로 이어지게 하려는 것이다
+// (auth/kakao-room-open.js kakaoRoomEntryResponse). ‘웹가계부’ 답은 자기 단추에 이미 표식을 실어 온다(kakaoWebLedgerReply).
+//  · 그런 단추가 없는 답(대부분의 답)은 건드리지 않고 읽기도 하지 않는다.
+//  · 가계부 번호는 이 요청이 이미 알아낸 값(roomHouseholdIdV229129)을 쓰고, 없으면 방 연결 한 줄을 한 번 읽는다 — Secret 으로 확인된 요청 + 명시된
+//    botGroupKey 일 때만, 답 예산(deadlineAt)과 DB 호출 여유가 남았을 때만, 많아야 0.7초. 못 읽으면 예전 주소 그대로 답한다.
+//    방별 연결 한 줄만 읽는다 — 옛 통합 맵에만 남은 방은 표식 없이 예전 주소로 나간다(그 맵은 사용자마다 커지는 한 줄이라 여기서 읽지 않는다).
+//  · 누가 불렀는지는 가리지 않는다(구성원이 아니거나 이용 제한된 사람의 답에도 실린다). 방의 답 카드는 방 참여자 모두가 보고, 표식은 권한이 아니다.
+//  · 표식은 권한이 아니다(읽을 수 있는 사람에게만 그 가계부가 열린다). 답 글·카드 모양은 바꾸지 않는다.
+const KAKAO_ROOM_LEDGER_LINK_READ_MS_V229129 = 700;
+const KAKAO_ROOM_LEDGER_LINK_TAIL_MS_V229129 = 400;
+async function kakaoRoomLedgerLinksResponseV229129(response, env, origin = "", payload = {}, { trusted = false, deadlineAt = 0 } = {}) {
+  try {
+    const groupKey = getKakaoBotGroupKey(payload);
+    if (!origin || !groupKey || !response || response.status !== 200) return response;
+    const raw = await response.clone().text();
+    if (!raw.includes(JSON.stringify(`${origin}/my`))) return response;
+    const data = JSON.parse(raw);
+    const outputs = data?.template?.outputs;
+    if (!Array.isArray(outputs)) return response;
+    let householdId = String(env?.__AB_KAKAO_REQUEST?.roomHouseholdIdV229129 || "").trim();
+    if (!householdId) {
+      if (!trusted || getExplicitKakaoBotGroupKey(payload) !== groupKey || !env?.SUPABASE_URL || !env?.SUPABASE_SERVICE_ROLE_KEY) return response;
+      // 독립 검토 P3: 읽기 뒤에도 답을 마무리할 몫(0.4초)을 남긴다 — 남은 시간이 그보다 0.15초도 더 없으면 읽지 않고, 있으면 그만큼만(많아야 0.7초) 기다린다.
+      const waitMs = deadlineAt ? Math.min(KAKAO_ROOM_LEDGER_LINK_READ_MS_V229129, deadlineAt - Date.now() - KAKAO_ROOM_LEDGER_LINK_TAIL_MS_V229129) : KAKAO_ROOM_LEDGER_LINK_READ_MS_V229129;
+      if (waitMs < 150) return response;
+      const budget = env.__AB_DB_BUDGET;
+      const queued = (env.__AB_KAKAO_REQUEST?.afterReply || []).reduce((sum, item) => sum + Number(item?.cost || 0), 0);
+      if (budget && Number(budget.used || 0) + 1 + queued + Number(budget.reserved || 0) > Number(budget.limit || 50)) return response;
+      const read = getSettingValueStrict(env, kakaoGroupLinkItemSettingsKey(groupKey));
+      read.catch(() => {});
+      let timer = null;
+      const value = await Promise.race([read, new Promise((resolve) => { timer = setTimeout(() => resolve(undefined), waitMs); })]);
+      if (timer) clearTimeout(timer);
+      householdId = value === undefined ? "" : String(normalizeKakaoGroupLinkItem(value, groupKey)?.household_id || "").trim();
+    }
+    const next = householdId ? kakaoRoomLedgerLinkOutputsV229129(outputs, origin, householdId) : null;
+    if (!next) return response;
+    const headers = new Headers(response.headers || {});
+    headers.set("content-type", "application/json; charset=utf-8");
+    return new Response(JSON.stringify({ ...data, template: { ...data.template, outputs: next } }), { status: response.status, statusText: response.statusText, headers });
   } catch (_) {
     return response;
   }
@@ -57252,10 +57469,15 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     // V22.9.88(Y-7): 단톡방 ‘웹가계부’는 웹 가계부를 바로 여는 링크 버튼 카드로 답한다(카카오 심사: 답 글에 주소를 넣지 않는다).
     if (skillConfigured && botGroupKey && isLinkCommand(utterance)) {
       // V22.9.115: 누르기 전에 이 방 가계부 구성원으로 들인다(가계부 없는 방은 첫 호출자가 소유자). 그래야 단추가 로그인 화면 없이 이 방 가계부 홈을 연다(V22.9.105 R-1).
-      const lead = roomJoinNoticeLine(await joinRoomOnCallSync({ source: "link" }));
+      const linkJoined = await joinRoomOnCallSync({ source: "link" });
+      const lead = roomJoinNoticeLine(linkJoined);
       // V22.9.118 P-3: 참여 한 줄이 있으면 약관 안내를 그 말풍선에 합치도록 알려 둔다(kakaoTermsNoticeResponseV229118).
       if (lead && env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.termsNoticeLeadV229118 = lead;
-      return kakaoWebLedgerReply(origin, lead);
+      // V22.9.129: 단추 주소에 이 방 가계부를 가리키는 표식을 싣는다(들이기 단계가 이 방 가계부 번호를 알아낸 때 — 이용 제한된 사람의 답에도 실린다.
+      // 표식은 권한이 아니다). 카카오가 식별 값을 붙이지 않는 PC 카카오톡으로 눌러도
+      // 로그인 뒤 이 방 가계부가 열리고, 그 브라우저에 카카오 로그인이 돼 있으면 화면 없이 들어온다(auth/kakao-room-open.js kakaoRoomEntryResponse).
+      const roomHouseholdId = linkJoined?.ok ? String(linkJoined.household?.id || linkJoined.householdId || "") : "";
+      return kakaoWebLedgerReply(origin, lead, roomHouseholdId);
     }
     if (skillConfigured && isLinkCommand(utterance)) return kakaoText(await kakaoPrivateWebLinkReply(request, env, payload, kakaoUserKey, nickname, origin));
     return kakaoText(earlyReply);
@@ -57587,6 +57809,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
       return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, await unlinkedRoomTextOptions(strongTransactionInput)), dedupeQuickReplies([["가계부전환", "가계부전환"], ["단톡방연결", "단톡방연결"], ["가계부만들기", "가계부만들기"]]));
     }
     household = { ...linkedGroupHousehold, from_group_link: true, bot_group_key: botGroupKey };
+    // V22.9.129: 이 방 가계부 번호를 답 마무리(kakaoRoomLedgerLinksResponseV229129)에 넘겨, ‘웹가계부’ 링크 단추가 있는 답이 방 연결을 다시 읽지 않게 한다.
+    if (roomJoinEligible && env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.roomHouseholdIdV229129 = String(linkedGroupHousehold.id);
     const membership = households.find((h) => String(h.id) === String(linkedGroupHousehold.id));
     accessRole = membership?.role || "";
     // V22.9.43: \uC5F0\uACB0\uB41C \uBC29\uC740 \uC2B9\uC778 \uC5C6\uC774 \uAC70\uB798 \uD55C \uBC88\uC73C\uB85C \uCC38\uC5EC\uD55C\uB2E4(group-links-first-record.js). \uAE30\uB85D\uC774 \uC544\uB2CC \uB9D0\uC5D0\uB294 \uADF8 \uBC29\uBC95\uC744 \uC54C\uB9B0\uB2E4.
@@ -59881,7 +60105,8 @@ async function joinKakaoRoomOnCallV229115(env, context = {}) {
     if (phase === "retired") return skipped("retired");
     if (phase === "linked" && role === null) {
       role = String(await getHouseholdMemberRole(env, user.id, snapshot.link.household_id) || "").toLowerCase();
-      if (role && role !== "pending") return skipped("already_member", { ok: true, role });
+      // V22.9.129: 이미 구성원이면 그 방 가계부 번호를 함께 알려 준다(웹가계부 답 단추의 방 표식에 쓴다 — 읽기를 더하지 않는다).
+      if (role && role !== "pending") return skipped("already_member", { ok: true, role, householdId: String(snapshot.link.household_id || "") });
     }
     return await tryKakaoGroupFirstRecord(env, { ...context, observed: snapshot, parsedList: [], joinOnly: true });
   } catch (err) {

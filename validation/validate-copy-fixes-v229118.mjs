@@ -98,7 +98,7 @@ const visible = (html) => html.replace(/<script[\s\S]*?<\/script>/g, " ").replac
   ok(linkAt > 0 && mentionAt > linkAt && greetingBody.indexOf("{ label: KAKAO_MANUAL_HOME_GROUP_LABEL, action: \"message\"") < linkAt && !greetingBody.includes("/privacy") && !/supabase\(|fetch\(|getCookie|__AB_KAKAO_REQUEST/.test(greetingBody), "0 C4 인사 단추 = 도움말 보기 → ‘이용약관’ 링크(주소는 단추에만) → 기록하기(맨 아래), 개인정보처리방침 단추 없음, 상태·저장소를 읽지 않는다");
   const skillHandler = read("src/modules/kakao/skill-handler.js");
   ok(skillHandler.includes("if (botGroupKey) { await deferRoomJoinOnCall(\"mention\", { noticeShown: true }); return kakaoGroupEmptyMentionReply(origin); }"), "0 C4 스킬은 인사 답에 공개 주소(origin)를 넘긴다(단추 주소용)");
-  ok(skillHandler.includes("const safeResponse = await kakaoTermsNoticeResponseV229118(await kakaoGroupCompatibleResponse(normalizedResponse, payload, origin), env, origin, payload);"), "0 C4 응답 마무리 뒤 최종 답에 붙인다");
+  ok(/const (?:safeResponse|noticedResponse) = await kakaoTermsNoticeResponseV229118\(await kakaoGroupCompatibleResponse\(normalizedResponse, payload, origin\), env, origin, payload\);/.test(skillHandler), "0 C4 응답 마무리 뒤 최종 답에 붙인다");
   ok(skillHandler.includes("const deferred = await kakaoTermsNoticeResponseV229118(await kakaoGroupCompatibleResponse(kakaoDeferredReply(utterance, payload), payload, origin), env, origin, payload);"), "0 C4 지연 답에도 붙인다");
   const chatFirst = read("src/modules/kakao/identity-chat-first.js");
   const onSavedAt = chatFirst.indexOf("onSaved: async () => {", chatFirst.indexOf("async function tryKakaoChatFirstRecord"));
@@ -339,7 +339,13 @@ await kakaoFixture(async (fx) => {
   eq(webJoin.outputs[0]?.textCard?.description, `이 방 가계부 ‘이 방의 공동 가계부’에 참여했어요.\n${LINE}`, "3 참여 한 줄과 약관 안내가 한 말풍선");
   ok(termsButtonsOk(webJoin.outputs[0]?.textCard), "3 그 말풍선에 이용약관·개인정보처리방침 단추");
   const ledgerButton = webJoin.outputs[1]?.textCard?.buttons || [];
-  ok(ledgerButton.length === 1 && ledgerButton[0].label === "웹 가계부 열기" && ledgerButton[0].webLinkUrl === `${BASE}/my`, "3 웹 가계부 카드의 단추(/my)는 그대로");
+  {
+    // V22.9.129: 단추 주소는 /my 에 이 방 가계부 표식만 붙는다. 방 가계부 번호는 이 방에 연결된 가계부(이름 ‘이 방의 공동 가계부’) 가운데 방금 들어간 곳이다.
+    // 방 연결 한 줄(kakao_group_link_v2254:…)의 가계부 번호와 정확히 견준다(독립 검토 2: 부른 사람이 구성원인 아무 가계부나 통과하면 안 된다).
+    const roomLinkRow = fx.db.accountbook_settings.find((row) => String(row.key).startsWith("kakao_group_link_v2254:") && (() => { try { return JSON.parse(row.value)?.group_key === ROOM; } catch (_) { return false; } })());
+    const roomHouseholdId = roomLinkRow ? String(JSON.parse(roomLinkRow.value).household_id || "") : "";
+    ok(roomHouseholdId && ledgerButton.length === 1 && ledgerButton[0].label === "웹 가계부 열기" && ledgerButton[0].webLinkUrl === `${BASE}/my?room=${roomHouseholdId}`, "3 웹 가계부 카드의 단추는 그대로(/my 에 이 방 가계부 표식 — V22.9.129)");
+  }
   // 조회 명령(참여)
   const queryJoin = await say(fx, "오늘기록", { user: F, room: ROOM });
   eq(queryJoin.outputs.length, 2, "3 방 조회로 참여한 답 말풍선 수는 그대로(2)");
