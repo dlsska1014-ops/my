@@ -302,7 +302,9 @@ await roomFixture(async (fx, { hh, hhB }) => {
   const home = await go(fx, `/app?household_id=${hh}`, { jar });
   check(() => ok(home.status === 200 && home.html.includes(ROOM_HOUSEHOLD_NAME), `R-3 홈이 열리고 그 방 가계부 이름이 보인다(${home.status})`), "home opens");
   check(() => ok(home.html.includes('id="abRoomViewBand"') && home.html.includes("방 전용 보기") && home.html.includes(">로그인</a>"), "R-3 홈 맨 위에 안내 띠와 [로그인]"), "home band");
-  check(() => ok(!/<form[^>]*>(?:(?!<\/form>)[\s\S])*abRoomViewBand/.test(home.html) && !/id="abRoomViewBand"[\s\S]{0,900}<form/.test(home.html.slice(home.html.indexOf('id="abRoomViewBand"'), home.html.indexOf('id="abRoomViewBand"') + 900).replace(/<\/div>[\s\S]*$/, "</div>")), "R-3 띠에는 저장으로 이어지는 폼이 없다"), "band has no form");
+  const homeBandAt = home.html.indexOf('<div class="abRoomViewBand"');
+  const homeBand = home.html.slice(homeBandAt, home.html.indexOf("</div>", homeBandAt) + 6);
+  check(() => ok(!/<form[^>]*>(?:(?!<\/form>)[\s\S])*<div class="abRoomViewBand"/.test(home.html) && (homeBand.match(/<form\b/g) || []).length === 1 && /<form method="post" action="\/my\/logout"><button class="secondary" type="submit"[^>]*>보기 끝내기<\/button><\/form><\/div>$/.test(homeBand) && !/<input\b|<textarea\b|<select\b/.test(homeBand), "R-3 띠의 폼은 [보기 끝내기] 하나뿐이다(저장으로 이어지는 폼·입력 칸 없음, 다른 폼 안에 들어가 있지 않음)"), "band has only the end form");
   check(() => ok(!home.html.includes("abTermsBand"), "R-3 약관 안내 띠(저장 폼)는 붙지 않는다"), "no terms band");
   check(() => ok(home.html.includes("다른 화면을 열거나 내 권한대로 쓰려면 로그인해 주세요.") && !home.html.includes("기록은 단톡방에서 말로 남기고"), "R-9 띠의 말은 어느 역할에게나 맞다(기록할 수 있다고 약속하지 않는다)"), "band wording neutral");
   const keyLeaks = [];
@@ -671,7 +673,7 @@ await roomFixture(async (fx, { u2, hh, hhB }) => {
   // 인앱 띠의 [로그인]: 로그인 이름 칸을 연 화면(카카오 시작 팝업이 아님), 로그인하면 이 방 가계부로.
   const inappHome = await go(fx, "/app", { ua: INAPP, jar: new Jar(jar) });
   const inappLogin = (/<div class="abRoomViewBand"[\s\S]*?href="([^"]+)"/.exec(inappHome.html) || ["", ""])[1].replace(/&amp;/g, "&");
-  check(() => eq(inappLogin, `/my?auto=0&login=1&return_to=${encodeURIComponent(`/app?household_id=${hh}`)}#login-local`, "R-10 인앱 띠의 [로그인] 은 로그인 이름 칸을 연 화면으로 간다"), "inapp band login href");
+  check(() => eq(inappLogin, `/my?auto=0&login=1&return_to=${encodeURIComponent(entryPath(hh))}#login-local`, "R-10 인앱 띠의 [로그인] 은 로그인 이름 칸을 연 화면으로 가고, 돌아올 곳은 PC 와 같은 방 표식 주소다"), "inapp band login href");
   const inappLoginScreen = await go(fx, inappLogin.split("#")[0], { ua: INAPP, jar: new Jar(jar) });
   check(() => ok(inappLoginScreen.status === 200 && inappLoginScreen.html.includes('action="/my/local-login"') && !inappLoginScreen.html.includes('id="abKakaoStart"') && !inappLoginScreen.html.includes("abRoomViewBand"), `R-10 그 화면은 로그인 이름 로그인 폼이다(카카오 시작 팝업·띠 없음)(${inappLoginScreen.status} ${inappLoginScreen.location})`), "inapp band login screen");
   // ① 승인 대기로 바뀜 → 홈
@@ -683,6 +685,19 @@ await roomFixture(async (fx, { u2, hh, hhB }) => {
   const next = await go(fx, ended.location.split("#")[0], { ua: INAPP, jar });
   check(() => ok(next.status === 200 && !/auth\/kakao\/start/.test(next.location) && next.html.includes('action="/my/local-login"') && !next.html.includes('id="abKakaoStart"'), `R-10 인앱: 그다음 화면은 로그인 이름 로그인 폼이다 — 화면 없는 카카오 로그인이 돌지 않는다(${next.status} ${next.location})`), "inapp ended no auto login");
   row.role = keptRole;
+  // 쿠키 지우기가 먹지 않는 브라우저(방 전용 쿠키가 남은 채 그 주소로 옴): 로그인 화면일 뿐 고리가 생기지 않는다.
+  const stuck = await issue();
+  const stuckNext = await go(fx, ended.location.split("#")[0], { ua: INAPP, jar: new Jar(stuck) });
+  check(() => ok(!!stuck.scope() && stuckNext.status === 200 && stuckNext.html.includes('action="/my/local-login"') && !stuckNext.html.includes("abRoomViewBand"), `R-10 끝낸 뒤의 주소는 방 전용 쿠키가 남아 있어도 로그인 화면이다(고리 없음)(${stuckNext.status} ${stuckNext.location})`), "end location no loop");
+  // ③ 구성원이 아닌 다른 방(B)의 단추(인앱): 세션을 끝내되 값을 뺀 주소로 그냥 보내지 않는다(그 주소는 세션 없는 인앱에서 화면 없는 카카오 로그인으로 간다).
+  for (const [path, expected] of [["/my", "/my?auto=0&login=1#login-local"], ["/app", `/my?auto=0&login=1&return_to=${encodeURIComponent("/app")}#login-local`]]) {
+    const jar3 = await issue();
+    const out = await go(fx, tapped(path, { user: U2, room: ROOM_B }), { ua: INAPP, jar: jar3, site: "none" });
+    check(() => ok(lastRoomOpen() === "not_member" && out.status === 303 && out.location === expected && !jar3.token() && out.cookies.some((line) => /^ab_user=;/.test(line) && /Max-Age=0/.test(line)), `R-10 인앱: 구성원이 아닌 다른 방의 단추(${path}) → 세션을 끝내고 로그인 이름 칸으로(${lastRoomOpen()} ${out.status} ${out.location})`), `inapp not member ${path}`);
+    const outNext = await go(fx, out.location.split("#")[0], { ua: INAPP, jar: jar3 });
+    check(() => ok(outNext.status === 200 && !/auth\/kakao\/start/.test(outNext.location) && outNext.html.includes('action="/my/local-login"'), `R-10 인앱: 그다음 화면은 로그인 이름 로그인 폼이다(${outNext.status} ${outNext.location})`), `inapp not member next ${path}`);
+  }
+  // PC 에서는 그 갈래가 예전 주소 그대로다(자동 로그인이 없는 브라우저).
   // ② 승인 대기인 다른 방(B)의 단추
   fx.db.household_members.push({ household_id: hhB, user_id: u2.id, role: "pending", created_at: `${DAY}T03:00:00Z` });
   const jar2 = await issue();
@@ -743,6 +758,22 @@ await roomFixture(async (fx, { hh }) => {
   check(() => ok(!!hh, "픽스처"), "fixture rooms 4");
 });
 
+await roomFixture(async (fx, { hh }) => {
+  // [보기 끝내기]: 띠의 단추(POST /my/logout)는 이 브라우저의 방 전용 세션만 끝낸다 — 그 사람의 다른 기기 로그인(세션 판)은 건드리지 않는다.
+  const jar = await roomViewJar(fx);
+  const full = new Jar();
+  full.items.set("ab_user", encodeURIComponent(await sessionModule.makeUserSession(fx.env, WEB_USER)));
+  const securityBefore = JSON.stringify(fx.db.accountbook_user_security || []);
+  const coreBefore = coreSnapshot(fx);
+  const end = await send(fx, "POST", "/my/logout", { jar });
+  check(() => ok(end.status === 303 && !jar.token() && end.cookies.some((line) => /^ab_user=;/.test(line) && /Max-Age=0/.test(line)), `R-10 보기 끝내기: 이 브라우저의 방 전용 세션 쿠키를 지운다(${end.status} ${end.location})`), "end view clears session");
+  check(() => ok(JSON.stringify(fx.db.accountbook_user_security || []) === securityBefore && coreSnapshot(fx) === coreBefore, "R-10 보기 끝내기는 세션 판을 올리지 않고 아무것도 바꾸지 않는다(다른 기기의 로그인은 그대로)"), "end view keeps session version");
+  const after = await go(fx, "/app", { jar });
+  check(() => ok(!(after.status === 200 && after.html.includes(WORD_A1)) && !after.html.includes("abRoomViewBand"), `R-10 끝낸 뒤에는 그 방 가계부가 열리지 않는다(${after.status} ${after.location})`), "end view then no ledger");
+  const other = await go(fx, `/app?household_id=${hh}`, { jar: full });
+  check(() => ok(other.status === 200 && other.html.includes(WORD_A1) && !other.html.includes("abRoomViewBand"), `R-10 다른 기기의 온전한 세션은 그대로 열린다(${other.status})`), "end view keeps other device");
+});
+
 // ── 원본 ────────────────────────────────────────────────────────────────────
 {
   const room = read("src/modules/auth/kakao-room-open.js");
@@ -762,9 +793,21 @@ await roomFixture(async (fx, { hh }) => {
   check(() => ok(room.includes('if (marks.length !== 1 || marks[0] !== String(householdId || "")) return false;'), "원본: 다른 방의 표식은 허용하지 않는다"), "marker predicate");
   check(() => ok(room.includes("&& !(!current && env?.__AB_SESSION_UNAVAILABLE === true)"), "원본: 세션 확인을 못 한 요청에는 방 전용 세션을 주지 않는다"), "outage guard");
   check(() => ok(!room.includes("room_view_same"), "원본: 같은 방을 다시 눌러도 새 표를 준다(예전 이름 room_view_same 이 없다)"), "no stale result name");
+  // 앞 판 기록의 틀린 설명(‘PC 카카오톡은 식별 값을 붙이지 않는다’)이 줄을 긋지 않은 채 문서·주석에 남아 있지 않다(2026-11-18 운영 진단 기록으로 바로잡음).
+  // 틀린 문장은 지우지 않고 ~~줄을 그어~~ 남긴다 — 그 안의 글은 세지 않는다. 없는 파일은 건너뛴다(문서를 옮기거나 줄여도 이 검사가 막지 않게).
+  const stalePremise = [];
+  for (const file of ["CHANGELOG.md", "KNOWN-ISSUES.md", "docs/STATUS.md", "docs/deployments/V22_9_129_2026_11_18.md", "docs/codex/FOLLOWUP_FINDINGS_V22_9_129.md", "docs/codex/FOLLOWUP_FINDINGS_V22_9_128.md", "docs/codex/FINDINGS_LEDGER.md", "src/modules/auth/kakao-room-open.js", "src/modules/kakao/response-builders.js", "validation/validate-v229129-pc-room-open.mjs"]) {
+    let text = "";
+    try { text = read(file); } catch (_) { continue; }
+    const open = text.replace(/~~[^~]*~~/g, "");
+    for (const phrase of ["쓸 수 있는 사용자 식별 값 " + "없이", "사용자 식별 값 없이 " + "연다", "PC 에서 누른 사람의 식별 값을 " + "주지 않"]) if (open.includes(phrase)) stalePremise.push(`${file}: ${phrase}`);
+  }
+  check(() => ok(stalePremise.length === 0, `문서·주석: ‘PC 카카오톡은 식별 값 없이 연다’ 는 틀린 문장이 줄을 긋지 않은 채 남아 있지 않다(${stalePremise.join(" / ")})`), "wrong pc premise corrected");
   check(() => ok(room.includes("const current = dropHeldRoomView ? \"\" : await verifyUserSession(request, env);"), "원본: 끝내기로 한 방 전용 세션은 없는 세션으로 다룬다"), "dropped session is no session");
   check(() => ok(room.includes("if (roleRead.failed) return finish(\"lookup_failed\", plain, [], \"role_read\");") && !/await getHouseholdMemberRole\(env, identity\.userId, household\.id\)/.test(room), "원본: 방 열기의 역할 읽기는 실패를 따로 알려 주는 읽기다"), "room open strict role read");
   check(() => ok(!/redirectResponseWithCookies\("\/my", \[ROOM_VIEW_END_COOKIE_V229130\]/.test(room), "원본: 세션을 끝낸 뒤 그냥 /my 로 보내는 곳이 없다"), "no plain my after end");
+  check(() => ok(room.includes("const where = isKakaoTalkInAppBrowser(request) && !/[?&]auto=0(?:[&#]|$)/.test(location) ? kakaoRoomOpenLoginNameLocation(location) : location;"), "원본: 인앱에서 세션을 끝낼 때는 자동 로그인을 끈 로그인 이름 칸으로 보낸다"), "inapp end goes to login name");
+  check(() => ok((room.match(/ROOM_VIEW_END_COOKIE_V229130\]/g) || []).length === 2, "원본: 방 전용 세션을 끝내는 곳은 둘뿐이다(방 열기의 끝내기·읽을 수 없게 된 세션)"), "two end sites");
   check(() => ok(read("src/modules/auth/kakao-account-link.js").includes("async function kakaoInAppAutoLoginResponse(request, env, url) {") && /async function kakaoInAppAutoLoginResponse\(request, env, url\) \{\n(?:  \/\/[^\n]*\n)*  if \(env\?\.__AB_ROOM_VIEW_STRIPPED\) return null;/.test(read("src/modules/auth/kakao-account-link.js")), "원본: 방 전용 세션을 뗀 요청은 인앱 자동 로그인으로 보내지 않는다(함수의 첫 판정)"), "auto login skipped when stripped");
   check(() => ok(router.includes("if (requestEnv.__AB_ROOM_VIEW_STRIPPED_REQUEST) routed.request = requestEnv.__AB_ROOM_VIEW_STRIPPED_REQUEST;") && router.indexOf("if (requestEnv.__AB_ROOM_VIEW_STRIPPED_REQUEST) routed.request") < router.indexOf("const response = roomViewBounceResponseV229130(routed.request, requestEnv,"), "원본: 응답 마무리는 뗀 요청을 본다"), "wrappers see stripped request");
 }

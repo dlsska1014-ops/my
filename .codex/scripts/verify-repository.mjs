@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_129.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_130.sha256",
 );
 const validationScripts = [
   ["V22.9.107 광고 검토 후속(D-1 유입 매개변수·앵커가 붙어도 정본 문서면 광고, D-2 애드핏 FAQ 문구, D-3 계산표 글 절 순서, D-4~D-6 계산표 변경 전 결과·휴대폰 2열·머리꼬리·주소 판, D-7 글 목록 ‘계산표 포함’)", "validation/validate-ads-review-fixes-v229107.mjs"],
@@ -432,7 +432,8 @@ function run(command, args, label) {
 // V22.9.127: 수입·지출 고르기 단추 검사(validate-v229127-room-buttons)와 추적표 V127 출처 6행이 더해졌다. 하네스 두 모드 실측 90,570 present / 90,563 absent.
 // V22.9.128: 운영 웹 확인 수정 검사(validate-v229128-web-check)와 추적표 V128 출처 5행이 더해졌다. 하네스 두 모드 실측 91,170 present / 91,163 absent.
 // V22.9.129: 단톡방 웹 가계부 열기의 PC 길 검사(validate-v229129-pc-room-open)와 추적표 V129 출처 8행이 더해졌다. 하네스 두 모드 실측 91,472 present / 91,465 absent.
-const EXPECTED_MINIMUM_CHECKS = 91465;
+// V22.9.130: 방 전용 보기 검사(validate-v229130-room-only-view)와 추적표 V130 출처 8행이 더해졌다. 하네스 두 모드 실측 91,754 present / 91,747 absent.
+const EXPECTED_MINIMUM_CHECKS = 91747;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
