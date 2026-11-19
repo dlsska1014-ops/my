@@ -53982,10 +53982,13 @@ function kakaoEditNegatedAmountResultV22994(session = {}, utterance = "", config
 //    그 자리에서 다시 묻는다 — 두 길 안내는 값 확인을 모두 지나 기록을 쓰기 직전(applyKakaoEditFieldV4 의 holdWrite)에 낸다.
 //  - 분류·결제수단 값에 금액 낱말이 들어 상태 기계가 거절한 답(moneyInValue)은 이 판 전에는 그대로 썼다 — 새 기록 꼴의 말이면 두 길 안내를 낸다.
 //  - ‘금액 칸 + 금액 하나’ 뿐인 답은 고치는 말이라 뺀다: 첫 낱말이 금액 칸 이름 그대로(금액·가격·얼마·액수)이거나 거기에 고치는 말이나 칸을 가리키는 말(변경·수정·정정·란·칸·부분)·조사나 끝말
-//    (은·만·요·이요·은요·을요·이에요·입니다·이야·으로 … 둘까지 — ‘금액만으로’)·문장부호가 붙었거나 메뉴 1번(‘1’·‘1번’)이고, 상태 기계가 금액을 고친다고 읽었을 때다.
+//    (은·만·요·이요·은요·을요·이에요·입니다·이야·으로 … 셋까지 — ‘금액만으로는’)·문장부호가 붙었거나 메뉴 1번(‘1’·‘1번’)이고, 상태 기계가 금액을 고친다고 읽었을 때다.
 //    ‘금액만 13000원으로요’·‘금액변경 5만원’·‘금액이요 13000원’·‘1번 13000원으로 좀’ 은 고치는 말, ‘가격표 3000원’·‘금액권 5만원’·‘금액대 5만원’ 은 아니다
 //    (독립 검토 1·3 — 처음에는 정규식 하나로 가렸다가 예전에 고쳐지던 답을 막았다. 상태 기계의 답과 닫힌 머리 꼴을 함께 본다).
-const KAKAO_EDIT_AMOUNT_HEAD_V229131 = /^(?:1번?|(?:금액|가격|얼마|액수)(?:변경|수정|정정|란|칸|부분)?(?:은요|는요|이요|을요|를요|도요|만요|이에요|예요|에요|입니다|이야|요|야|으로|로|[은는이가을를만도]){0,2}[,.!?~…]{0,3})$/;
+//    독립 검토 4: 머리 꼴은 받아들이는 목록이다(모르는 낱말은 두 길 안내 — ‘가격표’·‘금액권’ 같은 물건 이름을 걸러 내는 쪽이 아니라 고치는 말을 알아보는 쪽).
+//    운영이 고치던 ‘금액좀 13000원’·‘금액다시 13000원’·‘금액란에 13000원’·‘금액인데요 13000원’·‘금액바꿔 13000원’ 을 더 받는다(고치는 말·칸을 가리키는 말 하나,
+//    조사·끝말 셋까지, 끝의 기호 넷까지). 목록에 없는 꼴(‘금액만큼’·‘금액이야말로’)은 두 길 안내를 받는다.
+const KAKAO_EDIT_AMOUNT_HEAD_V229131 = /^(?:1번?|(?:금액|가격|얼마|액수)(?:다시입력|재입력|변경|수정|정정|고침|고쳐|바꿔|바꿈|다시|틀림|오타|란|칸|부분|쪽|항목|값)?(?:은요|는요|이요|을요|를요|도요|만요|이에요|예요|에요|입니다|이야|인데요|인데|이고요|이구요|이라도|이죠|이지|이나|이랑|부터|에서|에는|으론|해서|에|엔|죠|지|임|좀|요|야|으로|로|은|는|이|가|을|를|만|도){0,3}[^0-9A-Za-z가-힣\s]{0,4})$/;
 function kakaoEditRecordWouldChangeV229131(result, utterance = "") {
   if (result?.action !== "apply" && result?.action !== "delete") return false;
   return !(result.action === "apply" && result.field === "amount" && KAKAO_EDIT_AMOUNT_HEAD_V229131.test(normalizeText(utterance).split(" ")[0] || ""));
@@ -55924,30 +55927,55 @@ function kakaoGuardMoreV229126(text, rows) {
 // 독립 검토 3: 3차 수정은 같은 줄의 앞 분수를 ‘따로 적은 날짜’ 로 세어 ‘어제 피자 1/2 판 9000원 치킨 1/2 마리 9000원’ 의 치킨을 다시 1월 2일로 저장했고,
 // ‘2026-01-02 피자 1/2 판’ 을 되물었고, 기록의 원문에서 기호가 빠진 줄(‘케이크(초코) 1/8 조각’)에서 다른 줄의 기록까지 보았다. 분수 자리는 날짜로 세지 않고,
 // 점·줄표 날짜는 뒤가 낱말 끝일 때만 날짜로 보고(‘1.5L’·‘3.500원’·‘2-3인분’ 은 아니다), 기록의 원문과는 글자·숫자·빗금만 남겨 견준다.
+// 독립 검토 4: 4차 수정은 ① 분수 조각만 견줘 다른 줄의 기록까지 그 줄의 것으로 보았고(‘어제 소주 1/2 병 2000원⏎1/2 병원 15000원’ 을 되물었다), ② 줄 가운데의
+// ‘1.2 kg’·‘1-2 인분’ 을 따로 적은 날짜로 세어 ‘삼겹살 1.2 kg 피자 1/2 판 9000원’ 을 다시 1월 2일로 저장했고, ③ 분수마다 기록의 원문을 다시 다듬어 긴 글에서 느렸다.
+// 기록은 줄에 맞추고(그 줄의 글에 들어 있는 원문), 점·줄표 날짜는 줄 머리에서만 날짜로 보고, 원문은 한 번만 다듬고 줄은 한 번만 훑는다.
 // 줄마다 빈칸을 하나로 줄인 글에서 보므로 빈칸 되풀이가 없다(V22.9.122 의 규칙).
 const KAKAO_GUARD_FRACTION_DATE_V229131 = /\S ([1-9])\/([2-9]|10) (?:한 ?)?(?:판|조각|쪽|컵|공기|인분|개|잔|병|근|통|봉|팩|토막|줄|등분|마리|모|포기|박스|접시|그릇|봉지|캔)(?:을|를|은|는|이|가|도|만|씩|짜리|에|으로|로|과|와|하고|랑|이랑)?(?= |$|[.,!?~])/g;
-const KAKAO_GUARD_FRACTION_WRITTEN_DATE_V229131 = /(?:^|[^\d])(\d{1,2}) ?월 ?(\d{1,2})(?!\d)|(?:^|[^\d\/.\-])(?:\d{4}[.\/\-])?(\d{1,2})\/(\d{1,2})(?![\d\/])|(?:^|[^\d\/.\-])(?:\d{4}[.\-])?(\d{1,2})[.\-](\d{1,2})(?= |$|[,!?~)]|\.(?!\d))/g;
+// 따로 적은 날짜 꼴(분수 자리를 가린 줄에서 찾는다):
+//  ① ‘N월 M(일)’ — 줄 어디에 있어도(분수 뒤에 적은 ‘… 1월 2일’ 도) 그 날짜를 쓴 것이다.
+//  ② ‘N/M’(앞에 두~네 자리 해가 붙어도) — 분수보다 앞에 있을 때.
+//  ③ ‘N.M’·‘N-M’(앞에 두~네 자리 해가 붙어도) — 줄 머리에 있고 뒤가 낱말 끝일 때만. 줄 가운데의 ‘1.2 kg’·‘1-2 인분’·‘1.5L’·‘3.500원’ 은 날짜가 아니다.
+const KAKAO_GUARD_FRACTION_WRITTEN_MONTH_V229131 = /(?:^|[^\d])(\d{1,2}) ?월 ?(\d{1,2})(?!\d)/g;
+const KAKAO_GUARD_FRACTION_WRITTEN_SLASH_V229131 = /(?:^|[^\d\/.\-])(?:\d{2,4}[.\/\-])?(\d{1,2})\/(\d{1,2})(?![\d\/])/g;
+const KAKAO_GUARD_FRACTION_WRITTEN_HEAD_V229131 = /^[^0-9A-Za-z가-힣]{0,3}(?:\d{2,4}[.\-])?(\d{1,2})[.\-](\d{1,2})(?= |$|[,!?~)]|\.(?!\d))/;
 function kakaoGuardFractionLooseV229131(text) {
   return kakaoGuardNormV229120(text).replace(/[^0-9A-Za-z가-힣\/ ]/g, " ").split(" ").filter(Boolean).join(" ");
 }
 function kakaoGuardFractionDateV229131(text, rows) {
+  let loose = null; // 기록마다 다듬은 원문 — 분수 꼴이 있는 글에서만, 한 번만 만든다
   for (const raw of String(text || "").replace(/\r/g, "").split("\n")) {
     const line = kakaoGuardNormV229120(raw);
     const found = [...line.matchAll(KAKAO_GUARD_FRACTION_DATE_V229131)];
     if (!found.length) continue;
-    // 분수 자리(‘N/M’)를 빈칸으로 가린 줄 — 앞의 분수를 ‘따로 적은 날짜’ 로 세지 않는다(자리는 그대로다).
-    let plain = line;
-    for (const f of found) { const at = f.index + 2, size = f[1].length + 1 + f[2].length; plain = plain.slice(0, at) + " ".repeat(size) + plain.slice(at + size); }
+    // 분수 자리(‘N/M’)를 빈칸으로 가린 줄 — 다른 분수를 ‘따로 적은 날짜’ 로 세지 않는다(자리는 그대로다).
+    const chars = line.split("");
+    for (const f of found) for (let i = f.index + 2, end = i + f[1].length + 1 + f[2].length; i < end; i += 1) chars[i] = " ";
+    const plain = chars.join("");
+    const months = [...plain.matchAll(KAKAO_GUARD_FRACTION_WRITTEN_MONTH_V229131)].map((d) => [Number(d[1]), Number(d[2])]);
+    const slashes = [...plain.matchAll(KAKAO_GUARD_FRACTION_WRITTEN_SLASH_V229131)].map((d) => [Number(d[1]), Number(d[2]), d.index]);
+    const headDate = plain.match(KAKAO_GUARD_FRACTION_WRITTEN_HEAD_V229131);
+    const firstWord = line.search(/[0-9A-Za-z가-힣]/);
+    let lineRows = null; // 이 줄에서 나온 기록의 자리(원문이 이 줄의 글에 들어 있거나 이 줄을 담고 있다)
     for (const m of found) {
       const month = Number(m[1]), day = Number(m[2]);
       if (month >= day) continue;
-      const written = [...plain.slice(0, m.index + 1).matchAll(KAKAO_GUARD_FRACTION_WRITTEN_DATE_V229131)];
-      if (written.some((d) => Number(d[1] ?? d[3] ?? d[5]) === month && Number(d[2] ?? d[4] ?? d[6]) === day)) continue;
-      const tail = `-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      // 그 줄(조각)에서 나온 기록만 본다. 기록에 원문이 없거나 어느 기록의 원문에도 이 꼴이 없으면 예전처럼 모든 기록을 본다.
+      if (firstWord < 0 || firstWord > m.index) continue; // 앞이 기호뿐(‘* 1/5 개 사료’) — 줄 머리의 날짜 자리다
+      if (months.some(([a, b]) => a === month && b === day)) continue;
+      if (slashes.some(([a, b, at]) => a === month && b === day && at < m.index)) continue;
+      if (headDate && Number(headDate[1]) === month && Number(headDate[2]) === day) continue;
+      if (!loose) loose = rows.map((row) => (typeof row?.raw_text === "string" ? kakaoGuardFractionLooseV229131(row.raw_text) : ""));
+      if (!lineRows) {
+        const looseLine = kakaoGuardFractionLooseV229131(line);
+        lineRows = [];
+        for (let i = 0; i < rows.length; i += 1) if (loose[i] && (looseLine.includes(loose[i]) || loose[i].includes(looseLine))) lineRows.push(i);
+      }
+      // 그 분수 조각이 든 기록 → 없으면 그 줄의 기록 → 줄에 맞는 기록이 하나도 없으면(원문이 없거나 다듬어진 경우) 모든 기록.
       const key = kakaoGuardFractionLooseV229131(m[0].slice(1));
-      const own = rows.filter((row) => typeof row?.raw_text === "string" && kakaoGuardFractionLooseV229131(row.raw_text).includes(key));
-      if ((own.length ? own : rows).some((row) => String(row?.transaction_date || "").endsWith(tail))) return { month, day, text: `${m[1]}/${m[2]}` };
+      const own = lineRows.filter((i) => loose[i].includes(key));
+      const pool = own.length ? own : lineRows.length ? lineRows : rows.map((_, i) => i);
+      const tail = `-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      if (pool.some((i) => String(rows[i]?.transaction_date || "").endsWith(tail))) return { month, day, text: `${m[1]}/${m[2]}` };
     }
   }
   return null;

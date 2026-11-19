@@ -434,8 +434,8 @@ function run(command, args, label) {
 // V22.9.128: 운영 웹 확인 수정 검사(validate-v229128-web-check)와 추적표 V128 출처 5행이 더해졌다. 하네스 두 모드 실측 91,170 present / 91,163 absent.
 // V22.9.129: 단톡방 웹 가계부 열기의 PC 길 검사(validate-v229129-pc-room-open)와 추적표 V129 출처 8행이 더해졌다. 하네스 두 모드 실측 91,472 present / 91,465 absent.
 // V22.9.130: 방 전용 보기 검사(validate-v229130-room-only-view)와 추적표 V130 출처 8행이 더해졌다. 하네스 두 모드 실측 91,754 present / 91,747 absent.
-// V22.9.131: 기록 지키기 검사(validate-v229131-record-safety)와 추적표 V131 출처 13행이 더해졌다. 하네스 두 모드 실측 93,078 present / 93,071 absent.
-const EXPECTED_MINIMUM_CHECKS = 93071;
+// V22.9.131: 기록 지키기 검사(validate-v229131-record-safety)와 추적표 V131 출처 13행이 더해졌다. 하네스 두 모드 실측 93,141 present / 93,134 absent.
+const EXPECTED_MINIMUM_CHECKS = 93134;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
