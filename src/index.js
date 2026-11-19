@@ -3339,7 +3339,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.130-ROOM-ONLY-VIEW";
+const APP_VERSION = "V22.9.131-RECORD-SAFETY";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -19120,6 +19120,41 @@ async function fetchPostgrestRows(env, path, { pageSize = 1000, limit = null, ma
   return wanted === null ? rows : rows.slice(0, wanted);
 }
 
+// V22.9.131 (Codex 점검 2026-11-19 2번): 백업처럼 ‘그 순간의 전부’ 여야 하는 조회. fetchPostgrestRows 는 1,000건씩 offset 으로 넘겨 읽어서,
+// 쪽을 넘기는 사이 다른 구성원이 앞쪽 기록을 더하면 다음 쪽 첫 줄이 이미 읽은 기록이 되고(겹침), 지우면 한 건을 건너뛴다(빠짐).
+// 쪽마다 정확한 전체 건수를 함께 받아(분석 화면이 쓰는 receipt — 호출 수는 그대로) 건수가 달라지거나 같은 id 가 다시 오면 처음부터 다시 읽는다.
+// attempts 번 모두 어긋나면 rows_changed_during_read 오류를 낸다 — 겹치거나 빠진 파일을 온전한 백업처럼 내려보내지 않는다.
+//  - complete: 건수·범위·id 가 모두 맞았다. unknown: 서버가 건수를 주지 않았다(겹친 id 는 없다) — 견줄 것이 없어 예전처럼 받는다.
+//  - inconsistent(건수·범위가 달라짐, 같은 id)·response-cap(쪽이 서버 한도로 짧게 옴)·limit: 다시 읽는다.
+//  - 쪽을 넘기는 사이 기록이 지워져 다음 쪽의 시작이 전체 건수를 넘으면 PostgREST 가 416 으로 답한다 — 바뀐 것으로 보고 다시 읽는다.
+//  - 다시 읽는 중에 이 요청의 DB 호출 몫(기본 50)이 떨어지면 같은 오류로 끝낸다(쪽이 스물 몇을 넘는 가계부가 읽는 사이 바뀐 경우).
+// 한 쪽으로 끝나는 조회는 읽기 한 번이라 어긋날 수 없다. 한도(maxRows)를 넘는 오류(row_limit_exceeded)와 그 밖의 오류는 그대로 올린다.
+function rowsChangedDuringReadError(status = "") {
+  return Object.assign(new Error("조회하는 동안 기록이 바뀌어 전체를 한 번에 읽지 못했습니다. 잠시 후 다시 시도해 주세요."), { name: "RowsChangedDuringReadError", code: "rows_changed_during_read", status });
+}
+
+function isRowsChangedDuringReadError(error) {
+  return error?.code === "rows_changed_during_read";
+}
+
+async function fetchStableRowsV229131(env, path, { maxRows = 100000, attempts = 3 } = {}) {
+  let status = "";
+  for (let attempt = 1; attempt <= Math.max(1, attempts); attempt += 1) {
+    let result;
+    try { result = await fetchPostgrestRows(env, path, { maxRows, analysisReceipt: true }); }
+    catch (err) {
+      // 다시 읽다가 이 요청의 DB 호출 몫이 떨어지면(쪽이 많은 가계부) 오류 화면 대신 ‘바뀌어서 만들지 못했다’ 로 알린다. 첫 읽기의 몫 부족은 예전처럼 그대로 올린다.
+      if (attempt > 1 && String(err?.code || "") === "supabase_subrequest_budget_before_dispatch") throw rowsChangedDuringReadError("budget");
+      if (!/^Supabase 416\b/.test(String(err?.message || ""))) throw err;
+      status = "range";
+      continue;
+    }
+    if (result.receipt.status === "complete" || result.receipt.status === "unknown") return result.rows;
+    status = result.receipt.status;
+  }
+  throw rowsChangedDuringReadError(status);
+}
+
 // 분석 화면용 범위 조회. 한도+1건을 받아 잘렸는지 함께 돌려준다. 합계·리포트·백업에는 쓰지 않는다(QA B05).
 async function fetchAnalysisRowsRange(env, options = {}, limit = 6000) {
   const rows = await fetchAdminRowsRange(env, { ...options, limit: limit + 1, complete: false });
@@ -19268,7 +19303,8 @@ function renderSpenderOptions(members = [], selected = "", blankLabel = "지출�
   return opts.join("");
 }
 
-async function fetchAdminRows(env, { month, householdId, type = "all", date = "", q = "", quality = "all", category = "", payment_method = "" }) {
+// V22.9.131: stable — 백업 파일용(fetchStableRowsV229131). 화면·합계는 예전 그대로 읽는다.
+async function fetchAdminRows(env, { month, householdId, type = "all", date = "", q = "", quality = "all", category = "", payment_method = "", stable = false }) {
   const start = `${month}-01`;
   const end = nextMonthStart(month);
   const params = new URLSearchParams();
@@ -19279,7 +19315,7 @@ async function fetchAdminRows(env, { month, householdId, type = "all", date = ""
   if (type === "income" || type === "expense") params.set("type", `eq.${type}`);
   if (date) params.set("transaction_date", `eq.${date}`);
   params.set("order", "transaction_date.desc,created_at.desc,id.desc");
-  let rows = await fetchPostgrestRows(env, `/rest/v1/transactions?${params.toString()}`);
+  let rows = stable ? await fetchStableRowsV229131(env, `/rest/v1/transactions?${params.toString()}`) : await fetchPostgrestRows(env, `/rest/v1/transactions?${params.toString()}`);
   const needle = String(q || "").trim().toLowerCase();
   if (needle) rows = rows.filter((t) => String(`${t.memo || ""} ${t.category || ""} ${t.payment_method || ""} ${t.raw_text || ""}`).toLowerCase().includes(needle));
   if (category) {
@@ -19299,7 +19335,8 @@ async function fetchAdminRows(env, { month, householdId, type = "all", date = ""
 // complete(기본)는 한도를 넘는 기록이 있으면 조용히 자르지 않고 row_limit_exceeded 오류를 낸다(QA B05).
 // 합계·리포트·백업·검색은 이 방식이어야 한다. complete:false 는 호출부가 한도+1건을 받아 잘림을 직접
 // 감지하고 화면에 알리는 경우(분석 화면)나 일부여도 되는 추정(반복 거래 후보)에만 쓴다.
-async function fetchAdminRowsRange(env, { householdId = "", start = "", end = "", type = "all", limit = 6000, complete = true, analysisReceipt = false }) {
+// V22.9.131: stable(complete 일 때만) — 백업 파일용(fetchStableRowsV229131). 리포트·검색·합계는 예전 그대로 읽는다.
+async function fetchAdminRowsRange(env, { householdId = "", start = "", end = "", type = "all", limit = 6000, complete = true, analysisReceipt = false, stable = false }) {
   const params = new URLSearchParams();
   params.set("select", "id,household_id,user_id,type,amount,category,memo,payment_method,transaction_date,source,raw_text,created_at");
   if (start) params.set("transaction_date", `gte.${start}`);
@@ -19309,6 +19346,7 @@ async function fetchAdminRowsRange(env, { householdId = "", start = "", end = ""
   params.set("order", "transaction_date.desc,created_at.desc,id.desc");
   const rowLimit = Math.max(100, Math.min(Number(limit || 6000), 100000));
   const path = `/rest/v1/transactions?${params.toString()}`;
+  if (complete && stable) return fetchStableRowsV229131(env, path, { maxRows: rowLimit });
   return complete
     ? fetchPostgrestRows(env, path, { maxRows: rowLimit })
     : fetchPostgrestRows(env, path, { limit: rowLimit, maxRows: rowLimit, analysisReceipt });
@@ -20022,13 +20060,21 @@ async function fetchAllBudgetsForBackup(env, householdId) {
 
 async function buildBackupPayload(env, { month, householdId, range = "month", year = "" }) {
   const allMonths = range === "all" && !!householdId;
-  const households = await fetchAdminHouseholds(env);
-  const selectedHouseholds = householdId ? households.filter((h) => h.id === householdId) : households;
+  // V22.9.131 (Codex 점검 2026-11-19 3번): 고른 가계부는 id 로 바로 읽는다. 예전에는 전체 목록(읽기 한 번, 서버가 한 번에 주는 줄 수까지)에서 찾아서,
+  // 지워진 가계부의 옛 링크는 가계부 0개·거래 0건인 파일이 정상으로 내려갔고, 목록 범위 밖의 가계부는 거래만 담기고 참여자·예산·정기·분류·적립이 빠졌다.
+  // 못 찾으면 파일을 만들지 않는다(backup_household_not_found). 거래가 0건인 가계부는 가계부 1개·거래 0건인 정상 파일이라 둘이 구분된다.
+  let selectedHouseholds;
+  if (householdId) {
+    selectedHouseholds = safeArray(await fetchRowsByPlainIds(env, "households", [householdId], "id,name,invite_code,created_at")).filter((h) => String(h?.id || "") === householdId);
+    if (!selectedHouseholds.length) throw Object.assign(new Error("백업할 가계부를 찾지 못했습니다."), { code: "backup_household_not_found" });
+  } else {
+    selectedHouseholds = await fetchAdminHouseholds(env);
+  }
   if (!householdId && selectedHouseholds.length > ADMIN_ALL_HOUSEHOLDS_BACKUP_MAX) throw Object.assign(new Error(`가계부 ${selectedHouseholds.length}개를 한 번에 백업할 수 없습니다.`), { code: "too_many_households", count: selectedHouseholds.length, limit: ADMIN_ALL_HOUSEHOLDS_BACKUP_MAX });
   const yearOnly = allMonths && /^20\d{2}$/.test(String(year || "")) ? String(year) : "";
   const transactions = allMonths
-    ? await fetchAdminRowsRange(env, { householdId, ...(yearOnly ? { start: `${yearOnly}-01-01`, end: `${Number(yearOnly) + 1}-01-01` } : {}), type: "all", limit: ADMIN_FULL_BACKUP_ROW_LIMIT, complete: true })
-    : await fetchAdminRows(env, { month, householdId, type: "all" });
+    ? await fetchAdminRowsRange(env, { householdId, ...(yearOnly ? { start: `${yearOnly}-01-01`, end: `${Number(yearOnly) + 1}-01-01` } : {}), type: "all", limit: ADMIN_FULL_BACKUP_ROW_LIMIT, complete: true, stable: true })
+    : await fetchAdminRows(env, { month, householdId, type: "all", stable: true });
   const membersByHousehold = Object.create(null);
   const budgetsByHousehold = Object.create(null);
   const recurringByHousehold = Object.create(null);
@@ -20122,6 +20168,9 @@ async function handleAdminExportJson(request, env, url) {
   } catch (err) {
     rememberOpsEvent({ kind: "admin_backup_export_failed", severity: "warn", path: "/admin/export/json", method: "GET", detail: safeError(err) });
     if (isRowLimitExceededError(err)) return jsonResponse({ ok: false, error: "backup_too_large", message: `거래가 ${numberWithCommas(ADMIN_FULL_BACKUP_ROW_LIMIT)}건을 넘어 한 파일로 만들지 않았습니다. 연도별 백업을 이용해 주세요.` }, 413);
+    // V22.9.131: 대상이 없으면 빈 파일 대신 404, 만드는 동안 거래가 바뀌어 겹치거나 빠질 뻔했으면(다시 읽어도 맞지 않음) 409 다.
+    if (err?.code === "backup_household_not_found") return jsonResponse({ ok: false, error: "backup_household_not_found", message: "백업할 가계부를 찾지 못해 파일을 만들지 않았습니다. 삭제됐거나 예전에 저장한 주소일 수 있습니다. 백업센터에서 가계부를 다시 골라 주세요." }, 404);
+    if (isRowsChangedDuringReadError(err)) return jsonResponse({ ok: false, error: "backup_rows_changed", message: "백업을 만드는 동안 거래가 바뀌어 파일을 만들지 않았습니다. 겹치거나 빠진 파일을 내려보내지 않았습니다. 잠시 뒤 다시 시도해 주세요." }, 409);
     if (err?.code === "too_many_households") return jsonResponse({ ok: false, error: "backup_too_many_households", households: err.count, limit: err.limit, message: `가계부가 ${numberWithCommas(err.count)}개라 요청 한도 때문에 한 번에 담지 못했습니다(${numberWithCommas(err.limit)}개까지). 백업센터의 ‘가계부별 전체 기간 백업’에서 가계부마다 받아 주세요.` }, 413);
     return jsonResponse({ ok: false, error: "backup_read_failed", message: "백업에 넣을 자료 일부를 읽지 못해 파일을 만들지 않았습니다. 잠시 뒤 다시 시도해 주세요." }, 503);
   }
@@ -25628,7 +25677,8 @@ function renderScheduledRunRow(run = {}) {
     : `적용 ${count(r.applied)} · 건너뜀 ${count(r.skipped)} · 실패 ${count(r.failed)} · 남음 ${count(r.remaining)} · ${count(r.pages)}쪽${r.partial_reason ? ` · ${reasonLabel[r.partial_reason] || r.partial_reason}` : ""}`;
   const p = run.reports || {};
   const reports = !run.reports ? "-" : p.error ? `오류 ${p.error}` : p.skipped_run ? "다른 실행이 처리 중이라 건너뜀"
-    : `생성 ${count(p.generated)} · 실패 ${count(p.failed)}`;
+    : `생성 ${count(p.generated)} · 실패 ${count(p.failed)}${Number(p.retry_queued || 0) > 0 ? ` · 다시 넣음 ${count(p.retry_queued)}` : ""}${Number(p.gave_up || 0) > 0 ? ` · 그만둠 ${count(p.gave_up)}` : ""}`;
+  // V22.9.131: ‘다시 넣음’ = 확정 생성이 실패해 다음 실행이 다시 만들 범위, ‘그만둠’ = 세 번 다시 해도 실패해 그만둔 가계부(그 기간은 미리 보기로 남는다).
   // V22.9.95: 판(이 실행을 돌린 앱 판)과 남은 범위(자동 리포트가 이번 실행에 다 못 돈 범위 수, 칸이 없던 기록은 ‘-’)를 따로 보인다.
   const version = run.version || "-";
   const pending = !run.reports || p.error || p.pending_scopes === undefined ? "-" : count(p.pending_scopes);
@@ -27452,6 +27502,15 @@ const ROOM_VIEW_HOUSEHOLD_SHAPE_V229130 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-
 function roomViewEnabledV229130(env) {
   return !envFlagEnabled(env?.KAKAO_ROOM_VIEW_DISABLED, false);
 }
+// V22.9.131 (Codex 점검 2026-11-19 8번): 채팅만 쓰던 소유자가 첫 비밀번호를 저장한 뒤의 일을 소유자 양도 칸·가계부 삭제 칸이 한 문장으로 알린다.
+// V22.9.130 부터 로그인 이름·비밀번호가 붙은 구성원은 로그인돼 있지 않은 브라우저의 방 단추에서 로그인 화면이 아니라 그 방 가계부의 보기 전용 화면이
+// 먼저 열리는데(kakao-room-open.js strong_local_room_view), 두 칸은 ‘비밀번호를 먼저 묻는다’ 는 앞 판의 문장 그대로였다. 방 전용 보기를 끈 운영
+// (KAKAO_ROOM_VIEW_DISABLED)에서는 예전 동작이라 예전 문장을 쓴다.
+function firstPasswordConsequenceTextV229131(env) {
+  return roomViewEnabledV229130(env)
+    ? "저장하면 다른 기기·브라우저는 로그아웃돼요. 그 뒤 로그인돼 있지 않은 브라우저에서 단톡방의 웹 가계부 단추를 누르면 그 방 가계부만 보기 전용으로 열리고(12시간), 기록하거나 고치려면 로그인 이름과 비밀번호로 로그인해야 해요. 여럿이 쓰는 기기에서는 다 본 뒤 화면 위 ‘보기 끝내기’를 눌러 주세요."
+    : "저장하면 다른 기기·브라우저는 로그아웃되고, 그 뒤 로그인돼 있지 않은 브라우저에서 단톡방의 웹 가계부 단추를 누르면 홈 대신 로그인 이름과 비밀번호를 먼저 물어요.";
+}
 
 async function makeUserSession(env, userId, options = {}) {
   const roomViewHouseholdId = String(options?.roomViewHouseholdId || "");
@@ -29217,7 +29276,7 @@ function renderMyMembersHtml({ env, user = null, month, households, selected, me
     // V22.9.126 FC-9 2차: 채팅만 쓰는 소유자(비밀번호·카카오 로그인 없음)가 실제로 갈 수 있는 길 — 웹 연결 코드(5분 본인 확인) → 내 계정·보안에서
     // 첫 비밀번호 저장 → 이 화면으로 돌아와 그 비밀번호로 양도. 단추는 코드 칸을 열고, 코드 뒤 내 계정·보안, 저장 뒤 이 화면으로 돌아오게 한다.
     const transferClaimUrl = `/my/kakao-claim?auto=0&return_to=${encodeURIComponent(`/my/backup-login?return_to=${encodeURIComponent(returnTo)}`)}#kakao-claim-start`;
-    return `<div class="transferBox"><p class="muted">소유자를 양도하려면 내 계정 로그인 비밀번호가 필요해요. 카카오 1:1 채팅에서 ‘웹 가계부 열기’를 보내 웹 연결 코드를 받은 뒤, 아래 ‘웹 연결 코드 넣기’에서 코드를 붙여 넣으세요. 이어서 열리는 ‘내 계정·보안’에서 5분 안에 로그인 이름과 비밀번호를 저장하면 이 화면으로 돌아와 그 비밀번호로 양도할 수 있어요. 저장하면 다른 기기·브라우저는 로그아웃되고, 그 뒤 로그인돼 있지 않은 브라우저에서 단톡방의 웹 가계부 단추를 누르면 홈 대신 로그인 이름과 비밀번호를 먼저 물어요.</p><a class="reauthButton" href="${escapeHtml(transferClaimUrl)}">웹 연결 코드 넣기</a></div>`;
+    return `<div class="transferBox"><p class="muted">소유자를 양도하려면 내 계정 로그인 비밀번호가 필요해요. 카카오 1:1 채팅에서 ‘웹 가계부 열기’를 보내 웹 연결 코드를 받은 뒤, 아래 ‘웹 연결 코드 넣기’에서 코드를 붙여 넣으세요. 이어서 열리는 ‘내 계정·보안’에서 5분 안에 로그인 이름과 비밀번호를 저장하면 이 화면으로 돌아와 그 비밀번호로 양도할 수 있어요. ${firstPasswordConsequenceTextV229131(env)}</p><a class="reauthButton" href="${escapeHtml(transferClaimUrl)}">웹 연결 코드 넣기</a></div>`;
   };
   const cards = safeArray(members).map((m) => {
     const role = String(m.role || "member");
@@ -30311,12 +30370,18 @@ async function handleMyBackupCsv(request, env, url) {
   const allRange = url.searchParams.get("range") === "all";
   // 한도를 넘으면 일부만 담긴 파일을 전체 백업처럼 내려보내지 않고 백업 화면에서 이유를 알린다(QA B05).
   // 전 기간 4만 건은 요청당 DB 호출 예산(50회) 안에서 끝까지 읽을 수 있는 크기다.
+  // V22.9.131 (Codex 점검 2026-11-19 2번): 1,000건을 넘겨 읽는 사이 다른 구성원이 기록을 더하거나 지우면 같은 기록이 두 번 담기거나 한 건이 빠졌다.
+  // stable 조회는 그런 일이 보이면 처음부터 다시 읽고, 끝내 맞지 않으면 파일을 만들지 않고 백업 화면에서 알린다(영구 삭제 전에 받는 파일이다).
   let rawRows;
   try {
     rawRows = allRange
-      ? await fetchAdminRowsRange(env, { householdId: selected.id, start: "2000-01-01", end: "2100-01-01", type: "all", limit: 40000 })
-      : await fetchAdminRows(env, { month, householdId: selected.id, type: "all" });
+      ? await fetchAdminRowsRange(env, { householdId: selected.id, start: "2000-01-01", end: "2100-01-01", type: "all", limit: 40000, stable: true })
+      : await fetchAdminRows(env, { month, householdId: selected.id, type: "all", stable: true });
   } catch (err) {
+    if (isRowsChangedDuringReadError(err)) {
+      rememberOpsEvent({ kind: "backup_rows_changed", severity: "warn", path: "/my/backup.csv", method: "GET", detail: `${allRange ? "all" : month}:${String(err.status || "")}` });
+      return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=backup_rows_changed`);
+    }
     if (!isRowLimitExceededError(err)) throw err;
     return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=backup_too_large`);
   }
@@ -32311,6 +32376,9 @@ function normalizeScheduledRun(entry = {}) {
   const reports = scheduledRunStage(entry.reports, SCHEDULED_RUN_REPORT_FIELDS, ["partial", "skipped_run"]);
   // V22.9.95: 남은 범위 칸(pending_scopes)이 없던 기록(V22.9.93 이하·다른 실행이 처리 중이라 건너뛴 실행)은 0 으로 채우지 않는다(관리 화면 ‘-’).
   if (reports && !reports.error && entry.reports.pending_scopes == null) delete reports.pending_scopes;
+  // V22.9.131: 자동 리포트가 다시 넣은 범위 수(retry_queued)와 그만둔 가계부 수(gave_up)는 있을 때만 남긴다(0 은 적지 않아 예전 기록과 같은 모양이다.
+  // 운영 이벤트는 인스턴스 메모리라 다음 날 보이지 않는다 — 실행 기록이 남는 곳이다). 앞 판은 모르는 칸을 버리고 읽는다.
+  if (reports && !reports.error) for (const field of ["retry_queued", "gave_up"]) { const n = scheduledRunCount(entry.reports[field]); if (n) reports[field] = n; }
   const cleanup = scheduledRunCleanupStageV22995(entry.cleanup);
   const version = typeof entry.version === "string" && /^V[0-9A-Za-z._-]{1,47}$/.test(entry.version) ? entry.version : "";
   // V22.9.119 O-3 후속 2: 그 실행이 쓴 DB 호출 상한(CRON_DB_CALL_BUDGET, 없거나 잘못된 값이면 50). 이 칸이 없던 예전 기록은 그대로(칸 없음).
@@ -32681,10 +32749,13 @@ async function getMyPageContext(request, env, url, { observedComparison = false,
   // 행으로 만든다 — 값은 같고 왕복 하나가 준다.
   // V22.9.79 V76 W-7: 월말 예상을 보이는 화면(?view=report·/smart-tools)은 고정지출 규칙·정기지출 항목을 같은 단계에서 함께 읽는다
   // (직렬 깊이 그대로). 못 읽으면 null — 월말 예상은 그 몫을 빼고 계산했다고 부제에 적는다.
+  // V22.9.131 (Codex 점검 2026-11-19 5번): 예산 읽기가 잠깐 실패한 달을 예산이 없는 달과 같게 그리지 않도록 엄격하게 읽고, 실패는 표시만 해 둔다
+  // (계산은 예전처럼 빈 목록). 표시를 쓰는 화면은 스마트 도구(‘예산 잔여’)다 — 종합 리포트는 보호 화면(R3)이라 그대로 두고, 생활비 리포트는 예산을 쓰지 않는다.
+  let budgetReadFailed = false;
   const [members, rawRows, budgets, recurring, reservePlans] = await Promise.all([
     fetchHouseholdMembers(env, selected.id),
     observedComparison ? fetchObservationMonthRows(env, selected.id, month) : fetchAdminRows(env, { month, householdId: selected.id, type: "all" }),
-    fetchBudgets(env, selected.id, month),
+    fetchBudgets(env, selected.id, month, { strict: true }).catch(() => { budgetReadFailed = true; return []; }),
     outlook ? fetchRecurringStrict(env, selected.id).catch(() => null) : null,
     outlook ? fetchReservePlans(env, selected.id, { strict: true }).catch(() => null) : null,
   ]);
@@ -32694,7 +32765,7 @@ async function getMyPageContext(request, env, url, { observedComparison = false,
   const budget = budgetSummary(rows, budgets);
   // V22.9.126 FC-21: 위에서 읽은 참여자 목록을 넘겨 ?view=report·/smart-tools 의 월말 예상도 예산 알림과 같은 기준으로 지출자 자격이 없는 규칙을 뺀다.
   const analysis = calculateDashboardAnalysis(rows, rows, calendar, month, { startedOn: householdStartYmd(selected, rows), ...(outlook ? { outlook: monthSpendingOutlook({ month, rows, recurring, plans: reservePlans, members }) } : {}) });
-  return { userId, user, month, households, selected, members, rows, calendar, stats, budgets, budget, analysis, recurring, reservePlans };
+  return { userId, user, month, households, selected, members, rows, calendar, stats, budgets, budget, budgetReadFailed, analysis, recurring, reservePlans };
 }
 
 function reportChallengeSettingsKey(householdId = "") {
@@ -33232,6 +33303,9 @@ const REPORT_CRON_RESERVE_V22994 = 3;
 const REPORT_CRON_PAGE_V22994 = 20;
 const REPORT_CRON_ROW_BUDGET_V22994 = 2000;
 const REPORT_CRON_CATCHUP_DAYS_V22994 = 7;
+// V22.9.131 (Codex 점검 2026-11-19 6번): 확정 범위에서 생성이 실패한 날짜를 다시 넣는 횟수(실행마다 한 번, 보통 하루 한 번).
+const REPORT_FINAL_RETRY_MAX_V229131 = 3;
+const REPORT_FINAL_RETRY_RANGES_V229131 = 5;
 
 // V22.9.119 O-3: 한 실행 예산을 50 보다 크게 잡으면(라우터가 __AB_DB_BUDGET_BASE_V229119 에 적는다) 한 실행에 읽는 기록 행 상한(2000)을 같은 비율로
 // 키운다. 가계부 수는 이미 저장소 호출 예산(hardLimit − 3)으로 정해져 예산을 따라 커진다. 표식이 없으면(기본 50) 1 이라 지금 값 그대로다.
@@ -33318,7 +33392,7 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
   const scopes = [];
   for (const scope of stored) {
     const clean = { date: scope.date, after: scope.after, force: scope.force, weekly: scope.weekly, monthly: scope.monthly };
-    if (scope.final === true) scopes.push({ ...clean, final: true, ...(typeof scope.upto === "string" && scope.upto ? { upto: scope.upto } : {}), ...(scope.refresh === true ? { refresh: true } : {}) });
+    if (scope.final === true) scopes.push({ ...clean, final: true, ...(typeof scope.upto === "string" && scope.upto ? { upto: scope.upto } : {}), ...(scope.refresh === true ? { refresh: true } : {}), ...(Number.isInteger(scope.tries) && scope.tries >= 1 && scope.tries <= REPORT_FINAL_RETRY_MAX_V229131 ? { tries: scope.tries } : {}) });
     else if (clean.date < invocationDate && reportFinalScopesV22994(clean).length) scopes.push(...reportFinalScopesV22994(clean));
     else scopes.push(clean);
   }
@@ -33367,6 +33441,33 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
   const totals = { scanned: 0, generated: 0, skipped: 0, invalid: 0, failed: 0 };
   const event = (kind, detail) => rememberOpsEvent({ kind, severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail });
   let rows = 0, touched = false, stop = "", firstDate = "";
+  // V22.9.131 (Codex 점검 2026-11-19 6번): 확정 범위에서 한 가계부·기간의 생성이 실패하면(V22.9.112 ⑬ 로 그 가계부만 건너뛴다) 그 가계부만 도는 좁은
+  // 확정 범위(그 가계부의 설정 열쇠 바로 앞 ~ 그 열쇠)를 다시 넣어 다음 실행이 다시 만들게 한다. 예전에는 범위가 그대로 지워져 그 기간의 스냅숏이
+  // 말일·일요일 아침의 미리 보기에 머물렀다(그날 아침 뒤의 기록이 빠진 채 — 미리 보기가 없던 가계부는 스냅숏이 아예 없다).
+  //  - REPORT_FINAL_RETRY_MAX_V229131 번까지만 다시 넣는다(실행마다 한 번 = 보통 하루 한 번). 그래도 실패하면 운영 이벤트
+  //    (free_report_final_gave_up)와 결과의 gave_up 을 남기고 그만둔다. 결과의 retry_queued·gave_up 은 예약 실행 기록(cron_run_log)에도 남는다.
+  //  - 한 범위에서 실패한 가계부가 REPORT_FINAL_RETRY_RANGES_V229131 곳을 넘으면(저장소가 통째로 답하지 못한 날) 커서가 길어지지 않게 그 날짜
+  //    전체를 한 범위로 다시 넣는다 — 확정 스냅숏이 이미 있는 가계부는 찾기만 하고 건너뛴다.
+  //  - 범위가 중간에 멈추거나 던져도(몫 부족·오류) 그때까지 적어 둔 실패는 바로 다시 넣는다(멈춘 범위의 커서는 그 가계부를 이미 지났다).
+  //  - 기록이 한도를 넘는 실패(row_limit)는 다시 해도 같아 넣지 않는다. tries 는 옛 코드가 읽지 않는 칸이다(되돌리면 그 범위를 한 번 돌 뿐이다).
+  const retryRanges = new Map();
+  let retryQueued = 0, gaveUp = 0;
+  const requeueFinalV229131 = (scope, ranges) => {
+    const tries = (Number(scope.tries) || 0) + 1;
+    if (tries > REPORT_FINAL_RETRY_MAX_V229131) {
+      gaveUp += ranges.length;
+      for (const range of ranges) event("free_report_final_gave_up", `${scope.date}:${range.upto ? String(range.upto).slice("free_report_preference:".length, 140) : "*"}`);
+      return;
+    }
+    const list = ranges.length > REPORT_FINAL_RETRY_RANGES_V229131 ? [{ after: "", upto: "" }] : ranges;
+    for (const range of list) {
+      // 같은 날짜·같은 범위의 다시 넣은 범위가 이미 있으면 겹쳐 넣지 않는다(저장소가 며칠 답하지 못하면 날짜 전체 범위가 실행마다 쌓였다 — 독립 검토 1).
+      const same = scopes.find((other) => other !== scope && other.final === true && other.date === scope.date && Number(other.tries) >= 1 && other.after === range.after && (other.upto || "") === (range.upto || ""));
+      if (same) { same.weekly = same.weekly || scope.weekly; same.monthly = same.monthly || scope.monthly; continue; }
+      scopes.push({ date: scope.date, after: range.after, force: false, weekly: scope.weekly, monthly: scope.monthly, final: true, ...(range.upto ? { upto: range.upto } : {}), refresh: true, tries });
+      retryQueued++;
+    }
+  };
   const runScope = async (scope) => {
     const final = scope.final === true;
     for (;;) {
@@ -33404,6 +33505,8 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
         }
       }
       for (const item of items) {
+        // V22.9.131: 이 가계부 바로 앞까지의 커서 — 실패하면 (itemAfter, item.key] 가 이 가계부만 도는 범위다.
+        const itemAfter = String(scope.after || "");
         if (item.invalid) { totals.invalid++; event("free_report_preference_scope_mismatch", item.key.slice(0, 180)); scope.after = item.key; continue; }
         if (item.disabled) { totals.skipped++; scope.after = item.key; continue; }
         const work = final ? item.jobs.filter((job) => !reportSnapshotFinalV22994(values.get(job.key), scope.date)) : item.jobs;
@@ -33429,6 +33532,8 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
               totals.failed++; event("free_report_row_limit", `${item.householdId}:${job.kind}:${job.period}`); continue;
             }
             // V22.9.112 ⑬: 한 가계부·기간의 생성 실패는 기록만 하고 다음으로 넘어간다(행수 초과와 같은 처리). 예전에는 stop="error"; break 로 커서가 이 가계부 앞에 멈춰, 사전순 앞의 한 곳이 계속 실패하면 그 뒤 모든 가계부의 자동 리포트가 영구 중단됐다(머리 막힘).
+            // V22.9.131: 확정 범위의 실패는 그 가계부만 도는 범위로 다시 넣는다(위 requeueFinalV229131). 건너뛰는 것은 예전 그대로다.
+            if (final) { const failed = retryRanges.get(scope) || []; if (!failed.some((range) => range.upto === item.key)) failed.push({ after: itemAfter, upto: item.key }); retryRanges.set(scope, failed); }
             totals.failed++; event("free_report_generate_failed", `${item.householdId}:${job.kind}:${safeError(err)}`); continue;
           }
         }
@@ -33447,7 +33552,10 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
       if (!runnable(scope)) continue;
       // today 는 예전처럼 이번 실행이 처리한 범위의 날짜다. 여러 범위를 돌면 가장 앞 날짜를 적는다.
       if (!firstDate || scope.date < firstDate) firstDate = scope.date;
-      if (!(await runScope(scope))) break;
+      let scopeDone = false;
+      try { scopeDone = await runScope(scope); }
+      finally { if (scope.final === true && retryRanges.has(scope)) { requeueFinalV229131(scope, retryRanges.get(scope)); retryRanges.delete(scope); } }
+      if (!scopeDone) break;
       scopes.splice(scopes.indexOf(scope), 1);
       if (scope.final !== true) for (const next of reportFinalScopesV22994({ ...scope, after: "" })) if (!scopes.some((other) => covers(other, next))) scopes.push(next);
     }
@@ -33457,7 +33565,7 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
   try { await saveCursor(); } catch (err) { if (!thrown) throw err; }
   if (thrown) throw thrown;
   const pending = scopes.filter(runnable).length;
-  return { ok: totals.failed === 0 && pending === 0, partial: scopes.length > 0, today: firstDate || invocationDate, invocation_date: invocationDate, pending_scopes: pending, ...totals, ...(stop ? { stop } : {}) };
+  return { ok: totals.failed === 0 && pending === 0, partial: scopes.length > 0, today: firstDate || invocationDate, invocation_date: invocationDate, pending_scopes: pending, ...totals, ...(retryQueued ? { retry_queued: retryQueued } : {}), ...(gaveUp ? { gave_up: gaveUp } : {}), ...(stop ? { stop } : {}) };
 }
 
 async function runAutomaticReports(env, opts = {}) {
@@ -34015,13 +34123,17 @@ function renderRecurringCandidateCards(candidates = [], selected = {}, month = c
   }).join("")}</div>`;
 }
 
-function renderMyPremiumHtml({ env, month, selected, households = [], rows = [], budget = {}, analysis = {}, premium = {}, recurringCandidates = [], anomalies = [], weeklyReport = null, adKey = "", msg = "", err = "" }) {
+function renderMyPremiumHtml({ env, month, selected, households = [], rows = [], budget = {}, budgetReadFailed = false, analysis = {}, premium = {}, recurringCandidates = [], anomalies = [], weeklyReport = null, adKey = "", msg = "", err = "" }) {
   const role = selected?.role || "";
   const qs = `month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected?.id || "")}`;
   const recurringTotal = safeArray(recurringCandidates).reduce((sum, x) => sum + Number(x.amount || 0), 0);
   const recurringMetric = recurringCandidates === null ? "<b>확인 불가</b><small>정기 항목 목록을 불러오지 못했어요</small>" : `<b>${recurringCandidates.length}건</b><small>월 약 ${numberWithCommas(recurringTotal)}원</small>`;
   const anomalyTotal = safeArray(anomalies).reduce((sum, x) => sum + Number(x.amount || 0), 0);
   const budgetRemain = Math.max(0, Number(budget.totalBudget || 0) - Number(budget.budgetedExpense ?? budget.expense ?? 0));
+  // V22.9.131 (Codex 점검 2026-11-19 5번): 예산을 읽지 못했거나 정한 예산이 없을 때도 ‘0원’ 이라고 적어, 남은 예산이 없는 것처럼 보였다.
+  // 못 읽었으면 ‘확인 불가’, 정한 예산이 없으면 ‘설정 전’(한눈에 보기와 같은 말), 정한 예산을 다 썼을 때만 ‘0원’ 이다.
+  const budgetRemainMetric = budgetReadFailed ? "<b>확인 불가</b><small>예산을 불러오지 못했어요</small>"
+    : Number(budget.totalBudget || 0) > 0 ? `<b>${numberWithCommas(budgetRemain)}원</b>` : "<b>설정 전</b>";
   // V22.9.126 FC-21: 지출자 확인이 필요해 월말 예상에서 뺀 규칙이 있으면 낮아진 값의 까닭을 다른 화면과 같은 말로 적는다.
   const spenderCheckCount = analysis.burnForecast != null ? Number(analysis.spendingOutlook?.notYetRecorded?.spenderCheckCount || 0) : 0;
   const spenderCheckNote = spenderCheckCount ? `<small>지출자 확인 필요 ${numberWithCommas(spenderCheckCount)}건 제외</small>` : "";
@@ -34029,7 +34141,7 @@ function renderMyPremiumHtml({ env, month, selected, households = [], rows = [],
   const title = escapeHtml(appName(env));
   const message = msg === "recurring_registered" ? `<div class="ok">반복지출 후보를 확정했습니다. 지정일이 되면 같은 달 중복 없이 자동 기록됩니다.</div>` : msg === "recurring_exists" ? `<div class="ok">이미 같은 이름·금액의 반복지출이 등록되어 있습니다.</div>` : "";
   const error = err ? `<div class="error">처리하지 못했습니다. 입력값과 가계부 관리 권한을 확인해 주세요.</div>` : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 스마트 도구</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:12px 0}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:10px 0 6px;font-size:30px}.hero p{line-height:1.65;color:#ccfbf1}.badge{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:7px 11px;font-size:12px;font-weight:500}.grid,.features,.candidateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:25px;margin-top:7px}.feature,.candidate{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#f8fafc}.feature b,.candidate b{display:block;font-size:16px;color:#166534}.feature span,.candidate span,.candidate small{display:block;color:#64748b;line-height:1.55;margin-top:5px}.candidate{display:grid;gap:9px}.candidate strong{font-size:20px}.candidate form{display:grid;gap:8px}.candidate label{font-size:12px;color:#475569}.candidate button{border:0;border-radius:13px;min-height:42px;background:#111827;color:#fff;font-weight:1000}.muted{color:#64748b;line-height:1.6}.insightList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.insightList li{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc}.insightList span{color:#64748b;font-size:13px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#ecfdf5;color:#065f46!important}.ok,.error{border-radius:16px;padding:13px;line-height:1.6;margin:12px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:16px;padding:13px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid .metric{padding:14px}.metricGrid .metric b{font-size:20px}.insightList li{grid-template-columns:1fr}.btn{width:100%;margin:4px 0}}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("smart-tools",{ month, householdId: selected?.id || "", householdName: householdChoiceLabelV229118(selected, households) || selected?.name || "", role: String(selected?.role || "") })}<main class="wrap">${message}${error}<section class="hero"><span class="badge">스마트 도구</span><h1>스마트 생활 도구</h1><p>${escapeHtml(selected?.name || "가계부")} · ${escapeHtml(month.slice(0, 4))}년 ${Number(month.slice(5, 7))}월 기준. 예측·자동화·정산·리포트를 한 곳에서 사용합니다.</p><p><a class="btn" href="/reports?${qs}">생활비 리포트</a><a class="btn light" href="/settlement-summary?${qs}">고급 정산</a></p></section><section class="grid metricGrid"><div class="card metric"><span>월말 예상 지출</span><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b>${spenderCheckNote}</div><div class="card metric"><span>예산 잔여</span><b>${numberWithCommas(budgetRemain)}원</b></div><div class="card metric"><span>반복지출 후보</span>${recurringMetric}</div><div class="card metric"><span>이상지출 후보</span><b>${anomalies.length}건</b><small>${numberWithCommas(anomalyTotal)}원</small></div><div class="card metric"><span>이번 주 지출</span><b>${weeklyText}</b></div><div class="card metric"><span>절약 후보</span><b>${premium.hasObservation === false ? "관측 전" : `${numberWithCommas(premium.savingPotential)}원`}</b></div></section><section class="card"><h2>사용할 수 있는 기능</h2><div class="features"><div class="feature"><b>반복 거래 자동화</b><span>후보를 가계부 소유자·관리자가 명시적으로 확정하면 지정일에 월 1회만 자동 반영합니다.</span></div><div class="feature"><b>고급 정산</b><span>동일·비율·인원수·품목별 분배와 최소 송금 제안을 제공합니다.</span></div><div class="feature"><b>주간·월간 리포트</b><span>자동 생성 설정, 복사·공유, 인쇄/PDF 저장을 제공합니다.</span></div><div class="feature"><b>스마트 예산·미션</b><span>현재 지출에서 추천 예산과 현실적인 절약 후보를 계산합니다.</span></div><div class="feature"><b>가족별 비교 분석</b><span>참여자와 분류별 기록을 기존 분석 화면에서 비교합니다.</span></div></div><p><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><a class="btn light" href="/payment-methods?${qs}">자산·결제수단</a></p></section><section class="card"><h2>반복지출 후보 확정</h2><p class="muted">자동 등록 전 반드시 동의해야 하며, 같은 이름·금액은 중복 등록하지 않습니다. 금액이 바뀌면 새 후보로 다시 확인합니다.</p>${renderRecurringCandidateCards(recurringCandidates, selected, month)}</section><section class="card"><h2>큰 지출 점검</h2>${renderAnomalyList(anomalies)}</section>${adSlotMarkup(env, adKey)}<p class="notice"><b>기능 이용 안내</b><br/>가계부 역할 권한(소유자·관리자·구성원·조회전용)과 데이터 격리는 그대로 유지합니다. 준비가 끝나지 않은 기능은 메뉴와 직접 경로에서 숨깁니다.</p></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 스마트 도구</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:12px 0}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:10px 0 6px;font-size:30px}.hero p{line-height:1.65;color:#ccfbf1}.badge{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:7px 11px;font-size:12px;font-weight:500}.grid,.features,.candidateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:25px;margin-top:7px}.feature,.candidate{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#f8fafc}.feature b,.candidate b{display:block;font-size:16px;color:#166534}.feature span,.candidate span,.candidate small{display:block;color:#64748b;line-height:1.55;margin-top:5px}.candidate{display:grid;gap:9px}.candidate strong{font-size:20px}.candidate form{display:grid;gap:8px}.candidate label{font-size:12px;color:#475569}.candidate button{border:0;border-radius:13px;min-height:42px;background:#111827;color:#fff;font-weight:1000}.muted{color:#64748b;line-height:1.6}.insightList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.insightList li{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc}.insightList span{color:#64748b;font-size:13px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#ecfdf5;color:#065f46!important}.ok,.error{border-radius:16px;padding:13px;line-height:1.6;margin:12px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:16px;padding:13px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid .metric{padding:14px}.metricGrid .metric b{font-size:20px}.insightList li{grid-template-columns:1fr}.btn{width:100%;margin:4px 0}}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("smart-tools",{ month, householdId: selected?.id || "", householdName: householdChoiceLabelV229118(selected, households) || selected?.name || "", role: String(selected?.role || "") })}<main class="wrap">${message}${error}<section class="hero"><span class="badge">스마트 도구</span><h1>스마트 생활 도구</h1><p>${escapeHtml(selected?.name || "가계부")} · ${escapeHtml(month.slice(0, 4))}년 ${Number(month.slice(5, 7))}월 기준. 예측·자동화·정산·리포트를 한 곳에서 사용합니다.</p><p><a class="btn" href="/reports?${qs}">생활비 리포트</a><a class="btn light" href="/settlement-summary?${qs}">고급 정산</a></p></section><section class="grid metricGrid"><div class="card metric"><span>월말 예상 지출</span><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b>${spenderCheckNote}</div><div class="card metric"><span>예산 잔여</span>${budgetRemainMetric}</div><div class="card metric"><span>반복지출 후보</span>${recurringMetric}</div><div class="card metric"><span>이상지출 후보</span><b>${anomalies.length}건</b><small>${numberWithCommas(anomalyTotal)}원</small></div><div class="card metric"><span>이번 주 지출</span><b>${weeklyText}</b></div><div class="card metric"><span>절약 후보</span><b>${premium.hasObservation === false ? "관측 전" : `${numberWithCommas(premium.savingPotential)}원`}</b></div></section><section class="card"><h2>사용할 수 있는 기능</h2><div class="features"><div class="feature"><b>반복 거래 자동화</b><span>후보를 가계부 소유자·관리자가 명시적으로 확정하면 지정일에 월 1회만 자동 반영합니다.</span></div><div class="feature"><b>고급 정산</b><span>동일·비율·인원수·품목별 분배와 최소 송금 제안을 제공합니다.</span></div><div class="feature"><b>주간·월간 리포트</b><span>자동 생성 설정, 복사·공유, 인쇄/PDF 저장을 제공합니다.</span></div><div class="feature"><b>스마트 예산·미션</b><span>현재 지출에서 추천 예산과 현실적인 절약 후보를 계산합니다.</span></div><div class="feature"><b>가족별 비교 분석</b><span>참여자와 분류별 기록을 기존 분석 화면에서 비교합니다.</span></div></div><p><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><a class="btn light" href="/payment-methods?${qs}">자산·결제수단</a></p></section><section class="card"><h2>반복지출 후보 확정</h2><p class="muted">자동 등록 전 반드시 동의해야 하며, 같은 이름·금액은 중복 등록하지 않습니다. 금액이 바뀌면 새 후보로 다시 확인합니다.</p>${renderRecurringCandidateCards(recurringCandidates, selected, month)}</section><section class="card"><h2>큰 지출 점검</h2>${renderAnomalyList(anomalies)}</section>${adSlotMarkup(env, adKey)}<p class="notice"><b>기능 이용 안내</b><br/>가계부 역할 권한(소유자·관리자·구성원·조회전용)과 데이터 격리는 그대로 유지합니다. 준비가 끝나지 않은 기능은 메뉴와 직접 경로에서 숨깁니다.</p></main></body></html>`;
 }
 
 // V22.9.76 감사 C-3: 분석 화면의 ?err= 는 화면 안 오류 문구 표(errorMessages)에서 찾는다. constructor·toString 처럼
@@ -37098,7 +37210,7 @@ async function handleMyHouseholdsPage(request, env, url) {
       // V22.9.126 FC-9 3차: 채팅만 쓰는 소유자의 예전 안내(내 계정·보안 열기)는 본인 확인 표가 없어 막다른 길이었다. 양도 칸과 같은 길로 보낸다 —
       // 웹 연결 코드(5분 본인 확인) → 내 계정·보안에서 첫 비밀번호 저장 → 이 삭제 칸으로 돌아와 그 비밀번호로 삭제.
       const deleteClaimUrl = `/my/kakao-claim?auto=0&return_to=${encodeURIComponent(`/my/backup-login?return_to=${encodeURIComponent(deleteBack)}`)}#kakao-claim-start`;
-      ownerDeletePanel = `<div class="dangerZone"><h3>가계부 영구 삭제</h3><p>가계부를 영구 삭제하려면 내 계정 로그인 비밀번호가 필요해요. 카카오 1:1 채팅에서 ‘웹 가계부 열기’를 보내 웹 연결 코드를 받은 뒤, 아래 ‘웹 연결 코드 넣기’에서 코드를 붙여 넣으세요. 이어서 열리는 ‘내 계정·보안’에서 5분 안에 로그인 이름과 비밀번호를 저장하면 이 화면으로 돌아와 그 비밀번호로 삭제할 수 있어요. 저장하면 다른 기기·브라우저는 로그아웃되고, 그 뒤 로그인돼 있지 않은 브라우저에서 단톡방의 웹 가계부 단추를 누르면 홈 대신 로그인 이름과 비밀번호를 먼저 물어요.</p><a class="reauthButton" href="${escapeHtml(deleteClaimUrl)}">웹 연결 코드 넣기</a></div>`;
+      ownerDeletePanel = `<div class="dangerZone"><h3>가계부 영구 삭제</h3><p>가계부를 영구 삭제하려면 내 계정 로그인 비밀번호가 필요해요. 카카오 1:1 채팅에서 ‘웹 가계부 열기’를 보내 웹 연결 코드를 받은 뒤, 아래 ‘웹 연결 코드 넣기’에서 코드를 붙여 넣으세요. 이어서 열리는 ‘내 계정·보안’에서 5분 안에 로그인 이름과 비밀번호를 저장하면 이 화면으로 돌아와 그 비밀번호로 삭제할 수 있어요. ${firstPasswordConsequenceTextV229131(env)}</p><a class="reauthButton" href="${escapeHtml(deleteClaimUrl)}">웹 연결 코드 넣기</a></div>`;
     }
   }
 
@@ -50246,6 +50358,8 @@ function formatMessageText(msg) {
     record_not_found: "기록을 찾지 못했습니다. 이미 삭제됐을 수 있으니 목록을 새로고침해 주세요.",
     amount_unit_required: "금액이 단위 없는 한 자리 숫자로만 읽혀 저장하지 않았습니다. 정말 그 금액이면 \"7원\"처럼 원을 붙이거나 금액 칸을 직접 고쳐 주세요.",
     backup_too_large: "기록이 많아 이 범위를 한 파일로 내려받을 수 없습니다. 일부만 담긴 파일을 내려보내지 않았습니다. 월별 CSV로 나눠 내려받아 주세요.",
+    // V22.9.131: 내보내는 동안 기록이 더해지거나 지워져 겹치거나 빠진 파일이 될 뻔했다(다시 읽어도 맞지 않음). 파일을 만들지 않았다.
+    backup_rows_changed: "내려받는 동안 기록이 바뀌어 백업 파일을 만들지 않았습니다. 겹치거나 빠진 파일을 내려보내지 않았습니다. 잠시 후 다시 내려받아 주세요.",
     spender_not_member: "지출자는 현재 가계부 참여자 중에서 선택해 주세요.",
     // V22.9.79 D-5: 환불 연결 트리거가 막은 수정(연결된 기록의 종류·금액·환급 분류·날짜 변경).
     refund_link_locked: "환불과 연결된 기록이라 이 변경은 저장하지 않았습니다. 정산 화면의 ‘환불·환급’에서 연결을 먼저 풀어 주세요.",
@@ -52870,6 +52984,35 @@ function normalizeKakaoEditAmountValue(textRaw = "") {
   return found && found.amount > 0 ? String(Math.round(found.amount)) : null;
 }
 
+// V22.9.131 (독립 검토 1 — 2번, 2 — 2·3번, 3 — 6번): 금액 칸 이름에 수를 붙여 쓴 첫 낱말인가(‘금액1만’·‘금액13000원’·‘금액은5000원’·‘금액이만원’·‘금액:1만’).
+// 예전에는 ‘금액1만 3천원’·‘금액:1만 3천원’ 이 첫 낱말에 붙은 1만을 버리고 뒤 낱말만 읽어 3,000원으로 고쳤다. 붙여 쓴 수는 읽지 않는다 — 조사인지 수인지 알 수
+// 없는 꼴이 섞여 있어서(‘금액만5천원’ 은 5,000원인가 15,000원인가) 값을 정하지 않고 묻는다(‘얼마로 바꿀까요?’). 붙은 것이 수가 아니면(‘금액변경 13000’·‘가격표’)
+// 이 판 전과 같다(2차 수정은 붙은 수를 금액으로 읽어 ‘금액만5천원’ 을 5,000원으로 고쳤고, 수가 아닌 꼬리까지 값에 넣어 ‘금액변경 13000’ 을 되물었다).
+//  - (조사 하나, 기호 몇 개 뒤) 숫자로 시작하는 꼬리(‘금액13000원으로요’·‘금액은5000원’·‘금액:1만’·‘가격2배’)이거나,
+//  - 낱말 끝까지 한글 수로 된 꼬리인데 ‘원’ 으로 끝나거나(‘금액만원’·‘금액이만원’·‘가격천원으로’) 수 글자가 둘 이상일 때(‘금액삼만’·‘금액이만’)다.
+//  - ‘만’·‘이’ 하나는 조사다: ‘금액만’·‘금액이’·‘금액만으로 5000원’ 은 이 판 전과 같다(독립 검토 3 — 3차 수정은 ‘금액만으로’ 를 붙여 쓴 수로 보고 되물었다).
+function isKakaoEditGluedAmountHead(tokenRaw = "") {
+  const token = normalize(tokenRaw);
+  const name = FIELD_SYNONYMS.amount.filter((word) => word.length >= 2 && token.startsWith(word)).sort((a, b) => b.length - a.length)[0] || "";
+  if (!name) return false;
+  const tail = token.slice(name.length);
+  if (/^(?:은|는|이|가|을|를|만|도)?[^0-9A-Za-z가-힣\s]{0,3}\d/.test(tail)) return true;
+  const korean = tail.match(/^(?:은|는|가|을|를|도)?([일이삼사오육칠팔구십백천만억][\d,.일이삼사오육칠팔구십백천만억]{0,24})(원?)(?:으로|로)?[,.!?~…]{0,3}$/);
+  return !!korean && (korean[2] === "원" || korean[1].split(",").join("").split(".").join("").length >= 2);
+}
+
+// V22.9.131 (독립 검토 1 — 3번, 독립 검토 2 — 1·6번): 분류·결제수단 칸의 값에 금액 낱말이 들어 있는가. 닫힌 꼴 하나다 — 낱말 머리부터 수 글자(숫자·쉼표·점·
+// 한글 수)로만 된 덩어리에 ‘원’ 이 붙고(‘5000원’·‘1만3천원’·‘3만5000원’·‘오천원’·‘5천 5백원’ 의 뒤 낱말), 그 뒤가 낱말 끝이거나 짧은 끝말(이요·요·짜리·어치·에·으로·로)일 때.
+// 덩어리에는 숫자나 큰 단위(백·천·만·억)가 하나는 있어야 한다 — ‘사원 식당’·‘구원’·‘일원’ 은 금액이 아니다. ‘원’ 이 없는 수(‘5만 포인트’·‘10만 적금’·‘카드 1234’)와
+// 낱말 안의 금액 꼴(‘5만원권’·‘만원의행복’)도 아니다. 등록된 이름과 똑같은 값은 보지 않는다. 되풀이에는 상한을 둔다.
+const KAKAO_EDIT_VALUE_MONEY = /(?:^|\s)(?=[\d,.일이삼사오육칠팔구십백천만억]{0,23}[\d백천만억])[\d,.일이삼사오육칠팔구십백천만억]{1,24}\s?원(?:이요|요|짜리|어치|에|으로|로)?(?=\s|$)/;
+function kakaoEditValueHasMoney(field, valueRaw, config = {}) {
+  const value = normalize(valueRaw);
+  const known = field === "method" ? [...METHOD_WORDS, ...(config.methods || [])] : config.categories || [];
+  if (known.some((name) => compact(name) === compact(value))) return false;
+  return KAKAO_EDIT_VALUE_MONEY.test(value);
+}
+
 function parseEditInput(textRaw, config = {}) {
   const text = normalize(textRaw);
   if (!text) return null;
@@ -52881,7 +53024,8 @@ function parseEditInput(textRaw, config = {}) {
       const clean = t.replace(/[,.!?]/g, "");
       return clean && !FILLER_TOKENS.has(clean) && tokenToField(clean) !== field;
     });
-    let value = valueTokens.join(" ") || null;
+    // V22.9.131: 금액 칸 이름에 수를 붙여 쓴 말(‘금액1만 3천원’)은 값을 정하지 않는다(묻는다) — isKakaoEditGluedAmountHead. 그 밖에는 이 판 전과 같다.
+    let value = field === "amount" && isKakaoEditGluedAmountHead(tokens[0]) ? null : valueTokens.join(" ") || null;
     if (value) value = stripKakaoEditDirection(field, value, config);
     if (field === "amount" && value) value = normalizeKakaoEditAmountValue(value);
     if (field === "delete") value = "confirm";
@@ -53209,6 +53353,14 @@ function handleEditMessage(session, textRaw, config = {}) {
   // V22.9.126 FC-10: ‘수정 01번 금액 5’·‘방금 금액 5’·‘수정 01번 9’ 처럼 칸과 함께 온 단위 없는 한 자리 금액도 같은 규칙이다.
   const smallAmount = parsed.field === "amount" && parsed.value ? kakaoEditSmallAmountV229126(text, parsed.value) : 0;
   if (smallAmount) return kakaoEditSmallAmountReaskV229126(session, now, text, smallAmount);
+
+  // V22.9.131 (독립 검토 1 — 3번): 칸 이름·메뉴 번호로 고른 분류·결제수단의 값에 금액이 들어 있으면 그 칸의 값이 아니다. 예전에는 ‘3번 밥 5000원’·
+  // ‘3 떡볶이 5000원’ 이 결제수단을 ‘밥 5000원’·‘떡볶이 5000원’ 으로, ‘2번 술 3만원’ 이 분류를 ‘술 3만원’ 으로 묻지 않고 바꿨다. 바꾸지 않고 다시 묻는다.
+  if (parsed.via === "field" && (parsed.field === "category" || parsed.field === "method") && parsed.value && kakaoEditValueHasMoney(parsed.field, parsed.value, config)) {
+    const label = fieldLabel(parsed.field, session);
+    // moneyInValue: 열린 창의 관문(edit-flow-v4)이 새 기록 꼴의 말에서 이 거절을 두 길 안내로 바꿀 때 본다.
+    return { ...fail(session, now, text, `‘${parsed.value}’에는 금액이 들어 있어서 ${label}${josa(label, "을를")} 바꾸지 않았어요. 기록은 그대로예요.\n${label}만 보내 주세요. 예: ${exampleFor(parsed.field, session)}\n새로 기록하려면 먼저 ‘취소’를 보내 주세요.`), moneyInValue: true };
+  }
 
   // [L3] 값 추론 confidence 낮음 → 확인 질문
   if (parsed.via === "infer" && parsed.confidence === "low") {
@@ -53548,7 +53700,7 @@ async function sendKakaoEditReplyV4(env, ctx, session, reply, nextSession, { gon
 }
 
 // 필드 → transactions 컬럼 반영. DB 검증(구성원 존재 등)은 여기서 최종 수행한다.
-async function applyKakaoEditFieldV4(env, { session, field, value, config, kakaoUserKey, moduleReply, role = "" }) {
+async function applyKakaoEditFieldV4(env, { session, field, value, config, kakaoUserKey, moduleReply, role = "", holdWrite = false }) {
   const row = await getKakaoRowById(env, session.householdId, session.userId, kakaoUserKey, session.entryId);
   if (!row) {
     return { reply: `수정하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘기록’로 번호를 다시 확인해 주세요.`, nextSession: null, gone: true };
@@ -53681,6 +53833,8 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
   } else {
     return { reply: moduleReply, nextSession: null };
   }
+  // V22.9.131: 값 확인을 모두 지나 이제 기록을 쓴다. 열린 창에 온 새 기록 꼴의 말이면(holdWrite) 쓰지 않고 돌려보낸다 — 부른 쪽이 두 길 안내로 끝낸다.
+  if (holdWrite) return { held: true };
   try {
     // V22.9.104 J-9(Codex 검토 V102): 구성원(소유자·관리자 아님)이 카카오 기록 표시(source_user_key) 없는 기록(웹에서 만든 내 기록 — 지출자로 내 기록을
     // 가린다)을 고칠 때, 위에서 읽은 뒤 관리자가 지출자를 바꾸면 예전에는 조건 없는 감사 RPC 가 이제 남의 기록이 된 행에 저장했다. 이제는 웹 수정과 같은
@@ -53763,7 +53917,9 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     if (refusal) return sendKakaoEditReplyV4(env, ctx, session, refusal, null, { blocked: refusal !== KAKAO_RECORD_CHANGE_POLICY_UNKNOWN_TEXT_V229126 });
   }
   if (result?.action === "apply") {
-    const applied = await applyKakaoEditFieldV4(env, { session, field: result.field, value: result.value, config, kakaoUserKey, moduleReply: result.reply, role: currentRole });
+    const applied = await applyKakaoEditFieldV4(env, { session, field: result.field, value: result.value, config, kakaoUserKey, moduleReply: result.reply, role: currentRole, holdWrite: !!ctx.ambiguousRecord });
+    // V22.9.131: 열린 창에 온 새 기록 꼴의 말이 값 확인까지 지나 이 기록을 바꾸게 됐다 — 바꾸지 않고 두 길 안내(ctx.ambiguousRecord)로 끝낸다.
+    if (applied.held) return processKakaoEditResultV4(env, { ...ctx, ambiguousRecord: null }, session, ctx.ambiguousRecord(), config);
     if (applied.log) {
       await logKakaoEditTelemetryV4(env, payload, { userKey: kakaoUserKey, entryNo: applied.log.entryNo || session.entryNo, input: applied.log.input || "", attempt: applied.log.attempt || 0, type: applied.log.type });
     }
@@ -53774,6 +53930,7 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     if (!row) {
       return sendKakaoEditReplyV4(env, ctx, session, `삭제하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘기록’로 번호를 다시 확인해 주세요.`, null, { gone: true });
     }
+    if (ctx.ambiguousRecord) return processKakaoEditResultV4(env, { ...ctx, ambiguousRecord: null }, session, ctx.ambiguousRecord(), config); // V22.9.131: 위와 같다(지우지 않는다)
     const seq = Number(session.entryNo) || 0;
     let deleted = null;
     try {
@@ -53818,8 +53975,49 @@ function kakaoEditNegatedAmountResultV22994(session = {}, utterance = "", config
   };
 }
 
+// V22.9.131: 열린 수정 창에 온 새 기록 꼴의 말이 이 기록을 바꾸게 되는가 — 상태 기계가 낸 답(result)을 보고 정한다.
+//  - 값을 묻거나 다시 묻거나 ‘네/아니오’ 로 확인하는 답은 아무것도 바꾸지 않는다 → 이 판 전 그대로 내보낸다(창도 열려 있다). 독립 검토 3: 3차 수정까지는 이런
+//    말에도 두 길 안내를 내고 창을 닫아, 이어 보낸 ‘1번 13000원으로’ 가 01번을 고치고 ‘13000’ 이 새 기록이 됐다(창이 열려 있으면 이 기록의 답으로 다뤄지던 말이다).
+//  - 그 기록을 고치거나 지우는 답(apply·delete)이 ‘바꾸게 되는 말’ 의 후보다. 그 답도 값 확인(날짜 풀기·구성원 찾기·분류의 구분·권한)에서 거절되면 이 판 전처럼
+//    그 자리에서 다시 묻는다 — 두 길 안내는 값 확인을 모두 지나 기록을 쓰기 직전(applyKakaoEditFieldV4 의 holdWrite)에 낸다.
+//  - 분류·결제수단 값에 금액 낱말이 들어 상태 기계가 거절한 답(moneyInValue)은 이 판 전에는 그대로 썼다 — 새 기록 꼴의 말이면 두 길 안내를 낸다.
+//  - ‘금액 칸 + 금액 하나’ 뿐인 답은 고치는 말이라 뺀다: 첫 낱말이 금액 칸 이름 그대로(금액·가격·얼마·액수)이거나 거기에 고치는 말이나 칸을 가리키는 말(변경·수정·정정·란·칸·부분)·조사나 끝말
+//    (은·만·요·이요·은요·을요·이에요·입니다·이야·으로 … 둘까지 — ‘금액만으로’)·문장부호가 붙었거나 메뉴 1번(‘1’·‘1번’)이고, 상태 기계가 금액을 고친다고 읽었을 때다.
+//    ‘금액만 13000원으로요’·‘금액변경 5만원’·‘금액이요 13000원’·‘1번 13000원으로 좀’ 은 고치는 말, ‘가격표 3000원’·‘금액권 5만원’·‘금액대 5만원’ 은 아니다
+//    (독립 검토 1·3 — 처음에는 정규식 하나로 가렸다가 예전에 고쳐지던 답을 막았다. 상태 기계의 답과 닫힌 머리 꼴을 함께 본다).
+const KAKAO_EDIT_AMOUNT_HEAD_V229131 = /^(?:1번?|(?:금액|가격|얼마|액수)(?:변경|수정|정정|란|칸|부분)?(?:은요|는요|이요|을요|를요|도요|만요|이에요|예요|에요|입니다|이야|요|야|으로|로|[은는이가을를만도]){0,2}[,.!?~…]{0,3})$/;
+function kakaoEditRecordWouldChangeV229131(result, utterance = "") {
+  if (result?.action !== "apply" && result?.action !== "delete") return false;
+  return !(result.action === "apply" && result.field === "amount" && KAKAO_EDIT_AMOUNT_HEAD_V229131.test(normalizeText(utterance).split(" ")[0] || ""));
+}
+
+// V22.9.131: 고치는 말인지 새 기록인지 알 수 없는 말의 답. 기록도 세션도 건드리지 않은 채 창만 닫는다(processKakaoEditResultV4 의 cancel 길).
+// 예시는 그 기록을 고치는 한 줄 명령이다(오늘이 아닌 기록이면 날짜가 붙는다). 칸 이름 그대로 시작한 말(‘메모 12월 회비 3만원’)이면 보낸 말을 그대로 붙여
+// 보여 준다 — 고치려던 사람은 그 한 줄을 보내면 예전처럼 고쳐진다. 그 한 줄이 통하지 않는 말(분류·결제수단 값에 금액 낱말 — named: false)에는 붙이지 않는다.
+// 줄일 때는 글자 단위로 자른다(독립 검토 3 — 코드 단위로 자르면 이모지가 반으로 잘렸다). 실패 횟수로 세지 않는다(창이 닫힌다).
+function kakaoEditAmbiguousRecordResultV229131(session = {}, utterance = "", { named = true } = {}) {
+  const head = `${kakaoEditDayPrefixV4(session.entryDate)}수정 ${session.entryNo}번`;
+  const full = normalizeText(utterance);
+  const chars = Array.from(full);
+  const said = chars.length > 40 ? `${chars.slice(0, 40).join("")}…` : full;
+  const own = named && chars.length <= 40 && !/^\d/.test(full) && isExactKakaoEditFieldStart(full);
+  const examples = own ? [`${head} ${full}`] : [`${head} 금액 13000`, `${head} 내용 점심`];
+  return {
+    action: "cancel",
+    log: { type: "unrecognized", entryNo: session.entryNo, input: Array.from(String(utterance || "")).slice(0, 80).join(""), attempt: (Number(session.repeatCount) || 0) + 1 },
+    nextSession: null,
+    reply: [
+      `🤔 보낸 말(‘${said}’)이 ${session.entryNo}번 기록을 고치는 말인지 새 기록인지 정하지 못했어요.`,
+      `아무것도 바꾸거나 저장하지 않았고, ${session.entryNo}번 수정은 끝냈어요.`,
+      "새 기록이면 같은 말을 한 번 더 보내 주세요.",
+      `${session.entryNo}번을 고치려면 한 줄로 보내 주세요:`,
+      ...examples.map((line) => `👉 ${line}`),
+    ].join("\n"),
+  };
+}
+
 // 3장 3단계: 유효 세션 보유 사용자의 메시지는 전부 이 경로가 소비한다.
-async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction = false, sessionRaw = undefined }) {
+async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction = false, recordGuardKind = "", sessionRaw = undefined }) {
   const session = await getKakaoEditSessionV4(env, kakaoUserKey, payload, sessionRaw);
   if (!session) return null;
   // T6: 시간이 지난 세션은 없는 것으로 본다. 다음 말(새 지출·조회)을 만료 안내로 삼키지 않는다.
@@ -53842,12 +54040,22 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
   }
   const text = isKakaoEditCancelCommand(utterance) ? "취소" : utterance;
   const config = await buildKakaoEditConfigV4(env, session.householdId, session.rowType);
-  const result = negatedAmount
+  let result = negatedAmount
     ? kakaoEditNegatedAmountResultV22994(session, utterance, config, Date.now())
     : handleEditMessage(session, text, { ...config, now: Date.now() });
+  // V22.9.131 (Codex 점검 2026-11-19 1번 = V126:F-41): 새 기록 꼴(금액+내용)인데 칸 이름·메뉴 번호로 시작하는 말은 그 기록의 답으로 받아 왔다 —
+  // ‘메모지 2000원’ 이 내용을 ‘2000원’ 으로, ‘가격표 3000원’·‘금액권 5만원’ 이 금액을, ‘3번 출구 떡볶이 5000원’ 이 결제수단을 묻지 않고 바꿨다.
+  // 그런 말이 값 확인까지 지나 이 기록을 바꾸게 될 때(kakaoEditRecordWouldChangeV229131 + holdWrite)는 아무것도 바꾸거나 저장하지 않고 두 길을 알린 뒤 창을 닫는다 — 같은 말을 한 번 더
+  // 보내면 새 기록이 되고, 고치려면 한 줄 명령을 쓴다. 상태 기계가 묻거나 확인하는 답(‘사과 5000원’ 의 ‘네/아니오’, ‘1번 커피 5000원’ 의 ‘얼마로 바꿀까요?’)과
+  // ‘금액 칸 + 금액 하나’ 뿐인 답은 이 판 전 그대로다. 저장 전 안전망이 고치는 말로 본 말(recordGuardKind "edit" — ‘메모 2025 연말정산으로 바꿔줘’)도 이 판 전
+  // 그대로 그 기록의 답이다(독립 검토 3: 그런 말은 한 번 더 보내도 새 기록이 되지 않아 두 길 안내의 말이 틀렸다).
+  // 기록 꼴이 아닌 답(‘금액 13000’·‘메모 점심’·‘6번 엄마’·‘13000’)은 newTransaction 이 아니다.
+  const recordShaped = newTransaction && !negatedAmount && recordGuardKind !== "edit";
+  if (recordShaped && result?.moneyInValue) result = kakaoEditAmbiguousRecordResultV229131(session, utterance, { named: false });
+  const ambiguousRecord = recordShaped && kakaoEditRecordWouldChangeV229131(result, utterance) ? () => kakaoEditAmbiguousRecordResultV229131(session, utterance) : null;
   // V22.9.81 U-4: sessionStored — 저장된 세션에 온 답이다(역할 조회가 실패하면 이 세션을 그대로 둔다).
   // V22.9.126 FC-19(3차 검토): stored — 끝내는 답이 닫을 저장 세션(정리가 실패하면 남는 것)이다.
-  return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin, sessionStored: true, stored: session }, session, result, config);
+  return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin, sessionStored: true, stored: session, ambiguousRecord }, session, result, config);
 }
 
 // V22.9.76 감사 B-3: 끝난 세션에 수정 값이 왔을 때의 안내. 아무것도 바꾸지 않았다고 말하고, 그 기록을 고치는 한 줄 명령을
@@ -55703,6 +55911,48 @@ function kakaoGuardMoreV229126(text, rows) {
   return null;
 }
 
+// V22.9.131 (Codex 점검 2026-11-19 4번, V126 ‘해석기에서 본 결함’): 띄어 쓴 분수 뒤에 분량 낱말이 오면(‘케이크 1/8 조각 6000원’·‘피자 1/2 판 9000원’)
+// 해석기가 1월 8일·1월 2일로 읽어 그 날짜의 기록으로 저장했다(메모에서도 분수가 빠진다). 읽는 규칙은 건드리지 않고, 닫힌 꼴 하나에서만 되묻는다:
+//  - 같은 줄에서 물건 이름 뒤에 온(줄 머리가 아닌) 분모 10 이하의 진분수(1/2·2/3·3/4·1/8 …)를 슬래시로 적고,
+//  - 띄어 쓴 뒤 (‘한’ +) 분량 낱말 + 조사 + 낱말 끝이 오고,
+//  - 그 줄에서 나온 기록이 실제로 그 달·날로 읽혔을 때다. 같은 달·날을 앞에 날짜 꼴(‘1월 2일’·‘1/2’·‘2026-01-02’·‘1.2’)로 따로 적은 줄은 그 날짜를 쓴 것이라 그대로 둔다.
+// 줄 머리의 ‘1/5 개 사료 3만원’·‘2/7 공기 청정기 필터 3만원’·‘1/8 조각 케이크 6000원’ 은 날짜 자리라 예전처럼 날짜다(독립 검토 1 — 처음에는 줄 머리도
+// 되물어 진짜 날짜를 막았다). ‘11/8 조각 케이크’·‘11/19 개 사료’ 처럼 분수 꼴이 아닌 날짜, 분량 낱말이 다른 낱말의 머리일 뿐인 ‘1/8 조각케이크’,
+// 날짜를 따로 적은 ‘1월 2일 피자 1/2 판 9000원’·‘어제 케이크 1/8 조각 6000원’ 도 그대로 저장한다. 붙여 쓴 ‘1/2판’ 은 해석기가 날짜로 읽지 않는다.
+// 독립 검토 2: 2차 수정은 앞에 ‘수.수’·‘수-수’ 꼴만 있어도 날짜를 따로 적은 줄로 보아 ‘콜라 1.5L 피자 1/2 판’·‘2-3인분 피자 1/2 판’ 을 다시 1월 2일로 저장했고,
+// 다른 줄에서 나온 기록의 날짜까지 보았다(‘1/2 택시 5000원⏎어제 피자 1/2 판 9000원’ 을 되물었다). 같은 달·날을 적은 날짜 꼴만, 그 줄의 기록만 본다.
+// 독립 검토 3: 3차 수정은 같은 줄의 앞 분수를 ‘따로 적은 날짜’ 로 세어 ‘어제 피자 1/2 판 9000원 치킨 1/2 마리 9000원’ 의 치킨을 다시 1월 2일로 저장했고,
+// ‘2026-01-02 피자 1/2 판’ 을 되물었고, 기록의 원문에서 기호가 빠진 줄(‘케이크(초코) 1/8 조각’)에서 다른 줄의 기록까지 보았다. 분수 자리는 날짜로 세지 않고,
+// 점·줄표 날짜는 뒤가 낱말 끝일 때만 날짜로 보고(‘1.5L’·‘3.500원’·‘2-3인분’ 은 아니다), 기록의 원문과는 글자·숫자·빗금만 남겨 견준다.
+// 줄마다 빈칸을 하나로 줄인 글에서 보므로 빈칸 되풀이가 없다(V22.9.122 의 규칙).
+const KAKAO_GUARD_FRACTION_DATE_V229131 = /\S ([1-9])\/([2-9]|10) (?:한 ?)?(?:판|조각|쪽|컵|공기|인분|개|잔|병|근|통|봉|팩|토막|줄|등분|마리|모|포기|박스|접시|그릇|봉지|캔)(?:을|를|은|는|이|가|도|만|씩|짜리|에|으로|로|과|와|하고|랑|이랑)?(?= |$|[.,!?~])/g;
+const KAKAO_GUARD_FRACTION_WRITTEN_DATE_V229131 = /(?:^|[^\d])(\d{1,2}) ?월 ?(\d{1,2})(?!\d)|(?:^|[^\d\/.\-])(?:\d{4}[.\/\-])?(\d{1,2})\/(\d{1,2})(?![\d\/])|(?:^|[^\d\/.\-])(?:\d{4}[.\-])?(\d{1,2})[.\-](\d{1,2})(?= |$|[,!?~)]|\.(?!\d))/g;
+function kakaoGuardFractionLooseV229131(text) {
+  return kakaoGuardNormV229120(text).replace(/[^0-9A-Za-z가-힣\/ ]/g, " ").split(" ").filter(Boolean).join(" ");
+}
+function kakaoGuardFractionDateV229131(text, rows) {
+  for (const raw of String(text || "").replace(/\r/g, "").split("\n")) {
+    const line = kakaoGuardNormV229120(raw);
+    const found = [...line.matchAll(KAKAO_GUARD_FRACTION_DATE_V229131)];
+    if (!found.length) continue;
+    // 분수 자리(‘N/M’)를 빈칸으로 가린 줄 — 앞의 분수를 ‘따로 적은 날짜’ 로 세지 않는다(자리는 그대로다).
+    let plain = line;
+    for (const f of found) { const at = f.index + 2, size = f[1].length + 1 + f[2].length; plain = plain.slice(0, at) + " ".repeat(size) + plain.slice(at + size); }
+    for (const m of found) {
+      const month = Number(m[1]), day = Number(m[2]);
+      if (month >= day) continue;
+      const written = [...plain.slice(0, m.index + 1).matchAll(KAKAO_GUARD_FRACTION_WRITTEN_DATE_V229131)];
+      if (written.some((d) => Number(d[1] ?? d[3] ?? d[5]) === month && Number(d[2] ?? d[4] ?? d[6]) === day)) continue;
+      const tail = `-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      // 그 줄(조각)에서 나온 기록만 본다. 기록에 원문이 없거나 어느 기록의 원문에도 이 꼴이 없으면 예전처럼 모든 기록을 본다.
+      const key = kakaoGuardFractionLooseV229131(m[0].slice(1));
+      const own = rows.filter((row) => typeof row?.raw_text === "string" && kakaoGuardFractionLooseV229131(row.raw_text).includes(key));
+      if ((own.length ? own : rows).some((row) => String(row?.transaction_date || "").endsWith(tail))) return { month, day, text: `${m[1]}/${m[2]}` };
+    }
+  }
+  return null;
+}
+
 function kakaoRecordGuardV229120(utterance, parsedList, today = formatDate(nowKstDate())) {
   const rows = Array.isArray(parsedList) ? parsedList : [];
   if (!rows.length) return null;
@@ -55727,6 +55977,10 @@ function kakaoRecordGuardV229120(utterance, parsedList, today = formatDate(nowKs
     // 지난달에 없는 날(10월의 ‘31일’ → 9월 31일)은 예문이 통하지 않으므로 지난달 마지막 날로 적는다.
     const prevDay = Math.min(future.day, new Date(Date.UTC(future.year, future.month - 1, 0)).getUTCDate());
     return { kind: "future", text: `‘${future.day}일’이 이번 달 ${future.day}일(${future.month}월 ${future.day}일, 아직 오지 않은 날)로 읽혀서 저장하지 않았어요.\n지난달이면 달을 붙여 다시 보내 주세요.\n${prevMonth}월 ${prevDay}일 미용실 30000원\n앞으로 낼 돈을 미리 적는 거면 ‘${future.month}월 ${future.day}일 미용실 30000원’처럼 보내 주세요.`, quickReplies: [["오늘기록", "오늘기록"]] };
+  }
+  const fraction = kakaoGuardFractionDateV229131(text, rows);
+  if (fraction) {
+    return { kind: "fraction_date", text: `‘${fraction.text}’ 부분이 날짜(${fraction.month}월 ${fraction.day}일)로 읽혀서 저장하지 않았어요. 이대로면 ${fraction.month}월 ${fraction.day}일 기록이 돼요.\n분량을 적은 거면 숫자를 빼고 다시 보내 주세요.\n케이크 한 조각 6000원\n날짜가 맞으면 달과 날을 이렇게 적어 주세요.\n${fraction.month}월 ${fraction.day}일 케이크 6000원`, quickReplies: [["오늘기록", "오늘기록"]] };
   }
   if (notRecord === "plan" || notRecord === "hearsay") {
     const why = notRecord === "plan" ? "앞으로의 계획·목표로 보여서" : "다른 사람에게 들은 말로 보여서";
@@ -57766,7 +58020,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   if (!separatePurchaseCommand && skillConfigured && kakaoUserKey && !isKakaoEditSessionBypassCommand(utterance) &&
       (isKakaoSessionSeqReplyV4(commandText) || (!parseKakaoEditCommandV4(commandText) && !parseKakaoDeleteCommandV4(commandText) && !parseKakaoRestoreCommandV4(commandText)))) {
     // T6: 분명한 새 기록이면 세션만 끝나고(passThrough) 아래 기록 경로로 이어진다.
-    const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance: kakaoEditSessionTextV4(utterance) || utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, sessionRaw: routingSnapshot?.edit });
+    const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance: kakaoEditSessionTextV4(utterance) || utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, recordGuardKind: String(recordGuard?.kind || ""), sessionRaw: routingSnapshot?.edit });
     if (editSessionReply?.passThrough) editSessionNotice = String(editSessionReply.notice || "");
     else if (editSessionReply) {
       // V22.9.90 독립 검토: 열린 수정 세션이 받은 답("금액 13000"·"1번")은 위 미리 읽기가 기록으로 보았어도 관제 기능 순위에서는 고치기(EDIT)다.
@@ -59408,20 +59662,45 @@ function invalidFavoriteDateReason(x) {
   if (month && !validMonth(month)) return "invalid_month";
   return "";
 }
+// V22.9.131 (Codex 점검 2026-11-19 7번): 화면이 보내는 즐겨찾기 표식은 ‘날짜|구분|금액|메모’ 라 메모가 길면 64자를 넘는다. 저장할 때 64자로 잘라서
+// 화면이 만든 표식(전체)과 저장된 표식(잘린 것)이 달랐고, 그런 기록은 별이 켜진 것으로 보이지도 않고 지워지지도 않았다. 메모(160자)·원문(500자)이
+// 다 들어가는 길이까지 받는다. 예전에 잘려 저장된 표식(정확히 64자)은 읽을 때 스냅숏으로 화면의 표식을 다시 만들어 그 앞머리와 같으면 바꿔 준다.
+const FAVORITE_ID_MAX_V229131 = 600;
+const FAVORITE_ID_LEGACY_MAX_V229131 = 64;
+// 예전 스냅숏은 메모를 200자에서 잘랐다. 그 길이에 닿은 메모로는 화면의 표식을 다시 만들 수 없다(독립 검토 2 — 잘린 메모로 만든 표식은 화면의 표식과 달라
+// 별이 꺼진 채였고, 별을 다시 누르면 같은 기록이 두 항목이 됐다). 그런 옛 항목은 그대로 두고, 별을 다시 누를 때 새 표식의 항목으로 바꾼다(favoriteLegacyTwinV229131).
+const FAVORITE_MEMO_LEGACY_MAX_V229131 = 200;
+// 화면(client/nav-search-notif-mains.js favKeyOf)과 같은 식이다.
+function favoriteScreenKeyV229131(s = {}) {
+  return `${s.transaction_date || ""}|${s.type || "expense"}|${s.amount || 0}|${String(s.memo || s.category || "").trim()}`;
+}
+// 잘려 저장된 옛 표식(정확히 64자)이 넘겨받은 표식(더 긴 것)의 앞머리인가.
+function favoriteCutPrefixV229131(storedId = "", id = "") {
+  return storedId.length === FAVORITE_ID_LEGACY_MAX_V229131 && id.length > FAVORITE_ID_LEGACY_MAX_V229131 && id.startsWith(storedId);
+}
+// 다시 만들지 못한 옛 항목인가 — 지우거나 덮을 때만 쓴다. 표식이 정확히 64자여도 스냅숏으로 만든 화면의 표식이 그 표식과 같으면 온전한 표식이다
+// (메모가 꼭 그 길이인 기록 — 독립 검토 1: 이런 기록의 별이 더 긴 메모의 다른 기록을 켜고 끌 때 함께 지워졌다).
+function favoriteLegacyTwinV229131(stored = {}, id = "") {
+  return favoriteCutPrefixV229131(String(stored.id || ""), id) && favoriteScreenKeyV229131(stored) !== stored.id;
+}
 function normalizeFavoriteSnapshot(x) {
   const o = safeObject(x);
   const id = String(o.id || "").trim();
   if (!id) return null;
-  return {
-    id: id.slice(0, 64),
+  const snapshot = {
+    id: id.slice(0, FAVORITE_ID_MAX_V229131),
     type: o.type === "income" ? "income" : "expense",
     amount: Math.max(0, Math.round(Number(o.amount || 0))),
     category: String(o.category || "").slice(0, 80),
-    memo: String(o.memo || "").slice(0, 200),
+    // V22.9.131 (독립 검토 1): 화면은 스냅숏의 메모로 표식을 다시 만든다. 200자에서 자르면 원문이 긴 기록(메모 없이 원문 500자까지)의 표식이 달라진다.
+    memo: String(o.memo || "").slice(0, 500),
     payment_method: String(o.payment_method || "").slice(0, 80),
     transaction_date: String(o.transaction_date || "").slice(0, 10),
     month: String(o.month || String(o.transaction_date || "").slice(0, 7)).slice(0, 7),
   };
+  const screenKey = favoriteScreenKeyV229131(snapshot);
+  if (snapshot.memo.length < FAVORITE_MEMO_LEGACY_MAX_V229131 && favoriteCutPrefixV229131(snapshot.id, screenKey)) snapshot.id = screenKey.slice(0, FAVORITE_ID_MAX_V229131);
+  return snapshot;
 }
 function normalizeFavoriteList(value) {
   let raw = value;
@@ -59466,7 +59745,7 @@ async function handleUserFavorites(request, env, url) {
       return jsonResponse({ ok: false, error: "read_failed", reason: "favorite_read_failed", message: "즐겨찾기를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." }, 503);
     }
   }
-  const id = String(body.id || (body.tx && body.tx.id) || "").trim();
+  const id = String(body.id || (body.tx && body.tx.id) || "").trim().slice(0, FAVORITE_ID_MAX_V229131);
   if (!id) return jsonResponse({ ok: false, error: "id_required", reason: "id_required", message: "거래를 찾지 못했습니다." }, 400);
   const dateProblem = body.remove ? "" : invalidFavoriteDateReason(body.tx || body);
   if (dateProblem) return jsonResponse({ ok: false, error: dateProblem, reason: dateProblem, message: "즐겨찾기할 거래의 날짜가 올바르지 않습니다." }, 400);
@@ -59475,7 +59754,8 @@ async function handleUserFavorites(request, env, url) {
   try {
     const list = await withHouseholdSettingsRmw(env, household.id, async ({ assertFresh }) => {
       const current = await readFavorites();
-      const next = body.remove ? current.filter((f) => f.id !== id) : [snap, ...current.filter((f) => f.id !== snap.id)].slice(0, 100);
+      // V22.9.131: 다시 만들지 못한 옛 표식(64자에서 잘린 것)도 같은 기록이면 함께 지우고, 새로 켤 때는 그 자리를 새 표식으로 바꾼다.
+      const next = body.remove ? current.filter((f) => f.id !== id && !favoriteLegacyTwinV229131(f, id)) : [snap, ...current.filter((f) => f.id !== snap.id && !favoriteLegacyTwinV229131(f, snap.id))].slice(0, 100);
       assertFresh();
       await saveSettingValue(env, key, JSON.stringify(next));
       return next;

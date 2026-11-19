@@ -56,6 +56,15 @@ const ROOM_VIEW_HOUSEHOLD_SHAPE_V229130 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-
 function roomViewEnabledV229130(env) {
   return !envFlagEnabled(env?.KAKAO_ROOM_VIEW_DISABLED, false);
 }
+// V22.9.131 (Codex 점검 2026-11-19 8번): 채팅만 쓰던 소유자가 첫 비밀번호를 저장한 뒤의 일을 소유자 양도 칸·가계부 삭제 칸이 한 문장으로 알린다.
+// V22.9.130 부터 로그인 이름·비밀번호가 붙은 구성원은 로그인돼 있지 않은 브라우저의 방 단추에서 로그인 화면이 아니라 그 방 가계부의 보기 전용 화면이
+// 먼저 열리는데(kakao-room-open.js strong_local_room_view), 두 칸은 ‘비밀번호를 먼저 묻는다’ 는 앞 판의 문장 그대로였다. 방 전용 보기를 끈 운영
+// (KAKAO_ROOM_VIEW_DISABLED)에서는 예전 동작이라 예전 문장을 쓴다.
+function firstPasswordConsequenceTextV229131(env) {
+  return roomViewEnabledV229130(env)
+    ? "저장하면 다른 기기·브라우저는 로그아웃돼요. 그 뒤 로그인돼 있지 않은 브라우저에서 단톡방의 웹 가계부 단추를 누르면 그 방 가계부만 보기 전용으로 열리고(12시간), 기록하거나 고치려면 로그인 이름과 비밀번호로 로그인해야 해요. 여럿이 쓰는 기기에서는 다 본 뒤 화면 위 ‘보기 끝내기’를 눌러 주세요."
+    : "저장하면 다른 기기·브라우저는 로그아웃되고, 그 뒤 로그인돼 있지 않은 브라우저에서 단톡방의 웹 가계부 단추를 누르면 홈 대신 로그인 이름과 비밀번호를 먼저 물어요.";
+}
 
 async function makeUserSession(env, userId, options = {}) {
   const roomViewHouseholdId = String(options?.roomViewHouseholdId || "");
@@ -396,10 +405,10 @@ function kakaoLoginUserKey(kakaoId = "") {
 }
 // @build:exports-start
 export {
-  ROOM_VIEW_SESSION_SECONDS_V229130, getKakaoRedirectUri, getUserSessionVersion,
-  identityMergeRedirectSettingsKey, inspectKakaoLoginConfig, kakaoLoginUserKey, makeUserSession,
-  mergedMarkerFreeName, parseIdentityMergeRedirectValue, randomState, resolveEffectiveUserId,
-  rewireEffectiveUserCache, roomViewEnabledV229130, roomViewSessionOfRequestV229130,
-  userSessionSecret, verifyUserSession,
+  ROOM_VIEW_SESSION_SECONDS_V229130, firstPasswordConsequenceTextV229131, getKakaoRedirectUri,
+  getUserSessionVersion, identityMergeRedirectSettingsKey, inspectKakaoLoginConfig,
+  kakaoLoginUserKey, makeUserSession, mergedMarkerFreeName, parseIdentityMergeRedirectValue,
+  randomState, resolveEffectiveUserId, rewireEffectiveUserCache, roomViewEnabledV229130,
+  roomViewSessionOfRequestV229130, userSessionSecret, verifyUserSession,
 };
 // @build:exports-end

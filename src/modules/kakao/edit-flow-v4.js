@@ -229,7 +229,7 @@ async function sendKakaoEditReplyV4(env, ctx, session, reply, nextSession, { gon
 }
 
 // 필드 → transactions 컬럼 반영. DB 검증(구성원 존재 등)은 여기서 최종 수행한다.
-async function applyKakaoEditFieldV4(env, { session, field, value, config, kakaoUserKey, moduleReply, role = "" }) {
+async function applyKakaoEditFieldV4(env, { session, field, value, config, kakaoUserKey, moduleReply, role = "", holdWrite = false }) {
   const row = await getKakaoRowById(env, session.householdId, session.userId, kakaoUserKey, session.entryId);
   if (!row) {
     return { reply: `수정하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘기록’로 번호를 다시 확인해 주세요.`, nextSession: null, gone: true };
@@ -362,6 +362,8 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
   } else {
     return { reply: moduleReply, nextSession: null };
   }
+  // V22.9.131: 값 확인을 모두 지나 이제 기록을 쓴다. 열린 창에 온 새 기록 꼴의 말이면(holdWrite) 쓰지 않고 돌려보낸다 — 부른 쪽이 두 길 안내로 끝낸다.
+  if (holdWrite) return { held: true };
   try {
     // V22.9.104 J-9(Codex 검토 V102): 구성원(소유자·관리자 아님)이 카카오 기록 표시(source_user_key) 없는 기록(웹에서 만든 내 기록 — 지출자로 내 기록을
     // 가린다)을 고칠 때, 위에서 읽은 뒤 관리자가 지출자를 바꾸면 예전에는 조건 없는 감사 RPC 가 이제 남의 기록이 된 행에 저장했다. 이제는 웹 수정과 같은
@@ -444,7 +446,9 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     if (refusal) return sendKakaoEditReplyV4(env, ctx, session, refusal, null, { blocked: refusal !== KAKAO_RECORD_CHANGE_POLICY_UNKNOWN_TEXT_V229126 });
   }
   if (result?.action === "apply") {
-    const applied = await applyKakaoEditFieldV4(env, { session, field: result.field, value: result.value, config, kakaoUserKey, moduleReply: result.reply, role: currentRole });
+    const applied = await applyKakaoEditFieldV4(env, { session, field: result.field, value: result.value, config, kakaoUserKey, moduleReply: result.reply, role: currentRole, holdWrite: !!ctx.ambiguousRecord });
+    // V22.9.131: 열린 창에 온 새 기록 꼴의 말이 값 확인까지 지나 이 기록을 바꾸게 됐다 — 바꾸지 않고 두 길 안내(ctx.ambiguousRecord)로 끝낸다.
+    if (applied.held) return processKakaoEditResultV4(env, { ...ctx, ambiguousRecord: null }, session, ctx.ambiguousRecord(), config);
     if (applied.log) {
       await logKakaoEditTelemetryV4(env, payload, { userKey: kakaoUserKey, entryNo: applied.log.entryNo || session.entryNo, input: applied.log.input || "", attempt: applied.log.attempt || 0, type: applied.log.type });
     }
@@ -455,6 +459,7 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     if (!row) {
       return sendKakaoEditReplyV4(env, ctx, session, `삭제하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘기록’로 번호를 다시 확인해 주세요.`, null, { gone: true });
     }
+    if (ctx.ambiguousRecord) return processKakaoEditResultV4(env, { ...ctx, ambiguousRecord: null }, session, ctx.ambiguousRecord(), config); // V22.9.131: 위와 같다(지우지 않는다)
     const seq = Number(session.entryNo) || 0;
     let deleted = null;
     try {
@@ -499,8 +504,49 @@ function kakaoEditNegatedAmountResultV22994(session = {}, utterance = "", config
   };
 }
 
+// V22.9.131: 열린 수정 창에 온 새 기록 꼴의 말이 이 기록을 바꾸게 되는가 — 상태 기계가 낸 답(result)을 보고 정한다.
+//  - 값을 묻거나 다시 묻거나 ‘네/아니오’ 로 확인하는 답은 아무것도 바꾸지 않는다 → 이 판 전 그대로 내보낸다(창도 열려 있다). 독립 검토 3: 3차 수정까지는 이런
+//    말에도 두 길 안내를 내고 창을 닫아, 이어 보낸 ‘1번 13000원으로’ 가 01번을 고치고 ‘13000’ 이 새 기록이 됐다(창이 열려 있으면 이 기록의 답으로 다뤄지던 말이다).
+//  - 그 기록을 고치거나 지우는 답(apply·delete)이 ‘바꾸게 되는 말’ 의 후보다. 그 답도 값 확인(날짜 풀기·구성원 찾기·분류의 구분·권한)에서 거절되면 이 판 전처럼
+//    그 자리에서 다시 묻는다 — 두 길 안내는 값 확인을 모두 지나 기록을 쓰기 직전(applyKakaoEditFieldV4 의 holdWrite)에 낸다.
+//  - 분류·결제수단 값에 금액 낱말이 들어 상태 기계가 거절한 답(moneyInValue)은 이 판 전에는 그대로 썼다 — 새 기록 꼴의 말이면 두 길 안내를 낸다.
+//  - ‘금액 칸 + 금액 하나’ 뿐인 답은 고치는 말이라 뺀다: 첫 낱말이 금액 칸 이름 그대로(금액·가격·얼마·액수)이거나 거기에 고치는 말이나 칸을 가리키는 말(변경·수정·정정·란·칸·부분)·조사나 끝말
+//    (은·만·요·이요·은요·을요·이에요·입니다·이야·으로 … 둘까지 — ‘금액만으로’)·문장부호가 붙었거나 메뉴 1번(‘1’·‘1번’)이고, 상태 기계가 금액을 고친다고 읽었을 때다.
+//    ‘금액만 13000원으로요’·‘금액변경 5만원’·‘금액이요 13000원’·‘1번 13000원으로 좀’ 은 고치는 말, ‘가격표 3000원’·‘금액권 5만원’·‘금액대 5만원’ 은 아니다
+//    (독립 검토 1·3 — 처음에는 정규식 하나로 가렸다가 예전에 고쳐지던 답을 막았다. 상태 기계의 답과 닫힌 머리 꼴을 함께 본다).
+const KAKAO_EDIT_AMOUNT_HEAD_V229131 = /^(?:1번?|(?:금액|가격|얼마|액수)(?:변경|수정|정정|란|칸|부분)?(?:은요|는요|이요|을요|를요|도요|만요|이에요|예요|에요|입니다|이야|요|야|으로|로|[은는이가을를만도]){0,2}[,.!?~…]{0,3})$/;
+function kakaoEditRecordWouldChangeV229131(result, utterance = "") {
+  if (result?.action !== "apply" && result?.action !== "delete") return false;
+  return !(result.action === "apply" && result.field === "amount" && KAKAO_EDIT_AMOUNT_HEAD_V229131.test(normalizeText(utterance).split(" ")[0] || ""));
+}
+
+// V22.9.131: 고치는 말인지 새 기록인지 알 수 없는 말의 답. 기록도 세션도 건드리지 않은 채 창만 닫는다(processKakaoEditResultV4 의 cancel 길).
+// 예시는 그 기록을 고치는 한 줄 명령이다(오늘이 아닌 기록이면 날짜가 붙는다). 칸 이름 그대로 시작한 말(‘메모 12월 회비 3만원’)이면 보낸 말을 그대로 붙여
+// 보여 준다 — 고치려던 사람은 그 한 줄을 보내면 예전처럼 고쳐진다. 그 한 줄이 통하지 않는 말(분류·결제수단 값에 금액 낱말 — named: false)에는 붙이지 않는다.
+// 줄일 때는 글자 단위로 자른다(독립 검토 3 — 코드 단위로 자르면 이모지가 반으로 잘렸다). 실패 횟수로 세지 않는다(창이 닫힌다).
+function kakaoEditAmbiguousRecordResultV229131(session = {}, utterance = "", { named = true } = {}) {
+  const head = `${kakaoEditDayPrefixV4(session.entryDate)}수정 ${session.entryNo}번`;
+  const full = normalizeText(utterance);
+  const chars = Array.from(full);
+  const said = chars.length > 40 ? `${chars.slice(0, 40).join("")}…` : full;
+  const own = named && chars.length <= 40 && !/^\d/.test(full) && isExactKakaoEditFieldStart(full);
+  const examples = own ? [`${head} ${full}`] : [`${head} 금액 13000`, `${head} 내용 점심`];
+  return {
+    action: "cancel",
+    log: { type: "unrecognized", entryNo: session.entryNo, input: Array.from(String(utterance || "")).slice(0, 80).join(""), attempt: (Number(session.repeatCount) || 0) + 1 },
+    nextSession: null,
+    reply: [
+      `🤔 보낸 말(‘${said}’)이 ${session.entryNo}번 기록을 고치는 말인지 새 기록인지 정하지 못했어요.`,
+      `아무것도 바꾸거나 저장하지 않았고, ${session.entryNo}번 수정은 끝냈어요.`,
+      "새 기록이면 같은 말을 한 번 더 보내 주세요.",
+      `${session.entryNo}번을 고치려면 한 줄로 보내 주세요:`,
+      ...examples.map((line) => `👉 ${line}`),
+    ].join("\n"),
+  };
+}
+
 // 3장 3단계: 유효 세션 보유 사용자의 메시지는 전부 이 경로가 소비한다.
-async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction = false, sessionRaw = undefined }) {
+async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction = false, recordGuardKind = "", sessionRaw = undefined }) {
   const session = await getKakaoEditSessionV4(env, kakaoUserKey, payload, sessionRaw);
   if (!session) return null;
   // T6: 시간이 지난 세션은 없는 것으로 본다. 다음 말(새 지출·조회)을 만료 안내로 삼키지 않는다.
@@ -523,12 +569,22 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
   }
   const text = isKakaoEditCancelCommand(utterance) ? "취소" : utterance;
   const config = await buildKakaoEditConfigV4(env, session.householdId, session.rowType);
-  const result = negatedAmount
+  let result = negatedAmount
     ? kakaoEditNegatedAmountResultV22994(session, utterance, config, Date.now())
     : handleEditMessage(session, text, { ...config, now: Date.now() });
+  // V22.9.131 (Codex 점검 2026-11-19 1번 = V126:F-41): 새 기록 꼴(금액+내용)인데 칸 이름·메뉴 번호로 시작하는 말은 그 기록의 답으로 받아 왔다 —
+  // ‘메모지 2000원’ 이 내용을 ‘2000원’ 으로, ‘가격표 3000원’·‘금액권 5만원’ 이 금액을, ‘3번 출구 떡볶이 5000원’ 이 결제수단을 묻지 않고 바꿨다.
+  // 그런 말이 값 확인까지 지나 이 기록을 바꾸게 될 때(kakaoEditRecordWouldChangeV229131 + holdWrite)는 아무것도 바꾸거나 저장하지 않고 두 길을 알린 뒤 창을 닫는다 — 같은 말을 한 번 더
+  // 보내면 새 기록이 되고, 고치려면 한 줄 명령을 쓴다. 상태 기계가 묻거나 확인하는 답(‘사과 5000원’ 의 ‘네/아니오’, ‘1번 커피 5000원’ 의 ‘얼마로 바꿀까요?’)과
+  // ‘금액 칸 + 금액 하나’ 뿐인 답은 이 판 전 그대로다. 저장 전 안전망이 고치는 말로 본 말(recordGuardKind "edit" — ‘메모 2025 연말정산으로 바꿔줘’)도 이 판 전
+  // 그대로 그 기록의 답이다(독립 검토 3: 그런 말은 한 번 더 보내도 새 기록이 되지 않아 두 길 안내의 말이 틀렸다).
+  // 기록 꼴이 아닌 답(‘금액 13000’·‘메모 점심’·‘6번 엄마’·‘13000’)은 newTransaction 이 아니다.
+  const recordShaped = newTransaction && !negatedAmount && recordGuardKind !== "edit";
+  if (recordShaped && result?.moneyInValue) result = kakaoEditAmbiguousRecordResultV229131(session, utterance, { named: false });
+  const ambiguousRecord = recordShaped && kakaoEditRecordWouldChangeV229131(result, utterance) ? () => kakaoEditAmbiguousRecordResultV229131(session, utterance) : null;
   // V22.9.81 U-4: sessionStored — 저장된 세션에 온 답이다(역할 조회가 실패하면 이 세션을 그대로 둔다).
   // V22.9.126 FC-19(3차 검토): stored — 끝내는 답이 닫을 저장 세션(정리가 실패하면 남는 것)이다.
-  return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin, sessionStored: true, stored: session }, session, result, config);
+  return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin, sessionStored: true, stored: session, ambiguousRecord }, session, result, config);
 }
 
 // V22.9.76 감사 B-3: 끝난 세션에 수정 값이 왔을 때의 안내. 아무것도 바꾸지 않았다고 말하고, 그 기록을 고치는 한 줄 명령을

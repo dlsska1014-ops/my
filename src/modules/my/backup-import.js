@@ -17,7 +17,7 @@ import {
 } from "../import/flexible-import-parser.js";
 import {
   attachSpenderNames, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
-  fetchPostgrestRows, isRowLimitExceededError, memberNameMap,
+  fetchPostgrestRows, isRowLimitExceededError, isRowsChangedDuringReadError, memberNameMap,
 } from "../data/households-members-rows.js";
 import { getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
@@ -90,12 +90,18 @@ async function handleMyBackupCsv(request, env, url) {
   const allRange = url.searchParams.get("range") === "all";
   // 한도를 넘으면 일부만 담긴 파일을 전체 백업처럼 내려보내지 않고 백업 화면에서 이유를 알린다(QA B05).
   // 전 기간 4만 건은 요청당 DB 호출 예산(50회) 안에서 끝까지 읽을 수 있는 크기다.
+  // V22.9.131 (Codex 점검 2026-11-19 2번): 1,000건을 넘겨 읽는 사이 다른 구성원이 기록을 더하거나 지우면 같은 기록이 두 번 담기거나 한 건이 빠졌다.
+  // stable 조회는 그런 일이 보이면 처음부터 다시 읽고, 끝내 맞지 않으면 파일을 만들지 않고 백업 화면에서 알린다(영구 삭제 전에 받는 파일이다).
   let rawRows;
   try {
     rawRows = allRange
-      ? await fetchAdminRowsRange(env, { householdId: selected.id, start: "2000-01-01", end: "2100-01-01", type: "all", limit: 40000 })
-      : await fetchAdminRows(env, { month, householdId: selected.id, type: "all" });
+      ? await fetchAdminRowsRange(env, { householdId: selected.id, start: "2000-01-01", end: "2100-01-01", type: "all", limit: 40000, stable: true })
+      : await fetchAdminRows(env, { month, householdId: selected.id, type: "all", stable: true });
   } catch (err) {
+    if (isRowsChangedDuringReadError(err)) {
+      rememberOpsEvent({ kind: "backup_rows_changed", severity: "warn", path: "/my/backup.csv", method: "GET", detail: `${allRange ? "all" : month}:${String(err.status || "")}` });
+      return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=backup_rows_changed`);
+    }
     if (!isRowLimitExceededError(err)) throw err;
     return redirectResponse(`/my/backup?household_id=${encodeURIComponent(selected.id)}&month=${encodeURIComponent(month)}&err=backup_too_large`);
   }

@@ -1082,6 +1082,9 @@ function normalizeScheduledRun(entry = {}) {
   const reports = scheduledRunStage(entry.reports, SCHEDULED_RUN_REPORT_FIELDS, ["partial", "skipped_run"]);
   // V22.9.95: 남은 범위 칸(pending_scopes)이 없던 기록(V22.9.93 이하·다른 실행이 처리 중이라 건너뛴 실행)은 0 으로 채우지 않는다(관리 화면 ‘-’).
   if (reports && !reports.error && entry.reports.pending_scopes == null) delete reports.pending_scopes;
+  // V22.9.131: 자동 리포트가 다시 넣은 범위 수(retry_queued)와 그만둔 가계부 수(gave_up)는 있을 때만 남긴다(0 은 적지 않아 예전 기록과 같은 모양이다.
+  // 운영 이벤트는 인스턴스 메모리라 다음 날 보이지 않는다 — 실행 기록이 남는 곳이다). 앞 판은 모르는 칸을 버리고 읽는다.
+  if (reports && !reports.error) for (const field of ["retry_queued", "gave_up"]) { const n = scheduledRunCount(entry.reports[field]); if (n) reports[field] = n; }
   const cleanup = scheduledRunCleanupStageV22995(entry.cleanup);
   const version = typeof entry.version === "string" && /^V[0-9A-Za-z._-]{1,47}$/.test(entry.version) ? entry.version : "";
   // V22.9.119 O-3 후속 2: 그 실행이 쓴 DB 호출 상한(CRON_DB_CALL_BUDGET, 없거나 잘못된 값이면 50). 이 칸이 없던 예전 기록은 그대로(칸 없음).

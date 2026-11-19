@@ -56,10 +56,13 @@ async function getMyPageContext(request, env, url, { observedComparison = false,
   // 행으로 만든다 — 값은 같고 왕복 하나가 준다.
   // V22.9.79 V76 W-7: 월말 예상을 보이는 화면(?view=report·/smart-tools)은 고정지출 규칙·정기지출 항목을 같은 단계에서 함께 읽는다
   // (직렬 깊이 그대로). 못 읽으면 null — 월말 예상은 그 몫을 빼고 계산했다고 부제에 적는다.
+  // V22.9.131 (Codex 점검 2026-11-19 5번): 예산 읽기가 잠깐 실패한 달을 예산이 없는 달과 같게 그리지 않도록 엄격하게 읽고, 실패는 표시만 해 둔다
+  // (계산은 예전처럼 빈 목록). 표시를 쓰는 화면은 스마트 도구(‘예산 잔여’)다 — 종합 리포트는 보호 화면(R3)이라 그대로 두고, 생활비 리포트는 예산을 쓰지 않는다.
+  let budgetReadFailed = false;
   const [members, rawRows, budgets, recurring, reservePlans] = await Promise.all([
     fetchHouseholdMembers(env, selected.id),
     observedComparison ? fetchObservationMonthRows(env, selected.id, month) : fetchAdminRows(env, { month, householdId: selected.id, type: "all" }),
-    fetchBudgets(env, selected.id, month),
+    fetchBudgets(env, selected.id, month, { strict: true }).catch(() => { budgetReadFailed = true; return []; }),
     outlook ? fetchRecurringStrict(env, selected.id).catch(() => null) : null,
     outlook ? fetchReservePlans(env, selected.id, { strict: true }).catch(() => null) : null,
   ]);
@@ -69,7 +72,7 @@ async function getMyPageContext(request, env, url, { observedComparison = false,
   const budget = budgetSummary(rows, budgets);
   // V22.9.126 FC-21: 위에서 읽은 참여자 목록을 넘겨 ?view=report·/smart-tools 의 월말 예상도 예산 알림과 같은 기준으로 지출자 자격이 없는 규칙을 뺀다.
   const analysis = calculateDashboardAnalysis(rows, rows, calendar, month, { startedOn: householdStartYmd(selected, rows), ...(outlook ? { outlook: monthSpendingOutlook({ month, rows, recurring, plans: reservePlans, members }) } : {}) });
-  return { userId, user, month, households, selected, members, rows, calendar, stats, budgets, budget, analysis, recurring, reservePlans };
+  return { userId, user, month, households, selected, members, rows, calendar, stats, budgets, budget, budgetReadFailed, analysis, recurring, reservePlans };
 }
 
 function reportChallengeSettingsKey(householdId = "") {

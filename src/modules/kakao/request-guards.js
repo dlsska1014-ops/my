@@ -1496,6 +1496,48 @@ function kakaoGuardMoreV229126(text, rows) {
   return null;
 }
 
+// V22.9.131 (Codex 점검 2026-11-19 4번, V126 ‘해석기에서 본 결함’): 띄어 쓴 분수 뒤에 분량 낱말이 오면(‘케이크 1/8 조각 6000원’·‘피자 1/2 판 9000원’)
+// 해석기가 1월 8일·1월 2일로 읽어 그 날짜의 기록으로 저장했다(메모에서도 분수가 빠진다). 읽는 규칙은 건드리지 않고, 닫힌 꼴 하나에서만 되묻는다:
+//  - 같은 줄에서 물건 이름 뒤에 온(줄 머리가 아닌) 분모 10 이하의 진분수(1/2·2/3·3/4·1/8 …)를 슬래시로 적고,
+//  - 띄어 쓴 뒤 (‘한’ +) 분량 낱말 + 조사 + 낱말 끝이 오고,
+//  - 그 줄에서 나온 기록이 실제로 그 달·날로 읽혔을 때다. 같은 달·날을 앞에 날짜 꼴(‘1월 2일’·‘1/2’·‘2026-01-02’·‘1.2’)로 따로 적은 줄은 그 날짜를 쓴 것이라 그대로 둔다.
+// 줄 머리의 ‘1/5 개 사료 3만원’·‘2/7 공기 청정기 필터 3만원’·‘1/8 조각 케이크 6000원’ 은 날짜 자리라 예전처럼 날짜다(독립 검토 1 — 처음에는 줄 머리도
+// 되물어 진짜 날짜를 막았다). ‘11/8 조각 케이크’·‘11/19 개 사료’ 처럼 분수 꼴이 아닌 날짜, 분량 낱말이 다른 낱말의 머리일 뿐인 ‘1/8 조각케이크’,
+// 날짜를 따로 적은 ‘1월 2일 피자 1/2 판 9000원’·‘어제 케이크 1/8 조각 6000원’ 도 그대로 저장한다. 붙여 쓴 ‘1/2판’ 은 해석기가 날짜로 읽지 않는다.
+// 독립 검토 2: 2차 수정은 앞에 ‘수.수’·‘수-수’ 꼴만 있어도 날짜를 따로 적은 줄로 보아 ‘콜라 1.5L 피자 1/2 판’·‘2-3인분 피자 1/2 판’ 을 다시 1월 2일로 저장했고,
+// 다른 줄에서 나온 기록의 날짜까지 보았다(‘1/2 택시 5000원⏎어제 피자 1/2 판 9000원’ 을 되물었다). 같은 달·날을 적은 날짜 꼴만, 그 줄의 기록만 본다.
+// 독립 검토 3: 3차 수정은 같은 줄의 앞 분수를 ‘따로 적은 날짜’ 로 세어 ‘어제 피자 1/2 판 9000원 치킨 1/2 마리 9000원’ 의 치킨을 다시 1월 2일로 저장했고,
+// ‘2026-01-02 피자 1/2 판’ 을 되물었고, 기록의 원문에서 기호가 빠진 줄(‘케이크(초코) 1/8 조각’)에서 다른 줄의 기록까지 보았다. 분수 자리는 날짜로 세지 않고,
+// 점·줄표 날짜는 뒤가 낱말 끝일 때만 날짜로 보고(‘1.5L’·‘3.500원’·‘2-3인분’ 은 아니다), 기록의 원문과는 글자·숫자·빗금만 남겨 견준다.
+// 줄마다 빈칸을 하나로 줄인 글에서 보므로 빈칸 되풀이가 없다(V22.9.122 의 규칙).
+const KAKAO_GUARD_FRACTION_DATE_V229131 = /\S ([1-9])\/([2-9]|10) (?:한 ?)?(?:판|조각|쪽|컵|공기|인분|개|잔|병|근|통|봉|팩|토막|줄|등분|마리|모|포기|박스|접시|그릇|봉지|캔)(?:을|를|은|는|이|가|도|만|씩|짜리|에|으로|로|과|와|하고|랑|이랑)?(?= |$|[.,!?~])/g;
+const KAKAO_GUARD_FRACTION_WRITTEN_DATE_V229131 = /(?:^|[^\d])(\d{1,2}) ?월 ?(\d{1,2})(?!\d)|(?:^|[^\d\/.\-])(?:\d{4}[.\/\-])?(\d{1,2})\/(\d{1,2})(?![\d\/])|(?:^|[^\d\/.\-])(?:\d{4}[.\-])?(\d{1,2})[.\-](\d{1,2})(?= |$|[,!?~)]|\.(?!\d))/g;
+function kakaoGuardFractionLooseV229131(text) {
+  return kakaoGuardNormV229120(text).replace(/[^0-9A-Za-z가-힣\/ ]/g, " ").split(" ").filter(Boolean).join(" ");
+}
+function kakaoGuardFractionDateV229131(text, rows) {
+  for (const raw of String(text || "").replace(/\r/g, "").split("\n")) {
+    const line = kakaoGuardNormV229120(raw);
+    const found = [...line.matchAll(KAKAO_GUARD_FRACTION_DATE_V229131)];
+    if (!found.length) continue;
+    // 분수 자리(‘N/M’)를 빈칸으로 가린 줄 — 앞의 분수를 ‘따로 적은 날짜’ 로 세지 않는다(자리는 그대로다).
+    let plain = line;
+    for (const f of found) { const at = f.index + 2, size = f[1].length + 1 + f[2].length; plain = plain.slice(0, at) + " ".repeat(size) + plain.slice(at + size); }
+    for (const m of found) {
+      const month = Number(m[1]), day = Number(m[2]);
+      if (month >= day) continue;
+      const written = [...plain.slice(0, m.index + 1).matchAll(KAKAO_GUARD_FRACTION_WRITTEN_DATE_V229131)];
+      if (written.some((d) => Number(d[1] ?? d[3] ?? d[5]) === month && Number(d[2] ?? d[4] ?? d[6]) === day)) continue;
+      const tail = `-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+      // 그 줄(조각)에서 나온 기록만 본다. 기록에 원문이 없거나 어느 기록의 원문에도 이 꼴이 없으면 예전처럼 모든 기록을 본다.
+      const key = kakaoGuardFractionLooseV229131(m[0].slice(1));
+      const own = rows.filter((row) => typeof row?.raw_text === "string" && kakaoGuardFractionLooseV229131(row.raw_text).includes(key));
+      if ((own.length ? own : rows).some((row) => String(row?.transaction_date || "").endsWith(tail))) return { month, day, text: `${m[1]}/${m[2]}` };
+    }
+  }
+  return null;
+}
+
 function kakaoRecordGuardV229120(utterance, parsedList, today = formatDate(nowKstDate())) {
   const rows = Array.isArray(parsedList) ? parsedList : [];
   if (!rows.length) return null;
@@ -1520,6 +1562,10 @@ function kakaoRecordGuardV229120(utterance, parsedList, today = formatDate(nowKs
     // 지난달에 없는 날(10월의 ‘31일’ → 9월 31일)은 예문이 통하지 않으므로 지난달 마지막 날로 적는다.
     const prevDay = Math.min(future.day, new Date(Date.UTC(future.year, future.month - 1, 0)).getUTCDate());
     return { kind: "future", text: `‘${future.day}일’이 이번 달 ${future.day}일(${future.month}월 ${future.day}일, 아직 오지 않은 날)로 읽혀서 저장하지 않았어요.\n지난달이면 달을 붙여 다시 보내 주세요.\n${prevMonth}월 ${prevDay}일 미용실 30000원\n앞으로 낼 돈을 미리 적는 거면 ‘${future.month}월 ${future.day}일 미용실 30000원’처럼 보내 주세요.`, quickReplies: [["오늘기록", "오늘기록"]] };
+  }
+  const fraction = kakaoGuardFractionDateV229131(text, rows);
+  if (fraction) {
+    return { kind: "fraction_date", text: `‘${fraction.text}’ 부분이 날짜(${fraction.month}월 ${fraction.day}일)로 읽혀서 저장하지 않았어요. 이대로면 ${fraction.month}월 ${fraction.day}일 기록이 돼요.\n분량을 적은 거면 숫자를 빼고 다시 보내 주세요.\n케이크 한 조각 6000원\n날짜가 맞으면 달과 날을 이렇게 적어 주세요.\n${fraction.month}월 ${fraction.day}일 케이크 6000원`, quickReplies: [["오늘기록", "오늘기록"]] };
   }
   if (notRecord === "plan" || notRecord === "hearsay") {
     const why = notRecord === "plan" ? "앞으로의 계획·목표로 보여서" : "다른 사람에게 들은 말로 보여서";

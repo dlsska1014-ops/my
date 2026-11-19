@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_130.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_131.sha256",
 );
 const validationScripts = [
   ["V22.9.107 광고 검토 후속(D-1 유입 매개변수·앵커가 붙어도 정본 문서면 광고, D-2 애드핏 FAQ 문구, D-3 계산표 글 절 순서, D-4~D-6 계산표 변경 전 결과·휴대폰 2열·머리꼬리·주소 판, D-7 글 목록 ‘계산표 포함’)", "validation/validate-ads-review-fixes-v229107.mjs"],
@@ -34,6 +34,7 @@ const validationScripts = [
   ["V22.9.120 통합 수정(V22.9.119 거절 답의 다시 보낼 예시는 안전망도 통과할 때만 · 판정 날짜는 그 요청의 오늘, 방에서 안전망이 되묻고 답 뒤에 처음 들인 사람의 약관 안내 빠짐 이벤트 after_reply)", "validation/validate-kakao-guard-examples-v229120.mjs"],
   ["V22.9.121 회원 번호(MB-XXXX-XXXX: 세션 비밀값 HMAC 앞 40비트, 내 계정·보안 카드와 복사 단추, 사용자 id 는 화면에 없음, 화면 GET 은 쓰지 않고 기억 줄은 화면이 보일 때의 신호 POST /my/member-code/seen 이 답 뒤 한 번 ignore-duplicates; 관리자 회원 번호 찾기·틀린 기억 줄 바로잡기·전체 사용자 목록(이름·번호·id 앞자리 찾기, 50명씩, 계정 유형·가입일·후원 상태, 통합됨, 화면 한 번 DB 5번 이하 — 번호로 읽히는 이름을 표시 이름으로도 찾을 때만 6번); /support 는 로그인 이름 대신 회원 번호; 방침 6절 회원 번호·후원 줄·ab_sp·12절 V22.9.118 문단 끝 문장(같은 조건); 저장 오류 화면의 카드, ‘Kate Moss’·‘MB…’ 이름은 이름으로, 마지막 쪽 뒤 빈 쪽, 번호로 못 찾으면 표시 이름으로도(정식 꼴은 아님), 훑기 실패는 다시 시도 안내)", "validation/validate-supporter-id-v229121.mjs"],
   ["V22.9.121 후원자 표시 옮기기·포인트 색(계정 통합 뒤 보조 계정의 후원자 표시를 주 계정으로 옮기거나 합치고 보조 줄 지움·안내 확인 기록 복사, 읽기 1 + 쓰기 3 이하·기존 뒤처리 다음 맨 끝에서 남은 호출로만(옮길 줄이 있든 없든 기존 정리 같음), 실패해도 통합 그대로 + 운영 이벤트; 쿠키 ab_sp 로 모든 셸 화면에 포인트 색 — 홈·전체 메뉴·참여자가 주고 지움, DB 읽기 추가 없음, 공개·관리자·로그인·HTML 아닌 응답은 바이트 그대로, 로그아웃·세션 바뀜은 지움)", "validation/validate-supporter-carry-v229121.mjs"],
+  ["V22.9.131 기록 지키기(열린 수정 창의 기록 꼴 말은 바꾸지도 저장하지도 않고 되묻기 · 백업 CSV·관리자 JSON 은 읽는 사이 바뀌면 다시 읽고 없는 가계부는 404 · 띄어 쓴 분수가 날짜로 읽힌 기록 되묻기 · 스마트 도구 예산 잔여의 확인 불가·설정 전 · 자동 리포트 확정 실패 다시 만들기 · 긴 즐겨찾기 표식 · 첫 비밀번호 안내와 방 단추)", "validation/validate-v229131-record-safety.mjs"],
   ["V22.9.130 방 전용 보기(식별 값으로 확인된 구성원을 그 방 가계부만·보기 전용으로: 세션 표의 가계부 범위 · 요청 관문 · 역할과 목록 · 그 밖의 요청은 로그인하지 않은 사람과 같음)", "validation/validate-v229130-room-only-view.mjs"],
   ["V22.9.129 단톡방 웹 가계부 열기(PC 카카오톡: 방 표식 · 화면 없는 카카오 로그인은 그 방 가계부를 읽을 수 있는 계정만 · 로그인 뒤 그 방 가계부로)", "validation/validate-v229129-pc-room-open.mjs"],
   ["V22.9.128 웹 확인 수정(셸이 없는 화면에는 움직이지 않는 ‘접기’ 단추를 내지 않음 · 없는 주소 화면의 제목은 낱말 단위로 줄바꿈)", "validation/validate-v229128-web-check.mjs"],
@@ -433,7 +434,8 @@ function run(command, args, label) {
 // V22.9.128: 운영 웹 확인 수정 검사(validate-v229128-web-check)와 추적표 V128 출처 5행이 더해졌다. 하네스 두 모드 실측 91,170 present / 91,163 absent.
 // V22.9.129: 단톡방 웹 가계부 열기의 PC 길 검사(validate-v229129-pc-room-open)와 추적표 V129 출처 8행이 더해졌다. 하네스 두 모드 실측 91,472 present / 91,465 absent.
 // V22.9.130: 방 전용 보기 검사(validate-v229130-room-only-view)와 추적표 V130 출처 8행이 더해졌다. 하네스 두 모드 실측 91,754 present / 91,747 absent.
-const EXPECTED_MINIMUM_CHECKS = 91747;
+// V22.9.131: 기록 지키기 검사(validate-v229131-record-safety)와 추적표 V131 출처 13행이 더해졌다. 하네스 두 모드 실측 93,078 present / 93,071 absent.
+const EXPECTED_MINIMUM_CHECKS = 93071;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

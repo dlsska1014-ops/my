@@ -554,7 +554,8 @@ function renderScheduledRunRow(run = {}) {
     : `적용 ${count(r.applied)} · 건너뜀 ${count(r.skipped)} · 실패 ${count(r.failed)} · 남음 ${count(r.remaining)} · ${count(r.pages)}쪽${r.partial_reason ? ` · ${reasonLabel[r.partial_reason] || r.partial_reason}` : ""}`;
   const p = run.reports || {};
   const reports = !run.reports ? "-" : p.error ? `오류 ${p.error}` : p.skipped_run ? "다른 실행이 처리 중이라 건너뜀"
-    : `생성 ${count(p.generated)} · 실패 ${count(p.failed)}`;
+    : `생성 ${count(p.generated)} · 실패 ${count(p.failed)}${Number(p.retry_queued || 0) > 0 ? ` · 다시 넣음 ${count(p.retry_queued)}` : ""}${Number(p.gave_up || 0) > 0 ? ` · 그만둠 ${count(p.gave_up)}` : ""}`;
+  // V22.9.131: ‘다시 넣음’ = 확정 생성이 실패해 다음 실행이 다시 만들 범위, ‘그만둠’ = 세 번 다시 해도 실패해 그만둔 가계부(그 기간은 미리 보기로 남는다).
   // V22.9.95: 판(이 실행을 돌린 앱 판)과 남은 범위(자동 리포트가 이번 실행에 다 못 돈 범위 수, 칸이 없던 기록은 ‘-’)를 따로 보인다.
   const version = run.version || "-";
   const pending = !run.reports || p.error || p.pending_scopes === undefined ? "-" : count(p.pending_scopes);

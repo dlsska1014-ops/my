@@ -9,7 +9,7 @@ import { fetchCustomCategories } from "../settings/categories-keywords.js";
 import { fetchReservePlans } from "../settings/reserve-plans.js";
 import {
   fetchAdminHouseholds, fetchAdminRows, fetchAdminRowsRange, fetchHouseholdMembers,
-  fetchPostgrestRows, isRowLimitExceededError,
+  fetchPostgrestRows, fetchRowsByPlainIds, isRowLimitExceededError, isRowsChangedDuringReadError,
 } from "../data/households-members-rows.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import { refundLinksEnabled } from "../domain/refund-links.js";
@@ -61,13 +61,21 @@ async function fetchAllBudgetsForBackup(env, householdId) {
 
 async function buildBackupPayload(env, { month, householdId, range = "month", year = "" }) {
   const allMonths = range === "all" && !!householdId;
-  const households = await fetchAdminHouseholds(env);
-  const selectedHouseholds = householdId ? households.filter((h) => h.id === householdId) : households;
+  // V22.9.131 (Codex 점검 2026-11-19 3번): 고른 가계부는 id 로 바로 읽는다. 예전에는 전체 목록(읽기 한 번, 서버가 한 번에 주는 줄 수까지)에서 찾아서,
+  // 지워진 가계부의 옛 링크는 가계부 0개·거래 0건인 파일이 정상으로 내려갔고, 목록 범위 밖의 가계부는 거래만 담기고 참여자·예산·정기·분류·적립이 빠졌다.
+  // 못 찾으면 파일을 만들지 않는다(backup_household_not_found). 거래가 0건인 가계부는 가계부 1개·거래 0건인 정상 파일이라 둘이 구분된다.
+  let selectedHouseholds;
+  if (householdId) {
+    selectedHouseholds = safeArray(await fetchRowsByPlainIds(env, "households", [householdId], "id,name,invite_code,created_at")).filter((h) => String(h?.id || "") === householdId);
+    if (!selectedHouseholds.length) throw Object.assign(new Error("백업할 가계부를 찾지 못했습니다."), { code: "backup_household_not_found" });
+  } else {
+    selectedHouseholds = await fetchAdminHouseholds(env);
+  }
   if (!householdId && selectedHouseholds.length > ADMIN_ALL_HOUSEHOLDS_BACKUP_MAX) throw Object.assign(new Error(`가계부 ${selectedHouseholds.length}개를 한 번에 백업할 수 없습니다.`), { code: "too_many_households", count: selectedHouseholds.length, limit: ADMIN_ALL_HOUSEHOLDS_BACKUP_MAX });
   const yearOnly = allMonths && /^20\d{2}$/.test(String(year || "")) ? String(year) : "";
   const transactions = allMonths
-    ? await fetchAdminRowsRange(env, { householdId, ...(yearOnly ? { start: `${yearOnly}-01-01`, end: `${Number(yearOnly) + 1}-01-01` } : {}), type: "all", limit: ADMIN_FULL_BACKUP_ROW_LIMIT, complete: true })
-    : await fetchAdminRows(env, { month, householdId, type: "all" });
+    ? await fetchAdminRowsRange(env, { householdId, ...(yearOnly ? { start: `${yearOnly}-01-01`, end: `${Number(yearOnly) + 1}-01-01` } : {}), type: "all", limit: ADMIN_FULL_BACKUP_ROW_LIMIT, complete: true, stable: true })
+    : await fetchAdminRows(env, { month, householdId, type: "all", stable: true });
   const membersByHousehold = Object.create(null);
   const budgetsByHousehold = Object.create(null);
   const recurringByHousehold = Object.create(null);
@@ -161,6 +169,9 @@ async function handleAdminExportJson(request, env, url) {
   } catch (err) {
     rememberOpsEvent({ kind: "admin_backup_export_failed", severity: "warn", path: "/admin/export/json", method: "GET", detail: safeError(err) });
     if (isRowLimitExceededError(err)) return jsonResponse({ ok: false, error: "backup_too_large", message: `거래가 ${numberWithCommas(ADMIN_FULL_BACKUP_ROW_LIMIT)}건을 넘어 한 파일로 만들지 않았습니다. 연도별 백업을 이용해 주세요.` }, 413);
+    // V22.9.131: 대상이 없으면 빈 파일 대신 404, 만드는 동안 거래가 바뀌어 겹치거나 빠질 뻔했으면(다시 읽어도 맞지 않음) 409 다.
+    if (err?.code === "backup_household_not_found") return jsonResponse({ ok: false, error: "backup_household_not_found", message: "백업할 가계부를 찾지 못해 파일을 만들지 않았습니다. 삭제됐거나 예전에 저장한 주소일 수 있습니다. 백업센터에서 가계부를 다시 골라 주세요." }, 404);
+    if (isRowsChangedDuringReadError(err)) return jsonResponse({ ok: false, error: "backup_rows_changed", message: "백업을 만드는 동안 거래가 바뀌어 파일을 만들지 않았습니다. 겹치거나 빠진 파일을 내려보내지 않았습니다. 잠시 뒤 다시 시도해 주세요." }, 409);
     if (err?.code === "too_many_households") return jsonResponse({ ok: false, error: "backup_too_many_households", households: err.count, limit: err.limit, message: `가계부가 ${numberWithCommas(err.count)}개라 요청 한도 때문에 한 번에 담지 못했습니다(${numberWithCommas(err.limit)}개까지). 백업센터의 ‘가계부별 전체 기간 백업’에서 가계부마다 받아 주세요.` }, 413);
     return jsonResponse({ ok: false, error: "backup_read_failed", message: "백업에 넣을 자료 일부를 읽지 못해 파일을 만들지 않았습니다. 잠시 뒤 다시 시도해 주세요." }, 503);
   }

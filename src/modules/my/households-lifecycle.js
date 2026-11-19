@@ -21,7 +21,9 @@ import { safeObject } from "../admin/backup-compare.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { renderUnifiedNav } from "../web/unified-nav.js";
 import { settlementHistoryKey } from "../features/settlement-ops-pages.js";
-import { mergedMarkerFreeName, verifyUserSession } from "../auth/user-session.js";
+import {
+  firstPasswordConsequenceTextV229131, mergedMarkerFreeName, verifyUserSession,
+} from "../auth/user-session.js";
 import {
   clearHouseholdDeleteReauthCookie, hasBackupLoginIdentity, hasKakaoLoginIdentity,
   passwordReauthErrorCodeV229126, verifyHouseholdDeleteReauth, verifyPasswordReauth,
@@ -240,7 +242,7 @@ async function handleMyHouseholdsPage(request, env, url) {
       // V22.9.126 FC-9 3차: 채팅만 쓰는 소유자의 예전 안내(내 계정·보안 열기)는 본인 확인 표가 없어 막다른 길이었다. 양도 칸과 같은 길로 보낸다 —
       // 웹 연결 코드(5분 본인 확인) → 내 계정·보안에서 첫 비밀번호 저장 → 이 삭제 칸으로 돌아와 그 비밀번호로 삭제.
       const deleteClaimUrl = `/my/kakao-claim?auto=0&return_to=${encodeURIComponent(`/my/backup-login?return_to=${encodeURIComponent(deleteBack)}`)}#kakao-claim-start`;
-      ownerDeletePanel = `<div class="dangerZone"><h3>가계부 영구 삭제</h3><p>가계부를 영구 삭제하려면 내 계정 로그인 비밀번호가 필요해요. 카카오 1:1 채팅에서 ‘웹 가계부 열기’를 보내 웹 연결 코드를 받은 뒤, 아래 ‘웹 연결 코드 넣기’에서 코드를 붙여 넣으세요. 이어서 열리는 ‘내 계정·보안’에서 5분 안에 로그인 이름과 비밀번호를 저장하면 이 화면으로 돌아와 그 비밀번호로 삭제할 수 있어요. 저장하면 다른 기기·브라우저는 로그아웃되고, 그 뒤 로그인돼 있지 않은 브라우저에서 단톡방의 웹 가계부 단추를 누르면 홈 대신 로그인 이름과 비밀번호를 먼저 물어요.</p><a class="reauthButton" href="${escapeHtml(deleteClaimUrl)}">웹 연결 코드 넣기</a></div>`;
+      ownerDeletePanel = `<div class="dangerZone"><h3>가계부 영구 삭제</h3><p>가계부를 영구 삭제하려면 내 계정 로그인 비밀번호가 필요해요. 카카오 1:1 채팅에서 ‘웹 가계부 열기’를 보내 웹 연결 코드를 받은 뒤, 아래 ‘웹 연결 코드 넣기’에서 코드를 붙여 넣으세요. 이어서 열리는 ‘내 계정·보안’에서 5분 안에 로그인 이름과 비밀번호를 저장하면 이 화면으로 돌아와 그 비밀번호로 삭제할 수 있어요. ${firstPasswordConsequenceTextV229131(env)}</p><a class="reauthButton" href="${escapeHtml(deleteClaimUrl)}">웹 연결 코드 넣기</a></div>`;
     }
   }
 

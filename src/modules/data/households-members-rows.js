@@ -341,6 +341,41 @@ async function fetchPostgrestRows(env, path, { pageSize = 1000, limit = null, ma
   return wanted === null ? rows : rows.slice(0, wanted);
 }
 
+// V22.9.131 (Codex 점검 2026-11-19 2번): 백업처럼 ‘그 순간의 전부’ 여야 하는 조회. fetchPostgrestRows 는 1,000건씩 offset 으로 넘겨 읽어서,
+// 쪽을 넘기는 사이 다른 구성원이 앞쪽 기록을 더하면 다음 쪽 첫 줄이 이미 읽은 기록이 되고(겹침), 지우면 한 건을 건너뛴다(빠짐).
+// 쪽마다 정확한 전체 건수를 함께 받아(분석 화면이 쓰는 receipt — 호출 수는 그대로) 건수가 달라지거나 같은 id 가 다시 오면 처음부터 다시 읽는다.
+// attempts 번 모두 어긋나면 rows_changed_during_read 오류를 낸다 — 겹치거나 빠진 파일을 온전한 백업처럼 내려보내지 않는다.
+//  - complete: 건수·범위·id 가 모두 맞았다. unknown: 서버가 건수를 주지 않았다(겹친 id 는 없다) — 견줄 것이 없어 예전처럼 받는다.
+//  - inconsistent(건수·범위가 달라짐, 같은 id)·response-cap(쪽이 서버 한도로 짧게 옴)·limit: 다시 읽는다.
+//  - 쪽을 넘기는 사이 기록이 지워져 다음 쪽의 시작이 전체 건수를 넘으면 PostgREST 가 416 으로 답한다 — 바뀐 것으로 보고 다시 읽는다.
+//  - 다시 읽는 중에 이 요청의 DB 호출 몫(기본 50)이 떨어지면 같은 오류로 끝낸다(쪽이 스물 몇을 넘는 가계부가 읽는 사이 바뀐 경우).
+// 한 쪽으로 끝나는 조회는 읽기 한 번이라 어긋날 수 없다. 한도(maxRows)를 넘는 오류(row_limit_exceeded)와 그 밖의 오류는 그대로 올린다.
+function rowsChangedDuringReadError(status = "") {
+  return Object.assign(new Error("조회하는 동안 기록이 바뀌어 전체를 한 번에 읽지 못했습니다. 잠시 후 다시 시도해 주세요."), { name: "RowsChangedDuringReadError", code: "rows_changed_during_read", status });
+}
+
+function isRowsChangedDuringReadError(error) {
+  return error?.code === "rows_changed_during_read";
+}
+
+async function fetchStableRowsV229131(env, path, { maxRows = 100000, attempts = 3 } = {}) {
+  let status = "";
+  for (let attempt = 1; attempt <= Math.max(1, attempts); attempt += 1) {
+    let result;
+    try { result = await fetchPostgrestRows(env, path, { maxRows, analysisReceipt: true }); }
+    catch (err) {
+      // 다시 읽다가 이 요청의 DB 호출 몫이 떨어지면(쪽이 많은 가계부) 오류 화면 대신 ‘바뀌어서 만들지 못했다’ 로 알린다. 첫 읽기의 몫 부족은 예전처럼 그대로 올린다.
+      if (attempt > 1 && String(err?.code || "") === "supabase_subrequest_budget_before_dispatch") throw rowsChangedDuringReadError("budget");
+      if (!/^Supabase 416\b/.test(String(err?.message || ""))) throw err;
+      status = "range";
+      continue;
+    }
+    if (result.receipt.status === "complete" || result.receipt.status === "unknown") return result.rows;
+    status = result.receipt.status;
+  }
+  throw rowsChangedDuringReadError(status);
+}
+
 // 분석 화면용 범위 조회. 한도+1건을 받아 잘렸는지 함께 돌려준다. 합계·리포트·백업에는 쓰지 않는다(QA B05).
 async function fetchAnalysisRowsRange(env, options = {}, limit = 6000) {
   const rows = await fetchAdminRowsRange(env, { ...options, limit: limit + 1, complete: false });
@@ -489,7 +524,8 @@ function renderSpenderOptions(members = [], selected = "", blankLabel = "지출�
   return opts.join("");
 }
 
-async function fetchAdminRows(env, { month, householdId, type = "all", date = "", q = "", quality = "all", category = "", payment_method = "" }) {
+// V22.9.131: stable — 백업 파일용(fetchStableRowsV229131). 화면·합계는 예전 그대로 읽는다.
+async function fetchAdminRows(env, { month, householdId, type = "all", date = "", q = "", quality = "all", category = "", payment_method = "", stable = false }) {
   const start = `${month}-01`;
   const end = nextMonthStart(month);
   const params = new URLSearchParams();
@@ -500,7 +536,7 @@ async function fetchAdminRows(env, { month, householdId, type = "all", date = ""
   if (type === "income" || type === "expense") params.set("type", `eq.${type}`);
   if (date) params.set("transaction_date", `eq.${date}`);
   params.set("order", "transaction_date.desc,created_at.desc,id.desc");
-  let rows = await fetchPostgrestRows(env, `/rest/v1/transactions?${params.toString()}`);
+  let rows = stable ? await fetchStableRowsV229131(env, `/rest/v1/transactions?${params.toString()}`) : await fetchPostgrestRows(env, `/rest/v1/transactions?${params.toString()}`);
   const needle = String(q || "").trim().toLowerCase();
   if (needle) rows = rows.filter((t) => String(`${t.memo || ""} ${t.category || ""} ${t.payment_method || ""} ${t.raw_text || ""}`).toLowerCase().includes(needle));
   if (category) {
@@ -520,7 +556,8 @@ async function fetchAdminRows(env, { month, householdId, type = "all", date = ""
 // complete(기본)는 한도를 넘는 기록이 있으면 조용히 자르지 않고 row_limit_exceeded 오류를 낸다(QA B05).
 // 합계·리포트·백업·검색은 이 방식이어야 한다. complete:false 는 호출부가 한도+1건을 받아 잘림을 직접
 // 감지하고 화면에 알리는 경우(분석 화면)나 일부여도 되는 추정(반복 거래 후보)에만 쓴다.
-async function fetchAdminRowsRange(env, { householdId = "", start = "", end = "", type = "all", limit = 6000, complete = true, analysisReceipt = false }) {
+// V22.9.131: stable(complete 일 때만) — 백업 파일용(fetchStableRowsV229131). 리포트·검색·합계는 예전 그대로 읽는다.
+async function fetchAdminRowsRange(env, { householdId = "", start = "", end = "", type = "all", limit = 6000, complete = true, analysisReceipt = false, stable = false }) {
   const params = new URLSearchParams();
   params.set("select", "id,household_id,user_id,type,amount,category,memo,payment_method,transaction_date,source,raw_text,created_at");
   if (start) params.set("transaction_date", `gte.${start}`);
@@ -530,6 +567,7 @@ async function fetchAdminRowsRange(env, { householdId = "", start = "", end = ""
   params.set("order", "transaction_date.desc,created_at.desc,id.desc");
   const rowLimit = Math.max(100, Math.min(Number(limit || 6000), 100000));
   const path = `/rest/v1/transactions?${params.toString()}`;
+  if (complete && stable) return fetchStableRowsV229131(env, path, { maxRows: rowLimit });
   return complete
     ? fetchPostgrestRows(env, path, { maxRows: rowLimit })
     : fetchPostgrestRows(env, path, { limit: rowLimit, maxRows: rowLimit, analysisReceipt });
@@ -541,8 +579,8 @@ export {
   fetchAdminRowsRange, fetchAnalysisRowsRange, fetchFormerSpenderMembers,
   fetchHouseholdMemberCounts, fetchHouseholdMembers, fetchMemberAliasMap, fetchPostgrestRows,
   fetchRowsByPlainIds, getScopedHouseholdsForPage, householdPersonLabels, isRowLimitExceededError,
-  memberAliasSettingsKey, memberNameMap, normalizeMemberAliasMap, renderSpenderOptions, roleRank,
-  roomViewRoleV229130, roomViewScopeForV229130, saveMemberAlias, selectRequestedScopedHousehold,
-  supabaseExactCount,
+  isRowsChangedDuringReadError, memberAliasSettingsKey, memberNameMap, normalizeMemberAliasMap,
+  renderSpenderOptions, roleRank, roomViewRoleV229130, roomViewScopeForV229130, saveMemberAlias,
+  selectRequestedScopedHousehold, supabaseExactCount,
 };
 // @build:exports-end
