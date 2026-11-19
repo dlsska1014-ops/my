@@ -6,7 +6,7 @@ import { htmlResponse, redirectResponse, redirectResponseWithCookies } from "../
 import { fetchHouseholdMembers } from "../data/households-members-rows.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
-import { verifyUserSession } from "../auth/user-session.js";
+import { firstPasswordConsequenceTextV229131, verifyUserSession } from "../auth/user-session.js";
 import {
   clearHouseholdDeleteReauthCookie, hasBackupLoginIdentity, hasKakaoLoginIdentity,
   passwordReauthErrorCodeV229126, verifyHouseholdDeleteReauth, verifyPasswordReauth,
@@ -215,7 +215,7 @@ function renderMyMembersHtml({ env, user = null, month, households, selected, me
     // V22.9.126 FC-9 2차: 채팅만 쓰는 소유자(비밀번호·카카오 로그인 없음)가 실제로 갈 수 있는 길 — 웹 연결 코드(5분 본인 확인) → 내 계정·보안에서
     // 첫 비밀번호 저장 → 이 화면으로 돌아와 그 비밀번호로 양도. 단추는 코드 칸을 열고, 코드 뒤 내 계정·보안, 저장 뒤 이 화면으로 돌아오게 한다.
     const transferClaimUrl = `/my/kakao-claim?auto=0&return_to=${encodeURIComponent(`/my/backup-login?return_to=${encodeURIComponent(returnTo)}`)}#kakao-claim-start`;
-    return `<div class="transferBox"><p class="muted">소유자를 양도하려면 내 계정 로그인 비밀번호가 필요해요. 카카오 1:1 채팅에서 ‘웹 가계부 열기’를 보내 웹 연결 코드를 받은 뒤, 아래 ‘웹 연결 코드 넣기’에서 코드를 붙여 넣으세요. 이어서 열리는 ‘내 계정·보안’에서 5분 안에 로그인 이름과 비밀번호를 저장하면 이 화면으로 돌아와 그 비밀번호로 양도할 수 있어요. 저장하면 다른 기기·브라우저는 로그아웃되고, 그 뒤 로그인돼 있지 않은 브라우저에서 단톡방의 웹 가계부 단추를 누르면 홈 대신 로그인 이름과 비밀번호를 먼저 물어요.</p><a class="reauthButton" href="${escapeHtml(transferClaimUrl)}">웹 연결 코드 넣기</a></div>`;
+    return `<div class="transferBox"><p class="muted">소유자를 양도하려면 내 계정 로그인 비밀번호가 필요해요. 카카오 1:1 채팅에서 ‘웹 가계부 열기’를 보내 웹 연결 코드를 받은 뒤, 아래 ‘웹 연결 코드 넣기’에서 코드를 붙여 넣으세요. 이어서 열리는 ‘내 계정·보안’에서 5분 안에 로그인 이름과 비밀번호를 저장하면 이 화면으로 돌아와 그 비밀번호로 양도할 수 있어요. ${firstPasswordConsequenceTextV229131(env)}</p><a class="reauthButton" href="${escapeHtml(transferClaimUrl)}">웹 연결 코드 넣기</a></div>`;
   };
   const cards = safeArray(members).map((m) => {
     const role = String(m.role || "member");

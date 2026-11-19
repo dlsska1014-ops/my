@@ -409,20 +409,45 @@ function invalidFavoriteDateReason(x) {
   if (month && !validMonth(month)) return "invalid_month";
   return "";
 }
+// V22.9.131 (Codex 점검 2026-11-19 7번): 화면이 보내는 즐겨찾기 표식은 ‘날짜|구분|금액|메모’ 라 메모가 길면 64자를 넘는다. 저장할 때 64자로 잘라서
+// 화면이 만든 표식(전체)과 저장된 표식(잘린 것)이 달랐고, 그런 기록은 별이 켜진 것으로 보이지도 않고 지워지지도 않았다. 메모(160자)·원문(500자)이
+// 다 들어가는 길이까지 받는다. 예전에 잘려 저장된 표식(정확히 64자)은 읽을 때 스냅숏으로 화면의 표식을 다시 만들어 그 앞머리와 같으면 바꿔 준다.
+const FAVORITE_ID_MAX_V229131 = 600;
+const FAVORITE_ID_LEGACY_MAX_V229131 = 64;
+// 예전 스냅숏은 메모를 200자에서 잘랐다. 그 길이에 닿은 메모로는 화면의 표식을 다시 만들 수 없다(독립 검토 2 — 잘린 메모로 만든 표식은 화면의 표식과 달라
+// 별이 꺼진 채였고, 별을 다시 누르면 같은 기록이 두 항목이 됐다). 그런 옛 항목은 그대로 두고, 별을 다시 누를 때 새 표식의 항목으로 바꾼다(favoriteLegacyTwinV229131).
+const FAVORITE_MEMO_LEGACY_MAX_V229131 = 200;
+// 화면(client/nav-search-notif-mains.js favKeyOf)과 같은 식이다.
+function favoriteScreenKeyV229131(s = {}) {
+  return `${s.transaction_date || ""}|${s.type || "expense"}|${s.amount || 0}|${String(s.memo || s.category || "").trim()}`;
+}
+// 잘려 저장된 옛 표식(정확히 64자)이 넘겨받은 표식(더 긴 것)의 앞머리인가.
+function favoriteCutPrefixV229131(storedId = "", id = "") {
+  return storedId.length === FAVORITE_ID_LEGACY_MAX_V229131 && id.length > FAVORITE_ID_LEGACY_MAX_V229131 && id.startsWith(storedId);
+}
+// 다시 만들지 못한 옛 항목인가 — 지우거나 덮을 때만 쓴다. 표식이 정확히 64자여도 스냅숏으로 만든 화면의 표식이 그 표식과 같으면 온전한 표식이다
+// (메모가 꼭 그 길이인 기록 — 독립 검토 1: 이런 기록의 별이 더 긴 메모의 다른 기록을 켜고 끌 때 함께 지워졌다).
+function favoriteLegacyTwinV229131(stored = {}, id = "") {
+  return favoriteCutPrefixV229131(String(stored.id || ""), id) && favoriteScreenKeyV229131(stored) !== stored.id;
+}
 function normalizeFavoriteSnapshot(x) {
   const o = safeObject(x);
   const id = String(o.id || "").trim();
   if (!id) return null;
-  return {
-    id: id.slice(0, 64),
+  const snapshot = {
+    id: id.slice(0, FAVORITE_ID_MAX_V229131),
     type: o.type === "income" ? "income" : "expense",
     amount: Math.max(0, Math.round(Number(o.amount || 0))),
     category: String(o.category || "").slice(0, 80),
-    memo: String(o.memo || "").slice(0, 200),
+    // V22.9.131 (독립 검토 1): 화면은 스냅숏의 메모로 표식을 다시 만든다. 200자에서 자르면 원문이 긴 기록(메모 없이 원문 500자까지)의 표식이 달라진다.
+    memo: String(o.memo || "").slice(0, 500),
     payment_method: String(o.payment_method || "").slice(0, 80),
     transaction_date: String(o.transaction_date || "").slice(0, 10),
     month: String(o.month || String(o.transaction_date || "").slice(0, 7)).slice(0, 7),
   };
+  const screenKey = favoriteScreenKeyV229131(snapshot);
+  if (snapshot.memo.length < FAVORITE_MEMO_LEGACY_MAX_V229131 && favoriteCutPrefixV229131(snapshot.id, screenKey)) snapshot.id = screenKey.slice(0, FAVORITE_ID_MAX_V229131);
+  return snapshot;
 }
 function normalizeFavoriteList(value) {
   let raw = value;
@@ -467,7 +492,7 @@ async function handleUserFavorites(request, env, url) {
       return jsonResponse({ ok: false, error: "read_failed", reason: "favorite_read_failed", message: "즐겨찾기를 불러오지 못했습니다. 잠시 후 다시 시도해 주세요." }, 503);
     }
   }
-  const id = String(body.id || (body.tx && body.tx.id) || "").trim();
+  const id = String(body.id || (body.tx && body.tx.id) || "").trim().slice(0, FAVORITE_ID_MAX_V229131);
   if (!id) return jsonResponse({ ok: false, error: "id_required", reason: "id_required", message: "거래를 찾지 못했습니다." }, 400);
   const dateProblem = body.remove ? "" : invalidFavoriteDateReason(body.tx || body);
   if (dateProblem) return jsonResponse({ ok: false, error: dateProblem, reason: dateProblem, message: "즐겨찾기할 거래의 날짜가 올바르지 않습니다." }, 400);
@@ -476,7 +501,8 @@ async function handleUserFavorites(request, env, url) {
   try {
     const list = await withHouseholdSettingsRmw(env, household.id, async ({ assertFresh }) => {
       const current = await readFavorites();
-      const next = body.remove ? current.filter((f) => f.id !== id) : [snap, ...current.filter((f) => f.id !== snap.id)].slice(0, 100);
+      // V22.9.131: 다시 만들지 못한 옛 표식(64자에서 잘린 것)도 같은 기록이면 함께 지우고, 새로 켤 때는 그 자리를 새 표식으로 바꾼다.
+      const next = body.remove ? current.filter((f) => f.id !== id && !favoriteLegacyTwinV229131(f, id)) : [snap, ...current.filter((f) => f.id !== snap.id && !favoriteLegacyTwinV229131(f, snap.id))].slice(0, 100);
       assertFresh();
       await saveSettingValue(env, key, JSON.stringify(next));
       return next;

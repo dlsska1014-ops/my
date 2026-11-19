@@ -187,6 +187,9 @@ const REPORT_CRON_RESERVE_V22994 = 3;
 const REPORT_CRON_PAGE_V22994 = 20;
 const REPORT_CRON_ROW_BUDGET_V22994 = 2000;
 const REPORT_CRON_CATCHUP_DAYS_V22994 = 7;
+// V22.9.131 (Codex 점검 2026-11-19 6번): 확정 범위에서 생성이 실패한 날짜를 다시 넣는 횟수(실행마다 한 번, 보통 하루 한 번).
+const REPORT_FINAL_RETRY_MAX_V229131 = 3;
+const REPORT_FINAL_RETRY_RANGES_V229131 = 5;
 
 // V22.9.119 O-3: 한 실행 예산을 50 보다 크게 잡으면(라우터가 __AB_DB_BUDGET_BASE_V229119 에 적는다) 한 실행에 읽는 기록 행 상한(2000)을 같은 비율로
 // 키운다. 가계부 수는 이미 저장소 호출 예산(hardLimit − 3)으로 정해져 예산을 따라 커진다. 표식이 없으면(기본 50) 1 이라 지금 값 그대로다.
@@ -273,7 +276,7 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
   const scopes = [];
   for (const scope of stored) {
     const clean = { date: scope.date, after: scope.after, force: scope.force, weekly: scope.weekly, monthly: scope.monthly };
-    if (scope.final === true) scopes.push({ ...clean, final: true, ...(typeof scope.upto === "string" && scope.upto ? { upto: scope.upto } : {}), ...(scope.refresh === true ? { refresh: true } : {}) });
+    if (scope.final === true) scopes.push({ ...clean, final: true, ...(typeof scope.upto === "string" && scope.upto ? { upto: scope.upto } : {}), ...(scope.refresh === true ? { refresh: true } : {}), ...(Number.isInteger(scope.tries) && scope.tries >= 1 && scope.tries <= REPORT_FINAL_RETRY_MAX_V229131 ? { tries: scope.tries } : {}) });
     else if (clean.date < invocationDate && reportFinalScopesV22994(clean).length) scopes.push(...reportFinalScopesV22994(clean));
     else scopes.push(clean);
   }
@@ -322,6 +325,33 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
   const totals = { scanned: 0, generated: 0, skipped: 0, invalid: 0, failed: 0 };
   const event = (kind, detail) => rememberOpsEvent({ kind, severity: "warn", path: "/cron/reports/generate", method: "SCHEDULED", detail });
   let rows = 0, touched = false, stop = "", firstDate = "";
+  // V22.9.131 (Codex 점검 2026-11-19 6번): 확정 범위에서 한 가계부·기간의 생성이 실패하면(V22.9.112 ⑬ 로 그 가계부만 건너뛴다) 그 가계부만 도는 좁은
+  // 확정 범위(그 가계부의 설정 열쇠 바로 앞 ~ 그 열쇠)를 다시 넣어 다음 실행이 다시 만들게 한다. 예전에는 범위가 그대로 지워져 그 기간의 스냅숏이
+  // 말일·일요일 아침의 미리 보기에 머물렀다(그날 아침 뒤의 기록이 빠진 채 — 미리 보기가 없던 가계부는 스냅숏이 아예 없다).
+  //  - REPORT_FINAL_RETRY_MAX_V229131 번까지만 다시 넣는다(실행마다 한 번 = 보통 하루 한 번). 그래도 실패하면 운영 이벤트
+  //    (free_report_final_gave_up)와 결과의 gave_up 을 남기고 그만둔다. 결과의 retry_queued·gave_up 은 예약 실행 기록(cron_run_log)에도 남는다.
+  //  - 한 범위에서 실패한 가계부가 REPORT_FINAL_RETRY_RANGES_V229131 곳을 넘으면(저장소가 통째로 답하지 못한 날) 커서가 길어지지 않게 그 날짜
+  //    전체를 한 범위로 다시 넣는다 — 확정 스냅숏이 이미 있는 가계부는 찾기만 하고 건너뛴다.
+  //  - 범위가 중간에 멈추거나 던져도(몫 부족·오류) 그때까지 적어 둔 실패는 바로 다시 넣는다(멈춘 범위의 커서는 그 가계부를 이미 지났다).
+  //  - 기록이 한도를 넘는 실패(row_limit)는 다시 해도 같아 넣지 않는다. tries 는 옛 코드가 읽지 않는 칸이다(되돌리면 그 범위를 한 번 돌 뿐이다).
+  const retryRanges = new Map();
+  let retryQueued = 0, gaveUp = 0;
+  const requeueFinalV229131 = (scope, ranges) => {
+    const tries = (Number(scope.tries) || 0) + 1;
+    if (tries > REPORT_FINAL_RETRY_MAX_V229131) {
+      gaveUp += ranges.length;
+      for (const range of ranges) event("free_report_final_gave_up", `${scope.date}:${range.upto ? String(range.upto).slice("free_report_preference:".length, 140) : "*"}`);
+      return;
+    }
+    const list = ranges.length > REPORT_FINAL_RETRY_RANGES_V229131 ? [{ after: "", upto: "" }] : ranges;
+    for (const range of list) {
+      // 같은 날짜·같은 범위의 다시 넣은 범위가 이미 있으면 겹쳐 넣지 않는다(저장소가 며칠 답하지 못하면 날짜 전체 범위가 실행마다 쌓였다 — 독립 검토 1).
+      const same = scopes.find((other) => other !== scope && other.final === true && other.date === scope.date && Number(other.tries) >= 1 && other.after === range.after && (other.upto || "") === (range.upto || ""));
+      if (same) { same.weekly = same.weekly || scope.weekly; same.monthly = same.monthly || scope.monthly; continue; }
+      scopes.push({ date: scope.date, after: range.after, force: false, weekly: scope.weekly, monthly: scope.monthly, final: true, ...(range.upto ? { upto: range.upto } : {}), refresh: true, tries });
+      retryQueued++;
+    }
+  };
   const runScope = async (scope) => {
     const final = scope.final === true;
     for (;;) {
@@ -359,6 +389,8 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
         }
       }
       for (const item of items) {
+        // V22.9.131: 이 가계부 바로 앞까지의 커서 — 실패하면 (itemAfter, item.key] 가 이 가계부만 도는 범위다.
+        const itemAfter = String(scope.after || "");
         if (item.invalid) { totals.invalid++; event("free_report_preference_scope_mismatch", item.key.slice(0, 180)); scope.after = item.key; continue; }
         if (item.disabled) { totals.skipped++; scope.after = item.key; continue; }
         const work = final ? item.jobs.filter((job) => !reportSnapshotFinalV22994(values.get(job.key), scope.date)) : item.jobs;
@@ -384,6 +416,8 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
               totals.failed++; event("free_report_row_limit", `${item.householdId}:${job.kind}:${job.period}`); continue;
             }
             // V22.9.112 ⑬: 한 가계부·기간의 생성 실패는 기록만 하고 다음으로 넘어간다(행수 초과와 같은 처리). 예전에는 stop="error"; break 로 커서가 이 가계부 앞에 멈춰, 사전순 앞의 한 곳이 계속 실패하면 그 뒤 모든 가계부의 자동 리포트가 영구 중단됐다(머리 막힘).
+            // V22.9.131: 확정 범위의 실패는 그 가계부만 도는 범위로 다시 넣는다(위 requeueFinalV229131). 건너뛰는 것은 예전 그대로다.
+            if (final) { const failed = retryRanges.get(scope) || []; if (!failed.some((range) => range.upto === item.key)) failed.push({ after: itemAfter, upto: item.key }); retryRanges.set(scope, failed); }
             totals.failed++; event("free_report_generate_failed", `${item.householdId}:${job.kind}:${safeError(err)}`); continue;
           }
         }
@@ -402,7 +436,10 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
       if (!runnable(scope)) continue;
       // today 는 예전처럼 이번 실행이 처리한 범위의 날짜다. 여러 범위를 돌면 가장 앞 날짜를 적는다.
       if (!firstDate || scope.date < firstDate) firstDate = scope.date;
-      if (!(await runScope(scope))) break;
+      let scopeDone = false;
+      try { scopeDone = await runScope(scope); }
+      finally { if (scope.final === true && retryRanges.has(scope)) { requeueFinalV229131(scope, retryRanges.get(scope)); retryRanges.delete(scope); } }
+      if (!scopeDone) break;
       scopes.splice(scopes.indexOf(scope), 1);
       if (scope.final !== true) for (const next of reportFinalScopesV22994({ ...scope, after: "" })) if (!scopes.some((other) => covers(other, next))) scopes.push(next);
     }
@@ -412,7 +449,7 @@ async function runAutomaticReportsUnlocked(env, opts = {}) {
   try { await saveCursor(); } catch (err) { if (!thrown) throw err; }
   if (thrown) throw thrown;
   const pending = scopes.filter(runnable).length;
-  return { ok: totals.failed === 0 && pending === 0, partial: scopes.length > 0, today: firstDate || invocationDate, invocation_date: invocationDate, pending_scopes: pending, ...totals, ...(stop ? { stop } : {}) };
+  return { ok: totals.failed === 0 && pending === 0, partial: scopes.length > 0, today: firstDate || invocationDate, invocation_date: invocationDate, pending_scopes: pending, ...totals, ...(retryQueued ? { retry_queued: retryQueued } : {}), ...(gaveUp ? { gave_up: gaveUp } : {}), ...(stop ? { stop } : {}) };
 }
 
 async function runAutomaticReports(env, opts = {}) {
@@ -970,13 +1007,17 @@ function renderRecurringCandidateCards(candidates = [], selected = {}, month = c
   }).join("")}</div>`;
 }
 
-function renderMyPremiumHtml({ env, month, selected, households = [], rows = [], budget = {}, analysis = {}, premium = {}, recurringCandidates = [], anomalies = [], weeklyReport = null, adKey = "", msg = "", err = "" }) {
+function renderMyPremiumHtml({ env, month, selected, households = [], rows = [], budget = {}, budgetReadFailed = false, analysis = {}, premium = {}, recurringCandidates = [], anomalies = [], weeklyReport = null, adKey = "", msg = "", err = "" }) {
   const role = selected?.role || "";
   const qs = `month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(selected?.id || "")}`;
   const recurringTotal = safeArray(recurringCandidates).reduce((sum, x) => sum + Number(x.amount || 0), 0);
   const recurringMetric = recurringCandidates === null ? "<b>확인 불가</b><small>정기 항목 목록을 불러오지 못했어요</small>" : `<b>${recurringCandidates.length}건</b><small>월 약 ${numberWithCommas(recurringTotal)}원</small>`;
   const anomalyTotal = safeArray(anomalies).reduce((sum, x) => sum + Number(x.amount || 0), 0);
   const budgetRemain = Math.max(0, Number(budget.totalBudget || 0) - Number(budget.budgetedExpense ?? budget.expense ?? 0));
+  // V22.9.131 (Codex 점검 2026-11-19 5번): 예산을 읽지 못했거나 정한 예산이 없을 때도 ‘0원’ 이라고 적어, 남은 예산이 없는 것처럼 보였다.
+  // 못 읽었으면 ‘확인 불가’, 정한 예산이 없으면 ‘설정 전’(한눈에 보기와 같은 말), 정한 예산을 다 썼을 때만 ‘0원’ 이다.
+  const budgetRemainMetric = budgetReadFailed ? "<b>확인 불가</b><small>예산을 불러오지 못했어요</small>"
+    : Number(budget.totalBudget || 0) > 0 ? `<b>${numberWithCommas(budgetRemain)}원</b>` : "<b>설정 전</b>";
   // V22.9.126 FC-21: 지출자 확인이 필요해 월말 예상에서 뺀 규칙이 있으면 낮아진 값의 까닭을 다른 화면과 같은 말로 적는다.
   const spenderCheckCount = analysis.burnForecast != null ? Number(analysis.spendingOutlook?.notYetRecorded?.spenderCheckCount || 0) : 0;
   const spenderCheckNote = spenderCheckCount ? `<small>지출자 확인 필요 ${numberWithCommas(spenderCheckCount)}건 제외</small>` : "";
@@ -984,7 +1025,7 @@ function renderMyPremiumHtml({ env, month, selected, households = [], rows = [],
   const title = escapeHtml(appName(env));
   const message = msg === "recurring_registered" ? `<div class="ok">반복지출 후보를 확정했습니다. 지정일이 되면 같은 달 중복 없이 자동 기록됩니다.</div>` : msg === "recurring_exists" ? `<div class="ok">이미 같은 이름·금액의 반복지출이 등록되어 있습니다.</div>` : "";
   const error = err ? `<div class="error">처리하지 못했습니다. 입력값과 가계부 관리 권한을 확인해 주세요.</div>` : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 스마트 도구</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:12px 0}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:10px 0 6px;font-size:30px}.hero p{line-height:1.65;color:#ccfbf1}.badge{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:7px 11px;font-size:12px;font-weight:500}.grid,.features,.candidateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:25px;margin-top:7px}.feature,.candidate{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#f8fafc}.feature b,.candidate b{display:block;font-size:16px;color:#166534}.feature span,.candidate span,.candidate small{display:block;color:#64748b;line-height:1.55;margin-top:5px}.candidate{display:grid;gap:9px}.candidate strong{font-size:20px}.candidate form{display:grid;gap:8px}.candidate label{font-size:12px;color:#475569}.candidate button{border:0;border-radius:13px;min-height:42px;background:#111827;color:#fff;font-weight:1000}.muted{color:#64748b;line-height:1.6}.insightList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.insightList li{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc}.insightList span{color:#64748b;font-size:13px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#ecfdf5;color:#065f46!important}.ok,.error{border-radius:16px;padding:13px;line-height:1.6;margin:12px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:16px;padding:13px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid .metric{padding:14px}.metricGrid .metric b{font-size:20px}.insightList li{grid-template-columns:1fr}.btn{width:100%;margin:4px 0}}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("smart-tools",{ month, householdId: selected?.id || "", householdName: householdChoiceLabelV229118(selected, households) || selected?.name || "", role: String(selected?.role || "") })}<main class="wrap">${message}${error}<section class="hero"><span class="badge">스마트 도구</span><h1>스마트 생활 도구</h1><p>${escapeHtml(selected?.name || "가계부")} · ${escapeHtml(month.slice(0, 4))}년 ${Number(month.slice(5, 7))}월 기준. 예측·자동화·정산·리포트를 한 곳에서 사용합니다.</p><p><a class="btn" href="/reports?${qs}">생활비 리포트</a><a class="btn light" href="/settlement-summary?${qs}">고급 정산</a></p></section><section class="grid metricGrid"><div class="card metric"><span>월말 예상 지출</span><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b>${spenderCheckNote}</div><div class="card metric"><span>예산 잔여</span><b>${numberWithCommas(budgetRemain)}원</b></div><div class="card metric"><span>반복지출 후보</span>${recurringMetric}</div><div class="card metric"><span>이상지출 후보</span><b>${anomalies.length}건</b><small>${numberWithCommas(anomalyTotal)}원</small></div><div class="card metric"><span>이번 주 지출</span><b>${weeklyText}</b></div><div class="card metric"><span>절약 후보</span><b>${premium.hasObservation === false ? "관측 전" : `${numberWithCommas(premium.savingPotential)}원`}</b></div></section><section class="card"><h2>사용할 수 있는 기능</h2><div class="features"><div class="feature"><b>반복 거래 자동화</b><span>후보를 가계부 소유자·관리자가 명시적으로 확정하면 지정일에 월 1회만 자동 반영합니다.</span></div><div class="feature"><b>고급 정산</b><span>동일·비율·인원수·품목별 분배와 최소 송금 제안을 제공합니다.</span></div><div class="feature"><b>주간·월간 리포트</b><span>자동 생성 설정, 복사·공유, 인쇄/PDF 저장을 제공합니다.</span></div><div class="feature"><b>스마트 예산·미션</b><span>현재 지출에서 추천 예산과 현실적인 절약 후보를 계산합니다.</span></div><div class="feature"><b>가족별 비교 분석</b><span>참여자와 분류별 기록을 기존 분석 화면에서 비교합니다.</span></div></div><p><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><a class="btn light" href="/payment-methods?${qs}">자산·결제수단</a></p></section><section class="card"><h2>반복지출 후보 확정</h2><p class="muted">자동 등록 전 반드시 동의해야 하며, 같은 이름·금액은 중복 등록하지 않습니다. 금액이 바뀌면 새 후보로 다시 확인합니다.</p>${renderRecurringCandidateCards(recurringCandidates, selected, month)}</section><section class="card"><h2>큰 지출 점검</h2>${renderAnomalyList(anomalies)}</section>${adSlotMarkup(env, adKey)}<p class="notice"><b>기능 이용 안내</b><br/>가계부 역할 권한(소유자·관리자·구성원·조회전용)과 데이터 격리는 그대로 유지합니다. 준비가 끝나지 않은 기능은 메뉴와 직접 경로에서 숨깁니다.</p></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>${title} · 스마트 도구</title><style>*{box-sizing:border-box}body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif;letter-spacing:-.025em}.wrap{max-width:1180px;margin:0 auto;padding:18px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;box-shadow:0 10px 28px rgba(15,23,42,.055);margin:12px 0}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero h1{margin:10px 0 6px;font-size:30px}.hero p{line-height:1.65;color:#ccfbf1}.badge{display:inline-flex;border-radius:999px;background:#dcfce7;color:#166534;padding:7px 11px;font-size:12px;font-weight:500}.grid,.features,.candidateGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px}.metric span{display:block;color:#64748b;font-size:12px;font-weight:900}.metric b{display:block;font-size:25px;margin-top:7px}.feature,.candidate{border:1px solid #e5e7eb;border-radius:18px;padding:15px;background:#f8fafc}.feature b,.candidate b{display:block;font-size:16px;color:#166534}.feature span,.candidate span,.candidate small{display:block;color:#64748b;line-height:1.55;margin-top:5px}.candidate{display:grid;gap:9px}.candidate strong{font-size:20px}.candidate form{display:grid;gap:8px}.candidate label{font-size:12px;color:#475569}.candidate button{border:0;border-radius:13px;min-height:42px;background:#111827;color:#fff;font-weight:1000}.muted{color:#64748b;line-height:1.6}.insightList{list-style:none;margin:0;padding:0;display:grid;gap:9px}.insightList li{display:grid;grid-template-columns:minmax(120px,1fr) minmax(180px,2fr) auto;gap:10px;align-items:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#f8fafc}.insightList span{color:#64748b;font-size:13px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border-radius:13px;background:#111827;color:#fff!important;text-decoration:none;font-weight:1000;padding:0 13px;margin:3px}.btn.light{background:#ecfdf5;color:#065f46!important}.ok,.error{border-radius:16px;padding:13px;line-height:1.6;margin:12px 0}.ok{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b}.notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e3a8a;border-radius:16px;padding:13px;line-height:1.6}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}.metricGrid{grid-template-columns:1fr 1fr}.metricGrid .metric{padding:14px}.metricGrid .metric b{font-size:20px}.insightList li{grid-template-columns:1fr}.btn{width:100%;margin:4px 0}}</style>${adsHeadMarkup(env, adKey)}</head><body>${renderUnifiedNav("smart-tools",{ month, householdId: selected?.id || "", householdName: householdChoiceLabelV229118(selected, households) || selected?.name || "", role: String(selected?.role || "") })}<main class="wrap">${message}${error}<section class="hero"><span class="badge">스마트 도구</span><h1>스마트 생활 도구</h1><p>${escapeHtml(selected?.name || "가계부")} · ${escapeHtml(month.slice(0, 4))}년 ${Number(month.slice(5, 7))}월 기준. 예측·자동화·정산·리포트를 한 곳에서 사용합니다.</p><p><a class="btn" href="/reports?${qs}">생활비 리포트</a><a class="btn light" href="/settlement-summary?${qs}">고급 정산</a></p></section><section class="grid metricGrid"><div class="card metric"><span>월말 예상 지출</span><b>${renderObservedMoney(analysis, analysis.burnForecast)}</b>${spenderCheckNote}</div><div class="card metric"><span>예산 잔여</span>${budgetRemainMetric}</div><div class="card metric"><span>반복지출 후보</span>${recurringMetric}</div><div class="card metric"><span>이상지출 후보</span><b>${anomalies.length}건</b><small>${numberWithCommas(anomalyTotal)}원</small></div><div class="card metric"><span>이번 주 지출</span><b>${weeklyText}</b></div><div class="card metric"><span>절약 후보</span><b>${premium.hasObservation === false ? "관측 전" : `${numberWithCommas(premium.savingPotential)}원`}</b></div></section><section class="card"><h2>사용할 수 있는 기능</h2><div class="features"><div class="feature"><b>반복 거래 자동화</b><span>후보를 가계부 소유자·관리자가 명시적으로 확정하면 지정일에 월 1회만 자동 반영합니다.</span></div><div class="feature"><b>고급 정산</b><span>동일·비율·인원수·품목별 분배와 최소 송금 제안을 제공합니다.</span></div><div class="feature"><b>주간·월간 리포트</b><span>자동 생성 설정, 복사·공유, 인쇄/PDF 저장을 제공합니다.</span></div><div class="feature"><b>스마트 예산·미션</b><span>현재 지출에서 추천 예산과 현실적인 절약 후보를 계산합니다.</span></div><div class="feature"><b>가족별 비교 분석</b><span>참여자와 분류별 기록을 기존 분석 화면에서 비교합니다.</span></div></div><p><a class="btn light" href="/my/analysis?${qs}">상세 분석</a><a class="btn light" href="/payment-methods?${qs}">자산·결제수단</a></p></section><section class="card"><h2>반복지출 후보 확정</h2><p class="muted">자동 등록 전 반드시 동의해야 하며, 같은 이름·금액은 중복 등록하지 않습니다. 금액이 바뀌면 새 후보로 다시 확인합니다.</p>${renderRecurringCandidateCards(recurringCandidates, selected, month)}</section><section class="card"><h2>큰 지출 점검</h2>${renderAnomalyList(anomalies)}</section>${adSlotMarkup(env, adKey)}<p class="notice"><b>기능 이용 안내</b><br/>가계부 역할 권한(소유자·관리자·구성원·조회전용)과 데이터 격리는 그대로 유지합니다. 준비가 끝나지 않은 기능은 메뉴와 직접 경로에서 숨깁니다.</p></main></body></html>`;
 }
 // @build:exports-start
 export {

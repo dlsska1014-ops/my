@@ -368,6 +368,35 @@ function normalizeKakaoEditAmountValue(textRaw = "") {
   return found && found.amount > 0 ? String(Math.round(found.amount)) : null;
 }
 
+// V22.9.131 (독립 검토 1 — 2번, 2 — 2·3번, 3 — 6번): 금액 칸 이름에 수를 붙여 쓴 첫 낱말인가(‘금액1만’·‘금액13000원’·‘금액은5000원’·‘금액이만원’·‘금액:1만’).
+// 예전에는 ‘금액1만 3천원’·‘금액:1만 3천원’ 이 첫 낱말에 붙은 1만을 버리고 뒤 낱말만 읽어 3,000원으로 고쳤다. 붙여 쓴 수는 읽지 않는다 — 조사인지 수인지 알 수
+// 없는 꼴이 섞여 있어서(‘금액만5천원’ 은 5,000원인가 15,000원인가) 값을 정하지 않고 묻는다(‘얼마로 바꿀까요?’). 붙은 것이 수가 아니면(‘금액변경 13000’·‘가격표’)
+// 이 판 전과 같다(2차 수정은 붙은 수를 금액으로 읽어 ‘금액만5천원’ 을 5,000원으로 고쳤고, 수가 아닌 꼬리까지 값에 넣어 ‘금액변경 13000’ 을 되물었다).
+//  - (조사 하나, 기호 몇 개 뒤) 숫자로 시작하는 꼬리(‘금액13000원으로요’·‘금액은5000원’·‘금액:1만’·‘가격2배’)이거나,
+//  - 낱말 끝까지 한글 수로 된 꼬리인데 ‘원’ 으로 끝나거나(‘금액만원’·‘금액이만원’·‘가격천원으로’) 수 글자가 둘 이상일 때(‘금액삼만’·‘금액이만’)다.
+//  - ‘만’·‘이’ 하나는 조사다: ‘금액만’·‘금액이’·‘금액만으로 5000원’ 은 이 판 전과 같다(독립 검토 3 — 3차 수정은 ‘금액만으로’ 를 붙여 쓴 수로 보고 되물었다).
+function isKakaoEditGluedAmountHead(tokenRaw = "") {
+  const token = normalize(tokenRaw);
+  const name = FIELD_SYNONYMS.amount.filter((word) => word.length >= 2 && token.startsWith(word)).sort((a, b) => b.length - a.length)[0] || "";
+  if (!name) return false;
+  const tail = token.slice(name.length);
+  if (/^(?:은|는|이|가|을|를|만|도)?[^0-9A-Za-z가-힣\s]{0,3}\d/.test(tail)) return true;
+  const korean = tail.match(/^(?:은|는|가|을|를|도)?([일이삼사오육칠팔구십백천만억][\d,.일이삼사오육칠팔구십백천만억]{0,24})(원?)(?:으로|로)?[,.!?~…]{0,3}$/);
+  return !!korean && (korean[2] === "원" || korean[1].split(",").join("").split(".").join("").length >= 2);
+}
+
+// V22.9.131 (독립 검토 1 — 3번, 독립 검토 2 — 1·6번): 분류·결제수단 칸의 값에 금액 낱말이 들어 있는가. 닫힌 꼴 하나다 — 낱말 머리부터 수 글자(숫자·쉼표·점·
+// 한글 수)로만 된 덩어리에 ‘원’ 이 붙고(‘5000원’·‘1만3천원’·‘3만5000원’·‘오천원’·‘5천 5백원’ 의 뒤 낱말), 그 뒤가 낱말 끝이거나 짧은 끝말(이요·요·짜리·어치·에·으로·로)일 때.
+// 덩어리에는 숫자나 큰 단위(백·천·만·억)가 하나는 있어야 한다 — ‘사원 식당’·‘구원’·‘일원’ 은 금액이 아니다. ‘원’ 이 없는 수(‘5만 포인트’·‘10만 적금’·‘카드 1234’)와
+// 낱말 안의 금액 꼴(‘5만원권’·‘만원의행복’)도 아니다. 등록된 이름과 똑같은 값은 보지 않는다. 되풀이에는 상한을 둔다.
+const KAKAO_EDIT_VALUE_MONEY = /(?:^|\s)(?=[\d,.일이삼사오육칠팔구십백천만억]{0,23}[\d백천만억])[\d,.일이삼사오육칠팔구십백천만억]{1,24}\s?원(?:이요|요|짜리|어치|에|으로|로)?(?=\s|$)/;
+function kakaoEditValueHasMoney(field, valueRaw, config = {}) {
+  const value = normalize(valueRaw);
+  const known = field === "method" ? [...METHOD_WORDS, ...(config.methods || [])] : config.categories || [];
+  if (known.some((name) => compact(name) === compact(value))) return false;
+  return KAKAO_EDIT_VALUE_MONEY.test(value);
+}
+
 function parseEditInput(textRaw, config = {}) {
   const text = normalize(textRaw);
   if (!text) return null;
@@ -379,7 +408,8 @@ function parseEditInput(textRaw, config = {}) {
       const clean = t.replace(/[,.!?]/g, "");
       return clean && !FILLER_TOKENS.has(clean) && tokenToField(clean) !== field;
     });
-    let value = valueTokens.join(" ") || null;
+    // V22.9.131: 금액 칸 이름에 수를 붙여 쓴 말(‘금액1만 3천원’)은 값을 정하지 않는다(묻는다) — isKakaoEditGluedAmountHead. 그 밖에는 이 판 전과 같다.
+    let value = field === "amount" && isKakaoEditGluedAmountHead(tokens[0]) ? null : valueTokens.join(" ") || null;
     if (value) value = stripKakaoEditDirection(field, value, config);
     if (field === "amount" && value) value = normalizeKakaoEditAmountValue(value);
     if (field === "delete") value = "confirm";
@@ -707,6 +737,14 @@ function handleEditMessage(session, textRaw, config = {}) {
   // V22.9.126 FC-10: ‘수정 01번 금액 5’·‘방금 금액 5’·‘수정 01번 9’ 처럼 칸과 함께 온 단위 없는 한 자리 금액도 같은 규칙이다.
   const smallAmount = parsed.field === "amount" && parsed.value ? kakaoEditSmallAmountV229126(text, parsed.value) : 0;
   if (smallAmount) return kakaoEditSmallAmountReaskV229126(session, now, text, smallAmount);
+
+  // V22.9.131 (독립 검토 1 — 3번): 칸 이름·메뉴 번호로 고른 분류·결제수단의 값에 금액이 들어 있으면 그 칸의 값이 아니다. 예전에는 ‘3번 밥 5000원’·
+  // ‘3 떡볶이 5000원’ 이 결제수단을 ‘밥 5000원’·‘떡볶이 5000원’ 으로, ‘2번 술 3만원’ 이 분류를 ‘술 3만원’ 으로 묻지 않고 바꿨다. 바꾸지 않고 다시 묻는다.
+  if (parsed.via === "field" && (parsed.field === "category" || parsed.field === "method") && parsed.value && kakaoEditValueHasMoney(parsed.field, parsed.value, config)) {
+    const label = fieldLabel(parsed.field, session);
+    // moneyInValue: 열린 창의 관문(edit-flow-v4)이 새 기록 꼴의 말에서 이 거절을 두 길 안내로 바꿀 때 본다.
+    return { ...fail(session, now, text, `‘${parsed.value}’에는 금액이 들어 있어서 ${label}${josa(label, "을를")} 바꾸지 않았어요. 기록은 그대로예요.\n${label}만 보내 주세요. 예: ${exampleFor(parsed.field, session)}\n새로 기록하려면 먼저 ‘취소’를 보내 주세요.`), moneyInValue: true };
+  }
 
   // [L3] 값 추론 confidence 낮음 → 확인 질문
   if (parsed.via === "infer" && parsed.confidence === "low") {
