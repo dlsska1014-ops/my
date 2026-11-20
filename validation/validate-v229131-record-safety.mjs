@@ -15,7 +15,7 @@
 // 실행: node validation/validate-v229131-record-safety.mjs   (분류 표 없는 운영 모드: AB_QA_CATEGORIES_ABSENT=1)
 import { createHash } from "node:crypto";
 import app, { runAutomaticReports } from "../src/index.js";
-import { BASE, ctx, failure, fixture, intercept, putSetting, settingValue } from "./lib-audit-v22934.mjs";
+import { BASE, ctx, failure, fixture, intercept, putSetting, settingValue, withoutRoomMention } from "./lib-audit-v22934.mjs";
 import { PASSWORD_KDF_ITERATIONS, newPasswordSalt, pbkdf2PasswordHash } from "../src/modules/auth/crypto-admin-session.js";
 import * as rowsModule from "../src/modules/data/households-members-rows.js";
 
@@ -70,7 +70,8 @@ async function say(fx, utterance, { user = OWNER, room = "", clear = true, advan
   let body = null;
   try { body = JSON.parse(raw); } catch (_) {}
   for (let round = 0; round < 12 && jobs.length; round += 1) await Promise.allSettled(jobs.splice(0));
-  return { status: response.status, text: body ? textOf(body) : raw };
+  // V22.9.134 M-1: 단톡방 답에는 안내에 봇 부르기(@말해가계부)·끝 한 줄이 붙는다. 이 검사는 답의 내용을 1:1 과 같은 글로 견주므로 그 말을 떼고 본다.
+  return { status: response.status, text: body ? (room ? withoutRoomMention(textOf(body)) : textOf(body)) : raw };
 }
 async function kakaoScene(task, env = {}) {
   const previous = globalThis.__AB_QA_FIXED_NOW_MS;

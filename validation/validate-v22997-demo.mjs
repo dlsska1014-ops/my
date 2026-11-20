@@ -79,7 +79,8 @@ const userIdOf = (fx, key) => fx.db.users.find((row) => row.kakao_user_key === k
 // 새 사용자는 단톡방 가계부 하나에만 참여하므로 그 사람의 가계부가 그 방의 가계부다.
 const roomHouseholdOf = (fx, key) => fx.db.households.find((h) => fx.db.household_members.some((m) => m.household_id === h.id && m.user_id === userIdOf(fx, key)));
 const roleOf = (fx, householdId, key) => fx.db.household_members.find((m) => m.household_id === householdId && m.user_id === userIdOf(fx, key))?.role;
-const personLines = (lines) => lines.filter((line) => /^• [^→]+: (?:[\d,]+원 (?:받기|보내기)|정산 차액 없음)$/.test(line));
+// V22.9.134 S-1: 사람 줄이 ‘• 이름: 낸 돈 → 받을 돈·보낼 돈’ 꼴로 바뀌었다(예전: ‘• 이름: 65,000원 받기’). 송금 줄(‘• A → B: 금액’)은 그대로다.
+const personLines = (lines) => lines.filter((line) => /^• .+: (?:낸 돈 [\d,]+원|낸 돈보다 환불이 [\d,]+원 많아요) → (?:[\d,]+원 (?:받아요|보내요)|주고받을 돈 없어요)$/.test(line));
 const transferLines = (lines) => lines.filter((line) => /^• .+ → .+: [\d,]+원$/.test(line));
 
 const demo = await publicPage("/demo");
@@ -134,21 +135,21 @@ await section("1 /demo 일곱째 단계", async () => {
     const real = (await roomSay(fx, room, keyOf(ME), bubbles[5].text)).split("\n");
     eq(bubbles[6]?.lines, real, "1-s 봇 말풍선은 같은 말을 차례로 보낸 실제 /skill 정산 답과 줄마다 같다(바꾸는 값 없음)");
     const total = records.reduce((sum, r) => sum + amountOf(r.text), 0);
-    ok(real.includes(`총 지출: ${won(total)}`) && real.includes(`참여자: ${records.length}명`) && real.includes(`1인 기준: ${won(total / records.length)}`) && real.includes("송금 제안"), "1-t 답의 총 지출·참여자·1인 기준이 네 기록의 합·4명·4분의 1이고 송금 제안이 있다");
+    ok(real.includes(`이번 달 함께 쓴 돈 ${won(total)}을 ${records.length}명이 똑같이 나눴어요.`) && real.includes(`한 사람 몫: ${won(total / records.length)}`) && real.includes("💸 이렇게 보내면 돼요") && real.includes("🧾 한 사람씩 보면"), "1-t 답의 나눈 돈·사람 수·한 사람 몫이 네 기록의 합·4명·4분의 1이고 보낼 돈 묶음과 사람별 묶음이 있다");
 
     // ── 2-가. 같은 방으로 본 절의 사실(V22.9.115): 봇을 한 번도 부르지 않은 사람은 참여 전, 부르면 승인 없이 구성원, 조회 전용으로 바꾸면 빠짐 ──
     const harin = keyOf("하린");
-    ok(!userIdOf(fx, harin) && (await roomSay(fx, room, keyOf(ME), "@말해가계부 정산")).split("\n").includes("참여자: 4명"), "2-a 봇을 한 번도 부르지 않은 사람은 참여 전이라 정산에서 빠진다(참여자 4명)(절: 참여 전이라 빠집니다)");
+    ok(!userIdOf(fx, harin) && (await roomSay(fx, room, keyOf(ME), "@말해가계부 정산")).split("\n").includes(`이번 달 함께 쓴 돈 ${won(total)}을 4명이 똑같이 나눴어요.`), "2-a 봇을 한 번도 부르지 않은 사람은 참여 전이라 정산에서 빠진다(참여자 4명)(절: 참여 전이라 빠집니다)");
     const called = (await roomSay(fx, room, harin, "@말해가계부 정산")).split("\n");
     ok(called[0] === "이 방 가계부 ‘이 방의 공동 가계부’에 참여했어요." && roleOf(fx, household?.id, harin) === "member", `2-b 낸 돈이 없는 사람도 방에서 봇을 한 번 부르면 승인 없이 바로 구성원이 된다(절: 봇을 한 번 부르면 … 바로 구성원) (${called[0]})`);
-    ok(called.includes("참여자: 5명") && called.includes(`1인 기준: ${won(total / 5)}`), "2-c 그 ‘정산’ 답부터 함께 나눈다(5명, 1인 기준 80,000원)(절: 함께 나눕니다)");
+    ok(called.includes(`이번 달 함께 쓴 돈 ${won(total)}을 5명이 똑같이 나눴어요.`) && called.includes(`한 사람 몫: ${won(total / 5)}`), "2-c 그 ‘정산’ 답부터 함께 나눈다(5명, 한 사람 몫 80,000원)(절: 함께 나눕니다)");
     const ownerCookie = await fx.cookieFor(userIdOf(fx, keyOf(ME)));
     const members = await page(fx, `/my/members?household_id=${encodeURIComponent(household?.id)}`, { cookie: ownerCookie });
     ok(members.status === 200 && members.html.includes(`name="user_id" value="${userIdOf(fx, harin)}"`) && members.html.includes('<option value="member" selected>구성원 · 기록 가능</option><option value="viewer">조회 전용</option>'), "2-d 소유자의 웹 ‘참여자·초대’(/my/members)에 그 사람의 권한 칸(구성원 → 조회 전용)이 있다");
     const demoted = await post(fx, "/admin/member/update", { household_id: household?.id, user_id: userIdOf(fx, harin), role: "viewer", return_to: `/my/members?household_id=${household?.id}` }, { cookie: ownerCookie });
     ok(demoted.status === 303 && roleOf(fx, household?.id, harin) === "viewer", "2-e 소유자가 권한을 조회 전용으로 바꾼다");
     const four = (await roomSay(fx, room, keyOf(ME), "@말해가계부 정산")).split("\n");
-    ok(four.includes("참여자: 4명") && four.includes(`1인 기준: ${won(total / 4)}`), "2-f 조회 전용은 나누는 사람에서 빠진다(4명)(절: 조회 전용으로 바꿔 나누는 사람에서 뺄 수 있습니다)");
+    ok(four.includes(`이번 달 함께 쓴 돈 ${won(total)}을 4명이 똑같이 나눴어요.`) && four.includes(`한 사람 몫: ${won(total / 4)}`), "2-f 조회 전용은 나누는 사람에서 빠진다(4명)(절: 조회 전용으로 바꿔 나누는 사람에서 뺄 수 있습니다)");
 
     const txOf = (name) => fx.db.transactions.find((row) => row.household_id === household?.id && row.user_id === userIdOf(fx, keyOf(name)));
     const coffee = txOf("도윤"), rental = txOf("서연");
@@ -193,7 +194,9 @@ await section("2 /group-accountbook 모임 총무로 쓰기", async () => {
     await roomSay(fx, room, keys[0], "@말해가계부 숙소 100000원");
     for (let i = 1; i < keys.length; i += 1) await roomSay(fx, room, keys[i], `@말해가계부 간식 ${1000 + i * 100}원`);
     const lines = (await roomSay(fx, room, keys[0], "@말해가계부 정산")).split("\n");
-    ok(lines.includes("참여자: 10명") && lines.some((line) => line.startsWith("• 카카오사용자 1: ")), "2-r 이름을 정하지 않으면 ‘카카오사용자 1’처럼 번호가 붙는다(10명)");
+    ok(lines.some((line) => line.endsWith("을 10명이 똑같이 나눴어요.")) && lines.some((line) => line.startsWith("• 카카오사용자 1: ")), "2-r 이름을 정하지 않으면 ‘카카오사용자 1’처럼 번호가 붙는다(10명)");
+    // V22.9.134 S-1·M-1: 기본 이름이 보이면 이름 정하는 말을 알린다(단톡방이라 봇 부르기가 붙는다) — 절의 ‘내 이름 민지’ 안내와 같은 말이다.
+    ok(lines.includes("이름이 ‘카카오사용자 1’처럼 보이는 분은 이름을 정해 두면 알아보기 쉬워요.") && lines.includes("예) @말해가계부 내 이름 민지"), "2-r 기본 이름이 보이는 정산 답은 이름 정하는 말을 알린다");
     ok(personLines(lines).length === 8 && lines.includes("외 2명은 웹 정산 화면에서 볼 수 있어요."), "2-s 카카오 답은 참여자 8명까지 보이고 나머지는 ‘외 2명’으로 웹 정산 화면을 가리킨다");
     ok(transferLines(lines).length === 8 && lines.includes("외 1건은 웹 정산 화면에서 볼 수 있어요."), "2-t 송금 제안도 8건까지 보이고 나머지는 ‘외 1건’이다");
     const household = roomHouseholdOf(fx, keys[0]);
@@ -214,7 +217,7 @@ await section("2 /group-accountbook 모임 총무로 쓰기", async () => {
     const summary = (await roomSay(fx, room, a, "@말해가계부 이번 달 요약")).split("\n");
     ok(summary.includes("지출: 50,000원 · 1건") && summary.includes("수입: 60,000원"), "2-w ‘이번 달 요약’에 걷은 회비(수입)와 쓴 돈(지출)이 함께 나온다");
     const settle = (await roomSay(fx, room, a, "@말해가계부 정산")).split("\n");
-    ok(settle.includes("총 지출: 50,000원") && settle.includes("참여자: 2명") && settle.includes("• 카카오사용자 1: 25,000원 받기"), "2-x 정산은 수입을 넣지 않고, 회비에서 쓴 지출도 기록한 사람이 낸 것처럼 나눈다(절의 주의 문장)");
+    ok(settle.includes("이번 달 함께 쓴 돈 50,000원을 2명이 똑같이 나눴어요.") && settle.includes("• 카카오사용자 1: 낸 돈 50,000원 → 25,000원 받아요"), "2-x 정산은 수입을 넣지 않고, 회비에서 쓴 지출도 기록한 사람이 낸 것처럼 나눈다(절의 주의 문장)");
   }));
 
   // 달 단위: 9월 30일 기록은 10월 1일의 ‘정산’에 들어가지 않는다.
@@ -226,7 +229,7 @@ await section("2 /group-accountbook 모임 총무로 쓰기", async () => {
       await roomSay(fx, room, b, "@말해가계부 저녁 60000원");
       return (await roomSay(fx, room, a, "@말해가계부 정산")).split("\n");
     });
-    ok(lines[0] === "📊 2026-10 정산" && lines.includes("총 지출: 60,000원"), "2-y 카카오 정산은 이번 달 지출만 나눈다(9월 30일 기록은 10월 정산에 없다)(절: 정산은 달 단위)");
+    ok(lines[0] === "📊 2026-10 정산" && lines.includes("이번 달 함께 쓴 돈 60,000원을 2명이 똑같이 나눴어요."), "2-y 카카오 정산은 이번 달 지출만 나눈다(9월 30일 기록은 10월 정산에 없다)(절: 정산은 달 단위)");
   });
 });
 

@@ -629,7 +629,8 @@ async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey 
     return { row, seq: seqIn(rows, row), dailyLimit: Number(rows.dailyLimit || 0) };
   }
   const found = await findDailyKakaoRowBySeq(env, household.id, user.id, kakaoUserKey, target.date, target.seq);
-  return { row: found.row, seq: Number(target.seq || 0), dailyLimit: Number(found.rows?.dailyLimit || 0) };
+  // V22.9.134 N-1: 번호를 찾지 못한 답이 쓰도록 그날 내 기록 수와 다른 사람의 기록 수를 함께 돌려준다(같은 읽기에서 센 값).
+  return { row: found.row, seq: Number(target.seq || 0), dailyLimit: Number(found.rows?.dailyLimit || 0), ownCount: Number(found.rows?.length || 0), othersCount: Number(found.rows?.othersCount || 0) };
 }
 
 // V22.9.79 감사 B-8: 복구가 끝나지 않았을 때의 안내. 예전에는 어느 경우든 "다시 ‘복구’를 입력"하라고 했다.
@@ -701,10 +702,26 @@ function kakaoEditTouchedAmbiguousTextV229116(touched = {}, saved = []) {
   ].join("\n");
 }
 
-function kakaoEditRowNotFoundTextV4(target = {}, dailyLimit = 0) {
+// V22.9.134 N-1(운영자 2026-11-20 — 출시일 실제 단톡방): 번호는 기록한 사람마다 01번부터 따로 매기고(‘오늘기록’ 도 내 기록만 보인다), 번호로 고치거나 지우는
+// 것은 누구든 자기가 남긴 기록뿐이다. 그런데 다른 사람의 저장 답에 적힌 ‘삭제 01번’ 을 따라 보낸 사람은 ‘01번 기록을 찾지 못했어요’ 만 받아 까닭을 알 수 없었다.
+// 그날 내 것이 아닌 기록이 있으면(counts.othersCount — 같은 읽기에서 센 값) 번호가 사람마다 따로라는 것과 그 기록은 내 번호로 고칠 수 없다는 것을 말한다.
+//  · 누가 고칠 수 있는지는 단정하지 않는다(독립 검토: 구성원 권한이 ‘기록만’ 인 가계부에서는 기록한 사람도 고치지 못한다). 소유자·관리자에게만 웹에서
+//    고칠 수 있다고 알린다(그 권한은 구성원 권한 설정과 무관하다).
+//  · 그날 읽은 범위가 한도(500건)에 닿았으면 내 기록이 읽은 범위 밖에 있을 수 있으므로 수를 말하지 않는다 — 예전 글과 한도 줄 그대로다.
+//  · 내 것이 아닌 기록이 없는 날의 답도 예전 그대로다.
+function kakaoEditRowNotFoundTextV4(target = {}, dailyLimit = 0, counts = {}) {
   const date = target.date || formatDate(nowKstDate());
   const seqText = target.seq ? ` ${twoDigitSeq(target.seq)}번` : "";
-  return [`${date}${seqText} 기록을 찾지 못했어요.`, `"${date} 기록"이라고 입력해 번호를 다시 확인해 주세요.`, kakaoDailyLimitLineV22980(dailyLimit)].filter(Boolean).join("\n");
+  const others = Math.max(0, Math.round(Number(counts.othersCount || 0)));
+  const own = Math.max(0, Math.round(Number(counts.ownCount || 0)));
+  if (!others || !target.seq || dailyLimit) return [`${date}${seqText} 기록을 찾지 못했어요.`, `"${date} 기록"이라고 입력해 번호를 다시 확인해 주세요.`, kakaoDailyLimitLineV22980(dailyLimit)].filter(Boolean).join("\n");
+  const manager = ["owner", "admin"].includes(String(counts.role || "").toLowerCase());
+  return [
+    own ? `${date}${seqText} 기록을 찾지 못했어요. 이 날 내가 남긴 기록은 ${twoDigitSeq(own)}번까지예요.` : `${date}에 내가 남긴 기록이 없어서${seqText}을 찾지 못했어요.`,
+    `번호는 기록한 사람마다 01번부터 따로 매겨요. 이 날 내 것이 아닌 기록 ${numberWithCommas(others)}건은 내 번호로는 고치거나 지울 수 없어요.`,
+    manager ? "소유자·관리자는 웹 가계부에서 다른 분의 기록도 고칠 수 있어요." : "",
+    ...(own ? ["내 번호는 이렇게 다시 볼 수 있어요.", `예) ${date} 기록`] : []),
+  ].filter(Boolean).join("\n");
 }
 
 // V22.9.77 감사 A-14: ‘오늘기록’ 목록은 앞의 20건(가장 오래된 기록)에서 끊겼고, 950자를 넘으면 줄 중간이 잘렸다. 다 들어가면
@@ -928,8 +945,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
     const rejected = kakaoEditTargetRejectTextV4(deleteTarget);
     if (rejected) return kakaoText(rejected);
     { const refused = await refuseRecordChange(); if (refused) return refused; }
-    const { row, seq, dailyLimit, ambiguousText } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
-    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit));
+    const { row, seq, dailyLimit, ambiguousText, ownCount, othersCount } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
+    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit, { ownCount, othersCount, role: ctx.role }));
     let deleted = null;
     try {
       deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id, role: ctx.role }, row, seq);
@@ -959,8 +976,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
       return kakaoText(`${shown}번 기록은 그대로예요.\n지우려면 ‘삭제 ${shown}번’이라고 보내 주세요.`);
     }
     { const refused = await refuseRecordChange(); if (refused) return refused; }
-    const { row, seq, dailyLimit, ambiguousText } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
-    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(editTarget, dailyLimit));
+    const { row, seq, dailyLimit, ambiguousText, ownCount, othersCount } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
+    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(editTarget, dailyLimit, { ownCount, othersCount, role: ctx.role }));
     // V22.9.93 Q-32: ‘방금 분류 이상해’ 는 그 칸을 다시 묻고, ‘아까 거 내용 뭐였지’ 는 기록을 보여 준다. 둘 다 값이 아니라 기록을 바꾸지 않는다.
     if (isKakaoEditNotValue(editTarget.rest) && !/^구분(?:\s|$)/.test(editTarget.rest)) {
       const complaint = kakaoEditComplaintField(editTarget.rest);

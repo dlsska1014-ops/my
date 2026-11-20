@@ -23,7 +23,8 @@ const FLAG_OFF_GOLDEN = {
   itemMain: "59f709871a82052f64c845f9",
   memberMain: "f217a4472b9be984ae6cc7f7",
   afterMain: "ad2bb736ab773b7c58132121",
-  kakao: "📊 2026-10 정산\n환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.\n총 지출: 130,000원\n참여자: 2명\n1인 기준: 65,000원\n\n• Bin: 35,000원 받기\n• WIFI♥: 35,000원 보내기\n\n송금 제안\n• WIFI♥ → Bin: 35,000원",
+  // V22.9.134 S-1: 카카오 정산 답의 글 모양이 바뀌었다(읽는 차례·쉬운 말 — 금액과 사람은 V22.9.78 과 같다). 플래그가 꺼져 있으면 이 글 그대로여야 한다.
+  kakao: "📊 2026-10 정산\n이번 달 함께 쓴 돈 130,000원을 2명이 똑같이 나눴어요.\n한 사람 몫: 65,000원\n\n💸 이렇게 보내면 돼요\n• WIFI♥ → Bin: 35,000원\n\n🧾 한 사람씩 보면\n• Bin: 낸 돈 100,000원 → 35,000원 받아요\n• WIFI♥: 낸 돈 30,000원 → 35,000원 보내요\n\n※ 환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.",
   entry: "{\"schema_version\":2,\"month\":\"2026-10\",\"mode\":\"equal\",\"conditions\":{\"weights\":{},\"itemParticipants\":{}},\"total_expense\":130000,\"participant_count\":2,\"shares\":[{\"user_id\":\"user-bin\",\"name\":\"Bin\",\"paid\":100000,\"share\":65000,\"balance\":35000},{\"user_id\":\"user-wifi\",\"name\":\"WIFI♥\",\"paid\":30000,\"share\":65000,\"balance\":-35000}],\"transfers\":[{\"from\":\"WIFI♥\",\"to\":\"Bin\",\"amount\":35000}],\"rows_digest\":\"2a966869aa9e946e9a42f16e389008c6\",\"note\":\"합성 정산\",\"completed_by\":\"user-bin\",\"status\":\"completed\"}",
   routes: "GET /my/settlement/refund-link 404\nPOST /my/settlement/refund-link 404 \nPOST /my/settlement/refund-unlink 404 \nPOST /my/settlement/refund-keep 404 ",
   readyKeys: "ok,ready,version,skill_caller_auth_configured,skill_caller_auth,checked_tables,checked_required_tables,checked_optional_tables,checked_rpcs,failed_tables,unavailable_optional_tables,missing_rpcs,ads_mode",
@@ -376,7 +377,8 @@ await scenario("같은 달 연결", async (fx) => {
   t.ok(sectionOf(after.html).includes("10/12 쿠팡 환불 40,000원 → 10/3 쿠팡 주문 100,000원(생활)에서 뺐어요"), "같은 달: 연결한 환불 목록");
   t.ok(after.html.includes("<span>뺀 환불</span><b>40,000원</b>") && after.html.includes("참여자와 연결한 환불을 뺀 금액을 확인했고 완료 이력으로 저장합니다."), "같은 달: 뺀 환불 지표와 완료 확인 문장");
   const kakao = await skill(fx, "정산");
-  t.eq(kakao, ["📊 2026-10 정산", "연결한 환불 40,000원은 이 정산에서 뺐어요.", "원래 지출을 고르지 않은 환급 1건은 빼지 않았어요. 웹 정산 화면에서 고를 수 있어요.", "총 지출: 90,000원 (환불 40,000원 뺌)", "참여자: 2명", "1인 기준: 45,000원", "", "• Bin: 15,000원 받기", "• WIFI♥: 15,000원 보내기", "", "송금 제안", "• WIFI♥ → Bin: 15,000원"].join("\n"), "같은 달: 카카오 ‘정산’ 답장(새 문구)");
+  // V22.9.134 S-1: 환불 줄은 글 그대로 맨 아래(※)로 내려가고, 뺀 환불은 첫 문장의 괄호에 적힌다.
+  t.eq(kakao, ["📊 2026-10 정산", "이번 달 함께 쓴 돈 90,000원(환불 40,000원 뺌)을 2명이 똑같이 나눴어요.", "한 사람 몫: 45,000원", "", "💸 이렇게 보내면 돼요", "• WIFI♥ → Bin: 15,000원", "", "🧾 한 사람씩 보면", "• Bin: 낸 돈 60,000원 → 15,000원 받아요", "• WIFI♥: 낸 돈 30,000원 → 15,000원 보내요", "", "※ 연결한 환불 40,000원은 이 정산에서 뺐어요.", "※ 원래 지출을 고르지 않은 환급 1건은 빼지 않았어요. 웹 정산 화면에서 고를 수 있어요."].join("\n"), "같은 달: 카카오 ‘정산’ 답장(새 문구)");
   const duplicate = await post(fx, "/my/settlement/refund-link", asValues(form));
   t.ok(duplicate.location.includes("err=refund_link_duplicate") && fx.db.accountbook_refund_links.length === 1, "같은 달: 같은 두 기록을 다시 연결하지 않는다");
   const { form: other } = await pickerForm(fx, "r2", "e2");
@@ -413,7 +415,7 @@ await scenario("지난달 원지출 연결", async (fx) => {
   const september = await page(fx, `/settlement-summary?month=2026-09&household_id=${HH}`);
   t.ok(copyText(september.html).includes("총 지출: 80,000원") && !september.html.includes("<span>뺀 환불</span>"), "지난달: 9월 정산은 그대로다");
   const kakao = await skill(fx, "정산");
-  t.ok(kakao.includes("총 지출: 110,000원 (환불 20,000원 뺌)") && kakao.includes("• WIFI♥ → Bin: 45,000원") && kakao.includes("원래 지출을 고르지 않은 환급 1건"), "지난달: 카카오 답장도 같은 금액");
+  t.ok(kakao.includes("이번 달 함께 쓴 돈 110,000원(환불 20,000원 뺌)을 2명이 똑같이 나눴어요.") && kakao.includes("• WIFI♥ → Bin: 45,000원") && kakao.includes("원래 지출을 고르지 않은 환급 1건"), "지난달: 카카오 답장도 같은 금액");
   const monthRows = fx.db.transactions.filter((row) => row.transaction_date.startsWith(MONTH));
   const before = log.requests.length;
   const offResult = await attempt(() => call(feature, "refundNettedMonthRows", { ...fx.env, REFUND_LINKS_ENABLED: "0" }, { householdId: HH, monthRows }));
@@ -447,7 +449,7 @@ await scenario("완료한 달", async (fx) => {
   const otherMonth = await post(fx, "/my/settlement/refund-unlink", { household_id: HH, month: "2026-09", link_id: "link-a", amount: "40000" });
   t.ok(otherMonth.location.includes("err=refund_link_month_completed") && log.calls("accountbook_unlink_refund_v22979").length === 0, "완료한 달: 폼의 달을 바꿔도 환급 날짜의 달로 막는다");
   const kakao = await skill(fx, "정산");
-  t.ok(kakao.includes("총 지출: 90,000원 (환불 40,000원 뺌)"), "완료한 달: 이미 연결한 환불은 그대로 반영된다");
+  t.ok(kakao.includes("이번 달 함께 쓴 돈 90,000원(환불 40,000원 뺌)을 2명이 똑같이 나눴어요."), "완료한 달: 이미 연결한 환불은 그대로 반영된다");
 });
 
 // ── 7. 소유자·관리자만(운영자 답 4): 화면에서 숨기는 것만이 아니라 서버가 막는다 ───────────────────────
@@ -499,7 +501,7 @@ await scenario("연결 풀기", async (fx) => {
   const after = await page(fx, done.location.split("#")[0]);
   t.ok(after.html.includes("연결을 풀었어요.") && copyText(after.html).includes("총 지출: 130,000원") && sectionOf(after.html).includes("10/12 쿠팡 환불 +40,000원"), "풀기: 정산이 돌아오고 환급은 다시 확인 대상");
   const kakao = await skill(fx, "정산");
-  t.ok(kakao.includes("원래 지출을 고르지 않은 환급 2건은 빼지 않았어요.") && kakao.includes("총 지출: 130,000원\n"), "풀기: 카카오 답장도 돌아온다");
+  t.ok(kakao.includes("원래 지출을 고르지 않은 환급 2건은 빼지 않았어요.") && kakao.includes("이번 달 함께 쓴 돈 130,000원을 2명이 똑같이 나눴어요.\n"), "풀기: 카카오 답장도 돌아온다");
 });
 
 // ── 9. 365일 창·날짜 순서(운영자 답 6) ─────────────────────────────────────────────────────────
@@ -554,19 +556,58 @@ async function crowd(fx, extra) {
   }
   fx.db.accountbook_settings.find((row) => row.key === `member_aliases:${HH}`).value = JSON.stringify(aliases);
   const text = await skill(fx, "정산");
-  const [peoplePart, transferPart = ""] = text.split("송금 제안");
+  // V22.9.134 S-1: 묶음의 차례가 바뀌었다 — ‘이렇게 보내면 돼요’(누가 누구에게) 다음에 ‘한 사람씩 보면’(사람마다), 맨 아래가 환급 안내다.
+  const [, rest = ""] = text.split("💸 이렇게 보내면 돼요");
+  const [transferPart, peoplePart = ""] = rest.split("🧾 한 사람씩 보면");
   return { text, people: peoplePart.split("\n").filter((line) => line.startsWith("• ")).length, transfers: transferPart.split("\n").filter((line) => line.startsWith("• ")).length };
 }
 await scenario("D-21 10명", async (fx) => {
   const reply = await crowd(fx, 8);
-  t.ok(reply.text.includes("참여자: 10명") && reply.people === 8 && reply.transfers === 8, "D-21: 참여자 10명·송금 9건 중 8줄씩 보인다");
+  t.ok(reply.text.includes("10명이 똑같이 나눴어요.") && reply.people === 8 && reply.transfers === 8, "D-21: 참여자 10명·송금 9건 중 8줄씩 보인다");
   t.ok(reply.text.includes("외 2명은 웹 정산 화면에서 볼 수 있어요."), "D-21: ‘외 2명’ 줄");
   t.ok(reply.text.includes("외 1건은 웹 정산 화면에서 볼 수 있어요."), "D-21: ‘외 1건’ 줄");
-  t.ok(reply.text.indexOf("외 2명") < reply.text.indexOf("송금 제안") && reply.text.trim().endsWith("외 1건은 웹 정산 화면에서 볼 수 있어요."), "D-21: 사람 목록 끝·송금 제안 끝에 붙는다");
+  t.ok(reply.text.indexOf("외 1건") < reply.text.indexOf("🧾 한 사람씩 보면") && reply.text.indexOf("🧾 한 사람씩 보면") < reply.text.indexOf("외 2명") && reply.text.trim().endsWith("일반 정산 금액과 완료 이력에는 반영하지 않습니다."), "D-21: 송금 목록 끝·사람 목록 끝에 붙고 환급 안내가 맨 아래다");
 });
 await scenario("D-21 9명", async (fx) => {
   const reply = await crowd(fx, 7);
   t.ok(reply.text.includes("외 1명은 웹 정산 화면에서 볼 수 있어요.") && reply.transfers === 8 && !/외 \d+건/.test(reply.text), "D-21: 송금 8건이면 ‘외 N건’ 줄이 없다");
+});
+
+// ── 11-가. V22.9.134 S-1: 연결한 환불이 그 달 지출보다 많은 달의 카카오 답(계산은 1절의 음수 총액과 같다 — 환불을 받은 사람이 보낸다) ──
+await scenario("환불이 지출보다 많은 달", async (fx) => {
+  seed(fx, { flag: "1", rows: [tx("e0", "user-bin", "expense", 80000, "가전", "가전 구매", "2026-09-20"), tx("e2", "user-wifi", "expense", 30000, "식비", "점심", "2026-10-05"), tx("r3", "user-bin", "income", 50000, "환급", "가전 환불", "2026-10-12")], links: [linkRow("l3", "e0", "r3", 50000)] });
+  refundDb(fx);
+  const kakao = await skill(fx, "정산");
+  t.eq(kakao, [
+    "📊 2026-10 정산",
+    "이번 달 함께 쓴 돈에서 연결한 환불 50,000원을 빼면 남는 지출이 없어요(2명).",
+    "연결한 환불이 지출보다 20,000원 많아요. 아래대로 보내면 돼요.",
+    "",
+    "💸 이렇게 보내면 돼요",
+    "• Bin → WIFI♥: 40,000원",
+    "",
+    "🧾 한 사람씩 보면",
+    "• WIFI♥: 낸 돈 30,000원 → 40,000원 받아요",
+    "• Bin: 낸 돈보다 환불이 50,000원 많아요 → 40,000원 보내요",
+    "",
+    "※ 연결한 환불 50,000원은 이 정산에서 뺐어요.",
+  ].join("\n"), "음수 총액: 카카오 ‘정산’ 답장(뺀 셈을 적고, 환불을 받은 사람이 보낸다)");
+});
+// 나눌 사람이 한 명뿐이면 주고받을 돈이 없다 — ‘아래대로 보내면 돼요’ 를 적지 않는다(독립 검토: 바로 아래가 ‘서로 주고받을 돈이 없어요’ 였다).
+await scenario("환불이 지출보다 많은 달(한 사람)", async (fx) => {
+  seed(fx, { flag: "1", rows: [tx("e0", "user-bin", "expense", 80000, "가전", "가전 구매", "2026-09-20"), tx("e3", "user-bin", "expense", 30000, "식비", "점심", "2026-10-05"), tx("r3", "user-bin", "income", 50000, "환급", "가전 환불", "2026-10-12")], links: [linkRow("l3", "e0", "r3", 50000)] });
+  for (const member of fx.db.household_members) if (member.household_id === HH && member.user_id === "user-wifi") member.role = "viewer";
+  refundDb(fx);
+  const kakao = await skill(fx, "정산");
+  t.eq(kakao.split("\n").slice(0, 6).join("\n"), [
+    "📊 2026-10 정산",
+    "이번 달 함께 쓴 돈에서 연결한 환불 50,000원을 빼면 남는 지출이 없어요(1명).",
+    "연결한 환불이 지출보다 20,000원 많아요.",
+    "",
+    "💸 서로 주고받을 돈이 없어요.",
+    "",
+  ].join("\n"), "음수 총액·한 사람: 보낼 돈이 없으면 ‘아래대로 보내면 돼요’ 를 적지 않는다");
+  t.ok(!kakao.includes("아래대로 보내면 돼요") && !kakao.includes("이름을 정해 두면"), "음수 총액·한 사람: 보내라는 말도 이름 안내도 없다");
 });
 
 // ── 12. /ready(플래그 켜짐·표 있음): 기능 수준 준비만 붙고 필수 표 13개는 그대로 ─────────────────────

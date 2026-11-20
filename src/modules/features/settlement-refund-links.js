@@ -296,7 +296,8 @@ function kakaoRefundSettlementLines(state = {}, model = {}) {
 }
 
 function kakaoRefundSurplusLine(model = {}) {
-  return `연결한 환불이 지출보다 ${numberWithCommas(Math.abs(Math.round(Number(model.totalExpense || 0))))}원 많아요. 아래 송금 제안대로 나누면 돼요.`;
+  // V22.9.134 S-1: 카카오 정산 답의 ‘송금 제안’ 묶음 이름이 ‘이렇게 보내면 돼요’ 로 바뀌어, 그 묶음을 가리키던 말도 ‘아래대로’ 로 적는다.
+  return `연결한 환불이 지출보다 ${numberWithCommas(Math.abs(Math.round(Number(model.totalExpense || 0))))}원 많아요. 아래대로 보내면 돼요.`;
 }
 
 function refundLinkExpected(row = {}) {

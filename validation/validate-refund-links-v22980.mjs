@@ -169,6 +169,9 @@ const SOFT = process.env.V22980_SOFT === "1";
 // V22.9.133(지운 방에서 한 번 눌러 새로 시작, 2026-11-20): 판 이름만 바뀌어 3곳(analysis·backupFull·backupMonth)의 값이 달라졌다.
 // 해시에 들어가는 원문 97개를 판 올리기 전 커밋과 견줘 판 이름 말고는 같음을 먼저 확인했고(같음 86·판 이름만 다름 11·그 밖의 차이 0),
 // 그 뒤 --print-golden 으로 그 값들을 다시 얻었다. 나머지 값은 그대로다.
+// V22.9.134(단톡방 답 다듬기, 2026-11-20): 판 이름만 바뀌어 3곳(analysis·backupFull·backupMonth)의 값이 달라졌다.
+// 해시에 들어가는 원문 97개를 판 올리기 전 커밋과 견줘 판 이름 말고는 같음을 먼저 확인했고(같음 86·판 이름만 다름 11·그 밖의 차이 0),
+// 그 뒤 --print-golden 으로 그 값들을 다시 얻었다. 나머지 값은 그대로다.
 const FLAG_OFF_GOLDEN = {
   "home": "200 8adf3cda055bc6f9a52f7767",
   "homeTrend": "200 6a7fcf0d39e81d4533c95cf0",
@@ -178,15 +181,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 66c9272b3c7b49d47411251a",
   "reports": "200 995f978ff5c81bee802d7eba",
   "reportsWeek": "200 c47238b0a140b4f06df6ea3c",
-  "analysis": "200 61e615b99aa715825f45e7ad",
+  "analysis": "200 1fe302253e722219080bf6ae",
   "backupPage": "200 8bd4f16ee02af5861dbc5041",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 6008a99eb92f17797ba48638",
-  "backupMonth": "200 7f44fe63bad562c53360a901",
+  "backupFull": "200 bdeecb595c8dd5d59ec1e8e5",
+  "backupMonth": "200 6656cc966e7643b19ecf2953",
   "candidate": "200 3fd63bf1cab0637b31011a88",
   "legacyErr": "200 5db1a5775f71c674ef881eb4",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

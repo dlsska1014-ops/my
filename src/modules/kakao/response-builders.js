@@ -725,6 +725,206 @@ async function kakaoTermsNoticeResponseV229118(response, env = {}, origin = "", 
   }
 }
 
+// V22.9.134 M-1(운영자 2026-11-20 — 출시일 실제 단톡방): 단톡방에서는 봇을 불러야(@말해가계부) 말이 봇에 닿는다. 그런데 답의 안내(‘삭제: "삭제 01번"’·
+// ‘되돌리려면: 복구 01번’)에는 그 말이 없어, 사람들이 ‘삭제 01번’·‘복구 01번’ 을 그냥 보내고 답을 받지 못했다. 단톡방 답에만 아래를 한다(1:1 은 그대로다).
+//  ① 보낼 말만 적는 줄에는 그 말 앞에 봇 부르기를 적는다.
+//     · ‘수정: "…"’·‘삭제: "…"’ 줄은 따옴표마다.
+//     · 줄 첫 말이 ‘예) ’·‘예: ’(‘수입 예) ’ 처럼 앞에 한 낱말이 붙은 것도)·‘👉 ’·‘이렇게 보내 주세요: ’·‘한 줄로도 돼요: ’·‘한 번에: ’·‘다른 기간: ’·‘다시 하려면: ’·
+//       ‘(그만하려면: ’·‘되돌리려면: 복구’ 인 줄과, 문장이 끝난 바로 뒤의 ‘예: …’(얼마로 바꿀까요? 예: 13000). 그 뒤의 말이 ‘ · ’·‘ / ’ 로 나뉜 두~네 개면 하나씩
+//       따로 보내는 말이므로 저마다 적고(예: 13000 · 1만3천원 을 한 줄로 보내면 두 건으로 읽힌다), 그보다 많으면 첫 말에만 적는다.
+//     · 명령 한 줄(‘수정 01번 금액 13000’·‘삭제 01번’·‘복구 01번’·‘별도 구매 확인 <표식>’ — 앞의 ‘• ’ 는 둔다).
+//     · ‘아래처럼 (다시) 보내 주세요.’·‘이렇게 보내면 바로 기록돼요.’ 줄 바로 아래에 이어지는 ‘• ’ 줄(인사·알아듣지 못한 말·요청 한도의 예시).
+//  ② 따옴표로 적은 말(‘ ’·“ ”·" "·' ')이 보낼 말일 때 그 따옴표 안에 적는다: 바로 뒤가 ‘처럼/(이)라고/을·를 + 보내 주세요·보내세요·입력해 …’ 인 것,
+//     ‘(으)로 (먼저) 확인해·되돌릴·돼요’·‘에서 확인해’ 인 것(‘오늘기록’로 먼저 확인 · ‘복구 01번’로 되돌릴 · ‘오늘기록’에서 확인), ‘처럼 첫 기록을 보내면’ 인 것,
+//     바로 앞이 ‘…하려면 ’ 인 것
+//     (뒤가 ‘의 ’ 면 이름, ‘을 눌러’ 면 단추라 뺀다), ‘예: ’ 바로 뒤의 것, 그리고 그런 말과 ‘ 또는 ’·‘·’·‘, ’ 로 이어진 앞뒤의 것.
+//     따옴표는 바깥 것만 본다 — 따옴표 안의 따옴표(사용자가 보낸 문장을 되풀이한 글 속의 것)는 건드리지 않는다. 굽은 따옴표는 같은 모양이 겹쳐도 짝을 세어
+//     바깥 것을 찾는다(‘별도 구매 추가 동생 ‘용돈’을 …’). 봇의 글에만 있는 시키는 꼴만 본다 — ‘…을 보내요’·‘…라고 보내면’·‘…을 보내 줌’ 같은 말과 ‘…해요. 예: …’ 는
+//     사용자가 쓴 메모·이름에서만 나오므로 보지 않는다. 기록·이름을 되풀이해 보여 주는 줄(‘01번 - 메모 / 5,000원 / …’·‘• 날짜 지출 5,000원 · 메모’·
+//     별도 구매 후보의 ‘분류 · 메모 · 결제수단’·‘가계부: 이름’)은 아무것도 고치지 않는다.
+//  ③ 그러고도 안내가 남으면 끝에 한 줄을 붙인다(답 하나에 한 번): 시키는 말(보내 주세요·입력해 …)이 있거나, 단추가 없는 답에 고르라는 말·물음(…까요?)이
+//     있는데 — 답 어디에도 봇 부르기가 없거나, 봇 부르기가 붙지 않은 따옴표 말이 남아 있을 때(그 답에 같은 이름의 단추가 있는 말은 눌러서 보내면 되므로
+//     남은 말로 세지 않는다). 단추·웹 화면을 가리키는 줄과 기록·이름을 되풀이한 줄은 세지 않고, 다시 보내지 말라는 답(늦은 답·결과를 확인하지 못한
+//     답)에는 붙이지 않는다 — 그 말은 따옴표 밖·되풀이한 줄 밖에서만 본다(사용자가 쓴 ‘다시 보내면’ 이 끝 한 줄을 끄지 않게).
+//     ‘보내면’ 은 보지 않는다(정산 답의 ‘이렇게 보내면 돼요’ 는 돈을 보내는 말이다).
+// 고치면 길이 한도(글 말풍선 950자, 단추와 한 카드에 담기는 400자)를 넘는 말풍선은 그대로 둔다. 이미 봇 부르기가 적힌 말은 그대로 둔다(두 번 붙이지 않는다).
+const KAKAO_GROUP_MENTION_V229134 = "@말해가계부";
+// 끝 한 줄에는 이모지를 쓰지 않는다 — 카드 설명에도 붙고, 단톡방 카드의 이모지는 PC 판 화면에서 깨진다(V22.9.67 설명서 카드 규칙).
+const KAKAO_GROUP_MENTION_FOOTER_V229134 = `단톡방에서는 말 앞에 ${KAKAO_GROUP_MENTION_V229134} 를 붙여 보내 주세요.`;
+// 이보다 긴 글은 보지 않는다(말풍선은 950자에서 잘리므로 올 일이 없다 — 긴 글에 정규식을 돌리지 않게 막아 둔다).
+const KAKAO_GROUP_HINT_TEXT_MAX_V229134 = 2000;
+// 기록·이름을 되풀이해 보여 주는 줄: ‘01번 - 메모 / 5,000원 / …’·‘• 2026-11-20 지출 5,000원 · 메모’(최근 기록)·‘가계부: 이름’·‘가계부 이름: 이름’.
+const KAKAO_GROUP_ECHO_LINE_V229134 = / \/ (?:수입 )?[\d,]+원(?: \/ |$)|^• \d{4}-\d{2}-\d{2} (?:지출|수입) [\d,]+원 · |^가계부(?: 이름)?: /;
+// 별도 구매 후보의 ‘분류 · 메모 · 결제수단’ 줄은 바로 앞의 이 줄로 알아본다(separate-purchase.js).
+const KAKAO_GROUP_ECHO_HEAD_V229134 = /^\d{4}-\d{2}-\d{2} · (?:지출|수입) · [\d,]+원$/;
+const KAKAO_GROUP_HINT_QUOTED_LINE_V229134 = /^(?:수정|삭제): "/;
+const KAKAO_GROUP_HINT_LEAD_LINE_V229134 = /^((?:수입 |지출 )?예[):] |👉 |이렇게 보내 주세요: |한 줄로도 돼요: |한 번에: |다른 기간: |다시 하려면: |[(]?그만하려면: |되돌리려면: (?=복구))(.+)$/;
+const KAKAO_GROUP_HINT_LEAD_INLINE_V229134 = /^(.*(?:주세요|까요)[.?!] 예[):] )(.+)$/;
+// 이 줄 바로 아래에 이어지는 ‘• ’ 줄은 하나하나가 보낼 말이다(‘이렇게 보내면 돼요’ 처럼 돈을 보내는 말은 여기에 들지 않는다).
+const KAKAO_GROUP_HINT_LIST_LEAD_V229134 = /(?:이렇게 보내면 바로 기록돼요|아래처럼 (?:다시 )?보내 ?주세요)[.:]$/;
+const KAKAO_GROUP_HINT_COMMAND_LINE_V229134 = /^((?:• )?)((?:수정|삭제|복구) \d\d번(?:\s.*)?|별도 (?:구매|기록) (?:확인|취소) [0-9a-f]{8,})$/;
+// 따옴표 말 바로 뒤가 이 꼴이면 보낼 말이다. ‘…로 먼저 확인해’·‘…에서 확인해’·‘…로 바뀌었는지 먼저 확인해’·‘…로 되돌릴’ 은 다시 보내지 말라는 답(끝 한 줄을 붙이지
+// 않는다)에도 나오므로 따옴표 안에 바로 적어야 단톡방에서 쓸 수 있다. ‘…처럼 기록하면 ’·‘…처럼 날짜를 붙여 주세요’·‘…처럼 내용과 금액을 함께 보내’·
+// ‘…처럼 원래 내용을 보내’ 는 봇 글에 있는 그 꼴 그대로만 받는다. 바로 앞이 ‘…하려면 ’·‘예: ’·‘가계부 전체는 ’(기록 목록의 끝 줄)인 따옴표 말도 보낼 말이다.
+const KAKAO_GROUP_HINT_SAID_AFTER_V229134 = /^(?:(?:이라고|라고|처럼| ?[을를])(?:만)? (?:먼저 |다시 |원래 기록 문장을 |원래 내용을 |내용과 금액을 함께 )?(?:보내 ?주세요|보내세요|보내 후보|입력해|입력하세요)|(?:으로|로) (?:먼저 |바뀌었는지 먼저 )?확인해|(?:으로|로) (?:되돌릴|돼요)|에서 확인해|처럼 첫 기록을 보내면|처럼 기록하면 |처럼 날짜를 붙여 주세요)/;
+const KAKAO_GROUP_HINT_SAID_BEFORE_V229134 = /(?:려면 |예[):] |가계부 전체는 )$/;
+const KAKAO_GROUP_HINT_NOT_SAID_AFTER_V229134 = /^(?:의 | ?[을를] 눌러)/;
+const KAKAO_GROUP_HINT_CHAIN_V229134 = /^(?: 또는 |·| · |, )$/;
+// 봇 부르기가 붙지 않은 따옴표 말 가운데 보낼 말로 쓰였을 만한 자리(‘오늘기록’으로 번호를 · ‘복구’로 되돌릴 · ‘오늘기록’에서 확인 · ‘A’·‘B’ · 줄 끝). ③이 끝 한 줄을
+// 붙일지 정할 때만 쓴다. 이름·읽지 못한 말이 오는 자리(‘올해’. · ‘금욜’ 부분을 · ‘예산’ 말을 · ‘…’에 · ‘…’의)는 세지 않는다.
+const KAKAO_GROUP_HINT_BARE_AFTER_V229134 = /^(?:으로|로|에서|·|, | 또는 |[)]|$)/;
+const KAKAO_GROUP_HINT_STRONG_V229134 = /보내 ?주세요|보내세요|처럼 보내요|보내도 돼요|다시 보내|입력해|적어 ?주세요|물어봐 ?주세요|붙여 ?주세요|명시해 ?주세요|확정해 ?주세요|시도해 ?주세요/;
+const KAKAO_GROUP_HINT_WEAK_V229134 = /확인해 ?주세요|선택해 ?주세요|골라 ?주세요|까요[?]|네·아니오|[(]네[/]아니오[)]/;
+const KAKAO_GROUP_HINT_NOT_TYPED_LINE_V229134 = /버튼|단추|눌러|화면|웹 가계부/;
+const KAKAO_GROUP_HINT_NO_FOOTER_V229134 = /보내지 말고|다시 보내면|다시 보내기 전에/;
+
+// ① 보낼 말 하나 앞에 봇 부르기를 적는다. 빈 말·이미 적힌 말·따옴표로 시작하는 말(②가 본다)은 둔다.
+const kakaoGroupMentionOneV229134 = (text = "") => (!text.trim() || /^[@‘“"']/.test(text) ? text : `${KAKAO_GROUP_MENTION_V229134} ${text}`);
+// ① 줄 첫 말 뒤의 보낼 말들: ‘ · ’·‘ / ’ 로 나뉜 두~네 개는 저마다, 그 밖에는 첫 말에만 봇 부르기를 적는다.
+function kakaoGroupMentionAlternativesV229134(rest = "") {
+  const parts = String(rest).split(/( · | \/ )/);
+  const alternatives = (parts.length + 1) / 2;
+  if (alternatives < 2 || alternatives > 4) return kakaoGroupMentionOneV229134(rest);
+  return parts.map((part, index) => (index % 2 ? part : kakaoGroupMentionOneV229134(part))).join("");
+}
+
+// ② 한 줄의 바깥 따옴표 말(시작·끝 자리와 글). 굽은 따옴표(‘’ “”)는 여닫는 글자가 달라 겹침을 셀 수 있으니 짝이 맞는 바깥 것까지를 한 조각으로 본다
+// (‘별도 구매 추가 동생 ‘용돈’을 …’ 의 안쪽 ‘용돈’ 은 조각이 아니다). 곧은 따옴표(" ')는 다음 같은 글자까지다. 짝이 없는 여는 따옴표는 건너뛴다. 글 길이에 비례해 끝난다.
+function kakaoGroupQuotedSegmentsV229134(line = "") {
+  const text = String(line);
+  const closeAt = new Map();
+  for (const [opener, closer] of [["‘", "’"], ["“", "”"]]) {
+    const stack = [];
+    for (let at = 0; at < text.length; at += 1) {
+      if (text[at] === opener) stack.push(at);
+      else if (text[at] === closer && stack.length) closeAt.set(stack.pop(), at);
+    }
+  }
+  const segments = [];
+  for (let at = 0; at < text.length; at += 1) {
+    const mark = text[at];
+    const end = closeAt.has(at) ? closeAt.get(at) : mark === "\"" || mark === "'" ? text.indexOf(mark, at + 1) : -1;
+    if (end < 0) continue;
+    segments.push({ start: at, end: end + 1, text: text.slice(at, end + 1) });
+    at = end;
+  }
+  return segments;
+}
+
+// ② 한 줄의 바깥 따옴표 말을 차례로 보고 보낼 말에만 봇 부르기를 적는다. bare: 봇 부르기가 붙지 않은 따옴표 말이 남았는가(③이 쓴다).
+// every: 줄의 따옴표 말 모두에 적는다(‘수정: "…" 또는 "…"’ 줄). pressable: 이 답에 같은 이름의 단추가 있는 말 — 눌러서 보낼 수 있으니 bare 로 세지 않는다.
+function kakaoGroupMentionQuotedV229134(line = "", { every = false, pressable = null } = {}) {
+  const segments = kakaoGroupQuotedSegmentsV229134(line);
+  if (!segments.length) return { line, bare: false };
+  const open = (segment) => { const body = segment.text.slice(1, -1); return !!body.trim() && !body.startsWith("@"); };
+  const said = segments.map((segment) => {
+    if (!open(segment)) return false;
+    if (every) return true;
+    const before = line.slice(0, segment.start), after = line.slice(segment.end);
+    if (KAKAO_GROUP_HINT_SAID_AFTER_V229134.test(after)) return true;
+    return KAKAO_GROUP_HINT_SAID_BEFORE_V229134.test(before) && !KAKAO_GROUP_HINT_NOT_SAID_AFTER_V229134.test(after);
+  });
+  // 보낼 말과 ‘ 또는 ’·‘·’·‘, ’ 로 바로 이어진 따옴표 말도 보낼 말이다(‘A’ 또는 ‘B’라고 입력 · 예: ‘A’ · ‘B’). 앞으로 한 번, 뒤로 한 번 퍼뜨린다.
+  const chained = (left, right) => KAKAO_GROUP_HINT_CHAIN_V229134.test(line.slice(segments[left].end, segments[right].start));
+  for (let index = segments.length - 1; index > 0; index -= 1) {
+    if (said[index] && !said[index - 1] && open(segments[index - 1]) && chained(index - 1, index)) said[index - 1] = true;
+  }
+  for (let index = 1; index < segments.length; index += 1) {
+    if (said[index - 1] && !said[index] && open(segments[index]) && chained(index - 1, index)) said[index] = true;
+  }
+  let next = "", at = 0;
+  segments.forEach((segment, index) => {
+    next += line.slice(at, segment.start) + (said[index] ? `${segment.text[0]}${KAKAO_GROUP_MENTION_V229134} ${segment.text.slice(1)}` : segment.text);
+    at = segment.end;
+  });
+  const pressed = (segment) => !!pressable && pressable.has(segment.text.slice(1, -1).trim());
+  return { line: next + line.slice(at), bare: segments.some((segment, index) => !said[index] && open(segment) && !pressed(segment) && KAKAO_GROUP_HINT_BARE_AFTER_V229134.test(line.slice(segment.end))) };
+}
+
+// 줄마다 기록·이름을 되풀이해 보여 주는 줄인가(그 줄 하나로 알아보는 꼴과, 바로 앞 줄로 알아보는 별도 구매 후보의 둘째 줄).
+const kakaoGroupEchoLinesV229134 = (lines = []) => lines.map((line, index) => KAKAO_GROUP_ECHO_LINE_V229134.test(line)
+  || (index > 0 && KAKAO_GROUP_ECHO_HEAD_V229134.test(lines[index - 1])));
+// 바깥 따옴표 말을 뺀 글(③ 이 ‘다시 보내면’ 같은 말을 사용자가 쓴 따옴표 말에서 읽지 않게).
+const kakaoGroupUnquotedV229134 = (line = "") => {
+  let next = "", at = 0;
+  for (const segment of kakaoGroupQuotedSegmentsV229134(line)) { next += line.slice(at, segment.start); at = segment.end; }
+  return next + line.slice(at);
+};
+
+// ①·② 한 말풍선의 글에서 보낼 말을 고친다. 한도를 넘게 되면 원래 글을 돌려준다.
+function kakaoGroupMentionLinesV229134(text = "", max = KAKAO_SIMPLE_TEXT_SAFE_MAX) {
+  const source = String(text || "");
+  if (!source || source.length > KAKAO_GROUP_HINT_TEXT_MAX_V229134) return source;
+  const lines = source.split("\n");
+  const echo = kakaoGroupEchoLinesV229134(lines);
+  let listing = false;
+  const next = lines.map((line, index) => {
+    // ‘아래처럼 보내 주세요.’ 바로 아래에 이어지는 ‘• ’ 줄인가(빈 줄이나 다른 줄이 오면 끝난다).
+    const listed = listing && line.startsWith("• ");
+    listing = listed || KAKAO_GROUP_HINT_LIST_LEAD_V229134.test(line);
+    if (echo[index]) return line;
+    if (KAKAO_GROUP_HINT_QUOTED_LINE_V229134.test(line)) return kakaoGroupMentionQuotedV229134(line, { every: true }).line;
+    const command = KAKAO_GROUP_HINT_COMMAND_LINE_V229134.exec(line);
+    if (command) return `${command[1]}${KAKAO_GROUP_MENTION_V229134} ${command[2]}`;
+    if (listed) return `• ${kakaoGroupMentionOneV229134(line.slice(2))}`;
+    const lead = KAKAO_GROUP_HINT_LEAD_LINE_V229134.exec(line) || KAKAO_GROUP_HINT_LEAD_INLINE_V229134.exec(line);
+    return kakaoGroupMentionQuotedV229134(lead ? `${lead[1]}${kakaoGroupMentionAlternativesV229134(lead[2])}` : line).line;
+  }).join("\n");
+  return next.length <= max ? next : source;
+}
+
+// ③ 이 보는 줄: 기록·이름을 되풀이한 줄을 뺀 줄(typed 는 단추·웹 화면을 가리키는 줄도 뺀다).
+function kakaoGroupHintOwnLinesV229134(text = "") {
+  const lines = String(text).split("\n");
+  const echo = kakaoGroupEchoLinesV229134(lines);
+  const own = lines.filter((line, index) => !echo[index]);
+  return { own, typed: own.filter((line) => !KAKAO_GROUP_HINT_NOT_TYPED_LINE_V229134.test(line)) };
+}
+
+// ③ 의 판단. buttons: 이 답에 누르면 말이 나가는 단추가 있다(고르라는 말·물음은 단추로 답할 수 있다). pressable: 그 단추들의 이름.
+function kakaoGroupHintFooterNeededV229134(texts = [], { buttons = false, pressable = null } = {}) {
+  const all = texts.join("\n");
+  if (!all || all.length > KAKAO_GROUP_HINT_TEXT_MAX_V229134 * 3 || all.includes(KAKAO_GROUP_MENTION_FOOTER_V229134)) return false;
+  const { own, typed } = kakaoGroupHintOwnLinesV229134(all);
+  if (KAKAO_GROUP_HINT_NO_FOOTER_V229134.test(own.map(kakaoGroupUnquotedV229134).join("\n"))) return false;
+  const asked = typed.some((line) => KAKAO_GROUP_HINT_STRONG_V229134.test(line)) || (!buttons && typed.some((line) => KAKAO_GROUP_HINT_WEAK_V229134.test(line)));
+  if (!asked) return false;
+  return !all.includes(KAKAO_GROUP_MENTION_V229134) || typed.some((line) => kakaoGroupMentionQuotedV229134(line, { pressable }).bare);
+}
+// ③ 의 한 줄을 붙일 말풍선인가: 시키는 말·고르라는 말이 든 줄이 있다(되풀이한 줄·단추·웹 화면 줄은 빼고).
+const kakaoGroupHintBubbleV229134 = (text = "") => kakaoGroupHintOwnLinesV229134(text).typed
+  .some((line) => KAKAO_GROUP_HINT_STRONG_V229134.test(line) || KAKAO_GROUP_HINT_WEAK_V229134.test(line));
+
+// 말풍선(글·카드 설명)마다 ①·②를 하고, 그러고도 안내가 남으면 안내가 든 마지막 말풍선 끝에 ③의 한 줄을 붙인다(답 하나에 한 번).
+// keepCard: 이 답에 단추가 붙는다(바로가기·링크). 그때 400자 이하인 글은 고친 뒤에도 400자 이하로 둔다 — 그 길이까지는 단추와 한 카드에 담길 수 있어서
+// (kakaoGroupChoiceCards·kakaoPlaceLeftLinks), 넘기면 말풍선 배치가 달라지거나 링크 단추가 자리를 잃는다.
+// buttons·pressable: 바로가기(단톡방에서는 카드 단추가 된다) 가운데 누르면 말이 나가는 단추가 있는지와 그 이름들(카드에 이미 달린 단추는 여기서 더한다).
+function kakaoGroupMentionOutputsV229134(outputs = [], { keepCard = false, buttons = false, pressable = [] } = {}) {
+  const read = (output) => (typeof output?.simpleText?.text === "string"
+    ? { text: output.simpleText.text, max: keepCard && output.simpleText.text.length <= KAKAO_GROUP_CARD_TEXT_MAX ? KAKAO_GROUP_CARD_TEXT_MAX : KAKAO_SIMPLE_TEXT_SAFE_MAX }
+    : typeof output?.textCard?.description === "string" ? { text: output.textCard.description, max: KAKAO_GROUP_CARD_TEXT_MAX } : null);
+  const write = (output, text) => (output.simpleText ? { simpleText: { ...output.simpleText, text } } : { textCard: { ...output.textCard, description: text } });
+  const next = outputs.map((output) => {
+    const part = read(output);
+    if (!part) return output;
+    const text = kakaoGroupMentionLinesV229134(part.text, part.max);
+    return text === part.text ? output : write(output, text);
+  });
+  const cardButtons = next.flatMap((output) => (output?.textCard?.buttons || []).filter((button) => button?.action === "message"));
+  const hasMessageButton = buttons || cardButtons.length > 0;
+  // 단톡방에서 단추를 누르면 단추 이름이 나간다(V22.9.127).
+  const labels = new Set([...pressable, ...cardButtons.map((button) => button.label)].map((label) => String(label || "").trim()).filter(Boolean));
+  if (!kakaoGroupHintFooterNeededV229134(next.map((output) => read(output)?.text || ""), { buttons: hasMessageButton, pressable: labels })) return next;
+  for (let index = next.length - 1; index >= 0; index -= 1) {
+    const part = read(next[index]);
+    if (!part || !kakaoGroupHintBubbleV229134(part.text)) continue;
+    const text = `${part.text}\n\n${KAKAO_GROUP_MENTION_FOOTER_V229134}`;
+    if (text.length <= part.max) next[index] = write(next[index], text);
+    break;
+  }
+  return next;
+}
+
 async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "") {
   if (!getKakaoBotGroupKey(payload)) return kakaoDirectLinkResponse(response, origin);
   try {
@@ -742,6 +942,11 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
 
     if (!supported.length) return kakaoText(kakaoSkillSafeFallbackText(origin));
     const linked = kakaoLinkOutputs(supported, origin);
+    // V22.9.134 M-1: 주소를 단추로 옮긴 글에 봇 부르기를 적는다(단추가 붙는 답이면 마지막 글을 카드 길이 안에 둔다).
+    const keepCard = linked.links.length > 0 || kakaoGroupChoiceButtons(quickReplies).length > 0
+      || linked.outputs.some((output) => String(output?.simpleText?.text || "").includes(KAKAO_TYPE_CHOICE_ASK_V229127));
+    const sendButtons = kakaoGroupChoiceButtons(quickReplies).filter((button) => button.action === "message");
+    linked.outputs = kakaoGroupMentionOutputsV229134(linked.outputs, { keepCard, buttons: sendButtons.length > 0, pressable: sendButtons.map((button) => button.label) });
     const choice = kakaoGroupChoiceCards(quickReplies, linked.outputs, linked.links);
     const outputs = kakaoWebLedgerLinkButtons(choice.outputs, origin);
     const textChoices = kakaoGroupTextChoices(choice.rest);

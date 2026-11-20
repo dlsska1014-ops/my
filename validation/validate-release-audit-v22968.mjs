@@ -261,12 +261,13 @@ await withFixture("d4", async (f) => {
   await say(f, "물 1000원", { key: "member3-d4" });
   f.db.transactions = f.db.transactions.filter((t) => String(t.id).startsWith("tx-") || Number(t.amount) === 40001);
   const settle = await say(f, "정산");
-  ok(settle.text.includes("참여자: 3명"), "d4: three participants in the room settlement");
-  ok(settle.text.includes("1인 기준: 13,333원 (나머지 2원은 마지막 참여자 몫)"), "d4: the Kakao per-head line is floored and names the remainder");
-  ok(!settle.text.includes("1인 기준: 13,334원"), "d4: the rounded figure that matched nobody is gone");
+  ok(settle.text.includes("3명이 똑같이 나눴어요."), "d4: three participants in the room settlement");
+  // V22.9.134 S-1: 줄 이름이 ‘1인 기준’ 에서 ‘한 사람 몫’ 으로 바뀌었다(값과 나머지 안내는 그대로).
+  ok(settle.text.includes("한 사람 몫: 13,333원 (나머지 2원은 마지막 참여자 몫)"), "d4: the Kakao per-head line is floored and names the remainder");
+  ok(!settle.text.includes("한 사람 몫: 13,334원") && !settle.text.includes("1인 기준"), "d4: the rounded figure that matched nobody is gone");
   f.db.transactions = f.db.transactions.map((t) => Number(t.amount) === 40001 ? { ...t, amount: 40002 } : t);
   const even = await say(f, "정산");
-  ok(even.text.includes("1인 기준: 13,334원") && !even.text.includes("나머지"), "d4: an exact split shows no remainder note");
+  ok(even.text.includes("한 사람 몫: 13,334원") && !even.text.includes("나머지"), "d4: an exact split shows no remainder note");
 });
 
 // ---------- 1:1 7: daily list overflow hint ----------

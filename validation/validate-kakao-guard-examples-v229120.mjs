@@ -10,7 +10,7 @@
 //  6. 통합(V22.9.118 과 합침): 방에서 안전망이 되묻고 답 뒤에 처음 들인 사람 → 약관 안내 빠짐 운영 이벤트 한 건(after_reply), 1:1·이미 구성원은 0
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { app, BASE, counter, withClock } from "./lib-audit-v22934.mjs";
+import { app, BASE, counter, withClock, withoutRoomMention } from "./lib-audit-v22934.mjs";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
 import { kakaoEditSameTextTextV229119, kakaoSameTextExistsTextV229119, kakaoSeparateSameTextTextV229119 } from "../src/modules/kakao/response-builders.js";
 import { kakaoRecordGuardV229120 } from "../src/modules/kakao/request-guards.js";
@@ -102,7 +102,9 @@ async function say(fx, utterance, { key, room = "" }) {
   for (let done = 0; done < jobs.length;) { const batch = jobs.slice(done); done = jobs.length; await Promise.allSettled(batch); }
   let json = null;
   try { json = JSON.parse(raw); } catch (_) {}
-  return json ? (json.template?.outputs || []).map((o) => o?.simpleText?.text || o?.textCard?.description || o?.textCard?.title || "").join("\n") : raw;
+  const text = json ? (json.template?.outputs || []).map((o) => o?.simpleText?.text || o?.textCard?.description || o?.textCard?.title || "").join("\n") : raw;
+  // V22.9.134 M-1: 단톡방 답에는 안내에 봇 부르기(@말해가계부)·끝 한 줄이 붙는다. 이 검사는 답의 예시 문장을 1:1 과 같은 글로 견주므로 그 말을 떼고 본다.
+  return room ? withoutRoomMention(text) : text;
 }
 const rowsOf = (fx, key) => fx.db.transactions.filter((t) => t.source === "kakao_skill" && t.source_user_key === key);
 const dates = (fx, key) => rowsOf(fx, key).map((t) => t.transaction_date).sort().join(",");

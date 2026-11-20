@@ -18,6 +18,7 @@
 import assert from "node:assert/strict";
 import app from "../src/index.js";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
+import { withoutRoomMention } from "./lib-audit-v22934.mjs";
 
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
@@ -60,7 +61,8 @@ async function say(f, utterance, { key = `owner-${f.label}`, group = `room-${f.l
   const body = await response.json();
   eq(body.version, "2.0", `${f.label}: ${utterance} → Kakao v2 envelope`);
   if (group) ok(!body.template?.quickReplies, `${f.label}: group reply has no quickReplies`);
-  return { body, text: textOf(body) };
+  // V22.9.134 M-1: 단톡방 답에는 안내에 봇 부르기(@말해가계부)·끝 한 줄이 붙는다. 이 검사는 답의 내용을 1:1 과 같은 글로 견주므로 그 말을 떼고 본다.
+  return { body, text: group ? withoutRoomMention(textOf(body)) : textOf(body) };
 }
 
 const householdNamed = (f, name) => f.db.households.find((h) => h.name === name) || null;

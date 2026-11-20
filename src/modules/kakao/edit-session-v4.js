@@ -269,10 +269,12 @@ function isKakaoRowOwnedByRequesterV2254(row = {}, userId = "", kakaoUserKey = "
 // V22.9.80 T-10: 그날 가계부 기록을 오래된 순으로 500건까지만 읽는다(내 기록은 읽은 뒤 거른다). 정확히 500건이 돌아오면 그날 뒤쪽 기록이 목록에
 // 없을 수 있으므로, 돌려주는 배열의 dailyLimit 에 그 한도(500)를 달아 답장이 한 줄로 말하게 한다 — 더 읽는 요청은 하지 않는다(답장 4초 안).
 const KAKAO_DAILY_ROW_LIMIT_V22980 = 500;
+// V22.9.134 N-1: 같은 읽기에서 그날 다른 사람이 남긴 기록 수(othersCount)도 달아 둔다 — 번호를 찾지 못한 답이 ‘번호는 사람마다 따로’ 라고 말할 때 쓴다(조회는 그대로 한 번).
 async function getDailyKakaoRows(env, householdId, userId, kakaoUserKey, date) {
   const rows = await getDailyKakaoRawRows(env, householdId, date);
   const own = rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey));
   own.dailyLimit = rows.length >= KAKAO_DAILY_ROW_LIMIT_V22980 ? KAKAO_DAILY_ROW_LIMIT_V22980 : 0;
+  own.othersCount = rows.length - own.length;
   return own;
 }
 
