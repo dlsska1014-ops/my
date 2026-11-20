@@ -188,6 +188,9 @@ import {
   kakaoRoomEntryResponse, kakaoRoomOpenResponse, roomViewBandResponseV229130,
   roomViewBounceResponseV229130, roomViewGateV229130,
 } from "../auth/kakao-room-open.js";
+import {
+  entryProgressGateV229132, entryProgressIsShellV229132, entryProgressShellResponseV229132,
+} from "../web/entry-progress.js";
 import { renderPublicShareCardHtml } from "../admin/dashboard-fragments.js";
 import {
   detectKakaoAmbiguity, formatMessage, kakaoSkillSafeFallbackText,
@@ -356,6 +359,9 @@ const ACCOUNTBOOK_WORKER = {
     const requestDbBudget = dbCallBudgetV229119(env?.DB_CALL_BUDGET, "DB_CALL_BUDGET");
     const requestEnv = { ...env, ...(monitoring ? { __AB_MONITOR_REQUEST: monitoring } : {}), __AB_REQUEST_USER_ROWS: new Map(), __AB_IDENTITY_CONFIRMED: new Map(), __AB_MEMBER_POLICY: new Map(), __AB_DB_BUDGET: {used: 0, limit: requestDbBudget}, ...dbCallBudgetBaseV229119(requestDbBudget) };
     if (new URL(request.url).pathname === "/skill") requestEnv.__AB_KAKAO_REQUEST = { settings: new Map(), afterReply: [], messageLeases: [], createdUsers: new Set(), enabled: false };
+    // V22.9.132 여는 중 화면: ‘여는 중’ 화면이 표식(_o=<숫자>)을 붙여 이어 보낸 요청은 표식을 뗀 주소의 요청으로 바꾼다. 그 밖의 요청은 받은 그대로다
+    // (web/entry-progress.js entryProgressGateV229132 — 머리는 건드리지 않고 저장소도 읽지 않는다).
+    request = entryProgressGateV229132(request, requestEnv, ctx);
     // V22.9.130 방 전용 보기: 세션 쿠키가 방 전용 표(가계부 하나·보기 전용)면 요청별 env 에 적어 둔다(서명·만료만 본다 — 보통 세션에는 계산을 더하지 않는다).
     // 그 브라우저에서는 가계부 기억 쿠키(ab_hh)를 쓰지도 새로 적지도 않는다 — 열리는 가계부는 늘 그 방 가계부다. 관문은 route() 의 방 열기 바로 다음에 있다.
     const roomViewToken = await roomViewSessionOfRequestV229130(request, requestEnv);
@@ -371,6 +377,9 @@ const ACCOUNTBOOK_WORKER = {
       // 방 전용 세션을 뗀 요청이면 응답 마무리 함수들도 뗀 요청을 본다(쿠키만 보고 띠·색을 붙이는 함수들이 로그인하지 않은 사람과 같은 판정을 하게 —
       // 독립 검토 2). 관문이 적어 둔 뗀 요청으로 routed.request 를 바꿔 끼운다. 방 전용 세션이 아닌 요청에서는 아무것도 바뀌지 않는다.
       const routedResponse = await ACCOUNTBOOK_WORKER.route(routed.request, requestEnv, ctx);
+      // V22.9.132: ‘여는 중’ 화면은 띠·색·쿠키 마무리를 거치지 않고 그대로 나간다(둘째 요청의 응답이 그것들을 받는다). 관제 표본에도 넣지 않는다 —
+      // 저장소를 읽지 않는 이 화면의 빠른 답이 화면 응답 시간 표본에 섞이면 가계부 화면이 빨라진 것처럼 보인다.
+      if (entryProgressIsShellV229132(requestEnv, routedResponse)) return routedResponse;
       if (requestEnv.__AB_ROOM_VIEW_STRIPPED_REQUEST) routed.request = requestEnv.__AB_ROOM_VIEW_STRIPPED_REQUEST;
       const response = roomViewBounceResponseV229130(routed.request, requestEnv, sessionUnavailableResponseV229122(routed.request, requestEnv, await supporterAccentResponseV229121(routed.request, env, await setupBandResponse(routed.request, env, await noticeBandResponse(routed.request, env, await roomViewBandResponseV229130(routed.request, requestEnv, routedResponse))))));
       abMonitorCompleted(requestEnv, ctx, response);
@@ -425,6 +434,13 @@ const ACCOUNTBOOK_WORKER = {
         rememberOpsEvent({ kind: "csrf_blocked", severity: "warn", path: url.pathname, method: request.method, detail: csrfSignalSummary(request, url) });
         return csrfRejectedResponse(url, request);
       }
+
+      // V22.9.132 여는 중 화면(사용자 2026-11-20): 사람이 바로 연 가계부 첫 요청(/my·/app·/m — 카카오톡 안의 브라우저이거나 세션 쿠키가 있는 브라우저)에는
+      // 저장소를 읽기 전에 ‘여는 중’ 화면을 먼저 보낸다. 그 화면이 같은 주소를 다시 열고, 그 둘째 요청이 아래 처리를 예전 그대로 받는다. 카카오가 식별 값을
+      // 붙인 주소(바로 아래의 방 열기)와 카카오톡 밖 브라우저의 방 표식 주소에는 주지 않는다 — 그 처리는 ‘사람이 바로 연 이동’ 인지를 보는데 둘째 요청은
+      // 그 값이 달라진다(web/entry-progress.js 의 설명). 끄기: ENTRY_PROGRESS_DISABLED=1.
+      const entryProgressShell = entryProgressShellResponseV229132(request, env, url, ctx);
+      if (entryProgressShell) return entryProgressShell;
 
       // V22.9.105 R-1: 단톡방 링크 단추를 누르면 카카오가 누른 사람의 botUserKey 와 방 botGroupKey 를 주소에 붙인다. 그 사람의 원래 채팅 계정이 그 방
       // 가계부 구성원이면 로그인 화면 없이 바로 그 방 가계부 홈으로 보낸다(auth/kakao-room-open.js). 안 맞으면 카카오 값을 뺀 같은 주소로 보내고, 그 뒤는
