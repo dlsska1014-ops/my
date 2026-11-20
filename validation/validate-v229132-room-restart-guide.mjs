@@ -8,6 +8,8 @@
 //  G-1 안내대로 하면 된다: 단추를 차례로 누르면 새 가계부가 그 방에 연결되고, 그 뒤의 기록이 저장되며, 다른 참여자는 예전처럼 자동으로 들어온다.
 //      쓰던 가계부를 붙이는 길(‘단톡방연결’)도 끝까지 된다.
 //  그대로인 것: 한 번도 연결된 적 없는 방(첫 호출로 만들어진다)·만드는 중인 방·연결된 방·1:1 채팅의 답, joinOnly 결과 객체의 모양.
+// 다음 판(사용자 2026-11-20 "한 번 눌러 새로 시작")에서 새로 시작하는 길이 단추 하나(‘이 방에서 새로 시작’)로 줄었다 — 안내 줄과 단추의 기대값을 그에 맞췄다.
+//  이름을 정해 만드는 예전 길(‘가계부만들기’ → 이름 → ‘연결하기’)은 말로 보내면 그대로 되는지 여기서 계속 본다. 단추 하나로 시작하는 길은 그 판의 검사가 본다.
 // 오프라인: 픽스처 + app.fetch(DB·바깥 요청 없음), 시계 2026-11-20 12:00 KST. 판 이름 글자는 적지 않는다.
 // 바탕 코드(이 안내가 없는 판)에서는 G-1 의 단언 대부분이 실패한다.
 import { createHash } from "node:crypto";
@@ -26,7 +28,9 @@ const DAY = "2026-11-20";
 const U1 = hex66("user-1"), U2 = hex66("user-2"), U3 = hex66("user-3");
 const DEAD_END = "직접 연결해 주세요";
 const OLD_REFUSAL = "자동으로 다시 준비하지 않았어요";
-const NEW_START = "이 방에서 새로 시작하려면 ‘가계부만들기’ 를 보내 새 가계부를 만든 뒤 ‘연결하기’ 를 눌러 주세요.";
+const RESTART = "이 방에서 새로 시작";
+const NEW_START = "이 방에서 새로 시작하려면 ‘이 방에서 새로 시작’ 을 눌러 주세요(이 말을 보내도 돼요). 누른 분이 새 가계부의 소유자가 돼요.";
+const BUTTONS = `${RESTART} · 단톡방연결`;
 const REATTACH = "쓰던 가계부를 다시 붙이려면 그 가계부의 주인·관리자가 ‘단톡방연결’ 을 보내 주세요.";
 
 function resetIsolateState() {
@@ -95,7 +99,7 @@ const retire = (fx, room) => putSetting(fx, `kakao_group_first_retired_v22931:${
 const expectRefusal = (reply, label) => {
   check(() => ok(reply.text.includes("이 단톡방에서 쓰던 가계부가 삭제됐거나 연결이 해제돼 있어요.") && reply.text.includes("가계부를 자동으로 다시 만들지 않아서, 방금 기록은 어디에도 저장하지 않았어요."), `G-1 ${label}: 까닭과 ‘저장하지 않았다’ 를 말한다(${reply.text.slice(0, 90)})`), `${label} reason`);
   check(() => ok(reply.text.includes(NEW_START) && reply.text.includes(REATTACH), `G-1 ${label}: 다시 시작하는 두 길을 적는다`), `${label} two ways`);
-  check(() => eq(reply.buttons.join(" · "), "가계부만들기 · 단톡방연결", `G-1 ${label}: 단추 둘(가계부만들기·단톡방연결)`), `${label} buttons`);
+  check(() => eq(reply.buttons.join(" · "), BUTTONS, `G-1 ${label}: 단추 둘(이 방에서 새로 시작·단톡방연결)`), `${label} buttons`);
   check(() => ok(reply.items.length === 2 && reply.items.every((item) => item.action === "message" && item.messageText === item.label), `G-1 ${label}: 단추는 그 이름을 그대로 보낸다(단톡방에서는 단추 이름이 말로 나간다)`), `${label} button payload`);
   check(() => ok(!reply.text.includes(DEAD_END) && !reply.text.includes(OLD_REFUSAL), `G-1 ${label}: 방법이 없는 예전 문장이 없다`), `${label} no dead end`);
   check(() => ok(reply.text.split("\n").length === 3 && reply.text.length <= 320, `G-1 ${label}: 세 줄·320자 안(${reply.text.split("\n").length}줄 ${reply.text.length}자)`), `${label} length`);
@@ -124,7 +128,7 @@ await scene("삭제된 방의 기록", async (fx) => {
   resetIsolateState();
   const retiredReply = await say(fx, "@말해가계부 택시 7000원", { user: U1, room });
   check(() => eq(retiredReply.text, reply.text, "G-1 ‘해제’ 줄이 있는 방도 같은 안내"), "retired row same");
-  check(() => eq(retiredReply.buttons.join(" · "), "가계부만들기 · 단톡방연결", "G-1 ‘해제’ 줄이 있는 방도 같은 단추"), "retired row buttons");
+  check(() => eq(retiredReply.buttons.join(" · "), BUTTONS, "G-1 ‘해제’ 줄이 있는 방도 같은 단추"), "retired row buttons");
 });
 
 // ── G-1. 해제 줄만 있는 방(연결을 끊은 방), 가계부가 사라진 방 ───────────────────────────────────
@@ -138,7 +142,7 @@ await scene("해제 줄만 있는 방", async (fx) => {
   // 여러 줄 기록·수입 기록도 같은 안내다.
   for (const text of ["@말해가계부 월급 250만원 수입", "@말해가계부 커피 2000원\n빵 3000원"]) {
     const each = await say(fx, text, { user: U1, room });
-    check(() => ok(each.text === reply.text && each.buttons.join(" · ") === "가계부만들기 · 단톡방연결", `G-1 연결을 끊은 방: ‘${text.split("\n")[0].slice(7)}’ 도 같은 안내`), `retired-only ${text.slice(7, 14)}`);
+    check(() => ok(each.text === reply.text && each.buttons.join(" · ") === BUTTONS, `G-1 연결을 끊은 방: ‘${text.split("\n")[0].slice(7)}’ 도 같은 안내`), `retired-only ${text.slice(7, 14)}`);
   }
 });
 await scene("연결은 남았는데 가계부가 사라진 방", async (fx) => {
@@ -148,12 +152,12 @@ await scene("연결은 남았는데 가계부가 사라진 방", async (fx) => {
   const before = core(fx);
   const reply = await say(fx, "@말해가계부 커피2천원", { user: U1, room });
   check(() => ok(reply.text.startsWith("이 단톡방에 연결돼 있던 가계부를 찾을 수 없어(삭제된 가계부) 방금 기록은 어디에도 저장하지 않았어요.") || reply.text.includes("가계부를 자동으로 다시 만들지 않아서, 방금 기록은 어디에도 저장하지 않았어요."), `G-1 가계부가 사라진 방: 저장하지 않았다고 말한다(${reply.text.slice(0, 80)})`), "missing reason");
-  check(() => ok(reply.text.includes(NEW_START) && reply.text.includes(REATTACH) && reply.buttons.join(" · ") === "가계부만들기 · 단톡방연결", "G-1 가계부가 사라진 방: 두 길과 단추 둘"), "missing two ways");
+  check(() => ok(reply.text.includes(NEW_START) && reply.text.includes(REATTACH) && reply.buttons.join(" · ") === BUTTONS, "G-1 가계부가 사라진 방: 두 길과 단추 둘"), "missing two ways");
   check(() => ok(!reply.text.includes(DEAD_END), "G-1 가계부가 사라진 방: 방법이 없는 문장이 없다"), "missing no dead end");
   check(() => eq(core(fx), before, "G-1 가계부가 사라진 방: 생긴 줄이 없다"), "missing writes nothing");
   // 연결 줄이 남아 있는 동안은 다음 기록에도 같은 답이다(그 방은 이제 ‘다시 만들지 않는 방’ 으로 적혀 있다).
   const next = await say(fx, "@말해가계부 커피2천원", { user: U1, room });
-  check(() => ok(next.text === reply.text && next.buttons.join(" · ") === "가계부만들기 · 단톡방연결", "G-1 가계부가 사라진 방: 다음 기록에도 같은 안내와 단추"), "missing repeat");
+  check(() => ok(next.text === reply.text && next.buttons.join(" · ") === BUTTONS, "G-1 가계부가 사라진 방: 다음 기록에도 같은 안내와 단추"), "missing repeat");
   check(() => ok(fx.db.accountbook_settings.some((row) => row.key === `kakao_group_first_retired_v22931:${sha(room)}`), "G-1 가계부가 사라진 방은 ‘다시 만들지 않는 방’ 으로 적힌다(예전 그대로)"), "missing marks retired");
   check(() => eq(core(fx), before, "G-1 가계부가 사라진 방: 그 뒤에도 생긴 줄이 없다"), "missing still nothing");
 });
@@ -167,8 +171,10 @@ await scene("새로 시작하는 길", async (fx) => {
   const refused = await say(fx, "@말해가계부 커피2천원", { user: U1, room });
   // 단추를 누르면 그 이름이 말로 나간다(단톡방은 봇을 부르는 말로 온다).
   const press = (label, user = U1) => say(fx, `@말해가계부 ${label}`, { user, room });
-  const start = await press(refused.buttons[0]);
-  check(() => ok(/어떤 용도로 쓸 가계부인가요/.test(start.text) && start.buttons.includes("모임 회비"), `G-1 [가계부만들기]: 가계부 만들기가 시작된다(${start.text.slice(0, 40)})`), "restart begins");
+  // 이름을 정해 만드는 길: ‘가계부만들기’ 를 말로 보낸다(단추에서는 빠졌다 — 단추는 ‘이 방에서 새로 시작’ 이다).
+  check(() => ok(refused.buttons[0] === RESTART && !refused.buttons.includes("가계부만들기"), `G-1 거절 답의 첫 단추는 ‘이 방에서 새로 시작’ 이다(${refused.buttons.join("·")})`), "restart button first");
+  const start = await press("가계부만들기");
+  check(() => ok(/어떤 용도로 쓸 가계부인가요/.test(start.text) && start.buttons.includes("모임 회비"), `G-1 ‘가계부만들기’: 가계부 만들기가 시작된다(${start.text.slice(0, 40)})`), "restart begins");
   const kind = await press("모임 회비");
   check(() => ok(/가계부 이름을 정해 주세요/.test(kind.text), "G-1 용도를 고르면 이름을 묻는다"), "restart kind");
   // 이름은 답이 내준 추천 단추를 누른다(사람이 가장 쉽게 가는 길).
@@ -218,11 +224,11 @@ await scene("삭제·해제된 방의 조회·도움말", async (fx) => {
   for (const command of ["오늘 기록 보기", "시작", "단톡방 정보", "도움말", "이번달요약"]) asks[command] = await say(fx, `@말해가계부 ${command}`, { user: U1, room });
   for (const [command, reply] of Object.entries(asks)) {
     check(() => ok(reply.text.includes("자동으로 다시 만들지 않아요"), `G-1 ‘${command}’: 자동으로 다시 만들지 않는다고 말한다(예전 그대로 — ${reply.text.slice(0, 50)})`), `asks ${command} rule`);
-    check(() => ok(reply.text.includes("‘가계부만들기’"), `G-1 ‘${command}’: 새로 시작하는 길(‘가계부만들기’)을 적는다`), `asks ${command} restart`);
+    check(() => ok(reply.text.includes(`‘${RESTART}’`), `G-1 ‘${command}’: 새로 시작하는 길(‘이 방에서 새로 시작’)을 적는다`), `asks ${command} restart`);
     check(() => ok(reply.text.includes("‘단톡방연결 초대코드’") || reply.text.includes("‘단톡방연결’") || reply.text.includes("단톡방 연결 초대코드"), `G-1 ‘${command}’: 쓰던 가계부를 붙이는 길도 적는다`), `asks ${command} reattach`);
     check(() => ok(!reply.text.includes(DEAD_END) && !reply.text.includes("어디에도 저장하지 않았어요"), `G-1 ‘${command}’: 기록이 아닌 말에는 ‘저장하지 않았다’ 고 하지 않는다`), `asks ${command} not a write`);
   }
-  check(() => ok(asks["오늘 기록 보기"].text.includes(NEW_START) && asks["오늘 기록 보기"].buttons.includes("가계부만들기") && asks["오늘 기록 보기"].buttons.includes("단톡방연결"), "G-1 조회 답: 새로 시작하는 줄과 그 단추들"), "asks buttons");
+  check(() => ok(asks["오늘 기록 보기"].text.includes(NEW_START) && asks["오늘 기록 보기"].buttons[0] === RESTART && asks["오늘 기록 보기"].buttons.includes("단톡방연결"), "G-1 조회 답: 새로 시작하는 줄과 그 단추들"), "asks buttons");
   check(() => ok(asks["단톡방 정보"].text.includes(NEW_START) && asks["단톡방 정보"].text.includes("단톡방 연결 초대코드") && asks["단톡방 정보"].buttons.includes("가계부만들기"), "G-1 ‘단톡방 정보’: 새로 시작하는 줄 + 초대코드로 붙이는 법 + [가계부만들기]"), "info card");
   check(() => ok(asks["오늘 기록 보기"].text.split("\n").length === 4, `G-1 조회 답은 네 줄(연결 없음·상태·새로 시작·쓰던 가계부 — ${asks["오늘 기록 보기"].text.split("\n").length}줄)`), "asks four lines");
   check(() => ok(asks["도움말"].cardButtons.length >= 3 && asks["도움말"].text.length <= 400, `G-1 도움말 첫 화면: 카드 글이 400자 안(${asks["도움말"].text.length}자)`), "help card length");
@@ -266,7 +272,7 @@ await scene("joinOnly 결과 객체", async (fx) => {
   check(() => ok(first.includes('if (!snapshot.link && (snapshot.retired || snapshot.done || marker?.phase === "complete")) {'), "원본: 다시 만들지 않는 조건은 그대로다(연결 없음 + 해제·준비 끝·완료 표식)"), "rule unchanged");
   check(() => eq((first.match(/\.\.\.KAKAO_RETIRED_ROOM_RESTART_LINES_V229132\]\.join\("\\n"\), \{\}, KAKAO_RETIRED_ROOM_RESTART_REPLIES_V229132\);/g) || []).length, 2, "원본: 기록을 거절하는 두 곳(해제·삭제된 방, 가계부가 사라진 방)이 같은 안내와 같은 단추를 쓴다"), "two refusal sites");
   check(() => ok(first.includes('...(phase === "retired" ? [KAKAO_RETIRED_ROOM_RESTART_LINES_V229132[0]] : []),'), "원본: ‘단톡방 정보’ 는 삭제·해제된 방에만 새로 시작하는 줄을 더한다"), "info text adds line");
-  check(() => ok(commands.includes(`"${NEW_START}"`) && commands.includes(`"${REATTACH}"`) && commands.includes('const KAKAO_RETIRED_ROOM_RESTART_REPLIES_V229132 = [["가계부만들기", "가계부만들기"], ["단톡방연결", "단톡방연결"]];'), "원본: 안내 두 줄과 단추는 한 곳에 적혀 있다"), "single source");
+  check(() => ok(commands.includes("`이 방에서 새로 시작하려면 ‘${KAKAO_ROOM_RESTART_COMMAND_V229133}’ 을 눌러 주세요(이 말을 보내도 돼요). 누른 분이 새 가계부의 소유자가 돼요.`") && commands.includes(`"${REATTACH}"`) && commands.includes('const KAKAO_RETIRED_ROOM_RESTART_REPLIES_V229132 = [[KAKAO_ROOM_RESTART_COMMAND_V229133, KAKAO_ROOM_RESTART_COMMAND_V229133], ["단톡방연결", "단톡방연결"]];') && commands.includes(`const KAKAO_ROOM_RESTART_COMMAND_V229133 = "${RESTART}";`), "원본: 안내 두 줄과 단추는 한 곳에 적혀 있다"), "single source");
   check(() => ok(commands.includes("options?.retired === true ? KAKAO_RETIRED_ROOM_RESTART_LINES_V229132[0] : \"\","), "원본: 조회 답은 삭제·해제된 방에만 새로 시작하는 줄을 더한다"), "start text adds line");
   for (const [name, text] of [["group-links-first-record.js", first], ["household-budget-commands.js", commands], ["skill-handler.js", handler]]) {
     check(() => ok(!text.includes(DEAD_END) && !text.includes(OLD_REFUSAL), `원본: ${name} 에 방법이 없는 예전 문장이 없다`), `no dead end in ${name}`);

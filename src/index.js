@@ -3352,7 +3352,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.132-ENTRY-PROGRESS";
+const APP_VERSION = "V22.9.133-ROOM-RESTART";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -56826,12 +56826,23 @@ function kakaoUnlinkedRoomStateLine(options = {}) {
 
 // V22.9.132 G-1(사용자 2026-11-20): 가계부가 삭제됐거나 연결이 해제된 방에서 다시 시작하는 두 길과 그 단추. 기록이 거절될 때의 답
 // (kakao/group-links-first-record.js)·조회 답(아래 kakaoUnlinkedGroupStartText)·도움말 첫 화면의 상태 한 줄(kakao/skill-handler.js)이 같은 길을 말한다.
-// ‘가계부만들기’ 는 그 방에서 새 가계부를 만든 뒤 이 방에 연결할지 묻고(‘연결하기’), ‘단톡방연결’ 은 내가 주인·관리자인 가계부를 골라 붙인다.
+// ‘단톡방연결’ 은 내가 주인·관리자인 가계부를 골라 붙인다.
+// V22.9.133(사용자 2026-11-20 물음 창 "한 번 눌러 새로 시작"): 새로 시작하는 길을 단추 하나로 줄였다 — ‘이 방에서 새로 시작’ 을 누르면 새 가계부를
+// 만들고 이 방에 연결한다(kakao/group-links-first-record.js restartKakaoRoomV229133, 누른 사람이 소유자). 기록을 보내는 것만으로는 여전히 다시 만들지
+// 않는다. 이름을 정해 만드는 예전 길(‘가계부만들기’ → 이름 → ‘연결하기’)도 그대로 된다 — 안내와 단추에서만 뺐다.
+// 단추 이름 = 보내는 말이다(단톡방의 카드 단추는 이름을 그대로 보낸다 — 14자 이하).
+const KAKAO_ROOM_RESTART_COMMAND_V229133 = "이 방에서 새로 시작";
 const KAKAO_RETIRED_ROOM_RESTART_LINES_V229132 = [
-  "이 방에서 새로 시작하려면 ‘가계부만들기’ 를 보내 새 가계부를 만든 뒤 ‘연결하기’ 를 눌러 주세요.",
+  `이 방에서 새로 시작하려면 ‘${KAKAO_ROOM_RESTART_COMMAND_V229133}’ 을 눌러 주세요(이 말을 보내도 돼요). 누른 분이 새 가계부의 소유자가 돼요.`,
   "쓰던 가계부를 다시 붙이려면 그 가계부의 주인·관리자가 ‘단톡방연결’ 을 보내 주세요.",
 ];
-const KAKAO_RETIRED_ROOM_RESTART_REPLIES_V229132 = [["가계부만들기", "가계부만들기"], ["단톡방연결", "단톡방연결"]];
+const KAKAO_RETIRED_ROOM_RESTART_REPLIES_V229132 = [[KAKAO_ROOM_RESTART_COMMAND_V229133, KAKAO_ROOM_RESTART_COMMAND_V229133], ["단톡방연결", "단톡방연결"]];
+// 그 말인지: 띄어쓰기, 앞뒤의 따옴표(안내문이 ‘ ’ 로 싸서 적는다), 끝의 마침표·느낌표·물결만 다른 것까지. 정확히 그 말일 때만이다 — ‘시작’ 이 든 다른 말은
+// 예전 처리 그대로다.
+function isKakaoRoomRestartCommandV229133(text = "") {
+  const bare = String(text || "").replace(/\s+/g, "").replace(/^[‘’'"“”`]+/, "").replace(/[‘’'"“”`.!~]+$/, "");
+  return bare === KAKAO_ROOM_RESTART_COMMAND_V229133.replace(/\s+/g, "");
+}
 
 function kakaoUnlinkedGroupStartText(households = [], origin = "", options = {}) {
   const manageable = kakaoManageableHouseholds(households);
@@ -58269,6 +58280,9 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   const recordGuard = !separatePurchaseCommand ? kakaoRecordGuardV229120(utterance, preParsedList, guardTodayV229120) : null;
   // V22.9.63 감사(1:1 2): 가계부가 없는 사람의 첫 기록은 "밥 4500원"처럼 한 글자 내용도 받는다. 아래 두 자동 준비 길에만 쓴다.
   const firstRecordInput = strongTransactionInput || isKakaoFirstRecordInput(commandText, preParsedList);
+  // V22.9.133(사용자 2026-11-20 "한 번 눌러 새로 시작"): 가계부가 삭제·해제된 방의 ‘이 방에서 새로 시작’ — 정확히 그 말일 때만이다. ‘시작’ 이 든 말이라
+  // 설명서·시작·공개 안내·열린 수정 창 판별보다 먼저 가려 두고, 처리는 사용자 행을 얻은 뒤(아래 시작 명령 앞)에서 한다.
+  const roomRestartCommand = !strongTransactionInput && !separatePurchaseCommand && !editLikeUtterance && isKakaoRoomRestartCommandV229133(utterance);
   const kakaoUserKey = getKakaoUserKey(payload);
   const nickname = getKakaoNickname(payload);
   const skillConfigured = !!(env.SUPABASE_URL && env.SUPABASE_SERVICE_ROLE_KEY);
@@ -58323,13 +58337,13 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // 진행 중인 단계형 흐름·수정 세션은 그대로 두므로 설명서를 본 뒤 이어서 입력할 수 있다.
   // "입력 예시"는 앞의 "입력"이 명령 접두어로 벗겨져 "예시"가 되므로, 멘션만 뺀 원문으로 먼저 판별한다.
   const rawManualUtterance = String(payload?.userRequest?.utterance || payload?.utterance || "");
-  const manualTopic = strongTransactionInput ? ""
+  const manualTopic = strongTransactionInput || roomRestartCommand ? ""
     : kakaoManualTopic(rawManualUtterance) || kakaoManualTopic(utterance) || (isInputExampleCommand(utterance) ? "record" : "");
   // V22.9.115: 설명서를 부른 사람도 답 뒤에 이 방 가계부에 들인다(답은 예전처럼 바로).
   if (manualTopic) { await deferRoomJoinOnCall("manual", { noticeShown: manualTopic === "home" }); return kakaoManualReply(manualTopic, { group: !!botGroupKey }); }
 
   // V22.9.126 FC-11: ‘수정 01번 내용 자동차보험’ 처럼 고치기 명령으로 읽히는 말은 값의 낱말(자동차보험·홈페이지·개인정보 …)로 공개 안내를 내지 않고 고치기로 보낸다.
-  const bypassPublic = !!separatePurchaseCommand || editLikeUtterance || isKakaoStartCommand(utterance) || isHelpCommand(utterance) || isCommandMenuCommand(utterance) ||
+  const bypassPublic = roomRestartCommand || !!separatePurchaseCommand || editLikeUtterance || isKakaoStartCommand(utterance) || isHelpCommand(utterance) || isCommandMenuCommand(utterance) ||
     isKakaoCreateFlowCommand(utterance) || isKakaoJoinFlowCommand(utterance) || isKakaoBudgetSetupCommand(utterance) ||
     isKakaoMemberAliasCommand(utterance) || !!parseKakaoSummaryRange(utterance) || !!parseKakaoMemberPolicyCommand(utterance);
   const earlyReply = strongTransactionInput || bypassPublic ? "" : kakaoPublicCommandReply(utterance, origin, env);
@@ -58372,7 +58386,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // V22.9.76 감사 B-2: 수정 세션의 메뉴·선택지에 "1번"·"6번 WIFI♥"로 답하면 옛 문법(‘N번 …’ = 오늘의 N번 기록 수정)이
   // 먼저 잡아 다른 기록을 바꿨다. 수정·삭제·복구 말이 없는 "N번…"은 열린 세션에 먼저 넘긴다(세션이 없으면 예전 경로).
   // 감사 B-4: 목록·요약·정산·예산·가계부 전환·메뉴 명령은 세션을 비켜 간다(세션은 남아 있어 이어서 고칠 수 있다).
-  if (!separatePurchaseCommand && skillConfigured && kakaoUserKey && !isKakaoEditSessionBypassCommand(utterance) &&
+  if (!separatePurchaseCommand && !roomRestartCommand && skillConfigured && kakaoUserKey && !isKakaoEditSessionBypassCommand(utterance) &&
       (isKakaoSessionSeqReplyV4(commandText) || (!parseKakaoEditCommandV4(commandText) && !parseKakaoDeleteCommandV4(commandText) && !parseKakaoRestoreCommandV4(commandText)))) {
     // T6: 분명한 새 기록이면 세션만 끝나고(passThrough) 아래 기록 경로로 이어진다.
     const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance: kakaoEditSessionTextV4(utterance) || utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, recordGuardKind: String(recordGuard?.kind || ""), sessionRaw: routingSnapshot?.edit });
@@ -58425,9 +58439,11 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // V22.9.16: 가계부 목록·단톡방 연결·선택 가계부는 거의 모든 발화가 결국 읽는다. 흐름 상태
   // 조회와 나란히 던져 두고 필요한 자리에서 받는다. 가계부를 바꾸는 길(만들기·참여·연결)은
   // 전부 아래 사용 지점 전에 응답하고 끝나므로 미리 읽은 값이 낡을 일이 없다.
-  const householdsPromise = roomContext ? roomContext.membershipPromise.then(value => ({ value: value.households }), error => ({ error }))
+  // V22.9.133: ‘이 방에서 새로 시작’ 은 가계부 목록·방 연결을 여기서 미리 읽지 않는다(그 처리가 방 잠금 안에서 방 상태를 읽는다 — 저장소 요청 수를 줄인다).
+  const householdsPromise = roomRestartCommand ? Promise.resolve({ value: [] })
+    : roomContext ? roomContext.membershipPromise.then(value => ({ value: value.households }), error => ({ error }))
     : routingHouseholdsPromise || fetchUserHouseholds(env, user.id).then((rows) => ({ value: rows }), (error) => ({ error }));
-  const linkedGroupPromise = botGroupKey && !groupFirstRecord
+  const linkedGroupPromise = botGroupKey && !groupFirstRecord && !roomRestartCommand
     ? (roomContext ? roomContext.membershipPromise.then(snapshot => snapshot.household || getLinkedKakaoGroupHousehold(env, botGroupKey)) : getLinkedKakaoGroupHousehold(env, botGroupKey)).then((value) => ({ value }), (error) => ({ error }))
     : Promise.resolve({ value: null });
   const selectedHouseholdIdPromise = botGroupKey
@@ -58448,9 +58464,70 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // 시작·도움말 첫 화면의 상태 한 줄. 한 번도 연결된 적 없는 방은 예전 문구 그대로, 만드는 중인 방은 V22.9.79 부터 따로 말한다.
   // V22.9.132 G-1: 해제·삭제된 방(retired)에는 새로 시작하는 길(‘가계부만들기’)도 적는다 — 예전에는 쓰던 가계부를 붙이는 길만 적었다.
   const unlinkedRoomStatusLine = (options) => options.retired
-    ? "이 방에서 쓰던 가계부가 삭제됐거나 연결이 해제되어, 기록을 보내도 자동으로 다시 만들지 않아요. 새로 시작하려면 ‘가계부만들기’, 쓰던 가계부를 붙이려면 주인·관리자가 ‘단톡방연결 초대코드’를 보내 주세요."
+    ? `이 방에서 쓰던 가계부가 삭제됐거나 연결이 해제되어, 기록을 보내도 자동으로 다시 만들지 않아요. 새로 시작하려면 ‘${KAKAO_ROOM_RESTART_COMMAND_V229133}’, 쓰던 가계부를 붙이려면 주인·관리자가 ‘단톡방연결 초대코드’를 보내 주세요.`
     : options.preparing ? "이 방의 공동 가계부를 만드는 중이에요. 잠시 뒤 다시 확인해 주세요."
     : "이 방은 아직 가계부가 없어요. 첫 기록을 보내면 바로 만들어져요.";
+  // 연결이 없는 방의 조회 답에 다는 단추. V22.9.133: 삭제·해제된 방에는 ‘이 방에서 새로 시작’ 을 맨 앞에 둔다(그 밖의 방은 예전 그대로).
+  const unlinkedRoomQuickReplies = (options) => dedupeQuickReplies(options.retired
+    ? [[KAKAO_ROOM_RESTART_COMMAND_V229133, KAKAO_ROOM_RESTART_COMMAND_V229133], ["단톡방연결", "단톡방연결"], ["가계부전환", "가계부전환"]]
+    : [["가계부전환", "가계부전환"], ["단톡방연결", "단톡방연결"], ["가계부만들기", "가계부만들기"]]);
+
+  // V22.9.133(사용자 2026-11-20 물음 창 "한 번 눌러 새로 시작"): 가계부가 삭제됐거나 연결이 해제된 방에서 ‘이 방에서 새로 시작’ 을 누르면 새 가계부를 만들고
+  // 이 방에 연결한다(group-links-first-record.js restartKakaoRoomV229133 — 누른 사람이 소유자). 확인된 단톡방 요청에서만 한다(첫 기록 자동 준비와 같은 조건).
+  // 기록을 보내는 것만으로는 여전히 다시 만들지 않는다. 연결된 방에서는 아무것도 하지 않고, 한 번도 연결된 적 없는 방에서는 ‘시작’ 과 같게 답한다.
+  if (roomRestartCommand) {
+    if (!botGroupKey) return kakaoText(`‘${KAKAO_ROOM_RESTART_COMMAND_V229133}’ 은 가계부를 지웠거나 연결을 끊은 단톡방에서 쓰는 말이에요. 그 단톡방에서 봇을 불러 보내 주세요.`, [["시작", "시작"]]);
+    if (!roomJoinEligible) return kakaoText("이 요청으로는 이 방의 가계부를 새로 시작할 수 없어요. 단톡방에서 봇을 불러 다시 보내 주세요.", [["시작", "시작"]]);
+    await clearKakaoFlowState(env, user.id, payload);
+    const restartButton = [KAKAO_ROOM_RESTART_COMMAND_V229133, KAKAO_ROOM_RESTART_COMMAND_V229133];
+    const restartBusyText = "이 방의 공동 가계부를 준비하거나 바꾸는 요청이 처리 중이에요. 잠시 뒤 다시 눌러 주세요.";
+    let restarted = null;
+    try { restarted = await restartKakaoRoomV229133(env, { user, groupKey: botGroupKey, nickname }); }
+    catch (err) {
+      const reason = safeError(err);
+      // 다른 요청이 이 방·이 사람의 잠금을 쥐고 있을 때(함께 누름)와 그 사이 범위가 바뀐 때는 고장이 아니다 — 처리 중이라고 답한다.
+      if (/settings_rmw_busy|household_create_busy|scope_changed/.test(reason)) return kakaoText(restartBusyText, [restartButton]);
+      rememberOpsEvent({ kind: "kakao_room_restart_failed", severity: "warn", path: "/skill", method: "POST", detail: reason });
+      // 다시 눌러도 된다: 만들다 만 가계부가 있으면 누른 사람이 그것으로 이어 한다(group-links-first-record.js 의 이어 하기 표식).
+      return kakaoText("이 방의 가계부를 새로 시작하지 못했어요. 잠시 뒤 다시 눌러 주세요.", [restartButton]);
+    }
+    if (restarted?.ok) {
+      // 누른 사람이 이 방의 새 가계부에 처음 들어온 것이다 — 약관 안내 한 줄을 단다(첫 기록·첫 호출로 들어올 때와 같다, V22.9.118).
+      if (env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.termsNoticeV229118 = true;
+      return kakaoText([
+        "✅ 이 방의 가계부를 새로 시작했어요.",
+        `가계부: ${restarted.household?.name || "이 방의 공동 가계부"} · 소유자는 방금 누른 나예요.`,
+        "",
+        "이제 이 방의 기록은 새 가계부에 저장되고, 이 방에서 봇을 부르거나 거래를 보내는 참여자는 승인 없이 구성원이 돼요.",
+        "예전 가계부의 기록은 새 가계부로 옮겨지지 않아요. 저장하지 못한 기록은 다시 보내 주세요.",
+      ].join("\n"), [["기록방법", "기록방법"], ["이번달요약", "이번달요약"]]);
+    }
+    if (restarted?.reason === "linked") {
+      return kakaoText(`이 방은 이미 ‘${restarted.household?.name || "가계부"}’ 가계부에 연결돼 있어요. 새로 시작하지 않았어요.`, [["이번달요약", "이번달요약"], ["기록방법", "기록방법"]]);
+    }
+    if (restarted?.reason === "merged") {
+      return kakaoText("계정 통합으로 사용자 정보가 바뀌어 새로 시작하지 않았어요. 봇을 다시 불러 눌러 주세요.", [restartButton]);
+    }
+    if (restarted?.reason === "pending_other") {
+      // 다른 사람이 방금 이 방의 새 가계부를 만들었는데 연결이 끝나지 않았다 — 여기서 또 만들지 않는다(그 사람이 다시 누르면 이어지고, 30분 뒤에는 누구나 새로 시작한다).
+      return kakaoText(`다른 분이 이 방의 새 가계부를 만드는 중이에요(연결이 아직 끝나지 않았어요).
+그분이 ‘${KAKAO_ROOM_RESTART_COMMAND_V229133}’ 을 다시 누르면 이어서 연결돼요. 30분이 지나면 다른 분도 새로 시작할 수 있어요.`, [restartButton]);
+    }
+    if (restarted?.reason === "bind_failed") {
+      return kakaoText([
+        `새 가계부 ‘${restarted.household?.name || "이 방의 공동 가계부"}’ 는 만들었지만 이 방에 연결하지 못했어요.`,
+        `‘${KAKAO_ROOM_RESTART_COMMAND_V229133}’ 을 다시 눌러 주세요. 누른 분이 30분 안에 다시 누르면 같은 가계부로 이어서 연결해요.`,
+      ].join("\n"), [restartButton, ["단톡방연결", "단톡방연결"]]);
+    }
+    if (restarted?.reason === "never" || restarted?.reason === "preparing") {
+      // 지운 가계부가 없는 방(한 번도 연결된 적 없음·만드는 중): ‘시작’ 과 같다 — 부른 사람을 들이고(가계부 없는 방은 첫 호출자가 소유자로 준비, 만들다 멈춘
+      // 준비는 이어서 끝낸다) 상태를 말한다.
+      const joined = await joinRoomOnCallSync({ user, source: "restart" });
+      if (roomJoinedResult(joined)) return kakaoManualReply("home", { group: true, statusLine: [`이 방 가계부: ${joined.household.name}`, roomJoinStatusLine(joined)].join("\n") });
+      return kakaoManualReply("home", { group: true, statusLine: unlinkedRoomStatusLine(await unlinkedRoomTextOptions(false)) });
+    }
+    return kakaoText(restartBusyText, [restartButton]);
+  }
 
   if (!strongTransactionInput && isCommandMenuCommand(utterance)) {
     return kakaoManualReply("home", { group: !!botGroupKey });
@@ -58595,7 +58672,11 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
         return kakaoText(`${currentLine}\n${choice.text}`, choice.quickReplies || []);
       }
     }
-    return kakaoText(await kakaoGroupInfoText(env, payload, origin, user), [["가계부만들기", "가계부만들기"], ["초대코드", "초대코드"]]);
+    const groupInfoText = await kakaoGroupInfoText(env, payload, origin, user);
+    // V22.9.133: 삭제·해제된 방의 안내에는 ‘이 방에서 새로 시작’ 줄이 있다 — 그 단추를 맨 앞에 단다(그 밖의 방은 예전 단추 그대로).
+    return kakaoText(groupInfoText, groupInfoText.includes(`‘${KAKAO_ROOM_RESTART_COMMAND_V229133}’`)
+      ? [[KAKAO_ROOM_RESTART_COMMAND_V229133, KAKAO_ROOM_RESTART_COMMAND_V229133], ["가계부만들기", "가계부만들기"], ["초대코드", "초대코드"]]
+      : [["가계부만들기", "가계부만들기"], ["초대코드", "초대코드"]]);
   }
 
   // V22.9.122 AZ-1(출시 전 점검 2026-11-14): ‘초대코드 CODE’·‘참여코드 CODE’도 ‘참여 CODE’와 같은 참여 길로 보낸다(아래 초대코드 보기·방 자동 참여보다 먼저, 승인 대기 규칙 그대로).
@@ -58697,7 +58778,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     }
   }
   if (botGroupKey && !linkedGroupHousehold?.id && !inviteCommandV229126) {
-    return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, await unlinkedRoomTextOptions(strongTransactionInput)), dedupeQuickReplies([["가계부전환", "가계부전환"], ["단톡방연결", "단톡방연결"], ["가계부만들기", "가계부만들기"]]));
+    const unlinkedOptions = await unlinkedRoomTextOptions(strongTransactionInput);
+    return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, unlinkedOptions), unlinkedRoomQuickReplies(unlinkedOptions));
   }
   // V22.9.79 감사 B-10: 연결된 방에서는 이 안내를 하지 않는다. 내 승인 대기 가계부는 이 방 가계부와 다른 것일 수 있고(남의 가계부 이름이 방에
   // 나갔다), 이 방 가계부의 승인 대기는 승인 없이 기록 한 번으로 참여되므로 "관리자가 승인해야"가 틀리다. 아래 방 분기가 방 기준으로 답한다.
@@ -58726,7 +58808,8 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
         const choice = await beginKakaoHouseholdChoice(env, { user, payload, households: activeHouseholds, action: "invite", origin, groupKey: botGroupKey });
         return kakaoText(choice.text, choice.quickReplies || []);
       }
-      return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, await unlinkedRoomTextOptions(strongTransactionInput)), dedupeQuickReplies([["가계부전환", "가계부전환"], ["단톡방연결", "단톡방연결"], ["가계부만들기", "가계부만들기"]]));
+      const unlinkedOptions = await unlinkedRoomTextOptions(strongTransactionInput);
+      return kakaoText(kakaoUnlinkedGroupStartText(activeHouseholds, origin, unlinkedOptions), unlinkedRoomQuickReplies(unlinkedOptions));
     }
     household = { ...linkedGroupHousehold, from_group_link: true, bot_group_key: botGroupKey };
     // V22.9.129: 이 방 가계부 번호를 답 마무리(kakaoRoomLedgerLinksResponseV229129)에 넘겨, ‘웹가계부’ 링크 단추가 있는 답이 방 연결을 다시 읽지 않게 한다.
@@ -61329,6 +61412,100 @@ async function bindKakaoGroupByInviteCode(env, user = {}, groupKey = "", code = 
     return { ok: true, role, household, linked };
   };
   return run(0);
+}
+
+// V22.9.133(사용자 2026-11-20 물음 창 "한 번 눌러 새로 시작"): 가계부가 삭제됐거나 연결이 해제된 방에서 단추 하나(‘이 방에서 새로 시작’)로 새 가계부를
+// 만들고 이 방에 연결한다. 누른 사람이 그 가계부의 소유자다.
+//  · 기록을 보내는 것만으로는 여전히 다시 만들지 않는다(위 tryKakaoGroupFirstRecord 의 retired 거절 — V22.9.31 규칙 그대로). 이것은 사람이 고른 시작이다.
+//  · 새 가계부는 새 번호를 받는다. 방 값에서 정해지는 고정 번호(kakaoGroupCandidateId)는 다시 쓰지 않는다 — 지운 가계부의 나간 이력·삭제 기록이 그 번호에
+//    묶여 있고, 방의 준비 표식(done·retired)도 그대로 둔다.
+//  · 잠금 순서는 다른 길과 같다(사용자 → 방). 방 잠금 안에서 방 상태를 다시 읽으므로 두 사람이 함께 눌러도 가계부는 하나만 생기고 늦은 쪽은 ‘이미 연결됨’ 을
+//    받는다(연결 줄을 쓰는 다른 길 — 첫 기록 준비·단톡방 연결·연결 해제 — 도 모두 방 잠금을 잡는다).
+//  · 계정 통합으로 사라진 계정은 소유자가 되지 못한다(첫 기록 길과 같은 확인 — kakaoClaimUserUnmerged, 방 잠금 안에서 읽은 값으로).
+//  · 연결 줄은 여기서 바로 쓴다(markKakaoGroupRetired · saveKakaoGroupLink — 단톡방 연결이 마지막에 하는 두 걸음과 같다). 단톡방 연결 함수
+//    (bindKakaoGroupByInviteCode)를 거치지 않는 까닭: 그 함수가 다시 확인하는 것(초대코드로 가계부 찾기, 내 권한, 지금 연결, 가계부 잠금)은 여기서는 이미
+//    정해져 있다 — 가계부는 이 요청이 사용자 잠금 안에서 만들었거나 소유자임을 방금 확인했고, 이 방에 연결이 없다는 것은 방 잠금 안에서 방금 읽었다.
+//    그 확인들을 되풀이하면 저장소 요청이 열 개쯤 늘어, 처음 보는 사람이 누른 요청이 Workers 의 요청당 하위 요청 한도(50)에 닿는다(독립 검토).
+//  · 다시 눌러도 가계부가 늘지 않는다(독립 검토 P2): 만들기 전에 이번 시도의 새 번호를 방의 이어 하기 표식(kakao_room_restart_v229133:<방 지문>)에 적어
+//    둔다. 만들기나 연결이 도중에 실패한 뒤 같은 사람이 다시 누르면 그 번호의 가계부가 있고 아직 기록이 없을 때 그것으로 이어 한다(소유자 줄이 빠졌으면
+//    채운다). 그동안 다른 사람이 누르면 만들지 않고 그 사람이 시작하는 중이라고 알린다. 표식은 30분 동안만 쓰고, 그 번호의 가계부가 없으면 쓰지 않는다
+//    (없는 번호를 다시 쓰지 않는다). 연결을 마치면 표식을 지운다.
+//  · 알려진 좁은 틈(독립 검토 2차 P3): 이어 하는 가계부의 잠금은 잡지 않는다. 소유자가 그 가계부를 웹에서 지우는 것과 다시 누르는 것이 겹치면 연결 줄이 지워진
+//    가계부를 가리킬 수 있다 — 그 방의 다음 요청이 그 줄을 지우고 방을 ‘다시 만들지 않는 방’ 으로 돌려놓는다(예전부터 있는 정리).
+//  · ‘첫 기록 이력’ 표식(markKakaoChatFirstHistory)은 연결 뒤, 답 뒤로 미룬다(첫 기록 길과 같다) — 그 쓰기가 실패해도 새로 시작은 끝난 것이다.
+// 결과: { ok: true, household, resumed } · { ok: false, reason: "linked", household } · { ok: false, reason: "never" | "preparing" | "merged" | "pending_other" | "no_room" } ·
+//       { ok: false, reason: "bind_failed", household, error }
+const KAKAO_ROOM_RESTART_NAME_V229133 = "이 방의 공동 가계부";
+const KAKAO_ROOM_RESTART_RESUME_MS_V229133 = 30 * 60 * 1000;
+function parseKakaoRoomRestartMarkerV229133(value) {
+  try {
+    const item = typeof value === "string" ? JSON.parse(value) : value;
+    if (!item || item.version !== 1 || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(String(item.household_id || "")) || !item.owner_id) return null;
+    const createdAt = Date.parse(String(item.created_at || ""));
+    return Number.isFinite(createdAt) ? { household_id: String(item.household_id), owner_id: String(item.owner_id), createdAt } : null;
+  } catch (_) { return null; }
+}
+async function restartKakaoRoomV229133(env, { user = {}, groupKey = "", nickname = "" } = {}) {
+  const key = String(groupKey || "").trim();
+  if (!key || !user?.id) return { ok: false, reason: "no_room" };
+  return withKakaoUserLifecycleLease(env, user.id, ({ assertFresh: userFresh }) => withKakaoGroupLifecycleLease(env, key, async ({ assertFresh: roomFresh }) => {
+    const assertFresh = () => { userFresh(); roomFresh(); };
+    assertFresh();
+    let snapshot = await readKakaoGroupFirstSnapshot(env, key, user.id);
+    if (!(await kakaoClaimUserUnmerged(env, user.id, { userRow: user, redirectValue: snapshot.redirectValue, redirectUnderLease: true }))) return { ok: false, reason: "merged" };
+    if (snapshot.link) {
+      // 연결 줄이 있다. 그 가계부가 있으면 연결된 방이다. 사라졌으면 기존 함수가 그 줄을 지우고 해제 표식을 남긴다 — 그 뒤 방 상태를 다시 읽는다.
+      const linked = await getLinkedKakaoGroupHousehold(env, key, { roomLeaseHeld: true, assertFresh });
+      if (linked?.id) return { ok: false, reason: "linked", household: linked };
+      snapshot = await readKakaoGroupFirstSnapshot(env, key, user.id);
+      if (snapshot.link) return { ok: false, reason: "preparing" };
+    }
+    const phase = kakaoRoomPhaseOf(snapshot);
+    if (phase !== "retired") return { ok: false, reason: phase === "never" ? "never" : "preparing" };
+    // 이어 하기: 30분 안에 이 방에서 누가 시작하다 만 가계부(그 번호의 가계부가 있고 아직 기록이 없는 것)가 있는지 본다.
+    //  · 내가 시작한 것이면 그것으로 잇는다(소유자 줄이 빠졌으면 채운다).
+    //  · 다른 사람이 시작한 것이면 만들지 않는다 — 여러 사람이 번갈아 눌러도 가계부가 누를 때마다 늘지 않게(독립 검토 2차). 그 사람이 다시 누르면 이어지고,
+    //    30분이 지나면 누구나 새로 시작한다.
+    //  · 기록이 있는 가계부는 ‘시작하다 만 것’ 이 아니다(표식이 남은 채 다른 길로 붙여 쓰던 가계부) — 잇지 않고 새 번호로 간다.
+    const markerKey = `kakao_room_restart_v229133:${await sha256Hex(key)}`;
+    const marker = parseKakaoRoomRestartMarkerV229133(await getSettingValueStrict(env, markerKey));
+    let household = null, resumed = false;
+    if (marker && Date.now() - marker.createdAt < KAKAO_ROOM_RESTART_RESUME_MS_V229133) {
+      const pending = await getHouseholdById(env, marker.household_id);
+      const used = pending ? await supabase(env, `/rest/v1/transactions?household_id=eq.${encodeURIComponent(pending.id)}&select=id&limit=1`, { method: "GET" }) : null;
+      if (pending && Array.isArray(used) && !used.length) {
+        if (marker.owner_id !== String(user.id)) return { ok: false, reason: "pending_other" };
+        assertFresh();
+        // 앞선 시도가 가계부만 만들고 끊겼으면 소유자 줄을 채운다. 다른 사람이 소유자면(있을 수 없다) 그 가계부는 쓰지 않고 새 번호로 간다.
+        // 소유자 줄을 쓰지 못한 저장소 오류는 그대로 올린다 — 새 번호로 넘어가면 누를 때마다 가계부가 하나씩 는다(다음에 누르면 여기서 다시 잇는다).
+        let role = "";
+        try { role = await ensureOwnerMembership(env, user.id, pending.id, { explicitHouseholdCreation: true }); }
+        catch (err) { if (!/owner_already_exists/.test(safeError(err))) throw err; }
+        if (role === "owner") { household = pending; resumed = true; }
+      }
+    }
+    if (!household) {
+      const id = crypto.randomUUID();
+      assertFresh();
+      await saveSettingValue(env, markerKey, JSON.stringify({ version: 1, household_id: id, owner_id: String(user.id), created_at: new Date().toISOString() }));
+      assertFresh();
+      household = await createUserHousehold(env, user.id, KAKAO_ROOM_RESTART_NAME_V229133, nickname, { id, lifecycleLeaseHeld: true, assertFresh, skipChatFirstHistory: true });
+    }
+    try {
+      // 손으로 연결한 방과 같게: 해제 표식이 없으면(‘준비 끝’ 줄만 있던 방) 먼저 남기고, 방 연결 줄을 쓴다.
+      if (!snapshot.retired) await markKakaoGroupRetired(env, key, assertFresh);
+      assertFresh();
+      const link = await saveKakaoGroupLink(env, key, household, user.id);
+      if (String(link?.household_id || "") !== String(household.id)) throw new Error("kakao_room_restart_link_not_saved");
+    } catch (err) {
+      rememberOpsEvent({ kind: "kakao_room_restart_bind_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) });
+      return { ok: false, reason: "bind_failed", household, error: safeError(err) };
+    }
+    // 끝났다: 이어 하기 표식을 지운다(지우지 못해도 30분 뒤에는 쓰이지 않는다). ‘첫 기록 이력’ 표식은 답 뒤로 미룬다.
+    try { await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(markerKey)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }); } catch (_) {}
+    await deferKakaoAfterReply(env, () => markKakaoChatFirstHistory(env, user.id).catch(() => {}));
+    return { ok: true, household, resumed };
+  }));
 }
 
 async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
