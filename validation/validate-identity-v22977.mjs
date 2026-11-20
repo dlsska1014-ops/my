@@ -138,7 +138,8 @@ await section("B-5", async () => {
     eq(transfers.length, 2, "B-5 정산: 송금 제안 두 줄");
     ok(transfers.every((item) => item.from !== item.to), `B-5 정산: 송금 제안의 보내는 사람과 받는 사람이 같은 이름이 아니다(예전: ‘카카오사용자 → 카카오사용자’) (${JSON.stringify(transfers)})`);
     ok(settlement.includes("• 카카오사용자 3 → 카카오사용자 1: 11,000원") && settlement.includes("• 카카오사용자 2 → 카카오사용자 1: 7,000원"), `B-5 정산: 요약과 같은 사람에게 같은 번호 (${settlement.slice(-160)})`);
-    ok(settlement.includes("• 카카오사용자 1: 18,000원 받기") && settlement.includes("• 카카오사용자 2: 7,000원 보내기") && settlement.includes("• 카카오사용자 3: 11,000원 보내기"), "B-5 정산: 받을·보낼 금액도 사람마다 구분된 이름");
+    // V22.9.134 S-1: 사람 줄이 ‘18,000원 받기’ 에서 ‘낸 돈 30,000원 → 18,000원 받아요’ 로 바뀌었다(낸 돈을 함께 적는다).
+    ok(settlement.includes("• 카카오사용자 1: 낸 돈 30,000원 → 18,000원 받아요") && settlement.includes("• 카카오사용자 2: 낸 돈 5,000원 → 7,000원 보내요") && settlement.includes("• 카카오사용자 3: 낸 돈 1,000원 → 11,000원 보내요"), "B-5 정산: 받을·보낼 금액도 사람마다 구분된 이름");
 
     // 같은 계산을 쓰는 웹 정산 화면도 같은 이름이다.
     const html = (await page(fx, `/settlement-summary?month=${MONTH}&household_id=${encodeURIComponent(hid)}`, { cookie: await fx.cookieFor(a) })).html;
@@ -151,12 +152,12 @@ await section("B-5", async () => {
     fx.db.users.push({ id: "user-b5-viewer", kakao_user_key: "bot-b5-viewer", nickname: "카카오사용자", created_at: "2026-10-15T00:00:00.000Z" });
     fx.db.household_members.push({ household_id: hid, user_id: "user-b5-viewer", role: "viewer", created_at: "2099-01-01T00:00:00.000Z" });
     const withViewer = await said("정산", "bot-b5-a");
-    ok(withViewer.includes("참여자: 3명") && !withViewer.includes("카카오사용자 4"), `B-5·D-20: 지출이 없는 조회 전용 구성원은 정산 1/N 에 들어가지 않는다 (${withViewer.slice(0, 200)})`);
+    ok(withViewer.includes("3명이 똑같이 나눴어요.") && !withViewer.includes("카카오사용자 4"), `B-5·D-20: 지출이 없는 조회 전용 구성원은 정산 1/N 에 들어가지 않는다 (${withViewer.slice(0, 200)})`);
     const left = await post(fx, "/my/household/leave", { household_id: hid, month: MONTH, understand_history: "1" }, { cookie: await fx.cookieFor(c) });
     ok(!fx.db.household_members.some((m) => m.household_id === hid && m.user_id === c), `B-5 준비: 세 번째 사람이 가계부에서 나갔다 (${left.status} ${left.decoded.slice(0, 120)})`);
     const afterLeave = await said("정산", "bot-b5-a");
-    ok(afterLeave.includes("• 카카오사용자(나간 구성원): 11,000원 보내기") && afterLeave.includes("• 카카오사용자(나간 구성원) → 카카오사용자 1: 11,000원"), `B-5·D-20: 카카오 정산도 나간 사람을 ‘별명(나간 구성원)’으로 구분한다(예전 카카오 답장: ‘이전 구성원’) (${afterLeave.slice(-260)})`);
-    ok(afterLeave.includes("• 카카오사용자 1: 18,000원 받기") && afterLeave.includes("• 카카오사용자 2: 7,000원 보내기"), "B-5: 남은 사람의 번호는 그대로(참여 순서)");
+    ok(afterLeave.includes("• 카카오사용자(나간 구성원): 낸 돈 1,000원 → 11,000원 보내요") && afterLeave.includes("• 카카오사용자(나간 구성원) → 카카오사용자 1: 11,000원"), `B-5·D-20: 카카오 정산도 나간 사람을 ‘별명(나간 구성원)’으로 구분한다(예전 카카오 답장: ‘이전 구성원’) (${afterLeave.slice(-260)})`);
+    ok(afterLeave.includes("• 카카오사용자 1: 낸 돈 30,000원 → 18,000원 받아요") && afterLeave.includes("• 카카오사용자 2: 낸 돈 5,000원 → 7,000원 보내요"), "B-5: 남은 사람의 번호는 그대로(참여 순서)");
     const summaryAfterLeave = await said("이번 달 요약", "bot-b5-b");
     ok(summaryAfterLeave.includes("• 카카오사용자(나간 구성원): 1,000원") && !summaryAfterLeave.includes("미지정"), `B-5 요약: 나간 사람의 지출은 ‘미지정’이 아니라 그 사람 줄로 남는다 (${summaryAfterLeave.slice(0, 300)})`);
     // 웹 기록 목록(/u/api/recent-transactions — 나간 사람을 명단에 섞어 이름을 붙인다)도 요약·정산과 같은 이름이다. 나간 사람이

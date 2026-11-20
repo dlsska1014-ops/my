@@ -65,7 +65,23 @@ function kakaoSettlementShareLine(model = {}) {
   const count = Math.max(1, Math.round(Number(model.participantCount || 1)));
   const perHead = Math.floor(total / count);
   const remainder = total - perHead * count;
-  return `1인 기준: ${numberWithCommas(perHead)}원${remainder ? ` (나머지 ${numberWithCommas(remainder)}원은 마지막 참여자 몫)` : ""}`;
+  return `한 사람 몫: ${numberWithCommas(perHead)}원${remainder ? ` (나머지 ${numberWithCommas(remainder)}원은 마지막 참여자 몫)` : ""}`;
+}
+
+// V22.9.134 S-1(운영자 2026-11-20 — 출시일 실제 단톡방에서 읽은 사람이 무슨 말인지 모르겠다고 했다): 정산 답을 누구나 읽기 쉽게 적는다. 계산(buildSettlementModel)은 그대로다.
+//  · 맨 위에 무엇을 어떻게 나눴는지 한 문장(‘이번 달 함께 쓴 돈 …원을 N명이 똑같이 나눴어요’)과 한 사람 몫.
+//  · 그다음이 할 일이다 — ‘이렇게 보내면 돼요’(누가 누구에게 얼마). 예전에는 맨 아래 ‘송금 제안’ 이었다.
+//  · 그 아래 ‘한 사람씩 보면’: 사람마다 낸 돈과 그래서 받을 돈·보낼 돈(예전에는 ‘65,000원 받기’ 만 있어 왜 그 금액인지 알 수 없었다).
+//  · 기본 이름(‘카카오사용자 1’)이 보이면 이름 정하는 말을 한 줄로 알린다. 환급 안내는 글 그대로 맨 아래로 내린다(예전에는 둘째 줄이었다).
+const KAKAO_SETTLEMENT_DEFAULT_NAME_V229134 = /^(?:카카오사용자|구성원|관리자)(?: \d+)?$/;
+const KAKAO_SETTLEMENT_TEXT_MAX_V229134 = 930;
+function kakaoSettlementPersonLineV229134(person = {}) {
+  const paid = Math.round(Number(person.paid || 0)), balance = Math.round(Number(person.balance || 0));
+  // 왼쪽은 ‘낸 돈 N원’(한 사람 몫: N원 과 같은 이름: 값 꼴), 오른쪽은 할 일을 ‘…요’ 로 적는다(독립 검토 — ‘냄’·‘없음’ 과 ‘받아요’ 가 섞여 읽혔다).
+  // 낸 돈이 음수인 사람: 연결한 환불을 낸 돈보다 많이 받았다(환불 연결이 켜져 있을 때만 생긴다).
+  const paidText = paid > 0 ? `낸 돈 ${numberWithCommas(paid)}원` : paid < 0 ? `낸 돈보다 환불이 ${numberWithCommas(-paid)}원 많아요` : "낸 돈 0원";
+  const result = balance > 0 ? `${numberWithCommas(balance)}원 받아요` : balance < 0 ? `${numberWithCommas(-balance)}원 보내요` : "주고받을 돈 없어요";
+  return `• ${person.name}: ${paidText} → ${result}`;
 }
 
 async function kakaoSettlementText(env, household = {}) {
@@ -93,29 +109,52 @@ async function kakaoSettlementParts(env, household = {}) {
   const unknownPaidLines = Number(model.unknownPaid || 0) > 0 ? [`지출자 미지정 ${numberWithCommas(model.unknownPaid)}원은 정산에서 제외했어요.`] : [];
   if (!model.people.length || (!model.totalExpense && !model.refundTotal)) {
     // D3(V22.9.58): 환급 미리보기 한계 문장은 빈 정산에도 남긴다(validate-d3-refund-guidance).
-    return { empty: true, text: [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "아직 정산할 지출이 없어요.", ...unknownPaidLines, "기록이 쌓이면 1/n 정산을 바로 계산해 드려요.", "", ...refundLines].join("\n") };
+    return { empty: true, text: [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "아직 정산할 지출이 없어요.", ...unknownPaidLines, "기록이 쌓이면 한 사람 몫과 누가 누구에게 얼마를 보내면 되는지 바로 계산해 드려요.", "", ...refundLines].join("\n") };
   }
-  const people = model.people.slice(0, 8).map((p) => {
-    if (p.balance > 0) return `• ${p.name}: ${numberWithCommas(p.balance)}원 받기`;
-    if (p.balance < 0) return `• ${p.name}: ${numberWithCommas(Math.abs(p.balance))}원 보내기`;
-    return `• ${p.name}: 정산 차액 없음`;
-  });
-  const transfers = model.transfers.slice(0, 8).map((t) => `• ${t.from} → ${t.to}: ${numberWithCommas(t.amount)}원`);
+  // V22.9.134 S-1: 읽는 차례를 바꾼다 — 무엇을 어떻게 나눴는지 → 누가 누구에게 얼마(할 일) → 사람마다 낸 돈과 결과 → 이름 안내 → 환급 안내.
+  const count = Math.max(1, Math.round(Number(model.participantCount || 1)));
+  const totalText = `${numberWithCommas(model.totalExpense)}원${model.refundTotal ? `(환불 ${numberWithCommas(model.refundTotal)}원 뺌)` : ""}`;
+  // 연결한 환불이 지출보다 많은 달(환불 연결이 켜져 있을 때만)은 ‘함께 쓴 돈 -5,000원’ 이라고 하지 않고 남는 지출이 없다고 적는다. 얼마가 많은지는 그다음
+  // 줄(kakaoRefundSurplusLine)이 말한다(독립 검토 — ‘-5,000원이에요’ 는 어색하고 다음 줄과 겹쳤다).
+  const headLine = model.totalExpense < 0 ? `이번 달 함께 쓴 돈에서 연결한 환불 ${numberWithCommas(model.refundTotal || 0)}원을 빼면 남는 지출이 없어요(${numberWithCommas(count)}명).`
+    : count > 1 ? `이번 달 함께 쓴 돈 ${totalText}을 ${numberWithCommas(count)}명이 똑같이 나눴어요.` : `이번 달 쓴 돈은 ${totalText}이에요. 나눌 사람이 한 명뿐이에요.`;
+  // 연결한 환불이 지출보다 많은 달의 둘째 줄: 주고받을 돈이 있을 때만 ‘아래대로 보내면 돼요’ 까지 적는다(독립 검토 — 한 사람뿐이면 바로 아래가 ‘주고받을 돈이 없어요’ 다).
+  const surplusLine = () => (model.transfers.length ? kakaoRefundSurplusLine(model) : kakaoRefundSurplusLine(model).replace(/ 아래대로 보내면 돼요\.$/, ""));
+  const shareLines = model.totalExpense < 0 ? [surplusLine()] : count > 1 ? [kakaoSettlementShareLine(model)] : [];
   // V22.9.44 감사 D-21: 8명·8건을 넘으면 말없이 잘렸다. 남은 수를 한 줄로 알린다.
-  const morePeople = model.people.length > 8 ? [`외 ${numberWithCommas(model.people.length - 8)}명은 웹 정산 화면에서 볼 수 있어요.`] : [];
-  const moreTransfers = model.transfers.length > 8 ? [`외 ${numberWithCommas(model.transfers.length - 8)}건은 웹 정산 화면에서 볼 수 있어요.`] : [];
-  return { empty: false, text: [
-    `📊 ${month} 정산`,
-    ...refundLines,
-    `총 지출: ${numberWithCommas(model.totalExpense)}원${model.refundTotal ? ` (환불 ${numberWithCommas(model.refundTotal)}원 뺌)` : ""}`,
-    `참여자: ${numberWithCommas(model.participantCount)}명`,
-    model.totalExpense < 0 ? kakaoRefundSurplusLine(model) : kakaoSettlementShareLine(model),
-    ...unknownPaidLines,
-    "",
-    ...people,
-    ...morePeople,
-    ...(transfers.length ? ["", "송금 제안", ...transfers, ...moreTransfers] : []),
-  ].join("\n") };
+  // 기본 이름(이름을 정하지 않은 사람)이 보이면 이름 정하는 말을 알린다 — 나눌 사람이 둘 이상일 때만, 실제로 보이는 그 이름을 들어서. ‘예) …’ 줄은 단톡방에서
+  // 봇 부르기가 앞에 붙는다(response-builders M-1).
+  const build = (shown, withNameHint, noticeFirst = false) => {
+    const people = model.people.slice(0, shown).map(kakaoSettlementPersonLineV229134);
+    const transfers = model.transfers.slice(0, shown).map((t) => `• ${t.from} → ${t.to}: ${numberWithCommas(t.amount)}원`);
+    const morePeople = model.people.length > shown ? [`외 ${numberWithCommas(model.people.length - shown)}명은 웹 정산 화면에서 볼 수 있어요.`] : [];
+    const moreTransfers = model.transfers.length > shown ? [`외 ${numberWithCommas(model.transfers.length - shown)}건은 웹 정산 화면에서 볼 수 있어요.`] : [];
+    const defaultName = withNameHint && count > 1 ? String(model.people.slice(0, shown).find((p) => KAKAO_SETTLEMENT_DEFAULT_NAME_V229134.test(String(p.name || "")))?.name || "") : "";
+    const nameHint = defaultName ? ["", `이름이 ‘${defaultName}’처럼 보이는 분은 이름을 정해 두면 알아보기 쉬워요.`, "예) 내 이름 민지"] : [];
+    const notice = refundLines.map((line) => `※ ${line}`);
+    return [
+      `📊 ${month} 정산`,
+      headLine,
+      ...shareLines,
+      ...unknownPaidLines,
+      ...(noticeFirst ? notice : []),
+      "",
+      ...(transfers.length ? ["💸 이렇게 보내면 돼요", ...transfers, ...moreTransfers] : ["💸 서로 주고받을 돈이 없어요."]),
+      "",
+      "🧾 한 사람씩 보면",
+      ...people,
+      ...morePeople,
+      ...nameHint,
+      ...(noticeFirst ? [] : ["", ...notice]),
+    ].join("\n");
+  };
+  // 글 말풍선 안전 길이(950자)를 넘으면 끝이 잘린다. 환급 안내가 잘리지 않게: 이름이 긴 사람이 많은 달에는 이름 안내를 먼저 빼고, 그래도 넘으면 보이는 줄 수를
+  // 줄인다(‘외 N명’ 이 알린다). 세 줄까지 줄여도 넘으면(이름이 아주 긴 경우) 환급 안내를 사람 목록 앞에 두고 줄 수를 한 줄까지 더 줄인다 — 그래도 넘으면 목록 쪽이 잘린다.
+  let text = build(8, true);
+  if (text.length > KAKAO_SETTLEMENT_TEXT_MAX_V229134) text = build(8, false);
+  for (let shown = 7; text.length > KAKAO_SETTLEMENT_TEXT_MAX_V229134 && shown >= 3; shown -= 1) text = build(shown, false);
+  for (let shown = 3; text.length > KAKAO_SETTLEMENT_TEXT_MAX_V229134 && shown >= 1; shown -= 1) text = build(shown, false, true);
+  return { empty: false, text };
 }
 
 // V22.9.80 T-39: ‘얼마나 썼어’·‘얼마 나갔어’·‘돈 얼마나 나갔지’도 ‘얼마 썼어’와 같은 이번 달 요약 물음이다. 예전에는 요약 낱말(‘얼마 썼’)만 보아

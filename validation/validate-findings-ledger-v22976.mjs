@@ -12,6 +12,8 @@ const ok = (condition, message) => { checks += 1; if (!condition) failures.push(
 
 // 출처 문서마다 항목 ID 를 뽑는 규칙. 새 감사 문서를 쓰면 여기에 한 줄을 더한다.
 const SOURCES = [
+  // V22.9.134: 단톡방 답 다듬기(운영자 2026-11-20 — 출시일 실제 단톡방) — M 안내의 봇 부르기 · S 정산 답 · N 번호는 사람마다 따로.
+  { key: "V134", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_134.md", pattern: /^(###|[ ]*-) +(?:[*][*])?([MSN]-[0-9]+)(?=[ *]|$)/gm, expected: 15 },
   // V22.9.133: 지운 방에서 한 번 눌러 새로 시작(운영자 2026-11-20) — R 새로 시작(단추 하나로 만들기와 연결, 독립 검토가 짚은 것, 남긴 것).
   { key: "V133", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_133.md", pattern: /^(###|[ ]*-) +(?:[*][*])?([R]-[0-9]+)(?=[ *]|$)/gm, expected: 11 },
   // V22.9.132: 여는 중 화면(사용자 2026-11-20) — O 여는 중 화면(가계부 첫 요청의 로딩 화면과 남긴 것) · G 삭제·해제된 방의 안내(같은 날 운영에서 본 것).
@@ -97,7 +99,7 @@ const ledger = read("docs/codex/FINDINGS_LEDGER.md");
 const harness = read(".codex/scripts/verify-repository.mjs");
 const rows = [];
 for (const line of ledger.split("\n")) {
-  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108|V116|V117|V118|V120|V121|V122|V124|V125|V126|V127|V128|V129|V130|V131|V132|V133):[A-Z]-[0-9]+[a-z]?) *[|]/.exec(line);
+  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108|V116|V117|V118|V120|V121|V122|V124|V125|V126|V127|V128|V129|V130|V131|V132|V133|V134):[A-Z]-[0-9]+[a-z]?) *[|]/.exec(line);
   if (!match) continue;
   const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
   const [id, severity, title, status, fixedIn, check, note] = cells;

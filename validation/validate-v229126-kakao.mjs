@@ -14,7 +14,7 @@
 // 지연은 일을 끝내는 쪽만 늦추므로 기계가 바빠도 늦은 답이 나온다(걸린 시간 자체는 검사하지 않는다). 시계는 2026-11-10(화) 12:00 KST 에서 메시지마다 1분씩 간다.
 // 실행: node validation/validate-v229126-kakao.mjs  (분류 표 없는 운영 모드: AB_QA_CATEGORIES_ABSENT=1)
 import { randomUUID } from "node:crypto";
-import { app, BASE, counter, fixture, failure, putSetting, settingValue } from "./lib-audit-v22934.mjs";
+import { app, BASE, counter, fixture, failure, putSetting, settingValue, withoutRoomMention } from "./lib-audit-v22934.mjs";
 
 const t = counter("v229126 kakao fixes");
 const SECRET = "kakao-fixes-secret-v229126";
@@ -79,7 +79,8 @@ async function send(fx, utterance, { user = OWNER, room = "", clear = true } = {
     ...(body?.template?.outputs || []).flatMap((output) => output.textCard?.buttons || []).filter((b) => b.action === "message").map((b) => [b.label, b.messageText ?? b.label]),
   ];
   return {
-    status: response.status, nlu: response.headers.get("x-accountbook-nlu-result") || "", text: body ? textOf(body) : raw, buttons,
+    // V22.9.134 M-1: 단톡방 답에는 안내에 봇 부르기(@말해가계부)·끝 한 줄이 붙는다. 이 검사는 답의 내용을 1:1 과 같은 글로 견주므로 그 말을 떼고 본다.
+    status: response.status, nlu: response.headers.get("x-accountbook-nlu-result") || "", text: body ? (room ? withoutRoomMention(textOf(body)) : textOf(body)) : raw, buttons,
     async settle() { for (let round = 0; round < 12 && jobs.length; round += 1) await Promise.allSettled(jobs.splice(0)); },
   };
 }
@@ -431,7 +432,8 @@ await scene(async (fx) => {
   await seed(fx, ["점심 12000"]);
   const settled = await say(fx, "정산");
   t.ok(settled.text.includes("지출자 미지정 7,000원은 정산에서 제외했어요."), "FC-16 정산 답에 지출자 미지정 한 줄");
-  t.ok(settled.text.includes("총 지출: 12,000원"), "FC-16 총 지출은 지출자 있는 지출만(뺀 금액과 맞다)");
+  // V22.9.134 S-1: 정산 답의 첫 줄이 ‘총 지출: …’ 에서 ‘이번 달 함께 쓴 돈 …원을 N명이 똑같이 나눴어요.’ 로 바뀌었다(값은 같다).
+  t.ok(/이번 달 함께 쓴 돈 12,000원을 \d+명이 똑같이 나눴어요\./.test(settled.text), "FC-16 나눈 돈은 지출자 있는 지출만(뺀 금액과 맞다)");
   fx.db.transactions = fx.db.transactions.filter((row) => row.id !== "v229126-unknown-7000");
   t.ok(!(await say(fx, "정산")).text.includes("지출자 미지정"), "FC-16 지출자 미지정 지출이 없으면 그 줄이 없다");
 });

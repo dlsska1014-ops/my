@@ -15,7 +15,7 @@
 // 옛 코드에서는 O-1 안내(‘저장하지 못했어요 … 잠시 후 다시’ 였다)·흉내·수정 안내, 예산 변수(무시됐다), SQL·문서 단언이 실패하고, 후속 단언은
 // 7b71cd2(후속 전) 에서 A·B·C·D·E·G·J 가 실패하고, 후속 2 단언은 e050897(후속 2 전) 에서 L·K·E·N·G5·G6·O-3i 가 실패한다.
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { app, BASE, counter, page, post, withClock } from "./lib-audit-v22934.mjs";
+import { app, BASE, counter, page, post, withClock, withoutRoomMention } from "./lib-audit-v22934.mjs";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
 
 const c = counter("ops 견고화(같은 문장 재전송·DB 호출 예산 변수·백업 절차·검토용 SQL) 검사 통과");
@@ -67,6 +67,8 @@ async function say(fx, utterance, { key, room = "", properties = {} } = {}) {
   let text = raw, json = null;
   try { json = JSON.parse(raw); text = (json.template?.outputs || []).map((o) => o?.simpleText?.text || o?.textCard?.description || o?.textCard?.title || "").join("\n"); } catch (_) {}
   const quick = (json?.template?.quickReplies || []).map((q) => String(q?.messageText || q?.label || ""));
+  // V22.9.134 M-1: 단톡방 답에는 안내에 봇 부르기(@말해가계부)·끝 한 줄이 붙는다. 이 검사는 답의 내용을 1:1 과 같은 글로 견주므로 그 말을 떼고 본다.
+  if (room) text = withoutRoomMention(text);
   return { status: response.status, text, quick, before, total: fx.state.calls };
 }
 

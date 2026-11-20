@@ -3352,7 +3352,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.133-ROOM-RESTART";
+const APP_VERSION = "V22.9.134-ROOM-HINTS";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -10643,7 +10643,8 @@ const PUBLIC_TOUR_SETTLE = Object.freeze({
   me: "민지",
   records: Object.freeze([["민지", "@말해가계부 숙소 200000원"], ["준호", "@말해가계부 저녁 120000원"], ["서연", "@말해가계부 렌터카 60000원"], ["도윤", "@말해가계부 커피 20000원"]].map((pair) => Object.freeze(pair))),
   utterance: "@말해가계부 정산",
-  reply: Object.freeze(["📊 2026-09 정산", "환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.", "총 지출: 400,000원", "참여자: 4명", "1인 기준: 100,000원", "", "• 민지: 100,000원 받기", "• 준호: 20,000원 받기", "• 서연: 40,000원 보내기", "• 도윤: 80,000원 보내기", "", "송금 제안", "• 도윤 → 민지: 80,000원", "• 서연 → 민지: 20,000원", "• 서연 → 준호: 20,000원"]),
+  // V22.9.134 S-1: 정산 답을 읽기 쉽게 고쳐(무엇을 어떻게 나눴는지 → 누가 누구에게 얼마 → 사람마다 낸 돈과 결과 → 환급 안내) 이 예시도 그 답 그대로 바꿨다.
+  reply: Object.freeze(["📊 2026-09 정산", "이번 달 함께 쓴 돈 400,000원을 4명이 똑같이 나눴어요.", "한 사람 몫: 100,000원", "", "💸 이렇게 보내면 돼요", "• 도윤 → 민지: 80,000원", "• 서연 → 민지: 20,000원", "• 서연 → 준호: 20,000원", "", "🧾 한 사람씩 보면", "• 민지: 낸 돈 200,000원 → 100,000원 받아요", "• 준호: 낸 돈 120,000원 → 20,000원 받아요", "• 서연: 낸 돈 60,000원 → 40,000원 보내요", "• 도윤: 낸 돈 20,000원 → 80,000원 보내요", "", "※ 환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다."]),
 });
 
 function publicTourTopCategories() {
@@ -26489,7 +26490,8 @@ function kakaoRefundSettlementLines(state = {}, model = {}) {
 }
 
 function kakaoRefundSurplusLine(model = {}) {
-  return `연결한 환불이 지출보다 ${numberWithCommas(Math.abs(Math.round(Number(model.totalExpense || 0))))}원 많아요. 아래 송금 제안대로 나누면 돼요.`;
+  // V22.9.134 S-1: 카카오 정산 답의 ‘송금 제안’ 묶음 이름이 ‘이렇게 보내면 돼요’ 로 바뀌어, 그 묶음을 가리키던 말도 ‘아래대로’ 로 적는다.
+  return `연결한 환불이 지출보다 ${numberWithCommas(Math.abs(Math.round(Number(model.totalExpense || 0))))}원 많아요. 아래대로 보내면 돼요.`;
 }
 
 function refundLinkExpected(row = {}) {
@@ -52096,6 +52098,206 @@ async function kakaoTermsNoticeResponseV229118(response, env = {}, origin = "", 
   }
 }
 
+// V22.9.134 M-1(운영자 2026-11-20 — 출시일 실제 단톡방): 단톡방에서는 봇을 불러야(@말해가계부) 말이 봇에 닿는다. 그런데 답의 안내(‘삭제: "삭제 01번"’·
+// ‘되돌리려면: 복구 01번’)에는 그 말이 없어, 사람들이 ‘삭제 01번’·‘복구 01번’ 을 그냥 보내고 답을 받지 못했다. 단톡방 답에만 아래를 한다(1:1 은 그대로다).
+//  ① 보낼 말만 적는 줄에는 그 말 앞에 봇 부르기를 적는다.
+//     · ‘수정: "…"’·‘삭제: "…"’ 줄은 따옴표마다.
+//     · 줄 첫 말이 ‘예) ’·‘예: ’(‘수입 예) ’ 처럼 앞에 한 낱말이 붙은 것도)·‘👉 ’·‘이렇게 보내 주세요: ’·‘한 줄로도 돼요: ’·‘한 번에: ’·‘다른 기간: ’·‘다시 하려면: ’·
+//       ‘(그만하려면: ’·‘되돌리려면: 복구’ 인 줄과, 문장이 끝난 바로 뒤의 ‘예: …’(얼마로 바꿀까요? 예: 13000). 그 뒤의 말이 ‘ · ’·‘ / ’ 로 나뉜 두~네 개면 하나씩
+//       따로 보내는 말이므로 저마다 적고(예: 13000 · 1만3천원 을 한 줄로 보내면 두 건으로 읽힌다), 그보다 많으면 첫 말에만 적는다.
+//     · 명령 한 줄(‘수정 01번 금액 13000’·‘삭제 01번’·‘복구 01번’·‘별도 구매 확인 <표식>’ — 앞의 ‘• ’ 는 둔다).
+//     · ‘아래처럼 (다시) 보내 주세요.’·‘이렇게 보내면 바로 기록돼요.’ 줄 바로 아래에 이어지는 ‘• ’ 줄(인사·알아듣지 못한 말·요청 한도의 예시).
+//  ② 따옴표로 적은 말(‘ ’·“ ”·" "·' ')이 보낼 말일 때 그 따옴표 안에 적는다: 바로 뒤가 ‘처럼/(이)라고/을·를 + 보내 주세요·보내세요·입력해 …’ 인 것,
+//     ‘(으)로 (먼저) 확인해·되돌릴·돼요’·‘에서 확인해’ 인 것(‘오늘기록’로 먼저 확인 · ‘복구 01번’로 되돌릴 · ‘오늘기록’에서 확인), ‘처럼 첫 기록을 보내면’ 인 것,
+//     바로 앞이 ‘…하려면 ’ 인 것
+//     (뒤가 ‘의 ’ 면 이름, ‘을 눌러’ 면 단추라 뺀다), ‘예: ’ 바로 뒤의 것, 그리고 그런 말과 ‘ 또는 ’·‘·’·‘, ’ 로 이어진 앞뒤의 것.
+//     따옴표는 바깥 것만 본다 — 따옴표 안의 따옴표(사용자가 보낸 문장을 되풀이한 글 속의 것)는 건드리지 않는다. 굽은 따옴표는 같은 모양이 겹쳐도 짝을 세어
+//     바깥 것을 찾는다(‘별도 구매 추가 동생 ‘용돈’을 …’). 봇의 글에만 있는 시키는 꼴만 본다 — ‘…을 보내요’·‘…라고 보내면’·‘…을 보내 줌’ 같은 말과 ‘…해요. 예: …’ 는
+//     사용자가 쓴 메모·이름에서만 나오므로 보지 않는다. 기록·이름을 되풀이해 보여 주는 줄(‘01번 - 메모 / 5,000원 / …’·‘• 날짜 지출 5,000원 · 메모’·
+//     별도 구매 후보의 ‘분류 · 메모 · 결제수단’·‘가계부: 이름’)은 아무것도 고치지 않는다.
+//  ③ 그러고도 안내가 남으면 끝에 한 줄을 붙인다(답 하나에 한 번): 시키는 말(보내 주세요·입력해 …)이 있거나, 단추가 없는 답에 고르라는 말·물음(…까요?)이
+//     있는데 — 답 어디에도 봇 부르기가 없거나, 봇 부르기가 붙지 않은 따옴표 말이 남아 있을 때(그 답에 같은 이름의 단추가 있는 말은 눌러서 보내면 되므로
+//     남은 말로 세지 않는다). 단추·웹 화면을 가리키는 줄과 기록·이름을 되풀이한 줄은 세지 않고, 다시 보내지 말라는 답(늦은 답·결과를 확인하지 못한
+//     답)에는 붙이지 않는다 — 그 말은 따옴표 밖·되풀이한 줄 밖에서만 본다(사용자가 쓴 ‘다시 보내면’ 이 끝 한 줄을 끄지 않게).
+//     ‘보내면’ 은 보지 않는다(정산 답의 ‘이렇게 보내면 돼요’ 는 돈을 보내는 말이다).
+// 고치면 길이 한도(글 말풍선 950자, 단추와 한 카드에 담기는 400자)를 넘는 말풍선은 그대로 둔다. 이미 봇 부르기가 적힌 말은 그대로 둔다(두 번 붙이지 않는다).
+const KAKAO_GROUP_MENTION_V229134 = "@말해가계부";
+// 끝 한 줄에는 이모지를 쓰지 않는다 — 카드 설명에도 붙고, 단톡방 카드의 이모지는 PC 판 화면에서 깨진다(V22.9.67 설명서 카드 규칙).
+const KAKAO_GROUP_MENTION_FOOTER_V229134 = `단톡방에서는 말 앞에 ${KAKAO_GROUP_MENTION_V229134} 를 붙여 보내 주세요.`;
+// 이보다 긴 글은 보지 않는다(말풍선은 950자에서 잘리므로 올 일이 없다 — 긴 글에 정규식을 돌리지 않게 막아 둔다).
+const KAKAO_GROUP_HINT_TEXT_MAX_V229134 = 2000;
+// 기록·이름을 되풀이해 보여 주는 줄: ‘01번 - 메모 / 5,000원 / …’·‘• 2026-11-20 지출 5,000원 · 메모’(최근 기록)·‘가계부: 이름’·‘가계부 이름: 이름’.
+const KAKAO_GROUP_ECHO_LINE_V229134 = / \/ (?:수입 )?[\d,]+원(?: \/ |$)|^• \d{4}-\d{2}-\d{2} (?:지출|수입) [\d,]+원 · |^가계부(?: 이름)?: /;
+// 별도 구매 후보의 ‘분류 · 메모 · 결제수단’ 줄은 바로 앞의 이 줄로 알아본다(separate-purchase.js).
+const KAKAO_GROUP_ECHO_HEAD_V229134 = /^\d{4}-\d{2}-\d{2} · (?:지출|수입) · [\d,]+원$/;
+const KAKAO_GROUP_HINT_QUOTED_LINE_V229134 = /^(?:수정|삭제): "/;
+const KAKAO_GROUP_HINT_LEAD_LINE_V229134 = /^((?:수입 |지출 )?예[):] |👉 |이렇게 보내 주세요: |한 줄로도 돼요: |한 번에: |다른 기간: |다시 하려면: |[(]?그만하려면: |되돌리려면: (?=복구))(.+)$/;
+const KAKAO_GROUP_HINT_LEAD_INLINE_V229134 = /^(.*(?:주세요|까요)[.?!] 예[):] )(.+)$/;
+// 이 줄 바로 아래에 이어지는 ‘• ’ 줄은 하나하나가 보낼 말이다(‘이렇게 보내면 돼요’ 처럼 돈을 보내는 말은 여기에 들지 않는다).
+const KAKAO_GROUP_HINT_LIST_LEAD_V229134 = /(?:이렇게 보내면 바로 기록돼요|아래처럼 (?:다시 )?보내 ?주세요)[.:]$/;
+const KAKAO_GROUP_HINT_COMMAND_LINE_V229134 = /^((?:• )?)((?:수정|삭제|복구) \d\d번(?:\s.*)?|별도 (?:구매|기록) (?:확인|취소) [0-9a-f]{8,})$/;
+// 따옴표 말 바로 뒤가 이 꼴이면 보낼 말이다. ‘…로 먼저 확인해’·‘…에서 확인해’·‘…로 바뀌었는지 먼저 확인해’·‘…로 되돌릴’ 은 다시 보내지 말라는 답(끝 한 줄을 붙이지
+// 않는다)에도 나오므로 따옴표 안에 바로 적어야 단톡방에서 쓸 수 있다. ‘…처럼 기록하면 ’·‘…처럼 날짜를 붙여 주세요’·‘…처럼 내용과 금액을 함께 보내’·
+// ‘…처럼 원래 내용을 보내’ 는 봇 글에 있는 그 꼴 그대로만 받는다. 바로 앞이 ‘…하려면 ’·‘예: ’·‘가계부 전체는 ’(기록 목록의 끝 줄)인 따옴표 말도 보낼 말이다.
+const KAKAO_GROUP_HINT_SAID_AFTER_V229134 = /^(?:(?:이라고|라고|처럼| ?[을를])(?:만)? (?:먼저 |다시 |원래 기록 문장을 |원래 내용을 |내용과 금액을 함께 )?(?:보내 ?주세요|보내세요|보내 후보|입력해|입력하세요)|(?:으로|로) (?:먼저 |바뀌었는지 먼저 )?확인해|(?:으로|로) (?:되돌릴|돼요)|에서 확인해|처럼 첫 기록을 보내면|처럼 기록하면 |처럼 날짜를 붙여 주세요)/;
+const KAKAO_GROUP_HINT_SAID_BEFORE_V229134 = /(?:려면 |예[):] |가계부 전체는 )$/;
+const KAKAO_GROUP_HINT_NOT_SAID_AFTER_V229134 = /^(?:의 | ?[을를] 눌러)/;
+const KAKAO_GROUP_HINT_CHAIN_V229134 = /^(?: 또는 |·| · |, )$/;
+// 봇 부르기가 붙지 않은 따옴표 말 가운데 보낼 말로 쓰였을 만한 자리(‘오늘기록’으로 번호를 · ‘복구’로 되돌릴 · ‘오늘기록’에서 확인 · ‘A’·‘B’ · 줄 끝). ③이 끝 한 줄을
+// 붙일지 정할 때만 쓴다. 이름·읽지 못한 말이 오는 자리(‘올해’. · ‘금욜’ 부분을 · ‘예산’ 말을 · ‘…’에 · ‘…’의)는 세지 않는다.
+const KAKAO_GROUP_HINT_BARE_AFTER_V229134 = /^(?:으로|로|에서|·|, | 또는 |[)]|$)/;
+const KAKAO_GROUP_HINT_STRONG_V229134 = /보내 ?주세요|보내세요|처럼 보내요|보내도 돼요|다시 보내|입력해|적어 ?주세요|물어봐 ?주세요|붙여 ?주세요|명시해 ?주세요|확정해 ?주세요|시도해 ?주세요/;
+const KAKAO_GROUP_HINT_WEAK_V229134 = /확인해 ?주세요|선택해 ?주세요|골라 ?주세요|까요[?]|네·아니오|[(]네[/]아니오[)]/;
+const KAKAO_GROUP_HINT_NOT_TYPED_LINE_V229134 = /버튼|단추|눌러|화면|웹 가계부/;
+const KAKAO_GROUP_HINT_NO_FOOTER_V229134 = /보내지 말고|다시 보내면|다시 보내기 전에/;
+
+// ① 보낼 말 하나 앞에 봇 부르기를 적는다. 빈 말·이미 적힌 말·따옴표로 시작하는 말(②가 본다)은 둔다.
+const kakaoGroupMentionOneV229134 = (text = "") => (!text.trim() || /^[@‘“"']/.test(text) ? text : `${KAKAO_GROUP_MENTION_V229134} ${text}`);
+// ① 줄 첫 말 뒤의 보낼 말들: ‘ · ’·‘ / ’ 로 나뉜 두~네 개는 저마다, 그 밖에는 첫 말에만 봇 부르기를 적는다.
+function kakaoGroupMentionAlternativesV229134(rest = "") {
+  const parts = String(rest).split(/( · | \/ )/);
+  const alternatives = (parts.length + 1) / 2;
+  if (alternatives < 2 || alternatives > 4) return kakaoGroupMentionOneV229134(rest);
+  return parts.map((part, index) => (index % 2 ? part : kakaoGroupMentionOneV229134(part))).join("");
+}
+
+// ② 한 줄의 바깥 따옴표 말(시작·끝 자리와 글). 굽은 따옴표(‘’ “”)는 여닫는 글자가 달라 겹침을 셀 수 있으니 짝이 맞는 바깥 것까지를 한 조각으로 본다
+// (‘별도 구매 추가 동생 ‘용돈’을 …’ 의 안쪽 ‘용돈’ 은 조각이 아니다). 곧은 따옴표(" ')는 다음 같은 글자까지다. 짝이 없는 여는 따옴표는 건너뛴다. 글 길이에 비례해 끝난다.
+function kakaoGroupQuotedSegmentsV229134(line = "") {
+  const text = String(line);
+  const closeAt = new Map();
+  for (const [opener, closer] of [["‘", "’"], ["“", "”"]]) {
+    const stack = [];
+    for (let at = 0; at < text.length; at += 1) {
+      if (text[at] === opener) stack.push(at);
+      else if (text[at] === closer && stack.length) closeAt.set(stack.pop(), at);
+    }
+  }
+  const segments = [];
+  for (let at = 0; at < text.length; at += 1) {
+    const mark = text[at];
+    const end = closeAt.has(at) ? closeAt.get(at) : mark === "\"" || mark === "'" ? text.indexOf(mark, at + 1) : -1;
+    if (end < 0) continue;
+    segments.push({ start: at, end: end + 1, text: text.slice(at, end + 1) });
+    at = end;
+  }
+  return segments;
+}
+
+// ② 한 줄의 바깥 따옴표 말을 차례로 보고 보낼 말에만 봇 부르기를 적는다. bare: 봇 부르기가 붙지 않은 따옴표 말이 남았는가(③이 쓴다).
+// every: 줄의 따옴표 말 모두에 적는다(‘수정: "…" 또는 "…"’ 줄). pressable: 이 답에 같은 이름의 단추가 있는 말 — 눌러서 보낼 수 있으니 bare 로 세지 않는다.
+function kakaoGroupMentionQuotedV229134(line = "", { every = false, pressable = null } = {}) {
+  const segments = kakaoGroupQuotedSegmentsV229134(line);
+  if (!segments.length) return { line, bare: false };
+  const open = (segment) => { const body = segment.text.slice(1, -1); return !!body.trim() && !body.startsWith("@"); };
+  const said = segments.map((segment) => {
+    if (!open(segment)) return false;
+    if (every) return true;
+    const before = line.slice(0, segment.start), after = line.slice(segment.end);
+    if (KAKAO_GROUP_HINT_SAID_AFTER_V229134.test(after)) return true;
+    return KAKAO_GROUP_HINT_SAID_BEFORE_V229134.test(before) && !KAKAO_GROUP_HINT_NOT_SAID_AFTER_V229134.test(after);
+  });
+  // 보낼 말과 ‘ 또는 ’·‘·’·‘, ’ 로 바로 이어진 따옴표 말도 보낼 말이다(‘A’ 또는 ‘B’라고 입력 · 예: ‘A’ · ‘B’). 앞으로 한 번, 뒤로 한 번 퍼뜨린다.
+  const chained = (left, right) => KAKAO_GROUP_HINT_CHAIN_V229134.test(line.slice(segments[left].end, segments[right].start));
+  for (let index = segments.length - 1; index > 0; index -= 1) {
+    if (said[index] && !said[index - 1] && open(segments[index - 1]) && chained(index - 1, index)) said[index - 1] = true;
+  }
+  for (let index = 1; index < segments.length; index += 1) {
+    if (said[index - 1] && !said[index] && open(segments[index]) && chained(index - 1, index)) said[index] = true;
+  }
+  let next = "", at = 0;
+  segments.forEach((segment, index) => {
+    next += line.slice(at, segment.start) + (said[index] ? `${segment.text[0]}${KAKAO_GROUP_MENTION_V229134} ${segment.text.slice(1)}` : segment.text);
+    at = segment.end;
+  });
+  const pressed = (segment) => !!pressable && pressable.has(segment.text.slice(1, -1).trim());
+  return { line: next + line.slice(at), bare: segments.some((segment, index) => !said[index] && open(segment) && !pressed(segment) && KAKAO_GROUP_HINT_BARE_AFTER_V229134.test(line.slice(segment.end))) };
+}
+
+// 줄마다 기록·이름을 되풀이해 보여 주는 줄인가(그 줄 하나로 알아보는 꼴과, 바로 앞 줄로 알아보는 별도 구매 후보의 둘째 줄).
+const kakaoGroupEchoLinesV229134 = (lines = []) => lines.map((line, index) => KAKAO_GROUP_ECHO_LINE_V229134.test(line)
+  || (index > 0 && KAKAO_GROUP_ECHO_HEAD_V229134.test(lines[index - 1])));
+// 바깥 따옴표 말을 뺀 글(③ 이 ‘다시 보내면’ 같은 말을 사용자가 쓴 따옴표 말에서 읽지 않게).
+const kakaoGroupUnquotedV229134 = (line = "") => {
+  let next = "", at = 0;
+  for (const segment of kakaoGroupQuotedSegmentsV229134(line)) { next += line.slice(at, segment.start); at = segment.end; }
+  return next + line.slice(at);
+};
+
+// ①·② 한 말풍선의 글에서 보낼 말을 고친다. 한도를 넘게 되면 원래 글을 돌려준다.
+function kakaoGroupMentionLinesV229134(text = "", max = KAKAO_SIMPLE_TEXT_SAFE_MAX) {
+  const source = String(text || "");
+  if (!source || source.length > KAKAO_GROUP_HINT_TEXT_MAX_V229134) return source;
+  const lines = source.split("\n");
+  const echo = kakaoGroupEchoLinesV229134(lines);
+  let listing = false;
+  const next = lines.map((line, index) => {
+    // ‘아래처럼 보내 주세요.’ 바로 아래에 이어지는 ‘• ’ 줄인가(빈 줄이나 다른 줄이 오면 끝난다).
+    const listed = listing && line.startsWith("• ");
+    listing = listed || KAKAO_GROUP_HINT_LIST_LEAD_V229134.test(line);
+    if (echo[index]) return line;
+    if (KAKAO_GROUP_HINT_QUOTED_LINE_V229134.test(line)) return kakaoGroupMentionQuotedV229134(line, { every: true }).line;
+    const command = KAKAO_GROUP_HINT_COMMAND_LINE_V229134.exec(line);
+    if (command) return `${command[1]}${KAKAO_GROUP_MENTION_V229134} ${command[2]}`;
+    if (listed) return `• ${kakaoGroupMentionOneV229134(line.slice(2))}`;
+    const lead = KAKAO_GROUP_HINT_LEAD_LINE_V229134.exec(line) || KAKAO_GROUP_HINT_LEAD_INLINE_V229134.exec(line);
+    return kakaoGroupMentionQuotedV229134(lead ? `${lead[1]}${kakaoGroupMentionAlternativesV229134(lead[2])}` : line).line;
+  }).join("\n");
+  return next.length <= max ? next : source;
+}
+
+// ③ 이 보는 줄: 기록·이름을 되풀이한 줄을 뺀 줄(typed 는 단추·웹 화면을 가리키는 줄도 뺀다).
+function kakaoGroupHintOwnLinesV229134(text = "") {
+  const lines = String(text).split("\n");
+  const echo = kakaoGroupEchoLinesV229134(lines);
+  const own = lines.filter((line, index) => !echo[index]);
+  return { own, typed: own.filter((line) => !KAKAO_GROUP_HINT_NOT_TYPED_LINE_V229134.test(line)) };
+}
+
+// ③ 의 판단. buttons: 이 답에 누르면 말이 나가는 단추가 있다(고르라는 말·물음은 단추로 답할 수 있다). pressable: 그 단추들의 이름.
+function kakaoGroupHintFooterNeededV229134(texts = [], { buttons = false, pressable = null } = {}) {
+  const all = texts.join("\n");
+  if (!all || all.length > KAKAO_GROUP_HINT_TEXT_MAX_V229134 * 3 || all.includes(KAKAO_GROUP_MENTION_FOOTER_V229134)) return false;
+  const { own, typed } = kakaoGroupHintOwnLinesV229134(all);
+  if (KAKAO_GROUP_HINT_NO_FOOTER_V229134.test(own.map(kakaoGroupUnquotedV229134).join("\n"))) return false;
+  const asked = typed.some((line) => KAKAO_GROUP_HINT_STRONG_V229134.test(line)) || (!buttons && typed.some((line) => KAKAO_GROUP_HINT_WEAK_V229134.test(line)));
+  if (!asked) return false;
+  return !all.includes(KAKAO_GROUP_MENTION_V229134) || typed.some((line) => kakaoGroupMentionQuotedV229134(line, { pressable }).bare);
+}
+// ③ 의 한 줄을 붙일 말풍선인가: 시키는 말·고르라는 말이 든 줄이 있다(되풀이한 줄·단추·웹 화면 줄은 빼고).
+const kakaoGroupHintBubbleV229134 = (text = "") => kakaoGroupHintOwnLinesV229134(text).typed
+  .some((line) => KAKAO_GROUP_HINT_STRONG_V229134.test(line) || KAKAO_GROUP_HINT_WEAK_V229134.test(line));
+
+// 말풍선(글·카드 설명)마다 ①·②를 하고, 그러고도 안내가 남으면 안내가 든 마지막 말풍선 끝에 ③의 한 줄을 붙인다(답 하나에 한 번).
+// keepCard: 이 답에 단추가 붙는다(바로가기·링크). 그때 400자 이하인 글은 고친 뒤에도 400자 이하로 둔다 — 그 길이까지는 단추와 한 카드에 담길 수 있어서
+// (kakaoGroupChoiceCards·kakaoPlaceLeftLinks), 넘기면 말풍선 배치가 달라지거나 링크 단추가 자리를 잃는다.
+// buttons·pressable: 바로가기(단톡방에서는 카드 단추가 된다) 가운데 누르면 말이 나가는 단추가 있는지와 그 이름들(카드에 이미 달린 단추는 여기서 더한다).
+function kakaoGroupMentionOutputsV229134(outputs = [], { keepCard = false, buttons = false, pressable = [] } = {}) {
+  const read = (output) => (typeof output?.simpleText?.text === "string"
+    ? { text: output.simpleText.text, max: keepCard && output.simpleText.text.length <= KAKAO_GROUP_CARD_TEXT_MAX ? KAKAO_GROUP_CARD_TEXT_MAX : KAKAO_SIMPLE_TEXT_SAFE_MAX }
+    : typeof output?.textCard?.description === "string" ? { text: output.textCard.description, max: KAKAO_GROUP_CARD_TEXT_MAX } : null);
+  const write = (output, text) => (output.simpleText ? { simpleText: { ...output.simpleText, text } } : { textCard: { ...output.textCard, description: text } });
+  const next = outputs.map((output) => {
+    const part = read(output);
+    if (!part) return output;
+    const text = kakaoGroupMentionLinesV229134(part.text, part.max);
+    return text === part.text ? output : write(output, text);
+  });
+  const cardButtons = next.flatMap((output) => (output?.textCard?.buttons || []).filter((button) => button?.action === "message"));
+  const hasMessageButton = buttons || cardButtons.length > 0;
+  // 단톡방에서 단추를 누르면 단추 이름이 나간다(V22.9.127).
+  const labels = new Set([...pressable, ...cardButtons.map((button) => button.label)].map((label) => String(label || "").trim()).filter(Boolean));
+  if (!kakaoGroupHintFooterNeededV229134(next.map((output) => read(output)?.text || ""), { buttons: hasMessageButton, pressable: labels })) return next;
+  for (let index = next.length - 1; index >= 0; index -= 1) {
+    const part = read(next[index]);
+    if (!part || !kakaoGroupHintBubbleV229134(part.text)) continue;
+    const text = `${part.text}\n\n${KAKAO_GROUP_MENTION_FOOTER_V229134}`;
+    if (text.length <= part.max) next[index] = write(next[index], text);
+    break;
+  }
+  return next;
+}
+
 async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "") {
   if (!getKakaoBotGroupKey(payload)) return kakaoDirectLinkResponse(response, origin);
   try {
@@ -52113,6 +52315,11 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
 
     if (!supported.length) return kakaoText(kakaoSkillSafeFallbackText(origin));
     const linked = kakaoLinkOutputs(supported, origin);
+    // V22.9.134 M-1: 주소를 단추로 옮긴 글에 봇 부르기를 적는다(단추가 붙는 답이면 마지막 글을 카드 길이 안에 둔다).
+    const keepCard = linked.links.length > 0 || kakaoGroupChoiceButtons(quickReplies).length > 0
+      || linked.outputs.some((output) => String(output?.simpleText?.text || "").includes(KAKAO_TYPE_CHOICE_ASK_V229127));
+    const sendButtons = kakaoGroupChoiceButtons(quickReplies).filter((button) => button.action === "message");
+    linked.outputs = kakaoGroupMentionOutputsV229134(linked.outputs, { keepCard, buttons: sendButtons.length > 0, pressable: sendButtons.map((button) => button.label) });
     const choice = kakaoGroupChoiceCards(quickReplies, linked.outputs, linked.links);
     const outputs = kakaoWebLedgerLinkButtons(choice.outputs, origin);
     const textChoices = kakaoGroupTextChoices(choice.rest);
@@ -52617,10 +52824,12 @@ function isKakaoRowOwnedByRequesterV2254(row = {}, userId = "", kakaoUserKey = "
 // V22.9.80 T-10: 그날 가계부 기록을 오래된 순으로 500건까지만 읽는다(내 기록은 읽은 뒤 거른다). 정확히 500건이 돌아오면 그날 뒤쪽 기록이 목록에
 // 없을 수 있으므로, 돌려주는 배열의 dailyLimit 에 그 한도(500)를 달아 답장이 한 줄로 말하게 한다 — 더 읽는 요청은 하지 않는다(답장 4초 안).
 const KAKAO_DAILY_ROW_LIMIT_V22980 = 500;
+// V22.9.134 N-1: 같은 읽기에서 그날 다른 사람이 남긴 기록 수(othersCount)도 달아 둔다 — 번호를 찾지 못한 답이 ‘번호는 사람마다 따로’ 라고 말할 때 쓴다(조회는 그대로 한 번).
 async function getDailyKakaoRows(env, householdId, userId, kakaoUserKey, date) {
   const rows = await getDailyKakaoRawRows(env, householdId, date);
   const own = rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey));
   own.dailyLimit = rows.length >= KAKAO_DAILY_ROW_LIMIT_V22980 ? KAKAO_DAILY_ROW_LIMIT_V22980 : 0;
+  own.othersCount = rows.length - own.length;
   return own;
 }
 
@@ -54416,7 +54625,8 @@ async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey 
     return { row, seq: seqIn(rows, row), dailyLimit: Number(rows.dailyLimit || 0) };
   }
   const found = await findDailyKakaoRowBySeq(env, household.id, user.id, kakaoUserKey, target.date, target.seq);
-  return { row: found.row, seq: Number(target.seq || 0), dailyLimit: Number(found.rows?.dailyLimit || 0) };
+  // V22.9.134 N-1: 번호를 찾지 못한 답이 쓰도록 그날 내 기록 수와 다른 사람의 기록 수를 함께 돌려준다(같은 읽기에서 센 값).
+  return { row: found.row, seq: Number(target.seq || 0), dailyLimit: Number(found.rows?.dailyLimit || 0), ownCount: Number(found.rows?.length || 0), othersCount: Number(found.rows?.othersCount || 0) };
 }
 
 // V22.9.79 감사 B-8: 복구가 끝나지 않았을 때의 안내. 예전에는 어느 경우든 "다시 ‘복구’를 입력"하라고 했다.
@@ -54488,10 +54698,26 @@ function kakaoEditTouchedAmbiguousTextV229116(touched = {}, saved = []) {
   ].join("\n");
 }
 
-function kakaoEditRowNotFoundTextV4(target = {}, dailyLimit = 0) {
+// V22.9.134 N-1(운영자 2026-11-20 — 출시일 실제 단톡방): 번호는 기록한 사람마다 01번부터 따로 매기고(‘오늘기록’ 도 내 기록만 보인다), 번호로 고치거나 지우는
+// 것은 누구든 자기가 남긴 기록뿐이다. 그런데 다른 사람의 저장 답에 적힌 ‘삭제 01번’ 을 따라 보낸 사람은 ‘01번 기록을 찾지 못했어요’ 만 받아 까닭을 알 수 없었다.
+// 그날 내 것이 아닌 기록이 있으면(counts.othersCount — 같은 읽기에서 센 값) 번호가 사람마다 따로라는 것과 그 기록은 내 번호로 고칠 수 없다는 것을 말한다.
+//  · 누가 고칠 수 있는지는 단정하지 않는다(독립 검토: 구성원 권한이 ‘기록만’ 인 가계부에서는 기록한 사람도 고치지 못한다). 소유자·관리자에게만 웹에서
+//    고칠 수 있다고 알린다(그 권한은 구성원 권한 설정과 무관하다).
+//  · 그날 읽은 범위가 한도(500건)에 닿았으면 내 기록이 읽은 범위 밖에 있을 수 있으므로 수를 말하지 않는다 — 예전 글과 한도 줄 그대로다.
+//  · 내 것이 아닌 기록이 없는 날의 답도 예전 그대로다.
+function kakaoEditRowNotFoundTextV4(target = {}, dailyLimit = 0, counts = {}) {
   const date = target.date || formatDate(nowKstDate());
   const seqText = target.seq ? ` ${twoDigitSeq(target.seq)}번` : "";
-  return [`${date}${seqText} 기록을 찾지 못했어요.`, `"${date} 기록"이라고 입력해 번호를 다시 확인해 주세요.`, kakaoDailyLimitLineV22980(dailyLimit)].filter(Boolean).join("\n");
+  const others = Math.max(0, Math.round(Number(counts.othersCount || 0)));
+  const own = Math.max(0, Math.round(Number(counts.ownCount || 0)));
+  if (!others || !target.seq || dailyLimit) return [`${date}${seqText} 기록을 찾지 못했어요.`, `"${date} 기록"이라고 입력해 번호를 다시 확인해 주세요.`, kakaoDailyLimitLineV22980(dailyLimit)].filter(Boolean).join("\n");
+  const manager = ["owner", "admin"].includes(String(counts.role || "").toLowerCase());
+  return [
+    own ? `${date}${seqText} 기록을 찾지 못했어요. 이 날 내가 남긴 기록은 ${twoDigitSeq(own)}번까지예요.` : `${date}에 내가 남긴 기록이 없어서${seqText}을 찾지 못했어요.`,
+    `번호는 기록한 사람마다 01번부터 따로 매겨요. 이 날 내 것이 아닌 기록 ${numberWithCommas(others)}건은 내 번호로는 고치거나 지울 수 없어요.`,
+    manager ? "소유자·관리자는 웹 가계부에서 다른 분의 기록도 고칠 수 있어요." : "",
+    ...(own ? ["내 번호는 이렇게 다시 볼 수 있어요.", `예) ${date} 기록`] : []),
+  ].filter(Boolean).join("\n");
 }
 
 // V22.9.77 감사 A-14: ‘오늘기록’ 목록은 앞의 20건(가장 오래된 기록)에서 끊겼고, 950자를 넘으면 줄 중간이 잘렸다. 다 들어가면
@@ -54715,8 +54941,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
     const rejected = kakaoEditTargetRejectTextV4(deleteTarget);
     if (rejected) return kakaoText(rejected);
     { const refused = await refuseRecordChange(); if (refused) return refused; }
-    const { row, seq, dailyLimit, ambiguousText } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
-    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit));
+    const { row, seq, dailyLimit, ambiguousText, ownCount, othersCount } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
+    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit, { ownCount, othersCount, role: ctx.role }));
     let deleted = null;
     try {
       deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id, role: ctx.role }, row, seq);
@@ -54746,8 +54972,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
       return kakaoText(`${shown}번 기록은 그대로예요.\n지우려면 ‘삭제 ${shown}번’이라고 보내 주세요.`);
     }
     { const refused = await refuseRecordChange(); if (refused) return refused; }
-    const { row, seq, dailyLimit, ambiguousText } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
-    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(editTarget, dailyLimit));
+    const { row, seq, dailyLimit, ambiguousText, ownCount, othersCount } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
+    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(editTarget, dailyLimit, { ownCount, othersCount, role: ctx.role }));
     // V22.9.93 Q-32: ‘방금 분류 이상해’ 는 그 칸을 다시 묻고, ‘아까 거 내용 뭐였지’ 는 기록을 보여 준다. 둘 다 값이 아니라 기록을 바꾸지 않는다.
     if (isKakaoEditNotValue(editTarget.rest) && !/^구분(?:\s|$)/.test(editTarget.rest)) {
       const complaint = kakaoEditComplaintField(editTarget.rest);
@@ -63273,7 +63499,23 @@ function kakaoSettlementShareLine(model = {}) {
   const count = Math.max(1, Math.round(Number(model.participantCount || 1)));
   const perHead = Math.floor(total / count);
   const remainder = total - perHead * count;
-  return `1인 기준: ${numberWithCommas(perHead)}원${remainder ? ` (나머지 ${numberWithCommas(remainder)}원은 마지막 참여자 몫)` : ""}`;
+  return `한 사람 몫: ${numberWithCommas(perHead)}원${remainder ? ` (나머지 ${numberWithCommas(remainder)}원은 마지막 참여자 몫)` : ""}`;
+}
+
+// V22.9.134 S-1(운영자 2026-11-20 — 출시일 실제 단톡방에서 읽은 사람이 무슨 말인지 모르겠다고 했다): 정산 답을 누구나 읽기 쉽게 적는다. 계산(buildSettlementModel)은 그대로다.
+//  · 맨 위에 무엇을 어떻게 나눴는지 한 문장(‘이번 달 함께 쓴 돈 …원을 N명이 똑같이 나눴어요’)과 한 사람 몫.
+//  · 그다음이 할 일이다 — ‘이렇게 보내면 돼요’(누가 누구에게 얼마). 예전에는 맨 아래 ‘송금 제안’ 이었다.
+//  · 그 아래 ‘한 사람씩 보면’: 사람마다 낸 돈과 그래서 받을 돈·보낼 돈(예전에는 ‘65,000원 받기’ 만 있어 왜 그 금액인지 알 수 없었다).
+//  · 기본 이름(‘카카오사용자 1’)이 보이면 이름 정하는 말을 한 줄로 알린다. 환급 안내는 글 그대로 맨 아래로 내린다(예전에는 둘째 줄이었다).
+const KAKAO_SETTLEMENT_DEFAULT_NAME_V229134 = /^(?:카카오사용자|구성원|관리자)(?: \d+)?$/;
+const KAKAO_SETTLEMENT_TEXT_MAX_V229134 = 930;
+function kakaoSettlementPersonLineV229134(person = {}) {
+  const paid = Math.round(Number(person.paid || 0)), balance = Math.round(Number(person.balance || 0));
+  // 왼쪽은 ‘낸 돈 N원’(한 사람 몫: N원 과 같은 이름: 값 꼴), 오른쪽은 할 일을 ‘…요’ 로 적는다(독립 검토 — ‘냄’·‘없음’ 과 ‘받아요’ 가 섞여 읽혔다).
+  // 낸 돈이 음수인 사람: 연결한 환불을 낸 돈보다 많이 받았다(환불 연결이 켜져 있을 때만 생긴다).
+  const paidText = paid > 0 ? `낸 돈 ${numberWithCommas(paid)}원` : paid < 0 ? `낸 돈보다 환불이 ${numberWithCommas(-paid)}원 많아요` : "낸 돈 0원";
+  const result = balance > 0 ? `${numberWithCommas(balance)}원 받아요` : balance < 0 ? `${numberWithCommas(-balance)}원 보내요` : "주고받을 돈 없어요";
+  return `• ${person.name}: ${paidText} → ${result}`;
 }
 
 async function kakaoSettlementText(env, household = {}) {
@@ -63301,29 +63543,52 @@ async function kakaoSettlementParts(env, household = {}) {
   const unknownPaidLines = Number(model.unknownPaid || 0) > 0 ? [`지출자 미지정 ${numberWithCommas(model.unknownPaid)}원은 정산에서 제외했어요.`] : [];
   if (!model.people.length || (!model.totalExpense && !model.refundTotal)) {
     // D3(V22.9.58): 환급 미리보기 한계 문장은 빈 정산에도 남긴다(validate-d3-refund-guidance).
-    return { empty: true, text: [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "아직 정산할 지출이 없어요.", ...unknownPaidLines, "기록이 쌓이면 1/n 정산을 바로 계산해 드려요.", "", ...refundLines].join("\n") };
+    return { empty: true, text: [`📊 ${month} 정산`, `가계부: ${household.name || "가계부"}`, "", "아직 정산할 지출이 없어요.", ...unknownPaidLines, "기록이 쌓이면 한 사람 몫과 누가 누구에게 얼마를 보내면 되는지 바로 계산해 드려요.", "", ...refundLines].join("\n") };
   }
-  const people = model.people.slice(0, 8).map((p) => {
-    if (p.balance > 0) return `• ${p.name}: ${numberWithCommas(p.balance)}원 받기`;
-    if (p.balance < 0) return `• ${p.name}: ${numberWithCommas(Math.abs(p.balance))}원 보내기`;
-    return `• ${p.name}: 정산 차액 없음`;
-  });
-  const transfers = model.transfers.slice(0, 8).map((t) => `• ${t.from} → ${t.to}: ${numberWithCommas(t.amount)}원`);
+  // V22.9.134 S-1: 읽는 차례를 바꾼다 — 무엇을 어떻게 나눴는지 → 누가 누구에게 얼마(할 일) → 사람마다 낸 돈과 결과 → 이름 안내 → 환급 안내.
+  const count = Math.max(1, Math.round(Number(model.participantCount || 1)));
+  const totalText = `${numberWithCommas(model.totalExpense)}원${model.refundTotal ? `(환불 ${numberWithCommas(model.refundTotal)}원 뺌)` : ""}`;
+  // 연결한 환불이 지출보다 많은 달(환불 연결이 켜져 있을 때만)은 ‘함께 쓴 돈 -5,000원’ 이라고 하지 않고 남는 지출이 없다고 적는다. 얼마가 많은지는 그다음
+  // 줄(kakaoRefundSurplusLine)이 말한다(독립 검토 — ‘-5,000원이에요’ 는 어색하고 다음 줄과 겹쳤다).
+  const headLine = model.totalExpense < 0 ? `이번 달 함께 쓴 돈에서 연결한 환불 ${numberWithCommas(model.refundTotal || 0)}원을 빼면 남는 지출이 없어요(${numberWithCommas(count)}명).`
+    : count > 1 ? `이번 달 함께 쓴 돈 ${totalText}을 ${numberWithCommas(count)}명이 똑같이 나눴어요.` : `이번 달 쓴 돈은 ${totalText}이에요. 나눌 사람이 한 명뿐이에요.`;
+  // 연결한 환불이 지출보다 많은 달의 둘째 줄: 주고받을 돈이 있을 때만 ‘아래대로 보내면 돼요’ 까지 적는다(독립 검토 — 한 사람뿐이면 바로 아래가 ‘주고받을 돈이 없어요’ 다).
+  const surplusLine = () => (model.transfers.length ? kakaoRefundSurplusLine(model) : kakaoRefundSurplusLine(model).replace(/ 아래대로 보내면 돼요\.$/, ""));
+  const shareLines = model.totalExpense < 0 ? [surplusLine()] : count > 1 ? [kakaoSettlementShareLine(model)] : [];
   // V22.9.44 감사 D-21: 8명·8건을 넘으면 말없이 잘렸다. 남은 수를 한 줄로 알린다.
-  const morePeople = model.people.length > 8 ? [`외 ${numberWithCommas(model.people.length - 8)}명은 웹 정산 화면에서 볼 수 있어요.`] : [];
-  const moreTransfers = model.transfers.length > 8 ? [`외 ${numberWithCommas(model.transfers.length - 8)}건은 웹 정산 화면에서 볼 수 있어요.`] : [];
-  return { empty: false, text: [
-    `📊 ${month} 정산`,
-    ...refundLines,
-    `총 지출: ${numberWithCommas(model.totalExpense)}원${model.refundTotal ? ` (환불 ${numberWithCommas(model.refundTotal)}원 뺌)` : ""}`,
-    `참여자: ${numberWithCommas(model.participantCount)}명`,
-    model.totalExpense < 0 ? kakaoRefundSurplusLine(model) : kakaoSettlementShareLine(model),
-    ...unknownPaidLines,
-    "",
-    ...people,
-    ...morePeople,
-    ...(transfers.length ? ["", "송금 제안", ...transfers, ...moreTransfers] : []),
-  ].join("\n") };
+  // 기본 이름(이름을 정하지 않은 사람)이 보이면 이름 정하는 말을 알린다 — 나눌 사람이 둘 이상일 때만, 실제로 보이는 그 이름을 들어서. ‘예) …’ 줄은 단톡방에서
+  // 봇 부르기가 앞에 붙는다(response-builders M-1).
+  const build = (shown, withNameHint, noticeFirst = false) => {
+    const people = model.people.slice(0, shown).map(kakaoSettlementPersonLineV229134);
+    const transfers = model.transfers.slice(0, shown).map((t) => `• ${t.from} → ${t.to}: ${numberWithCommas(t.amount)}원`);
+    const morePeople = model.people.length > shown ? [`외 ${numberWithCommas(model.people.length - shown)}명은 웹 정산 화면에서 볼 수 있어요.`] : [];
+    const moreTransfers = model.transfers.length > shown ? [`외 ${numberWithCommas(model.transfers.length - shown)}건은 웹 정산 화면에서 볼 수 있어요.`] : [];
+    const defaultName = withNameHint && count > 1 ? String(model.people.slice(0, shown).find((p) => KAKAO_SETTLEMENT_DEFAULT_NAME_V229134.test(String(p.name || "")))?.name || "") : "";
+    const nameHint = defaultName ? ["", `이름이 ‘${defaultName}’처럼 보이는 분은 이름을 정해 두면 알아보기 쉬워요.`, "예) 내 이름 민지"] : [];
+    const notice = refundLines.map((line) => `※ ${line}`);
+    return [
+      `📊 ${month} 정산`,
+      headLine,
+      ...shareLines,
+      ...unknownPaidLines,
+      ...(noticeFirst ? notice : []),
+      "",
+      ...(transfers.length ? ["💸 이렇게 보내면 돼요", ...transfers, ...moreTransfers] : ["💸 서로 주고받을 돈이 없어요."]),
+      "",
+      "🧾 한 사람씩 보면",
+      ...people,
+      ...morePeople,
+      ...nameHint,
+      ...(noticeFirst ? [] : ["", ...notice]),
+    ].join("\n");
+  };
+  // 글 말풍선 안전 길이(950자)를 넘으면 끝이 잘린다. 환급 안내가 잘리지 않게: 이름이 긴 사람이 많은 달에는 이름 안내를 먼저 빼고, 그래도 넘으면 보이는 줄 수를
+  // 줄인다(‘외 N명’ 이 알린다). 세 줄까지 줄여도 넘으면(이름이 아주 긴 경우) 환급 안내를 사람 목록 앞에 두고 줄 수를 한 줄까지 더 줄인다 — 그래도 넘으면 목록 쪽이 잘린다.
+  let text = build(8, true);
+  if (text.length > KAKAO_SETTLEMENT_TEXT_MAX_V229134) text = build(8, false);
+  for (let shown = 7; text.length > KAKAO_SETTLEMENT_TEXT_MAX_V229134 && shown >= 3; shown -= 1) text = build(shown, false);
+  for (let shown = 3; text.length > KAKAO_SETTLEMENT_TEXT_MAX_V229134 && shown >= 1; shown -= 1) text = build(shown, false, true);
+  return { empty: false, text };
 }
 
 // V22.9.80 T-39: ‘얼마나 썼어’·‘얼마 나갔어’·‘돈 얼마나 나갔지’도 ‘얼마 썼어’와 같은 이번 달 요약 물음이다. 예전에는 요약 낱말(‘얼마 썼’)만 보아

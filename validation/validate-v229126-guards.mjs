@@ -22,7 +22,7 @@
 // 바탕 코드(이 가족들 전)에서는 BLOCK·type_conflict 단언이 실패한다(틀린 값을 저장한다). KEEP 은 그 코드도 저장한다 — 지나치게 막지 않는지 지키는 단언이다.
 import crypto from "node:crypto";
 import { performance } from "node:perf_hooks";
-import { app, BASE, counter, fixture, intercept, putSetting, withClock } from "./lib-audit-v22934.mjs";
+import { app, BASE, counter, fixture, intercept, putSetting, withClock, withoutRoomMention } from "./lib-audit-v22934.mjs";
 
 const TODAY = "2026-11-10";
 const SECRET = "validate-v229126-guards-secret";
@@ -62,7 +62,8 @@ async function say(fx, utterance, room) {
   // 1:1 은 바로가기(quickReplies), 단톡방은 같은 단추가 textCard 세로 버튼으로 나간다.
   const buttons = (body?.template?.outputs || []).flatMap((o) => o?.textCard?.buttons || []);
   const replies = [...(body?.template?.quickReplies || []), ...buttons];
-  return { text: body ? textOf(body) : raw.slice(0, 300), labels: replies.map((q) => q.label), messages: replies.map((q) => q.messageText || q.label), result: response.headers.get("x-accountbook-nlu-result") || "" };
+  // V22.9.134 M-1: 단톡방 답에는 안내에 봇 부르기(@말해가계부)·끝 한 줄이 붙는다. 이 검사는 안내 글을 1:1 과 같은 글로 견주므로 그 말을 떼고 본다.
+  return { text: body ? (room ? withoutRoomMention(textOf(body)) : textOf(body)) : raw.slice(0, 300), labels: replies.map((q) => q.label), messages: replies.map((q) => q.messageText || q.label), result: response.headers.get("x-accountbook-nlu-result") || "" };
 }
 const view = (r) => [String(r.transaction_date), Number(r.amount), r.type === "income" ? "i" : "e"].join("|");
 // 사례 하나: 새 픽스처, 방 경로는 ‘시작’ 으로 방 가계부를 먼저 만든다. 말마다 새로 생긴 기록과 바뀐 예전 기록을 돌려준다.

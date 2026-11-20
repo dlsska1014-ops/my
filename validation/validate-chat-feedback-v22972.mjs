@@ -146,7 +146,8 @@ try {
   ok(emptyRecent.text.includes("아직 내가 기록한 내역이 없어요."), "빈 최근 안내");
   assertNextStepRecord(emptyRecent, "빈 최근");
   const emptySettlement = await skill("@말해가계부 정산", MINA);
-  ok(emptySettlement.text.includes("아직 정산할 지출이 없어요.") && emptySettlement.text.includes("1/n 정산"), "빈 정산 안내");
+  // V22.9.134 S-1: ‘1/n 정산’ 이라는 말을 ‘한 사람 몫과 누가 누구에게 얼마를 보내면 되는지’ 로 풀어 적었다.
+  ok(emptySettlement.text.includes("아직 정산할 지출이 없어요.") && emptySettlement.text.includes("한 사람 몫과 누가 누구에게 얼마를 보내면 되는지"), "빈 정산 안내");
   eq(JSON.stringify(emptySettlement.labels), JSON.stringify(["기록하기"]), "빈 정산: 기록하기 버튼");
   const memberBudget = await skill("@말해가계부 남은예산", MINA);
   ok(memberBudget.text.includes("아직 예산이 없어요.") && memberBudget.text.includes("주인·관리자가 ‘예산설정’으로"), "구성원 예산 없음 안내");
@@ -166,7 +167,8 @@ try {
   const deferredRecord = await skill("@말해가계부 어제 커피 4500원", MINA);
   eq(deferredRecord.result, "deferred", "느린 기록은 deferred");
   ok(deferredRecord.text.startsWith("기록 저장 확인이 조금 늦어지고 있어요 😊\n같은 내용을 다시 보내지 말고 잠시 뒤 ‘"), "기록 지연 답은 중복 저장을 막는 안내");
-  ok(/‘\d{4}-\d{2}-\d{2} 기록’에서 확인해 주세요\.$/.test(deferredRecord.text), "기록 지연 답은 입력한 날짜의 기록 명령을 가리킨다");
+  // V22.9.134 M-1: 단톡방 답에서는 확인하라는 명령의 따옴표 안에 봇 부르기가 붙는다(다시 보내지 말라는 답이라 끝 한 줄은 붙이지 않는다).
+  ok(/‘@말해가계부 \d{4}-\d{2}-\d{2} 기록’에서 확인해 주세요\.$/.test(deferredRecord.text), "기록 지연 답은 입력한 날짜의 기록 명령을 가리킨다");
   eq(deferredRecord.labels.length, 1, "기록 지연 답: 확인 버튼 하나");
   ok(/^\d{4}-\d{2}-\d{2} 기록$/.test(deferredRecord.labels[0]), "확인 버튼 이름은 ‘YYYY-MM-DD 기록’");
   for (const r of [deferredRead, deferredRecord]) ok(!r.text.includes("요청은 받았어요") && !r.text.includes("실패가 확정되는 것은 아닙니다"), "옛 지연 문구 없음");
@@ -174,7 +176,8 @@ try {
   fetchDelayMs = 120;
   const deferredLong = await skill("@말해가계부 이번 달 외식에 얼마나 썼는지 알려줘", MINA);
   eq(deferredLong.result, "deferred", "느린 긴 질문도 deferred");
-  eq(deferredLong.text, "확인이 조금 늦어지고 있어요 😊\n잠시 뒤 같은 내용을 다시 보내 주세요.", "긴 질문의 지연 답은 잘린 버튼 대신 다시 보내기 안내");
+  // V22.9.134 M-1: 단톡방에서 다시 보내 달라는 답에는 봇을 불러 보내라는 끝 한 줄이 붙는다(단추를 누르라는 답·다시 보내지 말라는 답에는 붙지 않는다).
+  eq(deferredLong.text, "확인이 조금 늦어지고 있어요 😊\n잠시 뒤 같은 내용을 다시 보내 주세요.\n\n단톡방에서는 말 앞에 @말해가계부 를 붙여 보내 주세요.", "긴 질문의 지연 답은 잘린 버튼 대신 다시 보내기 안내");
   eq(JSON.stringify(deferredLong.labels), JSON.stringify(["도움말 보기"]), "긴 질문의 지연 답 버튼은 도움말 보기");
   fetchDelayMs = 0;
   delete f.env.KAKAO_RESPONSE_BUDGET_MS;

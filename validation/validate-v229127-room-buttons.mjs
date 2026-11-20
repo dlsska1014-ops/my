@@ -8,7 +8,7 @@
 // 오프라인: 픽스처 + app.fetch(DB·바깥 요청 없음), 시계 2026-11-10 12:00 KST. 판 이름 글자는 적지 않는다.
 // 바탕 코드에서는 R-1(단톡방에서 단추 이름이 입력 안내로 끝남)·R-2(잘린 글이 틀린 금액으로 저장)·R-3 단언이 실패한다.
 import crypto from "node:crypto";
-import { app, BASE, counter, fixture, intercept, putSetting, withClock } from "./lib-audit-v22934.mjs";
+import { app, BASE, counter, fixture, intercept, putSetting, withClock, withoutRoomMention } from "./lib-audit-v22934.mjs";
 
 const TODAY = "2026-11-10";
 const SECRET = "validate-v229127-room-buttons-secret";
@@ -47,7 +47,8 @@ async function say(fx, utterance, room) {
   try { body = JSON.parse(raw); } catch (_) {}
   const quick = (body?.template?.quickReplies || []).map((q) => ({ label: q.label, action: q.action, messageText: q.messageText, where: "quick" }));
   const cards = (body?.template?.outputs || []).flatMap((o) => o?.textCard?.buttons || []).map((b) => ({ label: b.label, action: b.action, messageText: b.messageText, where: "card" }));
-  return { text: body ? textOf(body) : raw.slice(0, 300), buttons: [...quick, ...cards], hasQuickReplies: Array.isArray(body?.template?.quickReplies), result: response.headers.get("x-accountbook-nlu-result") || "" };
+  // V22.9.134 M-1: 단톡방 답에는 안내에 봇 부르기(@말해가계부)·끝 한 줄이 붙는다. 이 검사는 되묻는 글을 1:1 과 같은 글로 견주므로 그 말을 떼고 본다.
+  return { text: body ? (room ? withoutRoomMention(textOf(body)) : textOf(body)) : raw.slice(0, 300), buttons: [...quick, ...cards], hasQuickReplies: Array.isArray(body?.template?.quickReplies), result: response.headers.get("x-accountbook-nlu-result") || "" };
 }
 // 누르면 카카오가 보내는 글: 1:1 바로가기는 messageText, 단톡방 카드의 메시지 단추는 이름. 봇 부르기·링크 단추는 글을 보내지 않는다.
 const pressed = (path, button) => (button.action !== "message" ? null : path === "room" ? button.label : button.messageText);

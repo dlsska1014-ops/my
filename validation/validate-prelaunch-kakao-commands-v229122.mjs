@@ -11,7 +11,7 @@
 // ── 실행 ──
 //   node validation/validate-prelaunch-kakao-commands-v229122.mjs
 //   AB_QA_CATEGORIES_ABSENT=1 node validation/validate-prelaunch-kakao-commands-v229122.mjs
-import { app, BASE, counter, fixture } from "./lib-audit-v22934.mjs";
+import { app, BASE, counter, fixture, withoutRoomMention } from "./lib-audit-v22934.mjs";
 
 const t = counter("prelaunch kakao command fixes");
 const SECRET = "prelaunch-kakao-v229122";
@@ -43,7 +43,8 @@ async function say(fx, utterance, { user = OWNER, room = "" } = {}) {
   const response = await app.fetch(new Request(`${BASE}/skill`, { method: "POST", headers: { "content-type": "application/json", "x-kakao-skill-secret": SECRET }, body: JSON.stringify(payloadFor(utterance, { user, room })) }), fx.env, { waitUntil(job) { jobs.push(job); }, passThroughOnException() {} });
   const body = JSON.parse(await response.text());
   for (let round = 0; round < 6 && jobs.length; round += 1) await Promise.allSettled(jobs.splice(0));
-  return { status: response.status, body, text: textOf(body) };
+  // V22.9.134 M-1: 단톡방 답에는 안내에 봇 부르기(@말해가계부)·끝 한 줄이 붙는다. 이 검사는 답의 내용을 1:1 과 같은 글로 견주므로 그 말을 떼고 본다.
+  return { status: response.status, body, text: room ? withoutRoomMention(textOf(body)) : textOf(body) };
 }
 
 const SELECT_KEY = "kakao_selected_household_v2251:user-bin";

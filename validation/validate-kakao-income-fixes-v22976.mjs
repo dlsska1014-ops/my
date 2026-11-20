@@ -277,7 +277,8 @@ await scenario(async (fx) => {
   const settlement = await say(fx, "정산");
   t.ok(settlement.text.includes("환급(돌려받은 돈)은 이 정산에서 빼지 않아요") && settlement.text.includes("웹 정산 화면") && settlement.text.includes("일반 정산 금액과 완료 이력에는 반영하지 않습니다."), "14 정산 답장은 환급을 빼지 않는다고 사실대로 말한다");
   t.ok(!settlement.text.includes("환급 계산은 미리보기 전용"), "14 이 답장에 없는 환급 미리보기를 약속하던 문장이 없다");
-  t.ok(settlement.text.includes("총 지출: 12,000원"), "14 문장대로 환급 5,000원을 빼지 않은 총 지출");
+  // V22.9.134 S-1: 첫 줄이 ‘총 지출: …’ 에서 ‘이번 달 함께 쓴 돈 …원을 N명이 똑같이 나눴어요.’ 로 바뀌었다(값은 같다).
+  t.ok(/이번 달 (?:함께 쓴 돈 12,000원을 [0-9]+명이 똑같이 나눴어요|쓴 돈은 12,000원이에요)/.test(settlement.text), "14 문장대로 환급 5,000원을 빼지 않은 총 지출");
 
   const alias = await say(fx, "내 이름 빈빈");
   t.ok(alias.text.includes("앞으로 내가 기록한 수입·지출은 ‘빈빈’ 이름으로 집계됩니다.") && !alias.text.includes("지출로 집계"), "15 이름 설정 답장은 수입도 포함한다(바로 바꾸기)");

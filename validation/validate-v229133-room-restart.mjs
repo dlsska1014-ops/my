@@ -329,7 +329,8 @@ await scene("말 가리기", async (fx) => {
   const amount = await say(fx, `@말해가계부 ${RESTART} 5000원`, { user: U1, room });
   check(() => ok(amount.text.includes(REFUSAL) && amount.buttons[0] === RESTART, "R-6 금액이 붙은 말은 기록으로 읽혀 거절 답(단추 포함)을 받는다"), "amount is a record");
   const help = await say(fx, "@말해가계부 시작", { user: U1, room });
-  check(() => ok(help.text.includes(`새로 시작하려면 ‘${RESTART}’`) && help.text.includes("해제되어") && help.bubbles[0].length <= 400, `R-6 ‘시작’ 은 도움말 첫 화면이고 상태 한 줄이 그 말을 알려 준다(${help.bubbles[0].length}자)`), "start shows the command");
+  // V22.9.134: 단톡방 답이라 보낼 말로 적힌 자리(‘새로 시작하려면 ‘…’’)에는 따옴표 안에 봇 부르기가 붙는다.
+  check(() => ok(help.text.includes(`새로 시작하려면 ‘@말해가계부 ${RESTART}’`) && help.text.includes("해제되어") && help.bubbles[0].length <= 400, `R-6 ‘시작’ 은 도움말 첫 화면이고 상태 한 줄이 그 말을 알려 준다(${help.bubbles[0].length}자)`), "start shows the command");
   const asked = await say(fx, "@말해가계부 오늘 기록 보기", { user: U1, room });
   check(() => ok(asked.buttons[0] === RESTART && asked.buttons.includes("단톡방연결") && asked.text.includes(`‘${RESTART}’`), `R-6 조회 답에도 그 단추가 맨 앞에 달린다(${asked.buttons.join("·")})`), "query reply button");
   const info = await say(fx, "@말해가계부 단톡방 정보", { user: U1, room });

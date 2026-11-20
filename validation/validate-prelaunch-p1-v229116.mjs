@@ -9,7 +9,7 @@
 //     (review-artifacts/v116-prelaunch-p1-2026-11-10/, 숫자만).
 // 판 이름 글자는 적지 않는다(‘판 번호 정본’ 검사). 오프라인: 픽스처 + app.fetch, DB·바깥 요청 없음.
 import { readFileSync } from "node:fs";
-import { app, BASE, counter, intercept, page, post, skill, withClock } from "./lib-audit-v22934.mjs";
+import { app, BASE, counter, intercept, page, post, skill, withClock, withoutRoomMention } from "./lib-audit-v22934.mjs";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
 import { insightBrowser } from "./lib-insight-browser.mjs";
 
@@ -64,7 +64,8 @@ async function kakao(path, steps, { trigger = true, touchedQueries = null } = {}
       for (const step of steps) {
         clearGuards();
         if (typeof step === "function") { replies.push(await step(fx)); continue; }
-        replies.push(path === "방" ? await roomSay(fx, step) : await skill(fx, step));
+        // 이 판 또는 뒤 판(V22.9.134 M-1): 단톡방 답에는 안내에 봇 부르기(@말해가계부)·끝 한 줄이 붙는다. 이 검사는 답의 내용을 1:1 과 같은 글로 견주므로 그 말을 떼고 본다.
+        replies.push(path === "방" ? withoutRoomMention(await roomSay(fx, step)) : await skill(fx, step));
       }
       return { fx, replies, reply: replies.at(-1) || "" };
     } finally {

@@ -8,6 +8,14 @@ export { app };
 export const BASE = "https://malhaebook.com";
 export const ctx = { waitUntil() {}, passThroughOnException() {} };
 
+// V22.9.134 M-1: 단톡방 답에만 붙는 봇 부르기(‘@말해가계부 ’)와 끝 한 줄을 뗀 글. 앞 판의 검사가 단톡방 답의 내용을 1:1 답과 같은 글로 견줄 때 쓴다
+// (어디에 어떻게 붙는지는 validate-v229134-room-hints 가 본다). 원래 글에 봇 부르기가 적힌 답(‘예) @말해가계부 커피 4500원’)을 견줄 때는 기대하는
+// 글에도 같이 써서 양쪽을 맞춘다 — 그 말도 떼어진다.
+export const ROOM_MENTION_FOOTER = "단톡방에서는 말 앞에 @말해가계부 를 붙여 보내 주세요.";
+export function withoutRoomMention(text = "") {
+  return String(text).split(`\n\n${ROOM_MENTION_FOOTER}`).join("").split("@말해가계부 ").join("");
+}
+
 // V22.9.80 T-37 changes renderMyAnalysisHtml in exactly three places so the budget-usage table keeps readable
 // category names at 360px: a comment block, class="budgetTable" on that table, and one CSS rule pair right
 // before ${reportUxCss()}. Reversing them keeps the whole-renderer hashes guarding every other byte.
