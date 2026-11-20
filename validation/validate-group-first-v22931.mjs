@@ -7,7 +7,8 @@ import { createV2265QaFixture } from "./qa-fixture.mjs";
 let checks = 0, sequence = 0;
 const eq = (actual, expected, label) => { assert.equal(actual, expected, label); checks++; };
 const ok = (actual, label) => { assert.ok(actual, label); checks++; };
-const textOf = body => body.template?.outputs?.map(output => output.simpleText?.text || "").join("\n") || "";
+// V22.9.132: 단추가 붙은 답은 단톡방에서 카드(textCard)로 나간다 — 카드의 글도 읽는다(삭제·해제된 방의 거절 답에 단추 둘이 붙었다).
+const textOf = body => body.template?.outputs?.map(output => output.simpleText?.text || [output.textCard?.title, output.textCard?.description].filter(Boolean).join("\n") || "").join("\n") || "";
 const row = (f, key) => f.db.accountbook_settings.find(item => item.key === key);
 const put = (f, key, value) => { const previous = row(f, key); if (previous) previous.value = typeof value === "string" ? value : JSON.stringify(value); else f.db.accountbook_settings.push({ key, value: typeof value === "string" ? value : JSON.stringify(value) }); };
 const digest = value => createHash("sha256").update(String(value)).digest("hex");

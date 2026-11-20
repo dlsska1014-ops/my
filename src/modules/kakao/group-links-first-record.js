@@ -29,7 +29,10 @@ import {
 } from "./response-builders.js";
 import { kakaoEditSessionKeyV4 } from "./edit-session-v4.js";
 import { kakaoFlowStateKey } from "./guided-flow-state.js";
-import { getHouseholdById, kakaoUnlinkedRoomStateLine } from "./household-budget-commands.js";
+import {
+  KAKAO_RETIRED_ROOM_RESTART_LINES_V229132, KAKAO_RETIRED_ROOM_RESTART_REPLIES_V229132,
+  getHouseholdById, kakaoUnlinkedRoomStateLine,
+} from "./household-budget-commands.js";
 import {
   fetchKakaoCategoryRows, kakaoInputSettingKeys, kakaoWriteLeaseKey, parseKakaoInputSettings,
   readKakaoSettingsSnapshot, saveKakaoParsedTransactionsReply,
@@ -288,7 +291,8 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
   const joinOnly = !!context.joinOnly;
   // V22.9.115: joinOnly 는 들인 뒤 같은 요청이 그 가계부 명령(별도 구매 확인·예산 설정 등)으로 이어져 같은 가계부 잠금을 다시 잡으므로, 잠금 해제를 답 뒤로 미루지 않고 그 자리에서 푼다(미루면 같은 요청 안에서 자기 잠금을 기다리는 교착 → 4초 지연 답 + 잠금 누수). 기록 경로는 K-1 대로 답 뒤 해제.
   const leaseOptions = joinOnly ? {} : { releaseMode: "defer" };
-  const rejected = (reason, text, extra = {}) => joinOnly ? { ok: false, skipped: true, reason, role: "", household: null, joinedNow: false, roomCreatedNow: false, firstNotice: "", text, ...extra } : kakaoText(text);
+  // V22.9.132 G-1: 넷째 값(quickReplies)은 기록 답에만 붙는 단추다 — joinOnly 의 결과 객체는 예전 모양 그대로다.
+  const rejected = (reason, text, extra = {}, quickReplies = null) => joinOnly ? { ok: false, skipped: true, reason, role: "", household: null, joinedNow: false, roomCreatedNow: false, firstNotice: "", text, ...extra } : kakaoText(text, quickReplies);
   let recordSaved = false;
   let termsFirstUse = false; // V22.9.118: 이 요청이 처음 이 방 가계부에 들어갔(준비했)는지(약관 안내 표시·빠짐 이벤트)
   try {
@@ -311,7 +315,10 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
         let roomCreatedNow = false; // V22.9.79 감사 N-4: 이 요청이 방 가계부를 막 준비했다 — 구성원은 첫 입력자 한 명뿐이다
         let reservedNow = false, createdHouseholdNow = false, verifiedOwnerRows = null;
         if (!snapshot.link && (snapshot.retired || snapshot.done || marker?.phase === "complete")) {
-          return rejected("retired", "이 단톡방의 이전 연결이 해제되거나 가계부가 삭제되어 자동으로 다시 준비하지 않았어요. 이 요청의 기록은 어디에도 저장하지 않았어요. 소유자 또는 관리자가 사용할 가계부를 직접 연결해 주세요.");
+          // V22.9.132 G-1(사용자 2026-11-20 — 가계부를 지운 방에 봇을 다시 초대해 첫 기록을 보냈더니 방법 없이 ‘연결해 달라’ 는 말만 왔다): 다시 만들지 않는
+          // 규칙은 그대로다(주인이 일부러 지우거나 연결을 끊은 방에서 다른 사람의 한마디로 새 가계부가 생기지 않게 — 봇을 다시 초대해도 카카오가 주는 방 값은
+          // 같고, 다시 초대됐다는 것을 서버는 알 수 없다). 바뀐 것은 안내다: 왜 저장하지 않았는지와 이 방에서 다시 시작하는 두 길을 적고 단추를 단다.
+          return rejected("retired", ["이 단톡방에서 쓰던 가계부가 삭제됐거나 연결이 해제돼 있어요. 그런 방에서는 기록을 보내도 가계부를 자동으로 다시 만들지 않아서, 방금 기록은 어디에도 저장하지 않았어요.", ...KAKAO_RETIRED_ROOM_RESTART_LINES_V229132].join("\n"), {}, KAKAO_RETIRED_ROOM_RESTART_REPLIES_V229132);
         }
         if (!snapshot.link && !marker) {
           // A namespace-derived UUID stays fixed even if the reservation response is lost.
@@ -420,7 +427,7 @@ async function tryKakaoGroupFirstRecord(env, context = {}) {
           if (!household) {
             assertFresh();
             await markKakaoGroupRetired(env, groupKey, assertFresh);
-            return rejected("household_missing", "이 단톡방에 연결된 가계부가 없어 기록을 어디에도 저장하지 않았어요. 소유자 또는 관리자가 사용할 가계부를 직접 연결해 주세요.");
+            return rejected("household_missing", ["이 단톡방에 연결돼 있던 가계부를 찾을 수 없어(삭제된 가계부) 방금 기록은 어디에도 저장하지 않았어요.", ...KAKAO_RETIRED_ROOM_RESTART_LINES_V229132].join("\n"), {}, KAKAO_RETIRED_ROOM_RESTART_REPLIES_V229132);
           }
           // Recover a confirmed link_sent write by its fixed ledger, never by repeating POST.
           if (!snapshot.retired && !snapshot.done && marker && snapshot.link.household_id === marker.candidate_id && marker.phase === "link_sent") {
@@ -855,6 +862,8 @@ async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
     return [
       "👥 이 단톡방은 아직 가계부와 연결되지 않았어요.",
       kakaoUnlinkedRoomStateLine({ retired: phase === "retired", preparing: phase === "preparing" }),
+      // V22.9.132 G-1: 삭제·해제된 방에는 새로 시작하는 길도 적는다(아래는 쓰던 가계부를 붙이는 길 — 예전 그대로).
+      ...(phase === "retired" ? [KAKAO_RETIRED_ROOM_RESTART_LINES_V229132[0]] : []),
       "",
       "가계부 소유자 또는 관리자가 아래처럼 연결할 수 있어요.",
       "",

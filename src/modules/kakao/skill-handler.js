@@ -652,9 +652,10 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     }
     return { writeRejected: !!writeRejected, retired: phase === "retired", preparing: phase === "preparing" };
   };
-  // 시작·도움말 첫 화면의 상태 한 줄. 해제·삭제된 방(retired)과 한 번도 연결된 적 없는 방은 예전 문구 그대로, 만드는 중인 방만 새로 말한다.
+  // 시작·도움말 첫 화면의 상태 한 줄. 한 번도 연결된 적 없는 방은 예전 문구 그대로, 만드는 중인 방은 V22.9.79 부터 따로 말한다.
+  // V22.9.132 G-1: 해제·삭제된 방(retired)에는 새로 시작하는 길(‘가계부만들기’)도 적는다 — 예전에는 쓰던 가계부를 붙이는 길만 적었다.
   const unlinkedRoomStatusLine = (options) => options.retired
-    ? "이 방의 이전 가계부 연결이 해제되어 기록을 보내도 자동으로 다시 만들지 않아요. 주인·관리자가 ‘단톡방연결 초대코드’를 보내 주세요."
+    ? "이 방에서 쓰던 가계부가 삭제됐거나 연결이 해제되어, 기록을 보내도 자동으로 다시 만들지 않아요. 새로 시작하려면 ‘가계부만들기’, 쓰던 가계부를 붙이려면 주인·관리자가 ‘단톡방연결 초대코드’를 보내 주세요."
     : options.preparing ? "이 방의 공동 가계부를 만드는 중이에요. 잠시 뒤 다시 확인해 주세요."
     : "이 방은 아직 가계부가 없어요. 첫 기록을 보내면 바로 만들어져요.";
 

@@ -222,6 +222,15 @@ function kakaoUnlinkedRoomStateLine(options = {}) {
     : "‘커피 4500원’처럼 기록하면 이 방 가계부가 바로 만들어져요.";
 }
 
+// V22.9.132 G-1(사용자 2026-11-20): 가계부가 삭제됐거나 연결이 해제된 방에서 다시 시작하는 두 길과 그 단추. 기록이 거절될 때의 답
+// (kakao/group-links-first-record.js)·조회 답(아래 kakaoUnlinkedGroupStartText)·도움말 첫 화면의 상태 한 줄(kakao/skill-handler.js)이 같은 길을 말한다.
+// ‘가계부만들기’ 는 그 방에서 새 가계부를 만든 뒤 이 방에 연결할지 묻고(‘연결하기’), ‘단톡방연결’ 은 내가 주인·관리자인 가계부를 골라 붙인다.
+const KAKAO_RETIRED_ROOM_RESTART_LINES_V229132 = [
+  "이 방에서 새로 시작하려면 ‘가계부만들기’ 를 보내 새 가계부를 만든 뒤 ‘연결하기’ 를 눌러 주세요.",
+  "쓰던 가계부를 다시 붙이려면 그 가계부의 주인·관리자가 ‘단톡방연결’ 을 보내 주세요.",
+];
+const KAKAO_RETIRED_ROOM_RESTART_REPLIES_V229132 = [["가계부만들기", "가계부만들기"], ["단톡방연결", "단톡방연결"]];
+
 function kakaoUnlinkedGroupStartText(households = [], origin = "", options = {}) {
   const manageable = kakaoManageableHouseholds(households);
   // V22.9.67: 단톡방 안내는 짧게. 자세한 설명은 버튼형 사용 설명서에 둔다.
@@ -232,6 +241,8 @@ function kakaoUnlinkedGroupStartText(households = [], origin = "", options = {})
   return [
     "이 단톡방에 연결된 가계부가 없습니다.",
     kakaoUnlinkedRoomStateLine(options),
+    // V22.9.132 G-1: 삭제·해제된 방에는 새로 시작하는 길도 적는다(아래 줄은 쓰던 가계부를 붙이는 길 — 예전 그대로).
+    options?.retired === true ? KAKAO_RETIRED_ROOM_RESTART_LINES_V229132[0] : "",
     preparing ? "" : "쓰던 가계부를 붙이려면 주인·관리자가 ‘단톡방연결 초대코드’를 보내 주세요.",
   ].filter(Boolean).join("\n");
 }
@@ -783,6 +794,7 @@ async function kakaoMemberPolicyReply(env, { household = {}, user = {}, role = "
 
 // @build:exports-start
 export {
+  KAKAO_RETIRED_ROOM_RESTART_LINES_V229132, KAKAO_RETIRED_ROOM_RESTART_REPLIES_V229132,
   beginKakaoHouseholdChoice, clearKakaoSelectedHousehold, copyKakaoBudgetsFromPreviousMonth,
   findExistingKakaoHouseholdByNameV2254, getHouseholdById, getKakaoSelectedHouseholdId,
   inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
