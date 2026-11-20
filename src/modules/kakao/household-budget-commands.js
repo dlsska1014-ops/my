@@ -224,12 +224,23 @@ function kakaoUnlinkedRoomStateLine(options = {}) {
 
 // V22.9.132 G-1(사용자 2026-11-20): 가계부가 삭제됐거나 연결이 해제된 방에서 다시 시작하는 두 길과 그 단추. 기록이 거절될 때의 답
 // (kakao/group-links-first-record.js)·조회 답(아래 kakaoUnlinkedGroupStartText)·도움말 첫 화면의 상태 한 줄(kakao/skill-handler.js)이 같은 길을 말한다.
-// ‘가계부만들기’ 는 그 방에서 새 가계부를 만든 뒤 이 방에 연결할지 묻고(‘연결하기’), ‘단톡방연결’ 은 내가 주인·관리자인 가계부를 골라 붙인다.
+// ‘단톡방연결’ 은 내가 주인·관리자인 가계부를 골라 붙인다.
+// V22.9.133(사용자 2026-11-20 물음 창 "한 번 눌러 새로 시작"): 새로 시작하는 길을 단추 하나로 줄였다 — ‘이 방에서 새로 시작’ 을 누르면 새 가계부를
+// 만들고 이 방에 연결한다(kakao/group-links-first-record.js restartKakaoRoomV229133, 누른 사람이 소유자). 기록을 보내는 것만으로는 여전히 다시 만들지
+// 않는다. 이름을 정해 만드는 예전 길(‘가계부만들기’ → 이름 → ‘연결하기’)도 그대로 된다 — 안내와 단추에서만 뺐다.
+// 단추 이름 = 보내는 말이다(단톡방의 카드 단추는 이름을 그대로 보낸다 — 14자 이하).
+const KAKAO_ROOM_RESTART_COMMAND_V229133 = "이 방에서 새로 시작";
 const KAKAO_RETIRED_ROOM_RESTART_LINES_V229132 = [
-  "이 방에서 새로 시작하려면 ‘가계부만들기’ 를 보내 새 가계부를 만든 뒤 ‘연결하기’ 를 눌러 주세요.",
+  `이 방에서 새로 시작하려면 ‘${KAKAO_ROOM_RESTART_COMMAND_V229133}’ 을 눌러 주세요(이 말을 보내도 돼요). 누른 분이 새 가계부의 소유자가 돼요.`,
   "쓰던 가계부를 다시 붙이려면 그 가계부의 주인·관리자가 ‘단톡방연결’ 을 보내 주세요.",
 ];
-const KAKAO_RETIRED_ROOM_RESTART_REPLIES_V229132 = [["가계부만들기", "가계부만들기"], ["단톡방연결", "단톡방연결"]];
+const KAKAO_RETIRED_ROOM_RESTART_REPLIES_V229132 = [[KAKAO_ROOM_RESTART_COMMAND_V229133, KAKAO_ROOM_RESTART_COMMAND_V229133], ["단톡방연결", "단톡방연결"]];
+// 그 말인지: 띄어쓰기, 앞뒤의 따옴표(안내문이 ‘ ’ 로 싸서 적는다), 끝의 마침표·느낌표·물결만 다른 것까지. 정확히 그 말일 때만이다 — ‘시작’ 이 든 다른 말은
+// 예전 처리 그대로다.
+function isKakaoRoomRestartCommandV229133(text = "") {
+  const bare = String(text || "").replace(/\s+/g, "").replace(/^[‘’'"“”`]+/, "").replace(/[‘’'"“”`.!~]+$/, "");
+  return bare === KAKAO_ROOM_RESTART_COMMAND_V229133.replace(/\s+/g, "");
+}
 
 function kakaoUnlinkedGroupStartText(households = [], origin = "", options = {}) {
   const manageable = kakaoManageableHouseholds(households);
@@ -795,19 +806,19 @@ async function kakaoMemberPolicyReply(env, { household = {}, user = {}, role = "
 // @build:exports-start
 export {
   KAKAO_RETIRED_ROOM_RESTART_LINES_V229132, KAKAO_RETIRED_ROOM_RESTART_REPLIES_V229132,
-  beginKakaoHouseholdChoice, clearKakaoSelectedHousehold, copyKakaoBudgetsFromPreviousMonth,
-  findExistingKakaoHouseholdByNameV2254, getHouseholdById, getKakaoSelectedHouseholdId,
-  inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
-  isKakaoCreateKindOptionsRequest, isKakaoReservedCreateFlowReply, kakaoActiveHouseholds,
-  kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText, kakaoDateSummaryParts,
-  kakaoHouseholdChoiceQuickReplies, kakaoHouseholdLabelParts, kakaoHouseholdListLines,
-  kakaoHouseholdReplyName, kakaoInviteManagementText, kakaoInviteNotAllowedText,
-  kakaoManageableHouseholds, kakaoMemberPolicyReply, kakaoSelectedHouseholdKey, kakaoStartText,
-  kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText, kakaoUnlinkedRoomStateLine, maybeKakaoCta,
-  parseBareInviteCode, parseBudgetMonthHint, parseDirectBudgetSetCommand,
-  parseInviteCodeJoinCommand, parseKakaoCreateKind, parseKakaoHouseholdChoice,
-  parseKakaoSummaryRange, plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName,
-  sanitizeHouseholdNameInput, sanitizeWebHouseholdNameInput, saveKakaoBudget,
-  setKakaoSelectedHousehold, suggestedHouseholdName,
+  KAKAO_ROOM_RESTART_COMMAND_V229133, beginKakaoHouseholdChoice, clearKakaoSelectedHousehold,
+  copyKakaoBudgetsFromPreviousMonth, findExistingKakaoHouseholdByNameV2254, getHouseholdById,
+  getKakaoSelectedHouseholdId, inferKakaoCreateKind, isKakaoCreateConfirmNo,
+  isKakaoCreateConfirmYes, isKakaoCreateKindOptionsRequest, isKakaoReservedCreateFlowReply,
+  isKakaoRoomRestartCommandV229133, kakaoActiveHouseholds, kakaoBudgetAmountTooLargeText,
+  kakaoCreateKindPromptText, kakaoDateSummaryParts, kakaoHouseholdChoiceQuickReplies,
+  kakaoHouseholdLabelParts, kakaoHouseholdListLines, kakaoHouseholdReplyName,
+  kakaoInviteManagementText, kakaoInviteNotAllowedText, kakaoManageableHouseholds,
+  kakaoMemberPolicyReply, kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote,
+  kakaoUnlinkedGroupStartText, kakaoUnlinkedRoomStateLine, maybeKakaoCta, parseBareInviteCode,
+  parseBudgetMonthHint, parseDirectBudgetSetCommand, parseInviteCodeJoinCommand,
+  parseKakaoCreateKind, parseKakaoHouseholdChoice, parseKakaoSummaryRange,
+  plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName, sanitizeHouseholdNameInput,
+  sanitizeWebHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
 };
 // @build:exports-end

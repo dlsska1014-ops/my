@@ -14,8 +14,8 @@ import { safeObject } from "../admin/backup-compare.js";
 import { userHouseholdRoleLabel } from "../admin/ops-diagnostics-pages.js";
 import { identityMergeRedirectSettingsKey } from "../auth/user-session.js";
 import {
-  fetchRawHouseholdMembers, fetchRoomMembershipSnapshot, fetchUserById,
-  kakaoRoomMembersFromSnapshot, withKakaoUserLifecycleLease,
+  createUserHousehold, ensureOwnerMembership, fetchRawHouseholdMembers, fetchRoomMembershipSnapshot,
+  fetchUserById, kakaoRoomMembersFromSnapshot, withKakaoUserLifecycleLease,
 } from "../data/users-household-create.js";
 import { saveSettingValue } from "../my/reports-premium.js";
 import {
@@ -839,6 +839,100 @@ async function bindKakaoGroupByInviteCode(env, user = {}, groupKey = "", code = 
   return run(0);
 }
 
+// V22.9.133(사용자 2026-11-20 물음 창 "한 번 눌러 새로 시작"): 가계부가 삭제됐거나 연결이 해제된 방에서 단추 하나(‘이 방에서 새로 시작’)로 새 가계부를
+// 만들고 이 방에 연결한다. 누른 사람이 그 가계부의 소유자다.
+//  · 기록을 보내는 것만으로는 여전히 다시 만들지 않는다(위 tryKakaoGroupFirstRecord 의 retired 거절 — V22.9.31 규칙 그대로). 이것은 사람이 고른 시작이다.
+//  · 새 가계부는 새 번호를 받는다. 방 값에서 정해지는 고정 번호(kakaoGroupCandidateId)는 다시 쓰지 않는다 — 지운 가계부의 나간 이력·삭제 기록이 그 번호에
+//    묶여 있고, 방의 준비 표식(done·retired)도 그대로 둔다.
+//  · 잠금 순서는 다른 길과 같다(사용자 → 방). 방 잠금 안에서 방 상태를 다시 읽으므로 두 사람이 함께 눌러도 가계부는 하나만 생기고 늦은 쪽은 ‘이미 연결됨’ 을
+//    받는다(연결 줄을 쓰는 다른 길 — 첫 기록 준비·단톡방 연결·연결 해제 — 도 모두 방 잠금을 잡는다).
+//  · 계정 통합으로 사라진 계정은 소유자가 되지 못한다(첫 기록 길과 같은 확인 — kakaoClaimUserUnmerged, 방 잠금 안에서 읽은 값으로).
+//  · 연결 줄은 여기서 바로 쓴다(markKakaoGroupRetired · saveKakaoGroupLink — 단톡방 연결이 마지막에 하는 두 걸음과 같다). 단톡방 연결 함수
+//    (bindKakaoGroupByInviteCode)를 거치지 않는 까닭: 그 함수가 다시 확인하는 것(초대코드로 가계부 찾기, 내 권한, 지금 연결, 가계부 잠금)은 여기서는 이미
+//    정해져 있다 — 가계부는 이 요청이 사용자 잠금 안에서 만들었거나 소유자임을 방금 확인했고, 이 방에 연결이 없다는 것은 방 잠금 안에서 방금 읽었다.
+//    그 확인들을 되풀이하면 저장소 요청이 열 개쯤 늘어, 처음 보는 사람이 누른 요청이 Workers 의 요청당 하위 요청 한도(50)에 닿는다(독립 검토).
+//  · 다시 눌러도 가계부가 늘지 않는다(독립 검토 P2): 만들기 전에 이번 시도의 새 번호를 방의 이어 하기 표식(kakao_room_restart_v229133:<방 지문>)에 적어
+//    둔다. 만들기나 연결이 도중에 실패한 뒤 같은 사람이 다시 누르면 그 번호의 가계부가 있고 아직 기록이 없을 때 그것으로 이어 한다(소유자 줄이 빠졌으면
+//    채운다). 그동안 다른 사람이 누르면 만들지 않고 그 사람이 시작하는 중이라고 알린다. 표식은 30분 동안만 쓰고, 그 번호의 가계부가 없으면 쓰지 않는다
+//    (없는 번호를 다시 쓰지 않는다). 연결을 마치면 표식을 지운다.
+//  · 알려진 좁은 틈(독립 검토 2차 P3): 이어 하는 가계부의 잠금은 잡지 않는다. 소유자가 그 가계부를 웹에서 지우는 것과 다시 누르는 것이 겹치면 연결 줄이 지워진
+//    가계부를 가리킬 수 있다 — 그 방의 다음 요청이 그 줄을 지우고 방을 ‘다시 만들지 않는 방’ 으로 돌려놓는다(예전부터 있는 정리).
+//  · ‘첫 기록 이력’ 표식(markKakaoChatFirstHistory)은 연결 뒤, 답 뒤로 미룬다(첫 기록 길과 같다) — 그 쓰기가 실패해도 새로 시작은 끝난 것이다.
+// 결과: { ok: true, household, resumed } · { ok: false, reason: "linked", household } · { ok: false, reason: "never" | "preparing" | "merged" | "pending_other" | "no_room" } ·
+//       { ok: false, reason: "bind_failed", household, error }
+const KAKAO_ROOM_RESTART_NAME_V229133 = "이 방의 공동 가계부";
+const KAKAO_ROOM_RESTART_RESUME_MS_V229133 = 30 * 60 * 1000;
+function parseKakaoRoomRestartMarkerV229133(value) {
+  try {
+    const item = typeof value === "string" ? JSON.parse(value) : value;
+    if (!item || item.version !== 1 || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(String(item.household_id || "")) || !item.owner_id) return null;
+    const createdAt = Date.parse(String(item.created_at || ""));
+    return Number.isFinite(createdAt) ? { household_id: String(item.household_id), owner_id: String(item.owner_id), createdAt } : null;
+  } catch (_) { return null; }
+}
+async function restartKakaoRoomV229133(env, { user = {}, groupKey = "", nickname = "" } = {}) {
+  const key = String(groupKey || "").trim();
+  if (!key || !user?.id) return { ok: false, reason: "no_room" };
+  return withKakaoUserLifecycleLease(env, user.id, ({ assertFresh: userFresh }) => withKakaoGroupLifecycleLease(env, key, async ({ assertFresh: roomFresh }) => {
+    const assertFresh = () => { userFresh(); roomFresh(); };
+    assertFresh();
+    let snapshot = await readKakaoGroupFirstSnapshot(env, key, user.id);
+    if (!(await kakaoClaimUserUnmerged(env, user.id, { userRow: user, redirectValue: snapshot.redirectValue, redirectUnderLease: true }))) return { ok: false, reason: "merged" };
+    if (snapshot.link) {
+      // 연결 줄이 있다. 그 가계부가 있으면 연결된 방이다. 사라졌으면 기존 함수가 그 줄을 지우고 해제 표식을 남긴다 — 그 뒤 방 상태를 다시 읽는다.
+      const linked = await getLinkedKakaoGroupHousehold(env, key, { roomLeaseHeld: true, assertFresh });
+      if (linked?.id) return { ok: false, reason: "linked", household: linked };
+      snapshot = await readKakaoGroupFirstSnapshot(env, key, user.id);
+      if (snapshot.link) return { ok: false, reason: "preparing" };
+    }
+    const phase = kakaoRoomPhaseOf(snapshot);
+    if (phase !== "retired") return { ok: false, reason: phase === "never" ? "never" : "preparing" };
+    // 이어 하기: 30분 안에 이 방에서 누가 시작하다 만 가계부(그 번호의 가계부가 있고 아직 기록이 없는 것)가 있는지 본다.
+    //  · 내가 시작한 것이면 그것으로 잇는다(소유자 줄이 빠졌으면 채운다).
+    //  · 다른 사람이 시작한 것이면 만들지 않는다 — 여러 사람이 번갈아 눌러도 가계부가 누를 때마다 늘지 않게(독립 검토 2차). 그 사람이 다시 누르면 이어지고,
+    //    30분이 지나면 누구나 새로 시작한다.
+    //  · 기록이 있는 가계부는 ‘시작하다 만 것’ 이 아니다(표식이 남은 채 다른 길로 붙여 쓰던 가계부) — 잇지 않고 새 번호로 간다.
+    const markerKey = `kakao_room_restart_v229133:${await sha256Hex(key)}`;
+    const marker = parseKakaoRoomRestartMarkerV229133(await getSettingValueStrict(env, markerKey));
+    let household = null, resumed = false;
+    if (marker && Date.now() - marker.createdAt < KAKAO_ROOM_RESTART_RESUME_MS_V229133) {
+      const pending = await getHouseholdById(env, marker.household_id);
+      const used = pending ? await supabase(env, `/rest/v1/transactions?household_id=eq.${encodeURIComponent(pending.id)}&select=id&limit=1`, { method: "GET" }) : null;
+      if (pending && Array.isArray(used) && !used.length) {
+        if (marker.owner_id !== String(user.id)) return { ok: false, reason: "pending_other" };
+        assertFresh();
+        // 앞선 시도가 가계부만 만들고 끊겼으면 소유자 줄을 채운다. 다른 사람이 소유자면(있을 수 없다) 그 가계부는 쓰지 않고 새 번호로 간다.
+        // 소유자 줄을 쓰지 못한 저장소 오류는 그대로 올린다 — 새 번호로 넘어가면 누를 때마다 가계부가 하나씩 는다(다음에 누르면 여기서 다시 잇는다).
+        let role = "";
+        try { role = await ensureOwnerMembership(env, user.id, pending.id, { explicitHouseholdCreation: true }); }
+        catch (err) { if (!/owner_already_exists/.test(safeError(err))) throw err; }
+        if (role === "owner") { household = pending; resumed = true; }
+      }
+    }
+    if (!household) {
+      const id = crypto.randomUUID();
+      assertFresh();
+      await saveSettingValue(env, markerKey, JSON.stringify({ version: 1, household_id: id, owner_id: String(user.id), created_at: new Date().toISOString() }));
+      assertFresh();
+      household = await createUserHousehold(env, user.id, KAKAO_ROOM_RESTART_NAME_V229133, nickname, { id, lifecycleLeaseHeld: true, assertFresh, skipChatFirstHistory: true });
+    }
+    try {
+      // 손으로 연결한 방과 같게: 해제 표식이 없으면(‘준비 끝’ 줄만 있던 방) 먼저 남기고, 방 연결 줄을 쓴다.
+      if (!snapshot.retired) await markKakaoGroupRetired(env, key, assertFresh);
+      assertFresh();
+      const link = await saveKakaoGroupLink(env, key, household, user.id);
+      if (String(link?.household_id || "") !== String(household.id)) throw new Error("kakao_room_restart_link_not_saved");
+    } catch (err) {
+      rememberOpsEvent({ kind: "kakao_room_restart_bind_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) });
+      return { ok: false, reason: "bind_failed", household, error: safeError(err) };
+    }
+    // 끝났다: 이어 하기 표식을 지운다(지우지 못해도 30분 뒤에는 쓰이지 않는다). ‘첫 기록 이력’ 표식은 답 뒤로 미룬다.
+    try { await supabase(env, `/rest/v1/accountbook_settings?key=eq.${encodeURIComponent(markerKey)}`, { method: "DELETE", headers: { Prefer: "return=minimal" } }); } catch (_) {}
+    await deferKakaoAfterReply(env, () => markKakaoChatFirstHistory(env, user.id).catch(() => {}));
+    return { ok: true, household, resumed };
+  }));
+}
+
 async function kakaoGroupInfoText(env, payload = {}, origin = "", user = null) {
   const groupKey = getKakaoBotGroupKey(payload);
   if (!groupKey) {
@@ -922,7 +1016,7 @@ export {
   kakaoRoomBindDoneText, kakaoRoomDepartedFromHousehold, kakaoRoomPhaseOf, markKakaoGroupDeparture,
   normalizeKakaoGroupLinkItem, parseKakaoGroupFirstMarker, preserveKakaoGroupDeparturesForMerge,
   readKakaoGroupFirstSnapshot, readKakaoRoomRoutingSnapshot, reassignKakaoGroupLinkOwner,
-  removeKakaoGroupLink, startKakaoRoomRecordSnapshot, strictKakaoGroupMembershipRows,
-  tryKakaoGroupFirstRecord, withKakaoGroupLifecycleLease,
+  removeKakaoGroupLink, restartKakaoRoomV229133, startKakaoRoomRecordSnapshot,
+  strictKakaoGroupMembershipRows, tryKakaoGroupFirstRecord, withKakaoGroupLifecycleLease,
 };
 // @build:exports-end

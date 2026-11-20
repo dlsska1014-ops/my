@@ -1,6 +1,6 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.132",
+  "version": "22.9.133",
   "private": true,
   "type": "module",
   "engines": {
@@ -28,6 +28,7 @@
     "validate:v229131-record-safety": "node validation/validate-v229131-record-safety.mjs",
     "validate:v229132-entry-progress": "node validation/validate-v229132-entry-progress.mjs",
     "validate:v229132-room-restart-guide": "node validation/validate-v229132-room-restart-guide.mjs",
+    "validate:v229133-room-restart": "node validation/validate-v229133-room-restart.mjs",
     "validate:v229128-web-check": "node validation/validate-v229128-web-check.mjs",
     "validate:v229127-room-buttons": "node validation/validate-v229127-room-buttons.mjs",
     "validate:v229126-kakao": "node validation/validate-v229126-kakao.mjs",
