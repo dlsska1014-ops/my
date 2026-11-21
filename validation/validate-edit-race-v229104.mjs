@@ -352,7 +352,8 @@ await scenario("J-9 카카오 수정 저장 직전 지출자 바뀜", () => kaka
   const stop = raceAfterRead(fx, "kx1", (select) => select.includes("source_user_key"), { user_id: "user-bin" });
   let r;
   try { r = await say(fx, "수정 01번 금액 13000", WIFI_KEY); } finally { stop(); }
-  ok(r.text.includes("다른 사람이 01번 기록을 먼저 바꿔서 수정하지 않았어요.") && r.text.includes("지출자가 바뀌어 이제 내 기록이 아니에요."), `J-9 카카오는 짧은 충돌 답을 보낸다: ${r.text.split("\n")[0]}`);
+  // V22.9.135 N-2: 구성원도 남의 기록을 고치므로 ‘이제 내 기록이 아니에요’ 대신 지출자가 바뀌었다는 것과 지금 기록을 보라는 말이다.
+  ok(r.text.includes("다른 사람이 01번 기록을 먼저 바꿔서 수정하지 않았어요.") && r.text.includes("그 사이 지출자가 바뀌었어요. ‘오늘 기록 보기’로 지금 기록을 확인해 주세요.") && !r.text.includes("내 기록이 아니"), `J-9 카카오는 짧은 충돌 답을 보낸다: ${r.text.split("\n")[0]}`);
   ok(noUrl(r.text), "J-9 충돌 답 글에 주소가 없다");
   eq([rowOf(fx, "kx1")?.amount, rowOf(fx, "kx1")?.user_id], [5000, "user-bin"], "J-9 이제 남의 기록이 된 행을 덮어쓰지 않는다");
   eq(updateAudits(fx, "kx1").length, 0, "J-9 저장하지 않았으니 수정 감사도 없다");

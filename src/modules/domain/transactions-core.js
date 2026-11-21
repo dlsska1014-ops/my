@@ -348,6 +348,8 @@ async function fetchDeleteAuditIdV22994(env, { transactionId = "", householdId =
 // 이 한 줄이 실패해도 수정은 이미 저장됐으므로 성공으로 답하고 운영 이벤트만 남긴다. 결과를 모르는 PATCH(응답 없음·5xx)는 supabase() 가 결과 불확실로
 // 던진다. 지출자 바꾸기는 부르는 곳이 같은 요청에서 받은 참여자 목록으로 먼저 확인한다(RPC 는 잠근 채 한 번 더 확인했다). 환불 연결 보호 트리거
 // (refund_link_guard_v22979, BEFORE UPDATE)는 PATCH 에도 그대로 걸린다.
+// V22.9.135 N-2: 구성원도 다른 사람의 기록을 고친다. 부르는 곳은 이제 requireUserId 에 ‘나’ 가 아니라 ‘읽은 기록의 지출자’ 를 준다(그사이 지출자가 바뀌지
+// 않았다는 조건 — 아래 V22.9.104 설명의 ‘구성원 본인 id’ 자리). 함수의 동작은 그대로다.
 // V22.9.104 J-9(Codex 검토 V102): 구성원은 자기 기록(지출자 = 나)만 고친다. 그런데 바꾸지 않는 칸은 조건에 걸지 않으므로, 구성원이 금액만 고치는 사이
 // 관리자가 그 기록의 지출자를 바꾸면 구성원의 저장이 이제 남의 기록이 된 행에 들어갔다. options.requireUserId(구성원 본인 id)를 주면 지출자 칸을
 // 바꾸지 않아도 PATCH 에 user_id=eq.<그 id> 조건을 함께 건다(같은 PATCH 의 조건 하나라 DB 요청은 늘지 않는다). 0행이면 다시 읽어 지출자가 다르면
@@ -389,7 +391,8 @@ async function updateTransactionIfUnchangedV22994(env, id, body, expected = {}, 
     return params;
   };
   const patchWhere = async (params) => {
-    // V22.9.104 J-9: 구성원 저장은 지출자 칸을 바꾸지 않아도 ‘지출자 = 나’ 조건을 건다(바꾸는 칸의 조건 뒤에 두어 같은 칸이면 이 값이 남는다).
+    // V22.9.104 J-9: 구성원 저장은 지출자 칸을 바꾸지 않아도 지출자 조건을 건다(바꾸는 칸의 조건 뒤에 두어 같은 칸이면 이 값이 남는다).
+    // V22.9.135 부터 그 값은 ‘나’ 가 아니라 부르는 곳이 읽은 기록의 지출자다(위 설명).
     if (requireUserId) params.set("user_id", `eq.${requireUserId}`);
     const updated = await supabase(env, `/rest/v1/transactions?${params.toString()}`, {
       method: "PATCH",

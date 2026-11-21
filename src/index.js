@@ -3352,7 +3352,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.134-ROOM-HINTS";
+const APP_VERSION = "V22.9.135-SHARED-EDIT";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3952,7 +3952,7 @@ function publicGuidePages(env = {}) {
     ], { type: "CollectionPage", primary: ["가상 예제로 시작하기", "/demo"], updated: "2026-10-21" }),
     "service-guide": page("기능별로 할 수 있는 일과 확인할 것", "말해가계부의 기록·예산·리포트·정산·파일 기능과 권한, 자동으로 처리하지 않는 범위를 확인하세요.", "기능과 사용 범위", "카카오톡은 짧은 기록과 조회에, 웹은 상세 수정과 비교에 사용하면 편리합니다. 아래 표에서 원하는 작업을 찾고 해당 가이드로 이동하세요.", [
       { title: "어디에서 무엇을 하나요?", table: { caption: "주요 기능과 사용 위치", headers: ["작업", "카카오톡", "웹"], rows: [["거래 기록", "내용과 금액을 한 문장으로 전송", "빠른 입력과 거래 수정"], ["예산", "예산 설정·남은 예산 조회", "분류별 예산과 적용 지출 확인"], ["생활비 점검", "오늘 기록·이번 달 요약", "주간·월간 리포트와 상세 분석"], ["공동 사용", "방별 기록·초대·연결", "참여자와 역할 관리·정산"], ["내역 이동", "웹 가계부 열기로 이동", "파일 미리보기·선택 저장·CSV 내보내기"]] }, links: [["카카오 명령 예시", "/kakao-guide"], ["생활비 리포트", "/report-guide"]] },
-      { title: "권한에 따라 할 수 있는 일이 달라집니다", table: { caption: "가계부 안에서의 역할", headers: ["역할", "가능한 작업", "주의할 점"], rows: [["소유자·관리자", "조회·기록·구성원 기록 관리·가계부 관리", "영구 삭제 등 일부 작업은 소유자와 본인 확인이 필요합니다."], ["구성원", "조회·기록·자신의 기록 수정과 삭제", "소유자가 구성원 권한을 ‘기록만’으로 정하면 새 기록만 남깁니다. 예산과 참여자 관리는 관리 권한이 필요합니다."], ["조회 전용", "조회·거래 CSV 다운로드", "새 기록이나 파일 가져오기는 할 수 없습니다."], ["승인 대기·이용 제한", "허용된 안내와 권한 확인", "초대코드를 반복 입력해도 제한이 해제되지 않습니다."]] } },
+      { title: "권한에 따라 할 수 있는 일이 달라집니다", table: { caption: "가계부 안에서의 역할", headers: ["역할", "가능한 작업", "주의할 점"], rows: [["소유자·관리자", "조회·기록·구성원 기록 관리·가계부 관리", "영구 삭제 등 일부 작업은 소유자와 본인 확인이 필요합니다."], ["구성원", "조회·기록·가계부 기록 수정과 삭제(다른 사람의 기록 포함)", "소유자가 구성원 권한을 ‘기록만’으로 정하면 새 기록만 남깁니다. 지출자 변경과 예산·참여자 관리는 관리 권한이 필요합니다."], ["조회 전용", "조회·거래 CSV 다운로드", "새 기록이나 파일 가져오기는 할 수 없습니다."], ["승인 대기·이용 제한", "허용된 안내와 권한 확인", "초대코드를 반복 입력해도 제한이 해제되지 않습니다."]] } },
       { title: "자동으로 처리하지 않는 작업", bullets: ["은행·카드사 계정에 로그인하여 결제 내역을 자동 수집하지 않습니다.", "단톡방 전체 대화를 읽지 않으며 봇에 전달된 요청을 처리합니다.", "정산 화면에서 제안한 금액을 실제로 송금하지 않습니다.", "CSV 거래 백업으로 계정·참여 권한·모든 설정을 통째로 복원하지 않습니다.", "영수증 사진 등록 기능은 현재 제공하지 않습니다."], links: [["파일 가져오기 범위", "/import-guide"], ["공동 정산 계산 사례", "/group-accountbook"]] },
       { title: "처리 결과는 어디에서 확인하나요?", paragraphs: ["카카오 저장 응답 뒤에는 ‘오늘 기록 보기’에서 날짜·금액·내용을 확인합니다. 웹에서는 선택한 가계부와 기간을 확인한 뒤 거래 목록을 봅니다. 저장 결과가 불명확하다는 안내를 받으면 같은 입력을 반복하지 말고 목록을 먼저 확인하세요.", "기능 사용 권한은 가계부 안에서의 역할에 따라 달라집니다."], links: [["첫 기록 안내", "/how-it-works"], ["문제가 있을 때", "/faq"]] },
     ]),
@@ -3984,7 +3984,7 @@ function publicGuidePages(env = {}) {
         ["3일 커피 4000 ⏎ 5일 택시 8000", "저장하지 않고 다시 물어요", "날짜가 다른 기록은 한 줄씩 따로 보내 주세요."],
       ] } },
       { title: "날짜와 금액을 분명하게 적기", paragraphs: ["‘어제’ 같은 날짜 표현을 쓸 수 있지만 다른 시점의 기록을 정리할 때는 날짜를 명확히 쓰는 편이 확인하기 쉽습니다. 카드 문자에서 누적 사용액과 이번 결제액을 혼동하지 마세요. 숫자만 보내기보다 ‘교통 4500원’처럼 내용을 함께 적습니다.", "입력 해석 결과가 의도와 다르면 새 거래를 다시 만들기 전에 저장된 기록을 수정합니다. 웹 빠른 입력의 숫자 칸과 카카오 자연어 문장의 입력 규칙은 같지 않을 수 있습니다."] },
-      { title: "잘못 저장한 기록 수정하기", steps: ["‘오늘 기록 보기’로 현재 거래 번호와 내용을 확인합니다.", "예를 들어 금액만 고치려면 ‘수정 01번 금액 13000원’처럼 보냅니다.", "수정 응답 뒤에 목록에서 결과를 확인합니다.", "이전 날짜의 기록이나 여러 항목을 함께 고칠 때는 웹에서 해당 거래를 찾아 수정합니다."], note: "01번은 예시입니다. 실제 목록에서 확인한 번호를 사용하세요. 구성원은 자신의 기록만 수정·삭제할 수 있습니다." },
+      { title: "잘못 저장한 기록 수정하기", steps: ["‘오늘 기록 보기’로 현재 거래 번호와 내용을 확인합니다.", "예를 들어 금액만 고치려면 ‘수정 01번 금액 13000원’처럼 보냅니다.", "수정 응답 뒤에 목록에서 결과를 확인합니다.", "이전 날짜의 기록이나 여러 항목을 함께 고칠 때는 웹에서 해당 거래를 찾아 수정합니다."], note: "01번은 예시입니다. 실제 목록에서 확인한 번호를 사용하세요. 번호는 그날 가계부 기록 전체의 순서라 누가 보내도 같은 기록을 가리키고, 구성원도 다른 사람의 기록을 수정·삭제할 수 있습니다(소유자가 ‘기록만’으로 정한 가계부는 제외)." },
       { title: "단톡방에서 호출할 때", paragraphs: ["단톡방에서는 봇을 선택하거나 멘션한 뒤 요청을 보냅니다. 같은 사람이 여러 방에서 사용해도 각 방의 연결 가계부가 기준입니다. 1:1에서 선택한 개인 가계부와 단톡방 가계부를 혼동하지 마세요.", "채팅 응답에 개인 계정의 웹 연결 코드를 요구하지 마세요. 개인 웹 연결은 1:1에서 ‘웹 가계부 열기’로 진행합니다."], links: [["방별 연결과 참여 방법", "/group-accountbook"]] },
       { title: "응답이 늦거나 저장 확인이 지연될 때", steps: ["같은 문장을 연속으로 보내지 않습니다.", "‘오늘 기록 보기’ 또는 웹 거래 목록에서 이미 저장되었는지 확인합니다.", "이미 있다면 다시 입력하지 않습니다. 없다면 오류 안내에 따라 다시 시도합니다.", "계속 실패하면 발생 시각과 오류 문구를 적어 문의합니다. 연결 코드와 거래 원문은 가립니다."], links: [["문의에 필요한 정보", "/contact"]] },
     ], { updated: KAKAO_GUIDE_COPY_REVISION_DATE }),
@@ -3999,7 +3999,7 @@ function publicGuidePages(env = {}) {
       { title: "새 방과 기존 가계부는 시작 방식이 다릅니다", table: { caption: "단톡방을 사용하는 두 가지 방법", headers: ["상황", "시작 방법", "기록이 저장될 곳"], rows: [["처음 사용하는 미연결 방", "봇을 호출(기록·조회·설명서 보기 모두)", "그 방에 새로 준비한 공동 가계부"], ["이미 사용하던 가계부를 연결", "가계부 소유자·관리자가 단톡방 연결 초대코드 입력", "초대코드에 해당하는 기존 가계부"], ["다른 가계부로 연결 변경", "현재 연결과 새 가계부의 관리 권한 확인", "새로 연결한 가계부, 이전 기록은 이동하지 않음"]] }, paragraphs: ["새 방에서는 봇을 불러 그 방 가계부를 처음 준비한 사람이 소유자가 되고, 소유자는 웹 ‘참여자·초대’에서 관리자·구성원에게 소유자를 넘길 수 있습니다. 새 방이든 기존 가계부를 연결한 방이든, 그 방에서 봇을 부르거나 거래를 보내는 사람은 기존 제한이 없으면 승인 없이 구성원으로 참여합니다. 조회나 설명서 보기로 불러도 참여하며, 봇을 부르지 않은 단톡방 대화로는 참여하지 않습니다. 삭제·연결 해제 이력이 있는 방은 자동으로 다시 만들지 않으며, 나갔거나 내보내진 구성원은 초대코드로 다시 참여를 요청하고 소유자·관리자의 승인을 받아야 합니다."] },
       { title: "가상 사례: 여행비 120,000원을 세 사람이 나누기", table: { caption: "세 사람 모두 같은 비용에 참여한 가상 사례, 단위 원", headers: ["참여자", "먼저 낸 돈", "각자 부담할 돈", "정산 후 받을 돈 또는 보낼 돈"], rows: [["가", "90,000", "40,000", "50,000 받음"], ["나", "30,000", "40,000", "10,000 보냄"], ["다", "0", "40,000", "40,000 보냄"]] }, paragraphs: ["합계는 90,000원 + 30,000원 = 120,000원입니다. 세 사람이 똑같이 부담하면 120,000 ÷ 3 = 40,000원입니다. 나가 가에게 10,000원, 다가 가에게 40,000원을 보내면 각자의 최종 부담이 40,000원이 됩니다."], note: "계산용 가상 사례입니다. 정산 제안은 자동 송금이 아니며, 실제 송금 여부와 완료 이력은 직접 확인해야 합니다." },
       { title: "모든 항목을 똑같이 나누지 않는다면", paragraphs: ["한 사람이 식사에 참여하지 않았거나 숙박비를 다른 비율로 나누기로 했다면 총액을 단순히 인원수로 나누면 안 됩니다. 웹 정산에서 동일 분배, 비율, 인원수 또는 품목별 참여자 방식을 고르고 합의한 조건과 맞는지 확인하세요.", "정산 전에 기간·가계부·참여자·결제자를 확인합니다. 표시 이름을 바꾸는 것은 카카오 닉네임을 바꾸거나 실제 결제자를 다른 사람으로 바꾸는 작업이 아닙니다."] },
-      { title: "함께 사용할 때 정해둘 원칙", bullets: ["개인 지출과 공동 지출을 어느 가계부에 남길지 먼저 정합니다.", "초대코드와 개인 웹 연결 코드를 구분하고 공개 게시물에 올리지 않습니다.", "구성원은 자신의 거래를 수정·삭제하며, 타인 기록과 예산 관리는 관리 권한이 필요합니다. 소유자는 구성원 권한을 ‘기록만’으로 바꿔 구성원이 새 기록만 남기게 할 수 있습니다.", "가계부 나가기는 공동 거래를 전부 지우는 작업이 아닙니다.", "CSV를 공유하면 파일을 받은 사람이 내용을 볼 수 있으므로 전달 범위를 확인합니다."], links: [["역할별 기능 표", "/service-guide"], ["데이터 보호 안내", "/security"]] },
+      { title: "함께 사용할 때 정해둘 원칙", bullets: ["개인 지출과 공동 지출을 어느 가계부에 남길지 먼저 정합니다.", "초대코드와 개인 웹 연결 코드를 구분하고 공개 게시물에 올리지 않습니다.", "구성원은 다른 사람의 거래도 수정·삭제할 수 있고, 지출자 변경과 예산 관리는 관리 권한이 필요합니다. 소유자는 구성원 권한을 ‘기록만’으로 바꿔 구성원이 새 기록만 남기게 할 수 있습니다.", "가계부 나가기는 공동 거래를 전부 지우는 작업이 아닙니다.", "CSV를 공유하면 파일을 받은 사람이 내용을 볼 수 있으므로 전달 범위를 확인합니다."], links: [["역할별 기능 표", "/service-guide"], ["데이터 보호 안내", "/security"]] },
       // V22.9.97 모임 정산(수익화 검토 3절 1번 — 반응만 본다, 가격·플랜 문구 없음): 모임 총무가 단톡방 하나로 회비·여행 경비·모임 지출을 적고
       // 정산하는 법. 문장의 사실(참여 조건·이번 달·8개·회비 수입·이름·지출자 바꾸기·나누는 방식·완료 이력)은 validate-v22997-demo 가 픽스처의
       // 실제 /skill 답과 웹 화면으로 대조한다.
@@ -4055,7 +4055,7 @@ function publicGuidePages(env = {}) {
       ["식비 50만원이라고 입력하면 어떻게 되나요?", "지출 기록으로 처리합니다. 예산을 설정하려면 ‘식비 예산 50만원’처럼 예산이라는 말을 함께 적으세요. 소유자·관리자만 예산을 설정할 수 있습니다."],
       ["전체 지출과 예산 사용액이 달라요.", "분류별 예산이 있으면 해당 분류의 지출만 예산에 비교합니다. 예산이 없는 분류는 예산 밖 지출입니다. 전체 예산과 분류별 예산을 더하지 않습니다."],
       ["저장 확인이 지연된다고 나와요.", "같은 문장을 다시 보내기 전에 오늘 기록이나 웹 거래 목록을 확인하세요. 저장은 되었지만 응답 확인이 늦을 수 있습니다. 오류 문구와 발생 시각을 보관하되 공개 문의에서는 거래와 코드를 가립니다."],
-      ["참여했는데 예산이나 다른 사람의 거래를 바꿀 수 없어요.", "구성원은 자신의 기록을 수정·삭제합니다. 다만 소유자가 구성원 권한을 ‘기록만’으로 정한 가계부에서는 새 기록만 남길 수 있습니다. 예산과 참여자 관리에는 소유자·관리자 권한이 필요합니다. 조회 전용이나 승인 대기 상태는 초대코드 재입력만으로 바뀌지 않습니다."],
+      ["참여했는데 예산이나 다른 사람의 거래를 바꿀 수 없어요.", "구성원은 다른 사람의 기록도 수정·삭제할 수 있습니다. 다만 소유자가 구성원 권한을 ‘기록만’으로 정한 가계부에서는 새 기록만 남길 수 있습니다. 지출자 변경과 예산·참여자 관리에는 소유자·관리자 권한이 필요합니다. 조회 전용이나 승인 대기 상태는 초대코드 재입력만으로 바뀌지 않습니다."],
       ["카드별 사용액이 카드사 실적과 달라요.", "말해가계부는 입력한 결제수단 기준으로 합산합니다. 실시간 카드사 데이터가 아니며 누락·취소·혜택 제외 항목이 다를 수 있습니다. 공식 명세서와 혜택 조건을 대조하세요."],
       ["CSV만 있으면 계정 전체를 복구할 수 있나요?", "일반 CSV 백업은 거래 목록입니다. 계정 로그인, 참여 권한, 예산과 모든 설정을 통째로 복원하지 않습니다. 가져오기 미리보기에서 행을 확인한 뒤 거래를 등록합니다."],
       ["광고가 나오나요? 운영 비용은 어떻게 마련하나요?", adsPolicyText(env, "faq") || "서비스 운영 비용은 후원으로 마련하며, 현재 공개 페이지에는 Google 광고를 실행하지 않습니다. 광고 기능을 도입할 때에는 관련 안내와 필요한 절차를 갖춘 뒤 운영합니다."],
@@ -4251,7 +4251,7 @@ function publicLivingCostArticles() {
       { title: "가상 사례: 소득 비율로 공동 생활비 모으기", paragraphs: ["두 사람의 실수령이 각각 3,200,000원과 2,400,000원인 가상 부부입니다. 두 사람은 공동 생활비 통장에 소득 비율대로 돈을 넣기로 했습니다. 소득 합계는 5,600,000원이고 한 달 공동 생활비 목표는 3,500,000원입니다.", "소득 비율은 3,200,000 대 2,400,000, 곧 4 대 3입니다. 공동 생활비 3,500,000원을 4 대 3으로 나누면 한 사람은 2,000,000원, 다른 사람은 1,500,000원을 넣습니다. 각자에게 남는 1,200,000원과 900,000원에서 용돈은 똑같이 400,000원으로 정하고 나머지는 각자 저축으로 두었습니다.", "소득 비율로 나누면 소득이 바뀔 때 다시 계산해야 합니다. 한 사람의 소득이 줄었는데 넣는 금액이 그대로면 그 사람에게 남는 돈만 빠르게 줄어듭니다. 비율은 1년에 한 번, 또는 소득이 바뀐 달에 다시 계산합니다."], table: { caption: "가상 부부의 한 달 배분, 단위 원", headers: ["구분", "사람 1", "사람 2", "합계"], rows: [["실수령", "3,200,000", "2,400,000", "5,600,000"], ["공동 생활비 통장에 넣는 돈", "2,000,000", "1,500,000", "3,500,000"], ["각자에게 남는 돈", "1,200,000", "900,000", "2,100,000"], ["그중 용돈", "400,000", "400,000", "800,000"], ["그중 각자 저축", "800,000", "500,000", "1,300,000"]] }, note: "용돈은 같게, 공동 생활비와 저축은 소득에 따라 다르게 정한 가상 예입니다. 용돈까지 소득 비율로 나누는 방법도 있으니 두 사람이 납득하는 쪽을 고르세요." },
       { title: "역할을 넘길 때의 인수인계", paragraphs: ["출장이나 출산, 이직처럼 한 사람이 한동안 가계부를 보기 어려운 때가 옵니다. 역할을 넘길 때 아래 네 가지만 적어 건네면 이어받는 사람이 처음부터 다시 파악하지 않아도 됩니다."], steps: ["이번 달 예산과 지금까지 쓴 금액, 남은 금액을 적습니다.", "이번 달 안에 나갈 정기 지출과 그 날짜를 적습니다.", "아직 기록하지 못한 지출이나 확인이 필요한 결제를 적습니다.", "진행 중인 정산이나 돌려받을 돈이 있다면 금액과 상대를 적습니다."], note: "인수인계 메모는 가계부 밖의 공유 메모에 두어도 됩니다. 중요한 것은 금액과 날짜가 빠지지 않는 것입니다." },
       { title: "함께 쓰는 가계부에서 자주 하는 실수", bullets: ["같은 지출을 두 사람이 각자 기록해 합계가 부풀려집니다. 결제한 사람이 기록한다는 규칙 하나로 막을 수 있습니다.", "한 사람이 모든 점검을 맡아 점검 시간이 지적하는 시간으로 바뀝니다.", "용돈의 세부 내역까지 함께 하는 점검에 올려 서로 불편해집니다.", "예산을 한 사람이 바꾸고 알리지 않아 상대는 이전 예산을 기준으로 씁니다.", "아이 관련 지출처럼 금액이 큰 분류를 누가 챙길지 정하지 않아 서로 상대가 챙긴다고 생각합니다.", "점검 시간을 따로 정하지 않고 생각날 때마다 숫자를 꺼내, 돈 이야기가 늘 갑작스럽게 시작됩니다."] },
-      { title: "말해가계부에서는", paragraphs: ["말해가계부의 공동 가계부는 소유자·관리자·구성원·조회 전용으로 역할을 나눠 쓸 수 있습니다. 구성원은 조회와 기록, 자신의 기록 수정과 삭제를 할 수 있고, 예산과 참여자 관리는 소유자와 관리자가 맡습니다. 기록에 지출자를 지정해 두면 누가 결제했는지 구분할 수 있고, 개인 가계부와 공동 가계부를 따로 두면 용돈과 공동 생활비를 섞지 않고 기록할 수 있습니다."] },
+      { title: "말해가계부에서는", paragraphs: ["말해가계부의 공동 가계부는 소유자·관리자·구성원·조회 전용으로 역할을 나눠 쓸 수 있습니다. 구성원은 조회와 기록, 다른 사람의 기록을 포함한 수정과 삭제를 할 수 있고, 지출자 변경과 예산·참여자 관리는 소유자와 관리자가 맡습니다. 기록에 지출자를 지정해 두면 누가 결제했는지 구분할 수 있고, 개인 가계부와 공동 가계부를 따로 두면 용돈과 공동 생활비를 섞지 않고 기록할 수 있습니다."] },
       { title: "다음에 읽을 글", links: [["공동 생활비를 나누는 네 가지 방식", "/shared-living-cost-rules"], ["가계부 안의 역할별 권한 표", "/service-guide"], ["단톡방에서 공동 가계부 시작하기", "/group-accountbook"]] },
     ]),
     "cash-flow-table": article("한 장짜리 우리 집 현금흐름표 만들기", "한 달 동안 들어온 돈과 나간 돈을 고정·변동·비정기·저축으로 나눠 한 장에 정리하는 방법과, 남는 돈과 모자란 달을 읽고 석 달 치를 이어 보는 방법을 가상 가계로 설명합니다.", "생활비 가이드 · 현금흐름", "가계부가 하루하루의 기록이라면 현금흐름표는 한 달을 한 장에 줄인 요약입니다. 들어온 돈이 어디로 나뉘어 나갔는지 한눈에 보이면 남는 돈이 왜 달마다 다른지 설명할 수 있습니다. 표 계산 프로그램이나 종이 한 장이면 충분합니다.", [
@@ -14752,8 +14752,9 @@ async function resolveTransactionAccess(request, env, householdId, { manageOnly 
 // 코드만 안내로 바꾸는 홈·정기 화면이 ‘입력값을 확인한 뒤 다시 시도해 주세요’로 닫았다 — 조회 전용·이용 제한이 입력 오류처럼 보였다.
 //   - 역할 조회 실패(lookupCode)는 그대로 돌려준다.
 //   - 새 기록 입력(row 를 넘기지 않음): 조회 전용·승인 대기·이용 제한·참여자 아님을 역할별 코드로 말한다.
-//   - 기존 기록을 가리키는 요청(수정·삭제): 그 기록이 요청이 말한 가계부(householdId)의 것일 때만 역할별로 말하고, 기록이 없거나 다른 가계부의 것이거나 남의 기록이면
-//     모두 같은 not_my_record 다. 기록 id 가 어느 가계부에 있는지(또는 없는지)가 거절 문구 차이로 새지 않게 한다 — 예전 문장도 모든 경우에 같았다.
+//   - 기존 기록을 가리키는 요청(수정·삭제): 그 기록이 요청이 말한 가계부(householdId)의 것일 때만 역할별로 말하고, 기록이 없거나 다른 가계부의 것이면
+//     모두 같은 not_my_record 다(V22.9.135 부터 같은 가계부의 다른 사람 기록은 거절 이유가 아니다 — 구성원도 고친다). 기록 id 가 어느 가계부에 있는지(또는 없는지)가
+//     거절 문구 차이로 새지 않게 한다 — 예전 문장도 모든 경우에 같았다.
 function transactionDenialCode(access = {}, { row, householdId = "" } = {}) {
   if (access.lookupCode) return access.lookupCode;
   const role = String(access.role || "").toLowerCase();
@@ -14916,19 +14917,21 @@ async function handleAdminDeleteTransaction(request, env) {
   const rowHousehold = String(targetRow?.household_id || householdId || "");
   const access = await resolveTransactionAccess(request, env, rowHousehold);
   const isManager = access.admin || ["owner", "admin"].includes(access.role);
-  const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
+  // V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 구성원도 이 기록의 가계부에서 쓰기 권한이 있으면 다른 사람의 기록을 고치고 지운다(canManageMyRecord —
+  // 예전에는 지출자 = 나인 기록만). access 는 이 기록의 가계부에서 본 역할이다. ‘기록만’ 정책은 아래에서 따로 막는다.
+  const recordAllowed = !!targetRow && !!access.userId && canManageMyRecord(access.role, targetRow, access.userId);
   if (wantsJson) {
     if (!access.admin && !access.userId) return jsonResponse({ ok: false, error: "unauthorized", message: "로그인이 만료되었습니다. 다시 로그인해 주세요." }, 401);
     if (access.lookupFailed) return jsonResponse({ ok: false, error: "role_check_failed", message: access.lookupMessage }, 503);
     if (!access.ok) return jsonResponse({ ok: false, error: "forbidden", message: "이 기록을 삭제할 권한이 없습니다." }, 403);
     if (!targetRow || rowHousehold !== householdId) return jsonResponse({ ok: false, error: "record_not_found", message: "이 가계부에서 기록을 찾지 못했습니다." }, 404);
-    if (!isManager && !ownRow) return jsonResponse({ ok: false, error: "forbidden", message: "이 기록을 삭제할 권한이 없습니다." }, 403);
+    if (!isManager && !recordAllowed) return jsonResponse({ ok: false, error: "forbidden", message: "이 기록을 삭제할 권한이 없습니다." }, 403);
   }
-  if (!access.ok || !targetRow || (!isManager && !ownRow)) {
+  if (!access.ok || !targetRow || (!isManager && !recordAllowed)) {
     if (!access.admin && access.userId) { const denied = transactionDenialCode(access, { row: targetRow, householdId }); return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), { err: denied })); }
     return redirectResponse(signedOutWriteRedirect(form));
   }
-  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 지우지 못한다(소유자·관리자는 그대로).
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 누구의 기록이든(자기 기록이어도) 지우지 못한다(소유자·관리자는 그대로).
   if (!isManager) {
     const policyError = await memberRecordChangeError(env, access.role, rowHousehold);
     if (policyError) return wantsJson ? jsonResponse({ ok: false, error: "record_policy_denied", message: memberRecordChangeMessage(policyError) }, 403) : redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: policyError }), { err: policyError }));
@@ -14990,12 +14993,14 @@ async function handleTransactionEditPage(request, env, url) {
   const rowHousehold = String(targetRow?.household_id || "");
   const access = await resolveTransactionAccess(request, env, rowHousehold);
   const isManager = access.admin || ["owner", "admin"].includes(access.role);
-  const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
+  // V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 구성원도 이 기록의 가계부에서 쓰기 권한이 있으면 다른 사람의 기록을 고치고 지운다(canManageMyRecord —
+  // 예전에는 지출자 = 나인 기록만). access 는 이 기록의 가계부에서 본 역할이다. ‘기록만’ 정책은 아래에서 따로 막는다.
+  const recordAllowed = !!targetRow && !!access.userId && canManageMyRecord(access.role, targetRow, access.userId);
   const month = validMonth(String(targetRow?.transaction_date || "").slice(0, 7)) || currentMonthKst();
   const fallbackPath = `/app?month=${encodeURIComponent(month)}${rowHousehold ? `&household_id=${encodeURIComponent(rowHousehold)}` : ""}`;
   const backTo = safeUserReturnPath(url.searchParams.get("return_to") || "", fallbackPath);
 
-  if (!access.ok || !targetRow || (!isManager && !ownRow)) {
+  if (!access.ok || !targetRow || (!isManager && !recordAllowed)) {
     const denied = access.lookupMessage || "이 기록을 수정할 권한이 없습니다.";
     if (wantsFragment) {
       // 조각 요청에는 리다이렉트가 쓸모없다. 슬롯에 그대로 넣을 수 있는 문장을 준다.
@@ -15012,7 +15017,7 @@ async function handleTransactionEditPage(request, env, url) {
     }
     return redirectResponse(`/my?return_to=${encodeURIComponent(backTo)}`);
   }
-  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 수정 폼을 주지 않는다(소유자·관리자는 그대로).
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 누구의 기록이든(자기 기록이어도) 수정 폼을 주지 않는다(소유자·관리자는 그대로).
   if (!isManager) {
     const policyError = await memberRecordChangeError(env, access.role, rowHousehold);
     if (policyError) {
@@ -15063,12 +15068,14 @@ async function handleAdminUpdateTransaction(request, env) {
   const rowHousehold = String(targetRow?.household_id || householdId || "");
   const access = await resolveTransactionAccess(request, env, rowHousehold);
   const isManager = access.admin || ["owner", "admin"].includes(access.role);
-  const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
-  if (!access.ok || !targetRow || (!isManager && !ownRow)) {
+  // V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 구성원도 이 기록의 가계부에서 쓰기 권한이 있으면 다른 사람의 기록을 고치고 지운다(canManageMyRecord —
+  // 예전에는 지출자 = 나인 기록만). access 는 이 기록의 가계부에서 본 역할이다. ‘기록만’ 정책은 아래에서 따로 막는다.
+  const recordAllowed = !!targetRow && !!access.userId && canManageMyRecord(access.role, targetRow, access.userId);
+  if (!access.ok || !targetRow || (!isManager && !recordAllowed)) {
     if (!access.admin && access.userId) { const denied = transactionDenialCode(access, { row: targetRow, householdId }); return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), { err: denied })); }
     return redirectResponse(signedOutWriteRedirect(form));
   }
-  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치지 못한다(소유자·관리자는 그대로).
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 누구의 기록이든(자기 기록이어도) 고치지 못한다(소유자·관리자는 그대로).
   if (!isManager) {
     const policyError = await memberRecordChangeError(env, access.role, rowHousehold);
     if (policyError) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: policyError }), { err: policyError }));
@@ -15115,11 +15122,13 @@ async function handleAdminUpdateTransaction(request, env) {
     // 저장(updateTransactionIfUnchangedV22994)이다. 0행이면 지금 값으로 다시 계획한다: 같은 칸이 다르게 바뀌었으면 충돌 화면(409), 다른 칸만 바뀌었거나
     // 같은 값이 됐으면 내 칸만 다시 저장한다(세 번까지, 그래도 엇갈리면 edit_conflict). 기준 값은 폼의 orig_* 이고, 없는 칸은 처음 읽은 값이다.
     const baseline = { ...Object.fromEntries(AB_EDIT_FIELDS.map((key) => [key, String(current[key] ?? "")])), ...(original || {}) };
-    // V22.9.104 J-9(Codex 검토 V102): 구성원(소유자·관리자 아님)은 자기 기록만 고친다. 권한은 맨 위 첫 읽기(targetRow)로 봤고 구성원은 지출자 칸을 바꾸지
+    // V22.9.104 J-9(Codex 검토 V102): 구성원(소유자·관리자 아님)은 자기 기록만 고친다(V22.9.134 까지 — 아래 V22.9.135 줄). 권한은 맨 위 첫 읽기(targetRow)로 봤고 구성원은 지출자 칸을 바꾸지
     // 않으므로, 그 뒤 이 읽기까지 또는 아래 저장 전에 관리자가 지출자를 바꾸면 구성원의 금액·메모가 이제 남의 기록이 된 행에 들어갔다. 이 읽기로 다시 보고,
     // 저장에도 ‘지출자 = 나’ 조건을 건다(requireUserId — 같은 PATCH 의 조건이라 요청 수는 그대로). 바뀌었으면 저장하지 않고, 수정 폼 대신 입력한 값을 글로
     // 남긴 안내(409)를 보인다(이제 남의 기록이라 다시 고칠 폼을 주지 않는다).
-    const requireUserId = isManager ? "" : String(access.userId || "");
+    // V22.9.135 N-2: 구성원도 다른 사람의 기록을 고치므로 조건은 ‘지출자 = 나’ 가 아니라 ‘지출자 = 맨 위에서 읽은 사람’ 이다(그사이 지출자가 바뀌었으면
+    // 예전처럼 저장하지 않고 409 안내 — 다른 사람의 기록이 늘 거절되지 않게 한다). 소유자·관리자는 그대로 조건이 없다.
+    const requireUserId = isManager ? "" : String(targetRow.user_id || "");
     const spenderChanged = (row) => {
       rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/admin/update", method: "POST", detail: "spender_changed" });
       const backTo = safeUserReturnPath(String(form.get("return_to") || ""), `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(rowHousehold)}`);
@@ -15187,14 +15196,15 @@ function abEditTypedChangesV229104(submitted = {}, baseline = {}) {
     .map((field) => ({ field, label: AB_EDIT_LABELS[field], next: abEditValue(field, submitted[field]) }));
 }
 
-// V22.9.104 J-9: 저장 전에 지출자가 바뀐 기록(이제 남의 기록)의 안내. 수정 폼은 주지 않고(고칠 권한이 없다), 입력한 값은 잃지 않게 글로 보인다.
+// V22.9.104 J-9: 저장 전에 지출자가 바뀐 기록의 안내. 수정 폼은 주지 않고(지금 기록을 새로고침해 다시 보고 고치게), 입력한 값은 잃지 않게 글로 보인다.
+// (V22.9.135 부터 구성원도 같은 가계부의 남의 기록을 고치므로 이 안내는 ‘이제 남의 기록’ 이 아니라 ‘그 사이 지출자가 바뀜’ 일 때다.)
 function renderTransactionSpenderChangedHtmlV229104(env, row = {}, typed = [], backTo = "/app") {
   const shown = (c) => c.field === "amount" ? `${numberWithCommas(c.next)}원` : c.field === "type" ? (c.next === "income" ? "수입" : "지출") : (c.next || "(비어 있음)");
   const person = row?.type === "income" ? "수입자" : "지출자";
   const kept = typed.length
     ? `<p>내가 입력한 값은 저장하지 않았어요. 필요하면 아래 값을 옮겨 적어 주세요.</p><ul>${typed.map((c) => `<li><b>${escapeHtml(c.label)}</b> ${escapeHtml(shown(c))}</li>`).join("")}</ul>`
     : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>기록 수정 · ${escapeHtml(appName(env))}</title></head><body><main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><div class="error" role="alert" data-ab-edit-conflict="spender_changed"><b>다른 사람이 이 기록을 먼저 바꿨어요.</b> 새로고침한 뒤 다시 확인해 주세요.<p>그 사이 이 기록의 ${person}가 바뀌어 이제 내 기록이 아니라서 저장하지 않았어요.</p>${kept}</div></section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>기록 수정 · ${escapeHtml(appName(env))}</title></head><body><main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><div class="error" role="alert" data-ab-edit-conflict="spender_changed"><b>다른 사람이 이 기록을 먼저 바꿨어요.</b> 새로고침한 뒤 다시 확인해 주세요.<p>그 사이 이 기록의 ${person}가 바뀌어 저장하지 않았어요.</p>${kept}</div></section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`;
 }
 
 function abEditOriginalFields(t = {}) {
@@ -22973,7 +22983,7 @@ async function handleHouseholdFlowGuidePage(request, env, url) {
     ["여행 가계부", "여행 기간의 지출을 모아보고 참여자별로 확인합니다."],
     ["단발성 정산", "한 번 쓰고 보관하거나 읽기 전용으로 남길 수 있는 장부 흐름입니다."],
   ].map(([a,b]) => betaInfoCard(a,b,"/my/households","전환·추가")).join("");
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 여러 가계부</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1040px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0e7490));color:#fff}.hero p{color:#fff;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.betaCard{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px}.betaCard p{color:#64748b}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left}.note{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}</style></head><body><main class="wrap"><section class="hero"><h1>여러 가계부 운영 흐름</h1><p>가족 장부와 모임/여행/단발성 장부를 분리하되, 모든 화면은 내가 참여한 household 범위만 보여야 합니다.</p><p><a class="btn" href="/my/households">가계부 전환·추가</a><a class="btn" href="/beta-start">베타 시작</a></p></section><section class="grid">${cards}</section><section class="card"><h2>내가 참여한 가계부</h2><table><thead><tr><th>가계부</th><th>권한</th><th>진입</th></tr></thead><tbody>${items}</tbody></table></section><section class="card"><h2>운영 기준</h2><div class="note">초대코드를 받은 사용자는 참여 후 권한에 따라 입력/수정/삭제 범위가 달라집니다. 조회전용은 조회만, 구성원은 자기 기록 중심, 소유자·관리자는 전체 관리가 기본입니다.</div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${title} · 여러 가계부</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1040px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0e7490));color:#fff}.hero p{color:#fff;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}.betaCard{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:16px}.betaCard p{color:#64748b}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}table{width:100%;border-collapse:collapse}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left}.note{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}</style></head><body><main class="wrap"><section class="hero"><h1>여러 가계부 운영 흐름</h1><p>가족 장부와 모임/여행/단발성 장부를 분리하되, 모든 화면은 내가 참여한 household 범위만 보여야 합니다.</p><p><a class="btn" href="/my/households">가계부 전환·추가</a><a class="btn" href="/beta-start">베타 시작</a></p></section><section class="grid">${cards}</section><section class="card"><h2>내가 참여한 가계부</h2><table><thead><tr><th>가계부</th><th>권한</th><th>진입</th></tr></thead><tbody>${items}</tbody></table></section><section class="card"><h2>운영 기준</h2><div class="note">초대코드를 받은 사용자는 참여 후 권한에 따라 입력/수정/삭제 범위가 달라집니다. 조회전용은 조회만, 구성원은 기록과 수정·삭제(다른 사람의 기록 포함 — 소유자가 ‘기록만’으로 정하면 기록만), 소유자·관리자는 전체 관리가 기본입니다.</div></section></main></body></html>`);
 }
 
 async function handleBackupSafetyGuidePage(request, env, url) {
@@ -23155,7 +23165,7 @@ async function handleBetaChecklistPage(request, env, url) {
     ["카카오 심사", "하단 사업자 푸터, 개인정보/이용안내, Skill URL 확인"],
     ["계정", "카카오 로그인 실패 시 백업 로그인 안내 확인"],
     ["가계부", "새 가계부 만들기, 초대코드 참여, 전환 흐름 확인"],
-    ["권한", "viewer 저장 차단, member 자기 기록 중심 수정, owner/admin 관리 확인"],
+    ["권한", "viewer 저장 차단, member 가계부 기록 수정·삭제(기록만 정책이면 막힘), owner/admin 관리 확인"],
     ["입력", "한 줄/여러 줄/날짜별 입력, 중복 저장 방어 확인"],
     ["예산", "오늘 예산, 남은 예산, 월말 예상, 정기지출 예정 확인"],
     ["모임", "여행/모임 가계부 생성, 정산 요약, 공유 문구 확인"],
@@ -25370,7 +25380,7 @@ async function handleHouseholdCreateJoinGuidePage(request, env, url) {
     return `<tr><td>${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "가계부")}</td><td>${escapeHtml(userHouseholdRoleLabel(h.role || "member"))}</td><td>${escapeHtml(invite)}</td><td>${action}</td></tr>`;
   }).join("") || `<tr><td colspan="4">로그인 후 /my/households에서 새 가계부를 만들거나 초대코드로 참여할 수 있습니다.</td></tr>`;
   const login = userId ? `<a class="btn" href="/my/households">내 가계부 전환·추가</a>` : `<a class="btn" href="/my">로그인하고 시작</a>`;
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 생성·참여 가이드</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1040px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#ccfbf1;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.step{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:16px}.step p{color:#64748b;line-height:1.55}.btn,.step a,td a{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.soft{background:#eef2f7!important;color:#111827!important}.tableWrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:720px}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left}.note{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body><main class="wrap"><section class="hero"><h1>가계부 생성·참여 흐름</h1><p>한 사용자가 여러 가계부를 만들거나 참여할 수 있습니다. 우리집 장부, 여행 장부, 모임비 장부를 나눠도 모든 조회는 내가 참여한 가계부 범위 안에서만 열립니다.</p><p>${login}<a class="btn soft" href="/households">참여자 관리</a></p></section><section class="grid"><div class="step"><h2>1. 새 가계부 만들기</h2><p>/my/households에서 이름을 입력하면 owner 권한의 새 가계부가 만들어집니다.</p><a href="/my/households">만들기</a></div><div class="step"><h2>2. 초대코드 공유</h2><p>선택 가계부의 “가계부 참여 코드” 문구를 가족/모임원에게 보냅니다.</p><a href="/my/households">초대코드 확인</a></div><div class="step"><h2>3. 다른 가계부 참여</h2><p>받은 초대코드를 /my/households 또는 /my 첫 화면에 입력해 참여합니다.</p><a href="/my/households">참여하기</a></div><div class="step"><h2>4. 권한 정리</h2><p>owner/admin은 참여자 화면에서 member/viewer/pending/blocked를 조정합니다.</p><a href="/households">권한 관리</a></div></section><section class="card"><h2>내 참여 가계부</h2><div class="tableWrap"><table><thead><tr><th>가계부</th><th>권한</th><th>초대 문구</th><th>진입</th></tr></thead><tbody>${rows}</tbody></table></div></section><section class="card"><h2>운영 원칙</h2><div class="note">새 가계부 생성과 초대코드 참여는 /my/create, /my/join 기존 안전 흐름을 사용합니다. viewer는 입력/수정/삭제가 제한되고, member는 자기 기록 중심, owner/admin은 전체 관리 기준을 유지합니다.</div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 생성·참여 가이드</title><style>body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1040px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:24px;padding:20px;margin:14px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#ccfbf1;line-height:1.65}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.step{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:16px}.step p{color:#64748b;line-height:1.55}.btn,.step a,td a{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px;margin:3px}.soft{background:#eef2f7!important;color:#111827!important}.tableWrap{overflow:auto}table{width:100%;border-collapse:collapse;min-width:720px}td,th{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left}.note{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body><main class="wrap"><section class="hero"><h1>가계부 생성·참여 흐름</h1><p>한 사용자가 여러 가계부를 만들거나 참여할 수 있습니다. 우리집 장부, 여행 장부, 모임비 장부를 나눠도 모든 조회는 내가 참여한 가계부 범위 안에서만 열립니다.</p><p>${login}<a class="btn soft" href="/households">참여자 관리</a></p></section><section class="grid"><div class="step"><h2>1. 새 가계부 만들기</h2><p>/my/households에서 이름을 입력하면 owner 권한의 새 가계부가 만들어집니다.</p><a href="/my/households">만들기</a></div><div class="step"><h2>2. 초대코드 공유</h2><p>선택 가계부의 “가계부 참여 코드” 문구를 가족/모임원에게 보냅니다.</p><a href="/my/households">초대코드 확인</a></div><div class="step"><h2>3. 다른 가계부 참여</h2><p>받은 초대코드를 /my/households 또는 /my 첫 화면에 입력해 참여합니다.</p><a href="/my/households">참여하기</a></div><div class="step"><h2>4. 권한 정리</h2><p>owner/admin은 참여자 화면에서 member/viewer/pending/blocked를 조정합니다.</p><a href="/households">권한 관리</a></div></section><section class="card"><h2>내 참여 가계부</h2><div class="tableWrap"><table><thead><tr><th>가계부</th><th>권한</th><th>초대 문구</th><th>진입</th></tr></thead><tbody>${rows}</tbody></table></div></section><section class="card"><h2>운영 원칙</h2><div class="note">새 가계부 생성과 초대코드 참여는 /my/create, /my/join 기존 안전 흐름을 사용합니다. viewer는 입력/수정/삭제가 제한되고, member는 가계부 기록 수정·삭제(‘기록만’ 정책이면 기록만), owner/admin은 전체 관리 기준을 유지합니다.</div></section></main></body></html>`);
 }
 
 async function handleMeetingHouseholdTemplatePage(request, env, url) {
@@ -36533,14 +36543,17 @@ function myAccessStatusResponse(args = {}, status = 403) {
   return htmlResponse(renderMyAccessStatusHtml(args), status);
 }
 
+// V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 구성원도 이 가계부의 기록이면 누가 남겼든 고치고 지운다(채팅과 같은 규칙 — 예전에는 지출자 = 나인
+// 기록만). 부르는 곳은 기록을 이 가계부(선택한 가계부)에서 찾은 뒤에 묻는다. 구성원 권한이 ‘기록만’ 이면 따로 막는다(memberRecordChangeError).
+// 지출자(수입자) 칸을 바꾸는 것은 그대로 소유자·관리자만이다. row·userId 는 받기만 한다(부르는 곳의 꼴을 그대로 두려고).
 function canManageMyRecord(role = "", row = {}, userId = "") {
   const r = String(role || "").toLowerCase();
   if (["owner", "admin"].includes(r)) return true;
-  return canWriteMyHousehold(r) && String(row.user_id || "") === String(userId || "");
+  return canWriteMyHousehold(r);
 }
 
-// V22.9.43: 소유자가 가계부마다 정하는 구성원 권한. 값이 없으면 기록·수정(구성원이 자기 기록을 고치고 지운다,
-// V22.9.42까지와 같다)이다. 기록만이면 구성원은 새 기록만 더하고, 수정·삭제·복구와 공동 설정 변경은 소유자·관리자가 한다.
+// V22.9.43: 소유자가 가계부마다 정하는 구성원 권한. 값이 없으면 기록·수정(구성원이 기록을 고치고 지운다 — V22.9.135 부터는 다른 사람의 기록도)이다.
+// 기록만이면 구성원은 새 기록만 더하고, 수정·삭제·복구와 공동 설정 변경은 소유자·관리자가 한다.
 // DB 역할 값(household_members.role)은 바꾸지 않는다. 역할 제약(V22.8.46) 밖의 새 역할을 만들지 않기 위해서다.
 const MEMBER_POLICY_RECORD_ONLY = "record_only";
 const MEMBER_POLICY_RECORD_EDIT = "record_edit";
@@ -36567,7 +36580,7 @@ async function fetchHouseholdMemberPolicy(env, householdId = "") {
   return mode;
 }
 
-// 기록을 고치고 지우는 권한(자기 기록 기준은 canManageMyRecord 가 따로 본다). 소유자·관리자는 정책과 무관하고,
+// 기록을 고치고 지우는 권한(역할 기준은 canManageMyRecord 가 따로 본다). 소유자·관리자는 정책과 무관하고,
 // 조회 전용·승인 대기·이용 제한은 원래부터 막혀 있다. 구성원만 정책을 한 번 읽는다.
 async function canChangeMyHouseholdRecords(env, role = "", householdId = "") {
   const r = String(role || "").toLowerCase();
@@ -36594,7 +36607,7 @@ function memberPolicyLabel(mode = "") {
 function memberPolicyDescription(mode = "") {
   return mode === MEMBER_POLICY_RECORD_ONLY
     ? "구성원은 새 기록만 남기고, 수정·삭제는 소유자·관리자가 해요."
-    : "구성원은 기록하고, 자기가 쓴 기록을 고치거나 지울 수 있어요.";
+    : "구성원은 기록하고, 다른 사람의 기록도 고치거나 지울 수 있어요.";
 }
 
 function memberRecordChangeMessage(code = "") {
@@ -36638,7 +36651,7 @@ function memberRecordOnlyRefusalText(householdName = "") {
 function memberPolicyJoinLine(mode = "") {
   return mode === MEMBER_POLICY_RECORD_ONLY
     ? "내 권한: 기록만 (수정·삭제는 소유자·관리자가 해요)"
-    : "내 권한: 기록·수정 (내가 쓴 기록은 고치고 지울 수 있어요)";
+    : "내 권한: 기록·수정 (이 가계부의 기록을 고치고 지울 수 있어요)";
 }
 
 // V22.9.63 감사(웹 2): 라우터가 기억 쿠키(ab_hh)로 채운 household_id 는 사용자가 직접 적은 것이 아니다(config-readiness.js).
@@ -36885,7 +36898,7 @@ async function handleMyUpdateTransaction(request, env) {
   const row = await getTransactionForUserEdit(env, id, selected.id);
   if (!row) return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
   if (!canManageMyRecord(selected.role, row, userId)) return redirectResponse(myReturnLocation(month, selected.id, { err: "not_my_record" }));
-  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치거나 지우지 못한다.
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 누구의 기록이든(자기 기록이어도) 고치거나 지우지 못한다.
   const policyError = await memberRecordChangeError(env, selected.role, selected.id);
   if (policyError) return redirectResponse(myReturnLocation(month, selected.id, { err: policyError }));
   const transactionDate = String(form.get("transaction_date") || row.transaction_date || formatDate(nowKstDate())).trim();
@@ -36911,7 +36924,8 @@ async function handleMyUpdateTransaction(request, env) {
     // 이 경로의 폼에는 원래 값(orig_*)이 없어, 읽기 전에 이미 바뀐 기록(옛 화면에서 보낸 값)은 가려내지 못한다 — 화면의 수정 폼은 /admin/update 를 쓴다.
     // V22.9.104 J-9: 구성원 저장에는 ‘지출자 = 나’ 조건도 건다(requireUserId, 같은 PATCH). 읽은 뒤 관리자가 지출자를 바꿨으면 저장하지 않고
     // record_edit_conflict 로 알린다. 소유자·관리자는 예전 그대로다.
-    const requireUserId = canManageAllRecords(selected.role) ? "" : userId;
+    // V22.9.135 N-2: 구성원도 다른 사람의 기록을 고치므로 조건은 ‘지출자 = 위에서 읽은 사람’ 이다(그사이 지출자가 바뀌었으면 예전처럼 record_edit_conflict).
+    const requireUserId = canManageAllRecords(selected.role) ? "" : String(row.user_id || "");
     const outcome = await updateTransactionIfUnchangedV22994(env, id, patch, row, { householdId: selected.id, actorUserId: userId, actorKind: "user", path: "/my/update", requireUserId });
     if (outcome.status === "missing") return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
     if (outcome.status === "spender_changed") {
@@ -36952,7 +36966,7 @@ async function handleMyDeleteTransaction(request, env) {
   const row = await getTransactionForUserEdit(env, id, selected.id);
   if (!row) return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
   if (!canManageMyRecord(selected.role, row, userId)) return redirectResponse(myReturnLocation(month, selected.id, { err: "not_my_record" }));
-  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치거나 지우지 못한다.
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 누구의 기록이든(자기 기록이어도) 고치거나 지우지 못한다.
   const policyError = await memberRecordChangeError(env, selected.role, selected.id);
   if (policyError) return redirectResponse(myReturnLocation(month, selected.id, { err: policyError }));
   try {
@@ -37263,7 +37277,7 @@ async function handleMyHouseholdsPageLegacyV2264(request, env, url) {
     return `<article class="hhCard ${active ? "active" : ""}"${active ? ' style="background:#f0fdfa!important;border-color:#0f766e!important;box-shadow:inset 0 0 0 2px #0f766e!important"' : ""}><div><b>${escapeHtml(h.name || "가계부")}</b><span>${escapeHtml(userHouseholdRoleLabel(h.role || "member"))} · ${escapeHtml(formatDateKorean(h.joined_at || h.created_at || ""))}</span></div><div class="hhActions">${actions}</div><p class="inviteText">${escapeHtml(invite)}</p></article>`;
   }).join("") || `<div class="empty">아직 참여 중인 가계부가 없습니다. 아래에서 새로 만들거나 초대코드로 참여하세요.</div>`;
   const selectedInvite = canManageMyHousehold(selected?.role) && selected?.invite_code ? `가계부 참여 ${selected.invite_code}` : selected?.role === "pending" ? "참여 승인 대기 중입니다. 관리자가 승인하면 이용할 수 있습니다." : selected?.role === "blocked" ? "이용이 제한된 가계부입니다. 관리자에게 권한을 확인해 주세요." : "초대 문구는 소유자·관리자만 확인할 수 있습니다.";
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 전환·추가</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1080px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:20px;margin:12px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.list{display:grid;gap:10px}.hhCard{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px;display:grid;gap:9px}.hhCard.active{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.12);background:#f0fdfa}.hhCard b{font-size:18px}.hhCard span,.muted,.inviteText{display:block;color:#64748b;line-height:1.45;font-size:13px}.hhActions{display:flex;gap:8px;flex-wrap:wrap}.hhActions a,.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px}.hhActions a.soft,.soft{background:#eef2f7!important;color:#111827!important}.field{display:grid;gap:7px;margin:10px 0}.field label{font-size:12px;color:#475569;font-weight:1000}.field input{height:46px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;font:inherit;background:#fff}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;line-height:1.55}.ok{background:#ecfdf5;border:1px solid #86efac;color:#166534;border-radius:14px;padding:10px;margin:10px 0}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:14px;padding:10px;margin:10px 0}.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:18px;padding:16px;color:#64748b}@media(max-width:760px){.wrap{padding:12px 10px 96px}.hero{border-radius:22px}.grid{grid-template-columns:1fr}.hero h1{font-size:24px}.field input,button,.btn{width:100%;font-size:16px;min-height:46px}}</style></head><body>${renderUnifiedNav("my-households", { month, householdId: selected?.id || "", householdName: householdChoiceLabelV229118(selected, households) || selected?.name || "", role: String(selected?.role || "") })}<main class="wrap"><section class="hero"><h1>가계부 전환·추가</h1><p>우리집, 모임, 여행, 단발성 정산 가계부를 분리해서 운영합니다. 이 화면에서는 내가 참여한 가계부만 보이고, 새 가계부 생성과 초대코드 참여를 바로 할 수 있습니다.</p><p><a class="btn soft" href="/households?month=${encodeURIComponent(month)}${selected?.id ? `&household_id=${encodeURIComponent(selected.id)}` : ""}">참여자 관리</a><a class="btn soft" href="/household-create-join">생성·참여 가이드</a></p></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}<section class="grid"><div class="card"><h2>새 가계부 만들기</h2><p class="muted">기존 가계부가 있어도 여행/모임/단발성 정산용 가계부를 새로 만들 수 있습니다.</p><form method="post" action="/my/create"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>가계부 이름</label><input name="household_name" placeholder="예: 7월 제주여행, 회사 점심모임" required/></div><button type="submit">새 가계부 만들기</button></form></div><div class="card"><h2>초대코드로 참여하기</h2><p class="muted">가족, 모임장, 여행 총무에게 받은 초대코드를 입력하면 해당 가계부에 참여합니다.</p><form method="post" action="/my/join"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: ABCD1234" autocomplete="off" required/></div><button class="soft" type="submit">초대코드로 참여하기</button></form></div></section><section class="card"><h2>내 가계부 목록</h2><div class="list">${rows}</div></section><section class="card"><h2>선택 가계부 초대 문구</h2><div class="tip"><b>${escapeHtml(selected?.name || "선택된 가계부 없음")}</b><br/>${escapeHtml(selectedInvite)}</div><p class="muted">초대 문구를 카카오톡으로 보내면 다른 사용자가 /my에서 로그인 후 초대코드로 참여할 수 있습니다.</p></section><section class="card"><h2>권한 기준</h2><div class="warn">owner/admin은 전체 관리, member는 자기 기록 중심, viewer는 조회 전용입니다. 참여 후에도 모든 화면은 user household scope로 제한되어 다른 가계부는 보이지 않습니다.</div></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(appName(env))} · 가계부 전환·추가</title><style>*,*:before,*:after{box-sizing:border-box}body{margin:0;background:#f8fafc;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1080px;margin:0 auto;padding:16px}.hero,.card{background:#fff;border:1px solid #e5e7eb;border-radius:26px;padding:20px;margin:12px 0;box-shadow:0 14px 34px rgba(15,23,42,.055)}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#0f766e));color:#fff}.hero p{color:#ccfbf1;line-height:1.6}.grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.list{display:grid;gap:10px}.hhCard{background:#fff;border:1px solid #e5e7eb;border-radius:20px;padding:15px;display:grid;gap:9px}.hhCard.active{border-color:#0f766e;box-shadow:0 0 0 3px rgba(15,118,110,.12);background:#f0fdfa}.hhCard b{font-size:18px}.hhCard span,.muted,.inviteText{display:block;color:#64748b;line-height:1.45;font-size:13px}.hhActions{display:flex;gap:8px;flex-wrap:wrap}.hhActions a,.btn,button{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 12px}.hhActions a.soft,.soft{background:#eef2f7!important;color:#111827!important}.field{display:grid;gap:7px;margin:10px 0}.field label{font-size:12px;color:#475569;font-weight:1000}.field input{height:46px;border:1px solid #d1d5db;border-radius:14px;padding:0 12px;font:inherit;background:#fff}.tip{background:#ecfdf5;border:1px solid #a7f3d0;color:#065f46;border-radius:16px;padding:12px;line-height:1.55}.warn{background:#fff7ed;border:1px solid #fed7aa;color:#9a3412;border-radius:16px;padding:12px;line-height:1.55}.ok{background:#ecfdf5;border:1px solid #86efac;color:#166534;border-radius:14px;padding:10px;margin:10px 0}.error{background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:14px;padding:10px;margin:10px 0}.empty{background:#f8fafc;border:1px dashed #cbd5e1;border-radius:18px;padding:16px;color:#64748b}@media(max-width:760px){.wrap{padding:12px 10px 96px}.hero{border-radius:22px}.grid{grid-template-columns:1fr}.hero h1{font-size:24px}.field input,button,.btn{width:100%;font-size:16px;min-height:46px}}</style></head><body>${renderUnifiedNav("my-households", { month, householdId: selected?.id || "", householdName: householdChoiceLabelV229118(selected, households) || selected?.name || "", role: String(selected?.role || "") })}<main class="wrap"><section class="hero"><h1>가계부 전환·추가</h1><p>우리집, 모임, 여행, 단발성 정산 가계부를 분리해서 운영합니다. 이 화면에서는 내가 참여한 가계부만 보이고, 새 가계부 생성과 초대코드 참여를 바로 할 수 있습니다.</p><p><a class="btn soft" href="/households?month=${encodeURIComponent(month)}${selected?.id ? `&household_id=${encodeURIComponent(selected.id)}` : ""}">참여자 관리</a><a class="btn soft" href="/household-create-join">생성·참여 가이드</a></p></section>${msg ? `<div class="ok">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error">${formatMessage(err)}</div>` : ""}<section class="grid"><div class="card"><h2>새 가계부 만들기</h2><p class="muted">기존 가계부가 있어도 여행/모임/단발성 정산용 가계부를 새로 만들 수 있습니다.</p><form method="post" action="/my/create"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>가계부 이름</label><input name="household_name" placeholder="예: 7월 제주여행, 회사 점심모임" required/></div><button type="submit">새 가계부 만들기</button></form></div><div class="card"><h2>초대코드로 참여하기</h2><p class="muted">가족, 모임장, 여행 총무에게 받은 초대코드를 입력하면 해당 가계부에 참여합니다.</p><form method="post" action="/my/join"><input type="hidden" name="return_to" value="/my/households"/><div class="field"><label>초대코드</label><input name="invite_code" placeholder="예: ABCD1234" autocomplete="off" required/></div><button class="soft" type="submit">초대코드로 참여하기</button></form></div></section><section class="card"><h2>내 가계부 목록</h2><div class="list">${rows}</div></section><section class="card"><h2>선택 가계부 초대 문구</h2><div class="tip"><b>${escapeHtml(selected?.name || "선택된 가계부 없음")}</b><br/>${escapeHtml(selectedInvite)}</div><p class="muted">초대 문구를 카카오톡으로 보내면 다른 사용자가 /my에서 로그인 후 초대코드로 참여할 수 있습니다.</p></section><section class="card"><h2>권한 기준</h2><div class="warn">owner/admin은 전체 관리, member는 가계부 기록 수정·삭제(‘기록만’ 정책이면 기록만), viewer는 조회 전용입니다. 참여 후에도 모든 화면은 user household scope로 제한되어 다른 가계부는 보이지 않습니다.</div></section></main></body></html>`);
 }
 
 function formatDateKorean(value = "") {
@@ -45231,8 +45245,9 @@ function renderMobileV81Html({ title, setupBand = "", roomView = false, month, h
   const roleLower = String(sessionRole || "").toLowerCase();
   const appIsManager = isAdminSession || ["owner", "admin"].includes(roleLower);
   const appCanWrite = isAdminSession || canWriteMyHousehold(roleLower);
-  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록에도 수정·삭제 단추를 두지 않는다(서버 경로도 따로 막는다).
-  const appCanEditRow = (r) => appIsManager || (appCanWrite && memberCanChangeRecords && sessionUserId && String(r.user_id || "") === String(sessionUserId));
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 수정·삭제 단추를 두지 않는다(서버 경로도 따로 막는다).
+  // V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 구성원도 이 가계부의 다른 사람 기록에 수정·삭제 단추를 둔다(채팅과 같은 규칙, 예전에는 내 기록만).
+  const appCanEditRow = () => appIsManager || (appCanWrite && memberCanChangeRecords && !!sessionUserId);
   const householdId = selectedHousehold?.id || "";
   const filterType = mobileFilters.type === "income" ? "income" : mobileFilters.type === "expense" ? "expense" : "all";
   const filterQ = String(mobileFilters.q || "").trim();
@@ -50714,7 +50729,7 @@ function formatMessageText(msg) {
     no_household: "현재 열 수 있는 가계부가 없습니다. 새 가계부를 만들거나 받은 초대코드로 참여해 주세요.", joined: "가계부 참여가 완료되었습니다. 가계부 목록에서 선택해 기록을 확인하세요.",
     joined_viewer: "조회 전용으로 참여 중인 가계부입니다. 기록은 볼 수 있지만 저장·수정·삭제할 수 없습니다.",
     join_blocked: "이 가계부에서는 참여가 차단되어 있습니다. 초대코드를 다시 입력해도 권한은 바뀌지 않습니다. 소유자에게 확인해 주세요.",
-    db_write_unknown: "처리 결과를 아직 확인하지 못했습니다. 기록·목표·참여 목록을 새로고침해 결과를 먼저 확인하고 같은 요청을 반복하지 마세요.", amount_required: "0원보다 큰 금액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.", amount_too_large: "금액이 너무 큽니다. 20억 원 이하로 입력해 주세요. 입력 내용은 저장되지 않았습니다.", record_not_found: "수정할 기록을 찾지 못했습니다. 기록 목록을 새로 열어 다시 선택해 주세요.", not_my_record: "이 기록을 바꿀 권한이 없습니다. 내가 만든 기록을 선택하거나 소유자·관리자에게 요청해 주세요.", budget_save_failed: "예산을 저장하지 못했습니다. 기존 값은 유지되므로 잠시 후 한 번만 다시 시도해 주세요.", budget_amount_invalid: "예산 금액을 숫자로 입력해 주세요. 기존 예산은 그대로 유지됩니다.", budget_plan_too_many: "예산 항목은 한 번에 100개까지 저장할 수 있습니다. 101번째 이후 항목을 줄인 뒤 다시 저장해 주세요. 기존 예산은 유지됩니다.", category_missing: "분류 이름을 입력해 주세요. 다른 입력값은 저장되지 않았습니다.", category_keywords_save_failed: "분류 키워드를 저장하지 못했습니다. 기존 설정은 유지되므로 잠시 후 다시 시도해 주세요.", category_created_keywords_pending: "분류는 추가했지만 키워드는 저장하지 못했습니다. 분류 목록에서 키워드만 다시 저장해 주세요.", keyword_manage_only: "분류 키워드 저장은 가계부 소유자·관리자만 할 수 있습니다. 현재 설정은 그대로 확인할 수 있습니다.", recurring_missing: "정기항목의 내용과 0원보다 큰 금액을 입력해 주세요.", recurring_table_required: "정기항목 저장 공간을 사용할 수 없습니다. 입력값은 저장되지 않았으니 관리자에게 운영 상태 확인을 요청해 주세요.", recurring_delete_failed: "정기항목을 삭제하지 못했습니다. 기존 항목은 유지되므로 새로고침 후 다시 시도해 주세요.", recurring_manual_month_end_blocked: "29~31일 고정항목은 현재 수동 반영에서 안전하게 처리할 수 없어 저장하지 않았습니다. 예약 실행은 실제 말일에 맞춰 처리하며, 수동 반영 RPC 확인과 별도 SQL 보완 승인이 필요합니다.", record_update_failed: "기록을 수정하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", record_delete_failed: "기록을 삭제하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", empty_import: "가져올 내용이 비어 있습니다. 파일을 다시 선택하거나 표·자연어 기록을 붙여넣어 주세요.", write_not_allowed: "현재 권한은 조회 전용이라 기록을 변경하거나 가져올 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.", excel_conversion_required: "엑셀 파일을 텍스트 표로 변환하지 못했습니다. 이 화면에서 다시 선택해 변환을 기다리거나 CSV로 저장해 올려 주세요.", import_file_too_large: "한 번에 분석할 수 있는 파일 크기를 넘었습니다. 원본은 바뀌지 않았으니 월별 또는 시트별로 나눠 다시 가져와 주세요.", import_file_read_failed: "파일을 읽지 못했습니다. 파일이 열리는지 확인한 뒤 CSV·TSV·TXT로 저장하거나 내용을 붙여넣어 주세요.", added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", undone: "방금 기록을 지우고 예산을 되돌렸어요.", undo_expired: "실행 취소할 수 있는 시간이 지나 기록을 그대로 두었습니다. 지우려면 기록을 눌러 수정·삭제 화면에서 지워 주세요.", undo_changed: "저장한 뒤 바뀐 기록이라 실행 취소하지 않았습니다. 기록을 눌러 수정·삭제 화면에서 확인해 주세요.", restored: "지운 기록을 되살렸어요.", restore_expired: "되돌릴 수 있는 시간이 지나 기록을 되살리지 않았습니다. 필요하면 새로 기록해 주세요.", restore_failed: "지운 기록을 되살리지 못했습니다. 목록을 새로고침해 기록이 있는지 확인해 주세요.", restore_changed: "그 뒤에 다시 지운 기록이라 이 되돌리기로는 되살리지 않았습니다. 목록을 새로고침해 확인해 주세요.",updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다. 이제 초대·단톡방 연결 → 기록 방법 → 첫 기록 순서로 진행해 보세요.", household_duplicate_selected: "같은 이름의 가계부가 이미 있어 중복 생성하지 않고 기존 가계부를 선택했습니다.", household_name_invalid: "가계부 이름은 2~40자의 일반 이름으로 입력해 주세요. 명령어·전화번호·초대코드·금액만 있는 이름은 사용할 수 없습니다.", household_create_failed: "가계부 생성을 완료하지 못했습니다. 중간 생성 데이터는 정리했으니 잠시 후 한 번만 다시 시도해 주세요.", household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다. 영문·숫자를 다시 확인하고, 계속 안 되면 초대한 사람에게 최신 코드를 요청해 주세요.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 같은 코드를 반복 입력하지 말고 관리자 승인 후 다시 열어 주세요.", join_failed: "참여 요청을 안전하게 저장하지 못했습니다. 권한은 자동으로 열리지 않았습니다. 잠시 후 한 번만 다시 시도해 주세요.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "자산·결제수단을 저장했습니다.", payment_asset_updated: "자산·결제수단 정보를 수정했습니다.", payment_asset_balance_updated: "현재 잔액을 저장하고 이번 달 순자산 기록을 갱신했습니다.", payment_asset_deleted: "자산·결제수단을 삭제하고 순자산 기록을 갱신했습니다.", reserve_saved: "정기 수입·지출 항목을 저장했습니다.",
+    db_write_unknown: "처리 결과를 아직 확인하지 못했습니다. 기록·목표·참여 목록을 새로고침해 결과를 먼저 확인하고 같은 요청을 반복하지 마세요.", amount_required: "0원보다 큰 금액을 입력해 주세요. 입력 내용은 저장되지 않았습니다.", amount_too_large: "금액이 너무 큽니다. 20억 원 이하로 입력해 주세요. 입력 내용은 저장되지 않았습니다.", record_not_found: "수정할 기록을 찾지 못했습니다. 기록 목록을 새로 열어 다시 선택해 주세요.", not_my_record: "이 기록을 바꿀 권한이 없습니다. 지금 가계부의 기록인지 확인하거나 소유자·관리자에게 요청해 주세요.", budget_save_failed: "예산을 저장하지 못했습니다. 기존 값은 유지되므로 잠시 후 한 번만 다시 시도해 주세요.", budget_amount_invalid: "예산 금액을 숫자로 입력해 주세요. 기존 예산은 그대로 유지됩니다.", budget_plan_too_many: "예산 항목은 한 번에 100개까지 저장할 수 있습니다. 101번째 이후 항목을 줄인 뒤 다시 저장해 주세요. 기존 예산은 유지됩니다.", category_missing: "분류 이름을 입력해 주세요. 다른 입력값은 저장되지 않았습니다.", category_keywords_save_failed: "분류 키워드를 저장하지 못했습니다. 기존 설정은 유지되므로 잠시 후 다시 시도해 주세요.", category_created_keywords_pending: "분류는 추가했지만 키워드는 저장하지 못했습니다. 분류 목록에서 키워드만 다시 저장해 주세요.", keyword_manage_only: "분류 키워드 저장은 가계부 소유자·관리자만 할 수 있습니다. 현재 설정은 그대로 확인할 수 있습니다.", recurring_missing: "정기항목의 내용과 0원보다 큰 금액을 입력해 주세요.", recurring_table_required: "정기항목 저장 공간을 사용할 수 없습니다. 입력값은 저장되지 않았으니 관리자에게 운영 상태 확인을 요청해 주세요.", recurring_delete_failed: "정기항목을 삭제하지 못했습니다. 기존 항목은 유지되므로 새로고침 후 다시 시도해 주세요.", recurring_manual_month_end_blocked: "29~31일 고정항목은 현재 수동 반영에서 안전하게 처리할 수 없어 저장하지 않았습니다. 예약 실행은 실제 말일에 맞춰 처리하며, 수동 반영 RPC 확인과 별도 SQL 보완 승인이 필요합니다.", record_update_failed: "기록을 수정하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", record_delete_failed: "기록을 삭제하지 못했습니다. 기존 기록은 유지되므로 새로고침 후 다시 시도해 주세요.", empty_import: "가져올 내용이 비어 있습니다. 파일을 다시 선택하거나 표·자연어 기록을 붙여넣어 주세요.", write_not_allowed: "현재 권한은 조회 전용이라 기록을 변경하거나 가져올 수 없습니다. 소유자 또는 관리자에게 권한을 요청해 주세요.", excel_conversion_required: "엑셀 파일을 텍스트 표로 변환하지 못했습니다. 이 화면에서 다시 선택해 변환을 기다리거나 CSV로 저장해 올려 주세요.", import_file_too_large: "한 번에 분석할 수 있는 파일 크기를 넘었습니다. 원본은 바뀌지 않았으니 월별 또는 시트별로 나눠 다시 가져와 주세요.", import_file_read_failed: "파일을 읽지 못했습니다. 파일이 열리는지 확인한 뒤 CSV·TSV·TXT로 저장하거나 내용을 붙여넣어 주세요.", added: "거래내역을 추가했습니다.", deleted: "거래내역을 삭제했습니다.", undone: "방금 기록을 지우고 예산을 되돌렸어요.", undo_expired: "실행 취소할 수 있는 시간이 지나 기록을 그대로 두었습니다. 지우려면 기록을 눌러 수정·삭제 화면에서 지워 주세요.", undo_changed: "저장한 뒤 바뀐 기록이라 실행 취소하지 않았습니다. 기록을 눌러 수정·삭제 화면에서 확인해 주세요.", restored: "지운 기록을 되살렸어요.", restore_expired: "되돌릴 수 있는 시간이 지나 기록을 되살리지 않았습니다. 필요하면 새로 기록해 주세요.", restore_failed: "지운 기록을 되살리지 못했습니다. 목록을 새로고침해 기록이 있는지 확인해 주세요.", restore_changed: "그 뒤에 다시 지운 기록이라 이 되돌리기로는 되살리지 않았습니다. 목록을 새로고침해 확인해 주세요.",updated: "거래내역을 수정했습니다.", bulk_updated: "선택 항목을 일괄 수정했습니다.", bulk_deleted: "선택 항목을 삭제했습니다.", created: "새 가계부를 만들었습니다. 이제 초대·단톡방 연결 → 기록 방법 → 첫 기록 순서로 진행해 보세요.", household_duplicate_selected: "같은 이름의 가계부가 이미 있어 중복 생성하지 않고 기존 가계부를 선택했습니다.", household_name_invalid: "가계부 이름은 2~40자의 일반 이름으로 입력해 주세요. 명령어·전화번호·초대코드·금액만 있는 이름은 사용할 수 없습니다.", household_create_failed: "가계부 생성을 완료하지 못했습니다. 중간 생성 데이터는 정리했으니 잠시 후 한 번만 다시 시도해 주세요.", household_create_busy: "같은 이름의 가계부를 다른 곳에서 만드는 중입니다. 잠시 후 다시 시도하면 기존 가계부가 선택됩니다.", duplicate_skipped: "방금 같은 내용의 기록이 있어 중복 저장을 막았습니다.", db_delay: "저장소 응답이 잠시 지연되고 있습니다. 잠시 후 다시 시도해주세요.", invite_code_not_found: "초대코드를 찾지 못했습니다. 영문·숫자를 다시 확인하고, 계속 안 되면 초대한 사람에게 최신 코드를 요청해 주세요.", invite_code_missing: "초대코드를 입력해주세요.", approval_pending: "참여 요청이 접수되었습니다. 같은 코드를 반복 입력하지 말고 관리자 승인 후 다시 열어 주세요.", join_failed: "참여 요청을 안전하게 저장하지 못했습니다. 권한은 자동으로 열리지 않았습니다. 잠시 후 한 번만 다시 시도해 주세요.", member_updated: "참여자 권한을 수정했습니다.", member_removed: "참여자를 방출했습니다.", nickname_updated: "닉네임을 수정했습니다.", category_created: "분류를 추가했습니다.", category_created_fallback: "분류를 저장했습니다.", category_deleted: "분류를 삭제했습니다.", category_deleted_fallback: "분류를 삭제했습니다.", category_keywords_saved: "분류 키워드를 저장했습니다.", payment_asset_saved: "자산·결제수단을 저장했습니다.", payment_asset_updated: "자산·결제수단 정보를 수정했습니다.", payment_asset_balance_updated: "현재 잔액을 저장하고 이번 달 순자산 기록을 갱신했습니다.", payment_asset_deleted: "자산·결제수단을 삭제하고 순자산 기록을 갱신했습니다.", reserve_saved: "정기 수입·지출 항목을 저장했습니다.",
   reserve_updated: "정기 수입·지출 항목을 수정했습니다.", reserve_deleted: "정기 수입·지출 항목을 삭제했습니다.", budget_saved: "예산을 저장했습니다.", budget_month_invalid: "월 형식이 올바르지 않아 저장하지 않았습니다(예: 2026-07). 다른 달의 예산도 바꾸지 않았습니다.", budget_duplicate_category: "같은 분류가 두 줄 이상 서로 다른 금액으로 들어 있어 저장하지 않았습니다. 한 줄만 남기고 다시 저장해 주세요. 기존 예산은 그대로입니다.", reserve_name_duplicate: "같은 이름의 정기 항목이 이미 있어 저장하지 않았습니다. 기존 항목을 수정하거나 다른 이름을 써 주세요. 두 항목 모두 그대로 있습니다.", reserve_due_day_invalid: "납부·입금일은 1~28 사이 숫자로 입력해 주세요. 저장하지 않았습니다.", reserve_due_month_invalid: "납부·입금월은 1~12월 중에서 골라 주세요. 저장하지 않았습니다.", reserve_recurrence_invalid: "반복주기는 매월·연 1회·반기·분기 중 하나여야 합니다. 저장하지 않았습니다.", recurring_spender_ineligible: "고정항목의 지출자는 이 가계부의 소유자·관리자·구성원 중에서 골라야 합니다. 조회 전용·승인 대기·차단·나간 참여자의 규칙은 반영되지 않아 저장하지 않았습니다.", budget_deleted: "예산을 삭제했습니다.", budget_over: "저장했습니다. 예산을 초과했습니다.", recurring_saved: "고정항목을 저장했습니다.", recurring_deleted: "고정항목을 삭제했습니다.", password_updated: "비밀번호를 변경했습니다.", meme_saved: "밈카드를 도감에 저장했습니다.", meme_deleted: "밈카드를 삭제했습니다.", meme_liked: "좋아요를 반영했습니다.", meme_shared: "공유 횟수를 반영했습니다.", kakao_linked: "카카오 계정 연동이 완료되었습니다.", account_linked: "카카오톡 방 가계부와 웹 계정을 하나로 이었습니다. 이제 카카오톡과 웹에서 같은 가계부를 봅니다.",
 };
   const generic = "요청을 처리하지 못했습니다. 입력값을 확인한 뒤 다시 시도해 주세요.";
@@ -52224,6 +52239,34 @@ const kakaoGroupUnquotedV229134 = (line = "") => {
   return next + line.slice(at);
 };
 
+// V22.9.135 M-11(시험 단톡방 2026-11-21): 단톡방의 봇은 불린 말만 받는다. 번호로 답하라는 줄(수정 창의 ‘무엇을 바꿀까요? 번호를 보내주세요.’·값을 고르는
+// ‘…번호로 골라주세요.’)에는 보낼 말이 없어, 적힌 대로 번호만 보내면 답이 없었다(멘션을 붙인 번호는 답했다). 단톡방 답에서 그런 줄 끝에 ‘ 예: @말해가계부 1’ 을
+// 붙인다 — 바로 아래 줄이 이미 예시(‘예: …’)면 붙이지 않는다. 번호만 보내라는 두 안내(‘번호만 보내도 돼요: ’·‘번호를 보내면 → ’)는 단톡방에서 맞는 말로 바꾼다.
+// 수정 창의 다른 두 물음도 같다(단추가 없다 — 독립 검토 2026-11-21): 날짜 고르기(‘날짜를 번호로 고르거나 직접 입력해주세요.’)는 같은 예시를 받고, 날짜를 직접 적는
+// 예시(‘(직접 입력 예: 7월 20일)’)에는 봇 부르기를 넣는다. 수정 창의 네·아니오 물음 두 꼴(‘… 바꿀까요? (네/아니오)’·‘… 바꾸는 건가요? (네/아니오)’)은 끝에
+// ‘ 예: @말해가계부 네’ 를 받는다 — 단추로 답하는 다른 물음(V22.9.134 의 규칙)은 그대로 두려고 이 두 꼴만 본다.
+const KAKAO_GROUP_NUMBER_PROMPT_V229135 = /(?:번호를 보내 ?주세요|번호로 골라 ?주세요|번호로 고르거나 직접 입력해 ?주세요)[.]$/;
+const KAKAO_GROUP_YES_NO_PROMPT_V229135 = /(?:바꿀까요|바꾸는 건가요)[?] [(]네\/아니오[)]$/;
+const KAKAO_GROUP_DATE_EXAMPLE_V229135 = "(직접 입력 예: ";
+const KAKAO_GROUP_NUMBER_REWRITES_V229135 = [
+  ["번호만 보내도 돼요: ", `번호 앞에 ${KAKAO_GROUP_MENTION_V229134} 를 붙여 보내도 돼요: `],
+  ["번호를 보내면 → ", `번호를 보내면(예: ${KAKAO_GROUP_MENTION_V229134} 1) → `],
+];
+const KAKAO_GROUP_NUMBER_EXAMPLES_V229135 = [[` 예: ${KAKAO_GROUP_MENTION_V229134} 1`, KAKAO_GROUP_NUMBER_PROMPT_V229135], [` 예: ${KAKAO_GROUP_MENTION_V229134} 네`, KAKAO_GROUP_YES_NO_PROMPT_V229135]];
+function kakaoGroupNumberLineV229135(line = "", nextLine = "") {
+  if (line.includes(KAKAO_GROUP_MENTION_V229134)) return null;
+  const rewrite = KAKAO_GROUP_NUMBER_REWRITES_V229135.find(([from]) => line.startsWith(from));
+  if (rewrite) return `${rewrite[1]}${line.slice(rewrite[0].length)}`;
+  if (line.includes(KAKAO_GROUP_DATE_EXAMPLE_V229135)) return line.split(KAKAO_GROUP_DATE_EXAMPLE_V229135).join(`${KAKAO_GROUP_DATE_EXAMPLE_V229135}${KAKAO_GROUP_MENTION_V229134} `);
+  if (KAKAO_GROUP_HINT_LEAD_LINE_V229134.test(nextLine)) return null;
+  const example = KAKAO_GROUP_NUMBER_EXAMPLES_V229135.find(([, prompt]) => prompt.test(line));
+  return example ? `${line}${example[0]}` : null;
+}
+// 위에서 예시를 붙인 줄인가. 그 줄의 보낼 말은 끝의 예시이고, 줄 안의 따옴표 말(‘혹시 내용을 'zzz'로 바꾸는 건가요?’ 의 'zzz' — 사용자가 보낸 값을 되풀이한 것)은
+// ③ 이 남은 안내로 세지 않는다(독립 검토 2026-11-21 2차: 그 답에 예시와 끝 한 줄이 함께 붙었다).
+const kakaoGroupNumberExampleLineV229135 = (line = "") => KAKAO_GROUP_NUMBER_EXAMPLES_V229135
+  .some(([suffix, prompt]) => line.endsWith(suffix) && prompt.test(line.slice(0, -suffix.length)));
+
 // ①·② 한 말풍선의 글에서 보낼 말을 고친다. 한도를 넘게 되면 원래 글을 돌려준다.
 function kakaoGroupMentionLinesV229134(text = "", max = KAKAO_SIMPLE_TEXT_SAFE_MAX) {
   const source = String(text || "");
@@ -52236,6 +52279,8 @@ function kakaoGroupMentionLinesV229134(text = "", max = KAKAO_SIMPLE_TEXT_SAFE_M
     const listed = listing && line.startsWith("• ");
     listing = listed || KAKAO_GROUP_HINT_LIST_LEAD_V229134.test(line);
     if (echo[index]) return line;
+    const numbered = kakaoGroupNumberLineV229135(line, lines[index + 1] || "");
+    if (numbered !== null) return numbered;
     if (KAKAO_GROUP_HINT_QUOTED_LINE_V229134.test(line)) return kakaoGroupMentionQuotedV229134(line, { every: true }).line;
     const command = KAKAO_GROUP_HINT_COMMAND_LINE_V229134.exec(line);
     if (command) return `${command[1]}${KAKAO_GROUP_MENTION_V229134} ${command[2]}`;
@@ -52262,7 +52307,7 @@ function kakaoGroupHintFooterNeededV229134(texts = [], { buttons = false, pressa
   if (KAKAO_GROUP_HINT_NO_FOOTER_V229134.test(own.map(kakaoGroupUnquotedV229134).join("\n"))) return false;
   const asked = typed.some((line) => KAKAO_GROUP_HINT_STRONG_V229134.test(line)) || (!buttons && typed.some((line) => KAKAO_GROUP_HINT_WEAK_V229134.test(line)));
   if (!asked) return false;
-  return !all.includes(KAKAO_GROUP_MENTION_V229134) || typed.some((line) => kakaoGroupMentionQuotedV229134(line, { pressable }).bare);
+  return !all.includes(KAKAO_GROUP_MENTION_V229134) || typed.some((line) => !kakaoGroupNumberExampleLineV229135(line) && kakaoGroupMentionQuotedV229134(line, { pressable }).bare);
 }
 // ③ 의 한 줄을 붙일 말풍선인가: 시키는 말·고르라는 말이 든 줄이 있다(되풀이한 줄·단추·웹 화면 줄은 빼고).
 const kakaoGroupHintBubbleV229134 = (text = "") => kakaoGroupHintOwnLinesV229134(text).typed
@@ -52695,6 +52740,8 @@ async function writeKakaoEditUndoItemsV4(env, kakaoUserKey = "", payload = {}, i
 // 읽은 뒤 관리자가 지출자를 바꿨거나 다른 사람이 고쳤으면 지우지 않고, 버퍼를 앞의 값으로 되돌린 뒤 kakaoDeleteConflict 오류를 올린다.
 // 카카오로 쓴 기록(source_user_key 있음)은 지출자가 바뀌어도 쓴 사람의 기록이라(isKakaoRowOwnedByRequesterV2254) 예전처럼 감사 삭제 함수로 지운다.
 // role 을 모르면(빈 값) 구성원처럼 조건부로 지운다.
+// V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 구성원도 번호로 다른 사람의 기록을 지운다. 판정은 그대로다 — 웹에서 만든 기록은 누구 것이든 읽은 일곱 칸
+// (지출자 = 읽은 사람)이 그대로일 때만 지우고, 카카오로 쓴 기록은 누구 것이든 소유자·관리자처럼 감사 삭제 함수로 지운다. 버퍼(되돌리기)는 지운 사람의 것이다.
 async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, householdId = "", householdName = "", userId = "", role = "" } = {}, row = {}, seq = 0) {
   return withKakaoEditUndoLeaseV4(env, kakaoUserKey, payload, async ({ assertFresh }) => {
     // V22.9.80 T-13: 환불 연결이 켜져 있으면 지우기 전에 이 기록의 연결 수를 함께 읽어 버퍼에 적는다(같은 단계라 왕복이 늘지 않는다).
@@ -52752,10 +52799,11 @@ function kakaoEditTargetRejectTextV4(target = {}) {
 }
 
 // T2: 무엇을 지웠는지 답장에 적는다. 번호는 지운 뒤 밀리므로 이름이 있어야 확인할 수 있다.
-function kakaoEditDeletedTextV4(row = {}, seq = 0, refundLinks = undefined) {
+// V22.9.135 N-2: ownerSuffix — 다른 사람의 기록을 지웠으면 기록 줄 끝에 그 기록의 지출자(수입자) 이름 ‘ (이름)’ 을 붙인다(kakaoRowOwnerSuffixV229135).
+function kakaoEditDeletedTextV4(row = {}, seq = 0, refundLinks = undefined, ownerSuffix = "") {
   // V22.9.81 U-13: 번호를 모르는 기록(그날 목록 밖의 ‘방금 삭제’)은 번호 없이 적고 번호 없는 ‘복구’(가장 최근 삭제)로 안내한다.
   const numbered = Number(seq) >= 1;
-  return `🗑️ ${kakaoEditDayPrefixV4(row.transaction_date)}${numbered ? `${twoDigitSeq(seq)}번 ` : ""}기록을 삭제했어요.\n${kakaoRowLabel(row, seq)}\n되돌리려면: ${numbered ? `복구 ${twoDigitSeq(seq)}번` : "복구"}${kakaoRefundLinkUndoNoteV4(refundLinks, "delete")}`;
+  return `🗑️ ${kakaoEditDayPrefixV4(row.transaction_date)}${numbered ? `${twoDigitSeq(seq)}번 ` : ""}기록을 삭제했어요.\n${kakaoRowLabel(row, seq)}${ownerSuffix}\n되돌리려면: ${numbered ? `복구 ${twoDigitSeq(seq)}번` : "복구"}${kakaoRefundLinkUndoNoteV4(refundLinks, "delete")}`;
 }
 
 // V22.9.80 T-13: 버퍼에 적은 환불 연결 수(refund_links)로 삭제·복구 답장에 붙일 한 줄. 칸이 없거나 0 이면 "".
@@ -52821,16 +52869,18 @@ function isKakaoRowOwnedByRequesterV2254(row = {}, userId = "", kakaoUserKey = "
   return String(row?.user_id || "") === String(userId || "");
 }
 
-// V22.9.80 T-10: 그날 가계부 기록을 오래된 순으로 500건까지만 읽는다(내 기록은 읽은 뒤 거른다). 정확히 500건이 돌아오면 그날 뒤쪽 기록이 목록에
+// V22.9.80 T-10: 그날 가계부 기록을 오래된 순으로 500건까지만 읽는다(V22.9.134 까지는 내 기록만 읽은 뒤 걸렀다). 정확히 500건이 돌아오면 그날 뒤쪽 기록이 목록에
 // 없을 수 있으므로, 돌려주는 배열의 dailyLimit 에 그 한도(500)를 달아 답장이 한 줄로 말하게 한다 — 더 읽는 요청은 하지 않는다(답장 4초 안).
 const KAKAO_DAILY_ROW_LIMIT_V22980 = 500;
-// V22.9.134 N-1: 같은 읽기에서 그날 다른 사람이 남긴 기록 수(othersCount)도 달아 둔다 — 번호를 찾지 못한 답이 ‘번호는 사람마다 따로’ 라고 말할 때 쓴다(조회는 그대로 한 번).
+// V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 하루 번호는 그날 가계부 기록 전체의 저장 순서다. 예전(V22.9.76~134)에는 기록한 사람마다
+// 01번부터 따로 매겨, 다른 사람의 저장 답에 적힌 ‘삭제 02번’ 을 따라 보낸 사람에게는 다른 기록(또는 없는 번호)이었다. 이제 같은 가계부의 누구든
+// 같은 번호로 같은 기록을 가리킨다. 고치고 지울 수 있는지는 부르는 곳이 역할과 구성원 권한(‘기록만’)으로 본다.
+// userId·kakaoUserKey 는 더 이상 거르는 데 쓰지 않는다(부르는 곳의 꼴을 그대로 두려고 받기만 한다).
 async function getDailyKakaoRows(env, householdId, userId, kakaoUserKey, date) {
   const rows = await getDailyKakaoRawRows(env, householdId, date);
-  const own = rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey));
-  own.dailyLimit = rows.length >= KAKAO_DAILY_ROW_LIMIT_V22980 ? KAKAO_DAILY_ROW_LIMIT_V22980 : 0;
-  own.othersCount = rows.length - own.length;
-  return own;
+  const all = rows.slice();
+  all.dailyLimit = rows.length >= KAKAO_DAILY_ROW_LIMIT_V22980 ? KAKAO_DAILY_ROW_LIMIT_V22980 : 0;
+  return all;
 }
 
 async function getDailyKakaoRawRows(env, householdId, date) {
@@ -52845,13 +52895,21 @@ async function getDailyKakaoRawRows(env, householdId, date) {
   return rows;
 }
 
-function kakaoDailySeqFromRows(rows, row, userId, kakaoUserKey) {
-  const own = rows.filter(item => isKakaoRowOwnedByRequesterV2254(item, userId, kakaoUserKey));
-  own.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")) || String(a.id).localeCompare(String(b.id)));
-  const index = own.findIndex(item => String(item.id) === String(row.id));
+// V22.9.135 N-2: 그날 가계부 기록 전체에서의 번호(저장 순서). 0 = 목록에 없다.
+function kakaoDailySeqFromRows(rows, row) {
+  const all = safeArray(rows).slice();
+  all.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")) || String(a.id).localeCompare(String(b.id)));
+  const index = all.findIndex(item => String(item.id) === String(row.id));
   return index >= 0 ? index + 1 : 0;
 }
 
+// V22.9.135: 그날 내 기록만 센 순서(V22.9.134 까지의 번호). 오늘의 첫 기록 답의 요약 단추(V22.9.123)를 사람마다 그날 첫 기록에 붙이는 데만 쓴다.
+function kakaoOwnDailySeqFromRowsV229135(rows, row, userId, kakaoUserKey) {
+  return kakaoDailySeqFromRows(safeArray(rows).filter((item) => isKakaoRowOwnedByRequesterV2254(item, userId, kakaoUserKey)), row);
+}
+
+// V22.9.135 N-2: 이 가계부의 기록이면 누가 남겼든 돌려준다. 고치기·지우기·되살리기를 해도 되는지는 부르는 곳이 역할과 구성원 권한으로 이미 봤다
+// (예전에는 남이 남긴 기록이면 null 이라, 열어 둔 수정 창·복구가 ‘찾지 못했어요’ 로 끝났다). userId·kakaoUserKey 는 받기만 한다.
 async function getKakaoRowById(env, householdId, userId, kakaoUserKey, id) {
   const params = new URLSearchParams();
   params.set("select", KAKAO_TX_SELECT_V4);
@@ -52859,8 +52917,7 @@ async function getKakaoRowById(env, householdId, userId, kakaoUserKey, id) {
   params.set("household_id", `eq.${householdId}`);
   params.set("limit", "1");
   const rows = (await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" })) || [];
-  const row = rows[0] || null;
-  return row && isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey) ? row : null;
+  return rows[0] || null;
 }
 
 async function findDailyKakaoRowBySeq(env, householdId, userId, kakaoUserKey, date, seq) {
@@ -52872,7 +52929,28 @@ async function findDailyKakaoRowBySeq(env, householdId, userId, kakaoUserKey, da
 
 async function dailySeqForKakaoRow(env, householdId, userId, kakaoUserKey, row = {}) {
   const rows = await getDailyKakaoRows(env, householdId, userId, kakaoUserKey, row.transaction_date || formatDate(nowKstDate()));
-  return kakaoDailySeqFromRows(rows, row, userId, kakaoUserKey);
+  return kakaoDailySeqFromRows(rows, row);
+}
+
+// V22.9.135: 저장 답의 번호. seq = 가계부 전체 번호, ownSeq = 내 기록만 센 번호(오늘의 첫 기록 판단에만 쓴다).
+// 저장 답은 저장 전에 읽은 그날 목록(중복 확인용)을 넘기고, 그 목록이 없을 때만 저장한 뒤 읽는다(kakaoDailySeqPairV229135 — 저장소 호출 수는 V22.9.134 와 같다).
+// 저장 전 읽기와 저장 사이에 다른 사람이 저장하면 seq 가 하나 어긋날 수 있다(transaction-save.js 의 설명 — 알고 둔 한계).
+// 그날 읽은 범위가 한도(500건)에 닿았으면 둘 다 0 이다(번호를 모른다 — 예전과 같다). 읽은 목록에 그 기록이 없으면 끝에 더해 센다.
+function kakaoDailySeqPairFromRowsV229135(rows, row = {}, userId = "", kakaoUserKey = "") {
+  const list = safeArray(rows);
+  if (list.length >= KAKAO_DAILY_ROW_LIMIT_V22980) return { seq: 0, ownSeq: 0 };
+  const full = list.some((item) => String(item.id) === String(row.id)) ? list : [...list, row];
+  return { seq: kakaoDailySeqFromRows(full, row), ownSeq: kakaoOwnDailySeqFromRowsV229135(full, row, userId, kakaoUserKey) };
+}
+async function kakaoDailySeqPairV229135(env, householdId, userId, kakaoUserKey, row = {}) {
+  const rows = await getDailyKakaoRawRows(env, householdId, row.transaction_date || formatDate(nowKstDate()));
+  return kakaoDailySeqPairFromRowsV229135(rows, row, userId, kakaoUserKey);
+}
+
+// V22.9.135 N-2: 기록 줄 끝에 붙이는 지출자(수입은 수입자) 이름 ‘ (이름)’. 이름표(memberNameMap)에 없으면 붙이지 않는다.
+function kakaoRowOwnerSuffixV229135(row = {}, names = null) {
+  const name = names ? String(names[String(row?.user_id || "")] || "").replace(/\s+/g, " ").trim() : "";
+  return name ? ` (${name})` : "";
 }
 
 // V22.9.79: PostgREST 논리 조건의 값은 큰따옴표로 감싼다(쉼표·점·콜론·괄호가 든 키도 값 그대로 읽힌다). 따옴표와 역슬래시만 이스케이프한다.
@@ -52917,6 +52995,37 @@ async function getRecentKakaoOwnedTransactionsV2254(env, householdId, userId, ka
     rows = (await supabase(env, query(null), { method: "GET" })) || [];
   }
   return rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey)).slice(0, wanted);
+}
+
+// V22.9.135 N-2: 이 사람이 이 가계부에서 마지막으로 고친 기록(누가 남긴 기록이든). 구성원도 다른 사람의 기록을 고치게 되어, 위의 touched(내 기록만)로는
+// ‘수정 03번 금액 5000’ 으로 남의 기록을 고친 직후의 ‘방금 거 지워줘’ 를 알아보지 못한다 — V22.9.116 이 막은 일(고친 기록이 아니라 마지막에 저장한
+// 기록을 묻지 않고 지움)이 남의 기록에서 다시 생긴다. 고치는 모든 길(카카오·웹, 감사 RPC accountbook_update_transaction_v227 와 조건부 저장)이 감사 기록에
+// action 'update'·행위자·고친 기록 번호를 남기므로 그 최근 줄을 읽는다(색인 household_id, created_at desc).
+// 그 뒤 지워진 기록은 ‘방금’ 의 후보가 아니다(내 기록의 바뀐 순서(V22.9.116)도 지운 기록은 세지 않는다 — 독립 검토 2026-11-21 2차: 고친 남의 기록이 지워진 뒤에도
+// 다시 저장할 때까지 ‘방금’ 이 늘 물었다). 그래서 최근 감사 줄 몇 개(KAKAO_LATEST_EDIT_ROWS_V229135)를 읽고, 그 기록들이 지금도 이 가계부에 있는지
+// 한 번에 다시 읽어(읽기 둘 — 이어서) 있는 것 가운데 가장 늦게 고친 기록을 지금 행으로 돌려준다(그 뒤 누가 또 고쳤거나 날짜를 바꿨어도 지금 값·날짜·번호로
+// 보인다). 감사 줄에 적힌 고친 뒤의 값(after_value)은 쓰지 않는다 — 이 가계부에서 다시 읽어 찾은 기록만 믿는다.
+// { row: 그 기록의 지금 행, at: 고친 시각 } 이고, 없으면 null 이다. 부르는 곳이 실패·늦음을 null 로 다룬다(그때는 V22.9.134 와 같다).
+const KAKAO_LATEST_EDIT_ROWS_V229135 = 10;
+async function getLatestKakaoEditByRequesterV229135(env, householdId = "", userId = "") {
+  if (!householdId || !userId) return null;
+  const params = new URLSearchParams();
+  params.set("select", "transaction_id,created_at");
+  params.set("household_id", `eq.${householdId}`);
+  params.set("actor_user_id", `eq.${userId}`);
+  params.set("action", "eq.update");
+  params.set("order", "created_at.desc,id.desc");
+  params.set("limit", String(KAKAO_LATEST_EDIT_ROWS_V229135));
+  const rows = await supabase(env, `/rest/v1/accountbook_transaction_audit?${params.toString()}`, { method: "GET" });
+  // 기록 번호(uuid)만 받는다 — 아래 in.(…) 목록에 그대로 넣기 때문이다.
+  const edits = (Array.isArray(rows) ? rows : []).filter((entry) => /^[\w-]{1,64}$/.test(String(entry?.transaction_id || "")));
+  if (!edits.length) return null;
+  const ids = [...new Set(edits.map((entry) => String(entry.transaction_id)))];
+  const live = new URLSearchParams({ select: KAKAO_TX_SELECT_V4, household_id: `eq.${householdId}`, id: `in.(${ids.join(",")})`, limit: String(ids.length) });
+  const found = await supabase(env, `/rest/v1/transactions?${live.toString()}`, { method: "GET" });
+  const byId = new Map((Array.isArray(found) ? found : []).map((row) => [String(row.id), row]));
+  const latest = edits.find((entry) => byId.has(String(entry.transaction_id)));
+  return latest ? { row: byId.get(String(latest.transaction_id)), at: String(latest.created_at || "") } : null;
 }
 
 function isKakaoDailyListCommand(text = "") {
@@ -54118,6 +54227,7 @@ async function buildKakaoEditConfigV4(env, householdId = "", rowType = "expense"
   // 번호 ‘이름 1’·‘이름 2’)이다. 예전에는 같은 이름의 둘째부터 ‘이름·2’를 붙여, 저장 답장의 ‘카카오사용자 2’와 다른 이름으로 보였다.
   // 번호는 명단 전체(조회 전용·승인 대기 포함)로 매기고 고르는 목록에는 지출자가 될 수 있는 사람만 둔다(웹 renderSpenderOptions 와 같다).
   const personNames = memberNameMap(members);
+  // V22.9.135 N-2: 다른 사람의 기록을 고친 답에 그 기록의 지출자 이름을 붙일 때도 같은 이름표를 쓴다(읽기는 그대로 한 번).
   const memberOptions = kakaoActiveSpenderMembers(members).slice(0, 20).map((m) => ({
     label: String(personNames[m.user_id] || m.nickname || "구성원").trim().slice(0, 30) || "구성원",
     user_id: m.user_id,
@@ -54149,6 +54259,7 @@ async function buildKakaoEditConfigV4(env, householdId = "", rowType = "expense"
   return {
     members: memberOptions.map((m) => m.label),
     memberOptions,
+    personNames,
     methods,
     rowType: type,
     categories: categoriesByType[type],
@@ -54365,9 +54476,11 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     // 가린다)을 고칠 때, 위에서 읽은 뒤 관리자가 지출자를 바꾸면 예전에는 조건 없는 감사 RPC 가 이제 남의 기록이 된 행에 저장했다. 이제는 웹 수정과 같은
     // 조건부 저장(바꾸는 칸의 읽은 값 + ‘지출자 = 나’)이고, 0행이면 바꾸지 않고 충돌로 답한다. 감사 한 줄은 답장 뒤로 미룬다(답 전 DB 요청 수는 감사 RPC 때와 같다).
     // 카카오로 쓴 기록(source_user_key 있음)은 지출자가 바뀌어도 쓴 사람의 기록이라(isKakaoRowOwnedByRequesterV2254) 예전 그대로다. 소유자·관리자도 그대로다.
+    // V22.9.135 N-2: 구성원도 다른 사람의 기록을 고친다. 조건은 ‘지출자 = 나’ 가 아니라 ‘지출자 = 방금 읽은 사람’(그사이 지출자가 바뀌지 않았다)이다 —
+    // 남의 기록이 늘 충돌로 거절되지 않게 하고, 읽은 뒤 바뀐 기록에 덮어쓰지 않는 것은 그대로 둔다.
     if (!canManageMyHousehold(role) && !String(row.source_user_key || "").trim()) {
       const outcome = await updateTransactionIfUnchangedV22994(env, session.entryId, patch, row, {
-        householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND, path: "/skill", requireUserId: session.userId,
+        householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND, path: "/skill", requireUserId: String(row.user_id || ""),
         auditRunner: (job) => deferKakaoAfterReply(env, job, { cost: 1, critical: true }),
       });
       if (outcome.status === "missing") return { reply: `수정하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘기록’로 번호를 다시 확인해 주세요.`, nextSession: null, gone: true };
@@ -54396,7 +54509,10 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     if (lockedReason) return { reply: refundLinkLockedKakaoText(session.entryNo, lockedReason), nextSession: null };
     return { reply: `${session.entryNo}번 기록을 바꾸지 못했어요. 기록은 그대로예요.\n잠시 후 다시 보내 주세요.`, nextSession: null };
   }
-  return { reply: `${reply}\n${kakaoEditRecordLineV4({ ...row, ...patch })}`, nextSession: null };
+  // V22.9.135 N-2: 다른 사람의 기록을 고쳤으면 기록 줄 끝에 그 기록의 지출자(수입자) 이름을 붙인다(지출자를 바꾼 답은 이미 그 이름을 말한다).
+  const changed = { ...row, ...patch };
+  const ownerSuffix = field !== "payer" && String(changed.user_id || "") !== String(session.userId || "") ? kakaoRowOwnerSuffixV229135(changed, config?.personNames) : "";
+  return { reply: `${reply}\n${kakaoEditRecordLineV4(changed)}${ownerSuffix}`, nextSession: null };
 }
 
 // V22.9.126 FC-12: 새 기록의 ‘future’ 안내(request-guards.js kakaoRecordGuardV229120)와 같은 두 문장. 예시는 고치는 값(날짜)만 적는다 —
@@ -54409,9 +54525,11 @@ function kakaoEditFutureBareDayAskV229126(future = {}) {
 }
 
 // V22.9.104 J-9: 고치려던 사이 다른 사람이 이 기록을 먼저 바꿨다(지출자 바뀜은 spender_changed). 아무것도 바꾸지 않았다. 답 글에 주소는 넣지 않는다.
+// V22.9.135 N-2: 구성원도 다른 사람의 기록을 고치므로 지출자가 바뀐 것은 ‘내 기록이 아니라서’ 가 아니라 그사이 기록이 바뀐 것이다. 지금 기록을 보라고 한다.
 function kakaoEditConflictTextV229104(entryNo = "", row = {}, status = "changed") {
-  if (status === "spender_changed") return `다른 사람이 ${entryNo}번 기록을 먼저 바꿔서 수정하지 않았어요.\n그 사이 ${row.type === "income" ? "수입자" : "지출자"}가 바뀌어 이제 내 기록이 아니에요.`;
-  return `다른 사람이 ${entryNo}번 기록을 먼저 바꿔서 수정하지 않았어요.\n‘${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기’로 지금 기록을 확인해 주세요.`;
+  const look = `‘${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기’로 지금 기록을 확인해 주세요.`;
+  if (status === "spender_changed") return `다른 사람이 ${entryNo}번 기록을 먼저 바꿔서 수정하지 않았어요.\n그 사이 ${row.type === "income" ? "수입자" : "지출자"}가 바뀌었어요. ${look}`;
+  return `다른 사람이 ${entryNo}번 기록을 먼저 바꿔서 수정하지 않았어요.\n${look}`;
 }
 
 // 3장 표: handleEditMessage 반환 action별 Worker 처리. 다른 해석 금지.
@@ -54464,7 +54582,9 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
       return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeleteFailedTextV4(err, row, seq), null);
     }
     // V22.9.80 T-13: 환불 연결이 함께 풀렸으면(플래그가 켜진 경우만 버퍼에 칸이 있다) 그 사실을 답장에 붙인다.
-    return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeletedTextV4(row, seq, deleted?.refund_links), null, { gone: true });
+    // V22.9.135 N-2: 다른 사람의 기록이면 그 기록의 지출자 이름을 붙인다(수정 창이 이미 읽은 이름표 — 읽기가 늘지 않는다).
+    const ownerSuffix = String(row.user_id || "") !== String(session.userId || "") ? kakaoRowOwnerSuffixV229135(row, config?.personNames) : "";
+    return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeletedTextV4(row, seq, deleted?.refund_links, ownerSuffix), null, { gone: true });
   }
   // ask_value / confirm / reprompt / cancel — 모듈의 reply와 nextSession을 그대로 따른다.
   return sendKakaoEditReplyV4(env, ctx, session, result?.reply || "", result?.nextSession || null, { userCancel: !!result?.userCancel });
@@ -54603,9 +54723,12 @@ async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey 
     // 고친 직후 ‘방금 거 지워줘’ 가 고친 기록이 아니라 마지막에 저장한 기록을 묻지 않고 지웠다. 마지막으로 바뀐 기록(updated_at 순)을 같은
     // 단계에서 함께 읽어(직렬 깊이 그대로) 마지막 저장 뒤에 내 다른 기록이 바뀌었으면 어느 쪽도 고르지 않고 두 기록을 번호로 묻는다.
     // 삭제·‘방금 거 5000원으로’·번호 없는 지출자 변경이 모두 이 길이다. 바뀐 시각이 없는 줄(예전 검사 픽스처)은 예전처럼 마지막 저장 기록이다.
-    const [recent, touchedRows] = await Promise.all([
+    // V22.9.135 N-2: 구성원도 다른 사람의 기록을 고치므로, 마지막 저장 뒤에 내가 고친 남의 기록(감사 기록 — 행위자 = 나, 그 기록이 지금도 있는 것만)도
+    // 같은 단계에서 읽는다. 그 읽기가 실패하거나 늦으면(KAKAO_LATEST_EDIT_WAIT_MS_V229135) 없는 것으로 본다 — 그때는 V22.9.134 와 같다(내 기록의 바뀐 순서만 본다).
+    const [recent, touchedRows, editedByMe] = await Promise.all([
       getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1),
       getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1, { touched: true }),
+      optionalWithin(getLatestKakaoEditByRequesterV229135(env, household.id, user.id).catch(() => null), KAKAO_LATEST_EDIT_WAIT_MS_V229135, null),
     ]);
     const row = recent[0] || null;
     if (!row) return { row: null, seq: 0 };
@@ -54613,20 +54736,42 @@ async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey 
     const rows = await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, row.transaction_date || formatDate(nowKstDate()));
     const seqIn = (list, item) => list.findIndex((other) => String(other.id) === String(item.id)) + 1;
     // V22.9.93 Q-50: 한 말로 저장한 여러 건은 저장 시각이 같아 ‘방금’ 이 어느 건인지 정할 수 없다(번호도 임의 id 순서다). 아무 건이나 고치거나 지우지 않고 번호로 묻는다.
-    const sameSave = rows.flatMap((item, index) => (item.created_at === row.created_at ? [{ item, seq: index + 1 }] : []));
-    const touched = touchedRows[0] || null;
-    if (touched && String(touched.id) !== String(row.id) && kakaoChangedAfterV229116(touched.updated_at, row.created_at)) {
+    // V22.9.135 N-2: 그날 목록은 이제 가계부 전체다. ‘방금’ 은 여전히 내 기록이므로 같은 시각의 기록도 내 것만 센다(번호는 가계부 전체 순서).
+    const sameSave = rows.flatMap((item, index) => (item.created_at === row.created_at && isKakaoRowOwnedByRequesterV2254(item, user.id, kakaoUserKey) ? [{ item, seq: index + 1 }] : []));
+    // 마지막 저장 뒤에 바뀐 다른 기록: 내 기록의 바뀐 순서(V22.9.116)와 내가 고친 기록(V22.9.135 — 남의 기록 포함) 가운데 더 늦은 것.
+    const ownTouched = touchedRows[0] || null;
+    const changedAfterSave = [
+      ownTouched ? { item: ownTouched, at: ownTouched.updated_at } : null,
+      editedByMe?.row ? { item: editedByMe.row, at: editedByMe.at } : null,
+    ].filter((entry) => entry && String(entry.item.id) !== String(row.id) && kakaoChangedAfterV229116(entry.at, row.created_at));
+    const touched = changedAfterSave.length > 1 && kakaoChangedAfterV229116(changedAfterSave[1].at, changedAfterSave[0].at) ? changedAfterSave[1].item : changedAfterSave[0]?.item || null;
+    if (touched) {
       const touchedDay = String(touched.transaction_date || "");
       const touchedList = touchedDay === String(row.transaction_date || "") ? rows : await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, touchedDay || formatDate(nowKstDate()));
+      // 고친 기록은 다시 읽은 지금 행이다(지운 기록은 후보가 아니다 — getLatestKakaoEditByRequesterV229135). 그날 목록에서 번호를 찾고, 목록이 읽는 범위(그날 앞의
+      // 500건) 밖이면 번호 없이 적는다.
+      const current = touchedList.find((other) => String(other.id) === String(touched.id)) || touched;
       const saved = sameSave.length > 1 ? sameSave : [{ item: row, seq: seqIn(rows, row) }];
-      return { row: null, seq: 0, dailyLimit: Number(rows.dailyLimit || 0), ambiguousText: kakaoEditTouchedAmbiguousTextV229116({ item: touched, seq: seqIn(touchedList, touched) }, saved) };
+      return { row: null, seq: 0, dailyLimit: Number(rows.dailyLimit || 0), ambiguousText: kakaoEditTouchedAmbiguousTextV229116({ item: current, seq: seqIn(touchedList, current) }, saved) };
     }
     if (sameSave.length > 1) return { row: null, seq: 0, dailyLimit: Number(rows.dailyLimit || 0), ambiguousText: kakaoEditAmbiguousLatestTextV4(sameSave) };
     return { row, seq: seqIn(rows, row), dailyLimit: Number(rows.dailyLimit || 0) };
   }
   const found = await findDailyKakaoRowBySeq(env, household.id, user.id, kakaoUserKey, target.date, target.seq);
-  // V22.9.134 N-1: 번호를 찾지 못한 답이 쓰도록 그날 내 기록 수와 다른 사람의 기록 수를 함께 돌려준다(같은 읽기에서 센 값).
-  return { row: found.row, seq: Number(target.seq || 0), dailyLimit: Number(found.rows?.dailyLimit || 0), ownCount: Number(found.rows?.length || 0), othersCount: Number(found.rows?.othersCount || 0) };
+  // V22.9.135 N-2: 번호를 찾지 못한 답이 쓰도록 그날 가계부 기록 수를 함께 돌려준다(같은 읽기에서 센 값).
+  return { row: found.row, seq: Number(target.seq || 0), dailyLimit: Number(found.rows?.dailyLimit || 0), dayCount: Number(found.rows?.length || 0) };
+}
+
+// V22.9.135 N-2: 다른 사람의 기록이 있으면 기록 줄에 붙일 이름표(구성원 명단 — 저장 답·웹과 같은 이름 규칙 memberNameMap)를 읽기 시작한다.
+// 모두 내 기록이면 읽지 않는다(null). 기다리는 쪽은 optionalWithin 으로 짧게만 기다린다 — 늦거나 실패하면 이름 없이 답한다.
+const KAKAO_OWNER_NAMES_WAIT_MS_V229135 = 800;
+// V22.9.135 N-2: ‘방금’ 을 정할 때 내가 마지막으로 고친 기록(감사 기록)을 기다리는 한도. 다른 두 읽기와 같은 단계라 보통은 그 둘보다 먼저 끝난다.
+const KAKAO_LATEST_EDIT_WAIT_MS_V229135 = 1200;
+function kakaoOwnerNamesPromiseV229135(env, householdId = "", rows = [], userId = "") {
+  if (!safeArray(rows).some((row) => row && String(row.user_id || "") !== String(userId || ""))) return null;
+  const promise = fetchHouseholdMembers(env, householdId).then(memberNameMap);
+  promise.catch(() => {});
+  return promise;
 }
 
 // V22.9.79 감사 B-8: 복구가 끝나지 않았을 때의 안내. 예전에는 어느 경우든 "다시 ‘복구’를 입력"하라고 했다.
@@ -54682,6 +54827,8 @@ function kakaoChangedAfterV229116(changedAt = "", savedAt = "") {
 
 // V22.9.116: 마지막 저장 뒤에 다른 기록을 고쳤을 때의 ‘방금’ 답. 고친 기록과 마지막에 저장한 기록(한 말로 여러 건이면 그 기록들)을 날짜·번호와 함께 보이고
 // 아무것도 바꾸지 않는다. 예시는 고친 기록의 번호로 적는다(번호를 모르면 저장한 기록, 둘 다 모르면 목록 보기 안내).
+// V22.9.135(독립 검토 2026-11-21 2차): 구성원이 서로의 기록을 고치게 되어, 내 다른 기록을 남이 고친 뒤에도 이 답이 나온다(E-11). ‘고쳐서’·‘고친 기록’ 은 말한
+// 사람이 고친 것처럼 읽혀 ‘바뀌어서’·‘바뀐 기록’ 으로 적는다(누가 고쳤든 맞는 말).
 function kakaoEditTouchedAmbiguousTextV229116(touched = {}, saved = []) {
   const line = ({ item, seq }) => `${kakaoEditDayPrefixV4(item.transaction_date)}${kakaoRowLabel(item, seq)}`;
   const pick = Number(touched.seq) >= 1 ? touched : saved.find((entry) => Number(entry.seq) >= 1) || null;
@@ -54689,8 +54836,8 @@ function kakaoEditTouchedAmbiguousTextV229116(touched = {}, saved = []) {
   const shown = pick ? twoDigitSeq(pick.seq) : "";
   const more = saved.length > 6 ? [`외 ${saved.length - 6}건은 ‘${kakaoEditDayPrefixV4(saved[0].item.transaction_date) || "오늘"}기록’에서 볼 수 있어요.`] : [];
   return [
-    "마지막에 저장한 뒤에 다른 기록을 고쳐서 ‘방금’이 어느 기록인지 정하지 못했어요. 아무것도 바꾸지 않았어요.",
-    `마지막에 고친 기록: ${line(touched)}`,
+    "마지막에 저장한 뒤에 다른 기록이 바뀌어서 ‘방금’이 어느 기록인지 정하지 못했어요. 아무것도 바꾸지 않았어요.",
+    `마지막에 바뀐 기록: ${line(touched)}`,
     saved.length > 1 ? `마지막에 한 번에 저장한 기록 ${saved.length}건:` : `마지막에 저장한 기록: ${line(saved[0])}`,
     ...(saved.length > 1 ? saved.slice(0, 6).map(line) : []),
     ...more,
@@ -54698,26 +54845,18 @@ function kakaoEditTouchedAmbiguousTextV229116(touched = {}, saved = []) {
   ].join("\n");
 }
 
-// V22.9.134 N-1(운영자 2026-11-20 — 출시일 실제 단톡방): 번호는 기록한 사람마다 01번부터 따로 매기고(‘오늘기록’ 도 내 기록만 보인다), 번호로 고치거나 지우는
-// 것은 누구든 자기가 남긴 기록뿐이다. 그런데 다른 사람의 저장 답에 적힌 ‘삭제 01번’ 을 따라 보낸 사람은 ‘01번 기록을 찾지 못했어요’ 만 받아 까닭을 알 수 없었다.
-// 그날 내 것이 아닌 기록이 있으면(counts.othersCount — 같은 읽기에서 센 값) 번호가 사람마다 따로라는 것과 그 기록은 내 번호로 고칠 수 없다는 것을 말한다.
-//  · 누가 고칠 수 있는지는 단정하지 않는다(독립 검토: 구성원 권한이 ‘기록만’ 인 가계부에서는 기록한 사람도 고치지 못한다). 소유자·관리자에게만 웹에서
-//    고칠 수 있다고 알린다(그 권한은 구성원 권한 설정과 무관하다).
-//  · 그날 읽은 범위가 한도(500건)에 닿았으면 내 기록이 읽은 범위 밖에 있을 수 있으므로 수를 말하지 않는다 — 예전 글과 한도 줄 그대로다.
-//  · 내 것이 아닌 기록이 없는 날의 답도 예전 그대로다.
+// V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 번호는 이제 그날 가계부 기록 전체의 순서라 누구의 번호든 같은 기록을 가리킨다. V22.9.134 N-1 의
+// ‘번호는 기록한 사람마다 따로’ 안내는 없어졌다. 찾지 못한 번호면 그날 기록이 몇 번까지인지(counts.dayCount — 같은 읽기에서 센 값) 말한다.
+//  · 그날 읽은 범위가 한도(500건)에 닿았으면 기록이 읽은 범위 밖에 있을 수 있으므로 수를 말하지 않는다 — 예전 글과 한도 줄 그대로다.
+//  · 번호 없는 요청(‘방금’)의 답도 예전 그대로다.
 function kakaoEditRowNotFoundTextV4(target = {}, dailyLimit = 0, counts = {}) {
   const date = target.date || formatDate(nowKstDate());
   const seqText = target.seq ? ` ${twoDigitSeq(target.seq)}번` : "";
-  const others = Math.max(0, Math.round(Number(counts.othersCount || 0)));
-  const own = Math.max(0, Math.round(Number(counts.ownCount || 0)));
-  if (!others || !target.seq || dailyLimit) return [`${date}${seqText} 기록을 찾지 못했어요.`, `"${date} 기록"이라고 입력해 번호를 다시 확인해 주세요.`, kakaoDailyLimitLineV22980(dailyLimit)].filter(Boolean).join("\n");
-  const manager = ["owner", "admin"].includes(String(counts.role || "").toLowerCase());
-  return [
-    own ? `${date}${seqText} 기록을 찾지 못했어요. 이 날 내가 남긴 기록은 ${twoDigitSeq(own)}번까지예요.` : `${date}에 내가 남긴 기록이 없어서${seqText}을 찾지 못했어요.`,
-    `번호는 기록한 사람마다 01번부터 따로 매겨요. 이 날 내 것이 아닌 기록 ${numberWithCommas(others)}건은 내 번호로는 고치거나 지울 수 없어요.`,
-    manager ? "소유자·관리자는 웹 가계부에서 다른 분의 기록도 고칠 수 있어요." : "",
-    ...(own ? ["내 번호는 이렇게 다시 볼 수 있어요.", `예) ${date} 기록`] : []),
-  ].filter(Boolean).join("\n");
+  const dayCount = Math.max(0, Math.round(Number(counts.dayCount || 0)));
+  const head = !target.seq || dailyLimit ? `${date}${seqText} 기록을 찾지 못했어요.`
+    : dayCount ? `${date}${seqText} 기록을 찾지 못했어요. 이 날 기록은 ${twoDigitSeq(dayCount)}번까지예요.`
+    : `${date}${seqText} 기록을 찾지 못했어요. 이 날은 기록이 없어요.`;
+  return [head, `"${date} 기록"이라고 입력해 번호를 다시 확인해 주세요.`, kakaoDailyLimitLineV22980(dailyLimit)].filter(Boolean).join("\n");
 }
 
 // V22.9.77 감사 A-14: ‘오늘기록’ 목록은 앞의 20건(가장 오래된 기록)에서 끊겼고, 950자를 넘으면 줄 중간이 잘렸다. 다 들어가면
@@ -54725,10 +54864,12 @@ function kakaoEditRowNotFoundTextV4(target = {}, dailyLimit = 0, counts = {}) {
 // 답장 안전 길이 950자보다 짧게). 뺀 건수(외 N건)와 전체를 볼 곳(웹 가계부의 그 달 기록)을 적는다. 번호는 저장 순서 그대로다.
 const KAKAO_DAILY_LIST_MAX_ROWS_V22977 = 20;
 const KAKAO_DAILY_LIST_MAX_CHARS_V22977 = 900;
-function kakaoDailyListTextV4({ date = "", householdName = "", ownOnlyLine = "", limitLine = "", rows = [], dayPrefix = "", webLink = "" } = {}) {
-  const head = [`🧾 ${date} 기록`, `가계부: ${householdName || "가계부"}`, ownOnlyLine, ...(limitLine ? [limitLine] : [])];
+// V22.9.135 N-2: rows 는 그날 가계부 기록 전체(번호 = 저장 순서)다. names 가 있으면(다른 사람의 기록이 섞인 날) 줄마다 끝에 지출자(수입자) 이름을 붙이고,
+// headLine(‘구성원 모두의 기록이에요 …’)은 그런 날에만 온다 — 모두 내 기록인 날의 목록은 예전 모양 그대로다.
+function kakaoDailyListTextV4({ date = "", householdName = "", headLine = "", limitLine = "", rows = [], dayPrefix = "", webLink = "", names = null } = {}) {
+  const head = [`🧾 ${date} 기록`, `가계부: ${householdName || "가계부"}`, ...(headLine ? [headLine] : []), ...(limitLine ? [limitLine] : [])];
   const guide = (seq) => ["", `수정: "${dayPrefix}수정 ${seq}번" 또는 "${dayPrefix}수정 ${seq}번 금액 13000"`, `삭제: "${dayPrefix}삭제 ${seq}번"`];
-  const lines = safeArray(rows).map((r, i) => kakaoRowLabel(r, i + 1).replace(/\s*\n+\s*/g, " "));
+  const lines = safeArray(rows).map((r, i) => `${kakaoRowLabel(r, i + 1)}${kakaoRowOwnerSuffixV229135(r, names)}`.replace(/\s*\n+\s*/g, " "));
   const all = [...head, "", ...lines, ...guide("01")].join("\n");
   if (lines.length <= KAKAO_DAILY_LIST_MAX_ROWS_V22977 && all.length <= KAKAO_DAILY_LIST_MAX_CHARS_V22977) return all;
   for (let shown = Math.min(lines.length - 1, KAKAO_DAILY_LIST_MAX_ROWS_V22977); shown >= 1; shown -= 1) {
@@ -54826,16 +54967,19 @@ async function handleKakaoEditCommandV4(env, ctx) {
     if (!date) return kakaoText("달력에 없는 날짜라서 기록을 찾지 않았어요.\n예: 어제 기록 보기 · 7월 10일 기록 보기");
     const rows = await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, date);
     // V22.9.72: 빈 날은 짧게 알리고 맨 아래 ‘기록하기’ 버튼으로 잇는다(2026-10-20 디자이너 피드백).
-    // V22.9.76 카카오 감사 7: 이 목록은 내가 남긴 기록만 번호를 붙여 보인다(번호 체계는 그대로). 가계부 전체는 요약으로 안내한다.
-    // V22.9.80 T-10: 그날 기록은 500건까지만 읽는다. 그 한도에 닿았으면 뒤쪽 기록이 목록에 없을 수 있다고 한 줄로 말하고(추가 조회 없음),
-    // 내 기록이 하나도 없어도 한도에 닿았으면 ‘아직 기록이 없어요’라고 단정하지 않는다.
+    // V22.9.80 T-10: 그날 기록은 500건까지만 읽는다. 그 한도에 닿았으면 뒤쪽 기록이 목록에 없을 수 있다고 한 줄로 말한다(추가 조회 없음).
+    // V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 이 목록은 그날 가계부 기록 전체다(V22.9.76 감사 7 부터 134 까지는 내 기록만 보였다).
+    // 번호는 누가 보든 같다. 다른 사람의 기록이 섞인 날에는 줄마다 지출자(수입자) 이름을 붙이고 머리에 한 줄로 알린다(단톡방에서는 이 답을 모두가 본다 —
+    // ‘나’ 가 아니라 이름이다). 모두 내 기록인 날(혼자 쓰는 가계부 포함)의 목록은 예전 모양 그대로다. 이름표를 늦게 읽으면 이름 없이 보인다.
+    if (!rows.length) return kakaoNextStepReply([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", "아직 기록이 없어요.", "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
     const limitLine = kakaoDailyLimitLineV22980(rows.dailyLimit);
-    const ownOnlyLine = `내 기록만 보여요 · 가계부 전체는 ‘${(kakaoEditDayPrefixV4(date) || "오늘 ").trim()} 요약’`;
-    if (!rows.length) return kakaoNextStepReply([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, ownOnlyLine, "", ...(limitLine ? ["읽은 범위에는 내 기록이 없어요.", limitLine] : ["아직 기록이 없어요."]), "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
+    const namesPromise = kakaoOwnerNamesPromiseV229135(env, household.id, rows, user.id);
+    const names = namesPromise ? await optionalWithin(namesPromise, KAKAO_OWNER_NAMES_WAIT_MS_V229135, null) : null;
+    const headLine = !namesPromise ? "" : names ? "구성원 모두의 기록이에요 · 괄호 안은 지출자(수입은 수입자)" : "구성원 모두의 기록이에요";
     // T2: 오늘이 아닌 날의 목록은 안내에도 그 날짜를 붙인다. 날짜 없는 "삭제 01번"은 오늘의 01번이다.
     const dayPrefix = kakaoEditDayPrefixV4(date);
     const webLink = origin ? `${origin}${myReturnLocation(date.slice(0, 7), household.id)}` : "";
-    return kakaoText(kakaoDailyListTextV4({ date, householdName: household.name, ownOnlyLine, limitLine, rows, dayPrefix, webLink }));
+    return kakaoText(kakaoDailyListTextV4({ date, householdName: household.name, headLine, limitLine, rows, dayPrefix, webLink, names }));
   }
 
   const restoreTarget = parseKakaoRestoreCommandV4(raw);
@@ -54906,7 +55050,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
       // 그 요청이 방금 기록을 되살렸을 수 있다 — 아래 답장이 구분해서 말한다.
       outcome = { kind: "failed", undo: null, error: err, busy: /settings_rmw_busy/.test(safeError(err)) };
     }
-    if (outcome.kind === "empty") return kakaoText("복구할 삭제 기록이 없어요.\n삭제 직후 안내된 번호로만 복구할 수 있어요. ‘오늘기록’로 현재 기록을 확인해 주세요.");
+    // V22.9.135 N-2: 구성원이 다른 사람의 기록도 지우게 됐다. 복구 목록은 지운 사람마다 따로라(같은 방이라도), 내가 지우지 않은 기록은 내 ‘복구’ 로 되살릴 수 없다고 말한다.
+    if (outcome.kind === "empty") return kakaoText("복구할 삭제 기록이 없어요.\n복구는 기록을 지운 사람이 삭제 직후 안내된 번호로 할 수 있어요. ‘오늘기록’로 현재 기록을 확인해 주세요.");
     if (outcome.kind === "other_household") {
       // V22.9.79 감사 B-9: 지금 가계부에서 지운 기록이 따로 있으면 그 번호를 알려 준다(다른 가계부 기록을 건드리지 않고 이 가계부 기록만 안내).
       const ownHint = outcome.ownSeq ? `\n지금 가계부에서 지운 기록은 ‘복구 ${twoDigitSeq(outcome.ownSeq)}번’으로 되살릴 수 있어요.` : "";
@@ -54931,9 +55076,12 @@ async function handleKakaoEditCommandV4(env, ctx) {
     const restored = outcome.restored;
     // V22.9.81 U-13: 번호를 모르면 지어낸 ‘01번’ 없이 적는다. 되살린 뒤의 번호 조회가 실패해도 복구는 끝났으므로 답장을 실패로 바꾸지 않는다
     // (실패 답장을 보고 ‘복구’를 다시 보내면 그다음 삭제 기록까지 되살아난다).
+    // V22.9.135 N-2: 다른 사람의 기록을 되살렸으면 기록 줄에 그 기록의 지출자 이름을 붙인다(번호를 읽는 동안 함께 읽는다 — 늦으면 이름 없이).
+    const namesPromise = kakaoOwnerNamesPromiseV229135(env, household.id, [restored], user.id);
     const seq = (await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, restored).catch(() => 0)) || Number(outcome.undo.seq || 0);
+    const ownerSuffix = namesPromise ? kakaoRowOwnerSuffixV229135(restored, await optionalWithin(namesPromise, KAKAO_OWNER_NAMES_WAIT_MS_V229135, null)) : "";
     // V22.9.80 T-13: 지울 때 버퍼에 적은 환불 연결은 복구로 되살아나지 않는다(연결은 삭제와 함께 지워졌다). 답장이 그 사실을 말한다.
-    return kakaoText(`↩️ ${kakaoEditDayPrefixV4(restored.transaction_date)}기록을 복구했어요.\n${kakaoRowLabel(restored, seq)}${kakaoRefundLinkUndoNoteV4(outcome.undo?.refund_links, "restore")}`);
+    return kakaoText(`↩️ ${kakaoEditDayPrefixV4(restored.transaction_date)}기록을 복구했어요.\n${kakaoRowLabel(restored, seq)}${ownerSuffix}${kakaoRefundLinkUndoNoteV4(outcome.undo?.refund_links, "restore")}`);
   }
 
   const deleteTarget = parseKakaoDeleteCommandV4(raw);
@@ -54941,20 +55089,23 @@ async function handleKakaoEditCommandV4(env, ctx) {
     const rejected = kakaoEditTargetRejectTextV4(deleteTarget);
     if (rejected) return kakaoText(rejected);
     { const refused = await refuseRecordChange(); if (refused) return refused; }
-    const { row, seq, dailyLimit, ambiguousText, ownCount, othersCount } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
-    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit, { ownCount, othersCount, role: ctx.role }));
+    const { row, seq, dailyLimit, ambiguousText, dayCount } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
+    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit, { dayCount }));
+    // V22.9.135 N-2: 다른 사람의 기록을 지우면 답의 기록 줄에 그 기록의 지출자 이름을 붙인다. 이름표는 지우는 동안 함께 읽는다(늦으면 이름 없이).
+    const namesPromise = kakaoOwnerNamesPromiseV229135(env, household.id, [row], user.id);
     let deleted = null;
     try {
       deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id, role: ctx.role }, row, seq);
     } catch (err) {
       return kakaoText(kakaoEditDeleteFailedTextV4(err, row, seq));
     }
+    const ownerSuffix = namesPromise ? kakaoRowOwnerSuffixV229135(row, await optionalWithin(namesPromise, KAKAO_OWNER_NAMES_WAIT_MS_V229135, null)) : "";
     // 삭제는 끝났다. 남은 세션 정리가 실패해도 "다시 보내 주세요"로 바뀌면 안 된다(다시 보내면 다음 번호가 지워진다).
     // V22.9.126 FC-19: 고치기와 같게 한 번 더 써 본다. 이 길은 세션을 미리 읽지 않아 두 번 다 실패했을 때만 남은 세션을 읽어 줄을 고르고(3차 검토),
     // 그 읽기도 실패하면 정리가 지우기 전에 본 이 isolate 의 힌트로 판단한다(4차 검토 — 저장소가 실패하는 동안에도 창은 남아 있을 수 있다).
     const hinted = hasKakaoEditSessionHint(kakaoUserKey, payload);
     const closeError = await closeKakaoEditSessionV229126(env, kakaoUserKey, payload);
-    const deletedText = kakaoEditDeletedTextV4(row, seq, deleted?.refund_links);
+    const deletedText = kakaoEditDeletedTextV4(row, seq, deleted?.refund_links, ownerSuffix);
     const stale = closeError ? await getKakaoEditSessionV4(env, kakaoUserKey, payload).catch(() => undefined) : null;
     const line = stale === undefined ? (hinted ? KAKAO_EDIT_CLOSE_FAILED_LINE_V229126 : "") : kakaoEditCloseFailedLineV229126(stale, { goneEntryId: row.id });
     return kakaoText(line ? `${deletedText}\n${line}` : deletedText);
@@ -54972,8 +55123,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
       return kakaoText(`${shown}번 기록은 그대로예요.\n지우려면 ‘삭제 ${shown}번’이라고 보내 주세요.`);
     }
     { const refused = await refuseRecordChange(); if (refused) return refused; }
-    const { row, seq, dailyLimit, ambiguousText, ownCount, othersCount } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
-    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(editTarget, dailyLimit, { ownCount, othersCount, role: ctx.role }));
+    const { row, seq, dailyLimit, ambiguousText, dayCount } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
+    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(editTarget, dailyLimit, { dayCount }));
     // V22.9.93 Q-32: ‘방금 분류 이상해’ 는 그 칸을 다시 묻고, ‘아까 거 내용 뭐였지’ 는 기록을 보여 준다. 둘 다 값이 아니라 기록을 바꾸지 않는다.
     if (isKakaoEditNotValue(editTarget.rest) && !/^구분(?:\s|$)/.test(editTarget.rest)) {
       const complaint = kakaoEditComplaintField(editTarget.rest);
@@ -59406,14 +59557,20 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const icon = parsed.type === "income" ? "💰" : "💸";
   const typeText = parsed.type === "income" ? "수입" : "지출";
   const enrichBudgetMs = Math.max(150, Math.min(700, 3900 - (Date.now() - handlerStartedAt)));
-  const [seq, aliases, payerMembers, feedbackData] = await Promise.all([
-    dailyRows ? dailyRows.length >= KAKAO_DAILY_ROW_LIMIT_V22980 ? 0 : kakaoDailySeqFromRows(dailyRows.some(row => String(row.id) === String(saved.id)) ? dailyRows : [...dailyRows, saved], saved, user.id, kakaoUserKey)
-      : optionalWithin(dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, saved), enrichBudgetMs, 0),
+  // V22.9.135 N-2: 답의 번호는 가계부 전체 순서다(kakaoDailySeqFromRows — ‘오늘기록’ 과 같은 규칙). 예전처럼 저장 전에 읽은 그날 목록(중복 확인용)으로
+  // 정하고, 그 목록이 없을 때만 저장한 뒤 읽는다 — 저장소 호출 수와 순차 단계는 V22.9.134 와 같다. 저장 전 읽기와 저장 사이(수십 ms)에 다른 사람이
+  // 저장하면 번호가 하나 어긋날 수 있다. 그 순간을 막으려 모든 공동 기록에 읽기를 하나 더하지 않았다: 다른 사람이 앞 번호의 기록을 지우면 번호가 당겨지는
+  // 더 흔한 어긋남은 다시 읽어도 막지 못하고, 번호로 지우거나 고친 답에는 그 기록과 지출자 이름이 보이며 지운 기록은 ‘복구’ 로 되살린다.
+  // ownSeq 는 내 기록만 센 번호로, 아래 ‘오늘의 첫 기록’ 판단에만 쓴다.
+  const [seqPair, aliases, payerMembers, feedbackData] = await Promise.all([
+    dailyRows ? kakaoDailySeqPairFromRowsV229135(dailyRows, saved, user.id, kakaoUserKey)
+      : optionalWithin(kakaoDailySeqPairV229135(env, household.id, user.id, kakaoUserKey, saved), enrichBudgetMs, { seq: 0, ownSeq: 0 }),
     optionalWithin(aliasesPromise, enrichBudgetMs, {}),
     payerMembersPromise ? optionalWithin(payerMembersPromise, enrichBudgetMs, null) : null,
     // V22.9.123: 한 줄 피드백은 350 ms 안에 온 것만 붙인다(저장소가 느린 날 답을 더 늦추지 않는다).
     feedbackPromise && newCount === 1 ? optionalWithin(feedbackPromise, Math.min(enrichBudgetMs, 350), null) : null,
   ]);
+  const seq = Number(seqPair?.seq || 0), ownSeq = Number(seqPair?.ownSeq || 0);
   // 독립 검토 뒤: 읽은 자료가 이상해(원소가 null 등) 줄을 만들다 던지면 저장된 기록에 일반 오류 답이 나가므로, 줄 만들기도 방어 안에 둔다(그 줄만 빠진다).
   // 읽기를 던진 뒤 달이 넘어갔으면(말일 23:59 의 기록) ‘이번 달’ 이라고 부를 수 없으므로 붙이지 않는다.
   let feedbackLine = "";
@@ -59428,10 +59585,11 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   // V22.9.43: 구성원 권한이 ‘기록만’인 구성원에게는 할 수 없는 수정·삭제 명령을 안내하지 않는다.
   const recordOnlyMember = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY;
   // V22.9.123: 오늘 날짜로 남긴 오늘의 첫 카카오 기록 답에만 요약 단추를 붙인다(월요일 ‘지난주 요약’, 1~5일 ‘지난달 요약’). 그날 둘째 기록부터는 붙이지 않는다.
-  // ‘오늘의 첫 기록’ 은 답에 찍히는 번호(01번)로 본다 — 저장소 호출이 늘지 않는다. 번호는 ‘오늘기록’ 과 같은 규칙(isKakaoRowOwnedByRequesterV2254)이라
-  // 다른 사람의 기록은 세지 않지만, 내가 오늘 웹에서 먼저 넣은 기록은 내 줄로 센다(그때는 카카오 첫 기록이 02번이라 붙지 않는다).
-  // 번호를 읽지 못했으면(seq 0) 붙이지 않는다. 첫 기록 답(onSaved — 가계부 준비·참여 안내가 든 긴 답)에도 붙이지 않는다.
-  const firstOfToday = returnHints && !onSaved && newCount === 1 && seq === 1 && String(saved.transaction_date || "") === formatDate(nowKstDate());
+  // ‘오늘의 첫 기록’ 은 그날 내 기록만 센 번호(ownSeq)가 1 인 것으로 본다 — 저장소 호출이 늘지 않는다(번호와 같은 읽기). 다른 사람의 기록은 세지 않지만,
+  // 내가 오늘 웹에서 먼저 넣은 기록은 내 줄로 센다(그때는 카카오 첫 기록이 2 라 붙지 않는다). V22.9.135: 답의 번호(seq)는 이제 가계부 전체 순서라
+  // 그 값으로 보지 않는다(같은 방에서 다른 사람이 먼저 기록한 날에도 사람마다 그날 첫 기록에 붙는다 — V22.9.134 까지와 같다).
+  // 번호를 읽지 못했으면(0) 붙이지 않는다. 첫 기록 답(onSaved — 가계부 준비·참여 안내가 든 긴 답)에도 붙이지 않는다.
+  const firstOfToday = returnHints && !onSaved && newCount === 1 && ownSeq === 1 && String(saved.transaction_date || "") === formatDate(nowKstDate());
   const summaryReplies = firstOfToday ? kakaoReturnSummaryRepliesV229123() : null;
   const editGuide = recordOnlyMember ? `\n\n구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요.`
     : seq ? `\n\n수정: "${dayPrefix}수정 ${twoDigitSeq(seq)}번" 또는 "${dayPrefix}수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "${dayPrefix}삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘${dayPrefix || "오늘 "}기록 보기’에서 확인해 주세요.`;
@@ -64890,6 +65048,8 @@ async function fetchDeleteAuditIdV22994(env, { transactionId = "", householdId =
 // 이 한 줄이 실패해도 수정은 이미 저장됐으므로 성공으로 답하고 운영 이벤트만 남긴다. 결과를 모르는 PATCH(응답 없음·5xx)는 supabase() 가 결과 불확실로
 // 던진다. 지출자 바꾸기는 부르는 곳이 같은 요청에서 받은 참여자 목록으로 먼저 확인한다(RPC 는 잠근 채 한 번 더 확인했다). 환불 연결 보호 트리거
 // (refund_link_guard_v22979, BEFORE UPDATE)는 PATCH 에도 그대로 걸린다.
+// V22.9.135 N-2: 구성원도 다른 사람의 기록을 고친다. 부르는 곳은 이제 requireUserId 에 ‘나’ 가 아니라 ‘읽은 기록의 지출자’ 를 준다(그사이 지출자가 바뀌지
+// 않았다는 조건 — 아래 V22.9.104 설명의 ‘구성원 본인 id’ 자리). 함수의 동작은 그대로다.
 // V22.9.104 J-9(Codex 검토 V102): 구성원은 자기 기록(지출자 = 나)만 고친다. 그런데 바꾸지 않는 칸은 조건에 걸지 않으므로, 구성원이 금액만 고치는 사이
 // 관리자가 그 기록의 지출자를 바꾸면 구성원의 저장이 이제 남의 기록이 된 행에 들어갔다. options.requireUserId(구성원 본인 id)를 주면 지출자 칸을
 // 바꾸지 않아도 PATCH 에 user_id=eq.<그 id> 조건을 함께 건다(같은 PATCH 의 조건 하나라 DB 요청은 늘지 않는다). 0행이면 다시 읽어 지출자가 다르면
@@ -64931,7 +65091,8 @@ async function updateTransactionIfUnchangedV22994(env, id, body, expected = {}, 
     return params;
   };
   const patchWhere = async (params) => {
-    // V22.9.104 J-9: 구성원 저장은 지출자 칸을 바꾸지 않아도 ‘지출자 = 나’ 조건을 건다(바꾸는 칸의 조건 뒤에 두어 같은 칸이면 이 값이 남는다).
+    // V22.9.104 J-9: 구성원 저장은 지출자 칸을 바꾸지 않아도 지출자 조건을 건다(바꾸는 칸의 조건 뒤에 두어 같은 칸이면 이 값이 남는다).
+    // V22.9.135 부터 그 값은 ‘나’ 가 아니라 부르는 곳이 읽은 기록의 지출자다(위 설명).
     if (requireUserId) params.set("user_id", `eq.${requireUserId}`);
     const updated = await supabase(env, `/rest/v1/transactions?${params.toString()}`, {
       method: "PATCH",

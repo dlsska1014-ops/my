@@ -115,14 +115,17 @@ function myAccessStatusResponse(args = {}, status = 403) {
   return htmlResponse(renderMyAccessStatusHtml(args), status);
 }
 
+// V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 구성원도 이 가계부의 기록이면 누가 남겼든 고치고 지운다(채팅과 같은 규칙 — 예전에는 지출자 = 나인
+// 기록만). 부르는 곳은 기록을 이 가계부(선택한 가계부)에서 찾은 뒤에 묻는다. 구성원 권한이 ‘기록만’ 이면 따로 막는다(memberRecordChangeError).
+// 지출자(수입자) 칸을 바꾸는 것은 그대로 소유자·관리자만이다. row·userId 는 받기만 한다(부르는 곳의 꼴을 그대로 두려고).
 function canManageMyRecord(role = "", row = {}, userId = "") {
   const r = String(role || "").toLowerCase();
   if (["owner", "admin"].includes(r)) return true;
-  return canWriteMyHousehold(r) && String(row.user_id || "") === String(userId || "");
+  return canWriteMyHousehold(r);
 }
 
-// V22.9.43: 소유자가 가계부마다 정하는 구성원 권한. 값이 없으면 기록·수정(구성원이 자기 기록을 고치고 지운다,
-// V22.9.42까지와 같다)이다. 기록만이면 구성원은 새 기록만 더하고, 수정·삭제·복구와 공동 설정 변경은 소유자·관리자가 한다.
+// V22.9.43: 소유자가 가계부마다 정하는 구성원 권한. 값이 없으면 기록·수정(구성원이 기록을 고치고 지운다 — V22.9.135 부터는 다른 사람의 기록도)이다.
+// 기록만이면 구성원은 새 기록만 더하고, 수정·삭제·복구와 공동 설정 변경은 소유자·관리자가 한다.
 // DB 역할 값(household_members.role)은 바꾸지 않는다. 역할 제약(V22.8.46) 밖의 새 역할을 만들지 않기 위해서다.
 const MEMBER_POLICY_RECORD_ONLY = "record_only";
 const MEMBER_POLICY_RECORD_EDIT = "record_edit";
@@ -149,7 +152,7 @@ async function fetchHouseholdMemberPolicy(env, householdId = "") {
   return mode;
 }
 
-// 기록을 고치고 지우는 권한(자기 기록 기준은 canManageMyRecord 가 따로 본다). 소유자·관리자는 정책과 무관하고,
+// 기록을 고치고 지우는 권한(역할 기준은 canManageMyRecord 가 따로 본다). 소유자·관리자는 정책과 무관하고,
 // 조회 전용·승인 대기·이용 제한은 원래부터 막혀 있다. 구성원만 정책을 한 번 읽는다.
 async function canChangeMyHouseholdRecords(env, role = "", householdId = "") {
   const r = String(role || "").toLowerCase();
@@ -176,7 +179,7 @@ function memberPolicyLabel(mode = "") {
 function memberPolicyDescription(mode = "") {
   return mode === MEMBER_POLICY_RECORD_ONLY
     ? "구성원은 새 기록만 남기고, 수정·삭제는 소유자·관리자가 해요."
-    : "구성원은 기록하고, 자기가 쓴 기록을 고치거나 지울 수 있어요.";
+    : "구성원은 기록하고, 다른 사람의 기록도 고치거나 지울 수 있어요.";
 }
 
 function memberRecordChangeMessage(code = "") {
@@ -220,7 +223,7 @@ function memberRecordOnlyRefusalText(householdName = "") {
 function memberPolicyJoinLine(mode = "") {
   return mode === MEMBER_POLICY_RECORD_ONLY
     ? "내 권한: 기록만 (수정·삭제는 소유자·관리자가 해요)"
-    : "내 권한: 기록·수정 (내가 쓴 기록은 고치고 지울 수 있어요)";
+    : "내 권한: 기록·수정 (이 가계부의 기록을 고치고 지울 수 있어요)";
 }
 
 // V22.9.63 감사(웹 2): 라우터가 기억 쿠키(ab_hh)로 채운 household_id 는 사용자가 직접 적은 것이 아니다(config-readiness.js).

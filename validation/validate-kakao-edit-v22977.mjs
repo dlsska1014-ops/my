@@ -161,7 +161,9 @@ await scenario("K-4-3", async (fx) => {
   const owner = await say(fx, "점심 7000원");
   t.ok(owner.text.includes("저장했어요"), "K-4 준비: 소유자 기록");
   const ownerRow = newest(fx);
-  await say(fx, "수정 01번 구분 수입");
+  // V22.9.135 N-2: 번호는 그날 가계부 기록 전체의 순서다 — 소유자의 점심은 구성원의 저녁(01번) 다음이라 02번이다.
+  t.ok(owner.text.includes("02번 - 점심"), "K-4 V22.9.135: 소유자의 점심은 가계부 전체 순서로 02번");
+  await say(fx, "수정 02번 구분 수입");
   t.eq(rowById(fx, ownerRow.id).type, "income", "K-4 ‘기록만’ 정책에서도 소유자는 구분을 바꾼다");
 }, { selections: [["user-bin", HH], ["user-wifi", HH]] });
 

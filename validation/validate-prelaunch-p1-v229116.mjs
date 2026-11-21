@@ -75,7 +75,8 @@ async function kakao(path, steps, { trigger = true, touchedQueries = null } = {}
     }
   });
 }
-const AMBIGUOUS = "마지막에 저장한 뒤에 다른 기록을 고쳐서 ‘방금’이 어느 기록인지 정하지 못했어요. 아무것도 바꾸지 않았어요.";
+// V22.9.135: 구성원이 서로의 기록을 고치게 되어 ‘다른 기록을 고쳐서’·‘마지막에 고친 기록’ 을 ‘다른 기록이 바뀌어서’·‘마지막에 바뀐 기록’ 으로 적는다(남이 고친 경우에도 맞는 말).
+const AMBIGUOUS = "마지막에 저장한 뒤에 다른 기록이 바뀌어서 ‘방금’이 어느 기록인지 정하지 못했어요. 아무것도 바꾸지 않았어요.";
 const T1 = "2026-07-15T01:00:00+00:00", T2 = "2026-07-15T01:05:00.000+00:00";
 
 for (const path of ["직접", "방"]) {
@@ -84,7 +85,7 @@ for (const path of ["직접", "방"]) {
     const { fx, replies, reply } = await kakao(path, ["점검커피 1500", "점검밥 1000", stamp("점검커피", T1), stamp("점검밥", T2), "수정 01번 금액 2000", command]);
     ok(replies[4].includes("2,000원") && byMemo(fx, "점검커피")?.amount === 2000, `1-1 ${path} ‘수정 01번 금액 2000’ 은 01번(점검커피)을 고친다`);
     ok(reply.includes(AMBIGUOUS), `1-1 ${path} 고친 뒤 ‘${command}’ 은 대상을 정하지 않았다고 말한다`);
-    ok(reply.includes("마지막에 고친 기록: 01번 - 점검커피") && reply.includes("마지막에 저장한 기록: 02번 - 점검밥"), `1-1 ${path} ‘${command}’ 은 고친 기록과 저장한 기록을 번호와 함께 보인다`);
+    ok(reply.includes("마지막에 바뀐 기록: 01번 - 점검커피") && reply.includes("마지막에 저장한 기록: 02번 - 점검밥"), `1-1 ${path} ‘${command}’ 은 고친 기록과 저장한 기록을 번호와 함께 보인다`);
     ok(reply.includes("예: 수정 01번 금액 13000 / 삭제 01번"), `1-1 ${path} ‘${command}’ 의 예시는 고친 기록의 번호다`);
     eq(fx.db.transactions.filter((row) => /점검(커피|밥)/.test(String(row.memo || row.raw_text || ""))).length, 2, `1-1 ${path} ‘${command}’ 은 아무 기록도 지우지 않는다`);
     eq(byMemo(fx, "점검커피")?.amount, 2000, `1-1 ${path} ‘${command}’ 뒤 고친 기록 금액 그대로`);
@@ -122,7 +123,7 @@ for (const path of ["직접", "방"]) {
   // 1-7 한 말로 여러 건 저장한 뒤 다른 기록을 고쳤으면 고친 기록과 그 여러 건을 모두 보인다.
   {
     const { fx, reply } = await kakao(path, ["점검커피 1500", stamp("점검커피", T1), "점검점심 9000 점검저녁 12000", stamp("점검점심", T2), stamp("점검저녁", T2), "수정 01번 금액 2000", "방금 삭제"]);
-    ok(reply.includes(AMBIGUOUS) && reply.includes("마지막에 고친 기록: 01번 - 점검커피") && reply.includes("마지막에 한 번에 저장한 기록 2건:") && reply.includes("점검점심") && reply.includes("점검저녁"), `1-7 ${path} 여러 건 저장 뒤 다른 기록을 고쳤으면 모두 보이고 묻는다`);
+    ok(reply.includes(AMBIGUOUS) && reply.includes("마지막에 바뀐 기록: 01번 - 점검커피") && reply.includes("마지막에 한 번에 저장한 기록 2건:") && reply.includes("점검점심") && reply.includes("점검저녁"), `1-7 ${path} 여러 건 저장 뒤 다른 기록을 고쳤으면 모두 보이고 묻는다`);
     eq(fx.db.transactions.filter((row) => /점검(커피|점심|저녁)/.test(String(row.memo || row.raw_text || ""))).length, 3, `1-7 ${path} 아무 기록도 지우지 않는다`);
   }
 }
@@ -130,7 +131,7 @@ for (const path of ["직접", "방"]) {
 {
   const { fx, reply } = await kakao("직접", ["어제 점검택시 3000", "점검밥 1000", stamp("점검택시", T1), stamp("점검밥", T2), "어제 수정 01번 금액 2000", "방금 거 지워줘"]);
   ok(byMemo(fx, "점검택시")?.transaction_date === "2026-07-14" && byMemo(fx, "점검택시")?.amount === 2000, "1-8 ‘어제 수정 01번 금액 2000’ 은 어제 기록을 고친다");
-  ok(reply.includes(AMBIGUOUS) && reply.includes("마지막에 고친 기록: 7월 14일 01번 - 점검택시") && reply.includes("마지막에 저장한 기록: 01번 - 점검밥"), "1-8 다른 날 고친 기록에는 날짜를 붙인다");
+  ok(reply.includes(AMBIGUOUS) && reply.includes("마지막에 바뀐 기록: 7월 14일 01번 - 점검택시") && reply.includes("마지막에 저장한 기록: 01번 - 점검밥"), "1-8 다른 날 고친 기록에는 날짜를 붙인다");
   ok(reply.includes("예: 7월 14일 수정 01번 금액 13000 / 7월 14일 삭제 01번"), "1-8 예시도 그 날짜와 번호다");
   const { fx: fx2 } = await kakao("직접", ["어제 점검택시 3000", "점검밥 1000", stamp("점검택시", T1), stamp("점검밥", T2), "어제 수정 01번 금액 2000", "방금 거 지워줘", "7월 14일 삭제 01번"]);
   ok(!byMemo(fx2, "점검택시") && byMemo(fx2, "점검밥")?.amount === 1000, "1-8 예시 명령 ‘7월 14일 삭제 01번’ 은 고친 기록만 지운다");
@@ -140,7 +141,9 @@ for (const path of ["직접", "방"]) {
   const flow = read("src/modules/kakao/edit-flow-v4.js");
   const session = read("src/modules/kakao/edit-session-v4.js");
   eq(flow.split("resolveKakaoEditTargetRowV4(env, ctx,").length - 1, 3, "1-9 ‘방금’ 해석기를 부르는 곳은 삭제·고치기·지출자 변경 셋이다");
-  ok(/Promise\.all\(\[\s*getRecentKakaoOwnedTransactionsV2254\(env, household\.id, user\.id, kakaoUserKey, 1\),\s*getRecentKakaoOwnedTransactionsV2254\(env, household\.id, user\.id, kakaoUserKey, 1, \{ touched: true \}\),\s*\]\)/.test(flow), "1-9 저장 순서·바뀐 순서 두 조회를 같은 단계(Promise.all)에서 읽는다");
+  // V22.9.135: 같은 단계에 셋째 조회(내가 마지막으로 고친 기록 — 감사 기록)가 더해졌다. 구성원도 남의 기록을 고치게 되어, 남의 기록을 고친 직후의 ‘방금’ 도
+  // 이 해석기가 묻는다(동작은 validate-v229135-shared-edit). 직렬 깊이는 그대로다.
+  ok(/Promise\.all\(\[\s*getRecentKakaoOwnedTransactionsV2254\(env, household\.id, user\.id, kakaoUserKey, 1\),\s*getRecentKakaoOwnedTransactionsV2254\(env, household\.id, user\.id, kakaoUserKey, 1, \{ touched: true \}\),\s*optionalWithin\(getLatestKakaoEditByRequesterV229135\(env, household\.id, user\.id\)\.catch\(\(\) => null\), KAKAO_LATEST_EDIT_WAIT_MS_V229135, null\),\s*\]\)/.test(flow), "1-9 저장 순서·바뀐 순서·내가 고친 기록(V22.9.135) 세 조회를 같은 단계(Promise.all)에서 읽는다");
   ok(session.includes('params.set("order", touched ? "updated_at.desc" : "created_at.desc");') && session.includes("`${KAKAO_TX_SELECT_V4},updated_at`"), "1-9 바뀐 순서 조회는 updated_at 내림차순이고 그 칸을 받는다");
   const bundle = read("src/index.js");
   ok(bundle.includes("function kakaoEditTouchedAmbiguousTextV229116(") && bundle.includes("function kakaoChangedAfterV229116("), "1-9 생성 번들에도 새 해석이 있다");

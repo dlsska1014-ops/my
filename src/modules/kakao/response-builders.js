@@ -851,6 +851,34 @@ const kakaoGroupUnquotedV229134 = (line = "") => {
   return next + line.slice(at);
 };
 
+// V22.9.135 M-11(시험 단톡방 2026-11-21): 단톡방의 봇은 불린 말만 받는다. 번호로 답하라는 줄(수정 창의 ‘무엇을 바꿀까요? 번호를 보내주세요.’·값을 고르는
+// ‘…번호로 골라주세요.’)에는 보낼 말이 없어, 적힌 대로 번호만 보내면 답이 없었다(멘션을 붙인 번호는 답했다). 단톡방 답에서 그런 줄 끝에 ‘ 예: @말해가계부 1’ 을
+// 붙인다 — 바로 아래 줄이 이미 예시(‘예: …’)면 붙이지 않는다. 번호만 보내라는 두 안내(‘번호만 보내도 돼요: ’·‘번호를 보내면 → ’)는 단톡방에서 맞는 말로 바꾼다.
+// 수정 창의 다른 두 물음도 같다(단추가 없다 — 독립 검토 2026-11-21): 날짜 고르기(‘날짜를 번호로 고르거나 직접 입력해주세요.’)는 같은 예시를 받고, 날짜를 직접 적는
+// 예시(‘(직접 입력 예: 7월 20일)’)에는 봇 부르기를 넣는다. 수정 창의 네·아니오 물음 두 꼴(‘… 바꿀까요? (네/아니오)’·‘… 바꾸는 건가요? (네/아니오)’)은 끝에
+// ‘ 예: @말해가계부 네’ 를 받는다 — 단추로 답하는 다른 물음(V22.9.134 의 규칙)은 그대로 두려고 이 두 꼴만 본다.
+const KAKAO_GROUP_NUMBER_PROMPT_V229135 = /(?:번호를 보내 ?주세요|번호로 골라 ?주세요|번호로 고르거나 직접 입력해 ?주세요)[.]$/;
+const KAKAO_GROUP_YES_NO_PROMPT_V229135 = /(?:바꿀까요|바꾸는 건가요)[?] [(]네\/아니오[)]$/;
+const KAKAO_GROUP_DATE_EXAMPLE_V229135 = "(직접 입력 예: ";
+const KAKAO_GROUP_NUMBER_REWRITES_V229135 = [
+  ["번호만 보내도 돼요: ", `번호 앞에 ${KAKAO_GROUP_MENTION_V229134} 를 붙여 보내도 돼요: `],
+  ["번호를 보내면 → ", `번호를 보내면(예: ${KAKAO_GROUP_MENTION_V229134} 1) → `],
+];
+const KAKAO_GROUP_NUMBER_EXAMPLES_V229135 = [[` 예: ${KAKAO_GROUP_MENTION_V229134} 1`, KAKAO_GROUP_NUMBER_PROMPT_V229135], [` 예: ${KAKAO_GROUP_MENTION_V229134} 네`, KAKAO_GROUP_YES_NO_PROMPT_V229135]];
+function kakaoGroupNumberLineV229135(line = "", nextLine = "") {
+  if (line.includes(KAKAO_GROUP_MENTION_V229134)) return null;
+  const rewrite = KAKAO_GROUP_NUMBER_REWRITES_V229135.find(([from]) => line.startsWith(from));
+  if (rewrite) return `${rewrite[1]}${line.slice(rewrite[0].length)}`;
+  if (line.includes(KAKAO_GROUP_DATE_EXAMPLE_V229135)) return line.split(KAKAO_GROUP_DATE_EXAMPLE_V229135).join(`${KAKAO_GROUP_DATE_EXAMPLE_V229135}${KAKAO_GROUP_MENTION_V229134} `);
+  if (KAKAO_GROUP_HINT_LEAD_LINE_V229134.test(nextLine)) return null;
+  const example = KAKAO_GROUP_NUMBER_EXAMPLES_V229135.find(([, prompt]) => prompt.test(line));
+  return example ? `${line}${example[0]}` : null;
+}
+// 위에서 예시를 붙인 줄인가. 그 줄의 보낼 말은 끝의 예시이고, 줄 안의 따옴표 말(‘혹시 내용을 'zzz'로 바꾸는 건가요?’ 의 'zzz' — 사용자가 보낸 값을 되풀이한 것)은
+// ③ 이 남은 안내로 세지 않는다(독립 검토 2026-11-21 2차: 그 답에 예시와 끝 한 줄이 함께 붙었다).
+const kakaoGroupNumberExampleLineV229135 = (line = "") => KAKAO_GROUP_NUMBER_EXAMPLES_V229135
+  .some(([suffix, prompt]) => line.endsWith(suffix) && prompt.test(line.slice(0, -suffix.length)));
+
 // ①·② 한 말풍선의 글에서 보낼 말을 고친다. 한도를 넘게 되면 원래 글을 돌려준다.
 function kakaoGroupMentionLinesV229134(text = "", max = KAKAO_SIMPLE_TEXT_SAFE_MAX) {
   const source = String(text || "");
@@ -863,6 +891,8 @@ function kakaoGroupMentionLinesV229134(text = "", max = KAKAO_SIMPLE_TEXT_SAFE_M
     const listed = listing && line.startsWith("• ");
     listing = listed || KAKAO_GROUP_HINT_LIST_LEAD_V229134.test(line);
     if (echo[index]) return line;
+    const numbered = kakaoGroupNumberLineV229135(line, lines[index + 1] || "");
+    if (numbered !== null) return numbered;
     if (KAKAO_GROUP_HINT_QUOTED_LINE_V229134.test(line)) return kakaoGroupMentionQuotedV229134(line, { every: true }).line;
     const command = KAKAO_GROUP_HINT_COMMAND_LINE_V229134.exec(line);
     if (command) return `${command[1]}${KAKAO_GROUP_MENTION_V229134} ${command[2]}`;
@@ -889,7 +919,7 @@ function kakaoGroupHintFooterNeededV229134(texts = [], { buttons = false, pressa
   if (KAKAO_GROUP_HINT_NO_FOOTER_V229134.test(own.map(kakaoGroupUnquotedV229134).join("\n"))) return false;
   const asked = typed.some((line) => KAKAO_GROUP_HINT_STRONG_V229134.test(line)) || (!buttons && typed.some((line) => KAKAO_GROUP_HINT_WEAK_V229134.test(line)));
   if (!asked) return false;
-  return !all.includes(KAKAO_GROUP_MENTION_V229134) || typed.some((line) => kakaoGroupMentionQuotedV229134(line, { pressable }).bare);
+  return !all.includes(KAKAO_GROUP_MENTION_V229134) || typed.some((line) => !kakaoGroupNumberExampleLineV229135(line) && kakaoGroupMentionQuotedV229134(line, { pressable }).bare);
 }
 // ③ 의 한 줄을 붙일 말풍선인가: 시키는 말·고르라는 말이 든 줄이 있다(되풀이한 줄·단추·웹 화면 줄은 빼고).
 const kakaoGroupHintBubbleV229134 = (text = "") => kakaoGroupHintOwnLinesV229134(text).typed

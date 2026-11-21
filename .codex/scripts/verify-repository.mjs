@@ -12,7 +12,7 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_134.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_135.sha256",
 );
 const validationScripts = [
   ["V22.9.107 광고 검토 후속(D-1 유입 매개변수·앵커가 붙어도 정본 문서면 광고, D-2 애드핏 FAQ 문구, D-3 계산표 글 절 순서, D-4~D-6 계산표 변경 전 결과·휴대폰 2열·머리꼬리·주소 판, D-7 글 목록 ‘계산표 포함’)", "validation/validate-ads-review-fixes-v229107.mjs"],
@@ -34,6 +34,7 @@ const validationScripts = [
   ["V22.9.120 통합 수정(V22.9.119 거절 답의 다시 보낼 예시는 안전망도 통과할 때만 · 판정 날짜는 그 요청의 오늘, 방에서 안전망이 되묻고 답 뒤에 처음 들인 사람의 약관 안내 빠짐 이벤트 after_reply)", "validation/validate-kakao-guard-examples-v229120.mjs"],
   ["V22.9.121 회원 번호(MB-XXXX-XXXX: 세션 비밀값 HMAC 앞 40비트, 내 계정·보안 카드와 복사 단추, 사용자 id 는 화면에 없음, 화면 GET 은 쓰지 않고 기억 줄은 화면이 보일 때의 신호 POST /my/member-code/seen 이 답 뒤 한 번 ignore-duplicates; 관리자 회원 번호 찾기·틀린 기억 줄 바로잡기·전체 사용자 목록(이름·번호·id 앞자리 찾기, 50명씩, 계정 유형·가입일·후원 상태, 통합됨, 화면 한 번 DB 5번 이하 — 번호로 읽히는 이름을 표시 이름으로도 찾을 때만 6번); /support 는 로그인 이름 대신 회원 번호; 방침 6절 회원 번호·후원 줄·ab_sp·12절 V22.9.118 문단 끝 문장(같은 조건); 저장 오류 화면의 카드, ‘Kate Moss’·‘MB…’ 이름은 이름으로, 마지막 쪽 뒤 빈 쪽, 번호로 못 찾으면 표시 이름으로도(정식 꼴은 아님), 훑기 실패는 다시 시도 안내)", "validation/validate-supporter-id-v229121.mjs"],
   ["V22.9.121 후원자 표시 옮기기·포인트 색(계정 통합 뒤 보조 계정의 후원자 표시를 주 계정으로 옮기거나 합치고 보조 줄 지움·안내 확인 기록 복사, 읽기 1 + 쓰기 3 이하·기존 뒤처리 다음 맨 끝에서 남은 호출로만(옮길 줄이 있든 없든 기존 정리 같음), 실패해도 통합 그대로 + 운영 이벤트; 쿠키 ab_sp 로 모든 셸 화면에 포인트 색 — 홈·전체 메뉴·참여자가 주고 지움, DB 읽기 추가 없음, 공개·관리자·로그인·HTML 아닌 응답은 바이트 그대로, 로그아웃·세션 바뀜은 지움)", "validation/validate-supporter-carry-v229121.mjs"],
+  ["V22.9.135 함께 고치는 가계부(번호는 그날 가계부 기록 전체의 순서 · 구성원이 채팅과 웹에서 다른 사람의 기록도 고치고 지움 · ‘기록만’·조회 전용·지출자 바꾸기·복구는 그대로 · ‘오늘기록’ 의 이름 · 단톡방 번호 물음의 봇 부르기)", "validation/validate-v229135-shared-edit.mjs"],
   ["V22.9.134 단톡방 답 다듬기(안내 줄에 봇 부르기 @말해가계부 — 1:1 은 그대로 · 읽기 쉬운 정산 답 · 번호는 사람마다 따로라는 안내)", "validation/validate-v229134-room-hints.mjs"],
   ["V22.9.133 지운 방에서 한 번 눌러 새로 시작(거절 답의 단추 하나로 새 가계부를 만들고 그 방에 연결 — 누른 사람이 소유자 · 가계부는 하나 · 기록만으로는 다시 만들지 않음 · 실패 때의 안내)", "validation/validate-v229133-room-restart.mjs"],
   ["V22.9.132 여는 중 화면(가계부 첫 요청에 로딩 화면을 먼저 — 주는 조건 · 화면 한 장 · transform·opacity 움직임 · 다시 여는 스크립트 · 끼워도 같은 결과 · 되풀이 없음)", "validation/validate-v229132-entry-progress.mjs"],
@@ -442,7 +443,8 @@ function run(command, args, label) {
 // V22.9.132: 여는 중 화면 검사(validate-v229132-entry-progress)·삭제·해제된 방의 안내 검사(validate-v229132-room-restart-guide)와 추적표 V132 출처 10행이 더해졌다. 하네스 두 모드 실측 94,632 present / 94,625 absent.
 // V22.9.133: 지운 방의 새로 시작 검사(validate-v229133-room-restart)와 추적표 V133 출처 11행이 더해졌다. 하네스 두 모드 실측 94,999 present / 94,992 absent.
 // V22.9.134: 단톡방 답 다듬기 검사(validate-v229134-room-hints)와 추적표 V134 출처 15행이 더해졌다. 하네스 두 모드 실측 96,045 present / 96,038 absent.
-const EXPECTED_MINIMUM_CHECKS = 96038;
+// V22.9.135: 함께 고치는 가계부 검사(validate-v229135-shared-edit)와 추적표 V135 출처 13행이 더해졌다. 하네스 두 모드 실측 96,393 present / 96,386 absent — 하한은 작은 값이다.
+const EXPECTED_MINIMUM_CHECKS = 96386;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

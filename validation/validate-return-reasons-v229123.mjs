@@ -348,7 +348,8 @@ await at("2026-11-10", () => fixture(async (fx) => {
     tx(fx, "2026-11-09", 5000, { source: "web", user: "user-someone-else" });
     tx(fx, "2026-11-09", 6000, { source: "kakao_skill", user: "user-someone-else" });
     const first = await say(fx, "점심 15700원");
-    t.ok(first.text.includes("01번"), "다른 사람의 오늘 기록이 있어도 내 번호는 01번");
+    // V22.9.135 N-2: 답의 번호는 이제 가계부 전체 순서다(다른 사람의 두 기록 다음이라 03번). ‘오늘의 첫 기록’ 은 내 기록만 센 번호로 따로 본다.
+    t.ok(first.text.includes("03번 - 점심"), "다른 사람의 오늘 기록이 있으면 번호는 가계부 전체 순서(03번)");
     t.eq(first.quick.join(","), "지난주 요약|지난주 요약", "다른 사람의 오늘 기록이 있어도 내 오늘 첫 기록에는 붙는다");
   });
   await scene("2026-11-09", "", async (fx) => {

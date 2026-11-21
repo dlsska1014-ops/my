@@ -378,44 +378,39 @@ await attempt("T-10", () => withClock(DAY, () => fixture(async (fx) => {
   let reads = 0;
   const stop = intercept(({ url, method }) => { if (url.hostname === "mock.supabase.co" && method === "GET" && url.pathname.endsWith("/transactions")) reads += 1; return null; });
   try {
-    // 가계부 전체가 500건에 닿고 내 기록은 앞쪽에 있다: 목록 + 한 줄
+    // V22.9.135 N-2: 목록과 번호는 그날 가계부 기록 전체(누구의 기록이든)의 저장 순서다. 그래서 읽은 범위(500건)가 차면 01~99번은 모두 있다 —
+    // ‘못 찾은 번호 + 한도 줄’ 은 두 자리 번호로는 생기지 않는다(V22.9.134 까지는 내 기록만 세어 생겼다).
+    // 가계부 전체가 500건에 닿았다: 목록(20건·900자 안의 최근 몇 건) + 한 줄
     seed(520, (i) => i % 100 === 0);
     reads = 0;
     const list = await say(fx, "오늘 기록 보기");
     eq(reads, 1, "T-10 날짜 목록: 기록 조회는 한 번뿐이다(한도 안내를 위해 더 읽지 않는다)");
     ok(LIMIT_LINE.test(list), `T-10 500건에 닿으면 목록에 한 줄로 알린다 (${list.split("\n").filter((line) => /500건/.test(line)).join(" / ")})`);
     eq(list.split("\n").filter((line) => /500건/.test(line)).length, 1, "T-10 안내는 한 줄이다");
-    deepEq(list.split("\n").filter((line) => /^\d{2}번 - /.test(line)).map((line) => line.split(" / ")[0]), ["01번 - 기록0", "02번 - 기록100", "03번 - 기록200", "04번 - 기록300", "05번 - 기록400"], "T-10 목록 번호는 예전 그대로다(읽은 500건 안의 내 기록 5건)");
+    const listed = list.split("\n").filter((line) => /^\d{2,3}번 - /.test(line)).map((line) => line.split(" / ")[0]);
+    ok(listed.length >= 1 && listed.at(-1) === "500번 - 기록499" && /… 외 \d+건\(01~\d+번\)은 웹 가계부 기록에서 볼 수 있어요\./.test(list) && list.includes("구성원 모두의 기록이에요"), `T-10 목록은 읽은 500건의 가계부 번호로 최근 몇 건을 보인다(${listed.slice(-2).join(" · ")})`);
 
-    // 내 기록이 읽은 범위 밖(뒤쪽)에만 있다: ‘아직 기록이 없어요’ 라고 단정하지 않는다
+    // 내 기록이 읽은 범위 밖(뒤쪽)에만 있다: 목록은 읽은 범위의 가계부 기록이고 ‘아직 기록이 없어요’ 라고 하지 않는다
     seed(520, (i) => i >= 510);
     const empty = await say(fx, "오늘 기록 보기");
     ok(!empty.includes("아직 기록이 없어요"), "T-10 읽은 범위에 내 기록이 없어도 한도에 닿았으면 ‘아직 기록이 없어요’ 라고 하지 않는다");
-    ok(empty.includes("읽은 범위에는 내 기록이 없어요") && LIMIT_LINE.test(empty), "T-10 대신 읽은 범위와 한도를 말한다");
+    ok(empty.includes("500번 - 기록499") && LIMIT_LINE.test(empty), "T-10 대신 읽은 범위의 가계부 기록과 한도를 보인다");
 
-    // 번호로 지우기·고치기: 못 찾으면 한도를 함께 말한다
+    // 번호로 지우기·고치기: 한도에 닿은 날에도 읽은 범위 안의 번호는 누구의 기록이든 그 번호다(못 찾은 안내도 한도 줄도 없다)
     seed(520, (i) => i % 100 === 0);
-    reads = 0;
-    const missing = await say(fx, "삭제 09번");
-    eq(reads, 1, "T-10 번호로 지우기: 기록 조회는 한 번뿐이다");
-    ok(missing.includes("기록을 찾지 못했어요") && LIMIT_LINE.test(missing), "T-10 못 찾은 번호의 안내에 한도 한 줄이 붙는다");
-    ok(LIMIT_LINE.test(await say(fx, "수정 09번 금액 5000")), "T-10 못 찾은 번호로 고치기에도 한도 한 줄이 붙는다");
-    eq(fx.db.transactions.filter((item) => String(item.id).startsWith("t10-")).length, 520, "T-10 못 찾았으므로 아무것도 지우지 않았다");
-
-    // 찾은 번호는 한도에 닿은 날에도 예전처럼 고치고 지운다(안내는 못 찾았을 때만 붙는다)
     const edited = await say(fx, "수정 02번 금액 5000");
     ok(edited.includes("02번 금액을 5,000원으로 변경했어요") && !/500건/.test(edited), "T-10 읽은 범위 안의 번호는 한도에 닿은 날에도 고쳐지고 안내가 붙지 않는다");
-    eq(fx.db.transactions.find((item) => item.id === "t10-0100")?.amount, 5000, "T-10 고친 기록의 금액이 바뀌었다");
+    eq(fx.db.transactions.find((item) => item.id === "t10-0001")?.amount, 5000, "T-10 고친 기록(가계부 전체 02번 = 다른 구성원의 기록)의 금액이 바뀌었다");
+    reads = 0;
     const removed = await say(fx, "삭제 03번");
-    ok(removed.includes("03번 기록을 삭제했어요") && !/500건/.test(removed) && !fx.db.transactions.some((item) => item.id === "t10-0200"), "T-10 읽은 범위 안의 번호는 한도에 닿은 날에도 지워진다");
+    eq(reads, 1, "T-10 번호로 지우기: 기록 조회는 한 번뿐이다");
+    ok(removed.includes("03번 기록을 삭제했어요") && !/500건/.test(removed) && !fx.db.transactions.some((item) => item.id === "t10-0002"), "T-10 읽은 범위 안의 번호는 한도에 닿은 날에도 지워진다");
     seed(520, (i) => i % 100 === 0);
 
     // 499건: 한도에 닿지 않는다. 500건: 닿는다.
     seed(499, (i) => i % 100 === 0);
     const below = await say(fx, "오늘 기록 보기");
     ok(!/500건/.test(below), "T-10 499건이면 안내가 없다");
-    const notFound = await say(fx, "삭제 09번");
-    ok(notFound.includes("기록을 찾지 못했어요") && !/500건/.test(notFound), "T-10 499건이면 못 찾은 안내에도 한도 줄이 없다");
     seed(500, (i) => i % 100 === 0);
     ok(LIMIT_LINE.test(await say(fx, "오늘 기록 보기")), "T-10 정확히 500건이면 닿은 것으로 본다(뒤에 더 있을 수 있다)");
 
@@ -425,9 +420,10 @@ await attempt("T-10", () => withClock(DAY, () => fixture(async (fx) => {
     ok(quiet.includes("아직 기록이 없어요") && !/500건|읽은 범위/.test(quiet), "T-10 기록이 없는 보통 날은 예전 문구 그대로다");
     seed(7, (i) => i % 2 === 0);
     const normal = await say(fx, "오늘 기록 보기");
-    ok(!/500건/.test(normal) && /01번 - 기록0/.test(normal) && /04번 - 기록6/.test(normal), "T-10 보통 날 목록은 예전 그대로다(안내 없음)");
+    // V22.9.135 N-2: 일곱 건 모두 가계부 전체 순서로 보인다(내 기록 0·2·4·6 과 다른 구성원의 1·3·5).
+    ok(!/500건/.test(normal) && /01번 - 기록0/.test(normal) && /04번 - 기록3/.test(normal) && /07번 - 기록6/.test(normal), "T-10 보통 날 목록은 가계부 전체 순서다(안내 없음)");
     const deleted = await say(fx, "삭제 02번");
-    ok(deleted.includes("기록을 삭제했어요") && !fx.db.transactions.some((item) => item.id === "t10-0002"), "T-10 번호로 지우기는 예전처럼 된다");
+    ok(deleted.includes("기록을 삭제했어요") && !fx.db.transactions.some((item) => item.id === "t10-0001"), "T-10 번호로 지우기는 그 번호(다른 구성원의 기록이어도)를 지운다");
   } finally { stop(); }
 })));
 
