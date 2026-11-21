@@ -25,8 +25,8 @@ const HH = "house-home";
 const HOME = `/app?month=2026-07&household_id=${HH}`;
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)";
 const SHELL = "/assets/accountbook-shell-v229136.css";
-const V5 = "/assets/accountbook-v5-v22993.js";
-const HOME_SHELL_JS = "/assets/mobile-home-shell-v22995.js";
+const V5 = "/assets/accountbook-v5-v229138.js";
+const HOME_SHELL_JS = "/assets/mobile-home-shell-v229138.js";
 const count = (text, needle) => String(text).split(needle).length - 1;
 const asset = async (path) => {
   const response = await app.fetch(new Request(`${BASE}${path}`), {}, ctx);
@@ -192,8 +192,11 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   t.ok(shell.includes('body.abV22812Shell #add :is(input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]),select,textarea):focus-visible{outline:3px solid var(--ab12-accent)!important;outline-offset:1px!important}'), "R-13 빠른 입력 칸 초점은 강조색 3px(옛 outline:0 규칙을 #add 로 이긴다)");
   for (const [tz, nowIso, value, pressed, summary, label] of [
     ["Asia/Seoul", "2026-07-15T03:00:00Z", "2026-07-15", ["true", "false"], "오늘", "오늘 날짜면 ‘오늘’ 칩"],
-    ["Asia/Seoul", "2026-07-15T03:00:00Z", "2026-07-14", ["false", "true"], "2026-07-14", "어제 날짜면 ‘어제’ 칩"],
-    ["Asia/Seoul", "2026-07-15T03:00:00Z", "2026-07-10", ["false", "false"], "2026-07-10", "다른 날이면 둘 다 안 고름"],
+    // V22.9.138 V137:H-7: 요약 줄의 날짜는 ISO 가 아니라 ‘어제’·‘7월 10일’(다른 해는 ‘2025년 12월 31일’)이다.
+    ["Asia/Seoul", "2026-07-15T03:00:00Z", "2026-07-14", ["false", "true"], "어제", "어제 날짜면 ‘어제’ 칩"],
+    ["Asia/Seoul", "2026-07-15T03:00:00Z", "2026-07-10", ["false", "false"], "7월 10일", "다른 날이면 둘 다 안 고름"],
+    ["Asia/Seoul", "2026-07-15T03:00:00Z", "2025-12-31", ["false", "false"], "2025년 12월 31일", "다른 해면 해까지"],
+    ["America/Los_Angeles", "2026-07-15T17:30:00Z", "2026-07-15", ["false", "true"], "어제", "LA 기기(현지 7월 15일, KST 16일)의 KST 어제"],
     ["America/Los_Angeles", "2026-07-15T17:30:00Z", "2026-07-16", ["true", "false"], "오늘", "LA 기기(현지 7월 15일, KST 16일)도 KST 오늘"],
   ]) {
     const chips = dateChipHarness(homeShell, { tz, nowIso, value });

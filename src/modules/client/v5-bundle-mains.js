@@ -382,6 +382,16 @@ function accountbookQuickInputClientMain() {
     var parsed = new Date(text + "T00:00:00Z");
     return !isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
   }
+  // V22.9.138 V137:H-7: 시트 머리 설명·날짜가 엇갈렸다는 안내의 날짜는 ‘오늘’·‘어제’·‘7월 14일’(다른 해는 ‘2025년 12월 31일’)이다 — ISO 날짜를 보이지 않는다.
+  // 오늘·어제는 기기 시간대와 상관없이 한국 시각으로 센다(홈 스크립트의 abQuickSyncMore·빠른 입력 자산의 미리보기 줄과 같은 꼴).
+  function quickDayLabel(value) {
+    var text = String(value || "");
+    if (!validDate(text)) return "";
+    var kstDay = function(offset) { return new Date(Date.now() + 32400000 + offset * 86400000).toISOString().slice(0, 10); };
+    if (text === kstDay(0)) return "오늘";
+    if (text === kstDay(-1)) return "어제";
+    return (text.slice(0, 4) === kstDay(0).slice(0, 4) ? "" : Number(text.slice(0, 4)) + "년 ") + Number(text.slice(5, 7)) + "월 " + Number(text.slice(8, 10)) + "일";
+  }
   // 모바일 사파리·인앱 브라우저는 body의 overflow:hidden만으로 스크롤이 잠기지 않는다.
   // 시트를 밀면 뒤 배경이 대신 올라가므로 스크롤 위치를 고정했다가 닫을 때 되돌린다.
   function isMobileViewport() { return !window.matchMedia || window.matchMedia("(max-width:899px)").matches; }
@@ -557,7 +567,7 @@ function accountbookQuickInputClientMain() {
     if (smart) smart.value = typeof draft.smart_text === "string" ? draft.smart_text : draft.raw_text || "";
     if (validDate(selectedDate) && selectedDate !== draft.transaction_date) {
       dateConflictValue = draft.transaction_date || "";
-      dateConflict = "달력에서 선택한 날짜는 " + selectedDate + "입니다. 초안의 거래일 " + (draft.transaction_date || "미입력") + "을 유지했습니다. 날짜를 확인해 주세요.";
+      dateConflict = "달력에서 선택한 날짜는 " + (quickDayLabel(selectedDate) || selectedDate) + "입니다. 초안의 거래일(" + (quickDayLabel(draft.transaction_date) || draft.transaction_date || "미입력") + ")을 유지했습니다. 날짜를 확인해 주세요.";
     }
     section.querySelector("form").dispatchEvent(new CustomEvent("ab:quick-restore", { detail: { manual: draft.manual } }));
     return restored;
@@ -566,7 +576,8 @@ function accountbookQuickInputClientMain() {
     var input = section && section.querySelector('input[name="transaction_date"],#txDate');
     if (dateConflict && input?.value !== dateConflictValue) dateConflict = "";
     var description = overlay && overlay.querySelector("#abQuickInputDescription");
-    if (description) description.textContent = (validDate(input?.value) ? input.value + " 기록을 현재 가계부에 추가합니다." : "거래일을 확인한 뒤 저장해 주세요.") + (dateConflict ? " " + dateConflict : "");
+    // V22.9.138(독립 검토): 입력칸이 없는 시트(방 전용 보기·조회 전용 — 시트 안에 기록할 수 없는 까닭이 있다)에는 ‘거래일을 확인한 뒤 저장해 주세요.’ 를 쓰지 않는다.
+    if (description) description.textContent = !input ? "" : (validDate(input.value) ? quickDayLabel(input.value) + " 기록을 현재 가계부에 추가합니다." : "거래일을 확인한 뒤 저장해 주세요.") + (dateConflict ? " " + dateConflict : "");
   }
   function setDate(date, manual = true) {
     var input = section && section.querySelector('input[name="transaction_date"],#txDate');
@@ -581,7 +592,7 @@ function accountbookQuickInputClientMain() {
     if (!section?.querySelector("#amountInput") || document.getElementById("abInputReviewRuntime")) return;
     var script = document.createElement("script");
     script.id = "abInputReviewRuntime";
-    script.src = "/assets/accountbook-quick-input-v22951.js";
+    script.src = "/assets/accountbook-quick-input-v229138.js";
     script.async = true;
     script.onerror = function() { script.remove(); };
     document.head.appendChild(script);
@@ -613,7 +624,9 @@ function accountbookQuickInputClientMain() {
     node.setAttribute("aria-hidden", "false");
     document.body.classList.add("abQuickInputOpen");
     lockScroll();
-    var target = section.querySelector("#smartInput") || section.querySelector("#amountInput") || section.querySelector("input:not([type=hidden]),select,button");
+    // V22.9.138 V136:S-10: 입력칸이 없는 시트(방 전용 보기·조회 전용 — 기록할 수 없다는 안내만 있다)에서는 초점이 시트 뒤 화면에 남아 있었다.
+    // 그때는 시트의 [닫기]로(없으면 대화상자 자체로) 옮겨, 초점 가둠·Esc 가 시트 안에서 시작하게 한다.
+    var target = section.querySelector("#smartInput") || section.querySelector("#amountInput") || section.querySelector("input:not([type=hidden]),select,button") || (panel && (panel.querySelector(".abQuickInputClose") || panel));
     if (target && target.focus) { try { target.focus(); } catch (_error) {} }
   }
   function close() {

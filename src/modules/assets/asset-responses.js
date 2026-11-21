@@ -86,7 +86,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
     "x-content-type-options": "nosniff",
     "cross-origin-resource-policy": "same-origin",
     etag: path === ACCOUNTBOOK_QUICK_INPUT_JS_ASSET_PATH
-      ? '"accountbook-quick-input-v22951-js"'
+      ? '"accountbook-quick-input-v229138-js"'
       : path === AB_CATEGORY_RULES_ASSET_PATH
       ? '"ab-category-rules-v22995-js"'
       : path === AB_CURSOR_ASSET_PATH
@@ -96,7 +96,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === AB_UIUX_CSS_ASSET_PATH
       ? '"ab-uiux-v229136-css"'
       : path === MOBILE_HOME_CSS_ASSET_PATH
-      ? '"mobile-home-v229137-css"'
+      ? '"mobile-home-v229138-css"'
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
@@ -104,20 +104,20 @@ function mobileHomePerformanceAssetResponse(request, url) {
         : path === ACCOUNTBOOK_THEME_JS_ASSET_PATH
           ? '"accountbook-theme-v22946-js"'
         : path === MOBILE_HOME_SHELL_JS_ASSET_PATH
-          ? '"mobile-home-shell-v22995-js"'
+          ? '"mobile-home-shell-v229138-js"'
         : path === ACCOUNTBOOK_STAGE4_NAV_JS_ASSET_PATH
           ? '"accountbook-nav-v22987-js"'
         : path === ACCOUNTBOOK_SEARCH_JS_ASSET_PATH
           ? '"accountbook-search-v22979-js"'
         : path === ACCOUNTBOOK_NOTIF_JS_ASSET_PATH
-          ? '"accountbook-notif-v22937-js"'
+          ? '"accountbook-notif-v229138-js"'
         : path === ACCOUNTBOOK_GOALS_JS_ASSET_PATH
           ? '"accountbook-goals-v22993-js"'
         : path === ACCOUNTBOOK_FAVROWS_JS_ASSET_PATH
           ? '"accountbook-favrows-v22937-js"'
         : path === ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH
-          ? '"accountbook-v5-v22993-js"'
-          : '"mobile-home-v22995-js"',
+          ? '"accountbook-v5-v229138-js"'
+          : '"mobile-home-v229138-js"',
   };
   return new Response(request.method === "HEAD" ? null : content, { status: 200, headers });
 }

@@ -436,6 +436,10 @@ function quickSmartInputController(config) {
     if (!after) return;
     if (!quiet) after.setAttribute("aria-live","polite");
     if (submit) submit.disabled=splitNeeded()||foreignNeeded()||!(cleanNumber() && validAmount() && String(memoField?.value || "").trim());
+    // V22.9.138 U-16(독립 검토): 저장을 막는 까닭을 아래 안내 글과 같은 차례로 data-ab-quick-block 에 적는다(외화·금액 둘·구분·금액·날짜·내용, 없으면 빈 값).
+    // 분류를 묻는 중인지·묻지 못했는지는 data-ab-quick-category 에 적는다. 빠른 입력 자산(해석 결과 한 줄·[고치기])이 안내 글을 읽지 않고 이 두 값을 본다.
+    after.setAttribute("data-ab-quick-block", foreignNeeded() ? "foreign" : splitNeeded() ? "split" : confirmType && !manual.type ? "type" : invalidAmount ? "amount" : invalidDate ? "date" : !(cleanNumber() && validAmount()) ? "amount" : !String(memoField?.value || "").trim() ? "memo" : "");
+    after.setAttribute("data-ab-quick-category", classificationPending ? "pending" : classificationFailed ? "failed" : "");
     if (foreignNeeded()) { after.textContent="외화 금액은 원화로 바꿔 적어 주세요(예: 커피 130000원). 금액 칸에 원화 금액을 직접 넣어도 돼요."; return; }
     if (splitNeeded()) { after.textContent="금액이 둘 이상이에요. 여기서는 한 번에 한 건만 저장돼요. 한 건씩 나눠 적어 주세요."; return; }
     if (confirmType && !manual.type) { after.textContent="결제·승인 취소 내역입니다. 수입 또는 지출을 직접 선택한 뒤 저장해 주세요."; return; }

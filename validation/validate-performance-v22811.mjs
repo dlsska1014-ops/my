@@ -237,9 +237,9 @@ try {
   // 예산을 지키는지 확인해야 카드 마크업이 커지는 회귀를 잡을 수 있다.
   ok(realisticHomeBytes <= REALISTIC_HOME_BUDGET, `personal home HTML stays within the 44 KiB realistic-load budget while viewing the current month with 200 rows (${realisticHomeBytes} bytes, budget ${REALISTIC_HOME_BUDGET})`);
   eq(realisticFeedCards, 10, "realistic home still renders the standard ten feed cards");
-  eq(countOf(homeHtml, 'href="/assets/mobile-home-v229137.css"'), 1, "home loads the byte-preserved base stylesheet once");
+  eq(countOf(homeHtml, 'href="/assets/mobile-home-v229138.css"'), 1, "home loads the byte-preserved base stylesheet once");
   eq(countOf(homeHtml, 'href="/assets/accountbook-shell-v229136.css"'), 1, "home loads the current shell stylesheet once");
-  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22946.js") && externalScripts.includes("/assets/mobile-home-shell-v22995.js") && externalScripts.includes("/assets/accountbook-nav-v22987.js") && externalScripts.includes("/assets/accountbook-v5-v22993.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
+  ok(externalScripts.length === 4 && externalScripts.includes("/assets/accountbook-theme-v22946.js") && externalScripts.includes("/assets/mobile-home-shell-v229138.js") && externalScripts.includes("/assets/accountbook-nav-v22987.js") && externalScripts.includes("/assets/accountbook-v5-v229138.js"), "home loads the theme, preserved mobile runtime, versioned V5 navigation, and shared V5 bundle");
   ok(!homeHtml.includes("mobile-home-v22810-home-shell"), "unreleased first-pass asset path is absent");
   ok(/<body class="[^"]*abMobileAppSurface[^"]*abV22812Shell[^"]*">/.test(homeHtml), "home opts into the scoped theme and unified app shell");
   // V22.9.137 U-13: 홈의 들어온 돈·나간 돈 칸(homeMetrics, V5 KPI 격자)은 ‘이번 달 요약’ 카드(homeSummary — 홈 자산이 꾸민다)로 바뀌었다.
@@ -280,7 +280,7 @@ try {
   ok(expandedHome.status === 200 && /<a class="btn homeFeedAllBtn"[^>]*href="[^"]*feed=all[^"]*#feed"[^>]*>전체 11건 조회<\/a>/.test(expandedHomeHtml), "home renders the real 11-row feed button with its dedicated contrast scope");
   fixture.db.transactions.splice(fixture.db.transactions.length - feedExpansionRows.length, feedExpansionRows.length);
 
-  const cssPaths = ["/assets/mobile-home-v229137.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v229136.css"];
+  const cssPaths = ["/assets/mobile-home-v229138.css", "/assets/accountbook-shell-v22811.css", "/assets/accountbook-shell-v229136.css"];
   for (const path of cssPaths) {
     const get = await request(path);
     const bytes = Buffer.from(await get.arrayBuffer());
@@ -296,7 +296,7 @@ try {
     ok(body.length > 100, `${path} returns non-empty CSS`);
     eq(getDatabaseCalls, 0, `${path} GET requires no database access`);
     eq(headDatabaseCalls, 0, `${path} HEAD requires no database access`);
-    if (path === "/assets/mobile-home-v229137.css") {
+    if (path === "/assets/mobile-home-v229138.css") {
       // V22.8.97(M2 블록 3): 최근 7일 스트립의 스타일이 들어왔다. 주소를 v22896 →
       // v22897 로 올리고 고정 해시도 함께 옮긴다.
       // V22.8.93(8.2): 홈 게이지가 620ms · 지정 이징으로 움직이고, 동작 줄이기를
@@ -324,7 +324,9 @@ try {
       // 옛 v229125 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에서 그대로 내려간다(validate-v229136-spacing-color 가 옛 해시를 본다).
       // V22.9.137(홈 단순화): 날짜 머리·한 줄 거래 행·‘이번 달 요약’ 카드·가벼운 챌린지 카드 규칙이 더해져 주소를 v229136 → v229137 로 올리고 해시를 옮긴다.
       // 옛 v229136 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에서 그대로 내려간다(validate-immutable-asset-addresses-v2299 가 옛 해시를 본다).
-      eq(createHash("sha256").update(bytes).digest("hex"), "714a77f120d5ba9da6f4a57b59bf1ee7c2c2ead0484d61921b89af23fea3322c", "legacy home stylesheet bytes remain pinned");
+      // V22.9.138(빠른 입력 시트 3층): 큰 금액 칸(56px·숫자 폭 고정)·자주 쓰는 칩 한 줄 규칙(칩의 초점 테두리는 줄 안쪽에)이 더해져 주소를 v229137 → v229138 로 올리고 해시를 옮긴다.
+      // 옛 v229137 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에서 그대로 내려간다(validate-v229138-quick-sheet 가 옛 해시를 본다).
+      eq(createHash("sha256").update(bytes).digest("hex"), "02d289c5f4b590158907cfc385a1506cc9d90f2a6f360e98f6087e6013b6ee57", "legacy home stylesheet bytes remain pinned");
     }
   }
 
@@ -343,10 +345,10 @@ eq(createHash("sha256").update(legacyBytes).digest("hex"), "d6ad5e2e7599274b472b
   eq(legacyJsGetDatabaseCalls, 0, "legacy runtime GET requires no database access");
   eq(legacyJsHeadDatabaseCalls, 0, "legacy runtime HEAD requires no database access");
 
-  const shellJs = await request("/assets/mobile-home-shell-v22995.js");
+  const shellJs = await request("/assets/mobile-home-shell-v229138.js");
   const shellRuntime = await shellJs.text();
   const shellJsGetDatabaseCalls = calls.length;
-  const shellHead = await request("/assets/mobile-home-shell-v22995.js", { method: "HEAD" });
+  const shellHead = await request("/assets/mobile-home-shell-v229138.js", { method: "HEAD" });
   const shellHeadBody = await shellHead.text();
   const shellJsHeadDatabaseCalls = calls.length;
   eq(shellJs.status, 200, "V22.8.11 home runtime GET succeeds");

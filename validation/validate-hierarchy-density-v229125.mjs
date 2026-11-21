@@ -49,7 +49,7 @@ async function scene(name, task) {
 
 // 지금 화면이 부르는 주소(뒤 판에서 올라갈 수 있다 — 그때는 이 상수만 따라 올린다)
 const SHELL = "/assets/accountbook-shell-v229136.css";
-const HOME_CSS = "/assets/mobile-home-v229137.css";
+const HOME_CSS = "/assets/mobile-home-v229138.css";
 const UIUX = "/assets/ab-uiux-v229136.css";
 // 이 판이 주소를 올리기 전의 주소와 그 바이트(운영 V22.9.124 가 쓰던 것)
 const OLD = [

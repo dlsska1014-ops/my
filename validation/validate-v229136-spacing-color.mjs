@@ -313,7 +313,7 @@ check(() => {
 }, "marker unit cases");
 
 // ── C·D. 스타일시트 ────────────────────────────────────────────────────────
-const NEW = { shell: "/assets/accountbook-shell-v229136.css", home: "/assets/mobile-home-v229137.css", ux: "/assets/ab-uiux-v229136.css" };
+const NEW = { shell: "/assets/accountbook-shell-v229136.css", home: "/assets/mobile-home-v229138.css", ux: "/assets/ab-uiux-v229136.css" };
 const OLD = {
   "/assets/accountbook-shell-v229125.css": "00cf0e5db858612c9b92f6eb5f356eaa071c5f741c36cfa537f536a65cce69ce",
   "/assets/mobile-home-v229125.css": "8c6e0ea2b68525b80ee6d4661ed2bd5e28386b48b7f7ba036fe4ae694d87b602",

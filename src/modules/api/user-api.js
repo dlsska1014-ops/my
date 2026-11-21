@@ -29,6 +29,7 @@ import {
   fetchBudgets, fetchObservationMonthRows, fetchRecurringStrict,
 } from "../domain/budgets.js";
 import { detectRecurringCandidates } from "../admin/pc-analysis-calendar.js";
+import { roomViewLinkOpensV229136 } from "../auth/kakao-room-open.js";
 import { addMonthsYm } from "../domain/analytics.js";
 import { DEFAULT_CATEGORIES, DEFAULT_PAYMENTS } from "../admin/dashboard-fragments.js";
 import { formatMessage, isMissingCategory, mergedOptions } from "../kakao/reply-texts.js";
@@ -381,6 +382,15 @@ async function handleUserNotifications(request, env, url) {
       href: `/reserve-plans?month=${mq}${hh}` });
   });
 
+  // V22.9.138 V136:S-9: 방 전용 보기(env.__AB_ROOM_VIEW — 그 방 가계부만·보기 전용 세션)로 부른 알림은 그 세션으로 열 수 없는 화면의 링크에 closed: true 를 단다.
+  // 기준은 화면 HTML 의 링크 표시(markRoomViewClosedLinksV229136)와 같은 함수다. 알림 패널·배너가 화면의 다른 링크처럼 흐리게 표시한다. 보통 세션의 응답은 그대로다.
+  if (env?.__AB_ROOM_VIEW) {
+    for (const notif of notifs) {
+      let pathname = "";
+      try { pathname = new URL(String(notif.href || ""), "https://room-view.invalid").pathname; } catch (_) { pathname = ""; }
+      if (!roomViewLinkOpensV229136(pathname)) notif.closed = true;
+    }
+  }
   return jsonResponse({ ok: true, household_id: household.id, month, count: notifs.length, notifications: notifs,
     // V22.9.79 V76 W-7: 키는 그대로 두고 forecast 를 월말 예상(기록 + 남은 고정·정기 + 남은 날 예상)으로 바꿨다. 내역은 expected_parts.
     // after_pending_assumption 은 한 판 동안 forecast 와 같은 값으로 남긴다(반영 대기를 모르면 null).

@@ -302,7 +302,7 @@ check(() => {
 }, "C-7 renderHomeChallenge");
 
 // ── D. 홈 스타일시트(1년 캐시 자산) ───────────────────────────────────────────
-const NEW_HOME_CSS = "/assets/mobile-home-v229137.css";
+const NEW_HOME_CSS = "/assets/mobile-home-v229138.css";
 const OLD_HOME_CSS = "/assets/mobile-home-v229136.css";
 const OLD_HOME_SHA = "f3be8c9ab992c1cb1a01ed99806b1ec598c02feb5d66e0ec37af22a51a48e1dc";
 const compareSpec = (x, y) => (x[0] - y[0]) || (x[1] - y[1]) || (x[2] - y[2]);
@@ -365,7 +365,7 @@ await checkAsync(() => withClock("2026-07-03", () => fixture(async (fx) => {
   check(() => eq(homeCssPath, NEW_HOME_CSS, "D-1 홈은 새 홈 스타일시트 주소 하나만 부른다"), "home css address");
   const fresh = await asset(fx, NEW_HOME_CSS);
   const old = await asset(fx, OLD_HOME_CSS);
-  check(() => ok(fresh.status === 200 && fresh.etag === '"mobile-home-v229137-css"' && /max-age=31536000/.test(fresh.cache) && /immutable/.test(fresh.cache), `D-1 새 주소: 200 · ETag · 1년 캐시(${fresh.status} ${fresh.etag} ${fresh.cache})`), "new asset served");
+  check(() => ok(fresh.status === 200 && fresh.etag === '"mobile-home-v229138-css"' && /max-age=31536000/.test(fresh.cache) && /immutable/.test(fresh.cache), `D-1 새 주소: 200 · ETag · 1년 캐시(${fresh.status} ${fresh.etag} ${fresh.cache})`), "new asset served");
   check(() => ok(old.status === 200 && sha(old.text) === OLD_HOME_SHA && !old.text.includes(".homeSummary{") && !old.text.includes("homeChallenge"), "D-2 옛 주소 v229136 은 옛 바이트 그대로(V22.9.136 화면이 쓴다)"), "old asset kept");
   const css = fresh.text;
   // 이 판이 더한 블록: 머리 주석부터 마지막 규칙(끝난 챌린지 한 줄의 링크)까지. 홈 자산은 이 상수 뒤에 다른 조각을 잇는다.

@@ -121,9 +121,9 @@ await fixture(async (fx) => {
 
 // ── A3 감사 U9: 모바일 홈 11px 라벨 대비(라이트·다크) ───────────────────────────
 {
-  const css = await asset("/assets/mobile-home-v229137.css");
+  const css = await asset("/assets/mobile-home-v229138.css");
   eq(css.status, 200, "A3 새 홈 스타일시트 주소가 내려간다");
-  ok(css.type.startsWith("text/css") && css.cache.includes("immutable") && css.etag === '"mobile-home-v229137-css"', `A3 새 주소는 CSS·1년 불변 캐시·같은 판의 ETag 다 (${css.etag})`);
+  ok(css.type.startsWith("text/css") && css.cache.includes("immutable") && css.etag === '"mobile-home-v229138-css"', `A3 새 주소는 CSS·1년 불변 캐시·같은 판의 ETag 다 (${css.etag})`);
   const lightRule = ".v8-edit-field>span,.v8-spender-readonly>span{font-size:11px;color:#475467;font-weight:500}"; // V22.9.125: 칸 이름 굵기 1000 → 500(굵기 눈금)
   ok(css.text.includes(lightRule), "A3 11px 수정 폼 라벨의 원본 색이 #475467 이다");
   ok(!css.text.includes(".v8-edit-field>span,.v8-spender-readonly>span{font-size:11px;color:#687385"), "A3 옛 보조색(#687385, 4.35:1) 라벨 규칙이 남지 않는다");
@@ -143,7 +143,7 @@ await fixture(async (fx) => {
   ok(contrast(muted, raised) >= 4.5, `A3 다크 라벨(보조 토큰)이 다크 표면 위 4.5:1 이상이다 (${contrast(muted || "#000000", raised || "#000000").toFixed(2)}:1)`);
   ok(contrast(text, raised) >= 4.5, `A3 다크 읽기 전용 칸의 이름 글자가 4.5:1 이상이다 (${contrast(text || "#000000", raised || "#000000").toFixed(2)}:1)`);
   ok(contrast("#edeff3", "#f8fafc") < 1.5, "A3 고치기 전 다크 읽기 전용 칸은 밝은 배경 위 밝은 글자였다(1.1:1, 헤드리스 Chrome 실측 재현)");
-  const head = await asset("/assets/mobile-home-v229137.css", "HEAD");
+  const head = await asset("/assets/mobile-home-v229138.css", "HEAD");
   ok(head.status === 200 && head.bytes.length === 0 && head.etag === css.etag, "A3 새 주소의 HEAD 는 본문 없이 같은 ETag 다");
   // V22.9.85: v22919 보관본은 옛 주소 정리로 뺐다. CSS 형식 보관은 남은 보관본(운영 V22.9.80 의 홈 스타일시트)으로 본다.
   const old = await asset("/assets/mobile-home-v22979.css");
@@ -156,7 +156,7 @@ await fixture(async (fx) => {
 }
 await fixture(async (fx) => {
   const home = await page(fx, HOME);
-  eq(count(home.html, 'href="/assets/mobile-home-v229137.css"'), 1, "A3 홈이 새 홈 스타일시트를 정확히 한 번 받는다");
+  eq(count(home.html, 'href="/assets/mobile-home-v229138.css"'), 1, "A3 홈이 새 홈 스타일시트를 정확히 한 번 받는다");
   ok(!home.html.includes("mobile-home-v22919.css"), "A3 홈이 옛 주소를 더 쓰지 않는다");
 });
 

@@ -306,7 +306,7 @@ await withAudit(async (fx) => {
 // ── 4. 알림 5초(V5 자산의 저장 알림 함수) ──
 const v5Module = readFileSync(new URL("../src/modules/client/v5-bundle-mains.js", import.meta.url), "utf8");
 const feedbackSource = functionSource(v5Module, "accountbookSaveFeedbackClientMain");
-const v5Asset = await (await app.fetch(new Request(`${BASE}/assets/accountbook-v5-v22993.js`), {}, ctx)).text();
+const v5Asset = await (await app.fetch(new Request(`${BASE}/assets/accountbook-v5-v229138.js`), {}, ctx)).text();
 t.ok(v5Asset.includes(`(${feedbackSource})();`), "4 V5 자산(v22990)이 고친 알림 함수를 싣고 부른다");
 const restorable = toastHarness(feedbackSource, { search: `?month=2026-07&household_id=${HH}&tab=transactions&msg=deleted&restore=abc.def`, kind: "success", restore: true });
 t.deepEq(restorable.pending(), [5000], "4 되돌리기 알림은 5초 보인다");
@@ -335,8 +335,8 @@ const oldV5 = await (await app.fetch(new Request(`${BASE}/assets/accountbook-v5-
 t.ok(oldV5.includes("5초 후 삭제합니다."), "5 옛 주소(v22987, 운영 V87·88 이 쓰는 주소)는 옛 바이트 그대로 내려간다");
 
 // ── 6. 한 줄 입력: 한글 조합 중에도 읽기 ──
-const homeJs = await (await app.fetch(new Request(`${BASE}/assets/mobile-home-v22995.js`), {}, ctx)).text();
-const shellJs = await (await app.fetch(new Request(`${BASE}/assets/mobile-home-shell-v22995.js`), {}, ctx)).text();
+const homeJs = await (await app.fetch(new Request(`${BASE}/assets/mobile-home-v229138.js`), {}, ctx)).text();
+const shellJs = await (await app.fetch(new Request(`${BASE}/assets/mobile-home-shell-v229138.js`), {}, ctx)).text();
 const START = "var abImeComposing=false;if(smart){";
 for (const [label, source] of [["홈 스크립트", homeJs], ["홈 셸", shellJs]]) {
   t.eq(source.split(START).length - 1, 1, `6 ${label}에 한 줄 입력 연결이 한 번 있다`);

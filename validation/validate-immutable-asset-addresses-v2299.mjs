@@ -27,6 +27,17 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
+  // V22.9.138(빠른 입력 시트 3층 — 지시서 7단계 U-16, V136:S-9·S-10, V137:H-7·H-9): 빠른 입력 자산(해석 결과 한 줄 + [고치기], 금액 단축 단추를 접힌 칸으로),
+  // 홈 스크립트 두 주소(‘자세히’ 요약 줄의 날짜 글), V5 번들(시트 머리 날짜 글·입력칸 없는 시트의 초점·알림 링크 표시·첫 안내의 캘린더 단계·빠른 입력 자산 주소),
+  // 알림 자산(같은 알림 함수 — 어느 화면도 부르지 않는 주소지만 함수가 바뀌어 함께 올림), 홈 스타일시트(큰 금액 칸 56px·자주 쓰는 칩 한 줄)의 주소를 v229138 로 올렸다.
+  // 옛 주소(v22993·v22951·v22995 둘·v22937·v229137 CSS — V22.9.137 이하가 쓰는 주소)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 블록들의 해시로 계속 내려간다.
+  "/assets/accountbook-v5-v229138.js": "332ddb700d1cb4b1b3770927f4d2bb66d22225ede9192f52c3ec30b61fe24bdc",
+  "/assets/accountbook-quick-input-v229138.js": "cb3b224dadd7af4f0e3aea8e1b62ccd290f7741c8014d7ce57dc83785c589fc8",
+  "/assets/mobile-home-v229138.js": "59b89011a2960ce38d8797999ba7e72cdaf44ec4b565e89dfb59fbe5e91eece7",
+  "/assets/mobile-home-shell-v229138.js": "3a8af399b4a53e2bfe351493c4e6ffcede3f324dfe367022009655bc32efdd49",
+  "/assets/accountbook-notif-v229138.js": "9fe0f62b0323f1b016873320e31b043a808d00f71d2c4cf175f53abac0c30b7a",
+  "/assets/mobile-home-v229138.css": "02d289c5f4b590158907cfc385a1506cc9d90f2a6f360e98f6087e6013b6ee57",
+  // V22.9.138 끝
   // V22.9.137(홈 단순화 — 지시서 7단계 U-12·U-13·U-14): 홈 스타일시트 끝에 날짜 머리·한 줄 거래 행·‘이번 달 요약’ 카드·가벼운 챌린지 카드 규칙 한 블록을 더해
   // 주소를 v229136 → v229137 로 올렸다. 옛 주소(mobile-home-v229136.css, V22.9.136 이 쓰는 주소)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 V22.9.136 블록의 해시로 계속 내려간다.
   "/assets/mobile-home-v229137.css": "714a77f120d5ba9da6f4a57b59bf1ee7c2c2ead0484d61921b89af23fea3322c",
