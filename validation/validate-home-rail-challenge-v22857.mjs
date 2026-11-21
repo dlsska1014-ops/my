@@ -25,9 +25,9 @@ ok(source.includes("function accountbookActivityRailClientMain"), "desktop activ
 ok(source.includes('window.matchMedia("(min-width:1320px)")'), "activity rail stays desktop-only");
 ok(source.includes('(${accountbookActivityRailClientMain.toString()})();'), "activity rail ships in the immutable shared bundle");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v229136.css"'), "changed shell uses a fresh immutable asset URL");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22993.js"'), "changed V5 behavior uses a fresh immutable asset URL");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v229138.js"'), "changed V5 behavior uses a fresh immutable asset URL");
 ok(source.includes('"accountbook-shell-v229136-css"'), "shell ETag is refreshed");
-ok(source.includes('"accountbook-v5-v22993-js"'), "V5 bundle ETag is refreshed");
+ok(source.includes('"accountbook-v5-v229138-js"'), "V5 bundle ETag is refreshed");
 ok(source.includes("renderAccountbookBrandIcon"), "navigation uses one SVG brand icon renderer");
 ok(source.includes('class="abNavToggleIcon"'), "collapse button uses a stable SVG chevron");
 ok(source.includes(".abNavCollapsed .abNavToggleIcon{transform:rotate(180deg)"), "only the collapse icon rotates");
@@ -78,7 +78,7 @@ try {
   // (거기에 상향 근거를 적었다), 여기서는 "가벼운 화면이 무거워지지 않는다"만 본다.
   ok(Buffer.byteLength(home.text) < 37 * 1024, "home remains below the protected HTML budget");
   ok(home.text.includes('/assets/accountbook-shell-v229136.css'), "home loads the refreshed shell asset");
-  ok(home.text.includes('/assets/accountbook-v5-v22993.js'), "home loads the refreshed V5 bundle");
+  ok(home.text.includes('/assets/accountbook-v5-v229138.js'), "home loads the refreshed V5 bundle");
   // V22.9.137 U-14: 홈 챌린지는 기간 안과 끝난 뒤 사흘(한 줄)만 보인다. 이 검사는 실제 시계로 돌아 픽스처의 7/1~4 챌린지가 끝난 지 오래라 홈에 없다 —
   // 챌린지를 보는 줄은 기간 안(7/3 낮)의 홈으로 본다. 홈 카드의 클래스는 ‘reportChallenge homeChallenge’ 다(가벼운 홈 카드).
   ok(!home.text.includes('id="reportChallenge"'), "끝난 지 사흘이 지난 챌린지는 홈에 없다(실제 시계)");
@@ -135,9 +135,9 @@ try {
   ok(shell.text.includes("body.abV22812Shell .reportChallenge{"), "shell contains home challenge styles");
   ok(shell.text.includes("right:-15px!important;top:20px!important"), "shell contains stable collapse button placement");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22993.js");
+  const v5 = await request(fixture, "/assets/accountbook-v5-v229138.js");
   eq(v5.response.status, 200, "refreshed V5 asset is served");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22993-js"', "refreshed V5 ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v229138-js"', "refreshed V5 ETag is correct");
   ok(v5.text.includes("/u/api/recent-transactions"), "V5 bundle calls only the scoped recent transaction endpoint");
   ok(v5.text.includes("data-ab-activity-rail"), "V5 bundle contains responsive activity rail behavior");
   eq(fixture.db.transactions.length, before, "asset delivery does not mutate transactions");

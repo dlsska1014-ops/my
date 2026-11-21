@@ -183,25 +183,28 @@ const SOFT = process.env.V22980_SOFT === "1";
 // 다른 원문은 홈 화면뿐이고 글자 차이는 위 변경뿐임을 먼저 확인했고(같음 80·홈 화면만 다름 17·그 밖의 차이 0), 그 뒤 --print-golden 으로 그 값들을 다시 얻었다. 나머지 값은 그대로다.
 // 판 이름(V22.9.136 → V22.9.137)이 바뀌어 3곳(analysis·backupFull·backupMonth)의 값도 달라졌다. 판 올리기 앞뒤의 원문 97개를 견줘 뒤 원문의 판 이름을 옛 이름으로 되돌리면
 // 바이트까지 같음을 먼저 확인했고(같음 86·판 이름만 다름 11·그 밖의 차이 0), 그 뒤 --print-golden 으로 그 값들을 다시 얻었다.
+// V22.9.138(빠른 입력 시트 3층, 2026-11-21): 1년 캐시 자산 주소 셋(홈 스타일시트 mobile-home-v229137.css → v229138, 홈 스크립트 mobile-home-shell-v22995.js → v229138, V5 번들 accountbook-v5-v22993.js → v229138)과
+// 판 이름이 바뀌어 12곳(home·homeTrend·homePrev·budgets·budgetAlerts·reports·reportsWeek·analysis·backupPage·backupFull·backupMonth·candidate)의 값이 달라졌다. 해시에 들어가는 원문 97개를 바탕 커밋과 견줘 세 주소와 판 이름을 가리면 모두 같음을
+// 먼저 확인했고(같음 43·주소·판 이름만 다름 54·그 밖의 차이 0), 그 뒤 --print-golden 으로 그 값만 다시 얻었다. 나머지는 그대로다.
 const FLAG_OFF_GOLDEN = {
-  "home": "200 29cf93804fcc9b647378206d",
-  "homeTrend": "200 383a6066af16b14fadf11c9d",
-  "homePrev": "200 7b5ec8ff2d498b939155fa90",
-  "budgets": "200 41b9e3b769a6013d19d92aa7",
-  "budgetAlerts": "200 76bd161dc9eb6f86bc5e9bd1",
+  "home": "200 50578652221ec2b8bc0a38dc",
+  "homeTrend": "200 ec4de1b365d95be48a4ad8f7",
+  "homePrev": "200 e4bc2d7fbf061133f2b81bdb",
+  "budgets": "200 6aee41b104bf52e7d13e8776",
+  "budgetAlerts": "200 dceecaa07e2454b88c250bb6",
   "notifications": "200 66c9272b3c7b49d47411251a",
-  "reports": "200 fb86ee689cc21572e7bb695f",
-  "reportsWeek": "200 00e7dc6979ff324a9cff7888",
-  "analysis": "200 42490a9608a43c643e0070f4",
-  "backupPage": "200 651c68cb95b27ef2c4a5fe8b",
+  "reports": "200 100acccd5723d1b8001560b0",
+  "reportsWeek": "200 b7bc26465260babaeb8c5722",
+  "analysis": "200 532c0a1f9567e3e0a806a394",
+  "backupPage": "200 6ad7c9d9b16eae3a75ab5f41",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 3e3054d79af2514ff815271a",
-  "backupMonth": "200 dff255c286fc689c7d38c2d9",
-  "candidate": "200 72c0dfbe85e1323d831b45bc",
+  "backupFull": "200 0003504e483e923116442cf6",
+  "backupMonth": "200 d035feac070886fb4105bbf1",
+  "candidate": "200 d2012b8a509c2b878e7d1999",
   "legacyErr": "200 dba548c2b89369b26a5c34d4",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
   "apiBatch": "200 {\"ok\":true,\"updatedCount\":1}",

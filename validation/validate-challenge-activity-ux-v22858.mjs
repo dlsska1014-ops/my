@@ -16,9 +16,9 @@ const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8")
 
 ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "V22.8.58 runtime version is explicit");
 ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v229136.css"'), "shell uses a fresh immutable URL");
-ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v22993.js"'), "activity runtime uses a fresh immutable URL");
+ok(source.includes('const ACCOUNTBOOK_V5_BUNDLE_JS_ASSET_PATH = "/assets/accountbook-v5-v229138.js"'), "activity runtime uses a fresh immutable URL");
 ok(source.includes('"accountbook-shell-v229136-css"'), "shell ETag is refreshed");
-ok(source.includes('"accountbook-v5-v22993-js"'), "activity runtime ETag is refreshed");
+ok(source.includes('"accountbook-v5-v229138-js"'), "activity runtime ETag is refreshed");
 // V22.9.89 독립 검토: 한 주 이하는 날짜 칸, 더 길면 달성률이다. 직접 적은 기록이 없어 지난 날을 셀 수 없는 동안도 달성률이다
 // (홈 날짜 칸의 상태 글자는 1년 캐시 클라이언트가 s·x·t·f 로만 붙여, 그런 날이 ‘예정’으로 읽혔다).
 ok(source.includes('const displayMode = settings.periodDays <= 7 && (recording || !evaluatedDays) ? "daily" : "percent"'), "one-week display threshold is explicit");
@@ -104,7 +104,7 @@ try {
   eq(home.response.status, 200, "home renders with the upgraded challenge");
   ok(Buffer.byteLength(home.text) < 35 * 1024, "home remains below the protected 35 KiB budget");
   ok(home.text.includes('/assets/accountbook-shell-v229136.css'), "home loads the refreshed shell");
-  ok(home.text.includes('/assets/accountbook-v5-v22993.js'), "home loads the refreshed activity runtime");
+  ok(home.text.includes('/assets/accountbook-v5-v229138.js'), "home loads the refreshed activity runtime");
   // V22.9.137 U-14: 홈 챌린지는 기간 안과 끝난 뒤 사흘만 보인다(실제 시계로는 7/1~4 챌린지가 끝난 지 오래라 없다) — 진행 표시는 기간 안(7/3)의 홈으로 본다.
   ok(!home.text.includes('id="reportChallenge"'), "끝난 지 사흘이 지난 챌린지는 홈에 없다(실제 시계)");
   const clockBefore = globalThis.__AB_QA_FIXED_NOW_MS;
@@ -149,9 +149,9 @@ try {
   ok(shell.text.includes(".abActivityTypeIcon svg"), "shell includes unified SVG activity icon styling");
   ok(shell.text.includes(".abActivityItem:focus-visible"), "activity items have a visible keyboard focus state");
 
-  const v5 = await request(fixture, "/assets/accountbook-v5-v22993.js");
+  const v5 = await request(fixture, "/assets/accountbook-v5-v229138.js");
   eq(v5.response.status, 200, "refreshed activity runtime is served");
-  eq(v5.response.headers.get("etag"), '"accountbook-v5-v22993-js"', "refreshed activity runtime ETag is correct");
+  eq(v5.response.headers.get("etag"), '"accountbook-v5-v229138-js"', "refreshed activity runtime ETag is correct");
   ok(v5.text.includes("function iconSvg(kind)"), "runtime contains the controlled SVG icon renderer");
   ok(v5.text.includes('class="abActivityTypeIcon kind-') && v5.text.includes("교통"), "runtime emits semantic category icon classes");
   ok(v5.text.includes("aria-label"), "runtime emits accessible activity labels");

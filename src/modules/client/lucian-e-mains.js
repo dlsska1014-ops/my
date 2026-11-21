@@ -53,7 +53,8 @@ function accountbookTourClientMain() {
   if (!explicit && (done || !document.querySelector('[data-ab-new-ledger]'))) return;
   var specs = [
     ['[data-ab-quick-open],.tabAdd', '빠른 입력에서 지출이나 수입을 한 줄로 남기세요.'],
-    ['.homeCalendarToggle a', '캘린더에서 날짜별 기록을 확인하세요.'],
+    // V22.9.138 V137:H-9: 캘린더로 가는 길은 V22.9.137 부터 ‘최근 내역’ 머리의 링크(a.homeFeedCalendar)다 — 옛 큰 단추(.homeCalendarToggle)를 찾아 이 단계가 빠졌다.
+    ['a.homeFeedCalendar', '캘린더에서 날짜별 기록을 확인하세요.'],
     ['.homeReport a,a[data-key="stats"],a.homeCategoryLink', '분석에서 지출 흐름과 예산을 확인하세요.']
   ];
   function target(selector) {

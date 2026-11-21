@@ -46,8 +46,10 @@ const homeHtml = async (fx) => (await app.fetch(new Request(`${BASE}${HOME}`, { 
 // V22.9.137(홈 단순화, 지시서 7단계 U-13 수용 기준 ‘기준 픽스처 홈 HTML이 줄어든다’): 리포트 카드 넷(기본 꺼짐)·수입 대비 사용·들어온 돈·나간 돈 자리를
 // ‘이번 달 요약’ 카드 한 장으로, 끝난 지 사흘 넘은 챌린지 카드를 빼고, 행을 한 줄로 바꿔(날짜 머리와 숨은 날짜 조각이 더해짐) 기준 35,529 → 33,949 B,
 // 200행 40,330 → 38,610 B 로 줄었다. 상한을 새 실측으로 낮춘다.
-const HOME_BASE_MAX = 33949;
-const HOME_200_MAX = 38610;
+// V22.9.138(빠른 입력 시트 3층, 지시서 7단계 U-16): 홈 HTML 에 더한 글은 없다. 1년 캐시 자산 주소 두 개가 한 자리씩 길어져(홈 스크립트 v22995 → v229138,
+// V5 번들 v22993 → v229138, 홈 스타일시트 v229137 → v229138 은 길이 그대로) 기준 33,949 → 33,951 B, 200행 38,610 → 38,612 B 가 됐다. 상한을 새 실측으로 옮긴다.
+const HOME_BASE_MAX = 33951;
+const HOME_200_MAX = 38612;
 // V22.9.85: 2단계(T-09 카테고리 토큰·마스크 15개, T-10 화면 아이콘 마스크 3개)와 R-1·R-3·R-6·R-7·의료 제외 낱말로 셸이 239,647 B(gzip 49,917)가 됐다.
 // V22.9.86: 3단계(T-11 머리말·가계부 고르기 시트, T-13 동그라미, T-14 입력 바·시트, T-15 알림·새 행 강조, T-17 탭 바, T-18 빈 상태)가
 // design-uplift-3-css.js 로 붙고, V85 검토 후속 R-8(다크 탭 글자)·R-12(날짜 칩)·R-13(빠른 입력 초점)·R-16(챌린지 카드 초점)과 메뉴 아이콘 선(V86:V-6)·탭 아이콘 크기가 더해져
@@ -71,7 +73,7 @@ const SHELL_CSS_MAX_BYTES = 276402;
 // V22.9.87: T-19 가 49회 늘렸다. 보조기기용 숨김 글자 두 곳(9회씩, 접은 사이드바 메뉴 링크와 같은 방식) 18회와, 옛 !important 규칙(독 가운데 놓기·흐림·테두리·그림자,
 // 머리말·리포트 단추 크기와 여백 3px, 서랍 단추 색)을 이겨야 하는 자리 31회다. T-16 단추는 고대비 모드 테두리가 이기도록 !important 를 쓰지 않는다.
 // V22.9.87 V85:R-9: 6회 — 옛 현재 메뉴 규칙 셋(V22.8.11 셸의 #1b64da, :is 묶음, accent-weak)과 다크 링크 강조색(R-3)이 모두 !important 라 이겨야 한다.
-// V22.9.87 사용자 결정(2026-10-29): 6회 — 실행 취소 단추 바탕·글자색 3회(V87:W-4, mobile-home-v229137.css 의 파랗게 채운 submit 규칙이 !important),
+// V22.9.87 사용자 결정(2026-10-29): 6회 — 실행 취소 단추 바탕·글자색 3회(V87:W-4, mobile-home-v229138.css 의 파랗게 채운 submit 규칙이 !important),
 // 리포트 기간 탭 글자색 2회(V85:R-10, 다크 링크 강조색 R-3 이 !important), 글꼴 목록 1회(T-23, 옛 UI 런타임 body.abV2281 글꼴 규칙이 !important).
 // 단추 테두리는 고대비 모드 테두리가 이기도록 여전히 !important 를 쓰지 않는다.
 // V22.9.93(Aside 2차 검수): 9회 — 다크 상태 배지 8회(쪽마다 둔 밝은 바탕과 셸의 다크 글자색이 !important 라 이겨야 한다), 좁은 폭 달 칸 1회(옛 조회 줄 열 규칙이 !important).
@@ -86,13 +88,16 @@ const SHELL_IMPORTANT_MAX = 1723;
 // 제목·설정 링크·날짜 칸 숫자·진행 글·달성률 숫자의 글자색)과 V22.9.86 의 흰 초점 윤곽선이 모두 !important 라 같은 속성만 이겨야 한다(홈 카드에만 붙는 homeChallenge 로 좁힘).
 // 셸과 값이 같은 모서리·배경 그림은 적지 않았다. 행·요약 카드 규칙과 밝은 테마의 날짜 머리 규칙은 !important 를 쓰지 않는다.
 // 독립 검토 반영(V137:H-12): 1회 더 — 어두운 테마의 날짜 머리 글자색. 셸의 ‘.panel 안의 글자는 color:inherit’ 가 !important(0,3,4)라 날짜 글자에만 더 센 규칙(0,4,3)으로 이긴다.
-const HOME_CSS_IMPORTANT_MAX = 380;
+// V22.9.138(빠른 입력 시트 3층, U-16·U-01): 3회 더 — 큰 금액 칸의 최소 높이 56px·숫자 폭 고정 2회(옛 UI 런타임 .abV2281 입력칸 규칙의 최소 높이 46px·숫자 모양이
+// 우선 표시다)와 자주 쓰는 칩 한 줄 1회(휴대폰 앱 화면 .abMobileAppSurface .chipRow 의 줄 바꿈이 우선 표시다). 둘 다 #add 안의 id 로 좁혀 같은 속성만 이긴다.
+// 독립 검토 반영(V138:Q-8): 1회 더 — 칩 줄 안의 칩만 초점 테두리를 안쪽(-3px)에 그린다. 공통 초점 규칙의 바깥 3px 가 우선 표시라 같은 속성만 이긴다.
+const HOME_CSS_IMPORTANT_MAX = 384;
 
 const SHELL = "/assets/accountbook-shell-v229136.css";
-const HOME_CSS = "/assets/mobile-home-v229137.css";
-const V5 = "/assets/accountbook-v5-v22993.js";
-const HOME_JS = "/assets/mobile-home-v22995.js";
-const HOME_SHELL_JS = "/assets/mobile-home-shell-v22995.js";
+const HOME_CSS = "/assets/mobile-home-v229138.css";
+const V5 = "/assets/accountbook-v5-v229138.js";
+const HOME_JS = "/assets/mobile-home-v229138.js";
+const HOME_SHELL_JS = "/assets/mobile-home-shell-v229138.js";
 
 await withClock("2026-07-15", () => fixture(async (fx) => {
   const home = await homeHtml(fx);

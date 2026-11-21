@@ -597,6 +597,6 @@ async function kakaoRoomEntryResponse(request, env, url, ctx) {
 export {
   kakaoRoomEntryHouseholdIdV229129, kakaoRoomEntryResponse, kakaoRoomEntryReturnPathV229129,
   kakaoRoomOpenResponse, kakaoRoomQuietLoginEnabledV229129, roomViewBandResponseV229130,
-  roomViewBounceResponseV229130, roomViewGateV229130,
+  roomViewBounceResponseV229130, roomViewGateV229130, roomViewLinkOpensV229136,
 };
 // @build:exports-end

@@ -106,7 +106,7 @@ const fromAsset = (source, name) => {
 };
 const WEB_FNS = ["quickAmountFieldState", "moneyTokenSpans", "quickAmountCount", "explicitDateIntent", "quickInputDate", "parseMobileAmountText", "transactionTypeFromText", "normalizeInputText", "foldInputWidth", "joinSpacedKoreanAmount", "inputPaymentPatterns"];
 const homeOld = await assetText("/assets/mobile-home-v22993.js");
-const homeNew = await assetText("/assets/mobile-home-v22995.js");
+const homeNew = await assetText("/assets/mobile-home-v229138.js");
 function webFunctions(source) {
   const context = vm.createContext({});
   vm.runInContext(WEB_FNS.map((name) => fromAsset(source, name)).join("\n") + "\n;globalThis.__fns={normalizeInputText,quickAmountCount,parseMobileAmountText};", context);
@@ -309,7 +309,7 @@ await section("공지 띠", async () => {
     ok(!(await pub("/kakao-guide")).includes("abNoticeBand"), "공지 빈칸뿐인 NOTICE_TEXT 는 그리지 않는다");
     fx.env.NOTICE_TEXT = "점검 안내";
     const health = await app.fetch(new Request(`${BASE}/health`), fx.env, ctx);
-    const asset = await app.fetch(new Request(`${BASE}/assets/mobile-home-v22995.js`), fx.env, ctx);
+    const asset = await app.fetch(new Request(`${BASE}/assets/mobile-home-v229138.js`), fx.env, ctx);
     ok(!String(health.headers.get("content-type")).includes("text/html") && !(await health.text()).includes("abNoticeBand") && !(await asset.text()).includes("abNoticeBand"), "공지 HTML 이 아닌 답(/health·자산)에는 붙이지 않는다");
   });
 });

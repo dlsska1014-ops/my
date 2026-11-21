@@ -944,6 +944,14 @@ function accountbookNotifClientMain() {
     returnFocus = null;
   }
   function dismiss(key) { dismissed[key] = Date.now(); saveDismissed(); renderList(); setBadge(); renderBanner(); }
+  // V22.9.138 V136:S-9: 방 전용 보기로 받은 알림은 그 세션으로 열 수 없는 화면의 링크에 closed 가 붙어 온다(서버 handleUserNotifications).
+  // 화면의 다른 링크(서버가 표시한 링크)와 같게 표시한다 — 흐리게(띠의 스타일)·aria-disabled·title. 링크는 그대로 눌리고, 누르면 그 방 홈으로 돌아와 띠가 알린다.
+  function markClosed(a, n) {
+    if (!a || !n || n.closed !== true) return;
+    a.setAttribute("data-ab-rv-off", "");
+    a.setAttribute("aria-disabled", "true");
+    a.setAttribute("title", "로그인해야 열 수 있어요");
+  }
   function renderList() {
     listBox.textContent = "";
     var list = visible();
@@ -961,6 +969,7 @@ function accountbookNotifClientMain() {
       body.className = "abV5NotifItemBody";
       var a = document.createElement("a");
       a.href = n.href || "#";
+      markClosed(a, n);
       var b = document.createElement("b"); b.textContent = n.title || "";
       var s = document.createElement("span"); s.textContent = n.body || "";
       a.appendChild(b); a.appendChild(s);
@@ -986,6 +995,7 @@ function accountbookNotifClientMain() {
     bar.id = "abV5Banner";
     bar.className = "abV5Banner lvl-" + top.level;
     var a = document.createElement("a"); a.href = top.href || "#";
+    markClosed(a, top);
     var b = document.createElement("b"); b.textContent = top.title || "";
     var s = document.createElement("span"); s.textContent = top.body || "";
     a.appendChild(b); a.appendChild(s);
