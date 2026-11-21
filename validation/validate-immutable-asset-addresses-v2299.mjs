@@ -27,6 +27,10 @@ const ORIGIN = "https://malhaebook.com";
 // 주소 → 그 주소가 지금 돌려주는 바이트의 SHA-256.
 // 내용을 고쳤으면 주소의 판 번호를 올리고 여기 해시를 새로 적는다.
 const PINNED = {
+  // V22.9.137(홈 단순화 — 지시서 7단계 U-12·U-13·U-14): 홈 스타일시트 끝에 날짜 머리·한 줄 거래 행·‘이번 달 요약’ 카드·가벼운 챌린지 카드 규칙 한 블록을 더해
+  // 주소를 v229136 → v229137 로 올렸다. 옛 주소(mobile-home-v229136.css, V22.9.136 이 쓰는 주소)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 V22.9.136 블록의 해시로 계속 내려간다.
+  "/assets/mobile-home-v229137.css": "714a77f120d5ba9da6f4a57b59bf1ee7c2c2ead0484d61921b89af23fea3322c",
+  // V22.9.137 끝
   // V22.9.136(간격·색 정리): 스타일시트 셋(셸·홈·공통)의 간격(3px 이상 홀수 px → 가까운 4의 배수)·회색 글자색(눈금으로)과 어두운 테마의 선택 구분이 바뀌어 주소를 v229136 으로 올렸다.
   // 옛 주소(accountbook-shell-v229125.css·mobile-home-v229125.css·ab-uiux-v229125.css, 운영 V22.9.125~135 가 쓰는 주소)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 아래 V22.9.125 블록의 해시로 계속 내려간다.
   "/assets/accountbook-shell-v229136.css": "ff413677ad64fe8db4cfc311abbdb4e00fa84cd126beae0d31c4fbaeb277ae23",

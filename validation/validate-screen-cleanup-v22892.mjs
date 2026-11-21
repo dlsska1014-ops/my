@@ -144,7 +144,8 @@ try {
   ok(groups.length >= 3, `날짜마다 헤더가 하나씩 있다 (${groups.length}개)`);
   const money = (text) => Number(String(text).replace(/[^\d]/g, "") || 0);
   for (const [, label, total, body] of groups) {
-    ok(/^\d+월 \d+일 \([일월화수목금토]\)$/.test(label), `날짜 헤더에 요일까지 있다 (${label})`);
+    // V22.9.137 U-12: 날짜 머리는 ‘오늘’·‘어제’·‘7월 22일 수요일’ 이다(괄호 요일 대신 요일 이름).
+    ok(/^(?:오늘|어제|\d+월 \d+일 [일월화수목금토]요일)$/.test(label), `날짜 헤더에 요일까지 있다 (${label})`);
     ok(/원$/.test(total), `날짜 헤더 오른쪽이 그날 합계다 (${label} ${total})`);
     // 헤더의 합계는 그 묶음 안 금액의 합이어야 한다 — 표시만 그럴듯하면 안 된다.
     const rowExpense = [...body.matchAll(/<strong class="expense">-([\d,]+)원<\/strong>/g)].reduce((a, m) => a + money(m[1]), 0);

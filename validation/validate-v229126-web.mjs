@@ -17,7 +17,7 @@ import { budgetSummary, runRecurringAutoApply } from "../src/index.js";
 import { homeUpcomingOut, monthSpendingOutlook, pendingRecurringRules } from "../src/modules/domain/spending-outlook.js";
 import { refundDeductionApplied } from "../src/modules/domain/refund-links.js";
 import { buildBudgetAlertPolishModel, renderPendingRecurringList } from "../src/modules/features/budget-alerts-annual-goals.js";
-import { renderHomeReportCards } from "../src/modules/my/home-sections.js";
+import { normalizeHomeLayout, renderHomeReportCards } from "../src/modules/my/home-sections.js";
 import { fetchHouseholdMembers } from "../src/modules/data/households-members-rows.js";
 
 const t = counter("web fixes FC-20·21·22·30");
@@ -262,8 +262,10 @@ const ids = (list) => (list || []).map((r) => r.id).sort().join(",");
   t.ok(planBefore.fixedCount === 1 && planBefore.planCount === 0 && planBefore.total === 70000, "2-a 예전: 정기지출 항목은 같은 지출로 짝지은 규칙 쪽으로 한 번 센다");
   t.ok(planAfter.fixedCount === 0 && planAfter.planCount === 1 && planAfter.total === 70000 && planAfter.spenderCheckCount === 1, "2-a 고친 뒤: 규칙이 반영되지 않으므로 항목으로 한 번 센다");
   // 홈 리포트 카드(앞으로 나갈 돈): 값이 있을 때만 한 줄을 더한다.
-  const cardAfter = renderHomeReportCards({ month: "2026-11", householdId: HH, upcoming: after, reserveLoaded: true, isCurrentMonth: true });
-  const cardBefore = renderHomeReportCards({ month: "2026-11", householdId: HH, upcoming: before, reserveLoaded: true, isCurrentMonth: true });
+  // V22.9.137 U-13: 홈 구성을 저장하지 않으면 리포트 카드가 꺼진 것이 기본이다 — 네 장을 켠 저장 값으로 그린다.
+  const cardsOn = normalizeHomeLayout(JSON.stringify({ reports: { order: ["where", "pace", "budget", "reserve"], hidden: [] } }));
+  const cardAfter = renderHomeReportCards({ month: "2026-11", householdId: HH, upcoming: after, reserveLoaded: true, isCurrentMonth: true, layout: cardsOn });
+  const cardBefore = renderHomeReportCards({ month: "2026-11", householdId: HH, upcoming: before, reserveLoaded: true, isCurrentMonth: true, layout: cardsOn });
   t.ok(cardAfter.includes("<small>지출자 확인 필요 2건</small>") && !cardBefore.includes("지출자 확인 필요"), "2-a 홈 카드: 참여자 목록으로 계산한 값에만 ‘지출자 확인 필요 2건’ 이 붙는다");
   t.ok(cardBefore.includes("540,000원") && cardBefore.includes("이번 달 남은 고정지출 2건"), "2-a 홈 카드: 참여자 없이 계산한 값은 예전 문구 그대로다");
 }

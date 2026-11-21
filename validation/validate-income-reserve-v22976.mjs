@@ -11,7 +11,10 @@
 // 수입만·지출만·섞인 정기 항목으로 알림센터 JSON, 홈, 리포트, 정기 항목 화면, 카카오 답장을 실제로 만들고
 // (1) 화면마다 기대 문구를 확인하고 (2) 모든 출력에서 수입 항목 이름 바로 뒤에 지출 낱말
 // (납부·준비하세요·월 준비·준비 권장·나갈)이 붙는지 훑는다. 새 화면이 정기 항목을 보여 주면 (2)에 더한다.
-import { counter, fixture, withClock, page, api, skill, putSetting } from "./lib-audit-v22934.mjs";
+import { counter, fixture as baseFixture, homeSummaryOf, withoutHomeSummary, withClock, page, api, skill, putSetting } from "./lib-audit-v22934.mjs";
+
+// V22.9.137 U-13: 홈 구성을 저장하지 않은 홈은 리포트 카드가 꺼진 것이 기본이다 — 이 검사의 홈 정기·‘앞으로 나갈 돈’ 카드는 네 장을 켠 가계부로 본다.
+const fixture = (task, options = {}) => baseFixture(task, { homeReports: true, ...options });
 
 const t = counter("V22.9.76 정기 수입 항목 문구·집계 검사");
 const HH = "house-home";
@@ -27,7 +30,10 @@ async function surfaces(fx, plans, { kakao = true } = {}) {
   putSetting(fx, `reserve_plans:${HH}`, JSON.stringify(plans));
   const month = "2026-10";
   const notifications = (await api(fx, `/u/api/notifications?household_id=${HH}&month=${month}`)).data?.notifications || [];
-  const home = strip((await page(fx, `/app?household_id=${HH}&month=${month}`)).html);
+  // V22.9.137 U-13: 리포트 카드를 켠 홈(아래 fixture)에도 위에 ‘이번 달 요약’ 카드가 있다 — 카드 문장을 볼 때 요약의 같은 이름 칸을 먼저 집지 않게 떼어 두고, 요약은 따로 본다.
+  const homeHtml = (await page(fx, `/app?household_id=${HH}&month=${month}`)).html;
+  const home = strip(withoutHomeSummary(homeHtml));
+  const homeSummary = strip(homeSummaryOf(homeHtml));
   const reports = strip((await page(fx, `/reports?household_id=${HH}&month=${month}`)).html);
   const reserveRaw = (await page(fx, `/reserve-plans?household_id=${HH}&month=${month}`)).html;
   let summary = "";
@@ -40,14 +46,14 @@ async function surfaces(fx, plans, { kakao = true } = {}) {
     await skill(fx, "2");
     summary = await skill(fx, "이번달요약");
   }
-  return { notifications, home, reports, reserveRaw, reserve: strip(reserveRaw), summary };
+  return { notifications, home, homeSummary, reports, reserveRaw, reserve: strip(reserveRaw), summary };
 }
 
 // 모든 출력에서 수입 항목 이름 바로 뒤(40자)에 지출 낱말이 붙는지 훑는다.
 function sweepIncomeWording(label, out, incomeName) {
   const texts = {
     notifications: out.notifications.map((n) => `${n.title} | ${n.body}`).join(" / "),
-    home: out.home, reports: out.reports, reserve: out.reserve, summary: out.summary,
+    home: out.home, homeSummary: out.homeSummary, reports: out.reports, reserve: out.reserve, summary: out.summary,
   };
   for (const [surface, text] of Object.entries(texts)) {
     let i = -1;
@@ -78,6 +84,7 @@ await withClock("2026-10-21", () => fixture(async (fx) => {
   const outCard = after(out.home, "앞으로 나갈 돈");
   // V22.9.78 W-5: 카드는 반영 대기 고정지출(픽스처의 월세 650,000원)도 센다. 수입 항목은 합계에도 건수에도 없다.
   t.ok(outCard.startsWith("앞으로 나갈 돈 정기지출 650,000원 이번 달 남은 고정지출 1건 "), `'앞으로 나갈 돈' 카드에 수입 항목을 세지 않는다 (${outCard.slice(0, 90)})`);
+  t.ok(after(out.homeSummary, "앞으로 나갈 돈", 40).startsWith("앞으로 나갈 돈 650,000 원 "), `요약 카드의 ‘앞으로 나갈 돈’ 도 수입 항목을 세지 않는다 (${after(out.homeSummary, "앞으로 나갈 돈", 40)})`);
   t.ok(!out.reports.includes("30일 안에 나갈 적립 계획"), "리포트의 '30일 안에 나갈 적립 계획'에 수입 항목을 넣지 않는다");
   t.ok(out.reserveRaw.includes("<title>정기 수입·지출</title>"), "정기 항목 화면 제목이 메뉴 이름과 같다");
   t.ok(/<body[^>]*class="[^"]*abPageReserve/.test(out.reserveRaw), "제목을 바꿔도 화면 꾸밈(abPageReserve)이 그대로 붙는다");

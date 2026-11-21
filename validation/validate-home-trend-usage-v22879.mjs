@@ -14,16 +14,12 @@ ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "runtime expos
 // P3-①. 수입 대비 사용률 게이지
 // ---------------------------------------------------------------------------
 
-// 1. 분모는 예산이 아니라 이번 달 수입이다.
-ok(source.includes("const usageIncome = Math.max(0, Number(stats.totals?.income || 0));"), "the gauge denominator is the month's income");
-ok(source.includes("const usageRate = usageIncome > 0 ? Math.round(usageExpense / usageIncome * 100) : 0;"), "the rate is expense over income");
-
-// 2. 기존 게이지 마크업을 재사용한다.
-ok(source.includes('<div class="abNavBudgetTrack" role="progressbar" aria-label="수입 대비 사용률"'), "the gauge reuses the abNavBudgetTrack markup");
-ok(source.includes('aria-valuemin="0" aria-valuemax="100"'), "the gauge exposes progressbar bounds");
-
-// 3. 수입이 0이면 폴백 문구.
-ok(source.includes("수입을 입력하면 사용률이 표시돼요"), "a zero-income month gets the fallback copy");
+// 1~3. V22.9.137 U-13(지시서 7단계 — 홈 단순화): 수입 대비 사용 게이지는 홈에서 뺐다. 그 달 수입·지출은 ‘이번 달 요약’ 카드의 칸이 보이고
+// (아래 실제 렌더), 게이지를 그리던 계산(usageIncome·usageRate)과 마크업은 소스에 없다. 홈 구성으로 다시 켜는 칸도 두지 않았다(FOLLOWUP_FINDINGS_V22_9_137).
+eq(source.includes("const usageIncome = Math.max(0, Number(stats.totals?.income || 0));"), false, "the income usage gauge is gone (no month-income denominator)");
+eq(source.includes("const usageRate = usageIncome > 0 ? Math.round(usageExpense / usageIncome * 100) : 0;"), false, "the income usage rate is no longer computed");
+eq(source.includes('<div class="abNavBudgetTrack" role="progressbar" aria-label="수입 대비 사용률"'), false, "the gauge markup is gone");
+eq(source.includes("수입을 입력하면 사용률이 표시돼요"), false, "the zero-income fallback copy went with the gauge");
 
 // 4. 이 자리에서 '써도 되는 돈'/일일한도 표기는 사라졌다.
 // 주석에는 남아 있어도 되므로 실제로 화면에 나가는 마크업만 본다.
@@ -58,7 +54,7 @@ ok(source.includes("Array.from({ length: 6 }, (_, i) => {"), "the monthly trend 
 ok(source.includes('url.searchParams.get("tab") !== "transactions"'), "the transactions tab skips the monthly queries");
 ok(source.includes('params.set("select", "type,amount");'), "fetchMonthAmountRows still selects amounts only");
 
-// 9. 다크 커버리지.
+// 9. 다크 커버리지. (V22.9.137: .homeUsage 규칙은 1년 캐시 셸 자산에 그대로 남는다 — 홈이 그 칸을 그리지 않아 쓰이지 않을 뿐, 주소를 올릴 까닭이 아니다.)
 ok(source.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell .homeUsage{'), "dark coverage exists for the gauge");
 ok(source.includes('html[data-ab-resolved-theme="dark"] body.abV22812Shell .homeTrendSeg a{'), "dark coverage exists for the trend tabs");
 
@@ -92,9 +88,10 @@ ok(!base.includes("보고 싶은 기간을 고르면"), "비어 있던 안내 �
 // 붙이는 순간 27 KB 가 돌아오고, 그러면 이 기본값을 유지할 수 없게 된다.
 eq((base.match(/class="dailyCell[^"]*" style=/g) || []).length, 0, "일별 칸은 인라인 style 을 다시 달지 않는다");
 ok(base.includes("homeTrendSeg"), "the period tabs are always present");
-ok(base.includes("수입 대비 사용"), "the usage gauge renders");
-ok(/<em>7%<\/em>/.test(base), "the gauge shows the computed rate");
-ok(base.includes("248,600원</b> / 3,380,000원"), "the gauge shows spend over income");
+// V22.9.137 U-13: 게이지 대신 ‘이번 달 요약’ 카드가 그 달 지출과 수입을 그대로 보인다(비율은 적지 않는다).
+eq(base.includes("수입 대비 사용"), false, "the usage gauge no longer renders");
+eq(/<em>7%<\/em>/.test(base), false, "no income usage rate on the home");
+ok(base.includes('<div><dt>지출</dt><dd><b data-ab-num-unit="원">248,600</b><small>원</small></dd></div>') && base.includes('<div><dt>수입</dt><dd><b data-ab-num-unit="원">3,380,000</b><small>원</small></dd></div>'), "the summary card shows the month's spend and income");
 
 const weekly = await (await get(`/app?month=2026-07${hh}&trend=weekly`)).text();
 const monthly = await (await get(`/app?month=2026-07${hh}&trend=monthly`)).text();

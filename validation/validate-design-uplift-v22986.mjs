@@ -16,7 +16,7 @@
 import vm from "node:vm";
 import { readFileSync } from "node:fs";
 import { parse } from "../tools/vendor/acorn.mjs";
-import { app, BASE, ctx, counter, fixture, withClock, page } from "./lib-audit-v22934.mjs";
+import { app, BASE, ctx, counter, fixture, withClock, page, showHomeReports } from "./lib-audit-v22934.mjs";
 import { AB_CATEGORY_ICON_PATHS, AB_NAV_ICON_PATHS, AB_UI_ICON_PATHS } from "../src/index.js";
 import { absoluteFirstMove, NAV_ICONS, UI_ICONS } from "../tools/build-icons.mjs";
 
@@ -283,7 +283,11 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   t.ok(html.includes('data-nav-scope="user"') && !html.includes('<style id="unifiedNavStyle">'), "V86:V-6 홈은 메뉴 인라인 규칙을 싣지 않는 화면이라 셸 규칙이 선을 정한다");
 
   // ── V85:R-15·R-16 홈 카드 ──
-  t.ok(html.includes("이번 달 지출의 60%⁠를 차지합니다") && !html.includes("60%를 차지합니다"), "R-15 ‘60%를’은 단어 잇개(U+2060)로 ‘%’ 뒤에서 줄을 바꾸지 않는다");
+  // V22.9.137 U-13: ‘어디에 썼나’ 카드는 홈 구성에서 켠 사람에게만 보인다(기본값은 리포트 카드 꺼짐) — 네 장을 켠 홈으로 본다.
+  showHomeReports(fx);
+  const cardsHome = await home(fx);
+  fx.db.accountbook_settings = fx.db.accountbook_settings.filter((row) => !String(row.key || "").startsWith("home-layout:v1:"));
+  t.ok(!html.includes("60%⁠를 차지합니다") && cardsHome.includes("이번 달 지출의 60%⁠를 차지합니다") && !cardsHome.includes("60%를 차지합니다"), "R-15 ‘60%를’은 단어 잇개(U+2060)로 ‘%’ 뒤에서 줄을 바꾸지 않는다(리포트 카드를 켠 홈)");
   t.ok(shell.includes("body.abV22812Shell .reportChallenge :is(a,summary,input,button):focus-visible{outline-color:#fff!important}"), "R-16 어두운 챌린지 카드 안 초점 링은 흰색");
 
   // ── T-18 빈 상태 ──
@@ -298,8 +302,11 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   const emptyHome = await home(fx);
   t.ok(emptyHome.includes(`<div class="abEmptyState">${box("아직 이번 달 기록이 없어요", writerLine, true)}`), "T-18 §3-6 기록 없는 이번 달 홈: 제목·한 줄·첫 기록 남기기(시트를 연다)");
   t.ok(!emptyHome.includes("data-ab-empty-folder"), "T-18 다른 달에 기록이 있으면 새 가계부 빈 폴더가 아니다");
-  t.ok(emptyHome.includes('<span>들어온 돈</span><b class="income">0원</b>') && emptyHome.includes('<span>나간 돈</span><b class="expense">0원</b>') && !/[+-]0원/.test(emptyHome), "V86:V-5 빈 달의 들어온 돈·나간 돈은 부호 없는 0원이다(옛 ‘+0원 · -0원’)");
-  t.ok(html.includes('<span>들어온 돈</span><b class="income">+3,380,000원</b>') && html.includes('<span>나간 돈</span><b class="expense">-248,600원</b>'), "V86:V-5 금액이 있으면 부호는 그대로다");
+  // V22.9.137 U-13: 들어온 돈·나간 돈 줄은 ‘이번 달 요약’ 카드의 칸(지출·수입)으로 바뀌었다 — 칸 이름이 뜻을 말해 금액에 부호를 붙이지 않는다.
+  // 거래 행의 금액은 예전처럼 부호가 있다.
+  const summaryCell = (page, label, value) => page.includes(`<div><dt>${label}</dt><dd><b data-ab-num-unit="원">${value}</b><small>원</small></dd></div>`);
+  t.ok(summaryCell(emptyHome, "수입", "0") && summaryCell(emptyHome, "지출", "0") && !/[+-]0원/.test(emptyHome), "V86:V-5 빈 달의 들어온 돈·나간 돈은 부호 없는 0원이다(옛 ‘+0원 · -0원’ — 이제 요약 카드의 수입·지출 칸)");
+  t.ok(summaryCell(html, "수입", "3,380,000") && summaryCell(html, "지출", "248,600") && /<strong class="[^"]*">-28,600원<\/strong>/.test(html), "V86:V-5 금액이 있으면 요약 칸은 금액 그대로이고 거래 행의 부호는 그대로다");
   const emptyTab = await home(fx, `${HOME}&tab=transactions`);
   t.ok(emptyTab.includes(`<div class="abEmptyState abTxEmpty">${box("아직 이번 달 기록이 없어요", writerLine, true)}`), "T-18 내역 탭도 같은 빈 상태");
   const future = await home(fx, `/app?month=2026-08&household_id=${HH}&tab=transactions`);
@@ -404,7 +411,10 @@ function circleHarness(keyPrefix, source, html) {
     insertBefore(child) { this.children.unshift(child); },
     get firstChild() { return this.children[0] || null; },
   });
-  const [, type, title, line] = html.match(/<article class="v8-tx" id="[^"]+" data-type="(\w+)">[^]*?<summary class="v8-tx-main"><div><b>([^<]*)<\/b><span>([^<]*)<\/span>/);
+  // V22.9.137 U-12: 둘째 줄은 <span class="v8-tx-meta"> 한 칸이고 그 안에 화면 낭독용 날짜·‘지출자’ 가 <i class="srOnly"> 로 든다 —
+  // 1년 캐시 V5 가 읽는 값(span:not(.v8-spender) 의 textContent)은 태그를 뺀 글 ‘7월 9일 · 분류 · 결제수단 · 지출자 이름’ 이고 분류는 여전히 split(" · ")[1] 이다.
+  const [, type, title, lineHtml] = html.match(/<article class="v8-tx" id="[^"]+" data-type="(\w+)">[^]*?<summary class="v8-tx-main"><div><b>([^<]*)<\/b><span class="v8-tx-meta">([^]*?)<\/span>/);
+  const line = lineHtml.replace(/<[^>]+>/g, "");
   const article = el({ "data-type": type });
   const main = el({}, { closest: () => article });
   main.querySelector = (s) => s === ".abCat" ? main.children.find((c) => c.className === "abCat") || null : s === "span:not(.v8-spender)" ? { textContent: line } : s === "b" ? { textContent: title } : null;

@@ -89,9 +89,10 @@ await withClock("2026-10-20", () => fixture(async (fx) => {
   ]);
   const feed = strip((await page(fx, `/app?month=2026-10&household_id=${HH}&tab=transactions&feed=all`)).html);
   t.ok(!/--\d/.test(feed), "D-15 거래 목록에 '--'가 없다");
-  t.ok(feed.includes("옛 음수 환불 2026-10-07 · 식비 · 국민카드 지출자 Bin +12,000원"), `D-15 음수 지출 카드는 돌아온 돈 '+12,000원'이다 (${after(feed, "옛 음수 환불 2026-10-07", 70)})`);
-  t.ok(feed.includes("10월 7일 (수) +12,000원"), `D-15 그날 합계도 '+12,000원'이다 (${after(feed, "10월 7일", 30)})`);
-  t.ok(feed.includes("커피와 빵 2026-10-05 · 카페/간식 · 국민카드 지출자 Bin -9,000원"), "D-15 보통 지출은 예전처럼 '-9,000원'이다");
+  // V22.9.137 U-12: 행 둘째 줄은 ‘(화면 낭독용 날짜 ·) 분류 · 결제수단 · 지출자’ 한 줄이고, 날짜 머리는 ‘10월 7일 수요일’ 이다(ISO 날짜·괄호 요일 없음).
+  t.ok(feed.includes("옛 음수 환불 10월 7일 · 식비 · 국민카드 · 지출자 Bin +12,000원"), `D-15 음수 지출 카드는 돌아온 돈 '+12,000원'이다 (${after(feed, "옛 음수 환불", 70)})`);
+  t.ok(feed.includes("10월 7일 수요일 +12,000원"), `D-15 그날 합계도 '+12,000원'이다 (${after(feed, "10월 7일", 30)})`);
+  t.ok(feed.includes("커피와 빵 10월 5일 · 카페/간식 · 국민카드 · 지출자 Bin -9,000원"), "D-15 보통 지출은 예전처럼 '-9,000원'이다");
   const cal = (await page(fx, `/app?month=2026-10&household_id=${HH}&view=calendar`)).html;
   const cell = (day) => (cal.match(new RegExp(`data-ab-day="2026-10-${day}"[\\s\\S]*?</a>`)) || [""])[0];
   t.ok(cell("07").includes("<strong>+1만</strong>") && !/--/.test(cell("07")), `D-15 달력 칸도 부호를 한 번만 쓴다 (${strip(cell("07"))})`);

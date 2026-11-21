@@ -29,8 +29,10 @@ const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8")
 const month = new Date().toISOString().slice(0, 7);
 const householdId = "house-home";
 
-async function renderHome(setup = () => {}, ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120") {
-  const fixture = await createV2265QaFixture();
+// V22.9.137 U-13: 홈 구성을 저장하지 않은 사람의 홈은 리포트 카드 넷이 꺼진 것이 기본이다(‘이번 달 요약’ 카드 한 장이 그 자리). 이 검사가 지키는 카드 내용은
+// ‘홈 구성’ 에서 네 장을 켜 둔 가계부(픽스처 homeReports)로 본다. 기본값의 모습은 맨 아래 9 와 validate-v229137-home-simplify 가 본다.
+async function renderHome(setup = () => {}, ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/120", fixtureOptions = { homeReports: true }) {
+  const fixture = await createV2265QaFixture(fixtureOptions);
   setup(fixture);
   const realFetch = globalThis.fetch;
   const calls = [];
@@ -142,5 +144,12 @@ eq(empty.status, 200, "기록 0건에서도 홈이 열린다");
 const emptySection = (empty.html.match(/<section class="homeReports"[\s\S]*?<\/section>/) || [""])[0];
 ok(emptySection.includes("아직 기록 없음"), "기록이 없으면 그렇게 말한다");
 eq(/NaN|Infinity|undefined/.test(emptySection), false, "빈 상태에서 계산이 깨지지 않는다");
+
+// 9. V22.9.137 U-13: 홈 구성을 저장하지 않은 가계부는 리포트 섹션 없이 ‘이번 달 요약’ 카드 한 장이고, 질의 수는 같다(요약 카드도 새 조회 0).
+const plain = await renderHome(seed, undefined, {});
+eq(plain.status, 200, "홈 구성을 저장하지 않은 홈이 열린다");
+eq(/<section class="homeReports"/.test(plain.html), false, "홈 구성을 저장하지 않았으면 리포트 섹션이 없다");
+eq((plain.html.match(/<section class="homeSummary"/g) || []).length, 1, "그 자리에 ‘이번 달 요약’ 카드가 한 장 있다");
+ok(plain.calls.length <= home.calls.length, `요약 카드도 새 조회를 더하지 않는다 (${plain.calls.length} ≤ ${home.calls.length})`);
 
 console.log(`PASS: V22.8.91 home reports (${checks} checks)`);

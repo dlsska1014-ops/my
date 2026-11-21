@@ -36,7 +36,7 @@ const asset = async (path) => {
 };
 
 const SHELL = "/assets/accountbook-shell-v229136.css";
-const HOME_CSS = "/assets/mobile-home-v229136.css";
+const HOME_CSS = "/assets/mobile-home-v229137.css";
 const V5 = "/assets/accountbook-v5-v22993.js";
 const NAV = "/assets/accountbook-nav-v22987.js";
 // V22.9.84 실측(2026-10-28): 기준 픽스처 홈 HTML 35,626 B. 이 단계는 홈 HTML 을 늘리지 않는다(지시서 T-10 수용 기준).
@@ -203,11 +203,15 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   t.ok(!home.includes("abCatIcon"), "T-10 2단계는 홈 마크업에 카테고리 동그라미를 넣지 않는다(3단계 T-13)");
 
   // ── T-10 이모지 → 아이콘(웹 화면만) ──
-  t.ok(!home.includes("🔥") && home.includes('<span class="reportChallengeBadge"><i aria-hidden="true"></i> '), "T-10 홈 챌린지 배지의 불꽃 이모지가 빈 <i> 로 바뀌었다(글자 앞 띄어쓰기 그대로)");
+  // V22.9.137 U-14: 홈 챌린지는 기간 안과 끝난 뒤 사흘만 보인다 — 7/15 에는 7/1~4 챌린지가 없어 배지는 기간 안(7/3)의 홈에서 본다.
+  const challengeHome = await withClock("2026-07-03", async () => (await app.fetch(new Request(`${BASE}${HOME}`, { headers: { cookie: fx.cookie, "user-agent": UA } }), fx.env, ctx)).text());
+  t.ok(!home.includes("🔥") && !home.includes('id="reportChallenge"'), "T-10 끝난 지 사흘이 지난 챌린지(7/15)는 홈에 없다");
+  t.ok(!challengeHome.includes("🔥") && challengeHome.includes('<span class="reportChallengeBadge"><i aria-hidden="true"></i> '), "T-10 홈 챌린지 배지의 불꽃 이모지가 빈 <i> 로 바뀌었다(글자 앞 띄어쓰기 그대로)");
   t.eq(maskPath(shell, "body.abV22812Shell .reportChallengeBadge>i:empty{"), AB_UI_ICON_PATHS.flame, "T-10 셸 CSS 가 빈 배지 <i> 에 flame 마스크를 그린다");
   const analysis = await page(fx, `/my/analysis?view=report&month=2026-07&household_id=${HH}`);
   t.ok(analysis.status === 200 && analysis.html.includes('<i aria-hidden="true">🔥</i> '), "T-10 분석·리포트 화면(보호 화면)의 챌린지 배지는 이모지 그대로다");
-  t.ok(!home.includes("📅") && home.includes('#calendar">캘린더</a></div>'), "T-10 캘린더 펼치기 링크의 📅 를 뺐다");
+  // V22.9.137 U-13: 캘린더로 가는 길은 홈 가운데의 큰 단추(.homeCalendarToggle) 대신 ‘최근 내역’ 머리 오른쪽의 글자 링크다(같은 주소, 이모지 없음).
+  t.ok(!home.includes("📅") && /<a class="homeFeedCalendar" href="[^"]*view=calendar#calendar">캘린더<\/a>/.test(home) && !home.includes('class="homeCalendarToggle"'), "T-10 캘린더 펼치기 링크의 📅 를 뺐다");
   t.eq(maskPath(shell, "body.abV22812Shell .homeCalendarToggle a:before{"), AB_UI_ICON_PATHS.calendar, "T-10 셸 CSS 가 캘린더 링크 앞에 calendar 마스크를 그린다");
   t.ok(!homeCss.includes('.homeNotice:after{content:"📊"') && !homeCss.includes("📊"), "T-10 SMART NOTICE 뒤 장식 그래프 이모지(📊)를 지웠다");
   t.eq(maskPath(shell, "body.abV22812Shell .abSaveFeedback.isWarning .abSaveFeedbackMark:empty:before{"), AB_UI_ICON_PATHS["triangle-alert"], "T-10 저장 알림의 예산 경고 표식이 triangle-alert 마스크다");

@@ -84,9 +84,12 @@ try {
   // -------------------------------------------------------------------------
   const fresh = await get(`/app?month=${month}&household_id=${householdId}`, fixture.cookie);
   eq(fresh.status, 200, "설정이 없는 계정의 홈이 열린다");
-  eq(reportsOf(fresh.text).join(","), DEFAULT_REPORTS, "설정이 없으면 리포트가 기본 순서다");
+  // V22.9.137 U-13(지시서 7단계, 운영자 결정 D-7 = 예): 설정이 없는 계정의 새 기본값은 리포트 카드 넷을 끈 것이다 — ‘이번 달 요약’ 카드 한 장이 그 자리다.
+  // 기본값으로 돌아오는 폴백(아래 깨진 설정)과 ‘홈 구성’ 으로 가는 길은 그대로 지킨다(링크는 요약 카드 머리로 옮겼다).
+  eq(reportsOf(fresh.text).join(","), "", "설정이 없으면 리포트 카드가 없다(새 기본값)");
+  eq((fresh.text.match(/<section class="homeSummary"/g) || []).length, 1, "설정이 없으면 ‘이번 달 요약’ 카드가 그 자리에 있다");
   eq(shortcutsOf(fresh.text).join(","), DEFAULT_SHORTCUTS, "설정이 없으면 바로가기가 기본 순서다");
-  ok(fresh.text.includes('class="homeReportsEdit"'), "홈에 '홈 구성' 링크가 있다");
+  ok(/<a class="homeSummaryEdit" href="\/home-layout\?[^"]*">홈 구성<\/a>/.test(fresh.text), "홈에 '홈 구성' 링크가 있다(요약 카드 머리)");
 
   // 설정이 **깨졌을 때**도 같은 자리로 돌아온다. 저장된 값을 믿고 그리면
   // 값 하나 깨진 계정의 홈이 통째로 비어 보인다.
@@ -95,8 +98,15 @@ try {
     fixture.db.accountbook_settings.length = 0;
     fixture.db.accountbook_settings.push({ key, value: broken, updated_at: "2026-07-01T00:00:00.000Z" });
     const page = await get(`/app?month=${month}&household_id=${householdId}`, fixture.cookie);
-    eq(reportsOf(page.text).join(","), DEFAULT_REPORTS, `깨진 설정(${broken.slice(0, 22)})에서도 기본 순서다`);
+    eq(reportsOf(page.text).join(","), reportsOf(fresh.text).join(","), `깨진 설정(${broken.slice(0, 22)})에서도 기본값과 같다`);
+    eq(shortcutsOf(page.text).join(","), DEFAULT_SHORTCUTS, `깨진 설정(${broken.slice(0, 22)})에서도 바로가기는 기본 순서다`);
   }
+  // 리포트 카드를 켜 둔 채 저장한 계정(V22.9.137 앞에 저장한 사람 포함)은 저장한 값 그대로다 — 순서도 지킨다.
+  fixture.db.accountbook_settings.length = 0;
+  fixture.db.accountbook_settings.push({ key, value: JSON.stringify({ reports: { order: ["where", "pace", "budget", "reserve"], hidden: [] }, shortcuts: { order: [], hidden: [] } }), updated_at: "2026-07-01T00:00:00.000Z" });
+  const kept = await get(`/app?month=${month}&household_id=${householdId}`, fixture.cookie);
+  eq(reportsOf(kept.text).join(","), DEFAULT_REPORTS, "리포트를 켜 둔 채 저장한 계정은 네 장이 예전 순서로 보인다");
+  ok(kept.text.includes('class="homeReportsEdit"') && !kept.text.includes('class="homeSummaryEdit"'), "‘홈 구성’ 링크는 한 번만 — 리포트 카드가 있으면 그 머리에 둔다");
   fixture.db.accountbook_settings.length = 0;
 
   // -------------------------------------------------------------------------
@@ -143,12 +153,15 @@ try {
   // -------------------------------------------------------------------------
   // 범위 — 내 설정이 남의 홈을 바꾸지 않는다
   // -------------------------------------------------------------------------
+  // V22.9.137 U-13: 새 기본값(리포트 카드 꺼짐)과 다르게 저장해 둬야 범위를 가릴 수 있다 — 내 홈에 네 장을 켜고 바로가기 둘만 남겨 저장한다.
+  await post(body([...allReports, ...allShortcuts, ["reports_on", "where"], ["reports_on", "pace"], ["reports_on", "budget"], ["reports_on", "reserve"], ["shortcuts_on", "add"], ["shortcuts_on", "menu"]]), fixture.cookie);
+  eq(reportsOf((await get(`/app?month=${month}&household_id=${householdId}`, fixture.cookie)).text).join(","), DEFAULT_REPORTS, "내 홈에는 켠 네 장이 보인다");
   const other = await fixture.cookieFor("user-wifi");
   const otherHome = await get(`/app?month=${month}&household_id=${householdId}`, other);
-  eq(reportsOf(otherHome.text).join(","), DEFAULT_REPORTS, "같은 가계부의 다른 참여자는 기본 순서 그대로다");
+  eq(reportsOf(otherHome.text).join(","), "", "같은 가계부의 다른 참여자는 기본값 그대로다(리포트 카드 없음)");
   eq(shortcutsOf(otherHome.text).join(","), DEFAULT_SHORTCUTS, "다른 참여자의 바로가기도 그대로다");
   const otherHousehold = await get(`/app?month=${month}&household_id=house-trip`, fixture.cookie);
-  eq(reportsOf(otherHousehold.text).join(","), DEFAULT_REPORTS, "같은 사람의 다른 가계부도 기본 순서다");
+  eq(reportsOf(otherHousehold.text).join(","), "", "같은 사람의 다른 가계부도 기본값이다(리포트 카드 없음)");
 
   // -------------------------------------------------------------------------
   // 앞으로 카드가 늘어도 조용히 사라지지 않는다

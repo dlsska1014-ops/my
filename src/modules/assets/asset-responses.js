@@ -96,7 +96,7 @@ function mobileHomePerformanceAssetResponse(request, url) {
       : path === AB_UIUX_CSS_ASSET_PATH
       ? '"ab-uiux-v229136-css"'
       : path === MOBILE_HOME_CSS_ASSET_PATH
-      ? '"mobile-home-v229136-css"'
+      ? '"mobile-home-v229137-css"'
       : path === LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH
         ? '"accountbook-shell-v22811-css"'
       : path === ACCOUNTBOOK_SHELL_CSS_ASSET_PATH

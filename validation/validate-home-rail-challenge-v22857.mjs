@@ -79,7 +79,14 @@ try {
   ok(Buffer.byteLength(home.text) < 37 * 1024, "home remains below the protected HTML budget");
   ok(home.text.includes('/assets/accountbook-shell-v229136.css'), "home loads the refreshed shell asset");
   ok(home.text.includes('/assets/accountbook-v5-v22993.js'), "home loads the refreshed V5 bundle");
-  ok(home.text.includes('class="reportChallenge"'), "challenge is visible in the home content");
+  // V22.9.137 U-14: 홈 챌린지는 기간 안과 끝난 뒤 사흘(한 줄)만 보인다. 이 검사는 실제 시계로 돌아 픽스처의 7/1~4 챌린지가 끝난 지 오래라 홈에 없다 —
+  // 챌린지를 보는 줄은 기간 안(7/3 낮)의 홈으로 본다. 홈 카드의 클래스는 ‘reportChallenge homeChallenge’ 다(가벼운 홈 카드).
+  ok(!home.text.includes('id="reportChallenge"'), "끝난 지 사흘이 지난 챌린지는 홈에 없다(실제 시계)");
+  const clockBefore = globalThis.__AB_QA_FIXED_NOW_MS;
+  globalThis.__AB_QA_FIXED_NOW_MS = Date.parse("2026-07-03T12:00:00+09:00");
+  let challengeHome;
+  try { challengeHome = await request(fixture, "/app?month=2026-07&household_id=house-home"); } finally { globalThis.__AB_QA_FIXED_NOW_MS = clockBefore; }
+  ok(challengeHome.text.includes('class="reportChallenge homeChallenge"'), "challenge is visible in the home content");
   // V22.9.0: 사이드바 챌린지 사본을 걷어냈다.
   //
   // 처음에는 홈에서만 껐다. 그때는 "사이드바도 챌린지를 담을 수 있다"는 이 검사의
@@ -89,8 +96,9 @@ try {
   // 처음부터 중복이었다. 그래서 compact 렌더 경로와 CSS 2.7 KB 를 함께 지웠다.
   //
   // 지킬 것은 남는다 — 챌린지는 이 화면들에서 **정확히 한 번** 보여야 한다.
-  ok(!home.text.includes('class="abNavChallenge'), "홈은 같은 챌린지를 사이드바에 두 번 그리지 않는다");
-  eq((home.text.match(/class="reportChallenge"/g) || []).length, 1, "홈의 챌린지는 정확히 하나다");
+  ok(!challengeHome.text.includes('class="abNavChallenge'), "홈은 같은 챌린지를 사이드바에 두 번 그리지 않는다");
+  eq((challengeHome.text.match(/class="reportChallenge homeChallenge"/g) || []).length, 1, "홈의 챌린지는 정확히 하나다");
+  eq((challengeHome.text.match(/id="reportChallenge"/g) || []).length, 1, "홈의 챌린지 자리(id)도 하나다");
   for (const path of ["/my/analysis?view=report&month=2026-07&household_id=house-home", "/my/analysis?month=2026-07&household_id=house-home"]) {
     const page = await request(fixture, path);
     eq(page.response.status, 200, `${path} 가 렌더된다`);

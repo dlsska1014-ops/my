@@ -399,9 +399,37 @@ function renderReportChallenge(challenge = {}, { householdId = "", canManage = f
       : `<p class="reportChallengeReadOnly">소유자·관리자가 목표를 설정할 수 있습니다.</p>`;
   const description = home ? "" : `<p>${escapeHtml(status)}<br/><span class="reportChallengeDates">기간 ${escapeHtml(safe.startDate)} ~ ${escapeHtml(safe.targetDate)} · 오늘 ${escapeHtml(safe.today || formatDate(nowKstDate()))}</span></p>`;
   const progressSummary = safe.type === "no_spend_days" ? `무지출 ${safe.progress}/${safe.targetDays}일` : `${escapeHtml(safe.goalLabel || safe.typeLabel || "챌린지")} · ${safe.progress}/${safe.targetDays}일 성공`;
-  const celebration = safe.enabled && (safe.schemaVersion >= 2 || safe.revision > 0) && safe.hasMonthlyRecords === true && safe.targetDays > 0 && safe.progress >= safe.targetDays
+  const celebration = reportChallengeCelebrationAttr(safe, householdId);
+  // V22.9.137 U-14: 홈 카드에만 homeChallenge 를 더한다 — 홈 CSS 가 그 카드만 밝은 면으로 그린다(분석·리포트 화면의 바이트는 그대로).
+  return `<section class="reportChallenge${home ? " homeChallenge" : ""}" id="reportChallenge"${celebration}><div class="reportChallengeMain"><span class="reportChallengeBadge"><i aria-hidden="true">${home ? "" : "🔥"}</i> ${escapeHtml(safe.typeLabel || "생활 챌린지")}</span><h2>${escapeHtml(safe.title || "무지출 데이")} ${safe.targetDays}일</h2>${description}${renderChallengeProgress(safe, { hydrate: home })}<strong>${safe.enabled ? `${progressSummary} · 기간 ${dayPosition}` : "사용 안 함"}</strong></div>${action}</section>`;
+}
+
+// 목표를 이룬 챌린지의 축하(lucian-e 가 [data-ab-celebrate] 를 찾아 한 번만 터뜨린다). V22.9.137 에 홈의 끝난 챌린지 한 줄도 같은 값을 쓰도록 뺐다(값은 예전 그대로).
+function reportChallengeCelebrationAttr(safe = {}, householdId = "") {
+  return safe.enabled && (safe.schemaVersion >= 2 || safe.revision > 0) && safe.hasMonthlyRecords === true && safe.targetDays > 0 && safe.progress >= safe.targetDays
     ? ` data-ab-celebrate="challenge" data-ab-celebrate-key="${escapeHtml([householdId, safe.startDate, safe.targetDate, safe.type, safe.targetDays, safe.targetAmount || 0, safe.category || "", safe.revision || 0].join(":"))}" data-ab-celebrate-count="${Number(safe.progress) || 0}"` : "";
-  return `<section class="reportChallenge" id="reportChallenge"${celebration}><div class="reportChallengeMain"><span class="reportChallengeBadge"><i aria-hidden="true">${home ? "" : "🔥"}</i> ${escapeHtml(safe.typeLabel || "생활 챌린지")}</span><h2>${escapeHtml(safe.title || "무지출 데이")} ${safe.targetDays}일</h2>${description}${renderChallengeProgress(safe, { hydrate: home })}<strong>${safe.enabled ? `${progressSummary} · 기간 ${dayPosition}` : "사용 안 함"}</strong></div>${action}</section>`;
+}
+
+// V22.9.137 U-14(작업 지시서 7단계): 홈의 챌린지.
+// - 진행 중·시작 전: 홈 카드(renderReportChallenge 의 home 갈래 — 홈 CSS 가 밝은 면으로 그린다).
+// - 끝났으면 목표일 다음 날부터 3일 동안 한 줄(‘무지출 데이 4일 챌린지 성공 ✓ · 새 챌린지’), 그 뒤에는 홈에 그리지 않는다. 지난 기록은 리포트의 챌린지 화면에 그대로 있다.
+//   기본 챌린지(저장한 설정 없음 — 그 달 1~4일)는 그래서 매달 5~7일에 한 줄이고 8일부터 홈에 없다(예전에는 끝난 카드가 그 달 내내 홈 위쪽에 있었다, N-14).
+// - 성공은 직접 적은 기록이 있고(recording) 목표 일수를 채운 것이다. 직접 적은 기록이 없었으면 성공·실패를 말하지 않는다(카드의 상태 문장과 같은 규칙).
+// - 링크는 예전 카드의 것과 같은 주소다(소유자·관리자 = ‘새 챌린지’, 그 밖 = ‘챌린지 자세히’).
+function renderHomeChallenge(challenge = {}, { householdId = "", canManage = false, today = "" } = {}) {
+  const safe = challenge && typeof challenge === "object" ? challenge : null;
+  if (!safe || safe.enabled === false) return "";
+  if (safe.phase !== "ended") return renderReportChallenge(safe, { householdId, canManage, home: true });
+  const day = String(today || formatDate(nowKstDate()));
+  const end = String(safe.targetDate || "");
+  const after = isValidTransactionDateString(day) && isValidTransactionDateString(end) ? Math.round((Date.parse(`${day}T00:00:00Z`) - Date.parse(`${end}T00:00:00Z`)) / 86400000) : 0;
+  if (!(after >= 1 && after <= 3)) return "";
+  const name = `${safe.title || "무지출 데이"} ${safe.targetDays}일`;
+  const result = safe.recording === false
+    ? "챌린지가 끝났어요"
+    : safe.progress >= safe.targetDays ? "챌린지 성공 ✓" : `챌린지 끝 · ${safe.progress}/${safe.targetDays}일`;
+  const qs = `month=${encodeURIComponent(safe.month || currentMonthKst())}&household_id=${encodeURIComponent(householdId)}`;
+  return `<p class="homeChallengeDone" id="reportChallenge"${reportChallengeCelebrationAttr(safe, householdId)}><span>${escapeHtml(name)} ${result}</span> · <a href="/my/analysis?view=report&${qs}#reportChallenge">${canManage ? "새 챌린지" : "챌린지 자세히"}</a></p>`;
 }
 
 function reportUxCss() {
@@ -483,7 +511,8 @@ async function handleReportChallengeSave(request, env) {
 export {
   buildReportChallenge, buildReportChallengeForHousehold, buildReportDashboardSummary,
   challengePeriodDays, getMyPageContext, handleReportChallengeSave, normalizeReportChallenge,
-  renderAnalysisViewTabs, renderReportChallenge, renderReportDashboard, renderReportMonthNavigator,
-  reportChallengeSettingsKey, reportMonthHref, reportUxCss, shiftChallengeDate,
+  renderAnalysisViewTabs, renderHomeChallenge, renderReportChallenge, renderReportDashboard,
+  renderReportMonthNavigator, reportChallengeSettingsKey, reportMonthHref, reportUxCss,
+  shiftChallengeDate,
 };
 // @build:exports-end

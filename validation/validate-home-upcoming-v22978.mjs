@@ -7,8 +7,11 @@
 // 기준 함수(homeUpcomingOut)를 직접 부르고, 메모리 픽스처(validation/qa-fixture.mjs)로 홈(/app·/m)과 알림센터를 그려 본다.
 // 네트워크는 쓰지 않는다. 픽스처의 월세 규칙(650,000원, 5일, 마지막 반영 2026-06)은 10월에 반영 대기다.
 // 사용: node validation/validate-home-upcoming-v22978.mjs [unit|pending|applied|overlap|income|empty|agree]
-import { api, counter, failure, fixture, intercept, page, post, putSetting, withClock } from "./lib-audit-v22934.mjs";
+// V22.9.137 U-13: 홈 구성을 저장하지 않은 홈은 리포트 카드가 꺼진 것이 기본이다. 이 검사의 카드는 ‘홈 구성’ 에서 네 장을 켠 가계부(homeReports)로 보고,
+// 같은 합계가 위의 ‘이번 달 요약’ 카드의 ‘앞으로 나갈 돈’ 칸에도 나오는지 home() 이 부를 때마다 함께 본다.
+import { api, counter, failure, fixture as baseFixture, homeSummaryCell, intercept, page, post, putSetting, withClock } from "./lib-audit-v22934.mjs";
 
+const fixture = (task, options = {}) => baseFixture(task, { homeReports: true, ...options });
 const only = process.argv[2] || "";
 const run = (name) => !only || only === name;
 const { ok, eq, deepEq, done } = counter("V22.9.78 홈 '앞으로 나갈 돈' 기준 검사 통과");
@@ -29,7 +32,11 @@ const rent = (fx) => fx.db.accountbook_recurring.find((rule) => rule.id === "rec
 async function home(fx, { path = HOME, ua = DESKTOP } = {}) {
   const response = await page(fx, path, { headers: { "user-agent": ua } });
   const card = (response.html.match(/<article class="homeReport"><div class="homeReportTop"><span>앞으로 나갈 돈<\/span>[\s\S]*?<\/article>/) || [""])[0];
-  return { status: response.status, raw: response.html, card, value: (card.match(/<b>([^<]*)<\/b>/) || [])[1] || "", note: (card.match(/<small>([^<]*)<\/small>/) || [])[1] || "" };
+  const value = (card.match(/<b>([^<]*)<\/b>/) || [])[1] || "";
+  // 요약 칸: 금액과 ‘확인 불가’ 는 카드와 같은 값이다. 나갈 지출이 등록돼 있지 않다는 말(등록 없음·나갈 항목 없음)과 지난달의 ‘이번 달 기준’ 은 칸을 두지 않는다.
+  const summary = homeSummaryCell(response.html, "앞으로 나갈 돈");
+  eq(summary, /^[\d,]+원$|^확인 불가$/.test(value) ? value : "", `요약 카드의 ‘앞으로 나갈 돈’ 칸이 리포트 카드와 같다 (카드 ${value || "없음"} / 요약 ${summary || "칸 없음"})`);
+  return { status: response.status, raw: response.html, card, value, summary, note: (card.match(/<small>([^<]*)<\/small>/) || [])[1] || "" };
 }
 
 // ── 1. 기준 함수 ─────────────────────────────────────────────────────────────────

@@ -9,7 +9,11 @@
 //   V44 D-12(예산 없을 때 사용률), V44 D-13(이전 값 0원의 증감률).
 // 검사마다 따로 성공·실패를 적는다(옛 코드에서 몇 개가 실패하는지 셀 수 있게). 네트워크는 쓰지 않는다(메모리 픽스처).
 import { isDeepStrictEqual } from "node:util";
-import { api, failure, fixture, intercept, page, post, putSetting, skill, withClock } from "./lib-audit-v22934.mjs";
+import { api, failure, fixture as baseFixture, homeSummaryCell, intercept, page, post, putSetting, skill, withClock } from "./lib-audit-v22934.mjs";
+
+// V22.9.137 U-13: 홈 구성을 저장하지 않은 홈은 리포트 카드가 꺼진 것이 기본이다 — 이 검사의 홈 ‘앞으로 나갈 돈’ 카드는 네 장을 켠 가계부로 보고,
+// 같은 값이 위의 ‘이번 달 요약’ 카드에도 나오는지 함께 본다(homeCards).
+const fixture = (task, options = {}) => baseFixture(task, { homeReports: true, ...options });
 
 const results = [];
 async function check(label, fn) {
@@ -55,6 +59,8 @@ const won = (n) => `${Number(n).toLocaleString("en-US")}원`;
 const metric = (html, label) => (String(html).match(new RegExp(`<span>${label}</span><b>([^<]*)</b>`)) || [])[1] || "";
 const homePlanNote = (html) => ((((String(html).match(/<div class="homeDailyPlan[^"]*">[\s\S]*?<\/div>/) || [""])[0]).match(/<small>([^<]*)<\/small>/)) || [])[1] || "";
 const homeCard = (html) => (String(html).match(/<span>앞으로 나갈 돈<\/span>[\s\S]*?<b>([^<]*)<\/b>/) || [])[1] || "";
+// 리포트 카드와 요약 칸이 모두 그 값이다(금액·‘확인 불가’ 는 요약에도 같은 값으로 나온다).
+const homeCards = (html, expected) => all(same(homeCard(html), expected), same(homeSummaryCell(html, "앞으로 나갈 돈"), expected));
 const strip = (html) => String(html).replace(/<[^>]*>/g, " ").replace(/\s+/g, " ");
 // 이번 달(10월) 기록·예산을 비우고 시나리오 값만 넣는다. 픽스처의 월세 규칙(650,000원, 5일, 마지막 반영 2026-06)은 10월에 반영 대기다.
 function seed(fx, rows = [], budgets = [{ category: "__total", amount: 3000000 }], plans = null) {
@@ -290,7 +296,7 @@ await withClock("2026-10-10", () => fixture(async (fx) => {
   });
   // V22.9.89 U-03(V2 작업 지시서): 범위를 말하고 큰 금액은 만 원 단위 근사로 쓴다. 근거 숫자(300만 − 1,170,000)는 그대로다.
   await check("7 홈 하루 계획 한 줄: 이대로면 월말에 예산이 약 183만 원 남아요(300만 − 1,170,000)", () => same(homePlanNote(home), "이대로면 월말에 예산이 약 183만 원 남아요"));
-  await check("7 홈 ‘앞으로 나갈 돈’ 705,000원 = 알림 JSON 남은 고정·정기", () => all(same(homeCard(home), won(705000)), same(notes.budget_observation?.expected_parts?.fixed_remaining, 705000)));
+  await check("7 홈 ‘앞으로 나갈 돈’ 705,000원 = 알림 JSON 남은 고정·정기", () => all(homeCards(home, won(705000)), same(notes.budget_observation?.expected_parts?.fixed_remaining, 705000)));
   await check("7 /my/analysis 월말 예상 지출 1,170,000원", () => same(metric(insight, "월말 예상 지출"), expected));
   await check("7 /my/analysis?view=report 월말 예상 1,170,000원(두 카드)", () => all(has(report, `<span class="muted">월말 예상 지출</span><b>${expected}</b>`), has(report, `<span class="muted">월말 예상</span><b>${expected}</b>`)));
   await check("7 ?view=report 부제는 ‘기록 + 남은 고정 + 남은 날 예상’", () => all(has(report, "기록 + 남은 고정 + 남은 날 예상"), lacks(report, "현재 지출 속도 기준"), lacks(report, ">현재 속도 기준<")));
@@ -326,7 +332,7 @@ await withClock("2026-10-10", () => fixture(async (fx) => {
   const lagged = (await api(fx, `/u/api/notifications?${Q}`)).data || {};
   const laggedHome = (await page(fx, `/app?${Q}`)).html;
   const laggedAlerts = (await page(fx, `/budget-alerts?${Q}`)).html;
-  await check("3b 표식이 늦은 달: 알림센터도 반영 대기 0건(홈 ‘앞으로 나갈 돈’과 같은 판정)", () => all(same((lagged.notifications || []).some((item) => item.key === `recurring-pending:${MONTH}`), false), same(lagged.budget_observation?.pending_total, 0), same(homeCard(laggedHome), "0원")));
+  await check("3b 표식이 늦은 달: 알림센터도 반영 대기 0건(홈 ‘앞으로 나갈 돈’과 같은 판정)", () => all(same((lagged.notifications || []).some((item) => item.key === `recurring-pending:${MONTH}`), false), same(lagged.budget_observation?.pending_total, 0), homeCards(laggedHome, "0원")));
   await check("3b 표식이 늦은 달: 예산 알림 대기 칸도 0원이고 월말 예상은 기록된 월세로 한 번만 센다", () => all(has(laggedAlerts, "<span>고정지출 대기</span><b>0원</b>"), same(metric(laggedAlerts, "월말 예상 지출"), won(200000 + 650000 + 420000))));
 }));
 await withClock("2026-10-10", () => fixture(async (fx) => {
@@ -353,7 +359,7 @@ await withClock("2026-10-10", () => fixture(async (fx) => {
   const stopHome = intercept(({ url, method }) => (method === "GET" && url.pathname.endsWith("/accountbook_recurring") ? failure() : null));
   let home;
   try { home = (await page(fx, `/app?${Q}`)).html; } finally { stopHome(); }
-  await check("5b 고정지출 규칙을 못 읽은 홈은 남는 돈을 부풀려 말하지 않는다(한 줄 없음, 카드는 확인 불가)", () => all(same(homePlanNote(home), ""), same(homeCard(home), "확인 불가"), has(home, "homeDailyPlan")));
+  await check("5b 고정지출 규칙을 못 읽은 홈은 남는 돈을 부풀려 말하지 않는다(한 줄 없음, 카드는 확인 불가)", () => all(same(homePlanNote(home), ""), homeCards(home, "확인 불가"), has(home, "homeDailyPlan")));
 }));
 await withClock("2026-10-10", () => fixture(async (fx) => {
   seed(fx, [tx("2026-10-04", 200000, { category: "식비" })], [{ category: "__total", amount: 3000000 }], [PHONE]);
@@ -466,7 +472,7 @@ await withClock("2026-10-10", () => fixture(async (fx) => {
   const stop = intercept(({ url, method }) => (method === "GET" && url.pathname.endsWith("/accountbook_settings") && String(url.searchParams.get("key") || "").startsWith("in.(") && String(url.searchParams.get("key") || "").includes(`reserve_plans:${HH}`) ? failure() : null));
   let home;
   try { home = await page(fx, `/app?${Q}`); } finally { stop(); }
-  await check("S-2 홈 정기지출 항목 읽기 실패: ‘앞으로 나갈 돈’은 확인 불가이고 정기지출을 못 읽었다고 적는다", () => all(same(home.status, 200), same(homeCard(home.html), "확인 불가"), has(home.html, "정기지출을 불러오지 못했어요")));
+  await check("S-2 홈 정기지출 항목 읽기 실패: ‘앞으로 나갈 돈’은 확인 불가이고 정기지출을 못 읽었다고 적는다", () => all(same(home.status, 200), homeCards(home.html, "확인 불가"), has(home.html, "정기지출을 불러오지 못했어요")));
   await check("S-2 홈 정기지출 항목 읽기 실패: 정기 수입·지출 카드가 ‘등록한 항목이 없어요’라고 하지 않는다", () => all(lacks(home.html, "아직 등록한 항목이 없어요"), has(home.html, "정기 항목을 불러오지 못했어요")));
   await check("S-2 홈 정기지출 항목 읽기 실패: 월말 예상 한 줄은 빠진 몫을 빼고 말하지 않는다(숨김)", () => same(homePlanNote(home.html), ""));
   await check("S-2 홈 정기지출 항목 읽기 실패에도 조회는 9회 그대로다(같은 설정 조회를 엄격하게 읽을 뿐)", () => same(reads.length <= 9, true));
@@ -499,7 +505,7 @@ const reportTag = (html) => (String(html).match(/<b>월세<\/b><small>[^<]*<\/sm
 await withClock("2026-10-10", () => fixture(async (fx) => {
   const rule = fx.db.accountbook_recurring.find((item) => item.id === "recurring-rent");
   rule.last_applied_month = MONTH;
-  await check("S-2 /reports: 반영된 기록을 지워도 표식이 그 달이면 ‘이번 달 반영’이다(홈은 반영됨으로 본다)", async () => all(same(reportTag((await page(fx, `/reports?${Q}`)).html), "이번 달 반영"), same(homeCard((await page(fx, `/app?${Q}`)).html), "0원")));
+  await check("S-2 /reports: 반영된 기록을 지워도 표식이 그 달이면 ‘이번 달 반영’이다(홈은 반영됨으로 본다)", async () => all(same(reportTag((await page(fx, `/reports?${Q}`)).html), "이번 달 반영"), homeCards((await page(fx, `/app?${Q}`)).html, "0원")));
   rule.last_applied_month = "2026-09";
   fx.db.transactions.push(fixedRow("recurring-rent", MONTH, "2026-10-05", 650000, { id: "s2-rent-report" }));
   await check("S-2 /reports: 표식 저장이 늦어도 그 달 기록이 있으면 ‘이번 달 반영’이다(예전과 같음)", async () => same(reportTag((await page(fx, `/reports?${Q}`)).html), "이번 달 반영"));

@@ -121,9 +121,9 @@ await fixture(async (fx) => {
 
 // ── A3 감사 U9: 모바일 홈 11px 라벨 대비(라이트·다크) ───────────────────────────
 {
-  const css = await asset("/assets/mobile-home-v229136.css");
+  const css = await asset("/assets/mobile-home-v229137.css");
   eq(css.status, 200, "A3 새 홈 스타일시트 주소가 내려간다");
-  ok(css.type.startsWith("text/css") && css.cache.includes("immutable") && css.etag === '"mobile-home-v229136-css"', `A3 새 주소는 CSS·1년 불변 캐시·같은 판의 ETag 다 (${css.etag})`);
+  ok(css.type.startsWith("text/css") && css.cache.includes("immutable") && css.etag === '"mobile-home-v229137-css"', `A3 새 주소는 CSS·1년 불변 캐시·같은 판의 ETag 다 (${css.etag})`);
   const lightRule = ".v8-edit-field>span,.v8-spender-readonly>span{font-size:11px;color:#475467;font-weight:500}"; // V22.9.125: 칸 이름 굵기 1000 → 500(굵기 눈금)
   ok(css.text.includes(lightRule), "A3 11px 수정 폼 라벨의 원본 색이 #475467 이다");
   ok(!css.text.includes(".v8-edit-field>span,.v8-spender-readonly>span{font-size:11px;color:#687385"), "A3 옛 보조색(#687385, 4.35:1) 라벨 규칙이 남지 않는다");
@@ -143,7 +143,7 @@ await fixture(async (fx) => {
   ok(contrast(muted, raised) >= 4.5, `A3 다크 라벨(보조 토큰)이 다크 표면 위 4.5:1 이상이다 (${contrast(muted || "#000000", raised || "#000000").toFixed(2)}:1)`);
   ok(contrast(text, raised) >= 4.5, `A3 다크 읽기 전용 칸의 이름 글자가 4.5:1 이상이다 (${contrast(text || "#000000", raised || "#000000").toFixed(2)}:1)`);
   ok(contrast("#edeff3", "#f8fafc") < 1.5, "A3 고치기 전 다크 읽기 전용 칸은 밝은 배경 위 밝은 글자였다(1.1:1, 헤드리스 Chrome 실측 재현)");
-  const head = await asset("/assets/mobile-home-v229136.css", "HEAD");
+  const head = await asset("/assets/mobile-home-v229137.css", "HEAD");
   ok(head.status === 200 && head.bytes.length === 0 && head.etag === css.etag, "A3 새 주소의 HEAD 는 본문 없이 같은 ETag 다");
   // V22.9.85: v22919 보관본은 옛 주소 정리로 뺐다. CSS 형식 보관은 남은 보관본(운영 V22.9.80 의 홈 스타일시트)으로 본다.
   const old = await asset("/assets/mobile-home-v22979.css");
@@ -156,7 +156,7 @@ await fixture(async (fx) => {
 }
 await fixture(async (fx) => {
   const home = await page(fx, HOME);
-  eq(count(home.html, 'href="/assets/mobile-home-v229136.css"'), 1, "A3 홈이 새 홈 스타일시트를 정확히 한 번 받는다");
+  eq(count(home.html, 'href="/assets/mobile-home-v229137.css"'), 1, "A3 홈이 새 홈 스타일시트를 정확히 한 번 받는다");
   ok(!home.html.includes("mobile-home-v22919.css"), "A3 홈이 옛 주소를 더 쓰지 않는다");
 });
 
@@ -180,7 +180,8 @@ await fixture(async (fx) => {
   await page(fx, HOME);
   const res = await measured(fx, HOME);
   eq(res.status, 200, "A4 나간 참여자의 기록이 있어도 홈이 열린다");
-  ok(res.html.includes('<span class="v8-spender">지출자 떠난사람</span>'), "A4 홈 피드가 나간 참여자의 실제 이름을 쓴다(예전에는 '이전 참여자')");
+  // V22.9.137 U-12: 행 둘째 줄이 ‘분류 · 결제수단 · 지출자’ 한 줄이 됐다(따로 있던 v8-spender 칸 대신 화면 낭독용 ‘지출자’ 와 이름).
+  ok(res.html.includes(' · <i class="srOnly">지출자 </i>떠난사람</span>'), "A4 홈 피드가 나간 참여자의 실제 이름을 쓴다(예전에는 '이전 참여자')");
   ok(!res.html.includes("이전 참여자"), "A4 이름을 찾은 기록은 '이전 참여자'로 그리지 않는다");
   eq(res.calls.length, baseCalls + 1, `A4 명단에 없는 지출자가 있으면 DB 호출이 정확히 1 늘어난다 (${baseCalls} → ${res.calls.length})`);
   const lookups = userLookups(res.calls);
@@ -189,7 +190,7 @@ await fixture(async (fx) => {
   ok(res.depth <= baseDepth + 1, `A4 직렬 깊이는 많아야 한 단계 늘어난다 (${baseDepth} → ${res.depth})`);
   ok(!res.html.includes('value="user-left"'), "A4 나간 참여자는 지출자 선택지에 들어가지 않는다(이름 맵에만 쓴다)");
   const tab = await page(fx, `${HOME}&tab=transactions`);
-  ok(tab.html.includes('<span class="v8-spender">지출자 떠난사람</span>'), "A4 거래내역 탭도 같은 이름을 쓴다");
+  ok(tab.html.includes(' · <i class="srOnly">지출자 </i>떠난사람</span>'), "A4 거래내역 탭도 같은 이름을 쓴다(V22.9.137 U-12 한 줄 행)");
   const day = await api(fx, "/u/api/day-transactions?date=2026-07-10&household=house-home");
   eq(day.data?.items?.find((item) => item.id === "tx-left-1")?.member, "떠난사람", "A4 /u/api/* 의 이름 붙이기(조회를 나눈 attachSpenderNamesWithHistory)는 그대로다");
 });
@@ -197,7 +198,7 @@ await fixture(async (fx) => {
   fx.db.transactions.push(leftTx("tx-ghost-1", "user-ghost"));
   await page(fx, HOME);
   const res = await measured(fx, HOME);
-  ok(res.status === 200 && res.html.includes('<span class="v8-spender">지출자 이전 참여자</span>'), "A4 사용자 행도 없으면 예전처럼 '이전 참여자'다");
+  ok(res.status === 200 && res.html.includes(' · <i class="srOnly">지출자 </i>이전 참여자</span>'), "A4 사용자 행도 없으면 예전처럼 '이전 참여자'다");
   eq(res.calls.length, baseCalls + 1, "A4 이름을 못 찾은 경우에도 조회는 한 번뿐이다");
 });
 await fixture(async (fx) => {
@@ -206,7 +207,7 @@ await fixture(async (fx) => {
   await page(fx, HOME);
   const res = await measured(fx, HOME, { failUsers: true });
   eq(res.status, 200, "A4 이름 조회가 실패해도 홈이 깨지지 않는다");
-  ok(res.html.includes('<span class="v8-spender">지출자 이전 참여자</span>') && !res.html.includes("떠난사람"), "A4 이름 조회가 실패하면 조용히 '이전 참여자'로 돌아간다");
+  ok(res.html.includes(' · <i class="srOnly">지출자 </i>이전 참여자</span>') && !res.html.includes("떠난사람"), "A4 이름 조회가 실패하면 조용히 '이전 참여자'로 돌아간다");
 });
 
 // ── A5 감사 D14: 거래내역 탭 쪽 경계의 날짜 합계 ──────────────────────────────
@@ -230,7 +231,8 @@ await fixture(async (fx) => {
   ok(head27b?.sum === `-${total27}원 · 30건 중 10건 표시`, `A5 다음 쪽의 같은 날도 같은 전체 합계를 쓴다 (${head27b?.sum})`);
   eq(head28?.sum, `-${total28}원`, "A5 쪽 안에 다 보이는 날은 예전 그대로다");
   eq(first.calls.length, baseTab.calls.length, `A5 정확한 합계를 내려고 DB 를 더 부르지 않는다 (${first.calls.length}회)`);
-  ok(source.includes("renderV8TxDayGroups(txRows, `${currentPath}&tab=transactions`, appCanEditRow, [], false, txAll)"), "A5 거래내역 탭은 이미 읽은 필터 결과 전체(txAll)를 합계용으로 넘긴다");
+  // V22.9.137 U-12: 일곱째 인자(지출자를 적을지 — 참여자가 둘 이상이거나 명단 밖 지출자)가 더해졌다. 합계용 txAll 은 그대로 여섯째다.
+  ok(source.includes("renderV8TxDayGroups(txRows, `${currentPath}&tab=transactions`, appCanEditRow, [], false, txAll, { showSpender: homeShowSpender })"), "A5 거래내역 탭은 이미 읽은 필터 결과 전체(txAll)를 합계용으로 넘긴다");
 });
 
 done();

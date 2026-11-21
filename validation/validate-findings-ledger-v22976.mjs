@@ -12,6 +12,8 @@ const ok = (condition, message) => { checks += 1; if (!condition) failures.push(
 
 // 출처 문서마다 항목 ID 를 뽑는 규칙. 새 감사 문서를 쓰면 여기에 한 줄을 더한다.
 const SOURCES = [
+  // V22.9.137: 홈 단순화(운영자 2026-11-21 — ‘모두 이번주 부터’, D-7 = 예) — H 요약 카드·한 줄 거래 행과 날짜 머리·홈의 챌린지.
+  { key: "V137", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_137.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(H-[0-9]+)(?=[ *]|$)/gm, expected: 12 },
   // V22.9.136: 간격·색 정리와 방 전용 보기 다듬기(운영자 2026-11-21 — ‘모두 이번주 부터’) — S 선택 구분·띠·간격과 글자색 눈금.
   { key: "V136", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_136.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(S-[0-9]+)(?=[ *]|$)/gm, expected: 10 },
   // V22.9.135: 함께 고치는 가계부(운영자 2026-11-21 — ‘구성원 누구나’) — E 가계부 전체 번호·구성원이 다른 사람의 기록도 고치고 지움.
@@ -103,7 +105,7 @@ const ledger = read("docs/codex/FINDINGS_LEDGER.md");
 const harness = read(".codex/scripts/verify-repository.mjs");
 const rows = [];
 for (const line of ledger.split("\n")) {
-  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108|V116|V117|V118|V120|V121|V122|V124|V125|V126|V127|V128|V129|V130|V131|V132|V133|V134|V135|V136):[A-Z]-[0-9]+[a-z]?) *[|]/.exec(line);
+  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108|V116|V117|V118|V120|V121|V122|V124|V125|V126|V127|V128|V129|V130|V131|V132|V133|V134|V135|V136|V137):[A-Z]-[0-9]+[a-z]?) *[|]/.exec(line);
   if (!match) continue;
   const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
   const [id, severity, title, status, fixedIn, check, note] = cells;

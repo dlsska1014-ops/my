@@ -75,6 +75,8 @@ const until = async (done, ms = 8000) => { const end = Date.now() + ms; while (!
 // ─────────────────────────────────────────────────────────────────────────────
 // S-3 쓰는 속도
 // ─────────────────────────────────────────────────────────────────────────────
+// V22.9.137 U-13: ‘최근 7일’ 카드는 홈 구성에서 켠 사람에게만 보인다(기본값은 리포트 카드 꺼짐) — 이 장면의 세 픽스처는 네 장을 켠 가계부다.
+const CARDS_ON = { homeReports: true };
 if (run("pace")) await scenario("pace", () => withClock("2026-10-25", () => fixture(async (fx) => {
   const seed = (rows) => { fx.db.transactions = fx.db.transactions.filter((row) => !String(row.id).startsWith("s3-")); fx.db.transactions.push(...rows); };
   // 7월(31일): 창은 4~10 · 11~17 · 18~24 · 25~31. 기본 픽스처의 지출은 7/4·7/7·7/9 뿐(248,600원).
@@ -112,7 +114,7 @@ if (run("pace")) await scenario("pace", () => withClock("2026-10-25", () => fixt
     const l = await home(leap, "2028-02");
     eq(l.value, "7,000원", `윤년 2월 29일이 마지막 창(23~29일)에 든다 (${l.value})`);
     eq(l.note, "마지막 7일이 직전 7일보다 ▲ 6,500원 많았어요", `직전 7일은 16~22일 (${l.note})`);
-  }));
+  }, CARDS_ON));
 
   // 달이 바뀐 날: 11월 1일에는 10월이 지난 달이다.
   await withClock("2026-11-01", () => fixture(async (turn) => {
@@ -122,7 +124,7 @@ if (run("pace")) await scenario("pace", () => withClock("2026-10-25", () => fixt
     eq(t.label, "마지막 4주 지출", "11월 1일의 10월은 지난 달이다");
     const now = await home(turn, "2026-11");
     eq(now.label, "최근 4주 지출", "11월 1일의 11월 홈은 이번 달 방식이다");
-  }));
+  }, CARDS_ON));
 
   // 아직 오지 않은 달.
   seed([expense("s3-f1", "2026-12-24", 100000)]);
@@ -139,7 +141,7 @@ if (run("pace")) await scenario("pace", () => withClock("2026-10-25", () => fixt
   eq(now.note, "직전 7일보다 ▲ 45,000원 더 쓰는 속도입니다", `이번 달 문구는 그대로다 (${now.note})`);
   eq(now.label, "최근 4주 지출", "이번 달 막대 설명은 그대로다");
   eq(now.bars[0], "blank", "이번 달 시작보다 앞선 창은 여전히 비운다");
-})));
+}, CARDS_ON)));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // D-16 주별 탭

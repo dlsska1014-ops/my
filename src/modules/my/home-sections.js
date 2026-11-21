@@ -164,8 +164,14 @@ function normalizeHomeLayout(value) {
   let raw = value;
   if (typeof raw === "string") { try { raw = raw ? JSON.parse(raw) : {}; } catch (error) { raw = {}; } }
   const object = safeObject(raw);
+  // V22.9.137 U-13(작업 지시서 7단계, 운영자 결정 D-7 = 예): 리포트 카드를 저장한 적이 없으면(그 칸이 없음) 새 기본값은 카드 넷을 모두 끈 것이다 —
+  // 홈의 ‘이번 달 요약’ 카드 한 장이 그 자리를 대신한다. 홈 구성을 저장한 사람은 저장한 값 그대로다(켜 둔 채 저장했으면 계속 보인다).
+  // 깨진 값(JSON 이 아님, reports 칸이 객체가 아님, 그 hidden 이 배열이 아님)과 읽지 못한 때(빈 값)도 저장하지 않은 것과 같다.
+  // 저장 폼(handleHomeLayoutSave)은 늘 reports 칸을 { order: [...], hidden: [...] } 로 함께 저장한다.
+  const reportIds = HOME_LAYOUT_REPORTS.map(([id]) => id);
+  const savedReports = object.reports && typeof object.reports === "object" && !Array.isArray(object.reports) && Array.isArray(object.reports.hidden) ? object.reports : null;
   return {
-    reports: normalizeHomeLayoutSection(object.reports, HOME_LAYOUT_REPORTS),
+    reports: savedReports ? normalizeHomeLayoutSection(savedReports, HOME_LAYOUT_REPORTS) : { order: reportIds, hidden: reportIds.slice() },
     shortcuts: normalizeHomeLayoutSection(object.shortcuts, HOME_LAYOUT_SHORTCUTS),
   };
 }
@@ -301,7 +307,50 @@ function renderHomeReportCards(options = {}) {
   return `<section class="homeReports" aria-labelledby="homeReportsTitle"><div class="homeReportsHead"><h2 id="homeReportsTitle">${escapeHtml(heading)}</h2>${edit}</div><div class="homeReportGrid">${cards}</div></section>`;
 }
 
-function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members = [], canEditSpender = false, { filtered = false } = {}) {
+// V22.9.137 U-13(작업 지시서 7단계 §5-3 6번, 운영자 결정 D-7 = 예): ‘이번 달 요약’ 카드 한 장. 기본값에서 꺼진 리포트 카드 넷과 옛 homeMetrics
+// (수입 대비 사용·들어온 돈·나간 돈)를 대신한다. 새 조회는 없다 — 홈이 이미 계산한 값만 받는다.
+// - 숫자는 실제 기록 합이라 원 단위 그대로, 요약 카드라 부호 없이 본문색이다(§5-2). ‘원’ 은 작은 글자이고, 금액 가리기(lucian-e 의 마스크)가
+//   숫자만 든 글자 마디를 찾도록 숫자 칸에 data-ab-num-unit="원" 을 단다(data-ab-num 은 달지 않는다 — 숫자 움직임 없음).
+// - ‘앞으로 나갈 돈’ 은 이번 달이고 정기 지출 항목이 있을 때만 둔다(옛 리포트 넷째 카드와 같은 계산 homeUpcomingOut). 못 읽었으면 ‘확인 불가’ 와
+//   옛 카드의 한 줄(무엇을 못 읽었는지)을, 지출자 자격이 없어 합계에서 빠진 고정지출이 있으면 옛 카드의 ‘지출자 확인 필요 N건’ 을 그대로 적는다.
+// - 지출 합계가 0 보다 작으면(환불을 음수 지출로 적은 옛 기록이 그달 지출보다 큼) ‘지출’ 대신 ‘돌아온 돈’ 으로 그 크기를 적는다(행의 D-15 와 같은 뜻).
+// - 지난달 비교·환불 차감 문장은 옛 ‘나간 돈’ 칸의 것을 그대로 받는다. 머리의 ‘홈 구성’ 은 옛 ‘이번 달 리포트’ 머리의 그 링크다(카드를 다시 켜는 길).
+function renderHomeSummaryCard(options = {}) {
+  const {
+    month = "", householdId = "", stats = null, upcoming = null, reserveLoaded = true, isCurrentMonth = false,
+    layoutHref = "", deltaText = "", deltaClass = "", refundNote = "", roomView = false,
+  } = options;
+  const hh = householdId ? `&household_id=${encodeURIComponent(householdId)}` : "";
+  // 방 전용 보기(V22.9.130)의 세션은 /reports 를 열 수 없다(허용 주소 밖 — 흐린 링크가 된다). 그 세션이 여는 소비 분석의 종합 리포트로 보낸다.
+  const reportHref = roomView ? `/my/analysis?view=report&month=${encodeURIComponent(month)}${hh}` : `/reports?month=${encodeURIComponent(month)}${hh}`;
+  const money = (value) => `<b data-ab-num-unit="원">${numberWithCommas(Math.max(0, Number(value || 0)))}</b><small>원</small>`;
+  const up = upcoming;
+  const upShown = isCurrentMonth && reserveLoaded && !!up && (!up.available || Number(up.total || 0) > 0 || Number(up.expenseItems || 0) > 0);
+  const upCell = !upShown ? "" : !up.available ? "<b>확인 불가</b>" : money(up.total);
+  const upNote = !upShown ? ""
+    : !up.available ? `${up.rulesKnown === false ? (up.plansKnown === false ? "고정·정기지출" : "고정지출") : "정기지출"}을 불러오지 못했어요`
+      : Number(up.spenderCheckCount || 0) > 0 ? `앞으로 나갈 돈: 지출자 확인 필요 ${numberWithCommas(up.spenderCheckCount)}건` : "";
+  const cell = (label, value) => `<div><dt>${label}</dt><dd>${value}</dd></div>`;
+  const expense = Number(stats?.totals?.expense || 0);
+  const expenseCell = expense < 0 ? cell("돌아온 돈", money(-expense)) : cell("지출", money(expense));
+  const heading = isCurrentMonth || !/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month)) ? "이번 달 요약" : `${Number(String(month).slice(5, 7))}월 요약`;
+  const edit = layoutHref ? `<a class="homeSummaryEdit" href="${escapeHtml(layoutHref)}">홈 구성</a>` : "";
+  const line = (text, cls = "") => (text ? `<p class="homeMomLine${cls ? ` ${escapeHtml(cls)}` : ""}">${escapeHtml(text)}</p>` : "");
+  const notes = line(deltaText, deltaClass) + line(refundNote) + line(upNote);
+  return `<section class="homeSummary" aria-labelledby="homeSummaryTitle"><div class="homeSummaryHead"><h2 id="homeSummaryTitle">${heading}</h2>${edit}</div><dl>${expenseCell}${cell("수입", money(stats?.totals?.income))}${upCell ? cell("앞으로 나갈 돈", upCell) : ""}</dl>${notes}<a class="homeSummaryGo" href="${escapeHtml(reportHref)}">리포트 보기</a></section>`;
+}
+
+// V22.9.137 U-12(작업 지시서 7단계): 행 = 아이콘 | 제목 / ‘분류 · 결제수단 · 지출자’ 한 줄 | 금액. 날짜는 행 위의 날짜 머리가 말하고, 행 안에서는
+// 읽기 프로그램에만 ‘7월 9일’ 로 읽힌다(화면에 ISO 날짜를 쓰지 않는다, §5-2). 숨긴 날짜 조각을 줄 글자 맨 앞에 두는 까닭: 1년 캐시 v5 묶음
+// (accountbook-v5-v22993.js 의 accountbookCategoryCircleClientMain)이 이 줄 글자를 ‘ · ’ 로 나눈 둘째 조각을 분류로 읽어 동그라미 아이콘을 고른다 —
+// 날짜 조각을 빼면 결제수단을 분류로 읽는다. 같은 묶음이 행의 읽기 이름도 ‘제목, 줄 글자, 금액’ 으로 짓는다.
+// 지출자는 줄 끝 조각이다(옛 셋째 줄 .v8-spender). 구성원이 둘 이상일 때만, 또는 그 행의 지출자가 지금 구성원이 아닐 때(나간 사람) 쓴다 —
+// 부르는 쪽이 showSpender(행) 로 정한다. 넘기지 않으면 예전처럼 늘 쓴다. ‘지출자’·‘수입자’ 낱말은 읽기 프로그램에만 읽힌다.
+function txRowDateLabel(date = "") {
+  const key = String(date || "");
+  return /^\d{4}-\d{2}-\d{2}$/.test(key) ? `${Number(key.slice(5, 7))}월 ${Number(key.slice(8, 10))}일` : "날짜 없음";
+}
+function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members = [], canEditSpender = false, { filtered = false, showSpender = null } = {}) {
   // V22.9.110 #10: 기록이 있는데 필터·검색으로 비면 '첫 거래를 기록' 안내는 틀린다 — 거래 탭과 같은 '조건에 맞는 기록이 없습니다'를 쓴다.
   if (!rows.length) return filtered
     ? `<div class="v8-empty">조건에 맞는 기록이 없습니다. 필터·검색을 해제하면 다시 볼 수 있어요.</div>`
@@ -321,7 +370,8 @@ function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members
     // V22.9.76: 결제수단 "미입력" 표시는 지출에만 붙인다. 월급·용돈 같은 수입은 결제수단이 없어도 정리할 것이 없다
     // (정리 필터도 수입을 빼고 센다). 수입에 결제수단이 있으면 그대로 보여 준다.
     const paymentText = t.payment_method ? ` · ${escapeHtml(t.payment_method)}` : t.type === "income" ? "" : " · 미입력";
-    const body = `<div><b>${escapeHtml(memo)}</b><span>${escapeHtml(t.transaction_date || "")} · ${escapeHtml(t.category || "미분류")}${paymentText}</span><span class="v8-spender">${spenderLabel} ${escapeHtml(spenderName)}</span></div><strong class="${cls}">${sign}${numberWithCommas(Math.abs(Number(t.amount || 0)))}원</strong>`;
+    const spenderText = typeof showSpender !== "function" || showSpender(t) ? ` · <i class="srOnly">${spenderLabel} </i>${escapeHtml(spenderName)}` : "";
+    const body = `<div><b>${escapeHtml(memo)}</b><span class="v8-tx-meta"><i class="srOnly">${escapeHtml(txRowDateLabel(t.transaction_date))} · </i>${escapeHtml(t.category || "미분류")}${paymentText}${spenderText}</span></div><strong class="${cls}">${sign}${numberWithCommas(Math.abs(Number(t.amount || 0)))}원</strong>`;
     const editable = !canEditRow || canEditRow(t);
     return `<article class="v8-tx" id="tx-${escapeHtml(t.id)}" data-type="${escapeHtml(t.type || "")}">${editable ? `<details class="v8-editWrap" data-ab-edit-src="${escapeHtml(txEditPath(t.id, currentPath))}"><summary class="v8-tx-main">${body}<i class="srOnly">수정·삭제</i></summary><div class="v8-editSlot"><a class="v8-editOpen" href="${escapeHtml(txEditPath(t.id, currentPath))}">수정·삭제 화면 열기</a></div></details>` : `<div class="v8-tx-main">${body}</div>`}</article>`;
   }).join("");
@@ -329,11 +379,16 @@ function renderV8TxCards(rows = [], currentPath = "", canEditRow = null, members
 
 // V22.8.92 (7.2): 거래내역 탭은 카드 스택 대신 날짜 헤더 + 구분선 목록으로 읽는다.
 // 헤더 오른쪽에 그날 합계를 두면 "이 날 얼마 썼나"를 행을 더하지 않고 알 수 있다.
+// V22.9.137 U-12(§5-2 ‘목록 머리는 오늘 · 어제 · 10월 26일 월요일’): 오늘·어제는 그 말로(KST), 그 밖에는 ‘7월 9일 목요일’. 예전 ‘7월 9일 (목)’.
+// 날짜 모양이 아닌 값은 화면에 그대로 쓰지 않고 ‘날짜 없음’ 이다(예전에는 받은 글자 그대로).
 function txDayHeadLabel(date = "") {
   const key = String(date || "");
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return key || "날짜 없음";
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(key)) return "날짜 없음";
+  const today = formatDate(nowKstDate());
+  if (key === today) return "오늘";
+  if (key === formatDate(addDays(nowKstDate(), -1))) return "어제";
   const week = ["일", "월", "화", "수", "목", "금", "토"];
-  return `${Number(key.slice(5, 7))}월 ${Number(key.slice(8, 10))}일 (${week[new Date(`${key}T00:00:00Z`).getUTCDay()]})`;
+  return `${Number(key.slice(5, 7))}월 ${Number(key.slice(8, 10))}일 ${week[new Date(`${key}T00:00:00Z`).getUTCDay()]}요일`;
 }
 
 // V22.8.97 (M2 블록 3): 최근 7일 스트립. 요일 · 날짜 · 3px 막대뿐이고, 막대 높이는
@@ -368,7 +423,8 @@ function renderHomeWeekStrip(rows = [], isCurrentMonth = true) {
   return `<ol class="homeWeek" aria-label="최근 7일 지출">${cells}</ol>`;
 }
 
-function renderV8TxDayGroups(rows = [], currentPath = "", canEditRow = null, members = [], canEditSpender = false, totalRows = null) {
+// V22.9.137 U-12: 홈 최근 내역도 이 묶음을 쓴다(예전에는 홈만 날짜 머리 없이 카드였다). options 는 행 그리기(renderV8TxCards)에 그대로 넘긴다.
+function renderV8TxDayGroups(rows = [], currentPath = "", canEditRow = null, members = [], canEditSpender = false, totalRows = null, options = {}) {
   if (!rows.length) return "";
   // V22.9.37 감사 D14: 날짜 합계는 화면에 올린 80건이 아니라 받은 기록 전체로 낸다. 잘린 날은 몇 건을 보여 주는지 적어
   // 부분합이 그날 전체처럼 읽히지 않게 한다(받은 기록이 쪽 단위라면 쪽 경계의 날은 부르는 쪽이 전체 행을 넘겨야 한다).
@@ -399,7 +455,7 @@ function renderV8TxDayGroups(rows = [], currentPath = "", canEditRow = null, mem
     const sum = (income
       ? `${inText(income)}${expense ? ` · ${outText(expense)}` : ""}`
       : outText(expense)) + partial;
-    return `<section class="txDayGroup"><h3 class="txDayHead"><span>${escapeHtml(txDayHeadLabel(group.date))}</span><b>${escapeHtml(sum)}</b></h3>${renderV8TxCards(group.rows, currentPath, canEditRow, members, canEditSpender)}</section>`;
+    return `<section class="txDayGroup"><h3 class="txDayHead"><span>${escapeHtml(txDayHeadLabel(group.date))}</span><b>${escapeHtml(sum)}</b></h3>${renderV8TxCards(group.rows, currentPath, canEditRow, members, canEditSpender, options)}</section>`;
   }).join("");
 }
 
@@ -418,8 +474,8 @@ function todayExpense(rows = []) {
 export {
   HOME_LAYOUT_REPORTS, HOME_LAYOUT_SHORTCUTS, applyHomeLayoutSection, homeLayoutKey,
   lastNDaysExpense, longestNoSpendStreak, makeMemeCard, memeAmountByRegex, memeCardFor,
-  memeCountByRegex, normalizeHomeLayout, renderHomeReportCards, renderHomeWeekStrip,
-  renderTxEditSuggestionLists, renderV8TxCards, renderV8TxDayGroups, renderV8TxEditForm,
-  todayExpense, txEditPath,
+  memeCountByRegex, normalizeHomeLayout, renderHomeReportCards, renderHomeSummaryCard,
+  renderHomeWeekStrip, renderTxEditSuggestionLists, renderV8TxCards, renderV8TxDayGroups,
+  renderV8TxEditForm, todayExpense, txEditPath,
 };
 // @build:exports-end

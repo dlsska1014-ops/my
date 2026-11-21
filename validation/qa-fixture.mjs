@@ -356,6 +356,9 @@ export async function createV2265QaFixture(options = {}) {
       { id: "setting-alias", key: "member_aliases:house-home", value: JSON.stringify({ "user-bin": "Bin", "user-wifi": "WIFI♥" }), created_at: createdAt },
       { id: "setting-payment", key: "payment_assets:house-home", value: JSON.stringify([{ id: "asset-1", name: "국민카드", kind: "credit_card", balance: 0 }, { id: "asset-2", name: "급여통장", kind: "bank_account", balance: 5200000 }]), created_at: createdAt },
       { id: "setting-reserve", key: "reserve_plans:house-home", value: JSON.stringify([{ id: "reserve-1", name: "자동차보험", amount: 1200000, due_months: [8], recurrence: "annual" }]), created_at: createdAt },
+      // V22.9.137 U-13: 홈 구성을 저장하지 않은 사람의 홈은 리포트 카드 넷을 끈 것이 기본이다. homeReports: true 는 두 구성원이 ‘홈 구성’ 에서 네 장을
+      // 모두 켠 채 저장한 가계부다(옛 검사가 지키던 리포트 카드 내용을 그대로 보는 길). 기본은 꺼짐 — 저장한 값이 없다.
+      ...(options.homeReports === true ? ["user-bin", "user-wifi"].map((user) => ({ id: `setting-home-layout-${user}`, key: `home-layout:v1:house-home:${user}`, value: JSON.stringify({ reports: { order: ["where", "pace", "budget", "reserve"], hidden: [] } }), created_at: createdAt })) : []),
     ],
     accountbook_meme_cards: [],
     accountbook_user_identities: [],
