@@ -242,7 +242,7 @@ await section("F-4", () => fixture(async (fx) => {
   eq(backupLogin.status, 200, "내 계정 로그인 설정 화면이 열린다");
   ok(backupLogin.html.includes(".identity{background:#f8fafc;border:1px solid #e2e8f0;border-radius:16px;padding:13px;color:#475467;line-height:1.6;overflow-wrap:anywhere}"), "내 계정: '현재 표시 이름' 상자가 줄바꿈 없는 긴 표시 이름을 꺾는다");
   const settlement = await page(fx, `/settlement-summary?month=2026-07&household_id=${HH}`);
-  ok(settlement.html.includes(".copy{background:#f8fafc;border:1px solid #e5e7eb;color:#475569;overflow-wrap:anywhere}"), "정산: 공유 문구 상자가 줄바꿈 없는 긴 표시 이름을 꺾는다");
+  ok(settlement.html.includes(".copy{background:#f8fafc;border:1px solid #e5e7eb;color:#475467;overflow-wrap:anywhere}"), "정산: 공유 문구 상자가 줄바꿈 없는 긴 표시 이름을 꺾는다(V22.9.136: 글자색 보조 눈금 #475467)");
 }));
 
 // ── D-27. 역할 조회가 실패했을 때의 안내 ────────────────────────────────────────────────────────────

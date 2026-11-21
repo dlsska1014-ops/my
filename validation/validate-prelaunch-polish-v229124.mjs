@@ -47,7 +47,7 @@ async function scene(name, task) {
 
 // SHELL = 지금 화면이 부르는 셸 CSS 주소(뒤 판에서 올라간다). V124_SHELL = 이 판이 만든 주소 — V22.9.125 부터는 옛 주소로 보관되어
 // 이 판의 바이트를 그대로 낸다. ‘블록을 빼면 옛 스타일시트와 같다’ 는 이 판의 바이트(V124_SHELL)로 본다.
-const SHELL = "/assets/accountbook-shell-v229125.css";
+const SHELL = "/assets/accountbook-shell-v229136.css";
 const V124_SHELL = "/assets/accountbook-shell-v229124.css";
 const OLD_SHELL = "/assets/accountbook-shell-v22993.css";
 const MARK = "/* ── V22.9.124 (UI/UX 기준 점검";

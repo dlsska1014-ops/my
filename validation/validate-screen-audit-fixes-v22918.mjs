@@ -83,7 +83,7 @@ try {
     const mediaAt = page.text.indexOf("@media(max-width:760px)");
     const radioAt = page.text.indexOf(".formGrid .reserveTypeSeg input[type=radio]");
     ok(mediaAt > 0 && radioAt > 0, "모바일 규칙과 라디오 규칙이 같은 스타일에 있다");
-    ok(page.text.includes(".reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#64748b;"), "카드 보조 글자색이 카드 안 수정 폼까지 들어가지 않는다");
+    ok(page.text.includes(".reserveCard span:not(.reserveEdit *),.reserveAmt small,.note{display:block;color:#5f6b7a;"), "카드 보조 글자색이 카드 안 수정 폼까지 들어가지 않는다(V22.9.136: 흐린 글자 눈금 #5f6b7a)");
   }
 
   // -------------------------------------------------------------------------
@@ -134,20 +134,20 @@ try {
     const memberPlain = (memberHome.text.match(/<article class="v8-tx"[^>]*><div class="v8-tx-main">/g) || []).length;
     eq(memberSummaries + memberPlain, memberRows, "구성원 화면의 행은 편집 가능하면 접기, 아니면 본문만이다");
 
-    const css = await app.fetch(new Request(`${base}/assets/mobile-home-v229125.css`), fixture.env, ctx).then((r) => r.text());
+    const css = await app.fetch(new Request(`${base}/assets/mobile-home-v229136.css`), fixture.env, ctx).then((r) => r.text());
     ok(css.includes(".v8-tx summary.v8-tx-main,body.abV22812Shell .v8-tx summary.v8-tx-main{display:flex;"), "행 제목이 셸의 summary 규칙(파란 굵은 글자)보다 명시도가 높다");
     ok(css.includes(".v8-tx summary.v8-tx-main::-webkit-details-marker{display:none}"), "행 제목에 기본 삼각표가 붙지 않는다");
     ok(css.includes(".v8-tx details[open]>summary.v8-tx-main>strong::after{transform:rotate(90deg)}"), "펼침 상태가 금액 옆 표시로 보인다");
     ok(css.includes(".v8-tx summary.v8-tx-main:focus-visible{outline:3px solid #2563eb"), "행 제목에 키보드 초점 표시가 있다");
-    ok(home.text.includes('href="/assets/mobile-home-v229125.css"'), "홈이 새 주소의 스타일시트를 받는다(옛 1년 캐시와 섞이지 않는다)");
+    ok(home.text.includes('href="/assets/mobile-home-v229136.css"'), "홈이 새 주소의 스타일시트를 받는다(옛 1년 캐시와 섞이지 않는다)");
   }
 
   // -------------------------------------------------------------------------
   // 5. 대비 — 규칙이 도착하는지와, 그 색 쌍이 AA 를 넘는지
   // -------------------------------------------------------------------------
   {
-    const shell = await app.fetch(new Request(`${base}/assets/accountbook-shell-v229125.css`), fixture.env, ctx).then((r) => r.text());
-    const home = await app.fetch(new Request(`${base}/assets/mobile-home-v229125.css`), fixture.env, ctx).then((r) => r.text());
+    const shell = await app.fetch(new Request(`${base}/assets/accountbook-shell-v229136.css`), fixture.env, ctx).then((r) => r.text());
+    const home = await app.fetch(new Request(`${base}/assets/mobile-home-v229136.css`), fixture.env, ctx).then((r) => r.text());
     const D = 'html[data-ab-resolved-theme="dark"] body.abV22812Shell';
 
     // 정기 화면 — 카드 전체에 거는 글자색이 수정 폼 안까지 들어가지 않는다
@@ -187,9 +187,11 @@ try {
 
     // 예산·정기·설정 상단 탭(페이지 인라인)
     const budgets = await get(`/budgets?month=2026-07&${H}`);
-    ok(budgets.text.includes(".abMoneyPlanTabs a small{font-size:11px;color:#667085;font-weight:400}"), "라이트 탭 보조 글자");
-    ok(budgets.text.includes('html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a.on{background:#1d4ed8;border-color:#1d4ed8;color:#fff!important}'), "다크 활성 탭 바탕");
-    aa("#667085", "#ffffff", "라이트 탭 보조 글자");
+    // V22.9.136: 보조 글자색을 흐린 글자 눈금(#5f6b7a)으로 모았다.
+    ok(budgets.text.includes(".abMoneyPlanTabs a small{font-size:11px;color:#5f6b7a;font-weight:400}"), "라이트 탭 보조 글자");
+    // V22.9.136: 면·글자는 그대로, 테두리·안쪽 1px 선만 밝은 파랑으로(어두운 테마의 선택 구분 — validate-v229136-spacing-color 가 대비를 잰다)
+    ok(budgets.text.includes('html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a.on{background:#1d4ed8;border-color:#93c5fd;box-shadow:inset 0 0 0 1px #93c5fd;color:#fff!important}'), "다크 활성 탭 바탕");
+    aa("#5f6b7a", "#ffffff", "라이트 탭 보조 글자");
     aa("#ffffff", "#1d4ed8", "다크 활성 탭 제목");
     aa("#dbeafe", "#1d4ed8", "다크 활성 탭 보조 글자");
     aa("#b3bdc9", "#1e2026", "다크 탭 보조 글자");
@@ -199,12 +201,12 @@ try {
   // 6. 불변 자산 — 내용이 바뀐 두 스타일시트는 새 주소로, 옛 주소는 쓰지 않는다
   // -------------------------------------------------------------------------
   {
-    ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v229125.css"'), "홈 스타일시트 주소가 v22918");
-    ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v229125.css"'), "셸 스타일시트 주소가 v22918");
+    ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v229136.css"'), "홈 스타일시트 주소가 v22918");
+    ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v229136.css"'), "셸 스타일시트 주소가 v22918");
     eq(source.includes("mobile-home-v22914.css"), false, "옛 홈 스타일시트 주소가 남아 있지 않다");
     eq(source.includes("accountbook-shell-v22914.css"), false, "옛 셸 스타일시트 주소가 남아 있지 않다");
     const reserve = await get(`/reserve-plans?${H}`);
-    ok(reserve.text.includes('href="/assets/accountbook-shell-v229125.css"'), "정기 화면이 새 셸 스타일시트를 받는다");
+    ok(reserve.text.includes('href="/assets/accountbook-shell-v229136.css"'), "정기 화면이 새 셸 스타일시트를 받는다");
   }
 } finally {
   fixture.restore();

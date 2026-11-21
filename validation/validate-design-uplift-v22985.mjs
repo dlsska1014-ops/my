@@ -35,8 +35,8 @@ const asset = async (path) => {
   return response.text();
 };
 
-const SHELL = "/assets/accountbook-shell-v229125.css";
-const HOME_CSS = "/assets/mobile-home-v229125.css";
+const SHELL = "/assets/accountbook-shell-v229136.css";
+const HOME_CSS = "/assets/mobile-home-v229136.css";
 const V5 = "/assets/accountbook-v5-v22993.js";
 const NAV = "/assets/accountbook-nav-v22987.js";
 // V22.9.84 실측(2026-10-28): 기준 픽스처 홈 HTML 35,626 B. 이 단계는 홈 HTML 을 늘리지 않는다(지시서 T-10 수용 기준).
