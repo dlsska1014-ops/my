@@ -62,15 +62,16 @@ try {
   const links = [...main.matchAll(/<a class="(?:menuRow|featuredCard)" href="([^"]+)"/g)].map((m) => m[1]);
   // V22.9.83: 전체 메뉴가 사이드바와 같은 묶음이 되며 가져오기·연간 리포트·저축·목표·단톡방 연결이 더해졌다(21 → 25).
   // V22.9.95: ‘도움말과 안내’ 에 ‘문의·FAQ’(/faq, R-14)와 ‘후원하기’(/support, 후원) 두 줄이 더해졌다(25 → 27).
-  eq(links.length, 27, `메뉴 목적지 27개가 그대로다 (${links.length}개)`);
+  // V22.9.139: ‘도움말과 안내’ 에 ‘생활비 계산표·가이드 글’(/articles)과 ‘공개 사용 가이드 모음’(/guides) 두 줄이 더해졌다(27 → 29).
+  eq(links.length, 29, `메뉴 목적지 29개가 그대로다 (${links.length}개)`);
   eq(new Set(links).size, links.length, "같은 목적지를 두 번 싣지 않는다");
 
   // 4) 아이콘이 글자가 아니라 그림이다
   //    유니코드 글리프(✎ ▤ ↔ ◴ ▣ …)를 아이콘으로 쓰면 폰트마다 굵기·크기·세로 정렬이
   //    달라 줄이 안 맞는다. 사이드바가 이미 쓰는 SVG 세트를 같이 쓴다.
   const iconSlots = [...main.matchAll(/class="(?:menuRowIcon|featuredIcon)"[^>]*/g)].map((m) => m[0]);
-  eq(iconSlots.length, 27, `아이콘 자리가 27개다 (${iconSlots.length}개)`);
-  eq(iconSlots.filter((slot) => slot.includes("data-ab-nav-icon=")).length, 27, "아이콘 자리가 전부 공용 SVG 이름을 가리킨다");
+  eq(iconSlots.length, 29, `아이콘 자리가 29개다 (${iconSlots.length}개)`);
+  eq(iconSlots.filter((slot) => slot.includes("data-ab-nav-icon=")).length, 29, "아이콘 자리가 전부 공용 SVG 이름을 가리킨다");
   for (const glyph of ["✎", "▤", "↔", "◴", "▣", "↻", "⇄", "⌁", "◇", "⇩"]) {
     ok(!main.includes(`aria-hidden="true">${glyph}<`), `글리프 아이콘 "${glyph}" 가 남아 있지 않다`);
   }

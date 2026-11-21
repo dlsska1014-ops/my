@@ -7,7 +7,7 @@ import {
   policyDateLabel, publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav,
 } from "./site-config.js";
 import {
-  publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages,
+  publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages, publicSandboxClient,
 } from "./guide-content.js";
 import {
   publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes, publicArticleRecent,
@@ -16,8 +16,12 @@ import {
 } from "./living-cost-articles-v22974.js";
 import { publicLivingCostArticlesV22997 } from "./living-cost-articles-v22997.js";
 import { publicSupportPageV22995, withSupportVisitScriptV22997 } from "./support-page.js";
-import { enrichPublicWorksheetsV229106 } from "./worksheet-pages.js";
-import { publicWorksheetResponseV229106 } from "./worksheet-runtime.js";
+import {
+  PUBLIC_ALL_CALCULATORS_V229139, enrichPublicWorksheetsV229106, renderArticleDataChartV229139,
+} from "./worksheet-pages.js";
+import {
+  publicWorksheetResponseV229106, renderInlineWorksheetV229139,
+} from "./worksheet-runtime.js";
 import { headOnlyResponse, htmlResponse } from "../runtime/http.js";
 import { safeArray } from "../admin/backup-compare.js";
 import { inspectKakaoLoginConfig } from "../auth/user-session.js";
@@ -152,7 +156,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
 }
 
 function publicArticleCards(cards = []) {
-  return `<ul class="pubCards">${safeArray(cards).map((item) => `<li><a href="${escapeHtml(item.path)}">${escapeHtml(item.title)}</a><p>${escapeHtml(item.description)}</p><small>작성 ${escapeHtml(item.published)}${item.updated !== item.published ? ` · 수정 ${escapeHtml(item.updated)}` : ""}${item.worksheet ? " · 계산표 포함" : ""}</small></li>`).join("")}</ul>`;
+  return `<ul class="pubCards">${safeArray(cards).map((item) => `<li><a href="${escapeHtml(item.path)}">${escapeHtml(item.title)}</a><p>${escapeHtml(item.description)}</p><small>작성 ${escapeHtml(item.published)}${item.updated !== item.published ? ` · 수정 ${escapeHtml(item.updated)}` : ""}${item.worksheet ? " · 계산표 포함" : item.miniCalculator ? " · 미니 계산기 포함" : ""}</small></li>`).join("")}</ul>`;
 }
 
 function publicArticleExtras(page = {}, living = false) {
@@ -179,7 +183,7 @@ function publicContentLinks(links = []) {
 const PUBLIC_DEMO_TABLE_HEADERS_V229124 = ["날짜", "분류", "내용", "지출액"];
 const PUBLIC_TABLE_STACK_RULES_V229124 = '.pubTableWrap[data-stack]{overflow:visible;border:0;border-radius:0;background:none}.pubTableWrap[data-stack] .pubTable,.pubTableWrap[data-stack] .pubTable tbody{display:block;width:100%}.pubTableWrap[data-stack] .pubTable caption{display:block;padding:0 0 10px}.pubTableWrap[data-stack] .pubTable thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.pubTableWrap[data-stack] .pubTable tbody tr{display:block;margin:0 0 12px;padding:14px 16px;border:1px solid #dce3ef;border-radius:14px;background:#fff}.pubTableWrap[data-stack] .pubTable tbody th,.pubTableWrap[data-stack] .pubTable tbody td{display:block!important;width:auto!important;min-width:0!important;padding:0!important;border:0!important;background:none!important}.pubTableWrap[data-stack] .pubTable tbody td{margin-top:10px}.pubTableWrap[data-stack] .pubTable tbody th::before,.pubTableWrap[data-stack] .pubTable tbody td::before{display:block;font-size:12px;font-weight:700;color:#596579}';
 // /demo 계산 입력칸: ab-uiux 의 ‘.abV2281 input…{font-size:inherit!important}’ 가 16px 규칙을 덮어 13px 이었다(iOS 는 16px 미만 입력칸을 누르면 화면을 확대한다).
-const PUBLIC_DEMO_INPUT_CSS_V229124 = '.pubDemo .pubDemoInputs label>input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]){font-size:16px!important}';
+const PUBLIC_DEMO_INPUT_CSS_V229124 = '.pubDemo .pubDemoInputs label>input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]){font-size:16px!important}.pubSandboxChips{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}';
 function publicTableStacksV229124(table) {
   return !!table && safeArray(table.headers).length >= 4;
 }
@@ -196,6 +200,21 @@ function publicContentTable(table, id) {
   return `<div class="pubTableWrap" role="region" aria-labelledby="${id}" tabindex="0"${publicTableStacksV229124(table) ? ' data-stack="1"' : ""}><table class="pubTable"><caption id="${id}">${escapeHtml(table.caption)}</caption><thead><tr>${table.headers.map((label) => `<th scope="col">${escapeHtml(label)}</th>`).join("")}</tr></thead><tbody>${table.rows.map((row) => `<tr>${row.map((cell, index) => index === 0 ? `<th scope="row">${escapeHtml(cell)}</th>` : `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 
+function renderPublicParserSandbox() {
+  const samples = [
+    ["점심 11,000원 신한카드", "점심 김치찌개 11,000원 신한카드"],
+    ["카드 승인 문자", "[Web발신] 삼성1234승인 45,000원 일시불 11/15 교촌치킨 누적532,000원"],
+    ["월급 320만원 수입", "월급 320만원 국민은행"],
+    ["택시 14,500원 페이", "택시 14,500원 카카오페이"],
+    ["정기 구독 13,500원", "넷플릭스 구독 13,500원 현대카드"],
+  ];
+  const metrics = [["type", "구분", "지출"], ["amount", "해석 금액", "11,000원"], ["category", "자동 분류", "식비"], ["method", "결제수단", "신한카드"], ["memo", "항목 메모", "점심 김치찌개"], ["after", "예제 남은 예산 반영", "164,000원"]];
+  return `<section class="pubDemo pubSandbox" id="parser-sandbox" aria-labelledby="sandbox-title"><div class="pubDemoHeading"><div><span class="pubEyebrow">실시간 입력 해석기 · 브라우저 즉시 체험</span><h2 id="sandbox-title">카카오톡 한 줄 문장과 카드 승인 문자를 직접 입력해 보세요</h2></div><p>입력한 문장은 이 브라우저 안에서만 해석하며 서버로 보내거나 브라우저에 보관하지 않습니다.</p></div>
+<form id="sandbox-form" action="#parser-sandbox" novalidate><div class="pubSandboxChips" role="group" aria-label="예시 문장 바로 넣어 보기">${samples.map(([label, text]) => `<button class="pubBtn secondary" type="button" data-sandbox-sample="${escapeHtml(text)}">${escapeHtml(label)}</button>`).join("")}</div><fieldset><legend>한 줄 문장 또는 카드 승인 문자 해석하기</legend><div class="pubDemoInputs"><label for="sandbox-input">보낼 문장 또는 승인 문자<input id="sandbox-input" type="text" value="점심 김치찌개 11,000원 신한카드" maxlength="160" autocomplete="off"/></label><button class="pubBtn" type="submit">문장 해석하기</button><button class="pubBtn secondary" type="button" id="sandbox-reset">기본 문장으로</button></div></fieldset></form>
+<dl class="pubMetrics">${metrics.map(([key, label, value]) => `<div><dt>${label}</dt><dd id="sandbox-${key}">${value}</dd></div>`).join("")}</dl>
+<p id="sandbox-status" role="status" aria-live="polite" aria-atomic="true">해석 완료: 지출 11,000원 · 분류 식비 · 결제수단 신한카드 · 항목 ‘점심 김치찌개’(예제 남은 예산 164,000원).</p></section><script>(${publicSandboxClient.toString()})();</script>`;
+}
+
 function renderPublicDemo() {
   const rows = publicDemoRows();
   const result = publicDemoSummary(rows, 300000, 100000);
@@ -203,7 +222,7 @@ function renderPublicDemo() {
   return `<section class="pubDemo" id="example" aria-labelledby="demo-title"><div class="pubDemoHeading"><div><span class="pubEyebrow">가상 데이터 · 2026년 9월의 네 기록</span><h2 id="demo-title">예산을 바꾸면 어떻게 될까요?</h2></div><p>실제 가계부에는 저장되지 않습니다.</p></div>
 <dl class="pubMetrics">${metrics.map(([key, label]) => `<div><dt>${label}</dt><dd id="demo-${key}">${result[key].toLocaleString("ko-KR")}원</dd></div>`).join("")}</dl><p class="pubDemoRate">예산 사용률 <strong id="demo-rate">${result.rate}%</strong></p>
 <form id="public-demo-form" hidden><fieldset><legend>분류별 예산 바꿔 보기</legend><div class="pubDemoInputs"><label for="demo-food">식비 예산 (원)<input id="demo-food" inputmode="numeric" value="300,000" autocomplete="off" aria-describedby="demo-help"/></label><label for="demo-transport">교통 예산 (원)<input id="demo-transport" inputmode="numeric" value="100,000" autocomplete="off" aria-describedby="demo-help"/></label><button class="pubBtn" type="submit">예산 다시 계산</button><button class="pubBtn secondary" type="button" id="demo-reset">처음 예제로</button></div><p id="demo-help">0원부터 10억원까지 입력할 수 있습니다. 0원인 분류는 예산 비교에서 제외됩니다.</p></fieldset></form><p id="demo-status" role="status" aria-live="polite" aria-atomic="true">식비와 교통비만 예산과 비교합니다. 의료비 30,000원은 예산 밖 지출입니다.</p><noscript><p>현재 기본 예제와 계산 결과를 보고 있습니다. 예산 금액을 바꾸려면 브라우저의 JavaScript를 켜세요.</p></noscript>
-${publicContentTable({ caption: "예제에 사용한 가상 거래 목록", headers: PUBLIC_DEMO_TABLE_HEADERS_V229124, rows: rows.map((row) => [row.date, row.category, row.memo, `${row.amount.toLocaleString("ko-KR")}원`]) }, "demo-table")}</section><script>(${publicDemoClient.toString()})(${publicDemoSummary.toString()},${JSON.stringify(rows)});</script>`;
+${publicContentTable({ caption: "예제에 사용한 가상 거래 목록", headers: PUBLIC_DEMO_TABLE_HEADERS_V229124, rows: rows.map((row) => [row.date, row.category, row.memo, `${row.amount.toLocaleString("ko-KR")}원`]) }, "demo-table")}</section><script>(${publicDemoClient.toString()})(${publicDemoSummary.toString()},${JSON.stringify(rows)});</script>${renderPublicParserSandbox()}`;
 }
 
 // V22.9.87 T-21: 공개 첫 화면과 /demo 위쪽의 앱 화면 미리보기(가상 데이터, 읽기 전용). 앱 홈 예산 카드(T-12, my/mobile-home.js)와
@@ -380,19 +399,25 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   const demoInputCss = page.demo ? PUBLIC_DEMO_INPUT_CSS_V229124 : "";
   const extras = publicArticleExtras(page, living);
   const type = page.type || "Article";
+  const primary = page.primary || ["가상 예제로 확인하기", "/demo"];
+  const secondary = page.secondary || ["전체 사용 가이드", "/guides"];
+  const chartHtml = living ? renderArticleDataChartV229139(key) : "";
+  const chartCss = chartHtml ? ".pubDataChart{margin:20px 0 24px;padding:16px;border:1px solid #dce3ef;border-radius:16px;background:#fff}.pubChartSvg{display:block;width:100%;height:auto;max-height:220px}.pubDataChart figcaption{margin-top:8px;color:#526075;font-size:13.5px;line-height:1.6}" : "";
+  const inlineWorksheet = living ? renderInlineWorksheetV229139(key) : null;
+  const toolHubHtml = key === "articles" ? `<aside class="pubSummary pubToolHub" id="tool-hub" aria-label="인터랙티브 계산표 바로가기"><b>브라우저에서 바로 계산하는 생활비·세금 계산표 12종</b><p>아래 12편의 글에는 입력값을 바꿔 즉시 검산하고 CSV로 저장할 수 있는 인터랙티브 계산표가 본문 안에 포함되어 있습니다.</p>${publicContentLinks(Object.entries(PUBLIC_ALL_CALCULATORS_V229139).map(([slug, spec]) => [spec.title, `/${slug}`]))}</aside>` : "";
   const structured = JSON.stringify({
     "@context": "https://schema.org", "@type": type, name: page.title,
     description: page.description, url: canonical, inLanguage: "ko-KR", dateModified: page.updated,
     publisher: { "@type": "Organization", name: BUSINESS_FOOTER_INFO.company, url: origin },
     ...(type === "Article" ? { headline: page.title, author: { "@type": "Organization", name: BUSINESS_FOOTER_INFO.company, url: `${origin}/about` }, mainEntityOfPage: canonical } : {}),
     ...(living ? { datePublished: page.published || page.updated, articleSection: page.category, isAccessibleForFree: true } : {}),
+    ...(inlineWorksheet && PUBLIC_ALL_CALCULATORS_V229139[key] ? { hasPart: { "@type": "WebApplication", name: PUBLIC_ALL_CALCULATORS_V229139[key].title, applicationCategory: "FinanceApplication", operatingSystem: "All", isAccessibleForFree: true, url: `${canonical}#inline-worksheet` } } : {}),
+    ...(key === "demo" ? { hasPart: [{ "@type": "WebApplication", name: "말해가계부 분류별 예산·지출 시뮬레이터", applicationCategory: "FinanceApplication", operatingSystem: "All", isAccessibleForFree: true, url: `${canonical}#example` }, { "@type": "WebApplication", name: "카카오톡 한 줄 문장·카드 승인 문자 실시간 해석기", applicationCategory: "FinanceApplication", operatingSystem: "All", isAccessibleForFree: true, url: `${canonical}#parser-sandbox` }] } : {}),
     ...(type === "SoftwareApplication" ? { applicationCategory: "FinanceApplication", operatingSystem: "Web" } : {}),
     ...(type === "FAQPage" ? { mainEntity: page.faqs.map(([q, a]) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })) } : {}),
   }).replace(/</g, "\\u003c");
-  const primary = page.primary || ["가상 예제로 확인하기", "/demo"];
-  const secondary = page.secondary || ["전체 사용 가이드", "/guides"];
   // V22.9.87 T-21: 랜딩(홈)은 목차 대신 미리보기·세 걸음 묶음이 머리 바로 아래에 온다.
-  const toc = !page.landing && sectionList.length >= 3 ? `<nav class="pubToc" aria-label="이 페이지 목차"><b>이 페이지에서</b>${sectionList.map((section, index) => `<a href="#section-${index + 1}">${escapeHtml(section.title)}</a>`).join("")}</nav>` : "";
+  const toc = !page.landing && sectionList.length >= 3 ? `<nav class="pubToc" aria-label="이 페이지 목차"><b>이 페이지에서</b>${sectionList.map((section, index) => `<a href="#section-${index + 1}">${escapeHtml(section.title)}</a>`).join("")}${inlineWorksheet ? '<a href="#inline-worksheet">인터랙티브 계산표</a>' : ""}</nav>` : "";
   // V22.9.74: 생활비 가이드 글은 작성일·수정일·읽는 시간을 함께 적고 현재 위치는 글 목록 허브를 거친다. 수정일 <time> 이
   // 문서의 첫 <time datetime=…> 이어야 한다(validate-public-guides-v22939 가 JSON-LD dateModified 와 대조).
   const crumb = key === "home" ? "" : `<nav class="pubBreadcrumb" aria-label="현재 위치"><a href="/">말해가계부</a> / ${living ? `<a href="/articles">생활비 가이드 글</a> / ` : key === "articles" ? "" : `<a href="/guides">사용 가이드</a> / `}${escapeHtml(page.title)}</nav>`;
@@ -402,7 +427,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   // V22.9.104 A-4: 글에 기준 한 줄(basis, 세무 글 8편의 귀속연도·확인한 법령 시점)이 있으면 작성·수정일 줄 바로 아래에 같은 모양(pubMeta)으로
   // 단다. 머리(pubHero) 안이라 본문 분량·40자 창 검사에는 들어가지 않고, 새 CSS 가 없어 다른 화면의 바이트는 그대로다.
   const readingNext = living ? `<a href="/articles">생활비 가이드 글 전체 목록 보기 →</a>` : `<a href="/guides">다른 사용 가이드 찾아보기 →</a>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/><meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${faqLinkCss}${tableStackCss}${demoInputCss}${page.landing || page.demo ? publicPreviewStyles(!!page.demo) : ""}${page.landing ? publicLandingStyles() : ""}${page.demo ? publicTourStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml(true) : ""}<p class="pubMeta">${metaLine}</p>${page.basis ? `<p class="pubMeta pubBasis">${escapeHtml(page.basis)}</p>` : ""}<div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.landing ? publicLandingHtml() : ""}${page.demo ? publicTourHtml() : ""}${extras.summary}${toc}${sections}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}</main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/><meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${faqLinkCss}${tableStackCss}${demoInputCss}${chartCss}${inlineWorksheet ? inlineWorksheet.cssHtml : ""}${page.landing || page.demo ? publicPreviewStyles(!!page.demo) : ""}${page.landing ? publicLandingStyles() : ""}${page.demo ? publicTourStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml(true) : ""}<p class="pubMeta">${metaLine}</p>${page.basis ? `<p class="pubMeta pubBasis">${escapeHtml(page.basis)}</p>` : ""}<div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.landing ? publicLandingHtml() : ""}${page.demo ? publicTourHtml() : ""}${toolHubHtml}${extras.summary}${toc}${chartHtml}${sections}${inlineWorksheet ? inlineWorksheet.sectionHtml : ""}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}${inlineWorksheet ? inlineWorksheet.scriptHtml : ""}</main></body></html>`;
 }
 
 // V22.9.40 (B): 광고 게이트가 쓰는 화면 키는 정본 경로다. 정책·신원 페이지는 게이트의 허용 목록에 없다.

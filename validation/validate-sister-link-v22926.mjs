@@ -30,29 +30,28 @@ function request(path, cookie) {
 }
 
 try {
-  // 1) 소스: 링크는 공개 푸터 함수 안에 한 번만 적는다 — 주소를 바꿀 때 고칠 곳이 하나다.
+// V22.9.139: AdSense 본 도메인(malhaebook.com) 단독 심사를 위해 공개 푸터에서 서브도메인(tools.malhaebook.com) 링크를 분리했다.
   const start = source.indexOf("function publicSiteFooter()");
   ok(start > 0, "publicSiteFooter 함수를 찾았다");
-  const footer = source.slice(start, source.indexOf("\nfunction ", start + 1));
-  eq(countOf(footer, LINK), 1, "공개 푸터 함수에 형제 사이트 링크가 정확히 한 번 있다");
-  eq(countOf(source, SISTER_URL), 1, "형제 사이트 주소는 소스 전체에서 푸터 한 곳에만 적는다");
+  const footer = source.slice(start, source.indexOf("\nfunction ", start + 1) > 0 ? source.indexOf("\nfunction ", start + 1) : source.indexOf("\n// @build", start + 1));
+  eq(countOf(footer, SISTER_URL), 0, "공개 푸터 함수에 서브도메인 링크가 없다(V22.9.139 도메인 분리)");
+  eq(countOf(source, SISTER_URL), 0, "공개 소스에 서브도메인 푸터 링크가 없다");
   ok(!source.includes("everyday-tools-ko.pages.dev"), "공개 소스에 이전 계산기 호스트가 없다");
-  ok(LINK.includes('target="_blank"') && LINK.includes('rel="noopener"'), "새 창으로 여는 외부 링크는 noopener 를 붙인다");
   let cursor = -1;
   for (const existing of EXISTING_LINKS) {
     const at = footer.indexOf(existing);
     ok(at > cursor, `기존 푸터 링크 순서를 유지한다: ${existing}`);
     cursor = at;
   }
-  ok(footer.indexOf(LINK) > cursor, "형제 사이트 링크는 기존 링크 뒤, 마지막에 둔다");
+  ok(footer.indexOf('<a href="/support">후원하기</a>') > cursor, "후원하기 링크가 푸터 마지막에 온다");
 
-  // 2) 공개 페이지마다 푸터 링크가 한 번씩 보인다.
+  // 2) 공개 페이지마다 푸터 링크 묶음이 정상이고 서브도메인 링크가 없다.
   for (const path of PUBLIC_PATHS) {
     const response = await request(path);
     eq(response.status, 200, `${path} 공개 페이지가 열린다`);
     const html = await response.text();
-    eq(countOf(html, LINK), 1, `${path} 푸터에 형제 사이트 링크가 한 번 있다`);
-    ok(html.indexOf(LINK) > html.indexOf('class="pubFooterLinks"'), `${path} 링크가 푸터 링크 묶음 안에 있다`);
+    eq(countOf(html, SISTER_URL), 0, `${path} 푸터에 서브도메인 링크가 없다`);
+    ok(html.includes('class="pubFooterLinks"'), `${path} 푸터 링크 묶음이 있다`);
   }
 
   // 3) 개인 데이터 화면과 로그인 전 안내에는 외부 링크를 넣지 않는다.

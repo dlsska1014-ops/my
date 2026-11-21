@@ -1,8 +1,10 @@
 // @build:imports-start
 import { worksheetComputeV229106 } from "./worksheet-calculations.js";
 import {
-  PUBLIC_WORKSHEETS_V229106, PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107,
-  PUBLIC_WORKSHEET_ASSET_VERSION_V229107, publicWorksheetPathV229106,
+  PUBLIC_ALL_CALCULATORS_V229139, PUBLIC_ARTICLE_CHARTS_V229139, PUBLIC_ARTICLE_CTA_MAP_V229139,
+  PUBLIC_MINI_CALCULATORS_V229139, PUBLIC_WORKSHEETS_V229106,
+  PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107, PUBLIC_WORKSHEET_ASSET_VERSION_V229107,
+  publicWorksheetPathV229106,
 } from "./worksheet-pages.js";
 import { escapeHtml } from "../domain/transactions-core.js";
 // @build:imports-end
@@ -69,7 +71,7 @@ function worksheetClientV229106(slug, spec, calculate) {
     for (const schema of spec.fields) settings.append(field(schema, spec.example.settings[schema[0]], "setting"));
     form.append(settings);
     for (const group of spec.groups) {
-      const section = element("section"); section.append(element("h2", group.label));
+      const section = element("section"); section.append(element("h3", group.label));
       const holder = element("div"); holder.dataset.group = group.key;
       for (const row of spec.example[group.key]) addRow(group, holder, row);
       const add = element("button", "행 추가"); add.type = "button"; add.className = "secondary";
@@ -106,14 +108,48 @@ function renderPublicWorksheetV229106(slug, spec) {
   </style></head><body><main><nav class="top" aria-label="현재 위치"><a href="https://malhaebook.com/">말해가계부</a> › <a href="https://malhaebook.com/articles">생활비 가이드 글</a> › <a href="https://malhaebook.com/${slug}">설명 글과 계산 근거로 돌아가기</a></nav><h1>${title}</h1><p>${escapeHtml(spec.outcome)}</p><p>${escapeHtml(spec.instruction)}</p><p class="meta">편집용 가상 예제 · 2026-11-07 작성 · 도담 네트워크 운영팀<br>계산표는 이 브라우저 안에서만 작동합니다. 입력값은 서버 전송·광고·방문 분석·브라우저 저장소에 사용하지 않습니다. 새로고침하면 입력이 초기화되므로 필요한 결과는 CSV로 보관하세요.</p><details><summary>예제 결과와 확인할 예외</summary><ul>${spec.checks.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details><noscript><p>계산하려면 JavaScript가 필요합니다. 위 설명 글에서 원본 예제와 결과 표를 읽을 수 있습니다.</p></noscript><form id="worksheet-form" action="#" novalidate></form><p id="worksheet-status" role="status" aria-live="polite"></p><h2>계산 결과</h2><div id="worksheet-result"></div><div class="actions"><button type="button" id="worksheet-export" disabled>입력과 결과 CSV 저장</button><button type="button" class="secondary" id="worksheet-print">결과 인쇄</button><button type="button" class="secondary" id="worksheet-reset">가상 예제로 되돌리기</button></div><p class="meta">이 자료는 합의와 검산을 돕는 별도 계산표입니다. 실제 거래 저장·송금·가입·구독 해지를 실행하지 않습니다. CSV에는 입력한 내용이 포함됩니다.</p><footer class="foot"><a href="https://malhaebook.com/${slug}">설명 글로 돌아가기</a> · <a href="https://malhaebook.com/articles">다른 생활비 글</a> · <a href="https://malhaebook.com/privacy">개인정보처리방침</a> · <a href="https://malhaebook.com/terms">이용약관</a> · <a href="https://malhaebook.com/contact">문의</a></footer></main><script>(${worksheetClientV229106.toString()})(${json(slug)},${json(spec)},${worksheetComputeV229106.toString()});</script></body></html>`;
 }
 
+function renderInlineWorksheetV229139(slug) {
+  const spec = PUBLIC_WORKSHEETS_V229106[slug] || PUBLIC_MINI_CALCULATORS_V229139[slug] || PUBLIC_ALL_CALCULATORS_V229139[slug];
+  if (!spec || !PUBLIC_ARTICLE_CHARTS_V229139 || !PUBLIC_ARTICLE_CTA_MAP_V229139) return null;
+  const json = (value) => JSON.stringify(value).replace(/</g, "\\u003c");
+  const title = escapeHtml(spec.title);
+  const initial = worksheetComputeV229106(slug, spec.example);
+  const renderField = (schema, value, prefix) => {
+    const [key, labelText, type, options] = schema;
+    const id = `${prefix}-${key}`;
+    if (type === "select") {
+      const opts = (options || []).map(([v, t]) => `<option value="${escapeHtml(v)}"${String(value) === String(v) ? " selected" : ""}>${escapeHtml(t)}</option>`).join("");
+      return `<label for="${escapeHtml(id)}"><span>${escapeHtml(labelText)}</span><select id="${escapeHtml(id)}" name="${escapeHtml(key)}">${opts}</select></label>`;
+    }
+    return `<label for="${escapeHtml(id)}"><span>${escapeHtml(labelText)}</span><input id="${escapeHtml(id)}" name="${escapeHtml(key)}" type="${escapeHtml(type)}" value="${escapeHtml(String(value ?? ""))}"${type === "number" ? ' step="1"' : ""}/></label>`;
+  };
+  const ssrSettings = `<div id="worksheet-settings" class="fields">${spec.fields.map((schema) => renderField(schema, spec.example.settings?.[schema[0]], "setting")).join("")}</div>`;
+  let seq = 0;
+  const ssrGroups = spec.groups.map((group) => {
+    const rows = (spec.example[group.key] || []).map((row) => {
+      const inputs = group.columns.map((col) => renderField(col, row[col[0]] ?? (col[2] === "select" ? col[3][0][0] : ""), `row-${seq}`)).join("");
+      seq += 1;
+      return `<fieldset data-row="true"><legend>${escapeHtml(group.label)} 입력</legend><div class="fields">${inputs}</div></fieldset>`;
+    }).join("");
+    return `<div class="wsInlineGroup"><h3 class="wsGroupTitle">${escapeHtml(group.label)}</h3><div data-group="${escapeHtml(group.key)}">${rows}</div></div>`;
+  }).join("");
+  const ssrTables = initial.tables.map((data) => `<div class="table-scroll" role="region" aria-label="${escapeHtml(data.caption)}" tabindex="0"><table><caption>${escapeHtml(data.caption)}</caption><thead><tr>${data.headers.map((h) => `<th scope="col">${escapeHtml(h)}</th>`).join("")}</tr></thead><tbody>${data.rows.map((r) => `<tr>${r.map((v, i) => `<${i ? "td" : 'th scope="row"'}>${escapeHtml(typeof v === "number" ? v.toLocaleString("ko-KR", { maximumFractionDigits: 2 }) : String(v))}</${i ? "td" : "th"}>`).join("")}</tr>`).join("")}</tbody></table></div>`).join("");
+  const ssrNotes = initial.notes.map((n) => `<p>${escapeHtml(n)}</p>`).join("");
+  const ssrChecks = (spec.checks || []).length ? `<details class="pubToolChecks"><summary>검산 공식과 예외 처리 기준 보기</summary><ul>${spec.checks.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details>` : "";
+  const cssHtml = `.pubInlineTool{margin:28px 0;padding:24px;border:1px solid #c8d9ff;border-radius:18px;background:#f8fbff}.pubInlineToolHead .pubToolBadge{display:inline-flex;padding:4px 10px;border-radius:999px;background:#e8f3ff;color:#1d4ed8;font-size:12.5px;font-weight:700}.pubInlineTool .pubToolHeading{margin:10px 0 8px;font-size:22px;color:#172033}.pubInlineTool p{margin:6px 0;color:#43516a;line-height:1.75;font-size:15px}.pubToolChecks{margin:12px 0;padding:10px 14px;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubToolChecks summary{cursor:pointer;font-weight:700;font-size:14px;color:#1e293b}.pubToolChecks ul{margin:8px 0 2px;padding-left:20px;font-size:14px;color:#43516a;line-height:1.7}.pubInlineTool .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr));gap:12px;margin:14px 0}.pubInlineTool fieldset{min-width:0;margin:12px 0;padding:14px;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubInlineTool legend,.pubInlineTool .wsGroupTitle{font-weight:700;font-size:15px;color:#1e293b;margin:12px 0 6px}.pubInlineTool label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:#344054}.pubInlineTool input,.pubInlineTool select{font:inherit;font-size:16px;color:#172033;background:#fff;min-height:44px;width:100%;border:1px solid #9ca8bd;border-radius:8px;padding:8px 10px}.pubInlineTool button{font:inherit;font-weight:700;min-height:44px;padding:8px 16px;margin:10px 8px 0 0;border:1px solid #1d4ed8;border-radius:10px;background:#1d4ed8;color:#fff;cursor:pointer}.pubInlineTool button.secondary{background:#fff;color:#1d4ed8}.pubInlineTool button:disabled{opacity:.55;cursor:not-allowed}.pubInlineTool .table-scroll{overflow-x:auto;margin:16px 0;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubInlineTool table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}.pubInlineTool caption{text-align:left;padding:12px 14px;font-weight:700;color:#1e293b}.pubInlineTool th,.pubInlineTool td{padding:10px 14px;border-top:1px solid #e1e7f0;text-align:left}.pubInlineTool thead th{background:#f1f5fb}#worksheet-status{font-weight:600;color:#1d4ed8;margin-top:14px}#worksheet-result[data-stale="1"]::before{content:"입력값을 바꾸기 전 결과입니다. ‘결과 계산’을 누르면 새 결과로 바뀝니다.";display:block;font-weight:650;color:#4d596a;margin:0 0 8px}#worksheet-result[data-stale="1"] .table-scroll,#worksheet-result[data-stale="1"] .pubTableWrap,#worksheet-result[data-stale="1"] p{opacity:.55}.pubInlineTool .actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}@media(max-width:640px){.pubInlineTool{padding:18px 14px}.pubInlineTool .fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}`;
+  const sectionHtml = `<section class="pubInlineTool" id="inline-worksheet" aria-label="${title}"><div class="pubInlineToolHead"><span class="pubToolBadge">인터랙티브 계산표 · 브라우저 즉시 검산</span><h3 class="pubToolHeading">${title}</h3><p>${escapeHtml(spec.outcome)} ${escapeHtml(spec.instruction)}</p>${ssrChecks}</div><form id="worksheet-form" action="#inline-worksheet" novalidate>${ssrSettings}${ssrGroups}<button type="submit">결과 계산</button></form><p id="worksheet-status" role="status" aria-live="polite">기본 예제를 계산한 결과입니다. 입력값을 바꾸고 ‘결과 계산’을 눌러 비교해 보세요.</p><div id="worksheet-result">${ssrTables}${ssrNotes}</div><div class="actions"><button type="button" id="worksheet-export">입력과 결과 CSV 저장</button><button type="button" class="secondary" id="worksheet-print">결과 인쇄</button><button type="button" class="secondary" id="worksheet-reset">가상 예제로 되돌리기</button></div></section>`;
+  const scriptHtml = `<script>(${worksheetClientV229106.toString()})(${json(slug)},${json(spec)},${worksheetComputeV229106.toString()});</script>`;
+  return { cssHtml, sectionHtml, scriptHtml };
+}
+
 function publicWorksheetResponseV229106(request, url) {
   if (!["GET", "HEAD"].includes(request.method)) return null;
   // V22.9.107: 현재 판 주소와 바로 앞 판 주소(옛 글 캐시의 링크)를 같은 내용으로 낸다. 두 판 전 주소는 맞지 않아 404 다.
   const versions = [PUBLIC_WORKSHEET_ASSET_VERSION_V229107, ...PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107];
-  const slug = Object.keys(PUBLIC_WORKSHEETS_V229106).find((key) => versions.some((version) => publicWorksheetPathV229106(key, version) === url.pathname));
+  const slug = Object.keys(PUBLIC_ALL_CALCULATORS_V229139).find((key) => versions.some((version) => publicWorksheetPathV229106(key, version) === url.pathname));
   if (!slug) return null;
   const download = url.searchParams.get("download") === "1";
-  return new Response(request.method === "HEAD" ? null : renderPublicWorksheetV229106(slug, PUBLIC_WORKSHEETS_V229106[slug]), { headers: {
+  return new Response(request.method === "HEAD" ? null : renderPublicWorksheetV229106(slug, PUBLIC_ALL_CALCULATORS_V229139[slug]), { headers: {
     "content-type": "text/html; charset=utf-8", "x-content-type-options": "nosniff", "x-robots-tag": "noindex, follow", "referrer-policy": "no-referrer",
     "content-security-policy": "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     "cache-control": download ? "no-store" : "public, max-age=31536000, immutable",
@@ -122,5 +158,5 @@ function publicWorksheetResponseV229106(request, url) {
 }
 
 // @build:exports-start
-export { publicWorksheetResponseV229106 };
+export { publicWorksheetResponseV229106, renderInlineWorksheetV229139 };
 // @build:exports-end

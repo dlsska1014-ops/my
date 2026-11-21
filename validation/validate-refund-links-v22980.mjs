@@ -186,6 +186,8 @@ const SOFT = process.env.V22980_SOFT === "1";
 // V22.9.138(빠른 입력 시트 3층, 2026-11-21): 1년 캐시 자산 주소 셋(홈 스타일시트 mobile-home-v229137.css → v229138, 홈 스크립트 mobile-home-shell-v22995.js → v229138, V5 번들 accountbook-v5-v22993.js → v229138)과
 // 판 이름이 바뀌어 12곳(home·homeTrend·homePrev·budgets·budgetAlerts·reports·reportsWeek·analysis·backupPage·backupFull·backupMonth·candidate)의 값이 달라졌다. 해시에 들어가는 원문 97개를 바탕 커밋과 견줘 세 주소와 판 이름을 가리면 모두 같음을
 // 먼저 확인했고(같음 43·주소·판 이름만 다름 54·그 밖의 차이 0), 그 뒤 --print-golden 으로 그 값만 다시 얻었다. 나머지는 그대로다.
+// V22.9.139(애드센스 재심사 최종 보강, 2026-11-22): 공개 화면·전체 메뉴·정산·정기·결제수단·로그인 하단만 바뀌고 지문 화면에는 판 이름만 바뀌었다. 판 이름을 올리기 전의 번들에서 옛 지문 268개가 모두 통과함을 먼저 확인한 뒤,
+// --print-golden 으로 판 이름이 들어가는 analysis·backupFull·backupMonth 세 값만 다시 얻었다. 나머지 22개는 그대로다.
 const FLAG_OFF_GOLDEN = {
   "home": "200 50578652221ec2b8bc0a38dc",
   "homeTrend": "200 ec4de1b365d95be48a4ad8f7",
@@ -195,15 +197,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 66c9272b3c7b49d47411251a",
   "reports": "200 100acccd5723d1b8001560b0",
   "reportsWeek": "200 b7bc26465260babaeb8c5722",
-  "analysis": "200 532c0a1f9567e3e0a806a394",
+  "analysis": "200 f512dbf67cd124b99de18bd5",
   "backupPage": "200 6ad7c9d9b16eae3a75ab5f41",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 0003504e483e923116442cf6",
-  "backupMonth": "200 d035feac070886fb4105bbf1",
+  "backupFull": "200 b76074b76ca66578e7e1ebbd",
+  "backupMonth": "200 7d8cec54498749ce70541479",
   "candidate": "200 d2012b8a509c2b878e7d1999",
   "legacyErr": "200 dba548c2b89369b26a5c34d4",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

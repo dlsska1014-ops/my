@@ -1,3 +1,15 @@
+## V22.9.139-ADSENSE-MASTER · 2026-11-22 · 애드센스 재심사 최종 보강 5대 기둥(서브도메인 분리 · 정본 글 인라인 계산표 12종 · /demo 실시간 문장·카드문자 해석기 · 생활비 글 40편 인라인 SVG 데이터 차트와 맞춤 CTA · 웹 앱 문맥 연결)
+
+- 왜: 2026-11-21 13:35 KST Google AdSense 재심사에서 ‘가치가 별로 없는 콘텐츠’로 부적격 통보됨. Aside 읽기 전용 콘솔 점검 결과(`ads.txt 상태: 승인됨`, Search Console 색인 220 / 미색인 98 — `tools.malhaebook.com/forms/*` 와 `malhaebook.com/assets/living-worksheet-*` 의 `noindex` 47건 및 28일 클릭 상위 15개 중 14개가 서브도메인에 편중)와 사용자 결정(A1~A4)에 따라 5대 기둥을 구현했다. 발견 기록 `docs/codex/FOLLOWUP_FINDINGS_V22_9_139.md`.
+- 1기둥(서브도메인 격리 및 빈 광고 박스 숨김): 공개 푸터(`publicSiteFooter`)에서 `tools.malhaebook.com` 링크를 제거하고(`everyday-tools` 한국어 로케일 AdSense 분리 PR #87 병행), `live` 모드에서 채워지지 않은 광고 슬롯(`ins[data-ad-status="unfilled"]`)을 자동 숨김 처리했다.
+- 2기둥(본문 인라인 인터랙티브 계산표 12종 — V107:D-9·D-10 해결): 기존 다행 계산표 6종과 신규 세무·예산·실적 미니 계산기 6종(`payment-method-switch-nov-dec`, `rent-tax-credit-records`, `pension-savings-irp-tax-credit`, `budget-ratio-guide`, `emergency-fund-basics`, `card-spending-threshold`) 총 12종을 정본 글(`/<slug>`) 본문 안 `#inline-worksheet` 에 SSR 입력 폼·SSR 결과 표·즉시 재계산·CSV 내려받기로 직접 내장했다(오프라인 파일 다운로드 `/assets/living-worksheet-v229107-<slug>.html` 도 12종 모두 호환 제공).
+- 3기둥(`/demo` 실시간 자연어·카드 승인 문자 해석 샌드박스): `/demo` 에 초기 SSR HTML 에서 숨기지 않고 바로 노출되는 `#parser-sandbox`(예시 칩 5종·자유 문장 입력·구분·금액·분류·결제수단·항목 메모·예제 남은 예산 차감, 외부 요청·저장소 0회)를 추가했다.
+- 4기둥(40편 고유 인라인 SVG 데이터 차트·맞춤 히어로 CTA·`/articles` 12종 계산표 허브·`/about` 자체 검산 원칙): 생활비 가이드 글 40편 전체에 고유 인라인 SVG 막대 차트(`.pubDataChart`)와 주제별 맞춤 히어로 CTA 단추를 배치하고, `/articles` 상단에 12종 계산표 바로가기 허브와 카드 배지(`계산표 포함` 6 + `미니 계산기 포함` 6)를 표시하며, `/about` 에서 생성형 도구 문구를 제거하고 운영자의 직접 법령·통계 대조 및 자체 검산 스크립트 책임을 명시했다.
+- 5기둥(로그인 웹 앱 문맥 연결): `/menu`(도움말과 안내), `/settlement-summary`, `/reserve-plans`, `/payment-methods`, 비로그인 `/my` 하단에서 공개 계산표·가이드 허브로 연결했다.
+- 검사: 새 검사 `validate-adsense-master-v229139` 478 checks 포함 등록 검사 280개가 두 모드(일반·분류 표 부재) 모두 통과했다.
+- SQL·Secret·쿠키·운영 변수·1년 캐시 자산 주소 변경 없음 → 바인딩 그대로(32).
+- 번들 12,159,288 B · SHA-256 `3251e24208e084914c63a953f93e75acac44e4b2808ec2fad32b6a8dd2185540`(150 모듈). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_139.sha256`(938) · 하네스 두 모드 97,806 / 97,799(하한 97,799).
+
 ## V22.9.138-QUICK-SHEET · 2026-11-21 · 빠른 입력 시트 3층(해석 결과 한 줄 + [고치기] · 자주 쓰는 칩 한 줄 · 큰 금액 칸 · ISO 날짜 없음 · 방 전용 보기의 알림 링크와 시트 초점)
 
 - 왜: 운영자(2026-11-21, 물음 창 ‘모두 이번주 부터’ — V2 작업 지시서의 남은 UI/UX 를 이번 주에): 7단계 U-16 빠른 입력 시트 3층과 U-01 의 남은 몫(큰 금액 칸), 앞 판들이 남긴 V136:S-9(방 전용 보기의 알림 링크)·V136:S-10(입력칸 없는 시트의 초점)·V137:H-7(빠른 입력의 ISO 날짜)·V137:H-9(첫 안내의 캘린더 단계). 같은 7단계의 U-15(머리말의 달 이동)는 V22.9.139 로 옮겼다. 발견 기록 `docs/codex/FOLLOWUP_FINDINGS_V22_9_138.md`.

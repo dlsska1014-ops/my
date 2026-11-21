@@ -172,6 +172,194 @@ function worksheetComputeV229106(slug, input) {
     });
     return { before, after, reduction: before - after, tables: [table("구독별 비교 (원)", ["구독", "월 환산 비용", "해지 반영 전 30일", "확인 반영 후 30일", "상태", "이용 종료일", "실제 환불 입금"], rows), table("30일 구간 합계 (원)", ["항목", "금액"], [["해지 반영 전 예정액", before], ["확인 반영 후 예정액", after], ["예정 결제 감소액", before - after]])], notes: ["기준일을 포함한 30일이며 마지막 날은 제외합니다. 각 구독의 입력한 다음 결제 한 건만 비교하므로, 구간 안에 두 번 청구되는 상품은 각각 별도 행으로 확인하세요.", "해지 요청만으로 예정액을 지우지 않습니다. 해지 완료와 다음 갱신 차단이 확인된 조건을 입력하세요. 결제일 당일 해지는 이미 청구됐을 수 있어 자동 제외하지 않습니다. 월 환산액·예정 감소액·실제 환불은 서로 다른 값입니다."] };
   }
+  if (slug === "payment-method-switch-nov-dec") {
+    const salary = number(setting.salary), credit = number(setting.credit), debit = number(setting.debit), remain = number(setting.remain);
+    if (salary <= 0) fail("총급여액은 0원보다 커야 합니다.");
+    const threshold = Math.floor(salary * 25 / 100);
+    const limit = salary <= 70000000 ? 3000000 : 2500000;
+    const calc = (c, d) => {
+      const creditAbove = Math.max(0, c - threshold);
+      const remainThreshold = Math.max(0, threshold - c);
+      const debitAbove = Math.max(0, d - remainThreshold);
+      const raw = Math.floor(creditAbove * 15 / 100) + Math.floor(debitAbove * 30 / 100);
+      return { creditAbove, debitAbove, raw, applied: Math.min(limit, raw) };
+    };
+    const current = calc(credit, debit);
+    const keepCredit = calc(sum([credit, remain]), debit);
+    const switchDebit = calc(credit, sum([debit, remain]));
+    const diffApplied = switchDebit.applied - keepCredit.applied;
+    const diffRaw = switchDebit.raw - keepCredit.raw;
+    const gapToThreshold = Math.max(0, threshold - sum([credit, debit]));
+    return {
+      threshold, limit, gapToThreshold, current: current.applied, keepCredit: keepCredit.applied, switchDebit: switchDebit.applied, diffApplied, diffRaw,
+      tables: [
+        table("25% 최저사용금액 문턱 및 현재 상태 (원)", ["항목", "금액"], [
+          ["총급여액", salary],
+          ["최저사용금액 문턱(총급여 25%)", threshold],
+          ["1~10월 공제 대상 사용 합계", sum([credit, debit])],
+          ["문턱까지 남은 금액", gapToThreshold],
+          ["1~10월 기준 예상 소득공제액", current.applied],
+          ["기본 공제 한도", limit],
+        ]),
+        table("남은 기간 결제수단 전환 비교 (원)", ["시나리오", "문턱 초과 신용(15%)", "문턱 초과 체크·현금(30%)", "한도 적용 전 공제액", "한도 적용 후 공제액"], [
+          ["신용카드 유지(15%)", keepCredit.creditAbove, keepCredit.debitAbove, keepCredit.raw, keepCredit.applied],
+          ["체크카드·현금영수증 전환(30%)", switchDebit.creditAbove, switchDebit.debitAbove, switchDebit.raw, switchDebit.applied],
+          ["전환 시 소득공제 증가액", switchDebit.creditAbove - keepCredit.creditAbove, switchDebit.debitAbove - keepCredit.debitAbove, diffRaw, diffApplied],
+        ]),
+      ],
+      notes: [
+        "조세특례제한법 제126조의2에 따라 최저사용금액(총급여의 25%)은 공제율이 낮은 신용카드 사용분부터 먼저 채운 뒤 초과분에 신용카드 15%, 체크카드·현금영수증 30%를 적용합니다.",
+        "세금·공과금·보험료·해외결제·상품권 등 공제 제외 항목은 사용액에서 빼고 입력해야 합니다. 소득공제 증가액은 과세표준에서 빠지는 금액이며 실제 환급 세액은 본인의 한계 소득세율을 곱해 결정됩니다.",
+      ],
+    };
+  }
+  if (slug === "rent-tax-credit-records") {
+    const salary = number(setting.salary), monthlyRent = number(setting.monthlyRent), months = number(setting.months), marginalRate = number(setting.marginalRate);
+    if (months < 1 || months > 12) fail("납부 개월 수는 1~12개월 사이로 입력해 주세요.");
+    if (![6, 15, 24, 35, 38, 40, 42, 45].includes(marginalRate)) fail("한계 소득세율은 6, 15, 24, 35 등 표준 세율(%) 정수로 입력해 주세요.");
+    if (!["yes", "no"].includes(setting.thresholdMet)) fail("카드 25% 문턱 충족 여부를 선택해 주세요.");
+    const annualRent = monthlyRent * months;
+    const cappedRent = Math.min(annualRent, 10000000);
+    const creditRate = salary <= 55000000 ? 17 : salary <= 80000000 ? 15 : 0;
+    const taxCredit = Math.floor(cappedRent * creditRate / 100);
+    const cashDeduction = setting.thresholdMet === "yes" ? Math.min(3000000, Math.floor(annualRent * 30 / 100)) : 0;
+    const cashTaxSaved = Math.floor(cashDeduction * marginalRate / 100);
+    return {
+      annualRent, cappedRent, creditRate, taxCredit, cashDeduction, cashTaxSaved, difference: taxCredit - cashTaxSaved,
+      tables: [
+        table("월세 세액공제 vs 현금영수증 소득공제 비교 (원)", ["구분", "공제 대상 금액", "적용 공제율·세율(%)", "예상 세금 감소액"], [
+          ["월세 세액공제(무주택·요건 충족 시)", creditRate ? cappedRent : 0, creditRate, taxCredit],
+          ["주택임차료 현금영수증 소득공제(30%)", cashDeduction, marginalRate, cashTaxSaved],
+          ["월세 세액공제 선택 시 유리한 차액", cappedRent, creditRate, taxCredit - cashTaxSaved],
+        ]),
+        table("입력 조건 요약 (원)", ["항목", "값"], [
+          ["연간 납부 월세 합계", annualRent],
+          ["월세 세액공제 인정 한도(연 1,000만 원)", cappedRent],
+          ["한도 초과 월세액", Math.max(0, annualRent - cappedRent)],
+        ]),
+      ],
+      notes: [
+        "조세특례제한법 제95조의2 기준 총급여 5,500만 원 이하는 17%, 5,500만 원 초과~8,000만 원 이하는 15% 세액공제율을 적용합니다(무주택 세대주·전입신고·국민주택규모 또는 기준시가 4억 원 이하 요건 충족 및 결정세액 존재 가정).",
+        "같은 월세 지출에 대해 월세 세액공제와 신용카드 등(현금영수증) 소득공제는 중복 적용되지 않습니다. 총급여 8,000만 원 초과 등으로 세액공제 대상이 아닐 때만 현금영수증 소득공제를 검토합니다.",
+      ],
+    };
+  }
+  if (slug === "pension-savings-irp-tax-credit") {
+    const salary = number(setting.salary), pension = number(setting.pension), irp = number(setting.irp);
+    const eligiblePension = Math.min(pension, 6000000);
+    const eligibleTotal = Math.min(sum([eligiblePension, irp]), 9000000);
+    const eligibleIrp = eligibleTotal - eligiblePension;
+    const excessDeposit = Math.max(0, sum([pension, irp]) - eligibleTotal);
+    const baseRate = salary <= 55000000 ? 15 : 12;
+    const pensionCredit = Math.floor(eligiblePension * baseRate / 100) + Math.floor(eligiblePension * baseRate / 1000);
+    const irpCredit = Math.floor(eligibleIrp * baseRate / 100) + Math.floor(eligibleIrp * baseRate / 1000);
+    const totalCredit = pensionCredit + irpCredit;
+    return {
+      eligiblePension, eligibleIrp, eligibleTotal, excessDeposit, totalCredit,
+      tables: [
+        table("계좌별 세액공제 인정 금액 및 환급 계산 (원)", ["구분", "연간 납입액", "공제 인정액", "세액공제액(지방소득세 포함)"], [
+          ["연금저축(단독 600만 원 한도)", pension, eligiblePension, pensionCredit],
+          ["퇴직연금 IRP(합산 900만 원 한도)", irp, eligibleIrp, irpCredit],
+          ["합계", sum([pension, irp]), eligibleTotal, totalCredit],
+        ]),
+        table("한도 및 비과세 원금 확인 (원)", ["항목", "금액"], [
+          ["900만 원 한도까지 남은 추가 납입 여력", Math.max(0, 9000000 - eligibleTotal)],
+          ["세액공제 한도 초과 납입액(향후 비과세 인출 원금)", excessDeposit],
+        ]),
+      ],
+      notes: [
+        "소득세법 제59조의3에 따라 연금저축은 연 600만 원, 퇴직연금(IRP)과 합산해 연 900만 원까지 공제 대상이 되며 총급여 5,500만 원 이하는 16.5%(지방소득세 포함), 초과는 13.2%를 적용합니다.",
+        "세액공제는 산출세액에서 다른 공제를 뺀 결정세액 한도 안에서 적용됩니다. 중도 해지 시 세액공제 받은 원금과 운용수익에 기타소득세(16.5%)가 부과될 수 있으므로 연말 잉여 현금 범위에서 납입하세요.",
+      ],
+    };
+  }
+  if (slug === "budget-ratio-guide") {
+    const income = number(setting.income), fixedNeed = number(setting.fixedNeed);
+    const needRatio = number(setting.needRatio), wantRatio = number(setting.wantRatio), saveRatio = number(setting.saveRatio);
+    if (income <= 0) fail("월 실수령 소득은 0원보다 커야 합니다.");
+    if (sum([needRatio, wantRatio, saveRatio]) !== 100) fail("필수·선택·저축 비율의 합계는 정확히 100%여야 합니다.");
+    const [needBudget, wantBudget, saveBudget] = allocate(income, [needRatio, wantRatio, saveRatio]);
+    const variableNeed = needBudget - fixedNeed;
+    const weeklyCap = Math.floor((Math.max(0, variableNeed) + wantBudget) * 7 / 30);
+    return {
+      needBudget, wantBudget, saveBudget, variableNeed, weeklyCap,
+      tables: [
+        table("월 예산 배분 결과 (원)", ["영역", "목표 비율(%)", "배분 예산", "세부 구성"], [
+          ["필수 생활비(고정비 + 기본 식비·생활)", needRatio, needBudget, fixedNeed],
+          ["선택 소비(외식·취미·쇼핑·여가)", wantRatio, wantBudget, wantBudget],
+          ["저축·비상금·채무상환", saveRatio, saveBudget, saveBudget],
+        ]),
+        table("고정비 차감 후 실제 가용 생활비 (원)", ["항목", "금액"], [
+          ["확정 고정비(주거·관리·통신·보험 등)", fixedNeed],
+          ["고정비를 뺀 잔여 필수 변동비(식비·생필품·교통)", variableNeed],
+          ["필수 변동비 + 선택 소비 1주일 권장 한도", weeklyCap],
+        ]),
+      ],
+      notes: [
+        variableNeed < 0 ? "확정 고정비가 필수 생활비 목표 예산을 초과했습니다. 필수 비율을 60%로 높이고 선택 소비 비율을 줄이는 한국형 60/20/20 비율로 조정해 보세요." : "필수 생활비 예산에서 이미 확정된 고정비를 먼저 뺀 뒤, 남은 필수 변동비와 선택 소비를 주 단위로 나누어 관리하면 월말 초과를 막기 쉽습니다.",
+        "비율은 출발점일 뿐이며 주거 형태와 가구원 수에 따라 매달 결산 후 5% 단위로 조정하세요.",
+      ],
+    };
+  }
+  if (slug === "emergency-fund-basics") {
+    const housing = number(setting.housing), foodBasic = number(setting.foodBasic), fixedOther = number(setting.fixedOther);
+    const targetMonths = number(setting.targetMonths), currentSaved = number(setting.currentSaved), buildMonths = number(setting.buildMonths);
+    if (targetMonths < 1 || targetMonths > 24) fail("목표 비상금 개월 수는 1~24개월 사이로 입력해 주세요.");
+    if (buildMonths < 1 || buildMonths > 60) fail("적립 기간은 1~60개월 사이로 입력해 주세요.");
+    const monthlyEssential = sum([housing, foodBasic, fixedOther]);
+    const targetFund = monthlyEssential * targetMonths;
+    const shortfall = Math.max(0, targetFund - currentSaved);
+    const monthlyTransfer = Math.ceil(shortfall / buildMonths);
+    return {
+      monthlyEssential, targetFund, shortfall, monthlyTransfer,
+      tables: [
+        table("필수 생활비 기준 비상금 목표 단계 (원)", ["단계", "적용 개월 수", "목표 금액", "현재 잔액 대비 부족액"], [
+          ["1단계 소액 완충금(1개월)", 1, monthlyEssential, Math.max(0, monthlyEssential - currentSaved)],
+          ["현재 설정 목표(" + targetMonths + "개월)", targetMonths, targetFund, shortfall],
+          ["안정권 권장 목표(6개월)", 6, monthlyEssential * 6, Math.max(0, monthlyEssential * 6 - currentSaved)],
+        ]),
+        table("월별 적립 계획 (원)", ["항목", "금액"], [
+          ["월 필수 생활비 합계", monthlyEssential],
+          ["현재 비상금 잔액", currentSaved],
+          ["추가 적립 필요액", shortfall],
+          [buildMonths + "개월 달성 기준 월 적립액", monthlyTransfer],
+        ]),
+      ],
+      notes: [
+        "비상금은 전체 지출이 아니라 소득이 끊겼을 때도 반드시 나가야 하는 필수 생활비(주거·공과금·기본 식비·필수 보험·교통)만 합산해 목표치를 정합니다.",
+        "비상금은 입출금이 자유로운 별도 통장에 분리해 두고, 자동차세·명절비처럼 시기와 금액을 아는 연간 비정기 지출은 비상금이 아니라 연간 예비비(싱킹펀드)로 따로 적립하세요.",
+      ],
+    };
+  }
+  if (slug === "card-spending-threshold") {
+    const threshold = number(setting.threshold), recognized = number(setting.recognized), excluded = number(setting.excluded);
+    const benefit = number(setting.benefit), planned = number(setting.planned);
+    const totalSwipe = sum([recognized, excluded]);
+    const gap = Math.max(0, threshold - recognized);
+    const unplanned = Math.max(0, gap - planned);
+    const netGain = benefit - unplanned;
+    return {
+      totalSwipe, gap, unplanned, netGain,
+      tables: [
+        table("전월 실적 인정액 및 부족액 점검 (원)", ["항목", "금액"], [
+          ["카드 총 결제액(인정 + 제외)", totalSwipe],
+          ["실적 제외 결제액(공과금·무이자할부·세금 등)", excluded],
+          ["실제 전월 실적 인정액", recognized],
+          ["실적 기준까지 부족한 금액", gap],
+        ]),
+        table("실적 채우기 손익분기 판정 (원)", ["항목", "금액"], [
+          ["실적 달성 시 다음 달 예상 혜택", benefit],
+          ["원래 살 예정이던 앞당김 가능 지출", Math.min(gap, planned)],
+          ["실적을 채우려 추가해야 하는 비계획 지출", unplanned],
+          ["비계획 지출 차감 후 순이익(+)·순손실(-)", netGain],
+        ]),
+      ],
+      notes: [
+        "카드 앱의 총 이용금액에는 무이자할부·국세·지방세·공과금·아파트관리비·상품권 등 전월 실적 제외 항목이 섞여 있을 수 있으므로 반드시 ‘실적 충족 현황’의 인정 금액으로 비교하세요.",
+        netGain < 0 ? "실적을 채우기 위해 계획에 없던 지출을 더 쓰면 다음 달 받을 혜택보다 추가 지출이 더 큽니다. 무리하게 실적을 채우지 말고 체크카드나 무실적 카드로 전환하는 편이 유리합니다." : "원래 필요한 생필품 결제만으로 실적을 채울 수 있어 다음 달 혜택이 순이익으로 남는 구간입니다.",
+      ],
+    };
+  }
   fail("지원하지 않는 계산표입니다.");
 }
 

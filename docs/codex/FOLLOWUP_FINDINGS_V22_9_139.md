@@ -1,0 +1,12 @@
+# V22.9.139-ADSENSE-MASTER 애드센스 재심사 최종 보강 (2026-11-22)
+
+사용자 요청(2026-11-21 밤): "구글에드센스 또 부적격 왔어 … 가치가 별로 없는 콘텐츠 … 마지막 애드센스 승인 신청이라 생각하고 최대한 보완해야해 최대한의 너의 모든 능력과 혁신적으로 생각해서 모든 방법을 동원해서 보완할 방법을 찾아줘".
+Aside 읽기 전용 점검(AdSense 콘솔 `ads.txt 상태: 승인됨`, 2026-11-21 13:35 KST 부적격 통보 확인; Search Console 색인 220 / 미색인 98 — `tools.malhaebook.com/forms/*` 와 `malhaebook.com/assets/living-worksheet-*` 의 `noindex` 47건 및 28일 검색 클릭 상위 15개 중 14개가 서브도메인 `tools.malhaebook.com` 에 쏠린 구조 확인)과 사용자 4대 결정(A1~A4)에 따라 5대 기둥을 구현했다.
+
+## 고친 것 (V22.9.139)
+
+- **A-1** (P2) 상위 도메인(`malhaebook.com`) 애드센스 심사 시 서브도메인(`tools.malhaebook.com`)의 120개 `noindex` 양식 페이지가 도메인 전체 품질 평가에 섞이고 공개 푸터 링크가 크롤러를 서브도메인으로 보냈다. 고침: `everyday-tools` 한국어 로케일(`tools.malhaebook.com`)에서 AdSense 메타태그·`ads.txt`·슬롯을 분리(PR #87)하고, `malhaebook.com` 공개 푸터(`publicSiteFooter`)에서 `tools.malhaebook.com` 외부 링크를 제거해 본 도메인 단독 심사로 격리했으며, `live` 모드에서 채워지지 않은 광고 슬롯(`ins[data-ad-status="unfilled"]`)이 빈 박스로 남지 않게 자동 숨김 CSS 를 더했다.
+- **A-2** (P2) 기존 계산표 글 6편의 실제 상호작용 `<form>` 과 결과 표가 `noindex` 별도 자산(`/assets/living-worksheet-v229107-<slug>.html`)에만 있어 정본 글(`/<slug>`) DOM 에는 인터랙티브 도구가 없었고(`V107:D-9`), 연말정산·예산·카드 실적 핵심 글 6편에는 계산기가 없었다(`V107:D-10`). 고침: 신규 미니 계산기 6종(`payment-method-switch-nov-dec`, `rent-tax-credit-records`, `pension-savings-irp-tax-credit`, `budget-ratio-guide`, `emergency-fund-basics`, `card-spending-threshold`)을 추가해 총 12종의 계산표를 정본 글 본문 안(`#inline-worksheet`)에 SSR 입력 폼·SSR 결과 표·즉시 재계산·CSV 저장으로 직접 내장했다(기존 오프라인 파일 다운로드 주소도 12종 모두 호환 유지).
+- **A-3** (P2) `/demo` 의 예산 계산 폼(`#public-demo-form`)이 초기 SSR HTML 에서 `hidden` 속성으로 숨겨져 있고 카카오톡 한 줄 입력·카드 승인 문자 해석을 직접 체험할 수 있는 도구가 없었다. 고침: `/demo` 에 SSR 상태에서 바로 노출되는 ‘카카오톡 한 줄 문장과 카드 승인 문자 실시간 해석·예산 반영 샌드박스’(`#parser-sandbox`, 예시 칩 5종·즉시 분류·결제수단·금액 추출·남은 예산 차감, 외부 통신·저장소 0회)를 추가했다.
+- **A-4** (P2) 생활비 가이드 글 40편에 시각 도표가 없고 34편의 상단 히어로 단추가 동일한 `/demo`·`/guides` 로 고정돼 있었으며 `/about` 에 ‘생성형 글쓰기 도구를 포함한 소프트웨어를 사용’ 문구가 있었다. 고침: 40편 전체에 각 글의 가상 사례·공식 통계 수치를 시각화한 고유 인라인 SVG 데이터 차트(`.pubDataChart`)와 주제별 맞춤 히어로 CTA 단추를 배치하고, `/articles` 상단에 12종 인터랙티브 계산표 바로가기 허브와 카드 배지(`계산표 포함` 6 + `미니 계산기 포함` 6)를 추가했으며, `/about` 문구를 운영자의 직접 법령·통계 대조 및 자체 검산 스크립트 검증 원칙으로 명확히 고쳤다.
+- **A-5** (P3) 실제 로그인 사용자와 비로그인 `/my` 방문자가 공개 생활비 계산표·가이드 글로 이동하는 문맥 진입점이 부족했다. 고침: `/menu`(도움말과 안내), `/settlement-summary`(공동 생활비·입퇴거 계산표), `/reserve-plans`(비정기 지출·비상금·구독 계산표), `/payment-methods`(연말정산 카드 전환·전월 실적·현금흐름 계산표), 비로그인 `/my` 하단에 공개 계산표·가이드 직결 링크를 연결했다.
