@@ -48,9 +48,9 @@ async function scene(name, task) {
 }
 
 // 지금 화면이 부르는 주소(뒤 판에서 올라갈 수 있다 — 그때는 이 상수만 따라 올린다)
-const SHELL = "/assets/accountbook-shell-v229125.css";
-const HOME_CSS = "/assets/mobile-home-v229125.css";
-const UIUX = "/assets/ab-uiux-v229125.css";
+const SHELL = "/assets/accountbook-shell-v229136.css";
+const HOME_CSS = "/assets/mobile-home-v229136.css";
+const UIUX = "/assets/ab-uiux-v229136.css";
 // 이 판이 주소를 올리기 전의 주소와 그 바이트(운영 V22.9.124 가 쓰던 것)
 const OLD = [
   ["/assets/accountbook-shell-v229124.css", "1d9051b9dfe27054c5ad0944af51c81736d85db01b774471a59f8725050ab397"],
@@ -187,7 +187,7 @@ await scene("S-1", () => withClock("2026-07-15", () => fixture(async (fx) => {
   const landing = (await page(fx, "/", { cookie: "" })).html;
   const privacy = (await page(fx, "/privacy", { cookie: "" })).html;
   for (const [name, html] of [["첫 화면", landing], ["개인정보처리방침", privacy]]) {
-    ok(html.includes(".abBusinessFooter{margin:18px 0 0;padding:13px 0 2px;border-top:1px solid #e5e7eb;color:#596579;font-size:12px;line-height:1.45;letter-spacing:-.015em}"), `F-1 ${name}: 꼬리말 글자 12px`);
+    ok(html.includes(".abBusinessFooter{margin:18px 0 0;padding:12px 0 2px;border-top:1px solid #e5e7eb;color:#596579;font-size:12px;line-height:1.45;letter-spacing:-.015em}"), `F-1 ${name}: 꼬리말 글자 12px(V22.9.136: 위 여백 13 → 12px)`);
     ok(html.includes(".abBusinessFooterItem a{display:inline-block;margin:-14px 0;padding:14px 0;color:inherit;text-decoration:underline;overflow-wrap:anywhere}"), `F-1 ${name}: 꼬리말 링크의 누르는 높이(글줄 17px + 위아래 14px, 바깥 여백으로 상쇄)`);
   }
   ok(Buffer.byteLength(landing) <= 36 * 1024, `F-1 첫 화면 HTML 은 36 KiB 안이다(${Buffer.byteLength(landing)} B)`);

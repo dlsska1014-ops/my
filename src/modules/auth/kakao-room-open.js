@@ -1,7 +1,7 @@
 // @build:imports-start
 import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { AB_HOUSEHOLD_MEMORY_HEADER } from "../runtime/config-readiness.js";
-import { APP_VERSION, envFlagEnabled } from "../public/site-config.js";
+import { APP_VERSION, PUBLIC_CONTENT_PATHS, envFlagEnabled } from "../public/site-config.js";
 import { safeError } from "../runtime/leases.js";
 import {
   getCookie, htmlResponseWithCookies, redirectResponse, redirectResponseWithCookies,
@@ -454,7 +454,12 @@ function roomViewBounceResponseV229130(request, env, response) {
 // 안내 띠와 같은 방식). 띠에는 저장으로 이어지는 폼이 없다. [로그인] 은 로그인 화면으로 가고, 로그인하면 이 방 가계부로 돌아온다(V22.9.129 의 방 표식).
 // [보기 끝내기] 는 로그아웃 주소(POST /my/logout)로 가는 폼 하나다 — 같이 쓰는 PC 에서 12시간을 기다리지 않고 끝낼 길. 방 전용 세션의 POST 는 세션 쿠키를
 // 뗀 요청으로 처리되므로 로그아웃 처리기는 이 브라우저의 쿠키만 지운다(세션 판을 올리지 않는다 — 그 사람의 다른 기기 로그인은 그대로다).
-const ROOM_VIEW_BAND_STYLE_V229130 = '<style id="abRoomViewBandStyle">.abRoomViewBand{display:flex;align-items:center;justify-content:center;gap:6px 10px;flex-wrap:wrap;margin:0;padding:9px 16px;background:#fff7e6;color:#7a4b00;border-bottom:1px solid #f3d9a4;font-size:13.5px;line-height:1.45;text-align:center;word-break:keep-all;overflow-wrap:anywhere}.abRoomViewBand p{margin:0}.abRoomViewBand b{font-weight:700}.abRoomViewBand form{display:inline-flex;margin:0;padding:0;border:0;background:none;box-shadow:none}.abRoomViewBand a,.abRoomViewBand button.secondary{display:inline-flex!important;align-items:center;justify-content:center;box-sizing:border-box;min-height:32px!important;margin:0!important;padding:4px 14px!important;border:1px solid #d9a441!important;border-radius:999px!important;background:#fff!important;color:#7a4b00!important;font:inherit;font-size:13px!important;font-weight:700!important;line-height:1.3!important;text-decoration:none!important;box-shadow:none!important;transform:none!important;cursor:pointer}.abRoomViewBand button.secondary{font-weight:400!important}.abRoomViewBand a:focus-visible,.abRoomViewBand button:focus-visible{outline:2px solid currentColor;outline-offset:2px}@media (max-width:900px){.abRoomViewBand a,.abRoomViewBand button.secondary{min-height:44px!important}}html[data-ab-resolved-theme="dark"] .abRoomViewBand{background:#3a2a05;color:#ffe2a8;border-bottom-color:#6b4e12}html[data-ab-resolved-theme="dark"] .abRoomViewBand a,html[data-ab-resolved-theme="dark"] .abRoomViewBand button.secondary{background:#5a4108!important;color:#ffe2a8!important;border-color:#8a6a1f!important}</style>';
+// V22.9.136(V130 측정 2026-11-19·21 — 폭 768·1033·1280·1440 에서 [로그인] 과 [보기 끝내기] 가 두 줄로 나뉘었다): 두 단추를 한 묶음(.abRoomViewBandActions)에 넣어
+// 줄이 바뀌어도 함께 다음 줄로 간다. 간격·글자는 눈금 값(패딩 8·16, 사이 8·12, 글자 13px)으로. 규칙은 띠의 id 로 건다 — 예산 화면의 단추 규칙(min-height 44px)이
+// [보기 끝내기] 만 키우던 것을 막는다(데스크톱에서 두 단추 높이가 32·44 로 달랐다). 맨 끝 세 규칙은 열 수 없는 화면으로 가는 링크(아래 markRoomViewClosedLinksV229136)를 흐리게 한다.
+// 독립 검토(P3): 홈의 ‘정기 수입·지출’ 요약 카드(a.homeReserveCard)는 링크이면서 그 방 가계부의 정보(매달 나감·들어옴, 이번 달 남은 것, 납부 예정)다 — 카드를 통째로 흐리면
+// 글자 대비가 1.93:1(어두운 테마 2.77:1)로 떨어졌다. 그 카드는 그대로 두고 카드 안의 ‘관리 →’ 만 흐린다(표시 속성은 그대로 단다). 정보를 담은 카드 링크가 더 생기면 여기에 더한다.
+const ROOM_VIEW_BAND_STYLE_V229136 = '<style id="abRoomViewBandStyle">#abRoomViewBand{display:flex;align-items:center;justify-content:center;gap:8px 12px;flex-wrap:wrap;margin:0;padding:8px 16px;background:#fff7e6;color:#7a4b00;border-bottom:1px solid #f3d9a4;font-size:13px;line-height:1.5;text-align:center;word-break:keep-all;overflow-wrap:anywhere}#abRoomViewBand p{margin:0;text-wrap:pretty}#abRoomViewBand b{font-weight:700}#abRoomViewBand .abRoomViewBandActions{display:flex;flex:none;flex-wrap:nowrap;align-items:center;justify-content:center;gap:8px}#abRoomViewBand form{display:inline-flex;margin:0;padding:0;border:0;background:none;box-shadow:none}#abRoomViewBand a,#abRoomViewBand button.secondary{display:inline-flex!important;align-items:center;justify-content:center;box-sizing:border-box;min-height:32px!important;margin:0!important;padding:4px 14px!important;border:1px solid #d9a441!important;border-radius:999px!important;background:#fff!important;color:#7a4b00!important;font:inherit;font-size:13px!important;font-weight:700!important;line-height:1.3!important;text-decoration:none!important;white-space:nowrap;box-shadow:none!important;transform:none!important;cursor:pointer}#abRoomViewBand button.secondary{font-weight:400!important}#abRoomViewBand a:focus-visible,#abRoomViewBand button:focus-visible{outline:2px solid currentColor;outline-offset:2px}@media (max-width:900px){#abRoomViewBand a,#abRoomViewBand button.secondary{min-height:44px!important}}@media (max-width:480px){#abRoomViewBand{padding:8px 12px;gap:8px}}html[data-ab-resolved-theme="dark"] #abRoomViewBand{background:#3a2a05;color:#ffe2a8;border-bottom-color:#6b4e12}html[data-ab-resolved-theme="dark"] #abRoomViewBand a,html[data-ab-resolved-theme="dark"] #abRoomViewBand button.secondary{background:#5a4108!important;color:#ffe2a8!important;border-color:#8a6a1f!important}a[data-ab-rv-off]:not(.homeReserveCard){opacity:.45!important}a[data-ab-rv-off]:not(.homeReserveCard):hover,a[data-ab-rv-off]:not(.homeReserveCard):focus-visible{opacity:.7!important}a.homeReserveCard[data-ab-rv-off] .homeReserveGo{opacity:.45!important}</style>';
 function roomViewBandHtmlV229130(householdId = "", bounced = false, inApp = false) {
   // 독립 검토 3(P3): 카카오톡 안의 브라우저에서 방 전용 세션을 받는 것은 로그인 이름 계정뿐이다 — 거기서는 [로그인] 이 로그인 이름 칸을 연 화면으로 간다
   // (보통 주소는 인앱에서 ‘카카오 계정으로 가계부 열기’ 팝업을 먼저 띄우는데, 카카오 로그인은 이 계정에 닿지 않는다). 로그인하면 이 방 가계부로 돌아온다.
@@ -463,7 +468,34 @@ function roomViewBandHtmlV229130(householdId = "", bounced = false, inApp = fals
     : kakaoAutoLoginFallbackLocation(kakaoRoomEntryLocationV229129(householdId));
   // 돌려보낸 까닭은 조건으로만 적는다 — 로그인해도 권한이 없으면 열리지 않는 화면(참여자·설정 등)이 있어 ‘로그인하면 볼 수 있어요’ 는 틀린 약속이 된다.
   const lead = bounced ? "<b>방금 누른 화면은 로그인해야 열 수 있어요.</b> " : "";
-  return `${ROOM_VIEW_BAND_STYLE_V229130}<div class="abRoomViewBand" id="abRoomViewBand" role="region" aria-label="방 전용 보기 안내"><p>${lead}<b>방 전용 보기</b> · 이 단톡방의 가계부만 볼 수 있어요. 다른 화면을 열거나 내 권한대로 쓰려면 로그인해 주세요.</p><a href="${login.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">로그인</a><form method="post" action="/my/logout"><button class="secondary" type="submit" aria-label="방 전용 보기 끝내기">보기 끝내기</button></form></div>`;
+  return `${ROOM_VIEW_BAND_STYLE_V229136}<div class="abRoomViewBand" id="abRoomViewBand" role="region" aria-label="방 전용 보기 안내"><p>${lead}<b>방 전용 보기</b> · 이 단톡방의 가계부만 볼 수 있어요. 다른 화면을 열거나 내 권한대로 쓰려면 로그인해 주세요.</p><div class="abRoomViewBandActions"><a href="${login.replace(/&/g, "&amp;").replace(/"/g, "&quot;")}">로그인</a><form method="post" action="/my/logout"><button class="secondary" type="submit" aria-label="방 전용 보기 끝내기">보기 끝내기</button></form></div></div>`;
+}
+
+// V22.9.136(V130:B-8 — 방 전용 보기 화면에 열 수 없는 화면의 링크가 그대로 보였다): 띠를 붙이는 같은 자리에서, 이 사이트 안의 링크 가운데 방 전용 세션으로
+// 열리지 않는 주소(위 ROOM_VIEW_PATHS_V229130 도 아니고 로그인 없이 열리는 공개 화면도 아닌 곳)에 data-ab-rv-off·aria-disabled 를 달아 흐리게 보인다(띠의 스타일).
+// 링크는 그대로 눌린다 — 누르면 지금처럼 그 방 홈으로 돌아와 띠가 ‘방금 누른 화면은 로그인해야 열 수 있어요.’ 라고 알린다(roomViewBounceResponseV229130).
+// 공개 화면은 PUBLIC_CONTENT_PATHS(공개 정본 문서·후원 안내)와 로그인 전에도 열리는 처음 사용 가이드다. 기준이 허용 목록과 같은 상수라 목록이 바뀌어도 어긋나지 않는다.
+const ROOM_VIEW_PUBLIC_EXTRA_PATHS_V229136 = new Set(["/start-guide"]);
+function roomViewLinkOpensV229136(pathname = "") {
+  const path = String(pathname || "");
+  return ROOM_VIEW_PATHS_V229130.has(path) || PUBLIC_CONTENT_PATHS.includes(path) || ROOM_VIEW_PUBLIC_EXTRA_PATHS_V229136.has(path) || path.startsWith("/assets/");
+}
+// 스크립트·스타일 안의 글(화면 스크립트가 만드는 링크 문자열 등)은 건드리지 않는다 — 그 구간은 통째로 지나간다.
+// 독립 검토(P3): 속성은 따옴표째 읽는다 — 값 안의 ‘>’(예: data-x="a>b")에서 태그가 끝난 것으로 보면 속성을 깨뜨리고 글자를 화면에 흘린다. 값 안에 ‘<’ 가 있거나
+// 따옴표가 닫히지 않은 태그는 맞지 않아 그대로 지나간다(표시하지 않을 뿐 화면은 그대로). 이미 표시했는지·title 이 있는지도 따옴표 밖의 속성 이름으로만 본다.
+const ROOM_VIEW_ATTRS_V229136 = String.raw`(?:[^>"'<]|"[^"<]*"|'[^'<]*')*`;
+const ROOM_VIEW_LINK_RE_V229136 = new RegExp(String.raw`(<script\b[\s\S]*?<\/script\s*>|<style\b[\s\S]*?<\/style\s*>)|<a\b(${ROOM_VIEW_ATTRS_V229136}?)\shref="(\/(?!\/)[^"<]*)"(${ROOM_VIEW_ATTRS_V229136})>`, "gi");
+function markRoomViewClosedLinksV229136(html = "") {
+  return String(html || "").replace(ROOM_VIEW_LINK_RE_V229136, (full, skipped, before, href, after) => {
+    if (skipped) return full;
+    const names = `${before} ${after}`.replace(/"[^"]*"|'[^']*'/g, '""');
+    if (/\sdata-ab-rv-off(?=[\s=]|$)/i.test(names)) return full;
+    let pathname = "";
+    try { pathname = new URL(href.replace(/&amp;/g, "&"), "https://room-view.invalid").pathname; } catch (_) { return full; }
+    if (roomViewLinkOpensV229136(pathname)) return full;
+    const title = /\stitle\s*=/i.test(names) ? "" : ' title="로그인해야 열 수 있어요"';
+    return `<a${before} href="${href}"${after} data-ab-rv-off="" aria-disabled="true"${title}>`;
+  });
 }
 async function roomViewBandResponseV229130(request, env, response) {
   const scope = env?.__AB_ROOM_VIEW;
@@ -496,6 +528,10 @@ async function roomViewBandResponseV229130(request, env, response) {
     }
   } catch (_) {
     out = source;
+  }
+  // V22.9.136: 띠를 붙인 화면에서만 열 수 없는 링크를 흐리게 한다(띠의 [로그인] 은 /my 라 그대로다). 표시하다 실패해도 띠를 붙인 화면은 그대로 나간다.
+  if (out !== source) {
+    try { out = markRoomViewClosedLinksV229136(out); } catch (_) { /* 띠만 붙인 화면 */ }
   }
   return new Response(out, { status: response.status, headers });
 }

@@ -20,8 +20,8 @@
 // V22.9.95(안내·해석): 세 자산의 바이트가 바뀌어 주소를 v22995 로 올렸다 — 홈 스크립트·홈 셸(폭 0 글자·전각 글자 정리, 외화 금액 되묻기
 // foreignCurrencyAmountIn), 분류 규칙(R-16 예외 낱말: 운동화·충전기·참기름·들기름·버스킹). 옛 주소(mobile-home(-shell)-v22993.js·
 // ab-category-rules-v22993.js, 운영 V22.9.93·94 가 쓰는 주소)의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 그대로 내려간다.
-const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v229125.css";
-const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v229125.css";
+const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v229136.css";
+const AB_UIUX_CSS_ASSET_PATH = "/assets/ab-uiux-v229136.css";
 // V22.9.78(V77 N-12): 홈 스크립트·홈 셸에 실리는 quickInputDate 가 주 없이 쓴 ‘지난·저번 요일’을 오늘을 뺀 앞 요일로 읽게 바뀌어
 // 두 주소를 v22976 → v22978 로 올렸다. 옛 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 남아 그대로 내려간다.
 const MOBILE_HOME_JS_ASSET_PATH = "/assets/mobile-home-v22995.js";
@@ -30,7 +30,7 @@ const LEGACY_ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v2281
 // 옛 JS 주소의 바이트는 AB_HISTORICAL_RUNTIME_ASSETS 에 그대로 남아 이미 받아 간 화면이 계속 동작한다.
 // V22.9.40 (C2): 셸 CSS 끝에 점진적 최신 규칙 한 블록(제목·문단 줄바꿈, 글상자 높이, 창·팝오버 등장, 스크롤 막대 자리,
 // 시트 스크롤 가두기)을 더해 주소를 v22937 → v22940 으로 올렸다.
-const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v229125.css";
+const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v229136.css";
 const ACCOUNTBOOK_EXPERIENCE_CSS = `
 /* V22.9.25: scoped enhancements preserve the analysis surface and theme tokens. */
 body.abV22812Shell .homeReports{container-type:inline-size;container-name:home-reports}

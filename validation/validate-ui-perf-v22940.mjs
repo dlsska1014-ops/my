@@ -31,7 +31,7 @@ const shellModule = readFileSync(new URL("../src/modules/assets/accountbook-shel
 const previousClock = globalThis.__AB_QA_FIXED_NOW_MS;
 globalThis.__AB_QA_FIXED_NOW_MS = Date.parse("2026-07-15T12:00:00+09:00");
 
-const SHELL_CSS = "/assets/accountbook-shell-v229125.css";
+const SHELL_CSS = "/assets/accountbook-shell-v229136.css";
 const RETIRED_SHELL_CSS = "/assets/accountbook-shell-v22937.css";
 const RULES_FILE = "/assets/speculation-rules-v22940.json";
 const inlineCssBytes = (html) => [...html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)].reduce((sum, m) => sum + Buffer.byteLength(m[1]), 0);
@@ -143,7 +143,7 @@ ok(uxBytes - REPORT_UX_CSS_BASELINE <= 1024, `C1 의 리포트 CSS 순증이 1 K
 ok(uxBody.includes(".reportMonthNav.abPick label{grid-area:1/1;opacity:0;pointer-events:none}"), "투명한 월 입력이 단추와 같은 칸에 남아 선택기 위치를 잡는다");
 ok(uxBody.includes(".reportMonthNav.abPick .reportMonthPick{grid-area:1/1;") && uxBody.includes("color:var(--ab12-text,#191f28)!important;font-size:16px}"), "기준 월 단추 글자색이 리포트의 button{color:#fff!important} 를 이긴다");
 ok(uxBody.includes(".reportMonthNav.abPick:not(.isMonthChanged) button[type=submit]{display:none}"), "바꾼 달이 없으면 이동 단추가 감춰진다");
-ok(uxBody.includes(".reportMonthNav form{display:grid;grid-template-columns:minmax(0,1fr);grid-auto-flow:column;gap:7px}"), "이동 단추가 없을 때 빈 칸 간격이 남지 않는다(암묵 열)");
+ok(uxBody.includes(".reportMonthNav form{display:grid;grid-template-columns:minmax(0,1fr);grid-auto-flow:column;gap:8px}"), "이동 단추가 없을 때 빈 칸 간격이 남지 않는다(암묵 열 — V22.9.136: 간격 7 → 8px)");
 const mobileAt = uxBody.indexOf("@media(max-width:899px){");
 const pinned36 = uxBody.indexOf(".reportMonthNav>a.reportMonthCurrent{grid-column:1/-1;grid-row:2;min-height:36px}", mobileAt);
 const override44 = uxBody.indexOf(".reportMonthNav>a.reportMonthCurrent{justify-self:center;min-height:44px;padding:0 20px}", mobileAt);

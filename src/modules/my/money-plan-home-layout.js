@@ -47,18 +47,21 @@ function renderMoneyPlanTabs(active = "budgets", { month = currentMonthKst(), ho
   return `<nav class="abMoneyPlanTabs${canManage ? "" : " isTwo"}" aria-label="예산·정기 설정">${links}</nav>`;
 }
 
+// V22.9.136: 간격은 눈금 값(4·12px)으로. 어두운 테마의 고른 탭은 면(#1d4ed8)과 테두리가 같은 색이라 안 고른 탭(#1e2026·테두리 #3b475a)과의 대비가
+// 면 2.43·테두리 1.40 으로 3:1 이 안 됐다(화면 측정의 선택 구분 실패 — 예산·정기·전체 요약 세 화면). 면과 흰 글자는 그대로 두고 테두리와 안쪽 1px 선을
+// 밝은 파랑(#93c5fd — 안 고른 탭의 테두리 #3b475a 와 5.2:1)으로 바꾼다.
 function moneyPlanTabsCss() {
   return `.abMoneyPlanTabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin:12px 0}`
-    + `.abMoneyPlanTabs a{display:grid;gap:3px;align-content:center;padding:11px 12px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;color:#475467!important;text-decoration:none;min-width:0}`
+    + `.abMoneyPlanTabs a{display:grid;gap:4px;align-content:center;padding:12px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;color:#475467!important;text-decoration:none;min-width:0}`
     + `.abMoneyPlanTabs a b{font-size:14px;font-weight:700;overflow-wrap:anywhere}`
-    + `.abMoneyPlanTabs a small{font-size:11px;color:#667085;font-weight:400}`
+    + `.abMoneyPlanTabs a small{font-size:11px;color:#5f6b7a;font-weight:400}`
     + `.abMoneyPlanTabs a.on{background:#111827;border-color:#111827;color:#fff!important}`
     + `.abMoneyPlanTabs a.on small{color:#cbd5e1}`
     + `.abMoneyPlanTabs.isTwo{grid-template-columns:repeat(2,minmax(0,1fr))}`
     + `@media(max-width:600px){.abMoneyPlanTabs,.abMoneyPlanTabs.isTwo{grid-template-columns:1fr;gap:6px}.abMoneyPlanTabs a{display:flex;align-items:baseline;gap:8px;padding:10px 12px}}`
     + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a{background:#1e2026;border-color:#3b475a;color:#edeff3!important}`
     + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a small{color:#b3bdc9}`
-    + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a.on{background:#1d4ed8;border-color:#1d4ed8;color:#fff!important}`
+    + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a.on{background:#1d4ed8;border-color:#93c5fd;box-shadow:inset 0 0 0 1px #93c5fd;color:#fff!important}`
     + `html[data-ab-resolved-theme="dark"] .abMoneyPlanTabs a.on small{color:#dbeafe}`;
 }
 

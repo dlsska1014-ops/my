@@ -36,7 +36,7 @@ function deskHeadActionsCss() {
     `body.abV22812Shell .abDeskActions :is(.abGlobalAction,.abPrivacyEye):hover{border-color:var(--ab12-accent)!important;color:var(--ab12-text)!important}`,
     `body.abV22812Shell .abDeskActions .abGlobalAction>span:not(.abV5NotifBadge){position:absolute!important;width:1px!important;height:1px!important;margin:-1px!important;padding:0!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}`,
     `body.abV22812Shell .abDeskActions :is(.abNavIconSvg,.abPrivacyEye svg){width:20px!important;height:20px!important}`,
-    `body.abV22812Shell .abDeskActions .abV5NotifBadge{top:-4px;right:-4px;box-sizing:border-box;min-width:18px;height:18px;padding:0 5px;border:2px solid var(--ab12-surface);font-size:11px;line-height:14px}`,
+    `body.abV22812Shell .abDeskActions .abV5NotifBadge{top:-4px;right:-4px;box-sizing:border-box;min-width:18px;height:18px;padding:0 4px;border:2px solid var(--ab12-surface);font-size:11px;line-height:14px}`,
     `@media(max-width:899px){body.abV22812Shell :is(.abDeskActions,.abNavSearchSlot){display:none!important}}`,
   ].join("\n");
 }
@@ -78,7 +78,7 @@ function deskNavCurrentCss() {
 // T-16 저장 알림 ‘실행 취소’: 폼(POST /my/undo)은 상자를 만들지 않고(display:contents) 단추가 알림 줄의 한 칸이 된다.
 // 모양·색은 옆 ‘예산 보기’·‘다시 시도’ 링크(.abSaveFeedbackAction, 시안 .undo 의 toastlink 색)와 같고, 단추 기본 테두리·바탕·글꼴만 지운다.
 // 테두리에는 !important 를 쓰지 않는다 — 고대비(forced-colors) 모드에서 셸의 단추 테두리 규칙(ButtonText 1px)이 옆 링크처럼 이 단추에도 걸려야 한다.
-// 바탕·글자색만 !important 로 덮는다(V87:W-4): 홈 자산(mobile-home-v229125.css)의 `.abV2281 button[type="submit"]:not(.danger)…`
+// 바탕·글자색만 !important 로 덮는다(V87:W-4): 홈 자산(mobile-home-v229136.css)의 `.abV2281 button[type="submit"]:not(.danger)…`
 // {background:var(--ab-blue)!important;color:#fff!important}(특이도 0,5,1)가 이 단추를 파랗게 채운 단추로 칠했다. 아래 두 줄은 0,5,3·0,6,3 이다.
 // 예산 경고 알림(사용자 결정 2026-10-29)은 ‘예산 보기’·‘실행 취소’ 둘이라 문구 아래 한 줄로 내린다(hasActionRow). 첫 단추 글자가 문구와
 // 같은 세로줄에 서도록 단추 안쪽 여백(8px)만큼 왼쪽으로 당기고, 44px 누름 칸의 아래 여백은 알림 안쪽 여백으로 들어간다.
@@ -109,7 +109,7 @@ function reportPeriodTabsCss() {
 // 목록은 앱의 다른 화면 규칙이 이미 쓰는 한 줄이다. 지시서 B 처럼 "Apple SD Gothic Neo"·"Malgun Gothic" 을 앞세우면 윈도의 숫자·영문이
 // Segoe UI 에서 맑은 고딕 글자로 바뀌어 넣지 않았다(한글은 lang="ko" 와 운영체제 대체 글꼴이 그 두 글꼴을 고른다).
 // 셸 본문 규칙(accountbook-shell-css.js)과 생활비 리포트 인라인 CSS 는 원문에서 뺐다. 옛 UI 런타임 규칙 body.abV2281{font-family:Pretendard,…!important}
-// 은 1년 캐시 자산 두 개(ab-uiux-v229125.css·mobile-home-v229125.css)에 구워져 있어 주소를 올리지 않고 이 한 줄(특이도 0,2,1 > 0,1,1)로 덮는다.
+// 은 1년 캐시 자산 두 개(ab-uiux-v229136.css·mobile-home-v229136.css)에 구워져 있어 주소를 올리지 않고 이 한 줄(특이도 0,2,1 > 0,1,1)로 덮는다.
 // 옛 규칙은 5단계 T-24(CSS 계층 정리)에서 지운다.
 function fontStackCss() {
   return `body.abV22812Shell.abV2281{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif!important}`;

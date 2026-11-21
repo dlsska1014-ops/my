@@ -19,10 +19,14 @@ const ACCOUNTBOOK_SHELL_CSS = ACCOUNTBOOK_SHELL_V22811_CSS
   .replace("body.abV22812Shell .homeBudgetAmount b{color:var(--ab12-text);font-size:36px!important;font-weight:900}", "body.abV22812Shell .homeBudgetAmount b{color:var(--ab12-text);font-size:36px!important;font-weight:800}")
   .replace("body.abV22812Shell .homeDesktopBrand{display:flex;align-items:center;gap:10px;color:var(--ab12-text);text-decoration:none;font-size:17px;font-weight:900;padding:0 10px 20px}", "body.abV22812Shell .homeDesktopBrand{display:flex;align-items:center;gap:10px;color:var(--ab12-text);text-decoration:none;font-size:16px;font-weight:800;padding:0 10px 20px}")
   // V22.9.125 바탕 규칙 끝
+  // V22.9.136 (간격·색 정리): 바탕 규칙의 값 — 홈 예산 카드의 사용률 칩 글자를 강조 눈금 색(#1d4ed8)으로. 옛 주소 /assets/accountbook-shell-v22811.css 는 상수를
+  // 그대로 내려보내므로 이 판의 셸에서만 바꾼다.
+  .replace("body.abV22812Shell .homeBudgetTop em{background:var(--ab12-accent-soft)!important;color:#1b64da!important;border:0!important;box-shadow:none!important}", "body.abV22812Shell .homeBudgetTop em{background:var(--ab12-accent-soft)!important;color:#1d4ed8!important;border:0!important;box-shadow:none!important}")
+  // V22.9.136 바탕 규칙 끝
   + `
 html{background:#f2f4f6;color-scheme:light}
 html[data-ab-resolved-theme="dark"]{background:#141519;color-scheme:dark}
-body.abV22812Shell{--ab12-bg:#f2f4f6;--ab12-surface:#fff;--ab12-surface-raised:#f4f6f8;--ab12-text:#191f28;--ab12-muted:#5f6b7a;--ab12-line:#e9ebee;--ab12-brand:#3182f6;--ab12-accent:#1d4ed8;--ab12-action:#1d4ed8;--ab12-accent-soft:#e8f3ff;--ab12-placeholder:#52606f;--ab12-nav-inactive:#475569;--ab12-notice-bg:#111827;--ab12-notice-title:#86efac;--ab12-notice-text:#d1fae5;--ab12-input-bg:#fff;--ab12-warn-bg:#fff7ed;--ab12-warn-text:#9a3412;--ab12-warn-line:#fed7aa}
+body.abV22812Shell{--ab12-bg:#f2f4f6;--ab12-surface:#fff;--ab12-surface-raised:#f4f6f8;--ab12-text:#191f28;--ab12-muted:#5f6b7a;--ab12-line:#e9ebee;--ab12-brand:#3182f6;--ab12-accent:#1d4ed8;--ab12-action:#1d4ed8;--ab12-accent-soft:#e8f3ff;--ab12-placeholder:#52606f;--ab12-nav-inactive:#475467;--ab12-notice-bg:#111827;--ab12-notice-title:#86efac;--ab12-notice-text:#d1fae5;--ab12-input-bg:#fff;--ab12-warn-bg:#fff7ed;--ab12-warn-text:#9a3412;--ab12-warn-line:#fed7aa}
 /* V22.8.85 통합 작업지시서 2.2: 색 말고 나머지 축(간격·타이포·모서리·그림자·전환)에도
    토큰을 준다. 화면마다 톤이 달랐던 원인이 여기였다 — 각 페이지 인라인 CSS 가 제 값을
    따로 적어 왔다. 지금은 아무도 쓰지 않으므로 이 커밋의 화면 변화는 0건이고, 이후 PR 이
@@ -62,10 +66,10 @@ body.abV22812Shell [style*="color:#8B95A1"],body.abV22812Shell [style*="color:#8
 body.abV22812Shell :is(.muted,.note,.smartHint,.homeEmpty,.homeBudgetTop span,.homeMetric span,.homeTx span,.homeBarRow span){color:var(--ab12-muted)!important}
 body.abV22812Shell a{color:var(--ab12-accent)}
 body.abV22812Shell :is(.smartLine button,.form button[type="submit"]:not(.danger),.loginCard button[type="submit"],.signupCard button[type="submit"],form[action="/my/backup-login"] button[type="submit"],.menuContext button){background:var(--ab12-action)!important;color:#fff!important;border-color:var(--ab12-action)!important}
-.abAppearancePanel{margin:0 0 28px;padding:18px;border:1px solid var(--ab12-line);border-radius:18px;background:var(--ab12-surface);box-shadow:var(--ab12-shadow)}.abCursorPref{margin-top:14px;padding-top:14px;border-top:1px solid var(--ab12-line);display:grid;gap:10px}.abCursorPick{display:flex;align-items:flex-start;gap:10px;min-height:44px;cursor:pointer}.abCursorPick input{width:22px;height:22px;margin-top:2px;flex:none}.abCursorPick b{display:block;font-size:14px}.abCursorPick small{display:block;color:var(--ab12-muted);font-size:12px;line-height:1.6;margin-top:3px}.abCursorPref button{min-height:44px;border:1px solid var(--ab12-line);border-radius:var(--ab12-r-sm,8px);background:var(--ab12-surface);color:var(--ab12-text);font-weight:800;cursor:pointer;justify-self:start;padding:0 14px}
-.abAppearanceHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.abAppearanceHead h2{margin:0;color:var(--ab12-text);font-size:18px}.abAppearanceHead p{margin:5px 0 0;color:var(--ab12-muted);font-size:13px;line-height:1.5}.abAppearanceDevice{display:inline-flex;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);padding:6px 9px;font-size:11px;font-weight:500;white-space:nowrap}
-.abAppearanceRows{display:grid;grid-template-columns:1fr 1.35fr;gap:18px;margin-top:16px}.abAppearanceRows>div>b{display:block;margin-bottom:8px;color:var(--ab12-text);font-size:13px}.abAppearanceChoices{display:flex;flex-wrap:wrap;gap:7px}.menuPage .abAppearanceChoices button{display:inline-flex;align-items:center;justify-content:center;gap:7px;min-height:42px;padding:0 13px!important;border:1px solid var(--ab12-line)!important;border-radius:12px!important;background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;font-size:13px;font-weight:700}.menuPage .abAppearanceChoices button[aria-pressed="true"]{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--ab12-accent) 16%,transparent)}
-.abToneDot{width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 2px var(--ab12-surface),0 0 0 3px var(--ab12-line)}.abToneBlue{background:#1d4ed8}.abToneEmerald{background:#047857}.abToneViolet{background:#6d28d9}.abToneAmber{background:#92400e}.abAppearanceStatus{margin:13px 0 0;color:var(--ab12-muted);font-size:12px;line-height:1.5}
+.abAppearancePanel{margin:0 0 28px;padding:18px;border:1px solid var(--ab12-line);border-radius:18px;background:var(--ab12-surface);box-shadow:var(--ab12-shadow)}.abCursorPref{margin-top:14px;padding-top:14px;border-top:1px solid var(--ab12-line);display:grid;gap:10px}.abCursorPick{display:flex;align-items:flex-start;gap:10px;min-height:44px;cursor:pointer}.abCursorPick input{width:22px;height:22px;margin-top:2px;flex:none}.abCursorPick b{display:block;font-size:14px}.abCursorPick small{display:block;color:var(--ab12-muted);font-size:12px;line-height:1.6;margin-top:4px}.abCursorPref button{min-height:44px;border:1px solid var(--ab12-line);border-radius:var(--ab12-r-sm,8px);background:var(--ab12-surface);color:var(--ab12-text);font-weight:800;cursor:pointer;justify-self:start;padding:0 14px}
+.abAppearanceHead{display:flex;justify-content:space-between;gap:16px;align-items:flex-start}.abAppearanceHead h2{margin:0;color:var(--ab12-text);font-size:18px}.abAppearanceHead p{margin:4px 0 0;color:var(--ab12-muted);font-size:13px;line-height:1.5}.abAppearanceDevice{display:inline-flex;border-radius:999px;background:var(--ab12-surface-raised);border:1px solid var(--ab12-line);color:var(--ab12-muted);padding:6px 8px;font-size:11px;font-weight:500;white-space:nowrap}
+.abAppearanceRows{display:grid;grid-template-columns:1fr 1.35fr;gap:18px;margin-top:16px}.abAppearanceRows>div>b{display:block;margin-bottom:8px;color:var(--ab12-text);font-size:13px}.abAppearanceChoices{display:flex;flex-wrap:wrap;gap:8px}.menuPage .abAppearanceChoices button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:0 12px!important;border:1px solid var(--ab12-line)!important;border-radius:12px!important;background:var(--ab12-surface-raised)!important;color:var(--ab12-text)!important;font-size:13px;font-weight:700}.menuPage .abAppearanceChoices button[aria-pressed="true"]{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important;color:var(--ab12-accent)!important;box-shadow:0 0 0 2px color-mix(in srgb,var(--ab12-accent) 16%,transparent)}
+.abToneDot{width:12px;height:12px;border-radius:50%;box-shadow:0 0 0 2px var(--ab12-surface),0 0 0 3px var(--ab12-line)}.abToneBlue{background:#1d4ed8}.abToneEmerald{background:#047857}.abToneViolet{background:#6d28d9}.abToneAmber{background:#92400e}.abAppearanceStatus{margin:12px 0 0;color:var(--ab12-muted);font-size:12px;line-height:1.5}
 html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abPageReserve .reserveCard.alert{background:var(--ab12-accent-soft)!important;border-color:var(--ab12-accent)!important}
 html:not([data-ab-resolved-theme="dark"]) body.abV22812Shell.abPageReserve .reserveCard.alert :is(b,strong,span,small):not(.reserveEdit *){color:var(--ab12-accent)!important}
 html[data-ab-resolved-theme="dark"] body.abV22812Shell{background:var(--ab12-bg)!important;color:var(--ab12-text)!important}
@@ -218,11 +222,11 @@ body.abV22812Shell .homeReportTop>span{color:var(--ab12-muted);font-size:var(--a
 body.abV22812Shell .homeReportTop>a{flex:none;display:inline-flex;align-items:center;min-height:44px;color:var(--ab12-action);font-size:var(--ab12-fs-cap,12px);font-weight:600;text-decoration:none}
 body.abV22812Shell .homeReport>b{font-size:var(--ab12-fs-num-lg,20px);font-weight:var(--ab12-fw-num-lg,700);line-height:1.15;letter-spacing:-.03em;color:var(--ab12-text);font-variant-numeric:tabular-nums;overflow-wrap:anywhere}
 body.abV22812Shell .homeReport>small{color:var(--ab12-muted);font-size:var(--ab12-fs-cap,12px);font-weight:700;line-height:1.5}
-body.abV22812Shell .homeReportBars{display:flex;gap:3px;min-height:3px}
+body.abV22812Shell .homeReportBars{display:flex;gap:4px;min-height:3px}
 body.abV22812Shell .homeReportBars i{height:3px;border-radius:999px;background:var(--ab12-brand)}
 /* 쓰는 속도: 지난 4주. 자료가 없는 주는 0원 막대가 아니라 빈 자리로 둔다 —
    0으로 그리면 "안 썼다"로 읽힌다. */
-body.abV22812Shell .homeReportPace{display:flex;align-items:flex-end;gap:5px;height:34px}
+body.abV22812Shell .homeReportPace{display:flex;align-items:flex-end;gap:4px;height:34px}
 body.abV22812Shell .homeReportPace i{flex:1 1 0;min-width:0;border-radius:3px 3px 0 0;background:var(--ab12-brand)}
 body.abV22812Shell .homeReportPace i.isBlank{height:100%;background:repeating-linear-gradient(135deg,var(--ab12-line) 0 3px,transparent 3px 6px)}
 @media(max-width:899px){
@@ -300,8 +304,8 @@ body.abV22812Shell.abMobileAppSurface .homeCalendar{padding:20px!important;overf
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calHead h2{font-size:20px}
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calClose,
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calNav a{background:var(--ab12-surface-raised)!important;color:var(--ab12-accent)!important;border:1px solid var(--ab12-line)!important;box-shadow:none!important}
-body.abV22812Shell.abMobileAppSurface .homeCalendar .calGrid{gap:3px}
-body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay{min-height:62px;padding:7px 2px;border:1px solid transparent!important;border-radius:12px;background:transparent!important;color:var(--ab12-text)!important;opacity:1!important}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calGrid{gap:4px}
+body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay{min-height:62px;padding:8px 2px;border:1px solid transparent!important;border-radius:12px;background:transparent!important;color:var(--ab12-text)!important;opacity:1!important}
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.noRec{background:transparent!important;color:var(--ab12-muted)!important}
 body.abV22812Shell.abMobileAppSurface .homeCalendar a.calDay.hasRec{background:var(--ab12-accent-soft)!important;border-color:color-mix(in srgb,var(--ab12-accent) 34%,var(--ab12-line))!important;color:var(--ab12-text)!important}
 body.abV22812Shell.abMobileAppSurface .homeCalendar a.calDay.hasRec.sel{background:var(--ab12-action)!important;border-color:var(--ab12-action)!important;color:#fff!important}
@@ -370,9 +374,9 @@ html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageInsight .iChip.bad{
 body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay.hasRec.sel :is(b,strong,em,small){color:#fff!important}
 
 @media(min-width:900px){body.abV22812Shell.abPageInsight .kpiRow{grid-template-columns:repeat(5,minmax(0,1fr))}}
-@media(max-width:640px){body.abV22812Shell.abMobileAppSurface .homeCalendar{padding:14px!important}body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay{min-height:55px;padding:5px 1px}body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay small{display:none}body.abV22812Shell.abMobileAppSurface .homeCalendar :is(.calClose,.calNav a){min-height:44px}body.abV22812Shell.abPageInsight .filterBar{top:4px;padding:10px;border-radius:16px}body.abV22812Shell.abPageInsight .fRow{align-items:stretch}body.abV22812Shell.abPageInsight .searchBox{flex-basis:100%}body.abV22812Shell.abPageInsight :is(.pchip,.fBtn,.tchip,.aChip,.seg button,.applyBtn,.moreBtn,.csvBtn,.rangeRow input,.searchBox input){min-height:44px}}
+@media(max-width:640px){body.abV22812Shell.abMobileAppSurface .homeCalendar{padding:14px!important}body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay{min-height:55px;padding:4px 1px}body.abV22812Shell.abMobileAppSurface .homeCalendar .calDay small{display:none}body.abV22812Shell.abMobileAppSurface .homeCalendar :is(.calClose,.calNav a){min-height:44px}body.abV22812Shell.abPageInsight .filterBar{top:4px;padding:10px;border-radius:16px}body.abV22812Shell.abPageInsight .fRow{align-items:stretch}body.abV22812Shell.abPageInsight .searchBox{flex-basis:100%}body.abV22812Shell.abPageInsight :is(.pchip,.fBtn,.tchip,.aChip,.seg button,.applyBtn,.moreBtn,.csvBtn,.rangeRow input,.searchBox input){min-height:44px}}
 @media(max-width:360px){body.abV22812Shell.abMobileAppSurface .homeCalendar{padding:8px!important}body.abV22812Shell.abMobileAppSurface .homeCalendar .calGrid{gap:2px}}
-@media(max-width:720px){.abAppearancePanel{padding:15px;margin-bottom:22px}.abAppearanceHead{display:block}.abAppearanceDevice{margin-top:9px}.abAppearanceRows{grid-template-columns:1fr}.abAppearanceChoices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.menuPage .abAppearanceChoices button{width:100%}}
+@media(max-width:720px){.abAppearancePanel{padding:16px;margin-bottom:22px}.abAppearanceHead{display:block}.abAppearanceDevice{margin-top:8px}.abAppearanceRows{grid-template-columns:1fr}.abAppearanceChoices{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}.menuPage .abAppearanceChoices button{width:100%}}
 
 /* V22.8.18 UI/UX stage 4: supplied unified dashboard + navigation system. */
 body.abV22812Shell{
@@ -537,7 +541,7 @@ body.abV22812Shell .abNavGroup summary i{width:24px!important;flex:0 0 24px!impo
 body.abV22812Shell .abNavIconSvg{width:20px!important;height:20px!important;stroke:currentColor!important;fill:none!important}
 body.abV22812Shell .abNavGroup summary b{font-size:13px!important;font-weight:700!important;text-transform:none!important}
 body.abV22812Shell .abNavLinks{display:flex!important;flex-direction:column!important;gap:2px!important;padding:4px 0 8px!important}
-body.abV22812Shell .abNavLinks a{display:flex!important;justify-content:flex-start!important;gap:11px!important;min-height:42px!important;padding:9px 12px 9px 14px!important;border-radius:12px!important;background:transparent!important;color:var(--sub)!important;font-size:14px!important;font-weight:400!important;box-shadow:none!important}
+body.abV22812Shell .abNavLinks a{display:flex!important;justify-content:flex-start!important;gap:12px!important;min-height:42px!important;padding:9px 12px 9px 14px!important;border-radius:12px!important;background:transparent!important;color:var(--sub)!important;font-size:14px!important;font-weight:400!important;box-shadow:none!important}
 body.abV22812Shell .abNavLinks a:hover{background:var(--card-2)!important;color:var(--text)!important}
 body.abV22812Shell .abNavLinks a.active{background:var(--accent-weak)!important;color:var(--accent)!important;font-weight:800!important}
 /* 라이트 사이드바의 대메뉴/하위 위계.
@@ -556,7 +560,7 @@ html body.abV22812Shell .abNavSection.abNavGroup+.abNavSection{border-top:0!impo
 body.abV22812Shell .abNavSection{margin:0 0 10px!important}
 body.abV22812Shell .abNavLabel{margin:8px 12px 4px!important;font-size:12px!important;font-weight:700!important;letter-spacing:.02em!important;line-height:1.4!important;color:var(--sub)!important}
 html body.abV22812Shell .abNavSection .abNavLinks{margin-left:0!important;padding:0!important;border-left:0!important;gap:1px!important}
-html body.abV22812Shell .abNavSection .abNavLinks a{min-height:36px!important;padding:7px 12px!important}
+html body.abV22812Shell .abNavSection .abNavLinks a{min-height:36px!important;padding:8px 12px!important}
 body.abV22812Shell.abNavCollapsed .abNavLabel{position:absolute!important;width:1px!important;height:1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important}
 html body.abV22812Shell.abNavCollapsed .abNavSection.abNavGroup+.abNavSection{border-top:1px solid var(--line)!important;padding-top:8px!important}
 /* V22.9.83: 소비 분석의 두 보기(한눈에 보기·종합 리포트) 탭. 화면마다 인라인으로 넣으면 /my/analysis 인라인 CSS 한도(24 KiB)를 넘어 공용 셸로 옮겼다. */
@@ -643,7 +647,7 @@ body.abV22812Shell .abV5PageHeader{max-width:1280px;margin:14px auto!important;p
 body.abV22812Shell .abV5PageHeaderTop{display:flex;align-items:flex-start;justify-content:space-between;gap:20px}
 body.abV22812Shell .abV5PageTitle{min-width:0}
 body.abV22812Shell .abV5PageHeader h1{margin:0!important;color:var(--text)!important;font-size:28px!important;line-height:1.25;letter-spacing:-.035em}
-body.abV22812Shell .abV5PageHeader p{margin:7px 0 0!important;color:var(--sub)!important;line-height:1.55!important}
+body.abV22812Shell .abV5PageHeader p{margin:8px 0 0!important;color:var(--sub)!important;line-height:1.55!important}
 body.abV22812Shell .abV5HeaderActions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
 body.abV22812Shell .abV5HeaderActions :is(a,button){display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 14px;border:1px solid var(--line)!important;border-radius:12px!important;background:var(--card-2)!important;color:var(--text)!important;text-decoration:none;font-weight:600;white-space:nowrap}
 body.abV22812Shell .abV5HeaderActions .primary{border-color:var(--ab12-action)!important;background:var(--ab12-action)!important;color:#fff!important}
@@ -653,13 +657,13 @@ body.abV22812Shell .abV5KpiGrid{display:grid!important;grid-template-columns:rep
 body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric){min-width:0;padding:16px!important;background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:16px!important;box-shadow:none!important}
 body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>span{color:var(--sub)!important;font-size:12px!important;font-weight:400!important}
 body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>b{display:block;margin:6px 0 0!important;color:var(--text)!important;font-size:clamp(18px,1.7vw,24px)!important;line-height:1.25!important;font-variant-numeric:tabular-nums;white-space:normal!important;overflow:visible!important;text-overflow:clip!important;overflow-wrap:anywhere}
-body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>small{display:block;margin-top:5px;color:var(--sub)!important;font-size:11px!important}
+body.abV22812Shell .abV5KpiGrid :is(.kpi,.metric,.homeMetric)>small{display:block;margin-top:4px;color:var(--sub)!important;font-size:11px!important}
 body.abV22812Shell .abV5SectionCard{background:var(--card)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:var(--ab12-radius,20px)!important;box-shadow:none!important}
 body.abV22812Shell .abV5FilterBar{background:color-mix(in srgb,var(--bg) 90%,transparent)!important;color:var(--text)!important;border:1px solid var(--line)!important;border-radius:16px!important;box-shadow:none!important;padding:10px!important}
 body.abV22812Shell .abV5FilterBar :is(.pchip,.fBtn,.tchip,.aChip){min-height:40px}
 body.abV22812Shell .abV5FilterBar .searchBox input{min-height:42px!important}
 body.abV22812Shell .pageMain{min-width:0}
-body.abV22812Shell .abNavGuide{display:grid!important;gap:2px!important;padding:10px 11px!important;text-decoration:none!important;line-height:1.25!important}
+body.abV22812Shell .abNavGuide{display:grid!important;gap:2px!important;padding:10px 12px!important;text-decoration:none!important;line-height:1.25!important}
 body.abV22812Shell .abNavGuide span,body.abV22812Shell .abNavGuide small{display:block!important;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.abV22812Shell.abMobileAppSurface .appTop.abV5PageHeader{position:relative!important;top:auto!important;z-index:20;width:auto!important}
 body.abV22812Shell.abMobileAppSurface .appTop.abV5PageHeader .selectLine{margin-top:14px!important}
@@ -699,7 +703,7 @@ body.abV22812Shell .abLayoutNav a[aria-current="page"]{font-weight:700!important
 
 /* V22.8.25 UI V5 global actions: search, quick entry, alerts and appearance without inline HTML growth. */
 body.abV22812Shell .abGlobalActions{position:fixed;z-index:2210;top:12px;right:18px;display:flex;align-items:center;gap:7px}
-body.abV22812Shell .abGlobalAction{display:inline-flex;min-height:42px;align-items:center;justify-content:center;gap:7px;padding:0 12px;border:1px solid var(--line)!important;border-radius:12px;background:var(--card)!important;color:var(--text)!important;box-shadow:var(--shadow);font:inherit;font-size:13px;font-weight:800;text-decoration:none;cursor:pointer}
+body.abV22812Shell .abGlobalAction{display:inline-flex;min-height:42px;align-items:center;justify-content:center;gap:8px;padding:0 12px;border:1px solid var(--line)!important;border-radius:12px;background:var(--card)!important;color:var(--text)!important;box-shadow:var(--shadow);font:inherit;font-size:13px;font-weight:800;text-decoration:none;cursor:pointer}
 body.abV22812Shell .abGlobalAction:hover{border-color:var(--accent)!important;color:var(--accent)!important}
 body.abV22812Shell .abGlobalActionPrimary{border-color:var(--ab12-action)!important;background:var(--ab12-action)!important;color:#fff!important}
 body.abV22812Shell .abGlobalActionPrimary:hover{color:#fff!important;filter:brightness(.96)}
@@ -850,7 +854,7 @@ body.abV22812Shell .abNavBudget>span b{font-size:12px;font-weight:700;color:var(
 body.abV22812Shell .abNavBudget>span em{font-style:normal;font-size:12px;font-weight:800;color:var(--accent)!important}
 body.abV22812Shell .abNavBudget.isWarn>span em{color:#f59e0b!important}
 body.abV22812Shell .abNavBudget.isOver>span em{color:#f04452!important}
-body.abV22812Shell .abNavBudgetTrack{height:7px;margin:8px 0 7px;overflow:hidden;border-radius:999px;background:var(--line)!important}
+body.abV22812Shell .abNavBudgetTrack{height:7px;margin:8px 0 8px;overflow:hidden;border-radius:999px;background:var(--line)!important}
 body.abV22812Shell .abNavBudgetTrack i{display:block;height:100%;border-radius:inherit;background:var(--accent)!important;transition:width var(--ab12-dur-gauge,620ms) var(--ab12-ease-gauge,cubic-bezier(.2,.8,.2,1))}
 /* 홈의 "수입 대비 사용" 막대는 .homeUsage.isOver 로 이미 상태를 달고 있었고, 그 색도
    MOBILE_V81_CSS 에 적혀 있었다. 그런데 위 한 줄이 !important 로 강조색을 덮어써서
@@ -946,7 +950,7 @@ body.abV22812Shell .abQuickInputScrim{position:absolute;inset:0;background:rgba(
 body.abV22812Shell .abQuickInputPanel{position:relative;width:min(100%,620px);max-height:min(90dvh,820px);display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line)!important;border-radius:22px;background:var(--card)!important;color:var(--text)!important;box-shadow:0 28px 80px rgba(15,23,42,.35)}
 body.abV22812Shell .abQuickInputHead{display:flex;align-items:center;justify-content:space-between;gap:12px;flex:none;padding:16px 18px;border-bottom:1px solid var(--line)!important;background:var(--card)!important}
 body.abV22812Shell .abQuickInputHead b{display:block;font-size:18px;font-weight:700}
-body.abV22812Shell .abQuickInputHead small{display:block;margin-top:3px;color:var(--sub)!important;font-size:12px}
+body.abV22812Shell .abQuickInputHead small{display:block;margin-top:4px;color:var(--sub)!important;font-size:12px}
 body.abV22812Shell .abQuickInputClose{display:grid;place-items:center;width:38px;height:38px;flex:none;border:1px solid var(--line)!important;border-radius:12px;background:var(--card-2)!important;color:var(--sub)!important;font:inherit;font-size:14px;cursor:pointer}
 body.abV22812Shell .abQuickInputBody{overflow:auto;padding:16px 18px 20px}
 body.abV22812Shell .abQuickInputContent{margin:0!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important}
@@ -1024,12 +1028,12 @@ body.abV22812Shell .abActivityRail{display:none}
   body.abV22812Shell .abActivityRail{position:fixed;right:0;top:0;bottom:0;z-index:2080;width:var(--abActivityRailW);display:flex;flex-direction:column;min-width:0;background:var(--card)!important;color:var(--text)!important;border-left:1px solid var(--line)!important;box-shadow:-10px 0 30px rgba(15,23,42,.07)}
   body.abV22812Shell .abActivityRail[hidden]{display:none!important}
 }
-body.abV22812Shell .abActivityHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:21px 18px 13px}
+body.abV22812Shell .abActivityHead{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:20px 18px 12px}
 body.abV22812Shell .abActivityHead span{display:block;color:var(--faint)!important;font-size:11px;font-weight:400}
 body.abV22812Shell .abActivityHead h2{margin:2px 0 0;font-size:18px;font-weight:800;letter-spacing:-.025em}
-body.abV22812Shell .abActivityHead a{color:var(--accent)!important;text-decoration:none;font-size:12px;font-weight:600;padding-top:3px}
+body.abV22812Shell .abActivityHead a{color:var(--accent)!important;text-decoration:none;font-size:12px;font-weight:600;padding-top:4px}
 body.abV22812Shell .abActivityTabs{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;margin:0 16px 12px;padding:4px;border-radius:12px;background:var(--card-2)!important}
-body.abV22812Shell .abActivityTabs button{min-height:31px;padding:0 7px;border:0;border-radius:8px;background:transparent;color:var(--faint)!important;font:inherit;font-size:11px;font-weight:700;cursor:pointer}
+body.abV22812Shell .abActivityTabs button{min-height:31px;padding:0 8px;border:0;border-radius:8px;background:transparent;color:var(--faint)!important;font:inherit;font-size:11px;font-weight:700;cursor:pointer}
 body.abV22812Shell .abActivityTabs button.active{background:var(--card)!important;color:var(--text)!important;box-shadow:0 3px 10px rgba(15,23,42,.08)}
 body.abV22812Shell .abActivityAdd{display:flex;align-items:center;gap:10px;min-height:50px;margin:0 16px 12px;padding:0 14px;border:1px solid var(--line)!important;border-radius:14px;background:var(--card)!important;color:var(--text)!important;text-decoration:none;font-size:13px;font-weight:600}
 body.abV22812Shell .abActivityAdd b{display:grid;place-items:center;width:25px;height:25px;border-radius:8px;background:var(--accent-soft)!important;color:var(--accent)!important;font-size:18px}
@@ -1040,10 +1044,10 @@ body.abV22812Shell .abActivityEmpty b{color:var(--text)!important;font-size:13px
 body.abV22812Shell .abActivityEmpty span{font-size:12px;line-height:1.5}
 body.abV22812Shell .abActivityEmpty button{min-height:36px;padding:0 12px;border:1px solid var(--line)!important;border-radius:10px;background:var(--card-2)!important;color:var(--text)!important;font:inherit;font-size:12px;font-weight:700;cursor:pointer}
 body.abV22812Shell .abActivityGroup{padding:0 14px}
-body.abV22812Shell .abActivityGroup>header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 3px 7px}
+body.abV22812Shell .abActivityGroup>header{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 4px 8px}
 body.abV22812Shell .abActivityGroup>header b,body.abV22812Shell .abActivityGroup>header span{color:var(--faint)!important;font-size:11px;font-weight:700}
-body.abV22812Shell .abActivityGroup>header span{display:flex;align-items:center;gap:7px}body.abV22812Shell .abActivityGroup>header span em{padding:2px 6px;border-radius:999px;background:var(--card-2)!important;color:var(--sub)!important;font-style:normal}body.abV22812Shell .abActivityGroup>header span b{color:var(--neg)!important;font-variant-numeric:tabular-nums}
-body.abV22812Shell .abActivityItem{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:66px;padding:8px 3px;border-bottom:1px solid color-mix(in srgb,var(--line) 72%,transparent)!important;color:var(--text)!important;text-decoration:none}
+body.abV22812Shell .abActivityGroup>header span{display:flex;align-items:center;gap:8px}body.abV22812Shell .abActivityGroup>header span em{padding:2px 6px;border-radius:999px;background:var(--card-2)!important;color:var(--sub)!important;font-style:normal}body.abV22812Shell .abActivityGroup>header span b{color:var(--neg)!important;font-variant-numeric:tabular-nums}
+body.abV22812Shell .abActivityItem{display:grid;grid-template-columns:40px minmax(0,1fr) auto;align-items:center;gap:10px;min-height:66px;padding:8px 4px;border-bottom:1px solid color-mix(in srgb,var(--line) 72%,transparent)!important;color:var(--text)!important;text-decoration:none}
 body.abV22812Shell .abActivityItem:hover,body.abV22812Shell .abActivityItem:focus-visible{background:var(--card-2)!important;border-radius:12px;padding-left:7px;padding-right:7px}
 body.abV22812Shell .abActivityItem:focus-visible{outline:3px solid var(--accent)!important;outline-offset:-1px}
 body.abV22812Shell .abActivityTypeIcon{display:grid;place-items:center;width:38px;height:38px;border-radius:12px;background:var(--card-2)!important;color:var(--sub)!important;font-style:normal}
@@ -1059,19 +1063,19 @@ body.abV22812Shell .abActivityTypeIcon.kind-leisure{background:color-mix(in srgb
 body.abV22812Shell .abActivityItem>span{min-width:0}
 body.abV22812Shell .abActivityItem>span b,body.abV22812Shell .abActivityItem>span small{display:block;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.abV22812Shell .abActivityItem>span b{font-size:13px;font-weight:700}
-body.abV22812Shell .abActivityItem>span small{display:flex;align-items:center;gap:5px;margin-top:4px;color:var(--faint)!important;font-size:11px}
-body.abV22812Shell .abActivityItem>span small em{flex:none;padding:2px 5px;border-radius:999px;background:var(--card-2)!important;color:var(--sub)!important;font-style:normal;font-weight:600}
+body.abV22812Shell .abActivityItem>span small{display:flex;align-items:center;gap:4px;margin-top:4px;color:var(--faint)!important;font-size:11px}
+body.abV22812Shell .abActivityItem>span small em{flex:none;padding:2px 4px;border-radius:999px;background:var(--card-2)!important;color:var(--sub)!important;font-style:normal;font-weight:600}
 body.abV22812Shell .abActivityItem>span small span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 body.abV22812Shell .abActivityItem>strong{display:flex;align-items:baseline;gap:2px;white-space:nowrap;color:var(--neg)!important;font-size:13px;font-weight:700;font-variant-numeric:tabular-nums}
 body.abV22812Shell .abActivityItem>strong>b{font:inherit}body.abV22812Shell .abActivityItem>strong>small{font-size:11px;font-weight:600;color:currentColor!important}
 body.abV22812Shell .abActivityItem.isIncome>strong{color:var(--pos)!important}
 body.abV22812Shell .abActivitySummary{flex:none;padding:12px 16px calc(14px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line)!important;background:var(--card)!important}
-body.abV22812Shell .abActivitySummary>div{display:inline-flex;align-items:center;gap:5px;margin-right:10px;font-size:11px}
+body.abV22812Shell .abActivitySummary>div{display:inline-flex;align-items:center;gap:4px;margin-right:10px;font-size:11px}
 body.abV22812Shell .abActivitySummary>div span{color:var(--faint)!important}
 body.abV22812Shell .abActivitySummary>div b{color:var(--text)!important;font-size:11px}
 body.abV22812Shell .abActivitySummary>div:first-child b{color:var(--pos)!important}
 body.abV22812Shell .abActivitySummary>div:nth-child(2) b{color:var(--neg)!important}
-body.abV22812Shell .abActivitySummary p{display:flex;align-items:center;justify-content:space-between;margin:9px 0 0;padding-top:9px;border-top:1px solid var(--line)!important;font-size:11px}
+body.abV22812Shell .abActivitySummary p{display:flex;align-items:center;justify-content:space-between;margin:8px 0 0;padding-top:8px;border-top:1px solid var(--line)!important;font-size:11px}
 body.abV22812Shell .abActivitySummary p span{color:var(--faint)!important}
 body.abV22812Shell .abActivitySummary p strong{color:var(--pos)!important;font-size:12px}
 body.abV22812Shell .abActivitySummary p strong.isNegative{color:var(--neg)!important}
@@ -1079,8 +1083,8 @@ body.abV22812Shell .abActivityLimitNote{margin:8px 14px 14px;padding:9px 10px;bo
 @keyframes abActivitySpin{to{transform:rotate(360deg)}}
 /* 홈에서도 챌린지를 카드로 표시하고 라이트·다크 모드 토큰을 함께 사용한다. */
 body.abV22812Shell .reportChallenge{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:18px;align-items:center;background:linear-gradient(135deg,#171a2b,#222741)!important;color:#fff!important;border:1px solid #343b5f!important;border-radius:22px;padding:18px;margin:14px 0}
-body.abV22812Shell .reportChallengeBadge{display:inline-flex;padding:5px 9px;border-radius:999px;background:var(--action,#6d5dfc)!important;color:#fff!important;font-size:11px;font-weight:500}
-body.abV22812Shell .reportChallenge h2{margin:9px 0 5px;color:#fff!important;font-size:18px}
+body.abV22812Shell .reportChallengeBadge{display:inline-flex;padding:4px 8px;border-radius:999px;background:var(--action,#6d5dfc)!important;color:#fff!important;font-size:11px;font-weight:500}
+body.abV22812Shell .reportChallenge h2{margin:8px 0 4px;color:#fff!important;font-size:18px}
 body.abV22812Shell .reportChallenge p{margin:0;color:#c7cce0!important;font-size:13px;line-height:1.55}
 body.abV22812Shell .reportChallengeDates{color:#aeb6d3!important;font-size:11px}
 body.abV22812Shell .reportChallengeTrack{height:9px;border-radius:999px;background:#30364d;overflow:hidden;margin:13px 0 7px}
@@ -1090,11 +1094,11 @@ body.abV22812Shell .reportChallengeManage{display:inline-flex;align-items:center
 body.abV22812Shell .reportChallengeActions{align-self:center;min-width:0}body.abV22812Shell .reportChallengeFormStatus{margin:8px 0 0!important;padding:8px 10px;border:1px solid #387966!important;border-radius:10px;background:#17372f!important;color:#9af0d3!important;font-size:11px!important;font-weight:700}body.abV22812Shell .reportChallengeFormStatus.isError{border-color:#86515a!important;background:#3a2229!important;color:#ffabb3!important}body.abV22812Shell .reportChallenge button{min-height:44px}
 
 
-body.abV22812Shell .reportChallengeDays{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(48px,1fr));gap:7px;margin:14px 0 9px;padding:0}body.abV22812Shell .reportChallengeDays li{position:relative;display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:center;min-height:58px;padding:7px 8px;border:1px solid #3d4569;border-radius:12px;background:#20253b}body.abV22812Shell .reportChallengeDays li>span{font-size:11px;color:#aeb6d3!important}body.abV22812Shell .reportChallengeDays li>b{grid-row:2;font-size:14px;color:#fff!important}body.abV22812Shell .reportChallengeDays li>i{grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border-radius:50%;font-style:normal;font-size:11px}body.abV22812Shell .reportChallengeDays .is-success{border-color:#387966;background:#17372f}body.abV22812Shell .reportChallengeDays .is-success>i{background:#53d7ad;color:#08251d!important}body.abV22812Shell .reportChallengeDays .is-spent{border-color:#86515a;background:#3a2229}body.abV22812Shell .reportChallengeDays .is-spent>i{background:#ff7c88;color:#351218!important}body.abV22812Shell .reportChallengeDays .is-today{border-color:#ffd45b;box-shadow:inset 0 0 0 1px #ffd45b}body.abV22812Shell .reportChallengeDays .is-today>i{background:#ffd45b;color:#332600!important}body.abV22812Shell .reportChallengeDays .is-future>i{border:1px solid #59617d}body.abV22812Shell .reportChallengeLegend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-1px 0 9px;color:#c7cce0!important;font-size:11px;font-weight:400}body.abV22812Shell .reportChallengeLegend .is-success{color:#7ce6c3!important}body.abV22812Shell .reportChallengeLegend .is-spent{color:#ff9ba4!important}body.abV22812Shell .reportChallengeLegend .is-today{color:#ffd45b!important}body.abV22812Shell .reportChallengePercent{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:10px;margin:13px 0 8px}body.abV22812Shell .reportChallengePercent>b{font-size:20px;color:#ffd45b!important}body.abV22812Shell .reportChallengePercent .reportChallengeTrack{margin:0}body.abV22812Shell .reportChallengePercent>span{font-size:11px;color:#c7cce0!important;white-space:nowrap}
+body.abV22812Shell .reportChallengeDays{list-style:none;display:grid;grid-template-columns:repeat(auto-fit,minmax(48px,1fr));gap:8px;margin:14px 0 8px;padding:0}body.abV22812Shell .reportChallengeDays li{position:relative;display:grid;grid-template-columns:1fr auto;grid-template-rows:auto auto;align-items:center;min-height:58px;padding:8px 8px;border:1px solid #3d4569;border-radius:12px;background:#20253b}body.abV22812Shell .reportChallengeDays li>span{font-size:11px;color:#aeb6d3!important}body.abV22812Shell .reportChallengeDays li>b{grid-row:2;font-size:14px;color:#fff!important}body.abV22812Shell .reportChallengeDays li>i{grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border-radius:50%;font-style:normal;font-size:11px}body.abV22812Shell .reportChallengeDays .is-success{border-color:#387966;background:#17372f}body.abV22812Shell .reportChallengeDays .is-success>i{background:#53d7ad;color:#08251d!important}body.abV22812Shell .reportChallengeDays .is-spent{border-color:#86515a;background:#3a2229}body.abV22812Shell .reportChallengeDays .is-spent>i{background:#ff7c88;color:#351218!important}body.abV22812Shell .reportChallengeDays .is-today{border-color:#ffd45b;box-shadow:inset 0 0 0 1px #ffd45b}body.abV22812Shell .reportChallengeDays .is-today>i{background:#ffd45b;color:#332600!important}body.abV22812Shell .reportChallengeDays .is-future>i{border:1px solid #59617d}body.abV22812Shell .reportChallengeLegend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-1px 0 8px;color:#c7cce0!important;font-size:11px;font-weight:400}body.abV22812Shell .reportChallengeLegend .is-success{color:#7ce6c3!important}body.abV22812Shell .reportChallengeLegend .is-spent{color:#ff9ba4!important}body.abV22812Shell .reportChallengeLegend .is-today{color:#ffd45b!important}body.abV22812Shell .reportChallengePercent{display:grid;grid-template-columns:auto minmax(120px,1fr) auto;align-items:center;gap:10px;margin:13px 0 8px}body.abV22812Shell .reportChallengePercent>b{font-size:20px;color:#ffd45b!important}body.abV22812Shell .reportChallengePercent .reportChallengeTrack{margin:0}body.abV22812Shell .reportChallengePercent>span{font-size:11px;color:#c7cce0!important;white-space:nowrap}
 
 body.abV22812Shell .reportChallengeDays li:after{content:"";grid-column:2;grid-row:1/3;display:grid;place-items:center;width:21px;height:21px;border:1px solid #59617d;border-radius:50%;font-size:11px}body.abV22812Shell .reportChallengeDays .is-success:after{content:"✓";border-color:#53d7ad;background:#53d7ad;color:#08251d}body.abV22812Shell .reportChallengeDays .is-spent:after{content:"−";border-color:#ff7c88;background:#ff7c88;color:#351218}body.abV22812Shell .reportChallengeDays .is-today:after{content:"●";border-color:#ffd45b;background:#ffd45b;color:#332600}
 body.abV22812Shell .v8-tx summary{display:flex;align-items:center;min-height:44px;padding:4px 0}body.abV22812Shell .kwRemove{width:32px!important;height:32px!important;min-height:32px!important}
-@media(max-width:899px){body.abV22812Shell .reportChallenge{grid-template-columns:1fr;padding:15px;border-radius:20px}body.abV22812Shell .kwRemove{width:40px!important;height:40px!important;min-height:40px!important}}
+@media(max-width:899px){body.abV22812Shell .reportChallenge{grid-template-columns:1fr;padding:16px;border-radius:20px}body.abV22812Shell .kwRemove{width:40px!important;height:40px!important;min-height:40px!important}}
 @media(prefers-reduced-motion:reduce){body.abV22812Shell .abActivityLoading i{animation:none}body.abV22812Shell .abNavToggleIcon{transition:none}}
 
 /* V22.8.61 모바일 상단바·전체 메뉴·빠른 입력 시트 정리.
@@ -1159,10 +1163,10 @@ body.abV22812Shell.abPageAssets .heroChips span{background:var(--card-2)!importa
    같은 CSS 를 1년 캐시되는 이 자산에 한 번만 두면 마크업에는 날짜·금액·막대 길이만
    남는다. 절충의 전제였던 무게 자체를 없앤 셈이다. */
 body.abV22812Shell .readableTrendGrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(64px,1fr));gap:6px;width:100%;box-sizing:border-box}
-body.abV22812Shell .readableTrendGrid .dailyCell{display:grid;gap:6px;background:#F8F9FB;border:1px solid #EEF0F3;border-radius:12px;padding:8px 9px;box-sizing:border-box;text-decoration:none;color:inherit}
+body.abV22812Shell .readableTrendGrid .dailyCell{display:grid;gap:6px;background:#F8F9FB;border:1px solid #EEF0F3;border-radius:12px;padding:8px 8px;box-sizing:border-box;text-decoration:none;color:inherit}
 body.abV22812Shell .readableTrendGrid .dailyCell.hasValue{background:#EFF6FF;border-color:#DBEAFE}
 body.abV22812Shell .readableTrendGrid .dailyTop{display:flex;align-items:center;justify-content:space-between;gap:6px}
-body.abV22812Shell .readableTrendGrid .dailyTop b{font-size:14px;line-height:1;color:#4E5968}
+body.abV22812Shell .readableTrendGrid .dailyTop b{font-size:14px;line-height:1;color:#475467}
 body.abV22812Shell .readableTrendGrid .dailyTop small{font-size:11px;font-weight:500;color:#8B95A1}
 body.abV22812Shell .readableTrendGrid .dailyAmt{font-size:13px;font-weight:500;color:#B0B8C1;white-space:nowrap;letter-spacing:-.02em}
 body.abV22812Shell .readableTrendGrid .hasValue .dailyAmt{color:var(--accent)!important}
@@ -1371,7 +1375,7 @@ body.abV22812Shell .seriesLegend span{display:inline-flex;align-items:center}
 body.abV22812Shell .seriesLegend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px}
 @media(max-width:760px){body.abV22812Shell .seriesCol{min-width:44px}}
 body.abV22812Shell .heroChips{display:flex!important;flex-wrap:wrap;gap:6px!important;margin-top:8px!important}
-body.abV22812Shell .heroChips>span{min-height:0!important;padding:5px 10px!important;font-size:12px!important}
+body.abV22812Shell .heroChips>span{min-height:0!important;padding:4px 10px!important;font-size:12px!important}
 body.abV22812Shell .abHeadNote p{margin:0!important;font-size:13px!important;line-height:1.5!important;color:var(--sub)!important}
 body.abV22812Shell .abHeadNote.isFolded p{display:none}
 /* 접기 버튼은 안내문의 일부처럼 조용해야 한다 — 화면의 주된 행동이 아니다. */
@@ -1390,7 +1394,7 @@ body.abV22812Shell .abV5ControlBar{margin-top:12px!important;grid-template-colum
 body.abV22812Shell .abV5PageHeader .abV5ControlBar :is(input,select,button){min-height:40px!important;height:auto!important}
 body.abV22812Shell .abV5ControlBar button{padding-inline:16px!important}
 @media(max-width:480px){
-  body.abV22812Shell .abV5PageHeader{padding:13px 14px!important}
+  body.abV22812Shell .abV5PageHeader{padding:12px 14px!important}
   body.abV22812Shell .abV5PageHeader h1{font-size:20px!important}
 }
 /* V22.9.79 F-10: 관리자 백업 화면(백업센터·미리보기·비교·후보·최종 확인·실제 적용·이력·되돌리기)의 표시 결함.
@@ -1496,6 +1500,17 @@ body.abV22812Shell .scroll.abStackWrap{overflow:visible!important;border:0!impor
 @media(min-width:768px) and (max-width:1099px){
 body.abV22812Shell .tableWrap.abStackWrap>table.abStackTable{min-width:0!important}
 }
+`
+  // V22.9.136 (간격·색 정리): 어두운 테마에서 고른 것과 안 고른 것이 면 대비 2.1~2.7 로만 갈리던 곳(화면 측정의 선택 구분 실패)에 밝은 테두리·안쪽 선을 더한다.
+  // 면·글자색은 그대로다. 아래 V22.9.40 (C) 블록 앞에 끼운다.
+  + `/* ── V22.9.136 (간격·색 정리: 어두운 테마의 선택 구분) ─────────────────────────────
+   고른 칸의 면(파랑)과 안 고른 칸의 면(어두운 회색)의 대비가 3:1 이 안 되던 곳. 테두리가 있는 칩은 테두리와 안쪽 1px 선(합쳐 2px)을, 테두리가 없는 칸은
+   안쪽 2px 선을 톤의 밝은 강조색으로 그린다(파랑 톤 #93c5fd — 안 고른 칩의 테두리 #3b475a 와 5.2:1, 옆 칸의 면 #282b33 와 7.8:1).
+   대비 높이기 설정(prefers-contrast:more)에서는 안 고른 칩의 테두리가 #64748b 로 밝아져 테두리끼리는 2.6:1 이 된다 — 칩의 안쪽 선이 옆 칸의 면과 7.8:1 로 가른다.
+   분석 칩 규칙은 위의 어두운 테마 규칙(:is 안에 .seg button.on 이 있어 우선순위가 한 단계 높다)을 이기도록 :not(.applyBtn) 을 붙였다 — 적용 단추는 그대로 채움색 테두리. */
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageReserve .reserveTypeSeg input:checked+span{box-shadow:inset 0 0 0 2px #93c5fd}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageInsight :is(.pchip.on,.fBtn.on,.tchip.on):not(.applyBtn){border-color:var(--ab12-accent)!important;box-shadow:inset 0 0 0 1px var(--ab12-accent)!important}
+html[data-ab-resolved-theme="dark"] body.abV22812Shell.abPageInsight .seg button.on{box-shadow:inset 0 0 0 2px var(--ab12-accent)!important}
 `
   + `/* ── V22.9.40 (C) 점진적 최신 규칙 ──
    모르는 브라우저는 모르는 속성·@supports 블록을 통째로 건너뛰므로 아무것도 바뀌지 않는다.

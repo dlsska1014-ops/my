@@ -60,13 +60,15 @@ const HOME_200_MAX = 40636;
 // 그 주석으로 272,375 B 다(+4,726 B). 홈 HTML 에는 아무것도 더하지 않았다.
 // V22.9.125(글자·굵기 눈금, 위계, 밀도): 이번 판 블록(규칙이 없어 13.33px 이던 단추·small 13px 세 줄, 홈 위계 여덟 줄, 소비 분석의 비율 글자 한 줄, 휴대폰 여백 한 줄, 설정 표 감싸개와
 // 768~1099px 표 최소 폭 두 줄)과 그 주석이 더해지고, 굵기·크기 값을 눈금으로 바꾼 자리(1000 → 800·13.5px → 14px 등)에서 조금 줄어 274,927 B 다(+2,552 B).
-const SHELL_CSS_MAX_BYTES = 274927;
+// V22.9.136(간격·색 정리): 어두운 테마의 선택 구분 세 줄(정기 수입·지출 고르기의 안쪽 선, 분석 칩 테두리와 안쪽 선, 분석 수입·지출 칸의 안쪽 선)과 그 주석,
+// 바탕 규칙 바꾸기 한 쌍(예산 상단 칩 글자색)으로 276,402 B 다(+1,475 B). 간격·글자색은 값만 바꿨다(9px → 8px·#667085 → #5f6b7a 등, 바이트 수 그대로).
+const SHELL_CSS_MAX_BYTES = 276402;
 // V22.9.85: R-3·R-6·R-7 의 다크·초점 규칙이 이미 !important 인 규칙(모든 링크 강조색·다크 표면 목록·옛 2px 초점 링)을 이겨야 해서 12회 늘었다.
 // V22.9.86: 81회 늘었다. 모두 이미 !important 인 옛 규칙(머리말 단추 40px·탭 바 높이·칩 패딩·빠른 입력 시트·알림 면 색·옛 칩 무리·outline:0)을 이겨야 하는 자리다.
 // V22.9.87: T-19 가 49회 늘렸다. 보조기기용 숨김 글자 두 곳(9회씩, 접은 사이드바 메뉴 링크와 같은 방식) 18회와, 옛 !important 규칙(독 가운데 놓기·흐림·테두리·그림자,
 // 머리말·리포트 단추 크기와 여백 3px, 서랍 단추 색)을 이겨야 하는 자리 31회다. T-16 단추는 고대비 모드 테두리가 이기도록 !important 를 쓰지 않는다.
 // V22.9.87 V85:R-9: 6회 — 옛 현재 메뉴 규칙 셋(V22.8.11 셸의 #1b64da, :is 묶음, accent-weak)과 다크 링크 강조색(R-3)이 모두 !important 라 이겨야 한다.
-// V22.9.87 사용자 결정(2026-10-29): 6회 — 실행 취소 단추 바탕·글자색 3회(V87:W-4, mobile-home-v229125.css 의 파랗게 채운 submit 규칙이 !important),
+// V22.9.87 사용자 결정(2026-10-29): 6회 — 실행 취소 단추 바탕·글자색 3회(V87:W-4, mobile-home-v229136.css 의 파랗게 채운 submit 규칙이 !important),
 // 리포트 기간 탭 글자색 2회(V85:R-10, 다크 링크 강조색 R-3 이 !important), 글꼴 목록 1회(T-23, 옛 UI 런타임 body.abV2281 글꼴 규칙이 !important).
 // 단추 테두리는 고대비 모드 테두리가 이기도록 여전히 !important 를 쓰지 않는다.
 // V22.9.93(Aside 2차 검수): 9회 — 다크 상태 배지 8회(쪽마다 둔 밝은 바탕과 셸의 다크 글자색이 !important 라 이겨야 한다), 좁은 폭 달 칸 1회(옛 조회 줄 열 규칙이 !important).
@@ -74,11 +76,13 @@ const SHELL_CSS_MAX_BYTES = 274927;
 // (옛 UI 런타임과 화면 인라인의 표·칸 테두리·바탕·여백·최소 폭 규칙이 !important 다).
 // V22.9.125(글자·굵기 눈금, 위계, 밀도): 8회 — 휴대폰 본문 위 여백 1회(옛 main.wrap 여백 규칙이 !important), 설정 표 감싸개(.scroll.abStackWrap) 6회와
 // 768~899px 표 최소 폭 1회(화면 인라인의 표·감싸개 규칙이 !important). 굵기·크기 규칙은 !important 를 더하지 않았다(값만 바꿨다).
-const SHELL_IMPORTANT_MAX = 1720;
+// V22.9.136(간격·색 정리): 3회 — 분석 칩 테두리·안쪽 선 2회와 분석 수입·지출 칸의 안쪽 선 1회(옛 :is 묶음 규칙이 border-color·box-shadow 를 !important 로 둔다).
+// 정기 수입·지출 고르기의 안쪽 선은 그 칸에 옛 box-shadow 규칙이 없어 !important 를 쓰지 않는다.
+const SHELL_IMPORTANT_MAX = 1723;
 const HOME_CSS_IMPORTANT_MAX = 368;
 
-const SHELL = "/assets/accountbook-shell-v229125.css";
-const HOME_CSS = "/assets/mobile-home-v229125.css";
+const SHELL = "/assets/accountbook-shell-v229136.css";
+const HOME_CSS = "/assets/mobile-home-v229136.css";
 const V5 = "/assets/accountbook-v5-v22993.js";
 const HOME_JS = "/assets/mobile-home-v22995.js";
 const HOME_SHELL_JS = "/assets/mobile-home-shell-v22995.js";

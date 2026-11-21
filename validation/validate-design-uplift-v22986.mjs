@@ -24,7 +24,7 @@ const t = counter("V22.9.86 디자인 보강 3단계(모바일 홈 머리말·�
 const HH = "house-home";
 const HOME = `/app?month=2026-07&household_id=${HH}`;
 const UA = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)";
-const SHELL = "/assets/accountbook-shell-v229125.css";
+const SHELL = "/assets/accountbook-shell-v229136.css";
 const V5 = "/assets/accountbook-v5-v22993.js";
 const HOME_SHELL_JS = "/assets/mobile-home-shell-v22995.js";
 const count = (text, needle) => String(text).split(needle).length - 1;
