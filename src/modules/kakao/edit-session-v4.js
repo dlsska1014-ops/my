@@ -140,6 +140,8 @@ async function writeKakaoEditUndoItemsV4(env, kakaoUserKey = "", payload = {}, i
 // 읽은 뒤 관리자가 지출자를 바꿨거나 다른 사람이 고쳤으면 지우지 않고, 버퍼를 앞의 값으로 되돌린 뒤 kakaoDeleteConflict 오류를 올린다.
 // 카카오로 쓴 기록(source_user_key 있음)은 지출자가 바뀌어도 쓴 사람의 기록이라(isKakaoRowOwnedByRequesterV2254) 예전처럼 감사 삭제 함수로 지운다.
 // role 을 모르면(빈 값) 구성원처럼 조건부로 지운다.
+// V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 구성원도 번호로 다른 사람의 기록을 지운다. 판정은 그대로다 — 웹에서 만든 기록은 누구 것이든 읽은 일곱 칸
+// (지출자 = 읽은 사람)이 그대로일 때만 지우고, 카카오로 쓴 기록은 누구 것이든 소유자·관리자처럼 감사 삭제 함수로 지운다. 버퍼(되돌리기)는 지운 사람의 것이다.
 async function deleteKakaoRowWithUndoV4(env, { kakaoUserKey = "", payload = {}, householdId = "", householdName = "", userId = "", role = "" } = {}, row = {}, seq = 0) {
   return withKakaoEditUndoLeaseV4(env, kakaoUserKey, payload, async ({ assertFresh }) => {
     // V22.9.80 T-13: 환불 연결이 켜져 있으면 지우기 전에 이 기록의 연결 수를 함께 읽어 버퍼에 적는다(같은 단계라 왕복이 늘지 않는다).
@@ -197,10 +199,11 @@ function kakaoEditTargetRejectTextV4(target = {}) {
 }
 
 // T2: 무엇을 지웠는지 답장에 적는다. 번호는 지운 뒤 밀리므로 이름이 있어야 확인할 수 있다.
-function kakaoEditDeletedTextV4(row = {}, seq = 0, refundLinks = undefined) {
+// V22.9.135 N-2: ownerSuffix — 다른 사람의 기록을 지웠으면 기록 줄 끝에 그 기록의 지출자(수입자) 이름 ‘ (이름)’ 을 붙인다(kakaoRowOwnerSuffixV229135).
+function kakaoEditDeletedTextV4(row = {}, seq = 0, refundLinks = undefined, ownerSuffix = "") {
   // V22.9.81 U-13: 번호를 모르는 기록(그날 목록 밖의 ‘방금 삭제’)은 번호 없이 적고 번호 없는 ‘복구’(가장 최근 삭제)로 안내한다.
   const numbered = Number(seq) >= 1;
-  return `🗑️ ${kakaoEditDayPrefixV4(row.transaction_date)}${numbered ? `${twoDigitSeq(seq)}번 ` : ""}기록을 삭제했어요.\n${kakaoRowLabel(row, seq)}\n되돌리려면: ${numbered ? `복구 ${twoDigitSeq(seq)}번` : "복구"}${kakaoRefundLinkUndoNoteV4(refundLinks, "delete")}`;
+  return `🗑️ ${kakaoEditDayPrefixV4(row.transaction_date)}${numbered ? `${twoDigitSeq(seq)}번 ` : ""}기록을 삭제했어요.\n${kakaoRowLabel(row, seq)}${ownerSuffix}\n되돌리려면: ${numbered ? `복구 ${twoDigitSeq(seq)}번` : "복구"}${kakaoRefundLinkUndoNoteV4(refundLinks, "delete")}`;
 }
 
 // V22.9.80 T-13: 버퍼에 적은 환불 연결 수(refund_links)로 삭제·복구 답장에 붙일 한 줄. 칸이 없거나 0 이면 "".
@@ -266,16 +269,18 @@ function isKakaoRowOwnedByRequesterV2254(row = {}, userId = "", kakaoUserKey = "
   return String(row?.user_id || "") === String(userId || "");
 }
 
-// V22.9.80 T-10: 그날 가계부 기록을 오래된 순으로 500건까지만 읽는다(내 기록은 읽은 뒤 거른다). 정확히 500건이 돌아오면 그날 뒤쪽 기록이 목록에
+// V22.9.80 T-10: 그날 가계부 기록을 오래된 순으로 500건까지만 읽는다(V22.9.134 까지는 내 기록만 읽은 뒤 걸렀다). 정확히 500건이 돌아오면 그날 뒤쪽 기록이 목록에
 // 없을 수 있으므로, 돌려주는 배열의 dailyLimit 에 그 한도(500)를 달아 답장이 한 줄로 말하게 한다 — 더 읽는 요청은 하지 않는다(답장 4초 안).
 const KAKAO_DAILY_ROW_LIMIT_V22980 = 500;
-// V22.9.134 N-1: 같은 읽기에서 그날 다른 사람이 남긴 기록 수(othersCount)도 달아 둔다 — 번호를 찾지 못한 답이 ‘번호는 사람마다 따로’ 라고 말할 때 쓴다(조회는 그대로 한 번).
+// V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 하루 번호는 그날 가계부 기록 전체의 저장 순서다. 예전(V22.9.76~134)에는 기록한 사람마다
+// 01번부터 따로 매겨, 다른 사람의 저장 답에 적힌 ‘삭제 02번’ 을 따라 보낸 사람에게는 다른 기록(또는 없는 번호)이었다. 이제 같은 가계부의 누구든
+// 같은 번호로 같은 기록을 가리킨다. 고치고 지울 수 있는지는 부르는 곳이 역할과 구성원 권한(‘기록만’)으로 본다.
+// userId·kakaoUserKey 는 더 이상 거르는 데 쓰지 않는다(부르는 곳의 꼴을 그대로 두려고 받기만 한다).
 async function getDailyKakaoRows(env, householdId, userId, kakaoUserKey, date) {
   const rows = await getDailyKakaoRawRows(env, householdId, date);
-  const own = rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey));
-  own.dailyLimit = rows.length >= KAKAO_DAILY_ROW_LIMIT_V22980 ? KAKAO_DAILY_ROW_LIMIT_V22980 : 0;
-  own.othersCount = rows.length - own.length;
-  return own;
+  const all = rows.slice();
+  all.dailyLimit = rows.length >= KAKAO_DAILY_ROW_LIMIT_V22980 ? KAKAO_DAILY_ROW_LIMIT_V22980 : 0;
+  return all;
 }
 
 async function getDailyKakaoRawRows(env, householdId, date) {
@@ -290,13 +295,21 @@ async function getDailyKakaoRawRows(env, householdId, date) {
   return rows;
 }
 
-function kakaoDailySeqFromRows(rows, row, userId, kakaoUserKey) {
-  const own = rows.filter(item => isKakaoRowOwnedByRequesterV2254(item, userId, kakaoUserKey));
-  own.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")) || String(a.id).localeCompare(String(b.id)));
-  const index = own.findIndex(item => String(item.id) === String(row.id));
+// V22.9.135 N-2: 그날 가계부 기록 전체에서의 번호(저장 순서). 0 = 목록에 없다.
+function kakaoDailySeqFromRows(rows, row) {
+  const all = safeArray(rows).slice();
+  all.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")) || String(a.id).localeCompare(String(b.id)));
+  const index = all.findIndex(item => String(item.id) === String(row.id));
   return index >= 0 ? index + 1 : 0;
 }
 
+// V22.9.135: 그날 내 기록만 센 순서(V22.9.134 까지의 번호). 오늘의 첫 기록 답의 요약 단추(V22.9.123)를 사람마다 그날 첫 기록에 붙이는 데만 쓴다.
+function kakaoOwnDailySeqFromRowsV229135(rows, row, userId, kakaoUserKey) {
+  return kakaoDailySeqFromRows(safeArray(rows).filter((item) => isKakaoRowOwnedByRequesterV2254(item, userId, kakaoUserKey)), row);
+}
+
+// V22.9.135 N-2: 이 가계부의 기록이면 누가 남겼든 돌려준다. 고치기·지우기·되살리기를 해도 되는지는 부르는 곳이 역할과 구성원 권한으로 이미 봤다
+// (예전에는 남이 남긴 기록이면 null 이라, 열어 둔 수정 창·복구가 ‘찾지 못했어요’ 로 끝났다). userId·kakaoUserKey 는 받기만 한다.
 async function getKakaoRowById(env, householdId, userId, kakaoUserKey, id) {
   const params = new URLSearchParams();
   params.set("select", KAKAO_TX_SELECT_V4);
@@ -304,8 +317,7 @@ async function getKakaoRowById(env, householdId, userId, kakaoUserKey, id) {
   params.set("household_id", `eq.${householdId}`);
   params.set("limit", "1");
   const rows = (await supabase(env, `/rest/v1/transactions?${params.toString()}`, { method: "GET" })) || [];
-  const row = rows[0] || null;
-  return row && isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey) ? row : null;
+  return rows[0] || null;
 }
 
 async function findDailyKakaoRowBySeq(env, householdId, userId, kakaoUserKey, date, seq) {
@@ -317,7 +329,28 @@ async function findDailyKakaoRowBySeq(env, householdId, userId, kakaoUserKey, da
 
 async function dailySeqForKakaoRow(env, householdId, userId, kakaoUserKey, row = {}) {
   const rows = await getDailyKakaoRows(env, householdId, userId, kakaoUserKey, row.transaction_date || formatDate(nowKstDate()));
-  return kakaoDailySeqFromRows(rows, row, userId, kakaoUserKey);
+  return kakaoDailySeqFromRows(rows, row);
+}
+
+// V22.9.135: 저장 답의 번호. seq = 가계부 전체 번호, ownSeq = 내 기록만 센 번호(오늘의 첫 기록 판단에만 쓴다).
+// 저장 답은 저장 전에 읽은 그날 목록(중복 확인용)을 넘기고, 그 목록이 없을 때만 저장한 뒤 읽는다(kakaoDailySeqPairV229135 — 저장소 호출 수는 V22.9.134 와 같다).
+// 저장 전 읽기와 저장 사이에 다른 사람이 저장하면 seq 가 하나 어긋날 수 있다(transaction-save.js 의 설명 — 알고 둔 한계).
+// 그날 읽은 범위가 한도(500건)에 닿았으면 둘 다 0 이다(번호를 모른다 — 예전과 같다). 읽은 목록에 그 기록이 없으면 끝에 더해 센다.
+function kakaoDailySeqPairFromRowsV229135(rows, row = {}, userId = "", kakaoUserKey = "") {
+  const list = safeArray(rows);
+  if (list.length >= KAKAO_DAILY_ROW_LIMIT_V22980) return { seq: 0, ownSeq: 0 };
+  const full = list.some((item) => String(item.id) === String(row.id)) ? list : [...list, row];
+  return { seq: kakaoDailySeqFromRows(full, row), ownSeq: kakaoOwnDailySeqFromRowsV229135(full, row, userId, kakaoUserKey) };
+}
+async function kakaoDailySeqPairV229135(env, householdId, userId, kakaoUserKey, row = {}) {
+  const rows = await getDailyKakaoRawRows(env, householdId, row.transaction_date || formatDate(nowKstDate()));
+  return kakaoDailySeqPairFromRowsV229135(rows, row, userId, kakaoUserKey);
+}
+
+// V22.9.135 N-2: 기록 줄 끝에 붙이는 지출자(수입은 수입자) 이름 ‘ (이름)’. 이름표(memberNameMap)에 없으면 붙이지 않는다.
+function kakaoRowOwnerSuffixV229135(row = {}, names = null) {
+  const name = names ? String(names[String(row?.user_id || "")] || "").replace(/\s+/g, " ").trim() : "";
+  return name ? ` (${name})` : "";
 }
 
 // V22.9.79: PostgREST 논리 조건의 값은 큰따옴표로 감싼다(쉼표·점·콜론·괄호가 든 키도 값 그대로 읽힌다). 따옴표와 역슬래시만 이스케이프한다.
@@ -362,6 +395,37 @@ async function getRecentKakaoOwnedTransactionsV2254(env, householdId, userId, ka
     rows = (await supabase(env, query(null), { method: "GET" })) || [];
   }
   return rows.filter((row) => isKakaoRowOwnedByRequesterV2254(row, userId, kakaoUserKey)).slice(0, wanted);
+}
+
+// V22.9.135 N-2: 이 사람이 이 가계부에서 마지막으로 고친 기록(누가 남긴 기록이든). 구성원도 다른 사람의 기록을 고치게 되어, 위의 touched(내 기록만)로는
+// ‘수정 03번 금액 5000’ 으로 남의 기록을 고친 직후의 ‘방금 거 지워줘’ 를 알아보지 못한다 — V22.9.116 이 막은 일(고친 기록이 아니라 마지막에 저장한
+// 기록을 묻지 않고 지움)이 남의 기록에서 다시 생긴다. 고치는 모든 길(카카오·웹, 감사 RPC accountbook_update_transaction_v227 와 조건부 저장)이 감사 기록에
+// action 'update'·행위자·고친 기록 번호를 남기므로 그 최근 줄을 읽는다(색인 household_id, created_at desc).
+// 그 뒤 지워진 기록은 ‘방금’ 의 후보가 아니다(내 기록의 바뀐 순서(V22.9.116)도 지운 기록은 세지 않는다 — 독립 검토 2026-11-21 2차: 고친 남의 기록이 지워진 뒤에도
+// 다시 저장할 때까지 ‘방금’ 이 늘 물었다). 그래서 최근 감사 줄 몇 개(KAKAO_LATEST_EDIT_ROWS_V229135)를 읽고, 그 기록들이 지금도 이 가계부에 있는지
+// 한 번에 다시 읽어(읽기 둘 — 이어서) 있는 것 가운데 가장 늦게 고친 기록을 지금 행으로 돌려준다(그 뒤 누가 또 고쳤거나 날짜를 바꿨어도 지금 값·날짜·번호로
+// 보인다). 감사 줄에 적힌 고친 뒤의 값(after_value)은 쓰지 않는다 — 이 가계부에서 다시 읽어 찾은 기록만 믿는다.
+// { row: 그 기록의 지금 행, at: 고친 시각 } 이고, 없으면 null 이다. 부르는 곳이 실패·늦음을 null 로 다룬다(그때는 V22.9.134 와 같다).
+const KAKAO_LATEST_EDIT_ROWS_V229135 = 10;
+async function getLatestKakaoEditByRequesterV229135(env, householdId = "", userId = "") {
+  if (!householdId || !userId) return null;
+  const params = new URLSearchParams();
+  params.set("select", "transaction_id,created_at");
+  params.set("household_id", `eq.${householdId}`);
+  params.set("actor_user_id", `eq.${userId}`);
+  params.set("action", "eq.update");
+  params.set("order", "created_at.desc,id.desc");
+  params.set("limit", String(KAKAO_LATEST_EDIT_ROWS_V229135));
+  const rows = await supabase(env, `/rest/v1/accountbook_transaction_audit?${params.toString()}`, { method: "GET" });
+  // 기록 번호(uuid)만 받는다 — 아래 in.(…) 목록에 그대로 넣기 때문이다.
+  const edits = (Array.isArray(rows) ? rows : []).filter((entry) => /^[\w-]{1,64}$/.test(String(entry?.transaction_id || "")));
+  if (!edits.length) return null;
+  const ids = [...new Set(edits.map((entry) => String(entry.transaction_id)))];
+  const live = new URLSearchParams({ select: KAKAO_TX_SELECT_V4, household_id: `eq.${householdId}`, id: `in.(${ids.join(",")})`, limit: String(ids.length) });
+  const found = await supabase(env, `/rest/v1/transactions?${live.toString()}`, { method: "GET" });
+  const byId = new Map((Array.isArray(found) ? found : []).map((row) => [String(row.id), row]));
+  const latest = edits.find((entry) => byId.has(String(entry.transaction_id)));
+  return latest ? { row: byId.get(String(latest.transaction_id)), at: String(latest.created_at || "") } : null;
 }
 
 function isKakaoDailyListCommand(text = "") {
@@ -599,16 +663,17 @@ export {
   KAKAO_LATEST_AMOUNT_EDIT_V4, KAKAO_SEQ_AMOUNT_EDIT_V4, KAKAO_TX_SELECT_V4,
   clearKakaoEditSessionHintV229126, dailySeqForKakaoRow, deleteKakaoRowWithUndoV4,
   findDailyKakaoRowBySeq, getDailyKakaoRawRows, getDailyKakaoRows, getKakaoEditSessionV4,
-  getKakaoRowById, getRecentKakaoOwnedTransactionsV2254, hasKakaoEditSessionHint,
-  isKakaoDailyListCommand, isKakaoEditCancelCommand, isKakaoEditGuideCommand,
-  isKakaoSessionSeqReplyV4, isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers,
-  kakaoDailySeqFromRows, kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4,
-  kakaoEditGuideText, kakaoEditInputTextV4, kakaoEditMenuTextV4, kakaoEditRecordLineV4,
-  kakaoEditSessionKeyV4, kakaoEditSessionTextV4, kakaoEditTargetRejectTextV4,
-  kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4, kakaoRowLabel, parseKakaoDeleteCommandV4,
-  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue,
-  postgrestQuotedValueV22979, readKakaoEditUndoItemsV4, resolveKakaoEditDateV4,
-  saveKakaoEditSessionV4, stripKakaoEditDatePrefixV4, twoDigitSeq, withKakaoEditUndoLeaseV4,
-  writeKakaoEditUndoItemsV4,
+  getKakaoRowById, getLatestKakaoEditByRequesterV229135, getRecentKakaoOwnedTransactionsV2254,
+  hasKakaoEditSessionHint, isKakaoDailyListCommand, isKakaoEditCancelCommand,
+  isKakaoEditGuideCommand, isKakaoRowOwnedByRequesterV2254, isKakaoSessionSeqReplyV4,
+  isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers,
+  kakaoDailySeqPairFromRowsV229135, kakaoDailySeqPairV229135, kakaoEditDayPrefixV4,
+  kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditInputTextV4,
+  kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditSessionKeyV4, kakaoEditSessionTextV4,
+  kakaoEditTargetRejectTextV4, kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4, kakaoRowLabel,
+  kakaoRowOwnerSuffixV229135, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
+  parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue, postgrestQuotedValueV22979,
+  readKakaoEditUndoItemsV4, resolveKakaoEditDateV4, saveKakaoEditSessionV4,
+  stripKakaoEditDatePrefixV4, twoDigitSeq, withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
 };
 // @build:exports-end

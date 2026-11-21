@@ -31,7 +31,7 @@ import {
   fetchRawHouseholdMembers, withKakaoUserLifecycleLease,
 } from "../data/users-household-create.js";
 import {
-  canWriteMyHousehold, memberRecordChangeError, memberRecordChangeMessage,
+  canManageMyRecord, canWriteMyHousehold, memberRecordChangeError, memberRecordChangeMessage,
 } from "../my/access-control.js";
 import { activeSpenderExists, getTransactionForUserEdit } from "../my/transactions.js";
 import { purgeHouseholdData, removeMemberAlias } from "../my/households-lifecycle.js";
@@ -232,8 +232,9 @@ async function resolveTransactionAccess(request, env, householdId, { manageOnly 
 // 코드만 안내로 바꾸는 홈·정기 화면이 ‘입력값을 확인한 뒤 다시 시도해 주세요’로 닫았다 — 조회 전용·이용 제한이 입력 오류처럼 보였다.
 //   - 역할 조회 실패(lookupCode)는 그대로 돌려준다.
 //   - 새 기록 입력(row 를 넘기지 않음): 조회 전용·승인 대기·이용 제한·참여자 아님을 역할별 코드로 말한다.
-//   - 기존 기록을 가리키는 요청(수정·삭제): 그 기록이 요청이 말한 가계부(householdId)의 것일 때만 역할별로 말하고, 기록이 없거나 다른 가계부의 것이거나 남의 기록이면
-//     모두 같은 not_my_record 다. 기록 id 가 어느 가계부에 있는지(또는 없는지)가 거절 문구 차이로 새지 않게 한다 — 예전 문장도 모든 경우에 같았다.
+//   - 기존 기록을 가리키는 요청(수정·삭제): 그 기록이 요청이 말한 가계부(householdId)의 것일 때만 역할별로 말하고, 기록이 없거나 다른 가계부의 것이면
+//     모두 같은 not_my_record 다(V22.9.135 부터 같은 가계부의 다른 사람 기록은 거절 이유가 아니다 — 구성원도 고친다). 기록 id 가 어느 가계부에 있는지(또는 없는지)가
+//     거절 문구 차이로 새지 않게 한다 — 예전 문장도 모든 경우에 같았다.
 function transactionDenialCode(access = {}, { row, householdId = "" } = {}) {
   if (access.lookupCode) return access.lookupCode;
   const role = String(access.role || "").toLowerCase();
@@ -396,19 +397,21 @@ async function handleAdminDeleteTransaction(request, env) {
   const rowHousehold = String(targetRow?.household_id || householdId || "");
   const access = await resolveTransactionAccess(request, env, rowHousehold);
   const isManager = access.admin || ["owner", "admin"].includes(access.role);
-  const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
+  // V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 구성원도 이 기록의 가계부에서 쓰기 권한이 있으면 다른 사람의 기록을 고치고 지운다(canManageMyRecord —
+  // 예전에는 지출자 = 나인 기록만). access 는 이 기록의 가계부에서 본 역할이다. ‘기록만’ 정책은 아래에서 따로 막는다.
+  const recordAllowed = !!targetRow && !!access.userId && canManageMyRecord(access.role, targetRow, access.userId);
   if (wantsJson) {
     if (!access.admin && !access.userId) return jsonResponse({ ok: false, error: "unauthorized", message: "로그인이 만료되었습니다. 다시 로그인해 주세요." }, 401);
     if (access.lookupFailed) return jsonResponse({ ok: false, error: "role_check_failed", message: access.lookupMessage }, 503);
     if (!access.ok) return jsonResponse({ ok: false, error: "forbidden", message: "이 기록을 삭제할 권한이 없습니다." }, 403);
     if (!targetRow || rowHousehold !== householdId) return jsonResponse({ ok: false, error: "record_not_found", message: "이 가계부에서 기록을 찾지 못했습니다." }, 404);
-    if (!isManager && !ownRow) return jsonResponse({ ok: false, error: "forbidden", message: "이 기록을 삭제할 권한이 없습니다." }, 403);
+    if (!isManager && !recordAllowed) return jsonResponse({ ok: false, error: "forbidden", message: "이 기록을 삭제할 권한이 없습니다." }, 403);
   }
-  if (!access.ok || !targetRow || (!isManager && !ownRow)) {
+  if (!access.ok || !targetRow || (!isManager && !recordAllowed)) {
     if (!access.admin && access.userId) { const denied = transactionDenialCode(access, { row: targetRow, householdId }); return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), { err: denied })); }
     return redirectResponse(signedOutWriteRedirect(form));
   }
-  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 지우지 못한다(소유자·관리자는 그대로).
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 누구의 기록이든(자기 기록이어도) 지우지 못한다(소유자·관리자는 그대로).
   if (!isManager) {
     const policyError = await memberRecordChangeError(env, access.role, rowHousehold);
     if (policyError) return wantsJson ? jsonResponse({ ok: false, error: "record_policy_denied", message: memberRecordChangeMessage(policyError) }, 403) : redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: policyError }), { err: policyError }));
@@ -470,12 +473,14 @@ async function handleTransactionEditPage(request, env, url) {
   const rowHousehold = String(targetRow?.household_id || "");
   const access = await resolveTransactionAccess(request, env, rowHousehold);
   const isManager = access.admin || ["owner", "admin"].includes(access.role);
-  const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
+  // V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 구성원도 이 기록의 가계부에서 쓰기 권한이 있으면 다른 사람의 기록을 고치고 지운다(canManageMyRecord —
+  // 예전에는 지출자 = 나인 기록만). access 는 이 기록의 가계부에서 본 역할이다. ‘기록만’ 정책은 아래에서 따로 막는다.
+  const recordAllowed = !!targetRow && !!access.userId && canManageMyRecord(access.role, targetRow, access.userId);
   const month = validMonth(String(targetRow?.transaction_date || "").slice(0, 7)) || currentMonthKst();
   const fallbackPath = `/app?month=${encodeURIComponent(month)}${rowHousehold ? `&household_id=${encodeURIComponent(rowHousehold)}` : ""}`;
   const backTo = safeUserReturnPath(url.searchParams.get("return_to") || "", fallbackPath);
 
-  if (!access.ok || !targetRow || (!isManager && !ownRow)) {
+  if (!access.ok || !targetRow || (!isManager && !recordAllowed)) {
     const denied = access.lookupMessage || "이 기록을 수정할 권한이 없습니다.";
     if (wantsFragment) {
       // 조각 요청에는 리다이렉트가 쓸모없다. 슬롯에 그대로 넣을 수 있는 문장을 준다.
@@ -492,7 +497,7 @@ async function handleTransactionEditPage(request, env, url) {
     }
     return redirectResponse(`/my?return_to=${encodeURIComponent(backTo)}`);
   }
-  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 수정 폼을 주지 않는다(소유자·관리자는 그대로).
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 누구의 기록이든(자기 기록이어도) 수정 폼을 주지 않는다(소유자·관리자는 그대로).
   if (!isManager) {
     const policyError = await memberRecordChangeError(env, access.role, rowHousehold);
     if (policyError) {
@@ -543,12 +548,14 @@ async function handleAdminUpdateTransaction(request, env) {
   const rowHousehold = String(targetRow?.household_id || householdId || "");
   const access = await resolveTransactionAccess(request, env, rowHousehold);
   const isManager = access.admin || ["owner", "admin"].includes(access.role);
-  const ownRow = targetRow && access.userId && String(targetRow.user_id || "") === String(access.userId);
-  if (!access.ok || !targetRow || (!isManager && !ownRow)) {
+  // V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 구성원도 이 기록의 가계부에서 쓰기 권한이 있으면 다른 사람의 기록을 고치고 지운다(canManageMyRecord —
+  // 예전에는 지출자 = 나인 기록만). access 는 이 기록의 가계부에서 본 역할이다. ‘기록만’ 정책은 아래에서 따로 막는다.
+  const recordAllowed = !!targetRow && !!access.userId && canManageMyRecord(access.role, targetRow, access.userId);
+  if (!access.ok || !targetRow || (!isManager && !recordAllowed)) {
     if (!access.admin && access.userId) { const denied = transactionDenialCode(access, { row: targetRow, householdId }); return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: denied }), { err: denied })); }
     return redirectResponse(signedOutWriteRedirect(form));
   }
-  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치지 못한다(소유자·관리자는 그대로).
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 누구의 기록이든(자기 기록이어도) 고치지 못한다(소유자·관리자는 그대로).
   if (!isManager) {
     const policyError = await memberRecordChangeError(env, access.role, rowHousehold);
     if (policyError) return redirectResponse(returnLocation(form, transactionReturnFallback(month, householdId, { err: policyError }), { err: policyError }));
@@ -595,11 +602,13 @@ async function handleAdminUpdateTransaction(request, env) {
     // 저장(updateTransactionIfUnchangedV22994)이다. 0행이면 지금 값으로 다시 계획한다: 같은 칸이 다르게 바뀌었으면 충돌 화면(409), 다른 칸만 바뀌었거나
     // 같은 값이 됐으면 내 칸만 다시 저장한다(세 번까지, 그래도 엇갈리면 edit_conflict). 기준 값은 폼의 orig_* 이고, 없는 칸은 처음 읽은 값이다.
     const baseline = { ...Object.fromEntries(AB_EDIT_FIELDS.map((key) => [key, String(current[key] ?? "")])), ...(original || {}) };
-    // V22.9.104 J-9(Codex 검토 V102): 구성원(소유자·관리자 아님)은 자기 기록만 고친다. 권한은 맨 위 첫 읽기(targetRow)로 봤고 구성원은 지출자 칸을 바꾸지
+    // V22.9.104 J-9(Codex 검토 V102): 구성원(소유자·관리자 아님)은 자기 기록만 고친다(V22.9.134 까지 — 아래 V22.9.135 줄). 권한은 맨 위 첫 읽기(targetRow)로 봤고 구성원은 지출자 칸을 바꾸지
     // 않으므로, 그 뒤 이 읽기까지 또는 아래 저장 전에 관리자가 지출자를 바꾸면 구성원의 금액·메모가 이제 남의 기록이 된 행에 들어갔다. 이 읽기로 다시 보고,
     // 저장에도 ‘지출자 = 나’ 조건을 건다(requireUserId — 같은 PATCH 의 조건이라 요청 수는 그대로). 바뀌었으면 저장하지 않고, 수정 폼 대신 입력한 값을 글로
     // 남긴 안내(409)를 보인다(이제 남의 기록이라 다시 고칠 폼을 주지 않는다).
-    const requireUserId = isManager ? "" : String(access.userId || "");
+    // V22.9.135 N-2: 구성원도 다른 사람의 기록을 고치므로 조건은 ‘지출자 = 나’ 가 아니라 ‘지출자 = 맨 위에서 읽은 사람’ 이다(그사이 지출자가 바뀌었으면
+    // 예전처럼 저장하지 않고 409 안내 — 다른 사람의 기록이 늘 거절되지 않게 한다). 소유자·관리자는 그대로 조건이 없다.
+    const requireUserId = isManager ? "" : String(targetRow.user_id || "");
     const spenderChanged = (row) => {
       rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/admin/update", method: "POST", detail: "spender_changed" });
       const backTo = safeUserReturnPath(String(form.get("return_to") || ""), `/app?month=${encodeURIComponent(month)}&household_id=${encodeURIComponent(rowHousehold)}`);
@@ -667,14 +676,15 @@ function abEditTypedChangesV229104(submitted = {}, baseline = {}) {
     .map((field) => ({ field, label: AB_EDIT_LABELS[field], next: abEditValue(field, submitted[field]) }));
 }
 
-// V22.9.104 J-9: 저장 전에 지출자가 바뀐 기록(이제 남의 기록)의 안내. 수정 폼은 주지 않고(고칠 권한이 없다), 입력한 값은 잃지 않게 글로 보인다.
+// V22.9.104 J-9: 저장 전에 지출자가 바뀐 기록의 안내. 수정 폼은 주지 않고(지금 기록을 새로고침해 다시 보고 고치게), 입력한 값은 잃지 않게 글로 보인다.
+// (V22.9.135 부터 구성원도 같은 가계부의 남의 기록을 고치므로 이 안내는 ‘이제 남의 기록’ 이 아니라 ‘그 사이 지출자가 바뀜’ 일 때다.)
 function renderTransactionSpenderChangedHtmlV229104(env, row = {}, typed = [], backTo = "/app") {
   const shown = (c) => c.field === "amount" ? `${numberWithCommas(c.next)}원` : c.field === "type" ? (c.next === "income" ? "수입" : "지출") : (c.next || "(비어 있음)");
   const person = row?.type === "income" ? "수입자" : "지출자";
   const kept = typed.length
     ? `<p>내가 입력한 값은 저장하지 않았어요. 필요하면 아래 값을 옮겨 적어 주세요.</p><ul>${typed.map((c) => `<li><b>${escapeHtml(c.label)}</b> ${escapeHtml(shown(c))}</li>`).join("")}</ul>`
     : "";
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>기록 수정 · ${escapeHtml(appName(env))}</title></head><body><main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><div class="error" role="alert" data-ab-edit-conflict="spender_changed"><b>다른 사람이 이 기록을 먼저 바꿨어요.</b> 새로고침한 뒤 다시 확인해 주세요.<p>그 사이 이 기록의 ${person}가 바뀌어 이제 내 기록이 아니라서 저장하지 않았어요.</p>${kept}</div></section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>기록 수정 · ${escapeHtml(appName(env))}</title></head><body><main class="wrap" id="main"><section class="txEditHead"><h1>기록 수정</h1><div class="error" role="alert" data-ab-edit-conflict="spender_changed"><b>다른 사람이 이 기록을 먼저 바꿨어요.</b> 새로고침한 뒤 다시 확인해 주세요.<p>그 사이 이 기록의 ${person}가 바뀌어 저장하지 않았어요.</p>${kept}</div></section><p><a class="txEditBack" href="${escapeHtml(backTo)}">돌아가기</a></p></main></body></html>`;
 }
 
 function abEditOriginalFields(t = {}) {

@@ -84,9 +84,10 @@ try {
   ok((first.text.includes("저장했어요") || first.result === "deferred") && ownerSaved && !first.text.includes("참여했어요"), `소유자 첫 기록 저장 (${first.result}: ${first.text.slice(0, 40)})`);
   const firstCall = await skill("@말해가계부 오늘기록", MINA);
   eq(firstCall.result, "ok", "MINA 첫 호출 오늘기록: 정상 응답");
-  ok(firstCall.text.startsWith("이 방 가계부 ‘이 방의 공동 가계부’에 참여했어요.\n") && firstCall.text.includes("아직 기록이 없어요") && roleOf(MINA) === "member", `MINA 첫 호출: 참여 한 줄 + 내 기록 없음 안내, 구성원 (${firstCall.text.slice(0, 80)})`);
-  // V22.9.118 P-3: 처음 이 방 가계부에 들어간 답은 참여 한 줄 말풍선에 약관 안내 + 이용약관·개인정보처리방침 링크 단추가 붙는다(기록하기는 그대로 맨 아래).
-  assertNextStepRecord(firstCall, "MINA 첫 호출 오늘기록", ["이용약관", "개인정보처리방침"]);
+  // V22.9.135 N-2: ‘오늘기록’ 은 그날 가계부 기록 전체다 — 처음 부른 구성원도 소유자의 점심(01번)을 지출자 이름과 함께 본다(예전에는 ‘아직 기록이 없어요’).
+  ok(firstCall.text.startsWith("이 방 가계부 ‘이 방의 공동 가계부’에 참여했어요.\n") && firstCall.text.includes("구성원 모두의 기록이에요") && /\n01번 - 점심 \/ 50,000원 .+ \(.+\)\n/.test(firstCall.text) && roleOf(MINA) === "member", `MINA 첫 호출: 참여 한 줄 + 그날 가계부 기록, 구성원 (${firstCall.text.slice(0, 80)})`);
+  // V22.9.118 P-3: 처음 이 방 가계부에 들어간 답은 참여 한 줄 말풍선에 약관 안내 + 이용약관·개인정보처리방침 링크 단추가 붙는다. 기록이 있는 목록이라 기록하기 단추는 없다(빈 목록 답에만 — 아래 4).
+  eq(JSON.stringify(firstCall.labels), JSON.stringify(["이용약관", "개인정보처리방침"]), "MINA 첫 호출 오늘기록: 버튼은 이용약관·개인정보처리방침");
   for (const command of ["이번달요약", "남은예산", "정산", "오늘 기록 보기", "이번 달 요약"]) {
     const r = await skill(`@말해가계부 ${command}`, MINA);
     eq(r.result, "ok", `구성원 ${command}: 정상 응답`);

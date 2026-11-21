@@ -298,8 +298,9 @@ try {
   // [수락12] 두 사용자의 세션 격리 — 서로 다른 항목을 동시에 수정
   const binMenu = await say("수정 01번", "kakao_login:2265");
   ok(binMenu.includes("01번 - "), "[E2E·수락12] Bin 세션 시작");
-  const wifiMenu = await say("수정 01번", "kakao_login:2266");
-  ok(wifiMenu.includes("01번 - 빵"), "[E2E·수락12] WIFI 세션은 자신의 01번(빵)");
+  // V22.9.135 N-2: 번호는 그날 가계부 기록 전체의 순서다(누가 보내도 같다) — WIFI 의 빵(3시)은 Bin 의 두 기록 다음이라 03번이다.
+  const wifiMenu = await say("수정 03번", "kakao_login:2266");
+  ok(wifiMenu.includes("03번 - 빵"), "[E2E·수락12] WIFI 세션은 가계부 전체 순서의 03번(빵)");
   const wifiAmount = await say("금액", "kakao_login:2266");
   ok(wifiAmount.includes("얼마로 바꿀까요?"), "[E2E·수락12] WIFI 세션 진행");
   const binStep = await say("지출자", "kakao_login:2265");

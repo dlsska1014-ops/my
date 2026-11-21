@@ -204,9 +204,10 @@ await scenario(async (fx) => {
   t.ok(dateList.text.includes("🧾 2026-08-04 기록") && dateList.text.includes("01번 - 점심 / 14,000원"), "6 ‘8월4일기록’은 그날 목록");
   const dayBefore = await say(fx, "그제기록");
   t.ok(dayBefore.text.includes("🧾 2026-08-03 기록") && dayBefore.text.includes("아직 기록이 없어요."), "6 ‘그제기록’은 그제 목록");
-  t.ok(yesterdayList.text.includes("내 기록만 보여요 · 가계부 전체는 ‘8월 4일 요약’"), "7 목록은 내 기록만이라고 말하고 그날 요약으로 안내한다");
+  // V22.9.135 N-2: 목록은 이제 그날 가계부 기록 전체라 ‘내 기록만 보여요 …’ 줄이 없다. 모두 내 기록인 날은 머리 안내도 이름도 붙지 않는다(예전 모양).
+  t.ok(!yesterdayList.text.includes("내 기록만 보여요") && !yesterdayList.text.includes("구성원 모두의 기록이에요") && !/14,000원 [^\n]* \(/.test(yesterdayList.text), "7 모두 내 기록인 날의 목록에는 ‘내 기록만’ 줄도 머리 안내·이름도 없다");
   const today = await say(fx, "오늘기록");
-  t.ok(today.text.includes("내 기록만 보여요 · 가계부 전체는 ‘오늘 요약’") && today.text.includes("아직 기록이 없어요.\n지금 내역을 기록해 보세요."), "7 빈 오늘기록도 같은 안내(빈 날 문구는 그대로)");
+  t.ok(!today.text.includes("내 기록만 보여요") && today.text.includes("아직 기록이 없어요.\n지금 내역을 기록해 보세요."), "7 빈 오늘기록도 ‘내 기록만’ 줄 없이 빈 날 문구 그대로");
 });
 
 // ── 5. 여러 건 저장 답장의 합계는 구분별 ──────────────────────────────────────────

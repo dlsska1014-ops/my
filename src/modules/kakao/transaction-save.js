@@ -35,8 +35,8 @@ import {
   kakaoSameTextExistsTextV229119, kakaoSameTextLongV229119, kakaoSaveFailedText, kakaoText,
 } from "./response-builders.js";
 import {
-  KAKAO_DAILY_ROW_LIMIT_V22980, dailySeqForKakaoRow, getDailyKakaoRawRows, kakaoDailySeqFromRows,
-  kakaoEditDayPrefixV4, kakaoRowLabel, twoDigitSeq,
+  KAKAO_DAILY_ROW_LIMIT_V22980, getDailyKakaoRawRows, kakaoDailySeqPairFromRowsV229135,
+  kakaoDailySeqPairV229135, kakaoEditDayPrefixV4, kakaoRowLabel, twoDigitSeq,
 } from "./edit-session-v4.js";
 import { kakaoRecordCheckReply, optionalWithin } from "./request-guards.js";
 import { kakaoHouseholdReplyName } from "./household-budget-commands.js";
@@ -225,14 +225,20 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const icon = parsed.type === "income" ? "💰" : "💸";
   const typeText = parsed.type === "income" ? "수입" : "지출";
   const enrichBudgetMs = Math.max(150, Math.min(700, 3900 - (Date.now() - handlerStartedAt)));
-  const [seq, aliases, payerMembers, feedbackData] = await Promise.all([
-    dailyRows ? dailyRows.length >= KAKAO_DAILY_ROW_LIMIT_V22980 ? 0 : kakaoDailySeqFromRows(dailyRows.some(row => String(row.id) === String(saved.id)) ? dailyRows : [...dailyRows, saved], saved, user.id, kakaoUserKey)
-      : optionalWithin(dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, saved), enrichBudgetMs, 0),
+  // V22.9.135 N-2: 답의 번호는 가계부 전체 순서다(kakaoDailySeqFromRows — ‘오늘기록’ 과 같은 규칙). 예전처럼 저장 전에 읽은 그날 목록(중복 확인용)으로
+  // 정하고, 그 목록이 없을 때만 저장한 뒤 읽는다 — 저장소 호출 수와 순차 단계는 V22.9.134 와 같다. 저장 전 읽기와 저장 사이(수십 ms)에 다른 사람이
+  // 저장하면 번호가 하나 어긋날 수 있다. 그 순간을 막으려 모든 공동 기록에 읽기를 하나 더하지 않았다: 다른 사람이 앞 번호의 기록을 지우면 번호가 당겨지는
+  // 더 흔한 어긋남은 다시 읽어도 막지 못하고, 번호로 지우거나 고친 답에는 그 기록과 지출자 이름이 보이며 지운 기록은 ‘복구’ 로 되살린다.
+  // ownSeq 는 내 기록만 센 번호로, 아래 ‘오늘의 첫 기록’ 판단에만 쓴다.
+  const [seqPair, aliases, payerMembers, feedbackData] = await Promise.all([
+    dailyRows ? kakaoDailySeqPairFromRowsV229135(dailyRows, saved, user.id, kakaoUserKey)
+      : optionalWithin(kakaoDailySeqPairV229135(env, household.id, user.id, kakaoUserKey, saved), enrichBudgetMs, { seq: 0, ownSeq: 0 }),
     optionalWithin(aliasesPromise, enrichBudgetMs, {}),
     payerMembersPromise ? optionalWithin(payerMembersPromise, enrichBudgetMs, null) : null,
     // V22.9.123: 한 줄 피드백은 350 ms 안에 온 것만 붙인다(저장소가 느린 날 답을 더 늦추지 않는다).
     feedbackPromise && newCount === 1 ? optionalWithin(feedbackPromise, Math.min(enrichBudgetMs, 350), null) : null,
   ]);
+  const seq = Number(seqPair?.seq || 0), ownSeq = Number(seqPair?.ownSeq || 0);
   // 독립 검토 뒤: 읽은 자료가 이상해(원소가 null 등) 줄을 만들다 던지면 저장된 기록에 일반 오류 답이 나가므로, 줄 만들기도 방어 안에 둔다(그 줄만 빠진다).
   // 읽기를 던진 뒤 달이 넘어갔으면(말일 23:59 의 기록) ‘이번 달’ 이라고 부를 수 없으므로 붙이지 않는다.
   let feedbackLine = "";
@@ -247,10 +253,11 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   // V22.9.43: 구성원 권한이 ‘기록만’인 구성원에게는 할 수 없는 수정·삭제 명령을 안내하지 않는다.
   const recordOnlyMember = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY;
   // V22.9.123: 오늘 날짜로 남긴 오늘의 첫 카카오 기록 답에만 요약 단추를 붙인다(월요일 ‘지난주 요약’, 1~5일 ‘지난달 요약’). 그날 둘째 기록부터는 붙이지 않는다.
-  // ‘오늘의 첫 기록’ 은 답에 찍히는 번호(01번)로 본다 — 저장소 호출이 늘지 않는다. 번호는 ‘오늘기록’ 과 같은 규칙(isKakaoRowOwnedByRequesterV2254)이라
-  // 다른 사람의 기록은 세지 않지만, 내가 오늘 웹에서 먼저 넣은 기록은 내 줄로 센다(그때는 카카오 첫 기록이 02번이라 붙지 않는다).
-  // 번호를 읽지 못했으면(seq 0) 붙이지 않는다. 첫 기록 답(onSaved — 가계부 준비·참여 안내가 든 긴 답)에도 붙이지 않는다.
-  const firstOfToday = returnHints && !onSaved && newCount === 1 && seq === 1 && String(saved.transaction_date || "") === formatDate(nowKstDate());
+  // ‘오늘의 첫 기록’ 은 그날 내 기록만 센 번호(ownSeq)가 1 인 것으로 본다 — 저장소 호출이 늘지 않는다(번호와 같은 읽기). 다른 사람의 기록은 세지 않지만,
+  // 내가 오늘 웹에서 먼저 넣은 기록은 내 줄로 센다(그때는 카카오 첫 기록이 2 라 붙지 않는다). V22.9.135: 답의 번호(seq)는 이제 가계부 전체 순서라
+  // 그 값으로 보지 않는다(같은 방에서 다른 사람이 먼저 기록한 날에도 사람마다 그날 첫 기록에 붙는다 — V22.9.134 까지와 같다).
+  // 번호를 읽지 못했으면(0) 붙이지 않는다. 첫 기록 답(onSaved — 가계부 준비·참여 안내가 든 긴 답)에도 붙이지 않는다.
+  const firstOfToday = returnHints && !onSaved && newCount === 1 && ownSeq === 1 && String(saved.transaction_date || "") === formatDate(nowKstDate());
   const summaryReplies = firstOfToday ? kakaoReturnSummaryRepliesV229123() : null;
   const editGuide = recordOnlyMember ? `\n\n구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요.`
     : seq ? `\n\n수정: "${dayPrefix}수정 ${twoDigitSeq(seq)}번" 또는 "${dayPrefix}수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "${dayPrefix}삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘${dayPrefix || "오늘 "}기록 보기’에서 확인해 주세요.`;

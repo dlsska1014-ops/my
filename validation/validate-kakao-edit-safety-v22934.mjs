@@ -226,15 +226,17 @@ await fixture(async (fx) => {
   fx.db.households.push({ id: "house-wifi", name: "WIFI 개인", invite_code: "WIFI2265", created_at: "2026-07-01T00:00:00Z" });
   fx.db.household_members.push({ household_id: "house-wifi", user_id: "user-wifi", role: "owner", created_at: "2026-07-01T00:00:00Z" });
   fx.db.transactions.push(row("w1", TODAY, "와이파이 빵", 8000, { h: 4, user_id: "user-wifi", source_user_key: WIFI }));
-  await say(fx, "삭제 01번", { userKey: WIFI });
+  // V22.9.135 N-2: 번호는 그날 가계부 기록 전체의 순서다 — WIFI 의 w1(4시)은 k1·k2·k3(1·2·3시) 다음이라 04번이다.
+  await say(fx, "삭제 04번", { userKey: WIFI });
   fx.db.household_members = fx.db.household_members.filter((m) => !(m.household_id === "house-home" && m.user_id === "user-wifi"));
   fx.db.accountbook_settings.find((s) => s.key === "kakao_selected_household_v2251:user-wifi").value = "house-wifi";
-  const text = await say(fx, "복구 01번", { userKey: WIFI });
+  const text = await say(fx, "복구 04번", { userKey: WIFI });
   ok(text.includes("되살리지 않았어요") && !tx(fx, "w1"), "T12 나간 가계부에는 기록을 되살리지 않는다");
 });
 await fixture(async (fx) => {
   fx.db.transactions.push(row("w1", TODAY, "와이파이 빵", 8000, { h: 4, user_id: "user-wifi", source_user_key: WIFI }));
-  ok((await say(fx, "수정 01번 지출자 Bin", { userKey: WIFI })).includes("소유자·관리자만") && tx(fx, "w1")?.user_id === "user-wifi", "T12 일반 참여자는 웹처럼 지출자를 바꿀 수 없다");
+  ok((await say(fx, "수정 04번 지출자 Bin", { userKey: WIFI })).includes("소유자·관리자만") && tx(fx, "w1")?.user_id === "user-wifi", "T12 일반 참여자는 웹처럼 지출자를 바꿀 수 없다(V22.9.135: 번호는 가계부 전체 순서 — w1 은 04번)");
+  ok((await say(fx, "수정 01번 지출자 Bin", { userKey: WIFI })).includes("소유자·관리자만") && tx(fx, "k1")?.user_id === "user-bin", "T12 V22.9.135: 다른 사람의 기록도 일반 참여자는 지출자를 바꿀 수 없다");
   ok((await say(fx, "수정 01번 지출자 WIFI♥")).includes("변경했어요") && tx(fx, "k1")?.user_id === "user-wifi", "T12 소유자는 지출자를 바꿀 수 있다");
 });
 

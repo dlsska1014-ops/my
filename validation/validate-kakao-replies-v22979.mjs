@@ -110,13 +110,14 @@ await scenario("A-18", async (fx) => {
   ok(memosOn(fx, HH, "2026-08-03") === "마트" && memosOn(fx, HH, "2026-08-04") === "택시" && memosOn(fx, HH) === "커피,점심,빵" && memosOn(fx, TRIP) === "렌트카", "A-18 준비: 사흘 치 기록, 다른 구성원의 기록, 다른 가계부의 기록");
 
   const list = await say(fx, "오늘 기록 보기");
-  ok(list.text.includes(`🧾 ${DAY} 기록`) && listedLines(list.text).length === 2, "A-18 준비: ‘오늘 기록 보기’는 오늘 내 기록 두 건");
+  // V22.9.135 N-2: ‘오늘 기록 보기’ 는 그날 가계부 기록 전체다(다른 구성원의 빵 포함, 번호는 가계부 전체 순서).
+  ok(list.text.includes(`🧾 ${DAY} 기록`) && listedLines(list.text).length === 3, "A-18 준비: ‘오늘 기록 보기’는 오늘 가계부 기록 세 건(다른 구성원의 기록 포함)");
   for (const phrase of ["오늘 뭐 썼어", "오늘뭐썼어", "오늘 쓴 거", "오늘쓴거", "오늘 기록 보여줘", "오늘 내역 확인해줘", "오늘 뭐 썼는지 알려줘", "@말해가계부 오늘 뭐 썼어"]) {
     const reply = await say(fx, phrase);
-    eq(reply.text, list.text, `A-18 ‘${phrase}’는 ‘오늘 기록 보기’와 같은 목록(오늘 KST 의 내 기록, 번호 포함)`);
+    eq(reply.text, list.text, `A-18 ‘${phrase}’는 ‘오늘 기록 보기’와 같은 목록(오늘 KST 의 가계부 기록, 번호 포함)`);
   }
   const today = (await say(fx, "오늘 뭐 썼어")).text;
-  ok(today.includes("01번 - 커피") && today.includes("02번 - 점심") && !/택시|마트|빵|렌트카|최근 입력 내역/.test(today), `A-18 오늘 목록에는 오늘 내 기록만(다른 날·다른 구성원·다른 가계부·최근 5건 말머리 없음) (${today.slice(0, 160)})`);
+  ok(today.includes("01번 - 커피") && today.includes("02번 - 점심") && today.includes("03번 - 빵") && today.includes("구성원 모두의 기록이에요") && !/택시|마트|렌트카|최근 입력 내역/.test(today), `A-18 오늘 목록에는 오늘 가계부의 기록만(다른 구성원의 기록 포함 — V22.9.135, 다른 날·다른 가계부·최근 5건 말머리 없음) (${today.slice(0, 160)})`);
   const yesterday = (await say(fx, "어제 뭐 썼어")).text;
   ok(yesterday.includes("🧾 2026-08-04 기록") && yesterday.includes("택시") && !/마트|커피|점심|최근 입력 내역/.test(yesterday), "A-18 ‘어제 뭐 썼어’는 어제 기록만");
   const dayBefore = (await say(fx, "그제 뭐 썼어")).text;
@@ -128,7 +129,7 @@ await scenario("A-18", async (fx) => {
   const badDate = (await say(fx, "2월 30일 뭐 썼어")).text;
   ok(badDate.includes("달력에 없는 날짜") && !/최근 입력 내역/.test(badDate), "A-18 달력에 없는 날짜는 거절");
   const wifi = (await say(fx, "오늘 뭐 썼어", { user: WIFI })).text;
-  ok(wifi.includes("01번 - 빵") && listedLines(wifi).length === 1 && !/커피|점심/.test(wifi), "A-18 다른 구성원은 자기 기록만 본다");
+  ok(wifi.includes("03번 - 빵") && wifi.includes("01번 - 커피") && listedLines(wifi).length === 3, "A-18 V22.9.135: 다른 구성원도 같은 번호로 가계부 기록 전체를 본다");
   // 날짜를 가리키지 않은 조회와 여러 날을 말한 조회는 예전처럼 최근 5건이다.
   for (const phrase of ["최근 기록", "내 기록", "마지막", "어제 오늘 뭐 썼어"]) {
     const recent = (await say(fx, phrase)).text;
@@ -156,10 +157,11 @@ await scenario("A-18 단톡방", async (fx) => {
   await said("커피 3000", member);
   await said("어제 택시 8000", member);
   const reply = (await said("오늘 뭐 썼어", member)).text;
-  ok(reply.includes(`🧾 ${DAY} 기록`) && reply.includes("01번 - 커피") && listedLines(reply).length === 1 && !/점심|택시|최근 입력 내역/.test(reply), `A-18 단톡방: 그 방 가계부의 오늘 내 기록만 (${reply.slice(0, 200)})`);
+  // V22.9.135 N-2: 그 방 가계부의 오늘 기록 전체(소유자의 점심 01번 · 구성원의 커피 02번)를 이름과 함께 보인다. 어제 기록은 없다.
+  ok(reply.includes(`🧾 ${DAY} 기록`) && reply.includes("01번 - 점심") && reply.includes("02번 - 커피") && reply.includes("구성원 모두의 기록이에요") && listedLines(reply).length === 2 && !/택시|최근 입력 내역/.test(reply), `A-18 단톡방: 그 방 가계부의 오늘 기록 전체 (${reply.slice(0, 200)})`);
   const none = (await said("오늘 뭐 썼어", "bot-a18-newcomer")).text;
-  // V22.9.115: 부르기만 해도 그 자리에서 참여한다. 그래도 남의 기록은 보이지 않고(내 기록만), 참여 한 줄 뒤 빈 내 기록 안내다.
-  ok(none.startsWith("이 방 가계부 ‘이 방의 공동 가계부’에 참여했어요.\n") && none.includes("아직 기록이 없어요") && !/점심|택시|01번/.test(none), `A-18 단톡방: 처음 부른 사람은 참여하고 남의 기록은 보지 않는다 (${none.slice(0, 160)})`);
+  // V22.9.115: 부르기만 해도 그 자리에서 참여한다. V22.9.135 N-2: 참여한 구성원도 그 방 가계부의 오늘 기록 전체를 같은 번호로 본다(웹에서 보이는 것과 같다).
+  ok(none.startsWith("이 방 가계부 ‘이 방의 공동 가계부’에 참여했어요.\n") && none.includes("01번 - 점심") && none.includes("02번 - 커피") && !/택시|아직 기록이 없어요/.test(none), `A-18 단톡방: 처음 부른 사람은 참여하고 그 방 가계부의 오늘 기록을 본다 (${none.slice(0, 160)})`);
 }, { secret: true, selections: [] });
 
 // ── B-8. 복구가 끝나지 않았을 때의 안내: 잠금 충돌이면 먼저 확인, 번호를 붙인 복구는 번호 그대로 ───────────────

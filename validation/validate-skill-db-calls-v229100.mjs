@@ -111,7 +111,8 @@ await fixture(async fx => {
   t.ok(d.text.includes("지출자: 카카오사용자 2"), "D: newly joined member keeps disambiguated payer name");
   lifecycleOrder(d, "D"); storedBeforeReply(d, "D");
   const e = await fx.say("저녁 15000", { key: fx.member }); recordScene("E", e);
-  t.ok(e.text.includes("02번"), "E: numbering belongs to the member");
+  // V22.9.135 N-2: 번호는 그날 방 가계부 기록 전체의 순서다(소유자 셋 · 구성원의 간식 다음이라 05번).
+  t.ok(e.text.includes("05번 - 저녁"), "E: numbering is household-wide (V22.9.135)");
   const g = await fx.say("물 1000", { key: fx.member, room: "" }); recordScene("G", g);
   t.ok(g.text.includes("가계부를 선택"), "G: direct-message selection precedes saving");
   putSetting(fx, `kakao_selected_household_v2251:${fx.uid(fx.member)}`, hid);
@@ -198,7 +199,8 @@ await fixture(async fx => {
   clearRepeat();
   const duplicate = await fx.say("원본기록 22001");
   t.eq(fx.db.transactions.filter(row => row.household_id === original.household_id).length, 1, "same user_id with another source key still deduplicates");
-  t.ok(duplicate.text.includes("중복 저장 안 함 1건") && !duplicate.text.includes('수정 01번"'), "foreign source ownership never creates an editable number");
+  // V22.9.135 N-2: 번호는 누가 남겼는지와 상관없이 가계부 전체 순서이고 구성원 누구나 고친다 — 쓴 사람 표시가 다른 기록도 그 번호(01번)로 안내한다.
+  t.ok(duplicate.text.includes("중복 저장 안 함 1건") && duplicate.text.includes('수정 01번"'), "foreign source ownership keeps the household-wide number (V22.9.135)");
   original.source_user_key = fx.owner;
   original.user_id = "different-user-id";
   clearRepeat();

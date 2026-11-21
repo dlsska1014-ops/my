@@ -165,8 +165,9 @@ function renderMobileV81Html({ title, setupBand = "", roomView = false, month, h
   const roleLower = String(sessionRole || "").toLowerCase();
   const appIsManager = isAdminSession || ["owner", "admin"].includes(roleLower);
   const appCanWrite = isAdminSession || canWriteMyHousehold(roleLower);
-  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록에도 수정·삭제 단추를 두지 않는다(서버 경로도 따로 막는다).
-  const appCanEditRow = (r) => appIsManager || (appCanWrite && memberCanChangeRecords && sessionUserId && String(r.user_id || "") === String(sessionUserId));
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 수정·삭제 단추를 두지 않는다(서버 경로도 따로 막는다).
+  // V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 구성원도 이 가계부의 다른 사람 기록에 수정·삭제 단추를 둔다(채팅과 같은 규칙, 예전에는 내 기록만).
+  const appCanEditRow = () => appIsManager || (appCanWrite && memberCanChangeRecords && !!sessionUserId);
   const householdId = selectedHousehold?.id || "";
   const filterType = mobileFilters.type === "income" ? "income" : mobileFilters.type === "expense" ? "expense" : "all";
   const filterQ = String(mobileFilters.q || "").trim();

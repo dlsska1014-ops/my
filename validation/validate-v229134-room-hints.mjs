@@ -6,6 +6,8 @@
 //      쉬운 말로 적는다. 계산(buildSettlementModel)은 그대로다.
 //  N-1 번호는 기록한 사람마다 01번부터 따로이고 번호로 고치거나 지우는 것은 자기 기록뿐이다. 다른 사람의 저장 답에 적힌 ‘삭제 01번’ 을 따라 보낸 사람은
 //      ‘01번 기록을 찾지 못했어요’ 만 받았다. 그날 다른 사람의 기록이 있으면 까닭(번호는 사람마다 따로)과 누가 고칠 수 있는지를 말한다.
+//      → V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’)가 대신한다: 번호는 그날 가계부 기록 전체의 순서라 누가 보내도 같은 기록이고, 구성원도 남의
+//        기록을 고치고 지운다. 아래 N-1 장면은 같은 말을 보내 V22.9.135 의 답을 본다(찾지 못한 번호면 그날 기록이 몇 번까지인지).
 // 오프라인: 픽스처 + app.fetch(DB·바깥 요청 없음), 시계 2026-11-20 12:00 KST. 판 이름 글자는 적지 않는다.
 // 바탕 코드(이 판 앞)에서는 M·S·N 의 단언 대부분이 실패한다.
 import { createHash } from "node:crypto";
@@ -13,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { app, BASE, counter, fixture, putSetting, withClock, withoutRoomMention } from "./lib-audit-v22934.mjs";
 import { kakaoGroupCompatibleResponse, kakaoNextStepReply, kakaoText } from "../src/modules/kakao/response-builders.js";
 
-const { ok, eq, done } = counter("단톡방 답 다듬기: 안내에 봇 부르기(@말해가계부) · 읽기 쉬운 정산 답 · 번호는 사람마다 따로라는 안내 검사 통과");
+const { ok, eq, done } = counter("단톡방 답 다듬기: 안내에 봇 부르기(@말해가계부) · 읽기 쉬운 정산 답 · 번호 안내(V22.9.135 부터 가계부 전체 번호) 검사 통과");
 const failures = [];
 const check = (fn, label) => { try { fn(); } catch (error) { failures.push(`${label}: ${String(error.message || error).split("\n")[0].slice(0, 420)}`); } };
 const read = (path) => { try { return readFileSync(new URL(`../${path}`, import.meta.url), "utf8"); } catch (_) { return ""; } };
@@ -32,6 +34,9 @@ const sameLines = (actual, expected, label) => {
   const at = a.findIndex((line, index) => line !== e[index]);
   ok(a.length === e.length && at < 0, `${label} — ${at >= 0 ? `줄 ${at + 1}: 실제 ‘${a[at]}’ · 기대 ‘${e[at] ?? "(없음)"}’` : `줄 수 ${a.length} · 기대 ${e.length}(실제 끝 줄 ‘${a.at(-1)}’)`}`);
 };
+// V22.9.135 M-11 이 단톡방 답에 더하는 말(번호로 답하라는 줄 끝의 예시, 번호만 보내라는 두 안내의 단톡방 말)을 되돌리고 봇 부르기·끝 한 줄을 뗀다.
+// (수정 창의 네·아니오 물음 끝의 ‘ 예: @말해가계부 네’ 와 날짜 직접 입력 예시의 봇 부르기도 — 독립 검토 2026-11-21.)
+const withoutRoomHintsV229135 = (text) => withoutRoomMention(String(text).replace(/ 예: @말해가계부 (?:1|네)$/gm, "").split("(직접 입력 예: @말해가계부 ").join("(직접 입력 예: ").split("번호 앞에 @말해가계부 를 붙여 보내도 돼요: ").join("번호만 보내도 돼요: ").split("번호를 보내면(예: @말해가계부 1) → ").join("번호를 보내면 → "));
 
 function resetIsolateState() {
   for (const name of ["__AB_KAKAO_ROOM_OPEN_PROBE", "__AB_KAKAO_APP_USER_ID_PROBE", "__AB_EFFECTIVE_USER_CACHE", "__AB_KAKAO_INFLIGHT", "__AB_KAKAO_REPEAT_GUARD", "__AB_TRAFFIC_BUCKETS", "__AB_SKILL_RATE_BUCKETS"]) globalThis[name]?.clear?.();
@@ -98,7 +103,7 @@ const userByKey = (fx, userKey) => fx.db.users.find((user) => user.kakao_user_ke
     ["버튼을 누르면 바로 보여 드려요.\n다른 기간: 어제 요약 · 지난달 요약", `버튼을 누르면 바로 보여 드려요.\n다른 기간: ${BOT} 어제 요약 · ${BOT} 지난달 요약`, "① ‘다른 기간: …’ 줄 — ‘ · ’ 로 나뉜 두 말은 저마다"],
     ["😅 02번 수정을 끝냈어요. 기록은 그대로예요.\n다시 하려면 한 줄로 보내 주세요:\n👉 수정 02번 금액 13000\n👉 수정 02번 내용 점심", `😅 02번 수정을 끝냈어요. 기록은 그대로예요.\n다시 하려면 한 줄로 보내 주세요:\n👉 ${BOT} 수정 02번 금액 13000\n👉 ${BOT} 수정 02번 내용 점심`, "① ‘👉 …’ 줄(줄마다)"],
     ["👉 지출자 엄마 / 금액 13000 / 날짜 어제 / 구분 수입", `👉 ${BOT} 지출자 엄마 / ${BOT} 금액 13000 / ${BOT} 날짜 어제 / ${BOT} 구분 수입`, "① ‘ / ’ 로 나뉜 네 말은 저마다"],
-    ["01번 - 커피 / 5,000원 / - / 카페/간식\n무엇을 바꿀까요? 번호를 보내주세요.\n1. 금액  2. 분류  3. 결제수단\n한 줄로도 돼요: 지출자 엄마 / 금액 13000 / 구분 수입\n(그만하려면: 취소)", `01번 - 커피 / 5,000원 / - / 카페/간식\n무엇을 바꿀까요? 번호를 보내주세요.\n1. 금액  2. 분류  3. 결제수단\n한 줄로도 돼요: ${BOT} 지출자 엄마 / ${BOT} 금액 13000 / ${BOT} 구분 수입\n(그만하려면: ${BOT} 취소)`, "① 수정 창의 ‘한 줄로도 돼요: …’(말마다)·‘(그만하려면: 취소)’ 줄"],
+    ["01번 - 커피 / 5,000원 / - / 카페/간식\n무엇을 바꿀까요? 번호를 보내주세요.\n1. 금액  2. 분류  3. 결제수단\n한 줄로도 돼요: 지출자 엄마 / 금액 13000 / 구분 수입\n(그만하려면: 취소)", `01번 - 커피 / 5,000원 / - / 카페/간식\n무엇을 바꿀까요? 번호를 보내주세요. 예: ${BOT} 1\n1. 금액  2. 분류  3. 결제수단\n한 줄로도 돼요: ${BOT} 지출자 엄마 / ${BOT} 금액 13000 / ${BOT} 구분 수입\n(그만하려면: ${BOT} 취소)`, "① 수정 창의 ‘한 줄로도 돼요: …’(말마다)·‘(그만하려면: 취소)’ 줄(V22.9.135 M-11: 번호 물음 끝에 ‘예: @말해가계부 1’)"],
     ["그만하려면: 취소", `그만하려면: ${BOT} 취소`, "① 괄호 없는 ‘그만하려면: …’ 줄"],
     ["✏️ 얼마로 바꿀까요? 예: 13000 · 1만3천원\n(그만하려면: 취소)", `✏️ 얼마로 바꿀까요? 예: ${BOT} 13000 · ${BOT} 1만3천원\n(그만하려면: ${BOT} 취소)`, "① 물음 바로 뒤의 ‘예: …’ — 두 말은 저마다(한 줄로 보내면 두 건으로 읽힌다)"],
     ["번호로 보내 주세요. 예: 수정 01번 금액 13000 / 삭제 01번", `번호로 보내 주세요. 예: ${BOT} 수정 01번 금액 13000 / ${BOT} 삭제 01번`, "① 문장이 끝난 바로 뒤의 ‘예: …’(말마다)"],
@@ -165,7 +170,8 @@ const userByKey = (fx, userKey) => fx.db.users.find((user) => user.kakao_user_ke
     [`기록은 ${BOT} 점심 12000원 처럼 보내면 돼요.\n‘오늘기록’으로 번호를 확인해 주세요.`, `기록은 ${BOT} 점심 12000원 처럼 보내면 돼요.\n‘오늘기록’으로 번호를 확인해 주세요.${F}`, "③ 봇 부르기가 있어도 붙지 않은 따옴표 말(‘오늘기록’으로)이 남으면 끝 한 줄(독립 검토 P2-2)"],
     ["구성원에게 아래 문장을 보내세요.\n가계부 참여 KXWQQM9W", `구성원에게 아래 문장을 보내세요.\n가계부 참여 KXWQQM9W${F}`, "③ ‘보내세요’"],
     ["확인이 조금 늦어지고 있어요 😊\n잠시 뒤 같은 내용을 다시 보내 주세요.", `확인이 조금 늦어지고 있어요 😊\n잠시 뒤 같은 내용을 다시 보내 주세요.${F}`, "③ 다시 보내 달라는 늦은 답에는 끝 한 줄"],
-    ["✏️ 지출자를 누구로 바꿀까요? 번호로 골라주세요.\n1. 민지", `✏️ 지출자를 누구로 바꿀까요? 번호로 골라주세요.\n1. 민지${F}`, "③ 단추가 없는 답의 물음·고르라는 말에는 끝 한 줄"],
+    ["✏️ 지출자를 누구로 바꿀까요? 번호로 골라주세요.\n1. 민지", `✏️ 지출자를 누구로 바꿀까요? 번호로 골라주세요. 예: ${BOT} 1\n1. 민지`, "③ → V22.9.135 M-11: 번호로 고르라는 줄에는 예시(봇 부르기 + 1)가 붙고, 봇 부르기가 생겼으니 끝 한 줄은 없다"],
+    ["✏️ 지출자를 누구로 바꿀까요?\n1. 민지", `✏️ 지출자를 누구로 바꿀까요?\n1. 민지${F}`, "③ 단추가 없는 답의 물음에는 끝 한 줄"],
     // 끝 한 줄을 붙이지 않는 답
     ["확인이 조금 늦어지고 있어요 😊\n잠시 뒤 ‘이번달요약’ 버튼을 눌러 다시 물어봐 주세요.", "확인이 조금 늦어지고 있어요 😊\n잠시 뒤 ‘이번달요약’ 버튼을 눌러 다시 물어봐 주세요.", "단추를 누르라는 줄은 안내로 세지 않는다(늦은 답 그대로)"],
     ["가계부를 찾지 못했어요. 아래에서 눌러 골라 주세요.", "가계부를 찾지 못했어요. 아래에서 눌러 골라 주세요.", "‘눌러 골라 주세요’ 는 단추 안내다"],
@@ -219,7 +225,10 @@ const userByKey = (fx, userKey) => fx.db.users.find((user) => user.kakao_user_ke
     ["내역은 아래 ‘오늘기록’·‘이번달요약’으로 볼 수 있어요.", "내역은 아래 ‘오늘기록’·‘이번달요약’으로 볼 수 있어요.", "‘아래 …’ 로 가리키는 단추 이름(시키는 말 없음)은 그대로"],
     // 2차 검토 P3: 사용자가 쓴 ‘다시 보내면’·‘보내지 말고’(따옴표 안·기록 줄)는 끝 한 줄을 끄지 않는다.
     ["쓴 돈이면 ‘지출 용돈 받았다가 다시 보내면 썼음 5000’, 들어온 돈이면 ‘수입 용돈 받았다가 다시 보내면 썼음 5000’처럼 앞에 구분을 붙여 다시 보내 주세요.", `쓴 돈이면 ‘지출 용돈 받았다가 다시 보내면 썼음 5000’, 들어온 돈이면 ‘수입 용돈 받았다가 다시 보내면 썼음 5000’처럼 앞에 구분을 붙여 다시 보내 주세요.${F}`, "따옴표 안의 사용자 말 ‘다시 보내면’ 은 끝 한 줄을 끄지 않는다"],
-    ["⚠️ '다시 보내면'을 날짜로 알아듣지 못했어요. 기록은 그대로예요.\n날짜를 번호로 고르거나 직접 입력해 주세요.", `⚠️ '다시 보내면'을 날짜로 알아듣지 못했어요. 기록은 그대로예요.\n날짜를 번호로 고르거나 직접 입력해 주세요.${F}`, "따옴표로 되풀이한 사용자 말 ‘다시 보내면’ 도 끝 한 줄을 끄지 않는다"],
+    // V22.9.135 M-11(독립 검토 2026-11-21): 날짜 물음 줄은 이제 번호 예시(‘ 예: @말해가계부 1’)를 받아 끝 한 줄이 필요 없다. 원래 보려던 것(되풀이한 사용자 말이
+    // 끝 한 줄을 끄지 않는다)은 같은 머리에 M-11 이 손대지 않는 물음을 붙인 다음 줄이 본다.
+    ["⚠️ '다시 보내면'을 날짜로 알아듣지 못했어요. 기록은 그대로예요.\n날짜를 번호로 고르거나 직접 입력해 주세요.", `⚠️ '다시 보내면'을 날짜로 알아듣지 못했어요. 기록은 그대로예요.\n날짜를 번호로 고르거나 직접 입력해 주세요. 예: ${BOT} 1`, "M-11 → 날짜 다시 묻기는 번호 예시를 받는다(되풀이한 사용자 말은 그대로)"],
+    ["⚠️ '다시 보내면'을 날짜로 알아듣지 못했어요. 기록은 그대로예요.\n날짜를 다시 적어 주세요.", `⚠️ '다시 보내면'을 날짜로 알아듣지 못했어요. 기록은 그대로예요.\n날짜를 다시 적어 주세요.${F}`, "따옴표로 되풀이한 사용자 말 ‘다시 보내면’ 도 끝 한 줄을 끄지 않는다"],
     ["01번 - 다시 보내지 말고 메모 / 5,000원 / - / 기타지출\n수정할 번호는 ‘오늘기록’로 현재 기록을 확인해 주세요.", `01번 - 다시 보내지 말고 메모 / 5,000원 / - / 기타지출\n수정할 번호는 ‘오늘기록’로 현재 기록을 확인해 주세요.${F}`, "기록 줄 속 ‘다시 보내지 말고’ 도 끝 한 줄을 끄지 않는다"],
     // 이어진 따옴표 말: 앞으로도 퍼진다(‘예: ‘A’ · ‘B’’), 이미 적힌 말·빈 따옴표에는 붙이지 않는다.
     ["예: ‘커피 5000원’ · ‘점심 12000원’", `예: ‘${BOT} 커피 5000원’ · ‘${BOT} 점심 12000원’`, "‘예: ’ 뒤의 따옴표 말과 ‘ · ’ 로 이어진 뒤의 말에도"],
@@ -248,7 +257,8 @@ const userByKey = (fx, userKey) => fx.db.users.find((user) => user.kakao_user_ke
     check(() => eq(again, room, `M-1 한 번 고친 글을 다시 넣어도 그대로다 — ${label}`), `rule again ${label}`);
     check(() => ok(count(room, FOOTER) <= 1 && !room.includes(`${BOT} ${BOT}`), `M-1 끝 한 줄은 한 번, 봇 부르기는 겹치지 않는다 — ${label}`), `rule shape ${label}`);
     // 이 걸음이 하는 일은 봇 부르기와 끝 한 줄을 더하는 것뿐이다(그 둘을 떼면 넣은 글 그대로다).
-    if (!input.includes(BOT)) check(() => eq(withoutRoomMention(room), input, `M-1 더한 말을 떼면 넣은 글 그대로다 — ${label}`), `rule only adds ${label}`);
+    // V22.9.135 M-11: 번호로 답하라는 줄에 더한 예시(‘ 예: @말해가계부 1’)와 번호만 보내라는 두 안내의 단톡방 말도 되돌린 뒤 본다.
+    if (!input.includes(BOT)) check(() => eq(withoutRoomHintsV229135(room), input, `M-1 더한 말을 떼면 넣은 글 그대로다 — ${label}`), `rule only adds ${label}`);
   }
 
   // ③ 끝 한 줄을 부르는 말 하나하나(시키는 말). 단추가 있어도 붙는다.
@@ -388,7 +398,7 @@ await scene("삭제·복구를 그냥 보내던 방", async (fx) => {
   check(() => ok(saved.lines.includes(`수정: "${BOT} 수정 01번" 또는 "${BOT} 수정 01번 금액 13000"`) && saved.lines.includes(`삭제: "${BOT} 삭제 01번"`), `M-1 단톡방 저장 답의 수정·삭제 안내에 봇 부르기가 적힌다(${saved.lines.filter((line) => /^(수정|삭제):/.test(line)).join(" | ")})`), "room save hint");
   check(() => ok(saved.text.includes("지출 저장했어요") && saved.text.includes("01번 - 커피 / 5,000원") && !saved.text.includes(FOOTER), "M-1 저장 답의 다른 줄은 그대로이고 끝 한 줄은 붙지 않는다"), "room save rest");
   const list = await say(fx, "오늘기록", { user: A, room });
-  check(() => ok(list.lines.includes(`수정: "${BOT} 수정 01번" 또는 "${BOT} 수정 01번 금액 13000"`) && list.lines.includes(`삭제: "${BOT} 삭제 01번"`) && list.lines.includes(`내 기록만 보여요 · 가계부 전체는 ‘${BOT} 오늘 요약’`), "M-1 ‘오늘기록’ 의 수정·삭제 안내와 끝 줄의 ‘오늘 요약’ 에도 적힌다"), "room list hint");
+  check(() => ok(list.lines.includes(`수정: "${BOT} 수정 01번" 또는 "${BOT} 수정 01번 금액 13000"`) && list.lines.includes(`삭제: "${BOT} 삭제 01번"`) && !list.text.includes("내 기록만 보여요"), "M-1 ‘오늘기록’ 의 수정·삭제 안내에 적힌다(V22.9.135: ‘내 기록만 보여요 …’ 줄은 없어졌다)"), "room list hint");
   const deleted = await say(fx, "삭제 01번", { user: A, room });
   check(() => ok(deleted.lines.includes(`되돌리려면: ${BOT} 복구 01번`) && deleted.text.includes("01번 기록을 삭제했어요"), `M-1 삭제 답의 복구 안내에 봇 부르기가 적힌다(${deleted.lines.at(-1)})`), "room delete hint");
   const restored = await say(fx, "복구 01번", { user: A, room });
@@ -416,7 +426,7 @@ await scene("삭제·복구를 그냥 보내던 방", async (fx) => {
   const changed = await say(fx, "9000", { user: A, room });
   check(() => ok(changed.text.includes(`${number}번 금액을 9,000원으로 변경했어요`) && !changed.text.includes(BOT), "M-1 수정 창의 답은 그대로 처리되고, 결과 답에는 아무것도 붙지 않는다"), "room edit done");
   const empty = await say(fx, "어제 기록 보기", { user: B, room });
-  check(() => ok(count(empty.text, BOT) === 2 && empty.lines.includes(`예) ${BOT} 커피 4500원`) && empty.lines.some((line) => line.startsWith(`내 기록만 보여요 · 가계부 전체는 ‘${BOT} `) && line.endsWith(" 요약’")), `M-1 원래 봇 부르기가 적힌 예시(예) @말해가계부 커피 4500원)는 한 번만 적히고, 빈 목록 끝 줄의 ‘… 요약’ 에도 적힌다(${empty.text.replace(/\n/g, " | ").slice(0, 160)})`), "room already mentioned");
+  check(() => ok(count(empty.text, BOT) === 1 && empty.lines.includes(`예) ${BOT} 커피 4500원`) && !empty.text.includes("내 기록만 보여요"), `M-1 원래 봇 부르기가 적힌 예시(예) @말해가계부 커피 4500원)는 한 번만 적힌다(V22.9.135: 빈 목록의 ‘내 기록만 보여요 …’ 줄은 없어졌다)(${empty.text.replace(/\n/g, " | ").slice(0, 160)})`), "room already mentioned");
   for (const reply of [saved, list, deleted, nothing, unknown, other, policy]) check(() => ok(!reply.text.includes(`${BOT} ${BOT}`) && count(reply.text, FOOTER) <= 1 && reply.bubbles.every((bubble) => bubble.length <= 950), "M-1 봇 부르기가 겹치지 않고 말풍선은 950자 안이다"), "room shape");
 });
 await scene("1:1 채팅은 그대로", async (fx) => {
@@ -431,44 +441,50 @@ await scene("1:1 채팅은 그대로", async (fx) => {
   check(() => ok(!nothing.text.includes(FOOTER) && !nothing.text.includes(BOT), "M-1 1:1 답에는 끝 한 줄도 붙지 않는다"), "direct footer");
 });
 
-// ── N-1. 번호는 사람마다 따로 ───────────────────────────────────────────────
+// ── N-1 → V22.9.135 N-2. 번호는 가계부 전체 순서(누가 보내도 같은 기록) ─────────────────────
 await scene("다른 사람의 번호", async (fx) => {
   const room = key("room-numbers"), A = key("a"), B = key("b"), C = key("c");
   await say(fx, "커피 5000원", { user: A, room });
-  const before = fx.db.transactions.length;
-  // 2026-11-20 의 장면: 방에 처음 온 사람이 다른 사람의 저장 답을 보고 ‘삭제 01번’ 을 보냈다.
+  const coffee = () => fx.db.transactions.find((row) => Number(row.amount) === 5000 && row.transaction_date === DAY);
+  // 2026-11-20 의 장면: 방에 처음 온 사람이 다른 사람의 저장 답을 보고 ‘삭제 01번’ 을 보냈다. V22.9.135 부터는 그 번호의 기록(A 의 커피)이 지워진다.
   const newcomer = await say(fx, "삭제 01번", { user: B, room });
-  const answer = newcomer.bubbles.find((bubble) => bubble.includes("찾지 못했어요")) || "";
-  check(() => sameLines(answer, `${DAY}에 내가 남긴 기록이 없어서 01번을 찾지 못했어요.\n번호는 기록한 사람마다 01번부터 따로 매겨요. 이 날 내 것이 아닌 기록 1건은 내 번호로는 고치거나 지울 수 없어요.`, "N-1 내 기록이 없는 날 다른 사람의 번호를 보내면 까닭을 말한다"), "newcomer text");
-  check(() => ok(fx.db.transactions.length === before && !newcomer.text.includes("삭제했어요"), "N-1 다른 사람의 기록은 지워지지 않는다"), "newcomer nothing");
-  check(() => ok(!answer.includes("소유자·관리자는") && !answer.includes("번호를 다시 확인"), "N-1 구성원에게는 소유자 안내를 하지 않고, 내 기록이 없으면 번호 확인도 권하지 않는다"), "newcomer lines");
-  // 자기 기록을 남기면 그 사람의 01번이 생긴다(다른 사람의 01번과 따로).
+  check(() => ok(newcomer.text.includes("01번 기록을 삭제했어요") && !coffee(), "N-2 다른 사람의 저장 답에 적힌 번호로 그 기록을 지운다(구성원 누구나)"), "newcomer delete");
+  check(() => ok(newcomer.lines.some((line) => /^01번 - 커피 \/ 5,000원 \/ .+ \(.+\)$/.test(line)) && newcomer.lines.includes(`되돌리려면: ${BOT} 복구 01번`), `N-2 지운 답: 기록 줄 끝에 그 기록의 지출자 이름, 복구 줄에 봇 부르기(${newcomer.lines.slice(0, 3).join(" | ")})`), "newcomer delete lines");
+  // 복구는 지운 사람이 한다(복구 목록은 지운 사람마다 따로 — A 의 ‘복구’ 로는 되살리지 못한다).
+  const notMine = await say(fx, "복구 01번", { user: A, room });
+  check(() => ok(notMine.text.includes("복구할 삭제 기록이 없어요.") && notMine.text.includes("복구는 기록을 지운 사람이") && !coffee(), `N-2 지우지 않은 사람의 ‘복구’ 는 되살리지 않고 누가 복구하는지 말한다(${notMine.lines.slice(0, 2).join(" | ")})`), "restore by other");
+  const restored = await say(fx, "복구 01번", { user: B, room });
+  check(() => ok(restored.text.includes("기록을 복구했어요") && coffee() && restored.lines.some((line) => /^01번 - 커피 \/ 5,000원 \/ .+ \(.+\)$/.test(line)), `N-2 지운 사람의 ‘복구’ 로 되살리고 기록 줄에 지출자 이름(${restored.lines.slice(0, 2).join(" | ")})`), "restore by deleter");
+  // 자기 기록을 남기면 그날 가계부의 다음 번호다.
   const own = await say(fx, "친구 점심 오만원", { user: B, room });
-  check(() => ok(own.text.includes("01번 - 친구 점심 / 50,000원"), "N-1 그 사람의 첫 기록도 01번이다(사람마다 따로 매긴다)"), "own first number");
+  check(() => ok(own.text.includes("02번 - 친구 점심 / 50,000원"), "N-2 B 의 첫 기록은 가계부 전체 순서로 02번이다"), "own second number");
   const beyond = await say(fx, "삭제 03번", { user: B, room });
-  check(() => sameLines(beyond.text, [`${DAY} 03번 기록을 찾지 못했어요. 이 날 내가 남긴 기록은 01번까지예요.`, "번호는 기록한 사람마다 01번부터 따로 매겨요. 이 날 내 것이 아닌 기록 1건은 내 번호로는 고치거나 지울 수 없어요.", "내 번호는 이렇게 다시 볼 수 있어요.", `예) ${BOT} ${DAY} 기록`].join("\n"), "N-1 내 기록이 있는 날 없는 번호: 내 번호가 어디까지인지와 번호 보는 말(단톡방이라 봇 부르기가 붙는다)"), "beyond text");
+  check(() => sameLines(beyond.text, [`${DAY} 03번 기록을 찾지 못했어요. 이 날 기록은 02번까지예요.`, `"${BOT} ${DAY} 기록"이라고 입력해 번호를 다시 확인해 주세요.`].join("\n"), "N-2 없는 번호: 그날 기록이 몇 번까지인지와 번호 보는 말(단톡방이라 봇 부르기가 붙는다)"), "beyond text");
+  check(() => ok(!beyond.text.includes("기록한 사람마다") && !beyond.text.includes("내 것이 아닌"), "N-2 ‘번호는 사람마다 따로’ 안내는 없다"), "beyond no per-person");
+  // 소유자가 구성원의 기록을 번호로 고친다(답의 기록 줄에 그 기록의 지출자 이름).
   const edit = await say(fx, "수정 02번 금액 6000", { user: A, room });
-  check(() => ok(edit.text.includes(`${DAY} 02번 기록을 찾지 못했어요. 이 날 내가 남긴 기록은 01번까지예요.`) && edit.lines.includes("소유자·관리자는 웹 가계부에서 다른 분의 기록도 고칠 수 있어요.") && edit.lines.includes(`예) ${BOT} ${DAY} 기록`), `N-1 수정 명령도 같은 안내이고, 소유자에게는 웹에서 고칠 수 있다고 알린다(${edit.text.slice(0, 80)})`), "owner edit text");
-  check(() => ok(fx.db.transactions.filter((row) => Number(row.amount) === 6000).length === 0, "N-1 그 수정은 아무 기록도 바꾸지 않는다"), "owner edit nothing");
-  const mine = await say(fx, "삭제 01번", { user: B, room });
-  check(() => ok(mine.text.includes("01번 기록을 삭제했어요") && mine.text.includes("친구 점심") && fx.db.transactions.some((row) => Number(row.amount) === 5000), "N-1 ‘삭제 01번’ 은 보낸 사람의 01번만 지운다(다른 사람의 01번은 남는다)"), "own delete");
-  // 그날 다른 사람의 기록이 없으면 예전 글 그대로다(단톡방이라 따옴표 안에 봇 부르기만 붙는다).
+  const lunch = () => fx.db.transactions.find((row) => String(row.memo || "").includes("친구 점심"));
+  check(() => ok(edit.text.includes("02번 금액을 6,000원으로 변경했어요") && Number(lunch()?.amount) === 6000 && edit.lines.some((line) => /6,000원.* \(.+\)$/.test(line)), `N-2 소유자가 다른 사람의 기록을 번호로 고친다(${edit.lines.slice(0, 2).join(" | ")})`), "owner edits other");
+  // 구성원이 다른 사람의 기록을 번호로 지운다(A 의 커피 = 01번).
+  const theirs = await say(fx, "삭제 01번", { user: B, room });
+  check(() => ok(theirs.text.includes("01번 기록을 삭제했어요") && theirs.text.includes("커피") && !coffee() && lunch(), "N-2 ‘삭제 01번’ 은 그날 가계부의 01번(다른 사람의 커피)을 지운다"), "member deletes other");
+  // 기록이 없는 날: 찾지 못한 번호와 그날은 기록이 없다는 말.
   const lonely = await say(fx, "어제 삭제 01번", { user: C, room });
-  check(() => ok(lonely.text.includes("2026-11-19 01번 기록을 찾지 못했어요.") && lonely.text.includes(`"${BOT} 2026-11-19 기록"이라고 입력해 번호를 다시 확인해 주세요.`) && !lonely.text.includes("기록한 사람마다"), `N-1 그날 다른 사람의 기록이 없으면 예전 글이다(${lonely.text.slice(0, 90)})`), "no others");
+  check(() => ok(lonely.text.includes("2026-11-19 01번 기록을 찾지 못했어요. 이 날은 기록이 없어요.") && lonely.text.includes(`"${BOT} 2026-11-19 기록"이라고 입력해 번호를 다시 확인해 주세요.`) && !lonely.text.includes("기록한 사람마다"), `N-2 기록이 없는 날의 없는 번호(${lonely.text.slice(0, 90)})`), "empty day");
 });
 await scene("1:1 채팅의 없는 번호", async (fx) => {
-  // 혼자 쓰는 날(그날 다른 사람의 기록 없음): 예전 글 그대로.
+  // 기록이 없는 날: 찾지 못했다는 말 + 그날은 기록이 없다는 말(1:1 이라 봇 부르기 없음).
   check(() => ok(!fx.db.transactions.some((row) => row.household_id === "house-home" && ["2026-02-03", "2026-02-04"].includes(row.transaction_date)), "픽스처: 2월 3일·4일에는 ‘우리집 생활비’ 기록이 없다"), "fixture empty days");
   const alone = await say(fx, "2월 3일 삭제 09번", { user: HOME_USER });
-  check(() => sameLines(alone.text, '2026-02-03 09번 기록을 찾지 못했어요.\n"2026-02-03 기록"이라고 입력해 번호를 다시 확인해 주세요.', "N-1 1:1 · 다른 사람의 기록이 없는 날은 예전 글 그대로"), "direct alone");
-  // 같은 가계부의 다른 구성원이 그날 기록을 남겼으면 1:1 에서도 까닭을 말한다(봇 부르기는 붙지 않는다).
+  check(() => sameLines(alone.text, '2026-02-03 09번 기록을 찾지 못했어요. 이 날은 기록이 없어요.\n"2026-02-03 기록"이라고 입력해 번호를 다시 확인해 주세요.', "N-2 1:1 · 기록이 없는 날의 없는 번호"), "direct alone");
+  // 같은 가계부의 다른 구성원이 남긴 기록도 1:1 에서 번호로 지운다(V22.9.134 까지는 ‘내 번호로는 지울 수 없어요’).
   const me = userByKey(fx, HOME_USER);
   const other = fx.db.household_members.find((row) => row.household_id === "house-home" && row.user_id !== me?.id);
   check(() => ok(me && other, "픽스처: ‘우리집 생활비’ 에 다른 구성원이 있다"), "fixture other member");
   fx.db.transactions.push({ id: "tx-v229134-other", household_id: "house-home", user_id: other?.user_id, type: "expense", amount: 7000, memo: "다른 사람의 기록", category: "기타지출", transaction_date: "2026-02-04", created_at: "2026-02-04T03:00:00.000Z", source: "web" });
   const shared = await say(fx, "2월 4일 삭제 01번", { user: HOME_USER });
-  check(() => sameLines(shared.text, "2026-02-04에 내가 남긴 기록이 없어서 01번을 찾지 못했어요.\n번호는 기록한 사람마다 01번부터 따로 매겨요. 이 날 내 것이 아닌 기록 1건은 내 번호로는 고치거나 지울 수 없어요.\n소유자·관리자는 웹 가계부에서 다른 분의 기록도 고칠 수 있어요.", "N-1 1:1 · 그날 다른 구성원의 기록이 있으면 까닭을 말한다(소유자에게는 웹 안내까지, 봇 부르기 없음)"), "direct shared");
-  check(() => ok(fx.db.transactions.some((row) => row.id === "tx-v229134-other"), "N-1 다른 구성원의 기록은 그대로다"), "direct shared nothing");
+  check(() => ok(shared.text.startsWith("🗑️ 2월 4일 01번 기록을 삭제했어요.\n") && shared.lines.some((line) => /^01번 - 다른 사람의 기록 \/ 7,000원 \/ .+ \(.+\)$/.test(line)) && !shared.text.includes(BOT), `N-2 1:1 · 다른 구성원의 기록을 번호로 지우고 기록 줄에 그 사람 이름(봇 부르기 없음)(${shared.lines.slice(0, 2).join(" | ")})`), "direct shared");
+  check(() => ok(!fx.db.transactions.some((row) => row.id === "tx-v229134-other"), "N-2 다른 구성원의 기록이 지워졌다"), "direct shared deleted");
 });
 
 // ── S-1. 정산 답 ─────────────────────────────────────────────────────────
@@ -616,7 +632,8 @@ await scene("되풀이한 글·명령 줄·도움말 카드(단톡방)", async (
   const refused = await say(fx, "삭제 01번", { user: B, room });
   check(() => ok(refused.text.includes("소유자나 관리자에게") && !refused.text.includes(FOOTER) && !refused.text.includes(BOT), `P2-4 ‘기록만’ 가계부의 거절 답에는 끝 한 줄이 붙지 않는다(${refused.text.slice(-70)})`), "review record only refusal");
   const owner = await say(fx, "삭제 09번", { user: A, room });
-  check(() => ok(owner.text.includes("번호는 기록한 사람마다 01번부터 따로 매겨요. 이 날 내 것이 아닌 기록 1건은 내 번호로는 고치거나 지울 수 없어요.") && owner.lines.includes("소유자·관리자는 웹 가계부에서 다른 분의 기록도 고칠 수 있어요.") && !owner.text.includes("기록한 분이 고치거나 지울 수 있어요"), `P2-5 ‘기록만’ 가계부에서도 맞는 말만 한다(기록한 사람이 고칠 수 있다고 하지 않는다)(${owner.lines[1]})`), "review record only owner");
+  // V22.9.135 N-2: 찾지 못한 번호의 답은 그날 기록이 몇 번까지인지만 말한다(누가 고칠 수 있는지 단정하지 않는다 — ‘기록만’ 가계부에서도 맞는 말).
+  check(() => ok(/^2026-11-20 09번 기록을 찾지 못했어요\. 이 날 기록은 \d{2}번까지예요\.$/m.test(owner.text) && !owner.text.includes("기록한 사람마다") && !owner.text.includes("기록한 분이 고치거나 지울 수 있어요"), `P2-5 ‘기록만’ 가계부에서도 맞는 말만 한다(${owner.lines[0]})`), "review record only owner");
 });
 await scene("따옴표가 든 메모(2차 검토 P2-A)", async (fx) => {
   // 같은 기록을 두 번 보내면 별도 구매 안내가 원래 문장을 따옴표로 옮겨 적는다 — 메모 속 같은 모양 따옴표(‘용돈’)에는 붙이지 않고 바깥 말에만 붙인다.
@@ -639,16 +656,16 @@ await scene("번호 안내의 가장자리(관리자·하루 500건)", async (fx
   await say(fx, "택시 8000원", { user: B, room });
   const householdId = fx.db.transactions.find((row) => Number(row.amount) === 5000 && String(row.transaction_date) === DAY)?.household_id;
   const b = userByKey(fx, B);
-  // 관리자도 웹에서 다른 사람의 기록을 고칠 수 있다 — 그 한 줄이 붙는다.
+  // 관리자: 찾지 못한 번호의 답은 구성원과 같다(V22.9.135 — 웹 안내 줄은 없어졌다. 이제 채팅에서도 고친다).
   for (const member of fx.db.household_members) if (member.household_id === householdId && member.user_id === b?.id) member.role = "admin";
   resetIsolateState();
   const admin = await say(fx, "삭제 05번", { user: B, room });
-  check(() => ok(admin.lines.includes("소유자·관리자는 웹 가계부에서 다른 분의 기록도 고칠 수 있어요.") && admin.lines.includes(`${DAY} 05번 기록을 찾지 못했어요. 이 날 내가 남긴 기록은 01번까지예요.`), `N-1 관리자에게도 웹에서 고칠 수 있다고 알린다(${admin.lines.join(" | ").slice(0, 160)})`), "edge admin");
-  // 하루 기록이 읽는 한도(500건)에 닿으면 내 기록이 읽은 범위 밖에 있을 수 있다 — 수를 말하지 않고 예전 글과 한도 줄로 답한다.
+  check(() => ok(admin.lines.includes(`${DAY} 05번 기록을 찾지 못했어요. 이 날 기록은 02번까지예요.`) && !admin.text.includes("소유자·관리자는 웹 가계부에서"), `N-2 관리자에게도 그날 기록이 몇 번까지인지 말한다(${admin.lines.join(" | ").slice(0, 160)})`), "edge admin");
+  // 하루 기록이 읽는 한도(500건)에 닿은 날: 번호는 그날 가계부 기록 전체의 순서라 01번(A 의 묶음 0)이 있다 — 관리자가 번호로 지운다.
   const a = userByKey(fx, A);
   for (let index = 0; index < 500; index += 1) fx.db.transactions.push({ id: `tx-v229134-bulk-${index}`, household_id: householdId, user_id: a?.id, type: "expense", amount: 100 + index, memo: `묶음 ${index}`, category: "기타지출", transaction_date: "2026-11-18", created_at: `2026-11-18T00:${String(Math.floor(index / 60)).padStart(2, "0")}:${String(index % 60).padStart(2, "0")}.000Z`, source: "web" });
   const limited = await say(fx, "11월 18일 삭제 01번", { user: B, room });
-  check(() => ok(limited.text.includes("2026-11-18 01번 기록을 찾지 못했어요.") && limited.text.includes("이 날 가계부 기록이 500건에 닿아") && !limited.text.includes("내가 남긴 기록이 없어서") && !limited.text.includes("번까지예요") && !limited.text.includes("기록한 사람마다"), `N-1 500건 한도에 닿은 날은 ‘내가 남긴 기록이 없다’ 고 단정하지 않는다(${limited.text.slice(0, 140)})`), "edge daily limit");
+  check(() => ok(limited.text.startsWith("🗑️ 11월 18일 01번 기록을 삭제했어요.\n01번 - 묶음 0 / 100원") && !fx.db.transactions.some((row) => row.id === "tx-v229134-bulk-0") && !limited.text.includes("찾지 못했어요"), `N-2 500건 한도에 닿은 날에도 번호는 그날 가계부 순서다(${limited.text.slice(0, 140)})`), "edge daily limit");
 });
 await scene("정산의 이름 안내와 줄 수 줄이기", async (fx) => {
   const room = key("room-fit");
@@ -770,9 +787,11 @@ await scene("정산: 이름 안내를 먼저 빼는 방", async (fx) => {
   check(() => ok(builders.includes('const KAKAO_GROUP_MENTION_V229134 = "@말해가계부";') && signLines.length === 2 && signLines.every((line) => !line.includes("보내면") && !line.includes("알려")), "원본: 봇 부르기 말, 끝 한 줄을 부르는 말 목록에 ‘보내면’(돈을 보내는 말)·‘알려 주세요’(사람에게 알리는 말)는 없다"), "source constants");
   check(() => ok(/const skillResponsePipeline|kakaoTermsNoticeResponseV229118\(await kakaoGroupCompatibleResponse\(/.test(read("src/modules/kakao/skill-handler.js")), "원본: 답은 모두 응답 마무리(kakaoGroupCompatibleResponse)를 지난다"), "source pipeline");
   const session = read("src/modules/kakao/edit-session-v4.js");
-  check(() => ok(session.includes("own.othersCount = rows.length - own.length;") && !/getDailyKakaoRawRows\(env, householdId, date\);[\s\S]{0,400}getDailyKakaoRawRows\(env, householdId, date\)/.test(session.slice(session.indexOf("async function getDailyKakaoRows"), session.indexOf("async function getDailyKakaoRawRows"))), "원본: 다른 사람의 기록 수는 같은 읽기에서 센다(조회를 더하지 않는다)"), "source others count");
+  // V22.9.135 N-2: 그날 목록은 가계부 기록 전체이고(내 것만 거르지 않는다) 한 번만 읽는다. 찾지 못한 번호의 답이 쓰는 기록 수도 같은 읽기의 길이다.
+  const daily = session.slice(session.indexOf("async function getDailyKakaoRows"), session.indexOf("async function getDailyKakaoRawRows"));
+  check(() => ok(daily.includes("const all = rows.slice();") && !daily.includes("isKakaoRowOwnedByRequesterV2254") && !/getDailyKakaoRawRows\(env, householdId, date\);[\s\S]{0,400}getDailyKakaoRawRows\(env, householdId, date\)/.test(daily), "원본: 그날 목록은 가계부 기록 전체를 한 번 읽어 만든다(조회를 더하지 않는다)"), "source others count");
   const flow = read("src/modules/kakao/edit-flow-v4.js");
-  check(() => ok(flow.includes("if (!others || !target.seq || dailyLimit) return [`${date}${seqText} 기록을 찾지 못했어요.`, `\"${date} 기록\"이라고 입력해 번호를 다시 확인해 주세요.`"), "원본: 내 것이 아닌 기록이 없는 날·읽은 범위가 한도에 닿은 날의 답은 예전 글 그대로다"), "source not found unchanged");
+  check(() => ok(flow.includes("const head = !target.seq || dailyLimit ? `${date}${seqText} 기록을 찾지 못했어요.`") && flow.includes("dayCount: Number(found.rows?.length || 0)"), "원본: 번호 없는 요청·읽은 범위가 한도에 닿은 날의 답은 예전 첫 줄 그대로이고, 기록 수는 같은 읽기에서 센다"), "source not found unchanged");
   const simple = read("src/modules/kakao/simple-commands.js");
   const block = simple.slice(simple.indexOf("async function kakaoSettlementParts"), simple.indexOf("// V22.9.80 T-39"));
   check(() => ok(block.includes("buildSettlementModel(rows, members, { formerMembers") && !/buildSettlementModel\([^)]*mode:/.test(block), "원본: 계산은 그대로다(같은 모델, 똑같이 나누기)"), "source model");

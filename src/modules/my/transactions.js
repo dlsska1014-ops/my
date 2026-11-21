@@ -201,7 +201,7 @@ async function handleMyUpdateTransaction(request, env) {
   const row = await getTransactionForUserEdit(env, id, selected.id);
   if (!row) return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
   if (!canManageMyRecord(selected.role, row, userId)) return redirectResponse(myReturnLocation(month, selected.id, { err: "not_my_record" }));
-  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치거나 지우지 못한다.
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 누구의 기록이든(자기 기록이어도) 고치거나 지우지 못한다.
   const policyError = await memberRecordChangeError(env, selected.role, selected.id);
   if (policyError) return redirectResponse(myReturnLocation(month, selected.id, { err: policyError }));
   const transactionDate = String(form.get("transaction_date") || row.transaction_date || formatDate(nowKstDate())).trim();
@@ -227,7 +227,8 @@ async function handleMyUpdateTransaction(request, env) {
     // 이 경로의 폼에는 원래 값(orig_*)이 없어, 읽기 전에 이미 바뀐 기록(옛 화면에서 보낸 값)은 가려내지 못한다 — 화면의 수정 폼은 /admin/update 를 쓴다.
     // V22.9.104 J-9: 구성원 저장에는 ‘지출자 = 나’ 조건도 건다(requireUserId, 같은 PATCH). 읽은 뒤 관리자가 지출자를 바꿨으면 저장하지 않고
     // record_edit_conflict 로 알린다. 소유자·관리자는 예전 그대로다.
-    const requireUserId = canManageAllRecords(selected.role) ? "" : userId;
+    // V22.9.135 N-2: 구성원도 다른 사람의 기록을 고치므로 조건은 ‘지출자 = 위에서 읽은 사람’ 이다(그사이 지출자가 바뀌었으면 예전처럼 record_edit_conflict).
+    const requireUserId = canManageAllRecords(selected.role) ? "" : String(row.user_id || "");
     const outcome = await updateTransactionIfUnchangedV22994(env, id, patch, row, { householdId: selected.id, actorUserId: userId, actorKind: "user", path: "/my/update", requireUserId });
     if (outcome.status === "missing") return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
     if (outcome.status === "spender_changed") {
@@ -268,7 +269,7 @@ async function handleMyDeleteTransaction(request, env) {
   const row = await getTransactionForUserEdit(env, id, selected.id);
   if (!row) return redirectResponse(myReturnLocation(month, selected.id, { err: "record_not_found" }));
   if (!canManageMyRecord(selected.role, row, userId)) return redirectResponse(myReturnLocation(month, selected.id, { err: "not_my_record" }));
-  // V22.9.43: 구성원 권한이 ‘기록만’이면 자기 기록이어도 고치거나 지우지 못한다.
+  // V22.9.43: 구성원 권한이 ‘기록만’이면 누구의 기록이든(자기 기록이어도) 고치거나 지우지 못한다.
   const policyError = await memberRecordChangeError(env, selected.role, selected.id);
   if (policyError) return redirectResponse(myReturnLocation(month, selected.id, { err: policyError }));
   try {

@@ -25,22 +25,23 @@ import { KAKAO_EDIT_AMOUNT_V4 } from "./edit-vocabulary.js";
 import {
   KAKAO_AUDIT_ACTOR_KIND, clearKakaoEditSessionHintV229126, dailySeqForKakaoRow,
   deleteKakaoRowWithUndoV4, findDailyKakaoRowBySeq, getDailyKakaoRows, getKakaoEditSessionV4,
-  getKakaoRowById, getRecentKakaoOwnedTransactionsV2254, hasKakaoEditSessionHint,
-  isKakaoDailyListCommand, isKakaoEditCancelCommand, isKakaoEditGuideCommand,
-  isKakaoSessionSeqReplyV4, isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers,
-  kakaoEditDayPrefixV4, kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText,
-  kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditTargetRejectTextV4,
-  kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4, kakaoRowLabel, parseKakaoDeleteCommandV4,
-  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue,
-  readKakaoEditUndoItemsV4, resolveKakaoEditDateV4, saveKakaoEditSessionV4, twoDigitSeq,
-  withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
+  getKakaoRowById, getLatestKakaoEditByRequesterV229135, getRecentKakaoOwnedTransactionsV2254,
+  hasKakaoEditSessionHint, isKakaoDailyListCommand, isKakaoEditCancelCommand,
+  isKakaoEditGuideCommand, isKakaoRowOwnedByRequesterV2254, isKakaoSessionSeqReplyV4,
+  isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers, kakaoEditDayPrefixV4,
+  kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditMenuTextV4,
+  kakaoEditRecordLineV4, kakaoEditTargetRejectTextV4, kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4,
+  kakaoRowLabel, kakaoRowOwnerSuffixV229135, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
+  parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue, readKakaoEditUndoItemsV4,
+  resolveKakaoEditDateV4, saveKakaoEditSessionV4, twoDigitSeq, withKakaoEditUndoLeaseV4,
+  writeKakaoEditUndoItemsV4,
 } from "./edit-session-v4.js";
 import {
   KAKAO_EDIT_DEFAULT_CATEGORIES, MAX_FAILS, MAX_TOTAL_TURNS, buildValuePrompt, compact,
   handleEditMessage, isExactKakaoEditFieldStart, isKakaoAmountAnswer, isKakaoEditNotValue,
   isSessionExpired, josa, kakaoEditComplaintField, kakaoEditTypeValue, startsWithKakaoEditField,
 } from "./edit-state-machine.js";
-import { kakaoGuardFutureBareDayV229120 } from "./request-guards.js";
+import { kakaoGuardFutureBareDayV229120, optionalWithin } from "./request-guards.js";
 import {
   KAKAO_ROLE_CHECK_FAILED_TEXT, readHouseholdRoleOrFailure, roleBlockedMessage,
 } from "../domain/users-households.js";
@@ -122,6 +123,7 @@ async function buildKakaoEditConfigV4(env, householdId = "", rowType = "expense"
   // 번호 ‘이름 1’·‘이름 2’)이다. 예전에는 같은 이름의 둘째부터 ‘이름·2’를 붙여, 저장 답장의 ‘카카오사용자 2’와 다른 이름으로 보였다.
   // 번호는 명단 전체(조회 전용·승인 대기 포함)로 매기고 고르는 목록에는 지출자가 될 수 있는 사람만 둔다(웹 renderSpenderOptions 와 같다).
   const personNames = memberNameMap(members);
+  // V22.9.135 N-2: 다른 사람의 기록을 고친 답에 그 기록의 지출자 이름을 붙일 때도 같은 이름표를 쓴다(읽기는 그대로 한 번).
   const memberOptions = kakaoActiveSpenderMembers(members).slice(0, 20).map((m) => ({
     label: String(personNames[m.user_id] || m.nickname || "구성원").trim().slice(0, 30) || "구성원",
     user_id: m.user_id,
@@ -153,6 +155,7 @@ async function buildKakaoEditConfigV4(env, householdId = "", rowType = "expense"
   return {
     members: memberOptions.map((m) => m.label),
     memberOptions,
+    personNames,
     methods,
     rowType: type,
     categories: categoriesByType[type],
@@ -369,9 +372,11 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     // 가린다)을 고칠 때, 위에서 읽은 뒤 관리자가 지출자를 바꾸면 예전에는 조건 없는 감사 RPC 가 이제 남의 기록이 된 행에 저장했다. 이제는 웹 수정과 같은
     // 조건부 저장(바꾸는 칸의 읽은 값 + ‘지출자 = 나’)이고, 0행이면 바꾸지 않고 충돌로 답한다. 감사 한 줄은 답장 뒤로 미룬다(답 전 DB 요청 수는 감사 RPC 때와 같다).
     // 카카오로 쓴 기록(source_user_key 있음)은 지출자가 바뀌어도 쓴 사람의 기록이라(isKakaoRowOwnedByRequesterV2254) 예전 그대로다. 소유자·관리자도 그대로다.
+    // V22.9.135 N-2: 구성원도 다른 사람의 기록을 고친다. 조건은 ‘지출자 = 나’ 가 아니라 ‘지출자 = 방금 읽은 사람’(그사이 지출자가 바뀌지 않았다)이다 —
+    // 남의 기록이 늘 충돌로 거절되지 않게 하고, 읽은 뒤 바뀐 기록에 덮어쓰지 않는 것은 그대로 둔다.
     if (!canManageMyHousehold(role) && !String(row.source_user_key || "").trim()) {
       const outcome = await updateTransactionIfUnchangedV22994(env, session.entryId, patch, row, {
-        householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND, path: "/skill", requireUserId: session.userId,
+        householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND, path: "/skill", requireUserId: String(row.user_id || ""),
         auditRunner: (job) => deferKakaoAfterReply(env, job, { cost: 1, critical: true }),
       });
       if (outcome.status === "missing") return { reply: `수정하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘기록’로 번호를 다시 확인해 주세요.`, nextSession: null, gone: true };
@@ -400,7 +405,10 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     if (lockedReason) return { reply: refundLinkLockedKakaoText(session.entryNo, lockedReason), nextSession: null };
     return { reply: `${session.entryNo}번 기록을 바꾸지 못했어요. 기록은 그대로예요.\n잠시 후 다시 보내 주세요.`, nextSession: null };
   }
-  return { reply: `${reply}\n${kakaoEditRecordLineV4({ ...row, ...patch })}`, nextSession: null };
+  // V22.9.135 N-2: 다른 사람의 기록을 고쳤으면 기록 줄 끝에 그 기록의 지출자(수입자) 이름을 붙인다(지출자를 바꾼 답은 이미 그 이름을 말한다).
+  const changed = { ...row, ...patch };
+  const ownerSuffix = field !== "payer" && String(changed.user_id || "") !== String(session.userId || "") ? kakaoRowOwnerSuffixV229135(changed, config?.personNames) : "";
+  return { reply: `${reply}\n${kakaoEditRecordLineV4(changed)}${ownerSuffix}`, nextSession: null };
 }
 
 // V22.9.126 FC-12: 새 기록의 ‘future’ 안내(request-guards.js kakaoRecordGuardV229120)와 같은 두 문장. 예시는 고치는 값(날짜)만 적는다 —
@@ -413,9 +421,11 @@ function kakaoEditFutureBareDayAskV229126(future = {}) {
 }
 
 // V22.9.104 J-9: 고치려던 사이 다른 사람이 이 기록을 먼저 바꿨다(지출자 바뀜은 spender_changed). 아무것도 바꾸지 않았다. 답 글에 주소는 넣지 않는다.
+// V22.9.135 N-2: 구성원도 다른 사람의 기록을 고치므로 지출자가 바뀐 것은 ‘내 기록이 아니라서’ 가 아니라 그사이 기록이 바뀐 것이다. 지금 기록을 보라고 한다.
 function kakaoEditConflictTextV229104(entryNo = "", row = {}, status = "changed") {
-  if (status === "spender_changed") return `다른 사람이 ${entryNo}번 기록을 먼저 바꿔서 수정하지 않았어요.\n그 사이 ${row.type === "income" ? "수입자" : "지출자"}가 바뀌어 이제 내 기록이 아니에요.`;
-  return `다른 사람이 ${entryNo}번 기록을 먼저 바꿔서 수정하지 않았어요.\n‘${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기’로 지금 기록을 확인해 주세요.`;
+  const look = `‘${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기’로 지금 기록을 확인해 주세요.`;
+  if (status === "spender_changed") return `다른 사람이 ${entryNo}번 기록을 먼저 바꿔서 수정하지 않았어요.\n그 사이 ${row.type === "income" ? "수입자" : "지출자"}가 바뀌었어요. ${look}`;
+  return `다른 사람이 ${entryNo}번 기록을 먼저 바꿔서 수정하지 않았어요.\n${look}`;
 }
 
 // 3장 표: handleEditMessage 반환 action별 Worker 처리. 다른 해석 금지.
@@ -468,7 +478,9 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
       return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeleteFailedTextV4(err, row, seq), null);
     }
     // V22.9.80 T-13: 환불 연결이 함께 풀렸으면(플래그가 켜진 경우만 버퍼에 칸이 있다) 그 사실을 답장에 붙인다.
-    return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeletedTextV4(row, seq, deleted?.refund_links), null, { gone: true });
+    // V22.9.135 N-2: 다른 사람의 기록이면 그 기록의 지출자 이름을 붙인다(수정 창이 이미 읽은 이름표 — 읽기가 늘지 않는다).
+    const ownerSuffix = String(row.user_id || "") !== String(session.userId || "") ? kakaoRowOwnerSuffixV229135(row, config?.personNames) : "";
+    return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeletedTextV4(row, seq, deleted?.refund_links, ownerSuffix), null, { gone: true });
   }
   // ask_value / confirm / reprompt / cancel — 모듈의 reply와 nextSession을 그대로 따른다.
   return sendKakaoEditReplyV4(env, ctx, session, result?.reply || "", result?.nextSession || null, { userCancel: !!result?.userCancel });
@@ -607,9 +619,12 @@ async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey 
     // 고친 직후 ‘방금 거 지워줘’ 가 고친 기록이 아니라 마지막에 저장한 기록을 묻지 않고 지웠다. 마지막으로 바뀐 기록(updated_at 순)을 같은
     // 단계에서 함께 읽어(직렬 깊이 그대로) 마지막 저장 뒤에 내 다른 기록이 바뀌었으면 어느 쪽도 고르지 않고 두 기록을 번호로 묻는다.
     // 삭제·‘방금 거 5000원으로’·번호 없는 지출자 변경이 모두 이 길이다. 바뀐 시각이 없는 줄(예전 검사 픽스처)은 예전처럼 마지막 저장 기록이다.
-    const [recent, touchedRows] = await Promise.all([
+    // V22.9.135 N-2: 구성원도 다른 사람의 기록을 고치므로, 마지막 저장 뒤에 내가 고친 남의 기록(감사 기록 — 행위자 = 나, 그 기록이 지금도 있는 것만)도
+    // 같은 단계에서 읽는다. 그 읽기가 실패하거나 늦으면(KAKAO_LATEST_EDIT_WAIT_MS_V229135) 없는 것으로 본다 — 그때는 V22.9.134 와 같다(내 기록의 바뀐 순서만 본다).
+    const [recent, touchedRows, editedByMe] = await Promise.all([
       getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1),
       getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1, { touched: true }),
+      optionalWithin(getLatestKakaoEditByRequesterV229135(env, household.id, user.id).catch(() => null), KAKAO_LATEST_EDIT_WAIT_MS_V229135, null),
     ]);
     const row = recent[0] || null;
     if (!row) return { row: null, seq: 0 };
@@ -617,20 +632,42 @@ async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey 
     const rows = await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, row.transaction_date || formatDate(nowKstDate()));
     const seqIn = (list, item) => list.findIndex((other) => String(other.id) === String(item.id)) + 1;
     // V22.9.93 Q-50: 한 말로 저장한 여러 건은 저장 시각이 같아 ‘방금’ 이 어느 건인지 정할 수 없다(번호도 임의 id 순서다). 아무 건이나 고치거나 지우지 않고 번호로 묻는다.
-    const sameSave = rows.flatMap((item, index) => (item.created_at === row.created_at ? [{ item, seq: index + 1 }] : []));
-    const touched = touchedRows[0] || null;
-    if (touched && String(touched.id) !== String(row.id) && kakaoChangedAfterV229116(touched.updated_at, row.created_at)) {
+    // V22.9.135 N-2: 그날 목록은 이제 가계부 전체다. ‘방금’ 은 여전히 내 기록이므로 같은 시각의 기록도 내 것만 센다(번호는 가계부 전체 순서).
+    const sameSave = rows.flatMap((item, index) => (item.created_at === row.created_at && isKakaoRowOwnedByRequesterV2254(item, user.id, kakaoUserKey) ? [{ item, seq: index + 1 }] : []));
+    // 마지막 저장 뒤에 바뀐 다른 기록: 내 기록의 바뀐 순서(V22.9.116)와 내가 고친 기록(V22.9.135 — 남의 기록 포함) 가운데 더 늦은 것.
+    const ownTouched = touchedRows[0] || null;
+    const changedAfterSave = [
+      ownTouched ? { item: ownTouched, at: ownTouched.updated_at } : null,
+      editedByMe?.row ? { item: editedByMe.row, at: editedByMe.at } : null,
+    ].filter((entry) => entry && String(entry.item.id) !== String(row.id) && kakaoChangedAfterV229116(entry.at, row.created_at));
+    const touched = changedAfterSave.length > 1 && kakaoChangedAfterV229116(changedAfterSave[1].at, changedAfterSave[0].at) ? changedAfterSave[1].item : changedAfterSave[0]?.item || null;
+    if (touched) {
       const touchedDay = String(touched.transaction_date || "");
       const touchedList = touchedDay === String(row.transaction_date || "") ? rows : await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, touchedDay || formatDate(nowKstDate()));
+      // 고친 기록은 다시 읽은 지금 행이다(지운 기록은 후보가 아니다 — getLatestKakaoEditByRequesterV229135). 그날 목록에서 번호를 찾고, 목록이 읽는 범위(그날 앞의
+      // 500건) 밖이면 번호 없이 적는다.
+      const current = touchedList.find((other) => String(other.id) === String(touched.id)) || touched;
       const saved = sameSave.length > 1 ? sameSave : [{ item: row, seq: seqIn(rows, row) }];
-      return { row: null, seq: 0, dailyLimit: Number(rows.dailyLimit || 0), ambiguousText: kakaoEditTouchedAmbiguousTextV229116({ item: touched, seq: seqIn(touchedList, touched) }, saved) };
+      return { row: null, seq: 0, dailyLimit: Number(rows.dailyLimit || 0), ambiguousText: kakaoEditTouchedAmbiguousTextV229116({ item: current, seq: seqIn(touchedList, current) }, saved) };
     }
     if (sameSave.length > 1) return { row: null, seq: 0, dailyLimit: Number(rows.dailyLimit || 0), ambiguousText: kakaoEditAmbiguousLatestTextV4(sameSave) };
     return { row, seq: seqIn(rows, row), dailyLimit: Number(rows.dailyLimit || 0) };
   }
   const found = await findDailyKakaoRowBySeq(env, household.id, user.id, kakaoUserKey, target.date, target.seq);
-  // V22.9.134 N-1: 번호를 찾지 못한 답이 쓰도록 그날 내 기록 수와 다른 사람의 기록 수를 함께 돌려준다(같은 읽기에서 센 값).
-  return { row: found.row, seq: Number(target.seq || 0), dailyLimit: Number(found.rows?.dailyLimit || 0), ownCount: Number(found.rows?.length || 0), othersCount: Number(found.rows?.othersCount || 0) };
+  // V22.9.135 N-2: 번호를 찾지 못한 답이 쓰도록 그날 가계부 기록 수를 함께 돌려준다(같은 읽기에서 센 값).
+  return { row: found.row, seq: Number(target.seq || 0), dailyLimit: Number(found.rows?.dailyLimit || 0), dayCount: Number(found.rows?.length || 0) };
+}
+
+// V22.9.135 N-2: 다른 사람의 기록이 있으면 기록 줄에 붙일 이름표(구성원 명단 — 저장 답·웹과 같은 이름 규칙 memberNameMap)를 읽기 시작한다.
+// 모두 내 기록이면 읽지 않는다(null). 기다리는 쪽은 optionalWithin 으로 짧게만 기다린다 — 늦거나 실패하면 이름 없이 답한다.
+const KAKAO_OWNER_NAMES_WAIT_MS_V229135 = 800;
+// V22.9.135 N-2: ‘방금’ 을 정할 때 내가 마지막으로 고친 기록(감사 기록)을 기다리는 한도. 다른 두 읽기와 같은 단계라 보통은 그 둘보다 먼저 끝난다.
+const KAKAO_LATEST_EDIT_WAIT_MS_V229135 = 1200;
+function kakaoOwnerNamesPromiseV229135(env, householdId = "", rows = [], userId = "") {
+  if (!safeArray(rows).some((row) => row && String(row.user_id || "") !== String(userId || ""))) return null;
+  const promise = fetchHouseholdMembers(env, householdId).then(memberNameMap);
+  promise.catch(() => {});
+  return promise;
 }
 
 // V22.9.79 감사 B-8: 복구가 끝나지 않았을 때의 안내. 예전에는 어느 경우든 "다시 ‘복구’를 입력"하라고 했다.
@@ -686,6 +723,8 @@ function kakaoChangedAfterV229116(changedAt = "", savedAt = "") {
 
 // V22.9.116: 마지막 저장 뒤에 다른 기록을 고쳤을 때의 ‘방금’ 답. 고친 기록과 마지막에 저장한 기록(한 말로 여러 건이면 그 기록들)을 날짜·번호와 함께 보이고
 // 아무것도 바꾸지 않는다. 예시는 고친 기록의 번호로 적는다(번호를 모르면 저장한 기록, 둘 다 모르면 목록 보기 안내).
+// V22.9.135(독립 검토 2026-11-21 2차): 구성원이 서로의 기록을 고치게 되어, 내 다른 기록을 남이 고친 뒤에도 이 답이 나온다(E-11). ‘고쳐서’·‘고친 기록’ 은 말한
+// 사람이 고친 것처럼 읽혀 ‘바뀌어서’·‘바뀐 기록’ 으로 적는다(누가 고쳤든 맞는 말).
 function kakaoEditTouchedAmbiguousTextV229116(touched = {}, saved = []) {
   const line = ({ item, seq }) => `${kakaoEditDayPrefixV4(item.transaction_date)}${kakaoRowLabel(item, seq)}`;
   const pick = Number(touched.seq) >= 1 ? touched : saved.find((entry) => Number(entry.seq) >= 1) || null;
@@ -693,8 +732,8 @@ function kakaoEditTouchedAmbiguousTextV229116(touched = {}, saved = []) {
   const shown = pick ? twoDigitSeq(pick.seq) : "";
   const more = saved.length > 6 ? [`외 ${saved.length - 6}건은 ‘${kakaoEditDayPrefixV4(saved[0].item.transaction_date) || "오늘"}기록’에서 볼 수 있어요.`] : [];
   return [
-    "마지막에 저장한 뒤에 다른 기록을 고쳐서 ‘방금’이 어느 기록인지 정하지 못했어요. 아무것도 바꾸지 않았어요.",
-    `마지막에 고친 기록: ${line(touched)}`,
+    "마지막에 저장한 뒤에 다른 기록이 바뀌어서 ‘방금’이 어느 기록인지 정하지 못했어요. 아무것도 바꾸지 않았어요.",
+    `마지막에 바뀐 기록: ${line(touched)}`,
     saved.length > 1 ? `마지막에 한 번에 저장한 기록 ${saved.length}건:` : `마지막에 저장한 기록: ${line(saved[0])}`,
     ...(saved.length > 1 ? saved.slice(0, 6).map(line) : []),
     ...more,
@@ -702,26 +741,18 @@ function kakaoEditTouchedAmbiguousTextV229116(touched = {}, saved = []) {
   ].join("\n");
 }
 
-// V22.9.134 N-1(운영자 2026-11-20 — 출시일 실제 단톡방): 번호는 기록한 사람마다 01번부터 따로 매기고(‘오늘기록’ 도 내 기록만 보인다), 번호로 고치거나 지우는
-// 것은 누구든 자기가 남긴 기록뿐이다. 그런데 다른 사람의 저장 답에 적힌 ‘삭제 01번’ 을 따라 보낸 사람은 ‘01번 기록을 찾지 못했어요’ 만 받아 까닭을 알 수 없었다.
-// 그날 내 것이 아닌 기록이 있으면(counts.othersCount — 같은 읽기에서 센 값) 번호가 사람마다 따로라는 것과 그 기록은 내 번호로 고칠 수 없다는 것을 말한다.
-//  · 누가 고칠 수 있는지는 단정하지 않는다(독립 검토: 구성원 권한이 ‘기록만’ 인 가계부에서는 기록한 사람도 고치지 못한다). 소유자·관리자에게만 웹에서
-//    고칠 수 있다고 알린다(그 권한은 구성원 권한 설정과 무관하다).
-//  · 그날 읽은 범위가 한도(500건)에 닿았으면 내 기록이 읽은 범위 밖에 있을 수 있으므로 수를 말하지 않는다 — 예전 글과 한도 줄 그대로다.
-//  · 내 것이 아닌 기록이 없는 날의 답도 예전 그대로다.
+// V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 번호는 이제 그날 가계부 기록 전체의 순서라 누구의 번호든 같은 기록을 가리킨다. V22.9.134 N-1 의
+// ‘번호는 기록한 사람마다 따로’ 안내는 없어졌다. 찾지 못한 번호면 그날 기록이 몇 번까지인지(counts.dayCount — 같은 읽기에서 센 값) 말한다.
+//  · 그날 읽은 범위가 한도(500건)에 닿았으면 기록이 읽은 범위 밖에 있을 수 있으므로 수를 말하지 않는다 — 예전 글과 한도 줄 그대로다.
+//  · 번호 없는 요청(‘방금’)의 답도 예전 그대로다.
 function kakaoEditRowNotFoundTextV4(target = {}, dailyLimit = 0, counts = {}) {
   const date = target.date || formatDate(nowKstDate());
   const seqText = target.seq ? ` ${twoDigitSeq(target.seq)}번` : "";
-  const others = Math.max(0, Math.round(Number(counts.othersCount || 0)));
-  const own = Math.max(0, Math.round(Number(counts.ownCount || 0)));
-  if (!others || !target.seq || dailyLimit) return [`${date}${seqText} 기록을 찾지 못했어요.`, `"${date} 기록"이라고 입력해 번호를 다시 확인해 주세요.`, kakaoDailyLimitLineV22980(dailyLimit)].filter(Boolean).join("\n");
-  const manager = ["owner", "admin"].includes(String(counts.role || "").toLowerCase());
-  return [
-    own ? `${date}${seqText} 기록을 찾지 못했어요. 이 날 내가 남긴 기록은 ${twoDigitSeq(own)}번까지예요.` : `${date}에 내가 남긴 기록이 없어서${seqText}을 찾지 못했어요.`,
-    `번호는 기록한 사람마다 01번부터 따로 매겨요. 이 날 내 것이 아닌 기록 ${numberWithCommas(others)}건은 내 번호로는 고치거나 지울 수 없어요.`,
-    manager ? "소유자·관리자는 웹 가계부에서 다른 분의 기록도 고칠 수 있어요." : "",
-    ...(own ? ["내 번호는 이렇게 다시 볼 수 있어요.", `예) ${date} 기록`] : []),
-  ].filter(Boolean).join("\n");
+  const dayCount = Math.max(0, Math.round(Number(counts.dayCount || 0)));
+  const head = !target.seq || dailyLimit ? `${date}${seqText} 기록을 찾지 못했어요.`
+    : dayCount ? `${date}${seqText} 기록을 찾지 못했어요. 이 날 기록은 ${twoDigitSeq(dayCount)}번까지예요.`
+    : `${date}${seqText} 기록을 찾지 못했어요. 이 날은 기록이 없어요.`;
+  return [head, `"${date} 기록"이라고 입력해 번호를 다시 확인해 주세요.`, kakaoDailyLimitLineV22980(dailyLimit)].filter(Boolean).join("\n");
 }
 
 // V22.9.77 감사 A-14: ‘오늘기록’ 목록은 앞의 20건(가장 오래된 기록)에서 끊겼고, 950자를 넘으면 줄 중간이 잘렸다. 다 들어가면
@@ -729,10 +760,12 @@ function kakaoEditRowNotFoundTextV4(target = {}, dailyLimit = 0, counts = {}) {
 // 답장 안전 길이 950자보다 짧게). 뺀 건수(외 N건)와 전체를 볼 곳(웹 가계부의 그 달 기록)을 적는다. 번호는 저장 순서 그대로다.
 const KAKAO_DAILY_LIST_MAX_ROWS_V22977 = 20;
 const KAKAO_DAILY_LIST_MAX_CHARS_V22977 = 900;
-function kakaoDailyListTextV4({ date = "", householdName = "", ownOnlyLine = "", limitLine = "", rows = [], dayPrefix = "", webLink = "" } = {}) {
-  const head = [`🧾 ${date} 기록`, `가계부: ${householdName || "가계부"}`, ownOnlyLine, ...(limitLine ? [limitLine] : [])];
+// V22.9.135 N-2: rows 는 그날 가계부 기록 전체(번호 = 저장 순서)다. names 가 있으면(다른 사람의 기록이 섞인 날) 줄마다 끝에 지출자(수입자) 이름을 붙이고,
+// headLine(‘구성원 모두의 기록이에요 …’)은 그런 날에만 온다 — 모두 내 기록인 날의 목록은 예전 모양 그대로다.
+function kakaoDailyListTextV4({ date = "", householdName = "", headLine = "", limitLine = "", rows = [], dayPrefix = "", webLink = "", names = null } = {}) {
+  const head = [`🧾 ${date} 기록`, `가계부: ${householdName || "가계부"}`, ...(headLine ? [headLine] : []), ...(limitLine ? [limitLine] : [])];
   const guide = (seq) => ["", `수정: "${dayPrefix}수정 ${seq}번" 또는 "${dayPrefix}수정 ${seq}번 금액 13000"`, `삭제: "${dayPrefix}삭제 ${seq}번"`];
-  const lines = safeArray(rows).map((r, i) => kakaoRowLabel(r, i + 1).replace(/\s*\n+\s*/g, " "));
+  const lines = safeArray(rows).map((r, i) => `${kakaoRowLabel(r, i + 1)}${kakaoRowOwnerSuffixV229135(r, names)}`.replace(/\s*\n+\s*/g, " "));
   const all = [...head, "", ...lines, ...guide("01")].join("\n");
   if (lines.length <= KAKAO_DAILY_LIST_MAX_ROWS_V22977 && all.length <= KAKAO_DAILY_LIST_MAX_CHARS_V22977) return all;
   for (let shown = Math.min(lines.length - 1, KAKAO_DAILY_LIST_MAX_ROWS_V22977); shown >= 1; shown -= 1) {
@@ -830,16 +863,19 @@ async function handleKakaoEditCommandV4(env, ctx) {
     if (!date) return kakaoText("달력에 없는 날짜라서 기록을 찾지 않았어요.\n예: 어제 기록 보기 · 7월 10일 기록 보기");
     const rows = await getDailyKakaoRows(env, household.id, user.id, kakaoUserKey, date);
     // V22.9.72: 빈 날은 짧게 알리고 맨 아래 ‘기록하기’ 버튼으로 잇는다(2026-10-20 디자이너 피드백).
-    // V22.9.76 카카오 감사 7: 이 목록은 내가 남긴 기록만 번호를 붙여 보인다(번호 체계는 그대로). 가계부 전체는 요약으로 안내한다.
-    // V22.9.80 T-10: 그날 기록은 500건까지만 읽는다. 그 한도에 닿았으면 뒤쪽 기록이 목록에 없을 수 있다고 한 줄로 말하고(추가 조회 없음),
-    // 내 기록이 하나도 없어도 한도에 닿았으면 ‘아직 기록이 없어요’라고 단정하지 않는다.
+    // V22.9.80 T-10: 그날 기록은 500건까지만 읽는다. 그 한도에 닿았으면 뒤쪽 기록이 목록에 없을 수 있다고 한 줄로 말한다(추가 조회 없음).
+    // V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 이 목록은 그날 가계부 기록 전체다(V22.9.76 감사 7 부터 134 까지는 내 기록만 보였다).
+    // 번호는 누가 보든 같다. 다른 사람의 기록이 섞인 날에는 줄마다 지출자(수입자) 이름을 붙이고 머리에 한 줄로 알린다(단톡방에서는 이 답을 모두가 본다 —
+    // ‘나’ 가 아니라 이름이다). 모두 내 기록인 날(혼자 쓰는 가계부 포함)의 목록은 예전 모양 그대로다. 이름표를 늦게 읽으면 이름 없이 보인다.
+    if (!rows.length) return kakaoNextStepReply([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, "", "아직 기록이 없어요.", "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
     const limitLine = kakaoDailyLimitLineV22980(rows.dailyLimit);
-    const ownOnlyLine = `내 기록만 보여요 · 가계부 전체는 ‘${(kakaoEditDayPrefixV4(date) || "오늘 ").trim()} 요약’`;
-    if (!rows.length) return kakaoNextStepReply([`🧾 ${date} 기록`, `가계부: ${household.name || "가계부"}`, ownOnlyLine, "", ...(limitLine ? ["읽은 범위에는 내 기록이 없어요.", limitLine] : ["아직 기록이 없어요."]), "지금 내역을 기록해 보세요.", "예) @말해가계부 커피 4500원"].join("\n"), payload);
+    const namesPromise = kakaoOwnerNamesPromiseV229135(env, household.id, rows, user.id);
+    const names = namesPromise ? await optionalWithin(namesPromise, KAKAO_OWNER_NAMES_WAIT_MS_V229135, null) : null;
+    const headLine = !namesPromise ? "" : names ? "구성원 모두의 기록이에요 · 괄호 안은 지출자(수입은 수입자)" : "구성원 모두의 기록이에요";
     // T2: 오늘이 아닌 날의 목록은 안내에도 그 날짜를 붙인다. 날짜 없는 "삭제 01번"은 오늘의 01번이다.
     const dayPrefix = kakaoEditDayPrefixV4(date);
     const webLink = origin ? `${origin}${myReturnLocation(date.slice(0, 7), household.id)}` : "";
-    return kakaoText(kakaoDailyListTextV4({ date, householdName: household.name, ownOnlyLine, limitLine, rows, dayPrefix, webLink }));
+    return kakaoText(kakaoDailyListTextV4({ date, householdName: household.name, headLine, limitLine, rows, dayPrefix, webLink, names }));
   }
 
   const restoreTarget = parseKakaoRestoreCommandV4(raw);
@@ -910,7 +946,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
       // 그 요청이 방금 기록을 되살렸을 수 있다 — 아래 답장이 구분해서 말한다.
       outcome = { kind: "failed", undo: null, error: err, busy: /settings_rmw_busy/.test(safeError(err)) };
     }
-    if (outcome.kind === "empty") return kakaoText("복구할 삭제 기록이 없어요.\n삭제 직후 안내된 번호로만 복구할 수 있어요. ‘오늘기록’로 현재 기록을 확인해 주세요.");
+    // V22.9.135 N-2: 구성원이 다른 사람의 기록도 지우게 됐다. 복구 목록은 지운 사람마다 따로라(같은 방이라도), 내가 지우지 않은 기록은 내 ‘복구’ 로 되살릴 수 없다고 말한다.
+    if (outcome.kind === "empty") return kakaoText("복구할 삭제 기록이 없어요.\n복구는 기록을 지운 사람이 삭제 직후 안내된 번호로 할 수 있어요. ‘오늘기록’로 현재 기록을 확인해 주세요.");
     if (outcome.kind === "other_household") {
       // V22.9.79 감사 B-9: 지금 가계부에서 지운 기록이 따로 있으면 그 번호를 알려 준다(다른 가계부 기록을 건드리지 않고 이 가계부 기록만 안내).
       const ownHint = outcome.ownSeq ? `\n지금 가계부에서 지운 기록은 ‘복구 ${twoDigitSeq(outcome.ownSeq)}번’으로 되살릴 수 있어요.` : "";
@@ -935,9 +972,12 @@ async function handleKakaoEditCommandV4(env, ctx) {
     const restored = outcome.restored;
     // V22.9.81 U-13: 번호를 모르면 지어낸 ‘01번’ 없이 적는다. 되살린 뒤의 번호 조회가 실패해도 복구는 끝났으므로 답장을 실패로 바꾸지 않는다
     // (실패 답장을 보고 ‘복구’를 다시 보내면 그다음 삭제 기록까지 되살아난다).
+    // V22.9.135 N-2: 다른 사람의 기록을 되살렸으면 기록 줄에 그 기록의 지출자 이름을 붙인다(번호를 읽는 동안 함께 읽는다 — 늦으면 이름 없이).
+    const namesPromise = kakaoOwnerNamesPromiseV229135(env, household.id, [restored], user.id);
     const seq = (await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, restored).catch(() => 0)) || Number(outcome.undo.seq || 0);
+    const ownerSuffix = namesPromise ? kakaoRowOwnerSuffixV229135(restored, await optionalWithin(namesPromise, KAKAO_OWNER_NAMES_WAIT_MS_V229135, null)) : "";
     // V22.9.80 T-13: 지울 때 버퍼에 적은 환불 연결은 복구로 되살아나지 않는다(연결은 삭제와 함께 지워졌다). 답장이 그 사실을 말한다.
-    return kakaoText(`↩️ ${kakaoEditDayPrefixV4(restored.transaction_date)}기록을 복구했어요.\n${kakaoRowLabel(restored, seq)}${kakaoRefundLinkUndoNoteV4(outcome.undo?.refund_links, "restore")}`);
+    return kakaoText(`↩️ ${kakaoEditDayPrefixV4(restored.transaction_date)}기록을 복구했어요.\n${kakaoRowLabel(restored, seq)}${ownerSuffix}${kakaoRefundLinkUndoNoteV4(outcome.undo?.refund_links, "restore")}`);
   }
 
   const deleteTarget = parseKakaoDeleteCommandV4(raw);
@@ -945,20 +985,23 @@ async function handleKakaoEditCommandV4(env, ctx) {
     const rejected = kakaoEditTargetRejectTextV4(deleteTarget);
     if (rejected) return kakaoText(rejected);
     { const refused = await refuseRecordChange(); if (refused) return refused; }
-    const { row, seq, dailyLimit, ambiguousText, ownCount, othersCount } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
-    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit, { ownCount, othersCount, role: ctx.role }));
+    const { row, seq, dailyLimit, ambiguousText, dayCount } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
+    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit, { dayCount }));
+    // V22.9.135 N-2: 다른 사람의 기록을 지우면 답의 기록 줄에 그 기록의 지출자 이름을 붙인다. 이름표는 지우는 동안 함께 읽는다(늦으면 이름 없이).
+    const namesPromise = kakaoOwnerNamesPromiseV229135(env, household.id, [row], user.id);
     let deleted = null;
     try {
       deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id, role: ctx.role }, row, seq);
     } catch (err) {
       return kakaoText(kakaoEditDeleteFailedTextV4(err, row, seq));
     }
+    const ownerSuffix = namesPromise ? kakaoRowOwnerSuffixV229135(row, await optionalWithin(namesPromise, KAKAO_OWNER_NAMES_WAIT_MS_V229135, null)) : "";
     // 삭제는 끝났다. 남은 세션 정리가 실패해도 "다시 보내 주세요"로 바뀌면 안 된다(다시 보내면 다음 번호가 지워진다).
     // V22.9.126 FC-19: 고치기와 같게 한 번 더 써 본다. 이 길은 세션을 미리 읽지 않아 두 번 다 실패했을 때만 남은 세션을 읽어 줄을 고르고(3차 검토),
     // 그 읽기도 실패하면 정리가 지우기 전에 본 이 isolate 의 힌트로 판단한다(4차 검토 — 저장소가 실패하는 동안에도 창은 남아 있을 수 있다).
     const hinted = hasKakaoEditSessionHint(kakaoUserKey, payload);
     const closeError = await closeKakaoEditSessionV229126(env, kakaoUserKey, payload);
-    const deletedText = kakaoEditDeletedTextV4(row, seq, deleted?.refund_links);
+    const deletedText = kakaoEditDeletedTextV4(row, seq, deleted?.refund_links, ownerSuffix);
     const stale = closeError ? await getKakaoEditSessionV4(env, kakaoUserKey, payload).catch(() => undefined) : null;
     const line = stale === undefined ? (hinted ? KAKAO_EDIT_CLOSE_FAILED_LINE_V229126 : "") : kakaoEditCloseFailedLineV229126(stale, { goneEntryId: row.id });
     return kakaoText(line ? `${deletedText}\n${line}` : deletedText);
@@ -976,8 +1019,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
       return kakaoText(`${shown}번 기록은 그대로예요.\n지우려면 ‘삭제 ${shown}번’이라고 보내 주세요.`);
     }
     { const refused = await refuseRecordChange(); if (refused) return refused; }
-    const { row, seq, dailyLimit, ambiguousText, ownCount, othersCount } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
-    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(editTarget, dailyLimit, { ownCount, othersCount, role: ctx.role }));
+    const { row, seq, dailyLimit, ambiguousText, dayCount } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
+    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(editTarget, dailyLimit, { dayCount }));
     // V22.9.93 Q-32: ‘방금 분류 이상해’ 는 그 칸을 다시 묻고, ‘아까 거 내용 뭐였지’ 는 기록을 보여 준다. 둘 다 값이 아니라 기록을 바꾸지 않는다.
     if (isKakaoEditNotValue(editTarget.rest) && !/^구분(?:\s|$)/.test(editTarget.rest)) {
       const complaint = kakaoEditComplaintField(editTarget.rest);

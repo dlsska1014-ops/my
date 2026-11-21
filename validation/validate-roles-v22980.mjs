@@ -196,7 +196,7 @@ await section("denials", () => withClock("2026-07-15", () => fixture(async (fx) 
   const shown = async (response, cookie = wifi) => (response.location.startsWith("/") ? text((await page(fx, response.location, { cookie })).html) : "");
 
   // formatMessage 표: 새 코드마다 일반 안내가 아닌 자기 안내가 있다.
-  const CODES = { write_denied_viewer: "조회 전용", write_denied_pending: "승인을 기다리는", write_denied_blocked: "이용이 제한", write_denied_not_member: "참여자가 아니어서", household_scope: "참여자가 아니거나", manage_required: "소유자 또는 관리자만", not_my_record: "내가 만든 기록", household_role_check_failed: "권한을 확인하지 못해" };
+  const CODES = { write_denied_viewer: "조회 전용", write_denied_pending: "승인을 기다리는", write_denied_blocked: "이용이 제한", write_denied_not_member: "참여자가 아니어서", household_scope: "참여자가 아니거나", manage_required: "소유자 또는 관리자만", not_my_record: "지금 가계부의 기록인지", household_role_check_failed: "권한을 확인하지 못해" };
   for (const [code, needle] of Object.entries(CODES)) {
     const message = decode(formatMessage(code));
     t.ok(message !== GENERIC && message.includes(needle), `formatMessage(${code}) 는 일반 안내가 아닌 자기 안내를 한다`);
@@ -235,8 +235,10 @@ await section("denials", () => withClock("2026-07-15", () => fixture(async (fx) 
   t.eq(errOf((await post(fx, "/admin/transactions", addValues, { cookie: wifi })).location), "write_denied_not_member", "참여자가 아닌 사람의 기록 입력 거절은 write_denied_not_member");
   fx.db.household_members.push({ household_id: HH, user_id: "user-wifi", role: "member", created_at: "2026-07-02T00:00:00.000Z" });
 
-  // 구성원이 남의 기록을 고치려 할 때는 예전처럼 not_my_record
-  t.eq(errOf((await post(fx, "/admin/delete", { ...base, id: "tx-income-1" }, { cookie: wifi })).location), "not_my_record", "구성원이 남의 기록을 지우려 하면 not_my_record");
+  // V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 구성원도 같은 가계부의 남의 기록을 지운다(V22.9.134 까지는 not_my_record).
+  // 다른 가계부의 기록·없는 기록은 위처럼 그대로 not_my_record 다(가계부·존재 여부가 새지 않는다).
+  const otherDelete = await post(fx, "/admin/delete", { ...base, id: "tx-income-1" }, { cookie: wifi });
+  t.ok(errOf(otherDelete.location) === null && !fx.db.transactions.some((row) => row.id === "tx-income-1"), `구성원이 같은 가계부의 남의 기록을 지우면 지워진다(${otherDelete.location})`);
 
   // 정기 항목 화면: 조회 전용·구성원은 manage_required 를 안내로 본다
   for (const role of ["viewer", "member"]) {
@@ -258,7 +260,7 @@ await section("denials", () => withClock("2026-07-15", () => fixture(async (fx) 
   const stranger = await post(fx, "/home-layout/save", { household_id: "house-nope", month: MONTH });
   t.eq(errOf(stranger.location), "household_scope", "참여하지 않은 가계부의 홈 구성 저장 거절은 household_scope");
   t.ok((await shown(stranger, fx.cookie)).includes("참여자가 아니거나 승인 대기·이용 제한 상태여서 설정을 저장하지 않았습니다"), "홈이 household_scope 를 안내한다");
-  t.eq(fx.db.transactions.length, rowsBefore, "거절된 요청이 기록을 만들지 않았다");
+  t.eq(fx.db.transactions.length, rowsBefore - 1, "거절된 요청이 기록을 만들지 않았다(지운 것은 구성원이 지운 남의 기록 한 건뿐)");
 })));
 
 // ── T-35 역할 조회가 실패하면 ‘권한 없음’이 아니라 ‘확인하지 못함’ ────────────────────────────────────────

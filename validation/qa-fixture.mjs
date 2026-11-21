@@ -313,6 +313,10 @@ export async function createV2265QaFixture(options = {}) {
   // V22.9.90: 운영의 지우는 DB 함수(v227·_if_v22988)는 accountbook_transaction_audit 에 지운 행 전체를 남긴다. 웹 삭제 되돌리기(/my/restore)가
   // 그 기록을 읽으므로 테스트 서버와 그 검사는 이 값을 켠다. 기본은 꺼짐이다(예전 검사의 fx.db 비교가 그대로다).
   const auditDeletes = options.auditDeletes === true;
+  // V22.9.135: 운영의 고치는 길도 감사 기록을 남긴다 — 감사 RPC(accountbook_update_transaction_v227)는 action 'update'·행위자·고친 뒤의 행 전체를 쓰고,
+  // transactions 의 updated_at 은 트리거(set_transactions_updated_at)가 고칠 때마다 바꾼다(조건부 저장의 감사 한 줄은 앱이 POST 로 쓴다 — 아래 일반 처리).
+  // ‘방금’ 이 마지막 저장 뒤에 내가 고친 남의 기록을 알아보는 검사가 이 값을 켠다. 기본은 꺼짐이다(예전 검사의 fx.db 비교가 그대로다).
+  const auditUpdates = options.auditUpdates === true;
   const createdAt = "2026-07-01T00:00:00.000Z";
   const db = {
     users: [
@@ -597,7 +601,16 @@ export async function createV2265QaFixture(options = {}) {
           const clash = kakaoRequestUniqueViolationV229119(db.transactions.filter((item) => item !== row), [{ ...row, ...patch }]);
           if (clash) return kakaoRequestUniqueResponseV229119(clash);
         }
+        const before = clone(row);
         Object.assign(row, patch);
+        if (auditUpdates) {
+          row.updated_at = new Date().toISOString();
+          (db.accountbook_transaction_audit ||= []).push({
+            id: `audit-update-${db.accountbook_transaction_audit.length + 1}`, transaction_id: row.id, household_id: row.household_id,
+            actor_user_id: data?.p_actor_user_id ?? null, actor_kind: String(data?.p_actor_kind ?? "user").slice(0, 30), action: "update",
+            before_value: before, after_value: clone(row), created_at: new Date().toISOString(),
+          });
+        }
         return new Response(JSON.stringify([clone(row)]), { status: 200, headers: { "content-type": "application/json" } });
       }
       if (rpcName === "accountbook_delete_transaction_v227") {
@@ -733,8 +746,10 @@ export async function createV2265QaFixture(options = {}) {
         const clash = kakaoRequestUniqueViolationV229119(db.transactions.filter((row) => !ids.has(fixtureRowIdentityV229121(table, row))), matches.map((row) => ({ ...row, ...data })));
         if (clash) return kakaoRequestUniqueResponseV229119(clash);
       }
-      db[table] = db[table].map((row) => ids.has(fixtureRowIdentityV229121(table, row)) ? { ...row, ...data } : row);
-      return new Response(JSON.stringify(matches.map((row) => ({ ...row, ...data }))), { status: 200, headers: { "content-type": "application/json" } });
+      // V22.9.135: auditUpdates 이면 운영 트리거처럼 고친 기록의 updated_at 을 바꾼다.
+      const stamp = auditUpdates && table === "transactions" ? { updated_at: new Date().toISOString() } : {};
+      db[table] = db[table].map((row) => ids.has(fixtureRowIdentityV229121(table, row)) ? { ...row, ...data, ...stamp } : row);
+      return new Response(JSON.stringify(matches.map((row) => ({ ...row, ...data, ...stamp }))), { status: 200, headers: { "content-type": "application/json" } });
     }
     if (method === "DELETE") {
       const matches = filteredRows(db, table, url);

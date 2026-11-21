@@ -63,9 +63,16 @@ await withClock("2026-07-15", async () => {
     const result = links((await page(fx, "/app?" + q + "&category=없음")).html);
     eq(result[0].label, "분류 조건 해제 · 1,005건", "counts full paginated month"); eq(calls, before, "pagination does not add filter queries"); trace();
   });
-  for (const [label, patch, options, expected] of [["missing scope", { household_id: "" }, {}, 400], ["wrong ledger", { household_id: "house-trip" }, {}, 404], ["expired session", {}, { cookie: "" }, 401], ["another member row", { id: "tx-expense-2" }, { user: "user-wifi" }, 403]]) await fixture(async fx => {
+  // V22.9.135 N-2(운영자 2026-11-21 — ‘구성원 누구나’): 구성원은 같은 가계부의 남의 기록도 지운다 — 예전의 ‘another member row’(403)는 조회 전용 구성원으로 본다.
+  for (const [label, patch, options, expected] of [["missing scope", { household_id: "" }, {}, 400], ["wrong ledger", { household_id: "house-trip" }, {}, 404], ["expired session", {}, { cookie: "" }, 401], ["another member row as viewer", { id: "tx-expense-2" }, { user: "user-wifi", role: "viewer" }, 403]]) await fixture(async fx => {
+    if (options.role) for (const member of fx.db.household_members) if (member.household_id === "house-home" && member.user_id === options.user) member.role = options.role;
     const cookie = options.user ? await fx.cookieFor(options.user) : options.cookie === "" ? "" : fx.cookie;
     const res = await post(fx, "/admin/delete", { ...values, ...patch }, { accept: "application/json", cookie }); eq(res.status, expected, label); eq(rpcCount(fx), 0, label + " writes zero"); eq(JSON.parse(res.text).ok, false, label + " JSON denial");
+  });
+  await fixture(async fx => {
+    const res = await post(fx, "/admin/delete", { ...values, id: "tx-expense-2" }, { accept: "application/json", cookie: await fx.cookieFor("user-wifi") });
+    eq(res.status, 200, "V22.9.135 member deletes another member's row in the same ledger"); eq(JSON.parse(res.text).ok, true, "V22.9.135 JSON success");
+    eq(fx.db.transactions.some(row => row.id === "tx-expense-2"), false, "V22.9.135 that row is gone");
   });
   await fixture(async fx => {
     putSetting(fx, "household_member_policy_v22943:house-home", { version: 1, mode: "record_only" });
