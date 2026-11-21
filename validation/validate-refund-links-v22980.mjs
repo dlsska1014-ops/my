@@ -178,24 +178,29 @@ const SOFT = process.env.V22980_SOFT === "1";
 // V22.9.136(간격·색 정리, 2026-11-21): 스타일 블록의 간격·색 값과 스타일시트 주소(v229125 → v229136)가 바뀌어 11곳(home·homeTrend·homePrev·budgets·budgetAlerts·reports·reportsWeek·analysis·backupPage·candidate·legacyErr)의 값이,
 // 판 이름이 바뀌어 2곳(backupFull·backupMonth)의 값이 달라졌다(analysis 는 둘 다). 해시에 들어가는 원문 97개를 바탕 커밋과 견줘 의도한 차이(스타일 블록·주소 셋·판 이름·인라인 스타일 둘)
 // 말고는 같음을 먼저 확인했고(같음 40·의도한 차이만 57·그 밖의 차이 0), 그 뒤 --print-golden 으로 그 값들을 다시 얻었다. 나머지 값은 그대로다.
+// V22.9.137(홈 단순화, 2026-11-21): 홈의 짜임(U-12 날짜 머리·한 줄 행, U-13 ‘이번 달 요약’ 카드·리포트 카드 기본 꺼짐·게이지와 들어온 돈·나간 돈 줄 없앰, U-14 끝난 지 사흘 지난 챌린지 숨김)과
+// 홈 스타일시트 주소(v229136 → v229137)가 바뀌어 3곳(home·homeTrend·homePrev)의 값이 달라졌다. 해시에 들어가는 원문 97개를 바탕 커밋과 견줘
+// 다른 원문은 홈 화면뿐이고 글자 차이는 위 변경뿐임을 먼저 확인했고(같음 80·홈 화면만 다름 17·그 밖의 차이 0), 그 뒤 --print-golden 으로 그 값들을 다시 얻었다. 나머지 값은 그대로다.
+// 판 이름(V22.9.136 → V22.9.137)이 바뀌어 3곳(analysis·backupFull·backupMonth)의 값도 달라졌다. 판 올리기 앞뒤의 원문 97개를 견줘 뒤 원문의 판 이름을 옛 이름으로 되돌리면
+// 바이트까지 같음을 먼저 확인했고(같음 86·판 이름만 다름 11·그 밖의 차이 0), 그 뒤 --print-golden 으로 그 값들을 다시 얻었다.
 const FLAG_OFF_GOLDEN = {
-  "home": "200 b76a819777b186314ee53dc8",
-  "homeTrend": "200 7174a8007efe2534562e4661",
-  "homePrev": "200 0d34c6c2011545046f1be970",
+  "home": "200 29cf93804fcc9b647378206d",
+  "homeTrend": "200 383a6066af16b14fadf11c9d",
+  "homePrev": "200 7b5ec8ff2d498b939155fa90",
   "budgets": "200 41b9e3b769a6013d19d92aa7",
   "budgetAlerts": "200 76bd161dc9eb6f86bc5e9bd1",
   "notifications": "200 66c9272b3c7b49d47411251a",
   "reports": "200 fb86ee689cc21572e7bb695f",
   "reportsWeek": "200 00e7dc6979ff324a9cff7888",
-  "analysis": "200 8151fb02d41e227a41cf0a36",
+  "analysis": "200 42490a9608a43c643e0070f4",
   "backupPage": "200 651c68cb95b27ef2c4a5fe8b",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 cca9104edca5c8abe7003d9b",
-  "backupMonth": "200 072120db788924a3f8d23ac1",
+  "backupFull": "200 3e3054d79af2514ff815271a",
+  "backupMonth": "200 dff255c286fc689c7d38c2d9",
   "candidate": "200 72c0dfbe85e1323d831b45bc",
   "legacyErr": "200 dba548c2b89369b26a5c34d4",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",
@@ -637,8 +642,9 @@ await scenario("플래그 켜짐·연결 있음", async (fx) => {
   const measured = await measureDb(() => page(fx, SCREENS[0][1]));
   const home = measured.result;
   t.ok(home.status === 200 && measured.calls <= 9 && measured.depth <= 3, `M-7 홈: 연결이 있어도 DB 9회·3단계 안이다(${measured.calls}회·${measured.depth}단계)`);
-  t.has(home.html, "나간 돈</span><b class=\"expense\">-82,000원</b>", "M-7 홈: 나간 돈 142,000 → 82,000원");
-  t.has(home.html, "<small class=\"homeMomLine\">환불 차감 60,000원 반영</small>", "M-7 홈: 나간 돈 아래 반영 문구");
+  // V22.9.137 U-13: 들어온 돈·나간 돈 줄은 ‘이번 달 요약’ 카드(지출·수입 칸)로 바뀌었다 — 차감한 지출과 반영 문구는 그 카드에 있다.
+  t.has(home.html, "<div><dt>지출</dt><dd><b data-ab-num-unit=\"원\">82,000</b><small>원</small></dd></div>", "M-7 홈: 나간 돈 142,000 → 82,000원(요약 카드의 지출 칸)");
+  t.has(home.html, "<p class=\"homeMomLine\">환불 차감 60,000원 반영</p>", "M-7 홈: 지출 아래 반영 문구(요약 카드)");
   t.lacks(home.html, "-142,000원", "M-7 홈: 빼기 전 금액을 나간 돈으로 그리지 않는다");
   const trend = await page(fx, SCREENS[1][1]);
   t.ok(trend.status === 200 && textOf(trend.html).includes("환불 차감 60,000원 반영"), "M-7 홈 월별 흐름: 같은 화면도 반영한다");
@@ -674,7 +680,7 @@ await scenario("플래그 켜짐·연결 있음", async (fx) => {
   const last = await skill(fx, "지난달 요약");
   t.has(last, "지출: 120,000원 · 2건 (환불 차감 10,000원 반영)", "M-7 카카오 지난달: 그 달 환급의 차감만 뺀다");
   const prevHome = await page(fx, SCREENS[2][1]);
-  t.has(prevHome.html, "나간 돈</span><b class=\"expense\">-120,000원</b>", "M-7 홈(지난달): 9월 환급 차감만 반영");
+  t.has(prevHome.html, "<div><dt>지출</dt><dd><b data-ab-num-unit=\"원\">120,000</b><small>원</small></dd></div>", "M-7 홈(지난달): 9월 환급 차감만 반영(요약 카드의 지출 칸)");
   t.ok(log.embeds.length >= 10, "M-7: 화면마다 차감을 읽었다");
 });
 
@@ -683,7 +689,8 @@ await scenario("플래그 켜짐·차감 읽기 실패", async (fx) => {
   seed(fx, { flag: "1", links: LINKS() });
   refundDb(fx, { embed: "fail" });
   const home = await page(fx, SCREENS[0][1]);
-  t.ok(home.status === 200 && home.html.includes("-142,000원") && home.html.includes("<small class=\"homeMomLine\">환불 차감 확인 불가</small>"), "M-7 실패: 홈은 열리고 기록 그대로 + ‘환불 차감 확인 불가’");
+  // V22.9.137 U-13: 지출 합계와 ‘확인 불가’ 는 ‘이번 달 요약’ 카드에 있다(예전 나간 돈 줄의 -142,000원 자리).
+  t.ok(home.status === 200 && home.html.includes("<div><dt>지출</dt><dd><b data-ab-num-unit=\"원\">142,000</b><small>원</small></dd></div>") && home.html.includes("<p class=\"homeMomLine\">환불 차감 확인 불가</p>"), "M-7 실패: 홈은 열리고 기록 그대로 + ‘환불 차감 확인 불가’");
   const budgets = await page(fx, SCREENS[3][1]);
   t.ok(budgets.status === 200 && budgets.html.includes("환불 차감 확인 불가") && textOf(budgets.html).includes("사용 142,000원"), "M-7 실패: 예산 화면은 기록 그대로 + 확인 불가");
   const reports = await page(fx, SCREENS[6][1]);

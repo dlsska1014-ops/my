@@ -89,6 +89,7 @@ function seed(fx, scene) {
 async function render(scene, pages = {}, utterances = []) {
   return withClock(scene.today, async () => {
     const out = { pages: {}, html: {}, kakao: {} };
+    // V22.9.137 U-13: scene.homeReports = 홈 구성에서 리포트 카드 네 장을 켠 가계부(기본값은 꺼짐).
     await fixture(async (fx) => {
       seed(fx, scene);
       for (const [name, path] of Object.entries(pages)) {
@@ -97,7 +98,7 @@ async function render(scene, pages = {}, utterances = []) {
         out.html[name] = res.html;
         out.pages[name] = textLines(res.html);
       }
-    });
+    }, scene.homeReports ? { homeReports: true } : {});
     if (!utterances.length) return out;
     await fixture(async (fx) => {
       seed(fx, scene);
@@ -227,7 +228,13 @@ const ENDED_MONTH_TOKENS = {
   report: "e29a368f4b77",
   analysis: "b46c5045c8e4",
   budgets: "918ff1d26a33",
-  home: "1b2b69e26011",
+  // V22.9.137(U-12·U-13·U-14)이 홈의 짜임을 바꿔 다시 고정했다(앞 값 1b2b69e26011). 앞 판과 이 판의 글자 묶음을 견줘 차이를 모두 확인했다 —
+  // 빠진 것: 수입 대비 사용 게이지(28%·835,000원·/ 3,000,000원)와 들어온 돈·나간 돈 줄(-835,000원), 기본값에서 꺼진 리포트 카드
+  // (어디에 썼나 25,000원·3%·650,000원·78%, 최근 7일 60%·75,000원·7일×3), 끝난 지 사흘이 지난 챌린지(4일×3).
+  // 생긴 것: 날짜 머리의 날 합계(-25,000원·-100,000원·-60,000원·-650,000원, +3,000,000원은 빠진 들어온 돈 자리와 같은 수)와
+  // ISO 날짜 대신 쓴 ‘10월 N일 X요일’ 머리·화면 낭독용 ‘10월 N일 ·’(각 날짜 ×2). ‘10월 요약’ 카드의 금액은 글자가 나뉘어(835,000 / 원) 이 묶음에 들지 않는다.
+  // report·analysis·budgets 세 화면의 묶음은 그대로다(같은 값).
+  home: "9996e296aa05",
 };
 {
   const scene = { today: "2026-11-12", month: "2026-10", rows: [...NOV, ...OCT], budgets: [...BUDGETS("2026-11"), ...BUDGETS("2026-10")] };
@@ -249,7 +256,11 @@ const ENDED_MONTH_TOKENS = {
   lacks(pages.budgets, "이번 달 남은 예산", "N-13 예산 화면");
   ok(pages.budgets.includes("분류별 금액의 합계가 10월 전체 지출 예산이 됩니다."), "N-13 예산 화면 계획 안내");
   lacks(pages.budgets, "이번 달 전체 지출 예산", "N-13 예산 화면 계획 안내");
-  ok(pages.home.some((s) => s.startsWith("가장 많이 쓴 곳이고 10월 지출의 78%")), "N-13 홈 가장 많이 쓴 곳");
+  // V22.9.137 U-13: 기본 홈(홈 구성을 저장하지 않음)의 요약 카드 머리도 보는 달의 이름이다. ‘어디에 썼나’ 카드는 네 장을 켠 홈에서 본다.
+  ok(pages.home.includes("10월 요약") && !pages.home.includes("이번 달 요약"), "N-13 기본 홈의 요약 카드 머리는 ‘10월 요약’");
+  const withCards = (await render({ ...scene, homeReports: true }, { home: "/app?Q" })).pages.home;
+  ok(withCards.some((s) => s.startsWith("가장 많이 쓴 곳이고 10월 지출의 78%")), "N-13 홈 가장 많이 쓴 곳(리포트 카드를 켠 홈)");
+  ok(withCards.includes("10월 요약"), "N-13 리포트 카드를 켠 홈에도 위에 ‘10월 요약’ 카드가 있다");
 }
 
 // ── 7. 직접 적은 기록이 없는 기간: N-9 ────────────────────────────────────────────

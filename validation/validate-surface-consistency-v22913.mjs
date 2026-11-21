@@ -63,7 +63,22 @@ try {
     { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0 (iPhone)" } }), fixture.env, {})).text();
   // V22.9.86 T-12: 홈의 SMART NOTICE 띠(homeNotice)를 예산 카드 속도 문장으로 합쳐 홈의 어두운 블록은 챌린지 하나다.
   // 아래 3) 의 공용 규칙(:is(.reportChallenge,.homeNotice))은 셸 CSS 에 그대로 있다(옛 바이트를 받는 화면이 같은 얼굴을 쓴다).
-  ok(home.includes('class="reportChallenge"') && !home.includes('class="homeNotice"'), "홈의 어두운 블록은 챌린지 하나다(SMART NOTICE 띠는 속도 문장으로 합침)");
+  // V22.9.137 U-14: 홈 챌린지는 밝은 면 카드(reportChallenge homeChallenge)가 됐고 기간 안과 끝난 뒤 사흘만 보인다 — 이 검사는 실제 시계로 돌아
+  // 픽스처의 7/1~4 챌린지가 홈에 없다. 그래서 홈에는 어두운 블록이 하나도 없다. 기간 안(7/3 낮)의 홈으로 그 카드가 홈 자산의 밝은 면 규칙
+  // (셸의 검은 카드 규칙 :is(.reportChallenge,.homeNotice) 보다 센 선택자, 둘 다 !important)을 받는지 본다. 분석·리포트 화면의 챌린지는 아래 3) 의 검은 카드 그대로다.
+  ok(!home.includes('id="reportChallenge"') && !home.includes('class="homeNotice"'), "끝난 지 사흘이 지난 챌린지와 SMART NOTICE 띠는 홈에 없다(실제 시계)");
+  const clockBefore = globalThis.__AB_QA_FIXED_NOW_MS;
+  globalThis.__AB_QA_FIXED_NOW_MS = Date.parse("2026-07-03T12:00:00+09:00");
+  let challengeHome;
+  try {
+    challengeHome = await (await app.fetch(new Request(`${ORIGIN}/app?month=2026-07&household_id=house-home`,
+      { headers: { cookie: fixture.cookie, "user-agent": "Mozilla/5.0 (iPhone)" } }), fixture.env, {})).text();
+  } finally { globalThis.__AB_QA_FIXED_NOW_MS = clockBefore; }
+  const homeCssPath = (challengeHome.match(/\/assets\/mobile-home-v\d+\.css/) || [])[0] || "";
+  const homeCss = homeCssPath ? await (await app.fetch(new Request(`${ORIGIN}${homeCssPath}`), {}, {})).text() : "";
+  ok(challengeHome.includes('class="reportChallenge homeChallenge"') && !challengeHome.includes('class="homeNotice"')
+    && /html body\.abV22812Shell \.reportChallenge\.homeChallenge\{[^}]*background:var\(--ab12-surface,#fff\)!important/.test(homeCss),
+    "홈에 어두운 블록이 없다 — SMART NOTICE 띠는 속도 문장으로 합쳤고(V86 T-12) 챌린지는 홈에서 밝은 면 카드다(V137 U-14)");
 } finally {
   fixture.restore();
 }

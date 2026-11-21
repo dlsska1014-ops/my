@@ -67,7 +67,9 @@ async function renderSet(rows) {
   t.ok(withWords.edit.status === 200 && withWords.edit.html.includes('value="프리미엄 아울렛 신발"') && withWords.edit.html.includes('value="프리미엄"') && !withWords.edit.html.includes('value="스마트 도구'), "FC-2 기록 수정 화면의 폼 값(메모·분류)도 원문 그대로다");
   const home = withWords[`/app?${Q}`].html;
   for (const memo of ["오늘 쓴 돈 ☀️ 메모", "🌱 시작가이드 처음이라면 여기부터", "/my/premium 나간 돈 💸 메모"]) t.ok(home.includes(memo), `FC-2 홈: 메모 ‘${memo}’ 가 그대로 보인다(그림 글자·주소를 빼지 않는다)`);
-  t.ok(home.includes("<span>들어온 돈</span>") && home.includes("<span>나간 돈</span>") && !home.includes("<span>들어온 돈 💰</span>") && !home.includes("<span>나간 돈 💸</span>"), "FC-2 홈 카드 이름의 그림 글자는 예전처럼 뺀다(템플릿 마크업만)");
+  // V22.9.137 U-13: 홈의 들어온 돈·나간 돈 줄은 ‘이번 달 요약’ 카드의 칸(지출·수입)으로 바뀌었다 — 칸 이름에 그림 글자가 없고 옛 카드 이름도 없다.
+  // 메모의 같은 그림 글자(위 ‘나간 돈 💸 메모’)는 그대로다. 옛 이름을 지우는 후처리 두 줄(html-postprocess FC-2)은 옛 마크업을 위해 남아 있다.
+  t.ok(home.includes("<div><dt>지출</dt>") && home.includes("<div><dt>수입</dt>") && !/<dt>[^<]*[💰💸]/u.test(home) && !home.includes("<span>들어온 돈 💰</span>") && !home.includes("<span>나간 돈 💸</span>"), "FC-2 홈 카드 이름의 그림 글자는 예전처럼 뺀다(템플릿 마크업만 — 이제 요약 카드 칸 이름)");
   t.ok(withWords[`/my/analysis?${Q}`].html.includes('"프리미엄","신용카드","프리미엄 아울렛 신발"'), "FC-2 소비 분석 자료(window.__INSIGHT__)의 분류·메모도 원문이다");
   // 그런 기록이 있을 때와 없을 때 ‘월말 예상 지출’ 표기가 같다(고치기 전에는 있는 달만 ‘약 117만’).
   const outlookCell = (html) => (html.match(/<span>월말 예상 지출<\/span><b>[^<]*<\/b>/) || [""])[0];
@@ -238,7 +240,9 @@ await fixture(async (fx) => {
     }
     for (const day of ["02", "06", "09", "13"]) fx.db.transactions.push({ id: `v126-nov-${day}`, household_id: HOME, user_id: "user-bin", transaction_date: `2026-11-${day}`, type: "expense", amount: 25000, category: "식비", memo: `장보기 ${day}`, payment_method: "신용카드", source: "web", raw_text: `장보기 25000`, created_at: `2026-11-${day}T03:00:00.000Z`, updated_at: `2026-11-${day}T03:00:00.000Z` });
   };
-  const render = (mode) => withClock("2026-11-17", () => fixture(async (fx) => {
+  // V22.9.137 U-13: 홈 구성을 저장하지 않은 홈은 리포트 카드가 꺼진 것이 기본이다 — 이 장면의 ‘예산 항목’ 카드는 네 장을 켠 가계부(homeReports)로 보고,
+  // 기본 홈(카드 없음)도 아래 끝에서 같은 ‘되돌리면 바이트가 같다’ 로 본다(되돌릴 칸이 넷이다 — 예산 항목 카드 칸이 없다).
+  const render = (mode, options = { homeReports: true }) => withClock("2026-11-17", () => fixture(async (fx) => {
     prepare(fx, { budgets: mode !== "none" });
     let budgetGets = 0;
     const restore = mode === "fail" ? intercept(({ url, method }) => {
@@ -250,7 +254,7 @@ await fixture(async (fx) => {
       const home = await page(fx, `/app?${NOV}`);
       return { analysis, home, budgetGets };
     } finally { restore(); }
-  }));
+  }, options));
   const normal = await render("ok"), failed = await render("fail"), none = await render("none");
   t.ok(failed.budgetGets >= 2, `FC-5 장면: 예산 GET 만 500 으로 실패시켰다(${failed.budgetGets}회)`);
   t.ok(normal.analysis.html.includes("월 400,000원 기준") && normal.analysis.html.includes("<span>남은 예산</span><b>300,000원</b>"), "FC-5 정상일 때 소비 분석은 예산 400,000원·남은 예산 300,000원");
@@ -280,6 +284,12 @@ await fixture(async (fx) => {
   t.ok(planStart > 0 && noneHome.includes("예산을 설정하면 하루 기준이 생겨요"), "FC-5 예산이 정말 없는 달의 홈은 예전처럼 설정 안내 링크가 있다");
   t.ok(noneHome.includes("<b>미설정</b><div class=\"homeReportBars\"></div><small>분류별 예산을 정하면 넘치는 항목을 미리 알려드려요</small>") && noneHome.includes('data-bsc="[20261117,0]"') && noneHome.includes(">예산을 설정하면 저장 후 남는 돈이 함께 보여요</p>"), "FC-5 예산이 정말 없는 달의 홈 카드·입력 아래 글은 예전 그대로");
   t.eq(revertFailedHomeV126(fh.html, "100,000원"), noneHome.slice(0, planStart) + noneHome.slice(planEnd), "FC-5 홈: 실패 글 다섯 칸을 되돌리고 설정 안내 한 줄만 빼면 예산이 없는 달의 홈과 바이트가 같다");
+  // V22.9.137: 기본 홈(리포트 카드 없음)도 같다 — 예산 항목 카드 칸이 없어 되돌릴 칸은 넷이다.
+  const plainFailed = (await render("fail", {})).home.html, plainNone = (await render("none", {})).home.html;
+  const plainStart = plainNone.indexOf('<div class="homeDailyPlan homeDailyPlanEmpty">');
+  const plainEnd = plainStart < 0 ? -1 : plainNone.indexOf("</div>", plainStart) + 6;
+  t.ok(!/<section class="homeReports"/.test(plainFailed) && plainStart > 0 && !plainFailed.includes("예산 미설정") && !plainFailed.includes("예산을 설정하면") && !plainFailed.includes("<b>미설정</b>"), "FC-5 기본 홈(리포트 카드 없음)에도 ‘예산 미설정·예산을 설정하면’ 이 없다");
+  t.eq(revertFailedHomeV126(plainFailed, "100,000원"), plainNone.slice(0, plainStart) + plainNone.slice(plainEnd), "FC-5 기본 홈: 실패 글 네 칸을 되돌리고 설정 안내 한 줄만 빼면 예산이 없는 달의 홈과 바이트가 같다");
 }
 // FC-5 2차: 앞달·다음 달(시계 2026-11-17)도 같다 — 홈은 다섯 칸, 소비 분석은 세 칸만 다르다.
 function revertFailedHomeV126(html, spent) {
@@ -298,7 +308,7 @@ for (const month of ["2026-10", "2026-12"]) {
     fx.db.transactions.push({ id: `v126-${month}`, household_id: HOME, user_id: "user-bin", transaction_date: `${month}-05`, type: "expense", amount: 25000, category: "식비", memo: "장보기", payment_method: "신용카드", source: "web", raw_text: "장보기 25000", created_at: `${month}-05T03:00:00.000Z`, updated_at: `${month}-05T03:00:00.000Z` });
     const restore = mode === "fail" ? intercept(({ url, method }) => (url.hostname === "mock.supabase.co" && method === "GET" && url.pathname === "/rest/v1/accountbook_budgets") ? failure(500, "simulated budgets outage") : undefined) : () => {};
     try { return { home: await page(fx, `/app?household_id=${HOME}&month=${month}`), analysis: await page(fx, `/my/analysis?household_id=${HOME}&month=${month}`) }; } finally { restore(); }
-  }));
+  }, { homeReports: true })); // V22.9.137 U-13: 예산 항목 카드를 켠 가계부(위 2026-11 장면과 같은 까닭)
   const failed = await render("fail"), none = await render("none");
   const home = failed.home.html, noneHome = none.home.html;
   t.ok(failed.home.status === 200 && failed.analysis.status === 200, `FC-5(2차) ${month}: 예산을 못 읽어도 홈·소비 분석이 열린다`);

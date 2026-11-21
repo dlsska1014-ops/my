@@ -442,13 +442,16 @@ async function paceCard(fx, month) {
     bars: [...card.matchAll(/<i\b([^>]*)>/g)].map((m) => (/isBlank/.test(m[1]) ? "blank" : (m[1].match(/height:(\d+)%/) || [])[1] + "%")),
   };
 }
+// V22.9.137 U-13: ‘최근 7일’(1~6일은 ‘이번 달’) 카드는 홈 구성에서 켠 사람에게만 보인다(기본값은 리포트 카드 꺼짐) — 이 절의 픽스처는 네 장을 켠 가계부다.
+// 바이트 예산(measure)도 카드가 모두 있는 가장 큰 홈으로 잰다.
+const cardsFixture = (task) => fixture(task, { homeReports: true });
 await attempt("T-20", async () => {
   const seed = (fx, rows) => { fx.db.transactions = fx.db.transactions.filter((row) => !String(row.id).startsWith("t20-")); fx.db.transactions.push(...rows); };
   // 2026-10: 1일 5,000 · 2일 3,000 · 3일 2,000(수입 90,000 은 지출이 아니다) · 5일 1,000 · 6일 700 · 7일 400
   const october = [expenseRow("t20-1", "2026-10-01", 5000), expenseRow("t20-2", "2026-10-02", 3000), expenseRow("t20-3", "2026-10-03", 2000), expenseRow("t20-i", "2026-10-03", 90000, { type: "income", category: "급여" }), expenseRow("t20-5", "2026-10-05", 1000), expenseRow("t20-6", "2026-10-06", 700), expenseRow("t20-7", "2026-10-07", 400)];
   const sums = { "2026-10-01": 5000, "2026-10-02": 8000, "2026-10-03": 10000, "2026-10-04": 10000, "2026-10-05": 11000, "2026-10-06": 11700 };
   for (const [day, sum] of Object.entries(sums)) {
-    await withClock(day, () => fixture(async (fx) => {
+    await withClock(day, () => cardsFixture(async (fx) => {
       seed(fx, october);
       const card = await paceCard(fx, "2026-10");
       eq(card.status, 200, `T-20 ${day} 홈이 열린다`);
@@ -460,19 +463,19 @@ await attempt("T-20", async () => {
     }));
   }
   // 지출이 없는 1~6일은 0원이 맞다
-  await withClock("2026-10-04", () => fixture(async (fx) => {
+  await withClock("2026-10-04", () => cardsFixture(async (fx) => {
     seed(fx, [expenseRow("t20-x", "2026-09-30", 7000), expenseRow("t20-y", "2026-10-09", 1000)]);
     const card = await paceCard(fx, "2026-10");
     eq(card.value, "0원", `T-20 이번 달에 오늘까지 지출이 없으면 0원이다 — 지난달 말·오늘 뒤 기록은 세지 않는다 (${card.value})`);
   }));
   // 7일부터는 예전 그대로(7일 창, 안내문)
-  await withClock("2026-10-07", () => fixture(async (fx) => {
+  await withClock("2026-10-07", () => cardsFixture(async (fx) => {
     seed(fx, october);
     const card = await paceCard(fx, "2026-10");
     eq(card.value, "12,100원", `T-20 7일에는 1~7일 창이다 (${card.value})`);
     eq(card.note, "이 달에 쌓인 주만 보여드려요. 4주가 모이면 견줄 수 있어요", `T-20 7일의 문구는 예전 그대로다 (${card.note})`);
   }));
-  await withClock("2026-10-14", () => fixture(async (fx) => {
+  await withClock("2026-10-14", () => cardsFixture(async (fx) => {
     seed(fx, [...october, expenseRow("t20-a", "2026-10-09", 500), expenseRow("t20-b", "2026-10-14", 300)]);
     const card = await paceCard(fx, "2026-10");
     eq(card.value, "800원", `T-20 14일에는 8~14일 창이다 (${card.value})`);
@@ -480,7 +483,7 @@ await attempt("T-20", async () => {
     eq(card.bars[0], "blank", "T-20 달 시작보다 앞선 창은 여전히 비운다");
   }));
   // 지난 달(V22.9.79 S-3)과 아직 오지 않은 달은 그대로다. 11월 1~3일의 10월은 지난 달이다.
-  await withClock("2026-11-03", () => fixture(async (fx) => {
+  await withClock("2026-11-03", () => cardsFixture(async (fx) => {
     seed(fx, [...october, expenseRow("t20-n", "2026-10-31", 12000), expenseRow("t20-o", "2026-11-02", 4000), expenseRow("t20-f", "2026-12-24", 100000)]);
     const past = await paceCard(fx, "2026-10");
     eq(past.value, "12,000원", `T-20 11월 3일의 10월 홈은 10월 말일로 끝나는 마지막 7일이다 (${past.value})`);
@@ -493,7 +496,7 @@ await attempt("T-20", async () => {
   }));
   // 홈 HTML 바이트 예산(44KiB, 실사용 200행)과 DB 읽기 수: 1~6일 홈도 같은 예산 안이고 새 읽기가 없다.
   const BUDGET = 44 * 1024;
-  const measure = async (day) => withClock(day, () => fixture(async (fx) => {
+  const measure = async (day) => withClock(day, () => cardsFixture(async (fx) => {
     const categories = ["식비", "카페/간식", "교통/차량", "장보기", "주거/관리", "쇼핑", "의료/건강", "구독"];
     const payments = ["국민카드", "현대카드", "카카오페이", "현금", "계좌이체"];
     for (let index = 0; index < 200; index += 1) {
@@ -505,17 +508,21 @@ await attempt("T-20", async () => {
     try {
       const response = await app.fetch(new Request(`${BASE}/app?month=2026-07&household_id=${HH}`, { headers: { cookie: fx.cookie, "user-agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X)" } }), fx.env, {});
       const html = await response.text();
-      return { bytes: Buffer.byteLength(html), reads, value: decodeHtml((html.match(/<span>쓰는 속도<\/span><a[^>]*>[^<]*<\/a><\/div><b>([^<]*)<\/b>/) || [])[1] || "") };
+      // V22.9.137: 카드 머리는 V22.9.89 U-11 부터 기간 이름이다(‘쓰는 속도’ 를 찾던 식은 그 뒤로 늘 빈 값이었다 — 아래 ‘0원이 아니다’ 를 실제로 보게 고쳤다).
+      // V22.9.137 U-14: 홈 챌린지는 기간 안과 끝난 뒤 사흘만 보인다 — 픽스처의 7/1~4 챌린지가 1~6일에는 보이고 15일에는 없다. 1~6일의 ‘쓰는 속도’ 가
+      // 홈을 키우지 않는지 견주는 값(bytesSameChallenge)은 챌린지 카드를 뺀 바이트다(전체 바이트는 그대로 44KiB 예산에 건다).
+      const challenge = (html.match(/<section class="reportChallenge homeChallenge"[\s\S]*?<\/section>|<p class="homeChallengeDone"[\s\S]*?<\/p>/) || [""])[0];
+      return { bytes: Buffer.byteLength(html), bytesSameChallenge: Buffer.byteLength(html) - Buffer.byteLength(challenge), reads, value: decodeHtml((html.match(/<span>(?:최근 7일|마지막 7일|이번 달)<\/span><a[^>]*>[^<]*<\/a><\/div><b>([^<]*)<\/b>/) || [])[1] || "") };
     } finally { stop(); }
   }));
   const mid = await measure("2026-07-15");
   for (const day of ["2026-07-01", "2026-07-03", "2026-07-06"]) {
     const early = await measure(day);
     ok(early.bytes <= BUDGET, `T-20 ${day} 홈 HTML 이 실사용 예산 안이다(${early.bytes} ≤ ${BUDGET})`);
-    ok(early.bytes <= mid.bytes + 64, `T-20 ${day} 홈 HTML 이 15일 홈보다 64B 넘게 커지지 않는다(${early.bytes} vs ${mid.bytes})`);
+    ok(early.bytesSameChallenge <= mid.bytesSameChallenge + 64, `T-20 ${day} 홈 HTML 이 15일 홈보다 64B 넘게 커지지 않는다(챌린지 카드 빼고 ${early.bytesSameChallenge} vs ${mid.bytesSameChallenge})`);
     eq(early.reads, mid.reads, `T-20 ${day} 홈의 DB 읽기 수가 15일 홈과 같다(${early.reads}회 — 새 조회 없음)`);
     ok(early.reads <= 9, `T-20 ${day} 홈의 DB 읽기는 9회 이하다(${early.reads}회)`);
-    ok(early.value !== "0원", `T-20 ${day} 지출이 있는 달의 큰 숫자가 0원이 아니다(${early.value})`);
+    ok(/^[1-9][\d,]*원$/.test(early.value), `T-20 ${day} 지출이 있는 달의 큰 숫자가 0원이 아니다(${early.value})`);
   }
 });
 

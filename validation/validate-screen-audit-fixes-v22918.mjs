@@ -119,7 +119,8 @@ try {
     eq(summaries, rows, "편집할 수 있는 행은 모두 행 본문이 접기 제목이다");
     eq((home.text.match(/data-ab-edit-src="/g) || []).length, rows, "지연 로드 계약은 그대로 행마다 하나");
     eq((home.text.match(/class="v8-editOpen"/g) || []).length, rows, "JS 없이 쓸 링크도 그대로 행마다 하나");
-    ok(/<summary class="v8-tx-main"><div><b>[^<]+<\/b><span>[^<]+<\/span><span class="v8-spender">[^<]+<\/span><\/div><strong class="(expense|income)">[^<]+<\/strong><i class="srOnly">수정·삭제<\/i><\/summary>/.test(home.text),
+    // V22.9.137 U-12: 둘째 줄은 한 칸(v8-tx-meta)이다 — 화면에는 ‘분류 · 결제수단 · 이름’, 화면 낭독기에는 앞에 날짜와 이름 앞에 ‘지출자’·‘수입자’ 가 붙는다(srOnly).
+    ok(/<summary class="v8-tx-main"><div><b>[^<]+<\/b><span class="v8-tx-meta"><i class="srOnly">\d+월 \d+일 · <\/i>[^<]+ · <i class="srOnly">(?:지출자|수입자) <\/i>[^<]+<\/span><\/div><strong class="(expense|income)">[^<]+<\/strong><i class="srOnly">수정·삭제<\/i><\/summary>/.test(home.text),
       "행 제목은 내용·금액을 그대로 읽고, 화면 낭독기에는 '수정·삭제'를 덧붙인다");
 
     const tx = await get(`/app?month=2026-07&${H}&tab=transactions`);
@@ -134,12 +135,12 @@ try {
     const memberPlain = (memberHome.text.match(/<article class="v8-tx"[^>]*><div class="v8-tx-main">/g) || []).length;
     eq(memberSummaries + memberPlain, memberRows, "구성원 화면의 행은 편집 가능하면 접기, 아니면 본문만이다");
 
-    const css = await app.fetch(new Request(`${base}/assets/mobile-home-v229136.css`), fixture.env, ctx).then((r) => r.text());
+    const css = await app.fetch(new Request(`${base}/assets/mobile-home-v229137.css`), fixture.env, ctx).then((r) => r.text());
     ok(css.includes(".v8-tx summary.v8-tx-main,body.abV22812Shell .v8-tx summary.v8-tx-main{display:flex;"), "행 제목이 셸의 summary 규칙(파란 굵은 글자)보다 명시도가 높다");
     ok(css.includes(".v8-tx summary.v8-tx-main::-webkit-details-marker{display:none}"), "행 제목에 기본 삼각표가 붙지 않는다");
     ok(css.includes(".v8-tx details[open]>summary.v8-tx-main>strong::after{transform:rotate(90deg)}"), "펼침 상태가 금액 옆 표시로 보인다");
     ok(css.includes(".v8-tx summary.v8-tx-main:focus-visible{outline:3px solid #2563eb"), "행 제목에 키보드 초점 표시가 있다");
-    ok(home.text.includes('href="/assets/mobile-home-v229136.css"'), "홈이 새 주소의 스타일시트를 받는다(옛 1년 캐시와 섞이지 않는다)");
+    ok(home.text.includes('href="/assets/mobile-home-v229137.css"'), "홈이 새 주소의 스타일시트를 받는다(옛 1년 캐시와 섞이지 않는다)");
   }
 
   // -------------------------------------------------------------------------
@@ -147,7 +148,7 @@ try {
   // -------------------------------------------------------------------------
   {
     const shell = await app.fetch(new Request(`${base}/assets/accountbook-shell-v229136.css`), fixture.env, ctx).then((r) => r.text());
-    const home = await app.fetch(new Request(`${base}/assets/mobile-home-v229136.css`), fixture.env, ctx).then((r) => r.text());
+    const home = await app.fetch(new Request(`${base}/assets/mobile-home-v229137.css`), fixture.env, ctx).then((r) => r.text());
     const D = 'html[data-ab-resolved-theme="dark"] body.abV22812Shell';
 
     // 정기 화면 — 카드 전체에 거는 글자색이 수정 폼 안까지 들어가지 않는다
@@ -201,7 +202,7 @@ try {
   // 6. 불변 자산 — 내용이 바뀐 두 스타일시트는 새 주소로, 옛 주소는 쓰지 않는다
   // -------------------------------------------------------------------------
   {
-    ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v229136.css"'), "홈 스타일시트 주소가 v22918");
+    ok(source.includes('const MOBILE_HOME_CSS_ASSET_PATH = "/assets/mobile-home-v229137.css"'), "홈 스타일시트 주소가 v22918");
     ok(source.includes('const ACCOUNTBOOK_SHELL_CSS_ASSET_PATH = "/assets/accountbook-shell-v229136.css"'), "셸 스타일시트 주소가 v22918");
     eq(source.includes("mobile-home-v22914.css"), false, "옛 홈 스타일시트 주소가 남아 있지 않다");
     eq(source.includes("accountbook-shell-v22914.css"), false, "옛 셸 스타일시트 주소가 남아 있지 않다");

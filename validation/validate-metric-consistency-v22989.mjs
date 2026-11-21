@@ -13,7 +13,7 @@
 // §3 의 값과 V2 §5-1 용어(옛 이름이 다시 나오지 않음)를 확인하고, Astra 장면은 기록을 바꿔 다시 그린다.
 // 사용: node validation/validate-metric-consistency-v22989.mjs
 import { readFileSync } from "node:fs";
-import { counter, failure, fixture, intercept, page, withClock } from "./lib-audit-v22934.mjs";
+import { counter, failure, fixture, intercept, page, showHomeReports, withClock } from "./lib-audit-v22934.mjs";
 import { approxWon } from "../src/modules/domain/metric-labels.js";
 
 const t = counter("V22.9.89 숫자 신뢰(V2 §3 대조 30개 중 보호 화면 밖·용어 사전·월말 문장·정기 카드·연말정산·미등록 카드·기록 수·월요일 주·Astra 7건) 검사");
@@ -56,6 +56,10 @@ await withClock("2026-10-29", async () => {
   // ── V2 §1 그대로: §3 대조 ──
   await fixture(async (fx) => {
     seedV2(fx);
+    // V22.9.137 U-13: 아래 U-07·U-11 의 리포트 카드는 홈 구성에서 켠 사람에게만 보인다(새 기본값은 ‘이번 달 요약’ 카드 한 장) — 켠 채 저장한 가계부로 본다.
+    const plainHome = text((await page(fx, `/app?${Q}`)).html);
+    t.ok(/이번 달 요약 [^]*?앞으로 나갈 돈 650,000 원/.test(plainHome), "U-07 홈 구성을 저장하지 않은 홈의 ‘이번 달 요약’ 카드도 ‘앞으로 나갈 돈’ 650,000원이다(같은 homeUpcomingOut)");
+    showHomeReports(fx);
     const homeHtml = (await page(fx, `/app?${Q}`)).html;
     const home = text(homeHtml);
     t.ok(has(home, "남은 3일, 예산이 넉넉해요."), "U-04 남은 날이 5일 이하이고 월말 예상이 예산 안이면 짧게 말한다");
@@ -145,7 +149,8 @@ await withClock("2026-10-29", async () => {
     const report = text((await page(fx, `/my/analysis?view=report&${Q}`)).html);
     t.ok(/무지출일 - /.test(report) && has(report, "직접 적은 기록 없음"), "Astra 4 종합 리포트 무지출일도 ‘-’ · 직접 적은 기록 없음");
     const home = text((await page(fx, `/app?${Q}`)).html);
-    t.ok(has(home, "무지출 0/4일"), "Astra 4 홈 챌린지도 0/4일이다");
+    // V22.9.137 U-14: 10/1~4 기본 챌린지는 끝난 지 25일이라 홈에 없다(끝난 뒤 사흘만 한 줄). 그 사흘 안의 한 줄도 기록이 없으면 성공을 세지 않는다 — 아래 10/6.
+    t.ok(!/id="reportChallenge"/.test((await page(fx, `/app?${Q}`)).html) && !/무지출 \d+\/4일/.test(home), "Astra 4 끝난 지 사흘이 지난 챌린지는 홈에 없다(예전에는 홈 카드도 0/4일)");
     t.ok(/오늘 쓴 돈 아직 없어요/.test(home), "U-01 오늘 쓴 돈이 0원이면 ‘아직 없어요’");
   });
   await fixture(async (fx) => {
@@ -259,15 +264,19 @@ await withClock("2026-10-29", async () => {
   });
   // (3) 직접 적은 기록이 없어 지난 날을 셀 수 없으면 챌린지를 날짜 칸으로 그리지 않는다. 홈 칸의 상태 글자는 1년 캐시 클라이언트가 붙여
   // ‘기록 없음’ 칸이 ‘○ 예정’으로 읽혔다. 기록이 있으면 예전처럼 날짜 칸이다.
+  // V22.9.137 U-14: 10/1~4 챌린지는 이 장면의 날(10/20)에 끝난 지 16일이라 홈에 없다 — 홈 카드의 판정은 챌린지 기간 안(10/3)에서 본다.
+  const homeOn = (fx, ymd = "2026-10-03") => withClock(ymd, async () => (await page(fx, `/app?${Q}`)).html);
   await fixture(async (fx) => {
     seedV2(fx, []);
-    const homeHtml = (await page(fx, `/app?${Q}`)).html;
+    const homeHtml = await homeOn(fx);
     t.ok(!homeHtml.includes("data-ab-challenge-slots") && /class="reportChallengePercent"[\s\S]{0,400}?0\/4일 달성/.test(homeHtml), "독립 검토 3 홈 챌린지: 기록이 없으면 지난 날을 ‘예정’ 칸으로 그리지 않고 달성률 0/4일로 보인다");
+    t.ok(!/id="reportChallenge"/.test((await page(fx, `/app?${Q}`)).html), "독립 검토 3 끝난 지 사흘이 지난 챌린지(10/20 기준)는 홈에 없다");
     const analysisHtml = (await page(fx, `/my/analysis?${Q}`)).html;
     const challengeHtml = analysisHtml.slice(analysisHtml.indexOf('id="reportChallenge"'));
     t.ok(!/class="reportChallengeDays"/.test(challengeHtml) && challengeHtml.includes("0/4일 달성") && !challengeHtml.includes("○ 예정"), "독립 검토 3 소비 분석 챌린지도 날짜 칸·‘○ 예정’ 범례 없이 달성률로 보인다");
     seedV2(fx);
-    t.ok((await page(fx, `/app?${Q}`)).html.includes("data-ab-challenge-slots=\"1:목:s,2:금:s,3:토:s,4:일:s\""), "독립 검토 3 직접 적은 기록이 있으면 예전처럼 날짜 칸이다(10/1~4 무지출 성공)");
+    t.ok((await homeOn(fx)).includes("data-ab-challenge-slots=\"1:목:s,2:금:s,3:토:t,4:일:f\""), "독립 검토 3 직접 적은 기록이 있으면 예전처럼 날짜 칸이다(10/3: 1·2일 무지출 성공, 3일 오늘, 4일 예정)");
+    t.ok(/<p class="homeChallengeDone" id="reportChallenge"[^>]*><span>무지출 데이 4일 챌린지 성공 ✓<\/span>/.test(await homeOn(fx, "2026-10-06")), "독립 검토 3 끝난 지 이틀(10/6)에는 한 줄로 ‘챌린지 성공 ✓’ 이다(10/1~4 무지출 성공)");
   });
   // (4) 무지출일의 시작일은 화면마다 같은 기간의 기록으로 센다. 10/20(KST)에 만든 가계부에 9/10·10/5·10/25 기록: 예전 생활비 리포트는 두 달치 기록으로
   // 9/10 을 시작일로 보아 ‘무지출 27일’, 종합 리포트는 그 달 기록으로 ‘무지출일 23일’이었다.
@@ -285,6 +294,16 @@ await withClock("2026-10-29", async () => {
     const cockpit = text((await page(fx, "/my/analysis?month=2026-11&household_id=house-home")).html);
     // V22.9.119 N-13: 보는 달(11월)이 오늘의 달이 아니면 라벨이 ‘이번 달 지출’ 이 아니라 ‘11월 지출’ 이다(미리 적은 표시는 그대로).
     t.ok(has(cockpit, "11월 지출 · 미리 적은 900,000원 포함 900,000원"), "독립 검토 6 다음 달을 보면 그 달 지출이 모두 미리 적은 것임을 적는다");
+  });
+});
+
+// V22.9.137 U-14 + Astra 4: 끝난 지 이틀(10/6)의 홈 한 줄도 직접 적은 기록이 없으면 성공·날 수를 말하지 않는다(분석 카드의 ‘0/4일 · 세지 않았어요’ 와 같은 판정).
+await withClock("2026-10-06", async () => {
+  await fixture(async (fx) => {
+    seedV2(fx, []);
+    const html = (await page(fx, `/app?${Q}`)).html;
+    const line = (html.match(/<p class="homeChallengeDone"[^>]*>[\s\S]*?<\/p>/) || [""])[0];
+    t.ok(text(line).includes("무지출 데이 4일 챌린지가 끝났어요") && !/성공|\d+\/4일/.test(text(line)), `Astra 4 기록이 없는 가계부의 홈 한 줄은 ‘챌린지가 끝났어요’ 뿐이다 (${text(line).trim()})`);
   });
 });
 

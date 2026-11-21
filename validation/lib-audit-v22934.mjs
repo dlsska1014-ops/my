@@ -253,6 +253,27 @@ export function intercept(handler) {
 
 export const failure = (status = 503, message = "simulated failure") => new Response(JSON.stringify({ code: "QA", message }), { status, headers: { "content-type": "application/json" } });
 
+// V22.9.137 U-13: 홈 구성을 저장하지 않은 사람의 홈은 리포트 카드 넷이 꺼진 것이 기본이다. 옛 검사가 지키던 리포트 카드 내용은 ‘홈 구성’ 에서
+// 네 장을 켠 채 저장한 사람으로 본다(픽스처 옵션 homeReports: true 와 같은 줄 — 이미 만든 픽스처에 더할 때 쓴다).
+export function showHomeReports(fx, { householdId = "house-home", users = ["user-bin", "user-wifi"] } = {}) {
+  for (const user of users) {
+    const key = `home-layout:v1:${householdId}:${user}`;
+    fx.db.accountbook_settings = fx.db.accountbook_settings.filter((row) => row.key !== key);
+    fx.db.accountbook_settings.push({ id: `setting-home-layout-${householdId}-${user}`, key, value: JSON.stringify({ reports: { order: ["where", "pace", "budget", "reserve"], hidden: [] } }), created_at: "2026-07-01T00:00:00.000Z" });
+  }
+  return fx;
+}
+
+// V22.9.137 U-13: 홈의 ‘이번 달 요약’ 카드. 리포트 카드를 켠 홈에도 그 위에 있어 같은 이름의 칸(‘앞으로 나갈 돈’ 등)이 두 번 나온다 —
+// 리포트 카드를 보는 검사는 withoutHomeSummary 로 요약을 떼고 보고, 요약 칸은 homeSummaryCell 로 따로 본다.
+export const homeSummaryOf = (html) => (String(html || "").match(/<section class="homeSummary"[\s\S]*?<\/section>/) || [""])[0];
+export const withoutHomeSummary = (html) => String(html || "").replace(/<section class="homeSummary"[\s\S]*?<\/section>/, "");
+// 요약 카드 한 칸의 값(‘지출’·‘돌아온 돈’·‘수입’·‘앞으로 나갈 돈’): 금액은 ‘650,000원’, 못 읽은 값은 ‘확인 불가’, 그 칸이 없으면 "".
+export function homeSummaryCell(html, label) {
+  const match = homeSummaryOf(html).match(new RegExp(`<div><dt>${label}</dt><dd>([\\s\\S]*?)</dd></div>`));
+  return match ? match[1].replace(/<[^>]+>/g, "") : "";
+}
+
 export async function withClock(ymd, task) {
   const previous = globalThis.__AB_QA_FIXED_NOW_MS;
   globalThis.__AB_QA_FIXED_NOW_MS = Date.parse(`${ymd}T12:00:00+09:00`);

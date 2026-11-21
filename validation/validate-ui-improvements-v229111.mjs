@@ -5,7 +5,7 @@
 //  가계부 전환: 활성 카드가 디자인 토큰 CSS 에 덮여 비활성과 같아 보이던 것을 인라인 !important 로 가른다.
 // 판 이름 글자는 적지 않는다('판 번호 정본' 검사). 오프라인: 픽스처 + app.fetch, DB·바깥 요청 없음.
 import { readFileSync } from "node:fs";
-import { counter, fixture, page, withClock } from "./lib-audit-v22934.mjs";
+import { counter, fixture, homeSummaryOf, page, withClock } from "./lib-audit-v22934.mjs";
 
 const root = new URL("../", import.meta.url);
 const read = (path) => readFileSync(new URL(path, root), "utf8");
@@ -31,6 +31,9 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   const paceB = paceSentence(homeFiltered.html);
   ok(paceA.length > 0, "홈에 '최근 7일' 속도 요약 문장이 있다");
   eq(paceB, paceA, "필터를 넣어도 '최근 7일' 속도 요약이 월 전체 기준 그대로다(#9)");
+  // V22.9.137 U-13: ‘최근 7일’ 카드는 홈 구성에서 켠 사람에게만 보인다(이 fixture 는 네 장을 켠 가계부). 기본 홈의 ‘이번 달 요약’ 카드도 필터와 상관없이 달 전체 값이다.
+  ok(homeSummaryOf(home.html).includes("<dt>지출</dt>"), "홈에 ‘이번 달 요약’ 카드가 있다");
+  eq(homeSummaryOf(homeFiltered.html), homeSummaryOf(home.html), "필터를 넣어도 ‘이번 달 요약’ 카드가 월 전체 기준 그대로다(#9)");
   ok(homeFiltered.html.includes("조건에 맞는 기록이 없습니다"), "필터로 빈 피드는 '조건에 맞는 기록이 없습니다'(V110 #10 그대로)");
   // 피드 '전체 N건 조회' 수는 feedSource(필터 결과) 기준이라, 불일치 검색에서는 '전체 … 건 조회' 링크가 없다(0건).
   ok(!/전체 \d[\d,]*건 조회/.test(homeFiltered.html.split('id="v8Feed"')[1] || ""), "필터 0건이면 '전체 N건 조회' 링크가 없다(피드 수는 feedSource 기준)");
@@ -52,7 +55,7 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
   ok(activeTag.includes("box-shadow:inset 0 0 0 2px var(--abHhActiveLine,#0f766e)!important"), "활성 카드에 안쪽 2px 강조 링이 있다");
   // 비활성 카드에는 이 인라인이 없다.
   ok(/<article class="hhCard ">/.test(hh.html) || /<article class="hhCard">/.test(hh.html) || hh.html.split("hhCard").length > 2, "비활성 가계부 카드도 렌더된다");
-}));
+}, { homeReports: true })); // V22.9.137 U-13: 리포트 카드(‘최근 7일’)를 켠 가계부
 
 // 판 단일 출처(글자 박지 않고 파일에서 읽어 비교)
 const versionTxt = read("VERSION.txt").trim();

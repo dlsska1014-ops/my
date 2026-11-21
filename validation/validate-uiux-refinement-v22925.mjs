@@ -61,7 +61,9 @@ try {
   ok(home.html.includes('<details class="homeInsights"'), 'secondary insights can be expanded without JavaScript');
   eq((home.html.match(/class="dailyCell /g) || []).length, 31, 'fold retains every day of the chart');
   ok(home.html.includes('class="abDailyHelp"'), 'calculation explanation has a non-JavaScript fallback');
-  ok(home.html.includes('class="homeReportsEdit"'), 'stored home configuration remains reachable');
+  // V22.9.137 U-13: 리포트 카드가 기본으로 꺼진 홈에서는 ‘홈 구성’ 링크가 요약 카드 머리(homeSummaryEdit)에 있다 — 켠 홈이면 리포트 머리(homeReportsEdit). 어느 쪽이든 하나다.
+  const layoutLinks = home.html.match(/<a class="(?:homeReportsEdit|homeSummaryEdit)" href="\/home-layout\?[^"]*">홈 구성<\/a>/g) || [];
+  ok(layoutLinks.length === 1, 'stored home configuration remains reachable');
   ok(!home.html.includes('class="v8-edit"'), 'initial home does not include transaction editors');
   const tx = await request('/app?month=2026-07&household_id=house-home&tab=transactions&type=expense');
   ok(tx.html.includes('data-count="') && tx.html.includes('data-expense="'), 'rail receives authoritative filtered-result totals');

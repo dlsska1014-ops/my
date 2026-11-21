@@ -41,7 +41,8 @@ ok(/const APP_VERSION = "V\d+\.\d+\.\d+[-A-Z0-9]*"/.test(source), "런타임이 
 
 // 예산을 크게 넘긴 가계부를 만든다. 정상 범위만 재면 "초과일 때 어떻게 보이는가" 는
 // 영원히 재지 않게 된다 — 실제로 그래서 384% 화면이 초록으로 남아 있었다.
-const overFixture = await createV2265QaFixture();
+// V22.9.137 U-13: 홈 구성을 저장하지 않은 홈은 리포트 카드가 꺼진 것이 기본이다 — ‘예산 항목’ 카드의 초과 상태는 네 장을 켠 가계부(homeReports)로 본다.
+const overFixture = await createV2265QaFixture({ homeReports: true });
 let overHome = "";
 let overBudgets = "";
 try {
@@ -97,7 +98,7 @@ for (const tone of ["emerald", "violet", "amber"]) {
 
 // 정상 범위에서는 초과 상태가 붙지 않아야 한다. 이게 없으면 "항상 isOver" 로 고쳐도
 // 위 검사들이 전부 통과한다.
-const calmFixture = await createV2265QaFixture();
+const calmFixture = await createV2265QaFixture({ homeReports: true });
 try {
   const response = await app.fetch(new Request(`${ORIGIN}/app?month=2026-07&household_id=house-home`, { headers: { cookie: calmFixture.cookie, "user-agent": "Mozilla/5.0" } }), calmFixture.env, {});
   const calmHome = await response.text();
@@ -122,15 +123,27 @@ try {
   // -------------------------------------------------------------------------
   // 3) 같은 정보를 한 화면에 두 번 그리지 않는다
   // -------------------------------------------------------------------------
-  const bigChallenge = (calmHome.match(/class="reportChallenge"/g) || []).length;
-  const sideChallenge = (calmHome.match(/class="abNavChallenge/g) || []).length;
+  // V22.9.137 U-14: 홈 챌린지는 기간 안과 끝난 뒤 사흘(한 줄)만 보인다. 이 검사는 실제 시계로 돌아 픽스처의 7/1~4 챌린지가 끝난 지 오래라 홈에 없다 —
+  // 챌린지를 세는 이 절은 기간 안(7/3 낮)의 홈으로 본다. 홈 카드의 클래스는 ‘reportChallenge homeChallenge’ 다(가벼운 홈 카드).
+  const clockBefore = globalThis.__AB_QA_FIXED_NOW_MS;
+  globalThis.__AB_QA_FIXED_NOW_MS = Date.parse("2026-07-03T12:00:00+09:00");
+  let challengeHome = "";
+  try {
+    challengeHome = await (await app.fetch(new Request(`${ORIGIN}/app?month=2026-07&household_id=house-home`, { headers: { cookie: calmFixture.cookie, "user-agent": "Mozilla/5.0" } }), calmFixture.env, {})).text();
+  } finally {
+    globalThis.__AB_QA_FIXED_NOW_MS = clockBefore;
+  }
+  eq((calmHome.match(/id="reportChallenge"/g) || []).length, 0, "끝난 지 사흘이 지난 챌린지는 홈에 없다(실제 시계)");
+  const bigChallenge = (challengeHome.match(/class="reportChallenge homeChallenge"/g) || []).length;
+  const sideChallenge = (challengeHome.match(/class="abNavChallenge/g) || []).length;
   eq(bigChallenge, 1, "홈 본문의 챌린지 카드는 하나다");
+  eq((challengeHome.match(/id="reportChallenge"/g) || []).length, 1, "챌린지 자리(id)도 하나다");
   eq(sideChallenge, 0, "홈은 같은 챌린지를 사이드바에 한 번 더 그리지 않는다");
 
   // 순서 — P0("이번 달 쓸 수 있는 돈")가 챌린지보다 위다. 홈의 첫 화면은 돈 이야기여야
   // 하는데 챌린지 카드가 그 자리를 차지하고 있었다.
-  const p0At = calmHome.indexOf('class="homeBudget');
-  const challengeAt = calmHome.indexOf('class="reportChallenge"');
+  const p0At = challengeHome.indexOf('class="homeBudget');
+  const challengeAt = challengeHome.indexOf('class="reportChallenge homeChallenge"');
   ok(p0At > 0 && challengeAt > 0, "두 블록이 모두 홈에 있다");
   ok(p0At < challengeAt, `P0 가 챌린지보다 위에 온다 (P0 ${p0At} · 챌린지 ${challengeAt})`);
 

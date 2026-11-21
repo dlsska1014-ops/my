@@ -105,7 +105,14 @@ try {
   ok(Buffer.byteLength(home.text) < 35 * 1024, "home remains below the protected 35 KiB budget");
   ok(home.text.includes('/assets/accountbook-shell-v229136.css'), "home loads the refreshed shell");
   ok(home.text.includes('/assets/accountbook-v5-v22993.js'), "home loads the refreshed activity runtime");
-  ok(home.text.includes('class="reportChallengeDays"') || home.text.includes('class="reportChallengePercent"'), "home challenge uses one responsive progress mode");
+  // V22.9.137 U-14: 홈 챌린지는 기간 안과 끝난 뒤 사흘만 보인다(실제 시계로는 7/1~4 챌린지가 끝난 지 오래라 없다) — 진행 표시는 기간 안(7/3)의 홈으로 본다.
+  ok(!home.text.includes('id="reportChallenge"'), "끝난 지 사흘이 지난 챌린지는 홈에 없다(실제 시계)");
+  const clockBefore = globalThis.__AB_QA_FIXED_NOW_MS;
+  globalThis.__AB_QA_FIXED_NOW_MS = Date.parse("2026-07-03T12:00:00+09:00");
+  let challengeHome;
+  try { challengeHome = await request(fixture, "/app?month=2026-07&household_id=house-home"); } finally { globalThis.__AB_QA_FIXED_NOW_MS = clockBefore; }
+  const progressModes = ['class="reportChallengeDays"', 'class="reportChallengePercent"'].filter((mark) => challengeHome.text.includes(mark)).length;
+  ok(challengeHome.text.includes('class="reportChallenge homeChallenge"') && progressModes === 1, "home challenge uses one responsive progress mode");
   eq(fixture.db.transactions.length, before, "home rendering remains read-only");
 
   const noAuth = await request(fixture, "/u/api/recent-transactions?month=2026-07&household_id=house-home", { cookie: "" });
