@@ -1,10 +1,10 @@
-## V22.9.139 애드센스 재심사 최종 보강 검사
+## V22.9.139 애드센스 재심사 보강 검사
 
-- [x] 새 검사 `validate-adsense-master-v229139` 478 checks: 신규 세무·예산·실적 미니 계산기 6종 순수 계산·예외 검증, 12종 정본 글 본문 인라인 계산표(`#inline-worksheet`) SSR 폼·결과 표·검산 공식 아코디언(`.pubToolChecks`)·Schema.org `WebApplication` 구조화 데이터·오프라인 파일 다운로드, 40편 고유 인라인 SVG 데이터 차트(`.pubDataChart`)와 맞춤 히어로 CTA(미니 계산기 글 6편 대표 단추 `#inline-worksheet` 직결), `/articles` 12종 계산표 허브(`#tool-hub`)와 배지, `/about` 자체 검산 원칙 문구, `/demo` 실시간 자연어·카드 승인 문자 해석 샌드박스(`#parser-sandbox`) 및 첫 화면(`/`)·가이드 허브(`/guides`) 직접 연결, 로그인 웹 앱(`/menu`·`/settlement-summary`·`/reserve-plans`·`/payment-methods`)과 비로그인 `/my` 문맥 링크.
-- [x] 앞 판 검사 6개 기대값 갱신: `validate-sister-link-v22926`(공개 푸터 서브도메인 링크 분리 확인), `validate-v22995-support`(공개 푸터 마지막 링크 `/support`), `validate-menu-leads-with-menu-v22910`(전체 메뉴 링크 27 → 29개), `validate-public-articles-v22974`(` /about` 자체 검산 키워드), `validate-refund-links-v22979`(`/settlement-summary` 하단 계산표 안내 카드 추가에 따른 정산 화면 지문 4개), `validate-refund-links-v22980`(판 이름 변경에 따른 `analysis`·`backupFull`·`backupMonth` 3개 지문).
-- [x] 등록 검사 280개가 두 모드(일반·분류 표 부재) 모두 통과, 하네스 두 모드 97,806 / 97,799(하한 97,799).
-- [x] 번들 12,159,288 B · SHA-256 `3251e24208e084914c63a953f93e75acac44e4b2808ec2fad32b6a8dd2185540`(150 모듈). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_139.sha256`(938) · 하네스 두 모드 97,806 / 97,799(하한 97,799).
-- [ ] 배포 뒤 확인: Search Console `/report-guide`·`/tax-refund-money-plan` 및 인라인 계산표 대표 글 색인 요청 → 반영 확인 뒤 AdSense 검토 요청.
+- [x] 새 검사 `validate-adsense-master-v229139` 319 checks: 계산표 9종(미니 3종 계산·예외), 세무 계산기 없음, 차트 3편 값 = 계산표 예제, 정본 글 본문 계산표 SSR·예제 검산 접기, 구조화 데이터에 WebApplication 없음, 세무 글 셋의 대표 단추 → 참고 자료, `/demo` 예시 표 = 봇 해석기 결과(‘3만5천원’·‘302호 … 230000원’ 포함), `/about` 생성형 도구 밝힘 문장, 웹 앱 링크.
+- [x] 앞 판 검사 기대값 갱신: `validate-sister-link-v22926`·`validate-v22995-support`·`validate-menu-leads-with-menu-v22910`·`validate-public-articles-v22974`·`validate-refund-links-v22979`·`validate-refund-links-v22980`·`validate-findings-ledger-v22976`, `validate-ads-review-fixes-v229107`(계산표 자산 판 ‘v229107 또는 뒤 판’).
+- [x] 하네스 두 모드 97,657 / 97,650(하한 97,650).
+- [x] 번들 12,128,350 B · SHA-256 `994e272dd48428cb643ab0513cbcfefdaecfb1b068dd2147d365740f1ebb9d67`(150 모듈). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_139.sha256`(938) · 하네스 두 모드 97,657 / 97,650(하한 97,650).
+- [ ] 배포 뒤 사람 확인(휴대폰·PC): 계산표 글 9편의 본문 계산표(입력을 바꾸고 ‘결과 계산’·CSV 저장), 차트 3편, 세무 글 셋의 대표 단추가 참고 자료로 가는지, `/demo` 예시 표, `/articles` 계산표 모음, 웹 앱 `/payment-methods`·`/reserve-plans`·`/settlement-summary`·`/menu` 의 공개 글 링크.
 
 ## V22.9.138 빠른 입력 시트 3층 검사
 

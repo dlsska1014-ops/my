@@ -13,7 +13,7 @@ const ok = (condition, message) => { checks += 1; if (!condition) failures.push(
 // 출처 문서마다 항목 ID 를 뽑는 규칙. 새 감사 문서를 쓰면 여기에 한 줄을 더한다.
 const SOURCES = [
   // V22.9.139: 애드센스 재심사 최종 보강 5대 기둥(사용자 2026-11-21 밤) — A 서브도메인 분리·인라인 계산표 12종·/demo 해석기·40편 SVG 차트·웹 앱 문맥 링크.
-  { key: "V139", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_139.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(A-[0-9]+)(?=[ *]|$)/gm, expected: 5 },
+  { key: "V139", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_139.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(A-[0-9]+)(?=[ *]|$)/gm, expected: 7 },
   // V22.9.138: 빠른 입력 시트 3층(운영자 2026-11-21 — ‘모두 이번주 부터’) — Q 시트 3층·큰 금액 칸·PC 홈 칸 높이·독립 검토 반영.
   { key: "V138", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_138.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(Q-[0-9]+)(?=[ *]|$)/gm, expected: 10 },
   // V22.9.137: 홈 단순화(운영자 2026-11-21 — ‘모두 이번주 부터’, D-7 = 예) — H 요약 카드·한 줄 거래 행과 날짜 머리·홈의 챌린지.

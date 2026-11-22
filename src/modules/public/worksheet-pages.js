@@ -63,62 +63,9 @@ const PUBLIC_WORKSHEETS_V229106 = {
   },
 };
 
-// V22.9.139: 세무·예산·실적 핵심 글 6편에 본문 인라인 미니 계산기를 더해 계산 도구 글을 총 12편으로 늘린다.
+// V22.9.139: 예산·비상금·카드 실적 글 3편에 본문 인라인 미니 계산기를 더해 계산 도구 글을 9편으로 늘린다.
+// 세무 계산기 셋(카드 공제 전환·월세·연금저축 IRP)은 책임자 검토 없이 세무 범위를 넓히므로 넣지 않는다(사용자 11-22, 계획 결정 5).
 const PUBLIC_MINI_CALCULATORS_V229139 = {
-  "payment-method-switch-nov-dec": {
-    title: "연말정산 카드 25% 문턱·결제수단 전환 계산표",
-    outcome: "총급여 25% 최저사용금액 문턱 충족 여부와 11~12월 신용카드(15%) 대비 체크카드·현금영수증(30%) 전환 시 소득공제 증가액을 비교합니다.",
-    instruction: "홈택스 연말정산 미리보기 또는 카드사 앱의 1~10월 공제 대상 사용액을 넣고, 남은 기간 예정 지출액을 입력해 전환 효과를 확인하세요.",
-    fields: [
-      ["salary", "연간 총급여액(원)", "number"],
-      ["credit", "1~10월 신용카드 공제 대상액(원)", "number"],
-      ["debit", "1~10월 체크·현금영수증 대상액(원)", "number"],
-      ["remain", "11~12월 예정 공제 대상 지출(원)", "number"],
-    ],
-    groups: [],
-    example: { settings: { salary: 48000000, credit: 13500000, debit: 1800000, remain: 3000000 } },
-    checks: [
-      "총급여 4,800만 원의 25% 문턱은 1,200만 원이며, 1~10월 신용카드 1,350만 원으로 이미 문턱을 넘겼습니다.",
-      "남은 300만 원을 신용카드(15%)로 쓰면 총 공제액이 1,215,000원, 체크·현금영수증(30%)으로 바꾸면 1,665,000원으로 소득공제가 450,000원 늘어납니다.",
-      "이미 기본 공제 한도(300만 원 또는 250만 원)를 채웠다면 결제수단을 바꿔도 한도 적용 후 공제 증가액은 0원입니다.",
-    ],
-  },
-  "rent-tax-credit-records": {
-    title: "월세 세액공제 vs 현금영수증 소득공제 비교 계산표",
-    outcome: "연간 납부 월세에 대해 무주택 세대주 월세 세액공제(17%·15%)와 주택임차료 현금영수증 소득공제(30%) 중 실제 세금 감소액을 비교합니다.",
-    instruction: "총급여액과 월세액, 납부 개월 수를 입력하세요. 같은 월세에 세액공제와 현금영수증 소득공제는 중복 적용되지 않습니다.",
-    fields: [
-      ["salary", "연간 총급여액(원)", "number"],
-      ["monthlyRent", "월세 금액(원)", "number"],
-      ["months", "해당 연도 납부 개월 수(1~12)", "number"],
-      ["marginalRate", "비교용 한계 소득세율(%)", "select", [["6", "6% (과세표준 1,400만 이하)"], ["15", "15% (1,400만~5,000만)"], ["24", "24% (5,000만~8,800만)"], ["35", "35% (8,800만 초과)"]]],
-      ["thresholdMet", "카드 25% 최저사용금액 충족", "select", [["yes", "충족(초과분 30% 공제)"], ["no", "미충족(문턱 채우는 중)"]]],
-    ],
-    groups: [],
-    example: { settings: { salary: 48000000, monthlyRent: 650000, months: 12, marginalRate: "15", thresholdMet: "yes" } },
-    checks: [
-      "총급여 4,800만 원·월세 65만 원(12개월 780만 원)은 17% 세액공제율이 적용되어 세액공제액이 1,326,000원입니다.",
-      "같은 780만 원을 현금영수증 소득공제(30% × 한계세율 15%)로 받으면 예상 세금 감소액은 351,000원으로 월세 세액공제가 975,000원 더 유리합니다.",
-      "총급여가 8,000만 원을 초과해 월세 세액공제 대상이 아닐 때는 세액공제가 0원이므로 현금영수증 소득공제를 신청합니다.",
-    ],
-  },
-  "pension-savings-irp-tax-credit": {
-    title: "연금저축·IRP 세액공제 한도·환급 계산표",
-    outcome: "연금저축(연 600만 원 한도)과 퇴직연금 IRP(합산 900만 원 한도) 납입액에 따른 지방소득세 포함 세액공제액(16.5%·13.2%)을 계산합니다.",
-    instruction: "올해 연간 총급여액과 연금저축·IRP 계좌에 납입했거나 연말까지 추가 납입할 금액을 입력해 공제 한도와 세액공제액을 확인하세요.",
-    fields: [
-      ["salary", "연간 총급여액(원)", "number"],
-      ["pension", "연금저축 연간 납입액(원)", "number"],
-      ["irp", "퇴직연금 IRP 연간 납입액(원)", "number"],
-    ],
-    groups: [],
-    example: { settings: { salary: 52000000, pension: 6000000, irp: 3000000 } },
-    checks: [
-      "총급여 5,200만 원(5,500만 원 이하)에서 연금저축 600만 원 + IRP 300만 원을 납입하면 합산 900만 원 전체에 16.5%가 적용되어 총 1,485,000원이 공제됩니다.",
-      "연금저축에 700만 원을 넣어도 단독 한도 600만 원만 인정되므로 나머지 300만 원 한도는 IRP 계좌로 채워야 합니다.",
-      "합산 900만 원을 초과해 납입한 금액은 올해 세액공제를 받지 않는 대신 향후 인출 시 과세 제외 원금으로 분류됩니다.",
-    ],
-  },
   "budget-ratio-guide": {
     title: "고정비 반영 50/30/20 월 예산 배분 계산표",
     outcome: "월 실수령 소득을 필수 생활비·선택 소비·저축 비율로 나누고, 이미 확정된 고정비를 뺀 잔여 필수 변동비와 1주일 소비 한도를 계산합니다.",
@@ -188,7 +135,7 @@ const PUBLIC_ALL_CALCULATORS_V229139 = Object.freeze({
 const PUBLIC_ARTICLE_CTA_MAP_V229139 = Object.freeze({
   "budget-ratio-guide": [["50/30/20 예산 바로 계산하기", "#inline-worksheet"], ["연간 비정기 지출 적립표", "/sinking-fund-annual-expenses"]],
   "fixed-cost-checklist": [["구독 해지·갱신 계산표", "/subscription-cleanup"], ["비정기 지출 적립 계산표", "/sinking-fund-annual-expenses"]],
-  "card-spending-threshold": [["전월 실적 손익 바로 계산하기", "#inline-worksheet"], ["연말정산 카드 전환 계산표", "/payment-method-switch-nov-dec"]],
+  "card-spending-threshold": [["전월 실적 손익 바로 계산하기", "#inline-worksheet"], ["연말정산 결제수단 전환 정리", "/payment-method-switch-nov-dec"]],
   "accountbook-habit": [["월 마감 잔액 대조표", "/monthly-closing-routine"], ["카카오톡 한 줄 기록 방법", "/kakao-guide"]],
   "payday-budget-cycle": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["계좌 현금흐름 계산표", "/cash-flow-table"]],
   "expense-category-rules": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["월 마감 잔액 대조표", "/monthly-closing-routine"]],
@@ -196,86 +143,51 @@ const PUBLIC_ARTICLE_CTA_MAP_V229139 = Object.freeze({
   "weekly-report-reading": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["리포트 읽는 법 안내", "/report-guide"]],
   "family-roles-accountbook": [["공동 생활비 4가지 분담표", "/shared-living-cost-rules"], ["공동 가계부 운영 안내", "/group-accountbook"]],
   "household-spending-statistics": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["1인 가구 생활비 기준", "/single-household-living-cost"]],
-  "single-household-living-cost": [["1인 가구 연말정산 공제", "/single-household-year-end-tax"], ["월세 세액공제 비교 계산표", "/rent-tax-credit-records"]],
+  "single-household-living-cost": [["1인 가구 연말정산 공제", "/single-household-year-end-tax"], ["월세 세액공제 기록 정리", "/rent-tax-credit-records"]],
   "food-cost-benchmark": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["주간 리포트 점검 기준", "/weekly-report-reading"]],
   "utility-bills-seasonality": [["비정기 지출 적립 계산표", "/sinking-fund-annual-expenses"], ["아파트 관리비 고지서 분석", "/apartment-maintenance-fee"]],
   "inflation-budget-update": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["식비·외식비 통계 비교", "/food-cost-benchmark"]],
-  "card-income-deduction-basics": [["11~12월 카드 전환 계산표", "/payment-method-switch-nov-dec"], ["카드 전월 실적 손익 계산표", "/card-spending-threshold"]],
-  "year-end-tax-expense-check": [["연말정산 시기별 준비 일정", "/year-end-tax-timeline-checklist"], ["11~12월 카드 전환 계산표", "/payment-method-switch-nov-dec"]],
-  "rent-tax-credit-records": [["월세·현금영수증 공제 바로 계산하기", "#inline-worksheet"], ["주거비 소득·세액공제 비교", "/housing-deductions-overview"]],
+  "card-income-deduction-basics": [["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"], ["카드 전월 실적 손익 계산표", "/card-spending-threshold"]],
+  "year-end-tax-expense-check": [["연말정산 시기별 준비 일정", "/year-end-tax-timeline-checklist"], ["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"]],
+  "rent-tax-credit-records": [["국세청·법령 원문으로 확인하기", "#sources"], ["주거비 소득·세액공제 비교", "/housing-deductions-overview"]],
   "apartment-maintenance-fee": [["계절별 공과금 예산 세우기", "/utility-bills-seasonality"], ["고정비 점검 체크리스트", "/fixed-cost-checklist"]],
   "mobile-plan-cost-review": [["구독 해지·갱신 계산표", "/subscription-cleanup"], ["카드 전월 실적 손익 계산표", "/card-spending-threshold"]],
   "debt-repayment-order": [["연말정산 환급금 배분 계획", "/tax-refund-money-plan"], ["계좌 현금흐름 계산표", "/cash-flow-table"]],
-  "savings-rate-tracking": [["연금저축·IRP 환급 계산표", "/pension-savings-irp-tax-credit"], ["계좌 현금흐름 계산표", "/cash-flow-table"]],
+  "savings-rate-tracking": [["연금저축·IRP 세액공제 정리", "/pension-savings-irp-tax-credit"], ["계좌 현금흐름 계산표", "/cash-flow-table"]],
   "first-job-budget": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["비상금 목표·적립 계산표", "/emergency-fund-basics"]],
   "car-ownership-cost": [["비정기 지출 적립 계산표", "/sinking-fund-annual-expenses"], ["고정비 점검 체크리스트", "/fixed-cost-checklist"]],
   "childcare-cost-planning": [["의료·교육·기부금 공제 정리", "/medical-education-donation-deductions"], ["비정기 지출 적립 계산표", "/sinking-fund-annual-expenses"]],
   "couple-account-structure": [["공동 생활비 4가지 분담표", "/shared-living-cost-rules"], ["맞벌이 부부 공제 몰아주기", "/dual-income-deduction-allocation"]],
   "expense-review-questions": [["월 마감 잔액 대조표", "/monthly-closing-routine"], ["주간 리포트 점검 기준", "/weekly-report-reading"]],
-  "year-end-tax-timeline-checklist": [["11~12월 카드 전환 계산표", "/payment-method-switch-nov-dec"], ["연금저축·IRP 환급 계산표", "/pension-savings-irp-tax-credit"]],
-  "payment-method-switch-nov-dec": [["11~12월 카드 전환 바로 계산하기", "#inline-worksheet"], ["카드 전월 실적 손익 계산표", "/card-spending-threshold"]],
+  "year-end-tax-timeline-checklist": [["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"], ["연금저축·IRP 세액공제 정리", "/pension-savings-irp-tax-credit"]],
+  "payment-method-switch-nov-dec": [["국세청·법령 원문으로 확인하기", "#sources"], ["카드 전월 실적 손익 계산표", "/card-spending-threshold"]],
   "medical-education-donation-deductions": [["맞벌이 부부 공제 배분", "/dual-income-deduction-allocation"], ["연말정산 지출 증빙 점검", "/year-end-tax-expense-check"]],
-  "dual-income-deduction-allocation": [["부부 공동·각자 통장 구조", "/couple-account-structure"], ["11~12월 카드 전환 계산표", "/payment-method-switch-nov-dec"]],
-  "pension-savings-irp-tax-credit": [["연금저축·IRP 환급액 바로 계산하기", "#inline-worksheet"], ["연말정산 환급금 배분 계획", "/tax-refund-money-plan"]],
-  "single-household-year-end-tax": [["월세 세액공제 비교 계산표", "/rent-tax-credit-records"], ["11~12월 카드 전환 계산표", "/payment-method-switch-nov-dec"]],
+  "dual-income-deduction-allocation": [["부부 공동·각자 통장 구조", "/couple-account-structure"], ["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"]],
+  "pension-savings-irp-tax-credit": [["국세청·법령 원문으로 확인하기", "#sources"], ["연말정산 환급금 배분 계획", "/tax-refund-money-plan"]],
+  "single-household-year-end-tax": [["월세 세액공제 기록 정리", "/rent-tax-credit-records"], ["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"]],
   "tax-refund-money-plan": [["비상금 목표·적립 계산표", "/emergency-fund-basics"], ["대출 상환 우선순위 정리", "/debt-repayment-order"]],
-  "housing-deductions-overview": [["월세 세액공제 비교 계산표", "/rent-tax-credit-records"], ["연말정산 시기별 준비 일정", "/year-end-tax-timeline-checklist"]],
+  "housing-deductions-overview": [["월세 세액공제 기록 정리", "/rent-tax-credit-records"], ["연말정산 시기별 준비 일정", "/year-end-tax-timeline-checklist"]],
 });
 
-// V22.9.139: 40편의 생활비 글마다 본문 수치·가상 예제와 맞물리는 고유 인라인 SVG 데이터 차트를 제공한다.
+// V22.9.139: 차트는 본문 계산표 기본 예제와 같은 값을 보여 주는 글 세 편에만 둔다(사용자 11-22, 계획 7절 5 — 40편에 같은 꼴을 한꺼번에 넣지 않는다).
+// 단위가 섞이거나 근거를 설명할 수 없는 비중은 그리지 않는다. 값은 검사(validate-adsense-master-v229139)가 계산표 예제와 대조한다.
 const PUBLIC_ARTICLE_CHARTS_V229139 = Object.freeze({
-  "budget-ratio-guide": ["월 300만 원 소득의 50/30/20 예산 배분 비교", [["필수 생활비(50%)", 150, "150만 원"], ["선택 소비(30%)", 90, "90만 원"], ["저축·상환(20%)", 60, "60만 원"]], "가상 사례: 월 실수령 300만 원 기준 영역별 배분 금액"],
-  "fixed-cost-checklist": ["월 고정비 107만 원 구성 비중 예시", [["주거·관리비", 68, "68만 원"], ["보험·교통 정기권", 25, "25만 원"], ["통신·정기 구독", 14, "14만 원"]], "가상 사례: 매달 자동 출금되는 주요 고정비 세 묶음"],
-  "subscription-cleanup": ["구독 해지 확인 전후 30일 결제 예정액 비교", [["해지 반영 전 30일", 99, "9,900원"], ["연간 구독 월 환산액", 100, "10,000원"], ["해지 확인 후 30일", 5, "0원"]], "가상 사례: 월 환산 비용과 실제 향후 30일 청구 예정액의 구분"],
-  "card-spending-threshold": ["카드 전월 실적 30만 원 기준과 인정·부족액", [["전월 실적 기준", 300, "30만 원"], ["현재 실적 인정액", 250, "25만 원"], ["실적 부족액", 50, "5만 원"]], "가상 사례: 총 결제 31만 원 중 실적 제외 6만 원을 뺀 인정액 비교"],
-  "shared-living-cost-rules": ["공동 생활비 120,001원 분담 방식별 A 부담액", [["소득 비율(3:2:1)", 60, "60,001원"], ["합의 비율(40%)", 48, "48,001원"], ["균등 분담(1/3)", 40, "40,001원"]], "가상 사례: 동일 총지출에서 분담 규칙에 따라 달라지는 1인 부담액"],
-  "accountbook-habit": ["주간 점검 주기에 따른 월말 미분류 누락 건수", [["월말 몰아 적기", 18, "18건"], ["주 1회 10분 점검", 4, "4건"], ["당일 한 줄 기록", 1, "1건"]], "가상 사례: 기록 주기가 짧을수록 줄어드는 월말 확인 불명 지출"],
-  "payday-budget-cycle": ["급여일(25일) 기준 한 달 자금 배분 흐름", [["즉시 이체(저축·고정비)", 165, "165만 원"], ["주간 변동 생활비(4주)", 110, "110만 원"], ["결산 완충 예비금", 25, "25만 원"]], "가상 사례: 급여 300만 원 입금 직후 통장별 역할 분리"],
-  "expense-category-rules": ["분류 개수 축소 전후 식비·생활비 집계 명확도", [["식비(장보기·외식 통합)", 62, "62만 원"], ["주거·공과금", 58, "58만 원"], ["교통·기타 변동비", 34, "34만 원"]], "가상 사례: 7~9개 핵심 분류로 묶어 본 월간 지출 구조"],
-  "emergency-fund-basics": ["월 필수 생활비 150만 원 기준 단계별 비상금 목표", [["1단계 완충금(1개월)", 150, "150만 원"], ["기본 목표(3개월)", 450, "450만 원"], ["안정권 목표(6개월)", 900, "900만 원"]], "가상 사례: 선택 소비를 제외한 필수 지출 기준 비상금 규모"],
-  "weekly-report-reading": ["4주 예산 60만 원의 주간 누적 지출 속도 점검", [["2주 차 권장 누적(50%)", 30, "30만 원"], ["2주 차 실제 누적(63%)", 38, "38만 원"], ["남은 2주 가용 예산", 22, "22만 원"]], "가상 사례: 월 중반에 초과 속도를 발견해 남은 주간 한도를 조정하는 과정"],
-  "family-roles-accountbook": ["2인 가구 공동·개인 계좌 월 자금 흐름", [["공동 생활비 계좌", 180, "180만 원"], ["공동 비상·예비비", 60, "60만 원"], ["개인 자율 용돈 합계", 80, "80만 원"]], "가상 사례: 공동 고정비와 개인 재량 지출을 분리한 가계 구조"],
-  "cash-flow-table": ["관리 계좌(A·B) 월간 현금흐름과 기말잔액", [["현금 유입(급여·환불)", 305, "305만 원"], ["생활·저축 출금 합계", 190, "190만 원"], ["기말잔액(기초 100만 포함)", 215, "215만 원"]], "가상 사례: 내부 이체(20만 원) 중복을 제거한 실제 현금 증감"],
-  "household-spending-statistics": ["가구 소비지출 주요 비목 비중 비교", [["음식·숙박 및 식료품", 28, "28%"], ["주거·수도·광열", 18, "18%"], ["교통·통신", 16, "16%"]], "공공 가계동향 통계의 주요 생활비 영역 비중 참고 예시"],
-  "single-household-living-cost": ["1인 가구 월 지출 175만 원의 고정·변동 구성", [["주거·관리·공과금", 72, "72만 원"], ["식비·외식·카페", 56, "56만 원"], ["교통·통신·생활 기타", 47, "47만 원"]], "가상 사례: 1인 가구에서 주거비와 식비가 차지하는 핵심 비중"],
-  "food-cost-benchmark": ["월 식비 64만 원의 세부 경로별 지출 분포", [["장보기·식재료", 26, "26만 원"], ["외식·배달 음식", 28, "28만 원"], ["카페·음료·간식", 10, "10만 원"]], "가상 사례: 세 경로로 나누어 본 한 달 식비 구조"],
-  "utility-bills-seasonality": ["계절별 월 공과금(전기·가스·수도) 변동 폭", [["봄·가을 평달 평균", 8, "8만 원"], ["여름 냉방 성수기", 15, "15만 원"], ["겨울 난방 성수기", 22, "22만 원"]], "가상 사례: 연평균 정액 적립으로 계절 요금 급등을 흡수하는 기준"],
-  "inflation-budget-update": ["물가 상승 반영 전후 필수 생활비 예산 조정", [["기존 식비·공과금 예산", 75, "75만 원"], ["최근 3개월 평균 실지출", 84, "84만 원"], ["조정 후 현실 예산", 85, "85만 원"]], "가상 사례: 최근 3개월 평균 실지출을 반영한 예산 재설정"],
-  "card-income-deduction-basics": ["결제수단별 연말정산 소득공제율 비교", [["신용카드", 15, "15%"], ["체크카드·현금영수증", 30, "30%"], ["전통시장·대중교통", 40, "40%"]], "조세특례제한법 제126조의2 기준 총급여 25% 초과분 공제율"],
-  "year-end-tax-expense-check": ["연말정산 주요 공제 항목별 사전 점검 기준", [["카드 소득공제 문턱", 25, "총급여 25%"], ["의료비 세액공제 문턱", 3, "총급여 3%"], ["교육비 세액공제율", 15, "15%"]], "소득세법 및 조세특례제한법 기준 주요 지출 공제 문턱과 비율"],
-  "rent-tax-credit-records": ["연 월세 780만 원의 세액공제 vs 현금영수증 비교", [["월세 세액공제(17%)", 133, "132.6만 원"], ["월세 세액공제(15%)", 117, "117.0만 원"], ["현금영수증(30%×세율15%)", 35, "35.1만 원"]], "가상 사례: 총급여 구간별 월세 세액공제액과 소득공제 세금 감소액"],
-  "apartment-maintenance-fee": ["아파트 관리비 고지서 24만 원의 세 영역 분리", [["공용관리비", 9, "9만 원"], ["세대 전기·수도·난방", 12, "12만 원"], ["장기수선충당금·기타", 3, "3만 원"]], "가상 사례: 총액이 아닌 세대 사용량 항목으로 계절 변동을 읽는 법"],
-  "mobile-plan-cost-review": ["통신비 고지서 9만 8천 원의 실제 구성 분해", [["순수 통신 요금제", 45, "4.5만 원"], ["단말기 할부원금·이자", 35, "3.5만 원"], ["소액결제·부가서비스", 18, "1.8만 원"]], "가상 사례: 통신 요금과 단말기 할부·소액결제를 분리한 명세서"],
-  "sinking-fund-annual-expenses": ["연간 비정기 지출 120만 원의 기적립·잔여 배분", [["기적립 완료 금액", 30, "30만 원"], ["남은 3회 회차별 적립", 30, "회당 30만 원"], ["잔여 필요 총액", 90, "90만 원"]], "가상 사례: 납부일 전 가능한 3회 입금일에 맞춘 균등 적립"],
-  "debt-repayment-order": ["대출 금리별 연간 이자 부담 비교(원금 1,000만 원당)", [["고금리 카드론·현금서비스", 140, "연 140만 원"], ["일반 신용대출", 65, "연 65만 원"], ["정책·주거 담보대출", 38, "연 38만 원"]], "가상 사례: 동일 원금에서 금리 차이에 따른 연간 이자 비용"],
-  "savings-rate-tracking": ["월 실수령 300만 원에서 저축 정의별 저축률 차이", [["순수 장기 저축·투자만", 20, "20% (60만 원)"], ["단기 여행·경조사 적립 포함", 28, "28% (84만 원)"], ["대출 원금 상환 포함", 33, "33% (99만 원)"], ], "가상 사례: 곧 쓸 적립금을 장기 저축과 분리해야 실제 자산 증가율이 보임"],
-  "first-job-budget": ["첫 급여 250만 원의 선저축·생활비 배분 예시", [["비상금·청약·적금 선저축", 75, "75만 원(30%)"], ["주거·통신·교통 고정비", 85, "85만 원(34%)"], ["식비·생활·여가 변동비", 90, "90만 원(36%)"]], "가상 사례: 신용카드 한도 대신 체크카드 예산으로 시작하는 첫 급여 구조"],
-  "car-ownership-cost": ["자동차 유지비 월 환산 58만 원의 숨은 비용 구조", [["유류비·통행료·주차", 26, "26만 원"], ["자동차보험·자동차세 월환산", 14, "14만 원"], ["정비·타이어·감가 예비비", 18, "18만 원"]], "가상 사례: 주유비 외에 연간 세금·보험·정비비를 월 단위로 환산한 실제 비용"],
-  "childcare-cost-planning": ["자녀 교육·양육비 월 65만 원의 고정·비정기 분리", [["정기 보육·학원 고정비", 42, "42만 원"], ["교재·준비물·체험학습", 13, "13만 원"], ["방학·학기초 적립 예비비", 10, "10만 원"]], "가상 사례: 학기 초·방학 목돈을 매달 예비비로 나누어 준비하는 구조"],
-  "couple-account-structure": ["맞벌이 부부 월 550만 원의 공동·개별 배분 예시", [["공동 주거·식비·생활비", 240, "240만 원"], ["공동 저축·비상금·예비비", 220, "220만 원"], ["부부 각자 용돈 합계", 90, "90만 원"]], "가상 사례: 생활비와 저축 규칙을 먼저 맞춘 뒤 각자 용돈을 분리하는 방식"],
-  "roommate-shared-ledger": ["월 9만 원 공과금의 중도 입주(11일) 두 분담 방식 비교", [["A 거주자(날짜별 분담)", 60, "60,000원"], ["A 거주자(거주 인일 비례)", 54, "54,000원"], ["B 거주자(거주 인일 비례)", 36, "36,000원"]], "가상 사례: 단독 거주 구간과 공동 거주 구간을 나누는 두 합의 기준"],
-  "monthly-closing-routine": ["월 마감 대조 전후 장부 잔액 보정(기초 50만 원)", [["대조 전 장부 잔액", 32, "32만 원"], ["중복 제거(+8만)·누락 반영(-12만)", 4, "차이 -4만 원"], ["대조 후 실제 확정 잔액", 28, "28만 원"]], "가상 사례: 중복 입력과 자동이체 누락을 원거래 ID로 바로잡은 마감 결과"],
-  "expense-review-questions": ["월말 결산 5문항 점검으로 찾은 조정 가능 지출", [["미사용 정기 구독 정리", 3, "월 2.8만 원"], ["실적 채우기용 비계획 쇼핑", 6, "월 6.0만 원"], ["배달·야식 빈도 조정", 9, "월 9.0만 원"]], "가상 사례: 총액 자책 대신 구체적 질문으로 다음 달 행동 규칙을 정하는 과정"],
-  "year-end-tax-timeline-checklist": ["연말정산 준비 시기별 핵심 점검 비중", [["10~11월(25% 문턱·카드 전환)", 45, "지출 조정기"], ["12월(연금·IRP·기부금 마감)", 35, "납입 마감기"], ["다음 해 1~2월(간소화·누락 서류)", 20, "서류 제출기"]], "12월 31일 이전 결제·납입으로만 바꿀 수 있는 항목과 1월 서류 확인의 구분"],
-  "payment-method-switch-nov-dec": ["11~12월 300만 원 지출의 결제수단별 총 소득공제액", [["1~10월 누적 공제액", 77, "76.5만 원"], ["11~12월 신용카드 유지(15%)", 122, "121.5만 원"], ["11~12월 체크·현금 전환(30%)", 167, "166.5만 원"]], "가상 사례: 총급여 4,800만 원(25% 문턱 초과 후) 남은 두 달 결제수단 전환 비교"],
-  "medical-education-donation-deductions": ["의료비 세액공제 총급여 3% 문턱 계산 예시", [["총급여 5,000만 원의 3% 문턱", 150, "150만 원"], ["연간 의료비 순지출(실손 차감 후)", 250, "250만 원"], ["문턱 초과 공제 대상액", 100, "100만 원"]], "가상 사례: 실손보험금 수령액을 뺀 순수 본인 부담 의료비 기준"],
-  "dual-income-deduction-allocation": ["맞벌이 부부 카드·의료비 몰아주기 문턱 비교", [["배우자 A(총급여 6,000만) 25% 문턱", 150, "1,500만 원"], ["배우자 B(총급여 3,600만) 25% 문턱", 90, "900만 원"], ["배우자 B 의료비 3% 문턱", 11, "108만 원"]], "가상 사례: 소득 문턱이 낮은 배우자와 한계세율이 높은 배우자의 유불리 비교"],
-  "pension-savings-irp-tax-credit": ["연금저축 600만·IRP 300만 납입 시 총급여별 세액공제", [["연금저축 600만(5,500만 이하 16.5%)", 99, "99.0만 원"], ["연금저축+IRP 900만(5,500만 이하 16.5%)", 149, "148.5만 원"], ["연금저축+IRP 900만(5,500만 초과 13.2%)", 119, "118.8만 원"]], "소득세법 제59조의3 기준 지방소득세 포함 세액공제 한도 비교"],
-  "single-household-year-end-tax": ["1인 가구 직장인(총급여 4,200만) 주요 공제 효과 비교", [["월세 세액공제(연 720만×17%)", 122, "122.4만 원"], ["연금저축 세액공제(연 300만×16.5%)", 50, "49.5만 원"], ["체크·현금영수증 소득공제 세금감소", 27, "27.0만 원"]], "가상 사례: 부양가족 공제가 없는 1인 가구의 주거·연금·카드 공제 비중"],
-  "tax-refund-money-plan": ["연말정산 환급금 120만 원의 3단계 배분 예시", [["1순위 고금리 부채·연체 정리", 40, "40만 원"], ["2순위 연간 비정기 지출 예비비", 50, "50만 원"], ["3순위 비상금·연금저축 재투자", 30, "30만 원"]], "가상 사례: 환급금을 생활비 통장에 섞지 않고 목적별로 즉시 분리하는 계획"],
-  "housing-deductions-overview": ["무주택 근로자 주거비 공제 한도·방식 비교", [["월세 세액공제(연 대상 한도)", 100, "1,000만 원"], ["전세원리금 소득공제(연 공제 한도)", 40, "400만 원"], ["주택청약저축 소득공제(연 납입 한도)", 30, "300만 원"]], "조세특례제한법 및 소득세법 기준 무주택 가구 주거 관련 공제 한도"],
+  "budget-ratio-guide": ["월 300만 원 소득의 50/30/20 예산 배분 비교", [["필수 생활비(50%)", 150, "150만 원"], ["선택 소비(30%)", 90, "90만 원"], ["저축·상환(20%)", 60, "60만 원"]], "예시: 월 실수령 300만 원 기준 영역별 배분 금액(아래 계산표 기본 예제와 같은 값)"],
+  "emergency-fund-basics": ["월 필수 생활비 150만 원 기준 단계별 비상금 목표", [["1개월분", 150, "150만 원"], ["3개월분(예제 목표)", 450, "450만 원"], ["6개월분", 900, "900만 원"]], "예시: 선택 소비를 뺀 월 필수 생활비 150만 원 기준(아래 계산표 기본 예제와 같은 값)"],
+  "card-spending-threshold": ["카드 전월 실적 30만 원 기준과 인정·부족액", [["전월 실적 기준", 300, "30만 원"], ["현재 실적 인정액", 250, "25만 원"], ["실적 부족액", 50, "5만 원"]], "예시: 총 결제 31만 원 중 실적 제외 6만 원을 뺀 인정액(아래 계산표 기본 예제와 같은 값)"],
 });
 
 function renderArticleDataChartV229139(slug) {
   const spec = PUBLIC_ARTICLE_CHARTS_V229139[slug];
   if (!spec) return "";
   const [title, bars, caption] = spec;
-  const max = Math.max(1, ...bars.map((b) => Number(b[1]) || 1));
+  const max = Math.max(1, ...bars.map((b) => Math.max(0, Number(b[1]) || 0)));
   const colors = ["#1d4ed8", "#0284c7", "#0d9488", "#4f46e5"];
   const height = 42 + bars.length * 42;
   const rowsSvg = bars.map(([label, val, display], idx) => {
     const y = 34 + idx * 42;
-    const width = Math.max(16, Math.round((Number(val) / max) * 290));
+    const ratio = Math.max(0, Number(val) || 0) / max;
+    const width = ratio > 0 ? Math.max(4, Math.round(ratio * 290)) : 0; // 0원은 막대를 그리지 않는다(값 글자는 둔다).
     const color = colors[idx % colors.length];
     return `<g transform="translate(0,${y})"><text x="12" y="20" fill="#1e293b" font-size="13" font-weight="600">${escapeHtml(label)}</text><rect x="215" y="4" width="295" height="22" rx="6" fill="#e8effa"/><rect x="215" y="4" width="${width}" height="22" rx="6" fill="${color}"/><text x="520" y="20" fill="#172033" font-size="13" font-weight="700">${escapeHtml(display)}</text></g>`;
   }).join("");
@@ -283,9 +195,10 @@ function renderArticleDataChartV229139(slug) {
 }
 
 // V22.9.107 D-4~D-6: 계산표 자산 주소는 1년 캐시(immutable)라 계산표 화면(worksheet-runtime.js)이 바뀌면 여기 판을 올린다.
+// V22.9.139: 계산 함수(worksheet-calculations.js)에 미니 계산기 셋이 더해져 계산표 쪽 바이트가 바뀌었으므로 v229139 로 올린다.
 // 바로 앞 판 주소는 다음 판까지 같은 내용을 낸다(글을 5분 캐시로 받은 브라우저가 옛 주소를 누를 수 있다). 두 판 전 주소는 404 다.
-const PUBLIC_WORKSHEET_ASSET_VERSION_V229107 = "v229107";
-const PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107 = Object.freeze(["v229106"]);
+const PUBLIC_WORKSHEET_ASSET_VERSION_V229107 = "v229139";
+const PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107 = Object.freeze(["v229107"]);
 function publicWorksheetPathV229106(slug, version = PUBLIC_WORKSHEET_ASSET_VERSION_V229107) { return `/assets/living-worksheet-${version}-${slug}.html`; }
 
 function enrichPublicWorksheetsV229106(catalog) {

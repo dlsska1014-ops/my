@@ -7,7 +7,7 @@ import {
   policyDateLabel, publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav,
 } from "./site-config.js";
 import {
-  publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages, publicSandboxClient,
+  publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages,
 } from "./guide-content.js";
 import {
   publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes, publicArticleRecent,
@@ -35,6 +35,7 @@ import { iconMaskUrl } from "../assets/icon-mask-css.js";
 import {
   AB_OG_IMAGE_ALT, AB_OG_IMAGE_HEIGHT, AB_OG_IMAGE_PATH, AB_OG_IMAGE_WIDTH,
 } from "../assets/og-image.js";
+import { parseTransaction } from "../nlu/transaction-parser.js";
 import { escapeHtml } from "../domain/transactions-core.js";
 // @build:imports-end
 
@@ -183,7 +184,7 @@ function publicContentLinks(links = []) {
 const PUBLIC_DEMO_TABLE_HEADERS_V229124 = ["날짜", "분류", "내용", "지출액"];
 const PUBLIC_TABLE_STACK_RULES_V229124 = '.pubTableWrap[data-stack]{overflow:visible;border:0;border-radius:0;background:none}.pubTableWrap[data-stack] .pubTable,.pubTableWrap[data-stack] .pubTable tbody{display:block;width:100%}.pubTableWrap[data-stack] .pubTable caption{display:block;padding:0 0 10px}.pubTableWrap[data-stack] .pubTable thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.pubTableWrap[data-stack] .pubTable tbody tr{display:block;margin:0 0 12px;padding:14px 16px;border:1px solid #dce3ef;border-radius:14px;background:#fff}.pubTableWrap[data-stack] .pubTable tbody th,.pubTableWrap[data-stack] .pubTable tbody td{display:block!important;width:auto!important;min-width:0!important;padding:0!important;border:0!important;background:none!important}.pubTableWrap[data-stack] .pubTable tbody td{margin-top:10px}.pubTableWrap[data-stack] .pubTable tbody th::before,.pubTableWrap[data-stack] .pubTable tbody td::before{display:block;font-size:12px;font-weight:700;color:#596579}';
 // /demo 계산 입력칸: ab-uiux 의 ‘.abV2281 input…{font-size:inherit!important}’ 가 16px 규칙을 덮어 13px 이었다(iOS 는 16px 미만 입력칸을 누르면 화면을 확대한다).
-const PUBLIC_DEMO_INPUT_CSS_V229124 = '.pubDemo .pubDemoInputs label>input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]){font-size:16px!important}.pubSandboxChips{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}';
+const PUBLIC_DEMO_INPUT_CSS_V229124 = '.pubDemo .pubDemoInputs label>input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]){font-size:16px!important}';
 function publicTableStacksV229124(table) {
   return !!table && safeArray(table.headers).length >= 4;
 }
@@ -200,19 +201,28 @@ function publicContentTable(table, id) {
   return `<div class="pubTableWrap" role="region" aria-labelledby="${id}" tabindex="0"${publicTableStacksV229124(table) ? ' data-stack="1"' : ""}><table class="pubTable"><caption id="${id}">${escapeHtml(table.caption)}</caption><thead><tr>${table.headers.map((label) => `<th scope="col">${escapeHtml(label)}</th>`).join("")}</tr></thead><tbody>${table.rows.map((row) => `<tr>${row.map((cell, index) => index === 0 ? `<th scope="row">${escapeHtml(cell)}</th>` : `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 
-function renderPublicParserSandbox() {
-  const samples = [
-    ["점심 11,000원 신한카드", "점심 김치찌개 11,000원 신한카드"],
-    ["카드 승인 문자", "[Web발신] 삼성1234승인 45,000원 일시불 11/15 교촌치킨 누적532,000원"],
-    ["월급 320만원 수입", "월급 320만원 국민은행"],
-    ["택시 14,500원 페이", "택시 14,500원 카카오페이"],
-    ["정기 구독 13,500원", "넷플릭스 구독 13,500원 현대카드"],
-  ];
-  const metrics = [["type", "구분", "지출"], ["amount", "해석 금액", "11,000원"], ["category", "자동 분류", "식비"], ["method", "결제수단", "신한카드"], ["memo", "항목 메모", "점심 김치찌개"], ["after", "예제 남은 예산 반영", "164,000원"]];
-  return `<section class="pubDemo pubSandbox" id="parser-sandbox" aria-labelledby="sandbox-title"><div class="pubDemoHeading"><div><span class="pubEyebrow">실시간 입력 해석기 · 브라우저 즉시 체험</span><h2 id="sandbox-title">카카오톡 한 줄 문장과 카드 승인 문자를 직접 입력해 보세요</h2></div><p>입력한 문장은 이 브라우저 안에서만 해석하며 서버로 보내거나 브라우저에 보관하지 않습니다.</p></div>
-<form id="sandbox-form" action="#parser-sandbox" novalidate><div class="pubSandboxChips" role="group" aria-label="예시 문장 바로 넣어 보기">${samples.map(([label, text]) => `<button class="pubBtn secondary" type="button" data-sandbox-sample="${escapeHtml(text)}">${escapeHtml(label)}</button>`).join("")}</div><fieldset><legend>한 줄 문장 또는 카드 승인 문자 해석하기</legend><div class="pubDemoInputs"><label for="sandbox-input">보낼 문장 또는 승인 문자<input id="sandbox-input" type="text" value="점심 김치찌개 11,000원 신한카드" maxlength="160" autocomplete="off"/></label><button class="pubBtn" type="submit">문장 해석하기</button><button class="pubBtn secondary" type="button" id="sandbox-reset">기본 문장으로</button></div></fieldset></form>
-<dl class="pubMetrics">${metrics.map(([key, label, value]) => `<div><dt>${label}</dt><dd id="sandbox-${key}">${value}</dd></div>`).join("")}</dl>
-<p id="sandbox-status" role="status" aria-live="polite" aria-atomic="true">해석 완료: 지출 11,000원 · 분류 식비 · 결제수단 신한카드 · 항목 ‘점심 김치찌개’(예제 남은 예산 164,000원).</p></section><script>(${publicSandboxClient.toString()})();</script>`;
+// V22.9.139: /demo 의 한 줄 기록 예시는 카카오톡 봇이 쓰는 해석기(parseTransaction)로 이 화면을 만들 때 읽은 결과다.
+// 브라우저에서 따로 읽는 체험 칸은 두지 않는다 — 실제 봇과 다르게 읽으면 안 된다(사용자 11-22, 계획 2절·B6).
+const PUBLIC_PARSER_EXAMPLES_V229139 = Object.freeze([
+  "점심 김치찌개 11,000원 신한카드",
+  "저녁 3만5천원",
+  "302호 관리비 230000원",
+  "택시 14,500원 카카오페이",
+  "마트 장보기 52,300원 체크카드",
+  "넷플릭스 구독 13,500원 현대카드",
+  "월급 320만원",
+]);
+function publicParserExampleRowsV229139() {
+  return PUBLIC_PARSER_EXAMPLES_V229139.map((text) => {
+    const parsed = parseTransaction(text, {});
+    if (!parsed || parsed.ok === false) return [text, "다시 물어봄", "-", "-", "-", "-"];
+    return [text, parsed.type === "income" ? "수입" : "지출", `${Number(parsed.amount).toLocaleString("ko-KR")}원`, parsed.category || "-", parsed.payment_method || "-", parsed.memo || "-"];
+  });
+}
+// 열이 여섯이라 휴대폰 폭에서는 줄마다 카드로 쌓인다(V22.9.124 규칙 — 머리글 규칙은 페이지 스타일에서 같은 머리글로 만든다).
+const PUBLIC_PARSER_EXAMPLE_HEADERS_V229139 = Object.freeze(["보낸 문장", "구분", "금액", "분류", "결제수단", "메모"]);
+function renderPublicParserExamples() {
+  return `<section class="pubSection" id="kakao-examples" aria-labelledby="kakao-examples-title"><h2 id="kakao-examples-title">카카오톡에 이렇게 보내면 이렇게 기록돼요</h2><p>아래 결과는 카카오톡 봇이 기록할 때 쓰는 해석 코드로 이 화면을 만들 때 읽은 값입니다. 날짜를 적지 않은 문장은 보낸 날로 기록합니다.</p>${publicContentTable({ caption: "보낸 문장과 기록 결과", headers: PUBLIC_PARSER_EXAMPLE_HEADERS_V229139, rows: publicParserExampleRowsV229139() }, "kakao-examples-table")}</section>`;
 }
 
 function renderPublicDemo() {
@@ -222,7 +232,7 @@ function renderPublicDemo() {
   return `<section class="pubDemo" id="example" aria-labelledby="demo-title"><div class="pubDemoHeading"><div><span class="pubEyebrow">가상 데이터 · 2026년 9월의 네 기록</span><h2 id="demo-title">예산을 바꾸면 어떻게 될까요?</h2></div><p>실제 가계부에는 저장되지 않습니다.</p></div>
 <dl class="pubMetrics">${metrics.map(([key, label]) => `<div><dt>${label}</dt><dd id="demo-${key}">${result[key].toLocaleString("ko-KR")}원</dd></div>`).join("")}</dl><p class="pubDemoRate">예산 사용률 <strong id="demo-rate">${result.rate}%</strong></p>
 <form id="public-demo-form" hidden><fieldset><legend>분류별 예산 바꿔 보기</legend><div class="pubDemoInputs"><label for="demo-food">식비 예산 (원)<input id="demo-food" inputmode="numeric" value="300,000" autocomplete="off" aria-describedby="demo-help"/></label><label for="demo-transport">교통 예산 (원)<input id="demo-transport" inputmode="numeric" value="100,000" autocomplete="off" aria-describedby="demo-help"/></label><button class="pubBtn" type="submit">예산 다시 계산</button><button class="pubBtn secondary" type="button" id="demo-reset">처음 예제로</button></div><p id="demo-help">0원부터 10억원까지 입력할 수 있습니다. 0원인 분류는 예산 비교에서 제외됩니다.</p></fieldset></form><p id="demo-status" role="status" aria-live="polite" aria-atomic="true">식비와 교통비만 예산과 비교합니다. 의료비 30,000원은 예산 밖 지출입니다.</p><noscript><p>현재 기본 예제와 계산 결과를 보고 있습니다. 예산 금액을 바꾸려면 브라우저의 JavaScript를 켜세요.</p></noscript>
-${publicContentTable({ caption: "예제에 사용한 가상 거래 목록", headers: PUBLIC_DEMO_TABLE_HEADERS_V229124, rows: rows.map((row) => [row.date, row.category, row.memo, `${row.amount.toLocaleString("ko-KR")}원`]) }, "demo-table")}</section><script>(${publicDemoClient.toString()})(${publicDemoSummary.toString()},${JSON.stringify(rows)});</script>${renderPublicParserSandbox()}`;
+${publicContentTable({ caption: "예제에 사용한 가상 거래 목록", headers: PUBLIC_DEMO_TABLE_HEADERS_V229124, rows: rows.map((row) => [row.date, row.category, row.memo, `${row.amount.toLocaleString("ko-KR")}원`]) }, "demo-table")}</section><script>(${publicDemoClient.toString()})(${publicDemoSummary.toString()},${JSON.stringify(rows)});</script>${renderPublicParserExamples()}`;
 }
 
 // V22.9.87 T-21: 공개 첫 화면과 /demo 위쪽의 앱 화면 미리보기(가상 데이터, 읽기 전용). 앱 홈 예산 카드(T-12, my/mobile-home.js)와
@@ -394,7 +404,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   // 있는 화면(/faq)에만 싣는다(다른 공개 화면의 바이트는 그대로).
   const faqLinkCss = safeArray(page.faqs).some((item) => item?.[2]) ? ".pubFaq .pubLinks{margin:0 0 18px}" : "";
   // V22.9.124: 넓은 표(열 넷 이상)를 600px 이하에서 카드로 쌓는 규칙과 칸 위 머리글, /demo 계산 입력칸 16px. 필요한 화면에만 싣는다(위 faqLinkCss 와 같은 이유).
-  const stackLabelCss = sectionList.map((section, index) => publicTableStackLabelCssV229124(section.table, `table-${index + 1}`)).join("") + (page.demo ? publicTableStackLabelCssV229124({ headers: PUBLIC_DEMO_TABLE_HEADERS_V229124 }, "demo-table") : "");
+  const stackLabelCss = sectionList.map((section, index) => publicTableStackLabelCssV229124(section.table, `table-${index + 1}`)).join("") + (page.demo ? publicTableStackLabelCssV229124({ headers: PUBLIC_DEMO_TABLE_HEADERS_V229124 }, "demo-table") + publicTableStackLabelCssV229124({ headers: PUBLIC_PARSER_EXAMPLE_HEADERS_V229139 }, "kakao-examples-table") : "");
   const tableStackCss = stackLabelCss ? `@media(max-width:600px){${PUBLIC_TABLE_STACK_RULES_V229124}${stackLabelCss}}` : "";
   const demoInputCss = page.demo ? PUBLIC_DEMO_INPUT_CSS_V229124 : "";
   const extras = publicArticleExtras(page, living);
@@ -404,15 +414,13 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   const chartHtml = living ? renderArticleDataChartV229139(key) : "";
   const chartCss = chartHtml ? ".pubDataChart{margin:20px 0 24px;padding:16px;border:1px solid #dce3ef;border-radius:16px;background:#fff}.pubChartSvg{display:block;width:100%;height:auto;max-height:220px}.pubDataChart figcaption{margin-top:8px;color:#526075;font-size:13.5px;line-height:1.6}" : "";
   const inlineWorksheet = living ? renderInlineWorksheetV229139(key) : null;
-  const toolHubHtml = key === "articles" ? `<aside class="pubSummary pubToolHub" id="tool-hub" aria-label="인터랙티브 계산표 바로가기"><b>브라우저에서 바로 계산하는 생활비·세금 계산표 12종</b><p>아래 12편의 글에는 입력값을 바꿔 즉시 검산하고 CSV로 저장할 수 있는 인터랙티브 계산표가 본문 안에 포함되어 있습니다.</p>${publicContentLinks(Object.entries(PUBLIC_ALL_CALCULATORS_V229139).map(([slug, spec]) => [spec.title, `/${slug}`]))}</aside>` : "";
+  const toolHubHtml = key === "articles" ? `<aside class="pubSummary pubToolHub" id="tool-hub" aria-label="인터랙티브 계산표 바로가기"><b>브라우저에서 바로 계산하는 생활비 계산표 ${Object.keys(PUBLIC_ALL_CALCULATORS_V229139).length}종</b><p>아래 ${Object.keys(PUBLIC_ALL_CALCULATORS_V229139).length}편의 글에는 입력값을 바꿔 즉시 검산하고 CSV로 저장할 수 있는 인터랙티브 계산표가 본문 안에 포함되어 있습니다.</p>${publicContentLinks(Object.entries(PUBLIC_ALL_CALCULATORS_V229139).map(([slug, spec]) => [spec.title, `/${slug}`]))}</aside>` : "";
   const structured = JSON.stringify({
     "@context": "https://schema.org", "@type": type, name: page.title,
     description: page.description, url: canonical, inLanguage: "ko-KR", dateModified: page.updated,
     publisher: { "@type": "Organization", name: BUSINESS_FOOTER_INFO.company, url: origin },
     ...(type === "Article" ? { headline: page.title, author: { "@type": "Organization", name: BUSINESS_FOOTER_INFO.company, url: `${origin}/about` }, mainEntityOfPage: canonical } : {}),
     ...(living ? { datePublished: page.published || page.updated, articleSection: page.category, isAccessibleForFree: true } : {}),
-    ...(inlineWorksheet && PUBLIC_ALL_CALCULATORS_V229139[key] ? { hasPart: { "@type": "WebApplication", name: PUBLIC_ALL_CALCULATORS_V229139[key].title, applicationCategory: "FinanceApplication", operatingSystem: "All", isAccessibleForFree: true, url: `${canonical}#inline-worksheet` } } : {}),
-    ...(key === "demo" ? { hasPart: [{ "@type": "WebApplication", name: "말해가계부 분류별 예산·지출 시뮬레이터", applicationCategory: "FinanceApplication", operatingSystem: "All", isAccessibleForFree: true, url: `${canonical}#example` }, { "@type": "WebApplication", name: "카카오톡 한 줄 문장·카드 승인 문자 실시간 해석기", applicationCategory: "FinanceApplication", operatingSystem: "All", isAccessibleForFree: true, url: `${canonical}#parser-sandbox` }] } : {}),
     ...(type === "SoftwareApplication" ? { applicationCategory: "FinanceApplication", operatingSystem: "Web" } : {}),
     ...(type === "FAQPage" ? { mainEntity: page.faqs.map(([q, a]) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })) } : {}),
   }).replace(/</g, "\\u003c");

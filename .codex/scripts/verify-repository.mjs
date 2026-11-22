@@ -15,7 +15,7 @@ const checksumManifest = resolve(
   "BUNDLE_FILE_CHECKSUMS_V22_9_139.sha256",
 );
 const validationScripts = [
-  ["V22.9.139 애드센스 재심사 최종 보강 5대 기둥(서브도메인 푸터 분리·빈 광고 슬롯 자동 숨김, 본문 인라인 인터랙티브 계산표 12종, /demo 실시간 자연어·카드문자 해석 샌드박스, 생활비 글 40편 고유 인라인 SVG 데이터 차트·맞춤 CTA·/articles 12종 허브·/about 자체 검산 원칙, 로그인 웹 앱 문맥 연결)", "validation/validate-adsense-master-v229139.mjs"],
+  ["V22.9.139 애드센스 재심사 보강(서브도메인 푸터 분리·빈 광고 칸 숨김, 본문 계산표 9종·세무 계산기 없음, /demo 한 줄 기록 예시 = 봇 해석기 결과, 차트 3편 = 계산표 예제 값·주제별 대표 단추·/articles 계산표 모음·/about 생성형 도구 밝힘, 로그인 웹 앱 문맥 연결)", "validation/validate-adsense-master-v229139.mjs"],
   ["V22.9.107 광고 검토 후속(D-1 유입 매개변수·앵커가 붙어도 정본 문서면 광고, D-2 애드핏 FAQ 문구, D-3 계산표 글 절 순서, D-4~D-6 계산표 변경 전 결과·휴대폰 2열·머리꼬리·주소 판, D-7 글 목록 ‘계산표 포함’)", "validation/validate-ads-review-fixes-v229107.mjs"],
   ["V22.9.106 public worksheets, arithmetic, privacy and exact ad activation", "validation/validate-public-value-v229106.mjs"],
   ["V22.9.105 R-1 단톡방 링크 단추로 바로 열기(카카오가 붙인 botUserKey·botGroupKey + 방 가계부 구성원 → 로그인 화면 없이 그 방 가계부 홈 + 동의 팝업, 안 맞으면 V22.9.104 그대로)", "validation/validate-room-open-v229105.mjs"],
@@ -451,8 +451,10 @@ function run(command, args, label) {
 // V22.9.136: 간격·색 정리 검사(validate-v229136-spacing-color)와 추적표 V136 출처 10행이 더해졌다. 하네스 두 모드 실측 96,612 present / 96,605 absent — 하한은 작은 값이다.
 // V22.9.137: 홈 단순화 검사(validate-v229137-home-simplify)와 추적표 V137 출처 12행이 더해졌다. 하네스 두 모드 실측 96,885 present / 96,878 absent — 하한은 작은 값이다.
 // V22.9.138: 빠른 입력 시트 3층 검사(validate-v229138-quick-sheet)와 추적표 V138 출처 10행이 더해졌다. 하네스 두 모드 실측 97,251 present / 97,244 absent — 하한은 작은 값이다.
-// V22.9.139: 애드센스 재심사 최종 보강 5대 기둥 검사(validate-adsense-master-v229139 478)와 추적표 V139 출처 8행, 공개 가이드·생활비 글 연결 단언(+16)이 더해졌다. 하네스 두 모드 실측 97,806 present / 97,799 absent — 하한은 작은 값이다.
-const EXPECTED_MINIMUM_CHECKS = 97799;
+// V22.9.139: 애드센스 재심사 보강 검사(validate-adsense-master-v229139 319)와 추적표 V139 항목 7행, 공개 가이드·생활비 글 연결 단언이 더해졌다.
+//   다른 에이전트의 PR 을 이어받아 병합 전에 고쳤다(그 PR 에 적힌 97,806 / 97,799 는 실제 CI 97,803 / 97,796 과 달라 CI 가 떨어졌다).
+//   하네스 두 모드 실측 97,657 present / 97,650 absent — 하한은 작은 값이다.
+const EXPECTED_MINIMUM_CHECKS = 97650;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

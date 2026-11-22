@@ -3982,7 +3982,7 @@ function publicGuidePages(env = {}) {
   return {
     home: page("말한 기록이, 함께 보는 생활비가 됩니다", "카카오톡에서 수입과 지출을 기록하고 웹에서 예산·생활비·정산을 확인하세요. 가입 전 가상 예제로 계산 방법을 살펴볼 수 있습니다.", "카카오톡으로 기록하는 말해가계부", "점심값은 채팅으로 남기고, 한 달 생활비는 웹에서 확인하세요. 개인 가계부와 방마다 나누는 공동 가계부를 사용할 수 있습니다. 먼저 가상 예제로 기록이 어떻게 합계와 예산으로 이어지는지 살펴보세요.", [
       { title: "내게 맞는 시작 방법", table: { caption: "개인 기록과 공동 기록의 시작 방법", headers: ["사용할 곳", "첫 행동", "확인할 결과"], rows: [["카카오톡 1:1", "점심 만원", "웹 로그인 없이 개인 가계부의 첫 기록을 준비합니다."], ["새 단톡방", "봇을 호출하고 점심 12000원", "그 방의 공동 가계부를 준비합니다. 이렇게 가계부를 처음 준비한 사람이 소유자가 되고, 그 뒤 봇을 부른 참여자는 구성원이 됩니다."], ["기존 가계부", "오늘 기록 보기", "현재 연결된 가계부의 기록을 확인합니다."]] }, note: "봇 추가만으로 거래를 만들지는 않습니다. 명확한 기록 요청이 있어야 하며, 기존 권한 제한이나 삭제·연결 해제 이력은 그대로 적용됩니다.", links: [["처음 기록하는 순서", "/how-it-works"]] },
-      { title: "전체 지출과 남은 예산이 다른 이유", paragraphs: ["식비와 교통에만 예산을 세웠다면 의료비는 전체 지출에 포함되지만 예산 비교에서는 따로 봅니다. 무엇을 예산에 포함했는지 알아야 남은 금액도 정확히 읽을 수 있습니다."], links: [["255,000원 지출 예제로 직접 확인", "/demo"], ["한 줄 문장·카드 문자 실시간 해석기", "/demo#parser-sandbox"], ["분류별 예산 계산 방법", "/budget-guide"]] },
+      { title: "전체 지출과 남은 예산이 다른 이유", paragraphs: ["식비와 교통에만 예산을 세웠다면 의료비는 전체 지출에 포함되지만 예산 비교에서는 따로 봅니다. 무엇을 예산에 포함했는지 알아야 남은 금액도 정확히 읽을 수 있습니다."], links: [["255,000원 지출 예제로 직접 확인", "/demo"], ["카카오톡 한 줄 기록 예시와 결과", "/demo#kakao-examples"], ["분류별 예산 계산 방법", "/budget-guide"]] },
       { title: "기록 이후에 필요한 도구", links: [["주간·월간 생활비 리포트 읽기", "/report-guide"], ["카드 내역 가져오기와 CSV 백업", "/import-guide"], ["기능별로 할 수 있는 일", "/service-guide"]] },
       // V22.9.104 A-2: 글 링크는 정적 목록이 아니라 content-pages.js 가 글 목록(작성일 최신 순) 앞 8편으로 채운다. 여기에는 전체 목록 링크만 둔다.
       { title: "최근 글", paragraphs: ["앱을 쓰지 않아도 생활비를 계획하고 점검할 때 참고할 수 있는 글을 도담 네트워크 운영팀이 쓰고 있습니다. 예산·고정비·공동 생활비·기록 습관·카드와 세금·통계까지 주제별로 모았고, 글마다 작성일과 수정일, 참고한 공식 자료를 표시합니다. 숫자 예시는 설명을 위해 구성한 가정입니다. 아래 목록은 작성일이 가장 최근인 글부터 보여 줍니다."], links: [["생활비 가이드 글 전체 목록 보기", "/articles"]] },
@@ -3990,10 +3990,10 @@ function publicGuidePages(env = {}) {
     // 독립 서비스 문장은 ‘알아 둘 점’으로 옮겼다(문장 그대로). 주 버튼은 ‘내 가계부 시작하기’, 보조는 ‘가상 가계부 둘러보기’다.
     ], { type: "SoftwareApplication", primary: ["내 가계부 시작하기", "/my"], secondary: ["가상 가계부 둘러보기", "/demo"], updated: PUBLIC_COPY_REVISION_DATE, landing: true }),
     guides: page("기록에서 월말 점검까지, 사용 가이드", "처음 기록하기, 카카오 명령, 예산 계산, 공동 정산, 생활비 리포트와 파일 가져오기, 생활비 가이드 글을 목적별로 찾아보세요.", "필요한 순간에 찾아보는 안내", "지금 하려는 일에 맞는 글을 고르세요. 각 가이드는 말해가계부의 실제 동작과 직접 구성한 가상 사례를 기준으로 설명합니다. 예제에는 실제 사용자의 거래나 이용 후기를 사용하지 않습니다.", [
-      { title: "처음 사용하는 날", paragraphs: ["개인 채팅과 단톡방의 시작 방식부터 구분합니다. 이어서 기록 문장과 저장 결과를 맞춰 보고, 필요할 때 같은 가계부를 웹으로 이어 여세요."], links: [["첫 기록과 웹 이어 열기", "/how-it-works"], ["카카오 입력·수정·오류 대응", "/kakao-guide"], ["가상 가계부 체험", "/demo"], ["한 줄 문장·카드 문자 실시간 해석기", "/demo#parser-sandbox"]] },
+      { title: "처음 사용하는 날", paragraphs: ["개인 채팅과 단톡방의 시작 방식부터 구분합니다. 이어서 기록 문장과 저장 결과를 맞춰 보고, 필요할 때 같은 가계부를 웹으로 이어 여세요."], links: [["첫 기록과 웹 이어 열기", "/how-it-works"], ["카카오 입력·수정·오류 대응", "/kakao-guide"], ["가상 가계부 체험", "/demo"], ["카카오톡 한 줄 기록 예시와 결과", "/demo#kakao-examples"]] },
       { title: "생활비를 점검하는 날", paragraphs: ["분류별 예산을 설정했다면 예산 밖 지출을 함께 확인하세요. 리포트에서는 이번 달 전체와 지난달 일부를 섞어 비교하지 않는 것이 중요합니다."], links: [["예산 적용 사용액 계산", "/budget-guide"], ["주간·월간 리포트 해석", "/report-guide"], ["가족·여행비 공동 정산", "/group-accountbook"]] },
       { title: "기록을 옮기거나 관리하는 날", paragraphs: ["파일을 가져오기 전에는 미리보기에서 날짜와 중복을 확인합니다. 참여 권한, 연결 코드, CSV 파일은 서로 다른 접근 수단이므로 따로 관리하세요."], links: [["카드 내역 가져오기와 백업", "/import-guide"], ["데이터와 접근 권한 관리", "/security"], ["문제 해결 FAQ", "/faq"], ["문의 경로", "/contact"]] },
-      { title: "생활비 가이드 글", paragraphs: ["앱 사용법과 별개로, 생활비를 계획하고 점검할 때 참고할 수 있는 글입니다. 도담 네트워크 운영팀이 직접 구성한 가상 사례로 계산 과정을 보여 드리며 특정 금융상품을 권하지 않습니다. 아래는 처음 올린 열두 편이고, 카드와 세금·통계·저축과 부채·가족 생활비까지 더한 전체 목록은 글 목록 허브에서 주제별로 볼 수 있습니다."], links: [["생활비 가이드 글 전체 목록: 주제 9개, 40편의 요약과 작성일", "/articles"], ["생활비 예산 비율 정하기: 50/30/20을 우리 집 고정비에 맞게 고치기", "/budget-ratio-guide"], ["고정비 점검 체크리스트: 통신·보험·구독·관리비를 4주에 나눠 보기", "/fixed-cost-checklist"], ["구독 정리법: 반복 결제를 찾고 무료 체험의 자동 결제 막기", "/subscription-cleanup"], ["카드 전월 실적의 원리: 실적을 채우려 더 쓸 때의 손익 계산", "/card-spending-threshold"], ["비상금과 예비비: 몇 개월분이 필요한지 계산하고 다시 채우기", "/emergency-fund-basics"], ["가계부 주기 고르기: 1일 기준과 급여일 기준, 상여가 있는 달", "/payday-budget-cycle"], ["한 장짜리 현금흐름표: 들어온 돈과 나간 돈을 여섯 줄로 정리", "/cash-flow-table"], ["공동 생활비 나누기: 동일·비율·인원수·품목별 결과 비교", "/shared-living-cost-rules"], ["가족·커플 가계부: 기록과 점검의 분담, 용돈과 생활비의 경계", "/family-roles-accountbook"], ["가계부 습관 설계: 하루 1분 루틴과 끊겼을 때 다시 시작하기", "/accountbook-habit"], ["분류 기준 세우기: 식비·외식·배달·카페를 나누고 합치는 법", "/expense-category-rules"], ["주간 리포트 읽기: 지난주 비교의 함정과 행동으로 잇는 3단계", "/weekly-report-reading"], ["연말정산 11~12월 카드 전환 계산기: 총급여 25% 문턱과 남은 두 달 공제액 비교", "/payment-method-switch-nov-dec"], ["월세 세액공제와 현금영수증 비교 계산기: 총급여 구간별 환급 세액 검산", "/rent-tax-credit-records"], ["연금저축·IRP 세액공제 계산기: 연 600만·900만 원 한도와 세율별 환급액", "/pension-savings-irp-tax-credit"], ["룸메이트 중도 입·퇴거 일할 계산표: 거주 기간과 인일 기준 공과금 분담", "/roommate-shared-ledger"], ["연간 비정기 지출 적립 계산표: 명절·자동차보험·세금 납부일별 회차 적립", "/sinking-fund-annual-expenses"], ["월말 가계부 마감 대조표: 중복 기록 제거와 자동이체 누락 잔액 검산", "/monthly-closing-routine"]] },
+      { title: "생활비 가이드 글", paragraphs: ["앱 사용법과 별개로, 생활비를 계획하고 점검할 때 참고할 수 있는 글입니다. 도담 네트워크 운영팀이 직접 구성한 가상 사례로 계산 과정을 보여 드리며 특정 금융상품을 권하지 않습니다. 아래는 처음 올린 열두 편이고, 카드와 세금·통계·저축과 부채·가족 생활비까지 더한 전체 목록은 글 목록 허브에서 주제별로 볼 수 있습니다."], links: [["생활비 가이드 글 전체 목록: 주제 9개, 40편의 요약과 작성일", "/articles"], ["생활비 예산 비율 정하기: 50/30/20을 우리 집 고정비에 맞게 고치기", "/budget-ratio-guide"], ["고정비 점검 체크리스트: 통신·보험·구독·관리비를 4주에 나눠 보기", "/fixed-cost-checklist"], ["구독 정리법: 반복 결제를 찾고 무료 체험의 자동 결제 막기", "/subscription-cleanup"], ["카드 전월 실적의 원리: 실적을 채우려 더 쓸 때의 손익 계산", "/card-spending-threshold"], ["비상금과 예비비: 몇 개월분이 필요한지 계산하고 다시 채우기", "/emergency-fund-basics"], ["가계부 주기 고르기: 1일 기준과 급여일 기준, 상여가 있는 달", "/payday-budget-cycle"], ["한 장짜리 현금흐름표: 들어온 돈과 나간 돈을 여섯 줄로 정리", "/cash-flow-table"], ["공동 생활비 나누기: 동일·비율·인원수·품목별 결과 비교", "/shared-living-cost-rules"], ["가족·커플 가계부: 기록과 점검의 분담, 용돈과 생활비의 경계", "/family-roles-accountbook"], ["가계부 습관 설계: 하루 1분 루틴과 끊겼을 때 다시 시작하기", "/accountbook-habit"], ["분류 기준 세우기: 식비·외식·배달·카페를 나누고 합치는 법", "/expense-category-rules"], ["주간 리포트 읽기: 지난주 비교의 함정과 행동으로 잇는 3단계", "/weekly-report-reading"]] },
       { title: "안내를 관리하는 기준", paragraphs: ["운영 주체는 도담 네트워크입니다. 기능 안내는 서비스 구현과 대조하고, 금액 예시는 거래 목록에서 다시 계산하여 확인합니다. 기능이 바뀌면 관련 안내와 수정일을 함께 갱신합니다. 각 글의 수정일은 콘텐츠를 마지막으로 고친 날이며, 실시간 데이터 기준일은 아닙니다."], links: [["서비스와 콘텐츠 운영 원칙", "/about"], ["전체 공개 페이지", "/site-map"]] },
     ], { type: "CollectionPage", primary: ["가상 예제로 시작하기", "/demo"], updated: "2026-10-21" }),
     "service-guide": page("기능별로 할 수 있는 일과 확인할 것", "말해가계부의 기록·예산·리포트·정산·파일 기능과 권한, 자동으로 처리하지 않는 범위를 확인하세요.", "기능과 사용 범위", "카카오톡은 짧은 기록과 조회에, 웹은 상세 수정과 비교에 사용하면 편리합니다. 아래 표에서 원하는 작업을 찾고 해당 가이드로 이동하세요.", [
@@ -4111,7 +4111,7 @@ function publicGuidePages(env = {}) {
       { title: "서비스가 해결하려는 일", paragraphs: ["한 건을 기록할 때마다 여러 입력 칸을 채워야 한다면 작은 지출은 빠뜨리기 쉽습니다. 채팅에서는 내용과 금액을 먼저 남기고, 웹에서는 기간과 분류를 나누어 점검할 수 있도록 역할을 나눴습니다.", "공동 가계부에서는 결제자와 부담자를 구분하고 방마다 다른 가계부를 사용합니다. 개인 지출이 다른 모임 기록에 섞이지 않도록 가계부와 권한을 확인하는 것을 기본으로 삼습니다."] },
       { title: "안내와 예제를 작성하는 방법", paragraphs: ["공개 가이드는 말해가계부의 기능과 계산 규칙을 기준으로 작성합니다. 예산·정산·리포트 사례에는 설명을 위해 구성한 가상 데이터를 사용하며, 실제 이용 후기나 고객의 절약 성과로 제시하지 않습니다.", "글 수나 분량을 늘리기 위해 같은 설명을 여러 페이지에 반복하지 않습니다. 각 페이지는 하나의 작업을 다루고, 다른 작업은 관련 가이드로 연결합니다. 기능 동작이 바뀌거나 잘못된 설명을 찾으면 해당 안내와 수정일을 갱신합니다.", "외부 자료를 참고할 때에는 출처를 밝히고, 외부 글을 그대로 가져오는 대신 서비스에서 확인할 수 있는 과정과 한계를 설명합니다."], links: [["목적별 사용 가이드", "/guides"], ["가상 예제의 계산 근거", "/demo"]] },
       { title: "운영팀과 글 작성 원칙", paragraphs: ["공개 가이드와 생활비 가이드 글은 도담 네트워크 운영팀이 쓰고 관리합니다. 글은 말해가계부에 실제로 구현된 기능과 직접 구성한 가상 사례를 기준으로 하며, 사례의 계산은 공개 전에 다시 확인합니다. 특정 금융상품이나 카드, 대출, 투자를 권하지 않고, 통계나 법령처럼 출처가 필요한 내용은 확인할 수 있는 공식 자료가 있을 때만 다룹니다. 틀린 내용이나 실제 화면과 다른 설명을 발견하면 문의 페이지로 알려 주세요. 각 글의 위쪽에는 마지막으로 고친 날짜를 표시합니다."], links: [["생활비 가이드 글 모음", "/guides"], ["잘못된 내용 신고하기", "/contact"]] },
-      { title: "글을 쓰는 사람과 검토 방식", paragraphs: ["공개 가이드와 생활비 가이드 글은 도담 네트워크 운영자가 서비스 개발과 운영을 맡으면서 직접 쓰고 검토합니다. 재무 상담 자격을 내세우는 글이 아니라, 생활비 기록 서비스를 만들고 운영하며 정리한 계산 방법과 점검 절차를 설명하는 글입니다.", "글은 주제 선정, 공식 자료 확인, 예시 계산 검산, 게시, 수정일 표기 순서로 만듭니다. 통계·세율·요금처럼 바뀌는 숫자는 통계청·국세청·법령정보센터 같은 공식 자료를 확인한 경우에만 적고, 글 아래 참고 자료에 출처를 남깁니다. 모든 글의 주제 선정, 세법 조문·공공 통계 대조, 계산식과 가상 예제 표의 수치 검산, 서비스 기능 대조, 최종 문장 교정과 게시 결정은 운영자가 자체 검산 스크립트로 직접 검증하고 책임집니다.", "다루지 않는 것도 분명히 합니다. 특정 금융상품·카드·대출·보험·투자를 권하지 않고, 세무·법률 자문을 대신하지 않습니다. 광고가 표시되는 경우에도 본문과 구분하며 광고주는 글의 내용에 관여하지 않습니다. 틀린 내용을 알려 주시면 확인 뒤 본문과 수정일을 함께 고칩니다."], links: [["생활비 가이드 글 전체 목록", "/articles"], ["문의와 수정 요청", "/contact"]] },
+      { title: "글을 쓰는 사람과 검토 방식", paragraphs: ["공개 가이드와 생활비 가이드 글은 도담 네트워크 운영자가 서비스 개발과 운영을 맡으면서 직접 쓰고 검토합니다. 재무 상담 자격을 내세우는 글이 아니라, 생활비 기록 서비스를 만들고 운영하며 정리한 계산 방법과 점검 절차를 설명하는 글입니다.", "글은 주제 선정, 공식 자료 확인, 예시 계산 검산, 게시, 수정일 표기 순서로 만듭니다. 통계·세율·요금처럼 바뀌는 숫자는 통계청·국세청·법령정보센터 같은 공식 자료를 확인한 경우에만 적고, 글 아래 참고 자료에 출처를 남깁니다. 초안 정리와 문장 다듬기에는 생성형 글쓰기 도구를 포함한 소프트웨어를 사용하지만, 어떤 주제를 다룰지, 숫자가 맞는지, 게시할지는 운영자가 직접 판단하고 책임집니다.", "다루지 않는 것도 분명히 합니다. 특정 금융상품·카드·대출·보험·투자를 권하지 않고, 세무·법률 자문을 대신하지 않습니다. 광고가 표시되는 경우에도 본문과 구분하며 광고주는 글의 내용에 관여하지 않습니다. 틀린 내용을 알려 주시면 확인 뒤 본문과 수정일을 함께 고칩니다."], links: [["생활비 가이드 글 전체 목록", "/articles"], ["문의와 수정 요청", "/contact"]] },
       { title: "운영 범위와 한계", paragraphs: ["카카오와 연동하는 독립 서비스이며 카카오가 직접 제공하는 공식 가계부 서비스는 아닙니다. 기록과 계산은 사용자가 입력한 값에 따라 달라지며 은행·카드사 계정을 자동 연결하지 않습니다.", "금융상품 추천이나 투자·세무 자문을 제공하지 않으며, 미래 절약액이나 수익을 보장하지 않습니다."] },
       { title: "오류나 설명이 다른 부분을 발견했다면", paragraphs: ["해당 페이지 주소와 문제가 되는 문장, 실제로 확인한 상황을 문의 경로로 알려주세요. 개인정보와 연결 코드는 가리고, 금액 사례의 오류라면 계산식도 함께 적어주시면 확인에 도움이 됩니다."], links: [["운영자 문의", "/contact"], ["개인정보처리방침", "/privacy"], ["이용약관", "/terms"]] },
     ], { type: "AboutPage", updated: "2026-10-21" }),
@@ -4178,66 +4178,6 @@ function publicDemoClient(calculate, rows) {
   };
   form.addEventListener("submit", (event) => { event.preventDefault(); update(); });
   document.getElementById("demo-reset").addEventListener("click", () => { food.value = "300,000"; transport.value = "100,000"; update(); });
-}
-
-function publicSandboxClient() {
-  const form = document.getElementById("sandbox-form");
-  if (!form) return;
-  const input = document.getElementById("sandbox-input");
-  const status = document.getElementById("sandbox-status");
-  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-  const analyze = () => {
-    const raw = String(input.value || "").trim();
-    if (!raw) {
-      input.setAttribute("aria-invalid", "true");
-      status.textContent = "해석할 한 줄 문장이나 카드 승인 문자를 입력해 주세요.";
-      return;
-    }
-    const cleaned = raw.replace(/\[Web발신\]/gi, " ").replace(/누적\s*[\d,]+\s*원?/g, " ").replace(/\b\d{1,2}[/:]\d{1,2}\b/g, " ").replace(/(?:삼성|신한|현대|국민|우리|하나|롯데)(?:카드)?\s*\d{4}/g, (m) => m.replace(/\d{4}$/, "카드 "));
-    let amount = null;
-    const man = cleaned.match(/(\d+(?:\.\d+)?)\s*만\s*원?/);
-    const cheon = cleaned.match(/(\d+(?:\.\d+)?)\s*천\s*원?/);
-    const won = cleaned.match(/(\d{1,3}(?:,\d{3})+|\d{3,9})\s*원?/);
-    if (man) amount = Math.round(Number(man[1]) * 10000);
-    else if (cheon) amount = Math.round(Number(cheon[1]) * 1000);
-    else if (won) amount = Number(won[1].replace(/,/g, ""));
-    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1000000000) {
-      input.setAttribute("aria-invalid", "true");
-      status.textContent = "문장에서 금액(예: 11,000원, 320만원, 45000)을 찾지 못했습니다. 내용과 금액을 함께 적어 주세요.";
-      return;
-    }
-    input.setAttribute("aria-invalid", "false");
-    const isIncome = /월급|급여|상여|보너스|수입|환급|입금/.test(cleaned);
-    const type = isIncome ? "수입" : "지출";
-    const methodMatch = cleaned.match(/신한카드|삼성카드|현대카드|국민카드|우리카드|하나카드|롯데카드|체크카드|카카오페이|네이버페이|토스페이|계좌이체|국민은행|신한은행|우리은행|현금|카드/);
-    const method = methodMatch ? methodMatch[0] : (isIncome ? "계좌입금" : "기본 결제수단");
-    const category = isIncome ? "급여·수입"
-      : /점심|저녁|아침|식사|김치찌개|치킨|교촌|배달|외식|식당|마트|장보기|식료품|커피|카페|간식/.test(cleaned) ? "식비"
-      : /택시|버스|지하철|교통|주유|기차/.test(cleaned) ? "교통"
-      : /넷플릭스|유튜브|구독|멤버십|통신|휴대폰/.test(cleaned) ? "고정비·구독"
-      : /병원|약국|치과|의료|진료/.test(cleaned) ? "의료"
-      : /월세|관리비|전기|가스|수도/.test(cleaned) ? "주거·공과금" : "생활·기타";
-    const memo = cleaned
-      .replace(/(\d+(?:\.\d+)?)\s*[만천]\s*원?/g, " ")
-      .replace(/(\d{1,3}(?:,\d{3})+|\d{3,9})\s*원?/g, " ")
-      .replace(/신한카드|삼성카드|현대카드|국민카드|우리카드|하나카드|롯데카드|체크카드|카카오페이|네이버페이|토스페이|계좌이체|국민은행|신한은행|우리은행|현금|카드|승인|일시불|결제/g, " ")
-      .replace(/\s+/g, " ").trim() || category;
-    const baseRemaining = 175000;
-    const afterBudget = !isIncome && (category === "식비" || category === "교통") ? Math.max(0, baseRemaining - amount) : baseRemaining;
-    set("sandbox-type", type);
-    set("sandbox-amount", amount.toLocaleString("ko-KR") + "원");
-    set("sandbox-category", category);
-    set("sandbox-method", method);
-    set("sandbox-memo", memo.slice(0, 28));
-    set("sandbox-after", afterBudget.toLocaleString("ko-KR") + "원");
-    status.textContent = `해석 완료: ${type} ${amount.toLocaleString("ko-KR")}원 · 분류 ${category} · 결제수단 ${method} · 항목 ‘${memo.slice(0, 28)}’(${!isIncome && (category === "식비" || category === "교통") ? `예제 남은 예산 ${afterBudget.toLocaleString("ko-KR")}원` : "식비·교통 예산 외 항목"}).`;
-  };
-  form.addEventListener("submit", (event) => { event.preventDefault(); analyze(); });
-  const reset = document.getElementById("sandbox-reset");
-  if (reset) reset.addEventListener("click", () => { input.value = "점심 김치찌개 11,000원 신한카드"; analyze(); });
-  for (const btn of form.querySelectorAll("[data-sandbox-sample]")) {
-    btn.addEventListener("click", () => { input.value = btn.getAttribute("data-sandbox-sample") || ""; analyze(); });
-  }
 }
 
 // ── V22.9.40 (D) 생활비 가이드 글 ──
@@ -10292,107 +10232,6 @@ function worksheetComputeV229106(slug, input) {
     });
     return { before, after, reduction: before - after, tables: [table("구독별 비교 (원)", ["구독", "월 환산 비용", "해지 반영 전 30일", "확인 반영 후 30일", "상태", "이용 종료일", "실제 환불 입금"], rows), table("30일 구간 합계 (원)", ["항목", "금액"], [["해지 반영 전 예정액", before], ["확인 반영 후 예정액", after], ["예정 결제 감소액", before - after]])], notes: ["기준일을 포함한 30일이며 마지막 날은 제외합니다. 각 구독의 입력한 다음 결제 한 건만 비교하므로, 구간 안에 두 번 청구되는 상품은 각각 별도 행으로 확인하세요.", "해지 요청만으로 예정액을 지우지 않습니다. 해지 완료와 다음 갱신 차단이 확인된 조건을 입력하세요. 결제일 당일 해지는 이미 청구됐을 수 있어 자동 제외하지 않습니다. 월 환산액·예정 감소액·실제 환불은 서로 다른 값입니다."] };
   }
-  if (slug === "payment-method-switch-nov-dec") {
-    const salary = number(setting.salary), credit = number(setting.credit), debit = number(setting.debit), remain = number(setting.remain);
-    if (salary <= 0) fail("총급여액은 0원보다 커야 합니다.");
-    const threshold = Math.floor(salary * 25 / 100);
-    const limit = salary <= 70000000 ? 3000000 : 2500000;
-    const calc = (c, d) => {
-      const creditAbove = Math.max(0, c - threshold);
-      const remainThreshold = Math.max(0, threshold - c);
-      const debitAbove = Math.max(0, d - remainThreshold);
-      const raw = Math.floor(creditAbove * 15 / 100) + Math.floor(debitAbove * 30 / 100);
-      return { creditAbove, debitAbove, raw, applied: Math.min(limit, raw) };
-    };
-    const current = calc(credit, debit);
-    const keepCredit = calc(sum([credit, remain]), debit);
-    const switchDebit = calc(credit, sum([debit, remain]));
-    const diffApplied = switchDebit.applied - keepCredit.applied;
-    const diffRaw = switchDebit.raw - keepCredit.raw;
-    const gapToThreshold = Math.max(0, threshold - sum([credit, debit]));
-    return {
-      threshold, limit, gapToThreshold, current: current.applied, keepCredit: keepCredit.applied, switchDebit: switchDebit.applied, diffApplied, diffRaw,
-      tables: [
-        table("25% 최저사용금액 문턱 및 현재 상태 (원)", ["항목", "금액"], [
-          ["총급여액", salary],
-          ["최저사용금액 문턱(총급여 25%)", threshold],
-          ["1~10월 공제 대상 사용 합계", sum([credit, debit])],
-          ["문턱까지 남은 금액", gapToThreshold],
-          ["1~10월 기준 예상 소득공제액", current.applied],
-          ["기본 공제 한도", limit],
-        ]),
-        table("남은 기간 결제수단 전환 비교 (원)", ["시나리오", "문턱 초과 신용(15%)", "문턱 초과 체크·현금(30%)", "한도 적용 전 공제액", "한도 적용 후 공제액"], [
-          ["신용카드 유지(15%)", keepCredit.creditAbove, keepCredit.debitAbove, keepCredit.raw, keepCredit.applied],
-          ["체크카드·현금영수증 전환(30%)", switchDebit.creditAbove, switchDebit.debitAbove, switchDebit.raw, switchDebit.applied],
-          ["전환 시 소득공제 증가액", switchDebit.creditAbove - keepCredit.creditAbove, switchDebit.debitAbove - keepCredit.debitAbove, diffRaw, diffApplied],
-        ]),
-      ],
-      notes: [
-        "조세특례제한법 제126조의2에 따라 최저사용금액(총급여의 25%)은 공제율이 낮은 신용카드 사용분부터 먼저 채운 뒤 초과분에 신용카드 15%, 체크카드·현금영수증 30%를 적용합니다.",
-        "세금·공과금·보험료·해외결제·상품권 등 공제 제외 항목은 사용액에서 빼고 입력해야 합니다. 소득공제 증가액은 과세표준에서 빠지는 금액이며 실제 환급 세액은 본인의 한계 소득세율을 곱해 결정됩니다.",
-      ],
-    };
-  }
-  if (slug === "rent-tax-credit-records") {
-    const salary = number(setting.salary), monthlyRent = number(setting.monthlyRent), months = number(setting.months), marginalRate = number(setting.marginalRate);
-    if (months < 1 || months > 12) fail("납부 개월 수는 1~12개월 사이로 입력해 주세요.");
-    if (![6, 15, 24, 35, 38, 40, 42, 45].includes(marginalRate)) fail("한계 소득세율은 6, 15, 24, 35 등 표준 세율(%) 정수로 입력해 주세요.");
-    if (!["yes", "no"].includes(setting.thresholdMet)) fail("카드 25% 문턱 충족 여부를 선택해 주세요.");
-    const annualRent = monthlyRent * months;
-    const cappedRent = Math.min(annualRent, 10000000);
-    const creditRate = salary <= 55000000 ? 17 : salary <= 80000000 ? 15 : 0;
-    const taxCredit = Math.floor(cappedRent * creditRate / 100);
-    const cashDeduction = setting.thresholdMet === "yes" ? Math.min(3000000, Math.floor(annualRent * 30 / 100)) : 0;
-    const cashTaxSaved = Math.floor(cashDeduction * marginalRate / 100);
-    return {
-      annualRent, cappedRent, creditRate, taxCredit, cashDeduction, cashTaxSaved, difference: taxCredit - cashTaxSaved,
-      tables: [
-        table("월세 세액공제 vs 현금영수증 소득공제 비교 (원)", ["구분", "공제 대상 금액", "적용 공제율·세율(%)", "예상 세금 감소액"], [
-          ["월세 세액공제(무주택·요건 충족 시)", creditRate ? cappedRent : 0, creditRate, taxCredit],
-          ["주택임차료 현금영수증 소득공제(30%)", cashDeduction, marginalRate, cashTaxSaved],
-          ["월세 세액공제 선택 시 유리한 차액", cappedRent, creditRate, taxCredit - cashTaxSaved],
-        ]),
-        table("입력 조건 요약 (원)", ["항목", "값"], [
-          ["연간 납부 월세 합계", annualRent],
-          ["월세 세액공제 인정 한도(연 1,000만 원)", cappedRent],
-          ["한도 초과 월세액", Math.max(0, annualRent - cappedRent)],
-        ]),
-      ],
-      notes: [
-        "조세특례제한법 제95조의2 기준 총급여 5,500만 원 이하는 17%, 5,500만 원 초과~8,000만 원 이하는 15% 세액공제율을 적용합니다(무주택 세대주·전입신고·국민주택규모 또는 기준시가 4억 원 이하 요건 충족 및 결정세액 존재 가정).",
-        "같은 월세 지출에 대해 월세 세액공제와 신용카드 등(현금영수증) 소득공제는 중복 적용되지 않습니다. 총급여 8,000만 원 초과 등으로 세액공제 대상이 아닐 때만 현금영수증 소득공제를 검토합니다.",
-      ],
-    };
-  }
-  if (slug === "pension-savings-irp-tax-credit") {
-    const salary = number(setting.salary), pension = number(setting.pension), irp = number(setting.irp);
-    const eligiblePension = Math.min(pension, 6000000);
-    const eligibleTotal = Math.min(sum([eligiblePension, irp]), 9000000);
-    const eligibleIrp = eligibleTotal - eligiblePension;
-    const excessDeposit = Math.max(0, sum([pension, irp]) - eligibleTotal);
-    const baseRate = salary <= 55000000 ? 15 : 12;
-    const pensionCredit = Math.floor(eligiblePension * baseRate / 100) + Math.floor(eligiblePension * baseRate / 1000);
-    const irpCredit = Math.floor(eligibleIrp * baseRate / 100) + Math.floor(eligibleIrp * baseRate / 1000);
-    const totalCredit = pensionCredit + irpCredit;
-    return {
-      eligiblePension, eligibleIrp, eligibleTotal, excessDeposit, totalCredit,
-      tables: [
-        table("계좌별 세액공제 인정 금액 및 환급 계산 (원)", ["구분", "연간 납입액", "공제 인정액", "세액공제액(지방소득세 포함)"], [
-          ["연금저축(단독 600만 원 한도)", pension, eligiblePension, pensionCredit],
-          ["퇴직연금 IRP(합산 900만 원 한도)", irp, eligibleIrp, irpCredit],
-          ["합계", sum([pension, irp]), eligibleTotal, totalCredit],
-        ]),
-        table("한도 및 비과세 원금 확인 (원)", ["항목", "금액"], [
-          ["900만 원 한도까지 남은 추가 납입 여력", Math.max(0, 9000000 - eligibleTotal)],
-          ["세액공제 한도 초과 납입액(향후 비과세 인출 원금)", excessDeposit],
-        ]),
-      ],
-      notes: [
-        "소득세법 제59조의3에 따라 연금저축은 연 600만 원, 퇴직연금(IRP)과 합산해 연 900만 원까지 공제 대상이 되며 총급여 5,500만 원 이하는 16.5%(지방소득세 포함), 초과는 13.2%를 적용합니다.",
-        "세액공제는 산출세액에서 다른 공제를 뺀 결정세액 한도 안에서 적용됩니다. 중도 해지 시 세액공제 받은 원금과 운용수익에 기타소득세(16.5%)가 부과될 수 있으므로 연말 잉여 현금 범위에서 납입하세요.",
-      ],
-    };
-  }
   if (slug === "budget-ratio-guide") {
     const income = number(setting.income), fixedNeed = number(setting.fixedNeed);
     const needRatio = number(setting.needRatio), wantRatio = number(setting.wantRatio), saveRatio = number(setting.saveRatio);
@@ -10544,62 +10383,9 @@ const PUBLIC_WORKSHEETS_V229106 = {
   },
 };
 
-// V22.9.139: 세무·예산·실적 핵심 글 6편에 본문 인라인 미니 계산기를 더해 계산 도구 글을 총 12편으로 늘린다.
+// V22.9.139: 예산·비상금·카드 실적 글 3편에 본문 인라인 미니 계산기를 더해 계산 도구 글을 9편으로 늘린다.
+// 세무 계산기 셋(카드 공제 전환·월세·연금저축 IRP)은 책임자 검토 없이 세무 범위를 넓히므로 넣지 않는다(사용자 11-22, 계획 결정 5).
 const PUBLIC_MINI_CALCULATORS_V229139 = {
-  "payment-method-switch-nov-dec": {
-    title: "연말정산 카드 25% 문턱·결제수단 전환 계산표",
-    outcome: "총급여 25% 최저사용금액 문턱 충족 여부와 11~12월 신용카드(15%) 대비 체크카드·현금영수증(30%) 전환 시 소득공제 증가액을 비교합니다.",
-    instruction: "홈택스 연말정산 미리보기 또는 카드사 앱의 1~10월 공제 대상 사용액을 넣고, 남은 기간 예정 지출액을 입력해 전환 효과를 확인하세요.",
-    fields: [
-      ["salary", "연간 총급여액(원)", "number"],
-      ["credit", "1~10월 신용카드 공제 대상액(원)", "number"],
-      ["debit", "1~10월 체크·현금영수증 대상액(원)", "number"],
-      ["remain", "11~12월 예정 공제 대상 지출(원)", "number"],
-    ],
-    groups: [],
-    example: { settings: { salary: 48000000, credit: 13500000, debit: 1800000, remain: 3000000 } },
-    checks: [
-      "총급여 4,800만 원의 25% 문턱은 1,200만 원이며, 1~10월 신용카드 1,350만 원으로 이미 문턱을 넘겼습니다.",
-      "남은 300만 원을 신용카드(15%)로 쓰면 총 공제액이 1,215,000원, 체크·현금영수증(30%)으로 바꾸면 1,665,000원으로 소득공제가 450,000원 늘어납니다.",
-      "이미 기본 공제 한도(300만 원 또는 250만 원)를 채웠다면 결제수단을 바꿔도 한도 적용 후 공제 증가액은 0원입니다.",
-    ],
-  },
-  "rent-tax-credit-records": {
-    title: "월세 세액공제 vs 현금영수증 소득공제 비교 계산표",
-    outcome: "연간 납부 월세에 대해 무주택 세대주 월세 세액공제(17%·15%)와 주택임차료 현금영수증 소득공제(30%) 중 실제 세금 감소액을 비교합니다.",
-    instruction: "총급여액과 월세액, 납부 개월 수를 입력하세요. 같은 월세에 세액공제와 현금영수증 소득공제는 중복 적용되지 않습니다.",
-    fields: [
-      ["salary", "연간 총급여액(원)", "number"],
-      ["monthlyRent", "월세 금액(원)", "number"],
-      ["months", "해당 연도 납부 개월 수(1~12)", "number"],
-      ["marginalRate", "비교용 한계 소득세율(%)", "select", [["6", "6% (과세표준 1,400만 이하)"], ["15", "15% (1,400만~5,000만)"], ["24", "24% (5,000만~8,800만)"], ["35", "35% (8,800만 초과)"]]],
-      ["thresholdMet", "카드 25% 최저사용금액 충족", "select", [["yes", "충족(초과분 30% 공제)"], ["no", "미충족(문턱 채우는 중)"]]],
-    ],
-    groups: [],
-    example: { settings: { salary: 48000000, monthlyRent: 650000, months: 12, marginalRate: "15", thresholdMet: "yes" } },
-    checks: [
-      "총급여 4,800만 원·월세 65만 원(12개월 780만 원)은 17% 세액공제율이 적용되어 세액공제액이 1,326,000원입니다.",
-      "같은 780만 원을 현금영수증 소득공제(30% × 한계세율 15%)로 받으면 예상 세금 감소액은 351,000원으로 월세 세액공제가 975,000원 더 유리합니다.",
-      "총급여가 8,000만 원을 초과해 월세 세액공제 대상이 아닐 때는 세액공제가 0원이므로 현금영수증 소득공제를 신청합니다.",
-    ],
-  },
-  "pension-savings-irp-tax-credit": {
-    title: "연금저축·IRP 세액공제 한도·환급 계산표",
-    outcome: "연금저축(연 600만 원 한도)과 퇴직연금 IRP(합산 900만 원 한도) 납입액에 따른 지방소득세 포함 세액공제액(16.5%·13.2%)을 계산합니다.",
-    instruction: "올해 연간 총급여액과 연금저축·IRP 계좌에 납입했거나 연말까지 추가 납입할 금액을 입력해 공제 한도와 세액공제액을 확인하세요.",
-    fields: [
-      ["salary", "연간 총급여액(원)", "number"],
-      ["pension", "연금저축 연간 납입액(원)", "number"],
-      ["irp", "퇴직연금 IRP 연간 납입액(원)", "number"],
-    ],
-    groups: [],
-    example: { settings: { salary: 52000000, pension: 6000000, irp: 3000000 } },
-    checks: [
-      "총급여 5,200만 원(5,500만 원 이하)에서 연금저축 600만 원 + IRP 300만 원을 납입하면 합산 900만 원 전체에 16.5%가 적용되어 총 1,485,000원이 공제됩니다.",
-      "연금저축에 700만 원을 넣어도 단독 한도 600만 원만 인정되므로 나머지 300만 원 한도는 IRP 계좌로 채워야 합니다.",
-      "합산 900만 원을 초과해 납입한 금액은 올해 세액공제를 받지 않는 대신 향후 인출 시 과세 제외 원금으로 분류됩니다.",
-    ],
-  },
   "budget-ratio-guide": {
     title: "고정비 반영 50/30/20 월 예산 배분 계산표",
     outcome: "월 실수령 소득을 필수 생활비·선택 소비·저축 비율로 나누고, 이미 확정된 고정비를 뺀 잔여 필수 변동비와 1주일 소비 한도를 계산합니다.",
@@ -10669,7 +10455,7 @@ const PUBLIC_ALL_CALCULATORS_V229139 = Object.freeze({
 const PUBLIC_ARTICLE_CTA_MAP_V229139 = Object.freeze({
   "budget-ratio-guide": [["50/30/20 예산 바로 계산하기", "#inline-worksheet"], ["연간 비정기 지출 적립표", "/sinking-fund-annual-expenses"]],
   "fixed-cost-checklist": [["구독 해지·갱신 계산표", "/subscription-cleanup"], ["비정기 지출 적립 계산표", "/sinking-fund-annual-expenses"]],
-  "card-spending-threshold": [["전월 실적 손익 바로 계산하기", "#inline-worksheet"], ["연말정산 카드 전환 계산표", "/payment-method-switch-nov-dec"]],
+  "card-spending-threshold": [["전월 실적 손익 바로 계산하기", "#inline-worksheet"], ["연말정산 결제수단 전환 정리", "/payment-method-switch-nov-dec"]],
   "accountbook-habit": [["월 마감 잔액 대조표", "/monthly-closing-routine"], ["카카오톡 한 줄 기록 방법", "/kakao-guide"]],
   "payday-budget-cycle": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["계좌 현금흐름 계산표", "/cash-flow-table"]],
   "expense-category-rules": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["월 마감 잔액 대조표", "/monthly-closing-routine"]],
@@ -10677,86 +10463,51 @@ const PUBLIC_ARTICLE_CTA_MAP_V229139 = Object.freeze({
   "weekly-report-reading": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["리포트 읽는 법 안내", "/report-guide"]],
   "family-roles-accountbook": [["공동 생활비 4가지 분담표", "/shared-living-cost-rules"], ["공동 가계부 운영 안내", "/group-accountbook"]],
   "household-spending-statistics": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["1인 가구 생활비 기준", "/single-household-living-cost"]],
-  "single-household-living-cost": [["1인 가구 연말정산 공제", "/single-household-year-end-tax"], ["월세 세액공제 비교 계산표", "/rent-tax-credit-records"]],
+  "single-household-living-cost": [["1인 가구 연말정산 공제", "/single-household-year-end-tax"], ["월세 세액공제 기록 정리", "/rent-tax-credit-records"]],
   "food-cost-benchmark": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["주간 리포트 점검 기준", "/weekly-report-reading"]],
   "utility-bills-seasonality": [["비정기 지출 적립 계산표", "/sinking-fund-annual-expenses"], ["아파트 관리비 고지서 분석", "/apartment-maintenance-fee"]],
   "inflation-budget-update": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["식비·외식비 통계 비교", "/food-cost-benchmark"]],
-  "card-income-deduction-basics": [["11~12월 카드 전환 계산표", "/payment-method-switch-nov-dec"], ["카드 전월 실적 손익 계산표", "/card-spending-threshold"]],
-  "year-end-tax-expense-check": [["연말정산 시기별 준비 일정", "/year-end-tax-timeline-checklist"], ["11~12월 카드 전환 계산표", "/payment-method-switch-nov-dec"]],
-  "rent-tax-credit-records": [["월세·현금영수증 공제 바로 계산하기", "#inline-worksheet"], ["주거비 소득·세액공제 비교", "/housing-deductions-overview"]],
+  "card-income-deduction-basics": [["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"], ["카드 전월 실적 손익 계산표", "/card-spending-threshold"]],
+  "year-end-tax-expense-check": [["연말정산 시기별 준비 일정", "/year-end-tax-timeline-checklist"], ["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"]],
+  "rent-tax-credit-records": [["국세청·법령 원문으로 확인하기", "#sources"], ["주거비 소득·세액공제 비교", "/housing-deductions-overview"]],
   "apartment-maintenance-fee": [["계절별 공과금 예산 세우기", "/utility-bills-seasonality"], ["고정비 점검 체크리스트", "/fixed-cost-checklist"]],
   "mobile-plan-cost-review": [["구독 해지·갱신 계산표", "/subscription-cleanup"], ["카드 전월 실적 손익 계산표", "/card-spending-threshold"]],
   "debt-repayment-order": [["연말정산 환급금 배분 계획", "/tax-refund-money-plan"], ["계좌 현금흐름 계산표", "/cash-flow-table"]],
-  "savings-rate-tracking": [["연금저축·IRP 환급 계산표", "/pension-savings-irp-tax-credit"], ["계좌 현금흐름 계산표", "/cash-flow-table"]],
+  "savings-rate-tracking": [["연금저축·IRP 세액공제 정리", "/pension-savings-irp-tax-credit"], ["계좌 현금흐름 계산표", "/cash-flow-table"]],
   "first-job-budget": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["비상금 목표·적립 계산표", "/emergency-fund-basics"]],
   "car-ownership-cost": [["비정기 지출 적립 계산표", "/sinking-fund-annual-expenses"], ["고정비 점검 체크리스트", "/fixed-cost-checklist"]],
   "childcare-cost-planning": [["의료·교육·기부금 공제 정리", "/medical-education-donation-deductions"], ["비정기 지출 적립 계산표", "/sinking-fund-annual-expenses"]],
   "couple-account-structure": [["공동 생활비 4가지 분담표", "/shared-living-cost-rules"], ["맞벌이 부부 공제 몰아주기", "/dual-income-deduction-allocation"]],
   "expense-review-questions": [["월 마감 잔액 대조표", "/monthly-closing-routine"], ["주간 리포트 점검 기준", "/weekly-report-reading"]],
-  "year-end-tax-timeline-checklist": [["11~12월 카드 전환 계산표", "/payment-method-switch-nov-dec"], ["연금저축·IRP 환급 계산표", "/pension-savings-irp-tax-credit"]],
-  "payment-method-switch-nov-dec": [["11~12월 카드 전환 바로 계산하기", "#inline-worksheet"], ["카드 전월 실적 손익 계산표", "/card-spending-threshold"]],
+  "year-end-tax-timeline-checklist": [["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"], ["연금저축·IRP 세액공제 정리", "/pension-savings-irp-tax-credit"]],
+  "payment-method-switch-nov-dec": [["국세청·법령 원문으로 확인하기", "#sources"], ["카드 전월 실적 손익 계산표", "/card-spending-threshold"]],
   "medical-education-donation-deductions": [["맞벌이 부부 공제 배분", "/dual-income-deduction-allocation"], ["연말정산 지출 증빙 점검", "/year-end-tax-expense-check"]],
-  "dual-income-deduction-allocation": [["부부 공동·각자 통장 구조", "/couple-account-structure"], ["11~12월 카드 전환 계산표", "/payment-method-switch-nov-dec"]],
-  "pension-savings-irp-tax-credit": [["연금저축·IRP 환급액 바로 계산하기", "#inline-worksheet"], ["연말정산 환급금 배분 계획", "/tax-refund-money-plan"]],
-  "single-household-year-end-tax": [["월세 세액공제 비교 계산표", "/rent-tax-credit-records"], ["11~12월 카드 전환 계산표", "/payment-method-switch-nov-dec"]],
+  "dual-income-deduction-allocation": [["부부 공동·각자 통장 구조", "/couple-account-structure"], ["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"]],
+  "pension-savings-irp-tax-credit": [["국세청·법령 원문으로 확인하기", "#sources"], ["연말정산 환급금 배분 계획", "/tax-refund-money-plan"]],
+  "single-household-year-end-tax": [["월세 세액공제 기록 정리", "/rent-tax-credit-records"], ["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"]],
   "tax-refund-money-plan": [["비상금 목표·적립 계산표", "/emergency-fund-basics"], ["대출 상환 우선순위 정리", "/debt-repayment-order"]],
-  "housing-deductions-overview": [["월세 세액공제 비교 계산표", "/rent-tax-credit-records"], ["연말정산 시기별 준비 일정", "/year-end-tax-timeline-checklist"]],
+  "housing-deductions-overview": [["월세 세액공제 기록 정리", "/rent-tax-credit-records"], ["연말정산 시기별 준비 일정", "/year-end-tax-timeline-checklist"]],
 });
 
-// V22.9.139: 40편의 생활비 글마다 본문 수치·가상 예제와 맞물리는 고유 인라인 SVG 데이터 차트를 제공한다.
+// V22.9.139: 차트는 본문 계산표 기본 예제와 같은 값을 보여 주는 글 세 편에만 둔다(사용자 11-22, 계획 7절 5 — 40편에 같은 꼴을 한꺼번에 넣지 않는다).
+// 단위가 섞이거나 근거를 설명할 수 없는 비중은 그리지 않는다. 값은 검사(validate-adsense-master-v229139)가 계산표 예제와 대조한다.
 const PUBLIC_ARTICLE_CHARTS_V229139 = Object.freeze({
-  "budget-ratio-guide": ["월 300만 원 소득의 50/30/20 예산 배분 비교", [["필수 생활비(50%)", 150, "150만 원"], ["선택 소비(30%)", 90, "90만 원"], ["저축·상환(20%)", 60, "60만 원"]], "가상 사례: 월 실수령 300만 원 기준 영역별 배분 금액"],
-  "fixed-cost-checklist": ["월 고정비 107만 원 구성 비중 예시", [["주거·관리비", 68, "68만 원"], ["보험·교통 정기권", 25, "25만 원"], ["통신·정기 구독", 14, "14만 원"]], "가상 사례: 매달 자동 출금되는 주요 고정비 세 묶음"],
-  "subscription-cleanup": ["구독 해지 확인 전후 30일 결제 예정액 비교", [["해지 반영 전 30일", 99, "9,900원"], ["연간 구독 월 환산액", 100, "10,000원"], ["해지 확인 후 30일", 5, "0원"]], "가상 사례: 월 환산 비용과 실제 향후 30일 청구 예정액의 구분"],
-  "card-spending-threshold": ["카드 전월 실적 30만 원 기준과 인정·부족액", [["전월 실적 기준", 300, "30만 원"], ["현재 실적 인정액", 250, "25만 원"], ["실적 부족액", 50, "5만 원"]], "가상 사례: 총 결제 31만 원 중 실적 제외 6만 원을 뺀 인정액 비교"],
-  "shared-living-cost-rules": ["공동 생활비 120,001원 분담 방식별 A 부담액", [["소득 비율(3:2:1)", 60, "60,001원"], ["합의 비율(40%)", 48, "48,001원"], ["균등 분담(1/3)", 40, "40,001원"]], "가상 사례: 동일 총지출에서 분담 규칙에 따라 달라지는 1인 부담액"],
-  "accountbook-habit": ["주간 점검 주기에 따른 월말 미분류 누락 건수", [["월말 몰아 적기", 18, "18건"], ["주 1회 10분 점검", 4, "4건"], ["당일 한 줄 기록", 1, "1건"]], "가상 사례: 기록 주기가 짧을수록 줄어드는 월말 확인 불명 지출"],
-  "payday-budget-cycle": ["급여일(25일) 기준 한 달 자금 배분 흐름", [["즉시 이체(저축·고정비)", 165, "165만 원"], ["주간 변동 생활비(4주)", 110, "110만 원"], ["결산 완충 예비금", 25, "25만 원"]], "가상 사례: 급여 300만 원 입금 직후 통장별 역할 분리"],
-  "expense-category-rules": ["분류 개수 축소 전후 식비·생활비 집계 명확도", [["식비(장보기·외식 통합)", 62, "62만 원"], ["주거·공과금", 58, "58만 원"], ["교통·기타 변동비", 34, "34만 원"]], "가상 사례: 7~9개 핵심 분류로 묶어 본 월간 지출 구조"],
-  "emergency-fund-basics": ["월 필수 생활비 150만 원 기준 단계별 비상금 목표", [["1단계 완충금(1개월)", 150, "150만 원"], ["기본 목표(3개월)", 450, "450만 원"], ["안정권 목표(6개월)", 900, "900만 원"]], "가상 사례: 선택 소비를 제외한 필수 지출 기준 비상금 규모"],
-  "weekly-report-reading": ["4주 예산 60만 원의 주간 누적 지출 속도 점검", [["2주 차 권장 누적(50%)", 30, "30만 원"], ["2주 차 실제 누적(63%)", 38, "38만 원"], ["남은 2주 가용 예산", 22, "22만 원"]], "가상 사례: 월 중반에 초과 속도를 발견해 남은 주간 한도를 조정하는 과정"],
-  "family-roles-accountbook": ["2인 가구 공동·개인 계좌 월 자금 흐름", [["공동 생활비 계좌", 180, "180만 원"], ["공동 비상·예비비", 60, "60만 원"], ["개인 자율 용돈 합계", 80, "80만 원"]], "가상 사례: 공동 고정비와 개인 재량 지출을 분리한 가계 구조"],
-  "cash-flow-table": ["관리 계좌(A·B) 월간 현금흐름과 기말잔액", [["현금 유입(급여·환불)", 305, "305만 원"], ["생활·저축 출금 합계", 190, "190만 원"], ["기말잔액(기초 100만 포함)", 215, "215만 원"]], "가상 사례: 내부 이체(20만 원) 중복을 제거한 실제 현금 증감"],
-  "household-spending-statistics": ["가구 소비지출 주요 비목 비중 비교", [["음식·숙박 및 식료품", 28, "28%"], ["주거·수도·광열", 18, "18%"], ["교통·통신", 16, "16%"]], "공공 가계동향 통계의 주요 생활비 영역 비중 참고 예시"],
-  "single-household-living-cost": ["1인 가구 월 지출 175만 원의 고정·변동 구성", [["주거·관리·공과금", 72, "72만 원"], ["식비·외식·카페", 56, "56만 원"], ["교통·통신·생활 기타", 47, "47만 원"]], "가상 사례: 1인 가구에서 주거비와 식비가 차지하는 핵심 비중"],
-  "food-cost-benchmark": ["월 식비 64만 원의 세부 경로별 지출 분포", [["장보기·식재료", 26, "26만 원"], ["외식·배달 음식", 28, "28만 원"], ["카페·음료·간식", 10, "10만 원"]], "가상 사례: 세 경로로 나누어 본 한 달 식비 구조"],
-  "utility-bills-seasonality": ["계절별 월 공과금(전기·가스·수도) 변동 폭", [["봄·가을 평달 평균", 8, "8만 원"], ["여름 냉방 성수기", 15, "15만 원"], ["겨울 난방 성수기", 22, "22만 원"]], "가상 사례: 연평균 정액 적립으로 계절 요금 급등을 흡수하는 기준"],
-  "inflation-budget-update": ["물가 상승 반영 전후 필수 생활비 예산 조정", [["기존 식비·공과금 예산", 75, "75만 원"], ["최근 3개월 평균 실지출", 84, "84만 원"], ["조정 후 현실 예산", 85, "85만 원"]], "가상 사례: 최근 3개월 평균 실지출을 반영한 예산 재설정"],
-  "card-income-deduction-basics": ["결제수단별 연말정산 소득공제율 비교", [["신용카드", 15, "15%"], ["체크카드·현금영수증", 30, "30%"], ["전통시장·대중교통", 40, "40%"]], "조세특례제한법 제126조의2 기준 총급여 25% 초과분 공제율"],
-  "year-end-tax-expense-check": ["연말정산 주요 공제 항목별 사전 점검 기준", [["카드 소득공제 문턱", 25, "총급여 25%"], ["의료비 세액공제 문턱", 3, "총급여 3%"], ["교육비 세액공제율", 15, "15%"]], "소득세법 및 조세특례제한법 기준 주요 지출 공제 문턱과 비율"],
-  "rent-tax-credit-records": ["연 월세 780만 원의 세액공제 vs 현금영수증 비교", [["월세 세액공제(17%)", 133, "132.6만 원"], ["월세 세액공제(15%)", 117, "117.0만 원"], ["현금영수증(30%×세율15%)", 35, "35.1만 원"]], "가상 사례: 총급여 구간별 월세 세액공제액과 소득공제 세금 감소액"],
-  "apartment-maintenance-fee": ["아파트 관리비 고지서 24만 원의 세 영역 분리", [["공용관리비", 9, "9만 원"], ["세대 전기·수도·난방", 12, "12만 원"], ["장기수선충당금·기타", 3, "3만 원"]], "가상 사례: 총액이 아닌 세대 사용량 항목으로 계절 변동을 읽는 법"],
-  "mobile-plan-cost-review": ["통신비 고지서 9만 8천 원의 실제 구성 분해", [["순수 통신 요금제", 45, "4.5만 원"], ["단말기 할부원금·이자", 35, "3.5만 원"], ["소액결제·부가서비스", 18, "1.8만 원"]], "가상 사례: 통신 요금과 단말기 할부·소액결제를 분리한 명세서"],
-  "sinking-fund-annual-expenses": ["연간 비정기 지출 120만 원의 기적립·잔여 배분", [["기적립 완료 금액", 30, "30만 원"], ["남은 3회 회차별 적립", 30, "회당 30만 원"], ["잔여 필요 총액", 90, "90만 원"]], "가상 사례: 납부일 전 가능한 3회 입금일에 맞춘 균등 적립"],
-  "debt-repayment-order": ["대출 금리별 연간 이자 부담 비교(원금 1,000만 원당)", [["고금리 카드론·현금서비스", 140, "연 140만 원"], ["일반 신용대출", 65, "연 65만 원"], ["정책·주거 담보대출", 38, "연 38만 원"]], "가상 사례: 동일 원금에서 금리 차이에 따른 연간 이자 비용"],
-  "savings-rate-tracking": ["월 실수령 300만 원에서 저축 정의별 저축률 차이", [["순수 장기 저축·투자만", 20, "20% (60만 원)"], ["단기 여행·경조사 적립 포함", 28, "28% (84만 원)"], ["대출 원금 상환 포함", 33, "33% (99만 원)"], ], "가상 사례: 곧 쓸 적립금을 장기 저축과 분리해야 실제 자산 증가율이 보임"],
-  "first-job-budget": ["첫 급여 250만 원의 선저축·생활비 배분 예시", [["비상금·청약·적금 선저축", 75, "75만 원(30%)"], ["주거·통신·교통 고정비", 85, "85만 원(34%)"], ["식비·생활·여가 변동비", 90, "90만 원(36%)"]], "가상 사례: 신용카드 한도 대신 체크카드 예산으로 시작하는 첫 급여 구조"],
-  "car-ownership-cost": ["자동차 유지비 월 환산 58만 원의 숨은 비용 구조", [["유류비·통행료·주차", 26, "26만 원"], ["자동차보험·자동차세 월환산", 14, "14만 원"], ["정비·타이어·감가 예비비", 18, "18만 원"]], "가상 사례: 주유비 외에 연간 세금·보험·정비비를 월 단위로 환산한 실제 비용"],
-  "childcare-cost-planning": ["자녀 교육·양육비 월 65만 원의 고정·비정기 분리", [["정기 보육·학원 고정비", 42, "42만 원"], ["교재·준비물·체험학습", 13, "13만 원"], ["방학·학기초 적립 예비비", 10, "10만 원"]], "가상 사례: 학기 초·방학 목돈을 매달 예비비로 나누어 준비하는 구조"],
-  "couple-account-structure": ["맞벌이 부부 월 550만 원의 공동·개별 배분 예시", [["공동 주거·식비·생활비", 240, "240만 원"], ["공동 저축·비상금·예비비", 220, "220만 원"], ["부부 각자 용돈 합계", 90, "90만 원"]], "가상 사례: 생활비와 저축 규칙을 먼저 맞춘 뒤 각자 용돈을 분리하는 방식"],
-  "roommate-shared-ledger": ["월 9만 원 공과금의 중도 입주(11일) 두 분담 방식 비교", [["A 거주자(날짜별 분담)", 60, "60,000원"], ["A 거주자(거주 인일 비례)", 54, "54,000원"], ["B 거주자(거주 인일 비례)", 36, "36,000원"]], "가상 사례: 단독 거주 구간과 공동 거주 구간을 나누는 두 합의 기준"],
-  "monthly-closing-routine": ["월 마감 대조 전후 장부 잔액 보정(기초 50만 원)", [["대조 전 장부 잔액", 32, "32만 원"], ["중복 제거(+8만)·누락 반영(-12만)", 4, "차이 -4만 원"], ["대조 후 실제 확정 잔액", 28, "28만 원"]], "가상 사례: 중복 입력과 자동이체 누락을 원거래 ID로 바로잡은 마감 결과"],
-  "expense-review-questions": ["월말 결산 5문항 점검으로 찾은 조정 가능 지출", [["미사용 정기 구독 정리", 3, "월 2.8만 원"], ["실적 채우기용 비계획 쇼핑", 6, "월 6.0만 원"], ["배달·야식 빈도 조정", 9, "월 9.0만 원"]], "가상 사례: 총액 자책 대신 구체적 질문으로 다음 달 행동 규칙을 정하는 과정"],
-  "year-end-tax-timeline-checklist": ["연말정산 준비 시기별 핵심 점검 비중", [["10~11월(25% 문턱·카드 전환)", 45, "지출 조정기"], ["12월(연금·IRP·기부금 마감)", 35, "납입 마감기"], ["다음 해 1~2월(간소화·누락 서류)", 20, "서류 제출기"]], "12월 31일 이전 결제·납입으로만 바꿀 수 있는 항목과 1월 서류 확인의 구분"],
-  "payment-method-switch-nov-dec": ["11~12월 300만 원 지출의 결제수단별 총 소득공제액", [["1~10월 누적 공제액", 77, "76.5만 원"], ["11~12월 신용카드 유지(15%)", 122, "121.5만 원"], ["11~12월 체크·현금 전환(30%)", 167, "166.5만 원"]], "가상 사례: 총급여 4,800만 원(25% 문턱 초과 후) 남은 두 달 결제수단 전환 비교"],
-  "medical-education-donation-deductions": ["의료비 세액공제 총급여 3% 문턱 계산 예시", [["총급여 5,000만 원의 3% 문턱", 150, "150만 원"], ["연간 의료비 순지출(실손 차감 후)", 250, "250만 원"], ["문턱 초과 공제 대상액", 100, "100만 원"]], "가상 사례: 실손보험금 수령액을 뺀 순수 본인 부담 의료비 기준"],
-  "dual-income-deduction-allocation": ["맞벌이 부부 카드·의료비 몰아주기 문턱 비교", [["배우자 A(총급여 6,000만) 25% 문턱", 150, "1,500만 원"], ["배우자 B(총급여 3,600만) 25% 문턱", 90, "900만 원"], ["배우자 B 의료비 3% 문턱", 11, "108만 원"]], "가상 사례: 소득 문턱이 낮은 배우자와 한계세율이 높은 배우자의 유불리 비교"],
-  "pension-savings-irp-tax-credit": ["연금저축 600만·IRP 300만 납입 시 총급여별 세액공제", [["연금저축 600만(5,500만 이하 16.5%)", 99, "99.0만 원"], ["연금저축+IRP 900만(5,500만 이하 16.5%)", 149, "148.5만 원"], ["연금저축+IRP 900만(5,500만 초과 13.2%)", 119, "118.8만 원"]], "소득세법 제59조의3 기준 지방소득세 포함 세액공제 한도 비교"],
-  "single-household-year-end-tax": ["1인 가구 직장인(총급여 4,200만) 주요 공제 효과 비교", [["월세 세액공제(연 720만×17%)", 122, "122.4만 원"], ["연금저축 세액공제(연 300만×16.5%)", 50, "49.5만 원"], ["체크·현금영수증 소득공제 세금감소", 27, "27.0만 원"]], "가상 사례: 부양가족 공제가 없는 1인 가구의 주거·연금·카드 공제 비중"],
-  "tax-refund-money-plan": ["연말정산 환급금 120만 원의 3단계 배분 예시", [["1순위 고금리 부채·연체 정리", 40, "40만 원"], ["2순위 연간 비정기 지출 예비비", 50, "50만 원"], ["3순위 비상금·연금저축 재투자", 30, "30만 원"]], "가상 사례: 환급금을 생활비 통장에 섞지 않고 목적별로 즉시 분리하는 계획"],
-  "housing-deductions-overview": ["무주택 근로자 주거비 공제 한도·방식 비교", [["월세 세액공제(연 대상 한도)", 100, "1,000만 원"], ["전세원리금 소득공제(연 공제 한도)", 40, "400만 원"], ["주택청약저축 소득공제(연 납입 한도)", 30, "300만 원"]], "조세특례제한법 및 소득세법 기준 무주택 가구 주거 관련 공제 한도"],
+  "budget-ratio-guide": ["월 300만 원 소득의 50/30/20 예산 배분 비교", [["필수 생활비(50%)", 150, "150만 원"], ["선택 소비(30%)", 90, "90만 원"], ["저축·상환(20%)", 60, "60만 원"]], "예시: 월 실수령 300만 원 기준 영역별 배분 금액(아래 계산표 기본 예제와 같은 값)"],
+  "emergency-fund-basics": ["월 필수 생활비 150만 원 기준 단계별 비상금 목표", [["1개월분", 150, "150만 원"], ["3개월분(예제 목표)", 450, "450만 원"], ["6개월분", 900, "900만 원"]], "예시: 선택 소비를 뺀 월 필수 생활비 150만 원 기준(아래 계산표 기본 예제와 같은 값)"],
+  "card-spending-threshold": ["카드 전월 실적 30만 원 기준과 인정·부족액", [["전월 실적 기준", 300, "30만 원"], ["현재 실적 인정액", 250, "25만 원"], ["실적 부족액", 50, "5만 원"]], "예시: 총 결제 31만 원 중 실적 제외 6만 원을 뺀 인정액(아래 계산표 기본 예제와 같은 값)"],
 });
 
 function renderArticleDataChartV229139(slug) {
   const spec = PUBLIC_ARTICLE_CHARTS_V229139[slug];
   if (!spec) return "";
   const [title, bars, caption] = spec;
-  const max = Math.max(1, ...bars.map((b) => Number(b[1]) || 1));
+  const max = Math.max(1, ...bars.map((b) => Math.max(0, Number(b[1]) || 0)));
   const colors = ["#1d4ed8", "#0284c7", "#0d9488", "#4f46e5"];
   const height = 42 + bars.length * 42;
   const rowsSvg = bars.map(([label, val, display], idx) => {
     const y = 34 + idx * 42;
-    const width = Math.max(16, Math.round((Number(val) / max) * 290));
+    const ratio = Math.max(0, Number(val) || 0) / max;
+    const width = ratio > 0 ? Math.max(4, Math.round(ratio * 290)) : 0; // 0원은 막대를 그리지 않는다(값 글자는 둔다).
     const color = colors[idx % colors.length];
     return `<g transform="translate(0,${y})"><text x="12" y="20" fill="#1e293b" font-size="13" font-weight="600">${escapeHtml(label)}</text><rect x="215" y="4" width="295" height="22" rx="6" fill="#e8effa"/><rect x="215" y="4" width="${width}" height="22" rx="6" fill="${color}"/><text x="520" y="20" fill="#172033" font-size="13" font-weight="700">${escapeHtml(display)}</text></g>`;
   }).join("");
@@ -10764,9 +10515,10 @@ function renderArticleDataChartV229139(slug) {
 }
 
 // V22.9.107 D-4~D-6: 계산표 자산 주소는 1년 캐시(immutable)라 계산표 화면(worksheet-runtime.js)이 바뀌면 여기 판을 올린다.
+// V22.9.139: 계산 함수(worksheet-calculations.js)에 미니 계산기 셋이 더해져 계산표 쪽 바이트가 바뀌었으므로 v229139 로 올린다.
 // 바로 앞 판 주소는 다음 판까지 같은 내용을 낸다(글을 5분 캐시로 받은 브라우저가 옛 주소를 누를 수 있다). 두 판 전 주소는 404 다.
-const PUBLIC_WORKSHEET_ASSET_VERSION_V229107 = "v229107";
-const PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107 = Object.freeze(["v229106"]);
+const PUBLIC_WORKSHEET_ASSET_VERSION_V229107 = "v229139";
+const PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107 = Object.freeze(["v229107"]);
 function publicWorksheetPathV229106(slug, version = PUBLIC_WORKSHEET_ASSET_VERSION_V229107) { return `/assets/living-worksheet-${version}-${slug}.html`; }
 
 function enrichPublicWorksheetsV229106(catalog) {
@@ -10932,9 +10684,9 @@ function renderInlineWorksheetV229139(slug) {
   }).join("");
   const ssrTables = initial.tables.map((data) => `<div class="table-scroll" role="region" aria-label="${escapeHtml(data.caption)}" tabindex="0"><table><caption>${escapeHtml(data.caption)}</caption><thead><tr>${data.headers.map((h) => `<th scope="col">${escapeHtml(h)}</th>`).join("")}</tr></thead><tbody>${data.rows.map((r) => `<tr>${r.map((v, i) => `<${i ? "td" : 'th scope="row"'}>${escapeHtml(typeof v === "number" ? v.toLocaleString("ko-KR", { maximumFractionDigits: 2 }) : String(v))}</${i ? "td" : "th"}>`).join("")}</tr>`).join("")}</tbody></table></div>`).join("");
   const ssrNotes = initial.notes.map((n) => `<p>${escapeHtml(n)}</p>`).join("");
-  const ssrChecks = (spec.checks || []).length ? `<details class="pubToolChecks"><summary>검산 공식과 예외 처리 기준 보기</summary><ul>${spec.checks.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details>` : "";
+  const ssrChecks = (spec.checks || []).length ? `<details class="pubToolChecks"><summary>예제 검산 보기</summary><ul>${spec.checks.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details>` : "";
   const cssHtml = `.pubInlineTool{margin:28px 0;padding:24px;border:1px solid #c8d9ff;border-radius:18px;background:#f8fbff}.pubInlineToolHead .pubToolBadge{display:inline-flex;padding:4px 10px;border-radius:999px;background:#e8f3ff;color:#1d4ed8;font-size:12.5px;font-weight:700}.pubInlineTool .pubToolHeading{margin:10px 0 8px;font-size:22px;color:#172033}.pubInlineTool p{margin:6px 0;color:#43516a;line-height:1.75;font-size:15px}.pubToolChecks{margin:12px 0;padding:10px 14px;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubToolChecks summary{cursor:pointer;font-weight:700;font-size:14px;color:#1e293b}.pubToolChecks ul{margin:8px 0 2px;padding-left:20px;font-size:14px;color:#43516a;line-height:1.7}.pubInlineTool .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr));gap:12px;margin:14px 0}.pubInlineTool fieldset{min-width:0;margin:12px 0;padding:14px;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubInlineTool legend,.pubInlineTool .wsGroupTitle{font-weight:700;font-size:15px;color:#1e293b;margin:12px 0 6px}.pubInlineTool label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:#344054}.pubInlineTool input,.pubInlineTool select{font:inherit;font-size:16px;color:#172033;background:#fff;min-height:44px;width:100%;border:1px solid #9ca8bd;border-radius:8px;padding:8px 10px}.pubInlineTool button{font:inherit;font-weight:700;min-height:44px;padding:8px 16px;margin:10px 8px 0 0;border:1px solid #1d4ed8;border-radius:10px;background:#1d4ed8;color:#fff;cursor:pointer}.pubInlineTool button.secondary{background:#fff;color:#1d4ed8}.pubInlineTool button:disabled{opacity:.55;cursor:not-allowed}.pubInlineTool .table-scroll{overflow-x:auto;margin:16px 0;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubInlineTool table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}.pubInlineTool caption{text-align:left;padding:12px 14px;font-weight:700;color:#1e293b}.pubInlineTool th,.pubInlineTool td{padding:10px 14px;border-top:1px solid #e1e7f0;text-align:left}.pubInlineTool thead th{background:#f1f5fb}#worksheet-status{font-weight:600;color:#1d4ed8;margin-top:14px}#worksheet-result[data-stale="1"]::before{content:"입력값을 바꾸기 전 결과입니다. ‘결과 계산’을 누르면 새 결과로 바뀝니다.";display:block;font-weight:650;color:#4d596a;margin:0 0 8px}#worksheet-result[data-stale="1"] .table-scroll,#worksheet-result[data-stale="1"] .pubTableWrap,#worksheet-result[data-stale="1"] p{opacity:.55}.pubInlineTool .actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}@media(max-width:640px){.pubInlineTool{padding:18px 14px}.pubInlineTool .fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}`;
-  const sectionHtml = `<section class="pubInlineTool" id="inline-worksheet" aria-label="${title}"><div class="pubInlineToolHead"><span class="pubToolBadge">인터랙티브 계산표 · 브라우저 즉시 검산</span><h3 class="pubToolHeading">${title}</h3><p>${escapeHtml(spec.outcome)} ${escapeHtml(spec.instruction)}</p>${ssrChecks}</div><form id="worksheet-form" action="#inline-worksheet" novalidate>${ssrSettings}${ssrGroups}<button type="submit">결과 계산</button></form><p id="worksheet-status" role="status" aria-live="polite">기본 예제를 계산한 결과입니다. 입력값을 바꾸고 ‘결과 계산’을 눌러 비교해 보세요.</p><div id="worksheet-result">${ssrTables}${ssrNotes}</div><div class="actions"><button type="button" id="worksheet-export">입력과 결과 CSV 저장</button><button type="button" class="secondary" id="worksheet-print">결과 인쇄</button><button type="button" class="secondary" id="worksheet-reset">가상 예제로 되돌리기</button></div></section>`;
+  const sectionHtml = `<section class="pubInlineTool" id="inline-worksheet" aria-label="${title}"><div class="pubInlineToolHead"><span class="pubToolBadge">인터랙티브 계산표 · 브라우저 즉시 검산</span><h3 class="pubToolHeading">${title}</h3><p>${escapeHtml(spec.outcome)} ${escapeHtml(spec.instruction)}</p>${ssrChecks}</div><form id="worksheet-form" action="#inline-worksheet" novalidate>${ssrSettings}${ssrGroups}<button type="submit">결과 계산</button></form><p id="worksheet-status" role="status" aria-live="polite">기본 예제를 계산한 결과입니다. 입력값을 바꾸고 ‘결과 계산’을 눌러 비교해 보세요.</p><div id="worksheet-result">${ssrTables}${ssrNotes}</div><div class="actions"><button type="button" id="worksheet-export">입력과 결과 CSV 저장</button><button type="button" class="secondary" id="worksheet-print">결과 인쇄</button><button type="button" class="secondary" id="worksheet-reset">예제 값으로 되돌리기</button></div></section>`;
   const scriptHtml = `<script>(${worksheetClientV229106.toString()})(${json(slug)},${json(spec)},${worksheetComputeV229106.toString()});</script>`;
   return { cssHtml, sectionHtml, scriptHtml };
 }
@@ -11100,7 +10852,7 @@ function publicContentLinks(links = []) {
 const PUBLIC_DEMO_TABLE_HEADERS_V229124 = ["날짜", "분류", "내용", "지출액"];
 const PUBLIC_TABLE_STACK_RULES_V229124 = '.pubTableWrap[data-stack]{overflow:visible;border:0;border-radius:0;background:none}.pubTableWrap[data-stack] .pubTable,.pubTableWrap[data-stack] .pubTable tbody{display:block;width:100%}.pubTableWrap[data-stack] .pubTable caption{display:block;padding:0 0 10px}.pubTableWrap[data-stack] .pubTable thead{position:absolute;width:1px;height:1px;overflow:hidden;clip-path:inset(50%);white-space:nowrap}.pubTableWrap[data-stack] .pubTable tbody tr{display:block;margin:0 0 12px;padding:14px 16px;border:1px solid #dce3ef;border-radius:14px;background:#fff}.pubTableWrap[data-stack] .pubTable tbody th,.pubTableWrap[data-stack] .pubTable tbody td{display:block!important;width:auto!important;min-width:0!important;padding:0!important;border:0!important;background:none!important}.pubTableWrap[data-stack] .pubTable tbody td{margin-top:10px}.pubTableWrap[data-stack] .pubTable tbody th::before,.pubTableWrap[data-stack] .pubTable tbody td::before{display:block;font-size:12px;font-weight:700;color:#596579}';
 // /demo 계산 입력칸: ab-uiux 의 ‘.abV2281 input…{font-size:inherit!important}’ 가 16px 규칙을 덮어 13px 이었다(iOS 는 16px 미만 입력칸을 누르면 화면을 확대한다).
-const PUBLIC_DEMO_INPUT_CSS_V229124 = '.pubDemo .pubDemoInputs label>input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]){font-size:16px!important}.pubSandboxChips{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}';
+const PUBLIC_DEMO_INPUT_CSS_V229124 = '.pubDemo .pubDemoInputs label>input:not([type="radio"]):not([type="checkbox"]):not([type="hidden"]){font-size:16px!important}';
 function publicTableStacksV229124(table) {
   return !!table && safeArray(table.headers).length >= 4;
 }
@@ -11117,19 +10869,28 @@ function publicContentTable(table, id) {
   return `<div class="pubTableWrap" role="region" aria-labelledby="${id}" tabindex="0"${publicTableStacksV229124(table) ? ' data-stack="1"' : ""}><table class="pubTable"><caption id="${id}">${escapeHtml(table.caption)}</caption><thead><tr>${table.headers.map((label) => `<th scope="col">${escapeHtml(label)}</th>`).join("")}</tr></thead><tbody>${table.rows.map((row) => `<tr>${row.map((cell, index) => index === 0 ? `<th scope="row">${escapeHtml(cell)}</th>` : `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
 }
 
-function renderPublicParserSandbox() {
-  const samples = [
-    ["점심 11,000원 신한카드", "점심 김치찌개 11,000원 신한카드"],
-    ["카드 승인 문자", "[Web발신] 삼성1234승인 45,000원 일시불 11/15 교촌치킨 누적532,000원"],
-    ["월급 320만원 수입", "월급 320만원 국민은행"],
-    ["택시 14,500원 페이", "택시 14,500원 카카오페이"],
-    ["정기 구독 13,500원", "넷플릭스 구독 13,500원 현대카드"],
-  ];
-  const metrics = [["type", "구분", "지출"], ["amount", "해석 금액", "11,000원"], ["category", "자동 분류", "식비"], ["method", "결제수단", "신한카드"], ["memo", "항목 메모", "점심 김치찌개"], ["after", "예제 남은 예산 반영", "164,000원"]];
-  return `<section class="pubDemo pubSandbox" id="parser-sandbox" aria-labelledby="sandbox-title"><div class="pubDemoHeading"><div><span class="pubEyebrow">실시간 입력 해석기 · 브라우저 즉시 체험</span><h2 id="sandbox-title">카카오톡 한 줄 문장과 카드 승인 문자를 직접 입력해 보세요</h2></div><p>입력한 문장은 이 브라우저 안에서만 해석하며 서버로 보내거나 브라우저에 보관하지 않습니다.</p></div>
-<form id="sandbox-form" action="#parser-sandbox" novalidate><div class="pubSandboxChips" role="group" aria-label="예시 문장 바로 넣어 보기">${samples.map(([label, text]) => `<button class="pubBtn secondary" type="button" data-sandbox-sample="${escapeHtml(text)}">${escapeHtml(label)}</button>`).join("")}</div><fieldset><legend>한 줄 문장 또는 카드 승인 문자 해석하기</legend><div class="pubDemoInputs"><label for="sandbox-input">보낼 문장 또는 승인 문자<input id="sandbox-input" type="text" value="점심 김치찌개 11,000원 신한카드" maxlength="160" autocomplete="off"/></label><button class="pubBtn" type="submit">문장 해석하기</button><button class="pubBtn secondary" type="button" id="sandbox-reset">기본 문장으로</button></div></fieldset></form>
-<dl class="pubMetrics">${metrics.map(([key, label, value]) => `<div><dt>${label}</dt><dd id="sandbox-${key}">${value}</dd></div>`).join("")}</dl>
-<p id="sandbox-status" role="status" aria-live="polite" aria-atomic="true">해석 완료: 지출 11,000원 · 분류 식비 · 결제수단 신한카드 · 항목 ‘점심 김치찌개’(예제 남은 예산 164,000원).</p></section><script>(${publicSandboxClient.toString()})();</script>`;
+// V22.9.139: /demo 의 한 줄 기록 예시는 카카오톡 봇이 쓰는 해석기(parseTransaction)로 이 화면을 만들 때 읽은 결과다.
+// 브라우저에서 따로 읽는 체험 칸은 두지 않는다 — 실제 봇과 다르게 읽으면 안 된다(사용자 11-22, 계획 2절·B6).
+const PUBLIC_PARSER_EXAMPLES_V229139 = Object.freeze([
+  "점심 김치찌개 11,000원 신한카드",
+  "저녁 3만5천원",
+  "302호 관리비 230000원",
+  "택시 14,500원 카카오페이",
+  "마트 장보기 52,300원 체크카드",
+  "넷플릭스 구독 13,500원 현대카드",
+  "월급 320만원",
+]);
+function publicParserExampleRowsV229139() {
+  return PUBLIC_PARSER_EXAMPLES_V229139.map((text) => {
+    const parsed = parseTransaction(text, {});
+    if (!parsed || parsed.ok === false) return [text, "다시 물어봄", "-", "-", "-", "-"];
+    return [text, parsed.type === "income" ? "수입" : "지출", `${Number(parsed.amount).toLocaleString("ko-KR")}원`, parsed.category || "-", parsed.payment_method || "-", parsed.memo || "-"];
+  });
+}
+// 열이 여섯이라 휴대폰 폭에서는 줄마다 카드로 쌓인다(V22.9.124 규칙 — 머리글 규칙은 페이지 스타일에서 같은 머리글로 만든다).
+const PUBLIC_PARSER_EXAMPLE_HEADERS_V229139 = Object.freeze(["보낸 문장", "구분", "금액", "분류", "결제수단", "메모"]);
+function renderPublicParserExamples() {
+  return `<section class="pubSection" id="kakao-examples" aria-labelledby="kakao-examples-title"><h2 id="kakao-examples-title">카카오톡에 이렇게 보내면 이렇게 기록돼요</h2><p>아래 결과는 카카오톡 봇이 기록할 때 쓰는 해석 코드로 이 화면을 만들 때 읽은 값입니다. 날짜를 적지 않은 문장은 보낸 날로 기록합니다.</p>${publicContentTable({ caption: "보낸 문장과 기록 결과", headers: PUBLIC_PARSER_EXAMPLE_HEADERS_V229139, rows: publicParserExampleRowsV229139() }, "kakao-examples-table")}</section>`;
 }
 
 function renderPublicDemo() {
@@ -11139,7 +10900,7 @@ function renderPublicDemo() {
   return `<section class="pubDemo" id="example" aria-labelledby="demo-title"><div class="pubDemoHeading"><div><span class="pubEyebrow">가상 데이터 · 2026년 9월의 네 기록</span><h2 id="demo-title">예산을 바꾸면 어떻게 될까요?</h2></div><p>실제 가계부에는 저장되지 않습니다.</p></div>
 <dl class="pubMetrics">${metrics.map(([key, label]) => `<div><dt>${label}</dt><dd id="demo-${key}">${result[key].toLocaleString("ko-KR")}원</dd></div>`).join("")}</dl><p class="pubDemoRate">예산 사용률 <strong id="demo-rate">${result.rate}%</strong></p>
 <form id="public-demo-form" hidden><fieldset><legend>분류별 예산 바꿔 보기</legend><div class="pubDemoInputs"><label for="demo-food">식비 예산 (원)<input id="demo-food" inputmode="numeric" value="300,000" autocomplete="off" aria-describedby="demo-help"/></label><label for="demo-transport">교통 예산 (원)<input id="demo-transport" inputmode="numeric" value="100,000" autocomplete="off" aria-describedby="demo-help"/></label><button class="pubBtn" type="submit">예산 다시 계산</button><button class="pubBtn secondary" type="button" id="demo-reset">처음 예제로</button></div><p id="demo-help">0원부터 10억원까지 입력할 수 있습니다. 0원인 분류는 예산 비교에서 제외됩니다.</p></fieldset></form><p id="demo-status" role="status" aria-live="polite" aria-atomic="true">식비와 교통비만 예산과 비교합니다. 의료비 30,000원은 예산 밖 지출입니다.</p><noscript><p>현재 기본 예제와 계산 결과를 보고 있습니다. 예산 금액을 바꾸려면 브라우저의 JavaScript를 켜세요.</p></noscript>
-${publicContentTable({ caption: "예제에 사용한 가상 거래 목록", headers: PUBLIC_DEMO_TABLE_HEADERS_V229124, rows: rows.map((row) => [row.date, row.category, row.memo, `${row.amount.toLocaleString("ko-KR")}원`]) }, "demo-table")}</section><script>(${publicDemoClient.toString()})(${publicDemoSummary.toString()},${JSON.stringify(rows)});</script>${renderPublicParserSandbox()}`;
+${publicContentTable({ caption: "예제에 사용한 가상 거래 목록", headers: PUBLIC_DEMO_TABLE_HEADERS_V229124, rows: rows.map((row) => [row.date, row.category, row.memo, `${row.amount.toLocaleString("ko-KR")}원`]) }, "demo-table")}</section><script>(${publicDemoClient.toString()})(${publicDemoSummary.toString()},${JSON.stringify(rows)});</script>${renderPublicParserExamples()}`;
 }
 
 // V22.9.87 T-21: 공개 첫 화면과 /demo 위쪽의 앱 화면 미리보기(가상 데이터, 읽기 전용). 앱 홈 예산 카드(T-12, my/mobile-home.js)와
@@ -11311,7 +11072,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   // 있는 화면(/faq)에만 싣는다(다른 공개 화면의 바이트는 그대로).
   const faqLinkCss = safeArray(page.faqs).some((item) => item?.[2]) ? ".pubFaq .pubLinks{margin:0 0 18px}" : "";
   // V22.9.124: 넓은 표(열 넷 이상)를 600px 이하에서 카드로 쌓는 규칙과 칸 위 머리글, /demo 계산 입력칸 16px. 필요한 화면에만 싣는다(위 faqLinkCss 와 같은 이유).
-  const stackLabelCss = sectionList.map((section, index) => publicTableStackLabelCssV229124(section.table, `table-${index + 1}`)).join("") + (page.demo ? publicTableStackLabelCssV229124({ headers: PUBLIC_DEMO_TABLE_HEADERS_V229124 }, "demo-table") : "");
+  const stackLabelCss = sectionList.map((section, index) => publicTableStackLabelCssV229124(section.table, `table-${index + 1}`)).join("") + (page.demo ? publicTableStackLabelCssV229124({ headers: PUBLIC_DEMO_TABLE_HEADERS_V229124 }, "demo-table") + publicTableStackLabelCssV229124({ headers: PUBLIC_PARSER_EXAMPLE_HEADERS_V229139 }, "kakao-examples-table") : "");
   const tableStackCss = stackLabelCss ? `@media(max-width:600px){${PUBLIC_TABLE_STACK_RULES_V229124}${stackLabelCss}}` : "";
   const demoInputCss = page.demo ? PUBLIC_DEMO_INPUT_CSS_V229124 : "";
   const extras = publicArticleExtras(page, living);
@@ -11321,15 +11082,13 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   const chartHtml = living ? renderArticleDataChartV229139(key) : "";
   const chartCss = chartHtml ? ".pubDataChart{margin:20px 0 24px;padding:16px;border:1px solid #dce3ef;border-radius:16px;background:#fff}.pubChartSvg{display:block;width:100%;height:auto;max-height:220px}.pubDataChart figcaption{margin-top:8px;color:#526075;font-size:13.5px;line-height:1.6}" : "";
   const inlineWorksheet = living ? renderInlineWorksheetV229139(key) : null;
-  const toolHubHtml = key === "articles" ? `<aside class="pubSummary pubToolHub" id="tool-hub" aria-label="인터랙티브 계산표 바로가기"><b>브라우저에서 바로 계산하는 생활비·세금 계산표 12종</b><p>아래 12편의 글에는 입력값을 바꿔 즉시 검산하고 CSV로 저장할 수 있는 인터랙티브 계산표가 본문 안에 포함되어 있습니다.</p>${publicContentLinks(Object.entries(PUBLIC_ALL_CALCULATORS_V229139).map(([slug, spec]) => [spec.title, `/${slug}`]))}</aside>` : "";
+  const toolHubHtml = key === "articles" ? `<aside class="pubSummary pubToolHub" id="tool-hub" aria-label="인터랙티브 계산표 바로가기"><b>브라우저에서 바로 계산하는 생활비 계산표 ${Object.keys(PUBLIC_ALL_CALCULATORS_V229139).length}종</b><p>아래 ${Object.keys(PUBLIC_ALL_CALCULATORS_V229139).length}편의 글에는 입력값을 바꿔 즉시 검산하고 CSV로 저장할 수 있는 인터랙티브 계산표가 본문 안에 포함되어 있습니다.</p>${publicContentLinks(Object.entries(PUBLIC_ALL_CALCULATORS_V229139).map(([slug, spec]) => [spec.title, `/${slug}`]))}</aside>` : "";
   const structured = JSON.stringify({
     "@context": "https://schema.org", "@type": type, name: page.title,
     description: page.description, url: canonical, inLanguage: "ko-KR", dateModified: page.updated,
     publisher: { "@type": "Organization", name: BUSINESS_FOOTER_INFO.company, url: origin },
     ...(type === "Article" ? { headline: page.title, author: { "@type": "Organization", name: BUSINESS_FOOTER_INFO.company, url: `${origin}/about` }, mainEntityOfPage: canonical } : {}),
     ...(living ? { datePublished: page.published || page.updated, articleSection: page.category, isAccessibleForFree: true } : {}),
-    ...(inlineWorksheet && PUBLIC_ALL_CALCULATORS_V229139[key] ? { hasPart: { "@type": "WebApplication", name: PUBLIC_ALL_CALCULATORS_V229139[key].title, applicationCategory: "FinanceApplication", operatingSystem: "All", isAccessibleForFree: true, url: `${canonical}#inline-worksheet` } } : {}),
-    ...(key === "demo" ? { hasPart: [{ "@type": "WebApplication", name: "말해가계부 분류별 예산·지출 시뮬레이터", applicationCategory: "FinanceApplication", operatingSystem: "All", isAccessibleForFree: true, url: `${canonical}#example` }, { "@type": "WebApplication", name: "카카오톡 한 줄 문장·카드 승인 문자 실시간 해석기", applicationCategory: "FinanceApplication", operatingSystem: "All", isAccessibleForFree: true, url: `${canonical}#parser-sandbox` }] } : {}),
     ...(type === "SoftwareApplication" ? { applicationCategory: "FinanceApplication", operatingSystem: "Web" } : {}),
     ...(type === "FAQPage" ? { mainEntity: page.faqs.map(([q, a]) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })) } : {}),
   }).replace(/</g, "\\u003c");
@@ -22885,7 +22644,7 @@ async function handlePaymentMethodsPage(request, env, url) {
   const summarySections = assets.length
     ? `${donutHtml ? `<section class="card"><h2>자산 구성</h2>${donutHtml}</section>` : ""}<section class="card"><h2>순자산 추이</h2>${trendSvg ? `<div class="trendWrap">${trendSvg}</div>` : `<p class="note">아직 지난달 기록이 없습니다. 잔액을 저장할 때마다 이번 달 순자산이 자동 기록되고, 다음 달부터 막대 그래프로 추이를 보여드립니다.</p>`}</section>${groupsHtml}`
     : `<section class="card assetEmptyState"><div class="assetEmptyMain"><span class="assetEmptyMark" aria-hidden="true">＋</span><div><h2>아직 등록된 자산이 없어요</h2><p class="note">통장이나 카드 하나만 등록해도 순자산과 월별 변화를 확인할 수 있습니다.</p></div>${canManage ? `<a class="emptyCta" href="#add">첫 자산 등록하기</a>` : ""}</div>${canManage ? `<div class="presetRow compactPresets"><span>예시로 시작</span>${renderAssetQuickPresets(month, householdId, 3)}</div>` : `<p class="note">자산 등록은 가계부 소유자/관리자만 할 수 있습니다.</p>`}</section>`;
-  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>자산·결제수단</title><style>${PAYMENT_METHODS_PAGE_STYLE}</style></head><body>${renderUnifiedNav("payment-methods", { month, householdId, householdName: householdChoiceLabelV229118((households.find((h) => h.id === householdId) || {}), households) || (households.find((h) => h.id === householdId) || {}).name, role: String(selected?.role || "") })}<main class="wrap"><section class="hero"><p class="heroLabel">현재 순자산</p><div class="heroNet">${numberWithCommas(totals.netWorth)}원</div>${deltaHtml}<div class="heroChips"><span>자산 ${numberWithCommas(totals.assetTotal)}원</span><span>부채 ${numberWithCommas(totals.liabilityTotal)}원</span><span>${escapeHtml(monthLabel)} 카드 결제 ${numberWithCommas(cardUsageTotal)}원</span>${creditCardUsageTotal > 0 ? `<span class="dim">미결제 신용카드 반영 시 약 ${numberWithCommas(totals.netWorth - creditCardUsageTotal)}원</span>` : ""}</div><form class="filters" method="get" action="/payment-methods"><label class="srOnly" for="assetHousehold">가계부</label><select id="assetHousehold" name="household_id">${householdOptions}</select><label class="srOnly" for="assetMonth">조회 월</label><input id="assetMonth" type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section>${msg ? `<div class="ok" role="status">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error" role="alert">${formatMessage(err)}</div>` : ""}${summarySections}${renderAssetAddSection(ctx)}<section class="card"><h2>${escapeHtml(monthLabel)} 결제수단별 흐름</h2>${unregChips ? `<div class="unregBox"><b>미등록 결제수단 ${numberWithCommas(unregistered.length)}개</b><p>거래에 나온 결제수단을 자산으로 등록하면 카드 사용액 계산과 자산 요약이 더 정확해집니다.</p><div class="presetRow">${unregChips}</div></div>` : ""}<div class="tableWrap abStackWrap" tabindex="0" aria-label="결제수단별 흐름 표"><table class="abStackTable"><thead><tr><th>결제수단</th><th>지출 건수</th><th>지출</th><th>수입</th><th>상태</th></tr></thead><tbody>${methodRows}</tbody></table></div></section><section class="card"><h2>카드 실적·연말정산 참고 계산표</h2><p class="note">연말정산 카드 25% 문턱과 결제수단 전환 손익, 전월 실적 채우기 손익분기, 계좌 현금흐름은 공개 계산표에서 바로 검산할 수 있습니다.</p><p class="abLinkRow"><a href="/payment-method-switch-nov-dec">연말정산 카드 25% 문턱·전환 계산표</a> · <a href="/card-spending-threshold">카드 전월 실적 손익 계산표</a> · <a href="/cash-flow-table">계좌 범위 현금흐름 계산표</a></p></section></main></body></html>`);
+  return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><meta name="robots" content="noindex,nofollow"/><title>자산·결제수단</title><style>${PAYMENT_METHODS_PAGE_STYLE}</style></head><body>${renderUnifiedNav("payment-methods", { month, householdId, householdName: householdChoiceLabelV229118((households.find((h) => h.id === householdId) || {}), households) || (households.find((h) => h.id === householdId) || {}).name, role: String(selected?.role || "") })}<main class="wrap"><section class="hero"><p class="heroLabel">현재 순자산</p><div class="heroNet">${numberWithCommas(totals.netWorth)}원</div>${deltaHtml}<div class="heroChips"><span>자산 ${numberWithCommas(totals.assetTotal)}원</span><span>부채 ${numberWithCommas(totals.liabilityTotal)}원</span><span>${escapeHtml(monthLabel)} 카드 결제 ${numberWithCommas(cardUsageTotal)}원</span>${creditCardUsageTotal > 0 ? `<span class="dim">미결제 신용카드 반영 시 약 ${numberWithCommas(totals.netWorth - creditCardUsageTotal)}원</span>` : ""}</div><form class="filters" method="get" action="/payment-methods"><label class="srOnly" for="assetHousehold">가계부</label><select id="assetHousehold" name="household_id">${householdOptions}</select><label class="srOnly" for="assetMonth">조회 월</label><input id="assetMonth" type="month" name="month" value="${escapeHtml(month)}"/><button type="submit">조회</button></form></section>${msg ? `<div class="ok" role="status">${formatMessage(msg)}</div>` : ""}${err ? `<div class="error" role="alert">${formatMessage(err)}</div>` : ""}${summarySections}${renderAssetAddSection(ctx)}<section class="card"><h2>${escapeHtml(monthLabel)} 결제수단별 흐름</h2>${unregChips ? `<div class="unregBox"><b>미등록 결제수단 ${numberWithCommas(unregistered.length)}개</b><p>거래에 나온 결제수단을 자산으로 등록하면 카드 사용액 계산과 자산 요약이 더 정확해집니다.</p><div class="presetRow">${unregChips}</div></div>` : ""}<div class="tableWrap abStackWrap" tabindex="0" aria-label="결제수단별 흐름 표"><table class="abStackTable"><thead><tr><th>결제수단</th><th>지출 건수</th><th>지출</th><th>수입</th><th>상태</th></tr></thead><tbody>${methodRows}</tbody></table></div></section><section class="card"><h2>카드 실적·연말정산 참고 계산표</h2><p class="note">연말정산 카드 25% 문턱과 결제수단 전환 손익, 전월 실적 채우기 손익분기, 계좌 현금흐름은 공개 계산표에서 바로 검산할 수 있습니다.</p><p class="abLinkRow"><a href="/payment-method-switch-nov-dec">연말정산 카드 25% 문턱·결제수단 전환 정리</a> · <a href="/card-spending-threshold">카드 전월 실적 손익 계산표</a> · <a href="/cash-flow-table">계좌 범위 현금흐름 계산표</a></p></section></main></body></html>`);
 }
 
 async function buildProductionOpsAudit(env) {

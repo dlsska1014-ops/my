@@ -13,7 +13,7 @@ function publicGuidePages(env = {}) {
   return {
     home: page("말한 기록이, 함께 보는 생활비가 됩니다", "카카오톡에서 수입과 지출을 기록하고 웹에서 예산·생활비·정산을 확인하세요. 가입 전 가상 예제로 계산 방법을 살펴볼 수 있습니다.", "카카오톡으로 기록하는 말해가계부", "점심값은 채팅으로 남기고, 한 달 생활비는 웹에서 확인하세요. 개인 가계부와 방마다 나누는 공동 가계부를 사용할 수 있습니다. 먼저 가상 예제로 기록이 어떻게 합계와 예산으로 이어지는지 살펴보세요.", [
       { title: "내게 맞는 시작 방법", table: { caption: "개인 기록과 공동 기록의 시작 방법", headers: ["사용할 곳", "첫 행동", "확인할 결과"], rows: [["카카오톡 1:1", "점심 만원", "웹 로그인 없이 개인 가계부의 첫 기록을 준비합니다."], ["새 단톡방", "봇을 호출하고 점심 12000원", "그 방의 공동 가계부를 준비합니다. 이렇게 가계부를 처음 준비한 사람이 소유자가 되고, 그 뒤 봇을 부른 참여자는 구성원이 됩니다."], ["기존 가계부", "오늘 기록 보기", "현재 연결된 가계부의 기록을 확인합니다."]] }, note: "봇 추가만으로 거래를 만들지는 않습니다. 명확한 기록 요청이 있어야 하며, 기존 권한 제한이나 삭제·연결 해제 이력은 그대로 적용됩니다.", links: [["처음 기록하는 순서", "/how-it-works"]] },
-      { title: "전체 지출과 남은 예산이 다른 이유", paragraphs: ["식비와 교통에만 예산을 세웠다면 의료비는 전체 지출에 포함되지만 예산 비교에서는 따로 봅니다. 무엇을 예산에 포함했는지 알아야 남은 금액도 정확히 읽을 수 있습니다."], links: [["255,000원 지출 예제로 직접 확인", "/demo"], ["한 줄 문장·카드 문자 실시간 해석기", "/demo#parser-sandbox"], ["분류별 예산 계산 방법", "/budget-guide"]] },
+      { title: "전체 지출과 남은 예산이 다른 이유", paragraphs: ["식비와 교통에만 예산을 세웠다면 의료비는 전체 지출에 포함되지만 예산 비교에서는 따로 봅니다. 무엇을 예산에 포함했는지 알아야 남은 금액도 정확히 읽을 수 있습니다."], links: [["255,000원 지출 예제로 직접 확인", "/demo"], ["카카오톡 한 줄 기록 예시와 결과", "/demo#kakao-examples"], ["분류별 예산 계산 방법", "/budget-guide"]] },
       { title: "기록 이후에 필요한 도구", links: [["주간·월간 생활비 리포트 읽기", "/report-guide"], ["카드 내역 가져오기와 CSV 백업", "/import-guide"], ["기능별로 할 수 있는 일", "/service-guide"]] },
       // V22.9.104 A-2: 글 링크는 정적 목록이 아니라 content-pages.js 가 글 목록(작성일 최신 순) 앞 8편으로 채운다. 여기에는 전체 목록 링크만 둔다.
       { title: "최근 글", paragraphs: ["앱을 쓰지 않아도 생활비를 계획하고 점검할 때 참고할 수 있는 글을 도담 네트워크 운영팀이 쓰고 있습니다. 예산·고정비·공동 생활비·기록 습관·카드와 세금·통계까지 주제별로 모았고, 글마다 작성일과 수정일, 참고한 공식 자료를 표시합니다. 숫자 예시는 설명을 위해 구성한 가정입니다. 아래 목록은 작성일이 가장 최근인 글부터 보여 줍니다."], links: [["생활비 가이드 글 전체 목록 보기", "/articles"]] },
@@ -21,10 +21,10 @@ function publicGuidePages(env = {}) {
     // 독립 서비스 문장은 ‘알아 둘 점’으로 옮겼다(문장 그대로). 주 버튼은 ‘내 가계부 시작하기’, 보조는 ‘가상 가계부 둘러보기’다.
     ], { type: "SoftwareApplication", primary: ["내 가계부 시작하기", "/my"], secondary: ["가상 가계부 둘러보기", "/demo"], updated: PUBLIC_COPY_REVISION_DATE, landing: true }),
     guides: page("기록에서 월말 점검까지, 사용 가이드", "처음 기록하기, 카카오 명령, 예산 계산, 공동 정산, 생활비 리포트와 파일 가져오기, 생활비 가이드 글을 목적별로 찾아보세요.", "필요한 순간에 찾아보는 안내", "지금 하려는 일에 맞는 글을 고르세요. 각 가이드는 말해가계부의 실제 동작과 직접 구성한 가상 사례를 기준으로 설명합니다. 예제에는 실제 사용자의 거래나 이용 후기를 사용하지 않습니다.", [
-      { title: "처음 사용하는 날", paragraphs: ["개인 채팅과 단톡방의 시작 방식부터 구분합니다. 이어서 기록 문장과 저장 결과를 맞춰 보고, 필요할 때 같은 가계부를 웹으로 이어 여세요."], links: [["첫 기록과 웹 이어 열기", "/how-it-works"], ["카카오 입력·수정·오류 대응", "/kakao-guide"], ["가상 가계부 체험", "/demo"], ["한 줄 문장·카드 문자 실시간 해석기", "/demo#parser-sandbox"]] },
+      { title: "처음 사용하는 날", paragraphs: ["개인 채팅과 단톡방의 시작 방식부터 구분합니다. 이어서 기록 문장과 저장 결과를 맞춰 보고, 필요할 때 같은 가계부를 웹으로 이어 여세요."], links: [["첫 기록과 웹 이어 열기", "/how-it-works"], ["카카오 입력·수정·오류 대응", "/kakao-guide"], ["가상 가계부 체험", "/demo"], ["카카오톡 한 줄 기록 예시와 결과", "/demo#kakao-examples"]] },
       { title: "생활비를 점검하는 날", paragraphs: ["분류별 예산을 설정했다면 예산 밖 지출을 함께 확인하세요. 리포트에서는 이번 달 전체와 지난달 일부를 섞어 비교하지 않는 것이 중요합니다."], links: [["예산 적용 사용액 계산", "/budget-guide"], ["주간·월간 리포트 해석", "/report-guide"], ["가족·여행비 공동 정산", "/group-accountbook"]] },
       { title: "기록을 옮기거나 관리하는 날", paragraphs: ["파일을 가져오기 전에는 미리보기에서 날짜와 중복을 확인합니다. 참여 권한, 연결 코드, CSV 파일은 서로 다른 접근 수단이므로 따로 관리하세요."], links: [["카드 내역 가져오기와 백업", "/import-guide"], ["데이터와 접근 권한 관리", "/security"], ["문제 해결 FAQ", "/faq"], ["문의 경로", "/contact"]] },
-      { title: "생활비 가이드 글", paragraphs: ["앱 사용법과 별개로, 생활비를 계획하고 점검할 때 참고할 수 있는 글입니다. 도담 네트워크 운영팀이 직접 구성한 가상 사례로 계산 과정을 보여 드리며 특정 금융상품을 권하지 않습니다. 아래는 처음 올린 열두 편이고, 카드와 세금·통계·저축과 부채·가족 생활비까지 더한 전체 목록은 글 목록 허브에서 주제별로 볼 수 있습니다."], links: [["생활비 가이드 글 전체 목록: 주제 9개, 40편의 요약과 작성일", "/articles"], ["생활비 예산 비율 정하기: 50/30/20을 우리 집 고정비에 맞게 고치기", "/budget-ratio-guide"], ["고정비 점검 체크리스트: 통신·보험·구독·관리비를 4주에 나눠 보기", "/fixed-cost-checklist"], ["구독 정리법: 반복 결제를 찾고 무료 체험의 자동 결제 막기", "/subscription-cleanup"], ["카드 전월 실적의 원리: 실적을 채우려 더 쓸 때의 손익 계산", "/card-spending-threshold"], ["비상금과 예비비: 몇 개월분이 필요한지 계산하고 다시 채우기", "/emergency-fund-basics"], ["가계부 주기 고르기: 1일 기준과 급여일 기준, 상여가 있는 달", "/payday-budget-cycle"], ["한 장짜리 현금흐름표: 들어온 돈과 나간 돈을 여섯 줄로 정리", "/cash-flow-table"], ["공동 생활비 나누기: 동일·비율·인원수·품목별 결과 비교", "/shared-living-cost-rules"], ["가족·커플 가계부: 기록과 점검의 분담, 용돈과 생활비의 경계", "/family-roles-accountbook"], ["가계부 습관 설계: 하루 1분 루틴과 끊겼을 때 다시 시작하기", "/accountbook-habit"], ["분류 기준 세우기: 식비·외식·배달·카페를 나누고 합치는 법", "/expense-category-rules"], ["주간 리포트 읽기: 지난주 비교의 함정과 행동으로 잇는 3단계", "/weekly-report-reading"], ["연말정산 11~12월 카드 전환 계산기: 총급여 25% 문턱과 남은 두 달 공제액 비교", "/payment-method-switch-nov-dec"], ["월세 세액공제와 현금영수증 비교 계산기: 총급여 구간별 환급 세액 검산", "/rent-tax-credit-records"], ["연금저축·IRP 세액공제 계산기: 연 600만·900만 원 한도와 세율별 환급액", "/pension-savings-irp-tax-credit"], ["룸메이트 중도 입·퇴거 일할 계산표: 거주 기간과 인일 기준 공과금 분담", "/roommate-shared-ledger"], ["연간 비정기 지출 적립 계산표: 명절·자동차보험·세금 납부일별 회차 적립", "/sinking-fund-annual-expenses"], ["월말 가계부 마감 대조표: 중복 기록 제거와 자동이체 누락 잔액 검산", "/monthly-closing-routine"]] },
+      { title: "생활비 가이드 글", paragraphs: ["앱 사용법과 별개로, 생활비를 계획하고 점검할 때 참고할 수 있는 글입니다. 도담 네트워크 운영팀이 직접 구성한 가상 사례로 계산 과정을 보여 드리며 특정 금융상품을 권하지 않습니다. 아래는 처음 올린 열두 편이고, 카드와 세금·통계·저축과 부채·가족 생활비까지 더한 전체 목록은 글 목록 허브에서 주제별로 볼 수 있습니다."], links: [["생활비 가이드 글 전체 목록: 주제 9개, 40편의 요약과 작성일", "/articles"], ["생활비 예산 비율 정하기: 50/30/20을 우리 집 고정비에 맞게 고치기", "/budget-ratio-guide"], ["고정비 점검 체크리스트: 통신·보험·구독·관리비를 4주에 나눠 보기", "/fixed-cost-checklist"], ["구독 정리법: 반복 결제를 찾고 무료 체험의 자동 결제 막기", "/subscription-cleanup"], ["카드 전월 실적의 원리: 실적을 채우려 더 쓸 때의 손익 계산", "/card-spending-threshold"], ["비상금과 예비비: 몇 개월분이 필요한지 계산하고 다시 채우기", "/emergency-fund-basics"], ["가계부 주기 고르기: 1일 기준과 급여일 기준, 상여가 있는 달", "/payday-budget-cycle"], ["한 장짜리 현금흐름표: 들어온 돈과 나간 돈을 여섯 줄로 정리", "/cash-flow-table"], ["공동 생활비 나누기: 동일·비율·인원수·품목별 결과 비교", "/shared-living-cost-rules"], ["가족·커플 가계부: 기록과 점검의 분담, 용돈과 생활비의 경계", "/family-roles-accountbook"], ["가계부 습관 설계: 하루 1분 루틴과 끊겼을 때 다시 시작하기", "/accountbook-habit"], ["분류 기준 세우기: 식비·외식·배달·카페를 나누고 합치는 법", "/expense-category-rules"], ["주간 리포트 읽기: 지난주 비교의 함정과 행동으로 잇는 3단계", "/weekly-report-reading"]] },
       { title: "안내를 관리하는 기준", paragraphs: ["운영 주체는 도담 네트워크입니다. 기능 안내는 서비스 구현과 대조하고, 금액 예시는 거래 목록에서 다시 계산하여 확인합니다. 기능이 바뀌면 관련 안내와 수정일을 함께 갱신합니다. 각 글의 수정일은 콘텐츠를 마지막으로 고친 날이며, 실시간 데이터 기준일은 아닙니다."], links: [["서비스와 콘텐츠 운영 원칙", "/about"], ["전체 공개 페이지", "/site-map"]] },
     ], { type: "CollectionPage", primary: ["가상 예제로 시작하기", "/demo"], updated: "2026-10-21" }),
     "service-guide": page("기능별로 할 수 있는 일과 확인할 것", "말해가계부의 기록·예산·리포트·정산·파일 기능과 권한, 자동으로 처리하지 않는 범위를 확인하세요.", "기능과 사용 범위", "카카오톡은 짧은 기록과 조회에, 웹은 상세 수정과 비교에 사용하면 편리합니다. 아래 표에서 원하는 작업을 찾고 해당 가이드로 이동하세요.", [
@@ -142,7 +142,7 @@ function publicGuidePages(env = {}) {
       { title: "서비스가 해결하려는 일", paragraphs: ["한 건을 기록할 때마다 여러 입력 칸을 채워야 한다면 작은 지출은 빠뜨리기 쉽습니다. 채팅에서는 내용과 금액을 먼저 남기고, 웹에서는 기간과 분류를 나누어 점검할 수 있도록 역할을 나눴습니다.", "공동 가계부에서는 결제자와 부담자를 구분하고 방마다 다른 가계부를 사용합니다. 개인 지출이 다른 모임 기록에 섞이지 않도록 가계부와 권한을 확인하는 것을 기본으로 삼습니다."] },
       { title: "안내와 예제를 작성하는 방법", paragraphs: ["공개 가이드는 말해가계부의 기능과 계산 규칙을 기준으로 작성합니다. 예산·정산·리포트 사례에는 설명을 위해 구성한 가상 데이터를 사용하며, 실제 이용 후기나 고객의 절약 성과로 제시하지 않습니다.", "글 수나 분량을 늘리기 위해 같은 설명을 여러 페이지에 반복하지 않습니다. 각 페이지는 하나의 작업을 다루고, 다른 작업은 관련 가이드로 연결합니다. 기능 동작이 바뀌거나 잘못된 설명을 찾으면 해당 안내와 수정일을 갱신합니다.", "외부 자료를 참고할 때에는 출처를 밝히고, 외부 글을 그대로 가져오는 대신 서비스에서 확인할 수 있는 과정과 한계를 설명합니다."], links: [["목적별 사용 가이드", "/guides"], ["가상 예제의 계산 근거", "/demo"]] },
       { title: "운영팀과 글 작성 원칙", paragraphs: ["공개 가이드와 생활비 가이드 글은 도담 네트워크 운영팀이 쓰고 관리합니다. 글은 말해가계부에 실제로 구현된 기능과 직접 구성한 가상 사례를 기준으로 하며, 사례의 계산은 공개 전에 다시 확인합니다. 특정 금융상품이나 카드, 대출, 투자를 권하지 않고, 통계나 법령처럼 출처가 필요한 내용은 확인할 수 있는 공식 자료가 있을 때만 다룹니다. 틀린 내용이나 실제 화면과 다른 설명을 발견하면 문의 페이지로 알려 주세요. 각 글의 위쪽에는 마지막으로 고친 날짜를 표시합니다."], links: [["생활비 가이드 글 모음", "/guides"], ["잘못된 내용 신고하기", "/contact"]] },
-      { title: "글을 쓰는 사람과 검토 방식", paragraphs: ["공개 가이드와 생활비 가이드 글은 도담 네트워크 운영자가 서비스 개발과 운영을 맡으면서 직접 쓰고 검토합니다. 재무 상담 자격을 내세우는 글이 아니라, 생활비 기록 서비스를 만들고 운영하며 정리한 계산 방법과 점검 절차를 설명하는 글입니다.", "글은 주제 선정, 공식 자료 확인, 예시 계산 검산, 게시, 수정일 표기 순서로 만듭니다. 통계·세율·요금처럼 바뀌는 숫자는 통계청·국세청·법령정보센터 같은 공식 자료를 확인한 경우에만 적고, 글 아래 참고 자료에 출처를 남깁니다. 모든 글의 주제 선정, 세법 조문·공공 통계 대조, 계산식과 가상 예제 표의 수치 검산, 서비스 기능 대조, 최종 문장 교정과 게시 결정은 운영자가 자체 검산 스크립트로 직접 검증하고 책임집니다.", "다루지 않는 것도 분명히 합니다. 특정 금융상품·카드·대출·보험·투자를 권하지 않고, 세무·법률 자문을 대신하지 않습니다. 광고가 표시되는 경우에도 본문과 구분하며 광고주는 글의 내용에 관여하지 않습니다. 틀린 내용을 알려 주시면 확인 뒤 본문과 수정일을 함께 고칩니다."], links: [["생활비 가이드 글 전체 목록", "/articles"], ["문의와 수정 요청", "/contact"]] },
+      { title: "글을 쓰는 사람과 검토 방식", paragraphs: ["공개 가이드와 생활비 가이드 글은 도담 네트워크 운영자가 서비스 개발과 운영을 맡으면서 직접 쓰고 검토합니다. 재무 상담 자격을 내세우는 글이 아니라, 생활비 기록 서비스를 만들고 운영하며 정리한 계산 방법과 점검 절차를 설명하는 글입니다.", "글은 주제 선정, 공식 자료 확인, 예시 계산 검산, 게시, 수정일 표기 순서로 만듭니다. 통계·세율·요금처럼 바뀌는 숫자는 통계청·국세청·법령정보센터 같은 공식 자료를 확인한 경우에만 적고, 글 아래 참고 자료에 출처를 남깁니다. 초안 정리와 문장 다듬기에는 생성형 글쓰기 도구를 포함한 소프트웨어를 사용하지만, 어떤 주제를 다룰지, 숫자가 맞는지, 게시할지는 운영자가 직접 판단하고 책임집니다.", "다루지 않는 것도 분명히 합니다. 특정 금융상품·카드·대출·보험·투자를 권하지 않고, 세무·법률 자문을 대신하지 않습니다. 광고가 표시되는 경우에도 본문과 구분하며 광고주는 글의 내용에 관여하지 않습니다. 틀린 내용을 알려 주시면 확인 뒤 본문과 수정일을 함께 고칩니다."], links: [["생활비 가이드 글 전체 목록", "/articles"], ["문의와 수정 요청", "/contact"]] },
       { title: "운영 범위와 한계", paragraphs: ["카카오와 연동하는 독립 서비스이며 카카오가 직접 제공하는 공식 가계부 서비스는 아닙니다. 기록과 계산은 사용자가 입력한 값에 따라 달라지며 은행·카드사 계정을 자동 연결하지 않습니다.", "금융상품 추천이나 투자·세무 자문을 제공하지 않으며, 미래 절약액이나 수익을 보장하지 않습니다."] },
       { title: "오류나 설명이 다른 부분을 발견했다면", paragraphs: ["해당 페이지 주소와 문제가 되는 문장, 실제로 확인한 상황을 문의 경로로 알려주세요. 개인정보와 연결 코드는 가리고, 금액 사례의 오류라면 계산식도 함께 적어주시면 확인에 도움이 됩니다."], links: [["운영자 문의", "/contact"], ["개인정보처리방침", "/privacy"], ["이용약관", "/terms"]] },
     ], { type: "AboutPage", updated: "2026-10-21" }),
@@ -209,66 +209,6 @@ function publicDemoClient(calculate, rows) {
   };
   form.addEventListener("submit", (event) => { event.preventDefault(); update(); });
   document.getElementById("demo-reset").addEventListener("click", () => { food.value = "300,000"; transport.value = "100,000"; update(); });
-}
-
-function publicSandboxClient() {
-  const form = document.getElementById("sandbox-form");
-  if (!form) return;
-  const input = document.getElementById("sandbox-input");
-  const status = document.getElementById("sandbox-status");
-  const set = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
-  const analyze = () => {
-    const raw = String(input.value || "").trim();
-    if (!raw) {
-      input.setAttribute("aria-invalid", "true");
-      status.textContent = "해석할 한 줄 문장이나 카드 승인 문자를 입력해 주세요.";
-      return;
-    }
-    const cleaned = raw.replace(/\[Web발신\]/gi, " ").replace(/누적\s*[\d,]+\s*원?/g, " ").replace(/\b\d{1,2}[/:]\d{1,2}\b/g, " ").replace(/(?:삼성|신한|현대|국민|우리|하나|롯데)(?:카드)?\s*\d{4}/g, (m) => m.replace(/\d{4}$/, "카드 "));
-    let amount = null;
-    const man = cleaned.match(/(\d+(?:\.\d+)?)\s*만\s*원?/);
-    const cheon = cleaned.match(/(\d+(?:\.\d+)?)\s*천\s*원?/);
-    const won = cleaned.match(/(\d{1,3}(?:,\d{3})+|\d{3,9})\s*원?/);
-    if (man) amount = Math.round(Number(man[1]) * 10000);
-    else if (cheon) amount = Math.round(Number(cheon[1]) * 1000);
-    else if (won) amount = Number(won[1].replace(/,/g, ""));
-    if (!Number.isSafeInteger(amount) || amount <= 0 || amount > 1000000000) {
-      input.setAttribute("aria-invalid", "true");
-      status.textContent = "문장에서 금액(예: 11,000원, 320만원, 45000)을 찾지 못했습니다. 내용과 금액을 함께 적어 주세요.";
-      return;
-    }
-    input.setAttribute("aria-invalid", "false");
-    const isIncome = /월급|급여|상여|보너스|수입|환급|입금/.test(cleaned);
-    const type = isIncome ? "수입" : "지출";
-    const methodMatch = cleaned.match(/신한카드|삼성카드|현대카드|국민카드|우리카드|하나카드|롯데카드|체크카드|카카오페이|네이버페이|토스페이|계좌이체|국민은행|신한은행|우리은행|현금|카드/);
-    const method = methodMatch ? methodMatch[0] : (isIncome ? "계좌입금" : "기본 결제수단");
-    const category = isIncome ? "급여·수입"
-      : /점심|저녁|아침|식사|김치찌개|치킨|교촌|배달|외식|식당|마트|장보기|식료품|커피|카페|간식/.test(cleaned) ? "식비"
-      : /택시|버스|지하철|교통|주유|기차/.test(cleaned) ? "교통"
-      : /넷플릭스|유튜브|구독|멤버십|통신|휴대폰/.test(cleaned) ? "고정비·구독"
-      : /병원|약국|치과|의료|진료/.test(cleaned) ? "의료"
-      : /월세|관리비|전기|가스|수도/.test(cleaned) ? "주거·공과금" : "생활·기타";
-    const memo = cleaned
-      .replace(/(\d+(?:\.\d+)?)\s*[만천]\s*원?/g, " ")
-      .replace(/(\d{1,3}(?:,\d{3})+|\d{3,9})\s*원?/g, " ")
-      .replace(/신한카드|삼성카드|현대카드|국민카드|우리카드|하나카드|롯데카드|체크카드|카카오페이|네이버페이|토스페이|계좌이체|국민은행|신한은행|우리은행|현금|카드|승인|일시불|결제/g, " ")
-      .replace(/\s+/g, " ").trim() || category;
-    const baseRemaining = 175000;
-    const afterBudget = !isIncome && (category === "식비" || category === "교통") ? Math.max(0, baseRemaining - amount) : baseRemaining;
-    set("sandbox-type", type);
-    set("sandbox-amount", amount.toLocaleString("ko-KR") + "원");
-    set("sandbox-category", category);
-    set("sandbox-method", method);
-    set("sandbox-memo", memo.slice(0, 28));
-    set("sandbox-after", afterBudget.toLocaleString("ko-KR") + "원");
-    status.textContent = `해석 완료: ${type} ${amount.toLocaleString("ko-KR")}원 · 분류 ${category} · 결제수단 ${method} · 항목 ‘${memo.slice(0, 28)}’(${!isIncome && (category === "식비" || category === "교통") ? `예제 남은 예산 ${afterBudget.toLocaleString("ko-KR")}원` : "식비·교통 예산 외 항목"}).`;
-  };
-  form.addEventListener("submit", (event) => { event.preventDefault(); analyze(); });
-  const reset = document.getElementById("sandbox-reset");
-  if (reset) reset.addEventListener("click", () => { input.value = "점심 김치찌개 11,000원 신한카드"; analyze(); });
-  for (const btn of form.querySelectorAll("[data-sandbox-sample]")) {
-    btn.addEventListener("click", () => { input.value = btn.getAttribute("data-sandbox-sample") || ""; analyze(); });
-  }
 }
 
 // ── V22.9.40 (D) 생활비 가이드 글 ──
@@ -404,7 +344,5 @@ function publicLivingCostArticles() {
   };
 }
 // @build:exports-start
-export {
-  publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages, publicSandboxClient,
-};
+export { publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages };
 // @build:exports-end
