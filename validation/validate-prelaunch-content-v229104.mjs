@@ -1,8 +1,8 @@
 // V22.9.104 출시 전 글·첫 화면·공지 띠 검사(오프라인, src/index.js 번들 + validation/lib-audit-v22934.mjs 픽스처).
 //   A-1 공지 띠 닫기 ‘×’: 공개 화면·로그인 화면·앱 화면의 띠 오른쪽 끝에 aria-label "공지 닫기" 단추가 있고, ‘오늘 하루 안 보기’ 와 같은
 //       폼(/notice/hide POST)의 둘째 제출 단추라 보내는 값·쿠키·만료(24시간)가 똑같으며, 숨긴 뒤에는 띠와 스타일이 없다.
-//   A-2 첫 화면 ‘최근 글’: 정적 목록 대신 글 목록(작성일 최신 → 같은 날이면 제목순) 앞 8편 + 전체 목록 링크, 링크마다 200·정본·사이트맵,
-//       첫 화면 수정일 ≥ 목록 글의 가장 늦은 수정일, 바이트 상한.
+//   A-2 첫 화면 글 목록(V22.9.140 부터 ‘처음이라면 이 글부터’ — 처음 읽을 순서로 고른 8편 + 전체 목록 링크. V22.9.104~139 는 작성일 최신 8편 ‘최근 글’),
+//       링크마다 200·정본·사이트맵, 제목이 허브와 같음, 첫 화면 수정일 ≥ 목록 글의 가장 늦은 수정일, 바이트 상한.
 //   A-4 세무 글 8편 사실 확인 고침(H-10 보고): 머리 기준 한 줄(P2-1), 고친 문장마다 새 문장 있음·옛 문장 없음(P2-2~P2-6·P3-1~P3-9),
 //       작성일 그대로·수정일(화면·JSON-LD·사이트맵) 2026-11-06 은 원본 상수 하나, ‘무료’ 없음.
 // 바깥 요청은 0회여야 한다(픽스처의 가짜 DB 말고는 모두 막고 센다).
@@ -32,8 +32,9 @@ const NOTICE_TEXT = "개인정보처리방침과 이용약관을 11월 2일에 �
 const NOTICE_LINK = "/privacy";
 const HIDE_BUTTON = '<button class="secondary" type="submit">오늘 하루 안 보기</button>';
 const CLOSE_BUTTON = '<button class="abNoticeClose" type="submit" aria-label="공지 닫기">×</button>';
-// A-2: 첫 화면 최근 글 수(글 목록 앞 N편)와 지금 가장 새 글(2026-11-03 연말정산·절세 8편).
+// A-2: 첫 화면 글 수와 V22.9.140 의 ‘처음이라면 이 글부터’ 목록(읽을 순서). 연말정산·절세 8편(TAX_PATHS)은 이 목록에 넣지 않는다.
 const RECENT_COUNT = 8;
+const STARTER_PATHS = ["/accountbook-habit", "/payday-budget-cycle", "/budget-ratio-guide", "/expense-category-rules", "/fixed-cost-checklist", "/subscription-cleanup", "/shared-living-cost-rules", "/monthly-closing-routine"];
 const TAX_PATHS = [
   "/payment-method-switch-nov-dec", "/single-household-year-end-tax", "/dual-income-deduction-allocation", "/pension-savings-irp-tax-credit",
   "/year-end-tax-timeline-checklist", "/tax-refund-money-plan", "/medical-education-donation-deductions", "/housing-deductions-overview",
@@ -157,28 +158,27 @@ try {
     ok(home && home[1] < 35 * 1024, `A-1 띠가 보이는 앱 홈 HTML 이 35 KiB 예산 안이다 (${home?.[1]} B)`);
     console.log("A-1 공지 띠 HTML 바이트(보임·숨김):", JSON.stringify(sizes));
 
-    // ── A-2 첫 화면 ‘최근 글’ ──
+    // ── A-2 첫 화면 글 목록(V22.9.140 ‘처음이라면 이 글부터’) ──
     // 띠 없이 잰다(공지 변수는 운영 값이라 바뀔 수 있다).
     delete fx.env.NOTICE_TEXT;
     delete fx.env.NOTICE_LINK;
     const landing = await page(fx, "/", { cookie: "" });
     eq(landing.status, 200, "A-2 첫 화면이 그려진다");
-    const recentSection = (landing.html.match(/<section class="pubSection" id="section-\d+"><h2>최근 글<\/h2>[\s\S]*?<\/section>/) || [""])[0];
-    ok(recentSection.length > 0, "A-2 첫 화면에 ‘최근 글’ 절이 있다");
-    eq(landing.html.split("<h2>최근 글</h2>").length - 1, 1, "A-2 ‘최근 글’ 절은 하나다");
+    const recentSection = (landing.html.match(/<section class="pubSection" id="section-\d+"><h2>처음이라면 이 글부터<\/h2>[\s\S]*?<\/section>/) || [""])[0];
+    ok(recentSection.length > 0, "A-2 첫 화면에 ‘처음이라면 이 글부터’ 절이 있다");
+    eq(landing.html.split("<h2>처음이라면 이 글부터</h2>").length - 1, 1, "A-2 ‘처음이라면 이 글부터’ 절은 하나다");
+    eq(landing.html.split("<h2>최근 글</h2>").length - 1, 0, "A-2 작성일 순 ‘최근 글’ 절은 없다(V22.9.140)");
     const homeLinks = [...recentSection.matchAll(/<a href="([^"]+)">([^<]*)<span aria-hidden="true"> →<\/span><\/a>/g)].map((m) => [m[1], m[2]]);
-    // 글 목록 허브(/articles)의 카드(제목·작성일)로 작성일 최신 → 같은 날이면 제목순 목록을 따로 만들어 앞 8편과 맞춘다.
+    // 글 목록 허브(/articles)의 카드(제목·작성일)에서 고른 8편을 찾아 제목을 맞춘다.
     const hub = await page(fx, "/articles", { cookie: "" });
     const cards = [...hub.html.matchAll(/<li><a href="(\/[^"]+)">([^<]+)<\/a><p>[^<]*<\/p><small>작성 (\d{4}-\d{2}-\d{2})/g)].map((m) => ({ path: m[1], title: m[2], published: m[3] }));
     ok(cards.length >= 40, `A-2 허브 카드에서 글 ${cards.length}편을 읽었다`);
-    const ordered = [...cards].sort((a, b) => (a.published < b.published ? 1 : a.published > b.published ? -1 : a.title.localeCompare(b.title, "ko")));
-    const expected = ordered.slice(0, RECENT_COUNT);
-    eq(homeLinks.length, RECENT_COUNT + 1, `A-2 최근 글은 ${RECENT_COUNT}편 + 전체 목록 링크다`);
-    eq(JSON.stringify(homeLinks.slice(0, RECENT_COUNT)), JSON.stringify(expected.map((card) => [card.path, card.title])), "A-2 최근 글은 작성일 최신 → 같은 날이면 제목순의 앞 8편이고 제목이 허브와 같다");
+    const expected = STARTER_PATHS.map((path) => cards.find((card) => card.path === path));
+    ok(expected.every(Boolean), "A-2 고른 8편이 모두 글 목록 허브에 있다");
+    eq(homeLinks.length, RECENT_COUNT + 1, `A-2 첫 화면 글 목록은 ${RECENT_COUNT}편 + 전체 목록 링크다`);
+    eq(JSON.stringify(homeLinks.slice(0, RECENT_COUNT)), JSON.stringify(expected.map((card) => [card.path, card.title])), "A-2 첫 화면 글 목록은 읽을 순서로 고른 8편이고 제목이 허브와 같다");
     eq(JSON.stringify(homeLinks[RECENT_COUNT]), JSON.stringify(["/articles", "생활비 가이드 글 전체 목록 보기"]), "A-2 마지막 링크는 전체 목록(/articles)이다");
-    for (let i = 1; i < expected.length; i++) ok(expected[i - 1].published >= expected[i].published, `A-2 작성일 순서: ${expected[i - 1].published} ≥ ${expected[i].published}`);
-    ok(cards.filter((card) => !expected.includes(card)).every((card) => card.published <= expected[expected.length - 1].published), "A-2 첫 화면에 없는 글은 모두 앞 8편보다 늦지 않게 쓴 글이다");
-    for (const path of TAX_PATHS) ok(homeLinks.some(([href]) => href === path), `A-2 ${path}: 지금 가장 새 글(연말정산·절세 8편)이 첫 화면에 있다`);
+    for (const path of TAX_PATHS) ok(!homeLinks.some(([href]) => href === path), `A-2 ${path}: 연말정산·절세 글은 첫 화면 글 목록에 없다(글 목록 허브에서 본다)`);
     const sitemap = (await page(fx, "/sitemap.xml", { cookie: "" })).html;
     const lastmodOf = (path) => (sitemap.match(new RegExp(`<loc>${BASE.replace(/[.]/g, "\\.")}${path === "/" ? "/" : path}</loc>\\s*<lastmod>([^<]+)</lastmod>`)) || [])[1] || "";
     for (const [path] of homeLinks) {
@@ -189,12 +189,12 @@ try {
     }
     // 첫 화면 수정일은 목록 글들의 가장 늦은 수정일보다 이르지 않다(화면 글·JSON-LD·사이트맵이 같은 값).
     const newestUpdate = expected.map((card) => lastmodOf(card.path)).sort().at(-1);
-    ok(lastmodOf("/") >= newestUpdate, `A-2 첫 화면 lastmod(${lastmodOf("/")})가 최근 글의 가장 늦은 수정일(${newestUpdate}) 이상이다`);
+    ok(lastmodOf("/") >= newestUpdate, `A-2 첫 화면 lastmod(${lastmodOf("/")})가 목록 글의 가장 늦은 수정일(${newestUpdate}) 이상이다`);
     ok(landing.html.includes(`"dateModified":"${lastmodOf("/")}"`) && landing.html.includes(`<time datetime="${lastmodOf("/")}">`), "A-2 첫 화면 JSON-LD·화면 수정일이 사이트맵 lastmod 와 같다");
     // 첫 화면 바이트: 최근 글 절은 2 KiB, 첫 화면 전체는 36 KiB 안(V22.9.103 34,828 B 에서 링크 4개 몫만 늘었다).
-    ok(Buffer.byteLength(recentSection) <= 2048, `A-2 최근 글 절이 2 KiB 안이다 (${Buffer.byteLength(recentSection)} B)`);
+    ok(Buffer.byteLength(recentSection) <= 2048, `A-2 첫 화면 글 목록 절이 2 KiB 안이다 (${Buffer.byteLength(recentSection)} B)`);
     ok(Buffer.byteLength(landing.html) <= 36 * 1024, `A-2 첫 화면 HTML 이 36 KiB 안이다 (${Buffer.byteLength(landing.html)} B)`);
-    ok(!recentSection.includes("무료"), "A-2 최근 글 절에 ‘무료’ 가 없다");
+    ok(!recentSection.includes("무료"), "A-2 첫 화면 글 목록 절에 ‘무료’ 가 없다");
 
     // ── A-4 세무 글 8편 사실 확인 고침(H-10 보고 P2 6건·P3 9건) ──
     const taxPages = new Map();
@@ -216,7 +216,7 @@ try {
       eq(lastmodOf(path), taxUpdatedFor(path), `A-4 ${path}: 사이트맵 lastmod 가 수정일이다`);
       ok(!html.includes("무료"), `A-4 ${path}: ‘무료’ 가 없다`);
     }
-    eq(lastmodOf("/articles"), TAX_UPDATED, "A-4 글 목록 허브 lastmod 가 수정일로 올라간다");
+    eq(lastmodOf("/articles"), "2026-11-22", "A-4 글 목록 허브 lastmod 가 수정일로 올라간다");
     ok(hub.html.includes(`${TAX_PUBLISHED}에 올린`), "A-4 허브 머리말의 가장 최근 글 날짜는 작성일 그대로다");
     // 기준 한 줄은 세무 글 8편에만 있다(다른 글·화면에는 없다).
     for (const path of ["/single-household-living-cost", "/card-income-deduction-basics", "/articles", "/"]) ok(!(await page(fx, path, { cookie: "" })).html.includes("pubBasis"), `A-4 ${path}: 기준 한 줄이 없다`);

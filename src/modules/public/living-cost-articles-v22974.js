@@ -1510,7 +1510,7 @@ function publicLivingCostArticlesV22974() {
       "eyebrow": "생활비 가이드 · 카드·세금",
       "intro": "연말정산 서류를 1월에 한 번에 모으면 빠지는 것이 생깁니다. 가계부 기록을 공제 항목별로 묶어 영수증과 대조하고, 간소화 자료에 없는 지출을 미리 찾아내는 순서를 월별 점검 달력과 함께 안내합니다.",
       "published": "2026-10-21",
-      "updated": "2026-11-07",
+      "updated": "2026-11-22",
       "type": "Article",
       "summary": [
         "가계부의 의료·교육·기부·주거·보험·연금 분류가 그대로 연말정산 점검표가 됩니다.",
@@ -1667,7 +1667,7 @@ function publicLivingCostArticlesV22974() {
         ],
         [
           "의료비는 실손보험으로 돌려받은 금액도 공제되나요?",
-          "공제 대상 의료비의 범위는 소득세법 시행령과 국세청 안내에 정해져 있으며, 보험금으로 보전받은 부분을 어떻게 처리하는지도 그 안내에 나옵니다. 가계부에서는 병원 결제 기록 아래에 보험금 입금을 연결해 순수 부담액을 바로 볼 수 있게 해 두면, 어느 기준이 적용되더라도 금액을 바로 뽑을 수 있습니다."
+          "아니요. 실손의료보험금으로 돌려받은 금액은 의료비 세액공제 대상에서 빠집니다(소득세법 시행령 제118조의5). 예를 들어 병원비 100만 원을 내고 실손보험금 70만 원을 받았다면 공제 대상 의료비는 30만 원이고, 총급여의 3%를 넘는지도 이 30만 원으로 따집니다. 연말정산 간소화 서비스의 의료비 자료에는 보험회사가 제출한 실손보험금 수령액도 나옵니다. 가계부에 병원비 지출과 보험금 입금을 함께 적어 두면 실제 부담액을 바로 확인할 수 있습니다. 진료한 해와 보험금을 받은 해가 다르면 국세청 안내에서 처리 방법을 확인하세요."
         ],
         [
           "연말정산을 회사가 다 해 주는데 가계부 점검이 필요한가요?",
@@ -4611,14 +4611,17 @@ function publicArticleSiteMapLinks(index = []) {
 
 // V22.9.104 A-2: 첫 화면(/) ‘최근 글’ 은 정적 목록 대신 이 글 목록(작성일 최신 → 같은 날이면 제목순)의 앞 8편이다.
 // 새 글을 올리면 첫 화면도 따라 바뀐다. 링크와 첫 화면 수정일은 content-pages.js publicContentCatalog 가 채운다.
-const PUBLIC_HOME_RECENT_ARTICLE_COUNT_V229104 = 8;
-function publicArticleRecent(index = []) {
-  return index.slice(0, PUBLIC_HOME_RECENT_ARTICLE_COUNT_V229104);
+// V22.9.140: 첫 화면 글 목록은 ‘처음이라면 이 글부터’ 다. 가계부를 처음 쓰는 사람이 읽을 순서(기록 습관 → 주기 → 예산 비율 → 분류 → 고정비 → 구독 →
+// 공동 생활비 → 월말 결산)로 고른 8편이다. V22.9.104 A-2 의 ‘작성일 최신 8편’ 은 11월에 올린 연말정산 글 8편만 보여 줬다. 새 글은 글 목록(/articles)에서 작성일 순으로 본다.
+const PUBLIC_HOME_STARTER_PATHS_V229140 = Object.freeze(["/accountbook-habit", "/payday-budget-cycle", "/budget-ratio-guide", "/expense-category-rules", "/fixed-cost-checklist", "/subscription-cleanup", "/shared-living-cost-rules", "/monthly-closing-routine"]);
+function publicArticleStarter(index = []) {
+  const byPath = new Map(index.map((item) => [item.path, item]));
+  return PUBLIC_HOME_STARTER_PATHS_V229140.map((path) => byPath.get(path)).filter(Boolean);
 }
 // @build:exports-start
 export {
-  publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes, publicArticleRecent,
-  publicArticleSiteMapLinks, publicArticlesHubPage, publicLivingCostArticlesV22974,
+  publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes, publicArticleSiteMapLinks,
+  publicArticleStarter, publicArticlesHubPage, publicLivingCostArticlesV22974,
   publicNormalizeLivingArticles,
 };
 // @build:exports-end

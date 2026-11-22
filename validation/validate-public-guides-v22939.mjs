@@ -68,7 +68,12 @@ try {
   }
   for (const [from, href] of crossAnchors) {
     const [target, id] = href.split("#");
-    ok(pages.has(target) && pages.get(target).includes(`id="${id}"`), `${from}: cross-page anchor ${href} exists on ${target}`);
+    if (!pages.has(target)) {
+      const response = await get(target);
+      eq(response.status, 200, `${from}: linked article ${target} opens`);
+      pages.set(target, await response.text());
+    }
+    ok(pages.get(target).includes(`id="${id}"`), `${from}: cross-page anchor ${href} exists on ${target}`);
   }
   for (const asset of assets) eq((await get(asset)).status, 200, `shared asset ${asset} is available`);
   for (const [alias, canonical] of [["/sitemap", "/site-map"], ["/service", "/service-guide"], ["/usage-guide", "/how-it-works"], ["/kakao-accountbook-guide", "/kakao-guide"], ["/budget-management-guide", "/budget-guide"], ["/family-accountbook", "/group-accountbook"], ["/data-security", "/security"], ["/about-service", "/about"], ["/cookie-policy", "/cookies"], ["/data-policy", "/privacy"], ["/service-policy", "/terms"]]) {

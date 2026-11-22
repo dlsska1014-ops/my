@@ -10,8 +10,8 @@ import {
   publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages,
 } from "./guide-content.js";
 import {
-  publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes, publicArticleRecent,
-  publicArticleSiteMapLinks, publicArticlesHubPage, publicLivingCostArticlesV22974,
+  publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes, publicArticleSiteMapLinks,
+  publicArticleStarter, publicArticlesHubPage, publicLivingCostArticlesV22974,
   publicNormalizeLivingArticles,
 } from "./living-cost-articles-v22974.js";
 import { publicLivingCostArticlesV22997 } from "./living-cost-articles-v22997.js";
@@ -140,13 +140,13 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
   publicNormalizeLivingArticles(catalog);
   enrichPublicWorksheetsV229106(catalog);
   const articleIndex = publicArticleIndex(catalog);
-  // V22.9.104 A-2: 첫 화면 ‘최근 글’ 은 글 목록 앞 8편(작성일 최신 순) + 전체 목록 링크다. 첫 화면 수정일(화면·JSON-LD·사이트맵 lastmod)은
-  // 그 글들의 가장 늦은 수정일보다 이르지 않게 올린다(새 글을 올리거나 글을 고치면 첫 화면 목록도 바뀌므로).
-  const homeRecent = safeArray(catalog.home?.sections).find((section) => section.title === "최근 글");
-  if (homeRecent) {
-    const recent = publicArticleRecent(articleIndex);
-    homeRecent.links = [...recent.map((item) => [item.title, item.path]), ["생활비 가이드 글 전체 목록 보기", "/articles"]];
-    catalog.home.updated = recent.reduce((latest, item) => (item.updated > latest ? item.updated : latest), catalog.home.updated);
+  // V22.9.140: 첫 화면 ‘처음이라면 이 글부터’ 는 처음 읽을 순서로 고른 8편(living-cost-articles-v22974.js) + 전체 목록 링크다(V22.9.104 A-2 의 ‘최근 글’ 을 바꿨다).
+  // 첫 화면 수정일(화면·JSON-LD·사이트맵 lastmod)은 그 글들의 가장 늦은 수정일보다 이르지 않게 올린다(목록 글을 고치면 첫 화면 목록 제목도 바뀔 수 있으므로).
+  const homeStarter = safeArray(catalog.home?.sections).find((section) => section.title === "처음이라면 이 글부터");
+  if (homeStarter) {
+    const starter = publicArticleStarter(articleIndex);
+    homeStarter.links = [...starter.map((item) => [item.title, item.path]), ["생활비 가이드 글 전체 목록 보기", "/articles"]];
+    catalog.home.updated = starter.reduce((latest, item) => (item.updated > latest ? item.updated : latest), catalog.home.updated);
   }
   catalog.articles = publicArticlesHubPage(articleIndex);
   const siteMapArticles = safeArray(catalog["site-map"]?.sections).find((section) => section.title === "생활비 가이드 글");
@@ -395,7 +395,8 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   const origin = publicBaseUrl(env, url);
   const canonical = `${origin}${key === "home" ? "/" : `/${key}`}`;
   const adKey = adsPublicRequestKeyV229106(env, url, publicContentAdKey(key));
-  const pageTitle = `${page.title} · ${appName(env)}`;
+  // V22.9.140: 첫 화면은 히어로 문구(공유 이미지에 같은 글이 있다) 대신 찾는 말(‘카카오톡 가계부’)로 시작하는 문서 제목을 따로 둔다.
+  const pageTitle = page.htmlTitle || `${page.title} · ${appName(env)}`;
   const sectionList = safeArray(page.sections);
   const living = publicArticleIsLiving(page);
   const sections = sectionList.map((section, index) => `<section class="pubSection" id="section-${index + 1}"><h2>${escapeHtml(section.title)}</h2>${safeArray(section.paragraphs).map((p) => `<p>${escapeHtml(p)}</p>`).join("")}${section.table ? publicContentTable(section.table, `table-${index + 1}`) : ""}${safeArray(section.steps).length ? `<ol>${section.steps.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ol>` : ""}${safeArray(section.bullets).length ? `<ul>${section.bullets.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>` : ""}${section.cards ? publicArticleCards(section.cards) : ""}${section.note ? `<aside class="pubNote">${escapeHtml(section.note)}</aside>` : ""}${section.links ? publicContentLinks(section.links) : ""}</section>${page.demo && index === 0 ? renderPublicDemo() : ""}`).join("");
@@ -413,7 +414,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   const secondary = page.secondary || ["전체 사용 가이드", "/guides"];
   const chartHtml = living ? renderArticleDataChartV229139(key) : "";
   const chartCss = chartHtml ? ".pubDataChart{margin:20px 0 24px;padding:16px;border:1px solid #dce3ef;border-radius:16px;background:#fff}.pubChartSvg{display:block;width:100%;height:auto;max-height:220px}.pubDataChart figcaption{margin-top:8px;color:#526075;font-size:13.5px;line-height:1.6}" : "";
-  const inlineWorksheet = living ? renderInlineWorksheetV229139(key) : null;
+  const inlineWorksheet = living || key === "group-accountbook" ? renderInlineWorksheetV229139(key) : null;
   const toolHubHtml = key === "articles" ? `<aside class="pubSummary pubToolHub" id="tool-hub" aria-label="인터랙티브 계산표 바로가기"><b>브라우저에서 바로 계산하는 생활비 계산표 ${Object.keys(PUBLIC_ALL_CALCULATORS_V229139).length}종</b><p>아래 ${Object.keys(PUBLIC_ALL_CALCULATORS_V229139).length}편의 글에는 입력값을 바꿔 즉시 검산하고 CSV로 저장할 수 있는 인터랙티브 계산표가 본문 안에 포함되어 있습니다.</p>${publicContentLinks(Object.entries(PUBLIC_ALL_CALCULATORS_V229139).map(([slug, spec]) => [spec.title, `/${slug}`]))}</aside>` : "";
   const structured = JSON.stringify({
     "@context": "https://schema.org", "@type": type, name: page.title,

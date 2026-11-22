@@ -54,7 +54,8 @@ try {
     ok(linksOf(relatedOf(page.html)).some((link) => link.path === to), `${from} directly recommends ${to}`);
     eq(linksOf(relatedOf(page.html)).length, 3, `${from} keeps the three-link limit`);
     const data = jsonLdOf(page.html);
-    const modified = revisedSources.has(from) ? "2026-11-07" : revision;
+    // V22.9.140 V139:A-7: /year-end-tax-expense-check 는 실손보험 FAQ 답을 고쳐 수정일이 11-22 다.
+    const modified = from === "/year-end-tax-expense-check" ? "2026-11-22" : revisedSources.has(from) ? "2026-11-07" : revision;
     eq(data.datePublished, "2026-10-21", `${from} preserves its publication date`);
     eq(data.dateModified, modified, `${from} records the link revision date`);
     ok(page.html.includes(`수정 <time datetime="${modified}">${modified}</time>`), `${from} displays the revision date`);

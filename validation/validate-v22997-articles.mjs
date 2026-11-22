@@ -78,7 +78,7 @@ try {
   const entries = [...xml.matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)].map((m) => ({ path: new URL(m[1]).pathname, lastmod: m[2] }));
   eq(entries.length, 60, "사이트맵은 공개 정본 60개다(52 + 새 글 8)");
   for (const path of NEW_PATHS) eq(entries.find((e) => e.path === path)?.lastmod, updatedFor(path), `${path}: 사이트맵에 있고 lastmod 가 수정일이다`);
-  eq(entries.find((e) => e.path === HUB)?.lastmod, UPDATED, "허브 lastmod 가 새 글 수정일로 올라간다");
+  eq(entries.find((e) => e.path === HUB)?.lastmod, "2026-11-22", "허브 lastmod 가 새 글 수정일로 올라간다");
 
   // 2. 공개 정본을 모두 그린다(함께 읽을 글·본문 링크가 실제 정본인지, 40자 창 비교에 쓴다).
   const pages = new Map();
@@ -210,8 +210,9 @@ try {
   // 6. 보이는 사이트맵·사용 가이드 목록·첫 화면.
   for (const path of NEW_PATHS) ok((pages.get("/site-map") || "").includes(`href="${path}"`), `${path}: 보이는 사이트맵에 있다`);
   ok(decode(pages.get("/guides") || "").includes("40편의 요약과 작성일"), "/guides 의 글 목록 안내가 40편을 말한다");
-  // V22.9.104 A-2(H-9 결정): 첫 화면 ‘최근 글’ 이 글 목록 앞 8편이 되어 이 판의 새 글 8편을 모두 가리킨다.
-  ok(NEW_PATHS.every((p) => (pages.get("/") || "").includes(`href="${p}"`)), "첫 화면(/) 최근 글이 새 글 8편을 모두 가리킨다(V22.9.104 A-2)");
+  // V22.9.104 A-2(H-9 결정)에서는 첫 화면 ‘최근 글’ 이 이 판의 새 글 8편을 가리켰다. V22.9.140 부터 첫 화면은 처음 읽을 순서로 고른 8편
+  // (‘처음이라면 이 글부터’)이고 새 글은 글 목록 허브에서 본다.
+  ok(NEW_PATHS.every((p) => hub.includes(`href="${p}"`)) && (pages.get("/") || "").includes('href="/articles"'), "새 글 8편은 글 목록 허브에 있고 첫 화면은 허브로 이어진다(V22.9.140)");
 
   // V22.9.108: 세무 글 8편도 다시 광고 허용 목록에 있다(V22.9.106 은 대표 글 6편만, 사용자 결정으로 공개 정본 53쪽).
   const siteConfig = stripBuildBlocks(readFileSync(new URL("../src/modules/public/site-config.js", import.meta.url), "utf8"));

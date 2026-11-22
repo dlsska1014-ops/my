@@ -223,7 +223,7 @@ await fixture(async (fx) => {
   for (const mark of order) at.push(home.indexOf(mark, at.length ? at[at.length - 1] + 1 : 0));
   t.ok(at.every((value) => value > 0), `홈 순서: 히어로 → 미리보기 → 세 걸음 → 공동 가계부 → 알아 둘 점 → 안내 절 → 카카오 로그인 띠 → 바닥글 (${at.join(" < ")})`);
   t.ok(home.indexOf('<section class="pubSection" id="section-1">') > home.indexOf('<section class="pubLand pubLandNote"'), "안내 절은 랜딩 묶음 뒤에 온다");
-  t.ok(home.includes('<div class="pubHeroActions"><a class="pubBtn" href="/my">내 가계부 시작하기</a><a class="pubBtn secondary" href="/demo">가상 가계부 둘러보기</a></div>'), "히어로 주 버튼 ‘내 가계부 시작하기’, 보조 ‘가상 가계부 둘러보기’");
+  t.ok(home.includes('<div class="pubHeroActions"><a class="pubBtn" href="/shared-living-cost-rules#inline-worksheet">가입 없이 생활비 정산하기</a><a class="pubBtn secondary" href="https://pf.kakao.com/_WpNXX/chat">카카오톡에서 시작하기</a></div>'), "홈에서 공개 정산과 카카오톡 채널 1:1 채팅을 각각 열 수 있다(V22.9.140)");
   t.ok(home.includes("<h1>말한 기록이, 함께 보는 생활비가 됩니다</h1>"), "히어로 제목은 지금 문구 그대로다");
   t.ok(!home.includes('<nav class="pubToc"'), "랜딩은 목차 대신 미리보기가 머리 바로 아래에 온다");
   t.ok(home.includes("<h2 id=\"land-steps\">기록은 세 걸음이면 끝나요</h2>") && ["카카오톡에 한 줄", "금액·내용·결제수단 정리", "웹에서 예산 확인"].every((step) => home.includes(`<b>${step}</b>`)), "세 걸음: 카톡에 한 줄 / 금액·내용·결제수단 정리 / 웹에서 예산 확인");
