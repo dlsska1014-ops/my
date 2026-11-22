@@ -1,3 +1,11 @@
+## V22.9.139 애드센스 재심사 보강 검사
+
+- [x] 새 검사 `validate-adsense-master-v229139` 319 checks: 계산표 9종(미니 3종 계산·예외), 세무 계산기 없음, 차트 3편 값 = 계산표 예제, 정본 글 본문 계산표 SSR·예제 검산 접기, 구조화 데이터에 WebApplication 없음, 세무 글 셋의 대표 단추 → 참고 자료, `/demo` 예시 표 = 봇 해석기 결과(‘3만5천원’·‘302호 … 230000원’ 포함), `/about` 생성형 도구 밝힘 문장, 웹 앱 링크.
+- [x] 앞 판 검사 기대값 갱신: `validate-sister-link-v22926`·`validate-v22995-support`·`validate-menu-leads-with-menu-v22910`·`validate-public-articles-v22974`·`validate-refund-links-v22979`·`validate-refund-links-v22980`·`validate-findings-ledger-v22976`, `validate-ads-review-fixes-v229107`(계산표 자산 판 ‘v229107 또는 뒤 판’).
+- [x] 하네스 두 모드 97,657 / 97,650(하한 97,650).
+- [x] 번들 12,128,350 B · SHA-256 `994e272dd48428cb643ab0513cbcfefdaecfb1b068dd2147d365740f1ebb9d67`(150 모듈). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_139.sha256`(938) · 하네스 두 모드 97,657 / 97,650(하한 97,650).
+- [ ] 배포 뒤 사람 확인(휴대폰·PC): 계산표 글 9편의 본문 계산표(입력을 바꾸고 ‘결과 계산’·CSV 저장), 차트 3편, 세무 글 셋의 대표 단추가 참고 자료로 가는지, `/demo` 예시 표, `/articles` 계산표 모음, 웹 앱 `/payment-methods`·`/reserve-plans`·`/settlement-summary`·`/menu` 의 공개 글 링크.
+
 ## V22.9.138 빠른 입력 시트 3층 검사
 
 - [x] 새 검사 `validate-v229138-quick-sheet` 136 checks: 홈 HTML(자주 쓰는 칩 다섯과 순서·‘자세히’ 줄의 날짜 넷·빠른 입력 칸의 ISO 날짜 0·새 자산 주소), 자산(새 주소 여섯의 1년 캐시·ETag·옛 주소의 옛 바이트·홈 스타일시트 네 규칙(칩 초점 테두리 포함)), 날짜 글 네 곳의 같은 표(한국 낮·자정 직후 × 기기 시간대 둘), 시트 머리·엇갈림 글·입력칸 없는 시트의 초점, 방 전용 보기·보통 세션의 알림 API, 알림 표시 함수, 첫 안내의 캘린더 단계. 바탕 코드(a2f45ca2)에서 94개가 실패한다. 해석 결과 한 줄과 [고치기]의 동작은 앞 판 검사 둘(validate-lucian-a-v22949·validate-lucian-a-native-contract-v22950)을 새 계약으로 정확히 다시 써서 본다(뒤의 것은 실제 홈 런타임의 해석 함수와 공용 입력 컨트롤러로 저장을 막는 까닭 여섯 장면을 돌린다).

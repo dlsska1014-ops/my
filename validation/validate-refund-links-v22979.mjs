@@ -18,11 +18,13 @@ const PRINT_GOLDEN = process.argv.includes("--print-golden");
 // V22.9.126(F-20, 2026-11-16): 정산 완료 지문(preview_digest)에 기본 참여자의 id·역할을 넣어 정산 화면 본문 셋(equalMain·itemMain·afterMain)과 완료 이력 항목(entry 의 rows_digest)의 값이 바뀌었다.
 // 해시에 들어가는 원문 28개를 운영 번들(main 9c3fa81)과 견줘 preview_digest 값 말고는 같음을 먼저 확인했고(지문에서 참여자 한 줄만 빼면 옛 값으로 251개가 모두 통과),
 // 그 뒤 --print-golden 으로 네 값을 다시 얻었다. memberMain·kakao·routes·readyKeys 는 그대로다.
+// V22.9.139(애드센스 재심사 보강, 2026-11-22): 정산 화면(/settlement-summary) 본문 하단에 공개 공동 생활비·입퇴거 일할 계산표 안내 카드를 더해 정산 화면 본문 넷(equalMain·itemMain·memberMain·afterMain)을 다시 뽑았다.
+// 안내 카드 한 줄만 빼면 옛 값 그대로 통과하며, kakao·entry·routes·readyKeys 는 그대로다.
 const FLAG_OFF_GOLDEN = {
-  equalMain: "c24ff23171c3d263dbc03342",
-  itemMain: "59f709871a82052f64c845f9",
-  memberMain: "f217a4472b9be984ae6cc7f7",
-  afterMain: "ad2bb736ab773b7c58132121",
+  equalMain: "09abc5c4aee863e0922c1e0a",
+  itemMain: "f1d0ab87b680273984dd8773",
+  memberMain: "89a25b927ae88d4e39ec2c0c",
+  afterMain: "2b4fd6868ab98f40b4c2b69d",
   // V22.9.134 S-1: 카카오 정산 답의 글 모양이 바뀌었다(읽는 차례·쉬운 말 — 금액과 사람은 V22.9.78 과 같다). 플래그가 꺼져 있으면 이 글 그대로여야 한다.
   kakao: "📊 2026-10 정산\n이번 달 함께 쓴 돈 130,000원을 2명이 똑같이 나눴어요.\n한 사람 몫: 65,000원\n\n💸 이렇게 보내면 돼요\n• WIFI♥ → Bin: 35,000원\n\n🧾 한 사람씩 보면\n• Bin: 낸 돈 100,000원 → 35,000원 받아요\n• WIFI♥: 낸 돈 30,000원 → 35,000원 보내요\n\n※ 환급(돌려받은 돈)은 이 정산에서 빼지 않아요. 환급 미리보기는 웹 정산 화면에서 볼 수 있고, 일반 정산 금액과 완료 이력에는 반영하지 않습니다.",
   entry: "{\"schema_version\":2,\"month\":\"2026-10\",\"mode\":\"equal\",\"conditions\":{\"weights\":{},\"itemParticipants\":{}},\"total_expense\":130000,\"participant_count\":2,\"shares\":[{\"user_id\":\"user-bin\",\"name\":\"Bin\",\"paid\":100000,\"share\":65000,\"balance\":35000},{\"user_id\":\"user-wifi\",\"name\":\"WIFI♥\",\"paid\":30000,\"share\":65000,\"balance\":-35000}],\"transfers\":[{\"from\":\"WIFI♥\",\"to\":\"Bin\",\"amount\":35000}],\"rows_digest\":\"2a966869aa9e946e9a42f16e389008c6\",\"note\":\"합성 정산\",\"completed_by\":\"user-bin\",\"status\":\"completed\"}",

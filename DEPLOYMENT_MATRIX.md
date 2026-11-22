@@ -1,3 +1,12 @@
+## V22.9.139 배포 판단
+
+- 대상: 앱 Worker `kakao-accountbook`(사용자 토큰 2단계)만. 관제 Worker·Secret·Kakao Developers·OpenBuilder·cron 일정·DB 스키마는 그대로다.
+- 지금 운영: `6c8345ba-54de-4b1b-a4dd-db30ed0f4789`(#365, V22.9.138-QUICK-SHEET), 바인딩 32·광고 모드 review. 관제 1.8.0.
+- SQL·Secret·쿠키·운영 변수 변경 없음 → 바인딩 그대로(32). 1년 캐시 계산표 자산 주소만 v229139 로 오른다(바로 앞 판 v229107 은 같은 내용).
+- 바뀌는 것: ① 공개 푸터의 `tools.malhaebook.com` 링크 분리와 빈 광고 칸 숨김 ② 정본 글 본문 계산표 9종(기존 6 + 예산·비상금·카드 실적 미니 3) ③ `/demo` 한 줄 기록 예시(봇 해석기 결과 표) ④ 차트 3편·주제별 대표 단추 34편·`/articles` 계산표 모음 ⑤ 웹 앱·로그인 화면의 공개 계산표·가이드 링크.
+- 되돌리기 대상(기록만) = 승격 시점의 활성 version(`6c8345ba-54de-4b1b-a4dd-db30ed0f4789`, #365, V22.9.138-QUICK-SHEET).
+- 번들 12,128,350 B · SHA-256 `994e272dd48428cb643ab0513cbcfefdaecfb1b068dd2147d365740f1ebb9d67`(150 모듈). manifest `BUNDLE_FILE_CHECKSUMS_V22_9_139.sha256`(938) · 하네스 두 모드 97,657 / 97,650(하한 97,650).
+
 ## V22.9.138 배포 판단
 
 - 대상: 앱 Worker `kakao-accountbook`(사용자 토큰 2단계)만. 관제 Worker·Secret·Kakao Developers·OpenBuilder·cron 일정·DB 스키마는 그대로다.

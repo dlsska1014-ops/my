@@ -4552,6 +4552,7 @@ function publicArticleIndex(catalog = {}) {
       published: page.published || page.updated, updated: page.updated,
       // V22.9.107 D-7: 계산표가 붙은 글(worksheet-pages.js 가 표시)은 글 목록 카드에 ‘계산표 포함’ 을 적는다.
       worksheet: page.worksheet === true,
+      miniCalculator: page.miniCalculator === true,
     }))
     .sort((a, b) => (a.published < b.published ? 1 : a.published > b.published ? -1 : a.title.localeCompare(b.title, "ko")));
 }

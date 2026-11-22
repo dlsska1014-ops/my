@@ -197,7 +197,7 @@ try {
   const editorial = (pages.get("/about").match(/<h2>글을 쓰는 사람과 검토 방식<\/h2>([\s\S]*?)<\/section>/) || [])[1] || "";
   const editorialText = textOf(editorial);
   eq((editorial.match(/<p>/g) || []).length, 3, "editorial section has three paragraphs");
-  for (const word of ["운영자", "공식 자료", "수정일", "글쓰기 도구", "권하지 않", "광고"]) ok(editorialText.includes(word), `about editorial section mentions ${word}`);
+  for (const word of ["운영자", "공식 자료", "수정일", "검산", "권하지 않", "광고"]) ok(editorialText.includes(word), `about editorial section mentions ${word}`);
   ok(editorial.includes('href="/articles"'), "editorial section links the hub");
   ok(pages.get("/guides").includes('href="/articles"'), "/guides links the hub");
   for (const path of [HUB, ...ARTICLES]) ok(pages.get("/site-map").includes(`href="${path}"`), `${path}: listed on the visible site map`);

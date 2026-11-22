@@ -35,8 +35,12 @@ globalThis.fetch = async () => { outbound++; throw new Error("unexpected outboun
 try {
   const health = JSON.parse((await request("/health")).html);
   eq(health.version, VERSION, "판 이름");
-  eq(assetVersion, "v229107", "계산표 자산 주소 판");
-  eq(previousVersions, ["v229106"], "바로 앞 판 주소만 같은 내용으로 낸다");
+  // V22.9.139: 계산 함수가 바뀌어 주소 판이 v229139 로 올랐다. 이 검사는 ‘v229107 또는 뒤 판’ 과 ‘바로 앞 판 하나’ 만 본다.
+  const versionNumber = (v) => (/^v\d{6}$/.test(v) ? Number(v.slice(1)) : NaN);
+  ok(versionNumber(assetVersion) >= 229107, `계산표 자산 주소 판(v229107 또는 뒤 판: ${assetVersion})`);
+  ok(previousVersions.length === 1 && versionNumber(previousVersions[0]) < versionNumber(assetVersion), "바로 앞 판 주소 하나만 같은 내용으로 낸다");
+  const previousVersion = previousVersions[0];
+  const retiredVersions = ["v229105", "v229106", "v229107"].filter((v) => v !== previousVersion && v !== assetVersion);
 
   for (const [slug, spec] of Object.entries(specs)) {
     const path = `/${slug}`;
@@ -81,17 +85,17 @@ try {
     ok(first.includes(spec.outcome) && !first.includes(spec.instruction) && !first.includes("<table"), `${path}: 첫 절은 결과 한 문단뿐(입력 안내·표 없음)`);
     const lastSection = article.html.match(new RegExp(`<section class="pubSection" id="section-${h2.length}">([\\s\\S]*?)<\\/section>`))[1];
     ok(lastSection.includes(spec.instruction) && lastSection.includes("<table") && lastSection.includes('class="pubNote"') && lastSection.includes(worksheetPath(slug)) && lastSection.includes(`${worksheetPath(slug)}?download=1`), `${path}: 마지막 절에 입력 안내·검산 표·가상 예제 안내·계산표 링크 둘`);
-    eq((article.html.match(/living-worksheet-v229106-/g) || []).length, 0, `${path}: 옛 판 계산표 주소를 쓰지 않는다`);
-    eq((article.html.match(/living-worksheet-v229107-/g) || []).length, 4, `${path}: 새 판 계산표 주소(머리 단추 2 + 마지막 절 링크 2)`);
+    eq((article.html.match(new RegExp(`living-worksheet-${previousVersion}-`, "g")) || []).length, 0, `${path}: 옛 판 계산표 주소를 쓰지 않는다`);
+    eq((article.html.match(new RegExp(`living-worksheet-${assetVersion}-`, "g")) || []).length, 4, `${path}: 새 판 계산표 주소(머리 단추 2 + 마지막 절 링크 2)`);
 
     // D-4~D-6 계산표 자산: 새 판·옛 판 주소는 같은 내용, 두 판 전은 404, 머리·꼬리 링크, 변경 전 결과 표시, 휴대폰 2열.
     const sheet = await request(worksheetPath(slug));
     eq(sheet.status, 200, `${slug}: 계산표 200`);
     eq(sheet.headers.get("cache-control"), "public, max-age=31536000, immutable", `${slug}: 1년 캐시`);
     eq(sheet.headers.get("x-robots-tag"), "noindex, follow", `${slug}: 색인 제외`);
-    const old = await request(worksheetPath(slug, "v229106"));
+    const old = await request(worksheetPath(slug, previousVersion));
     ok(old.status === 200 && old.html === sheet.html, `${slug}: 바로 앞 판 주소는 같은 내용`);
-    eq((await request(worksheetPath(slug, "v229105"))).status, 404, `${slug}: 두 판 전 주소는 404`);
+    for (const retired of retiredVersions) eq((await request(worksheetPath(slug, retired))).status, 404, `${slug}: 두 판 전 주소(${retired})는 404`);
     const head = await request(worksheetPath(slug), {}, "HEAD");
     ok(head.status === 200 && head.html === "", `${slug}: HEAD`);
     ok(sheet.html.includes('<nav class="top" aria-label="현재 위치"><a href="https://malhaebook.com/">말해가계부</a>') && sheet.html.includes(`<a href="https://malhaebook.com/${slug}">설명 글과 계산 근거로 돌아가기</a></nav>`), `${slug}: 머리 줄(서비스 · 글 목록 · 설명 글)`);

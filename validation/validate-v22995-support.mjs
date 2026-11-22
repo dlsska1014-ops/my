@@ -174,7 +174,7 @@ await withClock(TODAY, () => fixture(async (fx) => {
     const home = await page(fx, "/", { cookie: "" });
     const footer = home.html.match(/<footer class="pubFooter">[\s\S]*?<\/footer>/)?.[0] || "";
     const links = hrefs(footer);
-    ok(links.includes("/support") && links.at(-1) === "https://tools.malhaebook.com/" && links.indexOf("/support") === links.length - 2, "3-e 공개 꼬리말: ‘후원하기’ 는 자기 링크의 끝, 형제 사이트 링크는 맨 끝 그대로");
+    ok(links.includes("/support") && links.at(-1) === "/support", "3-e 공개 꼬리말: ‘후원하기’ 는 공개 꼬리말 링크의 맨 끝이다(V22.9.139 서브도메인 분리)");
   });
 
   // ── 2. 후원자 표시: 전체 메뉴·홈 ──────────────────────────────────────────
