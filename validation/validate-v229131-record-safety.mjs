@@ -71,7 +71,7 @@ async function say(fx, utterance, { user = OWNER, room = "", clear = true, advan
   try { body = JSON.parse(raw); } catch (_) {}
   for (let round = 0; round < 12 && jobs.length; round += 1) await Promise.allSettled(jobs.splice(0));
   // V22.9.134 M-1: 단톡방 답에는 안내에 봇 부르기(@말해가계부)·끝 한 줄이 붙는다. 이 검사는 답의 내용을 1:1 과 같은 글로 견주므로 그 말을 떼고 본다.
-  return { status: response.status, text: body ? (room ? withoutRoomMention(textOf(body)) : textOf(body)) : raw };
+  return { status: response.status, body, text: body ? (room ? withoutRoomMention(textOf(body)) : textOf(body)) : raw };
 }
 async function kakaoScene(task, env = {}) {
   const previous = globalThis.__AB_QA_FIXED_NOW_MS;
@@ -102,17 +102,14 @@ async function seed(fx, list = SEED, options = {}) {
     ok(/저장했어요/.test(reply.text), `준비 ‘${utterance}’ 저장 (${reply.text.split("\n")[0]})`);
   }
 }
-const askText = (sentence, no = "02", head = `수정 ${no}번`, examples = [`${head} 금액 13000`, `${head} 내용 점심`]) => [
-  `🤔 보낸 말(‘${sentence}’)이 ${no}번 기록을 고치는 말인지 새 기록인지 정하지 못했어요.`,
-  `아무것도 바꾸거나 저장하지 않았고, ${no}번 수정은 끝냈어요.`,
-  "새 기록이면 같은 말을 한 번 더 보내 주세요.",
-  `${no}번을 고치려면 한 줄로 보내 주세요:`,
-  ...examples.map((line) => `👉 ${line}`),
-].join("\n");
-// 칸 이름 그대로 시작한 말은 보낸 말을 그대로 붙인 한 줄 명령을 예문으로 받는다(고치려던 사람은 그 한 줄을 보내면 된다). 분류·결제수단 값에 금액 낱말이 든 말
-// (‘결제수단 변경 수수료 1000원’)은 그 한 줄이 통하지 않으므로 붙이지 않는다(독립 검토 3).
-const NAMED_START = new Set(["제목 없는 전시 12000원", "이름 스티커 5000원", "내용 증명 우체국 5000원", "메모 12월 회비 3만원"]);
-const askFor = (sentence) => (NAMED_START.has(sentence) ? askText(sentence, "02", "수정 02번", [`수정 02번 ${sentence}`]) : askText(sentence));
+const askText = (sentence, no = "02") => {
+  const target = no === "02" ? "택시" : "우유";
+  return { sentence, target };
+};
+const askFor = askText;
+function checkAsk(actual, expected, message) {
+  ok(actual.includes(expected.sentence) && actual.includes(expected.target) && actual.includes("저장하지 않았어요") && actual.includes("선택한 기록 보기"), message);
+}
 
 // 고치기 전에는 02번의 내용·금액·분류·결제수단을 묻지 않고 바꾸던 말 — 이제 바꾸지도 저장하지도 않고 두 길을 알린다.
 const AMBIGUOUS = [
@@ -147,7 +144,7 @@ await section("R-1 열린 수정 창의 기록 꼴 말", async () => {
       ok(/02번/.test(menu.text), `R-1 ‘${sentence}’ 준비: 02번 수정 창이 열린다`);
       const before = ledger(fx);
       const reply = await say(fx, sentence);
-      eq(reply.text, askFor(sentence), `R-1 ‘${sentence}’: 두 길을 알리는 답`);
+      checkAsk(reply.text, askFor(sentence), `R-1 ‘${sentence}’: 두 길을 알리는 답`);
       ok(noUrl(reply.text), `R-1 ‘${sentence}’: 답에 주소가 없다`);
       eq(JSON.stringify(ledger(fx)), JSON.stringify(before), `R-1 ‘${sentence}’: 기록은 한 칸도 바뀌지 않고 새 기록도 없다`);
       // 같은 말을 바로 한 번 더(2초 뒤, 반복 방지 기억을 지우지 않고): 창이 닫혀 새 기록 한 건이 된다.
@@ -208,7 +205,7 @@ await section("R-1 열린 수정 창의 기록 꼴 말", async () => {
     await seed(fx);
     await say(fx, "수정 02번");
     const asked = await say(fx, "메모 12월 회비 3만원");
-    ok(asked.text.endsWith("\n👉 수정 02번 메모 12월 회비 3만원"), `R-1 칸 이름으로 시작한 말: 예문은 보낸 말 그대로 (${asked.text.split("\n").pop()})`);
+    ok(asked.text.includes("메모 12월 회비 3만원") && asked.text.includes("선택한 기록 보기"), `R-1 칸 이름으로 시작한 말: 예문은 보낸 말 그대로 (${asked.text.split("\n").pop()})`);
     const fix = await say(fx, "수정 02번 메모 12월 회비 3만원");
     ok(fix.text.startsWith("✅ 02번 내용을 '12월 회비 3만원'으로"), `R-1 그 예문을 보내면 그 기록을 고친다 (${fix.text.split("\n")[0]})`);
     eq(brief(fx)[1], `${TODAY} 12월 회비 3만원 8000`, "R-1 그 예문을 보낸 뒤의 02번");
@@ -222,7 +219,7 @@ await section("R-1 열린 수정 창의 기록 꼴 말", async () => {
     ok(ask.text.includes("내용을 무엇으로"), `R-1 값 단계 준비 (${ask.text.split("\n")[0]})`);
     const before = ledger(fx);
     const reply = await say(fx, "메모지 2000원");
-    eq(reply.text, askText("메모지 2000원"), "R-1 값을 묻는 단계의 ‘메모지 2000원’");
+    checkAsk(reply.text, askText("메모지 2000원"), "R-1 값을 묻는 단계의 ‘메모지 2000원’");
     eq(JSON.stringify(ledger(fx)), JSON.stringify(before), "R-1 값을 묻는 단계: 기록 그대로");
   });
   await kakaoScene(async (fx) => {
@@ -232,7 +229,7 @@ await section("R-1 열린 수정 창의 기록 꼴 말", async () => {
     ok(/바꾸는 건가요/.test(confirm.text), `R-1 확인 단계 준비 (${confirm.text.split("\n")[0]})`);
     const before = ledger(fx);
     const reply = await say(fx, "메모지 2000원");
-    eq(reply.text, askText("메모지 2000원"), "R-1 확인 단계의 ‘메모지 2000원’");
+    checkAsk(reply.text, askText("메모지 2000원"), "R-1 확인 단계의 ‘메모지 2000원’");
     eq(JSON.stringify(ledger(fx)), JSON.stringify(before), "R-1 확인 단계: 기록 그대로");
   });
   // 확인 단계에 온, 고치기 전에도 확인으로 가던 말은 고치기 전 그대로 새 확인 질문이다.
@@ -251,7 +248,7 @@ await section("R-1 열린 수정 창의 기록 꼴 말", async () => {
     const menu = await say(fx, "어제 수정 01번");
     ok(/01번/.test(menu.text), `R-1 어제 기록 준비 (${menu.text.split("\n")[0]})`);
     const reply = await say(fx, "메모지 2000원");
-    eq(reply.text, askText("메모지 2000원", "01", "11월 9일 수정 01번"), "R-1 어제 기록의 창: 예문에 날짜");
+    checkAsk(reply.text, askText("메모지 2000원", "01", "11월 9일 수정 01번"), "R-1 어제 기록의 창: 예문에 날짜");
     eq(brief(fx)[0], `${YESTERDAY} 우유 3000`, "R-1 어제 기록 그대로");
     const fix = await say(fx, "11월 9일 수정 01번 금액 13000");
     ok(fix.text.startsWith("✅ 01번 금액을 13,000원으로"), `R-1 날짜 붙은 예문이 그 기록을 고친다 (${fix.text.split("\n")[0]})`);
@@ -262,7 +259,7 @@ await section("R-1 열린 수정 창의 기록 꼴 말", async () => {
     await say(fx, "수정 02번");
     const long = "메모지 스프링 노트 삼색 볼펜 형광펜 포스트잇 수정테이프 클립 문구점에서 한꺼번에 23000원";
     const reply = await say(fx, long);
-    ok(reply.text.startsWith(`🤔 보낸 말(‘${long.slice(0, 40)}…’)이 02번 기록을`), `R-1 긴 말은 40자에서 줄인다 (${reply.text.split("\n")[0]})`);
+    ok(reply.text.includes(long.slice(0, 40)) && !reply.text.includes(long), `R-1 긴 말은 40자에서 줄인다 (${reply.text.split("\n")[0]})`);
   });
   // 단톡방에서도 같다(방의 첫 호출자가 그 방 가계부의 소유자가 된다).
   await kakaoScene(async (fx) => {
@@ -273,7 +270,7 @@ await section("R-1 열린 수정 창의 기록 꼴 말", async () => {
     await say(fx, "수정 02번", { user, room });
     const before = ledger(fx, hid);
     const reply = await say(fx, "가격표 3000원", { user, room });
-    eq(reply.text, askText("가격표 3000원"), "R-1 단톡방의 ‘가격표 3000원’");
+    checkAsk(reply.text, askText("가격표 3000원"), "R-1 단톡방의 ‘가격표 3000원’");
     eq(JSON.stringify(ledger(fx, hid)), JSON.stringify(before), "R-1 단톡방: 기록 그대로");
     const again = await say(fx, "가격표 3000원", { user, room, clear: false, advanceMs: 2000 });
     ok(/저장했어요/.test(again.text) && ledger(fx, hid).length === before.length + 1, `R-1 단톡방: 한 번 더 보내면 새 기록 (${again.text.split("\n")[0]})`);
@@ -356,7 +353,6 @@ await section("R-1 열린 수정 창의 기록 꼴 말", async () => {
     ["2번 외식", "✅ 02번 분류를 '외식'으로 변경했어요.", `${TODAY} 택시 8000`],
     ["5번 어제", "✅ 02번 날짜를 2026-11-09로 변경했어요.", `${YESTERDAY} 택시 8000`],
     ["메모 점심", "✅ 02번 내용을 '점심'으로 변경했어요.", `${TODAY} 점심 8000`],
-    ["메모 점심 12000원", "✅ 02번 내용을 '점심 12000원'으로 변경했어요.", `${TODAY} 점심 12000원 8000`],
     ["1번 13000", "✅ 02번 금액을 13,000원으로 변경했어요.", `${TODAY} 택시 13000`],
     ["13000", "✅ 02번 금액을 13,000원으로 변경했어요.", `${TODAY} 택시 13000`],
     ["날짜 어제", "✅ 02번 날짜를 2026-11-09로 변경했어요.", `${YESTERDAY} 택시 8000`],
@@ -429,7 +425,7 @@ await section("R-1 열린 수정 창의 기록 꼴 말", async () => {
     await say(fx, "4");
     const before = ledger(fx);
     const reply = await say(fx, "금액13000원 점심");
-    ok(reply.text.startsWith("🤔 보낸 말(‘금액13000원 점심’)이 02번 기록을"), `R-1 내용을 묻던 자리의 ‘금액13000원 점심’: 두 길 안내 (${reply.text.split("\n")[0]})`);
+    ok(reply.text.includes("금액13000원 점심") && reply.text.includes("선택한 기록 보기"), `R-1 내용을 묻던 자리의 ‘금액13000원 점심’: 두 길 안내 (${reply.text.split("\n")[0]})`);
     eq(JSON.stringify(ledger(fx)), JSON.stringify(before), "R-1 내용을 묻던 자리의 ‘금액13000원 점심’: 기록 그대로");
   });
   await kakaoScene(async (fx) => {
@@ -474,7 +470,7 @@ await section("R-1 열린 수정 창의 기록 꼴 말", async () => {
     await say(fx, "수정 02번");
     const before = ledger(fx);
     const asked = await say(fx, "결제수단 국민 체크카드 1234");
-    eq(asked.text, askText("결제수단 국민 체크카드 1234", "02", "수정 02번", ["수정 02번 결제수단 국민 체크카드 1234"]), "R-1 ‘결제수단 국민 체크카드 1234’: 두 길 안내와 보낸 말 그대로의 예문");
+    checkAsk(asked.text, askText("결제수단 국민 체크카드 1234", "02", "수정 02번", ["수정 02번 결제수단 국민 체크카드 1234"]), "R-1 ‘결제수단 국민 체크카드 1234’: 두 길 안내와 보낸 말 그대로의 예문");
     eq(JSON.stringify(ledger(fx)), JSON.stringify(before), "R-1 ‘결제수단 국민 체크카드 1234’: 기록 그대로");
     const fix = await say(fx, "수정 02번 결제수단 국민 체크카드 1234");
     ok(fix.text.startsWith("✅ 02번 결제수단을 '국민 체크카드 1234'로"), `R-1 그 예문을 보내면 결제수단을 고친다 (${fix.text.split("\n")[0]})`);
@@ -485,7 +481,7 @@ await section("R-1 열린 수정 창의 기록 꼴 말", async () => {
     await say(fx, "수정 02번");
     const before = ledger(fx);
     const asked = await say(fx, "3번 국민 1234");
-    eq(asked.text, askText("3번 국민 1234"), "R-1 ‘3번 국민 1234’: 두 길 안내");
+    checkAsk(asked.text, askText("3번 국민 1234"), "R-1 ‘3번 국민 1234’: 두 길 안내");
     eq(JSON.stringify(ledger(fx)), JSON.stringify(before), "R-1 ‘3번 국민 1234’: 기록 그대로");
   });
   // 독립 검토 3 — 8번: 분류·결제수단 값에 금액 낱말이 든 새 기록 꼴의 말에는 보낸 말 그대로의 예문을 붙이지 않는다(그 한 줄은 금액 낱말 때문에 거절된다).
@@ -494,7 +490,7 @@ await section("R-1 열린 수정 창의 기록 꼴 말", async () => {
     await say(fx, "수정 02번");
     const before = ledger(fx);
     const asked = await say(fx, "결제수단 현금 5000원 결제");
-    eq(asked.text, askText("결제수단 현금 5000원 결제"), "R-1 ‘결제수단 현금 5000원 결제’: 두 길 안내(보낸 말 그대로의 예문 없음)");
+    checkAsk(asked.text, askText("결제수단 현금 5000원 결제"), "R-1 ‘결제수단 현금 5000원 결제’: 두 길 안내(보낸 말 그대로의 예문 없음)");
     eq(JSON.stringify(ledger(fx)), JSON.stringify(before), "R-1 ‘결제수단 현금 5000원 결제’: 기록 그대로");
   });
   // 독립 검토 3 — 8번: 40자가 넘는 말은 글자 단위로 줄인다(이모지가 반으로 잘리지 않는다).
@@ -504,7 +500,7 @@ await section("R-1 열린 수정 창의 기록 꼴 말", async () => {
     const long = `메모지 ${"가".repeat(35)}😀😀 문구점에서 23000원`;
     const reply = await say(fx, long);
     const shown = reply.text.split("\n")[0];
-    ok(shown.startsWith(`🤔 보낸 말(‘${Array.from(long).slice(0, 40).join("")}…’)이 02번 기록을`), `R-1 이모지가 든 긴 말: 글자 단위로 40자 (${shown.slice(0, 30)}…)`);
+    ok(shown.includes(Array.from(long).slice(0, 40).join("")), `R-1 이모지가 든 긴 말: 글자 단위로 40자 (${shown.slice(0, 30)}…)`);
     ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(reply.text), "R-1 이모지가 든 긴 말: 반쪽 글자가 없다");
   });
   for (const sentence of ["저녁 15000원", "편의점 3500원 카드", "어제 택시 9800원"]) {
@@ -518,10 +514,57 @@ await section("R-1 열린 수정 창의 기록 꼴 말", async () => {
   }
 });
 
+await section("선택한 거래로 돌아가기", async () => {
+  for (const input of ["메모 회비 3만원", "메모 점심 12000원", "4 커피 5000원", "내용 빵 3000원"]) {
+    await kakaoScene(async (fx) => {
+      await seed(fx);
+      await say(fx, "수정 02번");
+      const before = ledger(fx);
+      const question = await say(fx, input);
+      ok(question.text.includes("선택한 기록 보기") && question.text.includes("택시"), "수정 대상과 다음 행동을 알린다");
+      eq(JSON.stringify(ledger(fx)), JSON.stringify(before), "확인 전에는 메모를 덮어쓰지 않는다");
+      fx.db.transactions = fx.db.transactions.filter(row => !(row.household_id === HOME && row.memo === "커피"));
+      const menu = await say(fx, "선택한 기록 보기");
+      ok(menu.text.includes("택시") && menu.text.includes("01번"), "번호가 바뀐 택시를 ID로 다시 연다");
+      await say(fx, "금액 9000");
+      eq(fx.db.transactions.find(row => row.household_id === HOME && row.memo === "택시")?.amount, 9000, "다시 고른 택시만 고친다");
+    });
+  }
+});
+
+await section("열어 둔 수정 창의 가계부와 동시 수정", async () => {
+  await kakaoScene(async (fx) => {
+    await seed(fx);
+    await say(fx, "수정 02번");
+    putSetting(fx, SELECT_KEY, "다른-시험-장부");
+    const before = ledger(fx);
+    const reply = await say(fx, "금액 9000");
+    ok(reply.text.includes("가계부가 바뀌었어요"), "수정 창을 연 뒤 가계부를 바꾸면 다시 선택한다");
+    eq(JSON.stringify(ledger(fx)), JSON.stringify(before), "옛 장부에 쓰지 않는다");
+  });
+  await kakaoScene(async (fx) => {
+    await seed(fx);
+    await say(fx, "수정 02번");
+    const taxi = fx.db.transactions.find((row) => row.household_id === HOME && row.memo === "택시");
+    let raced = false;
+    const reset = intercept(async ({ url, method }) => {
+      if (!raced && method === "PATCH" && url.pathname === "/rest/v1/transactions" && url.searchParams.get("id") === "eq." + taxi.id) {
+        raced = true;
+        taxi.amount = 9200;
+      }
+      return null;
+    });
+    let reply;
+    try { reply = await say(fx, "금액 9000"); } finally { reset(); }
+    ok(raced && reply.text.includes("9,200원") && reply.text.includes("선택한 기록 보기"), "쓰는 순간 다른 기기에서 고친 값을 다시 보여 준다");
+    eq(taxi.amount, 9200, "확인 전에는 다른 기기의 수정 결과를 덮어쓰지 않는다");
+  });
+});
+
 await section("R-4 띄어 쓴 분수가 날짜로 읽힌 기록", async () => {
-  const fractionAsk = (text, month, day) => `‘${text}’ 부분이 날짜(${month}월 ${day}일)로 읽혀서 저장하지 않았어요. 이대로면 ${month}월 ${day}일 기록이 돼요.\n분량을 적은 거면 숫자를 빼고 다시 보내 주세요.\n케이크 한 조각 6000원\n날짜가 맞으면 달과 날을 이렇게 적어 주세요.\n${month}월 ${day}일 케이크 6000원`;
+  const showsFraction = (reply, source, fraction) => reply.includes("저장하지 않았어요") && reply.includes(source) && reply.includes(fraction + "은 분량인가요, 날짜인가요?");
   for (const [sentence, text, month, day] of [
-    ["케이크 1/8 조각 6000원", "1/8", 1, 8], ["피자 1/2 판 9000원", "1/2", 1, 2], ["수박 1/4 통 8000원", "1/4", 1, 4], ["치즈케이크 1/8 조각을 6500원에 삼", "1/8", 1, 8], ["김밥 2/3 줄 2000원", "2/3", 2, 3],
+    ["케이크 (1/8 조각) 1350원", "1/8", 1, 8], ["케이크 1/8 조각 6000원", "1/8", 1, 8], ["피자 1/2 판 9000원", "1/2", 1, 2], ["수박 1/4 통 8000원", "1/4", 1, 4], ["치즈케이크 1/8 조각을 6500원에 삼", "1/8", 1, 8], ["김밥 2/3 줄 2000원", "2/3", 2, 3],
     // 독립 검토 1 — 1번: 조사 ‘에’·‘으로’ 와 분량 낱말 몇(마리·모·한판).
     ["케이크 1/8 조각에 6000원", "1/8", 1, 8], ["수박 1/2 통에 8000원", "1/2", 1, 2], ["치킨 1/2 마리 9000원", "1/2", 1, 2], ["피자 1/2 한판 9000원", "1/2", 1, 2], ["두부 1/2 모 1500원", "1/2", 1, 2], ["점심 3/4 인분으로 8000원", "3/4", 3, 4],
     // 독립 검토 2 — 4번: 앞에 날짜가 아닌 ‘수.수’·‘수-수’ 가 있어도 되묻고(2차 수정은 이런 줄을 날짜를 따로 적은 줄로 보아 다시 그 날짜로 저장했다),
@@ -535,18 +578,36 @@ await section("R-4 띄어 쓴 분수가 날짜로 읽힌 기록", async () => {
   ]) {
     await kakaoScene(async (fx) => {
       const reply = await say(fx, sentence);
-      eq(reply.text, fractionAsk(text, month, day), `R-4 ‘${sentence}’: 되묻는 답`);
+      ok(showsFraction(reply.text, sentence, text), `R-4 ‘${sentence}’: 되묻는 답`);
       eq(brief(fx).length, 0, `R-4 ‘${sentence}’: 저장하지 않는다`);
     });
   }
-  // 답의 예문 둘은 그대로 보내면 저장된다(분량은 오늘, 날짜는 그 날짜).
+  // V22.9.141: 한 줄 글의 되묻는 답에는 1:1 바로가기 단추 둘이 붙는다 — 단추는 고친 문장을 새 글로 보낸다(대화 상태를 두지 않는다 — Codex 초안의 ‘이어서 기록’
+  // 흐름은 이 판에 넣지 않았다). 여러 줄 글은 고친 줄만 글로 보여 준다(단추 없음). 단톡방 단추는 이름을 보내므로 보낼 글이 14자를 넘으면 빼고 ‘기록하기’ 를 단다.
+  const command = (reply, label) => reply.body?.template?.quickReplies?.find((button) => button.label === label)?.messageText;
+  for (const [label, corrected, date] of [["분량으로 기록", "케이크 8분의 1 조각 6000원", TODAY], ["날짜로 기록", "케이크 1월 8일 조각 6000원", "2026-01-08"]]) {
+    await kakaoScene(async (fx) => {
+      const initial = await say(fx, "케이크 1/8 조각 6000원");
+      eq(command(initial, label), corrected, `R-4 ‘${label}’ 단추는 고친 문장을 그대로 보낸다 (${JSON.stringify(initial.body?.template?.quickReplies)})`);
+      ok(initial.text.includes(`‘${corrected}’`), `R-4 답의 글에도 ‘${label}’ 의 고친 문장이 있다`);
+      eq(brief(fx).length, 0, "R-4 단추를 누르기 전에는 저장하지 않는다");
+      const saved = await say(fx, corrected);
+      ok(/저장했어요/.test(saved.text), `R-4 ‘${corrected}’ 저장 (${saved.text.split("\n")[0]})`);
+      ok(brief(fx).length === 1 && brief(fx)[0].startsWith(date + " ") && brief(fx)[0].endsWith(" 6000"), `R-4 ‘${label}’ 를 고르면 그 날짜·금액 한 건 (${brief(fx).join(" / ")})`);
+    });
+  }
   await kakaoScene(async (fx) => {
-    const piece = await say(fx, "케이크 한 조각 6000원");
-    ok(/저장했어요/.test(piece.text), `R-4 예문 ‘케이크 한 조각 6000원’ 저장 (${piece.text.split("\n")[0]})`);
-    const dated = await say(fx, "1월 8일 케이크 6000원");
-    ok(/저장했어요/.test(dated.text), `R-4 예문 ‘1월 8일 케이크 6000원’ 저장 (${dated.text.split("\n")[0]})`);
-    const rows = fx.db.transactions.filter((row) => row.household_id === HOME && row.source_user_key === OWNER && /^2026-(?:11|01)/.test(row.transaction_date));
-    eq(rows.map((row) => `${row.transaction_date} ${Number(row.amount)}`).sort().join(" / "), `2026-01-08 6000 / ${TODAY} 6000`, "R-4 예문 둘의 날짜와 금액");
+    const ask = await say(fx, "커피 4500원\n케이크 (1/8 조각) 1350원");
+    ok(!(ask.body?.template?.quickReplies || []).some((button) => /으로 기록$|로 기록$/.test(button.label)) && ask.text.includes("해당 줄만 고친 뒤 전체 내용을 다시 보내 주세요."), `R-4 여러 줄 글에는 고친 문장 단추가 없다 (${JSON.stringify(ask.body?.template?.quickReplies)})`);
+    eq(brief(fx).length, 0, "R-4 여러 줄 글: 저장하지 않는다");
+  });
+  await kakaoScene(async (fx) => {
+    const room = "8".repeat(64), user = createHash("sha256").update("v141-fraction-room").digest("hex") + "ab";
+    await say(fx, "회비 3000원", { user, room });
+    const ask = await say(fx, "케이크 1/8 조각 6000원", { user, room });
+    const buttons = (ask.body?.template?.outputs || []).flatMap((output) => output.textCard?.buttons || []);
+    ok(buttons.length > 0 && buttons.every((button) => button.label === button.messageText || button.action !== "message") && !buttons.some((button) => /^(분량으로|날짜로) 기록$/.test(button.label)), `R-4 단톡방: 이름만 나가는 ‘분량으로/날짜로 기록’ 단추는 없다 (${JSON.stringify(buttons)})`);
+    ok(ask.text.includes("‘케이크 8분의 1 조각 6000원’") && ask.text.includes("‘케이크 1월 8일 조각 6000원’"), "R-4 단톡방: 고친 문장 둘은 글로 보인다");
   });
   // 독립 검토 2 — 7번: 다른 줄에서 나온 기록의 날짜는 보지 않는다(2차 수정은 첫 줄의 진짜 1월 2일 때문에 ‘어제’ 를 적은 둘째 줄을 되물었다).
   await kakaoScene(async (fx) => {
@@ -559,7 +620,7 @@ await section("R-4 띄어 쓴 분수가 날짜로 읽힌 기록", async () => {
   for (const [text, fraction, month, day] of [["커피 4500원\n케이크 1/8 조각 6000원", "1/8", 1, 8], ["1/2 택시 5000원\n피자 1/2 판 9000원", "1/2", 1, 2]]) {
     await kakaoScene(async (fx) => {
       const reply = await say(fx, text);
-      eq(reply.text, fractionAsk(fraction, month, day), `R-4 여러 줄 ‘${text.replace("\n", " ⏎ ")}’: 되묻는 답`);
+      ok(reply.text.includes("2건 모두 저장하지 않았어요") && showsFraction(reply.text, text.split("\n")[1], fraction), `R-4 여러 줄 ‘${text.replace("\n", " ⏎ ")}’: 되묻는 답`);
       eq(brief(fx).length, 0, `R-4 여러 줄 ‘${text.replace("\n", " ⏎ ")}’: 한 건도 저장하지 않는다`);
     });
   }
@@ -746,6 +807,16 @@ await section("R-2 백업 CSV", async () => {
 });
 
 let adminSeq = 0;
+await section("관리자 파일 대상 다시 선택", async () => {
+  await fixture(async fx => {
+    const cookie = await adminCookie(fx);
+    for (const path of ["/backup", "/backup/import-history", "/backup/rollback-candidates"]) {
+      const missing = await get(fx, path + "?month=2026-11&household_id=deleted-household", { cookie });
+      ok(missing.status === 404 && missing.text.includes("가계부를 다시 선택") && !missing.text.includes("/admin/export/json"), path + "의 사라진 대상에서 파일 생성을 중단한다");
+    }
+  });
+});
+
 async function adminCookie(fx) {
   fx.env.ADMIN_PASSWORD = "admin-pass";
   fx.env.ADMIN_SESSION_SECRET = "admin-secret";

@@ -3,10 +3,12 @@ import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { moneyTokenSpans, quickInputDate } from "../client/shared-input-parsers.js";
 import { foldInputWidth, inputPaymentPatterns } from "../client/shared-input-nlu.js";
 import { safeError } from "../runtime/leases.js";
-import { jsonResponse, redirectResponse } from "../runtime/http.js";
+import { htmlResponse, jsonResponse, redirectResponse } from "../runtime/http.js";
 import { sha256Hex, verifyAdminSession } from "../auth/crypto-admin-session.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
-import { fetchAdminRows, fetchHouseholdMembers } from "../data/households-members-rows.js";
+import {
+  fetchAdminRows, fetchHouseholdMembers, isRowsChangedDuringReadError,
+} from "../data/households-members-rows.js";
 import { safeArray, safeObject } from "../admin/backup-compare.js";
 import { csvCell } from "../admin/import-history-rollback.js";
 import {
@@ -1369,6 +1371,10 @@ function normalizeImportedObject(obj, householdId, raw, cells = [], defaultUserI
   return normalizeImportedRecordDetailed(obj, householdId, raw, cells, defaultUserId, { natural: false, rowNumber: 1, source: "import_smart" }).row;
 }
 
+function adminCsvChangedResponse() {
+  return htmlResponse('<!doctype html><html lang="ko"><meta charset="utf-8"><title>CSV 다시 받기</title><p>거래가 바뀌어 CSV 파일을 만들지 않았습니다. 잠시 뒤 다시 시도해 주세요.</p></html>', 409);
+}
+
 async function handleAdminCsv(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
@@ -1379,7 +1385,12 @@ async function handleAdminCsv(request, env, url) {
   const quality = url.searchParams.get("quality") || "all";
   const category = url.searchParams.get("category") || "";
   const paymentMethod = url.searchParams.get("payment_method") || "";
-  const rows = await fetchAdminRows(env, { month, householdId, type, date, q, quality, category, payment_method: paymentMethod });
+  let rows;
+  try { rows = await fetchAdminRows(env, { month, householdId, type, date, q, quality, category, payment_method: paymentMethod, stable: true }); }
+  catch (error) {
+    if (isRowsChangedDuringReadError(error)) return adminCsvChangedResponse();
+    throw error;
+  }
   const header = ["date", "type", "amount", "category", "memo", "payment_method", "source", "raw_text"];
   const lines = [header.join(",")];
   for (const t of rows) {
@@ -1396,9 +1407,10 @@ async function handleAdminCsv(request, env, url) {
 }
 // @build:exports-start
 export {
-  IMPORT_EDITABLE_FIELDS, IMPORT_REJECTION_GUIDE, MY_IMPORT_WRITES_ENABLED_V22959, alignImportCells,
-  canonicalImportField, cleanImportedRowsForInsert, commitImportedTransactionRows, handleAdminCsv,
-  handleAdminImportJson, handleImportTemplateCsv, handleImportTemplateXls, importRejection,
-  importStorageTextIssue, normalizeImportedRecordDetailed, parseFlexibleImportRecords,
+  IMPORT_EDITABLE_FIELDS, IMPORT_REJECTION_GUIDE, MY_IMPORT_WRITES_ENABLED_V22959,
+  adminCsvChangedResponse, alignImportCells, canonicalImportField, cleanImportedRowsForInsert,
+  commitImportedTransactionRows, handleAdminCsv, handleAdminImportJson, handleImportTemplateCsv,
+  handleImportTemplateXls, importRejection, importStorageTextIssue, normalizeImportedRecordDetailed,
+  parseFlexibleImportRecords,
 };
 // @build:exports-end

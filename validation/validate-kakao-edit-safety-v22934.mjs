@@ -108,7 +108,9 @@ await fixture(async (fx) => {
   const list = await say(fx, "어제 기록 보기");
   ok(list.includes(`삭제: "7월 14일 삭제 01번"`), "T2 어제 목록의 안내에도 날짜가 붙는다");
   const today = await say(fx, "김밥 4500원 현금");
-  ok(/수정: "수정 \d{2}번" 또는 "수정 \d{2}번 금액 13000"/.test(today), "T2 오늘 기록 안내는 예전 모양 그대로다");
+  // V22.9.141: 1:1 에서 그날 내 둘째 기록부터는 수정·삭제 안내를 붙이지 않는다(번호와 분류가 든 한 줄로 고칠 수 있다). 안내의 모양은 그날 첫 기록 답에서
+  // 예전 그대로다(validate-kakao-edit-flow ‘[E2E·1-1장] 저장 응답 수정 안내 문구’·validate-v229141-kakao).
+  ok(/(^|\n)0\d번 - 김밥 \/ 4,500원 \/ 현금 \/ [^\n/]+ · 💸 지출 저장했어요\. \(\d{4}-\d{2}-\d{2}\)/.test(today) && !today.includes('수정: "') && !today.includes('삭제: "'), "T2 오늘 둘째 기록 답은 번호·분류가 든 한 줄이고 1:1 에서는 수정·삭제 안내를 다시 붙이지 않는다");
   const deleted = await say(fx, "삭제 02번");
   ok(deleted.includes("02번 - 커피") && deleted.includes("복구 02번"), "T2 삭제 답장이 지운 기록을 말한다");
   ok((await say(fx, "수정 01번 금액 13000")).includes("기록: 저녁 / 13,000원"), "T2 수정 답장이 바뀐 기록을 말한다");

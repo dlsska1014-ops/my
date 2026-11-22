@@ -595,20 +595,20 @@ const STALE_CASES = [
   { name: "세션 고치기, 다시 쓰기 성공", prep: ["수정 02번", "금액"], send: "9000", fails: 1, head: "✅ 02번 금액을 9,000원으로 변경했어요.", line: "",
     next: "5000", after: { today: ["커피 4500", "택시 9000", "점심 12000", "기타지출 5000"], yesterday: [] } },
   { name: "세션 고치기, 두 번 실패", prep: ["수정 02번", "금액"], send: "9000", fails: 2, head: "✅ 02번 금액을 9,000원으로 변경했어요.", line: CLOSE_LINE,
-    next: "5000", after: { today: ["커피 4500", "택시 5000", "점심 12000"], yesterday: [] } },
+    next: "5000", nextHead: "그사이 기록이 바뀌었어요.", after: { today: ["커피 4500", "택시 9000", "점심 12000"], yesterday: [] } },
   { name: "취소, 다시 쓰기 성공", prep: ["수정 02번", "금액"], send: "취소", fails: 1, head: "👌 02번 수정을 취소했어요.", line: "",
     next: "13000", after: { today: ["커피 4500", "택시 8000", "점심 12000", "기타지출 13000"], yesterday: [] } },
   { name: "취소, 두 번 실패", prep: ["수정 02번", "금액"], send: "취소", fails: 2, head: GENERIC_ERROR, line: "",
     next: "13000", after: { today: ["커피 4500", "택시 13000", "점심 12000"], yesterday: [] } },
   // 내용 칸 세션은 숫자도 내용으로 받는다(줄의 ‘짧은 말’).
   { name: "내용 고치기, 두 번 실패", prep: ["수정 02번", "4"], send: "간식", fails: 2, head: "✅ 02번 내용을 '간식'으로 변경했어요.", line: CLOSE_LINE,
-    next: "5000", after: { today: ["커피 4500", "5000 8000", "점심 12000"], yesterday: [] } },
+    next: "5000", nextHead: "그사이 기록이 바뀌었어요.", after: { today: ["커피 4500", "간식 8000", "점심 12000"], yesterday: [] } },
   // 다른 날 기록의 창도 같은 줄이다(번호·날짜를 적지 않는다). 다음 숫자 말은 그 창의 기록(어제 간식)을 고친다.
   { name: "어제 기록 고치기, 두 번 실패", yesterdaySeed: ["라면 3000", "간식 2000"], prep: ["어제 수정 02번"], send: "금액 9000", fails: 2, head: "✅ 02번 금액을 9,000원으로 변경했어요.",
-    line: CLOSE_LINE, next: "5000", after: { today: SEED, yesterday: ["라면 3000", "간식 5000"] } },
+    line: CLOSE_LINE, next: "5000", nextHead: "그사이 기록이 바뀌었어요.", after: { today: SEED, yesterday: ["라면 3000", "간식 9000"] } },
   // 4차 검토: 날짜를 어제로 옮겨도 창은 그 기록(택시)을 따라간다 — 지금 오늘 목록의 02번(점심)이 아니다. 줄이 번호를 적지 않는 까닭.
   { name: "날짜를 어제로 고치기, 두 번 실패", prep: ["수정 02번", "5"], send: "어제", fails: 2, head: `✅ 02번 날짜를 ${YESTERDAY}로 변경했어요.`, line: CLOSE_LINE,
-    mid: { today: ["커피 4500", "점심 12000"], yesterday: ["택시 8000"] }, next: "오늘", after: { today: SEED, yesterday: [] } },
+    mid: { today: ["커피 4500", "점심 12000"], yesterday: ["택시 8000"] }, next: "오늘", nextHead: "그사이 기록이 바뀌었어요.", after: { today: ["커피 4500", "점심 12000"], yesterday: ["택시 8000"] } },
   // 3차 검토: 열린 세션이 없던 한 줄 고치기는 정리 쓰기를 하지 않는다(줄도 없다). 다음 숫자 말은 새 기록이다.
   { name: "세션 없이 한 줄 고치기", prep: [], send: "수정 01번 금액 13000", fails: 2, writes: 0, head: "✅ 01번 금액을 13,000원으로 변경했어요.", line: "",
     next: "5000", after: { today: ["커피 13000", "택시 8000", "점심 12000", "기타지출 5000"], yesterday: [] } },
@@ -707,8 +707,8 @@ for (const [prep, send, restore, after] of [
 const TABLE_SEED = ["라면 3000", "택시 8000", "점심 12000"];
 const TABLE_SEED_AFTER_9000 = ["라면 3000", "택시 9000", "점심 12000"];
 const TABLE_CASES = [
-  { mode: "transient", next: "5000", head: "✅ 02번 금액을 5,000원으로 변경했어요.", line: false, after: ["라면 3000", "택시 5000", "점심 12000"], open: false },
-  { mode: "persistent", next: "5000", head: "✅ 02번 금액을 5,000원으로 변경했어요.", line: true, after: ["라면 3000", "택시 5000", "점심 12000"], open: true },
+  { mode: "transient", next: "5000", head: "그사이 기록이 바뀌었어요.", line: false, after: TABLE_SEED_AFTER_9000 },
+  { mode: "persistent", next: "5000", head: GENERIC_ERROR, line: false, after: TABLE_SEED_AFTER_9000 },
   { mode: "transient", next: "커피 4500원", head: "✏️ 02번 수정은 끝내고, 보낸 내용을 새 기록으로 처리했어요.", line: false, after: ["라면 3000", "택시 9000", "점심 12000", "커피 4500"], open: false },
   { mode: "persistent", next: "커피 4500원", head: `${GENERIC_ERROR} 기록은 저장하지 않았어요.`, line: false, after: ["라면 3000", "택시 9000", "점심 12000"], open: true },
   { mode: "transient", next: "취소", head: "👌 02번 수정을 취소했어요.", line: false, after: ["라면 3000", "택시 9000", "점심 12000"], open: false },
@@ -730,7 +730,7 @@ for (const item of TABLE_CASES) {
     t.eq(JSON.stringify(day(fx, TODAY)), JSON.stringify(item.after), `${label}: 기록`);
     // 그 뒤(쓰기가 되는 때) 숫자 말: 창이 남았으면 02번을 고치고, 닫혔으면 새 기록이다.
     const probe = await say(fx, "3000");
-    t.eq(probe.text.startsWith("✅ 02번 금액을 3,000원으로 변경했어요."), item.open, `${label}: 그 뒤 ‘3000’ 은 ${item.open ? "남은 창이 02번을 고친다" : "새 기록이다"} (${probe.text.split("\n")[0]})`);
+    t.ok(day(fx, TODAY).includes("택시 9000") && !probe.text.includes("3,000원으로 변경했어요"), label + " 이후의 숫자만으로 이미 바뀐 택시를 덮어쓰지 않는다");
     await say(fx, "취소");
   });
 }

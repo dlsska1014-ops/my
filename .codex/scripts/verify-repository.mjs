@@ -12,9 +12,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_140.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_141.sha256",
 );
 const validationScripts = [
+  ["V22.9.141 카카오 판(저장 답 한 줄 + 분류·수정 안내 규칙, 여러 줄 머리말의 날짜·받은 돈 되묻기 V140:P-5, 거스름·나눔 빈틈)", "validation/validate-v229141-kakao.mjs"],
   ["V22.9.140 공개 화면 판(V139:A-8 세무 계산표 문구 막기, A-7 실손보험 FAQ 답, 본문·예제가 바뀐 글에만 수정일, /about 수정 기록 절 없음, 찾는 말이 든 제목, 카카오톡 채널 1:1 채팅 단추, 첫 화면 ‘처음이라면 이 글부터’, /demo 봇 말풍선은 지금 봇 답 그대로)", "validation/validate-v229140-public-examples.mjs"],
   ["V22.9.139 애드센스 재심사 보강(서브도메인 푸터 분리·빈 광고 칸 숨김, 본문 계산표 9종·세무 계산기 없음, /demo 한 줄 기록 예시 = 봇 해석기 결과, 차트 3편 = 계산표 예제 값·주제별 대표 단추·/articles 계산표 모음·/about 생성형 도구 밝힘, 로그인 웹 앱 문맥 연결)", "validation/validate-adsense-master-v229139.mjs"],
   ["V22.9.107 광고 검토 후속(D-1 유입 매개변수·앵커가 붙어도 정본 문서면 광고, D-2 애드핏 FAQ 문구, D-3 계산표 글 절 순서, D-4~D-6 계산표 변경 전 결과·휴대폰 2열·머리꼬리·주소 판, D-7 글 목록 ‘계산표 포함’)", "validation/validate-ads-review-fixes-v229107.mjs"],
@@ -456,7 +457,8 @@ function run(command, args, label) {
 //   다른 에이전트의 PR 을 이어받아 병합 전에 고쳤다(그 PR 에 적힌 97,806 / 97,799 는 실제 CI 97,803 / 97,796 과 달라 CI 가 떨어졌다).
 //   하네스 두 모드 실측 97,657 present / 97,650 absent — 하한은 작은 값이다.
 // V22.9.140: 공개 화면 판 검사(validate-v229140-public-examples)와 추적표 V140 항목 8행이 더해졌다. 하네스 두 모드 실측 97,862 present / 97,855 absent — 하한은 작은 값이다.
-const EXPECTED_MINIMUM_CHECKS = 97855;
+// V22.9.141: 카카오 판 검사(validate-v229141-kakao)와 추적표 V141 항목 9행이 더해졌다. 하네스 두 모드 실측 98,209 present / 98,202 absent — 하한은 작은 값이다.
+const EXPECTED_MINIMUM_CHECKS = 98202;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

@@ -109,8 +109,8 @@ await kakaoFixture(async (fx) => {
   await say(fx, "수정 02번");
   await say(fx, "1");
   await say(fx, "7000");
-  const second = rpc(fx, "accountbook_update_transaction_v227")[1];
-  ok(second?.data?.p_actor_user_id === "user-bin" && second?.data?.p_actor_kind === "kakao" && tx(fx, "k2")?.amount === 7000, "NEW-9 메뉴 경로 수정도 행위자를 남긴다");
+  const second = fx.db.accountbook_transaction_audit.find((row) => row.transaction_id === "k2" && row.action === "update");
+  ok(second?.actor_user_id === "user-bin" && second?.actor_kind === "kakao" && tx(fx, "k2")?.amount === 7000, "NEW-9 메뉴 경로 수정도 행위자를 남긴다");
 });
 
 // ── NEW-8 "50억" ───────────────────────────────────────────────────────

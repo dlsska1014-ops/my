@@ -97,6 +97,10 @@ const KAKAO_AUDIT_ACTOR_KIND = "kakao";
 // T12: 복구는 지울 때 읽은 칸으로 행을 다시 만든다. source·household_id 가 빠지면 되살린 행의 출처가 사라진다.
 const KAKAO_TX_SELECT_V4 = "id,household_id,user_id,source,source_user_key,type,amount,category,memo,payment_method,transaction_date,created_at,raw_text";
 const KAKAO_TX_RESTORE_COLUMNS_V4 = KAKAO_TX_SELECT_V4.split(",");
+// V22.9.141 (독립 검토 3): 수정 창이 기록을 읽는 곳(그날 목록·번호로 읽기·‘방금’ 대상)은 updated_at(운영 DB 의 set_transactions_updated_at 트리거가
+// 고칠 때마다 now() 로 적는다)도 받는다. 첫 작업본은 이 칸을 읽지 않아 연 때의 고친 시각(originalRevision)이 늘 빈 값이었고, 쓰는 순간의 조건(strictExpected)에도
+// updated_at 이 붙지 않아 금액만 견줬다 — 창을 연 사이 다른 사람이 내용·분류를 바꾸면 덮어썼다. 되살리기 칸(KAKAO_TX_RESTORE_COLUMNS_V4)에는 넣지 않는다.
+const KAKAO_TX_EDIT_SELECT_V229141 = `${KAKAO_TX_SELECT_V4},updated_at`;
 
 // 옛 버퍼는 `{ row, seq }` 한 건이었다. 배포 직후에도 그 값이 남아 있으므로 함께 읽는다.
 function kakaoEditUndoItemsV4(obj) {
@@ -285,7 +289,7 @@ async function getDailyKakaoRows(env, householdId, userId, kakaoUserKey, date) {
 
 async function getDailyKakaoRawRows(env, householdId, date) {
   const params = new URLSearchParams();
-  params.set("select", KAKAO_TX_SELECT_V4);
+  params.set("select", KAKAO_TX_EDIT_SELECT_V229141);
   params.set("household_id", `eq.${householdId}`);
   params.set("transaction_date", `eq.${date}`);
   params.set("order", "created_at.asc,id.asc");
@@ -312,7 +316,7 @@ function kakaoOwnDailySeqFromRowsV229135(rows, row, userId, kakaoUserKey) {
 // (예전에는 남이 남긴 기록이면 null 이라, 열어 둔 수정 창·복구가 ‘찾지 못했어요’ 로 끝났다). userId·kakaoUserKey 는 받기만 한다.
 async function getKakaoRowById(env, householdId, userId, kakaoUserKey, id) {
   const params = new URLSearchParams();
-  params.set("select", KAKAO_TX_SELECT_V4);
+  params.set("select", KAKAO_TX_EDIT_SELECT_V229141);
   params.set("id", `eq.${id}`);
   params.set("household_id", `eq.${householdId}`);
   params.set("limit", "1");
@@ -374,11 +378,12 @@ function kakaoOwnerFilterV22979(userId = "", kakaoUserKey = "") {
 // 어느 쪽이든 마지막에 같은 규칙으로 한 번 더 거른다(서버 조건과 어긋난 줄이 있어도 남의 기록이 나가지 않는다).
 // V22.9.116: touched = true 이면 저장 순서가 아니라 마지막으로 바뀐 순서(updated_at — 운영 DB 의 set_transactions_updated_at 트리거가
 // 고칠 때마다 now() 로 적는다)로 읽고 그 칸을 함께 받는다. ‘방금’ 이 가리키는 기록을 정할 때만 쓴다(edit-flow-v4 resolveKakaoEditTargetRowV4).
+// V22.9.141: 그 칸은 이제 늘 받는다(KAKAO_TX_EDIT_SELECT_V229141 — 이 줄로 연 수정 창도 연 때의 고친 시각을 기억한다). 순서만 touched 로 정한다.
 async function getRecentKakaoOwnedTransactionsV2254(env, householdId, userId, kakaoUserKey, limit = 5, { touched = false } = {}) {
   const wanted = Math.max(1, Number(limit || 5));
   const query = (extra) => {
     const params = new URLSearchParams();
-    params.set("select", touched ? `${KAKAO_TX_SELECT_V4},updated_at` : KAKAO_TX_SELECT_V4);
+    params.set("select", KAKAO_TX_EDIT_SELECT_V229141);
     params.set("household_id", `eq.${householdId}`);
     params.set("order", touched ? "updated_at.desc" : "created_at.desc");
     if (extra) params.set(extra[0], extra[1]);
@@ -421,7 +426,7 @@ async function getLatestKakaoEditByRequesterV229135(env, householdId = "", userI
   const edits = (Array.isArray(rows) ? rows : []).filter((entry) => /^[\w-]{1,64}$/.test(String(entry?.transaction_id || "")));
   if (!edits.length) return null;
   const ids = [...new Set(edits.map((entry) => String(entry.transaction_id)))];
-  const live = new URLSearchParams({ select: KAKAO_TX_SELECT_V4, household_id: `eq.${householdId}`, id: `in.(${ids.join(",")})`, limit: String(ids.length) });
+  const live = new URLSearchParams({ select: KAKAO_TX_EDIT_SELECT_V229141, household_id: `eq.${householdId}`, id: `in.(${ids.join(",")})`, limit: String(ids.length) });
   const found = await supabase(env, `/rest/v1/transactions?${live.toString()}`, { method: "GET" });
   const byId = new Map((Array.isArray(found) ? found : []).map((row) => [String(row.id), row]));
   const latest = edits.find((entry) => byId.has(String(entry.transaction_id)));

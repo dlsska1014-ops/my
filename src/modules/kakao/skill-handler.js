@@ -53,7 +53,7 @@ import {
   isKakaoQaPayload, isStrongKakaoTransactionInput, kakaoChangeRequestReply, kakaoDeferredReply,
   kakaoQaRequestAllowed, kakaoRecordGuardReplyV229120, kakaoRecordGuardV229120,
   kakaoRepeatGuardText, looksLikeKakaoChangeRequest, looksLikeKakaoEditCommandV4,
-  normalizeKakaoSkillResponse, stripLeadingCommand,
+  normalizeKakaoSkillResponse, stripKakaoBotMention, stripLeadingCommand,
 } from "./request-guards.js";
 import {
   clearKakaoFlowState, completeKakaoFlowState, getKakaoFlowState, isKakaoBudgetSetupCommand,
@@ -452,6 +452,9 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   const payload = await readJson(request);
   const origin = publicBaseUrl(env, new URL(request.url));
   const utterance = normalizeKakaoButtonLabel(stripLeadingCommand(String(payload?.userRequest?.utterance || payload?.utterance || "").trim()));
+  // V22.9.141 (독립 검토 1): 사람이 ‘수정 NN번 …’ 으로 보낸 한 줄 명령인지 — stripLeadingCommand 가 ‘수정’ 을 떼어 ‘NN번 …’ 이 되므로 원문에서 본다.
+  // 수정 창의 ‘선택’ 단계는 이 명령을 예전처럼 기록 경로로 넘기고, ‘수정’ 없이 온 ‘N번 …’ 은 그 창의 답으로 보아 붙잡는다.
+  const explicitEditCommandV229141 = /^\/?수정\s+\d{1,3}\s*번/.test(stripKakaoBotMention(String(payload?.userRequest?.utterance || payload?.utterance || "").trim()));
   // V22.9.93 Q-35: 고치고 지우는 말은 전각 숫자와 끝 문장부호를 다듬어 읽는다(저장 원문은 utterance 그대로다).
   const commandText = kakaoEditInputTextV4(utterance);
   const separatePurchaseCommand = parseKakaoSeparatePurchaseCommand(utterance);
@@ -586,7 +589,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   if (!separatePurchaseCommand && !roomRestartCommand && skillConfigured && kakaoUserKey && !isKakaoEditSessionBypassCommand(utterance) &&
       (isKakaoSessionSeqReplyV4(commandText) || (!parseKakaoEditCommandV4(commandText) && !parseKakaoDeleteCommandV4(commandText) && !parseKakaoRestoreCommandV4(commandText)))) {
     // T6: 분명한 새 기록이면 세션만 끝나고(passThrough) 아래 기록 경로로 이어진다.
-    const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance: kakaoEditSessionTextV4(utterance) || utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, recordGuardKind: String(recordGuard?.kind || ""), sessionRaw: routingSnapshot?.edit });
+    const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance: kakaoEditSessionTextV4(utterance) || utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, recordGuardKind: String(recordGuard?.kind || ""), sessionRaw: routingSnapshot?.edit, explicitEdit: explicitEditCommandV229141 });
     if (editSessionReply?.passThrough) editSessionNotice = String(editSessionReply.notice || "");
     else if (editSessionReply) {
       // V22.9.90 독립 검토: 열린 수정 세션이 받은 답("금액 13000"·"1번")은 위 미리 읽기가 기록으로 보았어도 관제 기능 순위에서는 고치기(EDIT)다.
@@ -1195,7 +1198,7 @@ ${formatRecentTransactions(rows)}`);
   // V22.9.77 감사 D-6: 같은 이름의 가계부가 내 목록에 또 있으면 답장의 ‘가계부:’ 줄에 역할·만든 날을 붙인다(이미 읽은 목록이라 조회는 늘지 않는다).
   const savedHousehold = household.role ? household : { ...household, role: accessRole };
   const roomSave = roomContext?.householdId === savedHousehold.id ? await roomContext.ready : null;
-  return await saveKakaoParsedTransactionsReply(env, { ...(roomSave || {}), household: savedHousehold, householdLabel: kakaoHouseholdReplyName(savedHousehold, activeHouseholds), user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, firstNotice: editSessionNotice });
+  return await saveKakaoParsedTransactionsReply(env, { ...(roomSave || {}), household: savedHousehold, householdLabel: kakaoHouseholdReplyName(savedHousehold, activeHouseholds), user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, firstNotice: editSessionNotice, groupKey: botGroupKey });
 }
 // @build:exports-start
 export { handleKakaoSkillStable, normalizeKakaoButtonLabel };
