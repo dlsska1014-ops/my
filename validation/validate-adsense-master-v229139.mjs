@@ -48,6 +48,28 @@ try {
   eq(Object.keys(allSpecs).length, 9, "계산표 9종 등록");
   for (const slug of TAX_SLUGS) ok(!Object.hasOwn(allSpecs, slug), `세무 계산기 ${slug} 는 등록하지 않는다`);
 
+  const fund = {
+    settings: { meal: 90000, taxi: 18000, payer: "A" },
+    members: ["A", "B", "C", "D"].map((name, i) => ({ name, dues: 30000, rode: i < 2 ? "yes" : "no" })),
+  };
+  const settleFund = () => compute("group-accountbook", fund);
+  eq(settleFund().tables[0].rows[2], ["공금 잔액", 30000], "회비와 개인 카드를 별도 결산");
+  eq(settleFund().tables[1].rows, [["B", "A", 9000]], "두 사람만 택시비 분담");
+  fund.members[2].rode = "yes";
+  eq(settleFund().tables[1].rows, [["B", "A", 6000], ["C", "A", 6000]], "세 탑승자 분담");
+  ok(settleFund().shareText.includes("B → A 6,000원"), "공유 문구에 실제 송금액 표시");
+  fund.settings.taxi = 18001;
+  fund.settings.payer = "D";
+  eq(settleFund().tables[1].rows, [["A", "D", 6001], ["B", "D", 6000], ["C", "D", 6000]], "미탑승 선결제자와 남은 1원");
+  fund.settings.meal = 130000;
+  eq(settleFund().tables[0].rows[2], ["공금 부족액", 10000], "음수 잔액을 부족액으로 표시");
+  fund.members.forEach(row => { row.rode = "no"; });
+  assert.throws(settleFund, /탑승/);
+  fund.settings.taxi = 0;
+  fund.settings.payer = "";
+  eq(settleFund().tables[1].rows, [["추가 송금 없음", "", 0]], "택시를 쓰지 않은 모임");
+  fund.members[2].name = "A";
+  assert.throws(settleFund, /같은 이름/);
   const budget = compute("budget-ratio-guide", structuredClone(miniSpecs["budget-ratio-guide"].example));
   eq([budget.needBudget, budget.wantBudget, budget.saveBudget, budget.variableNeed, budget.weeklyCap], [1500000, 900000, 600000, 550000, 338333], "월 300만 50/30/20 배분 및 주간 한도");
   {
@@ -55,6 +77,16 @@ try {
     ex.settings.needRatio = 60;
     bad(() => compute("budget-ratio-guide", ex), "비율 합계 100% 아님 거절");
   }
+  for (const [fixedNeed, weeklyCap, shortfall] of [[1800000, 140000, 0], [2400000, 0, 0], [3200000, 0, 800000]]) {
+    const data = structuredClone(miniSpecs["budget-ratio-guide"].example);
+    data.settings.fixedNeed = fixedNeed;
+    const result = compute("budget-ratio-guide", data);
+    eq([result.weeklyCap, result.shortfall], [weeklyCap, shortfall], "고정비 초과분까지 반영한 주간 한도와 부족액");
+  }
+  const breakEven = structuredClone(miniSpecs["card-spending-threshold"].example);
+  Object.assign(breakEven.settings, { threshold: 300000, recognized: 270000, planned: 15000, benefit: 15000 });
+  const cardAtZero = compute("card-spending-threshold", breakEven);
+  ok(cardAtZero.netGain === 0 && cardAtZero.notes.join(" ").includes("15,000원이 부족") && cardAtZero.notes.join(" ").includes("같습니다"), "카드 손익 0원에서 추가 결제와 혜택을 일치시킨다");
   const emergency = compute("emergency-fund-basics", structuredClone(miniSpecs["emergency-fund-basics"].example));
   eq([emergency.monthlyEssential, emergency.targetFund, emergency.shortfall, emergency.monthlyTransfer], [1500000, 4500000, 3000000, 300000], "월 필수 생활비 150만 → 3개월 450만 → 월 30만 적립");
   {
@@ -85,6 +117,8 @@ try {
       const page = await get(`/${slug}`);
       eq(page.status, 200, `/${slug} 정본 글 200`);
       ok(page.html.includes('<section class="pubInlineTool" id="inline-worksheet"'), `/${slug}: 정본 DOM 안에 인라인 계산표 섹션 포함`);
+      const beforeInit = page.html.match(/<form id="worksheet-form"[^>]*>([\s\S]*?)<\/form>/)[1];
+      ok(beforeInit.startsWith("<fieldset disabled>") && beforeInit.endsWith("</fieldset>") && !beforeInit.includes('type="submit"'), "스크립트가 시작되기 전에는 제출 가능한 입력칸이 없다");
       ok(page.html.includes('<form id="worksheet-form"') && page.html.includes('id="worksheet-settings"') && page.html.includes('id="worksheet-result"'), `/${slug}: 정본 DOM 안에 입력 폼과 SSR 결과 표 포함`);
       if ((spec.checks || []).length) ok(page.html.includes('<details class="pubToolChecks"><summary>예제 검산 보기</summary>'), `/${slug}: 예제 검산 접기`);
       ok(page.html.includes('<a href="#inline-worksheet">인터랙티브 계산표</a>'), `/${slug}: 목차에 인라인 계산표 바로가기 포함`);
@@ -196,7 +230,7 @@ try {
 
   const paymentPage = await get("/payment-methods?month=2026-07&household_id=house-home", { cookie: ownerCookie });
   eq(paymentPage.status, 200, "로그인 /payment-methods 200");
-  ok(paymentPage.html.includes('<a href="/payment-method-switch-nov-dec">연말정산 카드 25% 문턱·결제수단 전환 정리</a>') && paymentPage.html.includes('href="/card-spending-threshold"'), "/payment-methods 에 연말정산 결제수단 전환 글·전월 실적 계산표 연결");
+  ok(paymentPage.html.includes('<a href="/payment-method-switch-nov-dec">11~12월 결제수단 전환 정리</a>') && paymentPage.html.includes('href="/card-spending-threshold"'), "/payment-methods 에 연말정산 결제수단 전환 글·전월 실적 계산표 연결");
 
   console.log(`V22.9.139 애드센스 재심사 보강 통합 검사 통과 (${checks} checks)`);
 } finally {

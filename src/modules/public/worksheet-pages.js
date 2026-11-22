@@ -1,7 +1,32 @@
 // @build:imports-start
+import { SHARED_LIVING_PURCHASES, SUBSCRIPTION_CASE } from "./guide-content.js";
 import { worksheetComputeV229106 } from "./worksheet-calculations.js";
 import { escapeHtml } from "../domain/transactions-core.js";
 // @build:imports-end
+
+const SHARED_LIVING_PEOPLE = [{ name: "A", income: 4, use: 2, agreed: 4 }, { name: "B", income: 3, use: 1, agreed: 3 }, { name: "C", income: 3, use: 1, agreed: 3 }];
+
+const SUBSCRIPTION_ROWS = SUBSCRIPTION_CASE.map(({ name, amount, cycle, next, cancel = "active", confirmed = "", until = "" }) => ({ name, amount, cycle, next, cancel, confirmed, until, refund: 0 }));
+
+const GROUP_TREASURER_WORKSHEET = {
+  title: "모임 회비와 개인 선결제 정산표",
+  outcome: "공금에 남은 돈과 택시비를 먼저 낸 사람이 돌려받을 돈을 각각 계산합니다.",
+  instruction: "이번 모임에서 실제로 걷은 회비와 공금으로 쓴 금액을 적으세요. 택시를 함께 탄 사람만 ‘탑승’으로 표시하세요. 계산한 뒤 결산 문구를 복사할 수 있습니다.",
+  fields: [
+    ["meal", "공금으로 결제한 식사비(원)", "number"],
+    ["taxi", "개인 카드로 결제한 택시비(원)", "number"],
+    ["payer", "택시비를 먼저 낸 사람", "text"],
+  ],
+  groups: [{ key: "members", label: "모임 참여자", max: 12, columns: [
+    ["name", "이름", "text"], ["dues", "실제로 낸 회비(원)", "number"],
+    ["rode", "택시 이용", "select", [["no", "미탑승"], ["yes", "탑승"]]],
+  ] }],
+  example: {
+    settings: { meal: 90000, taxi: 18000, payer: "A" },
+    members: ["A", "B", "C", "D"].map((name) => ({ name, dues: 30000, rode: ["A", "B"].includes(name) ? "yes" : "no" })),
+  },
+  checks: ["A와 B가 타면 B가 A에게 9,000원을 보냅니다. C도 탔다면 B와 C가 각각 6,000원을 보냅니다. 두 경우 모두 공금 잔액은 30,000원입니다."],
+};
 
 const PUBLIC_WORKSHEETS_V229106 = {
   "shared-living-cost-rules": {
@@ -11,10 +36,17 @@ const PUBLIC_WORKSHEETS_V229106 = {
     fields: [],
     groups: [
       { key: "people", label: "참여자와 비율", max: 12, columns: [["name", "이름", "text"], ["income", "소득 비율", "number"], ["use", "이용량 비율", "number"], ["agreed", "합의 비율", "number"]] },
-      { key: "transactions", label: "원본 지출", columns: [["payer", "결제자", "text"], ["amount", "금액(원)", "number"], ["participants", "참여자(쉼표로 구분)", "text"]] },
+      { key: "transactions", label: "원본 지출", columns: [["item", "품목", "text"], ["payer", "결제자", "text"], ["amount", "금액(원)", "number"], ["participants", "참여자(쉼표로 구분)", "text"]] },
     ],
-    example: { settings: {}, people: [{ name: "A", income: 3, use: 1, agreed: 40 }, { name: "B", income: 2, use: 2, agreed: 35 }, { name: "C", income: 1, use: 3, agreed: 25 }], transactions: [{ payer: "A", amount: 60001, participants: "A,B,C" }, { payer: "B", amount: 40000, participants: "A,B,C" }, { payer: "C", amount: 20000, participants: "A,B,C" }] },
-    checks: ["균등 분담은 40,001원·40,000원·40,000원이며 C가 A에게 20,000원을 보냅니다.", "A가 12,000원을 낸 지출에 A,B만 참여하도록 추가하면 C는 그 항목을 부담하지 않습니다.", "참여자가 없거나 비율의 합이 0이면 완료 결과 대신 수정 안내가 나옵니다."],
+    // V22.9.140 독립 검토: 기본값은 본문 비교표(동일·비율·인원수 분배 = 모든 지출을 세 사람이 나눔)를 그대로 재현하는 입력이다.
+    // 장보기를 B·C 만 나눈 입력은 균등 분담이 본문의 품목별 줄과 같아 ‘본문 품목별’ 예제로 둔다(기본값이면 같은 화면의 비교표와 검산 표가 어긋났다).
+    example: { settings: {}, people: SHARED_LIVING_PEOPLE, transactions: SHARED_LIVING_PURCHASES.map((row) => ({ ...row, participants: "A,B,C" })) },
+    exampleLabel: "본문 비교표 · 모든 지출을 세 사람이 나눔",
+    otherExamples: [
+      { label: "본문 품목별 · 장보기는 B와 C", input: { settings: {}, people: SHARED_LIVING_PEOPLE, transactions: SHARED_LIVING_PURCHASES } },
+      { label: "12만 1원 · 남는 1원 나누기", input: { settings: {}, people: [{ name: "A", income: 3, use: 1, agreed: 40 }, { name: "B", income: 2, use: 2, agreed: 35 }, { name: "C", income: 1, use: 3, agreed: 25 }], transactions: [{ payer: "A", amount: 60001, participants: "A,B,C" }, { payer: "B", amount: 40000, participants: "A,B,C" }, { payer: "C", amount: 20000, participants: "A,B,C" }] } },
+    ],
+    checks: ["이 예제는 본문 비교표처럼 모든 지출을 세 사람이 나눈 경우입니다(장보기도 A,B,C). 균등 분담은 동일 분배와 같이 B가 A에게 90,000원을 보내고, 소득 비율 4:3:3은 비율 분배(B가 A에게 66,000원·C에게 12,000원), 이용량 비율 2:1:1은 인원수 분배(B가 A와 C에게 30,000원씩)와 같습니다.", "장보기 참여자를 본문 사례처럼 B,C로 바꾸면(예제 ‘본문 품목별’) 균등 분담이 본문의 품목별 결과와 같아집니다. B가 A에게 110,000원, C가 A에게 20,000원을 보냅니다.", "참여자가 없거나 비율의 합이 0이면 완료 결과 대신 수정 안내가 나옵니다."],
   },
   "roommate-shared-ledger": {
     title: "중도 입퇴거 공동 비용 계산표",
@@ -58,8 +90,13 @@ const PUBLIC_WORKSHEETS_V229106 = {
     instruction: "아래 상품과 약관은 모두 가상입니다. 해지 완료는 다음 갱신이 취소됐다는 확인을 받은 경우에만 선택하세요. 다음 결제일이 기준일 이전이면 실제 다음 청구가 없는지 확인해야 합니다.",
     fields: [["basis", "기준일(30일 구간의 첫날)", "date"]],
     groups: [{ key: "subscriptions", label: "구독과 확인 결과", columns: [["name", "구독 이름", "text"], ["amount", "1회 결제액(원)", "number"], ["cycle", "주기", "select", [["monthly", "월 구독"], ["annual", "연 구독"]]], ["next", "다음 결제일/마지막 예정일", "date"], ["cancel", "해지 상태", "select", [["active", "유지"], ["requested", "해지 요청"], ["confirmed", "갱신 해지 확인"]]], ["confirmed", "해지 완료일(선택)", "date"], ["until", "이용 종료일(선택)", "date"], ["refund", "실제 환불 입금액(원)", "number"]] }],
-    example: { settings: { basis: "2026-11-05" }, subscriptions: [{ name: "A 월 구독", amount: 9900, cycle: "monthly", next: "2026-11-20", cancel: "confirmed", confirmed: "2026-11-05", until: "2026-11-19", refund: 0 }, { name: "B 연 구독", amount: 120000, cycle: "annual", next: "2027-09-01", cancel: "confirmed", confirmed: "2026-11-05", until: "2027-08-31", refund: 0 }, { name: "C 이미 해지", amount: 6900, cycle: "monthly", next: "2026-10-25", cancel: "confirmed", confirmed: "2026-10-25", until: "2026-11-09", refund: 0 }] },
-    checks: ["11월 5일 이상 12월 5일 미만 구간의 다음 결제는 A의 9,900원입니다. 갱신 해지를 확인한 뒤 예정액은 0원입니다.", "B의 월 환산 비용은 10,000원이지만 이 구간의 출금과 환불 입금은 모두 0원입니다.", "A를 ‘해지 요청’으로 바꾸면 청구 예정액 9,900원이 남습니다. 실제 환불과 예정 결제 감소를 혼동하지 않습니다."],
+    example: { settings: { basis: "2026-11-05" }, subscriptions: SUBSCRIPTION_ROWS },
+    exampleLabel: "본문의 구독 여섯 건 · 영상 서비스 E 해지",
+    otherExamples: [
+      { label: "갱신 해지와 이용 종료일 비교", input: { settings: { basis: "2026-11-05" }, subscriptions: [{ name: "A 월 구독", amount: 9900, cycle: "monthly", next: "2026-11-20", cancel: "confirmed", confirmed: "2026-11-05", until: "2026-11-19", refund: 0 }, { name: "B 연 구독", amount: 120000, cycle: "annual", next: "2027-09-01", cancel: "confirmed", confirmed: "2026-11-05", until: "2027-08-31", refund: 0 }, { name: "C 이미 해지", amount: 6900, cycle: "monthly", next: "2026-10-25", cancel: "confirmed", confirmed: "2026-10-25", until: "2026-11-09", refund: 0 }] } },
+      { label: "E와 연간 학습 앱 F의 갱신 해지", input: { settings: { basis: "2026-11-05" }, subscriptions: SUBSCRIPTION_ROWS.map((row) => row.name === "학습 앱 F" ? { ...row, cancel: "confirmed", confirmed: "2026-11-05", until: "2027-08-31" } : row) } },
+    ],
+    checks: ["11월 5일부터 12월 4일까지 예정액은 36,100원입니다. E의 해지를 반영하면 A·B·C의 26,600원이 남습니다.", "E를 ‘해지 요청’으로 바꿔 보세요. 청구가 확정적으로 취소되기 전에는 9,500원이 다시 예정액에 포함됩니다.", "‘E와 연간 학습 앱 F의 갱신 해지’를 고르면 갱신이 끝난 뒤 유지할 구독은 월 환산 31,600원입니다. F의 결제일은 내년 9월이어서 이번 30일의 예정액은 여전히 26,600원입니다."],
   },
 };
 
@@ -138,7 +175,7 @@ const PUBLIC_ARTICLE_CTA_MAP_V229139 = Object.freeze({
   "card-spending-threshold": [["전월 실적 손익 바로 계산하기", "#inline-worksheet"], ["연말정산 결제수단 전환 정리", "/payment-method-switch-nov-dec"]],
   "accountbook-habit": [["월 마감 잔액 대조표", "/monthly-closing-routine"], ["카카오톡 한 줄 기록 방법", "/kakao-guide"]],
   "payday-budget-cycle": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["계좌 현금흐름 계산표", "/cash-flow-table"]],
-  "expense-category-rules": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["월 마감 잔액 대조표", "/monthly-closing-routine"]],
+  "expense-category-rules": [["영수증 한 장의 분류와 환불 대조하기", "#section-3"], ["월 마감 잔액 대조표", "/monthly-closing-routine"]],
   "emergency-fund-basics": [["비상금·월 적립액 바로 계산하기", "#inline-worksheet"], ["연간 비정기 지출 적립표", "/sinking-fund-annual-expenses"]],
   "weekly-report-reading": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["리포트 읽는 법 안내", "/report-guide"]],
   "family-roles-accountbook": [["공동 생활비 4가지 분담표", "/shared-living-cost-rules"], ["공동 가계부 운영 안내", "/group-accountbook"]],
@@ -197,15 +234,24 @@ function renderArticleDataChartV229139(slug) {
 // V22.9.107 D-4~D-6: 계산표 자산 주소는 1년 캐시(immutable)라 계산표 화면(worksheet-runtime.js)이 바뀌면 여기 판을 올린다.
 // V22.9.139: 계산 함수(worksheet-calculations.js)에 미니 계산기 셋이 더해져 계산표 쪽 바이트가 바뀌었으므로 v229139 로 올린다.
 // 바로 앞 판 주소는 다음 판까지 같은 내용을 낸다(글을 5분 캐시로 받은 브라우저가 옛 주소를 누를 수 있다). 두 판 전 주소는 404 다.
-const PUBLIC_WORKSHEET_ASSET_VERSION_V229107 = "v229139";
-const PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107 = Object.freeze(["v229107"]);
+const PUBLIC_WORKSHEET_ASSET_VERSION_V229107 = "v229140";
+const PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107 = Object.freeze(["v229139"]);
 function publicWorksheetPathV229106(slug, version = PUBLIC_WORKSHEET_ASSET_VERSION_V229107) { return `/assets/living-worksheet-${version}-${slug}.html`; }
+
+// V22.9.140: 수정일은 본문이나 기본 예제·계산 결과가 실제로 바뀐 글에만 올린다. 계산표 여섯 글 중 넷(룸메이트·현금흐름·연간 목돈·월 마감)과
+// 비상금 글은 본문·입력 예제·계산 결과가 V22.9.139 와 같아 그대로 둔다(머리 단추가 본문 계산표로 가는 것은 내용 수정이 아니다).
+// 예산 비율(부족한 금액 줄)·카드 실적(손익 설명) 글은 입력 예제는 같지만 화면의 계산 결과가 바뀌어 올린다(독립 검토).
+const PUBLIC_ARTICLE_REVISED_V229140 = Object.freeze({
+  "shared-living-cost-rules": "2026-11-22", "subscription-cleanup": "2026-11-22", "expense-category-rules": "2026-11-22",
+  "budget-ratio-guide": "2026-11-22", "card-spending-threshold": "2026-11-22",
+});
 
 function enrichPublicWorksheetsV229106(catalog) {
   const optionLabel = (column, value) => column[2] === "select" ? column[3].find((option) => option[0] === value)?.[1] || value : String(value ?? "");
   for (const [slug, ctas] of Object.entries(PUBLIC_ARTICLE_CTA_MAP_V229139)) {
     const page = catalog[slug];
     if (!page) continue;
+    if (PUBLIC_ARTICLE_REVISED_V229140[slug]) page.updated = PUBLIC_ARTICLE_REVISED_V229140[slug];
     page.primary = ctas[0];
     page.secondary = ctas[1];
   }
@@ -217,9 +263,9 @@ function enrichPublicWorksheetsV229106(catalog) {
   for (const [slug, spec] of Object.entries(PUBLIC_WORKSHEETS_V229106)) {
     const page = catalog[slug]; if (!page) continue;
     const result = worksheetComputeV229106(slug, spec.example);
-    page.updated = "2026-11-07";
+    page.updated = PUBLIC_ARTICLE_REVISED_V229140[slug] || "2026-11-07";
     page.worksheet = true;
-    page.primary = ["입력값을 바꿔 계산하기", publicWorksheetPathV229106(slug)];
+    page.primary = ["입력값을 바꿔 계산하기", "#inline-worksheet"];
     page.secondary = ["계산표 파일 저장", publicWorksheetPathV229106(slug) + "?download=1"];
     // V22.9.107 D-3: 글의 원래 절(서사)을 먼저 두고, 예제 원본 표·검산·계산표 열기는 글 끝에 둔다. V106 은 예제 표 4~5절이 본문 앞에 와
     // 첫 화면이 길고 서사보다 원본 데이터가 먼저 나왔다. 절 수는 같다(검사의 addedSections = 2 + 묶음 수 + 조건 표 1).
@@ -239,8 +285,8 @@ function enrichPublicWorksheetsV229106(catalog) {
 
 // @build:exports-start
 export {
-  PUBLIC_ALL_CALCULATORS_V229139, PUBLIC_ARTICLE_CHARTS_V229139, PUBLIC_ARTICLE_CTA_MAP_V229139,
-  PUBLIC_MINI_CALCULATORS_V229139, PUBLIC_WORKSHEETS_V229106,
+  GROUP_TREASURER_WORKSHEET, PUBLIC_ALL_CALCULATORS_V229139, PUBLIC_ARTICLE_CHARTS_V229139,
+  PUBLIC_ARTICLE_CTA_MAP_V229139, PUBLIC_MINI_CALCULATORS_V229139, PUBLIC_WORKSHEETS_V229106,
   PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107, PUBLIC_WORKSHEET_ASSET_VERSION_V229107,
   enrichPublicWorksheetsV229106, publicWorksheetPathV229106, renderArticleDataChartV229139,
 };

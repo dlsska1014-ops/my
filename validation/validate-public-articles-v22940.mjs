@@ -18,7 +18,9 @@ const eq = (actual, expected, message) => { assert.equal(actual, expected, messa
 
 const origin = "https://malhaebook.com";
 const UPDATED = "2026-10-12";
-const updatedFor = (path) => addedSections(path) ? "2026-11-07" : UPDATED;
+// V22.9.140: 본문·예제·계산 결과가 바뀐 다섯 글만 11-22(예산 비율·카드 실적은 계산 결과), 나머지 계산표 글 넷은 11-07 그대로(날짜만 올리지 않는다).
+const REVISED_V229140 = new Set(["/shared-living-cost-rules", "/subscription-cleanup", "/expense-category-rules", "/budget-ratio-guide", "/card-spending-threshold"]);
+const updatedFor = (path) => REVISED_V229140.has(path) ? "2026-11-22" : addedSections(path) ? "2026-11-07" : UPDATED;
 const AUTHOR = "도담 네트워크";
 const ARTICLES = [
   "/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup", "/card-spending-threshold",
@@ -185,13 +187,14 @@ try {
   }
 
   // 5. 허브·홈·소개 연결.
-  const recent = sectionByTitle(pages.get("/"), "최근 글");
+  // V22.9.140: 홈 글 목록 절 이름이 ‘처음이라면 이 글부터’(처음 읽을 순서로 고른 8편)로 바뀌었다.
+  const recent = sectionByTitle(pages.get("/"), "처음이라면 이 글부터");
   // V22.9.74: 홈 최근 글은 가장 새 글(V22.9.74 묶음 포함)을 가리키고 전체 목록은 /articles 허브다.
   // V22.9.104 A-2: 홈 최근 글은 글 목록(작성일 최신 → 같은 날이면 제목순) 앞 8편이다.
   const recentLinks = [...recent.matchAll(/href="([^"]+)"/g)].map((m) => m[1]).filter((href) => publicPaths.includes(href) && !LEGACY.includes(href) && href !== "/articles");
   ok(recentLinks.length >= 3 && recentLinks.length <= 8, `home "최근 글" links three to eight articles (${recentLinks.length})`);
   ok(recent.includes('href="/articles"'), "home \"최근 글\" points to the full list");
-  eq(sectionsOf(pages.get("/")).filter((s) => s.startsWith("<h2>최근 글</h2>")).length, 1, "home adds a single recent-articles section");
+  eq(sectionsOf(pages.get("/")).filter((s) => s.startsWith("<h2>처음이라면 이 글부터</h2>")).length, 1, "home adds a single starter-articles section");
   const hub = sectionByTitle(pages.get("/guides"), "생활비 가이드 글");
   eq([...hub.matchAll(/href="([^"]+)"/g)].filter((m) => ARTICLES.includes(m[1])).length, ARTICLES.length, "/guides hub section lists every new article once");
   for (const [, label] of hub.matchAll(/<a href="[^"]+">([^<]+)</g)) ok(decode(label).includes(": "), `/guides hub entry carries a one-line description (${decode(label)})`);

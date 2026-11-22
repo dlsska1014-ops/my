@@ -12,7 +12,20 @@ const copy = (slug) => structuredClone(specs[slug].example);
 const origin = 'https://malhaebook.com';
 const request = (path, env = {}, method = 'GET') => app.fetch(new Request(origin + path, { method }), env, {});
 
-const shared = compute('shared-living-cost-rules', copy('shared-living-cost-rules'));
+const sharedSpec = specs['shared-living-cost-rules'];
+const articleExample = compute('shared-living-cost-rules', sharedSpec.example);
+eq(articleExample.total, 360000, 'article ledger total');
+eq(sharedSpec.example.transactions.map(r => r.item), ['관리비·공과금','인터넷','공용 장보기','공용 생필품'], 'four named article purchases');
+// V22.9.140: 기본값 = 본문 비교표(모든 지출을 세 사람이 나눔 — 동일 120,000원씩·비율 4:3:3·인원수 2:1:1), 품목별(장보기 B·C)은 첫 다른 예제.
+eq(sharedSpec.example.transactions.map(r => r.participants), ['A,B,C','A,B,C','A,B,C','A,B,C'], 'default: all three share every purchase (article comparison table)');
+eq(articleExample.methods[0].transfers, [['B','A',90000]], 'default equal split = article 동일 분배');
+eq(articleExample.methods.map(m => m.shares), [[120000,120000,120000],[144000,108000,108000],[180000,90000,90000],[144000,108000,108000]], 'default shares = article table rows (동일·비율 4:3:3·인원수 2:1:1)');
+eq(articleExample.methods[2].transfers, [['B','A',30000],['B','C',30000]], 'default 2:1:1 = article 인원수 transfers');
+eq(compute('shared-living-cost-rules', sharedSpec.otherExamples[0].input).methods[0].transfers, [['B','A',110000],['C','A',20000]], 'article item split: only B and C share groceries');
+eq(sharedSpec.otherExamples[0].input.transactions.find(r => r.item === '공용 장보기').participants, 'B,C', 'item-split example keeps the article premise');
+const four = compute('shared-living-cost-rules', {people: ['A','B','C','D'].map(name => ({name})), transactions: [{payer:'A',amount:90000,participants:'A,B,C,D'}]});
+eq(four.methods[0].transfers, [['B','A',22500],['C','A',22500],['D','A',22500]], 'four-person equal shares without ratio inputs');
+const shared = compute('shared-living-cost-rules', sharedSpec.otherExamples[1].input);
 eq(shared.total, 120001, 'source payment total');
 eq(shared.methods.map((x) => x.shares), [[40001, 40000, 40000], [60001, 40000, 20000], [20000, 40000, 60001], [48001, 42000, 30000]], 'four independently calculated ratios and one-won remainder');
 eq(shared.methods[0].transfers, [['C', 'A', 20000]], 'equal settlement');
@@ -25,7 +38,19 @@ const sinking = compute('sinking-fund-annual-expenses', copy('sinking-fund-annua
 eq(sinking.amounts,[300000,300000,300000],'three real deposit dates');
 const closing = compute('monthly-closing-routine',copy('monthly-closing-routine'));
 eq([closing.before,closing.after,closing.difference],[320000,280000,-40000],'duplicate and missing transaction reconciliation');
-const sub = compute('subscription-cleanup',copy('subscription-cleanup'));
+const subCase = copy('subscription-cleanup');
+const recurring = compute('subscription-cleanup', subCase);
+eq([recurring.before, recurring.after, recurring.reduction], [36100, 26600, 9500], 'six article subscriptions and upcoming charges');
+eq(recurring.tables[0].rows.reduce((total, row) => total + row[1], 0), 51100, 'monthly equivalent of all six article subscriptions');
+eq(recurring.tables[2].rows.map(row => row[1]), [51100, 41600], 'baseline and renewing monthly equivalents after E');
+const afterBoth = compute('subscription-cleanup', specs['subscription-cleanup'].otherExamples[1].input);
+eq([afterBoth.after, afterBoth.tables[2].rows[1][1]], [26600, 31600], 'annual F changes long-term cost but not next 30 days');
+subCase.subscriptions[4].cancel = 'requested';
+eq(compute('subscription-cleanup', subCase).after, 36100, 'requested cancellation retains the monthly charge');
+subCase.subscriptions[5].amount = 10000;
+eq(compute('subscription-cleanup', subCase).tables[0].rows[5][1], 833.33, 'single rounded monthly equivalent for all outputs');
+const cancellationExample = () => structuredClone(specs['subscription-cleanup'].otherExamples[0].input);
+const sub = compute('subscription-cleanup', cancellationExample());
 eq([sub.before,sub.after,sub.reduction],[9900,0,9900],'confirmed next-payment cancellation');
 eq(sub.tables[0].rows[1][1],10000,'annual cost monthly equivalent is not a next-month charge');
 
@@ -78,13 +103,13 @@ for (let n=1;n<=12;n++) for (let seed=1;seed<=25;seed++) {
  s.transactions[1].id='different';eq(compute('monthly-closing-routine',s).after,201000,'same-day different-ID transaction retained');
 }
 {
- const s=copy('subscription-cleanup');s.subscriptions[0].cancel='requested';
+ const s=cancellationExample();s.subscriptions[0].cancel='requested';
  eq(compute('subscription-cleanup',s).after,9900,'request alone does not cancel payment');
  s.subscriptions[0].cancel='confirmed';s.subscriptions[0].confirmed='2026-11-20';bad(()=>compute('subscription-cleanup',s),'future confirmation cannot be assumed');
  s.settings.basis='2026-11-20';s.subscriptions[0].until='2026-11-20';eq(compute('subscription-cleanup',s).after,9900,'same-day cancellation does not erase charge');
 }
 {
- const s=copy('subscription-cleanup');
+ const s=cancellationExample();
  s.subscriptions[0].next='2026-11-04';
  for (const state of ['active','requested']) {
   s.subscriptions[0].cancel=state;

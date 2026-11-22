@@ -257,7 +257,7 @@ await section("4 수정일·사이트맵·첫 화면", async () => {
   const lastmodOf = (path) => ((xml.split(`<loc>${BASE}${path}</loc>`)[1] || "").match(/^\s*<lastmod>([^<]+)<\/lastmod>/) || [])[1];
   // V22.9.118 P-1·P-8: /group-accountbook·/faq 는 단톡방 참여 규칙 문장을 고친 날(site-config.js 상수 PUBLIC_COPY_REVISION_DATE = 개정 공고일)이 수정일이다(/demo 는 그대로).
   const COPY_REVISION_V229118 = PUBLIC_COPY_REVISION_DATE;
-  for (const [path, html, revision] of [["/demo", demo.html, REVISION], ["/group-accountbook", group.html, COPY_REVISION_V229118], ["/faq", faq.html, COPY_REVISION_V229118]]) {
+  for (const [path, html, revision] of [["/demo", demo.html, REVISION], ["/group-accountbook", group.html, "2026-11-22"], ["/faq", faq.html, COPY_REVISION_V229118]]) {
     ok(html.includes(`안내 수정 <time datetime="${revision}">${revision}</time>`) && structuredOf(html).dateModified === revision && lastmodOf(path) === revision, `4-a ${path} 의 안내 수정일·구조화 데이터·사이트맵 lastmod 가 내용을 바꾼 ${revision} 이다`);
   }
   const locs = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);

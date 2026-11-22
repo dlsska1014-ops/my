@@ -43,6 +43,37 @@ function worksheetComputeV229106(slug, input) {
   };
   const table = (caption, headers, rows) => ({ caption, headers, rows });
   const setting = input.settings || {};
+  if (slug === "group-accountbook") {
+    const members = list("members", 12);
+    const names = members.map((row) => nameOf(row.name));
+    if (new Set(names).size !== names.length) fail("같은 이름이 두 번 있습니다. 참여자를 구별할 수 있게 적어 주세요.");
+    if (members.some((row) => !["yes", "no"].includes(row.rode))) fail("각 사람의 택시 이용 여부를 선택해 주세요.");
+    const dues = sum(members.map((row) => number(row.dues)));
+    const meal = number(setting.meal), taxi = number(setting.taxi);
+    const payer = String(setting.payer ?? "").trim();
+    const riders = names.filter((_, index) => members[index].rode === "yes");
+    if (taxi && !names.includes(payer)) fail("택시비를 먼저 낸 사람의 이름을 참여자 목록과 같게 적어 주세요.");
+    if (taxi && !riders.length) fail("택시비를 나눌 사람을 한 명 이상 ‘탑승’으로 표시해 주세요.");
+    const shares = riders.length ? allocate(taxi, riders.map(() => 1)) : [];
+    const transfers = riders.flatMap((name, i) => name !== payer && shares[i] > 0 ? [[name, payer, shares[i]]] : []);
+    const won = (value) => value.toLocaleString("ko-KR") + "원";
+    const balance = dues - meal;
+    const balanceLabel = balance < 0 ? "공금 부족액" : "공금 잔액";
+    const shareText = [
+      "모임 결산",
+      "걷은 회비 " + won(dues) + " · 식사비 " + won(meal) + " · " + balanceLabel + " " + won(Math.abs(balance)),
+      ...(taxi ? ["택시비 " + won(taxi) + " · 선결제 " + payer + " · 탑승 " + riders.join(", ")] : ["택시비 0원"]),
+      ...(transfers.length ? transfers.map(([from, to, amount]) => from + " → " + to + " " + won(amount)) : ["택시비로 따로 보낼 돈은 없습니다."]),
+    ].join("\n");
+    return {
+      tables: [
+        table("공금 결산 (원)", ["항목", "금액"], [["실제로 걷은 회비", dues], ["공금으로 쓴 식사비", meal], [balanceLabel, Math.abs(balance)]]),
+        table("개인 카드 택시비 정산 (원)", ["보내는 사람", "받는 사람", "금액"], transfers.length ? transfers : [["추가 송금 없음", "", 0]]),
+      ],
+      shareText,
+      notes: ["택시비는 탑승자끼리 똑같이 나눕니다. 1원씩 남으면 목록에서 먼저 적은 탑승자부터 부담합니다. 선결제자가 탔다면 자기 몫을 빼고 돌려받습니다.", "공금 부족액은 모임에서 따로 충당할 금액입니다. 이 표에서는 부과할 회비나 공금 잔액의 반환을 자동으로 나누지 않습니다."],
+    };
+  }
   if (slug === "shared-living-cost-rules") {
     const people = list("people", 12);
     const names = people.map((p) => nameOf(p.name));
@@ -62,7 +93,9 @@ function worksheetComputeV229106(slug, input) {
       paid[payer] = sum([paid[payer], amount]);
     }
     const methods = [["균등 분담", "equal"], ["소득 비율", "income"], ["이용량 비율", "use"], ["합의 비율", "agreed"]];
-    const methodsOut = methods.map(([label, field]) => {
+    const participants = new Set([...groups.values()].flatMap((group) => group.ids));
+    const incomplete = methods.filter(([, field]) => field !== "equal" && [...participants].some((i) => String(people[i][field] ?? "").trim() === ""));
+    const methodsOut = methods.filter((method) => !incomplete.includes(method)).map(([label, field]) => {
       const shares = names.map(() => 0);
       for (const { ids, amount } of groups.values()) {
         const values = allocate(amount, ids.map((i) => field === "equal" ? 1 : number(people[i][field])));
@@ -78,7 +111,7 @@ function worksheetComputeV229106(slug, input) {
       }
       return { label, shares, net, transfers };
     });
-    return { total: sum(paid), methods: methodsOut, tables: methodsOut.flatMap((m) => [table(m.label + " (원)", ["참여자", "결제액", "부담액", "받을 돈(+)/보낼 돈(-)"], names.map((n, i) => [n, paid[i], m.shares[i], m.net[i]])), table(m.label + " 송금 제안 (원)", ["보내는 사람", "받는 사람", "금액"], m.transfers.length ? m.transfers : [["추가 송금 없음", "", 0]])]), notes: ["참여자가 같은 지출을 합친 뒤 비율을 적용했습니다. 원 미만을 버리고 소수 부분이 큰 순서로 남은 원을 배정하며, 동률이면 참여자 입력 순서를 따릅니다.", "이는 합의용 계산표입니다. 실제 가계부의 자동 정산이나 송금을 실행하지 않으며, 환불은 원거래와 별도로 합의해 반영해 주세요."] };
+    return { total: sum(paid), methods: methodsOut, tables: methodsOut.flatMap((m) => [table(m.label + " (원)", ["참여자", "결제액", "부담액", "받을 돈(+)/보낼 돈(-)"], names.map((n, i) => [n, paid[i], m.shares[i], m.net[i]])), table(m.label + " 송금 제안 (원)", ["보내는 사람", "받는 사람", "금액"], m.transfers.length ? m.transfers : [["추가 송금 없음", "", 0]])]), notes: [...incomplete.map(([label]) => label + " 결과를 보려면 참여자의 비율을 모두 입력해 주세요."), "참여자가 같은 지출을 합친 뒤 비율을 적용했습니다. 원 미만을 버리고 소수 부분이 큰 순서로 남은 원을 배정하며, 동률이면 참여자 입력 순서를 따릅니다.", "이는 합의용 계산표입니다. 실제 가계부의 자동 정산이나 송금을 실행하지 않으며, 환불은 원거래와 별도로 합의해 반영해 주세요."] };
   }
   if (slug === "roommate-shared-ledger") {
     const start = date(setting.start), end = date(setting.end), cost = number(setting.cost);
@@ -158,6 +191,8 @@ function worksheetComputeV229106(slug, input) {
   if (slug === "subscription-cleanup") {
     const start = date(setting.basis), end = start + 30;
     let before = 0, after = 0;
+    let annualCost = 0, renewingAnnualCost = 0;
+    const monthlyEquivalent = (annualAmount) => Math.round(annualAmount / 12 * 100) / 100;
     const rows = list("subscriptions").map((row) => {
       const name = nameOf(row.name), amount = number(row.amount), next = date(row.next);
       if (!["monthly", "annual"].includes(row.cycle) || !["active", "requested", "confirmed"].includes(row.cancel)) fail("결제 주기와 해지 상태를 선택해 주세요.");
@@ -166,11 +201,14 @@ function worksheetComputeV229106(slug, input) {
       const until = row.until ? date(row.until) : null;
       if (row.cancel === "confirmed" && (confirmed === null || until === null || confirmed > start || until < confirmed)) fail("해지 완료일과 이용 종료일을 확인해 주세요. 기준일 뒤의 완료를 미리 반영할 수 없습니다.");
       const planned = next >= start && next < end ? amount : 0;
+      const yearCost = row.cycle === "monthly" ? amount * 12 : amount;
+      annualCost = sum([annualCost, yearCost]);
+      if (row.cancel !== "confirmed") renewingAnnualCost = sum([renewingAnnualCost, yearCost]);
       const cancelled = row.cancel === "confirmed" && confirmed < next;
       before = sum([before, planned]); after = sum([after, cancelled ? 0 : planned]);
-      return [name, row.cycle === "annual" ? amount / 12 : amount, planned, cancelled ? 0 : planned, row.cancel === "requested" ? "요청만 함: 청구 유지" : cancelled ? "갱신 해지 확인" : "다음 결제 확인", row.until || "미확인", number(row.refund)];
+      return [name, row.cycle === "annual" ? monthlyEquivalent(amount) : amount, planned, cancelled ? 0 : planned, row.cancel === "requested" ? "요청만 함: 청구 유지" : cancelled ? "갱신 해지 확인" : "다음 결제 확인", row.until || "미확인", number(row.refund)];
     });
-    return { before, after, reduction: before - after, tables: [table("구독별 비교 (원)", ["구독", "월 환산 비용", "해지 반영 전 30일", "확인 반영 후 30일", "상태", "이용 종료일", "실제 환불 입금"], rows), table("30일 구간 합계 (원)", ["항목", "금액"], [["해지 반영 전 예정액", before], ["확인 반영 후 예정액", after], ["예정 결제 감소액", before - after]])], notes: ["기준일을 포함한 30일이며 마지막 날은 제외합니다. 각 구독의 입력한 다음 결제 한 건만 비교하므로, 구간 안에 두 번 청구되는 상품은 각각 별도 행으로 확인하세요.", "해지 요청만으로 예정액을 지우지 않습니다. 해지 완료와 다음 갱신 차단이 확인된 조건을 입력하세요. 결제일 당일 해지는 이미 청구됐을 수 있어 자동 제외하지 않습니다. 월 환산액·예정 감소액·실제 환불은 서로 다른 값입니다."] };
+    return { before, after, reduction: before - after, tables: [table("구독별 비교 (원)", ["구독", "월 환산 비용", "해지 반영 전 30일", "확인 반영 후 30일", "상태", "이용 종료일", "실제 환불 입금"], rows), table("30일 구간 합계 (원)", ["항목", "금액"], [["해지 반영 전 예정액", before], ["확인 반영 후 예정액", after], ["예정 결제 감소액", before - after]]), table("갱신 여부에 따른 월 환산 비용 (원)", ["비교 기준", "월 환산 금액"], [["입력한 구독을 모두 유지할 때", monthlyEquivalent(annualCost)], ["갱신 해지를 확인한 구독의 이용 기간이 끝난 뒤", monthlyEquivalent(renewingAnnualCost)]])], notes: ["기준일부터 30일간 계산합니다. 11월 5일이 기준일이면 12월 4일 결제까지 포함합니다. 각 구독의 입력한 다음 결제 한 건만 비교하므로, 구간 안에 두 번 청구되는 상품은 각각 별도 행으로 확인하세요.", "해지 요청만으로 예정액을 지우지 않습니다. 해지 완료와 다음 갱신 차단이 확인된 조건을 입력하세요. 결제일 당일 해지는 이미 청구됐을 수 있어 자동 제외하지 않습니다. 연 구독의 월 환산액은 1회 결제액을 12로 나누고 소수 둘째 자리까지 반올림합니다. 월 환산 합계는 구독 전체의 연간 비용을 더한 뒤 12로 나눕니다. 30일 예정액은 실제 결제일과 1회 결제액으로 계산합니다."] };
   }
   if (slug === "budget-ratio-guide") {
     const income = number(setting.income), fixedNeed = number(setting.fixedNeed);
@@ -179,9 +217,11 @@ function worksheetComputeV229106(slug, input) {
     if (sum([needRatio, wantRatio, saveRatio]) !== 100) fail("필수·선택·저축 비율의 합계는 정확히 100%여야 합니다.");
     const [needBudget, wantBudget, saveBudget] = allocate(income, [needRatio, wantRatio, saveRatio]);
     const variableNeed = needBudget - fixedNeed;
-    const weeklyCap = Math.floor((Math.max(0, variableNeed) + wantBudget) * 7 / 30);
+    const available = income - fixedNeed - saveBudget;
+    const shortfall = Math.max(0, -available);
+    const weeklyCap = Math.floor(Math.max(0, available) * 7 / 30);
     return {
-      needBudget, wantBudget, saveBudget, variableNeed, weeklyCap,
+      needBudget, wantBudget, saveBudget, variableNeed, weeklyCap, shortfall,
       tables: [
         table("월 예산 배분 결과 (원)", ["영역", "목표 비율(%)", "배분 예산", "세부 구성"], [
           ["필수 생활비(고정비 + 기본 식비·생활)", needRatio, needBudget, fixedNeed],
@@ -192,6 +232,7 @@ function worksheetComputeV229106(slug, input) {
           ["확정 고정비(주거·관리·통신·보험 등)", fixedNeed],
           ["고정비를 뺀 잔여 필수 변동비(식비·생필품·교통)", variableNeed],
           ["필수 변동비 + 선택 소비 1주일 권장 한도", weeklyCap],
+          ["고정비와 저축 목표를 충족하는 데 부족한 금액", shortfall],
         ]),
       ],
       notes: [
@@ -237,6 +278,14 @@ function worksheetComputeV229106(slug, input) {
     const gap = Math.max(0, threshold - recognized);
     const unplanned = Math.max(0, gap - planned);
     const netGain = benefit - unplanned;
+    let explanation;
+    if (!gap) explanation = "이미 실적 기준을 채웠습니다. 추가 결제할 금액은 0원입니다.";
+    else if (!unplanned) explanation = "예정된 지출만으로 실적 기준을 채울 수 있습니다.";
+    else {
+      const difference = Math.abs(netGain).toLocaleString("ko-KR") + "원";
+      const effect = netGain === 0 ? "예상 혜택과 추가 지출이 같습니다." : netGain > 0 ? "예상 혜택이 추가 지출보다 " + difference + " 많습니다." : "추가 지출이 예상 혜택보다 " + difference + " 많습니다.";
+      explanation = "예정 지출 후에도 " + unplanned.toLocaleString("ko-KR") + "원이 부족합니다. 이 금액을 더 결제하면 " + effect;
+    }
     return {
       totalSwipe, gap, unplanned, netGain,
       tables: [
@@ -255,7 +304,7 @@ function worksheetComputeV229106(slug, input) {
       ],
       notes: [
         "카드 앱의 총 이용금액에는 무이자할부·국세·지방세·공과금·아파트관리비·상품권 등 전월 실적 제외 항목이 섞여 있을 수 있으므로 반드시 ‘실적 충족 현황’의 인정 금액으로 비교하세요.",
-        netGain < 0 ? "실적을 채우기 위해 계획에 없던 지출을 더 쓰면 다음 달 받을 혜택보다 추가 지출이 더 큽니다. 무리하게 실적을 채우지 말고 체크카드나 무실적 카드로 전환하는 편이 유리합니다." : "원래 필요한 생필품 결제만으로 실적을 채울 수 있어 다음 달 혜택이 순이익으로 남는 구간입니다.",
+        explanation,
       ],
     };
   }

@@ -83,10 +83,11 @@ try {
     ok(article.html.indexOf("원본(가상 데이터)") > article.html.indexOf(`<h2>${h2[1]}</h2>`), `${path}: 원본 표가 서사 절 뒤에 온다`);
     const first = article.html.match(/<section class="pubSection" id="section-1">([\s\S]*?)<\/section>/)[1];
     ok(first.includes(spec.outcome) && !first.includes(spec.instruction) && !first.includes("<table"), `${path}: 첫 절은 결과 한 문단뿐(입력 안내·표 없음)`);
+    ok(article.html.includes('class="pubBtn" href="#inline-worksheet"') && article.html.includes('id="inline-worksheet"'), `${path}: 머리 버튼에서 본문의 계산표를 연다`);
     const lastSection = article.html.match(new RegExp(`<section class="pubSection" id="section-${h2.length}">([\\s\\S]*?)<\\/section>`))[1];
-    ok(lastSection.includes(spec.instruction) && lastSection.includes("<table") && lastSection.includes('class="pubNote"') && lastSection.includes(worksheetPath(slug)) && lastSection.includes(`${worksheetPath(slug)}?download=1`), `${path}: 마지막 절에 입력 안내·검산 표·가상 예제 안내·계산표 링크 둘`);
+    ok(lastSection.includes(spec.instruction) && lastSection.includes("<table") && lastSection.includes('class="pubNote"') && lastSection.includes('href="#inline-worksheet"') && lastSection.includes(`${worksheetPath(slug)}?download=1`), `${path}: 마지막 절에 입력 안내·검산 표·가상 예제 안내·계산표 링크 둘`);
     eq((article.html.match(new RegExp(`living-worksheet-${previousVersion}-`, "g")) || []).length, 0, `${path}: 옛 판 계산표 주소를 쓰지 않는다`);
-    eq((article.html.match(new RegExp(`living-worksheet-${assetVersion}-`, "g")) || []).length, 4, `${path}: 새 판 계산표 주소(머리 단추 2 + 마지막 절 링크 2)`);
+    eq((article.html.match(new RegExp(`living-worksheet-${assetVersion}-`, "g")) || []).length, 2, `${path}: 새 판 파일 저장 주소(머리 단추와 마지막 절)`);
 
     // D-4~D-6 계산표 자산: 새 판·옛 판 주소는 같은 내용, 두 판 전은 404, 머리·꼬리 링크, 변경 전 결과 표시, 휴대폰 2열.
     const sheet = await request(worksheetPath(slug));
@@ -103,8 +104,8 @@ try {
     ok(sheet.html.includes('#worksheet-result[data-stale="1"]::before{content:"입력값을 바꾸기 전 결과입니다.') && sheet.html.includes('#worksheet-result[data-stale="1"] .table-scroll,#worksheet-result[data-stale="1"] p{opacity:.55}'), `${slug}: 변경 전 결과 표시 CSS`);
     ok(sheet.html.includes("@media(max-width:640px){.fields{grid-template-columns:repeat(2,minmax(0,1fr))"), `${slug}: 휴대폰 폭 2열`);
     const client = sheet.html.match(/<script>\(function worksheetClientV229106[\s\S]*?<\/script>/)?.[0] || "";
-    ok(client.includes('const invalidate = () => { last = null; exportButton.disabled = true; if (output.childElementCount) output.dataset.stale = "1";') && !/const invalidate = \(\) => \{[^\n]*output\.replaceChildren\(\)/.test(client), `${slug}: 입력 변경은 결과를 지우지 않고 변경 전 표시만 한다`);
-    ok(client.includes('output.replaceChildren(); delete output.dataset.stale; last = null; exportButton.disabled = true;'), `${slug}: 다시 계산하면 변경 전 표시를 지운다`);
+    ok(client.includes('const invalidate = () => { last = null; printButton.disabled = true; exportButton.disabled = true; if (output.childElementCount) output.dataset.stale = "1";') && !/const invalidate = \(\) => \{[^\n]*output\.replaceChildren\(\)/.test(client), `${slug}: 입력 변경은 결과를 지우지 않고 변경 전 표시만 한다`);
+    ok(client.includes('output.replaceChildren(); delete output.dataset.stale; last = null; printButton.disabled = true; exportButton.disabled = true;'), `${slug}: 다시 계산하면 변경 전 표시를 지운다`);
     ok(!/<script[^>]+src=/i.test(sheet.html) && String(sheet.headers.get("content-security-policy")).includes("connect-src 'none'"), `${slug}: 바깥 스크립트·연결 없음`);
     for (const script of sheet.html.matchAll(/<script(?: [^>]*)?>([\s\S]*?)<\/script>/g)) { new vm.Script(script[1]); checks++; }
     ok(!/\b(?:fetch|localStorage|sessionStorage|XMLHttpRequest)\b/.test(client), `${slug}: 입력을 보내거나 저장하지 않는다`);

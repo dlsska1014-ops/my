@@ -1,8 +1,8 @@
 // @build:imports-start
 import { worksheetComputeV229106 } from "./worksheet-calculations.js";
 import {
-  PUBLIC_ALL_CALCULATORS_V229139, PUBLIC_ARTICLE_CHARTS_V229139, PUBLIC_ARTICLE_CTA_MAP_V229139,
-  PUBLIC_MINI_CALCULATORS_V229139, PUBLIC_WORKSHEETS_V229106,
+  GROUP_TREASURER_WORKSHEET, PUBLIC_ALL_CALCULATORS_V229139, PUBLIC_ARTICLE_CHARTS_V229139,
+  PUBLIC_ARTICLE_CTA_MAP_V229139, PUBLIC_MINI_CALCULATORS_V229139, PUBLIC_WORKSHEETS_V229106,
   PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107, PUBLIC_WORKSHEET_ASSET_VERSION_V229107,
   publicWorksheetPathV229106,
 } from "./worksheet-pages.js";
@@ -27,7 +27,10 @@ function worksheetClientV229106(slug, spec, calculate) {
     label.htmlFor = node.id; label.append(node); return label;
   };
   // V22.9.107 D-4: 입력을 고치면 이전 결과를 지우지 않고 ‘변경 전 결과’ 로 흐리게 남긴다(숫자를 조정하며 비교할 수 있게). CSV 저장은 다시 계산할 때까지 막는다.
-  const invalidate = () => { last = null; exportButton.disabled = true; if (output.childElementCount) output.dataset.stale = "1"; status.textContent = "입력값이 바뀌었습니다. 아래 결과는 바꾸기 전 값입니다. ‘결과 계산’을 눌러 다시 확인해 주세요."; };
+  const printButton = document.getElementById("worksheet-print");
+  const resetButton = document.getElementById("worksheet-reset");
+  let shareControls;
+  const invalidate = () => { last = null; printButton.disabled = true; exportButton.disabled = true; if (output.childElementCount) output.dataset.stale = "1"; if (shareControls) shareControls.disabled = true; status.textContent = "입력값이 바뀌었습니다. 아래 결과는 바꾸기 전 값입니다. ‘결과 계산’을 눌러 다시 확인해 주세요."; };
   let sequence = 0;
   const addRow = (group, holder, row = {}) => {
     if (holder.children.length >= (group.max || 100)) { status.textContent = `최대 ${group.max || 100}행까지 입력할 수 있습니다.`; return; }
@@ -49,7 +52,7 @@ function worksheetClientV229106(slug, spec, calculate) {
     return input;
   };
   const run = () => {
-    output.replaceChildren(); delete output.dataset.stale; last = null; exportButton.disabled = true;
+    output.replaceChildren(); delete output.dataset.stale; last = null; printButton.disabled = true; exportButton.disabled = true;
     try {
       const input = read(), result = calculate(slug, input);
       for (const data of result.tables) {
@@ -61,19 +64,42 @@ function worksheetClientV229106(slug, spec, calculate) {
         table.append(body); region.append(table); output.append(region);
       }
       for (const note of result.notes) output.append(element("p", note));
-      last = { input, result }; exportButton.disabled = false;
+      if (result.shareText) {
+        const label = element("label", "단톡방에 공유할 결산 문구");
+        const summary = element("textarea");
+        summary.readOnly = true; summary.rows = result.shareText.split("\n").length; summary.value = result.shareText;
+        label.append(summary);
+        shareControls = element("fieldset");
+        shareControls.className = "group-summary";
+        shareControls.append(element("legend", "결산 공유"));
+        const copyButton = element("button", "결산 문구 복사"); copyButton.type = "button";
+        copyButton.addEventListener("click", async () => {
+          try {
+            await navigator.clipboard.writeText(summary.value);
+            if (last?.result === result) status.textContent = "결산 문구를 복사했어요. 보낼 단톡방에 붙여 넣으세요.";
+          } catch {
+            if (last?.result !== result) return;
+            summary.focus(); summary.select();
+            status.textContent = "결산 문구를 선택했어요. 기기의 복사 기능을 사용해 주세요.";
+          }
+        });
+        shareControls.append(label, copyButton);
+        output.append(shareControls);
+      }
+      last = { input, result }; printButton.disabled = false; exportButton.disabled = false;
       status.textContent = "계산했습니다. 결과와 처리 이유를 확인하고 필요한 경우 CSV로 저장하세요.";
     } catch (error) { status.textContent = error.message || "입력값을 확인해 주세요."; }
   };
+  let example = spec.example;
   const reset = () => {
     form.replaceChildren();
     const settings = element("div"); settings.id = "worksheet-settings"; settings.className = "fields";
-    for (const schema of spec.fields) settings.append(field(schema, spec.example.settings[schema[0]], "setting"));
+    for (const schema of spec.fields) settings.append(field(schema, example.settings[schema[0]], "setting"));
     form.append(settings);
     for (const group of spec.groups) {
       const section = element("section"); section.append(element("h3", group.label));
       const holder = element("div"); holder.dataset.group = group.key;
-      for (const row of spec.example[group.key]) addRow(group, holder, row);
+      for (const row of example[group.key]) addRow(group, holder, row);
       const add = element("button", "행 추가"); add.type = "button"; add.className = "secondary";
       add.addEventListener("click", () => { addRow(group, holder); invalidate(); });
       section.append(holder, add); form.append(section);
@@ -83,8 +109,24 @@ function worksheetClientV229106(slug, spec, calculate) {
   form.addEventListener("submit", (event) => { event.preventDefault(); run(); });
   form.addEventListener("input", invalidate);
   form.addEventListener("change", invalidate);
-  document.getElementById("worksheet-reset").addEventListener("click", reset);
-  document.getElementById("worksheet-print").addEventListener("click", () => window.print());
+  let exampleSelect;
+  if (spec.otherExamples?.length) {
+    const label = element("label", "비교할 예제 ");
+    exampleSelect = element("select");
+    for (const title of [spec.exampleLabel, ...spec.otherExamples.map((e) => e.label)]) exampleSelect.append(element("option", title));
+    exampleSelect.addEventListener("change", () => {
+      example = spec.otherExamples[exampleSelect.selectedIndex - 1]?.input || spec.example;
+      reset();
+    });
+    label.append(exampleSelect);
+    form.before(label);
+  }
+  resetButton.addEventListener("click", () => {
+    if (exampleSelect) exampleSelect.selectedIndex = 0;
+    example = spec.example;
+    reset();
+  });
+  printButton.addEventListener("click", () => { if (last) window.print(); });
   exportButton.addEventListener("click", () => {
     if (!last) return;
     const exportValue = (schema, value) => schema[2] === "select" ? schema[3].find((option) => option[0] === value)?.[1] || value : schema[2] === "number" && value !== "" ? Number(value) : value;
@@ -98,6 +140,7 @@ function worksheetClientV229106(slug, spec, calculate) {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
   reset();
+  resetButton.disabled = false;
 }
 
 function renderPublicWorksheetV229106(slug, spec) {
@@ -109,7 +152,8 @@ function renderPublicWorksheetV229106(slug, spec) {
 }
 
 function renderInlineWorksheetV229139(slug) {
-  const spec = PUBLIC_WORKSHEETS_V229106[slug] || PUBLIC_MINI_CALCULATORS_V229139[slug] || PUBLIC_ALL_CALCULATORS_V229139[slug];
+  const spec = slug === "group-accountbook" ? GROUP_TREASURER_WORKSHEET
+    : PUBLIC_WORKSHEETS_V229106[slug] || PUBLIC_MINI_CALCULATORS_V229139[slug] || PUBLIC_ALL_CALCULATORS_V229139[slug];
   if (!spec || !PUBLIC_ARTICLE_CHARTS_V229139 || !PUBLIC_ARTICLE_CTA_MAP_V229139) return null;
   const json = (value) => JSON.stringify(value).replace(/</g, "\\u003c");
   const title = escapeHtml(spec.title);
@@ -136,8 +180,8 @@ function renderInlineWorksheetV229139(slug) {
   const ssrTables = initial.tables.map((data) => `<div class="table-scroll" role="region" aria-label="${escapeHtml(data.caption)}" tabindex="0"><table><caption>${escapeHtml(data.caption)}</caption><thead><tr>${data.headers.map((h) => `<th scope="col">${escapeHtml(h)}</th>`).join("")}</tr></thead><tbody>${data.rows.map((r) => `<tr>${r.map((v, i) => `<${i ? "td" : 'th scope="row"'}>${escapeHtml(typeof v === "number" ? v.toLocaleString("ko-KR", { maximumFractionDigits: 2 }) : String(v))}</${i ? "td" : "th"}>`).join("")}</tr>`).join("")}</tbody></table></div>`).join("");
   const ssrNotes = initial.notes.map((n) => `<p>${escapeHtml(n)}</p>`).join("");
   const ssrChecks = (spec.checks || []).length ? `<details class="pubToolChecks"><summary>예제 검산 보기</summary><ul>${spec.checks.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details>` : "";
-  const cssHtml = `.pubInlineTool{margin:28px 0;padding:24px;border:1px solid #c8d9ff;border-radius:18px;background:#f8fbff}.pubInlineToolHead .pubToolBadge{display:inline-flex;padding:4px 10px;border-radius:999px;background:#e8f3ff;color:#1d4ed8;font-size:12.5px;font-weight:700}.pubInlineTool .pubToolHeading{margin:10px 0 8px;font-size:22px;color:#172033}.pubInlineTool p{margin:6px 0;color:#43516a;line-height:1.75;font-size:15px}.pubToolChecks{margin:12px 0;padding:10px 14px;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubToolChecks summary{cursor:pointer;font-weight:700;font-size:14px;color:#1e293b}.pubToolChecks ul{margin:8px 0 2px;padding-left:20px;font-size:14px;color:#43516a;line-height:1.7}.pubInlineTool .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr));gap:12px;margin:14px 0}.pubInlineTool fieldset{min-width:0;margin:12px 0;padding:14px;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubInlineTool legend,.pubInlineTool .wsGroupTitle{font-weight:700;font-size:15px;color:#1e293b;margin:12px 0 6px}.pubInlineTool label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:#344054}.pubInlineTool input,.pubInlineTool select{font:inherit;font-size:16px;color:#172033;background:#fff;min-height:44px;width:100%;border:1px solid #9ca8bd;border-radius:8px;padding:8px 10px}.pubInlineTool button{font:inherit;font-weight:700;min-height:44px;padding:8px 16px;margin:10px 8px 0 0;border:1px solid #1d4ed8;border-radius:10px;background:#1d4ed8;color:#fff;cursor:pointer}.pubInlineTool button.secondary{background:#fff;color:#1d4ed8}.pubInlineTool button:disabled{opacity:.55;cursor:not-allowed}.pubInlineTool .table-scroll{overflow-x:auto;margin:16px 0;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubInlineTool table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}.pubInlineTool caption{text-align:left;padding:12px 14px;font-weight:700;color:#1e293b}.pubInlineTool th,.pubInlineTool td{padding:10px 14px;border-top:1px solid #e1e7f0;text-align:left}.pubInlineTool thead th{background:#f1f5fb}#worksheet-status{font-weight:600;color:#1d4ed8;margin-top:14px}#worksheet-result[data-stale="1"]::before{content:"입력값을 바꾸기 전 결과입니다. ‘결과 계산’을 누르면 새 결과로 바뀝니다.";display:block;font-weight:650;color:#4d596a;margin:0 0 8px}#worksheet-result[data-stale="1"] .table-scroll,#worksheet-result[data-stale="1"] .pubTableWrap,#worksheet-result[data-stale="1"] p{opacity:.55}.pubInlineTool .actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}@media(max-width:640px){.pubInlineTool{padding:18px 14px}.pubInlineTool .fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}`;
-  const sectionHtml = `<section class="pubInlineTool" id="inline-worksheet" aria-label="${title}"><div class="pubInlineToolHead"><span class="pubToolBadge">인터랙티브 계산표 · 브라우저 즉시 검산</span><h3 class="pubToolHeading">${title}</h3><p>${escapeHtml(spec.outcome)} ${escapeHtml(spec.instruction)}</p>${ssrChecks}</div><form id="worksheet-form" action="#inline-worksheet" novalidate>${ssrSettings}${ssrGroups}<button type="submit">결과 계산</button></form><p id="worksheet-status" role="status" aria-live="polite">기본 예제를 계산한 결과입니다. 입력값을 바꾸고 ‘결과 계산’을 눌러 비교해 보세요.</p><div id="worksheet-result">${ssrTables}${ssrNotes}</div><div class="actions"><button type="button" id="worksheet-export">입력과 결과 CSV 저장</button><button type="button" class="secondary" id="worksheet-print">결과 인쇄</button><button type="button" class="secondary" id="worksheet-reset">예제 값으로 되돌리기</button></div></section>`;
+  const cssHtml = `.group-summary textarea{display:block;width:100%;box-sizing:border-box;font:inherit}.group-summary button{margin-top:8px}.pubInlineTool{margin:28px 0;padding:24px;border:1px solid #c8d9ff;border-radius:18px;background:#f8fbff}.pubInlineToolHead .pubToolBadge{display:inline-flex;padding:4px 10px;border-radius:999px;background:#e8f3ff;color:#1d4ed8;font-size:12.5px;font-weight:700}.pubInlineTool .pubToolHeading{margin:10px 0 8px;font-size:22px;color:#172033}.pubInlineTool p{margin:6px 0;color:#43516a;line-height:1.75;font-size:15px}.pubToolChecks{margin:12px 0;padding:10px 14px;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubToolChecks summary{cursor:pointer;font-weight:700;font-size:14px;color:#1e293b}.pubToolChecks ul{margin:8px 0 2px;padding-left:20px;font-size:14px;color:#43516a;line-height:1.7}.pubInlineTool .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr));gap:12px;margin:14px 0}.pubInlineTool fieldset{min-width:0;margin:12px 0;padding:14px;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubInlineTool legend,.pubInlineTool .wsGroupTitle{font-weight:700;font-size:15px;color:#1e293b;margin:12px 0 6px}.pubInlineTool label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:#344054}.pubInlineTool input,.pubInlineTool select{font:inherit;font-size:16px;color:#172033;background:#fff;min-height:44px;width:100%;border:1px solid #9ca8bd;border-radius:8px;padding:8px 10px}.pubInlineTool button{font:inherit;font-weight:700;min-height:44px;padding:8px 16px;margin:10px 8px 0 0;border:1px solid #1d4ed8;border-radius:10px;background:#1d4ed8;color:#fff;cursor:pointer}.pubInlineTool button.secondary{background:#fff;color:#1d4ed8}.pubInlineTool button:disabled{opacity:.55;cursor:not-allowed}.pubInlineTool .table-scroll{overflow-x:auto;margin:16px 0;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubInlineTool table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}.pubInlineTool caption{text-align:left;padding:12px 14px;font-weight:700;color:#1e293b}.pubInlineTool th,.pubInlineTool td{padding:10px 14px;border-top:1px solid #e1e7f0;text-align:left}.pubInlineTool thead th{background:#f1f5fb}#worksheet-status{font-weight:600;color:#1d4ed8;margin-top:14px}#worksheet-result[data-stale="1"]::before{content:"입력값을 바꾸기 전 결과입니다. ‘결과 계산’을 누르면 새 결과로 바뀝니다.";display:block;font-weight:650;color:#4d596a;margin:0 0 8px}#worksheet-result[data-stale="1"] .table-scroll,#worksheet-result[data-stale="1"] .pubTableWrap,#worksheet-result[data-stale="1"] p{opacity:.55}.pubInlineTool .actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}@media(max-width:640px){.pubInlineTool{padding:18px 14px}.pubInlineTool .fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}`;
+  const sectionHtml = `<section class="pubInlineTool" id="inline-worksheet" aria-label="${title}"><div class="pubInlineToolHead"><span class="pubToolBadge">인터랙티브 계산표 · 브라우저 즉시 검산</span><h3 class="pubToolHeading">${title}</h3><p>${escapeHtml(spec.outcome)} ${escapeHtml(spec.instruction)}</p>${ssrChecks}</div><form id="worksheet-form" action="#inline-worksheet" novalidate><fieldset disabled><legend>기본 예제 입력값</legend>${ssrSettings}${ssrGroups}<button type="button" disabled>결과 계산</button></fieldset></form><p id="worksheet-status" role="status" aria-live="polite">기본 예제의 결과입니다. 브라우저에서 계산 기능이 준비되면 입력값을 바꿀 수 있습니다.</p><div id="worksheet-result">${ssrTables}${ssrNotes}</div><div class="actions"><button type="button" id="worksheet-export" disabled>입력과 결과 CSV 저장</button><button type="button" class="secondary" id="worksheet-print" disabled>결과 인쇄</button><button type="button" class="secondary" id="worksheet-reset" disabled>예제 값으로 되돌리기</button></div></section>`;
   const scriptHtml = `<script>(${worksheetClientV229106.toString()})(${json(slug)},${json(spec)},${worksheetComputeV229106.toString()});</script>`;
   return { cssHtml, sectionHtml, scriptHtml };
 }
