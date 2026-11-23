@@ -241,7 +241,7 @@ await scene("남의 기록을 고친 뒤 방금", async (fx) => {
   const stop = intercept(async ({ url, method }) => (method === "GET" && url.pathname === "/rest/v1/accountbook_transaction_audit" ? new Response(JSON.stringify({ code: "QA", message: "audit read down" }), { status: 503, headers: { "content-type": "application/json" } }) : null));
   let blind;
   try { blind = await say(fx, "방금 거 금액 4800원으로", { user: B, room }); } finally { stop(); }
-  check(() => ok(blind.status === 200 && Number(coffee()?.amount) === 4800 && Number(lunch()?.amount) === 14000, `N-2 감사 기록 읽기가 실패하면 V22.9.134 처럼 내 마지막 기록(${blind.lines[0]})`), "touched audit down");
+  check(() => ok(blind.status === 200 && blind.text.includes("아무것도 바꾸지 않았어요") && Number(coffee()?.amount) === 4500 && Number(lunch()?.amount) === 14000, `N-2 감사 기록 읽기가 실패하면 두 거래를 모두 보존한다(${blind.lines[0]})`), "touched audit down");
 });
 
 // ── N-2 라-3. 다른 사람이 자기 기록을 고친 것은 내 ‘방금’ 을 묻게 하지 않는다(감사 기록은 말한 사람이 고친 줄만 본다 — 남이 내 다른 기록을 고친 경우는

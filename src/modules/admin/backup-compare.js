@@ -185,13 +185,27 @@ async function handleAdminExportJson(request, env, url) {
   return backupJsonResponse(body, `accountbook_backup_${range === "all" ? `all-months${yearParam ? `_${yearParam}` : ""}` : month}_${scope}.json`);
 }
 
+async function selectAdminFileHousehold(env, url, month) {
+  const households = await fetchAdminHouseholds(env);
+  const requested = url.searchParams.get("household_id");
+  const selected = requested === null ? households[0] : households.find((row) => row.id === requested);
+  if (selected) return { households, hid: selected.id, selectedHousehold: selected };
+  if (requested) {
+    const rows = await fetchRowsByPlainIds(env, "households", [requested], "id,name,created_at");
+    const household = rows.find((row) => row.id === requested);
+    if (household) return { households: [...households, household], hid: household.id, selectedHousehold: household };
+  }
+  const options = households.map((row) => '<option value="' + escapeHtml(row.id) + '">' + escapeHtml(householdChoiceLabelV229118(row, households) || row.name) + '</option>').join("");
+  const form = options ? '<form method="get"><input type="hidden" name="month" value="' + escapeHtml(month) + '"><label>가계부 <select name="household_id" required><option value="">선택해 주세요</option>' + options + '</select></label> <button>선택한 가계부 열기</button></form>' : '<p>선택할 가계부가 없습니다.</p>';
+  const response = htmlResponse('<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>가계부 다시 선택</title><main><h1>가계부를 다시 선택해 주세요</h1><p>요청한 가계부를 찾지 못해 거래와 파일을 열지 않았습니다.</p>' + form + '</main></html>', requested ? 404 : 200);
+  return { response };
+}
+
 async function handleBackupCenterPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const households = await fetchAdminHouseholds(env);
-  const householdId = url.searchParams.get("household_id") || households[0]?.id || "";
-  const selectedHousehold = households.find((h) => h.id === householdId) || households[0] || null;
-  const hid = selectedHousehold?.id || "";
+  const { households, hid, selectedHousehold, response } = await selectAdminFileHousehold(env, url, month);
+  if (response) return response;
   const rows = await fetchAdminRows(env, { month, householdId: hid, type: "all" });
   const members = hid ? await fetchHouseholdMembers(env, hid) : [];
   const budgets = hid ? await fetchBudgets(env, hid, month) : [];
@@ -565,6 +579,6 @@ export {
   backupHouseholdLabelV229126, backupHouseholdScopeV229126, backupRestoreView,
   compareBackupTransactions, handleAdminExportJson, handleBackupCenterPage, handleBackupComparePage,
   handleBackupComparePost, handleBackupPreviewPage, handleBackupPreviewPost, safeArray, safeObject,
-  transactionComparable, transactionSignature, validateBackupPayloadShape,
+  selectAdminFileHousehold, transactionComparable, transactionSignature, validateBackupPayloadShape,
 };
 // @build:exports-end

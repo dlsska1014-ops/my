@@ -261,6 +261,18 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const summaryReplies = firstOfToday ? kakaoReturnSummaryRepliesV229123() : null;
   const editGuide = recordOnlyMember ? `\n\n구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요.`
     : seq ? `\n\n수정: "${dayPrefix}수정 ${twoDigitSeq(seq)}번" 또는 "${dayPrefix}수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "${dayPrefix}삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘${dayPrefix || "오늘 "}기록 보기’에서 확인해 주세요.`;
+  // V22.9.141(운영자 2026-11-22 ‘추천대로’): 새 기록 한 건만 저장한 답은 첫 줄 하나로 줄인다 — ‘번호 - 이름 / 금액 / 결제수단 / 분류 · 💸 지출 저장했어요. (날짜)’.
+  // 줄은 ‘오늘기록’ 목록과 같은 꼴(kakaoRowLabel — 분류까지)이다. 수정·삭제 안내는 단톡방에서는 매번 붙인다(여러 사람이 답의 번호를 보고 고친다).
+  // 1:1 에서는 그날 내 첫 기록(ownSeq 1)·첫 답(onSaved)·‘기록만’ 구성원·오늘이 아닌 날짜의 기록에만 붙인다(같은 날 둘째 기록부터는 번호만으로 고칠 수 있다).
+  // 번호를 읽지 못한 답(seq 0 — 그날 기록이 500건을 넘었거나 읽기가 늦음)은 첫 줄에 번호가 없으므로 ‘기록 보기’ 에서 번호를 찾으라는 안내를 늘 붙인다.
+  // 중복·읽지 못한 줄이 섞인 답과 여러 건 답은 예전 꼴 그대로다.
+  const inRoom = !!(context.groupKey || household.bot_group_key);
+  if (newCount === 1 && !duplicateCount && !unread.length) {
+    const summary = [firstNotice + kakaoRowLabel(saved, seq) + " · " + icon + " " + typeText + " 저장했어요. (" + saved.transaction_date + ")", "가계부: " + householdLine, (parsed.type === "income" ? "수입자: " : "지출자: ") + payerName];
+    if (feedbackLine) summary.push(feedbackLine);
+    const guide = inRoom || recordOnlyMember || onSaved || !seq || ownSeq === 1 || dayPrefix ? editGuide : "";
+    return kakaoText(summary.join("\n") + guide + finalizeNotice + pinTip, summaryReplies);
+  }
   return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${householdLine}\n${numberedLine}${parsed.type === "income" ? `\n수입자: ${payerName}` : `\n지출자: ${payerName}`}${feedbackLine ? `\n${feedbackLine}` : ""}${editGuide}${finalizeNotice}${pinTip}`, summaryReplies);
   } finally { if (messageLease?.acquired && !context.messageLeasePromise) await deferKakaoAfterReply(env, () => releaseOperationLease(env, messageLease), { cost: 1, critical: true }); }
 }

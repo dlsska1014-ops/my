@@ -143,7 +143,7 @@ for (const path of ["직접", "방"]) {
   eq(flow.split("resolveKakaoEditTargetRowV4(env, ctx,").length - 1, 3, "1-9 ‘방금’ 해석기를 부르는 곳은 삭제·고치기·지출자 변경 셋이다");
   // V22.9.135: 같은 단계에 셋째 조회(내가 마지막으로 고친 기록 — 감사 기록)가 더해졌다. 구성원도 남의 기록을 고치게 되어, 남의 기록을 고친 직후의 ‘방금’ 도
   // 이 해석기가 묻는다(동작은 validate-v229135-shared-edit). 직렬 깊이는 그대로다.
-  ok(/Promise\.all\(\[\s*getRecentKakaoOwnedTransactionsV2254\(env, household\.id, user\.id, kakaoUserKey, 1\),\s*getRecentKakaoOwnedTransactionsV2254\(env, household\.id, user\.id, kakaoUserKey, 1, \{ touched: true \}\),\s*optionalWithin\(getLatestKakaoEditByRequesterV229135\(env, household\.id, user\.id\)\.catch\(\(\) => null\), KAKAO_LATEST_EDIT_WAIT_MS_V229135, null\),\s*\]\)/.test(flow), "1-9 저장 순서·바뀐 순서·내가 고친 기록(V22.9.135) 세 조회를 같은 단계(Promise.all)에서 읽는다");
+  ok(/Promise\.all\(\[\s*getRecentKakaoOwnedTransactionsV2254\(env, household\.id, user\.id, kakaoUserKey, 1\),\s*getRecentKakaoOwnedTransactionsV2254\(env, household\.id, user\.id, kakaoUserKey, 1, \{ touched: true \}\),\s*optionalWithin\(getLatestKakaoEditByRequesterV229135\(env, household\.id, user\.id\)\.catch\(\(\) => auditUnavailable\), KAKAO_LATEST_EDIT_WAIT_MS_V229135, auditUnavailable\),\s*\]\)/.test(flow), "1-9 저장 순서·바뀐 순서·내가 고친 기록(V22.9.135) 세 조회를 같은 단계(Promise.all)에서 읽는다");
   ok(session.includes('params.set("order", touched ? "updated_at.desc" : "created_at.desc");') && session.includes("`${KAKAO_TX_SELECT_V4},updated_at`"), "1-9 바뀐 순서 조회는 updated_at 내림차순이고 그 칸을 받는다");
   const bundle = read("src/index.js");
   ok(bundle.includes("function kakaoEditTouchedAmbiguousTextV229116(") && bundle.includes("function kakaoChangedAfterV229116("), "1-9 생성 번들에도 새 해석이 있다");

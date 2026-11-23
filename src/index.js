@@ -3398,7 +3398,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.140-PUBLIC-EXAMPLES";
+const APP_VERSION = "V22.9.141-KAKAO-REPLY-GUARDS";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -11133,7 +11133,8 @@ function publicLandingHtml() {
 // ‘지출 상위 분류’ 줄 함수(renderReportTopRows)로 아래 예산 예제와 같은 네 기록(publicDemoRows)을 그린다.
 const PUBLIC_TOUR_CHAT = Object.freeze({
   utterance: "식사 60000원 카드",
-  reply: Object.freeze(["💸 지출 저장했어요 😊", "새로 저장 1건 · 중복 저장 안 함 0건 · 합계 60,000원", "날짜: 2026-09-09", "가계부: 우리집 생활비", "01번 - 식사 / 60,000원 / 카드 / 식비", "지출자: 민지", "", "수정: \"수정 01번\" 또는 \"수정 01번 금액 13000\"", "삭제: \"삭제 01번\""]),
+  // V22.9.141: 봇의 한 건 저장 답 꼴(첫 줄 하나 — 그날 첫 기록이라 수정·삭제 안내가 붙는다)과 같다(validate-demo-tour-v22992 가 실제 답과 줄마다 대조).
+  reply: Object.freeze(["01번 - 식사 / 60,000원 / 카드 / 식비 · 💸 지출 저장했어요. (2026-09-09)", "가계부: 우리집 생활비", "지출자: 민지", "", "수정: \"수정 01번\" 또는 \"수정 01번 금액 13000\"", "삭제: \"삭제 01번\""]),
 });
 
 // V22.9.97 모임 정산(수익화 검토 3절 1번 ‘모임 총무’ — 이 판은 반응만 본다, 가격·플랜 문구 없음): /demo 일곱째 단계의 단톡방 예시.
@@ -19303,6 +19304,10 @@ function normalizeImportedObject(obj, householdId, raw, cells = [], defaultUserI
   return normalizeImportedRecordDetailed(obj, householdId, raw, cells, defaultUserId, { natural: false, rowNumber: 1, source: "import_smart" }).row;
 }
 
+function adminCsvChangedResponse() {
+  return htmlResponse('<!doctype html><html lang="ko"><meta charset="utf-8"><title>CSV 다시 받기</title><p>거래가 바뀌어 CSV 파일을 만들지 않았습니다. 잠시 뒤 다시 시도해 주세요.</p></html>', 409);
+}
+
 async function handleAdminCsv(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
@@ -19313,7 +19318,12 @@ async function handleAdminCsv(request, env, url) {
   const quality = url.searchParams.get("quality") || "all";
   const category = url.searchParams.get("category") || "";
   const paymentMethod = url.searchParams.get("payment_method") || "";
-  const rows = await fetchAdminRows(env, { month, householdId, type, date, q, quality, category, payment_method: paymentMethod });
+  let rows;
+  try { rows = await fetchAdminRows(env, { month, householdId, type, date, q, quality, category, payment_method: paymentMethod, stable: true }); }
+  catch (error) {
+    if (isRowsChangedDuringReadError(error)) return adminCsvChangedResponse();
+    throw error;
+  }
   const header = ["date", "type", "amount", "category", "memo", "payment_method", "source", "raw_text"];
   const lines = [header.join(",")];
   for (const t of rows) {
@@ -20720,13 +20730,27 @@ async function handleAdminExportJson(request, env, url) {
   return backupJsonResponse(body, `accountbook_backup_${range === "all" ? `all-months${yearParam ? `_${yearParam}` : ""}` : month}_${scope}.json`);
 }
 
+async function selectAdminFileHousehold(env, url, month) {
+  const households = await fetchAdminHouseholds(env);
+  const requested = url.searchParams.get("household_id");
+  const selected = requested === null ? households[0] : households.find((row) => row.id === requested);
+  if (selected) return { households, hid: selected.id, selectedHousehold: selected };
+  if (requested) {
+    const rows = await fetchRowsByPlainIds(env, "households", [requested], "id,name,created_at");
+    const household = rows.find((row) => row.id === requested);
+    if (household) return { households: [...households, household], hid: household.id, selectedHousehold: household };
+  }
+  const options = households.map((row) => '<option value="' + escapeHtml(row.id) + '">' + escapeHtml(householdChoiceLabelV229118(row, households) || row.name) + '</option>').join("");
+  const form = options ? '<form method="get"><input type="hidden" name="month" value="' + escapeHtml(month) + '"><label>가계부 <select name="household_id" required><option value="">선택해 주세요</option>' + options + '</select></label> <button>선택한 가계부 열기</button></form>' : '<p>선택할 가계부가 없습니다.</p>';
+  const response = htmlResponse('<!doctype html><html lang="ko"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>가계부 다시 선택</title><main><h1>가계부를 다시 선택해 주세요</h1><p>요청한 가계부를 찾지 못해 거래와 파일을 열지 않았습니다.</p>' + form + '</main></html>', requested ? 404 : 200);
+  return { response };
+}
+
 async function handleBackupCenterPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const households = await fetchAdminHouseholds(env);
-  const householdId = url.searchParams.get("household_id") || households[0]?.id || "";
-  const selectedHousehold = households.find((h) => h.id === householdId) || households[0] || null;
-  const hid = selectedHousehold?.id || "";
+  const { households, hid, selectedHousehold, response } = await selectAdminFileHousehold(env, url, month);
+  if (response) return response;
   const rows = await fetchAdminRows(env, { month, householdId: hid, type: "all" });
   const members = hid ? await fetchHouseholdMembers(env, hid) : [];
   const budgets = hid ? await fetchBudgets(env, hid, month) : [];
@@ -21564,8 +21588,8 @@ function importHistoryBatchKey(row) {
   return `${day} ${hour}시`;
 }
 
-async function fetchImportHistoryRows(env, { month, householdId }) {
-  const rows = await fetchAdminRows(env, { month, householdId, type: "all" });
+async function fetchImportHistoryRows(env, { month, householdId, stable = false }) {
+  const rows = await fetchAdminRows(env, { month, householdId, type: "all", stable });
   return rows.filter((r) => isBackupImportSource(r.source));
 }
 
@@ -21603,10 +21627,8 @@ function renderImportHistoryBatchRows(batches = []) {
 async function handleImportHistoryPage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const households = await fetchAdminHouseholds(env);
-  const householdId = url.searchParams.get("household_id") || households[0]?.id || "";
-  const selectedHousehold = households.find((h) => h.id === householdId) || households[0] || null;
-  const hid = selectedHousehold?.id || "";
+  const { households, hid, selectedHousehold, response } = await selectAdminFileHousehold(env, url, month);
+  if (response) return response;
   const rows = await fetchImportHistoryRows(env, { month, householdId: hid });
   const summary = summarizeImportHistory(rows);
   const qs = new URLSearchParams();
@@ -21624,7 +21646,12 @@ async function handleImportHistoryCsv(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
   const householdId = String(url.searchParams.get("household_id") || "").trim();
-  const rows = await fetchImportHistoryRows(env, { month, householdId });
+  let rows;
+  try { rows = await fetchImportHistoryRows(env, { month, householdId, stable: true }); }
+  catch (error) {
+    if (isRowsChangedDuringReadError(error)) return adminCsvChangedResponse();
+    throw error;
+  }
   const header = ["created_at", "transaction_date", "type", "amount", "category", "memo", "payment_method", "source", "id"];
   const lines = [header.join(",")];
   for (const r of rows) {
@@ -21681,18 +21708,16 @@ function renderRollbackSourceRows(bySource = {}) {
 async function handleRollbackCandidatePage(request, env, url) {
   if (!(await verifyAdminSession(request, env))) return redirectResponse("/?legacy=1");
   const month = validMonth(url.searchParams.get("month")) || currentMonthKst();
-  const households = await fetchAdminHouseholds(env);
-  const householdId = url.searchParams.get("household_id") || households[0]?.id || "";
-  const selectedHousehold = households.find((h) => h.id === householdId) || households[0] || null;
-  const hid = selectedHousehold?.id || "";
+  const { households, hid, selectedHousehold, response } = await selectAdminFileHousehold(env, url, month);
+  if (response) return response;
   const sourceFilter = String(url.searchParams.get("source") || "").trim();
   let rows = await fetchImportHistoryRows(env, { month, householdId: hid });
+  const allSources = summarizeRollbackCandidates(rows).bySource;
   if (sourceFilter) rows = rows.filter((r) => String(r.source || "") === sourceFilter);
   const summary = summarizeRollbackCandidates(rows);
   const qs = new URLSearchParams();
   qs.set("month", month);
   if (hid) qs.set("household_id", hid);
-  const allSources = summarizeRollbackCandidates(await fetchImportHistoryRows(env, { month, householdId: hid })).bySource;
   const sourceOptions = Object.keys(allSources).sort().map((src) => `<option value="${escapeHtml(src)}"${src === sourceFilter ? " selected" : ""}>${escapeHtml(src)}</option>`).join("");
   const householdOptions = households.map((h) => `<option value="${escapeHtml(h.id)}" data-household-name="${escapeHtml(householdChoiceLabelV229118(h, households) || h.name || "가계부")}"${h.id === hid ? " selected" : ""}>${escapeHtml(householdChoiceLabelV229118(h, households) || h.name)}</option>`).join("");
   return htmlResponse(`<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>되돌리기 후보</title><style>body{margin:0;background:#f6f7fb;color:#111827;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","Noto Sans KR",sans-serif}.wrap{max-width:1200px;margin:0 auto;padding:18px}.hero{background:linear-gradient(135deg,#111827,var(--ab12-action,#7c2d12));color:#fff;border-radius:26px;padding:22px;margin:14px 0;box-shadow:0 18px 40px rgba(15,23,42,.18)}.hero h1{margin:0;font-size:30px}.hero p{line-height:1.6;opacity:.9}.filters{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.filters select,.filters input,.filters button{height:42px;border:1px solid #d1d5db;border-radius:13px;padding:0 12px;background:#fff;font:inherit}.filters button{background:#111827;color:#fff;font-weight:1000}.card{background:#fff;border:1px solid #e5e7eb;border-radius:22px;padding:18px;margin:12px 0;box-shadow:0 10px 28px rgba(15,23,42,.055)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}.metric{background:#fff;border:1px solid #e5e7eb;border-radius:18px;padding:15px}.metric span{display:block;color:#64748b}.metric b{display:block;font-size:24px;margin-top:6px}.btn{display:inline-flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:13px;background:#111827;color:#fff;text-decoration:none;font-weight:1000;padding:0 13px;cursor:pointer}.btn.light{background:#eff6ff;color:#1e3a8a}.btn.green{background:#059669}.note{color:#64748b;line-height:1.55}.warnBox{background:#fff7ed;border:1px solid #fed7aa;border-radius:16px;padding:12px;color:#9a3412;line-height:1.55}.selectedBar{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:10px 0;padding:12px;border-radius:16px;background:#fff7ed;color:#9a3412;font-weight:1000}.actions{display:flex;gap:8px;flex-wrap:wrap}.tableWrap{overflow-x:auto}table{width:100%;border-collapse:collapse;background:#fff;min-width:1080px}th,td{border-bottom:1px solid #e5e7eb;padding:10px;text-align:left;font-size:13px;vertical-align:top}.rollbackCheck{width:20px;height:20px}code{background:#f1f5f9;border-radius:8px;padding:3px 6px}@media(max-width:760px){.wrap{padding:12px}.hero h1{font-size:24px}}</style></head><body>${renderUnifiedNav("backup", { month, householdId: hid, role: "admin" })}<main class="wrap"><section class="hero"><h1>되돌리기 후보 화면</h1><p>가져오기 이력 중 되돌릴 후보만 선택해 계획 JSON을 만듭니다. 이 화면은 DB에서 삭제하지 않습니다.</p><form class="filters" method="get" action="/backup/rollback-candidates"><select name="household_id">${householdOptions}</select><input type="month" name="month" value="${escapeHtml(month)}"/><select name="source"><option value="">source 전체</option>${sourceOptions}</select><button type="submit">후보 조회</button></form></section><section class="grid"><div class="metric"><span>되돌리기 후보</span><b>${numberWithCommas(summary.count)}건</b></div><div class="metric"><span>수입 후보</span><b>${numberWithCommas(summary.income)}원</b></div><div class="metric"><span>지출 후보</span><b>${numberWithCommas(summary.expense)}원</b></div><div class="metric"><span>잔액 영향</span><b>${numberWithCommas(summary.balance)}원</b></div></section><section class="card"><h2>주의</h2><p class="warnBox">되돌리기 후보 화면은 계획 파일만 만듭니다. 실제 삭제는 다음 단계에서 관리자 비밀번호 재확인, 확인 문구, 중복/존재 재검사 후 제한적으로 처리하는 방식이 안전합니다.</p><div class="actions"><a class="btn light" href="/backup/import-history?${escapeHtml(qs.toString())}">가져오기 이력으로 돌아가기</a><button type="button" class="btn light" onclick="setRollbackChecks(true)">전체 선택</button><button type="button" class="btn light" onclick="setRollbackChecks(false)">선택 해제</button><button type="button" class="btn green" onclick="downloadRollbackPlan()">선택 계획 JSON 저장</button></div><div class="selectedBar"><b id="rollbackSelectedCount">0건 선택</b><span id="rollbackSelectedAmount">0원</span></div></section><section class="card"><h2>source별 후보</h2><div class="tableWrap"><table><thead><tr><th>source</th><th>건수</th></tr></thead><tbody>${renderRollbackSourceRows(summary.bySource)}</tbody></table></div></section><section class="card"><h2>되돌리기 후보 상세</h2><p class="note">최근 500건까지만 화면에 표시합니다. 선택 계획은 거래 ID와 거래 요약을 포함합니다.</p><div class="tableWrap"><table><thead><tr><th>선택</th><th>저장시각</th><th>거래일</th><th>유형</th><th>금액</th><th>분류</th><th>메모</th><th>수단</th><th>source</th><th>ID</th></tr></thead><tbody>${renderRollbackCandidateRows(rows)}</tbody></table></div></section></main><script>(function(){function money(n){n=Number(n||0);return n.toLocaleString('ko-KR')+'원'}window.setRollbackChecks=function(v){document.querySelectorAll('.rollbackCheck').forEach(function(x){x.checked=!!v});updateRollbackSelection()};function selectedRows(){var out=[];document.querySelectorAll('.rollbackCheck').forEach(function(x){if(!x.checked)return;var tr=x.closest('tr');var payload=tr?tr.querySelector('.rollbackPayload'):null;try{if(payload)out.push(JSON.parse(payload.value||'{}'))}catch(e){}});return out}function updateRollbackSelection(){var rows=selectedRows();var amount=0;rows.forEach(function(r){if((r.type||'expense')==='income')amount-=Number(r.amount||0);else amount+=Number(r.amount||0)});var c=document.getElementById('rollbackSelectedCount');var a=document.getElementById('rollbackSelectedAmount');if(c)c.textContent=rows.length+'건 선택';if(a)a.textContent='되돌리기 순지출 영향 '+money(amount)}document.querySelectorAll('.rollbackCheck').forEach(function(x){x.addEventListener('change',updateRollbackSelection)});window.downloadRollbackPlan=function(){var selected=selectedRows();var payload={app:'kakao-accountbook',version:'V19.8-BUDGET-ALERT',created_at:new Date().toISOString(),mode:'rollback_candidate_plan_only_no_db_write',month:${JSON.stringify(month)},household_id:${JSON.stringify(hid)},selected_count:selected.length,selected:selected};var blob=new Blob([JSON.stringify(payload,null,2)],{type:'application/json'});var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='accountbook_import_rollback_candidate_plan.json';document.body.appendChild(a);a.click();setTimeout(function(){URL.revokeObjectURL(a.href);a.remove()},1000)};updateRollbackSelection();})();</script></body></html>`);
@@ -52529,7 +52554,7 @@ const KAKAO_GROUP_CARD_TEXT_MAX = 400;
 // V22.9.127: 수입·지출을 고르는 두 단추([지출로 기록]·[수입으로 기록])는 이름이 명령이 아니다. 보낼 글(‘수입 <원래 문장>’)이 14자를 넘으면 단톡방에서는
 // 이름만 나가 입력 안내로 끝났다(2026-11-17 시험 단톡방 — 저장되지 않음). 그런 단추는 단톡방에 내지 않고, 다시 보내기 쉽게 ‘기록하기’(봇 부르기) 단추를 하나 단다.
 // 안내 글이 앞에 구분을 붙여 다시 보내는 법을 알려 준다. 다른 단추는 그대로다(이름이 그 흐름의 답이거나 명령인 단추가 있다).
-const KAKAO_TYPE_CHOICE_LABELS_V229127 = new Set(["지출로 기록", "수입으로 기록"]);
+const KAKAO_TYPE_CHOICE_LABELS_V229127 = new Set(["지출로 기록", "수입으로 기록", "분량으로 기록", "날짜로 기록"]);
 
 function kakaoGroupChoiceButtons(quickReplies = []) {
   const replies = dedupeQuickReplies(Array.isArray(quickReplies) ? quickReplies : [])
@@ -53480,6 +53505,10 @@ const KAKAO_AUDIT_ACTOR_KIND = "kakao";
 // T12: 복구는 지울 때 읽은 칸으로 행을 다시 만든다. source·household_id 가 빠지면 되살린 행의 출처가 사라진다.
 const KAKAO_TX_SELECT_V4 = "id,household_id,user_id,source,source_user_key,type,amount,category,memo,payment_method,transaction_date,created_at,raw_text";
 const KAKAO_TX_RESTORE_COLUMNS_V4 = KAKAO_TX_SELECT_V4.split(",");
+// V22.9.141 (독립 검토 3): 수정 창이 기록을 읽는 곳(그날 목록·번호로 읽기·‘방금’ 대상)은 updated_at(운영 DB 의 set_transactions_updated_at 트리거가
+// 고칠 때마다 now() 로 적는다)도 받는다. 첫 작업본은 이 칸을 읽지 않아 연 때의 고친 시각(originalRevision)이 늘 빈 값이었고, 쓰는 순간의 조건(strictExpected)에도
+// updated_at 이 붙지 않아 금액만 견줬다 — 창을 연 사이 다른 사람이 내용·분류를 바꾸면 덮어썼다. 되살리기 칸(KAKAO_TX_RESTORE_COLUMNS_V4)에는 넣지 않는다.
+const KAKAO_TX_EDIT_SELECT_V229141 = `${KAKAO_TX_SELECT_V4},updated_at`;
 
 // 옛 버퍼는 `{ row, seq }` 한 건이었다. 배포 직후에도 그 값이 남아 있으므로 함께 읽는다.
 function kakaoEditUndoItemsV4(obj) {
@@ -53668,7 +53697,7 @@ async function getDailyKakaoRows(env, householdId, userId, kakaoUserKey, date) {
 
 async function getDailyKakaoRawRows(env, householdId, date) {
   const params = new URLSearchParams();
-  params.set("select", KAKAO_TX_SELECT_V4);
+  params.set("select", KAKAO_TX_EDIT_SELECT_V229141);
   params.set("household_id", `eq.${householdId}`);
   params.set("transaction_date", `eq.${date}`);
   params.set("order", "created_at.asc,id.asc");
@@ -53695,7 +53724,7 @@ function kakaoOwnDailySeqFromRowsV229135(rows, row, userId, kakaoUserKey) {
 // (예전에는 남이 남긴 기록이면 null 이라, 열어 둔 수정 창·복구가 ‘찾지 못했어요’ 로 끝났다). userId·kakaoUserKey 는 받기만 한다.
 async function getKakaoRowById(env, householdId, userId, kakaoUserKey, id) {
   const params = new URLSearchParams();
-  params.set("select", KAKAO_TX_SELECT_V4);
+  params.set("select", KAKAO_TX_EDIT_SELECT_V229141);
   params.set("id", `eq.${id}`);
   params.set("household_id", `eq.${householdId}`);
   params.set("limit", "1");
@@ -53757,11 +53786,12 @@ function kakaoOwnerFilterV22979(userId = "", kakaoUserKey = "") {
 // 어느 쪽이든 마지막에 같은 규칙으로 한 번 더 거른다(서버 조건과 어긋난 줄이 있어도 남의 기록이 나가지 않는다).
 // V22.9.116: touched = true 이면 저장 순서가 아니라 마지막으로 바뀐 순서(updated_at — 운영 DB 의 set_transactions_updated_at 트리거가
 // 고칠 때마다 now() 로 적는다)로 읽고 그 칸을 함께 받는다. ‘방금’ 이 가리키는 기록을 정할 때만 쓴다(edit-flow-v4 resolveKakaoEditTargetRowV4).
+// V22.9.141: 그 칸은 이제 늘 받는다(KAKAO_TX_EDIT_SELECT_V229141 — 이 줄로 연 수정 창도 연 때의 고친 시각을 기억한다). 순서만 touched 로 정한다.
 async function getRecentKakaoOwnedTransactionsV2254(env, householdId, userId, kakaoUserKey, limit = 5, { touched = false } = {}) {
   const wanted = Math.max(1, Number(limit || 5));
   const query = (extra) => {
     const params = new URLSearchParams();
-    params.set("select", touched ? `${KAKAO_TX_SELECT_V4},updated_at` : KAKAO_TX_SELECT_V4);
+    params.set("select", KAKAO_TX_EDIT_SELECT_V229141);
     params.set("household_id", `eq.${householdId}`);
     params.set("order", touched ? "updated_at.desc" : "created_at.desc");
     if (extra) params.set(extra[0], extra[1]);
@@ -53804,7 +53834,7 @@ async function getLatestKakaoEditByRequesterV229135(env, householdId = "", userI
   const edits = (Array.isArray(rows) ? rows : []).filter((entry) => /^[\w-]{1,64}$/.test(String(entry?.transaction_id || "")));
   if (!edits.length) return null;
   const ids = [...new Set(edits.map((entry) => String(entry.transaction_id)))];
-  const live = new URLSearchParams({ select: KAKAO_TX_SELECT_V4, household_id: `eq.${householdId}`, id: `in.(${ids.join(",")})`, limit: String(ids.length) });
+  const live = new URLSearchParams({ select: KAKAO_TX_EDIT_SELECT_V229141, household_id: `eq.${householdId}`, id: `in.(${ids.join(",")})`, limit: String(ids.length) });
   const found = await supabase(env, `/rest/v1/transactions?${live.toString()}`, { method: "GET" });
   const byId = new Map((Array.isArray(found) ? found : []).map((row) => [String(row.id), row]));
   const latest = edits.find((entry) => byId.has(String(entry.transaction_id)));
@@ -55115,11 +55145,11 @@ async function sendKakaoEditReplyV4(env, ctx, session, reply, nextSession, { gon
     return kakaoText(line ? `${finalReply}\n${line}` : finalReply);
   }
   await saveKakaoEditSessionV4(env, kakaoUserKey, payload, finalNext); // I6: 전송과 원자적 쌍
-  return kakaoText(finalReply);
+  return kakaoText(finalReply, finalNext.step === "choose_record_or_edit" ? [["선택한 기록 보기"], ["취소"]] : null);
 }
 
 // 필드 → transactions 컬럼 반영. DB 검증(구성원 존재 등)은 여기서 최종 수행한다.
-async function applyKakaoEditFieldV4(env, { session, field, value, config, kakaoUserKey, moduleReply, role = "", holdWrite = false }) {
+async function applyKakaoEditFieldV4(env, { session, field, value, config, kakaoUserKey, moduleReply, role = "", sessionStored = false, holdWrite = false }) {
   const row = await getKakaoRowById(env, session.householdId, session.userId, kakaoUserKey, session.entryId);
   if (!row) {
     return { reply: `수정하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘기록’로 번호를 다시 확인해 주세요.`, nextSession: null, gone: true };
@@ -55254,6 +55284,9 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
   }
   // V22.9.131: 값 확인을 모두 지나 이제 기록을 쓴다. 열린 창에 온 새 기록 꼴의 말이면(holdWrite) 쓰지 않고 돌려보낸다 — 부른 쪽이 두 길 안내로 끝낸다.
   if (holdWrite) return { held: true };
+  if ((session.originalAmount != null && Number(row.amount) !== Number(session.originalAmount)) || (session.originalRevision && row.updated_at !== session.originalRevision)) {
+    return { reply: "그사이 기록이 바뀌었어요. 현재 거래는 " + kakaoRowLabel(row, session.entryNo) + "입니다. 이 거래를 고치려면 ‘선택한 기록 보기’를 보내 주세요.", nextSession: { ...session, step: "choose_record_or_edit", updatedAt: Date.now() } };
+  }
   try {
     // V22.9.104 J-9(Codex 검토 V102): 구성원(소유자·관리자 아님)이 카카오 기록 표시(source_user_key) 없는 기록(웹에서 만든 내 기록 — 지출자로 내 기록을
     // 가린다)을 고칠 때, 위에서 읽은 뒤 관리자가 지출자를 바꾸면 예전에는 조건 없는 감사 RPC 가 이제 남의 기록이 된 행에 저장했다. 이제는 웹 수정과 같은
@@ -55261,14 +55294,15 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     // 카카오로 쓴 기록(source_user_key 있음)은 지출자가 바뀌어도 쓴 사람의 기록이라(isKakaoRowOwnedByRequesterV2254) 예전 그대로다. 소유자·관리자도 그대로다.
     // V22.9.135 N-2: 구성원도 다른 사람의 기록을 고친다. 조건은 ‘지출자 = 나’ 가 아니라 ‘지출자 = 방금 읽은 사람’(그사이 지출자가 바뀌지 않았다)이다 —
     // 남의 기록이 늘 충돌로 거절되지 않게 하고, 읽은 뒤 바뀐 기록에 덮어쓰지 않는 것은 그대로 둔다.
-    if (!canManageMyHousehold(role) && !String(row.source_user_key || "").trim()) {
+    if (sessionStored || (!canManageMyHousehold(role) && !String(row.source_user_key || "").trim())) {
       const outcome = await updateTransactionIfUnchangedV22994(env, session.entryId, patch, row, {
-        householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND, path: "/skill", requireUserId: String(row.user_id || ""),
+        householdId: session.householdId, actorUserId: session.userId, actorKind: KAKAO_AUDIT_ACTOR_KIND, path: "/skill", requireUserId: String(row.user_id || ""), strictExpected: sessionStored,
         auditRunner: (job) => deferKakaoAfterReply(env, job, { cost: 1, critical: true }),
       });
       if (outcome.status === "missing") return { reply: `수정하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘기록’로 번호를 다시 확인해 주세요.`, nextSession: null, gone: true };
       if (outcome.status !== "updated") {
         rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/skill", method: "POST", detail: outcome.status === "spender_changed" ? "kakao_edit_spender_changed" : "kakao_edit_changed" });
+        if (sessionStored && outcome.row) return { reply: "그사이 기록이 바뀌었어요. " + kakaoRowLabel(outcome.row, session.entryNo) + "\n최신 내용을 보려면 ‘선택한 기록 보기’를 눌러 주세요.", nextSession: { ...session, step: "choose_record_or_edit", updatedAt: Date.now() } };
         return { reply: kakaoEditConflictTextV229104(session.entryNo, row, outcome.status), nextSession: null };
       }
     } else {
@@ -55331,6 +55365,11 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
   if (["apply", "delete"].includes(String(result?.action || ""))) {
     // V22.9.81 U-4: 역할 조회가 실패하면 ‘현재 권한으로는 수정·삭제할 수 없어요’라고 하지 않는다(권한이 있는 사람에게 없다고 말하고 세션을 닫았다).
     // 확인하지 못했다고 알리고 기록은 바꾸지 않는다. 열려 있던 세션은 그대로 두어 같은 답을 다시 보내면 이어지고, 한 줄 명령은 세션을 새로 열지 않는다.
+    if (ctx.sessionStored) {
+      const room = getKakaoBotGroupKey(payload);
+      const currentId = room ? (await getLinkedKakaoGroupHousehold(env, room))?.id : await getKakaoSelectedHouseholdId(env, session.userId);
+      if (currentId !== session.householdId) return sendKakaoEditReplyV4(env, ctx, session, "현재 가계부가 바뀌었어요. 기록을 바꾸지 않았어요. ‘오늘기록’에서 다시 골라 주세요.", null);
+    }
     const lookup = await readHouseholdRoleOrFailure(env, session.userId, session.householdId, { path: "/skill" });
     if (lookup.failed) return sendKakaoEditReplyV4(env, ctx, session, KAKAO_ROLE_CHECK_FAILED_TEXT, ctx.sessionStored ? { ...session, updatedAt: Date.now() } : null);
     currentRole = lookup.role;
@@ -55343,7 +55382,7 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     if (refusal) return sendKakaoEditReplyV4(env, ctx, session, refusal, null, { blocked: refusal !== KAKAO_RECORD_CHANGE_POLICY_UNKNOWN_TEXT_V229126 });
   }
   if (result?.action === "apply") {
-    const applied = await applyKakaoEditFieldV4(env, { session, field: result.field, value: result.value, config, kakaoUserKey, moduleReply: result.reply, role: currentRole, holdWrite: !!ctx.ambiguousRecord });
+    const applied = await applyKakaoEditFieldV4(env, { session, field: result.field, value: result.value, config, kakaoUserKey, moduleReply: result.reply, role: currentRole, sessionStored: !!ctx.sessionStored, holdWrite: !!ctx.ambiguousRecord });
     // V22.9.131: 열린 창에 온 새 기록 꼴의 말이 값 확인까지 지나 이 기록을 바꾸게 됐다 — 바꾸지 않고 두 길 안내(ctx.ambiguousRecord)로 끝낸다.
     if (applied.held) return processKakaoEditResultV4(env, { ...ctx, ambiguousRecord: null }, session, ctx.ambiguousRecord(), config);
     if (applied.log) {
@@ -55422,33 +55461,45 @@ function kakaoEditRecordWouldChangeV229131(result, utterance = "") {
   return !(result.action === "apply" && result.field === "amount" && KAKAO_EDIT_AMOUNT_HEAD_V229131.test(normalizeText(utterance).split(" ")[0] || ""));
 }
 
-// V22.9.131: 고치는 말인지 새 기록인지 알 수 없는 말의 답. 기록도 세션도 건드리지 않은 채 창만 닫는다(processKakaoEditResultV4 의 cancel 길).
-// 예시는 그 기록을 고치는 한 줄 명령이다(오늘이 아닌 기록이면 날짜가 붙는다). 칸 이름 그대로 시작한 말(‘메모 12월 회비 3만원’)이면 보낸 말을 그대로 붙여
-// 보여 준다 — 고치려던 사람은 그 한 줄을 보내면 예전처럼 고쳐진다. 그 한 줄이 통하지 않는 말(분류·결제수단 값에 금액 낱말 — named: false)에는 붙이지 않는다.
-// 줄일 때는 글자 단위로 자른다(독립 검토 3 — 코드 단위로 자르면 이모지가 반으로 잘렸다). 실패 횟수로 세지 않는다(창이 닫힌다).
-function kakaoEditAmbiguousRecordResultV229131(session = {}, utterance = "", { named = true } = {}) {
-  const head = `${kakaoEditDayPrefixV4(session.entryDate)}수정 ${session.entryNo}번`;
-  const full = normalizeText(utterance);
-  const chars = Array.from(full);
-  const said = chars.length > 40 ? `${chars.slice(0, 40).join("")}…` : full;
-  const own = named && chars.length <= 40 && !/^\d/.test(full) && isExactKakaoEditFieldStart(full);
-  const examples = own ? [`${head} ${full}`] : [`${head} 금액 13000`, `${head} 내용 점심`];
+// Keep the selected ID while offering a read-only way back to its editing menu.
+// V22.9.141 (독립 검토 1): ‘선택’ 단계(바뀐 기록을 알렸거나 고치는 말인지 모를 말을 받은 뒤)에서 이 창의 답처럼 보이는 말은 창을 닫지 않고 아무것도
+// 바꾸지 않는다 — 칸 이름·메뉴 번호로 시작하는 말(‘금액 9000’·‘내용 버스’·‘1번 9000’·‘3번 카드’·‘4’)과 금액 답(‘9000’·‘9000원으로’). 첫 작업본(Codex)은 창을
+// 닫고 그 말을 기록 경로로 넘겨, ‘그사이 기록이 바뀌었어요’ 뒤에 다시 보낸 ‘1번 9000’ 이 오늘의 01번(다른 기록)을 고치고 ‘9000’ 이 새 기록이 됐다.
+// 번호와 수정·삭제·복구 말이 함께 있는 말(‘수정 01번’·‘삭제 01번’)은 기록을 고르는 명령이라 예전처럼 기록 경로로 넘긴다. ‘수정 02번 금액 13000’ 은 앞 단계
+// (stripLeadingCommand)가 ‘02번 금액 13000’ 으로 바꿔 넘기므로, 원문이 ‘수정 NN번’ 이었다는 것을 skill-handler 가 explicitEdit 로 알린다(답의 예문인 한 줄 명령).
+// 고치는 말인지 모를 말에 ‘같은 말을 한 번 더 보내면 새 기록’ 이라고 답한 뒤 온 그 말(askedText)도 예전처럼 넘긴다(V22.9.131 R-1 의 두 길).
+const KAKAO_EDIT_BARE_AMOUNT_V229141 = new RegExp(String.raw`^${KAKAO_EDIT_AMOUNT_V4}$`);
+function kakaoEditAskedTextV229141(utterance = "") {
+  return Array.from(normalizeText(utterance)).slice(0, 200).join("");
+}
+function isKakaoEditChooseAnswerV229141(utterance = "") {
+  const text = normalizeText(utterance);
+  if (/\d{1,2}\s*번/.test(text) && /(?:수정|삭제|제거|지워|지우기|복구)/.test(text)) return false;
+  return isExactKakaoEditFieldStart(text) || isKakaoSessionSeqReplyV4(text) || isKakaoAmountAnswer(text) || KAKAO_EDIT_BARE_AMOUNT_V229141.test(text);
+}
+function kakaoEditChooseHoldTextV229141(session = {}) {
+  const other = session.entryNo === "01" ? "02" : "01";
+  return [
+    "⚠️ 아무것도 바꾸거나 저장하지 않았어요.",
+    `${session.entryNo}번 기록을 고치려면 먼저 ‘선택한 기록 보기’를 보내 주세요. 지금 내용을 다시 보여 드려요.`,
+    // ‘…’처럼 보내 주세요 꼴이라야 단톡방 답이 봇 부르기를 넣는다(V22.9.134 의 보낼 말 규칙 — 단톡방의 봇은 불린 말만 받는다).
+    `다른 기록은 ‘수정 ${other}번’처럼 보내 주세요.`,
+  ].join("\n");
+}
+
+function kakaoEditAmbiguousRecordResultV229131(session, utterance, { memoValue = "" } = {}) {
+  const said = Array.from(normalizeText(utterance)).slice(0, 40).join("");
+  const target = session.originalLabel || (session.entryDate + " " + session.entryNo + "번 기록");
+  const newRecord = memoValue ? "새 기록이면 품목과 금액만 보내 주세요. 예: " + memoValue : "새 기록이면 같은 말을 한 번 더 보내 주세요.";
   return {
-    action: "cancel",
-    log: { type: "unrecognized", entryNo: session.entryNo, input: Array.from(String(utterance || "")).slice(0, 80).join(""), attempt: (Number(session.repeatCount) || 0) + 1 },
-    nextSession: null,
-    reply: [
-      `🤔 보낸 말(‘${said}’)이 ${session.entryNo}번 기록을 고치는 말인지 새 기록인지 정하지 못했어요.`,
-      `아무것도 바꾸거나 저장하지 않았고, ${session.entryNo}번 수정은 끝냈어요.`,
-      "새 기록이면 같은 말을 한 번 더 보내 주세요.",
-      `${session.entryNo}번을 고치려면 한 줄로 보내 주세요:`,
-      ...examples.map((line) => `👉 ${line}`),
-    ].join("\n"),
+    action: "reprompt",
+    nextSession: { ...session, step: "choose_record_or_edit", askedText: kakaoEditAskedTextV229141(utterance), updatedAt: Date.now() },
+    reply: "‘" + said + "’을 새로 기록할까요?\n아무것도 바꾸거나 저장하지 않았어요.\n" + newRecord + "\n기존 " + target + " · 고치려면 ‘선택한 기록 보기’를 보내 주세요.",
   };
 }
 
 // 3장 3단계: 유효 세션 보유 사용자의 메시지는 전부 이 경로가 소비한다.
-async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction = false, recordGuardKind = "", sessionRaw = undefined }) {
+async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, payload, origin, newTransaction = false, recordGuardKind = "", sessionRaw = undefined, explicitEdit = false }) {
   const session = await getKakaoEditSessionV4(env, kakaoUserKey, payload, sessionRaw);
   if (!session) return null;
   // T6: 시간이 지난 세션은 없는 것으로 본다. 다음 말(새 지출·조회)을 만료 안내로 삼키지 않는다.
@@ -55461,6 +55512,30 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
       return kakaoText(kakaoEditExpiredTextV4(session, utterance));
     }
     return null;
+  }
+  if (session.step === "choose_record_or_edit") {
+    if (normalizeText(utterance) !== "선택한 기록 보기") {
+      const askedAgain = !!session.askedText && kakaoEditAskedTextV229141(utterance) === session.askedText;
+      if (!askedAgain && !explicitEdit && !isKakaoEditCancelCommand(utterance) && isKakaoEditChooseAnswerV229141(utterance)) return kakaoText(kakaoEditChooseHoldTextV229141(session), [["선택한 기록 보기"], ["취소"]]);
+      await saveKakaoEditSessionV4(env, kakaoUserKey, payload, null);
+      if (isKakaoEditCancelCommand(utterance)) return kakaoText("수정을 취소했어요. 기록은 그대로예요.");
+      return null;
+    }
+    const room = getKakaoBotGroupKey(payload);
+    const currentId = room ? (await getLinkedKakaoGroupHousehold(env, room))?.id : await getKakaoSelectedHouseholdId(env, session.userId);
+    if (currentId !== session.householdId) return kakaoText("현재 가계부가 바뀌었어요. ‘오늘기록’에서 거래를 다시 골라 주세요.", [["오늘기록"]]);
+    const lookup = await readHouseholdRoleOrFailure(env, session.userId, session.householdId, { path: "/skill" });
+    if (lookup.failed || !canWriteMyHousehold(lookup.role)) return kakaoText("지금은 이 거래의 수정 권한을 확인할 수 없어요. 기록을 바꾸지 않았어요.");
+    const row = await getKakaoRowById(env, session.householdId, session.userId, kakaoUserKey, session.entryId);
+    if (!row) {
+      await saveKakaoEditSessionV4(env, kakaoUserKey, payload, null);
+      return kakaoText("선택한 거래가 사라졌어요. ‘오늘기록’에서 다시 골라 주세요.");
+    }
+    const items = await getDailyKakaoRows(env, session.householdId, session.userId, kakaoUserKey, row.transaction_date);
+    const seq = items.findIndex((item) => item.id === row.id) + 1;
+    if (!seq) return kakaoText("현재 목록에서 선택한 거래를 찾지 못했어요. 가계부에서 확인해 주세요.");
+    const next = { ...session, step: "awaiting_field", entryNo: twoDigitSeq(seq), entryDate: row.transaction_date, rowType: row.type, field: null, pendingField: null, pendingValue: null, updatedAt: Date.now(), originalLabel: kakaoRowLabel(row, seq), originalAmount: row.amount, originalRevision: row.updated_at || "", askedText: "" };
+    return sendKakaoEditReplyV4(env, { kakaoUserKey, payload, stored: session }, next, kakaoEditMenuTextV4(row, seq), next);
   }
   // T6: 항목 이름 없이 온 분명한 새 기록(금액+내용)은 수정 값이 아니다. 세션을 끝내고 기록 경로로 넘긴다.
   // V22.9.94 C-1: ‘5000원 아니야’ 는 금액과 낱말이 있어 여기서 새 기록으로 넘어갔다. 새 기록도 값도 아니다.
@@ -55481,9 +55556,12 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
   // ‘금액 칸 + 금액 하나’ 뿐인 답은 이 판 전 그대로다. 저장 전 안전망이 고치는 말로 본 말(recordGuardKind "edit" — ‘메모 2025 연말정산으로 바꿔줘’)도 이 판 전
   // 그대로 그 기록의 답이다(독립 검토 3: 그런 말은 한 번 더 보내도 새 기록이 되지 않아 두 길 안내의 말이 틀렸다).
   // 기록 꼴이 아닌 답(‘금액 13000’·‘메모 점심’·‘6번 엄마’·‘13000’)은 newTransaction 이 아니다.
-  const recordShaped = newTransaction && !negatedAmount && recordGuardKind !== "edit";
+  // V22.9.141 (독립 검토 2): 값의 금액은 숫자 금액(‘3만원’·‘12000원’)이나 천·만·억이 든 한글 금액 낱말(‘만원’·‘삼만원’ — 앞뒤에 한글이 붙지 않은 것)만 본다.
+  // 첫 작업본은 한글 수 한 글자 + ‘원’ 을 금액으로 봐서 ‘메모 사원 식당’·‘메모 십원빵’·‘내용 다이소 천원샵’·‘메모 일원동 맛집’ 이 기록에 닿지 않았다.
+  const memoWithPrice = result?.action === "apply" && result.field === "content" && /[가-힣A-Za-z]/.test(String(result.value || "").replace(/[천만억원십백]/g, "")) && /\d\s*(?:천|만|억)?\s*원|(?<![가-힣])[일이삼사오육칠팔구십백]*[천만억][일이삼사오육칠팔구십백천만]*\s*원(?![가-힣])/.test(String(result.value || "")) && /^(?:메모|내용|4번?)\s/.test(normalizeText(utterance));
+  const recordShaped = !negatedAmount && ((newTransaction && recordGuardKind !== "edit") || (memoWithPrice && !/(?:바꿔|고쳐|수정해|변경해)/.test(utterance)));
   if (recordShaped && result?.moneyInValue) result = kakaoEditAmbiguousRecordResultV229131(session, utterance, { named: false });
-  const ambiguousRecord = recordShaped && kakaoEditRecordWouldChangeV229131(result, utterance) ? () => kakaoEditAmbiguousRecordResultV229131(session, utterance) : null;
+  const ambiguousRecord = recordShaped && kakaoEditRecordWouldChangeV229131(result, utterance) ? () => kakaoEditAmbiguousRecordResultV229131(session, utterance, { memoValue: memoWithPrice ? String(result.value) : "" }) : null;
   // V22.9.81 U-4: sessionStored — 저장된 세션에 온 답이다(역할 조회가 실패하면 이 세션을 그대로 둔다).
   // V22.9.126 FC-19(3차 검토): stored — 끝내는 답이 닫을 저장 세션(정리가 실패하면 남는 것)이다.
   return processKakaoEditResultV4(env, { kakaoUserKey, payload, origin, sessionStored: true, stored: session, ambiguousRecord }, session, result, config);
@@ -55508,11 +55586,13 @@ async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey 
     // 삭제·‘방금 거 5000원으로’·번호 없는 지출자 변경이 모두 이 길이다. 바뀐 시각이 없는 줄(예전 검사 픽스처)은 예전처럼 마지막 저장 기록이다.
     // V22.9.135 N-2: 구성원도 다른 사람의 기록을 고치므로, 마지막 저장 뒤에 내가 고친 남의 기록(감사 기록 — 행위자 = 나, 그 기록이 지금도 있는 것만)도
     // 같은 단계에서 읽는다. 그 읽기가 실패하거나 늦으면(KAKAO_LATEST_EDIT_WAIT_MS_V229135) 없는 것으로 본다 — 그때는 V22.9.134 와 같다(내 기록의 바뀐 순서만 본다).
+    const auditUnavailable = Symbol("audit-unavailable");
     const [recent, touchedRows, editedByMe] = await Promise.all([
       getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1),
       getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1, { touched: true }),
-      optionalWithin(getLatestKakaoEditByRequesterV229135(env, household.id, user.id).catch(() => null), KAKAO_LATEST_EDIT_WAIT_MS_V229135, null),
+      optionalWithin(getLatestKakaoEditByRequesterV229135(env, household.id, user.id).catch(() => auditUnavailable), KAKAO_LATEST_EDIT_WAIT_MS_V229135, auditUnavailable),
     ]);
+    if (editedByMe === auditUnavailable) return { row: null, seq: 0, ambiguousText: "최근에 고친 거래를 확인하지 못했어요. 아무것도 바꾸지 않았어요. ‘오늘기록’에서 거래를 다시 골라 주세요." };
     const row = recent[0] || null;
     if (!row) return { row: null, seq: 0 };
     // V22.9.81 U-13: 그날 목록(가계부 기록 앞의 500건)에 없으면 번호를 모른다(0). 예전에는 ‘01번’으로 적어 그날 01번(다른 기록)을 가리켰다.
@@ -55682,6 +55762,9 @@ async function startKakaoEditFlowV4(env, ctx, { row, seq, rest, dailyLimit = 0, 
   const session = {
     entryNo: twoDigitSeq(seq),
     entryId: row.id,
+    originalLabel: kakaoRowLabel(row, seq),
+    originalAmount: row.amount,
+    originalRevision: row.updated_at || "",
     entryDate: row.transaction_date || "",
     // V22.9.76 카카오 감사 2·8: 기록의 구분. 분류 목록과 ‘수입자/지출자’ 표기를 정한다.
     rowType: row.type === "income" ? "income" : "expense",
@@ -56869,7 +56952,9 @@ function kakaoGuardSpanValueV229126(t, spans, k) {
 }
 // change: ‘거슬러’, 거스름돈·잔돈을 받거나 돌려준 말, 낸 돈 뒤의 거스름돈·잔돈(‘만원 내고 … 잔돈’)이나 영수증의 ‘받은돈’ 만 본다(‘잔돈 모아 저금’ 은 아니다).
 // 거스름돈을 안 받은 말(‘잔돈은 안 받고’)은 낸 돈이 쓴 돈이다.
-const KAKAO_GUARD_CHANGE_V229126 = /거슬러|(?:거스름돈?|잔돈)[^\n]{0,12}?(?:받(?!으러|으려|을)|줌|주심|주셨|줬)|받은\s?돈|(?:낸|냈|내고|내구|드렸|드림|깨서|깼)[^\n]{0,30}?(?:거스름|잔돈)/;
+// V22.9.141: 낸 말 바로 뒤에 금액과 받은 말이 오면(‘만원 냈는데 600원 받음’ — 거스름·잔돈 낱말 없이) 같은 꼴이다(V22.9.139 는 10,000원 지출 + 600원 수입으로 저장).
+// 받은 금액은 숫자(‘600원’)·숫자와 단위(‘2만원’)·한글 수(‘육백원’) 모두 본다(독립 검토 6: 첫 작업본은 숫자만 봐서 ‘5만원 냈는데 2만원 받음’ 을 놓쳤다).
+const KAKAO_GUARD_CHANGE_V229126 = /거슬러|(?:거스름돈?|잔돈)[^\n]{0,12}?(?:받(?!으러|으려|을)|줌|주심|주셨|줬)|받은\s?돈|(?:낸|냈|내고|내구|드렸|드림|깨서|깼)[^\n]{0,30}?(?:거스름|잔돈)|(?:냈는데|냈더니|내고|드렸는데|드렸더니)\s{0,2}(?:[\d,]+\s{0,2}(?:천|만)?|[일이삼사오육칠팔구십백천만]+)\s{0,2}원?\s{0,2}(?:받(?:음|았|고)|돌려\s?받)/;
 const KAKAO_GUARD_CHANGE_NOT_V229126 = /(?:거스름돈?|잔돈)(?:은|는|을|도)?\s?(?:안|못)\s?받/;
 // range: ‘금액 ~ 금액’·‘금액에서 금액’. 물결표 뒤에 금액이 있어야 하고, 오른쪽 수에 세는 말이 붙으면(‘2~3명’·‘1~3일’) 범위가 아니다(그런 수는 money 가 아니다).
 // 날짜·시각 조각(‘11/3~11/5’·‘10:00~12:00’)과 해 둘(‘2025~2026’)은 보지 않는다. ‘에서’ 꼴은 오른쪽 금액 뒤가 ‘사이·정도·쯤’ 이거나 말이 끝날 때만(‘25000에서 할인 5천’ 은 아니다).
@@ -56930,7 +57015,9 @@ const KAKAO_GUARD_PEOPLE_V229126 = /(?<!\d)(?:[2-9]|[1-9]\d)\s?명|(?<![가-힣]
 const KAKAO_GUARD_PAID_ALL_V229126 = /(?:내가|제가)\s?(?:다|전부|혼자|냄|냈|결제|긁|계산|쏨|쐈)|(?<![가-힣])다\s?(?:냄|냈|결제|긁|계산|들어|받)|[xX×*]\s?\d{1,2}\s?명/;
 // split: 나눠 낸 말 + 금액에 내 몫 금액과 다른 금액이 함께 있거나(‘6만원 n빵함 내꺼 15000’) 사람 수가 있을 때(‘18600 셋이 나눔’).
 // 사람 수도 내 몫 말도 없는 ‘회식 n빵 23000’ 은 적은 금액이 내 몫이라 그대로 저장한다(말뭉치에서 맞게 저장되던 꼴).
-const KAKAO_GUARD_SPLIT_V229126 = /반띵|엔빵|[nN]빵|더치페이|더치(?=함|했|해|하|로)|뿜빠이|나눠\s?(?:냄|냈|내)|나눠서\s?냄|[nN]분의\s?1|1\s?\/\s?[nN](?![A-Za-z])/;
+// V22.9.141: 금액 바로 뒤의 ‘/ N명’(‘펜션 취소수수료 120000 / 4명’ — V22.9.139 는 120,000원을 저장하고 ‘4명’ 을 못 읽은 말로 알렸다)도 나눈 말이다.
+// 앞 수는 금액 꼴만 본다(세 자리 이상·쉼표 자리·‘12만’) — 시각(‘예약 19:30 / 4명’)은 아니다(독립 검토 6: 첫 작업본은 ‘30 / 4명’ 을 나눈 말로 읽었다).
+const KAKAO_GUARD_SPLIT_V229126 = /반띵|엔빵|[nN]빵|더치페이|더치(?=함|했|해|하|로)|뿜빠이|나눠\s?(?:냄|냈|내)|나눠서\s?냄|[nN]분의\s?1|1\s?\/\s?[nN](?![A-Za-z])|(?<![\d:.])(?:\d{1,3}(?:,\d{3})+|\d+\s?(?:천|만)|\d{3,})\s?원?\s?\/\s?(?:[2-9]|[1-9]\d)\s?명/;
 // 맨 ‘나눠·나누어(서)’ 는 뒤에 금액·낸 말·내 몫 말이 오거나 줄이 끝날 때만, ‘나눔’ 은 줄 끝일 때만 본다(‘나눠 먹음’·‘나눠 주려고’ 는 음식·물건을 나눈 말).
 const KAKAO_GUARD_SPLIT_SOFT_V229126 = /(?:나눠|나누어)(?:서)?(?=\s{0,2}(?:$|\n|[^\s가-힣]|내(?!일|용|려)|냄|냈|낸|제가|나는|난(?![가-힣])|계산|결제|부담|정산|송금|이체|입금|보냄|보냈|했|함|하기로))|나눔(?=\s{0,2}(?:$|\n|[^\s가-힣]))/;
 const KAKAO_GUARD_HEADS_V229126 = /(?<!\d)(?:[2-9]|[1-9]\d)\s?명|(?<![가-힣])(?:둘|셋|넷|다섯|여섯)(?:이서|이)?(?![가-힣])|[가-힣](?:이랑|랑|하고)\s?(?:반띵|[nN]빵|엔빵|더치|나눔|나눠)/;
@@ -57420,8 +57507,8 @@ function kakaoGuardFractionLooseV229131(text) {
 }
 function kakaoGuardFractionDateV229131(text, rows) {
   let loose = null; // 기록마다 다듬은 원문 — 분수 꼴이 있는 글에서만, 한 번만 만든다
-  for (const raw of String(text || "").replace(/\r/g, "").split("\n")) {
-    const line = kakaoGuardNormV229120(raw);
+  for (const [lineIndex, raw] of String(text || "").replace(/\r/g, "").split("\n").entries()) {
+    const line = kakaoGuardNormV229120(raw.replace(/[()（）]/g, " "));
     const found = [...line.matchAll(KAKAO_GUARD_FRACTION_DATE_V229131)];
     if (!found.length) continue;
     // 분수 자리(‘N/M’)를 빈칸으로 가린 줄 — 다른 분수를 ‘따로 적은 날짜’ 로 세지 않는다(자리는 그대로다).
@@ -57451,7 +57538,7 @@ function kakaoGuardFractionDateV229131(text, rows) {
       const own = lineRows.filter((i) => loose[i].includes(key));
       const pool = own.length ? own : lineRows.length ? lineRows : rows.map((_, i) => i);
       const tail = `-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      if (pool.some((i) => String(rows[i]?.transaction_date || "").endsWith(tail))) return { month, day, text: `${m[1]}/${m[2]}` };
+      if (pool.some((i) => String(rows[i]?.transaction_date || "").endsWith(tail))) return { month, day, text: m[1] + "/" + m[2], lineIndex, raw };
     }
   }
   return null;
@@ -57484,13 +57571,119 @@ function kakaoRecordGuardV229120(utterance, parsedList, today = formatDate(nowKs
   }
   const fraction = kakaoGuardFractionDateV229131(text, rows);
   if (fraction) {
-    return { kind: "fraction_date", text: `‘${fraction.text}’ 부분이 날짜(${fraction.month}월 ${fraction.day}일)로 읽혀서 저장하지 않았어요. 이대로면 ${fraction.month}월 ${fraction.day}일 기록이 돼요.\n분량을 적은 거면 숫자를 빼고 다시 보내 주세요.\n케이크 한 조각 6000원\n날짜가 맞으면 달과 날을 이렇게 적어 주세요.\n${fraction.month}월 ${fraction.day}일 케이크 6000원`, quickReplies: [["오늘기록", "오늘기록"]] };
+    const { raw, lineIndex, month, day } = fraction;
+    const count = rows.length === 1 ? "아직 저장하지 않았어요." : rows.length + "건 모두 저장하지 않았어요.";
+    const date = month + "월 " + day + "일";
+    // 글자 단위로 줄인다(독립 검토 7: 첫 작업본은 코드 단위로 잘라 이모지가 반으로 남았다).
+    const question = (lineIndex + 1) + "번째 줄 ‘" + Array.from(raw.trim()).slice(0, 90).join("") + "’의 " + fraction.text + "은 분량인가요, 날짜인가요?";
+    const lines = text.split(/\r?\n/);
+    const reply = [count, question];
+    const quickReplies = [];
+    // V22.9.141: 고친 문장은 해석기가 같은 금액·건수·수입/지출로 읽을 때만 제안한다. 단추(한 줄 글일 때만)는 1:1 에서 고친 문장을 그대로 보내고,
+    // 단톡방에서는 단추가 이름만 보내므로 보낼 글이 14자를 넘으면 빠진다(kakaoGroupChoiceButtons — 글의 제안 문장은 남는다). 대화 상태는 두지 않는다.
+    const token = new RegExp("(^|[^0-9])(" + fraction.text + ")\\s+(?=\\S)");
+    const quantity = raw.replace(token, (_, prefix) => prefix + day + "분의 " + month + " ");
+    const dated = raw.replace(token, (_, prefix) => prefix + date + " ");
+    for (const [label, corrected] of [["분량으로 기록", quantity], ["날짜로 기록", dated]]) {
+      if (corrected === raw || raw.split(fraction.text).length !== 2) continue;
+      const candidate = lines.map((line, index) => index === lineIndex ? corrected : line).join("\n");
+      const parsed = parseMultipleTransactions(candidate, {});
+      if (parsed.length !== rows.length || parsed.some((row, i) => row.amount !== rows[i].amount || row.type !== rows[i].type) || kakaoGuardFractionDateV229131(candidate, parsed)) continue;
+      if (label === "분량으로 기록" && lines.length > 1 && (rows.length !== lines.length || parsed.some((row, i) => i !== lineIndex && row.transaction_date !== rows[i].transaction_date))) continue;
+      if (label === "날짜로 기록" && parsed.some((row, i) => row.transaction_date !== rows[i].transaction_date)) continue;
+      if (lines.length === 1 && candidate.length <= KAKAO_QR_MESSAGE_MAX_V229127) quickReplies.push([label, candidate]);
+      if (corrected.length <= 90) reply.push((label === "분량으로 기록" ? "분량이면 " : "날짜면 ") + "‘" + corrected.trim() + "’");
+    }
+    if (reply.length === 2) reply.push("분량은 ‘" + day + "분의 " + month + "’으로, 날짜는 ‘" + date + "’로 적어 주세요.");
+    reply.push(lines.length > 1 ? "해당 줄만 고친 뒤 전체 내용을 다시 보내 주세요." : "원하는 문장을 보내 주세요.");
+    return { kind: "fraction_date", text: reply.join("\n"), quickReplies };
   }
   if (notRecord === "plan" || notRecord === "hearsay") {
     const why = notRecord === "plan" ? "앞으로의 계획·목표로 보여서" : "다른 사람에게 들은 말로 보여서";
     return { kind: notRecord, text: `${why} 기록하지 않았어요.\n이미 쓰거나 받은 돈이면 ‘커피 4500원’처럼 보내 주세요.\n미리 적어 둘 거면 ‘내일 관리비 187000원’처럼 날짜를 붙여 주세요.`, quickReplies: browse };
   }
-  return kakaoGuardMoreV229126(text, rows);
+  return kakaoGuardHeadLineV229141(text, rows, today) || kakaoGuardMoreV229126(text, rows);
+}
+
+// V22.9.141 (V140:P-5 — 운영자 2026-11-22 ‘추천대로’): 여러 줄 글의 첫 줄이 금액 없는 머리말이면, 그 줄의 날짜 말·받은 돈 말을 해석기가 쓰지 않았는지 본다.
+// 합성 문장 1,985개 대조에서 V22.9.139 가 틀리게 저장한 꼴: ‘지난주 금욜에 ⏎ 영화 14000 ⏎ 팝콘 7500’·‘ㅋㅋ 다들 정산 ㄱㄱ 나 어제 쓴거 ⏎ …’ → 오늘로,
+// ‘총무라 회비 걷은거 정리 ⏎ 지수 3만 ⏎ …’ → 지출로. 날짜 말로 시작하는 머리말(‘어제 ⏎ …’·‘지난 금요일 ⏎ …’·‘11월 20일 ⏎ …’)은 해석기가 이미 그 날로 읽는다.
+// 넓히지 않는다(날짜·구분을 읽어 저장하지 않고 묻기만 한다). 첫 줄만 본다 — 끝 줄의 ‘어제보다 많이 씀’ 같은 혼잣말은 기록의 날짜가 아니다.
+// 금액 없는 줄이 하나라도 있으면 묶음 전체를 묻던 Codex 초안(바르게 저장되던 21문장을 막았다)과 달리, 머리말의 말과 기록이 어긋날 때만 묻는다.
+const KAKAO_GUARD_HEAD_DAY_V229141 = /(?<![가-힣])(어젯밤|어제|엊저녁|그저께|그제|엊그저께|엊그제|그끄저께|그끄제|지난\s?주말|저번\s?주말|지난\s?주|저번\s?주|지난\s?달|저번\s?달|[월화수목금토일](?:요일|욜))(?!\s?(?:보다|만큼|처럼|이랑|랑|하고|과|와|는|도)(?![가-힣]))/;
+const KAKAO_GUARD_HEAD_DAY_BACK_V229141 = { 어젯밤: 1, 어제: 1, 엊저녁: 1, 그저께: 2, 그제: 2, 그끄저께: 3, 그끄제: 3 };
+// 되풀이 말(‘매주 금요일 모임’·‘금요일마다’)은 그날 하루가 아니다 — 묻지 않는다(예전처럼 저장).
+const KAKAO_GUARD_HEAD_RECUR_V229141 = /(?<![가-힣])매(?:주말?|달|월|일|년)|마다(?![가-힣])/;
+const KAKAO_GUARD_HEAD_INCOME_V229141 = /(?:돈|용돈|월급|급여|회비|곗돈|모임비|참가비|정산금?|보너스|상여금?|성과급|이자|환불|환급|축의금|세뱃돈)\s?(?:을|를|이|가|은|는|도)?\s?(?:받(?:은|았|음|아|고)|걷(?:은|었|음|어|고)|들어(?:온|왔|옴))|입금\s?(?:됨|됐|된|완료|내역)/;
+// 받은 돈으로 산 말이 함께 있으면(‘용돈 받은 걸로 산 거 ⏎ 책 15000’) 기록은 쓴 돈이다 — 묻지 않는다.
+const KAKAO_GUARD_HEAD_SPENT_V229141 = /(?:으로|로)\s?(?:산|샀|사서|사고|쓴|썼|씀|결제|구매)|(?<![가-힣])(?:산|샀|쓴|썼)\s?(?:거|것|걸|게)/;
+// 받은 돈 말이 있어도 그 돈으로 쓴 이야기일 수 있다(독립 검토 4: ‘회비 걷은 돈으로 ⏎ 간식 23000’·‘월급 받은 기념 플렉스 ⏎ 운동화 89000 ⏎ 치킨 20000’·
+// ‘용돈 받아서 ⏎ 책 15000’·‘월급 들어옴 ㅎㅎ ⏎ 치킨 20000’ 을 막았다). 그래서 기록이 모두 해석기의 기본 분류(‘기타지출’ — 사람 이름처럼 낱말 표에 없는 말:
+// ‘지수 3만’·‘엄마 50000’·‘당근 15000’)일 때, 또는 첫 줄이 받은 돈의 목록을 가리킬 때(‘회비 걷은거 정리’·‘환불 받은 거’·‘입금된 거’·‘입금 내역’ — 뒤에
+// ‘로’ 가 붙으면 그 돈으로 쓴 말이다)만 묻는다. 기록 분류는 가계부의 분류 표가 아니라 기본 낱말 규칙으로 정한 것이다(skill-handler 의 parseMultipleTransactions).
+const KAKAO_GUARD_HEAD_INCOME_LIST_V229141 = /(?:받은|걷은|들어온|입금된)\s?(?:거|것|걸|내역|목록|명단|정리)(?!\s?(?:으로|로))|입금\s?내역/;
+const KAKAO_GUARD_DEFAULT_EXPENSE_CATEGORIES_V229141 = new Set(["", "기타", "기타지출"]);
+// 첫 줄이 구분 낱말 하나뿐이면(‘수입’) 해석기는 그 줄을 쓰지 않는다 — 그 아래 기록에 지출이 하나라도 있으면 묻는다.
+// 아래에 ‘지출’ 줄이 따로 있으면(‘수입 ⏎ 월급 3000000 ⏎ 지출 ⏎ 점심 9000’) 그 줄 앞의 기록만 본다(독립 검토 4: 바르게 읽은 이 글을 막았다).
+const KAKAO_GUARD_HEAD_INCOME_ONLY_V229141 = /^(?:수입|수입\s?내역|받은\s?돈)\s?[:：]?$/;
+const KAKAO_GUARD_HEAD_EXPENSE_ONLY_V229141 = /^(?:지출|지출\s?내역|쓴\s?돈)\s?[:：]?$/;
+// ‘지난달’ 바로 뒤가 다달이 내는 돈이면(‘지난달 관리비 ⏎ 관리비 187000’·‘지난달 카드값 ⏎ …’) 그 달 몫을 오늘 낸 것이다 — 날짜를 묻지 않는다(독립 검토 5).
+const KAKAO_GUARD_HEAD_BILL_V229141 = /(?:지난|저번)\s?달\s?(?:치\s?)?(?:관리비|카드\s?(?:값|대금|비)|월세|공과금|통신비|(?:휴대폰|핸드폰|폰)\s?(?:요금|비)|전기\s?(?:세|요금)|가스\s?(?:비|요금)|수도\s?(?:세|요금)|보험료|학원비|월급|급여|용돈|회비)/;
+// 머리말의 날짜 말을 하루로 풀 수 있으면 그날(YYYY-MM-DD), 없으면 "". 어제·그제·그끄제는 그 날, 요일 말(‘금욜’ 은 ‘금요일’ 로 바꿔)은
+// 해석기의 요일 규칙(resolveWeekdayPhrase — ‘지난주 금요일’ = 지난주의 금요일, ‘금요일’ = 오늘을 포함해 가장 가까운 지난 금요일)으로 푼 오늘까지의 날.
+// 지난주·지난 주말·지난달·엊그제는 하루로 정할 수 없어 "" — 답은 날짜 대신 ‘○월 ○일’ 자리만 보인다.
+// (판 의식 중 고침: 첫 작업본은 이런 말에 ‘오늘−3일’ 을 예문 날짜로 보여, 예문을 그대로 보내면 틀린 날에 저장될 수 있었다.)
+function kakaoGuardHeadExactDateV229141(head, word, today) {
+  const [y, m, d] = String(today).split("-").map(Number);
+  const back = KAKAO_GUARD_HEAD_DAY_BACK_V229141[word];
+  if (back) return new Date(Date.UTC(y, m - 1, d - back)).toISOString().slice(0, 10);
+  const weekday = String(head).replace(/([월화수목금토일])욜/g, "$1요일");
+  if (!/[월화수목금토일]요일/.test(weekday)) return "";
+  const resolved = String(resolveWeekdayPhrase(weekday, new Date(y, m - 1, d, 12, 0, 0)) || "");
+  return /^\d{4}-\d{2}-\d{2}$/.test(resolved) && resolved <= String(today) ? resolved : "";
+}
+function kakaoGuardHeadLineV229141(text, rows, today) {
+  const lines = String(text || "").replace(/\r/g, "").split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) return null;
+  const head = kakaoGuardNormV229120(lines[0]);
+  if (!head || KAKAO_GUARD_HAS_MONEY_V229120.test(head)) return null;
+  const chars = Array.from(lines[0]);
+  const shown = chars.length > 40 ? chars.slice(0, 40).join("") + "…" : lines[0];
+  const count = rows.length === 1 ? "기록이" : `기록 ${rows.length}건이 모두`;
+  const firstItem = Array.from(String(rows[0]?.raw_text || "").trim()).slice(0, 40).join("");
+  const day = KAKAO_GUARD_HEAD_DAY_V229141.exec(head);
+  if (day && !KAKAO_GUARD_HEAD_RECUR_V229141.test(head) && !KAKAO_GUARD_HEAD_BILL_V229141.test(head) && rows.every((row) => row.transaction_date === today && !extractLeadingDateHint(String(row.raw_text || "").trim()))) {
+    const [, m, d] = String(today).split("-").map(Number);
+    const exact = kakaoGuardHeadExactDateV229141(head, day[1], today);
+    // 요일 말이 오늘이면(금요일에 보낸 ‘금욜 장보기 ⏎ …’) 기록의 날짜(오늘)와 맞다 — 묻지 않는다.
+    if (exact !== today) {
+      const [, em, ed] = exact.split("-").map(Number);
+      const weekday = exact ? "일월화수목금토"[new Date(`${exact}T00:00:00Z`).getUTCDay()] : "";
+      return { kind: "head_date", text: [
+        `첫 줄 ‘${shown}’에 날짜로 보이는 말(‘${day[1]}’)이 있는데 ${count} 오늘(${m}월 ${d}일)로 읽혀서 저장하지 않았어요.`,
+        ...(exact ? [`그날(${em}월 ${ed}일 ${weekday}요일) 쓴 거면 첫 줄에 날짜만 적어 다시 보내 주세요.`, `${em}월 ${ed}일`, ...(firstItem ? [firstItem] : [])]
+          : ["그날 쓴 거면 첫 줄에 그날 날짜만 ‘○월 ○일’ 처럼 적어 다시 보내 주세요."]),
+        "오늘 쓴 거면 첫 줄을 빼고 보내 주세요.",
+      ].join("\n"), quickReplies: KAKAO_GUARD_ONE_REPLY_V229126 };
+    }
+  }
+  const incomeOnly = KAKAO_GUARD_HEAD_INCOME_ONLY_V229141.test(head);
+  // ‘지출’ 줄이 아래에 있으면 그 줄 앞(수입 쪽)의 줄로 저장된 기록만 본다. 기록의 원문이 그 줄과 같을 때만 수입 쪽으로 센다.
+  const expenseAt = incomeOnly ? lines.findIndex((line, index) => index > 0 && KAKAO_GUARD_HEAD_EXPENSE_ONLY_V229141.test(kakaoGuardNormV229120(line))) : -1;
+  const incomeSide = expenseAt > 0 ? new Set(lines.slice(1, expenseAt).map((line) => kakaoGuardNormV229120(line))) : null;
+  const incomeRows = incomeSide ? rows.filter((row) => incomeSide.has(kakaoGuardNormV229120(String(row.raw_text || "")))) : rows;
+  const namesOnly = rows.every((row) => KAKAO_GUARD_DEFAULT_EXPENSE_CATEGORIES_V229141.has(String(row.category || "").trim()));
+  if ((incomeOnly && incomeRows.some((row) => row.type === "expense")) || (!incomeOnly && KAKAO_GUARD_HEAD_INCOME_V229141.test(head) && !KAKAO_GUARD_HEAD_SPENT_V229141.test(head) && rows.every((row) => row.type === "expense") && (namesOnly || KAKAO_GUARD_HEAD_INCOME_LIST_V229141.test(head)))) {
+    const spent = incomeSide ? "그 아래 ‘지출’ 줄 앞의 기록이 지출로" : rows.every((row) => row.type === "expense") ? `${count} 지출로` : "기록에 지출이 섞여";
+    const sample = incomeSide ? Array.from(String(incomeRows.find((row) => row.type === "expense")?.raw_text || "").trim()).slice(0, 40).join("") : firstItem;
+    return { kind: "head_income", text: [
+      `첫 줄 ‘${shown}’에 받은 돈으로 보이는 말이 있는데 ${spent} 읽혀서 저장하지 않았어요.`,
+      "받은 돈이면 줄마다 앞에 ‘수입’을 붙여 다시 보내 주세요.",
+      ...(sample ? [`수입 ${sample}`] : []),
+      "쓴 돈이면 첫 줄을 빼고 보내 주세요.",
+    ].join("\n"), quickReplies: KAKAO_GUARD_ONE_REPLY_V229126 };
+  }
+  return null;
 }
 // 열린 수정 세션을 끝내고 기록 경로로 넘어온 말이 안전망에 걸리면 ‘새 기록으로 처리했어요’ 대신 ‘수정은 끝냈어요’ 로 알린다.
 function kakaoRecordGuardReplyV229120(guard, sessionNotice = "") {
@@ -59415,6 +59608,9 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   const payload = await readJson(request);
   const origin = publicBaseUrl(env, new URL(request.url));
   const utterance = normalizeKakaoButtonLabel(stripLeadingCommand(String(payload?.userRequest?.utterance || payload?.utterance || "").trim()));
+  // V22.9.141 (독립 검토 1): 사람이 ‘수정 NN번 …’ 으로 보낸 한 줄 명령인지 — stripLeadingCommand 가 ‘수정’ 을 떼어 ‘NN번 …’ 이 되므로 원문에서 본다.
+  // 수정 창의 ‘선택’ 단계는 이 명령을 예전처럼 기록 경로로 넘기고, ‘수정’ 없이 온 ‘N번 …’ 은 그 창의 답으로 보아 붙잡는다.
+  const explicitEditCommandV229141 = /^\/?수정\s+\d{1,3}\s*번/.test(stripKakaoBotMention(String(payload?.userRequest?.utterance || payload?.utterance || "").trim()));
   // V22.9.93 Q-35: 고치고 지우는 말은 전각 숫자와 끝 문장부호를 다듬어 읽는다(저장 원문은 utterance 그대로다).
   const commandText = kakaoEditInputTextV4(utterance);
   const separatePurchaseCommand = parseKakaoSeparatePurchaseCommand(utterance);
@@ -59549,7 +59745,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   if (!separatePurchaseCommand && !roomRestartCommand && skillConfigured && kakaoUserKey && !isKakaoEditSessionBypassCommand(utterance) &&
       (isKakaoSessionSeqReplyV4(commandText) || (!parseKakaoEditCommandV4(commandText) && !parseKakaoDeleteCommandV4(commandText) && !parseKakaoRestoreCommandV4(commandText)))) {
     // T6: 분명한 새 기록이면 세션만 끝나고(passThrough) 아래 기록 경로로 이어진다.
-    const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance: kakaoEditSessionTextV4(utterance) || utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, recordGuardKind: String(recordGuard?.kind || ""), sessionRaw: routingSnapshot?.edit });
+    const editSessionReply = await handleKakaoEditSessionMessageV4(env, { utterance: kakaoEditSessionTextV4(utterance) || utterance, kakaoUserKey, payload, origin, newTransaction: strongTransactionInput, recordGuardKind: String(recordGuard?.kind || ""), sessionRaw: routingSnapshot?.edit, explicitEdit: explicitEditCommandV229141 });
     if (editSessionReply?.passThrough) editSessionNotice = String(editSessionReply.notice || "");
     else if (editSessionReply) {
       // V22.9.90 독립 검토: 열린 수정 세션이 받은 답("금액 13000"·"1번")은 위 미리 읽기가 기록으로 보았어도 관제 기능 순위에서는 고치기(EDIT)다.
@@ -60158,7 +60354,7 @@ ${formatRecentTransactions(rows)}`);
   // V22.9.77 감사 D-6: 같은 이름의 가계부가 내 목록에 또 있으면 답장의 ‘가계부:’ 줄에 역할·만든 날을 붙인다(이미 읽은 목록이라 조회는 늘지 않는다).
   const savedHousehold = household.role ? household : { ...household, role: accessRole };
   const roomSave = roomContext?.householdId === savedHousehold.id ? await roomContext.ready : null;
-  return await saveKakaoParsedTransactionsReply(env, { ...(roomSave || {}), household: savedHousehold, householdLabel: kakaoHouseholdReplyName(savedHousehold, activeHouseholds), user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, firstNotice: editSessionNotice });
+  return await saveKakaoParsedTransactionsReply(env, { ...(roomSave || {}), household: savedHousehold, householdLabel: kakaoHouseholdReplyName(savedHousehold, activeHouseholds), user, kakaoUserKey, nickname, origin, utterance, parsedList: preParsedList, handlerStartedAt, canDeferSave, firstNotice: editSessionNotice, groupKey: botGroupKey });
 }
 
 // V22.9.79 감사 N-4: 이름 없이 만들어진 사람의 기본 이름(채팅 사용자 ‘카카오사용자’, 이름 칸이 빈 구성원·관리자). 이 이름은 여러 사람이 같이 쓴다.
@@ -60376,6 +60572,18 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const summaryReplies = firstOfToday ? kakaoReturnSummaryRepliesV229123() : null;
   const editGuide = recordOnlyMember ? `\n\n구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요.`
     : seq ? `\n\n수정: "${dayPrefix}수정 ${twoDigitSeq(seq)}번" 또는 "${dayPrefix}수정 ${twoDigitSeq(seq)}번 금액 13000"\n삭제: "${dayPrefix}삭제 ${twoDigitSeq(seq)}번"` : `\n\n수정할 번호는 ‘${dayPrefix || "오늘 "}기록 보기’에서 확인해 주세요.`;
+  // V22.9.141(운영자 2026-11-22 ‘추천대로’): 새 기록 한 건만 저장한 답은 첫 줄 하나로 줄인다 — ‘번호 - 이름 / 금액 / 결제수단 / 분류 · 💸 지출 저장했어요. (날짜)’.
+  // 줄은 ‘오늘기록’ 목록과 같은 꼴(kakaoRowLabel — 분류까지)이다. 수정·삭제 안내는 단톡방에서는 매번 붙인다(여러 사람이 답의 번호를 보고 고친다).
+  // 1:1 에서는 그날 내 첫 기록(ownSeq 1)·첫 답(onSaved)·‘기록만’ 구성원·오늘이 아닌 날짜의 기록에만 붙인다(같은 날 둘째 기록부터는 번호만으로 고칠 수 있다).
+  // 번호를 읽지 못한 답(seq 0 — 그날 기록이 500건을 넘었거나 읽기가 늦음)은 첫 줄에 번호가 없으므로 ‘기록 보기’ 에서 번호를 찾으라는 안내를 늘 붙인다.
+  // 중복·읽지 못한 줄이 섞인 답과 여러 건 답은 예전 꼴 그대로다.
+  const inRoom = !!(context.groupKey || household.bot_group_key);
+  if (newCount === 1 && !duplicateCount && !unread.length) {
+    const summary = [firstNotice + kakaoRowLabel(saved, seq) + " · " + icon + " " + typeText + " 저장했어요. (" + saved.transaction_date + ")", "가계부: " + householdLine, (parsed.type === "income" ? "수입자: " : "지출자: ") + payerName];
+    if (feedbackLine) summary.push(feedbackLine);
+    const guide = inRoom || recordOnlyMember || onSaved || !seq || ownSeq === 1 || dayPrefix ? editGuide : "";
+    return kakaoText(summary.join("\n") + guide + finalizeNotice + pinTip, summaryReplies);
+  }
   return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${householdLine}\n${numberedLine}${parsed.type === "income" ? `\n수입자: ${payerName}` : `\n지출자: ${payerName}`}${feedbackLine ? `\n${feedbackLine}` : ""}${editGuide}${finalizeNotice}${pinTip}`, summaryReplies);
   } finally { if (messageLease?.acquired && !context.messageLeasePromise) await deferKakaoAfterReply(env, () => releaseOperationLease(env, messageLease), { cost: 1, critical: true }); }
 }
@@ -65912,12 +66120,13 @@ async function updateTransactionIfUnchangedV22994(env, id, body, expected = {}, 
   };
   const conditioned = scope();
   for (const key of keys) conditioned.set(key, txConditionalEditFilterV22994(key, expected?.[key]));
+  if (options.strictExpected && expected?.updated_at) conditioned.set("updated_at", "eq." + expected.updated_at);
   const after = await patchWhere(conditioned);
   if (after) return audited(after);
   const fresh = await txConditionalEditRowV22994(env, transactionId, householdId);
   if (!fresh) return { status: "missing", row: null };
   if (requireUserId && String(fresh.user_id ?? "") !== requireUserId) return { status: "spender_changed", row: fresh };
-  if (keys.some((key) => !txConditionalEditSameV22994(key, fresh[key], expected?.[key]))) return { status: "changed", row: fresh };
+  if (options.strictExpected || keys.some((key) => !txConditionalEditSameV22994(key, fresh[key], expected?.[key]))) return { status: "changed", row: fresh };
   rememberOpsEvent({ kind: "transaction_conditional_update_filter_mismatch", severity: "warn", path: String(options.path || ""), method: "PATCH", detail: keys.join(",") });
   if (requireUserId) {
     // V22.9.104 J-9: 값은 그대로인데 0행이었다(eq 비교 어긋남). 감사 RPC 는 지출자 조건을 걸 수 없어 지출자 조건만 건 PATCH 로 저장한다.

@@ -62,7 +62,7 @@ for (const failure of ["http503", "network"]) {
 }
 
 // A numeric reply belongs to an existing edit session even if its DB read fails.
-for (const failRead of [true, false]) {
+for (const [failRead, selected] of [[true, true], [false, true], [false, false]]) {
   const fixture = await createV2265QaFixture();
   try {
     const date = new Date(Date.now() + 9 * 3600000).toISOString().slice(0, 10);
@@ -70,6 +70,7 @@ for (const failRead of [true, false]) {
     const key = `kakao_edit_v4:${hash("direct")}:kakao_login:2265`;
     const value = JSON.stringify({ entryNo: "01", entryId: row.id, entryDate: date, householdId: "house-home", userId: "user-bin", step: "awaiting_value", field: "amount", valueOptions: null, pendingField: null, pendingValue: null, repeatCount: 0, totalTurns: 0, guardCount: 0, lastBotMsg: "금액을 입력해 주세요.", updatedAt: Date.now() });
     fixture.db.transactions.push(row);
+    if (selected) fixture.db.accountbook_settings.push({ key: "kakao_selected_household_v2251:user-bin", value: "house-home" });
     fixture.db.accountbook_settings.push({ id: `session-${failRead}`, key, value });
     const before = fixture.db.transactions.length;
     const baseFetch = globalThis.fetch;
@@ -84,7 +85,7 @@ for (const failRead of [true, false]) {
     };
     await say(fixture, "13000");
     eq(fixture.db.transactions.length, before, "numeric edit reply never creates another transaction");
-    eq(fixture.db.transactions.find((item) => item.id === row.id).amount, failRead ? 4500 : 13000, "only a verified edit session changes the original amount");
+    eq(fixture.db.transactions.find((item) => item.id === row.id).amount, !failRead && selected ? 13000 : 4500, "only a verified edit session in the currently selected ledger changes the original amount");
     if (failRead) {
       eq(readFailures, 1, "session read failure is exercised");
       eq(fixture.db.accountbook_settings.find((item) => item.key === key).value, value, "failed read preserves the active edit session");

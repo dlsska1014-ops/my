@@ -36,7 +36,8 @@ ok(String(loopFuzzTest({}, 200)).includes("중복응답 0건"), "loopFuzzTest: 2
 const source = readFileSync(new URL("../src/index.js", import.meta.url), "utf8");
 ok(!source.includes("handleKakaoDailyEditFlow"), "I8: 구 수정 플로우 경로가 완전히 제거됨");
 ok(!source.includes("extractKakaoEditPatch"), "구 정규식 패치 파서가 완전히 제거됨");
-eq((source.match(/kakaoEditMenuTextV4\(/g) || []).length, 2, "I8: 메뉴 출력은 정의 1곳 + 신규 세션 시작 1곳뿐(실패 분기에 메뉴 재출력 없음)");
+// V22.9.141: 셋째 곳 = 기록이 바뀌었거나 새 기록인지 물은 뒤 사용자가 ‘선택한 기록 보기’ 로 그 거래에 돌아갈 때(choose_record_or_edit).
+eq((source.match(/kakaoEditMenuTextV4\(/g) || []).length, 3, "I8: 메뉴는 새 수정 창을 열거나 사용자가 선택한 거래로 돌아갈 때만 출력한다(실패 분기에 메뉴 재출력 없음)");
 ok(source.includes("sendKakaoEditReplyV4"), "5-2장: 전송 직전 중복응답 가드 존재");
 ok(source.includes("duplicate_reply_guard"), "5-2장: duplicate_reply_guard 텔레메트리 존재");
 ok(!source.includes('"/rest/v1/unrecognized_inputs"'), "6장: 수정 실패 원문을 별도 적재하지 않음");

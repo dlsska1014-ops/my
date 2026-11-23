@@ -420,12 +420,13 @@ async function updateTransactionIfUnchangedV22994(env, id, body, expected = {}, 
   };
   const conditioned = scope();
   for (const key of keys) conditioned.set(key, txConditionalEditFilterV22994(key, expected?.[key]));
+  if (options.strictExpected && expected?.updated_at) conditioned.set("updated_at", "eq." + expected.updated_at);
   const after = await patchWhere(conditioned);
   if (after) return audited(after);
   const fresh = await txConditionalEditRowV22994(env, transactionId, householdId);
   if (!fresh) return { status: "missing", row: null };
   if (requireUserId && String(fresh.user_id ?? "") !== requireUserId) return { status: "spender_changed", row: fresh };
-  if (keys.some((key) => !txConditionalEditSameV22994(key, fresh[key], expected?.[key]))) return { status: "changed", row: fresh };
+  if (options.strictExpected || keys.some((key) => !txConditionalEditSameV22994(key, fresh[key], expected?.[key]))) return { status: "changed", row: fresh };
   rememberOpsEvent({ kind: "transaction_conditional_update_filter_mismatch", severity: "warn", path: String(options.path || ""), method: "PATCH", detail: keys.join(",") });
   if (requireUserId) {
     // V22.9.104 J-9: 값은 그대로인데 0행이었다(eq 비교 어긋남). 감사 RPC 는 지출자 조건을 걸 수 없어 지출자 조건만 건 PATCH 로 저장한다.

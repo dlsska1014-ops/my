@@ -140,10 +140,10 @@ try {
   eq([...starter.matchAll(/<a href="([^"]+)">/g)].map((m) => m[1]), [...STARTER, "/articles"], "처음 읽을 순서로 고른 8편 + 전체 목록");
   for (const target of STARTER) eq((await get(target)).status, 200, `${target} 200`);
 
-  // ── 7. /demo 봇 말풍선은 V22.9.139 모양 그대로(카카오 저장 답은 V22.9.141) ──
+  // ── 7. /demo 봇 말풍선은 그 판의 봇 답 모양(V22.9.140 = V22.9.139 모양, V22.9.141 부터 한 줄 영수증 — 줄마다의 대조는 validate-demo-tour-v22992) ──
   const demo = await get("/demo");
   eq(demo.status, 200, "/demo 200");
-  ok(visible(demo.html).includes("💸 지출 저장했어요 😊") && visible(demo.html).includes("수정 01번 금액 13000"), "/demo 봇 말풍선은 지금 봇 답과 같은 모양이다");
+  ok(visible(demo.html).includes("💸 지출 저장했어요") && visible(demo.html).includes("수정 01번 금액 13000"), "/demo 봇 말풍선은 지금 봇 답과 같은 모양이다");
 
   console.log(`V22.9.140 공개 화면 판 검사 통과 (${checks} checks)`);
 } finally {

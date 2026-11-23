@@ -358,7 +358,7 @@ const KAKAO_GROUP_CARD_TEXT_MAX = 400;
 // V22.9.127: 수입·지출을 고르는 두 단추([지출로 기록]·[수입으로 기록])는 이름이 명령이 아니다. 보낼 글(‘수입 <원래 문장>’)이 14자를 넘으면 단톡방에서는
 // 이름만 나가 입력 안내로 끝났다(2026-11-17 시험 단톡방 — 저장되지 않음). 그런 단추는 단톡방에 내지 않고, 다시 보내기 쉽게 ‘기록하기’(봇 부르기) 단추를 하나 단다.
 // 안내 글이 앞에 구분을 붙여 다시 보내는 법을 알려 준다. 다른 단추는 그대로다(이름이 그 흐름의 답이거나 명령인 단추가 있다).
-const KAKAO_TYPE_CHOICE_LABELS_V229127 = new Set(["지출로 기록", "수입으로 기록"]);
+const KAKAO_TYPE_CHOICE_LABELS_V229127 = new Set(["지출로 기록", "수입으로 기록", "분량으로 기록", "날짜로 기록"]);
 
 function kakaoGroupChoiceButtons(quickReplies = []) {
   const replies = dedupeQuickReplies(Array.isArray(quickReplies) ? quickReplies : [])

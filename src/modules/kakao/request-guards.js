@@ -40,7 +40,7 @@ import {
   cardSmsDatesV229122, extractLeadingDateHint, parseMultipleTransactions,
 } from "../nlu/transaction-parser.js";
 import { detectType, extractAmount, normalizeText } from "../nlu/amount-parser.js";
-import { formatDate, nowKstDate } from "../nlu/date-payment.js";
+import { formatDate, nowKstDate, resolveWeekdayPhrase } from "../nlu/date-payment.js";
 // @build:imports-end
 
 function stripKakaoBotMention(text = "") {
@@ -975,7 +975,9 @@ function kakaoGuardSpanValueV229126(t, spans, k) {
 }
 // change: ‘거슬러’, 거스름돈·잔돈을 받거나 돌려준 말, 낸 돈 뒤의 거스름돈·잔돈(‘만원 내고 … 잔돈’)이나 영수증의 ‘받은돈’ 만 본다(‘잔돈 모아 저금’ 은 아니다).
 // 거스름돈을 안 받은 말(‘잔돈은 안 받고’)은 낸 돈이 쓴 돈이다.
-const KAKAO_GUARD_CHANGE_V229126 = /거슬러|(?:거스름돈?|잔돈)[^\n]{0,12}?(?:받(?!으러|으려|을)|줌|주심|주셨|줬)|받은\s?돈|(?:낸|냈|내고|내구|드렸|드림|깨서|깼)[^\n]{0,30}?(?:거스름|잔돈)/;
+// V22.9.141: 낸 말 바로 뒤에 금액과 받은 말이 오면(‘만원 냈는데 600원 받음’ — 거스름·잔돈 낱말 없이) 같은 꼴이다(V22.9.139 는 10,000원 지출 + 600원 수입으로 저장).
+// 받은 금액은 숫자(‘600원’)·숫자와 단위(‘2만원’)·한글 수(‘육백원’) 모두 본다(독립 검토 6: 첫 작업본은 숫자만 봐서 ‘5만원 냈는데 2만원 받음’ 을 놓쳤다).
+const KAKAO_GUARD_CHANGE_V229126 = /거슬러|(?:거스름돈?|잔돈)[^\n]{0,12}?(?:받(?!으러|으려|을)|줌|주심|주셨|줬)|받은\s?돈|(?:낸|냈|내고|내구|드렸|드림|깨서|깼)[^\n]{0,30}?(?:거스름|잔돈)|(?:냈는데|냈더니|내고|드렸는데|드렸더니)\s{0,2}(?:[\d,]+\s{0,2}(?:천|만)?|[일이삼사오육칠팔구십백천만]+)\s{0,2}원?\s{0,2}(?:받(?:음|았|고)|돌려\s?받)/;
 const KAKAO_GUARD_CHANGE_NOT_V229126 = /(?:거스름돈?|잔돈)(?:은|는|을|도)?\s?(?:안|못)\s?받/;
 // range: ‘금액 ~ 금액’·‘금액에서 금액’. 물결표 뒤에 금액이 있어야 하고, 오른쪽 수에 세는 말이 붙으면(‘2~3명’·‘1~3일’) 범위가 아니다(그런 수는 money 가 아니다).
 // 날짜·시각 조각(‘11/3~11/5’·‘10:00~12:00’)과 해 둘(‘2025~2026’)은 보지 않는다. ‘에서’ 꼴은 오른쪽 금액 뒤가 ‘사이·정도·쯤’ 이거나 말이 끝날 때만(‘25000에서 할인 5천’ 은 아니다).
@@ -1036,7 +1038,9 @@ const KAKAO_GUARD_PEOPLE_V229126 = /(?<!\d)(?:[2-9]|[1-9]\d)\s?명|(?<![가-힣]
 const KAKAO_GUARD_PAID_ALL_V229126 = /(?:내가|제가)\s?(?:다|전부|혼자|냄|냈|결제|긁|계산|쏨|쐈)|(?<![가-힣])다\s?(?:냄|냈|결제|긁|계산|들어|받)|[xX×*]\s?\d{1,2}\s?명/;
 // split: 나눠 낸 말 + 금액에 내 몫 금액과 다른 금액이 함께 있거나(‘6만원 n빵함 내꺼 15000’) 사람 수가 있을 때(‘18600 셋이 나눔’).
 // 사람 수도 내 몫 말도 없는 ‘회식 n빵 23000’ 은 적은 금액이 내 몫이라 그대로 저장한다(말뭉치에서 맞게 저장되던 꼴).
-const KAKAO_GUARD_SPLIT_V229126 = /반띵|엔빵|[nN]빵|더치페이|더치(?=함|했|해|하|로)|뿜빠이|나눠\s?(?:냄|냈|내)|나눠서\s?냄|[nN]분의\s?1|1\s?\/\s?[nN](?![A-Za-z])/;
+// V22.9.141: 금액 바로 뒤의 ‘/ N명’(‘펜션 취소수수료 120000 / 4명’ — V22.9.139 는 120,000원을 저장하고 ‘4명’ 을 못 읽은 말로 알렸다)도 나눈 말이다.
+// 앞 수는 금액 꼴만 본다(세 자리 이상·쉼표 자리·‘12만’) — 시각(‘예약 19:30 / 4명’)은 아니다(독립 검토 6: 첫 작업본은 ‘30 / 4명’ 을 나눈 말로 읽었다).
+const KAKAO_GUARD_SPLIT_V229126 = /반띵|엔빵|[nN]빵|더치페이|더치(?=함|했|해|하|로)|뿜빠이|나눠\s?(?:냄|냈|내)|나눠서\s?냄|[nN]분의\s?1|1\s?\/\s?[nN](?![A-Za-z])|(?<![\d:.])(?:\d{1,3}(?:,\d{3})+|\d+\s?(?:천|만)|\d{3,})\s?원?\s?\/\s?(?:[2-9]|[1-9]\d)\s?명/;
 // 맨 ‘나눠·나누어(서)’ 는 뒤에 금액·낸 말·내 몫 말이 오거나 줄이 끝날 때만, ‘나눔’ 은 줄 끝일 때만 본다(‘나눠 먹음’·‘나눠 주려고’ 는 음식·물건을 나눈 말).
 const KAKAO_GUARD_SPLIT_SOFT_V229126 = /(?:나눠|나누어)(?:서)?(?=\s{0,2}(?:$|\n|[^\s가-힣]|내(?!일|용|려)|냄|냈|낸|제가|나는|난(?![가-힣])|계산|결제|부담|정산|송금|이체|입금|보냄|보냈|했|함|하기로))|나눔(?=\s{0,2}(?:$|\n|[^\s가-힣]))/;
 const KAKAO_GUARD_HEADS_V229126 = /(?<!\d)(?:[2-9]|[1-9]\d)\s?명|(?<![가-힣])(?:둘|셋|넷|다섯|여섯)(?:이서|이)?(?![가-힣])|[가-힣](?:이랑|랑|하고)\s?(?:반띵|[nN]빵|엔빵|더치|나눔|나눠)/;
@@ -1526,8 +1530,8 @@ function kakaoGuardFractionLooseV229131(text) {
 }
 function kakaoGuardFractionDateV229131(text, rows) {
   let loose = null; // 기록마다 다듬은 원문 — 분수 꼴이 있는 글에서만, 한 번만 만든다
-  for (const raw of String(text || "").replace(/\r/g, "").split("\n")) {
-    const line = kakaoGuardNormV229120(raw);
+  for (const [lineIndex, raw] of String(text || "").replace(/\r/g, "").split("\n").entries()) {
+    const line = kakaoGuardNormV229120(raw.replace(/[()（）]/g, " "));
     const found = [...line.matchAll(KAKAO_GUARD_FRACTION_DATE_V229131)];
     if (!found.length) continue;
     // 분수 자리(‘N/M’)를 빈칸으로 가린 줄 — 다른 분수를 ‘따로 적은 날짜’ 로 세지 않는다(자리는 그대로다).
@@ -1557,7 +1561,7 @@ function kakaoGuardFractionDateV229131(text, rows) {
       const own = lineRows.filter((i) => loose[i].includes(key));
       const pool = own.length ? own : lineRows.length ? lineRows : rows.map((_, i) => i);
       const tail = `-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-      if (pool.some((i) => String(rows[i]?.transaction_date || "").endsWith(tail))) return { month, day, text: `${m[1]}/${m[2]}` };
+      if (pool.some((i) => String(rows[i]?.transaction_date || "").endsWith(tail))) return { month, day, text: m[1] + "/" + m[2], lineIndex, raw };
     }
   }
   return null;
@@ -1590,13 +1594,119 @@ function kakaoRecordGuardV229120(utterance, parsedList, today = formatDate(nowKs
   }
   const fraction = kakaoGuardFractionDateV229131(text, rows);
   if (fraction) {
-    return { kind: "fraction_date", text: `‘${fraction.text}’ 부분이 날짜(${fraction.month}월 ${fraction.day}일)로 읽혀서 저장하지 않았어요. 이대로면 ${fraction.month}월 ${fraction.day}일 기록이 돼요.\n분량을 적은 거면 숫자를 빼고 다시 보내 주세요.\n케이크 한 조각 6000원\n날짜가 맞으면 달과 날을 이렇게 적어 주세요.\n${fraction.month}월 ${fraction.day}일 케이크 6000원`, quickReplies: [["오늘기록", "오늘기록"]] };
+    const { raw, lineIndex, month, day } = fraction;
+    const count = rows.length === 1 ? "아직 저장하지 않았어요." : rows.length + "건 모두 저장하지 않았어요.";
+    const date = month + "월 " + day + "일";
+    // 글자 단위로 줄인다(독립 검토 7: 첫 작업본은 코드 단위로 잘라 이모지가 반으로 남았다).
+    const question = (lineIndex + 1) + "번째 줄 ‘" + Array.from(raw.trim()).slice(0, 90).join("") + "’의 " + fraction.text + "은 분량인가요, 날짜인가요?";
+    const lines = text.split(/\r?\n/);
+    const reply = [count, question];
+    const quickReplies = [];
+    // V22.9.141: 고친 문장은 해석기가 같은 금액·건수·수입/지출로 읽을 때만 제안한다. 단추(한 줄 글일 때만)는 1:1 에서 고친 문장을 그대로 보내고,
+    // 단톡방에서는 단추가 이름만 보내므로 보낼 글이 14자를 넘으면 빠진다(kakaoGroupChoiceButtons — 글의 제안 문장은 남는다). 대화 상태는 두지 않는다.
+    const token = new RegExp("(^|[^0-9])(" + fraction.text + ")\\s+(?=\\S)");
+    const quantity = raw.replace(token, (_, prefix) => prefix + day + "분의 " + month + " ");
+    const dated = raw.replace(token, (_, prefix) => prefix + date + " ");
+    for (const [label, corrected] of [["분량으로 기록", quantity], ["날짜로 기록", dated]]) {
+      if (corrected === raw || raw.split(fraction.text).length !== 2) continue;
+      const candidate = lines.map((line, index) => index === lineIndex ? corrected : line).join("\n");
+      const parsed = parseMultipleTransactions(candidate, {});
+      if (parsed.length !== rows.length || parsed.some((row, i) => row.amount !== rows[i].amount || row.type !== rows[i].type) || kakaoGuardFractionDateV229131(candidate, parsed)) continue;
+      if (label === "분량으로 기록" && lines.length > 1 && (rows.length !== lines.length || parsed.some((row, i) => i !== lineIndex && row.transaction_date !== rows[i].transaction_date))) continue;
+      if (label === "날짜로 기록" && parsed.some((row, i) => row.transaction_date !== rows[i].transaction_date)) continue;
+      if (lines.length === 1 && candidate.length <= KAKAO_QR_MESSAGE_MAX_V229127) quickReplies.push([label, candidate]);
+      if (corrected.length <= 90) reply.push((label === "분량으로 기록" ? "분량이면 " : "날짜면 ") + "‘" + corrected.trim() + "’");
+    }
+    if (reply.length === 2) reply.push("분량은 ‘" + day + "분의 " + month + "’으로, 날짜는 ‘" + date + "’로 적어 주세요.");
+    reply.push(lines.length > 1 ? "해당 줄만 고친 뒤 전체 내용을 다시 보내 주세요." : "원하는 문장을 보내 주세요.");
+    return { kind: "fraction_date", text: reply.join("\n"), quickReplies };
   }
   if (notRecord === "plan" || notRecord === "hearsay") {
     const why = notRecord === "plan" ? "앞으로의 계획·목표로 보여서" : "다른 사람에게 들은 말로 보여서";
     return { kind: notRecord, text: `${why} 기록하지 않았어요.\n이미 쓰거나 받은 돈이면 ‘커피 4500원’처럼 보내 주세요.\n미리 적어 둘 거면 ‘내일 관리비 187000원’처럼 날짜를 붙여 주세요.`, quickReplies: browse };
   }
-  return kakaoGuardMoreV229126(text, rows);
+  return kakaoGuardHeadLineV229141(text, rows, today) || kakaoGuardMoreV229126(text, rows);
+}
+
+// V22.9.141 (V140:P-5 — 운영자 2026-11-22 ‘추천대로’): 여러 줄 글의 첫 줄이 금액 없는 머리말이면, 그 줄의 날짜 말·받은 돈 말을 해석기가 쓰지 않았는지 본다.
+// 합성 문장 1,985개 대조에서 V22.9.139 가 틀리게 저장한 꼴: ‘지난주 금욜에 ⏎ 영화 14000 ⏎ 팝콘 7500’·‘ㅋㅋ 다들 정산 ㄱㄱ 나 어제 쓴거 ⏎ …’ → 오늘로,
+// ‘총무라 회비 걷은거 정리 ⏎ 지수 3만 ⏎ …’ → 지출로. 날짜 말로 시작하는 머리말(‘어제 ⏎ …’·‘지난 금요일 ⏎ …’·‘11월 20일 ⏎ …’)은 해석기가 이미 그 날로 읽는다.
+// 넓히지 않는다(날짜·구분을 읽어 저장하지 않고 묻기만 한다). 첫 줄만 본다 — 끝 줄의 ‘어제보다 많이 씀’ 같은 혼잣말은 기록의 날짜가 아니다.
+// 금액 없는 줄이 하나라도 있으면 묶음 전체를 묻던 Codex 초안(바르게 저장되던 21문장을 막았다)과 달리, 머리말의 말과 기록이 어긋날 때만 묻는다.
+const KAKAO_GUARD_HEAD_DAY_V229141 = /(?<![가-힣])(어젯밤|어제|엊저녁|그저께|그제|엊그저께|엊그제|그끄저께|그끄제|지난\s?주말|저번\s?주말|지난\s?주|저번\s?주|지난\s?달|저번\s?달|[월화수목금토일](?:요일|욜))(?!\s?(?:보다|만큼|처럼|이랑|랑|하고|과|와|는|도)(?![가-힣]))/;
+const KAKAO_GUARD_HEAD_DAY_BACK_V229141 = { 어젯밤: 1, 어제: 1, 엊저녁: 1, 그저께: 2, 그제: 2, 그끄저께: 3, 그끄제: 3 };
+// 되풀이 말(‘매주 금요일 모임’·‘금요일마다’)은 그날 하루가 아니다 — 묻지 않는다(예전처럼 저장).
+const KAKAO_GUARD_HEAD_RECUR_V229141 = /(?<![가-힣])매(?:주말?|달|월|일|년)|마다(?![가-힣])/;
+const KAKAO_GUARD_HEAD_INCOME_V229141 = /(?:돈|용돈|월급|급여|회비|곗돈|모임비|참가비|정산금?|보너스|상여금?|성과급|이자|환불|환급|축의금|세뱃돈)\s?(?:을|를|이|가|은|는|도)?\s?(?:받(?:은|았|음|아|고)|걷(?:은|었|음|어|고)|들어(?:온|왔|옴))|입금\s?(?:됨|됐|된|완료|내역)/;
+// 받은 돈으로 산 말이 함께 있으면(‘용돈 받은 걸로 산 거 ⏎ 책 15000’) 기록은 쓴 돈이다 — 묻지 않는다.
+const KAKAO_GUARD_HEAD_SPENT_V229141 = /(?:으로|로)\s?(?:산|샀|사서|사고|쓴|썼|씀|결제|구매)|(?<![가-힣])(?:산|샀|쓴|썼)\s?(?:거|것|걸|게)/;
+// 받은 돈 말이 있어도 그 돈으로 쓴 이야기일 수 있다(독립 검토 4: ‘회비 걷은 돈으로 ⏎ 간식 23000’·‘월급 받은 기념 플렉스 ⏎ 운동화 89000 ⏎ 치킨 20000’·
+// ‘용돈 받아서 ⏎ 책 15000’·‘월급 들어옴 ㅎㅎ ⏎ 치킨 20000’ 을 막았다). 그래서 기록이 모두 해석기의 기본 분류(‘기타지출’ — 사람 이름처럼 낱말 표에 없는 말:
+// ‘지수 3만’·‘엄마 50000’·‘당근 15000’)일 때, 또는 첫 줄이 받은 돈의 목록을 가리킬 때(‘회비 걷은거 정리’·‘환불 받은 거’·‘입금된 거’·‘입금 내역’ — 뒤에
+// ‘로’ 가 붙으면 그 돈으로 쓴 말이다)만 묻는다. 기록 분류는 가계부의 분류 표가 아니라 기본 낱말 규칙으로 정한 것이다(skill-handler 의 parseMultipleTransactions).
+const KAKAO_GUARD_HEAD_INCOME_LIST_V229141 = /(?:받은|걷은|들어온|입금된)\s?(?:거|것|걸|내역|목록|명단|정리)(?!\s?(?:으로|로))|입금\s?내역/;
+const KAKAO_GUARD_DEFAULT_EXPENSE_CATEGORIES_V229141 = new Set(["", "기타", "기타지출"]);
+// 첫 줄이 구분 낱말 하나뿐이면(‘수입’) 해석기는 그 줄을 쓰지 않는다 — 그 아래 기록에 지출이 하나라도 있으면 묻는다.
+// 아래에 ‘지출’ 줄이 따로 있으면(‘수입 ⏎ 월급 3000000 ⏎ 지출 ⏎ 점심 9000’) 그 줄 앞의 기록만 본다(독립 검토 4: 바르게 읽은 이 글을 막았다).
+const KAKAO_GUARD_HEAD_INCOME_ONLY_V229141 = /^(?:수입|수입\s?내역|받은\s?돈)\s?[:：]?$/;
+const KAKAO_GUARD_HEAD_EXPENSE_ONLY_V229141 = /^(?:지출|지출\s?내역|쓴\s?돈)\s?[:：]?$/;
+// ‘지난달’ 바로 뒤가 다달이 내는 돈이면(‘지난달 관리비 ⏎ 관리비 187000’·‘지난달 카드값 ⏎ …’) 그 달 몫을 오늘 낸 것이다 — 날짜를 묻지 않는다(독립 검토 5).
+const KAKAO_GUARD_HEAD_BILL_V229141 = /(?:지난|저번)\s?달\s?(?:치\s?)?(?:관리비|카드\s?(?:값|대금|비)|월세|공과금|통신비|(?:휴대폰|핸드폰|폰)\s?(?:요금|비)|전기\s?(?:세|요금)|가스\s?(?:비|요금)|수도\s?(?:세|요금)|보험료|학원비|월급|급여|용돈|회비)/;
+// 머리말의 날짜 말을 하루로 풀 수 있으면 그날(YYYY-MM-DD), 없으면 "". 어제·그제·그끄제는 그 날, 요일 말(‘금욜’ 은 ‘금요일’ 로 바꿔)은
+// 해석기의 요일 규칙(resolveWeekdayPhrase — ‘지난주 금요일’ = 지난주의 금요일, ‘금요일’ = 오늘을 포함해 가장 가까운 지난 금요일)으로 푼 오늘까지의 날.
+// 지난주·지난 주말·지난달·엊그제는 하루로 정할 수 없어 "" — 답은 날짜 대신 ‘○월 ○일’ 자리만 보인다.
+// (판 의식 중 고침: 첫 작업본은 이런 말에 ‘오늘−3일’ 을 예문 날짜로 보여, 예문을 그대로 보내면 틀린 날에 저장될 수 있었다.)
+function kakaoGuardHeadExactDateV229141(head, word, today) {
+  const [y, m, d] = String(today).split("-").map(Number);
+  const back = KAKAO_GUARD_HEAD_DAY_BACK_V229141[word];
+  if (back) return new Date(Date.UTC(y, m - 1, d - back)).toISOString().slice(0, 10);
+  const weekday = String(head).replace(/([월화수목금토일])욜/g, "$1요일");
+  if (!/[월화수목금토일]요일/.test(weekday)) return "";
+  const resolved = String(resolveWeekdayPhrase(weekday, new Date(y, m - 1, d, 12, 0, 0)) || "");
+  return /^\d{4}-\d{2}-\d{2}$/.test(resolved) && resolved <= String(today) ? resolved : "";
+}
+function kakaoGuardHeadLineV229141(text, rows, today) {
+  const lines = String(text || "").replace(/\r/g, "").split("\n").map((line) => line.trim()).filter(Boolean);
+  if (lines.length < 2) return null;
+  const head = kakaoGuardNormV229120(lines[0]);
+  if (!head || KAKAO_GUARD_HAS_MONEY_V229120.test(head)) return null;
+  const chars = Array.from(lines[0]);
+  const shown = chars.length > 40 ? chars.slice(0, 40).join("") + "…" : lines[0];
+  const count = rows.length === 1 ? "기록이" : `기록 ${rows.length}건이 모두`;
+  const firstItem = Array.from(String(rows[0]?.raw_text || "").trim()).slice(0, 40).join("");
+  const day = KAKAO_GUARD_HEAD_DAY_V229141.exec(head);
+  if (day && !KAKAO_GUARD_HEAD_RECUR_V229141.test(head) && !KAKAO_GUARD_HEAD_BILL_V229141.test(head) && rows.every((row) => row.transaction_date === today && !extractLeadingDateHint(String(row.raw_text || "").trim()))) {
+    const [, m, d] = String(today).split("-").map(Number);
+    const exact = kakaoGuardHeadExactDateV229141(head, day[1], today);
+    // 요일 말이 오늘이면(금요일에 보낸 ‘금욜 장보기 ⏎ …’) 기록의 날짜(오늘)와 맞다 — 묻지 않는다.
+    if (exact !== today) {
+      const [, em, ed] = exact.split("-").map(Number);
+      const weekday = exact ? "일월화수목금토"[new Date(`${exact}T00:00:00Z`).getUTCDay()] : "";
+      return { kind: "head_date", text: [
+        `첫 줄 ‘${shown}’에 날짜로 보이는 말(‘${day[1]}’)이 있는데 ${count} 오늘(${m}월 ${d}일)로 읽혀서 저장하지 않았어요.`,
+        ...(exact ? [`그날(${em}월 ${ed}일 ${weekday}요일) 쓴 거면 첫 줄에 날짜만 적어 다시 보내 주세요.`, `${em}월 ${ed}일`, ...(firstItem ? [firstItem] : [])]
+          : ["그날 쓴 거면 첫 줄에 그날 날짜만 ‘○월 ○일’ 처럼 적어 다시 보내 주세요."]),
+        "오늘 쓴 거면 첫 줄을 빼고 보내 주세요.",
+      ].join("\n"), quickReplies: KAKAO_GUARD_ONE_REPLY_V229126 };
+    }
+  }
+  const incomeOnly = KAKAO_GUARD_HEAD_INCOME_ONLY_V229141.test(head);
+  // ‘지출’ 줄이 아래에 있으면 그 줄 앞(수입 쪽)의 줄로 저장된 기록만 본다. 기록의 원문이 그 줄과 같을 때만 수입 쪽으로 센다.
+  const expenseAt = incomeOnly ? lines.findIndex((line, index) => index > 0 && KAKAO_GUARD_HEAD_EXPENSE_ONLY_V229141.test(kakaoGuardNormV229120(line))) : -1;
+  const incomeSide = expenseAt > 0 ? new Set(lines.slice(1, expenseAt).map((line) => kakaoGuardNormV229120(line))) : null;
+  const incomeRows = incomeSide ? rows.filter((row) => incomeSide.has(kakaoGuardNormV229120(String(row.raw_text || "")))) : rows;
+  const namesOnly = rows.every((row) => KAKAO_GUARD_DEFAULT_EXPENSE_CATEGORIES_V229141.has(String(row.category || "").trim()));
+  if ((incomeOnly && incomeRows.some((row) => row.type === "expense")) || (!incomeOnly && KAKAO_GUARD_HEAD_INCOME_V229141.test(head) && !KAKAO_GUARD_HEAD_SPENT_V229141.test(head) && rows.every((row) => row.type === "expense") && (namesOnly || KAKAO_GUARD_HEAD_INCOME_LIST_V229141.test(head)))) {
+    const spent = incomeSide ? "그 아래 ‘지출’ 줄 앞의 기록이 지출로" : rows.every((row) => row.type === "expense") ? `${count} 지출로` : "기록에 지출이 섞여";
+    const sample = incomeSide ? Array.from(String(incomeRows.find((row) => row.type === "expense")?.raw_text || "").trim()).slice(0, 40).join("") : firstItem;
+    return { kind: "head_income", text: [
+      `첫 줄 ‘${shown}’에 받은 돈으로 보이는 말이 있는데 ${spent} 읽혀서 저장하지 않았어요.`,
+      "받은 돈이면 줄마다 앞에 ‘수입’을 붙여 다시 보내 주세요.",
+      ...(sample ? [`수입 ${sample}`] : []),
+      "쓴 돈이면 첫 줄을 빼고 보내 주세요.",
+    ].join("\n"), quickReplies: KAKAO_GUARD_ONE_REPLY_V229126 };
+  }
+  return null;
 }
 // 열린 수정 세션을 끝내고 기록 경로로 넘어온 말이 안전망에 걸리면 ‘새 기록으로 처리했어요’ 대신 ‘수정은 끝냈어요’ 로 알린다.
 function kakaoRecordGuardReplyV229120(guard, sessionNotice = "") {

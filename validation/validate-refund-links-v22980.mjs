@@ -190,6 +190,8 @@ const SOFT = process.env.V22980_SOFT === "1";
 // --print-golden 으로 판 이름이 들어가는 analysis·backupFull·backupMonth 세 값만 다시 얻었다. 나머지 22개는 그대로다.
 // V22.9.140(공개 화면 판, 2026-11-22): 공개 글·첫 화면·전체 메뉴·결제수단 화면의 글만 바뀌고 지문 화면에는 판 이름만 바뀌었다. 판 이름을 올리기 전의 번들에서 옛 지문 268개가 모두 통과함을 먼저 확인한 뒤,
 // --print-golden 으로 판 이름이 들어가는 analysis·backupFull·backupMonth 세 값만 다시 얻었다. 나머지 22개는 그대로다.
+// V22.9.141(카카오 판, 2026-11-23): 카카오 답·안전망과 관리자 파일 대상 고르기만 바뀌고 지문 화면에는 판 이름만 바뀌었다. 판 이름을 올리기 전의 번들에서 옛 지문 268개가 모두 통과함을 먼저 확인한 뒤,
+// --print-golden 으로 판 이름이 들어가는 analysis·backupFull·backupMonth 세 값만 다시 얻었다. 나머지 22개는 그대로다.
 const FLAG_OFF_GOLDEN = {
   "home": "200 50578652221ec2b8bc0a38dc",
   "homeTrend": "200 ec4de1b365d95be48a4ad8f7",
@@ -199,15 +201,15 @@ const FLAG_OFF_GOLDEN = {
   "notifications": "200 66c9272b3c7b49d47411251a",
   "reports": "200 100acccd5723d1b8001560b0",
   "reportsWeek": "200 b7bc26465260babaeb8c5722",
-  "analysis": "200 6dcb0a45eef6e5bf322eacec",
+  "analysis": "200 cd94b5780b3b5869afa423a9",
   "backupPage": "200 6ad7c9d9b16eae3a75ab5f41",
   "kakao:이번달": "200 c3a7aa573104021452785c13",
   "kakao:합계": "200 0854d2cb7ed3d096e125ffcb",
   "kakao:남은예산": "200 58c746ce8d2af96e6b3f2920",
   "kakao:지난달 요약": "200 308d7377195a57406450c26d",
   "kakao:이번달 수입": "200 05709e1ead60d8181855b138",
-  "backupFull": "200 09fc200d058f491010da6fae",
-  "backupMonth": "200 ff73a2f6ccb42b9e7e3efc76",
+  "backupFull": "200 bce67b47916fc56f950a86c5",
+  "backupMonth": "200 405247ae7a2549caa8f24853",
   "candidate": "200 d2012b8a509c2b878e7d1999",
   "legacyErr": "200 dba548c2b89369b26a5c34d4",
   "myUpdate": "303 /my?month=2026-10&household_id=house-home&msg=updated#records",

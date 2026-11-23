@@ -124,7 +124,8 @@ try {
   eq(real.split("\n").length - realLines.length, 1, "실제 저장 답에는 ‘이번 달 …’ 한 줄이 하나 있다(예시에서는 뺀다)");
   eq(countOf(real, " / 외식"), 1, "픽스처 답의 분류(외식)는 한 번 나온다(바꿀 값이 있다)");
   eq(countOf(real, "지출자: Bin"), 1, "픽스처 답의 지출자(Bin)는 한 번 나온다(바꿀 값이 있다)");
-  const mapped = realLines.map((line) => line.replace(/ \/ 외식$/, " / 식비").replace(/^지출자: Bin$/, "지출자: 민지"));
+  // V22.9.141: 한 건 저장 답은 첫 줄 하나(‘01번 - 식사 / 60,000원 / 카드 / 외식 · 💸 지출 저장했어요. (날짜)’)라 분류가 줄 끝이 아니라 ‘ · ’ 앞에 있다.
+  const mapped = realLines.map((line) => line.replace(/ \/ 외식( · 💸 지출 저장했어요\. \(\d{4}-\d{2}-\d{2}\))$/u, " / 식비$1").replace(/^지출자: Bin$/, "지출자: 민지"));
   eq(JSON.stringify(preview), JSON.stringify(mapped), "봇 말풍선은 실제 저장 답과 줄마다 같다(분류·지출자만 예제 값)");
   ok(preview.includes("가계부: 우리집 생활비"), "가계부 이름은 실제 답과 같은 ‘우리집 생활비’다");
   ok(html.includes("<tr><th scope=\"row\">2026-09-09</th><td>식비</td><td>식사</td><td>60,000원</td></tr>"), "말풍선 기록은 아래 예제 표의 9월 9일 식사 60,000원(식비)과 같다");
