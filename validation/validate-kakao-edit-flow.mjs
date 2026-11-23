@@ -176,10 +176,13 @@ const isMenuText = (text) => String(text || "").includes("무엇을 바꿀까요
 const fixture = await createV2265QaFixture();
 try {
   const kstToday = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Seoul", year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date());
+  // V22.9.141 main CI(2026-11-23 17:06 KST): 미리 넣는 기록의 시각을 그날 KST 00:00:01~03 으로 둔다. 예전 값(`${kstToday}T01:00:00.000Z` = KST 10:00 등)은
+  // 오전 10시 전에 돌리면 지금보다 뒤의 시각이 되어, 그날 내 기록 순서(created_at)로 정하는 ‘그날 첫 기록’(V22.9.141 K-1 저장 답 안내)이 돌리는 시각에 따라 갈렸다.
+  const kstAtV229141 = (seconds) => new Date(Date.parse(`${kstToday}T00:00:00+09:00`) + seconds * 1000).toISOString();
   fixture.db.transactions.push(
-    { id: "tx-edit-1", household_id: "house-home", user_id: "user-bin", source_user_key: "kakao_login:2265", transaction_date: kstToday, type: "expense", amount: 30000, category: "식비", memo: "저녁 마라탕", payment_method: "현대카드", source: "kakao_skill", raw_text: "저녁 마라탕 30000 현대카드", created_at: `${kstToday}T01:00:00.000Z` },
-    { id: "tx-edit-2", household_id: "house-home", user_id: "user-bin", source_user_key: "kakao_login:2265", transaction_date: kstToday, type: "expense", amount: 5000, category: "카페/간식", memo: "커피", payment_method: "카카오페이", source: "kakao_skill", raw_text: "커피 5000 카카오페이", created_at: `${kstToday}T02:00:00.000Z` },
-    { id: "tx-edit-3", household_id: "house-home", user_id: "user-wifi", source_user_key: "kakao_login:2266", transaction_date: kstToday, type: "expense", amount: 8000, category: "식비", memo: "빵", payment_method: "현금", source: "kakao_skill", raw_text: "빵 8000 현금", created_at: `${kstToday}T03:00:00.000Z` },
+    { id: "tx-edit-1", household_id: "house-home", user_id: "user-bin", source_user_key: "kakao_login:2265", transaction_date: kstToday, type: "expense", amount: 30000, category: "식비", memo: "저녁 마라탕", payment_method: "현대카드", source: "kakao_skill", raw_text: "저녁 마라탕 30000 현대카드", created_at: kstAtV229141(1) },
+    { id: "tx-edit-2", household_id: "house-home", user_id: "user-bin", source_user_key: "kakao_login:2265", transaction_date: kstToday, type: "expense", amount: 5000, category: "카페/간식", memo: "커피", payment_method: "카카오페이", source: "kakao_skill", raw_text: "커피 5000 카카오페이", created_at: kstAtV229141(2) },
+    { id: "tx-edit-3", household_id: "house-home", user_id: "user-wifi", source_user_key: "kakao_login:2266", transaction_date: kstToday, type: "expense", amount: 8000, category: "식비", memo: "빵", payment_method: "현금", source: "kakao_skill", raw_text: "빵 8000 현금", created_at: kstAtV229141(3) },
   );
   fixture.db.accountbook_settings.push(
     { id: "setting-sel-bin", key: "kakao_selected_household_v2251:user-bin", value: "house-home", created_at: `${kstToday}T00:00:00.000Z` },
@@ -312,11 +315,12 @@ try {
   eq(txById("tx-edit-1").amount, 13000, "[E2E·수락12] Bin의 기록은 그대로");
   await say("취소", "kakao_login:2265");
 
-  // 저장 응답 하단 안내(1-1장) + 지출자 표기
+  // 저장 응답(1-1장) + 지출자 표기. V22.9.141 K-1: 1:1 에서는 그날 내 첫 기록에만 수정·삭제 안내를 붙인다 — Bin 은 오늘 이미 기록이 있어(00:00:01·00:00:02)
+  // 이 김밥은 그날 내 첫 기록이 아니므로 첫 줄 한 줄 꼴 + 지출자만 온다. 그날 첫 기록의 안내 문구 모양은 validate-v229141-kakao 의 K-1 이 본다.
   const saveReply = await say("김밥 4500원 현금", "kakao_login:2265");
   ok(saveReply.includes("지출자:"), "[E2E·1-1장] 저장 응답 지출자 표기");
-  ok(/수정: "수정 \d{2}번" 또는 "수정 \d{2}번 금액 13000"/.test(saveReply), "[E2E·1-1장] 저장 응답 수정 안내 문구");
-  ok(/삭제: "삭제 \d{2}번"/.test(saveReply), "[E2E·1-1장] 저장 응답 삭제 안내 문구");
+  ok(/(^|\n)\d{2}번 - 김밥 \/ 4,500원 \/ 현금 \/ [^\n]+? · 💸 지출 저장했어요\./.test(saveReply), "[E2E·1-1장] 저장 응답 첫 줄 = 번호·이름·금액·결제수단·분류 (V22.9.141 K-1)");
+  ok(!/수정: "수정 \d{2}번"/.test(saveReply) && !/삭제: "삭제 \d{2}번"/.test(saveReply), "[E2E·1-1장] 1:1 그날 둘째 기록부터는 수정·삭제 안내 없음 (V22.9.141 K-1)");
 
   // 미인식 텔레메트리 적재 (6장)
   eq(fixture.db.unrecognized_inputs?.length || 0, 0, "[E2E·6장] 수정 실패 원문 별도 적재 0건");
