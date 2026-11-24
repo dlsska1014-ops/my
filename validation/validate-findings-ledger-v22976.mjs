@@ -12,6 +12,8 @@ const ok = (condition, message) => { checks += 1; if (!condition) failures.push(
 
 // 출처 문서마다 항목 ID 를 뽑는 규칙. 새 감사 문서를 쓰면 여기에 한 줄을 더한다.
 const SOURCES = [
+  // V22.9.144: 예산 명령의 해 말(운영자 2026-11-24 — V122:K-5 를 11-29 까지) — K 해 말만 있는 예산 명령·날까지 적은 예산 명령·해 말 없는 예산 명령과 열린 단계 흐름·다른 꼴·수정 창의 칸 이름 오타 판정.
+  { key: "V144", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_144.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(K-[0-9]+)(?=[ *]|$)/gm, expected: 5 },
   // V22.9.143: 업데이트 소식(운영자 2026-11-24 — 11/30 전에 완료, 계획 D1·E3) — A 업데이트 소식·RSS·문서 제목.
   { key: "V143", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_143.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(A-[0-9]+)(?=[ *]|$)/gm, expected: 4 },
   // V22.9.142: 애드센스 1주차(운영자 2026-11-24 — 애드센스 승인 우선, 결정 3·5·7) — A 글 합치기·세무 글 국세청 원문·사실 확인·방문 측정 CSP·/about·/guides·방침 목적·남은 몫.
@@ -117,7 +119,7 @@ const ledger = read("docs/codex/FINDINGS_LEDGER.md");
 const harness = read(".codex/scripts/verify-repository.mjs");
 const rows = [];
 for (const line of ledger.split("\n")) {
-  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108|V116|V117|V118|V120|V121|V122|V124|V125|V126|V127|V128|V129|V130|V131|V132|V133|V134|V135|V136|V137|V138|V139|V140|V141|V142|V143):[A-Z]-[0-9]+[a-z]?) *[|]/.exec(line);
+  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108|V116|V117|V118|V120|V121|V122|V124|V125|V126|V127|V128|V129|V130|V131|V132|V133|V134|V135|V136|V137|V138|V139|V140|V141|V142|V143|V144):[A-Z]-[0-9]+[a-z]?) *[|]/.exec(line);
   if (!match) continue;
   const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
   const [id, severity, title, status, fixedIn, check, note] = cells;

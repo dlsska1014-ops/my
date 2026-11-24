@@ -12,9 +12,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_143.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_144.sha256",
 );
 const validationScripts = [
+  ["V22.9.144 예산 명령의 해 말(내년·올해·작년·재작년·지난 해·다음 해·금년 + N월 = 그해 그달, 분류에서 해 말을 뗌, 해 말 없는 N월은 가장 가까운 해 그대로)·날 없는 예산 설정 명령은 기록 길의 달력 답보다 예산 처리기(날을 적은 말은 달력 답 그대로)", "validation/validate-v229144-budget-year.mjs"],
   ["V22.9.143 업데이트 소식·RSS·검색 제목(V22.9.20 부터 판마다 한 번씩·가장 새 묶음 = 지금 판, /updates.xml RSS 2.0 항목 = 묶음, 첫 화면 문서 제목 = 카카오톡 가계부·단톡방 가계부, /kakao-guide = 카카오톡 가계부 입력 방법: 1:1 채팅과 단톡방)", "validation/validate-v229143-updates-feed.mjs"],
   ["V22.9.142 애드센스 1주차(글 합치기 40→31편·옛 주소 308·합친 세무 글의 기준 한 줄과 국세청 원문 단추, 방문 측정 CSP 는 공개 화면만, /about 심사자 문장 빼기)", "validation/validate-v229142-adsense-week1.mjs"],
   ["V22.9.141 카카오 판(저장 답 한 줄 + 분류·수정 안내 규칙, 여러 줄 머리말의 날짜·받은 돈 되묻기 V140:P-5, 거스름·나눔 빈틈)", "validation/validate-v229141-kakao.mjs"],
@@ -462,7 +463,8 @@ function run(command, args, label) {
 // V22.9.141: 카카오 판 검사(validate-v229141-kakao)와 추적표 V141 항목 9행이 더해졌다. 하네스 두 모드 실측 98,209 present / 98,202 absent — 하한은 작은 값이다.
 // V22.9.142: 애드센스 1주차 검사(validate-v229142-adsense-week1)와 추적표 V142 항목 8행이 더해지고, 옛 글 9편을 하나씩 보던 단언이 빠졌다. 하네스 두 모드 실측 97,411 present / 97,404 absent — 하한은 작은 값이다.
 // V22.9.143: 업데이트 소식 검사(validate-v229143-updates-feed — 묶음 날짜를 CHANGELOG 머리 줄과 대조)와 추적표 V143 항목 4행이 더해지고, 공개 정본 52쪽을 보는 기존 검사와 공개 안내 검사(/updates 쪽별 검사)의 단언이 늘었다. 하네스 두 모드 실측 99,566 present / 99,559 absent — 하한은 작은 값이다.
-const EXPECTED_MINIMUM_CHECKS = 99559;
+// V22.9.144: 예산 명령 해 말 검사(validate-v229144-budget-year — 파서·카카오 끝단·원본)와 추적표 V144 항목이 더해지고, 업데이트 소식 검사의 묶음 단언이 한 묶음만큼 늘었다. 하네스 두 모드 실측 99,820 / 99,813 → 하한 99,813.
+const EXPECTED_MINIMUM_CHECKS = 99813;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

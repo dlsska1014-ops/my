@@ -3398,7 +3398,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.143-UPDATES-FEED";
+const APP_VERSION = "V22.9.144-BUDGET-YEAR";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4015,6 +4015,11 @@ const SUBSCRIPTION_CASE = [
 // 보안 점검의 세부·관리자·관제·배포·DB 같은 내부 내용, 점검한 도구의 이름, 옛 서비스 이름은 적지 않고, 문장은 그 판의 CHANGELOG 절보다 넓게 쓰지 않는다(조건이 있으면 조건까지).
 // 새 판은 맨 앞에 그 판의 묶음 하나를 더한다(이미 있는 묶음에 판을 끼우지 않는다 — 쪽 안 앵커 id 는 묶음의 가장 새 판 번호(v229143 꼴)이고 RSS 항목의 링크·guid 라 바뀌면 안 된다).
 const PUBLIC_UPDATES_V229143 = Object.freeze([
+  { date: "2026-11-24", versions: ["V22.9.144"], title: "카카오 예산 명령의 해와 달 읽기", items: [
+    "해를 붙여 보낸 예산 명령(‘내년 1월 식비 예산 22만원’)이 ‘달력에 없는 날짜’ 답으로 끝나던 것을 고쳐 그해 그달 예산으로 저장되게 했습니다.",
+    "예산 설정과 ‘예산 현황’에서 ‘올해 12월’·‘작년 12월’처럼 해를 가리키는 말도 읽게 했습니다.",
+    "없는 달(‘13월’)을 적은 예산 명령이 이번 달 예산을 바꾸던 것을 막았습니다.",
+  ] },
   { date: "2026-11-24", versions: ["V22.9.143"], title: "업데이트 소식과 RSS", items: [
     "판마다 바뀐 것을 모은 업데이트 소식(/updates)과 RSS(/updates.xml)를 열었습니다.",
     "첫 화면과 ‘카카오톡 가계부 입력 방법’ 안내의 브라우저 탭 제목과 검색 결과 설명에 단톡방에서 쓰는 경우도 함께 적었습니다.",
@@ -57942,23 +57947,41 @@ function normalizeBudgetCategoryInput(value = "") {
   return aliases[raw] || raw;
 }
 
-function parseBudgetMonthHint(text = "") {
-  const t = normalizeText(text);
-  if (/다음달|다음 달/.test(t)) return shiftMonthString(currentMonthKst(), 1);
+// V22.9.144: 예산 말의 달 말 하나를 읽는다(아래 parseBudgetMonthHint 가 예전부터 보던 순서 그대로). { month: "YYYY-MM" } 이거나,
+// 달 말이 있는데 1~12 밖이면(‘13월’·‘2027년 13월’·‘0월’) { invalid: true }, 달 말이 없으면 null.
+function budgetMonthHintToken(t = "") {
+  if (/다음달|다음 달/.test(t)) return { month: shiftMonthString(currentMonthKst(), 1) };
   // V22.9.81: ‘지지난달·저저번달’은 두 달 전이다. 예전에는 안의 ‘지난달’을 읽어 지난달로 보았고, 분류 이름에도 달 말이 남아
   // "지지난달 식비 예산 30만원"이 ‘등록된 카테고리를 찾지 못했어요’로 끝났다(아래 앞말 떼기·monthHint 도 같이 고침).
-  if (/지지난\s*달|저저번\s*달/.test(t)) return shiftMonthString(currentMonthKst(), -2);
-  if (/지난달|지난 달|저번달|저번 달/.test(t)) return shiftMonthString(currentMonthKst(), -1);
+  if (/지지난\s*달|저저번\s*달/.test(t)) return { month: shiftMonthString(currentMonthKst(), -2) };
+  if (/지난달|지난 달|저번달|저번 달/.test(t)) return { month: shiftMonthString(currentMonthKst(), -1) };
+  // V22.9.144 V122:K-5: ‘내년 1월’·‘올해 12월’·‘작년 12월’ 처럼 해를 가리키는 말 + N월을 읽는다. 예전에는 해 말을 읽지 않아 아래 ‘가장 가까운
+  // 해’ 규칙으로 보았다(12월에 보낸 ‘내년 7월’ = 올해 7월, 1월에 보낸 ‘작년 12월’ = 올해 12월). 해 말 바로 뒤에 달이 올 때만 읽는다
+  // (‘내년 예산 200만원’ 처럼 달이 없으면 예전과 같다). 낱말은 기록 파서가 날짜 말로 보는 것과 같다(client/shared-input-parsers.js
+  // explicitDateIntent — 재작년·작년·지난 해·올해·금년·내년·다음 해). ‘재작년’ 을 먼저 두어야 그 안의 ‘작년’ 으로 읽지 않는다.
+  const yearWord = t.match(/(재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*(\d{1,2})월/);
+  if (yearWord) {
+    const month = Number(yearWord[2]);
+    const shift = { 재작년: -2, 작년: -1, 지난해: -1, 올해: 0, 금년: 0, 내년: 1, 다음해: 1 }[yearWord[1].replace(/\s+/g, "")];
+    if (month < 1 || month > 12) return { invalid: true };
+    return { month: `${Number(currentMonthKst().slice(0, 4)) + shift}-${String(month).padStart(2, "0")}` };
+  }
   const m = t.match(/(?:20(\d{2})년\s*)?(\d{1,2})월/);
   if (m) {
     // V22.9.76 감사 D-7: 연도 없이 쓴 달은 지금과 가장 가까운 해로 본다. 12월에 보낸 "1월 식비 예산"은 다음 해 1월이다
     // (예전: 지난 1월에 저장). 앞뒤 거리가 같으면(6개월) 앞날로 본다.
     let year = m[1] ? Number(`20${m[1]}`) : Number(currentMonthKst().slice(0, 4));
     const month = Number(m[2]);
+    if (month < 1 || month > 12) return { invalid: true };
     if (!m[1]) { const diff = month - Number(currentMonthKst().slice(5, 7)); if (diff <= -6) year += 1; else if (diff > 6) year -= 1; }
-    if (month >= 1 && month <= 12) return `${year}-${String(month).padStart(2, "0")}`;
+    return { month: `${year}-${String(month).padStart(2, "0")}` };
   }
-  return currentMonthKst();
+  return null;
+}
+
+// 달 말이 없거나 1~12 밖이면 예전처럼 이번 달이다(예산 현황 답은 그대로). 예산 설정은 1~12 밖의 달을 받지 않는다(parseDirectBudgetSetCommand).
+function parseBudgetMonthHint(text = "") {
+  return budgetMonthHintToken(normalizeText(text))?.month || currentMonthKst();
 }
 
 function parseDirectBudgetSetCommand(text = "") {
@@ -57969,13 +57992,18 @@ function parseDirectBudgetSetCommand(text = "") {
   // ‘동아리 예산 회식 50000원’처럼 ‘예산’이 가운데 든 말을 지출로 넘기는 가드(Gemini ①)는 넣지 않는다: 같은 꼴의 예산 말
   // (‘식비 예산 다음달부터 30만원’, ‘예산 카페 간식 5만원’, 사용자 분류 ‘예산 아이 학원 30만원’)이 30만원 지출로 저장되는 회귀를
   // 픽스처 대조로 확인했다. 모호한 말은 저장하지 않고 다시 묻는다(validate-kakao-intent-skill-auth-v22876; 안내 문구는 skill-handler).
+  // V22.9.144 독립 검토 F1: 달 말이 1~12 밖이면(‘13월 식비 예산 30만원’·‘2027년 13월 예산 200만원’·‘0월’) 예산 명령으로 받지 않는다. 예전에는 달 읽기가
+  // 이번 달로 떨어져 이번 달 예산을 덮어썼다(해 말 없는 꼴은 이 판 전에도 그랬다). 이제 skill-handler 의 ‘예산’ 백스톱이 안내로 답한다(저장 없음).
+  if (budgetMonthHintToken(t)?.invalid) return null;
   const span = moneyTokenSpans(t)[0];
   if (span && /(?:^|\s)예산(?=\s|$)/.test(t)) {
-    const withoutAmount = (t.slice(0,span.start) + " " + t.slice(span.end)).replace(/^(?:이번\s*달|다음\s*달|지지난\s*달|저저번\s*달|지난\s*달|저번\s*달|(?:20\d{2}년\s*)?\d{1,2}월)\s*/, "").replace(/(?:^|\s)(?:예산|설정|저장|등록|변경|수정|월|전체|총)(?=\s|$)/g," ").replace(/\s+/g," ").trim();
+    // V22.9.144 V122:K-5: 앞의 ‘내년·올해·작년 … N월’ 도 달 말로 떼어 낸다(예전에는 분류 이름이 ‘내년 1월 식비’ 가 됐다).
+    const withoutAmount = (t.slice(0,span.start) + " " + t.slice(span.end)).replace(/^(?:이번\s*달|다음\s*달|지지난\s*달|저저번\s*달|지난\s*달|저번\s*달|(?:(?:20\d{2}년|재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*)?\d{1,2}월)\s*/, "").replace(/(?:^|\s)(?:예산|설정|저장|등록|변경|수정|월|전체|총)(?=\s|$)/g," ").replace(/\s+/g," ").trim();
     return {month:parseBudgetMonthHint(t), category:withoutAmount ? normalizeBudgetCategoryInput(withoutAmount) : "__total", amount:span.amount};
   }
   // V22.9.81: 앞의 ‘지지난달·저저번달’도 달 말로 떼어 낸다(예전에는 분류 이름이 ‘지지난달’·‘지지난달 식비’가 됐다).
-  const monthHint = "(이번달|이번 달|다음달|다음 달|지지난달|지지난 달|저저번달|저저번 달|지난달|지난 달|저번달|저번 달|(?:20\\d{2}년\\s*)?\\d{1,2}월)";
+  // V22.9.144 V122:K-5: ‘내년·올해·작년 … N월’ 도 달 말이다(위 앞말 떼기·parseBudgetMonthHint 와 같은 낱말).
+  const monthHint = "(이번달|이번 달|다음달|다음 달|지지난달|지지난 달|저저번달|저저번 달|지난달|지난 달|저번달|저번 달|(?:(?:20\\d{2}년|재작년|작년|지난\\s*해|올해|금년|내년|다음\\s*해)\\s*)?\\d{1,2}월)";
   // V22.9.26: "예산 50만원", "예산 설정 50만원", "월 예산 50만원", "이번달 예산 50만원" 처럼
   // 분류 없이 말하면 전체 월 예산이다. 예전에는 거래 파서로 떨어져 50만원짜리 지출이 저장됐다.
   const bareTotal = t.match(new RegExp(`^(?:${monthHint}\\s*)?(?:월\\s*|전체\\s*|총\\s*)?예산\\s*(?:설정|저장|등록|변경|수정)?\\s*(?:은|을|를)?\\s+(.+)$`, "i"));
@@ -57998,6 +58026,22 @@ function parseDirectBudgetSetCommand(text = "") {
     category: normalizeBudgetCategoryInput(m[2]),
     amount: Math.round(amount),
   };
+}
+
+// V22.9.144 V122:K-5·독립 검토 F2·F3·F4: 해 말·연도 + N월(1~12, 뒤에 날 숫자 없음)을 적은 금액 있는 예산 설정 명령인지 본다.
+// 기록 파서(explicitDateIntent)는 ‘내년 1월 …’·‘2027년 1월 …’ 을 날짜 말로 보아 날이 없으면 ‘달력에 없는 날짜’ 로 본다. 그 까닭이 이 달 말
+// 하나뿐일 때만 참이다 — 이 꼴을 떼고 남은 말에 기록 파서가 날짜 말로 볼 것이 없어야 한다. ‘2월 30 예산’·‘내년 2월 30 식비 예산’·
+// ‘２월 ３０일 식비 예산 30만원’·‘2027년 13월 예산 200만원’ 은 아니다(예전처럼 달력 답). 너비는 기록 파서처럼 접어서 본다.
+// skill-handler 는 이 말에 달력 답을 하지 않고, 열린 수정 창은 비켜 가며(감사 B-4 의 예산 명령처럼), 열린 단계 흐름(예산 설정·이름·새 가계부·
+// 가계부 고르기)은 끊는다 — 예전에는 달력 답이 이 말을 먼저 받아 흐름까지 가지 않았다(검토 F3: 흐름이 이 말을 금액·이름·메모로 받았다).
+// leading: 그 꼴이 말 맨 앞에 있을 때만 참(수정 창이 칸 이름보다 먼저 볼 때 — ‘내년’·‘금년’ 은 칸 이름 ‘내용’·‘금액’ 과 한 글자 차이다).
+const BUDGET_YEAR_MONTH_PHRASE = /(?:20\d{2}년|재작년|작년|지난\s*해|올해|금년|내년|다음\s*해)\s*(?:0?[1-9]|1[0-2])\s*월(?!\s*\d)/;
+function isKakaoBudgetYearMonthCommand(text = "", { leading = false } = {}) {
+  const t = normalizeText(foldInputWidth(text));
+  const phrase = t.match(BUDGET_YEAR_MONTH_PHRASE);
+  if (!phrase || (leading && phrase.index !== 0)) return false;
+  if (explicitDateIntent(`${t.slice(0, phrase.index)} ${t.slice(phrase.index + phrase[0].length)}`)) return false;
+  return !!parseDirectBudgetSetCommand(text);
 }
 
 async function resolveBudgetCategoryName(env, householdId = "", input = "") {
@@ -58669,7 +58713,10 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
     await clearKakaoFlowState(env, user.id, payload);
     return { text: "진행 중인 설정을 취소했어요.", quickReplies: kakaoStartQuickReplies(true) };
   }
-  if (shouldInterruptKakaoFlowV2254(state, utterance, stripKakaoBotMention(payload?.userRequest?.utterance || payload?.utterance || utterance))) {
+  // V22.9.144 독립 검토 F3: 해 말·연도 + N월을 적은 금액 있는 예산 설정 명령(‘내년 1월 식비 예산 22만원’)은 예산 설정 흐름의 금액·분류 값이나
+  // 이름 값이 아니다 — 흐름을 끊고 예산 처리기로 보낸다(예전에는 기록 길의 달력 답이 먼저 받아 흐름까지 오지 않았다. 흐름이 받으면 그 흐름의 달
+  // = 이번 달로 저장됐다).
+  if (shouldInterruptKakaoFlowV2254(state, utterance, stripKakaoBotMention(payload?.userRequest?.utterance || payload?.utterance || utterance)) || isKakaoBudgetYearMonthCommand(utterance)) {
     await clearKakaoFlowState(env, user.id, payload);
     return null;
   }
@@ -59118,11 +59165,18 @@ function normalizeKakaoButtonLabel(text = "") {
 // (‘금액 13000’, 번호, ‘취소’, ‘도움말’, ‘어제’ 같은 날짜 값)은 여기에 들지 않는다.
 function isKakaoEditSessionBypassCommand(text = "") {
   const t = normalizeText(text);
+  // V22.9.144 독립 검토 F3: 해 말·연도로 시작하는 금액 있는 예산 설정 명령(‘내년 1월 식비 예산 22만원’)은 아래 칸 이름 판정보다 먼저 비켜 간다.
+  // ‘내년’·‘금년’ 은 칸 이름 ‘내용’·‘금액’ 과 한 글자 차이라 오타 판정이 그 칸의 값으로 잡았다(‘혹시 내용을 … 바꾸는 건가요?’ 에 ‘네’ 하면 메모가
+  // 바뀜). 칸 이름을 먼저 적은 말(‘내용 내년 1월 …’)은 해 말로 시작하지 않으므로 예전처럼 세션 값이다.
+  if (isKakaoBudgetYearMonthCommand(t, { leading: true })) return true;
   if (!t || startsWithKakaoEditField(t) || /^\d+\s*번?$/.test(t)) return false;
   // ‘오늘’·‘어제’ 한 낱말은 요약 명령이기도 하지만, 세션 안에서는 날짜 값(1. 오늘 2. 어제 3. 그제)이다.
   if (/^(?:오늘|어제|그제|그저께|엊그제|이번\s*주|지난\s*주|이번\s*달|지난\s*달)$/.test(t)) return false;
+  // V22.9.144 독립 검토 F3: 해 말·연도 + N월을 적은 금액 있는 예산 설정 명령(‘내년 1월 식비 예산 22만원’)도 예산 명령으로 비켜 간다. 예전에는
+  // 기록 길의 달력 답이 먼저 받아 세션까지 오지 않았고, 이제 그 답을 건너뛰므로 세션이 ‘내용’ 값으로 삼키지 않게 한다(세션은 남는다).
   return isKakaoDailyListCommand(t) || isRecentCommand(t) || isSummaryCommand(t) || !!parseKakaoSummaryRange(t) ||
-    isSettlementCommand(t) || isBudgetCommand(t) || isKakaoBudgetSetupCommand(t) || isHouseholdSwitchCommand(t) || isCommandMenuCommand(t);
+    isSettlementCommand(t) || isBudgetCommand(t) || isKakaoBudgetSetupCommand(t) || isHouseholdSwitchCommand(t) || isCommandMenuCommand(t) ||
+    isKakaoBudgetYearMonthCommand(t);
 }
 
 // V22.9.79 감사 A-18: ‘오늘 뭐 썼어’·‘어제 뭐 썼어’·‘오늘 기록 보여줘’·‘7월 3일 뭐 썼어’처럼 하루를 가리킨 조회가 그 날짜와 상관없이
@@ -59184,7 +59238,13 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     if (preParsedList.blocked?.reason === "mixed_cues") return kakaoMixedTypeConfirmationReply(utterance);
     return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");
   }
-  if (!separatePurchaseCommand && !editLikeUtterance && !preParsedList.length && parseTransaction(utterance,payload).message === "invalid_transaction_date") return kakaoText("달력에 없는 날짜여서 기록을 저장하지 않았어요. 날짜를 확인해 다시 보내 주세요. 연도 없는 M/D는 올해 날짜로 저장합니다.");
+  // V22.9.144 V122:K-5: ‘내년 1월 식비 예산 22만원’·‘2027년 1월 식비 예산 22만원’ 은 기록 파서가 해 말·연도 + 달(날 없음)을 ‘달력에 없는 날짜’ 로
+  // 보아 아래 예산 처리기(parseDirectBudgetSetCommand)까지 가지 못했다. 그 달 말 하나 때문에 이 답이 되는 금액 있는 예산 설정 명령이면 건너뛴다
+  // (isKakaoBudgetYearMonthCommand — 그 꼴을 떼고 남은 말을 기록 파서의 날짜 말 판정으로 다시 본다). 그 말은 열린 수정 창·단계 흐름도 비켜 가
+  // 아래 예산 처리기가 받고, 기록으로 저장하지 않는다. 날을 적은 말(‘2월 30일 …’·‘2월 30 예산’·‘내년 2월 30 …’·‘2/30 …’·‘2.30 …’)과
+  // 1~12 밖의 달(‘2027년 13월 …’)은 예전처럼 이 답이다(독립 검토 F1·F2).
+  if (!separatePurchaseCommand && !editLikeUtterance && !preParsedList.length && parseTransaction(utterance,payload).message === "invalid_transaction_date"
+    && !isKakaoBudgetYearMonthCommand(utterance)) return kakaoText("달력에 없는 날짜여서 기록을 저장하지 않았어요. 날짜를 확인해 다시 보내 주세요. 연도 없는 M/D는 올해 날짜로 저장합니다.");
   // V22.9.95 R-20: 외화 금액(‘커피 $100’·‘USD 100 커피’)이 하나라도 있는 말은 금액을 읽지 않고 되묻는다(직접·방 같은 입구). 예전에는 $ 를 지운
   // 숫자가 원화로 저장됐다(100원). 고치는 말·예산 말도 같다. 열린 수정 세션·단계 흐름은 그대로 두므로 원화로 다시 보내면 이어진다.
   if (foreignCurrencyAmountIn(utterance)) return kakaoText(kakaoForeignAmountText(origin));
@@ -59516,7 +59576,9 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   const flowSnapshot = roomContext ? (await roomContext.settingsPromise).get(roomContext.flowKey) ?? null : routingSnapshot?.flow;
   const activeFlowBeforeRouting = await getKakaoFlowState(env, user.id, payload, flowSnapshot);
   if (activeFlowBeforeRouting && ["create_household", "join_household", "household_choice"].includes(activeFlowBeforeRouting.flow)) {
-    if (shouldInterruptKakaoFlowV2254(activeFlowBeforeRouting, utterance)) {
+    // V22.9.144 독립 검토 F3: 해 말·연도 + N월을 적은 금액 있는 예산 설정 명령은 새 가계부 이름·가계부 고르기 단계의 입력값이 아니다(예전에는
+    // 달력 답이 먼저 받았다). 흐름을 끊고 아래 길로 보낸다.
+    if (shouldInterruptKakaoFlowV2254(activeFlowBeforeRouting, utterance) || isKakaoBudgetYearMonthCommand(utterance)) {
       await clearKakaoFlowState(env, user.id, payload);
     } else {
       const activePreFlow = await handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin, roomLinkPromise: linkedGroupPromise });
