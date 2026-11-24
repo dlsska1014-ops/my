@@ -145,9 +145,9 @@ ok(source.includes("AdSense review mode is ownership-only"), "심사 모드 소�
 const pageKeys = [...(source.match(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 const publicPaths = [...(source.match(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 // V22.9.97 생활비 글: 글 8편이 더해져 정본 52 → 60, 공개 허용 화면 45 → 53.
-eq(publicPaths.length, 51, "공개 정본 문서는 51개다(가이드 18 + V22.9.40 생활비 가이드 글 12 + V22.9.74 허브 1·글 18 + V22.9.95 후원 안내 1 + V22.9.97 글 1 — V22.9.142 에 9편을 합침)");
-eq(pageKeys.filter((key) => publicPaths.includes(key)).length, 44, "공개 허용 화면은 44쪽이다(정본 51 − 정책·신원 6 − 후원 안내 1, V22.9.108 범위·V22.9.142 글 수)");
-eq(JSON.stringify(pageKeys.filter((key) => publicPaths.includes(key)).sort()), JSON.stringify([...PUBLIC_AD_ALLOWED].sort()), "공개 허용 화면 = 정본 문서 - 정책·신원 6쪽 - 후원 안내");
+eq(publicPaths.length, 52, "공개 정본 문서는 52개다(가이드 18 + V22.9.40 생활비 가이드 글 12 + V22.9.74 허브 1·글 18 + V22.9.95 후원 안내 1 + V22.9.97 글 1 + V22.9.143 업데이트 소식 1 — V22.9.142 에 9편을 합침)");
+eq(pageKeys.filter((key) => publicPaths.includes(key)).length, 44, "공개 허용 화면은 44쪽이다(정본 52 − 정책·신원 6 − 후원 안내 1 − 업데이트 소식 1, V22.9.108 범위·V22.9.142 글 수·V22.9.143)");
+eq(JSON.stringify(pageKeys.filter((key) => publicPaths.includes(key)).sort()), JSON.stringify([...PUBLIC_AD_ALLOWED].sort()), "공개 허용 화면 = 정본 문서 - 정책·신원 6쪽 - 후원 안내 - 업데이트 소식");
 eq(JSON.stringify(pageKeys.filter((key) => !publicPaths.includes(key))), JSON.stringify(SIGNED_IN_ALLOWED), "로그인 뒤 허용 화면은 리포트·연간·스마트 도구·두 가이드뿐이다");
 for (const key of ["/app", "/my", "/menu", "/my/settings", "/budgets", "/my/analysis", "/my/households", "/my/members", "/my/backup", "/payment-methods", "/settlement-summary", "/reserve-plans", "/admin-view", "/operation-center", "/skill", "/api", "/u/api", ...POLICY_PAGES]) {
   ok(!pageKeys.includes(key), `${key} 는 허용 화면 키가 아니다`);

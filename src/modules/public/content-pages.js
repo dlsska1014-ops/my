@@ -8,7 +8,7 @@ import {
   publicSiteFooter, publicSiteNav,
 } from "./site-config.js";
 import {
-  publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages,
+  PUBLIC_UPDATES_V229143, publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages,
 } from "./guide-content.js";
 import {
   publicArticleIndex, publicArticleIsLiving, publicArticleReadingMinutes, publicArticleSiteMapLinks,
@@ -199,6 +199,68 @@ function publicTableStackLabelCssV229124(table, id) {
   const text = (label) => String(label || "").split("").filter((ch) => !'"<>'.includes(ch) && ch.charCodeAt(0) !== 92 && ch.charCodeAt(0) >= 32).join("");
   // 줄의 첫 칸은 th(scope=row), 나머지는 td 다. :is() 를 쓰지 않는다 — 모르는 브라우저가 이 규칙만 버리면 머리글 줄은 감춰지고 칸은 표 그대로 남아 잘린다.
   return table.headers.map((label, index) => `.pubTableWrap[aria-labelledby="${id}"] tbody ${index === 0 ? "th" : `td:nth-child(${index + 1})`}::before{content:"${text(label)}"}`).join("");
+}
+
+// V22.9.143 D1: 업데이트 소식 목록. 달마다 절 하나(h2), 묶음마다 날짜·제목(h3)·판 번호·바뀐 것 목록. 묶음의 쪽 안 앵커 id 는 그 묶음의 가장 새 판 번호
+// (V22.9.141 → v229141)이고 RSS 항목의 링크다. 글자 크기·굵기는 V22.9.125 눈금(18px·700) 안에서 고른다. 규칙은 이 화면에만 싣는다.
+const PUBLIC_UPDATES_CSS_V229143 = ".pubUpdate{margin:0 0 24px}.pubUpdate h3{margin:0 0 4px;font-size:18px;font-weight:700;line-height:1.5}.pubUpdate .pubMeta{margin:0 0 8px}";
+function publicUpdateIdV229143(entry = {}) {
+  const newest = [...safeArray(entry.versions)].sort((a, b) => Number(String(b).split(".")[2]) - Number(String(a).split(".")[2]))[0] || "";
+  return `v${String(newest).replace(/[^0-9]/g, "")}`;
+}
+// 판 번호 표시: 셋 이상 이어지면 ‘V22.9.45~V22.9.62’, 둘이거나 떨어져 있으면 ‘ · ’ 로 잇는다(묶음의 판 번호는 모두 V22.9.N 꼴 — 검사가 확인).
+function publicUpdateVersionsLabelV229143(versions = []) {
+  const runs = [];
+  for (const n of safeArray(versions).map((v) => Number(String(v).split(".")[2])).filter(Number.isInteger).sort((a, b) => a - b)) {
+    const last = runs[runs.length - 1];
+    if (last && n === last[1] + 1) last[1] = n;
+    else runs.push([n, n]);
+  }
+  return runs.map(([a, b]) => (b - a >= 2 ? `V22.9.${a}~V22.9.${b}` : a === b ? `V22.9.${a}` : `V22.9.${a} · V22.9.${b}`)).join(" · ");
+}
+function publicUpdatesListV229143(entries = []) {
+  const months = new Map();
+  for (const entry of safeArray(entries)) {
+    const month = String(entry.date).slice(0, 7);
+    if (!months.has(month)) months.set(month, []);
+    months.get(month).push(entry);
+  }
+  return [...months].map(([month, list]) => `<section class="pubSection pubUpdates" id="m-${month}"><h2>${Number(month.slice(0, 4))}년 ${Number(month.slice(5, 7))}월</h2>${list.map((entry) => {
+    const day = entry.label || `${Number(entry.date.slice(5, 7))}월 ${Number(entry.date.slice(8, 10))}일`;
+    const items = safeArray(entry.items);
+    return `<div class="pubUpdate" id="${publicUpdateIdV229143(entry)}"><h3><time datetime="${escapeHtml(entry.label ? entry.date.slice(0, 7) : entry.date)}">${escapeHtml(day)}</time> · ${escapeHtml(entry.title)}</h3><p class="pubMeta">${escapeHtml(publicUpdateVersionsLabelV229143(entry.versions))}</p>${items.length ? `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}</div>`;
+  }).join("")}</section>`).join("");
+}
+// RSS 2.0. 날짜만 있으므로 그날 09:00 KST(= 00:00 UTC)로 적는다(기간 묶음은 끝날). 항목 링크는 쪽 안 앵커, guid 는 바뀌지 않는 판 번호 표식.
+function publicUpdatesRfc822V229143(date) {
+  return new Date(`${date}T09:00:00+09:00`).toUTCString();
+}
+function handlePublicUpdatesFeedV229143(env = {}, url = null) {
+  const origin = publicBaseUrl(env, url);
+  const items = PUBLIC_UPDATES_V229143.map((entry) => {
+    const id = publicUpdateIdV229143(entry);
+    return `  <item>
+    <title>${escapeHtml(`${entry.title} (${publicUpdateVersionsLabelV229143(entry.versions)})`)}</title>
+    <link>${escapeHtml(`${origin}/updates#${id}`)}</link>
+    <guid isPermaLink="false">malhaebook-update-${id}</guid>
+    <pubDate>${publicUpdatesRfc822V229143(entry.date)}</pubDate>
+    <description>${escapeHtml(safeArray(entry.items).join(" "))}</description>
+  </item>`;
+  }).join("\n");
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<channel>
+  <title>말해가계부 업데이트 소식</title>
+  <link>${escapeHtml(`${origin}/updates`)}</link>
+  <atom:link href="${escapeHtml(`${origin}/updates.xml`)}" rel="self" type="application/rss+xml"/>
+  <description>말해가계부가 판마다 바꾼 것 가운데 이용자가 보게 되는 변화를 최신순으로 적습니다.</description>
+  <language>ko</language>
+  <lastBuildDate>${publicUpdatesRfc822V229143(PUBLIC_UPDATES_V229143[0]?.date || "2026-11-24")}</lastBuildDate>
+${items}
+</channel>
+</rss>
+`;
+  return new Response(xml, { status: 200, headers: { "content-type": "application/rss+xml; charset=utf-8", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" } });
 }
 
 function publicContentTable(table, id) {
@@ -442,7 +504,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   // V22.9.104 A-4: 글에 기준 한 줄(basis, 세무 글 8편의 귀속연도·확인한 법령 시점)이 있으면 작성·수정일 줄 바로 아래에 같은 모양(pubMeta)으로
   // 단다. 머리(pubHero) 안이라 본문 분량·40자 창 검사에는 들어가지 않고, 새 CSS 가 없어 다른 화면의 바이트는 그대로다.
   const readingNext = living ? `<a href="/articles">생활비 가이드 글 전체 목록 보기 →</a>` : `<a href="/guides">다른 사용 가이드 찾아보기 →</a>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/><meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${faqLinkCss}${tableStackCss}${demoInputCss}${chartCss}${inlineWorksheet ? inlineWorksheet.cssHtml : ""}${page.landing || page.demo ? publicPreviewStyles(!!page.demo) : ""}${page.landing ? publicLandingStyles() : ""}${page.demo ? publicTourStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml(true) : ""}<p class="pubMeta">${metaLine}</p>${page.basis ? `<p class="pubMeta pubBasis">${escapeHtml(page.basis)}</p>` : ""}<div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.landing ? publicLandingHtml() : ""}${page.demo ? publicTourHtml() : ""}${toolHubHtml}${extras.summary}${toc}${chartHtml}${sections}${inlineWorksheet ? inlineWorksheet.sectionHtml : ""}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}${inlineWorksheet ? inlineWorksheet.scriptHtml : ""}</main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/>${page.updatesFeed ? `<link rel="alternate" type="application/rss+xml" title="말해가계부 업데이트 소식" href="${escapeHtml(`${origin}/updates.xml`)}"/>` : ""}<meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${faqLinkCss}${tableStackCss}${demoInputCss}${page.updatesFeed ? PUBLIC_UPDATES_CSS_V229143 : ""}${chartCss}${inlineWorksheet ? inlineWorksheet.cssHtml : ""}${page.landing || page.demo ? publicPreviewStyles(!!page.demo) : ""}${page.landing ? publicLandingStyles() : ""}${page.demo ? publicTourStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml(true) : ""}<p class="pubMeta">${metaLine}</p>${page.basis ? `<p class="pubMeta pubBasis">${escapeHtml(page.basis)}</p>` : ""}<div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.landing ? publicLandingHtml() : ""}${page.demo ? publicTourHtml() : ""}${toolHubHtml}${extras.summary}${toc}${chartHtml}${sections}${page.updatesFeed ? publicUpdatesListV229143(PUBLIC_UPDATES_V229143) : ""}${inlineWorksheet ? inlineWorksheet.sectionHtml : ""}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}${inlineWorksheet ? inlineWorksheet.scriptHtml : ""}</main></body></html>`;
 }
 
 // V22.9.40 (B): 광고 게이트가 쓰는 화면 키는 정본 경로다. 정책·신원 페이지는 게이트의 허용 목록에 없다.
@@ -496,6 +558,8 @@ async function publicDocumentResponse(request, env, url) {
   if (PUBLIC_CONTENT_PATHS.includes(path)) response = await handlePublicContentPage(request, env, url, path.slice(1));
   else if (path === "/robots.txt") response = handlePublicRobots(env, url);
   else if (path === "/sitemap.xml") response = handlePublicSitemap(env, url);
+  // V22.9.143 D1: 업데이트 소식 RSS.
+  else if (path === "/updates.xml") response = handlePublicUpdatesFeedV229143(env, url);
   else if (path === "/sitemap.xsl") response = handlePublicSitemapStylesheet(env, url);
   else if (path === "/ads.txt") response = handleAdsTxt(env);
   return response && request.method === "HEAD" ? headOnlyResponse(response) : response;

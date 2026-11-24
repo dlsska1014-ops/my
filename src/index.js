@@ -3398,7 +3398,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.142-ADSENSE-PRUNE";
+const APP_VERSION = "V22.9.143-UPDATES-FEED";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3930,6 +3930,8 @@ const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/pension-savings-irp-tax-credit",
   // V22.9.95 후원: 후원 안내(운영 비용·후원하는 방법·후원자 혜택). 광고 화면 목록(AD_PAGE_KEYS)에는 넣지 않는다.
   "/support",
+  // V22.9.143 D1: 업데이트 소식(목록은 guide-content.js 의 PUBLIC_UPDATES_V229143, RSS 는 /updates.xml). 광고 화면 목록에는 넣지 않는다.
+  "/updates",
 ]);
 
 // V22.9.87 T-20·T-21: 공개 머리와 로그인 시작 화면의 장부 마크(§3-4 로고 타일 안). 앱 메뉴의 renderAccountbookBrandIcon(web/unified-nav.js)과
@@ -3983,7 +3985,7 @@ function publicSiteNav(active = "home") {
 }
 
 function publicSiteFooter() {
-  return `<footer class="pubFooter"><div><b>말해가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a><a href="/support">후원하기</a></div></footer>`;
+  return `<footer class="pubFooter"><div><b>말해가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a><a href="/updates">업데이트 소식</a><a href="/support">후원하기</a></div></footer>`;
 }
 // Public guides use synthetic examples, never household or account records.
 // V22.9.140: 카카오톡 채널(@말해가계부)의 1:1 채팅 주소. 채널 관리자센터의 ‘채널 URL’ 을 읽기만 해서 얻었다(2026-11-22, 공개 채널 화면 제목 = 말해가계부).
@@ -4006,13 +4008,291 @@ const SUBSCRIPTION_CASE = [
   { name: "학습 앱 F", amount: 120000, cycle: "annual", next: "2027-09-01", use: "2회", shared: "없음" },
 ];
 
+// V22.9.143 D1(애드센스 마지막 신청 계획 — 꾸준한 운영, 사용자 2026-11-24 "11/30 전에 완료하도록 진행하자"): 업데이트 소식(/updates)과 RSS(/updates.xml).
+// 서비스 이름을 바꾼 V22.9.20(2026-09-30)부터 판마다 그 판을 만든 날과 이용자가 보게 되는 변화만 적는다. 날짜 = 그 판의 CHANGELOG 머리 줄 날짜 하나다(운영에 함께
+// 나간 날로 옮기지 않는다 — 머리 줄에 날짜가 없는 이른 판만 배포 기록의 날짜, 2026-10-14~18 에 이어 만든 판은 label 에 기간). V22.9.141 까지는 같은 날 만든 판을 한
+// 묶음으로 적었고 V22.9.142 부터는 판마다 한 묶음이다. 날짜는 validate-v229143-updates-feed 가 머리 줄과 대조한다(머리 줄에 날짜가 없는 판은 그 검사의 목록에만).
+// 보안 점검의 세부·관리자·관제·배포·DB 같은 내부 내용, 점검한 도구의 이름, 옛 서비스 이름은 적지 않고, 문장은 그 판의 CHANGELOG 절보다 넓게 쓰지 않는다(조건이 있으면 조건까지).
+// 새 판은 맨 앞에 그 판의 묶음 하나를 더한다(이미 있는 묶음에 판을 끼우지 않는다 — 쪽 안 앵커 id 는 묶음의 가장 새 판 번호(v229143 꼴)이고 RSS 항목의 링크·guid 라 바뀌면 안 된다).
+const PUBLIC_UPDATES_V229143 = Object.freeze([
+  { date: "2026-11-24", versions: ["V22.9.143"], title: "업데이트 소식과 RSS", items: [
+    "판마다 바뀐 것을 모은 업데이트 소식(/updates)과 RSS(/updates.xml)를 열었습니다.",
+    "첫 화면과 ‘카카오톡 가계부 입력 방법’ 안내의 브라우저 탭 제목과 검색 결과 설명에 단톡방에서 쓰는 경우도 함께 적었습니다.",
+    "공개 화면 꼬리말과 사이트맵에 ‘업데이트 소식’ 링크를 더했습니다.",
+  ] },
+  { date: "2026-11-24", versions: ["V22.9.142"], title: "생활비 글 31편으로 정리", items: [
+    "겹치던 세무·물가·공과금 글 9편을 가까운 글 다섯 편에 합쳐 생활비 글이 31편이 됐습니다.",
+    "옛 글 주소로 들어오면 합친 글의 그 내용 절로 넘어가게 했습니다.",
+    "세무 글 넷의 첫 단추를 모두 국세청·법령 원문으로 맞추고, 합친 세 편에는 숫자가 어느 해 지출에 적용되는지 글 머리에 적었습니다.",
+    "공개 안내·생활비 글 화면의 방문 수를 쿠키 없이 세기 시작하고 쿠키 정책에 ‘방문 측정’을 더했습니다.",
+  ] },
+  { date: "2026-11-23", versions: ["V22.9.141"], title: "카카오 저장 답 한 줄과 되묻기 보강", items: [
+    "새 기록 한 건의 저장 답을 번호·내용·금액·결제수단·분류를 담은 한 줄 중심으로 줄였습니다.",
+    "수정·삭제 안내는 단톡방에서는 매번, 1:1 채팅에서는 그날 첫 기록 답 등에만 붙이도록 바꿨습니다.",
+    "여러 줄 글의 첫 줄에 쓴 날짜 말이나 ‘용돈 받은’ 같은 받은 돈 말이 기록에 쓰이지 않으면 저장하지 않고 다시 묻게 했습니다.",
+    "카카오톡 수정 창을 연 사이 그 기록이 바뀌었으면 덮어쓰지 않고 ‘그사이 기록이 바뀌었어요’라고 알리게 했습니다.",
+  ] },
+  { date: "2026-11-22", versions: ["V22.9.139", "V22.9.140"], title: "글 속 계산표와 카카오톡 시작 단추", items: [
+    "생활비 글 본문 안에서 바로 쓰는 계산표를 9종으로 늘리고 글 목록 맨 위에 모았습니다.",
+    "가상 체험(/demo)에 한 줄 기록 예시를 봇이 실제로 읽은 결과를 담은 표로 더했습니다.",
+    "첫 화면에 카카오톡 채널 채팅을 여는 ‘카카오톡에서 시작하기’ 단추와 ‘처음이라면 이 글부터’를 두었습니다.",
+    "공동 생활비와 구독 정리 글의 계산표 처음 값을 글 속 사례와 맞추고 모임 회비 정산표를 더했습니다.",
+  ] },
+  { date: "2026-11-21", versions: ["V22.9.135", "V22.9.136", "V22.9.137", "V22.9.138"], title: "함께 고치는 가계부와 홈 단순화", items: [
+    "‘기록만’ 권한이 아닌 구성원은 다른 사람의 기록도 채팅과 웹에서 고치고 지울 수 있게 했습니다.",
+    "그날 기록 번호를 사람마다 따로 매기지 않고 가계부 전체의 저장 순서로 매겨 같은 번호가 같은 기록을 가리키게 했습니다.",
+    "홈에 ‘이번 달 요약’ 카드를 두고, 홈 구성을 저장한 적이 없으면 리포트 카드 네 개를 기본으로 끄게 했습니다.",
+    "홈 거래 내역을 날짜 머리 아래 한 줄씩 보이게 정리했습니다.",
+    "빠른 입력 창을 해석 결과 한 줄과 [고치기], 큰 금액 칸 중심으로 바꿨습니다.",
+  ] },
+  { date: "2026-11-20", versions: ["V22.9.132", "V22.9.133", "V22.9.134"], title: "가계부 ‘여는 중’ 화면과 단톡방 답 정리", items: [
+    "웹 가계부를 열 때 ‘가계부를 여는 중이에요’ 화면과 올라가는 퍼센트를 먼저 보여 주게 했습니다.",
+    "가계부가 지워진 단톡방에서 [이 방에서 새로 시작]을 누르면 새 공동 가계부로 바로 잇게 했습니다.",
+    "단톡방 답의 안내 문장에 ‘@말해가계부’를 붙여 그대로 따라 보내면 봇에 닿게 했습니다.",
+    "‘정산’ 답을 누가 누구에게 얼마를 보내면 되는지 먼저 보이도록 바꿨습니다.",
+  ] },
+  { date: "2026-11-19", versions: ["V22.9.131"], title: "기록을 지키는 안전장치 보강", items: [
+    "카카오톡에서 ‘수정 02번’ 창을 열어 둔 채 보낸 ‘메모지 2000원’ 같은 말이 그 기록을 바꾸던 문제를 고쳤습니다.",
+    "‘케이크 1/8 조각 6000원’처럼 물건 이름 뒤에 분수와 ‘조각’ 같은 분량 말이 오는 문장은 날짜로 저장하지 않고 다시 묻게 했습니다.",
+    "메모가 긴 기록에서 즐겨찾기 별이 켜지지도 지워지지도 않던 문제를 고쳤습니다.",
+    "스마트 도구의 ‘예산 잔여’에서 불러오기 실패와 예산 없음을 0원과 구분해 보여 주게 했습니다.",
+  ] },
+  { date: "2026-11-18", versions: ["V22.9.129", "V22.9.130"], title: "단톡방에서 그 방 가계부 바로 열기", items: [
+    "PC 카카오톡에서 단톡방의 웹 가계부 단추를 눌러도 그 방 가계부가 열리게 했습니다.",
+    "웹 계정이 있는 구성원이 카카오톡 밖 브라우저(PC 등)에서 단톡방 단추를 누르면 로그인 없이 그 방 가계부를 보기 전용으로 열게 했습니다.",
+  ] },
+  { date: "2026-11-17", versions: ["V22.9.126", "V22.9.127", "V22.9.128"], title: "저장 전 되묻기 확대와 양도 본인 확인", items: [
+    "할인·단가×수량·나눠 낸 돈처럼 잘못 저장되기 쉬운 문장은 저장하지 않고 다시 묻게 했습니다.",
+    "가계부 소유자를 넘길 때 비밀번호나 카카오로 본인을 한 번 더 확인하게 했습니다.",
+    "메모의 ‘유튜브 프리미엄’ 같은 글자가 화면에서 다른 말로 바뀌어 보이던 문제를 고쳤습니다.",
+    "단톡방에서 수입·지출을 되묻는 답에 눌러도 저장되지 않던 두 단추 대신 ‘기록하기’ 단추를 달았습니다.",
+    "로그인 전 시작 가이드에서 눌러도 움직이지 않던 ‘접기’ 단추를 없앴습니다.",
+  ] },
+  { date: "2026-11-16", versions: ["V22.9.125"], title: "글자 크기·굵기와 화면 밀도 정리", items: [
+    "글자 크기와 굵기를 정해진 단계로 맞춰 제목과 보조 글자가 잘 구분되게 했습니다.",
+    "휴대폰 홈 위쪽의 빈 띠를 줄여 첫 화면에 더 많은 내용이 보이게 했습니다.",
+    "설정의 분류별 지출 예산 표를 휴대폰에서 줄마다 카드로 보여 주게 했습니다.",
+    "꼬리말 글자를 키우고 이메일 링크를 누르기 쉽게 넓혔습니다.",
+  ] },
+  { date: "2026-11-15", versions: ["V22.9.124"], title: "휴대폰에서 누르고 읽기 쉽게", items: [
+    "좁은 화면에서 작던 단추·링크 몇 곳의 누르는 영역을 44px로 넓혔습니다.",
+    "정산·오늘 예산·결제수단 표를 휴대폰에서 줄마다 카드로 보여 주게 했습니다.",
+    "목표 추가 폼의 다섯 칸 모두 입력칸 위에 이름을 붙였습니다.",
+    "개인정보처리방침 등 공개 화면의 넓은 표도 휴대폰에서 카드로 쌓았습니다.",
+  ] },
+  { date: "2026-11-14", versions: ["V22.9.122", "V22.9.123"], title: "기록 답의 예산 한 줄과 요약 단추", items: [
+    "예산을 정한 분류면 새 기록 답에 ‘📊 이번 달 식비 예산 62% 사용 · 114,000원 남음’ 같은 한 줄을 붙였습니다.",
+    "그날 첫 기록 답에 월요일엔 ‘지난주 요약’, 매달 1~5일엔 ‘지난달 요약’ 단추를 붙였습니다.",
+    "여러 줄로 된 카드 승인 문자 한 통을 한 건으로 읽어 날짜와 금액을 바르게 저장하게 했습니다.",
+    "‘지난달 예산 현황’·‘12월 예산 현황’처럼 물으면 그 달의 예산 현황을 보여 주게 했습니다.",
+  ] },
+  { date: "2026-11-13", versions: ["V22.9.121"], title: "문의용 회원 번호와 후원자 표시", items: [
+    "‘내 계정·보안’ 화면 맨 위에 문의할 때 알려 주는 회원 번호와 복사 단추를 두었습니다.",
+    "후원자 포인트 색을 모든 웹 가계부 화면에 적용했습니다.",
+    "계정을 합칠 때 후원자 표시와 이미 확인한 안내도 함께 옮기게 했습니다.",
+    "개인정보처리방침에 회원 번호와 후원 관련 처리 항목을 더했습니다.",
+  ] },
+  { date: "2026-11-12", versions: ["V22.9.118", "V22.9.119", "V22.9.120"], title: "카카오 저장 전 안전망과 숫자 기준 정리", items: [
+    "고치는 말·묻는 말·계획·전해 들은 말은 기록으로 저장하지 않고 다시 묻게 했습니다.",
+    "‘토욜’·‘3일 전에’처럼 읽지 못한 날짜 말이 있으면 오늘로 저장하지 않고 다시 묻게 했습니다.",
+    "오늘 뒤 날짜로 미리 적은 기록이 있으면 총 지출·수입 카드 아래에 ‘오늘까지’와 ‘지난달 같은 기간’ 금액을 함께 보여 주게 했습니다.",
+    "이름이 같은 가계부에는 만든 날짜를 붙여 구분하고 약관·FAQ를 바뀐 동작에 맞췄습니다.",
+  ] },
+  { date: "2026-11-10", versions: ["V22.9.116", "V22.9.117"], title: "‘방금’ 명령 되묻기와 무지출일 통일", items: [
+    "‘방금 거 지워줘’의 대상이 애매하면 바꾸지 않고 두 기록을 번호와 함께 보여 주며 묻게 했습니다.",
+    "무지출일을 모든 화면에서 같은 규칙으로 세도록 맞췄습니다.",
+    "조건을 걸어 거른 소비 분석에서는 무지출 표시를 숨겼습니다.",
+    "같은 웹 계정의 다른 카카오 로그인으로도 계정 잇기를 확인할 수 있게 하고 확인 화면을 정리했습니다.",
+  ] },
+  { date: "2026-11-09", versions: ["V22.9.113", "V22.9.114", "V22.9.115"], title: "단톡방에서 봇만 불러도 구성원", items: [
+    "단톡방에서 기록 없이 봇을 부르기만 해도 그 방 가계부의 구성원이 되게 했습니다.",
+    "가계부가 없는 방은 처음 부른 사람이 소유자가 되고 웹 ‘참여자·초대’에서 소유자를 넘길 수 있게 했습니다.",
+    "카카오 로그인 화면의 약관 동의 체크 칸을 ‘계속하면 이용약관에 동의한 것으로 봅니다’ 안내로 바꿨습니다.",
+    "‘월 예산 200만원’이 전체 월 예산으로 설정되지 않던 문제를 고쳤습니다.",
+  ] },
+  { date: "2026-11-08", versions: ["V22.9.109", "V22.9.110", "V22.9.111", "V22.9.112"], title: "검색과 카드 사용액 결함 수정", items: [
+    "상단 검색이 낱말을 모두 담은 기록만 찾고, 숫자는 금액이 같은 기록을 찾도록 고쳤습니다.",
+    "카드별 사용액이 같은 카드사의 이름이 더 긴 다른 카드로 몰리던 문제를 고쳤습니다.",
+    "홈에서 검색 결과가 없으면 ‘조건에 맞는 기록이 없습니다’라고 알리게 했습니다.",
+    "검색어를 넣어도 홈 위쪽 ‘최근 7일’ 요약이 검색 결과에 맞춰 0원으로 바뀌지 않게 했습니다.",
+  ] },
+  { date: "2026-11-07", versions: ["V22.9.106", "V22.9.107", "V22.9.108"], title: "대표 생활비 글 6편에 계산표", items: [
+    "대표 생활비 글 6편에 원본 예제 표와 검산 결과, 따로 여는 계산표를 더했습니다.",
+    "계산표의 입력과 결과를 CSV·인쇄로 남길 수 있게 하고 입력값은 서버로 보내지 않게 했습니다.",
+    "입력을 바꾸면 이전 결과를 ‘입력값을 바꾸기 전 결과’ 띠와 함께 흐리게 남기고 그 결과의 CSV 저장은 막았습니다.",
+    "생활비 글 40편의 사실과 표현을 검토해 고치고, 고친 글만 수정일을 바꿨습니다.",
+  ] },
+  { date: "2026-11-06", versions: ["V22.9.104", "V22.9.105"], title: "카카오에서 가계부 홈으로 바로", items: [
+    "카카오톡 안에서 가계부를 열면 별도 화면 없이 홈이 먼저 열리고 동의와 로그인은 홈 위 팝업으로 묻게 했습니다.",
+    "카카오로만 쓰는 단톡방 구성원은 ‘웹가계부’ 단추를 누르면 로그인 없이 그 방 가계부가 열리게 했습니다.",
+    "카카오톡에서 처음 로그인했는데 가계부가 없으면 ‘내 가계부’를 만들어 바로 홈으로 보내게 했습니다.",
+  ] },
+  { date: "2026-11-05", versions: ["V22.9.101", "V22.9.102", "V22.9.103"], title: "카카오 로그인 멈춤 수정과 계정 잇기", items: [
+    "일부 브라우저에서 카카오 로그인이 ‘로그인 중입니다’에서 멈추던 문제를 고쳤습니다.",
+    "단톡방에서 기록한 카카오 계정과 웹 가계부 계정을 확인을 거쳐 하나로 잇는 기능을 켰습니다.",
+    "홈·기록 탭 필터가 낱말마다 내용·분류·결제수단·지출자 이름을, 숫자는 금액까지 찾게 했습니다.",
+    "‘내 계정·보안’ 화면을 본인 확인과 로그인 이름·비밀번호의 두 단계로 정리했습니다.",
+  ] },
+  { date: "2026-11-04", versions: ["V22.9.99", "V22.9.100"], title: "후원 안내 문구와 단톡방 답 속도", items: [
+    "후원 안내에 운영 비용이 쓰이는 곳을 서버·저장소·도메인·장애 감시·유지보수로 적었습니다.",
+    "공지 띠에 ‘오늘 하루 안 보기’를 두어 하루 동안 숨길 수 있게 했습니다.",
+    "단톡방 기록을 저장하는 단계를 줄여 답이 더 빨리 오게 했습니다.",
+  ] },
+  { date: "2026-11-03", versions: ["V22.9.97", "V22.9.98"], title: "연말정산 글 8편과 모임 정산 안내", items: [
+    "연말정산·절세 글 8편을 더하고 출처를 국가법령정보센터·국세청으로 밝혔습니다.",
+    "/demo에 모임 회비·여행 경비를 단톡방에서 정산하는 단계를 더했습니다.",
+    "휴대폰 홈과 데스크톱 사이드바에 후원 안내 링크를, 전체 메뉴에 후원 초대 줄을 더했습니다.",
+    "기존 생활비 글 8편에서 관련 연말정산 글로 이어 읽을 수 있게 했습니다.",
+  ] },
+  { date: "2026-11-02", versions: ["V22.9.95", "V22.9.96"], title: "개인정보처리방침 보강과 후원 안내", items: [
+    "개인정보처리방침에 처리 항목·보호책임자·처리 위탁·파기 등의 절을 더했습니다.",
+    "후원 안내 화면(/support)과 후원자 배지, 포인트 색 고르기를 더했습니다.",
+    "‘$100’·‘USD’처럼 외화로 적은 금액은 원화로 저장하지 않고 다시 묻게 했습니다.",
+    "카카오 입력 안내에 ‘잘 읽히는 문장과 다시 묻는 말’ 표를 더했습니다.",
+  ] },
+  { date: "2026-11-01", versions: ["V22.9.94"], title: "카카오 고치기·가져오기 결함 수정", items: [
+    "금액을 고치는 중 ‘5000원 아니야’라고 보내면 새 지출로 저장되던 문제를 고쳤습니다.",
+    "‘신한카드 1234 결제 5000’이 두 건으로 저장되던 것을 5,000원 한 건으로 읽게 고쳤습니다.",
+    "웹의 두 화면에서 같은 기록을 고칠 때 먼저 저장한 변경이 덮이던 문제를 고쳤습니다.",
+    "가져오기에서 ‘$100’이 100원으로 저장되거나 환불 행 때문에 수입·지출이 뒤집히던 문제를 고쳤습니다.",
+  ] },
+  { date: "2026-10-31", versions: ["V22.9.93"], title: "날짜·금액 읽기와 자동 분류 개선", items: [
+    "‘어제는 커피 4500’·‘25일에 월세’처럼 조사가 붙은 날짜 말도 날짜로 읽게 했습니다.",
+    "‘회비 12.000원’처럼 세 자리마다 점을 찍은 금액이 12원으로 저장되던 문제를 고쳤습니다.",
+    "흔한 지출 낱말의 자동 분류를 넓혀 ‘기타지출’로 빠지는 경우를 크게 줄였습니다.",
+    "카카오톡에서 ‘방금 12000원으로 바꿔줘’·‘방금 거 지워줘’ 같은 고치기·삭제 말을 알아듣게 했습니다.",
+  ] },
+  { date: "2026-10-30", versions: ["V22.9.90", "V22.9.91", "V22.9.92"], title: "웹 삭제 되돌리기와 인앱 자동 로그인", items: [
+    "웹 홈에서 기록을 지우면 묻지 않고 바로 지우고, 알림의 ‘되돌리기’로 5초 안에 되살릴 수 있게 했습니다.",
+    "한 줄 입력에서 한글을 입력하는 중에도 결제수단·분류가 바로 채워지게 했습니다.",
+    "카카오톡 안에서 웹 가계부를 열면, 카카오 로그인으로 쓰던 웹 가계부가 있는 사용자는 로그인 화면 없이 들어가게 했습니다.",
+    "가상 체험(/demo)을 가입 없이 주요 기능을 여섯 단계로 둘러보는 화면으로 넓혔습니다.",
+  ] },
+  { date: "2026-10-29", versions: ["V22.9.87", "V22.9.88", "V22.9.89"], title: "예산 숫자 정리와 저장 실행 취소", items: [
+    "홈 예산 카드의 두 줄 이름을 ‘예산 쓴 돈’과 ‘예산 안 정한 지출’로 바꿨습니다.",
+    "월말 예상 문장을 ‘약 183만 원 남아요’처럼 어림 금액으로 바꿨습니다.",
+    "빠른 입력으로 저장하면 12초 동안 뜨는 알림의 ‘실행 취소’로 되돌릴 수 있게 했습니다.",
+    "카카오 답에 주소를 그대로 쓰지 않고 누르면 열리는 링크 단추로 바꿨습니다.",
+  ] },
+  { date: "2026-10-28", versions: ["V22.9.83", "V22.9.84", "V22.9.85", "V22.9.86"], title: "메뉴와 홈 화면 디자인 정리", items: [
+    "메뉴 이름을 화면 제목에 맞추고 하단 탭을 홈·내역·입력·분석·예산으로 정리했습니다.",
+    "홈 예산 카드 아래에 ‘한 줄로 기록하기’ 입력 바를 두고 빠른 입력 창을 새로 꾸몄습니다.",
+    "거래 행과 칩 앞에 분류별 색 동그라미를 넣고 홈의 이모지를 아이콘으로 바꿨습니다.",
+    "기록이 없는 달에는 ‘첫 기록 남기기’ 단추가 있는 안내를 보여 주게 했습니다.",
+  ] },
+  { date: "2026-10-27", versions: ["V22.9.81", "V22.9.82"], title: "날짜·금액 읽기 보강", items: [
+    "‘지난 금요일 커피 4500원 택시 8000원’에서 뒤 거래도 같은 날짜로 저장하게 했습니다.",
+    "‘월세 오십 오만원’처럼 띄어 쓴 한글 금액을 잘못 읽던 것을 고쳤습니다.",
+    "‘지지난주’·‘지지난달’과 ‘다음 금요일’·‘오는 금요일’을 읽게 했습니다.",
+    "‘기록하기 점심 12000원’처럼 보내면 메모에 ‘기록하기’가 붙어 저장되던 것을 고쳤습니다.",
+  ] },
+  { date: "2026-10-26", versions: ["V22.9.80"], title: "어두운 테마 대비와 입력 해석 개선", items: [
+    "어두운 테마에서 예산 경고 카드 등 흐리게 보이던 글자의 대비를 높였습니다.",
+    "결제수단 ‘카카오’를 등록해도 ‘카카오택시 15000’을 그 결제수단으로 읽지 않게 했습니다.",
+    "카카오에서 ‘얼마나 썼어’·‘지난달 얼마나 썼지?’를 요약 질문으로 알아듣게 했습니다.",
+    "정산 완료일을 한국 날짜로 보여 주게 했습니다.",
+  ] },
+  { date: "2026-10-25", versions: ["V22.9.78", "V22.9.79"], title: "월말 예상 기준 통일과 조회 답", items: [
+    "홈·예산 알림·리포트가 월말 예상을 같은 기준으로, 반영 전 고정지출까지 넣어 계산하게 했습니다.",
+    "카카오에서 ‘어제 뭐 썼어’는 그날 목록으로, ‘이번 달 뭐 썼어’는 기간 요약으로 답하게 했습니다.",
+    "‘지난 금요일’을 오늘을 뺀 바로 앞 금요일로 웹과 카카오가 같은 날로 읽게 했습니다.",
+  ] },
+  { date: "2026-10-22", versions: ["V22.9.77"], title: "카카오 수정에서 수입↔지출 바꾸기", items: [
+    "카카오 기록 수정 메뉴에 ‘구분(수입↔지출)’을 더하고 ‘수입으로 바꿔줘’도 알아듣게 했습니다.",
+    "‘오늘 기록 보기’가 길면 앞의 20건 대신 최근 20건을 보여 주게 했습니다.",
+    "단톡방 요약·정산에서 이름이 같은 구성원을 ‘카카오사용자 1·2’처럼 구분했습니다.",
+    "같은 이름의 가계부가 있으면 저장 답의 가계부 줄에 역할과 만든 날을 붙였습니다.",
+  ] },
+  { date: "2026-10-21", versions: ["V22.9.74", "V22.9.75", "V22.9.76"], title: "생활비 가이드 글 20편과 수입·지출 구분", items: [
+    "생활비 가이드 글 20편과 주제별 글 목록(/articles)을 더했습니다.",
+    "글마다 수정일·작성일·읽는 시간과 핵심 요약, 참고 자료를 보여 주게 했습니다.",
+    "정기 수입이 지출처럼 안내되던 문제를 고쳐 ‘입금 N일 전’으로 따로 보여 주게 했습니다.",
+    "‘부모님께 용돈 보냄’ 같은 문장이 수입으로 저장되던 문제를 고쳤습니다.",
+  ] },
+  { date: "2026-10-20", versions: ["V22.9.72", "V22.9.73"], title: "카카오 버튼 이름과 빈 결과 안내", items: [
+    "카카오 버튼 이름을 ‘오늘기록’·‘이번달요약’·‘남은예산’처럼 짧은 명령으로 맞췄습니다.",
+    "‘사용 설명서’를 ‘도움말’로 바꾸고 ‘기록하기’ 버튼을 맨 아래에 두었습니다.",
+    "기록이나 예산이 없을 때 다음에 할 일을 예시와 함께 안내하게 했습니다.",
+    "답이 늦을 때는 두 줄 안내와 ‘오늘기록’ 단추로 저장 여부를 확인하게 했습니다.",
+  ] },
+  { date: "2026-10-19", versions: ["V22.9.63", "V22.9.64", "V22.9.65", "V22.9.66", "V22.9.67", "V22.9.68", "V22.9.69", "V22.9.70", "V22.9.71"], title: "버튼으로 따라 하는 사용 설명서", items: [
+    "‘사용 설명서’를 보내면 버튼으로 따라 하는 사용 설명서가 열리게 했습니다.",
+    "단톡방에서 새 가계부를 만들면 ‘이 단톡방을 새 가계부로 바꿀까요?’라고 바로 묻게 했습니다.",
+    "‘수정 01번 금액을 13000원으로’ 같은 말이 새 지출로 저장되지 않고 수정되게 했습니다.",
+    "단톡방 버튼 이름을 보낼 명령과 같게 맞춰 같은 질문이 되풀이되지 않게 했습니다.",
+  ] },
+  { date: "2026-10-18", label: "10월 14~18일", versions: ["V22.9.45", "V22.9.46", "V22.9.47", "V22.9.48", "V22.9.49", "V22.9.50", "V22.9.51", "V22.9.52", "V22.9.53", "V22.9.54", "V22.9.55", "V22.9.56", "V22.9.57", "V22.9.58", "V22.9.59", "V22.9.60", "V22.9.61", "V22.9.62"], title: "금액 가리기와 빠른 입력 개선", items: [
+    "화면 위 눈 아이콘으로 금액을 가리고, 가린 금액을 누르면 3초간 보이게 했습니다.",
+    "빈 가계부에 첫 기록 단추와 처음 사용 안내를 두고, 목표·챌린지 달성을 축하하게 했습니다.",
+    "빠른 입력에 해석 결과를 확인하는 단추와 빠른 금액 단추를 더했습니다.",
+    "예산 누적 그래프에 지난달 같은 날까지의 누적선을 더했습니다.",
+    "가계부를 새로 준비하는 첫 기록은 준비가 늦어도 먼저 답하고 끝까지 저장하게 했습니다.",
+  ] },
+  { date: "2026-10-13", versions: ["V22.9.41", "V22.9.42", "V22.9.43", "V22.9.44"], title: "단톡방 자동 참여와 구성원 권한", items: [
+    "연결된 단톡방에서 기록을 보낸 사람은 승인 없이 구성원이 되게 했습니다.",
+    "새 단톡방에서 보낸 첫 기록이 ‘연결된 가계부가 없습니다’로 거절되던 문제를 고쳤습니다.",
+    "소유자가 구성원 권한을 ‘기록·수정’ 또는 ‘기록만’으로 정할 수 있게 했습니다.",
+    "처리가 늦어지면 먼저 답해 카카오 연결 오류를 줄였습니다.",
+  ] },
+  { date: "2026-10-12", versions: ["V22.9.40"], title: "생활비 가이드 글 12편", items: [
+    "앱 밖에서도 쓸모 있는 생활비 가이드 글 12편과 홈 ‘최근 글’을 더했습니다.",
+    "리포트 이름을 ‘생활비 리포트’로 맞추고 리포트·분석에 달을 고르는 단추를 두었습니다.",
+  ] },
+  { date: "2026-10-11", versions: ["V22.9.39"], title: "공개 사용 가이드와 예산 체험", items: [
+    "공개 사용 가이드를 실제 기능에 맞춰 보완하고 새 안내 4개를 더했습니다.",
+    "계정 없이 예산을 바꿔 보는 가상 체험을 더하고 입력값은 어디에도 저장하지 않게 했습니다.",
+    "휴대폰 메뉴·목차·표와 관련 가이드 링크를 정리했습니다.",
+  ] },
+  { date: "2026-10-10", versions: ["V22.9.35", "V22.9.36", "V22.9.37", "V22.9.38"], title: "카카오 저장 복구와 생활비 리포트", items: [
+    "카카오톡으로 보낸 새 기록이 저장되지 않던 문제를 고쳤습니다.",
+    "로그인 이름·비밀번호로 가입할 때 실패하던 문제를 고쳤습니다.",
+    "월간·주간 생활비 리포트에서 같은 기간의 수입·지출·기록 수를 함께 보여 주게 했습니다.",
+    "분류를 검색해 고르는 입력과 메뉴 검색, 휴대폰용 정기지출 카드를 더했습니다.",
+  ] },
+  { date: "2026-10-09", versions: ["V22.9.32", "V22.9.33", "V22.9.34"], title: "로그아웃 버튼과 수정 폼 복구", items: [
+    "전체 메뉴와 ‘내 계정·보안’ 화면에 로그아웃 버튼을 두었습니다.",
+    "기록의 ‘수정하기’ 폼이 빈 칸으로 열리던 문제를 고쳤습니다.",
+    "‘엊그제’·‘일주일 전’·말일·작년 날짜를 읽고, 단위 없는 한 자리 금액은 다시 묻게 했습니다.",
+    "웹 빠른 입력도 ‘지난주 금요일’ 같은 요일 말을 카카오와 같은 날로 읽게 했습니다.",
+  ] },
+  { date: "2026-10-08", versions: ["V22.9.29", "V22.9.30", "V22.9.31"], title: "정기 항목 날짜와 저장 안정성", items: [
+    "정기 항목을 저장하거나 반영할 때 29~31일로 정한 날짜가 바뀌지 않게 했습니다.",
+    "검색 결과를 처음 50건까지 보여 주고 더 있는지 알려 주게 했습니다.",
+    "조회 전용·승인 대기·이용 제한 참여자에게 각자 맞는 안내를 보여 주게 했습니다.",
+    "저장 결과가 불분명할 때 다시 확인해 기록이 겹치거나 사라지지 않게 했습니다.",
+  ] },
+  { date: "2026-10-07", versions: ["V22.9.27", "V22.9.28"], title: "카카오 1:1 첫 기록과 웹 연결", items: [
+    "카카오톡 1:1 채팅에서 첫 기록을 보내면 개인 가계부를 자동으로 준비하게 했습니다.",
+    "1:1 채팅에서 받는 10분짜리 1회용 코드로 웹 가계부에 연결할 수 있게 했습니다.",
+    "로그인 전 화면에서 대화·기록·예산·리포트·정산 예시를 미리 볼 수 있게 했습니다.",
+    "카카오 도움말·메뉴 답에서 주소를 빼고 ‘웹 가계부 열기’ 명령을 더했습니다.",
+  ] },
+  { date: "2026-10-06", versions: ["V22.9.26"], title: "예산 명령과 입력 해석 수정", items: [
+    "카카오에서 ‘예산 50만원’이 지출로 저장되던 것을 월 예산 설정으로 고쳤습니다.",
+    "‘커피 4500 / 점심 9000’은 두 건으로, ‘환불 12000’은 환급(수입)으로 읽게 했습니다.",
+    "매월 29~31일 정기지출이 짧은 달에 빠지던 것을 말일에 반영하도록 고쳤습니다.",
+    "흔한 거래 행을 제목으로 잘못 알아 가져오기가 0건이 되던 문제를 고쳤습니다.",
+  ] },
+  { date: "2026-10-01", versions: ["V22.9.21", "V22.9.22", "V22.9.23", "V22.9.24", "V22.9.25"], title: "거래 상세 창과 입력 확인 개선", items: [
+    "거래를 누르면 상세 창이 열리고 그 자리에서 고칠 수 있게 했습니다.",
+    "빠른 입력에서 실제로 저장될 금액과 내용을 미리 확인할 수 있게 했습니다.",
+    "가져오기에서 고른 수입·지출 합계와 확인이 필요한 행을 보여 주게 했습니다.",
+    "여러 건을 한 번에 보낼 때 저장을 기다리는 시간을 줄였습니다.",
+  ] },
+  { date: "2026-09-30", versions: ["V22.9.20"], title: "서비스 이름을 ‘말해가계부’로", items: [
+    "서비스 이름을 ‘말해가계부’로 바꿨습니다.",
+    "주소를 malhaebook.com으로 옮기고 옛 주소로 들어오면 새 주소로 넘어가게 했습니다.",
+    "단톡방에서 옛 이름으로 봇을 불러도 그대로 처리하게 했습니다.",
+  ] },
+]);
+
 function publicGuidePages(env = {}) {
   const support = publicSupportEmail(env);
   const page = (title, description, eyebrow, intro, sections, extra = {}) => ({
     title, description, eyebrow, intro, sections, updated: "2026-10-11", ...extra,
   });
   return {
-    home: page("말한 기록이, 함께 보는 생활비가 됩니다", "카카오톡에서 수입과 지출을 기록하고 웹에서 예산·생활비·정산을 확인하세요. 가입하지 않아도 세 사람의 공동 생활비 예제로 정산을 직접 계산해 볼 수 있습니다.", "카카오톡으로 기록하는 말해가계부", "점심값은 채팅으로 남기고, 한 달 생활비는 웹에서 확인하세요. 개인 가계부와 방마다 나누는 공동 가계부를 사용할 수 있습니다. 세 사람이 36만 원을 쓴 예제에서 장을 본 사람을 바꿔 보세요. 누가 누구에게 얼마를 보낼지 바로 계산할 수 있습니다.", [
+    home: page("말한 기록이, 함께 보는 생활비가 됩니다", "카카오톡에 ‘점심 12000원’처럼 보내면 기록되고, 단톡방 가계부로 여럿이 함께 씁니다. 가입하지 않아도 세 사람의 공동 생활비 예제로 정산을 직접 계산해 볼 수 있습니다.", "카카오톡으로 기록하는 말해가계부", "점심값은 채팅으로 남기고, 한 달 생활비는 웹에서 확인하세요. 개인 가계부와 방마다 나누는 공동 가계부를 사용할 수 있습니다. 세 사람이 36만 원을 쓴 예제에서 장을 본 사람을 바꿔 보세요. 누가 누구에게 얼마를 보낼지 바로 계산할 수 있습니다.", [
       { title: "내게 맞는 시작 방법", table: { caption: "개인 기록과 공동 기록의 시작 방법", headers: ["사용할 곳", "첫 행동", "확인할 결과"], rows: [["카카오톡 1:1", "점심 만원", "웹 로그인 없이 개인 가계부의 첫 기록을 준비합니다."], ["새 단톡방", "봇을 호출하고 점심 12000원", "그 방의 공동 가계부를 준비합니다. 이렇게 가계부를 처음 준비한 사람이 소유자가 되고, 그 뒤 봇을 부른 참여자는 구성원이 됩니다."], ["기존 가계부", "오늘 기록 보기", "현재 연결된 가계부의 기록을 확인합니다."]] }, note: "봇 추가만으로 거래를 만들지는 않습니다. 명확한 기록 요청이 있어야 하며, 기존 권한 제한이나 삭제·연결 해제 이력은 그대로 적용됩니다.", links: [["처음 기록하는 순서", "/how-it-works"]] },
       { title: "전체 지출과 남은 예산이 다른 이유", paragraphs: ["식비와 교통에만 예산을 세웠다면 의료비는 전체 지출에 포함되지만 예산 비교에서는 따로 봅니다. 무엇을 예산에 포함했는지 알아야 남은 금액도 정확히 읽을 수 있습니다."], links: [["255,000원 지출 예제로 직접 확인", "/demo"], ["카카오톡 한 줄 기록 예시와 결과", "/demo#kakao-examples"], ["분류별 예산 계산 방법", "/budget-guide"]] },
       { title: "기록 이후에 필요한 도구", links: [["주간·월간 생활비 리포트 읽기", "/report-guide"], ["카드 내역 가져오기와 CSV 백업", "/import-guide"], ["기능별로 할 수 있는 일", "/service-guide"]] },
@@ -4020,7 +4300,7 @@ function publicGuidePages(env = {}) {
       { title: "처음이라면 이 글부터", paragraphs: ["앱을 쓰지 않아도 생활비를 계획하고 점검할 때 참고할 수 있는 글을 도담 네트워크 운영팀이 쓰고 있습니다. 글마다 작성일과 수정일, 참고한 공식 자료를 표시하며 숫자 예시는 설명을 위해 구성한 가정입니다. 가계부를 처음 쓴다면 기록 습관과 주기를 정하는 글부터 예산·분류, 고정비·구독, 공동 생활비, 월말 결산 순서로 읽어 보세요. 새로 올린 글은 전체 목록에서 볼 수 있습니다."], links: [["생활비 가이드 글 전체 목록 보기", "/articles"]] },
     // V22.9.87 T-21: 랜딩 순서(content-pages.js publicLandingHtml). ‘함께 쓴 돈…’ 절은 공동 가계부·정산 묶음으로, ‘기록 이후에 필요한 도구’의
     // 독립 서비스 문장은 ‘알아 둘 점’으로 옮겼다(문장 그대로). 첫 화면에서는 공개 정산 사례와 카카오톡 채널 1:1 채팅으로 바로 이동한다(웹 가계부는 머리의 ‘로그인’·‘가계부 시작하기’).
-    ], { type: "SoftwareApplication", htmlTitle: "카카오톡 가계부 말해가계부 · 함께 보는 생활비", primary: ["가입 없이 생활비 정산하기", "/shared-living-cost-rules#inline-worksheet"], secondary: ["카카오톡에서 시작하기", KAKAO_CHANNEL_CHAT_URL_V229140], updated: "2026-11-22", landing: true }),
+    ], { type: "SoftwareApplication", htmlTitle: "카카오톡 가계부·단톡방 가계부 · 말해가계부", primary: ["가입 없이 생활비 정산하기", "/shared-living-cost-rules#inline-worksheet"], secondary: ["카카오톡에서 시작하기", KAKAO_CHANNEL_CHAT_URL_V229140], updated: "2026-11-22", landing: true }),
     guides: page("기록에서 월말 점검까지, 사용 가이드", "처음 기록하기, 카카오 명령, 예산 계산, 공동 정산, 생활비 리포트와 파일 가져오기, 생활비 가이드 글을 목적별로 찾아보세요.", "필요한 순간에 찾아보는 안내", "지금 하려는 일에 맞는 글을 고르세요. 각 가이드는 말해가계부의 실제 동작과 직접 구성한 가상 사례를 기준으로 설명합니다. 예제에는 실제 사용자의 거래나 이용 후기를 사용하지 않습니다.", [
       { title: "처음 사용하는 날", paragraphs: ["개인 채팅과 단톡방의 시작 방식부터 구분합니다. 이어서 기록 문장과 저장 결과를 맞춰 보고, 필요할 때 같은 가계부를 웹으로 이어 여세요."], links: [["첫 기록과 웹 이어 열기", "/how-it-works"], ["카카오 입력·수정·오류 대응", "/kakao-guide"], ["가상 가계부 체험", "/demo"], ["카카오톡 한 줄 기록 예시와 결과", "/demo#kakao-examples"]] },
       { title: "생활비를 점검하는 날", paragraphs: ["분류별 예산을 설정했다면 예산 밖 지출을 함께 확인하세요. 리포트에서는 이번 달 전체와 지난달 일부를 섞어 비교하지 않는 것이 중요합니다."], links: [["예산 적용 사용액 계산", "/budget-guide"], ["주간·월간 리포트 해석", "/report-guide"], ["가족·여행비 공동 정산", "/group-accountbook"]] },
@@ -4043,7 +4323,7 @@ function publicGuidePages(env = {}) {
       // V22.9.118 P-1·P-8: 단톡방 참여·소유자 규칙과 계정 잇기 문장을 실제 동작에 맞춘 날을 수정일(화면·JSON-LD·사이트맵 lastmod)로 적는다.
       { title: "첫날 확인할 세 가지", bullets: ["개인 기록인지 공동 기록인지, 가계부 이름을 확인합니다.", "오늘 기록에서 날짜와 금액이 의도대로 저장되었는지 확인합니다.", "예산을 설정하려면 문장에 ‘예산’을 넣습니다. ‘식비 50만원’은 지출입니다."], links: [["기록과 예산 명령 구분", "/kakao-guide"]] },
     ], { updated: PUBLIC_COPY_REVISION_DATE }),
-    "kakao-guide": page("카카오톡 가계부 입력 방법: 보낸 문장과 저장 결과", "기록과 예산 명령의 차이, 날짜·금액 입력, 거래 수정과 삭제, 응답 지연 시 확인 순서를 안내합니다.", "입력 문장 실전 안내", "같은 금액이라도 ‘예산’이라는 말이 있는지에 따라 작업이 달라집니다. 아래 문장은 설명용 예시이며, 채팅에 보내면 실제로 저장되거나 설정이 바뀔 수 있습니다.", [
+    "kakao-guide": page("카카오톡 가계부 입력 방법: 보낸 문장과 저장 결과", "카카오톡 1:1 채팅과 단톡방에서 가계부에 기록하는 문장, 예산 명령과의 차이, 날짜·금액 입력, 수정과 삭제, 답이 늦을 때 확인할 순서를 안내합니다.", "입력 문장 실전 안내", "같은 금액이라도 ‘예산’이라는 말이 있는지에 따라 작업이 달라집니다. 아래 문장은 설명용 예시이며, 채팅에 보내면 실제로 저장되거나 설정이 바뀔 수 있습니다.", [
       { title: "기록과 예산을 구분하는 말", table: { caption: "입력 예시와 처리 의미", headers: ["보내는 문장", "의미", "확인할 것"], rows: [["점심 12000원 국민카드", "12,000원 지출 기록", "금액·내용·결제수단"], ["어제 병원 15000원", "어제 날짜의 지출 기록", "저장된 날짜"], ["월급 250만원", "2,500,000원 수입 기록", "수입 구분"], ["식비 50만원", "500,000원 지출 기록", "예산 설정이 아닙니다."], ["식비 예산 50만원", "식비 예산 설정", "소유자·관리자 권한"], ["예산", "설정·조회 선택 안내", "하려는 작업 선택"]] }, paragraphs: ["‘/기록’은 필수가 아닙니다. 내용과 금액을 바로 입력할 수 있습니다. 설정이 목적이면 ‘예산’을 명시하고, 저장 뒤에는 결과를 확인하세요."] },
       // V22.9.95 R-14: 픽스처로 카카오 1:1·단톡방 두 경로의 실제 결과를 확인한 문장만 적는다(validate-v22995-guide 가 같은 문장을 두 경로로 다시 보내 본다).
       // 결과가 바뀌면 이 표도 함께 고친다. ‘월급 300’ 은 운영 동작 그대로라는 것을 밝힌다(추정해 넓히지 않는다).
@@ -4066,7 +4346,8 @@ function publicGuidePages(env = {}) {
       { title: "잘못 저장한 기록 수정하기", steps: ["‘오늘 기록 보기’로 현재 거래 번호와 내용을 확인합니다.", "예를 들어 금액만 고치려면 ‘수정 01번 금액 13000원’처럼 보냅니다.", "수정 응답 뒤에 목록에서 결과를 확인합니다.", "이전 날짜의 기록이나 여러 항목을 함께 고칠 때는 웹에서 해당 거래를 찾아 수정합니다."], note: "01번은 예시입니다. 실제 목록에서 확인한 번호를 사용하세요. 번호는 그날 가계부 기록 전체의 순서라 누가 보내도 같은 기록을 가리키고, 구성원도 다른 사람의 기록을 수정·삭제할 수 있습니다(소유자가 ‘기록만’으로 정한 가계부는 제외)." },
       { title: "단톡방에서 호출할 때", paragraphs: ["단톡방에서는 봇을 선택하거나 멘션한 뒤 요청을 보냅니다. 같은 사람이 여러 방에서 사용해도 각 방의 연결 가계부가 기준입니다. 1:1에서 선택한 개인 가계부와 단톡방 가계부를 혼동하지 마세요.", "채팅 응답에 개인 계정의 웹 연결 코드를 요구하지 마세요. 개인 웹 연결은 1:1에서 ‘웹 가계부 열기’로 진행합니다."], links: [["방별 연결과 참여 방법", "/group-accountbook"]] },
       { title: "응답이 늦거나 저장 확인이 지연될 때", steps: ["같은 문장을 연속으로 보내지 않습니다.", "‘오늘 기록 보기’ 또는 웹 거래 목록에서 이미 저장되었는지 확인합니다.", "이미 있다면 다시 입력하지 않습니다. 없다면 오류 안내에 따라 다시 시도합니다.", "계속 실패하면 발생 시각과 오류 문구를 적어 문의합니다. 연결 코드와 거래 원문은 가립니다."], links: [["문의에 필요한 정보", "/contact"]] },
-    ], { primary: ["카카오톡에서 시작하기", KAKAO_CHANNEL_CHAT_URL_V229140], secondary: ["가상 예제로 확인하기", "/demo"], updated: KAKAO_GUIDE_COPY_REVISION_DATE }),
+    // V22.9.143 E3: 문서 제목은 V22.9.140 의 찾는 말 ‘카카오톡 가계부 입력 방법’ 으로 시작하고 1:1 채팅과 단톡방을 함께 적는다(화면의 h1 은 그대로).
+    ], { htmlTitle: "카카오톡 가계부 입력 방법: 1:1 채팅과 단톡방 · 말해가계부", primary: ["카카오톡에서 시작하기", KAKAO_CHANNEL_CHAT_URL_V229140], secondary: ["가상 예제로 확인하기", "/demo"], updated: KAKAO_GUIDE_COPY_REVISION_DATE }),
     "budget-guide": page("분류별 예산과 전체 지출을 정확히 비교하기", "식비·교통·의료 예제로 예산 400,000원, 적용 사용액 225,000원, 예산 밖 지출 30,000원이 계산되는 과정을 설명합니다.", "계산 근거가 있는 예산 안내", "말해가계부에서 분류별 예산을 정하면 그 분류들의 합계를 월 예산으로 사용합니다. 전체 지출을 무조건 예산으로 나누면 화면과 다른 결과가 나올 수 있습니다. 아래 가상 사례로 기준부터 확인하세요.", [
       { title: "가상 사례: 식비와 교통에만 예산을 정한 달", table: { caption: "직접 구성한 가상 예산과 지출, 단위 원", headers: ["분류", "예산", "기록한 지출", "예산 비교에 포함"], rows: [["식비", "300,000", "180,000", "포함"], ["교통", "100,000", "45,000", "포함"], ["의료", "설정하지 않음", "30,000", "예산 밖으로 구분"]] }, note: "실제 사용자의 지출이나 권장 생활비가 아닙니다. 계산 방식을 설명하기 위한 가상 데이터입니다." },
       { title: "계산 순서", steps: ["월 예산: 식비 300,000원 + 교통 100,000원 = 400,000원입니다.", "예산 적용 사용액: 식비 180,000원 + 교통 45,000원 = 225,000원입니다.", "사용률: 225,000 ÷ 400,000 × 100 = 56.25%이며 화면에서는 반올림한 56%로 표시합니다.", "남은 예산: 400,000원 − 225,000원 = 175,000원입니다.", "전체 지출: 225,000원 + 의료 30,000원 = 255,000원이며 예산 밖 지출은 30,000원입니다."], links: [["예산을 바꿔 직접 계산해 보기", "/demo"]] },
@@ -4160,9 +4441,14 @@ function publicGuidePages(env = {}) {
       { title: "서비스와 첫 기록", links: [["서비스 홈", "/"], ["사용 가이드 모음", "/guides"], ["가상 가계부 체험", "/demo"], ["기능과 권한", "/service-guide"], ["처음 기록하기", "/how-it-works"], ["카카오 입력 방법", "/kakao-guide"]] },
       { title: "기록 점검과 관리", links: [["예산 계산", "/budget-guide"], ["공동 가계부와 정산", "/group-accountbook"], ["생활비 리포트", "/report-guide"], ["가져오기와 거래 백업", "/import-guide"], ["데이터 보호", "/security"], ["문제 해결 FAQ", "/faq"]] },
       { title: "생활비 가이드 글", links: [["생활비 예산 비율 정하기", "/budget-ratio-guide"], ["고정비 점검 체크리스트", "/fixed-cost-checklist"], ["구독 정리법", "/subscription-cleanup"], ["카드 실적 조건의 원리와 함정", "/card-spending-threshold"], ["공동 생활비 정산 규칙", "/shared-living-cost-rules"], ["가계부 습관 설계", "/accountbook-habit"], ["월급날 기준 가계부 주기", "/payday-budget-cycle"], ["변동비 분류 기준 만들기", "/expense-category-rules"], ["비상금과 예비비 계산", "/emergency-fund-basics"], ["주간 리포트 읽는 법", "/weekly-report-reading"], ["가족·커플 가계부 역할 나누기", "/family-roles-accountbook"], ["한 장짜리 현금흐름표 만들기", "/cash-flow-table"]] },
-      { title: "운영 정보와 정책", links: [["서비스와 콘텐츠 운영 원칙", "/about"], ["문의 안내", "/contact"], ["개인정보처리방침", "/privacy"], ["서비스 이용약관", "/terms"], ["쿠키 정책", "/cookies"], ["후원 안내", "/support"], ["XML 사이트맵", "/sitemap.xml"]] },
-    // V22.9.142(애드센스 계획 A6): 합친 글 9편의 링크가 빠지고 글 이름이 바뀌어 수정일 2026-11-24.
+      // V22.9.143 D1: 업데이트 소식과 그 RSS 를 운영 정보 묶음에 더한다.
+      { title: "운영 정보와 정책", links: [["서비스와 콘텐츠 운영 원칙", "/about"], ["업데이트 소식", "/updates"], ["문의 안내", "/contact"], ["개인정보처리방침", "/privacy"], ["서비스 이용약관", "/terms"], ["쿠키 정책", "/cookies"], ["후원 안내", "/support"], ["XML 사이트맵", "/sitemap.xml"], ["업데이트 소식 RSS", "/updates.xml"]] },
+    // V22.9.142(애드센스 계획 A6): 합친 글 9편의 링크가 빠지고 글 이름이 바뀌어 수정일 2026-11-24. V22.9.143 은 업데이트 소식 링크 둘(같은 날).
     ], { type: "CollectionPage", primary: ["사용 가이드 모음", "/guides"], updated: "2026-11-24" }),
+    // V22.9.143 D1: 업데이트 소식. 목록은 PUBLIC_UPDATES_V229143 에서 content-pages.js 가 그린다(updatesFeed). 수정일 = 가장 새 묶음의 날짜.
+    updates: page("업데이트 소식", "말해가계부가 판마다 바꾼 것을 최신순으로 모았습니다. 카카오톡 기록, 웹 가계부, 공개 안내에서 이용자가 보게 되는 변화만 적고 RSS로도 받아 볼 수 있습니다.", "판마다 바뀐 것", "2026년 9월 30일 서비스 이름을 말해가계부로 바꾼 판부터 지금까지 만든 판을 최신순으로 적습니다. 카카오톡 답과 웹 화면, 공개 안내가 어떻게 바뀌었는지만 적고 보안 점검의 세부와 내부 운영에 관한 내용은 적지 않습니다.", [
+      { title: "읽는 방법", paragraphs: ["날짜는 그 판을 만든 날이고, 운영에는 대개 그날이나 며칠 안에 반영했습니다. 한 묶음에 판이 여럿이면 그날(또는 적힌 기간)에 만든 판들입니다. 판 번호(V22.9.143 꼴)는 판마다 하나씩 올라갑니다.", "가장 새 판이 맨 위에 옵니다. RSS 리더에 malhaebook.com/updates.xml 주소를 등록하면 이 목록을 받아 볼 수 있습니다."], links: [["사용 가이드 모음", "/guides"], ["전체 공개 페이지", "/site-map"]] },
+    ], { type: "CollectionPage", primary: ["가장 최근 소식 보기", `#m-${(PUBLIC_UPDATES_V229143[0]?.date || "2026-11-24").slice(0, 7)}`], secondary: ["RSS 주소 malhaebook.com/updates.xml", "/updates.xml"], updated: PUBLIC_UPDATES_V229143[0]?.date || "2026-11-24", updatesFeed: true }),
     ...publicLivingCostArticles(),
   };
 }
@@ -10228,6 +10514,68 @@ function publicTableStackLabelCssV229124(table, id) {
   return table.headers.map((label, index) => `.pubTableWrap[aria-labelledby="${id}"] tbody ${index === 0 ? "th" : `td:nth-child(${index + 1})`}::before{content:"${text(label)}"}`).join("");
 }
 
+// V22.9.143 D1: 업데이트 소식 목록. 달마다 절 하나(h2), 묶음마다 날짜·제목(h3)·판 번호·바뀐 것 목록. 묶음의 쪽 안 앵커 id 는 그 묶음의 가장 새 판 번호
+// (V22.9.141 → v229141)이고 RSS 항목의 링크다. 글자 크기·굵기는 V22.9.125 눈금(18px·700) 안에서 고른다. 규칙은 이 화면에만 싣는다.
+const PUBLIC_UPDATES_CSS_V229143 = ".pubUpdate{margin:0 0 24px}.pubUpdate h3{margin:0 0 4px;font-size:18px;font-weight:700;line-height:1.5}.pubUpdate .pubMeta{margin:0 0 8px}";
+function publicUpdateIdV229143(entry = {}) {
+  const newest = [...safeArray(entry.versions)].sort((a, b) => Number(String(b).split(".")[2]) - Number(String(a).split(".")[2]))[0] || "";
+  return `v${String(newest).replace(/[^0-9]/g, "")}`;
+}
+// 판 번호 표시: 셋 이상 이어지면 ‘V22.9.45~V22.9.62’, 둘이거나 떨어져 있으면 ‘ · ’ 로 잇는다(묶음의 판 번호는 모두 V22.9.N 꼴 — 검사가 확인).
+function publicUpdateVersionsLabelV229143(versions = []) {
+  const runs = [];
+  for (const n of safeArray(versions).map((v) => Number(String(v).split(".")[2])).filter(Number.isInteger).sort((a, b) => a - b)) {
+    const last = runs[runs.length - 1];
+    if (last && n === last[1] + 1) last[1] = n;
+    else runs.push([n, n]);
+  }
+  return runs.map(([a, b]) => (b - a >= 2 ? `V22.9.${a}~V22.9.${b}` : a === b ? `V22.9.${a}` : `V22.9.${a} · V22.9.${b}`)).join(" · ");
+}
+function publicUpdatesListV229143(entries = []) {
+  const months = new Map();
+  for (const entry of safeArray(entries)) {
+    const month = String(entry.date).slice(0, 7);
+    if (!months.has(month)) months.set(month, []);
+    months.get(month).push(entry);
+  }
+  return [...months].map(([month, list]) => `<section class="pubSection pubUpdates" id="m-${month}"><h2>${Number(month.slice(0, 4))}년 ${Number(month.slice(5, 7))}월</h2>${list.map((entry) => {
+    const day = entry.label || `${Number(entry.date.slice(5, 7))}월 ${Number(entry.date.slice(8, 10))}일`;
+    const items = safeArray(entry.items);
+    return `<div class="pubUpdate" id="${publicUpdateIdV229143(entry)}"><h3><time datetime="${escapeHtml(entry.label ? entry.date.slice(0, 7) : entry.date)}">${escapeHtml(day)}</time> · ${escapeHtml(entry.title)}</h3><p class="pubMeta">${escapeHtml(publicUpdateVersionsLabelV229143(entry.versions))}</p>${items.length ? `<ul>${items.map((item) => `<li>${escapeHtml(item)}</li>`).join("")}</ul>` : ""}</div>`;
+  }).join("")}</section>`).join("");
+}
+// RSS 2.0. 날짜만 있으므로 그날 09:00 KST(= 00:00 UTC)로 적는다(기간 묶음은 끝날). 항목 링크는 쪽 안 앵커, guid 는 바뀌지 않는 판 번호 표식.
+function publicUpdatesRfc822V229143(date) {
+  return new Date(`${date}T09:00:00+09:00`).toUTCString();
+}
+function handlePublicUpdatesFeedV229143(env = {}, url = null) {
+  const origin = publicBaseUrl(env, url);
+  const items = PUBLIC_UPDATES_V229143.map((entry) => {
+    const id = publicUpdateIdV229143(entry);
+    return `  <item>
+    <title>${escapeHtml(`${entry.title} (${publicUpdateVersionsLabelV229143(entry.versions)})`)}</title>
+    <link>${escapeHtml(`${origin}/updates#${id}`)}</link>
+    <guid isPermaLink="false">malhaebook-update-${id}</guid>
+    <pubDate>${publicUpdatesRfc822V229143(entry.date)}</pubDate>
+    <description>${escapeHtml(safeArray(entry.items).join(" "))}</description>
+  </item>`;
+  }).join("\n");
+  const xml = `<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
+<channel>
+  <title>말해가계부 업데이트 소식</title>
+  <link>${escapeHtml(`${origin}/updates`)}</link>
+  <atom:link href="${escapeHtml(`${origin}/updates.xml`)}" rel="self" type="application/rss+xml"/>
+  <description>말해가계부가 판마다 바꾼 것 가운데 이용자가 보게 되는 변화를 최신순으로 적습니다.</description>
+  <language>ko</language>
+  <lastBuildDate>${publicUpdatesRfc822V229143(PUBLIC_UPDATES_V229143[0]?.date || "2026-11-24")}</lastBuildDate>
+${items}
+</channel>
+</rss>
+`;
+  return new Response(xml, { status: 200, headers: { "content-type": "application/rss+xml; charset=utf-8", "cache-control": "public, max-age=3600", "x-content-type-options": "nosniff" } });
+}
+
 function publicContentTable(table, id) {
   if (!table) return "";
   return `<div class="pubTableWrap" role="region" aria-labelledby="${id}" tabindex="0"${publicTableStacksV229124(table) ? ' data-stack="1"' : ""}><table class="pubTable"><caption id="${id}">${escapeHtml(table.caption)}</caption><thead><tr>${table.headers.map((label) => `<th scope="col">${escapeHtml(label)}</th>`).join("")}</tr></thead><tbody>${table.rows.map((row) => `<tr>${row.map((cell, index) => index === 0 ? `<th scope="row">${escapeHtml(cell)}</th>` : `<td>${escapeHtml(cell)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
@@ -10469,7 +10817,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   // V22.9.104 A-4: 글에 기준 한 줄(basis, 세무 글 8편의 귀속연도·확인한 법령 시점)이 있으면 작성·수정일 줄 바로 아래에 같은 모양(pubMeta)으로
   // 단다. 머리(pubHero) 안이라 본문 분량·40자 창 검사에는 들어가지 않고, 새 CSS 가 없어 다른 화면의 바이트는 그대로다.
   const readingNext = living ? `<a href="/articles">생활비 가이드 글 전체 목록 보기 →</a>` : `<a href="/guides">다른 사용 가이드 찾아보기 →</a>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/><meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${faqLinkCss}${tableStackCss}${demoInputCss}${chartCss}${inlineWorksheet ? inlineWorksheet.cssHtml : ""}${page.landing || page.demo ? publicPreviewStyles(!!page.demo) : ""}${page.landing ? publicLandingStyles() : ""}${page.demo ? publicTourStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml(true) : ""}<p class="pubMeta">${metaLine}</p>${page.basis ? `<p class="pubMeta pubBasis">${escapeHtml(page.basis)}</p>` : ""}<div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.landing ? publicLandingHtml() : ""}${page.demo ? publicTourHtml() : ""}${toolHubHtml}${extras.summary}${toc}${chartHtml}${sections}${inlineWorksheet ? inlineWorksheet.sectionHtml : ""}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}${inlineWorksheet ? inlineWorksheet.scriptHtml : ""}</main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/>${page.updatesFeed ? `<link rel="alternate" type="application/rss+xml" title="말해가계부 업데이트 소식" href="${escapeHtml(`${origin}/updates.xml`)}"/>` : ""}<meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${faqLinkCss}${tableStackCss}${demoInputCss}${page.updatesFeed ? PUBLIC_UPDATES_CSS_V229143 : ""}${chartCss}${inlineWorksheet ? inlineWorksheet.cssHtml : ""}${page.landing || page.demo ? publicPreviewStyles(!!page.demo) : ""}${page.landing ? publicLandingStyles() : ""}${page.demo ? publicTourStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml(true) : ""}<p class="pubMeta">${metaLine}</p>${page.basis ? `<p class="pubMeta pubBasis">${escapeHtml(page.basis)}</p>` : ""}<div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.landing ? publicLandingHtml() : ""}${page.demo ? publicTourHtml() : ""}${toolHubHtml}${extras.summary}${toc}${chartHtml}${sections}${page.updatesFeed ? publicUpdatesListV229143(PUBLIC_UPDATES_V229143) : ""}${inlineWorksheet ? inlineWorksheet.sectionHtml : ""}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}${inlineWorksheet ? inlineWorksheet.scriptHtml : ""}</main></body></html>`;
 }
 
 // V22.9.40 (B): 광고 게이트가 쓰는 화면 키는 정본 경로다. 정책·신원 페이지는 게이트의 허용 목록에 없다.
@@ -10523,6 +10871,8 @@ async function publicDocumentResponse(request, env, url) {
   if (PUBLIC_CONTENT_PATHS.includes(path)) response = await handlePublicContentPage(request, env, url, path.slice(1));
   else if (path === "/robots.txt") response = handlePublicRobots(env, url);
   else if (path === "/sitemap.xml") response = handlePublicSitemap(env, url);
+  // V22.9.143 D1: 업데이트 소식 RSS.
+  else if (path === "/updates.xml") response = handlePublicUpdatesFeedV229143(env, url);
   else if (path === "/sitemap.xsl") response = handlePublicSitemapStylesheet(env, url);
   else if (path === "/ads.txt") response = handleAdsTxt(env);
   return response && request.method === "HEAD" ? headOnlyResponse(response) : response;

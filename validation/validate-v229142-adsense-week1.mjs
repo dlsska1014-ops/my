@@ -158,11 +158,11 @@ try {
   }
   const sitemap = (await get("/sitemap.xml")).html;
   const entries = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)].map((m) => ({ path: new URL(m[1]).pathname, lastmod: m[2] }));
-  eq(entries.length, 51, "사이트맵은 공개 정본 51개다(60 − 합친 글 9)");
+  eq(entries.length, 52, "사이트맵은 공개 정본 52개다(60 − 합친 글 9 = 51, V22.9.143 이 업데이트 소식 /updates 를 더해 52)");
   for (const from of GONE) ok(!entries.some((e) => e.path === from), `${from}: 사이트맵에 없다`);
   const publicPaths = listOf(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/);
   const adKeys = listOf(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\S]*?)\]\);/);
-  eq(publicPaths.length, 51, "공개 정본 목록은 51개다");
+  eq(publicPaths.length, 52, "공개 정본 목록은 52개다(V22.9.142 의 51 + V22.9.143 업데이트 소식)");
   eq(adKeys.filter((key) => publicPaths.includes(key)).length, 44, "광고 허용 공개 화면은 44쪽이다");
   for (const from of GONE) ok(!publicPaths.includes(from) && !adKeys.includes(from), `${from}: 정본·광고 목록에 없다`);
   const contentSource = readFileSync(new URL("../src/modules/public/content-pages.js", import.meta.url), "utf8");

@@ -112,8 +112,8 @@ try {
   // ── 4·5. 제목·설명·봇 길 ──
   const home = await get("/");
   eq(home.status, 200, "첫 화면 200");
-  eq(titleOf(home.html), "카카오톡 가계부 말해가계부 · 함께 보는 생활비", "첫 화면 문서 제목이 ‘카카오톡 가계부’ 로 시작한다");
-  ok(home.html.includes('og:title" content="카카오톡 가계부 말해가계부 · 함께 보는 생활비"'), "공유 제목도 같다");
+  eq(titleOf(home.html), "카카오톡 가계부·단톡방 가계부 · 말해가계부", "첫 화면 문서 제목이 ‘카카오톡 가계부’ 로 시작한다(V22.9.143 E3 — ‘단톡방 가계부’ 를 더함)");
+  ok(home.html.includes('og:title" content="카카오톡 가계부·단톡방 가계부 · 말해가계부"'), "공유 제목도 같다(V22.9.143 E3)");
   ok(home.html.includes("<h1>말한 기록이, 함께 보는 생활비가 됩니다</h1>"), "히어로 문구는 공유 이미지와 같은 그대로다");
   const homeDescription = decode((home.html.match(/<meta name="description" content="([^"]*)"/) || ["", ""])[1]);
   ok(homeDescription.includes("가입하지 않아도 세 사람의 공동 생활비 예제로 정산을 직접 계산해 볼 수 있습니다.") && !homeDescription.includes("가상 예제"), "첫 화면 설명은 공개 정산 예제를 말하고 ‘가상 예제’ 가 없다");
@@ -124,7 +124,7 @@ try {
   ok(group.html.includes("<h1>단톡방 정산 방법: 방별 공동 가계부와 세 사람 사례</h1>"), "/group-accountbook 머리 제목도 같다");
   const guide = await get("/kakao-guide");
   eq(guide.status, 200, "/kakao-guide 200");
-  ok(titleOf(guide.html).startsWith("카카오톡 가계부 입력 방법: 보낸 문장과 저장 결과 · "), "/kakao-guide 제목이 ‘카카오톡 가계부 입력 방법’ 으로 시작한다");
+  ok(titleOf(guide.html).startsWith("카카오톡 가계부 입력 방법: 1:1 채팅과 단톡방 · "), "/kakao-guide 제목이 ‘카카오톡 가계부 입력 방법’ 으로 시작한다(V22.9.143 E3 — 뒤에 1:1 채팅과 단톡방)");
   eq(heroOf(guide.html), `<a class="pubBtn" href="${CHANNEL_CHAT}">카카오톡에서 시작하기</a><a class="pubBtn secondary" href="/demo">가상 예제로 확인하기</a>`, "/kakao-guide 첫 단추가 카카오톡 채널 1:1 채팅으로 간다");
   const related = await get("/shared-living-cost-rules");
   ok(related.html.includes('href="/group-accountbook">단톡방 정산 방법: 방별 공동 가계부와 세 사람 사례'), "다른 글의 ‘다음에 읽을 글’ 링크 이름도 새 제목이다");

@@ -8,7 +8,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.142-ADSENSE-PRUNE";
+const APP_VERSION = "V22.9.143-UPDATES-FEED";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -540,6 +540,8 @@ const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/pension-savings-irp-tax-credit",
   // V22.9.95 후원: 후원 안내(운영 비용·후원하는 방법·후원자 혜택). 광고 화면 목록(AD_PAGE_KEYS)에는 넣지 않는다.
   "/support",
+  // V22.9.143 D1: 업데이트 소식(목록은 guide-content.js 의 PUBLIC_UPDATES_V229143, RSS 는 /updates.xml). 광고 화면 목록에는 넣지 않는다.
+  "/updates",
 ]);
 
 // V22.9.87 T-20·T-21: 공개 머리와 로그인 시작 화면의 장부 마크(§3-4 로고 타일 안). 앱 메뉴의 renderAccountbookBrandIcon(web/unified-nav.js)과
@@ -593,7 +595,7 @@ function publicSiteNav(active = "home") {
 }
 
 function publicSiteFooter() {
-  return `<footer class="pubFooter"><div><b>말해가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a><a href="/support">후원하기</a></div></footer>`;
+  return `<footer class="pubFooter"><div><b>말해가계부</b><p>혼자 또는 함께 쓰는 생활 가계부를 더 쉽고 꾸준하게 기록하도록 돕는 서비스입니다.</p></div><div class="pubFooterLinks"><a href="/about">서비스 소개</a><a href="/contact">문의 안내</a><a href="/privacy">개인정보처리방침</a><a href="/terms">이용약관</a><a href="/cookies">쿠키 정책</a><a href="/site-map">사이트맵</a><a href="/updates">업데이트 소식</a><a href="/support">후원하기</a></div></footer>`;
 }
 // @build:exports-start
 export {

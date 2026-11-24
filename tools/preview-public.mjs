@@ -9,7 +9,7 @@ globalThis.fetch = async () => { throw new Error("Network calls are disabled in 
 const sitemap = await (await app.fetch(new Request("https://malhaebook.com/sitemap.xml"), {}, {})).text();
 const documents = [...sitemap.matchAll(new RegExp("<loc>([^<]+)</loc>", "g"))].map((match) => new URL(match[1]).pathname);
 if (documents.length === 0) throw new Error("sitemap.xml listed no public documents");
-const allowed = new Set([...documents, "/robots.txt", "/sitemap.xml", "/sitemap.xsl", "/ads.txt"]);
+const allowed = new Set([...documents, "/robots.txt", "/sitemap.xml", "/sitemap.xsl", "/ads.txt", "/updates.xml"]);
 createServer(async (req, res) => {
   try {
     const url = new URL(req.url, "https://malhaebook.com");
