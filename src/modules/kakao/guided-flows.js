@@ -20,14 +20,14 @@ import {
 } from "./guided-flow-state.js";
 import {
   copyKakaoBudgetsFromPreviousMonth, findExistingKakaoHouseholdByNameV2254, getHouseholdById,
-  inferKakaoCreateKind, isKakaoCreateConfirmNo, isKakaoCreateConfirmYes,
-  isKakaoCreateKindOptionsRequest, kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText,
-  kakaoHouseholdChoiceQuickReplies, kakaoHouseholdLabelParts, kakaoHouseholdListLines,
-  kakaoHouseholdReplyName, kakaoInviteManagementText, kakaoInviteNotAllowedText,
-  kakaoManageableHouseholds, kakaoTotalBudgetNote, maybeKakaoCta, parseBareInviteCode,
-  parseKakaoCreateKind, parseKakaoHouseholdChoice, plausibleHouseholdNameAtKindStep,
-  resolveBudgetCategoryName, sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
-  suggestedHouseholdName,
+  inferKakaoCreateKind, isKakaoBudgetYearMonthCommand, isKakaoCreateConfirmNo,
+  isKakaoCreateConfirmYes, isKakaoCreateKindOptionsRequest, kakaoBudgetAmountTooLargeText,
+  kakaoCreateKindPromptText, kakaoHouseholdChoiceQuickReplies, kakaoHouseholdLabelParts,
+  kakaoHouseholdListLines, kakaoHouseholdReplyName, kakaoInviteManagementText,
+  kakaoInviteNotAllowedText, kakaoManageableHouseholds, kakaoTotalBudgetNote, maybeKakaoCta,
+  parseBareInviteCode, parseKakaoCreateKind, parseKakaoHouseholdChoice,
+  plausibleHouseholdNameAtKindStep, resolveBudgetCategoryName, sanitizeHouseholdNameInput,
+  saveKakaoBudget, setKakaoSelectedHousehold, suggestedHouseholdName,
 } from "./household-budget-commands.js";
 import {
   bindKakaoGroupByInviteCode, getKakaoBotGroupKey, getLinkedKakaoGroupHousehold,
@@ -392,7 +392,10 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
     await clearKakaoFlowState(env, user.id, payload);
     return { text: "진행 중인 설정을 취소했어요.", quickReplies: kakaoStartQuickReplies(true) };
   }
-  if (shouldInterruptKakaoFlowV2254(state, utterance, stripKakaoBotMention(payload?.userRequest?.utterance || payload?.utterance || utterance))) {
+  // V22.9.144 독립 검토 F3: 해 말·연도 + N월을 적은 금액 있는 예산 설정 명령(‘내년 1월 식비 예산 22만원’)은 예산 설정 흐름의 금액·분류 값이나
+  // 이름 값이 아니다 — 흐름을 끊고 예산 처리기로 보낸다(예전에는 기록 길의 달력 답이 먼저 받아 흐름까지 오지 않았다. 흐름이 받으면 그 흐름의 달
+  // = 이번 달로 저장됐다).
+  if (shouldInterruptKakaoFlowV2254(state, utterance, stripKakaoBotMention(payload?.userRequest?.utterance || payload?.utterance || utterance)) || isKakaoBudgetYearMonthCommand(utterance)) {
     await clearKakaoFlowState(env, user.id, payload);
     return null;
   }

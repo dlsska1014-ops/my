@@ -64,14 +64,14 @@ import {
 } from "./guided-flow-state.js";
 import {
   KAKAO_ROOM_RESTART_COMMAND_V229133, beginKakaoHouseholdChoice, clearKakaoSelectedHousehold,
-  getKakaoSelectedHouseholdId, inferKakaoCreateKind, isKakaoRoomRestartCommandV229133,
-  kakaoActiveHouseholds, kakaoBudgetAmountTooLargeText, kakaoCreateKindPromptText,
-  kakaoDateSummaryParts, kakaoHouseholdReplyName, kakaoInviteManagementText,
-  kakaoInviteNotAllowedText, kakaoManageableHouseholds, kakaoMemberPolicyReply,
-  kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote, kakaoUnlinkedGroupStartText,
-  parseBudgetMonthHint, parseDirectBudgetSetCommand, parseInviteCodeJoinCommand,
-  parseKakaoSummaryRange, resolveBudgetCategoryName, sanitizeHouseholdNameInput, saveKakaoBudget,
-  setKakaoSelectedHousehold,
+  getKakaoSelectedHouseholdId, inferKakaoCreateKind, isKakaoBudgetYearMonthCommand,
+  isKakaoRoomRestartCommandV229133, kakaoActiveHouseholds, kakaoBudgetAmountTooLargeText,
+  kakaoCreateKindPromptText, kakaoDateSummaryParts, kakaoHouseholdReplyName,
+  kakaoInviteManagementText, kakaoInviteNotAllowedText, kakaoManageableHouseholds,
+  kakaoMemberPolicyReply, kakaoSelectedHouseholdKey, kakaoStartText, kakaoTotalBudgetNote,
+  kakaoUnlinkedGroupStartText, parseBudgetMonthHint, parseDirectBudgetSetCommand,
+  parseInviteCodeJoinCommand, parseKakaoSummaryRange, resolveBudgetCategoryName,
+  sanitizeHouseholdNameInput, saveKakaoBudget, setKakaoSelectedHousehold,
 } from "./household-budget-commands.js";
 import {
   KAKAO_SKILL_MAX_BODY_BYTES, handleHouseholdGuidedFlow, handlePreHouseholdGuidedFlow,
@@ -402,11 +402,18 @@ function normalizeKakaoButtonLabel(text = "") {
 // (‘금액 13000’, 번호, ‘취소’, ‘도움말’, ‘어제’ 같은 날짜 값)은 여기에 들지 않는다.
 function isKakaoEditSessionBypassCommand(text = "") {
   const t = normalizeText(text);
+  // V22.9.144 독립 검토 F3: 해 말·연도로 시작하는 금액 있는 예산 설정 명령(‘내년 1월 식비 예산 22만원’)은 아래 칸 이름 판정보다 먼저 비켜 간다.
+  // ‘내년’·‘금년’ 은 칸 이름 ‘내용’·‘금액’ 과 한 글자 차이라 오타 판정이 그 칸의 값으로 잡았다(‘혹시 내용을 … 바꾸는 건가요?’ 에 ‘네’ 하면 메모가
+  // 바뀜). 칸 이름을 먼저 적은 말(‘내용 내년 1월 …’)은 해 말로 시작하지 않으므로 예전처럼 세션 값이다.
+  if (isKakaoBudgetYearMonthCommand(t, { leading: true })) return true;
   if (!t || startsWithKakaoEditField(t) || /^\d+\s*번?$/.test(t)) return false;
   // ‘오늘’·‘어제’ 한 낱말은 요약 명령이기도 하지만, 세션 안에서는 날짜 값(1. 오늘 2. 어제 3. 그제)이다.
   if (/^(?:오늘|어제|그제|그저께|엊그제|이번\s*주|지난\s*주|이번\s*달|지난\s*달)$/.test(t)) return false;
+  // V22.9.144 독립 검토 F3: 해 말·연도 + N월을 적은 금액 있는 예산 설정 명령(‘내년 1월 식비 예산 22만원’)도 예산 명령으로 비켜 간다. 예전에는
+  // 기록 길의 달력 답이 먼저 받아 세션까지 오지 않았고, 이제 그 답을 건너뛰므로 세션이 ‘내용’ 값으로 삼키지 않게 한다(세션은 남는다).
   return isKakaoDailyListCommand(t) || isRecentCommand(t) || isSummaryCommand(t) || !!parseKakaoSummaryRange(t) ||
-    isSettlementCommand(t) || isBudgetCommand(t) || isKakaoBudgetSetupCommand(t) || isHouseholdSwitchCommand(t) || isCommandMenuCommand(t);
+    isSettlementCommand(t) || isBudgetCommand(t) || isKakaoBudgetSetupCommand(t) || isHouseholdSwitchCommand(t) || isCommandMenuCommand(t) ||
+    isKakaoBudgetYearMonthCommand(t);
 }
 
 // V22.9.79 감사 A-18: ‘오늘 뭐 썼어’·‘어제 뭐 썼어’·‘오늘 기록 보여줘’·‘7월 3일 뭐 썼어’처럼 하루를 가리킨 조회가 그 날짜와 상관없이
@@ -468,7 +475,13 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     if (preParsedList.blocked?.reason === "mixed_cues") return kakaoMixedTypeConfirmationReply(utterance);
     return kakaoText("결제·승인 취소 내역으로 보여 새 기록을 저장하지 않았어요. 환불받은 돈을 기록하려면 ‘수입 결제 취소 36000원’처럼 구분을 명시해 주세요.");
   }
-  if (!separatePurchaseCommand && !editLikeUtterance && !preParsedList.length && parseTransaction(utterance,payload).message === "invalid_transaction_date") return kakaoText("달력에 없는 날짜여서 기록을 저장하지 않았어요. 날짜를 확인해 다시 보내 주세요. 연도 없는 M/D는 올해 날짜로 저장합니다.");
+  // V22.9.144 V122:K-5: ‘내년 1월 식비 예산 22만원’·‘2027년 1월 식비 예산 22만원’ 은 기록 파서가 해 말·연도 + 달(날 없음)을 ‘달력에 없는 날짜’ 로
+  // 보아 아래 예산 처리기(parseDirectBudgetSetCommand)까지 가지 못했다. 그 달 말 하나 때문에 이 답이 되는 금액 있는 예산 설정 명령이면 건너뛴다
+  // (isKakaoBudgetYearMonthCommand — 그 꼴을 떼고 남은 말을 기록 파서의 날짜 말 판정으로 다시 본다). 그 말은 열린 수정 창·단계 흐름도 비켜 가
+  // 아래 예산 처리기가 받고, 기록으로 저장하지 않는다. 날을 적은 말(‘2월 30일 …’·‘2월 30 예산’·‘내년 2월 30 …’·‘2/30 …’·‘2.30 …’)과
+  // 1~12 밖의 달(‘2027년 13월 …’)은 예전처럼 이 답이다(독립 검토 F1·F2).
+  if (!separatePurchaseCommand && !editLikeUtterance && !preParsedList.length && parseTransaction(utterance,payload).message === "invalid_transaction_date"
+    && !isKakaoBudgetYearMonthCommand(utterance)) return kakaoText("달력에 없는 날짜여서 기록을 저장하지 않았어요. 날짜를 확인해 다시 보내 주세요. 연도 없는 M/D는 올해 날짜로 저장합니다.");
   // V22.9.95 R-20: 외화 금액(‘커피 $100’·‘USD 100 커피’)이 하나라도 있는 말은 금액을 읽지 않고 되묻는다(직접·방 같은 입구). 예전에는 $ 를 지운
   // 숫자가 원화로 저장됐다(100원). 고치는 말·예산 말도 같다. 열린 수정 세션·단계 흐름은 그대로 두므로 원화로 다시 보내면 이어진다.
   if (foreignCurrencyAmountIn(utterance)) return kakaoText(kakaoForeignAmountText(origin));
@@ -800,7 +813,9 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   const flowSnapshot = roomContext ? (await roomContext.settingsPromise).get(roomContext.flowKey) ?? null : routingSnapshot?.flow;
   const activeFlowBeforeRouting = await getKakaoFlowState(env, user.id, payload, flowSnapshot);
   if (activeFlowBeforeRouting && ["create_household", "join_household", "household_choice"].includes(activeFlowBeforeRouting.flow)) {
-    if (shouldInterruptKakaoFlowV2254(activeFlowBeforeRouting, utterance)) {
+    // V22.9.144 독립 검토 F3: 해 말·연도 + N월을 적은 금액 있는 예산 설정 명령은 새 가계부 이름·가계부 고르기 단계의 입력값이 아니다(예전에는
+    // 달력 답이 먼저 받았다). 흐름을 끊고 아래 길로 보낸다.
+    if (shouldInterruptKakaoFlowV2254(activeFlowBeforeRouting, utterance) || isKakaoBudgetYearMonthCommand(utterance)) {
       await clearKakaoFlowState(env, user.id, payload);
     } else {
       const activePreFlow = await handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nickname, origin, roomLinkPromise: linkedGroupPromise });
