@@ -16,7 +16,9 @@ const v22974Paths = ["/articles", "/household-spending-statistics", "/single-hou
 // V22.9.97 생활비 글: 연말정산·절세 시즌 글 8편은 validate-v22997-articles 가 자세히 검사한다. 정본 목록에만 더한다.
 // V22.9.142(애드센스 걷어내기, 사용자 11-24 결정 3·5): 생활비 글 9편을 합친 글 다섯 편으로 모았다(옛 주소 308). 옛 주소의 308 은 validate-v229142-adsense-week1 이 본다.
 const v22997Paths = ["/pension-savings-irp-tax-credit"];
-const allPaths = [...paths, ...articlePaths, ...v22974Paths, ...v22997Paths];
+// V22.9.143 D1: 업데이트 소식(/updates)은 validate-v229143-updates-feed 가 자세히 검사한다. 정본 목록에만 더한다(그 RSS /updates.xml 은 링크 대상으로만 허용).
+const v229143Paths = ["/updates"];
+const allPaths = [...paths, ...articlePaths, ...v22974Paths, ...v22997Paths, ...v229143Paths];
 const origin = "https://malhaebook.com";
 const get = (path, method = "GET", env = {}, headers = {}) => app.fetch(new Request(`${origin}${path}`, { method, headers }), env, {});
 const originalFetch = globalThis.fetch;
@@ -29,7 +31,7 @@ try {
   const titles = new Set(), descriptions = new Set();
   // V22.9.97 모임 정산: 다른 공개 화면의 한 자리로 가는 링크(/demo#tour-settle)는 경로 부분을 정본과 대조하고, 그 id 는 모든 화면을 받은 뒤 본다.
   const crossAnchors = [];
-  for (const path of paths) {
+  for (const path of [...paths, ...v229143Paths]) { // V22.9.143: 업데이트 소식도 쪽별 검사를 받는다.
     const response = await get(path);
     eq(response.status, 200, `${path}: anonymous GET succeeds`);
     eq(response.headers.get("set-cookie"), null, `${path}: no cookie`);
@@ -61,7 +63,7 @@ try {
       if (href.startsWith("#")) ok(html.includes(`id="${href.slice(1)}"`), `${path}: anchor ${href} exists`);
       else if (href.startsWith("/assets/") || href === "/manifest.json") assets.add(href);
       else if (href.startsWith("/")) {
-        ok(allPaths.includes(href.split("#")[0]) || ["/my", "/sitemap.xml"].includes(href), `${path}: internal link ${href} has a supported destination`);
+        ok(allPaths.includes(href.split("#")[0]) || ["/my", "/sitemap.xml", "/updates.xml"].includes(href), `${path}: internal link ${href} has a supported destination`);
         if (href.includes("#")) crossAnchors.push([path, href]);
       }
     }

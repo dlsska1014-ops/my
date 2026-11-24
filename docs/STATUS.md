@@ -1,6 +1,8 @@
 # 현재 상태 (작업 시작 때 이 파일만 읽는다)
 
-마지막 갱신: 2026-11-24 (Claude). **V22.9.142-ADSENSE-PRUNE = 애드센스 1주차 = PR 단계(브랜치 `claude/v229142-adsense-week1` — main c893297b 위).** 생활비 글 40 → 31편(옛 주소 9개 308), 세무 글 넷의 대표 단추 = 국세청·법령 원문, 공개 화면만 Cloudflare Web Analytics 허용(CSP), /about 문장 빼기. 운영은 V22.9.141(`9a8a7997-d114-464c-99c8-9918b1570c0c`(#368, V22.9.141-KAKAO-REPLY-GUARDS, 배포 `d0cfb570-1930-4787-aef3-c7db05888eb1`, 2026-11-23 18:41:39 KST 승격)) 그대로. 발견 기록 `docs/codex/FOLLOWUP_FINDINGS_V22_9_142.md`.
+마지막 갱신: 2026-11-24 (Claude). **V22.9.143-UPDATES-FEED = 업데이트 소식·RSS·문서 제목 = PR 단계(브랜치 `claude/v229143-updates` — V22.9.142 PR #195 머리 e8308df1 위).** /updates(업데이트 소식 — V22.9.20 부터 124판 46묶음)·/updates.xml(RSS), 첫 화면·/kakao-guide 의 문서 제목과 설명(‘카카오톡 가계부·단톡방 가계부’). 운영은 V22.9.141(`9a8a7997-d114-464c-99c8-9918b1570c0c`(#368, V22.9.141-KAKAO-REPLY-GUARDS, 배포 `d0cfb570-1930-4787-aef3-c7db05888eb1`, 2026-11-23 18:41:39 KST 승격)) 그대로, V22.9.142 는 PR #195. 발견 기록 `docs/codex/FOLLOWUP_FINDINGS_V22_9_143.md`.
+
+이전 갱신: 2026-11-24 (Claude). **V22.9.142-ADSENSE-PRUNE = 애드센스 1주차 = PR 단계(브랜치 `claude/v229142-adsense-week1` — main c893297b 위).** 생활비 글 40 → 31편(옛 주소 9개 308), 세무 글 넷의 대표 단추 = 국세청·법령 원문, 공개 화면만 Cloudflare Web Analytics 허용(CSP), /about 문장 빼기. 운영은 V22.9.141(`9a8a7997-d114-464c-99c8-9918b1570c0c`(#368, V22.9.141-KAKAO-REPLY-GUARDS, 배포 `d0cfb570-1930-4787-aef3-c7db05888eb1`, 2026-11-23 18:41:39 KST 승격)) 그대로. 발견 기록 `docs/codex/FOLLOWUP_FINDINGS_V22_9_142.md`.
 
 이전 갱신: 2026-11-23 저녁 (Claude). **V22.9.141-KAKAO-REPLY-GUARDS 운영 반영 끝(2026-11-23 18:41:39 KST) — 카카오 판(저장 답 한 줄·여러 줄 머리말 되묻기·거스름 나눔 빈틈·수정 창 충돌 막기·분수 고친 문장·관리자 파일 대상). V22.9.140-PUBLIC-EXAMPLES(공개 예제)는 같은 날 09:28:54 KST 운영 반영.** 운영 = version `9a8a7997-d114-464c-99c8-9918b1570c0c`(#368, commit d5d1bdff), 되돌리기 대상(기록만) `3080f5a6-7ee5-46d1-9ca4-8a388b746d71`(#367, V22.9.140). #192 병합 뒤 main CI 가 검사 하나의 시각 의존으로 실패해 검사만 고친 PR #193 을 더 병합했다(번들 같음). 남은 것: 시험 단톡방(Aside)·사람 확인(RELEASE-CHECKLIST V22.9.141·140 절).
 
