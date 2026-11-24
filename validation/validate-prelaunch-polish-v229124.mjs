@@ -225,7 +225,8 @@ await scene("P-5", () => fixture(async (fx) => {
   // 사이트맵의 공개 화면 전부를 본다.
   const sitemap = await open("/sitemap.xml");
   const paths = [...sitemap.matchAll(/<loc>https:\/\/malhaebook\.com([^<]*)<\/loc>/g)].map((m) => m[1] || "/");
-  ok(paths.length >= 55 && paths.includes("/privacy") && paths.includes("/demo") && paths.includes("/"), `P-5 사이트맵에서 공개 화면 ${paths.length}곳을 읽는다`);
+  // V22.9.142: 생활비 글 9편을 합쳐 사이트맵이 51곳이다.
+  ok(paths.length >= 50 && paths.includes("/privacy") && paths.includes("/demo") && paths.includes("/"), `P-5 사이트맵에서 공개 화면 ${paths.length}곳을 읽는다`);
   let stacked = 0, plain = 0, pagesWithTables = 0, pagesWithStack = 0;
   for (const path of paths) {
     const html = await open(path);

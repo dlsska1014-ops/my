@@ -169,10 +169,11 @@ const PUBLIC_ALL_CALCULATORS_V229139 = Object.freeze({
 });
 
 // V22.9.139: 34편의 비워크시트 글에도 주제별 맞춤 대표 버튼(연관 계산표 글 + 주제 가이드)을 배정한다.
+// V22.9.142(애드센스 걷어내기, 사용자 11-24 결정 3·5): 9편을 가까운 글에 합쳐 25편. 합친 글 안의 절은 #section-N 으로 가리킨다.
 const PUBLIC_ARTICLE_CTA_MAP_V229139 = Object.freeze({
   "budget-ratio-guide": [["50/30/20 예산 바로 계산하기", "#inline-worksheet"], ["연간 비정기 지출 적립표", "/sinking-fund-annual-expenses"]],
   "fixed-cost-checklist": [["구독 해지·갱신 계산표", "/subscription-cleanup"], ["비정기 지출 적립 계산표", "/sinking-fund-annual-expenses"]],
-  "card-spending-threshold": [["전월 실적 손익 바로 계산하기", "#inline-worksheet"], ["연말정산 결제수단 전환 정리", "/payment-method-switch-nov-dec"]],
+  "card-spending-threshold": [["전월 실적 손익 바로 계산하기", "#inline-worksheet"], ["카드 소득공제와 11~12월 결제수단", "/card-income-deduction-basics"]],
   "accountbook-habit": [["월 마감 잔액 대조표", "/monthly-closing-routine"], ["카카오톡 한 줄 기록 방법", "/kakao-guide"]],
   "payday-budget-cycle": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["계좌 현금흐름 계산표", "/cash-flow-table"]],
   "expense-category-rules": [["영수증 한 장의 분류와 환불 대조하기", "#section-3"], ["월 마감 잔액 대조표", "/monthly-closing-routine"]],
@@ -180,30 +181,21 @@ const PUBLIC_ARTICLE_CTA_MAP_V229139 = Object.freeze({
   "weekly-report-reading": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["리포트 읽는 법 안내", "/report-guide"]],
   "family-roles-accountbook": [["공동 생활비 4가지 분담표", "/shared-living-cost-rules"], ["공동 가계부 운영 안내", "/group-accountbook"]],
   "household-spending-statistics": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["1인 가구 생활비 기준", "/single-household-living-cost"]],
-  "single-household-living-cost": [["1인 가구 연말정산 공제", "/single-household-year-end-tax"], ["월세 세액공제 기록 정리", "/rent-tax-credit-records"]],
+  "single-household-living-cost": [["연말정산 준비와 1인 가구 공제", "/year-end-tax-expense-check"], ["월세 세액공제 기록 정리", "/rent-tax-credit-records"]],
   "food-cost-benchmark": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["주간 리포트 점검 기준", "/weekly-report-reading"]],
-  "utility-bills-seasonality": [["비정기 지출 적립 계산표", "/sinking-fund-annual-expenses"], ["아파트 관리비 고지서 분석", "/apartment-maintenance-fee"]],
-  "inflation-budget-update": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["식비·외식비 통계 비교", "/food-cost-benchmark"]],
-  "card-income-deduction-basics": [["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"], ["카드 전월 실적 손익 계산표", "/card-spending-threshold"]],
-  "year-end-tax-expense-check": [["연말정산 시기별 준비 일정", "/year-end-tax-timeline-checklist"], ["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"]],
-  "rent-tax-credit-records": [["국세청·법령 원문으로 확인하기", "#sources"], ["주거비 소득·세액공제 비교", "/housing-deductions-overview"]],
-  "apartment-maintenance-fee": [["계절별 공과금 예산 세우기", "/utility-bills-seasonality"], ["고정비 점검 체크리스트", "/fixed-cost-checklist"]],
+  "card-income-deduction-basics": [["국세청·법령 원문으로 확인하기", "#sources"], ["11~12월 결제수단 사례 보기", "#section-5"]],
+  "year-end-tax-expense-check": [["국세청·법령 원문으로 확인하기", "#sources"], ["달마다 할 일 표 보기", "#section-2"]],
+  "rent-tax-credit-records": [["국세청·법령 원문으로 확인하기", "#sources"], ["청약·대출 공제와 비교하기", "#section-6"]],
+  "apartment-maintenance-fee": [["공과금 연평균 월 예산 만들기", "#section-4"], ["고정비 점검 체크리스트", "/fixed-cost-checklist"]],
   "mobile-plan-cost-review": [["구독 해지·갱신 계산표", "/subscription-cleanup"], ["카드 전월 실적 손익 계산표", "/card-spending-threshold"]],
-  "debt-repayment-order": [["연말정산 환급금 배분 계획", "/tax-refund-money-plan"], ["계좌 현금흐름 계산표", "/cash-flow-table"]],
+  "debt-repayment-order": [["연말정산 환급금 쓸 곳 정하기", "/year-end-tax-expense-check"], ["계좌 현금흐름 계산표", "/cash-flow-table"]],
   "savings-rate-tracking": [["연금저축·IRP 세액공제 정리", "/pension-savings-irp-tax-credit"], ["계좌 현금흐름 계산표", "/cash-flow-table"]],
   "first-job-budget": [["50/30/20 예산 배분 계산표", "/budget-ratio-guide"], ["비상금 목표·적립 계산표", "/emergency-fund-basics"]],
   "car-ownership-cost": [["비정기 지출 적립 계산표", "/sinking-fund-annual-expenses"], ["고정비 점검 체크리스트", "/fixed-cost-checklist"]],
-  "childcare-cost-planning": [["의료·교육·기부금 공제 정리", "/medical-education-donation-deductions"], ["비정기 지출 적립 계산표", "/sinking-fund-annual-expenses"]],
-  "couple-account-structure": [["공동 생활비 4가지 분담표", "/shared-living-cost-rules"], ["맞벌이 부부 공제 몰아주기", "/dual-income-deduction-allocation"]],
+  "childcare-cost-planning": [["연말정산 의료비·교육비 기록", "/year-end-tax-expense-check"], ["비정기 지출 적립 계산표", "/sinking-fund-annual-expenses"]],
+  "couple-account-structure": [["공동 생활비 4가지 분담표", "/shared-living-cost-rules"], ["맞벌이 연말정산 공제 귀속", "/year-end-tax-expense-check"]],
   "expense-review-questions": [["월 마감 잔액 대조표", "/monthly-closing-routine"], ["주간 리포트 점검 기준", "/weekly-report-reading"]],
-  "year-end-tax-timeline-checklist": [["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"], ["연금저축·IRP 세액공제 정리", "/pension-savings-irp-tax-credit"]],
-  "payment-method-switch-nov-dec": [["국세청·법령 원문으로 확인하기", "#sources"], ["카드 전월 실적 손익 계산표", "/card-spending-threshold"]],
-  "medical-education-donation-deductions": [["맞벌이 부부 공제 배분", "/dual-income-deduction-allocation"], ["연말정산 지출 증빙 점검", "/year-end-tax-expense-check"]],
-  "dual-income-deduction-allocation": [["부부 공동·각자 통장 구조", "/couple-account-structure"], ["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"]],
-  "pension-savings-irp-tax-credit": [["국세청·법령 원문으로 확인하기", "#sources"], ["연말정산 환급금 배분 계획", "/tax-refund-money-plan"]],
-  "single-household-year-end-tax": [["월세 세액공제 기록 정리", "/rent-tax-credit-records"], ["11~12월 결제수단 전환 정리", "/payment-method-switch-nov-dec"]],
-  "tax-refund-money-plan": [["비상금 목표·적립 계산표", "/emergency-fund-basics"], ["대출 상환 우선순위 정리", "/debt-repayment-order"]],
-  "housing-deductions-overview": [["월세 세액공제 기록 정리", "/rent-tax-credit-records"], ["연말정산 시기별 준비 일정", "/year-end-tax-timeline-checklist"]],
+  "pension-savings-irp-tax-credit": [["국세청·법령 원문으로 확인하기", "#sources"], ["가계부로 하는 연말정산 준비", "/year-end-tax-expense-check"]],
 });
 
 // V22.9.139: 차트는 본문 계산표 기본 예제와 같은 값을 보여 주는 글 세 편에만 둔다(사용자 11-22, 계획 7절 5 — 40편에 같은 꼴을 한꺼번에 넣지 않는다).

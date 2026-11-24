@@ -108,7 +108,8 @@ const pageKeys = [...(source.match(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\
 const publicPaths = [...(source.match(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 const PUBLIC_ALLOWED = pageKeys.filter((key) => publicPaths.includes(key));
 // V22.9.97 생활비 글: 연말정산·절세 글 8편이 공개 정본·광고 화면 목록에 함께 더해져 45 → 53쪽이다.
-eq(PUBLIC_ALLOWED.length, 53, "애드핏 허용 화면은 공개 정본 53쪽이다(AD_PAGE_KEYS ∩ PUBLIC_CONTENT_PATHS, V22.9.108)");
+// V22.9.142(애드센스 걷어내기, 사용자 11-24 결정 3·5): 생활비 글 9편을 합친 글 다섯 편으로 모았다(옛 주소 308). 53 → 44쪽.
+eq(PUBLIC_ALLOWED.length, 44, "애드핏 허용 화면은 공개 정본 44쪽이다(AD_PAGE_KEYS ∩ PUBLIC_CONTENT_PATHS, V22.9.108 범위·V22.9.142 글 수)");
 eq(JSON.stringify(pageKeys.filter((key) => !publicPaths.includes(key))), JSON.stringify([]), "애드핏에서 빠지는 화면은 로그인 뒤 읽는 5개뿐이다");
 
 // ── 렌더 준비 ─────────────────────────────────────────────────────────────
