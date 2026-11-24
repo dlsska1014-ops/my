@@ -634,7 +634,8 @@ await withClock(TODAY, () => fixture(async (fx) => {
     // 공개 화면: 사이트맵 전부 + 첫 화면·후원·방침·약관·둘러보기.
     const sitemap = await get(fx, "/sitemap.xml", "");
     const publicPaths = [...new Set([...[...sitemap.html.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => new URL(m[1]).pathname), "/", "/support", "/privacy", "/terms", "/demo", "/faq", "/articles"])];
-    ok(publicPaths.length >= 60, `4-p (준비) 공개 화면 ${publicPaths.length}곳(사이트맵 + 기본)`);
+    // V22.9.142: 생활비 글 9편을 합쳐 사이트맵이 51곳이다.
+    ok(publicPaths.length >= 51, `4-p (준비) 공개 화면 ${publicPaths.length}곳(사이트맵 + 기본)`);
     const publicMiss = [];
     for (const path of publicPaths) {
       const a = await get(fx, path, withSp);

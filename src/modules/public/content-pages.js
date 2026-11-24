@@ -4,7 +4,8 @@ import {
   BUSINESS_FOOTER_INFO, POLICY_NOTICE_DATE, POLICY_REVISION_DATE, PUBLIC_CONTENT_PATHS,
   adSlotMarkup, adsHeadMarkup, adsHeaders, adsPolicyLinks, adsPolicyNetwork, adsPolicyText,
   adsPublicRequestKeyV229106, adsensePublisherIdForTxt, appName, kakaoLoginButtonHtml,
-  policyDateLabel, publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav,
+  policyDateLabel, publicAdsenseHead, publicAnalyticsHeadersV229142, publicBaseUrl,
+  publicSiteFooter, publicSiteNav,
 } from "./site-config.js";
 import {
   publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages,
@@ -120,6 +121,8 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
       sections: [
         { title: "필수 쿠키", paragraphs: ["로그인 세션 유지, 요청 위조 방지, 사용자 화면 설정과 보안 기능에 필요한 쿠키입니다. 필수 쿠키를 차단하면 로그인이나 가계부 기능이 정상 작동하지 않을 수 있습니다."] },
         adfit ? { title: "광고 및 측정 기술", paragraphs: [adsPolicyText(env, "cookies"), adsPolicyText(env, "cookies-control")], links: adsPolicyLinks(env) } : { title: "광고 및 측정 기술", paragraphs: [adsPolicyText(env, "cookies") || "현재 공개 페이지에서는 Google 광고 실행 코드와 광고 쿠키를 사용하지 않습니다. 향후 광고 기능을 활성화하면 Google과 제3자 광고 사업자가 쿠키와 유사 기술을 사용해 광고를 제공하고 성과를 측정할 수 있습니다.", "사용자는 Google 광고 설정과 브라우저의 사이트별 쿠키 설정을 통해 광고 개인화와 저장된 쿠키를 관리할 수 있습니다."], links: [...adsPolicyLinks(env), ["Google 쿠키 사용 안내", "https://policies.google.com/technologies/cookies?hl=ko"], ["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
+        // V22.9.142 E4: 공개 화면에서만 허용한 Cloudflare Web Analytics(쿠키 없음)를 알린다. 방침·약관과 동의 기준일(POLICY_REVISION_DATE)은 그대로다.
+        { title: "방문 측정", paragraphs: ["로그인 없이 읽는 안내·생활비 글 화면에서는 Cloudflare Web Analytics로 화면별 방문 수와 화면을 불러오는 데 걸린 시간을 셉니다. 이 측정은 쿠키나 브라우저 저장소를 쓰지 않고 방문자 한 사람을 구별하는 값을 만들지 않습니다(Cloudflare 안내 기준). 로그인 화면과 가계부 화면에서는 측정 스크립트가 실행되지 않게 막아 두었습니다."] },
         { title: "쿠키 관리", bullets: ["브라우저 설정에서 쿠키 확인·삭제", "사이트별 쿠키 허용 또는 차단", adfit ? "카카오 맞춤형 광고 안내 확인" : "Google 광고 및 개인정보 안내 확인", "공용 기기 사용 후 로그아웃"] },
         ...(adfit ? [] : [{ title: "지역별 동의", paragraphs: ["유럽경제지역, 영국, 스위스 등 별도의 동의 요건이 적용되는 지역에 광고를 제공할 경우 Google이 요구하는 인증된 동의 관리 플랫폼과 관련 절차를 적용합니다."] }]),
       ],
@@ -135,6 +138,8 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
   }
   // V22.9.95 R-9: 이번 판에 고친 방침·약관은 수정일이 개정 공고일(화면에 올린 날)이다(쿠키 안내는 그대로).
   catalog.privacy.updated = POLICY_NOTICE_DATE;
+  // V22.9.142 E4: 쿠키 안내는 ‘방문 측정’ 절을 더해 수정일이 2026-11-24 다(방침·약관 날짜는 그대로).
+  catalog.cookies.updated = "2026-11-24";
   catalog.terms.updated = POLICY_NOTICE_DATE;
   // V22.9.74: 생활비 가이드 글(12편 + 20편)에 분류·작성일을 붙이고, 글 목록 허브와 사이트맵 절을 그 목록으로 만든다.
   publicNormalizeLivingArticles(catalog);
@@ -451,7 +456,8 @@ async function handlePublicContentPage(request, env, url, key = "home") {
   // V22.9.97 후원 지표: /support 에는 화면이 실제로 보일 때 방문 신호(POST /support/visit)를 보내는 작은 스크립트를 붙인다.
   // GET 응답에서는 세지 않는다(미리 렌더링 규칙과 GET 무변경 약속, public/support-page.js).
   const html = renderPublicContentPage(env, url, key, extra);
-  return htmlResponse(key === "support" ? withSupportVisitScriptV22997(html) : html, 200, adsHeaders(env, adsPublicRequestKeyV229106(env, url, publicContentAdKey(key)), { "cache-control": "public, max-age=300, stale-while-revalidate=600", "x-robots-tag": "index, follow" }));
+  // V22.9.142 E4: 공개 안내·글 화면은 Cloudflare Web Analytics 스크립트를 CSP 에서 허용한다(site-config.js publicAnalyticsHeadersV229142).
+  return htmlResponse(key === "support" ? withSupportVisitScriptV22997(html) : html, 200, publicAnalyticsHeadersV229142(adsHeaders(env, adsPublicRequestKeyV229106(env, url, publicContentAdKey(key)), { "cache-control": "public, max-age=300, stale-while-revalidate=600", "x-robots-tag": "index, follow" })));
 }
 
 async function publicDocumentResponse(request, env, url) {
@@ -466,12 +472,23 @@ async function publicDocumentResponse(request, env, url) {
     // V22.9.95 후원: /support 는 이제 /contact 별칭이 아니라 후원 안내 페이지다(/contact 는 그대로).
     ["/cookie-policy", "/cookies"],
     ["/data-policy", "/privacy"], ["/service-policy", "/terms"],
+    // V22.9.142(애드센스 걷어내기, 사용자 11-24 결정 3·5): 합친 생활비 글 9편의 옛 주소 → 합친 글의 그 내용 절.
+    // 셋째 칸(절 앵커)을 Location 에 붙인다. 붙이지 않으면 브라우저가 옛 주소의 앵커(#section-N)를 그대로 이어 붙여 다른 절로 간다.
+    ["/year-end-tax-timeline-checklist", "/year-end-tax-expense-check", "#section-2"],
+    ["/medical-education-donation-deductions", "/year-end-tax-expense-check", "#section-4"],
+    ["/single-household-year-end-tax", "/year-end-tax-expense-check", "#section-6"],
+    ["/dual-income-deduction-allocation", "/year-end-tax-expense-check", "#section-6"],
+    ["/tax-refund-money-plan", "/year-end-tax-expense-check", "#section-7"],
+    ["/payment-method-switch-nov-dec", "/card-income-deduction-basics", "#section-5"],
+    ["/housing-deductions-overview", "/rent-tax-credit-records", "#section-6"],
+    ["/inflation-budget-update", "/household-spending-statistics", "#section-7"],
+    ["/utility-bills-seasonality", "/apartment-maintenance-fee", "#section-4"],
   ];
   const path = url.pathname.replace(/\/+$/, "");
   const alias = aliases.find(([from]) => from === path);
   if (alias || (path !== url.pathname && PUBLIC_CONTENT_PATHS.includes(path))) {
     return new Response(null, { status: 308, headers: {
-      location: `${publicBaseUrl(env, url)}${alias ? alias[1] : path}${url.search}`,
+      location: `${publicBaseUrl(env, url)}${alias ? alias[1] : path}${url.search}${alias?.[2] || ""}`,
       "cache-control": "public, max-age=3600",
     } });
   }

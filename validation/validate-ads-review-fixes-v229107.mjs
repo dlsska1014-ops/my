@@ -123,7 +123,8 @@ try {
   // D-7 글 목록 카드: 계산표가 붙은 글 6편에만 ‘계산표 포함’.
   const hub = (await request("/articles")).html;
   const cards = [...hub.matchAll(/<li><a href="(\/[^"]+)">[^<]*<\/a><p>[^<]*<\/p><small>([^<]*)<\/small><\/li>/g)];
-  ok(cards.length >= 40, `글 목록 카드 ${cards.length}개`);
+  // V22.9.142: 생활비 글 9편을 합쳐 글 목록 카드는 31개다.
+  ok(cards.length >= 31, `글 목록 카드 ${cards.length}개`);
   for (const [, href, small] of cards) eq(small.includes("계산표 포함"), Object.hasOwn(specs, href.slice(1)), `${href}: 계산표 포함 표시는 계산표 글에만`);
   eq((hub.match(/계산표 포함/g) || []).length, Object.keys(specs).length, "글 목록의 ‘계산표 포함’ 은 6개");
   eq(((await request("/")).html.match(/계산표 포함/g) || []).length, 0, "첫 화면 최근 글(링크 목록)에는 없다");

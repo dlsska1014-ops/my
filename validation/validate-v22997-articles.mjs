@@ -1,6 +1,8 @@
 // V22.9.97 생활비 글 검사: 연말정산·절세 시즌 글 8편(public/living-cost-articles-v22997.js)·글 목록 허브 40편·사이트맵 60·광고 화면 목록.
 // V22.9.74 글과 같은 규칙(작성일·요약·출처·함께 읽을 글·표현·광고·40자 창 중복 0)에 더해 지침의 분량(절 본문 한글 1,800~2,600자)·
 // 절 5~6개·출처 2~4개(이번 판에 열어 본문을 확인한 공식 주소만)·글마다 다른 구조를 본다. 기본 env 로 그리고 바깥 요청은 0회여야 한다.
+// V22.9.142(애드센스 걷어내기, 사용자 11-24 결정 3·5): 8편 중 7편을 V22.9.74 세무 글 세 편으로 합쳤다(옛 주소 308 — 합친 글과 옛 주소는
+// validate-v229142-adsense-week1 이 본다). 이 검사는 남은 연금저축·IRP 한 편과 허브 31편·사이트맵 51·광고 화면 44쪽을 본다.
 import { readFileSync } from "node:fs";
 import app from "../src/index.js";
 import { stripBuildBlocks } from "../tools/build-worker.mjs";
@@ -16,24 +18,22 @@ const decode = (text) => text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").repla
 const REVISION = "2026-11-03";
 // V22.9.104 A-4: H-10 사실 확인 고침으로 8편의 수정일만 2026-11-06 이 됐다(작성일 REVISION 은 그대로).
 // 원본 상수 living-cost-articles-v22997.js PUBLIC_TAX_ARTICLES_UPDATED_V229104 와 같은 값이다.
-const UPDATED = "2026-11-07";
-const updatedFor = (path) => path === '/payment-method-switch-nov-dec' ? '2026-11-06' : UPDATED;
+// V22.9.142: 남은 연금저축·IRP 글은 제목·설명·연금 외 수령 문장·질문을 고쳐 수정일이 2026-11-24 다(작성일 REVISION 은 그대로).
+const UPDATED = "2026-11-24";
+const updatedFor = () => UPDATED;
 const HUB = "/articles";
 // 새 글 8편과 분류. 새 분류는 만들지 않는다.
+// V22.9.142: 남은 한 편. 합친 일곱 편 = /year-end-tax-timeline-checklist·/medical-education-donation-deductions·/single-household-year-end-tax·
+// /dual-income-deduction-allocation·/tax-refund-money-plan → /year-end-tax-expense-check, /payment-method-switch-nov-dec → /card-income-deduction-basics,
+// /housing-deductions-overview → /rent-tax-credit-records.
+const MERGED_AWAY = ["/year-end-tax-timeline-checklist", "/payment-method-switch-nov-dec", "/medical-education-donation-deductions", "/dual-income-deduction-allocation", "/single-household-year-end-tax", "/tax-refund-money-plan", "/housing-deductions-overview"];
 const NEW = {
-  "/year-end-tax-timeline-checklist": "카드·세금",
-  "/payment-method-switch-nov-dec": "카드·세금",
-  "/medical-education-donation-deductions": "카드·세금",
-  "/dual-income-deduction-allocation": "카드·세금",
   "/pension-savings-irp-tax-credit": "카드·세금",
-  "/single-household-year-end-tax": "카드·세금",
-  "/tax-refund-money-plan": "저축·비상금·부채",
-  "/housing-deductions-overview": "카드·세금",
 };
 const NEW_PATHS = Object.keys(NEW);
 const V22974 = [
-  "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark", "/utility-bills-seasonality",
-  "/inflation-budget-update", "/card-income-deduction-basics", "/year-end-tax-expense-check", "/rent-tax-credit-records",
+  "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark",
+  "/card-income-deduction-basics", "/year-end-tax-expense-check", "/rent-tax-credit-records",
   "/apartment-maintenance-fee", "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order",
   "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning",
   "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
@@ -73,12 +73,13 @@ let outbound = 0;
 globalThis.fetch = async () => { outbound++; throw new Error("V22.9.97 articles must not contact a data service"); };
 
 try {
-  // 1. 사이트맵 60: 기존 52 + 새 글 8. 새 글과 허브의 lastmod 는 새 글 작성일이다.
+  // 1. 사이트맵 60: 기존 52 + 새 글 8(V22.9.142 부터 51 — 글 9편을 합침). 새 글과 허브의 lastmod 는 수정일이다.
   const xml = await (await get("/sitemap.xml")).text();
   const entries = [...xml.matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)].map((m) => ({ path: new URL(m[1]).pathname, lastmod: m[2] }));
-  eq(entries.length, 60, "사이트맵은 공개 정본 60개다(52 + 새 글 8)");
+  eq(entries.length, 51, "사이트맵은 공개 정본 51개다(V22.9.142 — 52 + 새 글 8 − 합친 글 9)");
+  for (const path of MERGED_AWAY) ok(!entries.some((e) => e.path === path), `${path}: 합친 글의 옛 주소는 사이트맵에 없다`);
   for (const path of NEW_PATHS) eq(entries.find((e) => e.path === path)?.lastmod, updatedFor(path), `${path}: 사이트맵에 있고 lastmod 가 수정일이다`);
-  eq(entries.find((e) => e.path === HUB)?.lastmod, "2026-11-22", "허브 lastmod 가 새 글 수정일로 올라간다");
+  eq(entries.find((e) => e.path === HUB)?.lastmod, "2026-11-24", "허브 lastmod 가 글 수정일로 올라간다(V22.9.142)");
 
   // 2. 공개 정본을 모두 그린다(함께 읽을 글·본문 링크가 실제 정본인지, 40자 창 비교에 쓴다).
   const pages = new Map();
@@ -185,8 +186,16 @@ try {
     if (!signatures.has(signature)) signatures.set(signature, path);
     addWindows(path, html);
   }
-  eq(signatures.size, NEW_PATHS.length, "새 글 8편의 절 구조가 서로 다르다(틀로 찍은 글이 아님)");
-  ok(sectionCounts.size >= 2, `새 글의 절 수가 두 가지 이상이다 (${[...sectionCounts].sort().join(",")})`);
+  eq(signatures.size, NEW_PATHS.length, "남은 글의 절 구조가 서로 다르다(틀로 찍은 글이 아님)");
+  // V22.9.142 독립 검토: 한 편만 남아 위 비교와 절 수 비교는 늘 통과한다. 남은 글을 합친 세무 글 세 편과 견준다 — 절 구조가 셋과 모두 다르고,
+  // 절 수는 셋 가운데 하나 이상과 다르다(틀로 찍은 세무 글이 아님).
+  const signatureOf = (html) => sectionsOf(html).map((s) => `${/<table/.test(s) ? "t" : ""}${/<ol>/.test(s) ? "s" : ""}${/<ul>/.test(s) ? "b" : ""}${/<p>/.test(s) ? "p" : ""}${/<aside class="pubNote">/.test(s) ? "n" : ""}`).join("-");
+  const MERGED_TAX_V229142 = ["/year-end-tax-expense-check", "/card-income-deduction-basics", "/rent-tax-credit-records"];
+  for (const path of NEW_PATHS) {
+    const mine = pages.get(path) || "";
+    for (const other of MERGED_TAX_V229142) ok(pages.has(other) && signatureOf(pages.get(other)) !== signatureOf(mine), `${path}: 절 구조가 ${other} 와 다르다`);
+    ok(MERGED_TAX_V229142.some((other) => sectionsOf(pages.get(other) || "").length !== sectionsOf(mine).length), `${path}: 절 수가 합친 세무 글 가운데 하나 이상과 다르다`);
+  }
 
   // 4. 40자 창: 새 글끼리, 그리고 기존 32편(V22.9.40 12 + V22.9.74 20)과 40자 이상 같은 구절이 없다.
   for (const path of OLD) addWindows(path, pages.get(path) || "");
@@ -199,17 +208,18 @@ try {
   eq(structuredOf(hub)["@type"], "CollectionPage", "허브는 CollectionPage");
   const groups = [...hub.matchAll(/<section class="pubSection" id="section-\d+"><h2>([^<]+) \((\d+)편\)<\/h2>([\s\S]*?)<\/section>/g)].map((m) => ({ category: decode(m[1]), count: Number(m[2]), links: [...m[3].matchAll(/<li><a href="([^"]+)">/g)].map((x) => x[1]) }));
   const cards = groups.flatMap((g) => g.links);
-  eq(cards.length, 40, "허브 카드는 40편이다(12 + 20 + 8)");
+  eq(cards.length, 31, "허브 카드는 31편이다(12 + 18 + 1, V22.9.142)");
+  for (const path of MERGED_AWAY) ok(!cards.includes(path), `${path}: 합친 글의 옛 주소는 허브 카드에 없다`);
   eq(new Set(cards).size, cards.length, "허브는 글마다 카드 하나");
   eq(groups.length, 9, "허브 분류 묶음은 9개 그대로다(새 분류 없음)");
   for (const g of groups) eq(g.links.length, g.count, `허브 ${g.category} 묶음의 편수 표시가 카드 수와 같다`);
   for (const path of NEW_PATHS) ok(groups.some((g) => g.category === NEW[path] && g.links.includes(path)), `${path}: 허브 ${NEW[path]} 묶음에 카드가 있다`);
-  ok(decode(hub).includes("글 40편을 주제 9개로"), "허브 설명이 40편·주제 9개를 말한다");
+  ok(decode(hub).includes("글 31편을 주제 9개로"), "허브 설명이 31편·주제 9개를 말한다");
   ok(hub.includes(`${REVISION}에 올린`), "허브 머리말의 가장 최근 글이 새 글이다");
 
   // 6. 보이는 사이트맵·사용 가이드 목록·첫 화면.
   for (const path of NEW_PATHS) ok((pages.get("/site-map") || "").includes(`href="${path}"`), `${path}: 보이는 사이트맵에 있다`);
-  ok(decode(pages.get("/guides") || "").includes("40편의 요약과 작성일"), "/guides 의 글 목록 안내가 40편을 말한다");
+  ok(decode(pages.get("/guides") || "").includes("31편의 요약과 작성일"), "/guides 의 글 목록 안내가 31편을 말한다");
   // V22.9.104 A-2(H-9 결정)에서는 첫 화면 ‘최근 글’ 이 이 판의 새 글 8편을 가리켰다. V22.9.140 부터 첫 화면은 처음 읽을 순서로 고른 8편
   // (‘처음이라면 이 글부터’)이고 새 글은 글 목록 허브에서 본다.
   ok(NEW_PATHS.every((p) => hub.includes(`href="${p}"`)) && (pages.get("/") || "").includes('href="/articles"'), "새 글 8편은 글 목록 허브에 있고 첫 화면은 허브로 이어진다(V22.9.140)");
@@ -219,8 +229,9 @@ try {
   const listOf = (pattern) => [...((siteConfig.match(pattern) || ["", ""])[1]).matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   const adKeys = listOf(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\S]*?)\]\);/);
   const publicPaths = listOf(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/);
-  eq(publicPaths.length, 60, "공개 정본 목록은 60개다");
-  eq(adKeys.filter((key) => publicPaths.includes(key)).length, 53, "공개 광고 후보는 공개 정본 53쪽이다(V22.9.108)");
+  eq(publicPaths.length, 51, "공개 정본 목록은 51개다(V22.9.142)");
+  eq(adKeys.filter((key) => publicPaths.includes(key)).length, 44, "공개 광고 후보는 공개 정본 44쪽이다(V22.9.108 범위·V22.9.142 글 수)");
+  for (const path of MERGED_AWAY) ok(!publicPaths.includes(path) && !adKeys.includes(path), `${path}: 합친 글의 옛 주소는 정본·광고 목록에 없다`);
   for (const path of NEW_PATHS) {
     ok(publicPaths.includes(path), `${path}: 공개 정본 목록에 있다`);
     ok(adKeys.includes(path), `${path}: 세무 글도 광고 허용 목록에 있다(V22.9.108)`);
@@ -229,6 +240,7 @@ try {
   // 8. 원본: 새 모듈·빌드 목록·카탈로그 연결.
   const moduleSource = stripBuildBlocks(readFileSync(new URL("../src/modules/public/living-cost-articles-v22997.js", import.meta.url), "utf8"));
   for (const path of NEW_PATHS) ok(moduleSource.includes(`"${path.slice(1)}": {`), `${path}: living-cost-articles-v22997.js 에 있다`);
+  for (const path of MERGED_AWAY) ok(!moduleSource.includes(`"${path.slice(1)}": {`), `${path}: 합친 글은 모듈에서 빠졌다(V22.9.142)`);
   for (const word of FORBIDDEN) ok(!moduleSource.includes(word), `모듈 원본에 "${word}" 없음`);
   ok(!moduleSource.includes("말해가계부"), "모듈 원본에 서비스 이름이 없다");
   ok(!/https?:\/\/(?!(www\.law\.go\.kr|www\.nts\.go\.kr|call\.nts\.go\.kr)\/)/.test(moduleSource), "모듈 원본의 주소는 국가법령정보센터·국세청뿐이다");
@@ -243,4 +255,4 @@ if (failures.length) {
   for (const failure of failures.slice(0, 40)) console.error(` - ${failure}`);
   process.exit(1);
 }
-console.log(`V22.9.97 생활비 글 8편·허브 40편·사이트맵 60·광고 화면 목록 검사 통과 (${checks} checks)`);
+console.log(`V22.9.97 생활비 글(남은 ${NEW_PATHS.length}편)·허브 31편·사이트맵 51·광고 화면 목록 검사 통과 (${checks} checks)`);

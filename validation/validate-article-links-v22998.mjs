@@ -1,4 +1,7 @@
 // V22.9.98: V97:H-8. Published articles must link directly to all eight new seasonal articles.
+// V22.9.142 (AdSense pruning, user decisions 3 and 5 on 11-24): seven of the eight seasonal articles were merged into
+// /year-end-tax-expense-check, /card-income-deduction-basics and /rent-tax-credit-records (old addresses answer 308 —
+// validate-v229142-adsense-week1). Older articles now recommend the merged year-end article and the remaining pension article.
 import app from "../src/index.js";
 
 let checks = 0;
@@ -10,14 +13,11 @@ const revision = "2026-11-03";
 // V106 edits six of these source articles; unedited source articles retain the earlier date.
 const revisedSources = new Set(['/card-income-deduction-basics','/year-end-tax-expense-check','/rent-tax-credit-records','/childcare-cost-planning','/couple-account-structure','/debt-repayment-order']);
 const pairs = [
-  ["card-income-deduction-basics", "payment-method-switch-nov-dec"],
-  ["year-end-tax-expense-check", "year-end-tax-timeline-checklist"],
-  ["rent-tax-credit-records", "housing-deductions-overview"],
-  ["childcare-cost-planning", "medical-education-donation-deductions"],
-  ["couple-account-structure", "dual-income-deduction-allocation"],
+  ["childcare-cost-planning", "year-end-tax-expense-check"],
+  ["couple-account-structure", "year-end-tax-expense-check"],
   ["savings-rate-tracking", "pension-savings-irp-tax-credit"],
-  ["single-household-living-cost", "single-household-year-end-tax"],
-  ["debt-repayment-order", "tax-refund-money-plan"],
+  ["single-household-living-cost", "year-end-tax-expense-check"],
+  ["debt-repayment-order", "year-end-tax-expense-check"],
 ].map(([from, to]) => [`/${from}`, `/${to}`]);
 const relatedOf = (html) => (html.match(/<aside class="pubRelated"><b>함께 읽을 글<\/b>([\s\S]*?)<\/aside>/) || [])[1] || "";
 const linksOf = (html) => [...html.matchAll(/<a\b([^>]*\bhref="([^"]+)"[^>]*)>([^<]+)</g)].map((m) => ({ attributes: m[1], path: m[2], label: m[3] }));
@@ -30,7 +30,7 @@ try {
   const get = (path) => app.fetch(new Request(`${origin}${path}`), {}, {});
   const sitemap = await (await get("/sitemap.xml")).text();
   const entries = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)].map((m) => ({ path: new URL(m[1]).pathname, lastmod: m[2] }));
-  eq(entries.length, 60, "The sitemap retains 60 public canonical pages");
+  eq(entries.length, 51, "The sitemap retains 51 public canonical pages (V22.9.142 merged nine articles)");
   const pages = new Map();
   for (const { path } of entries) {
     const response = await get(path);
@@ -38,7 +38,7 @@ try {
     pages.set(path, { html: await response.text(), headers: response.headers });
   }
   const articles = [...pages].filter(([, page]) => relatedOf(page.html));
-  eq(articles.length, 40, "All 40 articles retain related reading");
+  eq(articles.length, 31, "All 31 articles retain related reading");
   for (const [path, page] of articles) {
     const links = linksOf(relatedOf(page.html));
     ok(links.length >= 2 && links.length <= 3, `${path} has two or three related links`);
@@ -54,8 +54,8 @@ try {
     ok(linksOf(relatedOf(page.html)).some((link) => link.path === to), `${from} directly recommends ${to}`);
     eq(linksOf(relatedOf(page.html)).length, 3, `${from} keeps the three-link limit`);
     const data = jsonLdOf(page.html);
-    // V22.9.140 V139:A-7: /year-end-tax-expense-check 는 실손보험 FAQ 답을 고쳐 수정일이 11-22 다.
-    const modified = from === "/year-end-tax-expense-check" ? "2026-11-22" : revisedSources.has(from) ? "2026-11-07" : revision;
+    // V22.9.142: 합친 글은 더 이상 이 목록의 출발 글이 아니다. 출발 글의 함께 읽을 글만 바꿨고 본문은 그대로라 수정일도 그대로다.
+    const modified = revisedSources.has(from) ? "2026-11-07" : revision;
     eq(data.datePublished, "2026-10-21", `${from} preserves its publication date`);
     eq(data.dateModified, modified, `${from} records the link revision date`);
     ok(page.html.includes(`수정 <time datetime="${modified}">${modified}</time>`), `${from} displays the revision date`);

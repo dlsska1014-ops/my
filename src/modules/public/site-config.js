@@ -8,7 +8,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.141-KAKAO-REPLY-GUARDS";
+const APP_VERSION = "V22.9.142-ADSENSE-PRUNE";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -270,6 +270,7 @@ function adsMode(env = {}) {
 }
 
 // V22.9.108(사용자 결정 2026-11-07): 광고 허용 화면 = 로그인 없이 읽는 공개 정본 53쪽(안내 12 + 생활비 글 40 + 글 목록 1).
+// V22.9.142: 생활비 글 9편을 합쳐 44쪽(안내 12 + 생활비 글 31 + 글 목록 1).
 // 정책·신원 6쪽(/about·/contact·/privacy·/terms·/cookies·/site-map)과 후원 안내(/support), 계산표 자산, 로그인 뒤 화면은 넣지 않는다.
 // V22.9.106 은 심사 준비로 대표 글 6편만 뒀고, 승인 뒤 나머지 글에 광고가 없는 것을 사용자가 넓히기로 했다(추적표 V107:D-11).
 const AD_PAGE_KEYS = Object.freeze([
@@ -282,15 +283,13 @@ const AD_PAGE_KEYS = Object.freeze([
   "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table",
   // 글 목록 허브와 생활비 가이드 글 20편(V22.9.74).
   "/articles", "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark",
-  "/utility-bills-seasonality", "/inflation-budget-update", "/card-income-deduction-basics",
+  "/card-income-deduction-basics",
   "/year-end-tax-expense-check", "/rent-tax-credit-records", "/apartment-maintenance-fee",
   "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order",
   "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning",
   "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
-  // 연말정산·절세 글 8편(V22.9.97).
-  "/year-end-tax-timeline-checklist", "/payment-method-switch-nov-dec", "/medical-education-donation-deductions",
-  "/dual-income-deduction-allocation", "/pension-savings-irp-tax-credit", "/single-household-year-end-tax",
-  "/tax-refund-money-plan", "/housing-deductions-overview",
+  // 연말정산·절세 글 8편(V22.9.97) — V22.9.142 에 연금 글 한 편만 남았다(나머지 7편은 합친 글로 308).
+  "/pension-savings-irp-tax-credit",
 ]);
 
 function adsSlotId(env = {}) {
@@ -506,6 +505,20 @@ function adsHeaders(env = {}, pageKey = "", headers = {}) {
   return { ...headers, "content-security-policy": adsLiveCsp(headers["content-security-policy"] || HTML_HEADERS["content-security-policy"], additions) };
 }
 
+// V22.9.142 E4(애드센스 계획 E4, 사용자 11-24 결정 7 “방문 측정 = CSP 에서 허용”): Cloudflare 가 브라우저 요청의 HTML 끝에 끼우는
+// Web Analytics 스크립트(static.cloudflareinsights.com — type=module·integrity·crossorigin, 쿠키 없음)를 로그인 없이 읽는 공개 안내·글
+// 화면(handlePublicContentPage)에서만 허용한다. 방문 신호는 cloudflareinsights.com 또는 같은 출처 /cdn-cgi/rum 으로 간다('self' 는 이미 허용).
+// 로그인 화면·가계부·관리자 화면은 이 함수를 거치지 않아 CSP 가 그대로이고 그 스크립트는 막힌다. 광고 live 화면은 adsHeaders 가 이미
+// https: 를 열어 두어 더해도 결과가 같다. 다른 지시어(default-src·frame-ancestors·form-action 등)는 건드리지 않는다.
+const PUBLIC_ANALYTICS_CSP_ADDITIONS_V229142 = Object.freeze([
+  ["script-src", "https://static.cloudflareinsights.com"],
+  ["connect-src", "https://cloudflareinsights.com"],
+]);
+
+function publicAnalyticsHeadersV229142(headers = {}) {
+  return { ...headers, "content-security-policy": adsLiveCsp(headers["content-security-policy"] || HTML_HEADERS["content-security-policy"], PUBLIC_ANALYTICS_CSP_ADDITIONS_V229142) };
+}
+
 const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide",
   "/group-accountbook", "/security", "/faq", "/about", "/contact",
@@ -517,15 +530,14 @@ const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table",
   // V22.9.74: 글 목록 허브 + 생활비 가이드 글 20편. 글 본문은 public/living-cost-articles-v22974.js.
   "/articles", "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark",
-  "/utility-bills-seasonality", "/inflation-budget-update", "/card-income-deduction-basics",
+  "/card-income-deduction-basics",
   "/year-end-tax-expense-check", "/rent-tax-credit-records", "/apartment-maintenance-fee",
   "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order",
   "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning",
   "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
   // V22.9.97 생활비 글: 연말정산·절세 시즌 글 8편. 글 본문은 public/living-cost-articles-v22997.js.
-  "/year-end-tax-timeline-checklist", "/payment-method-switch-nov-dec", "/medical-education-donation-deductions",
-  "/dual-income-deduction-allocation", "/pension-savings-irp-tax-credit", "/single-household-year-end-tax",
-  "/tax-refund-money-plan", "/housing-deductions-overview",
+  // V22.9.142(애드센스 걷어내기): 세무 11편 → 4편, 통계·공과금 2편은 가까운 글에 합쳤다. 옛 주소는 content-pages.js 별칭이 308 로 넘긴다.
+  "/pension-savings-irp-tax-credit",
   // V22.9.95 후원: 후원 안내(운영 비용·후원하는 방법·후원자 혜택). 광고 화면 목록(AD_PAGE_KEYS)에는 넣지 않는다.
   "/support",
 ]);
@@ -594,7 +606,8 @@ export {
   handleKakaoCommandSystemPage, hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled,
   kakaoChatCommandCatalog, kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg,
   memeCardsEnabled, normalizeBaseUrl, pageNotFoundResponse, policyDateLabel, premiumBetaEnabled,
-  publicAdsenseHead, publicBaseUrl, publicSiteFooter, publicSiteNav, publicSupportEmail,
-  renderBusinessInfoFooter, renderSkillGetHealthHtml, signupConsentFieldHtml, termsNoticeLineHtml,
+  publicAdsenseHead, publicAnalyticsHeadersV229142, publicBaseUrl, publicSiteFooter, publicSiteNav,
+  publicSupportEmail, renderBusinessInfoFooter, renderSkillGetHealthHtml, signupConsentFieldHtml,
+  termsNoticeLineHtml,
 };
 // @build:exports-end

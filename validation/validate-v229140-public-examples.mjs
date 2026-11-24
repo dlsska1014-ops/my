@@ -78,7 +78,8 @@ try {
   const paymentText = visible(payment.html);
   ok(payment.html.includes("<h2>카드 실적·결제수단 참고 글</h2>") && !paymentText.includes("연말정산 참고 계산표"), "/payment-methods 카드 칸 제목이 ‘참고 글’ 이다");
   ok(paymentText.includes("전월 실적을 채울 때의 손익분기와 계좌 현금흐름은 공개 계산표에서 직접 계산해 볼 수 있습니다.") && !paymentText.includes("25% 문턱과 결제수단 전환 손익"), "/payment-methods 는 실제로 있는 계산표(전월 실적·현금흐름)만 계산표라고 한다");
-  ok(payment.html.includes('<a href="/payment-method-switch-nov-dec">11~12월 결제수단 전환 정리</a>') && payment.html.includes('href="/card-spending-threshold"') && payment.html.includes('href="/cash-flow-table"'), "/payment-methods 의 세 링크(정리 글·전월 실적·현금흐름)는 그대로다");
+  // V22.9.142: 11~12월 결제수단 글을 카드 소득공제 글로 합쳐(옛 주소 308) 정리 글 링크가 합친 글을 가리킨다.
+  ok(payment.html.includes('<a href="/card-income-deduction-basics">카드 소득공제와 11~12월 결제수단</a>') && !payment.html.includes('href="/payment-method-switch-nov-dec"') && payment.html.includes('href="/card-spending-threshold"') && payment.html.includes('href="/cash-flow-table"'), "/payment-methods 의 세 링크(정리 글·전월 실적·현금흐름)가 있다");
 
   // ── 2. V139:A-7 ──
   const tax = await get("/year-end-tax-expense-check");
@@ -99,11 +100,13 @@ try {
     eq(modifiedOf(page.html), "2026-11-07", `${target}: 본문·예제가 그대로라 수정일 11-07 그대로`);
     ok(page.html.includes('class="pubBtn" href="#inline-worksheet"'), `${target}: 머리 단추는 본문 계산표로 간다`);
   }
-  for (const target of REVISED) eq(modifiedOf((await get(target)).html), "2026-11-22", `${target}: 본문·예제·계산 결과를 고친 글은 수정일 11-22`);
+  // V22.9.142: /year-end-tax-expense-check 는 시즌 글 다섯 편을 합쳐 다시 써서 수정일이 11-24 다.
+  for (const target of REVISED) eq(modifiedOf((await get(target)).html), target === "/year-end-tax-expense-check" ? "2026-11-24" : "2026-11-22", `${target}: 본문·예제·계산 결과를 고친 글은 수정일 11-22(합친 연말정산 글은 11-24)`);
   eq(modifiedOf((await get("/emergency-fund-basics")).html), "2026-10-12", "/emergency-fund-basics: 계산 결과가 그대로라 수정일 그대로");
   const about = await get("/about");
   eq(about.status, 200, "/about 200");
-  eq(modifiedOf(about.html), "2026-10-21", "/about 수정일은 10-21 그대로");
+  // V22.9.142 A4: /about 은 심사자에게 하는 문장 하나를 빼서 수정일이 11-24 다(계산표 수정 기록 절이 없는 것은 그대로).
+  eq(modifiedOf(about.html), "2026-11-24", "/about 수정일은 11-24(V22.9.142 A4)");
   ok(!about.html.includes("수정 기록</h2>") && !about.html.includes("생활비 계산표 수정 기록"), "/about 에 계산표 수정 기록 절이 없다");
 
   // ── 4·5. 제목·설명·봇 길 ──

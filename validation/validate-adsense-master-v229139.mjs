@@ -23,7 +23,9 @@ const eq = (actual, expected, message) => { assert.deepEqual(actual, expected, m
 const bad = (fn, message) => { assert.throws(fn, undefined, message); checks += 1; };
 
 const ORIGIN = "https://malhaebook.com";
-const TAX_SLUGS = ["payment-method-switch-nov-dec", "rent-tax-credit-records", "pension-savings-irp-tax-credit"];
+// V22.9.142(사용자 11-24 결정 3·5 — 합치고 규칙은 국세청 안내로): 11~12월 결제수단 글은 카드 소득공제 글로, 시즌 글 다섯 편은 연말정산 글로
+// 합쳤다(옛 주소 308). 남은 세무 글 넷 모두 대표 단추가 국세청·법령 원문으로 간다.
+const TAX_SLUGS = ["card-income-deduction-basics", "year-end-tax-expense-check", "rent-tax-credit-records", "pension-savings-irp-tax-credit"];
 const fx = await createV2265QaFixture();
 const ownerCookie = await fx.cookieFor("user-bin");
 
@@ -204,7 +206,7 @@ try {
     }
 
     // 3-h. 광고 live 모드에서 unfilled 광고 슬롯 자동 숨김 CSS.
-    const liveArticle = await get("/payment-method-switch-nov-dec", { env: { ADS_MODE: "live", ADS_SLOT_CONTENT: "1234567890" } });
+    const liveArticle = await get("/card-income-deduction-basics", { env: { ADS_MODE: "live", ADS_SLOT_CONTENT: "1234567890" } });
     ok(liveArticle.html.includes('.adSlot[hidden],.adSlot:has(ins[data-ad-status="unfilled"]){display:none!important}'), "live 모드 빈 광고 슬롯(unfilled) 자동 숨김 CSS 포함");
   } finally {
     globalThis.fetch = realFetch;
@@ -230,7 +232,7 @@ try {
 
   const paymentPage = await get("/payment-methods?month=2026-07&household_id=house-home", { cookie: ownerCookie });
   eq(paymentPage.status, 200, "로그인 /payment-methods 200");
-  ok(paymentPage.html.includes('<a href="/payment-method-switch-nov-dec">11~12월 결제수단 전환 정리</a>') && paymentPage.html.includes('href="/card-spending-threshold"'), "/payment-methods 에 연말정산 결제수단 전환 글·전월 실적 계산표 연결");
+  ok(paymentPage.html.includes('<a href="/card-income-deduction-basics">카드 소득공제와 11~12월 결제수단</a>') && paymentPage.html.includes('href="/card-spending-threshold"'), "/payment-methods 에 카드 소득공제·11~12월 결제수단 글·전월 실적 계산표 연결(V22.9.142)");
 
   console.log(`V22.9.139 애드센스 재심사 보강 통합 검사 통과 (${checks} checks)`);
 } finally {

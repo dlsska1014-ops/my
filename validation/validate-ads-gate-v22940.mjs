@@ -31,13 +31,22 @@ const AD_SECTION_PATTERN = /<section class="card adSlot noPrint[^"]*"(?: hidden)
 const REVIEW_CSP = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https://kauth.kakao.com https://accounts.kakao.com; script-src 'self' 'unsafe-inline' https://cdn.sheetjs.com https://cdn.jsdelivr.net https://developers.kakao.com; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com https://kauth.kakao.com https://kapi.kakao.com; worker-src 'self' blob: https://cdn.jsdelivr.net";
 // 출처: https://support.google.com/adsense/answer/16283098 (AdSense 는 strict CSP 또는 그보다 느슨한 정책만 지원).
 const LIVE_CSP = "default-src 'self'; base-uri 'self'; object-src 'none'; frame-ancestors 'none'; form-action 'self' https://kauth.kakao.com https://accounts.kakao.com; script-src 'self' 'unsafe-inline' https://cdn.sheetjs.com https://cdn.jsdelivr.net https://developers.kakao.com 'unsafe-eval' https:; style-src 'self' 'unsafe-inline' https:; img-src 'self' data: blob: https:; font-src 'self' data:; connect-src 'self' https://cdn.jsdelivr.net https://cdn.sheetjs.com https://kauth.kakao.com https://kapi.kakao.com https:; worker-src 'self' blob: https://cdn.jsdelivr.net; frame-src 'self' https:";
+// V22.9.142 E4(사용자 11-24 결정 7 — 방문 측정은 CSP 에서 허용): 공개 안내·글 화면(PUBLIC_CONTENT_PATHS)은 Cloudflare Web Analytics 스크립트와
+// 방문 신호 주소를 script-src·connect-src 끝에 더 허용한다(광고 live 확장 뒤). 로그인 화면·가계부 화면은 위 두 정책 그대로다.
+const ANALYTICS_SCRIPT_V229142 = "https://static.cloudflareinsights.com";
+const ANALYTICS_CONNECT_V229142 = "https://cloudflareinsights.com";
+const withAnalyticsV229142 = (csp) => csp.split("; ").map((d) => d.startsWith("script-src ") ? `${d} ${ANALYTICS_SCRIPT_V229142}` : d.startsWith("connect-src ") ? `${d} ${ANALYTICS_CONNECT_V229142}` : d).join("; ");
+const isPublicContentV229142 = (target) => publicPaths.includes(String(target).split("?")[0].split("#")[0]);
+const reviewCspFor = (target) => isPublicContentV229142(target) ? withAnalyticsV229142(REVIEW_CSP) : REVIEW_CSP;
+const liveCspFor = (target) => isPublicContentV229142(target) ? withAnalyticsV229142(LIVE_CSP) : LIVE_CSP;
 const C = "month=2026-07&household_id=house-home";
 // V22.9.40 (D 병합): 생활비 가이드 글 12편도 공개 허용 화면이다(정본 30 − 정책·신원 6 = 24). 렌더 검사도 같은 기준으로 돈다.
 const PUBLIC_ARTICLES = ["/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup", "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit", "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics", "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table"];
 // V22.9.74: 글 목록 허브 1쪽 + 생활비 가이드 글 20편도 공개 허용 화면이다(정본 51 − 정책·신원 6 = 45).
-const PUBLIC_ARTICLES_V22974 = ["/articles", "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark", "/utility-bills-seasonality", "/inflation-budget-update", "/card-income-deduction-basics", "/year-end-tax-expense-check", "/rent-tax-credit-records", "/apartment-maintenance-fee", "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order", "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning", "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions"];
+const PUBLIC_ARTICLES_V22974 = ["/articles", "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark", "/card-income-deduction-basics", "/year-end-tax-expense-check", "/rent-tax-credit-records", "/apartment-maintenance-fee", "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order", "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning", "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions"];
 // V22.9.97 생활비 글: 연말정산·절세 시즌 글 8편도 공개 허용 화면이다(정본 60 − 정책·신원 6 − 후원 안내 1 = 53).
-const PUBLIC_ARTICLES_V22997 = ["/year-end-tax-timeline-checklist", "/payment-method-switch-nov-dec", "/medical-education-donation-deductions", "/dual-income-deduction-allocation", "/pension-savings-irp-tax-credit", "/single-household-year-end-tax", "/tax-refund-money-plan", "/housing-deductions-overview"];
+// V22.9.142(애드센스 걷어내기, 사용자 11-24 결정 3·5): 생활비 글 9편을 합친 글 다섯 편으로 모았다(옛 주소 308). V22.9.74 글 20 → 18, V22.9.97 글 8 → 1.
+const PUBLIC_ARTICLES_V22997 = ["/pension-savings-irp-tax-credit"];
 const PUBLIC_ALLOWED = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide", "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide", ...PUBLIC_ARTICLES, ...PUBLIC_ARTICLES_V22974, ...PUBLIC_ARTICLES_V22997];
 // V22.9.95 후원: 후원 안내(/support)도 광고를 싣지 않는 정본이다(정본 52 − 정책·신원 6 − 후원 안내 1 = 45).
 const POLICY_PAGES = ["/privacy", "/terms", "/cookies", "/contact", "/about", "/site-map", "/support"];
@@ -136,8 +145,8 @@ ok(source.includes("AdSense review mode is ownership-only"), "심사 모드 소�
 const pageKeys = [...(source.match(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 const publicPaths = [...(source.match(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 // V22.9.97 생활비 글: 글 8편이 더해져 정본 52 → 60, 공개 허용 화면 45 → 53.
-eq(publicPaths.length, 60, "공개 정본 문서는 60개다(가이드 18 + V22.9.40 생활비 가이드 글 12 + V22.9.74 허브 1·글 20 + V22.9.95 후원 안내 1 + V22.9.97 글 8)");
-eq(pageKeys.filter((key) => publicPaths.includes(key)).length, 53, "공개 허용 화면은 53쪽이다(정본 60 − 정책·신원 6 − 후원 안내 1, V22.9.108)");
+eq(publicPaths.length, 51, "공개 정본 문서는 51개다(가이드 18 + V22.9.40 생활비 가이드 글 12 + V22.9.74 허브 1·글 18 + V22.9.95 후원 안내 1 + V22.9.97 글 1 — V22.9.142 에 9편을 합침)");
+eq(pageKeys.filter((key) => publicPaths.includes(key)).length, 44, "공개 허용 화면은 44쪽이다(정본 51 − 정책·신원 6 − 후원 안내 1, V22.9.108 범위·V22.9.142 글 수)");
 eq(JSON.stringify(pageKeys.filter((key) => publicPaths.includes(key)).sort()), JSON.stringify([...PUBLIC_AD_ALLOWED].sort()), "공개 허용 화면 = 정본 문서 - 정책·신원 6쪽 - 후원 안내");
 eq(JSON.stringify(pageKeys.filter((key) => !publicPaths.includes(key))), JSON.stringify(SIGNED_IN_ALLOWED), "로그인 뒤 허용 화면은 리포트·연간·스마트 도구·두 가이드뿐이다");
 for (const key of ["/app", "/my", "/menu", "/my/settings", "/budgets", "/my/analysis", "/my/households", "/my/members", "/my/backup", "/payment-methods", "/settlement-summary", "/reserve-plans", "/admin-view", "/operation-center", "/skill", "/api", "/u/api", ...POLICY_PAGES]) {
@@ -204,7 +213,7 @@ try {
     review.set(spec.path, base);
     eq(base.status, 200, `${spec.path}: 기본값에서 열린다`);
     ok(!AD_RUNTIME_PATTERN.test(base.html) && !AD_COOKIE_PATTERN.test(base.html), `${spec.path}: 기본값에는 광고 런타임·슬롯·쿠키 코드가 없다`);
-    eq(base.headers.get("content-security-policy"), REVIEW_CSP, `${spec.path}: 기본값의 CSP 는 지금 정책 그대로다`);
+    eq(base.headers.get("content-security-policy"), reviewCspFor(spec.path), `${spec.path}: 기본값의 CSP 는 지금 정책 그대로다(공개 화면은 방문 측정 출처만 더함, V22.9.142)`);
     const variants = [
       { ADS_MODE: "review" }, { ADS_MODE: "LIVE" }, { ADS_MODE: "on" }, { ADS_MODE: "1" }, { ADS_MODE: "" },
       { ADS_MODE: " live " }, { ADS_MODE: "Live" }, { ADS_SLOT_CONTENT: SLOT }, { ADS_MODE: "review", ADS_SLOT_CONTENT: SLOT },
@@ -228,7 +237,7 @@ try {
       ok(!/<script[^>]+src=["'][^"']*(?:doubleclick|googlesyndication)/i.test(html), `${spec.path}: excluded SDK absent`);
       eq(adSections(html).length, 0, `${spec.path}: excluded slots absent`);
       eq(countOf(html, PUSH), 0, `${spec.path}: excluded activation absent`);
-      eq(page.headers.get("content-security-policy"), REVIEW_CSP, `${spec.path}: excluded CSP unchanged`);
+      eq(page.headers.get("content-security-policy"), reviewCspFor(spec.path), `${spec.path}: excluded CSP unchanged`);
       same(page.headerText, review.get(spec.path).headerText, `${spec.path}: excluded headers unchanged`);
       if (spec.path !== "/faq") same(html, review.get(spec.path).html, `${spec.path}: excluded content unchanged`);
       const noSlot = await render(spec.path, { ...optionsFor(spec), ads: { ADS_MODE: "live" } });
@@ -249,7 +258,7 @@ try {
     ok(!/<(?:form|button|a|input|select|textarea|summary|details)\b/i.test(section.inner), `${spec.path}: 광고 절 안에 폼·버튼·링크가 없다`);
     ok(/class="card adSlot noPrint/.test(section.html) && !/<h[1-6]\b/i.test(section.inner), `${spec.path}: 광고 절은 noPrint 이고 제목을 더하지 않는다`);
     eq(countOf(html.slice(0, section.index), "<form"), countOf(html.slice(0, section.index), "</form>"), `${spec.path}: 광고 절은 폼 안에 있지 않다`);
-    eq(page.headers.get("content-security-policy"), LIVE_CSP, `${spec.path}: live 허용 화면만 CSP 를 넓힌다`);
+    eq(page.headers.get("content-security-policy"), liveCspFor(spec.path), `${spec.path}: live 허용 화면만 CSP 를 넓힌다`);
     same(withoutCsp(page.headerText), withoutCsp(review.get(spec.path).headerText), `${spec.path}: CSP 밖의 헤더(캐시·색인·보안)는 review 와 같다`);
     // 자리: 화면마다 정한 곳 하나.
     const before = h2s(html).filter((h) => h.index < section.index).pop()?.text || "";
@@ -273,7 +282,7 @@ try {
     const noSlot = await render(spec.path, { ...optionsFor(spec), ads: { ADS_MODE: "live" } });
     eq(countOf(noSlot.html, LOADER), 0, `${spec.path}: 슬롯 id 가 없어도 로더는 남는다(자동 광고용)`);
     eq(adSections(noSlot.html).length + countOf(noSlot.html, "data-ad-slot") + countOf(noSlot.html, PUSH), 0, `${spec.path}: 슬롯 id 가 없으면 광고 절·슬롯·초기화가 없다`);
-    eq(noSlot.headers.get("content-security-policy"), REVIEW_CSP, `${spec.path}: 슬롯 id 가 없어도 로더를 위해 CSP 는 넓힌다`);
+    eq(noSlot.headers.get("content-security-policy"), reviewCspFor(spec.path), `${spec.path}: 슬롯 id 가 없어도 로더를 위해 CSP 는 넓힌다`);
     live.set(`${spec.path}#noslot`, noSlot);
   }
 
@@ -423,7 +432,7 @@ try {
     ok(parsed === scripts.length && scripts.some((m) => m[1].includes(PUSH_BODY)), `${path}: 인라인 스크립트 ${parsed}개가 모두 문법상 온전하다`);
   }
   const head = await render("/cash-flow-table", { method: "HEAD", ads: LIVE });
-  ok(head.status === 200 && head.html === "" && head.headers.get("content-security-policy") === LIVE_CSP && head.headers.get("cache-control") === live.get("/cash-flow-table").headers.get("cache-control"), "HEAD 응답은 GET 과 같은 live 헤더를 본문 없이 준다");
+  ok(head.status === 200 && head.html === "" && head.headers.get("content-security-policy") === liveCspFor("/cash-flow-table") && head.headers.get("cache-control") === live.get("/cash-flow-table").headers.get("cache-control"), "HEAD 응답은 GET 과 같은 live 헤더를 본문 없이 준다");
   const publicLive = live.get("/budget-guide");
   ok(publicLive.headers.get("cache-control") === "public, max-age=300, stale-while-revalidate=600" && publicLive.headers.get("x-robots-tag") === "index, follow" && publicLive.headers.get("set-cookie") === null, "공개 가이드는 live 에서도 공개 캐시·색인 허용·쿠키 없음 그대로다");
   ok(publicLive.html.includes('<meta name="google-adsense-account" content="ca-pub-3546469870344416"/>') && countOf(publicLive.html, 'rel="canonical"') === 1, "live 에서도 소유권 메타·정본 주소는 그대로다");

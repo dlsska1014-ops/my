@@ -1,4 +1,4 @@
-// V22.9.74 생활비 가이드 글 20편·글 목록 허브(/articles)·작성자와 검토 방식 절 검사.
+// V22.9.74 생활비 가이드 글 20편(V22.9.142 부터 18편)·글 목록 허브(/articles)·작성자와 검토 방식 절 검사.
 // AdSense "가치가 별로 없는 콘텐츠" 재심사 보강: 글마다 작성일·수정일·읽는 시간·핵심 요약·참고 자료·함께 읽을 글이 있고,
 // 서로 다른 구조로 쓰였으며(틀로 찍은 글이 아님), 본문이 서비스를 홍보하지 않고, 외부 출처는 공식 기관만 쓴다.
 // 화면은 기본 env 로 app.fetch 로 그리고 바깥 요청은 0회여야 한다.
@@ -20,16 +20,19 @@ const get = (path, method = "GET", env = {}) => app.fetch(new Request(`${origin}
 const decode = (text) => text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, "\"").replace(/&#39;/g, "'");
 
 const HUB = "/articles";
+// V22.9.142(애드센스 걷어내기, 사용자 11-24 결정 3·5): /utility-bills-seasonality 는 /apartment-maintenance-fee 로, /inflation-budget-update 는
+// /household-spending-statistics 로 합쳤다(옛 주소 308 — validate-v229142-adsense-week1).
 const ARTICLES = [
-  "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark", "/utility-bills-seasonality",
-  "/inflation-budget-update", "/card-income-deduction-basics", "/year-end-tax-expense-check", "/rent-tax-credit-records",
+  "/household-spending-statistics", "/single-household-living-cost", "/food-cost-benchmark",
+  "/card-income-deduction-basics", "/year-end-tax-expense-check", "/rent-tax-credit-records",
   "/apartment-maintenance-fee", "/mobile-plan-cost-review", "/sinking-fund-annual-expenses", "/debt-repayment-order",
   "/savings-rate-tracking", "/first-job-budget", "/car-ownership-cost", "/childcare-cost-planning",
   "/couple-account-structure", "/roommate-shared-ledger", "/monthly-closing-routine", "/expense-review-questions",
 ];
 const V22940 = ["/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup", "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit", "/payday-budget-cycle", "/expense-category-rules", "/emergency-fund-basics", "/weekly-report-reading", "/family-roles-accountbook", "/cash-flow-table"];
 // V22.9.97 생활비 글: 연말정산·절세 시즌 글 8편(public/living-cost-articles-v22997.js). 자세한 검사는 validate-v22997-articles 이고 여기서는 사이트맵·허브 수에만 더한다.
-const V22997 = ["/year-end-tax-timeline-checklist", "/payment-method-switch-nov-dec", "/medical-education-donation-deductions", "/dual-income-deduction-allocation", "/pension-savings-irp-tax-credit", "/single-household-year-end-tax", "/tax-refund-money-plan", "/housing-deductions-overview"];
+// V22.9.142: 8편 중 7편은 V22.9.74 의 세무 글 세 편(연말정산·카드·월세)으로 합쳐 연금저축·IRP 한 편만 남는다.
+const V22997 = ["/pension-savings-irp-tax-credit"];
 const LEGACY = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide", "/group-accountbook", "/security", "/faq", "/about", "/contact", "/privacy", "/terms", "/cookies", "/site-map", "/guides", "/demo", "/report-guide", "/import-guide"];
 const CATEGORIES = ["예산 세우기", "고정비·구독", "공동 생활비", "기록 습관", "리포트·분석", "저축·비상금·부채", "카드·세금", "통계로 보는 생활비", "생활 영역별 지출"];
 const FORBIDDEN = ["낭비", "헛돈", "추천 카드", "대출 추천", "투자 추천", "후기", "사용자 수", "무조건", "최고의", "반드시", "대박", "꿀팁", "완벽"];
@@ -55,7 +58,8 @@ try {
   const entries = [...xml.matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)].map((m) => ({ path: new URL(m[1]).pathname, lastmod: m[2] }));
   // V22.9.95 후원: 후원 안내(/support) 한 쪽이 더해져 52개다.
   // V22.9.97 생활비 글: 연말정산·절세 글 8편이 더해져 60개다.
-  eq(entries.length, LEGACY.length + V22940.length + ARTICLES.length + V22997.length + 2, "sitemap lists the 60 canonical public documents");
+  // V22.9.142: 글 9편을 합쳐 51개다.
+  eq(entries.length, LEGACY.length + V22940.length + ARTICLES.length + V22997.length + 2, "sitemap lists the 51 canonical public documents");
   for (const path of [HUB, ...ARTICLES]) {
     const entry = entries.find((e) => e.path === path);
     ok(entry, `${path}: listed in XML sitemap`);
@@ -166,7 +170,7 @@ try {
     addWindows(path, html);
   }
   ok(sectionCounts.size >= 3, `articles use at least three different section counts (${[...sectionCounts].sort().join(",")})`);
-  ok(signatures.size >= 15, `at least 15 distinct block structures among 20 articles (${signatures.size})`);
+  ok(signatures.size >= 15, `at least 15 distinct block structures among 18 articles (${signatures.size})`);
 
   // 4. 글끼리(새 글 20편 사이, 그리고 V22.9.40 글 12편과) 40자 이상 같은 구절을 되풀이하지 않는다.
   for (const path of V22940) addWindows(path, pages.get(path));
@@ -179,7 +183,7 @@ try {
   eq(structuredOf(hub)["@type"], "CollectionPage", "hub is a CollectionPage");
   eq((hub.match(/<h1[ >]/g) || []).length, 1, "hub has one H1");
   const cardLinks = [...hub.matchAll(/<ul class="pubCards">([\s\S]*?)<\/ul>/g)].flatMap((m) => [...m[1].matchAll(/<li><a href="([^"]+)">/g)].map((x) => x[1]));
-  // V22.9.97 생활비 글: 허브 카드는 12 + 20 + 8 = 40편이다.
+  // V22.9.97 생활비 글: 허브 카드는 12 + 20 + 8 = 40편이다. V22.9.142 부터 12 + 18 + 1 = 31편.
   eq(cardLinks.length, V22940.length + ARTICLES.length + V22997.length, "hub lists every article as a card");
   eq(new Set(cardLinks).size, cardLinks.length, "hub lists each article once");
   for (const path of [...V22940, ...ARTICLES]) ok(cardLinks.includes(path), `${path}: has a card on the hub`);
@@ -221,4 +225,4 @@ try {
   globalThis.fetch = originalFetch;
 }
 eq(outbound, 0, "public articles made no outbound request");
-console.log(`V22.9.74 생활비 가이드 글 20편·글 목록 허브 검사 통과 (${checks} checks)`);
+console.log(`V22.9.74 생활비 가이드 글 ${ARTICLES.length}편·글 목록 허브 검사 통과 (${checks} checks)`);
