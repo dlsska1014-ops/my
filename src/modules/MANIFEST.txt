@@ -11,6 +11,8 @@ runtime/config-readiness.js
 runtime/ops-monitor.js
 worker/router.js
 public/site-config.js
+public/kakao-sentences-results-v229145.js
+public/kakao-sentences-v229145.js
 public/guide-content.js
 public/living-cost-articles-v22974.js
 public/living-cost-articles-v22997.js

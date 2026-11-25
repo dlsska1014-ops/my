@@ -59,7 +59,7 @@ try {
   // V22.9.95 후원: 후원 안내(/support) 한 쪽이 더해져 52개다.
   // V22.9.97 생활비 글: 연말정산·절세 글 8편이 더해져 60개다.
   // V22.9.142: 글 9편을 합쳐 51개다.
-  eq(entries.length, LEGACY.length + V22940.length + ARTICLES.length + V22997.length + 3, "sitemap lists the 52 canonical public documents (+ /articles·/support·V22.9.143 /updates)");
+  eq(entries.length, LEGACY.length + V22940.length + ARTICLES.length + V22997.length + 4, "sitemap lists the 53 canonical public documents (+ /articles·/support·V22.9.143 /updates·V22.9.145 /kakao-sentences)");
   for (const path of [HUB, ...ARTICLES]) {
     const entry = entries.find((e) => e.path === path);
     ok(entry, `${path}: listed in XML sitemap`);
