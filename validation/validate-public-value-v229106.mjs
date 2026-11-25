@@ -136,7 +136,7 @@ try {
   const head=await request(path,{},'HEAD');eq(head.status,200,'worksheet HEAD');eq(await head.text(),'','HEAD empty');
   const download=await request(path+'?download=1');ok(download.headers.get('content-disposition')?.startsWith('attachment;'),'offline file download');eq(await download.text(),html,'download same executable worksheet');
   eq((await request(path,{},'POST')).status,404,'worksheet has no write route');
-  const article=await(await request('/'+slug)).text();ok(article.includes(path)&&article.includes('원본(가상 데이터)'),'article exposes original data and worksheet');
+  const article=await(await request('/'+slug)).text();ok(article.includes(path)&&article.includes('원본(예시 데이터)'),'article exposes original data and worksheet');
   const ld=JSON.parse(article.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);ok(!('wordCount' in ld),'Hangul character count not mislabeled as words');
   for (const env of [{ADS_MODE:'live',ADS_SLOT_CONTENT:'1234567890'},{ADS_MODE:'adfit',ADFIT_UNIT_CONTENT:'DAN-test123456',ADFIT_UNIT_SIZE:'320x100'}]) {
    const active=await(await request('/'+slug,env)).text();

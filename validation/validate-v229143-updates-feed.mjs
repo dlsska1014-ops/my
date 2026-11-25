@@ -17,6 +17,7 @@ import { readFileSync } from "node:fs";
 import app from "../src/index.js";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
 import { stripBuildBlocks } from "../tools/build-worker.mjs";
+import { REAL_SCREENS_COPY_DATE_V229146 } from "../src/modules/public/site-config.js";
 
 let checks = 0;
 const ok = (value, message) => { assert.ok(value, message); checks += 1; };
@@ -212,7 +213,8 @@ try {
   ok(homeDesc.endsWith("가입하지 않아도 세 사람의 공동 생활비 예제로 정산을 직접 계산해 볼 수 있습니다."), "첫 화면 설명은 V22.9.140 의 공개 정산 예제 문장을 그대로 둔다");
   eq((home.match(/<h1>([^<]*)<\/h1>/) || [])[1], "말한 기록이, 함께 보는 생활비가 됩니다", "첫 화면 h1 은 그대로");
   const modifiedOf = (html) => JSON.parse((html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/) || ["", "{}"])[1]).dateModified;
-  eq(modifiedOf(home), "2026-11-22", "첫 화면 수정일은 그대로(문서 제목·설명만 바꿈 — V22.9.140 의 날짜)");
+  // V22.9.146: 첫 화면 랜딩에 실제 화면 사진을 실어 수정일이 그 판의 글 날짜다(V22.9.143 은 문서 제목·설명만 바꿔 V22.9.140 의 날짜 그대로였다).
+  eq(modifiedOf(home), REAL_SCREENS_COPY_DATE_V229146, "첫 화면 수정일 = V22.9.146 실제 화면 사진을 실은 날");
   const guide = (await get("/kakao-guide")).html;
   eq((guide.match(/<title>([^<]*)<\/title>/) || [])[1], "카카오톡 가계부 입력 방법: 1:1 채팅과 단톡방 · 말해가계부", "/kakao-guide 문서 제목은 ‘카카오톡 가계부 입력 방법’ 으로 시작하고 단톡방을 함께 적는다");
   const guideDesc = decode((guide.match(/<meta name="description" content="([^"]*)"/) || [])[1] || "");
@@ -220,7 +222,8 @@ try {
   eq((guide.match(/<h1>([^<]*)<\/h1>/) || [])[1], "카카오톡 가계부 입력 방법: 보낸 문장과 저장 결과", "/kakao-guide h1 은 그대로");
   ok(guide.includes("<h2>단톡방에서 호출할 때</h2>"), "/kakao-guide 에 단톡방 절이 있다(제목이 말하는 내용)");
   ok(/updated: KAKAO_GUIDE_COPY_REVISION_DATE \}\),/.test(guideSource), "/kakao-guide 수정일은 그대로(본문을 바꾸지 않음 — 계획 A6)");
-  eq(modifiedOf(guide), "2026-11-16", "/kakao-guide 화면의 수정일(dateModified)도 그대로");
+  // V22.9.146: /kakao-guide 는 실제 화면 사진 절을 더해 수정일이 그 판의 글 날짜다(V22.9.143 때는 2026-11-16 그대로였다).
+  eq(modifiedOf(guide), REAL_SCREENS_COPY_DATE_V229146, "/kakao-guide 화면의 수정일(dateModified) = V22.9.146 실제 화면 사진 절");
 } finally {
   fx.restore?.();
   globalThis.fetch = realFetch;

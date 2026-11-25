@@ -19,6 +19,7 @@ import { isDeepStrictEqual } from "node:util";
 import vm from "node:vm";
 import { app, BASE, ctx, failure, fixture, formFields, intercept, page, post, settingValue, skill, withClock } from "./lib-audit-v22934.mjs";
 import { readPurposeToken } from "../src/index.js";
+import { REAL_SCREENS_COPY_DATE_V229146 } from "../src/modules/public/site-config.js";
 
 let checks = 0;
 const failures = [];
@@ -376,7 +377,8 @@ await section("5 개인정보처리방침·이용약관", () => scene(async (fx)
   eq(titles.map((title) => Number(title.split(".")[0])), Array.from({ length: 13 }, (_, i) => i + 1), "5 1~13절 번호가 차례대로다");
   eq(titles.slice(5), ["6. 처리하는 개인정보 항목과 보유기간", "7. 개인정보 보호책임자", "8. 개인정보 처리 위탁과 국외 이전", "9. 만 14세 미만 아동의 개인정보", "10. 개인정보의 파기 절차와 방법", "11. 권익침해 구제 방법", "12. 개인정보처리방침의 변경", "13. 안전성 확보 조치"], "5 6~13절 제목");
   ok(html.includes(`시행일 2026년 7월 13일 · 개정 공고 ${NOTICE_LABEL} · 개정 시행 ${REVISION_LABEL}`), "5 머리에 최초 시행일·개정 공고일·개정 시행일이 있다");
-  ok(html.includes(`"dateModified":"${NOTICE}"`) && html.includes(`<time datetime="${NOTICE}">`), "5 수정일(구조화 데이터·화면)이 개정 공고일(화면에 올린 날)이다");
+  // V22.9.146 B5: 방침은 이용 목적 추가 개정(2027-01-04 시행)을 알리는 문단을 더해 수정일이 그 글을 고친 날이다(현재 개정 공고·시행일 줄은 위에서 그대로 본다).
+  ok(html.includes(`"dateModified":"${REAL_SCREENS_COPY_DATE_V229146}"`) && html.includes(`<time datetime="${REAL_SCREENS_COPY_DATE_V229146}">`), "5 수정일(구조화 데이터·화면)이 방침을 마지막으로 고친 날(V22.9.146 개정 알림)이다");
   const tables = [...html.matchAll(/<table class="pubTable"><caption id="[^"]+">([^<]*)<\/caption><thead><tr>([\s\S]*?)<\/tr><\/thead><tbody>([\s\S]*?)<\/tbody><\/table>/g)];
   const table = (caption) => tables.find((m) => m[1] === caption);
   const heads = (m) => [...(m?.[2] || "").matchAll(/<th scope="col">([^<]*)<\/th>/g)].map((x) => x[1]);

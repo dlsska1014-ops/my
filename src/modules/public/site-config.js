@@ -8,7 +8,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.145-KAKAO-SENTENCES";
+const APP_VERSION = "V22.9.146-REAL-SCREENS";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -194,7 +194,18 @@ const POLICY_REVISION_DATE = "2026-11-13";
 const PUBLIC_COPY_REVISION_DATE = POLICY_NOTICE_DATE;
 // V22.9.126: /kakao-guide 의 ‘잘 읽히는 문장과 다시 묻는 말’ 표를 실제 동작에 맞춰 고친 날이다(날짜가 다른 기록 여러 줄은 저장하지 않고 다시 묻는다 · 카드 승인 문자 한 줄, V122:K-7).
 // 이 쪽만 바뀌었으므로 여섯 쪽이 함께 쓰는 위 상수와 따로 둔다. 글을 고친 날을 적는 값이라 배포일에 맞춰 바꾸지 않는다(앞날 날짜만 아니면 된다).
-const KAKAO_GUIDE_COPY_REVISION_DATE = "2026-11-16";
+// V22.9.146 애드센스 B4: 실제 화면 사진 절을 더한 쪽(첫 화면·/kakao-guide·/group-accountbook·/demo)과 이용 목적 추가 개정을 알린 /privacy 의 수정일.
+// 글을 고친 날을 적는 값이라 배포일에 맞춰 바꾸지 않는다(앞날 날짜만 아니면 된다). ‘가상’ → ‘예시’ 낱말만 바뀐 글은 수정일을 올리지 않는다
+// (V22.9.140 규칙 — 본문·예제가 바뀐 글에만 수정일).
+const REAL_SCREENS_COPY_DATE_V229146 = "2026-11-25";
+// V22.9.146: /kakao-guide 는 실제 화면 사진 절을 더하고 표 위 문단·표 이름의 ‘가상’ 을 고쳐 수정일이 위 날짜다(그 앞 = 2026-11-16, V22.9.126).
+const KAKAO_GUIDE_COPY_REVISION_DATE = REAL_SCREENS_COPY_DATE_V229146;
+// V22.9.146 애드센스 B5(사용자 2026-11-25 결정 6 = 예): 처리방침 2절 이용 목적에 ‘개인을 알아볼 수 없게 집계한 이용 통계를 서비스 안내 글에
+// 공개’ 를 더하는 개정의 시행일. 이용 목적이 늘어나는 변경이라 12절에 따라 시행 30일 전부터 알린다. 화면에는 공고일을 적지 않는다(배포일이
+// 밀려도 틀린 날짜가 남지 않게) — 이 판을 2026-12-04 까지 운영에 올리면 시행일 0시까지 만 30일이 넘는다(12-05 낮에 올리면 모자란다)(검사가 CHANGELOG 머리 줄 날짜와 대조하고, 업로드 대조 때
+// 그날 날짜도 본다). 시행 전에는 /privacy 머리 아래에 알림 상자를 둔다. 가입 동의 기록의 version(POLICY_REVISION_DATE)은 그대로다(읽는 곳은
+// 기록 유무만 본다) — 시행 뒤 판에서 위 공고·시행 상수로 합친다.
+const POLICY_PURPOSE_REVISION_DATE_V229146 = "2027-01-04";
 
 // "2026-07-13" → "2026년 7월 13일"(방침 머리의 시행·공고·개정일 표기).
 function policyDateLabel(ymd = POLICY_REVISION_DATE) {
@@ -587,7 +598,7 @@ function publicSiteNav(active = "home") {
   // V22.9.74: '예산 계산'(/budget-guide, 사용 가이드 모음에서 닿음) 자리에 생활비 가이드 글 허브를 둔다.
   const links = [
     ["home", "서비스", "/"],
-    ["demo", "가상 체험", "/demo"],
+    ["demo", "예시 가계부", "/demo"],
     ["guides", "사용 가이드", "/guides"],
     ["articles", "생활비 글", "/articles"],
     ["group-accountbook", "공동 가계부", "/group-accountbook"],
@@ -606,9 +617,10 @@ function publicSiteFooter() {
 export {
   APP_MODE, APP_VERSION, BUSINESS_FOOTER_INFO, DEFAULT_PUBLIC_BASE_URL,
   KAKAO_GUIDE_COPY_REVISION_DATE, KAKAO_REPRESENTATIVE_COMMANDS, KAKAO_SECONDARY_COMMANDS,
-  POLICY_NOTICE_DATE, POLICY_REVISION_DATE, PUBLIC_CONTENT_PATHS, PUBLIC_COPY_REVISION_DATE,
-  adSlotMarkup, adfitUnitStatus, adsHeadMarkup, adsHeaders, adsMode, adsPolicyLinks,
-  adsPolicyNetwork, adsPolicyText, adsPublicRequestKeyV229106, adsensePublisherIdForTxt, appName,
+  POLICY_NOTICE_DATE, POLICY_PURPOSE_REVISION_DATE_V229146, POLICY_REVISION_DATE,
+  PUBLIC_CONTENT_PATHS, PUBLIC_COPY_REVISION_DATE, REAL_SCREENS_COPY_DATE_V229146, adSlotMarkup,
+  adfitUnitStatus, adsHeadMarkup, adsHeaders, adsMode, adsPolicyLinks, adsPolicyNetwork,
+  adsPolicyText, adsPublicRequestKeyV229106, adsensePublisherIdForTxt, appName,
   canonicalRedirectResponse, cardPerformanceEnabled, currentRequestBaseUrl, envFlagEnabled,
   handleKakaoCommandSystemPage, hiddenIncompleteFeatureResponse, incompleteFeatureQaEnabled,
   kakaoChatCommandCatalog, kakaoLoginButtonHtml, kakaoRepresentativeCommands, ledgerMarkSvg,

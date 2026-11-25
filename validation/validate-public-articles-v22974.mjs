@@ -41,7 +41,7 @@ const AD_RUNTIME = /adsbygoogle|googlesyndication|googleadservices|doubleclick|p
 const REVISION = "2026-10-21";
 
 const articleOf = (html) => (html.match(/<article>([\s\S]*?)<\/article>/) || [])[1] || "";
-const sectionsOf = (rawHtml) => [...rawHtml.replace('운영팀이 작성한 편집용 가상 예제입니다. 실제 고객 사례나 제품의 자동 처리 기능이 아닙니다. 별도 계산표는 브라우저에서만 작동하며 입력값을 서버로 보내지 않습니다.', "").matchAll(/<section class="pubSection" id="section-\d+">([\s\S]*?)<\/section>/g)].map((m) => m[1]);
+const sectionsOf = (rawHtml) => [...rawHtml.replace('운영팀이 작성한 편집용 예제입니다. 실제 고객 사례나 제품의 자동 처리 기능이 아닙니다. 별도 계산표는 브라우저에서만 작동하며 입력값을 서버로 보내지 않습니다.', "").matchAll(/<section class="pubSection" id="section-\d+">([\s\S]*?)<\/section>/g)].map((m) => m[1]);
 const textOf = (fragment) => decode(fragment.replace(/<\/(p|li|td|th|caption|h2|aside|a|small|summary)>/g, "\n").replace(/<[^>]+>/g, " "));
 const bodyOf = (html) => articleOf(html).replace(/<header class="pubHero">[\s\S]*?<\/header>/, "").replace(/<nav class="pubToc"[\s\S]*?<\/nav>/, "");
 const hangul = (text) => (text.match(/[가-힣]/g) || []).length;

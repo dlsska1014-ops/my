@@ -13,6 +13,9 @@ worker/router.js
 public/site-config.js
 public/kakao-sentences-results-v229145.js
 public/kakao-sentences-v229145.js
+assets/real-screens-images-v229146.js
+public/real-screens-scenario-v229146.js
+public/real-screens-v229146.js
 public/guide-content.js
 public/living-cost-articles-v22974.js
 public/living-cost-articles-v22997.js

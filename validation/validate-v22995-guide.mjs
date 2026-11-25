@@ -189,9 +189,9 @@ await section("R-14 /kakao-guide 표", async () => {
   const response = await app.fetch(new Request(`${BASE}/kakao-guide`), {}, ctx);
   const html = await response.text();
   eq(response.status, 200, "R-14 /kakao-guide 가 열린다");
-  ok(html.includes("잘 읽히는 문장과 다시 묻는 말") && html.includes("검증용 가상 문장과 처리 결과"), "R-14 /kakao-guide 에 ‘잘 읽히는 문장과 다시 묻는 말’ 절과 가상 검증임을 명시한 표 제목이 있다");
+  ok(html.includes("잘 읽히는 문장과 다시 묻는 말") && html.includes("예시 문장과 처리 결과") && html.includes("말해가계부 카카오톡 봇과 같은 코드에 보내 처리한 결과입니다.") && html.includes("실제 사용자의 이용 기록이나 후기는 아닙니다."), "R-14 /kakao-guide 에 ‘잘 읽히는 문장과 다시 묻는 말’ 절과 예시 문장을 봇과 같은 코드로 처리했음(실제 이용 기록 아님)을 명시한 표 제목이 있다");
   for (const [sentence, result] of TABLE) ok(html.includes(sentence.split("\n").join(" ⏎ ")) && html.includes(result), `R-14 표에 ‘${sentence.split("\n").join(" ⏎ ")}’ → ‘${result}’ 줄이 있다`);
-  const tableAt = html.indexOf("검증용 가상 문장과 처리 결과");
+  const tableAt = html.indexOf("예시 문장과 처리 결과");
   const added = tableAt < 0 ? "" : html.slice(tableAt, html.indexOf("</table>", tableAt));
   ok(added.length > 500 && !/계좌|\d{2,3}-\d{3,4}-\d{4}|@[a-z0-9.-]+\.[a-z]{2,}/i.test(added), "R-14 새 절에 계좌·전화번호·메일 같은 개인 정보가 없다");
   for (const [label, room] of PATHS) for (const [sentence, , expected, setup] of TABLE) {

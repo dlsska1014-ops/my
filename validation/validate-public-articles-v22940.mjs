@@ -42,7 +42,7 @@ const decode = (text) => text.replace(/&amp;/g, "&").replace(/&lt;/g, "<").repla
 // 현재 위치 내비, 제목·소개·작성자·버튼이 있는 머리 영역(<header class="pubHero">), 목차(<nav class="pubToc">),
 // 글 밖의 "다른 사용 가이드" 링크와 푸터가 모두 빠진다. 태그를 지운 뒤 한글 음절(가-힣)만 세므로
 // 공백·구두점·숫자·영문은 세지 않는다.
-const sectionsOf = (rawHtml) => [...rawHtml.replace('운영팀이 작성한 편집용 가상 예제입니다. 실제 고객 사례나 제품의 자동 처리 기능이 아닙니다. 별도 계산표는 브라우저에서만 작동하며 입력값을 서버로 보내지 않습니다.', "").matchAll(/<section class="pubSection" id="section-\d+">([\s\S]*?)<\/section>/g)].map((m) => m[1]);
+const sectionsOf = (rawHtml) => [...rawHtml.replace('운영팀이 작성한 편집용 예제입니다. 실제 고객 사례나 제품의 자동 처리 기능이 아닙니다. 별도 계산표는 브라우저에서만 작동하며 입력값을 서버로 보내지 않습니다.', "").matchAll(/<section class="pubSection" id="section-\d+">([\s\S]*?)<\/section>/g)].map((m) => m[1]);
 const textOf = (fragment) => decode(fragment.replace(/<\/(p|li|td|th|caption|h2|aside|a)>/g, "\n").replace(/<[^>]+>/g, " "));
 // V22.9.74: 마지막 두 절(말해가계부에서는·다음에 읽을 글)이 보조 상자로 옮겨졌으므로 본문 길이에 함께 센다.
 const hangulCount = (html) => ([...sectionsOf(html), asideByClass(html, "pubService"), asideByClass(html, "pubRelated")].map(textOf).join(" ").match(/[가-힣]/g) || []).length;
@@ -129,7 +129,10 @@ try {
     ok(hangul <= (addedSections(path) ? 4200 : 2600), `${path}: body stays within 2,600 Hangul syllables (${hangul})`);
     ok(/<table class="pubTable">/.test(html) || /<section class="pubSection"[^>]*>[\s\S]*?<ol>/.test(html), `${path}: has a table or numbered steps`);
     for (const table of html.match(/<table class="pubTable">[\s\S]*?<\/table>/g) || []) ok(table.includes("<caption") && table.includes('<th scope="col">'), `${path}: table has a caption and column headers`);
-    ok(html.includes("가상 사례"), `${path}: numbers are labelled 가상 사례`);
+    // V22.9.146: ‘가상 사례’ 를 ‘예시’ 로 바꿨다(애드센스 FINAL-PLAN 75줄) — 숫자가 예시라고 밝히는 말이 글 본문(<article>)에 있는지 본다.
+    // 쪽 전체로 보면 모든 쪽의 메뉴 ‘예시 가계부’ 가 걸려 늘 참이다(독립 검토 — /faq·/terms 도 참이었다).
+    const articleBody = (html.match(/<article>([\s\S]*?)<\/article>/) || [])[1] || "";
+    ok(/예시(?:입니다|이며|로 |의 |를 |에 |: | 가정| 가계| 데이터| 숫자| 수치| 기록| 부부| 직장인| 리포트| 영수증| 배분| 카드| 설정| 구독| 비교| 예산| 표| 거래| 공동)/.test(articleBody) && !html.includes("가상 사례"), `${path}: numbers are labelled 예시 in the article body (no 가상 사례)`);
     ok(html.includes(`<time datetime="${updatedFor(path)}">${updatedFor(path)}</time>`), `${path}: visible revision date`);
     const structured = JSON.parse(html.match(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/)[1]);
     eq(structured["@type"], "Article", `${path}: JSON-LD Article`);
@@ -199,7 +202,7 @@ try {
   eq([...hub.matchAll(/href="([^"]+)"/g)].filter((m) => ARTICLES.includes(m[1])).length, ARTICLES.length, "/guides hub section lists every new article once");
   for (const [, label] of hub.matchAll(/<a href="[^"]+">([^<]+)</g)) ok(decode(label).includes(": "), `/guides hub entry carries a one-line description (${decode(label)})`);
   const about = textOf(sectionByTitle(pages.get("/about"), "운영팀과 글 작성 원칙"));
-  ok(about.includes("도담 네트워크 운영팀") && about.includes("가상 사례") && about.includes("권하지 않") && about.includes("문의") && about.includes("날짜"), "about explains the team, virtual examples, no product advice, corrections and dates");
+  ok(about.includes("도담 네트워크 운영팀") && about.includes("직접 구성한 예시를 기준으로") && about.includes("권하지 않") && about.includes("문의") && about.includes("날짜"), "about explains the team, virtual examples, no product advice, corrections and dates");
   const aboutSentences = (about.match(/[.!?](\s|$)/g) || []).length;
   ok(aboutSentences >= 3 && aboutSentences <= 5, `about team section has 3-5 sentences (${aboutSentences})`);
   for (const word of FORBIDDEN) ok(!about.includes(word) && !textOf(recent).includes(word) && !textOf(hub).includes(word), `hub, home and about additions avoid "${word}"`);

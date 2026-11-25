@@ -1,13 +1,17 @@
 // @build:imports-start
 import { nluOpsConfig } from "../runtime/ops-telemetry.js";
 import {
-  BUSINESS_FOOTER_INFO, POLICY_NOTICE_DATE, POLICY_REVISION_DATE, PUBLIC_CONTENT_PATHS,
-  adSlotMarkup, adsHeadMarkup, adsHeaders, adsPolicyLinks, adsPolicyNetwork, adsPolicyText,
+  BUSINESS_FOOTER_INFO, POLICY_NOTICE_DATE, POLICY_PURPOSE_REVISION_DATE_V229146,
+  POLICY_REVISION_DATE, PUBLIC_CONTENT_PATHS, REAL_SCREENS_COPY_DATE_V229146, adSlotMarkup,
+  adsHeadMarkup, adsHeaders, adsPolicyLinks, adsPolicyNetwork, adsPolicyText,
   adsPublicRequestKeyV229106, adsensePublisherIdForTxt, appName, kakaoLoginButtonHtml,
   policyDateLabel, publicAdsenseHead, publicAnalyticsHeadersV229142, publicBaseUrl,
   publicSiteFooter, publicSiteNav,
 } from "./site-config.js";
 import { kakaoSentenceCountV229145 } from "./kakao-sentences-v229145.js";
+import {
+  REAL_SCREENS_CSS_V229146, realScreensFigureHtml, realScreensSectionHtml,
+} from "./real-screens-v229146.js";
 import {
   PUBLIC_UPDATES_V229143, publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages,
 } from "./guide-content.js";
@@ -38,8 +42,21 @@ import {
   AB_OG_IMAGE_ALT, AB_OG_IMAGE_HEIGHT, AB_OG_IMAGE_PATH, AB_OG_IMAGE_WIDTH,
 } from "../assets/og-image.js";
 import { parseTransaction } from "../nlu/transaction-parser.js";
+import { qaFixedNowMs } from "../nlu/date-payment.js";
 import { escapeHtml } from "../domain/transactions-core.js";
 // @build:imports-end
+
+// V22.9.146 애드센스 B5: 처리방침 이용 목적 추가 개정(시행 POLICY_PURPOSE_REVISION_DATE_V229146 — 1절 목적 목록에 한 줄, 2절에 내용, 12절에 개정의 성격)의
+// 알림 글. 시행 전에만 /privacy 머리 아래에 둔다(시행 뒤에는 1절·2절·12절 글만 남는다). 오늘 = KST(qaFixedNowMs — 검사는 withClock 으로 시행 앞뒤 날을 본다).
+// 공고일은 화면에 적지 않는다(배포가 밀려도 틀린 날짜가 남지 않게). 업데이트 소식의 날짜는 판을 만든 날이라 12절은 공고 통로로 이 방침 맨 위만 적는다.
+function publicPolicyPurposeParagraphV229146() {
+  return `${policyDateLabel(POLICY_PURPOSE_REVISION_DATE_V229146)}부터는 서비스 이용 기록과 가계부 기록을 개인을 알아볼 수 없게 집계한 통계(예: 카카오톡 기록 문장의 갈래별 비율, 분류별 기록 수의 비율)를 서비스 안내 글에 공개할 수 있습니다. 이용자가 보낸 문장, 가계부와 사람의 이름, 한 건 한 건의 금액과 날짜는 싣지 않으며, 해당하는 사람이 적어 누구인지 짐작할 수 있는 값은 공개하지 않습니다.`;
+}
+function publicPolicyPurposeNoticeV229146() {
+  const today = new Date(qaFixedNowMs() + 9 * 3600 * 1000).toISOString().slice(0, 10);
+  if (today >= POLICY_PURPOSE_REVISION_DATE_V229146) return "";
+  return `${policyDateLabel(POLICY_PURPOSE_REVISION_DATE_V229146)}부터 처리 목적(1절)에 ‘개인을 알아볼 수 없게 집계한 이용 통계를 서비스 안내 글에 공개’를 더합니다(자세한 내용은 2절). 이용 목적이 늘어나는 변경이라 12절에 따라 시행 30일 전부터 알리며, 그 전에는 이 목적으로 통계를 공개하지 않습니다. 이용자가 보낸 문장이나 이름, 한 건 한 건의 금액은 공개하지 않습니다.`;
+}
 
 function publicPageCatalog(env = {}, url = null, extra = {}) {
   // V22.9.92: 카카오 애드핏으로 광고를 내는 서버(adsPolicyNetwork 가 "adfit")에서는 개인정보처리방침·쿠키 안내의 광고 절을
@@ -64,10 +81,11 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
     privacy: {
       title: "개인정보처리방침",
       description: "말해가계부가 처리하는 개인정보와 가계부 데이터, 처리 목적, 보관 기간, 처리 위탁과 국외 이전, 개인정보 보호책임자, 광고 쿠키와 이용자 권리를 안내합니다.",
-      eyebrow: revision,
+      eyebrow: `${revision} · 이용 목적 추가 개정 시행 ${policyDateLabel(POLICY_PURPOSE_REVISION_DATE_V229146)}`,
+      notice: publicPolicyPurposeNoticeV229146(),
       intro: "말해가계부는 서비스 제공에 필요한 범위에서 사용자와 가계부 데이터를 처리합니다. 처리 목적과 보유기간을 벗어나 임의로 이용하지 않으며, 사용자 발화를 AI 모델 학습에 자동 활용하지 않습니다.",
       sections: [
-        { title: "1. 처리하는 항목과 목적", paragraphs: ["사용자 식별키와 로그인 정보는 사용자 구분과 세션 유지에 사용합니다. 가계부 이름, 참여자 권한, 초대코드, 표시 이름은 공동 가계부 운영에 사용합니다.", "수입·지출, 날짜, 분류, 결제수단, 메모, 예산과 설정값은 기록·조회·분석·백업 기능을 제공하기 위해 처리합니다. 카카오 거래 입력 원문은 거래 데이터와 함께 보관될 수 있습니다. 단톡방 연결키는 봇을 불러 준비하거나 직접 연결한 공동 가계부와 해당 방을 구분하는 데 사용합니다."], bullets: ["회원 및 세션 관리", "가계부 생성·참여·권한 관리", "거래 기록·예산·요약·정산 제공", "중복 저장 방지와 장애 대응", "법적 의무와 분쟁 대응"] },
+        { title: "1. 처리하는 항목과 목적", paragraphs: ["사용자 식별키와 로그인 정보는 사용자 구분과 세션 유지에 사용합니다. 가계부 이름, 참여자 권한, 초대코드, 표시 이름은 공동 가계부 운영에 사용합니다.", "수입·지출, 날짜, 분류, 결제수단, 메모, 예산과 설정값은 기록·조회·분석·백업 기능을 제공하기 위해 처리합니다. 카카오 거래 입력 원문은 거래 데이터와 함께 보관될 수 있습니다. 단톡방 연결키는 봇을 불러 준비하거나 직접 연결한 공동 가계부와 해당 방을 구분하는 데 사용합니다."], bullets: ["회원 및 세션 관리", "가계부 생성·참여·권한 관리", "거래 기록·예산·요약·정산 제공", "중복 저장 방지와 장애 대응", "법적 의무와 분쟁 대응", `개인을 알아볼 수 없게 집계한 이용 통계의 공개(${policyDateLabel(POLICY_PURPOSE_REVISION_DATE_V229146)}부터, 자세한 내용은 2절)`] },
         { title: "2. 사용자 발화와 자연어 운영 로그", paragraphs: ["사용자 발화는 요청을 이해하고 응답하기 위해 사용합니다. 발화를 외부 AI 모델의 학습 데이터로 자동 전송하거나 자동 학습 데이터로 등록하지 않습니다.", "운영 통계는 의도, 처리 결과, 지연시간과 배포 버전을 집계합니다. 실패한 요청의 일부 문장은 URL·이메일·전화번호·코드·긴 숫자 등을 마스킹하여 임시 메모리에 보관할 수 있습니다. 마스킹이 모든 개인정보를 완전히 제거한다고 보장하지는 않습니다. 별도 실패 사례 저장은 운영 설정에 따르며 거래 데이터의 보관과 구분합니다."] },
         { title: "3. 보유기간과 삭제", paragraphs: [`가계부 거래와 설정은 사용자가 서비스를 이용하는 동안 보관하며 웹에서 직접 수정·삭제할 수 있습니다. 가계부 소유자가 영구 삭제를 완료하면 해당 가계부의 거래와 관련 설정을 삭제합니다. 가계부 나가기는 참여 권한을 종료하며 공동 거래 이력은 보존합니다. 현재 계정 자체를 탈퇴·삭제하는 온라인 기능은 제공하지 않으며 개인정보 삭제 요청은 서비스 문의 경로로 확인합니다. 문의 경로는 7절의 개인정보 보호책임자 이메일(${supportEmail})입니다.`, "세션과 운영 로그는 목적에 필요한 기간만 보관합니다. 법령상 보존 의무가 있는 경우 해당 기간 동안 분리 보관할 수 있습니다."] },
         adfit ? { title: "4. 제3자 광고와 쿠키", paragraphs: [adsPolicyText(env, "privacy"), adsPolicyText(env, "privacy-control")], links: adsPolicyLinks(env) } : { title: "4. 제3자 광고와 쿠키", paragraphs: [adsPolicyText(env, "privacy") || "현재 공개 페이지에서는 Google 광고를 실행하지 않습니다. 향후 광고 기능이 활성화되면 Google을 포함한 제3자 광고 사업자가 쿠키를 사용해 사용자의 이전 방문 정보 등을 바탕으로 광고를 제공하고 성과를 측정할 수 있습니다.", "제3자는 광고 제공 과정에서 브라우저의 쿠키를 저장·조회하거나 웹 비콘과 IP 주소 같은 기술을 사용할 수 있습니다. 말해가계부는 거래 내용, 예산, 가계부 구성원 정보와 사용자 발화 원문을 광고주에게 판매하지 않습니다. 사용자는 Google 광고 설정과 브라우저 설정을 통해 광고 개인화와 쿠키를 관리할 수 있습니다."], links: [...adsPolicyLinks(env), ["Google 광고 및 데이터 이용 안내", "https://policies.google.com/technologies/ads?hl=ko"], ["Google 파트너 사이트 정보 이용 안내", "https://policies.google.com/technologies/partner-sites?hl=ko"], ["Google 개인정보처리방침", "https://policies.google.com/privacy?hl=ko"]] },
@@ -95,7 +113,7 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
         { title: "9. 만 14세 미만 아동의 개인정보", paragraphs: ["만 14세 미만 아동도 말해가계부를 쓸 수 있습니다. 가계부 기록과 로그인처럼 서비스를 쓰는 데 꼭 필요한 개인정보만 처리합니다. 이 처리는 서비스 이용 계약을 지키는 데 필요한 처리(개인정보 보호법 제15조제1항제4호)라서 따로 동의를 받지 않습니다.", "만 14세 미만 아동의 개인정보로는 꼭 필요하지 않은 정보를 모으거나 이름을 공개하는 일처럼 동의를 받아야 하는 처리를 하지 않습니다. 그런 처리가 필요하면 그 처리에서만 나이를 확인하고 법정대리인(부모 등 보호자)의 동의를 받습니다.", "아동에게 알리는 내용은 알기 쉬운 말로 씁니다(개인정보 보호법 제22조의2제3항).", "법정대리인은 아동의 개인정보를 보거나, 고치거나, 지우거나, 처리를 멈추라고 요청할 수 있습니다. 7절의 개인정보 보호책임자 이메일로 요청하면 법정대리인인지 확인한 뒤 지체 없이 처리합니다."] },
         { title: "10. 개인정보의 파기 절차와 방법", paragraphs: ["보유기간이 끝나거나 처리 목적을 이룬 개인정보는 지체 없이 파기합니다. 다른 법령에 따라 보존해야 하면 다른 정보와 분리해 그 기간 동안만 보관합니다.", "파기 절차: 파기할 개인정보를 정하고 개인정보 보호책임자의 확인을 거쳐 파기합니다. 파기 방법: 전자 파일은 복구할 수 없도록 데이터베이스에서 삭제합니다. 개인정보를 종이로 출력해 두지 않으며, 출력한 것이 있으면 분쇄하거나 소각합니다.", "거래 변경 이력(고치거나 지운 거래의 바뀌기 전 내용)은 실행 취소와 복구를 위해 보관하며, 180일이 지나면 자동으로 삭제합니다.", "사용자가 내려받은 백업 파일은 사용자 기기에 저장되므로 사용자가 직접 지워야 합니다. 장애에 대비해 데이터베이스 사본을 만드는 경우 운영자만 접근하게 하고, 원본에서 지운 정보는 사본의 보관 기간이 끝날 때 함께 지웁니다."] },
         { title: "11. 권익침해 구제 방법", paragraphs: ["개인정보 침해에 대한 신고나 상담이 필요하면 아래 기관에 문의할 수 있습니다."], bullets: ["개인정보침해신고센터(한국인터넷진흥원): privacy.kisa.or.kr, 국번 없이 118", "개인정보분쟁조정위원회: www.kopico.go.kr, 1833-6972", "대검찰청 사이버수사과: www.spo.go.kr, 국번 없이 1301", "경찰청 사이버수사국: ecrm.police.go.kr, 국번 없이 182"] },
-        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다. 동의 절차나 보호 조치를 더하거나 처리 내용을 더 자세히 적는 것처럼 이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다.", POLICY_NOTICE_DATE === POLICY_REVISION_DATE ? `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 같은 날부터 시행합니다. 이번 개정은 단톡방에서 기록뿐 아니라 조회나 설명서 보기로 봇을 불러도 그 방의 공동 가계부를 준비하는 지금의 동작에 맞춰 1절의 단톡방 연결키 설명을 고치고, 이용약관·개인정보처리방침 안내를 단톡방의 설명서 첫 화면과 봇만 불렀을 때의 인사(인사에는 이용약관 안내만)에 늘 두고 카카오톡 챗봇을 처음 쓸 때의 답(1:1 첫 기록으로 개인 가계부를 준비하는 답, 단톡방 가계부를 준비하거나 그 가계부에 들어가는 답)에도 붙인 것이어서, 처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다. 다만 처음 쓸 때의 답이 늦어지는 등 일부 답에는 안내가 붙지 않을 수 있습니다. 같은 날 개정에는 후원 확인 방법도 들어 있습니다. 후원을 확인할 때 로그인 이름 대신 ‘내 계정·보안’ 에 보이는 회원 번호를 받도록 하면서 회원 번호와 그 번호가 가리키는 계정을 6절 표에 더하고, 후원 확인 때 받는 정보와 보관 기간을 6절 표에 적고, 후원자 포인트 색 쿠키(ab_sp)를 쿠키 목록에 더했습니다. 회원 번호는 계정마다 이미 있는 내부 식별값으로 만든 번호이고 이용자에게서 새로 받는 정보가 없으며 쓰는 곳도 후원 확인과 문의뿐이어서, 이것도 이용자에게 불리하지 않은 변경입니다.` : `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`] },
+        { title: "12. 개인정보처리방침의 변경", paragraphs: ["이 방침을 바꾸면 시행 7일 전부터 서비스 화면에 알립니다. 수집 항목이나 이용 목적이 늘어나는 것처럼 이용자 권리에 중요한 변경은 시행 30일 전부터 알립니다. 동의 절차나 보호 조치를 더하거나 처리 내용을 더 자세히 적는 것처럼 이용자에게 불리하지 않은 변경은 알린 날부터 적용할 수 있습니다.", POLICY_NOTICE_DATE === POLICY_REVISION_DATE ? `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 같은 날부터 시행합니다. 이번 개정은 단톡방에서 기록뿐 아니라 조회나 설명서 보기로 봇을 불러도 그 방의 공동 가계부를 준비하는 지금의 동작에 맞춰 1절의 단톡방 연결키 설명을 고치고, 이용약관·개인정보처리방침 안내를 단톡방의 설명서 첫 화면과 봇만 불렀을 때의 인사(인사에는 이용약관 안내만)에 늘 두고 카카오톡 챗봇을 처음 쓸 때의 답(1:1 첫 기록으로 개인 가계부를 준비하는 답, 단톡방 가계부를 준비하거나 그 가계부에 들어가는 답)에도 붙인 것이어서, 처리하는 개인정보 항목과 목적이 그대로인 이용자에게 불리하지 않은 변경입니다. 다만 처음 쓸 때의 답이 늦어지는 등 일부 답에는 안내가 붙지 않을 수 있습니다. 같은 날 개정에는 후원 확인 방법도 들어 있습니다. 후원을 확인할 때 로그인 이름 대신 ‘내 계정·보안’ 에 보이는 회원 번호를 받도록 하면서 회원 번호와 그 번호가 가리키는 계정을 6절 표에 더하고, 후원 확인 때 받는 정보와 보관 기간을 6절 표에 적고, 후원자 포인트 색 쿠키(ab_sp)를 쿠키 목록에 더했습니다. 회원 번호는 계정마다 이미 있는 내부 식별값으로 만든 번호이고 이용자에게서 새로 받는 정보가 없으며 쓰는 곳도 후원 확인과 문의뿐이어서, 이것도 이용자에게 불리하지 않은 변경입니다.` : `이 개정 방침은 ${policyDateLabel(POLICY_NOTICE_DATE)}에 알리고 ${policyDateLabel(POLICY_REVISION_DATE)}부터 시행합니다.`, `${policyDateLabel(POLICY_PURPOSE_REVISION_DATE_V229146)}에 시행하는 개정은 처리 목적(1절)에 집계한 이용 통계를 서비스 안내 글에 공개하는 목적을 더하고 그 내용을 2절에 적은 것입니다. 이용 목적이 늘어나는 변경이라 시행 30일 전부터 이 방침 맨 위에 알리고, 시행 전에는 이 목적으로 통계를 공개하지 않습니다. 처리하는 항목과 보유기간은 그대로입니다.`] },
         { title: "13. 안전성 확보 조치", bullets: ["가계부별 권한 확인", "HTTPS 통신", "관리자 경로와 사용자 경로 분리", "중복 요청 방지", "민감 문자열 마스킹", "백업·복구 전 확인 절차"] },
       ],
     },
@@ -133,12 +151,15 @@ function publicPageCatalog(env = {}, url = null, extra = {}) {
   catalog.privacy.sections[1].paragraphs.push(config.failure_samples_enabled
     ? `현재 별도 실패 사례 저장은 활성화되어 있으며 설정된 보관 기준은 ${config.retention_days}일입니다. 문장 저장은 ${config.store_redacted_text ? "마스킹한 일부 문장을 포함하도록 설정되어 있습니다" : "비활성화되어 있습니다"}. 기간이 지난 사례는 정리 대상이며 실제 정리 완료 시점은 운영 작업에 따라 달라질 수 있습니다.`
     : "현재 별도 실패 사례의 영구 저장 기능은 비활성화되어 있습니다. 마스킹한 실패 문장의 임시 메모리 기록과 거래 입력 원문 보관은 이 설정과 별개입니다.");
+  // V22.9.146 B5: 집계 통계 공개 문단은 실패 사례 설정 문장 뒤에 둔다(그 문장의 ‘이 설정’ 이 통계 문단을 가리키지 않게 — 독립 검토).
+  catalog.privacy.sections[1].paragraphs.push(publicPolicyPurposeParagraphV229146());
   for (const key of ["privacy", "terms", "cookies"]) {
     catalog[key].type = "WebPage";
     catalog[key].updated = "2026-10-11";
   }
   // V22.9.95 R-9: 이번 판에 고친 방침·약관은 수정일이 개정 공고일(화면에 올린 날)이다(쿠키 안내는 그대로).
-  catalog.privacy.updated = POLICY_NOTICE_DATE;
+  // V22.9.146 B5: 방침은 이용 목적 추가 개정을 알리는 문단·알림 상자를 더해 수정일이 그 글을 고친 날이다(약관은 그대로).
+  catalog.privacy.updated = REAL_SCREENS_COPY_DATE_V229146;
   // V22.9.142 E4: 쿠키 안내는 ‘방문 측정’ 절을 더해 수정일이 2026-11-24 다(방침·약관 날짜는 그대로).
   catalog.cookies.updated = "2026-11-24";
   catalog.terms.updated = POLICY_NOTICE_DATE;
@@ -297,10 +318,10 @@ function renderPublicDemo() {
   const rows = publicDemoRows();
   const result = publicDemoSummary(rows, 300000, 100000);
   const metrics = [["total", "전체 지출"], ["budget", "분류 예산 합계"], ["covered", "예산 적용 사용액"], ["uncovered", "예산 밖 지출"], ["remaining", "남은 예산"], ["over", "초과액"]];
-  return `<section class="pubDemo" id="example" aria-labelledby="demo-title"><div class="pubDemoHeading"><div><span class="pubEyebrow">가상 데이터 · 2026년 9월의 네 기록</span><h2 id="demo-title">예산을 바꾸면 어떻게 될까요?</h2></div><p>실제 가계부에는 저장되지 않습니다.</p></div>
+  return `<section class="pubDemo" id="example" aria-labelledby="demo-title"><div class="pubDemoHeading"><div><span class="pubEyebrow">예시 데이터 · 2026년 9월의 네 기록</span><h2 id="demo-title">예산을 바꾸면 어떻게 될까요?</h2></div><p>실제 가계부에는 저장되지 않습니다.</p></div>
 <dl class="pubMetrics">${metrics.map(([key, label]) => `<div><dt>${label}</dt><dd id="demo-${key}">${result[key].toLocaleString("ko-KR")}원</dd></div>`).join("")}</dl><p class="pubDemoRate">예산 사용률 <strong id="demo-rate">${result.rate}%</strong></p>
 <form id="public-demo-form" hidden><fieldset><legend>분류별 예산 바꿔 보기</legend><div class="pubDemoInputs"><label for="demo-food">식비 예산 (원)<input id="demo-food" inputmode="numeric" value="300,000" autocomplete="off" aria-describedby="demo-help"/></label><label for="demo-transport">교통 예산 (원)<input id="demo-transport" inputmode="numeric" value="100,000" autocomplete="off" aria-describedby="demo-help"/></label><button class="pubBtn" type="submit">예산 다시 계산</button><button class="pubBtn secondary" type="button" id="demo-reset">처음 예제로</button></div><p id="demo-help">0원부터 10억원까지 입력할 수 있습니다. 0원인 분류는 예산 비교에서 제외됩니다.</p></fieldset></form><p id="demo-status" role="status" aria-live="polite" aria-atomic="true">식비와 교통비만 예산과 비교합니다. 의료비 30,000원은 예산 밖 지출입니다.</p><noscript><p>현재 기본 예제와 계산 결과를 보고 있습니다. 예산 금액을 바꾸려면 브라우저의 JavaScript를 켜세요.</p></noscript>
-${publicContentTable({ caption: "예제에 사용한 가상 거래 목록", headers: PUBLIC_DEMO_TABLE_HEADERS_V229124, rows: rows.map((row) => [row.date, row.category, row.memo, `${row.amount.toLocaleString("ko-KR")}원`]) }, "demo-table")}</section><script>(${publicDemoClient.toString()})(${publicDemoSummary.toString()},${JSON.stringify(rows)});</script>${renderPublicParserExamples()}`;
+${publicContentTable({ caption: "예제에 사용한 거래 목록", headers: PUBLIC_DEMO_TABLE_HEADERS_V229124, rows: rows.map((row) => [row.date, row.category, row.memo, `${row.amount.toLocaleString("ko-KR")}원`]) }, "demo-table")}</section><script>(${publicDemoClient.toString()})(${publicDemoSummary.toString()},${JSON.stringify(rows)});</script>${renderPublicParserExamples()}`;
 }
 
 // V22.9.87 T-21: 공개 첫 화면과 /demo 위쪽의 앱 화면 미리보기(가상 데이터, 읽기 전용). 앱 홈 예산 카드(T-12, my/mobile-home.js)와
@@ -316,19 +337,18 @@ ${publicContentTable({ caption: "예제에 사용한 가상 거래 목록", head
 // 숫자는 계산 예제와 같은 함수(publicDemoRows·publicDemoSummary)에서 나온다. 분류별 예산이라 앱 홈처럼 예산을 잡은 분류의 지출(225,000원)만
 // 사용률에 넣고 의료비는 둘째 줄 ‘예산 안 정한 지출’로 적는다(my/mobile-home.js budgetUncovered, V22.9.89 U-02 에서 옛 ‘예산 밖’·‘지출’ 이름을 바꿈). 경과율 17 ÷ 30 = 57% 가 사용률 56% 보다 커서
 // 앱의 ‘만 썼어요’ 문장이고(검사가 갈래를 확인한다), 하루 금액은 175,000 ÷ 오늘 포함 남은 14일 = 12,500원이다. 거래 행은 최근 세 기록이다.
-function publicAppPreviewHtml(onDemo = false) {
+// V22.9.146 애드센스 B4: 첫 화면의 미리보기 그림은 예시 데이터로 찍은 실제 화면 사진(public/real-screens-v229146.js)으로 바꿨다.
+// 이 그림은 /demo 위쪽에만 남는다(위 설명의 첫 화면 갈래·숫자는 V22.9.87~145 기록이다).
+function publicAppPreviewHtml() {
   const row = (ck, type, title, line, amount) => `<article class="v8-tx" data-type="${type}"><div class="v8-tx-main"><span class="abCat" data-ck="${ck}" aria-hidden="true"><i class="abCatIcon"></i></span><div><b>${title}</b><span>${line}</span></div><strong class="${type}">${amount}</strong></div></article>`;
-  if (onDemo) {
-    const won = (amount) => amount.toLocaleString("ko-KR");
-    const rows = publicDemoRows();
-    const sum = publicDemoSummary(rows, 300000, 100000);
-    const day = 17, days = 30;
-    const elapsed = Math.round((day / days) * 100);
-    const daily = Math.floor(sum.remaining / (days - day + 1));
-    const recent = [...rows].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
-    return `<figure class="pubPreview"><p class="pubPreviewLabel">아래 예제를 웹 가계부 홈 화면으로 본 모습 · 2026년 9월 17일 기준</p><div class="pubScreen"><section class="homeBudget"><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span>${sum.rate}%</span></em></div><div class="homeBudgetAmount"><b>${won(sum.remaining)}</b><small>원</small></div><div class="homeProgress" style="--ab-today:${elapsed}%"><i style="width:${sum.rate}%"></i></div><div class="homeBudgetFoot"><span>예산 ${won(sum.budget)}원</span><span>예산 쓴 돈 ${won(sum.covered)}원<br>예산 안 정한 지출 ${won(sum.uncovered)}원</span></div><div class="homeDailyPlan homePace"><p>이번 달의 ${elapsed}%가 지났고 예산은 ${sum.rate}%만 썼어요. 하루 <span data-ab-num="${daily}">${won(daily)}</span>원씩 쓰면 돼요.</p></div></section>${recent.map((item) => row(categoryKey(item.category, "expense", item.memo), "expense", item.memo, `${item.category} · ${Number(item.date.slice(5, 7))}월 ${Number(item.date.slice(8, 10))}일`, `-${won(item.amount)}원`)).join("")}</div><figcaption>아래 예산 계산 예제와 같은 가상 기록으로 그린 웹 가계부 홈 화면이에요. 실제 기록이 아니고, 누르거나 고칠 수 없어요.</figcaption></figure>`;
-  }
-  return `<figure class="pubPreview"><div class="pubScreen"><section class="homeBudget"><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span>20%</span></em></div><div class="homeBudgetAmount"><b>981,400</b><small>원</small></div><div class="homeProgress" style="--ab-today:39%"><i style="width:20%"></i></div><div class="homeBudgetFoot"><span>예산 1,230,000원</span><span>예산 쓴 돈 248,600원</span></div><div class="homeDailyPlan homePace"><p>이번 달의 39%가 지났고 예산은 20%만 썼어요. 하루 <span data-ab-num="49070">49,070</span>원씩 쓰면 돼요.</p></div></section>${row("food", "expense", "점심", "식비 · 국민카드", "-12,000원")}${row("cafe", "expense", "가족 카페", "카페/간식 · 카카오페이", "-28,600원")}${row("income", "income", "10월 월급", "급여 · 급여통장", "+3,200,000원")}</div><figcaption>가상 데이터로 그린 웹 가계부 홈 화면이에요. 실제 기록이 아니고, 누르거나 고칠 수 없어요.</figcaption></figure>`;
+  const won = (amount) => amount.toLocaleString("ko-KR");
+  const rows = publicDemoRows();
+  const sum = publicDemoSummary(rows, 300000, 100000);
+  const day = 17, days = 30;
+  const elapsed = Math.round((day / days) * 100);
+  const daily = Math.floor(sum.remaining / (days - day + 1));
+  const recent = [...rows].sort((a, b) => b.date.localeCompare(a.date)).slice(0, 3);
+  return `<figure class="pubPreview"><p class="pubPreviewLabel">아래 예제를 웹 가계부 홈 화면으로 본 모습 · 2026년 9월 17일 기준</p><div class="pubScreen"><section class="homeBudget"><div class="homeBudgetTop"><span>이번 달 쓸 수 있는 돈</span><em>예산 사용률 <span>${sum.rate}%</span></em></div><div class="homeBudgetAmount"><b>${won(sum.remaining)}</b><small>원</small></div><div class="homeProgress" style="--ab-today:${elapsed}%"><i style="width:${sum.rate}%"></i></div><div class="homeBudgetFoot"><span>예산 ${won(sum.budget)}원</span><span>예산 쓴 돈 ${won(sum.covered)}원<br>예산 안 정한 지출 ${won(sum.uncovered)}원</span></div><div class="homeDailyPlan homePace"><p>이번 달의 ${elapsed}%가 지났고 예산은 ${sum.rate}%만 썼어요. 하루 <span data-ab-num="${daily}">${won(daily)}</span>원씩 쓰면 돼요.</p></div></section>${recent.map((item) => row(categoryKey(item.category, "expense", item.memo), "expense", item.memo, `${item.category} · ${Number(item.date.slice(5, 7))}월 ${Number(item.date.slice(8, 10))}일`, `-${won(item.amount)}원`)).join("")}</div><figcaption>아래 예산 계산 예제와 같은 예시 기록으로 그린 웹 가계부 홈 화면이에요. 실제 기록이 아니고, 누르거나 고칠 수 없어요.</figcaption></figure>`;
 }
 
 // 미리보기 CSS: 공개 화면은 셸 CSS 를 싣지 않으므로 앱에서 잰 값(390px 라이트, 셸 토큰 라이트 값)을 .pubPreview 안에만 옮겨 둔다.
@@ -354,9 +374,9 @@ function publicPreviewStyles(onDemo = false) {
 // 카카오 로그인 띠 → 바닥글. 승인 시안(Landing)의 문구다. ‘알아 둘 점’ 문장은 예전 ‘기록 이후에 필요한 도구’ 절에서 그대로 옮겼다.
 function publicLandingHtml() {
   const ico = (name) => `<i class="pubIco pubIco-${name}" aria-hidden="true"></i>`;
-  return `<section class="pubLand pubLandPreview" id="app-preview" aria-labelledby="land-preview"><div class="pubLandHead"><h2 id="land-preview">웹에서는 이렇게 보여요</h2><span class="pubLandTag">가상 데이터</span></div><p class="pubLandLead">카카오톡으로 남긴 기록이 웹 홈에서 남은 예산, 이번 달 속도, 최근 기록으로 정리돼요.</p>${publicAppPreviewHtml()}</section>`
+  return `<section class="pubLand pubLandPreview" id="app-preview" aria-labelledby="land-preview"><div class="pubLandHead"><h2 id="land-preview">웹에서는 이렇게 보여요</h2><span class="pubLandTag">실제 화면</span></div><p class="pubLandLead">카카오톡으로 남긴 기록이 웹 홈에서 남은 예산, 이번 달 속도, 최근 기록으로 정리돼요.</p>${realScreensFigureHtml(["home", "list"], "카카오톡 1:1 채팅으로 보낸 한 줄이 웹 가계부의 홈과 내역에 이렇게 쌓여요.")}<p class="pubShotLead">사진 속 기록을 만든 예시 문장은 <a href="/kakao-guide#real-screens">카카오톡 사용 안내</a>에 그대로 실었어요.</p></section>`
     + `<section class="pubLand" aria-labelledby="land-steps"><h2 id="land-steps">기록은 세 걸음이면 끝나요</h2><ol class="pubSteps"><li>${ico("chat")}<div><b>카카오톡에 한 줄</b><p>1:1 채팅에 ‘점심 만원’이라고 보내면 웹 로그인 없이도 첫 기록이 시작돼요.</p></div></li><li>${ico("sparkle")}<div><b>금액·내용·결제수단 정리</b><p>한 줄에서 금액과 결제수단을 나눠 담고, 분류를 붙여 둬요.</p></div></li><li>${ico("stats")}<div><b>웹에서 예산 확인</b><p>남은 예산, 하루에 쓸 수 있는 돈, 분류별 흐름을 한 화면에서 봐요.</p></div></li></ol></section>`
-    + `<section class="pubLand pubLandGroup" aria-labelledby="land-group"><h2 id="land-group">단톡방이면 공동 가계부가 돼요</h2><p>새 단톡방에서 봇을 부르고 ‘점심 12000원’이라고 적으면 그 방의 공동 가계부가 준비돼요. 함께 쓴 돈은 누가 얼마를 보내면 되는지까지 계산해 드려요.</p><p class="pubFlow"><span>민지</span><i aria-hidden="true">→</i><span>준호</span><b>42,500원 보내기</b></p><p class="pubLandFoot">가상 예시예요. 송금 금액은 제안만 하고, 실제 송금은 직접 해요.</p>${publicContentLinks([["공동 가계부와 정산 사례", "/group-accountbook"]])}</section>`
+    + `<section class="pubLand pubLandGroup" aria-labelledby="land-group"><h2 id="land-group">단톡방이면 공동 가계부가 돼요</h2><p>새 단톡방에서 봇을 부르고 ‘점심 12000원’이라고 적으면 그 방의 공동 가계부가 준비돼요. 함께 쓴 돈은 누가 얼마를 보내면 되는지까지 계산해 드려요.</p>${realScreensFigureHtml(["settle"], "네 사람이 여행 경비를 적은 단톡방 가계부의 정산 화면이에요. 송금 금액은 제안만 하고, 실제 송금은 직접 해요.")}${publicContentLinks([["공동 가계부와 정산 사례", "/group-accountbook"]])}</section>`
     + `<section class="pubLand pubLandNote" aria-labelledby="land-note">${ico("shield")}<div><h2 id="land-note">알아 둘 점</h2><p>말해가계부는 사용자가 입력한 생활비를 정리하는 독립 서비스입니다. 은행·카드사 계정을 자동으로 연결하거나 투자·세무 판단을 대신하지 않습니다. 카카오가 직접 제공하는 공식 가계부 서비스는 아닙니다.</p></div></section>`;
 }
 
@@ -396,18 +416,18 @@ function publicTourTopCategories() {
 
 function publicTourHtml() {
   const stop = (id, num, title, body, preview, where, links) => `<li class="pubTourStop" id="tour-${id}"><h3><span aria-hidden="true">${num}</span>${title}</h3><p>${body}</p>${preview}<p class="pubTourWhere">${where}</p>${publicContentLinks(links)}</li>`;
-  const chat = `<figure class="pubTourPreview pubChat"><figcaption>카카오톡 1:1 채팅 · 가상 예시</figcaption><p class="pubChatMe"><span class="pubSr">내가 보낸 말: </span>${escapeHtml(PUBLIC_TOUR_CHAT.utterance)}</p><div class="pubChatBot"><b>말해가계부</b><p>${PUBLIC_TOUR_CHAT.reply.map((line) => escapeHtml(line)).join("\n")}</p></div></figure>`;
+  const chat = `<figure class="pubTourPreview pubChat"><figcaption>카카오톡 1:1 채팅 · 예시</figcaption><p class="pubChatMe"><span class="pubSr">내가 보낸 말: </span>${escapeHtml(PUBLIC_TOUR_CHAT.utterance)}</p><div class="pubChatBot"><b>말해가계부</b><p>${PUBLIC_TOUR_CHAT.reply.map((line) => escapeHtml(line)).join("\n")}</p></div></figure>`;
   const settleSay = (name, text) => (name === PUBLIC_TOUR_SETTLE.me ? `<p class="pubChatMe"><span class="pubSr">내가 보낸 말: </span>${escapeHtml(text)}</p>` : `<div class="pubChatPeer"><b>${escapeHtml(name)}</b><p>${escapeHtml(text)}</p></div>`);
-  const settle = `<figure class="pubTourPreview pubChat"><figcaption>카카오톡 단톡방 · ${escapeHtml(PUBLIC_TOUR_SETTLE.me)}의 화면 · 가상 예시</figcaption>${PUBLIC_TOUR_SETTLE.records.map(([name, text]) => settleSay(name, text)).join("")}<p class="pubChatNote">기록마다 오는 저장 답과 이름 정하기(‘내 이름 민지’)는 생략했어요</p>${settleSay(PUBLIC_TOUR_SETTLE.me, PUBLIC_TOUR_SETTLE.utterance)}<div class="pubChatBot"><b>말해가계부</b><p>${PUBLIC_TOUR_SETTLE.reply.map((line) => escapeHtml(line)).join("\n")}</p></div></figure>`;
-  const report = `<figure class="pubTourPreview pubTourReport"><figcaption>2026년 9월 · 지출 상위 분류 · 가상 예시</figcaption><table><thead><tr><th scope="col">분류</th><th scope="col">금액</th><th scope="col">건수</th></tr></thead><tbody>${renderReportTopRows({ top_categories: publicTourTopCategories() })}</tbody></table></figure>`;
-  return `<section class="pubSection pubTour" id="tour" aria-labelledby="tour-title"><h2 id="tour-title">한눈에 보는 일곱 가지 기능</h2><p>아래 예시는 모두 가상 데이터예요. 기록은 카카오톡이나 웹 가계부 홈의 빠른 입력으로 하고, 카드 내역 파일은 ‘가져오기’로 한 번에 옮겨요. 확인과 정리는 로그인한 웹 가계부에서 해요. 각 화면의 주소는 아래 ‘주요 화면 주소’에 모아 두었어요.</p><ol class="pubTourList" role="list">`
+  const settle = `<figure class="pubTourPreview pubChat"><figcaption>카카오톡 단톡방 · ${escapeHtml(PUBLIC_TOUR_SETTLE.me)}의 화면 · 예시</figcaption>${PUBLIC_TOUR_SETTLE.records.map(([name, text]) => settleSay(name, text)).join("")}<p class="pubChatNote">기록마다 오는 저장 답과 이름 정하기(‘내 이름 민지’)는 생략했어요</p>${settleSay(PUBLIC_TOUR_SETTLE.me, PUBLIC_TOUR_SETTLE.utterance)}<div class="pubChatBot"><b>말해가계부</b><p>${PUBLIC_TOUR_SETTLE.reply.map((line) => escapeHtml(line)).join("\n")}</p></div></figure>`;
+  const report = `<figure class="pubTourPreview pubTourReport"><figcaption>2026년 9월 · 지출 상위 분류 · 예시</figcaption><table><thead><tr><th scope="col">분류</th><th scope="col">금액</th><th scope="col">건수</th></tr></thead><tbody>${renderReportTopRows({ top_categories: publicTourTopCategories() })}</tbody></table></figure>`;
+  return `<section class="pubSection pubTour" id="tour" aria-labelledby="tour-title"><h2 id="tour-title">한눈에 보는 일곱 가지 기능</h2><p>아래 예시의 이름과 금액은 모두 예시 데이터예요. 기록은 카카오톡이나 웹 가계부 홈의 빠른 입력으로 하고, 카드 내역 파일은 ‘가져오기’로 한 번에 옮겨요. 확인과 정리는 로그인한 웹 가계부에서 해요. 각 화면의 주소는 아래 ‘주요 화면 주소’에 모아 두었어요.</p><ol class="pubTourList" role="list">`
     + stop("kakao", 1, "카카오톡에 한 줄로 기록해요", "말해가계부 채널 1:1 채팅이나 봇을 부른 단톡방에 ‘식사 60000원 카드’처럼 보내면 날짜·금액·결제수단·분류를 나눠 저장하고, 고칠 때 쓸 번호를 알려 줘요.", chat, "어디서: 카카오톡 채팅방", [["카카오 입력·수정 방법", "/kakao-guide"], ["첫 기록과 웹 이어 열기", "/how-it-works"]])
     + stop("home", 2, "웹 홈에서 남은 예산을 봐요", "웹 가계부 홈은 이번 달 쓸 수 있는 돈, 예산 사용률, 하루에 써도 되는 금액과 최근 기록을 한 화면에 모아요. 이 페이지 맨 위 화면이 아래 예제를 9월 17일에 홈으로 본 모습이에요.", "", "어디서: 로그인 뒤 /app", [["예산 숫자 읽는 법", "/budget-guide"]])
     + stop("edit", 3, "고치고, 지워도 되돌릴 수 있어요", "웹 가계부의 거래 내역에서 금액·분류·메모를 고치거나 기록을 지울 수 있어요. 지운 직후 5초 동안은 ‘되돌리기’로 다시 살릴 수 있어요. 카카오톡에서는 저장 답의 번호로 ‘수정 01번 금액 13000’, ‘삭제 01번’처럼 보내요.", "", "어디서: 로그인 뒤 /app?tab=transactions(거래 내역) · 카카오톡", [["기능과 권한", "/service-guide"]])
     + stop("report", 4, "리포트로 어디에 많이 썼는지 봐요", "생활비 리포트는 주간·월간 지출을 분류별로 정리하고 지난 기간과 비교해요. 아래 표는 예제 네 기록으로 만든 ‘지출 상위 분류’예요.", report, "어디서: 로그인 뒤 /reports · 1년 흐름은 /annual", [["리포트 읽는 법", "/report-guide"]])
     + stop("budget", 5, "예산을 바꿔 계산해 봐요", "분류별 예산을 정하면 예산을 정한 분류의 지출만 사용률에 넣고, 나머지는 ‘예산 안 정한 지출’로 따로 보여 줘요. 아래 예제에서 식비·교통 예산을 직접 바꿔 보세요.", "", "어디서: 로그인 뒤 /budgets", [["예산 계산 예제로 가기", "#example"], ["예산 계산 방법", "/budget-guide"]])
     + stop("group", 6, "단톡방이면 함께 쓰는 가계부가 돼요", "단톡방에서 봇을 부르고 기록하면 그 방의 공동 가계부가 준비돼요. 참여자와 초대코드는 ‘참여자·초대’에서, 누가 얼마를 보내면 되는지는 ‘정산’에서 봐요. 송금 금액은 제안만 하고 실제 송금은 직접 해요.", "", "어디서: 카카오톡 단톡방 · 로그인 뒤 /my/members · /settlement-summary", [["공동 가계부와 정산 사례", "/group-accountbook"]])
-    + stop("settle", 7, "모임 회비·여행 경비도 단톡방에서 정산해요", "동아리 회비, 여행 경비, 커플·친구 모임의 더치페이를 단톡방에서 바로 정리해요. 봇을 부른 단톡방에서 각자 낸 돈을 한 줄씩 기록하고 ‘정산’이라고 보내면, 이번 달 지출을 똑같이 나눠 누가 누구에게 얼마를 보내면 되는지 알려 줘요. 아래는 네 사람이 여행 경비를 나눈 가상 예시예요.", settle, "어디서: 카카오톡 단톡방 · 비율·품목별로 나누려면 로그인 뒤 /settlement-summary", [["모임 총무로 쓰는 법", "/group-accountbook"]])
+    + stop("settle", 7, "모임 회비·여행 경비도 단톡방에서 정산해요", "동아리 회비, 여행 경비, 커플·친구 모임의 더치페이를 단톡방에서 바로 정리해요. 봇을 부른 단톡방에서 각자 낸 돈을 한 줄씩 기록하고 ‘정산’이라고 보내면, 이번 달 지출을 똑같이 나눠 누가 누구에게 얼마를 보내면 되는지 알려 줘요. 아래는 네 사람이 여행 경비를 나눈 예시예요.", settle, "어디서: 카카오톡 단톡방 · 비율·품목별로 나누려면 로그인 뒤 /settlement-summary", [["모임 총무로 쓰는 법", "/group-accountbook"]])
     + `</ol></section>`;
 }
 
@@ -424,7 +444,7 @@ function publicTourStyles() {
 // 카카오 로그인 띠: 카카오 로그인이 준비된 서버에서는 /my 와 같은 카카오 버튼(/auth/kakao/start), 아니면 /my 로 가는 주 버튼.
 function publicLandingBand(env = {}) {
   const start = inspectKakaoLoginConfig(env).ready ? kakaoLoginButtonHtml() : `<a class="pubBtn" href="/my">내 가계부 시작하기</a>`;
-  return `<section class="pubBand" aria-labelledby="land-band"><h2 id="land-band">오늘 쓴 돈부터 적어 볼까요?</h2><div class="pubBandActions">${start}<a class="pubBtn secondary" href="/demo">가상 가계부 둘러보기</a></div></section>`;
+  return `<section class="pubBand" aria-labelledby="land-band"><h2 id="land-band">오늘 쓴 돈부터 적어 볼까요?</h2><div class="pubBandActions">${start}<a class="pubBtn secondary" href="/demo">예시 가계부 둘러보기</a></div></section>`;
 }
 
 function publicLandingStyles() {
@@ -434,13 +454,13 @@ function publicLandingStyles() {
     + `.pubSteps{display:grid;gap:12px;margin:0;padding:0;list-style:none}.pubSteps li{display:flex;gap:14px;align-items:flex-start;padding:16px;border:1px solid #e9ebee;border-radius:16px;background:#fff}.pubHome .pubSteps b{display:block;font-size:16px;font-weight:700;line-height:1.5}.pubSteps p{margin:4px 0 0;color:#526075;font-size:14px;line-height:1.7}`
     + `.pubIco{display:grid;place-items:center;flex:none;width:44px;height:44px;border-radius:14px;background:#e8f3ff}.pubIco:before{content:"";width:22px;height:22px;background:#1d4ed8;-webkit-mask:var(--ab-ico) center/contain no-repeat;mask:var(--ab-ico) center/contain no-repeat}`
     + ico("chat", AB_NAV_ICON_PATHS.chat) + ico("sparkle", AB_NAV_ICON_PATHS.sparkle) + ico("stats", AB_NAV_ICON_PATHS.stats) + ico("shield", AB_NAV_ICON_PATHS.shield)
-    + `.pubLandGroup p{max-width:760px;margin:0;color:#43516a;font-size:16px;line-height:1.8}.pubLandGroup .pubFlow{display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:520px;margin:16px 0 8px;padding:12px 14px;border:1px solid #e9ebee;border-radius:14px;background:#fff;color:#191f28;font-size:14px;font-weight:400}.pubFlow span{padding:4px 12px;border-radius:999px;background:#f4f6f8}.pubFlow i{color:#5f6b7a;font-style:normal}.pubHome .pubFlow b{margin-left:auto;color:#087a55;font-weight:700}.pubLandGroup .pubLandFoot{color:#5f6b7a;font-size:14px}`
+    + `.pubLandGroup p{max-width:760px;margin:0;color:#43516a;font-size:16px;line-height:1.8}.pubHome `
     + `.pubLandNote{display:flex;gap:14px;align-items:flex-start}.pubLandNote .pubIco{width:40px;height:40px;border-radius:12px}.pubHome .pubLandNote h2{margin:0 0 6px;font-size:18px}.pubLandNote p{max-width:760px;margin:0;color:#43516a;font-size:16px;line-height:1.8}`
     + `.pubBand{margin:12px 0 4px;padding:26px 20px;border-radius:24px;background:#e8f3ff;text-align:center}.pubHome .pubBand h2{margin:0 0 16px;font-size:20px}.pubBandActions{display:grid;gap:10px;max-width:420px;margin:0 auto}.pubBand .pubBtn{min-height:54px}.pubBand .pubBtn.secondary{background:#fff!important}`
     + `.kakaoBtn{display:flex;align-items:center;justify-content:center;gap:10px;min-height:54px;border-radius:12px;background:#fee500;color:rgba(0,0,0,.85);font-size:16px;font-weight:800;text-decoration:none}.kakaoBtn svg{width:22px;height:22px;fill:#000}`
     // V22.9.95 R-9: 띠의 카카오 로그인은 GET 폼이다(로그인 화면과 같은 마크업). 제출 단추가 글꼴을 물려받는다. V22.9.114: 동의 칸 대신 폼 아래 약관 안내 한 줄(.termsNote).
     + `button.kakaoBtn{width:100%;border:0;font:inherit;font-size:16px;font-weight:800;cursor:pointer}.pubBand .termsNote{margin:8px 0 0;color:#5f6b7a;font-size:12.5px;line-height:1.5;text-align:center;overflow-wrap:anywhere}.pubBand .termsNote a{color:#1d4ed8;font-weight:700;text-decoration:underline}`
-    + `@media(min-width:760px){.pubSteps{grid-template-columns:repeat(3,minmax(0,1fr))}.pubSteps li{flex-direction:column}}@media(min-width:860px){.pubLandPreview{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,440px);grid-template-rows:auto auto 1fr;column-gap:48px;align-items:start}.pubLandPreview>*{grid-column:1}.pubLandPreview>.pubPreview{grid-column:2;grid-row:1/-1}.pubLandHead{justify-content:flex-start}}@media(max-width:600px){.pubHome .pubHeroActions{flex-direction:column}.pubHome .pubHero h1{font-size:32px}}`;
+    + `@media(min-width:760px){.pubSteps{grid-template-columns:repeat(3,minmax(0,1fr))}.pubSteps li{flex-direction:column}}@media(min-width:860px){.pubLandPreview{display:grid;grid-template-columns:minmax(0,1fr) minmax(360px,440px);grid-template-rows:auto auto 1fr;column-gap:48px;align-items:start}.pubLandPreview>*{grid-column:1}.pubLandPreview>.pubShots{grid-column:2;grid-row:1/-1;margin:0}.pubLandPreview>.pubShots ul{flex-wrap:nowrap;overflow-x:visible}.pubLandPreview>.pubShots img{width:170px}.pubLandHead{justify-content:flex-start}}@media(max-width:600px){.pubHome .pubHeroActions{flex-direction:column}.pubHome .pubHero h1{font-size:32px}}`;
 }
 
 // V22.9.136(화면 측정 1440 — 공개 화면 머리 메뉴의 현재 위치가 면 대비 1.12 로 다른 메뉴와 구분되지 않았다): 현재 위치(.active, aria-current)에만
@@ -468,7 +488,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   const pageTitle = page.htmlTitle || `${page.title} · ${appName(env)}`;
   const sectionList = safeArray(page.sections);
   const living = publicArticleIsLiving(page);
-  const sections = sectionList.map((section, index) => `<section class="pubSection" id="section-${index + 1}"><h2>${escapeHtml(section.title)}</h2>${safeArray(section.paragraphs).map((p) => `<p>${escapeHtml(p)}</p>`).join("")}${section.table ? publicContentTable(section.table, `table-${index + 1}`) : ""}${safeArray(section.steps).length ? `<ol>${section.steps.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ol>` : ""}${safeArray(section.bullets).length ? `<ul>${section.bullets.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>` : ""}${section.cards ? publicArticleCards(section.cards) : ""}${section.note ? `<aside class="pubNote">${escapeHtml(section.note)}</aside>` : ""}${section.links ? publicContentLinks(section.links) : ""}</section>${page.demo && index === 0 ? renderPublicDemo() : ""}`).join("");
+  const sections = sectionList.map((section, index) => `<section class="pubSection" id="section-${index + 1}"><h2>${escapeHtml(section.title)}</h2>${safeArray(section.paragraphs).map((p) => `<p>${escapeHtml(p)}</p>`).join("")}${section.table ? publicContentTable(section.table, `table-${index + 1}`) : ""}${section.shots ? realScreensSectionHtml(section.shots) : ""}${safeArray(section.steps).length ? `<ol>${section.steps.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ol>` : ""}${safeArray(section.bullets).length ? `<ul>${section.bullets.map((p) => `<li>${escapeHtml(p)}</li>`).join("")}</ul>` : ""}${section.cards ? publicArticleCards(section.cards) : ""}${section.note ? `<aside class="pubNote">${escapeHtml(section.note)}</aside>` : ""}${section.links ? publicContentLinks(section.links) : ""}</section>${page.demo && index === 0 ? renderPublicDemo() : ""}`).join("");
   const faqs = safeArray(page.faqs).length ? `<section class="pubSection" id="questions"><h2>자주 묻는 질문</h2><div class="pubFaq">${page.faqs.map(([q, a, link]) => `<details><summary>${escapeHtml(q)}</summary><p>${escapeHtml(a)}</p>${link ? publicContentLinks([link]) : ""}</details>`).join("")}</div>${publicContentLinks(living ? [["다른 생활비 가이드 글 보기", "/articles"], ["틀린 내용 알려 주기", "/contact"]] : [["가이드에서 자세히 보기", "/guides"], ["해결되지 않았다면 문의하기", "/contact"]])}</section>` : "";
   // V22.9.97 모임 정산: FAQ 항목의 셋째 값은 답 아래 링크 한 줄이다(구조화 데이터 답에는 넣지 않는다). 그 링크 아래 여백 규칙은 링크를 단 답이
   // 있는 화면(/faq)에만 싣는다(다른 공개 화면의 바이트는 그대로).
@@ -479,7 +499,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   const demoInputCss = page.demo ? PUBLIC_DEMO_INPUT_CSS_V229124 : "";
   const extras = publicArticleExtras(page, living);
   const type = page.type || "Article";
-  const primary = page.primary || ["가상 예제로 확인하기", "/demo"];
+  const primary = page.primary || ["예제로 확인하기", "/demo"];
   const secondary = page.secondary || ["전체 사용 가이드", "/guides"];
   const chartHtml = living ? renderArticleDataChartV229139(key) : "";
   const chartCss = chartHtml ? ".pubDataChart{margin:20px 0 24px;padding:16px;border:1px solid #dce3ef;border-radius:16px;background:#fff}.pubChartSvg{display:block;width:100%;height:auto;max-height:220px}.pubDataChart figcaption{margin-top:8px;color:#526075;font-size:13.5px;line-height:1.6}" : "";
@@ -505,7 +525,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   // V22.9.104 A-4: 글에 기준 한 줄(basis, 세무 글 8편의 귀속연도·확인한 법령 시점)이 있으면 작성·수정일 줄 바로 아래에 같은 모양(pubMeta)으로
   // 단다. 머리(pubHero) 안이라 본문 분량·40자 창 검사에는 들어가지 않고, 새 CSS 가 없어 다른 화면의 바이트는 그대로다.
   const readingNext = living ? `<a href="/articles">생활비 가이드 글 전체 목록 보기 →</a>` : `<a href="/guides">다른 사용 가이드 찾아보기 →</a>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/>${page.updatesFeed ? `<link rel="alternate" type="application/rss+xml" title="말해가계부 업데이트 소식" href="${escapeHtml(`${origin}/updates.xml`)}"/>` : ""}<meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${faqLinkCss}${tableStackCss}${demoInputCss}${page.updatesFeed ? PUBLIC_UPDATES_CSS_V229143 : ""}${chartCss}${inlineWorksheet ? inlineWorksheet.cssHtml : ""}${page.landing || page.demo ? publicPreviewStyles(!!page.demo) : ""}${page.landing ? publicLandingStyles() : ""}${page.demo ? publicTourStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml(true) : ""}<p class="pubMeta">${metaLine}</p>${page.basis ? `<p class="pubMeta pubBasis">${escapeHtml(page.basis)}</p>` : ""}<div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.landing ? publicLandingHtml() : ""}${page.demo ? publicTourHtml() : ""}${toolHubHtml}${extras.summary}${toc}${chartHtml}${sections}${page.updatesFeed ? publicUpdatesListV229143(PUBLIC_UPDATES_V229143) : ""}${inlineWorksheet ? inlineWorksheet.sectionHtml : ""}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}${inlineWorksheet ? inlineWorksheet.scriptHtml : ""}</main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/>${page.updatesFeed ? `<link rel="alternate" type="application/rss+xml" title="말해가계부 업데이트 소식" href="${escapeHtml(`${origin}/updates.xml`)}"/>` : ""}<meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${faqLinkCss}${tableStackCss}${demoInputCss}${page.updatesFeed ? PUBLIC_UPDATES_CSS_V229143 : ""}${chartCss}${inlineWorksheet ? inlineWorksheet.cssHtml : ""}${page.demo ? publicPreviewStyles(true) : ""}${page.landing || sectionList.some((section) => section && section.shots) ? REAL_SCREENS_CSS_V229146 : ""}${page.landing ? publicLandingStyles() : ""}${page.demo ? publicTourStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml() : ""}<p class="pubMeta">${metaLine}</p>${page.basis ? `<p class="pubMeta pubBasis">${escapeHtml(page.basis)}</p>` : ""}<div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.notice ? `<p class="pubNote" id="revision-notice" role="note"><b>개정 알림</b> ${escapeHtml(page.notice)}</p>` : ""}${page.landing ? publicLandingHtml() : ""}${page.demo ? publicTourHtml() : ""}${toolHubHtml}${extras.summary}${toc}${chartHtml}${sections}${page.updatesFeed ? publicUpdatesListV229143(PUBLIC_UPDATES_V229143) : ""}${inlineWorksheet ? inlineWorksheet.sectionHtml : ""}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}${inlineWorksheet ? inlineWorksheet.scriptHtml : ""}</main></body></html>`;
 }
 
 // V22.9.40 (B): 광고 게이트가 쓰는 화면 키는 정본 경로다. 정책·신원 페이지는 게이트의 허용 목록에 없다.

@@ -34,6 +34,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { app, BASE, ctx, failure, fixture, intercept, page, skill, withClock } from "./lib-audit-v22934.mjs";
 import { KAKAO_GUIDE_COPY_REVISION_DATE, POLICY_NOTICE_DATE, POLICY_REVISION_DATE, PUBLIC_COPY_REVISION_DATE } from "../src/modules/public/site-config.js";
+import { REAL_SCREENS_COPY_DATE_V229146 } from "../src/modules/public/site-config.js";
 import { kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoTermsNoticeResponseV229118, noteKakaoTermsNoticeDroppedV229118 } from "../src/modules/kakao/response-builders.js";
 import { kakaoGroupFirstKeys } from "../src/modules/kakao/group-links-first-record.js";
 
@@ -75,8 +76,16 @@ const visible = (html) => html.replace(/<script[\s\S]*?<\/script>/g, " ").replac
   // 날짜로 고정하는 것을 막았다. 여기서는 6곳이 이 상수에서 나오는지와 이번 판 값만 본다.
   const guide = read("src/modules/public/guide-content.js");
   const support = read("src/modules/public/support-page.js");
-  ok(count(guide, "updated: PUBLIC_COPY_REVISION_DATE") === 2 && guide.includes('updated: "2026-11-22", landing: true') && count(guide, "updated: KAKAO_GUIDE_COPY_REVISION_DATE") === 1 && count(support, "updated: PUBLIC_COPY_REVISION_DATE") === 1, "0 C2 안내 쪽은 각 문서 개정일을 쓰고 홈은 정산 예제를 연결한 날짜를 쓴다");
-  ok(/^\d{4}-\d{2}-\d{2}$/.test(GUIDE_DATE) && GUIDE_DATE >= COPY_DATE && !new RegExp(`updated: "${GUIDE_DATE}"`).test(guide), "0 C2 /kakao-guide 수정일 상수는 날짜 꼴이고 다섯 쪽의 수정일보다 앞서지 않으며 쪽에 날짜 글자를 따로 적지 않는다");
+  // V22.9.146: 날짜 글자 대조는 /kakao-guide 쪽 정의 안에서만 한다 — 같은 파일의 /kakao-sentences(V22.9.145)는 제 날짜(2026-11-25)를 글자로 적고, V22.9.146 의 수정일 상수도 그날이다.
+  const pageSource = (source, key) => {
+    const start = source.indexOf(`\n    "${key}": page(`);
+    if (start < 0) return "";
+    const next = source.slice(start + 1).search(/\n {4}"[a-z-]+": page\(/);
+    return next < 0 ? source.slice(start) : source.slice(start, start + 1 + next);
+  };
+  ok(pageSource(guide, "kakao-guide").includes("updated: KAKAO_GUIDE_COPY_REVISION_DATE"), "0 C2 /kakao-guide 쪽 정의를 찾았다(수정일 = 상수)");
+  ok(count(guide, "updated: PUBLIC_COPY_REVISION_DATE") === 2 && guide.includes('updated: REAL_SCREENS_COPY_DATE_V229146, landing: true') && count(guide, "updated: KAKAO_GUIDE_COPY_REVISION_DATE") === 1 && count(support, "updated: PUBLIC_COPY_REVISION_DATE") === 1, "0 C2 안내 쪽은 각 문서 개정일을 쓰고 홈은 정산 예제를 연결한 날짜를 쓴다");
+  ok(/^\d{4}-\d{2}-\d{2}$/.test(GUIDE_DATE) && GUIDE_DATE >= COPY_DATE && !new RegExp(`updated: "${GUIDE_DATE}"`).test(pageSource(guide, "kakao-guide")), "0 C2 /kakao-guide 수정일 상수는 날짜 꼴이고 다섯 쪽의 수정일보다 앞서지 않으며 쪽에 날짜 글자를 따로 적지 않는다");
   ok(/^\d{4}-\d{2}-\d{2}$/.test(COPY_DATE) && !new RegExp(`updated: "${COPY_DATE}"`).test(guide + support), "0 C2 안내 쪽 6곳에 수정일 날짜 글자를 따로 적지 않는다");
   // V118 범위 — 다음 개정 때 지워도 됨(배포일이 밀려 site-config.js 날짜를 바꾸면 이 줄도 같이 고친다).
   eq(COPY_DATE, "2026-11-13", "0 C2 이번 판에서는 안내 쪽 수정일 상수(PUBLIC_COPY_REVISION_DATE)가 2026-11-13");
@@ -185,7 +194,8 @@ await withClock(DAY, () => fixture(async (fx) => {
   // C2 수정일(화면 time·JSON-LD dateModified·사이트맵 lastmod) — 상수에서 나온 날짜와 같다
   const sitemap = html["/sitemap.xml"];
   const lastmod = (path) => sitemap.match(new RegExp(`<loc>${BASE.replace(/[.]/g, "\\.")}${path === "/" ? "/" : path}</loc>\\s*<lastmod>([^<]+)</lastmod>`))?.[1] || "";
-  for (const [path, date] of [["/", "2026-11-22"], ["/how-it-works", COPY_DATE], ["/group-accountbook", "2026-11-22"], ["/faq", COPY_DATE], ["/kakao-guide", GUIDE_DATE], ["/support", COPY_DATE], ["/terms", NOTICE], ["/privacy", NOTICE]]) {
+  // V22.9.146: 첫 화면·/group-accountbook 은 실제 화면 사진 절, /privacy 는 이용 목적 추가 개정 알림을 더해 그 판의 글 날짜가 수정일이다(약관은 공고일 그대로).
+  for (const [path, date] of [["/", REAL_SCREENS_COPY_DATE_V229146], ["/how-it-works", COPY_DATE], ["/group-accountbook", REAL_SCREENS_COPY_DATE_V229146], ["/faq", COPY_DATE], ["/kakao-guide", GUIDE_DATE], ["/support", COPY_DATE], ["/terms", NOTICE], ["/privacy", REAL_SCREENS_COPY_DATE_V229146]]) {
     ok(html[path].includes(`<time datetime="${date}">`), `1 C2 ${path} 수정일 표시 = 상수(${date})`);
     ok(jsonLd(html[path]).some((item) => item.dateModified === date), `1 C2 ${path} JSON-LD dateModified = 상수(${date})`);
     eq(lastmod(path), date, `1 C2 ${path} sitemap lastmod = 상수`);

@@ -1,4 +1,5 @@
 // @build:imports-start
+import { AB_REAL_SCREENS_IMAGES_V229146 } from "./real-screens-images-v229146.js";
 import { AB_OG_IMAGE_PATH, AB_OG_IMAGE_PNG_BASE64 } from "./og-image.js";
 // @build:imports-end
 
@@ -274,11 +275,39 @@ function abOgImageResponse(method) {
   });
 }
 
+// V22.9.146 애드센스 B4: 예시 데이터로 찍은 실제 웹 가계부 화면(WebP). 바이트는 생성 파일 real-screens-images-v229146.js
+// (tools/build-real-screens.mjs)가 base64 로 담는다. 주소에 판 번호가 있어 1년 캐시(immutable)이고, 사진을 바꾸면 판 번호를 올린다.
+// 공개 화면의 <img> 만 읽으므로 CORP 는 same-origin 이다(다른 사이트가 끌어다 쓰지 못한다). 바이트는 격리마다 처음 읽을 때 한 번 푼다.
+const AB_REAL_SCREEN_BYTES_V229146 = new Map();
+function abRealScreenResponseV229146(pathname, method) {
+  const image = AB_REAL_SCREENS_IMAGES_V229146.find((item) => item.path === pathname);
+  if (!image) return null;
+  let bytes = AB_REAL_SCREEN_BYTES_V229146.get(image.key);
+  if (!bytes) {
+    bytes = Uint8Array.from(atob(image.base64), (char) => char.charCodeAt(0));
+    AB_REAL_SCREEN_BYTES_V229146.set(image.key, bytes);
+  }
+  return new Response(method === "HEAD" ? null : bytes.slice(), {
+    status: 200,
+    headers: {
+      "content-type": "image/webp",
+      "cache-control": "public, max-age=31536000, immutable",
+      "x-content-type-options": "nosniff",
+      "cross-origin-resource-policy": "same-origin",
+      etag: `"ab-real-screen-${image.key}-v229146"`,
+    },
+  });
+}
+
 async function appIconAssetResponse(request, url) {
   if (!request || !url) return null;
   const method = String(request.method || "GET").toUpperCase();
   if (!["GET", "HEAD"].includes(method)) return null;
   if (url.pathname === AB_OG_IMAGE_PATH) return abOgImageResponse(method);
+  if (url.pathname.startsWith("/assets/real-screen-")) {
+    const shot = abRealScreenResponseV229146(url.pathname, method);
+    if (shot) return shot;
+  }
   if (url.pathname === AB_SPECULATION_RULES_PATH) {
     return new Response(method === "HEAD" ? null : AB_SPECULATION_RULES_JSON, {
       status: 200,
