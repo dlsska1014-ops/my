@@ -164,7 +164,7 @@ function worksheetComputeV229106(slug, input) {
     const eligible = dates.filter((d) => d >= basis && d <= due).sort((a, b) => a - b);
     const amounts = eligible.length ? allocate(need, eligible.map(() => 1)) : [];
     const shortage = eligible.length || !need ? 0 : need;
-    return { need, shortage, excess: Math.max(0, saved - target), amounts, tables: [table("납부일까지 가능한 적립 (원)", ["적립일", "금액"], eligible.map((d, i) => [new Date(d * 86400000).toISOString().slice(0, 10), amounts[i]])), table("계획 상태 (원)", ["항목", "값"], [["추가 필요액", need], ["기한 안 적립일이 없어 남는 부족액", shortage], ["초과 적립액", Math.max(0, saved - target)]])], notes: [shortage ? "납부일까지 적립 가능한 날짜가 없습니다. 부족액을 해결할 방법과 일정을 다시 정해야 합니다." : "기준일부터 납부일까지 실제로 입금할 수 있다고 입력한 날짜만 계산했습니다. 납부 당일 적립은 출금 시각 전에 입금할 수 있을 때만 포함하세요.", "이 계획은 가상 배분이며 실제 이체나 납부를 실행하지 않습니다. 납부 완료 상태는 추가 적립을 요구하지 않습니다. 날짜가 지나면 기준일을 바꿔 다시 계산하세요."] };
+    return { need, shortage, excess: Math.max(0, saved - target), amounts, tables: [table("납부일까지 가능한 적립 (원)", ["적립일", "금액"], eligible.map((d, i) => [new Date(d * 86400000).toISOString().slice(0, 10), amounts[i]])), table("계획 상태 (원)", ["항목", "값"], [["추가 필요액", need], ["기한 안 적립일이 없어 남는 부족액", shortage], ["초과 적립액", Math.max(0, saved - target)]])], notes: [shortage ? "납부일까지 적립 가능한 날짜가 없습니다. 부족액을 해결할 방법과 일정을 다시 정해야 합니다." : "기준일부터 납부일까지 실제로 입금할 수 있다고 입력한 날짜만 계산했습니다. 납부 당일 적립은 출금 시각 전에 입금할 수 있을 때만 포함하세요.", "이 계획은 예시 배분이며 실제 이체나 납부를 실행하지 않습니다. 납부 완료 상태는 추가 적립을 요구하지 않습니다. 날짜가 지나면 기준일을 바꿔 다시 계산하세요."] };
   }
   if (slug === "monthly-closing-routine") {
     const beginning = number(setting.beginning, true), start = date(setting.start), end = date(setting.end);

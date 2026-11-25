@@ -1,12 +1,13 @@
 {
   "name": "kakao-accountbook",
-  "version": "22.9.145",
+  "version": "22.9.146",
   "private": true,
   "type": "module",
   "engines": {
     "node": ">=22 <23"
   },
   "scripts": {
+    "validate:v229146-real-screens": "node validation/validate-v229146-real-screens.mjs",
     "validate:v229145-kakao-sentences": "node validation/validate-v229145-kakao-sentences.mjs",
     "validate:v229144-budget-year": "node validation/validate-v229144-budget-year.mjs",
     "validate:v229143-updates-feed": "node validation/validate-v229143-updates-feed.mjs",

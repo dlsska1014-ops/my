@@ -12,9 +12,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_145.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_146.sha256",
 );
 const validationScripts = [
+  ["V22.9.146 실제 화면 사진(예시 데이터로 찍은 웹 가계부 네 장 — 생성 파일·1년 캐시 주소·시나리오 문장을 지금 코드로 다시 보내 저장 값·정산·화면 글 대조), 처리방침 이용 목적 추가 개정 알림(2027-01-04 시행, 30일), 공개 문구 ‘가상’ → ‘예시’", "validation/validate-v229146-real-screens.mjs"],
   ["V22.9.145 카카오톡 문장 사전(/kakao-sentences — 실린 문장을 1:1·단톡방 두 길로 다시 보내 저장 값·답 첫 줄이 결과 파일·쪽의 표와 같음, 사이트맵·안내 쪽 링크·광고 화면 목록)", "validation/validate-v229145-kakao-sentences.mjs"],
   ["V22.9.144 예산 명령의 해 말(내년·올해·작년·재작년·지난 해·다음 해·금년 + N월 = 그해 그달, 분류에서 해 말을 뗌, 해 말 없는 N월은 가장 가까운 해 그대로)·날 없는 예산 설정 명령은 기록 길의 달력 답보다 예산 처리기(날을 적은 말은 달력 답 그대로)", "validation/validate-v229144-budget-year.mjs"],
   ["V22.9.143 업데이트 소식·RSS·검색 제목(V22.9.20 부터 판마다 한 번씩·가장 새 묶음 = 지금 판, /updates.xml RSS 2.0 항목 = 묶음, 첫 화면 문서 제목 = 카카오톡 가계부·단톡방 가계부, /kakao-guide = 카카오톡 가계부 입력 방법: 1:1 채팅과 단톡방)", "validation/validate-v229143-updates-feed.mjs"],
@@ -466,7 +467,8 @@ function run(command, args, label) {
 // V22.9.143: 업데이트 소식 검사(validate-v229143-updates-feed — 묶음 날짜를 CHANGELOG 머리 줄과 대조)와 추적표 V143 항목 4행이 더해지고, 공개 정본 52쪽을 보는 기존 검사와 공개 안내 검사(/updates 쪽별 검사)의 단언이 늘었다. 하네스 두 모드 실측 99,566 present / 99,559 absent — 하한은 작은 값이다.
 // V22.9.144: 예산 명령 해 말 검사(validate-v229144-budget-year — 파서·카카오 끝단·원본)와 추적표 V144 항목이 더해지고, 업데이트 소식 검사의 묶음 단언이 한 묶음만큼 늘었다. 하네스 두 모드 실측 99,820 / 99,813 → 하한 99,813.
 // V22.9.145: 카카오톡 문장 사전 검사(validate-v229145-kakao-sentences — 문장마다 1:1·단톡방 다시 보내기·쪽의 표·링크)와 추적표 V145 항목이 더해지고, 공개 쪽별 검사가 한 쪽만큼 늘었다. 하네스 두 모드 100,393 / 100,386 → 하한 100,386.
-const EXPECTED_MINIMUM_CHECKS = 100386;
+// V22.9.146: 실제 화면 사진·처리방침 알림·‘가상’ 정리 검사(validate-v229146-real-screens)와 추적표 V146 항목이 더해지고, 업데이트 소식 묶음 하나만큼 업데이트 소식 검사가 늘었다. 하네스 두 모드 100,729 / 100,722 중 작은 값.
+const EXPECTED_MINIMUM_CHECKS = 100722;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

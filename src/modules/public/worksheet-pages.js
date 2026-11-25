@@ -87,7 +87,7 @@ const PUBLIC_WORKSHEETS_V229106 = {
   "subscription-cleanup": {
     title: "다음 결제와 해지 확인을 나누는 구독표",
     outcome: "월 환산 비용, 향후 30일의 다음 결제, 이용 종료, 실제 환불을 구별합니다.",
-    instruction: "아래 상품과 약관은 모두 가상입니다. 해지 완료는 다음 갱신이 취소됐다는 확인을 받은 경우에만 선택하세요. 다음 결제일이 기준일 이전이면 실제 다음 청구가 없는지 확인해야 합니다.",
+    instruction: "아래 상품과 약관은 모두 예시입니다. 해지 완료는 다음 갱신이 취소됐다는 확인을 받은 경우에만 선택하세요. 다음 결제일이 기준일 이전이면 실제 다음 청구가 없는지 확인해야 합니다.",
     fields: [["basis", "기준일(30일 구간의 첫날)", "date"]],
     groups: [{ key: "subscriptions", label: "구독과 확인 결과", columns: [["name", "구독 이름", "text"], ["amount", "1회 결제액(원)", "number"], ["cycle", "주기", "select", [["monthly", "월 구독"], ["annual", "연 구독"]]], ["next", "다음 결제일/마지막 예정일", "date"], ["cancel", "해지 상태", "select", [["active", "유지"], ["requested", "해지 요청"], ["confirmed", "갱신 해지 확인"]]], ["confirmed", "해지 완료일(선택)", "date"], ["until", "이용 종료일(선택)", "date"], ["refund", "실제 환불 입금액(원)", "number"]] }],
     example: { settings: { basis: "2026-11-05" }, subscriptions: SUBSCRIPTION_ROWS },
@@ -226,8 +226,9 @@ function renderArticleDataChartV229139(slug) {
 // V22.9.107 D-4~D-6: 계산표 자산 주소는 1년 캐시(immutable)라 계산표 화면(worksheet-runtime.js)이 바뀌면 여기 판을 올린다.
 // V22.9.139: 계산 함수(worksheet-calculations.js)에 미니 계산기 셋이 더해져 계산표 쪽 바이트가 바뀌었으므로 v229139 로 올린다.
 // 바로 앞 판 주소는 다음 판까지 같은 내용을 낸다(글을 5분 캐시로 받은 브라우저가 옛 주소를 누를 수 있다). 두 판 전 주소는 404 다.
-const PUBLIC_WORKSHEET_ASSET_VERSION_V229107 = "v229140";
-const PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107 = Object.freeze(["v229139"]);
+// V22.9.146: 계산표 글의 ‘가상’ 을 ‘예시’ 로 바꿔(애드센스 FINAL-PLAN 75줄) 계산표 쪽 바이트가 바뀌었으므로 v229146 으로 올린다(v229139 주소는 404).
+const PUBLIC_WORKSHEET_ASSET_VERSION_V229107 = "v229146";
+const PUBLIC_WORKSHEET_ASSET_PREVIOUS_VERSIONS_V229107 = Object.freeze(["v229140"]);
 function publicWorksheetPathV229106(slug, version = PUBLIC_WORKSHEET_ASSET_VERSION_V229107) { return `/assets/living-worksheet-${version}-${slug}.html`; }
 
 // V22.9.140: 수정일은 본문이나 기본 예제·계산 결과가 실제로 바뀐 글에만 올린다. 계산표 여섯 글 중 넷(룸메이트·현금흐름·연간 목돈·월 마감)과
@@ -265,12 +266,12 @@ function enrichPublicWorksheetsV229106(catalog) {
       { title: "이 글에서 완성할 결과", paragraphs: [spec.outcome] },
       ...page.sections,
       ...(spec.fields.length ? [{ title: "예제의 계산 조건", table: { caption: "예제의 계산 조건", headers: ["조건", "입력값"], rows: spec.fields.map((c) => [c[1], optionLabel(c, spec.example.settings[c[0]])]) } }] : []),
-      ...spec.groups.map((group) => ({ title: group.label + " 예제", table: { caption: group.label + " 원본(가상 데이터)", headers: group.columns.map((c) => c[1]), rows: spec.example[group.key].map((row) => group.columns.map((c) => optionLabel(c, row[c[0]]))) } })),
-      { title: "예제 검산과 계산표 열기", paragraphs: [spec.instruction, ...result.notes], table: result.tables[0], bullets: spec.checks, note: "운영팀이 작성한 편집용 가상 예제입니다. 실제 고객 사례나 제품의 자동 처리 기능이 아닙니다. 별도 계산표는 브라우저에서만 작동하며 입력값을 서버로 보내지 않습니다.", links: [page.primary, page.secondary] },
+      ...spec.groups.map((group) => ({ title: group.label + " 예제", table: { caption: group.label + " 원본(예시 데이터)", headers: group.columns.map((c) => c[1]), rows: spec.example[group.key].map((row) => group.columns.map((c) => optionLabel(c, row[c[0]]))) } })),
+      { title: "예제 검산과 계산표 열기", paragraphs: [spec.instruction, ...result.notes], table: result.tables[0], bullets: spec.checks, note: "운영팀이 작성한 편집용 예제입니다. 실제 고객 사례나 제품의 자동 처리 기능이 아닙니다. 별도 계산표는 브라우저에서만 작동하며 입력값을 서버로 보내지 않습니다.", links: [page.primary, page.secondary] },
     ];
   }
   const links = Object.entries(PUBLIC_WORKSHEETS_V229106).map(([slug, spec]) => [spec.title, `/${slug}`]);
-  catalog.home.sections.splice(1, 0, { title: "직접 계산하며 읽는 생활비 자료", paragraphs: ["공동 비용의 분담, 계좌 범위에 따른 잔액, 납부일까지의 적립과 월 마감을 가상 원본으로 확인하고 자신의 조건으로 바꿔 볼 수 있습니다."], links });
+  catalog.home.sections.splice(1, 0, { title: "직접 계산하며 읽는 생활비 자료", paragraphs: ["공동 비용의 분담, 계좌 범위에 따른 잔액, 납부일까지의 적립과 월 마감을 예시 원본으로 확인하고 자신의 조건으로 바꿔 볼 수 있습니다."], links });
   // V22.9.118 P-8: 첫 화면 수정일을 낮추지 않는다(첫 화면 안내 표를 고친 판의 날짜가 더 늦으면 그 날짜를 둔다).
   if (!(String(catalog.home.updated || "") > "2026-11-07")) catalog.home.updated = "2026-11-07";
 }

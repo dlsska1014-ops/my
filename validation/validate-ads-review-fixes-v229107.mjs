@@ -80,7 +80,7 @@ try {
     eq(h2.slice(-tail.length), tail, `${path}: 예제 표·검산은 글 끝`);
     const own = h2.length - 1 - tail.length;
     ok(own >= 5 && own <= 8, `${path}: 글의 원래 절은 5~8개 (${own})`);
-    ok(article.html.indexOf("원본(가상 데이터)") > article.html.indexOf(`<h2>${h2[1]}</h2>`), `${path}: 원본 표가 서사 절 뒤에 온다`);
+    ok(article.html.indexOf("원본(예시 데이터)") > article.html.indexOf(`<h2>${h2[1]}</h2>`), `${path}: 원본 표가 서사 절 뒤에 온다`);
     const first = article.html.match(/<section class="pubSection" id="section-1">([\s\S]*?)<\/section>/)[1];
     ok(first.includes(spec.outcome) && !first.includes(spec.instruction) && !first.includes("<table"), `${path}: 첫 절은 결과 한 문단뿐(입력 안내·표 없음)`);
     ok(article.html.includes('class="pubBtn" href="#inline-worksheet"') && article.html.includes('id="inline-worksheet"'), `${path}: 머리 버튼에서 본문의 계산표를 연다`);

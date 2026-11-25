@@ -98,7 +98,7 @@ ok(previewHtml.includes("로그인 전 기능 미리보기"), "feature preview k
 ok(previewHtml.includes("예시 데이터 · 실제 저장 아님"), "fictional data is labeled as not saved");
 ok(previewHtml.includes("점심 12000원 국민카드") && previewHtml.includes("어제 택시 18000원"), "chat preview shows clear expense recording examples");
 ok(previewHtml.includes("지출 12,000원 기록 예시") && previewHtml.includes("지출 18,000원 기록 예시"), "chat preview shows the structured result of each example");
-ok(previewHtml.includes("가상 예산 카드") && previewHtml.includes("가상 월간 리포트") && previewHtml.includes("가상 정산 카드"), "budget, report, and settlement value are visible before login");
+ok(previewHtml.includes("예시 예산 카드") && previewHtml.includes("예시 월간 리포트") && previewHtml.includes("예시 정산 카드"), "budget, report, and settlement value are visible before login");
 ok(previewHtml.includes("민지") && previewHtml.includes("준호"), "preview uses clearly fictional participant names");
 ok(!previewHtml.includes("<form") && !previewHtml.includes("<button"), "preview has no fake save form or write button");
 ok(!previewHtml.includes("fetch(") && !previewHtml.includes("localStorage") && !previewHtml.includes("sessionStorage") && !previewHtml.includes("document.cookie"), "preview markup contains no network or browser-storage behavior");

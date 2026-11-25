@@ -15,6 +15,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { app, BASE, ctx, fixture, page, post, withClock } from "./lib-audit-v22934.mjs";
 import { PUBLIC_COPY_REVISION_DATE } from "../src/modules/public/site-config.js";
+import { REAL_SCREENS_COPY_DATE_V229146 } from "../src/modules/public/site-config.js";
 
 let checks = 0;
 const failures = [];
@@ -100,12 +101,12 @@ await section("1 /demo 일곱째 단계", async () => {
   eq(countOf(demo.html, 'id="tour-settle"'), 1, "1-c 모임 정산 단계(id=tour-settle, /faq·/group-accountbook 링크의 목적지)는 하나다");
   ok(stopHtml.startsWith('<li class="pubTourStop" id="tour-settle"><h3><span aria-hidden="true">7</span>모임 회비·여행 경비도 단톡방에서 정산해요</h3>'), "1-d 일곱째 단계의 번호(7)·제목");
   const stopText = plain(stopHtml);
-  ok(stopText.includes("동아리 회비, 여행 경비, 커플·친구 모임의 더치페이를 단톡방에서 바로") && stopText.includes("‘정산’이라고 보내면") && stopText.includes("가상 예시"), "1-e 문장이 모임 회비·여행 경비·더치페이와 ‘정산’ 요청을 말하고 가상 예시라고 밝힌다");
+  ok(stopText.includes("동아리 회비, 여행 경비, 커플·친구 모임의 더치페이를 단톡방에서 바로") && stopText.includes("‘정산’이라고 보내면") && stopText.includes("나눈 예시예요"), "1-e 문장이 모임 회비·여행 경비·더치페이와 ‘정산’ 요청을 말하고 가상 예시라고 밝힌다");
   ok(stopHtml.includes('<p class="pubTourWhere">어디서: 카카오톡 단톡방 · 비율·품목별로 나누려면 로그인 뒤 /settlement-summary</p><div class="pubLinks"><a href="/group-accountbook">모임 총무로 쓰는 법<span aria-hidden="true"> →</span></a></div></li>'), "1-f ‘어디서’ 줄(단톡방·웹 정산)과 ‘모임 총무로 쓰는 법’ 링크(/group-accountbook)");
   eq(forbiddenIn(stopText), [], "1-g 일곱째 단계에 유료·가격·플랜·결제 낱말이 없다");
 
   const figure = (stopHtml.match(/<figure class="pubTourPreview pubChat">([\s\S]*?)<\/figure>/) || ["", ""])[1];
-  eq((figure.match(/<figcaption>([^<]*)<\/figcaption>/) || ["", ""])[1], `카카오톡 단톡방 · ${ME}의 화면 · 가상 예시`, "1-h 말풍선 묶음은 단톡방·민지의 화면·가상 예시라고 밝힌다");
+  eq((figure.match(/<figcaption>([^<]*)<\/figcaption>/) || ["", ""])[1], `카카오톡 단톡방 · ${ME}의 화면 · 예시`, "1-h 말풍선 묶음은 단톡방·민지의 화면·예시라고 밝힌다");
   const BUBBLE = /<p class="pubChatMe"><span class="pubSr">내가 보낸 말: <\/span>([^<]*)<\/p>|<div class="pubChatPeer"><b>([^<]*)<\/b><p>([^<]*)<\/p><\/div>|<p class="pubChatNote">([^<]*)<\/p>|<div class="pubChatBot"><b>말해가계부<\/b><p>([^<]*)<\/p><\/div>/g;
   for (const m of figure.matchAll(BUBBLE)) {
     if (m[1] !== undefined) bubbles.push({ kind: "me", name: ME, text: decode(m[1]) });
@@ -257,7 +258,8 @@ await section("4 수정일·사이트맵·첫 화면", async () => {
   const lastmodOf = (path) => ((xml.split(`<loc>${BASE}${path}</loc>`)[1] || "").match(/^\s*<lastmod>([^<]+)<\/lastmod>/) || [])[1];
   // V22.9.118 P-1·P-8: /group-accountbook·/faq 는 단톡방 참여 규칙 문장을 고친 날(site-config.js 상수 PUBLIC_COPY_REVISION_DATE = 개정 공고일)이 수정일이다(/demo 는 그대로).
   const COPY_REVISION_V229118 = PUBLIC_COPY_REVISION_DATE;
-  for (const [path, html, revision] of [["/demo", demo.html, REVISION], ["/group-accountbook", group.html, "2026-11-22"], ["/faq", faq.html, COPY_REVISION_V229118]]) {
+  // V22.9.146: /demo·/group-accountbook 은 실제 화면 사진 절을 더해 그 판의 글 날짜가 수정일이다(/demo 의 앞 날짜 = REVISION).
+  for (const [path, html, revision] of [["/demo", demo.html, REAL_SCREENS_COPY_DATE_V229146], ["/group-accountbook", group.html, REAL_SCREENS_COPY_DATE_V229146], ["/faq", faq.html, COPY_REVISION_V229118]]) {
     ok(html.includes(`안내 수정 <time datetime="${revision}">${revision}</time>`) && structuredOf(html).dateModified === revision && lastmodOf(path) === revision, `4-a ${path} 의 안내 수정일·구조화 데이터·사이트맵 lastmod 가 내용을 바꾼 ${revision} 이다`);
   }
   const locs = [...xml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1]);

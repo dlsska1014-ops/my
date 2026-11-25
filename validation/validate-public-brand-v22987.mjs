@@ -232,13 +232,18 @@ await fixture(async (fx) => {
   const independent = "말해가계부는 사용자가 입력한 생활비를 정리하는 독립 서비스입니다. 은행·카드사 계정을 자동으로 연결하거나 투자·세무 판단을 대신하지 않습니다. 카카오가 직접 제공하는 공식 가계부 서비스는 아닙니다.";
   t.ok(between(home, '<section class="pubLand pubLandNote"', "</section>").includes(independent) && count(home, independent) === 1, "알아 둘 점은 지금 문구(은행·카드 자동 연결 안 함, 카카오 공식 아님) 그대로이고 한 번만 나온다");
   const band = between(home, '<section class="pubBand"', "</section>");
-  t.ok(band.includes('<form class="kakaoStart" method="get" action="/auth/kakao/start"><button class="kakaoBtn" type="submit">') && band.includes('</form><p class="termsNote">계속하면 ') && band.includes('<a class="pubBtn secondary" href="/demo">가상 가계부 둘러보기</a>'), "카카오 로그인 띠: 카카오 로그인(설정된 서버) + 가상 가계부 둘러보기");
+  t.ok(band.includes('<form class="kakaoStart" method="get" action="/auth/kakao/start"><button class="kakaoBtn" type="submit">') && band.includes('</form><p class="termsNote">계속하면 ') && band.includes('<a class="pubBtn secondary" href="/demo">예시 가계부 둘러보기</a>'), "카카오 로그인 띠: 카카오 로그인(설정된 서버) + 가상 가계부 둘러보기");
   const heroActions = between(home, '<div class="pubHeroActions">', "</div>");
   t.eq(count(heroActions, 'class="pubBtn"'), 1, "히어로의 채운 주 버튼은 하나다");
 
-  // ── T-21 앱 화면 미리보기(T-12·T-13 과 같은 마크업) ──
-  const preview = between(home, '<figure class="pubPreview">', "</figure>");
-  const budget = between(preview, '<section class="homeBudget">', "</section>");
+  // ── T-21 앱 화면 미리보기(T-12·T-13 과 같은 마크업) → V22.9.146(애드센스 B4) ──
+  // 첫 화면의 그린 미리보기는 예시 데이터로 찍은 실제 웹 가계부 화면 사진(홈·내역)으로 바꿨다. 사진·사진 옆 문장·숫자 대조는
+  // validate-v229146-real-screens 가 한다 — 여기서는 자리·읽기 전용·CSS 만 본다. 앱 예산 카드 틀과의 대조는 아래 /demo 미리보기에 남는다.
+  const preview = between(home, '<section class="pubLand pubLandPreview" id="app-preview"', "</section>");
+  const shots = between(preview, '<figure class="pubShots">', "</figure>");
+  t.ok(!home.includes('<figure class="pubPreview">') && count(shots, '<img src="/assets/real-screen-') === 2 && shots.includes('src="/assets/real-screen-home-v229146.webp"') && shots.includes('src="/assets/real-screen-list-v229146.webp"'), "첫 화면 미리보기 절은 실제 화면 사진 두 장(홈·내역)이고 그린 미리보기는 없다");
+  t.ok(between(home, '<section class="pubLand pubLandGroup"', "</section>").includes('src="/assets/real-screen-settle-v229146.webp"') && !home.includes('class="pubFlow"'), "공동 가계부 묶음은 정산 화면 사진이다(예전 화살표 그림 없음)");
+  t.ok(shots.length > 0 && !/<a\b|<button|<form|<input|<script|fetch\(|localStorage|sessionStorage|document\.cookie/.test(shots), "사진 묶음은 읽기 전용이다(링크·단추·폼·스크립트·저장 없음)");
   const appBudget = (appHtml.match(/<section class="homeBudget[^"]*"[^>]*>[\s\S]*?<\/section>/) || [""])[0];
   // V22.9.89 U-04(V2): 7월 15일 앱은 하루 한도가 최근 7일 하루 평균의 3배를 넘어 ‘남은 17일, 예산이 넉넉해요.’ 갈래다.
   // 미리보기 두 곳은 하루 금액을 권하는 지금 문장 갈래라, 같은 갈래가 나오는 7월 20일 앱 문장과 틀을 견준다(/demo 는 아래에서 갈래 조건도 확인한다).
@@ -248,34 +253,11 @@ await fixture(async (fx) => {
   // V22.9.89 U-01: 오늘 쓴 돈이 아직 없으면 그 줄 값이 흐린 글자(<b class="muted">)다. 미리보기에는 오늘 쓴 돈 줄이 없으니 그 클래스도 뺀다.
   const appClasses = classes(appBudget).filter((name) => !["homeBudgetToday", "income", "expense", "muted", "abDailyHelp"].includes(name));
   t.ok(appBudget.length > 0, "비교할 앱 홈 예산 카드를 찾았다");
-  t.deepEq(classes(budget), appClasses, `미리보기 예산 카드의 클래스 순서가 앱 홈(T-12)과 같다(오늘 쓴 돈·계산 도움말 줄만 뺐다: ${appClasses.join(" > ")})`);
   const sentence = (fragment) => (fragment.match(/<div class="homeDailyPlan homePace"><p>([\s\S]*?)<\/p>/) || [, ""])[1].replace(/<span[^>]*>/g, "<span>").replace(/\d[\d,]*/g, "#");
-  t.ok(sentence(appPaceBudget).length > 0 && sentence(budget) === sentence(appPaceBudget), `속도 문장 틀이 앱과 같다 (${sentence(budget)})`);
   const num = (text) => Number(String(text).replace(/,/g, ""));
-  const remaining = num((budget.match(/<div class="homeBudgetAmount"><b>([\d,]+)<\/b>/) || [])[1]);
-  // V22.9.89 U-02: 아랫줄 이름은 앱과 같이 ‘예산 N원 / 예산 쓴 돈 N원’이다(옛 ‘전체 예산 / 지출’).
-  const total = num((budget.match(/<span>예산 ([\d,]+)원<\/span>/) || [])[1]);
-  const spent = num((budget.match(/예산 쓴 돈 ([\d,]+)원/) || [])[1]);
-  t.eq(total - spent, remaining, "남은 돈 = 예산 − 예산 쓴 돈(981,400 = 1,230,000 − 248,600)");
-  const rate = Math.round((spent / total) * 100);
-  t.ok(budget.includes(`<em>예산 사용률 <span>${rate}%</span></em>`) && budget.includes(`<i style="width:${rate}%"></i>`) && budget.includes(`예산은 ${rate}%만 썼어요`), `사용률 ${rate}% 가 머리·게이지·문장에서 같다`);
-  const day = 12, days = 31;
-  t.ok(budget.includes(`style="--ab-today:${Math.round((day / days) * 100)}%"`) && budget.includes(`이번 달의 ${Math.round((day / days) * 100)}%가 지났고`), "오늘 표시와 경과율: 10월 12일 = 31일 중 39%");
-  t.ok(budget.includes(`<span data-ab-num="${Math.floor(remaining / (days - day + 1))}">${Math.floor(remaining / (days - day + 1)).toLocaleString("en-US")}</span>원씩`), "하루 금액 = 남은 돈 ÷ 오늘 포함 남은 20일(앱 규칙, 원 미만 버림)");
-  const rows = [...preview.matchAll(/<article class="v8-tx" data-type="(expense|income)"><div class="v8-tx-main"><span class="abCat" data-ck="(\w+)" aria-hidden="true"><i class="abCatIcon"><\/i><\/span><div><b>([^<]+)<\/b><span>([^<]+)<\/span><\/div><strong class="(expense|income)">([+-])[\d,]+원<\/strong><\/div><\/article>/g)];
-  t.eq(rows.length, 3, "거래 3행이 앱 거래 행(T-13 동그라미 포함)과 같은 마크업이다");
-  for (const [, type, ck, title, line, cls, sign] of rows) {
-    t.ok(cls === type && sign === (type === "income" ? "+" : "-"), `${title}: 금액 클래스·부호가 수입/지출과 맞다`);
-    t.eq(ck, categoryKey(line.split(" · ")[0], type, title), `${title}: 동그라미 키(${ck})가 앱 판정(categoryKey)과 같다`);
-  }
-  t.ok(!/<a\b|<button|<form|<input|<script|fetch\(|localStorage|sessionStorage|document\.cookie/.test(preview), "미리보기는 읽기 전용이다(링크·단추·폼·스크립트·저장 없음)");
   const lightTokens = (shell.match(/(?:^|\n)body\.abV22812Shell\{(--ab12-cat-[^}]+)\}/) || [, ""])[1];
   const homeCss = (home.match(/<style>([\s\S]*?)<\/style>/) || [, ""])[1];
-  for (const key of ["food", "cafe", "income"]) {
-    const pair = lightTokens.match(new RegExp(`--ab12-cat-${key}-bg:(#[0-9a-f]+);--ab12-cat-${key}-ink:(#[0-9a-f]+)`)) || [];
-    const shellIcon = (shell.match(new RegExp(`\\.abCat\\[data-ck="${key}"\\]\\{[^}]*--ab-ck-ico:(url\\("[^"]+"\\))`)) || [, ""])[1];
-    t.ok(pair[1] && homeCss.includes(`.pubPreview .abCat[data-ck="${key}"]{--ab-ck-bg:${pair[1]};--ab-ck-ink:${pair[2]};--ab-ck-ico:${shellIcon}}`), `${key}: 동그라미 바탕·잉크·아이콘이 셸 CSS 라이트 값과 같다(${pair[1]}/${pair[2]})`);
-  }
+  t.ok(!homeCss.includes(".pubPreview") && homeCss.includes(".pubShots{"), "첫 화면은 그린 미리보기 CSS 대신 사진 묶음 CSS 를 싣는다");
 
   // ── T-21 /demo 위쪽의 미리보기(읽기 전용) — 사용자 결정(2026-10-29, AdSense 검토): 바로 아래 예산 계산 예제와 같은 가상 기록·숫자다 ──
   const demo = pages.get("/demo").html;
@@ -312,7 +294,7 @@ await fixture(async (fx) => {
     t.ok(pair[1] && demoCss.includes(`.pubPreview .abCat[data-ck="${key}"]{--ab-ck-bg:${pair[1]};--ab-ck-ink:${pair[2]};--ab-ck-ico:${shellIcon}}`) && !homeCss.includes(`[data-ck="${key}"]`), `/demo ${key}: 동그라미 바탕·잉크·아이콘이 셸 CSS 라이트 값과 같고, 이 규칙은 /demo 에만 있다(${pair[1]}/${pair[2]})`);
   }
   t.ok(demo.indexOf('<figure class="pubPreview">') > demo.indexOf("<h1>") && demo.indexOf('<figure class="pubPreview">') < demo.indexOf('<p class="pubMeta">') && demo.indexOf('<figure class="pubPreview">') < demo.indexOf('<section class="pubDemo"'), "/demo 미리보기는 머리 영역 소개 바로 아래(계산 예제보다 위)에 있다");
-  t.ok(demoPreview.includes('<p class="pubPreviewLabel">아래 예제를 웹 가계부 홈 화면으로 본 모습 · 2026년 9월 17일 기준</p>') && demoPreview.includes("아래 예산 계산 예제와 같은 가상 기록으로 그린 웹 가계부 홈 화면이에요.") && !demoPreview.includes("다른 숫자"), "/demo 미리보기 이름표·설명은 아래 예제와 같은 가상 기록이라고 적는다(예전 ‘다른 숫자’ 안내 없음)");
+  t.ok(demoPreview.includes('<p class="pubPreviewLabel">아래 예제를 웹 가계부 홈 화면으로 본 모습 · 2026년 9월 17일 기준</p>') && demoPreview.includes("아래 예산 계산 예제와 같은 예시 기록으로 그린 웹 가계부 홈 화면이에요.") && !demoPreview.includes("다른 숫자"), "/demo 미리보기 이름표·설명은 아래 예제와 같은 가상 기록이라고 적는다(예전 ‘다른 숫자’ 안내 없음)");
   t.eq(pages.get("/demo").setCookie, "", "/demo 는 쿠키를 만들지 않는다");
   t.ok(!/fetch\(|localStorage|sessionStorage|document\.cookie/.test(demo), "/demo 는 요청·저장소를 쓰지 않는다");
 });

@@ -125,7 +125,7 @@ try {
   const guide = await get("/kakao-guide");
   eq(guide.status, 200, "/kakao-guide 200");
   ok(titleOf(guide.html).startsWith("카카오톡 가계부 입력 방법: 1:1 채팅과 단톡방 · "), "/kakao-guide 제목이 ‘카카오톡 가계부 입력 방법’ 으로 시작한다(V22.9.143 E3 — 뒤에 1:1 채팅과 단톡방)");
-  eq(heroOf(guide.html), `<a class="pubBtn" href="${CHANNEL_CHAT}">카카오톡에서 시작하기</a><a class="pubBtn secondary" href="/demo">가상 예제로 확인하기</a>`, "/kakao-guide 첫 단추가 카카오톡 채널 1:1 채팅으로 간다");
+  eq(heroOf(guide.html), `<a class="pubBtn" href="${CHANNEL_CHAT}">카카오톡에서 시작하기</a><a class="pubBtn secondary" href="/demo">예제로 확인하기</a>`, "/kakao-guide 첫 단추가 카카오톡 채널 1:1 채팅으로 간다");
   const related = await get("/shared-living-cost-rules");
   ok(related.html.includes('href="/group-accountbook">단톡방 정산 방법: 방별 공동 가계부와 세 사람 사례'), "다른 글의 ‘다음에 읽을 글’ 링크 이름도 새 제목이다");
   // 공동 생활비: 같은 화면의 본문 비교표(동일 분배 120,000원씩)와 예제 검산 표가 같은 값을 보인다(독립 검토 — 기본값이 품목별이면 어긋났다).

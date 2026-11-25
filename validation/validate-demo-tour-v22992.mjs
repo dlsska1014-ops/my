@@ -16,6 +16,7 @@ import { parse } from "../tools/vendor/acorn.mjs";
 import app from "../src/index.js";
 import { createV2265QaFixture } from "./qa-fixture.mjs";
 import { fixture, withClock, skill, page, post } from "./lib-audit-v22934.mjs";
+import { REAL_SCREENS_COPY_DATE_V229146 } from "../src/modules/public/site-config.js";
 
 const ORIGIN = "https://malhaebook.com";
 const STOPS = ["kakao", "home", "edit", "report", "budget", "group", "settle"];
@@ -73,8 +74,9 @@ try {
   ok(Buffer.byteLength(html) <= 72 * 1024, `/demo HTML 은 72 KiB 이하다 (${Buffer.byteLength(html)} B)`);
   // 내용을 바꾼 날을 안내 수정일로 보인다(공통 기본값 2026-10-11 이 아니다). 사이트맵 lastmod 도 같은 값이다.
   // V22.9.97: 일곱째 단계(모임 정산)를 더한 2026-11-03 으로 옮겼다(전 2026-10-30).
-  ok(html.includes(`안내 수정 <time datetime="2026-11-03">2026-11-03</time>`), "/demo 의 안내 수정일은 일곱째 단계를 더한 2026-11-03 이다");
-  ok(/<loc>https:\/\/malhaebook\.com\/demo<\/loc>\s*<lastmod>2026-11-03<\/lastmod>/.test((await get("/sitemap.xml")).html), "사이트맵의 /demo lastmod 도 2026-11-03 이다");
+  // V22.9.146: 실제 웹 가계부 화면 사진 절을 더해 그 판의 글 날짜로 옮겼다(전 2026-11-03).
+  ok(html.includes(`안내 수정 <time datetime="${REAL_SCREENS_COPY_DATE_V229146}">${REAL_SCREENS_COPY_DATE_V229146}</time>`), "/demo 의 안내 수정일은 실제 화면 사진 절을 더한 V22.9.146 의 글 날짜다");
+  ok(new RegExp(`<loc>https://malhaebook\\.com/demo</loc>\\s*<lastmod>${REAL_SCREENS_COPY_DATE_V229146}</lastmod>`).test((await get("/sitemap.xml")).html), "사이트맵의 /demo lastmod 도 그 날짜다");
   eq(countOf(html, '<section class="pubSection pubTour" id="tour" aria-labelledby="tour-title">'), 1, "둘러보기 절은 하나다");
   const tourStart = html.indexOf('<section class="pubSection pubTour"');
   const tourEnd = html.indexOf("</ol></section>", tourStart) + "</ol></section>".length;
@@ -147,7 +149,8 @@ try {
   ok(realReportRows.length >= 1 && realReportRows.every((row) => ROW_RE.test(row)), "실제 리포트의 ‘지출 상위 분류’ 줄도 같은 모양이다");
 
   // ── 4. 주요 화면 주소 표 ─────────────────────────────────────────────────
-  const tableHtml = (html.split('<caption id="table-3">말해가계부의 주요 화면과 주소</caption>')[1] || "").split("</table>")[0];
+  // V22.9.146: 표 번호는 절 순서로 매겨져(실제 화면 사진 절이 둘째 절로 들어와 table-3 → table-4) 표 이름으로 찾는다.
+  const tableHtml = (html.split(/<caption id="table-\d+">말해가계부의 주요 화면과 주소<\/caption>/)[1] || "").split("</table>")[0];
   const addressRows = [...tableHtml.matchAll(/<tr><th scope="row">([^<]+)<\/th><td>([^<]+)<\/td><td>([^<]+)<\/td><\/tr>/g)].map((m) => ({ name: decode(m[1]), path: m[2], who: m[3] }));
   eq(addressRows.length, 16, "주요 화면 주소 표는 16줄이다");
   const publicPaths = [...(source.match(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
