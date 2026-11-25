@@ -158,12 +158,12 @@ try {
   }
   const sitemap = (await get("/sitemap.xml")).html;
   const entries = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)].map((m) => ({ path: new URL(m[1]).pathname, lastmod: m[2] }));
-  eq(entries.length, 52, "사이트맵은 공개 정본 52개다(60 − 합친 글 9 = 51, V22.9.143 이 업데이트 소식 /updates 를 더해 52)");
+  eq(entries.length, 53, "사이트맵은 공개 정본 53개다(60 − 합친 글 9 = 51, V22.9.143 이 업데이트 소식 /updates 를 더해 52, V22.9.145 가 카카오톡 문장 사전을 더해 53)");
   for (const from of GONE) ok(!entries.some((e) => e.path === from), `${from}: 사이트맵에 없다`);
   const publicPaths = listOf(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/);
   const adKeys = listOf(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\S]*?)\]\);/);
-  eq(publicPaths.length, 52, "공개 정본 목록은 52개다(V22.9.142 의 51 + V22.9.143 업데이트 소식)");
-  eq(adKeys.filter((key) => publicPaths.includes(key)).length, 44, "광고 허용 공개 화면은 44쪽이다");
+  eq(publicPaths.length, 53, "공개 정본 목록은 53개다(V22.9.142 의 51 + V22.9.143 업데이트 소식 + V22.9.145 카카오톡 문장 사전)");
+  eq(adKeys.filter((key) => publicPaths.includes(key)).length, 45, "광고 허용 공개 화면은 45쪽이다(V22.9.145 카카오톡 문장 사전 + 1)");
   for (const from of GONE) ok(!publicPaths.includes(from) && !adKeys.includes(from), `${from}: 정본·광고 목록에 없다`);
   const contentSource = readFileSync(new URL("../src/modules/public/content-pages.js", import.meta.url), "utf8");
   for (const [from, to] of Object.entries(MERGED)) ok(contentSource.includes(`["${from}", "${to}", "${ANCHOR[from][0]}"]`), `${from}: 별칭 표에 합친 글과 절 앵커로 있다`);

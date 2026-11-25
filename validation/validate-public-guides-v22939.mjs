@@ -18,7 +18,9 @@ const v22974Paths = ["/articles", "/household-spending-statistics", "/single-hou
 const v22997Paths = ["/pension-savings-irp-tax-credit"];
 // V22.9.143 D1: 업데이트 소식(/updates)은 validate-v229143-updates-feed 가 자세히 검사한다. 정본 목록에만 더한다(그 RSS /updates.xml 은 링크 대상으로만 허용).
 const v229143Paths = ["/updates"];
-const allPaths = [...paths, ...articlePaths, ...v22974Paths, ...v22997Paths, ...v229143Paths];
+// V22.9.145 B3: 카카오톡 문장 사전(/kakao-sentences)은 validate-v229145-kakao-sentences 가 표의 값을 자세히 검사한다. 정본 목록과 쪽별 검사에 더한다.
+const v229145Paths = ["/kakao-sentences"];
+const allPaths = [...paths, ...articlePaths, ...v22974Paths, ...v22997Paths, ...v229143Paths, ...v229145Paths];
 const origin = "https://malhaebook.com";
 const get = (path, method = "GET", env = {}, headers = {}) => app.fetch(new Request(`${origin}${path}`, { method, headers }), env, {});
 const originalFetch = globalThis.fetch;
@@ -31,7 +33,7 @@ try {
   const titles = new Set(), descriptions = new Set();
   // V22.9.97 모임 정산: 다른 공개 화면의 한 자리로 가는 링크(/demo#tour-settle)는 경로 부분을 정본과 대조하고, 그 id 는 모든 화면을 받은 뒤 본다.
   const crossAnchors = [];
-  for (const path of [...paths, ...v229143Paths]) { // V22.9.143: 업데이트 소식도 쪽별 검사를 받는다.
+  for (const path of [...paths, ...v229143Paths, ...v229145Paths]) { // V22.9.143: 업데이트 소식도 쪽별 검사를 받는다. V22.9.145: 문장 사전도.
     const response = await get(path);
     eq(response.status, 200, `${path}: anonymous GET succeeds`);
     eq(response.headers.get("set-cookie"), null, `${path}: no cookie`);

@@ -2,7 +2,7 @@
 // V22.9.74 글과 같은 규칙(작성일·요약·출처·함께 읽을 글·표현·광고·40자 창 중복 0)에 더해 지침의 분량(절 본문 한글 1,800~2,600자)·
 // 절 5~6개·출처 2~4개(이번 판에 열어 본문을 확인한 공식 주소만)·글마다 다른 구조를 본다. 기본 env 로 그리고 바깥 요청은 0회여야 한다.
 // V22.9.142(애드센스 걷어내기, 사용자 11-24 결정 3·5): 8편 중 7편을 V22.9.74 세무 글 세 편으로 합쳤다(옛 주소 308 — 합친 글과 옛 주소는
-// validate-v229142-adsense-week1 이 본다). 이 검사는 남은 연금저축·IRP 한 편과 허브 31편·사이트맵 52(V22.9.143 업데이트 소식 포함)·광고 화면 44쪽을 본다.
+// validate-v229142-adsense-week1 이 본다). 이 검사는 남은 연금저축·IRP 한 편과 허브 31편·사이트맵 53(V22.9.143 업데이트 소식·V22.9.145 카카오톡 문장 사전 포함)·광고 화면 45쪽을 본다.
 import { readFileSync } from "node:fs";
 import app from "../src/index.js";
 import { stripBuildBlocks } from "../tools/build-worker.mjs";
@@ -76,7 +76,7 @@ try {
   // 1. 사이트맵 60: 기존 52 + 새 글 8(V22.9.142 부터 51 — 글 9편을 합침). 새 글과 허브의 lastmod 는 수정일이다.
   const xml = await (await get("/sitemap.xml")).text();
   const entries = [...xml.matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)].map((m) => ({ path: new URL(m[1]).pathname, lastmod: m[2] }));
-  eq(entries.length, 52, "사이트맵은 공개 정본 52개다(V22.9.142 — 52 + 새 글 8 − 합친 글 9 = 51, V22.9.143 업데이트 소식 + 1)");
+  eq(entries.length, 53, "사이트맵은 공개 정본 53개다(V22.9.142 — 52 + 새 글 8 − 합친 글 9 = 51, V22.9.143 업데이트 소식 + 1, V22.9.145 카카오톡 문장 사전 + 1)");
   for (const path of MERGED_AWAY) ok(!entries.some((e) => e.path === path), `${path}: 합친 글의 옛 주소는 사이트맵에 없다`);
   for (const path of NEW_PATHS) eq(entries.find((e) => e.path === path)?.lastmod, updatedFor(path), `${path}: 사이트맵에 있고 lastmod 가 수정일이다`);
   eq(entries.find((e) => e.path === HUB)?.lastmod, "2026-11-24", "허브 lastmod 가 글 수정일로 올라간다(V22.9.142)");
@@ -229,8 +229,8 @@ try {
   const listOf = (pattern) => [...((siteConfig.match(pattern) || ["", ""])[1]).matchAll(/"([^"]+)"/g)].map((m) => m[1]);
   const adKeys = listOf(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\S]*?)\]\);/);
   const publicPaths = listOf(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/);
-  eq(publicPaths.length, 52, "공개 정본 목록은 52개다(V22.9.142 의 51 + V22.9.143 업데이트 소식)");
-  eq(adKeys.filter((key) => publicPaths.includes(key)).length, 44, "공개 광고 후보는 공개 정본 44쪽이다(V22.9.108 범위·V22.9.142 글 수)");
+  eq(publicPaths.length, 53, "공개 정본 목록은 53개다(V22.9.142 의 51 + V22.9.143 업데이트 소식 + V22.9.145 카카오톡 문장 사전)");
+  eq(adKeys.filter((key) => publicPaths.includes(key)).length, 45, "공개 광고 후보는 공개 정본 45쪽이다(V22.9.108 범위·V22.9.142 글 수·V22.9.145 카카오톡 문장 사전)");
   for (const path of MERGED_AWAY) ok(!publicPaths.includes(path) && !adKeys.includes(path), `${path}: 합친 글의 옛 주소는 정본·광고 목록에 없다`);
   for (const path of NEW_PATHS) {
     ok(publicPaths.includes(path), `${path}: 공개 정본 목록에 있다`);
@@ -255,4 +255,4 @@ if (failures.length) {
   for (const failure of failures.slice(0, 40)) console.error(` - ${failure}`);
   process.exit(1);
 }
-console.log(`V22.9.97 생활비 글(남은 ${NEW_PATHS.length}편)·허브 31편·사이트맵 52·광고 화면 목록 검사 통과 (${checks} checks)`);
+console.log(`V22.9.97 생활비 글(남은 ${NEW_PATHS.length}편)·허브 31편·사이트맵 53·광고 화면 목록 검사 통과 (${checks} checks)`);

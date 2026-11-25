@@ -7,6 +7,7 @@ import {
   policyDateLabel, publicAdsenseHead, publicAnalyticsHeadersV229142, publicBaseUrl,
   publicSiteFooter, publicSiteNav,
 } from "./site-config.js";
+import { kakaoSentenceCountV229145 } from "./kakao-sentences-v229145.js";
 import {
   PUBLIC_UPDATES_V229143, publicDemoClient, publicDemoRows, publicDemoSummary, publicGuidePages,
 } from "./guide-content.js";
@@ -289,7 +290,7 @@ function publicParserExampleRowsV229139() {
 // 열이 여섯이라 휴대폰 폭에서는 줄마다 카드로 쌓인다(V22.9.124 규칙 — 머리글 규칙은 페이지 스타일에서 같은 머리글로 만든다).
 const PUBLIC_PARSER_EXAMPLE_HEADERS_V229139 = Object.freeze(["보낸 문장", "구분", "금액", "분류", "결제수단", "메모"]);
 function renderPublicParserExamples() {
-  return `<section class="pubSection" id="kakao-examples" aria-labelledby="kakao-examples-title"><h2 id="kakao-examples-title">카카오톡에 이렇게 보내면 이렇게 기록돼요</h2><p>아래 결과는 카카오톡 봇이 기록할 때 쓰는 해석 코드로 이 화면을 만들 때 읽은 값입니다. 날짜를 적지 않은 문장은 보낸 날로 기록합니다.</p>${publicContentTable({ caption: "보낸 문장과 기록 결과", headers: PUBLIC_PARSER_EXAMPLE_HEADERS_V229139, rows: publicParserExampleRowsV229139() }, "kakao-examples-table")}</section>`;
+  return `<section class="pubSection" id="kakao-examples" aria-labelledby="kakao-examples-title"><h2 id="kakao-examples-title">카카오톡에 이렇게 보내면 이렇게 기록돼요</h2><p>아래 결과는 카카오톡 봇이 기록할 때 쓰는 해석 코드로 이 화면을 만들 때 읽은 값입니다. 날짜를 적지 않은 문장은 보낸 날로 기록합니다.</p>${publicContentTable({ caption: "보낸 문장과 기록 결과", headers: PUBLIC_PARSER_EXAMPLE_HEADERS_V229139, rows: publicParserExampleRowsV229139() }, "kakao-examples-table")}${publicContentLinks([[`문장 ${kakaoSentenceCountV229145()}개의 실제 저장 결과: 카카오톡 문장 사전`, "/kakao-sentences"]])}</section>`;
 }
 
 function renderPublicDemo() {
