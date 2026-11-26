@@ -3398,7 +3398,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.146-REAL-SCREENS";
+const APP_VERSION = "V22.9.147-GROUP-CALCULATOR";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -3673,6 +3673,7 @@ function adsMode(env = {}) {
 // V22.9.108(사용자 결정 2026-11-07): 광고 허용 화면 = 로그인 없이 읽는 공개 정본 53쪽(안내 12 + 생활비 글 40 + 글 목록 1).
 // V22.9.142: 생활비 글 9편을 합쳐 44쪽(안내 12 + 생활비 글 31 + 글 목록 1).
 // V22.9.145: 카카오톡 문장 사전을 더해 45쪽(안내 13 + 생활비 글 31 + 글 목록 1).
+// V22.9.147: 모임 정산 계산기를 더해 46쪽(안내 14 + 생활비 글 31 + 글 목록 1). 광고 자리는 글(article) 뒤라 계산기 입력칸과 떨어져 있다.
 // 정책·신원 6쪽(/about·/contact·/privacy·/terms·/cookies·/site-map)과 후원 안내(/support), 계산표 자산, 로그인 뒤 화면은 넣지 않는다.
 // V22.9.106 은 심사 준비로 대표 글 6편만 뒀고, 승인 뒤 나머지 글에 광고가 없는 것을 사용자가 넓히기로 했다(추적표 V107:D-11).
 const AD_PAGE_KEYS = Object.freeze([
@@ -3680,6 +3681,8 @@ const AD_PAGE_KEYS = Object.freeze([
   "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide",
   // V22.9.145 B3: 카카오톡 문장 사전.
   "/kakao-sentences",
+  // V22.9.147: 모임 정산 계산기.
+  "/group-settlement",
   // 생활비 가이드 글 12편(V22.9.40).
   "/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup",
   "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit",
@@ -3948,6 +3951,8 @@ const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/updates",
   // V22.9.145 B3(애드센스 계획): 카카오톡 문장 사전 — 실제 봇 결과 표(kakao-sentences-v229145.js). 광고 화면 목록(AD_PAGE_KEYS)에도 넣는다.
   "/kakao-sentences",
+  // V22.9.147: 모임 정산 계산기 — 브라우저에서만 계산하는 공개 도구(group-settlement-v229147.js). 광고 화면 목록(AD_PAGE_KEYS)에도 넣는다.
+  "/group-settlement",
 ]);
 
 // V22.9.87 T-20·T-21: 공개 머리와 로그인 시작 화면의 장부 마크(§3-4 로고 타일 안). 앱 메뉴의 renderAccountbookBrandIcon(web/unified-nav.js)과
@@ -4422,6 +4427,593 @@ const REAL_SCREENS_CSS_V229146 = ".pubShots{margin:18px 0 8px;min-width:0}.pubSe
   + ".pubShotLog span{color:#5f6b7a;font-size:13px}.pubShotLog code{font:inherit;font-weight:600;color:#191f28;word-break:keep-all;overflow-wrap:anywhere}.pubShotLog em{grid-column:2;color:#4e5968;font-style:normal;font-size:13px}"
   + "@media(min-width:900px){.pubShots ul{flex-wrap:wrap;overflow-x:visible}.pubShots img{width:220px}}";
 
+
+// V22.9.147 모임 정산 계산기(사용자 2026-11-26 물음 창 "모임 정산 계산기" — 수익화 전략의 병행 업데이트 첫 판).
+// 공개 화면 /group-settlement 에서 브라우저가 계산하고 입력값을 서버로 보내지 않는다. 계산 규칙은 웹 정산
+// (features/settlement-ops-pages.js buildSettlementModel)과 같다.
+// - 네 방식: 동일 분배·비율 분배·인원수 분배·품목별 참여자.
+// - 몫은 내림하고, 남는 원은 나눈 사람 가운데 참여자 칸에 가장 나중에 적은 사람이 맡는다.
+// - 송금은 보낼 돈이 큰 사람과 받을 돈이 큰 사람부터 짝짓는다.
+// validate-v229147-group-settlement 가 두 함수를 같은 입력으로 돌려 사람별 낸 돈·몫·차액과 송금 제안을 대조하고,
+// 몫을 BigInt 로 다시 나눈 정답과도 대조한다.
+// 웹 정산이 말없이 고쳐 쓰는 값(몫 0 → 1, 0.1 미만 → 0.1, 1000 초과 → 1000)과 소수 몫은 계산기가 받지 않고 다시 적어 달라고 한다.
+// 소수 몫(0.7 : 0.3, 0.1 셋 등)은 몫의 합이 2진 소수 오차로 커져 나누어떨어지는 금액도 1~3원 어긋난다(웹 정산에 남은 결함 —
+// 추적표 V147:G-2). 그래서 몫은 1부터 1000까지의 정수만 받는다(반 몫은 2 : 1). 받아들이는 입력의 결과는 웹 정산과 같고 정확하다.
+// 금액·몫 칸은 글자 칸이다(type=number 는 브라우저가 ‘1/2’ 를 12 로, ‘50%’ 를 50 으로 말없이 바꾸거나 빈 값으로 넘긴다).
+// 그래서 계산 함수가 원문의 모양을 보고 맞지 않으면 다시 적어 달라고 한다.
+// groupSettlementComputeV229147 은 화면에 toString() 으로 그대로 실린다(worksheet-runtime.js renderInlineWorksheetV229139).
+// 그래서 바깥 이름을 하나도 쓰지 않는다. 오류에는 틀린 칸의 위치(field)를 붙여 화면이 그 칸으로 초점을 옮긴다.
+
+function groupSettlementComputeV229147(slug, input) {
+  const MODES = { equal: "동일 분배", ratio: "비율 분배", headcount: "인원수 분배", item: "품목별 참여자" };
+  const text = (value) => String(value ?? "").trim();
+  const won = (value) => Math.round(Number(value) || 0).toLocaleString("ko-KR") + "원";
+  const short = (value) => (value.length > 20 ? value.slice(0, 20) + "…" : value);
+  const fail = (message, group, index, key) => {
+    const error = new Error(message);
+    if (group) error.field = { group, index, key };
+    throw error;
+  };
+  const settings = input && input.settings ? input.settings : {};
+  const mode = Object.prototype.hasOwnProperty.call(MODES, settings.mode) ? settings.mode : "equal";
+  const title = text(settings.title).slice(0, 60);
+  const weighted = mode === "ratio" || mode === "headcount";
+  const unit = mode === "headcount" ? "인원수" : "몫";
+  const names = [];
+  const weights = Object.create(null);
+  let weightUnused = false;
+  const memberRows = Array.isArray(input && input.members) ? input.members : [];
+  memberRows.forEach((row, index) => {
+    const name = text(row && row.name);
+    const rawWeight = text(row && row.weight);
+    const where = `${index + 1}번째 참여자`;
+    if (!name) {
+      if (rawWeight && rawWeight !== "1") fail(`${where} 행에 ${unit}만 있어요. 이름도 적어 주세요.`, "members", index, "name");
+      return;
+    }
+    if (name.length > 40) fail(`${where}의 이름은 40자까지 적을 수 있어요.`, "members", index, "name");
+    if (/[,，、]/.test(name)) fail(`${where}의 이름에 쉼표를 쓸 수 없어요. 함께한 사람 칸에서 이름을 쉼표로 나누기 때문이에요.`, "members", index, "name");
+    if (names.includes(name)) fail(`같은 이름이 두 번 있어요: ${short(name)}. 이름을 하나씩만 적어 주세요.`, "members", index, "name");
+    if (names.length >= 30) fail("참여자는 30명까지 계산할 수 있어요.", "members", index, "name");
+    let weight = 1;
+    if (rawWeight) {
+      if (weighted) {
+        if (!/^[0-9]+$/.test(rawWeight)) {
+          fail(mode === "headcount"
+            ? `${short(name)}의 인원수는 1부터 1000까지의 정수로 적어 주세요.`
+            : `${short(name)}의 몫은 1부터 1000까지의 정수로 적어 주세요. 반 몫이면 다른 사람을 2, 그 사람을 1처럼 적으면 돼요.`, "members", index, "weight");
+        }
+        weight = Number(rawWeight);
+        if (weight < 1 || weight > 1000) fail(`${short(name)}의 ${mode === "headcount" ? "인원수는" : "몫은"} 1부터 1000까지 적을 수 있어요. 이번 정산에서 빼려면 그 참여자 행을 지우세요.`, "members", index, "weight");
+      } else if (rawWeight !== "1") weightUnused = true;
+    }
+    names.push(name);
+    weights[name] = weight;
+  });
+  if (!names.length) fail("참여자를 한 명 이상 적어 주세요.", "members", 0, "name");
+  const expenses = [];
+  let withUnused = false;
+  const rows = Array.isArray(input && input.expenses) ? input.expenses : [];
+  rows.forEach((row, index) => {
+    const item = text(row && row.item);
+    const rawAmount = text(row && row.amount);
+    const payer = text(row && row.payer);
+    const withText = text(row && row.with);
+    if (!item && !rawAmount && !payer && !withText) return;
+    // 오류 말은 늘 ‘지출’ 로 끝나는 이름으로 부른다(조사 ‘을’ 이 맞게).
+    const where = item ? `‘${short(item)}’ 지출` : `${index + 1}번째 지출`;
+    if (!rawAmount) fail(`${where}의 금액을 적어 주세요.`, "expenses", index, "amount");
+    if (!/^(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)$/.test(rawAmount)) fail(`${where}의 금액은 원 단위 숫자로만 적어 주세요(예: 240000 또는 240,000).`, "expenses", index, "amount");
+    const amount = Number(rawAmount.replace(/,/g, ""));
+    if (amount < 1) fail(`${where}의 금액은 1원 이상이어야 해요.`, "expenses", index, "amount");
+    if (amount > 1000000000) fail(`${where}의 금액은 10억 원까지 적을 수 있어요.`, "expenses", index, "amount");
+    if (!payer) fail(`${where}을 낸 사람을 적어 주세요.`, "expenses", index, "payer");
+    if (!names.includes(payer)) fail(`${where}을 낸 사람(${short(payer)})이 참여자 목록에 없어요. 참여자에 같은 이름으로 먼저 적어 주세요.`, "expenses", index, "payer");
+    let together = [];
+    if (withText) {
+      if (mode === "item") {
+        const picked = withText.split(/[,，、]/).map(text).filter(Boolean);
+        if (!picked.length) fail(`${where}의 함께한 사람 칸에 이름이 없어요. 참여자 모두가 나누면 칸을 비워 두세요.`, "expenses", index, "with");
+        const unknown = picked.filter((name) => !names.includes(name));
+        if (unknown.length) fail(`${where}의 함께한 사람 가운데 참여자 목록에 없는 이름이 있어요: ${unknown.slice(0, 3).map(short).join(", ")}. 이름은 쉼표로 나눠 적어 주세요(예: 서연, 도윤).`, "expenses", index, "with");
+        together = names.filter((name) => picked.includes(name));
+      } else withUnused = true;
+    }
+    if (expenses.length >= 60) fail("지출은 60건까지 계산할 수 있어요.", "expenses", index, "item");
+    expenses.push({ amount, payer, together });
+  });
+  if (!expenses.length) fail("지출을 한 건 이상 적어 주세요.", "expenses", 0, "item");
+
+  // 아래는 buildSettlementModel 과 같은 순서·같은 식이다(대조 검사가 지킨다). 몫이 모두 정수라 합과 곱이 정확하다.
+  const ids = names.slice();
+  const paidBy = Object.create(null);
+  let totalExpense = 0;
+  for (const expense of expenses) {
+    totalExpense += expense.amount;
+    paidBy[expense.payer] = (paidBy[expense.payer] || 0) + expense.amount;
+  }
+  const participantCount = Math.max(1, ids.length || 1);
+  const allocationWeights = Object.create(null);
+  for (const id of ids) allocationWeights[id] = weighted ? weights[id] : 1;
+  const owedBy = Object.create(null);
+  for (const id of ids) owedBy[id] = 0;
+  const allocate = (amount, selectedIds, selectedWeights) => {
+    const targets = selectedIds.filter((id) => ids.includes(id));
+    if (!targets.length) return;
+    const sumWeight = targets.reduce((sum, id) => sum + Number(selectedWeights[id] || 1), 0) || targets.length;
+    let allocated = 0;
+    targets.forEach((id, index) => {
+      const value = index === targets.length - 1 ? amount - allocated : Math.floor(amount * Number(selectedWeights[id] || 1) / sumWeight);
+      owedBy[id] = (owedBy[id] || 0) + value;
+      allocated += value;
+    });
+  };
+  const ones = Object.create(null);
+  for (const id of ids) ones[id] = 1;
+  if (mode === "item") {
+    for (const expense of expenses) allocate(expense.amount, expense.together.length ? expense.together : ids, ones);
+  } else {
+    allocate(totalExpense, ids, allocationWeights);
+  }
+  const share = Math.round(totalExpense / participantCount);
+  const people = ids.map((id) => {
+    const paid = Math.round(paidBy[id] || 0);
+    const personShare = Math.round(owedBy[id] || 0);
+    return { name: id, paid, share: personShare, balance: paid - personShare, weight: allocationWeights[id] };
+  }).sort((a, b) => b.paid - a.paid);
+  const creditors = people.filter((p) => p.balance > 0).map((p) => ({ name: p.name, remain: p.balance })).sort((a, b) => b.remain - a.remain);
+  const debtors = people.filter((p) => p.balance < 0).map((p) => ({ name: p.name, remain: -p.balance })).sort((a, b) => b.remain - a.remain);
+  const transfers = [];
+  let i = 0;
+  let j = 0;
+  while (i < debtors.length && j < creditors.length) {
+    const amount = Math.min(debtors[i].remain, creditors[j].remain);
+    if (amount > 0) transfers.push({ from: debtors[i].name, to: creditors[j].name, amount: Math.round(amount) });
+    debtors[i].remain -= amount;
+    creditors[j].remain -= amount;
+    if (debtors[i].remain <= 0) i++;
+    if (creditors[j].remain <= 0) j++;
+  }
+
+  const label = title || "모임 정산";
+  const heads = ids.reduce((sum, id) => sum + allocationWeights[id], 0);
+  const tables = [
+    {
+      caption: `${label}: 사람별 정산(${MODES[mode]}, 단위 원)`,
+      headers: ["이름", "낸 돈", "부담할 몫", "받거나 보낼 돈"],
+      rows: people.map((p) => [p.name, p.paid, p.share, p.balance > 0 ? `${p.balance.toLocaleString("ko-KR")} 받기` : p.balance < 0 ? `${(-p.balance).toLocaleString("ko-KR")} 보내기` : "없음"]),
+    },
+    {
+      caption: "송금 제안(단위 원)",
+      headers: ["보내는 사람", "받는 사람", "금액"],
+      rows: transfers.length ? transfers.map((t) => [t.from, t.to, t.amount]) : [["보낼 돈 없음", "-", 0]],
+    },
+  ];
+  const ratioText = ids.map((id) => `${id} ${allocationWeights[id]}`).join(" : ");
+  const headText = ids.map((id) => `${id} ${allocationWeights[id]}명`).join(", ");
+  const totalNote = {
+    equal: `총 지출 ${won(totalExpense)}, 참여 ${participantCount}명, 1인 평균 ${won(share)}.`,
+    ratio: `총 지출 ${won(totalExpense)}, 참여 ${participantCount}명, 몫의 합 ${heads}.`,
+    headcount: `총 지출 ${won(totalExpense)}, ${participantCount}팀(모두 ${heads}명), 1명당 평균 ${won(Math.round(totalExpense / heads))}.`,
+    item: `총 지출 ${won(totalExpense)}, 참여 ${participantCount}명. 사람별 몫은 자기가 함께한 지출의 몫을 더한 값이에요.`,
+  }[mode];
+  const modeNote = {
+    equal: "모든 지출의 합계를 참여자 수로 똑같이 나눴어요.",
+    ratio: `합계를 각자의 몫 비율(${ratioText})로 나눴어요.`,
+    headcount: `합계를 인원수(${headText})로 나눴어요. 가족이나 팀처럼 한 줄이 여러 명분을 낼 때 써요.`,
+    item: "지출마다 함께한 사람끼리 똑같이 나눴어요. 함께한 사람을 비워 둔 지출은 참여자 모두가 나눠요.",
+  }[mode];
+  const notes = [
+    totalNote,
+    modeNote,
+    "나누어떨어지지 않는 원 단위는 내림하고, 남는 원은 그 돈을 나눈 사람 가운데 참여자 칸에 가장 나중에 적은 사람이 맡아요. 말해가계부 웹 정산과 같은 규칙이에요.",
+    transfers.length
+      ? `보낼 돈이 큰 사람과 받을 돈이 큰 사람부터 짝지어 송금 ${transfers.length}번으로 끝나게 했어요.`
+      : "모두 낸 만큼 부담해서 보낼 돈이 없어요.",
+  ];
+  if (withUnused) notes.push("함께한 사람 칸은 품목별 참여자 방식에서만 써요. 적어 둔 이름은 이번 계산에 넣지 않았어요.");
+  if (weightUnused) notes.push("몫 칸은 비율 분배·인원수 분배 방식에서만 써요. 적어 둔 몫은 이번 계산에 넣지 않았어요.");
+  const shareLines = [
+    `[${label}]`,
+    `총 ${won(totalExpense)} · ${mode === "headcount" ? `${participantCount}팀 ${heads}명` : `${participantCount}명`} · ${mode === "ratio" ? `비율 분배(${ratioText})` : mode === "headcount" ? `인원수 분배(${headText})` : MODES[mode]}`,
+    ...(transfers.length ? ["보낼 돈", ...transfers.map((t) => `- ${t.from} → ${t.to} ${won(t.amount)}`)] : ["보낼 돈 없음"]),
+    `사람별 몫: ${people.map((p) => `${p.name} ${won(p.share)}`).join(", ")}`,
+    "말해가계부 모임 정산 계산기로 계산했어요.",
+    "https://malhaebook.com/group-settlement",
+  ];
+  return { tables, notes, shareText: shareLines.join("\n"), people, transfers, totalExpense, participantCount, share, mode, heads };
+}
+
+const GROUP_SETTLEMENT_MEMBERS_MT_V229147 = ["민지", "준호", "서연", "도윤"].map((name) => ({ name, weight: "1" }));
+
+// 칸 설정의 다섯째 값은 이 계산기의 화면만 읽는다(worksheet-runtime.js·group-settlement-client-v229147.js): 글자 칸의 inputmode·
+// 자리 표시·길이, 그 칸을 보이는 방식(modes), 방식마다 바뀌는 칸 이름(captions), 휴대폰에서 한 줄을 다 쓰는 칸(wide).
+const GROUP_SETTLEMENT_SPEC_V229147 = Object.freeze({
+  title: "모임 정산 계산기",
+  outcome: "지출마다 낸 사람과 함께한 사람을 적으면 사람별로 부담할 몫과 누가 누구에게 얼마를 보내면 되는지 계산합니다.",
+  instruction: "나누는 방식을 고르고 참여자와 지출을 고친 뒤 ‘결과 계산’을 누르세요. 비율·인원수 방식에서는 참여자마다 몫이나 인원수를 정수로 적고(비우면 1), 품목별 방식에서는 지출마다 함께한 사람을 쉼표로 나눠 적습니다(비우면 모두). 입력값은 이 브라우저 안에서만 계산하고 서버로 보내지 않습니다.",
+  fields: [
+    ["title", "정산 이름", "text", null, { maxLength: 60 }],
+    ["mode", "나누는 방식", "select", [["item", "품목별 참여자"], ["equal", "동일 분배"], ["ratio", "비율 분배"], ["headcount", "인원수 분배"]]],
+  ],
+  groups: [
+    { key: "members", label: "참여자", max: 30, columns: [
+      ["name", "이름", "text", null, { maxLength: 40 }],
+      ["weight", "몫", "text", null, { maxLength: 4, inputMode: "numeric", placeholder: "1", modes: ["ratio", "headcount"], captions: { ratio: "몫", headcount: "인원수" } }],
+    ] },
+    { key: "expenses", label: "지출", max: 60, columns: [
+      ["item", "항목", "text", null, { maxLength: 40, wide: true }],
+      ["amount", "금액(원)", "text", null, { maxLength: 13, inputMode: "numeric", placeholder: "240,000" }],
+      ["payer", "낸 사람", "text", null, { maxLength: 40 }],
+      ["with", "함께한 사람", "text", null, { maxLength: 400, placeholder: "비우면 모두", modes: ["item"], wide: true }],
+    ] },
+  ],
+  // 예제 단추에는 짧은 이름(short)을, 불러온 뒤 알림에는 긴 이름(label)을 쓴다(휴대폰에서 단추 넷이 두 줄에 들어가게).
+  exampleLabel: "1박 2일 MT(품목별 참여자)",
+  exampleShort: "MT(품목별)",
+  example: {
+    settings: { title: "1박 2일 MT", mode: "item" },
+    members: GROUP_SETTLEMENT_MEMBERS_MT_V229147,
+    expenses: [
+      { item: "숙소", amount: "240,000", payer: "민지", with: "" },
+      { item: "장보기", amount: "86,000", payer: "준호", with: "" },
+      { item: "택시", amount: "18,000", payer: "서연", with: "서연, 도윤" },
+      { item: "술·안주", amount: "42,000", payer: "도윤", with: "민지, 준호, 도윤" },
+    ],
+  },
+  otherExamples: [
+    { label: "회식 1차·2차(동일 분배)", short: "회식(동일)", input: {
+      settings: { title: "회식 1차·2차", mode: "equal" },
+      members: ["민지", "준호", "서연", "도윤", "하준"].map((name) => ({ name, weight: "1" })),
+      expenses: [
+        { item: "1차", amount: "213,000", payer: "민지", with: "" },
+        { item: "2차", amount: "87,500", payer: "준호", with: "" },
+      ],
+    } },
+    { label: "동아리 회식, 선배 2 : 후배 1(비율 분배)", short: "동아리(비율)", input: {
+      settings: { title: "동아리 회식", mode: "ratio" },
+      members: [["민지", "2"], ["준호", "2"], ["서연", "1"], ["도윤", "1"], ["하준", "1"]].map(([name, weight]) => ({ name, weight })),
+      expenses: [{ item: "회식", amount: "280,000", payer: "민지", with: "" }],
+    } },
+    { label: "세 가족 캠핑(인원수 분배)", short: "캠핑(인원수)", input: {
+      settings: { title: "세 가족 캠핑", mode: "headcount" },
+      members: [["김씨네", "3"], ["이씨네", "2"], ["박씨네", "4"]].map(([name, weight]) => ({ name, weight })),
+      expenses: [
+        { item: "캠핑장", amount: "150,000", payer: "김씨네", with: "" },
+        { item: "장보기", amount: "117,000", payer: "박씨네", with: "" },
+        { item: "기름값", amount: "45,000", payer: "이씨네", with: "" },
+      ],
+    } },
+  ],
+  checks: [
+    "숙소·장보기는 네 명이, 택시는 서연·도윤이, 술·안주는 민지·준호·도윤이 나눕니다. 민지의 몫은 60,000 + 21,500 + 14,000 = 95,500원입니다.",
+    "서연이 민지에게 72,500원, 도윤이 62,500원, 준호가 9,500원을 보내면 끝납니다. 민지는 240,000원을 냈고 몫이 95,500원이라 144,500원을 돌려받습니다.",
+    "세 가족 캠핑 예제(인원수 3·2·4)에서 이씨네 몫은 312,000 × 2 ÷ 9 = 69,333.3…원을 내린 69,333원이고, 남는 1원은 참여자 칸에 마지막으로 적은 박씨네(138,667원)가 맡습니다.",
+  ],
+});
+
+// 공개 안내 화면(guide-content.js 의 page 도우미로 만든다). 절의 숫자는 위 예제와 검사가 같은 조건으로 만든 사례(먼저 간 사람·반 몫·
+// 송금 횟수)를 이 계산 함수로 계산한 값이다(validate-v229147-group-settlement 가 대조한다).
+const GROUP_SETTLEMENT_UPDATED_V229147 = "2026-11-26";
+
+function groupSettlementGuidePageV229147(page) {
+  return page(
+    "모임 정산 계산기: 여행·회식 비용의 사람별 몫과 송금 순서",
+    "참여자와 지출을 적으면 동일·비율·인원수·품목별 네 방식으로 사람별 몫과 누가 누구에게 얼마를 보내면 되는지 계산합니다. 말해가계부 웹 정산과 같은 규칙으로 브라우저 안에서 계산하고, 입력값을 서버로 보내지 않습니다.",
+    "여행·회식 정산",
+    "먼저 결제한 사람과 그 비용을 함께 부담할 사람은 다를 때가 많습니다. 지출마다 낸 사람과 함께한 사람을 적으면 각자의 몫과 송금 순서를 한 번에 계산합니다.",
+    [
+      { title: "이 계산기로 할 수 있는 일", paragraphs: [
+        "여행 숙소, 회식 1차·2차, 동아리 행사처럼 한 번의 모임에서 여러 사람이 번갈아 결제한 비용을 나눕니다. 결과는 사람별로 낸 돈과 부담할 몫, 받거나 보낼 돈, 그리고 누가 누구에게 얼마를 보내면 끝나는지입니다. 결과 아래의 결산 문구는 복사해서 단톡방에 바로 붙여 넣을 수 있습니다.",
+        "함께 사는 사람끼리 매달 내는 관리비·장보기를 여러 방식으로 비교해 보고 싶다면 공동 생활비 글의 계산표가 더 맞습니다. 이 계산기는 한 번의 여행이나 모임을 끝내는 정산에 맞췄습니다.",
+      ], links: [["공동 생활비, 나누는 방식 네 가지 비교", "/shared-living-cost-rules"]] },
+      { title: "나누는 방식 네 가지", paragraphs: [
+        "비율과 인원수는 1부터 1000까지의 정수로 적습니다. 아이를 반 몫으로 치려면 어른 2, 아이 1처럼 두 배로 적으면 같은 비율이 됩니다.",
+      ], table: { caption: "방식별로 쓰는 상황과 계산", headers: ["방식", "이럴 때", "계산", "예제"], rows: [
+        ["동일 분배", "모두가 모든 지출에 함께했을 때", "합계 ÷ 참여자 수", "회식 1차·2차 300,500원을 다섯 명이 나누면 한 사람 60,100원"],
+        ["비율 분배", "미리 정한 비율이 있을 때", "합계 × 내 몫 ÷ 몫의 합", "선배 2 : 후배 1로 280,000원이면 선배 80,000원, 후배 40,000원"],
+        ["인원수 분배", "가족·팀처럼 한 줄이 여러 명분을 낼 때", "합계 × 인원수 ÷ 전체 인원", "3·2·4명 세 가족이 312,000원이면 104,000원, 69,333원, 138,667원"],
+        ["품목별 참여자", "지출마다 함께한 사람이 다를 때", "지출마다 함께한 사람끼리 나눈 뒤 사람별로 더함", "택시는 탄 사람만, 술·안주는 마신 사람만 나눔"],
+      ] } },
+      { title: "예제 풀이: 1박 2일 MT", paragraphs: [
+        "계산기의 기본 예제입니다. 네 사람이 숙소와 장보기는 다 같이 썼고, 택시는 서연·도윤만 탔고, 술·안주는 서연을 뺀 세 사람만 먹었습니다. 지출마다 함께한 사람끼리 먼저 나눕니다.",
+        "사람별 몫은 자기가 함께한 지출의 몫을 더한 값입니다. 민지와 준호는 60,000 + 21,500 + 14,000 = 95,500원, 서연은 60,000 + 21,500 + 9,000 = 90,500원, 도윤은 네 지출에 모두 함께해 104,500원입니다. 네 사람의 몫을 더하면 386,000원으로 지출 합계와 같습니다.",
+        "낸 돈에서 몫을 빼면 민지는 144,500원을 받고, 서연은 72,500원, 도윤은 62,500원, 준호는 9,500원을 보냅니다. 그래서 세 사람이 민지에게 한 번씩, 세 번 보내면 끝납니다.",
+      ], table: { caption: "지출마다 함께한 사람끼리 나눈 몫, 단위 원", headers: ["지출", "금액", "낸 사람", "함께한 사람", "한 사람 몫"], rows: [
+        ["숙소", "240,000", "민지", "네 명 모두", "60,000"],
+        ["장보기", "86,000", "준호", "네 명 모두", "21,500"],
+        ["택시", "18,000", "서연", "서연·도윤", "9,000"],
+        ["술·안주", "42,000", "도윤", "민지·준호·도윤", "14,000"],
+      ] } },
+      { title: "원 단위와 송금 순서는 이렇게 정해요", paragraphs: [
+        "몫이 나누어떨어지지 않으면 원 단위를 내리고, 남는 원은 그 돈을 나눈 사람 가운데 참여자 칸에 가장 나중에 적은 사람이 맡습니다. 그래서 사람별 몫을 더하면 지출 합계와 같습니다. 세 가족 캠핑 예제에서는 이씨네 몫 312,000 × 2 ÷ 9 = 69,333.3…원을 69,333원으로 내리고, 남는 1원은 마지막에 적은 박씨네가 맡아 138,667원이 됩니다. 남는 원을 맡을 사람을 바꾸려면 참여자 순서를 바꾸세요.",
+        "이 사이트의 다른 계산표는 남는 원을 다르게 나눕니다. 공동 생활비 계산표는 소수 부분이 큰 사람부터, 모임 회비 정산표의 택시비는 먼저 적은 사람부터 1원씩 맡습니다. 그래서 같은 금액을 나눠도 몇 원은 다른 사람이 맡을 수 있습니다. 이 계산기는 말해가계부 웹 정산과 같은 규칙을 따릅니다. 웹 정산에서는 가계부에 늦게 들어온 사람이 남는 원을 맡습니다.",
+        "송금은 보낼 돈이 가장 큰 사람과 받을 돈이 가장 큰 사람부터 짝짓습니다. 한 번 보낼 때마다 적어도 한 사람의 정산이 끝나므로 송금 횟수는 많아야 참여자 수보다 하나 적습니다.",
+        "다만 늘 가장 적은 횟수는 아닙니다. 다섯 사람의 정산이 받을 돈 A 60,000원·B 40,000원, 보낼 돈 C 40,000원·D 30,000원·E 30,000원으로 끝났다면 이 계산기는 C→A 40,000원, D→A 20,000원, D→B 10,000원, E→B 30,000원의 네 번을 제안합니다. C가 B에게 40,000원, D와 E가 A에게 30,000원씩 보내면 세 번에 끝납니다. 이렇게 금액이 딱 맞는 짝이 보이면 바꿔 보내도 됩니다. 사람마다 보내는 돈과 받는 돈의 합만 같으면 됩니다.",
+      ] },
+      { title: "자주 묻는 경우", bullets: [
+        "먼저 간 사람이 있을 때: 품목별 참여자 방식에서 그 사람이 빠진 지출의 함께한 사람 칸에 남은 사람만 적습니다. 회식 1차 213,000원은 다섯 명이, 2차 87,500원은 하준을 뺀 네 명이 나누면 하준은 42,600원, 나머지 네 사람은 64,475원씩 부담합니다.",
+        "아이를 반 몫으로 칠 때: 비율 분배에서 어른은 2, 아이는 1로 적습니다. 어른 둘과 아이 하나가 120,000원을 나누면 어른은 48,000원씩, 아이는 24,000원입니다. 0.5 같은 소수 몫은 받지 않습니다. 소수는 컴퓨터 계산에서 몇 원씩 어긋날 수 있어서이고, 정수로 바꿔 적어도 비율은 같습니다.",
+        "할인이나 부분 환불을 받았을 때: 실제로 나간 금액(결제 금액에서 환불·할인 금액을 뺀 값)을 적습니다. 이 계산기는 빼는 금액(음수)을 따로 받지 않습니다.",
+        "여러 날, 두 달에 걸친 여행일 때: 계산기는 날짜를 보지 않으므로 여행 전체의 지출을 한 번에 넣으면 됩니다. 말해가계부 웹 정산은 달마다 계산하므로, 달을 넘긴 여행을 웹에서 정산할 때는 두 달을 각각 확인합니다.",
+        "회비를 걷는 모임일 때: 회비로 결제한 지출은 이 계산에 넣지 않고, 각자 자기 돈으로 먼저 낸 지출만 나눕니다. 공금 잔액과 개인 선결제를 함께 정리하려면 단톡방 정산 안내의 ‘모임 회비와 개인 선결제 정산표’를 씁니다.",
+      ], links: [["단톡방 정산 방법과 모임 회비 정산표", "/group-accountbook"]] },
+      { title: "정산 전에 확인할 것", bullets: [
+        "카드 내역이나 영수증과 금액을 맞춥니다.",
+        "먼저 결제한 사람(낸 사람)과 그 비용을 함께 쓴 사람(함께한 사람)을 따로 적습니다. 낸 사람도 그 지출을 함께했다면 함께한 사람 칸에 넣습니다.",
+        "비율이나 빠지는 사람은 정산 전에 모두가 동의한 기준으로 적습니다.",
+        "결과의 결산 문구를 단톡방에 올리고 송금 기한을 함께 정하면 정산이 늦어지는 일을 줄일 수 있습니다.",
+      ] },
+      { title: "단톡방에서 계속 기록하려면", paragraphs: [
+        "모임이 이어진다면 단톡방에 말해가계부 봇을 부르고 각자 낸 돈을 ‘@말해가계부 숙소 240000원’처럼 보내 기록할 수 있습니다. 단톡방에서 ‘@말해가계부 정산’이라고 보내면 이번 달 지출을 똑같이 나눈 결과와 송금 제안을 답하고, 비율·인원수·품목별 참여자 방식은 웹 가계부의 정산 화면에서 고릅니다.",
+      ], links: [["단톡방 정산 방법", "/group-accountbook"], ["카카오톡 가계부 입력 방법", "/kakao-guide"], ["예시 가계부의 정산 화면", "/demo#tour-settle"]] },
+      { title: "입력한 값은 어디에도 저장하지 않아요", paragraphs: [
+        "이 계산기는 지금 보고 있는 브라우저 안에서만 계산합니다. 입력한 이름과 금액을 말해가계부 서버로 보내지 않고 저장하지도 않습니다. CSV 저장과 인쇄도 이 기기에서만 일어납니다. 이름 대신 별명을 적어도 계산 결과는 같습니다.",
+      ] },
+    ],
+    { htmlTitle: "모임 정산 계산기: 여행·회식 더치페이와 송금 계산 · 말해가계부", primary: ["바로 계산하기", "#inline-worksheet"], secondary: ["단톡방 정산 방법", "/group-accountbook"], updated: GROUP_SETTLEMENT_UPDATED_V229147, toolFirst: true },
+  );
+}
+
+
+// V22.9.147 모임 정산 계산기(/group-settlement)의 브라우저 스크립트와 그 화면에만 싣는 CSS.
+// worksheet-runtime.js 의 worksheetClientV229106(생활비 계산표 공용)을 본떴지만 따로 둔다. 공용 스크립트를 고치면 그 글이 실린
+// 1년 캐시 계산표 자산(living-worksheet-v229146-*.html)의 내용이 바뀌어 자산 주소를 올려야 하고, 다른 계산표의 화면도 바뀐다.
+// 공용 스크립트와 다른 점(독립 검토 2026-11-26 — 추적표 V147:G-3·G-6·G-9·G-11):
+// - 모든 칸이 글자 칸(type=text)이다. 금액·몫 칸은 inputmode=numeric 으로 숫자 자판을 띄우고, 모양은 계산 함수가 본다
+//   (type=number 는 브라우저가 ‘1/2’ 를 12 로, ‘50%’ 를 50 으로 말없이 바꾸거나 빈 값으로 넘긴다).
+// - 나누는 방식에 쓰지 않는 칸(몫·함께한 사람)은 숨긴다(폼의 data-mode + CSS). 몫 칸 이름은 방식에 따라 ‘몫’·‘인원수’.
+// - 행마다 번호를 붙인 legend(‘참여자 2’)와 이름 있는 삭제 단추. 틀린 칸에 aria-invalid·aria-describedby 를 달고 초점을 옮긴다.
+// - ‘입력값이 바뀌었습니다’ 는 처음 바뀔 때 한 번만 알린다. 행 한도 알림을 덮지 않는다.
+// - 예제는 단추로 고르고, 고친 입력이 예제로 바뀐 뒤에는 ‘이전 입력 되살리기’ 로 되돌린다(확인 창 없이).
+// - 결산 문구 칸은 고칠 수 있다(마지막 줄의 계산기 주소를 지워도 된다). ‘결과 계산’ 을 누르면 결과로 화면을 옮긴다.
+// 화면에 toString() 으로 그대로 실리므로 바깥 이름을 하나도 쓰지 않는다(validate-v229147-group-settlement 가 새 맥락에서 돌려 본다).
+
+function groupSettlementClientV229147(slug, spec, calculate) {
+  const form = document.getElementById("worksheet-form");
+  const output = document.getElementById("worksheet-result");
+  const status = document.getElementById("worksheet-status");
+  const exportButton = document.getElementById("worksheet-export");
+  const printButton = document.getElementById("worksheet-print");
+  const resetButton = document.getElementById("worksheet-reset");
+  const element = (tag, text) => { const node = document.createElement(tag); if (text !== undefined) node.textContent = text; return node; };
+  const NUMBER = /^(?:[0-9]+|[0-9]{1,3}(?:,[0-9]{3})+)$/;
+  let last = null;
+  let stale = false;
+  let dirty = false;
+  let previous = null;
+  let shareControls = null;
+  let sequence = 0;
+  const undoButton = element("button", "이전 입력 되살리기");
+  undoButton.type = "button"; undoButton.className = "secondary"; undoButton.id = "worksheet-undo"; undoButton.hidden = true;
+  status.after(undoButton);
+  const captions = Object.create(null);
+  for (const group of spec.groups) for (const column of group.columns) if (column[4] && column[4].captions) captions[column[0]] = column[4].captions;
+
+  const field = (schema, value, prefix) => {
+    const key = schema[0], title = schema[1], type = schema[2], options = schema[3], more = schema[4] || {};
+    const label = element("label");
+    label.dataset.col = key;
+    if (more.modes) label.dataset.modes = more.modes.join(" ");
+    if (more.wide) label.className = "wsWide";
+    label.append(element("span", title));
+    let node;
+    if (type === "select") {
+      node = element("select");
+      for (const [optionValue, optionTitle] of options) { const option = element("option", optionTitle); option.value = optionValue; node.append(option); }
+    } else {
+      node = element("input");
+      node.type = "text";
+      node.maxLength = more.maxLength || 60;
+      node.autocomplete = "off";
+      if (more.inputMode) node.setAttribute("inputmode", more.inputMode);
+      if (more.placeholder) node.placeholder = more.placeholder;
+    }
+    node.name = key; node.id = prefix + "-" + key; node.value = String(value ?? "");
+    label.htmlFor = node.id; label.append(node);
+    return label;
+  };
+  const syncMode = () => {
+    const select = form.querySelector('select[name="mode"]');
+    const mode = select ? select.value : "";
+    form.dataset.mode = mode;
+    for (const key of Object.keys(captions)) {
+      const caption = captions[key][mode];
+      if (caption) for (const span of form.querySelectorAll(`label[data-col="${key}"] > span`)) span.textContent = caption;
+    }
+  };
+  const changed = () => {
+    dirty = true;
+    last = null; printButton.disabled = true; exportButton.disabled = true;
+    if (shareControls) shareControls.disabled = true;
+    if (output.childElementCount) output.dataset.stale = "1";
+    if (!stale) { stale = true; status.textContent = "입력값이 바뀌었습니다. 아래 결과는 바꾸기 전 값입니다. ‘결과 계산’을 눌러 다시 확인해 주세요."; }
+  };
+  const renumber = (group, holder) => {
+    [...holder.children].forEach((box, index) => {
+      const name = `${group.label} ${index + 1}`;
+      box.querySelector("legend").textContent = name;
+      box.querySelector(".wsRemove").setAttribute("aria-label", `${name} 삭제`);
+    });
+  };
+  const addRow = (group, holder, row) => {
+    if (holder.children.length >= group.max) return false;
+    const box = element("fieldset"); box.dataset.row = "true"; box.className = "wsRow";
+    box.append(element("legend"));
+    const grid = element("div"); grid.className = "fields";
+    for (const column of group.columns) grid.append(field(column, row ? row[column[0]] : "", "row-" + sequence));
+    sequence += 1;
+    const remove = element("button", "삭제"); remove.type = "button"; remove.className = "secondary wsRemove";
+    remove.addEventListener("click", () => {
+      const next = box.nextElementSibling || box.previousElementSibling;
+      box.remove(); renumber(group, holder); changed();
+      const target = next ? next.querySelector("input") : holder.parentElement.querySelector(".wsAdd");
+      if (target) target.focus();
+    });
+    box.append(grid, remove); holder.append(box);
+    return true;
+  };
+  const read = () => {
+    const input = { settings: Object.create(null) };
+    for (const node of form.querySelectorAll("#worksheet-settings input, #worksheet-settings select")) input.settings[node.name] = node.value;
+    for (const group of spec.groups) input[group.key] = [...form.querySelector(`[data-group="${group.key}"]`).children].map((box) => {
+      const row = Object.create(null); for (const node of box.querySelectorAll("input,select")) row[node.name] = node.value; return row;
+    });
+    return input;
+  };
+  const run = (reveal) => {
+    for (const node of form.querySelectorAll('[aria-invalid="true"]')) { node.removeAttribute("aria-invalid"); node.removeAttribute("aria-describedby"); }
+    output.replaceChildren(); delete output.dataset.stale; last = null; stale = false; shareControls = null;
+    printButton.disabled = true; exportButton.disabled = true;
+    try {
+      const input = read(), result = calculate(slug, input);
+      for (const data of result.tables) {
+        const region = element("div"); region.className = "table-scroll"; region.tabIndex = 0; region.setAttribute("role", "region"); region.setAttribute("aria-label", data.caption);
+        const table = element("table"); table.append(element("caption", data.caption));
+        const head = element("thead"), row = element("tr"); for (const title of data.headers) { const th = element("th", title); th.scope = "col"; row.append(th); } head.append(row); table.append(head);
+        const body = element("tbody");
+        for (const values of data.rows) { const tr = element("tr"); values.forEach((value, i) => { const cell = element(i ? "td" : "th", typeof value === "number" ? value.toLocaleString("ko-KR", { maximumFractionDigits: 2 }) : String(value)); if (!i) cell.scope = "row"; tr.append(cell); }); body.append(tr); }
+        table.append(body); region.append(table); output.append(region);
+      }
+      for (const note of result.notes) output.append(element("p", note));
+      const label = element("label", "단톡방에 보낼 결산 문구(보내기 전에 고쳐도 돼요)");
+      const summary = element("textarea");
+      summary.rows = result.shareText.split("\n").length; summary.value = result.shareText; summary.spellcheck = false;
+      label.append(summary);
+      const controls = element("fieldset");
+      controls.className = "group-summary";
+      controls.append(element("legend", "결산 공유"));
+      const copyButton = element("button", "결산 문구 복사"); copyButton.type = "button";
+      copyButton.addEventListener("click", async () => {
+        try {
+          await navigator.clipboard.writeText(summary.value);
+          if (last && last.result === result) status.textContent = "결산 문구를 복사했어요. 보낼 단톡방에 붙여 넣으세요.";
+        } catch {
+          if (!last || last.result !== result) return;
+          summary.focus(); summary.select();
+          status.textContent = "결산 문구를 선택했어요. 기기의 복사 기능을 사용해 주세요.";
+        }
+      });
+      controls.append(label, copyButton);
+      output.append(controls);
+      shareControls = controls;
+      last = { input, result }; printButton.disabled = false; exportButton.disabled = false;
+      status.textContent = "계산했어요. 결산 문구를 복사해 단톡방에 보내거나 CSV로 저장할 수 있어요.";
+      if (reveal) output.scrollIntoView({ block: "start" });
+    } catch (error) {
+      status.textContent = (error && error.message) || "입력값을 확인해 주세요.";
+      const where = error && error.field;
+      const holder = where ? form.querySelector(`[data-group="${where.group}"]`) : null;
+      const box = holder ? holder.children[where.index] : null;
+      const node = box ? box.querySelector(`[name="${where.key}"]`) : null;
+      if (node) {
+        node.setAttribute("aria-invalid", "true"); node.setAttribute("aria-describedby", "worksheet-status");
+        if (reveal) node.focus();
+      }
+    }
+  };
+  const reset = (data) => {
+    form.replaceChildren();
+    const settings = element("div"); settings.id = "worksheet-settings"; settings.className = "fields";
+    for (const schema of spec.fields) settings.append(field(schema, data.settings ? data.settings[schema[0]] : "", "setting"));
+    form.append(settings);
+    for (const group of spec.groups) {
+      const section = element("section"); section.className = "wsGroup";
+      section.append(element("h3", group.label));
+      const holder = element("div"); holder.dataset.group = group.key;
+      for (const row of (data[group.key] || []).slice(0, group.max)) addRow(group, holder, row);
+      renumber(group, holder);
+      const add = element("button", `${group.label} 추가`); add.type = "button"; add.className = "secondary wsAdd";
+      add.addEventListener("click", () => {
+        if (!addRow(group, holder)) { status.textContent = `${group.label} 행은 ${group.max}개까지 입력할 수 있어요.`; return; }
+        renumber(group, holder); changed();
+        holder.lastElementChild.querySelector("input").focus();
+      });
+      section.append(holder, add); form.append(section);
+    }
+    const bar = element("div"); bar.className = "wsSubmit";
+    const submit = element("button", "결과 계산"); submit.type = "submit"; bar.append(submit); form.append(bar);
+    syncMode();
+    run(false);
+  };
+  const load = (data, message) => {
+    previous = dirty ? read() : null;
+    reset(data);
+    dirty = false;
+    undoButton.hidden = !previous;
+    status.textContent = previous ? `${message} 바꾸기 전 입력으로 돌아가려면 ‘이전 입력 되살리기’를 누르세요.` : message;
+  };
+  undoButton.addEventListener("click", () => {
+    if (!previous) return;
+    const data = previous;
+    previous = null; undoButton.hidden = true;
+    reset(data);
+    dirty = true;
+    if (last) status.textContent = "바꾸기 전 입력으로 되돌리고 다시 계산했어요.";
+    const first = form.querySelector("input, select");
+    if (first) first.focus();
+  });
+  const examples = [{ label: spec.exampleLabel, short: spec.exampleShort, input: spec.example }].concat(spec.otherExamples || []);
+  const picker = element("div"); picker.className = "wsExamples"; picker.setAttribute("role", "group");
+  const pickerTitle = element("span", "예제 불러오기"); pickerTitle.id = "worksheet-examples-title";
+  picker.setAttribute("aria-labelledby", pickerTitle.id);
+  picker.append(pickerTitle);
+  for (const entry of examples) {
+    const button = element("button", entry.short || entry.label); button.type = "button"; button.className = "secondary"; button.title = entry.label;
+    button.addEventListener("click", () => load(entry.input, `‘${entry.label}’ 예제를 불러왔어요.`));
+    picker.append(button);
+  }
+  form.before(picker);
+  form.addEventListener("submit", (event) => { event.preventDefault(); run(true); });
+  form.addEventListener("input", changed);
+  form.addEventListener("change", (event) => { if (event.target && event.target.name === "mode") syncMode(); changed(); });
+  resetButton.addEventListener("click", () => load(spec.example, "기본 예제로 되돌렸어요."));
+  printButton.addEventListener("click", () => { if (last) window.print(); });
+  exportButton.addEventListener("click", () => {
+    if (!last) return;
+    const exportValue = (schema, value) => {
+      if (schema[2] === "select") { const option = schema[3].find((o) => o[0] === value); return option ? option[1] : value; }
+      const text = String(value ?? "").trim();
+      return schema[4] && schema[4].inputMode === "numeric" && NUMBER.test(text) ? Number(text.replace(/,/g, "")) : value;
+    };
+    const rows = [[spec.title], ["예제를 바꿔 계산한 결과입니다. 입력과 계산 조건을 함께 보관하세요."], ["설정", "입력값"], ...spec.fields.map((schema) => [schema[1], exportValue(schema, last.input.settings[schema[0]])])];
+    for (const group of spec.groups) rows.push([], [group.label], group.columns.map((c) => c[1]), ...last.input[group.key].map((r) => group.columns.map((c) => exportValue(c, r[c[0]]))));
+    for (const table of last.result.tables) rows.push([], [table.caption], table.headers, ...table.rows);
+    rows.push([], ...last.result.notes.map((n) => [n]));
+    const cell = (value) => { let text = String(value ?? ""); if (typeof value !== "number" && /^[\s]*[=+@-]/.test(text)) text = "'" + text; return '"' + text.replace(/"/g, '""') + '"'; };
+    const url = URL.createObjectURL(new Blob(["﻿", rows.map((r) => r.map(cell).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }));
+    const a = element("a"); a.href = url; a.download = slug + "-result.csv"; document.body.append(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  });
+  reset(spec.example);
+  resetButton.disabled = false;
+}
+
+// 이 화면에만 싣는 CSS(renderInlineWorksheetV229139 이 공용 CSS 뒤에 붙인다 — 다른 계산표 화면의 바이트는 그대로).
+// 방식에 쓰지 않는 칸 숨기기, 휴대폰에서 참여자 한 줄(이름·몫·삭제)과 지출 두세 줄, 결과 표 줄바꿈 막기, 폭을 다 쓰는 ‘결과 계산’.
+// ‘결과 계산’ 을 화면 아래에 붙이는 sticky 는 쓰지 않는다: 공개 화면의 html·body 가 overflow-x:hidden 이라 body 가 스크롤 상자가 되어
+// sticky 가 붙지 않는다(머리 없는 Chrome 확인). 고정 막대는 휴대폰 자판과 겹칠 수 있어 이번 판에 넣지 않았다(추적표 V147:G-6).
+const GROUP_SETTLEMENT_CSS_V229147 = [
+  "#worksheet-form label[data-modes]{display:none}",
+  '#worksheet-form[data-mode="ratio"] label[data-modes~="ratio"],#worksheet-form[data-mode="headcount"] label[data-modes~="headcount"],#worksheet-form[data-mode="item"] label[data-modes~="item"]{display:flex}',
+  ".wsExamples{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin:14px 0 4px}",
+  ".wsExamples>span{font-weight:700;font-size:14px;color:#1e293b;margin-right:4px}",
+  ".pubInlineTool .wsExamples button{margin:0;min-height:40px;padding:6px 12px;font-size:14px}",
+  ".pubInlineTool .wsRow{display:grid;grid-template-columns:minmax(0,1fr) auto;column-gap:10px;align-items:end;margin:10px 0;padding:10px 12px}",
+  ".pubInlineTool .wsRow>.fields{margin:0;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}",
+  '.pubInlineTool [data-group="members"] .wsRow>.fields{grid-template-columns:minmax(0,1fr) auto}',
+  '.pubInlineTool [data-group="members"] label[data-col="weight"] input{width:84px}',
+  ".pubInlineTool .wsRow label.wsWide{grid-column:1/-1}",
+  ".pubInlineTool .wsRow .wsRemove{margin:0;min-height:44px;padding:6px 12px}",
+  '@media (min-width:760px){.pubInlineTool [data-group="expenses"] .wsRow>.fields{grid-template-columns:repeat(auto-fit,minmax(140px,1fr))}.pubInlineTool [data-group="expenses"] .wsRow label.wsWide{grid-column:auto}}',
+  ".pubInlineTool .wsSubmit{margin-top:6px}",
+  ".pubInlineTool .wsSubmit button{margin:0;width:100%}",
+  "#worksheet-result th,#worksheet-result td{white-space:nowrap}",
+  "@media (max-width:480px){#worksheet-result th,#worksheet-result td{padding:8px}}",
+  ".pubInlineTool #worksheet-undo{margin:4px 0 8px}",
+  '.pubInlineTool [aria-invalid="true"]{border-color:#b42318;box-shadow:0 0 0 2px rgba(180,35,24,.18)}',
+].join("");
+
 // Public guides use synthetic examples, never household or account records.
 // V22.9.140: 카카오톡 채널(@말해가계부)의 1:1 채팅 주소. 채널 관리자센터의 ‘채널 URL’ 을 읽기만 해서 얻었다(2026-11-22, 공개 채널 화면 제목 = 말해가계부).
 // 처음 온 사람이 봇에게 바로 첫 기록을 보내게 첫 화면 둘째 단추와 /kakao-guide 첫 단추에 쓴다(V22.9.139 까지는 사이트 어디에도 봇으로 가는 링크가 없었다).
@@ -4450,6 +5042,13 @@ const SUBSCRIPTION_CASE = [
 // 보안 점검의 세부·관리자·관제·배포·DB 같은 내부 내용, 점검한 도구의 이름, 옛 서비스 이름은 적지 않고, 문장은 그 판의 CHANGELOG 절보다 넓게 쓰지 않는다(조건이 있으면 조건까지).
 // 새 판은 맨 앞에 그 판의 묶음 하나를 더한다(이미 있는 묶음에 판을 끼우지 않는다 — 쪽 안 앵커 id 는 묶음의 가장 새 판 번호(v229143 꼴)이고 RSS 항목의 링크·guid 라 바뀌면 안 된다).
 const PUBLIC_UPDATES_V229143 = Object.freeze([
+  { date: "2026-11-26", versions: ["V22.9.147"], title: "모임 정산 계산기", items: [
+    "여행·회식처럼 여럿이 번갈아 낸 돈을 나누는 ‘모임 정산 계산기’를 열었습니다.",
+    "참여자와 지출을 적으면 사람별 몫과 누가 누구에게 얼마를 보낼지, 단톡방에 붙여 넣을 결산 문구까지 보여 주도록 했습니다.",
+    "똑같이·비율·인원수·지출마다 함께한 사람끼리 나누는 네 방식을 고를 수 있고, 남는 원과 송금 순서는 웹 가계부 정산과 같은 규칙으로 맞췄습니다.",
+    "입력한 값은 서버로 보내거나 저장하지 않고 브라우저 안에서만 계산하도록 했습니다.",
+    "사용 가이드·사이트맵·공동 가계부 안내와 ‘공동 생활비, 나누는 방식 네 가지 비교’ 글에서 계산기로 가는 링크를 더했습니다.",
+  ] },
   { date: "2026-11-25", versions: ["V22.9.146"], title: "실제 화면 사진과 개인정보처리방침 개정 알림", items: [
     "첫 화면과 카카오톡 사용 안내·공동 가계부 안내·기능 둘러보기에 예시 데이터로 찍은 실제 웹 가계부 화면 사진을 실었습니다.",
     "사진 속 기록을 만든 예시 문장을 보낸 날짜, 저장된 값과 함께 사진 아래에 적었습니다.",
@@ -4754,11 +5353,12 @@ function publicGuidePages(env = {}) {
     ], { type: "SoftwareApplication", htmlTitle: "카카오톡 가계부·단톡방 가계부 · 말해가계부", primary: ["가입 없이 생활비 정산하기", "/shared-living-cost-rules#inline-worksheet"], secondary: ["카카오톡에서 시작하기", KAKAO_CHANNEL_CHAT_URL_V229140], updated: REAL_SCREENS_COPY_DATE_V229146, landing: true }),
     guides: page("기록에서 월말 점검까지, 사용 가이드", "처음 기록하기, 카카오 명령, 예산 계산, 공동 정산, 생활비 리포트와 파일 가져오기, 생활비 가이드 글을 목적별로 찾아보세요.", "필요한 순간에 찾아보는 안내", "지금 하려는 일에 맞는 글을 고르세요. 각 가이드는 말해가계부의 실제 동작과 직접 구성한 예시를 기준으로 설명합니다. 예제에는 실제 사용자의 거래나 이용 후기를 사용하지 않습니다.", [
       { title: "처음 사용하는 날", paragraphs: ["개인 채팅과 단톡방의 시작 방식부터 구분합니다. 이어서 기록 문장과 저장 결과를 맞춰 보고, 필요할 때 같은 가계부를 웹으로 이어 여세요."], links: [["첫 기록과 웹 이어 열기", "/how-it-works"], ["카카오 입력·수정·오류 대응", "/kakao-guide"], ["카카오톡 문장 사전: 보낸 문장과 실제 저장 결과", "/kakao-sentences"], ["예시 가계부 둘러보기", "/demo"], ["카카오톡 한 줄 기록 예시와 결과", "/demo#kakao-examples"]] },
-      { title: "생활비를 점검하는 날", paragraphs: ["분류별 예산을 설정했다면 예산 밖 지출을 함께 확인하세요. 리포트에서는 이번 달 전체와 지난달 일부를 섞어 비교하지 않는 것이 중요합니다."], links: [["예산 적용 사용액 계산", "/budget-guide"], ["주간·월간 리포트 해석", "/report-guide"], ["가족·여행비 공동 정산", "/group-accountbook"]] },
+      { title: "생활비를 점검하는 날", paragraphs: ["분류별 예산을 설정했다면 예산 밖 지출을 함께 확인하세요. 리포트에서는 이번 달 전체와 지난달 일부를 섞어 비교하지 않는 것이 중요합니다."], links: [["예산 적용 사용액 계산", "/budget-guide"], ["주간·월간 리포트 해석", "/report-guide"], ["가족·여행비 공동 정산", "/group-accountbook"], ["모임 정산 계산기: 여행·회식 사람별 몫과 송금 순서", "/group-settlement"]] },
       { title: "기록을 옮기거나 관리하는 날", paragraphs: ["파일을 가져오기 전에는 미리보기에서 날짜와 중복을 확인합니다. 참여 권한, 연결 코드, CSV 파일은 서로 다른 접근 수단이므로 따로 관리하세요."], links: [["카드 내역 가져오기와 백업", "/import-guide"], ["데이터와 접근 권한 관리", "/security"], ["문제 해결 FAQ", "/faq"], ["문의 경로", "/contact"]] },
       { title: "생활비 가이드 글", paragraphs: ["앱 사용법과 별개로, 생활비를 계획하고 점검할 때 참고할 수 있는 글입니다. 도담 네트워크 운영팀이 직접 구성한 예시로 계산 과정을 보여 드리며 특정 금융상품을 권하지 않습니다. 아래는 처음 올린 열두 편이고, 카드와 세금·통계·저축과 부채·가족 생활비까지 더한 전체 목록은 글 목록 허브에서 주제별로 볼 수 있습니다."], links: [["생활비 가이드 글 전체 목록: 주제 9개, 31편의 요약과 작성일", "/articles"], ["생활비 예산 비율 정하기: 50/30/20을 우리 집 고정비에 맞게 고치기", "/budget-ratio-guide"], ["고정비 점검 체크리스트: 통신·보험·구독·관리비를 4주에 나눠 보기", "/fixed-cost-checklist"], ["구독 정리법: 반복 결제를 찾고 무료 체험의 자동 결제 막기", "/subscription-cleanup"], ["카드 전월 실적의 원리: 실적을 채우려 더 쓸 때의 손익 계산", "/card-spending-threshold"], ["비상금과 예비비: 몇 개월분이 필요한지 계산하고 다시 채우기", "/emergency-fund-basics"], ["가계부 주기 고르기: 1일 기준과 급여일 기준, 상여가 있는 달", "/payday-budget-cycle"], ["한 장짜리 현금흐름표: 들어온 돈과 나간 돈을 여섯 줄로 정리", "/cash-flow-table"], ["공동 생활비 나누기: 동일·비율·인원수·품목별 결과 비교", "/shared-living-cost-rules"], ["가족·커플 가계부: 기록과 점검의 분담, 용돈과 생활비의 경계", "/family-roles-accountbook"], ["가계부 습관 설계: 하루 1분 루틴과 끊겼을 때 다시 시작하기", "/accountbook-habit"], ["분류 기준 세우기: 식비·외식·배달·카페를 나누고 합치는 법", "/expense-category-rules"], ["주간 리포트 읽기: 지난주 비교의 함정과 행동으로 잇는 3단계", "/weekly-report-reading"]] },
       { title: "안내를 관리하는 기준", paragraphs: ["운영 주체는 도담 네트워크입니다. 기능 안내는 서비스 구현과 대조하고, 금액 예시는 거래 목록에서 다시 계산하여 확인합니다. 기능이 바뀌면 관련 안내와 수정일을 함께 갱신합니다. 각 글의 수정일은 콘텐츠를 마지막으로 고친 날이며, 실시간 데이터 기준일은 아닙니다."], links: [["서비스와 콘텐츠 운영 원칙", "/about"], ["전체 공개 페이지", "/site-map"]] },
     // V22.9.142(애드센스 계획 A6): 글 목록 안내가 31편으로 바뀌어 수정일 2026-11-24.
+    // V22.9.147: ‘생활비를 점검하는 날’ 에 모임 정산 계산기 링크를 더했다(링크만 — 수정일 그대로).
     ], { type: "CollectionPage", primary: ["예제로 시작하기", "/demo"], updated: "2026-11-24" }),
     "service-guide": page("기능별로 할 수 있는 일과 확인할 것", "말해가계부의 기록·예산·리포트·정산·파일 기능과 권한, 자동으로 처리하지 않는 범위를 확인하세요.", "기능과 사용 범위", "카카오톡은 짧은 기록과 조회에, 웹은 상세 수정과 비교에 사용하면 편리합니다. 아래 표에서 원하는 작업을 찾고 해당 가이드로 이동하세요.", [
       { title: "어디에서 무엇을 하나요?", table: { caption: "주요 기능과 사용 위치", headers: ["작업", "카카오톡", "웹"], rows: [["거래 기록", "내용과 금액을 한 문장으로 전송", "빠른 입력과 거래 수정"], ["예산", "예산 설정·남은 예산 조회", "분류별 예산과 적용 지출 확인"], ["생활비 점검", "오늘 기록·이번 달 요약", "주간·월간 리포트와 상세 분석"], ["공동 사용", "방별 기록·초대·연결", "참여자와 역할 관리·정산"], ["내역 이동", "웹 가계부 열기로 이동", "파일 미리보기·선택 저장·CSV 내보내기"]] }, links: [["카카오 명령 예시", "/kakao-guide"], ["생활비 리포트", "/report-guide"]] },
@@ -4818,7 +5418,7 @@ function publicGuidePages(env = {}) {
       // public/real-screens-scenario-v229146.js 한 곳에 있고 validate-v229146-real-screens 가 지금 코드로 다시 보내 대조한다.
       { title: "단톡방 기록이 공동 가계부와 정산이 되는 모습", paragraphs: ["단톡방에서 봇을 부르고 각자 낸 돈을 한 줄씩 적으면 그 방의 공동 가계부에 누가 낸 돈인지와 함께 저장돼요. 아래 사진은 단톡방의 네 사람(예시 이름)이 여행 경비를 적고 이름을 정한 뒤 ‘정산’을 보낸 것으로 정한 예시 문장을 말해가계부 카카오톡 봇과 같은 코드에 보내 만든 공동 가계부를 웹 화면으로 찍은 것이에요. 실제 이용자의 기록은 아니에요. 단톡방의 정산 답과 웹 정산 화면은 같은 송금 제안을 보여 줘요."], shots: { id: "real-screens-room", keys: ["room", "settle"], caption: "단톡방 예시 문장이 공동 가계부의 내역과 정산 화면에 들어간 모습이에요.", log: "room" } },
       { title: "예시: 여행비 120,000원을 세 사람이 나누기", table: { caption: "세 사람 모두 같은 비용에 참여한 예시, 단위 원", headers: ["참여자", "먼저 낸 돈", "각자 부담할 돈", "정산 후 받을 돈 또는 보낼 돈"], rows: [["가", "90,000", "40,000", "50,000 받음"], ["나", "30,000", "40,000", "10,000 보냄"], ["다", "0", "40,000", "40,000 보냄"]] }, paragraphs: ["합계는 90,000원 + 30,000원 = 120,000원입니다. 세 사람이 똑같이 부담하면 120,000 ÷ 3 = 40,000원입니다. 나가 가에게 10,000원, 다가 가에게 40,000원을 보내면 각자의 최종 부담이 40,000원이 됩니다."], note: "계산용 예시입니다. 정산 제안은 자동 송금이 아니며, 실제 송금 여부와 완료 이력은 직접 확인해야 합니다." },
-      { title: "모든 항목을 똑같이 나누지 않는다면", paragraphs: ["한 사람이 식사에 참여하지 않았거나 숙박비를 다른 비율로 나누기로 했다면 총액을 단순히 인원수로 나누면 안 됩니다. 웹 정산에서 동일 분배, 비율, 인원수 또는 품목별 참여자 방식을 고르고 합의한 조건과 맞는지 확인하세요.", "정산 전에 기간·가계부·참여자·결제자를 확인합니다. 표시 이름을 바꾸는 것은 카카오 닉네임을 바꾸거나 실제 결제자를 다른 사람으로 바꾸는 작업이 아닙니다."] },
+      { title: "모든 항목을 똑같이 나누지 않는다면", paragraphs: ["한 사람이 식사에 참여하지 않았거나 숙박비를 다른 비율로 나누기로 했다면 총액을 단순히 인원수로 나누면 안 됩니다. 웹 정산에서 동일 분배, 비율, 인원수 또는 품목별 참여자 방식을 고르고 합의한 조건과 맞는지 확인하세요.", "정산 전에 기간·가계부·참여자·결제자를 확인합니다. 표시 이름을 바꾸는 것은 카카오 닉네임을 바꾸거나 실제 결제자를 다른 사람으로 바꾸는 작업이 아닙니다."], links: [["모임 정산 계산기로 비율·인원수·품목별 나눠 보기", "/group-settlement"]] },
       { title: "함께 사용할 때 정해둘 원칙", bullets: ["개인 지출과 공동 지출을 어느 가계부에 남길지 먼저 정합니다.", "초대코드와 개인 웹 연결 코드를 구분하고 공개 게시물에 올리지 않습니다.", "구성원은 다른 사람의 거래도 수정·삭제할 수 있고, 지출자 변경과 예산 관리는 관리 권한이 필요합니다. 소유자는 구성원 권한을 ‘기록만’으로 바꿔 구성원이 새 기록만 남기게 할 수 있습니다.", "가계부 나가기는 공동 거래를 전부 지우는 작업이 아닙니다.", "CSV를 공유하면 파일을 받은 사람이 내용을 볼 수 있으므로 전달 범위를 확인합니다."], links: [["역할별 기능 표", "/service-guide"], ["데이터 보호 안내", "/security"]] },
       // V22.9.97 모임 정산(수익화 검토 3절 1번 — 반응만 본다, 가격·플랜 문구 없음): 모임 총무가 단톡방 하나로 회비·여행 경비·모임 지출을 적고
       // 정산하는 법. 문장의 사실(참여 조건·이번 달·8개·회비 수입·이름·지출자 바꾸기·나누는 방식·완료 이력)은 validate-v22997-demo 가 픽스처의
@@ -4834,7 +5434,11 @@ function publicGuidePages(env = {}) {
         "송금은 자동으로 하지 않습니다. 보낸 뒤에는 서로 확인하고, 소유자·관리자는 웹 정산 화면에 완료 이력을 남길 수 있습니다.",
       ], links: [["모임 정산 예시 둘러보기", "/demo#tour-settle"], ["카카오 입력·수정 방법", "/kakao-guide"], ["회비 잔액과 택시비 직접 나눠 보기", "#inline-worksheet"]] },
       { title: "회비로 식사하고 택시비는 한 사람이 냈다면", paragraphs: ["네 사람이 회비를 3만 원씩 냈고 총무는 공금에서 식사비로 9만 원을 썼습니다. 남은 공금은 3만 원입니다. 이후 A가 개인 카드로 낸 택시비 18,000원은 공금에서 빠져나간 돈이 아닙니다.", "A와 B만 탔다면 B가 A에게 9,000원을 보냅니다. C도 함께 탔다면 B와 C가 각각 6,000원을 보냅니다. 아래 표에서 C의 탑승 여부를 바꾸고, 공금 잔액이 두 경우 모두 같은지 확인해 보세요."], links: [["참여자를 바꿔 정산하기", "#inline-worksheet"]] },
+    // V22.9.147: ‘모든 항목을 똑같이 나누지 않는다면’ 절에 모임 정산 계산기 링크를 더했다(링크만 더한 쪽은 수정일을 올리지 않는다 — V22.9.145 와 같은 규칙).
     ], { primary: ["모임 회비와 택시비 정산하기", "#inline-worksheet"], secondary: ["카톡 정산 답변 예시 보기", "/demo#tour-settle"], updated: REAL_SCREENS_COPY_DATE_V229146 }),
+    // V22.9.147 모임 정산 계산기(사용자 2026-11-26 "모임 정산 계산기"). 쪽과 계산기는 group-settlement-v229147.js 에 있고
+    // validate-v229147-group-settlement 가 계산을 웹 정산 buildSettlementModel 과 대조한다.
+    "group-settlement": groupSettlementGuidePageV229147(page),
     "report-guide": page("주간·월간 리포트에서 먼저 볼 숫자", "같은 기간 비교, 월을 넘는 주, 정기 지출과 카드 사용액의 의미를 예시 수치로 해설합니다.", "기록을 생활비 점검으로", "생활비 리포트는 같은 거래를 주간 또는 월간으로 읽는 화면입니다. 금액부터 판단하기 전에 선택한 가계부와 기간, 아직 들어오지 않은 기록이 있는지를 확인하세요.", [
       { title: "진행 중인 달은 같은 날짜 범위끼리 비교합니다", table: { caption: "9월 12일에 확인한다고 가정한 예시 비교, 단위 원", headers: ["기간", "지출", "비교에 사용"], rows: [["9월 1~12일", "255,000", "이번 달 현재까지"], ["8월 1~12일", "300,000", "지난달 같은 범위"], ["8월 전체", "720,000", "위 비교에는 사용하지 않음"]] }, paragraphs: ["같은 날짜 범위의 차이는 255,000원 − 300,000원 = −45,000원입니다. 변화율은 −45,000 ÷ 300,000 × 100 = −15%입니다. 이번 달 일부와 지난달 전체를 비교해 큰 절약으로 해석하면 안 됩니다.", "비교 기간에 데이터가 없거나 읽지 못했다면 절약을 확정할 수 없습니다. 이전 금액이 0원이면 증가율을 무리하게 계산하기보다 현재 금액과 기록 유무를 확인합니다."] },
       { title: "월을 넘는 주의 합계", paragraphs: ["주간 리포트는 월요일부터 일요일까지의 주를 기준으로 봅니다. 예를 들어 8월 31일부터 9월 6일까지의 주에는 8월 31일 기록도 포함됩니다. 9월 월간 합계와 그 주의 합계가 같은 범위라고 생각하면 차이를 오해할 수 있습니다.", "필요한 기간의 기록을 전부 읽지 못했다는 안내가 있으면 일부 합계를 완전한 기간 합계로 간주하지 마세요. 조회 실패와 0원은 다른 상태입니다."] },
@@ -4902,11 +5506,12 @@ function publicGuidePages(env = {}) {
     ], { type: "ContactPage" }),
     "site-map": page("말해가계부 전체 안내", "기록·예산·정산·리포트·가져오기 가이드, 예시 가계부와 서비스 정책의 정식 주소를 모았습니다.", "사이트맵", "필요한 작업에 맞는 안내를 찾아보세요. 아래 페이지는 로그인 없이 읽을 수 있습니다. 실제 개인 가계부와 거래는 로그인과 권한 확인 후에 볼 수 있습니다.", [
       { title: "서비스와 첫 기록", links: [["서비스 홈", "/"], ["사용 가이드 모음", "/guides"], ["예시 가계부 둘러보기", "/demo"], ["기능과 권한", "/service-guide"], ["처음 기록하기", "/how-it-works"], ["카카오 입력 방법", "/kakao-guide"], ["카카오톡 문장 사전", "/kakao-sentences"]] },
-      { title: "기록 점검과 관리", links: [["예산 계산", "/budget-guide"], ["공동 가계부와 정산", "/group-accountbook"], ["생활비 리포트", "/report-guide"], ["가져오기와 거래 백업", "/import-guide"], ["데이터 보호", "/security"], ["문제 해결 FAQ", "/faq"]] },
+      { title: "기록 점검과 관리", links: [["예산 계산", "/budget-guide"], ["공동 가계부와 정산", "/group-accountbook"], ["모임 정산 계산기", "/group-settlement"], ["생활비 리포트", "/report-guide"], ["가져오기와 거래 백업", "/import-guide"], ["데이터 보호", "/security"], ["문제 해결 FAQ", "/faq"]] },
       { title: "생활비 가이드 글", links: [["생활비 예산 비율 정하기", "/budget-ratio-guide"], ["고정비 점검 체크리스트", "/fixed-cost-checklist"], ["구독 정리법", "/subscription-cleanup"], ["카드 실적 조건의 원리와 함정", "/card-spending-threshold"], ["공동 생활비 정산 규칙", "/shared-living-cost-rules"], ["가계부 습관 설계", "/accountbook-habit"], ["월급날 기준 가계부 주기", "/payday-budget-cycle"], ["변동비 분류 기준 만들기", "/expense-category-rules"], ["비상금과 예비비 계산", "/emergency-fund-basics"], ["주간 리포트 읽는 법", "/weekly-report-reading"], ["가족·커플 가계부 역할 나누기", "/family-roles-accountbook"], ["한 장짜리 현금흐름표 만들기", "/cash-flow-table"]] },
       // V22.9.143 D1: 업데이트 소식과 그 RSS 를 운영 정보 묶음에 더한다.
       { title: "운영 정보와 정책", links: [["서비스와 콘텐츠 운영 원칙", "/about"], ["업데이트 소식", "/updates"], ["문의 안내", "/contact"], ["개인정보처리방침", "/privacy"], ["서비스 이용약관", "/terms"], ["쿠키 정책", "/cookies"], ["후원 안내", "/support"], ["XML 사이트맵", "/sitemap.xml"], ["업데이트 소식 RSS", "/updates.xml"]] },
     // V22.9.142(애드센스 계획 A6): 합친 글 9편의 링크가 빠지고 글 이름이 바뀌어 수정일 2026-11-24. V22.9.143 은 업데이트 소식 링크 둘(같은 날).
+    // V22.9.147: ‘기록 점검과 관리’ 에 모임 정산 계산기 링크를 더했다(링크만 — 수정일 그대로).
     ], { type: "CollectionPage", primary: ["사용 가이드 모음", "/guides"], updated: "2026-11-24" }),
     // V22.9.143 D1: 업데이트 소식. 목록은 PUBLIC_UPDATES_V229143 에서 content-pages.js 가 그린다(updatesFeed). 수정일 = 가장 새 묶음의 날짜.
     updates: page("업데이트 소식", "말해가계부가 판마다 바꾼 것을 최신순으로 모았습니다. 카카오톡 기록, 웹 가계부, 공개 안내에서 이용자가 보게 되는 변화만 적고 RSS로도 받아 볼 수 있습니다.", "판마다 바뀐 것", "2026년 9월 30일 서비스 이름을 말해가계부로 바꾼 판부터 지금까지 만든 판을 최신순으로 적습니다. 카카오톡 답과 웹 화면, 공개 안내가 어떻게 바뀌었는지만 적고 보안 점검의 세부와 내부 운영에 관한 내용은 적지 않습니다.", [
@@ -5026,7 +5631,9 @@ function publicLivingCostArticles() {
       { title: "합의 문구와 정산 주기 정하기", paragraphs: ["기준은 말로만 정하면 몇 달 뒤 서로의 기억이 달라집니다. 짧은 문장으로 적어 단톡방 공지나 메모로 남겨 두세요. 누가 읽어도 한 가지로만 해석되게 쓰는 것이 핵심입니다.", "정산 주기도 문장에 함께 넣습니다. 한 달에 한 번으로 정하면 관리하기 쉽고, 여행처럼 짧은 기간에 큰돈이 오가는 경우는 일정이 끝난 직후 따로 정산하는 편이 깔끔합니다.", "아래는 세 사람이 그대로 가져다 쓸 수 있는 합의 문구 예시입니다."], bullets: ["관리비·공과금·인터넷·생필품은 셋이 똑같이 나눕니다.", "공용 장보기는 그 달에 함께 먹은 사람끼리 나눕니다.", "한 번에 50,000원이 넘는 공용 물건은 사기 전에 단톡방에 먼저 알립니다.", "정산은 매달 말일 기준으로 하고, 다음 달 3일까지 송금합니다.", "기록하지 않은 지출은 영수증이 있을 때만 다음 달 정산에 넣습니다."] },
       { title: "공동 생활비를 나눌 때 자주 하는 실수", bullets: ["결제한 사람이 곧 부담하는 사람이라고 생각해, 많이 결제한 사람이 계속 더 내는 구조를 그대로 둡니다.", "개인 지출과 공동 지출을 같은 기록에 섞어 정산 대상이 매달 달라집니다.", "방식을 달마다 바꾸면서 이유를 남기지 않아 지난 정산과 비교할 수 없게 됩니다.", "송금 제안을 확인한 뒤 실제로 보냈는지 서로 확인하지 않아 정산이 끝난 줄 압니다.", "누가 결제했는지 적지 않은 지출을 나중에 기억에 의존해 채워 넣습니다.", "나눠 떨어지지 않는 몇십 원의 나머지를 누가 낼지 정하지 않아 작은 금액으로 실랑이를 합니다."] },
       { title: "말해가계부에서는", paragraphs: ["말해가계부의 공동 가계부에서는 고급 정산 화면에서 가계부와 월을 고른 뒤 동일·비율·인원수·품목별 분배 중 하나로 그 달 지출을 나눠 볼 수 있습니다. 화면은 참여자별로 낸 금액과 부담액, 송금 횟수를 줄이도록 정리한 송금 제안을 함께 보여 줍니다. 지출자가 지정되지 않은 기록은 정산에서 빠지므로 기록할 때 결제한 사람을 남겨 두세요. 송금 제안은 계산 결과일 뿐 실제 송금은 참여자가 직접 하며, 정산 완료 이력은 소유자와 관리자가 저장할 수 있습니다."] },
-      { title: "다음에 읽을 글", links: [["단톡방 정산 방법: 방별 공동 가계부와 세 사람 사례", "/group-accountbook"], ["공동 지출에도 쓰는 분류 기준 세우기", "/expense-category-rules"], ["예시 가계부로 예산 계산해 보기", "/demo"]] },
+      // V22.9.147: 셋째 링크를 /demo 에서 모임 정산 계산기로 바꿨다(독립 검토 — 같은 네 방식을 다루는 두 쪽이 서로 링크하지 않았다.
+      // 이 글은 매달의 공동 생활비, 계산기는 한 번의 여행·모임 정산). 링크만 바꿔 수정일(worksheet-pages.js 2026-11-22)은 그대로다.
+      { title: "다음에 읽을 글", links: [["단톡방 정산 방법: 방별 공동 가계부와 세 사람 사례", "/group-accountbook"], ["공동 지출에도 쓰는 분류 기준 세우기", "/expense-category-rules"], ["여행·회식 한 번의 정산은 모임 정산 계산기로", "/group-settlement"]] },
     ]),
     "accountbook-habit": article("가계부를 3개월 넘게 이어 가는 습관 만들기", "건별 기록과 하루 합계 중 무엇을 고를지, 하루 1분 기록 루틴, 자주 겪는 중단 패턴 다섯 가지와 복구 방법을 정리했습니다. 완벽하게 쓰려다 멈추는 일을 줄이는 기준도 함께 다룹니다.", "생활비 가이드 · 기록 습관", "가계부는 쓰는 방법보다 계속 쓰는 방법이 더 어렵습니다. 의욕이 큰 첫 주보다 바쁜 달과 지출이 많은 달을 어떻게 넘기느냐가 석 달 뒤를 결정합니다. 이 글은 기록 단위를 고르고, 하루 1분 루틴을 만들고, 끊겼을 때 다시 시작하는 방법을 정리합니다.", [
       { title: "기록 단위 정하기: 건별 기록과 하루 합계", paragraphs: ["처음 정할 것은 얼마나 자세히 적을지입니다. 결제할 때마다 한 건씩 적는 건별 기록과, 하루가 끝날 때 분류별 합계만 적는 하루 합계는 각각 장단점이 있습니다. 어느 쪽이든 정한 방식을 꾸준히 이어 가는 것이 가장 정확한 방식을 고르는 것보다 중요하고, 생활과 맞지 않으면 바꿔도 됩니다. 하루 합계로 시작해 습관이 붙은 뒤 건별 기록으로 옮겨 가는 방법도 있습니다."], table: { caption: "건별 기록과 하루 합계 비교", headers: ["기준", "건별 기록", "하루 합계"], rows: [["하루에 드는 시간", "결제마다 10초 안팎", "하루 한 번 1~2분"], ["알 수 있는 것", "가게, 시간대, 건당 금액까지", "날짜별·분류별 합계"], ["잘 맞는 사람", "결제 직후 바로 적을 수 있는 사람", "낮에 기록할 틈이 없는 사람"], ["놓치기 쉬운 것", "바쁜 날 몇 건이 통째로 빠짐", "어떤 가게에서 썼는지가 흐려짐"]] }, note: "두 방식을 섞어도 됩니다. 평일에는 하루 합계로, 주말이나 큰 지출은 건별로 적는 식으로 기준만 정해 두면 됩니다." },
@@ -10767,27 +11374,37 @@ function renderPublicWorksheetV229106(slug, spec) {
 }
 
 function renderInlineWorksheetV229139(slug) {
-  const spec = slug === "group-accountbook" ? GROUP_TREASURER_WORKSHEET
+  // V22.9.147: 모임 정산 계산기(/group-settlement)는 같은 화면 틀에 자기 계산 함수(group-settlement-v229147.js — 웹 정산
+  // buildSettlementModel 과 같은 규칙)와 자기 브라우저 스크립트·CSS(group-settlement-client-v229147.js)를 쓴다. 아래 groupSettlement
+  // 갈래는 이 쪽에서만 쓰이고, 다른 계산표 화면과 1년 캐시 계산표 자산의 바이트는 그대로다(공용 스크립트 worksheetClientV229106 은 고치지 않았다).
+  const groupSettlement = slug === "group-settlement";
+  const spec = groupSettlement ? GROUP_SETTLEMENT_SPEC_V229147 : slug === "group-accountbook" ? GROUP_TREASURER_WORKSHEET
     : PUBLIC_WORKSHEETS_V229106[slug] || PUBLIC_MINI_CALCULATORS_V229139[slug] || PUBLIC_ALL_CALCULATORS_V229139[slug];
   if (!spec || !PUBLIC_ARTICLE_CHARTS_V229139 || !PUBLIC_ARTICLE_CTA_MAP_V229139) return null;
+  const compute = groupSettlement ? groupSettlementComputeV229147 : worksheetComputeV229106;
   const json = (value) => JSON.stringify(value).replace(/</g, "\\u003c");
   const title = escapeHtml(spec.title);
-  const initial = worksheetComputeV229106(slug, spec.example);
+  const initial = compute(slug, spec.example);
   const renderField = (schema, value, prefix) => {
-    const [key, labelText, type, options] = schema;
+    const [key, labelText, type, options, extra] = schema;
     const id = `${prefix}-${key}`;
+    // V22.9.147: 다섯째 값(모임 정산 계산기의 칸만 가진다)은 칸 표식(data-col·data-modes·wsWide)과 글자 칸의 길이·inputmode·자리 표시다.
+    const mark = extra ? ` data-col="${escapeHtml(key)}"${extra.modes ? ` data-modes="${escapeHtml(extra.modes.join(" "))}"` : ""}${extra.wide ? ' class="wsWide"' : ""}` : "";
+    const attrs = extra ? `${extra.maxLength ? ` maxlength="${Number(extra.maxLength)}"` : ""}${extra.inputMode ? ` inputmode="${escapeHtml(extra.inputMode)}"` : ""}${extra.placeholder ? ` placeholder="${escapeHtml(extra.placeholder)}"` : ""} autocomplete="off"` : "";
     if (type === "select") {
       const opts = (options || []).map(([v, t]) => `<option value="${escapeHtml(v)}"${String(value) === String(v) ? " selected" : ""}>${escapeHtml(t)}</option>`).join("");
-      return `<label for="${escapeHtml(id)}"><span>${escapeHtml(labelText)}</span><select id="${escapeHtml(id)}" name="${escapeHtml(key)}">${opts}</select></label>`;
+      return `<label for="${escapeHtml(id)}"${mark}><span>${escapeHtml(labelText)}</span><select id="${escapeHtml(id)}" name="${escapeHtml(key)}">${opts}</select></label>`;
     }
-    return `<label for="${escapeHtml(id)}"><span>${escapeHtml(labelText)}</span><input id="${escapeHtml(id)}" name="${escapeHtml(key)}" type="${escapeHtml(type)}" value="${escapeHtml(String(value ?? ""))}"${type === "number" ? ' step="1"' : ""}/></label>`;
+    return `<label for="${escapeHtml(id)}"${mark}><span>${escapeHtml(labelText)}</span><input id="${escapeHtml(id)}" name="${escapeHtml(key)}" type="${escapeHtml(type)}" value="${escapeHtml(String(value ?? ""))}"${type === "number" ? ' step="1"' : ""}${attrs}/></label>`;
   };
   const ssrSettings = `<div id="worksheet-settings" class="fields">${spec.fields.map((schema) => renderField(schema, spec.example.settings?.[schema[0]], "setting")).join("")}</div>`;
   let seq = 0;
   const ssrGroups = spec.groups.map((group) => {
-    const rows = (spec.example[group.key] || []).map((row) => {
+    const rows = (spec.example[group.key] || []).map((row, index) => {
       const inputs = group.columns.map((col) => renderField(col, row[col[0]] ?? (col[2] === "select" ? col[3][0][0] : ""), `row-${seq}`)).join("");
       seq += 1;
+      // V22.9.147: 모임 정산 계산기는 브라우저 스크립트가 그리는 행과 같은 모양(번호 붙은 legend·삭제 단추)으로 먼저 그린다.
+      if (groupSettlement) return `<fieldset class="wsRow" data-row="true"><legend>${escapeHtml(group.label)} ${index + 1}</legend><div class="fields">${inputs}</div><button type="button" class="secondary wsRemove" aria-label="${escapeHtml(group.label)} ${index + 1} 삭제">삭제</button></fieldset>`;
       return `<fieldset data-row="true"><legend>${escapeHtml(group.label)} 입력</legend><div class="fields">${inputs}</div></fieldset>`;
     }).join("");
     return `<div class="wsInlineGroup"><h3 class="wsGroupTitle">${escapeHtml(group.label)}</h3><div data-group="${escapeHtml(group.key)}">${rows}</div></div>`;
@@ -10795,9 +11412,14 @@ function renderInlineWorksheetV229139(slug) {
   const ssrTables = initial.tables.map((data) => `<div class="table-scroll" role="region" aria-label="${escapeHtml(data.caption)}" tabindex="0"><table><caption>${escapeHtml(data.caption)}</caption><thead><tr>${data.headers.map((h) => `<th scope="col">${escapeHtml(h)}</th>`).join("")}</tr></thead><tbody>${data.rows.map((r) => `<tr>${r.map((v, i) => `<${i ? "td" : 'th scope="row"'}>${escapeHtml(typeof v === "number" ? v.toLocaleString("ko-KR", { maximumFractionDigits: 2 }) : String(v))}</${i ? "td" : "th"}>`).join("")}</tr>`).join("")}</tbody></table></div>`).join("");
   const ssrNotes = initial.notes.map((n) => `<p>${escapeHtml(n)}</p>`).join("");
   const ssrChecks = (spec.checks || []).length ? `<details class="pubToolChecks"><summary>예제 검산 보기</summary><ul>${spec.checks.map((line) => `<li>${escapeHtml(line)}</li>`).join("")}</ul></details>` : "";
-  const cssHtml = `.group-summary textarea{display:block;width:100%;box-sizing:border-box;font:inherit}.group-summary button{margin-top:8px}.pubInlineTool{margin:28px 0;padding:24px;border:1px solid #c8d9ff;border-radius:18px;background:#f8fbff}.pubInlineToolHead .pubToolBadge{display:inline-flex;padding:4px 10px;border-radius:999px;background:#e8f3ff;color:#1d4ed8;font-size:12.5px;font-weight:700}.pubInlineTool .pubToolHeading{margin:10px 0 8px;font-size:22px;color:#172033}.pubInlineTool p{margin:6px 0;color:#43516a;line-height:1.75;font-size:15px}.pubToolChecks{margin:12px 0;padding:10px 14px;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubToolChecks summary{cursor:pointer;font-weight:700;font-size:14px;color:#1e293b}.pubToolChecks ul{margin:8px 0 2px;padding-left:20px;font-size:14px;color:#43516a;line-height:1.7}.pubInlineTool .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr));gap:12px;margin:14px 0}.pubInlineTool fieldset{min-width:0;margin:12px 0;padding:14px;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubInlineTool legend,.pubInlineTool .wsGroupTitle{font-weight:700;font-size:15px;color:#1e293b;margin:12px 0 6px}.pubInlineTool label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:#344054}.pubInlineTool input,.pubInlineTool select{font:inherit;font-size:16px;color:#172033;background:#fff;min-height:44px;width:100%;border:1px solid #9ca8bd;border-radius:8px;padding:8px 10px}.pubInlineTool button{font:inherit;font-weight:700;min-height:44px;padding:8px 16px;margin:10px 8px 0 0;border:1px solid #1d4ed8;border-radius:10px;background:#1d4ed8;color:#fff;cursor:pointer}.pubInlineTool button.secondary{background:#fff;color:#1d4ed8}.pubInlineTool button:disabled{opacity:.55;cursor:not-allowed}.pubInlineTool .table-scroll{overflow-x:auto;margin:16px 0;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubInlineTool table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}.pubInlineTool caption{text-align:left;padding:12px 14px;font-weight:700;color:#1e293b}.pubInlineTool th,.pubInlineTool td{padding:10px 14px;border-top:1px solid #e1e7f0;text-align:left}.pubInlineTool thead th{background:#f1f5fb}#worksheet-status{font-weight:600;color:#1d4ed8;margin-top:14px}#worksheet-result[data-stale="1"]::before{content:"입력값을 바꾸기 전 결과입니다. ‘결과 계산’을 누르면 새 결과로 바뀝니다.";display:block;font-weight:650;color:#4d596a;margin:0 0 8px}#worksheet-result[data-stale="1"] .table-scroll,#worksheet-result[data-stale="1"] .pubTableWrap,#worksheet-result[data-stale="1"] p{opacity:.55}.pubInlineTool .actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}@media(max-width:640px){.pubInlineTool{padding:18px 14px}.pubInlineTool .fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}`;
-  const sectionHtml = `<section class="pubInlineTool" id="inline-worksheet" aria-label="${title}"><div class="pubInlineToolHead"><span class="pubToolBadge">인터랙티브 계산표 · 브라우저 즉시 검산</span><h3 class="pubToolHeading">${title}</h3><p>${escapeHtml(spec.outcome)} ${escapeHtml(spec.instruction)}</p>${ssrChecks}</div><form id="worksheet-form" action="#inline-worksheet" novalidate><fieldset disabled><legend>기본 예제 입력값</legend>${ssrSettings}${ssrGroups}<button type="button" disabled>결과 계산</button></fieldset></form><p id="worksheet-status" role="status" aria-live="polite">기본 예제의 결과입니다. 브라우저에서 계산 기능이 준비되면 입력값을 바꿀 수 있습니다.</p><div id="worksheet-result">${ssrTables}${ssrNotes}</div><div class="actions"><button type="button" id="worksheet-export" disabled>입력과 결과 CSV 저장</button><button type="button" class="secondary" id="worksheet-print" disabled>결과 인쇄</button><button type="button" class="secondary" id="worksheet-reset" disabled>예제 값으로 되돌리기</button></div></section>`;
-  const scriptHtml = `<script>(${worksheetClientV229106.toString()})(${json(slug)},${json(spec)},${worksheetComputeV229106.toString()});</script>`;
+  const cssHtml = `.group-summary textarea{display:block;width:100%;box-sizing:border-box;font:inherit}.group-summary button{margin-top:8px}.pubInlineTool{margin:28px 0;padding:24px;border:1px solid #c8d9ff;border-radius:18px;background:#f8fbff}.pubInlineToolHead .pubToolBadge{display:inline-flex;padding:4px 10px;border-radius:999px;background:#e8f3ff;color:#1d4ed8;font-size:12.5px;font-weight:700}.pubInlineTool .pubToolHeading{margin:10px 0 8px;font-size:22px;color:#172033}.pubInlineTool p{margin:6px 0;color:#43516a;line-height:1.75;font-size:15px}.pubToolChecks{margin:12px 0;padding:10px 14px;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubToolChecks summary{cursor:pointer;font-weight:700;font-size:14px;color:#1e293b}.pubToolChecks ul{margin:8px 0 2px;padding-left:20px;font-size:14px;color:#43516a;line-height:1.7}.pubInlineTool .fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(210px,100%),1fr));gap:12px;margin:14px 0}.pubInlineTool fieldset{min-width:0;margin:12px 0;padding:14px;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubInlineTool legend,.pubInlineTool .wsGroupTitle{font-weight:700;font-size:15px;color:#1e293b;margin:12px 0 6px}.pubInlineTool label{display:flex;flex-direction:column;gap:6px;font-size:14px;color:#344054}.pubInlineTool input,.pubInlineTool select{font:inherit;font-size:16px;color:#172033;background:#fff;min-height:44px;width:100%;border:1px solid #9ca8bd;border-radius:8px;padding:8px 10px}.pubInlineTool button{font:inherit;font-weight:700;min-height:44px;padding:8px 16px;margin:10px 8px 0 0;border:1px solid #1d4ed8;border-radius:10px;background:#1d4ed8;color:#fff;cursor:pointer}.pubInlineTool button.secondary{background:#fff;color:#1d4ed8}.pubInlineTool button:disabled{opacity:.55;cursor:not-allowed}.pubInlineTool .table-scroll{overflow-x:auto;margin:16px 0;border:1px solid #dce3ef;border-radius:12px;background:#fff}.pubInlineTool table{width:100%;border-collapse:collapse;font-size:14px;font-variant-numeric:tabular-nums}.pubInlineTool caption{text-align:left;padding:12px 14px;font-weight:700;color:#1e293b}.pubInlineTool th,.pubInlineTool td{padding:10px 14px;border-top:1px solid #e1e7f0;text-align:left}.pubInlineTool thead th{background:#f1f5fb}#worksheet-status{font-weight:600;color:#1d4ed8;margin-top:14px}#worksheet-result[data-stale="1"]::before{content:"입력값을 바꾸기 전 결과입니다. ‘결과 계산’을 누르면 새 결과로 바뀝니다.";display:block;font-weight:650;color:#4d596a;margin:0 0 8px}#worksheet-result[data-stale="1"] .table-scroll,#worksheet-result[data-stale="1"] .pubTableWrap,#worksheet-result[data-stale="1"] p{opacity:.55}.pubInlineTool .actions{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}@media(max-width:640px){.pubInlineTool{padding:18px 14px}.pubInlineTool .fields{grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}}` + (groupSettlement ? GROUP_SETTLEMENT_CSS_V229147 : "");
+  // V22.9.147: 모임 정산 계산기는 쪽의 머리(h1) 바로 아래에 오므로 계산기 제목을 h2 로 둔다(다른 쪽은 절 뒤라 h3 그대로).
+  // 폼의 data-mode 는 방식에 쓰지 않는 칸을 CSS 로 숨기는 표식이다(브라우저 스크립트가 방식을 바꿀 때 고친다).
+  const headingTag = groupSettlement ? "h2" : "h3";
+  const formMode = groupSettlement ? ` data-mode="${escapeHtml(spec.example.settings.mode)}"` : "";
+  const sectionHtml = `<section class="pubInlineTool" id="inline-worksheet" aria-label="${title}"><div class="pubInlineToolHead"><span class="pubToolBadge">인터랙티브 계산표 · 브라우저 즉시 검산</span><${headingTag} class="pubToolHeading">${title}</${headingTag}><p>${escapeHtml(spec.outcome)} ${escapeHtml(spec.instruction)}</p>${ssrChecks}</div><form id="worksheet-form" action="#inline-worksheet" novalidate${formMode}><fieldset disabled><legend>기본 예제 입력값</legend>${ssrSettings}${ssrGroups}<button type="button" disabled>결과 계산</button></fieldset></form><p id="worksheet-status" role="status" aria-live="polite">기본 예제의 결과입니다. 브라우저에서 계산 기능이 준비되면 입력값을 바꿀 수 있습니다.</p><div id="worksheet-result">${ssrTables}${ssrNotes}</div><div class="actions"><button type="button" id="worksheet-export" disabled>입력과 결과 CSV 저장</button><button type="button" class="secondary" id="worksheet-print" disabled>결과 인쇄</button><button type="button" class="secondary" id="worksheet-reset" disabled>예제 값으로 되돌리기</button></div></section>`;
+  const client = groupSettlement ? groupSettlementClientV229147 : worksheetClientV229106;
+  const scriptHtml = `<script>(${client.toString()})(${json(slug)},${json(spec)},${compute.toString()});</script>`;
   return { cssHtml, sectionHtml, scriptHtml };
 }
 
@@ -11274,7 +11896,9 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   const secondary = page.secondary || ["전체 사용 가이드", "/guides"];
   const chartHtml = living ? renderArticleDataChartV229139(key) : "";
   const chartCss = chartHtml ? ".pubDataChart{margin:20px 0 24px;padding:16px;border:1px solid #dce3ef;border-radius:16px;background:#fff}.pubChartSvg{display:block;width:100%;height:auto;max-height:220px}.pubDataChart figcaption{margin-top:8px;color:#526075;font-size:13.5px;line-height:1.6}" : "";
-  const inlineWorksheet = living || key === "group-accountbook" ? renderInlineWorksheetV229139(key) : null;
+  // V22.9.147: 모임 정산 계산기(/group-settlement)는 계산기가 쪽의 본론이라 머리·목차 바로 아래에 둔다(page.toolFirst).
+  const inlineWorksheet = living || key === "group-accountbook" || key === "group-settlement" ? renderInlineWorksheetV229139(key) : null;
+  const toolFirst = Boolean(inlineWorksheet && page.toolFirst);
   const toolHubHtml = key === "articles" ? `<aside class="pubSummary pubToolHub" id="tool-hub" aria-label="인터랙티브 계산표 바로가기"><b>브라우저에서 바로 계산하는 생활비 계산표 ${Object.keys(PUBLIC_ALL_CALCULATORS_V229139).length}종</b><p>아래 ${Object.keys(PUBLIC_ALL_CALCULATORS_V229139).length}편의 글에는 입력값을 바꿔 즉시 검산하고 CSV로 저장할 수 있는 인터랙티브 계산표가 본문 안에 포함되어 있습니다.</p>${publicContentLinks(Object.entries(PUBLIC_ALL_CALCULATORS_V229139).map(([slug, spec]) => [spec.title, `/${slug}`]))}</aside>` : "";
   const structured = JSON.stringify({
     "@context": "https://schema.org", "@type": type, name: page.title,
@@ -11286,7 +11910,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
     ...(type === "FAQPage" ? { mainEntity: page.faqs.map(([q, a]) => ({ "@type": "Question", name: q, acceptedAnswer: { "@type": "Answer", text: a } })) } : {}),
   }).replace(/</g, "\\u003c");
   // V22.9.87 T-21: 랜딩(홈)은 목차 대신 미리보기·세 걸음 묶음이 머리 바로 아래에 온다.
-  const toc = !page.landing && sectionList.length >= 3 ? `<nav class="pubToc" aria-label="이 페이지 목차"><b>이 페이지에서</b>${sectionList.map((section, index) => `<a href="#section-${index + 1}">${escapeHtml(section.title)}</a>`).join("")}${inlineWorksheet ? '<a href="#inline-worksheet">인터랙티브 계산표</a>' : ""}</nav>` : "";
+  const toc = !page.landing && sectionList.length >= 3 ? `<nav class="pubToc" aria-label="이 페이지 목차"><b>이 페이지에서</b>${toolFirst ? '<a href="#inline-worksheet">인터랙티브 계산표</a>' : ""}${sectionList.map((section, index) => `<a href="#section-${index + 1}">${escapeHtml(section.title)}</a>`).join("")}${inlineWorksheet && !toolFirst ? '<a href="#inline-worksheet">인터랙티브 계산표</a>' : ""}</nav>` : "";
   // V22.9.74: 생활비 가이드 글은 작성일·수정일·읽는 시간을 함께 적고 현재 위치는 글 목록 허브를 거친다. 수정일 <time> 이
   // 문서의 첫 <time datetime=…> 이어야 한다(validate-public-guides-v22939 가 JSON-LD dateModified 와 대조).
   const crumb = key === "home" ? "" : `<nav class="pubBreadcrumb" aria-label="현재 위치"><a href="/">말해가계부</a> / ${living ? `<a href="/articles">생활비 가이드 글</a> / ` : key === "articles" ? "" : `<a href="/guides">사용 가이드</a> / `}${escapeHtml(page.title)}</nav>`;
@@ -11296,7 +11920,7 @@ function renderPublicContentPage(env = {}, url = null, key = "home", extra = {})
   // V22.9.104 A-4: 글에 기준 한 줄(basis, 세무 글 8편의 귀속연도·확인한 법령 시점)이 있으면 작성·수정일 줄 바로 아래에 같은 모양(pubMeta)으로
   // 단다. 머리(pubHero) 안이라 본문 분량·40자 창 검사에는 들어가지 않고, 새 CSS 가 없어 다른 화면의 바이트는 그대로다.
   const readingNext = living ? `<a href="/articles">생활비 가이드 글 전체 목록 보기 →</a>` : `<a href="/guides">다른 사용 가이드 찾아보기 →</a>`;
-  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/>${page.updatesFeed ? `<link rel="alternate" type="application/rss+xml" title="말해가계부 업데이트 소식" href="${escapeHtml(`${origin}/updates.xml`)}"/>` : ""}<meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${faqLinkCss}${tableStackCss}${demoInputCss}${page.updatesFeed ? PUBLIC_UPDATES_CSS_V229143 : ""}${chartCss}${inlineWorksheet ? inlineWorksheet.cssHtml : ""}${page.demo ? publicPreviewStyles(true) : ""}${page.landing || sectionList.some((section) => section && section.shots) ? REAL_SCREENS_CSS_V229146 : ""}${page.landing ? publicLandingStyles() : ""}${page.demo ? publicTourStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml() : ""}<p class="pubMeta">${metaLine}</p>${page.basis ? `<p class="pubMeta pubBasis">${escapeHtml(page.basis)}</p>` : ""}<div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.notice ? `<p class="pubNote" id="revision-notice" role="note"><b>개정 알림</b> ${escapeHtml(page.notice)}</p>` : ""}${page.landing ? publicLandingHtml() : ""}${page.demo ? publicTourHtml() : ""}${toolHubHtml}${extras.summary}${toc}${chartHtml}${sections}${page.updatesFeed ? publicUpdatesListV229143(PUBLIC_UPDATES_V229143) : ""}${inlineWorksheet ? inlineWorksheet.sectionHtml : ""}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}${inlineWorksheet ? inlineWorksheet.scriptHtml : ""}</main></body></html>`;
+  return `<!doctype html><html lang="ko"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"/><title>${escapeHtml(pageTitle)}</title><meta name="description" content="${escapeHtml(page.description)}"/><meta name="robots" content="index,follow,max-image-preview:large"/><meta name="theme-color" content="#3182f6"/><link rel="canonical" href="${escapeHtml(canonical)}"/>${page.updatesFeed ? `<link rel="alternate" type="application/rss+xml" title="말해가계부 업데이트 소식" href="${escapeHtml(`${origin}/updates.xml`)}"/>` : ""}<meta property="og:type" content="${type === "Article" ? "article" : "website"}"/><meta property="og:site_name" content="${escapeHtml(appName(env))}"/><meta property="og:locale" content="ko_KR"/><meta property="og:title" content="${escapeHtml(pageTitle)}"/><meta property="og:description" content="${escapeHtml(page.description)}"/><meta property="og:url" content="${escapeHtml(canonical)}"/>${publicOgImageMeta(origin)}${key === "home" ? '<meta name="naver-site-verification" content="7b69a98f38f2f22517982e0b6ed7da0a16160e98"/>' : ""}${publicAdsenseHead(env)}<script type="application/ld+json">${structured}</script><style>${publicContentStyles()}${faqLinkCss}${tableStackCss}${demoInputCss}${page.updatesFeed ? PUBLIC_UPDATES_CSS_V229143 : ""}${chartCss}${inlineWorksheet ? inlineWorksheet.cssHtml : ""}${page.demo ? publicPreviewStyles(true) : ""}${page.landing || sectionList.some((section) => section && section.shots) ? REAL_SCREENS_CSS_V229146 : ""}${page.landing ? publicLandingStyles() : ""}${page.demo ? publicTourStyles() : ""}</style>${adsHeadMarkup(env, adKey)}</head><body${key === "home" ? ' class="pubHome"' : ""}><a class="pubSkip" href="#main">본문으로 건너뛰기</a>${publicSiteNav(key)}<main class="pubWrap" id="main">${crumb}<article><header class="pubHero"><span class="pubEyebrow">${escapeHtml(page.eyebrow || "말해가계부")}</span><h1>${escapeHtml(page.title)}</h1><p>${escapeHtml(page.intro)}</p>${page.demo ? publicAppPreviewHtml() : ""}<p class="pubMeta">${metaLine}</p>${page.basis ? `<p class="pubMeta pubBasis">${escapeHtml(page.basis)}</p>` : ""}<div class="pubHeroActions"><a class="pubBtn" href="${primary[1]}">${escapeHtml(primary[0])}</a><a class="pubBtn secondary" href="${secondary[1]}">${escapeHtml(secondary[0])}</a></div></header>${page.notice ? `<p class="pubNote" id="revision-notice" role="note"><b>개정 알림</b> ${escapeHtml(page.notice)}</p>` : ""}${page.landing ? publicLandingHtml() : ""}${page.demo ? publicTourHtml() : ""}${toolHubHtml}${extras.summary}${toc}${chartHtml}${toolFirst ? inlineWorksheet.sectionHtml : ""}${sections}${page.updatesFeed ? publicUpdatesListV229143(PUBLIC_UPDATES_V229143) : ""}${inlineWorksheet && !toolFirst ? inlineWorksheet.sectionHtml : ""}${extras.sources}${faqs}${extras.service}${extras.related}</article>${adSlotMarkup(env, adKey)}<div class="pubReadingNext">${readingNext}</div>${page.landing ? publicLandingBand(env) : ""}${publicSiteFooter()}${inlineWorksheet ? inlineWorksheet.scriptHtml : ""}</main></body></html>`;
 }
 
 // V22.9.40 (B): 광고 게이트가 쓰는 화면 키는 정본 경로다. 정책·신원 페이지는 게이트의 허용 목록에 없다.

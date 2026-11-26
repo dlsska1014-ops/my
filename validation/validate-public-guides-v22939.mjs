@@ -20,7 +20,9 @@ const v22997Paths = ["/pension-savings-irp-tax-credit"];
 const v229143Paths = ["/updates"];
 // V22.9.145 B3: 카카오톡 문장 사전(/kakao-sentences)은 validate-v229145-kakao-sentences 가 표의 값을 자세히 검사한다. 정본 목록과 쪽별 검사에 더한다.
 const v229145Paths = ["/kakao-sentences"];
-const allPaths = [...paths, ...articlePaths, ...v22974Paths, ...v22997Paths, ...v229143Paths, ...v229145Paths];
+// V22.9.147: 모임 정산 계산기(/group-settlement)는 validate-v229147-group-settlement 가 계산을 웹 정산과 대조한다. 정본 목록과 쪽별 검사에 더한다.
+const v229147Paths = ["/group-settlement"];
+const allPaths = [...paths, ...articlePaths, ...v22974Paths, ...v22997Paths, ...v229143Paths, ...v229145Paths, ...v229147Paths];
 const origin = "https://malhaebook.com";
 const get = (path, method = "GET", env = {}, headers = {}) => app.fetch(new Request(`${origin}${path}`, { method, headers }), env, {});
 const originalFetch = globalThis.fetch;
@@ -33,7 +35,7 @@ try {
   const titles = new Set(), descriptions = new Set();
   // V22.9.97 모임 정산: 다른 공개 화면의 한 자리로 가는 링크(/demo#tour-settle)는 경로 부분을 정본과 대조하고, 그 id 는 모든 화면을 받은 뒤 본다.
   const crossAnchors = [];
-  for (const path of [...paths, ...v229143Paths, ...v229145Paths]) { // V22.9.143: 업데이트 소식도 쪽별 검사를 받는다. V22.9.145: 문장 사전도.
+  for (const path of [...paths, ...v229143Paths, ...v229145Paths, ...v229147Paths]) { // V22.9.143: 업데이트 소식도 쪽별 검사를 받는다. V22.9.145: 문장 사전도. V22.9.147: 모임 정산 계산기도.
     const response = await get(path);
     eq(response.status, 200, `${path}: anonymous GET succeeds`);
     eq(response.headers.get("set-cookie"), null, `${path}: no cookie`);
