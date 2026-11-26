@@ -8,7 +8,7 @@ import { escapeHtml } from "../domain/transactions-core.js";
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.146-REAL-SCREENS";
+const APP_VERSION = "V22.9.147-GROUP-CALCULATOR";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -283,6 +283,7 @@ function adsMode(env = {}) {
 // V22.9.108(사용자 결정 2026-11-07): 광고 허용 화면 = 로그인 없이 읽는 공개 정본 53쪽(안내 12 + 생활비 글 40 + 글 목록 1).
 // V22.9.142: 생활비 글 9편을 합쳐 44쪽(안내 12 + 생활비 글 31 + 글 목록 1).
 // V22.9.145: 카카오톡 문장 사전을 더해 45쪽(안내 13 + 생활비 글 31 + 글 목록 1).
+// V22.9.147: 모임 정산 계산기를 더해 46쪽(안내 14 + 생활비 글 31 + 글 목록 1). 광고 자리는 글(article) 뒤라 계산기 입력칸과 떨어져 있다.
 // 정책·신원 6쪽(/about·/contact·/privacy·/terms·/cookies·/site-map)과 후원 안내(/support), 계산표 자산, 로그인 뒤 화면은 넣지 않는다.
 // V22.9.106 은 심사 준비로 대표 글 6편만 뒀고, 승인 뒤 나머지 글에 광고가 없는 것을 사용자가 넓히기로 했다(추적표 V107:D-11).
 const AD_PAGE_KEYS = Object.freeze([
@@ -290,6 +291,8 @@ const AD_PAGE_KEYS = Object.freeze([
   "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide",
   // V22.9.145 B3: 카카오톡 문장 사전.
   "/kakao-sentences",
+  // V22.9.147: 모임 정산 계산기.
+  "/group-settlement",
   // 생활비 가이드 글 12편(V22.9.40).
   "/budget-ratio-guide", "/fixed-cost-checklist", "/subscription-cleanup",
   "/card-spending-threshold", "/shared-living-cost-rules", "/accountbook-habit",
@@ -558,6 +561,8 @@ const PUBLIC_CONTENT_PATHS = Object.freeze([
   "/updates",
   // V22.9.145 B3(애드센스 계획): 카카오톡 문장 사전 — 실제 봇 결과 표(kakao-sentences-v229145.js). 광고 화면 목록(AD_PAGE_KEYS)에도 넣는다.
   "/kakao-sentences",
+  // V22.9.147: 모임 정산 계산기 — 브라우저에서만 계산하는 공개 도구(group-settlement-v229147.js). 광고 화면 목록(AD_PAGE_KEYS)에도 넣는다.
+  "/group-settlement",
 ]);
 
 // V22.9.87 T-20·T-21: 공개 머리와 로그인 시작 화면의 장부 마크(§3-4 로고 타일 안). 앱 메뉴의 renderAccountbookBrandIcon(web/unified-nav.js)과

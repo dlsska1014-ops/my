@@ -30,7 +30,7 @@ try {
   const get = (path) => app.fetch(new Request(`${origin}${path}`), {}, {});
   const sitemap = await (await get("/sitemap.xml")).text();
   const entries = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/g)].map((m) => ({ path: new URL(m[1]).pathname, lastmod: m[2] }));
-  eq(entries.length, 53, "The sitemap retains 53 public canonical pages (V22.9.142 merged nine articles, V22.9.143 added /updates, V22.9.145 added /kakao-sentences)");
+  eq(entries.length, 54, "The sitemap retains 54 public canonical pages (V22.9.142 merged nine articles, V22.9.143 added /updates, V22.9.145 added /kakao-sentences, V22.9.147 added /group-settlement)");
   const pages = new Map();
   for (const { path } of entries) {
     const response = await get(path);

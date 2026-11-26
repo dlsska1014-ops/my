@@ -48,7 +48,8 @@ const PUBLIC_ARTICLES_V22974 = ["/articles", "/household-spending-statistics", "
 // V22.9.142(애드센스 걷어내기, 사용자 11-24 결정 3·5): 생활비 글 9편을 합친 글 다섯 편으로 모았다(옛 주소 308). V22.9.74 글 20 → 18, V22.9.97 글 8 → 1.
 const PUBLIC_ARTICLES_V22997 = ["/pension-savings-irp-tax-credit"];
 // V22.9.145(애드센스 계획 B3): 카카오톡 문장 사전(/kakao-sentences)도 공개 허용 화면이다(정본 53 − 정책·신원 6 − 후원 안내 1 − 업데이트 소식 1 = 45).
-const PUBLIC_ALLOWED = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide", "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide", "/kakao-sentences", ...PUBLIC_ARTICLES, ...PUBLIC_ARTICLES_V22974, ...PUBLIC_ARTICLES_V22997];
+// V22.9.147: 모임 정산 계산기(/group-settlement)도 공개 허용 화면이다(정본 54 − 8 = 46).
+const PUBLIC_ALLOWED = ["/", "/service-guide", "/how-it-works", "/kakao-guide", "/budget-guide", "/group-accountbook", "/security", "/faq", "/guides", "/demo", "/report-guide", "/import-guide", "/kakao-sentences", "/group-settlement", ...PUBLIC_ARTICLES, ...PUBLIC_ARTICLES_V22974, ...PUBLIC_ARTICLES_V22997];
 // V22.9.95 후원: 후원 안내(/support)도 광고를 싣지 않는 정본이다(정본 52 − 정책·신원 6 − 후원 안내 1 = 45).
 const POLICY_PAGES = ["/privacy", "/terms", "/cookies", "/contact", "/about", "/site-map", "/support"];
 const SIGNED_IN_ALLOWED = [];
@@ -146,8 +147,8 @@ ok(source.includes("AdSense review mode is ownership-only"), "심사 모드 소�
 const pageKeys = [...(source.match(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 const publicPaths = [...(source.match(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/) || ["", ""])[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
 // V22.9.97 생활비 글: 글 8편이 더해져 정본 52 → 60, 공개 허용 화면 45 → 53.
-eq(publicPaths.length, 53, "공개 정본 문서는 53개다(가이드 18 + V22.9.40 생활비 가이드 글 12 + V22.9.74 허브 1·글 18 + V22.9.95 후원 안내 1 + V22.9.97 글 1 + V22.9.143 업데이트 소식 1 + V22.9.145 카카오톡 문장 사전 1 — V22.9.142 에 9편을 합침)");
-eq(pageKeys.filter((key) => publicPaths.includes(key)).length, 45, "공개 허용 화면은 45쪽이다(정본 53 − 정책·신원 6 − 후원 안내 1 − 업데이트 소식 1, V22.9.108 범위·V22.9.142 글 수·V22.9.143·V22.9.145 문장 사전)");
+eq(publicPaths.length, 54, "공개 정본 문서는 54개다(가이드 18 + V22.9.40 생활비 가이드 글 12 + V22.9.74 허브 1·글 18 + V22.9.95 후원 안내 1 + V22.9.97 글 1 + V22.9.143 업데이트 소식 1 + V22.9.145 카카오톡 문장 사전 1 + V22.9.147 모임 정산 계산기 1 — V22.9.142 에 9편을 합침)");
+eq(pageKeys.filter((key) => publicPaths.includes(key)).length, 46, "공개 허용 화면은 46쪽이다(정본 54 − 정책·신원 6 − 후원 안내 1 − 업데이트 소식 1, V22.9.108 범위·V22.9.142 글 수·V22.9.143·V22.9.145 문장 사전·V22.9.147 모임 정산 계산기)");
 eq(JSON.stringify(pageKeys.filter((key) => publicPaths.includes(key)).sort()), JSON.stringify([...PUBLIC_AD_ALLOWED].sort()), "공개 허용 화면 = 정본 문서 - 정책·신원 6쪽 - 후원 안내 - 업데이트 소식");
 eq(JSON.stringify(pageKeys.filter((key) => !publicPaths.includes(key))), JSON.stringify(SIGNED_IN_ALLOWED), "로그인 뒤 허용 화면은 리포트·연간·스마트 도구·두 가이드뿐이다");
 for (const key of ["/app", "/my", "/menu", "/my/settings", "/budgets", "/my/analysis", "/my/households", "/my/members", "/my/backup", "/payment-methods", "/settlement-summary", "/reserve-plans", "/admin-view", "/operation-center", "/skill", "/api", "/u/api", ...POLICY_PAGES]) {

@@ -12,9 +12,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_146.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_147.sha256",
 );
 const validationScripts = [
+  ["V22.9.147 모임 정산 계산기(/group-settlement — 계산기와 웹 정산 buildSettlementModel 에 예제 4개·무작위 모임 800개를 넣어 사람별 몫·송금 제안 대조, 다시 적어 달라는 말, 화면 스크립트의 계산 함수 = 검사한 함수 글, 서버가 먼저 그린 표·쪽 글의 숫자 = 예제 계산, 사이트맵·링크)", "validation/validate-v229147-group-settlement.mjs"],
   ["V22.9.146 실제 화면 사진(예시 데이터로 찍은 웹 가계부 네 장 — 생성 파일·1년 캐시 주소·시나리오 문장을 지금 코드로 다시 보내 저장 값·정산·화면 글 대조), 처리방침 이용 목적 추가 개정 알림(2027-01-04 시행, 30일), 공개 문구 ‘가상’ → ‘예시’", "validation/validate-v229146-real-screens.mjs"],
   ["V22.9.145 카카오톡 문장 사전(/kakao-sentences — 실린 문장을 1:1·단톡방 두 길로 다시 보내 저장 값·답 첫 줄이 결과 파일·쪽의 표와 같음, 사이트맵·안내 쪽 링크·광고 화면 목록)", "validation/validate-v229145-kakao-sentences.mjs"],
   ["V22.9.144 예산 명령의 해 말(내년·올해·작년·재작년·지난 해·다음 해·금년 + N월 = 그해 그달, 분류에서 해 말을 뗌, 해 말 없는 N월은 가장 가까운 해 그대로)·날 없는 예산 설정 명령은 기록 길의 달력 답보다 예산 처리기(날을 적은 말은 달력 답 그대로)", "validation/validate-v229144-budget-year.mjs"],
@@ -468,7 +469,8 @@ function run(command, args, label) {
 // V22.9.144: 예산 명령 해 말 검사(validate-v229144-budget-year — 파서·카카오 끝단·원본)와 추적표 V144 항목이 더해지고, 업데이트 소식 검사의 묶음 단언이 한 묶음만큼 늘었다. 하네스 두 모드 실측 99,820 / 99,813 → 하한 99,813.
 // V22.9.145: 카카오톡 문장 사전 검사(validate-v229145-kakao-sentences — 문장마다 1:1·단톡방 다시 보내기·쪽의 표·링크)와 추적표 V145 항목이 더해지고, 공개 쪽별 검사가 한 쪽만큼 늘었다. 하네스 두 모드 100,393 / 100,386 → 하한 100,386.
 // V22.9.146: 실제 화면 사진·처리방침 알림·‘가상’ 정리 검사(validate-v229146-real-screens)와 추적표 V146 항목이 더해지고, 업데이트 소식 묶음 하나만큼 업데이트 소식 검사가 늘었다. 하네스 두 모드 100,729 / 100,722 중 작은 값.
-const EXPECTED_MINIMUM_CHECKS = 100722;
+// V22.9.147: 모임 정산 계산기 검사(validate-v229147-group-settlement)와 추적표 V147 항목이 더해지고, 쪽 하나만큼 공개 쪽 검사가, 업데이트 소식 묶음 하나만큼 업데이트 소식 검사가 늘었다. 하네스 두 모드 107,758 / 107,751 중 작은 값.
+const EXPECTED_MINIMUM_CHECKS = 107751;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

@@ -166,12 +166,12 @@ try {
   const publicPaths = listOf(/const PUBLIC_CONTENT_PATHS = Object\.freeze\(\[([\s\S]*?)\]\);/);
   const adKeys = listOf(/const AD_PAGE_KEYS = Object\.freeze\(\[([\s\S]*?)\]\);/);
   ok(publicPaths.includes("/updates") && !adKeys.includes("/updates"), "/updates 는 공개 정본에 있고 광고 화면 목록에는 없다");
-  eq(publicPaths.length, 53, "공개 정본 53개(V22.9.142 의 51 + /updates + V22.9.145 /kakao-sentences)");
-  eq(adKeys.filter((key) => publicPaths.includes(key)).length, 45, "광고 허용 공개 화면은 45쪽(/updates 는 빠지고 V22.9.145 /kakao-sentences 가 더해짐)");
+  eq(publicPaths.length, 54, "공개 정본 54개(V22.9.142 의 51 + /updates + V22.9.145 /kakao-sentences + V22.9.147 /group-settlement)");
+  eq(adKeys.filter((key) => publicPaths.includes(key)).length, 46, "광고 허용 공개 화면은 46쪽(/updates 는 빠지고 V22.9.145 /kakao-sentences·V22.9.147 /group-settlement 가 더해짐)");
   const sitemap = (await get("/sitemap.xml")).html;
   const lastmod = (sitemap.match(/<loc>https:\/\/malhaebook\.com\/updates<\/loc>\s*<lastmod>([^<]+)<\/lastmod>/) || [])[1];
   eq(lastmod, ENTRIES[0].date, "사이트맵에 /updates 가 있고 lastmod 는 가장 새 묶음의 날짜");
-  eq((sitemap.match(/<url>/g) || []).length, 53, "사이트맵 53개(V22.9.145 카카오톡 문장 사전 + 1)");
+  eq((sitemap.match(/<url>/g) || []).length, 54, "사이트맵 54개(V22.9.145 카카오톡 문장 사전 + 1, V22.9.147 모임 정산 계산기 + 1)");
   for (const p of ["/", "/articles", "/about", "/updates"]) ok((await get(p)).html.includes('<a href="/support">후원하기</a>') && (await get(p)).html.includes('<a href="/site-map">사이트맵</a><a href="/updates">업데이트 소식</a>'), `${p}: 꼬리말에 업데이트 소식`);
   const siteMap = (await get("/site-map")).html;
   ok(siteMap.includes('href="/updates"') && siteMap.includes('href="/updates.xml"'), "/site-map 에서 업데이트 소식과 RSS 로 닿는다");

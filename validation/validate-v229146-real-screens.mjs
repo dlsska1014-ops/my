@@ -243,8 +243,11 @@ await fixture(async (fx) => {
     ok(html.includes(`"dateModified":"${REAL_SCREENS_COPY_DATE_V229146}"`) && html.includes(`<time datetime="${REAL_SCREENS_COPY_DATE_V229146}">`), `7 ${path}: 화면·구조화 데이터 수정일 = ${REAL_SCREENS_COPY_DATE_V229146}`);
     eq((entries.find((entry) => entry.path === path) || {}).lastmod, REAL_SCREENS_COPY_DATE_V229146, `7 ${path}: 사이트맵 lastmod`);
   }
-  const sameDay = entries.filter((entry) => entry.lastmod === REAL_SCREENS_COPY_DATE_V229146).map((entry) => entry.path).sort();
-  eq(sameDay.join(" "), [...FIVE, "/updates", "/kakao-sentences"].sort().join(" "), "7 그 날짜인 쪽은 다섯 쪽과 V22.9.145 의 /updates·/kakao-sentences 뿐이다(‘가상’ 낱말만 바뀐 글은 그대로)");
+  // V22.9.147: /updates 의 lastmod 는 가장 새 업데이트 소식 묶음의 날짜라 뒤 판이 묶음을 더하면 옮겨 간다 — 그 쪽은 따로 본다(이 판 또는 뒤 판).
+  const updatesLastmod = (entries.find((entry) => entry.path === "/updates") || {}).lastmod || "";
+  ok(updatesLastmod >= REAL_SCREENS_COPY_DATE_V229146, `7 /updates 의 lastmod(${updatesLastmod})는 이 날짜이거나 뒤 판의 업데이트 소식 날짜다`);
+  const sameDay = entries.filter((entry) => entry.lastmod === REAL_SCREENS_COPY_DATE_V229146 && entry.path !== "/updates").map((entry) => entry.path).sort();
+  eq(sameDay.join(" "), [...FIVE, "/kakao-sentences"].sort().join(" "), "7 그 날짜인 쪽은 다섯 쪽과 V22.9.145 의 /kakao-sentences 뿐이다(‘가상’ 낱말만 바뀐 글은 그대로, /updates 는 위에서 따로)");
   for (const [path, date] of [["/emergency-fund-basics", "2026-10-12"], ["/budget-ratio-guide", "2026-11-22"], ["/shared-living-cost-rules", "2026-11-22"]]) eq((entries.find((entry) => entry.path === path) || {}).lastmod, date, `7 ${path}: 낱말만 바뀐 글은 수정일 그대로`);
 });
 
