@@ -1,0 +1,111 @@
+-- 실행 금지(DO NOT RUN) — 기록용. 2026-11-27 11:49:52 KST 에 운영 DB 에 이미 적용했다(SQL_HISTORY.md ‘V22.9.148 SQL 판단’). 다시 돌릴 일이 없다.
+-- V22.9.148: 운영 DB 권한 정리 — Supabase Security Advisor 경고 6건(2026-11-27 읽기)을 없앤 문을 그대로 남긴다. 앱 코드와는 별개다(앱은 이 판에 SQL 이 없다).
+--   1) 운영 통계 함수 record_nlu_metric·record_nlu_failure_sample 의 실행 권한을 서비스 키(service_role)에만 남긴다(anon·authenticated·PUBLIC 회수).
+--      앱은 서비스 키로만 두 함수를 부른다(src/modules/runtime/ops-telemetry.js → src/modules/data/supabase-client.js).
+--   2) 수정 시각 트리거 함수 set_updated_at·set_accountbook_settings_updated_at 의 search_path 를 '' 로 고정한다(본문 `new.updated_at = now(); return new;`
+--      — now() 는 pg_catalog 라 빈 search_path 에서도 같다).
+-- 바꾸지 않은 것: 함수 본문·표·자료·인덱스·RLS·다른 함수의 권한. 기본 키와 겹치는 유니크 인덱스 넷(Performance Advisor 경고 2건)은 이 파일에 없다(남은 일).
+-- 안전장치: 한 트랜잭션. 맨 위 RAISE EXCEPTION 줄이 있는 동안에는 실행해도 아무것도 바뀌지 않는다. 적용한 문은 그 줄 아래와 같다 —
+--   사전 확인(네 함수의 모양이 2026-11-19 덤프와 같은지)·사후 확인(역할별 실행 권한·설정)·커밋 전 임시 표 트리거 실행이 하나라도 어긋나면 전체가 되돌아간다.
+--   오프라인 시험: 2026-11-19 덤프 스키마를 넣은 PGlite(PostgreSQL 17.5)에서 적용·되돌리기·다시 적용 24/24 통과.
+-- 적용 결과(카탈로그 읽기): 두 통계 함수 anon=f authenticated=f service_role=t, 트리거 함수 둘 search_path="". Security Advisor 경고 6 → 0, 앱 /health·/ready 200.
+
+begin;
+do $review_only$ begin raise exception 'v229148_review_only_db_advisor_grants_already_applied_2026_11_27'; end $review_only$;
+set local lock_timeout = '5s';
+set local statement_timeout = '30s';
+
+do $preflight$
+declare
+  f_metric regprocedure := to_regprocedure('public.record_nlu_metric(timestamp with time zone, text, text, integer, text)');
+  f_sample regprocedure := to_regprocedure('public.record_nlu_failure_sample(text, text, text, text, text, text)');
+  f_upd regprocedure := to_regprocedure('public.set_updated_at()');
+  f_set regprocedure := to_regprocedure('public.set_accountbook_settings_updated_at()');
+  r record;
+begin
+  if f_metric is null or f_sample is null or f_upd is null or f_set is null then
+    raise exception 'v229148_function_missing: metric=% sample=% set_updated_at=% settings=%', f_metric, f_sample, f_upd, f_set;
+  end if;
+  for r in select p.proname, p.prosecdef, p.proconfig from pg_proc p where p.oid in (f_metric, f_sample) loop
+    if not r.prosecdef or r.proconfig is distinct from array['search_path=public'] then
+      raise exception 'v229148_nlu_function_shape_changed: % secdef=% config=%', r.proname, r.prosecdef, r.proconfig;
+    end if;
+  end loop;
+  for r in select p.proname, p.prosecdef, p.prorettype, btrim(regexp_replace(p.prosrc, '\s+', ' ', 'g')) as body
+             from pg_proc p where p.oid in (f_upd, f_set) loop
+    if r.prosecdef or r.prorettype <> 'trigger'::regtype or r.body <> 'begin new.updated_at = now(); return new; end;' then
+      raise exception 'v229148_trigger_function_shape_changed: % secdef=% body=%', r.proname, r.prosecdef, r.body;
+    end if;
+  end loop;
+end
+$preflight$;
+
+revoke all on function public.record_nlu_metric(timestamp with time zone, text, text, integer, text) from public, anon, authenticated;
+revoke all on function public.record_nlu_failure_sample(text, text, text, text, text, text) from public, anon, authenticated;
+grant execute on function public.record_nlu_metric(timestamp with time zone, text, text, integer, text) to service_role;
+grant execute on function public.record_nlu_failure_sample(text, text, text, text, text, text) to service_role;
+
+alter function public.set_updated_at() set search_path = '';
+alter function public.set_accountbook_settings_updated_at() set search_path = '';
+
+do $postcheck$
+declare
+  fn text;
+begin
+  foreach fn in array array[
+    'public.record_nlu_metric(timestamp with time zone, text, text, integer, text)',
+    'public.record_nlu_failure_sample(text, text, text, text, text, text)'] loop
+    if has_function_privilege('anon', fn, 'execute') or has_function_privilege('authenticated', fn, 'execute') then
+      raise exception 'v229148_still_executable_by_client_roles: %', fn;
+    end if;
+    if not has_function_privilege('service_role', fn, 'execute') then
+      raise exception 'v229148_service_role_lost_execute: %', fn;
+    end if;
+  end loop;
+  foreach fn in array array['public.set_updated_at()', 'public.set_accountbook_settings_updated_at()'] loop
+    if not exists (select 1 from pg_proc p, unnest(p.proconfig) c where p.oid = to_regprocedure(fn) and c like 'search_path=%') then
+      raise exception 'v229148_search_path_not_set: %', fn;
+    end if;
+  end loop;
+end
+$postcheck$;
+
+-- 커밋 전 실제 실행 확인: 바뀐 트리거 함수 둘을 임시 표(이 트랜잭션에서만 있고 커밋 때 사라짐)에 걸어 한 번 돌린다.
+-- 운영 표·자료에는 쓰지 않는다. 트리거가 빈 search_path 에서 실패하면 여기서 오류가 나 전체가 되돌아간다.
+create temporary table v229148_trigger_probe (id integer primary key, updated_at timestamp with time zone not null) on commit drop;
+create trigger v229148_probe_set_updated_at before update on v229148_trigger_probe
+  for each row execute function public.set_updated_at();
+create trigger v229148_probe_set_settings_updated_at before update on v229148_trigger_probe
+  for each row execute function public.set_accountbook_settings_updated_at();
+insert into v229148_trigger_probe (id, updated_at) values (1, timestamp with time zone '2000-01-01 00:00:00+00');
+update v229148_trigger_probe set updated_at = timestamp with time zone '2000-01-01 00:00:00+00' where id = 1;
+do $probe$
+begin
+  if (select updated_at from v229148_trigger_probe where id = 1) < now() - interval '1 minute' then
+    raise exception 'v229148_trigger_probe_failed';
+  end if;
+end
+$probe$;
+
+commit;
+
+-- 적용 뒤 확인(읽기만, 바꾸는 것 없음 — 주석이라 복사해 따로 돌린다):
+--   select 'function' as kind, f as name,
+--          format('anon=%s authenticated=%s service_role=%s config=%s',
+--                 has_function_privilege('anon', f, 'execute'),
+--                 has_function_privilege('authenticated', f, 'execute'),
+--                 has_function_privilege('service_role', f, 'execute'),
+--                 coalesce((select array_to_string(p.proconfig, ',') from pg_proc p where p.oid = to_regprocedure(f)), '')) as detail
+--     from unnest(array[
+--       'public.record_nlu_metric(timestamp with time zone, text, text, integer, text)',
+--       'public.record_nlu_failure_sample(text, text, text, text, text, text)',
+--       'public.set_updated_at()',
+--       'public.set_accountbook_settings_updated_at()']) as f
+--   union all
+--   select 'index', tablename || '.' || indexname, indexdef
+--     from pg_indexes
+--    where schemaname = 'public' and tablename in ('accountbook_settings', 'household_members')
+--   order by 1, 2;
+--
+-- 되돌리기: 실행할 수 있는 되돌리기 문은 이 저장소에 적지 않는다(되돌리기 예시가 그대로 실행된 2026-10-19 사고 뒤의 규칙). 되돌리면 2026-11-19 덤프의
+--   권한·설정(두 통계 함수 = PUBLIC·anon·authenticated·service_role 실행, 트리거 함수 둘 = search_path 없음)으로 돌아간다 — 사용자가 직접 지목한 뒤에만 그때 만든다.

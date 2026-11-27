@@ -319,7 +319,10 @@ const KAKAO_NEXT_STEP_CARD_TEXT_MAX = 400;
 // 단톡방은 textCard 세로 버튼(메시지 버튼 + 맨 아래 ‘기록하기’ 멘션 플러그인), 1:1 은 바로가기(quickReplies)로 보낸다.
 function kakaoNextStepReply(text, payload = {}, quickReplies = [], { record = true } = {}) {
   const replies = dedupeQuickReplies(Array.isArray(quickReplies) ? quickReplies : []).map((q) => [q.label, q.messageText]);
-  if (!getKakaoBotGroupKey(payload)) return kakaoText(text, record ? [...replies, ["기록방법", "기록방법"]] : replies);
+  // V22.9.148 F-6(독립 검토): 1:1 에서는 봇을 부르지 않는다 — ‘기록 없음’ 답(이번 달·내 기록·그날·기간 요약)의 예시 줄에서 ‘@말해가계부 ’ 를 뗀다.
+  // 단톡방 답은 그대로(V22.9.134 M-1 — 예시에 봇 부르기가 한 번).
+  const directText = typeof text === "string" ? text.replace(/^예\) @말해가계부 /gm, "예) ") : text;
+  if (!getKakaoBotGroupKey(payload)) return kakaoText(directText, record ? [...replies, ["기록방법", "기록방법"]] : replies);
   const buttons = replies.slice(0, record ? 4 : 5).map(([label, messageText]) => ({ label: messageText.length <= 14 ? messageText : label, action: "message", messageText }));
   if (record) buttons.push({ ...KAKAO_RECORD_MENTION_BUTTON });
   return jsonResponse({

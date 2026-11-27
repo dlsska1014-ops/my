@@ -1,8 +1,8 @@
 // @build:imports-start
 import {
-  boundedRuntimeNumber, checkSkillRateLimit, nluOutcomeFromKakaoResponse, rateLimitedKakaoText,
-  rememberDuplicateEvent, rememberNluRuntimeEvent, rememberOpsEvent, rememberSkillEvent,
-  scheduleNluOpsPersistence,
+  boundedRuntimeNumber, checkSkillRateLimit, kakaoNluMarkV229148, markKakaoNluOutcomeV229148,
+  nluOutcomeFromKakaoResponse, rateLimitedKakaoText, rememberDuplicateEvent,
+  rememberNluRuntimeEvent, rememberOpsEvent, rememberSkillEvent, scheduleNluOpsPersistence,
 } from "../runtime/ops-telemetry.js";
 import { abMonitorOutcome } from "../runtime/ops-monitor.js";
 import { APP_VERSION, publicBaseUrl } from "../public/site-config.js";
@@ -207,8 +207,11 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   if (env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.enabled = canDeferSave;
   // V22.9.90: 관제 이용 현황의 카카오 기능 순위(record_nlu_metric)는 메뉴 낱말 판별(detectKakaoNaturalIntent)만 써서 기록 글("점심 12000원")과
   // 고치기 명령을 ‘알 수 없음’으로 셌다(10-30 관제 확인: 129회 중 53회). 처리기가 기록·고치기로 읽은 글이면 그 이름(usage.intent)을 쓴다.
+  // V22.9.148: 답을 만든 곳이 표시를 남긴 답(못 알아들음·금액 없음·인사·첫 안내 — runtime/ops-telemetry.js markKakaoNluOutcomeV229148)은 그 이름(usage.markedIntent)이 먼저다.
   const usage = {};
-  const metricIntent = () => (intentMatch.intent === "UNKNOWN" && usage.intent) || intentMatch.intent;
+  // 낱말이 없는 말(‘?’·‘…’ — 판별은 EMPTY)도 못 알아들음 답을 받았으면 그 이름이다(독립 검토: 단톡방의 빈 부름 EMPTY/ok 와 한 줄에 섞였다).
+  const metricIntent = () => (intentMatch.intent === "UNKNOWN" && (usage.markedIntent || usage.intent))
+    || (intentMatch.intent === "EMPTY" && usage.markedIntent) || intentMatch.intent;
   const work = (async () => { try {
     const headers = new Headers(request.headers || {});
     headers.delete("content-length");
@@ -234,7 +237,9 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     });
     const latencyMs = Date.now() - skillStartedAt;
     const responsePreview = await safeResponse.clone().text();
-    const outcome = nluOutcomeFromKakaoResponse(responsePreview);
+    const nluMark = kakaoNluMarkV229148(env);
+    const outcome = nluOutcomeFromKakaoResponse(responsePreview, nluMark);
+    if (outcome.marked) usage.markedIntent = nluMark.intent;
     armKakaoRepeatGuard(repeat.key, responsePreview);
     clearKakaoInFlight(repeat.key);
     rememberSkillLatency(latencyMs, { intent: metricIntent(), result: outcome.result });
@@ -443,6 +448,14 @@ async function kakaoRoomJoinGuideReply(env, { payload, groupKey = "", user = {},
   return kakaoNextStepReply(role === "pending"
     ? "이 방 가계부에 참여 대기 중이에요.\n승인 없이 기록을 한 번 보내면 바로 참여돼요.\n예) @말해가계부 커피 4500원"
     : "아직 이 방 가계부에 참여 전이에요.\n기록을 한 번 보내면 바로 참여돼요.\n예) @말해가계부 커피 4500원", payload);
+}
+
+// V22.9.148: 가계부가 하나도 없는 사람에게 보내는 첫 안내 — 관제는 ‘첫 안내’(FIRST_CONTACT)의 되묻기(clarify)로 센다(예전에는 ‘알 수 없음’의 ok 에
+// 섞였다 — 아직 기록이 안 된 안내 단계라 성공으로 세지 않는다). 답은 그대로다.
+function kakaoFirstContactReplyV229148(env) {
+  const text = kakaoStartText(false);
+  markKakaoNluOutcomeV229148(env, "first_contact", text);
+  return kakaoText(text, kakaoStartQuickReplies(false));
 }
 
 function kakaoMixedTypeConfirmationReply(utterance = "") {
@@ -1013,7 +1026,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     activeHouseholds = households.filter((h) => !["pending", "blocked"].includes(String(h.role || "member")));
   }
   // V22.9.43: 연결된 단톡방에서는 가계부가 하나도 없는 사람도 아래 방 분기에서 ‘거래 한 번이면 참여’ 안내를 받는다.
-  if (!households.length && !(botGroupKey && linkedGroupHousehold?.id)) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
+  if (!households.length && !(botGroupKey && linkedGroupHousehold?.id)) return kakaoFirstContactReplyV229148(env);
 
   let household = null;
   let accessRole = "";
@@ -1049,7 +1062,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     }
     accessRole = household?.role || "";
   }
-  if (!household) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
+  if (!household) return kakaoFirstContactReplyV229148(env);
 
   // pending/blocked는 어떤 데이터 조회도 허용하지 않는다. viewer는 조회 명령만 허용한다.
   if (["pending", "blocked"].includes(accessRole)) {

@@ -149,14 +149,25 @@ function buildSettlementModel(rows = [], members = [], options = {}) {
     weights[id] = Math.max(0.1, Math.min(1000, Number.isFinite(raw) ? raw : 1));
   }
   const owedBy = Object.fromEntries(ids.map((id) => [id, 0]));
+  // V22.9.148 V147:G-2: 몫 칸은 0.1 단위라 0.7 : 0.3 같은 소수 몫이 들어온다. 예전에는 금액에 소수 몫을 실수로 곱해 내림해서
+  // 90,000원이 62,999원 / 27,001원(90,000 × 0.7 = 62,999.999…), 0.1 셋에 30,000원이 9,999 / 9,999 / 10,002 가 됐다.
+  // 몫을 0.001 단위의 정수로 바꿔(0.7 → 700) BigInt 로 나눈다 — 나누어떨어지면 정확히 그 값이고, 내림과 ‘남는 원은 마지막 사람’ 규칙은 예전과 같다
+  // (정수 몫의 결과는 예전과 같다 — 공개 모임 정산 계산기 public/group-settlement-v229147.js 와 같은 값).
+  const allocationUnitsV229148 = (weight) => BigInt(Math.max(1, Math.round(Number(weight || 1) * 1000)));
+  const floorDivV229148 = (numerator, denominator) => {
+    const quotient = numerator / denominator;
+    return numerator % denominator < 0n ? quotient - 1n : quotient;
+  };
   const allocate = (amount, selectedIds, selectedWeights = {}) => {
     const targets = selectedIds.filter((id) => ids.includes(id));
     if (!targets.length) return;
-    const sumWeight = targets.reduce((sum, id) => sum + Number(selectedWeights[id] || 1), 0) || targets.length;
-    let allocated = 0;
+    const units = targets.map((id) => allocationUnitsV229148(selectedWeights[id]));
+    const sumUnits = units.reduce((sum, unit) => sum + unit, 0n);
+    const total = BigInt(Math.round(Number(amount) || 0));
+    let allocated = 0n;
     targets.forEach((id, index) => {
-      const value = index === targets.length - 1 ? amount - allocated : Math.floor(amount * Number(selectedWeights[id] || 1) / sumWeight);
-      owedBy[id] = (owedBy[id] || 0) + value;
+      const value = index === targets.length - 1 ? total - allocated : floorDivV229148(total * units[index], sumUnits);
+      owedBy[id] = (owedBy[id] || 0) + Number(value);
       allocated += value;
     });
   };

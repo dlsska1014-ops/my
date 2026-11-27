@@ -92,6 +92,11 @@ const KAKAO_MANUAL_PAGES = Object.freeze({
       "하고 싶은 것을 눌러 보세요.",
       "기록은 @말해가계부 점심 12000원 처럼 보내면 돼요.",
     ].join("\n"),
+    // V22.9.148(첫 기록): 1:1 채팅에서는 봇을 부를 필요가 없다 — 예시에서 ‘@말해가계부’ 를 뺀다(단톡방은 위 글 그대로).
+    directDescription: [
+      "하고 싶은 것을 눌러 보세요.",
+      "기록은 ‘점심 12000원’처럼 보내면 돼요.",
+    ].join("\n"),
     buttons: [
       { messageText: "리포트보기" },
       { messageText: "예산정하기" },
@@ -105,6 +110,11 @@ const KAKAO_MANUAL_PAGES = Object.freeze({
     description: [
       "@말해가계부 점심 12000원",
       "처럼 보내면 바로 기록돼요.",
+      "예) 어제 병원 15000원 국민카드",
+      "수입 예) 월급 250만원 들어옴",
+    ].join("\n"),
+    directDescription: [
+      "‘점심 12000원’처럼 보내면 바로 기록돼요.",
       "예) 어제 병원 15000원 국민카드",
       "수입 예) 월급 250만원 들어옴",
     ].join("\n"),
@@ -197,7 +207,8 @@ const KAKAO_MANUAL_PAGES = Object.freeze({
   },
 });
 function kakaoManualCard(page, { group = false, prefix = "" } = {}) {
-  const description = [prefix, page.description].filter(Boolean).join("\n\n").slice(0, KAKAO_MANUAL_CARD_DESCRIPTION_MAX);
+  const body = !group && page.directDescription ? page.directDescription : page.description;
+  const description = [prefix, body].filter(Boolean).join("\n\n").slice(0, KAKAO_MANUAL_CARD_DESCRIPTION_MAX);
   return {
     textCard: {
       title: page.title,

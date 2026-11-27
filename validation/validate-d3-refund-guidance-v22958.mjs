@@ -37,6 +37,8 @@ for(const [rel,names] of Object.entries(protection)){
 // V22.9.93 X-17: 손으로 고친 이력의 null·객체 아닌 항목이 정산 완료에서 500 을 내지 않게 handleSettlementHistorySave 의 중복 확인 첫 줄에 건너뛰기를 더해 그 지문을 새로 적었다.
 // V22.9.89 Astra 4(Z-4): 기록하지 않은 날을 무지출로 세지 않으려 monthlyObservedSpending 의 무지출일만 noSpendDaysFrom(가계부 시작일·직접 적은 기록)으로 바꾸고
 // 선택 인자 { startedOn } 을 더해 그 지문을 새로 적었다. 관측 지출·관측 일수·하루 평균·월말 예상(burnForecast)·지출한 날은 예전 식 그대로다(아래 값 검사).
+// V22.9.148 V147:G-2: 소수 몫(0.7 : 0.3)에서 1~3원 어긋나지 않게 buildSettlementModel 의 allocate 를 몫 0.001 단위 정수의 BigInt 나눗셈으로
+// 의도적으로 바꿔 그 지문을 새로 적었다. 정수 몫·같은 몫(동일·품목별)의 결과와 남는 원 규칙은 예전과 같다(validate-v229148-first-record 가 운영 코드 식과 대조).
  for(const [name,hash]of Object.entries(names)){const node=ast.body.find(n=>n.id?.name===name);ok(!!node,"protected function exists "+name);eq(sha(source.slice(node.start,node.end)),hash,"V57 unchanged contract "+name);}
 }
 const renderer=readFileSync(new URL("../src/modules/my/analysis-page.js",import.meta.url),"utf8");

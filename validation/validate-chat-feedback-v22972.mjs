@@ -126,7 +126,9 @@ try {
   eq(JSON.stringify((await skill("@말해가계부 고치기", MINA)).labels), JSON.stringify(["오늘기록", "도움말 보기"]), "고치기 버튼");
   for (const [label, expectedText] of [["웹가계부", "웹 가계부"], ["가계부만들기", "어떤 용도로 쓸 가계부인가요?"], ["초대코드참여", "초대코드를 입력해 주세요."], ["이름설정", "표시할 내 이름을 입력해 주세요."], ["예산설정", "소유자 또는 관리자만"], ["정산", "정산"]]) {
     const r = await skill(`@말해가계부 ${label}`, MINA);
-    eq(r.result, "ok", `${label}: 정상 응답`);
+    // V22.9.148: 관제가 단톡방 답(카드)도 1:1 과 같은 기준으로 센다 — 흐름을 여는 물음(‘어떤 용도로 쓸 가계부인가요?’·‘초대코드를 입력해 주세요.’ + 단추)은
+    // 1:1 처럼 clarify 다. 정상 응답 = ok 또는 clarify(못 알아들음 fallback·오류 error 가 아님).
+    ok(["ok", "clarify"].includes(r.result), `${label}: 정상 응답(${r.result})`);
     ok(r.text.includes(expectedText), `${label}: 기존 명령과 같은 답(${expectedText})`);
     if (label === "이름설정" || label === "초대코드참여" || label === "가계부만들기") ok((await skill("@말해가계부 취소", MINA)).result === "ok", `${label}: 흐름 취소`);
   }

@@ -176,45 +176,47 @@ function kakaoSkillSafeFallbackText(origin = "") {
   ].join("\n");
 }
 
+// V22.9.148: 글과 함께 어떤 갈래의 답인지(kind)를 돌려준다 — 관제가 못 알아들음(no_match)·금액 없음(no_amount)·단추 이름만(button_label)·
+// 이름·초대 안내(hint)를 따로 센다(runtime/ops-telemetry.js markKakaoNluOutcomeV229148). 답 글은 그대로다.
 function kakaoNoMatchGuideText(utterance = "", origin = "") {
   const t = normalizeText(utterance);
   // V22.9.127: 단톡방의 메시지 단추는 단추 이름을 그대로 보낸다. 예전 답 카드에 남은 [지출로 기록]·[수입으로 기록] 을 누르면 그 이름만 오므로,
   // 일반 입력 안내 대신 무엇을 다시 보내면 되는지 알려 준다(새 답은 단톡방에 이 단추를 내지 않는다 — response-builders.js kakaoGroupChoiceButtons).
   if (/^(?:지출로|수입으로)\s?기록$/.test(t)) {
-    return [
+    return { kind: "button_label", text: [
       "이 단추만으로는 어떤 기록인지 알 수 없어요.",
       "앞에 ‘지출’ 이나 ‘수입’ 을 붙여 한 문장으로 다시 보내 주세요.",
       "예) 수입 지원금 30만원",
-    ].join("\n");
+    ].join("\n") };
   }
   if (/(닉네임|별명|표시명|내 이름|이름 수정|이름 변경)/.test(t)) {
-    return [
+    return { kind: "hint", text: [
       "이 가계부에서 표시할 이름을 바꾸려는 것으로 이해했어요 😊",
       "",
       "아래처럼 보내주세요.",
       "• 내 이름 설정",
       "• 내 이름을 민지로 변경",
-    ].join("\n");
+    ].join("\n") };
   }
   if (/(초대|코드|구성원|멤버)/.test(t)) {
-    return [
+    return { kind: "hint", text: [
       "구성원 초대 또는 초대코드 확인으로 이해했어요 😊",
       "",
       "아래처럼 보내주세요.",
       "• 초대코드",
       "• 구성원 초대",
       "• 초대코드로 참여",
-    ].join("\n");
+    ].join("\n") };
   }
   const maybeHasMoneyWord = /(원|만원|천원|카드|현금|페이|계좌|점심|커피|마트|병원|월급|수입|지출|결제|주유|택시|보험|세금)/.test(t);
   const firstLine = maybeHasMoneyWord
     ? "내용과 금액을 한 문장으로 보내면 바로 기록돼요."
     : "무슨 뜻인지 이해하지 못했어요. 아래처럼 보내 주세요.";
   // V22.9.67: 알아듣지 못했을 때도 짧게 답하고 버튼으로 다음 행동을 고르게 한다.
-  return [
+  return { kind: maybeHasMoneyWord ? "no_amount" : "no_match", text: [
     firstLine,
     "예) 점심 12000원 국민카드",
-  ].filter(Boolean).join("\n");
+  ].filter(Boolean).join("\n") };
 }
 
 function detectKakaoAmbiguity(utterance = "") {
@@ -307,23 +309,25 @@ function kakaoForeignAmountText(origin = "") {
   return "외화 금액은 원화로 바꿔 적어 주세요(예: 커피 130000원)\n이번 메시지는 저장하지 않았어요." + kakaoInputExampleLink(origin);
 }
 
+// V22.9.148: 돌려주는 kind 로 관제가 갈래를 센다(인사 greeting, 이름·초대·예산·가계부 안내 hint, 그 밖은 kakaoNoMatchGuideText 의 갈래).
 function kakaoNoMatchGuide(utterance = "", origin = "") {
-  if (isKakaoGreetingUtterance(utterance)) return kakaoGreetingReply(utterance);
+  if (isKakaoGreetingUtterance(utterance)) return { ...kakaoGreetingReply(utterance), kind: "greeting" };
   const nlu = detectKakaoNaturalIntent(utterance);
-  const text = kakaoNoMatchGuideText(utterance, origin);
-  if (nlu.intent === "MEMBER_ALIAS_CHANGE") return { text, quickReplies: [["이름설정", "이름설정"], ["취소", "취소"]] };
+  const { text, kind } = kakaoNoMatchGuideText(utterance, origin);
+  if (nlu.intent === "MEMBER_ALIAS_CHANGE") return { text, quickReplies: [["이름설정", "이름설정"], ["취소", "취소"]], kind };
   if (["INVITE_CODE_SHOW","INVITE_MEMBER"].includes(nlu.intent) || /(초대|코드|구성원|멤버)/.test(nlu.normalized)) {
-    return { text, quickReplies: [["초대코드", "초대코드"], ["코드로 참여", "초대코드로 참여"]] };
+    return { text, quickReplies: [["초대코드", "초대코드"], ["코드로 참여", "초대코드로 참여"]], kind };
   }
   if (["BUDGET_SETUP","BUDGET_STATUS"].includes(nlu.intent) || /예산/.test(nlu.normalized)) {
-    return { text: "예산을 설정할까요, 현재 예산을 확인할까요?", quickReplies: [["예산설정", "예산설정"], ["남은예산", "남은예산"]] };
+    return { text: "예산을 설정할까요, 현재 예산을 확인할까요?", quickReplies: [["예산설정", "예산설정"], ["남은예산", "남은예산"]], kind: "hint" };
   }
   if (/가계부/.test(nlu.normalized)) {
-    return { text: "가계부를 새로 만들거나, 초대코드로 참여하거나, 다른 가계부로 전환할 수 있어요.", quickReplies: [["새 가계부", "새 가계부 만들기"], ["코드로 참여", "초대코드로 참여"], ["가계부전환", "가계부전환"]] };
+    return { text: "가계부를 새로 만들거나, 초대코드로 참여하거나, 다른 가계부로 전환할 수 있어요.", quickReplies: [["새 가계부", "새 가계부 만들기"], ["코드로 참여", "초대코드로 참여"], ["가계부전환", "가계부전환"]], kind: "hint" };
   }
   // V22.9.95 R-14: 금액을 못 읽은 기본 답(‘내용과 금액을…’·‘무슨 뜻인지…’)에만 버튼을 붙인다. 이름·초대 안내는 그대로다.
-  const example = /^(?:내용과 금액을|무슨 뜻인지)/.test(text) ? kakaoInputExampleLink(origin) : "";
-  return { text: text + example, quickReplies: [["도움말 보기", "도움말 보기"], ["오늘기록", "오늘기록"]] };
+  const example = kind === "no_amount" || kind === "no_match" ? kakaoInputExampleLink(origin) : "";
+  // V22.9.148(첫 기록): 못 알아들은 뒤의 바로답은 [기록방법]·[도움말 보기]. 예전의 [오늘기록] 은 첫 기록 전에는 ‘아직 기록이 없어요’ 만 보였다.
+  return { text: text + example, quickReplies: [["기록방법", "기록방법"], ["도움말 보기", "도움말 보기"]], kind };
 }
 
 function kakaoInputExampleText(origin = "") {

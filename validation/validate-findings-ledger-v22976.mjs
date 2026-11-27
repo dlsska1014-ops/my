@@ -12,6 +12,8 @@ const ok = (condition, message) => { checks += 1; if (!condition) failures.push(
 
 // 출처 문서마다 항목 ID 를 뽑는 규칙. 새 감사 문서를 쓰면 여기에 한 줄을 더한다.
 const SOURCES = [
+  // V22.9.148: 첫 기록(운영자 2026-11-27 — 관제가 못 알아들음을 세게, 못 알아들은 뒤 단추, 웹 정산 소수 몫 V147:G-2) — F 못 알아들은 답의 결과 ok·카드 답을 읽지 않음·UNKNOWN 은 못 알아들음만이 아님·인사가 되묻기로 셈·못 알아들은 뒤의 [오늘기록]·1:1 예시의 @말해가계부·저장 줄에 까닭 없음·새 이름의 이름표·외화 금액의 못 알아들음·통계 함수 권한과 트리거 search_path·겹치는 유니크 인덱스·되풀이된 사용자 글이 오류로 읽힘.
+  { key: "V148", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_148.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(F-[0-9]+)(?=[ *]|$)/gm, expected: 12 },
   // V22.9.147: 모임 정산 계산기(운영자 2026-11-26 — 함께 낼 첫 기능 판) — G 소수 몫의 원 단위 어긋남(계산기)·소수 몫의 원 단위 어긋남(웹 정산)·숫자 칸의 말없는 입력 바뀜·남는 원 규칙이 쪽마다 다름·인원수 방식의 인원·평균 문구·휴대폰 입력부 길이와 칸·이름 길이·쉼표·구분·오류 말의 겹친 말과 조사·행 한도 알림이 덮임·결산 문구의 주소와 고치기·계산기 접근성·쪽 글의 지나친 말·본문 깊이와 겹침·검사의 빈틈·인쇄가 쪽 전체.
   { key: "V147", path: "docs/codex/FOLLOWUP_FINDINGS_V22_9_147.md", pattern: /^(###|[ ]*-) +(?:[*][*])?(G-[0-9]+)(?=[ *]|$)/gm, expected: 15 },
   // V22.9.146: 실제 화면 사진·‘가상’ → ‘예시’·처리방침 알림(운영자 2026-11-25 — 애드센스 계획 B4·B5 를 재검토 전에) — S 공유 그림 대체 글의 ‘가상’·이름 바꾸기 답의 조사.
@@ -125,7 +127,7 @@ const ledger = read("docs/codex/FINDINGS_LEDGER.md");
 const harness = read(".codex/scripts/verify-repository.mjs");
 const rows = [];
 for (const line of ledger.split("\n")) {
-  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108|V116|V117|V118|V120|V121|V122|V124|V125|V126|V127|V128|V129|V130|V131|V132|V133|V134|V135|V136|V137|V138|V139|V140|V141|V142|V143|V144|V145|V146|V147):[A-Z]-[0-9]+[a-z]?) *[|]/.exec(line);
+  const match = /^[|] *((V44|V76|V77|V78|V79|V80|V81|V85|V86|V87|V88|V89|V90|V91|V93|V94|V95|V97|V99|V100|V101|V102|V104|V105|V107|V108|V116|V117|V118|V120|V121|V122|V124|V125|V126|V127|V128|V129|V130|V131|V132|V133|V134|V135|V136|V137|V138|V139|V140|V141|V142|V143|V144|V145|V146|V147|V148):[A-Z]-[0-9]+[a-z]?) *[|]/.exec(line);
   if (!match) continue;
   const cells = line.split("|").slice(1, -1).map((cell) => cell.trim());
   const [id, severity, title, status, fixedIn, check, note] = cells;

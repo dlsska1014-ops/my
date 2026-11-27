@@ -12,9 +12,10 @@ const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..", "..");
 const checksumManifest = resolve(
   repositoryRoot,
-  "BUNDLE_FILE_CHECKSUMS_V22_9_147.sha256",
+  "BUNDLE_FILE_CHECKSUMS_V22_9_148.sha256",
 );
 const validationScripts = [
+  ["V22.9.148 첫 기록(관제가 못 알아들음 NO_MATCH·금액 없음 NO_AMOUNT·인사 GREETING·첫 안내 FIRST_CONTACT 를 답을 만든 곳의 표시로 세고 저장 줄에도 그 이름, 단톡방·링크 카드 답도 1:1 과 같은 기준, 못 알아들은 뒤 바로답 기록방법·도움말 보기, 1:1 도움말 예시 @ 없음, 웹 정산 소수 몫 V147:G-2 = BigInt 정답·정수 몫은 예전 식과 같음, 운영 DB 권한 정리 기록 파일)", "validation/validate-v229148-first-record.mjs"],
   ["V22.9.147 모임 정산 계산기(/group-settlement — 계산기와 웹 정산 buildSettlementModel 에 예제 4개·무작위 모임 800개를 넣어 사람별 몫·송금 제안 대조, 다시 적어 달라는 말, 화면 스크립트의 계산 함수 = 검사한 함수 글, 서버가 먼저 그린 표·쪽 글의 숫자 = 예제 계산, 사이트맵·링크)", "validation/validate-v229147-group-settlement.mjs"],
   ["V22.9.146 실제 화면 사진(예시 데이터로 찍은 웹 가계부 네 장 — 생성 파일·1년 캐시 주소·시나리오 문장을 지금 코드로 다시 보내 저장 값·정산·화면 글 대조), 처리방침 이용 목적 추가 개정 알림(2027-01-04 시행, 30일), 공개 문구 ‘가상’ → ‘예시’", "validation/validate-v229146-real-screens.mjs"],
   ["V22.9.145 카카오톡 문장 사전(/kakao-sentences — 실린 문장을 1:1·단톡방 두 길로 다시 보내 저장 값·답 첫 줄이 결과 파일·쪽의 표와 같음, 사이트맵·안내 쪽 링크·광고 화면 목록)", "validation/validate-v229145-kakao-sentences.mjs"],
@@ -470,7 +471,8 @@ function run(command, args, label) {
 // V22.9.145: 카카오톡 문장 사전 검사(validate-v229145-kakao-sentences — 문장마다 1:1·단톡방 다시 보내기·쪽의 표·링크)와 추적표 V145 항목이 더해지고, 공개 쪽별 검사가 한 쪽만큼 늘었다. 하네스 두 모드 100,393 / 100,386 → 하한 100,386.
 // V22.9.146: 실제 화면 사진·처리방침 알림·‘가상’ 정리 검사(validate-v229146-real-screens)와 추적표 V146 항목이 더해지고, 업데이트 소식 묶음 하나만큼 업데이트 소식 검사가 늘었다. 하네스 두 모드 100,729 / 100,722 중 작은 값.
 // V22.9.147: 모임 정산 계산기 검사(validate-v229147-group-settlement)와 추적표 V147 항목이 더해지고, 쪽 하나만큼 공개 쪽 검사가, 업데이트 소식 묶음 하나만큼 업데이트 소식 검사가 늘었다. 하네스 두 모드 107,758 / 107,751 중 작은 값.
-const EXPECTED_MINIMUM_CHECKS = 107751;
+// V22.9.148: 첫 기록 검사(validate-v229148-first-record)와 추적표 V148 항목이 더해지고, 업데이트 소식 묶음 하나만큼 업데이트 소식 검사가 늘었다. 하네스 두 모드 108,043 / 108,036 중 작은 값.
+const EXPECTED_MINIMUM_CHECKS = 108036;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);
