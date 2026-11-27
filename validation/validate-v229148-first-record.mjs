@@ -16,9 +16,15 @@
 //      카드의 이름 줄(‘이 방 가계부:’·‘지금 가계부:’·‘가계부 이름:’ 등)과 겹친 따옴표(바깥 짝까지)도 문구 판정에서 뺀다, 표시는 한 줄 전체로만 대조한다,
 //      카드의 머리말·목록도 읽는다, 가계부 없는 사람의 ‘다른 가계부’ 도 첫 안내로 센다, 0.001 단위 반올림의 실수 오차(0.5005), 비율·인원수 지문의
 //      계산식 표지(이 판 전에 연 화면의 완료를 거절), 기록 파일의 적용문은 주석(가드만 실행되는 문)과 그 검사의 대조 사례.
+//      2차 검토(고친 부분만): 스킬 사건(관리자 /ops-snapshot.json 의 skill.recent)에도 문장을 남기지 않는다(스냅샷의 두 목록을 읽는다), 0.001 단위 반올림은
+//      십진 글자로 한 번만(0.5004999999 = 500 단위), 배포 경계의 같은 완료(이 판 전 지문 + 같은 몫)는 ‘이미 완료’, 이름 안의 짝 없는 따옴표와 목록 줄
+//      (가계부 고르기·내 가계부 목록·상위 지출·예산 현황·고를 값)의 이름은 뺀다(후보가 둘인 실제 고르기 답), 기록 파일은 정해 둔 세 줄과 그대로 비교(CR·블록
+//      주석 없음), 이름 꼬리표는 Acorn 으로 템플릿 조각을 읽어 모은다, 환불 연결 v3 지문의 계산식 표지.
 import { readdirSync, readFileSync } from "node:fs";
+import { parse as parseAcorn } from "../tools/vendor/acorn.mjs";
 import { app, BASE, counter, fixture, formFields, page, post, putSetting, withClock } from "./lib-audit-v22934.mjs";
-import { buildSettlementModel, settlementConditionPairs, settlementPreviewDigest } from "../src/modules/features/settlement-ops-pages.js";
+import { buildSettlementModel, settlementConditionPairs, settlementPreviewDigest, settlementSameCompletionV229148 } from "../src/modules/features/settlement-ops-pages.js";
+import { settlementRefundDigest } from "../src/modules/features/settlement-refund-links.js";
 import { kakaoNluMarkV229148, markKakaoNluOutcomeV229148, nluOutcomeFromKakaoResponse } from "../src/modules/runtime/ops-telemetry.js";
 import { sha256Hex } from "../src/modules/auth/crypto-admin-session.js";
 
@@ -65,29 +71,73 @@ t.eq(outcome(simple("오늘 가계부: 서버 오류 대응팀")), "error/safe_e
 t.eq(outcome(simple("가계부를 저장하지 못했어요. 잠시 후 다시 보내 주세요.")), "error/save_failed", "6-a 꼬리표 낱말로 시작해도 ‘: ’ 가 없는 봇 문장은 그대로 읽는다");
 {
   // 답 글에 ‘꼬리표: ${사용자가 정한 값}’ 으로 적는 줄을 src/modules/kakao 에서 모아 모두 빼는지 본다(새 꼬리표가 생기면 여기서 떨어진다).
+  // V22.9.148(Codex 2차 검토): 글자 정규식([^}]{0,120})은 긴 보간식·겹친 중괄호(skill-handler.js 의 ‘현재 연결: ${…}’)를 놓쳤다. 이제 Acorn 으로
+  // 템플릿 글의 고정 조각(quasi)을 읽는다 — 줄 첫머리(템플릿 시작 또는 \n 뒤)의 ‘꼬리표: ’ 바로 뒤 보간식이 이름·메모·분류면 그 꼬리표를 모은다.
+  // 문자열 더하기(‘"꼬리표: " + 이름’)도 본다.
   const dir = new URL("../src/modules/kakao/", import.meta.url);
-  const found = new Set();
+  const found = new Map();
+  const NAME_LIKE = /name|Name|nickname|alias|memo|category|kakaoHouseholdReplyName|kakaoRowLabel|line\(|before|patch\./;
+  const LABEL_AT_END = (first) => new RegExp(`(?:${first ? "^|" : ""}\\n)((?:📒 |✅ )?[가-힣][가-힣 ]{0,12}): $`, "u");
   for (const name of readdirSync(dir).filter((file) => file.endsWith(".js"))) {
     const source = readFileSync(new URL(name, dir), "utf8");
-    for (const m of source.matchAll(/(?:^|\\n|[`"'(\[,]\s*)((?:📒 |✅ )?[가-힣][가-힣 ]{0,12}): \$\{([^}]{0,120})\}/gmu)) {
-      if (/name|Name|nickname|alias|memo|category|kakaoHouseholdReplyName|kakaoRowLabel|line\(|before|patch\./.test(m[2])) found.add(m[1].trim());
-    }
+    const take = (cooked, first, expression) => {
+      const label = LABEL_AT_END(first).exec(String(cooked ?? ""));
+      if (label && NAME_LIKE.test(source.slice(expression.start, expression.end))) found.set(label[1].trim(), `${name}:${source.slice(0, expression.start).split("\n").length}`);
+    };
+    const visit = (node) => {
+      if (!node || typeof node.type !== "string") return;
+      if (node.type === "TemplateLiteral") node.expressions.forEach((expression, index) => take(node.quasis[index].value.cooked, index === 0, expression));
+      if (node.type === "BinaryExpression" && node.operator === "+" && node.left.type === "Literal" && typeof node.left.value === "string") take(node.left.value, true, node.right);
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) value.forEach(visit);
+        else if (value && typeof value === "object" && typeof value.type === "string") visit(value);
+      }
+    };
+    visit(parseAcorn(source, { ecmaVersion: "latest", sourceType: "module" }));
   }
-  const missed = [...found].filter((label) => outcome(simple(`${label}: 서버 오류 대응팀`)) !== "ok/handled");
-  t.ok(found.size >= 14 && !missed.length, `6-a 답 글의 이름·메모·분류 꼬리표 ${found.size}개를 모두 뺀다 (못 뺀 것: ${missed.join(", ") || "없음"})`);
+  const missed = [...found.keys()].filter((label) => outcome(simple(`${label}: 서버 오류 대응팀`)) !== "ok/handled");
+  t.ok(found.size >= 18 && found.has("현재 연결") && !missed.length, `6-a 답 글의 이름·메모·분류 꼬리표 ${found.size}개를 모두 뺀다(‘현재 연결’ = ${found.get("현재 연결") || "못 찾음"}) (못 뺀 것: ${missed.map((label) => `${label}@${found.get(label)}`).join(", ") || "없음"})`);
 }
+// 6-a′ 이름·분류가 목록 줄로 되풀이되는 답(Codex 2차 검토 — 가계부 고르기의 ‘1. 서버 오류 대응팀 · 소유자’ 가 오류로 셌다). 답을 만드는 코드의 글 그대로.
+t.eq(outcome(simple("카카오 챗봇 계정에서 사용할 가계부를 선택해 주세요.\n\n1. 서버 오류 대응팀 · 소유자\n2. 우리집 생활비 · 구성원 · 만든 날 2026-11-02\n\n번호 또는 가계부 이름을 입력해 주세요.", ["1. 서버 오류 대응팀", "2. 우리집 생활비", "취소"])), "clarify/guided_clarification", "6-a′ 가계부 고르기 목록의 이름은 뺀다(예전 error)");
+t.eq(outcome(simple("📒 내 가계부 목록\n\n1. 서버 오류 대응팀 · 소유자 · 초대코드 ABCD1234\n2. 잠시 후 다시 모임 · 관리자 · 초대코드 -")), "ok/handled", "6-a′ 내 가계부 목록(초대코드 줄)의 이름도 뺀다(예전 error)");
+t.eq(outcome(simple("📊 2026-11 요약\n수입: 0원\n지출: 30,000원\n잔액: -30,000원\n\n상위 지출:\n1. 서버 오류 수리: 30,000원")), "ok/handled", "6-a′ 이번 달 요약 상위 지출의 분류 이름은 뺀다(예전 error)");
+t.eq(outcome(simple("💰 2026-11 예산 현황\n\n• 서버 오류 수리: 30,000원 사용 / 70,000원 남음 · 30%")), "ok/handled", "6-a′ 예산 현황 분류 줄의 이름은 뺀다(예전 error)");
+t.eq(outcome(simple("지출자를 누구로 바꿀까요? 번호로 골라주세요.\n1. 서버팀  2. 오류왕", ["1", "2", "취소"])), "ok/handled", "6-a′ 기록 고치기의 고를 값 줄(‘1. 서버팀  2. 오류왕’ 이 ‘서버.*오류’ 에 걸리던 것)은 뺀다 — 이 묻는 글은 되묻기 낱말 목록 밖이라 예전처럼 ok(예전 error)");
+t.eq(outcome(simple("1. 가계부를 저장하지 못했어요. 잠시 후 다시 보내 주세요.")), "error/save_failed", "6-a′ 목록 줄 꼴이 아닌 번호 줄의 봇 문장은 그대로 읽는다");
+// 6-a′ 목록을 알리는 줄 다음의 번호 줄(2차 고침 뒤 확인하다 더 찾음 — 고를 값이 하나인 줄, 참여 취소의 승인 대기 목록). 이름만 바꾼 같은 답과 결과가 같아야 한다.
+t.eq(outcome(simple("지출자를 누구로 바꿀까요? 번호로 골라주세요.\n1. 오류왕", ["1", "취소"])), "ok/handled", "6-a′ 고를 값이 하나인 줄(‘1. 오류왕’)도 뺀다(예전 error)");
+for (const [label, named, plain] of [
+  ["구성원을 못 찾은 고치기 답", "⚠️ '오류왕'을 구성원 목록에서 찾지 못했어요.\n번호로 골라주세요.\n1. 서버팀  2. 오류왕", "⚠️ '민지'를 구성원 목록에서 찾지 못했어요.\n번호로 골라주세요.\n1. 철수  2. 민지"],
+  ["분류 고르기", "✏️ 3번 기록\n지출 분류를 번호로 골라 주세요.\n1. 서버 오류 수리  2. 식비  3. 잠시 후 다시", "✏️ 3번 기록\n지출 분류를 번호로 골라 주세요.\n1. 수리  2. 식비  3. 카페"],
+  ["목록의 번호로 다시 고르기", "목록의 번호로 골라주세요.\n1. 서버 오류  2. 어떤 모임", "목록의 번호로 골라주세요.\n1. 우리집  2. 모임"],
+  ["참여 취소의 승인 대기 목록", "승인 대기 중인 가계부가 2개예요.\n1. 서버 오류 대응팀\n2. 잠시 후 다시 모임\n\n취소할 가계부는 웹 가계부 관리에서 골라 주세요.", "승인 대기 중인 가계부가 2개예요.\n1. 우리집\n2. 주말 모임\n\n취소할 가계부는 웹 가계부 관리에서 골라 주세요."],
+]) t.eq(outcome(simple(named)), outcome(simple(plain)), `6-a′ ${label}: 목록의 이름이 오류·되묻기 문구와 겹쳐도 결과가 같다(${outcome(simple(plain))})`);
+t.eq(outcome(simple("지출자를 누구로 바꿀까요? 번호로 골라주세요.\n1. 서버팀  2. 오류왕\n가계부를 저장하지 못했어요. 잠시 후 다시 보내 주세요.")), "error/save_failed", "6-a′ 번호 줄이 끊기면 그 뒤 봇 문장은 다시 읽는다");
+t.eq(outcome(simple("승인 대기 중인 가계부가 2개예요.\n1. 우리집\n\n1. 가계부를 저장하지 못했어요.")), "error/save_failed", "6-a′ 빈 줄로 끊긴 뒤의 번호 줄은 목록이 아니다");
 // 6-b 겹친 따옴표는 바깥 짝까지 뺀다. 짝 사이의 봇 문장·닫히지 않은 따옴표 뒤의 문장은 그대로 읽는다.
 t.eq(outcome(simple("이 방 가계부 ‘모임 ‘개발’ 서버 오류 대응팀’에 참여했어요.")), "ok/handled", "6-b 겹친 따옴표 ‘모임 ‘개발’ 서버 오류 대응팀’ 은 바깥 짝까지 뺀다(예전 error)");
 t.eq(outcome(simple("‘커피’ 기록은 처리하지 못했어요. ‘택시’는 그대로예요.")), "error/safe_error_response", "6-b 두 따옴표 말 사이의 봇 문장은 그대로 읽는다");
 t.eq(outcome(simple("‘커피 기록은 처리하지 못했어요.")), "error/safe_error_response", "6-b 닫히지 않은 따옴표는 그 줄 뒤를 지우지 않는다");
 t.eq(outcome(simple("‘커피\n이 기록은 처리하지 못했어요.")), "error/safe_error_response", "6-b 따옴표 짝은 줄을 넘지 않는다");
+// 6-b′ 이름·메모 안의 짝 없는 따옴표(Codex 2차 검토): 답 글의 따옴표는 짝이 맞으니, 사용자 글의 여는 따옴표 하나·닫는 따옴표 하나가 답 글의 짝을 가져가도 그 이름까지만 뺀다.
+t.eq(outcome(simple("이 방 가계부 ‘서버 오류 ‘개발’에 참여했어요.")), "ok/handled", "6-b′ 이름 ‘서버 오류 ‘개발’(여는 따옴표만)의 참여 안내 = ok(앞 고침 error, 그 앞 판 ok)");
+t.eq(outcome(simple("이 방 가계부 ‘개발’ 서버 오류’에 참여했어요.")), "ok/handled", "6-b′ 이름 ‘개발’ 서버 오류’(닫는 따옴표만)의 참여 안내 = ok(예전부터 error)");
+t.eq(outcome(simple("“서버 오류 “개발” 가계부를 선택했어요.")), "ok/handled", "6-b′ 큰따옴표도 같다");
+t.eq(outcome(simple("‘커피 ‘라떼’ 기록은 처리하지 못했어요.")), "error/safe_error_response", "6-b′ 메모에 여는 따옴표만 있어도 그 뒤 봇의 실패 문장은 읽는다");
+t.eq(outcome(simple("‘커피’ 라떼’ 기록은 처리하지 못했어요.")), "error/safe_error_response", "6-b′ 메모에 닫는 따옴표만 있어도 그 뒤 봇의 실패 문장은 읽는다");
+t.eq(outcome(simple("‘커피’ 기록은 처리하지 못했어요. ‘택시’’ 는 그대로예요.")), "error/safe_error_response", "6-b′ 뒤 이름의 짝 없는 닫는 따옴표는 가장 가까운 앞 짝만 늘린다(사이의 봇 문장은 읽는다)");
+t.eq(outcome(simple("‘a’ 가 ‘b 기록은 처리하지 못했어요.")), "error/safe_error_response", "6-b′ 뒤에 같은 종류 짝이 없는 여는 따옴표는 늘리지 않는다");
 {
   // 닫히지 않은 여는 따옴표가 줄에 많아도 한 번만 훑는다(예전 정규식은 여는 따옴표마다 줄 끝까지 되짚어 4만 자에 수백 ms).
-  const longLine = simple("‘a".repeat(20000));
-  outcome(longLine);
-  let best = Infinity;
-  for (let round = 0; round < 3; round += 1) { const started = performance.now(); outcome(longLine); best = Math.min(best, performance.now() - started); }
-  t.ok(best < 150, `6-b 닫히지 않은 따옴표 2만 개 줄도 한 번만 훑는다 (${best.toFixed(1)} ms)`);
+  // Codex 2차 검토 뒤: 짝 없는 따옴표를 늘리는 두 단계도 줄 길이에 비례한다.
+  for (const [label, body] of [["닫히지 않은 따옴표 2만 개", "‘a".repeat(20000)], ["짝 없는 닫는 따옴표 1만 개", "‘a’’".repeat(10000)], ["짝 없는 여는 따옴표 1만 개", "‘‘a’".repeat(10000)], ["두 종류가 섞인 줄", "‘a“b’”’“".repeat(5000)]]) {
+    const longLine = simple(body);
+    outcome(longLine);
+    let best = Infinity;
+    for (let round = 0; round < 3; round += 1) { const started = performance.now(); outcome(longLine); best = Math.min(best, performance.now() - started); }
+    t.ok(best < 150, `6-b ${label} 줄(${body.length.toLocaleString("en-US")}자)도 줄 길이에 비례해 훑는다 (${best.toFixed(1)} ms)`);
+  }
 }
 // 6-c 표시는 그 첫 줄이 답의 한 줄 전체일 때만 쓴다(앞에 붙는 방 참여 안내 줄은 상관없다).
 {
@@ -177,6 +227,31 @@ await withClock("2026-11-27", () => fixture(async (fx) => {
     // Codex 검토의 사례: 금액 없는 말은 기록되지 않는데, 예전에는 가린 문장이 메모리에 남아 관리자 화면에 보였다.
     const r = await kakao(fx, "민지 병원 다녀옴");
     t.ok(r.seen === "NO_AMOUNT/fallback/no_amount" && r.eventResult === "fallback" && r.sample === "", `6 1:1 ‘민지 병원 다녀옴’ = 금액 없음이고 메모리에 문장이 없다 (${r.seen} · ${JSON.stringify(r.sample)})`);
+  }
+  {
+    // Codex 2차 검토: 처리 중 오류·짧은 말 되묻기의 스킬 사건(관리자 /ops-snapshot.json 의 skill.recent·스킬 운영 화면)에도 문장이 남지 않는다 —
+    // 앞 고침은 NLU 사건(nlu.recent)만 막았다. 두 목록을 관리자 스냅샷 그대로 읽는다(목록을 비우고 시작).
+    globalThis.__AB_SKILL_EVENTS.length = 0;
+    globalThis.__AB_NLU_RUNTIME_EVENTS.length = 0;
+    Object.assign(fx.env, { ADMIN_PASSWORD: "qa-v229148-admin", ADMIN_SESSION_SECRET: "qa-v229148-admin-session", ADMIN_API_TOKEN: "qa-v229148-admin-token" });
+    const login = await post(fx, "/login", { password: fx.env.ADMIN_PASSWORD, return_to: "/admin-view" }, { cookie: "" });
+    const admin = (login.setCookie.match(/ab_admin=[^;,]+/) || [""])[0];
+    const snapshot = async () => {
+      const res = await app.fetch(new Request(`${BASE}/ops-snapshot.json`, { headers: { cookie: admin, accept: "application/json" } }), fx.env, { waitUntil() {} });
+      const body = await res.json();
+      return { status: res.status, skill: body.snapshot?.skill?.recent || [], nlu: body.snapshot?.nlu?.recent || [] };
+    };
+    for (const utterance of ["이름변경", "민지 병원 다녀옴", "이거 어떻게 써?"]) await kakao(fx, utterance);
+    const off = await snapshot();
+    const clarifyOff = off.skill.filter((e) => e.kind === "clarify");
+    t.ok(off.status === 200 && clarifyOff.length === 1 && off.nlu.filter((e) => e.result !== "ok").length === 3 && off.skill.every((e) => e.utterance === "") && off.nlu.every((e) => e.sample === ""),
+      `6 실패 사례 저장이 꺼져 있으면 관리자 /ops-snapshot.json 의 스킬 사건 ${off.skill.length}건(되묻기 ${clarifyOff.length})·NLU 사건 ${off.nlu.length}건 모두 문장이 없다 (${JSON.stringify(off.skill.map((e) => [e.kind, e.utterance]))})`);
+    fx.env.NLU_PERSIST_FAILURE_SAMPLES = "1";
+    await kakao(fx, "이름변경");
+    const on = await snapshot();
+    fx.env.NLU_PERSIST_FAILURE_SAMPLES = "0";
+    t.ok(on.skill.find((e) => e.kind === "clarify")?.utterance === "이름변경" && on.nlu[0]?.result === "clarify" && on.nlu[0]?.sample === "이름변경",
+      `6 설정을 켜면 예전처럼 가린 문장을 남긴다(스킬 ${JSON.stringify(on.skill.find((e) => e.kind === "clarify")?.utterance)} · NLU ${JSON.stringify(on.nlu[0]?.sample)})`);
   }
   for (const utterance of ["이거 어떻게 써?", "커피 사먹음"]) {
     const r = await kakao(fx, utterance);
@@ -325,6 +400,32 @@ await withClock("2026-11-27", () => fixture(async (fx) => {
   t.ok(saved.eventResult === "ok" && saved.sample === "", "6 저장한 말은 켜져 있어도 남기지 않는다(예전과 같다)");
 }));
 
+// 6-a″ 후보가 둘인 실제 가계부 고르기 답(Codex 2차 검토): 가계부 이름 ‘서버 오류 대응팀’ 이 목록 줄(‘1. 서버 오류 대응팀 · 소유자’)로 되풀이돼도
+// 오류가 아니라 고르기(clarify)다 — 예전 error/safe_error_response. 운영과 같은 코드로 보낸 답 그대로.
+await withClock("2026-11-27", () => fixture(async (fx) => {
+  Object.assign(fx.env, { KAKAO_SKILL_SECRET: SKILL_SECRET, NLU_METRICS_ENABLED: "1", NLU_PERSIST_FAILURE_SAMPLES: "0", NLU_STORE_REDACTED_TEXT: "0" });
+  putSetting(fx, "kakao_selected_household_v2251:user-bin", "house-home");
+  fx.db.households.find((h) => h.id === "house-trip").name = "서버 오류 대응팀";
+  for (const [utterance, seen] of [["다른 가계부", "UNKNOWN/clarify/guided_clarification"], ["가계부 전환", "HOUSEHOLD_SWITCH/clarify/guided_clarification"]]) {
+    const r = await kakao(fx, utterance);
+    t.ok(r.text.split("\n").includes("1. 서버 오류 대응팀 · 소유자") && r.quick.length === 3 && r.seen === seen && r.stored === seen.split("/").slice(0, 2).join("/"),
+      `6-a″ 후보 둘의 가계부 고르기 ‘${utterance}’ = ${seen}(예전 error/safe_error_response) (${r.seen} · ${r.text.split("\n").slice(0, 2).join(" / ")})`);
+  }
+}));
+// 6-a″ 참여 취소의 승인 대기 목록(skill-handler.js — 2차 고침 뒤 확인하다 더 찾음): 승인 대기 가계부 둘 가운데 하나의 이름이 ‘서버 오류 대응팀’ 이어도
+// CANCEL/ok(운영 V22.9.147 과 앞 고침은 CANCEL/error). 고르기 흐름이 열려 있지 않은 새 픽스처에서 보낸다.
+await withClock("2026-11-27", () => fixture(async (fx) => {
+  Object.assign(fx.env, { KAKAO_SKILL_SECRET: SKILL_SECRET, NLU_METRICS_ENABLED: "1", NLU_PERSIST_FAILURE_SAMPLES: "0", NLU_STORE_REDACTED_TEXT: "0" });
+  putSetting(fx, "kakao_selected_household_v2251:user-bin", "house-home");
+  for (const [id, name] of [["house-v229148-pending-1", "서버 오류 대응팀"], ["house-v229148-pending-2", "주말 모임"]]) {
+    fx.db.households.push({ ...fx.db.households.find((h) => h.id === "house-trip"), id, name, invite_code: `P${id.slice(-1)}V229148` });
+    fx.db.household_members.push({ household_id: id, user_id: "user-bin", role: "pending", created_at: "2026-11-27T00:00:00.000Z" });
+  }
+  const cancel = await kakao(fx, "참여 취소");
+  t.ok(cancel.text.split("\n").slice(0, 3).join("|") === "승인 대기 중인 가계부가 2개예요.|1. 서버 오류 대응팀|2. 주말 모임" && cancel.seen === "CANCEL/ok/handled" && cancel.stored === "CANCEL/ok",
+    `6-a″ 참여 취소의 승인 대기 목록(이름 ‘서버 오류 대응팀’) = CANCEL/ok (${cancel.seen} · 저장 ${cancel.stored} · ${json(cancel.text.split("\n").slice(0, 3))})`);
+}));
+
 // ── 4. 웹 정산 소수 몫(추적표 V147:G-2) ──
 const people = (n) => Array.from({ length: n }, (_, i) => ({ user_id: `u${i}`, nickname: `사람${i}`, role: i ? "member" : "owner" }));
 const sharesOf = (model, n) => { const byId = Object.fromEntries(model.people.map((p) => [p.user_id, p.share])); return Array.from({ length: n }, (_, i) => byId[`u${i}`]); };
@@ -434,6 +535,45 @@ t.eq(json(sharesOf(settle(1501, [0.5005, 1]), 2)), json([501, 1000]), "6-e 1,501
     if (json(got) !== json(expected)) { fineMismatch += 1; t.eq(json(got), json(expected), `6-e 몫 ${digits.join(":")} · ${amount}원 = 십진 반올림 정답`); }
   }
   t.eq(fineMismatch, 0, "6-e 소수 넷째 자리 몫 1,500건 모두 십진 반올림(0.001 단위)의 BigInt 정답과 같다");
+  // 6-e′ Codex 2차 검토: 반올림은 십진 글자로 한 번만. 앞 고침(곱을 소수 여섯째 자리에서 끊은 뒤 반올림)은 0.5004999999 를 501 단위로 만들었다(정답 500).
+  t.eq(json(sharesOf(settle(1501, [0.5004999999, 1]), 2)), json([500, 1001]), "6-e′ 1,501원 0.5004999999 : 1 = 500 / 1,001(앞 고침 501 / 1,000)");
+  t.eq(json(sharesOf(settle(1501, [0.50049, 1]), 2)), json([500, 1001]), "6-e′ 0.50049 : 1 = 500 / 1,001");
+  t.eq(json(sharesOf(settle(1501, [0.5005000001, 1]), 2)), json([501, 1000]), "6-e′ 0.5005000001 : 1 = 501 / 1,000");
+  // 경계 바로 위·아래(넷째 자리 4 뒤의 9 들, 5 뒤의 0 들)를 많이 섞은 소수 열째 자리까지의 몫 1,500건.
+  let longMismatch = 0;
+  for (let n = 0; n < 1500; n += 1) {
+    const size = pick(2, 5);
+    const digits = Array.from({ length: size }, () => {
+      const whole = pick(0, 30), tailLength = pick(1, 7), head = String(pick(0, 999)).padStart(3, "0");
+      const roll = rand();
+      const tail = roll < 0.35 ? `4${"9".repeat(tailLength - 1)}`
+        : roll < 0.7 ? (tailLength === 1 ? "5" : `5${"0".repeat(tailLength - 2)}${pick(0, 1)}`)
+        : Array.from({ length: tailLength }, () => pick(0, 9)).join("");
+      const text = `${whole}.${head}${tail}`;
+      return Number(text) >= 0.1 ? text : `0.1${head}`;
+    });
+    const amount = rand() < 0.5 ? pick(1, 999) * 1000 + 1 : pick(1, 20000000);
+    const units = digits.map(milli), sumUnits = units.reduce((s, k) => s + k, 0n);
+    let given = 0n;
+    const expected = units.map((k, i) => { const v = i === size - 1 ? BigInt(amount) - given : floorDiv(BigInt(amount) * k, sumUnits); given += v; return Number(v); });
+    const got = sharesOf(settle(amount, digits.map(Number)), size);
+    if (json(got) !== json(expected)) { longMismatch += 1; t.eq(json(got), json(expected), `6-e′ 몫 ${digits.join(":")} · ${amount}원 = 십진 반올림 정답`); }
+  }
+  t.eq(longMismatch, 0, "6-e′ 경계를 섞은 소수 열째 자리까지의 몫 1,500건 모두 십진 반올림 정답과 같다");
+  // 몫 칸의 값(0.1 단위 0.1~1000, 1만 가지)은 모두 PR #205 의 식(몫 × 1000 반올림)과 같은 단위다.
+  let tenthMismatch = 0;
+  for (let k = 1; k <= 10000; k += 1) {
+    const got = sharesOf(settle(1000003, [k / 10, 1]), 2)[0];
+    const expectedShare = Number((1000003n * BigInt(Math.round((k / 10) * 1000))) / (BigInt(Math.round((k / 10) * 1000)) + 1000n));
+    if (got !== expectedShare) { tenthMismatch += 1; if (tenthMismatch < 4) t.eq(got, expectedShare, `6-e′ 몫 ${k / 10} : 1 = PR #205 와 같음`); }
+  }
+  t.eq(tenthMismatch, 0, "6-e′ 0.1 단위 몫 1만 가지 모두 PR #205 의 단위(몫 × 1000 반올림)와 같다");
+  // 몫 칸 밖의 값(주소로는 오지 않는다)은 buildSettlementModel 이 0.1~1000 으로 먼저 자른다(없음·0·숫자 아님·무한 = 1, 0.1 미만·음수 = 0.1, 1000 초과 = 1000)
+  // — 0.001 단위 반올림에는 그 꼴(지수 표기 없는 십진 글자)만 온다.
+  for (const [weight, expected, label] of [
+    [undefined, [1000, 1001], "없음 → 1"], [0, [1000, 1001], "0 → 1"], ["몫", [1000, 1001], "숫자 아님 → 1"], [Infinity, [1000, 1001], "무한 → 1"],
+    [0.0004, [181, 1820], "0.0004 → 0.1"], [1e-7, [181, 1820], "1e-7 → 0.1"], [-5, [181, 1820], "음수 → 0.1"], [1e21, [1999, 2], "1e21 → 1000"],
+  ]) t.eq(json(sharesOf(settle(2001, [weight, 1]), 2)), json(expected), `6-e′ 몫 칸 밖의 값 ${label} : 1 · 2,001원 = ${expected.join(" / ")}`);
 }
 // 6-f 비율·인원수 지문에는 계산식 표지가 들어간다(이 판 전에 연 화면의 완료를 거절). 동일·품목별 지문은 예전과 같다.
 {
@@ -449,8 +589,66 @@ t.eq(json(sharesOf(settle(1501, [0.5005, 1]), 2)), json([501, 1000]), "6-e 1,501
   ]) {
     const now = await settlementPreviewDigest({ month, mode, conditions, rows, members }), before = await legacyDigest(mode, conditions);
     t.eq(now !== before, changes, `6-f ${mode} 지문 ${changes ? "= 예전과 다름(계산식 표지)" : "= 예전과 같음"}`);
+    t.eq(await settlementPreviewDigest({ month, mode, conditions, rows, members, allocationFormula: false }), before, `6-f ${mode} 표지를 뺀 지문(중복 확인에만 쓴다) = 이 판 전의 지문`);
+  }
+  // 6-f′ 환불 연결이 있는 v3 지문도 같다(Codex 2차 검토 — 위 대조는 연결 없는 지문만 봤다). 연결 하나: 지출 r1 의 환불 f1 10,000원(받은 사람 u0).
+  const links = [{ id: "l1", expense_id: "r1", refund_id: "f1", amount: 10000, refund_amount: 10000, recipient_user_id: "u0" }];
+  const legacyV3 = async (mode, conditions) => (await sha256Hex(JSON.stringify([
+    "v3-refund-links", month, mode, settlementConditionPairs(mode, conditions).sort(),
+    rows.map((row) => [String(row.id), Math.round(Number(row.amount || 0)), String(row.user_id || "")]).sort(),
+    links.map((link) => [link.id, link.expense_id, link.refund_id, link.amount]).sort(),
+    [...new Map(links.map((link) => [link.refund_id, [link.refund_id, link.refund_amount, link.recipient_user_id]])).values()].sort(),
+  ]))).slice(0, 32);
+  for (const [mode, conditions, changes] of [
+    ["ratio", { weights: { u0: 0.7, u1: 0.3 } }, true], ["headcount", { weights: { u0: 2, u1: 1 } }, true],
+    ["equal", {}, false], ["item", { itemParticipants: { r1: ["u0", "u1"] } }, false],
+  ]) {
+    const now = await settlementRefundDigest({ month, mode, conditions, rows, links, members }), before = await legacyV3(mode, conditions);
+    t.eq(now !== before, changes, `6-f′ 환불 연결 v3 ${mode} 지문 ${changes ? "= 예전과 다름(계산식 표지)" : "= 예전과 같음"}`);
+    t.eq(await settlementRefundDigest({ month, mode, conditions, rows, links, members, allocationFormula: false }), before, `6-f′ 환불 연결 v3 ${mode} 표지를 뺀 지문 = 이 판 전의 v3 지문`);
+    t.eq(await settlementRefundDigest({ month, mode, conditions, rows, links: [], members }), await settlementPreviewDigest({ month, mode, conditions, rows, members }), `6-f′ 연결이 없으면 ${mode} v3 자리는 연결 없는 지문 그대로`);
   }
 }
+// 6-g 배포 경계의 같은 완료(Codex 2차 검토): 이 판 전에 완료한 정산(계산식 표지 없는 지문)을 배포 뒤 5분 안에 새 화면으로 다시 완료하면 지문만 달라 두 건이
+// 저장됐다. 몫이 같은 완료는 ‘이미 완료’ 로 막고, 예전 식으로 몫이 달랐던 완료를 바로잡는 완료(0.7 : 0.3)는 새로 저장한다. 일반 저장과 환불 연결 저장 모두.
+for (const refundLinks of [false, true]) {
+  for (const [weights, label, expectSaved, shares] of [[["1", "1"], "1 : 1(두 식의 몫이 같다)", false, "45000/45000"], [["0.7", "0.3"], "0.7 : 0.3(예전 식은 62,999 / 27,001)", true, "62999/27001 · 63000/27000"]]) {
+    await withClock("2026-07-15", () => fixture(async (fx) => {
+      if (refundLinks) { fx.env.REFUND_LINKS_ENABLED = "1"; fx.db.accountbook_refund_links = []; }
+      fx.db.transactions = fx.db.transactions.filter((row) => !(row.household_id === "house-home" && String(row.transaction_date || "").startsWith("2026-07")));
+      fx.db.transactions.push({ id: "t-v229148-dedupe", household_id: "house-home", user_id: "user-bin", transaction_date: "2026-07-10", type: "expense", amount: 90000, category: "식비", memo: "모임 저녁", payment_method: "카드", source: "web", raw_text: "모임 저녁 90000원", created_at: "2026-07-10T12:00:00.000Z" });
+      const save = formFields((await page(fx, `/settlement-summary?month=2026-07&household_id=house-home&mode=ratio&weight_user-bin=${weights[0]}&weight_user-wifi=${weights[1]}`)).html, "/my/settlement/save");
+      const form = new URLSearchParams(save.fields);
+      form.set("confirmed", "yes");
+      const setting = () => fx.db.accountbook_settings.find((row) => row.key === "settlement_history:house-home");
+      const history = () => JSON.parse(String(setting()?.value || "[]")).filter((x) => x && x.status === "completed");
+      await post(fx, "/my/settlement/save", form);
+      // 배포 직전에 저장된 완료처럼: 지문을 이 판 전의 지문으로, 0.7 : 0.3 은 몫도 예전 식의 값으로 바꾼다.
+      const rows = fx.db.transactions.filter((row) => row.household_id === "house-home" && String(row.transaction_date).startsWith("2026-07") && row.type === "expense");
+      const members = fx.db.household_members.filter((m) => m.household_id === "house-home" && !["blocked", "pending", "viewer"].includes(m.role));
+      const w = Object.fromEntries([...save.fields].filter(([key]) => key.startsWith("weight_")).map(([key, value]) => [key.slice(7), Number(value)]));
+      const items = JSON.parse(setting().value);
+      const first = items[items.length - 1];
+      first.rows_digest = await settlementPreviewDigest({ month: "2026-07", mode: "ratio", conditions: { weights: w }, rows, members, allocationFormula: false });
+      if (weights[0] === "0.7") first.shares = first.shares.map((s) => { const share = s.share === 63000 ? 62999 : 27001; return { ...s, share, balance: s.paid - share }; });
+      setting().value = JSON.stringify(items);
+      const again = await post(fx, "/my/settlement/save", form);
+      const outcomeText = (again.decoded.match(/msg=[a-z_]+|err=[a-z_]+/) || ["?"])[0];
+      t.ok(outcomeText === (expectSaved ? "msg=settlement_completed" : "msg=settlement_already_completed") && history().map((h) => h.shares.map((s) => s.share).join("/")).join(" · ") === shares,
+        `6-g ${refundLinks ? "환불 연결 저장" : "일반 저장"} ${label}: 배포 전 완료 뒤 새 화면으로 다시 완료 → ${outcomeText} · 이력 ${history().length}건 (${history().map((h) => h.shares.map((s) => s.share).join("/")).join(" · ")})`);
+      // 지문이 아예 다른 이력(다른 조건)은 그대로 같은 완료가 아니다.
+      if (!expectSaved) {
+        const other = JSON.parse(setting().value);
+        other[other.length - 1].rows_digest = "0".repeat(32);
+        setting().value = JSON.stringify(other);
+        const third = await post(fx, "/my/settlement/save", form);
+        t.ok(/msg=settlement_completed/.test(third.decoded) && history().length === 2, `6-g ${refundLinks ? "환불 연결 저장" : "일반 저장"} 지문이 다른 이력은 같은 완료로 보지 않는다(이력 ${history().length}건)`);
+      }
+    }));
+  }
+}
+t.eq(settlementSameCompletionV229148({ rows_digest: "" }, { digest: "a", legacyDigest: "b", model: { people: [] } }), true, "6-g 지문이 없던 예전 이력은 예전처럼 같은 완료로 본다");
+t.eq(settlementSameCompletionV229148({ rows_digest: "b", shares: [{ user_id: "u0", paid: 1, share: 1, balance: 0 }] }, { digest: "a", legacyDigest: "", model: { people: [{ user_id: "u0", paid: 1, share: 1, balance: 0 }] } }), false, "6-g 예전 지문을 넘기지 않으면 지문이 다른 이력은 같은 완료가 아니다");
 await withClock("2026-07-15", () => fixture(async (fx) => {
   fx.db.transactions = fx.db.transactions.filter((row) => !(row.household_id === "house-home" && String(row.transaction_date || "").startsWith("2026-07")));
   fx.db.transactions.push({ id: "t-v229148-g2", household_id: "house-home", user_id: "user-bin", transaction_date: "2026-07-10", type: "expense", amount: 90000, category: "식비", memo: "모임 저녁", payment_method: "카드", source: "web", raw_text: "모임 저녁 90000원", created_at: "2026-07-10T12:00:00.000Z" });
@@ -484,35 +682,26 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
 {
   const sql = readFileSync(new URL("../migrations/V22_9_148_DB_ADVISOR_GRANTS_REVIEW_ONLY.sql", import.meta.url), "utf8");
   const lines = sql.split("\n");
-  // V22.9.148(Codex 검토): 실행되는 문만 읽어 본다 — 주석(-- … · /* … */)을 빼고, 따옴표·$태그$ 안의 ; 는 문의 끝이 아니다. 예전 검사는 줄에서
-  // ‘raise exception’ 글자만 찾아 가드를 주석으로 바꿔도 통과했고, 적용한 문이 실행되는 채로 남아 문마다 저장점을 두는 클라이언트(psql ON_ERROR_ROLLBACK)
-  // 에서는 가드만 실패하고 그 문들과 commit 이 실행될 수 있었다. 이제 실행되는 문은 begin·가드·rollback 셋뿐이어야 한다.
-  const executableStatements = (text) => {
-    const out = [];
-    let current = "", i = 0;
-    while (i < text.length) {
-      if (text.startsWith("--", i)) { const end = text.indexOf("\n", i); i = end < 0 ? text.length : end; continue; }
-      if (text.startsWith("/*", i)) { const end = text.indexOf("*/", i + 2); i = end < 0 ? text.length : end + 2; current += " "; continue; }
-      const dollar = /^\$[A-Za-z_]*\$/.exec(text.slice(i, i + 64));
-      if (dollar) { const end = text.indexOf(dollar[0], i + dollar[0].length); const stop = end < 0 ? text.length : end + dollar[0].length; current += text.slice(i, stop); i = stop; continue; }
-      if (text[i] === "'") { let j = i + 1; while (j < text.length && !(text[j] === "'" && text[j + 1] !== "'")) j += text[j] === "'" ? 2 : 1; current += text.slice(i, j + 1); i = j + 1; continue; }
-      if (text[i] === ";") { if (current.trim()) out.push(current.replace(/\s+/g, " ").trim()); current = ""; i += 1; continue; }
-      current += text[i]; i += 1;
-    }
-    if (current.trim()) out.push(current.replace(/\s+/g, " ").trim());
-    return out;
-  };
-  const GUARD = "do $review_only$ begin raise exception 'v229148_review_only_db_advisor_grants_already_applied_2026_11_27'; end $review_only$";
+  // V22.9.148(Codex 검토): 예전 검사는 줄에서 ‘raise exception’ 글자만 찾아 가드를 주석으로 바꿔도 통과했고, 적용한 문이 실행되는 채로 남아 문마다
+  // 저장점을 두는 클라이언트(psql ON_ERROR_ROLLBACK)에서는 가드만 실패하고 그 문들과 commit 이 실행될 수 있었다.
+  // V22.9.148(Codex 2차 검토): 그때 넣은 범용 토크나이저는 ‘--’ 주석을 LF 에서만 끝내(PostgreSQL 은 CR 에서도 끝낸다) ‘-- 설명\rSELECT 1;’ 의 뒤 문을
+  // 주석으로 넘겼고, 겹친 블록 주석은 첫 ‘*/’ 에서 끊었다. 이 기록 파일의 모양을 그대로 본다 — CR·블록 주석은 두지 않고(저장소는 LF, .gitattributes),
+  // 빈 줄과 ‘--’ 주석 줄을 뺀 나머지가 정해 둔 세 줄(begin·조건 없는 가드·rollback)과 글자 그대로 같아야 한다.
+  const RECORD_EXECUTABLE_LINES = Object.freeze([
+    "begin;",
+    "do $review_only$ begin raise exception 'v229148_review_only_db_advisor_grants_already_applied_2026_11_27'; end $review_only$;",
+    "rollback;",
+  ]);
   const recordProblems = (text) => {
-    const statements = executableStatements(text), problems = [];
+    const problems = [];
     if (!text.startsWith("-- 실행 금지(DO NOT RUN)")) problems.push("첫 줄이 실행 금지가 아니다");
-    if (statements[0] !== "begin" || statements[1] !== GUARD) problems.push(`begin 바로 뒤가 조건 없는 가드가 아니다: ${statements.slice(0, 2).join(" | ").slice(0, 120)}`);
-    const rest = statements.slice(2);
-    if (rest.length !== 1 || rest[0] !== "rollback") problems.push(`가드 뒤에 rollback 말고 실행되는 문이 있다: ${rest.join(" | ").slice(0, 160)}`);
-    if (statements.some((statement) => /^(?:revoke|grant|alter|create|drop|insert|update|delete|truncate|commit|end)\b/i.test(statement))) problems.push("실행되는 바꾸는 문·commit 이 있다");
+    if (text.includes("\r")) problems.push("CR 이 있다(줄 끝은 LF 만 — PostgreSQL 은 CR 에서도 ‘--’ 주석을 끝낸다)");
+    if (text.includes("/*") || text.includes("*/")) problems.push("블록 주석이 있다");
+    const executable = text.split("\n").filter((line) => line.trim() && !line.trimStart().startsWith("--"));
+    if (json(executable) !== json(RECORD_EXECUTABLE_LINES)) problems.push(`주석 아닌 줄이 begin·조건 없는 가드·rollback 세 줄이 아니다: ${executable.join(" | ").slice(0, 160)}`);
     return problems;
   };
-  t.eq(json(recordProblems(sql)), "[]", "5 기록 파일: 첫 줄 실행 금지, 실행되는 문은 begin·조건 없는 가드·rollback 뿐(적용한 문은 모두 주석)");
+  t.eq(json(recordProblems(sql)), "[]", "5 기록 파일: 첫 줄 실행 금지, CR·블록 주석 없음, 주석 아닌 줄은 begin·조건 없는 가드·rollback 세 줄뿐(적용한 문은 모두 주석)");
   // 대조 사례 — 검사가 실제로 떨어지는지 본다.
   const guardLine = lines.find((line) => line.startsWith("do $review_only$"));
   const mutants = {
@@ -521,8 +710,15 @@ await withClock("2026-07-15", () => fixture(async (fx) => {
     "적용문 하나를 풀기": sql.replace("-- revoke all on function public.record_nlu_metric(", "revoke all on function public.record_nlu_metric("),
     "commit 을 풀기": sql.replace("\n-- commit;\n", "\ncommit;\n"),
     "블록 주석 안의 가드": sql.replace(guardLine, `/* ${guardLine} */`),
+    // Codex 2차 검토의 대조본: CR 에서 끝나는 주석 뒤의 문, 겹친 블록 주석, 줄 끝 주석에 숨은 문.
+    "CR 뒤의 문": `${sql}-- 설명\rselect 1;\n`,
+    "겹친 블록 주석": `${sql}/* 바깥 /* 안 */ 바깥 */\n`,
+    "가드 줄 끝의 문": sql.replace(guardLine, `${guardLine} commit;`),
+    "빈 줄처럼 보이는 문": sql.replace("\nrollback;\n", "\nrollback;\n   select 1;\n"),
   };
   for (const [label, text] of Object.entries(mutants)) t.ok(text !== sql && recordProblems(text).length > 0, `5 대조: ${label} → 검사가 떨어진다 (${recordProblems(text)[0] || "떨어지지 않음"})`);
+  // 이 검사의 전제: 기록 파일의 세 줄은 한 줄 안에서 따옴표·$태그$ 가 닫힌다(그래서 그 밖의 ‘--’ 줄은 문자열 안이 아니라 정말 주석이다).
+  t.ok(RECORD_EXECUTABLE_LINES.every((line) => (line.match(/'/g) || []).length % 2 === 0 && (line.match(/\$review_only\$/g) || []).length % 2 === 0), "5 정해 둔 세 줄은 저마다 따옴표·$태그$ 가 그 줄 안에서 닫힌다");
   for (const statement of [
     "revoke all on function public.record_nlu_metric(timestamp with time zone, text, text, integer, text) from public, anon, authenticated;",
     "revoke all on function public.record_nlu_failure_sample(text, text, text, text, text, text) from public, anon, authenticated;",

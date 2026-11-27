@@ -160,18 +160,88 @@ const KAKAO_NLU_NAME_LABELS_V229148 = Object.freeze([
   "지출자", "수입자", "분류", "기록", "복구하려던 기록", "마지막에 바뀐 기록", "마지막에 저장한 기록",
 ]);
 const KAKAO_NLU_NAME_LINE_V229148 = new RegExp(`^(?:(?:📒|✅) )?(?:${KAKAO_NLU_NAME_LABELS_V229148.join("|")}): `);
+// V22.9.148(Codex 2차 검토): 사용자가 정한 이름·분류가 목록 줄로 되풀이되는 답도 그 줄을 뺀다 — 가계부 고르기·내 가계부 목록
+// (‘1. 이름 · 소유자’·‘1. 이름 · 소유자 · 초대코드 …’ — household-budget-commands.js kakaoHouseholdListLines·intent-nlu.js), 이번 달 요약의 상위 지출
+// (‘1. 분류: 30,000원’ — transactions-core.js formatSummary), 예산 현황(‘• 분류: 30,000원 사용 / …’ — budgets.js), 기록 고치기의 고를 값
+// (‘1. 식비  2. 카페’ — edit-flow-v4.js·edit-state-machine.js, 아래 알리는 줄 규칙). 가계부 이름 ‘서버 오류 대응팀’ 이 든 가계부 고르기가 오류로 셌다.
+// 이 줄들에 봇의 실패·되묻기 문장은 없다.
+const KAKAO_NLU_LIST_ROWS_V229148 = Object.freeze([
+  /^\d{1,2}\. .* · (?:소유자|관리자|구성원|조회전용|승인대기|차단)(?: · |$)/,
+  /^(?:\d{1,2}\.|•) .*: [\d,]+원(?: |$)/,
+]);
+// 목록을 알리는 줄 바로 다음부터 이어지는 번호 줄(‘1. ’)도 사용자가 정한 이름·값이다 — 기록 고치기의 고를 값(‘…번호로 골라주세요.’·‘분류를 번호로 골라
+// 주세요.’·‘목록의 번호로 골라주세요.’ 다음의 ‘1. 서버팀  2. 오류왕’, 값이 하나면 ‘1. 오류왕’ 한 줄)과 참여 취소의 승인 대기 목록(‘승인 대기 중인 가계부가
+// 2개예요.’ 다음의 ‘1. 이름’ — skill-handler.js). 번호 줄이 끊기면 다시 읽는다. 알리는 줄 다음에 오는 것은 그 목록뿐이다(모든 꼴을 훑어 확인).
+const KAKAO_NLU_LIST_HEADS_V229148 = Object.freeze([
+  /번호로 골라 ?주세요\.$/,
+  /^승인 대기 중인 가계부가 \d+개예요\.$/,
+]);
+const KAKAO_NLU_LIST_ITEM_V229148 = /^\d{1,2}\. /;
+// V22.9.148(Codex 2차 검토): 이름·메모 안의 짝 없는 따옴표. 공용 훑기(kakaoGroupQuotedSegmentsV229134)는 겹친 따옴표를 바깥 짝까지 보지만, 사용자 글에
+// 여는 따옴표만 있으면(가계부 이름 ‘서버 오류 ‘개발’ → ‘이 방 가계부 ‘서버 오류 ‘개발’에 참여했어요.’) 그 여는 따옴표가 답 글의 닫는 따옴표를 가져가 답 글의
+// 여는 따옴표가 짝 없이 남았고(앞 고침은 ‘서버 오류’ 를 봇 말로 읽어 오류로 셌다 — 그 앞의 정규식은 ok), 닫는 따옴표만 있으면(이름 ‘개발’ 서버 오류’) 답 글의
+// 닫는 따옴표가 짝 없이 남았다(예전부터 오류로 셈). 답 글의 따옴표는 늘 짝이 맞으므로 관제에서만, 짝 없는 여는 따옴표는 뒤의 같은 종류 첫 조각의 끝까지,
+// 짝 없는 닫는 따옴표는 앞의 같은 종류 가장 가까운 조각의 처음부터 함께 뺀다. 단톡방에 보내는 글(봇 부르기)은 공용 훑기 그대로다. 줄 길이에 비례한다.
+const KAKAO_NLU_OPENERS_V229148 = Object.freeze({ "‘": true, "“": true });
+const KAKAO_NLU_CLOSERS_V229148 = Object.freeze({ "’": "‘", "”": "“" });
+function kakaoNluQuotedSegmentsV229148(text = "") {
+  const shared = kakaoGroupQuotedSegmentsV229134(text);
+  if (!shared.length) return shared;
+  // ① 짝 없는 여는 따옴표 → 뒤의 같은 종류 첫 조각과 하나로.
+  const merged = [];
+  const waiting = new Map();
+  let at = 0;
+  for (const segment of shared) {
+    for (; at < segment.start; at += 1) if (KAKAO_NLU_OPENERS_V229148[text[at]] && !waiting.has(text[at])) waiting.set(text[at], at);
+    const kind = text[segment.start];
+    let start = segment.start;
+    if (waiting.has(kind)) {
+      start = waiting.get(kind);
+      for (const [mark, position] of [...waiting]) if (position >= start) waiting.delete(mark);
+      while (merged.length && merged[merged.length - 1].start >= start) merged.pop();
+    }
+    merged.push({ start, end: segment.end, kind });
+    at = segment.end;
+  }
+  // ② 짝 없는 닫는 따옴표 → 앞의 같은 종류 가장 가까운 조각을 그 따옴표까지 늘린다(사이의 조각은 그 안에 든다).
+  const out = [];
+  const byKind = { "‘": [], "“": [] };
+  const strays = (from, to) => {
+    for (let q = from; q < to; q += 1) {
+      const list = byKind[KAKAO_NLU_CLOSERS_V229148[text[q]]];
+      if (!list || !list.length) continue;
+      const keep = list[list.length - 1] + 1;
+      out[keep - 1] = { ...out[keep - 1], end: q + 1 };
+      out.length = keep;
+      for (const indexes of Object.values(byKind)) while (indexes.length && indexes[indexes.length - 1] >= keep) indexes.pop();
+    }
+  };
+  let cursor = 0;
+  for (const segment of merged) {
+    strays(cursor, segment.start);
+    out.push(segment);
+    if (byKind[segment.kind]) byKind[segment.kind].push(out.length - 1);
+    cursor = segment.end;
+  }
+  strays(cursor, text.length);
+  return out;
+}
 function kakaoNluWithoutQuotedV229148(line = "") {
-  const segments = kakaoGroupQuotedSegmentsV229134(line);
+  const segments = kakaoNluQuotedSegmentsV229148(line);
   if (!segments.length) return line;
   let out = "", at = 0;
   for (const segment of segments) { out += `${line.slice(at, segment.start)}‘’`; at = segment.end; }
   return out + line.slice(at);
 }
 function kakaoNluBotWordsV229148(text = "") {
-  return String(text || "").split("\n").map((line) => (
-    KAKAO_NLU_RECORD_ROW_V229148.test(line) || KAKAO_NLU_RECENT_ROW_V229148.test(line) || KAKAO_NLU_NAME_LINE_V229148.test(line)
-      ? "" : kakaoNluWithoutQuotedV229148(line)
-  )).join("\n");
+  let listed = false;
+  return String(text || "").split("\n").map((line) => {
+    const item = listed && KAKAO_NLU_LIST_ITEM_V229148.test(line);
+    listed = item || KAKAO_NLU_LIST_HEADS_V229148.some((head) => head.test(line));
+    return item || KAKAO_NLU_RECORD_ROW_V229148.test(line) || KAKAO_NLU_RECENT_ROW_V229148.test(line) || KAKAO_NLU_NAME_LINE_V229148.test(line)
+      || KAKAO_NLU_LIST_ROWS_V229148.some((row) => row.test(line))
+      ? "" : kakaoNluWithoutQuotedV229148(line);
+  }).join("\n");
 }
 
 // V22.9.148(Codex 검토): 표시는 그 첫 줄이 답의 한 줄 전체로 있을 때만 쓴다 — 예전에는 글 어디든 들어 있으면 썼다(바뀐 답의 메모에 앞 답의 첫 줄이
@@ -342,10 +412,13 @@ async function cleanupNluOpsRetention(env = {}) {
   return { ok: true, cutoff };
 }
 
-function rememberSkillEvent(event = {}) {
+// V22.9.148(Codex 2차 검토): 오류·되묻기의 가린 문장도 실패 사례 저장(NLU_PERSIST_FAILURE_SAMPLES)이 켜졌을 때만 남긴다 — 최근 NLU 사건
+// (rememberNluRuntimeEvent)과 같은 설정이다. 앞 고침은 그쪽만 막아, 설정이 꺼져 있어도 처리 중 오류(skill-handler.js 의 error)·짧은 말 되묻기(clarify)의
+// 문장이 이 목록(관리자 /ops-snapshot.json 의 skill.recent·스킬 운영 화면)에 남았다. env 를 받지 않은 부름은 꺼진 것으로 본다.
+function rememberSkillEvent(event = {}, env = {}) {
   try {
     const kind = String(event.kind || "info").slice(0, 40);
-    const keepRedactedSample = ["bad_json", "error", "clarify"].includes(kind);
+    const keepRedactedSample = ["bad_json", "error", "clarify"].includes(kind) && nluOpsConfig(env).failure_samples_enabled;
     AB_SKILL_EVENTS.push({
       at: new Date().toISOString(),
       kind,

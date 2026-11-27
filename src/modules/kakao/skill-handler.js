@@ -262,7 +262,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     const nluEvent = { at: new Date().toISOString(), request_id: requestId, intent: metricIntent(), confidence: intentMatch.confidence, result: "error", reason: safeError(err), latency_ms: latencyMs, block: blockName, version: APP_VERSION, utterance };
     rememberNluRuntimeEvent(nluEvent, env);
     scheduleNluOpsPersistence(ctx, env, nluEvent);
-    rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${metricIntent()}; ${safeError(err)}; latency_ms=${latencyMs}` });
+    rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${metricIntent()}; ${safeError(err)}; latency_ms=${latencyMs}` }, env);
     clearKakaoInFlight(repeat.key);
     rememberSkillLatency(latencyMs, { intent: metricIntent(), result: "error" });
     // V22.9.76 감사 B-6: 식별 별칭 저장이 동시 요청으로 바빠 실패하면 기록하기 전에 멈춘 것이다. "다시 보내주세요" 예시만 주던
@@ -1096,7 +1096,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // V22.1: 짧고 모호한 표현은 임의 실행하지 않고 관련 선택지로 한 번만 명확화합니다.
   const ambiguityReply = kakaoAmbiguityGuide(utterance, origin);
   if (ambiguityReply) {
-    rememberSkillEvent({ kind: "clarify", user_key: kakaoUserKey, utterance, detail: `reason=${ambiguityReply.reason || "unknown"}` });
+    rememberSkillEvent({ kind: "clarify", user_key: kakaoUserKey, utterance, detail: `reason=${ambiguityReply.reason || "unknown"}` }, env);
     return kakaoText(ambiguityReply.text, ambiguityReply.quickReplies || []);
   }
 

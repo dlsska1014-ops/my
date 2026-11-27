@@ -13,7 +13,7 @@ import { safeArray } from "../admin/backup-compare.js";
 import {
   buildSettlementModel, parseSettlementConditions, settlementAllocationFormulaV229148,
   settlementConditionPairs, settlementConditionQuery, settlementHistoryForSave,
-  settlementHistoryKey, settlementPreviewDigest,
+  settlementHistoryKey, settlementPreviewDigest, settlementSameCompletionV229148,
 } from "./settlement-ops-pages.js";
 import {
   applyRefundLinkNetting, buildRefundReviewItems, isRefundIncomeRow, isRefundLinksAbsentError,
@@ -198,8 +198,9 @@ function refundSettlementSpenderRows(rows = [], state = {}) {
 
 // 완료 저장 지문. 연결이 없으면 예전 지문(settlementPreviewDigest)과 같다. 연결이 있으면 연결과 연결한 환급 행(금액·받은 사람)을 넣는다.
 // V22.9.126 FC-20: members 는 연결이 없을 때 예전 지문으로 그대로 넘긴다(플래그 꺼짐 화면과 같은 지문을 지킨다). 연결이 있을 때의 지문 형식은 그대로다.
-async function settlementRefundDigest({ month, mode, conditions = {}, rows = [], links = [], members = null }) {
-  if (!safeArray(links).length) return settlementPreviewDigest({ month, mode, conditions, rows, members });
+// V22.9.148(Codex 2차 검토): allocationFormula: false = 계산식 표지가 없는 이 판 전의 지문(5분 안의 같은 완료를 가릴 때만 — settlementSameCompletionV229148).
+async function settlementRefundDigest({ month, mode, conditions = {}, rows = [], links = [], members = null, allocationFormula = true }) {
+  if (!safeArray(links).length) return settlementPreviewDigest({ month, mode, conditions, rows, members, allocationFormula });
   const canonical = JSON.stringify([
     "v3-refund-links",
     month,
@@ -209,7 +210,7 @@ async function settlementRefundDigest({ month, mode, conditions = {}, rows = [],
     links.map((link) => [link.id, link.expense_id, link.refund_id, link.amount]).sort(),
     [...new Map(links.map((link) => [link.refund_id, [link.refund_id, link.refund_amount, link.recipient_user_id]])).values()].sort(),
     // V22.9.148(Codex 검토): 비율·인원수 몫의 계산식 표지(settlement-ops-pages.js settlementAllocationFormulaV229148 — 연결이 없을 때의 지문과 같은 까닭).
-    ...settlementAllocationFormulaV229148(mode),
+    ...(allocationFormula ? settlementAllocationFormulaV229148(mode) : []),
   ]);
   return (await sha256Hex(canonical)).slice(0, 32);
 }
@@ -584,12 +585,13 @@ async function handleSettlementHistorySaveV22979(request, env) {
       const model = buildSettlementModel(rows, members, { mode, ...conditions, formerMembers, ...(refund.netting ? { refundNetting: refund.netting } : {}) });
       const digest = await settlementRefundDigest({ month, mode, conditions, rows, links: refund.links, members });
       if (submittedDigest && submittedDigest !== digest) return "changed";
+      const legacyDigest = await settlementRefundDigest({ month, mode, conditions, rows, links: refund.links, members, allocationFormula: false });
       const history = parseJsonArraySettingStrict(historyValue, "settlement_history_json_invalid");
       const duplicate = history.some((item) => {
         if (!item || typeof item !== "object") return false;
         const completedAt = Date.parse(String(item.completed_at || ""));
         const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
-        return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && (!item.rows_digest || item.rows_digest === digest);
+        return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && settlementSameCompletionV229148(item, { digest, legacyDigest, model });
       });
       if (duplicate) return "duplicate";
       const linked = refund.links.length > 0;

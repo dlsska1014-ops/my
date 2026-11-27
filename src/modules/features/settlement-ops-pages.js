@@ -153,9 +153,17 @@ function buildSettlementModel(rows = [], members = [], options = {}) {
   // 90,000원이 62,999원 / 27,001원(90,000 × 0.7 = 62,999.999…), 0.1 셋에 30,000원이 9,999 / 9,999 / 10,002 가 됐다.
   // 몫을 0.001 단위의 정수로 바꿔(0.7 → 700) BigInt 로 나눈다 — 나누어떨어지면 정확히 그 값이고, 내림과 ‘남는 원은 마지막 사람’ 규칙은 예전과 같다
   // (정수 몫의 결과는 예전과 같다 — 공개 모임 정산 계산기 public/group-settlement-v229147.js 와 같은 값).
-  // V22.9.148(Codex 검토): 0.001 단위로 반올림할 때 실수 곱셈의 오차를 먼저 걷어 낸다(0.5005 × 1000 = 500.49999999999994 → 500 이던 것을 501).
-  // 몫 칸은 0.1 단위지만 주소로는 더 잘게 들어올 수 있다. 몫은 0.1~1000 이라 소수 여섯째 자리에서 끊어도 값이 바뀌지 않는다.
-  const allocationUnitsV229148 = (weight) => BigInt(Math.max(1, Math.round(Number((Number(weight || 1) * 1000).toFixed(6)))));
+  // V22.9.148(Codex 검토): 0.001 단위로 반올림할 때 실수 곱셈의 오차를 걷어 낸다(0.5005 × 1000 = 500.49999999999994 → 500 이던 것을 501).
+  // V22.9.148(Codex 2차 검토): 반올림은 몫의 십진 글자로 한 번만 한다. 앞 고침(곱을 소수 여섯째 자리에서 끊은 뒤 반올림)은 두 번 반올림해, 주소로 들어온
+  // 0.5004999999 가 501 단위(정답 500)가 됐다. 몫은 바로 위에서 0.1~1000 의 유한한 수로 잘렸으므로(품목별은 1) String() 은 지수 표기 없는 가장 짧은
+  // 십진 글자다(0.7 → "0.7" → 700). 넷째 자리가 5 이상이면 올린다(반 올림). 그 꼴이 아닌 값은 오지 않지만, 오면 예전 식(곱해 반올림, 1 단위 이상)이다.
+  const allocationUnitsV229148 = (weight) => {
+    const value = Number(weight || 1);
+    const decimal = /^(\d+)(?:\.(\d+))?$/.exec(String(value));
+    if (!decimal) return BigInt(Math.max(1, Math.round(Number.isFinite(value) ? value * 1000 : 1000)));
+    const fraction = `${decimal[2] || ""}0000`;
+    return BigInt(decimal[1]) * 1000n + BigInt(fraction.slice(0, 3)) + (fraction[3] >= "5" ? 1n : 0n);
+  };
   const floorDivV229148 = (numerator, denominator) => {
     const quotient = numerator / denominator;
     return numerator % denominator < 0n ? quotient - 1n : quotient;
@@ -361,6 +369,7 @@ async function handleSettlementHistorySave(request, env) {
     const formerMembers = await fetchFormerSpenderMembers(env, rows, members);
     const model = buildSettlementModel(rows, members, { mode, ...conditions, formerMembers });
     const digest = await settlementPreviewDigest({ month, mode, conditions, rows, members });
+    const legacyDigest = await settlementPreviewDigest({ month, mode, conditions, rows, members, allocationFormula: false });
     const submittedDigest = String(form.get("preview_digest") || "").trim();
     if (submittedDigest && submittedDigest !== digest) return redirectResponse(`${backTo}&err=settlement_changed`);
     const note = String(form.get("note") || "").trim().slice(0, 160);
@@ -372,7 +381,7 @@ async function handleSettlementHistorySave(request, env) {
         if (!item || typeof item !== "object") return false;
         const completedAt = Date.parse(String(item.completed_at || ""));
         const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
-        return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && (!item.rows_digest || item.rows_digest === digest);
+        return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && settlementSameCompletionV229148(item, { digest, legacyDigest, model });
       });
       if (duplicate) return "duplicate";
       history.push({
@@ -438,14 +447,15 @@ function settlementConditionQuery(mode, conditions = {}) {
 
 // 화면을 그릴 때와 완료할 때의 조건·기록이 같은지 대조하는 지문이다.
 // V22.9.126 FC-20: members 를 넘기면 기본 참여자의 id·역할도 넣어, 미리 본 뒤 참여자가 바뀌면 완료 저장을 거절한다. 넘기지 않으면 예전 지문 그대로다.
-async function settlementPreviewDigest({ month, mode, conditions = {}, rows = [], members = null }) {
+// V22.9.148(Codex 2차 검토): allocationFormula: false 는 계산식 표지가 없는 이 판 전의 지문이다 — 5분 안의 같은 완료를 가릴 때만 쓴다(아래 settlementSameCompletionV229148).
+async function settlementPreviewDigest({ month, mode, conditions = {}, rows = [], members = null, allocationFormula = true }) {
   const canonical = JSON.stringify([
     month,
     mode,
     settlementConditionPairs(mode, conditions).sort(),
     safeArray(rows).filter((row) => row.type !== "income").map((row) => [String(row.id), Math.round(Number(row.amount || 0)), String(row.user_id || "")]).sort(),
     ...(Array.isArray(members) ? [members.filter(settlementBaseParticipant).map((m) => [String(m.user_id), String(m.role || "member").toLowerCase()]).sort()] : []),
-    ...settlementAllocationFormulaV229148(mode),
+    ...(allocationFormula ? settlementAllocationFormulaV229148(mode) : []),
   ]);
   return (await sha256Hex(canonical)).slice(0, 32);
 }
@@ -457,6 +467,17 @@ async function settlementPreviewDigest({ month, mode, conditions = {}, rows = []
 const SETTLEMENT_ALLOCATION_FORMULA_V229148 = "allocation-milli-units-v229148";
 function settlementAllocationFormulaV229148(mode = "") {
   return mode === "ratio" || mode === "headcount" ? [SETTLEMENT_ALLOCATION_FORMULA_V229148] : [];
+}
+
+// V22.9.148(Codex 2차 검토): 5분 안의 같은 완료(중복)인지. 지문이 같으면(또는 지문이 없던 예전 이력이면) 같은 완료다. 계산식 표지가 생기기 전의 지문
+// (legacyDigest)이 같으면, 저장된 몫이 지금 계산과 같을 때만 같은 완료로 본다 — 배포 직전에 1 : 1 로 완료하고 배포 뒤 새로 연 화면으로 다시 완료하면
+// 지문만 달라 같은 완료가 두 건 저장됐다. 예전 식으로 몫이 달랐던 완료(0.7 : 0.3 의 62,999원 / 27,001원)를 바로잡는 완료는 새로 저장한다.
+// 옛 화면에서 보낸 완료를 거절하는 미리 본 지문 대조는 그대로다(이 함수는 중복 확인에만 쓴다).
+function settlementSameCompletionV229148(item = {}, { digest = "", legacyDigest = "", model = {} } = {}) {
+  if (!item.rows_digest || item.rows_digest === digest) return true;
+  if (!legacyDigest || item.rows_digest !== legacyDigest) return false;
+  const sharesKey = (list) => JSON.stringify(safeArray(list).map((p) => [String(p?.user_id || ""), Number(p?.paid || 0), Number(p?.share || 0), Number(p?.balance || 0)]).sort());
+  return sharesKey(item.shares) === sharesKey(model.people);
 }
 
 function renderSettlementConfig({ mode = "equal", members = [], rows = [], weights = {}, itemParticipants = {}, month = currentMonthKst(), householdId = "", people = null }) {
@@ -650,5 +671,6 @@ export {
   parseSettlementConditions, renderSettlementRows, renderTransferRows,
   settlementAllocationFormulaV229148, settlementConditionPairs, settlementConditionQuery,
   settlementHistoryForSave, settlementHistoryKey, settlementPreviewDigest, settlementRoleAllowed,
+  settlementSameCompletionV229148,
 };
 // @build:exports-end

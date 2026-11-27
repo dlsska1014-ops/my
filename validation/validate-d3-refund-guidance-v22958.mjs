@@ -41,6 +41,9 @@ for(const [rel,names] of Object.entries(protection)){
 // 의도적으로 바꿔 그 지문을 새로 적었다. 정수 몫·같은 몫(동일·품목별)의 결과와 남는 원 규칙은 예전과 같다(validate-v229148-first-record 가 운영 코드 식과 대조).
 // V22.9.148(Codex 검토): buildSettlementModel 의 0.001 단위 반올림에서 실수 오차를 걷어 내고(0.5005 → 501 단위), settlementPreviewDigest 의 비율·인원수
 // 지문에 계산식 표지를 더해(이 판 전에 연 화면의 완료를 거절) 두 지문을 새로 적었다. 0.1 단위 몫과 동일·품목별의 결과·지문은 그대로다.
+// V22.9.148(Codex 2차 검토): buildSettlementModel 의 0.001 단위 반올림을 몫의 십진 글자로 한 번만 하고(0.5004999999 → 500 단위), settlementPreviewDigest 에
+// 표지를 뺀 지문을 만드는 선택(allocationFormula: false — 중복 확인에만), handleSettlementHistorySave 의 5분 중복 확인에 이 판 전 지문 + 같은 몫의 완료를
+// 더해(settlementSameCompletionV229148 — 배포 경계에서 같은 완료가 두 건 저장되던 것) 세 지문을 새로 적었다. 0.1 단위 몫의 결과와 지금 지문은 그대로다.
  for(const [name,hash]of Object.entries(names)){const node=ast.body.find(n=>n.id?.name===name);ok(!!node,"protected function exists "+name);eq(sha(source.slice(node.start,node.end)),hash,"V57 unchanged contract "+name);}
 }
 const renderer=readFileSync(new URL("../src/modules/my/analysis-page.js",import.meta.url),"utf8");

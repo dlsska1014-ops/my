@@ -880,18 +880,88 @@ const KAKAO_NLU_NAME_LABELS_V229148 = Object.freeze([
   "지출자", "수입자", "분류", "기록", "복구하려던 기록", "마지막에 바뀐 기록", "마지막에 저장한 기록",
 ]);
 const KAKAO_NLU_NAME_LINE_V229148 = new RegExp(`^(?:(?:📒|✅) )?(?:${KAKAO_NLU_NAME_LABELS_V229148.join("|")}): `);
+// V22.9.148(Codex 2차 검토): 사용자가 정한 이름·분류가 목록 줄로 되풀이되는 답도 그 줄을 뺀다 — 가계부 고르기·내 가계부 목록
+// (‘1. 이름 · 소유자’·‘1. 이름 · 소유자 · 초대코드 …’ — household-budget-commands.js kakaoHouseholdListLines·intent-nlu.js), 이번 달 요약의 상위 지출
+// (‘1. 분류: 30,000원’ — transactions-core.js formatSummary), 예산 현황(‘• 분류: 30,000원 사용 / …’ — budgets.js), 기록 고치기의 고를 값
+// (‘1. 식비  2. 카페’ — edit-flow-v4.js·edit-state-machine.js, 아래 알리는 줄 규칙). 가계부 이름 ‘서버 오류 대응팀’ 이 든 가계부 고르기가 오류로 셌다.
+// 이 줄들에 봇의 실패·되묻기 문장은 없다.
+const KAKAO_NLU_LIST_ROWS_V229148 = Object.freeze([
+  /^\d{1,2}\. .* · (?:소유자|관리자|구성원|조회전용|승인대기|차단)(?: · |$)/,
+  /^(?:\d{1,2}\.|•) .*: [\d,]+원(?: |$)/,
+]);
+// 목록을 알리는 줄 바로 다음부터 이어지는 번호 줄(‘1. ’)도 사용자가 정한 이름·값이다 — 기록 고치기의 고를 값(‘…번호로 골라주세요.’·‘분류를 번호로 골라
+// 주세요.’·‘목록의 번호로 골라주세요.’ 다음의 ‘1. 서버팀  2. 오류왕’, 값이 하나면 ‘1. 오류왕’ 한 줄)과 참여 취소의 승인 대기 목록(‘승인 대기 중인 가계부가
+// 2개예요.’ 다음의 ‘1. 이름’ — skill-handler.js). 번호 줄이 끊기면 다시 읽는다. 알리는 줄 다음에 오는 것은 그 목록뿐이다(모든 꼴을 훑어 확인).
+const KAKAO_NLU_LIST_HEADS_V229148 = Object.freeze([
+  /번호로 골라 ?주세요\.$/,
+  /^승인 대기 중인 가계부가 \d+개예요\.$/,
+]);
+const KAKAO_NLU_LIST_ITEM_V229148 = /^\d{1,2}\. /;
+// V22.9.148(Codex 2차 검토): 이름·메모 안의 짝 없는 따옴표. 공용 훑기(kakaoGroupQuotedSegmentsV229134)는 겹친 따옴표를 바깥 짝까지 보지만, 사용자 글에
+// 여는 따옴표만 있으면(가계부 이름 ‘서버 오류 ‘개발’ → ‘이 방 가계부 ‘서버 오류 ‘개발’에 참여했어요.’) 그 여는 따옴표가 답 글의 닫는 따옴표를 가져가 답 글의
+// 여는 따옴표가 짝 없이 남았고(앞 고침은 ‘서버 오류’ 를 봇 말로 읽어 오류로 셌다 — 그 앞의 정규식은 ok), 닫는 따옴표만 있으면(이름 ‘개발’ 서버 오류’) 답 글의
+// 닫는 따옴표가 짝 없이 남았다(예전부터 오류로 셈). 답 글의 따옴표는 늘 짝이 맞으므로 관제에서만, 짝 없는 여는 따옴표는 뒤의 같은 종류 첫 조각의 끝까지,
+// 짝 없는 닫는 따옴표는 앞의 같은 종류 가장 가까운 조각의 처음부터 함께 뺀다. 단톡방에 보내는 글(봇 부르기)은 공용 훑기 그대로다. 줄 길이에 비례한다.
+const KAKAO_NLU_OPENERS_V229148 = Object.freeze({ "‘": true, "“": true });
+const KAKAO_NLU_CLOSERS_V229148 = Object.freeze({ "’": "‘", "”": "“" });
+function kakaoNluQuotedSegmentsV229148(text = "") {
+  const shared = kakaoGroupQuotedSegmentsV229134(text);
+  if (!shared.length) return shared;
+  // ① 짝 없는 여는 따옴표 → 뒤의 같은 종류 첫 조각과 하나로.
+  const merged = [];
+  const waiting = new Map();
+  let at = 0;
+  for (const segment of shared) {
+    for (; at < segment.start; at += 1) if (KAKAO_NLU_OPENERS_V229148[text[at]] && !waiting.has(text[at])) waiting.set(text[at], at);
+    const kind = text[segment.start];
+    let start = segment.start;
+    if (waiting.has(kind)) {
+      start = waiting.get(kind);
+      for (const [mark, position] of [...waiting]) if (position >= start) waiting.delete(mark);
+      while (merged.length && merged[merged.length - 1].start >= start) merged.pop();
+    }
+    merged.push({ start, end: segment.end, kind });
+    at = segment.end;
+  }
+  // ② 짝 없는 닫는 따옴표 → 앞의 같은 종류 가장 가까운 조각을 그 따옴표까지 늘린다(사이의 조각은 그 안에 든다).
+  const out = [];
+  const byKind = { "‘": [], "“": [] };
+  const strays = (from, to) => {
+    for (let q = from; q < to; q += 1) {
+      const list = byKind[KAKAO_NLU_CLOSERS_V229148[text[q]]];
+      if (!list || !list.length) continue;
+      const keep = list[list.length - 1] + 1;
+      out[keep - 1] = { ...out[keep - 1], end: q + 1 };
+      out.length = keep;
+      for (const indexes of Object.values(byKind)) while (indexes.length && indexes[indexes.length - 1] >= keep) indexes.pop();
+    }
+  };
+  let cursor = 0;
+  for (const segment of merged) {
+    strays(cursor, segment.start);
+    out.push(segment);
+    if (byKind[segment.kind]) byKind[segment.kind].push(out.length - 1);
+    cursor = segment.end;
+  }
+  strays(cursor, text.length);
+  return out;
+}
 function kakaoNluWithoutQuotedV229148(line = "") {
-  const segments = kakaoGroupQuotedSegmentsV229134(line);
+  const segments = kakaoNluQuotedSegmentsV229148(line);
   if (!segments.length) return line;
   let out = "", at = 0;
   for (const segment of segments) { out += `${line.slice(at, segment.start)}‘’`; at = segment.end; }
   return out + line.slice(at);
 }
 function kakaoNluBotWordsV229148(text = "") {
-  return String(text || "").split("\n").map((line) => (
-    KAKAO_NLU_RECORD_ROW_V229148.test(line) || KAKAO_NLU_RECENT_ROW_V229148.test(line) || KAKAO_NLU_NAME_LINE_V229148.test(line)
-      ? "" : kakaoNluWithoutQuotedV229148(line)
-  )).join("\n");
+  let listed = false;
+  return String(text || "").split("\n").map((line) => {
+    const item = listed && KAKAO_NLU_LIST_ITEM_V229148.test(line);
+    listed = item || KAKAO_NLU_LIST_HEADS_V229148.some((head) => head.test(line));
+    return item || KAKAO_NLU_RECORD_ROW_V229148.test(line) || KAKAO_NLU_RECENT_ROW_V229148.test(line) || KAKAO_NLU_NAME_LINE_V229148.test(line)
+      || KAKAO_NLU_LIST_ROWS_V229148.some((row) => row.test(line))
+      ? "" : kakaoNluWithoutQuotedV229148(line);
+  }).join("\n");
 }
 
 // V22.9.148(Codex 검토): 표시는 그 첫 줄이 답의 한 줄 전체로 있을 때만 쓴다 — 예전에는 글 어디든 들어 있으면 썼다(바뀐 답의 메모에 앞 답의 첫 줄이
@@ -1062,10 +1132,13 @@ async function cleanupNluOpsRetention(env = {}) {
   return { ok: true, cutoff };
 }
 
-function rememberSkillEvent(event = {}) {
+// V22.9.148(Codex 2차 검토): 오류·되묻기의 가린 문장도 실패 사례 저장(NLU_PERSIST_FAILURE_SAMPLES)이 켜졌을 때만 남긴다 — 최근 NLU 사건
+// (rememberNluRuntimeEvent)과 같은 설정이다. 앞 고침은 그쪽만 막아, 설정이 꺼져 있어도 처리 중 오류(skill-handler.js 의 error)·짧은 말 되묻기(clarify)의
+// 문장이 이 목록(관리자 /ops-snapshot.json 의 skill.recent·스킬 운영 화면)에 남았다. env 를 받지 않은 부름은 꺼진 것으로 본다.
+function rememberSkillEvent(event = {}, env = {}) {
   try {
     const kind = String(event.kind || "info").slice(0, 40);
-    const keepRedactedSample = ["bad_json", "error", "clarify"].includes(kind);
+    const keepRedactedSample = ["bad_json", "error", "clarify"].includes(kind) && nluOpsConfig(env).failure_samples_enabled;
     AB_SKILL_EVENTS.push({
       at: new Date().toISOString(),
       kind,
@@ -26622,9 +26695,17 @@ function buildSettlementModel(rows = [], members = [], options = {}) {
   // 90,000원이 62,999원 / 27,001원(90,000 × 0.7 = 62,999.999…), 0.1 셋에 30,000원이 9,999 / 9,999 / 10,002 가 됐다.
   // 몫을 0.001 단위의 정수로 바꿔(0.7 → 700) BigInt 로 나눈다 — 나누어떨어지면 정확히 그 값이고, 내림과 ‘남는 원은 마지막 사람’ 규칙은 예전과 같다
   // (정수 몫의 결과는 예전과 같다 — 공개 모임 정산 계산기 public/group-settlement-v229147.js 와 같은 값).
-  // V22.9.148(Codex 검토): 0.001 단위로 반올림할 때 실수 곱셈의 오차를 먼저 걷어 낸다(0.5005 × 1000 = 500.49999999999994 → 500 이던 것을 501).
-  // 몫 칸은 0.1 단위지만 주소로는 더 잘게 들어올 수 있다. 몫은 0.1~1000 이라 소수 여섯째 자리에서 끊어도 값이 바뀌지 않는다.
-  const allocationUnitsV229148 = (weight) => BigInt(Math.max(1, Math.round(Number((Number(weight || 1) * 1000).toFixed(6)))));
+  // V22.9.148(Codex 검토): 0.001 단위로 반올림할 때 실수 곱셈의 오차를 걷어 낸다(0.5005 × 1000 = 500.49999999999994 → 500 이던 것을 501).
+  // V22.9.148(Codex 2차 검토): 반올림은 몫의 십진 글자로 한 번만 한다. 앞 고침(곱을 소수 여섯째 자리에서 끊은 뒤 반올림)은 두 번 반올림해, 주소로 들어온
+  // 0.5004999999 가 501 단위(정답 500)가 됐다. 몫은 바로 위에서 0.1~1000 의 유한한 수로 잘렸으므로(품목별은 1) String() 은 지수 표기 없는 가장 짧은
+  // 십진 글자다(0.7 → "0.7" → 700). 넷째 자리가 5 이상이면 올린다(반 올림). 그 꼴이 아닌 값은 오지 않지만, 오면 예전 식(곱해 반올림, 1 단위 이상)이다.
+  const allocationUnitsV229148 = (weight) => {
+    const value = Number(weight || 1);
+    const decimal = /^(\d+)(?:\.(\d+))?$/.exec(String(value));
+    if (!decimal) return BigInt(Math.max(1, Math.round(Number.isFinite(value) ? value * 1000 : 1000)));
+    const fraction = `${decimal[2] || ""}0000`;
+    return BigInt(decimal[1]) * 1000n + BigInt(fraction.slice(0, 3)) + (fraction[3] >= "5" ? 1n : 0n);
+  };
   const floorDivV229148 = (numerator, denominator) => {
     const quotient = numerator / denominator;
     return numerator % denominator < 0n ? quotient - 1n : quotient;
@@ -26830,6 +26911,7 @@ async function handleSettlementHistorySave(request, env) {
     const formerMembers = await fetchFormerSpenderMembers(env, rows, members);
     const model = buildSettlementModel(rows, members, { mode, ...conditions, formerMembers });
     const digest = await settlementPreviewDigest({ month, mode, conditions, rows, members });
+    const legacyDigest = await settlementPreviewDigest({ month, mode, conditions, rows, members, allocationFormula: false });
     const submittedDigest = String(form.get("preview_digest") || "").trim();
     if (submittedDigest && submittedDigest !== digest) return redirectResponse(`${backTo}&err=settlement_changed`);
     const note = String(form.get("note") || "").trim().slice(0, 160);
@@ -26841,7 +26923,7 @@ async function handleSettlementHistorySave(request, env) {
         if (!item || typeof item !== "object") return false;
         const completedAt = Date.parse(String(item.completed_at || ""));
         const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
-        return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && (!item.rows_digest || item.rows_digest === digest);
+        return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && settlementSameCompletionV229148(item, { digest, legacyDigest, model });
       });
       if (duplicate) return "duplicate";
       history.push({
@@ -26907,14 +26989,15 @@ function settlementConditionQuery(mode, conditions = {}) {
 
 // 화면을 그릴 때와 완료할 때의 조건·기록이 같은지 대조하는 지문이다.
 // V22.9.126 FC-20: members 를 넘기면 기본 참여자의 id·역할도 넣어, 미리 본 뒤 참여자가 바뀌면 완료 저장을 거절한다. 넘기지 않으면 예전 지문 그대로다.
-async function settlementPreviewDigest({ month, mode, conditions = {}, rows = [], members = null }) {
+// V22.9.148(Codex 2차 검토): allocationFormula: false 는 계산식 표지가 없는 이 판 전의 지문이다 — 5분 안의 같은 완료를 가릴 때만 쓴다(아래 settlementSameCompletionV229148).
+async function settlementPreviewDigest({ month, mode, conditions = {}, rows = [], members = null, allocationFormula = true }) {
   const canonical = JSON.stringify([
     month,
     mode,
     settlementConditionPairs(mode, conditions).sort(),
     safeArray(rows).filter((row) => row.type !== "income").map((row) => [String(row.id), Math.round(Number(row.amount || 0)), String(row.user_id || "")]).sort(),
     ...(Array.isArray(members) ? [members.filter(settlementBaseParticipant).map((m) => [String(m.user_id), String(m.role || "member").toLowerCase()]).sort()] : []),
-    ...settlementAllocationFormulaV229148(mode),
+    ...(allocationFormula ? settlementAllocationFormulaV229148(mode) : []),
   ]);
   return (await sha256Hex(canonical)).slice(0, 32);
 }
@@ -26926,6 +27009,17 @@ async function settlementPreviewDigest({ month, mode, conditions = {}, rows = []
 const SETTLEMENT_ALLOCATION_FORMULA_V229148 = "allocation-milli-units-v229148";
 function settlementAllocationFormulaV229148(mode = "") {
   return mode === "ratio" || mode === "headcount" ? [SETTLEMENT_ALLOCATION_FORMULA_V229148] : [];
+}
+
+// V22.9.148(Codex 2차 검토): 5분 안의 같은 완료(중복)인지. 지문이 같으면(또는 지문이 없던 예전 이력이면) 같은 완료다. 계산식 표지가 생기기 전의 지문
+// (legacyDigest)이 같으면, 저장된 몫이 지금 계산과 같을 때만 같은 완료로 본다 — 배포 직전에 1 : 1 로 완료하고 배포 뒤 새로 연 화면으로 다시 완료하면
+// 지문만 달라 같은 완료가 두 건 저장됐다. 예전 식으로 몫이 달랐던 완료(0.7 : 0.3 의 62,999원 / 27,001원)를 바로잡는 완료는 새로 저장한다.
+// 옛 화면에서 보낸 완료를 거절하는 미리 본 지문 대조는 그대로다(이 함수는 중복 확인에만 쓴다).
+function settlementSameCompletionV229148(item = {}, { digest = "", legacyDigest = "", model = {} } = {}) {
+  if (!item.rows_digest || item.rows_digest === digest) return true;
+  if (!legacyDigest || item.rows_digest !== legacyDigest) return false;
+  const sharesKey = (list) => JSON.stringify(safeArray(list).map((p) => [String(p?.user_id || ""), Number(p?.paid || 0), Number(p?.share || 0), Number(p?.balance || 0)]).sort());
+  return sharesKey(item.shares) === sharesKey(model.people);
 }
 
 function renderSettlementConfig({ mode = "equal", members = [], rows = [], weights = {}, itemParticipants = {}, month = currentMonthKst(), householdId = "", people = null }) {
@@ -27746,8 +27840,9 @@ function refundSettlementSpenderRows(rows = [], state = {}) {
 
 // 완료 저장 지문. 연결이 없으면 예전 지문(settlementPreviewDigest)과 같다. 연결이 있으면 연결과 연결한 환급 행(금액·받은 사람)을 넣는다.
 // V22.9.126 FC-20: members 는 연결이 없을 때 예전 지문으로 그대로 넘긴다(플래그 꺼짐 화면과 같은 지문을 지킨다). 연결이 있을 때의 지문 형식은 그대로다.
-async function settlementRefundDigest({ month, mode, conditions = {}, rows = [], links = [], members = null }) {
-  if (!safeArray(links).length) return settlementPreviewDigest({ month, mode, conditions, rows, members });
+// V22.9.148(Codex 2차 검토): allocationFormula: false = 계산식 표지가 없는 이 판 전의 지문(5분 안의 같은 완료를 가릴 때만 — settlementSameCompletionV229148).
+async function settlementRefundDigest({ month, mode, conditions = {}, rows = [], links = [], members = null, allocationFormula = true }) {
+  if (!safeArray(links).length) return settlementPreviewDigest({ month, mode, conditions, rows, members, allocationFormula });
   const canonical = JSON.stringify([
     "v3-refund-links",
     month,
@@ -27757,7 +27852,7 @@ async function settlementRefundDigest({ month, mode, conditions = {}, rows = [],
     links.map((link) => [link.id, link.expense_id, link.refund_id, link.amount]).sort(),
     [...new Map(links.map((link) => [link.refund_id, [link.refund_id, link.refund_amount, link.recipient_user_id]])).values()].sort(),
     // V22.9.148(Codex 검토): 비율·인원수 몫의 계산식 표지(settlement-ops-pages.js settlementAllocationFormulaV229148 — 연결이 없을 때의 지문과 같은 까닭).
-    ...settlementAllocationFormulaV229148(mode),
+    ...(allocationFormula ? settlementAllocationFormulaV229148(mode) : []),
   ]);
   return (await sha256Hex(canonical)).slice(0, 32);
 }
@@ -28132,12 +28227,13 @@ async function handleSettlementHistorySaveV22979(request, env) {
       const model = buildSettlementModel(rows, members, { mode, ...conditions, formerMembers, ...(refund.netting ? { refundNetting: refund.netting } : {}) });
       const digest = await settlementRefundDigest({ month, mode, conditions, rows, links: refund.links, members });
       if (submittedDigest && submittedDigest !== digest) return "changed";
+      const legacyDigest = await settlementRefundDigest({ month, mode, conditions, rows, links: refund.links, members, allocationFormula: false });
       const history = parseJsonArraySettingStrict(historyValue, "settlement_history_json_invalid");
       const duplicate = history.some((item) => {
         if (!item || typeof item !== "object") return false;
         const completedAt = Date.parse(String(item.completed_at || ""));
         const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
-        return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && (!item.rows_digest || item.rows_digest === digest);
+        return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && settlementSameCompletionV229148(item, { digest, legacyDigest, model });
       });
       if (duplicate) return "duplicate";
       const linked = refund.links.length > 0;
@@ -60307,7 +60403,7 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     const nluEvent = { at: new Date().toISOString(), request_id: requestId, intent: metricIntent(), confidence: intentMatch.confidence, result: "error", reason: safeError(err), latency_ms: latencyMs, block: blockName, version: APP_VERSION, utterance };
     rememberNluRuntimeEvent(nluEvent, env);
     scheduleNluOpsPersistence(ctx, env, nluEvent);
-    rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${metricIntent()}; ${safeError(err)}; latency_ms=${latencyMs}` });
+    rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${metricIntent()}; ${safeError(err)}; latency_ms=${latencyMs}` }, env);
     clearKakaoInFlight(repeat.key);
     rememberSkillLatency(latencyMs, { intent: metricIntent(), result: "error" });
     // V22.9.76 감사 B-6: 식별 별칭 저장이 동시 요청으로 바빠 실패하면 기록하기 전에 멈춘 것이다. "다시 보내주세요" 예시만 주던
@@ -61141,7 +61237,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // V22.1: 짧고 모호한 표현은 임의 실행하지 않고 관련 선택지로 한 번만 명확화합니다.
   const ambiguityReply = kakaoAmbiguityGuide(utterance, origin);
   if (ambiguityReply) {
-    rememberSkillEvent({ kind: "clarify", user_key: kakaoUserKey, utterance, detail: `reason=${ambiguityReply.reason || "unknown"}` });
+    rememberSkillEvent({ kind: "clarify", user_key: kakaoUserKey, utterance, detail: `reason=${ambiguityReply.reason || "unknown"}` }, env);
     return kakaoText(ambiguityReply.text, ambiguityReply.quickReplies || []);
   }
 
