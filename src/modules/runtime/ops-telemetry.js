@@ -8,7 +8,7 @@ import { getCookie, htmlResponse, jsonResponse, wantsTransactionDeleteJson } fro
 import { myReturnLocation } from "../my/access-control.js";
 import {
   KAKAO_GROUP_MENTION_V229134, isUncertainStorageWrite, kakaoGroupMentionLinesV229134,
-  kakaoGroupQuotedSegmentsV229134, kakaoText,
+  kakaoGroupQuotedSegmentsV229134, kakaoSafeText, kakaoText, kakaoTextLinks,
 } from "../kakao/response-builders.js";
 import { KAKAO_RETRY_DEDUP_SECONDS } from "../kakao/transaction-save.js";
 import { supabase } from "../data/supabase-client.js";
@@ -357,6 +357,12 @@ const KAKAO_NLU_MARKS_V229148 = Object.freeze({
   // (kakao/edit-session-v4.js kakaoEditDeleteFailedReplyV229148). 앞 판들은 글에 ‘저장하지 못했어요’·‘저장 확인이 지연’ 이 없어 ok 로 셌다.
   delete_failed: Object.freeze({ intent: "", result: "error", reason: "save_failed" }),
   delete_uncertain: Object.freeze({ intent: "", result: "error", reason: "save_uncertain" }),
+  // V22.9.148(Codex 7차 검토 — V148:C-77·C-78): 복구하지 못한 답(저장소가 넣기를 거절함·잠금이 겹쳐 처리하지 않음 = 저장 실패, 넣었는지 모르는 쓰기 = 결과 모름 —
+  // kakao/edit-flow-v4.js kakaoRestoreFailedNluV229148)과 ‘방금’ 이 가리킬 기록을 정하려고 읽는 감사 기록을 읽지 못한 답(실패·늦음 = 처리 중 오류)도 만든 곳이
+  // 적는다. 앞 판들은 글에 판정 낱말이 없어 ok 로 셌다(6차 고침은 ‘처리함’ 으로 적었다). 답 글은 그대로다.
+  restore_failed: Object.freeze({ intent: "", result: "error", reason: "save_failed" }),
+  restore_uncertain: Object.freeze({ intent: "", result: "error", reason: "save_uncertain" }),
+  read_failed: Object.freeze({ intent: "", result: "error", reason: "safe_error_response" }),
 });
 
 function markKakaoNluOutcomeV229148(env, kind = "", replyText = "") {
@@ -369,7 +375,11 @@ function markKakaoNluOutcomeV229148(env, kind = "", replyText = "") {
   // 다음 줄을 보고 예시를 붙인다). 그 함수가 이 답 글 전체로 만드는 첫 줄을 함께 둔다(단톡방 답만 그 줄로도 견준다 — kakaoNluMarkSeenV229148).
   let roomSignature = signature;
   try { roomSignature = kakaoGroupMentionLinesV229134(source, Infinity).split("\n")[0].trim() || signature; } catch (err) {}
-  request.nluMarkV229148 = { ...mark, kind, signature, roomSignature };
+  // V22.9.148(Codex 7차 검토 — V148:C-76): 보내기 전에 글 속 주소는 링크 단추나 ‘(링크)’ 로 옮긴다(response-builders.js kakaoTextLinks — 1:1·단톡방 모두). 메모에
+  // 주소가 든 기록 줄이 첫 줄인 답(수정 창 등)은 보낸 답에 그 첫 줄이 없어 표지를 놓치고 글로 읽어, 메모의 ‘서버 오류’ 로 정상 답을 오류로 셌다. 우리 주소인지는
+  // 보낼 때의 주소(origin)로 정해지므로 주소가 든 답(kakaoTextLinks 가 옮기는 꼴과 같은 판정)은 글을 함께 두고, 견줄 때 보낼 때와 같은 함수로 첫 줄을 만든다
+  // (kakaoNluMarkLinesV229148). 요청 표식은 그 요청의 메모리에만 있다(관제에 남기는 것은 이름·결과·까닭 낱말뿐).
+  request.nluMarkV229148 = { ...mark, kind, signature, roomSignature, ...(/https?:\/\//i.test(source) ? { linkSource: source } : {}) };
 }
 
 function kakaoNluMarkV229148(env) {
@@ -531,16 +541,29 @@ function kakaoNluBotWordsV229148(text = "") {
 // — 봇 부르기·번호 예시를 넣는다)가 그 답 글로 만드는 첫 줄로도 견준다(표시를 적을 때 함께 둔 roomSignature). 5차 고침(V148:C-52)은 1:1·단톡방 모두 양쪽
 // 줄의 ‘@말해가계부’ 를 지워 견주어, 1:1 의 저장 실패 답에 사용자가 적어 보낸 ‘예: @말해가계부 점심 예산을 얼마로 설정할까요?’ 줄이 묵은 표지(‘예: 점심
 // 예산을 얼마로 설정할까요?’)와 같아져 실패를 되묻기로 셌다. 단톡방인지는 답을 바꾸는 곳과 같은 기준(botGroupKey — kakao/skill-handler.js)으로 넘겨받는다.
-function kakaoNluMarkSeenV229148(text = "", mark = null, { room = false } = {}) {
-  if (!mark || typeof mark !== "object" || typeof mark.signature !== "string" || !mark.signature) return false;
-  const roomSignature = room && typeof mark.roomSignature === "string" ? mark.roomSignature : "";
-  return String(text || "").split("\n").some((line) => {
-    const trimmed = line.trim();
-    return trimmed === mark.signature || (!!roomSignature && trimmed === roomSignature);
-  });
+// 표지로 견줄 줄: 답의 첫 줄(signature), 단톡방이면 단톡방 꼴의 첫 줄(roomSignature)도. 주소가 든 답(linkSource — V148:C-76)은 보낸 꼴의 첫 줄도 더한다 —
+// 1:1 은 kakaoText 의 글 다듬기(kakaoSafeText) 뒤 주소 옮기기(kakaoTextLinks), 단톡방은 그 뒤 봇 부르기 넣기(kakaoGroupMentionLinesV229134)까지(response-builders.js
+// kakaoDirectLinkResponse·kakaoGroupCompatibleResponse 의 순서). 보낸 꼴을 만들지 못하면 예전처럼 앞의 두 줄로만 견준다.
+function kakaoNluMarkLinesV229148(mark, { room = false, origin = "" } = {}) {
+  const lines = [mark.signature];
+  if (room && typeof mark.roomSignature === "string") lines.push(mark.roomSignature);
+  if (typeof mark.linkSource === "string" && mark.linkSource) {
+    try {
+      const linked = kakaoTextLinks(kakaoSafeText(mark.linkSource), origin).text;
+      lines.push(linked.split("\n")[0].trim());
+      if (room) lines.push(kakaoGroupMentionLinesV229134(linked, Infinity).split("\n")[0].trim());
+    } catch (err) {}
+  }
+  return lines.filter(Boolean);
 }
 
-function nluOutcomeFromKakaoResponse(responseText = "", mark = null, { room = false } = {}) {
+function kakaoNluMarkSeenV229148(text = "", mark = null, { room = false, origin = "" } = {}) {
+  if (!mark || typeof mark !== "object" || typeof mark.signature !== "string" || !mark.signature) return false;
+  const expected = new Set(kakaoNluMarkLinesV229148(mark, { room, origin }));
+  return String(text || "").split("\n").some((line) => expected.has(line.trim()));
+}
+
+function nluOutcomeFromKakaoResponse(responseText = "", mark = null, { room = false, origin = "" } = {}) {
   let text = "";
   let quickReplyCount = 0;
   try {
@@ -550,7 +573,7 @@ function nluOutcomeFromKakaoResponse(responseText = "", mark = null, { room = fa
   } catch (err) {
     text = String(responseText || "");
   }
-  if (kakaoNluMarkSeenV229148(text, mark, { room })) {
+  if (kakaoNluMarkSeenV229148(text, mark, { room, origin })) {
     return { result: mark.result, reason: mark.reason, text, quick_reply_count: quickReplyCount, marked: true };
   }
   const words = kakaoNluBotWordsV229148(text);

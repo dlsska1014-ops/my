@@ -235,6 +235,12 @@ function kakaoCallbackErrorMessage(stage = "", traceId = "") {
   return messages[String(stage || "")] || `카카오 로그인을 완료하지 못했습니다. 기존 기록은 변경되지 않았습니다.${suffix}`;
 }
 
+// V22.9.148(Codex 7차 검토 — V148:C-79): 관제에 남기는 카카오 로그인 오류 이름(아래 handleKakaoLoginCallback). 그 꼴이 아니면 ‘[값 생략]’.
+function kakaoOauthErrorNameV229148(value = "") {
+  const text = String(value || "");
+  return /^[a-z_]{1,40}$/.test(text) ? text : "[값 생략]";
+}
+
 async function handleKakaoLoginCallback(request, env, url) {
   const reauthHouseholdId = String(getCookie(request, "kakao_oauth_reauth_household") || "").trim();
   const reauthReturnTo = safeUserReturnPath(getCookie(request, "kakao_oauth_return_to") || "/my/households", "/my/households");
@@ -269,15 +275,17 @@ async function handleKakaoLoginCallback(request, env, url) {
   const accountLinkError = (code) => redirectResponseWithCookies(`/my/account-link?err=${encodeURIComponent(code)}`, clearOauthCookies);
   let stage = "state";
   try {
+    // V22.9.148(Codex 7차 검토 — V148:C-79): 주소의 error 값은 누구나 바꿔 보낼 수 있다(카카오가 돌려주는 값은 ‘access_denied’ 같은 OAuth 오류 이름이다). 관제에는
+    // 그 꼴(소문자·밑줄 40자까지)만 남기고, 추적 번호는 그 앞에 둔다 — 값 뒤에 두면 값에 든 ‘Supabase 400: ’ 를 가리기가 DB 오류 글로 읽어 추적 번호까지 지웠다.
     const oauthError = String(url.searchParams.get("error") || "");
     if (oauthError && accountLinkMode) {
-      rememberOpsEvent({ kind: "kakao_account_link_kakao_error", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `error=${oauthError.slice(0, 80)};trace=${traceId}` });
+      rememberOpsEvent({ kind: "kakao_account_link_kakao_error", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId};error=${kakaoOauthErrorNameV229148(oauthError)}` });
       return accountLinkError(flowProof.auto === 1 ? "kakao_retry" : oauthError === "access_denied" ? "cancelled" : "kakao_unavailable");
     }
     if (oauthError && autoMode) {
       // 카카오 문서: prompt=none 에서 회원이 아니면 consent_required 다. 그때는 로그인하지 않은 화면을 보인다(동의 화면으로 보내지 않는다).
       const nonmember = ["consent_required", "login_required", "interaction_required"].includes(oauthError);
-      rememberOpsEvent({ kind: nonmember ? "kakao_auto_login_nonmember" : "kakao_auto_login_error", severity: nonmember ? "info" : "warn", path: "/auth/kakao/callback", method: "GET", detail: `error=${oauthError.slice(0, 80)};trace=${traceId}` });
+      rememberOpsEvent({ kind: nonmember ? "kakao_auto_login_nonmember" : "kakao_auto_login_error", severity: nonmember ? "info" : "warn", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId};error=${kakaoOauthErrorNameV229148(oauthError)}` });
       return autoFallback();
     }
     if (oauthError) {
@@ -287,7 +295,7 @@ async function handleKakaoLoginCallback(request, env, url) {
         severity: cancelled ? "info" : "warn",
         path: "/auth/kakao/callback",
         method: "GET",
-        detail: `error=${oauthError.slice(0, 80)};trace=${traceId}`,
+        detail: `trace=${traceId};error=${kakaoOauthErrorNameV229148(oauthError)}`,
       });
       return errorResponse(cancelled ? "cancelled" : "provider", 400);
     }

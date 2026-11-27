@@ -1016,8 +1016,8 @@ export {
   isUncertainStorageWrite, kakaoDefaultQuickReplies, kakaoEditSameTextTextV229119,
   kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoGroupMentionLinesV229134,
   kakaoGroupQuotedSegmentsV229134, kakaoNextStepReply, kakaoQr, kakaoRoomLedgerLinkOutputsV229129,
-  kakaoSameTextExistsTextV229119, kakaoSameTextLongV229119, kakaoSaveFailedText,
-  kakaoSeparateSameTextTextV229119, kakaoTermsNoticeResponseV229118, kakaoText,
+  kakaoSafeText, kakaoSameTextExistsTextV229119, kakaoSameTextLongV229119, kakaoSaveFailedText,
+  kakaoSeparateSameTextTextV229119, kakaoTermsNoticeResponseV229118, kakaoText, kakaoTextLinks,
   kakaoTypeChoiceAskTextV229127, kakaoWebLedgerReply, noteKakaoTermsNoticeDroppedV229118,
 };
 // @build:exports-end

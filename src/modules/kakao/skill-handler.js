@@ -249,7 +249,8 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     const responsePreview = await safeResponse.clone().text();
     const nluMark = kakaoNluMarkV229148(env);
     // V22.9.148(Codex 6차 검토 — V148:C-65): 단톡방인지는 답을 단톡방 꼴로 바꾸는 곳(response-builders.js kakaoGroupCompatibleResponse)과 같은 기준으로 넘긴다.
-    const outcome = nluOutcomeFromKakaoResponse(responsePreview, nluMark, { room: !!getKakaoBotGroupKey(payload) });
+    // V22.9.148(Codex 7차 검토 — V148:C-76): 주소가 든 답은 보낼 때의 주소(origin)로 만든 꼴의 첫 줄로도 견준다(같은 origin 으로 링크를 옮겼다).
+    const outcome = nluOutcomeFromKakaoResponse(responsePreview, nluMark, { room: !!getKakaoBotGroupKey(payload), origin });
     if (outcome.marked) usage.markedIntent = nluMark.intent;
     armKakaoRepeatGuard(repeat.key, responsePreview);
     clearKakaoInFlight(repeat.key);

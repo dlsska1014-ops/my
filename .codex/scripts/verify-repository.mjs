@@ -478,7 +478,8 @@ function run(command, args, label) {
 // V22.9.148(Codex 4차 검토): 3차 고침만 다시 본 Codex 검토의 고침과 그 뒤 더 찾은 것 — 새 검사 34개와 추적표 V148:C-35~C-47 몫이 더해졌다. 하네스 두 모드 108,736 / 108,729 중 작은 값.
 // V22.9.148(Codex 5차 검토): 4차 고침만 다시 본 Codex 검토의 고침과 그 뒤 더 찾은 것 — 새 검사 36개와 추적표 V148:C-48~C-60 몫이 더해졌다. 하네스 두 모드 108,900 / 108,893 중 작은 값.
 // V22.9.148(Codex 6차 검토): 5차 고침만 다시 본 Codex 검토의 고침과 그 뒤 더 찾은 것 — 새 검사 14개와 추적표 V148:C-61~C-75 몫이 더해졌다. 하네스 두 모드 109,060 / 109,053 중 작은 값.
-const EXPECTED_MINIMUM_CHECKS = 109053;
+// V22.9.148(Codex 7차 검토): 6차 고침만 다시 본 Codex 검토의 고침 — 새 검사 7개와 추적표 V148:C-76~C-88 몫이 더해졌다. 하네스 두 모드 109,195 / 109,188 중 작은 값.
+const EXPECTED_MINIMUM_CHECKS = 109188;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

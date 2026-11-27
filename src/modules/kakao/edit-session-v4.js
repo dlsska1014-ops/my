@@ -243,6 +243,13 @@ function kakaoEditDeleteFailedReplyV229148(err, row = {}, seq = 0) {
   return { reply: `기록을 지우지 않았어요. 삭제를 되돌릴 준비를 하지 못했어요.\n잠시 뒤 ‘${listCommand}’로 번호를 확인하고 다시 보내 주세요.`, nlu: "delete_failed" };
 }
 
+// V22.9.148(Codex 7차 검토 — V148:C-77): 복구하지 못한 답의 관제 결과(답 글은 kakao/edit-flow-v4.js kakaoRestoreDelayedTextV4 — 그대로). 저장소가 넣기를 거절했거나
+// 잠금이 겹쳐 이번 요청을 처리하지 않았으면 저장 실패(restore_failed), 넣었는지 모르는 쓰기(다시 읽어도 없을 때)는 결과 모름(restore_uncertain) — 위 삭제와 같은
+// 결과다. 앞 판들은 이 답을 ok 로 셌고(글에 판정 낱말이 없다), 6차 고침은 ‘처리함’ 으로 적었다.
+function kakaoRestoreFailedNluV229148(outcome = {}) {
+  return !outcome.busy && isUncertainStorageWrite(outcome.error) ? "restore_uncertain" : "restore_failed";
+}
+
 // T2: 수정 답장에 바뀐 기록을 적는다.
 function kakaoEditRecordLineV4(row = {}) {
   const memo = row.memo || row.raw_text || row.category || "기록";
@@ -268,6 +275,17 @@ function kakaoRowLabel(row = {}, seq = 0) {
   const cat = row.category || (row.type === "income" ? "수입" : "지출");
   // V22.9.81 U-13: 번호를 모르면(0) ‘00번’을 붙이지 않고 번호 없이 적는다.
   return `${Number(seq) >= 1 ? `${twoDigitSeq(seq)}번 - ` : ""}${memo} / ${kakaoIncomeMarkV4(row)}${numberWithCommas(row.amount)}원 / ${pay} / ${cat}`;
+}
+
+// V22.9.148(Codex 7차 검토 — V148:C-82): 저장한 답(kakao/transaction-save.js)의 기록 줄 — 여러 건 저장의 줄과 번호를 모르는 한 건의 줄. 메모·결제수단·분류는
+// 사용자가 정한 값이라 이 줄이 든 답은 만든 곳의 표시(saved)로 센다. 기록 줄 꼴(‘… / 금액원 / …’)을 내는 함수는 이 모듈의 넷(kakaoRowLabel·kakaoEditRecordLineV4·
+// 아래 둘)뿐이다 — 검사(validate-v229148-first-record 6-k C-64)가 이 함수들의 쓰임을 모두 따라가 답마다 결과를 적었는지 본다.
+function kakaoSavedBulkRowLineV229148(row = {}) {
+  const memo = row.memo || row.raw_text || row.category || "기록";
+  return `${row.transaction_date} · ${row.type === "income" ? "수입" : "지출"} · ${memo} / ${numberWithCommas(row.amount)}원 / ${row.payment_method || "-"}`;
+}
+function kakaoSavedRowLineV229148(saved = {}, typeText = "") {
+  return `${saved.memo || saved.raw_text || saved.category || "기록"} / ${numberWithCommas(saved.amount)}원 / ${saved.payment_method || "-"} / ${saved.category || typeText}`;
 }
 
 function isKakaoRowOwnedByRequesterV2254(row = {}, userId = "", kakaoUserKey = "") {
@@ -678,10 +696,12 @@ export {
   kakaoDailySeqPairFromRowsV229135, kakaoDailySeqPairV229135, kakaoEditDayPrefixV4,
   kakaoEditDeleteFailedReplyV229148, kakaoEditDeletedTextV4, kakaoEditGuideText,
   kakaoEditInputTextV4, kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditSessionKeyV4,
-  kakaoEditSessionTextV4, kakaoEditTargetRejectTextV4, kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4,
-  kakaoRowLabel, kakaoRowOwnerSuffixV229135, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
-  parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue, postgrestQuotedValueV22979,
-  readKakaoEditUndoItemsV4, resolveKakaoEditDateV4, saveKakaoEditSessionV4,
-  stripKakaoEditDatePrefixV4, twoDigitSeq, withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,
+  kakaoEditSessionTextV4, kakaoEditTargetRejectTextV4, kakaoRefundLinkUndoNoteV4,
+  kakaoRestoreFailedNluV229148, kakaoRestoreRowV4, kakaoRowLabel, kakaoRowOwnerSuffixV229135,
+  kakaoSavedBulkRowLineV229148, kakaoSavedRowLineV229148, parseKakaoDeleteCommandV4,
+  parseKakaoEditCommandV4, parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue,
+  postgrestQuotedValueV22979, readKakaoEditUndoItemsV4, resolveKakaoEditDateV4,
+  saveKakaoEditSessionV4, stripKakaoEditDatePrefixV4, twoDigitSeq, withKakaoEditUndoLeaseV4,
+  writeKakaoEditUndoItemsV4,
 };
 // @build:exports-end
