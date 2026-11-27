@@ -1009,12 +1009,13 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
 }
 // @build:exports-start
 export {
-  KAKAO_QR_MESSAGE_MAX_V229127, KAKAO_TERMS_NOTICE_LINE_V229118, dedupeQuickReplies,
-  isDefiniteStorageFailure, isKakaoRequestUniqueConflictV229119, isUncertainStorageWrite,
-  kakaoDefaultQuickReplies, kakaoEditSameTextTextV229119, kakaoGroupCompatibleResponse,
-  kakaoGroupEmptyMentionReply, kakaoGroupQuotedSegmentsV229134, kakaoNextStepReply, kakaoQr,
-  kakaoRoomLedgerLinkOutputsV229129, kakaoSameTextExistsTextV229119, kakaoSameTextLongV229119,
-  kakaoSaveFailedText, kakaoSeparateSameTextTextV229119, kakaoTermsNoticeResponseV229118, kakaoText,
-  kakaoTypeChoiceAskTextV229127, kakaoWebLedgerReply, noteKakaoTermsNoticeDroppedV229118,
+  KAKAO_GROUP_MENTION_V229134, KAKAO_QR_MESSAGE_MAX_V229127, KAKAO_TERMS_NOTICE_LINE_V229118,
+  dedupeQuickReplies, isDefiniteStorageFailure, isKakaoRequestUniqueConflictV229119,
+  isUncertainStorageWrite, kakaoDefaultQuickReplies, kakaoEditSameTextTextV229119,
+  kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoGroupQuotedSegmentsV229134,
+  kakaoNextStepReply, kakaoQr, kakaoRoomLedgerLinkOutputsV229129, kakaoSameTextExistsTextV229119,
+  kakaoSameTextLongV229119, kakaoSaveFailedText, kakaoSeparateSameTextTextV229119,
+  kakaoTermsNoticeResponseV229118, kakaoText, kakaoTypeChoiceAskTextV229127, kakaoWebLedgerReply,
+  noteKakaoTermsNoticeDroppedV229118,
 };
 // @build:exports-end

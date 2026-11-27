@@ -796,7 +796,21 @@ function nluOpsFingerprint(text = "") {
 }
 
 function redactOpsDetail(value = "") {
-  return String(value || "")
+  // V22.9.148(V148:C-33): 아래 값 지우기는 시작할 수 있는 자리마다 뒤를 훑으므로 먼저 1,000자로 자른다(따옴표만 4만 자인 글이 700ms 넘게 걸렸다).
+  // 결과는 어차피 260자이고, 부르는 곳의 상세는 오류 글(safeError 400자)과 앞뒤 몇십 자다.
+  return String(value || "").slice(0, 1000)
+    // V22.9.148(Codex 3차 검토를 고치며 찾음 — V148:C-33): 오류 글이 옮겨 적은 값을 뺀다. DB(PostgREST) 오류의 details 는 막힌 행 전체(‘Failing row contains
+    // (…)’ — 카카오 기록이면 메모·원문이 든다)나 키 값(‘Key (…)=(…)’)이고, 형식·범위 오류의 message 는 받은 값(‘… for type uuid: "…"’·‘value "…" is out of
+    // range …’)을, JSON.parse 오류는 읽던 글(‘…, "…" is not valid JSON’ — V8 은 20자까지 그대로, 그보다 길면 10자와 ‘...’)을 옮겨 적는다. 이 글은 관리자
+    // /ops-snapshot.json 의 운영·스킬·트래픽 사건(카카오 저장 실패·처리 중 오류의 상세)과 최근 NLU 사건의 까닭에 실패 사례 저장 설정과 상관없이 남았다.
+    // 상태·오류 번호·제약·열·표 이름은 남긴다. 받은 값은 오류 글 길이(500자) 안, JSON.parse 가 옮긴 글은 64자 안에서만 찾는다(되짚기를 묶고, 64자 넘게
+    // 앞에 있는 다른 따옴표부터 지우지 않는다 — V8 은 많아야 21자를 옮긴다). 받은 값에는 줄 바꿈 문자(U+2028 — DB 의 JSON 은 그대로 둔다)도 들 수 있어 . 대신
+    // [\s\S] 로 찾는다(아래 공백 줄이기가 그 문자를 빈칸으로 바꾼 뒤에는 값이 그대로 보였다).
+    // DB 오류 글은 500자에서 잘려 오므로(data/supabase-client.js) 닫는 따옴표가 잘린 details·받은 값은 글 끝까지 뺀다(끝에 홀로 남은 \ 도).
+    .replace(/"details":"(?:[^"\\]|\\.)*\\?(?:"|$)/g, '"details":"[값 생략]"')
+    .replace(/(: |value )\\"[\s\S]{0,500}\\"(?="|$| is out of range)/g, "$1[값 생략]")
+    .replace(/(: |value )\\"(?:(?!\\")[\s\S])*$/, "$1[값 생략]")
+    .replace(/(?:Unexpected token .{1,4}?, )?(?:\.\.\.)?"[\s\S]{0,64}"(?:\.\.\.)? is not valid JSON/g, "[JSON 이 아닌 글] is not valid JSON")
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[사용자식별자]")
     .replace(/\beyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){1,2}\b/g, "[토큰]")
     .replace(/(?:password|access[_-]?code|secret|apikey|api[_-]?key|authorization)\s*[=:]\s*[^\s,;]+/gi, "$1=[보호됨]")
@@ -878,6 +892,9 @@ const KAKAO_NLU_RECENT_ROW_V229148 = /^• \d{4}-\d{2}-\d{2} (?:지출|수입) -
 const KAKAO_NLU_NAME_LABELS_V229148 = Object.freeze([
   "가계부", "이 방 가계부", "지금 가계부", "가계부 이름", "연결 가계부", "현재 선택 가계부", "현재 연결", "현재", "변경",
   "지출자", "수입자", "분류", "기록", "복구하려던 기록", "마지막에 바뀐 기록", "마지막에 저장한 기록",
+  // V22.9.148(Codex 3차 검토): 예시 줄(‘예: …’)은 보낼 말의 본보기다 — 가계부 만들기의 이름 제안(‘예: (카카오 별명) 가계부’ — guided-flows.js)에 별명이
+  // 들어, 별명이 ‘서버 오류 대응팀’ 이면 정상 안내가 오류로 셌다. 답 글의 ‘예: ’ 줄에는 봇의 실패·되묻기 낱말이 없다(검사가 답 글을 모두 훑어 본다).
+  "예",
 ]);
 const KAKAO_NLU_NAME_LINE_V229148 = new RegExp(`^(?:(?:📒|✅) )?(?:${KAKAO_NLU_NAME_LABELS_V229148.join("|")}): `);
 // V22.9.148(Codex 2차 검토): 사용자가 정한 이름·분류가 목록 줄로 되풀이되는 답도 그 줄을 뺀다 — 가계부 고르기·내 가계부 목록
@@ -885,9 +902,12 @@ const KAKAO_NLU_NAME_LINE_V229148 = new RegExp(`^(?:(?:📒|✅) )?(?:${KAKAO_NL
 // (‘1. 분류: 30,000원’ — transactions-core.js formatSummary), 예산 현황(‘• 분류: 30,000원 사용 / …’ — budgets.js), 기록 고치기의 고를 값
 // (‘1. 식비  2. 카페’ — edit-flow-v4.js·edit-state-machine.js, 아래 알리는 줄 규칙). 가계부 이름 ‘서버 오류 대응팀’ 이 든 가계부 고르기가 오류로 셌다.
 // 이 줄들에 봇의 실패·되묻기 문장은 없다.
+// V22.9.148(Codex 3차 검토): 상위 지출·예산 현황 줄은 만드는 꼴 그대로 본다 — ‘원’ 뒤에 무엇이 와도 빼던 규칙은 분류 이름이 ‘1. 점심: 5000원’ 인
+// 예산 물음(‘1. 점심: 5000원 예산을 얼마로 설정할까요?’ — guided-flows.js)까지 빼 되묻기를 ok 로 셌다.
 const KAKAO_NLU_LIST_ROWS_V229148 = Object.freeze([
   /^\d{1,2}\. .* · (?:소유자|관리자|구성원|조회전용|승인대기|차단)(?: · |$)/,
-  /^(?:\d{1,2}\.|•) .*: [\d,]+원(?: |$)/,
+  /^\d{1,2}\. .*: [\d,]+원$/,
+  /^• .*: [\d,]+원 사용 \/ [\d,]+원 (?:남음|초과) · [\d.]+%$/,
 ]);
 // 목록을 알리는 줄 바로 다음부터 이어지는 번호 줄(‘1. ’)도 사용자가 정한 이름·값이다 — 기록 고치기의 고를 값(‘…번호로 골라주세요.’·‘분류를 번호로 골라
 // 주세요.’·‘목록의 번호로 골라주세요.’ 다음의 ‘1. 서버팀  2. 오류왕’, 값이 하나면 ‘1. 오류왕’ 한 줄)과 참여 취소의 승인 대기 목록(‘승인 대기 중인 가계부가
@@ -897,53 +917,51 @@ const KAKAO_NLU_LIST_HEADS_V229148 = Object.freeze([
   /^승인 대기 중인 가계부가 \d+개예요\.$/,
 ]);
 const KAKAO_NLU_LIST_ITEM_V229148 = /^\d{1,2}\. /;
-// V22.9.148(Codex 2차 검토): 이름·메모 안의 짝 없는 따옴표. 공용 훑기(kakaoGroupQuotedSegmentsV229134)는 겹친 따옴표를 바깥 짝까지 보지만, 사용자 글에
-// 여는 따옴표만 있으면(가계부 이름 ‘서버 오류 ‘개발’ → ‘이 방 가계부 ‘서버 오류 ‘개발’에 참여했어요.’) 그 여는 따옴표가 답 글의 닫는 따옴표를 가져가 답 글의
-// 여는 따옴표가 짝 없이 남았고(앞 고침은 ‘서버 오류’ 를 봇 말로 읽어 오류로 셌다 — 그 앞의 정규식은 ok), 닫는 따옴표만 있으면(이름 ‘개발’ 서버 오류’) 답 글의
-// 닫는 따옴표가 짝 없이 남았다(예전부터 오류로 셈). 답 글의 따옴표는 늘 짝이 맞으므로 관제에서만, 짝 없는 여는 따옴표는 뒤의 같은 종류 첫 조각의 끝까지,
-// 짝 없는 닫는 따옴표는 앞의 같은 종류 가장 가까운 조각의 처음부터 함께 뺀다. 단톡방에 보내는 글(봇 부르기)은 공용 훑기 그대로다. 줄 길이에 비례한다.
-const KAKAO_NLU_OPENERS_V229148 = Object.freeze({ "‘": true, "“": true });
-const KAKAO_NLU_CLOSERS_V229148 = Object.freeze({ "’": "‘", "”": "“" });
+// V22.9.148(Codex 3차 검토): 단톡방 답은 ‘…번호로 골라주세요.’ 끝에 번호 예시(‘ 예: @말해가계부 1’ — response-builders.js kakaoGroupNumberLineV229135)가
+// 붙은 뒤 관제가 읽는다. 알리는 줄은 그 예시를 떼고 본다(예전에는 단톡방의 고를 값 줄이 남아 구성원 이름 ‘서버팀’·‘오류왕’ 에 오류로 셌다 — 1:1 은 ok).
+// (다른 모듈의 상수라 묶음 파일의 순서와 상관없게 부를 때 읽는다.)
+const kakaoNluListHeadV229148 = (line = "") => {
+  const example = ` 예: ${KAKAO_GROUP_MENTION_V229134} 1`;
+  const bare = line.endsWith(example) ? line.slice(0, -example.length) : line;
+  return KAKAO_NLU_LIST_HEADS_V229148.some((head) => head.test(bare));
+};
+// V22.9.148(Codex 2차·3차 검토): 이름·메모 안의 짝 없는 따옴표. 공용 훑기(kakaoGroupQuotedSegmentsV229134)는 짝이 맞는 바깥 따옴표까지를 한 조각으로
+// 보지만, 사용자 글 안에 짝 없는 따옴표가 있으면 답 글의 따옴표 하나가 짝을 잃는다. 답 글의 따옴표는 늘 짝이 맞으므로 관제에서만 방향별로 늘린다.
+// - 짝 없는 여는 따옴표(가계부 이름 ‘서버 오류 ‘개발’, ‘모임 ‘분점’ 서버 오류 ‘개발’ → ‘이 방 가계부 ‘모임 ‘분점’ 서버 오류 ‘개발’에 참여했어요.’)는
+//   그 뒤 같은 종류의 마지막 닫는 따옴표까지 — 2차 고침은 뒤의 첫 조각까지만 이어 이름 가운데의 ‘서버 오류’ 가 봇 말로 남았다(3차 검토). 실패 문장이
+//   사용자 값 뒤에 오고 그 뒤에 또 따옴표가 있는 답 글은 없다(검사가 답 글을 모두 훑어 본다 — 있으면 그 실패 문장을 삼킨다).
+// - 짝 없는 닫는 따옴표(이름 ‘개발’ 서버 오류’)는 그 앞 같은 종류의 가장 가까운 여는 따옴표부터 — 사이의 봇 문장(‘커피’ 기록은 처리하지 못했어요.
+//   ‘택시’’ …)은 남는다.
+// - 곧은 따옴표(' ")는 여닫는 글자가 같아 공용 훑기가 앞에서부터 둘씩 짝짓는다. 수가 홀수면 남는 마지막 하나를 닫는 따옴표로 보고 그 앞 같은 글자부터
+//   ('O'Brien 서버 오류' 의 'Brien 서버 오류').
+// 단톡방에 보내는 글(봇 부르기)은 공용 훑기 그대로다. 줄 길이에 비례한다(한 번씩 훑는다).
 function kakaoNluQuotedSegmentsV229148(text = "") {
-  const shared = kakaoGroupQuotedSegmentsV229134(text);
-  if (!shared.length) return shared;
-  // ① 짝 없는 여는 따옴표 → 뒤의 같은 종류 첫 조각과 하나로.
-  const merged = [];
-  const waiting = new Map();
-  let at = 0;
-  for (const segment of shared) {
-    for (; at < segment.start; at += 1) if (KAKAO_NLU_OPENERS_V229148[text[at]] && !waiting.has(text[at])) waiting.set(text[at], at);
-    const kind = text[segment.start];
-    let start = segment.start;
-    if (waiting.has(kind)) {
-      start = waiting.get(kind);
-      for (const [mark, position] of [...waiting]) if (position >= start) waiting.delete(mark);
-      while (merged.length && merged[merged.length - 1].start >= start) merged.pop();
+  const spans = kakaoGroupQuotedSegmentsV229134(text).map(({ start, end }) => [start, end]);
+  for (const [open, close] of [["‘", "’"], ["“", "”"]]) {
+    const stack = [];
+    let lastOpen = -1, lastClose = -1;
+    for (let at = 0; at < text.length; at += 1) {
+      if (text[at] === open) { stack.push(at); lastOpen = at; }
+      else if (text[at] === close) {
+        lastClose = at;
+        if (stack.length) stack.pop();
+        else if (lastOpen >= 0) spans.push([lastOpen, at + 1]);
+      }
     }
-    merged.push({ start, end: segment.end, kind });
-    at = segment.end;
+    for (const at of stack) if (lastClose > at) spans.push([at, lastClose + 1]);
   }
-  // ② 짝 없는 닫는 따옴표 → 앞의 같은 종류 가장 가까운 조각을 그 따옴표까지 늘린다(사이의 조각은 그 안에 든다).
+  for (const mark of ["'", "\""]) {
+    let count = 0, previous = -1, last = -1;
+    for (let at = 0; at < text.length; at += 1) if (text[at] === mark) { count += 1; previous = last; last = at; }
+    if (count % 2 === 1 && previous >= 0) spans.push([previous, last + 1]);
+  }
+  spans.sort((a, b) => a[0] - b[0] || b[1] - a[1]);
   const out = [];
-  const byKind = { "‘": [], "“": [] };
-  const strays = (from, to) => {
-    for (let q = from; q < to; q += 1) {
-      const list = byKind[KAKAO_NLU_CLOSERS_V229148[text[q]]];
-      if (!list || !list.length) continue;
-      const keep = list[list.length - 1] + 1;
-      out[keep - 1] = { ...out[keep - 1], end: q + 1 };
-      out.length = keep;
-      for (const indexes of Object.values(byKind)) while (indexes.length && indexes[indexes.length - 1] >= keep) indexes.pop();
-    }
-  };
-  let cursor = 0;
-  for (const segment of merged) {
-    strays(cursor, segment.start);
-    out.push(segment);
-    if (byKind[segment.kind]) byKind[segment.kind].push(out.length - 1);
-    cursor = segment.end;
+  for (const [start, end] of spans) {
+    const before = out[out.length - 1];
+    if (before && start < before.end) before.end = Math.max(before.end, end);
+    else out.push({ start, end });
   }
-  strays(cursor, text.length);
   return out;
 }
 function kakaoNluWithoutQuotedV229148(line = "") {
@@ -957,7 +975,7 @@ function kakaoNluBotWordsV229148(text = "") {
   let listed = false;
   return String(text || "").split("\n").map((line) => {
     const item = listed && KAKAO_NLU_LIST_ITEM_V229148.test(line);
-    listed = item || KAKAO_NLU_LIST_HEADS_V229148.some((head) => head.test(line));
+    listed = item || kakaoNluListHeadV229148(line);
     return item || KAKAO_NLU_RECORD_ROW_V229148.test(line) || KAKAO_NLU_RECENT_ROW_V229148.test(line) || KAKAO_NLU_NAME_LINE_V229148.test(line)
       || KAKAO_NLU_LIST_ROWS_V229148.some((row) => row.test(line))
       ? "" : kakaoNluWithoutQuotedV229148(line);
@@ -1035,7 +1053,8 @@ function rememberNluRuntimeEvent(event = {}, env = {}) {
       intent,
       confidence: Math.max(0, Math.min(1, Number(event.confidence || 0))),
       result,
-      reason: String(event.reason || "").slice(0, 100),
+      // V22.9.148(V148:C-33): 처리 중 오류의 까닭은 오류 글 그대로라(skill-handler.js 의 safeError) 운영 사건과 같이 가린다 — 정해 둔 까닭 이름은 그대로다.
+      reason: redactOpsDetail(event.reason || "").slice(0, 100),
       latency_ms: latencyMs,
       block: String(event.block || "").slice(0, 100),
       version: String(event.version || APP_VERSION).slice(0, 100),
@@ -26911,7 +26930,8 @@ async function handleSettlementHistorySave(request, env) {
     const formerMembers = await fetchFormerSpenderMembers(env, rows, members);
     const model = buildSettlementModel(rows, members, { mode, ...conditions, formerMembers });
     const digest = await settlementPreviewDigest({ month, mode, conditions, rows, members });
-    const legacyDigest = await settlementPreviewDigest({ month, mode, conditions, rows, members, allocationFormula: false });
+    // V22.9.148(Codex 3차 검토): 이 판 전 지문은 비교할 이력이 있을 때만 만든다(settlementDuplicateCompletionV229148).
+    const legacyDigest = () => settlementPreviewDigest({ month, mode, conditions, rows, members, allocationFormula: false });
     const submittedDigest = String(form.get("preview_digest") || "").trim();
     if (submittedDigest && submittedDigest !== digest) return redirectResponse(`${backTo}&err=settlement_changed`);
     const note = String(form.get("note") || "").trim().slice(0, 160);
@@ -26919,12 +26939,7 @@ async function handleSettlementHistorySave(request, env) {
     // 서로 다른 완료 요청까지 직렬화해 이력 유실과 중복을 함께 막고, 지운 가계부에 이력을 되살리지 않는다.
     const outcome = await withHouseholdSettingsRmw(env, selected.id, async ({ assertFresh }) => {
       const history = parseJsonArraySettingStrict(await getSettingValueStrict(env, settlementHistoryKey(selected.id)), "settlement_history_json_invalid");
-      const duplicate = history.some((item) => {
-        if (!item || typeof item !== "object") return false;
-        const completedAt = Date.parse(String(item.completed_at || ""));
-        const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
-        return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && settlementSameCompletionV229148(item, { digest, legacyDigest, model });
-      });
+      const duplicate = await settlementDuplicateCompletionV229148(history, { month, mode, note, userId, model, digest, legacyDigest });
       if (duplicate) return "duplicate";
       history.push({
         id: crypto.randomUUID(),
@@ -27015,11 +27030,37 @@ function settlementAllocationFormulaV229148(mode = "") {
 // (legacyDigest)이 같으면, 저장된 몫이 지금 계산과 같을 때만 같은 완료로 본다 — 배포 직전에 1 : 1 로 완료하고 배포 뒤 새로 연 화면으로 다시 완료하면
 // 지문만 달라 같은 완료가 두 건 저장됐다. 예전 식으로 몫이 달랐던 완료(0.7 : 0.3 의 62,999원 / 27,001원)를 바로잡는 완료는 새로 저장한다.
 // 옛 화면에서 보낸 완료를 거절하는 미리 본 지문 대조는 그대로다(이 함수는 중복 확인에만 쓴다).
+// V22.9.148(Codex 3차 검토): 몫은 칸이 모두 있을 때만 견준다 — 빠진 칸(paid 없음)을 0원으로 읽어 지금 계산의 0원과 같다고 보면, 불완전한 이력이 새 완료로
+// 바로잡힐 기회까지 막았다. 행 순서와 숫자 글자(‘45000’)는 그대로 받는다.
+const SETTLEMENT_SHARE_FIELDS_V229148 = Object.freeze(["paid", "share", "balance"]);
+function settlementSharesKeyV229148(list = []) {
+  const amount = (value) => ((typeof value === "number" || (typeof value === "string" && value.trim() !== "")) && Number.isFinite(Number(value)) ? Number(value) : null);
+  const entries = safeArray(list).map((p) => (p && typeof p === "object" && String(p.user_id || "") ? [String(p.user_id), ...SETTLEMENT_SHARE_FIELDS_V229148.map((key) => amount(p[key]))] : null));
+  return entries.every((entry) => entry && entry.every((value) => value !== null)) ? JSON.stringify(entries.sort()) : null;
+}
 function settlementSameCompletionV229148(item = {}, { digest = "", legacyDigest = "", model = {} } = {}) {
   if (!item.rows_digest || item.rows_digest === digest) return true;
   if (!legacyDigest || item.rows_digest !== legacyDigest) return false;
-  const sharesKey = (list) => JSON.stringify(safeArray(list).map((p) => [String(p?.user_id || ""), Number(p?.paid || 0), Number(p?.share || 0), Number(p?.balance || 0)]).sort());
-  return sharesKey(item.shares) === sharesKey(model.people);
+  const stored = settlementSharesKeyV229148(item.shares);
+  return stored !== null && stored === settlementSharesKeyV229148(model.people);
+}
+
+// V22.9.148(Codex 3차 검토): 두 저장 길(일반·환불 연결)의 5분 중복 확인. 같은 사람·같은 달·같은 방식·같은 합계·같은 메모의 5분 안 이력이 있을 때만,
+// 그리고 그 이력의 지문이 지금 지문과 다를 때만 이 판 전 지문(legacyDigest — 부르면 만드는 함수)을 한 번 만든다. 예전에는 완료마다(제출 지문이 틀려 곧
+// 거절할 때도) 월 전체 행을 두 번 정렬·직렬화·해시했다(Workers 요청당 CPU 시간). 동일·품목별은 계산식 표지가 없어 두 지문이 같으니 만들지 않는다.
+async function settlementDuplicateCompletionV229148(history = [], { month = "", mode = "", note = "", userId = "", model = {}, digest = "", legacyDigest = null } = {}) {
+  const now = Date.now();
+  const candidates = safeArray(history).filter((item) => {
+    if (!item || typeof item !== "object") return false;
+    const completedAt = Date.parse(String(item.completed_at || ""));
+    const recent = Number.isFinite(completedAt) && now - completedAt >= 0 && now - completedAt < 5 * 60 * 1000;
+    return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId);
+  });
+  if (!candidates.length) return false;
+  if (candidates.some((item) => settlementSameCompletionV229148(item, { digest, model }))) return true;
+  if (!settlementAllocationFormulaV229148(mode).length || typeof legacyDigest !== "function") return false;
+  const legacy = await legacyDigest();
+  return candidates.some((item) => settlementSameCompletionV229148(item, { digest, legacyDigest: legacy, model }));
 }
 
 function renderSettlementConfig({ mode = "equal", members = [], rows = [], weights = {}, itemParticipants = {}, month = currentMonthKst(), householdId = "", people = null }) {
@@ -28227,14 +28268,10 @@ async function handleSettlementHistorySaveV22979(request, env) {
       const model = buildSettlementModel(rows, members, { mode, ...conditions, formerMembers, ...(refund.netting ? { refundNetting: refund.netting } : {}) });
       const digest = await settlementRefundDigest({ month, mode, conditions, rows, links: refund.links, members });
       if (submittedDigest && submittedDigest !== digest) return "changed";
-      const legacyDigest = await settlementRefundDigest({ month, mode, conditions, rows, links: refund.links, members, allocationFormula: false });
+      // V22.9.148(Codex 3차 검토): 이 판 전 지문은 비교할 이력이 있을 때만 만든다(settlementDuplicateCompletionV229148).
+      const legacyDigest = () => settlementRefundDigest({ month, mode, conditions, rows, links: refund.links, members, allocationFormula: false });
       const history = parseJsonArraySettingStrict(historyValue, "settlement_history_json_invalid");
-      const duplicate = history.some((item) => {
-        if (!item || typeof item !== "object") return false;
-        const completedAt = Date.parse(String(item.completed_at || ""));
-        const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
-        return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && settlementSameCompletionV229148(item, { digest, legacyDigest, model });
-      });
+      const duplicate = await settlementDuplicateCompletionV229148(history, { month, mode, note, userId, model, digest, legacyDigest });
       if (duplicate) return "duplicate";
       const linked = refund.links.length > 0;
       history.push({
@@ -60254,6 +60291,11 @@ async function readRequestTextBounded(request, maxBytes = KAKAO_SKILL_MAX_BODY_B
   return new TextDecoder().decode(merged);
 }
 
+function kakaoSkillBadJsonDetailV229148(err, bodyText = "") {
+  const position = /\bposition (\d+)\b/.exec(String(err?.message || ""))?.[1] || "";
+  return `invalid_json; chars=${String(bodyText || "").length}${position ? `; position=${position}` : ""}`;
+}
+
 async function handleKakaoSkillStable(request, env, ctx = null) {
   const requestStartedAt = Date.now();
   const origin = publicBaseUrl(env, new URL(request.url));
@@ -60298,7 +60340,9 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
       rememberSkillEvent({ kind: "raw_text_test", user_key: userKey, utterance, detail: "invalid JSON accepted as test utterance" });
     } else {
       abMonitorOutcome(env, "error");
-      rememberSkillEvent({ kind: "bad_json", user_key: "unknown", utterance: "", detail: safeError(err) });
+      // V22.9.148(Codex 3차 검토): JSON 해석 오류 문구에는 본문 일부가 그대로 들어간다(V8: Unexpected token '시', "시험 병원 진료비" is not valid JSON) —
+      // 실패 사례 저장을 꺼도 관리자 /ops-snapshot.json 의 skill.recent 에 보낸 글이 남았다. 고정 이름과 글자 수·위치(숫자)만 남긴다.
+      rememberSkillEvent({ kind: "bad_json", user_key: "unknown", utterance: "", detail: kakaoSkillBadJsonDetailV229148(err, bodyText) });
       return kakaoText(kakaoSkillSafeFallbackText(origin));
     }
   }

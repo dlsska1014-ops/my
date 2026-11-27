@@ -1,7 +1,7 @@
 {
   "src/modules/features/settlement-ops-pages.js": {
     "buildSettlementModel": "3956f1eaf7e981dd680b28f5578d086ebdce307e451509c32c4fb75a86257ace",
-    "handleSettlementHistorySave": "f2c0ba56aa3c3bf0ec3ceb098c70f58b1c68d0af878199215d1f1533c9042c17",
+    "handleSettlementHistorySave": "38591642a3a4277427c69cb6b7daf71f63f296d0df4847fe25892ed914d88e8a",
     "parseSettlementConditions": "574ec6194495eaef30dc8d560ec71fa461624ff2ae8b15953250dc190c92fd6e",
     "settlementPreviewDigest": "ae3d21a5994da9bf12aa2329641b7c3c8c6a903c64dcb82f54c759211a6a123f",
     "settlementConditionPairs": "f51504466894e0c54bd4442ec05377065e6802e704b5a69b262389f47761a3be",

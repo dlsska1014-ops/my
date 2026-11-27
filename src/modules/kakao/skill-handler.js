@@ -113,6 +113,11 @@ import {
 } from "../domain/transactions-core.js";
 // @build:imports-end
 
+function kakaoSkillBadJsonDetailV229148(err, bodyText = "") {
+  const position = /\bposition (\d+)\b/.exec(String(err?.message || ""))?.[1] || "";
+  return `invalid_json; chars=${String(bodyText || "").length}${position ? `; position=${position}` : ""}`;
+}
+
 async function handleKakaoSkillStable(request, env, ctx = null) {
   const requestStartedAt = Date.now();
   const origin = publicBaseUrl(env, new URL(request.url));
@@ -157,7 +162,9 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
       rememberSkillEvent({ kind: "raw_text_test", user_key: userKey, utterance, detail: "invalid JSON accepted as test utterance" });
     } else {
       abMonitorOutcome(env, "error");
-      rememberSkillEvent({ kind: "bad_json", user_key: "unknown", utterance: "", detail: safeError(err) });
+      // V22.9.148(Codex 3차 검토): JSON 해석 오류 문구에는 본문 일부가 그대로 들어간다(V8: Unexpected token '시', "시험 병원 진료비" is not valid JSON) —
+      // 실패 사례 저장을 꺼도 관리자 /ops-snapshot.json 의 skill.recent 에 보낸 글이 남았다. 고정 이름과 글자 수·위치(숫자)만 남긴다.
+      rememberSkillEvent({ kind: "bad_json", user_key: "unknown", utterance: "", detail: kakaoSkillBadJsonDetailV229148(err, bodyText) });
       return kakaoText(kakaoSkillSafeFallbackText(origin));
     }
   }

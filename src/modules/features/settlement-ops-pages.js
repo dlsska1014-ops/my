@@ -369,7 +369,8 @@ async function handleSettlementHistorySave(request, env) {
     const formerMembers = await fetchFormerSpenderMembers(env, rows, members);
     const model = buildSettlementModel(rows, members, { mode, ...conditions, formerMembers });
     const digest = await settlementPreviewDigest({ month, mode, conditions, rows, members });
-    const legacyDigest = await settlementPreviewDigest({ month, mode, conditions, rows, members, allocationFormula: false });
+    // V22.9.148(Codex 3차 검토): 이 판 전 지문은 비교할 이력이 있을 때만 만든다(settlementDuplicateCompletionV229148).
+    const legacyDigest = () => settlementPreviewDigest({ month, mode, conditions, rows, members, allocationFormula: false });
     const submittedDigest = String(form.get("preview_digest") || "").trim();
     if (submittedDigest && submittedDigest !== digest) return redirectResponse(`${backTo}&err=settlement_changed`);
     const note = String(form.get("note") || "").trim().slice(0, 160);
@@ -377,12 +378,7 @@ async function handleSettlementHistorySave(request, env) {
     // 서로 다른 완료 요청까지 직렬화해 이력 유실과 중복을 함께 막고, 지운 가계부에 이력을 되살리지 않는다.
     const outcome = await withHouseholdSettingsRmw(env, selected.id, async ({ assertFresh }) => {
       const history = parseJsonArraySettingStrict(await getSettingValueStrict(env, settlementHistoryKey(selected.id)), "settlement_history_json_invalid");
-      const duplicate = history.some((item) => {
-        if (!item || typeof item !== "object") return false;
-        const completedAt = Date.parse(String(item.completed_at || ""));
-        const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
-        return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && settlementSameCompletionV229148(item, { digest, legacyDigest, model });
-      });
+      const duplicate = await settlementDuplicateCompletionV229148(history, { month, mode, note, userId, model, digest, legacyDigest });
       if (duplicate) return "duplicate";
       history.push({
         id: crypto.randomUUID(),
@@ -473,11 +469,37 @@ function settlementAllocationFormulaV229148(mode = "") {
 // (legacyDigest)이 같으면, 저장된 몫이 지금 계산과 같을 때만 같은 완료로 본다 — 배포 직전에 1 : 1 로 완료하고 배포 뒤 새로 연 화면으로 다시 완료하면
 // 지문만 달라 같은 완료가 두 건 저장됐다. 예전 식으로 몫이 달랐던 완료(0.7 : 0.3 의 62,999원 / 27,001원)를 바로잡는 완료는 새로 저장한다.
 // 옛 화면에서 보낸 완료를 거절하는 미리 본 지문 대조는 그대로다(이 함수는 중복 확인에만 쓴다).
+// V22.9.148(Codex 3차 검토): 몫은 칸이 모두 있을 때만 견준다 — 빠진 칸(paid 없음)을 0원으로 읽어 지금 계산의 0원과 같다고 보면, 불완전한 이력이 새 완료로
+// 바로잡힐 기회까지 막았다. 행 순서와 숫자 글자(‘45000’)는 그대로 받는다.
+const SETTLEMENT_SHARE_FIELDS_V229148 = Object.freeze(["paid", "share", "balance"]);
+function settlementSharesKeyV229148(list = []) {
+  const amount = (value) => ((typeof value === "number" || (typeof value === "string" && value.trim() !== "")) && Number.isFinite(Number(value)) ? Number(value) : null);
+  const entries = safeArray(list).map((p) => (p && typeof p === "object" && String(p.user_id || "") ? [String(p.user_id), ...SETTLEMENT_SHARE_FIELDS_V229148.map((key) => amount(p[key]))] : null));
+  return entries.every((entry) => entry && entry.every((value) => value !== null)) ? JSON.stringify(entries.sort()) : null;
+}
 function settlementSameCompletionV229148(item = {}, { digest = "", legacyDigest = "", model = {} } = {}) {
   if (!item.rows_digest || item.rows_digest === digest) return true;
   if (!legacyDigest || item.rows_digest !== legacyDigest) return false;
-  const sharesKey = (list) => JSON.stringify(safeArray(list).map((p) => [String(p?.user_id || ""), Number(p?.paid || 0), Number(p?.share || 0), Number(p?.balance || 0)]).sort());
-  return sharesKey(item.shares) === sharesKey(model.people);
+  const stored = settlementSharesKeyV229148(item.shares);
+  return stored !== null && stored === settlementSharesKeyV229148(model.people);
+}
+
+// V22.9.148(Codex 3차 검토): 두 저장 길(일반·환불 연결)의 5분 중복 확인. 같은 사람·같은 달·같은 방식·같은 합계·같은 메모의 5분 안 이력이 있을 때만,
+// 그리고 그 이력의 지문이 지금 지문과 다를 때만 이 판 전 지문(legacyDigest — 부르면 만드는 함수)을 한 번 만든다. 예전에는 완료마다(제출 지문이 틀려 곧
+// 거절할 때도) 월 전체 행을 두 번 정렬·직렬화·해시했다(Workers 요청당 CPU 시간). 동일·품목별은 계산식 표지가 없어 두 지문이 같으니 만들지 않는다.
+async function settlementDuplicateCompletionV229148(history = [], { month = "", mode = "", note = "", userId = "", model = {}, digest = "", legacyDigest = null } = {}) {
+  const now = Date.now();
+  const candidates = safeArray(history).filter((item) => {
+    if (!item || typeof item !== "object") return false;
+    const completedAt = Date.parse(String(item.completed_at || ""));
+    const recent = Number.isFinite(completedAt) && now - completedAt >= 0 && now - completedAt < 5 * 60 * 1000;
+    return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId);
+  });
+  if (!candidates.length) return false;
+  if (candidates.some((item) => settlementSameCompletionV229148(item, { digest, model }))) return true;
+  if (!settlementAllocationFormulaV229148(mode).length || typeof legacyDigest !== "function") return false;
+  const legacy = await legacyDigest();
+  return candidates.some((item) => settlementSameCompletionV229148(item, { digest, legacyDigest: legacy, model }));
 }
 
 function renderSettlementConfig({ mode = "equal", members = [], rows = [], weights = {}, itemParticipants = {}, month = currentMonthKst(), householdId = "", people = null }) {
@@ -670,7 +692,7 @@ export {
   handleSettlementHistorySave, handleSettlementSummaryPage, handleTrafficOpsPage,
   parseSettlementConditions, renderSettlementRows, renderTransferRows,
   settlementAllocationFormulaV229148, settlementConditionPairs, settlementConditionQuery,
-  settlementHistoryForSave, settlementHistoryKey, settlementPreviewDigest, settlementRoleAllowed,
-  settlementSameCompletionV229148,
+  settlementDuplicateCompletionV229148, settlementHistoryForSave, settlementHistoryKey,
+  settlementPreviewDigest, settlementRoleAllowed,
 };
 // @build:exports-end

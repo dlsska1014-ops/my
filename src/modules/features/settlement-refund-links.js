@@ -12,8 +12,8 @@ import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-
 import { safeArray } from "../admin/backup-compare.js";
 import {
   buildSettlementModel, parseSettlementConditions, settlementAllocationFormulaV229148,
-  settlementConditionPairs, settlementConditionQuery, settlementHistoryForSave,
-  settlementHistoryKey, settlementPreviewDigest, settlementSameCompletionV229148,
+  settlementConditionPairs, settlementConditionQuery, settlementDuplicateCompletionV229148,
+  settlementHistoryForSave, settlementHistoryKey, settlementPreviewDigest,
 } from "./settlement-ops-pages.js";
 import {
   applyRefundLinkNetting, buildRefundReviewItems, isRefundIncomeRow, isRefundLinksAbsentError,
@@ -585,14 +585,10 @@ async function handleSettlementHistorySaveV22979(request, env) {
       const model = buildSettlementModel(rows, members, { mode, ...conditions, formerMembers, ...(refund.netting ? { refundNetting: refund.netting } : {}) });
       const digest = await settlementRefundDigest({ month, mode, conditions, rows, links: refund.links, members });
       if (submittedDigest && submittedDigest !== digest) return "changed";
-      const legacyDigest = await settlementRefundDigest({ month, mode, conditions, rows, links: refund.links, members, allocationFormula: false });
+      // V22.9.148(Codex 3차 검토): 이 판 전 지문은 비교할 이력이 있을 때만 만든다(settlementDuplicateCompletionV229148).
+      const legacyDigest = () => settlementRefundDigest({ month, mode, conditions, rows, links: refund.links, members, allocationFormula: false });
       const history = parseJsonArraySettingStrict(historyValue, "settlement_history_json_invalid");
-      const duplicate = history.some((item) => {
-        if (!item || typeof item !== "object") return false;
-        const completedAt = Date.parse(String(item.completed_at || ""));
-        const recent = Number.isFinite(completedAt) && Date.now() - completedAt >= 0 && Date.now() - completedAt < 5 * 60 * 1000;
-        return recent && item.month === month && item.mode === mode && Number(item.total_expense || 0) === Number(model.totalExpense || 0) && String(item.note || "") === note && String(item.completed_by || "") === String(userId) && settlementSameCompletionV229148(item, { digest, legacyDigest, model });
-      });
+      const duplicate = await settlementDuplicateCompletionV229148(history, { month, mode, note, userId, model, digest, legacyDigest });
       if (duplicate) return "duplicate";
       const linked = refund.links.length > 0;
       history.push({

@@ -474,7 +474,8 @@ function run(command, args, label) {
 // V22.9.148: 첫 기록 검사(validate-v229148-first-record)와 추적표 V148 항목이 더해지고, 업데이트 소식 묶음 하나만큼 업데이트 소식 검사가 늘었다. 하네스 두 모드 108,043 / 108,036 중 작은 값.
 // V22.9.148(Codex 검토): 병합 뒤 Codex 검토 고침의 새 검사 66개와 추적표 V148:C-1~C-14 몫이 더해졌다. 하네스 두 모드 108,251 / 108,244 중 작은 값.
 // V22.9.148(Codex 2차 검토): 1차 고침만 다시 본 Codex 검토의 고침 — 새 검사 70개와 추적표 V148:C-15~C-23 몫이 더해졌다. 하네스 두 모드 108,413 / 108,406 중 작은 값.
-const EXPECTED_MINIMUM_CHECKS = 108406;
+// V22.9.148(Codex 3차 검토): 2차 고침만 다시 본 Codex 검토의 고침과 그 뒤 더 찾은 것 — 새 검사 49개와 추적표 V148:C-24~C-34 몫이 더해졌다. 하네스 두 모드 108,572 / 108,565 중 작은 값.
+const EXPECTED_MINIMUM_CHECKS = 108565;
 
 function runValidation(script, label) {
   console.log(`\n[실행] ${label}`);

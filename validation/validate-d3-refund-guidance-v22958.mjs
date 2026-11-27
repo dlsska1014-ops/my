@@ -44,6 +44,8 @@ for(const [rel,names] of Object.entries(protection)){
 // V22.9.148(Codex 2차 검토): buildSettlementModel 의 0.001 단위 반올림을 몫의 십진 글자로 한 번만 하고(0.5004999999 → 500 단위), settlementPreviewDigest 에
 // 표지를 뺀 지문을 만드는 선택(allocationFormula: false — 중복 확인에만), handleSettlementHistorySave 의 5분 중복 확인에 이 판 전 지문 + 같은 몫의 완료를
 // 더해(settlementSameCompletionV229148 — 배포 경계에서 같은 완료가 두 건 저장되던 것) 세 지문을 새로 적었다. 0.1 단위 몫의 결과와 지금 지문은 그대로다.
+// V22.9.148(Codex 3차 검토): handleSettlementHistorySave 의 5분 중복 확인을 도우미 하나(settlementDuplicateCompletionV229148 — 환불 연결 저장 길과 함께 쓴다)로
+// 옮기고, 이 판 전 지문을 비교할 이력이 있을 때만 만들게(부르면 만드는 함수로 넘긴다) 그 지문을 새로 적었다. 저장·거절 결과와 지금 지문은 그대로다.
  for(const [name,hash]of Object.entries(names)){const node=ast.body.find(n=>n.id?.name===name);ok(!!node,"protected function exists "+name);eq(sha(source.slice(node.start,node.end)),hash,"V57 unchanged contract "+name);}
 }
 const renderer=readFileSync(new URL("../src/modules/my/analysis-page.js",import.meta.url),"utf8");
