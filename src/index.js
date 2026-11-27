@@ -755,8 +755,11 @@ function nluRetentionDays(env = {}) {
 // Only server-owned classifications cross the diagnostic persistence boundary.
 // The legacy redacted-text flag never authorizes a new text sample.
 function nluDiagnosticFields(event = {}) {
-  const intents = ["EMPTY", "UNKNOWN", "EDIT", "MENU", "START", "CREATE_HOUSEHOLD", "JOIN_HOUSEHOLD", "HOUSEHOLD_SWITCH", "MEMBER_ALIAS_CHANGE", "INVITE_CODE_SHOW", "INVITE_MEMBER", "BUDGET_SETUP", "BUDGET_STATUS", "GROUP_LINK", "SETTLEMENT", "SUMMARY", "RECENT_RECORDS", "INPUT_EXAMPLE", "EDIT_GUIDE", "KEYWORD_GUIDE", "RESERVE_GUIDE", "DATA_POLICY", "CANCEL", "HELP", "WEB_LINK", "TRANSACTION"];
-  const reasons = ["generic_fallback", "guided_clarification", "handled", "save_failed", "save_uncertain", "safe_error_response", "handler_error"];
+  // V22.9.148: 못 알아들음(NO_MATCH)·금액 없음(NO_AMOUNT)·단추 이름만 온 답(BUTTON_LABEL)·인사(GREETING)·가계부 없는 사람의 첫 안내(FIRST_CONTACT)는
+  // 답을 만든 곳이 적는 이름이다. 저장하는 줄에는 까닭 칸이 없어서 갈래마다 이름이나 결과를 달리한다(이름·초대·예산·가계부 안내 = NO_MATCH/clarify).
+  // (markKakaoNluOutcomeV229148). 예전에는 모두 ‘알 수 없음’(UNKNOWN)에 섞였다.
+  const intents = ["EMPTY", "UNKNOWN", "EDIT", "MENU", "START", "CREATE_HOUSEHOLD", "JOIN_HOUSEHOLD", "HOUSEHOLD_SWITCH", "MEMBER_ALIAS_CHANGE", "INVITE_CODE_SHOW", "INVITE_MEMBER", "BUDGET_SETUP", "BUDGET_STATUS", "GROUP_LINK", "SETTLEMENT", "SUMMARY", "RECENT_RECORDS", "INPUT_EXAMPLE", "EDIT_GUIDE", "KEYWORD_GUIDE", "RESERVE_GUIDE", "DATA_POLICY", "CANCEL", "HELP", "WEB_LINK", "TRANSACTION", "NO_MATCH", "NO_AMOUNT", "BUTTON_LABEL", "GREETING", "FIRST_CONTACT"];
+  const reasons = ["generic_fallback", "guided_clarification", "handled", "save_failed", "save_uncertain", "safe_error_response", "handler_error", "no_match", "no_amount", "button_label"];
   const reason = String(event.reason || "");
   // V22.9.90: the natural-intent detector names these two HOUSEHOLD_CREATE/HOUSEHOLD_JOIN; the stored names (and the monitor labels) are the ones below.
   const aliases = { HOUSEHOLD_CREATE: "CREATE_HOUSEHOLD", HOUSEHOLD_JOIN: "JOIN_HOUSEHOLD" };
@@ -806,31 +809,101 @@ function redactOpsDetail(value = "") {
     .slice(0, 260);
 }
 
-function nluOutcomeFromKakaoResponse(responseText = "") {
+// V22.9.148: 답을 만든 곳이 관제 이름·결과를 직접 적는다. 답 글을 정규식으로 짐작하던 방식은 답 글이 바뀌면 말없이 틀어졌다 — V22.9.67 에
+// 못 알아들은 답을 ‘무슨 뜻인지 이해하지 못했어요’ 로 바꾼 뒤로 그 답은 ‘ok’ 로 세어져, 관제가 못 알아들음을 셀 수 없었다.
+// 표시는 요청마다 새로 만드는 env.__AB_KAKAO_REQUEST(worker/router.js)에만 둔다. 표지(signature) = 그 답의 첫 줄이고, 마지막 답에 표지가
+// 그대로 있을 때만 쓴다(그 사이 다른 답으로 바뀌었으면 예전처럼 글로 읽는다). 남기는 것은 아래에 정해 둔 이름·결과·까닭 낱말뿐이다(글 없음).
+const KAKAO_NLU_MARKS_V229148 = Object.freeze({
+  greeting: Object.freeze({ intent: "GREETING", result: "ok", reason: "handled" }),
+  no_match: Object.freeze({ intent: "NO_MATCH", result: "fallback", reason: "no_match" }),
+  no_amount: Object.freeze({ intent: "NO_AMOUNT", result: "fallback", reason: "no_amount" }),
+  button_label: Object.freeze({ intent: "BUTTON_LABEL", result: "fallback", reason: "button_label" }),
+  hint: Object.freeze({ intent: "NO_MATCH", result: "clarify", reason: "guided_clarification" }),
+  // 가계부가 없는 사람의 첫 안내는 기록이 아직 안 된 안내 단계다 — 성공(ok)이 아니라 되묻기(clarify)로 센다(독립 검토: 새 사람의 ‘커피 사먹음’ 이 ok 였다).
+  first_contact: Object.freeze({ intent: "FIRST_CONTACT", result: "clarify", reason: "guided_clarification" }),
+  // 저장한 답(새로 저장·중복 저장 안 함). 답에 사용자의 메모·원래 문장이 되풀이되므로 글로 읽지 않는다(아래 kakaoNluBotWordsV229148 도 같은 까닭).
+  saved: Object.freeze({ intent: "TRANSACTION", result: "ok", reason: "handled" }),
+});
+
+function markKakaoNluOutcomeV229148(env, kind = "", replyText = "") {
+  const mark = Object.hasOwn(KAKAO_NLU_MARKS_V229148, kind) ? KAKAO_NLU_MARKS_V229148[kind] : null;
+  const request = env && typeof env === "object" ? env.__AB_KAKAO_REQUEST : null;
+  const signature = String(replyText || "").split("\n")[0].trim();
+  if (!mark || !request || typeof request !== "object" || !signature) return;
+  request.nluMarkV229148 = { ...mark, kind, signature };
+}
+
+function kakaoNluMarkV229148(env) {
+  const request = env && typeof env === "object" ? env.__AB_KAKAO_REQUEST : null;
+  const mark = request && typeof request === "object" ? request.nluMarkV229148 : null;
+  return mark && typeof mark === "object" ? mark : null;
+}
+
+// V22.9.148: 답의 모든 말풍선 글을 읽는다. 예전에는 첫 말풍선의 simpleText 만 읽어, 단톡방 답(단추가 붙으면 카드로 바뀐다 — response-builders.js
+// kakaoGroupCompatibleResponse·kakaoNextStepReply)은 저장 확인 지연·고치기 실패까지 늘 ‘ok’ 였고, 1:1 답의 둘째 말풍선도 읽지 않았다.
+// 고를 수 있는 것 = 바로답 + 메시지 단추(단톡방은 바로답을 메시지 단추로 바꾼다). 링크·플러그인 단추는 세지 않는다.
+function kakaoNluResponsePartsV229148(body) {
+  const template = body && typeof body === "object" && body.template && typeof body.template === "object" ? body.template : {};
+  const texts = [];
+  let choices = Array.isArray(template.quickReplies) ? template.quickReplies.length : 0;
+  const read = (part) => {
+    if (!part || typeof part !== "object") return;
+    for (const key of ["text", "title", "description"]) if (typeof part[key] === "string" && part[key]) texts.push(part[key]);
+    if (Array.isArray(part.buttons)) choices += part.buttons.filter((button) => button && button.action === "message").length;
+  };
+  for (const output of Array.isArray(template.outputs) ? template.outputs : []) {
+    if (!output || typeof output !== "object") continue;
+    read(output.simpleText);
+    read(output.textCard);
+    read(output.basicCard);
+    if (output.carousel && Array.isArray(output.carousel.items)) output.carousel.items.forEach(read);
+  }
+  return { text: texts.join("\n"), choices };
+}
+
+// V22.9.148(독립 검토): 문구 판정은 봇이 쓴 말만 본다. 답에 되풀이된 사용자의 글 — 기록 줄의 메모(‘01번 - 서버 오류 수리비 / 30,000원 / …’,
+// ‘• 2026-11-30 지출 4,500원 · 메모’), 이름 줄(‘가계부: 이름’)과 따옴표 안의 원래 문장 — 이 ‘서버.*오류’·‘잠시 후 다시’·‘어떤 ’ 에 걸려
+// 정상 저장·목록이 오류·되묻기로 세어졌다(1:1 은 예전부터, 이 판이 카드를 읽으면서 단톡방까지). 봇의 실패·되묻기 문장은 그 밖에 있다.
+const KAKAO_NLU_RECORD_ROW_V229148 = /^[^\n]*\s\/\s(?:수입 )?-?[\d,]+원(?:\s\/[^\n]*)?$/gm;
+const KAKAO_NLU_RECENT_ROW_V229148 = /^• \d{4}-\d{2}-\d{2} (?:지출|수입) -?[\d,]+원 · [^\n]*$/gm;
+const KAKAO_NLU_QUOTED_V229148 = /‘[^’\n]*’|“[^”\n]*”|"[^"\n]*"|'[^'\n]*'/g;
+// 이름 줄(‘가계부: 이름’·‘📒 가계부: 이름’·‘지출자: 이름’·‘수입자: 이름’)도 사용자가 정한 이름뿐이다(가계부 이름 ‘서버 오류 대응팀’).
+const KAKAO_NLU_NAME_LINE_V229148 = /^(?:📒 )?(?:가계부|지출자|수입자): [^\n]*$/gm;
+function kakaoNluBotWordsV229148(text = "") {
+  return String(text || "").replace(KAKAO_NLU_RECORD_ROW_V229148, "").replace(KAKAO_NLU_RECENT_ROW_V229148, "")
+    .replace(KAKAO_NLU_NAME_LINE_V229148, "").replace(KAKAO_NLU_QUOTED_V229148, "‘’");
+}
+
+function nluOutcomeFromKakaoResponse(responseText = "", mark = null) {
   let text = "";
   let quickReplyCount = 0;
   try {
-    const body = JSON.parse(String(responseText || "{}"));
-    text = String(body?.template?.outputs?.[0]?.simpleText?.text || "");
-    quickReplyCount = Array.isArray(body?.template?.quickReplies) ? body.template.quickReplies.length : 0;
+    const parts = kakaoNluResponsePartsV229148(JSON.parse(String(responseText || "{}")));
+    text = parts.text;
+    quickReplyCount = parts.choices;
   } catch (err) {
     text = String(responseText || "");
   }
-  if (/(정확히 이해하지 못했|아래 예시처럼 보내|원하는 내용을 찾지 못했|다시 보내주세요)/.test(text)) {
+  if (mark && typeof mark === "object" && typeof mark.signature === "string" && mark.signature && text.includes(mark.signature)) {
+    return { result: mark.result, reason: mark.reason, text, quick_reply_count: quickReplyCount, marked: true };
+  }
+  const words = kakaoNluBotWordsV229148(text);
+  // V22.9.148: 표시가 없는 길에서 나온 못 알아들음 답도 놓치지 않게 지금 문장(‘이해하지 못했어요’)을 함께 본다.
+  if (/(정확히 이해하지 못했|이해하지 못했어요|아래 예시처럼 보내|원하는 내용을 찾지 못했|다시 보내주세요)/.test(words)) {
     return { result: "fallback", reason: "generic_fallback", text, quick_reply_count: quickReplyCount };
   }
   // V22.9.37(관제): 저장소가 거절한 저장("저장하지 못했어요")과 결과를 모르는 저장("저장 확인이 지연")은 관제에 "ok"로
   // 집계되고 있었다. 실패·불확실로 나눠 센다.
-  if (/(저장하지 못했어요|기록되지 않았어요)/.test(text)) {
+  if (/(저장하지 못했어요|기록되지 않았어요)/.test(words)) {
     return { result: "error", reason: "save_failed", text, quick_reply_count: quickReplyCount };
   }
-  if (/저장 확인이 지연/.test(text)) {
+  if (/저장 확인이 지연/.test(words)) {
     return { result: "error", reason: "save_uncertain", text, quick_reply_count: quickReplyCount };
   }
-  if (/(잠시 후 다시|처리 중 오류|서버.*오류|문제가 발생|처리하지 못했어요)/.test(text)) {
+  if (/(잠시 후 다시|처리 중 오류|서버.*오류|문제가 발생|처리하지 못했어요)/.test(words)) {
     return { result: "error", reason: "safe_error_response", text, quick_reply_count: quickReplyCount };
   }
-  if (quickReplyCount > 0 && /(인가요|할까요|선택해|입력해 주세요|어떻게 처리|무엇을|어떤 )/.test(text)) {
+  if (quickReplyCount > 0 && /(인가요|할까요|선택해|입력해 주세요|어떻게 처리|무엇을|어떤 )/.test(words)) {
     return { result: "clarify", reason: "guided_clarification", text, quick_reply_count: quickReplyCount };
   }
   return { result: "ok", reason: "handled", text, quick_reply_count: quickReplyCount };
@@ -3398,7 +3471,7 @@ export default ACCOUNTBOOK_WORKER;
 
 // V22.9.19: 카카오 로그인 대기 팝업(가계부 팁), 카드사별 사용내역 가져오기 안내, 영수증 사진 등록 제거.
 // (V22.9.18: 화면을 실제 브라우저로 띄워 재고 고쳤다 — tools/screen-audit.mjs.)
-const APP_VERSION = "V22.9.147-GROUP-CALCULATOR";
+const APP_VERSION = "V22.9.148-FIRST-RECORD";
 const APP_MODE = "asset-dashboard-complete-stability";
 
 const HIDDEN_MEME_PATHS = new Set([
@@ -4437,8 +4510,8 @@ const REAL_SCREENS_CSS_V229146 = ".pubShots{margin:18px 0 8px;min-width:0}.pubSe
 // validate-v229147-group-settlement 가 두 함수를 같은 입력으로 돌려 사람별 낸 돈·몫·차액과 송금 제안을 대조하고,
 // 몫을 BigInt 로 다시 나눈 정답과도 대조한다.
 // 웹 정산이 말없이 고쳐 쓰는 값(몫 0 → 1, 0.1 미만 → 0.1, 1000 초과 → 1000)과 소수 몫은 계산기가 받지 않고 다시 적어 달라고 한다.
-// 소수 몫(0.7 : 0.3, 0.1 셋 등)은 몫의 합이 2진 소수 오차로 커져 나누어떨어지는 금액도 1~3원 어긋난다(웹 정산에 남은 결함 —
-// 추적표 V147:G-2). 그래서 몫은 1부터 1000까지의 정수만 받는다(반 몫은 2 : 1). 받아들이는 입력의 결과는 웹 정산과 같고 정확하다.
+// 소수 몫(0.7 : 0.3, 0.1 셋 등)을 실수로 나누면 2진 소수 오차로 나누어떨어지는 금액도 몇 원씩 어긋난다(어긋난 원은 마지막 사람에게 모인다 — 웹 정산은 V22.9.148 에 몫을
+// 정수 단위로 바꿔 고쳤다 — 추적표 V147:G-2). 그래서 몫은 1부터 1000까지의 정수만 받는다(반 몫은 2 : 1). 받아들이는 입력의 결과는 웹 정산과 같고 정확하다.
 // 금액·몫 칸은 글자 칸이다(type=number 는 브라우저가 ‘1/2’ 를 12 로, ‘50%’ 를 50 으로 말없이 바꾸거나 빈 값으로 넘긴다).
 // 그래서 계산 함수가 원문의 모양을 보고 맞지 않으면 다시 적어 달라고 한다.
 // groupSettlementComputeV229147 은 화면에 toString() 으로 그대로 실린다(worksheet-runtime.js renderInlineWorksheetV229139).
@@ -5042,6 +5115,12 @@ const SUBSCRIPTION_CASE = [
 // 보안 점검의 세부·관리자·관제·배포·DB 같은 내부 내용, 점검한 도구의 이름, 옛 서비스 이름은 적지 않고, 문장은 그 판의 CHANGELOG 절보다 넓게 쓰지 않는다(조건이 있으면 조건까지).
 // 새 판은 맨 앞에 그 판의 묶음 하나를 더한다(이미 있는 묶음에 판을 끼우지 않는다 — 쪽 안 앵커 id 는 묶음의 가장 새 판 번호(v229143 꼴)이고 RSS 항목의 링크·guid 라 바뀌면 안 된다).
 const PUBLIC_UPDATES_V229143 = Object.freeze([
+  { date: "2026-11-27", versions: ["V22.9.148"], title: "카카오톡 첫 기록 안내와 웹 정산 계산", items: [
+    "카카오톡 봇이 알아듣지 못한 말에는 [기록방법]·[도움말 보기] 단추를 보여 주도록 바꿨습니다.",
+    "1:1 채팅의 도움말과 기록하는 법에는 ‘@말해가계부’ 없이 ‘점심 12000원’처럼 보내면 된다고 적었습니다.",
+    "웹 가계부 정산에서 0.7 : 0.3처럼 소수 비율로 나눌 때 몫이 몇 원씩 어긋나던 계산을 바로잡았습니다.",
+    "예를 들어 90,000원을 0.7 : 0.3으로 나누면 63,000원과 27,000원이 되도록 맞췄습니다.",
+  ] },
   { date: "2026-11-26", versions: ["V22.9.147"], title: "모임 정산 계산기", items: [
     "여행·회식처럼 여럿이 번갈아 낸 돈을 나누는 ‘모임 정산 계산기’를 열었습니다.",
     "참여자와 지출을 적으면 사람별 몫과 누가 누구에게 얼마를 보낼지, 단톡방에 붙여 넣을 결산 문구까지 보여 주도록 했습니다.",
@@ -26509,14 +26588,25 @@ function buildSettlementModel(rows = [], members = [], options = {}) {
     weights[id] = Math.max(0.1, Math.min(1000, Number.isFinite(raw) ? raw : 1));
   }
   const owedBy = Object.fromEntries(ids.map((id) => [id, 0]));
+  // V22.9.148 V147:G-2: 몫 칸은 0.1 단위라 0.7 : 0.3 같은 소수 몫이 들어온다. 예전에는 금액에 소수 몫을 실수로 곱해 내림해서
+  // 90,000원이 62,999원 / 27,001원(90,000 × 0.7 = 62,999.999…), 0.1 셋에 30,000원이 9,999 / 9,999 / 10,002 가 됐다.
+  // 몫을 0.001 단위의 정수로 바꿔(0.7 → 700) BigInt 로 나눈다 — 나누어떨어지면 정확히 그 값이고, 내림과 ‘남는 원은 마지막 사람’ 규칙은 예전과 같다
+  // (정수 몫의 결과는 예전과 같다 — 공개 모임 정산 계산기 public/group-settlement-v229147.js 와 같은 값).
+  const allocationUnitsV229148 = (weight) => BigInt(Math.max(1, Math.round(Number(weight || 1) * 1000)));
+  const floorDivV229148 = (numerator, denominator) => {
+    const quotient = numerator / denominator;
+    return numerator % denominator < 0n ? quotient - 1n : quotient;
+  };
   const allocate = (amount, selectedIds, selectedWeights = {}) => {
     const targets = selectedIds.filter((id) => ids.includes(id));
     if (!targets.length) return;
-    const sumWeight = targets.reduce((sum, id) => sum + Number(selectedWeights[id] || 1), 0) || targets.length;
-    let allocated = 0;
+    const units = targets.map((id) => allocationUnitsV229148(selectedWeights[id]));
+    const sumUnits = units.reduce((sum, unit) => sum + unit, 0n);
+    const total = BigInt(Math.round(Number(amount) || 0));
+    let allocated = 0n;
     targets.forEach((id, index) => {
-      const value = index === targets.length - 1 ? amount - allocated : Math.floor(amount * Number(selectedWeights[id] || 1) / sumWeight);
-      owedBy[id] = (owedBy[id] || 0) + value;
+      const value = index === targets.length - 1 ? total - allocated : floorDivV229148(total * units[index], sumUnits);
+      owedBy[id] = (owedBy[id] || 0) + Number(value);
       allocated += value;
     });
   };
@@ -52277,45 +52367,47 @@ function kakaoSkillSafeFallbackText(origin = "") {
   ].join("\n");
 }
 
+// V22.9.148: 글과 함께 어떤 갈래의 답인지(kind)를 돌려준다 — 관제가 못 알아들음(no_match)·금액 없음(no_amount)·단추 이름만(button_label)·
+// 이름·초대 안내(hint)를 따로 센다(runtime/ops-telemetry.js markKakaoNluOutcomeV229148). 답 글은 그대로다.
 function kakaoNoMatchGuideText(utterance = "", origin = "") {
   const t = normalizeText(utterance);
   // V22.9.127: 단톡방의 메시지 단추는 단추 이름을 그대로 보낸다. 예전 답 카드에 남은 [지출로 기록]·[수입으로 기록] 을 누르면 그 이름만 오므로,
   // 일반 입력 안내 대신 무엇을 다시 보내면 되는지 알려 준다(새 답은 단톡방에 이 단추를 내지 않는다 — response-builders.js kakaoGroupChoiceButtons).
   if (/^(?:지출로|수입으로)\s?기록$/.test(t)) {
-    return [
+    return { kind: "button_label", text: [
       "이 단추만으로는 어떤 기록인지 알 수 없어요.",
       "앞에 ‘지출’ 이나 ‘수입’ 을 붙여 한 문장으로 다시 보내 주세요.",
       "예) 수입 지원금 30만원",
-    ].join("\n");
+    ].join("\n") };
   }
   if (/(닉네임|별명|표시명|내 이름|이름 수정|이름 변경)/.test(t)) {
-    return [
+    return { kind: "hint", text: [
       "이 가계부에서 표시할 이름을 바꾸려는 것으로 이해했어요 😊",
       "",
       "아래처럼 보내주세요.",
       "• 내 이름 설정",
       "• 내 이름을 민지로 변경",
-    ].join("\n");
+    ].join("\n") };
   }
   if (/(초대|코드|구성원|멤버)/.test(t)) {
-    return [
+    return { kind: "hint", text: [
       "구성원 초대 또는 초대코드 확인으로 이해했어요 😊",
       "",
       "아래처럼 보내주세요.",
       "• 초대코드",
       "• 구성원 초대",
       "• 초대코드로 참여",
-    ].join("\n");
+    ].join("\n") };
   }
   const maybeHasMoneyWord = /(원|만원|천원|카드|현금|페이|계좌|점심|커피|마트|병원|월급|수입|지출|결제|주유|택시|보험|세금)/.test(t);
   const firstLine = maybeHasMoneyWord
     ? "내용과 금액을 한 문장으로 보내면 바로 기록돼요."
     : "무슨 뜻인지 이해하지 못했어요. 아래처럼 보내 주세요.";
   // V22.9.67: 알아듣지 못했을 때도 짧게 답하고 버튼으로 다음 행동을 고르게 한다.
-  return [
+  return { kind: maybeHasMoneyWord ? "no_amount" : "no_match", text: [
     firstLine,
     "예) 점심 12000원 국민카드",
-  ].filter(Boolean).join("\n");
+  ].filter(Boolean).join("\n") };
 }
 
 function detectKakaoAmbiguity(utterance = "") {
@@ -52408,23 +52500,25 @@ function kakaoForeignAmountText(origin = "") {
   return "외화 금액은 원화로 바꿔 적어 주세요(예: 커피 130000원)\n이번 메시지는 저장하지 않았어요." + kakaoInputExampleLink(origin);
 }
 
+// V22.9.148: 돌려주는 kind 로 관제가 갈래를 센다(인사 greeting, 이름·초대·예산·가계부 안내 hint, 그 밖은 kakaoNoMatchGuideText 의 갈래).
 function kakaoNoMatchGuide(utterance = "", origin = "") {
-  if (isKakaoGreetingUtterance(utterance)) return kakaoGreetingReply(utterance);
+  if (isKakaoGreetingUtterance(utterance)) return { ...kakaoGreetingReply(utterance), kind: "greeting" };
   const nlu = detectKakaoNaturalIntent(utterance);
-  const text = kakaoNoMatchGuideText(utterance, origin);
-  if (nlu.intent === "MEMBER_ALIAS_CHANGE") return { text, quickReplies: [["이름설정", "이름설정"], ["취소", "취소"]] };
+  const { text, kind } = kakaoNoMatchGuideText(utterance, origin);
+  if (nlu.intent === "MEMBER_ALIAS_CHANGE") return { text, quickReplies: [["이름설정", "이름설정"], ["취소", "취소"]], kind };
   if (["INVITE_CODE_SHOW","INVITE_MEMBER"].includes(nlu.intent) || /(초대|코드|구성원|멤버)/.test(nlu.normalized)) {
-    return { text, quickReplies: [["초대코드", "초대코드"], ["코드로 참여", "초대코드로 참여"]] };
+    return { text, quickReplies: [["초대코드", "초대코드"], ["코드로 참여", "초대코드로 참여"]], kind };
   }
   if (["BUDGET_SETUP","BUDGET_STATUS"].includes(nlu.intent) || /예산/.test(nlu.normalized)) {
-    return { text: "예산을 설정할까요, 현재 예산을 확인할까요?", quickReplies: [["예산설정", "예산설정"], ["남은예산", "남은예산"]] };
+    return { text: "예산을 설정할까요, 현재 예산을 확인할까요?", quickReplies: [["예산설정", "예산설정"], ["남은예산", "남은예산"]], kind: "hint" };
   }
   if (/가계부/.test(nlu.normalized)) {
-    return { text: "가계부를 새로 만들거나, 초대코드로 참여하거나, 다른 가계부로 전환할 수 있어요.", quickReplies: [["새 가계부", "새 가계부 만들기"], ["코드로 참여", "초대코드로 참여"], ["가계부전환", "가계부전환"]] };
+    return { text: "가계부를 새로 만들거나, 초대코드로 참여하거나, 다른 가계부로 전환할 수 있어요.", quickReplies: [["새 가계부", "새 가계부 만들기"], ["코드로 참여", "초대코드로 참여"], ["가계부전환", "가계부전환"]], kind: "hint" };
   }
   // V22.9.95 R-14: 금액을 못 읽은 기본 답(‘내용과 금액을…’·‘무슨 뜻인지…’)에만 버튼을 붙인다. 이름·초대 안내는 그대로다.
-  const example = /^(?:내용과 금액을|무슨 뜻인지)/.test(text) ? kakaoInputExampleLink(origin) : "";
-  return { text: text + example, quickReplies: [["도움말 보기", "도움말 보기"], ["오늘기록", "오늘기록"]] };
+  const example = kind === "no_amount" || kind === "no_match" ? kakaoInputExampleLink(origin) : "";
+  // V22.9.148(첫 기록): 못 알아들은 뒤의 바로답은 [기록방법]·[도움말 보기]. 예전의 [오늘기록] 은 첫 기록 전에는 ‘아직 기록이 없어요’ 만 보였다.
+  return { text: text + example, quickReplies: [["기록방법", "기록방법"], ["도움말 보기", "도움말 보기"]], kind };
 }
 
 function kakaoInputExampleText(origin = "") {
@@ -53206,7 +53300,10 @@ const KAKAO_NEXT_STEP_CARD_TEXT_MAX = 400;
 // 단톡방은 textCard 세로 버튼(메시지 버튼 + 맨 아래 ‘기록하기’ 멘션 플러그인), 1:1 은 바로가기(quickReplies)로 보낸다.
 function kakaoNextStepReply(text, payload = {}, quickReplies = [], { record = true } = {}) {
   const replies = dedupeQuickReplies(Array.isArray(quickReplies) ? quickReplies : []).map((q) => [q.label, q.messageText]);
-  if (!getKakaoBotGroupKey(payload)) return kakaoText(text, record ? [...replies, ["기록방법", "기록방법"]] : replies);
+  // V22.9.148 F-6(독립 검토): 1:1 에서는 봇을 부르지 않는다 — ‘기록 없음’ 답(이번 달·내 기록·그날·기간 요약)의 예시 줄에서 ‘@말해가계부 ’ 를 뗀다.
+  // 단톡방 답은 그대로(V22.9.134 M-1 — 예시에 봇 부르기가 한 번).
+  const directText = typeof text === "string" ? text.replace(/^예\) @말해가계부 /gm, "예) ") : text;
+  if (!getKakaoBotGroupKey(payload)) return kakaoText(directText, record ? [...replies, ["기록방법", "기록방법"]] : replies);
   const buttons = replies.slice(0, record ? 4 : 5).map(([label, messageText]) => ({ label: messageText.length <= 14 ? messageText : label, action: "message", messageText }));
   if (record) buttons.push({ ...KAKAO_RECORD_MENTION_BUTTON });
   return jsonResponse({
@@ -53982,6 +54079,11 @@ const KAKAO_MANUAL_PAGES = Object.freeze({
       "하고 싶은 것을 눌러 보세요.",
       "기록은 @말해가계부 점심 12000원 처럼 보내면 돼요.",
     ].join("\n"),
+    // V22.9.148(첫 기록): 1:1 채팅에서는 봇을 부를 필요가 없다 — 예시에서 ‘@말해가계부’ 를 뺀다(단톡방은 위 글 그대로).
+    directDescription: [
+      "하고 싶은 것을 눌러 보세요.",
+      "기록은 ‘점심 12000원’처럼 보내면 돼요.",
+    ].join("\n"),
     buttons: [
       { messageText: "리포트보기" },
       { messageText: "예산정하기" },
@@ -53995,6 +54097,11 @@ const KAKAO_MANUAL_PAGES = Object.freeze({
     description: [
       "@말해가계부 점심 12000원",
       "처럼 보내면 바로 기록돼요.",
+      "예) 어제 병원 15000원 국민카드",
+      "수입 예) 월급 250만원 들어옴",
+    ].join("\n"),
+    directDescription: [
+      "‘점심 12000원’처럼 보내면 바로 기록돼요.",
       "예) 어제 병원 15000원 국민카드",
       "수입 예) 월급 250만원 들어옴",
     ].join("\n"),
@@ -54087,7 +54194,8 @@ const KAKAO_MANUAL_PAGES = Object.freeze({
   },
 });
 function kakaoManualCard(page, { group = false, prefix = "" } = {}) {
-  const description = [prefix, page.description].filter(Boolean).join("\n\n").slice(0, KAKAO_MANUAL_CARD_DESCRIPTION_MAX);
+  const body = !group && page.directDescription ? page.directDescription : page.description;
+  const description = [prefix, body].filter(Boolean).join("\n\n").slice(0, KAKAO_MANUAL_CARD_DESCRIPTION_MAX);
   return {
     textCard: {
       title: page.title,
@@ -60096,8 +60204,11 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
   if (env.__AB_KAKAO_REQUEST) env.__AB_KAKAO_REQUEST.enabled = canDeferSave;
   // V22.9.90: 관제 이용 현황의 카카오 기능 순위(record_nlu_metric)는 메뉴 낱말 판별(detectKakaoNaturalIntent)만 써서 기록 글("점심 12000원")과
   // 고치기 명령을 ‘알 수 없음’으로 셌다(10-30 관제 확인: 129회 중 53회). 처리기가 기록·고치기로 읽은 글이면 그 이름(usage.intent)을 쓴다.
+  // V22.9.148: 답을 만든 곳이 표시를 남긴 답(못 알아들음·금액 없음·인사·첫 안내 — runtime/ops-telemetry.js markKakaoNluOutcomeV229148)은 그 이름(usage.markedIntent)이 먼저다.
   const usage = {};
-  const metricIntent = () => (intentMatch.intent === "UNKNOWN" && usage.intent) || intentMatch.intent;
+  // 낱말이 없는 말(‘?’·‘…’ — 판별은 EMPTY)도 못 알아들음 답을 받았으면 그 이름이다(독립 검토: 단톡방의 빈 부름 EMPTY/ok 와 한 줄에 섞였다).
+  const metricIntent = () => (intentMatch.intent === "UNKNOWN" && (usage.markedIntent || usage.intent))
+    || (intentMatch.intent === "EMPTY" && usage.markedIntent) || intentMatch.intent;
   const work = (async () => { try {
     const headers = new Headers(request.headers || {});
     headers.delete("content-length");
@@ -60123,7 +60234,9 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     });
     const latencyMs = Date.now() - skillStartedAt;
     const responsePreview = await safeResponse.clone().text();
-    const outcome = nluOutcomeFromKakaoResponse(responsePreview);
+    const nluMark = kakaoNluMarkV229148(env);
+    const outcome = nluOutcomeFromKakaoResponse(responsePreview, nluMark);
+    if (outcome.marked) usage.markedIntent = nluMark.intent;
     armKakaoRepeatGuard(repeat.key, responsePreview);
     clearKakaoInFlight(repeat.key);
     rememberSkillLatency(latencyMs, { intent: metricIntent(), result: outcome.result });
@@ -60332,6 +60445,14 @@ async function kakaoRoomJoinGuideReply(env, { payload, groupKey = "", user = {},
   return kakaoNextStepReply(role === "pending"
     ? "이 방 가계부에 참여 대기 중이에요.\n승인 없이 기록을 한 번 보내면 바로 참여돼요.\n예) @말해가계부 커피 4500원"
     : "아직 이 방 가계부에 참여 전이에요.\n기록을 한 번 보내면 바로 참여돼요.\n예) @말해가계부 커피 4500원", payload);
+}
+
+// V22.9.148: 가계부가 하나도 없는 사람에게 보내는 첫 안내 — 관제는 ‘첫 안내’(FIRST_CONTACT)의 되묻기(clarify)로 센다(예전에는 ‘알 수 없음’의 ok 에
+// 섞였다 — 아직 기록이 안 된 안내 단계라 성공으로 세지 않는다). 답은 그대로다.
+function kakaoFirstContactReplyV229148(env) {
+  const text = kakaoStartText(false);
+  markKakaoNluOutcomeV229148(env, "first_contact", text);
+  return kakaoText(text, kakaoStartQuickReplies(false));
 }
 
 function kakaoMixedTypeConfirmationReply(utterance = "") {
@@ -60902,7 +61023,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     activeHouseholds = households.filter((h) => !["pending", "blocked"].includes(String(h.role || "member")));
   }
   // V22.9.43: 연결된 단톡방에서는 가계부가 하나도 없는 사람도 아래 방 분기에서 ‘거래 한 번이면 참여’ 안내를 받는다.
-  if (!households.length && !(botGroupKey && linkedGroupHousehold?.id)) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
+  if (!households.length && !(botGroupKey && linkedGroupHousehold?.id)) return kakaoFirstContactReplyV229148(env);
 
   let household = null;
   let accessRole = "";
@@ -60938,7 +61059,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
     }
     accessRole = household?.role || "";
   }
-  if (!household) return kakaoText(kakaoStartText(false), kakaoStartQuickReplies(false));
+  if (!household) return kakaoFirstContactReplyV229148(env);
 
   // pending/blocked는 어떤 데이터 조회도 허용하지 않는다. viewer는 조회 명령만 허용한다.
   if (["pending", "blocked"].includes(accessRole)) {
@@ -61124,6 +61245,13 @@ function kakaoReturnSummaryRepliesV229123(now = nowKstDate()) {
 
 const KAKAO_PIN_TIP_V229123 = "💡 이 채팅방을 상단에 고정해 두면 다음에도 바로 기록할 수 있어요.";
 
+// V22.9.148(독립 검토): 저장한 답(새로 저장·중복 저장 안 함)은 관제에 저장 성공(TRANSACTION/ok)으로 표시한다. 답에 사용자의 메모·원래 문장이
+// 되풀이되어(‘서버 오류 수리비’·‘잠시 후 다시 갈 커피’) 글로 짐작하면 오류·되묻기로 세어졌다 — 단톡방 카드 답(월요일·월초 요약 단추)까지.
+function kakaoSavedReplyV229148(env, text, quickReplies = null) {
+  markKakaoNluOutcomeV229148(env, "saved", text);
+  return kakaoText(text, quickReplies);
+}
+
 async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const { household, user, kakaoUserKey, nickname, origin, parsedList, handlerStartedAt, canDeferSave = false, firstNotice = "", utterance = "", assertFresh, onSaved } = context;
   // V22.9.77 감사 D-6: 같은 이름의 가계부가 또 있으면 호출부가 역할·만든 날을 붙인 이름을 넘긴다(없으면 이름 그대로).
@@ -61134,7 +61262,12 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     const rows = context.householdRowsPromise ? await optionalWithin(context.householdRowsPromise, 250, null) : null;
     return Array.isArray(rows) ? kakaoHouseholdReplyName(household, rows) : String(household.name || "가계부");
   };
-  if (!parsedList.length) { const guide = kakaoNoMatchGuide(utterance, origin); return kakaoText(guide.text, guide.quickReplies); }
+  if (!parsedList.length) {
+    const guide = kakaoNoMatchGuide(utterance, origin);
+    // V22.9.148: 관제가 못 알아들음·금액 없음·인사를 따로 센다(runtime/ops-telemetry.js markKakaoNluOutcomeV229148 — 이름·결과만, 글은 남기지 않는다).
+    markKakaoNluOutcomeV229148(env, guide.kind, guide.text);
+    return kakaoText(guide.text, guide.quickReplies);
+  }
   const requestedLimit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
   if (parsedList.length > requestedLimit) return kakaoText(`한 번에 ${requestedLimit}건까지 입력할 수 있어요. ${parsedList.length}건 모두 저장하지 않았어요. 내용을 나눠 다시 보내 주세요.`);
 
@@ -61276,7 +61409,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     });
     const bulkGuide = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY
       ? "구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요." : "수정할 번호는 ‘오늘기록’에서 확인해 주세요.";
-    return kakaoText(`${firstNotice}✅ ${resultLine}\n가계부: ${householdLine}\n${lines.join("\n")}\n\n${bulkGuide}${finalizeNotice}${pinTip}`);
+    return kakaoSavedReplyV229148(env, `${firstNotice}✅ ${resultLine}\n가계부: ${householdLine}\n${lines.join("\n")}\n\n${bulkGuide}${finalizeNotice}${pinTip}`);
   }
 
   const parsed = limitedParsedList[0];
@@ -61330,9 +61463,9 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     const summary = [firstNotice + kakaoRowLabel(saved, seq) + " · " + icon + " " + typeText + " 저장했어요. (" + saved.transaction_date + ")", "가계부: " + householdLine, (parsed.type === "income" ? "수입자: " : "지출자: ") + payerName];
     if (feedbackLine) summary.push(feedbackLine);
     const guide = inRoom || recordOnlyMember || onSaved || !seq || ownSeq === 1 || dayPrefix ? editGuide : "";
-    return kakaoText(summary.join("\n") + guide + finalizeNotice + pinTip, summaryReplies);
+    return kakaoSavedReplyV229148(env, summary.join("\n") + guide + finalizeNotice + pinTip, summaryReplies);
   }
-  return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${householdLine}\n${numberedLine}${parsed.type === "income" ? `\n수입자: ${payerName}` : `\n지출자: ${payerName}`}${feedbackLine ? `\n${feedbackLine}` : ""}${editGuide}${finalizeNotice}${pinTip}`, summaryReplies);
+  return kakaoSavedReplyV229148(env, `${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${householdLine}\n${numberedLine}${parsed.type === "income" ? `\n수입자: ${payerName}` : `\n지출자: ${payerName}`}${feedbackLine ? `\n${feedbackLine}` : ""}${editGuide}${finalizeNotice}${pinTip}`, summaryReplies);
   } finally { if (messageLease?.acquired && !context.messageLeasePromise) await deferKakaoAfterReply(env, () => releaseOperationLease(env, messageLease), { cost: 1, critical: true }); }
 }
 

@@ -1,6 +1,6 @@
 // @build:imports-start
 import {
-  boundedRuntimeNumber, rememberDuplicateEvent, rememberOpsEvent,
+  boundedRuntimeNumber, markKakaoNluOutcomeV229148, rememberDuplicateEvent, rememberOpsEvent,
 } from "../runtime/ops-telemetry.js";
 import {
   assertSettingsLeaseFresh, claimOperationLease, deferKakaoAfterReply, operationLeaseOwner,
@@ -65,6 +65,13 @@ function kakaoReturnSummaryRepliesV229123(now = nowKstDate()) {
 
 const KAKAO_PIN_TIP_V229123 = "💡 이 채팅방을 상단에 고정해 두면 다음에도 바로 기록할 수 있어요.";
 
+// V22.9.148(독립 검토): 저장한 답(새로 저장·중복 저장 안 함)은 관제에 저장 성공(TRANSACTION/ok)으로 표시한다. 답에 사용자의 메모·원래 문장이
+// 되풀이되어(‘서버 오류 수리비’·‘잠시 후 다시 갈 커피’) 글로 짐작하면 오류·되묻기로 세어졌다 — 단톡방 카드 답(월요일·월초 요약 단추)까지.
+function kakaoSavedReplyV229148(env, text, quickReplies = null) {
+  markKakaoNluOutcomeV229148(env, "saved", text);
+  return kakaoText(text, quickReplies);
+}
+
 async function saveKakaoParsedTransactionsReply(env, context = {}) {
   const { household, user, kakaoUserKey, nickname, origin, parsedList, handlerStartedAt, canDeferSave = false, firstNotice = "", utterance = "", assertFresh, onSaved } = context;
   // V22.9.77 감사 D-6: 같은 이름의 가계부가 또 있으면 호출부가 역할·만든 날을 붙인 이름을 넘긴다(없으면 이름 그대로).
@@ -75,7 +82,12 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     const rows = context.householdRowsPromise ? await optionalWithin(context.householdRowsPromise, 250, null) : null;
     return Array.isArray(rows) ? kakaoHouseholdReplyName(household, rows) : String(household.name || "가계부");
   };
-  if (!parsedList.length) { const guide = kakaoNoMatchGuide(utterance, origin); return kakaoText(guide.text, guide.quickReplies); }
+  if (!parsedList.length) {
+    const guide = kakaoNoMatchGuide(utterance, origin);
+    // V22.9.148: 관제가 못 알아들음·금액 없음·인사를 따로 센다(runtime/ops-telemetry.js markKakaoNluOutcomeV229148 — 이름·결과만, 글은 남기지 않는다).
+    markKakaoNluOutcomeV229148(env, guide.kind, guide.text);
+    return kakaoText(guide.text, guide.quickReplies);
+  }
   const requestedLimit = boundedRuntimeNumber(env.KAKAO_BULK_LIMIT, 25, 1, 80);
   if (parsedList.length > requestedLimit) return kakaoText(`한 번에 ${requestedLimit}건까지 입력할 수 있어요. ${parsedList.length}건 모두 저장하지 않았어요. 내용을 나눠 다시 보내 주세요.`);
 
@@ -217,7 +229,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     });
     const bulkGuide = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY
       ? "구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요." : "수정할 번호는 ‘오늘기록’에서 확인해 주세요.";
-    return kakaoText(`${firstNotice}✅ ${resultLine}\n가계부: ${householdLine}\n${lines.join("\n")}\n\n${bulkGuide}${finalizeNotice}${pinTip}`);
+    return kakaoSavedReplyV229148(env, `${firstNotice}✅ ${resultLine}\n가계부: ${householdLine}\n${lines.join("\n")}\n\n${bulkGuide}${finalizeNotice}${pinTip}`);
   }
 
   const parsed = limitedParsedList[0];
@@ -271,9 +283,9 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     const summary = [firstNotice + kakaoRowLabel(saved, seq) + " · " + icon + " " + typeText + " 저장했어요. (" + saved.transaction_date + ")", "가계부: " + householdLine, (parsed.type === "income" ? "수입자: " : "지출자: ") + payerName];
     if (feedbackLine) summary.push(feedbackLine);
     const guide = inRoom || recordOnlyMember || onSaved || !seq || ownSeq === 1 || dayPrefix ? editGuide : "";
-    return kakaoText(summary.join("\n") + guide + finalizeNotice + pinTip, summaryReplies);
+    return kakaoSavedReplyV229148(env, summary.join("\n") + guide + finalizeNotice + pinTip, summaryReplies);
   }
-  return kakaoText(`${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${householdLine}\n${numberedLine}${parsed.type === "income" ? `\n수입자: ${payerName}` : `\n지출자: ${payerName}`}${feedbackLine ? `\n${feedbackLine}` : ""}${editGuide}${finalizeNotice}${pinTip}`, summaryReplies);
+  return kakaoSavedReplyV229148(env, `${firstNotice}${icon} ${typeText} ${newCount ? "저장했어요" : "중복 저장 안 함"} 😊\n${resultLine}\n날짜: ${saved.transaction_date}\n가계부: ${householdLine}\n${numberedLine}${parsed.type === "income" ? `\n수입자: ${payerName}` : `\n지출자: ${payerName}`}${feedbackLine ? `\n${feedbackLine}` : ""}${editGuide}${finalizeNotice}${pinTip}`, summaryReplies);
   } finally { if (messageLease?.acquired && !context.messageLeasePromise) await deferKakaoAfterReply(env, () => releaseOperationLease(env, messageLease), { cost: 1, critical: true }); }
 }
 

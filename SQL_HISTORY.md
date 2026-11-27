@@ -1,3 +1,9 @@
+## V22.9.148 SQL 판단
+
+- 이 판의 앱은 SQL 이 없다(스키마·RPC·RLS·권한·인덱스를 바꾸지 않는다). 관제의 새 이름(NO_MATCH·NO_AMOUNT·GREETING·FIRST_CONTACT)은 기존 표 `nlu_intent_metrics_hourly` 의 intent 칸에 그대로 들어간다(그 표의 제약은 result 네 값뿐이고 intent 는 글자 칸이다 — 2026-11-19 덤프). 웹 정산 소수 몫 고침(V147:G-2)은 계산만 바꾼다(저장된 정산 이력은 그대로).
+- **운영 DB 권한 정리 적용(2026-11-27 11:49:52 KST, 앱 배포와 별개)**: Aside 가 Supabase 를 읽기만 해서 본 Security Advisor 경고 6건(통계 함수 둘이 anon·authenticated·PUBLIC 에 열림, 수정 시각 트리거 함수 둘의 search_path 없음)을 Claude 가 2026-11-19 덤프·코드와 대조했고, 사용자가 Claude 의 물음 창에서 ‘권한만 지금 적용’ 을 골랐다. Aside 가 Supabase 서울 프로젝트 SQL 편집기 새 쿼리 탭에서 `migrations/V22_9_148_DB_ADVISOR_GRANTS_REVIEW_ONLY.sql` 의 문(맨 위 가드 줄을 뺀 것과 같은 문 — 편집기 내용의 sha256 을 승인한 파일과 대조)을 실행했다 — ‘Success’. 적용 뒤 카탈로그: `record_nlu_metric`·`record_nlu_failure_sample` = service_role 만 실행(anon·authenticated·PUBLIC 회수), `set_updated_at`·`set_accountbook_settings_updated_at` = `search_path = ''`. Security Advisor 경고 6 → 0, 앱 /health·/ready 200. 커밋 전에 임시 표(이 트랜잭션에서만 있고 커밋 때 사라짐)로 두 트리거 함수를 실제로 돌려 봤고, Supabase 의 RLS 확인 창에는 SQL 을 바꾸지 않는 ‘Run without RLS’ 를 골랐다. 오프라인 시험: 덤프 스키마를 넣은 PGlite(PostgreSQL 17.5)에서 적용·되돌리기·다시 적용, 저장소 기록 파일의 가드·같은 결과 확인.
+- 적용하지 않은 것: 기본 키와 같은 열의 유니크 인덱스 넷(`accountbook_settings_key_unique_v2268`, `household_members_household_user_uidx`·`_unique_v2241`·`_unique_v2268` — Performance Advisor 경고 2건, 성능만). 사용자가 지목한 뒤에 따로 낸다. 되돌리기는 실행할 수 있는 문을 저장소에 적지 않는다(사용자 지목 뒤에만 그때 만든다).
+
 ## V22.9.147 SQL 판단
 
 - 이 판은 SQL 이 없다(스키마·RPC·RLS·권한·인덱스 변경 없음). 계산기는 브라우저 안에서만 계산하고 서버로 아무것도 보내지 않는다.

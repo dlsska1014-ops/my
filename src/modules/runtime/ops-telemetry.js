@@ -33,8 +33,11 @@ function nluRetentionDays(env = {}) {
 // Only server-owned classifications cross the diagnostic persistence boundary.
 // The legacy redacted-text flag never authorizes a new text sample.
 function nluDiagnosticFields(event = {}) {
-  const intents = ["EMPTY", "UNKNOWN", "EDIT", "MENU", "START", "CREATE_HOUSEHOLD", "JOIN_HOUSEHOLD", "HOUSEHOLD_SWITCH", "MEMBER_ALIAS_CHANGE", "INVITE_CODE_SHOW", "INVITE_MEMBER", "BUDGET_SETUP", "BUDGET_STATUS", "GROUP_LINK", "SETTLEMENT", "SUMMARY", "RECENT_RECORDS", "INPUT_EXAMPLE", "EDIT_GUIDE", "KEYWORD_GUIDE", "RESERVE_GUIDE", "DATA_POLICY", "CANCEL", "HELP", "WEB_LINK", "TRANSACTION"];
-  const reasons = ["generic_fallback", "guided_clarification", "handled", "save_failed", "save_uncertain", "safe_error_response", "handler_error"];
+  // V22.9.148: 못 알아들음(NO_MATCH)·금액 없음(NO_AMOUNT)·단추 이름만 온 답(BUTTON_LABEL)·인사(GREETING)·가계부 없는 사람의 첫 안내(FIRST_CONTACT)는
+  // 답을 만든 곳이 적는 이름이다. 저장하는 줄에는 까닭 칸이 없어서 갈래마다 이름이나 결과를 달리한다(이름·초대·예산·가계부 안내 = NO_MATCH/clarify).
+  // (markKakaoNluOutcomeV229148). 예전에는 모두 ‘알 수 없음’(UNKNOWN)에 섞였다.
+  const intents = ["EMPTY", "UNKNOWN", "EDIT", "MENU", "START", "CREATE_HOUSEHOLD", "JOIN_HOUSEHOLD", "HOUSEHOLD_SWITCH", "MEMBER_ALIAS_CHANGE", "INVITE_CODE_SHOW", "INVITE_MEMBER", "BUDGET_SETUP", "BUDGET_STATUS", "GROUP_LINK", "SETTLEMENT", "SUMMARY", "RECENT_RECORDS", "INPUT_EXAMPLE", "EDIT_GUIDE", "KEYWORD_GUIDE", "RESERVE_GUIDE", "DATA_POLICY", "CANCEL", "HELP", "WEB_LINK", "TRANSACTION", "NO_MATCH", "NO_AMOUNT", "BUTTON_LABEL", "GREETING", "FIRST_CONTACT"];
+  const reasons = ["generic_fallback", "guided_clarification", "handled", "save_failed", "save_uncertain", "safe_error_response", "handler_error", "no_match", "no_amount", "button_label"];
   const reason = String(event.reason || "");
   // V22.9.90: the natural-intent detector names these two HOUSEHOLD_CREATE/HOUSEHOLD_JOIN; the stored names (and the monitor labels) are the ones below.
   const aliases = { HOUSEHOLD_CREATE: "CREATE_HOUSEHOLD", HOUSEHOLD_JOIN: "JOIN_HOUSEHOLD" };
@@ -84,31 +87,101 @@ function redactOpsDetail(value = "") {
     .slice(0, 260);
 }
 
-function nluOutcomeFromKakaoResponse(responseText = "") {
+// V22.9.148: 답을 만든 곳이 관제 이름·결과를 직접 적는다. 답 글을 정규식으로 짐작하던 방식은 답 글이 바뀌면 말없이 틀어졌다 — V22.9.67 에
+// 못 알아들은 답을 ‘무슨 뜻인지 이해하지 못했어요’ 로 바꾼 뒤로 그 답은 ‘ok’ 로 세어져, 관제가 못 알아들음을 셀 수 없었다.
+// 표시는 요청마다 새로 만드는 env.__AB_KAKAO_REQUEST(worker/router.js)에만 둔다. 표지(signature) = 그 답의 첫 줄이고, 마지막 답에 표지가
+// 그대로 있을 때만 쓴다(그 사이 다른 답으로 바뀌었으면 예전처럼 글로 읽는다). 남기는 것은 아래에 정해 둔 이름·결과·까닭 낱말뿐이다(글 없음).
+const KAKAO_NLU_MARKS_V229148 = Object.freeze({
+  greeting: Object.freeze({ intent: "GREETING", result: "ok", reason: "handled" }),
+  no_match: Object.freeze({ intent: "NO_MATCH", result: "fallback", reason: "no_match" }),
+  no_amount: Object.freeze({ intent: "NO_AMOUNT", result: "fallback", reason: "no_amount" }),
+  button_label: Object.freeze({ intent: "BUTTON_LABEL", result: "fallback", reason: "button_label" }),
+  hint: Object.freeze({ intent: "NO_MATCH", result: "clarify", reason: "guided_clarification" }),
+  // 가계부가 없는 사람의 첫 안내는 기록이 아직 안 된 안내 단계다 — 성공(ok)이 아니라 되묻기(clarify)로 센다(독립 검토: 새 사람의 ‘커피 사먹음’ 이 ok 였다).
+  first_contact: Object.freeze({ intent: "FIRST_CONTACT", result: "clarify", reason: "guided_clarification" }),
+  // 저장한 답(새로 저장·중복 저장 안 함). 답에 사용자의 메모·원래 문장이 되풀이되므로 글로 읽지 않는다(아래 kakaoNluBotWordsV229148 도 같은 까닭).
+  saved: Object.freeze({ intent: "TRANSACTION", result: "ok", reason: "handled" }),
+});
+
+function markKakaoNluOutcomeV229148(env, kind = "", replyText = "") {
+  const mark = Object.hasOwn(KAKAO_NLU_MARKS_V229148, kind) ? KAKAO_NLU_MARKS_V229148[kind] : null;
+  const request = env && typeof env === "object" ? env.__AB_KAKAO_REQUEST : null;
+  const signature = String(replyText || "").split("\n")[0].trim();
+  if (!mark || !request || typeof request !== "object" || !signature) return;
+  request.nluMarkV229148 = { ...mark, kind, signature };
+}
+
+function kakaoNluMarkV229148(env) {
+  const request = env && typeof env === "object" ? env.__AB_KAKAO_REQUEST : null;
+  const mark = request && typeof request === "object" ? request.nluMarkV229148 : null;
+  return mark && typeof mark === "object" ? mark : null;
+}
+
+// V22.9.148: 답의 모든 말풍선 글을 읽는다. 예전에는 첫 말풍선의 simpleText 만 읽어, 단톡방 답(단추가 붙으면 카드로 바뀐다 — response-builders.js
+// kakaoGroupCompatibleResponse·kakaoNextStepReply)은 저장 확인 지연·고치기 실패까지 늘 ‘ok’ 였고, 1:1 답의 둘째 말풍선도 읽지 않았다.
+// 고를 수 있는 것 = 바로답 + 메시지 단추(단톡방은 바로답을 메시지 단추로 바꾼다). 링크·플러그인 단추는 세지 않는다.
+function kakaoNluResponsePartsV229148(body) {
+  const template = body && typeof body === "object" && body.template && typeof body.template === "object" ? body.template : {};
+  const texts = [];
+  let choices = Array.isArray(template.quickReplies) ? template.quickReplies.length : 0;
+  const read = (part) => {
+    if (!part || typeof part !== "object") return;
+    for (const key of ["text", "title", "description"]) if (typeof part[key] === "string" && part[key]) texts.push(part[key]);
+    if (Array.isArray(part.buttons)) choices += part.buttons.filter((button) => button && button.action === "message").length;
+  };
+  for (const output of Array.isArray(template.outputs) ? template.outputs : []) {
+    if (!output || typeof output !== "object") continue;
+    read(output.simpleText);
+    read(output.textCard);
+    read(output.basicCard);
+    if (output.carousel && Array.isArray(output.carousel.items)) output.carousel.items.forEach(read);
+  }
+  return { text: texts.join("\n"), choices };
+}
+
+// V22.9.148(독립 검토): 문구 판정은 봇이 쓴 말만 본다. 답에 되풀이된 사용자의 글 — 기록 줄의 메모(‘01번 - 서버 오류 수리비 / 30,000원 / …’,
+// ‘• 2026-11-30 지출 4,500원 · 메모’), 이름 줄(‘가계부: 이름’)과 따옴표 안의 원래 문장 — 이 ‘서버.*오류’·‘잠시 후 다시’·‘어떤 ’ 에 걸려
+// 정상 저장·목록이 오류·되묻기로 세어졌다(1:1 은 예전부터, 이 판이 카드를 읽으면서 단톡방까지). 봇의 실패·되묻기 문장은 그 밖에 있다.
+const KAKAO_NLU_RECORD_ROW_V229148 = /^[^\n]*\s\/\s(?:수입 )?-?[\d,]+원(?:\s\/[^\n]*)?$/gm;
+const KAKAO_NLU_RECENT_ROW_V229148 = /^• \d{4}-\d{2}-\d{2} (?:지출|수입) -?[\d,]+원 · [^\n]*$/gm;
+const KAKAO_NLU_QUOTED_V229148 = /‘[^’\n]*’|“[^”\n]*”|"[^"\n]*"|'[^'\n]*'/g;
+// 이름 줄(‘가계부: 이름’·‘📒 가계부: 이름’·‘지출자: 이름’·‘수입자: 이름’)도 사용자가 정한 이름뿐이다(가계부 이름 ‘서버 오류 대응팀’).
+const KAKAO_NLU_NAME_LINE_V229148 = /^(?:📒 )?(?:가계부|지출자|수입자): [^\n]*$/gm;
+function kakaoNluBotWordsV229148(text = "") {
+  return String(text || "").replace(KAKAO_NLU_RECORD_ROW_V229148, "").replace(KAKAO_NLU_RECENT_ROW_V229148, "")
+    .replace(KAKAO_NLU_NAME_LINE_V229148, "").replace(KAKAO_NLU_QUOTED_V229148, "‘’");
+}
+
+function nluOutcomeFromKakaoResponse(responseText = "", mark = null) {
   let text = "";
   let quickReplyCount = 0;
   try {
-    const body = JSON.parse(String(responseText || "{}"));
-    text = String(body?.template?.outputs?.[0]?.simpleText?.text || "");
-    quickReplyCount = Array.isArray(body?.template?.quickReplies) ? body.template.quickReplies.length : 0;
+    const parts = kakaoNluResponsePartsV229148(JSON.parse(String(responseText || "{}")));
+    text = parts.text;
+    quickReplyCount = parts.choices;
   } catch (err) {
     text = String(responseText || "");
   }
-  if (/(정확히 이해하지 못했|아래 예시처럼 보내|원하는 내용을 찾지 못했|다시 보내주세요)/.test(text)) {
+  if (mark && typeof mark === "object" && typeof mark.signature === "string" && mark.signature && text.includes(mark.signature)) {
+    return { result: mark.result, reason: mark.reason, text, quick_reply_count: quickReplyCount, marked: true };
+  }
+  const words = kakaoNluBotWordsV229148(text);
+  // V22.9.148: 표시가 없는 길에서 나온 못 알아들음 답도 놓치지 않게 지금 문장(‘이해하지 못했어요’)을 함께 본다.
+  if (/(정확히 이해하지 못했|이해하지 못했어요|아래 예시처럼 보내|원하는 내용을 찾지 못했|다시 보내주세요)/.test(words)) {
     return { result: "fallback", reason: "generic_fallback", text, quick_reply_count: quickReplyCount };
   }
   // V22.9.37(관제): 저장소가 거절한 저장("저장하지 못했어요")과 결과를 모르는 저장("저장 확인이 지연")은 관제에 "ok"로
   // 집계되고 있었다. 실패·불확실로 나눠 센다.
-  if (/(저장하지 못했어요|기록되지 않았어요)/.test(text)) {
+  if (/(저장하지 못했어요|기록되지 않았어요)/.test(words)) {
     return { result: "error", reason: "save_failed", text, quick_reply_count: quickReplyCount };
   }
-  if (/저장 확인이 지연/.test(text)) {
+  if (/저장 확인이 지연/.test(words)) {
     return { result: "error", reason: "save_uncertain", text, quick_reply_count: quickReplyCount };
   }
-  if (/(잠시 후 다시|처리 중 오류|서버.*오류|문제가 발생|처리하지 못했어요)/.test(text)) {
+  if (/(잠시 후 다시|처리 중 오류|서버.*오류|문제가 발생|처리하지 못했어요)/.test(words)) {
     return { result: "error", reason: "safe_error_response", text, quick_reply_count: quickReplyCount };
   }
-  if (quickReplyCount > 0 && /(인가요|할까요|선택해|입력해 주세요|어떻게 처리|무엇을|어떤 )/.test(text)) {
+  if (quickReplyCount > 0 && /(인가요|할까요|선택해|입력해 주세요|어떻게 처리|무엇을|어떤 )/.test(words)) {
     return { result: "clarify", reason: "guided_clarification", text, quick_reply_count: quickReplyCount };
   }
   return { result: "ok", reason: "handled", text, quick_reply_count: quickReplyCount };
@@ -653,9 +726,10 @@ export {
   checkSkillRateLimit, checkTrafficGuard, cleanupNluOpsRetention, csrfOriginAllowed,
   csrfRejectedResponse, csrfSignalSummary, duplicateGuardSeconds, duplicateSkippedReturnLocation,
   getNluOpsSnapshot, getSkillOpsSnapshot, getTrafficOpsSnapshot, isDatabaseBusyError,
-  isDuplicateGuardSource, nluOpsConfig, nluOutcomeFromKakaoResponse, pruneExpiringMap,
-  pruneTimestampMap, rateLimitedKakaoText, rememberDuplicateEvent, rememberNluRuntimeEvent,
-  rememberOpsEvent, rememberSkillEvent, scheduleNluOpsPersistence, skillIpGuardLimit,
-  trafficClientKey, trafficLimitedResponse, userSafeErrorCode,
+  isDuplicateGuardSource, kakaoNluMarkV229148, markKakaoNluOutcomeV229148, nluOpsConfig,
+  nluOutcomeFromKakaoResponse, pruneExpiringMap, pruneTimestampMap, rateLimitedKakaoText,
+  rememberDuplicateEvent, rememberNluRuntimeEvent, rememberOpsEvent, rememberSkillEvent,
+  scheduleNluOpsPersistence, skillIpGuardLimit, trafficClientKey, trafficLimitedResponse,
+  userSafeErrorCode,
 };
 // @build:exports-end
