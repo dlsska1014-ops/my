@@ -6,7 +6,9 @@ import { APP_MODE, APP_VERSION, publicBaseUrl } from "../public/site-config.js";
 import { safeError } from "./leases.js";
 import { getCookie, htmlResponse, jsonResponse, wantsTransactionDeleteJson } from "./http.js";
 import { myReturnLocation } from "../my/access-control.js";
-import { isUncertainStorageWrite, kakaoText } from "../kakao/response-builders.js";
+import {
+  isUncertainStorageWrite, kakaoGroupQuotedSegmentsV229134, kakaoText,
+} from "../kakao/response-builders.js";
 import { KAKAO_RETRY_DEDUP_SECONDS } from "../kakao/transaction-save.js";
 import { supabase } from "../data/supabase-client.js";
 import { normalizeText } from "../nlu/amount-parser.js";
@@ -120,21 +122,24 @@ function kakaoNluMarkV229148(env) {
 // V22.9.148: 답의 모든 말풍선 글을 읽는다. 예전에는 첫 말풍선의 simpleText 만 읽어, 단톡방 답(단추가 붙으면 카드로 바뀐다 — response-builders.js
 // kakaoGroupCompatibleResponse·kakaoNextStepReply)은 저장 확인 지연·고치기 실패까지 늘 ‘ok’ 였고, 1:1 답의 둘째 말풍선도 읽지 않았다.
 // 고를 수 있는 것 = 바로답 + 메시지 단추(단톡방은 바로답을 메시지 단추로 바꾼다). 링크·플러그인 단추는 세지 않는다.
+// V22.9.148(Codex 검토): 카드 안의 머리말(carousel·listCard 의 header, itemCard 의 head)과 목록(items·itemList)도 읽는다 — 예전에는 carousel 의
+// items 만 읽어 머리말의 ‘저장 확인이 지연되고 있어요.’ 가 빠졌다. 지금 답은 simpleText·textCard·basicCard 만 쓰지만, 단톡방이 받는 카드
+// (response-builders.js KAKAO_GROUP_SUPPORTED_OUTPUTS — listCard·itemCard 포함)를 새로 쓰는 답이 생겨도 말없이 빠지지 않게 한다.
+const KAKAO_NLU_OUTPUT_KINDS_V229148 = Object.freeze(["simpleText", "textCard", "basicCard", "commerceCard", "listCard", "itemCard", "carousel"]);
 function kakaoNluResponsePartsV229148(body) {
   const template = body && typeof body === "object" && body.template && typeof body.template === "object" ? body.template : {};
   const texts = [];
   let choices = Array.isArray(template.quickReplies) ? template.quickReplies.length : 0;
-  const read = (part) => {
-    if (!part || typeof part !== "object") return;
+  const read = (part, depth = 0) => {
+    if (!part || typeof part !== "object" || depth > 3) return;
     for (const key of ["text", "title", "description"]) if (typeof part[key] === "string" && part[key]) texts.push(part[key]);
     if (Array.isArray(part.buttons)) choices += part.buttons.filter((button) => button && button.action === "message").length;
+    for (const key of ["header", "head"]) read(part[key], depth + 1);
+    for (const key of ["items", "itemList"]) if (Array.isArray(part[key])) part[key].forEach((item) => read(item, depth + 1));
   };
   for (const output of Array.isArray(template.outputs) ? template.outputs : []) {
     if (!output || typeof output !== "object") continue;
-    read(output.simpleText);
-    read(output.textCard);
-    read(output.basicCard);
-    if (output.carousel && Array.isArray(output.carousel.items)) output.carousel.items.forEach(read);
+    for (const kind of KAKAO_NLU_OUTPUT_KINDS_V229148) read(output[kind]);
   }
   return { text: texts.join("\n"), choices };
 }
@@ -142,14 +147,38 @@ function kakaoNluResponsePartsV229148(body) {
 // V22.9.148(독립 검토): 문구 판정은 봇이 쓴 말만 본다. 답에 되풀이된 사용자의 글 — 기록 줄의 메모(‘01번 - 서버 오류 수리비 / 30,000원 / …’,
 // ‘• 2026-11-30 지출 4,500원 · 메모’), 이름 줄(‘가계부: 이름’)과 따옴표 안의 원래 문장 — 이 ‘서버.*오류’·‘잠시 후 다시’·‘어떤 ’ 에 걸려
 // 정상 저장·목록이 오류·되묻기로 세어졌다(1:1 은 예전부터, 이 판이 카드를 읽으면서 단톡방까지). 봇의 실패·되묻기 문장은 그 밖에 있다.
-const KAKAO_NLU_RECORD_ROW_V229148 = /^[^\n]*\s\/\s(?:수입 )?-?[\d,]+원(?:\s\/[^\n]*)?$/gm;
-const KAKAO_NLU_RECENT_ROW_V229148 = /^• \d{4}-\d{2}-\d{2} (?:지출|수입) -?[\d,]+원 · [^\n]*$/gm;
-const KAKAO_NLU_QUOTED_V229148 = /‘[^’\n]*’|“[^”\n]*”|"[^"\n]*"|'[^'\n]*'/g;
+// V22.9.148(Codex 검토): 줄마다 한 번씩만 본다 — 줄 전체를 덮는 정규식(^[^\n]*… 와 따옴표의 [^’\n]*)은 긴 줄을 여러 번 되짚었고, 따옴표는 안쪽
+// 짝에서 멈췄다(‘모임 ‘개발’ 서버 오류 대응팀’ 의 뒤쪽이 남아 오류로 셈). 따옴표 짝은 단톡방 답이 봇 부르기를 넣을 때 쓰는 것과 같은 한 번의 훑기다
+// (response-builders.js kakaoGroupQuotedSegmentsV229134 — 바깥쪽 짝까지).
+const KAKAO_NLU_RECORD_ROW_V229148 = /\s\/\s(?:수입 )?-?[\d,]+원(?:\s\/|$)/;
+const KAKAO_NLU_RECENT_ROW_V229148 = /^• \d{4}-\d{2}-\d{2} (?:지출|수입) -?[\d,]+원 · /;
 // 이름 줄(‘가계부: 이름’·‘📒 가계부: 이름’·‘지출자: 이름’·‘수입자: 이름’)도 사용자가 정한 이름뿐이다(가계부 이름 ‘서버 오류 대응팀’).
-const KAKAO_NLU_NAME_LINE_V229148 = /^(?:📒 )?(?:가계부|지출자|수입자): [^\n]*$/gm;
+// V22.9.148(Codex 검토): 시작·도움말 카드의 ‘이 방 가계부: 이름’·‘지금 가계부: 이름’, 만들기 확인의 ‘가계부 이름: 이름’ 과 그 밖에 사용자가 정한 이름·메모·
+// 분류를 한 줄에 적는 꼬리표(src/modules/kakao 의 답 글에서 모았다 — 그 꼬리표 뒤에 봇의 실패·되묻기 문장은 없다)도 뺀다.
+const KAKAO_NLU_NAME_LABELS_V229148 = Object.freeze([
+  "가계부", "이 방 가계부", "지금 가계부", "가계부 이름", "연결 가계부", "현재 선택 가계부", "현재 연결", "현재", "변경",
+  "지출자", "수입자", "분류", "기록", "복구하려던 기록", "마지막에 바뀐 기록", "마지막에 저장한 기록",
+]);
+const KAKAO_NLU_NAME_LINE_V229148 = new RegExp(`^(?:(?:📒|✅) )?(?:${KAKAO_NLU_NAME_LABELS_V229148.join("|")}): `);
+function kakaoNluWithoutQuotedV229148(line = "") {
+  const segments = kakaoGroupQuotedSegmentsV229134(line);
+  if (!segments.length) return line;
+  let out = "", at = 0;
+  for (const segment of segments) { out += `${line.slice(at, segment.start)}‘’`; at = segment.end; }
+  return out + line.slice(at);
+}
 function kakaoNluBotWordsV229148(text = "") {
-  return String(text || "").replace(KAKAO_NLU_RECORD_ROW_V229148, "").replace(KAKAO_NLU_RECENT_ROW_V229148, "")
-    .replace(KAKAO_NLU_NAME_LINE_V229148, "").replace(KAKAO_NLU_QUOTED_V229148, "‘’");
+  return String(text || "").split("\n").map((line) => (
+    KAKAO_NLU_RECORD_ROW_V229148.test(line) || KAKAO_NLU_RECENT_ROW_V229148.test(line) || KAKAO_NLU_NAME_LINE_V229148.test(line)
+      ? "" : kakaoNluWithoutQuotedV229148(line)
+  )).join("\n");
+}
+
+// V22.9.148(Codex 검토): 표시는 그 첫 줄이 답의 한 줄 전체로 있을 때만 쓴다 — 예전에는 글 어디든 들어 있으면 썼다(바뀐 답의 메모에 앞 답의 첫 줄이
+// 인용되기만 해도 표시가 먼저였다). 말풍선 사이·줄 사이의 경계는 그대로라 앞에 붙는 방 참여 안내 줄은 상관없다.
+function kakaoNluMarkSeenV229148(text = "", mark = null) {
+  if (!mark || typeof mark !== "object" || typeof mark.signature !== "string" || !mark.signature) return false;
+  return String(text || "").split("\n").some((line) => line.trim() === mark.signature);
 }
 
 function nluOutcomeFromKakaoResponse(responseText = "", mark = null) {
@@ -162,7 +191,7 @@ function nluOutcomeFromKakaoResponse(responseText = "", mark = null) {
   } catch (err) {
     text = String(responseText || "");
   }
-  if (mark && typeof mark === "object" && typeof mark.signature === "string" && mark.signature && text.includes(mark.signature)) {
+  if (kakaoNluMarkSeenV229148(text, mark)) {
     return { result: mark.result, reason: mark.reason, text, quick_reply_count: quickReplyCount, marked: true };
   }
   const words = kakaoNluBotWordsV229148(text);
@@ -220,7 +249,10 @@ function rememberNluRuntimeEvent(event = {}, env = {}) {
       latency_ms: latencyMs,
       block: String(event.block || "").slice(0, 100),
       version: String(event.version || APP_VERSION).slice(0, 100),
-      sample: result === "ok" ? "" : redactNluOpsSample(event.utterance || ""),
+      // V22.9.148(Codex 검토): 실패 사례 저장(NLU_PERSIST_FAILURE_SAMPLES)이 꺼져 있으면 Worker 메모리의 최근 사건에도 문장을 남기지 않는다(운영은 꺼짐).
+      // 예전에는 ok 가 아니면 가린 문장을 남겨 관리자 화면(/nlu-ops 의 최근 문제)에 보였다 — 이 판이 못 알아들음·금액 없음·첫 안내를 ok 밖으로 세면서
+      // 문장이 남는 말이 늘었다(‘민지 병원 다녀옴’). 이름·결과·까닭과 문장 지문(sample_hash)은 그대로 남는다.
+      sample: result === "ok" || !cfg.failure_samples_enabled ? "" : redactNluOpsSample(event.utterance || ""),
       sample_hash: nluOpsFingerprint(normalizeText(event.utterance || "")),
     });
     while (AB_NLU_RUNTIME_EVENTS.length > cfg.memory_event_limit) AB_NLU_RUNTIME_EVENTS.shift();

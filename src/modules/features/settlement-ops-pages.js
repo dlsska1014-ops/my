@@ -153,7 +153,9 @@ function buildSettlementModel(rows = [], members = [], options = {}) {
   // 90,000원이 62,999원 / 27,001원(90,000 × 0.7 = 62,999.999…), 0.1 셋에 30,000원이 9,999 / 9,999 / 10,002 가 됐다.
   // 몫을 0.001 단위의 정수로 바꿔(0.7 → 700) BigInt 로 나눈다 — 나누어떨어지면 정확히 그 값이고, 내림과 ‘남는 원은 마지막 사람’ 규칙은 예전과 같다
   // (정수 몫의 결과는 예전과 같다 — 공개 모임 정산 계산기 public/group-settlement-v229147.js 와 같은 값).
-  const allocationUnitsV229148 = (weight) => BigInt(Math.max(1, Math.round(Number(weight || 1) * 1000)));
+  // V22.9.148(Codex 검토): 0.001 단위로 반올림할 때 실수 곱셈의 오차를 먼저 걷어 낸다(0.5005 × 1000 = 500.49999999999994 → 500 이던 것을 501).
+  // 몫 칸은 0.1 단위지만 주소로는 더 잘게 들어올 수 있다. 몫은 0.1~1000 이라 소수 여섯째 자리에서 끊어도 값이 바뀌지 않는다.
+  const allocationUnitsV229148 = (weight) => BigInt(Math.max(1, Math.round(Number((Number(weight || 1) * 1000).toFixed(6)))));
   const floorDivV229148 = (numerator, denominator) => {
     const quotient = numerator / denominator;
     return numerator % denominator < 0n ? quotient - 1n : quotient;
@@ -443,8 +445,18 @@ async function settlementPreviewDigest({ month, mode, conditions = {}, rows = []
     settlementConditionPairs(mode, conditions).sort(),
     safeArray(rows).filter((row) => row.type !== "income").map((row) => [String(row.id), Math.round(Number(row.amount || 0)), String(row.user_id || "")]).sort(),
     ...(Array.isArray(members) ? [members.filter(settlementBaseParticipant).map((m) => [String(m.user_id), String(m.role || "member").toLowerCase()]).sort()] : []),
+    ...settlementAllocationFormulaV229148(mode),
   ]);
   return (await sha256Hex(canonical)).slice(0, 32);
+}
+
+// V22.9.148(Codex 검토): 비율·인원수 몫의 계산식이 이 판에서 바뀌었다(V147:G-2 — 몫을 0.001 단위 정수로 바꿔 BigInt 로 나눈다). 지문에는 조건과 기록만
+// 있어, 이 판 전에 연 화면(90,000원 0.7 : 0.3 = 62,999원 / 27,001원)으로 완료하면 대조를 지나 이력에 다른 금액(63,000원 / 27,000원)이 저장됐다.
+// 두 방식의 지문에 계산식 표지를 넣어 그 완료를 거절한다(‘화면을 연 뒤 … 바뀌어 저장하지 않았습니다’ — 다시 열면 새 금액으로 완료된다).
+// 결과가 그대로인 동일·품목별 지문은 예전과 같다. 계산식을 다시 바꾸면 이 표지도 바꾼다(지문은 5분 안의 중복 막기에만 다시 쓰인다).
+const SETTLEMENT_ALLOCATION_FORMULA_V229148 = "allocation-milli-units-v229148";
+function settlementAllocationFormulaV229148(mode = "") {
+  return mode === "ratio" || mode === "headcount" ? [SETTLEMENT_ALLOCATION_FORMULA_V229148] : [];
 }
 
 function renderSettlementConfig({ mode = "equal", members = [], rows = [], weights = {}, itemParticipants = {}, month = currentMonthKst(), householdId = "", people = null }) {
@@ -635,8 +647,8 @@ export {
   handleDuplicateSafetyPage, handleHouseholdCreateJoinGuidePage, handleMeetingArchiveGuidePage,
   handleMeetingHouseholdTemplatePage, handleOpsDashboardPage, handleReleaseCandidateCheckPage,
   handleSettlementHistorySave, handleSettlementSummaryPage, handleTrafficOpsPage,
-  parseSettlementConditions, renderSettlementRows, renderTransferRows, settlementConditionPairs,
-  settlementConditionQuery, settlementHistoryForSave, settlementHistoryKey, settlementPreviewDigest,
-  settlementRoleAllowed,
+  parseSettlementConditions, renderSettlementRows, renderTransferRows,
+  settlementAllocationFormulaV229148, settlementConditionPairs, settlementConditionQuery,
+  settlementHistoryForSave, settlementHistoryKey, settlementPreviewDigest, settlementRoleAllowed,
 };
 // @build:exports-end

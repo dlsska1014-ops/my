@@ -1,4 +1,5 @@
 // @build:imports-start
+import { markKakaoNluOutcomeV229148 } from "../runtime/ops-telemetry.js";
 import { explicitDateIntent, moneyTokenSpans } from "../client/shared-input-parsers.js";
 import { foldInputWidth } from "../client/shared-input-nlu.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
@@ -177,7 +178,11 @@ async function beginKakaoHouseholdChoice(env, { user, payload, households = [], 
       quickReplies: dedupeQuickReplies([["가계부만들기", "가계부만들기"], ["초대코드참여", "초대코드참여"]]),
     };
     if (action === "invite" && kakaoActiveHouseholds(households).length) return { text: kakaoInviteNotAllowedText(), quickReplies: [["도움말 보기", "도움말 보기"]] };
-    return { text: kakaoStartText(false), quickReplies: kakaoStartQuickReplies(false) };
+    // V22.9.148(Codex 검토): 가계부가 없는 사람의 ‘다른 가계부’·초대 명령도 같은 첫 안내를 낸다 — 관제는 첫 안내(FIRST_CONTACT/clarify)로 센다
+    // (skill-handler.js kakaoFirstContactReplyV229148 와 같은 표시. 예전에는 이 길만 표시가 없어 UNKNOWN/ok 였다).
+    const text = kakaoStartText(false);
+    markKakaoNluOutcomeV229148(env, "first_contact", text);
+    return { text, quickReplies: kakaoStartQuickReplies(false) };
   }
   if (candidates.length === 1 && !forceChoice) {
     const chosen = candidates[0];

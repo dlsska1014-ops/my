@@ -11,8 +11,9 @@ import {
 import { getSettingValue, getSettingValueStrict } from "../admin/settings-audit-pages.js";
 import { safeArray } from "../admin/backup-compare.js";
 import {
-  buildSettlementModel, parseSettlementConditions, settlementConditionPairs,
-  settlementConditionQuery, settlementHistoryForSave, settlementHistoryKey, settlementPreviewDigest,
+  buildSettlementModel, parseSettlementConditions, settlementAllocationFormulaV229148,
+  settlementConditionPairs, settlementConditionQuery, settlementHistoryForSave,
+  settlementHistoryKey, settlementPreviewDigest,
 } from "./settlement-ops-pages.js";
 import {
   applyRefundLinkNetting, buildRefundReviewItems, isRefundIncomeRow, isRefundLinksAbsentError,
@@ -207,6 +208,8 @@ async function settlementRefundDigest({ month, mode, conditions = {}, rows = [],
     safeArray(rows).filter((row) => row.type !== "income").map((row) => [String(row.id), Math.round(Number(row.amount || 0)), String(row.user_id || "")]).sort(),
     links.map((link) => [link.id, link.expense_id, link.refund_id, link.amount]).sort(),
     [...new Map(links.map((link) => [link.refund_id, [link.refund_id, link.refund_amount, link.recipient_user_id]])).values()].sort(),
+    // V22.9.148(Codex 검토): 비율·인원수 몫의 계산식 표지(settlement-ops-pages.js settlementAllocationFormulaV229148 — 연결이 없을 때의 지문과 같은 까닭).
+    ...settlementAllocationFormulaV229148(mode),
   ]);
   return (await sha256Hex(canonical)).slice(0, 32);
 }

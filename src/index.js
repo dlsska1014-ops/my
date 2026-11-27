@@ -842,21 +842,24 @@ function kakaoNluMarkV229148(env) {
 // V22.9.148: 답의 모든 말풍선 글을 읽는다. 예전에는 첫 말풍선의 simpleText 만 읽어, 단톡방 답(단추가 붙으면 카드로 바뀐다 — response-builders.js
 // kakaoGroupCompatibleResponse·kakaoNextStepReply)은 저장 확인 지연·고치기 실패까지 늘 ‘ok’ 였고, 1:1 답의 둘째 말풍선도 읽지 않았다.
 // 고를 수 있는 것 = 바로답 + 메시지 단추(단톡방은 바로답을 메시지 단추로 바꾼다). 링크·플러그인 단추는 세지 않는다.
+// V22.9.148(Codex 검토): 카드 안의 머리말(carousel·listCard 의 header, itemCard 의 head)과 목록(items·itemList)도 읽는다 — 예전에는 carousel 의
+// items 만 읽어 머리말의 ‘저장 확인이 지연되고 있어요.’ 가 빠졌다. 지금 답은 simpleText·textCard·basicCard 만 쓰지만, 단톡방이 받는 카드
+// (response-builders.js KAKAO_GROUP_SUPPORTED_OUTPUTS — listCard·itemCard 포함)를 새로 쓰는 답이 생겨도 말없이 빠지지 않게 한다.
+const KAKAO_NLU_OUTPUT_KINDS_V229148 = Object.freeze(["simpleText", "textCard", "basicCard", "commerceCard", "listCard", "itemCard", "carousel"]);
 function kakaoNluResponsePartsV229148(body) {
   const template = body && typeof body === "object" && body.template && typeof body.template === "object" ? body.template : {};
   const texts = [];
   let choices = Array.isArray(template.quickReplies) ? template.quickReplies.length : 0;
-  const read = (part) => {
-    if (!part || typeof part !== "object") return;
+  const read = (part, depth = 0) => {
+    if (!part || typeof part !== "object" || depth > 3) return;
     for (const key of ["text", "title", "description"]) if (typeof part[key] === "string" && part[key]) texts.push(part[key]);
     if (Array.isArray(part.buttons)) choices += part.buttons.filter((button) => button && button.action === "message").length;
+    for (const key of ["header", "head"]) read(part[key], depth + 1);
+    for (const key of ["items", "itemList"]) if (Array.isArray(part[key])) part[key].forEach((item) => read(item, depth + 1));
   };
   for (const output of Array.isArray(template.outputs) ? template.outputs : []) {
     if (!output || typeof output !== "object") continue;
-    read(output.simpleText);
-    read(output.textCard);
-    read(output.basicCard);
-    if (output.carousel && Array.isArray(output.carousel.items)) output.carousel.items.forEach(read);
+    for (const kind of KAKAO_NLU_OUTPUT_KINDS_V229148) read(output[kind]);
   }
   return { text: texts.join("\n"), choices };
 }
@@ -864,14 +867,38 @@ function kakaoNluResponsePartsV229148(body) {
 // V22.9.148(독립 검토): 문구 판정은 봇이 쓴 말만 본다. 답에 되풀이된 사용자의 글 — 기록 줄의 메모(‘01번 - 서버 오류 수리비 / 30,000원 / …’,
 // ‘• 2026-11-30 지출 4,500원 · 메모’), 이름 줄(‘가계부: 이름’)과 따옴표 안의 원래 문장 — 이 ‘서버.*오류’·‘잠시 후 다시’·‘어떤 ’ 에 걸려
 // 정상 저장·목록이 오류·되묻기로 세어졌다(1:1 은 예전부터, 이 판이 카드를 읽으면서 단톡방까지). 봇의 실패·되묻기 문장은 그 밖에 있다.
-const KAKAO_NLU_RECORD_ROW_V229148 = /^[^\n]*\s\/\s(?:수입 )?-?[\d,]+원(?:\s\/[^\n]*)?$/gm;
-const KAKAO_NLU_RECENT_ROW_V229148 = /^• \d{4}-\d{2}-\d{2} (?:지출|수입) -?[\d,]+원 · [^\n]*$/gm;
-const KAKAO_NLU_QUOTED_V229148 = /‘[^’\n]*’|“[^”\n]*”|"[^"\n]*"|'[^'\n]*'/g;
+// V22.9.148(Codex 검토): 줄마다 한 번씩만 본다 — 줄 전체를 덮는 정규식(^[^\n]*… 와 따옴표의 [^’\n]*)은 긴 줄을 여러 번 되짚었고, 따옴표는 안쪽
+// 짝에서 멈췄다(‘모임 ‘개발’ 서버 오류 대응팀’ 의 뒤쪽이 남아 오류로 셈). 따옴표 짝은 단톡방 답이 봇 부르기를 넣을 때 쓰는 것과 같은 한 번의 훑기다
+// (response-builders.js kakaoGroupQuotedSegmentsV229134 — 바깥쪽 짝까지).
+const KAKAO_NLU_RECORD_ROW_V229148 = /\s\/\s(?:수입 )?-?[\d,]+원(?:\s\/|$)/;
+const KAKAO_NLU_RECENT_ROW_V229148 = /^• \d{4}-\d{2}-\d{2} (?:지출|수입) -?[\d,]+원 · /;
 // 이름 줄(‘가계부: 이름’·‘📒 가계부: 이름’·‘지출자: 이름’·‘수입자: 이름’)도 사용자가 정한 이름뿐이다(가계부 이름 ‘서버 오류 대응팀’).
-const KAKAO_NLU_NAME_LINE_V229148 = /^(?:📒 )?(?:가계부|지출자|수입자): [^\n]*$/gm;
+// V22.9.148(Codex 검토): 시작·도움말 카드의 ‘이 방 가계부: 이름’·‘지금 가계부: 이름’, 만들기 확인의 ‘가계부 이름: 이름’ 과 그 밖에 사용자가 정한 이름·메모·
+// 분류를 한 줄에 적는 꼬리표(src/modules/kakao 의 답 글에서 모았다 — 그 꼬리표 뒤에 봇의 실패·되묻기 문장은 없다)도 뺀다.
+const KAKAO_NLU_NAME_LABELS_V229148 = Object.freeze([
+  "가계부", "이 방 가계부", "지금 가계부", "가계부 이름", "연결 가계부", "현재 선택 가계부", "현재 연결", "현재", "변경",
+  "지출자", "수입자", "분류", "기록", "복구하려던 기록", "마지막에 바뀐 기록", "마지막에 저장한 기록",
+]);
+const KAKAO_NLU_NAME_LINE_V229148 = new RegExp(`^(?:(?:📒|✅) )?(?:${KAKAO_NLU_NAME_LABELS_V229148.join("|")}): `);
+function kakaoNluWithoutQuotedV229148(line = "") {
+  const segments = kakaoGroupQuotedSegmentsV229134(line);
+  if (!segments.length) return line;
+  let out = "", at = 0;
+  for (const segment of segments) { out += `${line.slice(at, segment.start)}‘’`; at = segment.end; }
+  return out + line.slice(at);
+}
 function kakaoNluBotWordsV229148(text = "") {
-  return String(text || "").replace(KAKAO_NLU_RECORD_ROW_V229148, "").replace(KAKAO_NLU_RECENT_ROW_V229148, "")
-    .replace(KAKAO_NLU_NAME_LINE_V229148, "").replace(KAKAO_NLU_QUOTED_V229148, "‘’");
+  return String(text || "").split("\n").map((line) => (
+    KAKAO_NLU_RECORD_ROW_V229148.test(line) || KAKAO_NLU_RECENT_ROW_V229148.test(line) || KAKAO_NLU_NAME_LINE_V229148.test(line)
+      ? "" : kakaoNluWithoutQuotedV229148(line)
+  )).join("\n");
+}
+
+// V22.9.148(Codex 검토): 표시는 그 첫 줄이 답의 한 줄 전체로 있을 때만 쓴다 — 예전에는 글 어디든 들어 있으면 썼다(바뀐 답의 메모에 앞 답의 첫 줄이
+// 인용되기만 해도 표시가 먼저였다). 말풍선 사이·줄 사이의 경계는 그대로라 앞에 붙는 방 참여 안내 줄은 상관없다.
+function kakaoNluMarkSeenV229148(text = "", mark = null) {
+  if (!mark || typeof mark !== "object" || typeof mark.signature !== "string" || !mark.signature) return false;
+  return String(text || "").split("\n").some((line) => line.trim() === mark.signature);
 }
 
 function nluOutcomeFromKakaoResponse(responseText = "", mark = null) {
@@ -884,7 +911,7 @@ function nluOutcomeFromKakaoResponse(responseText = "", mark = null) {
   } catch (err) {
     text = String(responseText || "");
   }
-  if (mark && typeof mark === "object" && typeof mark.signature === "string" && mark.signature && text.includes(mark.signature)) {
+  if (kakaoNluMarkSeenV229148(text, mark)) {
     return { result: mark.result, reason: mark.reason, text, quick_reply_count: quickReplyCount, marked: true };
   }
   const words = kakaoNluBotWordsV229148(text);
@@ -942,7 +969,10 @@ function rememberNluRuntimeEvent(event = {}, env = {}) {
       latency_ms: latencyMs,
       block: String(event.block || "").slice(0, 100),
       version: String(event.version || APP_VERSION).slice(0, 100),
-      sample: result === "ok" ? "" : redactNluOpsSample(event.utterance || ""),
+      // V22.9.148(Codex 검토): 실패 사례 저장(NLU_PERSIST_FAILURE_SAMPLES)이 꺼져 있으면 Worker 메모리의 최근 사건에도 문장을 남기지 않는다(운영은 꺼짐).
+      // 예전에는 ok 가 아니면 가린 문장을 남겨 관리자 화면(/nlu-ops 의 최근 문제)에 보였다 — 이 판이 못 알아들음·금액 없음·첫 안내를 ok 밖으로 세면서
+      // 문장이 남는 말이 늘었다(‘민지 병원 다녀옴’). 이름·결과·까닭과 문장 지문(sample_hash)은 그대로 남는다.
+      sample: result === "ok" || !cfg.failure_samples_enabled ? "" : redactNluOpsSample(event.utterance || ""),
       sample_hash: nluOpsFingerprint(normalizeText(event.utterance || "")),
     });
     while (AB_NLU_RUNTIME_EVENTS.length > cfg.memory_event_limit) AB_NLU_RUNTIME_EVENTS.shift();
@@ -26592,7 +26622,9 @@ function buildSettlementModel(rows = [], members = [], options = {}) {
   // 90,000원이 62,999원 / 27,001원(90,000 × 0.7 = 62,999.999…), 0.1 셋에 30,000원이 9,999 / 9,999 / 10,002 가 됐다.
   // 몫을 0.001 단위의 정수로 바꿔(0.7 → 700) BigInt 로 나눈다 — 나누어떨어지면 정확히 그 값이고, 내림과 ‘남는 원은 마지막 사람’ 규칙은 예전과 같다
   // (정수 몫의 결과는 예전과 같다 — 공개 모임 정산 계산기 public/group-settlement-v229147.js 와 같은 값).
-  const allocationUnitsV229148 = (weight) => BigInt(Math.max(1, Math.round(Number(weight || 1) * 1000)));
+  // V22.9.148(Codex 검토): 0.001 단위로 반올림할 때 실수 곱셈의 오차를 먼저 걷어 낸다(0.5005 × 1000 = 500.49999999999994 → 500 이던 것을 501).
+  // 몫 칸은 0.1 단위지만 주소로는 더 잘게 들어올 수 있다. 몫은 0.1~1000 이라 소수 여섯째 자리에서 끊어도 값이 바뀌지 않는다.
+  const allocationUnitsV229148 = (weight) => BigInt(Math.max(1, Math.round(Number((Number(weight || 1) * 1000).toFixed(6)))));
   const floorDivV229148 = (numerator, denominator) => {
     const quotient = numerator / denominator;
     return numerator % denominator < 0n ? quotient - 1n : quotient;
@@ -26882,8 +26914,18 @@ async function settlementPreviewDigest({ month, mode, conditions = {}, rows = []
     settlementConditionPairs(mode, conditions).sort(),
     safeArray(rows).filter((row) => row.type !== "income").map((row) => [String(row.id), Math.round(Number(row.amount || 0)), String(row.user_id || "")]).sort(),
     ...(Array.isArray(members) ? [members.filter(settlementBaseParticipant).map((m) => [String(m.user_id), String(m.role || "member").toLowerCase()]).sort()] : []),
+    ...settlementAllocationFormulaV229148(mode),
   ]);
   return (await sha256Hex(canonical)).slice(0, 32);
+}
+
+// V22.9.148(Codex 검토): 비율·인원수 몫의 계산식이 이 판에서 바뀌었다(V147:G-2 — 몫을 0.001 단위 정수로 바꿔 BigInt 로 나눈다). 지문에는 조건과 기록만
+// 있어, 이 판 전에 연 화면(90,000원 0.7 : 0.3 = 62,999원 / 27,001원)으로 완료하면 대조를 지나 이력에 다른 금액(63,000원 / 27,000원)이 저장됐다.
+// 두 방식의 지문에 계산식 표지를 넣어 그 완료를 거절한다(‘화면을 연 뒤 … 바뀌어 저장하지 않았습니다’ — 다시 열면 새 금액으로 완료된다).
+// 결과가 그대로인 동일·품목별 지문은 예전과 같다. 계산식을 다시 바꾸면 이 표지도 바꾼다(지문은 5분 안의 중복 막기에만 다시 쓰인다).
+const SETTLEMENT_ALLOCATION_FORMULA_V229148 = "allocation-milli-units-v229148";
+function settlementAllocationFormulaV229148(mode = "") {
+  return mode === "ratio" || mode === "headcount" ? [SETTLEMENT_ALLOCATION_FORMULA_V229148] : [];
 }
 
 function renderSettlementConfig({ mode = "equal", members = [], rows = [], weights = {}, itemParticipants = {}, month = currentMonthKst(), householdId = "", people = null }) {
@@ -27714,6 +27756,8 @@ async function settlementRefundDigest({ month, mode, conditions = {}, rows = [],
     safeArray(rows).filter((row) => row.type !== "income").map((row) => [String(row.id), Math.round(Number(row.amount || 0)), String(row.user_id || "")]).sort(),
     links.map((link) => [link.id, link.expense_id, link.refund_id, link.amount]).sort(),
     [...new Map(links.map((link) => [link.refund_id, [link.refund_id, link.refund_amount, link.recipient_user_id]])).values()].sort(),
+    // V22.9.148(Codex 검토): 비율·인원수 몫의 계산식 표지(settlement-ops-pages.js settlementAllocationFormulaV229148 — 연결이 없을 때의 지문과 같은 까닭).
+    ...settlementAllocationFormulaV229148(mode),
   ]);
   return (await sha256Hex(canonical)).slice(0, 32);
 }
@@ -58931,7 +58975,11 @@ async function beginKakaoHouseholdChoice(env, { user, payload, households = [], 
       quickReplies: dedupeQuickReplies([["가계부만들기", "가계부만들기"], ["초대코드참여", "초대코드참여"]]),
     };
     if (action === "invite" && kakaoActiveHouseholds(households).length) return { text: kakaoInviteNotAllowedText(), quickReplies: [["도움말 보기", "도움말 보기"]] };
-    return { text: kakaoStartText(false), quickReplies: kakaoStartQuickReplies(false) };
+    // V22.9.148(Codex 검토): 가계부가 없는 사람의 ‘다른 가계부’·초대 명령도 같은 첫 안내를 낸다 — 관제는 첫 안내(FIRST_CONTACT/clarify)로 센다
+    // (skill-handler.js kakaoFirstContactReplyV229148 와 같은 표시. 예전에는 이 길만 표시가 없어 UNKNOWN/ok 였다).
+    const text = kakaoStartText(false);
+    markKakaoNluOutcomeV229148(env, "first_contact", text);
+    return { text, quickReplies: kakaoStartQuickReplies(false) };
   }
   if (candidates.length === 1 && !forceChoice) {
     const chosen = candidates[0];

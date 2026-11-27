@@ -39,6 +39,8 @@ for(const [rel,names] of Object.entries(protection)){
 // 선택 인자 { startedOn } 을 더해 그 지문을 새로 적었다. 관측 지출·관측 일수·하루 평균·월말 예상(burnForecast)·지출한 날은 예전 식 그대로다(아래 값 검사).
 // V22.9.148 V147:G-2: 소수 몫(0.7 : 0.3)에서 1~3원 어긋나지 않게 buildSettlementModel 의 allocate 를 몫 0.001 단위 정수의 BigInt 나눗셈으로
 // 의도적으로 바꿔 그 지문을 새로 적었다. 정수 몫·같은 몫(동일·품목별)의 결과와 남는 원 규칙은 예전과 같다(validate-v229148-first-record 가 운영 코드 식과 대조).
+// V22.9.148(Codex 검토): buildSettlementModel 의 0.001 단위 반올림에서 실수 오차를 걷어 내고(0.5005 → 501 단위), settlementPreviewDigest 의 비율·인원수
+// 지문에 계산식 표지를 더해(이 판 전에 연 화면의 완료를 거절) 두 지문을 새로 적었다. 0.1 단위 몫과 동일·품목별의 결과·지문은 그대로다.
  for(const [name,hash]of Object.entries(names)){const node=ast.body.find(n=>n.id?.name===name);ok(!!node,"protected function exists "+name);eq(sha(source.slice(node.start,node.end)),hash,"V57 unchanged contract "+name);}
 }
 const renderer=readFileSync(new URL("../src/modules/my/analysis-page.js",import.meta.url),"utf8");
