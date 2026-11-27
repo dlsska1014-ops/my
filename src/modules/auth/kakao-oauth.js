@@ -235,10 +235,18 @@ function kakaoCallbackErrorMessage(stage = "", traceId = "") {
   return messages[String(stage || "")] || `카카오 로그인을 완료하지 못했습니다. 기존 기록은 변경되지 않았습니다.${suffix}`;
 }
 
-// V22.9.148(Codex 7차 검토 — V148:C-79): 관제에 남기는 카카오 로그인 오류 이름(아래 handleKakaoLoginCallback). 그 꼴이 아니면 ‘[값 생략]’.
+// V22.9.148(Codex 7차 검토 — V148:C-79): 관제에 남기는 카카오 로그인 오류 이름(아래 handleKakaoLoginCallback). 정해 둔 이름이 아니면 ‘[값 생략]’.
+// V22.9.148(Codex 8차 검토 — V148:C-89): 이름의 꼴(소문자·밑줄)만 보면 ‘private_family_memo’ 처럼 누구나 주소에 적어 보낸 말이 그대로 관제에 남았다(가리기도 그
+// 꼴은 지우지 않는다). OAuth 2.0(RFC 6749 4.1.2.1)·OpenID Connect(Core 3.1.2.6)가 정한 인가 오류 이름만 남긴다 — 카카오가 돌려주는 값(access_denied·
+// consent_required 등)은 그 안에 있다. 이름표 밖의 값은 갈래(취소·비회원 판정)는 그대로 고르고 상세에만 남기지 않는다.
+const KAKAO_OAUTH_ERROR_NAMES_V229148 = new Set([
+  "invalid_request", "unauthorized_client", "access_denied", "unsupported_response_type", "invalid_scope", "server_error", "temporarily_unavailable",
+  "interaction_required", "login_required", "account_selection_required", "consent_required", "invalid_request_uri", "invalid_request_object",
+  "request_not_supported", "request_uri_not_supported", "registration_not_supported",
+]);
 function kakaoOauthErrorNameV229148(value = "") {
   const text = String(value || "");
-  return /^[a-z_]{1,40}$/.test(text) ? text : "[값 생략]";
+  return KAKAO_OAUTH_ERROR_NAMES_V229148.has(text) ? text : "[값 생략]";
 }
 
 async function handleKakaoLoginCallback(request, env, url) {
@@ -276,7 +284,8 @@ async function handleKakaoLoginCallback(request, env, url) {
   let stage = "state";
   try {
     // V22.9.148(Codex 7차 검토 — V148:C-79): 주소의 error 값은 누구나 바꿔 보낼 수 있다(카카오가 돌려주는 값은 ‘access_denied’ 같은 OAuth 오류 이름이다). 관제에는
-    // 그 꼴(소문자·밑줄 40자까지)만 남기고, 추적 번호는 그 앞에 둔다 — 값 뒤에 두면 값에 든 ‘Supabase 400: ’ 를 가리기가 DB 오류 글로 읽어 추적 번호까지 지웠다.
+    // 정해 둔 오류 이름만 남기고(위 kakaoOauthErrorNameV229148 — V148:C-89), 추적 번호는 그 앞에 둔다 — 값 뒤에 두면 값에 든 ‘Supabase 400: ’ 를 가리기가 DB 오류 글로
+    // 읽어 추적 번호까지 지웠다.
     const oauthError = String(url.searchParams.get("error") || "");
     if (oauthError && accountLinkMode) {
       rememberOpsEvent({ kind: "kakao_account_link_kakao_error", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId};error=${kakaoOauthErrorNameV229148(oauthError)}` });

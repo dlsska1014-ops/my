@@ -379,7 +379,11 @@ function markKakaoNluOutcomeV229148(env, kind = "", replyText = "") {
   // 주소가 든 기록 줄이 첫 줄인 답(수정 창 등)은 보낸 답에 그 첫 줄이 없어 표지를 놓치고 글로 읽어, 메모의 ‘서버 오류’ 로 정상 답을 오류로 셌다. 우리 주소인지는
   // 보낼 때의 주소(origin)로 정해지므로 주소가 든 답(kakaoTextLinks 가 옮기는 꼴과 같은 판정)은 글을 함께 두고, 견줄 때 보낼 때와 같은 함수로 첫 줄을 만든다
   // (kakaoNluMarkLinesV229148). 요청 표식은 그 요청의 메모리에만 있다(관제에 남기는 것은 이름·결과·까닭 낱말뿐).
-  request.nluMarkV229148 = { ...mark, kind, signature, roomSignature, ...(/https?:\/\//i.test(source) ? { linkSource: source } : {}) };
+  // V22.9.148(Codex 8차 리포트의 ‘확인 필요’ — V148:C-102): 보내기 전에 950자를 넘는 답은 줄 경계에서(없으면 낱말 경계·930자에서) 자른다(response-builders.js
+  // kakaoSafeText). 첫 줄이 그보다 긴 답(웹에서 고친 메모 — 길이 제한이 없다 — 가 1,000자인 기록 줄이 첫 줄인 수정 창 등)은 보낸 답에 그 첫 줄이 없어 표지를
+  // 놓치고 글로 읽어, 메모 속 ‘서버 오류’ 로 처리함을 오류로 셌다. 보낼 때 잘리는 답도 주소가 든 답처럼 글을 함께 두고 보낸 꼴의 첫 줄로 견준다(요청 표식에만 둔다).
+  const cutOnSend = kakaoSafeText(source) !== source.replace(/\r\n/g, "\n").trim();
+  request.nluMarkV229148 = { ...mark, kind, signature, roomSignature, ...(/https?:\/\//i.test(source) || cutOnSend ? { linkSource: source } : {}) };
 }
 
 function kakaoNluMarkV229148(env) {

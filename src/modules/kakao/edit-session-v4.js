@@ -244,10 +244,12 @@ function kakaoEditDeleteFailedReplyV229148(err, row = {}, seq = 0) {
 }
 
 // V22.9.148(Codex 7차 검토 — V148:C-77): 복구하지 못한 답의 관제 결과(답 글은 kakao/edit-flow-v4.js kakaoRestoreDelayedTextV4 — 그대로). 저장소가 넣기를 거절했거나
-// 잠금이 겹쳐 이번 요청을 처리하지 않았으면 저장 실패(restore_failed), 넣었는지 모르는 쓰기(다시 읽어도 없을 때)는 결과 모름(restore_uncertain) — 위 삭제와 같은
-// 결과다. 앞 판들은 이 답을 ok 로 셌고(글에 판정 낱말이 없다), 6차 고침은 ‘처리함’ 으로 적었다.
+// 잠금이 겹쳐 이번 요청을 처리하지 않았으면 저장 실패(restore_failed), 넣었는지 모르는 쓰기는 결과 모름(restore_uncertain) — 위 삭제와 같은 결과다. 앞 판들은 이 답을
+// ok 로 셌고(글에 판정 낱말이 없다), 6차 고침은 ‘처리함’ 으로 적었다.
+// V22.9.148(Codex 8차 검토 — V148:C-91): 결과는 넣기의 단계로 정한다 — 복구 흐름이 실패한 결과마다 넣기의 결과를 모르는지(writeUnknown)를 적는다. 7차 고침은 마지막
+// 오류로 정해 잠금 함수의 503(넣기를 시작하지 않음)을 결과 모름으로, 넣기의 결과를 모르는 채 다시 읽기까지 실패한 것을 그 읽기 오류로 저장 실패로 셌다.
 function kakaoRestoreFailedNluV229148(outcome = {}) {
-  return !outcome.busy && isUncertainStorageWrite(outcome.error) ? "restore_uncertain" : "restore_failed";
+  return outcome.writeUnknown === true ? "restore_uncertain" : "restore_failed";
 }
 
 // T2: 수정 답장에 바뀐 기록을 적는다.

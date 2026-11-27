@@ -1098,7 +1098,11 @@ function markKakaoNluOutcomeV229148(env, kind = "", replyText = "") {
   // 주소가 든 기록 줄이 첫 줄인 답(수정 창 등)은 보낸 답에 그 첫 줄이 없어 표지를 놓치고 글로 읽어, 메모의 ‘서버 오류’ 로 정상 답을 오류로 셌다. 우리 주소인지는
   // 보낼 때의 주소(origin)로 정해지므로 주소가 든 답(kakaoTextLinks 가 옮기는 꼴과 같은 판정)은 글을 함께 두고, 견줄 때 보낼 때와 같은 함수로 첫 줄을 만든다
   // (kakaoNluMarkLinesV229148). 요청 표식은 그 요청의 메모리에만 있다(관제에 남기는 것은 이름·결과·까닭 낱말뿐).
-  request.nluMarkV229148 = { ...mark, kind, signature, roomSignature, ...(/https?:\/\//i.test(source) ? { linkSource: source } : {}) };
+  // V22.9.148(Codex 8차 리포트의 ‘확인 필요’ — V148:C-102): 보내기 전에 950자를 넘는 답은 줄 경계에서(없으면 낱말 경계·930자에서) 자른다(response-builders.js
+  // kakaoSafeText). 첫 줄이 그보다 긴 답(웹에서 고친 메모 — 길이 제한이 없다 — 가 1,000자인 기록 줄이 첫 줄인 수정 창 등)은 보낸 답에 그 첫 줄이 없어 표지를
+  // 놓치고 글로 읽어, 메모 속 ‘서버 오류’ 로 처리함을 오류로 셌다. 보낼 때 잘리는 답도 주소가 든 답처럼 글을 함께 두고 보낸 꼴의 첫 줄로 견준다(요청 표식에만 둔다).
+  const cutOnSend = kakaoSafeText(source) !== source.replace(/\r\n/g, "\n").trim();
+  request.nluMarkV229148 = { ...mark, kind, signature, roomSignature, ...(/https?:\/\//i.test(source) || cutOnSend ? { linkSource: source } : {}) };
 }
 
 function kakaoNluMarkV229148(env) {
@@ -30287,10 +30291,18 @@ function kakaoCallbackErrorMessage(stage = "", traceId = "") {
   return messages[String(stage || "")] || `카카오 로그인을 완료하지 못했습니다. 기존 기록은 변경되지 않았습니다.${suffix}`;
 }
 
-// V22.9.148(Codex 7차 검토 — V148:C-79): 관제에 남기는 카카오 로그인 오류 이름(아래 handleKakaoLoginCallback). 그 꼴이 아니면 ‘[값 생략]’.
+// V22.9.148(Codex 7차 검토 — V148:C-79): 관제에 남기는 카카오 로그인 오류 이름(아래 handleKakaoLoginCallback). 정해 둔 이름이 아니면 ‘[값 생략]’.
+// V22.9.148(Codex 8차 검토 — V148:C-89): 이름의 꼴(소문자·밑줄)만 보면 ‘private_family_memo’ 처럼 누구나 주소에 적어 보낸 말이 그대로 관제에 남았다(가리기도 그
+// 꼴은 지우지 않는다). OAuth 2.0(RFC 6749 4.1.2.1)·OpenID Connect(Core 3.1.2.6)가 정한 인가 오류 이름만 남긴다 — 카카오가 돌려주는 값(access_denied·
+// consent_required 등)은 그 안에 있다. 이름표 밖의 값은 갈래(취소·비회원 판정)는 그대로 고르고 상세에만 남기지 않는다.
+const KAKAO_OAUTH_ERROR_NAMES_V229148 = new Set([
+  "invalid_request", "unauthorized_client", "access_denied", "unsupported_response_type", "invalid_scope", "server_error", "temporarily_unavailable",
+  "interaction_required", "login_required", "account_selection_required", "consent_required", "invalid_request_uri", "invalid_request_object",
+  "request_not_supported", "request_uri_not_supported", "registration_not_supported",
+]);
 function kakaoOauthErrorNameV229148(value = "") {
   const text = String(value || "");
-  return /^[a-z_]{1,40}$/.test(text) ? text : "[값 생략]";
+  return KAKAO_OAUTH_ERROR_NAMES_V229148.has(text) ? text : "[값 생략]";
 }
 
 async function handleKakaoLoginCallback(request, env, url) {
@@ -30328,7 +30340,8 @@ async function handleKakaoLoginCallback(request, env, url) {
   let stage = "state";
   try {
     // V22.9.148(Codex 7차 검토 — V148:C-79): 주소의 error 값은 누구나 바꿔 보낼 수 있다(카카오가 돌려주는 값은 ‘access_denied’ 같은 OAuth 오류 이름이다). 관제에는
-    // 그 꼴(소문자·밑줄 40자까지)만 남기고, 추적 번호는 그 앞에 둔다 — 값 뒤에 두면 값에 든 ‘Supabase 400: ’ 를 가리기가 DB 오류 글로 읽어 추적 번호까지 지웠다.
+    // 정해 둔 오류 이름만 남기고(위 kakaoOauthErrorNameV229148 — V148:C-89), 추적 번호는 그 앞에 둔다 — 값 뒤에 두면 값에 든 ‘Supabase 400: ’ 를 가리기가 DB 오류 글로
+    // 읽어 추적 번호까지 지웠다.
     const oauthError = String(url.searchParams.get("error") || "");
     if (oauthError && accountLinkMode) {
       rememberOpsEvent({ kind: "kakao_account_link_kakao_error", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId};error=${kakaoOauthErrorNameV229148(oauthError)}` });
@@ -54960,10 +54973,12 @@ function kakaoEditDeleteFailedReplyV229148(err, row = {}, seq = 0) {
 }
 
 // V22.9.148(Codex 7차 검토 — V148:C-77): 복구하지 못한 답의 관제 결과(답 글은 kakao/edit-flow-v4.js kakaoRestoreDelayedTextV4 — 그대로). 저장소가 넣기를 거절했거나
-// 잠금이 겹쳐 이번 요청을 처리하지 않았으면 저장 실패(restore_failed), 넣었는지 모르는 쓰기(다시 읽어도 없을 때)는 결과 모름(restore_uncertain) — 위 삭제와 같은
-// 결과다. 앞 판들은 이 답을 ok 로 셌고(글에 판정 낱말이 없다), 6차 고침은 ‘처리함’ 으로 적었다.
+// 잠금이 겹쳐 이번 요청을 처리하지 않았으면 저장 실패(restore_failed), 넣었는지 모르는 쓰기는 결과 모름(restore_uncertain) — 위 삭제와 같은 결과다. 앞 판들은 이 답을
+// ok 로 셌고(글에 판정 낱말이 없다), 6차 고침은 ‘처리함’ 으로 적었다.
+// V22.9.148(Codex 8차 검토 — V148:C-91): 결과는 넣기의 단계로 정한다 — 복구 흐름이 실패한 결과마다 넣기의 결과를 모르는지(writeUnknown)를 적는다. 7차 고침은 마지막
+// 오류로 정해 잠금 함수의 503(넣기를 시작하지 않음)을 결과 모름으로, 넣기의 결과를 모르는 채 다시 읽기까지 실패한 것을 그 읽기 오류로 저장 실패로 셌다.
 function kakaoRestoreFailedNluV229148(outcome = {}) {
-  return !outcome.busy && isUncertainStorageWrite(outcome.error) ? "restore_uncertain" : "restore_failed";
+  return outcome.writeUnknown === true ? "restore_uncertain" : "restore_failed";
 }
 
 // T2: 수정 답장에 바뀐 기록을 적는다.
@@ -57198,6 +57213,10 @@ async function handleKakaoEditCommandV4(env, ctx) {
     if (restoreTarget.invalidSeq) return kakaoText(kakaoEditTargetRejectTextV4({ seq: 0 }));
     { const refused = await refuseRecordChange(); if (refused) return refused; }
     let outcome = null;
+    // V22.9.148(Codex 8차 검토 — V148:C-91): 복구하지 못한 답의 관제 결과는 거래 넣기의 단계로 정한다(마지막 오류가 아니라). 넣기를 보냈는데 결과를 모르는 채로
+    // 다시 읽기까지 실패하면 그 오류만 바깥으로 나와 저장 실패로 셌고, 잠금 함수의 503(넣기를 시작도 하지 않음)은 그 함수의 ‘결과 모름’ 으로 결과 모름으로 셌다.
+    // 실패한 결과는 넣기의 결과를 모르는지(writeUnknown)를 함께 돌려준다(kakao/edit-session-v4.js kakaoRestoreFailedNluV229148). 답 글은 그대로다.
+    let restoreStage = "before_write";
     try {
       // S1·T4: 버퍼 읽기·복구·버퍼 정리를 한 잠금 안에서 한다. 겹친 두 "복구"가 같은 기록을 두 번 넣지 못한다.
       outcome = await withKakaoEditUndoLeaseV4(env, kakaoUserKey, payload, async ({ assertFresh }) => {
@@ -57223,6 +57242,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
             if (["my_import", "backup_import_v19_3"].includes(body.source)) {
               if (!body.id || importStorageTextIssue(body)) throw new Error("import_restore_fields_invalid");
               await commitImportedTransactionRows(env, targetHouseholdId, [body]);
+              restoreStage = "write_unknown"; // 넣기는 받아들여졌다 — 아래 확인을 마치기 전까지는 넣었는지 모른다(V148:C-91)
               const found = await reconcileImportedTransactionIds(env, targetHouseholdId, [body]);
               if (!found.has(String(body.id))) throw Object.assign(new Error("import_restore_unconfirmed"), { uncertain_write: true });
               restored = body;
@@ -57232,8 +57252,10 @@ async function handleKakaoEditCommandV4(env, ctx) {
             }
           } catch (err) {
             // T4: 결과를 모르거나 같은 id 가 이미 있으면 다시 넣지 않고 id 로 확인한다. id 를 뺀 재삽입은 중복을 만든다.
-            if (!body.id || (!isUncertainStorageWrite(err) && !isUniqueConstraintError(err))) return { kind: "failed", undo, error: err };
+            if (!body.id || (!isUncertainStorageWrite(err) && !isUniqueConstraintError(err))) return { kind: "failed", undo, error: err, writeUnknown: restoreStage === "write_unknown" || isUncertainStorageWrite(err) };
+            if (isUncertainStorageWrite(err)) restoreStage = "write_unknown";
             restored = await getKakaoRowById(env, targetHouseholdId, user.id, kakaoUserKey, body.id);
+            restoreStage = "write_checked";
             // V22.9.119 O-1 후속(독립 검토 B): 같은 id 가 아니라 같은 날·같은 문장·같은 금액의 다른 내 카카오 기록 때문에 운영 유니크 인덱스가 거절했다.
             // 다시 보내도 같으므로 ‘잠시 후 다시’ 가 아니라 그 사실을 답한다(복구 목록은 그대로 둔다).
             // 후속 2(재검토 P3): 이 기록이 목록에 남아 번호 없는 ‘복구’ 는 늘 이 기록을 고른다. 번호를 붙이면 다른 기록이 골라지는 번호(위 고르기 규칙으로
@@ -57245,10 +57267,10 @@ async function handleKakaoEditCommandV4(env, ctx) {
               });
               return { kind: "same_text_exists", undo, error: err, otherSeqs: seqs.slice(0, 3) };
             }
-            if (!restored) return { kind: "failed", undo, error: err };
+            if (!restored) return { kind: "failed", undo, error: err, writeUnknown: isUncertainStorageWrite(err) };
           }
         }
-        if (["my_import", "backup_import_v19_3"].includes(body.source) && myImportStoredValue(restored) !== myImportStoredValue(body)) return { kind: "failed", undo, error: new Error("import_restore_unconfirmed") };
+        if (["my_import", "backup_import_v19_3"].includes(body.source) && myImportStoredValue(restored) !== myImportStoredValue(body)) return { kind: "failed", undo, error: new Error("import_restore_unconfirmed"), writeUnknown: false };
         // 실제 복구가 확인된 이 한 건만 뺀다. 같은 잠금 안에서 읽은 목록을 쓰므로 다른 삭제분을 지우지 않는다.
         try {
           assertFresh();
@@ -57259,7 +57281,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
     } catch (err) {
       // V22.9.79 감사 B-8: 잠금을 못 잡은 요청(settings_rmw_busy)은 아무것도 읽지도 쓰지도 않았다. 다른 요청이 같은 버퍼를 쥐고 있었다는 뜻이라
       // 그 요청이 방금 기록을 되살렸을 수 있다 — 아래 답장이 구분해서 말한다.
-      outcome = { kind: "failed", undo: null, error: err, busy: /settings_rmw_busy/.test(safeError(err)) };
+      // 잠금·버퍼 읽기·넣기 전 확인의 실패(넣기를 시작하지 않음)는 저장 실패, 넣기의 결과를 모르는 채 다시 읽기까지 실패한 것(위 restoreStage)은 결과 모름이다.
+      outcome = { kind: "failed", undo: null, error: err, busy: /settings_rmw_busy/.test(safeError(err)), writeUnknown: restoreStage === "write_unknown" };
     }
     // V22.9.135 N-2: 구성원이 다른 사람의 기록도 지우게 됐다. 복구 목록은 지운 사람마다 따로라(같은 방이라도), 내가 지우지 않은 기록은 내 ‘복구’ 로 되살릴 수 없다고 말한다.
     if (outcome.kind === "empty") return kakaoText("복구할 삭제 기록이 없어요.\n복구는 기록을 지운 사람이 삭제 직후 안내된 번호로 할 수 있어요. ‘오늘기록’로 현재 기록을 확인해 주세요.");
@@ -57280,8 +57303,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
       ].join("\n"));
     }
     if (outcome.kind !== "restored") {
-      const lastError = outcome.error;
-      await logKakaoEditTelemetryV4(env, payload, { userKey: kakaoUserKey, entryNo: twoDigitSeq(Number(outcome.undo?.seq || restoreTarget.seq || 0)), input: String((lastError && lastError.message) || lastError || "").slice(0, 280), type: "restore_error" });
+      // V22.9.148(Codex 8차 검토 — V148:C-90): 이 답은 요청 집계(skill-handler.js — record_nlu_metric 한 번)가 표시로 오류(저장 실패·결과 모름)로 센다. 앞 판들은
+      // 여기서 수정 흐름의 진단(logKakaoEditTelemetryV4 — 같은 저장 함수)을 한 번 더 써 한 요청이 오류 두 줄이 됐다(7차 고침 전에는 오류 한 줄 + 처리함 한 줄).
       return kakaoEditRowReplyV229148(env, kakaoRestoreFailedNluV229148(outcome), kakaoRestoreDelayedTextV4(restoreTarget, outcome));
     }
     const restored = outcome.restored;
