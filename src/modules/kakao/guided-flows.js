@@ -1,5 +1,5 @@
 // @build:imports-start
-import { rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import { markKakaoNluOutcomeV229148, rememberOpsEvent } from "../runtime/ops-telemetry.js";
 import { safeError } from "../runtime/leases.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { saveMemberAlias } from "../data/households-members-rows.js";
@@ -385,6 +385,15 @@ async function handlePreHouseholdGuidedFlow(env, { utterance, user, payload, nic
   return null;
 }
 
+// V22.9.148(Codex 4차 검토 — V148:C-40): 분류 예산의 금액 물음은 분류 이름(사용자가 정한 값)으로 줄이 시작한다. 이름이 ‘예: 점심’·‘가계부: 점심’ 이면
+// 관제가 그 줄을 예시·이름 줄로 빼 되묻기를 ok 로 셌다(이름이 ‘점심 / 5,000원 / 카드’ 면 기록 줄로). 만든 곳이 되묻기로 적는다(이름은 그대로 — 빈 이름 표시).
+// 답 글은 예전과 같다.
+function kakaoBudgetAmountQuestionV229148(env, category = "") {
+  const text = `${category} 예산을 얼마로 설정할까요?`;
+  markKakaoNluOutcomeV229148(env, "flow_question", text);
+  return { text, quickReplies: kakaoBudgetAmountQuickReplies() };
+}
+
 async function handleHouseholdGuidedFlow(env, { utterance, user, payload, household, nickname, origin }) {
   let state = await getKakaoFlowState(env, user.id, payload);
   if (!state || !["budget_setup", "member_alias"].includes(state.flow)) return null;
@@ -477,13 +486,13 @@ async function handleHouseholdGuidedFlow(env, { utterance, user, payload, househ
       const category = await resolveBudgetCategoryName(env, household.id, rawCategory);
       if (!category) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "카테고리를 찾지 못했어요. 버튼에서 골라 주세요.", quickReplies: kakaoBudgetCategoryQuickReplies() }, KAKAO_BUDGET_FLOW_EXIT);
       await saveKakaoFlowState(env, user.id, payload, { flow: "budget_setup", step: "amount", data: { household_id: household.id, month, category } });
-      return { text: `${category} 예산을 얼마로 설정할까요?`, quickReplies: kakaoBudgetAmountQuickReplies() };
+      return kakaoBudgetAmountQuestionV229148(env, category);
     }
     if (state.step === "category_custom") {
       const category = await resolveBudgetCategoryName(env, household.id, utterance);
       if (!category) return kakaoFlowRetryOrExit(env, user, payload, state, { text: "카테고리 이름을 다시 입력해 주세요.\n예: 외식, 육아/자녀", quickReplies: [["취소", "취소"]] }, KAKAO_BUDGET_FLOW_EXIT);
       await saveKakaoFlowState(env, user.id, payload, { flow: "budget_setup", step: "amount", data: { household_id: household.id, month, category } });
-      return { text: `${category} 예산을 얼마로 설정할까요?`, quickReplies: kakaoBudgetAmountQuickReplies() };
+      return kakaoBudgetAmountQuestionV229148(env, category);
     }
     if (state.step === "amount") {
       if (normalizeText(utterance) === "직접 입력") return { text: "금액을 직접 입력해 주세요.\n예: 80만원", quickReplies: [["취소", "취소"]] };

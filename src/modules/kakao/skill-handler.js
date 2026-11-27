@@ -113,8 +113,11 @@ import {
 } from "../domain/transactions-core.js";
 // @build:imports-end
 
+// V22.9.148(Codex 3차 검토): 잘못된 JSON 본문은 스킬 사건의 detail 에 고정 이름과 글자 수·위치(숫자)만 남긴다.
+// V22.9.148(Codex 4차 검토 — V148:C-37): 위치는 V8 이 문구 끝에 붙이는 ‘ at position N’(새 V8 은 ‘ (line L column C)’ 까지)에서만 읽는다 — 앞 고침은
+// 문구 어디서든 ‘position 숫자’ 를 찾아, 본문이 ‘position 1234567’ 이면 V8 이 옮겨 적은 본문 속 숫자를 위치로 남겼다(실패 사례 저장을 꺼도).
 function kakaoSkillBadJsonDetailV229148(err, bodyText = "") {
-  const position = /\bposition (\d+)\b/.exec(String(err?.message || ""))?.[1] || "";
+  const position = / at position (\d+)(?: \(line \d+ column \d+\))?$/.exec(String(err?.message || ""))?.[1] || "";
   return `invalid_json; chars=${String(bodyText || "").length}${position ? `; position=${position}` : ""}`;
 }
 

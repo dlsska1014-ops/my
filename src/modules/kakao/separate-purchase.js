@@ -1,5 +1,7 @@
 // @build:imports-start
-import { AB_KAKAO_INFLIGHT, rememberOpsEvent } from "../runtime/ops-telemetry.js";
+import {
+  AB_KAKAO_INFLIGHT, markKakaoNluOutcomeV229148, rememberOpsEvent,
+} from "../runtime/ops-telemetry.js";
 import {
   parseStrictSettingsObject, withHouseholdDatabaseLease, withSettingsRmwLease,
 } from "../runtime/leases.js";
@@ -80,12 +82,20 @@ async function saveKakaoSeparateState(env, key, state, assertFresh) {
   });
 }
 
-function kakaoSeparateCandidateReply(state, household, payload) {
+// V22.9.148(Codex 4차 검토를 고치며 찾음 — V148:C-46): 별도 구매의 후보·확인 상태·저장 답은 기록의 분류·메모·결제수단을 따옴표 없이 한 줄에 되풀이한다
+// (‘식비 · 서버 오류 수리비 · 카드’). 그 줄은 꼴로 봇 말과 가를 수 없어 메모 ‘서버 오류 수리비’ 면 관제가 정상 답을 오류로 셌다. 이 세 답은 만든 곳이
+// 결과(ok — 글로 읽던 예전 결과와 같다)를 적는다. 이름은 바꾸지 않는다. 답 글은 그대로다.
+function kakaoSeparateHandledTextV229148(env, text, quickReplies) {
+  markKakaoNluOutcomeV229148(env, "handled", text);
+  return kakaoText(text, quickReplies);
+}
+
+function kakaoSeparateCandidateReply(state, household, payload, env) {
   const row = state.row;
   const word = row.type === "income" ? "기록" : "구매";
   const confirm = `별도 ${word} 확인 ${state.confirmation_id}`;
   const cancel = `별도 ${word} 취소 ${state.confirmation_id}`;
-  return kakaoText([
+  return kakaoSeparateHandledTextV229148(env, [
     `같은 내용의 별도 ${word} 후보입니다. 아직 추가하지 않았어요.`,
     `가계부: ${household.name}`, `${row.transaction_date} · ${row.type === "income" ? "수입" : "지출"} · ${numberWithCommas(row.amount)}원`,
     `${row.category} · ${row.memo || "내용 없음"} · ${row.payment_method || "결제수단 없음"}`,
@@ -139,7 +149,7 @@ async function handleKakaoSeparatePurchase(env, context) {
       if (command.action === "status") {
         const recordCommand=`${state.row.transaction_date} 기록`; // V22.9.72: 짧은 명령 형식(두 형식 모두 날짜 목록으로 읽힌다)
         const description=state.state === "confirmed" ? "이미 저장을 확인한 별도 구매입니다." : state.state === "candidate" ? "아직 추가하지 않은 별도 구매 후보입니다." : "취소·만료 또는 저장이 거절된 후보입니다.";
-        return kakaoText(`${description}\n${state.row.transaction_date} · ${state.row.memo||state.row.category} · ${numberWithCommas(state.row.amount)}원\n‘${recordCommand}’로 해당 날짜의 기록 목록을 확인해 주세요. 목록만으로 이번 요청의 실패를 단정하지 않습니다.`,groupKey?null:[["해당 날짜 기록",recordCommand]]);
+        return kakaoSeparateHandledTextV229148(env, `${description}\n${state.row.transaction_date} · ${state.row.memo||state.row.category} · ${numberWithCommas(state.row.amount)}원\n‘${recordCommand}’로 해당 날짜의 기록 목록을 확인해 주세요. 목록만으로 이번 요청의 실패를 단정하지 않습니다.`,groupKey?null:[["해당 날짜 기록",recordCommand]]);
       }
       if (command.action !== "prepare" && (state.expires_at <= Date.now() || state.state === "cancelled")) return kakaoText("취소되었거나 만료된 확인입니다. 새 기록은 저장하지 않았어요.");
       if (command.action === "cancel") {
@@ -162,12 +172,12 @@ async function handleKakaoSeparatePurchase(env, context) {
         if (!Array.isArray(originals) || originals.length >= 1000) throw new Error("separate_original_read_incomplete");
         const original=originals.find(actual => ["category","memo","payment_method","transaction_date","type"].every(field => String(actual[field]||"")===String(row[field]||"")));
         if (!original) return kakaoText("같은 내용으로 저장된 원래 기록을 확인하지 못했어요. 먼저 기록 목록에서 원래 기록을 확인해 주세요. 이 요청으로 새 기록은 저장하지 않았어요.");
-        if (state?.state === "candidate" && state.expires_at > Date.now() && sameTransactionCore(state.row,row)) return kakaoSeparateCandidateReply(state,current,payload);
+        if (state?.state === "candidate" && state.expires_at > Date.now() && sameTransactionCore(state.row,row)) return kakaoSeparateCandidateReply(state,current,payload,env);
         row.id=crypto.randomUUID();
         const created=Date.now();
         state={schema_version:1,...scope,confirmation_id:crypto.randomUUID().replace(/-/g,"").slice(0,16),row,original,candidate_digest:await sha256Hex(JSON.stringify([scope,row,original])),created_at:created,expires_at:created+300000,state:"candidate"};
         await saveKakaoSeparateState(env,key,state,assertFresh);
-        return kakaoSeparateCandidateReply(state,current,payload);
+        return kakaoSeparateCandidateReply(state,current,payload,env);
       }
       const original=await findTransactionForRequest(env,state.original);
       if (!original || !sameTransactionCore(original,state.original)) return kakaoText("후보를 확인한 뒤 원래 기록이 바뀌었거나 삭제되었습니다. 새 기록은 저장하지 않았어요. 후보를 다시 준비해 주세요.");
@@ -201,7 +211,7 @@ async function handleKakaoSeparatePurchase(env, context) {
       }
       state.state="confirmed";
       await saveKakaoSeparateState(env,key,state,assertFresh);
-      return kakaoText(`별도 ${state.row.type === "income" ? "기록" : "구매"} 한 건을 저장했어요.\n${state.row.transaction_date} · ${state.row.memo || state.row.category} · ${numberWithCommas(state.row.amount)}원\n같은 확인으로 다시 추가하지 않습니다.`);
+      return kakaoSeparateHandledTextV229148(env, `별도 ${state.row.type === "income" ? "기록" : "구매"} 한 건을 저장했어요.\n${state.row.transaction_date} · ${state.row.memo || state.row.category} · ${numberWithCommas(state.row.amount)}원\n같은 확인으로 다시 추가하지 않습니다.`);
     },{localMutex:false}));
   try {
     return await withKakaoUserLifecycleLease(env,user.id,async ({assertFresh:userFresh}) => groupKey
