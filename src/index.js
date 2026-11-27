@@ -823,9 +823,42 @@ const OPS_DB_SAFE_MESSAGES_V229148 = Object.freeze([
   /^(?:there is no unique or exclusion constraint matching the ON CONFLICT specification|ON CONFLICT DO UPDATE command cannot affect row a second time)$/,
   /^(?:value too long for type [a-z ]{1,40}(?:\(\d{1,6}\))?|numeric field overflow|(?:small|big)?int(?:eger)? out of range)$/,
   /^(?:JWT expired|Invalid API key|Empty or invalid json|Requested range not satisfiable|All object keys must match)$/,
-  // 우리 SQL 함수가 raise 하는 정해 둔 이름(‘household_not_found’ 꼴 — 실행 때 쓰는 함수의 raise 는 모두 이 꼴이다).
-  /^[a-z][a-z0-9_]{2,63}(?::[a-z0-9_]{1,40}){0,3}$/,
 ]);
+// V22.9.148(Codex 5차 검토 — V148:C-50): 우리 SQL 함수가 raise 하는 정해 둔 이름은 꼴이 아니라 이름 그대로 본다 — 저장소 SQL(git 이 아는 *.sql)의
+// ‘raise exception '이름'’ 이름 모두와 정해 둔 영문 문장 둘(검사가 SQL 과 대조한다). 앞 고침은 꼴(/^[a-z][a-z0-9_]{2,63}…$/)로만 보아, 짧은 영문 메모
+// (‘clinic_visit’)가 그 자리에 오면 그대로 남았다(지금 SQL 이 메모를 raise 하지는 않는다 — 가리기가 둘을 가르지 못했다). 위 표의 따옴표 안 이름은
+// Postgres·PostgREST 가 스키마의 표·열·제약·함수 이름으로 채우는 자리다(사용자가 만들 수 있는 이름이 아니다).
+const OPS_DB_RAISE_NAMES_V229148 = new Set([
+  "accountbook_budgets_required", "accountbook_recurring_required", "asset_action_invalid", "asset_balance_invalid", "asset_history_invalid",
+  "asset_id_invalid", "asset_id_required", "asset_invalid", "asset_kind_invalid", "asset_limit_exceeded", "asset_name_duplicate",
+  "asset_name_invalid", "asset_not_found", "asset_sensitive_or_invalid", "asset_snapshot_month_invalid", "asset_storage_invalid",
+  "asset_text_too_long", "bulk_household_scope_mismatch", "expected_row_required", "household_import_pending", "household_leave_not_applied",
+  "household_membership_not_found", "household_not_found", "household_owner_cannot_leave", "household_purge_scope_too_large",
+  "import_contract_upgrade_required", "import_household_scope_mismatch", "import_pending_identity_changed", "import_pending_rows_exist",
+  "import_pending_rows_missing", "import_pending_unresolved", "import_source_not_pending", "import_source_scope_changed",
+  "import_source_scope_invalid", "import_source_state_changed", "import_source_state_invalid", "import_spender_not_member",
+  "import_state_contract_upgrade_required", "invalid_bulk_size", "invalid_credential", "invalid_import_amount", "invalid_import_size",
+  "invalid_import_type", "invalid_kakao_id", "invalid_login_name", "invalid_month", "invalid_transaction_amount", "invalid_transaction_type",
+  "kakao_identity_in_use", "login_name_in_use", "primary_user_not_found", "purge_contract_upgrade_required", "recurring_spender_required",
+  "refund_link_amount_exceeded", "refund_link_amount_invalid", "refund_link_date_order", "refund_link_duplicate", "refund_link_history_invalid",
+  "refund_link_input_invalid", "refund_link_kind_invalid", "refund_link_locked_amount", "refund_link_locked_category", "refund_link_locked_date",
+  "refund_link_locked_kind", "refund_link_month_completed", "refund_link_not_found", "refund_link_permission_denied",
+  "refund_link_recipient_invalid", "refund_link_recipient_required", "refund_link_record_not_found", "refund_link_source_changed",
+  "refund_link_spender_required", "refund_link_window", "refund_links_already_applied", "refund_links_not_empty",
+  "refund_links_prerequisite_table_missing", "rows_must_be_array", "same_user", "secondary_user_not_found", "spender_not_household_member",
+  "too_many_budget_rows", "transaction_not_found", "user_not_found", "v229119_review_only_drop_kakao_request_unique_approval_required",
+  "v229119_transactions_table_missing", "v229148_review_only_db_advisor_grants_already_applied_2026_11_27", "v229148_trigger_probe_failed",
+  "v22959r2_post_contract_changed", "v22959r2_pre_contract_changed", "v22959r2_rollback_post_contract_changed",
+  "v22959r2_rollback_pre_contract_changed", "v22979_review_only_refund_links_approval_required",
+  "v22979_review_only_refund_links_rollback_approval_required", "v22982_review_only_usage_summary_approval_required",
+  "v22982_review_only_usage_summary_rollback_approval_required", "v22988_prerequisite_table_missing",
+  "v22988_review_only_undo_delete_approval_required", "v22988_review_only_undo_delete_rollback_approval_required", "v22988_v227_delete_missing",
+  "v61_lifecycle_name_already_present_review_required", "v61_review_only_full_schema_and_cutover_approval_required",
+  "v61_review_only_recovery_freeze_approval_required", "attempt key is required", "operation key and owner are required",
+]);
+// 오류 번호(code)는 SQLSTATE(정해 둔 분류 두 글자 + 세 글자 — PostgreSQL 부록 A)·PostgREST 번호(PGRST000)·HTTP 상태 세 자리만 남긴다(V148:C-50 —
+// 앞 고침은 영숫자 16자까지 받아 ‘clinic_visit’ 도 남겼다).
+const OPS_DB_CODE_V229148 = /^(?:PGRST\d{3}|\d{3}|(?:0[0-389ABFLPZ]|2[0-8BDF]|3[489BDF]|4[024]|5[34578]|72|F0|HV|P0|XX)[0-9A-Z]{3})$/;
 // 받은 값을 옮겨 적는 꼴: 값만 뺀다(본문이 잘려 값이 끝나지 않아도 앞부분으로 알아본다).
 const OPS_DB_VALUE_MESSAGES_V229148 = Object.freeze([
   [/^(invalid input (?:syntax for type [a-z0-9_ ]{1,40}|value for enum [A-Za-z0-9_.]{1,80})|date\/time field value out of range|invalid byte sequence for encoding "UTF8"): /, (m) => `${m[1]}: [값 생략]`],
@@ -835,7 +868,7 @@ const OPS_DB_VALUE_MESSAGES_V229148 = Object.freeze([
 ]);
 function opsDbSafeMessageV229148(message = "", whole = true) {
   const text = String(message || "");
-  if (whole && OPS_DB_SAFE_MESSAGES_V229148.some((re) => re.test(text))) return text;
+  if (whole && (OPS_DB_RAISE_NAMES_V229148.has(text) || OPS_DB_SAFE_MESSAGES_V229148.some((re) => re.test(text)))) return text;
   for (const [re, keep] of OPS_DB_VALUE_MESSAGES_V229148) {
     const found = re.exec(text);
     if (found) return keep(found);
@@ -856,12 +889,31 @@ function opsJsonStringEndV229148(text = "", at = 0) {
   }
   return -1;
 }
-function opsDbErrorBodyV229148(text = "", from = 0) {
-  let at = from;
+// 중첩 값(객체·배열)의 끝 — 따옴표 안을 건너뛰며 짝을 센다. 끝나지 않으면(잘린 본문) -1.
+function opsJsonNestedEndV229148(text = "", at = 0) {
+  const closers = [];
+  for (let i = at; i < text.length; i += 1) {
+    const ch = text[i];
+    if (ch === "\"") {
+      const end = opsJsonStringEndV229148(text, i);
+      if (end < 0) return -1;
+      i = end - 1;
+    } else if (ch === "{" || ch === "[") closers.push(ch === "{" ? "}" : "]");
+    else if (ch === "}" || ch === "]") {
+      if (closers.pop() !== ch) return -1;
+      if (!closers.length) return i + 1;
+    }
+  }
+  return -1;
+}
+// 한 DB 응답의 본문(어디서 끝나는지는 아래 opsRedactDbErrorsV229148 가 정한다)을 가린 꼴로 돌려준다.
+function opsDbErrorBodyV229148(body = "") {
+  const text = String(body || "");
+  let at = 0;
   const space = () => { while (at < text.length && /\s/.test(text[at])) at += 1; };
   space();
-  if (at >= text.length) return { body: "", end: text.length };
-  if (text[at] !== "{") return { body: "[본문 생략]", end: text.length };
+  if (at >= text.length) return "";
+  if (text[at] !== "{") return "[본문 생략]";
   at += 1;
   const fields = [];
   let closed = false;
@@ -882,6 +934,13 @@ function opsDbErrorBodyV229148(text = "", from = 0) {
       if (valueEnd < 0) { fields.push([key, opsJsonTextV229148(text.slice(at + 1)), false]); break; }
       fields.push([key, opsJsonTextV229148(text.slice(at + 1, valueEnd - 1)), true]);
       at = valueEnd;
+    } else if (text[at] === "{" || text[at] === "[") {
+      // V22.9.148(Codex 5차 검토 — V148:C-55): 중첩 값은 통째로 건너뛰고 다음 칸을 읽는다 — 앞 고침은 거기서 읽기를 멈춰 뒤의 code 를 잃고 잘리지
+      // 않은 본문에 truncated 를 달았다(‘{"extra":{"count":1},"code":"23514"}’). 끝나지 않은 중첩 값(잘린 본문)에서만 멈춘다.
+      const nestedEnd = opsJsonNestedEndV229148(text, at);
+      if (nestedEnd < 0) { fields.push([key, undefined, false]); break; }
+      fields.push([key, undefined, true]);
+      at = nestedEnd;
     } else {
       const literal = /^(?:null|true|false|-?\d{1,20}(?:\.\d{1,20})?)/.exec(text.slice(at, at + 48));
       if (!literal) { fields.push([key, undefined, false]); break; }
@@ -893,29 +952,44 @@ function opsDbErrorBodyV229148(text = "", from = 0) {
     if (text[at] === "}") { at += 1; closed = true; }
     break;
   }
-  // 열쇠는 오류 본문(바깥 글)에서 온다 — ‘__proto__’ 도 보통 칸으로 다루도록 프로토타입 없는 객체에 담는다(validate-proto-safety-v22934).
+  // 열쇠는 오류 본문(바깥 글)에서 온다 — 정해 둔 칸(code·message·details·hint)만 프로토타입 없는 객체에 담고(validate-proto-safety-v22934), 그 밖의 칸은
+  // 이름을 쓰지 않고 개수(other_fields)만 적는다(V148:C-50 — 앞 고침은 영문 이름이면 칸 이름을 그대로 남겨, 그 자리의 영문 메모가 남았다).
   const safe = Object.create(null);
+  let other = 0;
   for (const [key, value, whole] of fields) {
-    if (!/^[A-Za-z_]{1,24}$/.test(key)) continue;
-    if (key === "code") safe.code = whole && typeof value === "string" && /^[A-Za-z0-9_]{1,16}$/.test(value) ? value : value === null ? null : "[값 생략]";
-    else if (key === "message") safe.message = typeof value === "string" ? opsDbSafeMessageV229148(value, whole) : value === null ? null : "[값 생략]";
-    else safe[key] = whole && value === null ? null : "[값 생략]";
+    if (key === "code") safe.code = whole && typeof value === "string" && OPS_DB_CODE_V229148.test(value) ? value : whole && value === null ? null : "[값 생략]";
+    else if (key === "message") safe.message = typeof value === "string" ? opsDbSafeMessageV229148(value, whole) : whole && value === null ? null : "[값 생략]";
+    else if (key === "details" || key === "hint") safe[key] = whole && value === null ? null : "[값 생략]";
+    else other += 1;
   }
+  if (other) safe.other_fields = other;
   if (!closed) safe.truncated = true;
-  return { body: JSON.stringify(safe), end: closed ? at : text.length };
+  // V22.9.148(Codex 5차 검토 — V148:C-49): 닫힌 본문 뒤에 남은 이 응답의 글은 ‘[뒤 글 생략]’ — 앞 고침은 첫 객체의 } 를 본문 끝으로 보아 그 뒤의 글
+  // (‘{"code":"XX000"} 진료비’)이 그대로 남았다. Worker 가 붙인 진단은 부르는 곳이 미리 떼어 둔다.
+  return JSON.stringify(safe) + (closed && text.slice(at).trim() ? " [뒤 글 생략]" : "");
 }
+// V22.9.148(Codex 5차 검토 — V148:C-49): DB 오류 글마다 본문이 어디서 끝나는지 정한다. 본문은 응답 글 그대로이고(data/supabase-client.js — 500자,
+// 부르는 곳의 safeError 400자), Worker 는 그 뒤에 정해 둔 진단만 붙인다 — 다음 DB 오류 글 앞의 ‘ membership=’(data/users-household-create.js — 정리 오류
+// 뒤에 참여 오류), 글 끝의 ‘;trace=K…’(auth/kakao-oauth.js — K 와 대문자·숫자 7자)·‘; latency_ms=N’(kakao/skill-handler.js). 값의 꼴까지 정해 둔 그
+// 진단만 떼어 두고, 다음 DB 오류 글(또는 글 끝)까지의 나머지는 모두 이 응답의 본문으로 가린다. 앞 고침은 첫 객체의 } 를 본문 끝으로 보아 뒤에 붙은
+// 응답 글이 남았고, 일반 글 본문은 글 끝까지 버려 뒤의 cleanup= 진단까지 사라졌다(그 자리는 정리 오류를 앞에 두도록 바꿨다 — 참여 오류는 그 길에서
+// 늘 DB 오류 글이고, 정리 오류가 DB 오류 글이 아니면 앞머리로 남는다). 검사가 src/modules 에서 오류 글 뒤에 붙는 글을 모두 모아 이 둘과 대조한다.
+const OPS_DB_HEAD_V229148 = /Supabase \d{3}: /g;
+const OPS_DB_LEAD_V229148 = / membership=$/;
+const OPS_DB_TAIL_V229148 = /(?:;trace=K[A-Z0-9]{7}|; latency_ms=\d{1,9})$/;
 function opsRedactDbErrorsV229148(text = "") {
-  const head = /Supabase \d{3}: /g;
-  let out = "", at = 0;
-  for (let found = head.exec(text); found; found = head.exec(text)) {
-    const start = found.index + found[0].length;
-    const { body, end } = opsDbErrorBodyV229148(text, start);
-    out += text.slice(at, start) + body;
-    at = end;
-    if (end >= text.length) break;
-    head.lastIndex = end;
-  }
-  return out + text.slice(at);
+  const heads = [...String(text || "").matchAll(OPS_DB_HEAD_V229148)];
+  if (!heads.length) return text;
+  let out = text.slice(0, heads[0].index);
+  heads.forEach((head, index) => {
+    const start = head.index + head[0].length;
+    const last = index + 1 >= heads.length;
+    let end = last ? text.length : heads[index + 1].index;
+    const keep = (last ? OPS_DB_TAIL_V229148 : OPS_DB_LEAD_V229148).exec(text.slice(start, end))?.[0] || "";
+    end -= keep.length;
+    out += head[0] + opsDbErrorBodyV229148(text.slice(start, end)) + keep;
+  });
+  return out;
 }
 
 // V22.9.148(Codex 4차 검토 — V148:C-42): 스킬 사건의 상세는 서버가 만든 요청 번호로 시작한다(‘request_id=<UUID>; …’ — kakao/skill-handler.js
@@ -923,13 +997,21 @@ function opsRedactDbErrorsV229148(text = "") {
 // 가려 이을 수 없었다. 번호를 가리기 규칙들에 그대로 넘기면 마지막 열두 자가 모두 숫자인 번호(약 0.35%)를 아래 ‘긴 숫자’ 규칙이 지운다.
 // 맨 앞이 아닌 자리의 UUID(오류 글이 옮긴 사용자·가계부 식별자, 사용자가 적은 글)는 그대로 가린다.
 const OPS_SERVER_REQUEST_ID_V229148 = /^request_id=[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}; /i;
+// V22.9.148(Codex 4차 검토 — V148:C-43): JSON.parse 가 옮겨 적은 글(V8 은 20자까지 그대로, 그보다 길면 10자와 ‘...’)은 V8 문구의 머리(‘Unexpected token '…', ’)와
+// 함께 찾는다 — 앞 고침은 머리 없이도 받아, 바로 앞의 다른 따옴표 진단(‘kind="state_read"; ’)의 여는 따옴표부터 지웠다. 머리 없는 ‘"…" is not valid
+// JSON’ 꼴은 V8 이 정해 둔 넷(undefined·NaN·Infinity·[object Object])에만 쓴다(사용자 글이 아니다). 첫 글자가 이모지면 V8 은 앞 반쪽 하나만 적는다.
+const OPS_V8_QUOTED_V229148 = /Unexpected token '[\s\S]', (?:\.\.\.)?"[\s\S]{0,64}"(?:\.\.\.)? is not valid JSON/g;
 
 function redactOpsDetail(value = "") {
   // V22.9.148(V148:C-33): 아래 값 지우기는 시작할 수 있는 자리마다 뒤를 훑으므로 먼저 1,000자로 자른다(따옴표만 4만 자인 글이 700ms 넘게 걸렸다).
   // 결과는 어차피 260자이고, 부르는 곳의 상세는 오류 글(safeError 400자)과 앞뒤 몇십 자다.
   const text = String(value || "").slice(0, 1000);
   const head = OPS_SERVER_REQUEST_ID_V229148.exec(text)?.[0] || "";
-  return head + opsRedactDbErrorsV229148(text.slice(head.length))
+  // V22.9.148(Codex 5차 검토 — V148:C-48): JSON.parse 가 옮겨 적은 글을 DB 오류 글보다 먼저 뺀다 — 옮긴 글 안의 ‘Supabase 400: ’(백업 파일 내용 —
+  // admin/backup-compare.js 의 backup_preview_failed)을 DB 가리기가 오류의 시작으로 보아 뒤를 잘라, 이 규칙이 기대는 ‘is not valid JSON’ 이 사라지고
+  // 그 앞의 메모가 남았다. (DB 응답 본문 안의 같은 꼴은 따옴표가 \" 로 바뀌어 있어 이 규칙에 걸리지 않는다.)
+  const rest = text.slice(head.length).replace(OPS_V8_QUOTED_V229148, "[JSON 이 아닌 글] is not valid JSON");
+  return head + opsRedactDbErrorsV229148(rest)
     // V22.9.148(Codex 3차 검토를 고치며 찾음 — V148:C-33): 오류 글이 옮겨 적은 값을 뺀다. DB(PostgREST) 오류의 details 는 막힌 행 전체(‘Failing row contains
     // (…)’ — 카카오 기록이면 메모·원문이 든다)나 키 값(‘Key (…)=(…)’)이고, 형식·범위 오류의 message 는 받은 값(‘… for type uuid: "…"’·‘value "…" is out of
     // range …’)을, JSON.parse 오류는 읽던 글(‘…, "…" is not valid JSON’ — V8 은 20자까지 그대로, 그보다 길면 10자와 ‘...’)을 옮겨 적는다. 이 글은 관리자
@@ -940,14 +1022,10 @@ function redactOpsDetail(value = "") {
     // DB 오류 글은 500자에서 잘려 오므로(data/supabase-client.js) 닫는 따옴표가 잘린 details·받은 값은 글 끝까지 뺀다(끝에 홀로 남은 \ 도).
     // (Codex 4차 검토 이후 ‘Supabase 상태: ’ 본문은 위 opsRedactDbErrorsV229148 가 먼저 구조로 읽는다. 아래 셋은 그 머리 없이 온 같은 꼴의 글을 위한 것이다.)
     .replace(/"details":"(?:[^"\\]|\\.)*\\?(?:"|$)/g, '"details":"[값 생략]"')
-    .replace(/(: |value )\\"[\s\S]{0,500}\\"(?="|$| is out of range)/g, "$1[값 생략]")
-    // V22.9.148(Codex 4차 검토 — V148:C-35): 끝을 찾지 못한 받은 값(안쪽 따옴표가 있고 바깥 닫는 따옴표가 잘림 — ‘uuid: \"검토값 \"A\" 꼬…’)은 그 자리부터
-    // 글 끝까지 뺀다. 앞 고침은 안쪽 따옴표 앞에서 멈춰(?!\\") 값이 그대로 남았다.
-    .replace(/(: |value )\\"[\s\S]*$/, "$1[값 생략]")
-    // V22.9.148(Codex 4차 검토 — V148:C-43): JSON.parse 가 옮겨 적은 글은 V8 문구의 머리(‘Unexpected token '…', ’)와 함께 찾는다 — 앞 고침은 머리 없이도
-    // 받아, 바로 앞의 다른 따옴표 진단(‘kind="state_read"; ’)의 여는 따옴표부터 지웠다. 머리 없는 ‘"…" is not valid JSON’ 꼴은 V8 이 정해 둔 넷
-    // (undefined·NaN·Infinity·[object Object])에만 쓴다(사용자 글이 아니다).
-    .replace(/Unexpected token '[\s\S]', (?:\.\.\.)?"[\s\S]{0,64}"(?:\.\.\.)? is not valid JSON/g, "[JSON 이 아닌 글] is not valid JSON")
+    // V22.9.148(Codex 4차 검토 — V148:C-35 / 5차 검토 — V148:C-54): 머리 없이 온 받은 값(‘… for type uuid: \"…’·‘value \"…’)은 끝을 증명할 수 없으므로
+    // 그 자리부터 글 끝까지 뺀다(끝에 Worker 가 붙인 정해 둔 진단만 남긴다). 4차 고침은 끝을 찾은 값만 그 끝에서 멈췄는데, 값 안의 ‘\" is out of range’
+    // 를 끝으로 보아 그 뒤(‘ 진료비’)가 남았다.
+    .replace(/(: |value )\\"[\s\S]*$/, (whole, lead) => `${lead}[값 생략]${OPS_DB_TAIL_V229148.exec(whole)?.[0] || ""}`)
     // (맨 앞의 서버 요청 번호는 위에서 떼어 두었다 — V148:C-42. 여기 오는 UUID 는 모두 가린다.)
     .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, "[사용자식별자]")
     .replace(/\beyJ[A-Za-z0-9_-]+(?:\.[A-Za-z0-9_-]+){1,2}\b/g, "[토큰]")
@@ -1053,12 +1131,14 @@ const KAKAO_NLU_NAME_LINE_V229148 = new RegExp(`^(?:(?:📒|✅) )?(?:${KAKAO_NL
 // V22.9.148(Codex 4차 검토 — V148:C-39): 기간 요약의 수입 분류·카테고리·지출자 줄(‘• 이름: 30,000원’ — household-budget-commands.js kakaoDateSummaryParts)과
 // 정산의 보내기 줄(‘• 보낼 사람 → 받을 사람: 30,000원’)·사람별 줄(‘• 이름: 낸 돈 60,000원 → 30,000원 받아요’ — simple-commands.js)도 만드는 꼴 그대로 뺀다.
 // 3차 고침이 ‘원’ 뒤에 무엇이 와도 빼던 규칙을 좁히면서 이 줄들이 빠져, 지출자 이름 ‘서버 오류 대응팀’ 이면 정상 요약·정산이 오류로 셌다(사람별 줄은 고치며 더 찾음).
+// V22.9.148(Codex 5차 검토 — V148:C-58): 이름 자리는 [^\n] 로 본다 — 줄은 \n 으로만 나누는데 . 은 U+2028·U+2029·\r 을 넘지 못해, 웹에서 만든 분류
+// 이름 가운데의 U+2028(‘서버 오류<U+2028>수리’ — 이름은 양끝만 다듬는다)이 든 요약 줄이 남아 오류로 셌다.
 const KAKAO_NLU_LIST_ROWS_V229148 = Object.freeze([
-  /^\d{1,2}\. .* · (?:소유자|관리자|구성원|조회전용|승인대기|차단)(?: · |$)/,
-  /^\d{1,2}\. .*: [\d,]+원$/,
-  /^• .*: [\d,]+원 사용 \/ [\d,]+원 (?:남음|초과) · [\d.]+%$/,
-  /^• .*: -?[\d,]+원$/,
-  /^• .*: 낸 돈(?: [\d,]+원|보다 환불이 [\d,]+원 많아요) → (?:[\d,]+원 (?:받아요|보내요)|주고받을 돈 없어요)$/,
+  /^\d{1,2}\. [^\n]* · (?:소유자|관리자|구성원|조회전용|승인대기|차단)(?: · |$)/,
+  /^\d{1,2}\. [^\n]*: [\d,]+원$/,
+  /^• [^\n]*: [\d,]+원 사용 \/ [\d,]+원 (?:남음|초과) · [\d.]+%$/,
+  /^• [^\n]*: -?[\d,]+원$/,
+  /^• [^\n]*: 낸 돈(?: [\d,]+원|보다 환불이 [\d,]+원 많아요) → (?:[\d,]+원 (?:받아요|보내요)|주고받을 돈 없어요)$/,
 ]);
 // 목록을 알리는 줄 바로 다음부터 이어지는 번호 줄(‘1. ’)도 사용자가 정한 이름·값이다 — 기록 고치기의 고를 값(‘…번호로 골라주세요.’·‘분류를 번호로 골라
 // 주세요.’·‘목록의 번호로 골라주세요.’ 다음의 ‘1. 서버팀  2. 오류왕’, 값이 하나면 ‘1. 오류왕’ 한 줄)과 참여 취소의 승인 대기 목록(‘승인 대기 중인 가계부가
@@ -1117,8 +1197,7 @@ function kakaoNluQuotedSegmentsV229148(text = "") {
   }
   return out;
 }
-function kakaoNluWithoutQuotedV229148(line = "") {
-  const segments = kakaoNluQuotedSegmentsV229148(line);
+function kakaoNluWithoutQuotedV229148(line = "", segments = kakaoNluQuotedSegmentsV229148(line)) {
   if (!segments.length) return line;
   let out = "", at = 0;
   for (const segment of segments) { out += `${line.slice(at, segment.start)}‘’`; at = segment.end; }
@@ -1127,13 +1206,45 @@ function kakaoNluWithoutQuotedV229148(line = "") {
 // V22.9.148(Codex 4차 검토를 고치며 찾음 — V148:C-45): 줄의 꼴(기록 줄·이름 줄·목록 줄)은 따옴표 안을 뺀 뒤에 본다. 앞 고침은 꼴을 먼저 보아, 따옴표로
 // 되풀이한 사용자 글이 기록 줄처럼 생기면(‘⚠️ '점심 / 5,000원 / 카드' 입력을 이해하지 못했어요.’ — edit-state-machine.js) 봇의 못 알아들음 문장까지
 // 줄째 뺐다(ok 로 셈). 따옴표 안을 빼도 기록 줄·이름 줄·목록 줄의 꼴(번호·꼬리표·금액)은 그대로다.
+// V22.9.148(Codex 5차 검토 — V148:C-53): 번호가 붙은 기록 줄(kakaoRowLabel ‘01번 - 메모 / 5,000원 / 결제수단 / 분류’ — 오늘기록·고르기·복구·삭제 답,
+// 문장 가운데에 올 때도 있다 — edit-flow-v4.js ‘현재 거래는 01번 - …입니다.’)은 따옴표를 빼기 전 줄에서 알아본다: 그 꼴이 따옴표 밖에서 시작하면 기록
+// 줄이다. 메모와 분류에 하나씩 든 따옴표(‘서버 오류 수리 '부품’·‘개발'비’)는 서로 짝지어 금액 칸까지 지워, 4차 고침(C-45 — 따옴표 안을 뺀 뒤 꼴
+// 보기) 뒤로 그 줄을 기록 줄로 못 알아보고 메모의 ‘서버 오류’ 를 봇 말로 읽었다(3차 고침에서는 ok). 따옴표 안에서 시작하는 같은 꼴(못 알아들은 답이
+// 되풀이한 사용자 글 — C-45)은 그대로 봇 말을 남긴다. 번호 없는 기록 줄은 아래 머리·꼬리 줄로 알아본다(C-60).
+const KAKAO_NLU_NUMBERED_ROW_V229148 = /(?:^|\s)\d{2,3}번 - [^\n]*? \/ (?:수입 )?-?[\d,]+원 \/ /g;
+function kakaoNluNumberedRowV229148(raw = "", spans = []) {
+  for (const found of raw.matchAll(KAKAO_NLU_NUMBERED_ROW_V229148)) {
+    const at = found.index + found[0].length - found[0].trimStart().length;
+    if (!spans.some(({ start, end }) => at >= start && at < end)) return true;
+  }
+  return false;
+}
+// V22.9.148(Codex 5차 검토를 고치며 찾음 — V148:C-60): 번호 없는 기록 줄(kakaoRowLabel(row, 0) — 번호를 모르는 ‘방금’ 기록의 삭제·복구·삭제 실패·
+// 고치지 않음 답과 ‘방금’ 이 여럿인 목록, edit-session-v4.js·edit-flow-v4.js)은 따옴표로 되풀이한 사용자 글과 꼴로는 가를 수 없다(‘⚠️ '점심 / 5,000원 /
+// 카드 / 식비' 입력을 …’ 은 메모 ‘⚠️ '점심’·분류 ‘식비' 입력을 …’ 인 기록 줄과 글자가 같다). 그래서 그 줄을 만드는 답의 앞 줄(머리 — 머리 뒤에 이어지는
+// 기록 줄 묶음까지)·바로 뒤 줄(꼬리)로 알아본다 — 정해 둔 봇 문장이고, 사용자 글이 들 자리는 꼬리의 따옴표 안(고칠 때 말한 낱말) 하나뿐이다. C-53 이 번호 붙은 줄만 고쳐, 메모와 분류에 나뉜 따옴표가 든 번호
+// 없는 줄은 여덟 답에서 그대로 오류로 셌다(3차 고침에서는 ok). 단톡방 답은 번호 예시를 붙이므로(‘… 보내주세요. 예: @말해가계부 1’) 앞·뒤 줄은 단톡방
+// 변환을 되돌린 꼴로 견준다. 검사가 src/modules 에서 kakaoRowLabel 을 부르는 곳을 모두 모아 실제 답 글로 이 규칙을 대조한다.
+const KAKAO_NLU_ROW_DAY_V229148 = "(?:(?:20\\d{2}년 )?\\d{1,2}월 \\d{1,2}일 )?";
+const KAKAO_NLU_ROW_HEAD_V229148 = new RegExp(`^(?:\u{1F5D1}\uFE0F ${KAKAO_NLU_ROW_DAY_V229148}(?:\\d{2,3}번 )?기록을 삭제했어요\\.|\u21A9\uFE0F ${KAKAO_NLU_ROW_DAY_V229148}기록을 복구했어요\\.|`
+  + "다른 사람이 이 기록을 먼저 바꿔서 지우지 않았어요\\.|삭제 결과를 확인하지 못했어요\\.|기록을 지우지 않았어요\\. 저장소가 삭제 요청을 거절했어요\\.|"
+  + "방금 기록의 번호를 정하지 못해 아무것도 바꾸지 않았어요\\.|방금 한 번에 저장한 기록이 \\d{1,4}건이라 어느 기록인지 정하지 못했어요\\. 아무것도 바꾸지 않았어요\\.|"
+  + "마지막에 한 번에 저장한 기록 \\d{1,4}건:)$", "u");
+const KAKAO_NLU_ROW_TAIL_V229148 = /^(?:기록은 그대로예요\. 바꾸려면 이렇게 보내 주세요\.|보낸 내용\(‘[^\n]*’\)과 달라서 고치지 않았어요\. 이 기록이 맞다면 이렇게 보내 주세요\.|무엇을 바꿀까요\? 번호를 보내주세요\.)$/;
+const KAKAO_NLU_WHOLE_ROW_V229148 = /^[^\n]*? \/ (?:수입 )?-?[\d,]+원 \/ [^\n]* \/ [^\n]*$/;
 function kakaoNluBotWordsV229148(text = "") {
-  let listed = false;
-  return String(text || "").split("\n").map((raw) => {
+  let listed = false, rows = false;
+  const lines = String(text || "").split("\n");
+  return lines.map((raw, index) => {
     const item = listed && KAKAO_NLU_LIST_ITEM_V229148.test(raw);
     listed = item || kakaoNluListHeadV229148(raw);
-    const line = kakaoNluWithoutQuotedV229148(raw);
-    return item || KAKAO_NLU_RECORD_ROW_V229148.test(line) || KAKAO_NLU_RECENT_ROW_V229148.test(line) || KAKAO_NLU_NAME_LINE_V229148.test(line)
+    const row = KAKAO_NLU_WHOLE_ROW_V229148.test(raw) && (rows || KAKAO_NLU_ROW_TAIL_V229148.test(kakaoGroupPlainLineV229148(lines[index + 1])));
+    rows = row || KAKAO_NLU_ROW_HEAD_V229148.test(kakaoGroupPlainLineV229148(raw));
+    if (item || row) return "";
+    const spans = kakaoNluQuotedSegmentsV229148(raw);
+    if (kakaoNluNumberedRowV229148(raw, spans)) return "";
+    const line = kakaoNluWithoutQuotedV229148(raw, spans);
+    return KAKAO_NLU_RECORD_ROW_V229148.test(line) || KAKAO_NLU_RECENT_ROW_V229148.test(line) || KAKAO_NLU_NAME_LINE_V229148.test(line)
       || KAKAO_NLU_LIST_ROWS_V229148.some((row) => row.test(line))
       ? "" : line;
   }).join("\n");
@@ -1141,9 +1252,13 @@ function kakaoNluBotWordsV229148(text = "") {
 
 // V22.9.148(Codex 검토): 표시는 그 첫 줄이 답의 한 줄 전체로 있을 때만 쓴다 — 예전에는 글 어디든 들어 있으면 썼다(바뀐 답의 메모에 앞 답의 첫 줄이
 // 인용되기만 해도 표시가 먼저였다). 말풍선 사이·줄 사이의 경계는 그대로라 앞에 붙는 방 참여 안내 줄은 상관없다.
+// V22.9.148(Codex 5차 검토 — V148:C-52): 단톡방 답은 보내기 전에 봇 부르기를 넣는다(response-builders.js kakaoGroupMentionLinesV229134 — ‘예: 점심 예산을
+// 얼마로 설정할까요?’ → ‘예: @말해가계부 점심 예산을 …’). 그 변환을 되돌린 줄로도 견준다 — 앞 고침은 표지가 맞지 않아 글로 읽었고, 예시 줄 규칙이
+// 그 줄을 빼 단톡방에서는 되묻기를 다시 ok 로 셌다(1:1 만 검사했다).
 function kakaoNluMarkSeenV229148(text = "", mark = null) {
   if (!mark || typeof mark !== "object" || typeof mark.signature !== "string" || !mark.signature) return false;
-  return String(text || "").split("\n").some((line) => line.trim() === mark.signature);
+  const plain = kakaoGroupPlainLineV229148(mark.signature);
+  return String(text || "").split("\n").some((line) => line.trim() === mark.signature || kakaoGroupPlainLineV229148(line) === plain);
 }
 
 function nluOutcomeFromKakaoResponse(responseText = "", mark = null) {
@@ -1444,12 +1559,14 @@ function rememberDuplicateEvent(event = {}) {
     const kind = String(event.kind || "duplicate_guard").slice(0, 40);
     // V22.9.148(Codex 4차 검토 — V148:C-38): 중복으로 건너뛴 기록(카카오 kakao/transaction-save.js·웹 domain/transactions-core.js)의 상세는 그 기록의
     // 메모·원래 문장이었다 — 가린 꼴(redactNluOpsSample — 전화·이메일·긴 숫자만)이라 ‘시험 병원 진료비’ 가 실패 사례 저장 설정과 상관없이 관리자
-    // /ops-snapshot.json 의 duplicates.recent 와 운영 사건(duplicate_skipped)에 남았다. 이제 같은 글인지 알아볼 지문만 남긴다(되풀이 막기 kakao_repeat 처럼).
-    // 한꺼번에 보낸 줄 수 제한(bulk_limited)의 상세는 이 코드가 만든 숫자 글이라 그대로다.
+    // /ops-snapshot.json 의 duplicates.recent 와 운영 사건(duplicate_skipped)에 남았다.
+    // V22.9.148(Codex 5차 검토 — V148:C-51): 메모의 지문도 남기지 않는다 — 4차 고침이 남긴 text_hash 는 열쇠 없는 32비트 FNV-1a 라, 스냅샷을 읽는 사람이
+    // ‘커피’·‘약국’ 처럼 후보가 적은 메모를 같은 함수에 넣어 맞춰 볼 수 있었고 다른 가계부의 같은 메모끼리 견줄 수 있었다. 중복인지는 이미 정한 뒤라
+    // 상세는 비운다(운영 사건의 상세는 예전처럼 출처·날짜·금액). 한꺼번에 보낸 줄 수 제한(bulk_limited)의 상세는 이 코드가 만든 숫자 글이라 그대로다.
+    // (되풀이 막기 kakao_repeat 의 utterance_hash 와 NLU 사건의 sample_hash 는 예전부터 같은 꼴의 문장 지문이다 — 추적표 V148:C-59, 결정 필요.)
     const detail = kind === "kakao_repeat"
       ? `utterance_hash=${nluOpsFingerprint(normalizeText(event.detail || ""))}`
-      : kind === "bulk_limited" ? redactNluOpsSample(String(event.detail || "")).slice(0, 220)
-        : normalizeText(event.detail || "") ? `text_hash=${nluOpsFingerprint(normalizeText(event.detail || ""))}` : "";
+      : kind === "bulk_limited" ? redactNluOpsSample(String(event.detail || "")).slice(0, 220) : "";
     AB_DUPLICATE_EVENTS.push({
       at: new Date().toISOString(),
       kind,
@@ -30588,7 +30705,10 @@ async function createUserHousehold(env, userId, name, nickname, options = {}) {
         const purged = await supabase(env, "/rest/v1/rpc/accountbook_purge_household_v22960", { method: "POST", body: JSON.stringify({ p_household_id: household.id }) });
         if (!purged?.deleted) throw new Error("household_delete_not_confirmed");
       } catch (cleanupErr) {
-        rememberOpsEvent({ kind: "household_create_compensation_failed", severity: "critical", path: "/rest/v1/households", method: "DELETE", detail: `household=${String(household.id).slice(0, 80)} membership=${safeError(membershipErr)} cleanup=${safeError(cleanupErr)}` });
+        // V22.9.148(Codex 5차 검토 — V148:C-49): 정리 오류를 앞에, 참여 오류(여기까지 오면 늘 ‘Supabase 4xx: …’ — isDefiniteStorageFailure)를 끝에 둔다 — 관제
+        // 가리기(runtime/ops-telemetry.js)는 DB 오류 글의 본문을 다음 DB 오류 글(앞의 ‘ membership=’ 은 남김) 또는 글 끝까지로 본다. 앞 순서에서는 정리 오류가
+        // DB 오류 글이 아닐 때(‘household_delete_not_confirmed’ 등) 참여 오류의 본문으로 함께 가려졌다.
+        rememberOpsEvent({ kind: "household_create_compensation_failed", severity: "critical", path: "/rest/v1/households", method: "DELETE", detail: `household=${String(household.id).slice(0, 80)} cleanup=${safeError(cleanupErr)} membership=${safeError(membershipErr)}` });
       }
       throw membershipErr;
     }
@@ -54202,6 +54322,18 @@ function kakaoGroupNumberLineV229135(line = "", nextLine = "") {
 // ③ 이 남은 안내로 세지 않는다(독립 검토 2026-11-21 2차: 그 답에 예시와 끝 한 줄이 함께 붙었다).
 const kakaoGroupNumberExampleLineV229135 = (line = "") => KAKAO_GROUP_NUMBER_EXAMPLES_V229135
   .some(([suffix, prompt]) => line.endsWith(suffix) && prompt.test(line.slice(0, -suffix.length)));
+
+// V22.9.148(Codex 5차 검토 — V148:C-52): 아래 kakaoGroupMentionLinesV229134 가 고친 한 줄을 고치기 전 꼴로 되돌린다 — 관제가 답을 만든 곳의 표지
+// (runtime/ops-telemetry.js markKakaoNluOutcomeV229148 — 1:1 꼴의 첫 줄)와 단톡방 답의 줄을 견줄 때만 쓴다(보내는 글은 그대로). 고치는 것: 끝의 번호 예시
+// (‘ 예: @말해가계부 1’), 번호 안내 머리 바꾸기, 줄 곳곳에 넣는 ‘@말해가계부 ’(예시·명령·날짜 예시·따옴표 안).
+function kakaoGroupPlainLineV229148(line = "") {
+  let text = String(line || "").trim();
+  const example = KAKAO_GROUP_NUMBER_EXAMPLES_V229135.find(([suffix]) => text.endsWith(suffix));
+  if (example) text = text.slice(0, -example[0].length);
+  const rewrite = KAKAO_GROUP_NUMBER_REWRITES_V229135.find(([, to]) => text.startsWith(to));
+  if (rewrite) text = `${rewrite[0]}${text.slice(rewrite[1].length)}`;
+  return text.split(`${KAKAO_GROUP_MENTION_V229134} `).join("").trim();
+}
 
 // ①·② 한 말풍선의 글에서 보낼 말을 고친다. 한도를 넘게 되면 원래 글을 돌려준다.
 function kakaoGroupMentionLinesV229134(text = "", max = KAKAO_SIMPLE_TEXT_SAFE_MAX) {

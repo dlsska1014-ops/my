@@ -206,7 +206,10 @@ async function createUserHousehold(env, userId, name, nickname, options = {}) {
         const purged = await supabase(env, "/rest/v1/rpc/accountbook_purge_household_v22960", { method: "POST", body: JSON.stringify({ p_household_id: household.id }) });
         if (!purged?.deleted) throw new Error("household_delete_not_confirmed");
       } catch (cleanupErr) {
-        rememberOpsEvent({ kind: "household_create_compensation_failed", severity: "critical", path: "/rest/v1/households", method: "DELETE", detail: `household=${String(household.id).slice(0, 80)} membership=${safeError(membershipErr)} cleanup=${safeError(cleanupErr)}` });
+        // V22.9.148(Codex 5차 검토 — V148:C-49): 정리 오류를 앞에, 참여 오류(여기까지 오면 늘 ‘Supabase 4xx: …’ — isDefiniteStorageFailure)를 끝에 둔다 — 관제
+        // 가리기(runtime/ops-telemetry.js)는 DB 오류 글의 본문을 다음 DB 오류 글(앞의 ‘ membership=’ 은 남김) 또는 글 끝까지로 본다. 앞 순서에서는 정리 오류가
+        // DB 오류 글이 아닐 때(‘household_delete_not_confirmed’ 등) 참여 오류의 본문으로 함께 가려졌다.
+        rememberOpsEvent({ kind: "household_create_compensation_failed", severity: "critical", path: "/rest/v1/households", method: "DELETE", detail: `household=${String(household.id).slice(0, 80)} cleanup=${safeError(cleanupErr)} membership=${safeError(membershipErr)}` });
       }
       throw membershipErr;
     }
