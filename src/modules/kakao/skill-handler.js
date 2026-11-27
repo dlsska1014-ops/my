@@ -248,7 +248,8 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     const latencyMs = Date.now() - skillStartedAt;
     const responsePreview = await safeResponse.clone().text();
     const nluMark = kakaoNluMarkV229148(env);
-    const outcome = nluOutcomeFromKakaoResponse(responsePreview, nluMark);
+    // V22.9.148(Codex 6차 검토 — V148:C-65): 단톡방인지는 답을 단톡방 꼴로 바꾸는 곳(response-builders.js kakaoGroupCompatibleResponse)과 같은 기준으로 넘긴다.
+    const outcome = nluOutcomeFromKakaoResponse(responsePreview, nluMark, { room: !!getKakaoBotGroupKey(payload) });
     if (outcome.marked) usage.markedIntent = nluMark.intent;
     armKakaoRepeatGuard(repeat.key, responsePreview);
     clearKakaoInFlight(repeat.key);
@@ -272,7 +273,9 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     const nluEvent = { at: new Date().toISOString(), request_id: requestId, intent: metricIntent(), confidence: intentMatch.confidence, result: "error", reason: safeError(err), latency_ms: latencyMs, block: blockName, version: APP_VERSION, utterance };
     rememberNluRuntimeEvent(nluEvent, env);
     scheduleNluOpsPersistence(ctx, env, nluEvent);
-    rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${metricIntent()}; ${safeError(err)}; latency_ms=${latencyMs}` }, env);
+    // V22.9.148(Codex 6차 검토 — V148:C-61): 걸린 시간을 DB 오류 글 앞에 둔다 — 관제 가리기는 첫 ‘Supabase 상태: ’ 뒤를 글 끝까지 응답 본문으로 본다(앞 순서에서는
+    // 본문이 ‘; latency_ms=숫자’ 꼴로 끝나면 그 숫자가 남았다).
+    rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${metricIntent()}; latency_ms=${latencyMs}; ${safeError(err)}` }, env);
     clearKakaoInFlight(repeat.key);
     rememberSkillLatency(latencyMs, { intent: metricIntent(), result: "error" });
     // V22.9.76 감사 B-6: 식별 별칭 저장이 동시 요청으로 바빠 실패하면 기록하기 전에 멈춘 것이다. "다시 보내주세요" 예시만 주던

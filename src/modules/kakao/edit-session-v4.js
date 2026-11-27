@@ -226,18 +226,21 @@ function kakaoRefundLinkUndoNoteV4(refundLinks = undefined, phase = "delete") {
 }
 
 // T2·S1: DELETE 결과를 모르면 다시 보내라고 하지 않는다. 다시 보내면 밀린 다음 번호가 지워진다.
-function kakaoEditDeleteFailedTextV4(err, row = {}, seq = 0) {
+// V22.9.148(6차 고침 중 찾은 것 — V148:C-73): 답 글과 관제 결과를 갈래마다 함께 돌려준다(부르는 곳은 nlu 를 그대로 넘긴다). 저장소가 거절했거나 되돌릴
+// 준비를 하지 못했으면 저장 실패(delete_failed), 지웠는지 모르면 결과 모름(delete_uncertain), 다른 사람이 먼저 바꿔 지우지 않았으면 수정 창의 ‘그사이 바뀐
+// 기록’ 처럼 처리함(handled). 앞 판들은 이 답들을 모두 ok 로 셌다(글에 ‘저장하지 못했어요’·‘저장 확인이 지연’ 이 없다). 답 글은 그대로다.
+function kakaoEditDeleteFailedReplyV229148(err, row = {}, seq = 0) {
   const listCommand = `${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록 보기`;
   // V22.9.104 J-9: 읽은 뒤 다른 사람이 이 기록을 바꿔(지출자 바뀜 포함) 지우지 않았다. 지워진 것이 없으니 ‘복구’ 를 권하지 않는다.
-  if (err?.kakaoDeleteConflict) return `다른 사람이 이 기록을 먼저 바꿔서 지우지 않았어요.\n${kakaoRowLabel(row, seq)}\n‘${listCommand}’로 지금 기록을 확인해 주세요.`;
+  if (err?.kakaoDeleteConflict) return { reply: `다른 사람이 이 기록을 먼저 바꿔서 지우지 않았어요.\n${kakaoRowLabel(row, seq)}\n‘${listCommand}’로 지금 기록을 확인해 주세요.`, nlu: "handled" };
   if (err?.kakaoDeletePhase && isUncertainStorageWrite(err)) {
-    return `삭제 결과를 확인하지 못했어요.\n${kakaoRowLabel(row, seq)}\n같은 명령을 다시 보내면 다른 기록이 지워질 수 있어요. ‘${listCommand}’로 먼저 확인해 주세요.\n지워져 있으면 ‘${Number(seq) >= 1 ? `복구 ${twoDigitSeq(seq)}번` : "복구"}’로 되돌릴 수 있어요.`;
+    return { reply: `삭제 결과를 확인하지 못했어요.\n${kakaoRowLabel(row, seq)}\n같은 명령을 다시 보내면 다른 기록이 지워질 수 있어요. ‘${listCommand}’로 먼저 확인해 주세요.\n지워져 있으면 ‘${Number(seq) >= 1 ? `복구 ${twoDigitSeq(seq)}번` : "복구"}’로 되돌릴 수 있어요.`, nlu: "delete_uncertain" };
   }
   // NEW-4: 감사 RPC 가 분명히 거절(4xx)했으면 지워진 것이 없다. 버퍼 준비 실패와 구분해 말한다.
   if (err?.kakaoDeletePhase) {
-    return `기록을 지우지 않았어요. 저장소가 삭제 요청을 거절했어요.\n${kakaoRowLabel(row, seq)}\n잠시 뒤 ‘${listCommand}’로 번호를 확인하고 다시 보내 주세요.`;
+    return { reply: `기록을 지우지 않았어요. 저장소가 삭제 요청을 거절했어요.\n${kakaoRowLabel(row, seq)}\n잠시 뒤 ‘${listCommand}’로 번호를 확인하고 다시 보내 주세요.`, nlu: "delete_failed" };
   }
-  return `기록을 지우지 않았어요. 삭제를 되돌릴 준비를 하지 못했어요.\n잠시 뒤 ‘${listCommand}’로 번호를 확인하고 다시 보내 주세요.`;
+  return { reply: `기록을 지우지 않았어요. 삭제를 되돌릴 준비를 하지 못했어요.\n잠시 뒤 ‘${listCommand}’로 번호를 확인하고 다시 보내 주세요.`, nlu: "delete_failed" };
 }
 
 // T2: 수정 답장에 바뀐 기록을 적는다.
@@ -673,10 +676,10 @@ export {
   isKakaoEditGuideCommand, isKakaoRowOwnedByRequesterV2254, isKakaoSessionSeqReplyV4,
   isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers,
   kakaoDailySeqPairFromRowsV229135, kakaoDailySeqPairV229135, kakaoEditDayPrefixV4,
-  kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditInputTextV4,
-  kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditSessionKeyV4, kakaoEditSessionTextV4,
-  kakaoEditTargetRejectTextV4, kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4, kakaoRowLabel,
-  kakaoRowOwnerSuffixV229135, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
+  kakaoEditDeleteFailedReplyV229148, kakaoEditDeletedTextV4, kakaoEditGuideText,
+  kakaoEditInputTextV4, kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditSessionKeyV4,
+  kakaoEditSessionTextV4, kakaoEditTargetRejectTextV4, kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4,
+  kakaoRowLabel, kakaoRowOwnerSuffixV229135, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
   parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue, postgrestQuotedValueV22979,
   readKakaoEditUndoItemsV4, resolveKakaoEditDateV4, saveKakaoEditSessionV4,
   stripKakaoEditDatePrefixV4, twoDigitSeq, withKakaoEditUndoLeaseV4, writeKakaoEditUndoItemsV4,

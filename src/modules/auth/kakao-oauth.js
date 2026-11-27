@@ -419,7 +419,8 @@ async function handleKakaoLoginCallback(request, env, url) {
     try {
       linkProof = await kakaoAccountLinkProofAfterKakao(env, { userId: user.id, kakaoId: profile.kakaoId, offerUserId: user.id, mode: "login", next: loginNext || "/my" });
     } catch (linkErr) {
-      rememberOpsEvent({ kind: "kakao_account_link_check_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: `${safeError(linkErr)};trace=${traceId}` });
+      // V22.9.148(Codex 6차 검토 — V148:C-61): Worker 진단(추적 번호)을 DB 오류 글 앞에 둔다 — 관제 가리기는 첫 ‘Supabase 상태: ’ 뒤를 글 끝까지 응답 본문으로 본다.
+      rememberOpsEvent({ kind: "kakao_account_link_check_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId};${safeError(linkErr)}` });
     }
     // V22.9.91 독립 검토: 자동 로그인은 가계부가 있거나 이을 계정이 있는 사람만 들인다. 빈 웹 계정에 말없이 들이면 첫 가계부 만들기
     // 화면이 나와, 단톡방 가계부가 따로 있는 사람이 거기서 새 가계부를 만들어 기록이 갈라질 수 있다. 그런 사람은 지금처럼 로그인 화면을 본다.
@@ -459,7 +460,8 @@ async function handleKakaoLoginCallback(request, env, url) {
         firstHousehold = made?.household?.id ? made.household : null;
         if (firstHousehold) rememberOpsEvent({ kind: "kakao_first_household", severity: "info", path: "/auth/kakao/callback", method: "GET", detail: `${made.existed ? "existed" : createdUser?.id ? "new_account" : "empty_account"};${autoMode ? "auto" : "login"};trace=${traceId}` });
       } catch (householdErr) {
-        rememberOpsEvent({ kind: "kakao_first_household_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: `${safeError(householdErr)};trace=${traceId}` });
+        // V22.9.148(Codex 6차 검토 — V148:C-61): Worker 진단(추적 번호)을 DB 오류 글 앞에 둔다 — 관제 가리기는 첫 ‘Supabase 상태: ’ 뒤를 글 끝까지 응답 본문으로 본다.
+        rememberOpsEvent({ kind: "kakao_first_household_failed", severity: "warn", path: "/auth/kakao/callback", method: "GET", detail: `trace=${traceId};${safeError(householdErr)}` });
       }
       if (autoMode && !firstHousehold) return autoFallback();
     }

@@ -882,19 +882,9 @@ function kakaoGroupNumberLineV229135(line = "", nextLine = "") {
 const kakaoGroupNumberExampleLineV229135 = (line = "") => KAKAO_GROUP_NUMBER_EXAMPLES_V229135
   .some(([suffix, prompt]) => line.endsWith(suffix) && prompt.test(line.slice(0, -suffix.length)));
 
-// V22.9.148(Codex 5차 검토 — V148:C-52): 아래 kakaoGroupMentionLinesV229134 가 고친 한 줄을 고치기 전 꼴로 되돌린다 — 관제가 답을 만든 곳의 표지
-// (runtime/ops-telemetry.js markKakaoNluOutcomeV229148 — 1:1 꼴의 첫 줄)와 단톡방 답의 줄을 견줄 때만 쓴다(보내는 글은 그대로). 고치는 것: 끝의 번호 예시
-// (‘ 예: @말해가계부 1’), 번호 안내 머리 바꾸기, 줄 곳곳에 넣는 ‘@말해가계부 ’(예시·명령·날짜 예시·따옴표 안).
-function kakaoGroupPlainLineV229148(line = "") {
-  let text = String(line || "").trim();
-  const example = KAKAO_GROUP_NUMBER_EXAMPLES_V229135.find(([suffix]) => text.endsWith(suffix));
-  if (example) text = text.slice(0, -example[0].length);
-  const rewrite = KAKAO_GROUP_NUMBER_REWRITES_V229135.find(([, to]) => text.startsWith(to));
-  if (rewrite) text = `${rewrite[0]}${text.slice(rewrite[1].length)}`;
-  return text.split(`${KAKAO_GROUP_MENTION_V229134} `).join("").trim();
-}
-
 // ①·② 한 말풍선의 글에서 보낼 말을 고친다. 한도를 넘게 되면 원래 글을 돌려준다.
+// (V22.9.148 Codex 6차 검토 — V148:C-65: 관제가 답을 만든 곳의 표지를 적을 때도 이 함수로 그 답의 단톡방 첫 줄을 만든다 — runtime/ops-telemetry.js
+// markKakaoNluOutcomeV229148. 5차 고침은 고친 줄을 되돌리는 함수를 따로 두어 1:1 답의 줄까지 되돌려 견줬다. 보내는 글은 그대로다.)
 function kakaoGroupMentionLinesV229134(text = "", max = KAKAO_SIMPLE_TEXT_SAFE_MAX) {
   const source = String(text || "");
   if (!source || source.length > KAKAO_GROUP_HINT_TEXT_MAX_V229134) return source;
@@ -1024,7 +1014,7 @@ export {
   KAKAO_GROUP_MENTION_V229134, KAKAO_QR_MESSAGE_MAX_V229127, KAKAO_TERMS_NOTICE_LINE_V229118,
   dedupeQuickReplies, isDefiniteStorageFailure, isKakaoRequestUniqueConflictV229119,
   isUncertainStorageWrite, kakaoDefaultQuickReplies, kakaoEditSameTextTextV229119,
-  kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoGroupPlainLineV229148,
+  kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoGroupMentionLinesV229134,
   kakaoGroupQuotedSegmentsV229134, kakaoNextStepReply, kakaoQr, kakaoRoomLedgerLinkOutputsV229129,
   kakaoSameTextExistsTextV229119, kakaoSameTextLongV229119, kakaoSaveFailedText,
   kakaoSeparateSameTextTextV229119, kakaoTermsNoticeResponseV229118, kakaoText,

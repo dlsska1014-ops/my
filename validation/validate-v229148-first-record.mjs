@@ -31,9 +31,16 @@
 //      잘못된 JSON 본문의 위치는 V8 문구 끝의 위치만, 중복으로 건너뛴 기록의 상세는 지문만, 글머리표 금액 줄·정산 사람별 줄의 이름은 뺀다, 예산 금액 물음은
 //      만든 곳이 결과를 적는다, 곧은 따옴표가 셋 넘는 값, 맨 앞 요청 번호는 남긴다(NLU 사건과 잇는다), JSON.parse 문구는 V8 머리와 함께, 확인한 식 표는 식 전체로.
 //      4차 고침 중 찾은 것: 따옴표를 먼저 빼고 줄의 꼴을 본다(기록 줄을 흉내 낸 되풀이 값), 별도 구매 답의 결과 표시, 비밀 낱말 가리기(‘$1’·Bearer 뒤의 값).
+//      5차 검토(4차 고침만): DB 오류 글의 본문 경계·겹친 값·raise 이름표·SQLSTATE 꼴, 목록 줄의 이름, 기록 줄을 내는 곳 모두(번호 있음·없음), 단톡방 표지.
+//      6차 검토(5차 고침만): DB 오류 글의 본문은 상세 끝까지 — Worker 진단은 오류 글 앞(가짜 꼬리 진단 없음), 오류 글이 둘인 사건은 따로 가린다, 오류 번호는
+//      PostgreSQL·PostgREST 번호표 그대로, 기록 줄은 글의 꼴로 가리지 않고 만든 곳이 결과를 적는다(여러 줄 메모·이름 속 기록 꼴), 표지는 1:1 이면 그대로·단톡방이면
+//      보내는 꼴로 바꾼 첫 줄로도. 검사: 기록 줄을 내는 곳마다 실제 바로답·적는 결과로 대조하고 곳마다 대조 수가 0 이면 떨어진다, join 의 빈 줄, 갈래 템플릿 안의
+//      조건식, 줄 첫머리 이름표, safeError 뒤 전체, git 이 아는 SQL 만.
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { parse as parseAcorn } from "../tools/vendor/acorn.mjs";
-import { app, BASE, counter, fixture, formFields, intercept, page, post, putSetting, withClock } from "./lib-audit-v22934.mjs";
+import { app, BASE, counter, failure, fixture, formFields, intercept, page, post, putSetting, withClock } from "./lib-audit-v22934.mjs";
 import { buildSettlementModel, settlementConditionPairs, settlementDuplicateCompletionV229148, settlementPreviewDigest } from "../src/modules/features/settlement-ops-pages.js";
 import { settlementRefundDigest } from "../src/modules/features/settlement-refund-links.js";
 import {
@@ -41,7 +48,7 @@ import {
   rememberDuplicateEvent, rememberSkillEvent,
 } from "../src/modules/runtime/ops-telemetry.js";
 import { kakaoGroupCompatibleResponse, kakaoText } from "../src/modules/kakao/response-builders.js";
-import { kakaoRowLabel } from "../src/modules/kakao/edit-session-v4.js";
+import { kakaoEditDeleteFailedReplyV229148, kakaoEditDeletedTextV4, kakaoEditRecordLineV4, kakaoRowLabel } from "../src/modules/kakao/edit-session-v4.js";
 import { sha256Hex } from "../src/modules/auth/crypto-admin-session.js";
 
 const t = counter("V22.9.148 첫 기록(관제의 못 알아들음·카드 답 분류, 못 알아들은 뒤 단추, 1:1 도움말 예시, 웹 정산 소수 몫 G-2, DB 권한 정리 기록) 검사 통과");
@@ -54,6 +61,8 @@ const message = (label) => ({ label, action: "message", messageText: label });
 const link = (label) => ({ label, action: "webLink", webLinkUrl: `${BASE}/kakao-guide` });
 const cards = (...outputs) => json({ version: "2.0", template: { outputs } });
 const outcome = (raw, mark = null) => { const o = nluOutcomeFromKakaoResponse(raw, mark); return `${o.result}/${o.reason}`; };
+// 답을 만든 곳이 적는 표시(markKakaoNluOutcomeV229148)를 요청 env 하나에 적고 읽는다.
+const markOf = (kind, text) => { const env = { __AB_KAKAO_REQUEST: {} }; markKakaoNluOutcomeV229148(env, kind, text); return kakaoNluMarkV229148(env); };
 // 저장 실패(kakaoSaveFailedText)는 단추가 없어 단톡방에서도 말풍선 하나다 — 예전에도 error 였다.
 t.eq(outcome(simple("저장하지 못했어요 😢\n\n가계부 저장소가 요청을 거절해 이번 내용은 기록되지 않았어요.")), "error/save_failed", "2 저장 실패는 예전처럼 error");
 // 단톡방 카드가 된 고치기 실패(edit-flow-v4.js — 단추가 붙는다)는 예전에 카드를 읽지 않아 ok 였다.
@@ -69,8 +78,13 @@ t.eq(outcome(cards(card("무슨 뜻인지 이해하지 못했어요. 아래처�
 t.eq(nluOutcomeFromKakaoResponse(simple("01번 - 커피 / 4,500원 💸 지출 저장했어요."), noMatchMark).marked, undefined, "2 마지막 답에 표시의 첫 줄이 없으면(다른 답으로 바뀜) 표시를 쓰지 않는다");
 t.eq(outcome(simple("01번 - 커피 / 4,500원 💸 지출 저장했어요."), noMatchMark), "ok/handled", "2 그때는 예전처럼 글로 읽는다");
 // 독립 검토(V22.9.148): 답에 되풀이된 사용자의 글이 오류·되묻기 문구로 읽혔다 — 기록 줄의 메모와 따옴표 안의 원래 문장은 문구 판정에서 뺀다.
-t.eq(outcome(cards(card("01번 - 서버 오류 수리비 / 30,000원 / 현금 / 기타 · 💸 지출 저장했어요. (2026-11-30)\n가계부: 우리 집\n지출자: 나", [message("지난주 요약")]))), "ok/handled", "2 기록 줄의 메모 ‘서버 오류 …’ 는 오류가 아니다(단톡방 카드 — 표시 없이도)");
-t.eq(outcome(simple("🧾 2026-11-30 기록\n01번 - 잠시 후 다시 갈 커피 / 4,500원 / 현금 / 카페\n02번 - 어떤 커피 / 수입 3,000원 / 계좌 / 수입", ["수정"])), "ok/handled", "2 목록의 메모 ‘잠시 후 다시 …’·‘어떤 …’ 은 오류·되묻기가 아니다");
+// 6차 검토(V148:C-63·C-64): 기록 줄(‘01번 - 메모 / 금액 / …’)은 글의 꼴로 가리지 않는다 — 기록 줄이 든 답은 만든 곳이 결과를 적는다(저장 답 saved·오늘기록 handled).
+{
+  const savedCard = "01번 - 서버 오류 수리비 / 30,000원 / 현금 / 기타 · 💸 지출 저장했어요. (2026-11-30)\n가계부: 우리 집\n지출자: 나";
+  t.eq(outcome(cards(card(savedCard, [message("지난주 요약")])), markOf("saved", savedCard)), "ok/handled", "2 기록 줄의 메모 ‘서버 오류 …’ 는 오류가 아니다(저장 답의 표시 — 단톡방 카드)");
+  const dailyList = "🧾 2026-11-30 기록\n01번 - 잠시 후 다시 갈 커피 / 4,500원 / 현금 / 카페\n02번 - 어떤 커피 / 수입 3,000원 / 계좌 / 수입";
+  t.eq(outcome(simple(dailyList, ["수정"]), markOf("handled", dailyList)), "ok/handled", "2 목록의 메모 ‘잠시 후 다시 …’·‘어떤 …’ 은 오류·되묻기가 아니다(오늘기록 답의 표시)");
+}
 t.eq(outcome(simple("🧾 최근 입력 내역\n• 2026-11-30 지출 30,000원 · 서버 오류 수리비\n\n오늘 번호로 수정하려면 '오늘기록'을 보내세요.")), "ok/handled", "2 최근 입력 목록의 메모도 뺀다");
 t.eq(outcome(simple("🧾 2026-11-27 기록\n가계부: 서버 오류 대응팀\n\n01번 - 커피 / 4,500원 / 현금 / 카페\n지출자: 어떤 사람", ["수정"])), "ok/handled", "2 이름 줄(가계부·지출자 — 사용자가 정한 이름)도 뺀다");
 t.eq(outcome(simple("🛍️ 지출 중복 저장 안 함 😊\n서로 다른 구매라면 ‘별도 구매 추가 잠시 후 다시 갈 커피 4500원’라고 원래 기록 문장을 보내 후보를 확인해 주세요.")), "ok/handled", "2 따옴표 안의 원래 문장도 뺀다");
@@ -98,7 +112,12 @@ t.eq(outcome(simple("가계부를 저장하지 못했어요. 잠시 후 다시 �
     ["구성원 권한", ["memberPolicyLabel(policy)"]], // 정해 둔 권한 문구
     ["날짜", ["saved.transaction_date"]], // YYYY-MM-DD
     ["내 권한", ["userHouseholdRoleLabel(role)", 'userHouseholdRoleLabel(current.role || "member")', "userHouseholdRoleLabel(joined.role)", "userHouseholdRoleLabel(myRole)", 'departed ? "나간 이력이 있어 소유자·관리자가 승인해야 참여해요" : "이 방에서 봇을 부르거나 거래를 보내면 바로 참여해요"']], // 소유자·관리자·구성원·조회전용(서버가 정한 권한 값), 참여 안내 두 문장(정해 둔 글)
-    ["되돌리려면", ['numbered ? `복구 ${twoDigitSeq(seq)}번` : "복구"', 'kakaoRefundLinkUndoNoteV4(refundLinks, "delete")']], // 복구 01번 · 복구, 환불 연결 안내(정해 둔 글 — 줄을 바꿔 붙는다)
+    ["되돌리려면", ['numbered ? `복구 ${twoDigitSeq(seq)}번` : "복구"', 'kakaoRefundLinkUndoNoteV4(refundLinks, "delete")', "session.entryNo"]], // 복구 01번 · 복구(·옛 수정 창의 번호 — edit-state-machine.js), 환불 연결 안내(정해 둔 글 — 줄을 바꿔 붙는다)
+    // V22.9.148(Codex 6차 검토 — V148:C-70): 줄 첫머리 이름표와 첫 식 사이에 고정 글이 있어도 모으며 새로 모인 것 — 모두 번호·날짜 머리·정해 둔 낱말이다.
+    ["다시 하려면", ["session.entryNo", 'session.rowType === "income" ? "수입자" : "지출자"']], // 수정 창 번호·정해 둔 낱말(edit-flow-v4.js 되풀이 막기 답)
+    ["수정", ["dayPrefix", "seq", "twoDigitSeq(seq)"]], // 날짜 머리(kakaoEditDayPrefixV4 — ‘11월 20일 ’)·번호(‘01’) — 오늘기록·저장 답의 수정 안내
+    ["삭제", ["dayPrefix", "seq", "twoDigitSeq(seq)"]], // 같음(삭제 안내)
+    ["번호만 보내도 돼요", ["payerWord(session)"]], // ‘지출자’·‘수입자’(edit-state-machine.js payerWord)
     ["설정 금액", ["numberWithCommas(amount)", "numberWithCommas(directBudget.amount)", "totalNote", "cta", "cleanupNotice"]], // 숫자, 빈 줄 뒤에 붙는 정해 둔 안내(전체 예산 — household-budget-commands.js kakaoTotalBudgetNote, 웹 화면 바로가기 — maybeKakaoCta, 진행 상태 정리 — guided-flow-state.js completeKakaoFlowState)
     ["수입", ["numberWithCommas(income)", 'incomeFocus ? ` · ${incomes.length}건` : ""', 'wholeThisMonth && aheadIncome ? ` (오늘 뒤 날짜 ${numberWithCommas(aheadIncome)}원 포함)` : ""']], // 숫자·건수
     ["지출", ["numberWithCommas(expense)", "expenses.length", 'expenseNotes.length ? ` (${expenseNotes.join(" · ")})` : ""']], // 숫자·건수, 오늘 뒤 날짜 금액·환불 차감(domain/refund-links.js refundDeductionNote — 숫자와 정해 둔 글)
@@ -109,7 +128,9 @@ t.eq(outcome(simple("가계부를 저장하지 못했어요. 잠시 후 다시 �
   ]);
   const dir = new URL("../src/modules/kakao/", import.meta.url);
   const found = new Map();
-  const LABEL_AT_END = (first) => new RegExp(`(?:${first ? "^|" : ""}\\n)((?:📒 |✅ )?[가-힣][가-힣 ]{0,12}): $`, "u");
+  // V22.9.148(Codex 6차 검토 — V148:C-70): 이름표는 줄 첫머리(글의 시작 또는 \n 뒤)에서 찾고, 그 줄 끝(다음 \n)까지의 보간식을 모두 모은다 — 이름표와 첫 식
+  // 사이에 고정 글이 있어도(‘"설정 금액: 약 " + numberWithCommas(amount) + "원 " + memo’). 5차 수집은 이름표가 글 조각의 끝에 붙어 바로 뒤에 식이 올 때만 보았다.
+  const LABEL_AT_LINE = /^((?:📒 |✅ )?[가-힣][가-힣 ]{0,12}): /u;
   // V22.9.148(Codex 5차 검토 — V148:C-57): 이름표 줄의 글은 템플릿·문자열 덧셈을 한 줄로 펴서(덧셈 안의 템플릿도) 이름표 뒤부터 그 줄 끝(다음 \n)까지의
   // 보간식을 모두 모은다 — 앞 수집은 이름표 바로 뒤의 식 하나만 보아 ‘"설정 금액: " + numberWithCommas(amount) + memo’ 의 memo 를 놓쳤다. 배열을 글자
   // 하나로 잇는 join(‘[… , `설정 금액: ${…}원`].join("\n") + totalNote’ — guided-flows.js 의 예산 설정 답)도 원소 사이에 그 글자를 넣어 편다.
@@ -142,14 +163,15 @@ t.eq(outcome(simple("가계부를 저장하지 못했어요. 잠시 후 다시 �
       const chain = node.type === "BinaryExpression" && node.operator === "+";
       if (node.type === "TemplateLiteral" || joinOf(node) || (chain && !(parent?.type === "BinaryExpression" && parent.operator === "+"))) {
         const list = parts(node).reduce((out, part) => (part.text !== undefined && out.at(-1)?.text !== undefined ? [...out.slice(0, -1), { text: out.at(-1).text + part.text }] : [...out, part]), []);
-        list.forEach((part, index) => {
-          const label = part.text === undefined ? null : LABEL_AT_END(index === 0).exec(part.text);
-          if (!label) return;
-          for (const next of list.slice(index + 1)) {
-            if (next.text === undefined) take(label[1].trim(), next.expression);
-            else if (next.text.includes("\n")) break;
-          }
-        });
+        let label = null, atLineStart = true;
+        for (const part of list) {
+          if (part.text === undefined) { if (label) take(label, part.expression); atLineStart = false; continue; }
+          part.text.split("\n").forEach((piece, at) => {
+            if (at > 0) { label = null; atLineStart = true; }
+            if (atLineStart && piece) { const found = LABEL_AT_LINE.exec(piece); if (found) label = found[1].trim(); }
+            if (piece) atLineStart = false;
+          });
+        }
       }
       for (const value of Object.values(node)) {
         if (Array.isArray(value)) value.forEach((child) => visit(child, node));
@@ -166,6 +188,13 @@ t.eq(outcome(simple("가계부를 저장하지 못했어요. 잠시 후 다시 �
     t.eq([...sample].map(([label, uses]) => `${label}=${uses.map((use) => use.expression).join("|")}`).join(" · "),
       "설정 금액=numberWithCommas(amount)|memo · 입력 금액=numberWithCommas(amount)|memo · 한 사람 몫=numberWithCommas(perHead)|payer · 예산=numberWithCommas(x)|note|tail · 잔액=numberWithCommas(y)|extra · 남은 돈=numberWithCommas(z)",
       "6-j C-57 이름표 수집은 덧셈의 마지막 피연산자·덧셈 안의 템플릿·같은 줄의 둘째 보간식·join 으로 이은 같은 줄까지 모은다(앞 수집은 이름표 바로 뒤의 식 하나만)");
+  }
+  // C-70 음성 대조: 이름표와 첫 식 사이의 고정 글을 건너뛰어 모으고, 줄 가운데(식 뒤)의 ‘지출: ’ 은 이름표가 아니다.
+  {
+    const sample = new Map();
+    collectLabelValues('const f = "설정 금액: 약 " + numberWithCommas(amount) + "원 " + memo;\nconst g = `가계부: 우리 ${name} 모임\\n다음 줄 ${other}`;\nconst h = `${a} 지출: ${b}`;', "line-start.js", sample);
+    t.eq([...sample].map(([label, uses]) => `${label}=${uses.map((use) => use.expression).join("|")}`).join(" · "), "설정 금액=numberWithCommas(amount)|memo · 가계부=name",
+      "6-k C-70 이름표와 첫 식 사이에 고정 글(‘설정 금액: 약 ’)이 있어도 그 줄의 식을 모두 모은다(5차 수집은 memo 를 놓쳤다) — 줄 가운데의 ‘지출: ’ 은 이름표가 아니다");
   }
   const removed = (label) => outcome(simple(`${label}: 서버 오류 대응팀`)) === "ok/handled";
   const unreviewed = [...found].flatMap(([label, uses]) => (removed(label) ? [] : uses.filter((use) => !NOT_USER_VALUES.get(label)?.includes(use.expression)).map((use) => `${label}@${use.where} ${use.expression.slice(0, 60)}`)));
@@ -231,7 +260,7 @@ t.eq(outcome(cards({ carousel: { type: "basicCard", items: [{ title: "어떤 기
   const env = { __AB_KAKAO_REQUEST: {} };
   const savedText = "01번 - 커피 / 4,500원 / 현금 / 카페 · 💸 지출 저장했어요. (2026-11-30)\n가계부: 우리 집";
   markKakaoNluOutcomeV229148(env, "saved", savedText);
-  t.eq(json(kakaoNluMarkV229148(env)), json({ intent: "TRANSACTION", result: "ok", reason: "handled", kind: "saved", signature: "01번 - 커피 / 4,500원 / 현금 / 카페 · 💸 지출 저장했어요. (2026-11-30)" }), "2 저장한 답의 표시 = TRANSACTION/ok");
+  t.eq(json(kakaoNluMarkV229148(env)), json({ intent: "TRANSACTION", result: "ok", reason: "handled", kind: "saved", signature: "01번 - 커피 / 4,500원 / 현금 / 카페 · 💸 지출 저장했어요. (2026-11-30)", roomSignature: "01번 - 커피 / 4,500원 / 현금 / 카페 · 💸 지출 저장했어요. (2026-11-30)" }), "2 저장한 답의 표시 = TRANSACTION/ok");
   t.eq(nluOutcomeFromKakaoResponse(simple(`${savedText}\n잠시 후 다시 확인해 주세요.`), kakaoNluMarkV229148(env)).result, "ok", "2 저장한 답은 표시가 먼저다(글로 짐작하지 않는다)");
   markKakaoNluOutcomeV229148(env, "first_contact", "친구와 함께 말 한마디로 기록하는 말해가계부입니다.\n‘커피 4500원’처럼 첫 기록을 보내면 바로 시작돼요.");
   t.eq(`${kakaoNluMarkV229148(env).intent}/${kakaoNluMarkV229148(env).result}`, "FIRST_CONTACT/clarify", "2 첫 안내의 표시 = FIRST_CONTACT/clarify(아직 기록 전)");
@@ -246,7 +275,7 @@ t.eq(outcome(cards({ carousel: { type: "basicCard", items: [{ title: "어떤 기
   markKakaoNluOutcomeV229148(bare, "no_match", "무슨 뜻인지");
   t.ok(kakaoNluMarkV229148(bare) === null && !Object.keys(bare).length, "2 요청 표식이 없는 env 에는 적지 않는다(카카오 요청에서만 — env 에 아무것도 생기지 않는다)");
   markKakaoNluOutcomeV229148(env, "no_amount", "내용과 금액을 한 문장으로 보내면 바로 기록돼요.\n예) 점심 12000원");
-  t.eq(json(kakaoNluMarkV229148(env)), json({ intent: "NO_AMOUNT", result: "fallback", reason: "no_amount", kind: "no_amount", signature: "내용과 금액을 한 문장으로 보내면 바로 기록돼요." }), "2 표시 = 이름·결과·까닭·갈래와 답의 첫 줄뿐");
+  t.eq(json(kakaoNluMarkV229148(env)), json({ intent: "NO_AMOUNT", result: "fallback", reason: "no_amount", kind: "no_amount", signature: "내용과 금액을 한 문장으로 보내면 바로 기록돼요.", roomSignature: "내용과 금액을 한 문장으로 보내면 바로 기록돼요." }), "2 표시 = 이름·결과·까닭·갈래와 답의 첫 줄(1:1 꼴·단톡방 꼴)뿐");
 }
 
 // 6-a‴ Codex 3차 검토(관제 분류). 상위 지출·예산 현황 줄은 만드는 꼴 그대로 뺀다(transactions-core.js formatSummary·budgets.js) — ‘원’ 뒤에 무엇이 와도
@@ -308,7 +337,8 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
   // 따옴표 셋인 값(O'서버 오류'Brien's)이 든 되묻기가 오류로 셌다. 보간식이 사용자 글을 실을 수 없는 자리는 그 값만 넣는다: 숫자(numberWithCommas)는 넣지
   // 않고, 갈래를 고르는 조건식은 갈래를 그대로 넣는다(갈래가 템플릿이면 그 안 보간식에 같은 값들을 넣는다). 답을 만든 곳이 결과를 적는 함수(MARKED — 관제가
   // 그 답을 글로 읽지 않는다)와, 부르는 곳이 모두 false 를 넘겨 쓰이지 않는 갈래가 있는 함수(UNUSED_BRANCH)의 줄은 건너뛰고 그 전제를 아래에서 확인한다.
-  const LOOKALIKE = ["예: 점심", "가계부: 점심", "지출자: 점심", "1. 점심: 5000원", "• 점심: 5000원", "1. 점심 · 소유자", "• 2026-11-27 지출 5,000원 · 점심", "점심 / 5,000원 / 카드", "01번 - 점심 / 5,000원 / 카드 / 식비", "가 01번 - 점심 / 5,000원 / 카드 / 식비", "가'나'다", "가'나'다'라", "‘가’나‘다", "“가”나“다"];
+  // (6차 검토 — V148:C-63: 따옴표와 기록 줄 꼴이 함께 든 가계부 이름 두 가지를 더한다 — 5차 고침은 그런 이름의 이름 확인 답을 ok 로 셌다.)
+  const LOOKALIKE = ["예: 점심", "가계부: 점심", "지출자: 점심", "1. 점심: 5000원", "• 점심: 5000원", "1. 점심 · 소유자", "• 2026-11-27 지출 5,000원 · 점심", "점심 / 5,000원 / 카드", "01번 - 점심 / 5,000원 / 카드 / 식비", "가 01번 - 점심 / 5,000원 / 카드 / 식비", "가'나'다", "가'나'다'라", "‘가’나‘다", "“가”나“다", "모임’ 01번 - “점심 / 5원 / 카드” ‘팀", "모임’ 점심 / 5원 / 카드 ‘팀"];
   const VALUES = [...STRAY, ...LOOKALIKE];
   const MARKED = new Map([["kakaoBudgetAmountQuestionV229148", "flow_question"]]);
   const UNUSED_BRANCH = new Map([["kakaoStartText", 0]]); // 함수 이름 → 늘 false 여야 하는 인자의 자리(hasHousehold)
@@ -319,20 +349,40 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
   let judgedLines = 0, judgedAll = 0, fixedSlots = 0;
   const swallowed = [], examples = [], skipped = [], marks = [], unusedCalls = [], dropped = [], quoteSwallowed = [];
   const isNumberSlot = (node) => node.type === "CallExpression" && node.callee.type === "Identifier" && node.callee.name === "numberWithCommas";
+  // 대표값 짝은 64가지까지 만든다 — 그보다 많은 줄(또는 갈래 템플릿)이 생기면 뒤의 짝을 말없이 버리지 않도록 센다(overCap — 아래 단언은 0 이어야 한다).
+  const CAP = 64;
+  let overCap = 0;
+  const product = (lists) => {
+    if (lists.reduce((size, list) => size * Math.max(list.length, 1), 1) > CAP) overCap += 1;
+    let out = [[]];
+    for (const list of lists) out = out.flatMap((values) => list.map((rep) => [...values, rep])).slice(0, CAP);
+    return out;
+  };
   // V22.9.148(Codex 5차 검토 — V148:C-56): 보간 자리마다 실제와 같은 꼴의 값(reps — 조건식은 두 갈래 모두)과, 사용자 글이 들 수 있는 값을 같은 꼴의 중립 값과
   // 짝지어(pairs — 사용자 값 자리는 ‘민지’ ↔ 흉내 낸 값, 템플릿 갈래는 그 안 보간식을 ‘민지’ ↔ 흉내 낸 값으로 채운 글) 둔다. 줄은 reps 의 모든 짝(64가지까지)으로
   // 채우고, 자리마다 그 자리만 중립 값으로 둔 줄에 판정 낱말이 있으면 흉내 낸 값으로 바꿔도 판정이 같아야 한다 — 앞 검사는 조건식의 첫 갈래만 넣어(guided-flows.js
   // 의 ‘바꿀까요’ / ‘연결할까요’) 둘째 갈래에만 판정 낱말이 있는 줄을 보지 않았고, 사용자 자리를 시험할 때 다른 자리는 모두 ‘민지’ 였다. 숫자(numberWithCommas)·
   // 글자 그대로인 자리는 그 값만 넣는다.
+  // V22.9.148(Codex 6차 검토 — V148:C-69): 갈래가 템플릿이면 그 안 보간식도 같은 규칙으로 채운다(안의 조건식은 두 갈래 모두, 숫자·글자 그대로인 자리는 그 값,
+  // 사용자 글 자리는 ‘민지’ ↔ 흉내 낸 값 — 자리 하나씩, 그리고 사용자 글 자리 모두를 한꺼번에). 5차 검사는 갈래 템플릿의 보간식을 모두 ‘민지’ 하나로 채워
+  // ‘${a ? `가계부 ${name} ${b ? "바꿀까요" : "연결할까요"}` : "없음"}’ 의 ‘연결할까요’ 를 대표값에 넣지 않았다.
   const slotOptions = (node) => {
     if (isNumberSlot(node)) return { reps: ["1,234"], pairs: [], user: false };
     if (node.type === "Literal") return { reps: [typeof node.value === "string" ? node.value : String(node.value ?? "")], pairs: [], user: false };
     if (node.type === "TemplateLiteral") {
       const quasis = node.quasis.map((q) => q.value.cooked ?? "");
-      const filled = (value) => quasis.reduce((out, piece, i) => out + (i ? value : "") + piece, "");
-      return node.expressions.length
-        ? { reps: [filled("민지")], pairs: VALUES.map((value) => ({ neutral: filled("민지"), value: filled(value) })), user: false }
-        : { reps: [quasis.join("")], pairs: [], user: false };
+      const filled = (values) => quasis.reduce((out, piece, i) => out + (i ? values[i - 1] : "") + piece, "");
+      const inner = node.expressions.map(slotOptions);
+      const reps = product(inner.map((option) => option.reps));
+      // 짝은 형제 자리의 대표값 모두와 짓는다(6차 고침 중 더 찾은 빈틈): 첫 대표값만 쓰면 같은 갈래 템플릿 안의 ‘${name} … ${b ? "바꿀까요" : "연결할까요"}’ 에서
+      // 이름 자리의 흉내 낸 값이 ‘연결할까요’ 와 함께 시험되지 않는다(바깥 줄은 이미 대표값 짝마다 시험한다).
+      const pairs = new Map();
+      const add = (neutral, value) => pairs.set(`${neutral}\u0000${value}`, { neutral, value });
+      for (const values of reps) {
+        inner.forEach((option, index) => option.pairs.forEach(({ neutral, value }) => add(filled(values.map((v, i) => (i === index ? neutral : v))), filled(values.map((v, i) => (i === index ? value : v))))));
+        if (inner.some((option) => option.user)) VALUES.forEach((value) => add(filled(values.map((v, i) => (inner[i].user ? "민지" : v))), filled(values.map((v, i) => (inner[i].user ? value : v)))));
+      }
+      return { reps: [...new Set(reps.map(filled))], pairs: [...pairs.values()], user: false };
     }
     if (node.type === "ConditionalExpression") {
       const [yes, no] = [slotOptions(node.consequent), slotOptions(node.alternate)];
@@ -340,6 +390,13 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
     }
     return { reps: ["민지"], pairs: VALUES.map((value) => ({ neutral: "민지", value })), user: true };
   };
+  {
+    const nested = parseAcorn('const s = `${a ? `가계부 ${name} ${b ? "바꿀까요" : "연결할까요"}` : "없음"}`;', { ecmaVersion: "latest" }).body[0].declarations[0].init.expressions[0];
+    const option = slotOptions(nested);
+    t.ok(json(option.reps) === json(["가계부 민지 바꿀까요", "가계부 민지 연결할까요", "없음"]) && option.pairs.some(({ value }) => value === "가계부 01번 - 점심 / 5,000원 / 카드 / 식비 바꿀까요")
+        && option.pairs.some(({ neutral, value }) => neutral === "가계부 민지 연결할까요" && value === "가계부 01번 - 점심 / 5,000원 / 카드 / 식비 연결할까요"),
+      `6-k C-69 갈래 템플릿 안의 조건식도 두 갈래 모두 대표값에 넣고 사용자 글 자리는 흉내 낸 값으로 짝짓는다 — 형제 자리의 둘째 대표값(‘연결할까요’)과도 (${json(option.reps)}, 짝 ${option.pairs.length}개 — 5차 대표값 "가계부 민지 민지 | 없음")`);
+  }
   for (const dirName of ["kakao", "domain", "nlu"]) {
     const dir = new URL(`../src/modules/${dirName}/`, import.meta.url);
     for (const name of readdirSync(dir).filter((file) => file.endsWith(".js"))) {
@@ -369,8 +426,7 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
             // 봇 문장이나 따옴표로 감싼 고정 낱말을 삼키지 않는다 — C-41 의 ‘곧은 따옴표가 셋 넘으면 첫 따옴표부터 마지막 따옴표까지’ 가 기댄 전제).
             const options = nodes.map(slotOptions);
             const fill = (values) => line.split("\u0001").reduce((out, piece, i) => out + (i ? values[i - 1] : "") + piece, "");
-            let variants = [[]];
-            for (const option of options) variants = variants.flatMap((variant) => option.reps.map((rep) => [...variant, rep])).slice(0, 64);
+            const variants = product(options.map((option) => option.reps));
             const isJudged = (text) => judged.some((re) => re.test(text));
             for (const values of variants.filter((v) => isJudged(fill(v)))) {
               const real = fill(values);
@@ -414,8 +470,8 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
       visit(parseAcorn(source, { ecmaVersion: "latest", sourceType: "module" }), "");
     }
   }
-  t.ok(judged.length >= 5 && judgedLines >= 5 && !swallowed.length,
-    `6-b″ 판정 낱말이 든 답 글 템플릿 줄 ${judgedLines}개 모두 보간식에 짝 없는 따옴표·줄의 꼴을 흉내 낸 값(${VALUES.length}가지 — 숫자·정해 둔 갈래 자리 ${fixedSlots}곳은 그 값만)을 넣어도 판정이 같다 (판정 정규식 ${judged.length}개) (${swallowed.slice(0, 3).join(" / ") || "다른 것 없음"})`);
+  t.ok(judged.length >= 5 && judgedLines >= 5 && !swallowed.length && !overCap,
+    `6-b″ 판정 낱말이 든 답 글 템플릿 줄 ${judgedLines}개 모두 보간식에 짝 없는 따옴표·줄의 꼴을 흉내 낸 값(${VALUES.length}가지 — 숫자·정해 둔 갈래 자리 ${fixedSlots}곳은 그 값만)을 넣어도 판정이 같다 (판정 정규식 ${judged.length}개, 대표값 짝이 ${CAP}가지를 넘는 줄 ${overCap}개) (${swallowed.slice(0, 3).join(" / ") || "다른 것 없음"})`);
   const unmarked = [...MARKED].filter(([fn, kind]) => !marks.includes(`${fn}:${kind}`)).map(([fn]) => fn);
   t.ok(skipped.length === 2 && !unmarked.length && unusedCalls.length >= 3 && unusedCalls.every(Boolean),
     `6-b″ 건너뛴 줄 ${skipped.length}개(${skipped.join(", ")}): 결과를 적는 함수는 표시를 남기고(${marks.join(", ") || "없음"}${unmarked.length ? ` — 표시 없음 ${unmarked.join(", ")}` : ""}), kakaoStartText 를 부르는 곳 ${unusedCalls.length}곳 모두 false(${unusedCalls.join(",")})`);
@@ -433,7 +489,7 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
 // 6-h 오류 글의 값(V148:C-33 — Codex 3차 검토를 고치며 찾음): 운영·스킬·트래픽 사건의 상세와 최근 NLU 사건의 까닭은 오류 글 그대로라(safeError),
 // DB(PostgREST) 오류의 details(막힌 행 전체 — 카카오 기록이면 메모·원문)·형식/범위 오류가 옮겨 적은 값·JSON.parse 오류가 옮겨 적은 글이 실패 사례 저장
 // 설정과 상관없이 관리자 /ops-snapshot.json 에 남았다. 이 런타임(V8)이 실제로 내는 JSON.parse 문구와 PostgREST 꼴 본문으로, 세 목록 어디에도 값이 없고
-// 오류 번호·제약·열·표 이름과 요청 번호·걸린 시간은 남는지 본다.
+// 오류 번호·제약·열·표 이름과 요청 번호·걸린 시간은 남는지 본다(6차 검토부터 스킬 사건의 걸린 시간은 오류 글 앞이라 끊긴 오류 글에도 남는다 — V148:C-61).
 {
   const secret = "시험 병원 진료비";
   const leakWords = /시험|병원|진료비|따옴표|꼬리|인용|둘째/;
@@ -468,11 +524,11 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
     globalThis.__AB_SKILL_EVENTS.length = 0;
     globalThis.__AB_NLU_RUNTIME_EVENTS.length = 0;
     const opsDetail = rememberOpsEvent({ kind: "kakao_save_failed", severity: "error", path: "/skill", method: "POST", detail: message })?.detail || "";
-    rememberSkillEvent({ kind: "error", user_key: "u", utterance: secret, detail: `request_id=r1; intent=TRANSACTION; ${message}; latency_ms=5` }, {});
+    rememberSkillEvent({ kind: "error", user_key: "u", utterance: secret, detail: `request_id=r1; intent=TRANSACTION; latency_ms=5; ${message}` }, {});
     const skillDetail = getSkillOpsSnapshot().recent[0]?.detail || "";
     rememberNluRuntimeEvent({ at: new Date().toISOString(), request_id: "r1", intent: "TRANSACTION", result: "error", reason: message, latency_ms: 5, utterance: secret }, {});
     const nluReason = getNluOpsSnapshot({}).recent[0]?.reason || "";
-    const kept = keep.every((part) => opsDetail.includes(part)) && skillDetail.startsWith("request_id=r1; intent=TRANSACTION; ") && (label.includes("끊긴") || skillDetail.endsWith("; latency_ms=5"));
+    const kept = keep.every((part) => opsDetail.includes(part)) && skillDetail.startsWith("request_id=r1; intent=TRANSACTION; latency_ms=5; ");
     if ([opsDetail, skillDetail, nluReason].some((text) => leakWords.test(text)) || !kept) leaked.push([label, opsDetail, skillDetail, nluReason]);
   }
   const jsonCount = cases.filter(([label]) => label.startsWith("JSON.parse")).length;
@@ -498,7 +554,7 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
   }
   // 값이 없는 오류 글과 정해 둔 까닭 이름은 그대로다.
   const plain = [
-    "request_id=r1; intent=TRANSACTION; supabase_read_timeout; latency_ms=5",
+    "request_id=r1; intent=TRANSACTION; latency_ms=5; supabase_read_timeout",
     'Supabase 503: {"code":"PGRST002","details":null,"hint":null,"message":"Could not query the database for the schema cache. Retrying."}',
     "Unexpected end of JSON input",
     "Unterminated string in JSON at position 18 (line 1 column 19)",
@@ -555,10 +611,10 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
   t.ok(Object.getPrototypeOf({}) === Object.prototype && ({}).polluted === undefined && !Object.prototype.hasOwnProperty.call(Object.prototype, "polluted"),
     "6-i C-36 열쇠가 __proto__ 인 DB 오류 본문을 읽은 뒤에도 Object.prototype 은 그대로다");
   // C-42: 맨 앞의 서버 요청 번호(UUID)는 남긴다 — 마지막 열두 자가 모두 숫자인 번호도(‘긴 숫자’ 규칙에 넘기지 않는다). 머리가 28자 길어진 만큼 스킬 사건
-  // 길이 몫을 늘려 흔한 DB 거절 오류에도 latency_ms 가 남는다. 맨 앞이 아닌 UUID(오류 글 속 식별자·가운데의 ‘request_id=’)는 가린다.
+  // 길이 몫을 늘려 흔한 DB 거절 오류에도 latency_ms 가 남게 했다(6차 검토부터는 latency_ms 가 오류 글 앞 — V148:C-61). 맨 앞이 아닌 UUID(오류 글 속 식별자·가운데의 ‘request_id=’)는 가린다.
   const ids = ["2254cfc2-b008-4ab4-9e82-4ce70c01cc04", "2254cfc2-b008-4ab4-9e82-123456789012"];
-  t.deepEq(ids.map((id) => skillOf(`request_id=${id}; intent=TRANSACTION; ${pgText(400, checkBody)}; latency_ms=1234`)), ids.map((id) => `request_id=${id}; intent=TRANSACTION; ${checkKept}; latency_ms=1234`),
-    "6-i C-42 맨 앞 요청 번호(마지막 열두 자가 모두 숫자인 번호 포함)는 그대로, 흔한 DB 거절 오류의 스킬 사건에도 latency_ms 가 남는다");
+  t.deepEq(ids.map((id) => skillOf(`request_id=${id}; intent=TRANSACTION; latency_ms=1234; ${pgText(400, checkBody)}`)), ids.map((id) => `request_id=${id}; intent=TRANSACTION; latency_ms=1234; ${checkKept}`),
+    "6-i C-42 맨 앞 요청 번호(마지막 열두 자가 모두 숫자인 번호 포함)는 그대로, 흔한 DB 거절 오류의 스킬 사건에도 latency_ms 가 남는다(6차 검토부터 오류 글 앞)");
   t.deepEq([opsOf(`request_id=${ids[0]}; household 9f0e2c1a-1b2c-4d3e-8f90-123456789abc failed`), opsOf(`intent=TRANSACTION; request_id=${ids[0]}; failed`)],
     [`request_id=${ids[0]}; household [사용자식별자] failed`, "intent=TRANSACTION; request_id=[사용자식별자]; failed"], "6-i C-42 맨 앞이 아닌 UUID(오류 글 속 식별자, 가운데의 request_id=)는 가린다");
   // C-38·C-51: 중복으로 건너뛴 기록(웹 domain/transactions-core.js·카카오 kakao/transaction-save.js)의 상세는 남기지 않는다(실패 사례 저장과 상관없이) — 소금 없는
@@ -598,7 +654,8 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
 }
 
 // 6-j Codex 5차 검토(4차 고침 79d27b14 만 다시 본 리포트 11건 + 고치며 더 찾은 것) — 단위. 운영·스킬·NLU 사건 상세의 DB 오류 가리기(C-48~C-50·C-54·C-55),
-// 오류 글 뒤에 붙는 진단 자리(C-49), 정해 둔 raise 이름표(C-50), 관제 분류의 목록 줄(C-58), 기록 줄을 내는 곳 모두(C-53·C-60).
+// 오류 글 뒤에 붙는 진단 자리(C-49), 정해 둔 raise 이름표(C-50), 관제 분류의 목록 줄(C-58), 기록 줄을 내는 곳 모두(C-53·C-60 — 6차 검토부터는 만든 곳의 표시 C-64).
+// (6차 검토 고침도 이 묶음에서 본다: DB 오류 글의 본문 경계·진단 자리 C-61·C-71, raise 이름의 SQL 목록 C-72, 기록 줄 C-63·C-64·C-66~C-68.)
 {
   const secret = "검토값";
   const leakWords = /검토값|병원|진료비|clinic_visit/;
@@ -617,16 +674,20 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
     ["C-48 V8 이 옮긴 글 속 DB 오류 머리", v8(`${secret} Supabase 400: 값`), "[JSON 이 아닌 글] is not valid JSON"],
     ["C-48 앞의 진단 + V8 이 옮긴 글 속 DB 오류 머리", `kind="backup_preview"; ${v8(`${secret} Supabase 400: 진료비`)}`, 'kind="backup_preview"; [JSON 이 아닌 글] is not valid JSON'],
     ["C-48 첫 글자가 이모지(V8 은 앞 반쪽만 적는다)", v8(`😀${secret} Supabase 400: 진료비`), "[JSON 이 아닌 글] is not valid JSON"],
-    // C-49: DB 오류 글의 본문은 다음 DB 오류 글(앞의 ‘ membership=’ 은 남김) 또는 글 끝까지 — 글 끝의 정해 둔 진단(‘;trace=K…’·‘; latency_ms=N’)만 떼어 남긴다.
+    // C-49·C-61(Codex 6차 검토): DB 오류 글(‘Supabase NNN: ’)의 본문은 글 끝까지다 — Worker 진단(trace·latency_ms·stage)은 오류 글 앞에 둔다. 5차 고침은 글 끝의
+    // ‘;trace=K…’·‘; latency_ms=N’ 을 진단으로 떼어 남겨, 본문이 그 꼴로 끝나면 가짜 진단이 남았다. 머리는 첫 하나만 읽는다(JSON 값 안의 ‘Supabase 404: ’ 는 본문 —
+    // 5차 고침은 그 자리에서 나눠 code·message 를 잃고 truncated·가짜 머리를 남겼다).
     ["C-49 JSON 본문 뒤에 붙은 글", `Supabase 500: {"code":"XX000"} ${secret} 진료비`, 'Supabase 500: {"code":"XX000"} [뒤 글 생략]'],
-    ["C-49 일반 글 본문 + ;trace=", `Supabase 502: <html>${secret}</html>;trace=KAB12CD3`, "Supabase 502: [본문 생략];trace=KAB12CD3"],
-    ["C-49 JSON 본문 + ;trace=", `${pgText(400, checkBody)};trace=KAB12CD3`, `${checkKept};trace=KAB12CD3`],
-    ["C-49 일반 글 본문 + ; latency_ms=", `request_id=${requestId}; intent=TRANSACTION; Supabase 502: <p>${secret}</p>; latency_ms=12`, `request_id=${requestId}; intent=TRANSACTION; Supabase 502: [본문 생략]; latency_ms=12`],
-    ["C-49 가계부 만들기 보상 실패(정리 오류도 DB 오류)", `household=h1 cleanup=${pgText(500, { code: "XX000", message: secret })} membership=${pgText(409, dupBody)}`,
-      `household=h1 cleanup=${pgText(500, { code: "XX000", message: "[메시지 생략]" })} membership=${dupKept}`],
-    ["C-49 가계부 만들기 보상 실패(정리 오류가 DB 오류 아님)", `household=h1 cleanup=household_delete_not_confirmed membership=Supabase 409: <html>${secret}</html>`,
-      "household=h1 cleanup=household_delete_not_confirmed membership=Supabase 409: [본문 생략]"],
-    ["C-49 본문 속 가짜 DB 오류 머리", `Supabase 400: {"code":"23514","details":"x Supabase 400: ${secret}"}`, 'Supabase 400: {"code":"23514","details":"[값 생략]","truncated":true}Supabase 400: [본문 생략]'],
+    ["C-61 앞의 trace + 일반 글 본문", `trace=KAB12CD3;Supabase 502: <html>${secret}</html>`, "trace=KAB12CD3;Supabase 502: [본문 생략]"],
+    ["C-61 앞의 trace + JSON 본문", `trace=KAB12CD3;${pgText(400, checkBody)}`, `trace=KAB12CD3;${checkKept}`],
+    ["C-61 앞의 stage·trace + JSON 본문(카카오 로그인 실패)", `stage=link;trace=KAB12CD3;${pgText(409, dupBody)}`, `stage=link;trace=KAB12CD3;${dupKept}`],
+    ["C-61 앞의 latency_ms + 일반 글 본문", `request_id=${requestId}; intent=TRANSACTION; latency_ms=12; Supabase 502: <p>${secret}</p>`, `request_id=${requestId}; intent=TRANSACTION; latency_ms=12; Supabase 502: [본문 생략]`],
+    ["C-61 일반 글 본문 끝의 가짜 ;trace=", `trace=KAB12CD3;Supabase 502: <p>${secret}</p>;trace=KEXAMPLE`, "trace=KAB12CD3;Supabase 502: [본문 생략]"],
+    ["C-61 JSON 본문 끝의 가짜 ;trace=", `${pgText(400, checkBody)};trace=KEXAMPLE`, `${checkKept} [뒤 글 생략]`],
+    ["C-61 일반 글 본문 끝의 가짜 ; latency_ms=", `request_id=${requestId}; intent=TRANSACTION; latency_ms=12; Supabase 502: <p>${secret}</p>; latency_ms=123456`, `request_id=${requestId}; intent=TRANSACTION; latency_ms=12; Supabase 502: [본문 생략]`],
+    ["C-61 JSON 본문 끝의 가짜 ; latency_ms=", `latency_ms=12; ${pgText(400, checkBody)}; latency_ms=123456`, `latency_ms=12; ${checkKept} [뒤 글 생략]`],
+    ["C-61 JSON 값 속 DB 오류 머리(code·message 를 잃지 않는다)", `Supabase 400: {"details":"a Supabase 404: ${secret}","code":"23514","message":"invalid_month"}`, 'Supabase 400: {"details":"[값 생략]","code":"23514","message":"invalid_month"}'],
+    ["C-49 본문 속 가짜 DB 오류 머리", `Supabase 400: {"code":"23514","details":"x Supabase 400: ${secret}"}`, 'Supabase 400: {"code":"23514","details":"[값 생략]"}'],
     ["C-49 본문 속 진단 꼴(글 끝이 아님)", `Supabase 500: <p>; latency_ms=5 ${secret}</p>`, "Supabase 500: [본문 생략]"],
     // C-50: 정해 둔 raise 이름은 이름 그대로(꼴이 아니라), code 는 SQLSTATE·PostgREST·HTTP 번호만, 정해 두지 않은 칸은 이름 없이 개수만.
     ["C-50 정해 두지 않은 영문 raise(메모 꼴)", pgText(400, { code: "P0001", details: null, hint: null, message: "clinic_visit" }), pgText(400, { code: "P0001", details: null, hint: null, message: "[메시지 생략]" })],
@@ -636,7 +697,8 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
     ["C-50 PostgREST 번호·정해 둔 영문 raise 문장", pgText(406, { code: "PGRST116", message: "attempt key is required" }), pgText(406, { code: "PGRST116", message: "attempt key is required" })],
     // C-54: 머리 없이 온 받은 값은 끝까지 뺀다(값 안의 ‘\" is out of range’ 를 끝으로 보지 않는다) — 끝의 정해 둔 진단만 남긴다.
     ["C-54 머리 없는 받은 값 안의 is out of range", `invalid input syntax for type uuid: \\"${secret} \\" is out of range 진료비`, "invalid input syntax for type uuid: [값 생략]"],
-    ["C-54 머리 없는 받은 값 뒤의 진단", `value \\"${secret}\\"; latency_ms=12`, "value [값 생략]; latency_ms=12"],
+    ["C-54 머리 없는 받은 값 뒤의 글(진단 꼴이어도)", `value \\"${secret}\\"; latency_ms=12`, "value [값 생략]"],
+    ["C-61 앞의 진단 + 머리 없는 받은 값", `latency_ms=12; value \\"${secret}\\"`, "latency_ms=12; value [값 생략]"],
     // C-55: 중첩 값(객체·배열 — 따옴표 안의 괄호는 건너뜀)은 통째로 건너뛰고 뒤의 칸을 읽는다. 끝나지 않은 중첩 값(잘린 본문)에서만 멈춘다.
     ["C-55 중첩 객체 뒤의 code", `Supabase 400: {"extra":{"count":1,"memo":"${secret} }{"},"code":"23514"}`, pgText(400, { code: "23514", other_fields: 1 })],
     ["C-55 배열 details 뒤의 code", `Supabase 400: {"details":["${secret}",{"a":"]"}],"code":"23514"}`, pgText(400, { details: "[값 생략]", code: "23514" })],
@@ -649,8 +711,9 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
   }
   t.ok(Object.getPrototypeOf({}) === Object.prototype && ({}).polluted === undefined, "6-j C-55 중첩 값을 건너뛴 뒤에도 Object.prototype 은 그대로다");
 
-  // C-49: DB 오류 글(safeError) 뒤에 글을 붙이는 곳은 관제 가리기가 아는 셋뿐이다 — 글 끝의 ‘;trace=’ + kakaoLoginTraceId()(K 와 대문자·숫자 7자)·
-  // ‘; latency_ms=’ + 숫자, 다음 DB 오류 글 앞의 ‘ membership=’(가계부 만들기 보상 실패 — 그 길의 참여 오류는 늘 DB 오류 글이고 끝에 온다). 새 자리가 생기면 떨어진다.
+  // C-49·C-61·C-71(Codex 6차 검토): DB 오류 글(safeError — 그 본문은 상세 끝까지)은 글의 맨 끝에만 온다. 템플릿에서 safeError(…) 가 든 보간식 뒤에는 글도 식도 없고,
+  // 덧셈·배열 join 에서도 마지막이다(오류 글이 둘인 사건은 errors 로 따로 넘긴다 — 아래 6-k). 5차 검사는 safeError 뒤의 글자와 다음 식 하나만 보아
+  // ‘${safeError(err)};trace=${traceId};stage=${failedStage}’ 도 아는 자리로 셌다 — 같은 규칙이 그런 꼴(대조 사례)을 잡는지도 본다.
   {
     const containsSafeError = (node) => {
       let found = false;
@@ -665,45 +728,69 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
       look(node);
       return found;
     };
-    const known = new Map([[";trace=|traceId", 0], ["; latency_ms=|latencyMs", 0], [" membership=|safeError", 0]]);
+    const isJoin = (node) => node?.type === "CallExpression" && node.callee.type === "MemberExpression" && !node.callee.computed && node.callee.property.name === "join";
+    const tailSites = (source, file) => {
+      let sites = 0;
+      const unknown = [];
+      const where = (node) => `${file}:${source.slice(0, node.start).split("\n").length}`;
+      const visit = (node, parent) => {
+        if (!node || typeof node.type !== "string") return;
+        if (node.type === "TemplateLiteral") node.expressions.forEach((expression, index) => {
+          if (!containsSafeError(expression)) return;
+          sites += 1;
+          const rest = node.quasis.slice(index + 1).map((quasi) => quasi.value.cooked ?? "").join("");
+          if (rest || index < node.expressions.length - 1) unknown.push(`${where(expression)} 뒤 ${json(source.slice(expression.end, node.end - 1).slice(0, 50))}`);
+        });
+        if (node.type === "BinaryExpression" && node.operator === "+" && !(parent?.type === "BinaryExpression" && parent.operator === "+")) {
+          const operands = [];
+          const flat = (child) => { if (child.type === "BinaryExpression" && child.operator === "+") { flat(child.left); flat(child.right); } else operands.push(child); };
+          flat(node);
+          operands.forEach((operand, index) => {
+            if (!containsSafeError(operand)) return;
+            sites += 1;
+            if (index < operands.length - 1) unknown.push(`${where(operand)} + ${source.slice(operands[index + 1].start, operands[index + 1].end).slice(0, 40)}`);
+          });
+        }
+        if (isJoin(node) && node.callee.object.type === "ArrayExpression") {
+          const elements = node.callee.object.elements;
+          elements.forEach((element, index) => {
+            if (!element || !containsSafeError(element)) return;
+            sites += 1;
+            if (index < elements.length - 1) unknown.push(`${where(element)} join 뒤 원소 ${elements.length - 1 - index}개`);
+          });
+        }
+        for (const value of Object.values(node)) {
+          if (Array.isArray(value)) value.forEach((child) => visit(child, node));
+          else if (value && typeof value === "object" && typeof value.type === "string") visit(value, node);
+        }
+      };
+      visit(parseAcorn(source, { ecmaVersion: "latest", sourceType: "module" }), null);
+      return { sites, unknown };
+    };
+    let sites = 0, files = 0;
     const unknown = [];
     for (const dirName of readdirSync(new URL("../src/modules/", import.meta.url), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name)) {
       const dir = new URL(`../src/modules/${dirName}/`, import.meta.url);
       for (const name of readdirSync(dir).filter((file) => file.endsWith(".js"))) {
         const source = readFileSync(new URL(name, dir), "utf8");
         if (!source.includes("safeError(")) continue;
-        const where = (node) => `${dirName}/${name}:${source.slice(0, node.start).split("\n").length}`;
-        const visit = (node, parent) => {
-          if (!node || typeof node.type !== "string") return;
-          if (node.type === "TemplateLiteral") node.expressions.forEach((expression, index) => {
-            if (!containsSafeError(expression)) return;
-            const after = node.quasis[index + 1].value.cooked ?? "";
-            const next = node.expressions[index + 1];
-            if (!after && !next) return;
-            const key = `${after}|${!next ? "" : next.type === "Identifier" ? next.name : containsSafeError(next) ? "safeError" : "?"}`;
-            if (known.has(key)) known.set(key, known.get(key) + 1);
-            else unknown.push(`${where(expression)} ${json(after)}${next ? `\${${source.slice(next.start, next.end)}}` : ""}`);
-          });
-          if (node.type === "BinaryExpression" && node.operator === "+" && !(parent?.type === "BinaryExpression" && parent.operator === "+")) {
-            const operands = [];
-            const flat = (child) => { if (child.type === "BinaryExpression" && child.operator === "+") { flat(child.left); flat(child.right); } else operands.push(child); };
-            flat(node);
-            operands.slice(0, -1).forEach((operand, index) => { if (containsSafeError(operand)) unknown.push(`${where(operand)} + ${source.slice(operands[index + 1].start, operands[index + 1].end).slice(0, 40)}`); });
-          }
-          for (const value of Object.values(node)) {
-            if (Array.isArray(value)) value.forEach((child) => visit(child, node));
-            else if (value && typeof value === "object" && typeof value.type === "string") visit(value, node);
-          }
-        };
-        visit(parseAcorn(source, { ecmaVersion: "latest", sourceType: "module" }), null);
+        files += 1;
+        const found = tailSites(source, `${dirName}/${name}`);
+        sites += found.sites;
+        unknown.push(...found.unknown);
       }
     }
-    const oauth = readFileSync(new URL("../src/modules/auth/kakao-oauth.js", import.meta.url), "utf8");
-    const session = readFileSync(new URL("../src/modules/auth/user-session.js", import.meta.url), "utf8");
-    const traceShape = oauth.includes("return `K${randomState().slice(0, 7).toUpperCase()}`;") && /const traceId = kakaoLoginTraceId\(\);/.test(oauth)
-      && session.includes('const chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";');
-    t.ok(!unknown.length && known.get(";trace=|traceId") >= 2 && known.get("; latency_ms=|latencyMs") >= 1 && known.get(" membership=|safeError") === 1 && traceShape,
-      `6-j C-49 DB 오류 글 뒤에 붙는 글 = 관제가 아는 진단 셋(${[...known].map(([key, count]) => `${json(key.split("|")[0])} ${count}곳`).join(" · ")} — trace 값의 꼴 ${traceShape ? "확인" : "다름"}) (${unknown.join(", ") || "모르는 자리 없음"})`);
+    const caught = [
+      "const d = `${safeError(err)};trace=${traceId};stage=${failedStage}`;",
+      "const d = `stage=${failedStage};${safeError(err)};trace=${traceId}`;",
+      "const d = `${safeError(err)}; latency_ms=${latencyMs}`;",
+      'const d = safeError(err) + ";trace=" + traceId;',
+      'const d = [safeError(err), traceId].join(";");',
+      'const d = `${ok ? `x ${safeError(err)}` : ""} tail`;',
+    ].map((code) => tailSites(code, "대조").unknown.length);
+    const passed = ["const d = `trace=${traceId};${safeError(err)}`;", "const d = `stage=${s};trace=${t};${safeError(err)}`;", 'const d = "trace=" + traceId + ";" + safeError(err);', 'const d = `${safeError(err)}`.slice(0, 400);'].map((code) => tailSites(code, "대조").unknown.length);
+    t.ok(!unknown.length && files >= 40 && sites >= 30 && caught.every((count) => count > 0) && passed.every((count) => count === 0),
+      `6-k C-71 DB 오류 글(safeError) 뒤에 글이 붙는 곳 없음 — ${files}개 파일의 템플릿·덧셈·join 자리 ${sites}곳 (${unknown.join(", ") || "붙는 곳 없음"}) · 대조: 뒤에 붙인 꼴 ${caught.length}가지 모두 잡음(${caught.join("·")}), 앞에 둔 꼴 ${passed.length}가지는 통과(${passed.join("·")})`);
   }
 
   // C-50: 정해 둔 raise 이름표(OPS_DB_RAISE_NAMES_V229148) = 저장소 SQL 의 ‘raise exception '이름'’ 이름(영문 소문자·숫자·밑줄) 모두 + 정해 둔 영문 문장 둘 —
@@ -720,27 +807,30 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
       }
     };
     find(telemetry);
+    // V22.9.148(Codex 6차 검토 — V148:C-72): SQL 파일은 git 이 아는 것(git ls-files)만 읽는다 — 5차 검사는 작업 폴더를 걸어 커밋되지 않은 SQL 의 이름까지 표에
+    // 맞춰 보았다(그 파일 없이 받은 클론의 검사와 다르다). git 목록을 읽지 못하면 떨어진다(걷기로 바꾸지 않는다). 저장소 SQL 은 raise 의 기본 번호(P0001)만 쓴다
+    // — errcode 를 정하는 SQL 이 없다(관제의 오류 번호 표 V148:C-62 의 전제).
     const sqlNames = new Set();
-    let sqlFiles = 0;
-    const walk = (url) => {
-      for (const entry of readdirSync(url, { withFileTypes: true })) {
-        if (entry.name.startsWith(".") || ["node_modules", "output"].includes(entry.name)) continue;
-        if (entry.isDirectory()) walk(new URL(`${entry.name}/`, url));
-        else if (entry.name.endsWith(".sql")) {
-          sqlFiles += 1;
-          for (const found of readFileSync(new URL(entry.name, url), "utf8").matchAll(/raise exception '([^']{1,100})'/gi)) sqlNames.add(found[1]);
-        }
-      }
-    };
-    walk(new URL("../", import.meta.url));
+    let sqlFiles = 0, sqlListError = "";
+    const sqlErrcodes = [];
+    let sqlList = [];
+    try {
+      sqlList = execFileSync("git", ["ls-files", "-z", "--", "*.sql"], { cwd: fileURLToPath(new URL("../", import.meta.url)), encoding: "utf8" }).split("\0").filter(Boolean);
+    } catch (err) { sqlListError = String(err?.message || err).slice(0, 120); }
+    for (const rel of sqlList) {
+      sqlFiles += 1;
+      const text = readFileSync(new URL(`../${rel}`, import.meta.url), "utf8");
+      for (const found of text.matchAll(/raise exception '([^']{1,100})'/gi)) sqlNames.add(found[1]);
+      if (/errcode/i.test(text)) sqlErrcodes.push(rel);
+    }
     const sentences = ["attempt key is required", "operation key and owner are required"];
     const expected = new Set([...[...sqlNames].filter((name) => /^[a-z][a-z0-9_]*$/.test(name)), ...sentences]);
     const missing = [...expected].filter((name) => !listed.includes(name));
     const extra = listed.filter((name) => !expected.has(name));
     const dropped = listed.filter((name) => opsOf(pgText(400, { code: "P0001", message: name })) !== pgText(400, { code: "P0001", message: name }));
     const lookalike = ["clinic_visit", "household_not_foundx", "invalid_month_", "attempt key is required."].filter((name) => opsOf(pgText(400, { code: "P0001", message: name })).includes(name));
-    t.ok(sqlFiles >= 20 && listed.length >= 100 && new Set(listed).size === listed.length && sentences.every((sentence) => sqlNames.has(sentence)) && !missing.length && !extra.length && !dropped.length && !lookalike.length,
-      `6-j C-50 raise 이름표 ${listed.length}개 = SQL ${sqlFiles}개 파일의 이름 ${expected.size - sentences.length}개 + 영문 문장 ${sentences.length}개 (표에 없는 SQL 이름 ${missing.join(", ") || "없음"} · SQL 에 없는 표 이름 ${extra.join(", ") || "없음"} · 가려진 표 이름 ${dropped.join(", ") || "없음"} · 남은 표 밖 이름 ${lookalike.join(", ") || "없음"})`);
+    t.ok(!sqlListError && sqlFiles >= 20 && !sqlErrcodes.length && listed.length >= 100 && new Set(listed).size === listed.length && sentences.every((sentence) => sqlNames.has(sentence)) && !missing.length && !extra.length && !dropped.length && !lookalike.length,
+      `6-j C-50 raise 이름표 ${listed.length}개 = git 이 아는 SQL ${sqlFiles}개 파일${sqlListError ? `(목록 못 읽음: ${sqlListError})` : ""}의 이름 ${expected.size - sentences.length}개 + 영문 문장 ${sentences.length}개 (표에 없는 SQL 이름 ${missing.join(", ") || "없음"} · SQL 에 없는 표 이름 ${extra.join(", ") || "없음"} · 가려진 표 이름 ${dropped.join(", ") || "없음"} · 남은 표 밖 이름 ${lookalike.join(", ") || "없음"} · errcode 를 정하는 SQL ${sqlErrcodes.join(", ") || "없음"})`);
   }
 
   // C-58: 목록 줄의 이름 자리는 줄 바꿈(\n)만 넘지 않는다 — 웹에서 만든 분류·구성원 이름 가운데의 U+2028·U+2029·\r 도 이름이다.
@@ -749,80 +839,276 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
       `6-j C-58 요약·예산 목록 줄의 이름 가운데 ${label} 이 있어도 그 줄은 뺀다(앞 고침 error)`);
   }
 
-  // C-53·C-60: 기록 줄의 꼴. 번호 붙은 줄은 따옴표 밖에서 시작하면 기록 줄(메모·분류에 나뉜 따옴표가 금액 칸까지 짝지어 지워도), 번호 없는 줄은 앞·뒤의 정해 둔
-  // 줄로 알아본다. 따옴표 안에서 시작하는 같은 꼴(못 알아들은 답이 되풀이한 사용자 글 — C-45)은 봇 문장을 읽는다.
-  t.eq(outcome(simple("🧾 11월 27일 기록\n01번 - 서버 오류 수리 '부품 / 5,000원 / 카드 / 개발'비")), "ok/handled", "6-j C-53 메모와 분류에 나뉜 따옴표가 든 번호 붙은 기록 줄은 뺀다(앞 고침 error)");
-  t.eq(outcome(simple("🗑️ 기록을 삭제했어요.\n서버 오류 수리 '부품 / 5,000원 / 카드 / 개발'비 (민지)\n되돌리려면: 복구")), "ok/handled", "6-j C-60 번호 없는 삭제 답의 기록 줄도 뺀다(앞 고침 error)");
-  t.eq(outcome(simple("서버 오류 수리 '부품 / 5,000원 / 카드 / 개발'비\n기록은 그대로예요. 바꾸려면 이렇게 보내 주세요.\n방금 내용 점심")), "ok/handled", "6-j C-60 번호 없는 기록 줄은 뒤의 정해 둔 줄로도 알아본다");
-  for (const echoed of ["01번 - 점심 / 5,000원 / 카드 / 식비", "점심 01번 - 점심 / 5,000원 / 카드 / 식비", "점심 / 5,000원 / 카드 / 식비"]) {
-    t.eq(outcome(simple(`⚠️ '${echoed}' 입력을 이해하지 못했어요.`)), "fallback/generic_fallback", `6-j C-53·C-60 따옴표로 되풀이한 기록 꼴(${echoed})은 기록 줄로 보지 않는다(C-45 그대로)`);
-  }
-
-  // C-53·C-60: 기록 줄(kakaoRowLabel)을 내는 곳 모두 — 소스의 글 조립 그대로(보간식은 정해 둔 값, 기록 줄 자리는 실제 kakaoRowLabel, 같은 조건식은 같은 갈래)
-  // 답 글을 만들고, 메모·결제수단·분류에 나뉜 따옴표와 판정 낱말이 든 기록이어도 중립 기록과 판정이 같은지 본다(번호 있음·없음). 부르는 곳은 아래 표와 같아야 한다
-  // (새 곳이 생기면 그 답에서 기록 줄을 어떻게 알아보는지 보고 표에 넣는다).
+  // C-63(Codex 6차 검토): 기록 줄 꼴(‘… / 5,000원 / …’·번호 붙은 줄)은 이제 글로 가리지 않는다. 5차 고침의 꼴 규칙(번호 붙은 줄 C-53·앞뒤 줄로 알아보는
+  // 번호 없는 줄 C-60·‘ / 금액 / ’ 줄)은 이름에 그 꼴이 든 되묻기(가계부 만들기의 이름 확인 — guided-flows.js)의 봇 말까지 줄째 빼 되묻기를 ok 로 셌다.
+  const ROW_ROOM = { userRequest: { chat: { id: "room-v229148-r6-rows", type: "botGroupKey", properties: { botGroupKey: "room-v229148-r6-rows" } }, user: { id: "u-v229148-r6-rows", properties: { botUserKey: "u-v229148-r6-rows" } } } };
+  const ROW_DIRECT = { userRequest: { user: { id: "u-v229148-r6-rows", properties: { botUserKey: "u-v229148-r6-rows" } } } };
+  // 1:1·단톡방 답을 보내는 꼴 그대로(response-builders.js kakaoGroupCompatibleResponse — 단톡방은 봇 부르기를 넣고 바로답을 단추로 바꾼다).
+  const respond = async (payload, text, quick = []) => (await kakaoGroupCompatibleResponse(kakaoText(text, quick.length ? quick : null), payload, BASE)).text();
   {
-    // 함수 → { text: 답 글로 부르는 수, value: 값으로 넘기는 수, helper: 도움 함수 안에서 부르는 수, seqs: 시험할 번호(0 = 번호 없음), saved: 저장 답 }
-    const ROW_SITES = new Map([
-      ["kakao/edit-session-v4.js:kakaoEditDeletedTextV4", { text: 1, seqs: [0, 1] }],
-      ["kakao/edit-session-v4.js:kakaoEditDeleteFailedTextV4", { text: 3, seqs: [0, 1] }],
-      ["kakao/edit-session-v4.js:kakaoEditMenuTextV4", { text: 1, seqs: [0, 1] }],
-      // 수정 세션의 번호(entryNo) — 번호를 모르는 기록은 세션을 열지 않는다(startKakaoEditFlowV4 의 번호 없음 답).
-      ["kakao/edit-flow-v4.js:applyKakaoEditFieldV4", { text: 2, seqs: [1] }],
-      // 세션의 originalLabel — 아래 쓰는 곳(kakaoEditAmbiguousRecordResultV229131 의 target)에서 본다.
-      ["kakao/edit-flow-v4.js:handleKakaoEditSessionMessageV4", { value: 1 }],
-      ["kakao/edit-flow-v4.js:kakaoRestoreDelayedTextV4", { text: 1, seqs: [0, 1] }],
-      ["kakao/edit-flow-v4.js:kakaoEditAmbiguousLatestTextV4", { text: 1, seqs: [0, 1] }],
-      ["kakao/edit-flow-v4.js:kakaoEditTouchedAmbiguousTextV229116", { helper: 1, seqs: [0, 1] }],
-      ["kakao/edit-flow-v4.js:kakaoDailyListTextV4", { text: 1, seqs: [1] }],
-      ["kakao/edit-flow-v4.js:startKakaoEditFlowV4", { text: 1, value: 1, seqs: [0, 1] }],
-      ["kakao/edit-flow-v4.js:handleKakaoEditCommandV4", { text: 4, seqs: [0, 1] }],
-      // 저장 답 — 답을 만든 곳이 결과를 적는다(kakaoSavedReplyV229148 — 관제가 답 글을 읽지 않는다).
-      ["kakao/transaction-save.js:saveKakaoParsedTransactionsReply", { text: 2, saved: true }],
+    const confirmTail = "으로 만들려면 “응” 또는 “만들어줘”라고 입력해 주세요. 이름을 바꾸려면 “아니”라고 입력해 주세요.";
+    const guided = readFileSync(new URL("../src/modules/kakao/guided-flows.js", import.meta.url), "utf8");
+    const confirmQuick = ["이 이름으로 만들기", "이름 다시 입력", "종류 다시 선택", "취소"];
+    const named = ["모임", "모임’ 01번 - “점심 / 5원 / 카드” ‘팀", "모임’ 점심 / 5원 / 카드 ‘팀", "01번 - 점심 / 5,000원 / 카드 / 식비", "점심 / 5,000원 / 카드"].map((name) => outcome(simple(`‘${name}’${confirmTail}`, confirmQuick)));
+    t.ok(guided.includes(`‘\${name}’${confirmTail}`) && named.every((read) => read === "clarify/guided_clarification"),
+      `6-k C-63 기록 줄 꼴이 든 가계부 이름의 이름 확인 답도 되묻기 그대로(guided-flows.js 의 글 그대로 — ${named.join(" · ")}; 5차 고침은 ok)`);
+  }
+  for (const echoed of ["01번 - 점심 / 5,000원 / 카드 / 식비", "점심 01번 - 점심 / 5,000원 / 카드 / 식비", "점심 / 5,000원 / 카드 / 식비"]) {
+    t.eq(outcome(simple(`⚠️ '${echoed}' 입력을 이해하지 못했어요.`)), "fallback/generic_fallback", `6-k C-45 따옴표로 되풀이한 기록 꼴(${echoed})이 든 못 알아들음 답은 그대로 fallback`);
+  }
+  // C-64: 기록 줄이 든 답은 만든 곳의 표시로 센다 — 웹에서 고친 메모에 줄 바꿈이 든 기록(‘서버 오류 수리⏎부품’)의 삭제 답(edit-session-v4.js
+  // kakaoEditDeletedTextV4)도 1:1·단톡방 모두 표지가 찾아져 ok(5차 고침은 둘째 줄의 기록 꼴만 알아보아 첫 줄 ‘서버 오류 수리’ 를 봇 말로 읽어 error).
+  {
+    const row = { memo: "서버 오류 수리\n부품", amount: 5000, payment_method: "카드", category: "식비", type: "expense", transaction_date: "2026-11-27" };
+    const reads = [];
+    for (const seq of [1, 0]) {
+      const deleted = kakaoEditDeletedTextV4(row, seq);
+      const mark = markOf("handled", deleted);
+      const direct = nluOutcomeFromKakaoResponse(await respond(ROW_DIRECT, deleted), mark, { room: false });
+      const room = nluOutcomeFromKakaoResponse(await respond(ROW_ROOM, deleted), mark, { room: true });
+      reads.push({ seq, ok: direct.marked === true && room.marked === true && `${direct.result}/${direct.reason}` === "ok/handled" && `${room.result}/${room.reason}` === "ok/handled", text: outcome(simple(deleted)) });
+    }
+    t.ok(reads.every((read) => read.ok), `6-k C-64 여러 줄 메모 기록의 삭제 답(번호 있음·없음)은 표시로 ok — 1:1·단톡방 모두 표지를 찾는다 (표시 없이 글로 읽으면 ${reads.map((read) => read.text).join(" · ")})`);
+  }
+  // C-64(Codex 6차 검토 — 기록 줄을 내는 곳 모두): 기록 줄(kakaoRowLabel ‘01번 - 메모 / 5,000원 / 결제수단 / 분류’·kakaoEditRecordLineV4 ‘기록: 메모 / 5,000원 /
+  // 날짜’ — 사용자가 정한 메모·결제수단·분류)이 든 답은 나가는 곳마다 만든 곳이 결과를 적어야 한다. 소스에서 기록 줄이 가는 길을 따라간다(답 글 조립 → 그 글을
+  // 돌려주는 함수 → 부르는 곳(src/modules 어디든), 상수 → 쓰는 곳, 결과 객체의 reply·ambiguousText·originalLabel → 그 값을 읽는 곳). 닿는 곳은 넷 가운데 하나여야
+  // 한다: kakaoEditRowReplyV229148(env, 결과, 글, 바로답)·sendKakaoEditReplyV4(…, 글, 다음 창, { nlu: 결과 })·고치기 결과 객체 { reply: 글, nextSession, nlu: 결과 }
+  // (받는 곳은 nlu 를 그대로 넘긴다)·저장 답 kakaoSavedReplyV229148. 그 밖(kakaoText 등)에 닿으면 떨어진다. 닿는 곳은 아래 표(파일:함수:길:결과:바로답 → 곳 수)와
+  // 같아야 한다. 곳마다 소스 그대로(보간식은 정해 둔 값, 기록 줄 자리는 실제 kakaoRowLabel·kakaoEditRecordLineV4, 같은 조건식은 같은 갈래, 함수·상수는 펼친다 —
+  // 배열의 join 은 빈 원소도 줄로 남기고 filter(Boolean) 뒤에만 뺀다) 답 글을 만들고, 실제 바로답(다음 창이 ‘choose_record_or_edit’ 이면 [선택한 기록 보기][취소]
+  // — sendKakaoEditReplyV4)과 함께 (가) 중립 기록 답을 표시 없이 글로 읽은 판정이 표의 결과와 같고(결과를 적어도 관제 분류는 예전과 같다 — 1:1·단톡방, 수정 창
+  // 닫기 실패 줄·같은 답 되풀이 안내가 붙어도. V148:C-67 — 5차 검사는 바로답 없이 만든 답을 기준으로 삼아 되묻기 답 ‘…을 새로 기록할까요?’ + [선택한 기록
+  // 보기][취소] 를 ok 로 보았다), (나) 메모·결제수단·분류에 따옴표·판정 낱말·줄 바꿈·명령 꼴이 든 기록 답도 만든 곳이 적은 표시로 그 결과가
+  // 되는지(표지가 답에서 찾아진다 — 1:1·단톡방) 본다. 곳마다 대조한 수가 0 이면 떨어진다(V148:C-66 — 5차 검사는 전체 수만 보아 한 곳의 비교가 0 이어도 지났다).
+  {
+    const SINKS = new Map([
+      ["kakao/edit-flow-v4.js:applyKakaoEditFieldV4:result:handled:-", 2], // 이미 그 구분·바꾼 뒤의 기록 줄(kakaoEditRecordLineV4)
+      ["kakao/edit-flow-v4.js:applyKakaoEditFieldV4:result:handled:choose", 2], // 그사이 바뀐 기록 — [선택한 기록 보기][취소]
+      ["kakao/edit-flow-v4.js:kakaoEditAmbiguousRecordResultV229131:result:flow_question:choose", 1], // ‘…을 새로 기록할까요?’ — 세션의 originalLabel
+      ["kakao/edit-flow-v4.js:processKakaoEditResultV4:send:handled:-", 1], // 수정 창의 삭제 성공(실패는 아래 결과 객체 — V148:C-73)
+      ["kakao/edit-flow-v4.js:handleKakaoEditSessionMessageV4:send:handled:-", 1], // 선택한 기록 보기의 수정 창
+      ["kakao/edit-flow-v4.js:startKakaoEditFlowV4:row:handled:-", 1], // 번호를 정하지 못한 기록
+      ["kakao/edit-flow-v4.js:startKakaoEditFlowV4:send:handled:-", 1], // 수정 창
+      ["kakao/edit-flow-v4.js:handleKakaoEditCommandV4:row:handled:-", 10], // 오늘기록·복구(같은 기록·지연·성공)·삭제(고르기·성공)·수정(고르기·그대로·다른 기록)·지출자(고르기)
+      // 지우지 못한 답(V148:C-73 — 수정 창·삭제 명령 두 곳이 받아 nlu 를 그대로 넘긴다): 다른 사람이 먼저 바꿈 = 처리함, 결과 모름, 저장소 거절(되돌릴 준비 실패는 기록 줄 없음).
+      ["kakao/edit-session-v4.js:kakaoEditDeleteFailedReplyV229148:result:handled:-", 1],
+      ["kakao/edit-session-v4.js:kakaoEditDeleteFailedReplyV229148:result:delete_uncertain:-", 1],
+      ["kakao/edit-session-v4.js:kakaoEditDeleteFailedReplyV229148:result:delete_failed:-", 1],
+      ["kakao/transaction-save.js:saveKakaoParsedTransactionsReply:saved:saved:?", 2], // 저장 답(한 건·한 번에 여러 건 요약)
     ]);
-    const ROW_CONSUMERS = new Map([["kakao/edit-flow-v4.js:kakaoEditAmbiguousRecordResultV229131", { names: ["target"], seqs: [1] }]]);
+    const ROW_MARK = "\u0002", RECORD_MARK = "\u0003";
+    const LIMIT = 24;
     const TYPED_CALLS = new Map([
       ["kakaoEditDayPrefixV4", ["", "11월 20일 "]], ["twoDigitSeq", ["01"]], ["numberWithCommas", ["1,234"]], ["josa", ["을"]],
       ["kakaoRowOwnerSuffixV229135", ["", " (민지)"]], ["kakaoDailyLimitLineV22980", [""]],
       ["kakaoRefundLinkUndoNoteV4", ["", "\n환불 연결이 있었는지 확인하지 못했어요. 연결이 있었다면 함께 풀렸어요."]],
     ]);
     const TYPED_NAMES = new Map([["ownerSuffix", ["", " (민지)"]], ["listCommand", ["오늘 기록 보기"]], ["shown", ["01"]], ["prefix", ["", "11월 20일 "]]]);
-    const ROW_MARK = "\u0002";
-    const LIMIT = 24;
+    const isMethod = (node, names) => node?.type === "CallExpression" && node.callee.type === "MemberExpression" && !node.callee.computed && names.includes(node.callee.property.name);
+    const children = (node) => Object.values(node).flatMap((value) => (Array.isArray(value) ? value : [value])).filter((value) => value && typeof value === "object" && typeof value.type === "string");
+    // src/modules 의 모든 파일을 읽어 두고, 이름이 든 파일만 그때 읽어 나눈다(부모·이름 있는 함수·모듈 상수).
+    const sources = new Map();
+    for (const dirName of readdirSync(new URL("../src/modules/", import.meta.url), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name)) {
+      for (const name of readdirSync(new URL(`../src/modules/${dirName}/`, import.meta.url)).filter((file) => file.endsWith(".js"))) sources.set(`${dirName}/${name}`, readFileSync(new URL(`../src/modules/${dirName}/${name}`, import.meta.url), "utf8"));
+    }
+    const program = new Map();
+    const recOf = (file) => {
+      if (program.has(file)) return program.get(file);
+      const source = sources.get(file);
+      const ast = parseAcorn(source, { ecmaVersion: "latest", sourceType: "module" });
+      const parents = new Map(), functions = new Map(), consts = new Map();
+      const index = (node, parent) => { parents.set(node, parent); if (node.type === "FunctionDeclaration" && node.id) functions.set(node.id.name, node); children(node).forEach((child) => index(child, node)); };
+      index(ast, null);
+      for (const statement of ast.body) if (statement.type === "VariableDeclaration") for (const d of statement.declarations) if (d.id.type === "Identifier" && d.init) consts.set(d.id.name, d.init);
+      const rec = { file, source, ast, parents, functions, consts };
+      program.set(file, rec);
+      return rec;
+    };
+    const filesWith = (needle) => [...sources].filter(([, source]) => source.includes(needle)).map(([file]) => recOf(file));
+    const builderOf = (name) => { for (const rec of filesWith(`function ${name}(`)) if (rec.functions.has(name)) return { rec, fn: rec.functions.get(name) }; return null; };
+    const enclosing = (rec, node, types = ["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"]) => { let at = rec.parents.get(node); while (at && !types.includes(at.type)) at = rec.parents.get(at); return at || null; };
+    const ownerOf = (rec, node) => enclosing(rec, node, ["FunctionDeclaration"])?.id?.name || "?";
+    const lineOf = (rec, node) => `${rec.file}:${rec.source.slice(0, node.start).split("\n").length}`;
+    // 함수 안(바깥 함수까지)의 상수 선언: 이름 → 초기값(매개변수는 값 없음 — 모듈 상수를 가린다).
+    const localsOf = (rec, node) => {
+      const locals = new Map();
+      for (let fn = enclosing(rec, node); fn; fn = enclosing(rec, fn)) {
+        const look = (child) => { if (child !== fn && ["FunctionDeclaration", "FunctionExpression"].includes(child.type)) return; if (child.type === "VariableDeclarator" && child.id.type === "Identifier" && child.init && !locals.has(child.id.name)) locals.set(child.id.name, child.init); children(child).forEach(look); };
+        look(fn.body);
+        for (const param of fn.params) if (param.type === "Identifier") locals.set(param.name, locals.get(param.name) ?? null);
+      }
+      return locals;
+    };
+    // 글로 이어지는 부모인가(조건식의 조건·&& 의 왼쪽은 글이 아니다 — kakaoText 는 표시 없이 나가는 곳이라 넘지 않는다).
+    const textClimb = (parent, child) => {
+      if (["TemplateLiteral", "ArrayExpression", "SpreadElement"].includes(parent.type)) return true;
+      if (parent.type === "ConditionalExpression") return parent.test !== child;
+      if (parent.type === "LogicalExpression") return parent.operator !== "&&" || parent.right === child;
+      if (parent.type === "BinaryExpression") return parent.operator === "+";
+      if (parent.type === "MemberExpression") return parent.object === child && !parent.computed && ["join", "replace", "trim", "filter", "map", "concat", "slice"].includes(parent.property.name);
+      if (parent.type === "ArrowFunctionExpression") return parent.body === child;
+      if (parent.type === "CallExpression") return parent.callee === child || (isMethod(parent, ["map"]) && parent.arguments[0] === child);
+      return false;
+    };
+    const literalOf = (node) => (node?.type === "Literal" && typeof node.value === "string" ? node.value : null);
+    const propertyOf = (object, key) => (object?.type === "ObjectExpression" ? object.properties.find((p) => p.type === "Property" && !p.computed && (p.key.name ?? p.key.value) === key)?.value : undefined);
+    const quickOfNext = (rec, node, at, depth = 0) => {
+      if (!node || (node.type === "Literal" && node.value === null)) return "-";
+      if (node.type === "ObjectExpression") { const step = literalOf(propertyOf(node, "step")); return step === "choose_record_or_edit" ? "choose" : step ? "-" : "?"; }
+      if (node.type === "Identifier" && depth < 3) { const init = localsOf(rec, at).get(node.name); return init ? quickOfNext(rec, init, at, depth + 1) : "?"; }
+      return "?";
+    };
+    const quickOfArray = (node) => (!node ? "-" : node.type === "ArrayExpression" && node.elements.every((e) => e.type === "ArrayExpression" && literalOf(e.elements[0])) ? `qr:${node.elements.map((e) => e.elements[0].value).join("|")}` : "?");
+    // 다음 창이 ‘choose_record_or_edit’ 일 때 sendKakaoEditReplyV4 가 붙이는 바로답 — 검사에 적어 두지 않고 그 함수의 조건식(finalNext.step === "choose_record_or_edit" ? [...] : …)에서 읽는다(V148:C-67).
+    const chooseQuick = (() => {
+      const fn = recOf("kakao/edit-flow-v4.js").functions.get("sendKakaoEditReplyV4");
+      let found = null;
+      const look = (child) => {
+        if (found) return;
+        if (child.type === "ConditionalExpression" && child.test.type === "BinaryExpression" && child.test.operator === "===" && literalOf(child.test.right) === "choose_record_or_edit"
+          && child.test.left.type === "MemberExpression" && !child.test.left.computed && child.test.left.property.name === "step") { found = quickOfArray(child.consequent); return; }
+        children(child).forEach(look);
+      };
+      if (fn) look(fn);
+      return found?.startsWith("qr:") ? found.slice(3).split("|").map((label) => [label]) : null;
+    })();
+    const QUICK = { "-": [], choose: chooseQuick };
+    const sinks = new Map(), lost = [], visitedBuilders = new Set(), visitedNames = new Set();
+    const addSink = (rec, node, type, owner, kind, quick, textNode) => {
+      const id = `${rec.file}@${node.start}`;
+      if (!sinks.has(id)) sinks.set(id, { rec, node, type, key: `${rec.file}:${owner}:${type}:${kind ?? "?"}:${quick}`, kind, quick, textNode, where: lineOf(rec, node) });
+    };
+    const isPattern = (rec, node) => { const parent = rec.parents.get(node); return parent?.type === "Property" && rec.parents.get(parent)?.type === "ObjectPattern"; };
+    const isReference = (rec, node) => { const parent = rec.parents.get(node); return !(parent?.type === "MemberExpression" && parent.property === node && !parent.computed) && !(parent?.type === "Property" && parent.key === node && !parent.shorthand) && !(parent?.type === "VariableDeclarator" && parent.id === node) && !isPattern(rec, node); };
+    const usesOf = (rec, scope, name) => { const out = []; const look = (child) => { if (child.type === "Identifier" && child.name === name && isReference(rec, child)) out.push(child); children(child).forEach(look); }; look(scope); return out; };
+    function follow(rec, node) {
+      let top = node, parent = rec.parents.get(top);
+      while (parent && textClimb(parent, top)) { top = parent; parent = rec.parents.get(top); }
+      const where = lineOf(rec, node), owner = ownerOf(rec, top);
+      if (!parent) return lost.push(`${where} 끝`);
+      if ((parent.type === "ConditionalExpression" || parent.type === "IfStatement") && parent.test === top) return; // 참·거짓으로만 쓴다
+      if (parent.type === "UnaryExpression" && parent.operator === "!") return;
+      if (parent.type === "CallExpression" && parent.callee.type === "Identifier") {
+        const name = parent.callee.name, at = parent.arguments.indexOf(top);
+        if (name === "kakaoEditRowReplyV229148" && at === 2) return addSink(rec, parent, "row", owner, literalOf(parent.arguments[1]), quickOfArray(parent.arguments[3]), parent.arguments[2]);
+        if (name === "sendKakaoEditReplyV4" && at === 3) return addSink(rec, parent, "send", owner, literalOf(propertyOf(parent.arguments[5], "nlu")), quickOfNext(rec, parent.arguments[4], parent), parent.arguments[3]);
+        if (name === "kakaoSavedReplyV229148" && at === 1) return addSink(rec, parent, "saved", owner, "saved", "?", parent.arguments[1]);
+        return lost.push(`${where} → ${name}(…)`);
+      }
+      if (parent.type === "ReturnStatement") {
+        const fn = enclosing(rec, parent);
+        if (fn?.type !== "FunctionDeclaration" || !fn.id) return lost.push(`${where} → 이름 없는 함수의 return`);
+        if (visitedBuilders.has(fn.id.name)) return;
+        visitedBuilders.add(fn.id.name);
+        for (const other of filesWith(`${fn.id.name}(`)) {
+          const look = (child) => { if (child.type === "CallExpression" && child.callee.type === "Identifier" && child.callee.name === fn.id.name) follow(other, child); children(child).forEach(look); };
+          look(other.ast);
+        }
+        return;
+      }
+      if (parent.type === "VariableDeclarator" && parent.id.type === "Identifier" && parent.init === top) {
+        const scope = enclosing(rec, parent) || rec.ast;
+        for (const use of usesOf(rec, scope, parent.id.name)) follow(rec, use);
+        return;
+      }
+      if (parent.type === "Property" && parent.value === top && !parent.computed) {
+        const key = parent.key.name ?? parent.key.value, object = rec.parents.get(parent);
+        if (key === "reply") return addSink(rec, object, "result", owner, literalOf(propertyOf(object, "nlu")), quickOfNext(rec, propertyOf(object, "nextSession"), object), top);
+        if (key === "ambiguousText" || key === "originalLabel") {
+          if (visitedNames.has(key)) return;
+          visitedNames.add(key);
+          for (const other of filesWith(key)) {
+            const look = (child) => {
+              if (child.type === "MemberExpression" && !child.computed && child.property.name === key) follow(other, child);
+              if (child.type === "Identifier" && child.name === key && isReference(other, child)) follow(other, child);
+              children(child).forEach(look);
+            };
+            look(other.ast);
+          }
+          return;
+        }
+        return lost.push(`${where} → ${key}:`);
+      }
+      // 배열·글의 길이(.length)는 글이 아니다. 기록 줄이 든 배열에 다른 줄을 더하는 것(.push·.unshift)은 그 배열의 다른 쓰임으로 따라간다.
+      if (parent.type === "MemberExpression" && parent.object === top && !parent.computed) {
+        if (parent.property.name === "length") return;
+        const call = rec.parents.get(parent);
+        if (["push", "unshift"].includes(parent.property.name) && call?.type === "CallExpression" && call.callee === parent) return;
+      }
+      return lost.push(`${where} → ${parent.type}${parent.type === "MemberExpression" && !parent.computed ? `.${parent.property.name}` : ""}`);
+    }
+    let rowCalls = 0;
+    for (const rec of new Set([...filesWith("kakaoRowLabel("), ...filesWith("kakaoEditRecordLineV4(")])) {
+      const look = (child) => {
+        if (child.type === "CallExpression" && child.callee.type === "Identifier" && ["kakaoRowLabel", "kakaoEditRecordLineV4"].includes(child.callee.name)) { rowCalls += 1; follow(rec, child); }
+        children(child).forEach(look);
+      };
+      look(rec.ast);
+    }
+    // 고치기 결과 객체를 받는 곳은 그 객체의 nlu 를 그대로 넘긴다(processKakaoEditResultV4 — applied·result·failed, handleKakaoEditCommandV4 — failed).
+    const passThrough = [];
+    for (const rec of new Set([...filesWith("sendKakaoEditReplyV4("), ...filesWith("kakaoEditRowReplyV229148(")])) {
+      const look = (child) => {
+        const sender = child.type === "CallExpression" && child.callee.type === "Identifier" ? { sendKakaoEditReplyV4: [3, (call) => propertyOf(call.arguments[5], "nlu")], kakaoEditRowReplyV229148: [2, (call) => call.arguments[1]] }[child.callee.name] : null;
+        if (sender) {
+          const bare = (node) => (node?.type === "ChainExpression" ? node.expression : node); // result?.reply 꼴
+          const text = bare(child.arguments[sender[0]]);
+          const reply = text?.type === "MemberExpression" ? text : text?.type === "LogicalExpression" && bare(text.left).type === "MemberExpression" ? bare(text.left) : null;
+          if (reply && !reply.computed && reply.property.name === "reply" && reply.object.type === "Identifier") {
+            const nlu = bare(sender[1](child));
+            passThrough.push(`${lineOf(rec, child)} ${reply.object.name}.reply → nlu ${nlu?.type === "MemberExpression" && nlu.object.type === "Identifier" && nlu.object.name === reply.object.name && nlu.property.name === "nlu" ? "그대로" : "없음"}`);
+          }
+        }
+        children(child).forEach(look);
+      };
+      look(rec.ast);
+    }
+    const census = new Map();
+    for (const sink of sinks.values()) census.set(sink.key, (census.get(sink.key) || 0) + 1);
+    const tableDiff = [...new Set([...census.keys(), ...SINKS.keys()])].filter((key) => census.get(key) !== SINKS.get(key)).map((key) => `${key} 표 ${SINKS.get(key) ?? 0}·소스 ${census.get(key) ?? 0}`);
+    // 소스 그대로 답 글 만들기.
+    const ambiguousSources = [];
+    for (const rec of filesWith("ambiguousText")) { const look = (child) => { if (child.type === "Property" && !child.computed && (child.key.name ?? child.key.value) === "ambiguousText" && rec.parents.get(child)?.type === "ObjectExpression") ambiguousSources.push({ rec, node: child.value }); children(child).forEach(look); }; look(rec.ast); }
     const plain = (text) => [{ text, seqs: [] }];
+    const NONE = [{ text: null, seqs: [] }]; // 펼친 빈 배열(원소 없음)
     const join2 = (a, b) => a.flatMap((x) => b.map((y) => ({ text: x.text + y.text, seqs: [...x.seqs, ...y.seqs] }))).slice(0, LIMIT);
     const seqSpec = (node) => (node?.type === "Literal" && typeof node.value === "number" ? node.value
       : node?.type === "BinaryExpression" && node.operator === "+" && node.right?.type === "Literal" && node.right.value === 1 ? 1 : "var");
-    const isMethod = (node, names) => node?.type === "CallExpression" && node.callee.type === "MemberExpression" && !node.callee.computed && names.includes(node.callee.property.name);
-    const lines = (items, sep) => {
+    // 배열 원소 목록을 sep 으로 잇는다 — 보통 join 은 빈 글 원소도 줄로 남긴다(keepEmpty, 실제 [A, "", B].join("\n") = A⏎⏎B). filter(Boolean) 뒤에만 뺀다.
+    // 원소 없음(NONE — 펼친 빈 배열)은 늘 건너뛴다.
+    const lines = (items, sep, keepEmpty = true) => {
       let out = [{ text: null, seqs: [] }];
       for (const item of items) {
-        out = out.flatMap((x) => item.map((y) => (y.text === "" ? x : x.text === null ? y : { text: `${x.text}${sep}${y.text}`, seqs: [...x.seqs, ...y.seqs] }))).slice(0, LIMIT);
+        out = out.flatMap((x) => item.map((y) => (y.text === null || (!keepEmpty && y.text === "") ? x : x.text === null ? y : { text: `${x.text}${sep}${y.text}`, seqs: [...x.seqs, ...y.seqs] }))).slice(0, LIMIT);
       }
       return out.map((x) => (x.text === null ? { text: "", seqs: [] } : x));
     };
-    const mapItem = (call, ctx) => {
-      const fn = call.arguments[0];
-      const body = fn?.type === "ArrowFunctionExpression" ? fn.body : fn?.type === "Identifier" ? ctx.helpers.get(fn.name) : null;
-      if (!body || body.type === "BlockStatement") return null;
-      const item = textOf(body, ctx);
-      return lines([item, item], "\n");
-    };
-    const spreadText = (node, ctx) => {
-      if (node.type === "ConditionalExpression") {
-        const pick = ctx.choice.get(ctx.source.slice(node.test.start, node.test.end));
-        return pick === undefined ? [...spreadText(node.consequent, ctx), ...spreadText(node.alternate, ctx)] : spreadText(pick ? node.alternate : node.consequent, ctx);
+    const joinedOf = (items, sep, keepEmpty) => lines(items.map((text) => plain(text)), sep, keepEmpty).map((x) => x.text).join("|");
+    t.ok(joinedOf(["A", "", "B"], "\n") === "A\n\nB" && joinedOf(["A", "", "B"], "\n", false) === "A\nB" && joinedOf(["", "B"], "\n") === "\nB",
+      `6-k C-68 검사의 답 글 평가기는 join 의 빈 원소를 줄로 남긴다(filter(Boolean) 뒤에만 뺀다 — 5차 평가기는 늘 빼 [A, "", B].join("\\n") 을 A⏎B 로 보았다)`);
+    function itemsOf(node, ctx) {
+      if (isMethod(node, ["slice"])) return itemsOf(node.callee.object, ctx); // 목록의 일부(잘린 목록) — 원소의 꼴은 같다
+      if (node.type === "ArrayExpression") return node.elements.map((element) => (element.type === "SpreadElement" ? spreadOf(element.argument, ctx) : textOf(element, ctx)));
+      if (isMethod(node, ["map"])) {
+        const fn = node.arguments[0];
+        const body = fn?.type === "ArrowFunctionExpression" ? fn.body : fn?.type === "Identifier" ? ctx.locals.get(fn.name)?.body : null;
+        if (!body || body.type === "BlockStatement") return null;
+        const item = textOf(body, ctx);
+        return [item, item];
       }
-      if (isMethod(node, ["map"])) return mapItem(node, ctx) || plain("");
-      if (node.type === "ArrayExpression") return lines(node.elements.map((element) => (element.type === "SpreadElement" ? spreadText(element.argument, ctx) : textOf(element, ctx))), "\n");
-      return plain("");
-    };
-    const arrayText = (node, ctx, sep) => {
-      let array = node;
-      while (isMethod(array, ["filter"])) array = array.callee.object;
-      if (array.type !== "ArrayExpression") return plain("민지");
-      return lines(array.elements.map((element) => (element.type === "SpreadElement" ? spreadText(element.argument, ctx) : textOf(element, ctx))), sep);
-    };
+      if (node.type === "Identifier" && ctx.locals.get(node.name) && !ctx.stack.has(node.name)) {
+        ctx.stack.add(node.name);
+        try { return itemsOf(ctx.locals.get(node.name), ctx); } finally { ctx.stack.delete(node.name); }
+      }
+      return null;
+    }
+    function spreadOf(node, ctx) {
+      if (node.type === "ConditionalExpression") return [...spreadOf(node.consequent, ctx), ...spreadOf(node.alternate, ctx)].slice(0, LIMIT);
+      const items = itemsOf(node, ctx);
+      if (!items) return plain("민지");
+      return items.length ? lines(items, "\n") : NONE;
+    }
     function textOf(node, ctx) {
       if (!node) return plain("");
       if (node.type === "Literal") return plain(typeof node.value === "string" ? node.value : String(node.value ?? ""));
@@ -833,176 +1119,247 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
       }
       if (node.type === "BinaryExpression") return node.operator === "+" ? join2(textOf(node.left, ctx), textOf(node.right, ctx)) : plain("1");
       if (node.type === "ConditionalExpression") {
-        const pick = ctx.choice.get(ctx.source.slice(node.test.start, node.test.end));
+        const pick = ctx.choice.get(ctx.rec.source.slice(node.test.start, node.test.end));
         return pick === undefined ? [...textOf(node.consequent, ctx), ...textOf(node.alternate, ctx)].slice(0, LIMIT) : textOf(pick ? node.alternate : node.consequent, ctx);
       }
       if (node.type === "LogicalExpression") return (node.operator === "&&" ? [...plain(""), ...textOf(node.right, ctx)] : [...textOf(node.left, ctx), ...textOf(node.right, ctx)]).slice(0, LIMIT);
+      if (node.type === "AwaitExpression") return textOf(node.argument, ctx);
       if (node.type === "Identifier") {
-        if (ctx.rowNames.has(node.name)) return [{ text: ROW_MARK, seqs: ["var"] }];
-        return TYPED_NAMES.has(node.name) ? TYPED_NAMES.get(node.name).flatMap(plain) : plain("민지");
+        if (node.name === "ambiguousText") return ambiguousSources.flatMap(({ rec, node: value }) => textOf(value, { ...ctx, rec, locals: localsOf(rec, value), consts: rec.consts })).slice(0, LIMIT);
+        if (TYPED_NAMES.has(node.name)) return TYPED_NAMES.get(node.name).flatMap(plain);
+        const init = ctx.locals.has(node.name) ? ctx.locals.get(node.name) : ctx.consts.get(node.name);
+        if (init && !ctx.stack.has(node.name)) {
+          ctx.stack.add(node.name);
+          try { return textOf(init, ctx); } finally { ctx.stack.delete(node.name); }
+        }
+        return plain("민지");
       }
-      if (node.type === "MemberExpression") return plain(!node.computed && node.property.name === "length" ? "2" : "민지");
+      if (node.type === "MemberExpression") {
+        if (!node.computed && node.property.name === "originalLabel") return [{ text: ROW_MARK, seqs: [1] }];
+        return plain(!node.computed && node.property.name === "length" ? "2" : "민지");
+      }
       if (node.type === "CallExpression") {
         const callee = node.callee;
         if (callee.type === "Identifier") {
           if (callee.name === "kakaoRowLabel") return [{ text: ROW_MARK, seqs: [seqSpec(node.arguments[1])] }];
+          if (callee.name === "kakaoEditRecordLineV4") return plain(RECORD_MARK);
           if (TYPED_CALLS.has(callee.name)) return TYPED_CALLS.get(callee.name).flatMap(plain);
-          if (ctx.helpers.has(callee.name)) return textOf(ctx.helpers.get(callee.name), ctx);
           if (callee.name === "kakaoText") return textOf(node.arguments[0], ctx);
+          const local = ctx.locals.get(callee.name);
+          if (local?.type === "ArrowFunctionExpression" && local.body.type !== "BlockStatement") return textOf(local.body, ctx);
+          const builder = builderOf(callee.name);
+          if (builder && !ctx.stack.has(`fn:${callee.name}`)) {
+            ctx.stack.add(`fn:${callee.name}`);
+            try {
+              const returns = [];
+              const look = (child) => { if (child !== builder.fn && ["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"].includes(child.type)) return; if (child.type === "ReturnStatement" && child.argument) returns.push(child.argument); children(child).forEach(look); };
+              look(builder.fn.body);
+              const inner = { ...ctx, rec: builder.rec, locals: localsOf(builder.rec, builder.fn.body.body[0] || builder.fn.body), consts: builder.rec.consts };
+              return returns.flatMap((argument) => textOf(argument, inner)).slice(0, LIMIT);
+            } finally { ctx.stack.delete(`fn:${callee.name}`); }
+          }
           return plain("민지");
         }
-        if (isMethod(node, ["join"])) return arrayText(callee.object, ctx, node.arguments[0]?.type === "Literal" ? node.arguments[0].value : ",");
-        if (isMethod(node, ["map"])) return mapItem(node, ctx) || plain("민지");
+        if (isMethod(node, ["join"])) {
+          let array = callee.object, filtered = false;
+          while (isMethod(array, ["filter"])) { filtered = true; array = array.callee.object; }
+          const items = itemsOf(array, ctx);
+          return items ? lines(items, literalOf(node.arguments[0]) ?? ",", !filtered) : plain("민지");
+        }
+        if (isMethod(node, ["map"])) { const items = itemsOf(node, ctx); return items ? lines(items, ",") : plain("민지"); }
         if (isMethod(node, ["replace", "trim"]) && callee.object.type !== "Identifier") return textOf(callee.object, ctx);
       }
       return plain("민지");
     }
-    // 부르는 곳에서 답 글 조립의 맨 바깥(템플릿·덧셈·조건식·배열과 그 join·kakaoText·map 의 화살표)까지 올라간다.
-    const textParent = (parent, child) => {
-      if (["TemplateLiteral", "ConditionalExpression", "LogicalExpression", "ArrayExpression", "SpreadElement"].includes(parent.type)) return true;
-      if (parent.type === "BinaryExpression") return parent.operator === "+";
-      if (parent.type === "MemberExpression") return parent.object === child;
-      if (parent.type === "ArrowFunctionExpression") return parent.body === child;
-      if (parent.type === "CallExpression") return parent.callee === child || (parent.callee.type === "Identifier" && parent.callee.name === "kakaoText") || (isMethod(parent, ["map"]) && parent.arguments[0] === child);
-      return false;
-    };
-    const census = new Map();
-    const jobs = [];
-    const originalLabelReads = [];
-    const testsOf = (node, source) => {
+    const testsOf = (node, ctx) => {
       const tests = [];
       const look = (child) => {
         if (!child || typeof child.type !== "string") return;
-        if (child.type === "ConditionalExpression") tests.push(source.slice(child.test.start, child.test.end));
-        for (const value of Object.values(child)) {
-          if (Array.isArray(value)) value.forEach(look);
-          else if (value && typeof value === "object" && typeof value.type === "string") look(value);
-        }
+        if (child.type === "ConditionalExpression") tests.push(ctx.rec.source.slice(child.test.start, child.test.end));
+        children(child).forEach(look);
       };
       look(node);
-      return [...new Set(tests)];
+      return [...new Set(tests)].slice(0, 6);
     };
-    for (const dirName of readdirSync(new URL("../src/modules/", import.meta.url), { withFileTypes: true }).filter((entry) => entry.isDirectory()).map((entry) => entry.name)) {
-      const dir = new URL(`../src/modules/${dirName}/`, import.meta.url);
-      for (const name of readdirSync(dir).filter((file) => file.endsWith(".js"))) {
-        const source = readFileSync(new URL(name, dir), "utf8");
-        if (!source.includes("kakaoRowLabel(") && !source.includes("originalLabel")) continue;
-        const functions = new Map();
-        const visit = (node, chain, fn) => {
-          if (!node || typeof node.type !== "string") return;
-          const here = node.type === "FunctionDeclaration" && node.id ? node : fn;
-          if (node.type === "FunctionDeclaration" && node.id) functions.set(node.id.name, node);
-          if (node.type === "MemberExpression" && !node.computed && node.property.name === "originalLabel") originalLabelReads.push(`${dirName}/${name}:${here?.id?.name || "?"}`);
-          if (node.type === "CallExpression" && node.callee.type === "Identifier" && node.callee.name === "kakaoRowLabel") {
-            const key = `${dirName}/${name}:${here?.id?.name || "?"}`;
-            let top = node, index = chain.length - 1;
-            while (index >= 0 && textParent(chain[index], top)) { top = chain[index]; index -= 1; }
-            const parent = chain[index];
-            const kind = top === node && parent?.type === "Property" ? "value" : top.type === "ArrowFunctionExpression" && parent?.type === "VariableDeclarator" ? "helper" : "text";
-            if (!census.has(key)) census.set(key, { text: 0, value: 0, helper: 0 });
-            census.get(key)[kind] += 1;
-            jobs.push({ key, kind, top, fn: here, source, where: `${dirName}/${name}:${source.slice(0, node.start).split("\n").length}` });
-          }
-          for (const value of Object.values(node)) {
-            if (Array.isArray(value)) value.forEach((child) => visit(child, [...chain, node], here));
-            else if (value && typeof value === "object" && typeof value.type === "string") visit(value, [...chain, node], here);
-          }
-        };
-        visit(parseAcorn(source, { ecmaVersion: "latest", sourceType: "module" }), [], null);
-        for (const [consumerKey, spec] of ROW_CONSUMERS) {
-          const [file, fnName] = consumerKey.split(":");
-          if (file !== `${dirName}/${name}` || !functions.has(fnName)) continue;
-          const fnNode = functions.get(fnName);
-          let reply = null;
-          const look = (child) => {
-            if (!child || typeof child.type !== "string" || reply) return;
-            if (child.type === "Property" && !child.computed && child.key?.name === "reply") { reply = child.value; return; }
-            for (const value of Object.values(child)) {
-              if (Array.isArray(value)) value.forEach(look);
-              else if (value && typeof value === "object" && typeof value.type === "string") look(value);
-            }
-          };
-          look(fnNode);
-          if (reply) jobs.push({ key: consumerKey, kind: "consumer", top: reply, fn: fnNode, source, where: consumerKey, rowNames: spec.names, seqs: spec.seqs });
-        }
-      }
-    }
-    const unreviewed = [...census].filter(([key, counts]) => {
-      const spec = ROW_SITES.get(key);
-      return !spec || ["text", "value", "helper"].some((kind) => (spec[kind] || 0) !== counts[kind]);
-    }).map(([key, counts]) => `${key}(${json(counts)})`);
-    const stale = [...ROW_SITES.keys()].filter((key) => !census.has(key));
-    const consumersFound = jobs.filter((job) => job.kind === "consumer").length;
-    const readsOk = originalLabelReads.length >= 1 && originalLabelReads.every((where) => ROW_CONSUMERS.has(where));
     const NEUTRAL = { memo: "점심", payment_method: "카드", category: "식비", amount: 5000, type: "expense", transaction_date: "2026-11-20" };
-    const ROW_QUOTES = ["'", "‘", "’", "“", "”", "\""];
-    const ROWS = [];
-    for (const a of ROW_QUOTES) for (const b of ROW_QUOTES) for (const [fa, fb] of [["memo", "category"], ["memo", "payment_method"], ["payment_method", "category"]]) {
-      ROWS.push({ ...NEUTRAL, [fa]: `서버 오류 수리 ${a}부품`, [fb]: `개발${b}비` }, { ...NEUTRAL, [fa]: `부품${a}`, [fb]: `${b}잠시 후 다시` });
-    }
-    ROWS.push({ ...NEUTRAL, memo: "서버 오류 수리" }, { ...NEUTRAL, memo: "저장하지 못했어요" }, { ...NEUTRAL, category: "처리하지 못했어요", type: "income" });
-    // 단톡방 답(공용 변환 — response-builders.js kakaoGroupCompatibleResponse 가 번호 예시·‘@말해가계부’ 를 붙인 꼴)에서도 본다: 머리·꼬리 줄은 단톡방 변환을
-    // 되돌린 꼴로 견준다(수정 창의 ‘무엇을 바꿀까요? 번호를 보내주세요.’ 는 단톡방에서 ‘… 예: @말해가계부 1’ 이 된다).
-    const ROW_ROOM = { userRequest: { chat: { id: "room-v229148-r5-rows", type: "botGroupKey", properties: { botGroupKey: "room-v229148-r5-rows" } }, user: { id: "u-v229148-r5-rows", properties: { botUserKey: "u-v229148-r5-rows" } } } };
-    const roomRaw = async (text) => (await kakaoGroupCompatibleResponse(kakaoText(text), ROW_ROOM, BASE)).text();
-    const rowSwallowed = [];
-    let evaluated = 0, texts = 0;
-    for (const job of jobs) {
-      const spec = job.kind === "consumer" ? { seqs: job.seqs } : ROW_SITES.get(job.key);
-      if (!spec || spec.saved || job.kind === "value") continue;
-      const helpers = new Map();
-      const collectHelpers = (child) => {
-        if (!child || typeof child.type !== "string") return;
-        if (child.type === "VariableDeclarator" && child.id?.type === "Identifier" && child.init?.type === "ArrowFunctionExpression" && child.init.body.type !== "BlockStatement") helpers.set(child.id.name, child.init.body);
-        for (const value of Object.values(child)) {
-          if (Array.isArray(value)) value.forEach(collectHelpers);
-          else if (value && typeof value === "object" && typeof value.type === "string") collectHelpers(value);
-        }
-      };
-      collectHelpers(job.fn);
-      // 도움 함수 안에서 부르면 그 함수의 return 글을 본다.
-      const tops = [];
-      if (job.kind === "helper") {
-        const look = (child) => {
-          if (!child || typeof child.type !== "string") return;
-          if (child.type === "ReturnStatement" && child.argument) tops.push(child.argument);
-          for (const value of Object.values(child)) {
-            if (Array.isArray(value)) value.forEach(look);
-            else if (value && typeof value === "object" && typeof value.type === "string") look(value);
-          }
-        };
-        look(job.fn.body);
-      } else tops.push(job.top);
-      evaluated += 1;
-      for (const top of tops) {
-        const tests = testsOf(top, job.source).slice(0, 6);
-        const variants = [];
-        for (let mask = 0; mask < 2 ** tests.length; mask += 1) {
-          const ctx = { source: job.source, helpers, rowNames: new Set(job.rowNames || []), choice: new Map(tests.map((test, bit) => [test, (mask >> bit) & 1])) };
-          variants.push(...textOf(top, ctx).filter((variant) => variant.text.includes(ROW_MARK)));
-        }
-        for (const variant of variants.slice(0, 96)) for (const seq of spec.seqs) {
-          texts += 1;
-          const fill = (row) => { let at = 0; return variant.text.replace(/\u0002/g, () => { const own = variant.seqs[at++]; return kakaoRowLabel(row, own === "var" ? seq : own); }); };
-          const base = outcome(simple(fill(NEUTRAL)));
-          const bad = ROWS.find((row) => outcome(simple(fill(row))) !== base);
-          if (bad) rowSwallowed.push(`${job.where} 번호 ${seq}: ${json(fill(bad).slice(0, 90))} → ${outcome(simple(fill(bad)))} ≠ ${base}`);
-          const roomBase = outcome(await roomRaw(fill(NEUTRAL)));
-          for (const row of ROWS) {
-            const got = outcome(await roomRaw(fill(row)));
-            if (got !== roomBase) { rowSwallowed.push(`${job.where} 번호 ${seq} 단톡방: ${json(fill(row).slice(0, 90))} → ${got} ≠ ${roomBase}`); break; }
+    // 표시를 적은 답이 그 결과가 되는지 볼 기록: 따옴표(나뉜 짝)·판정 낱말·줄 바꿈(웹에서 고친 메모 — 가운데에. 앞뒤 공백은 서버가 뺀다)·명령 꼴·번호 물음 꼴·
+    // 기록 줄 꼴·이름 줄 꼴.
+    const ODD = [
+      { ...NEUTRAL, memo: "서버 오류 수리\n부품" }, { ...NEUTRAL, memo: "부품\n잠시 후 다시" }, { ...NEUTRAL, memo: "점심\n무엇을 바꿀까요?" },
+      { ...NEUTRAL, category: "식비\n처리하지 못했어요" }, { ...NEUTRAL, payment_method: "카드\n저장하지 못했어요" },
+      { ...NEUTRAL, memo: "서버 오류 수리 '부품", category: "개발'비" }, { ...NEUTRAL, memo: "‘잠시 후 다시", payment_method: "카드’" },
+      { ...NEUTRAL, memo: "수정 01번 금액 13000" }, { ...NEUTRAL, memo: "번호를 보내 주세요.\n어떤 것" }, { ...NEUTRAL, memo: "예: 점심", category: "가계부: 처리하지 못했어요" },
+      { ...NEUTRAL, memo: "01번 - 점심 / 5,000원 / 카드 / 식비" }, { ...NEUTRAL, memo: "저장하지 못했어요", type: "income" }, { ...NEUTRAL, memo: "모임’ 01번 - “점심 / 5원 / 카드” ‘팀" },
+    ];
+    const expectedOf = (kind) => { const mark = markOf(kind, "x"); return mark ? `${mark.result}/${mark.reason}` : "?"; };
+    const flowRec = recOf("kakao/edit-flow-v4.js");
+    const closeLines = ["KAKAO_EDIT_CLOSE_FAILED_LINE_V229126", "KAKAO_EDIT_CLOSE_FAILED_GONE_LINE_V229126"].map((name) => literalOf(flowRec.consts.get(name)));
+    let repeatNote = null;
+    { const look = (child) => { if (!repeatNote && child.type === "TemplateLiteral" && !child.expressions.length && (child.quasis[0].value.cooked || "").includes("같은 안내가 반복됐어요")) repeatNote = child.quasis[0].value.cooked; children(child).forEach(look); }; if (flowRec.functions.get("sendKakaoEditReplyV4")) look(flowRec.functions.get("sendKakaoEditReplyV4")); }
+    const wrong = [], perSink = [];
+    for (const sink of sinks.values()) {
+      const expected = expectedOf(sink.kind);
+      const quickSets = sink.quick === "?" ? [[], [["지난주 요약"]]] : sink.quick.startsWith("qr:") ? [sink.quick.slice(3).split("|").map((label) => [label])] : [QUICK[sink.quick] || []];
+      const suffixes = sink.type === "send" || sink.type === "result" ? ["", ...closeLines.filter(Boolean).map((line) => `\n${line}`), ...(repeatNote ? [repeatNote] : [])] : [""];
+      const ctx0 = { rec: sink.rec, locals: localsOf(sink.rec, sink.textNode), consts: sink.rec.consts, stack: new Set(), choice: new Map() };
+      const tests = testsOf(sink.textNode, ctx0);
+      const variants = [];
+      for (let mask = 0; mask < 2 ** tests.length && variants.length < 48; mask += 1) {
+        const ctx = { ...ctx0, stack: new Set(), choice: new Map(tests.map((test, bit) => [test, (mask >> bit) & 1])) };
+        variants.push(...textOf(sink.textNode, ctx).filter((variant) => variant.text.includes(ROW_MARK) || variant.text.includes(RECORD_MARK)));
+      }
+      let compared = 0, neutrals = 0;
+      const seen = new Set();
+      for (const variant of variants.slice(0, 24)) for (const seq of [0, 1]) for (const suffix of suffixes) for (const quick of quickSets) {
+        const fill = (row) => { let at = 0; return variant.text.replace(/[\u0002\u0003]/g, (mark) => { if (mark === RECORD_MARK) return kakaoEditRecordLineV4(row); const own = variant.seqs[at++]; return kakaoRowLabel(row, own === "var" ? seq : own); }) + suffix; };
+        const neutral = fill(NEUTRAL);
+        if (seen.has(`${neutral}\u0000${quick.length}`)) continue;
+        seen.add(`${neutral}\u0000${quick.length}`);
+        neutrals += 1;
+        const directRead = outcome(await respond(ROW_DIRECT, neutral, quick)), roomRead = outcome(await respond(ROW_ROOM, neutral, quick));
+        if (directRead !== expected || roomRead !== expected) wrong.push(`${sink.where} 중립 기록 글 판정 1:1 ${directRead}·단톡방 ${roomRead} ≠ 표의 ${expected}: ${json(neutral.slice(0, 80))}`);
+        if (suffix) continue; // 붙는 줄은 첫 줄(표지)을 바꾸지 않는다 — 표시 대조는 붙지 않은 답으로
+        for (const row of ODD) {
+          const text = fill(row);
+          const mark = markOf(sink.kind, text);
+          const direct = nluOutcomeFromKakaoResponse(await respond(ROW_DIRECT, text, quick), mark, { room: false });
+          const room = nluOutcomeFromKakaoResponse(await respond(ROW_ROOM, text, quick), mark, { room: true });
+          compared += 1;
+          if (!direct.marked || !room.marked || `${direct.result}/${direct.reason}` !== expected || `${room.result}/${room.reason}` !== expected) {
+            wrong.push(`${sink.where} ${json(text.slice(0, 70))} → 1:1 ${direct.result}/${direct.reason}${direct.marked ? "" : "(표지 못 찾음)"}·단톡방 ${room.result}/${room.reason}${room.marked ? "" : "(표지 못 찾음)"} ≠ ${expected}`);
+            break;
           }
         }
       }
+      perSink.push({ where: sink.where, key: sink.key, compared, neutrals });
     }
-    t.ok(!unreviewed.length && !stale.length && consumersFound === ROW_CONSUMERS.size && readsOk && evaluated >= 15 && texts >= 60 && !rowSwallowed.length,
-      `6-j C-53·C-60 기록 줄을 내는 곳 ${[...census.values()].reduce((sum, counts) => sum + counts.text + counts.value + counts.helper, 0)}곳(함수 ${census.size}개 — 답 글 조립 ${evaluated}곳·${texts}가지를 소스 그대로 채움, 값으로 넘기는 originalLabel 은 쓰는 곳 ${consumersFound}곳에서, 저장 답은 표시로): 메모·결제수단·분류에 나뉜 따옴표와 판정 낱말이 든 기록 ${ROWS.length}가지 × 번호 있음·없음이어도 1:1·단톡방 모두 중립 기록과 판정이 같다 (${rowSwallowed.slice(0, 2).join(" / ") || "다른 것 없음"}${unreviewed.length ? ` · 표와 다른 곳 ${unreviewed.join(", ")}` : ""}${stale.length ? ` · 표에만 남은 곳 ${stale.join(", ")}` : ""}${readsOk ? "" : ` · originalLabel 을 읽는 곳 ${originalLabelReads.join(", ")}`})`);
+    const empty = perSink.filter(({ compared, neutrals }) => !compared || !neutrals).map(({ where, key }) => `${where}(${key})`);
+    const total = perSink.reduce((sum, { compared }) => sum + compared, 0);
+    t.ok(rowCalls >= 20 && !lost.length && !tableDiff.length && passThrough.length === 4 && passThrough.every((line) => line.endsWith("그대로")) && !empty.length && !wrong.length && closeLines.every(Boolean) && !!repeatNote && !!chooseQuick,
+      `6-k C-64 기록 줄 ${rowCalls}곳이 나가는 곳 ${sinks.size}곳 = 표(${[...SINKS.values()].reduce((a, b) => a + b, 0)}곳) — 모두 결과를 적고(표시 없이 나가는 길 ${lost.join(", ") || "없음"} · 표와 다름 ${tableDiff.join(", ") || "없음"} · 결과 객체 받는 곳 ${passThrough.join(", ")}), 곳마다 중립 기록 답의 글 판정 = 적는 결과(1:1·단톡방), 따옴표·판정 낱말·줄 바꿈이 든 기록 ${ODD.length}가지도 표시로 그 결과(대조 ${total}번 — 0번인 곳 ${empty.join(", ") || "없음"} · 고를 창 바로답 ${json(chooseQuick)} = sendKakaoEditReplyV4 의 글) (${wrong.slice(0, 4).join(" / ") || "다른 판정 없음"})`);
   }
   globalThis.__AB_OPS_EVENTS.length = 0;
   globalThis.__AB_SKILL_EVENTS.length = 0;
   globalThis.__AB_NLU_RUNTIME_EVENTS.length = 0;
 }
 
+// 6-k Codex 6차 검토(5차 고침 97eda2c0 만 다시 본 리포트 13건 + 고치며 더 찾은 것) — 단위. 오류 글이 둘인 사건은 오류 글마다 따로 가린다(C-61), 오류 번호는
+// 정해 둔 번호표 그대로(C-62), 표지는 1:1 이면 그대로·단톡방이면 보내는 꼴로 바꾼 첫 줄로도 견준다(C-65). (DB 오류 글의 본문 경계 C-61·기록 줄 C-63·C-64·
+// 검사 C-66~C-72 는 위 6-j 와 6-b″ 에 있다.)
+{
+  const secret = "검토값";
+  const leakWords = /검토값/;
+  const pgText = (status, body) => `Supabase ${status}: ${JSON.stringify(body)}`;
+  const dupBody = { code: "23505", details: `Key (id)=(${secret}) already exists.`, hint: null, message: 'duplicate key value violates unique constraint "transactions_pkey"' };
+  const dupKept = pgText(409, { ...dupBody, details: "[값 생략]" });
+  const opsOf = (detail) => { globalThis.__AB_OPS_EVENTS.length = 0; return rememberOpsEvent({ kind: "kakao_save_failed", severity: "error", path: "/skill", method: "POST", detail })?.detail || ""; };
+  const compensation = (errors, detail = "household=h1") => {
+    globalThis.__AB_OPS_EVENTS.length = 0;
+    return rememberOpsEvent({ kind: "household_create_compensation_failed", severity: "critical", path: "/rest/v1/households", method: "DELETE", detail, errors })?.detail || "";
+  };
+  // C-61: 가계부 만들기 보상 실패(data/users-household-create.js)는 정리 오류·참여 오류를 errors 로 따로 넘긴다 — 오류 글마다 따로 가리고 ‘ 이름=’ 으로 잇는다.
+  // 5차 고침은 한 글로 이어 가리기가 둘째 오류 글의 시작을 짐작했다(값 안의 ‘Supabase 404: ’ 를 경계로 보았다).
+  const create = readFileSync(new URL("../src/modules/data/users-household-create.js", import.meta.url), "utf8");
+  const comp = [
+    [[["cleanup", pgText(500, { code: "XX000", message: secret })], ["membership", pgText(409, dupBody)]], `household=h1 cleanup=${pgText(500, { code: "XX000", message: "[메시지 생략]" })} membership=${dupKept}`],
+    [[["cleanup", "household_delete_not_confirmed"], ["membership", `Supabase 409: <html>${secret}</html>`]], "household=h1 cleanup=household_delete_not_confirmed membership=Supabase 409: [본문 생략]"],
+    [[["cleanup", pgText(500, { code: "XX000", message: `x Supabase 404: ${secret}` })], ["membership", pgText(409, dupBody)]], `household=h1 cleanup=${pgText(500, { code: "XX000", message: "[메시지 생략]" })} membership=${dupKept}`],
+    [[["Clean up", secret], ["membership", "household_member_insert_failed"]], "household=h1 membership=household_member_insert_failed"],
+  ].map(([errors, expected]) => [compensation(errors), expected]);
+  const long = compensation([["cleanup", pgText(409, dupBody)], ["membership", pgText(409, dupBody)]]);
+  // 앞 오류 글이 가린 뒤에도 길면(평문 진단) 그 글이 남은 몫을 다 쓰지 않는다 — 뒤 오류 글의 이름과 오류 번호가 남는다.
+  const longFirst = compensation([["cleanup", "household_delete_not_confirmed after retry; storage busy ".repeat(8)], ["membership", pgText(409, dupBody)]]);
+  t.ok(create.includes('errors: [["cleanup", safeError(cleanupErr)], ["membership", safeError(membershipErr)]]') && comp.every(([got, expected]) => got === expected) && !comp.some(([got]) => leakWords.test(got))
+      && long.length <= 260 && long.includes(" cleanup=Supabase 409: {") && long.includes(" membership=Supabase 409: {") && !leakWords.test(long)
+      && longFirst.length <= 260 && longFirst.includes(" cleanup=household_delete_not_confirmed") && longFirst.includes(' membership=Supabase 409: {"code":"23505"') && compensation("nope") === "household=h1",
+    `6-k C-61 보상 실패 상세 = 오류 글마다 따로 가린 ‘ cleanup=… membership=…’ (값 안의 DB 오류 머리·정해 두지 않은 이름은 빼고, 긴 두 오류 글은 260자를 나눠 쓴다 — ${long.length}자, 앞 글이 길어도 뒤 글의 이름·번호가 남는다 — ${longFirst.length}자) (${comp.filter(([got, expected]) => got !== expected).map(([got]) => json(got).slice(0, 90)).join(" / ") || "모두 같음"})`);
+  // C-62: 오류 번호는 PostgreSQL 15·17 의 SQLSTATE 262개·PostgREST 오류 번호 40개(PGRSTX00 포함)·HTTP 세 자리만 남긴다.
+  const telemetrySource = readFileSync(new URL("../src/modules/runtime/ops-telemetry.js", import.meta.url), "utf8");
+  const tableOf = (name) => {
+    let list = null;
+    const evalText = (node) => (node?.type === "Literal" && typeof node.value === "string" ? node.value : node?.type === "BinaryExpression" && node.operator === "+" ? evalText(node.left) + evalText(node.right) : null);
+    const look = (node) => {
+      if (list || !node || typeof node.type !== "string") return;
+      if (node.type === "VariableDeclarator" && node.id?.name === name) {
+        const text = evalText(node.init?.arguments?.[0]?.callee?.object?.callee?.object);
+        list = text === null ? [] : text.trim().split(" ");
+        return;
+      }
+      for (const value of Object.values(node)) {
+        if (Array.isArray(value)) value.forEach(look);
+        else if (value && typeof value === "object" && typeof value.type === "string") look(value);
+      }
+    };
+    look(parseAcorn(telemetrySource, { ecmaVersion: "latest", sourceType: "module" }));
+    return list || [];
+  };
+  const sqlstate = tableOf("OPS_DB_SQLSTATE_V229148"), pgrst = tableOf("OPS_DB_PGRST_V229148");
+  const codeKept = (code) => opsOf(pgText(400, { code, message: "invalid_month" })) === pgText(400, { code, message: "invalid_month" });
+  const keep = ["PGRSTX00", "P0001", "23505", "22P02", "PGRST116", "PGRST002", "25P04", "72000", "XX000", "404", "599"];
+  const drop = ["HVABC", "PGRSTX01", "PGRST104", "22ZZZ", "P0009", "XX999", "ZZ999", "600", "099", "pgrst116", "23505 "];
+  t.ok(sqlstate.length === 262 && new Set(sqlstate).size === 262 && sqlstate.every((code) => /^[0-9A-Z]{5}$/.test(code)) && pgrst.length === 40 && new Set(pgrst).size === 40 && pgrst.every((code) => /^PGRST(?:\d{3}|X00)$/.test(code))
+      && keep.every(codeKept) && !drop.some(codeKept) && [...sqlstate, ...pgrst].every(codeKept),
+    `6-k C-62 오류 번호표 = SQLSTATE ${sqlstate.length}개·PostgREST ${pgrst.length}개 그대로(${keep.filter((code) => !codeKept(code)).join(", ") || "남길 번호 모두 남음"} · ${drop.filter(codeKept).join(", ") || "표 밖 번호 모두 뺌"}) — 5차 고침은 HVABC 를 남기고 PGRSTX00 을 뺐다`);
+  // C-65: 표지는 1:1 답이면 그 첫 줄 그대로만, 단톡방 답이면 보내는 꼴로 바꾼 첫 줄(봇 부르기를 넣은 줄 — response-builders.js kakaoGroupMentionLinesV229134)로도
+  // 견준다. 5차 고침은 1:1·단톡방 모두 양쪽 줄의 ‘@말해가계부’ 를 지워 견주어, 1:1 저장 실패 답에 사용자가 적어 보낸 ‘예: @말해가계부 …?’ 줄이 묵은 표지와
+  // 같아져 실패를 되묻기로 셌다. 단톡방인지는 답을 바꾸는 곳과 같은 기준(botGroupKey)으로 넘긴다(kakao/skill-handler.js).
+  {
+    const ROOM = { userRequest: { chat: { id: "room-v229148-r6-seen", type: "botGroupKey", properties: { botGroupKey: "room-v229148-r6-seen" } }, user: { id: "u-v229148-r6-seen", properties: { botUserKey: "u-v229148-r6-seen" } } } };
+    const question = "예: 점심 예산을 얼마로 설정할까요?\n예: 점심 30만원";
+    const mark = markOf("flow_question", question);
+    const roomText = await (await kakaoGroupCompatibleResponse(kakaoText(question, [["취소"]]), ROOM, BASE)).text();
+    const failed = "예: @말해가계부 점심 예산을 얼마로 설정할까요?\n저장하지 못했어요 😢\n\n가계부 저장소가 요청을 거절해 이번 내용은 기록되지 않았어요.";
+    const reads = [
+      nluOutcomeFromKakaoResponse(simple(question, ["취소"]), mark, { room: false }),
+      nluOutcomeFromKakaoResponse(roomText, mark, { room: true }),
+      nluOutcomeFromKakaoResponse(simple(failed), mark, { room: false }),
+      nluOutcomeFromKakaoResponse(roomText, mark, { room: false }),
+    ].map((o) => `${o.result}/${o.reason}${o.marked ? "(표시)" : ""}`);
+    const handler = readFileSync(new URL("../src/modules/kakao/skill-handler.js", import.meta.url), "utf8");
+    const builders = readFileSync(new URL("../src/modules/kakao/response-builders.js", import.meta.url), "utf8");
+    t.ok(mark.roomSignature === "예: @말해가계부 점심 예산을 얼마로 설정할까요?" && json(reads) === json(["clarify/guided_clarification(표시)", "clarify/guided_clarification(표시)", "error/save_failed", "ok/handled"])
+        && handler.includes("nluOutcomeFromKakaoResponse(responsePreview, nluMark, { room: !!getKakaoBotGroupKey(payload) })") && builders.includes("  if (!getKakaoBotGroupKey(payload)) return kakaoDirectLinkResponse(response, origin);")
+        && !builders.includes("kakaoGroupPlainLineV229148"),
+      `6-k C-65 표지: 1:1 은 첫 줄 그대로, 단톡방은 봇 부르기를 넣은 첫 줄로도 (${reads.join(" · ")} — 1:1 저장 실패 답의 ‘예: @말해가계부 …?’ 줄은 묵은 표지가 아니다 — 5차 고침 clarify; 단톡방 답을 1:1 로 넘기면 표지를 못 찾아 예시 줄을 빼고 ok — 단톡방인지 넘기는 까닭)`);
+  }
+  globalThis.__AB_OPS_EVENTS.length = 0;
+}
+
+// 6-k 지우지 못한 답의 관제 결과(6차 고침 중 찾은 것 — V148:C-73): 다른 사람이 먼저 바꿈 = 처리함(ok/handled), 지웠는지 모름 = 결과 모름(error/save_uncertain),
+// 저장소 거절·되돌릴 준비 실패 = 저장 실패(error/save_failed). 답을 만든 곳의 표시(1:1·단톡방)와 표시 없이 글로 읽은 판정이 같고, 메모에 판정 낱말·따옴표·줄 바꿈이
+// 들어도 표시로 그 결과다. 앞 판들은 넷 모두 ok 로 셌다. 답 글은 앞 판과 같다(글은 validate-audit-batch-b-v22937 NEW-4·validate-kakao-edit-safety-v22934 T2 가 본다).
+{
+  const ROOM = { userRequest: { chat: { id: "room-v229148-c73", type: "botGroupKey", properties: { botGroupKey: "room-v229148-c73" } }, user: { id: "u-v229148-c73", properties: { botUserKey: "u-v229148-c73" } } } };
+  const DIRECT = { userRequest: { user: { id: "u-v229148-c73", properties: { botUserKey: "u-v229148-c73" } } } };
+  const respond = async (payload, text) => (await kakaoGroupCompatibleResponse(kakaoText(text), payload, BASE)).text();
+  const row = { memo: "점심", amount: 5000, payment_method: "카드", category: "식비", type: "expense", transaction_date: "2026-11-20" };
+  const oddRows = [{ ...row, memo: "저장하지 못했어요 '부품" }, { ...row, memo: "서버 오류 수리\n이해하지 못했어요" }, { ...row, memo: "‘다시 보내주세요", category: "삭제 결과를 확인하지 못했어요" }];
+  const unknownCause = Object.assign(new Error("Supabase 503: lost"), { uncertain_write: true });
+  const cases = [
+    ["다른 사람이 먼저 바꿈", Object.assign(new Error("kakao_delete_conflict"), { kakaoDeleteConflict: true }), "handled", "ok/handled"],
+    ["지웠는지 모름", Object.assign(new Error("kakao_delete_failed: Supabase 503"), { kakaoDeletePhase: true, cause: unknownCause }), "delete_uncertain", "error/save_uncertain"],
+    ["저장소 거절", Object.assign(new Error("kakao_delete_failed: Supabase 400"), { kakaoDeletePhase: true }), "delete_failed", "error/save_failed"],
+    ["되돌릴 준비 실패", new Error("undo_buffer_failed"), "delete_failed", "error/save_failed"],
+  ];
+  const seen = [];
+  let good = true;
+  for (const [label, err, nlu, expected] of cases) {
+    for (const seq of [1, 0]) {
+      const plain = kakaoEditDeleteFailedReplyV229148(err, row, seq);
+      const reads = [plain.nlu === nlu, outcome(await respond(DIRECT, plain.reply)) === expected, outcome(await respond(ROOM, plain.reply)) === expected];
+      for (const odd of oddRows) {
+        const made = kakaoEditDeleteFailedReplyV229148(err, odd, seq);
+        const mark = markOf(made.nlu, made.reply);
+        const direct = nluOutcomeFromKakaoResponse(await respond(DIRECT, made.reply), mark, { room: false });
+        const room = nluOutcomeFromKakaoResponse(await respond(ROOM, made.reply), mark, { room: true });
+        reads.push(made.nlu === nlu && direct.marked && room.marked && `${direct.result}/${direct.reason}` === expected && `${room.result}/${room.reason}` === expected);
+      }
+      if (!reads.every(Boolean)) good = false;
+      if (seq === 1) seen.push(`${label} ${plain.nlu} → ${outcome(await respond(DIRECT, plain.reply))}`);
+    }
+  }
+  t.ok(good, `6-k C-73 지우지 못한 답의 관제 결과 = 갈래마다(${seen.join(" · ")}) — 1:1·단톡방, 번호 있음·없음, 메모·분류에 판정 낱말·따옴표·줄 바꿈이 든 기록도 표시로 그 결과(앞 판은 넷 모두 ok/handled)`);
+}
 // ── 1·3. 카카오 답(픽스처, 운영과 같은 코드) ──
 const SKILL_SECRET = "synthetic-v229148-skill-secret";
 async function kakao(fx, utterance, { user = "kakao_login:2265", room = "", nickname = "" } = {}) {
@@ -1423,6 +1780,73 @@ await withClock("2026-11-27", () => fixture(async (fx) => {
   }
 }));
 
+// 6-k 기록 줄이 든 답의 표시(Codex 6차 검토 — V148:C-64, 실제 길 — 픽스처, 운영과 같은 코드): 웹에서 고친 메모에 줄 바꿈이 든 기록(‘서버 오류 수리⏎부품’·
+// ‘부품⏎잠시 후 다시’)의 오늘기록·수정 창·취소·삭제·복구 답은 메모 ‘점심’ 과 관제 결과(이름/결과/까닭·저장하는 관제 줄)가 같다 — 1:1·단톡방. 5차 고침은 둘째
+// 줄의 기록 꼴만 알아보아 첫 줄 ‘서버 오류 수리’ 를 봇 말로 읽어 삭제 성공을 error 로 셌다.
+{
+  const memoRun = (memo, room) => withClock("2026-11-27", () => fixture(async (fx) => {
+    Object.assign(fx.env, { KAKAO_SKILL_SECRET: SKILL_SECRET, NLU_METRICS_ENABLED: "1", NLU_PERSIST_FAILURE_SAMPLES: "0", NLU_STORE_REDACTED_TEXT: "0" });
+    const user = "v229148-r6-memo-owner", roomKey = room ? "v229148-r6-memo-room" : "";
+    const say = (text) => kakao(fx, room ? `@말해가계부 ${text}` : text, { user, room: roomKey });
+    if (room) await kakao(fx, "@말해가계부", { user, room: roomKey });
+    const saved = await say("점심 5000원");
+    const tx = fx.db.transactions.at(-1);
+    if (tx) tx.memo = memo;
+    const steps = { saved: `${saved.seen} ${saved.stored}`, memoSet: tx?.memo === memo };
+    for (const [name, text] of [["list", "오늘기록"], ["menu", "수정 01번"], ["cancel", "취소"], ["delete", "삭제 01번"], ["restore", "복구"]]) {
+      const r = await say(text);
+      steps[name] = `${r.seen} ${r.stored}`;
+      steps[`${name}Text`] = r.text;
+    }
+    return steps;
+  }));
+  const keys = ["saved", "list", "menu", "cancel", "delete", "restore"];
+  for (const room of [true, false]) {
+    const runs = [];
+    for (const memo of ["점심", "서버 오류 수리\n부품", "부품\n잠시 후 다시"]) runs.push(await memoRun(memo, room));
+    const differ = runs.slice(1).map((run) => keys.filter((key) => run[key] !== runs[0][key]).map((key) => `${key} ${run[key]}`).join(", ")).filter(Boolean);
+    const shown = runs.slice(1).every((run) => run.memoSet && run.listText.includes("서버 오류 수리") !== run.listText.includes("잠시 후 다시") && run.deleteText.includes("삭제했어요"));
+    t.ok(!differ.length && shown && runs[0].delete.split(" ")[0].split("/")[1] === "ok" && runs[0].list.split(" ")[0].split("/")[1] === "ok",
+      `6-k C-64 ${room ? "단톡방" : "1:1"} 여러 줄 메모 기록의 오늘기록·수정 창·취소·삭제·복구 관제 결과 = 메모 ‘점심’ 과 같다 (${keys.map((key) => `${key} ${runs[0][key]}`).join(" · ")}${differ.length ? ` — 다름: ${differ.join(" / ")}` : ""})`);
+  }
+}
+
+// 6-k 지우지 못한 답의 관제 결과(V148:C-73, 실제 길 — 픽스처, 운영과 같은 코드): 삭제 명령(‘삭제 01번’)과 수정 창의 삭제(‘수정 01번’ → ‘7’)에서 감사 RPC 가
+// 거절하면 저장 실패(error/save_failed), 지운 뒤 응답을 잃으면 결과 모름(error/save_uncertain) — 1:1·단톡방. 저장하는 관제 줄도 error, 답 글은 그대로. 앞 판은 ok 로 셌다.
+{
+  const failRun = (room, steps, mode) => withClock("2026-11-27", () => fixture(async (fx) => {
+    Object.assign(fx.env, { KAKAO_SKILL_SECRET: SKILL_SECRET, NLU_METRICS_ENABLED: "1", NLU_PERSIST_FAILURE_SAMPLES: "0", NLU_STORE_REDACTED_TEXT: "0" });
+    const user = "v229148-c73-owner", roomKey = room ? "v229148-c73-room" : "";
+    const say = (text) => kakao(fx, room ? `@말해가계부 ${text}` : text, { user, room: roomKey });
+    if (room) await kakao(fx, "@말해가계부", { user, room: roomKey });
+    await say("점심 5000원");
+    for (const step of steps.slice(0, -1)) await say(step);
+    let armed = 1;
+    const restore = intercept(async ({ url, forward }) => {
+      if (!armed || !url.pathname.endsWith("/accountbook_delete_transaction_v227")) return null;
+      armed = 0;
+      if (mode === "uncertain") { await forward(); return failure(503, "lost after commit"); }
+      return failure(400, "transaction_not_found");
+    });
+    let r = null;
+    try { r = await say(steps.at(-1)); } finally { restore(); }
+    return { seen: r.seen, stored: r.stored, text: r.text, fired: !armed };
+  }));
+  const rows = [];
+  let good = true;
+  for (const room of [false, true]) {
+    for (const [path, steps] of [["삭제 명령", ["삭제 01번"]], ["수정 창 삭제", ["수정 01번", "7"]]]) {
+      for (const [mode, expected, firstLine] of [["rejected", "error/save_failed", "기록을 지우지 않았어요. 저장소가 삭제 요청을 거절했어요."], ["uncertain", "error/save_uncertain", "삭제 결과를 확인하지 못했어요."]]) {
+        const r = await failRun(room, steps, mode);
+        const got = r.seen.split("/").slice(1).join("/");
+        const ok = r.fired && got === expected && !!r.stored && r.stored.split(",").every((stored) => stored.endsWith("/error")) && r.text.includes(firstLine);
+        if (!ok) good = false;
+        rows.push(`${room ? "단톡방" : "1:1"} ${path} ${mode} ${r.seen} ${r.stored}${ok ? "" : ` (답 ${json(r.text.slice(0, 80))}·RPC ${r.fired})`}`);
+      }
+    }
+  }
+  t.ok(good, `6-k C-73 실제 길에서 지우지 못한 답의 관제 결과 = 저장 실패·결과 모름, 저장하는 관제 줄도 error, 답 글 그대로 (${rows.join(" · ")})`);
+}
 // ── 4. 웹 정산 소수 몫(추적표 V147:G-2) ──
 const people = (n) => Array.from({ length: n }, (_, i) => ({ user_id: `u${i}`, nickname: `사람${i}`, role: i ? "member" : "owner" }));
 const sharesOf = (model, n) => { const byId = Object.fromEntries(model.people.map((p) => [p.user_id, p.share])); return Array.from({ length: n }, (_, i) => byId[`u${i}`]); };
