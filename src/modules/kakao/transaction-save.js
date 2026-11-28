@@ -36,7 +36,8 @@ import {
 } from "./response-builders.js";
 import {
   KAKAO_DAILY_ROW_LIMIT_V22980, getDailyKakaoRawRows, kakaoDailySeqPairFromRowsV229135,
-  kakaoDailySeqPairV229135, kakaoEditDayPrefixV4, kakaoRowLabel, twoDigitSeq,
+  kakaoDailySeqPairV229135, kakaoEditDayPrefixV4, kakaoRowLabel, kakaoSavedBulkRowLineV229148,
+  kakaoSavedRowLineV229148, twoDigitSeq,
 } from "./edit-session-v4.js";
 import { kakaoRecordCheckReply, optionalWithin } from "./request-guards.js";
 import { kakaoHouseholdReplyName } from "./household-budget-commands.js";
@@ -223,10 +224,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
 
   if (limitedParsedList.length > 1) {
     // 대량 입력에서 번호 조회를 건별 순차 실행하면 카카오 제한 시간을 넘길 수 있어 저장 결과만 즉시 반환합니다.
-    const lines = savedRows.slice(0, 6).map((row) => {
-      const memo = row.memo || row.raw_text || row.category || "기록";
-      return `${row.transaction_date} · ${row.type === "income" ? "수입" : "지출"} · ${memo} / ${numberWithCommas(row.amount)}원 / ${row.payment_method || "-"}`;
-    });
+    const lines = savedRows.slice(0, 6).map((row) => kakaoSavedBulkRowLineV229148(row));
     const bulkGuide = String(household.role || "").toLowerCase() === "member" && memberPolicy === MEMBER_POLICY_RECORD_ONLY
       ? "구성원 권한: 기록만 · 수정·삭제는 소유자나 관리자에게 요청해 주세요." : "수정할 번호는 ‘오늘기록’에서 확인해 주세요.";
     return kakaoSavedReplyV229148(env, `${firstNotice}✅ ${resultLine}\n가계부: ${householdLine}\n${lines.join("\n")}\n\n${bulkGuide}${finalizeNotice}${pinTip}`);
@@ -259,7 +257,7 @@ async function saveKakaoParsedTransactionsReply(env, context = {}) {
     catch (err) { rememberOpsEvent({ kind: "kakao_save_feedback_failed", severity: "warn", path: "/skill", method: "POST", detail: safeError(err) }); }
   }
   const payerName = (payerMembers && memberNameMap(payerMembers)[user.id]) || aliases?.[user.id] || user.nickname || nickname || "나";
-  const numberedLine = seq ? kakaoRowLabel(saved, seq) : `${saved.memo || saved.raw_text || saved.category || "기록"} / ${numberWithCommas(saved.amount)}원 / ${saved.payment_method || "-"} / ${saved.category || typeText}`;
+  const numberedLine = seq ? kakaoRowLabel(saved, seq) : kakaoSavedRowLineV229148(saved, typeText);
   // T2: 오늘이 아닌 날짜로 저장한 기록은 안내에도 그 날짜를 붙인다. 날짜 없는 "수정 01번"은 오늘의 01번이다.
   const dayPrefix = kakaoEditDayPrefixV4(saved.transaction_date);
   // V22.9.43: 구성원 권한이 ‘기록만’인 구성원에게는 할 수 없는 수정·삭제 명령을 안내하지 않는다.

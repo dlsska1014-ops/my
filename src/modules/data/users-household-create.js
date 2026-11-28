@@ -206,7 +206,10 @@ async function createUserHousehold(env, userId, name, nickname, options = {}) {
         const purged = await supabase(env, "/rest/v1/rpc/accountbook_purge_household_v22960", { method: "POST", body: JSON.stringify({ p_household_id: household.id }) });
         if (!purged?.deleted) throw new Error("household_delete_not_confirmed");
       } catch (cleanupErr) {
-        rememberOpsEvent({ kind: "household_create_compensation_failed", severity: "critical", path: "/rest/v1/households", method: "DELETE", detail: `household=${String(household.id).slice(0, 80)} membership=${safeError(membershipErr)} cleanup=${safeError(cleanupErr)}` });
+        // V22.9.148(Codex 6차 검토 — V148:C-61): 오류 글 둘(정리·참여)을 따로 넘긴다 — 관제(runtime/ops-telemetry.js 의 rememberOpsEvent)가 오류 글마다 따로
+        // 가린 뒤 ‘ cleanup=’·‘ membership=’ 으로 잇는다. 5차 고침은 둘을 한 글로 이어 가리기가 ‘Supabase 상태: ’ 머리로 경계를 짐작했고, 사용자 값 안의
+        // 같은 꼴(‘메모 Supabase 404: …’)을 둘째 오류로 나눠 code·message 를 잃었다.
+        rememberOpsEvent({ kind: "household_create_compensation_failed", severity: "critical", path: "/rest/v1/households", method: "DELETE", detail: `household=${String(household.id).slice(0, 80)}`, errors: [["cleanup", safeError(cleanupErr)], ["membership", safeError(membershipErr)]] });
       }
       throw membershipErr;
     }

@@ -113,6 +113,14 @@ import {
 } from "../domain/transactions-core.js";
 // @build:imports-end
 
+// V22.9.148(Codex 3차 검토): 잘못된 JSON 본문은 스킬 사건의 detail 에 고정 이름과 글자 수·위치(숫자)만 남긴다.
+// V22.9.148(Codex 4차 검토 — V148:C-37): 위치는 V8 이 문구 끝에 붙이는 ‘ at position N’(새 V8 은 ‘ (line L column C)’ 까지)에서만 읽는다 — 앞 고침은
+// 문구 어디서든 ‘position 숫자’ 를 찾아, 본문이 ‘position 1234567’ 이면 V8 이 옮겨 적은 본문 속 숫자를 위치로 남겼다(실패 사례 저장을 꺼도).
+function kakaoSkillBadJsonDetailV229148(err, bodyText = "") {
+  const position = / at position (\d+)(?: \(line \d+ column \d+\))?$/.exec(String(err?.message || ""))?.[1] || "";
+  return `invalid_json; chars=${String(bodyText || "").length}${position ? `; position=${position}` : ""}`;
+}
+
 async function handleKakaoSkillStable(request, env, ctx = null) {
   const requestStartedAt = Date.now();
   const origin = publicBaseUrl(env, new URL(request.url));
@@ -157,7 +165,9 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
       rememberSkillEvent({ kind: "raw_text_test", user_key: userKey, utterance, detail: "invalid JSON accepted as test utterance" });
     } else {
       abMonitorOutcome(env, "error");
-      rememberSkillEvent({ kind: "bad_json", user_key: "unknown", utterance: "", detail: safeError(err) });
+      // V22.9.148(Codex 3차 검토): JSON 해석 오류 문구에는 본문 일부가 그대로 들어간다(V8: Unexpected token '시', "시험 병원 진료비" is not valid JSON) —
+      // 실패 사례 저장을 꺼도 관리자 /ops-snapshot.json 의 skill.recent 에 보낸 글이 남았다. 고정 이름과 글자 수·위치(숫자)만 남긴다.
+      rememberSkillEvent({ kind: "bad_json", user_key: "unknown", utterance: "", detail: kakaoSkillBadJsonDetailV229148(err, bodyText) });
       return kakaoText(kakaoSkillSafeFallbackText(origin));
     }
   }
@@ -238,7 +248,9 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     const latencyMs = Date.now() - skillStartedAt;
     const responsePreview = await safeResponse.clone().text();
     const nluMark = kakaoNluMarkV229148(env);
-    const outcome = nluOutcomeFromKakaoResponse(responsePreview, nluMark);
+    // V22.9.148(Codex 6차 검토 — V148:C-65): 단톡방인지는 답을 단톡방 꼴로 바꾸는 곳(response-builders.js kakaoGroupCompatibleResponse)과 같은 기준으로 넘긴다.
+    // V22.9.148(Codex 7차 검토 — V148:C-76): 주소가 든 답은 보낼 때의 주소(origin)로 만든 꼴의 첫 줄로도 견준다(같은 origin 으로 링크를 옮겼다).
+    const outcome = nluOutcomeFromKakaoResponse(responsePreview, nluMark, { room: !!getKakaoBotGroupKey(payload), origin });
     if (outcome.marked) usage.markedIntent = nluMark.intent;
     armKakaoRepeatGuard(repeat.key, responsePreview);
     clearKakaoInFlight(repeat.key);
@@ -262,7 +274,9 @@ async function handleKakaoSkillStable(request, env, ctx = null) {
     const nluEvent = { at: new Date().toISOString(), request_id: requestId, intent: metricIntent(), confidence: intentMatch.confidence, result: "error", reason: safeError(err), latency_ms: latencyMs, block: blockName, version: APP_VERSION, utterance };
     rememberNluRuntimeEvent(nluEvent, env);
     scheduleNluOpsPersistence(ctx, env, nluEvent);
-    rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${metricIntent()}; ${safeError(err)}; latency_ms=${latencyMs}` });
+    // V22.9.148(Codex 6차 검토 — V148:C-61): 걸린 시간을 DB 오류 글 앞에 둔다 — 관제 가리기는 첫 ‘Supabase 상태: ’ 뒤를 글 끝까지 응답 본문으로 본다(앞 순서에서는
+    // 본문이 ‘; latency_ms=숫자’ 꼴로 끝나면 그 숫자가 남았다).
+    rememberSkillEvent({ kind: "error", user_key: userKey, utterance, detail: `request_id=${requestId}; intent=${metricIntent()}; latency_ms=${latencyMs}; ${safeError(err)}` }, env);
     clearKakaoInFlight(repeat.key);
     rememberSkillLatency(latencyMs, { intent: metricIntent(), result: "error" });
     // V22.9.76 감사 B-6: 식별 별칭 저장이 동시 요청으로 바빠 실패하면 기록하기 전에 멈춘 것이다. "다시 보내주세요" 예시만 주던
@@ -1096,7 +1110,7 @@ async function handleKakaoSkill(request, env, { canDeferSave = false, usage = nu
   // V22.1: 짧고 모호한 표현은 임의 실행하지 않고 관련 선택지로 한 번만 명확화합니다.
   const ambiguityReply = kakaoAmbiguityGuide(utterance, origin);
   if (ambiguityReply) {
-    rememberSkillEvent({ kind: "clarify", user_key: kakaoUserKey, utterance, detail: `reason=${ambiguityReply.reason || "unknown"}` });
+    rememberSkillEvent({ kind: "clarify", user_key: kakaoUserKey, utterance, detail: `reason=${ambiguityReply.reason || "unknown"}` }, env);
     return kakaoText(ambiguityReply.text, ambiguityReply.quickReplies || []);
   }
 

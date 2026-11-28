@@ -1,5 +1,7 @@
 // @build:imports-start
-import { rememberOpsEvent, scheduleNluOpsPersistence } from "../runtime/ops-telemetry.js";
+import {
+  markKakaoNluOutcomeV229148, rememberOpsEvent, scheduleNluOpsPersistence,
+} from "../runtime/ops-telemetry.js";
 import { deferKakaoAfterReply, isUniqueConstraintError, safeError } from "../runtime/leases.js";
 import { MAX_TRANSACTION_AMOUNT } from "../admin/transactions-households.js";
 import { fetchCustomCategories } from "../settings/categories-keywords.js";
@@ -29,9 +31,10 @@ import {
   hasKakaoEditSessionHint, isKakaoDailyListCommand, isKakaoEditCancelCommand,
   isKakaoEditGuideCommand, isKakaoRowOwnedByRequesterV2254, isKakaoSessionSeqReplyV4,
   isKakaoTransactionSpenderChangeCommand, kakaoActiveSpenderMembers, kakaoEditDayPrefixV4,
-  kakaoEditDeleteFailedTextV4, kakaoEditDeletedTextV4, kakaoEditGuideText, kakaoEditMenuTextV4,
-  kakaoEditRecordLineV4, kakaoEditTargetRejectTextV4, kakaoRefundLinkUndoNoteV4, kakaoRestoreRowV4,
-  kakaoRowLabel, kakaoRowOwnerSuffixV229135, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
+  kakaoEditDeleteFailedReplyV229148, kakaoEditDeletedTextV4, kakaoEditGuideText,
+  kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoEditTargetRejectTextV4,
+  kakaoRefundLinkUndoNoteV4, kakaoRestoreFailedNluV229148, kakaoRestoreRowV4, kakaoRowLabel,
+  kakaoRowOwnerSuffixV229135, parseKakaoDeleteCommandV4, parseKakaoEditCommandV4,
   parseKakaoRestoreCommandV4, parseKakaoSpenderChoiceValue, readKakaoEditUndoItemsV4,
   resolveKakaoEditDateV4, saveKakaoEditSessionV4, twoDigitSeq, withKakaoEditUndoLeaseV4,
   writeKakaoEditUndoItemsV4,
@@ -196,10 +199,21 @@ function kakaoEditCloseFailedLineV229126(stored, { goneEntryId = "", blockedHous
   return goneEntryId && String(stored.entryId) === String(goneEntryId) ? KAKAO_EDIT_CLOSE_FAILED_GONE_LINE_V229126 : KAKAO_EDIT_CLOSE_FAILED_LINE_V229126;
 }
 
+// V22.9.148(Codex 6차 검토 — V148:C-64): 기록 줄(kakaoRowLabel·kakaoEditRecordLineV4 — 사용자가 정한 메모·결제수단·분류)이 든 답은 만든 곳이 관제 결과를
+// 적는다(runtime/ops-telemetry.js markKakaoNluOutcomeV229148). 웹에서 고친 메모·분류에는 줄 바꿈이 들 수 있어(admin/transactions-households.js — 앞뒤 공백만
+// 뺀다) 답 글을 줄마다 읽던 관제가 메모의 앞 줄(‘서버 오류 수리’)을 봇 말로 읽어 삭제 성공을 오류로 셌다. 적는 결과(kind)는 그 답을 중립 기록으로 만들어
+// 관제가 글로 읽은 결과와 같다 — 검사가 기록 줄을 내는 곳마다 실제 바로답과 함께 대조한다. 답 글은 그대로다. 세션 답은 sendKakaoEditReplyV4 의 nlu 로 넘긴다.
+function kakaoEditRowReplyV229148(env, kind, text, quickReplies = null) {
+  markKakaoNluOutcomeV229148(env, kind, text);
+  return kakaoText(text, quickReplies);
+}
+
 // 5-2장: 최후 방어선 — 수정 플로우의 모든 응답은 예외 없이 이 함수로만 전송한다.
 // 직전 봇 메시지와 동일하면 루프를 끊고 흔적(duplicate_reply_guard)을 남긴다.
-async function sendKakaoEditReplyV4(env, ctx, session, reply, nextSession, { gone = false, blocked = false, userCancel = false } = {}) {
+// nlu: 기록 줄이 든 답의 관제 결과(위 kakaoEditRowReplyV229148). 같은 답이 거듭돼 다른 답으로 바뀌면 그 표시는 쓰이지 않는다(첫 줄이 없어진다).
+async function sendKakaoEditReplyV4(env, ctx, session, reply, nextSession, { gone = false, blocked = false, userCancel = false, nlu = "" } = {}) {
   const { kakaoUserKey, payload } = ctx;
+  if (nlu) markKakaoNluOutcomeV229148(env, nlu, reply);
   let finalReply = String(reply || "");
   let finalNext = nextSession || null;
   if (session && finalReply && finalReply === String(session.lastBotMsg || "")) {
@@ -291,7 +305,7 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
     }
     const toType = word === "수입" ? "income" : "expense";
     if (toType === fromType) {
-      return { reply: `${session.entryNo}번은 이미 ${fromWord} 기록이에요. 바꾸지 않았어요.\n${kakaoEditRecordLineV4(row)}`, nextSession: null };
+      return { reply: `${session.entryNo}번은 이미 ${fromWord} 기록이에요. 바꾸지 않았어요.\n${kakaoEditRecordLineV4(row)}`, nextSession: null, nlu: "handled" };
     }
     patch.type = toType;
     patch.category = await kakaoEditTypeChangeCategoryV4(env, session.householdId, row, toType, config);
@@ -370,7 +384,7 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
   // V22.9.131: 값 확인을 모두 지나 이제 기록을 쓴다. 열린 창에 온 새 기록 꼴의 말이면(holdWrite) 쓰지 않고 돌려보낸다 — 부른 쪽이 두 길 안내로 끝낸다.
   if (holdWrite) return { held: true };
   if ((session.originalAmount != null && Number(row.amount) !== Number(session.originalAmount)) || (session.originalRevision && row.updated_at !== session.originalRevision)) {
-    return { reply: "그사이 기록이 바뀌었어요. 현재 거래는 " + kakaoRowLabel(row, session.entryNo) + "입니다. 이 거래를 고치려면 ‘선택한 기록 보기’를 보내 주세요.", nextSession: { ...session, step: "choose_record_or_edit", updatedAt: Date.now() } };
+    return { reply: "그사이 기록이 바뀌었어요. 현재 거래는 " + kakaoRowLabel(row, session.entryNo) + "입니다. 이 거래를 고치려면 ‘선택한 기록 보기’를 보내 주세요.", nextSession: { ...session, step: "choose_record_or_edit", updatedAt: Date.now() }, nlu: "handled" };
   }
   try {
     // V22.9.104 J-9(Codex 검토 V102): 구성원(소유자·관리자 아님)이 카카오 기록 표시(source_user_key) 없는 기록(웹에서 만든 내 기록 — 지출자로 내 기록을
@@ -387,7 +401,7 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
       if (outcome.status === "missing") return { reply: `수정하려던 ${session.entryNo}번 기록을 찾지 못했어요.\n‘오늘기록’로 번호를 다시 확인해 주세요.`, nextSession: null, gone: true };
       if (outcome.status !== "updated") {
         rememberOpsEvent({ kind: "record_edit_conflict", severity: "info", path: "/skill", method: "POST", detail: outcome.status === "spender_changed" ? "kakao_edit_spender_changed" : "kakao_edit_changed" });
-        if (sessionStored && outcome.row) return { reply: "그사이 기록이 바뀌었어요. " + kakaoRowLabel(outcome.row, session.entryNo) + "\n최신 내용을 보려면 ‘선택한 기록 보기’를 눌러 주세요.", nextSession: { ...session, step: "choose_record_or_edit", updatedAt: Date.now() } };
+        if (sessionStored && outcome.row) return { reply: "그사이 기록이 바뀌었어요. " + kakaoRowLabel(outcome.row, session.entryNo) + "\n최신 내용을 보려면 ‘선택한 기록 보기’를 눌러 주세요.", nextSession: { ...session, step: "choose_record_or_edit", updatedAt: Date.now() }, nlu: "handled" };
         return { reply: kakaoEditConflictTextV229104(session.entryNo, row, outcome.status), nextSession: null };
       }
     } else {
@@ -414,7 +428,7 @@ async function applyKakaoEditFieldV4(env, { session, field, value, config, kakao
   // V22.9.135 N-2: 다른 사람의 기록을 고쳤으면 기록 줄 끝에 그 기록의 지출자(수입자) 이름을 붙인다(지출자를 바꾼 답은 이미 그 이름을 말한다).
   const changed = { ...row, ...patch };
   const ownerSuffix = field !== "payer" && String(changed.user_id || "") !== String(session.userId || "") ? kakaoRowOwnerSuffixV229135(changed, config?.personNames) : "";
-  return { reply: `${reply}\n${kakaoEditRecordLineV4(changed)}${ownerSuffix}`, nextSession: null };
+  return { reply: `${reply}\n${kakaoEditRecordLineV4(changed)}${ownerSuffix}`, nextSession: null, nlu: "handled" };
 }
 
 // V22.9.126 FC-12: 새 기록의 ‘future’ 안내(request-guards.js kakaoRecordGuardV229120)와 같은 두 문장. 예시는 고치는 값(날짜)만 적는다 —
@@ -473,7 +487,7 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     if (applied.log) {
       await logKakaoEditTelemetryV4(env, payload, { userKey: kakaoUserKey, entryNo: applied.log.entryNo || session.entryNo, input: applied.log.input || "", attempt: applied.log.attempt || 0, type: applied.log.type });
     }
-    return sendKakaoEditReplyV4(env, ctx, session, applied.reply, applied.nextSession || null, { gone: !!applied.gone });
+    return sendKakaoEditReplyV4(env, ctx, session, applied.reply, applied.nextSession || null, { gone: !!applied.gone, nlu: applied.nlu });
   }
   if (result?.action === "delete") {
     const row = await getKakaoRowById(env, session.householdId, session.userId, kakaoUserKey, session.entryId);
@@ -486,15 +500,16 @@ async function processKakaoEditResultV4(env, ctx, session, result, config) {
     try {
       deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: session.householdId, householdName: session.householdName || "", userId: session.userId, role: currentRole }, row, seq);
     } catch (err) {
-      return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeleteFailedTextV4(err, row, seq), null);
+      const failed = kakaoEditDeleteFailedReplyV229148(err, row, seq); // 관제 결과는 갈래마다(V148:C-73)
+      return sendKakaoEditReplyV4(env, ctx, session, failed.reply, null, { nlu: failed.nlu });
     }
     // V22.9.80 T-13: 환불 연결이 함께 풀렸으면(플래그가 켜진 경우만 버퍼에 칸이 있다) 그 사실을 답장에 붙인다.
     // V22.9.135 N-2: 다른 사람의 기록이면 그 기록의 지출자 이름을 붙인다(수정 창이 이미 읽은 이름표 — 읽기가 늘지 않는다).
     const ownerSuffix = String(row.user_id || "") !== String(session.userId || "") ? kakaoRowOwnerSuffixV229135(row, config?.personNames) : "";
-    return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeletedTextV4(row, seq, deleted?.refund_links, ownerSuffix), null, { gone: true });
+    return sendKakaoEditReplyV4(env, ctx, session, kakaoEditDeletedTextV4(row, seq, deleted?.refund_links, ownerSuffix), null, { gone: true, nlu: "handled" });
   }
   // ask_value / confirm / reprompt / cancel — 모듈의 reply와 nextSession을 그대로 따른다.
-  return sendKakaoEditReplyV4(env, ctx, session, result?.reply || "", result?.nextSession || null, { userCancel: !!result?.userCancel });
+  return sendKakaoEditReplyV4(env, ctx, session, result?.reply || "", result?.nextSession || null, { userCancel: !!result?.userCancel, nlu: result?.nlu });
 }
 
 // V22.9.94 C-1: 열린 수정 세션에 온 ‘5000원 아니야’·‘5000원 아니요’·‘오천원이 아닌데’ 는 바꿀 값도 새 기록도 아니다. 예전에는 금액과
@@ -580,6 +595,7 @@ function kakaoEditAmbiguousRecordResultV229131(session, utterance, { memoValue =
     action: "reprompt",
     nextSession: { ...session, step: "choose_record_or_edit", askedText: kakaoEditAskedTextV229141(utterance), updatedAt: Date.now() },
     reply: "‘" + said + "’을 새로 기록할까요?\n아무것도 바꾸거나 저장하지 않았어요.\n" + newRecord + "\n기존 " + target + " · 고치려면 ‘선택한 기록 보기’를 보내 주세요.",
+    nlu: "flow_question",
   };
 }
 
@@ -620,7 +636,7 @@ async function handleKakaoEditSessionMessageV4(env, { utterance, kakaoUserKey, p
     const seq = items.findIndex((item) => item.id === row.id) + 1;
     if (!seq) return kakaoText("현재 목록에서 선택한 거래를 찾지 못했어요. 가계부에서 확인해 주세요.");
     const next = { ...session, step: "awaiting_field", entryNo: twoDigitSeq(seq), entryDate: row.transaction_date, rowType: row.type, field: null, pendingField: null, pendingValue: null, updatedAt: Date.now(), originalLabel: kakaoRowLabel(row, seq), originalAmount: row.amount, originalRevision: row.updated_at || "", askedText: "" };
-    return sendKakaoEditReplyV4(env, { kakaoUserKey, payload, stored: session }, next, kakaoEditMenuTextV4(row, seq), next);
+    return sendKakaoEditReplyV4(env, { kakaoUserKey, payload, stored: session }, next, kakaoEditMenuTextV4(row, seq), next, { nlu: "handled" });
   }
   // T6: 항목 이름 없이 온 분명한 새 기록(금액+내용)은 수정 값이 아니다. 세션을 끝내고 기록 경로로 넘긴다.
   // V22.9.94 C-1: ‘5000원 아니야’ 는 금액과 낱말이 있어 여기서 새 기록으로 넘어갔다. 새 기록도 값도 아니다.
@@ -677,7 +693,9 @@ async function resolveKakaoEditTargetRowV4(env, { household, user, kakaoUserKey 
       getRecentKakaoOwnedTransactionsV2254(env, household.id, user.id, kakaoUserKey, 1, { touched: true }),
       optionalWithin(getLatestKakaoEditByRequesterV229135(env, household.id, user.id).catch(() => auditUnavailable), KAKAO_LATEST_EDIT_WAIT_MS_V229135, auditUnavailable),
     ]);
-    if (editedByMe === auditUnavailable) return { row: null, seq: 0, ambiguousText: "최근에 고친 거래를 확인하지 못했어요. 아무것도 바꾸지 않았어요. ‘오늘기록’에서 거래를 다시 골라 주세요." };
+    // V22.9.148(Codex 7차 검토 — V148:C-78): 고른 기록이 여럿인 답(ambiguousText — 처리함)과 나눠, 읽지 못한 답은 failedText 로 돌려준다(부르는 세 곳이 처리 중
+    // 오류로 적는다). 앞 판들은 ok 로 셌고 6차 고침은 ‘처리함’ 으로 적었다. 답 글은 그대로다.
+    if (editedByMe === auditUnavailable) return { row: null, seq: 0, failedText: "최근에 고친 거래를 확인하지 못했어요. 아무것도 바꾸지 않았어요. ‘오늘기록’에서 거래를 다시 골라 주세요." };
     const row = recent[0] || null;
     if (!row) return { row: null, seq: 0 };
     // V22.9.81 U-13: 그날 목록(가계부 기록 앞의 500건)에 없으면 번호를 모른다(0). 예전에는 ‘01번’으로 적어 그날 01번(다른 기록)을 가리켰다.
@@ -727,6 +745,7 @@ function kakaoOwnerNamesPromiseV229135(env, householdId = "", rows = [], userId 
 //    "복구"를 그대로 다시 보내면 그다음(더 오래된) 삭제 기록까지 되살아났다. 확인부터 하라고 하고 바로 다시 보내라고 하지 않는다.
 //  - 그 밖의 실패: 버퍼는 그대로라 같은 말을 다시 보내면 같은 기록을 한 번만 되살린다(되살릴 때 원래 id 로 이미 있는지 먼저 본다).
 //    번호를 붙인 복구는 번호까지 그대로 다시 보내라고 한다 — 번호를 떼고 "복구"만 보내면 가장 최근 삭제가 되살아난다.
+// 이 답의 관제 결과는 kakao/edit-session-v4.js kakaoRestoreFailedNluV229148 이 정한다(V148:C-77).
 function kakaoRestoreDelayedTextV4(restoreTarget = {}, outcome = {}) {
   const again = restoreTarget.seq ? `복구 ${twoDigitSeq(restoreTarget.seq)}번` : "복구";
   if (outcome.busy) {
@@ -842,7 +861,7 @@ async function startKakaoEditFlowV4(env, ctx, { row, seq, rest, dailyLimit = 0, 
   const { kakaoUserKey, payload, household, user, origin } = ctx;
   // V22.9.81 U-13: 번호를 모르는 기록(‘방금’ 기록이 그날 목록 밖)은 번호로 이어지는 수정 세션을 열지 않는다. 세션 답장·안내가 모두
   // ‘수정 NN번 …’ 꼴이라, 번호를 지어내면 그 번호의 다른 기록을 고치게 된다.
-  if (!(Number(seq) >= 1)) return kakaoText(["방금 기록의 번호를 정하지 못해 아무것도 바꾸지 않았어요.", kakaoRowLabel(row, 0), kakaoDailyLimitLineV22980(dailyLimit), `웹 가계부의 ${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록에서 고쳐 주세요.`].filter(Boolean).join("\n"));
+  if (!(Number(seq) >= 1)) return kakaoEditRowReplyV229148(env, "handled", ["방금 기록의 번호를 정하지 못해 아무것도 바꾸지 않았어요.", kakaoRowLabel(row, 0), kakaoDailyLimitLineV22980(dailyLimit), `웹 가계부의 ${kakaoEditDayPrefixV4(row.transaction_date) || "오늘 "}기록에서 고쳐 주세요.`].filter(Boolean).join("\n"));
   const prior = await getKakaoEditSessionV4(env, kakaoUserKey, payload);
   const session = {
     entryNo: twoDigitSeq(seq),
@@ -870,7 +889,7 @@ async function startKakaoEditFlowV4(env, ctx, { row, seq, rest, dailyLimit = 0, 
   };
   // V22.9.126 FC-19(3차 검토): 끝내는 답이 닫을 것은 앞서 저장된 세션(prior, 다른 기록의 것일 수 있다)뿐이다. 없으면 정리 쓰기도 없다.
   if (!rest) {
-    return sendKakaoEditReplyV4(env, { kakaoUserKey, payload, stored: prior }, session, kakaoEditMenuTextV4(row, seq), session);
+    return sendKakaoEditReplyV4(env, { kakaoUserKey, payload, stored: prior }, session, kakaoEditMenuTextV4(row, seq), session, { nlu: "handled" });
   }
   const config = await buildKakaoEditConfigV4(env, household.id, session.rowType);
   const result = handleEditMessage(session, rest, { ...config, now: Date.now(), directed });
@@ -930,7 +949,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
     // T2: 오늘이 아닌 날의 목록은 안내에도 그 날짜를 붙인다. 날짜 없는 "삭제 01번"은 오늘의 01번이다.
     const dayPrefix = kakaoEditDayPrefixV4(date);
     const webLink = origin ? `${origin}${myReturnLocation(date.slice(0, 7), household.id)}` : "";
-    return kakaoText(kakaoDailyListTextV4({ date, householdName: household.name, headLine, limitLine, rows, dayPrefix, webLink, names }));
+    return kakaoEditRowReplyV229148(env, "handled", kakaoDailyListTextV4({ date, householdName: household.name, headLine, limitLine, rows, dayPrefix, webLink, names }));
   }
 
   const restoreTarget = parseKakaoRestoreCommandV4(raw);
@@ -938,6 +957,10 @@ async function handleKakaoEditCommandV4(env, ctx) {
     if (restoreTarget.invalidSeq) return kakaoText(kakaoEditTargetRejectTextV4({ seq: 0 }));
     { const refused = await refuseRecordChange(); if (refused) return refused; }
     let outcome = null;
+    // V22.9.148(Codex 8차 검토 — V148:C-91): 복구하지 못한 답의 관제 결과는 거래 넣기의 단계로 정한다(마지막 오류가 아니라). 넣기를 보냈는데 결과를 모르는 채로
+    // 다시 읽기까지 실패하면 그 오류만 바깥으로 나와 저장 실패로 셌고, 잠금 함수의 503(넣기를 시작도 하지 않음)은 그 함수의 ‘결과 모름’ 으로 결과 모름으로 셌다.
+    // 실패한 결과는 넣기의 결과를 모르는지(writeUnknown)를 함께 돌려준다(kakao/edit-session-v4.js kakaoRestoreFailedNluV229148). 답 글은 그대로다.
+    let restoreStage = "before_write";
     try {
       // S1·T4: 버퍼 읽기·복구·버퍼 정리를 한 잠금 안에서 한다. 겹친 두 "복구"가 같은 기록을 두 번 넣지 못한다.
       outcome = await withKakaoEditUndoLeaseV4(env, kakaoUserKey, payload, async ({ assertFresh }) => {
@@ -963,6 +986,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
             if (["my_import", "backup_import_v19_3"].includes(body.source)) {
               if (!body.id || importStorageTextIssue(body)) throw new Error("import_restore_fields_invalid");
               await commitImportedTransactionRows(env, targetHouseholdId, [body]);
+              restoreStage = "write_unknown"; // 넣기는 받아들여졌다 — 아래 확인을 마치기 전까지는 넣었는지 모른다(V148:C-91)
               const found = await reconcileImportedTransactionIds(env, targetHouseholdId, [body]);
               if (!found.has(String(body.id))) throw Object.assign(new Error("import_restore_unconfirmed"), { uncertain_write: true });
               restored = body;
@@ -972,8 +996,10 @@ async function handleKakaoEditCommandV4(env, ctx) {
             }
           } catch (err) {
             // T4: 결과를 모르거나 같은 id 가 이미 있으면 다시 넣지 않고 id 로 확인한다. id 를 뺀 재삽입은 중복을 만든다.
-            if (!body.id || (!isUncertainStorageWrite(err) && !isUniqueConstraintError(err))) return { kind: "failed", undo, error: err };
+            if (!body.id || (!isUncertainStorageWrite(err) && !isUniqueConstraintError(err))) return { kind: "failed", undo, error: err, writeUnknown: restoreStage === "write_unknown" || isUncertainStorageWrite(err) };
+            if (isUncertainStorageWrite(err)) restoreStage = "write_unknown";
             restored = await getKakaoRowById(env, targetHouseholdId, user.id, kakaoUserKey, body.id);
+            restoreStage = "write_checked";
             // V22.9.119 O-1 후속(독립 검토 B): 같은 id 가 아니라 같은 날·같은 문장·같은 금액의 다른 내 카카오 기록 때문에 운영 유니크 인덱스가 거절했다.
             // 다시 보내도 같으므로 ‘잠시 후 다시’ 가 아니라 그 사실을 답한다(복구 목록은 그대로 둔다).
             // 후속 2(재검토 P3): 이 기록이 목록에 남아 번호 없는 ‘복구’ 는 늘 이 기록을 고른다. 번호를 붙이면 다른 기록이 골라지는 번호(위 고르기 규칙으로
@@ -985,10 +1011,10 @@ async function handleKakaoEditCommandV4(env, ctx) {
               });
               return { kind: "same_text_exists", undo, error: err, otherSeqs: seqs.slice(0, 3) };
             }
-            if (!restored) return { kind: "failed", undo, error: err };
+            if (!restored) return { kind: "failed", undo, error: err, writeUnknown: isUncertainStorageWrite(err) };
           }
         }
-        if (["my_import", "backup_import_v19_3"].includes(body.source) && myImportStoredValue(restored) !== myImportStoredValue(body)) return { kind: "failed", undo, error: new Error("import_restore_unconfirmed") };
+        if (["my_import", "backup_import_v19_3"].includes(body.source) && myImportStoredValue(restored) !== myImportStoredValue(body)) return { kind: "failed", undo, error: new Error("import_restore_unconfirmed"), writeUnknown: false };
         // 실제 복구가 확인된 이 한 건만 뺀다. 같은 잠금 안에서 읽은 목록을 쓰므로 다른 삭제분을 지우지 않는다.
         try {
           assertFresh();
@@ -999,7 +1025,8 @@ async function handleKakaoEditCommandV4(env, ctx) {
     } catch (err) {
       // V22.9.79 감사 B-8: 잠금을 못 잡은 요청(settings_rmw_busy)은 아무것도 읽지도 쓰지도 않았다. 다른 요청이 같은 버퍼를 쥐고 있었다는 뜻이라
       // 그 요청이 방금 기록을 되살렸을 수 있다 — 아래 답장이 구분해서 말한다.
-      outcome = { kind: "failed", undo: null, error: err, busy: /settings_rmw_busy/.test(safeError(err)) };
+      // 잠금·버퍼 읽기·넣기 전 확인의 실패(넣기를 시작하지 않음)는 저장 실패, 넣기의 결과를 모르는 채 다시 읽기까지 실패한 것(위 restoreStage)은 결과 모름이다.
+      outcome = { kind: "failed", undo: null, error: err, busy: /settings_rmw_busy/.test(safeError(err)), writeUnknown: restoreStage === "write_unknown" };
     }
     // V22.9.135 N-2: 구성원이 다른 사람의 기록도 지우게 됐다. 복구 목록은 지운 사람마다 따로라(같은 방이라도), 내가 지우지 않은 기록은 내 ‘복구’ 로 되살릴 수 없다고 말한다.
     if (outcome.kind === "empty") return kakaoText("복구할 삭제 기록이 없어요.\n복구는 기록을 지운 사람이 삭제 직후 안내된 번호로 할 수 있어요. ‘오늘기록’로 현재 기록을 확인해 주세요.");
@@ -1012,7 +1039,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
     if (outcome.kind === "same_text_exists") {
       rememberOpsEvent({ kind: "kakao_same_text_exists", severity: "info", path: "/skill", method: "POST", detail: "restore" });
       const otherSeqs = Array.isArray(outcome.otherSeqs) ? outcome.otherSeqs : [];
-      return kakaoText([
+      return kakaoEditRowReplyV229148(env, "handled", [
         "같은 내용의 기록이 이미 있어 복구하지 않았어요.",
         `복구하려던 기록: ${kakaoRowLabel(outcome.undo.row, outcome.undo.seq)}`,
         `‘${kakaoEditDayPrefixV4(outcome.undo.row?.transaction_date) || "오늘 "}기록 보기’로 같은 내용의 기록을 확인해 주세요.`,
@@ -1020,9 +1047,9 @@ async function handleKakaoEditCommandV4(env, ctx) {
       ].join("\n"));
     }
     if (outcome.kind !== "restored") {
-      const lastError = outcome.error;
-      await logKakaoEditTelemetryV4(env, payload, { userKey: kakaoUserKey, entryNo: twoDigitSeq(Number(outcome.undo?.seq || restoreTarget.seq || 0)), input: String((lastError && lastError.message) || lastError || "").slice(0, 280), type: "restore_error" });
-      return kakaoText(kakaoRestoreDelayedTextV4(restoreTarget, outcome));
+      // V22.9.148(Codex 8차 검토 — V148:C-90): 이 답은 요청 집계(skill-handler.js — record_nlu_metric 한 번)가 표시로 오류(저장 실패·결과 모름)로 센다. 앞 판들은
+      // 여기서 수정 흐름의 진단(logKakaoEditTelemetryV4 — 같은 저장 함수)을 한 번 더 써 한 요청이 오류 두 줄이 됐다(7차 고침 전에는 오류 한 줄 + 처리함 한 줄).
+      return kakaoEditRowReplyV229148(env, kakaoRestoreFailedNluV229148(outcome), kakaoRestoreDelayedTextV4(restoreTarget, outcome));
     }
     const restored = outcome.restored;
     // V22.9.81 U-13: 번호를 모르면 지어낸 ‘01번’ 없이 적는다. 되살린 뒤의 번호 조회가 실패해도 복구는 끝났으므로 답장을 실패로 바꾸지 않는다
@@ -1032,7 +1059,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
     const seq = (await dailySeqForKakaoRow(env, household.id, user.id, kakaoUserKey, restored).catch(() => 0)) || Number(outcome.undo.seq || 0);
     const ownerSuffix = namesPromise ? kakaoRowOwnerSuffixV229135(restored, await optionalWithin(namesPromise, KAKAO_OWNER_NAMES_WAIT_MS_V229135, null)) : "";
     // V22.9.80 T-13: 지울 때 버퍼에 적은 환불 연결은 복구로 되살아나지 않는다(연결은 삭제와 함께 지워졌다). 답장이 그 사실을 말한다.
-    return kakaoText(`↩️ ${kakaoEditDayPrefixV4(restored.transaction_date)}기록을 복구했어요.\n${kakaoRowLabel(restored, seq)}${ownerSuffix}${kakaoRefundLinkUndoNoteV4(outcome.undo?.refund_links, "restore")}`);
+    return kakaoEditRowReplyV229148(env, "handled", `↩️ ${kakaoEditDayPrefixV4(restored.transaction_date)}기록을 복구했어요.\n${kakaoRowLabel(restored, seq)}${ownerSuffix}${kakaoRefundLinkUndoNoteV4(outcome.undo?.refund_links, "restore")}`);
   }
 
   const deleteTarget = parseKakaoDeleteCommandV4(raw);
@@ -1040,15 +1067,17 @@ async function handleKakaoEditCommandV4(env, ctx) {
     const rejected = kakaoEditTargetRejectTextV4(deleteTarget);
     if (rejected) return kakaoText(rejected);
     { const refused = await refuseRecordChange(); if (refused) return refused; }
-    const { row, seq, dailyLimit, ambiguousText, dayCount } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
-    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit, { dayCount }));
+    const { row, seq, dailyLimit, ambiguousText, failedText, dayCount } = await resolveKakaoEditTargetRowV4(env, ctx, deleteTarget);
+    if (failedText) return kakaoEditRowReplyV229148(env, "read_failed", failedText); // V148:C-78
+    if (!row) return ambiguousText ? kakaoEditRowReplyV229148(env, "handled", ambiguousText) : kakaoText(kakaoEditRowNotFoundTextV4(deleteTarget, dailyLimit, { dayCount }));
     // V22.9.135 N-2: 다른 사람의 기록을 지우면 답의 기록 줄에 그 기록의 지출자 이름을 붙인다. 이름표는 지우는 동안 함께 읽는다(늦으면 이름 없이).
     const namesPromise = kakaoOwnerNamesPromiseV229135(env, household.id, [row], user.id);
     let deleted = null;
     try {
       deleted = await deleteKakaoRowWithUndoV4(env, { kakaoUserKey, payload, householdId: household.id, householdName: household.name, userId: user.id, role: ctx.role }, row, seq);
     } catch (err) {
-      return kakaoText(kakaoEditDeleteFailedTextV4(err, row, seq));
+      const failed = kakaoEditDeleteFailedReplyV229148(err, row, seq); // 관제 결과는 갈래마다(V148:C-73)
+      return kakaoEditRowReplyV229148(env, failed.nlu, failed.reply);
     }
     const ownerSuffix = namesPromise ? kakaoRowOwnerSuffixV229135(row, await optionalWithin(namesPromise, KAKAO_OWNER_NAMES_WAIT_MS_V229135, null)) : "";
     // 삭제는 끝났다. 남은 세션 정리가 실패해도 "다시 보내 주세요"로 바뀌면 안 된다(다시 보내면 다음 번호가 지워진다).
@@ -1059,7 +1088,7 @@ async function handleKakaoEditCommandV4(env, ctx) {
     const deletedText = kakaoEditDeletedTextV4(row, seq, deleted?.refund_links, ownerSuffix);
     const stale = closeError ? await getKakaoEditSessionV4(env, kakaoUserKey, payload).catch(() => undefined) : null;
     const line = stale === undefined ? (hinted ? KAKAO_EDIT_CLOSE_FAILED_LINE_V229126 : "") : kakaoEditCloseFailedLineV229126(stale, { goneEntryId: row.id });
-    return kakaoText(line ? `${deletedText}\n${line}` : deletedText);
+    return kakaoEditRowReplyV229148(env, "handled", line ? `${deletedText}\n${line}` : deletedText);
   }
 
   const editTarget = parseKakaoEditCommandV4(raw);
@@ -1074,18 +1103,19 @@ async function handleKakaoEditCommandV4(env, ctx) {
       return kakaoText(`${shown}번 기록은 그대로예요.\n지우려면 ‘삭제 ${shown}번’이라고 보내 주세요.`);
     }
     { const refused = await refuseRecordChange(); if (refused) return refused; }
-    const { row, seq, dailyLimit, ambiguousText, dayCount } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
-    if (!row) return kakaoText(ambiguousText || kakaoEditRowNotFoundTextV4(editTarget, dailyLimit, { dayCount }));
+    const { row, seq, dailyLimit, ambiguousText, failedText, dayCount } = await resolveKakaoEditTargetRowV4(env, ctx, editTarget);
+    if (failedText) return kakaoEditRowReplyV229148(env, "read_failed", failedText); // V148:C-78
+    if (!row) return ambiguousText ? kakaoEditRowReplyV229148(env, "handled", ambiguousText) : kakaoText(kakaoEditRowNotFoundTextV4(editTarget, dailyLimit, { dayCount }));
     // V22.9.93 Q-32: ‘방금 분류 이상해’ 는 그 칸을 다시 묻고, ‘아까 거 내용 뭐였지’ 는 기록을 보여 준다. 둘 다 값이 아니라 기록을 바꾸지 않는다.
     if (isKakaoEditNotValue(editTarget.rest) && !/^구분(?:\s|$)/.test(editTarget.rest)) {
       const complaint = kakaoEditComplaintField(editTarget.rest);
       if (complaint) return startKakaoEditFlowV4(env, ctx, { row, seq, rest: complaint, dailyLimit });
-      return kakaoText([kakaoRowLabel(row, seq), "기록은 그대로예요. 바꾸려면 이렇게 보내 주세요.", `${Number(seq) >= 1 ? `수정 ${twoDigitSeq(seq)}번` : "방금"} 내용 점심`].join("\n"));
+      return kakaoEditRowReplyV229148(env, "handled", [kakaoRowLabel(row, seq), "기록은 그대로예요. 바꾸려면 이렇게 보내 주세요.", `${Number(seq) >= 1 ? `수정 ${twoDigitSeq(seq)}번` : "방금"} 내용 점심`].join("\n"));
     }
     // V22.9.93 Q-62: 말한 내용이 그 번호의 기록이 아니면 고치지 않는다(‘3번 버스 1400원으로’ 가 3번 김밥 기록의 금액을 덮어썼다. 금액은 ‘복구’ 로 되돌릴 수 없다).
     if (editTarget.namedWord && !kakaoEditNamesRowV4(row, editTarget.namedWord)) {
       const shown = twoDigitSeq(seq);
-      return kakaoText([kakaoRowLabel(row, seq), `보낸 내용(‘${editTarget.namedWord}’)과 달라서 고치지 않았어요. 이 기록이 맞다면 이렇게 보내 주세요.`, `수정 ${shown}번 ${editTarget.rest}`].join("\n"));
+      return kakaoEditRowReplyV229148(env, "handled", [kakaoRowLabel(row, seq), `보낸 내용(‘${editTarget.namedWord}’)과 달라서 고치지 않았어요. 이 기록이 맞다면 이렇게 보내 주세요.`, `수정 ${shown}번 ${editTarget.rest}`].join("\n"));
     }
     return startKakaoEditFlowV4(env, ctx, { row, seq, rest: editTarget.rest, dailyLimit, directed: editTarget.directed });
   }
@@ -1095,8 +1125,9 @@ async function handleKakaoEditCommandV4(env, ctx) {
     // V22.9.76 감사 B-4: 바꿀 수 없는 사람에게도 선택지 세션을 열어, 그 세션이 다음 명령(예산 등)을 ‘목록의 번호로
     // 골라주세요’로 삼켰다. 기록 수정 권한과 지출자 변경 권한(소유자·관리자)을 먼저 본다.
     { const refused = await refuseRecordChange(); if (refused) return refused; }
-    const { row, seq, dailyLimit, ambiguousText } = await resolveKakaoEditTargetRowV4(env, ctx, { latest: true });
-    if (!row) return kakaoText(ambiguousText || "변경할 최근 기록이 없어요. 먼저 ‘오늘기록’에서 번호를 확인해 주세요.");
+    const { row, seq, dailyLimit, ambiguousText, failedText } = await resolveKakaoEditTargetRowV4(env, ctx, { latest: true });
+    if (failedText) return kakaoEditRowReplyV229148(env, "read_failed", failedText); // V148:C-78
+    if (!row) return ambiguousText ? kakaoEditRowReplyV229148(env, "handled", ambiguousText) : kakaoText("변경할 최근 기록이 없어요. 먼저 ‘오늘기록’에서 번호를 확인해 주세요.");
     if (!canManageMyHousehold(ctx.role)) return kakaoText(`${row.type === "income" ? "수입자" : "지출자"}는 가계부 소유자·관리자만 바꿀 수 있어요. 기록은 그대로예요.\n금액·분류·결제수단·내용·날짜는 바꿀 수 있어요.`);
     const value = parseKakaoSpenderChoiceValue(raw);
     return startKakaoEditFlowV4(env, ctx, { row, seq, rest: value ? `지출자 ${value}` : "지출자", dailyLimit });

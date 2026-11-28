@@ -883,6 +883,8 @@ const kakaoGroupNumberExampleLineV229135 = (line = "") => KAKAO_GROUP_NUMBER_EXA
   .some(([suffix, prompt]) => line.endsWith(suffix) && prompt.test(line.slice(0, -suffix.length)));
 
 // ①·② 한 말풍선의 글에서 보낼 말을 고친다. 한도를 넘게 되면 원래 글을 돌려준다.
+// (V22.9.148 Codex 6차 검토 — V148:C-65: 관제가 답을 만든 곳의 표지를 적을 때도 이 함수로 그 답의 단톡방 첫 줄을 만든다 — runtime/ops-telemetry.js
+// markKakaoNluOutcomeV229148. 5차 고침은 고친 줄을 되돌리는 함수를 따로 두어 1:1 답의 줄까지 되돌려 견줬다. 보내는 글은 그대로다.)
 function kakaoGroupMentionLinesV229134(text = "", max = KAKAO_SIMPLE_TEXT_SAFE_MAX) {
   const source = String(text || "");
   if (!source || source.length > KAKAO_GROUP_HINT_TEXT_MAX_V229134) return source;
@@ -1009,12 +1011,13 @@ async function kakaoGroupCompatibleResponse(response, payload = {}, origin = "")
 }
 // @build:exports-start
 export {
-  KAKAO_QR_MESSAGE_MAX_V229127, KAKAO_TERMS_NOTICE_LINE_V229118, dedupeQuickReplies,
-  isDefiniteStorageFailure, isKakaoRequestUniqueConflictV229119, isUncertainStorageWrite,
-  kakaoDefaultQuickReplies, kakaoEditSameTextTextV229119, kakaoGroupCompatibleResponse,
-  kakaoGroupEmptyMentionReply, kakaoNextStepReply, kakaoQr, kakaoRoomLedgerLinkOutputsV229129,
-  kakaoSameTextExistsTextV229119, kakaoSameTextLongV229119, kakaoSaveFailedText,
-  kakaoSeparateSameTextTextV229119, kakaoTermsNoticeResponseV229118, kakaoText,
+  KAKAO_GROUP_MENTION_V229134, KAKAO_QR_MESSAGE_MAX_V229127, KAKAO_TERMS_NOTICE_LINE_V229118,
+  dedupeQuickReplies, isDefiniteStorageFailure, isKakaoRequestUniqueConflictV229119,
+  isUncertainStorageWrite, kakaoDefaultQuickReplies, kakaoEditSameTextTextV229119,
+  kakaoGroupCompatibleResponse, kakaoGroupEmptyMentionReply, kakaoGroupMentionLinesV229134,
+  kakaoGroupQuotedSegmentsV229134, kakaoNextStepReply, kakaoQr, kakaoRoomLedgerLinkOutputsV229129,
+  kakaoSafeText, kakaoSameTextExistsTextV229119, kakaoSameTextLongV229119, kakaoSaveFailedText,
+  kakaoSeparateSameTextTextV229119, kakaoTermsNoticeResponseV229118, kakaoText, kakaoTextLinks,
   kakaoTypeChoiceAskTextV229127, kakaoWebLedgerReply, noteKakaoTermsNoticeDroppedV229118,
 };
 // @build:exports-end
