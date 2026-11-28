@@ -369,10 +369,16 @@ function markKakaoNluOutcomeV229148(env, kind = "", replyText = "") {
   const mark = Object.hasOwn(KAKAO_NLU_MARKS_V229148, kind) ? KAKAO_NLU_MARKS_V229148[kind] : null;
   const request = env && typeof env === "object" ? env.__AB_KAKAO_REQUEST : null;
   const source = String(replyText || "");
+  if (!mark || !request || typeof request !== "object" || !/\S/.test(source)) return;
+  // V148:C-116·C-117(Codex 10차 검토): 표지는 보낼 글로 만든다 — 보내는 kakaoText 와 같은 다듬기(kakaoSafeText: CRLF → LF·앞뒤 공백 빼기·950자를 넘으면 자르기)를
+  // 답마다 한 번 한 글. 9차 고침은 950자 안의 주소 없는 답을 다듬지 않아(‘다듬기는 줄이기만 한다’ 고 보았다), 웹 메모의 CRLF 가 든 기록의 단톡방 수정 창에서 단톡방 꼴
+  // 첫 줄(번호 물음의 예시는 줄 끝을 본다 — ‘…번호를 보내주세요.\r’ 은 예시를 받지 않는다)이 보낸 첫 줄(CR 을 뺀 뒤 예시를 받음)과 달라 처리함을 오류로 셌다. 첫 줄은
+  // 그 글(950자 안팎)에서 첫 줄 바꿈까지만 떼므로 원문 길이에 따라 늘지 않는다(9차 고침은 줄 바꿈 없는 30만 자 메모에서 원문 첫 줄 30만 자를 견줄 줄로 두었다).
+  const sent = kakaoSafeText(source);
   // V148:C-104(Codex 9차 검토): 첫 줄만 떼어 낸다 — 긴 답 전체를 줄마다 나누지 않는다.
-  const newline = source.indexOf("\n");
-  const signature = (newline < 0 ? source : source.slice(0, newline)).trim();
-  if (!mark || !request || typeof request !== "object" || !signature) return;
+  const newline = sent.indexOf("\n");
+  const signature = (newline < 0 ? sent : sent.slice(0, newline)).trim();
+  if (!signature) return;
   // V22.9.148(Codex 7차 검토 — V148:C-76): 보내기 전에 글 속 주소는 링크 단추나 ‘(링크)’ 로 옮긴다(response-builders.js kakaoTextLinks — 1:1·단톡방 모두). 메모에
   // 주소가 든 기록 줄이 첫 줄인 답(수정 창 등)은 보낸 답에 그 첫 줄이 없어 표지를 놓치고 글로 읽어, 메모의 ‘서버 오류’ 로 정상 답을 오류로 셌다. 우리 주소인지는
   // 보낼 때의 주소(origin)로 정해지므로 주소가 든 답(kakaoTextLinks 가 옮기는 꼴과 같은 판정)은 보낼 글을 함께 두고, 견줄 때 보낼 때와 같은 함수로 첫 줄을 만든다
@@ -381,14 +387,16 @@ function markKakaoNluOutcomeV229148(env, kind = "", replyText = "") {
   // kakaoSafeText). 첫 줄이 그보다 긴 답(웹에서 고친 메모 — 길이 제한이 없다 — 가 1,000자인 기록 줄이 첫 줄인 수정 창 등)은 보낸 답에 그 첫 줄이 없어 표지를
   // 놓치고 글로 읽어, 메모 속 ‘서버 오류’ 로 처리함을 오류로 셌다. 보낼 때 잘리는 답도 주소가 든 답처럼 보낼 글을 함께 두고 보낸 꼴의 첫 줄로 견준다.
   // V148:C-104(Codex 9차 검토): 8차 고침은 잘리는지 보려고 답 전체를 두 번 다듬고 답 전체를 표식에 두어 견줄 때 또 다듬었다(줄 바꿈이 CRLF 인 30만 자 메모의 수정 창에서
-  // 표지 만들기 6.2 ms·견주기 2.3 ms — 7차는 2.7 ms·0.1 ms, 보내는 쪽 다듬기는 한 번 2.3 ms). 다듬기는 줄이기만 하므로 원문이 950자 안이면 잘리지 않는다 — 그런 답은
-  // 주소가 없으면 다듬지 않는다. 주소가 든 답·950자를 넘는 답만 보낼 때와 같은 함수(kakaoSafeText)로 한 번 줄여 그 글(950자 안팎)을 두고(sentText), 견줄 때는
-  // 그 글에 주소 옮기기만 한다(줄인 글을 다시 줄이지 않는다 — 930자에서 자른 글은 꼬리 글을 붙여 950자를 넘을 수 있다). 단톡방 꼴 첫 줄도 그 글로 만든다.
-  const sentText = source.length > 950 || /https?:\/\//i.test(source) ? kakaoSafeText(source) : null;
+  // 표지 만들기 6.2 ms·견주기 2.3 ms — 7차는 2.7 ms·0.1 ms, 보내는 쪽 다듬기는 한 번 2.3 ms). 9차 고침은 950자 안의 주소 없는 답을 다듬지 않고 긴 답·주소 든 답만
+  // 한 번 다듬어 그 글을 두었다 — 10차 고침(V148:C-116, 위)은 답마다 한 번 다듬은 글로 첫 줄을 만든다. 견줄 때는 둔 글에 주소 옮기기만 한다(줄인 글을 다시 줄이지
+  // 않는다 — 930자에서 자른 글은 꼬리 글을 붙여 950자를 넘을 수 있다).
+  // V148:C-116: 다듬은 글(sent)로 첫 줄을 만들므로 보낼 때 잘리는 답도 그 첫 줄이 곧 보낸 첫 줄이다 — 글을 둘 것은 보낼 때 주소를 옮기는 답(우리 주소인지는
+  // 보낼 때의 주소로 정해진다)뿐이다. 단톡방 꼴 첫 줄도 그 글로 만든다.
+  const sentText = /https?:\/\//i.test(sent) ? sent : null;
   // V22.9.148(Codex 6차 검토 — V148:C-65): 단톡방 답은 보내기 전에 줄마다 봇 부르기를 넣는다(response-builders.js kakaoGroupMentionLinesV229134 — 번호 물음은
   // 다음 줄을 보고 예시를 붙인다). 그 함수가 이 답 글로 만드는 첫 줄을 함께 둔다(단톡방 답만 그 줄로도 견준다 — kakaoNluMarkSeenV229148).
   let roomSignature = signature;
-  try { roomSignature = kakaoGroupMentionLinesV229134(sentText ?? source, Infinity).split("\n")[0].trim() || signature; } catch (err) {}
+  try { roomSignature = kakaoGroupMentionLinesV229134(sent, Infinity).split("\n")[0].trim() || signature; } catch (err) {}
   request.nluMarkV229148 = { ...mark, kind, signature, roomSignature, ...(sentText !== null ? { sentText } : {}) };
 }
 
@@ -551,8 +559,8 @@ function kakaoNluBotWordsV229148(text = "") {
 // — 봇 부르기·번호 예시를 넣는다)가 그 답 글로 만드는 첫 줄로도 견준다(표시를 적을 때 함께 둔 roomSignature). 5차 고침(V148:C-52)은 1:1·단톡방 모두 양쪽
 // 줄의 ‘@말해가계부’ 를 지워 견주어, 1:1 의 저장 실패 답에 사용자가 적어 보낸 ‘예: @말해가계부 점심 예산을 얼마로 설정할까요?’ 줄이 묵은 표지(‘예: 점심
 // 예산을 얼마로 설정할까요?’)와 같아져 실패를 되묻기로 셌다. 단톡방인지는 답을 바꾸는 곳과 같은 기준(botGroupKey — kakao/skill-handler.js)으로 넘겨받는다.
-// 표지로 견줄 줄: 답의 첫 줄(signature), 단톡방이면 단톡방 꼴의 첫 줄(roomSignature)도. 주소가 든 답·보낼 때 잘리는 답(sentText — V148:C-76·C-102·C-104 —
-// 표시를 적을 때 kakaoText 의 글 다듬기(kakaoSafeText)로 이미 줄인 글)은 보낸 꼴의 첫 줄도 더한다 — 1:1 은 그 글의 주소 옮기기(kakaoTextLinks), 단톡방은 그 뒤
+// 표지로 견줄 줄: 답의 첫 줄(signature), 단톡방이면 단톡방 꼴의 첫 줄(roomSignature)도 — 둘 다 보낼 글(kakaoText 의 글 다듬기 kakaoSafeText 를 한 글 — V148:C-116)로
+// 만들었다. 주소가 든 답(sentText — V148:C-76·C-102·C-104·C-116 — 그 다듬은 글)은 보낸 꼴의 첫 줄도 더한다 — 1:1 은 그 글의 주소 옮기기(kakaoTextLinks), 단톡방은 그 뒤
 // 봇 부르기 넣기(kakaoGroupMentionLinesV229134)까지(response-builders.js kakaoDirectLinkResponse·kakaoGroupCompatibleResponse 의 순서). 보낸 꼴을 만들지 못하면
 // 예전처럼 앞의 두 줄로만 견준다.
 function kakaoNluMarkLinesV229148(mark, { room = false, origin = "" } = {}) {
