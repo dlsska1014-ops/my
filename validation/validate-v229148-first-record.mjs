@@ -53,7 +53,7 @@ import {
   getNluOpsSnapshot, getSkillOpsSnapshot, kakaoNluMarkV229148, markKakaoNluOutcomeV229148, nluOutcomeFromKakaoResponse, rememberNluRuntimeEvent, rememberOpsEvent,
   rememberDuplicateEvent, rememberSkillEvent,
 } from "../src/modules/runtime/ops-telemetry.js";
-import { kakaoGroupCompatibleResponse, kakaoText } from "../src/modules/kakao/response-builders.js";
+import { kakaoGroupCompatibleResponse, kakaoSafeText, kakaoText } from "../src/modules/kakao/response-builders.js";
 import {
   kakaoEditDeleteFailedReplyV229148, kakaoEditDeletedTextV4, kakaoEditMenuTextV4, kakaoEditRecordLineV4, kakaoRowLabel,
 } from "../src/modules/kakao/edit-session-v4.js";
@@ -178,8 +178,15 @@ t.eq(outcome(simple("가계부를 저장하지 못했어요. 잠시 후 다시 �
       if (node.type === "Literal") return node.value === "";
       if (node.type === "TemplateLiteral") return node.quasis.every((quasi) => !(quasi.value.cooked ?? "")) && node.expressions.every(canBeEmpty);
       if (node.type === "ConditionalExpression") return canBeEmpty(node.consequent) || canBeEmpty(node.alternate);
-      // V148:C-99: ‘??’ 는 왼쪽이 null·undefined 일 때만 오른쪽이다 — 왼쪽의 빈 글은 그대로 남는다(‘||’ 는 빈 글이면 오른쪽). 글자 그대로의 왼쪽은 그 값으로 본다.
-      if (node.type === "LogicalExpression" && node.operator === "??") return (["Literal", "TemplateLiteral"].includes(node.left.type) ? canBeEmpty(node.left) : true) || canBeEmpty(node.right);
+      // V148:C-99: ‘??’ 는 왼쪽이 null·undefined 일 때만 오른쪽이다 — 왼쪽의 빈 글은 그대로 남는다(‘||’ 는 빈 글이면 오른쪽).
+      // V148:C-109(Codex 9차 검토): 글자·템플릿 왼쪽은 null 이 될 수 없어 그 값만 본다(오른쪽은 나오지 않는다 — 8차 규칙은 ‘"약 " ?? ""’ 도 빈 글일 수 있다고 보았다).
+      // 템플릿 왼쪽은 글자 조각이 모두 비면 빈 글일 수 있다(보간식은 무엇이든 빈 글일 수 있다 — 8차 규칙은 ‘`${prefix}` ?? "약 "’ 을 빈 글이 될 수 없다고 보아 뒤의
+      // 이름표를 놓쳤다). 글자 null 왼쪽은 오른쪽으로, 그 밖의 왼쪽은 null·빈 글 모두 될 수 있다.
+      if (node.type === "LogicalExpression" && node.operator === "??") {
+        if (node.left.type === "Literal") return node.left.value === null ? canBeEmpty(node.right) : node.left.value === "";
+        if (node.left.type === "TemplateLiteral") return node.left.quasis.every((quasi) => !(quasi.value.cooked ?? ""));
+        return true;
+      }
       if (node.type === "LogicalExpression") return node.operator === "&&" || canBeEmpty(node.right);
       return false;
     };
@@ -226,9 +233,9 @@ t.eq(outcome(simple("가계부를 저장하지 못했어요. 잠시 후 다시 �
     const sample = new Map();
     // V148:C-99(Codex 8차 검토): ‘??’ 는 왼쪽이 null·undefined 일 때만 오른쪽이다 — 왼쪽의 빈 글은 그대로 남아(‘||’ 와 다르다) ‘${prefix ?? "약 "}설정 잔액: ’ 은 prefix 가
     // 빈 글이면 줄이 이름표로 시작한다(7차 수집은 오른쪽만 보아 놓쳤다). ‘${prefix || "약 "}’ 는 빈 글이 될 수 없다.
-    collectLabelValues('const k = `안내\\n${show ? "약 " : ""}설정 금액: 약 ${memo}`;\nconst m = `안내\\n${note && "· "}입력 금액: ${amount}원 ${tail}`;\nconst n = `${prefix || ""}한 사람 몫: ${perHead}`;\nconst h = `${a} 지출: ${b}`;\nconst q = `${a ? "x" : "y"} 잔액: ${c}`;\nconst r = `${prefix ?? "약 "}설정 잔액: ${memo2}`;\nconst s = `${prefix || "약 "}남은 금액: ${rest}`;', "empty-start.js", sample);
-    t.eq([...sample].map(([label, uses]) => `${label}=${uses.map((use) => use.expression).join("|")}`).join(" · "), "설정 금액=memo · 입력 금액=amount|tail · 한 사람 몫=perHead · 설정 잔액=memo2",
-      "6-l C-86·C-99 줄 첫머리의 보간식이 빈 글일 수 있으면(조건식의 빈 갈래·&&·|| \"\"·왼쪽이 빈 글일 수 있는 ??) 그 뒤의 이름표 줄 값도 모은다(6차 수집은 memo 를, 7차 수집은 ?? 뒤의 memo2 를 놓쳤다) — 빈 글이 될 수 없는 식 뒤의 ‘지출: ’·‘잔액: ’·‘남은 금액: ’ 은 이름표가 아니다");
+    collectLabelValues('const k = `안내\\n${show ? "약 " : ""}설정 금액: 약 ${memo}`;\nconst m = `안내\\n${note && "· "}입력 금액: ${amount}원 ${tail}`;\nconst n = `${prefix || ""}한 사람 몫: ${perHead}`;\nconst h = `${a} 지출: ${b}`;\nconst q = `${a ? "x" : "y"} 잔액: ${c}`;\nconst r = `${prefix ?? "약 "}설정 잔액: ${memo2}`;\nconst s = `${prefix || "약 "}남은 금액: ${rest}`;\nconst u = `${`${prefix}` ?? "약 "}예상 금액: ${memo3}`;\nconst v = `${"약 " ?? ""}남는 금액: ${memo4}`;', "empty-start.js", sample);
+    t.eq([...sample].map(([label, uses]) => `${label}=${uses.map((use) => use.expression).join("|")}`).join(" · "), "설정 금액=memo · 입력 금액=amount|tail · 한 사람 몫=perHead · 설정 잔액=memo2 · 예상 금액=memo3",
+      "6-l C-86·C-99 줄 첫머리의 보간식이 빈 글일 수 있으면(조건식의 빈 갈래·&&·|| \"\"·왼쪽이 빈 글일 수 있는 ??) 그 뒤의 이름표 줄 값도 모은다(6차 수집은 memo 를, 7차 수집은 ?? 뒤의 memo2 를, 8차 수집은 템플릿 왼쪽 ?? 뒤의 memo3 를 놓쳤다) — 빈 글이 될 수 없는 식 뒤의 ‘지출: ’·‘잔액: ’·‘남은 금액: ’·글자 왼쪽 ?? 뒤의 ‘남는 금액: ’ 은 이름표가 아니다");
   }
   const removed = (label) => outcome(simple(`${label}: 서버 오류 대응팀`)) === "ok/handled";
   const unreviewed = [...found].flatMap(([label, uses]) => (removed(label) ? [] : uses.filter((use) => !NOT_USER_VALUES.get(label)?.includes(use.expression)).map((use) => `${label}@${use.where} ${use.expression.slice(0, 60)}`)));
@@ -745,38 +752,112 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
   }
   t.ok(Object.getPrototypeOf({}) === Object.prototype && ({}).polluted === undefined, "6-j C-55 중첩 값을 건너뛴 뒤에도 Object.prototype 은 그대로다");
 
+  // V148:C-110(Codex 9차 검토)·C-114: DB 오류 글(safeError)이 값으로 흘러가는 길. 지역 이름(const·let·var 와 그 뒤의 대입)은 그 이름을 정한 선언(가장 가까운 바깥
+  // 블록·switch·for 머리)의 초기식·대입값까지 따라가고, 글을 넘기지 않는 연산(Boolean·Number 같은 변환, 단항 연산, 비교·산술, test·includes 같은 검사 메서드,
+  // .length)에서는 멈춘다. 함수 매개변수·catch 이름은 따라가지 않는다(함수를 건너 흐르는 값은 그 함수 안의 자리에서 따로 본다). 그 밖의 부름(글 다듬기·join·
+  // 알 수 없는 함수)은 대상·인자 가운데 하나라도 실으면 싣는다고 보고, map·flatMap·then·catch 의 콜백은 그 콜백이 돌려주는 값을 본다(그 밖의 콜백·객체 안은 글이
+  // 아니다). 8차 검사는 구문 안에 safeError 부름이 있는지만 보아 ‘const msg = safeError(err); [msg, traceId].join(";")’ 를 지나치고 글을 싣지 않는
+  // ‘[Boolean(safeError(err)), traceId]’ 는 잡았다.
+  const safeErrorFlowV148 = (ast) => {
+    const parents = new Map();
+    const kids = (node) => Object.values(node).flatMap((value) => (Array.isArray(value) ? value : [value])).filter((value) => value && typeof value === "object" && typeof value.type === "string");
+    const index = (node, parent) => { parents.set(node, parent); kids(node).forEach((child) => index(child, node)); };
+    index(ast, null);
+    const FUNCTIONS = ["FunctionDeclaration", "FunctionExpression", "ArrowFunctionExpression"];
+    const binds = (pattern, name) => pattern?.type === "Identifier" ? pattern.name === name
+      : pattern?.type === "AssignmentPattern" ? binds(pattern.left, name)
+      : pattern?.type === "RestElement" ? binds(pattern.argument, name)
+      : pattern?.type === "ObjectPattern" ? pattern.properties.some((property) => binds(property.type === "RestElement" ? property : property.value, name))
+      : pattern?.type === "ArrayPattern" ? pattern.elements.some((element) => binds(element, name)) : false;
+    const statementsOf = (scope) => scope.type === "BlockStatement" || scope.type === "Program" || scope.type === "StaticBlock" ? scope.body
+      : scope.type === "SwitchStatement" ? scope.cases.flatMap((entry) => entry.consequent)
+      : scope.type === "ForStatement" ? [scope.init]
+      : ["ForOfStatement", "ForInStatement"].includes(scope.type) ? [scope.left] : [];
+    const declOf = (ref) => {
+      for (let scope = parents.get(ref); scope; scope = parents.get(scope)) {
+        if (FUNCTIONS.includes(scope.type) && scope.params.some((param) => binds(param, ref.name))) return null;
+        if (scope.type === "CatchClause" && binds(scope.param, ref.name)) return null;
+        for (const statement of statementsOf(scope)) {
+          if (statement?.type !== "VariableDeclaration") continue;
+          for (const declarator of statement.declarations) if (binds(declarator.id, ref.name)) return { declarator, loop: ["ForOfStatement", "ForInStatement"].includes(scope.type) ? scope : null };
+        }
+      }
+      return null;
+    };
+    const assigned = new Map();
+    const collect = (node) => {
+      if (node.type === "AssignmentExpression" && node.left.type === "Identifier") {
+        const found = declOf(node.left);
+        if (found) assigned.set(found.declarator, [...(assigned.get(found.declarator) || []), node.right]);
+      }
+      kids(node).forEach(collect);
+    };
+    collect(ast);
+    // 이름이 가질 수 있는 값(초기식·대입값 — for…of 는 도는 배열, for…in 의 열쇠 이름은 글이 아니다). 지역 이름이 아니면 null.
+    const valuesOf = (ref) => {
+      const found = declOf(ref);
+      if (!found) return null;
+      const first = found.loop ? (found.loop.type === "ForOfStatement" ? found.loop.right : null) : found.declarator.init;
+      return [first, ...(assigned.get(found.declarator) || [])].filter(Boolean);
+    };
+    const NON_TEXT_CALLS = ["Boolean", "Number", "isNaN", "isFinite", "parseInt", "parseFloat", "BigInt"];
+    const NON_TEXT_METHODS = ["test", "includes", "startsWith", "endsWith", "indexOf", "lastIndexOf", "search", "localeCompare", "some", "every", "has", "findIndex", "findLastIndex", "charCodeAt", "codePointAt"];
+    const CALLBACK_VALUE_METHODS = ["map", "flatMap", "then", "catch"];
+    const returnsOf = (fn) => {
+      if (fn.body.type !== "BlockStatement") return [fn.body];
+      const found = [];
+      const look = (node) => { if (FUNCTIONS.includes(node.type)) return; if (node.type === "ReturnStatement" && node.argument) found.push(node.argument); kids(node).forEach(look); };
+      look(fn.body);
+      return found;
+    };
+    const carries = (node, seen) => {
+      if (!node || typeof node.type !== "string") return false;
+      switch (node.type) {
+        case "Identifier": {
+          const found = declOf(node);
+          if (!found || seen.has(found.declarator)) return false;
+          seen.add(found.declarator);
+          return (valuesOf(node) || []).some((value) => carries(value, seen));
+        }
+        case "TemplateLiteral": return node.expressions.some((expression) => carries(expression, seen));
+        case "TaggedTemplateExpression": return node.quasi.expressions.some((expression) => carries(expression, seen));
+        case "BinaryExpression": return node.operator === "+" && (carries(node.left, seen) || carries(node.right, seen));
+        case "LogicalExpression": return carries(node.left, seen) || carries(node.right, seen);
+        case "ConditionalExpression": return carries(node.consequent, seen) || carries(node.alternate, seen);
+        case "AssignmentExpression": return carries(node.right, seen) || (node.operator === "+=" && carries(node.left, seen));
+        case "SequenceExpression": return carries(node.expressions.at(-1), seen);
+        case "ArrayExpression": return node.elements.some((element) => carries(element, seen));
+        case "SpreadElement": case "AwaitExpression": return carries(node.argument, seen);
+        case "ChainExpression": case "ParenthesizedExpression": return carries(node.expression, seen);
+        case "MemberExpression": return !(!node.computed && node.property.name === "length") && carries(node.object, seen);
+        case "NewExpression": return node.arguments.some((argument) => carries(argument, seen));
+        case "CallExpression": {
+          const callee = node.callee;
+          if (callee.type === "Identifier" && callee.name === "safeError") return true;
+          if (callee.type === "Identifier" && NON_TEXT_CALLS.includes(callee.name)) return false;
+          const method = callee.type === "MemberExpression" && !callee.computed ? callee.property.name : "";
+          if (NON_TEXT_METHODS.includes(method)) return false;
+          if (callee.type === "MemberExpression" && carries(callee.object, seen)) return true;
+          return node.arguments.some((argument) => FUNCTIONS.includes(argument.type) ? CALLBACK_VALUE_METHODS.includes(method) && returnsOf(argument).some((value) => carries(value, seen)) : carries(argument, seen));
+        }
+        default: return false;
+      }
+    };
+    return { parents, valuesOf, carries: (node) => carries(node, new Set()) };
+  };
+
   // C-49·C-61·C-71(Codex 6차 검토): DB 오류 글(safeError — 그 본문은 상세 끝까지)은 글의 맨 끝에만 온다. 템플릿에서 safeError(…) 가 든 보간식 뒤에는 글도 식도 없고,
   // 덧셈·배열 join 에서도 마지막이다(오류 글이 둘인 사건은 errors 로 따로 넘긴다 — 아래 6-k). 5차 검사는 safeError 뒤의 글자와 다음 식 하나만 보아
   // ‘${safeError(err)};trace=${traceId};stage=${failedStage}’ 도 아는 자리로 셌다 — 같은 규칙이 그런 꼴(대조 사례)을 잡는지도 본다.
   {
-    const containsSafeError = (node) => {
-      let found = false;
-      const look = (child) => {
-        if (found || !child || typeof child.type !== "string") return;
-        if (child.type === "CallExpression" && child.callee.type === "Identifier" && child.callee.name === "safeError") { found = true; return; }
-        for (const value of Object.values(child)) {
-          if (Array.isArray(value)) value.forEach(look);
-          else if (value && typeof value === "object" && typeof value.type === "string") look(value);
-        }
-      };
-      look(node);
-      return found;
-    };
-    // 배열 원소가 DB 오류 글을 글로 싣는가(V148:C-100): 원소 자체가 safeError(…) 이거나 그것이 든 템플릿·덧셈·조건식·함수 인자·안쪽 배열(배열의 join 은 안쪽 배열도
-    // 쉼표로 이어 글로 만든다)이면 싣는다. 콜백 함수(.catch((err) => …) 등)와 객체({ error: … } — 글로 바꾸면 ‘[object Object]’) 안은 그 배열의 글이 아니다.
-    const carriesSafeErrorText = (node) => {
-      if (!node || typeof node.type !== "string") return false;
-      if (["ArrowFunctionExpression", "FunctionExpression", "FunctionDeclaration", "ObjectExpression"].includes(node.type)) return false;
-      if (node.type === "CallExpression" && node.callee.type === "Identifier" && node.callee.name === "safeError") return true;
-      for (const value of Object.values(node)) {
-        if (Array.isArray(value) ? value.some(carriesSafeErrorText) : value && typeof value === "object" && typeof value.type === "string" && carriesSafeErrorText(value)) return true;
-      }
-      return false;
-    };
+    // 템플릿의 보간식·덧셈의 피연산자·배열 원소가 DB 오류 글을 글로 싣는가는 위 safeErrorFlowV148 로 본다(V148:C-110 — 8차까지는 구문 안에 safeError 부름이 있는지만
+    // 보았다). 배열의 join 은 안쪽 배열도 쉼표로 이어 글로 만들고(V148:C-100), 객체({ error: … } — 글로 바꾸면 ‘[object Object]’)·콜백 함수 안은 그 배열의 글이 아니다.
     const tailSites = (source, file) => {
       let sites = 0;
       const unknown = [];
       const where = (node) => `${file}:${source.slice(0, node.start).split("\n").length}`;
+      const ast = parseAcorn(source, { ecmaVersion: "latest", sourceType: "module" });
+      const flow = safeErrorFlowV148(ast);
       const parents = new Map();
       // 관제가 오류 글마다 따로 가리는 목록(C-61): rememberOpsEvent({ …, errors: [[이름, safeError(…)], …] }) 의 errors 값. 그 원소(쌍)는 아래 배열 규칙으로 따로 본다.
       const isOpsErrorsList = (node) => {
@@ -788,7 +869,7 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
         if (!node || typeof node.type !== "string") return;
         parents.set(node, parent);
         if (node.type === "TemplateLiteral") node.expressions.forEach((expression, index) => {
-          if (!containsSafeError(expression)) return;
+          if (!flow.carries(expression)) return;
           sites += 1;
           const rest = node.quasis.slice(index + 1).map((quasi) => quasi.value.cooked ?? "").join("");
           if (rest || index < node.expressions.length - 1) unknown.push(`${where(expression)} 뒤 ${json(source.slice(expression.end, node.end - 1).slice(0, 50))}`);
@@ -798,7 +879,7 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
           const flat = (child) => { if (child.type === "BinaryExpression" && child.operator === "+") { flat(child.left); flat(child.right); } else operands.push(child); };
           flat(node);
           operands.forEach((operand, index) => {
-            if (!containsSafeError(operand)) return;
+            if (!flow.carries(operand)) return;
             sites += 1;
             if (index < operands.length - 1) unknown.push(`${where(operand)} + ${source.slice(operands[index + 1].start, operands[index + 1].end).slice(0, 40)}`);
           });
@@ -808,7 +889,7 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
         if (node.type === "ArrayExpression" && !isOpsErrorsList(node)) {
           const elements = node.elements;
           elements.forEach((element, index) => {
-            if (!element || !carriesSafeErrorText(element)) return;
+            if (!element || !flow.carries(element)) return;
             sites += 1;
             if (index < elements.length - 1) unknown.push(`${where(element)} 배열 뒤 원소 ${elements.length - 1 - index}개`);
           });
@@ -818,7 +899,7 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
           else if (value && typeof value === "object" && typeof value.type === "string") visit(value, node);
         }
       };
-      visit(parseAcorn(source, { ecmaVersion: "latest", sourceType: "module" }), null);
+      visit(ast, null);
       return { sites, unknown };
     };
     let sites = 0, files = 0;
@@ -849,10 +930,24 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
       'const d = [["a", safeError(err)], ["b", traceId]].join(";");',
       'rememberOpsEvent({ kind: "k", errors: [["a", safeError(e1), traceId]] });',
       'const o = { errors: [["a", safeError(e1)], ["b", traceId]] }; const d = o.errors.join(";");',
+      // V148:C-110: 지역 이름에 담은 오류 글(초기식·뒤의 대입·다듬은 값·for…of)과 map 콜백이 돌려주는 오류 글도 그 값으로 본다.
+      'const msg = safeError(err); const parts = [msg, traceId]; const d = parts.join(";");',
+      'let msg = ""; msg = safeError(err); const d = `${msg};trace=${traceId}`;',
+      'const head = safeError(err).slice(0, 200); const d = head + ";trace=" + traceId;',
+      'const d = [items.map((e) => safeError(e)).join(","), traceId].join(";");',
+      'for (const m of [safeError(err)]) out.push(`${m};trace=${traceId}`);',
+      'const d = [await a().catch((e) => safeError(e)), traceId].join(";");',
     ].map((code) => tailSites(code, "대조").unknown.length);
-    const passed = ["const d = `trace=${traceId};${safeError(err)}`;", "const d = `stage=${s};trace=${t};${safeError(err)}`;", 'const d = "trace=" + traceId + ";" + safeError(err);', 'const d = `${safeError(err)}`.slice(0, 400);', 'const d = [traceId, safeError(err)].filter(Boolean).join(";");', 'const r = await Promise.all([a().catch((err) => ({ error: safeError(err) })), b()]);', 'rememberOpsEvent({ kind: "k", errors: [["a", safeError(e1)], ["b", safeError(e2)]] });', 'const list = [{ error: safeError(err) }, other];'].map((code) => tailSites(code, "대조").unknown.length);
+    const passed = ["const d = `trace=${traceId};${safeError(err)}`;", "const d = `stage=${s};trace=${t};${safeError(err)}`;", 'const d = "trace=" + traceId + ";" + safeError(err);', 'const d = `${safeError(err)}`.slice(0, 400);', 'const d = [traceId, safeError(err)].filter(Boolean).join(";");', 'const r = await Promise.all([a().catch((err) => ({ error: safeError(err) })), b()]);', 'rememberOpsEvent({ kind: "k", errors: [["a", safeError(e1)], ["b", safeError(e2)]] });', 'const list = [{ error: safeError(err) }, other];',
+      // V148:C-110: 글을 싣지 않는 값(불리언 변환·검사 메서드·길이)과 그 이름을 가리는 매개변수·안쪽 블록의 같은 이름은 오류 글이 아니다(8차 검사는 첫째를 잡았다).
+      'const d = [Boolean(safeError(err)), traceId].join(";");',
+      'const msg = safeError(err); const d = [/timeout/.test(msg) ? "t" : "x", traceId].join(";");',
+      'const msg = safeError(err); const d = `len=${msg.length};trace=${traceId}`;',
+      'function f(msg) { return [msg, traceId].join(";"); } const msg = safeError(err);',
+      'const msg = safeError(err); { const msg = "x"; const d = [msg, traceId].join(";"); }',
+      'const r = await Promise.all([a().finally(() => safeError(err)), b()]);'].map((code) => tailSites(code, "대조").unknown.length);
     t.ok(!unknown.length && files >= 40 && sites >= 30 && caught.every((count) => count > 0) && passed.every((count) => count === 0),
-      `6-k C-71·C-100 DB 오류 글(safeError) 뒤에 글이 붙는 곳 없음 — ${files}개 파일의 템플릿·덧셈·join 자리 ${sites}곳 (${unknown.join(", ") || "붙는 곳 없음"}) · 대조: 뒤에 붙인 꼴 ${caught.length}가지 모두 잡음(${caught.join("·")}), 앞에 둔 꼴 ${passed.length}가지는 통과(${passed.join("·")})`);
+      `6-k C-71·C-100·C-110 DB 오류 글(safeError — 지역 이름에 담은 것도 그 값까지 따라감, 글을 싣지 않는 변환·검사에서는 멈춤) 뒤에 글이 붙는 곳 없음 — ${files}개 파일의 템플릿·덧셈·join 자리 ${sites}곳 (${unknown.join(", ") || "붙는 곳 없음"}) · 대조: 뒤에 붙인 꼴 ${caught.length}가지 모두 잡음(${caught.join("·")}), 앞에 둔 꼴 ${passed.length}가지는 통과(${passed.join("·")})`);
   }
 
   // C-79(Codex 7차 검토): 요청에서 받은 값(주소의 검색어·머리말·쿠키 — 누구나 바꿔 보낼 수 있다)은 사건 상세 템플릿에서 Worker 진단(trace=·stage=·latency_ms=·
@@ -867,11 +962,6 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
         if (Array.isArray(value)) value.forEach((child) => walk(child, visit));
         else if (value && typeof value === "object" && typeof value.type === "string") walk(value, visit);
       }
-    };
-    const containsSafeErrorCall = (node) => {
-      let found = false;
-      walk(node, (child) => { if (found) return false; if (child.type === "CallExpression" && child.callee.type === "Identifier" && child.callee.name === "safeError") found = true; });
-      return found;
     };
     // 값이 글로 흘러가는 길만 따라간다: 받은 값을 읽는 곳(searchParams·headers 의 get, getCookie), 글 다듬기 메서드(slice·trim 등)·String·연결·조건식의 두 갈래·
     // ||·??. 조건식의 조건·! ·비교·길이(.length)·그 밖의 함수가 돌려준 값(검사 함수의 이유 이름 등)은 받은 글이 아니다.
@@ -900,22 +990,75 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
         default: return false;
       }
     };
+    // V148:C-105(Codex 9차 검토): 상세 글을 나오는 차례대로 조각(글자·식)으로 펼친다 — 템플릿의 글자와 보간식뿐 아니라 보간식 안의 글 덧셈(+)·글자·배열 join·concat·
+    // String·글 다듬기 메서드의 대상까지. 8차 검사는 safeError 가 든 보간식 자체를 빼고 그 앞 보간식만 보아 ‘id=${id + ";" + safeError(err)}’(같은 보간식 안에서 받은
+    // 값이 DB 오류 글 앞)를 지나쳤다. 조건식·||·?? 는 갈래 중 하나만 나오므로 한 조각으로 두고 갈래마다 따로 같은 규칙으로 본다.
+    // V148:C-114(9차 고치며 더 찾음): 값이 하나뿐인 지역 이름(다시 대입하지 않는 이름)은 그 값을 펼친다 — 이름에 담은 진단 글(‘const tail = `;trace=${traceId}`’)·
+    // DB 오류 글도 차례에 넣는다. 값이 둘 이상인 이름은 한 조각으로 두고 값마다 따로 본다(조건식의 갈래처럼). 8차 검사는 이름을 펼치지 않았다.
+    const flatPieces = (node, flow, seen = new Set()) => {
+      if (!node) return [];
+      const again = (child) => flatPieces(child, flow, seen);
+      if (node.type === "TemplateLiteral") return node.quasis.flatMap((quasi, index) => [{ text: quasi.value.cooked ?? "" }, ...(index < node.expressions.length ? again(node.expressions[index]) : [])]);
+      if (node.type === "BinaryExpression" && node.operator === "+") return [...again(node.left), ...again(node.right)];
+      if (node.type === "Literal" && typeof node.value === "string") return [{ text: node.value }];
+      if (node.type === "CallExpression" && node.callee.type === "MemberExpression" && !node.callee.computed) {
+        const name = node.callee.property.name, object = node.callee.object;
+        if (name === "concat") return [...again(object), ...node.arguments.flatMap(again)];
+        if (name === "join" && object.type === "ArrayExpression") {
+          const separator = node.arguments[0]?.type === "Literal" && typeof node.arguments[0].value === "string" ? node.arguments[0].value : ",";
+          return object.elements.flatMap((element, index) => [...(index ? [{ text: separator }] : []), ...(element ? again(element.type === "SpreadElement" ? element.argument : element) : [])]);
+        }
+        if (PASS_METHODS.includes(name) && !["split", "join"].includes(name)) return again(object);
+      }
+      if (node.type === "CallExpression" && node.callee.type === "Identifier" && node.callee.name === "String" && node.arguments.length === 1) return again(node.arguments[0]);
+      if (node.type === "Identifier" && flow) {
+        const values = flow.valuesOf(node);
+        if (values?.length === 1 && !seen.has(values[0])) {
+          seen.add(values[0]);
+          const inner = again(values[0]);
+          if (!(inner.length === 1 && inner[0].expression === values[0])) return inner;
+        }
+      }
+      return [{ expression: node }];
+    };
+    // 한 조각이 갈래로 나뉘는 값: 조건식의 두 갈래·||·?? ·&& 의 두 쪽, 값이 둘 이상인 지역 이름의 값들.
+    const alternativesOf = (node, flow) => node.type === "ConditionalExpression" ? [node.consequent, node.alternate]
+      : node.type === "LogicalExpression" ? [node.left, node.right]
+      : node.type === "Identifier" && flow ? (((values) => (values && values.length > 1 ? values : []))(flow.valuesOf(node)))
+      : [];
+    // 조각에 진단 낱말이 나올 수 있는가 — 글자 조각이면 그 글, 식 조각이면 갈래마다 펼친 조각(V148:C-114 — 8차 검사는 갈래 안의 ‘;stage=’ 를 보지 않아
+    // ‘${q}${ok ? ";stage=" + stage : ""}’ 를 지나쳤다).
+    const hasDiag = (piece, flow, depth = 0) => piece.text !== undefined ? DIAG.test(piece.text)
+      : depth < 8 && alternativesOf(piece.expression, flow).some((branch) => flatPieces(branch, flow).some((inner) => hasDiag(inner, flow, depth + 1)));
+    // 받은 값은 Worker 진단 낱말(DIAG)·DB 오류 글(safeError) 앞에 오지 않는다: 마지막 진단 조각·첫 DB 오류 글 조각 가운데 뒤의 것보다 앞의 받은 값 조각을 모은다.
+    // DB 오류 글은 값 흐름(safeErrorFlowV148 — 이름에 담은 것도, 글을 싣지 않는 Boolean(…) 등은 빼고)으로 본다(V148:C-114).
+    const requestBeforeDiagnostics = (pieces, taint, flow, depth = 0) => {
+      const found = [];
+      if (depth > 8) return found;
+      const lastDiag = pieces.map((piece) => hasDiag(piece, flow)).lastIndexOf(true);
+      const firstSafe = pieces.findIndex((piece) => piece.expression && flow.carries(piece.expression));
+      const limit = Math.max(lastDiag, firstSafe);
+      pieces.forEach((piece, index) => {
+        if (!piece.expression) return;
+        if (index < limit && fromRequest(piece.expression, taint)) found.push(piece.expression);
+        for (const branch of alternativesOf(piece.expression, flow)) found.push(...requestBeforeDiagnostics(flatPieces(branch, flow), taint, flow, depth + 1));
+      });
+      return found;
+    };
     const detailSites = (source, file) => {
       const ast = parseAcorn(source, { ecmaVersion: "latest", sourceType: "module" });
+      const flow = safeErrorFlowV148(ast);
       const taint = new Set();
       for (let round = 0; round < 3; round += 1) walk(ast, (node) => { if (node.type === "VariableDeclarator" && node.id.type === "Identifier" && node.init && fromRequest(node.init, taint)) taint.add(node.id.name); });
       let sites = 0;
       const bad = [];
       walk(ast, (node) => {
-        if (node.type !== "Property" || node.computed || (node.key.name ?? node.key.value) !== "detail" || node.value.type !== "TemplateLiteral") return;
+        // V148:C-114: 상세 값이 템플릿이 아니어도(이름·덧셈·join·String — ‘detail: reason’, 줄임 꼴 ‘{ detail }’) 본다(8차 검사는 템플릿 값만 셌다). 구조 분해의 이름은 값이 아니다.
+        if (node.type !== "Property" || node.computed || (node.key.name ?? node.key.value) !== "detail" || flow.parents.get(node)?.type === "ObjectPattern") return;
         sites += 1;
-        const { quasis, expressions } = node.value;
-        const last = quasis.map((quasi) => DIAG.test(quasi.value.cooked ?? "")).lastIndexOf(true);
         // V148:C-95(Codex 8차 검토): DB 오류 글(safeError) 앞에도 받은 값을 두지 않는다 — 받은 값에 DB 오류 머리(‘Supabase 400: ’)가 들면 가리기가 그 뒤를 DB 본문으로 보아
         // 실제 DB 진단(오류 번호)까지 그 값의 일부로 지운다(7차 검사는 진단 낱말 앞만 보아 ‘id=${받은 값};${safeError(err)}’ 를 지나쳤다).
-        const firstSafe = expressions.findIndex(containsSafeErrorCall);
-        const cut = Math.max(last, firstSafe);
-        const before = expressions.slice(0, Math.max(0, cut)).filter((expression) => fromRequest(expression, taint));
+        const before = requestBeforeDiagnostics(flatPieces(node.value, flow), taint, flow);
         if (before.length) bad.push(`${file}:${source.slice(0, node.start).split("\n").length} ${source.slice(before[0].start, before[0].end).slice(0, 40)}`);
       });
       return { sites, bad };
@@ -939,15 +1082,32 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
       // V148:C-95: DB 오류 글 앞의 받은 값(진단 낱말 없이도)
       'function m(request, err) { const id = request.headers.get("x-request-id"); rememberOpsEvent({ detail: `id=${id};${safeError(err)}` }); }',
       'function n(url, err) { rememberOpsEvent({ detail: `q=${String(url.searchParams.get("q") || "").slice(0, 20)} ${safeError(err)}` }); }',
+      // V148:C-105: 같은 보간식 안의 덧셈·배열 join·조건식 갈래·진단 글자
+      'function q(request, err) { const id = request.headers.get("x-request-id"); rememberOpsEvent({ detail: `id=${id + ";" + safeError(err)}` }); }',
+      'function r(url, err) { const q = url.searchParams.get("q"); rememberOpsEvent({ detail: `${[q, safeError(err)].join(" ")}` }); }',
+      'function s(url, err) { rememberOpsEvent({ detail: `${ok ? url.searchParams.get("q") + ";" + safeError(err) : "-"}` }); }',
+      'function u(request) { const ua = request.headers.get("user-agent"); rememberOpsEvent({ detail: `${ua + ";trace=" + traceId}` }); }',
+      'function w(url, err) { const q = url.searchParams.get("q"); rememberOpsEvent({ detail: `${String(q + " " + safeError(err)).slice(0, 300)}` }); }',
+      // V148:C-114: 이름에 담은 DB 오류 글·이름에 담은 상세 값·이름에 담은 진단 글·갈래 안의 진단·값이 둘인 이름
+      'function y(request, err) { const id = request.headers.get("x-request-id"); const msg = safeError(err); rememberOpsEvent({ detail: `id=${id};${msg}` }); }',
+      'function z(url) { const q = url.searchParams.get("q"); const d = `q=${q};trace=${traceId}`; rememberOpsEvent({ detail: d }); }',
+      'function z2(url) { const q = url.searchParams.get("q"); const tail = `;trace=${traceId}`; rememberOpsEvent({ detail: `${q}${tail}` }); }',
+      'function z3(url) { const q = url.searchParams.get("q"); rememberOpsEvent({ detail: `${q}${ok ? ";stage=" + stage : ""}` }); }',
+      'function z4(url, err) { const q = url.searchParams.get("q"); let detail = "-"; if (err) detail = `${q};${safeError(err)}`; rememberOpsEvent({ detail }); }',
     ].map((code) => detailSites(code, "대조").bad.length);
     const passed = [
       'function f(url) { const oauthError = String(url.searchParams.get("error") || ""); rememberOpsEvent({ detail: `trace=${traceId};error=${nameOf(oauthError)}` }); }',
       'function h(stage) { rememberOpsEvent({ detail: `${stage};trace=${traceId}` }); }',
       'function k(url) { const code = url.searchParams.get("code"); rememberOpsEvent({ detail: `code=${code ? "set" : "missing"};len=${code.length};trace=${traceId}` }); }',
       'function p(stage, err) { rememberOpsEvent({ detail: `stage=${stage};trace=${traceId};${safeError(err)}` }); }',
+      'function v(stage, err) { rememberOpsEvent({ detail: `${stage + ";" + safeError(err)}` }); }',
+      'function x(url, err) { const q = url.searchParams.get("q"); rememberOpsEvent({ detail: `trace=${traceId};q=${q ? "set" : "none"};${safeError(err)}` }); }',
+      // V148:C-114: 글을 싣지 않는 DB 오류 값(불리언)은 DB 오류 글이 아니고(8차 검사는 잡았다), 안쪽 블록의 같은 이름은 바깥 이름의 값이 아니다.
+      'function y2(url, err) { const q = url.searchParams.get("q"); rememberOpsEvent({ detail: `q=${q};failed=${Boolean(safeError(err))}` }); }',
+      'function y3(url, err) { const msg = "x"; { const msg = safeError(err); } rememberOpsEvent({ detail: `q=${url.searchParams.get("q")};${msg}` }); }',
     ].map((code) => detailSites(code, "대조").bad.length);
     t.ok(!bad.length && files >= 10 && sites >= 40 && caught.every((count) => count > 0) && passed.every((count) => count === 0),
-      `6-l C-79·C-95 사건 상세 템플릿 ${sites}곳(${files}개 파일)에서 요청에서 받은 값 뒤에 Worker 진단·DB 오류 글이 오는 곳 없음 (${bad.join(", ") || "없음"}) · 대조: 받은 값 뒤의 진단 ${caught.length}가지 모두 잡음(${caught.join("·")}), 진단 뒤의 받은 값·정해 둔 값 뒤의 진단 ${passed.length}가지는 통과`);
+      `6-l C-79·C-95·C-114 사건 상세 값 ${sites}곳(${files}개 파일 — 이름에 담은 값·진단 글·DB 오류 글은 그 값까지, 갈래 안의 진단도)에서 요청에서 받은 값 뒤에 Worker 진단·DB 오류 글이 오는 곳 없음 (${bad.join(", ") || "없음"}) · 대조: 받은 값 뒤의 진단 ${caught.length}가지 모두 잡음(${caught.join("·")}), 진단 뒤의 받은 값·정해 둔 값 뒤의 진단 ${passed.length}가지는 통과`);
   }
 
   // C-50: 정해 둔 raise 이름표(OPS_DB_RAISE_NAMES_V229148) = 저장소 SQL 의 ‘raise exception '이름'’ 이름(영문 소문자·숫자·밑줄) 모두 + 정해 둔 영문 문장 둘 —
@@ -1239,8 +1399,19 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
         if (fn?.type !== "FunctionDeclaration" || !fn.id) return lost.push(`${where} → 이름 없는 함수의 return`);
         if (visitedBuilders.has(`${fn.id.name}\u0000${producer}`)) return;
         visitedBuilders.add(`${fn.id.name}\u0000${producer}`);
-        for (const other of filesWith(`${fn.id.name}(`)) {
-          const look = (child) => { if (child.type === "CallExpression" && child.callee.type === "Identifier" && child.callee.name === fn.id.name) follow(other, child, producer); children(child).forEach(look); };
+        // V148:C-106(Codex 9차 검토): 기록 줄을 돌려주는 함수의 쓰임도 원래 기록 줄 함수처럼 이름 참조를 모두 센다 — 부름은 따라가고, map 에 넘긴 이름은 그 map 의 값을
+        // 따라가고, 그 밖(그 함수 선언의 이름·가져오기·내보내기 말고)은 따라가지 못한 쓰임이다. 8차 검사는 ‘wrap(…)’ 부름만 찾아 ‘rows.map(wrap).join("\n")’ 을 표시
+        // 없는 kakaoText 로 내도 지났다.
+        for (const other of filesWith(fn.id.name)) {
+          const look = (child) => {
+            if (child.type === "Identifier" && child.name === fn.id.name && isReference(other, child)) {
+              const use = other.parents.get(child);
+              if (use?.type === "CallExpression" && use.callee === child) follow(other, use, producer);
+              else if (use?.type === "CallExpression" && isMethod(use, ["map"]) && use.arguments[0] === child) follow(other, child, producer);
+              else if (!(use?.type === "FunctionDeclaration" && use.id === child) && !["ImportSpecifier", "ExportSpecifier"].includes(use?.type)) unresolvedRowUses.push(`${lineOf(other, child)}(${fn.id.name})`);
+            }
+            children(child).forEach(look);
+          };
           look(other.ast);
         }
         return;
@@ -1283,12 +1454,19 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
     // 나가는 곳의 수가 그대로였다. map 의 콜백으로 넘긴 것은 그 map 의 값을 따라가고, 그 밖의 값 쓰임(선언·가져오기·내보내기의 이름을 뺀)은 따라가지 못한 쓰임이다.
     let rowCalls = 0;
     const unresolvedRowUses = [];
+    // V148:C-111(Codex 9차 검토): map 은 콜백에 (원소, 차례, 배열)을 넘긴다. 둘째 인자를 받는 기록 줄 함수 가운데 평가기가 차례를 그대로 채우는 것은 번호로 쓰는
+    // kakaoRowLabel 뿐이다(아래 itemsOf — 첫 원소는 번호 없이, 둘째는 ‘01번’). 둘째 인자를 다른 뜻으로 받는 함수(kakaoSavedRowLineV229148 — 종류 글)를 map 에 이름으로
+    // 넘기면 그 줄을 정확히 채울 수 없으니 따라가지 못한 쓰임으로 떨어진다(8차 평가기는 두 원소에 같은 번호·고정한 종류 글 ‘지출’ 을 채웠다).
+    const producerParams = new Map(ROW_PRODUCERS.map((name) => [name, filesWith(`function ${name}(`).map((rec) => rec.functions.get(name)?.params.length).find((count) => count !== undefined) ?? -1]));
     for (const rec of new Set(ROW_PRODUCERS.flatMap((name) => filesWith(name)))) {
       const look = (child) => {
         if (child.type === "Identifier" && ROW_PRODUCERS.includes(child.name) && isReference(rec, child)) {
           const parent = rec.parents.get(child);
           if (parent?.type === "CallExpression" && parent.callee === child) { rowCalls += 1; follow(rec, parent, child.name); }
-          else if (parent?.type === "CallExpression" && isMethod(parent, ["map"]) && parent.arguments[0] === child) { rowCalls += 1; follow(rec, child, child.name); }
+          else if (parent?.type === "CallExpression" && isMethod(parent, ["map"]) && parent.arguments[0] === child) {
+            if (producerParams.get(child.name) !== 1 && child.name !== "kakaoRowLabel") unresolvedRowUses.push(`${lineOf(rec, child)}(map 의 차례를 둘째 인자로 받는 ${child.name})`);
+            else { rowCalls += 1; follow(rec, child, child.name); }
+          }
           else if (!(parent?.type === "FunctionDeclaration" && parent.id === child) && !["ImportSpecifier", "ExportSpecifier"].includes(parent?.type)) unresolvedRowUses.push(lineOf(rec, child));
         }
         children(child).forEach(look);
@@ -1334,10 +1512,18 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
     const NONE = [{ text: null, seqs: [] }]; // 펼친 빈 배열(원소 없음)
     // 펼친 변형을 LIMIT 개로 줄인다 — 기록 줄 표시마다 그 표시가 든 첫 변형을 먼저 남기고 나머지를 앞에서부터 채운다(V148:C-93, Codex 8차 검토: 앞에서부터 자르면 뒤
     // 갈래의 줄 — 번호를 모르는 한 건 저장 줄 — 이 답 뒤쪽 갈래가 곱해지며 늘 잘려 그 줄을 한 번도 견주지 않았다). 표시가 든 변형은 곱해도 남으므로 끝까지 남는다.
+    // V148:C-115(Codex 9차 고침의 변이로 더 찾음): 답 글의 첫 줄(첫 줄 바꿈 앞). 표지는 첫 줄로 만든다(markKakaoNluOutcomeV229148) — 기록 줄 함수의 줄이 첫 줄에 올 때와
+    // 뒤 줄에만 올 때는 다른 대조다.
+    const headOf = (text) => { const newline = text.indexOf("\n"); return newline < 0 ? text : text.slice(0, newline); };
     const capVariants = (list) => {
       if (list.length <= LIMIT) return list;
       const keep = new Set();
-      for (const mark of [ROW_MARK, RECORD_MARK, BULK_MARK, SAVED_MARK]) { const index = list.findIndex((variant) => typeof variant.text === "string" && variant.text.includes(mark)); if (index >= 0) keep.add(index); }
+      // V148:C-115: 표시마다 그 표시가 첫 줄에 든 첫 변형도 남긴다 — 표시가 든 첫 변형만 남기면, 앞 갈래(번호를 알 때의 kakaoRowLabel)가 먼저 곱해져 그 표시가
+      // 뒤 줄에만 든 변형이 남고 첫 줄에 든 변형(번호를 모르는 한 건 저장 줄을 답 첫 줄에 둘 때)은 잘린다.
+      for (const mark of [ROW_MARK, RECORD_MARK, BULK_MARK, SAVED_MARK]) {
+        const index = list.findIndex((variant) => typeof variant.text === "string" && variant.text.includes(mark)); if (index >= 0) keep.add(index);
+        const head = list.findIndex((variant) => typeof variant.text === "string" && headOf(variant.text).includes(mark)); if (head >= 0) keep.add(head);
+      }
       for (let index = 0; index < list.length && keep.size < LIMIT; index += 1) keep.add(index);
       return [...keep].sort((a, b) => a - b).map((index) => list[index]);
     };
@@ -1358,6 +1544,12 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
       const after = join2(join2(join2(many, [{ text: ROW_MARK, seqs: [1] }, { text: SAVED_MARK, seqs: [] }]), [{ text: "a", seqs: [] }, { text: "b", seqs: [] }]), Array.from({ length: 30 }, (_, index) => ({ text: `y${index}`, seqs: [] })));
       t.ok(after.length === LIMIT && after.some((variant) => variant.text.includes(SAVED_MARK)) && after.some((variant) => variant.text.includes(ROW_MARK)),
         `6-l C-93 답 글 평가기가 변형을 ${LIMIT}개로 줄여도 기록 줄 표시마다 그 표시가 든 변형이 남는다(7차 평가기는 앞에서부터 잘라 뒤 갈래의 한 건 저장 줄이 빠졌다) (${after.length}개)`);
+      // V148:C-115: 첫 줄 갈래(번호를 알면 kakaoRowLabel, 모르면 저장 줄 함수) × 뒤 줄 LIMIT 개 — 뒤 줄 하나에 저장 줄이 든 경우. 9차 평가기는 저장 줄이 뒤에만 든 변형을
+      // 남기고 첫 줄에 든 변형을 모두 잘랐다.
+      const tail = Array.from({ length: LIMIT }, (_, index) => ({ text: `\n줄${index}${index === 0 ? SAVED_MARK : ""}`, seqs: [] }));
+      const headed = join2([{ text: ROW_MARK, seqs: ["var"] }, { text: SAVED_MARK, seqs: [] }], tail);
+      t.ok(headed.length === LIMIT && headed.some((variant) => headOf(variant.text).includes(SAVED_MARK)) && headed.some((variant) => headOf(variant.text).includes(ROW_MARK)),
+        `6-l C-115 답 글 평가기가 변형을 ${LIMIT}개로 줄여도 기록 줄 표시마다 그 표시가 첫 줄에 든 변형이 남는다(9차 평가기는 표시가 뒤 줄에만 든 변형을 남기고 첫 줄 갈래의 한 건 저장 줄을 잘랐다) (${headed.length}개 — 첫 줄 표시 ${[ROW_MARK, SAVED_MARK].filter((mark) => headed.some((variant) => headOf(variant.text).includes(mark))).length}/2)`);
     }
     const joinedOf = (items, sep, keepEmpty) => lines(items.map((text) => plain(text)), sep, keepEmpty).map((x) => x.text).join("|");
     t.ok(joinedOf(["A", "", "B"], "\n") === "A\n\nB" && joinedOf(["A", "", "B"], "\n", false) === "A\nB" && joinedOf(["", "B"], "\n") === "\nB",
@@ -1368,7 +1560,8 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
       if (isMethod(node, ["map"])) {
         const fn = node.arguments[0];
         // V148:C-94: 기록 줄 함수 이름을 그대로 넘긴 map 의 원소는 그 함수의 줄이다.
-        if (fn?.type === "Identifier" && Object.hasOwn(PRODUCER_MARK, fn.name)) { const item = [{ text: PRODUCER_MARK[fn.name], seqs: fn.name === "kakaoRowLabel" ? ["var"] : [] }]; return [item, item]; }
+        // V148:C-111(Codex 9차 검토): map 은 둘째 인자로 차례(0, 1, …)를 넘긴다 — kakaoRowLabel 의 줄은 원소마다 그 차례를 번호로 채운다(첫 줄은 번호 없이, 둘째 줄은 ‘01번’).
+        if (fn?.type === "Identifier" && Object.hasOwn(PRODUCER_MARK, fn.name)) return [0, 1].map((index) => [{ text: PRODUCER_MARK[fn.name], seqs: fn.name === "kakaoRowLabel" ? [index] : [] }]);
         const body = fn?.type === "ArrowFunctionExpression" ? fn.body : fn?.type === "Identifier" ? ctx.locals.get(fn.name)?.body : null;
         if (!body || body.type === "BlockStatement") return null;
         const item = textOf(body, ctx);
@@ -1457,7 +1650,10 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
           // V148:C-98(Codex 8차 검토): 이름에 담은 거른 배열(‘const selected = a.filter(…); selected.join(…)’)도 그 초기식까지 따라가 거르기를 본다 — 7차 평가기는 join
           // 바로 앞만 보아 그 거르기를 모름으로 적지 않고 ‘민지’ 로 지나쳤다.
           let array = callee.object, filtered = false;
-          for (let hop = 0; hop < 4; hop += 1) {
+          // V148:C-108(Codex 9차 검토): 다른 이름에 옮겨 담은 배열(‘const b = a;’ 뒤 ‘b.join(…)’)도 초기식까지 따라간다 — 8차 평가기는 초기식이 filter 일 때만 넘어가
+          // 별칭 뒤의 거르기를 보지 않고 ‘민지’ 로 지나쳤다. 되돌아오는 이름·8단계를 넘는 이름 사슬은 모름으로 적는다(일반 글로 바꾸지 않는다).
+          const names = new Set();
+          for (let hop = 0; ; hop += 1) {
             while (isMethod(array, ["filter"])) {
               const kind = filterKindOf(array.arguments[0]);
               if (kind === "unknown") { ctx.unknownFilters?.push(`${ctx.rec.file}:${ctx.rec.source.slice(0, array.start).split("\n").length}`); return plain("민지"); }
@@ -1465,7 +1661,9 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
               array = array.callee.object;
             }
             const init = array?.type === "Identifier" ? (ctx.locals.has(array.name) ? ctx.locals.get(array.name) : ctx.consts.get(array.name)) : null;
-            if (!init || !isMethod(init, ["filter"])) break;
+            if (!init || !(isMethod(init, ["filter"]) || init.type === "Identifier")) break;
+            if (names.has(array.name) || hop >= 8) { ctx.unknownFilters?.push(`${ctx.rec.file}:${ctx.rec.source.slice(0, node.start).split("\n").length}(이름 사슬 ${[...names, array.name].join("→")})`); return plain("민지"); }
+            names.add(array.name);
             array = init;
           }
           const items = itemsOf(array, ctx);
@@ -1511,7 +1709,11 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
     // 저장 줄(kakaoSavedRowLineV229148)이 든 변형을 한 번도 견주지 않았다(그 줄의 꼴이 바뀌어도 지났다).
     const pickVariants = (variants, n) => {
       const out = [];
-      for (const mark of [ROW_MARK, RECORD_MARK, BULK_MARK, SAVED_MARK]) { const first = variants.find((variant) => variant.text.includes(mark)); if (first && !out.includes(first)) out.push(first); }
+      // V148:C-115: 표시마다 그 표시가 첫 줄에 든 첫 변형도 먼저 넣는다.
+      for (const mark of [ROW_MARK, RECORD_MARK, BULK_MARK, SAVED_MARK]) {
+        const first = variants.find((variant) => variant.text.includes(mark)); if (first && !out.includes(first)) out.push(first);
+        const head = variants.find((variant) => headOf(variant.text).includes(mark)); if (head && !out.includes(head)) out.push(head);
+      }
       for (const variant of variants) { if (out.length >= n) break; if (!out.includes(variant)) out.push(variant); }
       return out;
     };
@@ -1522,24 +1724,30 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
       const ctx0 = { rec: sink.rec, locals: localsOf(sink.rec, sink.textNode), consts: sink.rec.consts, stack: new Set(), choice: new Map(), unknownFilters };
       const tests = testsOf(sink.textNode, ctx0);
       const probe = { ...ctx0, stack: new Set(), used: new Set() };
-      textOf(sink.textNode, probe);
+      const free = textOf(sink.textNode, probe);
       const picks = probe.used.has("ambiguousText") ? ambiguousSources.map((_, index) => index) : [null];
       const sinkMarks = new Set();
+      // V148:C-115: 갈래를 정하지 않고 펼친 답(free)에서 첫 줄에 올 수 있는 기록 줄 표시 — 그 표시마다 첫 줄에 든 변형을 한 번은 견준다.
+      const headNeeded = [ROW_MARK, RECORD_MARK, BULK_MARK, SAVED_MARK].filter((mark) => free.some((variant) => typeof variant.text === "string" && headOf(variant.text).includes(mark)));
+      const sinkHeadMarks = new Set();
       for (const pick of picks) {
         const variants = [];
         // V148:C-93: 이 나가는 곳에 닿는 기록 줄 함수의 표시가 모두 나올 때까지는 48개를 넘어서도 더 펼친다(넘은 뒤에는 아직 없는 표시가 든 변형만 담는다).
         const needed = [...sink.producers].map((producer) => PRODUCER_MARK[producer]);
         for (let mask = 0; mask < 2 ** tests.length && mask < 4096; mask += 1) {
           const missing = needed.filter((mark) => !variants.some((variant) => variant.text.includes(mark)));
-          if (variants.length >= 48 && !missing.length) break;
+          const missingHead = headNeeded.filter((mark) => !variants.some((variant) => headOf(variant.text).includes(mark)));
+          if (variants.length >= 48 && !missing.length && !missingHead.length) break;
           const ctx = { ...ctx0, stack: new Set(), choice: new Map(tests.map((test, bit) => [test, (mask >> bit) & 1])), ambiguousPick: pick };
           const found = textOf(sink.textNode, ctx).filter((variant) => ROW_MARKS.test(variant.text));
-          variants.push(...(variants.length >= 48 ? found.filter((variant) => missing.some((mark) => variant.text.includes(mark))) : found));
+          variants.push(...(variants.length >= 48 ? found.filter((variant) => missing.some((mark) => variant.text.includes(mark)) || missingHead.some((mark) => headOf(variant.text).includes(mark))) : found));
         }
         let compared = 0, neutrals = 0;
         const seen = new Set();
         const chosen = pickVariants(variants, 24);
-        for (const variant of chosen) for (const mark of [ROW_MARK, RECORD_MARK, BULK_MARK, SAVED_MARK]) if (variant.text.includes(mark)) sinkMarks.add(mark);
+        // V148:C-103(Codex 9차 검토): 견준 것으로 세는 것은 이상한 기록(ODD)으로 실제 견준 변형의 표시뿐이다 — 8차 검사는 고른 변형의 표시를 바로 세어, 번호 없는
+        // 한 건 저장 줄(kakaoSavedRowLineV229148)이 든 변형이 중립 기록에서 kakaoRowLabel(기록, 0) 과 같은 글이 되어 아래 겹침 거르기에 빠져도(한 번도 견주지 않아도)
+        // 견준 것으로 보았다. 겹침의 열쇠에도 변형이 지닌 기록 줄 표시의 차례를 넣는다(중립 글이 같아도 다른 함수의 줄이면 따로 견준다).
         for (const variant of chosen) for (const seq of [0, 1]) for (const suffix of suffixes) for (const quick of quickSets) {
           const fill = (row) => {
             let at = 0;
@@ -1552,8 +1760,9 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
             }) + suffix;
           };
           const neutral = fill(NEUTRAL);
-          if (seen.has(`${neutral}\u0000${quick.length}`)) continue;
-          seen.add(`${neutral}\u0000${quick.length}`);
+          const seenKey = `${neutral}\u0000${quick.length}\u0000${variant.text.replace(/[^\u0002-\u0005]/g, "")}`;
+          if (seen.has(seenKey)) continue;
+          seen.add(seenKey);
           neutrals += 1;
           const directRead = outcome(await respond(ROW_DIRECT, neutral, quick)), roomRead = outcome(await respond(ROW_ROOM, neutral, quick));
           for (const kind of kinds) {
@@ -1576,6 +1785,8 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
               }
             }
             compared += 1;
+            for (const mark of [ROW_MARK, RECORD_MARK, BULK_MARK, SAVED_MARK]) if (variant.text.includes(mark)) sinkMarks.add(mark);
+            for (const mark of [ROW_MARK, RECORD_MARK, BULK_MARK, SAVED_MARK]) if (headOf(variant.text).includes(mark)) sinkHeadMarks.add(mark);
             if (bad) break;
           }
         }
@@ -1584,25 +1795,40 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
       }
       // V148:C-93: 이 나가는 곳에 닿는 기록 줄 함수마다 그 줄이 든 변형을 한 번은 견주었다.
       for (const producer of sink.producers) if (!sinkMarks.has(PRODUCER_MARK[producer])) uncovered.push(`${sink.where} ${producer}`);
+      // V148:C-115: 첫 줄에 올 수 있는 표시마다 그 표시가 첫 줄에 든 변형을 견주었다.
+      for (const mark of headNeeded) if (!sinkHeadMarks.has(mark)) uncovered.push(`${sink.where} ${Object.keys(PRODUCER_MARK).filter((name) => PRODUCER_MARK[name] === mark).join("·")}(첫 줄)`);
     }
     const empty = perSink.filter(({ compared, neutrals }) => !compared || !neutrals).map(({ where, key }) => `${where}(${key})`);
     const total = perSink.reduce((sum, { compared }) => sum + compared, 0);
     const pairs = perSink.filter(({ where }) => where.includes("#고르는 답")).length;
     t.ok(rowCalls >= 20 && !lost.length && !tableDiff.length && passThrough.length === 4 && passThrough.every((line) => line.endsWith("그대로")) && !empty.length && !wrong.length && closeLines.every(Boolean) && !!repeatNote && !!chooseQuick
-        && ambiguousSources.length >= 2 && pairs >= 3 * ambiguousSources.length && !unknownFilters.length && !strayRowLines.length && !uncovered.length && !unresolvedRowUses.length,
-      `6-k C-64·C-93·C-94 기록 줄 ${rowCalls}곳(이름으로 넘긴 쓰임 포함 — 따라가지 못한 쓰임 ${unresolvedRowUses.join(", ") || "없음"} · 닿는 함수의 줄을 견주지 않은 나가는 곳 ${uncovered.join(", ") || "없음"})이 나가는 곳 ${sinks.size}곳 = 표(${[...SINKS.values()].reduce((a, b) => a + b, 0)}곳) — 모두 결과를 적고(표시 없이 나가는 길 ${lost.join(", ") || "없음"} · 표와 다름 ${tableDiff.join(", ") || "없음"} · 결과 객체 받는 곳 ${passThrough.join(", ")}), 곳마다 중립 기록 답의 글 판정 = 적는 결과(1:1·단톡방 — 표시로 바로잡은 복구 실패는 앞 판의 글 판정 ok), 따옴표·판정 낱말·줄 바꿈이 든 기록 ${ODD.length}가지도 표시로 그 결과(대조 ${total}번 — 0번인 곳 ${empty.join(", ") || "없음"} · 고르는 답 원본 ${ambiguousSources.length}곳 × 받는 곳 = ${pairs}쌍 따로(C-81) · 고를 창 바로답 ${json(chooseQuick)} = sendKakaoEditReplyV4 가 저장한 다음 창의 단계로 붙이는 글(C-84) · 모르는 filter ${unknownFilters.join(", ") || "없음"}(C-85) · 기록 줄 꼴을 내는 함수 밖의 글 ${strayRowLines.join(", ") || "없음"}(C-82)) (${wrong.slice(0, 4).join(" / ") || "다른 판정 없음"})`);
+        && ambiguousSources.length >= 2 && pairs >= 3 * ambiguousSources.length && !unknownFilters.length && !strayRowLines.length && !uncovered.length && !unresolvedRowUses.length
+        && [...producerParams.values()].every((count) => count >= 1),
+      `6-k C-64·C-93·C-94·C-115 기록 줄 ${rowCalls}곳(이름으로 넘긴 쓰임 포함 — 따라가지 못한 쓰임 ${unresolvedRowUses.join(", ") || "없음"} · 닿는 함수의 줄(첫 줄에 올 수 있으면 첫 줄에 든 변형도)을 견주지 않은 나가는 곳 ${uncovered.join(", ") || "없음"})이 나가는 곳 ${sinks.size}곳 = 표(${[...SINKS.values()].reduce((a, b) => a + b, 0)}곳) — 모두 결과를 적고(표시 없이 나가는 길 ${lost.join(", ") || "없음"} · 표와 다름 ${tableDiff.join(", ") || "없음"} · 결과 객체 받는 곳 ${passThrough.join(", ")}), 곳마다 중립 기록 답의 글 판정 = 적는 결과(1:1·단톡방 — 표시로 바로잡은 복구 실패는 앞 판의 글 판정 ok), 따옴표·판정 낱말·줄 바꿈이 든 기록 ${ODD.length}가지도 표시로 그 결과(대조 ${total}번 — 0번인 곳 ${empty.join(", ") || "없음"} · 고르는 답 원본 ${ambiguousSources.length}곳 × 받는 곳 = ${pairs}쌍 따로(C-81) · 고를 창 바로답 ${json(chooseQuick)} = sendKakaoEditReplyV4 가 저장한 다음 창의 단계로 붙이는 글(C-84) · 모르는 filter ${unknownFilters.join(", ") || "없음"}(C-85) · 기록 줄 꼴을 내는 함수 밖의 글 ${strayRowLines.join(", ") || "없음"}(C-82)) (${wrong.slice(0, 4).join(" / ") || "다른 판정 없음"})`);
     // C-85 대조: AST 평가 진입점(textOf)부터 — filter(Boolean)·x => x 는 빈 줄을 빼고, 거르지 않으면 남기고, 그 밖의 거르기는 모름으로 적는다(빈 줄을 뺀다고 짐작하지 않는다).
     {
       const name = "대조/filter-v229148.js";
-      sources.set(name, 'const a = ["A", "", "B"].join("\\n");\nconst b = ["A", "", "B"].filter(Boolean).join("\\n");\nconst c = ["A", "", "B"].filter((x) => x).join("\\n");\nconst d = ["A", "", "B"].filter((x) => x != null).join("\\n");\nconst s = ["A", "", "B"].filter((x) => x != null);\nconst e = s.join("\\n");\nconst s2 = ["A", "", "B"].filter(Boolean);\nconst f = s2.join("\\n");');
+      sources.set(name, 'const a = ["A", "", "B"].join("\\n");\nconst b = ["A", "", "B"].filter(Boolean).join("\\n");\nconst c = ["A", "", "B"].filter((x) => x).join("\\n");\nconst d = ["A", "", "B"].filter((x) => x != null).join("\\n");\nconst s = ["A", "", "B"].filter((x) => x != null);\nconst e = s.join("\\n");\nconst s2 = ["A", "", "B"].filter(Boolean);\nconst f = s2.join("\\n");\nconst t1 = s;\nconst g = t1.join("\\n");\nconst t2 = s2;\nconst t3 = t2;\nconst h = t3.join("\\n");\nconst p = q;\nconst q = p;\nconst i = p.join("\\n");');
       const found = [];
       let out = [];
       try {
         const rec = recOf(name);
-        out = ["a", "b", "c", "d", "e", "f"].map((key) => textOf(rec.consts.get(key), { rec, locals: new Map(), consts: rec.consts, stack: new Set(), choice: new Map(), unknownFilters: found }).map((variant) => variant.text).join("|"));
+        out = ["a", "b", "c", "d", "e", "f", "g", "h", "i"].map((key) => textOf(rec.consts.get(key), { rec, locals: new Map(), consts: rec.consts, stack: new Set(), choice: new Map(), unknownFilters: found }).map((variant) => variant.text).join("|"));
       } finally { sources.delete(name); program.delete(name); }
-      t.ok(json(out) === json(["A\n\nB", "A\nB", "A\nB", "민지", "민지", "A\nB"]) && found.length === 2,
-        `6-l C-85·C-98 답 글 평가기(textOf)의 filter: 거르지 않음 = 빈 줄 남김, filter(Boolean)·x => x = 뺌, ‘x => x != null’ = 모름으로 적음(6차 평가기는 빈 줄을 뺐다) — 이름에 담은 거른 배열의 join 도 같다(7차 평가기는 모름을 적지 않았다) (${json(out)} · 모름 ${found.length})`);
+      t.ok(json(out) === json(["A\n\nB", "A\nB", "A\nB", "민지", "민지", "A\nB", "민지", "A\nB", "민지"]) && found.length === 4,
+        `6-l C-85·C-98·C-108 답 글 평가기(textOf)의 filter: 거르지 않음 = 빈 줄 남김, filter(Boolean)·x => x = 뺌, ‘x => x != null’ = 모름으로 적음(6차 평가기는 빈 줄을 뺐다) — 이름에 담은 거른 배열의 join 도 같다(7차 평가기는 모름을 적지 않았다), 그 배열을 다른 이름에 옮겨 담아도 같고 되돌아오는 이름은 모름(8차 평가기는 별칭 뒤를 ‘민지’ 로 지나쳤다) (${json(out)} · 모름 ${found.length})`);
+    }
+    // C-111 대조: map 에 이름으로 넘긴 기록 줄 함수 — kakaoRowLabel 은 원소마다 그 차례를 번호로(첫째 0 = 번호 없음, 둘째 1 = ‘01번’), 여러 건 저장 줄은 번호 없이.
+    {
+      const name = "대조/map-index-v229148.js";
+      sources.set(name, 'const a = rows.map(kakaoRowLabel).join("\\n");\nconst b = rows.map(kakaoSavedBulkRowLineV229148).join("\\n");');
+      let out = [];
+      try {
+        const rec = recOf(name);
+        out = ["a", "b"].map((key) => textOf(rec.consts.get(key), { rec, locals: new Map(), consts: rec.consts, stack: new Set(), choice: new Map(), unknownFilters: [] }).map((variant) => `${variant.text}@${json(variant.seqs)}`).join("|"));
+      } finally { sources.delete(name); program.delete(name); }
+      t.ok(json(out) === json([`${ROW_MARK}\n${ROW_MARK}@[0,1]`, `${BULK_MARK}\n${BULK_MARK}@[]`]),
+        `6-l C-111 답 글 평가기: map 에 이름으로 넘긴 kakaoRowLabel 의 두 줄은 차례 번호 0·1(첫 줄 번호 없음·둘째 줄 ‘01번’ — 8차 평가기는 두 줄에 같은 번호를 채웠다), 여러 건 저장 줄은 번호 없음 (${json(out)})`);
     }
   }
   globalThis.__AB_OPS_EVENTS.length = 0;
@@ -1713,7 +1939,7 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
     "‘오늘기록’ 서버 오류 https://example.org", `‘오늘기록’ 잠시 후 다시 ${BASE}/my`]) {
     const text = menuOf(memo);
     const mark = markOf("handled", text);
-    if (typeof mark?.linkSource !== "string" || !mark.linkSource) good = false;
+    if (typeof mark?.sentText !== "string" || !mark.sentText) good = false;
     for (const [name, payload, room] of [["1:1", DIRECT, false], ["단톡방", ROOM, true]]) {
       const got = nluOutcomeFromKakaoResponse(await respond(payload, text), mark, { room, origin: BASE });
       if (!(got.marked === true && `${got.result}/${got.reason}` === "ok/handled")) good = false;
@@ -1736,8 +1962,69 @@ t.eq(outcome(simple("'O'Brien' 기록은 처리하지 못했어요.")), "error/s
   // 우리 주소는 보낼 때의 주소(origin)로 알아본다 — origin 없이 견주면 단추로 옮긴 우리 주소를 ‘(링크)’ 로 보아 표지를 못 찾는다(스킬 처리가 origin 을 넘기는 까닭).
   const ownMenu = menuOf(`서버 오류 수리 ${BASE}/my`);
   const noOrigin = nluOutcomeFromKakaoResponse(await respond(DIRECT, ownMenu), markOf("handled", ownMenu), { room: false });
-  t.ok(good && !!plainMark && !("linkSource" in plainMark) && !noOrigin.marked,
+  t.ok(good && !!plainMark && !("sentText" in plainMark) && !noOrigin.marked,
     `6-l C-76 메모에 주소가 든 기록의 수정 창(첫 줄 = 기록 줄 — 보낼 때 주소를 ‘(링크)’·단추로 옮긴다)도 표지를 찾아 ok (${reads.join(" · ")} — 6차 고침은 모두 표지를 못 찾고 메모의 ‘서버 오류’·‘잠시 후 다시’ 로 error) · 봇 문장 꼴 첫 줄 ${general.join(" · ")} · 주소 없는 답의 표시는 앞 판과 같은 꼴 · 우리 주소는 origin 으로 알아본다(origin 없이 ${noOrigin.result}/${noOrigin.reason})`);
+}
+{
+  // V148:C-104(Codex 9차 검토): 보낼 때 글이 바뀌는 답(주소가 든 답·950자를 넘는 답)만 보낼 때와 같은 함수로 한 번 줄인 글(950자 안팎)을 표식에 두고, 견줄 때는 그 글에
+  // 주소 옮기기만 한다. 8차 고침은 잘리는지 보려고 답마다 답 전체를 두 번 다듬고 답 전체를 표식에 두어 견줄 때 또 다듬었다(줄 바꿈이 CRLF 인 30만 자 메모의 수정 창에서
+  // 표지 만들기 6.2 ms·견주기 2.3 ms — 7차 2.7 ms·0.1 ms). 시간은 재지 않는다(기계마다 다르다) — 표식의 글이 보낼 글과 같고 짧은지, 950자 안의 주소 없는 답은 글을 두지
+  // 않는지, 두 함수 안의 다듬기 부름(표지 만들기는 주소·길이 조건 아래 한 곳, 견줄 줄 만들기는 없음), 긴 답도 1:1·단톡방에서 표지를 찾는지 본다.
+  const ROOM9 = { userRequest: { chat: { id: "room-v229148-r9", type: "botGroupKey", properties: { botGroupKey: "room-v229148-r9" } }, user: { id: "u-v229148-r9", properties: { botUserKey: "u-v229148-r9" } } } };
+  const DIRECT9 = { userRequest: { user: { id: "u-v229148-r9", properties: { botUserKey: "u-v229148-r9" } } } };
+  const respond9 = async (payload, text) => (await kakaoGroupCompatibleResponse(kakaoText(text), payload, BASE)).text();
+  const menu9 = (memo) => kakaoEditMenuTextV4({ memo, amount: 5000, payment_method: "카드", category: "식비", type: "expense", transaction_date: "2026-11-27" }, 1);
+  const cases = [
+    ["CRLF 30만 자 메모", menu9(`서버 오류 수리 ${"가나다라 마바사\r\n".repeat(30000)}`.slice(0, 300000))],
+    ["한 줄 30만 자 메모", menu9(`서버 오류 수리 ${"가나다라 마바사 ".repeat(40000)}`.slice(0, 300000))],
+    ["1,000자 메모", menu9(`서버 오류 수리 ${"가나다라 마바사 ".repeat(120)}`.slice(0, 1000))],
+    ["주소 든 짧은 메모", menu9("서버 오류 수리 https://example.org/a")],
+  ];
+  const got = [];
+  let good = true;
+  for (const [name, text] of cases) {
+    const mark = markOf("handled", text);
+    if (!(typeof mark?.sentText === "string" && mark.sentText === kakaoSafeText(text) && mark.sentText.length <= 960 && !("linkSource" in mark))) good = false;
+    const reads = [];
+    for (const [payload, room] of [[DIRECT9, false], [ROOM9, true]]) {
+      const read = nluOutcomeFromKakaoResponse(await respond9(payload, text), mark, { room, origin: BASE });
+      if (!(read.marked === true && `${read.result}/${read.reason}` === "ok/handled")) good = false;
+      reads.push(`${read.result}/${read.reason}${read.marked ? "" : "(표지 못 찾음)"}`);
+    }
+    got.push(`${name}(${text.length}자 → 둔 글 ${mark?.sentText?.length ?? "없음"}자) ${reads.join("·")}`);
+  }
+  const shortMarks = [menu9("점심"), `${"가".repeat(940)}\n무엇을 바꿀까요?`.slice(0, 950)].map((text) => markOf("handled", text));
+  const telemetrySource = readFileSync(new URL("../src/modules/runtime/ops-telemetry.js", import.meta.url), "utf8");
+  const telemetryAst = parseAcorn(telemetrySource, { ecmaVersion: "latest", sourceType: "module" });
+  // 함수 안의 부름을 부모와 함께 모은다(이름으로 부른 함수 — kakaoSafeText — 와 메서드 — replace·split).
+  const callsIn = (fnName) => {
+    const calls = [];
+    const walkFn = (node, parent) => {
+      if (!node || typeof node.type !== "string") return;
+      if (node.type === "CallExpression") calls.push({ node, parent, name: node.callee.type === "Identifier" ? node.callee.name : node.callee.type === "MemberExpression" && !node.callee.computed ? `.${node.callee.property.name}` : "?" });
+      for (const value of Object.values(node)) { if (Array.isArray(value)) value.forEach((child) => walkFn(child, node)); else if (value && typeof value === "object" && typeof value.type === "string") walkFn(value, node); }
+    };
+    const find = (node) => {
+      if (!node || typeof node.type !== "string") return null;
+      if (node.type === "FunctionDeclaration" && node.id?.name === fnName) return node;
+      for (const value of Object.values(node)) {
+        const found = Array.isArray(value) ? value.map(find).find(Boolean) : value && typeof value === "object" && typeof value.type === "string" ? find(value) : null;
+        if (found) return found;
+      }
+      return null;
+    };
+    const fn = find(telemetryAst);
+    if (fn) walkFn(fn.body, fn);
+    return fn ? calls : null;
+  };
+  const markCalls = callsIn("markKakaoNluOutcomeV229148") || [], lineCalls = callsIn("kakaoNluMarkLinesV229148") || [];
+  const safeInMark = markCalls.filter((call) => call.name === "kakaoSafeText");
+  const guarded = safeInMark.length === 1 && safeInMark[0].parent?.type === "ConditionalExpression" && safeInMark[0].parent.consequent === safeInMark[0].node
+    && /\.length > 950/.test(telemetrySource.slice(safeInMark[0].parent.test.start, safeInMark[0].parent.test.end));
+  const wholeText = markCalls.filter((call) => [".replace", ".split"].includes(call.name) && call.node.callee.object?.type === "Identifier" && call.node.callee.object.name === "source").map((call) => telemetrySource.slice(call.node.start, call.node.end).slice(0, 40));
+  const safeInLines = lineCalls.filter((call) => call.name === "kakaoSafeText").length;
+  t.ok(good && shortMarks.every((mark) => mark && !("sentText" in mark) && !("linkSource" in mark)) && guarded && !wholeText.length && safeInLines === 0 && markCalls.length > 0 && lineCalls.length > 0,
+    `6-l C-104 보낼 때 글이 바뀌는 답만 보낼 때와 같은 함수로 한 번 줄인 글(950자 안팎)을 표식에 두고 그 글로 견준다 — ${got.join(" · ")} · 950자 안의 주소 없는 답은 글을 두지 않음 · 표지 만들기의 다듬기 ${safeInMark.length}곳(${guarded ? "주소·길이 조건 아래" : "조건 없이"}), 답 전체를 나누거나 바꾸는 부름 ${wholeText.join(", ") || "없음"}, 견줄 줄 만들기의 다듬기 ${safeInLines}곳(8차 고침은 표지 만들기에서 늘 다듬고 원문을 따로 다듬었으며 견줄 때 또 다듬었다)`);
 }
 {
   // V148:C-91(Codex 8차 검토): 결과는 복구 흐름이 적은 넣기의 단계(writeUnknown)로 정한다 — 마지막 오류의 ‘결과 모름’ 표시로 정하지 않는다(잠금 함수의 503 은 그
@@ -1770,8 +2057,17 @@ await withClock("2026-11-27", () => fixture(async (fx) => {
       (value) => (["consent_required", "login_required", "interaction_required"].includes(value) ? "kakao_auto_login_nonmember" : "kakao_auto_login_error")],
     ["보통 로그인", async () => "", (value) => (value === "access_denied" ? "kakao_login_cancelled" : "kakao_login_provider_error")],
   ];
-  const values = [['x Supabase 400: {"code":"23505","message":"duplicate"} y', "[값 생략]"], ["access_denied", "access_denied"], ["임의 글 서버 오류", "[값 생략]"], ["consent_required", "consent_required"],
-    ["login_required", "login_required"], ["a".repeat(41), "[값 생략]"], ["Access_Denied", "[값 생략]"], ["private_family_memo", "[값 생략]"], ["kim_minji_card", "[값 생략]"]];
+  // V148:C-113(Codex 9차 검토): 남기는 이름은 이 독립 목록(RFC 6749 4.1.2.1 의 7개 + OpenID Connect Core 3.1.2.6 의 9개)과 대조한다 — 8차 검사는 남는 이름을 셋만
+  // 넣어, 구현의 이름표에서 ‘interaction_required’ 를 빼도(자동 로그인의 사건 종류는 그대로 비회원, 상세만 ‘[값 생략]’) 지났다. 구현의 이름표(소스의 Set 글자)도 이
+  // 목록과 같아야 한다(더 남기는 이름이 없다).
+  const STANDARD_OAUTH_ERRORS = ["invalid_request", "unauthorized_client", "access_denied", "unsupported_response_type", "invalid_scope", "server_error", "temporarily_unavailable",
+    "interaction_required", "login_required", "account_selection_required", "consent_required", "invalid_request_uri", "invalid_request_object", "request_not_supported",
+    "request_uri_not_supported", "registration_not_supported"];
+  const oauthSource = readFileSync(new URL("../src/modules/auth/kakao-oauth.js", import.meta.url), "utf8");
+  const listed = ((/const KAKAO_OAUTH_ERROR_NAMES_V229148 = new Set\(\[([\s\S]*?)\]\);/.exec(oauthSource) || [])[1] || "").match(/"[^"]*"/g)?.map((item) => item.slice(1, -1)) || [];
+  const sameList = STANDARD_OAUTH_ERRORS.length === 16 && new Set(STANDARD_OAUTH_ERRORS).size === 16 && json([...listed].sort()) === json([...STANDARD_OAUTH_ERRORS].sort());
+  const values = [['x Supabase 400: {"code":"23505","message":"duplicate"} y', "[값 생략]"], ["임의 글 서버 오류", "[값 생략]"], ["a".repeat(41), "[값 생략]"], ["Access_Denied", "[값 생략]"],
+    ["private_family_memo", "[값 생략]"], ["kim_minji_card", "[값 생략]"], ["access_denied ", "[값 생략]"], ...STANDARD_OAUTH_ERRORS.map((name) => [name, name])];
   for (const [branch, makeState, kindOf] of branches) {
     for (const [value, name] of values) {
       globalThis.__AB_OPS_EVENTS.length = 0;
@@ -1786,7 +2082,7 @@ await withClock("2026-11-27", () => fixture(async (fx) => {
     }
   }
   globalThis.__AB_OPS_EVENTS.length = 0;
-  t.ok(good && rows.length === branches.length * values.length, `6-l C-79·C-89·C-96 카카오 로그인 콜백의 오류 상세 = 세 갈래 모두 추적 번호가 앞, 받은 값은 정해 둔 OAuth 오류 이름만(그 밖은 ‘[값 생략]’ — 사건 종류·상세 전체) (${rows.join(" · ")} — 6차 고침은 받은 값 뒤에 추적 번호를 붙여, 값의 ‘Supabase 400: ’ 를 가리기가 추적 번호까지 지웠다)`);
+  t.ok(good && sameList && rows.length === branches.length * values.length, `6-l C-79·C-89·C-96·C-113 카카오 로그인 콜백의 오류 상세 = 세 갈래 모두 추적 번호가 앞, 받은 값은 정해 둔 OAuth 오류 이름만(독립 목록 ${STANDARD_OAUTH_ERRORS.length}개 모두 남고 구현의 이름표 ${listed.length}개 = 그 목록${sameList ? "" : " — 다름"}, 그 밖은 ‘[값 생략]’ — 사건 종류·상세 전체) (${rows.join(" · ")} — 6차 고침은 받은 값 뒤에 추적 번호를 붙여, 값의 ‘Supabase 400: ’ 를 가리기가 추적 번호까지 지웠다)`);
 }));
 
 // 6-k 지우지 못한 답의 관제 결과(6차 고침 중 찾은 것 — V148:C-73): 다른 사람이 먼저 바꿈 = 처리함(ok/handled), 지웠는지 모름 = 결과 모름(error/save_uncertain),
@@ -2349,18 +2645,23 @@ await withClock("2026-11-27", () => fixture(async (fx) => {
       const r = await run(room, async (say, fx) => {
         await say("점심 5000원");
         const imported = mode.startsWith("import-");
+        const targetId = String(fx.db.transactions.at(-1)?.id || ""), targetHousehold = String(fx.db.transactions.at(-1)?.household_id || "");
         if (imported) { const tx = fx.db.transactions.at(-1); if (tx) tx.source = "my_import"; }
         await say("삭제 01번");
         let inserted = false, committed = false, fired = 0;
-        const restore = intercept(async ({ url, method }) => {
+        const restore = intercept(async ({ url, method, forward }) => {
           const path = url.pathname;
           if (mode === "lock" && !fired && method === "POST" && path.endsWith("/rest/v1/rpc/accountbook_claim_operation")) { fired += 1; return failure(503, "lock lost"); }
           if (imported && method === "POST" && path.endsWith("/rest/v1/rpc/accountbook_commit_import_v22960")) {
             if (mode === "import-rejected" && !fired) { fired += 1; return failure(400, "violates check constraint"); }
-            committed = true;
-            return null;
+            // V148:C-107(Codex 9차 검토): 가져오기 함수를 픽스처로 보내 성공(2xx)했고 되살린 기록(같은 id)이 DB 에 있을 때만 넣었다고 본다 — 8차 검사는 요청을 보기만 해도
+            // 넣었다고 보아, 그 함수가 503 을 돌려 다시 읽기 길로 가도 같은 답·같은 결과로 지났다.
+            const response = await forward();
+            committed = response.ok && !!targetId && fx.db.transactions.some((row) => String(row.id) === targetId && String(row.household_id) === targetHousehold);
+            return response;
           }
-          if (mode === "import-unconfirmed" && committed && !fired && method === "GET" && path.endsWith("/rest/v1/transactions")) { fired += 1; return failure(503, "read lost"); }
+          // 넣은 뒤의 확인 조회(id=in.(…) — reconcileImportedTransactionIds)에만 503 을 준다. 넣기 전의 존재 확인·실패 뒤의 다시 읽기(id=eq.…)는 그대로 보낸다.
+          if (mode === "import-unconfirmed" && committed && !fired && method === "GET" && path.endsWith("/rest/v1/transactions") && /^in\.\(/.test(url.searchParams.get("id") || "")) { fired += 1; return failure(503, "read lost"); }
           if (["rejected", "uncertain", "reread"].includes(mode) && !inserted && method === "POST" && path.endsWith("/rest/v1/transactions")) { inserted = true; fired += 1; return mode === "rejected" ? failure(400, "violates check constraint") : failure(503, "lost"); }
           if (mode === "reread" && inserted && method === "GET" && path.endsWith("/rest/v1/transactions")) { fired += 1; return failure(503, "read lost"); }
           return null;
@@ -2377,7 +2678,9 @@ await withClock("2026-11-27", () => fixture(async (fx) => {
       const menuOf = (memo) => run(room, async (say, fx) => { await say("점심 5000원"); const tx = fx.db.transactions.at(-1); if (tx) tx.memo = memo; return say("수정 01번"); });
       const short = await menuOf("서버 오류 수리"), long = await menuOf(longMemo);
       const sentFirst = long.text.split("\n")[0].length;
-      check(short.seen === long.seen && short.stored === long.stored && result(long) === "ok/handled" && sentFirst < longMemo.length && sentFirst > 900,
+      // V148:C-112(Codex 9차 검토): 두 수정 창이 저장하는 관제 줄은 각각 정해 둔 한 줄(EDIT/ok)이어야 한다 — 8차 검사는 둘이 같은지만 보아, 둘 다 저장하지 않거나(빈 글)
+      // 같은 줄을 두 번 저장해도 지났다(seen 은 응답 머리·메모리 사건이라 DB 에 저장한 줄이 빠진 것을 모른다).
+      check(short.seen === "EDIT/ok/handled" && long.seen === "EDIT/ok/handled" && short.stored === "EDIT/ok" && long.stored === "EDIT/ok" && sentFirst < longMemo.length && sentFirst > 900,
         `${where} 메모 ${longMemo.length}자 기록의 수정 창(보낼 때 첫 줄 ${sentFirst}자로 잘림) ${long.seen} ${long.stored} = 짧은 메모 ${short.seen} ${short.stored}`);
     }
     // V148:C-76 실제 길: 메모에 우리 주소·남의 주소가 든 기록의 수정 창(첫 줄 = 기록 줄)은 보낼 때 주소를 단추·‘(링크)’ 로 옮겨도 표지를 찾아 처리함(스킬 처리가
